@@ -21,6 +21,7 @@ struct asc_port
 	unsigned char pio_port;
 	unsigned char pio_pin[4]; /* Tx, Rx, CTS, RTS */
 	int     break_flag;
+	int dma_enabled;
 };
 
 #define ASC_MAJOR		204
@@ -43,6 +44,9 @@ struct asc_port
 #error "Unknown CPU"
 #endif
 
+/*---- Global variables ---------------------------------------*/
+
+extern struct asc_port asc_ports[ASC_NPORTS];
 
 /*---- UART Register definitions ------------------------------*/
 
@@ -180,3 +184,29 @@ ASC_FUNC(RETRIES,   ASC_RETRIES)
 
 #define asc_in(port, reg)		asc_ ## reg ## _in (port)
 #define asc_out(port, reg, value)	asc_ ## reg ## _out ((port), (value))
+
+/*---- DMA interface ------------------------------------------*/
+
+#ifdef CONFIG_SERIAL_ST_ASC_DMA
+static int inline asc_dma_enabled(struct uart_port* port)
+{
+	struct asc_port *ascport = &asc_ports[port->line];
+	return ascport->dma_enabled;
+}
+void asc_fdma_setreq(void);
+int asc_enable_fdma(struct uart_port *port);
+void asc_disable_fdma(struct uart_port *port);
+#else
+static int inline asc_dma_enabled(struct uart_port* ascport)
+{
+	return 0;
+}
+static void inline asc_fdma_setreq(void) { }
+static int inline asc_enable_fdma(struct uart_port *port) { return -ENOSYS; }
+static void inline asc_disable_fdma(struct uart_port *port) { }
+#endif
+
+void asc_fdma_setreq(void);
+void asc_fdma_start_tx(struct uart_port *port);
+void asc_fdma_stop_tx(struct uart_port *port);
+void asc_fdma_stop_rx(struct uart_port *port);

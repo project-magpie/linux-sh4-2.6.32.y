@@ -20,6 +20,7 @@
 
 #include <asm/system.h>
 #include <asm/io.h>
+#include <asm/cacheflush.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 #include <asm/bitops.h>
@@ -34,8 +35,6 @@
 #endif
 
 #include "stasc.h"
-
-static struct asc_port asc_ports[ASC_NPORTS];
 
 #ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
 /* This is used as a system console, set by serial_console_setup */
@@ -146,17 +145,26 @@ static unsigned int asc_get_mctrl(struct uart_port *port)
    Start doing so. The port lock is held and interrupts are disabled. */
 static void asc_start_tx(struct uart_port *port)
 {
-	asc_transmit_chars(port);
+	if (asc_dma_enabled(port))
+		asc_fdma_start_tx(port);
+	else
+		asc_transmit_chars(port);
 }
 
 static void asc_stop_tx(struct uart_port *port)
 {
-	asc_disable_tx_interrupts(port);
+	if (asc_dma_enabled(port))
+		asc_fdma_stop_tx(port);
+	else
+		asc_disable_tx_interrupts(port);
 }
 
 static void asc_stop_rx(struct uart_port *port)
 {
-	asc_disable_rx_interrupts(port);
+	if (asc_dma_enabled(port))
+		asc_fdma_stop_rx(port);
+	else
+		asc_disable_rx_interrupts(port);
 }
 
 static void asc_enable_ms(struct uart_port *port)
@@ -182,6 +190,8 @@ static int asc_startup(struct uart_port *port)
 
 static void asc_shutdown(struct uart_port *port)
 {
+	if (asc_dma_enabled(port))
+		asc_disable_fdma(port);
 	asc_disable_tx_interrupts(port);
 	asc_disable_rx_interrupts(port);
 	asc_free_irq(port);
@@ -254,7 +264,7 @@ static struct uart_ops asc_uart_ops = {
 	.verify_port	= asc_verify_port,
 };
 
-static struct asc_port asc_ports[ASC_NPORTS] = {
+struct asc_port asc_ports[ASC_NPORTS] = {
 #if defined(CONFIG_CPU_SUBTYPE_STI5528)
 	{
 		/* UART3 */
@@ -479,9 +489,27 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 	if (cflag & CRTSCTS)
 		ctrl_val |= ASC_CTL_CTSENABLE;
 
+	/* hardware flow control */
+	if (cflag & CRTSCTS)
+		ctrl_val |= ASC_CTL_CTSENABLE;
+
 	/* set speed and baud generator mode */
 	ctrl_val |= asc_set_baud (port, baud);
 	uart_update_timeout(port, cflag, baud);
+
+	/* Undocumented feature: use max possible baud */
+	if (cflag & 0020000)
+		asc_out (port, BAUDRATE, 0x0000ffff);
+
+	/* Undocumented feature: use DMA */
+	if (cflag & 0040000)
+		asc_enable_fdma(port);
+	else
+		asc_disable_fdma(port);
+
+	/* Undocumented feature: use local loopback */
+	if (cflag & 0100000)
+		ctrl_val |= ASC_CTL_LOOPBACK;
 
 	/* Set the timeout */
 	asc_out(port, TIMEOUT, 16);
@@ -688,6 +716,8 @@ int __init asc_init(void)
 	clk_put(clk);
 
 	printk("%s", banner);
+
+	asc_fdma_setreq();
 
 	ret = uart_register_driver(&asc_uart_driver);
 	if (ret == 0) {

@@ -102,7 +102,9 @@ static int ehci_hcd_st40_probe(const struct hc_driver *driver,
 	struct usb_hcd *hcd;
         struct ehci_hcd *ehci;
 
-	ST40_start_host_control(dev);
+	retval = ST40_start_host_control(dev);
+	if (retval)
+		return retval;
 
 	hcd = usb_create_hcd(driver, &dev->dev, "STB7100_EHCI");
 	if (!hcd) {

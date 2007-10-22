@@ -14,106 +14,93 @@
 #include <linux/platform_device.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
-#include <asm/io.h>
+#include <linux/mtd/mtd.h>
+#include <linux/mtd/physmap.h>
+#include <linux/mtd/partitions.h>
 
-#define SYSCONF_BASE 0xb9001000
-#define SYSCONF_DEVICEID	(SYSCONF_BASE + 0x000)
-#define SYSCONF_SYS_STA(n)	(SYSCONF_BASE + 0x008 + ((n) * 4))
-#define SYSCONF_SYS_CFG(n)	(SYSCONF_BASE + 0x100 + ((n) * 4))
+static struct stpio_pin *vpp_pio;
 
-/*
- * Initialize the board
- */
+static int ascs[2] __initdata = { 2, 3 };
+
 void __init hms1_setup(char** cmdline_p)
 {
-	unsigned long sysconf;
-	unsigned long chip_revision, chip_7109;
-
 	printk("HMS1 board initialisation\n");
 
-	sysconf = ctrl_inl(SYSCONF_DEVICEID);
-	chip_7109 = (((sysconf >> 12) & 0x3ff) == 0x02c);
-	chip_revision = (sysconf >> 28) +1;
-
-	if (chip_7109)
-		printk("STb7109 version %ld.x\n", chip_revision);
-	else
-		printk("STb7100 version %ld.x\n", chip_revision);
-
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-
-	/* SCIF_PIO_OUT_EN=0 */
-	/* Route UART2 and PWM to PIO4 instead of SCIF */
-	sysconf &= ~(1<<0);
-
-	/* Set SSC2_MUX_SEL = 0 */
-	/* Treat SSC2 as I2C instead of SSC */
-	sysconf &= ~(1<<3);
-
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* Permanently enable Flash VPP */
-	{
-		static struct stpio_pin *pin;
-		pin = stpio_request_pin(2,5, "VPP", STPIO_OUT);
-		stpio_set_pin(pin, 1);
-	}
-
-	/* The ST40RTC sources its clock from clock */
-	/* generator B */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(8));
-	ctrl_outl(sysconf | 0x2, SYSCONF_SYS_CFG(8));
-
-	/* Work around for USB over-current detection chip being
-	 * active low, and the 710x being active high.
-	 *
-	 * This test is wrong for 7100 cut 3.0 (which needs the work
-	 * around), but as we can't reliably determine the minor
-	 * revision number, hard luck, this works for most people.
-	 */
-	if ( ( chip_7109 && (chip_revision < 2)) ||
-	     (!chip_7109 && (chip_revision < 3)) ) {
-		static struct stpio_pin *pin;
-		pin = stpio_request_pin(5,6, "USBOC", STPIO_OUT);
-		stpio_set_pin(pin, 0);
-	}
-
-	/* Currently all STB1 chips have problems with the sleep instruction,
-	 * so disable it here.
-	 */
-	disable_hlt();
-
-
-	/* Configure the pio pins for LIRC */
-	stpio_request_pin(3, 3, "IR", STPIO_IN);
-	stpio_request_pin(3, 4, "IR", STPIO_IN);
-	stpio_request_pin(3, 5, "IR", STPIO_ALT_OUT);
-	stpio_request_pin(3, 6, "IR", STPIO_ALT_OUT);
-
-#ifdef CONFIG_STM_PWM
-	stpio_request_pin(4, 7, "PWM", STPIO_ALT_OUT);
-#endif
+	stx7100_early_device_init();
+	stb7100_configure_asc(ascs, 2, 0);
 }
 
-
-/* Need a way to set:
 static struct plat_stm_pwm_data pwm_private_info = {
 	.flags		= PLAT_STM_PWM_OUT1,
 };
 
-also need a way to set LIRC platform parms.
-*/
-
-#if 0
-/* No board devives until smsc 911x is platformised */
-static struct platform_device *hms1_devices[] __initdata = {
-	&lirc_device,
+static struct plat_ssc_data ssc_private_info = {
+	.capability  =
+		(SSC_I2C_CAPABILITY << (0*2)) |
+		((SSC_SPI_CAPABILITY | SSC_I2C_CAPABILITY) << (1*2)) |
+		(SSC_I2C_CAPABILITY << (2*2)),
 };
 
-static int __init device_init(void)
+static void set_vpp(struct map_info * info, int enable)
 {
+	stpio_set_pin(vpp_pio, enable);
+}
+
+static struct mtd_partition mtd_parts_table[3] = {
+	{
+		.name = "Boot firmware",
+		.size = 0x00040000,
+		.offset = 0x00000000,
+	}, {
+		.name = "Kernel",
+		.size = 0x00100000,
+		.offset = 0x00040000,
+
+	}, {
+		.name = "Root FS",
+		.size = MTDPART_SIZ_FULL,
+		.offset = 0x00140000,
+	}
+};
+
+static struct physmap_flash_data physmap_flash_data = {
+	.width		= 2,
+	.set_vpp	= set_vpp,
+	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
+	.parts		= mtd_parts_table
+};
+
+static struct resource physmap_flash_resource = {
+	.start		= 0x00000000,
+	.end		= 0x00800000 - 1,
+	.flags		= IORESOURCE_MEM,
+};
+
+static struct platform_device physmap_flash = {
+	.name		= "physmap-flash",
+	.id		= -1,
+	.dev		= {
+		.platform_data	= &physmap_flash_data,
+	},
+	.num_resources	= 1,
+	.resource	= &physmap_flash_resource,
+};
+
+static struct platform_device *hms1_devices[] __initdata = {
+	&physmap_flash,
+};
+
+static int __init hms1_device_init(void)
+{
+	stx7100_configure_sata();
+	stx7100_configure_pwm(&pwm_private_info);
+	stx7100_configure_ssc(&ssc_private_info);
+	stx7100_configure_usb();
+	stx7100_configure_alsa();
+
+	vpp_pio = stpio_request_pin(2,5, "VPP", STPIO_OUT);
+
 	return platform_add_devices(hms1_devices, ARRAY_SIZE(hms1_devices));
 }
 
-device_initcall(device_init);
-#endif
+arch_initcall(hms1_device_init);

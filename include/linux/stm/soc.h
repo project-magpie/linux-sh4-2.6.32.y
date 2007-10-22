@@ -37,14 +37,19 @@ struct plat_stm_pwm_data {
 /* Private data for the STM on-board ethernet driver */
 struct plat_stmmacenet_data {
 	int bus_id;
-	int phy_addr;
-	unsigned int phy_mask;
 	int pbl;
-	int interface;
-	int (*phy_reset)(void* priv);
 	void (*fix_mac_speed)(void *priv, unsigned int speed);
 	void (*hw_setup)(void);
-	void* bsp_priv;
+	void *bsp_priv;
+};
+
+struct plat_stmmacphy_data {
+	int bus_id;
+	int phy_addr;
+	unsigned int phy_mask;
+	int interface;
+	int (*phy_reset)(void *priv);
+	void *priv;
 };
 
 struct plat_usb_data {
@@ -54,5 +59,39 @@ struct plat_usb_data {
 	int initialised;
 	int port_number;
 };
+
+struct stasc_uart_data {
+	unsigned char pio_port;
+	unsigned char pio_pin[4]; /* Tx, Rx, CTS, RTS */
+};
+
+extern struct platform_device *asc_default_console_device;
+
+struct plat_sysconf_data {
+	int sys_device_offset;
+	int sys_sta_offset;
+	int sys_cfg_offset;
+};
+
+void stx7100_early_device_init(void);
+void stb7100_configure_asc(const int *ascs, int num_ascs, int console);
+void sysconf_early_init(struct platform_device *pdev);
+void stpio_early_init(struct platform_device *pdev, int num_pdevs);
+
+void stx7100_configure_sata(void);
+void stx7100_configure_pwm(struct plat_stm_pwm_data *data);
+void stx7100_configure_ssc(struct plat_ssc_data *data);
+void stx7100_configure_usb(void);
+void stx7100_configure_alsa(void);
+void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus);
+
+void stx7200_early_device_init(void);
+void stx7200_configure_asc(const int *ascs, int num_ascs, int console);
+
+void stx7200_configure_pwm(struct plat_stm_pwm_data *data);
+void stx7200_configure_ssc(struct plat_ssc_data *data);
+void stx7200_configure_usb(void);
+void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
+				int phy_bus);
 
 #endif /* __LINUX_ST_SOC_H */

@@ -137,12 +137,12 @@ static struct intc_prio priorities[] = {
 };
 
 static struct intc_prio_reg prio_registers[] = {
-	{ 0xffd00004, 16, 4, /* IPRA */     { TMU0, TMU1, TMU2,   RTC } },
-	{ 0xffd00008, 16, 4, /* IPRB */     {  WDT,    0, SCIF1,    0 } },
-	{ 0xffd0000c, 16, 4, /* IPRC */     {    0,    0, SCIF2, HUDI } },
-	{ 0xffd00010, 16, 4, /* IPRD */     { IRL0, IRL1,  IRL2, IRL3 } },
-	{ 0xfe080000, 32, 4, /* INTPRI00 */ {    0,    0,  PIO2, PIO1,
-					      PIO0, DMAC,   PCI, PCI_SERR } },
+	{ 0xffd00004, 0, 16, 4, /* IPRA */     { TMU0, TMU1, TMU2,   RTC } },
+	{ 0xffd00008, 0, 16, 4, /* IPRB */     {  WDT,    0, SCIF1,    0 } },
+	{ 0xffd0000c, 0, 16, 4, /* IPRC */     {    0,    0, SCIF2, HUDI } },
+	{ 0xffd00010, 0, 16, 4, /* IPRD */     { IRL0, IRL1,  IRL2, IRL3 } },
+	{ 0xfe080000, 0, 32, 4, /* INTPRI00 */ {    0,    0,  PIO2, PIO1,
+						 PIO0, DMAC,   PCI, PCI_SERR } },
 };
 
 static struct intc_mask_reg mask_registers[] = {
@@ -162,7 +162,7 @@ static struct intc_vect vectors_irlm[] = {
 	INTC_VECT(IRL2, 0x300), INTC_VECT(IRL3, 0x360),
 };
 
-static DECLARE_INTC_DESC(intc_desc_irlm, "sh7750_irlm", vectors_irlm, NULL,
+static DECLARE_INTC_DESC(intc_desc_irlm, "st40ra_irlm", vectors_irlm, NULL,
 			 priorities, NULL, prio_registers, NULL);
 
 void __init plat_irq_setup(void)
@@ -174,9 +174,14 @@ void __init plat_irq_setup(void)
 #define INTC_ICR_IRLM   (1<<7)
 
 /* enable individual interrupt mode for external interupts */
-void __init ipr_irq_enable_irlm(void)
+void __init plat_irq_setup_pins(int mode)
 {
-	register_intc_controller(&intc_desc_irlm);
-
-	ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
+	switch (mode) {
+	case IRQ_MODE_IRQ: /* individual interrupt mode for IRL3-0 */
+		register_intc_controller(&intc_desc_irlm);
+		ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
+		break;
+	default:
+		BUG();
+	}
 }

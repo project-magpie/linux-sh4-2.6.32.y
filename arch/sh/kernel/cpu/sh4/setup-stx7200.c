@@ -1,5 +1,5 @@
 /*
- * STx710x Setup
+ * STx7200 Setup
  *
  * Copyright (C) 2007 STMicroelectronics Limited
  * Author: Stuart Menefy <stuart.menefy@st.com>
@@ -13,16 +13,19 @@
 #include <linux/serial.h>
 #include <linux/io.h>
 #include <linux/stm/soc.h>
+#include <linux/stm/soc_init.h>
 #include <linux/stm/pio.h>
+#include <linux/phy.h>
+#include <linux/stm/sysconf.h>
 #include <asm/sci.h>
 #include <asm/irq-ilc.h>
 #include <linux/stm/fdma-plat.h>
 #include <linux/stm/fdma-reqs.h>
 
-#define SYSCONF_BASE 0xfd704000
-#define SYSCONF_DEVICEID	(SYSCONF_BASE + 0x000)
-#define SYSCONF_SYS_STA(n)	(SYSCONF_BASE + 0x008 + ((n) * 4))
-#define SYSCONF_SYS_CFG(n)	(SYSCONF_BASE + 0x100 + ((n) * 4))
+static unsigned long chip_revision;
+static struct sysconf_field *sc7_2;
+
+/* USB resources ----------------------------------------------------------- */
 
 #define UHOST2C_BASE(N)                 (0xfd200000 + ((N)*0x00100000))
 
@@ -35,103 +38,78 @@
 
 static u64 st40_dma_mask = 0xfffffff;
 
+static struct sysconf_field *usb_power_sc[3];
+
 static void usb_power_up(void* dev)
 {
 	struct platform_device *pdev = dev;
 	struct plat_usb_data *usb_wrapper = pdev->dev.platform_data;
-	unsigned long sysconf;
 	int port = usb_wrapper->port_number;
-	struct stpio_pin *pio;
-	const unsigned char power_pins[3] = {1, 3, 4};
-	const unsigned char oc_pins[3] = {0, 2, 5};
 
-	/* Power up port */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(22));
-	sysconf &= ~(1<<(3+port));
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(22));
-
-	/* Configure PIO pins */
-	pio = stpio_request_pin(7, power_pins[port], "USB power",
-				STPIO_ALT_OUT);
-	stpio_set_pin(pio, 1);
-	pio = stpio_request_pin(7, oc_pins[port], "USB oc",
-				STPIO_ALT_BIDIR);
-}
-
-#define USB_WRAPPER(port)						\
-{									\
-	.ahb2stbus_wrapper_glue_base =AHB2STBUS_WRAPPER_GLUE_BASE(port),\
-	.ahb2stbus_protocol_base = AHB2STBUS_PROTOCOL_BASE(port),	\
-	.power_up = usb_power_up,					\
-	.initialised = 0,						\
-	.port_number = (port),						\
+	sysconf_write(usb_power_sc[port], 0);
 }
 
 static struct plat_usb_data usb_wrapper[3] = {
-	USB_WRAPPER(0),
-	USB_WRAPPER(1),
-	USB_WRAPPER(2)
+	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE(0), AHB2STBUS_PROTOCOL_BASE(0)),
+	USB_WRAPPER(1, AHB2STBUS_WRAPPER_GLUE_BASE(1), AHB2STBUS_PROTOCOL_BASE(1)),
+	USB_WRAPPER(2, AHB2STBUS_WRAPPER_GLUE_BASE(2), AHB2STBUS_PROTOCOL_BASE(2))
 };
-
-#define USB_EHCI_DEVICE(port)						\
-{									\
-	.name = "ST40-ehci",						\
-	.id=(port),							\
-	.dev = {							\
-		.dma_mask = &st40_dma_mask,				\
-		.coherent_dma_mask = 0xffffffful,			\
-		.platform_data = &usb_wrapper[port],			\
-	},								\
-	.num_resources = 2,						\
-	.resource = (struct resource[]) {				\
-		[0] = {							\
-			.start = AHB2STBUS_EHCI_BASE(port),		\
-			.end   = AHB2STBUS_EHCI_BASE(port) + 0xff,	\
-			.flags = IORESOURCE_MEM,			\
-		},							\
-		[1] = {							\
-			.start = ILC_IRQ(80+(port*2)),			\
-			.end   = ILC_IRQ(80+(port*2)),			\
-			.flags = IORESOURCE_IRQ,			\
-		},							\
-	},								\
-}									\
 
 static struct platform_device st40_ehci_devices[3] = {
-	USB_EHCI_DEVICE(0),
-	USB_EHCI_DEVICE(1),
-	USB_EHCI_DEVICE(2),
+	USB_EHCI_DEVICE(0, AHB2STBUS_EHCI_BASE(0), ILC_IRQ(80)),
+	USB_EHCI_DEVICE(1, AHB2STBUS_EHCI_BASE(1), ILC_IRQ(82)),
+	USB_EHCI_DEVICE(2, AHB2STBUS_EHCI_BASE(2), ILC_IRQ(84)),
 };
 
-#define USB_OHCI_DEVICE(port)						\
-{									\
-	.name = "ST40-ohci",						\
-	.id=(port),							\
-	.dev = {							\
-		.dma_mask = &st40_dma_mask,				\
-		.coherent_dma_mask = 0xffffffful,			\
-		.platform_data = &usb_wrapper[port],			\
-	},								\
-	.num_resources = 2,						\
-	.resource = (struct resource[]) {				\
-		[0] = {							\
-			.start = AHB2STBUS_OHCI_BASE(port),		\
-			.end   = AHB2STBUS_OHCI_BASE(port) + 0xff,	\
-			.flags = IORESOURCE_MEM,			\
-		},							\
-		[1] = {							\
-			.start = ILC_IRQ(81+(port*2)),			\
-			.end   = ILC_IRQ(81+(port*2)),			\
-			.flags = IORESOURCE_IRQ,			\
-		}							\
-	}								\
+static struct platform_device st40_ohci_devices[3] = {
+	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE(0), ILC_IRQ(81)),
+	USB_OHCI_DEVICE(1, AHB2STBUS_OHCI_BASE(1), ILC_IRQ(83)),
+	USB_OHCI_DEVICE(2, AHB2STBUS_OHCI_BASE(2), ILC_IRQ(85)),
+};
+
+void __init stx7200_configure_usb(void)
+{
+	const unsigned char power_pins[3] = {1, 3, 4};
+	const unsigned char oc_pins[3] = {0, 2, 5};
+	static struct stpio_pin *pio;
+	struct sysconf_field *sc;
+	int port;
+
+	/* route USB and parts of MAFE instead of DVO.
+	 * conf_pad_pio[2] = 0 */
+	sc = sysconf_claim(SYS_CFG, 7, 26, 26, "usb");
+	sysconf_write(sc, 0);
+
+	/* DVO output selection (probably ignored).
+	 * conf_pad_pio[3] = 0 */
+	sc = sysconf_claim(SYS_CFG, 7, 27, 27, "usb");
+	sysconf_write(sc, 0);
+
+	/* Enable soft JTAG mode for USB and SATA
+	 * Taken from OS21, but is this correct?
+	 * soft_jtag_en = 1 */
+	sc = sysconf_claim(SYS_CFG, 33, 6, 6, "usb");
+	sysconf_write(sc, 1);
+	/* tck = tdi = trstn_usb = tms_usb = 0 */
+	sc = sysconf_claim(SYS_CFG, 33, 0, 3, "usb");
+	sysconf_write(sc, 0);
+
+	for (port=0; port<3; port++) {
+		usb_power_sc[port] = sysconf_claim(SYS_CFG, 22, 3+port,
+						   3+port, "usb");
+
+		pio = stpio_request_pin(7, power_pins[port], "USB power",
+					STPIO_ALT_OUT);
+		stpio_set_pin(pio, 1);
+		pio = stpio_request_pin(7, oc_pins[port], "USB oc",
+					STPIO_ALT_BIDIR);
+
+		platform_device_register(&st40_ohci_devices[port]);
+		platform_device_register(&st40_ehci_devices[port]);
+	}
 }
 
-static struct platform_device  st40_ohci_devices[3] = {
-	USB_OHCI_DEVICE(0),
-	USB_OHCI_DEVICE(1),
-	USB_OHCI_DEVICE(2)
-};
+/* FDMA resources ---------------------------------------------------------- */
 
 #ifdef CONFIG_STM_DMA
 
@@ -250,75 +228,67 @@ static struct platform_device fdma_xbar_device = {
 	},
 };
 
+/* SSC resources ----------------------------------------------------------- */
+
 static struct resource ssc_resource[] = {
 	[0] = {
-		.start = 0xfd040000,
-		.end   = 0xfd040000 + 0x108,
-		.flags = IORESOURCE_MEM,
+		.start	= 0xfd040000,
+		.end	= 0xfd040000 + 0x108,
+		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start = 0xfd041000,
-		.end   = 0xfd041000 + 0x108,
-		.flags = IORESOURCE_MEM,
+		.start	= 0xfd041000,
+		.end	= 0xfd041000 + 0x108,
+		.flags	= IORESOURCE_MEM,
 	},
 	[2] = {
-		.start = 0xfd042000,
-		.end   = 0xfd042000 + 0x108,
-		.flags = IORESOURCE_MEM,
+		.start	= 0xfd042000,
+		.end	= 0xfd042000 + 0x108,
+		.flags	= IORESOURCE_MEM,
 	},
 	[3] = {
-		.start = 0xfd043000,
-		.end   = 0xfd043000 + 0x108,
-		.flags = IORESOURCE_MEM,
+		.start	= 0xfd043000,
+		.end	= 0xfd043000 + 0x108,
+		.flags	= IORESOURCE_MEM,
 	},
 	[4] = {
-		.start = 0xfd044000,
-		.end   = 0xfd044000 + 0x108,
-		.flags = IORESOURCE_MEM,
+		.start	= 0xfd044000,
+		.end	= 0xfd044000 + 0x108,
+		.flags	= IORESOURCE_MEM,
 	},
 	[5] = {
-		.start = ILC_IRQ(108),
-		.end   = ILC_IRQ(108),
-		.flags = IORESOURCE_IRQ,
+		.start	= ILC_IRQ(108),
+		.end	= ILC_IRQ(108),
+		.flags	= IORESOURCE_IRQ,
 	},
 	[6] = {
-		.start = ILC_IRQ(109),
-		.end   = ILC_IRQ(109),
-		.flags = IORESOURCE_IRQ,
+		.start	= ILC_IRQ(109),
+		.end	= ILC_IRQ(109),
+		.flags	= IORESOURCE_IRQ,
 	},
 	[7] = {
-		.start = ILC_IRQ(110),
-		.end   = ILC_IRQ(110),
-		.flags = IORESOURCE_IRQ,
+		.start	= ILC_IRQ(110),
+		.end	= ILC_IRQ(110),
+		.flags	= IORESOURCE_IRQ,
 	},
 	[8] = {
-		.start = ILC_IRQ(111),
-		.end   = ILC_IRQ(111),
-		.flags = IORESOURCE_IRQ,
+		.start	= ILC_IRQ(111),
+		.end	= ILC_IRQ(111),
+		.flags	= IORESOURCE_IRQ,
 	},
 	[9] = {
-		.start = ILC_IRQ(112),
-		.end   = ILC_IRQ(112),
-		.flags = IORESOURCE_IRQ,
+		.start	= ILC_IRQ(112),
+		.end	= ILC_IRQ(112),
+		.flags	= IORESOURCE_IRQ,
 	},
 };
 
 static struct plat_ssc_pio_t ssc_pio[] = {
-	{2, 0, 2, 1, 0xff, 0xff},
+	{2, 0, 2, 1, 2, 2},
 	{3, 0, 3, 1, 3, 2},
 	{4, 0, 4, 1, 0xff, 0xff},
 	{5, 0, 5, 1, 5, 2},
 	{7, 6, 7, 7, 0xff, 0xff},
-};
-
-static struct plat_ssc_data ssc_private_info = {
-	.capability  =
-		((SSC_I2C_CAPABILITY                     ) << (0*2)) |
-		((SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY) << (1*2)) |
-		((SSC_I2C_CAPABILITY                     ) << (2*2)) |
-		((SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY) << (3*2)) |
-		((SSC_I2C_CAPABILITY                     ) << (4*2)),
-	.pio         = ssc_pio
 };
 
 struct platform_device ssc_device = {
@@ -326,88 +296,60 @@ struct platform_device ssc_device = {
 	.id = -1,
 	.num_resources = ARRAY_SIZE(ssc_resource),
 	.resource = ssc_resource,
-	.dev = {
-		.platform_data = &ssc_private_info
-	}
 };
 
-#define RMII_MODE		(1<<0)
-#define PHY_CLK_EXT		(1<<2)
-#define MAC_SPEED		(1<<4)
-#define VCI_ACK_SOURCE		(1<<6)
-#define RESET			(1<<8)
-#define DISABLE_MSG_READ	(1<<12)
-#define DISABLE_MSG_WRITE	(1<<14)
-/* Remaining bits define pad functions, default appears to work */
-
-/* ETH MAC pad configuration */
-void stx7200eth_hw_setup(int shift, int rmii_mode, int ext_clk)
+void __init stx7200_configure_ssc(struct plat_ssc_data *data)
 {
-	unsigned long sysconf;
+	int i;
+	int capability;
+	struct sysconf_field* ssc_sc;
 
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(41));
-	sysconf &= ~(DISABLE_MSG_READ << shift);
-	sysconf &= ~(DISABLE_MSG_WRITE << shift);
-	//sysconf |=  (VCI_ACK_SOURCE << shift);
-	sysconf &= ~(VCI_ACK_SOURCE << shift);
-	sysconf |=  (RESET << shift);
+	data->pio = ssc_pio;
+	ssc_device.dev.platform_data = data;
 
-	if (rmii_mode) {
-		sysconf |= (RMII_MODE << shift);
-	} else {
-		/* MII mode */
-		sysconf &= ~(RMII_MODE << shift);
+	for (i=0, capability = data->capability;
+	     i<5;
+	     i++, capability >>= 2) {
+		if (! (capability & ((SSC_SPI_CAPABILITY|SSC_I2C_CAPABILITY) << (i*2))))
+			continue;
+
+		/* We only support SSC as master, so always set up as such.
+		 * ssc<x>_mux_sel = 0 */
+		ssc_sc = sysconf_claim(SYS_CFG, 7, i, i, "ssc");
+		sysconf_write(ssc_sc,
+			      capability & SSC_I2C_CAPABILITY ? 0 : 1);
 	}
 
-	if (ext_clk) {
-		sysconf |= (PHY_CLK_EXT << shift);
-	} else {
-		sysconf &= ~(PHY_CLK_EXT << shift);
-	}
-
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(41));
+	platform_device_register(&ssc_device);
 }
+
+/* Ethernet MAC resources -------------------------------------------------- */
+
+static struct sysconf_field *mac_speed_sc[2];
 
 static void fix_mac_speed(void *priv, unsigned int speed)
 {
-	unsigned long sysconf;
-	unsigned shift = (unsigned)priv;
+	unsigned port = (unsigned)priv;
 
-	/* FIXME: lock needed here */
-
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(41));
-	if (speed == 100)
-		sysconf |= (MAC_SPEED << shift);
-	else
-		sysconf &= ~(MAC_SPEED << shift);
-
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(41));
+	sysconf_write(mac_speed_sc[port], (speed == SPEED_100) ? 0 : 1);
 }
 
 static struct plat_stmmacenet_data stmmaceth_private_data[2] = {
 {
-	/* MAC0: STE101P */
-	.bus_id = 0,
-	.phy_addr = 0,
-	.phy_mask = 0,
 	.pbl = 32,
 	.fix_mac_speed = fix_mac_speed,
-	.bsp_priv = 0,
+	.bsp_priv = (void*)0,
 }, {
-	/* MAC1: SMSC LAN 8700 */
-	.bus_id = 1,
-	.phy_addr = 1,
-	.phy_mask = 0,
 	.pbl = 32,
 	.fix_mac_speed = fix_mac_speed,
-	.bsp_priv = 1,
+	.bsp_priv = (void*)1,
 } };
 
 static struct platform_device stmmaceth_device[2] = {
 {
 	.name		= "stmmaceth",
 	.id		= 0,
-	.num_resources	= 3,
+	.num_resources	= 2,
 	.resource	= (struct resource[]) {
 		{
 			.start	= 0xfd500000,
@@ -420,21 +362,6 @@ static struct platform_device stmmaceth_device[2] = {
 			.end	= ILC_IRQ(92),
 			.flags	= IORESOURCE_IRQ,
 		},
-		{
-			.name	= "phyirq",
-			/* This should be:
-			 * .start	= ILC_IRQ(93),
-			 * .end	= ILC_IRQ(93),
-			 * but because the mb519 uses the MII0_MDINT line
-			 * as MODE4, and the STE101P MDINT pin is O/C,
-			 * there may or maynot be a pull-up resistor
-			 * depending on switch SW1-4. Most of the time there
-			 * isn't, so disable the interrupt.
-			 */
-			.start	= -1,
-			.end	= -1,
-			.flags	= IORESOURCE_IRQ,
-		},
 	},
 	.dev = {
 		.platform_data = &stmmaceth_private_data[0],
@@ -442,7 +369,7 @@ static struct platform_device stmmaceth_device[2] = {
 }, {
 	.name		= "stmmaceth",
 	.id		= 1,
-	.num_resources	= 3,
+	.num_resources	= 2,
 	.resource	= (struct resource[]) {
 		{
 			.start	= 0xfd510000,
@@ -455,93 +382,348 @@ static struct platform_device stmmaceth_device[2] = {
 			.end	= ILC_IRQ(94),
 			.flags	= IORESOURCE_IRQ,
 		},
-		{
-			.name	= "phyirq",
-			.start	= ILC_IRQ(95),
-			.end	= ILC_IRQ(95),
-			.flags	= IORESOURCE_IRQ,
-		},
 	},
 	.dev = {
 		.platform_data = &stmmaceth_private_data[1],
 	}
 } };
 
+void stx7200_configure_ethernet(int port, int rmii_mode, int ext_clk,
+				int phy_bus)
+{
+	struct sysconf_field *sc;
+
+	stmmaceth_private_data[port].bus_id = phy_bus;
+
+	/* Route Ethernet pins to output */
+	/* bit26-16: conf_pad_eth(10:0) */
+	if (port == 0) {
+		/* MII0: conf_pad_eth(0) = 0 (ethernet) */
+		sc = sysconf_claim(SYS_CFG, 41, 16, 16, "stmmac");
+		sysconf_write(sc, 0);
+	} else {
+		/* MII1: conf_pad_eth(2) = 0, (3)=0, (4)=0, (9)=0, (10)=0 (eth)
+		 * MII1: conf_pad_eth(6) = 0 (MII1TXD[0] = output)
+		 * (remaining bits have no effect in ethernet mode */
+		sc = sysconf_claim(SYS_CFG, 41, 16+2, 16+10, "stmmac");
+		sysconf_write(sc, 0);
+	}
+
+	/* DISABLE_MSG_FOR_WRITE=0 */
+	sc = sysconf_claim(SYS_CFG, 41, 14+port, 14+port, "stmmac");
+	sysconf_write(sc, 0);
+
+	/* DISABLE_MSG_FOR_READ=0 */
+	sc = sysconf_claim(SYS_CFG, 41, 12+port, 12+port, "stmmac");
+	sysconf_write(sc, 0);
+
+	/* VCI_ACK_SOURCE = 0 */
+	sc = sysconf_claim(SYS_CFG, 41, 6+port, 6+port, "stmmac");
+	sysconf_write(sc, 0);
+
+	/* ETHERNET_INTERFACE_ON (aka RESET) = 1 */
+	sc = sysconf_claim(SYS_CFG, 41, 8+port, 8+port, "stmmac");
+	sysconf_write(sc, 1);
+
+	/* RMII_MODE */
+	sc = sysconf_claim(SYS_CFG, 41, 0+port, 0+port, "stmmac");
+	sysconf_write(sc, rmii_mode ? 1 : 0);
+
+	/* PHY_CLK_EXT */
+	sc = sysconf_claim(SYS_CFG, 41, 2+port, 2+port, "stmmac");
+	sysconf_write(sc, ext_clk ? 1 : 0);
+
+	/* MAC_SPEED_SEL */
+	mac_speed_sc[port] = sysconf_claim(SYS_CFG, 41, 4+port, 4+port, "stmmac");
+
+	platform_device_register(&stmmaceth_device[port]);
+}
+
+/* PWM resources ----------------------------------------------------------- */
+
+static struct resource stm_pwm_resource[]= {
+	[0] = {
+		.start	= 0xfd010000,
+		.end	= 0xfd010000 + 0x67,
+		.flags	= IORESOURCE_MEM
+	},
+	[1] = {
+		.start	= ILC_IRQ(114),
+		.flags	= IORESOURCE_IRQ
+	}
+};
+
+static struct platform_device stm_pwm_device = {
+	.name		= "stm-pwm",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(stm_pwm_resource),
+	.resource	= stm_pwm_resource,
+};
+
+void stx7200_configure_pwm(struct plat_stm_pwm_data *data)
+{
+	stm_pwm_device.dev.platform_data = data;
+
+	if (data->flags & PLAT_STM_PWM_OUT0) {
+		/* Route UART2 (in and out) and PWM_OUT0 instead of SCI to pins
+		 * ssc2_mux_sel = 0 */
+		if (sc7_2 == NULL)
+			sc7_2 = sysconf_claim(SYS_CFG, 7, 2, 2, "pwm");
+		sysconf_write(sc7_2, 0);
+		stpio_request_pin(4, 6, "PWM", STPIO_ALT_OUT);
+	}
+
+	if (data->flags & PLAT_STM_PWM_OUT1) {
+		stpio_request_pin(4, 7, "PWM", STPIO_ALT_OUT);
+	}
+
+	platform_device_register(&stm_pwm_device);
+}
+
+/* ASC resources ----------------------------------------------------------- */
+
+static struct platform_device stm_stasc_devices[] = {
+	STASC_DEVICE(0xfd030000, ILC_IRQ(104), 0, 0, 1, 4, 7), /* oe pin: 6 */
+	STASC_DEVICE(0xfd031000, ILC_IRQ(105), 1, 0, 1, 4, 5), /* oe pin: 6 */
+	STASC_DEVICE(0xfd032000, ILC_IRQ(106), 4, 3, 2, 4, 5),
+	STASC_DEVICE(0xfd033000, ILC_IRQ(107), 5, 4, 3, 5, 6),
+};
+
+/* the serial console device */
+struct platform_device *asc_default_console_device;
+
+/* Platform devices to register */
+static struct platform_device *stasc_configured_devices[ARRAY_SIZE(stm_stasc_devices)] __initdata;
+static int stasc_configured_devices_count __initdata = 0;
+
+/* Configure the ASC's for this board.
+ * This has to be called before console_init().
+ */
+void __init stx7200_configure_asc(const int *ascs, int num_ascs, int console)
+{
+	int i;
+	struct sysconf_field *sc7_29 = NULL;
+
+	for (i=0; i<num_ascs; i++) {
+		int port;
+		struct platform_device *pdev;
+		struct sysconf_field *sc;
+
+		port = ascs[i];
+		pdev = &stm_stasc_devices[port];
+
+		if ((port == 0) || (port == 1)) {
+			/* Route UART0/1 and MPX instead of DVP to pins:
+			 * conf_pad_pio[5] = 0 */
+			if (sc7_29 == NULL)
+				sc7_29 = sysconf_claim(SYS_CFG, 7, 29, 29, "asc");
+			sysconf_write(sc7_29, 0);
+		}
+
+		switch (ascs[i]) {
+		case 0:
+			/* Route UART0 instead of PDES to pins.
+			 * pdes_scmux_out = 0 */
+#warning check these numbers
+			sc = sysconf_claim(SYS_CFG, 0,0,0, "asc");
+			sysconf_write(sc, 0);
+			break;
+
+		case 1:
+			/* Ideally we need an option here to allow section
+			 * of UART1, but with out RTS/CTS, to allow use
+			 * of PIO1[4] and PIO1[5] for dvo. At which point
+			 * this would need to become conditional.
+			 * conf_pad_pio[0] = 0 */
+			sc = sysconf_claim(SYS_CFG, 7, 24, 24, "asc");
+			sysconf_write(sc, 0);
+			break;
+
+		case 2:
+			/* Route UART2&3 or SCI inputs instead of DVP to pins.
+			 * conf_pad_dvp = 0 */
+			sc = sysconf_claim(SYS_CFG, 40, 16, 16, "asc");
+			sysconf_write(sc, 0);
+
+			/* Route UART2 (in and out) and PWM_OUT0 instead of SCI to pins.
+			 * ssc2_mux_sel = 0 */
+			if (sc7_2 == NULL)
+				sc7_2 = sysconf_claim(SYS_CFG, 7, 2, 2, "asc");
+			sysconf_write(sc7_2, 0);
+
+			/* Route UART2&3/SCI outputs instead of DVP to pins.
+			 * conf_pad_pio[1]=0 */
+			sc = sysconf_claim(SYS_CFG, 7, 25, 25, "asc");
+			sysconf_write(sc, 0);
+
+			/* No idea, more routing.
+			 * conf_pad_pio[0] = 0 */
+			sc = sysconf_claim(SYS_CFG, 7, 24, 24, "asc");
+			sysconf_write(sc, 0);
+			break;
+
+		case 3:
+			/* No idea, more routing.
+			 * conf_pad_pio[4] = 0 */
+			sc = sysconf_claim(SYS_CFG, 7, 28, 28, "asc");
+			sysconf_write(sc, 0);
+
+			/* Route UART3 (in and out) instead of SCI to pins
+			 * ssc3_mux_sel = 0 */
+			sc = sysconf_claim(SYS_CFG, 7, 3, 3, "asc");
+			sysconf_write(sc, 0);
+			break;
+		}
+
+		pdev->id = i;
+		stasc_configured_devices[stasc_configured_devices_count++] = pdev;
+	}
+
+	asc_default_console_device = stasc_configured_devices[console];
+}
+
+/* Add platform device as configured by board specific code */
+static int __init stb7200_add_asc(void)
+{
+	return platform_add_devices(stasc_configured_devices,
+				    stasc_configured_devices_count);
+}
+arch_initcall(stb7200_add_asc);
+
+/* Early resources (sysconf and PIO) --------------------------------------- */
+
+static struct platform_device sysconf_device = {
+	.name		= "sysconf",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start	= 0xfd704000,
+			.end	= 0xfd704000 + 0x1d3,
+			.flags	= IORESOURCE_MEM
+		}
+	},
+	.dev = {
+		.platform_data = &(struct plat_sysconf_data) {
+			.sys_device_offset = 0,
+			.sys_sta_offset = 8,
+			.sys_cfg_offset = 0x100,
+		}
+	}
+};
+
+static struct platform_device stpio_devices[] = {
+	STPIO_DEVICE(0, 0xfd020000, ILC_IRQ(96) ),
+	STPIO_DEVICE(1, 0xfd021000, ILC_IRQ(97) ),
+	STPIO_DEVICE(2, 0xfd022000, ILC_IRQ(98) ),
+	STPIO_DEVICE(3, 0xfd023000, ILC_IRQ(99) ),
+	STPIO_DEVICE(4, 0xfd024000, ILC_IRQ(100) ),
+	STPIO_DEVICE(5, 0xfd025000, ILC_IRQ(101) ),
+	STPIO_DEVICE(6, 0xfd026000, ILC_IRQ(102) ),
+	STPIO_DEVICE(7, 0xfd027000, ILC_IRQ(103) ),
+};
+
+/* Initialise devices which are required early in the boot process. */
+void __init stx7200_early_device_init(void)
+{
+	struct sysconf_field *sc;
+	unsigned long devid;
+
+	/* Initialise PIO and sysconf drivers */
+
+	sysconf_early_init(&sysconf_device);
+	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices));
+
+	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
+	devid = sysconf_read(sc);
+	chip_revision = (devid >> 28) +1;
+	printk("STx7200 version %ld.x\n", chip_revision);
+
+	/* ClockgenB powers up with all the frequency synths bypassed.
+	 * Enable them all here.  Without this, USB 1.1 doesn't work,
+	 * as it needs a 48MHz clock which is separate from the USB 2
+	 * clock which is derived from the SATA clock. */
+	ctrl_outl(0, 0xFD701048);
+
+	/* We haven't configured the LPC, so the sleep instruction may
+	 * do bad things. Thus we disable it here. */
+	disable_hlt();
+}
+
+static void __init pio_late_setup(void)
+{
+	int i;
+	struct platform_device *pdev = stpio_devices;
+
+	for (i=0; i<ARRAY_SIZE(stpio_devices); i++,pdev++) {
+		platform_device_register(pdev);
+	}
+}
+
+/* Late resources ---------------------------------------------------------- */
+
 static struct platform_device *stx7200_devices[] __initdata = {
-	&stmmaceth_device[0],
-	&stmmaceth_device[1],
-	&st40_ehci_devices[0],
-	&st40_ohci_devices[0],
-	&st40_ehci_devices[1],
-	&st40_ohci_devices[1],
-	&st40_ehci_devices[2],
-	&st40_ohci_devices[2],
-	&ssc_device,
 	&fdma0_7200_device,
 	//&fdma1_7200_device,
 	&fdma_xbar_device,
+	&sysconf_device,
 };
 
 static int __init stx7200_devices_setup(void)
 {
-	return platform_add_devices(stx7200_devices, ARRAY_SIZE(stx7200_devices));
+	pio_late_setup();
+
+	return platform_add_devices(stx7200_devices,
+				    ARRAY_SIZE(stx7200_devices));
 }
 device_initcall(stx7200_devices_setup);
 
-/*
- * INTC style interrupts
- */
-static struct ipr_data ipr_map[] = {
-	/* IRQ, IPR-idx, shift, priority */
-	{ 16, 0, 12, 2 }, /* TMU0 TUNI*/
-	{ 17, 0, 12, 2 }, /* TMU1 TUNI */
-	{ 18, 0,  4, 2 }, /* TMU2 TUNI */
-	{ 19, 0,  4, 2 }, /* TMU2 TIPCI */
-	{ 27, 1, 12, 2 }, /* WDT ITI */
-	{ 20, 0,  0, 2 }, /* RTC ATI (alarm) */
-	{ 21, 0,  0, 2 }, /* RTC PRI (period) */
-	{ 22, 0,  0, 2 }, /* RTC CUI (carry) */
-	{ 23, 1,  4, 3 }, /* SCI ERI */
-	{ 24, 1,  4, 3 }, /* SCI RXI */
-	{ 25, 1,  4, 3 }, /* SCI TXI */
-	{ 40, 2,  4, 3 }, /* SCIF ERI */
-	{ 41, 2,  4, 3 }, /* SCIF RXI */
-	{ 42, 2,  4, 3 }, /* SCIF BRI */
-	{ 43, 2,  4, 3 }, /* SCIF TXI */
-	{ 34, 2,  8, 7 }, /* DMAC DMTE0 */
-	{ 35, 2,  8, 7 }, /* DMAC DMTE1 */
-	{ 36, 2,  8, 7 }, /* DMAC DMTE2 */
-	{ 37, 2,  8, 7 }, /* DMAC DMTE3 */
-	{ 28, 2,  8, 7 }, /* DMAC DMAE */
+/* Interrupt initialisation ------------------------------------------------ */
+
+enum {
+	UNUSED = 0,
+
+	/* interrupt sources */
+	TMU0, TMU1, TMU2_TUNI, TMU2_TICPI,
+	RTC_ATI, RTC_PRI, RTC_CUI,
+	SCIF_ERI, SCIF_RXI, SCIF_BRI, SCIF_TXI,
+	WDT,
+	HUDI,
+
+	/* interrupt groups */
+	TMU2, RTC, SCIF,
 };
 
-
-static struct ipr_data ipr_irq_table[] = {
-	/* IRQ, IPR-idx, shift, priority */
-	{ 16, 0, 12, 2 }, /* TMU0 TUNI*/
-	{ 17, 0,  8, 2 }, /* TMU1 TUNI */
-	{ 18, 0,  4, 2 }, /* TMU2 TUNI */
-	{ 27, 1, 12, 2 }, /* WDT ITI */
-	{ 32, 2,  0, 7 }, /* HUDI */
+static struct intc_vect vectors[] = {
+	INTC_VECT(TMU0, 0x400), INTC_VECT(TMU1, 0x420),
+	INTC_VECT(TMU2_TUNI, 0x440), INTC_VECT(TMU2_TICPI, 0x460),
+	INTC_VECT(RTC_ATI, 0x480), INTC_VECT(RTC_PRI, 0x4a0),
+	INTC_VECT(RTC_CUI, 0x4c0),
+	INTC_VECT(SCIF_ERI, 0x4e0), INTC_VECT(SCIF_RXI, 0x500),
+	INTC_VECT(SCIF_BRI, 0x520), INTC_VECT(SCIF_TXI, 0x540),
+	INTC_VECT(WDT, 0x560),
+	INTC_VECT(HUDI, 0x600),
 };
 
-static unsigned long ipr_offsets[] = {
-	0xffd00004UL,	/* 0: IPRA */
-	0xffd00008UL,	/* 1: IPRB */
-	0xffd0000cUL,	/* 2: IPRC */
+static struct intc_group groups[] = {
+	INTC_GROUP(TMU2, TMU2_TUNI, TMU2_TICPI),
+	INTC_GROUP(RTC, RTC_ATI, RTC_PRI, RTC_CUI),
+	INTC_GROUP(SCIF, SCIF_ERI, SCIF_RXI, SCIF_BRI, SCIF_TXI),
 };
 
-static struct ipr_desc ipr_irq_desc = {
-	.ipr_offsets	= ipr_offsets,
-	.nr_offsets	= ARRAY_SIZE(ipr_offsets),
-
-	.ipr_data	= ipr_irq_table,
-	.nr_irqs	= ARRAY_SIZE(ipr_irq_table),
-
-	.chip = {
-		.name	= "IPR-stx710x",
-	},
+static struct intc_prio priorities[] = {
+	INTC_PRIO(SCIF, 3),
 };
+
+static struct intc_prio_reg prio_registers[] = {
+					/*  15-12, 11-8,  7-4,   3-0 */
+	{ 0xffd00004, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2,   RTC } },
+	{ 0xffd00008, 0, 16, 4, /* IPRB */ {  WDT,    0, SCIF,     0 } },
+	{ 0xffd0000c, 0, 16, 4, /* IPRC */ {    0,    0,    0,  HUDI } },
+};
+
+static DECLARE_INTC_DESC(intc_desc, "stx7200", vectors, groups,
+			 priorities, NULL, prio_registers, NULL);
 
 static struct irq_chip stx7200_ipr_chip = {
 	.name = "IPR",
@@ -550,10 +732,16 @@ static struct irq_chip stx7200_ipr_chip = {
 void __init plat_irq_setup(void)
 {
 	int irq;
+	struct sysconf_field *sc;
 
-	register_ipr_controller(&ipr_irq_desc);
+	/* Configure the external interrupt pins as inputs */
+	sc = sysconf_claim(SYS_CFG, 10, 0, 3, "irq");
+	sysconf_write(sc, 0xf);
+
+	register_intc_controller(&intc_desc);
+
 	for (irq=0; irq<16; irq++) {
-		set_irq_chip(irq, &stx7200_ipr_chip);
+		set_irq_chip(irq, &dummy_irq_chip);
 		set_irq_chained_handler(irq, ilc_irq_demux);
 	}
 	init_IRQ_ilc();

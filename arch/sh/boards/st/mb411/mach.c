@@ -57,8 +57,4 @@ static struct sh_machine_vector mv_mediaref __initmv = {
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= mb411_init_irq,
 	.mv_ioport_map		= mb411_ioport_map,
-
-#ifdef CONFIG_HEARTBEAT
-	.mv_heartbeat		= heartbeat_heart,
-#endif
 };

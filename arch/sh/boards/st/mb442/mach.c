@@ -38,18 +38,15 @@ static void __iomem *mb442_ioport_map(unsigned long port, unsigned int size)
 static void __init mb442_init_irq(void)
 {
 	/* enable individual interrupt mode for externals */
-	ipr_irq_enable_irlm();
+	plat_irq_setup_pins(IRQ_MODE_IRQ);
 
 	/* Set the ILC to route external interrupts to the the INTC */
 	/* Outputs 0-3 are the interrupt pins, 4-7 are routed to the INTC */
-	ilc_route_external(ILC_EXT_IRQ0, 4, 0);
-	ilc_route_external(ILC_EXT_IRQ1, 5, 0);
-	ilc_route_external(ILC_EXT_IRQ2, 6, 0);
-#ifdef CONFIG_STMMAC_ETH
-	ilc_route_external(70, 7, 0);
-#else
-	ilc_route_external(ILC_EXT_IRQ3, 7, 0);
-#endif
+	/* Inputs sys-irq2 and 3 are unused (pulled high) */
+	ilc_route_external(ILC_EXT_IRQ0, 4, 0);		/* SMC Ethernet */
+	ilc_route_external(ILC_EXT_IRQ1, 5, 0);		/* ATA */
+	ilc_route_external(ILC_EXT_IRQ2, 6, 0);		/* Unused */
+	ilc_route_external(ILC_EXT_MDINT, 7, 0);	/* STe100 PHY */
 }
 
 void __init mb442_setup(char**);

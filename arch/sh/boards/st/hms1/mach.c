@@ -37,7 +37,7 @@ static void __iomem *hms1_ioport_map(unsigned long port, unsigned int size)
 static void __init hms1_init_irq(void)
 {
 	/* enable individual interrupt mode for externals */
-	ipr_irq_enable_irlm();
+	plat_irq_setup_pins(IRQ_MODE_IRQ);
 
 	/* Set the ILC to route external interrupts to the the INTC */
 	/* Outputs 0-3 are the interrupt pins, 4-7 are routed to the INTC */

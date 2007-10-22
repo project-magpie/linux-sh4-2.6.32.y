@@ -30,6 +30,7 @@
 #include <linux/bitops.h>
 #include <linux/interrupt.h>
 #include <linux/stm/pio.h>
+#include <linux/platform_device.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
@@ -38,16 +39,6 @@
 #ifdef CONFIG_PROC_FS
 #include <linux/proc_fs.h>
 #include <linux/kallsyms.h>
-#endif
-
-#if defined(CONFIG_CPU_SUBTYPE_ST40STB1)
-#define STPIO_NPORTS 3
-#elif defined(CONFIG_CPU_SUBTYPE_STB7100)
-#define STPIO_NPORTS 6
-#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
-#define STPIO_NPORTS 8
-#else
-#error Unknown CPU
 #endif
 
 #define STPIO_POUT_OFFSET	0x00
@@ -61,7 +52,12 @@
 #define STPIO_SET_OFFSET	0x4
 #define STPIO_CLEAR_OFFSET	0x8
 
-#define MODNAME "stpio"
+#define DRIVER_NAME "stpio"
+#define STPIO_MAX_PORTS	8
+
+struct stpio_port {
+	void __iomem *base;
+};
 
 struct stpio_pin {
 	const char* name;
@@ -72,39 +68,9 @@ struct stpio_pin {
 #endif
 };
 
-struct stpio_port {
-	unsigned long base;
-	unsigned int irq;
-};
-
-static struct stpio_pin stpio_pin_conf[STPIO_NPORTS*8];
-
-static const struct stpio_port stpio_port_conf[STPIO_NPORTS] = {
-#if defined(CONFIG_CPU_SUBTYPE_ST40STB1)
-	{0xbb010000, 80 },			/* PIO0 */
-	{0xbb020000, 84 },			/* PIO1 */
-	{0xbb030000, 88 },			/* PIO2 */
-#elif defined(CONFIG_CPU_SUBTYPE_STB7100)
-	{0xb8020000, 80 },
-	{0xb8021000, 84 },
-	{0xb8022000, 88 },
-	{0xb8023000, 115 },
-	{0xb8024000, 114 },
-	{0xb8025000, 113 },
-#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
-	{0xfd020000, ILC_IRQ(96) },
-	{0xfd021000, ILC_IRQ(97) },
-	{0xfd022000, ILC_IRQ(98) },
-	{0xfd023000, ILC_IRQ(99) },
-	{0xfd024000, ILC_IRQ(100) },
-	{0xfd025000, ILC_IRQ(101) },
-	{0xfd026000, ILC_IRQ(102) },
-	{0xfd027000, ILC_IRQ(103) },
-#else
-#error Unknown CPU
-#endif
-};
-
+static struct stpio_port stpio_port_confs[STPIO_MAX_PORTS];
+static int stpio_numports = STPIO_MAX_PORTS;
+static struct stpio_pin stpio_pin_conf[STPIO_MAX_PORTS*8];
 static spinlock_t stpio_lock = SPIN_LOCK_UNLOCKED;
 
 #define STPIO_PIN_DETAILS(pin, port, pinno)		\
@@ -112,7 +78,7 @@ static spinlock_t stpio_lock = SPIN_LOCK_UNLOCKED;
 	const struct stpio_port *port;			\
 	do {						\
 		unsigned offset = pin - stpio_pin_conf;	\
-		port = &stpio_port_conf[offset >> 3];	\
+		port = &stpio_port_confs[offset >> 3];	\
 		pinno = offset & 7;			\
 	} while (0)
 
@@ -124,12 +90,12 @@ void stpio_configure_pin(struct stpio_pin* pin, int direction)
 	pin->direction = direction;
 #endif
 
-	ctrl_outl(1<<pinno, port->base + STPIO_PC0_OFFSET +
-		  ((direction & (1<<0)) ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
-	ctrl_outl(1<<pinno, port->base + STPIO_PC1_OFFSET +
-		  ((direction & (1<<1)) ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
-	ctrl_outl(1<<pinno, port->base + STPIO_PC2_OFFSET +
-		  ((direction & (1<<2)) ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
+	writel(1<<pinno, port->base + STPIO_PC0_OFFSET +
+	       ((direction & (1<<0)) ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
+	writel(1<<pinno, port->base + STPIO_PC1_OFFSET +
+	       ((direction & (1<<1)) ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
+	writel(1<<pinno, port->base + STPIO_PC2_OFFSET +
+	       ((direction & (1<<2)) ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
 }
 
 struct stpio_pin* stpio_request_pin(unsigned portno, unsigned pinno,
@@ -139,7 +105,7 @@ struct stpio_pin* stpio_request_pin(unsigned portno, unsigned pinno,
 
 	spin_lock(&stpio_lock);
 
-	if ((portno < STPIO_NPORTS) && (pinno < 8) &&
+	if ((portno < stpio_numports) && (pinno < 8) &&
 	    (stpio_pin_conf[portno*8 + pinno].name == NULL)) {
 		pin = &stpio_pin_conf[portno*8 + pinno];
 		stpio_configure_pin(pin, direction);
@@ -158,7 +124,7 @@ struct stpio_pin* stpio_request_set_pin(unsigned portno, unsigned pinno,
 
 	spin_lock(&stpio_lock);
 
-	if ((portno < STPIO_NPORTS) && (pinno < 8)) {
+	if ((portno < stpio_numports) && (pinno < 8)) {
 		pin = &stpio_pin_conf[portno*8 + pinno];
 		if( (pin->name == NULL) ) {
 		    stpio_set_pin(pin, value);
@@ -186,27 +152,27 @@ void stpio_set_pin(struct stpio_pin* pin, unsigned int value)
 {
 	STPIO_PIN_DETAILS(pin, port, pinno);
 
-	ctrl_outl(1<<pinno, port->base + STPIO_POUT_OFFSET +
-		  (value ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
+	writel(1<<pinno, port->base + STPIO_POUT_OFFSET +
+	       (value ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
 }
 
 unsigned int stpio_get_pin(struct stpio_pin* pin)
 {
 	STPIO_PIN_DETAILS(pin, port, pinno);
 
-	return (ctrl_inl(port->base + STPIO_PIN_OFFSET) & (1<<pinno)) ? 1 : 0;
+	return (readl(port->base + STPIO_PIN_OFFSET) & (1<<pinno)) ? 1 : 0;
 }
 
 static irqreturn_t stpio_interrupt(int irq, void *dev)
 {
 	const struct stpio_port *port = dev;
-	unsigned portno = port - stpio_port_conf;
+	unsigned portno = port - stpio_port_confs;
     	unsigned long in, mask, comp;
 	unsigned int pinno;
 
-	in   = ctrl_inl(port->base + STPIO_PIN_OFFSET);
-	mask = ctrl_inl(port->base + STPIO_PMASK_OFFSET);
-	comp = ctrl_inl(port->base + STPIO_PCOMP_OFFSET);
+	in   = readl(port->base + STPIO_PIN_OFFSET);
+	mask = readl(port->base + STPIO_PMASK_OFFSET);
+	comp = readl(port->base + STPIO_PCOMP_OFFSET);
 
 	mask &= in ^ comp;
 
@@ -227,47 +193,49 @@ static irqreturn_t stpio_interrupt(int irq, void *dev)
 
 void stpio_enable_irq(struct stpio_pin* pin, int comp)
 {
-    STPIO_PIN_DETAILS(pin, port, pinno);
+	STPIO_PIN_DETAILS(pin, port, pinno);
 
-    ctrl_outl(1<<pinno, port->base + STPIO_PCOMP_OFFSET +
-              (comp ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
-    ctrl_outl(1<<pinno, port->base + STPIO_PMASK_OFFSET + STPIO_SET_OFFSET);
+	writel(1<<pinno, port->base + STPIO_PCOMP_OFFSET +
+	       (comp ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
+	writel(1<<pinno, port->base + STPIO_PMASK_OFFSET + STPIO_SET_OFFSET);
 }
 
 void stpio_disable_irq(struct stpio_pin* pin)
 {
-    STPIO_PIN_DETAILS(pin, port, pinno);
+	STPIO_PIN_DETAILS(pin, port, pinno);
 
-    ctrl_outl(1<<pinno, port->base + STPIO_PMASK_OFFSET + STPIO_CLEAR_OFFSET);
+	writel(1<<pinno, port->base + STPIO_PMASK_OFFSET + STPIO_CLEAR_OFFSET);
 }
 
 void stpio_request_irq(struct stpio_pin* pin, int comp,
 		       void (*handler)(struct stpio_pin *pin, void *dev),
 		       void *dev)
 {
+	unsigned long flags;
 	STPIO_PIN_DETAILS(pin, port, pinno);
 
-	disable_irq(port->irq);
+	spin_lock_irqsave(&stpio_lock, flags);
 
 	pin->func = handler;
 	pin->dev = dev;
 
-        stpio_enable_irq(pin, comp);
+	stpio_enable_irq(pin, comp);
 
-	enable_irq(port->irq);
+	spin_unlock_irqrestore(&stpio_lock, flags);
 }
 
 void stpio_free_irq(struct stpio_pin* pin)
 {
+	unsigned long flags;
 	STPIO_PIN_DETAILS(pin, port, pinno);
 
-	disable_irq(port->irq);
+	spin_lock_irqsave(&stpio_lock, flags);
 
-    	stpio_disable_irq(pin);
+	stpio_disable_irq(pin);
 	pin->func = 0;
 	pin->dev = 0;
 
-	enable_irq(port->irq);
+	spin_unlock_irqrestore(&stpio_lock, flags);
 }
 
 #ifdef CONFIG_PROC_FS
@@ -320,7 +288,7 @@ static int stpio_read_proc (char *page, char **start, off_t off, int count,
 	spin_lock(&stpio_lock);
 
 	len = sprintf(page, "  port      name          direction\n");
-        for (i=0; i< STPIO_NPORTS; i++)
+        for (i=0; i< stpio_numports; i++)
 	{
 	    for(j=0; j < 8; j++ )
 	    {
@@ -347,48 +315,89 @@ done:
 
 #endif /* CONFIG_PROC_FS */
 
-static int __init stpio_init(void)
+/* This is called early to allow board start up code to use PIO
+ * (in particular console devices). */
+void __init stpio_early_init(struct platform_device* pdev, int num)
 {
-	int portno;
+	int i;
 
-    	/* TODO: check return values */
+	for (i=0; i<num; i++, pdev++) {
+		struct stpio_port *port = &stpio_port_confs[i];
+		int size = pdev->resource[0].end - pdev->resource[0].start + 1;
 
-	for (portno=0; portno<STPIO_NPORTS; portno++) {
-		const struct stpio_port *port = &stpio_port_conf[portno];
-		request_mem_region(port->base, 0x1000, MODNAME);
-		request_irq(port->irq, stpio_interrupt,
-			    0, MODNAME, (void*)port);
+		port->base = ioremap(pdev->resource[0].start, size);
+	}
+}
+
+static int __devinit stpio_probe(struct platform_device *pdev)
+{
+	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
+	struct stpio_port *port = &stpio_port_confs[pdev->id];
+
+	if (!request_mem_region(pdev->resource[0].start, size, pdev->name))
+		return -EBUSY;
+
+	if (!port->base) {
+		port->base = ioremap(pdev->resource[0].start, size);
+		if (! port->base) {
+			release_mem_region(pdev->resource[0].start, size);
+			return -ENOMEM;
+		}
 	}
 
+	request_irq(pdev->resource[1].start, stpio_interrupt,
+		    0, pdev->name, (void*)port);
+
+	return 0;
+}
+
+static int __devexit stpio_remove(struct platform_device *pdev)
+{
+	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
+	struct stpio_port *port = &stpio_port_confs[pdev->id];
+
+	iounmap(port->base);
+	release_mem_region(pdev->resource[0].start, size);
+	free_irq(pdev->resource[1].start, port);
+
+	return 0;
+}
+
+static struct platform_driver stpio_driver = {
+	.probe		= stpio_probe,
+	.remove		= __devexit_p(stpio_remove),
+	.driver	= {
+		.name	= DRIVER_NAME,
+		.owner	= THIS_MODULE,
+	},
+};
+
+static int __init stpio_init(void)
+{
 #ifdef CONFIG_PROC_FS
-	if ((proc_stpio = create_proc_entry( "stpio", 0, NULL )))
+	if ((proc_stpio = create_proc_entry("stpio", 0, NULL)) != NULL)
 		proc_stpio->read_proc = stpio_read_proc;
 #endif
 
-    	printk("STPIO layer initialised\n");
-	return 0;
+	return platform_driver_register(&stpio_driver);
 }
 
 static void __exit stpio_exit(void)
 {
-	int portno;
-
-    	/* TODO: check return values */
-
 #ifdef CONFIG_PROC_FS
 	if (proc_stpio)
-		remove_proc_entry( "stpio", NULL );
+		remove_proc_entry("stpio", NULL);
 #endif
 
-	for (portno=0; portno<STPIO_NPORTS; portno++) {
-		const struct stpio_port *port = &stpio_port_conf[portno];
-		release_mem_region(port->base, 0x1000);
-		free_irq(port->irq, (void*)port);
-	}
+	platform_driver_unregister(&stpio_driver);
 }
 
 module_init(stpio_init);
 module_exit(stpio_exit);
+
+MODULE_AUTHOR("Stuart Menefy <stuart.menefy@st.com>");
+MODULE_DESCRIPTION("STMicroelectronics PIO driver");
+MODULE_LICENSE("GPL");
 
 EXPORT_SYMBOL(stpio_configure_pin);
 EXPORT_SYMBOL(stpio_request_pin);

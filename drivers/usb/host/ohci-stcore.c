@@ -104,7 +104,9 @@ static int ohci_hcd_stm_probe(struct platform_device *pdev)
 	if (usb_disabled())
 		return -ENODEV;
 
-	ST40_start_host_control(pdev);
+	retval = ST40_start_host_control(pdev);
+	if (retval)
+		return retval;
 
 	hcd = usb_create_hcd(driver, &pdev->dev, DEVICE_NAME);
 	if (!hcd) {

@@ -61,43 +61,16 @@ static spinlock_t ilc_data_lock;
 #endif
 
 /*
- * Prototypes
- */
-
-static void enable_ilc_irq(unsigned int irq)
-{
-	int irq_offset = irq - ILC_FIRST_IRQ;
-
-	DPRINTK("ilc enable %d\n", irq_offset);
-
-	if ((irq_offset < 0) || (irq_offset >= ILC_NR_IRQS))
-		return;
-
-	ILC_SET_ENABLE(irq_offset);
-}
-
-static void disable_ilc_irq(unsigned int irq)
-{
-	int irq_offset = irq - ILC_FIRST_IRQ;
-
-	DPRINTK("ilc disable %d\n", irq_offset);
-
-	if ((irq_offset < 0) || (irq_offset >= ILC_NR_IRQS))
-		return;
-
-	ILC_CLR_ENABLE(irq_offset);
-}
-
-/*
  * The interrupt demux function. Check if this was an ILC interrupt, and
  * of so which device generated the interrupt.
  */
 
-void ilc_irq_demux(int irq, struct irq_desc *desc)
+void ilc_irq_demux(unsigned int irq, struct irq_desc *desc)
 {
 	unsigned int priority = 14 - irq;
 	unsigned int irq_offset;
 	struct ilc_data *this;
+	int handled = 0;
 
 	DPRINTK2("ilc demux got irq %d\n", irq);
 
@@ -111,10 +84,12 @@ void ilc_irq_demux(int irq, struct irq_desc *desc)
 			DPRINTK2("ilc found ilc %d active\n", irq_offset);
 			ILC_CLR_STATUS(irq_offset);
 			desc->handle_irq(ILC_IRQ(irq_offset), desc);
+			handled = 1;
 		}
 	}
 
-	printk(KERN_INFO "ILC: spurious interrupt demux %d\n", irq);
+	if (!handled)
+		printk(KERN_INFO "ILC: spurious interrupt demux %d\n", irq);
 }
 
 static unsigned int startup_ilc_irq(unsigned int irq)
@@ -173,30 +148,35 @@ static void shutdown_ilc_irq(unsigned int irq)
 	spin_unlock_irqrestore(&ilc_data_lock, flags);
 }
 
+static void enable_ilc_irq(unsigned int irq)
+{
+	int irq_offset = irq - ILC_FIRST_IRQ;
+DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
+	ILC_SET_ENABLE(irq_offset);
+}
+
+static void disable_ilc_irq(unsigned int irq)
+{
+	int irq_offset = irq - ILC_FIRST_IRQ;
+DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
+	ILC_CLR_ENABLE(irq_offset);
+}
+
 static void mask_and_ack_ilc(unsigned int irq)
 {
 	int irq_offset = irq - ILC_FIRST_IRQ;
+DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
 	ILC_CLR_ENABLE(irq_offset);
-	ILC_GET_ENABLE(irq_offset); /* Defeat write posting */
-}
-
-static void end_ilc_irq(unsigned int irq)
-{
-	int irq_offset = irq - ILC_FIRST_IRQ;
-
-	if (!(irq_desc[irq].status & (IRQ_DISABLED|IRQ_INPROGRESS))) {
-		ILC_SET_ENABLE(irq_offset);
-	}
+	(void)ILC_GET_ENABLE(irq_offset); /* Defeat write posting */
 }
 
 static struct irq_chip ilc_chip = {
-	"ILC3-IRQ",
-	startup_ilc_irq,
-	shutdown_ilc_irq,
-	enable_ilc_irq,
-	disable_ilc_irq,
-	mask_and_ack_ilc,
-	end_ilc_irq
+	.name		= "ILC3-IRQ",
+	.startup	= startup_ilc_irq,
+	.shutdown	= shutdown_ilc_irq,
+	.mask		= disable_ilc_irq,
+	.mask_ack	= mask_and_ack_ilc,
+	.unmask		= enable_ilc_irq,
 };
 
 void __init init_IRQ_ilc(void)

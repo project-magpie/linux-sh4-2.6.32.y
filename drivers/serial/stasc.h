@@ -20,6 +20,7 @@ struct asc_port
 	struct uart_port port;
 	unsigned char pio_port;
 	unsigned char pio_pin[4]; /* Tx, Rx, CTS, RTS */
+	struct stpio_pin *pios[4];
 	int     break_flag;
 	int dma_enabled;
 };
@@ -32,23 +33,11 @@ struct asc_port
 
 #define FIFO_SIZE		16
 
-/*---- Chip specific values -----------------------------------*/
-
-#if defined(CONFIG_CPU_SUBTYPE_STM8000)
-# define ASC_NPORTS		2
-#elif defined(CONFIG_CPU_SUBTYPE_STI5528)
-#define ASC_NPORTS             2
-#elif defined(CONFIG_CPU_SUBTYPE_STB7100)
-#define ASC_NPORTS             2
-#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
-#define ASC_NPORTS             2
-#else
-#error "Unknown CPU"
-#endif
+#define ASC_MAX_PORTS		4
 
 /*---- Global variables ---------------------------------------*/
 
-extern struct asc_port asc_ports[ASC_NPORTS];
+extern struct asc_port asc_ports[ASC_MAX_PORTS];
 
 /*---- UART Register definitions ------------------------------*/
 
@@ -165,11 +154,11 @@ extern struct asc_port asc_ports[ASC_NPORTS];
 #define ASC_FUNC(name, offset)		\
   static inline unsigned int asc_ ## name ## _in (struct uart_port* port)	\
   {										\
-    return (ctrl_inl (port->mapbase + (offset)));					\
+    return (readl(port->membase + (offset)));					\
   }										\
   static inline void asc_ ## name ## _out (struct uart_port* port, unsigned int value)	\
   {										\
-    ctrl_outl (value, port->mapbase + (offset));					\
+    writel(value, port->membase + (offset));					\
   }
 
 ASC_FUNC(BAUDRATE,  ASC_BAUDRATE)

@@ -230,7 +230,4 @@ struct sh_machine_vector mv_stx7200mboard __initmv = {
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= stx7200mboard_init_irq,
 	.mv_ioport_map		= stx7200mboard_ioport_map,
-#ifdef CONFIG_HEARTBEAT
-	.mv_heartbeat		= heartbeat_heart,
-#endif
 };

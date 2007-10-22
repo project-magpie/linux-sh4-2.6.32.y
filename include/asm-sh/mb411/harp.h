@@ -27,6 +27,8 @@
 #define EPLD_INTMASK1CLR	(EPLD_BASE + 0x180000)
 #define EPLD_TEST		(EPLD_BASE + 0x1e0000)
 
+#define EPLD_FLASH		(EPLD_BASE + 0x400000)
+
 /* Some registers are also available in the POD EPLD */
 #define EPLD_POD_BASE		0xa2100000
 #define EPLD_POD_REVID		(EPLD_POD_BASE + 0x00)
@@ -42,7 +44,6 @@ extern inline int harp_has_intmask_setclr(void)
         return 1;
 }
 
-#if 0
 extern inline void harp_set_vpp_on(void)
 {
 	epld_out(3, EPLD_FLASH);	/* bits: 0 = VPP ON; 1 = RESET	*/
@@ -53,6 +54,5 @@ extern inline void harp_set_vpp_off(void)
 	epld_out(2, EPLD_FLASH);	/* Leave ON only RESET		*/
 }
 
-#endif
 void harp_init_irq(void);
 #endif /* !__ASSEMBLY__ */

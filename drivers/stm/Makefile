@@ -2,6 +2,7 @@
 # Makefile for the STMicroelectronics device drivers.
 #
 
+obj-y				+= sysconf.o
 obj-$(CONFIG_STM_DMA)		+= 710x_fdma2.o
 obj-$(CONFIG_STM_PIO)		+= pio.o
 obj-$(CONFIG_STM_SSC)		+= stm_ssc.o

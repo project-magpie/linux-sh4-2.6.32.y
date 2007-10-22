@@ -45,6 +45,10 @@ void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
 	if (!size || last_addr < phys_addr)
 		return NULL;
 
+	if (PXSEG(phys_addr) == P4SEG) {
+		return (void __iomem *)phys_addr;
+	}
+
 	/*
 	 * If we're on an SH7751 or SH7780 PCI controller, PCI memory is
 	 * mapped at the end of the address space (typically 0xfd000000)

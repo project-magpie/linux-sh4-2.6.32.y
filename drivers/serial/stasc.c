@@ -18,15 +18,15 @@
 #include <linux/stm/pio.h>
 #include <linux/generic_serial.h>
 #include <linux/spinlock.h>
+#include <linux/platform_device.h>
+#include <linux/stm/soc.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
-#include <asm/cacheflush.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 #include <asm/bitops.h>
 #include <asm/clock.h>
-#include <asm/irq-ilc.h>
 
 #ifdef CONFIG_SH_KGDB
 #include <asm/kgdb.h>
@@ -38,23 +38,27 @@
 
 #include "stasc.h"
 
+#define DRIVER_NAME "stasc"
+
 #ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
 /* This is used as a system console, set by serial_console_setup */
-static struct console serial_console;
-static struct uart_port *serial_console_port = 0;
+static struct console asc_console;
 #endif
+
+struct asc_port asc_ports[ASC_MAX_PORTS];
 
 /*---- Forward function declarations---------------------------*/
 static int  asc_request_irq(struct uart_port *);
 static void asc_free_irq(struct uart_port *);
 static void asc_transmit_chars(struct uart_port *);
+static int asc_remap_port(struct asc_port *ascport, int req);
 void        asc_set_termios_cflag (struct asc_port *, int ,int);
 static inline void asc_receive_chars(struct uart_port *);
 
 #ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
-static void serial_console_write (struct console *, const char *,
+static void asc_console_write (struct console *, const char *,
 				  unsigned );
-static int __init serial_console_setup (struct console *, char *);
+static int __init asc_console_setup (struct console *, char *);
 #endif
 
 #ifdef CONFIG_SH_KGDB
@@ -222,7 +226,7 @@ static void asc_shutdown(struct uart_port *port)
 static void asc_set_termios(struct uart_port *port, struct ktermios *termios,
 			    struct ktermios *old)
 {
-	struct asc_port *ascport = &asc_ports[port->line];
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 	unsigned int baud;
 
 	baud = uart_get_baud_rate(port, termios, old, 0,
@@ -232,31 +236,38 @@ static void asc_set_termios(struct uart_port *port, struct ktermios *termios,
 }
 static const char *asc_type(struct uart_port *port)
 {
-	return "asc";
+	struct platform_device *pdev = to_platform_device(port->dev);
+	return pdev->name;
 }
 
 static void asc_release_port(struct uart_port *port)
 {
-	/* Nothing here yet .. */
+	struct platform_device *pdev = to_platform_device(port->dev);
+	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
+
+	release_mem_region(port->mapbase, size);
+
+	if (port->flags & UPF_IOREMAP) {
+		iounmap(port->membase);
+		port->membase = NULL;
+	}
 }
 
 static int asc_request_port(struct uart_port *port)
 {
-	/* Nothing here yet .. */
-	return 0;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
+
+	return asc_remap_port(ascport, 1);
 }
 
 /* Called when the port is opened, and UPF_BOOT_AUTOCONF flag is set */
 /* Set type field if successful */
 static void asc_config_port(struct uart_port *port, int flags)
 {
-	if (!port->membase)
-		port->membase = ioremap_nocache(port->mapbase,4096);
-	if (!port->membase)
-		return;
-
-	port->type = PORT_ASC;
-	port->fifosize = FIFO_SIZE;
+	if (flags & UART_CONFIG_TYPE) {
+		port->type = PORT_ASC;
+		asc_request_port(port);
+	}
 }
 
 static int
@@ -266,7 +277,8 @@ asc_verify_port(struct uart_port *port, struct serial_struct *ser)
 	return -EINVAL;
 }
 
-/*----------------------------------------------------------------------*/
+/*---------------------------------------------------------------------*/
+
 static struct uart_ops asc_uart_ops = {
 	.tx_empty	= asc_tx_empty,
 	.set_mctrl	= asc_set_mctrl,
@@ -286,173 +298,157 @@ static struct uart_ops asc_uart_ops = {
 	.verify_port	= asc_verify_port,
 };
 
-struct asc_port asc_ports[ASC_NPORTS] = {
-#if defined(CONFIG_CPU_SUBTYPE_STI5528)
-	{
-		/* UART3 */
-		.port	= {
-			.membase	= (void *)0xba033000,
-			.mapbase	= 0xba033000,
-			.iotype		= SERIAL_IO_MEM,
-			.irq		= 123,
-			.ops		= &asc_uart_ops,
-			.flags		= ASYNC_BOOT_AUTOCONF,
-			.fifosize	= FIFO_SIZE,
-			.line		= 0,
-		},
-		.pio_port	= 5,
-		.pio_pin	= { 4, 5, 6, 7},
-	},
-	{
-		/* UART4 */
-		.port	= {
-			.membase	= (void *)0xba034000,
-			.mapbase	= 0xba034000,
-			.iotype		= SERIAL_IO_MEM,
-			.irq		= 119,
-			.ops		= &asc_uart_ops,
-			.flags		= ASYNC_BOOT_AUTOCONF,
-			.fifosize	= FIFO_SIZE,
-			.line		= 1,
-		},
-		.pio_port	= 6,
-		.pio_pin	= { 0, 1, 2, 3},
-	},
-#elif defined(CONFIG_CPU_SUBTYPE_STM8000)
-	{
-		.port	= {
-			.membase	= (void *)0xb8330000,
-			.mapbase	= 0xb8330000,
-			.iotype		= SERIAL_IO_MEM,
-			.irq		= ILC_FIRST_IRQ + 9,
-			.ops		= &asc_uart_ops,
-			.flags		= ASYNC_BOOT_AUTOCONF,
-			.fifosize	= FIFO_SIZE,
-			.line		= 0,
-		},
-		.pio_port	= 5,
-		.pio_pin	= {4, 5, 6, 7},
-	},
-	{
-		.port	= {
-			.membase	= (void *)0xb8331000,
-			.mapbase	= 0xb8331000,
-			.iotype		= SERIAL_IO_MEM,
-			.irq		= ILC_FIRST_IRQ + 10,
-			.ops		= &asc_uart_ops,
-			.flags		= ASYNC_BOOT_AUTOCONF,
-			.fifosize	= FIFO_SIZE,
-			.line		= 1,
-		},
-		.pio_port	= 5,
-		.pio_pin	= {0, 1, 2, 3},
-	},
-#elif defined(CONFIG_CPU_SUBTYPE_STB7100)
-	/* UART2 */
-	{
-		.port	= {
-			.membase	= (void *)0xb8032000,
-			.mapbase	= 0xb8032000,
-			.iotype		= SERIAL_IO_MEM,
-			.irq		= 121,
-			.ops		= &asc_uart_ops,
-			.flags		= ASYNC_BOOT_AUTOCONF,
-			.fifosize	= FIFO_SIZE,
-			.line		= 0,
-		},
-		.pio_port	= 4,
-		.pio_pin	= {3, 2, 4, 5},
-	},
-	/* UART3 */
-	{
-		.port	= {
-			.membase	= (void *)0xb8033000,
-			.mapbase	= 0xb8033000,
-			.iotype		= SERIAL_IO_MEM,
-			.irq		= 120,
-			.ops		= &asc_uart_ops,
-			.flags		= ASYNC_BOOT_AUTOCONF,
-			.fifosize	= FIFO_SIZE,
-			.line		= 1,
-		},
-		.pio_port	= 5,
-		.pio_pin	= {0, 1, 2, 3},
-	},
-#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
-	/* UART2 */
-	{
-		.port	= {
-			.membase	= (void *)0xfd032000,
-			.mapbase	= 0xfd032000,
-			.iotype		= SERIAL_IO_MEM,
-			.irq		= ILC_IRQ(106),
-			.ops		= &asc_uart_ops,
-			.flags		= ASYNC_BOOT_AUTOCONF,
-			.fifosize	= FIFO_SIZE,
-			.line		= 0,
-		},
-		.pio_port	= 4,
-		.pio_pin	= {3, 2, 4, 5},
-	},
-	/* UART3 */
-	{
-		.port	= {
-			.membase	= (void *)0xfd033000,
-			.mapbase	= 0xfd033000,
-			.iotype		= SERIAL_IO_MEM,
-			.irq		= ILC_IRQ(107),
-			.ops		= &asc_uart_ops,
-			.flags		= ASYNC_BOOT_AUTOCONF,
-			.fifosize	= FIFO_SIZE,
-			.line		= 1,
-		},
-		.pio_port	= 5,
-		.pio_pin	= {4, 3, 5, 6},
-	},
-#else
-#error "ASC error: CPU subtype not defined"
-#endif
-};
+static void __devinit asc_init_port(struct asc_port *ascport,
+				    struct platform_device *pdev)
+{
+	struct uart_port *port = &ascport->port;
+	struct stasc_uart_data *data = pdev->dev.platform_data;
+	struct clk *clk;
+	unsigned long rate;
+	int i;
 
-static char banner[] __initdata =
-	KERN_INFO "STMicroelectronics ASC driver initialized\n";
+	port->iotype	= UPIO_MEM;
+	port->flags	= UPF_BOOT_AUTOCONF;
+	port->ops	= &asc_uart_ops,
+	port->fifosize	= FIFO_SIZE;
+	port->line	= pdev->id;
+	port->dev	= &pdev->dev;
+
+	port->mapbase	= pdev->resource[0].start;
+	port->irq	= pdev->resource[1].start;
+
+	/* Assume that we can always use ioremap */
+	port->flags	|= UPF_IOREMAP;
+	port->membase	= NULL;
+
+	clk = clk_get(NULL, "comms_clk");
+	if (IS_ERR(clk)) clk = clk_get(NULL, "bus_clk");
+	rate = clk_get_rate(clk);
+	clk_put(clk);
+
+	ascport->port.uartclk = rate;
+
+	ascport->pio_port = data->pio_port;
+	for (i=0; i<4; i++)
+		ascport->pio_pin[i] = data->pio_pin[i];
+}
 
 static struct uart_driver asc_uart_driver = {
 	.owner		= THIS_MODULE,
-	.driver_name	= "asc",
+	.driver_name	= DRIVER_NAME,
 	.dev_name	= "ttyAS",
 	.major		= ASC_MAJOR,
 	.minor		= ASC_MINOR_START,
-	.nr		= ASC_NPORTS,
-	.cons		= &serial_console,
+	.nr		= ASC_MAX_PORTS,
+	.cons		= &asc_console,
 };
 
 #ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
-static struct console serial_console = {
+static struct console asc_console = {
 	.name		= "ttyAS",
 	.device		= uart_console_device,
-	.write		= serial_console_write,
-	.setup		= serial_console_setup,
+	.write		= asc_console_write,
+	.setup		= asc_console_setup,
 	.flags		= CON_PRINTBUFFER,
 	.index		= -1,
 	.data		= &asc_uart_driver,
 };
+
+/*
+ * Early console initialization.
+ */
+static int __init asc_console_init(void)
+{
+	if (asc_default_console_device) {
+		add_preferred_console("ttyAS", asc_default_console_device->id,
+				      NULL);
+		asc_init_port(&asc_ports[asc_default_console_device->id],
+			      asc_default_console_device);
+		register_console(&asc_console);
+        }
+
+        return 0;
+}
+console_initcall(asc_console_init);
+
+/*
+ * Late console initialization.
+ */
+static int __init asc_late_console_init(void)
+{
+	if (asc_default_console_device && !(asc_console.flags & CON_ENABLED))
+		register_console(&asc_console);
+
+        return 0;
+}
+core_initcall(asc_late_console_init);
 #endif
 
-#ifdef CONFIG_SH_KGDB
-#ifdef CONFIG_SH_KGDB_CONSOLE
-/* The console structure for KGDB */
-static struct console kgdb_console= {
-	.name		= "ttyAS",
-	.device		= kgdb_console_device,
-	.write		= kgdb_console_write,
-	.setup		= kgdb_console_setup,
-	.flags		= CON_PRINTBUFFER | CON_ENABLED,
-	.index		= -1,
-	.data		= &asc_uart_driver,
+static int __devinit asc_serial_probe(struct platform_device *pdev)
+{
+	int ret;
+	struct asc_port *ascport = &asc_ports[pdev->id];
+
+	asc_init_port(ascport, pdev);
+
+	ret = uart_add_one_port(&asc_uart_driver, &ascport->port);
+	if (ret == 0) {
+		platform_set_drvdata(pdev, &ascport->port);
+        }
+
+	return ret;
+}
+
+static int __devexit asc_serial_remove(struct platform_device *pdev)
+{
+	struct uart_port *port = platform_get_drvdata(pdev);
+
+        platform_set_drvdata(pdev, NULL);
+	return uart_remove_one_port(&asc_uart_driver, port);
+}
+
+static struct platform_driver asc_serial_driver = {
+	.probe		= asc_serial_probe,
+	.remove		= __devexit_p(asc_serial_remove),
+	.driver	= {
+		.name	= DRIVER_NAME,
+		.owner	= THIS_MODULE,
+	},
 };
-#endif
-#endif
+
+static int __init asc_init(void)
+{
+	int ret;
+	static char banner[] __initdata =
+		KERN_INFO "STMicroelectronics ASC driver initialized\n";
+
+	printk(banner);
+
+	asc_fdma_setreq();
+
+	ret = uart_register_driver(&asc_uart_driver);
+	if (ret)
+		return ret;
+
+	ret = platform_driver_register(&asc_serial_driver);
+	if (ret)
+		uart_unregister_driver(&asc_uart_driver);
+
+	return ret;
+}
+
+static void __exit asc_exit(void)
+{
+	platform_driver_unregister(&asc_serial_driver);
+	uart_unregister_driver(&asc_uart_driver);
+}
+
+module_init(asc_init);
+module_exit(asc_exit);
+
+MODULE_AUTHOR("Stuart Menefy <stuart.menefy@st.com>");
+MODULE_DESCRIPTION("STMicroelectronics ASC serial port driver");
+MODULE_LICENSE("GPL");
 
 /*----------------------------------------------------------------------*/
 
@@ -460,10 +456,45 @@ static struct console kgdb_console= {
  * generic serial port.
  */
 
+static int asc_remap_port(struct asc_port *ascport, int req)
+{
+	struct uart_port *port = &ascport->port;
+	struct platform_device *pdev = to_platform_device(port->dev);
+	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
+	int i;
+	static int pio_dirs[4] = {
+		STPIO_ALT_OUT,	/* Tx */
+		STPIO_IN,	/* Rx */
+		STPIO_IN,	/* CTS */
+		STPIO_ALT_OUT	/* RTS */
+	};
+
+	if (req && !request_mem_region(port->mapbase, size, pdev->name))
+		return -EBUSY;
+
+	/* We have already been remapped for the console */
+	if (port->membase)
+		return 0;
+
+	if (port->flags & UPF_IOREMAP) {
+		port->membase = ioremap(port->mapbase, size);
+		if (port->membase == NULL) {
+			release_mem_region(port->mapbase, size);
+			return -ENOMEM;
+		}
+	}
+
+	for (i=0; i<4; i++) {
+		ascport->pios[i] = stpio_request_pin(ascport->pio_port,
+			ascport->pio_pin[0], DRIVER_NAME, pio_dirs[i]);
+	}
+
+	return 0;
+}
+
 static int asc_set_baud (struct uart_port *port, int baud)
 {
 	unsigned int t;
-	struct clk *clk;
 	unsigned long rate;
 
 	rate = port->uartclk;
@@ -501,18 +532,6 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 	/* reset fifo rx & tx */
 	asc_out (port, TXRESET, 1);
 	asc_out (port, RXRESET, 1);
-
-	/* Configure the PIO pins */
-	stpio_request_pin(ascport->pio_port, ascport->pio_pin[0],
-			  "ASC", STPIO_ALT_OUT); /* Tx */
-	stpio_request_pin(ascport->pio_port, ascport->pio_pin[1],
-			  "ASC", STPIO_IN);      /* Rx */
-	if (cflag & CRTSCTS) {
-		stpio_request_pin(ascport->pio_port, ascport->pio_pin[2],
-				  "ASC", STPIO_IN);      /* CTS */
-		stpio_request_pin(ascport->pio_port, ascport->pio_pin[3],
-				  "ASC", STPIO_ALT_OUT); /* RTS */
-	}
 
 	/* set character length */
 	if ((cflag & CSIZE) == CS7)
@@ -730,9 +749,11 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 
 static int asc_request_irq(struct uart_port *port)
 {
+        struct platform_device *pdev = to_platform_device(port->dev);
+
 	if (request_irq(port->irq, asc_interrupt, 0,
-			"asc", port)) {
-		printk(KERN_ERR "asc: cannot allocate irq.\n");
+			pdev->name, port)) {
+		printk(KERN_ERR "stasc: cannot allocate irq.\n");
 		return -ENODEV;
 	}
 	return 0;
@@ -742,60 +763,6 @@ static void asc_free_irq(struct uart_port *port)
 {
 	free_irq(port->irq, port);
 }
-
-/*
- *  Main entry point for the serial console driver.
- *  Called by console_init() in drivers/char/tty_io.c
- *  register_console() is in kernel/printk.c
- */
-
-static int __init
-asc_console_init (void)
-{
-	register_console (&serial_console);
-	return 0;
-}
-
-/*----------------------------------------------------------------------*/
-int __init asc_init(void)
-{
-	int line, ret;
-	struct clk *clk;
-	unsigned long rate;
-
-	clk = clk_get(NULL, "comms_clk");
-	if (IS_ERR(clk)) clk = clk_get(NULL, "bus_clk");
-	rate = clk_get_rate(clk);
-	clk_put(clk);
-
-	printk("%s", banner);
-
-	asc_fdma_setreq();
-
-	ret = uart_register_driver(&asc_uart_driver);
-	if (ret == 0) {
-		for (line=0; line<ASC_NPORTS; line++) {
-			struct asc_port *ascport = &asc_ports[line];
-			ascport->port.uartclk = rate;
-			uart_add_one_port(&asc_uart_driver, &ascport->port);
-		}
-	}
-
-	return ret;
-}
-
-static void __exit asc_exit(void)
-{
-	int line;
-
-	for (line = 0; line < ASC_NPORTS; line++)
-		uart_remove_one_port(&asc_uart_driver, &asc_ports[line].port);
-
-	uart_unregister_driver(&asc_uart_driver);
-}
-
-module_init(asc_init);
-module_exit(asc_exit);
 
 /*----------------------------------------------------------------------*/
 
@@ -910,28 +877,17 @@ put_string (struct uart_port *port, const char *buffer, int count)
  */
 
 static int __init
-serial_console_setup (struct console *co, char *options)
+asc_console_setup (struct console *co, char *options)
 {
-	struct asc_port *ascport;
+	struct asc_port *ascport = &asc_ports[co->index];
 	int     baud = 9600;
 	int     bits = 8;
 	int     parity = 'n';
 	int     flow = 'n';
-	struct clk *clk;
-	unsigned long rate;
+	int ret;
 
-	if (co->index < 0 || co->index >= ASC_NPORTS)
-		co->index = 0;
-
-	ascport = &asc_ports[co->index];
-
-	clk = clk_get(NULL, "comms_clk");
-	if (IS_ERR(clk)) clk = clk_get(NULL, "bus_clk");
-	rate = clk_get_rate(clk);
-	clk_put(clk);
-	ascport->port.uartclk = rate;
-
-	serial_console_port = &ascport->port;
+	if ((ret = asc_remap_port(ascport, 0)) != 0)
+		return ret;
 
 	if (options) {
                 uart_parse_options(options, &baud, &parity, &bits, &flow);
@@ -946,9 +902,11 @@ serial_console_setup (struct console *co, char *options)
  */
 
 static void
-serial_console_write (struct console *co, const char *s, unsigned count)
+asc_console_write (struct console *co, const char *s, unsigned count)
 {
-	put_string (serial_console_port, s, count);
+	struct uart_port *port = &asc_ports[co->index].port;
+
+	put_string(port, s, count);
 }
 
 /*----------------------------------------------------------------------*/
@@ -993,7 +951,7 @@ int kgdb_asc_setup(void)
 
 	if ((kgdb_portnum < 0) || (kgdb_portnum >= ASC_NPORTS))
 	{
-		printk (KERN_ERR "%s invalid ASC port number\n", __FUNCTION__);
+		printk (KERN_ERR "stasc: invalid ASC port number\n");
 		return -1;
 	}
 
@@ -1018,8 +976,8 @@ int kgdb_asc_setup(void)
         default:
                 cflag |= B115200;
                 kgdb_baud = 115200;
-		printk (KERN_WARNING "%s: force the kgdb baud as %d\n",
-				      __FUNCTION__, kgdb_baud);
+		printk (KERN_WARNING "stasc: force the kgdb baud as %d\n",
+			kgdb_baud);
                 break;
         }
 
@@ -1068,6 +1026,17 @@ static int __init kgdb_console_setup(struct console *co, char *options)
         return 0;
 }
 
+/* The console structure for KGDB */
+static struct console kgdb_console= {
+	.name		= "ttyAS",
+	.device		= kgdb_console_device,
+	.write		= kgdb_console_write,
+	.setup		= kgdb_console_setup,
+	.flags		= CON_PRINTBUFFER | CON_ENABLED,
+	.index		= -1,
+	.data		= &asc_uart_driver,
+};
+
 #ifdef CONFIG_KGDB_DEFTYPE_ASC
 /* Register the KGDB console so we get messages (d'oh!) */
 int __init kgdb_console_init(void)
@@ -1079,4 +1048,3 @@ console_initcall(kgdb_console_init);
 #endif
 #endif /* CONFIG_SH_KGDB_CONSOLE */
 #endif /* CONFIG_SH_KGDB */
-console_initcall(asc_console_init);

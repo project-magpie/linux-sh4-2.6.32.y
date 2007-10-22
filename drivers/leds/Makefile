@@ -18,6 +18,9 @@ obj-$(CONFIG_LEDS_H1940)		+= leds-h1940.o
 obj-$(CONFIG_LEDS_COBALT)		+= leds-cobalt.o
 obj-$(CONFIG_LEDS_GPIO)			+= leds-gpio.o
 obj-$(CONFIG_LEDS_MB374)		+= leds-mb374.o
+obj-$(CONFIG_SH_ST_MB411)		+= leds-mb411.o
+obj-$(CONFIG_SH_ST_MB411)		+= leds-mb411.o
+obj-$(CONFIG_SH_ST_MB519)		+= leds-mb519.o
 
 # LED Triggers
 obj-$(CONFIG_LEDS_TRIGGER_TIMER)	+= ledtrig-timer.o

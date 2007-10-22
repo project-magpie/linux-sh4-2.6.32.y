@@ -47,9 +47,9 @@ struct asc_dma_port
 	struct timer_list rxpoll_timer;
 };
 
-static unsigned long FDMA_RXREQ[ASC_NPORTS];
-static unsigned long FDMA_TXREQ[ASC_NPORTS];
-static struct asc_dma_port asc_dma_ports[ASC_NPORTS];
+static unsigned long FDMA_RXREQ[ASC_MAX_PORTS];
+static unsigned long FDMA_TXREQ[ASC_MAX_PORTS];
+static struct asc_dma_port asc_dma_ports[ASC_MAX_PORTS];
 
 void asc_fdma_setreq(void)
 {
@@ -138,7 +138,7 @@ static void asc_dma_rxflush(struct uart_port *port)
 	/* Try to set RX DMA going again */
 	dma_params_addrs(&ascdmaport->rxdmap,
 			 ascdmaport->rxdmap.sar,
-			 virt_to_bus(ascdmaport->rxdmabuf[ascdmaport->rxdmabuf_head]),
+			 virt_to_phys(ascdmaport->rxdmabuf[ascdmaport->rxdmabuf_head]),
 			 ascdmaport->rxdmap.node_bytes);
 
 	dma_params_DIM_0_x_1(&ascdmaport->rxdmap);
@@ -299,8 +299,8 @@ void asc_fdma_start_tx(struct uart_port *port)
 			ascdmaport->txdma_running = 1;
 
 			dma_params_addrs(&ascdmaport->txdmap,
-					virt_to_bus(ascdmaport->txdmabuf[newtail]),
-					virt_to_bus((void*)(port->mapbase + ASC_TXBUF)),
+					virt_to_phys(ascdmaport->txdmabuf[newtail]),
+					virt_to_phys((void*)(port->mapbase + ASC_TXBUF)),
 					to_send);
 
 			dma_params_DIM_1_x_0(&ascdmaport->txdmap);
@@ -362,7 +362,7 @@ static void asc_txfmda_done(unsigned long param)
 			int err;
 
 			dma_params_addrs(&ascdmaport->txdmap,
-					virt_to_bus(ascdmaport->txdmabuf[newhead]),
+					virt_to_phys(ascdmaport->txdmabuf[newhead]),
 					ascdmaport->txdmap.dar,
 					ascdmaport->txdmabuf_count[newhead]);
 			dma_params_DIM_1_x_0(&ascdmaport->txdmap);
@@ -520,8 +520,8 @@ int asc_enable_fdma(struct uart_port *port)
 				  STM_DMA_CB_CONTEXT_TASKLET);
 
 		dma_params_addrs(&ascdmaport->rxdmap,
-				virt_to_bus((void*)(port->mapbase + ASC_RXBUF)),
-				virt_to_bus(ascdmaport->rxdmabuf[0]),
+				virt_to_phys((void*)(port->mapbase + ASC_RXBUF)),
+				virt_to_phys(ascdmaport->rxdmabuf[0]),
 				DMA_RXBUFSIZE);
 
 		ascdmaport->rx_dma_req = dma_req_config(ascdmaport->rxdma_chid,

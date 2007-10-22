@@ -10,6 +10,7 @@
 #include <linux/stm/soc.h>
 #include <linux/delay.h>
 #include <linux/platform_device.h>
+#include <linux/mutex.h>
 #include <asm/io.h>
 #include "stb7100-common.h"
 
@@ -23,11 +24,14 @@
 #define CHUNKSIZE	AHB2STBUS_CHUNKSIZE_64
 #endif
 
+#define RESOURCE_NAME "USB wrapper"
+
+static DEFINE_MUTEX(wraper_mutex);
 
 /*
  * Set up the USB hardware wrapper
  */
-void ST40_start_host_control(struct platform_device *pdev)
+int ST40_start_host_control(struct platform_device *pdev)
 {
 	struct plat_usb_data *usb_wrapper = pdev->dev.platform_data;
 	unsigned long ahb2stbus_wrapper_glue_base =
@@ -35,35 +39,76 @@ void ST40_start_host_control(struct platform_device *pdev)
 	unsigned long ahb2stbus_protocol_base =
 		usb_wrapper->ahb2stbus_protocol_base;
 	unsigned long reg;
+	int retval;
+	void *wrapper_base;
+	void *protocol_base;
 
-	if (xchg(&usb_wrapper->initialised, 1))
-		return;
+	mutex_lock(&wraper_mutex);
+
+	if (usb_wrapper->initialised)
+		goto success;
+
+	retval = -EBUSY;
+
+	if (!request_mem_region(ahb2stbus_wrapper_glue_base, 0x100,
+				RESOURCE_NAME))
+		goto err1;
+
+	if (!request_mem_region(ahb2stbus_protocol_base, 0x100,
+				RESOURCE_NAME))
+		goto err2;
+
+	retval = -ENOMEM;
+
+	wrapper_base = ioremap(ahb2stbus_wrapper_glue_base, 0x100);
+	if (!wrapper_base)
+		goto err3;
+
+	protocol_base = ioremap(ahb2stbus_protocol_base, 0x100);
+	if (!protocol_base)
+		goto err4;
 
 	/* Set strap mode */
-	reg = readl(ahb2stbus_wrapper_glue_base + AHB2STBUS_STRAP_OFFSET);
+	reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	reg &= ~AHB2STBUS_STRAP_16_BIT;
 	reg |= STRAP_MODE;
-	writel(reg, ahb2stbus_wrapper_glue_base + AHB2STBUS_STRAP_OFFSET);
+	writel(reg, wrapper_base + AHB2STBUS_STRAP_OFFSET);
 
 	/* Start PLL */
-	reg = readl(ahb2stbus_wrapper_glue_base + AHB2STBUS_STRAP_OFFSET);
+	reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	writel(reg | AHB2STBUS_STRAP_PLL,
-	       ahb2stbus_wrapper_glue_base + AHB2STBUS_STRAP_OFFSET);
+	       wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	mdelay(100);
 	writel(reg & (~AHB2STBUS_STRAP_PLL),
-	       ahb2stbus_wrapper_glue_base + AHB2STBUS_STRAP_OFFSET);
+	       wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	mdelay(100);
 
 	/* Set the STBus Opcode Config for load/store 32 */
 	writel(AHB2STBUS_STBUS_OPC_32BIT,
-	       ahb2stbus_protocol_base + AHB2STBUS_STBUS_OPC_OFFSET);
+	       protocol_base + AHB2STBUS_STBUS_OPC_OFFSET);
 
 	/* Set the Message Size Config to n packets per message */
 	writel(MSGSIZE,
-	       ahb2stbus_protocol_base + AHB2STBUS_MSGSIZE_OFFSET);
+	       protocol_base + AHB2STBUS_MSGSIZE_OFFSET);
 
 	writel(CHUNKSIZE,
-	       ahb2stbus_protocol_base + AHB2STBUS_CHUNKSIZE_OFFSET);
+	       protocol_base + AHB2STBUS_CHUNKSIZE_OFFSET);
 
 	usb_wrapper->power_up(pdev);
+
+	usb_wrapper->initialised = 1;
+
+success:
+	mutex_unlock(&wraper_mutex);
+	return 0;
+
+err4:
+	iounmap(wrapper_base);
+err3:
+	release_mem_region(ahb2stbus_protocol_base, 0x100);
+err2:
+	release_mem_region(ahb2stbus_wrapper_glue_base, 0x100);
+err1:
+	mutex_unlock(&wraper_mutex);
+	return retval;
 }

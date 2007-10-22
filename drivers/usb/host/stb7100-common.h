@@ -103,4 +103,4 @@ static inline void usb_hcd_st40_wait_irq(void)
 #endif
 }
 
-void ST40_start_host_control(struct platform_device *dev);
+int ST40_start_host_control(struct platform_device *dev);

@@ -67,6 +67,11 @@
  *	  - <tx_queue_size>: transmit queue size.
  * ----------------------------------------------------------------------------
  * Changelog:
+ *   September 2007:
+ *   	-  Separated the PHY platform bus configuration from the MAC so that
+ *   	   we can include the MAC in the chip support and the PHY config in
+ *   	   the board support.
+ *   	   	Carl Shaw <carl.shaw@st.com>
  *   July 2007:
  *   	-  Moved the DMA initialization from the probe to the open method.
  *   	-  Reviewed the ioctl method.
@@ -157,7 +162,9 @@
 #include "stmmac.h"
 
 /* Generic defines */
-#define RESOURCE_NAME	"stmmaceth"
+#define ETH_RESOURCE_NAME	"stmmaceth"
+#define PHY_RESOURCE_NAME	"stmmacphy"
+
 #ifdef CONFIG_STMMAC_DEBUG
 #define ETHPRINTK(nlevel, klevel, fmt, args...) \
 		(void)(netif_msg_##nlevel(lp) && \
@@ -167,6 +174,7 @@
 #endif				/*CONFIG_STMMAC_DEBUG */
 
 /* It enables the more debug information in the transmit function */
+#define STMMAC_XMIT_DEBUG
 #undef STMMAC_XMIT_DEBUG
 #ifdef STMMAC_XMIT_DEBUG
 #define XMITPRINTK(mss, klevel, fmt, args...) \
@@ -207,7 +215,6 @@ struct eth_driver_local {
 	phy_interface_t phy_interface;
 	int (*phy_reset)(void *priv);
 	void (*fix_mac_speed)(void *priv, unsigned int speed);
-	void (*hw_setup)(void);
 	void *bsp_priv;
 	int oldlink;
 	int speed;
@@ -458,8 +465,6 @@ static int stmmac_init_phy(struct net_device *dev)
 		  "stmmac_init_phy:  %s: attached to PHY. Link = %d\n",
 		  dev->name, phydev->link);
 
-	lp->hw_setup();
-
 	lp->phydev = phydev;
 
 	return 0;
@@ -539,8 +544,12 @@ int stmmac_mdio_reset(struct mii_bus *bus)
 	struct eth_driver_local *lp = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
 
-	if (lp->phy_reset)
+printk("stmmac_mdio_reset: called!\n");
+
+	if (lp->phy_reset){
+		printk("stmmac_mdio_reset: calling phy_reset\n");
 		return lp->phy_reset(lp->bsp_priv);
+	}
 
 	/* This is a workaround for problems with the STE101P PHY.
 	 * It doesn't complete its reset until at least one clock cycle
@@ -580,7 +589,9 @@ int stmmac_mdio_register(struct eth_driver_local *lp, struct net_device *ndev)
 	new_bus->phy_mask = lp->phy_mask;
 	new_bus->dev = 0; /* FIXME */
 
+printk("calling mdiobus_register\n");
 	err = mdiobus_register(new_bus);
+printk("calling mdiobus_register done\n");
 
 	if (err != 0) {
 		printk(KERN_ERR "%s: Cannot register as MDIO bus\n",
@@ -624,40 +635,40 @@ static inline void dump_stm_mac_csr(unsigned long ioaddr)
 	       "\t  MAC CSR (base addr = 0x%8x)\n"
 	       "\t----------------------------------------------\n",
 	       (unsigned int)ioaddr);
-	printk("\tcontrol reg (offset 0x%x): 0x%lx\n", MAC_CONTROL,
+	printk("\tcontrol reg (offset 0x%x): 0x%08x\n", MAC_CONTROL,
 	       readl(ioaddr + MAC_CONTROL));
-	printk("\taddr HI (offset 0x%x): 0x%lx\n ", MAC_ADDR_HIGH,
+	printk("\taddr HI (offset 0x%x): 0x%08x\n ", MAC_ADDR_HIGH,
 	       readl(ioaddr + MAC_ADDR_HIGH));
-	printk("\taddr LO (offset 0x%x): 0x%lx\n", MAC_ADDR_LOW,
-	       readl(ioaddr + MAC_ADDR_LOW));
-	printk("\tmulticast hash HI (offset 0x%x): 0x%lx\n", MAC_HASH_HIGH,
+	printk("\taddr LO (offset 0x%x): 0x%08x\n", MAC_ADDR_LOW,
+	       (unsigned int)readl(ioaddr + MAC_ADDR_LOW));
+	printk("\tmulticast hash HI (offset 0x%08x): 0x%08x\n", MAC_HASH_HIGH,
 	       readl(ioaddr + MAC_HASH_HIGH));
-	printk("\tmulticast hash LO (offset 0x%x): 0x%lx\n", MAC_HASH_LOW,
+	printk("\tmulticast hash LO (offset 0x%08x): 0x%08x\n", MAC_HASH_LOW,
 	       readl(ioaddr + MAC_HASH_LOW));
-	printk("\tflow control (offset 0x%x): 0x%lx\n", MAC_FLOW_CONTROL,
+	printk("\tflow control (offset 0x%x): 0x%08x\n", MAC_FLOW_CONTROL,
 	       readl(ioaddr + MAC_FLOW_CONTROL));
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-	printk("\tVLAN1 tag (offset 0x%x): 0x%lx\n", MAC_VLAN1,
+	printk("\tVLAN1 tag (offset 0x%x): 0x%08x\n", MAC_VLAN1,
 	       readl(ioaddr + MAC_VLAN1));
-	printk("\tVLAN2 tag (offset 0x%x): 0x%lx\n", MAC_VLAN2,
+	printk("\tVLAN2 tag (offset 0x%x): 0x%08x\n", MAC_VLAN2,
 	       readl(ioaddr + MAC_VLAN2));
 #endif
-	printk("\tmac wakeup frame (offset 0x%x): 0x%lx\n", MAC_WAKEUP_FILTER,
+	printk("\tmac wakeup frame (offset 0x%x): 0x%08x\n", MAC_WAKEUP_FILTER,
 	       readl(ioaddr + MAC_WAKEUP_FILTER));
-	printk("\tmac wakeup crtl (offset 0x%x): 0x%lx\n",
+	printk("\tmac wakeup crtl (offset 0x%x): 0x%08x\n",
 	       MAC_WAKEUP_CONTROL_STATUS,
 	       readl(ioaddr + MAC_WAKEUP_CONTROL_STATUS));
 
 	printk("\n\tMAC management counter registers\n");
-	printk("\t MMC crtl (offset 0x%x): 0x%lx\n",
+	printk("\t MMC crtl (offset 0x%x): 0x%08x\n",
 	       MMC_CONTROL, readl(ioaddr + MMC_CONTROL));
-	printk("\t MMC High Interrupt (offset 0x%x): 0x%lx\n",
+	printk("\t MMC High Interrupt (offset 0x%08x): 0x%08x\n",
 	       MMC_HIGH_INTR, readl(ioaddr + MMC_HIGH_INTR));
-	printk("\t MMC Low Interrupt (offset 0x%x): 0x%lx\n",
+	printk("\t MMC Low Interrupt (offset 0x%08x): 0x%08x\n",
 	       MMC_LOW_INTR, readl(ioaddr + MMC_LOW_INTR));
-	printk("\t MMC High Interrupt Mask (offset 0x%x): 0x%lx\n",
+	printk("\t MMC High Interrupt Mask (offset 0x%08x): 0x%08x\n",
 	       MMC_HIGH_INTR_MASK, readl(ioaddr + MMC_HIGH_INTR_MASK));
-	printk("\t MMC Low Interrupt Mask (offset 0x%x): 0x%lx\n",
+	printk("\t MMC Low Interrupt Mask (offset 0x%08x): 0x%08x\n",
 	       MMC_LOW_INTR_MASK, readl(ioaddr + MMC_LOW_INTR_MASK));
 	return;
 }
@@ -803,7 +814,7 @@ static void display_dma_desc_ring(dma_desc * p, int size)
 	for (i = 0; i < size; i++) {
 		printk("\t%d [0x%x]: "
 		       "desc0=0x%x desc1=0x%x buffer1=0x%x", i,
-		       (unsigned int)virt_to_bus(&p[i].des0), p[i].des0,
+		       (unsigned int)virt_to_phys(&p[i].des0), p[i].des0,
 		       p[i].des1, (unsigned int)p[i].des2);
 		if (p[i].des3 != 0)
 			printk(" buffer2=0x%x", (unsigned int)p[i].des3);
@@ -852,7 +863,7 @@ static void init_dma_desc_rings(struct net_device *dev)
 	lp->dma_buf_sz = dma_buffer_size;
 
 	ETHPRINTK(probe, DEBUG, "%s: allocate and init the DMA RX/TX lists\n",
-		  RESOURCE_NAME);
+		  ETH_RESOURCE_NAME);
 
 	lp->dma_rx = (dma_desc *) dma_alloc_coherent(lp->device,
 						     CONFIG_DMA_RX_SIZE *
@@ -1008,13 +1019,13 @@ static inline void dump_dma_csr(unsigned long ioaddr)
 	printk("\t--------------------\n"
 	       "\t   STMMAC DMA CSR \n" "\t--------------------\n");
 	for (i = 0; i < 9; i++) {
-		printk("\t CSR%d (offset 0x%x): 0x%lx\n", i,
+		printk("\t CSR%d (offset 0x%x): 0x%08x\n", i,
 		       (DMA_BUS_MODE + i * 4),
 		       readl(ioaddr + DMA_BUS_MODE + i * 4));
 	}
-	printk("\t CSR20 (offset 0x%x): 0x%lx\n",
+	printk("\t CSR20 (offset 0x%x): 0x%08x\n",
 	       DMA_CUR_TX_BUF_ADDR, readl(ioaddr + DMA_CUR_TX_BUF_ADDR));
-	printk("\t CSR21 (offset 0x%x): 0x%lx\n",
+	printk("\t CSR21 (offset 0x%x): 0x%08x\n",
 	       DMA_CUR_RX_BUF_ADDR, readl(ioaddr + DMA_CUR_RX_BUF_ADDR));
 	return;
 }
@@ -1244,7 +1255,7 @@ static int check_tx_error_summary(struct eth_driver_local *lp, int entry)
 		  (unsigned int)p, (!status) ? "done" : "with error");
 
 	if (unlikely(status & TDES0_STATUS_ES)) {
-		ETHPRINTK(tx_err, ERR, "%s: DMA tx ERROR: ", RESOURCE_NAME);
+		ETHPRINTK(tx_err, ERR, "%s: DMA tx ERROR: ", ETH_RESOURCE_NAME);
 
 		if (status & TDES0_STATUS_UF) {
 			ETHPRINTK(tx_err, ERR, "Underflow Error\n");
@@ -1276,13 +1287,13 @@ static int check_tx_error_summary(struct eth_driver_local *lp, int entry)
 
 	if (unlikely(status & TDES0_STATUS_HRTBT_FAIL)) {
 		ETHPRINTK(tx_err, ERR, "%s: DMA tx: Heartbeat Fail\n",
-			RESOURCE_NAME);
+			ETH_RESOURCE_NAME);
 		lp->stats.tx_heartbeat_errors++;
 		goto out_error;
 	}
 	if (unlikely(status & TDES0_STATUS_DF)) {
 		ETHPRINTK(tx_err, WARNING, "%s: transmission deferred\n",
-			RESOURCE_NAME);
+			ETH_RESOURCE_NAME);
 	}
 	return (0);
 
@@ -1452,7 +1463,7 @@ static void stmmaceth_dma_interrupt(struct net_device *dev)
 	/* read the status register (CSR5) */
 	status = (unsigned int)readl(ioaddr + DMA_STATUS);
 
-	ETHPRINTK(intr, INFO, "%s: (%s) [CSR5: 0x%08x]\n", RESOURCE_NAME,
+	ETHPRINTK(intr, INFO, "%s: (%s) [CSR5: 0x%08x]\n", ETH_RESOURCE_NAME,
 		  "DMA IRQ", status);
 #ifdef CONFIG_STMMAC_DEBUG
 	/* It displays the DMA transmit process state (CSR5 register) */
@@ -1484,7 +1495,7 @@ static void stmmaceth_dma_interrupt(struct net_device *dev)
 			ETHPRINTK(intr, INFO, "Early Receive Interrupt\n");
 		}
 		if (likely(status & DMA_STATUS_TI)) {
-			ETHPRINTK(intr, INFO, " Transmit irq [buf: 0x%lx]\n",
+			ETHPRINTK(intr, INFO, " Transmit irq [buf: 0x%08x]\n",
 				  readl(ioaddr + DMA_CUR_TX_BUF_ADDR));
 			tasklet_schedule(&lp->tx_task);
 		}
@@ -1551,7 +1562,7 @@ int stmmaceth_open(struct net_device *dev)
 	/* Request the IRQ lines */
 
 	ret = request_irq(dev->irq, &stmmaceth_interrupt,
-			  SA_SHIRQ, dev->name, dev);
+			  IRQF_SHARED, dev->name, dev);
 	if (ret < 0) {
 		printk(KERN_ERR "%s: ERROR: allocating the IRQ %d (error: %d)\n",
 		       __FUNCTION__, dev->irq, ret);
@@ -1615,7 +1626,7 @@ int stmmaceth_open(struct net_device *dev)
 
 	/* Start the ball rolling... */
 	ETHPRINTK(probe, DEBUG, "%s: DMA RX/TX processes started...\n",
-		  RESOURCE_NAME);
+		  ETH_RESOURCE_NAME);
 
 	stmmaceth_dma_start_rx(dev->base_addr);
 	stmmaceth_dma_start_tx(dev->base_addr);
@@ -1778,9 +1789,9 @@ int stmmaceth_xmit(struct sk_buff *skb, struct net_device *dev)
 	unsigned int nfrags = skb_shinfo(skb)->nr_frags,
 	    entry = lp->cur_tx % CONFIG_DMA_TX_SIZE, i, mss = 0, nopaged_len;
 
-	if (skb->len < ETH_ZLEN) {
-		skb = skb_padto(skb, ETH_ZLEN);
-		skb->len = ETH_ZLEN;
+	if (skb_padto(skb, ETH_ZLEN)){
+		printk("stmmac: xmit padto returned 0\n");
+		return 0;
 	}
 
 	/* Reporting an error if either the frame, to be transmitted, is too
@@ -1791,38 +1802,26 @@ int stmmaceth_xmit(struct sk_buff *skb, struct net_device *dev)
 		       __FUNCTION__, nfrags);
 		goto xmit_error;
 	}
-#ifdef NETIF_F_TSO
-	if (dev->features & NETIF_F_TSO) {
-		mss = skb_shinfo(skb)->gso_size;
 
-		if (unlikely
-		    ((skb->len > ((2 * (lp->dma_buf_sz)) * CONFIG_DMA_TX_SIZE))
-		     && (mss != 0))) {
-			printk(KERN_ERR "%s: (TSO) frame too long (%d)...\n",
-			       __FUNCTION__, skb->len);
-			goto xmit_error;
-		}
-	}
-#endif
 	/* Verify the csum via software... it's necessary because the
 	 * hardware doesn't support a complete csum calculation. */
-#warning or should this be CHECKSUM_PARTIAL
-	if (likely(skb->ip_summed == CHECKSUM_COMPLETE)) {
-		unsigned int csum;
+	if (likely(skb->ip_summed == CHECKSUM_PARTIAL)) {
 		const int offset = skb_transport_offset(skb);
-
-		csum = skb_checksum(skb, offset, skb->len - offset, 0);
-		*(u16 *) (skb->csum_start + skb->csum_offset) = csum_fold(csum);
+		unsigned int csum = skb_checksum(skb, offset, skb->len - offset, 0);
+		*(u16 *) (skb->data + offset + skb->csum_offset) = csum_fold(csum);
 	}
+
 	/* Get the amount of non-paged data (skb->data). */
 	nopaged_len = skb_headlen(skb);
 	lp->tx_skbuff[entry] = skb;
 	XMITPRINTK(mss, INFO, "\n%s:\n(skb->len=%d, nfrags=%d, "
 		 "nopaged_len=%d, mss=%d)\n", __FUNCTION__, skb->len,
 		 nfrags, nopaged_len, mss);
+
 	/* Handle the non-paged data (skb->data) */
 	stmmaceth_fill_tx_buffer(skb->data, nopaged_len, mss, lp, 1);
 
+	stmmaceth_fill_tx_buffer(skb->data, nopaged_len, mss, lp, 1);
 	/* Handle the paged fragments */
 	for (i = 0; i < nfrags; i++) {
 		skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
@@ -2135,7 +2134,7 @@ static void stmmaceth_set_rx_mode(struct net_device *dev)
 	writel(value, ioaddr + MAC_CONTROL);
 
 	if (netif_msg_hw(lp)) {
-		printk("%s: CTRL reg: 0x%lx - Hash regs: HI 0x%lx, LO 0x%lx\n",
+		printk("%s: CTRL reg: 0x%08x - Hash regs: HI 0x%08x, LO 0x%08x\n",
 		       __FUNCTION__, readl(ioaddr + MAC_CONTROL),
 		       readl(ioaddr + MAC_HASH_HIGH),
 		       readl(ioaddr + MAC_HASH_LOW));
@@ -2207,7 +2206,7 @@ static void stmmaceth_poll_controller(struct net_device *dev)
 static void stmmaceth_ethtool_getdrvinfo(struct net_device *dev,
 					 struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, RESOURCE_NAME);
+	strcpy(info->driver, ETH_RESOURCE_NAME);
 	strncpy(info->version, version, sizeof(version));
 	strcpy(info->bus_info, "STBUS");
 	info->fw_version[0] = '\0';
@@ -2431,6 +2430,75 @@ static void stmmaceth_vlan_rx_kill_vid(struct net_device *dev,
 		   DEVICE REGISTRATION, INITIALIZATION AND UNLOADING
    ---------------------------------------------------------------------------*/
 /**
+ * stmmacphy_dvr_probe
+ * @pdev: platform device pointer
+ * Description: The driver is initialized through platform_device by the
+ * 		Structures which define the configuration needed by the board
+ *		which are defined in a board structure in arch/sh/boards/st/
+ */
+static int stmmacphy_dvr_probe(struct platform_device *pdev)
+{
+	struct plat_stmmacphy_data *plat_dat;
+	plat_dat = (struct plat_stmmacphy_data *)((pdev->dev).platform_data);
+
+	printk(KERN_DEBUG "stmmacphy_dvr_probe: added phy for bus %d\n", plat_dat->bus_id);
+
+	return 0;
+}
+
+static int stmmacphy_dvr_remove(struct platform_device *pdev)
+{
+	return 0;
+}
+
+static struct platform_driver stmmacphy_driver = {
+	.driver = {
+		   .name = PHY_RESOURCE_NAME,
+		   },
+	.probe = stmmacphy_dvr_probe,
+	.remove = stmmacphy_dvr_remove,
+};
+
+/**
+ * stmmac_associate_phy
+ * @lp: pointer to local context
+ * Description: Scans through all the PHYs we have registered and checks if
+ *              any are associated with our MAC.  If so, then just fill in
+ *              the blanks in our local context structure
+ */
+static int stmmac_associate_phy(struct device *dev, void *data)
+{
+	struct eth_driver_local *lp = (struct eth_driver_local*)data;
+	struct plat_stmmacphy_data *plat_dat;
+
+	plat_dat = (struct plat_stmmacphy_data *)(dev->platform_data);
+
+	ETHPRINTK(probe, DEBUG, "stmmacphy_dvr_probe: checking phy for bus %d\n", plat_dat->bus_id);
+
+	/* Check that this phy is for the MAC being initialised */
+	if (lp->bus_id !=  plat_dat->bus_id)
+		return 0;
+
+	/* OK, this PHY is connected to the MAC.  Go ahead and get the parameters */
+	ETHPRINTK(probe, DEBUG, "stmmacphy_dvr_probe: OK. Found PHY config\n");
+	lp->phy_irq = platform_get_irq_byname(to_platform_device(dev), "phyirq");
+	ETHPRINTK(probe, DEBUG, "stmmacphy_dvr_probe: PHY irq on bus %d is %d\n", plat_dat->bus_id, lp->phy_irq);
+
+	/* override with kernel parameters if supplied XXX CRS XXX this needs to have multiple instances */
+	if ((phy_n >= 0) && (phy_n <= 31)) {
+		plat_dat->phy_addr = phy_n;
+	}
+
+	lp->phy_addr = plat_dat->phy_addr;
+	lp->phy_mask = plat_dat->phy_mask;
+	lp->phy_interface = plat_dat->interface;
+	lp->phy_reset = plat_dat->phy_reset;
+
+	ETHPRINTK(probe, DEBUG, "stmmacphy_dvr_probe: exiting\n");
+	return 1; /* forces exit of driver_for_each_device() */
+}
+
+/**
  *  stmmaceth_probe - Initialization of the adapter .
  *  @dev : device pointer
  *  @ioaddr: device I/O address
@@ -2504,15 +2572,15 @@ static int stmmaceth_probe(struct net_device *dev, unsigned long ioaddr)
 
 	spin_lock_init(&lp->lock);
 
-	return (ret);
+	return ret;
 }
 
 /**
  * stmmaceth_dvr_probe
  * @pdev: platform device pointer
- * Description: The driver is initialized through platform_device.
- * 		Structures which define the configuration needed by the board
- *		are defined in a board structure in arch/sh/boards/st/ .
+ * Description: The driver is initialized through the platform_device
+ * 		structures which define the configuration needed by the SoC.
+ *		These are defined in arch/sh/kernel/cpu/sh4
  */
 static int stmmaceth_dvr_probe(struct platform_device *pdev)
 {
@@ -2532,7 +2600,7 @@ static int stmmaceth_dvr_probe(struct platform_device *pdev)
 	printk(KERN_INFO "done!\n");
 
 	if (!request_mem_region(res->start, (res->end - res->start),
-				RESOURCE_NAME)) {
+				ETH_RESOURCE_NAME)) {
 		printk(KERN_ERR "%s: ERROR: memory allocation failed"
 		       "cannot get the I/O addr 0x%x\n",
 		       __FUNCTION__, (unsigned int)res->start);
@@ -2578,21 +2646,21 @@ static int stmmaceth_dvr_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	/* Get the PHY information */
-	lp->phy_irq = platform_get_irq_byname(pdev, "phyirq");
-	if ((phy_n >= 0) && (phy_n <= 31)) {
-		plat_dat->phy_addr = phy_n;
+	/* associate a PHY - it is provided by another platform bus */
+	if (!driver_for_each_device(&(stmmacphy_driver.driver), NULL, (void *)lp,
+					stmmac_associate_phy)) {
+		printk(KERN_ERR "No PHY device is associated with this MAC!\n");
+		ret = -ENODEV;
+		goto out;
 	}
-	lp->phy_addr = plat_dat->phy_addr;
-	lp->phy_mask = plat_dat->phy_mask;
-	lp->phy_interface = plat_dat->interface;
-	lp->phy_reset = plat_dat->phy_reset;
+
 	lp->fix_mac_speed = plat_dat->fix_mac_speed;
-	lp->hw_setup = plat_dat->hw_setup;
 	lp->bsp_priv = plat_dat->bsp_priv;
 
 	/* MDIO bus Registration */
+printk("registering MDIO bus...\n");
 	ret = stmmac_mdio_register(lp, ndev);
+printk("registering MDIO bus done\n");
 
       out:
 	if (ret < 0) {
@@ -2643,12 +2711,12 @@ static int stmmaceth_dvr_remove(struct platform_device *pdev)
 
 	free_netdev(ndev);
 
-	return (0);
+	return 0;
 }
 
 static struct platform_driver stmmaceth_driver = {
 	.driver = {
-		   .name = RESOURCE_NAME,
+		   .name = ETH_RESOURCE_NAME,
 		   },
 	.probe = stmmaceth_dvr_probe,
 	.remove = stmmaceth_dvr_remove,
@@ -2660,6 +2728,11 @@ static struct platform_driver stmmaceth_driver = {
  */
 static int __init stmmaceth_init_module(void)
 {
+	if (platform_driver_register(&stmmacphy_driver)){
+		printk (KERN_ERR "No PHY devices registered!\n");
+		return -ENODEV;
+	}
+
 	return platform_driver_register(&stmmaceth_driver);
 }
 

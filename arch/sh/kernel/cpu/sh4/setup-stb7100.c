@@ -14,22 +14,16 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/stm/soc.h>
+#include <linux/stm/soc_init.h>
 #include <linux/stm/pio.h>
 #include <linux/phy.h>
+#include <linux/stm/sysconf.h>
 #include <asm/sci.h>
 #include <linux/stm/fdma-plat.h>
 #include <linux/stm/fdma-reqs.h>
 
-#define SYSCONF_BASE 0xb9001000
-#define SYSCONF_DEVICEID        (SYSCONF_BASE + 0x000)
-#define SYSCONF_SYS_STA(n)      (SYSCONF_BASE + 0x008 + ((n) * 4))
-#define SYSCONF_SYS_CFG(n)      (SYSCONF_BASE + 0x100 + ((n) * 4))
-
-#ifdef CONFIG_STMMAC_ETH
-#define MII_MODE	    0x00040000 /* RMII interface activated */
-#define ETH_IF_ON	    0x00010000 /* ETH interface on */
-#define DVO_ETH_PAD_DISABLE 0x00020000 /* DVO eth pad disable */
-#endif
+static unsigned long chip_revision, chip_7109;
+static struct sysconf_field *sys_cfg7_0;
 
 static struct plat_sci_port sci_platform_data[] = {
 	{
@@ -86,6 +80,7 @@ static struct resource rtc_resource[]= {
 		.flags = IORESOURCE_IRQ
 	},
 };
+
 static struct platform_device rtc_device = {
 	.name		= "rtc",
 	.id		= -1,
@@ -93,37 +88,37 @@ static struct platform_device rtc_device = {
 	.resource	= rtc_resource,
 };
 
+/* USB resources ----------------------------------------------------------- */
+
 static struct resource st40_ohci_resources[] = {
-	/*this lot for the ohci block*/
 	[0] = {
-		.start = 0xb9100000 + 0xffc00,
-		.end  =  0xb9100000 +0xffcff,
-		.flags = IORESOURCE_MEM,
+		.start	= 0x19100000 + 0xffc00,
+		.end	= 0x19100000 + 0xffcff,
+		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-			.start = 168,
-			.end   = 168,
-			.flags = IORESOURCE_IRQ,
+		.start	= 168,
+		.end	= 168,
+		.flags	= IORESOURCE_IRQ,
 	}
 };
 static struct resource st40_ehci_resources[] = {
-	/*now this for the ehci*/
 	[0] =  {
-			.start = 0xb9100000 + 0xffe00,
-			.end = 0xb9100000 + 0xffeff,
-			.flags = IORESOURCE_MEM,
+		.start	= 0x19100000 + 0xffe00,
+		.end	= 0x19100000 + 0xffeff,
+		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-			.start = 169,
-			.end   = 169,
-			.flags = IORESOURCE_IRQ,
+		.start	= 169,
+		.end	= 169,
+		.flags	= IORESOURCE_IRQ,
 	},
 };
 
 /*
  * Defines for the controller register offsets
  */
-#define UHOST2C_BASE			0xb9100000
+#define UHOST2C_BASE			0x19100000
 #define AHB2STBUS_WRAPPER_GLUE_BASE	(UHOST2C_BASE)
 #define AHB2STBUS_RESERVED1_BASE	(UHOST2C_BASE + 0x000e0000)
 #define AHB2STBUS_RESERVED2_BASE	(UHOST2C_BASE + 0x000f0000)
@@ -131,16 +126,16 @@ static struct resource st40_ehci_resources[] = {
 #define AHB2STBUS_EHCI_BASE		(UHOST2C_BASE + 0x000ffe00)
 #define AHB2STBUS_PROTOCOL_BASE		(UHOST2C_BASE + 0x000fff00)
 
-#define SYS_CFG2_PLL_POWER_DOWN_BIT	1
+static struct sysconf_field *usb_power_sc;
 
 static void usb_power_up(void* dev)
 {
 	unsigned long reg;
 
 	/* Make sure PLL is on */
-	reg = readl(SYSCONF_SYS_CFG(2));
-	if (reg & SYS_CFG2_PLL_POWER_DOWN_BIT) {
-		writel(reg & (~SYS_CFG2_PLL_POWER_DOWN_BIT), SYSCONF_SYS_CFG(2));
+	reg = sysconf_read(usb_power_sc);
+	if (reg) {
+		sysconf_write(usb_power_sc, 0);
 		mdelay(100);
 	}
 }
@@ -155,7 +150,7 @@ static struct plat_usb_data usb_wrapper = {
 
 static u64 st40_dma_mask = 0xfffffff;
 
-static struct platform_device  st40_ohci_devices = {
+static struct platform_device  st40_ohci_device = {
 	.name = "ST40-ohci",
 	.id=1,
 	.dev = {
@@ -167,7 +162,7 @@ static struct platform_device  st40_ohci_devices = {
 	.resource = st40_ohci_resources,
 };
 
-static struct platform_device  st40_ehci_devices = {
+static struct platform_device  st40_ehci_device = {
 	.name = "ST40-ehci",
 	.id=2,
 	.dev = {
@@ -179,9 +174,55 @@ static struct platform_device  st40_ehci_devices = {
 	.resource = st40_ehci_resources,
 };
 
-/*
- *  FDMA parameters
- */
+void __init stx7100_configure_usb(void)
+{
+	static struct stpio_pin *pin;
+
+	/* Work around for USB over-current detection chip being
+	 * active low, and the 710x being active high.
+	 *
+	 * This test is wrong for 7100 cut 3.0 (which needs the work
+	 * around), but as we can't reliably determine the minor
+	 * revision number, hard luck, this works for most people.
+	 */
+	if ( ( chip_7109 && (chip_revision < 2)) ||
+	     (!chip_7109 && (chip_revision < 3)) ) {
+		pin = stpio_request_pin(5,6, "USBOC", STPIO_OUT);
+		stpio_set_pin(pin, 0);
+	}
+
+	/*
+	 * There have been two changes to the USB power enable signal:
+	 *
+	 * - 7100 upto and including cut 3.0 and 7109 1.0 generated an
+	 *   active high enables signal. From 7100 cut 3.1 and 7109 cut 2.0
+	 *   the signal changed to active low.
+	 *
+	 * - The 710x ref board (mb442) has always used power distribution
+	 *   chips which have active high enables signals (on rev A and B
+	 *   this was a TI TPS2052, rev C used the ST equivalent a ST2052).
+	 *   However rev A and B had a pull up on the enables signal, while
+	 *   rev C changed this to a pull down.
+	 *
+	 * The net effect of all this is that the easiest way to drive
+	 * this signal is ignore the USB hardware and drive it as a PIO
+	 * pin.
+	 *
+	 * (Note the USB over current input on the 710x changed from active
+	 * high to low at the same cuts, but board revs A and B had a resistor
+	 * option to select an inverted output from the TPS2052, so no
+	 * software work around is required.)
+	 */
+	pin = stpio_request_pin(5,7, "USBPWR", STPIO_OUT);
+	stpio_set_pin(pin, 1);
+
+	usb_power_sc = sysconf_claim(SYS_CFG, 2, 1, 1, "usb");
+
+	platform_device_register(&st40_ohci_device);
+	platform_device_register(&st40_ehci_device);
+}
+
+/* FDMA resources ---------------------------------------------------------- */
 
 #ifdef CONFIG_STM_DMA
 
@@ -321,9 +362,7 @@ static void fdma_setup(int chip_7109, int chip_revision)
 #endif
 }
 
-/*
- * ALSA
- */
+/* ALSA resources ---------------------------------------------------------- */
 
 static struct resource alsa_710x_resource_pcm0[3] = {
 
@@ -416,13 +455,6 @@ static struct resource alsa_710x_resource_pcmin[3] = {
 	}
 };
 
-static struct platform_device alsa_710x_device_pcmin = {
-	.name			= "710x_ALSA_PCMIN",
-	.id			= -1,
-	.num_resources		= ARRAY_SIZE(alsa_710x_resource_pcmin),
-	.resource		= alsa_710x_resource_pcmin,
-};
-
 static struct platform_device alsa_710x_device_pcm0 = {
 	.name			= "710x_ALSA_PCM0",
 	.id			= -1,
@@ -451,242 +483,23 @@ static struct platform_device alsa_710x_device_cnv = {
 	.resource		= alsa_710x_resource_cnv,
 };
 
-static struct resource ssc_resource[] = {
-        [0] = {
-               .start = 0xB8040000,
-               .end = 0xB8040000 + 0x108,
-               .flags = IORESOURCE_MEM,
-              },
-        [1] = {
-               .start = 0xB8041000,
-               .end = 0xB8041000 + 0x108,
-               .flags = IORESOURCE_MEM,
-              },
-        [2] = {
-               .start = 0xB8042000,
-               .end = 0xB8042000 + 0x108,
-               .flags = IORESOURCE_MEM,
-              },
-        [3] = {
-               .start = 119,
-               .end = 119,
-               .flags = IORESOURCE_IRQ,
-              },
-        [4] = {
-               .start = 118,
-               .end = 118,
-               .flags = IORESOURCE_IRQ,
-              },
-        [5] = {
-               .start = 117,
-               .end = 117,
-               .flags = IORESOURCE_IRQ,
-              },
+static struct platform_device alsa_710x_device_pcmin = {
+	.name			= "710x_ALSA_PCMIN",
+	.id			= -1,
+	.num_resources		= ARRAY_SIZE(alsa_710x_resource_pcmin),
+	.resource		= alsa_710x_resource_pcmin,
 };
 
-static struct plat_ssc_pio_t ssc_pio[] = {
-	{2, 0, 2, 1, 0xff, 0xff},
-	{3, 0, 3, 1, 3, 2},
-	{4, 0, 4, 1, 0xff, 0xff},
-};
-static struct plat_ssc_data ssc_private_info = {
-	.capability  =
-		(SSC_I2C_CAPABILITY << (0*2)) |
-		((SSC_SPI_CAPABILITY | SSC_I2C_CAPABILITY) << (1*2)) |
-		(SSC_I2C_CAPABILITY << (2*2)),
-	.pio         = ssc_pio
-};
-struct platform_device ssc_device = {
-        .name = "ssc",
-        .id = -1,
-        .num_resources = ARRAY_SIZE(ssc_resource),
-        .resource = ssc_resource,
-        .dev = {
-                 .platform_data = &ssc_private_info
-	}
-};
-
-static struct resource sata_resource[]= {
-	[0] = {
-		.start = 0x18000000 + 0x01209000,
-		.end   = 0x18000000 + 0x01209000 + 0xfff,
-		.flags = IORESOURCE_MEM
-	},
-	[1] = {
-		.start = 0xaa,
-		.flags = IORESOURCE_IRQ
-	},
-};
-
-static struct plat_sata_data sata_private_info;
-
-static struct platform_device sata_device = {
-	.name		= "sata_stm",
-	.id		= -1,
-	.num_resources	= ARRAY_SIZE(sata_resource),
-	.resource	= sata_resource,
-       .dev = {
-               .platform_data = &sata_private_info,
-       }
-};
-
-#ifdef CONFIG_STB7109_ETH
-/* ETH MAC pad configuration */
-static void stb7109eth_hw_setup(void)
-{
-	unsigned long sysconf;
-	static struct stpio_pin *ethreset;
-
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf |= (DVO_ETH_PAD_DISABLE | ETH_IF_ON);
-	sysconf &= ~MII_MODE;
-#ifdef CONFIG_PHY_RMII
-	sysconf |= MII_MODE; /* RMII selected*/
-#else
-	sysconf &= ~MII_MODE; /* MII selected */
-#endif
-#ifdef CONFIG_STMMAC_EXT_CLK
-        sysconf |= PHY_CLK_EXT;
-#endif
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* Enable the external PHY interrupts */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(10));
-	sysconf |= 0x0000000f;
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(10));
-
-	/* Remove the PHY clk */
-	stpio_reserve_pin(3, 7, "stmmac EXTCLK");
-}
-
-/**
- * fix_mac_speed
- * @speed: link speed
- * Description: it is used for changing the MAC speed field in
- * 		the SYS_CFG7 register (required when we are using
- *		the RMII interface).
- */
-static void fix_mac_speed(unsigned int speed)
-{
-#ifdef CONFIG_PHY_RMII
-	unsigned long sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-
-	if (speed == SPEED_100)
-		sysconf |= MAC_SPEED_SEL;
-	else if (speed == SPEED_10)
-		sysconf &= ~MAC_SPEED_SEL;
-
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-#endif
-	return;
-}
-#else
-static void stb7109eth_hw_setup(void) { }
-static void fix_mac_speed(unsigned int speed) { }
-#endif
-
-static struct resource stb7109eth_resources[] = {
-        [0] = {
-                .start = 0x18110000,
-                .end   = 0x1811ffff,
-                .flags  = IORESOURCE_MEM,
-        },
-        [1] = {
-                .start  = 133,
-                .end    = 133,
-                .flags  = IORESOURCE_IRQ,
-        },
-};
-
-static struct plat_stmmacenet_data eth7109_private_data = {
-	.bus_id = 0,
-	.phy_addr = 14,
-	.pbl = 1,
-	.interface = PHY_INTERFACE_MODE_MII,
-	.fix_mac_speed = fix_mac_speed,
-	.hw_setup = stb7109eth_hw_setup,
-};
-
-static struct platform_device stb7109eth_device = {
-        .name           = "stmmaceth",
-        .id             = 0,
-        .num_resources  = 3,
-        .resource       = (struct resource[]) {
-        	{
-	                .start = 0x18110000,
-        	        .end   = 0x1811ffff,
-                	.flags  = IORESOURCE_MEM,
-        	},
-        	{
-			.name   = "macirq",
-                	.start  = 133,
-                	.end    = 133,
-                	.flags  = IORESOURCE_IRQ,
-        	},
-        	{
-			.name   = "phyirq",
-                	.start  = 7,
-                	.end    = 7,
-                	.flags  = IORESOURCE_IRQ,
-        	},
-	},
-	.dev = {
-		.platform_data = &eth7109_private_data,
-	}
-};
-
-static struct resource stm_pwm_resource[]= {
-	[0] = {
-		.start	= 0x18010000,
-		.end	= 0x18010000 + 0x67,
-		.flags	= IORESOURCE_MEM
-	},
-	[1] = {
-		.start	= 126,
-		.flags	= IORESOURCE_IRQ
-	}
-};
-
-static struct plat_stm_pwm_data pwm_private_info = {
-	.flags		= PLAT_STM_PWM_OUT0 | PLAT_STM_PWM_OUT1,
-};
-
-static struct platform_device stm_pwm_device = {
-	.name		= "stm-pwm",
-	.id		= -1,
-	.num_resources	= ARRAY_SIZE(stm_pwm_resource),
-	.resource	= stm_pwm_resource,
-	.dev = {
-		.platform_data = &pwm_private_info,
-	}
-};
-
-static struct platform_device *stx710x_devices[] __initdata = {
-	&sci_device,
-	&wdt_device,
-	&rtc_device,
-	&st40_ohci_devices,
-	&st40_ehci_devices,
-	&fdma_710x_device,
+static struct platform_device *alsa_devices[] __initdata = {
 	&alsa_710x_device_pcm0,
 	&alsa_710x_device_pcm1,
  	&alsa_710x_device_spdif,
 	&alsa_710x_device_cnv,
-	&ssc_device,
-	&sata_device,
-	&stb7109eth_device,
-	&stm_pwm_device,
+	&alsa_710x_device_pcmin,
 };
 
-static int __init stx710x_devices_setup(void)
+void __init stx7100_configure_alsa(void)
 {
-	unsigned long devid;
-	unsigned long chip_revision, chip_7109;
-
-	devid = ctrl_inl(SYSCONF_DEVICEID);
-	chip_7109 = (((devid >> 12) & 0x3ff) == 0x02c);
-	chip_revision = (devid >> 28) + 1;
-
 	if (chip_7109) {
 		switch (chip_revision) {
 		case 1:
@@ -787,10 +600,113 @@ static int __init stx710x_devices_setup(void)
 		alsa_710x_resource_pcmin[2].end =   0;
 	}
 
-	devid = ctrl_inl(SYSCONF_DEVICEID);
-	chip_7109 = (((devid >> 12) & 0x3ff) == 0x02c);
-	chip_revision = (devid >> 28) + 1;
+	platform_add_devices(alsa_devices, ARRAY_SIZE(alsa_devices));
+}
 
+/* SSC resources ----------------------------------------------------------- */
+
+static struct resource ssc_resource[] = {
+        [0] = {
+		.start	= 0xB8040000,
+		.end	= 0xB8040000 + 0x108,
+		.flags	= IORESOURCE_MEM,
+	},
+        [1] = {
+		.start	= 0xB8041000,
+		.end	= 0xB8041000 + 0x108,
+		.flags	= IORESOURCE_MEM,
+	},
+        [2] = {
+		.start	= 0xB8042000,
+		.end	= 0xB8042000 + 0x108,
+		.flags	= IORESOURCE_MEM,
+	},
+        [3] = {
+		.start	= 119,
+		.end	= 119,
+		.flags	= IORESOURCE_IRQ,
+	},
+        [4] = {
+		.start	= 118,
+		.end	= 118,
+		.flags	= IORESOURCE_IRQ,
+	},
+        [5] = {
+		.start	= 117,
+		.end	= 117,
+               .flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct plat_ssc_pio_t ssc_pio[] = {
+	{2, 0, 2, 1, 2, 2},
+	{3, 0, 3, 1, 3, 2},
+	{4, 0, 4, 1, 0xff, 0xff},
+};
+
+struct platform_device ssc_device = {
+        .name = "ssc",
+        .id = -1,
+        .num_resources = ARRAY_SIZE(ssc_resource),
+        .resource = ssc_resource,
+};
+
+void __init stx7100_configure_ssc(struct plat_ssc_data *data)
+{
+	int i;
+	int capability;
+	struct sysconf_field* ssc_sc;
+
+	data->pio = ssc_pio;
+	ssc_device.dev.platform_data = data;
+
+	for (i=0, capability = data->capability;
+	     i<3;
+	     i++, capability >>= 2) {
+		if (! (capability & ((SSC_SPI_CAPABILITY|SSC_I2C_CAPABILITY) << (i*2))))
+			continue;
+
+		if (i== 0) {
+			ssc_sc = sysconf_claim(SYS_CFG, 7, 10, 10, "ssc");
+			sysconf_write(ssc_sc, 0);
+		}
+
+		ssc_sc = sysconf_claim(SYS_CFG, 7, i+1, i+1, "ssc");
+		sysconf_write(ssc_sc,
+			      capability & SSC_I2C_CAPABILITY ? 0 : 1);
+	}
+
+	platform_device_register(&ssc_device);
+}
+
+/* SATA resources ---------------------------------------------------------- */
+
+static struct resource sata_resource[]= {
+	[0] = {
+		.start = 0x18000000 + 0x01209000,
+		.end   = 0x18000000 + 0x01209000 + 0xfff,
+		.flags = IORESOURCE_MEM
+	},
+	[1] = {
+		.start = 0xaa,
+		.flags = IORESOURCE_IRQ
+	},
+};
+
+static struct plat_sata_data sata_private_info;
+
+static struct platform_device sata_device = {
+	.name		= "sata_stm",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(sata_resource),
+	.resource	= sata_resource,
+       .dev = {
+               .platform_data = &sata_private_info,
+       }
+};
+
+void __init stx7100_configure_sata(void)
+{
 	if ((! chip_7109) && (chip_revision == 1)) {
 		/* 7100 cut 1.x */
 		sata_private_info.phy_init = 0x0013704A;
@@ -807,7 +723,76 @@ static int __init stx710x_devices_setup(void)
 		sata_private_info.pc_glue_logic_init = 0x100ff;
 	}
 
-#ifdef CONFIG_STMMAC_ETH
+	platform_device_register(&sata_device);
+}
+
+/* Ethernet MAC resources -------------------------------------------------- */
+
+static struct sysconf_field *mac_speed_sc;
+
+static void fix_mac_speed(void* priv, unsigned int speed)
+{
+	sysconf_write(mac_speed_sc, (speed == SPEED_100) ? 0 : 1);
+}
+
+/* Hopefully I can remove this now */
+static void stb7109eth_hw_setup_null(void)
+{
+}
+
+static struct plat_stmmacenet_data eth7109_private_data = {
+	.bus_id = 0,
+	.pbl = 1,
+	.fix_mac_speed = fix_mac_speed,
+	.hw_setup = stb7109eth_hw_setup_null,
+};
+
+static struct platform_device stb7109eth_device = {
+        .name           = "stmmaceth",
+        .id             = 0,
+        .num_resources  = 2,
+        .resource       = (struct resource[]) {
+        	{
+	                .start = 0x18110000,
+        	        .end   = 0x1811ffff,
+                	.flags  = IORESOURCE_MEM,
+        	},
+        	{
+			.name   = "macirq",
+                	.start  = 133,
+                	.end    = 133,
+                	.flags  = IORESOURCE_IRQ,
+        	},
+	},
+	.dev = {
+		.platform_data = &eth7109_private_data,
+	}
+};
+
+void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus)
+{
+	struct sysconf_field *sc;
+
+	eth7109_private_data.bus_id = phy_bus;
+
+	/* DVO_ETH_PAD_DISABLE and ETH_IF_ON */
+	sc = sysconf_claim(SYS_CFG, 7, 16, 17, "stmmac");
+	sysconf_write(sc, 3);
+
+	/* RMII_MODE */
+	sc = sysconf_claim(SYS_CFG, 7, 18, 18, "stmmac");
+	sysconf_write(sc, rmii_mode ? 1 : 0);
+
+	/* PHY_CLK_EXT */
+	sc = sysconf_claim(SYS_CFG, 7, 19, 19, "stmmac");
+	sysconf_write(sc, ext_clk ? 1 : 0);
+
+	/* MAC_SPEED_SEL */
+	mac_speed_sc = sysconf_claim(SYS_CFG, 7, 20, 20, "stmmac");
+
+	/* Remove the PHY clk */
+	stpio_request_pin(3, 7, "stmmac EXTCLK", STPIO_ALT_OUT);
+
 	/* Configure the ethernet MAC PBL depending on the cut of the chip */
 	if (chip_7109){
 	       if (chip_revision == 1){
@@ -817,189 +802,399 @@ static int __init stx710x_devices_setup(void)
 		}
         }
 
-	stb7109eth_hw_setup();
-#endif
+	platform_device_register(&stb7109eth_device);
+}
 
+/* PWM resources ----------------------------------------------------------- */
+
+static struct resource stm_pwm_resource[]= {
+	[0] = {
+		.start	= 0x18010000,
+		.end	= 0x18010000 + 0x67,
+		.flags	= IORESOURCE_MEM
+	},
+	[1] = {
+		.start	= 126,
+		.flags	= IORESOURCE_IRQ
+	}
+};
+
+static struct platform_device stm_pwm_device = {
+	.name		= "stm-pwm",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(stm_pwm_resource),
+	.resource	= stm_pwm_resource,
+};
+
+void stx7100_configure_pwm(struct plat_stm_pwm_data *data)
+{
+	stm_pwm_device.dev.platform_data = data;
+
+	if (data->flags & PLAT_STM_PWM_OUT0) {
+		if (sys_cfg7_0 == NULL)
+			sys_cfg7_0 = sysconf_claim(SYS_CFG, 7, 0, 0, "pwm");
+		sysconf_write(sys_cfg7_0, 0);
+		stpio_request_pin(4, 6, "PWM", STPIO_ALT_OUT);
+	}
+
+	if (data->flags & PLAT_STM_PWM_OUT1) {
+		stpio_request_pin(4, 7, "PWM", STPIO_ALT_OUT);
+	}
+
+	platform_device_register(&stm_pwm_device);
+}
+
+/* LiRC resources ---------------------------------------------------------- */
+
+void __init stb7100_configure_lirc(void)
+{
+	/* This is a place holder for when we do have LIRC */
+
+	/* Ideally the PIO claiming should be moved into the driver. */
+
+	/* Configure the pio pins for LIRC */
+	stpio_request_pin(3, 3, "IR", STPIO_IN);
+	stpio_request_pin(3, 4, "IR", STPIO_IN);
+	stpio_request_pin(3, 5, "IR", STPIO_ALT_OUT);
+	stpio_request_pin(3, 6, "IR", STPIO_ALT_OUT);
+}
+
+/* ASC resources ----------------------------------------------------------- */
+
+static struct platform_device stm_stasc_devices[] = {
+	STASC_DEVICE(0x18030000, 123, 0, 0, 1, 4, 7), /* oe pin: 6 */
+	STASC_DEVICE(0x18031000, 122, 1, 0, 1, 4, 5), /* oe pin: 6 */
+	STASC_DEVICE(0x18032000, 121, 4, 3, 2, 4, 5),
+	STASC_DEVICE(0x18033000, 120, 5, 0, 1, 2, 3),
+};
+
+/* the serial console device */
+struct platform_device *asc_default_console_device;
+
+/* Platform devices to register */
+static struct platform_device *stasc_configured_devices[ARRAY_SIZE(stm_stasc_devices)] __initdata;
+static int stasc_configured_devices_count __initdata = 0;
+
+/* Configure the ASC's for this board.
+ * This has to be called before console_init().
+ */
+void __init stb7100_configure_asc(const int *ascs, int num_ascs, int console)
+{
+	int i;
+	struct platform_device *pdev;
+
+	for (i=0; i<num_ascs; i++) {
+		pdev = &stm_stasc_devices[ascs[i]];
+
+		switch (ascs[i]) {
+		case 2:
+			if (sys_cfg7_0 == NULL)
+				sys_cfg7_0 = sysconf_claim(SYS_CFG, 7, 0, 0, "asc");
+			sysconf_write(sys_cfg7_0, 0);
+			break;
+		}
+
+		pdev->id = i;
+		stasc_configured_devices[stasc_configured_devices_count++] = pdev;
+	}
+
+	asc_default_console_device = stasc_configured_devices[console];
+}
+
+/* Add platform device as configured by board specific code */
+static int __init stb7100_add_asc(void)
+{
+	return platform_add_devices(stasc_configured_devices,
+				    stasc_configured_devices_count);
+}
+arch_initcall(stb7100_add_asc);
+
+/* Early resources (sysconf and PIO) --------------------------------------- */
+
+static struct platform_device sysconf_device = {
+	.name		= "sysconf",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start	= 0x19001000,
+			.end	= 0x19001000 + 0x100,
+			.flags	= IORESOURCE_MEM
+		}
+	},
+	.dev = {
+		.platform_data = &(struct plat_sysconf_data) {
+			.sys_device_offset = 0,
+			.sys_sta_offset = 8,
+			.sys_cfg_offset = 0x100,
+		}
+	}
+};
+
+static struct platform_device stpio_devices[] = {
+	STPIO_DEVICE(0, 0x18020000, 80),
+	STPIO_DEVICE(1, 0x18021000, 84),
+	STPIO_DEVICE(2, 0x18022000, 88),
+	STPIO_DEVICE(3, 0x18023000, 115),
+	STPIO_DEVICE(4, 0x18024000, 114),
+	STPIO_DEVICE(5, 0x18025000, 113),
+};
+
+/* Initialise devices which are required early in the boot process. */
+void __init stx7100_early_device_init(void)
+{
+	struct sysconf_field *sc;
+	unsigned long devid;
+
+	/* Initialise PIO and sysconf drivers */
+
+	sysconf_early_init(&sysconf_device);
+	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices));
+
+	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
+	devid = sysconf_read(sc);
+	chip_7109 = (((devid >> 12) & 0x3ff) == 0x02c);
+	chip_revision = (devid >> 28) + 1;
+
+	printk("%s version %ld.x\n",
+	       chip_7109 ? "STx7109" : "STx7100", chip_revision);
+
+	sc = sysconf_claim(SYS_STA, 9, 0, 7, "devid");
+	devid = sysconf_read(sc);
+	printk("Chip version %ld.%ld\n", (devid >> 4)+1, devid & 0xf);
+
+	/* Configure the ST40 RTC to source its clock from clockgenB.
+	 * In theory this should be board specific, but so far nobody
+	 * has ever done this. */
+	sc = sysconf_claim(SYS_CFG, 8, 1, 1, "rtc");
+	sysconf_write(sc, 1);
+
+	/* We haven't configured the LPC, so the sleep instruction may
+	 * do bad things. Thus we disable it here. */
+	disable_hlt();
+}
+
+static void __init pio_late_setup(void)
+{
+	int i;
+	struct platform_device *pdev = stpio_devices;
+
+	for (i=0; i<ARRAY_SIZE(stpio_devices); i++,pdev++) {
+		platform_device_register(pdev);
+	}
+}
+
+/* Late resources ---------------------------------------------------------- */
+
+static struct platform_device *stx710x_devices[] __initdata = {
+	&sci_device,
+	&wdt_device,
+	&rtc_device,
+	&fdma_710x_device,
+	&sysconf_device,
+};
+
+static int __init stx710x_devices_setup(void)
+{
 	fdma_setup(chip_7109, chip_revision);
+	pio_late_setup();
 
 	return platform_add_devices(stx710x_devices,
 				    ARRAY_SIZE(stx710x_devices));
 }
 device_initcall(stx710x_devices_setup);
 
-/*
- * INTC style interrupts
- */
-static struct ipr_data ipr_map[] = {
-	/* IRQ, IPR-idx, shift, priority */
-	{ 16, 0, 12, 2 }, /* TMU0 TUNI*/
-	{ 17, 0, 12, 2 }, /* TMU1 TUNI */
-	{ 18, 0,  4, 2 }, /* TMU2 TUNI */
-	{ 19, 0,  4, 2 }, /* TMU2 TIPCI */
-	{ 27, 1, 12, 2 }, /* WDT ITI */
-	{ 20, 0,  0, 2 }, /* RTC ATI (alarm) */
-	{ 21, 0,  0, 2 }, /* RTC PRI (period) */
-	{ 22, 0,  0, 2 }, /* RTC CUI (carry) */
-	{ 23, 1,  4, 3 }, /* SCI ERI */
-	{ 24, 1,  4, 3 }, /* SCI RXI */
-	{ 25, 1,  4, 3 }, /* SCI TXI */
-	{ 40, 2,  4, 3 }, /* SCIF ERI */
-	{ 41, 2,  4, 3 }, /* SCIF RXI */
-	{ 42, 2,  4, 3 }, /* SCIF BRI */
-	{ 43, 2,  4, 3 }, /* SCIF TXI */
-	{ 34, 2,  8, 7 }, /* DMAC DMTE0 */
-	{ 35, 2,  8, 7 }, /* DMAC DMTE1 */
-	{ 36, 2,  8, 7 }, /* DMAC DMTE2 */
-	{ 37, 2,  8, 7 }, /* DMAC DMTE3 */
-	{ 28, 2,  8, 7 }, /* DMAC DMAE */
+/* Interrupt initialisation ------------------------------------------------ */
+
+enum {
+	UNUSED = 0,
+
+	/* interrupt sources */
+	IRL0, IRL1, IRL2, IRL3, /* only IRLM mode described here */
+	TMU0, TMU1, TMU2_TUNI, TMU2_TICPI,
+	RTC_ATI, RTC_PRI, RTC_CUI,
+	SCIF_ERI, SCIF_RXI, SCIF_BRI, SCIF_TXI,
+	WDT,
+	HUDI,
+
+	SATA_DMAC, SATA_HOSTC,
+	PIO0, PIO1, PIO2,
+	PIO5, PIO4, PIO3, MTP,			/* Group 0 */
+	SSC2, SSC1, SSC0,			/* Group 1 */
+	UART3, UART2, UART1, UART0,		/* Group 2 */
+	IRB_WAKEUP, IRB, PWM, MAFE,		/* Group 3 */
+	DISEQC, DAA, TTXT,			/* Group 4 */
+	EMPI, ETH_MAC, TS_MERGER,		/* Group 5 */
+	ST231_DELTA, ST231_AUD, DCXO, PTI1,	/* Group 6 */
+	FDMA_MBOX, FDMA_GP0, I2S2SPDIF, CPXM,	/* Group 7 */
+	PCMPLYR0, PCMPLYR1, PCMRDR, SPDIFPLYR,	/* Group 8 */
+	MPEG2, DELTA_PRE0, DELTA_PRE1, DELTA_MBE,	/* Group 9 */
+	VDP_FIFO_EMPTY, VDP_END_PROC, VTG1, VTG2,	/* Group 10 */
+	BDISP_AQ1, DVP, HDMI, HDCP,			/* Group 11 */
+	PTI, PDES_ESA0, PDES, PRES_READ_CW,		/* Group 12 */
+	SIG_CHK, TKDMA, CRIPTO_SIG_DMA, CRIPTO_SIG_CHK,	/* Group 13 */
+	OHCI, EHCI, SATA, BDISP_CQ1,			/* Group 14 */
+	ICAM3_KTE, ICAM3, MES_LMI_VID, MES_LMI_SYS,	/* Group 15 */
+
+	/* interrupt groups */
+	TMU2, RTC, SCIF,
+	SATA_SPLIT,
+	GROUP0, GROUP1, GROUP2, GROUP3,
+	GROUP4, GROUP5, GROUP6, GROUP7,
+	GROUP8, GROUP9, GROUP10, GROUP11,
+	GROUP12, GROUP13, GROUP14, GROUP15,
 };
 
-/*
- * INTC2-Style interrupts, vectors IRQ 112-175 INTEVT 0x1000-0x17e0
- */
-static struct intc2_data intc2_irq_table[] = {
-	/* IRQ, IPR index, IPR shift, mask index, mask shift, prio */
-	{113, 4,  0, 4,  1, 13},	/* Group0:  pio5 */
-	{114, 4,  0, 4,  2, 13},	/*          pio4 */
-	{115, 4,  0, 4,  3, 13},	/*          pio3 */
-	{116, 4,  0, 4,  4, 13},	/*          mtp (7109) */
+static struct intc_vect vectors[] = {
+	INTC_VECT(TMU0, 0x400), INTC_VECT(TMU1, 0x420),
+	INTC_VECT(TMU2_TUNI, 0x440), INTC_VECT(TMU2_TICPI, 0x460),
+	INTC_VECT(RTC_ATI, 0x480), INTC_VECT(RTC_PRI, 0x4a0),
+	INTC_VECT(RTC_CUI, 0x4c0),
+	INTC_VECT(SCIF_ERI, 0x4e0), INTC_VECT(SCIF_RXI, 0x500),
+	INTC_VECT(SCIF_BRI, 0x520), INTC_VECT(SCIF_TXI, 0x540),
+	INTC_VECT(WDT, 0x560),
+	INTC_VECT(HUDI, 0x600),
 
-	{117, 4,  4, 4,  5, 13},	/* Group1:  ssc2 */
-	{118, 4,  4, 4,  6, 13} ,	/*          ssc1 */
-	{119, 4,  4, 4,  7, 13},	/*          ssc0 */
-
-	{120, 4,  8, 4,  8, 13},	/* Group2:  uart3 */
-	{121, 4,  8, 4,  9, 13},	/*          uart2 */
-	{122, 4,  8, 4, 10, 13},	/*          uart1 */
-	{123, 4,  8, 4, 11, 13},	/*          uart0 */
-
-	{124, 4, 12, 4, 12, 13},	/* Group3:  irb_wakeup */
-	{125, 4, 12, 4, 13, 13},	/*          irb */
-	{126, 4, 12, 4, 14, 13},	/*          pwm */
-	{127, 4, 12, 4, 15, 13},	/*          mafe */
-
-	{129, 4, 16, 4, 17, 13},	/* Group4:  disqec */
-	{130, 4, 16, 4, 18, 13},	/*          daa */
-	{131, 4, 16, 4, 19, 13},	/*          ttxt */
-
-	{132, 4, 20, 4, 20, 13},	/* Group5:  empi (7109) */
-	{133, 4, 20, 4, 21, 13},	/*          eth_mac (7109) */
-	{134, 4, 20, 4, 22, 13},	/*          TS_Merger (7109) */
-	{135, 4, 20, 4, 23, 13},	/*          sbatm */
-
-	{136, 4, 24, 4, 24, 13},	/* Group6:  lx_delphi (lx_deltaMu 7109) */
-	{137, 4, 24, 4, 25, 13},	/*          lx_aud */
-	{138, 4, 24, 4, 26, 13},	/*          dcxo */
-	{139, 4, 24, 4, 27, 13},	/*          pti1 (7109) */
-
-	{140, 4, 28, 4, 28, 13},	/* Group7:  fdma_mbox */
-	{141, 4, 28, 4, 29, 13},	/*          fdma_gp0 */
-	{142, 4, 28, 4, 30, 13},	/*          i2s2spdif */
-	{143, 4, 28, 4, 31, 13},	/*          cpxm */
-
-	{144, 8,  0, 8,  0, 13},	/* Group8:  pcmplyr0 */
-	{145, 8,  0, 8,  1, 13},	/*          pcmplyr1 */
-	{146, 8,  0, 8,  2, 13},	/*          pcmrdr */
-	{147, 8,  0, 8,  3, 13},	/*          spdifplyr */
-
-	{148, 8,  4, 8,  4, 13},	/* Group9:  glh */
-	{149, 8,  4, 8,  5, 13},	/*          delphi_pre0 */
-	{150, 8,  4, 8,  6, 13},	/*          delphi_pre1 */
-	{151, 8,  4, 8,  7, 13},	/*          delphi_mbe */
-
-	{152, 8,  8, 8,  8, 13},	/* Group10:  vdp_fifo_empty (7109) */
-	{153, 8,  8, 8,  9, 13},	/*           lmu (vdp_end_processing 7109) */
-	{154, 8,  8, 8, 10, 13},	/*           vtg1 */
-	{155, 8,  8, 8, 11, 13},	/*           vtg2 */
-
-	{156, 8, 12, 8, 12, 13},	/* Group11:  blt (bdisp_aq1 7109) */
-	{157, 8, 12, 8, 13, 13},	/*           dvp */
-	{158, 8, 12, 8, 14, 13},	/*           hdmi */
-	{159, 8, 12, 8, 15, 13},	/*           hdcp */
-
-	{160, 8, 16, 8, 16, 13},	/* Group12:  pti */
-	{161, 8, 16, 8, 17, 13},	/*           pdes_esa0_select (7109) */
-	{162, 8, 16, 8, 18, 13},	/*           pdes */
-	{163, 8, 16, 8, 19, 13},	/*           pdes_read_cw (7109) */
-
-	{164, 8, 20, 8, 20, 13},	/* Group13:  sig_chk (tkdma_tkd 7109) */
-	{165, 8, 20, 8, 21, 13},	/*           dma_fin (tkdma_dma 7109) */
-	{166, 8, 20, 8, 22, 13},	/*           sec_cp (cripto_sig_dma 7109) */
-	{167, 8, 20, 8, 23, 13},	/*           cripto_sig_chk (7109) */
-
-	{168, 8, 24, 8, 24, 13},	/* Group14:  ohci */
-	{169, 8, 24, 8, 25, 13},	/*           ehci */
-	{170, 8, 24, 8, 26, 13},	/*           sata */
-	{171, 8, 28, 8, 27, 13},	/*           bdisp_cq1 (7109) */
-
-	{172, 8, 28, 8, 28, 13},	/* Group15:  icam3_kte (7109) */
-	{173, 8, 28, 8, 29, 13},	/*           icam3 (7109) */
-	{174, 8, 28, 8, 30, 13},	/*           mes_lmi_vid (7109) */
-	{175, 8, 28, 8, 31, 13},	/*           mes_lmi_sys (7109) */
+	INTC_VECT(SATA_DMAC, 0xa20), INTC_VECT(SATA_HOSTC, 0xa40),
+	INTC_VECT(PIO0, 0xc00), INTC_VECT(PIO1, 0xc80), INTC_VECT(PIO2, 0xd00),
+	INTC_VECT(MTP, 0x1000),INTC_VECT(PIO5, 0x1020),
+	INTC_VECT(PIO4, 0x1040), INTC_VECT(PIO3, 0x1060),
+	INTC_VECT(SSC2, 0x10a0),
+	INTC_VECT(SSC1, 0x10c0), INTC_VECT(SSC0, 0x10e0),
+	INTC_VECT(UART3, 0x1100), INTC_VECT(UART2, 0x1120),
+	INTC_VECT(UART1, 0x1140), INTC_VECT(UART0, 0x1160),
+	INTC_VECT(IRB_WAKEUP, 0x1180), INTC_VECT(IRB, 0x11a0),
+	INTC_VECT(PWM, 0x11c0), INTC_VECT(MAFE, 0x11e0),
+	INTC_VECT(DISEQC, 0x1220),
+	INTC_VECT(DAA, 0x1240), INTC_VECT(TTXT, 0x1260),
+	INTC_VECT(EMPI, 0x1280), INTC_VECT(ETH_MAC, 0x12a0),
+	INTC_VECT(TS_MERGER, 0x12c0),
+	INTC_VECT(ST231_DELTA, 0x1300), INTC_VECT(ST231_AUD, 0x1320),
+	INTC_VECT(DCXO, 0x1340), INTC_VECT(PTI1, 0x1360),
+	INTC_VECT(FDMA_MBOX, 0x1380), INTC_VECT(FDMA_GP0, 0x13a0),
+	INTC_VECT(I2S2SPDIF, 0x13c0), INTC_VECT(CPXM, 0x13e0),
+	INTC_VECT(PCMPLYR0, 0x1400), INTC_VECT(PCMPLYR1, 0x1420),
+	INTC_VECT(PCMRDR, 0x1440), INTC_VECT(SPDIFPLYR, 0x1460),
+	INTC_VECT(MPEG2, 0x1480), INTC_VECT(DELTA_PRE0, 0x14a0),
+	INTC_VECT(DELTA_PRE1, 0x14c0), INTC_VECT(DELTA_MBE, 0x14e0),
+	INTC_VECT(VDP_FIFO_EMPTY, 0x1500), INTC_VECT(VDP_END_PROC, 0x1520),
+	INTC_VECT(VTG1, 0x1540), INTC_VECT(VTG2, 0x1560),
+	INTC_VECT(BDISP_AQ1, 0x1580), INTC_VECT(DVP, 0x15a0),
+	INTC_VECT(HDMI, 0x15c0), INTC_VECT(HDCP, 0x15e0),
+	INTC_VECT(PTI, 0x1600), INTC_VECT(PDES_ESA0, 0x1620),
+	INTC_VECT(PDES, 0x1640), INTC_VECT(PRES_READ_CW, 0x1660),
+	INTC_VECT(SIG_CHK, 0x1680), INTC_VECT(TKDMA, 0x16a0),
+	INTC_VECT(CRIPTO_SIG_DMA, 0x16c0), INTC_VECT(CRIPTO_SIG_CHK, 0x16e0),
+	INTC_VECT(OHCI, 0x1700), INTC_VECT(EHCI, 0x1720),
+	INTC_VECT(SATA, 0x1740), INTC_VECT(BDISP_CQ1, 0x1760),
+	INTC_VECT(ICAM3_KTE, 0x1780), INTC_VECT(ICAM3, 0x17a0),
+	INTC_VECT(MES_LMI_VID, 0x17c0), INTC_VECT(MES_LMI_SYS, 0x17e0)
 };
 
-static struct intc2_desc intc2_irq_desc __read_mostly = {
-	.prio_base	= 0xb9001300,
-	.msk_base	= 0xb9001340,
-	.mskclr_base	= 0xb9001360,
+static struct intc_group groups[] = {
+	INTC_GROUP(TMU2, TMU2_TUNI, TMU2_TICPI),
+	INTC_GROUP(RTC, RTC_ATI, RTC_PRI, RTC_CUI),
+	INTC_GROUP(SCIF, SCIF_ERI, SCIF_RXI, SCIF_BRI, SCIF_TXI),
 
-	.intc2_data	= intc2_irq_table,
-	.nr_irqs	= ARRAY_SIZE(intc2_irq_table),
-
-	.chip = {
-		.name	= "INTC2-stx710x",
-	},
+	INTC_GROUP(SATA_SPLIT, SATA_DMAC, SATA_HOSTC),
+	INTC_GROUP(GROUP0, PIO5, PIO4, PIO3, MTP),
+	INTC_GROUP(GROUP1, SSC2, SSC1, SSC0),
+	INTC_GROUP(GROUP2, UART3, UART2, UART1, UART0),
+	INTC_GROUP(GROUP3, IRB_WAKEUP, IRB, PWM, MAFE),
+	INTC_GROUP(GROUP4, DISEQC, DAA, TTXT),
+	INTC_GROUP(GROUP5, EMPI, ETH_MAC, TS_MERGER),
+	INTC_GROUP(GROUP6, ST231_DELTA, ST231_AUD, DCXO, PTI1),
+	INTC_GROUP(GROUP7, FDMA_MBOX, FDMA_GP0, I2S2SPDIF, CPXM),
+	INTC_GROUP(GROUP8, PCMPLYR0, PCMPLYR1, PCMRDR, SPDIFPLYR),
+	INTC_GROUP(GROUP9, MPEG2, DELTA_PRE0, DELTA_PRE1, DELTA_MBE),
+	INTC_GROUP(GROUP10, VDP_FIFO_EMPTY, VDP_END_PROC, VTG1, VTG2),
+	INTC_GROUP(GROUP11, BDISP_AQ1, DVP, HDMI, HDCP),
+	INTC_GROUP(GROUP12, PTI, PDES_ESA0, PDES, PRES_READ_CW),
+	INTC_GROUP(GROUP13, SIG_CHK, TKDMA, CRIPTO_SIG_DMA, CRIPTO_SIG_CHK),
+	INTC_GROUP(GROUP14, OHCI, EHCI, SATA, BDISP_CQ1),
+	INTC_GROUP(GROUP15, ICAM3_KTE, ICAM3, MES_LMI_VID, MES_LMI_SYS),
 };
 
-static struct ipr_data ipr_irq_table[] = {
-	/* IRQ, IPR-idx, shift, priority */
-	{ 16, 0, 12, 2 }, /* TMU0 TUNI*/
-	{ 17, 0,  8, 2 }, /* TMU1 TUNI */
-	{ 18, 0,  4, 2 }, /* TMU2 TUNI */
-	{ 27, 1, 12, 2 }, /* WDT ITI */
-	{ 32, 2,  0, 7 }, /* HUDI */
-/* these here are only valid if INTC_ICR bit 7 is set to 1! */
-	{  2, 3, 12, 3 }, /* IRL0 */
-	{  5, 3,  8, 3 }, /* IRL1 */
-	{  8, 3,  4, 3 }, /* IRL2 */
-	{ 11, 3,  0, 3 }, /* IRL3 */
+static struct intc_prio priorities[] = {
+	INTC_PRIO(SCIF, 3),
 };
 
-static unsigned long ipr_offsets[] = {
-	0xffd00004UL,	/* 0: IPRA */
-	0xffd00008UL,	/* 1: IPRB */
-	0xffd0000cUL,	/* 2: IPRC */
-	0xffd00010UL,	/* 3: IPRD */
+static struct intc_prio_reg prio_registers[] = {
+					   /*   15-12, 11-8,  7-4,   3-0 */
+	{ 0xffd00004, 0, 16, 4, /* IPRA */     { TMU0, TMU1, TMU2,   RTC } },
+	{ 0xffd00008, 0, 16, 4, /* IPRB */     {  WDT,    0, SCIF,     0 } },
+	{ 0xffd0000c, 0, 16, 4, /* IPRC */     {    0,    0,    0,  HUDI } },
+	{ 0xffd00010, 0, 16, 4, /* IPRD */     { IRL0, IRL1,  IRL2, IRL3 } },
+						/* 31-28,   27-24,   23-20,   19-16 */
+						/* 15-12,    11-8,     7-4,     3-0 */
+	{ 0xb9001300, 0, 32, 4, /* INTPRI00 */ {       0,       0,    PIO2,    PIO1,
+						    PIO0,       0, SATA_SPLIT,    0 } },
+	{ 0xb9001304, 0, 32, 4, /* INTPRI04 */ {  GROUP7,  GROUP6,  GROUP5,  GROUP4,
+						  GROUP3,  GROUP2,  GROUP1,  GROUP0 } },
+	{ 0xb9001308, 0, 32, 4, /* INTPRI08 */ { GROUP15, GROUP14, GROUP13, GROUP12,
+						 GROUP11, GROUP10,  GROUP9,  GROUP8 } },
 };
 
-static struct ipr_desc ipr_irq_desc = {
-	.ipr_offsets	= ipr_offsets,
-	.nr_offsets	= ARRAY_SIZE(ipr_offsets),
-
-	.ipr_data	= ipr_irq_table,
-	.nr_irqs	= ARRAY_SIZE(ipr_irq_table),
-
-	.chip = {
-		.name	= "IPR-stx710x",
-	},
+static struct intc_mask_reg mask_registers[] = {
+	{ 0xb9001340, 0xb9001360, 32, /* INTMSK00 / INTMSKCLR00 */
+	  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,	/* 31..16 */
+	    0, PIO2, PIO1, PIO0,				/* 15..12 */
+	    0, 0, 0, 0,						/* 11...8 */
+	    0, 0, 0, 0,						/*  7...4 */
+	    0, SATA_HOSTC, SATA_DMAC, 0 } },			/*  3...0 */
+	{ 0xb9001344, 0xb9001364, 32, /* INTMSK04 / INTMSKCLR04 */
+	  { CPXM, I2S2SPDIF, FDMA_GP0, FDMA_MBOX,		/* 31..28 */
+	    PTI1, DCXO, ST231_AUD, ST231_DELTA,			/* 27..24 */
+	    0, TS_MERGER, ETH_MAC, EMPI,			/* 23..20 */
+	    TTXT, DAA, DISEQC, 0,				/* 19..16 */
+	    MAFE, PWM, IRB, IRB_WAKEUP, 			/* 15..12 */
+	    UART0, UART1, UART2, UART3,				/* 11...8 */
+	    SSC0, SSC1, SSC2, 0,				/*  7...4 */
+	    PIO3, PIO4, PIO5, MTP } },				/*  3...0 */
+	{ 0xb9001348, 0xb9001368, 32, /* INTMSK08 / INTMSKCLR08 */
+	  { MES_LMI_SYS, MES_LMI_VID, ICAM3, ICAM3_KTE, 	/* 31..28 */
+	    BDISP_CQ1, SATA, EHCI, OHCI,			/* 27..24 */
+	    CRIPTO_SIG_CHK, CRIPTO_SIG_DMA, TKDMA, SIG_CHK,	/* 23..20 */
+	    PRES_READ_CW, PDES, PDES_ESA0, PTI,			/* 19..16 */
+	    HDCP, HDMI, DVP, BDISP_AQ1,				/* 15..12 */
+	    VTG2, VTG1, VDP_END_PROC, VDP_FIFO_EMPTY,		/* 11...8 */
+	    DELTA_MBE, DELTA_PRE1, DELTA_PRE0, MPEG2,		/*  7...4 */
+	    SPDIFPLYR, PCMRDR, PCMPLYR1, PCMPLYR0 } }		/*  3...0 */
 };
+
+static DECLARE_INTC_DESC(intc_desc, "stx7100", vectors, groups,
+			 priorities, mask_registers, prio_registers, NULL);
+
+static struct intc_vect vectors_irlm[] = {
+	INTC_VECT(IRL0, 0x240), INTC_VECT(IRL1, 0x2a0),
+	INTC_VECT(IRL2, 0x300), INTC_VECT(IRL3, 0x360),
+};
+
+static DECLARE_INTC_DESC(intc_desc_irlm, "stx7100_irlm", vectors_irlm, NULL,
+			 priorities, NULL, prio_registers, NULL);
 
 void __init plat_irq_setup(void)
 {
-	register_intc2_controller(&intc2_irq_desc);
-	register_ipr_controller(&ipr_irq_desc);
+	struct sysconf_field *sc;
+
+	/* Configure the external interrupt pins as inputs */
+	sc = sysconf_claim(SYS_CFG, 10, 0, 3, "irq");
+	sysconf_write(sc, 0xf);
+
+	register_intc_controller(&intc_desc);
 }
 
 #define INTC_ICR	0xffd00000UL
 #define INTC_ICR_IRLM   (1<<7)
 
-/* enable individual interrupt mode for external interupts */
-void __init ipr_irq_enable_irlm(void)
+void __init plat_irq_setup_pins(int mode)
 {
-#if defined(CONFIG_CPU_SUBTYPE_SH7750) || defined(CONFIG_CPU_SUBTYPE_SH7091)
-	BUG(); /* impossible to mask interrupts on SH7750 and SH7091 */
-#endif
-//	register_intc_controller(&intc_desc_irlm);
-
-	ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
+	switch (mode) {
+	case IRQ_MODE_IRQ: /* individual interrupt mode for IRL3-0 */
+		register_intc_controller(&intc_desc_irlm);
+		ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
+		break;
+	default:
+		BUG();
+	}
 }

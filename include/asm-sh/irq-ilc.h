@@ -3,4 +3,4 @@
 #define ILC_IRQ(x) (ILC_FIRST_IRQ + (x))
 
 void __init init_IRQ_ilc(void);
-void ilc_irq_demux(int irq, struct irq_desc *desc);
+void ilc_irq_demux(unsigned int irq, struct irq_desc *desc);

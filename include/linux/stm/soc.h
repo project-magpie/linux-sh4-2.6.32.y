@@ -35,7 +35,7 @@ struct plat_stm_pwm_data {
 struct plat_stmmacenet_data {
 	int bus_id;
 	int phy_addr;
-	int phy_ignorezero;
+	unsigned int phy_mask;
 	char *phy_name;
 	int pbl;
 };

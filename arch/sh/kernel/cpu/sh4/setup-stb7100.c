@@ -25,12 +25,9 @@
 #define SYSCONF_SYS_CFG(n)      (SYSCONF_BASE + 0x100 + ((n) * 4))
 
 #ifdef CONFIG_STMMAC_ETH
-#define MAC_SPEED_SEL	    0x00100000 /* MAC is running at 100 Mbps speed */
-#define PHY_CLK_EXT	    0x00080000 /* PHY clock is external (RMII mode)*/
 #define MII_MODE	    0x00040000 /* RMII interface activated */
 #define ETH_IF_ON	    0x00010000 /* ETH interface on */
 #define DVO_ETH_PAD_DISABLE 0x00020000 /* DVO eth pad disable */
-#define STB7109ETH_RESOURCE_NAME	"stb7109eth"
 #endif
 
 static struct plat_sci_port sci_platform_data[] = {
@@ -547,7 +544,7 @@ static struct plat_stmmacenet_data eth7109_private_data = {
 static struct plat_stmmacenet_data eth7109_private_data = {
 	.bus_id = 0,
 	.phy_addr = 14,
-	.phy_ignorezero = 1,
+	.phy_mask = 1,
 	.phy_name = "ste100p",
 	.pbl = 1,
 };
@@ -629,18 +626,11 @@ static struct platform_device *stx710x_devices[] __initdata = {
 void stb7109eth_hw_setup(void)
 {
 	unsigned long sysconf;
+	static struct stpio_pin *ethreset;
 
 	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf |= (DVO_ETH_PAD_DISABLE | ETH_IF_ON /*| MAC_SPEED_SEL*/);
-
-#ifdef CONFIG_PHY_RMII
-	sysconf |= MII_MODE; /* RMII selected*/
-#else
-	sysconf &= ~MII_MODE; /* MII selected */
-#endif
-#ifdef CONFIG_STMMAC_EXT_CLK
-	sysconf |= PHY_CLK_EXT;
-#endif
+	sysconf |= (DVO_ETH_PAD_DISABLE | ETH_IF_ON);
+	sysconf &= ~MII_MODE;
 	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
 
 	/* Enable the external PHY interrupts */
@@ -648,13 +638,9 @@ void stb7109eth_hw_setup(void)
 	sysconf |= 0x0000000f;
 	ctrl_outl(sysconf, SYSCONF_SYS_CFG(10));
 
-	/* Configure e/net PHY clock */
-#ifndef CONFIG_STMMAC_EXT_CLK
-	stpio_request_pin(3, 7, STB7109ETH_RESOURCE_NAME, STPIO_ALT_OUT);
-#else
-	stpio_request_pin(3, 7, STB7109ETH_RESOURCE_NAME, STPIO_IN);
-#endif
-
+	/* Reset the PHY */
+	ethreset = stpio_request_pin(2, 4, "STE100P_RST", STPIO_OUT);
+	stpio_set_pin(ethreset, 1);
 	return;
 }
 #endif

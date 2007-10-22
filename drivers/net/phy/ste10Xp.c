@@ -5,6 +5,8 @@
  *
  * ----------------------------------------------------------------------------
  * Changelog:
+ *   May 2007
+ *      Changed 101p PHY ID and mask to allow REV B variants
  *   Aug  2006
  *	Converted PHY driver to new 2.6.17 PHY device
  *	Added STe100p support
@@ -48,7 +50,7 @@
 #define MII_XIE_DEFAULT_MASK 0x0070 /* ANE complete, Remote Fault, Link Down */
 
 /* STE101P phy identifier values */
-#define STE101P_PHY_ID		0x00061c51
+#define STE101P_PHY_ID		0x00061c50
 
 /* STe100P phy identifier values */
 #define STE100P_PHY_ID       	0x1c040011
@@ -105,7 +107,7 @@ static int ste10Xp_ack_interrupt(struct phy_device *phydev)
 
 static struct phy_driver ste101p_pdriver = {
         .phy_id         = STE101P_PHY_ID,
-        .phy_id_mask    = 0xfffffffc,
+        .phy_id_mask    = 0xfffffff0,
         .name           = "STe101p",
         .features       = PHY_BASIC_FEATURES | SUPPORTED_Pause,
         .flags          = PHY_HAS_INTERRUPT,

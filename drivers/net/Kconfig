@@ -2042,9 +2042,8 @@ config STMMAC_NAPI
 choice
 	depends on STMMAC_ETH && PHYLIB
         prompt "MDIO communication mode"
-	default PHY_RMII if SH_ST_MB442
+	default PHY_MII if SH_ST_MB442
 	default PHY_MII if SH_ST_MB411
-	default PHY_RMII if LAN8700
 
 config  PHY_MII
         bool "MII mode"

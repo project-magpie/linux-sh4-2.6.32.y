@@ -191,6 +191,7 @@
 #define RDES0_STATUS_0            0x00000000  /* Always tied to zero */
 
 #define RDES1_CONTROL_DIOC        0x80000000  /* Disable Intr On Completion */
+#define RDES0_STATUS_ERROR  (RDES0_STATUS_ES|RDES0_STATUS_LENGTH_ERROR|RDES0_STATUS_MII_ERR)
 
 /* Transmit Descriptor */
 #define TDES0_STATUS_ES		  0x00008000  /* Error Summary */

@@ -44,9 +44,9 @@
  *
  * Returns 0 on success or < 0 on error.
  */
-int mdiobus_register(struct mii_bus *bus, int ignorezero)
+int mdiobus_register(struct mii_bus *bus)
 {
-	int i = 0;
+	int i;
 	int err = 0;
 
 	spin_lock_init(&bus->mdio_lock);
@@ -59,10 +59,7 @@ int mdiobus_register(struct mii_bus *bus, int ignorezero)
 	if (bus->reset)
 		bus->reset(bus);
 
-	if (ignorezero)
-		i++;
-
-	for (; i < PHY_MAX_ADDR; i++) {
+	for (i = 0; i < PHY_MAX_ADDR; i++) {
 		struct phy_device *phydev;
 
 		if (bus->phy_mask & (1 << i)) {

@@ -912,6 +912,16 @@ config SMSC911x
 	  <file:Documentation/networking/net-modules.txt>. The module
 	  will be called smsc911x.
 
+config SMSC911x_DMA
+	boolean "SMSC 911x DMA support (EXPERIMENTAL)"
+	depends on SMSC911x && EXPERIMENTAL
+	---help---
+	  Enabling this option will set the default behaviour of the
+	  SMSC 911x driver to use DMA transfers, otherwise it will use
+	  PIO transfers. This may reduce the CPU overhead, will probably
+	  reduce performance.
+
+
 config SMC9194
 	tristate "SMC 9194 support"
 	depends on NET_VENDOR_SMC && (ISA || MAC && BROKEN)

@@ -837,6 +837,7 @@ void Tx_WakeQueue(
 
 static DWORD Tx_GetTxStatusCount(
 	PPRIVATE_DATA privateData);
+static void Tx_DmaCompletionCallback(void* param);
 static DWORD Tx_CompleteTx(
 	PPRIVATE_DATA privateData);
 void Tx_UpdateTxCounters(
@@ -866,6 +867,8 @@ unsigned long Rx_TaskletParameter=0;
 
 void Rx_ProcessPacketsTasklet(unsigned long data);
 DECLARE_TASKLET(Rx_Tasklet,Rx_ProcessPacketsTasklet,0);
+
+static void Rx_DmaCompletionCallback(void* param);
 
 BOOLEAN RxStop_HandleInterrupt(
 	PPRIVATE_DATA privateData,
@@ -3809,14 +3812,18 @@ void Tx_SendSkb(
 	else
 	{
 		//Use DMA and PIO
-		DWORD dwDmaCh=privateData->dwTxDmaCh;
 		PPLATFORM_DATA platformData=&(privateData->PlatformData);
 		SMSC_ASSERT(TX_FIFO_LOW_THRESHOLD>(skb->len+32));
+
+		BUG_ON((privateData->dwTxQueueDisableMask & 0x04UL) != 0);
+		BUG_ON(privateData->TxSkb != NULL);
+
 		if(skb->len>=privateData->dwTxDmaThreshold)
 		{
 			//use DMA
 			DWORD dwTxCmdA;
 			DWORD dwTxCmdB;
+
 			//prepare for 16 byte alignment
 			dwTxCmdA=
 #if (PLATFORM_CACHE_LINE_BYTES == 16)
@@ -3848,9 +3855,6 @@ void Tx_SendSkb(
 
 			spin_lock(&(privateData->TxSkbLock));
 			{
-				if(privateData->TxSkb)
-					Platform_DmaComplete(platformData,dwDmaCh);
-
 				dwFreeSpace=Lan_GetRegDW(TX_FIFO_INF);
 				dwFreeSpace&=TX_FIFO_INF_TDFREE_;
 				if(dwFreeSpace<TX_FIFO_LOW_THRESHOLD) {
@@ -3859,32 +3863,23 @@ void Tx_SendSkb(
 
 				Lan_SetRegDW(TX_DATA_FIFO,dwTxCmdA);
 				Lan_SetRegDW(TX_DATA_FIFO,dwTxCmdB);
-				if(!Platform_DmaStartXfer(platformData,&(privateData->TxDmaXfer)))
+				if(!Platform_DmaStartXfer(platformData,&(privateData->TxDmaXfer), Tx_DmaCompletionCallback, privateData))
 				{
 					SMSC_WARNING("Failed Platform_DmaStartXfer");
 				}
 
 				dwFreeSpace-=(skb->len+32);
-				if(privateData->TxSkb)
-					dev_kfree_skb(privateData->TxSkb);
-
 				privateData->TxSkb=skb;
 			}
 			spin_unlock(&(privateData->TxSkbLock));
 
+			Tx_StopQueue(privateData,0x04UL);
 		}
 		else
 		{
 			//use PIO
 			DWORD dwTxCmdA=0;
 			DWORD dwTxCmdB=0;
-			spin_lock(&(privateData->TxSkbLock));
-			if(privateData->TxSkb) {
-				Platform_DmaComplete(platformData,dwDmaCh);
-				dev_kfree_skb(privateData->TxSkb);
-				privateData->TxSkb=NULL;
-			}
-			spin_unlock(&(privateData->TxSkbLock));
 			dwFreeSpace=Lan_GetRegDW(TX_FIFO_INF);
 			dwFreeSpace&=TX_FIFO_INF_TDFREE_;
 			if(dwFreeSpace<TX_FIFO_LOW_THRESHOLD) {
@@ -3917,6 +3912,16 @@ void Tx_SendSkb(
 		Tx_StopQueue(privateData,0x02UL);
 		Lan_SetTDFL(privateData,0x32);
 	}
+}
+
+static void Tx_DmaCompletionCallback(void* param)
+{
+	PPRIVATE_DATA privateData = param;
+
+	BUG_ON(privateData->TxSkb == NULL);
+	dev_kfree_skb(privateData->TxSkb);
+	privateData->TxSkb = NULL;
+	Tx_WakeQueue(privateData,0x04UL);
 }
 
 static DWORD Tx_CompleteTx(
@@ -3989,17 +3994,16 @@ void Tx_UpdateTxCounters(
 void Tx_CompleteDma(
 	PPRIVATE_DATA privateData)
 {
+	DWORD dwTimeOut=100000;
+
 	SMSC_ASSERT(privateData!=NULL);
 
-	spin_lock(&(privateData->TxSkbLock));
-	if(privateData->TxSkb) {
-		Platform_DmaComplete(
-			&(privateData->PlatformData),
-			privateData->dwTxDmaCh);
-		dev_kfree_skb(privateData->TxSkb);
-		privateData->TxSkb=NULL;
+	while ((privateData->TxSkb) && (dwTimeOut)) {
+		udelay(10);
+		dwTimeOut--;
 	}
-	spin_unlock(&(privateData->TxSkbLock));
+	if (dwTimeOut == 0)
+		SMSC_WARNING("Timed out waiting for Tx DMA complete");
 }
 
 void Rx_Initialize(
@@ -4310,14 +4314,14 @@ FINISH_OVERRUN_PROCESSING:
 
 				if(privateData->dwRxDmaCh<TRANSFER_REQUEST_DMA) {
 					//make sure DMA has stopped before doing RX Dump
-					if(privateData->RxSkb) {
-						Platform_DmaComplete(
-							&(privateData->PlatformData),
-							privateData->dwRxDmaCh);
+					DWORD dwTimeOut=100000;
 
-						Rx_HandOffSkb(privateData,privateData->RxSkb);
-						privateData->RxSkb=NULL;
+					while ((privateData->RxSkb) && (dwTimeOut)) {
+						udelay(10);
+						timeOut--;
 					}
+					if (dwTimeOut == 0)
+						SMSC_WARNING("Timed out waiting for Rx DMA complete");
 				}
 
 				temp=Lan_GetRegDW(RX_CFG);
@@ -4522,8 +4526,10 @@ void Rx_ProcessPackets(PPRIVATE_DATA privateData)
 		dmaXfer.fMemWr=TRUE;
 		while((dwRxStatus=Rx_PopRxStatus(privateData))!=0)
 		{
-            DWORD dwPacketLength;
-RUN_AGAIN:
+			DWORD dwPacketLength;
+
+			BUG_ON(privateData->RxSkb != NULL);
+
 			Rx_CountErrors(privateData,dwRxStatus);
 			dwPacketLength=((dwRxStatus&0x3FFF0000UL)>>16);
 			if((dwRxStatus&RX_STS_ES_)==0)
@@ -4555,8 +4561,6 @@ RUN_AGAIN:
 						privateData->RxDataDWReadCount+=dwDwordCount;
 						privateData->RxPacketReadCount++;
 						privateData->RxDmaReadCount++;
-						if(privateData->RxSkb)
-							Platform_DmaComplete(platformData,dwDmaCh);
 
 						//set end alignment and offset
 						switch(PLATFORM_CACHE_LINE_BYTES)
@@ -4566,23 +4570,16 @@ RUN_AGAIN:
 						case 32:Lan_SetRegDW(RX_CFG,0x80001200UL);break;
 						default:SMSC_ASSERT(FALSE);
 						}
-						if(!Platform_DmaStartXfer(platformData,&dmaXfer)) {
+						if(!Platform_DmaStartXfer(platformData,&dmaXfer, Rx_DmaCompletionCallback, privateData)) {
 							SMSC_WARNING("Failed Platform_DmaStartXfer");
 						}
-
-						if(privateData->RxSkb) {
-							Rx_HandOffSkb(privateData,privateData->RxSkb);
-						}
 						privateData->RxSkb=skb;
+						Lan_DisableInterrupt(privateData,privateData->RxInterrupts);
+						goto FINISH;
 					}
 					else
 					{
 						//use PIO
-						if(privateData->RxSkb) {
-							Platform_DmaComplete(platformData,dwDmaCh);
-							Rx_HandOffSkb(privateData,privateData->RxSkb);
-						}
-						privateData->RxSkb=skb;
 						skb_reserve(skb,2);
 						skb_put(skb,dwPacketLength-4UL);
 						//set end alignment and offset
@@ -4595,6 +4592,7 @@ RUN_AGAIN:
 							privateData->dwLanBase,
 							((DWORD *)(skb->head)),
 							(dwPacketLength+2+3)>>2);
+						Rx_HandOffSkb(privateData,skb);
 					}
 					continue;
 				}
@@ -4606,42 +4604,25 @@ RUN_AGAIN:
 			}
 			//if we get here then the packet is to be read
 			//  out of the fifo and discarded
-			if(privateData->RxSkb) Platform_DmaComplete(platformData,dwDmaCh);
+			{
+				DWORD dwTimeOut=100000;
+
+				while ((privateData->RxSkb) && (dwTimeOut)) {
+					udelay(10);
+					dwTimeOut--;
+				}
+				if (dwTimeOut == 0)
+					SMSC_WARNING("Timed out waiting for Rx DMA complete");
+			}
+
 			//delay returning the dmaSkb to OS till later
 			dwPacketLength+=(2+3);
 			dwPacketLength>>=2;
 			Lan_SetRegDW(RX_CFG,0x00000200UL);//4 byte end alignment
 			Rx_FastForward(privateData,dwPacketLength);
 		}
-		if(privateData->RxSkb) {
-			//while waiting for dma to complete,
-			// check if another packet arrives
-			DWORD dwTimeOut=1000000;
-			while((Platform_DmaGetDwCnt(platformData,dwDmaCh))&&
-				(dwTimeOut))
-			{
-				if((dwRxStatus=Rx_PopRxStatus(privateData))!=0) {
-					goto RUN_AGAIN;
-				}
-				udelay(1);
-				dwTimeOut--;
-			}
-			if(dwTimeOut==0) {
-				SMSC_WARNING("Timed out while waiting for final Dma to complete");
-			}
-			if((dwRxStatus=Rx_PopRxStatus(privateData))!=0) {
-				goto RUN_AGAIN;
-			}
-
-			Rx_HandOffSkb(privateData,privateData->RxSkb);
-			privateData->RxSkb=NULL;
-
-			//check one last time for another packet.
-			if((dwRxStatus=Rx_PopRxStatus(privateData))!=0) {
-				goto RUN_AGAIN;
-			}
-		}
 	}
+FINISH:
 	Lan_SetRegDW(INT_STS,INT_STS_RSFL_);
 //	CLEAR_GPIO(GP_RX);
 }
@@ -4656,6 +4637,16 @@ void Rx_ProcessPacketsTasklet(unsigned long data)
 	}
 	Rx_ProcessPackets(privateData);
 	Lan_EnableIRQ(privateData);
+}
+
+static void Rx_DmaCompletionCallback(void* param)
+{
+	PPRIVATE_DATA privateData = param;
+
+	BUG_ON(privateData->RxSkb == NULL);
+	Rx_HandOffSkb(privateData,privateData->RxSkb);
+	privateData->RxSkb = NULL;
+	Lan_EnableInterrupt(privateData,privateData->RxInterrupts);
 }
 
 BOOLEAN Rx_HandleInterrupt(
@@ -4697,6 +4688,15 @@ BOOLEAN Rx_HandleInterrupt(
 	if((!(dwIntSts&INT_STS_RSFL_))&&(privateData->RxOverrun==FALSE)) {
 		return result;
 	}
+	if (privateData->RxSkb) {
+		/* We are still DMAing the previous packet from the RX
+		 * FIFO, and waiting for the DMA completion callback.
+		 * We got here because another interrupt was active,
+		 * even though Rx interrupts are disabled.
+		 */
+		return result;
+	}
+
 	result=TRUE;
 
 	if(privateData->MeasuringRxThroughput==FALSE) {

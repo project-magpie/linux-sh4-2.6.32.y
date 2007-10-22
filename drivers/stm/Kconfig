@@ -1,0 +1,13 @@
+#
+# STM specific device configuration
+#
+
+config STM_DRIVERS
+	boolean
+	default y if CPU_SUBTYPE_ST40
+	default n
+
+menu "STM specific devices"
+        depends on STM_DRIVERS
+
+endmenu

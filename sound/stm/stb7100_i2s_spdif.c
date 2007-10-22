@@ -69,6 +69,13 @@ static void reset_pcm_converter(snd_pcm_substream_t * substream)
 	writel(reg,chip->pcm_converter+AUD_SPDIF_PR_CFG);
 }
 
+static void reset_converter_fifo(snd_pcm_substream_t * substream)
+{
+	pcm_hw_t * chip = snd_pcm_substream_chip(substream);
+	unsigned long reg =readl(chip->pcm_converter+AUD_SPDIF_PR_CFG);
+	writel((reg & ~PR_CFG_FIFO_ENABLE),chip->pcm_converter+AUD_SPDIF_PR_CFG);
+	writel(reg |=PR_CFG_FIFO_ENABLE ,chip->pcm_converter+AUD_SPDIF_PR_CFG);
+}
 
 static inline void bit_duplicate(u32 bits, u32 *word1, u32 *word2)
 {
@@ -135,8 +142,8 @@ static irqreturn_t stb7100_converter_interrupt(int irq, void *dev_id, struct pt_
 {
 	unsigned long val;
 	unsigned long handled= IRQ_NONE;
-	unsigned long reg;
 	pcm_hw_t *chip = dev_id;
+
         /* Read and clear interrupt status */
 	spin_lock(&chip->lock);
 	val = readl(chip->pcm_converter + AUD_SPDIF_PR_INT_STA);
@@ -148,11 +155,12 @@ static irqreturn_t stb7100_converter_interrupt(int irq, void *dev_id, struct pt_
 		wake_up(&software_reset_wq);
 		handled = IRQ_HANDLED;
 	}
-
+	if(val & PR_UNDERFLOW_INT){
+		printk("%s I2S Converter PLayer FIFO Underflow detected\n",__FUNCTION__);
+		handled = IRQ_HANDLED;
+	}
 	if(val & PR_I2S_FIFO_OVERRUN_INT){
-		reg = readl(chip->pcm_converter+AUD_SPDIF_PR_CFG);
-		writel((reg & ~PR_CFG_FIFO_ENABLE),chip->pcm_converter+AUD_SPDIF_PR_CFG);
-		writel(reg,chip->pcm_converter+AUD_SPDIF_PR_CFG);
+		printk("%s I2S Converter PLayer FIFO Overflow detected\n",__FUNCTION__);
 		handled = IRQ_HANDLED;
 	}
 	if(val & PR_AUDIO_SAMPLES_FULLY_READ_INT){
@@ -163,6 +171,17 @@ static irqreturn_t stb7100_converter_interrupt(int irq, void *dev_id, struct pt_
 	return handled;
 }
 
+static void stb7100_converter_unpause_playback(snd_pcm_substream_t *substream)
+{
+ 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
+	writel((chip->pcmplayer_control|PCMP_ON), chip->pcm_player+STM_PCMP_CONTROL);
+}
+
+static void stb7100_converter_pause_playback(snd_pcm_substream_t *substream)
+{
+        pcm_hw_t *chip = snd_pcm_substream_chip(substream);
+	writel((chip->pcmplayer_control|PCMP_MUTE),chip->pcm_player+STM_PCMP_CONTROL);
+}
 
 static void stb7100_converter_stop_playback(snd_pcm_substream_t *substream)
 {
@@ -176,6 +195,8 @@ static void stb7100_converter_stop_playback(snd_pcm_substream_t *substream)
 
 	reg = readl(chip->pcm_converter + AUD_SPDIF_PR_SPDIF_CTRL) & ~0x7L; /* mask bottom three bits */
 	writel((reg|PR_CTRL_OFF), chip->pcm_converter+AUD_SPDIF_PR_SPDIF_CTRL);
+
+	reset_converter_fifo(substream);
 
 	writel(0         , chip->pcm_converter + AUD_SPDIF_PR_INT_EN);
 	writel(0xffffffff, chip->pcm_converter + AUD_SPDIF_PR_INT_CLR);
@@ -194,18 +215,9 @@ static void stb7100_converter_stop_playback(snd_pcm_substream_t *substream)
 static void stb7100_converter_start_playback(snd_pcm_substream_t *substream)
 {
 	pcm_hw_t     *chip = snd_pcm_substream_chip(substream);
-	unsigned long reg=0;
-
-	int res = dma_xfer_list(chip->fdma_channel,&chip->dmap);
-	if(res !=0)
-		printk("%s FDMA_CH %d failed to start %d\n",__FUNCTION__,chip->fdma_channel,res);
-
-	reg = readl(chip->pcm_converter +AUD_SPDIF_PR_SPDIF_CTRL) & ~0x7L; /* mask bottom three bits */
-	writel(reg | PR_CTRL_AUDIO_DATA_MODE,chip->pcm_converter + AUD_SPDIF_PR_SPDIF_CTRL);
-
-	reg = readl(chip->pcm_converter + AUD_SPDIF_PR_CFG) | PR_CFG_DEVICE_ENABLE;
-	writel(reg, chip->pcm_converter + AUD_SPDIF_PR_CFG );
-
+	unsigned long cfg_reg;
+	unsigned long ctrl_reg;
+	int res = 0;
 	/*
 	 * We appear to need to reset the PCM player otherwise we end up
 	 * with channel data sent to the wrong channels when starting up for
@@ -213,44 +225,19 @@ static void stb7100_converter_start_playback(snd_pcm_substream_t *substream)
 	 */
 	stb7100_reset_pcm_player(chip);
 
+	res=dma_xfer_list(chip->fdma_channel,&chip->dmap);
+	if(res !=0)
+		printk("%s FDMA_CH %d failed to start %d\n",__FUNCTION__,chip->fdma_channel,res);
+
+	cfg_reg = readl(chip->pcm_converter + AUD_SPDIF_PR_CFG) ;
+	ctrl_reg = readl(chip->pcm_converter +AUD_SPDIF_PR_SPDIF_CTRL) & ~0x7L; /* mask bottom three bits */
+
+	writel(ctrl_reg | PR_CTRL_AUDIO_DATA_MODE,chip->pcm_converter + AUD_SPDIF_PR_SPDIF_CTRL);
+	writel(cfg_reg  | PR_CFG_DEVICE_ENABLE, chip->pcm_converter + AUD_SPDIF_PR_CFG );
+
 	writel((chip->pcmplayer_control | PCMP_ON), chip->pcm_player + STM_PCMP_CONTROL);
 
 }
-
-
-static void stb7100_converter_unpause_playback(snd_pcm_substream_t *substream)
-{
- 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
-	unsigned long reg=0;
-
-        spin_lock(&chip->lock);
-	reg = readl(chip->pcm_converter + AUD_SPDIF_PR_SPDIF_CTRL) & ~0x7L; /* mask bottom three bits */
-	writel(reg | PR_CTRL_AUDIO_DATA_MODE,chip->pcm_converter + AUD_SPDIF_PR_SPDIF_CTRL);
-
-	reg = readl(chip->pcm_converter + AUD_SPDIF_PR_CFG) | PR_CFG_DEVICE_ENABLE;
-	writel(reg, chip->pcm_converter + AUD_SPDIF_PR_CFG );
-
-	writel((chip->pcmplayer_control|PCMP_ON), chip->pcm_player+STM_PCMP_CONTROL);
-	spin_unlock(&chip->lock);
-}
-
-
-static void stb7100_converter_pause_playback(snd_pcm_substream_t *substream)
-{
-        pcm_hw_t *chip = snd_pcm_substream_chip(substream);
-	unsigned long reg=0;
-
-	spin_lock(&chip->lock);
-	reg = readl(chip->pcm_converter + AUD_SPDIF_PR_CFG) & ~PR_CFG_DEVICE_ENABLE;
-	writel(reg, chip->pcm_converter + AUD_SPDIF_PR_CFG );
-
-	reg = readl(chip->pcm_converter +AUD_SPDIF_PR_SPDIF_CTRL) & ~0x7L; /* mask bottom three bits */
-	writel(reg|PR_CTRL_MUTE_PCM_NULL_DATA, chip->pcm_converter+AUD_SPDIF_PR_SPDIF_CTRL);
-
-	writel((chip->pcmplayer_control|PCMP_MUTE),chip->pcm_player+STM_PCMP_CONTROL);
-	spin_unlock(&chip->lock);
-}
-
 
 static int stb7100_converter_program_player(snd_pcm_substream_t * substream)
 {
@@ -258,13 +245,15 @@ static int stb7100_converter_program_player(snd_pcm_substream_t * substream)
 	unsigned long ctl_reg = 0;
 	unsigned long interrupt_list = (PR_INTERRUPT_ENABLE             |
 					PR_SOFT_RESET_INT_ENABLE        |
-					PR_I2S_FIFO_OVERRUN_INT         |
 					PR_AUDIO_SAMPLES_FULLY_READ_INT);
 	unsigned long flags=0;
 
 	snd_pcm_runtime_t * runtime = substream->runtime;
 	pcm_hw_t          * chip    = snd_pcm_substream_chip(substream);
 	int val =0;
+
+	if(chip->fifo_check_mode)
+		interrupt_list |= (PR_I2S_FIFO_OVERRUN_INT | PR_UNDERFLOW_INT);
 
 	/*we only ever call from the stm7100_pcm program func,
 	 * therefore we assume we already own the chip lock*/
@@ -334,6 +323,7 @@ static int stb7100_converter_program_player(snd_pcm_substream_t * substream)
 	/*this reset will cause us to de-schedule, then well get an IRQ when
 	 * the reset has completed, so make sure we dont hold any locks by now*/
 	reset_pcm_converter(substream);
+	return 0;
 }
 
 

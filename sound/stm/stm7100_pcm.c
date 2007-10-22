@@ -319,6 +319,11 @@ static void stb7100_pcm_stop_playback(snd_pcm_substream_t *substream)
 
 	spin_lock(&chip->lock);
 
+	/*if we have fifo checking turned on we must also stop this interrupt first to
+	 * prevent an error condition being generated as the player is disabled*/
+	if(chip->fifo_check_mode)
+		writel( ENABLE_INT_UNDERFLOW,chip->pcm_player + STM_PCMP_IRQ_EN_CLR);
+
 	if(chip->card_data->major == PCM1_DEVICE){
 		reg = readl(chip->pcm_clock_reg+AUD_ADAC_CTL_REG) | DAC_SOFTMUTE;
 		writel(reg, chip->pcm_clock_reg+AUD_ADAC_CTL_REG);
@@ -379,6 +384,10 @@ static void stb7100_pcm_start_playback(snd_pcm_substream_t *substream)
 		udelay(100);
 		writel((reg & ~DAC_SOFTMUTE),chip->pcm_clock_reg+AUD_ADAC_CTL_REG); /* Unmute */
 	}
+	/*again we enable this err-checking interrput last to prevent an err condiftion
+	 * as the device is programmed */
+	if(chip->fifo_check_mode)
+		writel( ENABLE_INT_UNDERFLOW,chip->pcm_player + STM_PCMP_IRQ_EN_SET);
 
 	spin_unlock(&chip->lock);
 }
@@ -394,6 +403,8 @@ static void stb7100_pcm_unpause_playback(snd_pcm_substream_t *substream)
 		reg = readl(chip->pcm_clock_reg+AUD_ADAC_CTL_REG);
 		writel((reg & ~DAC_SOFTMUTE),chip->pcm_clock_reg+AUD_ADAC_CTL_REG);
         }
+	if(chip->fifo_check_mode)
+		writel( ENABLE_INT_UNDERFLOW,chip->pcm_player + STM_PCMP_IRQ_EN_SET);
 
 	writel((chip->pcmplayer_control|PCMP_ON),chip->pcm_player+STM_PCMP_CONTROL);
 	spin_unlock(&chip->lock);
@@ -411,6 +422,10 @@ static void stb7100_pcm_pause_playback(snd_pcm_substream_t *substream)
 	        writel((reg | DAC_SOFTMUTE),chip->pcm_clock_reg+AUD_ADAC_CTL_REG);
 	}
 	writel((chip->pcmplayer_control|PCMP_MUTE),chip->pcm_player+STM_PCMP_CONTROL);
+
+	if(chip->fifo_check_mode)
+		writel( ENABLE_INT_UNDERFLOW,chip->pcm_player + STM_PCMP_IRQ_EN_CLR);
+
 	spin_unlock(&chip->lock);
 }
 
@@ -440,7 +455,13 @@ static irqreturn_t stb7100_pcm_interrupt(int irq, void *dev_id, struct pt_regs *
 	writel(val,stb7100->pcm_player + STM_PCMP_ITS_CLR);
 	spin_unlock(&stb7100->lock);
 
-	if(val & PCMP_INT_STATUS_ALLREAD){
+	if(unlikely((val & ENABLE_INT_UNDERFLOW ) == ENABLE_INT_UNDERFLOW)){
+		printk("%s PCM PLayer #%d FIFO Underflow detected\n",
+			__FUNCTION__,
+			stb7100->current_substream->pcm->card->number);
+		res = IRQ_HANDLED;
+	}
+	if(likely(val & PCMP_INT_STATUS_ALLREAD)){
 		/*Inform higher layer that we have completed a period */
 		snd_pcm_period_elapsed(stb7100->current_substream);
 		res=  IRQ_HANDLED;
@@ -557,7 +578,7 @@ static int stb7100_program_pcmplayer(snd_pcm_substream_t *substream)
 	unsigned long flags=0;
 
 	fmtreg = PCMP_FORMAT_32  | PCMP_ALIGN_START       | PCMP_MSB_FIRST  |
-		 PCMP_CLK_RISING | PCMP_LRLEVEL_LEFT_HIGH | PCMP_PADDING_ON;
+		 chip->i2s_sampling_edge | PCMP_LRLEVEL_LEFT_HIGH | PCMP_PADDING_ON;
 
 	ctrlreg = (runtime->period_size * runtime->channels) << PCMP_SAMPLES_SHIFT;
 
@@ -767,7 +788,7 @@ static int stb7100_pcm_open(snd_pcm_substream_t *substream)
 	const char * dmac_id =STM_DMAC_ID;
 	const char * lb_cap_channel = STM_DMA_CAP_LOW_BW;
 	const char * hb_cap_channel = STM_DMA_CAP_HIGH_BW;
-	printk("%s in\n",__FUNCTION__);
+
 	if(chip->fdma_channel <0){
 		if((err=request_dma_bycap(
 					&dmac_id,
@@ -977,7 +998,7 @@ static int __init stb710x_platform_alsa_probe(struct device *dev)
 }
 
 
-static int register_platform_driver(struct platform_device *platform_dev,pcm_hw_t *chip)
+static int register_platform_driver(struct platform_device *platform_dev,pcm_hw_t *chip, int dev_nr)
 {
 	static struct resource *res;
 	if (!platform_dev){
@@ -996,6 +1017,15 @@ static int register_platform_driver(struct platform_device *platform_dev,pcm_hw_
 	if(res!=NULL)
 		chip->fdma_req = res->start;
 	else return -ENOSYS;
+
+	/*we only care about this var for the analogue devices*/
+	if(dev_nr < SPDIF_DEVICE){
+		res = platform_get_resource(platform_dev, IORESOURCE_IRQ,2);
+		if(res!=NULL)
+			chip->i2s_sampling_edge =
+				(res->start ==1 ? PCMP_CLK_FALLING:PCMP_CLK_RISING);
+		else return -ENOSYS;
+	}
 	return 0;
 }
 
@@ -1044,8 +1074,8 @@ static int snd_pcm_card_generic_probe(snd_card_t ** card, pcm_hw_t * chip, int d
               	printk(" snd card free on main alloc device\n");
                	snd_card_free(*card);
        		return err;
-       }
-
+        }
+	return 0;
 }
 
 static int __init snd_pcm_card_probe(int dev)
@@ -1058,10 +1088,15 @@ static int __init snd_pcm_card_probe(int dev)
         	return -ENOMEM;
 
 	snd_pcm_card_generic_probe(&card,chip,dev);
+#if defined(CONFIG_STB7100_FIFO_DEBUG)
+	chip->fifo_check_mode=1;
+#else
+	chip->fifo_check_mode=0;
+#endif
 
 	switch(card_list[dev].major){
         	case SPDIF_DEVICE:
-			if(register_platform_driver(spdif_platform_device,chip)!=0)
+			if(register_platform_driver(spdif_platform_device,chip,card_list[dev].major)!=0)
 				goto err_exit;
 
 			if((err = stb7100_create_spdif_device(chip,&card))<0)
@@ -1069,7 +1104,7 @@ static int __init snd_pcm_card_probe(int dev)
 			return err;
 
             	case PROTOCOL_CONVERTER_DEVICE:
-			if(register_platform_driver(cnv_platform_device,chip)!=0)
+			if(register_platform_driver(cnv_platform_device,chip,card_list[dev].major)!=0)
 				goto err_exit;
 
             		if((err=  stb7100_create_converter_device(chip,&card))<0)
@@ -1077,7 +1112,7 @@ static int __init snd_pcm_card_probe(int dev)
   			return err;
 
             	case PCM0_DEVICE:
-			if(register_platform_driver(pcm0_platform_device,chip)!=0)
+			if(register_platform_driver(pcm0_platform_device,chip,card_list[dev].major)!=0)
 				goto err_exit;
 
                		if((err = stb7100_create_lpcm_device(chip,&card)) <0)
@@ -1085,7 +1120,7 @@ static int __init snd_pcm_card_probe(int dev)
                 	return err;
 
             	case PCM1_DEVICE:
-			if(register_platform_driver(pcm1_platform_device,chip)!=0)
+			if(register_platform_driver(pcm1_platform_device,chip,card_list[dev].major)!=0)
 				goto err_exit;
 
                		if((err = stb7100_create_lpcm_device(chip,&card)) <0)

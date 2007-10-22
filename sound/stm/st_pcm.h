@@ -255,6 +255,8 @@ typedef struct pcm_hw_t {
 	int 			max_ch;
 	int 			fdma_req;
 	struct 	stm_dma_params  dmap;
+	int 			i2s_sampling_edge;
+	int			fifo_check_mode;
 #if defined(CONFIG_CPU_SUBTYPE_STB7100)
 	int 			spdif_player_mode;
 	int			fdma_channel;

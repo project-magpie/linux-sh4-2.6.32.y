@@ -349,7 +349,7 @@ static struct platform_device fdma_710x_device = {
 };
 
 
-static struct resource alsa_710x_resource_pcm0[2] = {
+static struct resource alsa_710x_resource_pcm0[3] = {
 
 	[0] = {/* allocatable channels*/
 		/*.start = runtime dependant*/
@@ -360,10 +360,17 @@ static struct resource alsa_710x_resource_pcm0[2] = {
 		/*.start = runtime dependant*/
 		/*.end   = runtime dependant*/
 		.flags = IORESOURCE_IRQ
+	},
+	[2] = {/*rising or falling edge I2s clocking
+		1 == FALLING_EDGE
+		0 == RISING EDGE */
+		 /*.start = runtime dependant*/
+		 /*.end = runtime dependant*/
+		.flags = IORESOURCE_IRQ
 	}};
 
 
-static struct resource alsa_710x_resource_pcm1[2] = {
+static struct resource alsa_710x_resource_pcm1[3] = {
 
 	[0] = {/* allocatable channels*/
 		/*.start = runtime dependant*/
@@ -374,6 +381,13 @@ static struct resource alsa_710x_resource_pcm1[2] = {
 		/*.start = runtime dependant*/
 		/*.end   = runtime dependant*/
 		.flags = IORESOURCE_IRQ,
+	},
+	[2] = {/*rising or falling edge I2s clocking
+		1 == FALLING_EDGE
+		0 == RISING EDGE */
+		 /*.start = runtime dependant*/
+		 /*.end = runtime dependant*/
+		.flags = IORESOURCE_IRQ
 	}};
 
 static struct resource alsa_710x_resource_spdif[2] = {
@@ -658,12 +672,28 @@ static int __init stx710x_devices_setup(void)
 		switch (chip_revision) {
 		case 1:
 			fdma_710x_device.dev.platform_data = NULL;
+			alsa_710x_resource_pcm0[2].start =0;
+			alsa_710x_resource_pcm0[2].end = 0;
+
+			alsa_710x_resource_pcm1[2].start =0;
+			alsa_710x_resource_pcm1[2].end = 0;
 			break;
 		case 2:
+			alsa_710x_resource_pcm0[2].start =0;
+			alsa_710x_resource_pcm0[2].end = 0;
+
+			alsa_710x_resource_pcm1[2].start =0;
+			alsa_710x_resource_pcm1[2].end = 0;
 			fdma_710x_device.dev.platform_data =(void*) &stb7109_C2_fdma_plat_data;
 			break;
 		default:
 			/* 7109 cut >= 3.0 */
+			BUG_ON(chip_revision < 2);
+			alsa_710x_resource_pcm0[2].start =1;
+			alsa_710x_resource_pcm0[2].end = 1;
+
+			alsa_710x_resource_pcm1[2].start =1;
+			alsa_710x_resource_pcm1[2].end = 1;
 			fdma_710x_device.dev.platform_data =(void*) &stb7109_C3_fdma_plat_data;
 			break;
 		}
@@ -718,6 +748,13 @@ static int __init stx710x_devices_setup(void)
 
 		alsa_710x_resource_cnv[1].start = STB7100_FDMA_REQ_PCM_0;
 		alsa_710x_resource_cnv[1].end = STB7100_FDMA_REQ_PCM_0;
+
+		alsa_710x_resource_pcm0[2].start =0;
+		alsa_710x_resource_pcm0[2].end = 0;
+
+		alsa_710x_resource_pcm1[2].start =0;
+		alsa_710x_resource_pcm1[2].end = 0;
+
 	}
 
 	devid = ctrl_inl(SYSCONF_DEVICEID);

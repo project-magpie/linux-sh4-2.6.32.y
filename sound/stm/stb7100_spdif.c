@@ -67,7 +67,7 @@ static inline void reset_spdif_off(pcm_hw_t  *chip)
 static void stb7100_iec61937_deferred_unpause(pcm_hw_t * chip)
 {
 	spin_lock(&chip->lock);
-	writel(SPDIF_INT_STATUS_EOPD ,chip->pcm_player +STM_PCMP_IRQ_EN_CLR);
+	writel(SPDIF_INT_STATUS_EODBURST ,chip->pcm_player +STM_PCMP_IRQ_EN_CLR);
 	writel((chip->pcmplayer_control|chip->spdif_player_mode),
 		chip->pcm_player+STM_PCMP_CONTROL);
 	spin_unlock(&chip->lock);
@@ -92,14 +92,16 @@ static irqreturn_t stb7100_spdif_interrupt(int irq, void *dev_id, struct pt_regs
 		snd_pcm_period_elapsed(stb7100->current_substream);
 		status =  IRQ_HANDLED;
 	}
+	if((int_status & SPDIF_INT_STATUS_UNF)==SPDIF_INT_STATUS_UNF) {
+		printk("%s SPDIF PLayer FIFO Underflow detected\n",__FUNCTION__);
+		status = IRQ_HANDLED;
+	}
 	if((int_status & SPDIF_INT_STATUS_EOLATENCY) == SPDIF_INT_STATUS_EOLATENCY){
 		status =  IRQ_HANDLED;
 	}
-	if((int_status & SPDIF_INT_STATUS_EOPD) == SPDIF_INT_STATUS_EOPD){
-
+	if((int_status & SPDIF_INT_STATUS_EODBURST) == SPDIF_INT_STATUS_EODBURST){
 		stb7100->iec61937.pause_count = ((stb7100->iec61937.pause_count+1)
 						%stb7100->iec61937.frame_size);
-
 		/*we have to wait until we have completed an entire iec91637 burst length
 		 * before we stop emitting bursts, so we have to wait for mod(iec61937_frame_size)*/
 		if((stb7100->iec61937.pause_count==0) && (stb7100->iec61937.unpause_flag==1)){
@@ -121,9 +123,16 @@ static inline void stb7100_spdif_pause_playback(snd_pcm_substream_t *substream)
 		 * frames of latency value*/
 		chip->iec61937.pause_count = chip->iec60958_output_count;
 		chip->iec60958_output_count=0;
-		writel(chip->irq_mask | SPDIF_INT_STATUS_EOPD,chip->pcm_player+STM_PCMP_IRQ_EN_SET);
+		writel(chip->irq_mask | SPDIF_INT_STATUS_EODBURST,chip->pcm_player+STM_PCMP_IRQ_EN_SET);
     	}
-
+	else{
+		 /*the SPDIF IP will always at least complete the next 192 frame
+		  * burst - this gives an audible delay between an analogue and digital
+		  * pause, so here we want to flush out that buffer, the only way to do this
+		  * is throw a reset.*/
+		 reset_spdif_on(chip);
+		 reset_spdif_off(chip);
+	}
 	spin_lock(&chip->lock);
 	writel((chip->pcmplayer_control|chip->iec61937.pause_mode),
 		chip->pcm_player+STM_PCMP_CONTROL);
@@ -135,14 +144,12 @@ static inline void stb7100_spdif_pause_playback(snd_pcm_substream_t *substream)
 static inline void stb7100_spdif_unpause_playback(snd_pcm_substream_t *substream)
 {
  	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
-
 	/*we are doing pause burst, must count %frame_size*/
-
 	if(chip->iec_encoding_mode != ENCODING_IEC60958){
 		/*first we need to check if pause burst are enable,
 		 * otherwise we will deadlock here
 		 * */
-		if(readl(chip->pcm_player+STM_PCMP_IRQ_ENABLE) & ENABLE_INT_EOPD){
+		if(readl(chip->pcm_player+STM_PCMP_IRQ_ENABLE) & ENABLE_INT_EODBURST){
 			chip->iec61937.unpause_flag=1;
 			return;
 		}
@@ -283,6 +290,9 @@ static int stb7100_program_spdifplayer(snd_pcm_substream_t *substream){
 	reg =(runtime->period_size * runtime->channels) << SPDIF_SAMPLES_SHIFT;
 	reg |= SPDIF_SW_STUFFING | SPDIF_BIT16_DATA_NOROUND;
 
+	if(chip->fifo_check_mode)
+		irq_enable |= SPDIF_INT_STATUS_UNF;
+
 	spin_lock_irqsave(&chip->lock,flags);
 	switch(chip->oversampling_frequency)
 	{
@@ -349,7 +359,7 @@ static int stb7100_program_spdifplayer(snd_pcm_substream_t *substream){
 					__FUNCTION__,chip->iec_encoding_mode);
 				break;
 		}
-		val = chip->iec61937.mute_rep & 0x0000ffff;
+		val =( 1 <<16)  | (chip->iec61937.mute_rep & 0x0000ffff);
 		writel(val,chip->pcm_player + AUD_SPDIF_FRA_LEN_BST);
 
 		val = (IEC61937_PA <<16)| IEC61937_PB ;
@@ -371,6 +381,7 @@ static int stb7100_program_spdifplayer(snd_pcm_substream_t *substream){
 
 	chip->pcmplayer_control = reg;
 	chip->irq_mask = irq_enable;
+	writel(0,chip->pcm_player +STM_PCMP_IRQ_EN_SET);
 	writel(chip->irq_mask,chip->pcm_player +STM_PCMP_IRQ_EN_SET);
 	spin_unlock_irqrestore(&chip->lock,flags);
 

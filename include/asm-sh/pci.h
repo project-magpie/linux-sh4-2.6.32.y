@@ -35,6 +35,8 @@ extern struct pci_channel board_pci_channels[];
 /*
  * I/O routine helpers
  */
+#ifndef CONFIG_CPU_SUBTYPE_ST40
+
 #if defined(CONFIG_CPU_SUBTYPE_SH7780) || defined(CONFIG_CPU_SUBTYPE_SH7785)
 #define PCI_IO_AREA		0xFE400000
 #define PCI_IO_SIZE		0x00400000
@@ -48,7 +50,9 @@ extern struct pci_channel board_pci_channels[];
 #define SH4_PCIIOBR_MASK	0xFFFC0000
 #define pci_ioaddr(addr)	(PCI_IO_AREA + (addr & ~SH4_PCIIOBR_MASK))
 
-#if defined(CONFIG_PCI)
+#endif
+
+#if defined(CONFIG_PCI) && defined(PCI_IO_SIZE)
 #define is_pci_ioaddr(port)		\
 	(((port) >= PCIBIOS_MIN_IO) &&	\
 	 ((port) < (PCIBIOS_MIN_IO + PCI_IO_SIZE)))
@@ -121,7 +125,7 @@ static inline void pci_dma_burst_advice(struct pci_dev *pdev,
 #endif
 
 /* Board-specific fixup routines. */
-void pcibios_fixup(void);
+// void pcibios_fixup(void); is this still needed? SIM
 int pcibios_init_platform(void);
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin);
 

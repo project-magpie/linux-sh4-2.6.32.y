@@ -2,7 +2,7 @@
  * Copyright (C) 2001 David J. Mckay (david.mckay@st.com)
  *
  * May be copied or modified under the terms of the GNU General Public
- * License.  See linux/COPYING for more information.                            
+ * License.  See linux/COPYING for more information.
  *
  * Support functions for the ST40 PCI hardware.
  */
@@ -20,12 +20,6 @@
 
 #include "pci-st40.h"
 
-/* This is in P2 of course */
-#define ST40PCI_BASE_ADDRESS     (0xb0000000)
-#define ST40PCI_MEM_ADDRESS      (ST40PCI_BASE_ADDRESS+0x0)
-#define ST40PCI_IO_ADDRESS       (ST40PCI_BASE_ADDRESS+0x06000000)
-#define ST40PCI_REG_ADDRESS      (ST40PCI_BASE_ADDRESS+0x07000000)
-
 #define ST40PCI_REG(x) (ST40PCI_REG_ADDRESS+(ST40PCI_##x))
 #define ST40PCI_REG_INDEXED(reg, index) 				\
 	(ST40PCI_REG(reg##0) +					\
@@ -40,60 +34,6 @@
 #define ST40PCI_READ(reg) readl(ST40PCI_REG(reg))
 #define ST40PCI_READ_SHORT(reg) readw(ST40PCI_REG(reg))
 #define ST40PCI_READ_BYTE(reg) readb(ST40PCI_REG(reg))
-
-#define ST40PCI_SERR_IRQ	64
-#define ST40PCI_ERR_IRQ        	65
-
-
-/* Macros to extract PLL params */
-#define PLL_MDIV(reg)  ( ((unsigned)reg) & 0xff )
-#define PLL_NDIV(reg) ( (((unsigned)reg)>>8) & 0xff )
-#define PLL_PDIV(reg) ( (((unsigned)reg)>>16) & 0x3 )
-#define PLL_SETUP(reg) ( (((unsigned)reg)>>19) & 0x1ff )
-
-/* Build up the appropriate settings */
-#define PLL_SET(mdiv,ndiv,pdiv,setup) \
-( ((mdiv)&0xff) | (((ndiv)&0xff)<<8) | (((pdiv)&3)<<16)| (((setup)&0x1ff)<<19))
-
-#define PLLPCICR (0xbb040000+0x10)
-
-#define PLLPCICR_POWERON (1<<28)
-#define PLLPCICR_OUT_EN (1<<29)
-#define PLLPCICR_LOCKSELECT (1<<30)
-#define PLLPCICR_LOCK (1<<31)
-
-
-#define PLL_25MHZ 0x793c8512
-#define PLL_33MHZ PLL_SET(18,88,3,295)
-
-static void pci_set_rbar_region(unsigned int region,     unsigned long localAddr,
-			 unsigned long pciOffset, unsigned long regionSize);
-
-static __init void SetPCIPLL(void)
-{
-	{
-		/* Lets play with the PLL values */
-		unsigned long pll1cr1;
-		unsigned long mdiv, ndiv, pdiv;
-		unsigned long muxcr;
-		unsigned int muxcr_ratios[4] = { 8, 16, 21, 1 };
-		unsigned int freq;
-
-#define CLKGENA            0xbb040000
-#define CLKGENA_PLL2_MUXCR CLKGENA + 0x48
-		pll1cr1 = ctrl_inl(PLLPCICR);
-		printk("PLL1CR1 %08lx\n", pll1cr1);
-		mdiv = PLL_MDIV(pll1cr1);
-		ndiv = PLL_NDIV(pll1cr1);
-		pdiv = PLL_PDIV(pll1cr1);
-		printk("mdiv %02lx ndiv %02lx pdiv %02lx\n", mdiv, ndiv, pdiv);
-		freq = ((2*27*ndiv)/mdiv) / (1 << pdiv);
-		printk("PLL freq %dMHz\n", freq);
-		muxcr = ctrl_inl(CLKGENA_PLL2_MUXCR);
-		printk("PCI freq %dMhz\n", freq / muxcr_ratios[muxcr & 3]);
-	}
-}
-
 
 struct pci_err {
   unsigned mask;
@@ -249,18 +189,31 @@ static void __init pci_fixup_ide_bases(struct pci_dev *d)
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_ANY_ID, PCI_ANY_ID, pci_fixup_ide_bases);
 
-int __init st40pci_init(unsigned memStart, unsigned memSize)
+#if defined(CONFIG_CPU_SUBTYPE_ST40STB1) || \
+    defined (CONFIG_CPU_SUBTYPE_ST40GX1)
+static void __init pci_fixup_cache_line(struct pci_dev *d)
 {
-	u32 lsr0;
+	/*
+	 * STB1 and GX1 have bugs which prevent them being the target
+	 * of memory-read-multiple (MRM) PCI commands. This prevents some
+	 * cards using this command, but it is not infallible.
+	 */
+	pci_write_config_byte(d,PCI_CACHE_LINE_SIZE,0);
+}
+DECLARE_PCI_FIXUP_HEADER(PCI_ANY_ID, PCI_ANY_ID, pci_fixup_cache_line);
+#endif
 
-	SetPCIPLL();
+static int __init st40pci_host_init(unsigned memStart, unsigned memSize)
+{
 
 	/* Initialises the ST40 pci subsystem, performing a reset, then programming
 	 * up the address space decoders appropriately
 	 */
 
-	/* Should reset core here as well methink */
+	request_mem_region(ST40PCI_REG_ADDRESS, 0x17c, "PCI local");
+	request_mem_region(ST40PCI_REG_ADDRESS+ST40PCI_CSR, 0x100, "PCI CSR");
 
+	/* Should reset core here as well methink */
 	ST40PCI_WRITE(CR, CR_LOCK_MASK | CR_SOFT_RESET);
 
 	/* Loop while core resets */
@@ -281,10 +234,6 @@ int __init st40pci_init(unsigned memStart, unsigned memSize)
 	 * after reset. This seem ludicrously long, but some delay is needed here
 	 */
 	mdelay(1000);
-
-	/* Switch off interrupts */
-	ST40PCI_WRITE(INTM, 0);
-	ST40PCI_WRITE(AINT, 0);
 
 	/* Allow it to be a master */
 
@@ -316,7 +265,7 @@ int __init st40pci_init(unsigned memStart, unsigned memSize)
 	ST40PCI_WRITE(LSR0, 0x0fff0001);
 
 	/* ... and set up the initial incoming window to expose all of RAM */
-	pci_set_rbar_region(7, memStart, memStart, memSize);
+	st40pci_set_rbar_region(7, memStart, memStart, memSize);
 
 	/* Maximise timeout values */
 	ST40PCI_WRITE_BYTE(CSR_TRDY, 0xff);
@@ -324,6 +273,25 @@ int __init st40pci_init(unsigned memStart, unsigned memSize)
 	ST40PCI_WRITE_BYTE(CSR_MIT, 0xff);
 
 	ST40PCI_WRITE_BYTE(PERF,PERF_MASTER_WRITE_POSTING);
+
+	if (request_irq(ST40PCI_SERR_IRQ, st40_pci_irq,
+                        IRQF_DISABLED, "st40pci", NULL)) {
+		printk(KERN_ERR "st40pci: Cannot hook interrupt\n");
+		return 0;
+	}
+
+	if (request_irq(ST40PCI_ERR_IRQ, st40_pci_irq,
+                        IRQF_DISABLED, "st40pci", NULL)) {
+		printk(KERN_ERR "st40pci: Cannot hook interrupt\n");
+		return 0;
+	}
+
+	/* Reset state just in case any outstanding (usually SERR) */
+	ST40PCI_WRITE(INT, ~0); ST40PCI_WRITE(AINT, ~0);
+
+	/* Enable the PCI interrupts on the device */
+	ST40PCI_WRITE(INTM, ~0);
+	ST40PCI_WRITE(AINT, ~0);
 
 	return 1;
 }
@@ -339,6 +307,8 @@ char * __devinit pcibios_setup(char *str)
 
 #define CONFIG_CMD(bus, devfn, where) SET_CONFIG_BITS(bus->number,devfn,where)
 
+#if defined(CONFIG_CPU_SUBTYPE_ST40STB1) || \
+    defined (CONFIG_CPU_SUBTYPE_ST40GX1)
 
 static int CheckForMasterAbort(void)
 {
@@ -352,7 +322,94 @@ static int CheckForMasterAbort(void)
 	return 0;
 }
 
-/* Write to config register */
+static int st40pci_read_as_bytes(struct pci_bus *bus, unsigned int devfn,
+				 int where, int size, u32 * val)
+{
+	volatile u8 part0,part1,part2,part3;
+
+	CheckForMasterAbort();
+
+	ST40PCI_WRITE(PAR, CONFIG_CMD(bus, devfn, where));
+	switch (size) {
+		case 1:
+			*val = (u8)ST40PCI_READ_BYTE(PDR + (where & 3));
+			break;
+		case 2:
+			part0 = ST40PCI_READ_BYTE(PDR + (where & 2));
+			udelay(2);
+			part1 = ST40PCI_READ_BYTE(PDR + (where & 2) + 1);
+			*val= (part0)| (part1<<8);
+			break;
+		case 4:
+			part0 = ST40PCI_READ_BYTE(PDR);
+			udelay(2);
+			part1 = ST40PCI_READ_BYTE(PDR+1);
+			udelay(2);
+			part2 = ST40PCI_READ_BYTE(PDR+2);
+			udelay(2);
+			part3 = ST40PCI_READ_BYTE(PDR+3);
+			*val = part0|(part1<<8)|(part2<<16)|(part3<<24);
+			break;
+	}
+
+	if (CheckForMasterAbort()){
+		switch (size) {
+			case 1:
+				*val = (u8)0xff;
+				break;
+			case 2:
+				*val = (u16)0xffff;
+				break;
+			case 4:
+				*val = 0xffffffff;
+				break;
+		}
+	}
+
+	return PCIBIOS_SUCCESSFUL;
+}
+
+static int st40pci_write_as_bytes(struct pci_bus *bus, unsigned int devfn,
+				  int where, int size, u32 val)
+{
+
+	CheckForMasterAbort();
+
+	ST40PCI_WRITE(PAR, CONFIG_CMD(bus, devfn, where));
+	switch (size) {
+		case 1:
+			ST40PCI_WRITE_BYTE(PDR + (where & 3), (u8)val);
+			break;
+		case 2:
+			ST40PCI_WRITE_BYTE(PDR + (where & 2), (val & 0xff));
+			udelay(2);
+			ST40PCI_WRITE_BYTE(PDR + (where & 2) + 1 , (val>>8) & 0xff);
+			udelay(2);
+			break;
+		case 4:
+			ST40PCI_WRITE_BYTE(PDR, val & 0xff);
+			udelay(2);
+			ST40PCI_WRITE_BYTE(PDR+1, (val>>8) & 0xff );
+			udelay(2);
+			ST40PCI_WRITE_BYTE(PDR+2, (val>>16) & 0xff);
+			udelay(2);
+			ST40PCI_WRITE_BYTE(PDR+3, (val>>24) & 0xff);
+			udelay(2);
+			break;
+	}
+
+	CheckForMasterAbort();
+
+	return PCIBIOS_SUCCESSFUL;
+}
+
+struct pci_ops st40pci_config_ops = {
+	.read = 	st40pci_read_as_bytes,
+	.write = 	st40pci_write_as_bytes,
+};
+
+#else /* CONFIG_CPU_SUBTYPE_ST40STB1 || CONFIG_CPU_SUBTYPE_ST40GX1 */
+
 static int st40pci_read(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 * val)
 {
 	ST40PCI_WRITE(PAR, CONFIG_CMD(bus, devfn, where));
@@ -411,57 +468,45 @@ struct pci_ops st40pci_config_ops = {
 	.write = 	st40pci_write,
 };
 
+#endif /* CONFIG_CPU_SUBTYPE_ST40STB1 || CONFIG_CPU_SUBTYPE_ST40GX1 */
 
-/* Everything hangs off this */
-static struct pci_bus *pci_root_bus;
+static struct resource st40pci_io_resource = {
+	.name		= "ST40 PCI IO",
+	.start		= ST40_PCI_IO,
+	.end		= (64*1024) - 1,
+	.flags		= IORESOURCE_IO,
+};
 
-static int __init pcibios_init(void)
+static struct resource st40pci_mem_resource = {
+	.name		= "ST40 PCI Mem",
+	.start		= ST40_PCI_MEM,
+	.end		= ST40_PCI_MEM + (96*1024*1024) - 1,
+	.flags		= IORESOURCE_MEM,
+};
+
+struct pci_channel board_pci_channels[]={
+	{&st40pci_config_ops,&st40pci_io_resource,&st40pci_mem_resource,0,0},
+	{NULL,NULL,NULL,0,0}
+};
+
+static int __init st40pci_init(void)
 {
 	extern unsigned long memory_start, memory_end;
 
-	printk(KERN_ALERT "pci-st40.c: pcibios_init\n");
+	/* We could potentially do some checks here to make sure we can
+	 * access the host, eg checking for the host PAR and device ID */
 
-	if (sh_mv.mv_init_pci != NULL) {
-		sh_mv.mv_init_pci();
-	}
-
-	/* The pci subsytem needs to know where memory is and how much 
-	 * of it there is. I've simply made these globals. A better mechanism
-	 * is probably needed.
-	 */
-	st40pci_init(PHYSADDR(memory_start),
-		     PHYSADDR(memory_end) - PHYSADDR(memory_start));
-
-	if (request_irq(ST40PCI_ERR_IRQ, st40_pci_irq, 
-                        IRQF_DISABLED, "st40pci", NULL)) {
-		printk(KERN_ERR "st40pci: Cannot hook interrupt\n");
-		return -EIO;
-	}
-
-	/* Enable the PCI interrupts on the device */
-	ST40PCI_WRITE(INTM, ~0);
-	ST40PCI_WRITE(AINT, ~0);
-
-	/* Map the io address apprioately */
-#ifdef CONFIG_HD64465
-	hd64465_port_map(PCIBIOS_MIN_IO, (64 * 1024) - PCIBIOS_MIN_IO + 1,
-			 ST40_IO_ADDR + PCIBIOS_MIN_IO, 0);
-#endif
-
-	/* ok, do the scan man */
-	pci_root_bus = pci_scan_bus(0, &st40pci_config_ops, NULL);
-	pci_assign_unassigned_resources();
-
-	return 0;
+	return st40pci_host_init(memory_start, memory_end - memory_start);
 }
-subsys_initcall(pcibios_init);
+
+arch_initcall(st40pci_init);
 
 /*
  * Publish a region of local address space over the PCI bus
  * to other devices.
  */
-static void pci_set_rbar_region(unsigned int region,     unsigned long localAddr,
-			 unsigned long pciOffset, unsigned long regionSize)
+void st40pci_set_rbar_region(unsigned int region,     unsigned long localAddr,
+			     unsigned long pciOffset, unsigned long regionSize)
 {
 	unsigned long mask;
 
@@ -486,3 +531,16 @@ static void pci_set_rbar_region(unsigned int region,     unsigned long localAddr
 	ST40PCI_WRITE_INDEXED(RSR, region, mask | 1);
 }
 
+/*
+ * Make a previously published region of local address space
+ * inaccessible to other PCI devices.
+ */
+void st40pci_clear_rbar_region(unsigned int region)
+{
+	if (region > 7)
+		return;
+
+	ST40PCI_WRITE_INDEXED(RSR, region, 0);
+	ST40PCI_WRITE_INDEXED(RBAR, region, 0);
+	ST40PCI_WRITE_INDEXED(RLAR, region, 0);
+}

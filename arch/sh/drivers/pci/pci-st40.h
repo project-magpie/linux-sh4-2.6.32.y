@@ -2,13 +2,26 @@
  * Copyright (C) 2001 David J. Mckay (david.mckay@st.com)
  *
  * May be copied or modified under the terms of the GNU General Public
- * License.  See linux/COPYING for more information.                            
+ * License.  See linux/COPYING for more information.
  *
  * Definitions for the ST40 PCI hardware.
  */
 
 #ifndef __PCI_ST40_H__
 #define __PCI_ST40_H__
+
+#define ST40PCI_BASE_ADDRESS     (0xb0000000)
+#define ST40PCI_MEM_ADDRESS      (ST40PCI_BASE_ADDRESS+0x0)
+#define ST40PCI_IO_ADDRESS       (ST40PCI_BASE_ADDRESS+0x06000000)
+#define ST40PCI_REG_ADDRESS      (ST40PCI_BASE_ADDRESS+0x07000000)
+
+#define ST40_PCI_IO     0x2000
+#define ST40_PCI_MEM    0x10000000
+
+#define ST40PCI_SERR_IRQ	64
+#define ST40PCI_ERR_IRQ        	65
+#define ST40PCI_AD_IRQ		66
+#define ST40PCI_PWR_DWN_IRQ	67
 
 #define ST40PCI_VCR_STATUS    0x00
 
@@ -121,16 +134,67 @@
 /* H8 specific registers end here */
 
 
-/* These are configs space registers */
-#define ST40PCI_CSR_VID               0x10000
-#define ST40PCI_CSR_DID               0x10002
-#define ST40PCI_CSR_CMD               0x10004
-#define ST40PCI_CSR_STATUS            0x10006
-#define ST40PCI_CSR_MBAR0             0x10010
-#define ST40PCI_CSR_TRDY              0x10040
-#define ST40PCI_CSR_RETRY             0x10041
-#define ST40PCI_CSR_MIT               0x1000d
+/* H8 specific registers start here */
+#define ST40PCI_WCBAR         0x7c
+#define ST40PCI_LOCCFG_UNLOCK 0x34
 
-#define ST40_IO_ADDR 0xb6000000       
+#define ST40PCI_RBAR0         0x100
+#define ST40PCI_RSR0          0x104
+#define ST40PCI_RLAR0         0x108
+
+#define ST40PCI_RBAR1         0x110
+#define ST40PCI_RSR1          0x114
+#define ST40PCI_RLAR1         0x118
+
+
+#define ST40PCI_RBAR2         0x120
+#define ST40PCI_RSR2          0x124
+#define ST40PCI_RLAR2         0x128
+
+#define ST40PCI_RBAR3         0x130
+#define ST40PCI_RSR3          0x134
+#define ST40PCI_RLAR3         0x138
+
+#define ST40PCI_RBAR4         0x140
+#define ST40PCI_RSR4          0x144
+#define ST40PCI_RLAR4         0x148
+
+#define ST40PCI_RBAR5         0x150
+#define ST40PCI_RSR5          0x154
+#define ST40PCI_RLAR5         0x158
+
+#define ST40PCI_RBAR6         0x160
+#define ST40PCI_RSR6          0x164
+#define ST40PCI_RLAR6         0x168
+
+#define ST40PCI_RBAR7         0x170
+#define ST40PCI_RSR7          0x174
+#define ST40PCI_RLAR7         0x178
+
+
+#define ST40PCI_RBAR(n)      (0x100+(0x10*(n)))
+#define ST40PCI_RSR(n)       (0x104+(0x10*(n)))
+#define ST40PCI_RLAR(n)      (0x108+(0x10*(n)))
+
+#define ST40PCI_PERF               0x80
+#define PERF_MASTER_WRITE_POSTING  (1<<4)
+/* H8 specific registers end here */
+
+/* These are configs space registers */
+#define ST40PCI_CSR			0x10000
+#define ST40PCI_CSR_VID			(ST40PCI_CSR + 0x000)
+#define ST40PCI_CSR_DID			(ST40PCI_CSR + 0x002)
+#define ST40PCI_CSR_CMD			(ST40PCI_CSR + 0x004)
+#define ST40PCI_CSR_STATUS		(ST40PCI_CSR + 0x006)
+#define ST40PCI_CSR_MBAR0		(ST40PCI_CSR + 0x010)
+#define ST40PCI_CSR_TRDY		(ST40PCI_CSR + 0x040)
+#define ST40PCI_CSR_RETRY		(ST40PCI_CSR + 0x041)
+#define ST40PCI_CSR_MIT			(ST40PCI_CSR + 0x00d)
+
+/* Functions and data exported by pci-st40.c */
+void st40pci_set_rbar_region(unsigned int region,     unsigned long localAddr,
+			     unsigned long pciOffset, unsigned long regionSize);
+void st40pci_clear_rbar_region(unsigned int region);
+
 
 #endif /* __PCI_ST40_H__ */

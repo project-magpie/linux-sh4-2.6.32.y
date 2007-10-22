@@ -134,7 +134,9 @@ DECLARE_EXPORT(__movstrSI12_i4);
 EXPORT_SYMBOL(flush_cache_all);
 EXPORT_SYMBOL(flush_cache_range);
 EXPORT_SYMBOL(flush_dcache_page);
+EXPORT_SYMBOL(__flush_wback_region);
 EXPORT_SYMBOL(__flush_purge_region);
+EXPORT_SYMBOL(__flush_invalidate_region);
 #endif
 
 #if !defined(CONFIG_CACHE_OFF) && defined(CONFIG_MMU) && \

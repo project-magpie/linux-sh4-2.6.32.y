@@ -56,6 +56,14 @@ void __init platform_setup(void)
 	sysconf &= ~(1<<3);
 	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
 
+	/* Work around for USB over-current detection chip being
+	 * active low, and the 7100 being active high */
+	if (chip_revision < 3) {
+		static struct stpio_pin *pin;
+		pin = stpio_request_pin(5,6, "USBOC", STPIO_OUT);
+		stpio_set_pin(pin, 0);
+	}
+
         /* Currently all STB1 chips have problems with the sleep instruction,
          * so disable it here.
          */

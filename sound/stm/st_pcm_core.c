@@ -44,15 +44,23 @@
 
 #include <sound/asoundef.h>
 
-#ifdef CONFIG_BIGPHYS_AREA
+#if defined(CONFIG_BIGPHYS_AREA)
 
 #include <linux/bigphysarea.h>
-	#define STM_USE_BIGPHYS_AREA 1
+#define STM_USE_BIGPHYS_AREA 1
+
+#elif defined(CONFIG_BPA2)
+
+#include <linux/bpa2.h>
+#define STM_USE_BIGPHYS_AREA 1
+
 #else
-	/* Private dummy defines so we do not have to ifdef the code */
-	static caddr_t  bigphysarea_alloc(int size) { return NULL; }
-	static void     bigphysarea_free(caddr_t addr, int size) {}
-	#define STM_USE_BIGPHYS_AREA 0
+
+/* Private dummy defines so we do not have to ifdef the code */
+static caddr_t  bigphysarea_alloc(int size) { return NULL; }
+static void     bigphysarea_free(caddr_t addr, int size) {}
+#define STM_USE_BIGPHYS_AREA 0
+
 #endif /* CONFIG_BIGPHYS_AREA */
 
 

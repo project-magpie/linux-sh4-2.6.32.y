@@ -424,6 +424,58 @@ static struct platform_device alsa_710x_device_cnv = {
 	.resource		= alsa_710x_resource_cnv,
 };
 
+static struct resource ssc_resource[] = {
+        [0] = {
+               .start = 0xB8040000,
+               .end = 0xB8040000 + 0x108,
+               .flags = IORESOURCE_MEM,
+              },
+        [1] = {
+               .start = 0xB8041000,
+               .end = 0xB8041000 + 0x108,
+               .flags = IORESOURCE_MEM,
+              },
+        [2] = {
+               .start = 0xB8042000,
+               .end = 0xB8042000 + 0x108,
+               .flags = IORESOURCE_MEM,
+              },
+        [3] = {
+               .start = 119,
+               .end = 119,
+               .flags = IORESOURCE_IRQ,
+              },
+        [4] = {
+               .start = 118,
+               .end = 118,
+               .flags = IORESOURCE_IRQ,
+              },
+        [5] = {
+               .start = 117,
+               .end = 117,
+               .flags = IORESOURCE_IRQ,
+              },
+};
+
+static struct plat_ssc_pio_t ssc_pio[] = {
+        {2, 0, 2, 1, 2, 2},
+        {3, 0, 3, 1, 3, 2},
+        {4, 0, 4, 1, 0xff, 0xff},
+};
+static struct plat_ssc_data ssc_private_info = {
+         .capability  = 0x1f,
+         .pio         = ssc_pio
+};
+struct platform_device ssc_device = {
+        .name = "ssc",
+        .id = -1,
+        .num_resources = ARRAY_SIZE(ssc_resource),
+        .resource = ssc_resource,
+        .dev = {
+                 .platform_data = &ssc_private_info
+	}
+};
+
 static struct platform_device *stx710x_devices[] __initdata = {
 	&sci_device,
 	&wdt_device,
@@ -435,6 +487,7 @@ static struct platform_device *stx710x_devices[] __initdata = {
 	&alsa_710x_device_pcm1,
  	&alsa_710x_device_spdif,
 	&alsa_710x_device_cnv,
+	&ssc_device,
 };
 
 static int __init stx710x_devices_setup(void)

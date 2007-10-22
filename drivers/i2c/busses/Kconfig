@@ -654,16 +654,41 @@ config I2C_PMCMSP
 	  This driver can also be built as module. If so, the module
 	  will be called i2c-pmcmsp.
 
-config I2C_ST40_PIO
-	tristate "STMicroelectronics ST40 PIO I2C"
+choice
+	prompt "STMicroelectronics I2C support"
+	depends on I2C && (CPU_SUBTYPE_STM8000 || CPU_SUBTYPE_STI5528 || CPU_SUBTYPE_STB7100)
+
+	help
+	  STMicroelectronics SoCs have I2C drivers exist for bit-banging using PIO pins or
+          running an I2C bus using the hardware SSC
+
+	config I2C_ST40_PIO
+	tristate "I2C bit-banging PIO driver"
 	depends on I2C && (CPU_SUBTYPE_STM8000 || CPU_SUBTYPE_STI5528 || CPU_SUBTYPE_STB7100)
 	select I2C_ALGOBIT
 	help
 
 	  If you say yes to this option, support will be included for the
-	  ST40 PIO based I2C on the STm8000, STi5528 and STb7100.
+	  PIO based I2C on the STm8000, STi5528 and STb7100.
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-st40-pio
+
+	config I2C_STM
+	tristate "I2C hardware SSC driver"
+	depends on I2C && (CPU_SUBTYPE_STM8000 || CPU_SUBTYPE_STI5528 || CPU_SUBTYPE_STB7100)
+       	select STM_SSC
+	help
+
+	  If you say yes to this option, support will be included for the
+	  I2C-SSC for the STM SOCs: STi5528, STm8000 and the STb7100
+
+config I2C_STM_DEBUG
+	bool "I2C hardware SSC driver debug"
+	depends on I2C_STM
+	help
+	Enable this option to print out information on STM I2C (SSC) device driver
+
+endchoice
 
 endmenu

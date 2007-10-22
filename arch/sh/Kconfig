@@ -508,6 +508,12 @@ source "kernel/time/Kconfig"
 
 endmenu
 
+config SH_EXTERNAL_CLOCK
+	int
+	depends on CPU_SUBTYPE_STB7100
+	default "30000000" if SH_ST_MB442
+	default "27000000"
+
 menu "CPU Frequency scaling"
 
 source "drivers/cpufreq/Kconfig"

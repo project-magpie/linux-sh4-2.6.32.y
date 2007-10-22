@@ -36,7 +36,8 @@ static int pll_freq(unsigned long addr)
 	mdiv = (data >>  0) & 0xff;
 	ndiv = (data >>  8) & 0xff;
 	pdiv = (data >> 16) & 0x7;
-	freq = (((2 * 27000 * ndiv) / mdiv) / (1 << pdiv)) * 1000;
+	freq = (((2 * (CONFIG_SH_EXTERNAL_CLOCK / 1000) * ndiv) / mdiv) /
+		(1 << pdiv)) * 1000;
 
 	return freq;
 }

@@ -2,6 +2,9 @@
 # Makefile for miscellaneous I2C chip drivers.
 #
 
+# let 'at24c' get a chance before the less powerful 'eeprom'
+obj-$(CONFIG_I2C_AT24C)		+= at24c.o
+
 obj-$(CONFIG_SENSORS_DS1337)	+= ds1337.o
 obj-$(CONFIG_SENSORS_DS1374)	+= ds1374.o
 obj-$(CONFIG_DS1682)		+= ds1682.o

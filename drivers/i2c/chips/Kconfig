@@ -40,6 +40,29 @@ config DS1682
 	  This driver can also be built as a module.  If so, the module
 	  will be called ds1682.
 
+config I2C_AT24C
+	tristate "EEPROMs from most vendors"
+	depends on I2C && EXPERIMENTAL
+	help
+	  Enable this driver to get read/write support to most I2C EEPROMs,
+	  after you configure the driver to know about each eeprom on on
+	  your target board.  Use these generic chip names, instead of
+	  vendor-specific ones like at24c64 or 24lc02:
+
+	     24c00, 24c01, 24c02, dimm (readonly 24c02), 24c04, 24c08,
+	     24c16, 24c32, 24c64, 24c128, 24c256, 24c512, 24c1024
+
+	  Unless you like data loss puzzles, always be sure that any chip
+	  you configure as a 24c32 (32 Kbits) or larger is NOT really a
+	  24c16 (16 Kbits) or smaller.  (Marking the chip as readonly won't
+	  help recover from this.)
+
+	  The current version of this driver demands full I2C bus support,
+	  so it won't yet work on most PCs (limited to SMBUS).
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called at24c.
+
 config SENSORS_EEPROM
 	tristate "EEPROM reader"
 	depends on EXPERIMENTAL

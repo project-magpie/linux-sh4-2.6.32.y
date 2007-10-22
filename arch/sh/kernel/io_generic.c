@@ -28,7 +28,7 @@ unsigned long generic_io_base;
 
 static inline void delay(void)
 {
-	ctrl_inw(0xa0000000);
+	ctrl_inw(CCN_PVR);
 }
 
 u8 generic_inb(unsigned long port)

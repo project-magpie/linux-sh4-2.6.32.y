@@ -127,6 +127,7 @@ static struct platform_device  st40_ohci_devices = {
 	.dev = {
 		.dma_mask = &st40_dma_mask,
 		.coherent_dma_mask = 0xffffffful,
+		.platform_data = &usb_wrapper,
 	},
 	.num_resources = ARRAY_SIZE(st40_ohci_resources),
 	.resource = st40_ohci_resources,
@@ -138,9 +139,43 @@ static struct platform_device  st40_ehci_devices = {
 	.dev = {
 		.dma_mask = &st40_dma_mask,
 		.coherent_dma_mask = 0xffffffful,
+		.platform_data = &usb_wrapper,
 	},
 	.num_resources = ARRAY_SIZE(st40_ehci_resources),
 	.resource = st40_ehci_resources,
+};
+
+/*
+ * Defines for the controller register offsets
+ */
+#define UHOST2C_BASE			0xb9100000
+#define AHB2STBUS_WRAPPER_GLUE_BASE	(UHOST2C_BASE)
+#define AHB2STBUS_RESERVED1_BASE	(UHOST2C_BASE + 0x000e0000)
+#define AHB2STBUS_RESERVED2_BASE	(UHOST2C_BASE + 0x000f0000)
+#define AHB2STBUS_OHCI_BASE		(UHOST2C_BASE + 0x000ffc00)
+#define AHB2STBUS_EHCI_BASE		(UHOST2C_BASE + 0x000ffe00)
+#define AHB2STBUS_PROTOCOL_BASE		(UHOST2C_BASE + 0x000fff00)
+
+#define SYS_CFG2_PLL_POWER_DOWN_BIT	1
+
+static void usb_power_up(void* dev)
+{
+	unsigned long reg;
+
+	/* Make sure PLL is on */
+	reg = readl(SYSCONF_SYS_CFG(2));
+	if (reg & SYS_CFG2_PLL_POWER_DOWN_BIT) {
+		writel(reg & (~SYS_CFG2_PLL_POWER_DOWN_BIT), SYSCONF_SYS_CFG(2));
+		mdelay(100);
+	}
+}
+
+static struct plat_usb_data usb_wrapper = {
+	.ahb2stbus_wrapper_glue_base = AHB2STBUS_WRAPPER_GLUE_BASE,
+	.ahb2stbus_protocol_base = AHB2STBUS_PROTOCOL_BASE,
+	.power_up = usb_power_up,
+	.initialised = 0,
+	.port_number = 0,
 };
 
 /*

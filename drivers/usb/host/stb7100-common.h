@@ -11,21 +11,8 @@
  * Some of these register are described in ADCS 7518758.
  */
 
-/*
- * Defines for the controller register offsets
- */
-#define UHOST2C_BASE			0xb9100000
-#define AHB2STBUS_WRAPPER_GLUE_BASE	(UHOST2C_BASE)
-#define AHB2STBUS_RESERVED1_BASE	(UHOST2C_BASE + 0x000e0000)
-#define AHB2STBUS_RESERVED2_BASE	(UHOST2C_BASE + 0x000f0000)
-#define AHB2STBUS_OHCI_BASE		(UHOST2C_BASE + 0x000ffc00)
-#define AHB2STBUS_EHCI_BASE		(UHOST2C_BASE + 0x000ffe00)
-#define AHB2STBUS_PROTOCOL_BASE		(UHOST2C_BASE + 0x000fff00)
-
-#define AHB2STBUS_INSREG01		(AHB2STBUS_EHCI_BASE + 0x10 + 0x84)
-
 /* The transaction opcode is programmed in this register */
-#define AHB2STBUS_STBUS_OPC		(AHB2STBUS_PROTOCOL_BASE + 0x00)
+#define AHB2STBUS_STBUS_OPC_OFFSET	0x00	/* From AHB2STBUS_PROTOCOL_BASE */
 #define AHB2STBUS_STBUS_OPC_4BIT	0x00
 #define AHB2STBUS_STBUS_OPC_8BIT	0x01
 #define AHB2STBUS_STBUS_OPC_16BIT	0x02
@@ -33,7 +20,7 @@
 #define AHB2STBUS_STBUS_OPC_64BIT	0x04
 
 /* The message length in number of packets is programmed in this register. */
-#define AHB2STBUS_MSGSIZE		(AHB2STBUS_PROTOCOL_BASE + 0x04)
+#define AHB2STBUS_MSGSIZE_OFFSET	0x04	/* From AHB2STBUS_PROTOCOL_BASE */
 #define AHB2STBUS_MSGSIZE_DISABLE	0x0
 #define AHB2STBUS_MSGSIZE_2		0x1
 #define AHB2STBUS_MSGSIZE_4		0x2
@@ -43,7 +30,7 @@
 #define AHB2STBUS_MSGSIZE_64		0x6
 
 /* The chunk size in number of packets is programmed in this register */
-#define AHB2STBUS_CHUNKSIZE		(AHB2STBUS_PROTOCOL_BASE + 0x08)
+#define AHB2STBUS_CHUNKSIZE_OFFSET	0x08	/* From AHB2STBUS_PROTOCOL_BASE */
 #define AHB2STBUS_CHUNKSIZE_DISABLE	0x0
 #define AHB2STBUS_CHUNKSIZE_2		0x1
 #define AHB2STBUS_CHUNKSIZE_4		0x2
@@ -70,23 +57,17 @@
 #define AHB2STBUS_EHCI_INT_STS		(AHB2STBUS_WRAPPER_GLUE_BASE + 0x10)
 
 
-#define AHB2STBUS_STRAP			(AHB2STBUS_WRAPPER_GLUE_BASE + 0x14)
+#define AHB2STBUS_STRAP_OFFSET		0x14	/* From AHB2STBUS_WRAPPER_GLUE_BASE */
 #define AHB2STBUS_STRAP_PLL		0x08	/* undocumented */
 #define AHB2STBUS_STRAP_16_BIT		0x04	/* ss_word_if */
 
 /* Define a bus wrapper IN/OUT threshold of 128 */
+#define AHB2STBUS_INSREG01_OFFSET	(0x10 + 0x84) /* From AHB2STBUS_EHCI_BASE */
 #define AHB2STBUS_INOUT_THRESHOLD	0x00800080
-
-/*
- * SYSCONF stuff
- */
-
-#define SYSCONF_BASE			0xb9001000
-#define SYS_CFG2			(SYSCONF_BASE + 0x108)
-#define SYS_CFG2_PLL_POWER_DOWN_BIT	1
 
 static inline void usb_hcd_st40_wait_irq(void)
 {
+#if 0
 	/*
 	 * Fix required to work around a problem which causes controller
 	 * memory writes to be overtaken by interrupt requests.
@@ -119,6 +100,7 @@ static inline void usb_hcd_st40_wait_irq(void)
 			break;
 		}
 	}
+#endif
 }
 
 void ST40_start_host_control(struct platform_device *dev);

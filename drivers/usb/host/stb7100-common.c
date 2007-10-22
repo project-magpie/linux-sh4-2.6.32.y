@@ -7,52 +7,63 @@
  * This file is licenced under the GPL.
  */
 
-#include <linux/device.h>
-#include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
 #include <linux/delay.h>
 #include <linux/platform_device.h>
 #include <asm/io.h>
 #include "stb7100-common.h"
 
+#ifdef CONFIG_CPU_SUBTYPE_STX7200
+#define STRAP_MODE	0 /* 8 bit */
+#define MSGSIZE		AHB2STBUS_MSGSIZE_4
+#define CHUNKSIZE	AHB2STBUS_CHUNKSIZE_4
+#else
+#define STRAP_MODE	AHB2STBUS_STRAP_16_BIT
+#define MSGSIZE		AHB2STBUS_MSGSIZE_64
+#define CHUNKSIZE	AHB2STBUS_CHUNKSIZE_64
+#endif
+
+
 /*
  * Set up the USB hardware wrapper
  */
-void ST40_start_host_control(struct platform_device *dev)
+void ST40_start_host_control(struct platform_device *pdev)
 {
+	struct plat_usb_data *usb_wrapper = pdev->dev.platform_data;
+	unsigned long ahb2stbus_wrapper_glue_base =
+		usb_wrapper->ahb2stbus_wrapper_glue_base;
+	unsigned long ahb2stbus_protocol_base =
+		usb_wrapper->ahb2stbus_protocol_base;
 	unsigned long reg;
-	static int initialised = 0;
 
-	if (xchg(&initialised, 1))
+	if (xchg(&usb_wrapper->initialised, 1))
 		return;
 
-	/* Make sure PLL is on */
-	reg = readl(SYS_CFG2);
-	if (reg & SYS_CFG2_PLL_POWER_DOWN_BIT) {
-		writel(reg & (~SYS_CFG2_PLL_POWER_DOWN_BIT), SYS_CFG2);
-		mdelay(100);
-	}
-
-	/* Set 8 bit strap mode */
-	reg = readl(AHB2STBUS_STRAP);
-	writel(reg & (~AHB2STBUS_STRAP_16_BIT), AHB2STBUS_STRAP);
+	/* Set strap mode */
+	reg = readl(ahb2stbus_wrapper_glue_base + AHB2STBUS_STRAP_OFFSET);
+	reg &= ~AHB2STBUS_STRAP_16_BIT;
+	reg |= STRAP_MODE;
+	writel(reg, ahb2stbus_wrapper_glue_base + AHB2STBUS_STRAP_OFFSET);
 
 	/* Start PLL */
-	reg = readl(AHB2STBUS_STRAP);
-	writel(reg | AHB2STBUS_STRAP_PLL, AHB2STBUS_STRAP);
+	reg = readl(ahb2stbus_wrapper_glue_base + AHB2STBUS_STRAP_OFFSET);
+	writel(reg | AHB2STBUS_STRAP_PLL,
+	       ahb2stbus_wrapper_glue_base + AHB2STBUS_STRAP_OFFSET);
 	mdelay(100);
-	writel(reg & (~AHB2STBUS_STRAP_PLL), AHB2STBUS_STRAP);
+	writel(reg & (~AHB2STBUS_STRAP_PLL),
+	       ahb2stbus_wrapper_glue_base + AHB2STBUS_STRAP_OFFSET);
 	mdelay(100);
 
-	/* Set the STBus Opcode Config for 32-bit access */
-	writel(AHB2STBUS_STBUS_OPC_32BIT, AHB2STBUS_STBUS_OPC);
+	/* Set the STBus Opcode Config for load/store 32 */
+	writel(AHB2STBUS_STBUS_OPC_32BIT,
+	       ahb2stbus_protocol_base + AHB2STBUS_STBUS_OPC_OFFSET);
 
-	/* Set the Message Size Config to 64 packets per message */
-	writel(AHB2STBUS_MSGSIZE_64, AHB2STBUS_MSGSIZE);
+	/* Set the Message Size Config to n packets per message */
+	writel(MSGSIZE,
+	       ahb2stbus_protocol_base + AHB2STBUS_MSGSIZE_OFFSET);
 
-	/* Set the Chunk Size Config to 64 packets per chunk */
-	writel(AHB2STBUS_CHUNKSIZE_64, AHB2STBUS_CHUNKSIZE);
+	writel(CHUNKSIZE,
+	       ahb2stbus_protocol_base + AHB2STBUS_CHUNKSIZE_OFFSET);
 
-	/* Set bus wrapper packet IN/OUT threshold to 128 */
-	writel(AHB2STBUS_INOUT_THRESHOLD, AHB2STBUS_INSREG01);
+	usb_wrapper->power_up(pdev);
 }

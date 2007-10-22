@@ -38,7 +38,8 @@ static irqreturn_t ehci_st40_irq(struct usb_hcd *hcd)
 
 static int ehci_st40_reset(struct usb_hcd *hcd)
 {
-	writel(AHB2STBUS_INOUT_THRESHOLD, AHB2STBUS_INSREG01);
+	writel(AHB2STBUS_INOUT_THRESHOLD,
+	       hcd->regs + AHB2STBUS_INSREG01_OFFSET);
 	return ehci_init(hcd);
 }
 

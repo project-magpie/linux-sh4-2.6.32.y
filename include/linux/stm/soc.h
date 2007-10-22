@@ -43,4 +43,12 @@ struct plat_stmmacenet_data {
 	void* bsp_priv;
 };
 
+struct plat_usb_data {
+	unsigned long ahb2stbus_wrapper_glue_base;
+	unsigned long ahb2stbus_protocol_base;
+	void (*power_up)(void* dev);
+	int initialised;
+	int port_number;
+};
+
 #endif /* __LINUX_ST_SOC_H */

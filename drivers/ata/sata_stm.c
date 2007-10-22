@@ -34,7 +34,7 @@
 #include <linux/stm/soc.h>
 
 #define DRV_NAME			"sata_stm"
-#define DRV_VERSION			"0.3"
+#define DRV_VERSION			"0.4"
 
 /* Offsets of the component blocks */
 #define SATA_AHB2STBUS_BASE			0x00000000
@@ -250,6 +250,7 @@ struct stm_port_priv
 	dma_addr_t lli_dma;		/* Physical version of lli */
 	struct stm_lli *softsg_node;	/* Current softsg node */
 	struct stm_lli *softsg_end;	/* End of the softsg node */
+	char smallburst;		/* Small DMA burst size */
 };
 
 /* There is an undocumented restriction that DMA blocks must not span
@@ -290,6 +291,42 @@ DPRINTK("ENTER\n");
         mdelay(100);
 
 	sata_phy_reset(ap);
+}
+
+/*
+ * We have two problems with the interface between the SATA and DMA
+ * controllers:
+ *  - it can only handle 32 bit quantities
+ *  - when reading from the device, if the data returned by the device
+ *    is short (ie less than the length programmed into the DMA engine),
+ *    and the end of the data doesn't coincide with a DMA burst boundary,
+ *    then the DMA will stall, and as a result the end of transfer
+ *    interrupt will never be seen.
+ */
+static int stm_check_atapi_dma(struct ata_queued_cmd *qc)
+{
+	struct ata_port *ap = qc->ap;
+	struct stm_port_priv *pp = ap->private_data;
+	u8 *scsicmd = qc->scsicmd->cmnd;
+
+	/* Whitelist commands that may use DMA. */
+	switch (scsicmd[0]) {
+	case WRITE_12:
+	case WRITE_10:
+	case WRITE_6:
+	case READ_12:
+	case READ_10:
+	case READ_6:
+		/* All data is multiples of 2048 */
+		pp->smallburst = 0;
+		return 0;
+	case 0xbe:	/* READ_CD */
+		/* Data should be a multiple of four bytes */
+		pp->smallburst = 1;
+		return 0;
+	}
+
+	return 1;
 }
 
 static void stm_bmdma_setup(struct ata_queued_cmd *qc)
@@ -339,19 +376,29 @@ static void stm_bmdma_setup(struct ata_queued_cmd *qc)
 		writel(pp->lli_dma, mmio + DMAC_LLP0);
 	}
 
+	/* Set Rx and Tx FIFO threshholds to 16 DWORDS except if using
+	 * small burst reads, when we set it to 1 DWORD.
+	 * Note: this is reset by a COMRESET.
+	 */
+	if (pp->smallburst) {
+		writel((0x1 << 16) | (0x10 << 0), mmio + SATA_DBTSR);
+	} else {
+		writel((0x10 << 16) | (0x10 << 0), mmio + SATA_DBTSR);
+	}
+
 	/* Enable DMA on the SATA host */
 	writel(SATA_DMACR_TXCHEN | SATA_DMACR_RXCHEN,
 	       mmio + SATA_DMACR);
 
-DPRINTK("SAR %08x, DAR %08x, CTL0 %08x CTL1 %08x\n",
+DPRINTK("SAR %08lx, DAR %08lx, CTL0 %08lx CTL1 %08lx\n",
        readl(mmio + DMAC_SAR0),
        readl(mmio + DMAC_DAR0),
        readl(mmio + DMAC_CTL0_0),
        readl(mmio + DMAC_CTL0_1));
-DPRINTK("CFG0 %08x CFG1 %08x\n",
+DPRINTK("CFG0 %08lx CFG1 %08lx\n",
        readl(mmio + DMAC_CFG0_0),
        readl(mmio + DMAC_CFG0_1));
-DPRINTK("ChEnReg %08x DmaCfgReg %08x\n",
+DPRINTK("ChEnReg %08lx DmaCfgReg %08lx\n",
        readl(mmio + DMAC_ChEnReg),
        readl(mmio + DMAC_DmaCfgReg));
 
@@ -437,7 +484,9 @@ static void stm_fill_sg(struct ata_queued_cmd *qc)
 	} else {
 		/* SATA host (master2) to memory (master1) transfer */
 		ctl0 |= DMAC_CTL_DEST_MSIZE_16		|
-			DMAC_CTL_SRC_MSIZE_16		|
+			(pp->smallburst ?
+				DMAC_CTL_SRC_MSIZE_1 :
+				DMAC_CTL_SRC_MSIZE_16)	|
 			DMAC_CTL_TT_FC_P2M_DMAC		|
 			DMAC_CTL_DMS_1			|
 			DMAC_CTL_SMS_2;
@@ -457,6 +506,8 @@ static void stm_fill_sg(struct ata_queued_cmd *qc)
 
 		addr = sg_dma_address(sg);
 		sg_len = sg_dma_len(sg);
+
+		WARN_ON(sg_len & 3);
 
 		while (sg_len) {
 			/* Ensure no DMA block crosses a FIS boundary */
@@ -479,7 +530,7 @@ static void stm_fill_sg(struct ata_queued_cmd *qc)
 			pp->lli[idx].ctl0 = ctl0;
 			pp->lli[idx].ctl1 = len >> 2;
 
-			DPRINTK("lli: %08x: SAR %08x, DAR %08x, CTL0 %08x CTL1 %08x\n",
+			DPRINTK("lli: %p: SAR %08x, DAR %08x, CTL0 %08x CTL1 %08x\n",
 				&pp->lli[idx],
 				pp->lli[idx].sar, pp->lli[idx].dar,
 				pp->lli[idx].ctl0, pp->lli[idx].ctl1);
@@ -508,6 +559,50 @@ static void stm_qc_prep(struct ata_queued_cmd *qc)
 		return;
 
 	stm_fill_sg(qc);
+}
+
+static void stm_data_xfer(struct ata_port *ap, unsigned char *buf,
+		           unsigned int buflen, int write_data)
+{
+	unsigned int i;
+	unsigned int words = buflen >> 1;
+	u16 *buf16 = (u16 *) buf;
+	void __iomem *mmio_base = (void __iomem *) ap->ioaddr.cmd_addr;
+	void __iomem *mmio = (void __iomem *)ap->ioaddr.data_addr;
+
+	/* Disable error reporting */
+	writel(~SERROR_ERR_E, mmio_base + SATA_ERRMR);
+
+	/* Transfer multiple of 2 bytes */
+	if (write_data) {
+		for (i = 0; i < words; i++) {
+			writew(le16_to_cpu(buf16[i]), mmio);
+			ndelay(120);
+		}
+	} else {
+		for (i = 0; i < words; i++) {
+			buf16[i] = cpu_to_le16(readw(mmio));
+			ndelay(120);
+		}
+	}
+
+	/* Transfer trailing 1 byte, if any. */
+	if (unlikely(buflen & 0x01)) {
+		u16 align_buf[1] = { 0 };
+		unsigned char *trailing_buf = buf + buflen - 1;
+
+		if (write_data) {
+			memcpy(align_buf, trailing_buf, 1);
+			writew(le16_to_cpu(align_buf[0]), mmio);
+		} else {
+			align_buf[0] = cpu_to_le16(readw(mmio));
+			memcpy(trailing_buf, align_buf, 1);
+		}
+	}
+
+	/* Clear any errors and re-enable error reporting */
+	writel(-1, mmio_base + SATA_SCR1);
+	writel(0xffffffff, mmio_base + SATA_ERRMR);
 }
 
 static unsigned long error_count;
@@ -539,7 +634,7 @@ DPRINTK("ENTER\n");
 			/* Ack the interrupt */
 			writel(1<<0, mmio + DMAC_CLEARTFR);
 
-			DPRINTK("softsg_node %08x, end %08x\n", pp->softsg_node, pp->softsg_end);
+			DPRINTK("softsg_node %p, end %p\n", pp->softsg_node, pp->softsg_end);
 
 			writel(pp->softsg_node->sar, mmio + DMAC_SAR0);
 			writel(pp->softsg_node->dar, mmio + DMAC_DAR0);
@@ -640,9 +735,23 @@ static int stm_port_start (struct ata_port *ap)
 		goto out1;
 	}
 
+	pp->smallburst = 0;
+
+	result = ata_pad_alloc(ap, dev);
+	if (result) {
+		result = -ENOMEM;
+		goto out2;
+	}
+
 	ap->private_data = pp;
 	return result;
 
+out2:
+	if (hpriv->softsg) {
+		kfree(pp->lli);
+	} else {
+		dma_free_coherent(dev, STM_LLI_BYTES, pp->lli, pp->lli_dma);
+	}
 out1:
 	kfree(pp);
 out:
@@ -759,6 +868,7 @@ static struct ata_port_operations stm_sata_ops = {
 	.check_status		= ata_check_status,
 	.dev_select		= ata_noop_dev_select,
 	.phy_reset		= stm_phy_reset,
+	.check_atapi_dma	= stm_check_atapi_dma,
 	.bmdma_setup            = stm_bmdma_setup,
 	.bmdma_start            = stm_bmdma_start,
 	.bmdma_stop		= stm_bmdma_stop,
@@ -766,6 +876,7 @@ static struct ata_port_operations stm_sata_ops = {
 	.qc_prep		= stm_qc_prep,
 	.qc_issue		= ata_qc_issue_prot,
 	.eng_timeout		= ata_eng_timeout,
+	.data_xfer		= stm_data_xfer,
 	.irq_handler		= stm_sata_interrupt,
 	.irq_clear		= stm_irq_clear,
 	.scr_read		= stm_sata_scr_read,
@@ -938,11 +1049,6 @@ static int __init stm_sata_probe(struct device *dev)
 	/* Enable DMA controller */
 	writel(DMAC_DmaCfgReg_DMA_EN, mmio_base + DMAC_DmaCfgReg);
 
-	if (ata_device_add(probe_ent) == 0) {
-		retval = -ENODEV;
-		goto err4;
-	}
-
 	/* SATA host controller set up */
 
 	/* Clear serror register following probe, and before we enable
@@ -950,15 +1056,16 @@ static int __init stm_sata_probe(struct device *dev)
 	/* scr_write(ap, SCR_ERROR, -1); */
 	writel(-1, mmio_base + SATA_SCR1);
 
-	/* Set Rx and Tx FIFO threshholds to 16 DWORDS */
-	/* Note Validation code refers to "Anupam JAIN's document" where this
-	 * is set to 0x70002 for writes (0x100010 for reads).
-	 */
-	writel((0x10 << 16) | (0x10 << 0), mmio_base + SATA_DBTSR);
-
 	/* Enable notification of errors */
 	writel(0xffffffff, mmio_base + SATA_ERRMR);
 	writel(SATA_INT_ERR, mmio_base + SATA_INTMR);
+
+	/* Finished hardware set up */
+
+	if (ata_device_add(probe_ent) == 0) {
+		retval = -ENODEV;
+		goto err4;
+	}
 
 	kfree(probe_ent);
 

@@ -1684,6 +1684,7 @@ int Smsc9118_open(struct net_device *dev)
 		DWORD dwTxDmaCh=tx_dma;
 		privateData->RxDmaChReserved=FALSE;
 
+	spin_lock_init(&(privateData->GpTimerLock));
 
 		if(rx_dma==TRANSFER_REQUEST_DMA) {
 			dwRxDmaCh=Platform_RequestDmaChannel(&(privateData->PlatformData));
@@ -1712,7 +1713,6 @@ int Smsc9118_open(struct net_device *dev)
 	Tx_StopQueue(privateData,0x01UL);
 
 
-	spin_lock_init(&(privateData->GpTimerLock));
 	Lan_EnableInterrupt(privateData,INT_EN_GPT_INT_EN_);
 #ifndef USE_PHY_WORK_AROUND
 	netif_carrier_off(dev);

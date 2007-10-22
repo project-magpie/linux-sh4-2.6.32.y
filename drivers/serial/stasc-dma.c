@@ -4,24 +4,23 @@
  */
 
 #include <linux/stm/710x_fdma.h>
-#include <linux/timer.h> /* Added for FDMA mode */
+#include <linux/timer.h>
 #include <linux/stm/stm-dma.h>
 #include <asm/cacheflush.h>
 
 #include "stasc.h"
 
-/* Added for FDMA mode */
+/* Key running performance parameters */
 #ifdef CONFIG_STB7100_FDMA
 #define DMA_RXBUFSIZE 1024
-#define DMA_RXBUFERS 4 /* must be power of 2 */
+#define DMA_RXBUFERS 8 /* must be power of 2 */
 #define DMA_TXBUFSIZE 2048
 #define DMA_TXBUFERS 4 /* must be power of 2 */
-#define RXPOLL_PERIOD 50
+#define RXPOLL_PERIOD (50 * HZ /1000)
 #endif
 
 struct asc_dma_port
 {
-	/* Added for FDMA mode */
 	int rxdma_running;
 	int txdma_running;
 	int rxdma_chid;
@@ -39,8 +38,6 @@ struct asc_dma_port
 	int last_residue;
 	struct timer_list rxpoll_timer;
 };
-
-/*-- Functions to use high speed using FDMA  -------*/
 
 static unsigned long FDMA_RXREQ[ASC_NPORTS];
 static unsigned long FDMA_TXREQ[ASC_NPORTS];
@@ -107,51 +104,47 @@ static void asc_dma_rxflush(struct uart_port *port)
 	int space = tty->receive_room;
 	int err=0;
 
+	/* Make space to start new DMA on new block, if necessary */
+	if (ascdmaport->rxdmabuf_count[ascdmaport->rxdmabuf_head] != 0) {
+		if (((ascdmaport->rxdmabuf_head + 1) & (DMA_RXBUFERS - 1)) == ascdmaport->rxdmabuf_tail) {
+			space = asc_dma_rxflush_one_buffer(ascport, ascdmaport, tty, space);
+			if (((ascdmaport->rxdmabuf_head + 1) & (DMA_RXBUFERS - 1)) == ascdmaport->rxdmabuf_tail) {
+/*				printk(KERN_WARNING "ASC RX FDMA overflow on buffer#%d\n", ascdmaport->rxdmabuf_head); */
+				return;
+			}
+		}
+		
+		/* Use next free block to receive into */
+		ascdmaport->rxdmabuf_head = (ascdmaport->rxdmabuf_head + 1) & (DMA_RXBUFERS - 1);
+	}
+	
+	/* Try to set RX DMA going again */
+	dma_parms_addrs(&ascdmaport->rxdmap,
+			ascdmaport->rxdmap.sar,
+			virt_to_bus(ascdmaport->rxdmabuf[ascdmaport->rxdmabuf_head]),
+			ascdmaport->rxdmap.node_bytes);
+
+	/* Assuming current num_bytes parm is valid */
+	dma_parms_paced(&ascdmaport->rxdmap,
+			ascdmaport->rxdmap.node_bytes,
+			FDMA_RXREQ[port->line]);
+
+	if((err = dma_compile_list(&ascdmaport->rxdmap)) < 0) {
+		printk(KERN_ERR "ASC RX FDMA failed to reconfigure, error %d\n", err);
+		return;
+	}
+
+	dma_cache_wback_inv(ascdmaport->rxdmabuf[ascdmaport->rxdmabuf_head], DMA_RXBUFSIZE);
+
+	if((err = dma_xfer_list(ascdmaport->rxdma_chid,&ascdmaport->rxdmap)) < 0) {
+		printk(KERN_ERR "ASC RX FDMA failed to start, error %d\n", err);
+		return;
+	}
+	ascdmaport->rxdma_running = 1;
+
 	/* Transfer as many buffers as possible to the tty receive buffer */
 	while (space > 0 && ascdmaport->rxdmabuf_head != ascdmaport->rxdmabuf_tail) {
 		space = asc_dma_rxflush_one_buffer(ascport, ascdmaport, tty, space);
-	}
-
-	/* Try to set RX DMA going again */
-	if (!ascdmaport->rxdma_running) {
-		/* Flush out the most recent data to the tty receive buffer */
-		if (space > 0 && ascdmaport->rxdmabuf_head == ascdmaport->rxdmabuf_tail &&
-				 ascdmaport->rxdmabuf_count[ascdmaport->rxdmabuf_tail] != 0) {
-			space = asc_dma_rxflush_one_buffer(ascport, ascdmaport, tty, space);
-		}
-
-		/* Move to a fresh receive buffer if there is data left in the old one */
-		if (ascdmaport->rxdmabuf_count[ascdmaport->rxdmabuf_head] != 0 &&
-		    ascdmaport->rxdmabuf_head != ((ascdmaport->rxdmabuf_tail - 1) & (DMA_RXBUFERS - 1))) {
-			ascdmaport->rxdmabuf_head = (ascdmaport->rxdmabuf_head + 1) & (DMA_RXBUFERS - 1);
-		}
-
-		/* Start DMA going if there is space to store more data */
-		if (ascdmaport->rxdmabuf_count[ascdmaport->rxdmabuf_head] == 0) {
-			/* We are changing */
-			dma_parms_addrs(&ascdmaport->rxdmap,
-					ascdmaport->rxdmap.sar,
-					virt_to_bus(ascdmaport->rxdmabuf[ascdmaport->rxdmabuf_head]),
-					ascdmaport->rxdmap.node_bytes);
-
-			/* Assuming current num_bytes parm is valid ?? */
-			dma_parms_paced(&ascdmaport->rxdmap,
-					ascdmaport->rxdmap.node_bytes,
-					FDMA_RXREQ[port->line]);
-
-			if((err = dma_compile_list(&ascdmaport->rxdmap)) < 0) {
-				printk(KERN_ERR "ASC RX FDMA failed to reconfigure, error %d\n", err);
-				return;
-			}
-
-			dma_cache_wback_inv(ascdmaport->rxdmabuf[ascdmaport->rxdmabuf_head], DMA_RXBUFSIZE);
-			ascdmaport->rxdma_running = 1;
-
-			if((err = dma_xfer_list(ascdmaport->rxdma_chid,&ascdmaport->rxdmap)) < 0) {
-				printk(KERN_ERR "ASC RX FDMA failed to start, error %d\n", err);
-				return;
-			}
-		}
 	}
 }
 
@@ -398,7 +391,8 @@ static void asc_rxtimer_fn(unsigned long param)
 	} else {
 		/* If receive has paused with data, stop so as to flush all received so far */
 		residue = get_dma_residue(ascdmaport->rxdma_chid);
-		if (residue == ascdmaport->last_residue && residue != DMA_RXBUFSIZE) {
+		if (residue == ascdmaport->last_residue && (residue != DMA_RXBUFSIZE || 
+                       ascdmaport->rxdmabuf_count[ascdmaport->rxdmabuf_tail] != 0)) {
 			dma_stop_channel(ascdmaport->rxdma_chid);
 			ascdmaport->last_residue = 0;
 		}

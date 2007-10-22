@@ -264,6 +264,7 @@ typedef struct pcm_hw_t {
 	int 			max_ch;
 	int 			fdma_req;
 	struct 	stm_dma_params  dmap;
+	struct  stm_dma_req     *dma_req;
 	int 			i2s_sampling_edge;
 	int			fifo_check_mode;
 	struct 	pcmin_ctx	pcmin;

@@ -122,6 +122,7 @@ static void stb7100_pcmin_stop_read(snd_pcm_substream_t *substream)
 
 	dma_stop_channel(chip->fdma_channel);
 	dma_params_free(&chip->dmap);
+	chip->dma_req = NULL; /* free'd by the above call to dma_params_free() */
 
 	spin_lock_irqsave(&chip->lock,irqflags);
 	writel(AUD_PCMIN_CTRL_OFF_MODE,chip->pcm_player + STM_PCMIN_CTRL);
@@ -192,17 +193,18 @@ static int stb7100_pcmin_program_fdma(snd_pcm_substream_t *substream)
 	snd_pcm_runtime_t *runtime = substream->runtime;
 	unsigned long irqflags=0;
 	int err=0;
-	struct stm_dma_req *dma_req;
 
 	if(!chip->out_pipe || ! chip->pcm_player)
 		return -EINVAL;
 
 	spin_lock_irqsave(&chip->lock,irqflags);
 
-	dma_req = dma_req_config(chip->fdma_channel, chip->fdma_req, &pcmin_req_config);
-	if (dma_req == NULL) {
-		spin_unlock_irqrestore(&chip->lock,irqflags);
-		return -EBUSY;
+	if (chip->dma_req == NULL) {
+		chip->dma_req = dma_req_config(chip->fdma_channel, chip->fdma_req, &pcmin_req_config);
+		if (chip->dma_req == NULL) {
+			spin_unlock_irqrestore(&chip->lock,irqflags);
+			return -EBUSY;
+		}
 	}
 
 	dma_params_init(&chip->dmap,
@@ -211,7 +213,7 @@ static int stb7100_pcmin_program_fdma(snd_pcm_substream_t *substream)
 
 	dma_params_DIM_0_x_1(&chip->dmap);
 
-	dma_params_req(&chip->dmap, dma_req);
+	dma_params_req(&chip->dmap, chip->dma_req);
 
 	dma_params_addrs(&chip->dmap,
 			virt_to_phys(chip->pcm_player+STM_PCMP_DATA_FIFO),

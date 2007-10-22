@@ -136,18 +136,21 @@ void nwhw_uconfig(struct net_device *dev)
 	struct sockaddr ether_addr;
 	int valid_ether = user_hw_addr[0];
 
+	printk(KERN_INFO "%s\n", __FUNCTION__);
 	if (valid_ether) {
 		valid_ether = parse_ether(user_hw_addr, &ether_addr);
 		if (! valid_ether) {
-			printk("%s: failed to parse ether addr: %s\n",
-			__FUNCTION__, user_hw_addr);
-			return;
+			printk(KERN_WARNING "\tfailed to parse ether addr:%s\n",
+				user_hw_addr);
 		}
 	}
-	if (!dev->set_mac_address || dev->set_mac_address(dev, &ether_addr)) {
-		printk(KERN_WARNING "%s: not set MAC address\n", __FUNCTION__);
-		return;
+	if (valid_ether) {
+		if (!dev->set_mac_address ||
+		    dev->set_mac_address(dev, &ether_addr)) {
+			printk(KERN_WARNING "\tnot set MAC address...\n");
+		}
 	}
+	return;
 }
 #endif
 

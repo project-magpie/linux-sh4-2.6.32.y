@@ -1505,6 +1505,9 @@ UNKNOWN_CHIP:
 	dev->set_multicast_list=Smsc9118_set_multicast_list;
 	dev->flags|=IFF_MULTICAST;
 
+	// set an invalid MAC address (so we can observe if its value is changed)
+	memset(dev->dev_addr, 0xff, 6);
+
 	SET_MODULE_OWNER(dev);
 
 	privateData->dwIdRev=dwIdRev;
@@ -1616,7 +1619,18 @@ int Smsc9118_open(struct net_device *dev)
 		DWORD dwHigh16=0;
 		DWORD dwLow32=0;
 		DWORD dwIntFlags=0;
-		VL_KEY keyCode=Vl_WaitForLock(&(privateData->MacPhyLock),&dwIntFlags);
+		VL_KEY keyCode;
+
+		// if the dev_addr has been set use via set_mac_address then let this override everything
+		if (!(dev->dev_addr[0] == 0xff && dev->dev_addr[1] == 0xff &&
+		      dev->dev_addr[2] == 0xff && dev->dev_addr[3] == 0xff &&
+		      dev->dev_addr[4] == 0xff && dev->dev_addr[5] == 0xff)) {
+			mac_addr_lo32 = dev->dev_addr[0]       | dev->dev_addr[1] <<  8 |
+			                dev->dev_addr[2] << 16 | dev->dev_addr[3] << 24;
+			mac_addr_hi16 = dev->dev_addr[4]       | dev->dev_addr[5] <<  8;
+		}
+
+		keyCode=Vl_WaitForLock(&(privateData->MacPhyLock),&dwIntFlags);
 		if(mac_addr_hi16==0xFFFFFFFF) {
 			dwHigh16=Mac_GetRegDW(privateData,ADDRH,keyCode);
 			dwLow32=Mac_GetRegDW(privateData,ADDRL,keyCode);

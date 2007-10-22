@@ -733,7 +733,7 @@ static int __init iic_stm_bus_init(void)
  *       - i2c speed  = normal
  */
 		iic_stm->adapter.owner = THIS_MODULE;
-		iic_stm->adapter.id = adapnr;
+		iic_stm->adapter.id = I2C_HW_STM_SSC;
 		iic_stm->adapter.timeout = 4;
 		iic_stm->adapter.class   = I2C_CLASS_ALL;
 		sprintf(iic_stm->adapter.name,"i2c-ssc-%d",adapnr);

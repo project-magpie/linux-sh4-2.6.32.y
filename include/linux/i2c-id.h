@@ -264,6 +264,7 @@
 /* --- Embedded adapters */
 #define I2C_HW_MV64XXX		0x190000
 #define I2C_HW_BLACKFIN		0x190001 /* ADI Blackfin I2C TWI driver */
+#define	I2C_HW_STM_SSC		0x190002 /* STMicroelectronics Synchronous Serial Ctrlr */
 
 /* --- Miscellaneous adapters */
 #define I2C_HW_SAA7146		0x060000 /* SAA7146 video decoder bus */

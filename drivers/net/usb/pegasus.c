@@ -146,16 +146,16 @@ static int get_registers(pegasus_t * pegasus, __u16 indx, __u16 size,
 	remove_wait_queue(&pegasus->ctrl_wait, &wait);
 	set_current_state(TASK_RUNNING);
 
-	pegasus->dr.bRequestType = PEGASUS_REQT_READ;
-	pegasus->dr.bRequest = PEGASUS_REQ_GET_REGS;
-	pegasus->dr.wValue = cpu_to_le16(0);
-	pegasus->dr.wIndex = cpu_to_le16p(&indx);
-	pegasus->dr.wLength = cpu_to_le16p(&size);
+	pegasus->dr->bRequestType = PEGASUS_REQT_READ;
+	pegasus->dr->bRequest = PEGASUS_REQ_GET_REGS;
+	pegasus->dr->wValue = cpu_to_le16(0);
+	pegasus->dr->wIndex = cpu_to_le16p(&indx);
+	pegasus->dr->wLength = cpu_to_le16p(&size);
 	pegasus->ctrl_urb->transfer_buffer_length = size;
 
 	usb_fill_control_urb(pegasus->ctrl_urb, pegasus->usb,
 			     usb_rcvctrlpipe(pegasus->usb, 0),
-			     (char *) &pegasus->dr,
+			     (char *) pegasus->dr,
 			     buffer, size, ctrl_callback, pegasus);
 
 	add_wait_queue(&pegasus->ctrl_wait, &wait);
@@ -204,16 +204,16 @@ static int set_registers(pegasus_t * pegasus, __u16 indx, __u16 size,
 	remove_wait_queue(&pegasus->ctrl_wait, &wait);
 	set_current_state(TASK_RUNNING);
 
-	pegasus->dr.bRequestType = PEGASUS_REQT_WRITE;
-	pegasus->dr.bRequest = PEGASUS_REQ_SET_REGS;
-	pegasus->dr.wValue = cpu_to_le16(0);
-	pegasus->dr.wIndex = cpu_to_le16p(&indx);
-	pegasus->dr.wLength = cpu_to_le16p(&size);
+	pegasus->dr->bRequestType = PEGASUS_REQT_WRITE;
+	pegasus->dr->bRequest = PEGASUS_REQ_SET_REGS;
+	pegasus->dr->wValue = cpu_to_le16(0);
+	pegasus->dr->wIndex = cpu_to_le16p(&indx);
+	pegasus->dr->wLength = cpu_to_le16p(&size);
 	pegasus->ctrl_urb->transfer_buffer_length = size;
 
 	usb_fill_control_urb(pegasus->ctrl_urb, pegasus->usb,
 			     usb_sndctrlpipe(pegasus->usb, 0),
-			     (char *) &pegasus->dr,
+			     (char *) pegasus->dr,
 			     buffer, size, ctrl_callback, pegasus);
 
 	add_wait_queue(&pegasus->ctrl_wait, &wait);
@@ -257,16 +257,16 @@ static int set_register(pegasus_t * pegasus, __u16 indx, __u8 data)
 	remove_wait_queue(&pegasus->ctrl_wait, &wait);
 	set_current_state(TASK_RUNNING);
 
-	pegasus->dr.bRequestType = PEGASUS_REQT_WRITE;
-	pegasus->dr.bRequest = PEGASUS_REQ_SET_REG;
-	pegasus->dr.wValue = cpu_to_le16(data);
-	pegasus->dr.wIndex = cpu_to_le16p(&indx);
-	pegasus->dr.wLength = cpu_to_le16(1);
+	pegasus->dr->bRequestType = PEGASUS_REQT_WRITE;
+	pegasus->dr->bRequest = PEGASUS_REQ_SET_REG;
+	pegasus->dr->wValue = cpu_to_le16(data);
+	pegasus->dr->wIndex = cpu_to_le16p(&indx);
+	pegasus->dr->wLength = cpu_to_le16(1);
 	pegasus->ctrl_urb->transfer_buffer_length = 1;
 
 	usb_fill_control_urb(pegasus->ctrl_urb, pegasus->usb,
 			     usb_sndctrlpipe(pegasus->usb, 0),
-			     (char *) &pegasus->dr,
+			     (char *) pegasus->dr,
 			     tmp, 1, ctrl_callback, pegasus);
 
 	add_wait_queue(&pegasus->ctrl_wait, &wait);
@@ -293,16 +293,16 @@ static int update_eth_regs_async(pegasus_t * pegasus)
 {
 	int ret;
 
-	pegasus->dr.bRequestType = PEGASUS_REQT_WRITE;
-	pegasus->dr.bRequest = PEGASUS_REQ_SET_REGS;
-	pegasus->dr.wValue = 0;
-	pegasus->dr.wIndex = cpu_to_le16(EthCtrl0);
-	pegasus->dr.wLength = cpu_to_le16(3);
+	pegasus->dr->bRequestType = PEGASUS_REQT_WRITE;
+	pegasus->dr->bRequest = PEGASUS_REQ_SET_REGS;
+	pegasus->dr->wValue = 0;
+	pegasus->dr->wIndex = cpu_to_le16(EthCtrl0);
+	pegasus->dr->wLength = cpu_to_le16(3);
 	pegasus->ctrl_urb->transfer_buffer_length = 3;
 
 	usb_fill_control_urb(pegasus->ctrl_urb, pegasus->usb,
 			     usb_sndctrlpipe(pegasus->usb, 0),
-			     (char *) &pegasus->dr,
+			     (char *) pegasus->dr,
 			     pegasus->eth_regs, 3, ctrl_callback, pegasus);
 
 	if ((ret = usb_submit_urb(pegasus->ctrl_urb, GFP_ATOMIC))) {
@@ -1001,6 +1001,45 @@ static int alloc_urbs(pegasus_t * pegasus)
 	return 1;
 }
 
+static int alloc_dma_structs(pegasus_t * pegasus)
+{
+	pegasus->dr = kmalloc(sizeof(struct usb_ctrlrequest), GFP_KERNEL);
+	if (!pegasus->dr) {
+		return 0;
+	}
+
+	pegasus->intr_buff = kmalloc(PEGASUS_INTR_SIZE, GFP_KERNEL);
+	if (! pegasus->intr_buff) {
+		kfree(pegasus->dr);
+		return 0;
+	}
+
+	pegasus->tx_buff = kmalloc(PEGASUS_MTU, GFP_KERNEL);
+	if (! pegasus->tx_buff) {
+		kfree(pegasus->intr_buff);
+		kfree(pegasus->dr);
+		return 0;
+	}
+
+	pegasus->eth_regs = kmalloc(4, GFP_KERNEL);
+	if (! pegasus->eth_regs) {
+		kfree(pegasus->tx_buff);
+		kfree(pegasus->intr_buff);
+		kfree(pegasus->dr);
+		return 0;
+	}
+
+	return 1;
+}
+
+static void free_dma_structs(pegasus_t * pegasus)
+{
+	kfree(pegasus->eth_regs);
+	kfree(pegasus->tx_buff);
+	kfree(pegasus->intr_buff);
+	kfree(pegasus->dr);
+}
+
 static int pegasus_open(struct net_device *net)
 {
 	pegasus_t *pegasus = netdev_priv(net);
@@ -1030,7 +1069,7 @@ static int pegasus_open(struct net_device *net)
 
 	usb_fill_int_urb(pegasus->intr_urb, pegasus->usb,
 			 usb_rcvintpipe(pegasus->usb, 3),
-			 pegasus->intr_buff, sizeof (pegasus->intr_buff),
+			 pegasus->intr_buff, PEGASUS_INTR_SIZE,
 			 intr_callback, pegasus, pegasus->intr_interval);
 	if ((res = usb_submit_urb(pegasus->intr_urb, GFP_KERNEL))) {
 		if (res == -ENODEV)
@@ -1412,6 +1451,11 @@ static int pegasus_probe(struct usb_interface *intf,
 		goto out1;
 	}
 
+	if (!alloc_dma_structs(pegasus)) {
+		dev_err(&intf->dev, "can't allocate %s\n", "DMA structs");
+		goto out1_5;
+	}
+
 	tasklet_init(&pegasus->rx_tl, rx_fixup, (unsigned long) pegasus);
 
 	INIT_DELAYED_WORK(&pegasus->carrier_check, check_carrier);
@@ -1478,6 +1522,8 @@ out3:
 	usb_set_intfdata(intf, NULL);
 	free_skb_pool(pegasus);
 out2:
+	free_dma_structs(pegasus);
+out1_5:
 	free_all_urbs(pegasus);
 out1:
 	free_netdev(net);
@@ -1501,6 +1547,7 @@ static void pegasus_disconnect(struct usb_interface *intf)
 	unregister_netdev(pegasus->net);
 	usb_put_dev(interface_to_usbdev(intf));
 	unlink_all_urbs(pegasus);
+	free_dma_structs(pegasus);
 	free_all_urbs(pegasus);
 	free_skb_pool(pegasus);
 	if (pegasus->rx_skb != NULL) {

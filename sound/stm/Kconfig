@@ -1,0 +1,32 @@
+# ALSA SH4 drivers
+
+menu "ST PCM-ALSA driver"
+	depends on SND!=n && CPU_SUBTYPE_ST40
+
+config SND_STM8000
+	tristate "STM8000 ALSA driver"
+	depends on CPU_SUBTYPE_STM8000
+	select SND_PCM
+	help
+	  Say Y here for ALSA support on the STm8000.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called snd-stm8000.
+
+config SND_STB710X
+	tristate "STB710x ALSA driver"
+	depends on CPU_SUBTYPE_STB7100 && STM_DMA
+	select SND_PCM
+	help
+	  Say Y here for ALSA support on the STb710x.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called snd-stb710x.
+
+config STB7100_IEC_DEBUG
+	tristate "STB710x ALSA driver IEC debug"
+	depends on CPU_SUBTYPE_STB7100 && STM_DMA
+	select SND_PCM
+	help
+	  Say Y here for ALSA-IEC debugging on the STb710x.
+endmenu

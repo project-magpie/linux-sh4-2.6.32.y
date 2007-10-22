@@ -845,18 +845,72 @@ void stx7100_configure_pwm(struct plat_stm_pwm_data *data)
 }
 
 /* LiRC resources ---------------------------------------------------------- */
+static struct lirc_pio lirc_pios[] = {
+	[0] = {
+		.bank = 3,
+		.pin  = 3,
+		.dir  = STPIO_IN
+	},
+	[1] = {
+		.bank = 3,
+		.pin  = 4,
+		.dir  = STPIO_IN
+	},
+	[2] = {
+		.bank = 3,
+		.pin  = 5,
+		.dir  = STPIO_ALT_OUT
+	},
+	[3] = {
+		.bank = 3,
+		.pin  = 6,
+		.dir  = STPIO_ALT_OUT
+	}
+};
 
-void __init stb7100_configure_lirc(void)
+static struct plat_lirc_data lirc_private_info = {
+	/* For the 7100, the clock settings will be calculated by the driver
+	 * from the system clock
+	 */
+	.irbclock	= 0, /* use current_cpu data */
+	.irbclkdiv      = 0, /* automatically calculate */
+	.irbperiodmult  = 0,
+	.irbperioddiv   = 0,
+	.irbontimemult  = 0,
+	.irbontimediv   = 0,
+	.irbrxmaxperiod = 0x5000,
+	.sysclkdiv	= 1,
+	.rxpolarity	= 1,
+	.pio_pin_arr  = lirc_pios,
+	.num_pio_pins = ARRAY_SIZE(lirc_pios)
+};
+
+static struct resource lirc_resource[]= {
+        [0] = {
+		.start = 0x18018000,
+		.end   = 0x18018000 + 0xa0,
+	        .flags = IORESOURCE_MEM
+	},
+	[1] = {
+	        .start = 125,
+		.end   = 125,
+	        .flags = IORESOURCE_IRQ
+	},
+};
+
+static struct platform_device lirc_device = {
+	.name           = "lirc",
+	.id             = -1,
+	.num_resources  = ARRAY_SIZE(lirc_resource),
+	.resource       = lirc_resource,
+	.dev = {
+	           .platform_data = &lirc_private_info
+	}
+};
+
+void __init stx7100_configure_lirc(void)
 {
-	/* This is a place holder for when we do have LIRC */
-
-	/* Ideally the PIO claiming should be moved into the driver. */
-
-	/* Configure the pio pins for LIRC */
-	stpio_request_pin(3, 3, "IR", STPIO_IN);
-	stpio_request_pin(3, 4, "IR", STPIO_IN);
-	stpio_request_pin(3, 5, "IR", STPIO_ALT_OUT);
-	stpio_request_pin(3, 6, "IR", STPIO_ALT_OUT);
+        platform_device_register(&lirc_device);
 }
 
 /* ASC resources ----------------------------------------------------------- */

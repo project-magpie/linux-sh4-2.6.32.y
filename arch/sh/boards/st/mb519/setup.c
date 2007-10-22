@@ -194,7 +194,8 @@ static int __init device_init(void)
 	stx7200_configure_usb();
 	stx7200_configure_ethernet(0, 0, 1, 0);
 	// stx7200_configure_ethernet(1, 0, 1, 1);
-
+        stx7200_configure_lirc();
+        
 	return platform_add_devices(mb519_devices, ARRAY_SIZE(mb519_devices));
 }
 arch_initcall(device_init);

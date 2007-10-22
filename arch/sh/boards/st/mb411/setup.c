@@ -161,6 +161,7 @@ static int __init device_init(void)
 	stx7100_configure_ssc(&ssc_private_info);
 	stx7100_configure_usb();
 	stx7100_configure_alsa();
+	stx7100_configure_lirc();
 	stx7100_configure_ethernet(0, 0, 0);
 
 	return platform_add_devices(mb411_devices,

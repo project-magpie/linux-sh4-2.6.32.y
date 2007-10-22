@@ -630,6 +630,8 @@ config HVCS
 	  which will also be compiled when this driver is built as a
 	  module.
 
+source "drivers/char/lirc/Kconfig"
+
 source "drivers/char/ipmi/Kconfig"
 
 source "drivers/char/watchdog/Kconfig"

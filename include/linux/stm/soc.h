@@ -34,6 +34,32 @@ struct plat_stm_pwm_data {
 #define PLAT_STM_PWM_OUT0	(1<<0)
 #define PLAT_STM_PWM_OUT1	(1<<1)
 
+/* This is the private platform data for the lirc driver */
+struct lirc_pio {
+	unsigned int bank;
+	unsigned int pin;
+	unsigned int dir;
+        struct stpio_pin* pinaddr;
+};
+
+struct plat_lirc_data {
+	unsigned int irbclock;		/* IRB block clock (set to 0 for auto) */
+	unsigned int irbclkdiv;		/* IRB block clock divisor (set to 0 for auto) */
+	unsigned int irbperiodmult;	/* manual setting period multiplier */
+	unsigned int irbperioddiv;	/* manual setting period divisor */
+	unsigned int irbontimemult;	/* manual setting pulse period multiplier */
+	unsigned int irbontimediv;	/* manual setting pulse period divisor */
+	unsigned int irbrxmaxperiod;	/* maximum rx period in uS */
+	unsigned int irbversion;	/* IRB version type (1,2 or 3) */
+	unsigned int sysclkdiv;		/* factor to divide system bus clock by */
+	unsigned int rxpolarity;        /* flag to set gpio rx polarity (usually set to 1) */
+	unsigned int subcarrwidth;      /* Subcarrier width in percent - this is used to */
+					/* make the subcarrier waveform square after passing */
+					/* through the 555-based threshold detector on ST boards */
+	struct lirc_pio *pio_pin_arr;	/* PIO pin settings for driver */
+	unsigned int num_pio_pins;
+};
+
 /* Private data for the STM on-board ethernet driver */
 struct plat_stmmacenet_data {
 	int bus_id;
@@ -84,6 +110,7 @@ void stx7100_configure_ssc(struct plat_ssc_data *data);
 void stx7100_configure_usb(void);
 void stx7100_configure_alsa(void);
 void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus);
+void stx7100_configure_lirc(void);
 
 void stx7200_early_device_init(void);
 void stx7200_configure_asc(const int *ascs, int num_ascs, int console);
@@ -93,5 +120,6 @@ void stx7200_configure_ssc(struct plat_ssc_data *data);
 void stx7200_configure_usb(void);
 void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 				int phy_bus);
+void stx7200_configure_lirc(void);
 
 #endif /* __LINUX_ST_SOC_H */

@@ -161,7 +161,7 @@ struct rtl8150 {
 	struct sk_buff *tx_skb, *rx_skb;
 	struct sk_buff *rx_skb_pool[RX_SKB_POOL_SIZE];
 	spinlock_t rx_pool_lock;
-	struct usb_ctrlrequest dr;
+	struct usb_ctrlrequest *dr;
 	int intr_interval;
 	__le16 rx_creg;
 	u8 *intr_buff;
@@ -197,16 +197,30 @@ static struct usb_driver rtl8150_driver = {
 */
 static int get_registers(rtl8150_t * dev, u16 indx, u16 size, void *data)
 {
-	return usb_control_msg(dev->udev, usb_rcvctrlpipe(dev->udev, 0),
+	char* local_data = kmalloc(size, GFP_KERNEL);
+	int result;
+	if (!local_data)
+		return -ENOMEM;
+	result = usb_control_msg(dev->udev, usb_rcvctrlpipe(dev->udev, 0),
 			       RTL8150_REQ_GET_REGS, RTL8150_REQT_READ,
-			       indx, 0, data, size, 500);
+			       indx, 0, local_data, size, 500);
+	memcpy(data, local_data, size);
+	kfree(local_data);
+	return result;
 }
 
 static int set_registers(rtl8150_t * dev, u16 indx, u16 size, void *data)
 {
-	return usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0),
+	char* local_data = kmalloc(size, GFP_KERNEL);
+	int result;
+	if (!local_data)
+		return -ENOMEM;
+	memcpy(local_data, data, size);
+	result = usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0),
 			       RTL8150_REQ_SET_REGS, RTL8150_REQT_WRITE,
-			       indx, 0, data, size, 500);
+			       indx, 0, local_data, size, 500);
+	kfree(local_data);
+	return result;
 }
 
 static void ctrl_callback(struct urb *urb)
@@ -234,14 +248,14 @@ static int async_set_registers(rtl8150_t * dev, u16 indx, u16 size)
 	if (test_bit(RX_REG_SET, &dev->flags))
 		return -EAGAIN;
 
-	dev->dr.bRequestType = RTL8150_REQT_WRITE;
-	dev->dr.bRequest = RTL8150_REQ_SET_REGS;
-	dev->dr.wValue = cpu_to_le16(indx);
-	dev->dr.wIndex = 0;
-	dev->dr.wLength = cpu_to_le16(size);
+	dev->dr->bRequestType = RTL8150_REQT_WRITE;
+	dev->dr->bRequest = RTL8150_REQ_SET_REGS;
+	dev->dr->wValue = cpu_to_le16(indx);
+	dev->dr->wIndex = 0;
+	dev->dr->wLength = cpu_to_le16(size);
 	dev->ctrl_urb->transfer_buffer_length = size;
 	usb_fill_control_urb(dev->ctrl_urb, dev->udev,
-			 usb_sndctrlpipe(dev->udev, 0), (char *) &dev->dr,
+			 usb_sndctrlpipe(dev->udev, 0), (char *) dev->dr,
 			 &dev->rx_creg, size, ctrl_callback, dev);
 	if ((ret = usb_submit_urb(dev->ctrl_urb, GFP_ATOMIC))) {
 		if (ret == -ENODEV)
@@ -913,6 +927,13 @@ static int rtl8150_probe(struct usb_interface *intf,
 		return -ENOMEM;
 	}
 
+	dev->dr = kmalloc(sizeof(struct usb_ctrlrequest), GFP_KERNEL);
+	if (!dev->dr) {
+		kfree(dev->intr_buff);
+		free_netdev(netdev);
+		return -ENOMEM;
+	}
+
 	tasklet_init(&dev->tl, rx_fixup, (unsigned long)dev);
 	spin_lock_init(&dev->rx_pool_lock);
 	
@@ -960,6 +981,7 @@ out2:
 out1:
 	free_all_urbs(dev);
 out:
+	kfree(dev->dr);
 	kfree(dev->intr_buff);
 	free_netdev(netdev);
 	return -EIO;
@@ -980,6 +1002,7 @@ static void rtl8150_disconnect(struct usb_interface *intf)
 		free_skb_pool(dev);
 		if (dev->rx_skb)
 			dev_kfree_skb(dev->rx_skb);
+		kfree(dev->dr);
 		kfree(dev->intr_buff);
 		free_netdev(dev->netdev);
 	}

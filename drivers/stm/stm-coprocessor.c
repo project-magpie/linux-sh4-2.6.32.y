@@ -31,6 +31,7 @@
 #endif
 
 #include <linux/stm/coprocessor.h>
+#include <linux/platform_device.h>
 #include <asm/types.h>
 #include <asm/uaccess.h>
 #include <asm/sections.h>
@@ -434,7 +435,8 @@ static struct file_operations coproc_fops = {
 };
 
 /* Start: ST-Coprocessor Device Attribute on SysFs*/
-static ssize_t st_copro_show_running(struct device *dev, char *buf)
+static ssize_t st_copro_show_running(struct device *dev,
+				     struct device_attribute *attr, char *buf)
 {
 	coproc_t *cop = container_of(dev, coproc_t, dev);
 	return sprintf(buf, "%d", cop->control & COPROC_IN_USE);
@@ -442,7 +444,8 @@ static ssize_t st_copro_show_running(struct device *dev, char *buf)
 
 static DEVICE_ATTR(running, S_IRUGO, st_copro_show_running, NULL);
 
-static ssize_t st_copro_show_mem_size(struct device *dev, char *buf)
+static ssize_t st_copro_show_mem_size(struct device *dev,
+				      struct device_attribute *attr, char *buf)
 {
 	coproc_t *cop = container_of(dev, coproc_t, dev);
 	return sprintf(buf, "0x%x", cop->ram_size);
@@ -450,7 +453,8 @@ static ssize_t st_copro_show_mem_size(struct device *dev, char *buf)
 
 static DEVICE_ATTR(mem_size, S_IRUGO, st_copro_show_mem_size, NULL);
 
-static ssize_t st_copro_show_mem_base(struct device *dev, char *buf)
+static ssize_t st_copro_show_mem_base(struct device *dev,
+				      struct device_attribute *attr, char *buf)
 {
 	coproc_t *cop = container_of(dev, coproc_t, dev);
 	return sprintf(buf, "0x%x", (int)cop->ram_offset);
@@ -504,7 +508,7 @@ static int __init st_coproc_init(void)
 		} else {
 			cop->control |= COPROC_SPACE_ALLOCATE;
 			cop->vma_address =
-			    ioremap_nocache(cop->ram_offset, cop->ram_size);
+				ioremap_nocache((unsigned long)cop->ram_offset, cop->ram_size);
 		}
 		/*
 		 ** Nodes:

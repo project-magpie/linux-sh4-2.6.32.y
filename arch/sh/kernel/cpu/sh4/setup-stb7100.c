@@ -82,10 +82,63 @@ static struct platform_device rtc_device = {
 	.resource	= rtc_resource,
 };
 
+static struct resource st40_ohci_resources[] = {
+	/*this lot for the ohci block*/
+	[0] = {
+		.start = 0xb9100000 + 0xffc00,
+		.end  =  0xb9100000 +0xffcff,
+		.flags = IORESOURCE_MEM,
+	},
+	[1] = {
+			.start = 168,
+			.end   = 168,
+			.flags = IORESOURCE_IRQ,
+	}
+};
+static struct resource st40_ehci_resources[] = {
+	/*now this for the ehci*/
+	[0] =  {
+			.start = 0xb9100000 + 0xffe00,
+			.end = 0xb9100000 + 0xffeff,
+			.flags = IORESOURCE_MEM,
+	},
+	[1] = {
+			.start = 169,
+			.end   = 169,
+			.flags = IORESOURCE_IRQ,
+	},
+};
+
+static u64 st40_dma_mask = 0xfffffff;
+
+static struct platform_device  st40_ohci_devices = {
+	.name = "ST40-ohci",
+	.id=1,
+	.dev = {
+		.dma_mask = &st40_dma_mask,
+		.coherent_dma_mask = 0xffffffful,
+	},
+	.num_resources = ARRAY_SIZE(st40_ohci_resources),
+	.resource = st40_ohci_resources,
+};
+
+static struct platform_device  st40_ehci_devices = {
+	.name = "ST40-ehci",
+	.id=2,
+	.dev = {
+		.dma_mask = &st40_dma_mask,
+		.coherent_dma_mask = 0xffffffful,
+	},
+	.num_resources = ARRAY_SIZE(st40_ehci_resources),
+	.resource = st40_ehci_resources,
+};
+
 static struct platform_device *stx710x_devices[] __initdata = {
 	&sci_device,
 	&wdt_device,
 	&rtc_device,
+	&st40_ohci_devices,
+	&st40_ehci_devices,
 };
 
 static int __init stx710x_devices_setup(void)

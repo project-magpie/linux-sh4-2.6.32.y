@@ -915,6 +915,11 @@ MODULE_LICENSE ("GPL");
 #define PLATFORM_DRIVER		usb_hcd_pnx4008_driver
 #endif
 
+#if defined(CONFIG_CPU_SUBTYPE_STB7100)
+#include "ohci-stcore.c"
+#define PLATFORM_DRIVER		usb_hcd_stm_driver
+#endif
+
 
 #ifdef CONFIG_USB_OHCI_HCD_PPC_OF
 #include "ohci-ppc-of.c"

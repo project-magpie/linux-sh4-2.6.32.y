@@ -939,6 +939,11 @@ MODULE_LICENSE ("GPL");
 #define	PLATFORM_DRIVER		ehci_hcd_au1xxx_driver
 #endif
 
+#ifdef CONFIG_CPU_SUBTYPE_STB7100
+#include "ehci-stcore.c"
+#define	PLATFORM_DRIVER		ehci_hcd_st40_driver
+#endif
+
 #ifdef CONFIG_PPC_PS3
 #include "ehci-ps3.c"
 #define	PS3_SYSTEM_BUS_DRIVER	ps3_ehci_driver

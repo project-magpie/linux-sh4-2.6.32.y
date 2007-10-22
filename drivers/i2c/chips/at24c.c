@@ -84,7 +84,7 @@ static struct i2c_client_address_data addr_data __devinitdata = {
 	.normal_i2c	= ignore,
 	.probe		= probe,
 	.ignore		= ignore,
-	.force		= ignore,
+	.forces		= NULL,
 };
 
 static char *chip_names[I2C_CLIENT_MAX_OPTS / 2] __devinitdata;
@@ -258,13 +258,14 @@ find_chip(const char *s)
 static inline const struct chip_desc *__devinit
 which_chip(struct i2c_adapter *adapter, int address, int *writable)
 {
-	unsigned		i;
+	unsigned	i;
+	int		adap_id = i2c_adapter_id(adapter);
 
 	for (i = 0; i < n_probe; i++) {
 		const struct chip_desc	*chip;
 		char			*name;
 
-		if (probe[i++] != adapter->id)
+		if (probe[i++] != adap_id)
 			continue;
 		if (probe[i] != address)
 			continue;
@@ -343,6 +344,7 @@ at24c_ee_read(
 	ssize_t			status;
 	u32			next_addr;
 	size_t			transferred = 0;
+	unsigned long		timeout, retries;
 
 	down(&at24c->lock);
 	msg.addr = at24c->client.addr;
@@ -361,25 +363,34 @@ at24c_ee_read(
 	 * SMBUS subset; one issue is 16 byte "register" writes.
 	 */
 
+	timeout = jiffies + msecs_to_jiffies(EE_TIMEOUT);
+	retries = 0;
 	/* Maybe change the current on-chip address with a dummy write */
 	if (next_addr != offset) {
-		u8	tmp[2];
-
-		msg.buf = tmp;
-		tmp[1] = (u8) offset;
-		tmp[0] = (u8) (offset >> 8);
-		if (at24c->chip.flags & EE_ADDR2) {
-			msg.len = 2;
-		} else {
-			msg.len = 1;
-			msg.buf++;
-		}
-		status = i2c_transfer(at24c->client.adapter, &msg, 1);
-		dev_dbg(&at24c->client.dev,
-				"addr %02x, set current to %d --> %d\n",
-				msg.addr, offset, status);
-		if (status < 0)
-			goto done;
+		do {
+			u8	tmp[2];
+			msg.buf = tmp;
+			tmp[1] = (u8) offset;
+			tmp[0] = (u8) (offset >> 8);
+			if (at24c->chip.flags & EE_ADDR2) {
+				msg.len = 2;
+			} else {
+				msg.len = 1;
+				msg.buf++;
+			}
+			status = i2c_transfer(at24c->client.adapter, &msg, 1);
+			dev_dbg(&at24c->client.dev,
+					"addr %02x, set current to %d --> %d\n",
+					msg.addr, offset, status);
+			if (status < 0) {
+				if (retries++ < 3 || time_after(timeout, jiffies)) {
+					/* REVISIT:  at HZ=100, this is sloooow */
+					msleep(1);
+					continue;
+				}
+				goto done;
+			}
+		} while (status < 0);
 		next_addr = at24c->next_addr = offset;
 	}
 
@@ -403,10 +414,6 @@ at24c_ee_read(
 
 		if (status < 0)
 			break;
-		if (status != segment) {
-			status = -EIO;
-			break;
-		}
 
 		count -= segment;
 
@@ -651,7 +658,7 @@ at24c_activate(
 		at24c->chip.page_size, at24c->chip.i2c_addr_mask);
 	return;
 fail:
-	dev_dbg(&adapter->dev, "%s probe, err %d\n", at24c_driver.name, err);
+	dev_dbg(&adapter->dev, "%s probe, err %d\n", at24c_driver.driver.name, err);
 	kfree(at24c);
 }
 
@@ -675,7 +682,7 @@ static int __devinit at24c_attach_adapter(struct i2c_adapter *adapter)
 	 */
 	if (!i2c_check_functionality(adapter, I2C_FUNC_I2C)) {
 		dev_dbg(&adapter->dev, "%s probe, no I2C\n",
-			at24c_driver.name);
+			at24c_driver.driver.name);
 		return 0;
 	}
 	return i2c_probe(adapter, &addr_data, at24c_old_probe);
@@ -702,9 +709,10 @@ static int __devexit at24c_detach_client(struct i2c_client *client)
 /*-------------------------------------------------------------------------*/
 
 static struct i2c_driver at24c_driver = {
-	.owner		= THIS_MODULE,
-	.name		= "at24c",
-	.flags		= I2C_DF_NOTIFY,
+	.driver = {
+		.name	= "at24c",
+		.owner	= THIS_MODULE,
+	},
 	.attach_adapter	= at24c_attach_adapter,
 	.detach_client	= __devexit_p(at24c_detach_client),
 };

@@ -328,20 +328,13 @@ static int __init parse_coproc_mem(char *from)
 			if (mem != __va(addr)) {
 				if (mem) {
 					free_bootmem(virt_to_phys(mem), size);
-			}
-			printk(alloc_error, addr);
-
-			/* TODO: It would be a good idea to disable the
-			* co-processor here but at present we cannot
-			* do so. Basically we haven't actually checked
-			* that the coprocessor image and the kernel
-			* memory overlap. Without this check we cannot
-			* disable the coprocessor since failure to
-			* allocate from bootmem is *expected* in this
-			* case.
-			*/
-			/*coproc[i].ram_offset = coproc[i].ram_size = 0;*/
-			}
+				}
+				/* At this point, if addr overlaps kernel
+				 * memory, coprocessor won't be allocated.
+                                 */
+				if (coproc_check_area(addr, size, i, coproc))
+                                        printk(alloc_error, addr);
+                        }
 		}
 	}
 

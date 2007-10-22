@@ -104,4 +104,5 @@ extern int coproc_cpu_init(coproc_t *);
 extern int coproc_cpu_grant(coproc_t *, unsigned long);
 extern int coproc_cpu_release(coproc_t *);
 extern int coproc_cpu_reset(coproc_t *);
+extern int coproc_check_area(u_long, u_long, int, coproc_t *);
 extern void coproc_proc_other_info(coproc_t *, struct seq_file *);

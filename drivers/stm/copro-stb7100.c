@@ -7,6 +7,8 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/mach/coproc.h>
+#include <asm/sections.h>
+#include <asm/addrspace.h>
 
 struct coproc_board_info coproc_info = {
 	.name = "st231",
@@ -82,3 +84,16 @@ void coproc_proc_other_info(coproc_t * cop_dump, struct seq_file *s_file)
 {
 	return;			/* Do nothing, doesn't delete it */
 }
+
+int coproc_check_area(u_long addr, u_long size, int i, coproc_t * coproc)
+{
+        if (((addr >= CONFIG_MEMORY_START) && (addr < PHYSADDR(_end))) || \
+                (((addr + size) > CONFIG_MEMORY_START) && \
+		(addr < CONFIG_MEMORY_START)))
+        {
+                coproc[i].ram_offset = coproc[i].ram_size = 0;
+                return 1;
+        }
+        return 0;
+}
+

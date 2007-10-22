@@ -19,6 +19,8 @@ typedef struct { volatile int counter; } atomic_t;
 
 #ifdef CONFIG_CPU_SH4A
 #include <asm/atomic-llsc.h>
+#elif defined(CONFIG_SH_GRB)
+#include <asm/atomic-grb.h>
 #else
 #include <asm/atomic-irq.h>
 #endif
@@ -44,6 +46,62 @@ typedef struct { volatile int counter; } atomic_t;
 #define atomic_inc(v) atomic_add(1,(v))
 #define atomic_dec(v) atomic_sub(1,(v))
 
+#if defined(CONFIG_SH_GRB)
+static inline int atomic_cmpxchg(atomic_t *v, int old, int new)
+{
+	int ret;
+/*
+	ret = v->counter;
+	if (likely(ret == old))
+		v->counter = new;
+*/
+	asm volatile(
+		"   .align 2		\n\t"
+		"   mova     1f,  r0	\n\t"
+		"   nop			\n\t"
+		"   mov     r15,  r1	\n\t"
+		"   mov    #-8,  r15	\n\t"
+		"   mov.l   @%1,  %0	\n\t"
+		"   cmp/eq   %2,  %0	\n\t"
+		"   bf	     1f		\n\t"
+		"   mov.l    %3, @%1	\n\t"
+		"1: mov      r1,  r15	\n\t"
+		: "=&r" (ret)
+		: "r" (v), "r" (old), "r" (new)
+		: "memory" , "r0", "r1" , "t" );
+
+	return ret;
+}
+
+static inline int atomic_add_unless(atomic_t *v, int a, int u)
+{
+	int ret;
+	unsigned long tmp;
+/*
+	ret = v->counter;
+	if (ret != u)
+		v->counter += a;
+*/
+	asm volatile(
+		"   .align 2		\n\t"
+		"   mova    1f,   r0	\n\t"
+		"   nop			\n\t"
+		"   mov    r15,   r1	\n\t"
+		"   mov    #-12,  r15	\n\t"
+		"   mov.l  @%2,   %1	\n\t"
+		"   mov	    %1,   %0    \n\t"
+		"   cmp/eq  %4,   %0	\n\t"
+		"   bt/s    1f		\n\t"
+		"    add    %3,   %1	\n\t"
+		"   mov.l   %1,  @%2	\n\t"
+		"1: mov     r1,   r15	\n\t"
+		: "=&r" (ret), "=&r" (tmp)
+		: "r" (v), "r" (a), "r" (u)
+		: "memory" , "r0", "r1" , "t" );
+
+	return ret != u;
+}
+#else
 static inline int atomic_cmpxchg(atomic_t *v, int old, int new)
 {
 	int ret;
@@ -58,8 +116,6 @@ static inline int atomic_cmpxchg(atomic_t *v, int old, int new)
 	return ret;
 }
 
-#define atomic_xchg(v, new) (xchg(&((v)->counter), new))
-
 static inline int atomic_add_unless(atomic_t *v, int a, int u)
 {
 	int ret;
@@ -73,6 +129,9 @@ static inline int atomic_add_unless(atomic_t *v, int a, int u)
 
 	return ret != u;
 }
+#endif
+
+#define atomic_xchg(v, new) (xchg(&((v)->counter), new))
 #define atomic_inc_not_zero(v) atomic_add_unless((v), 1, 0)
 
 /* Atomic operations are already serializing on SH */

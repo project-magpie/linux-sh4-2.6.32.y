@@ -202,6 +202,16 @@ config CPU_HAS_DSP
 config CPU_HAS_FPU
 	bool
 
+config SH_GRB
+	bool "Implement atomic operations by roll-back (gRB) (EXPERIMENTAL)"
+	default n
+	---help---
+	  Enabling this option will allow the kernel to implement some
+	  atomic operations using a software implemention of load-locked/
+	  store-conditional (LLSC). On machines which do not have hardware
+	  LLSC, this should be more efficient than the other alternative of
+	  disabling insterrupts around the atomic sequence.
+
 endmenu
 
 menu "Board support"

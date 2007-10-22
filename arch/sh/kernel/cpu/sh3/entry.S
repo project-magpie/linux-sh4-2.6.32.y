@@ -412,7 +412,7 @@ ENTRY(handle_exception)
 	!
 
 #ifdef CONFIG_GUSA
-	! Check for roll back (gUSA)
+	! Check for roll back gRB (User and Kernel)
 	mov	r15, k0
 	shll	k0
 	bf/s	1f

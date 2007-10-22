@@ -156,6 +156,48 @@ do {							\
 		: "=&r" (__dummy));			\
 } while (0)
 
+#if defined(CONFIG_SH_GRB)
+static inline unsigned long xchg_u32(volatile u32 * m, unsigned long val)
+{
+       unsigned long retval;
+       asm volatile(
+                "   .align 2              \n\t"
+                "   mova    1f,   r0      \n\t" // r0 = end point
+                "   nop                   \n\t"
+                "   mov    r15,   r1      \n\t" // r1 = saved sp
+                "   mov    #-4,   r15     \n\t" // LOGIN
+                "   mov.l  @%1,   %0      \n\t" // load  old value
+                "   mov.l   %2,   @%1     \n\t" // store new value
+                "1: mov     r1,   r15     \n\t" // LOGOUT
+                : "=&r" (retval),  // 0
+                  "+r"  (m)        // 1
+                : "r"   (val)      // 2
+                : "memory", "r0", "r1" );
+
+        return retval;
+}
+
+static inline unsigned long xchg_u8(volatile u8 * m, unsigned long
+ val)
+{
+       unsigned long retval;
+
+        asm volatile(
+	       "   .align  2             \n\t"
+               "   mova    1f,   r0      \n\t" // r0 = end point
+	       "   mov    r15,   r1      \n\t" // r1 = saved sp
+               "   mov    #-6,   r15     \n\t" // LOGIN
+               "   mov.b  @%1,   %0      \n\t" // load  old value
+               "   extu.b  %0,   %0      \n\t" // extend as unsigned
+               "   mov.b   %2,   @%1     \n\t" // store new value
+               "1: mov     r1,   r15     \n\t" // LOGOUT
+                : "=&r" (retval), // 0
+                  "+r"  (m)       // 1
+                : "r"   (val)     // 2
+                : "memory" , "r0", "r1");
+        return retval ;
+}
+#else
 static inline unsigned long xchg_u32(volatile u32 *m, unsigned long val)
 {
 	unsigned long flags, retval;
@@ -177,6 +219,7 @@ static inline unsigned long xchg_u8(volatile u8 *m, unsigned long val)
 	local_irq_restore(flags);
 	return retval;
 }
+#endif
 
 extern void __xchg_called_with_bad_pointer(void);
 
@@ -203,6 +246,29 @@ extern void __xchg_called_with_bad_pointer(void);
 #define xchg(ptr,x)	\
 	((__typeof__(*(ptr)))__xchg((ptr),(unsigned long)(x), sizeof(*(ptr))))
 
+#if defined(CONFIG_SH_GRB)
+static inline unsigned long __cmpxchg_u32(volatile u32 * m, unsigned long old,
+        unsigned long new)
+{
+       unsigned long retval;
+        asm volatile(
+               "   .align  2             \n\t"
+               "   mova    1f,   r0      \n\t" // r0 = end point
+               "   nop                   \n\t"
+               "   mov    r15,   r1      \n\t" // r1 = saved sp
+               "   mov    #-8,   r15     \n\t" // LOGIN
+               "   mov.l  @%1,   %0      \n\t" // load  old value
+               "   cmp/eq  %0,   %2      \n\t" //
+               "   bf            1f      \n\t" // if not equal
+               "   mov.l   %2,   @%1     \n\t" // store new value
+               "1: mov     r1,   r15     \n\t" // LOGOUT
+                : "=&r" (retval),  // 0
+                  "+r"  (m)        // 1
+                : "r"   (new)      // 2
+                : "memory" , "r0", "r1", "t");
+        return retval;
+}
+#else
 static inline unsigned long __cmpxchg_u32(volatile int * m, unsigned long old,
 	unsigned long new)
 {
@@ -216,6 +282,7 @@ static inline unsigned long __cmpxchg_u32(volatile int * m, unsigned long old,
 	local_irq_restore(flags);       /* implies memory barrier  */
 	return retval;
 }
+#endif
 
 /* This function doesn't exist, so you'll get a linker error
  * if something tries to do an invalid cmpxchg(). */

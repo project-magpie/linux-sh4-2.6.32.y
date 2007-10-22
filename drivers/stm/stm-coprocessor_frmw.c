@@ -18,21 +18,27 @@
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/firmware.h>
-
 #include <linux/delay.h>
 #include <linux/mm.h>
-
-#ifdef CONFIG_PROC_FS
-#include <linux/proc_fs.h>
-#include <linux/seq_file.h>
-#endif
-
 #include <linux/stm/coprocessor.h>
 #include <asm/types.h>
 #include <asm/sections.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/irq.h>
+
+#ifdef CONFIG_PROC_FS
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+
+static int __init proc_st_coproc_init(void);
+#endif
+
+/* ---------------------------------------------------------------------------
+ *     Local (declared out of order) functions
+ * ------------------------------------------------------------------------ */
+
+static int __init parse_coproc_mem(char *from);
 
 #undef dbg_print
 
@@ -41,13 +47,6 @@
 #else
 #define dbg_print(fmt, args...)
 #endif
-
-/* ---------------------------------------------------------------------------
- *     Local (declared out of order) functions
- * ------------------------------------------------------------------------ */
-
-static int __init parse_coproc_mem(char *from);
-static int __init proc_st_coproc_init(void);
 
 /* ---------------------------------------------------------------------------
  *    Exported and Imported
@@ -113,8 +112,8 @@ static int st_coproc_open(struct inode *inode, struct file *file)
 	strcat(firm_file, number);
 	strcat(firm_file, ".elf");
 
-	dbg_print("Asking the file %s for %s\n", firm_file, cop->dev.bus_id);
-	if (request_firmware(&fw, firm_file, &(cop->dev)) == 0) {
+	dbg_print("Asking the file %s for %s.%u\n", firm_file, cop->pdev.name,cop->pdev.id);
+	if (request_firmware(&fw, firm_file, &(cop->pdev.dev)) == 0) {
 		unsigned long boot_address;
 
 		cop->control |= COPROC_IN_USE;
@@ -159,7 +158,7 @@ static struct file_operations coproc_fops = {
 /* Start: ST-Coprocessor Device Attribute on SysFs*/
 static ssize_t st_copro_show_running(struct device *dev, char *buf)
 {
-	coproc_t *cop = container_of(dev, coproc_t, dev);
+	coproc_t *cop = container_of(dev, coproc_t, pdev.dev);
 	return sprintf(buf, "%d", cop->control & COPROC_IN_USE);
 }
 
@@ -167,7 +166,7 @@ static DEVICE_ATTR(running, S_IRUGO, st_copro_show_running, NULL);
 
 static ssize_t st_copro_show_mem_size(struct device *dev, char *buf)
 {
-	coproc_t *cop = container_of(dev, coproc_t, dev);
+	coproc_t *cop = container_of(dev, coproc_t, pdev.dev);
 	return sprintf(buf, "0x%x", cop->ram_size);
 }
 
@@ -175,35 +174,59 @@ static DEVICE_ATTR(mem_size, S_IRUGO, st_copro_show_mem_size, NULL);
 
 static ssize_t st_copro_show_mem_base(struct device *dev, char *buf)
 {
-	coproc_t *cop = container_of(dev, coproc_t, dev);
+	coproc_t *cop = container_of(dev, coproc_t, pdev.dev);
 	return sprintf(buf, "0x%x", (int)COPR_ADDR(cop, 0));
 }
 
 static DEVICE_ATTR(mem_base, S_IRUGO, st_copro_show_mem_base, NULL);
 /* End: ST-Coprocessor Device Attribute SysFs*/
 
-static int st_coproc_driver_probe(struct device *dev)
+static int st_coproc_driver_probe(struct platform_device *dev)
 {
-	if (!strncmp("st2", dev->bus_id, 3))
+	if (!strncmp("st2", dev->name, 3))
 		return 1;
 	return 0;
 }
-static struct device_driver st_coproc_driver = {
-	.name = "st-copro",
-	.owner = THIS_MODULE,
-	.bus = &platform_bus_type,
+
+#if defined(CONFIG_PM)
+static int st_coproc_suspend(struct platform_device * dev, pm_message_t state)
+{
+	printk("st_coproc_suspend: %s.%u down\n",dev->name,dev->id);
+/*
+ *	
+ */
+	return 0;
+}
+
+static int st_coproc_resume(struct platform_device * dev)
+{
+	printk("st_coproc_resume: %s.%u up\n",dev->name,dev->id);
+/*
+ *
+ */
+	return 0;
+}
+#endif
+
+static struct platform_driver st_coproc_driver = {
+	.driver.name = "st-copro",
+	.driver.owner = THIS_MODULE,
 	.probe = st_coproc_driver_probe,
+#if defined(CONFIG_PM)
+	.suspend =st_coproc_suspend,
+	.resume = st_coproc_resume,
+#endif
 };
 
 static int __init st_coproc_init(void)
 {
 	int i;
 	coproc_t *cop;
-	struct device *dev;
+	struct platform_device *pdev;
 
 	printk("STMicroelectronics - Coprocessors %s Init\n", coproc_info.name);
 
-	if (driver_register(&st_coproc_driver)) {
+	if (platform_driver_register(&st_coproc_driver)) {
 		printk(KERN_ERR
 		       "Error on ST-Coprocessor device driver registration\n");
 		return (-EAGAIN);
@@ -212,7 +235,7 @@ static int __init st_coproc_init(void)
 	if (register_chrdev(COPROCESSOR_MAJOR, coproc_info.name, &coproc_fops)) {
 		printk("Can't allocate major %d for ST Coprocessor Devices\n",
 		       COPROCESSOR_MAJOR);
-		driver_unregister(&st_coproc_driver);
+		platform_driver_unregister(&st_coproc_driver);
 		return (-EAGAIN);
 	}
 
@@ -237,20 +260,22 @@ static int __init st_coproc_init(void)
 		/*
 		 * Setup and Add the device entries in the SysFS
 		 */
-		dev = &(cop->dev);
-		memset(dev, 0, sizeof(struct device));
-		sprintf(cop->dev.bus_id, "%s-%d", coproc_info.name, i);
-		dev->driver = &st_coproc_driver;
-		dev->parent = &platform_bus;
-		dev->bus = &platform_bus_type;
-		if (device_register(dev))
+		pdev = &(cop->pdev);
+		memset(pdev, 0, sizeof(struct platform_device));
+//		sprintf(cop->dev.bus_id, "%s-%d", coproc_info.name, i);
+		pdev->name = coproc_info.name;
+		pdev->id   = i;
+		pdev->dev.driver = &st_coproc_driver.driver;
+//		dev->parent = &platform_bus;
+//		dev->bus = &platform_bus_type;
+		if (platform_device_register(pdev))
 			printk(KERN_ERR
 			       "Error on ST-Coprocessor device registration\n");
 		else {
 			/* Add the attributes on the device */
-			device_create_file(dev, &dev_attr_mem_base);
-			device_create_file(dev, &dev_attr_mem_size);
-			device_create_file(dev, &dev_attr_running);
+			device_create_file(&pdev->dev, &dev_attr_mem_base);
+			device_create_file(&pdev->dev, &dev_attr_mem_size);
+			device_create_file(&pdev->dev, &dev_attr_running);
 		}
 
 		/* Now complete with the platform dependent init stage */
@@ -261,7 +286,9 @@ static int __init st_coproc_init(void)
 		}
 	}
 
+#ifdef CONFIG_PROC_FS
 	proc_st_coproc_init();
+#endif
 
 	return (0);
 }
@@ -355,7 +382,7 @@ MODULE_LICENSE("GPL");
 module_init(st_coproc_init);
 module_exit(st_coproc_exit);
 
-#if CONFIG_PROC_FS
+#ifdef CONFIG_PROC_FS
 
 static int show_st_coproc(struct seq_file *m, void *v)
 {
@@ -369,7 +396,7 @@ static int show_st_coproc(struct seq_file *m, void *v)
 	seq_printf(m,
 		   "  -----------------------------------------------------------		--------\n");
 	for (i = 0, cop = &coproc[0]; i < coproc_info.max_coprs; i++, cop++) {
-		seq_printf(m, "  /dev/%-8s    ", cop->dev.bus_id);
+		seq_printf(m, "  /dev/%s-%u    ", cop->pdev.name,cop->pdev.id);
 		if (cop->ram_size == 0)
 			seq_printf(m, "not allocated!\n");
 		else

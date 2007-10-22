@@ -6,7 +6,7 @@
  */
 
 #include <linux/ioctl.h>
-#include <linux/device.h>
+#include <linux/platform_device.h>
 #include <asm/addrspace.h>
 
 #define	MEGA			(1024 * 1024)
@@ -91,7 +91,7 @@ typedef struct {
 	u_long	    mbox_wait;		/* CPU signature (waiting for boot) */
 	u_long	    mbox_entryp;	/* where to put the entry point...  */
 	u_long	    mbox_enable;	/* ... to trigger the CPU start     */
-	struct device dev;
+	struct platform_device pdev;
 } coproc_t;
 
 struct coproc_board_info {

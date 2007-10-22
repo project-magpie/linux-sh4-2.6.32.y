@@ -333,6 +333,12 @@ config SH_ST_MB448
 	  ST board ID: mb448). More information at:
 	  <http://www.stlinux.com/boards/mb448/>
 
+config SH_ST_CB101
+	bool "cb101: ST Customer board 101"
+	depends on CPU_SUBTYPE_STX7200
+	help
+	  Select SH_ST_CB101 if configuring for this board.
+
 config SH_HMS1
 	bool "HMS1"
 	depends on CPU_SUBTYPE_STB7100

@@ -142,6 +142,7 @@ EXPORT_SYMBOL(__flush_invalidate_region);
 #if !defined(CONFIG_CACHE_OFF) && defined(CONFIG_MMU) && \
 	(defined(CONFIG_CPU_SH4) || defined(CONFIG_SH7705_CACHE_32KB))
 EXPORT_SYMBOL(clear_user_page);
+EXPORT_SYMBOL(copy_user_page);
 #endif
 
 EXPORT_SYMBOL(csum_partial);

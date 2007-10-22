@@ -18,4 +18,45 @@ config STM_PIO
 	  Driver for the PIO pins on STMicroelectronics ST40 and ST200
 	  based parts.
 
+config STM_DMA
+	bool "STMicroelectronics DMA API"
+	depends on CPU_SUBTYPE_STB7100
+	default y
+	---help---
+	  Selecting this option will provide support for STMicroelectronics'
+	  custom DMA API. This API provides support for data transfers of
+	  various dimensions and complex linked list operations. In addition
+	  to these free-running operations it also allows management of the
+	  paced-transfer peripherals on recent STM parts.
+
+	  On STb7100 DMA support is vital for the correct operation of the
+	  sound system.
+
+	  If you have a device from STMicroelectronics, then say Y here.
+	  Otherwise say N.
+
+config MIN_STM_DMA_CHANNEL_NR
+	depends on STM_DMA
+	int "Lowest STM-FDMAC channel"
+	default "0"
+	help
+	  This allows you to specify the low boundary FDMA channel number to
+	  use with STM-DMA
+
+config MAX_STM_DMA_CHANNEL_NR
+	depends on STM_DMA
+	int "Highest STM-FDMAC channel"
+	default "15"
+	help
+	  This allows you to specify the high boundary FDMA channel number to
+	  use with STM-DMA
+
+config STM_DMA_DEBUG
+	bool "STMicroelectronics DMA Debug"
+	depends on STM_DMA
+	default n
+
+config STB7100_FDMA
+	def_bool STM_DMA && CPU_SUBTYPE_STB7100
+
 endmenu

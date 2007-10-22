@@ -195,6 +195,11 @@ int request_dma(unsigned int chan, const char *dev_id)
 	struct dma_info *info = get_dma_info(chan);
 	int result;
 
+#if defined(CONFIG_STM_DMA)
+	if(DMA_REQ_ANY_CHANNEL == chan)
+		return dmac_search_free_channel(dev_id);
+#endif
+
 	channel = get_dma_channel(chan);
 	if (atomic_xchg(&channel->busy, 1))
 		return -EBUSY;
@@ -284,14 +289,9 @@ int dma_xfer(unsigned int chan, unsigned long from,
 	     unsigned long to, size_t size, unsigned int mode)
 {
 	struct dma_info *info = get_dma_info(chan);
-	struct dma_channel *channel = get_dma_channel(chan);
+	struct dma_channel *channel =  get_dma_channel(chan);
 
-	channel->sar	= from;
-	channel->dar	= to;
-	channel->count	= size;
-	channel->mode	= mode;
-
-	return info->ops->xfer(channel);
+	return info->ops->xfer(channel, from, to, size, mode);
 }
 EXPORT_SYMBOL(dma_xfer);
 

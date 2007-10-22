@@ -28,7 +28,7 @@ static ssize_t dma_show_devices(struct sys_device *dev, char *buf)
 	ssize_t len = 0;
 	int i;
 
-	for (i = 0; i < MAX_DMA_CHANNELS; i++) {
+	for (i = 0; get_dma_info(i) != NULL; i++) {
 		struct dma_info *info = get_dma_info(i);
 		struct dma_channel *channel = get_dma_channel(i);
 

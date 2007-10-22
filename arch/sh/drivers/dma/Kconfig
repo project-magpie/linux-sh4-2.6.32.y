@@ -5,9 +5,14 @@ config SH_DMA_API
 
 config SH_DMA
 	bool "SuperH on-chip DMA controller (DMAC) support"
-	depends on CPU_SH3 || CPU_SH4
+	depends on CPU_SH3 || CPU_SH4 && !CPU_SUBTYPE_ST40
 	select SH_DMA_API
 	default n
+	help
+	  Selecting this option will allow the use of the Hitachi/Renesas
+	  DMA controller (DMAC). The DMAC is programmed using the generic
+	  SH DMA API, although a wrapper providing compatibility with the
+	  ISA DMA API used on PC's is also available.
 
 config NR_ONCHIP_DMA_CHANNELS
 	int

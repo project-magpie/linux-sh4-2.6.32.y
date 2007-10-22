@@ -72,12 +72,24 @@ static pio_address i2c_address[NR_I2C_BUSSES] = {
 
 #elif defined(CONFIG_CPU_SUBTYPE_STB7100)
 
+#if defined(CONFIG_SH_ST_MB442)
+
+#define NR_I2C_BUSSES 2
+static pio_address i2c_address[NR_I2C_BUSSES] = {
+	{2,0,2,1},
+	{4,0,4,1}
+};
+
+#else
+
 #define NR_I2C_BUSSES 3
 static pio_address i2c_address[NR_I2C_BUSSES] = {
 	{2,0,2,1},
 	{3,0,3,1},
 	{4,0,4,1}
 };
+
+#endif
 
 #else
 #error Need to configure the default I2C pins for this chip

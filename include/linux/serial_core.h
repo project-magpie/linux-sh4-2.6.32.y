@@ -147,6 +147,9 @@
 #define PORT_SB1250_DUART	77
 
 
+/* ST ASC type numbers */
+#define PORT_ASC	78
+
 #ifdef __KERNEL__
 
 #include <linux/compiler.h>

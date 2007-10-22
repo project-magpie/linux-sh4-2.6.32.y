@@ -463,7 +463,7 @@ static __inline__ int
 __strncpy_from_user(unsigned long __dest, unsigned long __user __src, int __count)
 {
 	__kernel_size_t res;
-	unsigned long __dummy, _d, _s;
+	unsigned long __dummy, _d, _s, _c;
 
 	__asm__ __volatile__(
 		"9:\n"
@@ -472,17 +472,17 @@ __strncpy_from_user(unsigned long __dest, unsigned long __user __src, int __coun
 		"bt/s	2f\n"
 		"1:\n"
 		"mov.b	%1, @%3\n\t"
-		"dt	%7\n\t"
+		"dt	%4\n\t"
 		"bf/s	9b\n\t"
 		" add	#1, %3\n\t"
 		"2:\n\t"
-		"sub	%7, %0\n"
+		"sub	%4, %0\n"
 		"3:\n"
 		".section .fixup,\"ax\"\n"
 		"4:\n\t"
 		"mov.l	5f, %1\n\t"
 		"jmp	@%1\n\t"
-		" mov	%8, %0\n\t"
+		" mov	%9, %0\n\t"
 		".balign 4\n"
 		"5:	.long 3b\n"
 		".previous\n"
@@ -490,14 +490,32 @@ __strncpy_from_user(unsigned long __dest, unsigned long __user __src, int __coun
 		"	.balign 4\n"
 		"	.long 9b,4b\n"
 		".previous"
-		: "=r" (res), "=&z" (__dummy), "=r" (_s), "=r" (_d)
-		: "0" (__count), "2" (__src), "3" (__dest), "r" (__count),
+		: "=r" (res), "=&z" (__dummy), "=r" (_s), "=r" (_d), "=r"(_c)
+		: "0" (__count), "2" (__src), "3" (__dest), "4" (__count),
 		  "i" (-EFAULT)
 		: "memory", "t");
 
 	return res;
 }
 
+/**
+ * strncpy_from_user: - Copy a NUL terminated string from userspace.
+ * @dst:   Destination address, in kernel space.  This buffer must be at
+ *         least @count bytes long.
+ * @src:   Source address, in user space.
+ * @count: Maximum number of bytes to copy, including the trailing NUL.
+ *
+ * Copies a NUL-terminated string from userspace to kernel space.
+ *
+ * On success, returns the length of the string (not including the trailing
+ * NUL).
+ *
+ * If access to userspace fails, returns -EFAULT (some data may have been
+ * copied).
+ *
+ * If @count is smaller than the length of the string, copies @count bytes
+ * and returns @count.
+ */
 #define strncpy_from_user(dest,src,count) ({ \
 unsigned long __sfu_src = (unsigned long) (src); \
 int __sfu_count = (int) (count); \
@@ -515,7 +533,7 @@ static __inline__ long __strnlen_user(const char __user *__s, long __n)
 	unsigned long __dummy;
 
 	__asm__ __volatile__(
-		"9:\n"
+		"9:\n\t"
 		"cmp/eq	%4, %0\n\t"
 		"bt	2f\n"
 		"1:\t"

@@ -3,7 +3,6 @@
 #include <linux/stm/stm-dma.h>
 #include <linux/stm/710x_fdma.h>
 
-static struct stm_dma_params rx_transfer;
 static struct stm_dma_params tx_transfer;
 
 static void err_cb(void* x);
@@ -89,8 +88,6 @@ static void Platform_ReleaseDmaChannel_sg(void)
 
 static void Platform_DmaInitialize_sg(void)
 {
-	SMSC_TRACE("DMA Rx using freefrunning transfers and FIFOSEL");
-
 	declare_dma_parms(&rx_transfer_sg,
 			  MODE_DST_SCATTER,
 			  STM_DMA_LIST_OPEN,
@@ -98,7 +95,15 @@ static void Platform_DmaInitialize_sg(void)
 			  STM_DMA_NOBLOCK_MODE,
 			  (char*)STM_DMAC_ID);
 	dma_parms_err_cb(&rx_transfer_sg, err_cb, NULL, 0);
+#if defined(CONFIG_SMSC911x_DMA_2D)
+	SMSC_TRACE("DMA Rx using freefrunning 2D transfers");
+	dma_parms_DIM_2_x_1(&rx_transfer_sg,0x20,0);
+#elif defined(CONFIG_SMSC911x_DMA_FIFOSEL)
+	SMSC_TRACE("DMA Rx using freefrunning 1D transfers and FIFOSEL");
 	dma_parms_DIM_1_x_1(&rx_transfer_sg,0);
+#else
+#error Unknown DMA mode
+#endif
 }
 #endif
 
@@ -132,7 +137,6 @@ void Platform_ReleaseDmaChannel(
 	DWORD dwDmaChannel)
 {
 	free_dma(dwDmaChannel);
-	dma_free_descriptor(&rx_transfer);
 	dma_free_descriptor(&tx_transfer);
 	Platform_ReleaseDmaChannel_sg();
 }
@@ -147,16 +151,6 @@ BOOLEAN Platform_DmaInitialize(
 	PPLATFORM_DATA platformData,
 	DWORD dwDmaCh)
 {
-	/* From LAN to memory */
-	declare_dma_parms(  	&rx_transfer,
-				MODE_FREERUNNING,
-			       	STM_DMA_LIST_OPEN,
-			       	STM_DMA_SETUP_CONTEXT_ISR,
-			       	STM_DMA_NOBLOCK_MODE,
-			       	(char*)STM_DMAC_ID);
-	dma_parms_err_cb(&rx_transfer, err_cb, NULL, 0);
-	dma_parms_DIM_2_x_1(&rx_transfer,0x20,0);
-
 	/* From memory to LAN */
 	declare_dma_parms(  	&tx_transfer,
 				MODE_FREERUNNING,
@@ -196,7 +190,7 @@ BOOLEAN Platform_DmaStartXfer(
 
 	// 3. calculate the physical transfer addresses
 	dwLanPhysAddr = CpuToPhysicalAddr((void *)pDmaXfer->dwLanReg);
-	dwMemPhysAddr = 0x1fffffffUL & CpuToPhysicalAddr((void *)pDmaXfer->pdwBuf);
+	dwMemPhysAddr = PHYSADDR(CpuToPhysicalAddr((void *)pDmaXfer->pdwBuf));
 
 	// 4. validate the address alignments
 	// need CL alignment for CL bursts
@@ -215,16 +209,10 @@ BOOLEAN Platform_DmaStartXfer(
 	}
 
 	// 5. Prepare the DMA channel structure
-	if (pDmaXfer->fMemWr) {
-		src = PHYSADDR(dwLanPhysAddr);
-		dst = PHYSADDR(dwMemPhysAddr);
-		dmap = &rx_transfer;
-	} else {
-
-		src = PHYSADDR(dwMemPhysAddr);
-		dst = PHYSADDR(dwLanPhysAddr);
-		dmap = &tx_transfer;
-	}
+	BUG_ON(pDmaXfer->fMemWr);
+	src = PHYSADDR(dwMemPhysAddr);
+	dst = PHYSADDR(dwLanPhysAddr);
+	dmap = &tx_transfer;
 
 	dma_parms_comp_cb(dmap, pCallback, pCallbackData, 0);
 	dma_parms_addrs(dmap,src,dst, pDmaXfer->dwDwCnt << 2);
@@ -272,7 +260,7 @@ BOOLEAN Platform_DmaStartSgXfer(
 	}
 
 	// 3. calculate the physical transfer addresses
-	dwLanPhysAddr = 0x1fffffffUL & (CpuToPhysicalAddr((void *)pDmaXfer->dwLanReg));
+	dwLanPhysAddr = PHYSADDR(CpuToPhysicalAddr((void *)pDmaXfer->dwLanReg));
 
 	// 4. Map (flush) the buffer
 	sg = (struct scatterlist*)pDmaXfer->pdwBuf;
@@ -356,7 +344,10 @@ BOOLEAN Platform_DmaStartSgXfer(
 	}
 
 	// 3. calculate the physical transfer addresses
-	dwLanPhysAddr = 0x1fffffffUL & (CpuToPhysicalAddr((void *)pDmaXfer->dwLanReg) + (1<<16));
+	dwLanPhysAddr = PHYSADDR(CpuToPhysicalAddr((void *)pDmaXfer->dwLanReg));
+#ifdef CONFIG_SMSC911x_DMA_FIFOSEL
+	dwLanPhysAddr += (1<<16);
+#endif
 
 	// 4. Map (flush) the buffer
 	sg_count = dma_map_sg(NULL, (struct scatterlist*)pDmaXfer->pdwBuf,

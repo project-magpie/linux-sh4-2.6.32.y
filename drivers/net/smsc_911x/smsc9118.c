@@ -4487,7 +4487,7 @@ void Rx_ReceiverOn(PPRIVATE_DATA privateData, VL_KEY callerKeyCode)
 	}
 }
 
-unsigned int RxPacketDepth[MAX_RX_SKBS];
+unsigned int RxPacketDepth[MAX_RX_SKBS+1];
 
 /* This function is called from the interrupt handler or from a tasklet triggered by the
  * interrupt handler when the status register has INT_STS_RSFL_ set, or RxOverrun is set.

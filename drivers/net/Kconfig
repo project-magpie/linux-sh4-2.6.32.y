@@ -912,18 +912,35 @@ config SMSC911x
 	  <file:Documentation/networking/net-modules.txt>. The module
 	  will be called smsc911x.
 
-config SMSC911x_DMA
-	boolean "SMSC 911x DMA support (EXPERIMENTAL)"
-	depends on SMSC911x && EXPERIMENTAL
+choice
+	depends on SMSC911x
+	prompt "SMSC 911x DMA support"
+	default SMSC911x_DMA_NONE
+
+config SMSC911x_DMA_NONE
+	bool "None"
 	---help---
-	  Enabling this option will set the default behaviour of the
-	  SMSC 911x driver to use DMA transfers, otherwise it will use
-	  PIO transfers. This may reduce the CPU overhead, will probably
-	  reduce performance.
+	  DMA support is disabled
+
+config SMSC911x_DMA_FIFOSEL
+	bool "Use freerunning 1D DMA and FIFOSEL"
+	---help---
+	  This transfer mode uses freerunning DMA transfers to a linear
+	  block of memory (hence the 1D transfer) which maps onto the
+	  911x's FIFO register. To do this the the FIFOSEL pin must be
+	  connected to EMI address pin A16.
+
+config SMSC911x_DMA_2D
+	bool "Use freerunning 2D DMA"
+	---help---
+	  This transfer mode uses freerunning 2D transfers to the main
+	  911x register bank. This is slightly slower than either of the
+	  other options, because it makes less efficient use of the STbus,
+	  but doesn't require the FIFOSEL pin to be wired up or any
+	  pacing signals.
 
 config SMSC911x_DMA_PACED
-	depends on EXPERIMENTAL && SMSC911x_DMA
-	bool "SMSC 911x DMA using paced transfers"
+	bool "Use paced non-incrementing DMA"
 	---help---
 	  Enabling this option will cause SMSC 911x DMA receive transfers to
 	  use paced rather than freerunning DMA. This mainly used on boards
@@ -932,6 +949,8 @@ config SMSC911x_DMA_PACED
 	  To do this the driver needs two pacing signals which are
 	  permanently active, by default this is SSC 1 and 2 Tx empty, but
 	  this may need to be changed if either SSC is in use.
+
+endchoice
 
 config SMC9194
 	tristate "SMC 9194 support"

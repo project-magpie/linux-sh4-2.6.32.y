@@ -86,7 +86,7 @@
 #endif
 
 #define PLATFORM_CACHE_LINE_BYTES (32UL)
-#ifdef CONFIG_SMSC911x_DMA
+#ifndef CONFIG_SMSC911x_DMA_NONE
 #define PLATFORM_RX_DMA	(TRANSFER_REQUEST_DMA)
 #define PLATFORM_TX_DMA	(TRANSFER_REQUEST_DMA)
 #else
@@ -446,8 +446,41 @@ void Platform_ReadFifo(
 }
 #endif
 
+#ifdef CONFIG_SMSC911x_DMA_NONE
+DWORD Platform_RequestDmaChannel(PPLATFORM_DATA platformData)
+{ return TRANSFER_REQUEST_DMA; }
+
+DWORD Platform_RequestDmaChannelSg(PPLATFORM_DATA platformData)
+{ return TRANSFER_REQUEST_DMA; }
+
+void Platform_ReleaseDmaChannel(PPLATFORM_DATA platformData, DWORD dwDmaChannel)
+{ }
+
+BOOLEAN Platform_IsValidDmaChannel(DWORD dwDmaCh)
+{ return FALSE; }
+
+BOOLEAN Platform_DmaInitialize(
+	PPLATFORM_DATA platformData,
+	DWORD dwDmaCh)
+{ return FALSE; }
+
+BOOLEAN Platform_DmaStartXfer(
+	PPLATFORM_DATA platformData,
+	const DMA_XFER * const pDmaXfer,
+	void (*pCallback)(void*),
+	void* pCallbackData)
+{ return FALSE; }
+
+BOOLEAN Platform_DmaStartSgXfer(
+	PPLATFORM_DATA platformData,
+	const DMA_XFER * const pDmaXfer,
+	void (*pCallback)(void*),
+	void* pCallbackData)
+{ return FALSE; }
+#else
 #ifdef CONFIG_STB7100_FDMA
 #include "st40-shdma.c"
 #else
 #include "st40-gpdma.c"
+#endif
 #endif

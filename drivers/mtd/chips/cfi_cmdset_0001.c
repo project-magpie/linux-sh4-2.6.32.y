@@ -184,11 +184,12 @@ static void fixup_no_write_suspend(struct mtd_info *mtd, void* param)
 }
 #endif
 
-static void fixup_st_m28w320ct(struct mtd_info *mtd, void* param)
+static void fixup_st_m28wXX0_disable_bufferwrite(struct mtd_info *mtd, void* param)
 {
 	struct map_info *map = mtd->priv;
 	struct cfi_private *cfi = map->fldrv_priv;
 
+	printk(KERN_INFO "Using word write for ST M28WXX0 FLASH\n");
 	cfi->cfiq->BufWriteTimeoutTyp = 0;	/* Not supported */
 	cfi->cfiq->BufWriteTimeoutMax = 0;	/* Not supported */
 }
@@ -239,11 +240,17 @@ static struct cfi_fixup cfi_fixup_table[] = {
 #ifdef CMDSET0001_DISABLE_WRITE_SUSPEND
 	{ CFI_MFR_ANY, CFI_ID_ANY, fixup_no_write_suspend, NULL },
 #endif
+	{ CFI_MFR_ST, 0x00ba, /* M28W320CT */ fixup_st_m28wXX0_disable_bufferwrite, NULL },
+	{ CFI_MFR_ST, 0x00bb, /* M28W320CB */ fixup_st_m28w320cb, NULL },
+	{ CFI_MFR_ST, 0x8857, fixup_st_m28wXX0_disable_bufferwrite, NULL },
+	{ CFI_MFR_ST, 0x8858, fixup_st_m28wXX0_disable_bufferwrite, NULL },
+	{ CFI_MFR_ST, 0x8859, fixup_st_m28wXX0_disable_bufferwrite, NULL },
+	{ CFI_MFR_ST, 0x880a, fixup_st_m28wXX0_disable_bufferwrite, NULL },
+	{ CFI_MFR_ST, 0x880b, fixup_st_m28wXX0_disable_bufferwrite, NULL },
+	{ CFI_MFR_ST, 0x880c, fixup_st_m28wXX0_disable_bufferwrite, NULL },
 #if !FORCE_WORD_WRITE
 	{ CFI_MFR_ANY, CFI_ID_ANY, fixup_use_write_buffers, NULL },
 #endif
-	{ CFI_MFR_ST, 0x00ba, /* M28W320CT */ fixup_st_m28w320ct, NULL },
-	{ CFI_MFR_ST, 0x00bb, /* M28W320CB */ fixup_st_m28w320cb, NULL },
 	{ MANUFACTURER_INTEL, 0x891c,	      fixup_use_powerup_lock, NULL, },
 	{ 0, 0, NULL, NULL }
 };

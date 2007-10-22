@@ -186,7 +186,7 @@ static fdmareq_RequestConfig_t stb7100_fdma_req_config[] ={
 /*26*/{STB7100_FDMA_REQ_PCM_0,  		WRITE,  OPCODE_4,  1,     DISABLE_FLG, 0,     1 },  /* Audio PCM Player 0 */
 /*27*/{STB7100_FDMA_REQ_PCM_1,  		WRITE,  OPCODE_4,  1,     DISABLE_FLG, 0,     1 },  /* Audio PCM Player 1 */
 /*28*/{STB7100_FDMA_REQ_PCM_READ,  		READ,   OPCODE_4,  1,     DISABLE_FLG, 1,     1 },  /* Audio PCM Reader */
-/*29*/{STB7100_FDMA_REQ_SPDIF,  		WRITE,  OPCODE_4,  2,     DISABLE_FLG, 0,     0 },  /* Audio SPDIF - 2xST4*/
+/*29*/{STB7100_FDMA_REQ_SPDIF,  		WRITE,  OPCODE_4,  2,     DISABLE_FLG, 0,     1 },  /* Audio SPDIF - 2xST4*/
 /*30*/{STB7100_FDMA_REQ_SWTS,  			WRITE,  OPCODE_16, 1,     DISABLE_FLG, 0,     1 },   /* SWTS */
 /*31*/{STB7100_FDMA_REQ_UNUSED,  		UNUSED, UNUSED,    1,     UNUSED,      0,     1 }, /* Reserved */
 

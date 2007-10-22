@@ -50,10 +50,14 @@ int coproc_cpu_grant(coproc_t * cop, unsigned long arg)
 		xstring(PLATFORM), cpu, bootAddr);
 
 	/* stick it into the System configuration and... good luck! */
-	writel((readl(SYSCFG_09) | 0x18000000), SYSCFG_09);
+	writel((readl(SYSCFG_09) | 0x08000000), SYSCFG_09);
 	writel(bootAddr, SYSCFG_BOOT_REG(cpu));
 	writel((readl(SYSCFG_RESET_REG(cpu)) | 0x1), SYSCFG_RESET_REG(cpu));
 	writel((readl(SYSCFG_RESET_REG(cpu)) & ~0x1), SYSCFG_RESET_REG(cpu));
+
+	msleep(10);
+
+	writel((readl(SYSCFG_09) & ~0x18000000), SYSCFG_09);
 
 	cop->control |= COPROC_RUNNING;
 	return (0);
@@ -75,8 +79,11 @@ int coproc_cpu_reset(coproc_t * cop)
 	writel((readl(SYSCFG_RESET_REG(cpu)) | 0x1), SYSCFG_RESET_REG(cpu));
 	writel((readl(SYSCFG_RESET_REG(cpu)) & ~0x1), SYSCFG_RESET_REG(cpu));
 
+	msleep(10);
+
 	/* Disable the ST231 CPUs to be resetted */
-	writel((readl(SYSCFG_09) | 0x18000000), SYSCFG_09);
+	writel((readl(SYSCFG_09) & ~0x18000000), SYSCFG_09);
+
 	return 0;
 }
 

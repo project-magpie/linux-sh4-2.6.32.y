@@ -17,6 +17,7 @@
 #include <linux/console.h>
 #include <linux/stm/pio.h>
 #include <linux/generic_serial.h>
+#include <linux/spinlock.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
@@ -46,9 +47,9 @@ static struct uart_port *serial_console_port = 0;
 static int  asc_request_irq(struct uart_port *);
 static void asc_free_irq(struct uart_port *);
 static void asc_transmit_chars(struct uart_port *);
-static int asc_request_irq(struct uart_port *);
-void       asc_set_termios_cflag (struct asc_port *, int ,int);
+void        asc_set_termios_cflag (struct asc_port *, int ,int);
 static inline void asc_receive_chars(struct uart_port *);
+
 #ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
 static void serial_console_write (struct console *, const char *,
 				  unsigned );
@@ -71,7 +72,6 @@ static int __init kgdb_console_setup(struct console *, char *);
 /* Some simple utility functions to enable and disable interrupts.
  * Note that these need to be called with interrupts disabled.
  */
-
 static inline void asc_disable_tx_interrupts(struct uart_port *port)
 {
 	unsigned long intenable;
@@ -114,7 +114,11 @@ static inline void asc_enable_rx_interrupts(struct uart_port *port)
 }
 
 /*----------------------------------------------------------------------*/
-/* UART Functions */
+
+/*
+ * UART Functions
+ */
+
 static unsigned int asc_tx_empty(struct uart_port *port)
 {
 	unsigned long status;
@@ -141,8 +145,11 @@ static unsigned int asc_get_mctrl(struct uart_port *port)
 	return TIOCM_CAR | TIOCM_DSR | TIOCM_CTS;
 }
 
-/* There are probably characters waiting to be transmitted.
-   Start doing so. The port lock is held and interrupts are disabled. */
+/*
+ * There are probably characters waiting to be transmitted.
+ * Start doing so.
+ * The port lock is held and interrupts are disabled.
+ */
 static void asc_start_tx(struct uart_port *port)
 {
 	if (asc_dma_enabled(port))
@@ -151,6 +158,9 @@ static void asc_start_tx(struct uart_port *port)
 		asc_transmit_chars(port);
 }
 
+/*
+ * Transmit stop - interrupts disabled on entry
+ */
 static void asc_stop_tx(struct uart_port *port)
 {
 	if (asc_dma_enabled(port))
@@ -159,6 +169,9 @@ static void asc_stop_tx(struct uart_port *port)
 		asc_disable_tx_interrupts(port);
 }
 
+/*
+ * Receive stop - interrupts still enabled on entry
+ */
 static void asc_stop_rx(struct uart_port *port)
 {
 	if (asc_dma_enabled(port))
@@ -167,18 +180,26 @@ static void asc_stop_rx(struct uart_port *port)
 		asc_disable_rx_interrupts(port);
 }
 
+/*
+ * Force modem status interrupts on - no-op for us
+ */
 static void asc_enable_ms(struct uart_port *port)
 {
 	/* Nothing here yet .. */
 }
 
+/*
+ * Handle breaks - ignored by us
+ */
 static void asc_break_ctl(struct uart_port *port, int break_state)
 {
 	/* Nothing here yet .. */
 }
 
-/* Enable port for reception.
- * port_sem held and interrupts disabled */
+/*
+ * Enable port for reception.
+ * port_sem held and interrupts disabled
+ */
 static int asc_startup(struct uart_port *port)
 {
 	asc_request_irq(port);
@@ -437,10 +458,9 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 	unsigned long flags;
 
 	/* wait for end of current transmission */
-	local_irq_save(flags);
-	while (	! (asc_in(port, STA) & ASC_STA_TE) ) {
-		local_irq_restore(flags);
-	};
+	while (!asc_tx_empty(port)){};
+
+	spin_lock_irqsave(&port->lock, flags);
 
 	/* read control register */
 	ctrl_val = asc_in (port, CTL);
@@ -517,7 +537,7 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 	/* write final value and enable port */
 	asc_out (port, CTL, (ctrl_val | ASC_CTL_RUN));
 
-	local_irq_restore(flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 
@@ -661,6 +681,8 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 	struct uart_port *port = ptr;
 	unsigned long status;
 
+	spin_lock(&port->lock);
+
 	status = asc_in (port, STA);
 	if (status & ASC_STA_RBF) {
 		/* Receive FIFO not empty */
@@ -671,6 +693,8 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 		/* Transmitter FIFO at least half empty */
 		asc_transmit_chars(port);
 	}
+
+	spin_unlock(&port->lock);
 
 	return IRQ_HANDLED;
 }
@@ -782,7 +806,7 @@ put_char (struct uart_port *port, char c)
 	unsigned long flags;
 	unsigned long status;
 
-	local_irq_save(flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	do {
 		status = asc_in (port, STA);
@@ -790,7 +814,7 @@ put_char (struct uart_port *port, char c)
 
 	asc_out (port, TXBUF, c);
 
-	local_irq_restore(flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 /*
@@ -807,12 +831,10 @@ put_string (struct uart_port *port, const char *buffer, int count)
 	int checksum;
 	int usegdb=0;
 
-#ifdef CONFIG_SH_STANDARD_BIOS
     	/* This call only does a trap the first time it is
 	 * called, and so is safe to do here unconditionally
 	 */
 	usegdb |= sh_bios_in_gdb_mode();
-#endif
 #ifdef CONFIG_SH_KGDB
 	usegdb |= (kgdb_in_gdb_mode && (port == &kgdb_asc_port->port));
 #endif

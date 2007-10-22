@@ -921,6 +921,17 @@ config SMSC911x_DMA
 	  PIO transfers. This may reduce the CPU overhead, will probably
 	  reduce performance.
 
+config SMSC911x_DMA_PACED
+	depends on EXPERIMENTAL && SMSC911x_DMA
+	bool "SMSC 911x DMA using paced transfers"
+	---help---
+	  Enabling this option will cause SMSC 911x DMA receive transfers to
+	  use paced rather than freerunning DMA. This mainly used on boards
+	  which do not have the FIFOSEL pin wired up.
+
+	  To do this the driver needs two pacing signals which are
+	  permanently active, by default this is SSC 1 and 2 Tx empty, but
+	  this may need to be changed if either SSC is in use.
 
 config SMC9194
 	tristate "SMC 9194 support"

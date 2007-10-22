@@ -81,11 +81,11 @@ enum stm_dma_flags {
 #define DMA_CHANNEL_STATUS_RUNNING 		2
 #define DMA_CHANNEL_STATUS_PAUSED 		3
 
-/*we only have the notion of two types of channels thus far*/
-#define STM_DMA_CAP_HIGH_BW 	"STM_DMA_HIGH_BANDWIDTH"
-#define STM_DMA_CAP_LOW_BW 		"STM_DMA_LOW_BANDWIDTH"
+/* Parameters to request_dma_bycap() */
 #define STM_DMAC_ID 			"ST40 STB710x FDMAC"
-
+#define STM_DMA_CAP_HIGH_BW		"STM_DMA_HIGH_BANDWIDTH"
+#define STM_DMA_CAP_LOW_BW		"STM_DMA_LOW_BANDWIDTH"
+#define STM_DMA_CAP_ETH_BUF		"STM_DMA_ETH_BUFFER"
 
 /* dma_extend() operations */
 #define STM_DMA_OP_PAUSE			1
@@ -317,8 +317,7 @@ static inline  void dma_parms_sg(	struct stm_dma_params *p,
 static inline void dma_link_nodes(	struct stm_dma_params * parent,
 					struct stm_dma_params * child)
 {
-	if(child)
-		parent->next=child;
+	parent->next=child;
 }
 
 static inline void dma_parms_addrs(	struct stm_dma_params *p,

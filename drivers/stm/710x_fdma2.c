@@ -568,11 +568,21 @@ static int fdma_register_caps(void)
 	const char  * dmac_id = (const char *)STM_DMAC_ID;
 	static const char* hb_caps[] = {STM_DMA_CAP_HIGH_BW,NULL};
 	static const char* lb_caps[] = {STM_DMA_CAP_LOW_BW,NULL};
+	static const char* eth_caps[] = {STM_DMA_CAP_ETH_BUF,NULL};
 
 	for (;channel <= chip.ch_max;channel++) {
 		dmac_caps[channel-chip.ch_min].ch_num = channel;
-		dmac_caps[channel-chip.ch_min].caplist =
-			(channel < 4) ? hb_caps : lb_caps;
+		switch (channel) {
+		case 0 ... 3:
+			dmac_caps[channel-chip.ch_min].caplist = hb_caps;
+			break;
+		case 11:
+			dmac_caps[channel-chip.ch_min].caplist = eth_caps;
+			break;
+		default:
+			dmac_caps[channel-chip.ch_min].caplist = lb_caps;
+			break;
+		}
 	}
 	res= register_chan_caps(dmac_id,&dmac_caps[0]);
 

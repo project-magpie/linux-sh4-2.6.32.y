@@ -79,6 +79,12 @@ DWORD Platform_RequestDmaChannel(
 	return TRANSFER_PIO;
 }
 
+DWORD Platform_RequestDmaChannelSg(
+	PPLATFORM_DATA platformData)
+{
+	return TRANSFER_PIO;
+}
+
 void Platform_ReleaseDmaChannel(
 	PPLATFORM_DATA platformData,
 	DWORD dwDmaChannel)

@@ -1694,7 +1694,7 @@ int Smsc9118_open(struct net_device *dev)
 	spin_lock_init(&(privateData->GpTimerLock));
 
 		if(rx_dma==TRANSFER_REQUEST_DMA) {
-			dwRxDmaCh=Platform_RequestDmaChannel(&(privateData->PlatformData));
+			dwRxDmaCh=Platform_RequestDmaChannelSg(&(privateData->PlatformData));
 			SMSC_ASSERT(dwRxDmaCh!=TRANSFER_REQUEST_DMA);
 			if(dwRxDmaCh<TRANSFER_REQUEST_DMA) {
 				privateData->RxDmaChReserved=TRUE;

@@ -23,6 +23,14 @@ struct plat_sata_data {
 	unsigned int only_32bit;
 };
 
+/* Private data for the PWM driver */
+struct plat_stm_pwm_data {
+	unsigned long flags;
+};
+
+#define PLAT_STM_PWM_OUT0	(1<<0)
+#define PLAT_STM_PWM_OUT1	(1<<1)
+
 /* Private data for the STM on-board ethernet driver */
 struct plat_stmmacenet_data {
 	int bus_id;

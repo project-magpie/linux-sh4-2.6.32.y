@@ -567,6 +567,32 @@ static struct platform_device stb7109eth_device = {
 	}
 };
 
+static struct resource stm_pwm_resource[]= {
+	[0] = {
+		.start	= 0x18010000,
+		.end	= 0x18010000 + 0x67,
+		.flags	= IORESOURCE_MEM
+	},
+	[1] = {
+		.start	= 126,
+		.flags	= IORESOURCE_IRQ
+	}
+};
+
+static struct plat_stm_pwm_data pwm_private_info = {
+	.flags		= PLAT_STM_PWM_OUT0 | PLAT_STM_PWM_OUT1,
+};
+
+static struct platform_device stm_pwm_device = {
+	.name		= "stm-pwm",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(stm_pwm_resource),
+	.resource	= stm_pwm_resource,
+	.dev = {
+		.platform_data = &pwm_private_info,
+	}
+};
+
 static struct platform_device *stx710x_devices[] __initdata = {
 	&sci_device,
 	&wdt_device,
@@ -581,6 +607,7 @@ static struct platform_device *stx710x_devices[] __initdata = {
 	&ssc_device,
 	&sata_device,
 	&stb7109eth_device,
+	&stm_pwm_device,
 };
 
 #ifdef CONFIG_STB7109_ETH

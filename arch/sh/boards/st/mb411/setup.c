@@ -52,9 +52,14 @@ void __init platform_setup(void)
 	       ctrl_inb(EPLD_POD_REVID),
 	       devid >> 4, 'A'-1+(devid & 0xf));
 
-	/* Route UART2 instead of SCI to PIO4 */
-	/* Set ssc2_mux_sel = 0 */
 	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
+
+	/* SCIF_PIO_OUT_EN=0 */
+	/* Route UART2 and PWM to PIO4 instead of SCIF */
+	sysconf &= ~(1<<0);
+
+	/* Set SSC2_MUX_SEL = 0 */
+	/* Treat SSC2 as I2C instead of SSC */
 	sysconf &= ~(1<<3);
 	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
 
@@ -81,6 +86,11 @@ void __init platform_setup(void)
          * so disable it here.
          */
 	disable_hlt();
+
+#ifdef CONFIG_STM_PWM
+	stpio_request_pin(4, 6, "PWM", STPIO_ALT_OUT);
+	stpio_request_pin(4, 7, "PWM", STPIO_ALT_OUT);
+#endif
 }
 
 const char *get_system_type(void)

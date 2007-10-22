@@ -530,6 +530,17 @@ config SENSORS_THMC50
 	  This driver can also be built as a module.  If so, the module
 	  will be called thmc50.
 
+config SENSORS_STM_PWM
+	tristate "STM PWM Support"
+	depends on HWMON && CPU_SUBTYPE_ST40
+	default n
+	help
+	  This is a simple driver for the PWM (Pulse Width Modulation)
+	  hardware present on many ST chips. Although the PWM hardware can
+	  be used for many things, this driver simply allows the mark/space
+	  ratio to be set, which is sufficient for many purposes, including
+	  controlling the speed of a fan.
+
 config SENSORS_VIA686A
 	tristate "VIA686A"
 	depends on PCI

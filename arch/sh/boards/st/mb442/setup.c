@@ -44,10 +44,16 @@ void __init mb442_setup(char** cmdline_p)
 	else
 		printk("STb7100 version %ld.x\n", chip_revision);
 
-	/* Route UART2 instead of SCI to PIO4 */
-	/* Set ssc2_mux_sel = 0 */
 	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
+
+	/* SCIF_PIO_OUT_EN=0 */
+	/* Route UART2 and PWM to PIO4 instead of SCIF */
+	sysconf &= ~(1<<0);
+
+	/* Set SSC2_MUX_SEL = 0 */
+	/* Treat SSC2 as I2C instead of SSC */
 	sysconf &= ~(1<<3);
+
 	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
 
 	/* Reset the SMSC 91C111 Ethernet chip */
@@ -71,6 +77,10 @@ void __init mb442_setup(char** cmdline_p)
 	stpio_set_pin(ethreset, 0);
 	udelay(1000);
 	stpio_set_pin(ethreset, 1);
+#endif
+
+#ifdef CONFIG_STM_PWM
+	stpio_request_pin(4, 7, "PWM", STPIO_ALT_OUT);
 #endif
 }
 

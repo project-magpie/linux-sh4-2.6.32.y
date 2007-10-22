@@ -2,8 +2,8 @@
 #define __ASM_SH_PARAM_H
 
 #ifdef __KERNEL__
-# ifdef CONFIG_SH_WDT
-#  define HZ		1000		/* Needed for high-res WOVF */
+# ifdef CONFIG_SH_FAST_HZ
+#  define HZ		1000
 # else
 #  define HZ		CONFIG_HZ
 # endif

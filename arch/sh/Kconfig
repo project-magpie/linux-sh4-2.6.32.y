@@ -514,6 +514,17 @@ config SH_EXTERNAL_CLOCK
 	default "30000000" if SH_ST_MB442
 	default "27000000"
 
+config SH_FAST_HZ
+	bool "Fast kernel tick"
+	default n
+	help
+	  Enabling this option will increase the rate at which the kernel's
+	  internal timer ticks from 100Hz to 1000Hz. This will increase the
+	  accuracy of the kernel's internal time, at the expense of a higher
+	  interrupt load.
+
+	  This option needs to be set to use the SH watchdog.
+
 menu "CPU Frequency scaling"
 
 source "drivers/cpufreq/Kconfig"

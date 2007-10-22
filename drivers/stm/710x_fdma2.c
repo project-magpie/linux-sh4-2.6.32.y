@@ -487,7 +487,7 @@ static int fdma_do_bootload(void)
 	fdma_get_hw_revision(&hw_revision[0],major,minor);
 	wake_up(&chip.fw_load_q);
 
-	fdma_log("   STB_%dC%d %s %s \n",
+	printk(KERN_INFO "   STB_%dC%d %s %s \n",
 		 chip.cpu_subtype,chip.cpu_rev,hw_revision,fw_revision);
 	return 0;
 }

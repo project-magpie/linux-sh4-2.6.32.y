@@ -152,13 +152,17 @@ static int die_if_no_fixup(const char * str, struct pt_regs * regs, long err)
  * desired behaviour
  * - note that PC _may not_ point to the faulting instruction
  *   (if that instruction is in a branch delay slot)
- * - return 0 if emulation okay, -EFAULT on existential error
+ * - return:
+ *   0 if emulation okay (PC unchanged)
+ *   1 if emulation OK (PC already updated)
+ *   -EFAULT on existential error
  */
 static int handle_unaligned_ins(u16 instruction, struct pt_regs *regs)
 {
 	int ret, index, count;
 	unsigned long *rm, *rn;
 	unsigned char *src, *dst;
+	const struct exception_table_entry *fixup;
 
 	index = (instruction>>8)&15;	/* 0x0F00 */
 	rn = &regs->regs[index];
@@ -325,7 +329,10 @@ static int handle_unaligned_ins(u16 instruction, struct pt_regs *regs)
 	/* Argh. Address not only misaligned but also non-existent.
 	 * Raise an EFAULT and see if it's trapped
 	 */
-	return die_if_no_fixup("Fault in unaligned fixup", regs, 0);
+	ret = die_if_no_fixup("Fault in unaligned fixup", regs, 0);
+	if (ret == 0)
+		ret = 1;
+	return ret;
 }
 
 /*
@@ -573,7 +580,7 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 		tmp = handle_unaligned_access(instruction, regs);
 		set_fs(oldfs);
 
-		if (tmp==0)
+		if (tmp>=0)
 			return; /* sorted */
 #endif
 

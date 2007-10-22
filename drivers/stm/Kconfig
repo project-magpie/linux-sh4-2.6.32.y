@@ -87,4 +87,48 @@ config  STM_SPI_DEBUG
         ---help---
         Enable this option to print out information on STM SPI device driver
 
+choice
+	prompt "STMicroelectronics coprocessor support"
+        depends on CPU_SUBTYPE_STM8000 || CPU_SUBTYPE_STB7100
+	default STM_COPROCESSOR
+        ---help---
+        Many of the ST system-on-chip devices have multiple CPUs, where a
+        master CPU running Linux has control over a number of slave CPUs,
+        which are usually used to run dedicated algorithms.
+        Enabling this option will add support to the Linux kernel to
+        control these slave CPUs, reserve memory for them, and thus allow
+        code to be downloaded onto them and executed.
+        Adding in the command line the following string:
+        coprocessor_mem=[offset]:size0[,size1][,size2]...
+        where:
+        offset defines where the co-processors region starts.
+               It's an offset from ST40 RAM start.
+        size{n} defines the region size for the n.th slave core (max 16M).
+
+        Example: coprocessor_mem=32m:16m,16m
+
+config  STM_COPROCESSOR
+	bool "STM coprocessor support"
+	help
+	  Select this option to enable support for the slave coprocessors
+	  found on many ST system-on-chip devices.
+
+config  STM_COPROCESSOR_FRMW
+	depends on CPU_SUBTYPE_STB7100
+	bool "The new STM coprocessor firmware support "
+	select FW_LOADER
+	help
+	  Select this option to enable support for the slave coprocessors
+	  found on many ST system-on-chip devices.
+
+endchoice
+
+config  COPROCESSOR_DEBUG
+        depends on STM_COPROCESSOR || STM_COPROCESSOR_FRMW
+        bool "STM coprocessor debug"
+        default n
+        ---help---
+        Enable this option to print out information about the slave CPUs
+        addresses and operations you are using for coprocessor.
+
 endmenu

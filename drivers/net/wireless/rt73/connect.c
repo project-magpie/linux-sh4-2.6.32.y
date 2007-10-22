@@ -867,8 +867,13 @@ VOID LinkUp(
 	IN UCHAR BssType)
 {
 	ULONG	Now;
-	TXRX_CSR4_STRUC NewTxRxCsr4, CurTxRxCsr4;
+	TXRX_CSR4_STRUC *NewTxRxCsr4 = kzalloc(sizeof(TXRX_CSR4_STRUC), GFP_KERNEL);
+	TXRX_CSR4_STRUC *CurTxRxCsr4 = kzalloc(sizeof(TXRX_CSR4_STRUC), GFP_KERNEL);
 
+	if (!NewTxRxCsr4 || !CurTxRxCsr4) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
 	//
 	// ASSOC - DisassocTimeoutAction
 	// CNTL - Dis-associate successful
@@ -1009,28 +1014,30 @@ VOID LinkUp(
 	//
 	// Enable OFDM TX rate auto fallback to CCK, if need.
 	//
-	RTUSBReadMACRegister(pAd, TXRX_CSR4, &CurTxRxCsr4.word);
-	NewTxRxCsr4.word = CurTxRxCsr4.word;
+	RTUSBReadMACRegister(pAd, TXRX_CSR4, &CurTxRxCsr4->word);
+	NewTxRxCsr4->word = CurTxRxCsr4->word;
 	if ((pAd->PortCfg.Channel <= 14) &&
 		((pAd->PortCfg.PhyMode == PHY_11B) ||
 		 (pAd->PortCfg.PhyMode == PHY_11BG_MIXED) ||
 		 (pAd->PortCfg.PhyMode == PHY_11ABG_MIXED)))
 	{
-		NewTxRxCsr4.field.OfdmTxFallbacktoCCK = 1;	 //Enable OFDM TX rate auto fallback to CCK 1M, 2M
+		NewTxRxCsr4->field.OfdmTxFallbacktoCCK = 1;	 //Enable OFDM TX rate auto fallback to CCK 1M, 2M
 	}
 	else
 	{
-		NewTxRxCsr4.field.OfdmTxFallbacktoCCK = 0;	 //Disable OFDM TX rate auto fallback to CCK 1M, 2M
+		NewTxRxCsr4->field.OfdmTxFallbacktoCCK = 0;	 //Disable OFDM TX rate auto fallback to CCK 1M, 2M
 	}
 
-	if (NewTxRxCsr4.word!= CurTxRxCsr4.word)
-		RTUSBWriteMACRegister(pAd, TXRX_CSR4, NewTxRxCsr4.word);
+	if (NewTxRxCsr4->word!= CurTxRxCsr4->word)
+		RTUSBWriteMACRegister(pAd, TXRX_CSR4, NewTxRxCsr4->word);
 
 
 	pAd->Mlme.PeriodicRound = 0;		// re-schedule MlmePeriodicExec()
 	pAd->bConfigChanged = FALSE;		// Reset config flag
 	pAd->ExtraInfo = GENERAL_LINK_UP;	// Update extra information to link is up
 
+	kfree(NewTxRxCsr4);
+	kfree(CurTxRxCsr4);
 }
 
 /*
@@ -1060,9 +1067,14 @@ VOID LinkDown(
 	IN PRTMP_ADAPTER pAd,
 	IN	BOOLEAN 	 IsReqFromAP)
 {
-	TXRX_CSR4_STRUC CurTxRxCsr4;
+	TXRX_CSR4_STRUC *CurTxRxCsr4 = kzalloc(sizeof(TXRX_CSR4_STRUC), GFP_KERNEL);
 
 	DBGPRINT(RT_DEBUG_TRACE, "!!! LINK DOWN !!!\n");
+
+	if (!CurTxRxCsr4) {
+                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	} 	
 
 	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_AGGREGATION_INUSED);
 
@@ -1183,13 +1195,14 @@ VOID LinkDown(
 
 	if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_MAX_RETRY_ENABLED))
 	{
-		RTUSBReadMACRegister(pAd, TXRX_CSR4, &CurTxRxCsr4.word);
-		CurTxRxCsr4.field.ShortRetryLimit = 0x07;
-		CurTxRxCsr4.field.LongRetryLimit = 0x04;
-		RTUSBWriteMACRegister(pAd, TXRX_CSR4, CurTxRxCsr4.word);
+		RTUSBReadMACRegister(pAd, TXRX_CSR4, &CurTxRxCsr4->word);
+		CurTxRxCsr4->field.ShortRetryLimit = 0x07;
+		CurTxRxCsr4->field.LongRetryLimit = 0x04;
+		RTUSBWriteMACRegister(pAd, TXRX_CSR4, CurTxRxCsr4->word);
 		OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_MAX_RETRY_ENABLED);
 	}
 	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_RTS_PROTECTION_ENABLE);
+	kfree(CurTxRxCsr4);
 }
 
 /*

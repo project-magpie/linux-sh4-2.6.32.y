@@ -653,11 +653,16 @@ VOID MlmePeriodicExec(
 VOID STAMlmePeriodicExec(
 	IN	PRTMP_ADAPTER pAd)
 {
-	TXRX_CSR4_STRUC CurTxRxCsr4;
+	TXRX_CSR4_STRUC *CurTxRxCsr4 = kzalloc(sizeof(CurTxRxCsr4), GFP_KERNEL);
 	SHORT	dbm;
 #if WPA_SUPPLICANT_SUPPORT
     union iwreq_data wrqu;
 #endif
+
+	if(!CurTxRxCsr4) {
+                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
 
 	// WPA MIC error should block association attempt for 60 seconds
 	if (pAd->PortCfg.bBlockAssoc && (time_after(pAd->Mlme.Now, pAd->PortCfg.LastMicErrorTime + (60 * HZ))))
@@ -882,7 +887,8 @@ VOID STAMlmePeriodicExec(
 				{
 					MLME_SCAN_REQ_STRUCT	   ScanReq;
 
-					if (time_after(pAd->Mlme.Now, pAd->PortCfg.LastScanTime + 10 * HZ))
+					//if (time_after(pAd->Mlme.Now, pAd->PortCfg.LastScanTime + 10 * HZ))
+					if (time_after(pAd->Mlme.Now - INITIAL_JIFFIES, pAd->PortCfg.LastScanTime + 10 * HZ))
 					{
 						DBGPRINT(RT_DEBUG_TRACE, "CNTL - No matching BSS, start a new ACTIVE scan SSID[%s]\n", pAd->MlmeAux.AutoReconnectSsid);
 						ScanParmFill(pAd, &ScanReq, pAd->MlmeAux.AutoReconnectSsid, pAd->MlmeAux.AutoReconnectSsidLen, BSS_ANY, SCAN_ACTIVE);
@@ -1011,10 +1017,10 @@ VOID STAMlmePeriodicExec(
 			{
 				if (pAd->RalinkCounters.OneSecTxNoRetryOkCount > 15)
 				{
-					RTUSBReadMACRegister(pAd, TXRX_CSR4, &CurTxRxCsr4.word);
-					CurTxRxCsr4.field.ShortRetryLimit = 0x07;
-					CurTxRxCsr4.field.LongRetryLimit = 0x04;
-					RTUSBWriteMACRegister(pAd, TXRX_CSR4, CurTxRxCsr4.word);
+					RTUSBReadMACRegister(pAd, TXRX_CSR4, &CurTxRxCsr4->word);
+					CurTxRxCsr4->field.ShortRetryLimit = 0x07;
+					CurTxRxCsr4->field.LongRetryLimit = 0x04;
+					RTUSBWriteMACRegister(pAd, TXRX_CSR4, CurTxRxCsr4->word);
 					OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_MAX_RETRY_ENABLED);
 				}
 			}
@@ -1022,10 +1028,10 @@ VOID STAMlmePeriodicExec(
 			{
 				if (pAd->RalinkCounters.OneSecTxNoRetryOkCount <= 15)
 				{
-					RTUSBReadMACRegister(pAd, TXRX_CSR4, &CurTxRxCsr4.word);
-					CurTxRxCsr4.field.ShortRetryLimit = 0x0f;
-					CurTxRxCsr4.field.LongRetryLimit = 0x0f;
-					RTUSBWriteMACRegister(pAd, TXRX_CSR4, CurTxRxCsr4.word);
+					RTUSBReadMACRegister(pAd, TXRX_CSR4, &CurTxRxCsr4->word);
+					CurTxRxCsr4->field.ShortRetryLimit = 0x0f;
+					CurTxRxCsr4->field.LongRetryLimit = 0x0f;
+					RTUSBWriteMACRegister(pAd, TXRX_CSR4, CurTxRxCsr4->word);
 					OPSTATUS_SET_FLAG(pAd, fOP_STATUS_MAX_RETRY_ENABLED);
 				}
 			}
@@ -1078,6 +1084,7 @@ VOID STAMlmePeriodicExec(
 	pAd->RalinkCounters.OneSecRxAggregationCount = 0;
 
 	pAd->Mlme.PeriodicRound ++;
+	kfree(CurTxRxCsr4);
 }
 
 VOID LinkDownExec(
@@ -1805,36 +1812,48 @@ VOID MlmeSetPsmBit(
 	IN PRTMP_ADAPTER pAd,
 	IN USHORT psm)
 {
-	TXRX_CSR4_STRUC csr4;
+	TXRX_CSR4_STRUC *csr4 = kzalloc(sizeof(TXRX_CSR4_STRUC), GFP_KERNEL);
+
+	if(!csr4) {
+                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
 
 	pAd->PortCfg.Psm = psm;
-	RTUSBReadMACRegister(pAd, TXRX_CSR4, &csr4.word);
-	csr4.field.AckCtsPsmBit = (psm == PWR_SAVE)? 1:0;
-	RTUSBWriteMACRegister(pAd, TXRX_CSR4, csr4.word);
+	RTUSBReadMACRegister(pAd, TXRX_CSR4, &csr4->word);
+	csr4->field.AckCtsPsmBit = (psm == PWR_SAVE)? 1:0;
+	RTUSBWriteMACRegister(pAd, TXRX_CSR4, csr4->word);
 	DBGPRINT(RT_DEBUG_TRACE, "MlmeSetPsmBit = %d\n", psm);
+	kfree(csr4);
 }
 
 VOID MlmeSetTxPreamble(
 	IN PRTMP_ADAPTER pAd,
 	IN USHORT TxPreamble)
 {
-	TXRX_CSR4_STRUC csr4;
+	TXRX_CSR4_STRUC *csr4 = kzalloc(sizeof(TXRX_CSR4_STRUC), GFP_KERNEL);
 
-	RTUSBReadMACRegister(pAd, TXRX_CSR4, &csr4.word);
+	if(!csr4) {
+                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
+
+	RTUSBReadMACRegister(pAd, TXRX_CSR4, &csr4->word);
 	if (TxPreamble == Rt802_11PreambleShort)
 	{
 		// NOTE: 1Mbps should always use long preamble
 		DBGPRINT(RT_DEBUG_TRACE, "MlmeSetTxPreamble (= SHORT PREAMBLE)\n");
 		OPSTATUS_SET_FLAG(pAd, fOP_STATUS_SHORT_PREAMBLE_INUSED);
-		csr4.field.AutoResponderPreamble = 0;
+		csr4->field.AutoResponderPreamble = 0;
 	}
 	else
 	{
 		DBGPRINT(RT_DEBUG_TRACE, "MlmeSetTxPreamble (= LONG PREAMBLE)\n");
 		OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_SHORT_PREAMBLE_INUSED);
-		csr4.field.AutoResponderPreamble = 1;
+		csr4->field.AutoResponderPreamble = 1;
 	}
-	RTUSBWriteMACRegister(pAd, TXRX_CSR4, csr4.word);
+	RTUSBWriteMACRegister(pAd, TXRX_CSR4, csr4->word);
+	kfree(csr4);
 }
 
 // bLinkUp is to identify the inital link speed.
@@ -3978,13 +3997,17 @@ VOID AsicAntennaSelect(
 	IN	PRTMP_ADAPTER	pAd,
 	IN	UCHAR			Channel)
 {
-	ULONG			value;
+	ULONG	*value = kzalloc(sizeof(ULONG), GFP_KERNEL);
 	ABGBAND_STATE	BandState;
 
 
 	DBGPRINT(RT_DEBUG_INFO,"AsicAntennaSelect(ch=%d) - Tx=%s, Rx=%s\n",
 		Channel, AntStr[pAd->Antenna.field.TxDefaultAntenna], AntStr[pAd->Antenna.field.RxDefaultAntenna]);
 
+	if(!value) {
+                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
 	if (Channel <= 14)
 		BandState = BG_BAND;
 	else
@@ -4045,17 +4068,18 @@ VOID AsicAntennaSelect(
 		RTUSBWriteBBPRegister(pAd, 98, 0x58);
 	}
 
-	RTUSBReadMACRegister(pAd, PHY_CSR0, &value);
-	value = value & 0xfffcffff;   // Mask off bit 16, bit 17
+	RTUSBReadMACRegister(pAd, PHY_CSR0, value);
+	*value = *value & 0xfffcffff;   // Mask off bit 16, bit 17
 	if (Channel <= 14)
-		value = value | BIT32[16]; // b16 to enable G band PA_PE
+		*value = *value | BIT32[16]; // b16 to enable G band PA_PE
 	else
-		value = value | BIT32[17]; // b17 to enable A band PA_PE
-	RTUSBWriteMACRegister(pAd, PHY_CSR0, value);
+		*value = *value | BIT32[17]; // b17 to enable A band PA_PE
+	RTUSBWriteMACRegister(pAd, PHY_CSR0, *value);
 
 	pAd->PortCfg.BandState = BandState;
 
 	AsicAntennaSetting(pAd, BandState);
+	kfree(value);
 }
 
 VOID AsicAntennaSetting(
@@ -4688,18 +4712,24 @@ VOID AsicSetBssid(
 VOID AsicDisableSync(
 	IN PRTMP_ADAPTER pAd)
 {
-	TXRX_CSR9_STRUC csr;
+	TXRX_CSR9_STRUC *csr = kzalloc(sizeof(TXRX_CSR9_STRUC), GFP_KERNEL);
 	DBGPRINT(RT_DEBUG_TRACE, "--->Disable TSF synchronization\n");
+
+	if(!csr) {
+                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
 
 	// 2003-12-20 disable TSF and TBTT while NIC in power-saving have side effect
 	//			  that NIC will never wakes up because TSF stops and no more
 	//			  TBTT interrupts
-	RTUSBReadMACRegister(pAd, TXRX_CSR9, &csr.word);
-	csr.field.bBeaconGen = 0;
-	csr.field.TsfSyncMode = 0;
-	csr.field.bTBTTEnable = 0;
-	csr.field.bTsfTicking = 0;
-	RTUSBWriteMACRegister(pAd, TXRX_CSR9, csr.word);
+	RTUSBReadMACRegister(pAd, TXRX_CSR9, &csr->word);
+	csr->field.bBeaconGen = 0;
+	csr->field.TsfSyncMode = 0;
+	csr->field.bTBTTEnable = 0;
+	csr->field.bTsfTicking = 0;
+	RTUSBWriteMACRegister(pAd, TXRX_CSR9, csr->word);
+	kfree(csr);
 }
 
 /*
@@ -4710,20 +4740,26 @@ VOID AsicDisableSync(
 VOID AsicEnableBssSync(
 	IN PRTMP_ADAPTER pAd)
 {
-	TXRX_CSR9_STRUC csr;
+	TXRX_CSR9_STRUC *csr = kzalloc(sizeof(TXRX_CSR9_STRUC), GFP_KERNEL);
 
 	DBGPRINT(RT_DEBUG_TRACE, "--->AsicEnableBssSync(INFRA mode)\n");
 
-	RTUSBReadMACRegister(pAd, TXRX_CSR9, &csr.word);
+	if(!csr) {
+                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
+
+	RTUSBReadMACRegister(pAd, TXRX_CSR9, &csr->word);
 
 
-	csr.field.BeaconInterval = pAd->PortCfg.BeaconPeriod << 4; // ASIC register in units of 1/16 TU
-	csr.field.bTsfTicking = 1;
-	csr.field.TsfSyncMode = 1; // sync TSF in INFRASTRUCTURE mode
-	csr.field.bBeaconGen  = 0; // do NOT generate BEACON
-	csr.field.bTBTTEnable = 1;
+	csr->field.BeaconInterval = pAd->PortCfg.BeaconPeriod << 4; // ASIC register in units of 1/16 TU
+	csr->field.bTsfTicking = 1;
+	csr->field.TsfSyncMode = 1; // sync TSF in INFRASTRUCTURE mode
+	csr->field.bBeaconGen  = 0; // do NOT generate BEACON
+	csr->field.bTBTTEnable = 1;
 
-	RTUSBWriteMACRegister(pAd, TXRX_CSR9, csr.word);
+	RTUSBWriteMACRegister(pAd, TXRX_CSR9, csr->word);
+	kfree(csr);
 }
 
 /*
@@ -4739,16 +4775,16 @@ VOID AsicEnableBssSync(
 VOID AsicEnableIbssSync(
 	IN PRTMP_ADAPTER pAd)
 {
-	TXRX_CSR9_STRUC csr9;
+	TXRX_CSR9_STRUC *csr9 = kmalloc(sizeof(TXRX_CSR9_STRUC), GFP_KERNEL);
 	PUCHAR			ptr;
 	UINT i;
 	DBGPRINT(RT_DEBUG_ERROR, "--->AsicEnableIbssSync(ADHOC mode)\n");
 
-	RTUSBReadMACRegister(pAd, TXRX_CSR9, &csr9.word);
-	csr9.field.bBeaconGen = 0;
-	csr9.field.bTBTTEnable = 0;
-	csr9.field.bTsfTicking = 0;
-	RTUSBWriteMACRegister(pAd, TXRX_CSR9, csr9.word);
+	RTUSBReadMACRegister(pAd, TXRX_CSR9, &csr9->word);
+	csr9->field.bBeaconGen = 0;
+	csr9->field.bTBTTEnable = 0;
+	csr9->field.bTsfTicking = 0;
+	RTUSBWriteMACRegister(pAd, TXRX_CSR9, csr9->word);
 
 	RTUSBWriteMACRegister(pAd, HW_BEACON_BASE0, 0); // invalidate BEACON0 owner/valid bit to prevent garbage
 	RTUSBWriteMACRegister(pAd, HW_BEACON_BASE1, 0); // invalidate BEACON1 owner/valid bit to prevent garbage
@@ -4778,12 +4814,13 @@ VOID AsicEnableIbssSync(
 	RTUSBWriteMACRegister(pAd, TXRX_CSR10, 0x00001008);
 
 	// start sending BEACON
-	csr9.field.BeaconInterval = pAd->PortCfg.BeaconPeriod << 4; // ASIC register in units of 1/16 TU
-	csr9.field.bTsfTicking = 1;
-	csr9.field.TsfSyncMode = 2; // sync TSF in IBSS mode
-	csr9.field.bTBTTEnable = 1;
-	csr9.field.bBeaconGen = 1;
-	RTUSBWriteMACRegister(pAd, TXRX_CSR9, csr9.word);
+	csr9->field.BeaconInterval = pAd->PortCfg.BeaconPeriod << 4; // ASIC register in units of 1/16 TU
+	csr9->field.bTsfTicking = 1;
+	csr9->field.TsfSyncMode = 2; // sync TSF in IBSS mode
+	csr9->field.bTBTTEnable = 1;
+	csr9->field.bBeaconGen = 1;
+	RTUSBWriteMACRegister(pAd, TXRX_CSR9, csr9->word);
+	kfree(csr9);
 
 }
 
@@ -4920,35 +4957,45 @@ VOID AsicSetSlotTime(
 	IN PRTMP_ADAPTER pAd,
 	IN BOOLEAN		 bUseShortSlotTime)
 {
-	MAC_CSR9_STRUC Csr9;
+	MAC_CSR9_STRUC *Csr9 = kzalloc(sizeof(MAC_CSR9_STRUC), GFP_KERNEL);
 
+	if(!Csr9) {
+                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
 	if ( pAd->PortCfg.Channel > 14)  //check if in the A band
 		bUseShortSlotTime = TRUE;
 
 	if (bUseShortSlotTime && OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED))
+	{
+		kfree(Csr9);
 		return;
+	}
 	else if ((!bUseShortSlotTime) && (!OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED)))
+	{
+		kfree(Csr9);
 		return;
-
+	}
 	if (bUseShortSlotTime)
 		OPSTATUS_SET_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED);
 	else
 		OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED);
 
-	RTUSBReadMACRegister(pAd, MAC_CSR9, &Csr9.word);
-	Csr9.field.SlotTime = (bUseShortSlotTime)? 9 : 20;
+	RTUSBReadMACRegister(pAd, MAC_CSR9, &Csr9->word);
+	Csr9->field.SlotTime = (bUseShortSlotTime)? 9 : 20;
 
 	// force using short SLOT time for FAE to demo performance when TxBurst is ON
 	if (pAd->PortCfg.bEnableTxBurst)
-		Csr9.field.SlotTime = 9;
+		Csr9->field.SlotTime = 9;
 
 	if (pAd->PortCfg.BssType == BSS_ADHOC)
-		Csr9.field.SlotTime = 20;
+		Csr9->field.SlotTime = 20;
 
-	RTUSBWriteMACRegister(pAd, MAC_CSR9, Csr9.word);
+	RTUSBWriteMACRegister(pAd, MAC_CSR9, Csr9->word);
 
 
-	DBGPRINT(RT_DEBUG_TRACE, "AsicSetSlotTime(=%d us)\n", Csr9.field.SlotTime);
+	DBGPRINT(RT_DEBUG_TRACE, "AsicSetSlotTime(=%d us)\n", Csr9->field.SlotTime);
+        kfree(Csr9);
 }
 
 /*

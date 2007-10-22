@@ -855,14 +855,19 @@ NDIS_STATUS	RTUSBWriteHWMACAddress(
 VOID NICReadEEPROMParameters(
 	IN	PRTMP_ADAPTER	pAd)
 {
-	USHORT					i, value, value2;
+	USHORT  i, value2;
+	USHORT  *value = kzalloc(sizeof(USHORT), GFP_KERNEL);
 	EEPROM_ANTENNA_STRUC	Antenna;
-	EEPROM_VERSION_STRUC	Version;
-	CHAR					ChannelTxPower[MAX_NUM_OF_CHANNELS];
-	EEPROM_LED_STRUC		LedSetting;
+	EEPROM_VERSION_STRUC  *Version = kzalloc(sizeof(EEPROM_VERSION_STRUC), GFP_KERNEL);
+	CHAR *ChannelTxPower = kzalloc(sizeof(CHAR)*MAX_NUM_OF_CHANNELS, GFP_KERNEL);
+	EEPROM_LED_STRUC *LedSetting = kzalloc(sizeof(EEPROM_LED_STRUC), GFP_KERNEL);
 
 	DBGPRINT(RT_DEBUG_TRACE, "--> NICReadEEPROMParameters\n");
 
+	if(!value || !Version || !ChannelTxPower || !LedSetting) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
 	//Read MAC address.
 	RTUSBReadEEPROM(pAd, EEPROM_MAC_ADDRESS_BASE_OFFSET, pAd->PermanentAddress, MAC_ADDR_LEN);
 	DBGPRINT_RAW(RT_DEBUG_TRACE, "Local MAC = %02x:%02x:%02x:%02x:%02x:%02x\n",
@@ -889,10 +894,9 @@ VOID NICReadEEPROMParameters(
 
 	// if E2PROM version mismatch with driver's expectation, then skip
 	// all subsequent E2RPOM retieval and set a system error bit to notify GUI
-	RTUSBReadEEPROM(pAd, EEPROM_VERSION_OFFSET, (PUCHAR)&Version.word, 2);
-	pAd->EepromVersion = Version.field.Version + Version.field.FaeReleaseNumber * 256;
-	DBGPRINT(RT_DEBUG_TRACE, "E2PROM: Version = %d, FAE release #%d\n", Version.field.Version, Version.field.FaeReleaseNumber);
-
+	RTUSBReadEEPROM(pAd, EEPROM_VERSION_OFFSET, (PUCHAR)&Version->word, 2);
+	pAd->EepromVersion = Version->field.Version + Version->field.FaeReleaseNumber * 256;
+	DBGPRINT(RT_DEBUG_TRACE, "E2PROM: Version = %d, FAE release #%d\n", Version->field.Version, Version->field.FaeReleaseNumber);
 	// Read BBP default value from EEPROM and store to array(EEPROMDefaultValue) in pAd
 	RTUSBReadEEPROM(pAd, EEPROM_BBP_BASE_OFFSET, (PUCHAR)(pAd->EEPROMDefaultValue), 2 * NUM_EEPROM_BBP_PARMS);
 
@@ -1032,31 +1036,31 @@ VOID NICReadEEPROMParameters(
 			pAd->TssiPlusBoundaryA[1], pAd->TssiPlusBoundaryA[2], pAd->TssiPlusBoundaryA[3], pAd->TssiPlusBoundaryA[4],
 			pAd->TxAgcStepA, pAd->bAutoTxAgcA);
 	}
-	pAd->BbpRssiToDbmDelta = 0x79;
 
-	RTUSBReadEEPROM(pAd, EEPROM_FREQ_OFFSET, (PUCHAR) &value, 2);
-	if ((value & 0xFF00) == 0xFF00)
+	pAd->BbpRssiToDbmDelta = 0x79;
+	RTUSBReadEEPROM(pAd, EEPROM_FREQ_OFFSET, (PUCHAR)value, 2);
+	if ((*value & 0xFF00) == 0xFF00)
 	{
 		pAd->RFProgSeq = 0;
 	}
 	else
 	{
-		pAd->RFProgSeq = (value & 0x0300) >> 8;	// bit 8,9
+		pAd->RFProgSeq = (*value & 0x0300) >> 8;  // bit 8,9
 	}
 
-	value &= 0x00FF;
-	if (value != 0x00FF)
-		pAd->RfFreqOffset = (ULONG) value;
+	*value &= 0x00FF;
+	if (*value != 0x00FF)
+		pAd->RfFreqOffset = (ULONG) *value;
 	else
 		pAd->RfFreqOffset = 0;
 	DBGPRINT(RT_DEBUG_TRACE, "E2PROM: RF freq offset=0x%x\n", pAd->RfFreqOffset);
 
 	//CountryRegion byte offset = 0x25
-	value = pAd->EEPROMDefaultValue[2] >> 8;
+	*value = pAd->EEPROMDefaultValue[2] >> 8;
 	value2 = pAd->EEPROMDefaultValue[2] & 0x00FF;
-    if ((value <= REGION_MAXIMUM_BG_BAND) && (value2 <= REGION_MAXIMUM_A_BAND))
+    if ((*value <= REGION_MAXIMUM_BG_BAND) && (value2 <= REGION_MAXIMUM_A_BAND))
 	{
-		pAd->PortCfg.CountryRegion = ((UCHAR) value) | 0x80;
+		pAd->PortCfg.CountryRegion = ((UCHAR) *value) | 0x80;
 		pAd->PortCfg.CountryRegionForABand = ((UCHAR) value2) | 0x80;
 	}
 
@@ -1064,10 +1068,9 @@ VOID NICReadEEPROMParameters(
 	// Get RSSI Offset on EEPROM 0x9Ah & 0x9Ch.
 	// The valid value are (-10 ~ 10)
 	//
-	RTUSBReadEEPROM(pAd, EEPROM_RSSI_BG_OFFSET, (PUCHAR) &value, 2);
-	pAd->BGRssiOffset1 = value & 0x00ff;
-	pAd->BGRssiOffset2 = (value >> 8);
-
+	RTUSBReadEEPROM(pAd, EEPROM_RSSI_BG_OFFSET, (PUCHAR)value, 2);
+	pAd->BGRssiOffset1 = *value & 0x00ff;
+	pAd->BGRssiOffset2 = (*value >> 8);
 	// Validate 11b/g RSSI_1 offset.
 	if ((pAd->BGRssiOffset1 < -10) || (pAd->BGRssiOffset1 > 10))
 		pAd->BGRssiOffset1 = 0;
@@ -1076,9 +1079,9 @@ VOID NICReadEEPROMParameters(
 	if ((pAd->BGRssiOffset2 < -10) || (pAd->BGRssiOffset2 > 10))
 		pAd->BGRssiOffset2 = 0;
 
-	RTUSBReadEEPROM(pAd, EEPROM_RSSI_A_OFFSET, (PUCHAR) &value, 2);
-	pAd->ARssiOffset1 = value & 0x00ff;
-	pAd->ARssiOffset2 = (value >> 8);
+	RTUSBReadEEPROM(pAd, EEPROM_RSSI_A_OFFSET, (PUCHAR)value, 2);
+	pAd->ARssiOffset1 = *value & 0x00ff;
+	pAd->ARssiOffset2 = (*value >> 8);
 
 	// Validate 11a RSSI_1 offset.
 	if ((pAd->ARssiOffset1 < -10) || (pAd->ARssiOffset1 > 10))
@@ -1091,44 +1094,48 @@ VOID NICReadEEPROMParameters(
 	//
 	// Get LED Setting.
 	//
-	RTUSBReadEEPROM(pAd, EEPROM_LED_OFFSET, (PUCHAR)&LedSetting.word, 2);
-	if (LedSetting.word == 0xFFFF)
+	RTUSBReadEEPROM(pAd, EEPROM_LED_OFFSET, (PUCHAR)&LedSetting->word, 2);
+	if (LedSetting->word == 0xFFFF)
 	{
 		//
 		// Set it to Default.
 		//
-		LedSetting.field.PolarityRDY_G = 0;   // Active High.
-		LedSetting.field.PolarityRDY_A = 0;   // Active High.
-		LedSetting.field.PolarityACT = 0;	 // Active High.
-		LedSetting.field.PolarityGPIO_0 = 0; // Active High.
-		LedSetting.field.PolarityGPIO_1 = 0; // Active High.
-		LedSetting.field.PolarityGPIO_2 = 0; // Active High.
-		LedSetting.field.PolarityGPIO_3 = 0; // Active High.
-		LedSetting.field.PolarityGPIO_4 = 0; // Active High.
-		LedSetting.field.LedMode = LED_MODE_DEFAULT;
+		LedSetting->field.PolarityRDY_G = 0;   // Active High.
+		LedSetting->field.PolarityRDY_A = 0;   // Active High.
+		LedSetting->field.PolarityACT = 0;   // Active High.
+		LedSetting->field.PolarityGPIO_0 = 0; // Active High.
+		LedSetting->field.PolarityGPIO_1 = 0; // Active High.
+		LedSetting->field.PolarityGPIO_2 = 0; // Active High.
+		LedSetting->field.PolarityGPIO_3 = 0; // Active High.
+		LedSetting->field.PolarityGPIO_4 = 0; // Active High.
+		LedSetting->field.LedMode = LED_MODE_DEFAULT;
 	}
 	pAd->LedCntl.word = 0;
-	pAd->LedCntl.field.LedMode = LedSetting.field.LedMode;
-	pAd->LedCntl.field.PolarityRDY_G = LedSetting.field.PolarityRDY_G;
-	pAd->LedCntl.field.PolarityRDY_A = LedSetting.field.PolarityRDY_A;
-	pAd->LedCntl.field.PolarityACT = LedSetting.field.PolarityACT;
-	pAd->LedCntl.field.PolarityGPIO_0 = LedSetting.field.PolarityGPIO_0;
-	pAd->LedCntl.field.PolarityGPIO_1 = LedSetting.field.PolarityGPIO_1;
-	pAd->LedCntl.field.PolarityGPIO_2 = LedSetting.field.PolarityGPIO_2;
-	pAd->LedCntl.field.PolarityGPIO_3 = LedSetting.field.PolarityGPIO_3;
-	pAd->LedCntl.field.PolarityGPIO_4 = LedSetting.field.PolarityGPIO_4;
+	pAd->LedCntl.field.LedMode = LedSetting->field.LedMode;
+	pAd->LedCntl.field.PolarityRDY_G = LedSetting->field.PolarityRDY_G;
+	pAd->LedCntl.field.PolarityRDY_A = LedSetting->field.PolarityRDY_A;
+	pAd->LedCntl.field.PolarityACT = LedSetting->field.PolarityACT;
+	pAd->LedCntl.field.PolarityGPIO_0 = LedSetting->field.PolarityGPIO_0;
+	pAd->LedCntl.field.PolarityGPIO_1 = LedSetting->field.PolarityGPIO_1;
+	pAd->LedCntl.field.PolarityGPIO_2 = LedSetting->field.PolarityGPIO_2;
+	pAd->LedCntl.field.PolarityGPIO_3 = LedSetting->field.PolarityGPIO_3;
+	pAd->LedCntl.field.PolarityGPIO_4 = LedSetting->field.PolarityGPIO_4;
 
-	RTUSBReadEEPROM(pAd, EEPROM_TXPOWER_DELTA_OFFSET, (PUCHAR)&value, 2);
-	value = value & 0x00ff;
-	if (value != 0xff)
+	RTUSBReadEEPROM(pAd, EEPROM_TXPOWER_DELTA_OFFSET, (PUCHAR)value, 2);
+	*value = *value & 0x00ff;
+	if (*value != 0xff)
 	{
-		pAd->TxPowerDeltaConfig.value = (UCHAR) value;
+		pAd->TxPowerDeltaConfig.value = (UCHAR) *value;
 		if (pAd->TxPowerDeltaConfig.field.DeltaValue > 0x04)
 			pAd->TxPowerDeltaConfig.field.DeltaValue = 0x04;
 	}
 	else
 		pAd->TxPowerDeltaConfig.field.TxPowerEnable = FALSE;
 
+	kfree(Version);
+	kfree(ChannelTxPower);
+	kfree(value);
+	kfree(LedSetting);
 	DBGPRINT(RT_DEBUG_TRACE, "<-- NICReadEEPROMParameters\n");
 }
 
@@ -1276,14 +1283,21 @@ VOID NICInitAsicFromEEPROM(
 NDIS_STATUS	NICInitializeAsic(
 	IN	PRTMP_ADAPTER	pAd)
 {
-	ULONG			Index, Counter;
-	UCHAR			Value = 0xff;
-	ULONG			Version;
-	MAC_CSR12_STRUC	MacCsr12;
+	ULONG     Index;
+	ULONG *Counter = kzalloc(sizeof(ULONG), GFP_KERNEL);
+	UCHAR *Value = kzalloc(sizeof(UCHAR), GFP_KERNEL);
+	ULONG *Version = kzalloc(sizeof(ULONG), GFP_KERNEL);
+	MAC_CSR12_STRUC *MacCsr12 = kzalloc(sizeof(MAC_CSR12_STRUC), GFP_KERNEL);
 
 	DBGPRINT(RT_DEBUG_TRACE, "--> NICInitializeAsic\n");
 
-	RTUSBReadMACRegister(pAd, MAC_CSR0, &Version);
+	if(!Counter || !Value || !Version || !MacCsr12) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return -ENOMEM;
+	}
+
+	*Value = 0xff;
+	RTUSBReadMACRegister(pAd, MAC_CSR0, Version);
 
 	// Initialize MAC register to default value
 	for (Index = 0; Index < NUM_MAC_REG_PARMS; Index++)
@@ -1301,9 +1315,9 @@ NDIS_STATUS	NICInitializeAsic(
 	Index = 0;
 	do
 	{
-		RTUSBReadMACRegister(pAd, MAC_CSR12, &MacCsr12.word);
+		RTUSBReadMACRegister(pAd, MAC_CSR12, &MacCsr12->word);
 
-		if (MacCsr12.field.BbpRfStatus == 1)
+		if (MacCsr12->field.BbpRfStatus == 1)
 			break;
 
 		RTUSBWriteMACRegister(pAd, MAC_CSR12, 0x4); //Force wake up.
@@ -1314,10 +1328,9 @@ NDIS_STATUS	NICInitializeAsic(
 	Index = 0;
 	do
 	{
-		RTUSBReadBBPRegister(pAd, BBP_R0, &Value);
-		DBGPRINT(RT_DEBUG_TRACE, "BBP version = %d\n", Value);
-	} while ((++Index < 100) && ((Value == 0xff) || (Value == 0x00)));
-
+		RTUSBReadBBPRegister(pAd, BBP_R0, Value);
+		DBGPRINT(RT_DEBUG_TRACE, "BBP version = %d\n", *Value);
+	} while ((++Index < 100) && ((*Value == 0xff) || (*Value == 0x00)));
 	// Initialize BBP register to default value
 	for (Index = 0; Index < NUM_BBP_REG_PARMS; Index++)
 	{
@@ -1325,15 +1338,18 @@ NDIS_STATUS	NICInitializeAsic(
 	}
 
 	// Clear raw counters
-	RTUSBReadMACRegister(pAd, STA_CSR0, &Counter);
-	RTUSBReadMACRegister(pAd, STA_CSR1, &Counter);
-	RTUSBReadMACRegister(pAd, STA_CSR2, &Counter);
-
+	RTUSBReadMACRegister(pAd, STA_CSR0, Counter);
+	RTUSBReadMACRegister(pAd, STA_CSR1, Counter);
+	RTUSBReadMACRegister(pAd, STA_CSR2, Counter);
 	// assert HOST ready bit
 	RTUSBWriteMACRegister(pAd, MAC_CSR1, 0x4);
 
 	DBGPRINT(RT_DEBUG_TRACE, "<-- NICInitializeAsic\n");
 
+	kfree(Version);
+	kfree(MacCsr12);
+	kfree(Counter);
+	kfree(Value);
 	return NDIS_STATUS_SUCCESS;
 }
 
@@ -1400,49 +1416,53 @@ VOID NICUpdateRawCounters(
 	IN PRTMP_ADAPTER pAd)
 {
 	ULONG	OldValue;
-	STA_CSR0_STRUC StaCsr0;
-	STA_CSR1_STRUC StaCsr1;
-	STA_CSR2_STRUC StaCsr2;
-	STA_CSR3_STRUC StaCsr3;
-	STA_CSR4_STRUC StaCsr4;
-	STA_CSR5_STRUC StaCsr5;
+	STA_CSR0_STRUC *StaCsr0 = kzalloc(sizeof(STA_CSR0_STRUC), GFP_KERNEL);
+	STA_CSR1_STRUC *StaCsr1 = kzalloc(sizeof(STA_CSR1_STRUC), GFP_KERNEL);
+	STA_CSR2_STRUC *StaCsr2 = kzalloc(sizeof(STA_CSR2_STRUC), GFP_KERNEL);
+	STA_CSR3_STRUC *StaCsr3 = kzalloc(sizeof(STA_CSR3_STRUC), GFP_KERNEL);
+	STA_CSR4_STRUC *StaCsr4 = kzalloc(sizeof(STA_CSR4_STRUC), GFP_KERNEL);
+	STA_CSR5_STRUC *StaCsr5 = kzalloc(sizeof(STA_CSR5_STRUC), GFP_KERNEL);
 
-	RTUSBReadMACRegister(pAd, STA_CSR0, &StaCsr0.word);
+	if(!StaCsr0 || !StaCsr1 || !StaCsr2 || !StaCsr3 || !StaCsr4 || !StaCsr5) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
+	RTUSBReadMACRegister(pAd, STA_CSR0, &StaCsr0->word);
 
 	// Update RX PLCP error counter
-	pAd->PrivateInfo.PhyRxErrCnt += StaCsr0.field.PlcpErr;
+	pAd->PrivateInfo.PhyRxErrCnt += StaCsr0->field.PlcpErr;
 
 	// Update FCS counters
 	OldValue= pAd->WlanCounters.FCSErrorCount.vv.LowPart;
-	pAd->WlanCounters.FCSErrorCount.vv.LowPart += (StaCsr0.field.CrcErr); // >> 7);
+	pAd->WlanCounters.FCSErrorCount.vv.LowPart += (StaCsr0->field.CrcErr); // >> 7);
 	if (pAd->WlanCounters.FCSErrorCount.vv.LowPart < OldValue)
 		pAd->WlanCounters.FCSErrorCount.vv.HighPart++;
 
 	// Add FCS error count to private counters
 	OldValue = pAd->RalinkCounters.RealFcsErrCount.vv.LowPart;
-	pAd->RalinkCounters.RealFcsErrCount.vv.LowPart += StaCsr0.field.CrcErr;
+	pAd->RalinkCounters.RealFcsErrCount.vv.LowPart += StaCsr0->field.CrcErr;
 	if (pAd->RalinkCounters.RealFcsErrCount.vv.LowPart < OldValue)
 		pAd->RalinkCounters.RealFcsErrCount.vv.HighPart++;
 
 
 	// Update False CCA counter
-	RTUSBReadMACRegister(pAd, STA_CSR1, &StaCsr1.word);
-	pAd->RalinkCounters.OneSecFalseCCACnt += StaCsr1.field.FalseCca;
+	RTUSBReadMACRegister(pAd, STA_CSR1, &StaCsr1->word);
+	pAd->RalinkCounters.OneSecFalseCCACnt += StaCsr1->field.FalseCca;
 
 	// Update RX Overflow counter
-	RTUSBReadMACRegister(pAd, STA_CSR2, &StaCsr2.word);
-	pAd->Counters8023.RxNoBuffer += (StaCsr2.field.RxOverflowCount + StaCsr2.field.RxFifoOverflowCount);
+	RTUSBReadMACRegister(pAd, STA_CSR2, &StaCsr2->word);
+	pAd->Counters8023.RxNoBuffer += (StaCsr2->field.RxOverflowCount + StaCsr2->field.RxFifoOverflowCount);
 
 	// Update BEACON sent count
-	RTUSBReadMACRegister(pAd, STA_CSR3, &StaCsr3.word);
-	pAd->RalinkCounters.OneSecBeaconSentCnt += StaCsr3.field.TxBeaconCount;
+	RTUSBReadMACRegister(pAd, STA_CSR3, &StaCsr3->word);
+	pAd->RalinkCounters.OneSecBeaconSentCnt += StaCsr3->field.TxBeaconCount;
 
-	RTUSBReadMACRegister(pAd, STA_CSR4, &StaCsr4.word);
-	RTUSBReadMACRegister(pAd, STA_CSR5, &StaCsr5.word);
+	RTUSBReadMACRegister(pAd, STA_CSR4, &StaCsr4->word);
+	RTUSBReadMACRegister(pAd, STA_CSR5, &StaCsr5->word);
 
 	// 1st - Transmit Success
 	OldValue = pAd->WlanCounters.TransmittedFragmentCount.vv.LowPart;
-	pAd->WlanCounters.TransmittedFragmentCount.vv.LowPart += (StaCsr4.field.TxOneRetryCount + StaCsr4.field.TxNoRetryCount + StaCsr5.field.TxMultiRetryCount);
+	pAd->WlanCounters.TransmittedFragmentCount.vv.LowPart += (StaCsr4->field.TxOneRetryCount + StaCsr4->field.TxNoRetryCount + StaCsr5->field.TxMultiRetryCount);
 	if (pAd->WlanCounters.TransmittedFragmentCount.vv.LowPart < OldValue)
 	{
 		pAd->WlanCounters.TransmittedFragmentCount.vv.HighPart++;
@@ -1450,7 +1470,7 @@ VOID NICUpdateRawCounters(
 
 	// 2rd	-success and no retry
 	OldValue = pAd->WlanCounters.RetryCount.vv.LowPart;
-	pAd->WlanCounters.NoRetryCount.vv.LowPart += StaCsr4.field.TxNoRetryCount;
+	pAd->WlanCounters.NoRetryCount.vv.LowPart += StaCsr4->field.TxNoRetryCount;
 	if (pAd->WlanCounters.NoRetryCount.vv.LowPart < OldValue)
 	{
 		pAd->WlanCounters.NoRetryCount.vv.HighPart++;
@@ -1458,28 +1478,35 @@ VOID NICUpdateRawCounters(
 
 	// 3rd	-success and retry
 	OldValue = pAd->WlanCounters.RetryCount.vv.LowPart;
-	pAd->WlanCounters.RetryCount.vv.LowPart += (StaCsr4.field.TxOneRetryCount  +StaCsr5.field.TxMultiRetryCount);
+	pAd->WlanCounters.RetryCount.vv.LowPart += (StaCsr4->field.TxOneRetryCount  +StaCsr5->field.TxMultiRetryCount);
 	if (pAd->WlanCounters.RetryCount.vv.LowPart < OldValue)
 	{
 		pAd->WlanCounters.RetryCount.vv.HighPart++;
 	}
 	// 4th - fail
 	OldValue = pAd->WlanCounters.FailedCount.vv.LowPart;
-	pAd->WlanCounters.FailedCount.vv.LowPart += StaCsr5.field.TxRetryFailCount;
+	pAd->WlanCounters.FailedCount.vv.LowPart += StaCsr5->field.TxRetryFailCount;
 	if (pAd->WlanCounters.FailedCount.vv.LowPart < OldValue)
 	{
 		pAd->WlanCounters.FailedCount.vv.HighPart++;
 	}
 
 
-	pAd->RalinkCounters.OneSecTxNoRetryOkCount = StaCsr4.field.TxNoRetryCount;
-	pAd->RalinkCounters.OneSecTxRetryOkCount = StaCsr4.field.TxOneRetryCount + StaCsr5.field.TxMultiRetryCount;
-	pAd->RalinkCounters.OneSecTxFailCount = StaCsr5.field.TxRetryFailCount;
-	pAd->RalinkCounters.OneSecFalseCCACnt = StaCsr1.field.FalseCca;
+	pAd->RalinkCounters.OneSecTxNoRetryOkCount = StaCsr4->field.TxNoRetryCount;
+	pAd->RalinkCounters.OneSecTxRetryOkCount = StaCsr4->field.TxOneRetryCount + StaCsr5->field.TxMultiRetryCount;
+	pAd->RalinkCounters.OneSecTxFailCount = StaCsr5->field.TxRetryFailCount;
+	pAd->RalinkCounters.OneSecFalseCCACnt = StaCsr1->field.FalseCca;
 	pAd->RalinkCounters.OneSecRxOkCnt = pAd->RalinkCounters.RxCount;
 	pAd->RalinkCounters.RxCount = 0; //Reset RxCount
-	pAd->RalinkCounters.OneSecRxFcsErrCnt = StaCsr0.field.CrcErr;
-	pAd->RalinkCounters.OneSecBeaconSentCnt = StaCsr3.field.TxBeaconCount;
+	pAd->RalinkCounters.OneSecRxFcsErrCnt = StaCsr0->field.CrcErr;
+	pAd->RalinkCounters.OneSecBeaconSentCnt = StaCsr3->field.TxBeaconCount;
+
+	kfree(StaCsr0);
+	kfree(StaCsr1);
+	kfree(StaCsr2);
+	kfree(StaCsr3);
+	kfree(StaCsr4);
+	kfree(StaCsr5);
 }
 
 /*
@@ -1524,7 +1551,7 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 	size_t size;
 	u8 *data;
 	USHORT i, loaded = 0;
-	ULONG reg;
+	ULONG *reg = kzalloc(sizeof(ULONG), GFP_KERNEL);
 	u16 crc = 0;
 	INT status;
 #define BUFFERED_COPY
@@ -1534,6 +1561,11 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 	u32 buf;
 #endif
 	DBGPRINT(RT_DEBUG_TRACE, "--> LoadFirmware \n");
+
+	if(!reg) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return -ENOMEM;
+	}
 
 	// Access firmware file
 	if ((status = request_firmware(&fw_entry, firmName, udevice))) {
@@ -1568,7 +1600,7 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 
 	// Wait for stable hardware
 	for (i = 0; i < 100; i++) {
-		RTUSBReadMACRegister(pAd, MAC_CSR0, &reg);
+		RTUSBReadMACRegister(pAd, MAC_CSR0, reg);
 		if (reg)
 			break;
 		msleep(1);
@@ -1623,6 +1655,7 @@ error:
 fw_error:
 	DBGPRINT(RT_DEBUG_TRACE, "<-- LoadFirmware (status: %d, loaded: %d)\n",
 							status, loaded);
+	kfree(reg);
 	return status;
 }
 

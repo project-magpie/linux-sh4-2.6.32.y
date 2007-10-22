@@ -277,14 +277,19 @@ NTSTATUS	RTUSBReadBBPRegister(
 	IN	UCHAR			Id,
 	IN	PUCHAR			pValue)
 {
-	PHY_CSR3_STRUC	PhyCsr3;
+	PHY_CSR3_STRUC  *PhyCsr3 = kzalloc(sizeof(PHY_CSR3_STRUC), GFP_KERNEL);
 	UINT			i = 0;
+
+	if(!PhyCsr3) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return -ENOMEM;
+	}
 
 	// Verify the busy condition
 	do
 	{
-		RTUSBReadMACRegister(pAd, PHY_CSR3, &PhyCsr3.word);
-		if (!(PhyCsr3.field.Busy == BUSY))
+		RTUSBReadMACRegister(pAd, PHY_CSR3, &PhyCsr3->word);
+		if (!(PhyCsr3->field.Busy == BUSY))
 			break;
 		i++;
 	}
@@ -298,24 +303,25 @@ NTSTATUS	RTUSBReadBBPRegister(
 		*pValue = pAd->BbpWriteLatch[Id];
 
 		DBGPRINT_RAW(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
+		kfree(PhyCsr3);
 		return STATUS_UNSUCCESSFUL;
 	}
 
 	// Prepare for write material
-	PhyCsr3.word 				= 0;
-	PhyCsr3.field.fRead			= 1;
-	PhyCsr3.field.Busy			= 1;
-	PhyCsr3.field.RegNum 		= Id;
-	RTUSBWriteMACRegister(pAd, PHY_CSR3, PhyCsr3.word);
+	PhyCsr3->word         = 0;
+	PhyCsr3->field.fRead      = 1;
+	PhyCsr3->field.Busy     = 1;
+	PhyCsr3->field.RegNum     = Id;
+	RTUSBWriteMACRegister(pAd, PHY_CSR3, PhyCsr3->word);
 
 	i = 0;
 	// Verify the busy condition
 	do
 	{
-		RTUSBReadMACRegister(pAd, PHY_CSR3, &PhyCsr3.word);
-		if (!(PhyCsr3.field.Busy == BUSY))
+		RTUSBReadMACRegister(pAd, PHY_CSR3, &PhyCsr3->word);
+		if (!(PhyCsr3->field.Busy == BUSY))
 		{
-			*pValue = (UCHAR)PhyCsr3.field.Value;
+			*pValue = (UCHAR)PhyCsr3->field.Value;
 			break;
 		}
 		i++;
@@ -330,9 +336,11 @@ NTSTATUS	RTUSBReadBBPRegister(
 		*pValue = pAd->BbpWriteLatch[Id];
 
 		DBGPRINT_RAW(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
+		kfree(PhyCsr3);
 		return STATUS_UNSUCCESSFUL;
 	}
 
+	kfree(PhyCsr3);
 	return STATUS_SUCCESS;
 }
 
@@ -354,14 +362,18 @@ NTSTATUS	RTUSBWriteBBPRegister(
 	IN	UCHAR			Id,
 	IN	UCHAR			Value)
 {
-	PHY_CSR3_STRUC	PhyCsr3;
+	PHY_CSR3_STRUC  *PhyCsr3 = kzalloc(sizeof(PHY_CSR3_STRUC), GFP_KERNEL);
 	UINT			i = 0;
 
+	if(!PhyCsr3) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return -ENOMEM;
+	}
 	// Verify the busy condition
 	do
 	{
-		RTUSBReadMACRegister(pAd, PHY_CSR3, &PhyCsr3.word);
-		if (!(PhyCsr3.field.Busy == BUSY))
+		RTUSBReadMACRegister(pAd, PHY_CSR3, &PhyCsr3->word);
+		if (!(PhyCsr3->field.Busy == BUSY))
 			break;
 		i++;
 	}
@@ -370,19 +382,20 @@ NTSTATUS	RTUSBWriteBBPRegister(
 	if ((i == RETRY_LIMIT) || (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
 	{
 		DBGPRINT_RAW(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
+		kfree(PhyCsr3);
 		return STATUS_UNSUCCESSFUL;
 	}
 
 	// Prepare for write material
-	PhyCsr3.word 				= 0;
-	PhyCsr3.field.fRead			= 0;
-	PhyCsr3.field.Value			= Value;
-	PhyCsr3.field.Busy			= 1;
-	PhyCsr3.field.RegNum 		= Id;
-	RTUSBWriteMACRegister(pAd, PHY_CSR3, PhyCsr3.word);
-
+	PhyCsr3->word         = 0;
+	PhyCsr3->field.fRead      = 0;
+	PhyCsr3->field.Value      = Value;
+	PhyCsr3->field.Busy     = 1;
+	PhyCsr3->field.RegNum     = Id;
+	RTUSBWriteMACRegister(pAd, PHY_CSR3, PhyCsr3->word);
 	pAd->BbpWriteLatch[Id] = Value;
 
+	kfree(PhyCsr3);
 	return STATUS_SUCCESS;
 }
 
@@ -403,13 +416,17 @@ NTSTATUS	RTUSBWriteRFRegister(
 	IN	PRTMP_ADAPTER	pAd,
 	IN	ULONG			Value)
 {
-	PHY_CSR4_STRUC	PhyCsr4;
+	PHY_CSR4_STRUC  *PhyCsr4 = kzalloc(sizeof(PHY_CSR4_STRUC), GFP_KERNEL);
 	UINT			i = 0;
 
+	if(!PhyCsr4) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return -ENOMEM;
+	}
 	do
 	{
-		RTUSBReadMACRegister(pAd, PHY_CSR4, &PhyCsr4.word);
-		if (!(PhyCsr4.field.Busy))
+		RTUSBReadMACRegister(pAd, PHY_CSR4, &PhyCsr4->word);
+		if (!(PhyCsr4->field.Busy))
 			break;
 		i++;
 	}
@@ -418,11 +435,13 @@ NTSTATUS	RTUSBWriteRFRegister(
 	if ((i == RETRY_LIMIT) || (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
 	{
 		DBGPRINT_RAW(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
+		kfree(PhyCsr4);
 		return STATUS_UNSUCCESSFUL;
 	}
 
 	RTUSBWriteMACRegister(pAd, PHY_CSR4, Value);
 
+	kfree(PhyCsr4);
 	return STATUS_SUCCESS;
 }
 

@@ -1508,9 +1508,13 @@ VOID EnqueueBeaconFrame(
 #endif
     PCHAR           pBeaconFrame = pAd->BeaconBuf;
     PUCHAR			pOutBuffer = NULL;
-    LARGE_INTEGER   Tsf;
+    LARGE_INTEGER   *Tsf = kzalloc(sizeof(LARGE_INTEGER), GFP_KERNEL);
     NDIS_STATUS		NStatus;
 
+		if(!Tsf) {
+			DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+			return;
+		}
 #ifndef BIG_ENDIAN
 	pTxD = &pAd->BeaconTxD;
 #else
@@ -1525,14 +1529,15 @@ VOID EnqueueBeaconFrame(
 	if (NStatus != NDIS_STATUS_SUCCESS)
 	{
 		DBGPRINT(RT_DEBUG_TRACE, "EnqueueBeaconFrame allocate memory fail\n");
+		kfree(Tsf);
 		return;
 	}
 
-    RTUSBReadMACRegister(pAd, TXRX_CSR13, &Tsf.vv.HighPart);
-    RTUSBReadMACRegister(pAd, TXRX_CSR12, &Tsf.vv.LowPart);
+    RTUSBReadMACRegister(pAd, TXRX_CSR13, &Tsf->vv.HighPart);
+    RTUSBReadMACRegister(pAd, TXRX_CSR12, &Tsf->vv.LowPart);
 
     // TODO: not good if porting to big endian platform - TSF byte order ???
-    memcpy(pBeaconFrame + sizeof(HEADER_802_11), &Tsf, TIMESTAMP_LEN);
+    memcpy(pBeaconFrame + sizeof(HEADER_802_11), Tsf, TIMESTAMP_LEN);
 	memcpy(pOutBuffer, pBeaconFrame, 256);
 	MiniportMMRequest(pAd, pOutBuffer, pTxD->DataByteCnt);
 
@@ -1540,7 +1545,7 @@ VOID EnqueueBeaconFrame(
     RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
     WriteBackToDescriptor((PUCHAR)pDestTxD, (PUCHAR)pTxD, FALSE, TYPE_TXD);
 #endif
-
+	kfree(Tsf);
 }
 
 /*

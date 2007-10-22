@@ -1779,7 +1779,7 @@ static void *usb_rtusb_probe(struct usb_device *dev, UINT interface,
 		if (le16_to_cpu(dev->descriptor.idVendor) == rtusb_usb_id[i].idVendor &&
 			le16_to_cpu(dev->descriptor.idProduct) == rtusb_usb_id[i].idProduct)
 		{
-			printk("idVendor = 0x%x, idProduct = 0x%x \n",
+			DBGPRINT(RT_DEBUG_TRACE, "idVendor = 0x%x, idProduct = 0x%x \n",
 					le16_to_cpu(dev->descriptor.idVendor),
 					le16_to_cpu(dev->descriptor.idProduct));
 			break;
@@ -2108,9 +2108,10 @@ static int usb_rtusb_probe (struct usb_interface *intf,
 		if (le16_to_cpu(dev->descriptor.idVendor) == rtusb_usb_id[i].idVendor &&
 			le16_to_cpu(dev->descriptor.idProduct) == rtusb_usb_id[i].idProduct)
 		{
-			printk("idVendor = 0x%x, idProduct = 0x%x \n",
+			/* printk("idVendor = 0x%x, idProduct = 0x%x \n",
 					le16_to_cpu(dev->descriptor.idVendor),
 					le16_to_cpu(dev->descriptor.idProduct));
+			*/
 			break;
 		}
 	}
@@ -2276,7 +2277,7 @@ static void usb_rtusb_disconnect(struct usb_interface *intf)
 	//assert(pAd->net_dev != NULL)
 	if(pAd->net_dev!= NULL)
 	{
-		printk("unregister_netdev()\n");
+		//printk("unregister_netdev()\n");
 		unregister_netdev (pAd->net_dev);
 	}
 	udelay(1);
@@ -2298,7 +2299,7 @@ static void usb_rtusb_disconnect(struct usb_interface *intf)
 //
 INT __init usb_rtusb_init(void)
 {
-    printk("rtusb init ====>\n");
+    //printk("rtusb init ====>\n");
 	#ifdef DBG
     RTDebugLevel = debug;
 	#else
@@ -2320,9 +2321,23 @@ VOID __exit usb_rtusb_exit(void)
 	udelay(1);
 	usb_deregister(&rtusb_driver);
 
-	printk("<=== rtusb exit\n");
+	//printk("<=== rtusb exit\n");
 }
+
+static int __init rt73_wlan_opt(char *str)
+{
+	if (!str || !*str)
+		return -EINVAL;
+
+	if (!strncmp(str, "debug:", 6)) {
+		debug = simple_strtoul(str + 6, NULL, 0);
+	}
+
+	return 0;
+}
+
 /**************************************/
+__setup("rt73wlan=", rt73_wlan_opt);
 module_init(usb_rtusb_init);
 module_exit(usb_rtusb_exit);
 /**************************************/

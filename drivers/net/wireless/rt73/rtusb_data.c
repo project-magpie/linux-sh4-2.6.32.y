@@ -501,12 +501,10 @@ NDIS_STATUS RTUSBHardTransmit(
 
 		if (pAd->TxRingTotalNumber[QueIdx] >= TX_RING_SIZE)
 		{
-			//Modified by Thomas
-			DBGPRINT_ERR("RTUSBHardTransmit: TX RING full\n");
+			DBGPRINT(RT_DEBUG_TRACE,"RTUSBHardTransmit: TX RING full\n");
 			//pAd->RalinkCounters.TxRingErrCount++;
 
-			//return (NDIS_STATUS_RESOURCES);
-			return (NDIS_STATUS_RINGFULL);
+			return (NDIS_STATUS_RESOURCES);
 		}
 
 		pTxContext->InUse	= TRUE;
@@ -852,11 +850,9 @@ NDIS_STATUS RTUSBHardTransmit(
 		if ((pTxContext->bWaitingBulkOut == TRUE) || (pTxContext->InUse == TRUE) ||
 			(pAd->TxRingTotalNumber[QueIdx] >= TX_RING_SIZE))
 		{
-			//Modified by Thomas
-			DBGPRINT_ERR("RTUSBHardTransmit: TX RING full\n");
+			DBGPRINT(RT_DEBUG_TRACE,"RTUSBHardTransmit: TX RING full\n");
 			//pAd->RalinkCounters.TxRingErrCount++;
-			//return (NDIS_STATUS_RESOURCES);
-			return (NDIS_STATUS_RINGFULL);
+			return (NDIS_STATUS_RESOURCES);
 		}
 		pTxContext->InUse	= TRUE;
 

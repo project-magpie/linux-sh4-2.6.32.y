@@ -42,12 +42,12 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 
 /* PGD bits */
 #define PGDIR_SHIFT	(PTE_SHIFT + PTE_BITS)
-#define PGDIR_SIZE	(1UL << PGDIR_SHIFT)
+#define PGDIR_SIZE	(1 << PGDIR_SHIFT)
 #define PGDIR_MASK	(~(PGDIR_SIZE-1))
 
 /* Entries per level */
 #define PTRS_PER_PTE	(PAGE_SIZE / (1 << PTE_MAGNITUDE))
-#define PTRS_PER_PGD	(PAGE_SIZE / sizeof(pgd_t))
+#define PTRS_PER_PGD	(PAGE_SIZE / 4)
 
 #define USER_PTRS_PER_PGD	(TASK_SIZE/PGDIR_SIZE)
 #define FIRST_USER_ADDRESS	0
@@ -399,7 +399,7 @@ static inline void set_pte(pte_t *ptep, pte_t pte)
 #define	pmd_bad(x)	(pmd_val(x) & ~PAGE_MASK)
 
 #define pages_to_mb(x)	((x) >> (20-PAGE_SHIFT))
-#define pte_page(x)	phys_to_page(pte_val(x)&PTE_PHYS_MASK)
+#define pte_page(x)	pfn_to_page(pte_pfn(x))
 
 /*
  * The following only work if pte_present() is true.

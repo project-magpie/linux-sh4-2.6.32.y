@@ -600,7 +600,7 @@ static struct resource sata_resource[]= {
 static struct plat_sata_data sata_private_info;
 
 static struct platform_device sata_device = {
-	.name		= "stm-sata",
+	.name		= "sata_stm",
 	.id		= -1,
 	.num_resources	= ARRAY_SIZE(sata_resource),
 	.resource	= sata_resource,

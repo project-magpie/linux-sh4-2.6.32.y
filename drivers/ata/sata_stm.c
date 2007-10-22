@@ -22,19 +22,19 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/pci.h>
 #include <linux/init.h>
 #include <linux/blkdev.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
-#include "scsi.h"
+#include <scsi/scsi.h>
 #include <scsi/scsi_host.h>
+#include <scsi/scsi_cmnd.h>
 #include <linux/libata.h>
 #include <linux/stm/soc.h>
 
 #define DRV_NAME			"sata_stm"
-#define DRV_VERSION			"0.4"
+#define DRV_VERSION			"0.5"
 
 /* Offsets of the component blocks */
 #define SATA_AHB2STBUS_BASE			0x00000000
@@ -228,6 +228,9 @@
 
 #define SATA_FIS_SIZE	(8*1024)
 
+static u32 stm_sata_scr_read (struct ata_port *ap, unsigned int sc_reg);
+static void stm_sata_scr_write (struct ata_port *ap, unsigned int sc_reg, u32 val);
+
 /* Layout of a DMAC Linked List Item (LLI)
  * DMAH_CH0_STAT_DST and DMAH_CH0_STAT_SRC are both 0 */
 struct stm_lli {
@@ -264,8 +267,8 @@ struct stm_port_priv
 
 static void stm_phy_reset(struct ata_port *ap)
 {
-	void __iomem *mmio = (void __iomem *) ap->ioaddr.cmd_addr;
-	struct stm_host_priv *hpriv = ap->host_set->private_data;
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
+	struct stm_host_priv *hpriv = ap->private_data;
 
 DPRINTK("ENTER\n");
 
@@ -333,8 +336,8 @@ static void stm_bmdma_setup(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap = qc->ap;
 	struct stm_port_priv *pp = ap->private_data;
-	struct stm_host_priv *hpriv = ap->host_set->private_data;
-	void __iomem *mmio = (void __iomem *) ap->ioaddr.cmd_addr;
+	struct stm_host_priv *hpriv = ap->private_data;
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
 	u32 cfg0, cfg1;
 
 	cfg0 =	DMA_CFG_CH_PRIOR_0		|
@@ -415,7 +418,7 @@ static void stm_bmdma_start(struct ata_queued_cmd *qc)
 {
 
 #if 0
-	void __iomem *mmio = (void __iomem *) ap->ioaddr.cmd_addr;
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
 	struct ata_port *ap = qc->ap;
 	/* Enable channel 0 */
 	writel((1<<8) | (1<<0), mmio + DMAC_ChEnReg);
@@ -425,7 +428,7 @@ static void stm_bmdma_start(struct ata_queued_cmd *qc)
 static void stm_bmdma_stop(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap = qc->ap;
-	void __iomem *mmio = (void __iomem *) ap->ioaddr.cmd_addr;
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
 
 DPRINTK("ENTER\n");
 
@@ -457,7 +460,7 @@ static void stm_fill_sg(struct ata_queued_cmd *qc)
 {
 	struct scatterlist *sg;
 	struct ata_port *ap = qc->ap;
-	struct stm_host_priv *hpriv = ap->host_set->private_data;
+	struct stm_host_priv *hpriv = ap->private_data;
         struct stm_port_priv *pp = ap->private_data;
 	unsigned int write = (qc->tf.flags & ATA_TFLAG_WRITE);
 	unsigned int idx;
@@ -561,9 +564,10 @@ static void stm_qc_prep(struct ata_queued_cmd *qc)
 	stm_fill_sg(qc);
 }
 
-static void stm_data_xfer(struct ata_port *ap, unsigned char *buf,
+static void stm_data_xfer(struct ata_device *adev, unsigned char *buf,
 		           unsigned int buflen, int write_data)
 {
+	struct ata_port *ap = adev->ap;
 	unsigned int i;
 	unsigned int words = buflen >> 1;
 	u16 *buf16 = (u16 *) buf;
@@ -608,24 +612,20 @@ static void stm_data_xfer(struct ata_port *ap, unsigned char *buf,
 static unsigned long error_count;
 static unsigned int print_error=1;
 
-static irqreturn_t stm_sata_interrupt(int irq, void *dev_instance, struct pt_regs *regs)
+static irqreturn_t stm_sata_interrupt(int irq, void *dev_instance)
 {
-	struct ata_host_set *host_set = dev_instance;
+	struct ata_host *host = dev_instance;
 	unsigned int handled = 0;
 	unsigned int i;
 	unsigned long flags;
 
 DPRINTK("ENTER\n");
 
-	spin_lock_irqsave(&host_set->lock, flags);
+	spin_lock_irqsave(&host->lock, flags);
 
-	for (i = 0; i < host_set->n_ports; i++) {
-		struct ata_port *ap;
-		void *mmio;
-
-		ap = host_set->ports[i];
-
-		mmio = (void *) ap->ioaddr.cmd_addr;
+	for (i = 0; i < host->n_ports; i++) {
+		struct ata_port *ap = host->ports[i];
+		void __iomem *mmio = ap->ioaddr.cmd_addr;
 
 		if (readl(mmio + DMAC_STATUSTFR) & 1) {
 			/* DMA Transfer complete update soft S/G */
@@ -657,14 +657,14 @@ DPRINTK("ENTER\n");
 			/* Error code set in SError */
 			if (print_error) {
 				printk("%s: SStatus 0x%08x, SError 0x%08x\n", __FUNCTION__,
-				       scr_read(ap, SCR_STATUS),
-				       scr_read(ap, SCR_ERROR));
+				       stm_sata_scr_read(ap, SCR_STATUS),
+				       stm_sata_scr_read(ap, SCR_ERROR));
 			}
 			error_count++;
-			scr_write(ap, SCR_ERROR, -1);
+			stm_sata_scr_write(ap, SCR_ERROR, -1);
 			handled = 1;
 		} else
-		if (ap && (!(ap->flags & ATA_FLAG_PORT_DISABLED))) {
+		if (ap && (!(ap->flags & ATA_FLAG_DISABLED))) {
 			struct ata_queued_cmd *qc;
 
 			qc = ata_qc_from_tag(ap, ap->active_tag);
@@ -674,7 +674,7 @@ DPRINTK("ENTER\n");
 
 	}
 
-	spin_unlock_irqrestore(&host_set->lock, flags);
+	spin_unlock_irqrestore(&host->lock, flags);
 
 	return IRQ_RETVAL(handled);
 }
@@ -687,8 +687,7 @@ static void stm_irq_clear(struct ata_port *ap)
 
 static u32 stm_sata_scr_read (struct ata_port *ap, unsigned int sc_reg)
 {
-	//struct ata_host_set *host_set = ap->host_set;
-	void* mmio = (void *) ap->ioaddr.cmd_addr;
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
 	u32 val;
 
 	if (sc_reg > SCR_CONTROL)
@@ -700,8 +699,7 @@ static u32 stm_sata_scr_read (struct ata_port *ap, unsigned int sc_reg)
 
 static void stm_sata_scr_write (struct ata_port *ap, unsigned int sc_reg, u32 val)
 {
-	//struct ata_host_set *host_set = ap->host_set;
-	void* mmio = (void *) ap->ioaddr.cmd_addr;
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
 
 DPRINTK("%d = %08x\n", sc_reg, val);
 	if (sc_reg > SCR_CONTROL)
@@ -712,72 +710,34 @@ DPRINTK("%d = %08x\n", sc_reg, val);
 
 static int stm_port_start (struct ata_port *ap)
 {
-	struct device *dev = ap->host_set->dev;
-	struct stm_host_priv *hpriv = ap->host_set->private_data;
+	struct device *dev = ap->host->dev;
+	struct stm_host_priv *hpriv = ap->host->private_data;
 	struct stm_port_priv *pp;
-	int result = 0;
+	int rc;
 
-	pp = kcalloc(1, sizeof(*pp), GFP_KERNEL);
-        if (pp == NULL) {
-		result = -ENOMEM;
-		goto out;
-        }
+	pp = devm_kzalloc(dev, sizeof(*pp), GFP_KERNEL);
+	if (pp == NULL)
+		return -ENOMEM;
 
 	if (hpriv->softsg) {
-		pp->lli = kmalloc(STM_LLI_BYTES, GFP_KERNEL);
+		pp->lli = devm_kzalloc(dev, STM_LLI_BYTES, GFP_KERNEL);
 	} else {
-		pp->lli = dma_alloc_coherent(dev, STM_LLI_BYTES, &pp->lli_dma,
-					     GFP_KERNEL);
+		pp->lli = dmam_alloc_coherent(dev, STM_LLI_BYTES, &pp->lli_dma,
+					      GFP_KERNEL);
 	}
 
-	if (pp->lli == NULL) {
-		result = -ENOMEM;
-		goto out1;
-	}
+	if (pp->lli == NULL)
+		return -ENOMEM;
 
 	pp->smallburst = 0;
 
-	result = ata_pad_alloc(ap, dev);
-	if (result) {
-		result = -ENOMEM;
-		goto out2;
-	}
+	rc = ata_pad_alloc(ap, dev);
+	if (rc)
+		return rc;
 
 	ap->private_data = pp;
-	return result;
 
-out2:
-	if (hpriv->softsg) {
-		kfree(pp->lli);
-	} else {
-		dma_free_coherent(dev, STM_LLI_BYTES, pp->lli, pp->lli_dma);
-	}
-out1:
-	kfree(pp);
-out:
-	ata_port_stop(ap);
-	return result;
-}
-
-static void stm_port_stop (struct ata_port *ap)
-{
-	struct device *dev = ap->host_set->dev;
-	struct stm_host_priv *hpriv = ap->host_set->private_data;
-	struct stm_port_priv *pp = ap->private_data;
-
-	if (pp != NULL) {
-		ap->private_data = NULL;
-		if (pp->lli != NULL) {
-			if (hpriv->softsg) {
-				kfree(pp->lli);
-			} else {
-				dma_free_coherent(dev, STM_LLI_BYTES, pp->lli,
-						  pp->lli_dma);
-			}
-		}
-		kfree(pp);
-	}
-	ata_port_stop(ap);
+	return 0;
 }
 
 static ssize_t stm_show_serror(struct class_device *class_dev, char *buf)
@@ -841,7 +801,7 @@ static struct class_device_attribute *stm_host_attrs[] = {
 	NULL,
 };
 
-static struct scsi_host_template stm_sata_sht = {
+static struct scsi_host_template stm_sht = {
 	.module			= THIS_MODULE,
 	.name			= DRV_NAME,
 	.ioctl			= ata_scsi_ioctl,
@@ -856,11 +816,12 @@ static struct scsi_host_template stm_sata_sht = {
 	.proc_name		= DRV_NAME,
 	.dma_boundary		= ATA_DMA_BOUNDARY,
 	.slave_configure	= ata_scsi_slave_config,
+	.slave_destroy		= ata_scsi_slave_destroy,
 	.bios_param		= ata_std_bios_param,
 	.shost_attrs		= stm_host_attrs,
 };
 
-static struct ata_port_operations stm_sata_ops = {
+static struct ata_port_operations stm_ops = {
 	.port_disable		= ata_port_disable,
 	.tf_load		= ata_tf_load,
 	.tf_read		= ata_tf_read,
@@ -869,8 +830,8 @@ static struct ata_port_operations stm_sata_ops = {
 	.dev_select		= ata_noop_dev_select,
 	.phy_reset		= stm_phy_reset,
 	.check_atapi_dma	= stm_check_atapi_dma,
-	.bmdma_setup            = stm_bmdma_setup,
-	.bmdma_start            = stm_bmdma_start,
+	.bmdma_setup		= stm_bmdma_setup,
+	.bmdma_start		= stm_bmdma_start,
 	.bmdma_stop		= stm_bmdma_stop,
 	.bmdma_status		= stm_bmdma_status,
 	.qc_prep		= stm_qc_prep,
@@ -882,7 +843,16 @@ static struct ata_port_operations stm_sata_ops = {
 	.scr_read		= stm_sata_scr_read,
 	.scr_write		= stm_sata_scr_write,
 	.port_start		= stm_port_start,
-	.port_stop		= stm_port_stop,
+};
+
+static const struct ata_port_info stm_port_info = {
+	.sht		= &stm_sht,
+	.flags		= ATA_FLAG_SATA | ATA_FLAG_NO_LEGACY |
+			  ATA_FLAG_MMIO | ATA_FLAG_SATA_RESET,
+	.pio_mask	= 0x1f, /* pio0-4 */
+	.mwdma_mask	= 0x07, /* mwdma0-2 */
+	.udma_mask	= ATA_UDMA6,
+	.port_ops	= &stm_ops,
 };
 
 static unsigned char stm_readb(const volatile void __iomem *addr)
@@ -905,87 +875,58 @@ static void stm_writew(unsigned short b, volatile void __iomem *addr)
 	writel(b, addr);
 }
 
-static int __init stm_sata_probe(struct device *dev)
+static int __devinit stm_sata_probe(struct platform_device *pdev)
 {
-	struct platform_device *pdev = to_platform_device(dev);
 	struct plat_sata_data *sata_private_info = pdev->dev.platform_data;
+	struct device *dev = &pdev->dev;
 	struct resource *mem_res;
-	int retval = 0;
 	unsigned long phys_base, phys_size;
-	void* virt_base;
-	unsigned long mmio_base;
-	struct ata_probe_ent *probe_ent = NULL;
+	void __iomem *mmio_base;
+	const struct ata_port_info *ppi[] = { &stm_port_info, NULL };
+	struct ata_host *host;
+	struct ata_port *ap;
 	struct stm_host_priv *hpriv = NULL;
 	unsigned long sata_rev, dmac_rev;
 
 	printk(KERN_DEBUG DRV_NAME " version " DRV_VERSION "\n");
 
+	host = ata_host_alloc_pinfo(dev, ppi, 1);
+	if (!host)
+		return -ENOMEM;
+
+	hpriv = devm_kzalloc(dev, sizeof(*hpriv), GFP_KERNEL);
+	if (!hpriv)
+		return -ENOMEM;
+
+        host->private_data = hpriv;
+
 	mem_res = platform_get_resource(pdev,IORESOURCE_MEM,0);
 	phys_base = mem_res->start;
 	phys_size = mem_res->end - mem_res->start + 1;
 
-	if (!request_mem_region(phys_base, phys_size, "STM SATA")) {
-		retval = -EBUSY;
-		return retval;
-	}
+	if (!devm_request_mem_region(dev, phys_base, phys_size, "STM SATA"))
+		return -EBUSY;
 
-	probe_ent = kzalloc(sizeof(*probe_ent), GFP_KERNEL);
-	if (probe_ent == NULL) {
-		retval = -ENOMEM;
-		goto err1;
-	}
-	probe_ent->dev = dev;
-	INIT_LIST_HEAD(&probe_ent->node);
-
-	virt_base = ioremap(phys_base, phys_size);
-	if (virt_base == NULL) {
-		retval = -ENOMEM;
-		goto err2;
-	}
-
-	mmio_base = (unsigned long)virt_base;
-
-	hpriv = kzalloc(sizeof(*hpriv), GFP_KERNEL);
-	if (!hpriv) {
-		retval = -ENOMEM;
-		goto err3;
-	}
-
-	probe_ent->sht = &stm_sata_sht;
-	probe_ent->host_flags = ATA_FLAG_SATA | ATA_FLAG_NO_LEGACY |
-				ATA_FLAG_MMIO | ATA_FLAG_SATA_RESET;
-	probe_ent->port_ops = &stm_sata_ops;
-	probe_ent->n_ports = 1;
-	probe_ent->irq = platform_get_irq(pdev, 0);
-	probe_ent->irq_flags = SA_SHIRQ;
-	probe_ent->mmio_base = virt_base;
-
-	/* We don't care much about the PIO/UDMA masks, but the core won't like us
-	 * if we don't fill these
-	 */
-	probe_ent->pio_mask = 0x1f;
-	probe_ent->mwdma_mask = 0x07;
-	probe_ent->udma_mask = 0x7f;
+	mmio_base = devm_ioremap(dev, phys_base, phys_size);
+	if (mmio_base == NULL)
+		return ENOMEM;
 
 	/* Set up the ports */
-	probe_ent->port[0].cmd_addr	= mmio_base;
-	probe_ent->port[0].data_addr	= mmio_base + SATA_CDR0;
-	probe_ent->port[0].error_addr	= mmio_base + SATA_CDR1;
-	probe_ent->port[0].feature_addr	= mmio_base + SATA_CDR1;
-	probe_ent->port[0].nsect_addr	= mmio_base + SATA_CDR2;
-	probe_ent->port[0].lbal_addr	= mmio_base + SATA_CDR3;
-	probe_ent->port[0].lbam_addr	= mmio_base + SATA_CDR4;
-	probe_ent->port[0].lbah_addr	= mmio_base + SATA_CDR5;
-	probe_ent->port[0].device_addr	= mmio_base + SATA_CDR6;
-	probe_ent->port[0].status_addr	= mmio_base + SATA_CDR7;
-	probe_ent->port[0].command_addr	= mmio_base + SATA_CDR7;
+	ap = host->ports[0];
+	ap->ioaddr.cmd_addr		= mmio_base;
+	ap->ioaddr.data_addr		= mmio_base + SATA_CDR0;
+	ap->ioaddr.error_addr		= mmio_base + SATA_CDR1;
+	ap->ioaddr.feature_addr		= mmio_base + SATA_CDR1;
+	ap->ioaddr.nsect_addr		= mmio_base + SATA_CDR2;
+	ap->ioaddr.lbal_addr		= mmio_base + SATA_CDR3;
+	ap->ioaddr.lbam_addr		= mmio_base + SATA_CDR4;
+	ap->ioaddr.lbah_addr		= mmio_base + SATA_CDR5;
+	ap->ioaddr.device_addr		= mmio_base + SATA_CDR6;
+	ap->ioaddr.status_addr		= mmio_base + SATA_CDR7;
+	ap->ioaddr.command_addr		= mmio_base + SATA_CDR7;
 
-	probe_ent->port[0].altstatus_addr	= mmio_base + SATA_CLR0;
-	probe_ent->port[0].ctl_addr		= mmio_base + SATA_CLR0;
-	probe_ent->port[0].bmdma_addr		= 0; // FIXME
-	probe_ent->port[0].scr_addr		= 0; // FIXME
-
-	probe_ent->private_data = hpriv;
+	ap->ioaddr.altstatus_addr	= mmio_base + SATA_CLR0;
+	ap->ioaddr.ctl_addr		= mmio_base + SATA_CLR0;
 
 	hpriv->phy_init = sata_private_info->phy_init;
 	hpriv->softsg = readl(mmio_base + DMAC_COMP_PARAMS_2) &
@@ -997,10 +938,10 @@ static int __init stm_sata_probe(struct device *dev)
 
 	if (sata_private_info->only_32bit) {
 		printk(KERN_DEBUG DRV_NAME " forcing all byte/word ops to long\n");
-		stm_sata_ops.readb = stm_readb;
-		stm_sata_ops.readw = stm_readw;
-		stm_sata_ops.writeb = stm_writeb;
-		stm_sata_ops.writew = stm_writew;
+		stm_ops.readb = stm_readb;
+		stm_ops.readw = stm_readw;
+		stm_ops.writeb = stm_writeb;
+		stm_ops.writew = stm_writew;
 	}
 
 	sata_rev = readl(mmio_base + SATA_VERSIONR);
@@ -1062,48 +1003,39 @@ static int __init stm_sata_probe(struct device *dev)
 
 	/* Finished hardware set up */
 
-	if (ata_device_add(probe_ent) == 0) {
-		retval = -ENODEV;
-		goto err4;
-	}
-
-	kfree(probe_ent);
-
-	return 0;
-
-err4:
-	kfree(hpriv);
-err3:
-	iounmap(virt_base);
-err2:
-	kfree(probe_ent);
-err1:
-	release_mem_region(phys_base, phys_size);
-
-	return retval;
+	return ata_host_activate(host, platform_get_irq(pdev, 0),
+				 ppi[0]->irq_handler,
+				 IRQF_SHARED, ppi[0]->sht);
 }
 
-static int stm_sata_remove(struct device *dev)
+static int stm_sata_remove(struct platform_device *pdev)
 {
 	return 0;
 }
 
-static struct device_driver stm_sata_driver = {
-	.name = "stm-sata",
-	.bus  = &platform_bus_type,
+static struct platform_driver stm_sata_driver = {
+	.driver = {
+		.name = DRV_NAME,
+		.owner = THIS_MODULE,
+	},
 	.probe = stm_sata_probe,
 	.remove = stm_sata_remove,
 };
 
 static int __init stm_sata_init(void)
 {
-	return driver_register(&stm_sata_driver);
+	return platform_driver_register(&stm_sata_driver);
 }
 
 static void __exit stm_sata_exit(void)
 {
-	driver_unregister(&stm_sata_driver);
+	platform_driver_unregister(&stm_sata_driver);
 }
 
 module_init(stm_sata_init);
 module_exit(stm_sata_exit);
+
+MODULE_AUTHOR("Stuart Menefy");
+MODULE_DESCRIPTION("low-level driver for STMicroelectronics SATA");
+MODULE_LICENSE("GPL");
+MODULE_VERSION(DRV_VERSION);

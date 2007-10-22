@@ -656,37 +656,34 @@ config I2C_PMCMSP
 
 choice
 	prompt "STMicroelectronics I2C support"
-	depends on I2C && CPU_SUBTYPE_STB7100
-
+	depends on I2C && CPU_SUBTYPE_ST40
 	help
-	  STMicroelectronics SoCs have I2C drivers exist for bit-banging using PIO pins or
-          running an I2C bus using the hardware SSC
+	  STMicroelectronics SoCs support the I2C bus using either a bit-banging
+	  PIO driver or using the hardware SSC.
 
-	config I2C_ST40_PIO
+config I2C_ST40_PIO
 	tristate "I2C bit-banging PIO driver"
 	select I2C_ALGOBIT
 	help
-
 	  If you say yes to this option, support will be included for the
-	  PIO based I2C on the STm8000, STi5528 and STb7100.
+	  PIO driven I2C in bit-banging mode.
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-st40-pio
 
-	config I2C_STM
+config I2C_STM
 	tristate "I2C hardware SSC driver"
-       	select STM_SSC
+	select STM_SSC
 	help
-
 	  If you say yes to this option, support will be included for the
-	  I2C-SSC for the STM SOCs: STi5528, STm8000 and the STb7100
+	  SSC driven I2C.
+
+endchoice
 
 config I2C_STM_HW_FIFO
 	bool "I2C hardware SSC Fifo support"
 	depends on I2C_STM
 	help
-	Enable this option to use the ssc hardware fifo support
-
-endchoice
+	  Enable this option to print out information on STM I2C (SSC) device driver
 
 endmenu

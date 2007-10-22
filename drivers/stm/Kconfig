@@ -61,7 +61,6 @@ config STB7100_FDMA
 
 config STM_SSC
        bool "STM Synchronous Serial Controller"
-       depends on !I2C_ST40_PIO
        default y
        ---help---
          This driver is required to support the I2C and the SPI
@@ -71,14 +70,14 @@ config  STM_SSC_DEBUG
 	bool "STM SSC Debug"
 	depends on STM_SSC
 	default n
-        ---help---
-        Enable this option to print out information on STM SSC device driver
+	---help---
+	  Enable this option to print out information on STM SSC device driver
 
 config STM_SPI
 	bool "STM Serial Peripheral Interface"
-	depends on STM_SSC
+	select STM_SSC
 	---help---
-	This driver is required to support the SPI Protocol
+	  This driver is required to support the SPI Protocol
 
 config  STM_SPI_DEBUG
         bool "STM SPI Debug"

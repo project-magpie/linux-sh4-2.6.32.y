@@ -11,6 +11,9 @@ struct plat_ssc_pio_t {
 	unsigned char sdinpin;
 };
 
+#define SSC_I2C_CAPABILITY  0x1
+#define SSC_SPI_CAPABILITY  0x2
+
 struct plat_ssc_data {
 	unsigned short		capability;	/* bitmask on the ssc capability */
 	struct plat_ssc_pio_t	*pio;		/* the PIO map */

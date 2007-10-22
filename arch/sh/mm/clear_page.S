@@ -51,6 +51,7 @@ ENTRY(clear_page_slow)
 	rts
 	 nop
 
+	.balign	4
 .Llimit:	.long	(PAGE_SIZE-28)
 
 #if defined(CONFIG_CPU_SH4)
@@ -239,6 +240,7 @@ ENTRY(__clear_user_page)
 	!
 	rts
 	 nop
+	.balign	4
 .Lpsz:	.long	PAGE_SIZE
 
 #endif

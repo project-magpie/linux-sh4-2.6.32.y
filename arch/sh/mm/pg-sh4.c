@@ -2,44 +2,29 @@
  * arch/sh/mm/pg-sh4.c
  *
  * Copyright (C) 1999, 2000, 2002  Niibe Yutaka
- * Copyright (C) 2002 - 2007  Paul Mundt
+ * Copyright (C) 2002 - 2005  Paul Mundt
  *
  * Released under the terms of the GNU GPL v2.0.
  */
+#include <linux/init.h>
+#include <linux/mman.h>
 #include <linux/mm.h>
-#include <linux/mutex.h>
-#include <linux/fs.h>
+#include <linux/threads.h>
+#include <asm/addrspace.h>
+#include <asm/page.h>
+#include <asm/pgtable.h>
+#include <asm/processor.h>
+#include <asm/cache.h>
+#include <asm/io.h>
+#include <asm/uaccess.h>
+#include <asm/pgalloc.h>
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 
+//extern struct semaphore p3map_sem[];
+static atomic_t concurreny_check[16];
+
 #define CACHE_ALIAS (current_cpu_data.dcache.alias_mask)
-
-static inline void *kmap_coherent(struct page *page, unsigned long addr)
-{
-	enum fixed_addresses idx;
-	unsigned long vaddr, flags;
-	pte_t pte;
-
-	inc_preempt_count();
-
-	idx = (addr & current_cpu_data.dcache.alias_mask) >> PAGE_SHIFT;
-	vaddr = __fix_to_virt(FIX_CMAP_END - idx);
-	pte = mk_pte(page, PAGE_KERNEL);
-
-	local_irq_save(flags);
-	flush_tlb_one(get_asid(), vaddr);
-	local_irq_restore(flags);
-
-	update_mmu_cache(NULL, vaddr, pte);
-
-	return (void *)vaddr;
-}
-
-static inline void kunmap_coherent(struct page *page)
-{
-	dec_preempt_count();
-	preempt_check_resched();
-}
 
 /*
  * clear_user_page
@@ -54,9 +39,31 @@ void clear_user_page(void *to, unsigned long address, struct page *page)
 	if (((address ^ (unsigned long)to) & CACHE_ALIAS) == 0)
 		__clear_page_wb(to);
 	else {
-		void *vto = kmap_coherent(page, address);
-		__clear_user_page(vto, to);
-		kunmap_coherent(vto);
+		pgprot_t pgprot = __pgprot(_PAGE_PRESENT |
+					   _PAGE_RW | _PAGE_CACHABLE |
+					   _PAGE_DIRTY | _PAGE_ACCESSED |
+					   _PAGE_HW_SHARED | _PAGE_FLAGS_HARD);
+		unsigned long phys_addr = PHYSADDR(to);
+		unsigned long p3_addr = P3SEG + (address & CACHE_ALIAS);
+		pgd_t *pgd = pgd_offset_k(p3_addr);
+		pud_t *pud = pud_offset(pgd, p3_addr);
+		pmd_t *pmd = pmd_offset(pud, p3_addr);
+		pte_t *pte = pte_offset_kernel(pmd, p3_addr);
+		pte_t entry;
+		unsigned long flags;
+
+		entry = pfn_pte(phys_addr >> PAGE_SHIFT, pgprot);
+		inc_preempt_count();
+BUG_ON(atomic_inc_return(&concurreny_check[(address & CACHE_ALIAS)>>12]) != 1);
+		set_pte(pte, entry);
+		local_irq_save(flags);
+		flush_tlb_one(get_asid(), p3_addr);
+		local_irq_restore(flags);
+		update_mmu_cache(NULL, p3_addr, entry);
+		__clear_user_page((void *)p3_addr, to);
+		pte_clear(&init_mm, p3_addr, pte);
+atomic_dec(&concurreny_check[(address & CACHE_ALIAS)>>12]);
+		dec_preempt_count();
 	}
 }
 
@@ -75,8 +82,30 @@ void copy_user_page(void *to, void *from, unsigned long address,
 	if (((address ^ (unsigned long)to) & CACHE_ALIAS) == 0)
 		__copy_page_wb(to, from);
 	else {
-		void *vfrom = kmap_coherent(page, address);
-		__copy_user_page(vfrom, from, to);
-		kunmap_coherent(vfrom);
+		pgprot_t pgprot = __pgprot(_PAGE_PRESENT |
+					   _PAGE_RW | _PAGE_CACHABLE |
+					   _PAGE_DIRTY | _PAGE_ACCESSED |
+					   _PAGE_HW_SHARED | _PAGE_FLAGS_HARD);
+		unsigned long phys_addr = PHYSADDR(to);
+		unsigned long p3_addr = P3SEG + (address & CACHE_ALIAS);
+		pgd_t *pgd = pgd_offset_k(p3_addr);
+		pud_t *pud = pud_offset(pgd, p3_addr);
+		pmd_t *pmd = pmd_offset(pud, p3_addr);
+		pte_t *pte = pte_offset_kernel(pmd, p3_addr);
+		pte_t entry;
+		unsigned long flags;
+
+		entry = pfn_pte(phys_addr >> PAGE_SHIFT, pgprot);
+		inc_preempt_count();
+BUG_ON(atomic_inc_return(&concurreny_check[(address & CACHE_ALIAS)>>12]) != 1);
+		set_pte(pte, entry);
+		local_irq_save(flags);
+		flush_tlb_one(get_asid(), p3_addr);
+		local_irq_restore(flags);
+		update_mmu_cache(NULL, p3_addr, entry);
+		__copy_user_page((void *)p3_addr, from, to);
+		pte_clear(&init_mm, p3_addr, pte);
+atomic_dec(&concurreny_check[(address & CACHE_ALIAS)>>12]);
+		dec_preempt_count();
 	}
 }

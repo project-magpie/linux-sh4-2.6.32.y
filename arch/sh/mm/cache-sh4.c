@@ -114,6 +114,9 @@ void __init p3_cache_init(void)
 	}
 
 	emit_cache_params();
+
+	if (ioremap_page_range(P3SEG, P3SEG+(PAGE_SIZE * 4), 0, PAGE_KERNEL))
+		panic("%s failed.", __FUNCTION__);
 }
 
 /*
@@ -391,6 +394,9 @@ loop_exit:
  */
 void flush_cache_mm(struct mm_struct *mm)
 {
+#if 1
+flush_cache_all();
+#else
 	/*
 	 * If cache is only 4k-per-way, there are never any 'aliases'.  Since
 	 * the cache is physically tagged, the data can just be left in there.
@@ -418,6 +424,7 @@ void flush_cache_mm(struct mm_struct *mm)
 	/* Only touch the icache if one of the VMAs has VM_EXEC set. */
 	if (mm->exec_vm)
 		flush_icache_all();
+#endif
 }
 
 /*

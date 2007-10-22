@@ -36,6 +36,12 @@ static irqreturn_t ehci_st40_irq(struct usb_hcd *hcd)
 	return retval;
 }
 
+static int ehci_st40_reset(struct usb_hcd *hcd)
+{
+	writel(AHB2STBUS_INOUT_THRESHOLD, AHB2STBUS_INSREG01);
+	return ehci_init(hcd);
+}
+
 static const struct hc_driver ehci_st40_hc_driver = {
 	.description = hcd_name,
 	.product_desc = "ST EHCI Host Controller",
@@ -50,7 +56,7 @@ static const struct hc_driver ehci_st40_hc_driver = {
 	/*
 	 * basic lifecycle operations
 	 */
-	.reset = ehci_init,
+	.reset = ehci_st40_reset,
 	.start = ehci_run,
 #ifdef	CONFIG_PM
 	.suspend = ehci_st40_suspend,

@@ -22,6 +22,8 @@
 #define AHB2STBUS_EHCI_BASE		(UHOST2C_BASE + 0x000ffe00)
 #define AHB2STBUS_PROTOCOL_BASE		(UHOST2C_BASE + 0x000fff00)
 
+#define AHB2STBUS_INSREG01		(AHB2STBUS_EHCI_BASE + 0x10 + 0x84)
+
 /* The transaction opcode is programmed in this register */
 #define AHB2STBUS_STBUS_OPC		(AHB2STBUS_PROTOCOL_BASE + 0x00)
 #define AHB2STBUS_STBUS_OPC_4BIT	0x00
@@ -72,6 +74,8 @@
 #define AHB2STBUS_STRAP_PLL		0x08	/* undocumented */
 #define AHB2STBUS_STRAP_16_BIT		0x04	/* ss_word_if */
 
+/* Define a bus wrapper IN/OUT threshold of 128 */
+#define AHB2STBUS_INOUT_THRESHOLD	0x00800080
 
 /*
  * SYSCONF stuff

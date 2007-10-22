@@ -23,12 +23,8 @@ void ST40_start_host_control(struct platform_device *dev)
 	unsigned long reg;
 	static int initialised = 0;
 
-	printk("%s\n", __FUNCTION__);
-
 	if (xchg(&initialised, 1))
 		return;
-
-	printk("%s proceeding\n", __FUNCTION__);
 
 	/* Make sure PLL is on */
 	reg = readl(SYS_CFG2);
@@ -37,9 +33,9 @@ void ST40_start_host_control(struct platform_device *dev)
 		mdelay(100);
 	}
 
-	/* Set 16 bit strap mode */
+	/* Set 8 bit strap mode */
 	reg = readl(AHB2STBUS_STRAP);
-	writel(reg | AHB2STBUS_STRAP_16_BIT, AHB2STBUS_STRAP);
+	writel(reg & (~AHB2STBUS_STRAP_16_BIT), AHB2STBUS_STRAP);
 
 	/* Start PLL */
 	reg = readl(AHB2STBUS_STRAP);
@@ -56,4 +52,7 @@ void ST40_start_host_control(struct platform_device *dev)
 
 	/* Set the Chunk Size Config to 64 packets per chunk */
 	writel(AHB2STBUS_CHUNKSIZE_64, AHB2STBUS_CHUNKSIZE);
+
+	/* Set bus wrapper packet IN/OUT threshold to 128 */
+	writel(AHB2STBUS_INOUT_THRESHOLD, AHB2STBUS_INSREG01);
 }

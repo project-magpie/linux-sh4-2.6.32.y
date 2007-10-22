@@ -210,7 +210,7 @@ struct platform_device ssc_device = {
 	}
 };
 
-#define MII_MODE		(1<<0)
+#define RMII_MODE		(1<<0)
 #define PHY_CLK_EXT		(1<<2)
 #define MAC_SPEED		(1<<4)
 #define VCI_ACK_SOURCE		(1<<6)
@@ -220,7 +220,7 @@ struct platform_device ssc_device = {
 /* Remaining bits define pad functions, default appears to work */
 
 /* ETH MAC pad configuration */
-void stx7200eth_hw_setup(int shift)
+void stx7200eth_hw_setup(int shift, int rmii_mode, int ext_clk)
 {
 	unsigned long sysconf;
 
@@ -231,21 +231,18 @@ void stx7200eth_hw_setup(int shift)
 	sysconf &= ~(VCI_ACK_SOURCE << shift);
 	sysconf |=  (RESET << shift);
 
-#ifdef CONFIG_PHY_RMII
-#ifdef CONFIG_STMMAC_EXT_CLK
-	/* RMII interface active using external clock */
-	sysconf |= (MII_MODE << shift);
-	sysconf |= (PHY_CLK_EXT << shift);
-#else
-	/* RMII interface active using internal clock */
-	sysconf |=  (MII_MODE << shift);
-	sysconf &= ~(PHY_CLK_EXT << shift);
-#endif
-#else
-	/* MII interface active using internal clock */
-	sysconf &= ~(MII_MODE << shift);
-	sysconf &= ~(PHY_CLK_EXT << shift);
-#endif
+	if (rmii_mode) {
+		sysconf |= (RMII_MODE << shift);
+	} else {
+		/* MII mode */
+		sysconf &= ~(RMII_MODE << shift);
+	}
+
+	if (ext_clk) {
+		sysconf |= (PHY_CLK_EXT << shift);
+	} else {
+		sysconf &= ~(PHY_CLK_EXT << shift);
+	}
 
 	ctrl_outl(sysconf, SYSCONF_SYS_CFG(41));
 }

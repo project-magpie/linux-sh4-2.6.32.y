@@ -102,8 +102,8 @@ void __init mb519_setup(char** cmdline_p)
 		      (1<<(16+9)) | (1<<(16+10)));
 	ctrl_outl(sysconf, SYSCONF_SYS_CFG(41));
 
-	stx7200eth_hw_setup(0);
-	stx7200eth_hw_setup(1);
+	stx7200eth_hw_setup(0, 0, 1);
+	stx7200eth_hw_setup(1, 0, 1);
 }
 
 static int __init device_init(void)

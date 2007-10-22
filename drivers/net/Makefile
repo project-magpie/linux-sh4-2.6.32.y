@@ -91,6 +91,7 @@ obj-$(CONFIG_PCMCIA_PCNET) += 8390.o
 obj-$(CONFIG_SHAPER) += shaper.o
 obj-$(CONFIG_HP100) += hp100.o
 obj-$(CONFIG_SMC9194) += smc9194.o
+obj-$(CONFIG_SMSC911x) += smsc_911x/
 obj-$(CONFIG_FEC) += fec.o
 obj-$(CONFIG_68360_ENET) += 68360enet.o
 obj-$(CONFIG_WD80x3) += wd.o 8390.o

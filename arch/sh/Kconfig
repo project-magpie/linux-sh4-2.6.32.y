@@ -314,6 +314,15 @@ config SH_ST_MB442
 	  More information at:
 	  <http://www.stlinux.com/boards/mb442/>
 
+config SH_ST_MB448
+	bool "mb448: STB7109E Reference board"
+	depends on CPU_SUBTYPE_STB7100
+	help
+	  Select STB7109E Reference if configuring for an
+	  STMicroelectronics STB7109E Reference Board (product code: STB7109E-REF,
+	  ST board ID: mb448). More information at:
+	  <http://www.stlinux.com/boards/mb448/>
+
 config SH_HP6XX
 	bool "HP6XX"
 	select SYS_SUPPORTS_APM_EMULATION
@@ -509,10 +518,17 @@ source "kernel/time/Kconfig"
 endmenu
 
 config SH_EXTERNAL_CLOCK
-	int
+	int "External clock"
 	depends on CPU_SUBTYPE_STB7100
 	default "30000000" if SH_ST_MB442
 	default "27000000"
+	help
+	  The kernel needs to know what the frequency of chip's external
+	  clock is, so that it can calculate what frequency the internal
+	  clocks are running at.
+
+	  The usual symptoms of getting this wrong are the serial port
+	  output being corrupted.
 
 config SH_FAST_HZ
 	bool "Fast kernel tick"

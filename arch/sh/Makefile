@@ -111,6 +111,7 @@ machdir-$(CONFIG_SH_ST_MB360)		+= st/mb360    st/harp-common
 machdir-$(CONFIG_SH_ST_MB374)		+= st/mb374 st/harp-common
 machdir-$(CONFIG_SH_ST_MB411)		+= st/mb411 st/harp-common
 machdir-$(CONFIG_SH_ST_MB442)		+= st/mb442
+machdir-$(CONFIG_SH_ST_MB448)		+= st/mb448
 machdir-$(CONFIG_SH_HP6XX)			+= hp6xx
 machdir-$(CONFIG_SH_DREAMCAST)			+= dreamcast
 machdir-$(CONFIG_SH_MPC1211)			+= mpc1211

@@ -539,13 +539,16 @@ static struct resource ssc_resource[] = {
 };
 
 static struct plat_ssc_pio_t ssc_pio[] = {
-        {2, 0, 2, 1, 2, 2},
-        {3, 0, 3, 1, 3, 2},
-        {4, 0, 4, 1, 0xff, 0xff},
+	{2, 0, 2, 1, 0xff, 0xff},
+	{3, 0, 3, 1, 3, 2},
+	{4, 0, 4, 1, 0xff, 0xff},
 };
 static struct plat_ssc_data ssc_private_info = {
-         .capability  = 0x1f,
-         .pio         = ssc_pio
+	.capability  =
+		(SSC_I2C_CAPABILITY << (0*2)) |
+		((SSC_SPI_CAPABILITY | SSC_I2C_CAPABILITY) << (1*2)) |
+		(SSC_I2C_CAPABILITY << (2*2)),
+	.pio         = ssc_pio
 };
 struct platform_device ssc_device = {
         .name = "ssc",

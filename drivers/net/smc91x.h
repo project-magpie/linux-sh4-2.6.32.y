@@ -288,7 +288,7 @@ SMC_outw(u16 val, void __iomem *ioaddr, int reg)
 #endif
 
 #define SMC_NOWAIT		0
-#undef  SMC_USE_PXA_DMA
+#define SMC_IRQ_FLAGS		0
 
 #ifdef SMC_STEM_BS_MASK
 /*

@@ -40,6 +40,8 @@ struct asc_port
 #define ASC_NPORTS             2
 #elif defined(CONFIG_CPU_SUBTYPE_STB7100)
 #define ASC_NPORTS             2
+#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
+#define ASC_NPORTS             2
 #else
 #error "Unknown CPU"
 #endif

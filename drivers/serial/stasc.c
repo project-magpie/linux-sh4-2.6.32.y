@@ -377,6 +377,37 @@ struct asc_port asc_ports[ASC_NPORTS] = {
 		.pio_port	= 5,
 		.pio_pin	= {0, 1, 2, 3},
 	},
+#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
+	/* UART2 */
+	{
+		.port	= {
+			.membase	= (void *)0xfd032000,
+			.mapbase	= 0xfd032000,
+			.iotype		= SERIAL_IO_MEM,
+			.irq		= 106+MUXED_IRQ_BASE,
+			.ops		= &asc_uart_ops,
+			.flags		= ASYNC_BOOT_AUTOCONF,
+			.fifosize	= FIFO_SIZE,
+			.line		= 0,
+		},
+		.pio_port	= 4,
+		.pio_pin	= {3, 2, 4, 5},
+	},
+	/* UART3 */
+	{
+		.port	= {
+			.membase	= (void *)0xfd033000,
+			.mapbase	= 0xfd033000,
+			.iotype		= SERIAL_IO_MEM,
+			.irq		= 107+MUXED_IRQ_BASE,
+			.ops		= &asc_uart_ops,
+			.flags		= ASYNC_BOOT_AUTOCONF,
+			.fifosize	= FIFO_SIZE,
+			.line		= 1,
+		},
+		.pio_port	= 5,
+		.pio_pin	= {4, 3, 5, 6},
+	},
 #else
 #error "ASC error: CPU subtype not defined"
 #endif
@@ -434,10 +465,7 @@ static int asc_set_baud (struct uart_port *port, int baud)
 	struct clk *clk;
 	unsigned long rate;
 
-	clk = clk_get(NULL, "comms_clk");
-	if (IS_ERR(clk)) clk = clk_get(NULL, "bus_clk");
-	rate = clk_get_rate(clk);
-	clk_put(clk);
+	rate = port->uartclk;
 
 	if (baud < 19200) {
 		t = BAUDRATE_VAL_M0(baud, rate);

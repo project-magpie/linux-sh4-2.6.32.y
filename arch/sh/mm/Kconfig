@@ -168,10 +168,16 @@ config CPU_SUBTYPE_ST40GX1
 	  Select ST40GX1 if you have a ST40GX1 CPU.
 
 config CPU_SUBTYPE_STB7100
-       bool "STb710x"
+	bool "STb710x"
 	select CPU_SUBTYPE_ST40
 	help
 	  Select STB7100 if you have an STb7100 or STb7109 CPU.
+
+config CPU_SUBTYPE_STX7200
+	bool "Support STx7200"
+	select CPU_SUBTYPE_ST40
+	help
+	  Select STx7200 if you have an STx7200 CPU.
 
 # SH-4A Processor Support
 

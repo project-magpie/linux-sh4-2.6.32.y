@@ -42,6 +42,10 @@
 
 #define NR_SSC_BUSSES 3
 
+#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
+
+#define NR_SSC_BUSSES 5
+
 #else
 #error Need to configure the right SSC number devices on this chip
 #endif

@@ -341,6 +341,15 @@ config SH_HMS1
 	  More information at:
 	  <http://www.linuxsh.st.com/boards/hms1/>
 
+config SH_ST_MB519
+	bool "mb519: STx7200 Mboard"
+	depends on CPU_SUBTYPE_STX7200
+	help
+	  Select SH_ST_MB519 if configuring for an
+	  STMicroelectronics STx7200 Mboard (product code: STB7200-MBOARD,
+	  ST board ID: mb519). More information at:
+	  <http://www.stlinux.com/boards/mb519/>
+
 config SH_HP6XX
 	bool "HP6XX"
 	select SYS_SUPPORTS_APM_EMULATION
@@ -537,7 +546,7 @@ endmenu
 
 config SH_EXTERNAL_CLOCK
 	int "External clock"
-	depends on CPU_SUBTYPE_STB7100
+	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200
 	default "30000000" if SH_ST_MB442
 	default "27000000"
 	help

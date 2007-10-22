@@ -43,6 +43,8 @@
 #define STPIO_NPORTS 3
 #elif defined(CONFIG_CPU_SUBTYPE_STB7100)
 #define STPIO_NPORTS 6
+#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
+#define STPIO_NPORTS 8
 #else
 #error Unknown CPU
 #endif
@@ -88,6 +90,15 @@ static const struct stpio_port stpio_port_conf[STPIO_NPORTS] = {
 	{0xb8023000, 115 },
 	{0xb8024000, 114 },
 	{0xb8025000, 113 },
+#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
+	{0xfd020000, 96+MUXED_IRQ_BASE },
+	{0xfd021000, 97+MUXED_IRQ_BASE },
+	{0xfd022000, 98+MUXED_IRQ_BASE },
+	{0xfd023000, 99+MUXED_IRQ_BASE },
+	{0xfd024000, 100+MUXED_IRQ_BASE },
+	{0xfd025000, 101+MUXED_IRQ_BASE },
+	{0xfd026000, 102+MUXED_IRQ_BASE },
+	{0xfd027000, 103+MUXED_IRQ_BASE },
 #else
 #error Unknown CPU
 #endif
@@ -349,7 +360,7 @@ static int __init stpio_init(void)
 	}
 
 #ifdef CONFIG_PROC_FS
-	if ((proc_stpio = create_proc_entry( "stpio", 0, proc_root_driver )))
+	if ((proc_stpio = create_proc_entry( "stpio", 0, NULL )))
 		proc_stpio->read_proc = stpio_read_proc;
 #endif
 
@@ -365,7 +376,7 @@ static void __exit stpio_exit(void)
 
 #ifdef CONFIG_PROC_FS
 	if (proc_stpio)
-		remove_proc_entry( "stpio", proc_root_driver);
+		remove_proc_entry( "stpio", NULL );
 #endif
 
 	for (portno=0; portno<STPIO_NPORTS; portno++) {

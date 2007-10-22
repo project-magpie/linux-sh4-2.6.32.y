@@ -20,6 +20,8 @@
 #define ILC_BASE_ADDR		0xba000000
 #elif defined(CONFIG_CPU_SUBTYPE_STB7100)
 #define ILC_BASE_ADDR		0xb8000000
+#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
+#define ILC_BASE_ADDR		0xfd804000
 #else
 #error "ILC has to be interfaced by ST40 on: STm8000 and STi5528!"
 #endif

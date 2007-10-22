@@ -24,6 +24,7 @@ obj-$(CONFIG_CPU_SUBTYPE_STB7100)	+= setup-stb7100.o
 ifndef CONFIG_CPU_SH4A
 clock-$(CONFIG_CPU_SH4)			:= clock-sh4.o
 clock-$(CONFIG_CPU_SUBTYPE_STB7100)	:= clock-stb7100.o
+clock-$(CONFIG_CPU_SUBTYPE_STX7200)	:= clock-stx7200.o
 endif
 
 # Additional clocks by subtype

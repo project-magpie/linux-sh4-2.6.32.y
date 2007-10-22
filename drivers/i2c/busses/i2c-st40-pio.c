@@ -91,6 +91,14 @@ static pio_address i2c_address[NR_I2C_BUSSES] = {
 
 #endif
 
+#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
+
+#define NR_I2C_BUSSES 2
+static pio_address i2c_address[NR_I2C_BUSSES] = {
+       {4,0,4,1},
+       {7,6,7,7},
+};
+
 #else
 #error Need to configure the default I2C pins for this chip
 #endif

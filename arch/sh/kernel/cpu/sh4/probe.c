@@ -165,6 +165,12 @@ int __init detect_cpu_and_cache_system(void)
 		cpu_data->icache.ways = 2;
 		cpu_data->dcache.ways = 2;
 		break;
+	case 0x690:
+		cpu_data->type = CPU_STX7200;
+		cpu_data->icache.ways = 2;
+		cpu_data->dcache.ways = 2;
+		cpu_data->flags |= CPU_HAS_FPU;
+		break;
 	case 0x500 ... 0x501:
 		switch (prr) {
 		case 0x10:

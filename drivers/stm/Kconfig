@@ -87,6 +87,19 @@ config  STM_SPI_DEBUG
         ---help---
         Enable this option to print out information on STM SPI device driver
 
+config STM_SPI_CHAR_DEV
+	bool "STM SPI: add char device interface"
+	depends on STM_SPI
+	---help---
+	Enable this option to add the device file interface
+
+config STM_SPI_HW_FIFO
+	bool "STM SPI: hardware Fifo support"
+	depends on STM_SPI
+	---help---
+	Enable this option to add the ssc-hardware fifo support
+
+
 choice
 	prompt "STMicroelectronics coprocessor support"
         depends on CPU_SUBTYPE_STM8000 || CPU_SUBTYPE_STB7100

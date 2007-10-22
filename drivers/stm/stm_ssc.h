@@ -72,7 +72,7 @@
 #define SSC_IEN_NACKEN		0x400
 #define SSC_IEN_REPSTRTEN	0x800
 #define SSC_IEN_TX_FIFO_HALF	0x1000
-#define SSC_IEN_RX_FIFO_FULL	0x4000
+#define SSC_IEN_RX_FIFO_HALF_FULL	0x4000
 
 /* SSC Status */
 #define SSC_STA                   0x14

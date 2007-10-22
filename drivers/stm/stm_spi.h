@@ -31,6 +31,36 @@
 #ifndef STM_SPI
 #define STM_SPI
 
+#define SPI_IOCTL_WIDEFRAME     0x01
+#define SPI_ARG_WIDE_16BITS     0x01
+#define SPI_ARG_WIDE_8BITS      0x00
+
+#define SPI_IOCTL_PHASE         0x02
+#define SPI_ARG_PHASE_HIGH      0x01
+#define SPI_ARG_PHASE_LOW       0x00
+
+#define SPI_IOCTL_POLARITY      0x04
+#define SPI_ARG_POLARITY_HIGH   0x01
+#define SPI_ARG_POLARIT_LOWY    0x00
+
+#define SPI_IOCTL_HEADING       0x08
+#define SPI_ARG_HEADING_MSB     0x01
+#define SPI_ARG_HEADING_LSB     0x00
+
+#define SPI_IOCTL_CSACTIVE      0x10
+#define SPI_ARG_CSACTIVE_HIGH   0x01
+#define SPI_ARG_CSACTIVE_LOW    0x00
+
+#define SPI_IOCTL_BUADRATE      0x20
+
+#define SPI_IOCTL_ADDRESS       0x40
+
+#define SPI_IOCTL_TIMEOUT       0x80
+
+/*#define SPI_IOCTL_NOSELECTION   0x100*/
+
+
+#ifdef __KERNEL__
 #include "stm_ssc.h"
 #include <linux/device.h>
 
@@ -43,6 +73,31 @@ struct spi_device_t {
 	unsigned int idx_dev;
         unsigned int dev_type; /* SPI_DEV_BUS_ADAPTER xor SPI_DEV_CLIENT_ADAPTER*/
 	struct device dev;
+	struct class_device *class_dev;
 };
+
+struct spi_client_t {
+	struct spi_device_t *dev;       /* the bus device used */
+	struct stpio_pin *pio_chip;
+	char *wr_buf;
+	char *rd_buf;
+	unsigned long config;		/* the clinet configuration */
+	unsigned long timeout;
+};
+
+struct spi_client_t* spi_create_client(int bus_number);
+
+int spi_client_release(struct spi_client_t* spi);
+
+int spi_client_control(struct spi_client_t* spi, int cmd, int arg);
+
+int spi_write(struct spi_client_t* spi, char *wr_buffer, size_t count);
+
+int spi_read(struct spi_client_t* spi, char *rd_buffer, size_t count);
+
+int spi_write_then_read(struct spi_client_t* spi,char *wr_buffer,
+			char *rd_buffer, size_t count);
+
+#endif
 
 #endif

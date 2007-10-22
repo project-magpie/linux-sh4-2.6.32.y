@@ -3,28 +3,15 @@
    stm_spi.c
    -------------------------------------------------------------------------
    STMicroelectronics
-
-
+   Version: 2.0 (1 April 2007)
    ----------------------------------------------------------------------------
+   May be copied or modified under the terms of the GNU General Public
+   License.  See linux/COPYING for more information.
 
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 2 of the License, or
-    (at your option) any later version.
+   ------------------------------------------------------------------------- */
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, wrssc to the Free Software
-    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.		     */
-/* ------------------------------------------------------------------------- */
 #include "stm_spi.h"
-#include "stm_spi_ioctl.h"
 #include <linux/stm/pio.h>
-#include <linux/vmalloc.h>
 #include <asm/semaphore.h>
 #include <linux/config.h>
 #include <linux/module.h>
@@ -33,7 +20,6 @@
 #include <linux/fs.h>
 #include <asm/uaccess.h>
 #include <asm/param.h>		/* for HZ */
-
 
 #undef dgb_print
 
@@ -63,24 +49,12 @@
 enum spi_state_machine_e {
 	SPI_FSM_VOID = 0,
 	SPI_FSM_PREPARE,
-	SPI_FSM_RUNNING_8BITS,
-	SPI_FSM_RUNNING_16BITS,
+	SPI_FSM_RUNNING,
 	SPI_FSM_STOP,
 	SPI_FSM_COMPLETE,
 	SPI_FSM_ABORT
 };
 
-struct spi_client_t {
-	struct spi_device_t *dev;	/* the bus device used */
-	struct stpio_pin *pio_chip;
-	enum spi_state_machine_e state;
-	enum spi_state_machine_e next_state;
-	unsigned int msg_length;	// in bytes
-	unsigned int idx_write;
-	unsigned int idx_read;
-	char *buf_write;
-	char *buf_read;
-	unsigned long timeout;
 #define SPI_PHASE_MASK            0x01
 #define SPI_PHASE_HIGH            0x01
 #define SPI_PHASE_LOW             0x00
@@ -121,13 +95,15 @@ struct spi_client_t {
  *  [ 31: BAUDRATE  :16]
  *
  */
-	unsigned int virtual_configuration;
+
+struct spi_transaction_t {
+	struct spi_client_t *client;	/* the transaction's owner */
+	enum spi_state_machine_e state;
+	enum spi_state_machine_e next_state;
+	unsigned int msg_length;
+	unsigned int idx_write;
+	unsigned int idx_read;
 };
-
-#define SPI_MAJOR_NUMBER 98
-
-#define SPI_RDWR_OFFSET   8
-static struct cdev spi_char_dev;
 
 /*
  *  In this way i can manage no more than 5 bus spi
@@ -146,43 +122,42 @@ struct spi_device_t *spi_busses_array[MAX_NUMBER_SPI_BUSSES];
  * or the spi_busses list
  */
 
-#define spi_malloc(size)     vmalloc(size)
-#define spi_free(addr)       vfree(addr)
+#define jump_on_fsm_complete(trsc)	{ (trsc)->state = SPI_FSM_COMPLETE;	\
+					 goto be_fsm_complete;}
 
-#define jump_on_fsm_complete()     { spi->state = SPI_FSM_COMPLETE;    \
-                                      goto be_fsm_complete;       }
+#define jump_on_fsm_abort(trsc)		{ (trsc)->state = SPI_FSM_ABORT;	\
+					 goto be_fsm_abort;}
 
-void spi_algo_state_machine(struct spi_client_t *spi)
+void spi_state_machine(struct spi_transaction_t *transaction)
 {
-
-   struct device *dev    = spi->dev->dev.parent;
-   struct ssc_t *ssc_bus = container_of(dev,struct ssc_t,dev);
+	struct spi_client_t *client = transaction->client;
+	struct ssc_t *ssc_bus = container_of(client->dev->dev.parent, struct ssc_t,dev);
 	unsigned short status;
-   unsigned int   idx;
-   unsigned short tx_fifo_status;
-   unsigned short rx_fifo_status;
-	unsigned int config = spi->virtual_configuration;
+	short tx_fifo_status;
+	short rx_fifo_status;
+	unsigned int config = client->config;
 	unsigned int phase, polarity;
-	unsigned int hb, frame_size;
-	unsigned char ctmp;
+	unsigned int hb;
+	unsigned int wide_frame = (config & SPI_WIDE_MASK) ? 1 : 0;
 
 	union {
 		char bytes[2];
 		short word;
-	} tmp;
+	} tmp = {.word = 0,};
 
-	tmp.word = 0;
-	spi->state = spi->next_state;
+	transaction->state = transaction->next_state;
 
-	switch (spi->state) {
+	switch (transaction->state) {
 	case SPI_FSM_PREPARE:
-	   dgb_print("-SPI_FSM_PREPARE\n");
-		spi->idx_write = 0;
-		spi->idx_read = 0;
-		phase = ((config & SPI_PHASE_MASK) ? 1 : 0);
+		dgb_print("-SPI_FSM_PREPARE\n");
+		phase    = ((config & SPI_PHASE_MASK) ? 1 : 0);
 		polarity = ((config & SPI_POLARITY_MASK) ? 1 : 0);
-		hb = ((config & SPI_MSB_MASK) ? 1 : 0);
-		frame_size = ((config & SPI_WIDE_MASK) ? 1 : 0) * 0x8 + 0x7;
+		hb       = ((config & SPI_MSB_MASK) ? 1 : 0);
+		wide_frame = ((config & SPI_WIDE_MASK) ? 1 : 0) * 0x8 + 0x7;
+
+		stpio_set_pin(ssc_bus->pio_clk, STPIO_OUT);
+		stpio_set_pin(ssc_bus->pio_data, STPIO_OUT);
+		stpio_set_pin(ssc_bus->pio_data, STPIO_IN);
 
 		ssc_store16(ssc_bus, SSC_BRG,
 			    (config & SPI_BAUDRATE_MASK) >> SPI_BAUDRATE_SHIFT);
@@ -195,63 +170,105 @@ void spi_algo_state_machine(struct spi_client_t *spi)
 #ifdef SPI_LOOP_DEBUG
 			    SSC_CTL_LPB |
 #endif
-			    frame_size);
-		tmp.bytes[0] = spi->buf_write[spi->idx_write++];
+#ifdef CONFIG_STM_SPI_HW_FIFO
+			    SSC_CTL_EN_TX_FIFO | SSC_CTL_EN_RX_FIFO |
+#endif
+			    wide_frame);
 
-		spi->next_state = SPI_FSM_RUNNING_8BITS;
-		if (frame_size > 0x7) {
-			spi->next_state = SPI_FSM_RUNNING_16BITS;
-
-			ctmp = tmp.bytes[0];
-			tmp.bytes[0] = spi->buf_write[spi->idx_write++];
-			tmp.bytes[1] = ctmp;
+		transaction->next_state = SPI_FSM_RUNNING;
+		ssc_load16(ssc_bus, SSC_RBUF);	/* only to clear the status register */
+#ifdef CONFIG_STM_SPI_HW_FIFO
+		for (tx_fifo_status = 0;
+		     tx_fifo_status < SSC_TXFIFO_SIZE - 1 &&
+		     transaction->idx_write < transaction->msg_length;
+		     ++tx_fifo_status)
+#endif
+		{
+			if (wide_frame > 0x7) {
+				dgb_print(" Writing %c %c\n",
+					  client->wr_buf[transaction->
+							 idx_write * 2],
+					  client->wr_buf[transaction->
+							 idx_write * 2 + 1]);
+				tmp.bytes[1] =
+				    client->wr_buf[transaction->idx_write * 2];
+				tmp.bytes[0] =
+				    client->wr_buf[transaction->idx_write * 2 +
+						   1];
+			} else {
+				dgb_print(" Writing %c\n",
+					  client->wr_buf[transaction->
+							 idx_write]);
+				tmp.bytes[0] =
+				    client->wr_buf[transaction->idx_write];
+			}
+			++transaction->idx_write;
+			ssc_store16(ssc_bus, SSC_TBUF, tmp.word);
 		}
-	   ssc_load16(ssc_bus, SSC_RBUF);/* only to clear the status register */
-		ssc_store16(ssc_bus, SSC_TBUF, tmp.word);
 		ssc_store16(ssc_bus, SSC_IEN, SSC_IEN_TEEN | SSC_IEN_RIEN);
-
 		break;
 
-	case SPI_FSM_RUNNING_8BITS:
-		dgb_print(" SPI_FSM_RUNNING:\n");
+	case SPI_FSM_RUNNING:
+		status = ssc_load16(ssc_bus, SSC_STA);
+		dgb_print(" SPI_FSM_RUNNING 0x%x\n", status);
+#ifndef CONFIG_STM_SPI_HW_FIFO
+		if ((status & SSC_STA_RIR) &&
+		    transaction->idx_read < transaction->msg_length) {
+#else
+		for (rx_fifo_status = ssc_load16(ssc_bus, SSC_RX_FSTAT);
+		     rx_fifo_status &&
+		     transaction->idx_read < transaction->msg_length;
+		     --rx_fifo_status) {
+#endif
+			tmp.word = ssc_load16(ssc_bus, SSC_RBUF);
+			if (wide_frame) {
+				client->rd_buf[transaction->idx_read * 2] =
+				    tmp.bytes[1];
+				client->rd_buf[transaction->idx_read * 2 + 1] =
+				    tmp.bytes[0];
+				dgb_print(" Reading: %c %c\n", tmp.bytes[1],
+					  tmp.bytes[0]);
+			} else {
+				client->rd_buf[transaction->idx_read] =
+				    tmp.bytes[0];
+				dgb_print(" Reading: %c\n", tmp.bytes[0]);
+			}
+			++transaction->idx_read;
+		}
+#ifndef CONFIG_STM_SPI_HW_FIFO
+		if ((status & SSC_STA_TIR)
+		    && transaction->idx_write < transaction->msg_length) {
+#else
+		for (tx_fifo_status = ssc_load16(ssc_bus, SSC_TX_FSTAT);
+		     tx_fifo_status < SSC_TXFIFO_SIZE - 1 &&
+		     transaction->idx_write < transaction->msg_length;
+		     ++tx_fifo_status) {
+#endif
+			if (wide_frame) {
+				dgb_print(" Writing %c %c\n",
+					  client->wr_buf[transaction->
+							 idx_write * 2],
+					  client->wr_buf[transaction->
+							 idx_write * 2 + 1]);
+				tmp.bytes[1] =
+				    client->wr_buf[transaction->idx_write * 2];
+				tmp.bytes[0] =
+				    client->wr_buf[transaction->idx_write * 2 +
+						   1];
+			} else {
+				dgb_print(" Writing %c\n",
+					  client->wr_buf[transaction->
+							 idx_write]);
+				tmp.bytes[0] =
+				    client->wr_buf[transaction->idx_write];
+			}
+			++transaction->idx_write;
+			ssc_store16(ssc_bus, SSC_TBUF, tmp.word);
+		}
 
-		status = ssc_load16(ssc_bus, SSC_STA);
-		if ((status & SSC_STA_RIR) && spi->idx_read < spi->msg_length) {
-			tmp.word = ssc_load16(ssc_bus, SSC_RBUF);
-			spi->buf_read[spi->idx_read++] = tmp.bytes[0];
-			dgb_print(" Reading: %c\n", tmp.bytes[0]);
-		}
-		if ((status & SSC_STA_TIR) && spi->idx_write < spi->msg_length) {
-                	dgb_print(" Writeing %c\n",
-				spi->buf_write[spi->idx_write]);
-			tmp.bytes[0] = spi->buf_write[spi->idx_write++];
-			ssc_store16(ssc_bus, SSC_TBUF, tmp.word);
-		}
-		if (spi->idx_write >= spi->msg_length
-		    && spi->idx_read >= spi->msg_length)
-			jump_on_fsm_complete();
-		break;
-	case SPI_FSM_RUNNING_16BITS:
-		dgb_print(" SPI_FSM_RUNNING_16BITS\n");
-		status = ssc_load16(ssc_bus, SSC_STA);
-		if ((status & SSC_STA_RIR) && spi->idx_read < spi->msg_length) {
-			tmp.word = ssc_load16(ssc_bus, SSC_RBUF);
-			spi->buf_read[spi->idx_read++] = tmp.bytes[1];
-			spi->buf_read[spi->idx_read++] = tmp.bytes[0];
-			dgb_print(" Reading: %c %c\n", tmp.bytes[1],
-				tmp.bytes[0]);
-		}
-		if ((status & SSC_STA_TIR) && spi->idx_write < spi->msg_length) {
-			dgb_print(" Writeing %c %c\n",
-				spi->buf_write[spi->idx_write],
-				spi->buf_write[spi->idx_write + 1]);
-			tmp.bytes[1] = spi->buf_write[spi->idx_write++];
-			tmp.bytes[0] = spi->buf_write[spi->idx_write++];
-			ssc_store16(ssc_bus, SSC_TBUF, tmp.word);
-		}
-		if (spi->idx_write >= spi->msg_length
-		    && spi->idx_read >= spi->msg_length)
-			jump_on_fsm_complete();
+		if (transaction->idx_write >= transaction->msg_length &&
+		    transaction->idx_read >= transaction->msg_length)
+			jump_on_fsm_complete(transaction);
 		break;
 	case SPI_FSM_COMPLETE:
 	      be_fsm_complete:
@@ -267,282 +284,215 @@ void spi_algo_state_machine(struct spi_client_t *spi)
 	return;
 }
 
-#define chip_asserted() if ( spi->virtual_configuration & SPI_CSACTIVE_MASK ) \
-                             stpio_set_pin(spi->pio_chip, 0x1);               \
-                        else stpio_set_pin(spi->pio_chip, 0x0);
+#define chip_asserted(client) if ((client)->config & SPI_CSACTIVE_MASK )	\
+			     stpio_set_pin((client)->pio_chip, 0x1);		\
+			else stpio_set_pin((client)->pio_chip, 0x0);
 
-#define chip_deasserted() if ( spi->virtual_configuration & SPI_CSACTIVE_MASK ) \
-                               stpio_set_pin(spi->pio_chip, 0x0);               \
-                          else stpio_set_pin(spi->pio_chip, 0x1);
+#define chip_deasserted(client) if ((client)->config & SPI_CSACTIVE_MASK )	\
+			       stpio_set_pin((client)->pio_chip, 0x0);		\
+			  else stpio_set_pin((client)->pio_chip, 0x1);
 
-static ssize_t spi_cdev_read(struct file *filp,
-			     char __user * buff, size_t count, loff_t * offp)
+int spi_write(struct spi_client_t *client, char *wr_buffer, size_t count)
 {
-	struct spi_client_t *spi = (struct spi_client_t *)filp->private_data;
-        struct device *dev = spi->dev->dev.parent;
-	struct ssc_t *ssc_bus = container_of(dev,struct ssc_t,dev);
-	unsigned int local_flag;
+	unsigned long flag;
+	int timeout;
+	int result = (int)count;
+	struct ssc_t *ssc_bus =
+		container_of(client->dev->dev.parent, struct ssc_t, dev);
+	struct spi_transaction_t transaction = {.client = client,
+		.msg_length = count,
+		.next_state = SPI_FSM_PREPARE,
+		.idx_write = 0,
+		.idx_read = 0,
+	};
+	dgb_print("\n");
 
-	if (spi->pio_chip == NULL)
+	if (client->pio_chip == NULL)
 		return -ENODATA;
 
-	if (spi->virtual_configuration & SPI_FULLDUPLEX_MASK) {
-/*
- * In FullDuplex Mode
- * The Datas are already ready...
- */
-		if (spi->buf_read == NULL)
-			return 0;
-		dgb_print("Reading in FullD\n");
-		copy_to_user(buff, spi->buf_read, spi->msg_length);
-		spi_free(spi->buf_read);
-		spi->buf_read = NULL;
-		return spi->msg_length;
+	ssc_request_bus(ssc_bus, spi_state_machine, (void *)&transaction);
+	chip_asserted(client);
+
+	client->rd_buf = kmalloc(count, GFP_KERNEL);
+	client->wr_buf = wr_buffer;
+	if (client->config & SPI_WIDE_MASK)
+		transaction.msg_length >>= 1;
+
+	spi_state_machine(&transaction);
+	timeout = wait_event_interruptible_timeout(ssc_bus->wait_queue,
+						   (transaction.state == SPI_FSM_COMPLETE),
+						   client->timeout * HZ);
+	if (timeout <= 0) {
+		/* Terminate transaction */
+		local_irq_save(flag);
+		transaction.next_state = SPI_FSM_COMPLETE;
+		spi_state_machine(&transaction);
+		local_irq_restore(flag);
+
+		if (!timeout) {
+			printk(KERN_ERR "stm_spi: timeout during SPI write\n");
+			result = -ETIMEDOUT;
+		} else {
+			dgb_print
+			    ("stm_spi: interrupt or error in wait event\n");
+			result = timeout;
+		}
 	}
 
+	chip_deasserted(client);
+	ssc_release_bus(ssc_bus);
+	kfree(client->rd_buf);
+	client->rd_buf = NULL;
+	client->wr_buf = NULL;
+	return result;
+}
+
+int spi_read(struct spi_client_t *client, char *rd_buffer, size_t count)
+{
+	unsigned long flag;
+	int timeout;
+	int result = (int)count;
+	struct ssc_t *ssc_bus =
+		container_of(client->dev->dev.parent, struct ssc_t, dev);
+	unsigned int wide_frame =
+	    (client->config & SPI_WIDE_MASK) ? 1 : 0;
+	struct spi_transaction_t transaction = {.client = client,
+		.msg_length = count,
+		.next_state = SPI_FSM_PREPARE,
+		.idx_write = 0,
+		.idx_read = 0,
+	};
 	/*
 	 * the first step is request the bus access
 	 */
-	ssc_request_bus(ssc_bus, spi_algo_state_machine, (void *)spi);
+	ssc_request_bus(ssc_bus, spi_state_machine, (void *)&transaction);
 
-	chip_asserted();
+	chip_asserted(client);
 
 #ifdef SPI_LOOP_DEBUG
 #define DUMMY   "dummy_string_only_for_test"
 	count = strlen(DUMMY);
 #endif
 
-	dgb_print("Reading in Half/D %d bytes\n", count);
-	spi->buf_read = (char *)spi_malloc(count+SPI_RDWR_OFFSET);
-        spi->buf_write = spi->buf_read+SPI_RDWR_OFFSET;
-	spi->msg_length = count;
+	client->rd_buf = rd_buffer;
+	client->wr_buf = (char *)kmalloc(count, GFP_KERNEL);
 
 #ifdef SPI_LOOP_DEBUG
-	strcpy(spi->buf_write, DUMMY);
+	strcpy(client->wr_buf, DUMMY);
 #endif
 
-	spi->next_state = SPI_FSM_PREPARE;
-	local_irq_save(local_flag);
-
 /*
- *  When the data frame is 16 bits lenght
- *  the msg_length must be %2=0
+ *  When the data frame is 16 bits long
+ *  then msg_length must be %2=0
  *
  */
-	if (spi->virtual_configuration & SPI_WIDE_MASK)
-		spi->msg_length &= ~0x1;
+	if (wide_frame)
+		transaction.msg_length >>= 1;	// frame oriented
 
-	spi_algo_state_machine(spi);
-	interruptible_sleep_on_timeout(&(ssc_bus->wait_queue),
-				       spi->timeout * HZ);
-	local_irq_restore(local_flag);
+	spi_state_machine(&transaction);
+	timeout = wait_event_interruptible_timeout(ssc_bus->wait_queue,
+						   (transaction.state == SPI_FSM_COMPLETE),
+						   client->timeout * HZ);
 
-	chip_deasserted();
+	if (timeout <= 0) {
+		/* Terminate transaction */
+		local_irq_save(flag);
+		transaction.next_state = SPI_FSM_COMPLETE;
+		spi_state_machine(&transaction);
+		local_irq_restore(flag);
+
+		if (!timeout) {
+			printk(KERN_ERR "stm_spi: timeout during SPI read\n");
+			result = -ETIMEDOUT;
+		} else {
+			dgb_print
+			    ("stm_spi: interrupt or error in read wait event\n");
+			result = timeout;
+		}
+	}
+
+	chip_deasserted(client);
 
 	ssc_release_bus(ssc_bus);
-	copy_to_user(buff, spi->buf_read, count);
-	spi_free(spi->buf_read);
-	spi->buf_read = NULL;
-	spi->buf_write = NULL;
-	return count;
+	kfree(client->wr_buf);
+	client->rd_buf = NULL;
+	client->wr_buf = NULL;
+	return result;
 }
 
-static ssize_t spi_cdev_write(struct file *filp,
-			      const char __user * buff,
-			      size_t count, loff_t * offp)
+int spi_write_then_read(struct spi_client_t *client, char *wr_buffer,
+			char *rd_buffer, size_t count)
 {
-	struct spi_client_t *spi = (struct spi_client_t *)filp->private_data;
-        struct device *dev = spi->dev->dev.parent;
-	struct ssc_t *ssc_bus = container_of(dev,struct ssc_t,dev);
-	unsigned int local_flag;
+	unsigned long flag;
+	int timeout;
+	int result = (int)count;
+	struct ssc_t *ssc_bus =
+		container_of(client->dev->dev.parent, struct ssc_t, dev);
+	struct spi_transaction_t transaction = {.client = client,
+		.msg_length = count,
+		.next_state = SPI_FSM_PREPARE,
+		.idx_write = 0,
+		.idx_read = 0,
+	};
 	dgb_print("\n");
 
-	if (spi->pio_chip == NULL)
+	if (client->pio_chip == NULL)
 		return -ENODATA;
 
-	ssc_request_bus(ssc_bus, spi_algo_state_machine, (void *)spi);
+	ssc_request_bus(ssc_bus, spi_state_machine, (void *)&transaction);
 
-	chip_asserted();
+	chip_asserted(client);
 
-	if (spi->buf_read != NULL)
-		spi_free(spi->buf_read);
+	client->rd_buf = rd_buffer;
+	client->wr_buf = wr_buffer;
 
-	spi->buf_read  = spi_malloc(count+SPI_RDWR_OFFSET);
-        spi->buf_write = spi->buf_read+SPI_RDWR_OFFSET;
+	if (client->config & SPI_WIDE_MASK)
+		transaction.msg_length >>= 1;	// frame oriented...
 
-	spi->msg_length = count;
-	if (spi->virtual_configuration & SPI_WIDE_MASK)
-		spi->msg_length &= ~0x1;
+	spi_state_machine(&transaction);
+	timeout = wait_event_interruptible_timeout(ssc_bus->wait_queue,
+						  (transaction.state == SPI_FSM_COMPLETE),
+						  client->timeout * HZ);
+	if (timeout <= 0) {
+		/* Terminate transaction */
+		local_irq_save(flag);
+		transaction.next_state = SPI_FSM_COMPLETE;
+		spi_state_machine(&transaction);
+		local_irq_restore(flag);
 
-	copy_from_user(spi->buf_write, buff, spi->msg_length);
+		if (!timeout) {
+			printk(KERN_ERR "stm_spi: timeout during SPI read\n");
+			result = -ETIMEDOUT;
+		} else {
+			dgb_print
+			    ("stm_spi: interrupt or error in read wait event\n");
+			result = timeout;
+		}
+	}
 
-	spi->next_state = SPI_FSM_PREPARE;
-
-	local_irq_save(local_flag);
-	spi_algo_state_machine(spi);
-	interruptible_sleep_on_timeout(&(ssc_bus->wait_queue),
-				       spi->timeout * HZ);
-	local_irq_restore(local_flag);
-	chip_deasserted();
-	spi->buf_write = NULL;
+	chip_deasserted(client);
 	ssc_release_bus(ssc_bus);
 
-	if (!(spi->virtual_configuration & SPI_FULLDUPLEX)) {
-#ifdef SPI_LOOP_DEBUG
-		dgb_print("Read: %s\n", spi->buf_read);
-#endif
-		spi_free(spi->buf_read);
-		spi->buf_read = NULL;
-		spi->msg_length = 0;
-	}
 	return count;
 }
 
-static int spi_cdev_addressing(unsigned int address, struct spi_client_t *spi)
+struct spi_client_t *spi_create_client(int bus_number)
 {
-	unsigned int spi_device;
-
-	spi_device = spi_get_device(address);
-
-	dgb_print("Spi opening Slave 0x%x (%d)\n", spi_device, spi_device);
-
-/* 1. release the Pio of previous addressing*/
-        if ( spi->pio_chip)
-            stpio_free_pin(spi->pio_chip);
-       spi->pio_chip = NULL;
-// 2. check if the pio[BANK][LINE] used for chip_selector is free
-	spi->pio_chip =
-	    stpio_request_pin(spi_get_bank(address), spi_get_line(address),
-			      "spi-chip-selector", STPIO_OUT);
-
-	if (!(spi->pio_chip)) {
-/*
- * Somebody already requested the PIO[bank][line]
- * therefore we abort the addressing
- */
-		dgb_print("Error Pio locked or not-exist\n");
-		return -ENOSYS;
-	}
-	dgb_print("->with PIO [%d][%d]\n", spi_get_bank(address),
-		spi_get_line(address));
-
-	spi->virtual_configuration =
-	    spi->virtual_configuration & ~SPI_FULLDUPLEX;
-	dgb_print("->with FULLDUPLEX = 0x%x\n", spi_get_mode(address));
-	spi->virtual_configuration |= SPI_FULLDUPLEX * spi_get_mode(address);
-/*
- *  Free the data of prev addressing
- */
-	if (spi->buf_read != NULL)
-		spi_free(spi->buf_read);
-
-	spi->buf_read = NULL;
-	chip_deasserted();
-
-	return 0;
-
-}
-
-static int spi_cdev_ioctl(struct inode *inode,
-			  struct file *filp, unsigned int cmd,
-			  unsigned long arg)
-{
-	struct spi_client_t *spi = (struct spi_client_t *)filp->private_data;
+	struct spi_client_t *client;
 
 	dgb_print("\n");
 
-	switch (cmd) {
-	case SPI_IOCTL_WIDEFRAME:
-		spi->virtual_configuration =
-		    spi->virtual_configuration & ~SPI_WIDE_MASK;
-		if (arg)
-			spi->virtual_configuration |= SPI_WIDE_16BITS;
-		break;
-	case SPI_IOCTL_POLARITY:
-		spi->virtual_configuration =
-		    spi->virtual_configuration & ~SPI_POLARITY_MASK;
-		if (arg)
-			spi->virtual_configuration |= SPI_POLARITY_HIGH;
-		break;
-	case SPI_IOCTL_PHASE:
-		spi->virtual_configuration =
-		    spi->virtual_configuration & ~SPI_PHASE_MASK;
-		if (arg)
-			spi->virtual_configuration |= SPI_PHASE_HIGH;
-		break;
-	case SPI_IOCTL_HEADING:
-		spi->virtual_configuration =
-		    spi->virtual_configuration & ~SPI_MSB_MASK;
-		if (arg)
-			spi->virtual_configuration |= SPI_MSB;
-		break;
-	case SPI_IOCTL_BUADRATE:
-		{
-			unsigned long baudrate;
-			baudrate =
-			    ssc_get_clock() / (2 *arg);
-			spi->virtual_configuration =
-			    spi->virtual_configuration & ~SPI_BAUDRATE_MASK;
-			spi->virtual_configuration =
-			    spi->
-			    virtual_configuration | (baudrate <<
-						     SPI_BAUDRATE_SHIFT);
-		}
-		break;
-	case SPI_IOCTL_CSACTIVE:
-		spi->virtual_configuration =
-		    spi->virtual_configuration & ~SPI_CSACTIVE_MASK;
-		if (arg)
-			spi->virtual_configuration |= SPI_CSACTIVE_HIGH;
-		break;
-	case SPI_IOCTL_ADDRESS:
-		if (spi_cdev_addressing((unsigned int)arg, spi) != 0)
-			return -1;
-		break;
-	case SPI_IOCTL_TIMEOUT:
-		spi->timeout = arg;
-		break;
-	default:
-		;
-	}
-
-#ifdef SPI_STM_DEBUG
-	{
-		unsigned int conf = spi->virtual_configuration;
-		dgb_print("SPI - Virtual Config:\n");
-		dgb_print(" - PHASE:    0x%x\n", (conf & SPI_PHASE_MASK) != 0);
-		dgb_print(" - POLARITY: 0x%x\n", (conf & SPI_POLARITY_MASK) != 0);
-		dgb_print(" - HEADING:  0x%x\n", (conf & SPI_MSB_MASK) != 0);
-		dgb_print(" - FULLDUP:  0x%x\n",
-			(conf & SPI_FULLDUPLEX_MASK) != 0);
-		dgb_print(" - WIDE:     0x%x\n", (conf & SPI_WIDE_MASK) != 0);
-		dgb_print(" - CSACTIVE: 0x%x\n", (conf & SPI_CSACTIVE_MASK) != 0);
-		dgb_print(" - BUADRATE: 0x%x\n",
-			(conf & SPI_BAUDRATE_MASK) >> SPI_BAUDRATE_SHIFT);
-	}
-#endif
-	return 0;
-}
-
-static int spi_cdev_open(struct inode *inode, struct file *filp)
-{
-	unsigned int minor;
-	struct spi_client_t *spi;
-
-	dgb_print("\n");
-
-	minor = iminor(inode);
-	if (minor >= MAX_NUMBER_SPI_BUSSES)
-		return -ENODEV;
-        if (!spi_busses_array[minor])
-                return -ENODEV;
-        spi = (struct spi_client_t *)kmalloc(sizeof(struct spi_client_t),GFP_KERNEL);
-	spi->dev = spi_busses_array[minor];
-	spi->timeout = 5;	/* 5 seconds */
-	spi->msg_length = 0;
-	spi->buf_write = NULL;
-	spi->buf_read = NULL;
-	spi->pio_chip = NULL;
+	if (bus_number >= MAX_NUMBER_SPI_BUSSES)
+		return NULL;
+	if (!spi_busses_array[bus_number])
+		return NULL;
+	client =
+	    (struct spi_client_t *)kzalloc(sizeof(struct spi_client_t),
+					   GFP_KERNEL);
+	if (!client)
+		return NULL;
+	client->dev = spi_busses_array[bus_number];
+	client->timeout = 5;	/* 5 seconds */
 /*
  *  1 Phase
  *  1 Polarity
@@ -550,32 +500,245 @@ static int spi_cdev_open(struct inode *inode, struct file *filp)
  *  - Full/Half
  *  1 Wide (16bits)
  *  0 CSActive
- *  1 MHz (at 133MHz of common clock)
+ *  1 MHz (at 100MHz of common clock)
  */
-	spi->virtual_configuration = 0x420017;
+	client->config = 0x420017;
 
-	filp->private_data = spi;
+	return client;
+}
+
+int spi_client_release(struct spi_client_t *client)
+{
+	dgb_print("\n");
+	if (!client)
+		return 0;
+	if (client->pio_chip != NULL) {
+		stpio_free_pin(client->pio_chip);
+		client->pio_chip = NULL;
+	}
+	dgb_print("PIO-chip released\n");
+	if (client->rd_buf != NULL)
+		kfree(client->rd_buf);
+	kfree(client);
+	return 1;
+}
+
+int spi_client_addressing(struct spi_client_t *client, unsigned int slave_address)
+{
+	unsigned int spi_device;
+
+	spi_device = spi_get_device(slave_address);
+
+	dgb_print("Spi opening Slave 0x%x (%d)\n", spi_device, spi_device);
+
+/* 1. release the Pio of previous addressing*/
+	if (client->pio_chip)
+		stpio_free_pin(client->pio_chip);
+	client->pio_chip = NULL;
+// 2. check if the pio[BANK][LINE] used for chip_selector is free
+	client->pio_chip =
+	    stpio_request_pin(spi_get_bank(slave_address),
+			      spi_get_line(slave_address), "spi-chip-selector",
+			      STPIO_OUT);
+
+	if (!(client->pio_chip)) {
+/*
+ * Somebody already requested the PIO[bank][line]
+ * therefore we abort the addressing
+ */
+		dgb_print("Error Pio locked or not-exist\n");
+		return -ENOSYS;
+	}
+	dgb_print("->with PIO [%d][%d]\n", spi_get_bank(slave_address),
+		  spi_get_line(slave_address));
+
+	client->config &= ~SPI_FULLDUPLEX;
+	dgb_print("->with FULLDUPLEX = 0x%x\n", spi_get_mode(slave_address));
+	client->config |= ( SPI_FULLDUPLEX * spi_get_mode(slave_address));
+/*
+ *  Free the data of prev addressing
+ */
+	if (client->rd_buf != NULL)
+		kfree(client->rd_buf);
+
+	client->rd_buf = NULL;
+	chip_deasserted(client);
+
 	return 0;
+
+}
+
+int spi_client_control(struct spi_client_t *client, int cmd, int arg)
+{
+	dgb_print("\n");
+	switch (cmd) {
+	case SPI_IOCTL_WIDEFRAME:
+		client->config &= ~SPI_WIDE_MASK;
+		if (arg)
+			client->config |= SPI_WIDE_16BITS;
+		break;
+	case SPI_IOCTL_POLARITY:
+		client->config &=  ~SPI_POLARITY_MASK;
+		if (arg)
+			client->config |= SPI_POLARITY_HIGH;
+		break;
+	case SPI_IOCTL_PHASE:
+		client->config &= ~SPI_PHASE_MASK;
+		if (arg)
+			client->config |= SPI_PHASE_HIGH;
+		break;
+	case SPI_IOCTL_HEADING:
+		client->config &= ~SPI_MSB_MASK;
+		if (arg)
+			client->config |= SPI_MSB;
+		break;
+	case SPI_IOCTL_BUADRATE:
+		{
+			unsigned long baudrate;
+			baudrate = ssc_get_clock() / (2 * arg);
+			client->config &= ~SPI_BAUDRATE_MASK;
+			client->config |= (baudrate << SPI_BAUDRATE_SHIFT);
+		}
+		break;
+	case SPI_IOCTL_CSACTIVE:
+		client->config &= ~SPI_CSACTIVE_MASK;
+		if (arg)
+			client->config |= SPI_CSACTIVE_HIGH;
+		break;
+	case SPI_IOCTL_ADDRESS:
+		if (spi_client_addressing(client, (unsigned int)arg) != 0)
+			return -1;
+		break;
+	case SPI_IOCTL_TIMEOUT:
+		client->timeout = arg;
+		break;
+	default:
+		;
+	}
+#ifdef SPI_STM_DEBUG
+	{
+		unsigned int conf = client->config;
+		dgb_print("SPI - Virtual Config:\n");
+		dgb_print(" - PHASE:    0x%x\n", (conf & SPI_PHASE_MASK) != 0);
+		dgb_print(" - POLARITY: 0x%x\n",
+			  (conf & SPI_POLARITY_MASK) != 0);
+		dgb_print(" - HEADING:  0x%x\n", (conf & SPI_MSB_MASK) != 0);
+		dgb_print(" - FULLDUP:  0x%x\n",
+			  (conf & SPI_FULLDUPLEX_MASK) != 0);
+		dgb_print(" - WIDE:     0x%x\n", (conf & SPI_WIDE_MASK) != 0);
+		dgb_print(" - CSACTIVE: 0x%x\n",
+			  (conf & SPI_CSACTIVE_MASK) != 0);
+		dgb_print(" - BUADRATE: 0x%x\n",
+			  (conf & SPI_BAUDRATE_MASK) >> SPI_BAUDRATE_SHIFT);
+	}
+#endif
+
+}
+
+#ifdef CONFIG_STM_SPI_CHAR_DEV
+#define SPI_MAJOR 153
+static struct class *spi_dev_class;
+static struct cdev spi_cdev;
+
+static ssize_t spi_cdev_read(struct file *filp,
+			     char __user * buff, size_t count, loff_t * offp)
+{
+	struct spi_client_t *client = (struct spi_client_t *)filp->private_data;
+	unsigned int wide_frame =
+	    (client->config & SPI_WIDE_MASK) ? 1 : 0;
+	char *read_buffer;
+
+	if (client->pio_chip == NULL)
+		return -ENODATA;
+
+	if (client->config & SPI_FULLDUPLEX_MASK) {
+/*
+ * In FullDuplex Mode
+ * The Datas are already ready...
+ */
+		if (!client->rd_buf)
+			return 0;
+		dgb_print("Reading in FullD\n");
+		if (wide_frame)
+			count &= ~0x1;
+		copy_to_user(buff, client->rd_buf, count);
+		kfree(client->rd_buf);
+		client->rd_buf = NULL;
+		return count;
+	}
+
+	dgb_print("Reading in Half/D %d bytes\n", count);
+	read_buffer = (char *)kmalloc(count, GFP_KERNEL);
+	spi_read(client, read_buffer, count);
+	copy_to_user(buff, read_buffer, count);
+	kfree(read_buffer);
+	return count;
+}
+
+static ssize_t spi_cdev_write(struct file *filp,
+			      const char __user * buff,
+			      size_t count, loff_t * offp)
+{
+	struct spi_client_t *client = (struct spi_client_t *)filp->private_data;
+	char *wr_buffer;
+	char *rd_buffer;
+	int result;
+	dgb_print("\n");
+
+	wr_buffer = kmalloc(count, GFP_KERNEL);
+	rd_buffer = kmalloc(count, GFP_KERNEL);
+
+	copy_from_user(wr_buffer, buff, count);
+
+	result = spi_write_then_read(client, wr_buffer, rd_buffer, count);
+
+	if (result >= 0)
+		result = count;
+
+	if (!(client->config & SPI_FULLDUPLEX)) {
+#ifdef SPI_LOOP_DEBUG
+		dgb_print("Read: %s\n", rd_buffer);
+#endif
+		kfree(rd_buffer);
+		client->rd_buf = NULL;
+	}
+
+	return result;
+}
+
+static int spi_cdev_ioctl(struct inode *inode,
+			  struct file *filp, unsigned int cmd,
+			  unsigned long arg)
+{
+	dgb_print("\n");
+	spi_client_control((struct spi_client_t *)filp->private_data, cmd, arg);
+	return 0;
+}
+
+static int spi_cdev_open(struct inode *inode, struct file *filp)
+{
+	unsigned int minor;
+	struct spi_client_t *client;
+
+	dgb_print("\n");
+	minor = iminor(inode);
+	client = spi_create_client(minor);
+	filp->private_data = client;
+	if (client)
+		return 0;
+	else
+		return -ENODEV;
 }
 
 static int spi_cdev_release(struct inode *inode, struct file *filp)
 {
-	struct spi_client_t *spi = (struct spi_client_t *)filp->private_data;
-
-   dgb_print("\n");
-	if (spi->pio_chip != NULL) {
-		stpio_free_pin(spi->pio_chip);
-		spi->pio_chip = NULL;
-	}
-   dgb_print("PIO-chip released\n");
-	if (spi->buf_read != NULL)
-		spi_free(spi->buf_read);
-   kfree(spi);
+	dgb_print("\n");
+	spi_client_release((struct spi_client_t *)filp->private_data);
 	filp->private_data = NULL;
 	return 0;
 }
 
-struct file_operations spi_stm_fops = {
+struct file_operations spi_fops = {
 	.owner = THIS_MODULE,
 	.llseek = no_llseek,
 	.open = spi_cdev_open,
@@ -584,10 +747,11 @@ struct file_operations spi_stm_fops = {
 	.write = spi_cdev_write,
 	.ioctl = spi_cdev_ioctl
 };
+#endif
 
 static int spi_stm_match(struct device *dev, struct device_driver *drv)
 {
-   dgb_print("\n");
+	dgb_print("\n");
 	if (dev == NULL || drv == NULL)
 		return 0;
 	return !strncmp(dev->bus_id, drv->name, 3);
@@ -600,165 +764,173 @@ struct bus_type spi_bus_type = {
 
 void spi_del_adapter(struct spi_device_t *spi_dev)
 {
-   dgb_print("\n");
-   spi_busses_array[spi_dev->idx_dev]=0;
-   kfree(spi_dev);
-   return ;
+	dgb_print("\n");
+	spi_busses_array[spi_dev->idx_dev] = 0;
+#ifdef CONFIG_STM_SPI_CHAR_DEV
+	class_device_destroy(spi_dev_class, MKDEV(SPI_MAJOR, spi_dev->idx_dev));
+#endif
+	kfree(spi_dev);
+	return;
 }
 
-#define SPI_DRIVER_BUS
-#if   defined(SPI_DRIVER_BUS)
 static int spi_bus_driver_probe(struct device *dev)
 {
-   struct spi_device_t *spi_dev;
+	struct spi_device_t *spi_dev;
 
-   dgb_print("\n");
-   spi_dev = container_of(dev,struct spi_device_t,dev);
+	dgb_print("\n");
+	spi_dev = container_of(dev, struct spi_device_t, dev);
 
-   return spi_dev->dev_type == SPI_DEV_BUS_ADAPTER;
+	return spi_dev->dev_type == SPI_DEV_BUS_ADAPTER;
 };
 
 static void spi_bus_driver_remove(struct device *dev)
 {
 	struct spi_device_t *spi_dev;
-   spi_dev = container_of(dev,struct spi_device_t,dev);
-   dgb_print("\n");
+	spi_dev = container_of(dev, struct spi_device_t, dev);
+	dgb_print("\n");
 //   spi_del_adapter(spi_dev);
 //   dgb_print("..\n");
-   return;
+	return;
 }
 static void spi_bus_driver_shutdown(struct device *dev)
 {
-   struct spi_device_t *spi_dev;
-   spi_dev = container_of(dev,struct spi_device_t,dev);
-   dgb_print("\n");
-   spi_del_adapter(spi_dev);
-//   dgb_print("..\n");
-   return;
+	struct spi_device_t *spi_dev;
+	spi_dev = container_of(dev, struct spi_device_t, dev);
+	dgb_print("\n");
+	spi_del_adapter(spi_dev);
+	return;
 }
 static struct device_driver spi_bus_drv = {
-   .owner = THIS_MODULE,
-   .name = "spi_bus_drv",
-   .bus = &spi_bus_type,
-   .probe = spi_bus_driver_probe,
-   .shutdown = spi_bus_driver_shutdown,
-   .remove   = spi_bus_driver_remove,
+	.owner = THIS_MODULE,
+	.name = "spi_bus_drv",
+	.bus = &spi_bus_type,
+	.probe = spi_bus_driver_probe,
+	.shutdown = spi_bus_driver_shutdown,
+	.remove = spi_bus_driver_remove,
 };
-#endif
 
 int spi_add_adapter(struct spi_device_t *spi_dev)
 {
 	unsigned int ret;
-   unsigned int idx_dev = spi_dev->idx_dev;
+	unsigned int idx_dev = spi_dev->idx_dev;
+	struct device *dev;
 
-   dgb_print("\n");
-   spi_dev->dev_type = SPI_DEV_BUS_ADAPTER;
+	dgb_print("\n");
+	spi_dev->dev_type = SPI_DEV_BUS_ADAPTER;
 	spi_dev->dev.bus = &(spi_bus_type);
-   sprintf(spi_dev->dev.bus_id, "spi-%d", idx_dev);
-   spi_dev->dev.release = spi_del_adapter;
-#if defined(SPI_DRIVER_BUS)
-   spi_dev->dev.driver = &spi_bus_drv;
-#endif
+	sprintf(spi_dev->dev.bus_id, "spi-%d", idx_dev);
+	spi_dev->dev.release = spi_del_adapter;
+	spi_dev->dev.driver = &spi_bus_drv;
 	ret = device_register(&spi_dev->dev);
 	if (ret) {
 		printk(KERN_WARNING "Unable to register %s bus\n",
 		       spi_dev->dev.bus_id);
 		kfree(spi_dev);
-	} else {
-/*
- * with the spi_busses_array
- * i avoid to used the list
- */
-     spi_busses_array[idx_dev] = spi_dev;
-     //list_add(&spi_dev->list, &spi_busses);
-	}
+	} else
+		spi_busses_array[idx_dev] = spi_dev;
+#ifdef CONFIG_STM_SPI_CHAR_DEV
+	dev = spi_dev->dev.parent;
+	spi_dev->class_dev = class_device_create(spi_dev_class, NULL,
+						 MKDEV(SPI_MAJOR,
+						 spi_dev->idx_dev), dev,
+						 "spi-%d", spi_dev->idx_dev);
+#endif
 	return ret;
 }
 
-static int spi_stm_adapter_detect()
+static int spi_adapter_detect()
 {
 	unsigned int idx;
-   unsigned int num_ssc_bus = ssc_device_available();
+	unsigned int num_ssc_bus = ssc_device_available();
 	unsigned int num_spi_bus;
 	struct spi_device_t *spi_dev;
-   struct ssc_t **ssc_busses;
-   dgb_print("\n");
+	struct ssc_t **ssc_busses;
+	dgb_print("\n");
 /*
  *  Check the ssc on the platform
  */
-   ssc_busses = (struct ssc_t **) kmalloc(num_ssc_bus *
-                        sizeof(struct ssc_t *), GFP_KERNEL);
-   for (idx = 0, num_spi_bus = 0; idx < num_ssc_bus; ++idx)
-       if ((ssc_capability(idx) & SSC_SPI_CAPABILITY))
-            ssc_busses[num_spi_bus++] = ssc_device_request(idx);
+	ssc_busses = (struct ssc_t **)kmalloc(num_ssc_bus *
+					      sizeof(struct ssc_t *),
+					      GFP_KERNEL);
+	for (idx = 0, num_spi_bus = 0; idx < num_ssc_bus; ++idx)
+		if ((ssc_capability(idx) & SSC_SPI_CAPABILITY))
+			ssc_busses[num_spi_bus++] = ssc_device_request(idx);
 
-   for (idx = 0; idx < num_spi_bus; ++idx) {
-      spi_dev = (struct spi_device_t *)
-               kmalloc(sizeof(struct spi_device_t), GFP_KERNEL);
-      memset(&spi_dev->dev, 0, sizeof(struct device));
-      spi_dev->dev.parent = &(ssc_busses[idx]->dev);
-      spi_dev->idx_dev = idx;
-      spi_add_adapter(spi_dev);
-   };
-   kfree(ssc_busses);
-}
-
-static int __init spi_stm_init(void)
-{
-   dev_t ch_device;
-   unsigned int ret;
-   unsigned int num_ssc_bus = ssc_device_available();
-   dgb_print("\n");
-	ret = bus_register(&spi_bus_type);
-	if (ret) {
-		printk(KERN_WARNING "Unable to register spi bus\n");
-		return ret;
-	}
-#ifdef SPI_DRIVER_BUS
-   ret = driver_register(&spi_bus_drv);
-	if (ret) {
-		printk(KERN_WARNING "Unable to register spi driver\n");
-		return ret;
-	}
-#endif
-   spi_stm_adapter_detect();
-
-	ch_device = MKDEV(SPI_MAJOR_NUMBER, 0);
-   register_chrdev_region(ch_device, num_ssc_bus, "spi");
-	cdev_init(&(spi_char_dev), &(spi_stm_fops));
-   cdev_add(&(spi_char_dev), ch_device, num_ssc_bus);
-
-	printk(KERN_INFO "spi /dev layer initialized\n");
+	for (idx = 0; idx < num_spi_bus; ++idx) {
+		spi_dev = (struct spi_device_t *)
+		    kmalloc(sizeof(struct spi_device_t), GFP_KERNEL);
+		memset(&spi_dev->dev, 0, sizeof(struct device));
+		spi_dev->dev.parent = &(ssc_busses[idx]->dev);
+		spi_dev->idx_dev = idx;
+		spi_add_adapter(spi_dev);
+	};
+	kfree(ssc_busses);
 	return 0;
 }
 
-static int __exit spi_stm_exit(void)
+static void __init spi_core_init(void)
+{
+	unsigned int ret;
+	dgb_print("\n");
+	ret = bus_register(&spi_bus_type);
+	if (ret) {
+		printk(KERN_WARNING "Unable to register spi bus\n");
+		return ;
+	}
+	ret = driver_register(&spi_bus_drv);
+	if (ret) {
+		printk(KERN_WARNING "Unable to register spi driver\n");
+		return ;
+        }
+        printk(KERN_INFO "spi layer initialized\n");
+}
+
+#ifdef CONFIG_STM_SPI_CHAR_DEV
+static void __init spi_cdev_init(void)
 {
 	dev_t ch_device;
-   struct spi_device_t *spi_dev;
-   struct list_head *item;
+	dgb_print("\n");
 
-   ch_device = MKDEV(SPI_MAJOR_NUMBER, 0);
-   dgb_print("\n");
-	cdev_del(&(spi_char_dev));
-	unregister_chrdev_region(ch_device, ssc_device_available());
-/*
-   list_for_each(item,&spi_busses) {
-   spi_dev = container_of(item, struct spi_device_t,list);
-   spi_del_adapter(spi_dev);
-   }
-*/
-   dgb_print("\n");
+	spi_dev_class = class_create(THIS_MODULE, "spi-dev");
+	if (IS_ERR(spi_dev_class))
+		return 0;
 
-#if defined(SPI_DRIVER_BUS)
-   driver_unregister(&spi_bus_drv);
+	ch_device = MKDEV(SPI_MAJOR, 0);
+	register_chrdev_region(ch_device, 255, "spi");
+	cdev_init(&(spi_cdev), &(spi_fops));
+	cdev_add(&(spi_cdev), ch_device, 255);
+	printk(KERN_INFO "spi /dev layer initialized\n");
+	return 0;
+}
+device_initcall(spi_cdev_init);
 #endif
+
+static int __init spi_late_init(void)
+{
+	dgb_print("\n");
+	spi_adapter_detect();
+	return 0;
+}
+
+static int __exit spi_exit(void)
+{
+	dev_t ch_device;
+
+	dgb_print("\n");
+#ifdef CONFIG_STM_SPI_CHAR_DEV
+	ch_device = MKDEV(SPI_MAJOR, 0);
+	cdev_del(&(spi_cdev));
+	unregister_chrdev_region(ch_device, 255);
+#endif
+
+	driver_unregister(&spi_bus_drv);
 	bus_unregister(&spi_bus_type);
 	return 0;
 }
 
-late_initcall(spi_stm_init);
-module_exit(spi_stm_exit);
+subsys_initcall(spi_core_init);
+late_initcall(spi_late_init);
+module_exit(spi_exit);
 
 MODULE_AUTHOR("STMicroelectronics  <www.st.com>");
 MODULE_DESCRIPTION("Module for stm spi device");

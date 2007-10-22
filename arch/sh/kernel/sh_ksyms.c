@@ -133,6 +133,7 @@ DECLARE_EXPORT(__movstrSI12_i4);
 /* needed by some modules */
 EXPORT_SYMBOL(flush_cache_all);
 EXPORT_SYMBOL(flush_cache_range);
+EXPORT_SYMBOL(flush_cache_page);
 EXPORT_SYMBOL(flush_dcache_page);
 EXPORT_SYMBOL(__flush_wback_region);
 EXPORT_SYMBOL(__flush_purge_region);

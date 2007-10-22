@@ -18,6 +18,7 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
+#include <linux/phy.h>
 #include <asm/io.h>
 #include <asm/mb411/harp.h>
 
@@ -123,9 +124,34 @@ static struct platform_device physmap_flash = {
 	.resource	= &physmap_flash_resource,
 };
 
+static struct plat_stmmacphy_data phy_private_data = {
+        .bus_id = 0,
+        .phy_addr = 0,
+        .phy_mask = 0,
+        .interface = PHY_INTERFACE_MODE_MII,
+};
+
+static struct platform_device mb411_phy_device = {
+        .name           = "stmmacphy",
+        .id             = 0,
+        .num_resources  = 1,
+        .resource       = (struct resource[]) {
+                {
+                        .name   = "phyirq",
+                        .start  = 0,
+                        .end    = 0,
+                        .flags  = IORESOURCE_IRQ,
+                },
+        },
+        .dev = {
+                .platform_data = &phy_private_data,
+         }
+};
+
 static struct platform_device *mb411_devices[] __initdata = {
 	&smc91x_device,
 	&physmap_flash,
+	&mb411_phy_device,
 };
 
 static int __init device_init(void)
@@ -135,9 +161,10 @@ static int __init device_init(void)
 	stx7100_configure_ssc(&ssc_private_info);
 	stx7100_configure_usb();
 	stx7100_configure_alsa();
-	stx7100_configure_ethernet(0, 0, NULL);
+	stx7100_configure_ethernet(0, 0, 0);
 
-        return platform_device_register(&smc91x_device);
+	return platform_add_devices(mb411_devices,
+                                    ARRAY_SIZE(mb411_devices));
 }
 
 device_initcall(device_init);

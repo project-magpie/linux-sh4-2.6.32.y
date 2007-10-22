@@ -31,7 +31,7 @@ void __init mb442_setup(char** cmdline_p)
 {
 	unsigned long sysconf;
 	unsigned long chip_revision, chip_7109;
-	static struct stpio_pin *ethreset;
+	static struct stpio_pin *ethreset,*usbpower;
 
 	printk("STMicroelectronics STb7100 Reference board initialisation\n");
 
@@ -63,6 +63,31 @@ void __init mb442_setup(char** cmdline_p)
 	stpio_set_pin(ethreset, 1);
 	udelay(1);
 	stpio_set_pin(ethreset, 0);
+
+	/*
+	 * There have been two changes to the USB power enable signal:
+	 *
+	 * - 7100 upto and including cut 3.0 and 7109 1.0 generated an
+	 *   active high enables signal. From 7100 cut 3.1 and 7109 cut 2.0
+	 *   the signal changed to active low.
+	 *
+	 * - The 710x ref board (mb442) has always used power distribution
+	 *   chips which have active high enables signals (on rev A and B
+	 *   this was a TI TPS2052, rev C used the ST equivalent a ST2052).
+	 *   However rev A and B had a pull up on the enables signal, while
+	 *   rev C changed this to a pull down.
+	 *
+	 * The net effect of all this is that the easiest way to drive
+	 * this signal is ignore the USB hardware and drive it as a PIO
+	 * pin.
+	 *
+	 * (Note the USB over current input on the 710x changed from active
+	 * high to low at the same cuts, but board revs A and B had a resistor
+	 * option to select an inverted output from the TPS2052, so no
+	 * software work around is required.)
+	 */
+	usbpower=stpio_request_pin(5,7, "USBPWR", STPIO_OUT);
+	stpio_set_pin(usbpower, 1);
 
 	/* Currently all STB1 chips have problems with the sleep instruction,
 	 * so disable it here.

@@ -67,6 +67,9 @@
  *	  - <tx_queue_size>: transmit queue size.
  * ----------------------------------------------------------------------------
  * Changelog:
+ *   July 2007:
+ *   	-  Moved the DMA initialization from the probe to the open method.
+ *   	-  Reviewed the ioctl method.
  *   May 2007:
  *   	-  Fixed Tx timeout function and csum calculation in the xmit method
  *	-  Added fixes for NAPI, RX tasklet and multicast
@@ -531,9 +534,16 @@ int stmmac_mdio_reset(struct mii_bus *bus)
 {
 	struct net_device *ndev = bus->priv;
 	struct eth_driver_local *lp = netdev_priv(ndev);
+	unsigned long ioaddr = ndev->base_addr;
 
 	if (lp->phy_reset)
 		return lp->phy_reset(lp->bsp_priv);
+
+	/* This is a workaround for problems with the STE101P PHY.
+	 * It doesn't complete its reset until at least one clock cycle
+	 * on MDC, so perform a dummy mdio read.
+	 */
+	writel(0, ioaddr + MAC_MII_ADDR);
 
 	return 0;
 }
@@ -1545,6 +1555,26 @@ int stmmaceth_open(struct net_device *dev)
 		return (ret);
 	}
 
+	/* Attach the PHY */
+	ret = stmmac_init_phy(dev);
+	if (ret) {
+		printk(KERN_ERR "%s: Cannot attach to PHY (error: %d)\n",
+		       __FUNCTION__, ret);
+		return (-ENODEV);
+	}
+
+	/* Create and initialize the TX/RX descriptors rings */
+	init_dma_desc_rings(dev);
+
+	/* Intialize the DMA controller and send the SW reset */
+	/* This must be after we have successfully initialised the PHY
+	 * (see comment in stmmaceth_dma_reset). */
+	if (stmmaceth_dma_init(dev) < 0) {
+		ETHPRINTK(probe, ERR, "%s: DMA initialization failed\n",
+			  __FUNCTION__);
+		return (-1);
+	}
+
 	/* Check that the MAC address is valid.  If its not, refuse
 	 * to bring the device up. The user must specify an
 	 * address using the following linux command:
@@ -1577,14 +1607,6 @@ int stmmaceth_open(struct net_device *dev)
 
 	if (netif_msg_hw(lp))
 		dump_stm_mac_csr((unsigned int)dev->base_addr);
-
-	/* Attach the PHY */
-	ret = stmmac_init_phy(dev);
-	if (ret) {
-		printk(KERN_ERR "%s: Cannot attach to PHY (error: %d)\n",
-		       __FUNCTION__, ret);
-		return (-ENODEV);
-	}
 
 	phy_start(lp->phydev);
 
@@ -1623,8 +1645,9 @@ int stmmaceth_release(struct net_device *dev)
 	/* Stop TX/RX DMA and clear the descriptors */
 	stmmaceth_dma_stop_tx(dev->base_addr);
 	stmmaceth_dma_stop_rx(dev->base_addr);
-	clear_dma_descs(lp->dma_tx, CONFIG_DMA_TX_SIZE, 0);
-	clear_dma_descs(lp->dma_rx, CONFIG_DMA_RX_SIZE, OWN_BIT);
+
+	free_dma_desc_resources(dev);
+
 	/* Disable the MAC core */
 	stmmaceth_mac_disable_tx(dev);
 	stmmaceth_mac_disable_rx(dev);
@@ -2340,19 +2363,28 @@ static struct ethtool_ops stmmaceth_ethtool_ops = {
  *  @cmd :  IOCTL command
  *  Description:
  *  Currently there are no special functionality supported in IOCTL, just the
- *  phy_mii_ioctl is invoked (it changes the PHY registers without regard to
- *  current state).
+ *  phy_mii_ioctl (it changes the PHY reg. without regard to current state).
  */
 static int stmmaceth_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
 	struct eth_driver_local *lp = netdev_priv(dev);
+
 	if (!netif_running(dev))
 		return -EINVAL;
 
-	if (!lp->phydev)
-		return -EINVAL; // PHY not controllable
+	switch(cmd) {
+        case SIOCGMIIPHY:
+        case SIOCGMIIREG:
+        case SIOCSMIIREG:
+		if (!lp->phydev)
+			return -EINVAL;
 
-	return phy_mii_ioctl(lp->phydev, if_mii(rq), cmd);
+		return phy_mii_ioctl(lp->phydev, if_mii(rq), cmd);
+	default:
+		/* do nothing */
+		break;
+        }
+        return -EOPNOTSUPP;
 }
 
 /* ----------------------------------------------------------------------------
@@ -2420,9 +2452,9 @@ static int stmmaceth_probe(struct net_device *dev, unsigned long ioaddr)
 
 	dev->get_stats = stmmaceth_stats;
 	dev->tx_timeout = stmmaceth_tx_timeout;
-	dev->watchdog_timeo = msecs_to_jiffies(watchdog);;
-	dev->set_multicast_list = stmmaceth_set_rx_mode,
-	    dev->change_mtu = stmmaceth_change_mtu;
+	dev->watchdog_timeo = msecs_to_jiffies(watchdog);
+	dev->set_multicast_list = stmmaceth_set_rx_mode;
+	dev->change_mtu = stmmaceth_change_mtu;
 	dev->ethtool_ops = &stmmaceth_ethtool_ops;
 	dev->do_ioctl = &stmmaceth_ioctl;
 #ifdef CONFIG_NET_POLL_CONTROLLER
@@ -2466,16 +2498,6 @@ static int stmmaceth_probe(struct net_device *dev, unsigned long ioaddr)
 		printk(KERN_ERR "%s: ERROR %i registering the device\n",
 		       __FUNCTION__, ret);
 		return (-ENODEV);
-	}
-
-	/* Create and initialize the TX/RX descriptors rings */
-	init_dma_desc_rings(dev);
-
-	/* Intialize the DMA controller and send the SW reset */
-	if (stmmaceth_dma_init(dev) < 0) {
-		ETHPRINTK(probe, ERR, "%s: DMA initialization failed\n",
-			  __FUNCTION__);
-		return (-1);
 	}
 
 	spin_lock_init(&lp->lock);
@@ -2568,8 +2590,6 @@ static int stmmaceth_dvr_probe(struct platform_device *pdev)
 	/* MDIO bus Registration */
 	ret = stmmac_mdio_register(lp, ndev);
 
-	ndev = __dev_get_by_name("eth0");
-
       out:
 	if (ret < 0) {
 		platform_set_drvdata(pdev, NULL);
@@ -2607,8 +2627,6 @@ static int stmmaceth_dvr_remove(struct platform_device *pdev)
 	stmmaceth_mac_disable_tx(ndev);
 
 	netif_carrier_off(ndev);
-
-	free_dma_desc_resources(ndev);
 
 	stmmac_mdio_unregister(lp);
 

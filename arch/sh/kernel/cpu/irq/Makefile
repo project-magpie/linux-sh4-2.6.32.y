@@ -5,3 +5,4 @@ obj-y	+= imask.o intc.o
 
 obj-$(CONFIG_CPU_HAS_IPR_IRQ)		+= ipr.o
 obj-$(CONFIG_CPU_HAS_MASKREG_IRQ)	+= maskreg.o
+obj-$(CONFIG_CPU_SUBTYPE_STB7100)	+= st40_ilc_sti5528.o

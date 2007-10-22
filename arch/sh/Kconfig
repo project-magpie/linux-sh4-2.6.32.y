@@ -295,6 +295,15 @@ config SH_ST_MB374
 	  ST board ID: mb374). More information at:
 	  <http://www.stlinux.com/boards/mb374/>
 
+config SH_ST_MB411
+	bool "mb411: STB7100 Validation board"
+	depends on CPU_SUBTYPE_STB7100
+	help
+	  Select STB7100 Validation if configuring for an
+	  STMicroelectronics STB7100 Validation Board (product code: STB7100-MBOARD,
+	  ST board ID: mb411). More information at:
+	  <http://www.stlinux.com/boards/mb411/>
+
 config SH_HP6XX
 	bool "HP6XX"
 	select SYS_SUPPORTS_APM_EMULATION

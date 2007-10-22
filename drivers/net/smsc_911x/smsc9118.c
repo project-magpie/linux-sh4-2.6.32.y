@@ -41,6 +41,7 @@
 #include <linux/delay.h>
 #include <linux/mii.h>
 #include <linux/timer.h>
+#include <linux/string.h>
 #include <asm/irq.h>
 #include <asm/dma.h>
 #include <asm/bitops.h>
@@ -977,51 +978,51 @@ void Lan_ShowRegs(PPRIVATE_DATA privateData);
 #include "ioctl_118.h"
 
 DWORD lan_base=0x0UL;
-MODULE_PARM(lan_base,"i");
+module_param(lan_base,ulong,0);
 MODULE_PARM_DESC(lan_base,"Base Address of LAN9118, (default: choosen by platform code)");
 
 DWORD bus_width=0UL;
-MODULE_PARM(bus_width,"i");
+module_param(bus_width,ulong,0);
 MODULE_PARM_DESC(bus_width,"Force bus width of 16 or 32 bits, default: autodetect");
 
 DWORD link_mode=0x7FUL;
-MODULE_PARM(link_mode,"i");
+module_param(link_mode,ulong,0);
 MODULE_PARM_DESC(link_mode,"Set Link speed and Duplex, 1=10HD,2=10FD,4=100HD,8=100FD,default=0xF");
 
 DWORD irq=PLATFORM_IRQ;
-MODULE_PARM(irq,"i");
+module_param(irq,ulong,0);
 MODULE_PARM_DESC(irq,"Force use of specific IRQ, (default: choosen by platform code)");
 
 DWORD int_deas=0xFFFFFFFFUL;
-MODULE_PARM(int_deas,"i");
+module_param(int_deas,ulong,0);
 MODULE_PARM_DESC(int_deas,"Interrupt Deassertion Interval in 10uS units");
 
 DWORD irq_pol=PLATFORM_IRQ_POL;
-MODULE_PARM(irq_pol,"i");
+module_param(irq_pol,ulong,0);
 MODULE_PARM_DESC(irq_pol,"IRQ Polarity bit, see definition of INT_CFG register");
 
 DWORD irq_type=PLATFORM_IRQ_TYPE;
-MODULE_PARM(irq_type,"i");
+module_param(irq_type,ulong,0);
 MODULE_PARM_DESC(irq_type,"IRQ Buffer Type bit, see definition of INT_CFG register");
 
 DWORD rx_dma=PLATFORM_RX_DMA;
-MODULE_PARM(rx_dma,"i");
+module_param(rx_dma,ulong,0);
 MODULE_PARM_DESC(rx_dma,"Receiver DMA Channel, 255=find available channel, 256=use PIO");
 
 DWORD tx_dma=PLATFORM_TX_DMA;
-MODULE_PARM(tx_dma,"i");
+module_param(tx_dma,ulong,0);
 MODULE_PARM_DESC(tx_dma,"Transmitter DMA Channel, 255=find available channel, 256=use PIO");
 
 DWORD dma_threshold=PLATFORM_DMA_THRESHOLD;
-MODULE_PARM(dma_threshold,"i");
+module_param(dma_threshold,ulong,0);
 MODULE_PARM_DESC(dma_threshold,"Specifies the minimum packet size for DMA to be used.");
 
 DWORD mac_addr_hi16=0xFFFFFFFFUL;
-MODULE_PARM(mac_addr_hi16,"i");
+module_param(mac_addr_hi16,ulong,0);
 MODULE_PARM_DESC(mac_addr_hi16,"Specifies the high 16 bits of the mac address");
 
 DWORD mac_addr_lo32=0xFFFFFFFFUL;
-MODULE_PARM(mac_addr_lo32,"i");
+module_param(mac_addr_lo32,ulong,0);
 MODULE_PARM_DESC(mac_addr_lo32,"Specifies the low 32 bits of the mac address");
 
 #ifdef USE_DEBUG
@@ -1029,43 +1030,43 @@ DWORD debug_mode=0x7UL;
 #else
 DWORD debug_mode=0x0UL;
 #endif
-MODULE_PARM(debug_mode,"i");
+module_param(debug_mode,ulong,0);
 MODULE_PARM_DESC(debug_mode,"bit 0 enables trace points, bit 1 enables warning points, bit 2 enables gpios");
 
 DWORD tx_fif_sz=0x00050000UL;
-MODULE_PARM(tx_fif_sz,"i");
+module_param(tx_fif_sz,ulong,0);
 MODULE_PARM_DESC(tx_fif_sz,"Specifies TX_FIF_SZ of the HW_CFG register");
 
 DWORD afc_cfg=0xFFFFFFFFUL;
-MODULE_PARM(afc_cfg,"i");
+module_param(afc_cfg,ulong,0);
 MODULE_PARM_DESC(afc_cfg,"Specifies the setting for the AFC_CFG register");
 
 DWORD tasklets=1UL;
-MODULE_PARM(tasklets,"i");
+module_param(tasklets,ulong,0);
 MODULE_PARM_DESC(tasklets,"non-zero== use tasklets for receiving packets, zero==receive packets in ISR");
 
 DWORD phy_addr=0xFFFFFFFFUL;
-MODULE_PARM(phy_addr,"i");
+module_param(phy_addr,ulong,0);
 MODULE_PARM_DESC(phy_addr,"phy_addr, 0xFFFFFFFF=use interal phy, 0-31=use external phy with specified address, else autodetect external phy addr");
 
 DWORD max_throughput=0xFFFFFFFFUL;
-MODULE_PARM(max_throughput,"i");
+module_param(max_throughput,ulong,0);
 MODULE_PARM_DESC(max_throughput,"See readme.txt");
 
 DWORD max_packet_count=0xFFFFFFFFUL;
-MODULE_PARM(max_packet_count,"i");
+module_param(max_packet_count,ulong,0);
 MODULE_PARM_DESC(max_packet_count,"See Readme.txt");
 
 DWORD packet_cost=0xFFFFFFFFUL;
-MODULE_PARM(packet_cost,"i");
+module_param(packet_cost,ulong,0);
 MODULE_PARM_DESC(packet_cost,"See Readme.txt");
 
 DWORD burst_period=0xFFFFFFFFUL;
-MODULE_PARM(burst_period,"i");
+module_param(burst_period,ulong,0);
 MODULE_PARM_DESC(burst_period,"See Readme.txt");
 
 DWORD max_work_load=0xFFFFFFFFUL;
-MODULE_PARM(max_work_load,"i");
+module_param(max_work_load,ulong,0);
 MODULE_PARM_DESC(max_work_load,"See Readme.txt");
 
 MODULE_LICENSE("GPL");

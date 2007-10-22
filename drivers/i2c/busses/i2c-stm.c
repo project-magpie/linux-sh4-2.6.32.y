@@ -529,6 +529,7 @@ static int __init iic_stm_bus_init()
 {
 	unsigned int ssc_number = ssc_device_available();
 	unsigned int idx;
+	unsigned int adapnr = 0;
 	struct stm_adapter *st_adapter;
 	struct iic_ssc *iic_stm;
 
@@ -547,11 +548,11 @@ static int __init iic_stm_bus_init()
 		iic_stm->virtual_configuration &= ~IIC_STM_CONFIG_SPEED_MASK;
 		memset(&(iic_stm->adapter), 0, sizeof(struct i2c_adapter));
 		iic_stm->adapter.owner = THIS_MODULE;
-		iic_stm->adapter.id = idx ;
+		iic_stm->adapter.id = adapnr;
 		iic_stm->adapter.timeout = 4;
 		iic_stm->adapter.retries = 0;
 		iic_stm->adapter.class   = I2C_CLASS_ALL;
-		sprintf(iic_stm->adapter.name,"i2c-ssc-%d",idx);
+		sprintf(iic_stm->adapter.name,"i2c-ssc-%d",adapnr);
 		iic_stm->adapter.algo = &iic_stm_algo;
 		iic_stm->adapter.dev.bus = &i2c_bus_type;
 		iic_stm->adapter.dev.parent = &(ssc_device_request(idx)->dev);
@@ -564,6 +565,7 @@ static int __init iic_stm_bus_init()
 			return -ENODEV;
 		}
 		list_add(&(st_adapter->stm_list), &(stm_busses));
+		adapnr ++;
 	}
 	return 0;
 }

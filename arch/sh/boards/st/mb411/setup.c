@@ -62,8 +62,14 @@ void __init platform_setup(void)
         ctrl_outl(sysconf | 0x2, SYSCONF_SYS_CFG(8));
 
 	/* Work around for USB over-current detection chip being
-	 * active low, and the 7100 being active high */
-	if (chip_revision < 3) {
+	 * active low, and the 710x being active high.
+	 *
+	 * This test is wrong for 7100 cut 3.0 (which needs the work
+	 * around), but as we can't reliably determine the minor
+	 * revision number, hard luck, this works for most people.
+	 */
+	if ( ( chip_7109 && (chip_revision < 2)) ||
+	     (!chip_7109 && (chip_revision < 3)) ) {
 		static struct stpio_pin *pin;
 		pin = stpio_request_pin(5,6, "USBOC", STPIO_OUT);
 		stpio_set_pin(pin, 0);

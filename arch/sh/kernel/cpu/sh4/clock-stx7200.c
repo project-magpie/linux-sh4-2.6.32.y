@@ -22,6 +22,7 @@
 unsigned long sysclkinalt[3] = { 0,0,0};
 
 #define CLOCKGEN_BASE_ADDR	0xfd700000	/* Clockgen A */
+#define CLOCKGENB_BASE_ADDR	0xfd701000	/* Clockgen B */
 
 #define CLOCKGEN_PLL_CFG(pll)	(CLOCKGEN_BASE_ADDR + ((pll)*0x4))
 #define   CLOCKGEN_PLL_CFG_BYPASS		(1<<20)
@@ -35,6 +36,13 @@ unsigned long sysclkinalt[3] = { 0,0,0};
 #define CLOCKGEN_DIV2_CFG	(CLOCKGEN_BASE_ADDR + 0x14)
 #define CLOCKGEN_CLKOBS_MUX_CFG	(CLOCKGEN_BASE_ADDR + 0x18)
 #define CLOCKGEN_POWER_CFG	(CLOCKGEN_BASE_ADDR + 0x1c)
+
+#define CLOCKGENB_PLL0_CFG	(CLOCKGENB_BASE_ADDR + 0x3c)
+#define CLOCKGENB_IN_MUX_CFG	(CLOCKGENB_BASE_ADDR + 0x44)
+#define   CLOCKGENB_IN_MUX_CFG_PLL_SRC		(1<<0)
+#define CLOCKGENB_OUT_MUX_CFG	(CLOCKGENB_BASE_ADDR + 0x48)
+#define   CLOCKGENB_OUT_MUX_CFG_DIV_SRC		(1<<0)
+#define CLOCKGENB_DIV2_CFG	(CLOCKGENB_BASE_ADDR + 0x50)
 
                                     /* 0  1  2  3  4  5  6     7  */
 static const unsigned int ratio1[] = { 1, 2, 3, 4, 6, 8, 1024, 1 };
@@ -280,35 +288,6 @@ static struct clk_ops ic266_clk_ops = {
 	.recalc		= ic266_clk_recalc,
 };
 
-static void icreg_clk_recalc(struct clk *clk)
-{
-	unsigned long mux_cfg;
-	unsigned long div_ratio;
-
-	/* Its not clear how the clock gating (controlled by DIV2_CFG)
-	 * fits in here. */
-
-	mux_cfg = ctrl_inl(CLOCKGEN_MUX_CFG);
-	div_ratio = ((mux_cfg & (1<<9)) == 0) ? 8 : 6;
-	clk->rate = clk->parent->rate / div_ratio;
-}
-
-static struct clk_ops icreg_clk_ops = {
-	.recalc		= icreg_clk_recalc,
-};
-
-static void emieth_clk_recalc(struct clk *clk)
-{
-	/* Its not clear how the clock gating (controlled by DIV2_CFG)
-	 * fits in here. */
-
-	clk->rate = clk->parent->rate / 8;
-}
-
-static struct clk_ops emieth_clk_ops = {
-	.recalc		= emieth_clk_recalc,
-};
-
 #define CLKGENA(_name, _parent, _ops, _flags)			\
 	{							\
 		.name		= #_name,			\
@@ -317,12 +296,8 @@ static struct clk_ops emieth_clk_ops = {
 		.ops		= &_ops,			\
 	}
 
-static struct clk miscclks[4] = {
+static struct clk miscclks[1] = {
 	CLKGENA(ic_266, &pllclks[2].clk, ic266_clk_ops, 0),
-	/* Propages to comms_clk */
-	CLKGENA(ic_reg, &pllclks[2].clk, icreg_clk_ops, CLK_RATE_PROPAGATES),
-	CLKGENA(emi_master, &pllclks[2].clk, emieth_clk_ops, 0),
-	CLKGENA(ethernet, &pllclks[2].clk, icreg_clk_ops, 0),
 };
 
 #define CLKGENA_FDMALX(_name, _parent, _ops, _fdma_num, _div_cfg_reg, _div_cfg_shift, _normal_div) \
@@ -363,16 +338,11 @@ static struct fdmalxclk lxclks[4] = {
 	CLKGENA_LX(lx_dmu1_cpu_clk, 18)
 };
 
-static struct fdmalxclk miscdivclks[9] = {
-	CLKGENA_MISCDIV(bdisp_266, 16, 3),
+static struct fdmalxclk miscdivclks[4] = {
 	CLKGENA_MISCDIV(dmu0_266, 18, 3),
-	CLKGENA_MISCDIV(dmu1_266, 20, 3),
 	CLKGENA_MISCDIV(disp_266, 22, 3),
 	CLKGENA_MISCDIV(bdisp_200, 6, 4),
-	CLKGENA_MISCDIV(compo_200, 8, 4),
-	CLKGENA_MISCDIV(disp_200, 10, 4),
-	CLKGENA_MISCDIV(vdp_200, 12, 4),
-	CLKGENA_MISCDIV(fdma_200, 14, 4),
+	CLKGENA_MISCDIV(fdma_200, 14, 4)
 };
 
 static struct clk *clockgena_clocks[] = {
@@ -393,14 +363,6 @@ static struct clk *clockgena_clocks[] = {
 	&miscdivclks[1].clk,
 	&miscdivclks[2].clk,
 	&miscdivclks[3].clk,
-	&miscclks[1],
-	&miscdivclks[4].clk,
-	&miscdivclks[5].clk,
-	&miscdivclks[6].clk,
-	&miscdivclks[7].clk,
-	&miscdivclks[8].clk,
-	&miscclks[2],
-	&miscclks[3]
 };
 
 #define CLKGENB_BASE		0xfd701000
@@ -473,13 +435,143 @@ static struct clk_ops fs_clk_ops = {
 
 static struct fsclk fsclks[12];
 
-static struct clk *clockgenb_clocks[] = {
+
+static void pll_clkB_init(struct clk *clk)
+{
+	unsigned long input, output;
+	unsigned long mux_cfg, pll_cfg;
+
+	/* FIXME: probably needs more work! */
+
+	mux_cfg = ctrl_inl(CLOCKGENB_IN_MUX_CFG);
+	if (mux_cfg & CLOCKGENB_IN_MUX_CFG_PLL_SRC) {
+		input = sysclkinalt[1];
+	} else {
+		input = SYSBCLKIN;
+	}
+
+	pll_cfg = ctrl_inl(CLOCKGENB_PLL0_CFG);
+	output = pll02_freq(input, pll_cfg);
+
+	if (!(pll_cfg & CLOCKGEN_PLL_CFG_BYPASS)) {
+		clk->rate = output;
+	} else if (!(mux_cfg & CLOCKGENB_OUT_MUX_CFG_DIV_SRC)) {
+		clk->rate = input;
+	} else {
+		clk->rate = SYSBCLKIN;
+	}
+}
+
+static struct clk_ops pll_clkB_ops = {
+	.init		= pll_clkB_init,
 };
 
-/* Not sure if this is right.
- * Serial ports are documented to use "clk_ic_100", the only one I can
- * find which fits is ic_reg_clk, so use that. We should probably modify
- * the ASC code to use clk_ic directly. */
+static struct pllclk clkB_pllclks[1] = {
+	{
+		.clk = {
+			.name		= "b_pll0_clk",
+			.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
+			.ops		= &pll_clkB_ops,
+		},
+		.pll_num = 0
+	}
+};
+
+#define CLKGENB(_name, _ops, _flags)				\
+	{							\
+		.name		= #_name,			\
+		.parent		= &clkB_pllclks[0].clk,		\
+		.flags		= CLK_ALWAYS_ENABLED | _flags,	\
+		.ops		= &_ops				\
+	}
+
+#define CLKGENB_DIV2(_name, _div_cfg_shift, _normal_div)	\
+	{							\
+		.clk = {					\
+			.name		= #_name,		\
+			.parent		= &clkB_pllclks[0].clk,	\
+			.flags		= CLK_ALWAYS_ENABLED,	\
+			.ops		= &clkgenb_div2_ops,	\
+		},						\
+		.div_cfg_shift = _div_cfg_shift,		\
+		.normal_div = _normal_div,			\
+	}
+
+
+struct clkgenBdiv2 {
+	struct clk clk;
+	char   div_cfg_shift;
+	char   normal_div;
+};
+
+static void clkgenb_div2_recalc(struct clk *clk)
+{
+	struct clkgenBdiv2 *clkgenBdiv2 = container_of(clk, struct clkgenBdiv2, clk);
+	unsigned long div_cfg;
+	unsigned long div_ratio;
+
+	div_cfg = ctrl_inl(CLOCKGENB_DIV2_CFG);
+	div_ratio = (div_cfg >> clkgenBdiv2->div_cfg_shift) & 3;
+	clk->rate = final_divider(clk->parent->rate, div_ratio,
+				  clkgenBdiv2->normal_div);
+}
+
+static struct clk_ops clkgenb_div2_ops = {
+	.recalc		= clkgenb_div2_recalc,
+};
+
+static struct clkgenBdiv2 clkB_div2clks[5] = {
+#define DIV2_B_BDISP266_CLOCK 0
+	CLKGENB_DIV2(bdisp_266, 16, 3),
+#define DIV2_B_COMPO200_CLOCK 1
+	CLKGENB_DIV2(compo_200,  8, 4),
+#define DIV2_B_DISP200_CLOCK 2
+	CLKGENB_DIV2(disp_200,  10, 4),
+#define DIV2_B_VDP200_CLOCK 3
+	CLKGENB_DIV2(vdp_200,   12, 4),
+#define DIV2_B_DMU1266_CLOCK 4
+	CLKGENB_DIV2(dmu1_266,  20, 3)
+};
+
+static void icreg_emi_eth_clk_recalc(struct clk *clk)
+{
+	unsigned long mux_cfg;
+	unsigned long div_ratio;
+
+	mux_cfg = ctrl_inl(CLOCKGEN_MUX_CFG);
+	div_ratio = ((mux_cfg & (CLOCKGEN_MUX_CFG_IC_REG_SRC)) == 0) ? 8 : 6;
+	clk->rate = clk->parent->rate / div_ratio;
+}
+
+static struct clk_ops icreg_emi_eth_clk_ops = {
+	.recalc		= icreg_emi_eth_clk_recalc,
+};
+
+static struct clk clkB_miscclks[3] = {
+	/* Propages to comms_clk */
+#define MISC_B_ICREG_CLOCK 0
+	CLKGENB(ic_reg,     icreg_emi_eth_clk_ops, CLK_RATE_PROPAGATES),
+#define MISC_B_ETHERNET_CLOCK 1
+	CLKGENB(ethernet,   icreg_emi_eth_clk_ops, 0),
+#define MISC_B_EMIMASTER_CLOCK 2
+	CLKGENB(emi_master, icreg_emi_eth_clk_ops, 0),
+};
+
+static struct clk *clockgenb_clocks[] = {
+	&clkB_pllclks[0].clk,
+
+	&clkB_div2clks[DIV2_B_BDISP266_CLOCK].clk,
+	&clkB_div2clks[DIV2_B_COMPO200_CLOCK].clk,
+	&clkB_div2clks[DIV2_B_DISP200_CLOCK].clk,
+	&clkB_div2clks[DIV2_B_VDP200_CLOCK].clk,
+	&clkB_div2clks[DIV2_B_DMU1266_CLOCK].clk,
+
+	&clkB_miscclks[MISC_B_ICREG_CLOCK],
+	&clkB_miscclks[MISC_B_ETHERNET_CLOCK],
+	&clkB_miscclks[MISC_B_EMIMASTER_CLOCK]
+};
+
+
 static void comms_clk_recalc(struct clk *clk)
 {
 	clk->rate = clk->parent->rate;
@@ -491,10 +583,11 @@ static struct clk_ops comms_clk_ops = {
 
 static struct clk comms_clk = {
 	.name		= "comms_clk",
-	.parent		= &miscclks[1],	/* ic_reg */
+	.parent		= &clkB_miscclks[MISC_B_ICREG_CLOCK],
 	.flags		= CLK_ALWAYS_ENABLED,
-	.ops		= &comms_clk_ops,
+	.ops		= &comms_clk_ops
 };
+
 
 int __init clk_init(void)
 {
@@ -509,9 +602,6 @@ int __init clk_init(void)
 		ret |= clk_register(clk);
 		clk_enable(clk);
 	}
-
-	ret |= clk_register(&comms_clk);
-	clk_enable(&comms_clk);
 
 	/* Propagate the PLL values down */
 	for (i=0; i<3; i++) {
@@ -543,6 +633,9 @@ int __init clk_init(void)
 		clk_enable(clk);
 	}
 
+	ret |= clk_register(&comms_clk);
+	clk_enable(&comms_clk);
+
 	/* Propagate the PLL values down */
 	for (fs=0; fs<3; fs++) {
 		for (clk=1; clk<5; clk++) {
@@ -552,6 +645,10 @@ int __init clk_init(void)
 			clk_set_rate(clk, clk_get_rate(clk));
 			clk_put(clk);
 		}
+	}
+	for (i = 0; i < ARRAY_SIZE(clkB_pllclks); ++i) {
+		clk_set_rate(&clkB_pllclks[i].clk, clk_get_rate(&clkB_pllclks[i].clk));
+		clk_put(&clkB_pllclks[i].clk);
 	}
 
 	return ret;

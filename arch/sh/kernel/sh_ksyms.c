@@ -124,6 +124,8 @@ DECLARE_EXPORT(__udivsi3_i4i);
 #else /* GCC 3.x */
 DECLARE_EXPORT(__movstr_i4_even);
 DECLARE_EXPORT(__movstr_i4_odd);
+DECLARE_EXPORT(__movmem_i4_even); /* movstr became movmem in gcc-4.1 */
+DECLARE_EXPORT(__movmem_i4_odd);
 DECLARE_EXPORT(__movstrSI12_i4);
 #endif /* __GNUC__ == 4 */
 #endif

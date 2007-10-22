@@ -470,7 +470,7 @@ module_exit(xbar_exit)
 
 #endif
 
-static spinlock_t fdma_req_lock;
+static spinlock_t fdma_req_lock = SPIN_LOCK_UNLOCKED;
 
 struct stm_dma_req *fdma_req_allocate(unsigned int req_line, struct channel_status *chan)
 {

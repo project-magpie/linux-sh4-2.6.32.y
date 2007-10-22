@@ -220,7 +220,7 @@ static int stb7100_pcmin_program_fdma(snd_pcm_substream_t *substream)
 			runtime->dma_addr,
 			snd_pcm_lib_buffer_bytes(substream));
 
-	dma_compile_list(chip->fdma_channel, &chip->dmap, GFP_KERNEL);
+	dma_compile_list(chip->fdma_channel, &chip->dmap, GFP_ATOMIC);
 	spin_unlock_irqrestore(&chip->lock,irqflags);
 	return err;
 }

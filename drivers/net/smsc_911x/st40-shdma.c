@@ -231,7 +231,7 @@ BOOLEAN Platform_DmaStartXfer(
 			   (unsigned long)pCallbackData,
 			   STM_DMA_CB_CONTEXT_TASKLET);
 	dma_params_addrs(dmap,src,dst, pDmaXfer->dwDwCnt << 2);
-	res=dma_compile_list(pDmaXfer->dwDmaCh, dmap, GFP_KERNEL);
+	res=dma_compile_list(pDmaXfer->dwDmaCh, dmap, GFP_ATOMIC);
 	if(res != 0)
 		goto err_exit;
 	// 6. Start the transfer
@@ -321,7 +321,7 @@ BOOLEAN Platform_DmaStartSgXfer(
 			   (void (*)(unsigned long))pCallback,
 			   (unsigned long)pCallbackData,
 			   STM_DMA_CB_CONTEXT_TASKLET);
-	res=dma_compile_list(pDmaXfer->dwDmaCh, rx_transfer_paced, GFP_KERNEL);
+	res=dma_compile_list(pDmaXfer->dwDmaCh, rx_transfer_paced, GFP_ATOMIC);
 	if(res != 0)
 		goto err_exit;
 	// 6. Start the transfer
@@ -377,7 +377,7 @@ BOOLEAN Platform_DmaStartSgXfer(
 			   STM_DMA_CB_CONTEXT_TASKLET);
 	dma_params_addrs(&rx_transfer_sg, dwLanPhysAddr, 0, 0);
 	dma_params_sg(&rx_transfer_sg, (struct scatterlist*)pDmaXfer->pdwBuf, sg_count);
-	res=dma_compile_list(pDmaXfer->dwDmaCh, &rx_transfer_sg, GFP_KERNEL);
+	res=dma_compile_list(pDmaXfer->dwDmaCh, &rx_transfer_sg, GFP_ATOMIC);
 	if(res != 0)
 		goto err_exit;
 

@@ -527,7 +527,7 @@ static int stb7100_program_fdma(snd_pcm_substream_t *substream)
 			virt_to_phys(chip->pcm_player+STM_PCMP_DATA_FIFO),
 			snd_pcm_lib_buffer_bytes(substream));
 
-	dma_compile_list(chip->fdma_channel, &chip->dmap, GFP_KERNEL);
+	dma_compile_list(chip->fdma_channel, &chip->dmap, GFP_ATOMIC);
 
 	spin_unlock_irqrestore(&chip->lock,irqflags);
 	return err;

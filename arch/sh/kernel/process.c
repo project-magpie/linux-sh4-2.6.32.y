@@ -325,7 +325,7 @@ static void ubc_set_tracing(int asid, unsigned long pc)
 	ctrl_outb(asid, UBC_BASRA);
 #endif
 
-	ctrl_outl(0, UBC_BAMRA);
+	ctrl_outb(0, UBC_BAMRA);
 
 	if (current_cpu_data.type == CPU_SH7729 ||
 	    current_cpu_data.type == CPU_SH7710 ||

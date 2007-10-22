@@ -22,7 +22,11 @@ void update_mmu_cache(struct vm_area_struct * vma,
 	unsigned long pteval;
 	unsigned long vpn;
 
-	/* Ptrace may call this routine. */
+	/* FIXME SIM: Do I need this test at all? Sparc doesn't */
+
+	/* vma can be null when called for a P3 address from
+	 * copy_user_page. Also ptrace may call this routine
+	 * to access an address in the process being debugged. */
 	if (vma && current->active_mm != vma->vm_mm)
 		return;
 
@@ -33,11 +37,12 @@ void update_mmu_cache(struct vm_area_struct * vma,
 		if (pfn_valid(pfn)) {
 			struct page *page = pfn_to_page(pfn);
 
-			if (!test_bit(PG_mapped, &page->flags)) {
+			if (page_mapping(page) &&
+			    test_bit(PG_dcache_dirty, &page->flags)) {
 				unsigned long phys = pte_val(pte) & PTE_PHYS_MASK;
 				__flush_wback_region((void *)P1SEGADDR(phys),
 						     PAGE_SIZE);
-				__set_bit(PG_mapped, &page->flags);
+				__clear_bit(PG_dcache_dirty, &page->flags);
 			}
 		}
 	}

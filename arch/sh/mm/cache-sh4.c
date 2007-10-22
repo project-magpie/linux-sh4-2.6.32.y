@@ -13,6 +13,7 @@
 #include <linux/mm.h>
 #include <linux/io.h>
 #include <linux/mutex.h>
+#include <linux/fs.h>
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 
@@ -236,12 +237,25 @@ static inline void flush_cache_4096(unsigned long start,
 }
 
 /*
+ * Called just before the kernel reads a page cache page, or has written
+ * to a page cache page, which may have been mapped into user space.
  * Write back & invalidate the D-cache of the page.
  * (To avoid "alias" issues)
  */
 void flush_dcache_page(struct page *page)
 {
-	if (test_bit(PG_mapped, &page->flags)) {
+	struct address_space *mapping = page_mapping(page);
+
+	if ((mapping != NULL) && (! mapping_mapped(mapping))) {
+		/* There are no user mappings for this page, so we can
+		 * defer the flush. */
+		__set_bit(PG_dcache_dirty, &page->flags);
+	} else {
+		/* page->mapping is NULL for argv/env pages, which
+		 * must be flushed here (there is no call to
+		 * update_mmu_cache in this case). Or there is a user
+		 * mapping for this page, so we flush. */
+
 		unsigned long phys = PHYSADDR(page_address(page));
 		unsigned long addr = CACHE_OC_ADDRESS_ARRAY;
 		int i, n;

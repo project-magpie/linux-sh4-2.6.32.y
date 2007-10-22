@@ -169,6 +169,7 @@ int __init detect_cpu_and_cache_system(void)
 		cpu_data->type = CPU_STB7100;
 		cpu_data->icache.ways = 2;
 		cpu_data->dcache.ways = 2;
+		cpu_data->flags |= CPU_HAS_FPU;
 		break;
 	case 0x690:
 		cpu_data->type = CPU_STX7200;

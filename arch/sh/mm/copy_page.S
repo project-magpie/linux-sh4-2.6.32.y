@@ -24,6 +24,7 @@
  * r11 --- from
  */
 ENTRY(copy_page_slow)
+ENTRY(__copy_page_wb)
 	mov.l	r8,@-r15
 	mov.l	r10,@-r15
 	mov.l	r11,@-r15
@@ -71,7 +72,7 @@ ENTRY(copy_page_slow)
 #if defined(CONFIG_CPU_SH4)
 /*
  * __copy_user_page
- * @to: P1 address (with same color)
+ * @to: P1 address (with same color as user page)
  * @from: P1 address
  * @orig_to: P1 address
  *

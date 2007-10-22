@@ -447,12 +447,7 @@ PTE_BIT_FUNC(low, mkyoung, |= _PAGE_ACCESSED);
 
 #define pgprot_noncached	 pgprot_writecombine
 
-/*
- * Conversion functions: convert a page and protection to a page entry,
- * and a page entry and page directory to the page they refer to.
- *
- * extern pte_t mk_pte(struct page *page, pgprot_t pgprot)
- */
+/* Convert a page and protection to a page entry */
 #define mk_pte(page, pgprot)	pfn_pte(page_to_pfn(page), (pgprot))
 
 static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
@@ -574,12 +569,6 @@ struct mm_struct;
 #ifndef CONFIG_MMU
 extern unsigned int kobjsize(const void *objp);
 #endif /* !CONFIG_MMU */
-
-#if !defined(CONFIG_CACHE_OFF) && (defined(CONFIG_CPU_SH4) || \
-	defined(CONFIG_SH7705_CACHE_32KB))
-#define __HAVE_ARCH_PTEP_GET_AND_CLEAR
-extern pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep);
-#endif
 
 extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 extern void paging_init(void);

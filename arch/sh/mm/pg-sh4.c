@@ -49,9 +49,10 @@ static inline void kunmap_coherent(struct page *page)
  */
 void clear_user_page(void *to, unsigned long address, struct page *page)
 {
-	__set_bit(PG_mapped, &page->flags);
+	void __clear_page_wb(void *to);
+
 	if (((address ^ (unsigned long)to) & CACHE_ALIAS) == 0)
-		clear_page(to);
+		__clear_page_wb(to);
 	else {
 		void *vto = kmap_coherent(page, address);
 		__clear_user_page(vto, to);
@@ -69,32 +70,13 @@ void clear_user_page(void *to, unsigned long address, struct page *page)
 void copy_user_page(void *to, void *from, unsigned long address,
 		    struct page *page)
 {
-	__set_bit(PG_mapped, &page->flags);
+	extern void __copy_page_wb(void *to, void *from);
+
 	if (((address ^ (unsigned long)to) & CACHE_ALIAS) == 0)
-		copy_page(to, from);
+		__copy_page_wb(to, from);
 	else {
 		void *vfrom = kmap_coherent(page, address);
 		__copy_user_page(vfrom, from, to);
 		kunmap_coherent(vfrom);
 	}
-}
-
-/*
- * For SH-4, we have our own implementation for ptep_get_and_clear
- */
-inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
-{
-	pte_t pte = *ptep;
-
-	pte_clear(mm, addr, ptep);
-	if (!pte_not_present(pte)) {
-		unsigned long pfn = pte_pfn(pte);
-		if (pfn_valid(pfn)) {
-			struct page *page = pfn_to_page(pfn);
-			struct address_space *mapping = page_mapping(page);
-			if (!mapping || !mapping_writably_mapped(mapping))
-				__clear_bit(PG_mapped, &page->flags);
-		}
-	}
-	return pte;
 }

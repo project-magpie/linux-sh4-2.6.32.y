@@ -27,6 +27,7 @@
 #include <linux/major.h>
 #include <linux/root_dev.h>
 #include <linux/ethtool.h>
+#include <linux/etherdevice.h>
 #include <net/arp.h>
 #include <net/ip.h>
 #include <net/ipconfig.h>
@@ -35,97 +36,126 @@
 #include <net/checksum.h>
 #include <asm/processor.h>
 
-static char user_dev_name[IFNAMSIZ] __initdata = { 0, };
-static char user_hw_addr[18] __initdata = { 0, };
-static char user_speed = -1;
-static char user_duplex = -1;
+#undef NWHWDEBUG
+#define NWHW_MAX_DEV NETDEV_BOOT_SETUP_MAX
+
+static struct eth_dev {
+	char user_dev_name[IFNAMSIZ];
+	char user_hw_addr[18];
+	int user_speed;
+	int user_duplex;
+} nwhwdev[NWHW_MAX_DEV];
 
 static int __init hex_conv_nibble(char x)
 {
-        if ((x >= '0') && (x <= '9'))
-                return x - '0';
-        if ((x >= 'a') && (x <= 'f'))
-                return x - 'a' + 10;
-        if ((x >= 'A') && (x <= 'F'))
-                return x - 'A' + 10;
+	if ((x >= '0') && (x <= '9'))
+		return x - '0';
+	if ((x >= 'a') && (x <= 'f'))
+		return x - 'a' + 10;
+	if ((x >= 'A') && (x <= 'F'))
+		return x - 'A' + 10;
 
-        return -1;
+	return -1;
 }
 
 static int __init parse_ether(const char *mac_addr_str, struct sockaddr *addr)
 {
-        int i, c1, c2;
-	char* mac_addr = addr->sa_data;
+	int i, c1, c2;
+	char *mac_addr = addr->sa_data;
 
-        /*
-         * Pull out 6 two-digit hex chars
-         */
-        for (i = 0; i < 6; i++) {
+	/*
+	 * Pull out 6 two-digit hex chars
+	 */
+	for (i = 0; i < 6; i++) {
 
-                c1 = hex_conv_nibble(*mac_addr_str++);
-                c2 = hex_conv_nibble(*mac_addr_str++);
+		c1 = hex_conv_nibble(*mac_addr_str++);
+		c2 = hex_conv_nibble(*mac_addr_str++);
 
-                if ((c1 == -1) || (c2 == -1))
-                        return 0;
+		if ((c1 == -1) || (c2 == -1))
+			return 0;
 
-                mac_addr[i] = (c1 << 4) | c2;
+		mac_addr[i] = (c1 << 4) | c2;
 
-                if ((i != 5) && (*mac_addr_str++ != ':'))
-                        return 0;
-        }
+		if ((i != 5) && (*mac_addr_str++ != ':'))
+			return 0;
+	}
 
-        return 1;
+	return 1;
 }
 
-
+/**
+ *  nwhw_config
+ *  @dev : net device pointer
+ *  Description:
+ *	it sets the MAC address.
+ *	Note that if the network device driver already uses a right
+ *	address this function doesn't replace any value.
+ */
 static int __init nwhw_config(void)
 {
 	struct net_device *dev;
 	struct sockaddr ether_addr;
-	int valid_ether = user_hw_addr[0];
+	int valid_ether;
+	int ndev = 0;
 
-	if (valid_ether) {
-		valid_ether = parse_ether(user_hw_addr, &ether_addr);
-		if (! valid_ether) {
-			printk("Failed to parse ether addr: %s\n", user_hw_addr);
-		}
-	}
+	while ((ndev < NWHW_MAX_DEV) &&
+	       (dev = __dev_get_by_name(nwhwdev[ndev].user_dev_name))) {
 
-        dev = __dev_get_by_name(user_dev_name);
-	if (! dev) {
-		printk("%s: device not found\n", __FUNCTION__);
-		return -1;
-	}
+		if (!dev)
+			break;
 
-	if (valid_ether) {
-		if (!dev->set_mac_address ||
-		    dev->set_mac_address(dev, &ether_addr)) {
-			printk(KERN_WARNING "%s: not set MAC address...\n",
-				__FUNCTION__);
-		}
-	}
+		if (!is_valid_ether_addr(dev->dev_addr)) {
+			valid_ether = nwhwdev[ndev].user_hw_addr[0];
 
-	if ((user_speed != -1) || (user_duplex != -1)) {
-		struct ethtool_cmd cmd = { ETHTOOL_GSET };
+			if (valid_ether) {
+				valid_ether =
+				    parse_ether(nwhwdev[ndev].user_hw_addr,
+						&ether_addr);
+				if (!valid_ether) {
+					printk("failed to parse addr: %s\n",
+					       nwhwdev[ndev].user_hw_addr);
+				}
+			}
+			printk(KERN_INFO "%s: (%s) setting mac address: %s\n",
+			       __FUNCTION__, nwhwdev[ndev].user_dev_name,
+			       nwhwdev[ndev].user_hw_addr);
 
-		if (! dev->ethtool_ops->get_settings ||
-		    (dev->ethtool_ops->get_settings(dev, &cmd) < 0)) {
-			printk("Failed to read ether device settings\n");
-		} else {
-			cmd.cmd = ETHTOOL_SSET;
-			cmd.autoneg = AUTONEG_DISABLE;
-			if (user_speed != -1)
-				cmd.speed = user_speed;
-			if (user_duplex != -1)
-				cmd.duplex = user_duplex;
-			if (! dev->ethtool_ops->set_settings ||
-			    (dev->ethtool_ops->set_settings(dev, &cmd) < 0)) {
-				printk("Failed to set ether device settings\n");
+			if (valid_ether) {
+				if ((!dev->set_mac_address ||
+				     dev->set_mac_address(dev, &ether_addr))) {
+					printk(KERN_WARNING
+					       "%s: not set MAC address...\n",
+					       __FUNCTION__);
+				}
 			}
 		}
-	}
 
-	return 0;
+		if ((nwhwdev[ndev].user_speed != -1) ||
+		    (nwhwdev[ndev].user_duplex != -1)) {
+			struct ethtool_cmd cmd = { ETHTOOL_GSET };
+
+			if (!dev->ethtool_ops->get_settings ||
+			    (dev->ethtool_ops->get_settings(dev, &cmd) < 0)) {
+				printk
+				    ("Failed to read ether device settings\n");
+			} else {
+				cmd.cmd = ETHTOOL_SSET;
+				cmd.autoneg = AUTONEG_DISABLE;
+				if (nwhwdev[ndev].user_speed != -1)
+					cmd.speed = nwhwdev[ndev].user_speed;
+				if (nwhwdev[ndev].user_duplex != -1)
+					cmd.duplex = nwhwdev[ndev].user_duplex;
+				if (!dev->ethtool_ops->set_settings ||
+				    (dev->ethtool_ops->set_settings(dev, &cmd) <
+				     0)) {
+					printk
+					    ("Failed to set ether device settings\n");
+				}
+			}
+		}
+		ndev++;
+	}
+	return (0);
 }
 
 device_initcall(nwhw_config);
@@ -134,59 +164,95 @@ device_initcall(nwhw_config);
 void nwhw_uconfig(struct net_device *dev)
 {
 	struct sockaddr ether_addr;
-	int valid_ether = user_hw_addr[0];
+	int ndev = 0;
+	int valid_ether = valid_ether = nwhwdev[ndev].user_hw_addr[0];
 
-	printk(KERN_INFO "%s\n", __FUNCTION__);
-	if (valid_ether) {
-		valid_ether = parse_ether(user_hw_addr, &ether_addr);
-		if (! valid_ether) {
-			printk(KERN_WARNING "\tfailed to parse ether addr:%s\n",
-				user_hw_addr);
+	printk(KERN_DEBUG "%s\n", __FUNCTION__);
+	while (ndev < NWHW_MAX_DEV) {
+		if (valid_ether) {
+			valid_ether = parse_ether(nwhwdev[ndev].user_hw_addr,
+						  &ether_addr);
+			if (!valid_ether) {
+				printk(KERN_WARNING
+				       "\tfailed to parse ether addr\n");
+			}
 		}
-	}
-	if (valid_ether) {
-		if (!dev->set_mac_address ||
-		    dev->set_mac_address(dev, &ether_addr)) {
-			printk(KERN_WARNING "\tnot set MAC address...\n");
+		if (valid_ether) {
+			if (!dev->set_mac_address ||
+			    dev->set_mac_address(dev, &ether_addr)) {
+				printk(KERN_WARNING "\tnot set MAC address\n");
+			}
 		}
+		ndev++;
 	}
 	return;
 }
 #endif
 
-static int __init nwhw_config_setup(char* str)
+static void nwhw_print_args(void)
 {
-	char* opt;
+#ifdef NWHWDEBUG
+	int i;
+	printk("%s\n", __FUNCTION__);
+	for (i = 0; i < NWHW_MAX_DEV; i++) {
+		printk("\t%d) %s, addr %s, speed %d, duplex %s\n", i,
+		       nwhwdev[i].user_dev_name, nwhwdev[i].user_hw_addr,
+		       nwhwdev[i].user_speed,
+		       (nwhwdev[i].user_duplex) ? "Full" : "Half");
+	}
+#endif
+	return;
+}
+
+/**
+ *  nwhw_config_setup - parse the nwhwconfig parameters
+ *  @str : pointer to the nwhwconfig parameter
+ *  Description:
+ *  This function parses the nwhwconfig command line argumets.
+ *  Command line syntax:
+ *	nwhwconf=device:eth0,hwaddr:<mac0>[,speed:<speed0>][,duplex:<duplex0>];
+		 device:eth1,hwaddr:<mac1>[,speed:<speed1>][,duplex:<duplex1>];
+		...
+ */
+static int __init nwhw_config_setup(char *str)
+{
+	char *opt;
+	int j = 0;
 
 	if (!str || !*str)
 		return 0;
-
-	while ((opt=strsep(&str, ",")) != NULL) {
-		if (! strncmp(opt, "device:", 7)) {
-			strlcpy(user_dev_name, opt+7, sizeof(user_dev_name));
-		}
-		else if (! strncmp(opt, "hwaddr:", 7)) {
-			strlcpy(user_hw_addr, opt+7, sizeof(user_hw_addr));
-		}
-		else if (! strncmp(opt, "speed:", 6)) {
-			switch (simple_strtoul(opt+6, NULL, 0)) {
-			case 10:
-				user_speed = SPEED_10;
-				break;
-			case 100:
-				user_speed = SPEED_100;
-				break;
+	while (((opt = strsep(&str, ";")) != NULL) && (j < NWHW_MAX_DEV)) {
+		char *p;
+		nwhwdev[j].user_speed = -1;
+		nwhwdev[j].user_duplex = -1;
+		while ((p = strsep(&opt, ",")) != NULL) {
+			if (!strncmp(p, "device:", 7)) {
+				strlcpy(nwhwdev[j].user_dev_name, p + 7,
+					sizeof(nwhwdev[j].user_dev_name));
+			} else if (!strncmp(p, "hwaddr:", 7)) {
+				strlcpy(nwhwdev[j].user_hw_addr, p + 7,
+					sizeof(nwhwdev[j].user_hw_addr));
+			} else if (!strncmp(p, "speed:", 6)) {
+				switch (simple_strtoul(p + 6, NULL, 0)) {
+				case 10:
+					nwhwdev[j].user_speed = SPEED_10;
+					break;
+				case 100:
+					nwhwdev[j].user_speed = SPEED_100;
+					break;
+				}
+			} else if (!strcmp(p, "duplex:full")) {
+				nwhwdev[j].user_duplex = DUPLEX_FULL;
+			} else if (!strcmp(p, "duplex:half")) {
+				nwhwdev[j].user_duplex = DUPLEX_HALF;
 			}
 		}
-		else if (! strcmp(opt, "duplex:full")) {
-			user_duplex = DUPLEX_FULL;
-		}
-		else if (! strcmp(opt, "duplex:half")) {
-			user_duplex = DUPLEX_HALF;
-		}
+		j++;
 	}
 
-	return 1;
+	nwhw_print_args();
+
+	return (0);
 }
 
 __setup("nwhwconf=", nwhw_config_setup);

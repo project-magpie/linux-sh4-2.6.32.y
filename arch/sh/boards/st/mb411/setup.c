@@ -56,6 +56,11 @@ void __init platform_setup(void)
 	sysconf &= ~(1<<3);
 	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
 
+        /* The ST40RTC sources its clock from clock */
+        /* generator B */
+        sysconf = ctrl_inl(SYSCONF_SYS_CFG(8));
+        ctrl_outl(sysconf | 0x2, SYSCONF_SYS_CFG(8));
+
 	/* Work around for USB over-current detection chip being
 	 * active low, and the 7100 being active high */
 	if (chip_revision < 3) {

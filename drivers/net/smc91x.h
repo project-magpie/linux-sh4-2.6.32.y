@@ -1328,4 +1328,21 @@ static const char * chip_ids[ 16 ] =  {
 			SMC_insb(ioaddr, DATA_REG, p, l);		\
 	} while (0)
 
+#if defined(CONFIG_SH_STI5528_ESPRESSO)
+/*
+ * The Espresso doesn't appear to correctly connect the SMSC's ARDY pin
+ * to the 5528's WAIT pin. The only time this has been observed to be a
+ * problem is after setting the pointer register there may be insufficient
+ * delay before reading from the FIFO. Insert a delay here.
+ */
+#undef SMC_SET_PTR
+#define SMC_SET_PTR(x)							\
+	do {								\
+		unsigned int __val16 = (x);				\
+		SMC_outw( __val16, ioaddr, PTR_REG );			\
+		if (__val16 & PTR_READ)					\
+			ndelay(370);					\
+	} while (0)
+#endif
+
 #endif  /* _SMC91X_H_ */

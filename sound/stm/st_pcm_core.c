@@ -423,8 +423,7 @@ static struct page *snd_pcm_mmap_data_nopage(struct vm_area_struct *area, unsign
                 vaddr = runtime->dma_area + offset;
                 page = virt_to_page(vaddr);
         }
-        if (!PageReserved(page))
-                get_page(page);
+        get_page(page);
         if (type)
                 *type = VM_FAULT_MINOR;
         return page;

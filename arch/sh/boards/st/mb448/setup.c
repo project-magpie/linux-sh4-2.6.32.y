@@ -27,12 +27,14 @@
 void __init platform_setup(void)
 {
 	unsigned long sysconf;
+	unsigned long chip_revision;
 	static struct stpio_pin *ethreset;
 
 	printk("STMicroelectronics STb7109E Reference board initialisation\n");
 
 	sysconf = ctrl_inl(SYSCONF_DEVICEID);
-	printk("STb7109 version %ld.x\n", (sysconf >> 28) +1);
+	chip_revision = (sysconf >> 28) + 1;
+	printk("STb7109 version %ld.x\n", chip_revision);
 
 	/* Route UART2 instead of SCI to PIO4 */
 	/* Set ssc2_mux_sel = 0 */
@@ -54,6 +56,14 @@ void __init platform_setup(void)
 	stpio_set_pin(ethreset, 1);
 	udelay(1);
 	stpio_set_pin(ethreset, 0);
+
+	/* Work around for USB over-current detection chip being
+	 * active low, and the 7109 being active high */
+	if (chip_revision < 2) {
+		static struct stpio_pin *pin;
+		pin = stpio_request_pin(5,6, "USBOC", STPIO_OUT);
+		stpio_set_pin(pin, 0);
+	}
 
 	/* Currently all STB1 chips have problems with the sleep instruction,
 	 * so disable it here.

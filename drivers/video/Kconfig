@@ -1085,7 +1085,6 @@ config FB_MATROX
 	select FB_CFB_FILLRECT
 	select FB_CFB_COPYAREA
 	select FB_CFB_IMAGEBLIT
-	select FB_TILEBLITTING
 	select FB_MACMODES if PPC_PMAC
 	---help---
 	  Say Y here if you have a Matrox Millennium, Matrox Millennium II,
@@ -1879,5 +1878,15 @@ if FB || SGI_NEWPORT_CONSOLE
 	source "drivers/video/logo/Kconfig"
 endif
 
-endmenu
+config FB_SPLASH
+	bool "Support for the framebuffer splash"
+	depends on FRAMEBUFFER_CONSOLE=y && !FB_TILEBLITTING
+	default n
+	---help---
+	  This option enables support for the Linux boot-up splash screen and
+	  graphical backgrounds on consoles. Note that you will need userspace
+	  splash utilities in order to take advantage of these features. Refer 
+	  to Documentation/fb/splash.txt for more information.
 
+	  If unsure, say N.
+endmenu

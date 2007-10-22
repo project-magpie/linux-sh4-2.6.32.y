@@ -11,6 +11,13 @@ struct dentry;
 #define FB_MAJOR		29
 #define FB_MAX			32	/* sufficient for now */
 
+struct fb_splash_iowrapper
+{
+	unsigned short vc;		/* Virtual console */
+	unsigned char origin;		/* Point of origin of the request */
+	void *data;
+};
+
 /* ioctls
    0x46 is 'F'								*/
 #define FBIOGET_VSCREENINFO	0x4600
@@ -38,7 +45,15 @@ struct dentry;
 #define FBIOGET_HWCINFO         0x4616
 #define FBIOPUT_MODEINFO        0x4617
 #define FBIOGET_DISPINFO        0x4618
+#define FBIOSPLASH_SETCFG	_IOWR('F', 0x19, struct fb_splash_iowrapper)
+#define FBIOSPLASH_GETCFG	_IOR('F', 0x1A, struct fb_splash_iowrapper)
+#define FBIOSPLASH_SETSTATE	_IOWR('F', 0x1B, struct fb_splash_iowrapper)
+#define FBIOSPLASH_GETSTATE	_IOR('F', 0x1C, struct fb_splash_iowrapper)
+#define FBIOSPLASH_SETPIC 	_IOWR('F', 0x1D, struct fb_splash_iowrapper)
 
+#define FB_SPLASH_THEME_LEN		128	/* Maximum lenght of a theme name */
+#define FB_SPLASH_IO_ORIG_KERNEL	0	/* Kernel ioctl origin */
+#define FB_SPLASH_IO_ORIG_USER		1 	/* User ioctl origin */
 
 #define FB_TYPE_PACKED_PIXELS		0	/* Packed Pixels	*/
 #define FB_TYPE_PLANES			1	/* Non interleaved planes */
@@ -831,6 +846,9 @@ struct fb_info {
 #define FBINFO_STATE_SUSPENDED	1
 	u32 state;			/* Hardware state i.e suspend */
 	void *fbcon_par;                /* fbcon use-only private area */
+
+	struct fb_image splash;
+
 	/* From here on everything is device dependent */
 	void *par;	
 };

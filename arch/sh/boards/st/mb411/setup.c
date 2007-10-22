@@ -184,4 +184,4 @@ static int __init device_init(void)
         return platform_device_register(&smc91x_device);
 }
 
-subsys_initcall(device_init);
+device_initcall(device_init);

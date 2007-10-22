@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2000 David J. Mckay (david.mckay@st.com)
+ * Copyright (C) 2000 STMicroelectronics Limited
+ * Author: David J. Mckay (david.mckay@st.com)
  *
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
@@ -11,38 +12,17 @@
 
 #include <linux/init.h>
 #include <linux/irq.h>
-
+#include <linux/interrupt.h>
 #include <asm/system.h>
 #include <asm/io.h>
-
 #include <asm/mach/harp.h>
 
+#ifndef epld_out
+#define epld_out(val,addr) ctrl_outl(val,addr)
+#define epld_in(addr)      ctrl_inl(addr)
+#endif
+
 #define NUM_EXTERNAL_IRQS 16
-
-static void enable_harp_irq(unsigned int irq);
-static void disable_harp_irq(unsigned int irq);
-
-/* shutdown is same as "disable" */
-#define shutdown_harp_irq disable_harp_irq
-
-static void mask_and_ack_harp(unsigned int);
-static void end_harp_irq(unsigned int irq);
-
-static unsigned int startup_harp_irq(unsigned int irq)
-{
-	enable_harp_irq(irq);
-	return 0;		/* never anything pending */
-}
-
-static struct hw_interrupt_type harp_irq_type = {
-	.typename = "Harp-IRQ",
-	.startup = startup_harp_irq,
-	.shutdown = shutdown_harp_irq,
-	.enable = enable_harp_irq,
-	.disable = disable_harp_irq,
-	.ack = mask_and_ack_harp,
-	.end = end_harp_irq
-};
 
 static void disable_harp_irq(unsigned int irq)
 {
@@ -63,7 +43,7 @@ static void disable_harp_irq(unsigned int irq)
 	}
 	mask=1<<pri;
 
-	ctrl_outl(mask, maskReg);
+	epld_out(mask, maskReg);
 
 	/* Read back the value we just wrote to flush any write posting */
 	epld_in(maskReg);
@@ -88,45 +68,34 @@ static void enable_harp_irq(unsigned int irq)
 	}
 	mask=1<<pri;
 
-	ctrl_outl(mask, maskReg);
-}
-
-/* This functions sets the desired irq handler to be an overdrive type */
-static void __init make_harp_irq(unsigned int irq)
-{
-	disable_irq_nosync(irq);
-	irq_desc[irq].handler = &harp_irq_type;
-	disable_harp_irq(irq);
-}
-
-static void mask_and_ack_harp(unsigned int irq)
-{
-	disable_harp_irq(irq);
-}
-
-static void end_harp_irq(unsigned int irq)
-{
-	if (!(irq_desc[irq].status & (IRQ_DISABLED|IRQ_INPROGRESS)))
-		enable_harp_irq(irq);
+	epld_out(mask, maskReg);
 }
 
 static void __init disable_all_interrupts(void)
 {
-	ctrl_outl(0x00, EPLD_INTMASK0);
-	ctrl_outl(0x00, EPLD_INTMASK1);
+	epld_out(0x00, EPLD_INTMASK0);
+	epld_out(0x00, EPLD_INTMASK1);
 }
+
+static struct irq_chip harp_chips[NUM_EXTERNAL_IRQS] = {
+	[0 ... NUM_EXTERNAL_IRQS-1 ] = {
+		.mask = disable_harp_irq,
+		.unmask = enable_harp_irq,
+		.mask_ack = disable_harp_irq,
+		.name = "harp",
+	}
+};
 
 void __init harp_init_irq(void)
 {
-	int i;
+	int irq;
 
 	disable_all_interrupts();
 
-	if (! harp_has_intmask_setclr()) {
-		printk(KERN_ERR "HARP does not have interrupt set/clr registers\n");
-	}
-
-	for (i = 0; i < NUM_EXTERNAL_IRQS; i++) {
-		make_harp_irq(i);
+	for (irq = 0; irq < NUM_EXTERNAL_IRQS; irq++) {
+		disable_irq_nosync(irq);
+		set_irq_chip_and_handler_name(irq, &harp_chips[irq],
+			handle_level_irq, "level");
+		disable_harp_irq(irq);
 	}
 }

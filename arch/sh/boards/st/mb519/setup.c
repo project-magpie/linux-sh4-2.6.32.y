@@ -10,20 +10,16 @@
  * STMicroelectronics STx7200 Mboard support.
  */
 
-#include <linux/kernel.h>
 #include <linux/init.h>
+#include <linux/platform_device.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
-#include <linux/delay.h>
-#include <linux/platform_device.h>
+#include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
+#include <linux/mtd/partitions.h>
+#include <linux/phy.h>
+#include <asm/irq-ilc.h>
 #include <asm/io.h>
-#include <asm/led.h>
-
-#define SYSCONF_BASE 0xfd704000
-#define SYSCONF_DEVICEID	(SYSCONF_BASE + 0x000)
-#define SYSCONF_SYS_STA(n)	(SYSCONF_BASE + 0x008 + ((n) * 4))
-#define SYSCONF_SYS_CFG(n)	(SYSCONF_BASE + 0x100 + ((n) * 4))
 
 #define EPLD_BASE 0xa5000000
 #define EPLD_ver		(EPLD_BASE + 0x000000)
@@ -47,13 +43,10 @@
 #define EPLD_StemClr		(EPLD_BASE + 0x700000)
 #define EPLD_DACSPMux		(EPLD_BASE + 0xD00000)
 
-/*
- * Initialize the board
- */
+static int ascs[2] __initdata = { 2, 3 };
+
 void __init mb519_setup(char** cmdline_p)
 {
-	unsigned long sysconf;
-	unsigned long chip_revision;
 	unsigned short epld_rev = ctrl_inw(EPLD_ver);
 	unsigned short pcb_rev = ctrl_inw(EPLD_cpcbver);
 
@@ -62,102 +55,35 @@ void __init mb519_setup(char** cmdline_p)
 	       pcb_rev,
 	       epld_rev >> 4, epld_rev & 0xf);
 
-	sysconf = ctrl_inl(SYSCONF_DEVICEID);
-	chip_revision = (sysconf >> 28) +1;
-
-	printk("STx7200 version %ld.x\n", chip_revision);
-
-	/* Serial port set up */
-	/* Route UART2&3 or SCI inputs instead of DVP to pins: conf_pad_dvp = 0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(40));
-	sysconf &= ~(1<<16);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(40));
-
-	/* Route UART2&3/SCI outputs instead of DVP to pins: conf_pad_pio[1]=0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~(1<<25);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* No idea, more routing: conf_pad_pio[0] = 0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~(1<<24);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* Route UART2 (inputs and outputs) instead of SCI to pins: ssc2_mux_sel = 0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~(1<<2);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* conf_pad_pio[4] = 0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~(1<<28);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* Route UART3 (inputs and outputs) instead of SCI to pins: ssc3_mux_sel = 0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~(1<<3);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* conf_pad_clkobs = 1 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf |= (1<<14);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* I2C and USB related routing */
-	/* bit4: ssc4_mux_sel = 0 (treat SSC4 as I2C) */
-	/* bit26: conf_pad_pio[2] = 0 route USB etc instead of DVO */
-	/* bit27: conf_pad_pio[3] = 0 DVO output selection (probably ignored) */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~((1<<27)|(1<<26)|(1<<4));
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* Enable SOFT_JTAG mode.
-	 * Taken from OS21, but is this correct?
-	 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(33));
-	sysconf |= (1<<6);
-	sysconf &= ~((1<<0)|(1<<1)|(1<<2)|(1<<3));
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(33));
-
-	/* Route Ethernet pins to output */
-	/* bit26-16: conf_pad_eth(10:0) */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(41));
-	/* MII0: conf_pad_eth(0) = 0 (ethernet) */
-	sysconf &= ~(1<<16);
-	/* MII1: conf_pad_eth(2) = 0, (3)=0, (4)=0, (9)=0, (10)=0 (ethernet)
-	 * MII1: conf_pad_eth(6) = 0 (MII1TXD[0] = output) */
-	sysconf &= ~( (1<<(16+2)) | (1<<(16+3)) | (1<<(16+4)) | (1<<(16+6)) |
-		      (1<<(16+9)) | (1<<(16+10)));
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(41));
-
-	/* Permanently enable Flash VPP */
-	ctrl_outw(3, EPLD_Flash);
-
-	/* ClockgenB powers up with all the frequency synths bypassed.
-	 * Enable them all here.  Without this, USB 1.1 doesn't work,
-	 * as it needs a 48MHz clock which is separate from the USB 2
-	 * clock which is derived from the SATA clock. */
-	ctrl_outl(0, 0xFD701048);
-
-	stx7200eth_hw_setup(0, 0, 1);
-	stx7200eth_hw_setup(1, 0, 1);
+	stx7200_early_device_init();
+	stx7200_configure_asc(ascs, 2, 0);
 }
 
-#if 0 // def CONFIG_MTD_PHYSMAP
+static struct plat_stm_pwm_data pwm_private_info = {
+	.flags		= PLAT_STM_PWM_OUT1,
+};
+
+static struct plat_ssc_data ssc_private_info = {
+	.capability  =
+		((SSC_I2C_CAPABILITY                     ) << (0*2)) |
+		((SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY) << (1*2)) |
+		((SSC_I2C_CAPABILITY                     ) << (2*2)) |
+		((SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY) << (3*2)) |
+		((SSC_I2C_CAPABILITY                     ) << (4*2)),
+};
+
 static struct mtd_partition mtd_parts_table[3] = {
 	{
 		.name = "Boot firmware",
 		.size = 0x00040000,
 		.offset = 0x00000000,
-	},
-	{
+	}, {
 		.name = "Kernel",
 		.size = 0x00100000,
 		.offset = 0x00040000,
-	},
-	{
+	}, {
 		.name = "Root FS",
-		.size = MTDPART_SIZ_FULL,      /* will expand to the end of the flash */
+		.size = MTDPART_SIZ_FULL,
 		.offset = 0x00140000,
 	}
 };
@@ -181,10 +107,6 @@ static struct physmap_flash_data physmap_flash_data = {
 	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
 	.parts		= mtd_parts_table
 };
-#define physmap_flash_data_addr &physmap_flash_data
-#else
-#define physmap_flash_data_addr NULL
-#endif
 
 static struct platform_device physmap_flash = {
 	.name		= "physmap-flash",
@@ -198,19 +120,84 @@ static struct platform_device physmap_flash = {
 		}
 	},
 	.dev		= {
-		.platform_data	= physmap_flash_data_addr,
+		.platform_data	= &physmap_flash_data,
 	},
 };
 
+static struct plat_stmmacphy_data phy_private_data[2] = {
+{
+	/* MAC0: STE101P */
+	.bus_id = 0,
+	.phy_addr = 0,
+	.phy_mask = 0,
+	.interface = PHY_INTERFACE_MODE_MII,
+}, {
+	/* MAC1: SMSC LAN 8700 */
+	.bus_id = 1,
+	.phy_addr = 1,
+	.phy_mask = 0,
+	.interface = PHY_INTERFACE_MODE_MII,
+} };
+
+static struct platform_device mb519_phy_devices[2] = {
+{
+	.name		= "stmmacphy",
+	.id		= 0,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.name	= "phyirq",
+			/* This should be:
+			 * .start = ILC_IRQ(93),
+			 * .end = ILC_IRQ(93),
+			 * but because the mb519 uses the MII0_MDINT line
+			 * as MODE4, and the STE101P MDINT pin is O/C,
+			 * there may or maynot be a pull-up resistor
+			 * depending on switch SW1-4. Most of the time there
+			 * isn't, so disable the interrupt.
+			 */
+			.start	= -1,
+			.end	= -1,
+			.flags	= IORESOURCE_IRQ,
+		},
+	},
+	.dev = {
+		.platform_data = &phy_private_data[0],
+	 }
+}, {
+	.name		= "stmmacphy",
+	.id		= 1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.name	= "phyirq",
+			.start	= ILC_IRQ(95),
+			.end	= ILC_IRQ(95),
+			.flags	= IORESOURCE_IRQ,
+		},
+	},
+	.dev = {
+		.platform_data = &phy_private_data[1],
+	 }
+} };
+
 static struct platform_device *mb519_devices[] __initdata = {
 	&physmap_flash,
+	&mb519_phy_devices[0],
+	&mb519_phy_devices[1],
 };
 
 static int __init device_init(void)
 {
+	stx7200_configure_pwm(&pwm_private_info);
+	stx7200_configure_ssc(&ssc_private_info);
+	stx7200_configure_usb();
+	stx7200_configure_ethernet(0, 0, 1, 0);
+	// stx7200_configure_ethernet(1, 0, 1, 1);
+
 	return platform_add_devices(mb519_devices, ARRAY_SIZE(mb519_devices));
 }
-subsys_initcall(device_init);
+arch_initcall(device_init);
 
 static void __iomem *stx7200mboard_ioport_map(unsigned long port, unsigned int size)
 {
@@ -237,19 +224,9 @@ static void __init stx7200mboard_init_irq(void)
 	ctrl_outw(1<<4, EPLD_IntMask0Set); /* IntPriority(4) <= not STEM_notINTR0 */
 }
 
-/* Flash the heartbeat LED (LD12T) on the mb520 */
-void mach_led(int position, int value)
-{
-	static struct stpio_pin *led = NULL;
-	if (led == NULL)
-		led = stpio_request_pin(4, 7, "LED", STPIO_OUT);
-
-	stpio_set_pin(led, !value);
-}
-
 struct sh_machine_vector mv_stx7200mboard __initmv = {
-	.mv_name		= "STx7200 Reference board";
-	.mv_setup		= mb442_setup,
+	.mv_name		= "mb519",
+	.mv_setup		= mb519_setup,
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= stx7200mboard_init_irq,
 	.mv_ioport_map		= stx7200mboard_ioport_map,
@@ -257,4 +234,3 @@ struct sh_machine_vector mv_stx7200mboard __initmv = {
 	.mv_heartbeat		= heartbeat_heart,
 #endif
 };
-ALIAS_MV(stx7200mboard)

@@ -33,6 +33,7 @@
 
 #include <asm/system.h>
 #include <asm/io.h>
+#include <asm/irq-ilc.h>
 
 #ifdef CONFIG_PROC_FS
 #include <linux/proc_fs.h>
@@ -91,14 +92,14 @@ static const struct stpio_port stpio_port_conf[STPIO_NPORTS] = {
 	{0xb8024000, 114 },
 	{0xb8025000, 113 },
 #elif defined(CONFIG_CPU_SUBTYPE_STX7200)
-	{0xfd020000, 96+MUXED_IRQ_BASE },
-	{0xfd021000, 97+MUXED_IRQ_BASE },
-	{0xfd022000, 98+MUXED_IRQ_BASE },
-	{0xfd023000, 99+MUXED_IRQ_BASE },
-	{0xfd024000, 100+MUXED_IRQ_BASE },
-	{0xfd025000, 101+MUXED_IRQ_BASE },
-	{0xfd026000, 102+MUXED_IRQ_BASE },
-	{0xfd027000, 103+MUXED_IRQ_BASE },
+	{0xfd020000, ILC_IRQ(96) },
+	{0xfd021000, ILC_IRQ(97) },
+	{0xfd022000, ILC_IRQ(98) },
+	{0xfd023000, ILC_IRQ(99) },
+	{0xfd024000, ILC_IRQ(100) },
+	{0xfd025000, ILC_IRQ(101) },
+	{0xfd026000, ILC_IRQ(102) },
+	{0xfd027000, ILC_IRQ(103) },
 #else
 #error Unknown CPU
 #endif
@@ -356,7 +357,7 @@ static int __init stpio_init(void)
 		const struct stpio_port *port = &stpio_port_conf[portno];
 		request_mem_region(port->base, 0x1000, MODNAME);
 		request_irq(port->irq, stpio_interrupt,
-			    SA_INTERRUPT, MODNAME, (void*)port);
+			    0, MODNAME, (void*)port);
 	}
 
 #ifdef CONFIG_PROC_FS

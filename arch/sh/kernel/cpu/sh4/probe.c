@@ -143,7 +143,12 @@ int __init detect_cpu_and_cache_system(void)
 		boot_cpu_data.type = CPU_ST40RA;
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		break;
+	case 0x8002:
+		boot_cpu_data.type = CPU_STM8000;
+		boot_cpu_data.flags |= CPU_HAS_FPU;
+		break;
 	case 0x8100:
+		/* Some bright spark used this same ID for the STi5528 */
 		boot_cpu_data.type = CPU_ST40GX1;
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		break;

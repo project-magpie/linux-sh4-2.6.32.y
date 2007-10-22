@@ -129,7 +129,7 @@ static int __init device_init(void)
 {
 	// return platform_add_devices(cb101_devices, ARRAY_SIZE(cb101_devices));
 }
-subsys_initcall(device_init);
+device_initcall(device_init);
 
 static void __iomem *cb101_ioport_map(unsigned long port, unsigned int size)
 {

@@ -10,19 +10,14 @@
  */
 
 #include <linux/init.h>
-
 #include <linux/pci.h>
 #include <linux/irq.h>
 
-#include <asm/system.h>
 #include <asm/io.h>
-#include <asm/machvec.h>
-#include <asm/led.h>
-#include <asm/io_generic.h>
 #include <asm/mb374/harp.h>
 #include "../../../drivers/pci/pci-st40.h"
 
-unsigned long mb374_isa_port2addr(unsigned long offset)
+static void __iomem *mb374_ioport_map(unsigned long port, unsigned int size)
 {
 #ifdef CONFIG_PCI
         /* This is something of a hack, to avoid problems with the IDE
@@ -30,9 +25,9 @@ unsigned long mb374_isa_port2addr(unsigned long offset)
          * return valid addresses for PCI, and redirect everything else
          * to somewhere safe.
          */
-        if ((offset >= PCIBIOS_MIN_IO) &&
-            (offset < ((64 * 1024) - PCIBIOS_MIN_IO + 1))) {
-                return offset + ST40PCI_IO_ADDRESS;
+        if ((port >= PCIBIOS_MIN_IO) &&
+            (port < ((64 * 1024) - PCIBIOS_MIN_IO + 1))) {
+                return port + ST40PCI_IO_ADDRESS;
         }
 #endif
 
@@ -41,17 +36,18 @@ unsigned long mb374_isa_port2addr(unsigned long offset)
          * in the middle of updating Flash. So I'm now using the processor core
          * version register, which is guaranted to be available, and non-writable.
          */
-        return CCN_PVR;
+        return (void __iomem *)CCN_PVR;
 }
 
+void __init mb374_setup(char **cmdline_p);
+
 static struct sh_machine_vector mv_mb374 __initmv = {
+	.mv_name		= "ST40RA/ST40STB1 Starter",
+	.mv_setup		= mb374_setup,
         .mv_nr_irqs             = NR_IRQS,
-        .mv_isa_port2addr       = mb374_isa_port2addr,
+        .mv_ioport_map		= mb374_ioport_map,
 
 #ifdef CONFIG_PCI
         .mv_init_irq            = harp_init_irq,
-#endif
-#ifdef CONFIG_HEARTBEAT
-        .mv_heartbeat           = heartbeat_knightrider,
 #endif
 };

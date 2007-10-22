@@ -13,7 +13,11 @@
 #include <linux/serial.h>
 #include <linux/io.h>
 #include <linux/stm/soc.h>
+#include <linux/stm/pio.h>
 #include <asm/sci.h>
+#include <asm/irq-ilc.h>
+#include <linux/stm/fdma-plat.h>
+#include <linux/stm/fdma-reqs.h>
 
 #define SYSCONF_BASE 0xfd704000
 #define SYSCONF_DEVICEID	(SYSCONF_BASE + 0x000)
@@ -86,8 +90,8 @@ static struct plat_usb_data usb_wrapper[3] = {
 			.flags = IORESOURCE_MEM,			\
 		},							\
 		[1] = {							\
-			.start = 80+(port*2)+MUXED_IRQ_BASE,		\
-			.end   = 80+(port*2)+MUXED_IRQ_BASE,		\
+			.start = ILC_IRQ(80+(port*2)),			\
+			.end   = ILC_IRQ(80+(port*2)),			\
 			.flags = IORESOURCE_IRQ,			\
 		},							\
 	},								\
@@ -116,8 +120,8 @@ static struct platform_device st40_ehci_devices[3] = {
 			.flags = IORESOURCE_MEM,			\
 		},							\
 		[1] = {							\
-			.start = 81+(port*2)+MUXED_IRQ_BASE,		\
-			.end   = 81+(port*2)+MUXED_IRQ_BASE,		\
+			.start = ILC_IRQ(81+(port*2)),			\
+			.end   = ILC_IRQ(81+(port*2)),			\
 			.flags = IORESOURCE_IRQ,			\
 		}							\
 	}								\
@@ -128,9 +132,6 @@ static struct platform_device  st40_ohci_devices[3] = {
 	USB_OHCI_DEVICE(1),
 	USB_OHCI_DEVICE(2)
 };
-
-#include <linux/stm/fdma-plat.h>
-#include <linux/stm/fdma-reqs.h>
 
 #ifdef CONFIG_STM_DMA
 
@@ -276,28 +277,28 @@ static struct resource ssc_resource[] = {
 		.flags = IORESOURCE_MEM,
 	},
 	[5] = {
-		.start = 108 + MUXED_IRQ_BASE,
-		.end   = 108 + MUXED_IRQ_BASE,
+		.start = ILC_IRQ(108),
+		.end   = ILC_IRQ(108),
 		.flags = IORESOURCE_IRQ,
 	},
 	[6] = {
-		.start = 109 + MUXED_IRQ_BASE,
-		.end   = 109 + MUXED_IRQ_BASE,
+		.start = ILC_IRQ(109),
+		.end   = ILC_IRQ(109),
 		.flags = IORESOURCE_IRQ,
 	},
 	[7] = {
-		.start = 110 + MUXED_IRQ_BASE,
-		.end   = 110 + MUXED_IRQ_BASE,
+		.start = ILC_IRQ(110),
+		.end   = ILC_IRQ(110),
 		.flags = IORESOURCE_IRQ,
 	},
 	[8] = {
-		.start = 111 + MUXED_IRQ_BASE,
-		.end   = 111 + MUXED_IRQ_BASE,
+		.start = ILC_IRQ(111),
+		.end   = ILC_IRQ(111),
 		.flags = IORESOURCE_IRQ,
 	},
 	[9] = {
-		.start = 112 + MUXED_IRQ_BASE,
-		.end   = 112 + MUXED_IRQ_BASE,
+		.start = ILC_IRQ(112),
+		.end   = ILC_IRQ(112),
 		.flags = IORESOURCE_IRQ,
 	},
 };
@@ -415,15 +416,15 @@ static struct platform_device stmmaceth_device[2] = {
 		},
 		{
 			.name	= "macirq",
-			.start	= 92+MUXED_IRQ_BASE,
-			.end	= 92+MUXED_IRQ_BASE,
+			.start	= ILC_IRQ(92),
+			.end	= ILC_IRQ(92),
 			.flags	= IORESOURCE_IRQ,
 		},
 		{
 			.name	= "phyirq",
 			/* This should be:
-			 * .start	= 93+MUXED_IRQ_BASE,
-			 * .end	= 93+MUXED_IRQ_BASE,
+			 * .start	= ILC_IRQ(93),
+			 * .end	= ILC_IRQ(93),
 			 * but because the mb519 uses the MII0_MDINT line
 			 * as MODE4, and the STE101P MDINT pin is O/C,
 			 * there may or maynot be a pull-up resistor
@@ -450,14 +451,14 @@ static struct platform_device stmmaceth_device[2] = {
 		},
 		{
 			.name	= "macirq",
-			.start	= 94+MUXED_IRQ_BASE,
-			.end	= 94+MUXED_IRQ_BASE,
+			.start	= ILC_IRQ(94),
+			.end	= ILC_IRQ(94),
 			.flags	= IORESOURCE_IRQ,
 		},
 		{
 			.name	= "phyirq",
-			.start	= 95+MUXED_IRQ_BASE,
-			.end	= 95+MUXED_IRQ_BASE,
+			.start	= ILC_IRQ(95),
+			.end	= ILC_IRQ(95),
 			.flags	= IORESOURCE_IRQ,
 		},
 	},
@@ -466,9 +467,9 @@ static struct platform_device stmmaceth_device[2] = {
 	}
 } };
 
-static struct platform_device *stx7200mboard_devices[] __initdata = {
+static struct platform_device *stx7200_devices[] __initdata = {
 	&stmmaceth_device[0],
-	//&stmmaceth_device[1],
+	&stmmaceth_device[1],
 	&st40_ehci_devices[0],
 	&st40_ohci_devices[0],
 	&st40_ehci_devices[1],
@@ -542,21 +543,18 @@ static struct ipr_desc ipr_irq_desc = {
 	},
 };
 
+static struct irq_chip stx7200_ipr_chip = {
+	.name = "IPR",
+};
+
 void __init plat_irq_setup(void)
 {
+	int irq;
+
 	register_ipr_controller(&ipr_irq_desc);
-}
-
-#define INTC_ICR	0xffd00000UL
-#define INTC_ICR_IRLM   (1<<7)
-
-/* enable individual interrupt mode for external interupts */
-void __init ipr_irq_enable_irlm(void)
-{
-#if defined(CONFIG_CPU_SUBTYPE_SH7750) || defined(CONFIG_CPU_SUBTYPE_SH7091)
-	BUG(); /* impossible to mask interrupts on SH7750 and SH7091 */
-#endif
-//	register_intc_controller(&intc_desc_irlm);
-
-	ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
+	for (irq=0; irq<16; irq++) {
+		set_irq_chip(irq, &stx7200_ipr_chip);
+		set_irq_chained_handler(irq, ilc_irq_demux);
+	}
+	init_IRQ_ilc();
 }

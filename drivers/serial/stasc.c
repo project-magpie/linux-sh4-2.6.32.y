@@ -26,6 +26,7 @@
 #include <asm/uaccess.h>
 #include <asm/bitops.h>
 #include <asm/clock.h>
+#include <asm/irq-ilc.h>
 
 #ifdef CONFIG_SH_KGDB
 #include <asm/kgdb.h>
@@ -384,7 +385,7 @@ struct asc_port asc_ports[ASC_NPORTS] = {
 			.membase	= (void *)0xfd032000,
 			.mapbase	= 0xfd032000,
 			.iotype		= SERIAL_IO_MEM,
-			.irq		= 106+MUXED_IRQ_BASE,
+			.irq		= ILC_IRQ(106),
 			.ops		= &asc_uart_ops,
 			.flags		= ASYNC_BOOT_AUTOCONF,
 			.fifosize	= FIFO_SIZE,
@@ -399,7 +400,7 @@ struct asc_port asc_ports[ASC_NPORTS] = {
 			.membase	= (void *)0xfd033000,
 			.mapbase	= 0xfd033000,
 			.iotype		= SERIAL_IO_MEM,
-			.irq		= 107+MUXED_IRQ_BASE,
+			.irq		= ILC_IRQ(107),
 			.ops		= &asc_uart_ops,
 			.flags		= ASYNC_BOOT_AUTOCONF,
 			.fifosize	= FIFO_SIZE,
@@ -729,7 +730,7 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 
 static int asc_request_irq(struct uart_port *port)
 {
-	if (request_irq(port->irq, asc_interrupt, IRQF_DISABLED,
+	if (request_irq(port->irq, asc_interrupt, 0,
 			"asc", port)) {
 		printk(KERN_ERR "asc: cannot allocate irq.\n");
 		return -ENODEV;

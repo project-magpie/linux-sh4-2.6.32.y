@@ -49,8 +49,6 @@ struct sh_machine_vector {
 	void (*mv_writew)(u16, void __iomem *);
 	void (*mv_writel)(u32, void __iomem *);
 
-	int (*mv_irq_demux)(int irq);
-
 	void (*mv_init_irq)(void);
 	void (*mv_init_pci)(void);
 

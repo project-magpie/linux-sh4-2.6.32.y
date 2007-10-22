@@ -10,7 +10,6 @@
  * Interrupts routed through the Interrupt Level Controller (ILC3) on the STx7200
  */
 
-#include <linux/config.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/list.h>
@@ -20,20 +19,18 @@
 
 #include <asm/system.h>
 #include <asm/io.h>
+#include <asm/irq-ilc.h>
 
 #include "st40_ilc.h"
-
-#define ILC_FIRST_IRQ	MUXED_IRQ_BASE
-#define ILC_NR_IRQS	MUXED_NR_IRQS
 
 struct ilc_data {
 	unsigned int priority;
 	struct list_head list;
 };
 
-static struct ilc_data ilc_data[MUXED_NR_IRQS] =
+static struct ilc_data ilc_data[ILC_NR_IRQS] =
 {
-	[0 ... MUXED_NR_IRQS-1 ] = { .priority = 7 }
+	[0 ... ILC_NR_IRQS-1 ] = { .priority = 7 }
 };
 
 static struct list_head intc_data[16];
@@ -62,8 +59,6 @@ static spinlock_t ilc_data_lock;
 #else
 #define DPRINTK2(args...)
 #endif
-
-#define ILC_FIRST_IRQ MUXED_IRQ_BASE
 
 /*
  * Prototypes
@@ -98,14 +93,11 @@ static void disable_ilc_irq(unsigned int irq)
  * of so which device generated the interrupt.
  */
 
-int ilc_irq_demux(int irq)
+void ilc_irq_demux(int irq, struct irq_desc *desc)
 {
 	unsigned int priority = 14 - irq;
 	unsigned int irq_offset;
 	struct ilc_data *this;
-
-	if (irq > 15)
-		return irq;
 
 	DPRINTK2("ilc demux got irq %d\n", irq);
 
@@ -114,18 +106,15 @@ int ilc_irq_demux(int irq)
 		irq_offset = this - ilc_data;
 
 		if (ILC_GET_STATUS(irq_offset) && ILC_GET_ENABLE(irq_offset)) {
+			struct irq_desc *desc = irq_desc + ILC_IRQ(irq_offset);
 
 			DPRINTK2("ilc found ilc %d active\n", irq_offset);
-
 			ILC_CLR_STATUS(irq_offset);
-
-			return irq_offset + ILC_FIRST_IRQ;
+			desc->handle_irq(ILC_IRQ(irq_offset), desc);
 		}
 	}
 
 	printk(KERN_INFO "ILC: spurious interrupt demux %d\n", irq);
-
-	return irq;
 }
 
 static unsigned int startup_ilc_irq(unsigned int irq)
@@ -200,7 +189,7 @@ static void end_ilc_irq(unsigned int irq)
 	}
 }
 
-static struct hw_interrupt_type ilc_irq_type = {
+static struct irq_chip ilc_chip = {
 	"ILC3-IRQ",
 	startup_ilc_irq,
 	shutdown_ilc_irq,
@@ -217,7 +206,10 @@ void __init init_IRQ_ilc(void)
 	DPRINTK("STx7200: Initialising ILC\n");
 
 	for (irq = ILC_FIRST_IRQ; irq < (ILC_FIRST_IRQ+ILC_NR_IRQS); irq++)
-		irq_desc[irq].handler = &ilc_irq_type;
+		/* SIM: Should we do the masking etc in ilc_irq_demux and
+		 * then change this to handle_simple_irq? */
+		set_irq_chip_and_handler_name(irq, &ilc_chip, handle_level_irq,
+					      "ILC");
 
 	for (irq = 0; irq < 16; irq++) {
 		INIT_LIST_HEAD(&intc_data[irq]);

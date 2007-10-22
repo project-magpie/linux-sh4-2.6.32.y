@@ -101,6 +101,13 @@ config LEDS_GPIO
 	  outputs. To be useful the particular board must have LEDs
 	  and they must be connected to the GPIO lines.
 
+config LEDS_MB374
+	tristate "LED Support for STMicroelectronics mb374 LEDs"
+	depends on LEDS_CLASS && SH_ST_MB374
+	help
+	  This option enables support for the LEDs on the STMicroelectronics
+	  mb374 (ST40RA Starter board).
+
 comment "LED Triggers"
 
 config LEDS_TRIGGERS

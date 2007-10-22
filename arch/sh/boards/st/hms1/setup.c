@@ -115,5 +115,5 @@ static int __init device_init(void)
 	return platform_add_devices(hms1_devices, ARRAY_SIZE(hms1_devices));
 }
 
-subsys_initcall(device_init);
+device_initcall(device_init);
 #endif

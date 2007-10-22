@@ -268,7 +268,7 @@ struct stm_port_priv
 static void stm_phy_reset(struct ata_port *ap)
 {
 	void __iomem *mmio = ap->ioaddr.cmd_addr;
-	struct stm_host_priv *hpriv = ap->private_data;
+	struct stm_host_priv *hpriv = ap->host->private_data;
 
 DPRINTK("ENTER\n");
 
@@ -336,7 +336,7 @@ static void stm_bmdma_setup(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap = qc->ap;
 	struct stm_port_priv *pp = ap->private_data;
-	struct stm_host_priv *hpriv = ap->private_data;
+	struct stm_host_priv *hpriv = ap->host->private_data;
 	void __iomem *mmio = ap->ioaddr.cmd_addr;
 	u32 cfg0, cfg1;
 
@@ -460,7 +460,7 @@ static void stm_fill_sg(struct ata_queued_cmd *qc)
 {
 	struct scatterlist *sg;
 	struct ata_port *ap = qc->ap;
-	struct stm_host_priv *hpriv = ap->private_data;
+	struct stm_host_priv *hpriv = ap->host->private_data;
         struct stm_port_priv *pp = ap->private_data;
 	unsigned int write = (qc->tf.flags & ATA_TFLAG_WRITE);
 	unsigned int idx;
@@ -846,7 +846,6 @@ static struct ata_port_operations stm_ops = {
 };
 
 static const struct ata_port_info stm_port_info = {
-	.sht		= &stm_sht,
 	.flags		= ATA_FLAG_SATA | ATA_FLAG_NO_LEGACY |
 			  ATA_FLAG_MMIO | ATA_FLAG_SATA_RESET,
 	.pio_mask	= 0x1f, /* pio0-4 */
@@ -1004,8 +1003,8 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	/* Finished hardware set up */
 
 	return ata_host_activate(host, platform_get_irq(pdev, 0),
-				 ppi[0]->irq_handler,
-				 IRQF_SHARED, ppi[0]->sht);
+				 stm_sata_interrupt,
+				 IRQF_SHARED, &stm_sht);
 }
 
 static int stm_sata_remove(struct platform_device *pdev)

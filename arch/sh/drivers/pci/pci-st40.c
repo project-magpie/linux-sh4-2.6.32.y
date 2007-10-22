@@ -425,20 +425,6 @@ static int st40pci_read(struct pci_bus *bus, unsigned int devfn, int where, int 
 			break;
 	}
 
-	if (CheckForMasterAbort()){
-		switch (size) {
-			case 1:
-				*val = (u8)0xff;
-				break;
-			case 2:
-				*val = (u16)0xffff;
-				break;
-			case 4:
-				*val = 0xffffffff;
-				break;
-		}
-	}
-
 	return PCIBIOS_SUCCESSFUL;
 }
 
@@ -457,8 +443,6 @@ static int st40pci_write(struct pci_bus *bus, unsigned int devfn, int where, int
 			ST40PCI_WRITE(PDR, val);
 			break;
 	}
-
-	CheckForMasterAbort();
 
 	return PCIBIOS_SUCCESSFUL;
 }

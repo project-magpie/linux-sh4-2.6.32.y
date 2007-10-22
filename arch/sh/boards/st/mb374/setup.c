@@ -18,15 +18,10 @@
 #include <asm/mb374/harp.h>
 #include "../../../drivers/pci/pci-st40.h"
 
-const char *get_system_type(void)
-{
-	return "ST40RA/ST40STB1 Starter";
-}
-
 /*
  * Initialize the board
  */
-void __init platform_setup(void)
+void __init mb374_setup(char **cmdline_p)
 {
 	unsigned char version;
 
@@ -42,7 +37,7 @@ void __init platform_setup(void)
 }
 
 #ifdef CONFIG_PCI
-int __init pcibios_map_platform_irq(u8 slot, u8 pin)
+int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
 	int irq=-1;
 

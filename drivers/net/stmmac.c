@@ -173,13 +173,6 @@
 #define XMITPRINTK(mss, klevel, fmt, args...)  do { } while(0)
 #endif
 
-#ifdef CONFIG_CPU_SUBTYPE_STB7100
-#define SYSCONF_BASE 		0xb9001000
-#define SYSCONF_DEVICEID        (SYSCONF_BASE + 0x000)
-#define SYSCONF_SYS_CFG(n)      (SYSCONF_BASE + 0x100 + ((n) * 4))
-#endif
-#define MAC_SPEED_SEL		0x00100000	/* MAC is running at 100 Mbps */
-
 #define DMA_BUFFER_SIZE 0x7ff
 #define TDES1_MAX_BUF1_SIZE ((DMA_BUFFER_SIZE << DES1_RBS1_SIZE_SHIFT) & \
 			DES1_RBS1_SIZE_MASK);
@@ -208,6 +201,9 @@ struct eth_driver_local {
 	int phy_addr;
 	int phy_irq;
 	int phy_mask;
+	int (*phy_reset)(void *priv);
+	void (*fix_mac_speed)(void *priv, unsigned int speed);
+	void *bsp_priv;
 	int oldlink;
 	int speed;
 	int oldduplex;
@@ -337,28 +333,6 @@ static void print_pkt(unsigned char *buf, int len)
 }
 #endif
 
-/**
- * fix_mac_speed
- * @speed: link speed
- * Description: it is used for changing the MAC speed field in
- * 		the SYS_CFG7 register (required when we are using
- *		the RMII interface).
- */
-void fix_mac_speed(unsigned int speed)
-{
-#ifdef CONFIG_PHY_RMII
-	unsigned long sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-
-	if (speed == SPEED_100)
-		sysconf |= MAC_SPEED_SEL;
-	else if (speed == SPEED_10)
-		sysconf &= ~MAC_SPEED_SEL;
-
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-#endif
-	return;
-}
-
 /* ----------------------------------------------------------------------------
 				PHY Support
    ---------------------------------------------------------------------------*/
@@ -412,7 +386,7 @@ static void stmmac_adjust_link(struct net_device *dev)
 			switch (phydev->speed) {
 			case 100:
 			case 10:
-				fix_mac_speed(phydev->speed);
+				lp->fix_mac_speed(lp->bsp_priv, phydev->speed);
 				break;
 			default:
 				if (netif_msg_link(lp))
@@ -498,7 +472,8 @@ static int stmmac_init_phy(struct net_device *dev)
  */
 int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 {
-	unsigned long ioaddr = (unsigned long)bus->priv;
+	struct net_device *ndev = bus->priv;
+	unsigned long ioaddr = ndev->base_addr;
 	int data;
 	u16 regValue = (((phyaddr << 11) & (0x0000F800)) |
 			((phyreg << 6) & (0x000007C0)));
@@ -526,7 +501,9 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
  */
 int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 {
-	unsigned long ioaddr = (unsigned long)bus->priv;
+	struct net_device *ndev = bus->priv;
+	unsigned long ioaddr = ndev->base_addr;
+
 	u16 value =
 	    (((phyaddr << 11) & (0x0000F800)) | ((phyreg << 6) & (0x000007C0)))
 	    | MAC_MII_ADDR_WRITE;
@@ -552,6 +529,12 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 /* Resets the MII bus */
 int stmmac_mdio_reset(struct mii_bus *bus)
 {
+	struct net_device *ndev = bus->priv;
+	struct eth_driver_local *lp = netdev_priv(ndev);
+
+	if (lp->phy_reset)
+		return lp->phy_reset(lp->bsp_priv);
+
 	return 0;
 }
 
@@ -562,8 +545,7 @@ int stmmac_mdio_reset(struct mii_bus *bus)
  * @ioaddr: device I/O address
  * Description: it registers the MII bus
  */
-int stmmac_mdio_register(struct eth_driver_local *lp, struct net_device *ndev,
-			 unsigned long ioaddr)
+int stmmac_mdio_register(struct eth_driver_local *lp, struct net_device *ndev)
 {
 	int err = 0;
 	struct mii_bus *new_bus = kzalloc(sizeof(struct mii_bus), GFP_KERNEL);
@@ -578,10 +560,12 @@ int stmmac_mdio_register(struct eth_driver_local *lp, struct net_device *ndev,
 	new_bus->name = "STMMAC MII Bus",
 	    new_bus->read = &stmmac_mdio_read,
 	    new_bus->write = &stmmac_mdio_write,
-	    new_bus->reset = &stmmac_mdio_reset, new_bus->id = (int)lp->bus_id;
-	new_bus->priv = (void *)ioaddr;
+	    new_bus->reset = &stmmac_mdio_reset,
+	    new_bus->id = (int)lp->bus_id;
+	new_bus->priv = ndev;
 	new_bus->irq = irqlist;
 	new_bus->phy_mask = lp->phy_mask;
+	new_bus->dev = 0; /* FIXME */
 
 	err = mdiobus_register(new_bus);
 
@@ -2577,9 +2561,12 @@ static int stmmaceth_dvr_probe(struct platform_device *pdev)
 	}
 	lp->phy_addr = plat_dat->phy_addr;
 	lp->phy_mask = plat_dat->phy_mask;
+	lp->phy_reset = plat_dat->phy_reset;
+	lp->fix_mac_speed = plat_dat->fix_mac_speed;
+	lp->bsp_priv = plat_dat->bsp_priv;
 
 	/* MDIO bus Registration */
-	ret = stmmac_mdio_register(lp, ndev, (unsigned long)addr);
+	ret = stmmac_mdio_register(lp, ndev);
 
 	ndev = __dev_get_by_name("eth0");
 

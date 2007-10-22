@@ -2012,7 +2012,7 @@ config STMMAC_ETH
         tristate "STM MAC Ethernet driver"
         select MII
         select PHYLIB
-        depends on NET_ETHERNET && (SH_ST_MB411 || SH_ST_MB448 || SH_ST_MB442)
+        depends on NET_ETHERNET && (CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200)
         ---help---
           This is the driver for the STMMAC on-chip Ethernet controller.
           The STb7109 ETH subsystem is composed of three main layers:

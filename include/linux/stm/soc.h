@@ -38,6 +38,9 @@ struct plat_stmmacenet_data {
 	unsigned int phy_mask;
 	char *phy_name;
 	int pbl;
+	int (*phy_reset)(void* priv);
+	void (*fix_mac_speed)(void *priv, unsigned int speed);
+	void* bsp_priv;
 };
 
 #endif /* __LINUX_ST_SOC_H */

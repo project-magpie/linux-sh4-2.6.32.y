@@ -657,6 +657,14 @@ void stb7109eth_hw_setup(void)
 	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
 	sysconf |= (DVO_ETH_PAD_DISABLE | ETH_IF_ON);
 	sysconf &= ~MII_MODE;
+#ifdef CONFIG_PHY_RMII
+	sysconf |= MII_MODE; /* RMII selected*/
+#else
+	sysconf &= ~MII_MODE; /* MII selected */
+#endif
+#ifdef CONFIG_STMMAC_EXT_CLK
+        sysconf |= PHY_CLK_EXT;
+#endif
 	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
 
 	/* Enable the external PHY interrupts */
@@ -664,11 +672,34 @@ void stb7109eth_hw_setup(void)
 	sysconf |= 0x0000000f;
 	ctrl_outl(sysconf, SYSCONF_SYS_CFG(10));
 
-	/* Reset the PHY */
-	ethreset = stpio_request_pin(2, 4, "STE100P_RST", STPIO_OUT);
-	stpio_set_pin(ethreset, 1);
+	/* Remove the PHY clk */
+	stpio_reserve_pin(3, 7, "stmmac EXTCLK");
+}
+
+/**
+ * fix_mac_speed
+ * @speed: link speed
+ * Description: it is used for changing the MAC speed field in
+ * 		the SYS_CFG7 register (required when we are using
+ *		the RMII interface).
+ */
+static void fix_mac_speed(unsigned int speed)
+{
+#ifdef CONFIG_PHY_RMII
+	unsigned long sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
+
+	if (speed == SPEED_100)
+		sysconf |= MAC_SPEED_SEL;
+	else if (speed == SPEED_10)
+		sysconf &= ~MAC_SPEED_SEL;
+
+	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
+#endif
 	return;
 }
+#else
+static void stb7109eth_hw_setup(void) { }
+static void fix_mac_speed(unsigned int speed) { }
 #endif
 
 static int __init stx710x_devices_setup(void)

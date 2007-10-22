@@ -93,9 +93,12 @@ static pio_address i2c_address[NR_I2C_BUSSES] = {
 
 #elif defined(CONFIG_CPU_SUBTYPE_STX7200)
 
-#define NR_I2C_BUSSES 2
+#define NR_I2C_BUSSES 5
 static pio_address i2c_address[NR_I2C_BUSSES] = {
+       {2,0,2,1},
+       {3,0,3,1},
        {4,0,4,1},
+       {5,0,5,1},
        {7,6,7,7},
 };
 

@@ -303,7 +303,7 @@ static struct resource ssc_resource[] = {
 };
 
 static struct plat_ssc_pio_t ssc_pio[] = {
-	{2, 0, 2, 1, 2, 2},
+	{2, 0, 2, 1, 0xff, 0xff},
 	{3, 0, 3, 1, 3, 2},
 	{4, 0, 4, 1, 0xff, 0xff},
 	{5, 0, 5, 1, 5, 2},
@@ -312,11 +312,11 @@ static struct plat_ssc_pio_t ssc_pio[] = {
 
 static struct plat_ssc_data ssc_private_info = {
 	.capability  =
-		(SSC_SPI_CAPABILITY << (0*2)) |
-		(SSC_SPI_CAPABILITY << (1*2)) |
-		(SSC_I2C_CAPABILITY << (2*2)) |
-		(SSC_SPI_CAPABILITY << (3*2)) |
-		(SSC_I2C_CAPABILITY << (4*2)),
+		((SSC_I2C_CAPABILITY                     ) << (0*2)) |
+		((SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY) << (1*2)) |
+		((SSC_I2C_CAPABILITY                     ) << (2*2)) |
+		((SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY) << (3*2)) |
+		((SSC_I2C_CAPABILITY                     ) << (4*2)),
 	.pio         = ssc_pio
 };
 
@@ -468,7 +468,7 @@ static struct platform_device stmmaceth_device[2] = {
 
 static struct platform_device *stx7200mboard_devices[] __initdata = {
 	&stmmaceth_device[0],
-	&stmmaceth_device[1],
+	//&stmmaceth_device[1],
 	&st40_ehci_devices[0],
 	&st40_ohci_devices[0],
 	&st40_ehci_devices[1],

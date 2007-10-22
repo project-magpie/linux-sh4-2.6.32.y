@@ -51,7 +51,7 @@
 
 static const char driver_name[] = "pegasus";
 
-#undef	PEGASUS_WRITE_EEPROM
+#define	PEGASUS_WRITE_EEPROM
 #define	BMSR_MEDIA	(BMSR_10HALF | BMSR_10FULL | BMSR_100HALF | \
 			BMSR_100FULL | BMSR_ANEGCAPABLE)
 
@@ -1168,6 +1168,98 @@ static void pegasus_set_msglevel(struct net_device *dev, u32 v)
 	pegasus->msg_enable = v;
 }
 
+#ifdef	PEGASUS_WRITE_EEPROM
+#define EEPROM_SIZE 0x80
+static int pegasus_get_eeprom_len(struct net_device *dev)
+{
+        return EEPROM_SIZE;
+}
+
+static int pegasus_geteeprom(struct net_device *dev,
+	struct ethtool_eeprom *eeprom, u8 *bytes)
+{
+	pegasus_t *pegasus = netdev_priv(dev);
+        int res = 0;
+	u16 tmp;
+	unsigned int offset = eeprom->offset;
+	unsigned int len = eeprom->len;
+
+	if (offset+len > EEPROM_SIZE) {
+		return -EINVAL;
+	}
+
+	if (offset & 1) {
+		res = read_eprom_word(pegasus, offset>>1, &tmp);
+		if (res) return res;
+		*bytes = cpu_to_le16(tmp) >> 8;
+		offset++;
+		len--;
+		bytes++;
+	}
+
+	while (len > 1) {
+		res = read_eprom_word(pegasus, offset>>1, &tmp);
+		if (res) break;
+		memcpy(bytes, &tmp, 2);
+		bytes += 2;
+		offset += 2;
+		len -= 2;
+	}
+
+	if (len) {
+		res = read_eprom_word(pegasus, offset>>1, &tmp);
+		if (res) return res;
+		*bytes = cpu_to_le16(tmp) & 0xff;
+	}
+
+	return res;
+}
+
+static int pegasus_seteeprom(struct net_device *dev,
+	struct ethtool_eeprom *eeprom, u8 *bytes)
+{
+	pegasus_t *pegasus = netdev_priv(dev);
+        int res;
+	u16 tmp;
+	unsigned int offset = eeprom->offset;
+	unsigned int len = eeprom->len;
+
+	if (offset+len > EEPROM_SIZE) {
+		return -EINVAL;
+	}
+
+	if (offset & 1) {
+		res = read_eprom_word(pegasus, offset>>1, &tmp);
+		if (res) return res;
+		tmp = le16_to_cpu((*bytes << 8) | (cpu_to_le16(tmp) & 0xff));
+		res = write_eprom_word(pegasus, offset>>1, tmp);
+		if (res) return res;
+		offset++;
+		len--;
+		bytes++;
+	}
+
+	while (len > 1) {
+		memcpy(&tmp, bytes, 2);
+		res = write_eprom_word(pegasus, offset>>1, tmp);
+		if (res) break;
+		bytes += 2;
+		offset += 2;
+		len -= 2;
+	}
+
+	if (len) {
+		res = read_eprom_word(pegasus, offset>>1, &tmp);
+		if (res) return res;
+		tmp = le16_to_cpu((cpu_to_le16(tmp) & 0xff00) | *bytes);
+		res = write_eprom_word(pegasus, offset>>1, tmp);
+		if (res) return res;
+	}
+
+	return res;
+}
+#endif
+
 static struct ethtool_ops ops = {
 	.get_drvinfo = pegasus_get_drvinfo,
 	.get_settings = pegasus_get_settings,
@@ -1178,6 +1270,11 @@ static struct ethtool_ops ops = {
 	.set_msglevel = pegasus_set_msglevel,
 	.get_wol = pegasus_get_wol,
 	.set_wol = pegasus_set_wol,
+#ifdef	PEGASUS_WRITE_EEPROM
+	.get_eeprom_len = pegasus_get_eeprom_len,
+	.get_eeprom = pegasus_geteeprom,
+	.set_eeprom = pegasus_seteeprom,
+#endif
 };
 
 static int pegasus_ioctl(struct net_device *net, struct ifreq *rq, int cmd)

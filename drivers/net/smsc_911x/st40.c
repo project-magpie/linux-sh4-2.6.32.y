@@ -478,7 +478,7 @@ BOOLEAN Platform_DmaStartSgXfer(
 	void* pCallbackData)
 { return FALSE; }
 #else
-#ifdef CONFIG_STB7100_FDMA
+#ifdef CONFIG_STM_DMA
 #include "st40-shdma.c"
 #else
 #include "st40-gpdma.c"

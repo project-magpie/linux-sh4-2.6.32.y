@@ -98,7 +98,7 @@ static void stb7100_pcmin_timer_irq(unsigned long handle)
 		snd_pcm_period_elapsed(substream);
 		chip->pcmin.fr_delta=0;
 	}
-	else printk("%s Period Not elapsed\n 	Frame delta Actual %x expected %x\n	Timer delta Actual %d expected %d\n",
+	else printk("%s Period Not elapsed\n 	Frame delta Actual %x expected %x\n	Timer delta Actual %ld expected %ld\n",
 			__FUNCTION__,
 			chip->pcmin.fr_delta,
 			frames_to_bytes(runtime,runtime->period_size),
@@ -121,7 +121,7 @@ static void stb7100_pcmin_stop_read(snd_pcm_substream_t *substream)
 		writel(PCMIN_INT_OVF, chip->pcm_player + STM_PCMIN_ITS_EN_CLR);
 
 	dma_stop_channel(chip->fdma_channel);
-	dma_free_descriptor(&chip->dmap);
+	dma_params_free(&chip->dmap);
 
 	spin_lock_irqsave(&chip->lock,irqflags);
 	writel(AUD_PCMIN_CTRL_OFF_MODE,chip->pcm_player + STM_PCMIN_CTRL);
@@ -177,37 +177,48 @@ static irqreturn_t stb7100_pcmin_interrupt(int irq, void *dev_id, struct pt_regs
 	return res;
 }
 
+static struct stm_dma_req_config pcmin_req_config = {
+	.rw		= REQ_CONFIG_READ,
+	.opcode		= REQ_CONFIG_OPCODE_4,
+	.count		= 1,
+	.increment	= 0,
+	.hold_off	= 0,
+	.initiator	= 0, /* This was 1 for 7100, do we need to fix? */
+};
+
 static int stb7100_pcmin_program_fdma(snd_pcm_substream_t *substream)
 {
 	pcm_hw_t          *chip    = snd_pcm_substream_chip(substream);
 	snd_pcm_runtime_t *runtime = substream->runtime;
 	unsigned long irqflags=0;
 	int err=0;
-	struct stm_dma_params dmap;
+	struct stm_dma_req *dma_req;
 
 	if(!chip->out_pipe || ! chip->pcm_player)
 		return -EINVAL;
 
 	spin_lock_irqsave(&chip->lock,irqflags);
 
-	declare_dma_parms(	&dmap,
-				MODE_PACED,
-				STM_DMA_LIST_CIRC,
-				STM_DMA_SETUP_CONTEXT_ISR,
-				STM_DMA_NOBLOCK_MODE,
-			       	(char*)STM_DMAC_ID);
+	dma_req = dma_req_config(chip->fdma_channel, chip->fdma_req, &pcmin_req_config);
+	if (dma_req == NULL) {
+		spin_unlock_irqrestore(&chip->lock,irqflags);
+		return -EBUSY;
+	}
 
-	dma_parms_paced(&dmap,
-			snd_pcm_lib_buffer_bytes(substream),
-			chip->fdma_req);
+	dma_params_init(&chip->dmap,
+			MODE_PACED,
+			STM_DMA_LIST_CIRC);
 
-	dma_parms_addrs(&dmap,
+	dma_params_DIM_0_x_1(&chip->dmap);
+
+	dma_params_req(&chip->dmap, dma_req);
+
+	dma_params_addrs(&chip->dmap,
 			virt_to_phys(chip->pcm_player+STM_PCMP_DATA_FIFO),
 			runtime->dma_addr,
 			snd_pcm_lib_buffer_bytes(substream));
 
-	dma_compile_list(&dmap);
-	chip->dmap = dmap;
+	dma_compile_list(chip->fdma_channel, &chip->dmap, GFP_KERNEL);
 	spin_unlock_irqrestore(&chip->lock,irqflags);
 	return err;
 }

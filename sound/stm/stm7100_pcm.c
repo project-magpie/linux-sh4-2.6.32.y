@@ -366,7 +366,7 @@ static void stb7100_pcm_stop_playback(snd_pcm_substream_t *substream)
 
 	spin_unlock(&chip->lock);
 	dma_stop_channel(chip->fdma_channel);
-	dma_free_descriptor(&chip->dmap);
+	dma_params_free(&chip->dmap);
 }
 
 
@@ -482,36 +482,50 @@ static irqreturn_t stb7100_pcm_interrupt(int irq, void *dev_id, struct pt_regs *
 	return  res;
 }
 
+static struct stm_dma_req_config req_config = {
+	.rw		= REQ_CONFIG_WRITE,
+	.opcode		= REQ_CONFIG_OPCODE_4,
+	.count		= 1,
+	.increment	= 0,
+	.hold_off	= 0,
+	.initiator	= 0, /* This was 1 for 7100, do we need to fix? */
+};
+
 static int stb7100_program_fdma(snd_pcm_substream_t *substream)
 {
 	pcm_hw_t          *chip    = snd_pcm_substream_chip(substream);
 	snd_pcm_runtime_t *runtime = substream->runtime;
 	unsigned long irqflags=0;
 	int err=0;
-	struct stm_dma_params dmap;
+	struct stm_dma_req *dma_req;
+
 	if(!chip->out_pipe || ! chip->pcm_player)
 		return -EINVAL;
+
 	spin_lock_irqsave(&chip->lock,irqflags);
 
-	declare_dma_parms(	&dmap,
-				MODE_PACED,
-				STM_DMA_LIST_CIRC,
-				STM_DMA_SETUP_CONTEXT_TASK,
-				STM_DMA_NOBLOCK_MODE,
-			       	(char*)STM_DMAC_ID);
+	dma_req = dma_req_config(chip->fdma_channel, chip->fdma_req, &req_config);
+	if (dma_req == NULL) {
+		spin_unlock_irqrestore(&chip->lock,irqflags);
+		return -EBUSY;
+	}
+
+	dma_params_init(&chip->dmap,
+			MODE_PACED,
+			STM_DMA_LIST_CIRC);
 
 	chip->buffer_start_addr = (unsigned long)runtime->dma_addr;
 
-	dma_parms_paced(&dmap,
-			snd_pcm_lib_buffer_bytes(substream),
-			chip->fdma_req);
+	dma_params_DIM_1_x_0(&chip->dmap);
 
-	dma_parms_addrs(&dmap,runtime->dma_addr,
+	dma_params_req(&chip->dmap, dma_req);
+
+	dma_params_addrs(&chip->dmap,runtime->dma_addr,
 			virt_to_phys(chip->pcm_player+STM_PCMP_DATA_FIFO),
 			snd_pcm_lib_buffer_bytes(substream));
 
-	dma_compile_list(&dmap);
-	chip->dmap = dmap;
+	dma_compile_list(chip->fdma_channel, &chip->dmap, GFP_KERNEL);
+
 	spin_unlock_irqrestore(&chip->lock,irqflags);
 	return err;
 }

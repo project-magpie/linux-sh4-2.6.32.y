@@ -1,11 +1,11 @@
 #include <linux/dma-mapping.h>
 #include <asm/dma.h>
 #include <linux/stm/stm-dma.h>
-#include <linux/stm/710x_fdma.h>
+#include <linux/stm/fdma-reqs.h>
 
 static struct stm_dma_params tx_transfer;
 
-static void err_cb(void* x);
+static void err_cb(unsigned long);
 static DWORD smsc911x_request_dma(const char* chan);
 
 #if defined (CONFIG_SMSC911x_DMA_PACED)
@@ -20,17 +20,53 @@ static struct stm_dma_params rx_transfer_paced[MAX_NODELIST_LEN];
 #define SMSC_SHORT_PTK_CHAN 1
 #define SMSC_LONG_PTK_CHAN 0
 
+static struct stm_dma_req_config dma_req_configs[2] = {
+{
+	/* Long packet: 4*read32 */
+	.rw		= REQ_CONFIG_READ,
+	.opcode		= REQ_CONFIG_OPCODE_32,
+	.count		= 4,
+	.increment	= 0,
+	.hold_off	= 0,
+	.initiator	= 1,
+}, {
+	/* Short packet: 1*read32 */
+	.rw		= REQ_CONFIG_READ,
+	.opcode		= REQ_CONFIG_OPCODE_32,
+	.count		= 1,
+	.increment	= 0,
+	.hold_off	= 0,
+	.initiator	= 1,
+}};
 
-/*we wont know until runtime which req #  to use (platform - dep)*/
-struct fmdareq_RequestConfig_s new_rqs[2] = {
-/*10*/{0, READ,  OPCODE_32,4,DISABLE_FLG,0,1 },  /* SSC 1 txbuff empty */
-/*11*/{0, READ,  OPCODE_32,1,DISABLE_FLG,0,1 }  /* SSC 2 txbuff empty */
-};
+static struct stm_dma_req *dma_reqs[2];
 
 DWORD Platform_RequestDmaChannelSg(
 	PPLATFORM_DATA platformData)
 {
-	return smsc911x_request_dma(STM_DMA_CAP_ETH_BUF);
+	DWORD chan;
+	int devid = ctrl_inl(SYSCONF_DEVID);
+	int chip_7109 = (((devid >> 12) & 0x3ff) == 0x02c);
+	int dma_req_lines[2];
+
+	chan = smsc911x_request_dma(STM_DMA_CAP_ETH_BUF);
+	if (chan < 0)
+		return chan;
+
+	if(chip_7109){
+		dma_req_lines[SMSC_LONG_PTK_CHAN] = STB7109_FDMA_REQ_SSC_1_TX;
+		dma_req_lines[SMSC_SHORT_PTK_CHAN] = STB7109_FDMA_REQ_SSC_2_TX;
+	}
+	else {
+		dma_req_lines[SMSC_LONG_PTK_CHAN] = STB7100_FDMA_REQ_SSC_1_TX;
+		dma_req_lines[SMSC_SHORT_PTK_CHAN] = STB7100_FDMA_REQ_SSC_2_TX;
+	}
+
+	dma_reqs[0] = dma_req_config(chan, dma_req_lines[0], &dma_req_configs[0]);
+	dma_reqs[1] = dma_req_config(chan, dma_req_lines[1], &dma_req_configs[1]);
+
+printk("%s: req %x and %x\n", __FUNCTION__, dma_reqs[0], dma_reqs[1]);
+	return chan;
 }
 
 static void Platform_ReleaseDmaChannel_sg(void)
@@ -38,39 +74,21 @@ static void Platform_ReleaseDmaChannel_sg(void)
 	int i;
 
 	for(i=0;i<MAX_NODELIST_LEN;i++)
-		dma_free_descriptor(&rx_transfer_paced[i]);
+		dma_params_free(&rx_transfer_paced[i]);
 }
 
 static void Platform_DmaInitialize_sg(void)
 {
 	int i;
-	int devid = ctrl_inl(SYSCONF_DEVID);
-	int chip_7109 = (((devid >> 12) & 0x3ff) == 0x02c);
 
 	SMSC_TRACE("DMA Rx using paced transfers to main register bank");
 
 	for(i=0;i<MAX_NODELIST_LEN;i++){
-		declare_dma_parms(&rx_transfer_paced[i],
-				  MODE_PACED,
-				  STM_DMA_LIST_OPEN,
-				  STM_DMA_SETUP_CONTEXT_ISR,
-				  STM_DMA_NOBLOCK_MODE,
-				  (char*)STM_DMAC_ID);
-		dma_parms_err_cb(&rx_transfer_paced[i], err_cb, NULL, 0);
+		dma_params_init(&rx_transfer_paced[i],
+			       MODE_PACED,
+			       STM_DMA_LIST_OPEN);
 	}
-
-	if(chip_7109){
-		new_rqs[SMSC_LONG_PTK_CHAN].Index = STB7109_FDMA_REQ_SSC_1_TX;
-		new_rqs[SMSC_SHORT_PTK_CHAN].Index = STB7109_FDMA_REQ_SSC_2_TX;
-	}
-	else {
-		new_rqs[SMSC_LONG_PTK_CHAN].Index = STB7100_FDMA_REQ_SSC_1_TX;
-		new_rqs[SMSC_SHORT_PTK_CHAN].Index = STB7100_FDMA_REQ_SSC_2_TX;
-	}
-
-	dma_manual_stbus_pacing(&rx_transfer_paced[0],&new_rqs[0]);
-	dma_manual_stbus_pacing(&rx_transfer_paced[0],&new_rqs[1]);
-
+	dma_params_err_cb(&rx_transfer_paced[0], err_cb, 0, STM_DMA_CB_CONTEXT_TASKLET);
 }
 #else
 static struct stm_dma_params rx_transfer_sg;
@@ -83,24 +101,21 @@ DWORD Platform_RequestDmaChannelSg(
 
 static void Platform_ReleaseDmaChannel_sg(void)
 {
-	dma_free_descriptor(&rx_transfer_sg);
+	dma_params_free(&rx_transfer_sg);
 }
 
 static void Platform_DmaInitialize_sg(void)
 {
-	declare_dma_parms(&rx_transfer_sg,
-			  MODE_DST_SCATTER,
-			  STM_DMA_LIST_OPEN,
-			  STM_DMA_SETUP_CONTEXT_ISR,
-			  STM_DMA_NOBLOCK_MODE,
-			  (char*)STM_DMAC_ID);
-	dma_parms_err_cb(&rx_transfer_sg, err_cb, NULL, 0);
+	dma_params_init(&rx_transfer_sg,
+		       MODE_DST_SCATTER,
+		       STM_DMA_LIST_OPEN);
+	dma_params_err_cb(&rx_transfer_sg, err_cb, 0, STM_DMA_CB_CONTEXT_TASKLET);
 #if defined(CONFIG_SMSC911x_DMA_2D)
 	SMSC_TRACE("DMA Rx using freefrunning 2D transfers");
-	dma_parms_DIM_2_x_1(&rx_transfer_sg,0x20,0);
+	dma_params_DIM_2_x_1(&rx_transfer_sg,0x20,0);
 #elif defined(CONFIG_SMSC911x_DMA_FIFOSEL)
 	SMSC_TRACE("DMA Rx using freefrunning 1D transfers and FIFOSEL");
-	dma_parms_DIM_1_x_1(&rx_transfer_sg,0);
+	dma_params_DIM_1_x_1(&rx_transfer_sg);
 #else
 #error Unknown DMA mode
 #endif
@@ -137,29 +152,26 @@ void Platform_ReleaseDmaChannel(
 	DWORD dwDmaChannel)
 {
 	free_dma(dwDmaChannel);
-	dma_free_descriptor(&tx_transfer);
+	dma_params_free(&tx_transfer);
 	Platform_ReleaseDmaChannel_sg();
 }
 
-static void err_cb(void* x)
+static void err_cb(unsigned long dummy)
 {
 	printk("DMA err callback");
 }
 
-
+/* This gets called twice, once each for for Rx and Tx channels */
 BOOLEAN Platform_DmaInitialize(
 	PPLATFORM_DATA platformData,
 	DWORD dwDmaCh)
 {
 	/* From memory to LAN */
-	declare_dma_parms(  	&tx_transfer,
+	dma_params_init(  	&tx_transfer,
 				MODE_FREERUNNING,
-			       	STM_DMA_LIST_OPEN,
-			       	STM_DMA_SETUP_CONTEXT_ISR,
-			       	STM_DMA_NOBLOCK_MODE,
-			       	(char*)STM_DMAC_ID);
-	dma_parms_err_cb(&tx_transfer, err_cb, NULL, 0);
-	dma_parms_DIM_1_x_2(&tx_transfer,0x20,0);
+			       	STM_DMA_LIST_OPEN);
+	dma_params_err_cb(&tx_transfer, err_cb, 0, STM_DMA_CB_CONTEXT_TASKLET);
+	dma_params_DIM_1_x_2(&tx_transfer,0x20,0);
 
 	Platform_DmaInitialize_sg();
 
@@ -175,7 +187,7 @@ BOOLEAN Platform_DmaStartXfer(
 {
 	DWORD dwAlignMask;
 	DWORD dwLanPhysAddr, dwMemPhysAddr;
-	stm_dma_params *dmap;
+	struct stm_dma_params *dmap;
 	unsigned long src, dst;
 	unsigned long res=0;
 	// 1. validate the requested channel #
@@ -214,9 +226,12 @@ BOOLEAN Platform_DmaStartXfer(
 	dst = PHYSADDR(dwLanPhysAddr);
 	dmap = &tx_transfer;
 
-	dma_parms_comp_cb(dmap, pCallback, pCallbackData, 0);
-	dma_parms_addrs(dmap,src,dst, pDmaXfer->dwDwCnt << 2);
-	res=dma_compile_list(dmap);
+	dma_params_comp_cb(dmap,
+			   (void (*)(unsigned long))pCallback,
+			   (unsigned long)pCallbackData,
+			   STM_DMA_CB_CONTEXT_TASKLET);
+	dma_params_addrs(dmap,src,dst, pDmaXfer->dwDwCnt << 2);
+	res=dma_compile_list(pDmaXfer->dwDmaCh, dmap, GFP_KERNEL);
 	if(res != 0)
 		goto err_exit;
 	// 6. Start the transfer
@@ -275,26 +290,24 @@ BOOLEAN Platform_DmaStartSgXfer(
 		int short_len = sg_dma_len(sg) & 127;
 
 		if (long_len) {
-			dma_parms_addrs(param,
+			dma_params_DIM_0_x_1(param);
+			dma_params_addrs(param,
 					dwLanPhysAddr,
 					sg_dma_address(sg),
 					long_len);
-			dma_parms_paced(param,
-					long_len,
-					new_rqs[SMSC_LONG_PTK_CHAN].Index);
-			dma_link_nodes(param, param+1);
+			dma_params_req(param, dma_reqs[SMSC_LONG_PTK_CHAN]);
+			dma_params_link(param, param+1);
 			param++;
 		}
 
 		if (short_len) {
-			dma_parms_addrs(param,
+			dma_params_DIM_0_x_1(param);
+			dma_params_addrs(param,
 					dwLanPhysAddr,
 					sg_dma_address(sg) + long_len,
 					short_len);
-			dma_parms_paced(param,
-					short_len,
-					new_rqs[SMSC_SHORT_PTK_CHAN].Index);
-			dma_link_nodes(param, param+1);
+			dma_params_req(param, dma_reqs[SMSC_SHORT_PTK_CHAN]);
+			dma_params_link(param, param+1);
 			param++;
 		}
 
@@ -302,10 +315,13 @@ BOOLEAN Platform_DmaStartSgXfer(
 	}
 
 	param--;
-	dma_link_nodes(param, NULL);
+	dma_params_link(param, NULL);
 
-	dma_parms_comp_cb(param, pCallback, pCallbackData, 0);
-	res=dma_compile_list(rx_transfer_paced);
+	dma_params_comp_cb(rx_transfer_paced,
+			   (void (*)(unsigned long))pCallback,
+			   (unsigned long)pCallbackData,
+			   STM_DMA_CB_CONTEXT_TASKLET);
+	res=dma_compile_list(pDmaXfer->dwDmaCh, rx_transfer_paced, GFP_KERNEL);
 	if(res != 0)
 		goto err_exit;
 	// 6. Start the transfer
@@ -355,10 +371,13 @@ BOOLEAN Platform_DmaStartSgXfer(
 			      pDmaXfer->fMemWr ? DMA_FROM_DEVICE : DMA_TO_DEVICE);
 
 	// 5. Prepare the DMA channel structure
-	dma_parms_comp_cb(&rx_transfer_sg, pCallback, pCallbackData, 0);
-	dma_parms_addrs(&rx_transfer_sg, dwLanPhysAddr, 0, 0);
-	dma_parms_sg(&rx_transfer_sg, (struct scatterlist*)pDmaXfer->pdwBuf, sg_count);
-	res=dma_compile_list(&rx_transfer_sg);
+	dma_params_comp_cb(&rx_transfer_sg,
+			   (void (*)(unsigned long))pCallback,
+			   (unsigned long)pCallbackData,
+			   STM_DMA_CB_CONTEXT_TASKLET);
+	dma_params_addrs(&rx_transfer_sg, dwLanPhysAddr, 0, 0);
+	dma_params_sg(&rx_transfer_sg, (struct scatterlist*)pDmaXfer->pdwBuf, sg_count);
+	res=dma_compile_list(pDmaXfer->dwDmaCh, &rx_transfer_sg, GFP_KERNEL);
 	if(res != 0)
 		goto err_exit;
 

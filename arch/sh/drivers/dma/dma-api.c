@@ -192,13 +192,17 @@ int dmac_search_free_channel(const char *dev_id)
 int request_dma(unsigned int chan, const char *dev_id)
 {
 	struct dma_channel *channel = { 0 };
-	struct dma_info *info = get_dma_info(chan);
+	struct dma_info *info;
 	int result;
 
 #if defined(CONFIG_STM_DMA)
 	if(DMA_REQ_ANY_CHANNEL == chan)
 		return dmac_search_free_channel(dev_id);
 #endif
+
+	info = get_dma_info(chan);
+	if (!info)
+		return -EINVAL;
 
 	channel = get_dma_channel(chan);
 	if (atomic_xchg(&channel->busy, 1))
@@ -328,7 +332,7 @@ static int dma_read_proc(char *buf, char **start, off_t off,
 		for (i = 0; i < info->nr_channels; i++) {
 			struct dma_channel *channel = info->channels + i;
 
-			if (!(channel->flags & DMA_CONFIGURED))
+		        if(atomic_read(&channel->busy) == 0)
 				continue;
 
 			p += sprintf(p, "%2d: %14s    %s\n", i,

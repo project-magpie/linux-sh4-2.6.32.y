@@ -15,8 +15,9 @@ config SND_STM8000
 
 config SND_STB710X
 	tristate "STB710x ALSA driver"
-	depends on CPU_SUBTYPE_STB7100 && STM_DMA
+	depends on CPU_SUBTYPE_STB7100
 	select SND_PCM
+	select STM_DMA
 	help
 	  Say Y here for ALSA support on the STb710x.
 
@@ -25,8 +26,9 @@ config SND_STB710X
 
 config STB7100_IEC_DEBUG
 	bool "STB710x ALSA driver IEC debug"
-	depends on CPU_SUBTYPE_STB7100 && STM_DMA
+	depends on CPU_SUBTYPE_STB7100
 	select SND_PCM
+	select STM_DMA
 	help
 	  Say Y here for ALSA-IEC debugging on the STb710x.
 

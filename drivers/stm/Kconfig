@@ -20,7 +20,7 @@ config STM_PIO
 
 config STM_DMA
 	bool "STMicroelectronics DMA API"
-	depends on CPU_SUBTYPE_STB7100
+	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200
 	select SH_DMA_API
 	default y
 	---help---
@@ -30,7 +30,7 @@ config STM_DMA
 	  to these free-running operations it also allows management of the
 	  paced-transfer peripherals on recent STM parts.
 
-	  On STb7100 DMA support is vital for the correct operation of the
+	  On STb710x and STx7200 DMA support is vital for the correct operation of the
 	  sound system.
 
 	  If you have a device from STMicroelectronics, then say Y here.
@@ -57,8 +57,19 @@ config STM_DMA_DEBUG
 	depends on STM_DMA
 	default n
 
-config STB7100_FDMA
-	def_bool STM_DMA && CPU_SUBTYPE_STB7100
+choice
+	prompt "FDMA firmware loading strategy"
+	depends on STM_DMA
+	default STM_DMA_FW_KERNEL
+
+config  STM_DMA_FW_USERSPACE
+	depends on EXPERIMENTAL
+	bool "Use hotplug firmware loading framework (EXPERIMENTAL)"
+
+config STM_DMA_FW_KERNEL
+	bool "Use firmware linked into the kernel image"
+
+endchoice
 
 config STM_SSC
        bool "STM Synchronous Serial Controller"

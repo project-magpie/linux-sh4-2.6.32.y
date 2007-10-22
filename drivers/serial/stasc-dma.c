@@ -1,9 +1,15 @@
 /*
- *  drivers/serial/stasc-dma.c
- *  Asynchronous serial controller (ASC) driver - 710x FDMA extension
+ * STMicroelectronics Asynchronous Serial Controller (ASC) driver
+ * FDMA extension
+ *
+ * Copyright (C) 2006 STMicroelectronics Limited
+ * Author: Nigel Hathaway <nigel.hathaway@st.com>
+ *
+ * May be copied or modified under the terms of the GNU General Public
+ * License.  See linux/COPYING for more information.
  */
 
-#include <linux/stm/710x_fdma.h>
+#include <linux/stm/fdma-reqs.h>
 #include <linux/timer.h>
 #include <linux/stm/stm-dma.h>
 #include <asm/cacheflush.h>
@@ -11,7 +17,7 @@
 #include "stasc.h"
 
 /* Key running performance parameters */
-#ifdef CONFIG_STB7100_FDMA
+#ifdef CONFIG_STM_DMA
 #define DMA_RXBUFSIZE 1024
 #define DMA_RXBUFERS 8 /* must be power of 2 */
 #define DMA_TXBUFSIZE 2048
@@ -27,6 +33,8 @@ struct asc_dma_port
 	int txdma_chid;
 	struct stm_dma_params rxdmap;
 	struct stm_dma_params txdmap;
+	struct stm_dma_req *rx_dma_req;
+	struct stm_dma_req *tx_dma_req;
 	unsigned char *rxdmabuf[DMA_RXBUFERS];
 	int rxdmabuf_count[DMA_RXBUFERS];
 	unsigned char *txdmabuf[DMA_TXBUFERS];
@@ -43,11 +51,12 @@ static unsigned long FDMA_RXREQ[ASC_NPORTS];
 static unsigned long FDMA_TXREQ[ASC_NPORTS];
 static struct asc_dma_port asc_dma_ports[ASC_NPORTS];
 
+void asc_fdma_setreq(void)
+{
+#if defined(CONFIG_CPU_SUBTYPE_STB7100)
 #define SYSCONF_BASE		0xb9001000
 #define SYSCONF_DEVICEID	(SYSCONF_BASE + 0x000)
 
-void asc_fdma_setreq(void)
-{
 	u32 devid = ctrl_inl(SYSCONF_DEVICEID);
 	u32 cpu_subtype = (((devid >> 12) & 0x3ff) == 0x02c) ? 7109 : 7100;
 
@@ -65,6 +74,14 @@ void asc_fdma_setreq(void)
 		FDMA_TXREQ[0] = STB7109_FDMA_REQ_UART_2_TX;
 		FDMA_TXREQ[1] = STB7109_FDMA_REQ_UART_3_TX;
 	}
+#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
+	FDMA_RXREQ[0] = STB7200_FDMA_REQ_UART_2_RX;
+	FDMA_RXREQ[1] = STB7200_FDMA_REQ_UART_3_RX;
+	FDMA_TXREQ[0] = STB7200_FDMA_REQ_UART_2_TX;
+	FDMA_TXREQ[1] = STB7200_FDMA_REQ_UART_3_TX;
+#else
+#error Unknown CPU
+#endif
 }
 
 static int asc_dma_rxflush_one_buffer(struct asc_port *ascport,
@@ -119,17 +136,14 @@ static void asc_dma_rxflush(struct uart_port *port)
 	}
 	
 	/* Try to set RX DMA going again */
-	dma_parms_addrs(&ascdmaport->rxdmap,
-			ascdmaport->rxdmap.sar,
-			virt_to_bus(ascdmaport->rxdmabuf[ascdmaport->rxdmabuf_head]),
-			ascdmaport->rxdmap.node_bytes);
+	dma_params_addrs(&ascdmaport->rxdmap,
+			 ascdmaport->rxdmap.sar,
+			 virt_to_bus(ascdmaport->rxdmabuf[ascdmaport->rxdmabuf_head]),
+			 ascdmaport->rxdmap.node_bytes);
 
-	/* Assuming current num_bytes parm is valid */
-	dma_parms_paced(&ascdmaport->rxdmap,
-			ascdmaport->rxdmap.node_bytes,
-			FDMA_RXREQ[port->line]);
+	dma_params_DIM_0_x_1(&ascdmaport->rxdmap);
 
-	if((err = dma_compile_list(&ascdmaport->rxdmap)) < 0) {
+	if((err = dma_compile_list(ascdmaport->rxdma_chid, &ascdmaport->rxdmap, GFP_KERNEL)) < 0) {
 		printk(KERN_ERR "ASC RX FDMA failed to reconfigure, error %d\n", err);
 		return;
 	}
@@ -148,7 +162,7 @@ static void asc_dma_rxflush(struct uart_port *port)
 	}
 }
 
-static void asc_rxfmda_done(void* param)
+static void asc_rxfmda_done(unsigned long param)
 {
 	struct uart_port *port = (struct uart_port *)param;
 	struct asc_dma_port *ascdmaport = &asc_dma_ports[port->line];
@@ -194,7 +208,7 @@ static void asc_rxfmda_done(void* param)
 	asc_dma_rxflush(port);
 }
 
-static void asc_rxfmda_error(void* param)
+static void asc_rxfmda_error(unsigned long param)
 {
 	printk(KERN_ERR "ASC RX FDMA error\n");
 }
@@ -284,16 +298,14 @@ void asc_fdma_start_tx(struct uart_port *port)
 			ascdmaport->txdmabuf_head = ascdmaport->txdmabuf_tail;
 			ascdmaport->txdma_running = 1;
 
-			dma_parms_addrs(&ascdmaport->txdmap,
+			dma_params_addrs(&ascdmaport->txdmap,
 					virt_to_bus(ascdmaport->txdmabuf[newtail]),
 					virt_to_bus((void*)(port->mapbase + ASC_TXBUF)),
 					to_send);
 
-			dma_parms_paced(&ascdmaport->txdmap,
-					to_send,
-					FDMA_TXREQ[port->line]);
+			dma_params_DIM_1_x_0(&ascdmaport->txdmap);
 
-			err = dma_compile_list(&ascdmaport->txdmap);
+			err = dma_compile_list(ascdmaport->txdma_chid, &ascdmaport->txdmap, GFP_KERNEL);
 
 			dma_cache_wback(ascdmaport->txdmabuf[newtail], DMA_TXBUFSIZE);
 
@@ -317,7 +329,7 @@ void asc_fdma_start_tx(struct uart_port *port)
 		uart_write_wakeup(port);
 }
 
-static void asc_txfmda_done(void* param)
+static void asc_txfmda_done(unsigned long param)
 {
 	struct uart_port *port = (struct uart_port *)param;
 	struct asc_dma_port *ascdmaport = &asc_dma_ports[port->line];
@@ -349,15 +361,13 @@ static void asc_txfmda_done(void* param)
 		if (ascdmaport->txdmabuf_count[newhead] != 0) {
 			int err;
 
-			dma_parms_addrs(&ascdmaport->txdmap,
+			dma_params_addrs(&ascdmaport->txdmap,
 					virt_to_bus(ascdmaport->txdmabuf[newhead]),
 					ascdmaport->txdmap.dar,
 					ascdmaport->txdmabuf_count[newhead]);
-			dma_parms_paced(&ascdmaport->txdmap,
-					ascdmaport->txdmabuf_count[newhead],
-					FDMA_TXREQ[port->line]);
+			dma_params_DIM_1_x_0(&ascdmaport->txdmap);
 
-			if((err=dma_compile_list(&ascdmaport->txdmap))<0) {
+			if((err=dma_compile_list(ascdmaport->txdma_chid, &ascdmaport->txdmap, GFP_KERNEL))<0) {
 				printk(KERN_ERR "ASC TX FDMA  failed to reconfigure, error %d\n",err);
 				return;
 			}
@@ -374,7 +384,7 @@ static void asc_txfmda_done(void* param)
 	}
 }
 
-static void asc_txfmda_error(void* param)
+static void asc_txfmda_error(unsigned long param)
 {
 	printk(KERN_ERR "ASC TX FDMA error\n");
 }
@@ -436,6 +446,24 @@ void asc_fdma_stop_rx(struct uart_port *port)
 	ascdmaport->rxdmabuf_head = ascdmaport->rxdmabuf_tail = 0;
 }
 
+static struct stm_dma_req_config rx_dma_req_config = {
+	.rw		= REQ_CONFIG_READ,
+	.opcode		= REQ_CONFIG_OPCODE_1,
+	.count		= 4,
+	.increment	= 0,
+	.hold_off	= 0,
+	.initiator	= 1,
+};
+
+static struct stm_dma_req_config tx_dma_req_config = {
+	.rw		= REQ_CONFIG_WRITE,
+	.opcode		= REQ_CONFIG_OPCODE_1,
+	.count		= 1,
+	.increment	= 0,
+	.hold_off	= 0,
+	.initiator	= 1,
+};
+
 int asc_enable_fdma(struct uart_port *port)
 {
 	struct asc_port *ascport = &asc_ports[port->line];
@@ -475,33 +503,41 @@ int asc_enable_fdma(struct uart_port *port)
 		ascdmaport->rxdma_running = 0;
 
 		/* Set up the rx DMA parameters */
-		declare_dma_parms(&ascdmaport->rxdmap,
-				  MODE_PACED,
-				  STM_DMA_LIST_OPEN,
-				  STM_DMA_SETUP_CONTEXT_TASK,
-				  STM_DMA_NOBLOCK_MODE,
-				  (char*)STM_DMAC_ID);
+		dma_params_init(&ascdmaport->rxdmap,
+			       MODE_PACED,
+			       STM_DMA_LIST_OPEN);
 
-		dma_parms_interrupts(&ascdmaport->rxdmap,STM_DMA_LIST_COMP_INT);
+		//dma_params_interrupts(&ascdmaport->rxdmap,STM_DMA_LIST_COMP_INT);
 
-		dma_parms_comp_cb(&ascdmaport->rxdmap,
-				  asc_rxfmda_done,
-				  (void*)port,
+		dma_params_comp_cb(&ascdmaport->rxdmap,
+				   asc_rxfmda_done,
+				   (unsigned long)port,
+				   STM_DMA_CB_CONTEXT_TASKLET);
+
+		dma_params_err_cb(&ascdmaport->rxdmap,
+				  asc_rxfmda_error,
+				  (unsigned long)port,
 				  STM_DMA_CB_CONTEXT_TASKLET);
 
-		dma_parms_err_cb(&ascdmaport->rxdmap,
-				 asc_rxfmda_error,
-				 (void*)port,
-				 STM_DMA_CB_CONTEXT_TASKLET);
-
-		dma_parms_addrs(&ascdmaport->rxdmap,
+		dma_params_addrs(&ascdmaport->rxdmap,
 				virt_to_bus((void*)(port->mapbase + ASC_RXBUF)),
 				virt_to_bus(ascdmaport->rxdmabuf[0]),
 				DMA_RXBUFSIZE);
 
-		dma_parms_paced(&ascdmaport->rxdmap,DMA_RXBUFSIZE,FDMA_RXREQ[port->line]);
+		ascdmaport->rx_dma_req = dma_req_config(ascdmaport->rxdma_chid,
+					    FDMA_RXREQ[port->line],
+					    &rx_dma_req_config);
+		if (ascdmaport->rx_dma_req == NULL) {
+			printk(KERN_ERR "%s DMA req line %ld not available\n",
+			       __FUNCTION__, FDMA_RXREQ[port->line]);
+			return -EBUSY;
+		}
 
-		if((err=dma_compile_list(&ascdmaport->rxdmap)) < 0) {
+		dma_params_req(&ascdmaport->rxdmap, ascdmaport->rx_dma_req);
+
+		dma_params_DIM_0_x_1(&ascdmaport->rxdmap);
+
+		if((err=dma_compile_list(ascdmaport->rxdma_chid, &ascdmaport->rxdmap, GFP_KERNEL)) < 0) {
 			printk(KERN_ERR "%s RX failed, err %d\n",__FUNCTION__,err);
 			return -ENODEV;
 		}
@@ -509,24 +545,32 @@ int asc_enable_fdma(struct uart_port *port)
 		/* Set up the tx DMA parameters */
 		ascdmaport->txdma_running = 0;
 
-		declare_dma_parms(&ascdmaport->txdmap,
+		dma_params_init(&ascdmaport->txdmap,
 				  MODE_PACED,
-				  STM_DMA_LIST_OPEN,
-				  STM_DMA_SETUP_CONTEXT_TASK,
-				  STM_DMA_NOBLOCK_MODE,
-				  (char*)STM_DMAC_ID);
+				  STM_DMA_LIST_OPEN);
 
-		dma_parms_interrupts(&ascdmaport->txdmap,STM_DMA_LIST_COMP_INT);
+		//dma_params_interrupts(&ascdmaport->txdmap,STM_DMA_LIST_COMP_INT);
 
-		dma_parms_comp_cb(&ascdmaport->txdmap,
+		dma_params_comp_cb(&ascdmaport->txdmap,
 				  asc_txfmda_done,
-				  (void*)port,
+				  (unsigned long)port,
 				  STM_DMA_CB_CONTEXT_TASKLET);
 
-		dma_parms_err_cb(&ascdmaport->txdmap,
+		dma_params_err_cb(&ascdmaport->txdmap,
 				 asc_txfmda_error,
-				 (void*)port,
+				 (unsigned long)port,
 				 STM_DMA_CB_CONTEXT_TASKLET);
+
+		ascdmaport->tx_dma_req = dma_req_config(ascdmaport->txdma_chid,
+					    FDMA_TXREQ[port->line],
+					    &tx_dma_req_config);
+		if (ascdmaport->tx_dma_req == NULL) {
+			printk(KERN_ERR "%s DMA req line %ld not available\n",
+			       __FUNCTION__, FDMA_TXREQ[port->line]);
+			return -EBUSY;
+		}
+
+		dma_params_req(&ascdmaport->txdmap, ascdmaport->tx_dma_req);
 
 		/* We can delay compilation of the transmit descriptor until
 		 * we know which port we are on*/
@@ -567,8 +611,8 @@ void asc_disable_fdma(struct uart_port *port)
 		asc_fdma_stop_tx(port);
 		free_dma(ascdmaport->rxdma_chid);
 		free_dma(ascdmaport->txdma_chid);
-		dma_free_descriptor(&ascdmaport->rxdmap);
-		dma_free_descriptor(&ascdmaport->txdmap);
+		dma_params_free(&ascdmaport->rxdmap);
+		dma_params_free(&ascdmaport->txdmap);
 		memset(&ascdmaport->rxdmap,0,sizeof(struct stm_dma_params));
 		memset(&ascdmaport->txdmap,0,sizeof(struct stm_dma_params));
 

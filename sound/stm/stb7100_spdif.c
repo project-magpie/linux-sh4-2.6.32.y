@@ -182,7 +182,7 @@ static inline void stb7100_spdif_stop_playback(snd_pcm_substream_t *substream)
 	reset_spdif_on(chip);
 	spin_unlock(&chip->lock);
 	dma_stop_channel(chip->fdma_channel);
-	dma_free_descriptor(&chip->dmap);
+	dma_params_free(&chip->dmap);
 }
 
 

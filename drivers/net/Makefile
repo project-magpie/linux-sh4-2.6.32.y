@@ -236,3 +236,6 @@ obj-$(CONFIG_NETCONSOLE) += netconsole.o
 obj-$(CONFIG_FS_ENET) += fs_enet/
 
 obj-$(CONFIG_NETXEN_NIC) += netxen/
+
+# This needs to be after any devices which may use it
+obj-$(CONFIG_NWHW_CONFIG) += nwhwconfig.o

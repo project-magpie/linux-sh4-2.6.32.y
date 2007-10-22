@@ -135,6 +135,17 @@ config TUN
 
 	  If you don't know what to use this for, you don't need it.
 
+config NWHW_CONFIG
+	bool "Configure network hardware from the command line"
+	depends on NETDEVICES
+	---help---
+	  Many network drivers now support hardware level configuration via
+	  utilities such as ifconfig, ethtool and mii-tool. However sometimes
+	  these settings need to be adjusted before a file system is
+	  available (typically if the root file system uses NFS). This
+	  option adds a simple kernel command line interface to configure
+	  some common network parameters.
+
 config NET_SB1000
 	tristate "General Instruments Surfboard 1000"
 	depends on PNP

@@ -822,7 +822,7 @@ static int pkt_flush_cache(struct pktcdvd_device *pd)
 {
 	struct packet_command cgc;
 
-	init_cdrom_command(&cgc, NULL, 0, CGC_DATA_NONE);
+	init_cdrom_command(&cgc, 0, CGC_DATA_NONE);
 	cgc.cmd[0] = GPCMD_FLUSH_CACHE;
 	cgc.quiet = 1;
 
@@ -845,7 +845,7 @@ static int pkt_set_speed(struct pktcdvd_device *pd, unsigned write_speed, unsign
 	struct request_sense sense;
 	int ret;
 
-	init_cdrom_command(&cgc, NULL, 0, CGC_DATA_NONE);
+	init_cdrom_command(&cgc, 0, CGC_DATA_NONE);
 	cgc.sense = &sense;
 	cgc.cmd[0] = GPCMD_SET_SPEED;
 	cgc.cmd[2] = (read_speed >> 8) & 0xff;
@@ -1715,13 +1715,15 @@ static int pkt_mode_select(struct pktcdvd_device *pd, struct packet_command *cgc
 	return pkt_generic_packet(pd, cgc);
 }
 
-static int pkt_get_disc_info(struct pktcdvd_device *pd, disc_information *di)
+static int pkt_get_disc_info(struct pktcdvd_device *pd, disc_information *dip)
 {
-	struct packet_command cgc;
-	int ret;
+	DECLARE_PACKET_COMMAND(cgc);
+	int ret, buflen;
+	disc_information* di;
 
 	/* set up command and get the disc info */
-	init_cdrom_command(&cgc, di, sizeof(*di), CGC_DATA_READ);
+	init_cdrom_command(&cgc, sizeof(*di), CGC_DATA_READ);
+	di = (disc_information*)cgc.buffer;
 	cgc.cmd[0] = GPCMD_READ_DISC_INFO;
 	cgc.cmd[8] = cgc.buflen = 2;
 	cgc.quiet = 1;
@@ -1732,22 +1734,29 @@ static int pkt_get_disc_info(struct pktcdvd_device *pd, disc_information *di)
 	/* not all drives have the same disc_info length, so requeue
 	 * packet with the length the drive tells us it can supply
 	 */
-	cgc.buflen = be16_to_cpu(di->disc_information_length) +
+	buflen = be16_to_cpu(di->disc_information_length) +
 		     sizeof(di->disc_information_length);
 
-	if (cgc.buflen > sizeof(disc_information))
-		cgc.buflen = sizeof(disc_information);
+	if (buflen > sizeof(disc_information))
+		buflen = sizeof(disc_information);
 
-	cgc.cmd[8] = cgc.buflen;
-	return pkt_generic_packet(pd, &cgc);
+	cgc.cmd[8] = cgc.buflen = buflen;
+	if ((ret = pkt_generic_packet(pd, &cgc)))
+		return ret;
+
+	memcpy(dip, di, buflen);
+
+	return ret;
 }
 
-static int pkt_get_track_info(struct pktcdvd_device *pd, __u16 track, __u8 type, track_information *ti)
+static int pkt_get_track_info(struct pktcdvd_device *pd, __u16 track, __u8 type, track_information *tip)
 {
-	struct packet_command cgc;
-	int ret;
+	DECLARE_PACKET_COMMAND(cgc);
+	int ret, buflen;
+	track_information *ti;
 
-	init_cdrom_command(&cgc, ti, 8, CGC_DATA_READ);
+	init_cdrom_command(&cgc, 8, CGC_DATA_READ);
+	ti = (track_information*)cgc.buffer;
 	cgc.cmd[0] = GPCMD_READ_TRACK_RZONE_INFO;
 	cgc.cmd[1] = type & 3;
 	cgc.cmd[4] = (track & 0xff00) >> 8;
@@ -1758,14 +1767,18 @@ static int pkt_get_track_info(struct pktcdvd_device *pd, __u16 track, __u8 type,
 	if ((ret = pkt_generic_packet(pd, &cgc)))
 		return ret;
 
-	cgc.buflen = be16_to_cpu(ti->track_information_length) +
+	buflen = be16_to_cpu(ti->track_information_length) +
 		     sizeof(ti->track_information_length);
 
-	if (cgc.buflen > sizeof(track_information))
-		cgc.buflen = sizeof(track_information);
+	if (buflen > sizeof(track_information))
+		buflen = sizeof(track_information);
 
-	cgc.cmd[8] = cgc.buflen;
-	return pkt_generic_packet(pd, &cgc);
+	cgc.cmd[8] = cgc.buflen = buflen;
+	if ((ret = pkt_generic_packet(pd, &cgc)))
+		return ret;
+
+	memcpy(tip, ti, buflen);
+	return ret;
 }
 
 static int pkt_get_last_written(struct pktcdvd_device *pd, long *last_written)
@@ -1807,33 +1820,33 @@ static int pkt_get_last_written(struct pktcdvd_device *pd, long *last_written)
  */
 static int pkt_set_write_settings(struct pktcdvd_device *pd)
 {
-	struct packet_command cgc;
+	DECLARE_PACKET_COMMAND(cgc);
 	struct request_sense sense;
 	write_param_page *wp;
-	char buffer[128];
 	int ret, size;
 
 	/* doesn't apply to DVD+RW or DVD-RAM */
 	if ((pd->mmc3_profile == 0x1a) || (pd->mmc3_profile == 0x12))
 		return 0;
 
-	memset(buffer, 0, sizeof(buffer));
-	init_cdrom_command(&cgc, buffer, sizeof(*wp), CGC_DATA_READ);
+	init_cdrom_command(&cgc, 128, CGC_DATA_READ);
 	cgc.sense = &sense;
 	if ((ret = pkt_mode_sense(pd, &cgc, GPMODE_WRITE_PARMS_PAGE, 0))) {
 		pkt_dump_sense(&cgc);
 		return ret;
 	}
 
-	size = 2 + ((buffer[0] << 8) | (buffer[1] & 0xff));
-	pd->mode_offset = (buffer[6] << 8) | (buffer[7] & 0xff);
-	if (size > sizeof(buffer))
-		size = sizeof(buffer);
+	size = 2 + ((cgc.buffer[0] << 8) | (cgc.buffer[1] & 0xff));
+	pd->mode_offset = (cgc.buffer[6] << 8) | (cgc.buffer[7] & 0xff);
+	if (size > cgc.buflen)
+		size = cgc.buflen;
+
+	cleanup_cdrom_command(&cgc);
 
 	/*
 	 * now get it all
 	 */
-	init_cdrom_command(&cgc, buffer, size, CGC_DATA_READ);
+	init_cdrom_command(&cgc, size, CGC_DATA_READ);
 	cgc.sense = &sense;
 	if ((ret = pkt_mode_sense(pd, &cgc, GPMODE_WRITE_PARMS_PAGE, 0))) {
 		pkt_dump_sense(&cgc);
@@ -1843,7 +1856,7 @@ static int pkt_set_write_settings(struct pktcdvd_device *pd)
 	/*
 	 * write page is offset header + block descriptor length
 	 */
-	wp = (write_param_page *) &buffer[sizeof(struct mode_page_header) + pd->mode_offset];
+	wp = (write_param_page *) &cgc.buffer[sizeof(struct mode_page_header) + pd->mode_offset];
 
 	wp->fp = pd->settings.fp;
 	wp->track_mode = pd->settings.track_mode;
@@ -1966,17 +1979,16 @@ static int pkt_writable_disc(struct pktcdvd_device *pd, disc_information *di)
 
 static int pkt_probe_settings(struct pktcdvd_device *pd)
 {
-	struct packet_command cgc;
-	unsigned char buf[12];
+	DECLARE_PACKET_COMMAND(cgc);
 	disc_information di;
 	track_information ti;
 	int ret, track;
 
-	init_cdrom_command(&cgc, buf, sizeof(buf), CGC_DATA_READ);
+	init_cdrom_command(&cgc, 12, CGC_DATA_READ);
 	cgc.cmd[0] = GPCMD_GET_CONFIGURATION;
 	cgc.cmd[8] = 8;
 	ret = pkt_generic_packet(pd, &cgc);
-	pd->mmc3_profile = ret ? 0xffff : buf[6] << 8 | buf[7];
+	pd->mmc3_profile = ret ? 0xffff : cgc.buffer[6] << 8 | cgc.buffer[7];
 
 	memset(&di, 0, sizeof(disc_information));
 	memset(&ti, 0, sizeof(track_information));
@@ -2065,13 +2077,11 @@ static int pkt_probe_settings(struct pktcdvd_device *pd)
  */
 static int pkt_write_caching(struct pktcdvd_device *pd, int set)
 {
-	struct packet_command cgc;
+	DECLARE_PACKET_COMMAND(cgc);
 	struct request_sense sense;
-	unsigned char buf[64];
 	int ret;
 
-	memset(buf, 0, sizeof(buf));
-	init_cdrom_command(&cgc, buf, sizeof(buf), CGC_DATA_READ);
+	init_cdrom_command(&cgc, 64, CGC_DATA_READ);
 	cgc.sense = &sense;
 	cgc.buflen = pd->mode_offset + 12;
 
@@ -2083,9 +2093,9 @@ static int pkt_write_caching(struct pktcdvd_device *pd, int set)
 	if ((ret = pkt_mode_sense(pd, &cgc, GPMODE_WCACHING_PAGE, 0)))
 		return ret;
 
-	buf[pd->mode_offset + 10] |= (!!set << 2);
+	cgc.buffer[pd->mode_offset + 10] |= (!!set << 2);
 
-	cgc.buflen = cgc.cmd[8] = 2 + ((buf[0] << 8) | (buf[1] & 0xff));
+	cgc.buflen = cgc.cmd[8] = 2 + ((cgc.buffer[0] << 8) | (cgc.buffer[1] & 0xff));
 	ret = pkt_mode_select(pd, &cgc);
 	if (ret) {
 		printk(DRIVER_NAME": write caching control failed\n");
@@ -2097,9 +2107,9 @@ static int pkt_write_caching(struct pktcdvd_device *pd, int set)
 
 static int pkt_lock_door(struct pktcdvd_device *pd, int lockflag)
 {
-	struct packet_command cgc;
+	DECLARE_PACKET_COMMAND(cgc);
 
-	init_cdrom_command(&cgc, NULL, 0, CGC_DATA_NONE);
+	init_cdrom_command(&cgc, 0, CGC_DATA_NONE);
 	cgc.cmd[0] = GPCMD_PREVENT_ALLOW_MEDIUM_REMOVAL;
 	cgc.cmd[4] = lockflag ? 1 : 0;
 	return pkt_generic_packet(pd, &cgc);
@@ -2110,15 +2120,13 @@ static int pkt_lock_door(struct pktcdvd_device *pd, int lockflag)
  */
 static int pkt_get_max_speed(struct pktcdvd_device *pd, unsigned *write_speed)
 {
-	struct packet_command cgc;
+	DECLARE_PACKET_COMMAND(cgc);
 	struct request_sense sense;
-	unsigned char buf[256+18];
 	unsigned char *cap_buf;
 	int ret, offset;
 
-	memset(buf, 0, sizeof(buf));
-	cap_buf = &buf[sizeof(struct mode_page_header) + pd->mode_offset];
-	init_cdrom_command(&cgc, buf, sizeof(buf), CGC_DATA_UNKNOWN);
+	init_cdrom_command(&cgc, 256+18, CGC_DATA_UNKNOWN);
+	cap_buf = &cgc.buffer[sizeof(struct mode_page_header) + pd->mode_offset];
 	cgc.sense = &sense;
 
 	ret = pkt_mode_sense(pd, &cgc, GPMODE_CAPABILITIES_PAGE, 0);
@@ -2171,13 +2179,12 @@ static char us_clv_to_speed[16] = {
  */
 static int pkt_media_speed(struct pktcdvd_device *pd, unsigned *speed)
 {
-	struct packet_command cgc;
+	DECLARE_PACKET_COMMAND(cgc);
 	struct request_sense sense;
-	unsigned char buf[64];
 	unsigned int size, st, sp;
 	int ret;
 
-	init_cdrom_command(&cgc, buf, 2, CGC_DATA_READ);
+	init_cdrom_command(&cgc, 2, CGC_DATA_READ);
 	cgc.sense = &sense;
 	cgc.cmd[0] = GPCMD_READ_TOC_PMA_ATIP;
 	cgc.cmd[1] = 2;
@@ -2188,11 +2195,11 @@ static int pkt_media_speed(struct pktcdvd_device *pd, unsigned *speed)
 		pkt_dump_sense(&cgc);
 		return ret;
 	}
-	size = ((unsigned int) buf[0]<<8) + buf[1] + 2;
-	if (size > sizeof(buf))
-		size = sizeof(buf);
+	size = ((unsigned int) cgc.buffer[0]<<8) + cgc.buffer[1] + 2;
+	if (size > 64)
+		size = 64;
 
-	init_cdrom_command(&cgc, buf, size, CGC_DATA_READ);
+	init_cdrom_command(&cgc, size, CGC_DATA_READ);
 	cgc.sense = &sense;
 	cgc.cmd[0] = GPCMD_READ_TOC_PMA_ATIP;
 	cgc.cmd[1] = 2;
@@ -2204,18 +2211,18 @@ static int pkt_media_speed(struct pktcdvd_device *pd, unsigned *speed)
 		return ret;
 	}
 
-	if (!buf[6] & 0x40) {
+	if (!cgc.buffer[6] & 0x40) {
 		printk(DRIVER_NAME": Disc type is not CD-RW\n");
 		return 1;
 	}
-	if (!buf[6] & 0x4) {
+	if (!cgc.buffer[6] & 0x4) {
 		printk(DRIVER_NAME": A1 values on media are not valid, maybe not CDRW?\n");
 		return 1;
 	}
 
-	st = (buf[6] >> 3) & 0x7; /* disc sub-type */
+	st = (cgc.buffer[6] >> 3) & 0x7; /* disc sub-type */
 
-	sp = buf[16] & 0xf; /* max speed from ATIP A1 field */
+	sp = cgc.buffer[16] & 0xf; /* max speed from ATIP A1 field */
 
 	/* Info from cdrecord */
 	switch (st) {
@@ -2243,13 +2250,13 @@ static int pkt_media_speed(struct pktcdvd_device *pd, unsigned *speed)
 
 static int pkt_perform_opc(struct pktcdvd_device *pd)
 {
-	struct packet_command cgc;
+	DECLARE_PACKET_COMMAND(cgc);
 	struct request_sense sense;
 	int ret;
 
 	VPRINTK(DRIVER_NAME": Performing OPC\n");
 
-	init_cdrom_command(&cgc, NULL, 0, CGC_DATA_NONE);
+	init_cdrom_command(&cgc, 0, CGC_DATA_NONE);
 	cgc.sense = &sense;
 	cgc.timeout = 60*HZ;
 	cgc.cmd[0] = GPCMD_SEND_OPC;

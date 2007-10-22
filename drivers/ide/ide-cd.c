@@ -2689,7 +2689,7 @@ int ide_cdrom_get_capabilities(ide_drive_t *drive, struct atapi_capabilities_pag
 {
 	struct cdrom_info *info = drive->driver_data;
 	struct cdrom_device_info *cdi = &info->devinfo;
-	struct packet_command cgc;
+	DECLARE_PACKET_COMMAND(cgc);
 	int stat, attempts = 3, size = sizeof(*cap);
 
 	/*
@@ -2700,12 +2700,13 @@ int ide_cdrom_get_capabilities(ide_drive_t *drive, struct atapi_capabilities_pag
 	    !strcmp(drive->id->model, "WPI CDS-32X")))
 		size -= sizeof(cap->pad);
 
-	init_cdrom_command(&cgc, cap, size, CGC_DATA_UNKNOWN);
+	init_cdrom_command(&cgc, size, CGC_DATA_UNKNOWN);
 	do { /* we seem to get stat=0x01,err=0x00 the first time (??) */
 		stat = cdrom_mode_sense(cdi, &cgc, GPMODE_CAPABILITIES_PAGE, 0);
 		if (!stat)
 			break;
 	} while (--attempts);
+	memcpy(cap, cgc.buffer, size);
 	return stat;
 }
 
@@ -3397,38 +3398,36 @@ static int idecd_release(struct inode * inode, struct file * file)
 
 static int idecd_set_spindown(struct cdrom_device_info *cdi, unsigned long arg)
 {
-	struct packet_command cgc;
-	char buffer[16];
+	DECLARE_PACKET_COMMAND(cgc);
 	int stat;
 	char spindown;
 
 	if (copy_from_user(&spindown, (void __user *)arg, sizeof(char)))
 		return -EFAULT;
 
-	init_cdrom_command(&cgc, buffer, sizeof(buffer), CGC_DATA_UNKNOWN);
+	init_cdrom_command(&cgc, 16, CGC_DATA_UNKNOWN);
 
 	stat = cdrom_mode_sense(cdi, &cgc, GPMODE_CDROM_PAGE, 0);
 	if (stat)
 		return stat;
 
-	buffer[11] = (buffer[11] & 0xf0) | (spindown & 0x0f);
+	cgc.buffer[11] = (cgc.buffer[11] & 0xf0) | (spindown & 0x0f);
 	return cdrom_mode_select(cdi, &cgc);
 }
 
 static int idecd_get_spindown(struct cdrom_device_info *cdi, unsigned long arg)
 {
-	struct packet_command cgc;
-	char buffer[16];
+	DECLARE_PACKET_COMMAND(cgc);
 	int stat;
  	char spindown;
 
-	init_cdrom_command(&cgc, buffer, sizeof(buffer), CGC_DATA_UNKNOWN);
+	init_cdrom_command(&cgc, 16, CGC_DATA_UNKNOWN);
 
 	stat = cdrom_mode_sense(cdi, &cgc, GPMODE_CDROM_PAGE, 0);
 	if (stat)
 		return stat;
 
-	spindown = buffer[11] & 0x0f;
+	spindown = cgc.buffer[11] & 0x0f;
 	if (copy_to_user((void __user *)arg, &spindown, sizeof (char)))
 		return -EFAULT;
 	return 0;

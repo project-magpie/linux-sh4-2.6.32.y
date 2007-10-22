@@ -1008,8 +1008,12 @@ extern int cdrom_mode_select(struct cdrom_device_info *cdi,
 extern int cdrom_mode_sense(struct cdrom_device_info *cdi,
 			    struct packet_command *cgc,
 			    int page_code, int page_control);
-extern void init_cdrom_command(struct packet_command *cgc,
-			       void *buffer, int len, int type);
+extern int init_cdrom_command(struct packet_command *cgc,
+			      int len, int type);
+extern void cleanup_cdrom_command(struct packet_command *cgc);
+#define DECLARE_PACKET_COMMAND(cgc) \
+	struct packet_command cgc __attribute__((cleanup(cleanup_cdrom_command))) = \
+	{ .buffer = NULL }
 
 /* The SCSI spec says there could be 256 slots. */
 #define CDROM_MAX_SLOTS	256

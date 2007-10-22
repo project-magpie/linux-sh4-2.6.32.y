@@ -275,6 +275,26 @@ config SH_7751_SYSTEMH
 	  Select SystemH if you are configuring for a Renesas SystemH
 	  7751R evaluation board.
 
+config SH_ST_MB360
+	bool "mb360: ST40RA Eval"
+	depends on CPU_SUBTYPE_ST40STB1
+	help
+	  Select ST40RA-Eval if configuring for an
+	  STMicroelectronics ST40RA Eval Board (product code: ST40RA-Eval,
+	  ST board ID: mb360). More information at:
+	  <http://www.stlinux.com/boards/mb360/>
+
+config SH_ST_MB374
+	bool "mb374: ST40RA Starter"
+	select SYS_SUPPORTS_PCI
+       depends on CPU_SUBTYPE_ST40STB1
+	help
+	  Select ST40RA-Starter if configuring for an
+	  STMicroelectronics ST40RA Starter Board (also known as the
+	  ST40RA DDR Eval board) (product code: ST40RA-Starter,
+	  ST board ID: mb374). More information at:
+	  <http://www.stlinux.com/boards/mb374/>
+
 config SH_HP6XX
 	bool "HP6XX"
 	select SYS_SUPPORTS_APM_EMULATION
@@ -618,6 +638,10 @@ config UBC_WAKEUP
 
 config CMDLINE_BOOL
 	bool "Default bootloader kernel arguments"
+	help
+	  Setting this option allows the kernel command line arguments to
+	  be set. These will overwrite any arguments passed in by a
+	  bootloader.
 
 config CMDLINE
 	string "Initial kernel command string"

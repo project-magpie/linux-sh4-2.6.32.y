@@ -609,18 +609,18 @@ void __init stx7100_configure_alsa(void)
 
 static struct resource ssc_resource[] = {
         [0] = {
-		.start	= 0xB8040000,
-		.end	= 0xB8040000 + 0x108,
+		.start	= 0x18040000,
+		.end	= 0x18040000 + 0x108,
 		.flags	= IORESOURCE_MEM,
 	},
         [1] = {
-		.start	= 0xB8041000,
-		.end	= 0xB8041000 + 0x108,
+		.start	= 0x18041000,
+		.end	= 0x18041000 + 0x108,
 		.flags	= IORESOURCE_MEM,
 	},
         [2] = {
-		.start	= 0xB8042000,
-		.end	= 0xB8042000 + 0x108,
+		.start	= 0x18042000,
+		.end	= 0x18042000 + 0x108,
 		.flags	= IORESOURCE_MEM,
 	},
         [3] = {

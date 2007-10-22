@@ -61,7 +61,7 @@ static void __init speculative_execution_init(void)
 /*
  * Generic first-level cache init
  */
-static void __init cache_init(void)
+static void __uses_jump_to_uncached  cache_init(void)
 {
 	unsigned long ccr, flags;
 
@@ -79,7 +79,7 @@ static void __init cache_init(void)
 	current_cpu_data.dcache.way_size = current_cpu_data.dcache.sets *
 				    current_cpu_data.dcache.linesz;
 
-	jump_to_P2();
+	jump_to_uncached();
 	ccr = ctrl_inl(CCR);
 
 	/*
@@ -156,7 +156,7 @@ static void __init cache_init(void)
 #endif
 
 	ctrl_outl(flags, CCR);
-	back_to_P1();
+	back_to_cached();
 }
 
 #ifdef CONFIG_SH_DSP

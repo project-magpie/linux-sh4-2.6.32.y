@@ -26,6 +26,10 @@ SECTIONS
 	TEXT_TEXT
 	SCHED_TEXT
 	LOCK_TEXT
+	. = ALIGN(PAGE_SIZE);
+	_start_uncached = .;
+	*(.uncached);
+	_end_uncached = .;
 	*(.fixup)
 	*(.gnu.warning)
 	} = 0x0009

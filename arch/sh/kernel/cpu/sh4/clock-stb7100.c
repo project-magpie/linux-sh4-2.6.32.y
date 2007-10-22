@@ -13,14 +13,16 @@
 #include <asm/freq.h>
 #include <asm/io.h>
 
-#define CLOCKGEN_BASE_ADDR	0xb9213000	/* Clockgen A */
+#define CLOCKGEN_BASE_ADDR	0x19213000	/* Clockgen A */
 
-#define CLOCKGEN_PLL0_CFG	(CLOCKGEN_BASE_ADDR + 0x08)
-#define CLOCKGEN_PLL0_CLK1_CTRL	(CLOCKGEN_BASE_ADDR + 0x14)
-#define CLOCKGEN_PLL0_CLK2_CTRL	(CLOCKGEN_BASE_ADDR + 0x18)
-#define CLOCKGEN_PLL0_CLK3_CTRL	(CLOCKGEN_BASE_ADDR + 0x1c)
-#define CLOCKGEN_PLL0_CLK4_CTRL	(CLOCKGEN_BASE_ADDR + 0x20)
-#define CLOCKGEN_PLL1_CFG	(CLOCKGEN_BASE_ADDR + 0x24)
+static void __iomem *clkgen_base;
+
+#define CLOCKGEN_PLL0_CFG	0x08
+#define CLOCKGEN_PLL0_CLK1_CTRL	0x14
+#define CLOCKGEN_PLL0_CLK2_CTRL	0x18
+#define CLOCKGEN_PLL0_CLK3_CTRL	0x1c
+#define CLOCKGEN_PLL0_CLK4_CTRL	0x20
+#define CLOCKGEN_PLL1_CFG	0x24
 
                                /* 0  1  2  3  4  5  6  7  */
 static unsigned char ratio1[] = { 1, 2, 3, 4, 6, 8 };
@@ -32,7 +34,7 @@ static int pll_freq(unsigned long addr)
 {
 	unsigned long freq, data, ndiv, pdiv, mdiv;
 
-	data = ctrl_inl(addr);
+	data = readl(clkgen_base+addr);
 	mdiv = (data >>  0) & 0xff;
 	ndiv = (data >>  8) & 0xff;
 	pdiv = (data >> 16) & 0x7;
@@ -92,7 +94,7 @@ static struct clk clock##_clk = {				\
 
 #define DEFINE_CLKGEN_RATIO_CLK(clock, pll, register, ratio)	\
 DEFINE_CLKGEN_CLK(clock, pll,					\
-		  unsigned long data = ctrl_inl(register) & 0x7, 2*ratio[data])
+		  unsigned long data = readl(clkgen_base+register) & 0x7, 2*ratio[data])
 
 DEFINE_CLKGEN_RATIO_CLK(sh4,    pll0_clk, CLOCKGEN_PLL0_CLK1_CTRL, ratio1)
 DEFINE_CLKGEN_RATIO_CLK(sh4_ic, pll0_clk, CLOCKGEN_PLL0_CLK2_CTRL, ratio2)
@@ -114,6 +116,8 @@ static struct clk *onchip_clocks[] = {
 int __init clk_init(void)
 {
 	int i, ret = 0;
+
+	clkgen_base = ioremap(CLOCKGEN_BASE_ADDR, 0x100);
 
 	for (i = 0; i < ARRAY_SIZE(onchip_clocks); i++) {
 		struct clk *clk = onchip_clocks[i];

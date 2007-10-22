@@ -886,8 +886,10 @@ asc_console_setup (struct console *co, char *options)
 	int     flow = 'n';
 	int ret;
 
+#if 0
 	if (ascport->port.membase == 0)	/* Port not initialized yet - delay setup */
 		return -ENODEV;
+#endif
 
 	if ((ret = asc_remap_port(ascport, 0)) != 0)
 		return ret;

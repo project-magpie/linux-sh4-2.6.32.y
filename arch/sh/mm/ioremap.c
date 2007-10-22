@@ -26,57 +26,66 @@
 
 /*
  * Remap an arbitrary physical address space into the kernel virtual
- * address space. Needed when the kernel wants to access high addresses
- * directly.
+ * address space.
  *
  * NOTE! We need to allow non-page-aligned mappings too: we will obviously
  * have to convert them into an offset in a page-aligned mapping, but the
  * caller shouldn't need to know that small detail.
  */
-void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
-			unsigned long flags)
+void __iomem *__ioremap_prot(unsigned long phys_addr, unsigned long size,
+			     pgprot_t pgprot)
 {
 	struct vm_struct * area;
 	unsigned long offset, last_addr, addr, orig_addr;
-	pgprot_t pgprot;
+	int simple = (pgprot_val(pgprot) == pgprot_val(PAGE_KERNEL)) ||
+		(pgprot_val(pgprot) == pgprot_val(PAGE_KERNEL_NOCACHE));
+	int cached = pgprot_val(pgprot) & _PAGE_CACHABLE;
 
 	/* Don't allow wraparound or zero size */
 	last_addr = phys_addr + size - 1;
 	if (!size || last_addr < phys_addr)
 		return NULL;
 
-	if (PXSEG(phys_addr) == P4SEG) {
-		return (void __iomem *)phys_addr;
-	}
-
-	/*
-	 * If we're on an SH7751 or SH7780 PCI controller, PCI memory is
-	 * mapped at the end of the address space (typically 0xfd000000)
-	 * in a non-translatable area, so mapping through page tables for
-	 * this area is not only pointless, but also fundamentally
-	 * broken. Just return the physical address instead.
-	 *
-	 * For boards that map a small PCI memory aperture somewhere in
-	 * P1/P2 space, ioremap() will already do the right thing,
-	 * and we'll never get this far.
-	 */
-	if (is_pci_memaddr(phys_addr) && is_pci_memaddr(last_addr))
-		return (void __iomem *)phys_addr;
-
-#if 0
-	/*
-	 * SIM: This check will never fail, as ioremap() will already have
-	 * remapped this this using P1 or P2.
-	 * Its also incorrect as we almost certainly have devices before
-	 * the start of RAM that we do want to allow to be remapped.
-	 */
-
 	/*
 	 * Don't allow anybody to remap normal RAM that we're using..
 	 */
-	if (phys_addr < virt_to_phys(high_memory))
-		return NULL;
+	if ((phys_addr >= __pa(memory_start)) && (last_addr < __pa(memory_end))) {
+		char *t_addr, *t_end;
+		struct page *page;
+
+		t_addr = __va(phys_addr);
+		t_end = t_addr + (size - 1);
+
+		for(page = virt_to_page(t_addr); page <= virt_to_page(t_end); page++)
+			if(!PageReserved(page))
+				return NULL;
+	}
+
+#ifndef CONFIG_32BIT
+	/*
+	 * For physical mappings <29 bits, with simple cached or uncached
+	 * protections, this is trivial, as everything is already mapped
+	 * through P1 and P2.
+	 */
+	if (likely(IS_29BIT(phys_addr) && simple)) {
+		if (cached)
+			return (void __iomem *)P1SEGADDR(phys_addr);
+
+		return (void __iomem *)P2SEGADDR(phys_addr);
+	}
 #endif
+
+	/* Similarly, P4 uncached addresses are permanently mapped */
+	if ((PXSEG(phys_addr) == P4SEG) && simple && !cached)
+		return (void __iomem *)phys_addr;
+
+#ifndef CONFIG_32BIT
+	/* Prevent mapping P1/2 addresses, to improve portability */
+	if (unlikely(!IS_29BIT(phys_addr)))
+		return (void __iomem *)0;
+#endif
+
+	/* Simple mapping failed, so use the PMB or TLB */
 
 	/*
 	 * Mappings have to be page-aligned
@@ -115,7 +124,6 @@ void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
 	}
 #endif
 
-	pgprot = __pgprot(pgprot_val(PAGE_KERNEL_NOCACHE) | flags);
 	if (likely(size))
 		if (ioremap_page_range(addr, addr + size, phys_addr, pgprot)) {
 			vunmap((void *)orig_addr);
@@ -124,7 +132,20 @@ void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
 
 	return (void __iomem *)(offset + (char *)orig_addr);
 }
-EXPORT_SYMBOL(__ioremap);
+EXPORT_SYMBOL(__ioremap_prot);
+
+void __iomem *__ioremap_mode(unsigned long phys_addr, unsigned long size,
+	unsigned long flags)
+{
+	pgprot_t pgprot;
+
+	if (unlikely(flags & _PAGE_CACHABLE))
+		pgprot = PAGE_KERNEL;
+	else
+		pgprot = PAGE_KERNEL_NOCACHE;
+
+	return __ioremap_prot(phys_addr, size, pgprot);
+}
 
 void __iounmap(void __iomem *addr)
 {

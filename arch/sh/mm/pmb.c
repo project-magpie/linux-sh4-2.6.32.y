@@ -162,18 +162,18 @@ repeat:
 	return 0;
 }
 
-int set_pmb_entry(struct pmb_entry *pmbe)
+int __uses_jump_to_uncached set_pmb_entry(struct pmb_entry *pmbe)
 {
 	int ret;
 
-	jump_to_P2();
+	jump_to_uncached();
 	ret = __set_pmb_entry(pmbe->vpn, pmbe->ppn, pmbe->flags, &pmbe->entry);
-	back_to_P1();
+	back_to_cached();
 
 	return ret;
 }
 
-void clear_pmb_entry(struct pmb_entry *pmbe)
+void __uses_jump_to_uncached clear_pmb_entry(struct pmb_entry *pmbe)
 {
 	unsigned int entry = pmbe->entry;
 	unsigned long addr;
@@ -187,7 +187,7 @@ void clear_pmb_entry(struct pmb_entry *pmbe)
 		     entry >= NR_PMB_ENTRIES))
 		return;
 
-	jump_to_P2();
+	jump_to_uncached();
 
 	/* Clear V-bit */
 	addr = mk_pmb_addr(entry);
@@ -196,7 +196,7 @@ void clear_pmb_entry(struct pmb_entry *pmbe)
 	addr = mk_pmb_data(entry);
 	ctrl_outl(ctrl_inl(addr) & ~PMB_V, addr);
 
-	back_to_P1();
+	back_to_cached();
 
 	clear_bit(entry, &pmb_map);
 }
@@ -302,7 +302,7 @@ static void pmb_cache_ctor(void *pmb, struct kmem_cache *cachep,
 	pmbe->entry = PMB_NO_ENTRY;
 }
 
-static int __init pmb_init(void)
+static int __uses_jump_to_uncached pmb_init(void)
 {
 	unsigned int nr_entries = ARRAY_SIZE(pmb_init_map);
 	unsigned int entry;
@@ -312,7 +312,7 @@ static int __init pmb_init(void)
 	pmb_cache = kmem_cache_create("pmb", sizeof(struct pmb_entry), 0,
 				      SLAB_PANIC, pmb_cache_ctor);
 
-	jump_to_P2();
+	jump_to_uncached();
 
 	/*
 	 * Ordering is important, P2 must be mapped in the PMB before we
@@ -330,7 +330,7 @@ static int __init pmb_init(void)
 	/* PMB.SE and UB[7] */
 	ctrl_outl((1 << 31) | (1 << 7), PMB_PASCR);
 
-	back_to_P1();
+	back_to_cached();
 
 	return 0;
 }

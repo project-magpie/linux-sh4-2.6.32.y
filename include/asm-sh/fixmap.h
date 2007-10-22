@@ -50,6 +50,9 @@ enum fixed_addresses {
 	FIX_KMAP_BEGIN,	/* reserved pte's for temporary kernel mappings */
 	FIX_KMAP_END = FIX_KMAP_BEGIN+(KM_TYPE_NR*NR_CPUS)-1,
 #endif
+	FIX_UNCACHED_CODE,
+	FIX_SYSCONF,
+	FIX_ASC,
 	__end_of_fixed_addresses
 };
 

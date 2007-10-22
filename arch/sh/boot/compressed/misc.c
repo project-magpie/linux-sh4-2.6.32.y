@@ -230,7 +230,12 @@ long* stack_start = &user_stack[STACK_SIZE];
 void decompress_kernel(void)
 {
 	output_data = 0;
+#ifdef CONFIG_32BIT
+	/* Assume we are already running uncached */
+	output_ptr = (unsigned long)&_text+PAGE_SIZE;
+#else
 	output_ptr = P2SEGADDR((unsigned long)&_text+PAGE_SIZE);
+#endif
 	free_mem_ptr = (unsigned long)&_end;
 	free_mem_end_ptr = free_mem_ptr + HEAP_SIZE;
 

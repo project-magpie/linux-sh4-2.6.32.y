@@ -214,34 +214,48 @@ extern void memcpy_fromio(void *, volatile void __iomem *, unsigned long);
 extern void memcpy_toio(volatile void __iomem *, const void *, unsigned long);
 extern void memset_io(volatile void __iomem *, int, unsigned long);
 
+extern void ctrl_fn_using_non_p3_address(void);
+#define CTRL_ADDR_CHECK(addr)						\
+	if (__builtin_constant_p(addr) && (PXSEG(addr) != P4SEG))	\
+		ctrl_fn_using_non_p3_address();				\
+	else if (PXSEG(addr) != P4SEG)					\
+		pr_debug("ctrl fn using non-p4 address at %s:%u\n",	\
+			__FILE__, __LINE__);
+
 /* SuperH on-chip I/O functions */
 static inline unsigned char ctrl_inb(unsigned long addr)
 {
+	CTRL_ADDR_CHECK(addr);
 	return *(volatile unsigned char*)addr;
 }
 
 static inline unsigned short ctrl_inw(unsigned long addr)
 {
+	CTRL_ADDR_CHECK(addr);
 	return *(volatile unsigned short*)addr;
 }
 
 static inline unsigned int ctrl_inl(unsigned long addr)
 {
+	CTRL_ADDR_CHECK(addr);
 	return *(volatile unsigned long*)addr;
 }
 
 static inline void ctrl_outb(unsigned char b, unsigned long addr)
 {
+	CTRL_ADDR_CHECK(addr);
 	*(volatile unsigned char*)addr = b;
 }
 
 static inline void ctrl_outw(unsigned short b, unsigned long addr)
 {
+	CTRL_ADDR_CHECK(addr);
 	*(volatile unsigned short*)addr = b;
 }
 
 static inline void ctrl_outl(unsigned int b, unsigned long addr)
 {
+	CTRL_ADDR_CHECK(addr);
         *(volatile unsigned long*)addr = b;
 }
 
@@ -259,12 +273,12 @@ static inline void ctrl_delay(void)
  */
 static inline unsigned long virt_to_phys(volatile void *address)
 {
-	return PHYSADDR(address);
+	return __pa(address);
 }
 
 static inline void *phys_to_virt(unsigned long address)
 {
-	return (void *)P1SEGADDR(address);
+	return __va(address);
 }
 #else
 #define phys_to_virt(address)	((void *)(address))
@@ -290,25 +304,18 @@ static inline void *phys_to_virt(unsigned long address)
  * the drivers to handle caching properly.
  */
 #ifdef CONFIG_MMU
-void __iomem *__ioremap(unsigned long offset, unsigned long size,
-			unsigned long flags);
+void __iomem *__ioremap_mode(unsigned long offset, unsigned long size,
+			     unsigned long flags);
+void __iomem *__ioremap_prot(unsigned long offset, unsigned long size,
+			     pgprot_t prot);
 void __iounmap(void __iomem *addr);
 #else
-#define __ioremap(offset, size, flags)	((void __iomem *)(offset))
 #define __iounmap(addr)			do { } while (0)
-#endif /* CONFIG_MMU */
-
 static inline void __iomem *
 __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 {
 	unsigned long last_addr = offset + size - 1;
 
-	/*
-	 * For P1 and P2 space this is trivial, as everything is already
-	 * mapped. Uncached access for P1 addresses are done through P2.
-	 * In the P3 case or for addresses outside of the 29-bit space,
-	 * mapping must be done by the PMB or by using page tables.
-	 */
 	if (likely(PXSEG(offset) < P3SEG && PXSEG(last_addr) < P3SEG)) {
 		if (unlikely(flags & _PAGE_CACHABLE))
 			return (void __iomem *)P1SEGADDR(offset);
@@ -316,8 +323,9 @@ __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 		return (void __iomem *)P2SEGADDR(offset);
 	}
 
-	return __ioremap(offset, size, flags);
+	return ((void __iomem *)(offset));
 }
+#endif /* CONFIG_MMU */
 
 #define ioremap(offset, size)				\
 	__ioremap_mode((offset), (size), 0)
@@ -325,8 +333,8 @@ __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 	__ioremap_mode((offset), (size), 0)
 #define ioremap_cache(offset, size)			\
 	__ioremap_mode((offset), (size), _PAGE_CACHABLE)
-#define p3_ioremap(offset, size, flags)			\
-	__ioremap((offset), (size), (flags))
+#define p3_ioremap(offset, size, prot)			\
+	__ioremap_prot((offset), (size), (prot))
 #define iounmap(addr)					\
 	__iounmap((addr))
 

@@ -1,0 +1,77 @@
+/*
+ * Copyright (C) 2007 STMicroelectronics Limited
+ * Author: Stuart Menefy <stuart.menefy@st.com>
+ *
+ * May be copied or modified under the terms of the GNU General Public
+ * License.  See linux/COPYING for more information.
+ */
+
+#include <linux/kernel.h>
+#include <linux/platform_device.h>
+#include <asm/io.h>
+#include "epld.h"
+
+#define DRIVER_NAME "harp-epld"
+
+static void __iomem *epld_base;
+static int epld_opsize;
+
+void epld_write(unsigned long value, unsigned long offset)
+{
+	if (epld_opsize == 16)
+		writew(value, epld_base + offset);
+	else
+		writeb(value, epld_base + offset);
+}
+
+unsigned long epld_read(unsigned long offset)
+{
+	if (epld_opsize == 16)
+		return readw(epld_base + offset);
+	else
+		return readb(epld_base + offset);
+}
+
+static int __init epld_probe(struct platform_device *pdev)
+{
+	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
+
+	if (!request_mem_region(pdev->resource[0].start, size, pdev->name))
+		return -EBUSY;
+
+	epld_base = ioremap(pdev->resource[0].start, size);
+	if (!epld_base)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static struct platform_driver epld_driver = {
+	.probe		= epld_probe,
+	.driver	= {
+		.name	= DRIVER_NAME,
+		.owner	= THIS_MODULE,
+	},
+};
+
+int harp_configure_epld(struct platform_device *epld_device)
+{
+	int error;
+	struct plat_epld_data *data = epld_device->dev.platform_data;
+
+	error = platform_driver_register(&epld_driver);
+	if (error)
+		return error;
+
+	error = platform_device_register(epld_device);
+	if (error) {
+		platform_driver_unregister(&epld_driver);
+		return error;
+	}
+
+	if (data) {
+		epld_opsize = data->opsize;
+	}
+
+	return 0;
+}

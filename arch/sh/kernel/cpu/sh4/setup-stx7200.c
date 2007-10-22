@@ -729,6 +729,19 @@ static void __init pio_late_setup(void)
 	}
 }
 
+static struct platform_device ilc3_device = {
+	.name		= "ilc3",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start	= 0xfd804000,
+			.end	= 0xfd804000 + 0x900,
+			.flags	= IORESOURCE_MEM
+		}
+	},
+};
+
 /* Late resources ---------------------------------------------------------- */
 
 static struct platform_device *stx7200_devices[] __initdata = {
@@ -736,6 +749,7 @@ static struct platform_device *stx7200_devices[] __initdata = {
 	//&fdma1_7200_device,
 	&fdma_xbar_device,
 	&sysconf_device,
+	&ilc3_device,
 };
 
 static int __init stx7200_devices_setup(void)
@@ -813,5 +827,7 @@ void __init plat_irq_setup(void)
 		set_irq_chip(irq, &dummy_irq_chip);
 		set_irq_chained_handler(irq, ilc_irq_demux);
 	}
-	init_IRQ_ilc();
+
+	ilc_early_init(&ilc3_device);
+	ilc_stx7200_init();
 }

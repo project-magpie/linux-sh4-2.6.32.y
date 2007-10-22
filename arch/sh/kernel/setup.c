@@ -106,7 +106,11 @@ static int __init early_parse_mem(char *p)
 {
 	unsigned long size;
 
+#ifdef CONFIG_32BIT
+	memory_start = (unsigned long)PAGE_OFFSET;
+#else
 	memory_start = (unsigned long)PAGE_OFFSET+__MEMORY_START;
+#endif
 	size = memparse(p, &p);
 	memory_end = memory_start + size;
 
@@ -156,8 +160,8 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 	node_set_online(0);
 
 	/*
-	 * Reserve the kernel text and
-	 * Reserve the bootmem bitmap. We do this in two steps (first step
+	 * Reserve the kernel text and the bootmem bitmap.
+	 * We do this in two steps (first step
 	 * was init_bootmem()), because this catches the (definitely buggy)
 	 * case of us accidentally initializing the bootmem allocator with
 	 * an invalid RAM area.
@@ -174,21 +178,20 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 	sparse_memory_present_with_active_regions(0);
 
 #ifdef CONFIG_BLK_DEV_INITRD
-	ROOT_DEV = MKDEV(RAMDISK_MAJOR, 0);
 	if (&__rd_start != &__rd_end) {
-		LOADER_TYPE = 1;
-		INITRD_START = PHYSADDR((unsigned long)&__rd_start) -
-					__MEMORY_START;
-		INITRD_SIZE = (unsigned long)&__rd_end -
-			      (unsigned long)&__rd_start;
-	}
+		initrd_start = (unsigned long)&__rd_start;
+		initrd_end = (unsigned long)&__rd_end;
+	} else if (LOADER_TYPE && INITRD_START) {
+		/* INITRD_START is the offset from the start of RAM */
 
-	if (LOADER_TYPE && INITRD_START) {
-		if (INITRD_START + INITRD_SIZE <= (max_low_pfn << PAGE_SHIFT)) {
-			reserve_bootmem(INITRD_START + __MEMORY_START,
-					INITRD_SIZE);
-			initrd_start = INITRD_START + PAGE_OFFSET +
-					__MEMORY_START;
+		unsigned long initrd_start_phys = INITRD_START;
+#ifndef CONFIG_32BIT
+		initrd_start_phys += __MEMORY_START;
+#endif
+
+		if (initrd_start_phys + INITRD_SIZE <= (max_low_pfn << PAGE_SHIFT)) {
+			reserve_bootmem(initrd_start_phys, INITRD_SIZE);
+			initrd_start = initrd_start_phys + PAGE_OFFSET;
 			initrd_end = initrd_start + INITRD_SIZE;
 		} else {
 			printk("initrd extends beyond end of memory "
@@ -256,7 +259,11 @@ void __init setup_arch(char **cmdline_p)
 	init_mm.end_data = (unsigned long) _edata;
 	init_mm.brk = (unsigned long) _end;
 
+#ifdef CONFIG_32BIT
+	memory_start = (unsigned long)PAGE_OFFSET;
+#else
 	memory_start = (unsigned long)PAGE_OFFSET+__MEMORY_START;
+#endif
 	memory_end = memory_start + __MEMORY_SIZE;
 	request_standard_resources();
 
@@ -290,16 +297,19 @@ void __init setup_arch(char **cmdline_p)
 	/* Setup bootmem with available RAM */
 	setup_memory();
 	sparse_init();
+#ifdef CONFIG_32BIT
+	pmb_init();
+#endif
 
 #ifdef CONFIG_DUMMY_CONSOLE
 	conswitchp = &dummy_con;
 #endif
 
+	paging_init();
+
 	/* Perform the machine specific initialisation */
 	if (likely(sh_mv.mv_setup))
 		sh_mv.mv_setup(cmdline_p);
-
-	paging_init();
 
 #ifdef CONFIG_SMP
 	plat_smp_setup();

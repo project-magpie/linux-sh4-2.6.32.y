@@ -34,6 +34,10 @@
 #define MMUCR_SQMD		(0)
 #endif
 
+#ifdef CONFIG_32BIT // and ST40-20x
+#define MMUCR_SE		(1<<4)
+#endif
+
 #define MMU_NTLB_ENTRIES	64
 #define MMU_CONTROL_INIT	(0x05|MMUCR_SQMD|MMUCR_ME)
 

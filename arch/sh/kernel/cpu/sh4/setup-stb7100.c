@@ -21,6 +21,7 @@
 #include <linux/stm/emi.h>
 #include <linux/pata_platform.h>
 #include <asm/sci.h>
+#include <asm/irq-ilc.h>
 #include <linux/stm/fdma-plat.h>
 #include <linux/stm/fdma-reqs.h>
 
@@ -741,7 +742,7 @@ void __init stx7100_configure_sata(void)
 static struct resource pata_resources[] = {
 	[0] = {	/* I/O base: CS1=N, CS0=A */
 		.start	= (1<<21),
-		.end	= (1<<21) + (7<<17)-1,
+		.end	= (1<<21) + (8<<17)-1,
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {	/* CTL base: CS1=A, CS0=N, DA2=A, DA1=A, DA0=N */
@@ -1061,6 +1062,13 @@ void __init stx7100_early_device_init(void)
 	struct sysconf_field *sc;
 	unsigned long devid;
 
+	/* Create a PMB mapping so that the ioremap calls these drivers
+	 * will make can be satisfied without having to call get_vm_area
+	 * or cause a fault. Its probably also a good for efficiency as
+	 * there will be lots of devices in this range.
+	 */
+	ioremap_nocache(0x18000000, 0x04000000);
+
 	/* Initialise PIO and sysconf drivers */
 
 	sysconf_early_init(&sysconf_device);
@@ -1099,6 +1107,19 @@ static void __init pio_late_setup(void)
 	}
 }
 
+static struct platform_device ilc3_device = {
+	.name		= "ilc3",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start	= 0x18000000,
+			.end	= 0x18000000 + 0x900,
+			.flags	= IORESOURCE_MEM
+		}
+	},
+};
+
 /* Late resources ---------------------------------------------------------- */
 
 static struct platform_device *stx710x_devices[] __initdata = {
@@ -1107,6 +1128,7 @@ static struct platform_device *stx710x_devices[] __initdata = {
 	&rtc_device,
 	&fdma_710x_device,
 	&sysconf_device,
+	&ilc3_device,
 };
 
 static int __init stx710x_devices_setup(void)
@@ -1242,22 +1264,22 @@ static struct intc_prio_reg prio_registers[] = {
 	{ 0xffd00010, 0, 16, 4, /* IPRD */     { IRL0, IRL1,  IRL2, IRL3 } },
 						/* 31-28,   27-24,   23-20,   19-16 */
 						/* 15-12,    11-8,     7-4,     3-0 */
-	{ 0xb9001300, 0, 32, 4, /* INTPRI00 */ {       0,       0,    PIO2,    PIO1,
+	{ 0x00000300, 0, 32, 4, /* INTPRI00 */ {       0,       0,    PIO2,    PIO1,
 						    PIO0,       0, SATA_SPLIT,    0 } },
-	{ 0xb9001304, 0, 32, 4, /* INTPRI04 */ {  GROUP7,  GROUP6,  GROUP5,  GROUP4,
+	{ 0x00000304, 0, 32, 4, /* INTPRI04 */ {  GROUP7,  GROUP6,  GROUP5,  GROUP4,
 						  GROUP3,  GROUP2,  GROUP1,  GROUP0 } },
-	{ 0xb9001308, 0, 32, 4, /* INTPRI08 */ { GROUP15, GROUP14, GROUP13, GROUP12,
+	{ 0x00000308, 0, 32, 4, /* INTPRI08 */ { GROUP15, GROUP14, GROUP13, GROUP12,
 						 GROUP11, GROUP10,  GROUP9,  GROUP8 } },
 };
 
 static struct intc_mask_reg mask_registers[] = {
-	{ 0xb9001340, 0xb9001360, 32, /* INTMSK00 / INTMSKCLR00 */
+	{ 0x00000340, 0x00000360, 32, /* INTMSK00 / INTMSKCLR00 */
 	  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,	/* 31..16 */
 	    0, PIO2, PIO1, PIO0,				/* 15..12 */
 	    0, 0, 0, 0,						/* 11...8 */
 	    0, 0, 0, 0,						/*  7...4 */
 	    0, SATA_HOSTC, SATA_DMAC, 0 } },			/*  3...0 */
-	{ 0xb9001344, 0xb9001364, 32, /* INTMSK04 / INTMSKCLR04 */
+	{ 0x00000344, 0x00000364, 32, /* INTMSK04 / INTMSKCLR04 */
 	  { CPXM, I2S2SPDIF, FDMA_GP0, FDMA_MBOX,		/* 31..28 */
 	    PTI1, DCXO, ST231_AUD, ST231_DELTA,			/* 27..24 */
 	    0, TS_MERGER, ETH_MAC, EMPI,			/* 23..20 */
@@ -1266,7 +1288,7 @@ static struct intc_mask_reg mask_registers[] = {
 	    UART0, UART1, UART2, UART3,				/* 11...8 */
 	    SSC0, SSC1, SSC2, 0,				/*  7...4 */
 	    PIO3, PIO4, PIO5, MTP } },				/*  3...0 */
-	{ 0xb9001348, 0xb9001368, 32, /* INTMSK08 / INTMSKCLR08 */
+	{ 0x00000348, 0x00000368, 32, /* INTMSK08 / INTMSKCLR08 */
 	  { MES_LMI_SYS, MES_LMI_VID, ICAM3, ICAM3_KTE, 	/* 31..28 */
 	    BDISP_CQ1, SATA, EHCI, OHCI,			/* 27..24 */
 	    CRIPTO_SIG_CHK, CRIPTO_SIG_DMA, TKDMA, SIG_CHK,	/* 23..20 */
@@ -1291,6 +1313,17 @@ static DECLARE_INTC_DESC(intc_desc_irlm, "stx7100_irlm", vectors_irlm, NULL,
 void __init plat_irq_setup(void)
 {
 	struct sysconf_field *sc;
+	void __iomem *intc2_base = ioremap(0x19001000, 0x400);
+	int i;
+
+	ilc_early_init(&ilc3_device);
+
+	for (i=4; i<=6; i++)
+		prio_registers[i].set_reg += intc2_base;
+	for (i=0; i<=2; i++) {
+		mask_registers[i].set_reg += intc2_base;
+		mask_registers[i].clr_reg += intc2_base;
+	}
 
 	/* Configure the external interrupt pins as inputs */
 	sc = sysconf_claim(SYS_CFG, 10, 0, 3, "irq");

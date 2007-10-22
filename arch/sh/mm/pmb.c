@@ -28,123 +28,54 @@
 #include <asm/mmu.h>
 #include <asm/io.h>
 
+#define DPRINTK(fmt, args...) printk(KERN_ERR "%s: " fmt, __FUNCTION__, ## args)
+
 #define NR_PMB_ENTRIES	16
+#define MIN_PMB_MAPPING_SIZE	(8*1024*1024)
 
-static struct kmem_cache *pmb_cache;
-static unsigned long pmb_map;
-
-static struct pmb_entry pmb_init_map[] = {
-	/* vpn         ppn         flags (ub/sz/c/wt) */
-
-	/* P1 Section Mappings */
-	{ 0x80000000, 0x00000000, PMB_SZ_64M  | PMB_C, },
-	{ 0x84000000, 0x04000000, PMB_SZ_64M  | PMB_C, },
-	{ 0x88000000, 0x08000000, PMB_SZ_128M | PMB_C, },
-	{ 0x90000000, 0x10000000, PMB_SZ_64M  | PMB_C, },
-	{ 0x94000000, 0x14000000, PMB_SZ_64M  | PMB_C, },
-	{ 0x98000000, 0x18000000, PMB_SZ_64M  | PMB_C, },
-
-	/* P2 Section Mappings */
-	{ 0xa0000000, 0x00000000, PMB_UB | PMB_SZ_64M  | PMB_WT, },
-	{ 0xa4000000, 0x04000000, PMB_UB | PMB_SZ_64M  | PMB_WT, },
-	{ 0xa8000000, 0x08000000, PMB_UB | PMB_SZ_128M | PMB_WT, },
-	{ 0xb0000000, 0x10000000, PMB_UB | PMB_SZ_64M  | PMB_WT, },
-	{ 0xb4000000, 0x14000000, PMB_UB | PMB_SZ_64M  | PMB_WT, },
-	{ 0xb8000000, 0x18000000, PMB_UB | PMB_SZ_64M  | PMB_WT, },
+struct pmb_entry {
+	unsigned long vpn;
+	unsigned long ppn;
+	unsigned long flags;	/* Only size */
+	struct pmb_entry *next;
+	unsigned long size;
+	int pos;
 };
 
-static inline unsigned long mk_pmb_entry(unsigned int entry)
+struct pmb_mapping {
+	unsigned long phys;
+	unsigned long virt;
+	unsigned long size;
+	unsigned long flags;	/* Only cache etc */
+	struct pmb_entry *entries;
+	struct pmb_mapping *next;
+	int usage;
+};
+
+static DEFINE_SPINLOCK(pmb_lock);
+static unsigned long pmb_map;
+static struct pmb_entry   pmbe[NR_PMB_ENTRIES] __attribute__ ((__section__ (".uncached.data")));
+static struct pmb_mapping pmbm[NR_PMB_ENTRIES];
+static struct pmb_mapping *pmb_mappings, *pmb_mappings_free;
+
+static __always_inline unsigned long mk_pmb_entry(unsigned int entry)
 {
 	return (entry & PMB_E_MASK) << PMB_E_SHIFT;
 }
 
-static inline unsigned long mk_pmb_addr(unsigned int entry)
+static __always_inline unsigned long mk_pmb_addr(unsigned int entry)
 {
 	return mk_pmb_entry(entry) | PMB_ADDR;
 }
 
-static inline unsigned long mk_pmb_data(unsigned int entry)
+static __always_inline unsigned long mk_pmb_data(unsigned int entry)
 {
 	return mk_pmb_entry(entry) | PMB_DATA;
 }
 
-static DEFINE_SPINLOCK(pmb_list_lock);
-static struct pmb_entry *pmb_list;
-
-static inline void pmb_list_add(struct pmb_entry *pmbe)
+static __always_inline void __set_pmb_entry(unsigned long vpn,
+	unsigned long ppn, unsigned long flags, int pos)
 {
-	struct pmb_entry **p, *tmp;
-
-	p = &pmb_list;
-	while ((tmp = *p) != NULL)
-		p = &tmp->next;
-
-	pmbe->next = tmp;
-	*p = pmbe;
-}
-
-static inline void pmb_list_del(struct pmb_entry *pmbe)
-{
-	struct pmb_entry **p, *tmp;
-
-	for (p = &pmb_list; (tmp = *p); p = &tmp->next)
-		if (tmp == pmbe) {
-			*p = tmp->next;
-			return;
-		}
-}
-
-struct pmb_entry *pmb_alloc(unsigned long vpn, unsigned long ppn,
-			    unsigned long flags)
-{
-	struct pmb_entry *pmbe;
-
-	pmbe = kmem_cache_alloc(pmb_cache, GFP_KERNEL);
-	if (!pmbe)
-		return ERR_PTR(-ENOMEM);
-
-	pmbe->vpn	= vpn;
-	pmbe->ppn	= ppn;
-	pmbe->flags	= flags;
-
-	spin_lock_irq(&pmb_list_lock);
-	pmb_list_add(pmbe);
-	spin_unlock_irq(&pmb_list_lock);
-
-	return pmbe;
-}
-
-void pmb_free(struct pmb_entry *pmbe)
-{
-	spin_lock_irq(&pmb_list_lock);
-	pmb_list_del(pmbe);
-	spin_unlock_irq(&pmb_list_lock);
-
-	kmem_cache_free(pmb_cache, pmbe);
-}
-
-/*
- * Must be in P2 for __set_pmb_entry()
- */
-int __set_pmb_entry(unsigned long vpn, unsigned long ppn,
-		    unsigned long flags, int *entry)
-{
-	unsigned int pos = *entry;
-
-	if (unlikely(pos == PMB_NO_ENTRY))
-		pos = find_first_zero_bit(&pmb_map, NR_PMB_ENTRIES);
-
-repeat:
-	if (unlikely(pos > NR_PMB_ENTRIES))
-		return -ENOSPC;
-
-	if (test_and_set_bit(pos, &pmb_map)) {
-		pos = find_first_zero_bit(&pmb_map, NR_PMB_ENTRIES);
-		goto repeat;
-	}
-
-	ctrl_outl(vpn | PMB_V, mk_pmb_addr(pos));
-
 #ifdef CONFIG_CACHE_WRITETHROUGH
 	/*
 	 * When we are in 32-bit address extended mode, CCR.CB becomes
@@ -154,70 +85,254 @@ repeat:
 	if (likely(flags & PMB_C))
 		flags |= PMB_WT;
 #endif
-
+	ctrl_outl(vpn | PMB_V, mk_pmb_addr(pos));
 	ctrl_outl(ppn | flags | PMB_V, mk_pmb_data(pos));
-
-	*entry = pos;
-
-	return 0;
 }
 
-int __uses_jump_to_uncached set_pmb_entry(struct pmb_entry *pmbe)
+static void __uses_jump_to_uncached set_pmb_entry(unsigned long vpn,
+	unsigned long ppn, unsigned long flags, int pos)
 {
-	int ret;
-
 	jump_to_uncached();
-	ret = __set_pmb_entry(pmbe->vpn, pmbe->ppn, pmbe->flags, &pmbe->entry);
+	__set_pmb_entry(vpn, ppn, flags, pos);
 	back_to_cached();
-
-	return ret;
 }
 
-void __uses_jump_to_uncached clear_pmb_entry(struct pmb_entry *pmbe)
+static __always_inline void __clear_pmb_entry(int pos)
 {
-	unsigned int entry = pmbe->entry;
-	unsigned long addr;
+	ctrl_outl(0, mk_pmb_addr(pos));
+}
 
-	/*
-	 * Don't allow clearing of wired init entries, P1 or P2 access
-	 * without a corresponding mapping in the PMB will lead to reset
-	 * by the TLB.
-	 */
-	if (unlikely(entry < ARRAY_SIZE(pmb_init_map) ||
-		     entry >= NR_PMB_ENTRIES))
-		return;
-
+static void __uses_jump_to_uncached clear_pmb_entry(int pos)
+{
 	jump_to_uncached();
-
-	/* Clear V-bit */
-	addr = mk_pmb_addr(entry);
-	ctrl_outl(ctrl_inl(addr) & ~PMB_V, addr);
-
-	addr = mk_pmb_data(entry);
-	ctrl_outl(ctrl_inl(addr) & ~PMB_V, addr);
-
+	__clear_pmb_entry(pos);
 	back_to_cached();
+}
 
+static __always_inline void __pmb_set_mapping(struct pmb_mapping *mapping)
+{
+	struct pmb_entry *entry = mapping->entries;
+
+	do {
+		__set_pmb_entry(entry->vpn, entry->ppn,
+			      entry->flags | mapping->flags, entry->pos);
+		entry = entry->next;
+	} while (entry);
+}
+
+static void pmb_set_mapping(struct pmb_mapping *mapping)
+{
+	struct pmb_entry *entry = mapping->entries;
+
+	do {
+		set_pmb_entry(entry->vpn, entry->ppn,
+			      entry->flags | mapping->flags, entry->pos);
+		entry = entry->next;
+	} while (entry);
+}
+
+static void pmb_clear_mapping(struct pmb_mapping *mapping)
+{
+	struct pmb_entry *entry = mapping->entries;
+
+	do {
+		clear_pmb_entry(entry->pos);
+		entry = entry->next;
+	} while (entry);
+}
+
+static int pmb_alloc(int pos)
+{
+	if (unlikely(pos == PMB_NO_ENTRY))
+		pos = find_first_zero_bit(&pmb_map, NR_PMB_ENTRIES);
+
+repeat:
+	if (unlikely(pos > NR_PMB_ENTRIES))
+		return PMB_NO_ENTRY;
+
+	if (test_and_set_bit(pos, &pmb_map)) {
+		pos = find_first_zero_bit(&pmb_map, NR_PMB_ENTRIES);
+		goto repeat;
+	}
+
+	return pos;
+}
+
+static void pmb_free(int entry)
+{
 	clear_bit(entry, &pmb_map);
 }
 
+static struct pmb_mapping* pmb_mapping_alloc(void)
+{
+	struct pmb_mapping *mapping;
+
+	if (pmb_mappings_free == NULL)
+		return NULL;
+
+	mapping = pmb_mappings_free;
+	pmb_mappings_free = mapping->next;
+
+	memset(mapping, 0, sizeof(*mapping));
+	return mapping;
+}
+
+static void pmb_mapping_free(struct pmb_mapping* mapping)
+{
+	mapping->next = pmb_mappings_free;
+	pmb_mappings_free = mapping;
+}
 
 static struct {
 	unsigned long size;
 	int flag;
 } pmb_sizes[] = {
-	{ .size	= 0x20000000, .flag = PMB_SZ_512M, },
-	{ .size = 0x08000000, .flag = PMB_SZ_128M, },
-	{ .size = 0x04000000, .flag = PMB_SZ_64M,  },
 	{ .size = 0x01000000, .flag = PMB_SZ_16M,  },
+	{ .size = 0x04000000, .flag = PMB_SZ_64M,  },
+	{ .size = 0x08000000, .flag = PMB_SZ_128M, },
+	{ .size	= 0x20000000, .flag = PMB_SZ_512M, },
 };
 
-long pmb_remap(unsigned long vaddr, unsigned long phys,
+static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
+				    unsigned long req_virt, int *req_pos,
+				    unsigned long pmb_flags)
+{
+	struct pmb_mapping *new_mapping;
+	unsigned long alignment = 0;
+	unsigned long virt_offset = 0;
+	struct pmb_entry *prev_entry = NULL;
+	unsigned long prev_end, next_start;
+	struct pmb_mapping *next_mapping;
+	struct pmb_mapping **prev_ptr;
+	struct pmb_entry *entry;
+	unsigned long start;
+
+	new_mapping = pmb_mapping_alloc();
+	if (!new_mapping)
+		return NULL;
+
+	DPRINTK("request: phys %08lx, size %08lx\n", phys, size);
+	/* First work out the PMB entries to tile the physical region */
+	while (size > 0) {
+		int pos;
+		unsigned long best_size;	/* bytes of size covered by tile */
+		int best_i;
+		unsigned long entry_phys;
+		unsigned long entry_size;	/* total size of tile */
+		int i;
+
+		if (req_pos)
+			pos = pmb_alloc(*req_pos++);
+		else
+			pos = pmb_alloc(PMB_NO_ENTRY);
+		if (pos == PMB_NO_ENTRY)
+			goto failed;
+
+		best_size = best_i = 0;
+		for (i = 0; i < ARRAY_SIZE(pmb_sizes); i++) {
+			unsigned long tmp_start, tmp_end, tmp_size;
+			tmp_start = phys & ~(pmb_sizes[i].size-1);
+			tmp_end = tmp_start + pmb_sizes[i].size;
+			tmp_size = min(phys+size, tmp_end)-max(phys, tmp_start);
+			if (tmp_size > best_size) {
+				best_i = i;
+				best_size = tmp_size;
+			}
+		}
+
+		BUG_ON(best_size == 0);
+
+		entry_size = pmb_sizes[best_i].size;
+		entry_phys = phys & ~(entry_size-1);
+		DPRINTK("using PMB %d: phys %08lx, size %08lx\n", pos, entry_phys, entry_size);
+
+		entry = &pmbe[pos];
+		entry->ppn   = entry_phys;
+		entry->size  = entry_size;
+		entry->flags = pmb_sizes[best_i].flag;
+
+		if (pmb_sizes[best_i].size > alignment) {
+			alignment = entry_size;
+			if (new_mapping->size)
+				virt_offset = alignment - new_mapping->size;
+		}
+
+		if (prev_entry) {
+			new_mapping->size += entry_size;
+			prev_entry->next = entry;
+		} else {
+			new_mapping->phys = entry_phys;
+			new_mapping->size = entry_size;
+			new_mapping->entries = entry;
+		}
+
+		prev_entry = entry;
+		size -= best_size;
+		phys += best_size;
+	}
+
+	DPRINTK("mapping: phys %08lx, size %08lx\n", new_mapping->phys, new_mapping->size);
+	DPRINTK("virtual alignment %08lx, offset %08lx\n", alignment, virt_offset);
+
+	/* Do we have a conflict with the requested maping? */
+	BUG_ON((req_virt & (alignment-1)) != virt_offset);
+
+	/* Next try and find a virtual address to map this */
+	prev_end = P1SEG;
+	next_mapping = pmb_mappings;
+	prev_ptr = &pmb_mappings;
+	do {
+		if (next_mapping == NULL)
+			next_start = P3SEG;
+		else
+			next_start = next_mapping->virt;
+
+		if (req_virt)
+			start = req_virt;
+		else
+			start = ALIGN(prev_end, alignment) + virt_offset;
+
+		DPRINTK("checking for virt %08lx between %08lx and %08lx\n",
+			start, prev_end, next_start);
+
+		if ((start >= prev_end) &&
+		    (start + new_mapping->size <= next_start))
+			break;
+
+		if (next_mapping == NULL)
+			goto failed;
+
+		prev_ptr = &next_mapping->next;
+		prev_end = next_mapping->virt + next_mapping->size;
+		next_mapping = next_mapping->next;
+	} while (1);
+
+	DPRINTK("success, using %08lx\n", start);
+	new_mapping->virt = start;
+	new_mapping->flags = pmb_flags;
+	new_mapping->next = *prev_ptr;
+	*prev_ptr = new_mapping;
+
+	/* Finally fill in the vpn's */
+	for (entry = new_mapping->entries; entry; entry=entry->next) {
+		entry->vpn = start;
+		start += entry->size;
+	}
+
+	return new_mapping;
+
+failed:
+	/* Need to free things here */
+	DPRINTK("failed\n");
+	return NULL;
+}
+
+long pmb_remap(unsigned long phys,
 	       unsigned long size, unsigned long flags)
 {
-	struct pmb_entry *pmbp;
-	unsigned long wanted;
-	int pmb_flags, i;
+	struct pmb_mapping *mapping;
+	int pmb_flags;
+	unsigned long offset;
 
 	/* Convert typical pgprot value to the PMB equivalent */
 	if (flags & _PAGE_CACHABLE) {
@@ -228,113 +343,120 @@ long pmb_remap(unsigned long vaddr, unsigned long phys,
 	} else
 		pmb_flags = PMB_WT | PMB_UB;
 
-	pmbp = NULL;
-	wanted = size;
-
-again:
-	for (i = 0; i < ARRAY_SIZE(pmb_sizes); i++) {
-		struct pmb_entry *pmbe;
-		int ret;
-
-		if (size < pmb_sizes[i].size)
-			continue;
-
-		pmbe = pmb_alloc(vaddr, phys, pmb_flags | pmb_sizes[i].flag);
-		if (IS_ERR(pmbe))
-			return PTR_ERR(pmbe);
-
-		ret = set_pmb_entry(pmbe);
-		if (ret != 0) {
-			pmb_free(pmbe);
-			return -EBUSY;
-		}
-
-		phys	+= pmb_sizes[i].size;
-		vaddr	+= pmb_sizes[i].size;
-		size	-= pmb_sizes[i].size;
-
-		/*
-		 * Link adjacent entries that span multiple PMB entries
-		 * for easier tear-down.
-		 */
-		if (likely(pmbp))
-			pmbp->link = pmbe;
-
-		pmbp = pmbe;
+	for (mapping = pmb_mappings; mapping; mapping=mapping->next) {
+		if ((phys >= mapping->phys) &&
+		    (phys+size <= mapping->phys+mapping->size) &&
+		    (pmb_flags == mapping->flags))
+			break;
 	}
 
-	if (size >= 0x1000000)
-		goto again;
+	if (mapping) {
+		/* If we hit an existing mapping, use it */
+		mapping->usage++;
+	} else if (size < MIN_PMB_MAPPING_SIZE) {
+		/* We spit upon small mappings */
+		return 0;
+	} else {
+		mapping = pmb_calc(phys, size, 0, NULL, pmb_flags);
+		if (!mapping)
+			return 0;
+		pmb_set_mapping(mapping);
+	}
 
-	return wanted - size;
+	offset = phys - mapping->phys;
+	return mapping->virt + offset;
 }
 
 void pmb_unmap(unsigned long addr)
 {
-	struct pmb_entry **p, *pmbe;
+	struct pmb_mapping *mapping;
+	struct pmb_entry *entry;
 
-	for (p = &pmb_list; (pmbe = *p); p = &pmbe->next)
-		if (pmbe->vpn == addr)
+	for (mapping = pmb_mappings; mapping; mapping=mapping->next) {
+		if ((addr >= mapping->virt) &&
+		    (addr < mapping->virt + mapping->size))
 			break;
+	}
 
-	if (unlikely(!pmbe))
+	if (unlikely(!mapping))
 		return;
 
-	WARN_ON(!test_bit(pmbe->entry, &pmb_map));
+	if (--mapping->usage == 0)
+		pmb_clear_mapping(mapping);
 
+	entry = mapping->entries;
 	do {
-		struct pmb_entry *pmblink = pmbe;
-
-		clear_pmb_entry(pmbe);
-		pmbe = pmblink->link;
-
-		pmb_free(pmblink);
-	} while (pmbe);
+		pmb_free(entry->pos);
+		entry = entry->next;
+	} while (entry);
+	pmb_mapping_free(mapping);
 }
 
-static void pmb_cache_ctor(void *pmb, struct kmem_cache *cachep,
-			   unsigned long flags)
+static void noinline __uses_jump_to_uncached
+apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapping)
 {
-	struct pmb_entry *pmbe = pmb;
+	extern char _start_uncached;
+	register int i __asm__("r1");
+	register unsigned long c2uc __asm__("r2");
+	register struct pmb_entry *entry __asm__("r3");
+	register unsigned long flags __asm__("r4");
 
-	memset(pmb, 0, sizeof(struct pmb_entry));
+	/* We can execute this directly, as the current PMB is uncached */
+	__pmb_set_mapping(uc_mapping);
 
-	pmbe->entry = PMB_NO_ENTRY;
-}
-
-static int __uses_jump_to_uncached pmb_init(void)
-{
-	unsigned int nr_entries = ARRAY_SIZE(pmb_init_map);
-	unsigned int entry;
-
-	BUG_ON(unlikely(nr_entries >= NR_PMB_ENTRIES));
-
-	pmb_cache = kmem_cache_create("pmb", sizeof(struct pmb_entry), 0,
-				      SLAB_PANIC, pmb_cache_ctor);
+	cached_to_uncached = uc_mapping->virt -
+		(((unsigned long)&_start_uncached) & ~(uc_mapping->entries->size-1));
 
 	jump_to_uncached();
 
 	/*
-	 * Ordering is important, P2 must be mapped in the PMB before we
-	 * can set PMB.SE, and P1 must be mapped before we jump back to
-	 * P1 space.
+	 * We have to be cautious here, as we will temporarily lose access to
+	 * the PMB entry which is mapping main RAM, and so loose access to
+	 * data. So make sure all data is going to be in registers or the
+	 * uncached region.
 	 */
-	for (entry = 0; entry < nr_entries; entry++) {
-		struct pmb_entry *pmbe = pmb_init_map + entry;
 
-		__set_pmb_entry(pmbe->vpn, pmbe->ppn, pmbe->flags, &entry);
-	}
+	c2uc = cached_to_uncached;
+	entry = ram_mapping->entries;
+	flags = ram_mapping->flags;
 
-	ctrl_outl(0, PMB_IRMCR);
+	for (i=0; i<NR_PMB_ENTRIES-1; i++)
+		__clear_pmb_entry(i);
 
-	/* PMB.SE and UB[7] */
-	ctrl_outl((1 << 31) | (1 << 7), PMB_PASCR);
+	do {
+		entry = (struct pmb_entry*)(((unsigned long)entry) + c2uc);
+		__set_pmb_entry(entry->vpn, entry->ppn,
+				entry->flags | flags, entry->pos);
+		entry = entry->next;
+	} while (entry);
 
 	back_to_cached();
-
-	return 0;
 }
-arch_initcall(pmb_init);
+
+void __init pmb_init(void)
+{
+	int i;
+	int entry;
+	extern char _start_uncached, _end_uncached;
+	struct pmb_mapping *uc_mapping, *ram_mapping;
+
+	/* Create the free list of mappings */
+	pmb_mappings_free = &pmbm[0];
+	for (i=0; i<NR_PMB_ENTRIES-1; i++)
+		pmbm[i].next = &pmbm[i+1];
+	pmbm[NR_PMB_ENTRIES-1].next = NULL;
+
+	/* Initialise the PMB entrie's pos */
+	for (i=0; i<NR_PMB_ENTRIES; i++)
+		pmbe[i].pos = i;
+
+	/* Create the initial mappings */
+	entry = NR_PMB_ENTRIES-1;
+	uc_mapping = pmb_calc(__pa(&_start_uncached), &_end_uncached - &_start_uncached,
+		 P3SEG-0x01000000, &entry, PMB_WT | PMB_UB);
+	ram_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P1SEG, 0, PMB_C);
+	apply_boot_mappings(uc_mapping, ram_mapping);
+}
 
 static int pmb_seq_show(struct seq_file *file, void *iter)
 {

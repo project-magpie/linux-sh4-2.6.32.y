@@ -52,7 +52,13 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 #define USER_PTRS_PER_PGD	(TASK_SIZE/PGDIR_SIZE)
 #define FIRST_USER_ADDRESS	0
 
-#define PTE_PHYS_MASK		(0x20000000 - PAGE_SIZE)
+#ifdef CONFIG_32BIT
+#define PHYS_ADDR_MASK		0xffffffff
+#else
+#define PHYS_ADDR_MASK		0x1fffffff
+#endif
+
+#define PTE_PHYS_MASK		(PHYS_ADDR_MASK & PAGE_MASK)
 
 /*
  * First 1MB map is used by fixed purpose.
@@ -82,8 +88,8 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
  * - Bits 10 and 11 are low bits of the PPN that are reserved on >= 4K pages.
  *   Bit 10 is used for _PAGE_ACCESSED, bit 11 remains unused.
  *
- * - Bits 31, 30, and 29 remain unused by everyone and can be used for future
- *   software flags, although care must be taken to update _PAGE_CLEAR_FLAGS.
+ * - On 29 bit platforms, bits 31 to 29 are used for the space attributes
+ *   and timing control which (together with bit 0) are moved into PTEA.
  *
  * XXX: Leave the _PAGE_FILE and _PAGE_WT overhaul for a rainy day.
  *
@@ -132,6 +138,7 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 /* Wrapper for extended mode pgprot twiddling */
 #define _PAGE_EXT(x)		((unsigned long long)(x) << 32)
 
+#ifndef CONFIG_32BIT
 /* software: moves to PTEA.TC (Timing Control) */
 #define _PAGE_PCC_AREA5	0x00000000	/* use BSC registers for area5 */
 #define _PAGE_PCC_AREA6	0x80000000	/* use BSC registers for area6 */
@@ -144,6 +151,7 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 #define _PAGE_PCC_COM16	0x40000001	/* Common Memory space, 16 bit bus */
 #define _PAGE_PCC_ATR8	0x60000000	/* Attribute Memory space, 8 bit bus */
 #define _PAGE_PCC_ATR16	0x60000001	/* Attribute Memory space, 6 bit bus */
+#endif
 
 /* Mask which drops unused bits from the PTEL value */
 #if defined(CONFIG_CPU_SH3)
@@ -158,7 +166,7 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 #define _PAGE_CLEAR_FLAGS	(_PAGE_PROTNONE | _PAGE_ACCESSED | _PAGE_FILE)
 #endif
 
-#define _PAGE_FLAGS_HARDWARE_MASK	(0x1fffffff & ~(_PAGE_CLEAR_FLAGS))
+#define _PAGE_FLAGS_HARDWARE_MASK	(PHYS_ADDR_MASK & ~(_PAGE_CLEAR_FLAGS))
 
 /* Hardware flags, page size encoding */
 #if defined(CONFIG_X2TLB)

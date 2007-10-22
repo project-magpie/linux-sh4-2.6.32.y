@@ -170,12 +170,14 @@ config CPU_SUBTYPE_ST40GX1
 config CPU_SUBTYPE_STB7100
 	bool "Support STb710x processors"
 	select CPU_SUBTYPE_ST40
+	select SUPPORTS_32BIT
 	help
 	  Select STB7100 if you have an STb7100 or STb7109 CPU.
 
 config CPU_SUBTYPE_STX7200
 	bool "Support STx7200 processor"
 	select CPU_SUBTYPE_ST40
+	select SUPPORTS_32BIT
 	help
 	  Select STx7200 if you have an STx7200 CPU.
 
@@ -188,6 +190,7 @@ config CPU_SUBTYPE_SH7770
 config CPU_SUBTYPE_SH7780
 	bool "Support SH7780 processor"
 	select CPU_SH4A
+	select SUPPORTS_32BIT
 
 config CPU_SUBTYPE_SH7785
 	bool "Support SH7785 processor"
@@ -195,6 +198,7 @@ config CPU_SUBTYPE_SH7785
 	select CPU_SHX2
 	select ARCH_SPARSEMEM_ENABLE
 	select SYS_SUPPORTS_NUMA
+	select SUPPORTS_32BIT
 
 config CPU_SUBTYPE_SHX3
 	bool "Support SH-X3 processor"
@@ -267,9 +271,13 @@ config MEMORY_SIZE
 	  as 0x00400000 which was the default value before this became
 	  configurable.
 
+config SUPPORTS_32BIT
+	bool
+	default n
+
 config 32BIT
 	bool "Support 32-bit physical addressing through PMB"
-	depends on MMU && (CPU_SUBTYPE_SH7780 || CPU_SUBTYPE_SH7785)
+	depends on MMU && SUPPORTS_32BIT
 	default y
 	help
 	  If you say Y here, physical addressing will be extended to

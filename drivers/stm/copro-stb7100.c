@@ -95,6 +95,7 @@ void coproc_proc_other_info(coproc_t * cop_dump, struct seq_file *s_file)
 
 int coproc_check_area(u_long addr, u_long size, int i, coproc_t * coproc)
 {
+#if 0
         if (((addr >= CONFIG_MEMORY_START) && (addr < PHYSADDR(_end))) || \
                 (((addr + size) > CONFIG_MEMORY_START) && \
 		(addr < CONFIG_MEMORY_START)))
@@ -102,6 +103,7 @@ int coproc_check_area(u_long addr, u_long size, int i, coproc_t * coproc)
                 coproc[i].ram_offset = coproc[i].ram_size = 0;
                 return 1;
         }
+#endif
         return 0;
 }
 

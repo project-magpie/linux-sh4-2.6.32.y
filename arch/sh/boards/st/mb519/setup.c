@@ -20,40 +20,14 @@
 #include <linux/phy.h>
 #include <asm/irq-ilc.h>
 #include <asm/io.h>
-
-#define EPLD_BASE 0xa5000000
-#define EPLD_ver		(EPLD_BASE + 0x000000)
-#define EPLD_cpcbver		(EPLD_BASE + 0x020000)
-#define EPLD_stem		(EPLD_BASE + 0x040000)
-#define EPLD_driver		(EPLD_BASE + 0x060000)
-#define EPLD_reset		(EPLD_BASE + 0x080000)
-#define EPLD_IntStat0		(EPLD_BASE + 0x0A0000)
-#define EPLD_IntStat1		(EPLD_BASE + 0x0C0000)
-#define EPLD_IntMask0		(EPLD_BASE + 0x0E0000)
-#define EPLD_IntMask0Set	(EPLD_BASE + 0x100000)
-#define EPLD_IntMask0Clear	(EPLD_BASE + 0x120000)
-#define EPLD_IntMask1		(EPLD_BASE + 0x140000)
-#define EPLD_IntMask1Set	(EPLD_BASE + 0x160000)
-#define EPLD_IntMask1Clear	(EPLD_BASE + 0x180000)
-#define EPLD_LedStdAddr		(EPLD_BASE + 0x1A0000)
-
-#define EPLD_Flash		(EPLD_BASE + 0x400000)
-#define EPLD_Stem		(EPLD_BASE + 0x500000)
-#define EPLD_StemSet		(EPLD_BASE + 0x600000)
-#define EPLD_StemClr		(EPLD_BASE + 0x700000)
-#define EPLD_DACSPMux		(EPLD_BASE + 0xD00000)
+#include "../harp-common/epld.h"
+#include "epld.h"
 
 static int ascs[2] __initdata = { 2, 3 };
 
 void __init mb519_setup(char** cmdline_p)
 {
-	unsigned short epld_rev = ctrl_inw(EPLD_ver);
-	unsigned short pcb_rev = ctrl_inw(EPLD_cpcbver);
-
 	printk("STMicroelectronics STx7200 Mboard initialisation\n");
-	printk("mb519 PCB rev %X EPLD rev %dr%d\n",
-	       pcb_rev,
-	       epld_rev >> 4, epld_rev & 0xf);
 
 	stx7200_early_device_init();
 	stx7200_configure_asc(ascs, 2, 0);
@@ -95,9 +69,9 @@ static void mtd_set_vpp(struct map_info *map, int vpp)
 	 */
 
 	if (vpp) {
-		ctrl_outw(3, EPLD_Flash);
+		epld_write(3, EPLD_Flash);
 	} else {
-		ctrl_outw(2, EPLD_Flash);
+		epld_write(2, EPLD_Flash);
 	}
 }
 
@@ -181,6 +155,22 @@ static struct platform_device mb519_phy_devices[2] = {
 	 }
 } };
 
+static struct platform_device epld_device = {
+	.name		= "harp-epld",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start	= EPLD_BASE,
+			.end	= EPLD_BASE + EPLD_SIZE - 1,
+			.flags	= IORESOURCE_MEM,
+		}
+	},
+	.dev.platform_data = &(struct plat_epld_data) {
+		 .opsize = 16,
+	},
+};
+
 static struct platform_device *mb519_devices[] __initdata = {
 	&physmap_flash,
 	&mb519_phy_devices[0],
@@ -189,6 +179,17 @@ static struct platform_device *mb519_devices[] __initdata = {
 
 static int __init device_init(void)
 {
+	unsigned int epld_rev;
+	unsigned int pcb_rev;
+
+	harp_configure_epld(&epld_device);
+
+	epld_rev = epld_read(EPLD_ver);
+	pcb_rev = epld_read(EPLD_cpcbver);
+	printk("mb519 PCB rev %X EPLD rev %dr%d\n",
+	       pcb_rev,
+	       epld_rev >> 4, epld_rev & 0xf);
+
 	stx7200_configure_pwm(&pwm_private_info);
 	stx7200_configure_ssc(&ssc_private_info);
 	stx7200_configure_usb();
@@ -212,6 +213,7 @@ static void __iomem *stx7200mboard_ioport_map(unsigned long port, unsigned int s
 
 static void __init stx7200mboard_init_irq(void)
 {
+#if 0
 	/* The off chip interrupts on the mb519 are a mess. The external
 	 * EPLD priority encodes them, but because they pass through the ILC3
 	 * there is no way to decode them.
@@ -223,6 +225,7 @@ static void __init stx7200mboard_init_irq(void)
 	 * for 1r3 which should be the most common now.
 	 */
 	ctrl_outw(1<<4, EPLD_IntMask0Set); /* IntPriority(4) <= not STEM_notINTR0 */
+#endif
 }
 
 struct sh_machine_vector mv_stx7200mboard __initmv = {

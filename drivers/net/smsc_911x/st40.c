@@ -89,7 +89,7 @@
 #undef PLATFORM_IRQ_POL
 #undef PLATFORM_IRQ_TYPE
 
-#define PLATFORM_CSBASE		(0xA1000000UL)
+#define PLATFORM_CSBASE		(0x01000000UL)
 #define PLATFORM_IRQ		IRL0_IRQ
 #define PLATFORM_IRQ_POL	(1UL)
 #define PLATFORM_IRQ_TYPE	(1UL)
@@ -218,6 +218,8 @@ DWORD Platform_Initialize(
 	if(dwLanBase==0x0UL) {
 		dwLanBase=PLATFORM_CSBASE;
 	}
+
+	dwLanBase = ioremap(dwLanBase, 0x100);
 
 	SMSC_TRACE("Lan Base at 0x%08lX",dwLanBase);
 

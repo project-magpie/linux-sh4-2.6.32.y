@@ -27,6 +27,9 @@ pgd_t swapper_pg_dir[PTRS_PER_PGD];
 void (*copy_page)(void *from, void *to);
 void (*clear_page)(void *to);
 
+extern char _start_uncached, _end_uncached;
+unsigned long cached_to_uncached;
+
 void show_mem(void)
 {
 	int total = 0, reserved = 0, free = 0;
@@ -69,7 +72,7 @@ void show_mem(void)
 }
 
 #ifdef CONFIG_MMU
-static void set_pte_phys(unsigned long addr, unsigned long phys, pgprot_t prot)
+void set_pte_phys(unsigned long addr, unsigned long phys, pgprot_t prot)
 {
 	pgd_t *pgd;
 	pud_t *pud;
@@ -102,6 +105,7 @@ static void set_pte_phys(unsigned long addr, unsigned long phys, pgprot_t prot)
 
 	set_pte(pte, pfn_pte(phys >> PAGE_SHIFT, prot));
 
+	if (cached_to_uncached)
 	flush_tlb_one(get_asid(), addr);
 }
 
@@ -131,6 +135,37 @@ void __set_fixmap(enum fixed_addresses idx, unsigned long phys, pgprot_t prot)
 
 	set_pte_phys(address, phys, prot);
 }
+
+void __init page_table_range_init(unsigned long start, unsigned long end,
+					 pgd_t *pgd_base)
+{
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
+	int pgd_idx;
+	unsigned long vaddr;
+
+	vaddr = start & PMD_MASK;
+	end = (end + PMD_SIZE - 1) & PMD_MASK;
+	pgd_idx = pgd_index(vaddr);
+	pgd = pgd_base + pgd_idx;
+
+	for ( ; (pgd_idx < PTRS_PER_PGD) && (vaddr != end); pgd++, pgd_idx++) {
+		if (pgd_none(*pgd)) BUG();
+		pud = pud_offset(pgd, 0);
+		if (pud_none(*pud)) BUG();
+		pmd = pmd_offset(pud, 0);
+
+		if (!pmd_present(*pmd)) {
+			pte_t *pte_table;
+			pte_table = (pte_t *)alloc_bootmem_low_pages(PAGE_SIZE);
+			memset(pte_table, 0, PAGE_SIZE);
+			pmd_populate_kernel(&init_mm, pmd, pte_table);
+		}
+		vaddr += PMD_SIZE;
+	}
+}
+
 #endif	/* CONFIG_MMU */
 
 /*
@@ -150,6 +185,11 @@ void __init paging_init(void)
 	 * check for a null value. */
 	set_TTB(swapper_pg_dir);
 
+	/* Populate the relevant portions of swapper_pg_dir so that
+	 * we can use the fixmap entries without calling kmalloc.
+	 * pte's will be filled in by __set_fixmap(). */
+	page_table_range_init(FIXADDR_START, FIXADDR_TOP, swapper_pg_dir);
+
 	memset(max_zone_pfns, 0, sizeof(max_zone_pfns));
 
 	for_each_online_node(nid) {
@@ -167,6 +207,14 @@ void __init paging_init(void)
 	}
 
 	free_area_init_nodes(max_zone_pfns);
+
+	set_fixmap_nocache(FIX_UNCACHED_CODE, __pa(&_start_uncached));
+#if 0
+	cached_to_uncached = fix_to_virt(FIX_UNCACHED_CODE) -
+		(unsigned long)&_start_uncached;
+#elif 0
+	cached_to_uncached = 0x38000000;
+#endif
 }
 
 static struct kcore_list kcore_mem, kcore_vmalloc;

@@ -30,17 +30,10 @@ static void __flush_dcache_segment_2way(unsigned long start,
 					unsigned long extent);
 static void __flush_dcache_segment_4way(unsigned long start,
 					unsigned long extent);
+static void (*__flush_dcache_segment_fn)(unsigned long, unsigned long);
 
-static void __flush_cache_4096(unsigned long addr, unsigned long phys,
-			       unsigned long exec_offset);
-
-/*
- * This is initialised here to ensure that it is not placed in the BSS.  If
- * that were to happen, note that cache_init gets called before the BSS is
- * cleared, so this would get nulled out which would be hopeless.
- */
-static void (*__flush_dcache_segment_fn)(unsigned long, unsigned long) =
-	(void (*)(unsigned long, unsigned long))0xdeadbeef;
+static void __flush_cache_4096(unsigned long addr, unsigned long kaddr);
+static void (*__flush_cache_4096_uncached)(unsigned long addr, unsigned long kaddr);
 
 static void compute_alias(struct cache_info *c)
 {
@@ -117,6 +110,13 @@ void __init p3_cache_init(void)
 
 	if (ioremap_page_range(P3SEG, P3SEG+(PAGE_SIZE * 4), 0, PAGE_KERNEL))
 		panic("%s failed.", __FUNCTION__);
+
+	/*
+	 * Pre-calculate the address of the uncached version of
+	 * __flush_cache_4096 so we can call it directly.
+	 */
+	__flush_cache_4096_uncached =
+		&__flush_cache_4096 + cached_to_uncached;
 }
 
 /*
@@ -221,9 +221,10 @@ void __uses_jump_to_uncached flush_cache_sigtramp(unsigned long addr)
 }
 
 static inline void flush_cache_4096(unsigned long start,
-				    unsigned long phys)
+				    unsigned long kaddr)
 {
-	unsigned long flags, exec_offset = 0;
+	unsigned long flags;
+	void (*fc4096)(unsigned long start, unsigned long kaddr);
 
 	/*
 	 * All types of SH-4 require PC to uncached to operate on the I-cache.
@@ -232,11 +233,12 @@ static inline void flush_cache_4096(unsigned long start,
 	 */
 	if ((boot_cpu_data.flags & CPU_HAS_P2_FLUSH_BUG) ||
 	    (start < CACHE_OC_ADDRESS_ARRAY))
-		exec_offset = cached_to_uncached;
+		fc4096 = __flush_cache_4096_uncached;
+	else
+		fc4096 = __flush_cache_4096;
 
 	local_irq_save(flags);
-	__flush_cache_4096(start | SH_CACHE_ASSOC,
-			   P1SEGADDR(phys), exec_offset);
+	fc4096(start | SH_CACHE_ASSOC, kaddr);
 	local_irq_restore(flags);
 }
 
@@ -260,14 +262,14 @@ void flush_dcache_page(struct page *page)
 		 * update_mmu_cache in this case). Or there is a user
 		 * mapping for this page, so we flush. */
 
-		unsigned long phys = PHYSADDR(page_address(page));
+		unsigned long kaddr = (unsigned long)page_address(page);
 		unsigned long addr = CACHE_OC_ADDRESS_ARRAY;
 		int i, n;
 
 		/* Loop all the D-cache */
 		n = boot_cpu_data.dcache.n_aliases;
 		for (i = 0; i < n; i++, addr += 4096)
-			flush_cache_4096(addr, phys);
+			flush_cache_4096(addr, kaddr);
 	}
 
 	wmb();
@@ -437,21 +439,21 @@ flush_cache_all();
 void flush_cache_page(struct vm_area_struct *vma, unsigned long address,
 		      unsigned long pfn)
 {
-	unsigned long phys = pfn << PAGE_SHIFT;
+	unsigned long kaddr = (unsigned long)pfn_to_kaddr(pfn);
 	unsigned int alias_mask;
 
 	alias_mask = boot_cpu_data.dcache.alias_mask;
 
 	/* We only need to flush D-cache when we have alias */
-	if ((address^phys) & alias_mask) {
+	if ((address^kaddr) & alias_mask) {
 		/* Loop 4K of the D-cache */
 		flush_cache_4096(
 			CACHE_OC_ADDRESS_ARRAY | (address & alias_mask),
-			phys);
+			kaddr);
 		/* Loop another 4K of the D-cache */
 		flush_cache_4096(
-			CACHE_OC_ADDRESS_ARRAY | (phys & alias_mask),
-			phys);
+			CACHE_OC_ADDRESS_ARRAY | (kaddr & alias_mask),
+			kaddr);
 	}
 
 	alias_mask = boot_cpu_data.icache.alias_mask;
@@ -466,7 +468,7 @@ void flush_cache_page(struct vm_area_struct *vma, unsigned long address,
 		 */
 		flush_cache_4096(
 			CACHE_IC_ADDRESS_ARRAY | (address & alias_mask),
-			phys);
+			kaddr);
 	}
 }
 
@@ -529,45 +531,25 @@ void flush_icache_user_range(struct vm_area_struct *vma,
  * @addr:  address in memory mapped cache array
  * @phys:  P1 address to flush (has to match tags if addr has 'A' bit
  *         set i.e. associative write)
- * @exec_offset: set to 0x20000000 if flush has to be executed from P2
- *               region else 0x0
  *
  * The offset into the cache array implied by 'addr' selects the
  * 'colour' of the virtual address range that will be flushed.  The
  * operation (purge/write-back) is selected by the lower 2 bits of
  * 'phys'.
  */
-static void __flush_cache_4096(unsigned long addr, unsigned long phys,
-			       unsigned long exec_offset)
+static void __uses_jump_to_uncached
+__flush_cache_4096(unsigned long addr, unsigned long kaddr)
 {
 	int way_count;
 	unsigned long base_addr = addr;
 	struct cache_info *dcache;
 	unsigned long way_incr;
 	unsigned long a, ea, p;
-	unsigned long temp_pc;
 
 	dcache = &boot_cpu_data.dcache;
 	/* Write this way for better assembly. */
 	way_count = dcache->ways;
 	way_incr = dcache->way_incr;
-
-	/*
-	 * Apply exec_offset (i.e. branch to P2 if required.).
-	 *
-	 * FIXME:
-	 *
-	 *	If I write "=r" for the (temp_pc), it puts this in r6 hence
-	 *	trashing exec_offset before it's been added on - why?  Hence
-	 *	"=&r" as a 'workaround'
-	 */
-	asm volatile("mov.l 1f, %0\n\t"
-		     "add   %1, %0\n\t"
-		     "jmp   @%0\n\t"
-		     "nop\n\t"
-		     ".balign 4\n\t"
-		     "1:  .long 2f\n\t"
-		     "2:\n" : "=&r" (temp_pc) : "r" (exec_offset));
 
 	/*
 	 * We know there will be >=1 iteration, so write as do-while to avoid
@@ -576,7 +558,7 @@ static void __flush_cache_4096(unsigned long addr, unsigned long phys,
 	do {
 		ea = base_addr + PAGE_SIZE;
 		a = base_addr;
-		p = phys;
+		p = kaddr;
 
 		do {
 			*(volatile unsigned long *)a = p;

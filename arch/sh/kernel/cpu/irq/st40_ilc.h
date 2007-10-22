@@ -10,39 +10,21 @@
  * Interrupt handling for ST40 Interrupt Level Controler (ILC).
  */
 
-/*
- * ILC register locations
- */
+extern void __iomem *ilc_base;
 
-#if defined(CONFIG_CPU_SUBTYPE_STM8000)
-#define ILC_BASE_ADDR		0xb8300000
-#elif defined(CONFIG_CPU_SUBTYPE_STI5528)
-#define ILC_BASE_ADDR		0xba000000
-#elif defined(CONFIG_CPU_SUBTYPE_STB7100)
-#define ILC_BASE_ADDR		0xb8000000
-#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
-#define ILC_BASE_ADDR		0xfd804000
-#else
-#error "ILC has to be interfaced by ST40 on: STm8000 and STi5528!"
-#endif
-
-/*
-** The following set of macros is valid for both platforms:
-** STm8000 and STi5528
-*/
 #define _BIT(_int)		     (1 << (_int % 32))
 #define _REG_OFF(_int)		     (sizeof(int) * (_int / 32))
 
-#define ILC_INTERRUPT_REG(_int)      (ILC_BASE_ADDR + 0x080 + _REG_OFF(_int))
-#define ILC_STATUS_REG(_int)         (ILC_BASE_ADDR + 0x200 + _REG_OFF(_int))
-#define ILC_CLR_STATUS_REG(_int)     (ILC_BASE_ADDR + 0x280 + _REG_OFF(_int))
-#define ILC_ENABLE_REG(_int)         (ILC_BASE_ADDR + 0x400 + _REG_OFF(_int))
-#define ILC_CLR_ENABLE_REG(_int)     (ILC_BASE_ADDR + 0x480 + _REG_OFF(_int))
-#define ILC_SET_ENABLE_REG(_int)     (ILC_BASE_ADDR + 0x500 + _REG_OFF(_int))
-#define ILC_EXT_WAKEUP_EN_REG        (ILC_BASE_ADDR + 0x600)
-#define ILC_EXT_WAKPOL_EN_REG        (ILC_BASE_ADDR + 0x680)
-#define ILC_PRIORITY_REG(_int)       (ILC_BASE_ADDR + 0x800 + (8 * _int))
-#define ILC_TRIGMODE_REG(_int)       (ILC_BASE_ADDR + 0x804 + (8 * _int))
+#define ILC_INTERRUPT_REG(_int)      (ilc_base + 0x080 + _REG_OFF(_int))
+#define ILC_STATUS_REG(_int)         (ilc_base + 0x200 + _REG_OFF(_int))
+#define ILC_CLR_STATUS_REG(_int)     (ilc_base + 0x280 + _REG_OFF(_int))
+#define ILC_ENABLE_REG(_int)         (ilc_base + 0x400 + _REG_OFF(_int))
+#define ILC_CLR_ENABLE_REG(_int)     (ilc_base + 0x480 + _REG_OFF(_int))
+#define ILC_SET_ENABLE_REG(_int)     (ilc_base + 0x500 + _REG_OFF(_int))
+#define ILC_EXT_WAKEUP_EN_REG        (ilc_base + 0x600)
+#define ILC_EXT_WAKPOL_EN_REG        (ilc_base + 0x680)
+#define ILC_PRIORITY_REG(_int)       (ilc_base + 0x800 + (8 * _int))
+#define ILC_TRIGMODE_REG(_int)       (ilc_base + 0x804 + (8 * _int))
 
 /*
  * Macros to get/set/clear ILC registers

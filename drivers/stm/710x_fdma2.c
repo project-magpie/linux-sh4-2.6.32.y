@@ -866,16 +866,16 @@ static  int stb710x_fdma_get_residue(struct dma_channel *chan)
 	if(! first_ptr)
 		goto list_complete;
 
-	first_ptr = P2SEGADDR(first_ptr);
+	first_ptr = phys_to_virt(first_ptr);
 	/* Accumulate the bytes remaining in the list */
 	cur_ptr = first_ptr;
 	do {
-		if(first_ptr >=(void*)P2SEGADDR(cur_ptr->next_item)
+		if(first_ptr >=(void*)phys_to_virt(cur_ptr->next_item)
 		   || cur_ptr->next_item ==0)
 			goto list_complete;
 
 		total += cur_ptr->size_bytes;
-	} while ((cur_ptr = P2SEGADDR((fdma_llu_entry *) cur_ptr->next_item))!=0);
+	} while ((cur_ptr = phys_to_virt((fdma_llu_entry *) cur_ptr->next_item))!=0);
 list_complete:
 	spin_unlock_irqrestore(&fd->channel_lock, irqflags);
 	total+= count;

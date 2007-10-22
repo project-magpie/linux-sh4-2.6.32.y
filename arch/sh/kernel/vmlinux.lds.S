@@ -15,7 +15,11 @@ OUTPUT_ARCH(sh)
 ENTRY(_start)
 SECTIONS
 {
+#ifdef CONFIG_32BIT
+  . = CONFIG_PAGE_OFFSET + CONFIG_ZERO_PAGE_OFFSET;
+#else
   . = CONFIG_PAGE_OFFSET + CONFIG_MEMORY_START + CONFIG_ZERO_PAGE_OFFSET;
+#endif
   _text = .;			/* Text and read-only data */
   text = .;			/* Text and read-only data */
   .empty_zero_page : {
@@ -26,10 +30,6 @@ SECTIONS
 	TEXT_TEXT
 	SCHED_TEXT
 	LOCK_TEXT
-	. = ALIGN(PAGE_SIZE);
-	_start_uncached = .;
-	*(.uncached);
-	_end_uncached = .;
 	*(.fixup)
 	*(.gnu.warning)
 	} = 0x0009
@@ -44,6 +44,13 @@ SECTIONS
   RODATA
 
   BUG_TABLE
+
+  . = ALIGN(PAGE_SIZE);
+  /* Code which muct be executed uncached AND the associated data */
+  _start_uncached = .;
+  .uncached.text : { *(.uncached) }
+  .uncached.data : { *(.uncached.data) }
+  _end_uncached = .;
 
   .data : {			/* Data */
 	DATA_DATA

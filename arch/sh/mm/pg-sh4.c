@@ -28,7 +28,7 @@ static atomic_t concurreny_check[16];
 
 /*
  * clear_user_page
- * @to: P1 address
+ * @to: kernel logical address
  * @address: U0 address to be mapped
  * @page: page (virt_to_page(to))
  */
@@ -43,7 +43,7 @@ void clear_user_page(void *to, unsigned long address, struct page *page)
 					   _PAGE_RW | _PAGE_CACHABLE |
 					   _PAGE_DIRTY | _PAGE_ACCESSED |
 					   _PAGE_HW_SHARED | _PAGE_FLAGS_HARD);
-		unsigned long phys_addr = PHYSADDR(to);
+		unsigned long phys_addr = virt_to_phys(to);
 		unsigned long p3_addr = P3SEG + (address & CACHE_ALIAS);
 		pgd_t *pgd = pgd_offset_k(p3_addr);
 		pud_t *pud = pud_offset(pgd, p3_addr);
@@ -69,8 +69,8 @@ atomic_dec(&concurreny_check[(address & CACHE_ALIAS)>>12]);
 
 /*
  * copy_user_page
- * @to: P1 address
- * @from: P1 address
+ * @to: kernel logical address
+ * @from: kernel logical address
  * @address: U0 address to be mapped
  * @page: page (virt_to_page(to))
  */
@@ -86,7 +86,7 @@ void copy_user_page(void *to, void *from, unsigned long address,
 					   _PAGE_RW | _PAGE_CACHABLE |
 					   _PAGE_DIRTY | _PAGE_ACCESSED |
 					   _PAGE_HW_SHARED | _PAGE_FLAGS_HARD);
-		unsigned long phys_addr = PHYSADDR(to);
+		unsigned long phys_addr = virt_to_phys(to);
 		unsigned long p3_addr = P3SEG + (address & CACHE_ALIAS);
 		pgd_t *pgd = pgd_offset_k(p3_addr);
 		pud_t *pud = pud_offset(pgd, p3_addr);

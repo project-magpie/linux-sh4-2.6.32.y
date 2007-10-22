@@ -16,6 +16,7 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/errno.h>
+#include <linux/platform_device.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
@@ -179,7 +180,7 @@ static struct irq_chip ilc_chip = {
 	.unmask		= enable_ilc_irq,
 };
 
-void __init init_IRQ_ilc(void)
+void __init ilc_stx7200_init(void)
 {
 	int irq;
 

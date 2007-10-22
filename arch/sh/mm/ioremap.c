@@ -35,8 +35,7 @@
 void __iomem *__ioremap_prot(unsigned long phys_addr, unsigned long size,
 			     pgprot_t pgprot)
 {
-	struct vm_struct * area;
-	unsigned long offset, last_addr, addr, orig_addr;
+	unsigned long offset, last_addr, addr;
 	int simple = (pgprot_val(pgprot) == pgprot_val(PAGE_KERNEL)) ||
 		(pgprot_val(pgprot) == pgprot_val(PAGE_KERNEL_NOCACHE));
 	int cached = pgprot_val(pgprot) & _PAGE_CACHABLE;
@@ -94,43 +93,29 @@ void __iomem *__ioremap_prot(unsigned long phys_addr, unsigned long size,
 	phys_addr &= PAGE_MASK;
 	size = PAGE_ALIGN(last_addr+1) - phys_addr;
 
-	/*
-	 * Ok, go for it..
-	 */
-	area = get_vm_area(size, VM_IOREMAP);
-	if (!area)
-		return NULL;
-	area->phys_addr = phys_addr;
-	orig_addr = addr = (unsigned long)area->addr;
-
 #ifdef CONFIG_32BIT
-	/*
-	 * First try to remap through the PMB once a valid VMA has been
-	 * established. Smaller allocations (or the rest of the size
-	 * remaining after a PMB mapping due to the size not being
-	 * perfectly aligned on a PMB size boundary) are then mapped
-	 * through the UTLB using conventional page tables.
-	 *
-	 * PMB entries are all pre-faulted.
-	 */
-	if (unlikely(size >= 0x1000000)) {
-		unsigned long mapped = pmb_remap(addr, phys_addr, size, flags);
-
-		if (likely(mapped)) {
-			addr		+= mapped;
-			phys_addr	+= mapped;
-			size		-= mapped;
-		}
-	}
+	addr = pmb_remap(phys_addr, size, cached ? _PAGE_CACHABLE : 0);
+#else
+	addr = 0;
 #endif
 
-	if (likely(size))
+	if (addr == 0) {
+		struct vm_struct * area;
+
+		area = get_vm_area(size, VM_IOREMAP);
+		if (!area)
+			return NULL;
+
+		area->phys_addr = phys_addr;
+		addr = (unsigned long)area->addr;
+
 		if (ioremap_page_range(addr, addr + size, phys_addr, pgprot)) {
-			vunmap((void *)orig_addr);
+			vunmap((void *)addr);
 			return NULL;
 		}
+	}
 
-	return (void __iomem *)(offset + (char *)orig_addr);
+	return (void __iomem *)(offset + (char *)addr);
 }
 EXPORT_SYMBOL(__ioremap_prot);
 
@@ -146,14 +131,20 @@ void __iomem *__ioremap_mode(unsigned long phys_addr, unsigned long size,
 
 	return __ioremap_prot(phys_addr, size, pgprot);
 }
+EXPORT_SYMBOL(__ioremap_mode);
 
 void __iounmap(void __iomem *addr)
 {
 	unsigned long vaddr = (unsigned long __force)addr;
 	struct vm_struct *p;
 
-	if (PXSEG(vaddr) < P3SEG || is_pci_memaddr(vaddr))
+	if (PXSEG(phys_addr) == P4SEG)
 		return;
+
+#ifndef CONFIG_32BIT
+	if (PXSEG(vaddr) < P3SEG)
+		return;
+#endif
 
 #ifdef CONFIG_32BIT
 	/*

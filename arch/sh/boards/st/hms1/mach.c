@@ -36,6 +36,8 @@ static void __iomem *hms1_ioport_map(unsigned long port, unsigned int size)
 
 static void __init hms1_init_irq(void)
 {
+	void ilc_early_init(void);
+
 	/* enable individual interrupt mode for externals */
 	plat_irq_setup_pins(IRQ_MODE_IRQ);
 

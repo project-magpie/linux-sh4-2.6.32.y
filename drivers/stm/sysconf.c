@@ -103,6 +103,7 @@ void __init sysconf_early_init(struct platform_device* pdev)
 	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
 	struct plat_sysconf_data *data = pdev->dev.platform_data;
 
+#if 1
 	sysconf_base = ioremap(pdev->resource[0].start, size);
 
 	/* I don't like panicing here, but it we failed to ioremap, we
@@ -112,6 +113,10 @@ void __init sysconf_early_init(struct platform_device* pdev)
 	 */
 	if (!sysconf_base)
 		panic("Unable to ioremap sysconf registers");
+#else
+	set_fixmap_nocache(FIX_SYSCONF, pdev->resource[0].start);
+	sysconf_base = fix_to_virt(FIX_SYSCONF);
+#endif
 
 	sysconf_offsets[SYS_DEV] = data->sys_device_offset;
 	sysconf_offsets[SYS_STA] = data->sys_sta_offset;
@@ -129,7 +134,13 @@ static int __init sysconf_probe(struct platform_device *pdev)
 	if (sysconf_base)
 		return 0;
 
+#if 1
 	sysconf_early_init(pdev);
+#else
+	sysconf_base = ioremap(pdev->resource[0].start, size);
+	if (!sysconf_base)
+		return -ENOMEM;
+#endif
 
 	return 0;
 }

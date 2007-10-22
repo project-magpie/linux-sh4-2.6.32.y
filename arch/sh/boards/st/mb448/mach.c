@@ -45,10 +45,12 @@ static void __init mb448_init_irq(void)
 
 	/* Set the ILC to route external interrupts to the the INTC */
 	/* Outputs 0-3 are the interrupt pins, 4-7 are routed to the INTC */
+	ilc_route_external(70, 4, 1);	/* MDINT */
 	ilc_route_external(ILC_EXT_IRQ1, 5, 0);	/* VoIP */
 	ilc_route_external(ILC_EXT_IRQ2, 6, 0);	/* ATA */
 	ilc_route_external(ILC_EXT_IRQ3, 7, 0);	/* SMC Ethernet */
 
+	make_ipr_irq(IRL0_IRQ, IRL0_IPR_ADDR, IRL0_IPR_POS, IRL0_PRIORITY);
 	make_ipr_irq(IRL1_IRQ, IRL1_IPR_ADDR, IRL1_IPR_POS, IRL1_PRIORITY);
 	make_ipr_irq(IRL2_IRQ, IRL2_IPR_ADDR, IRL2_IPR_POS, IRL2_PRIORITY);
 	make_ipr_irq(IRL3_IRQ, IRL3_IPR_ADDR, IRL3_IPR_POS, IRL3_PRIORITY);

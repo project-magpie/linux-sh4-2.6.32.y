@@ -36,7 +36,16 @@ static void __init mb411_init_irq(void)
 	ilc_route_external(ILC_EXT_IRQ0, 4, 0);
 	ilc_route_external(ILC_EXT_IRQ1, 5, 0);
 	ilc_route_external(ILC_EXT_IRQ2, 6, 0);
-	ilc_route_external(ILC_EXT_IRQ3, 7, 0);
+
+        /* Route e/net PHY interrupt to SH4 - only for STb7109 */
+#ifdef CONFIG_STMMAC_ETH
+        /* Note that we invert the signal - the ste101p is connected
+           to the mb411 as active low. The sh4 INTC expects active high */
+        ilc_route_external(70, 7, 1);
+        /*ilc_route_external(70, 7, 0);*/
+#else
+        ilc_route_external(ILC_EXT_IRQ3, 7, 0);
+#endif
 
 	/* ...where they are hadled as normal HARP style (encoded) interrpts */
 	harp_init_irq();

@@ -59,6 +59,16 @@ void __init mb442_setup(char** cmdline_p)
 	 * so disable it here.
 	 */
 	disable_hlt();
+
+#ifdef CONFIG_STMMAC_ETH
+	/* Reset the PHY */
+	ethreset = stpio_request_pin(2, 4, "STE100P_RST", STPIO_OUT);
+	stpio_set_pin(ethreset, 1);
+	udelay(1);
+	stpio_set_pin(ethreset, 0);
+	udelay(1000);
+	stpio_set_pin(ethreset, 1);
+#endif
 }
 
 static struct resource smc91x_resources[] = {

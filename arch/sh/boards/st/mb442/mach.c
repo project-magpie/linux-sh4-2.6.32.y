@@ -46,7 +46,11 @@ static void __init mb442_init_irq(void)
 	ilc_route_external(ILC_EXT_IRQ0, 4, 0);
 	ilc_route_external(ILC_EXT_IRQ1, 5, 0);
 	ilc_route_external(ILC_EXT_IRQ2, 6, 0);
+#ifdef CONFIG_STMMAC_ETH
+	ilc_route_external(70, 7, 0);
+#else
 	ilc_route_external(ILC_EXT_IRQ3, 7, 0);
+#endif
 }
 
 void __init mb442_setup(char**);

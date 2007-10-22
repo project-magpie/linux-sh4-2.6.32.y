@@ -1997,6 +1997,77 @@ config NE_H8300
 source "drivers/net/fec_8xx/Kconfig"
 source "drivers/net/fs_enet/Kconfig"
 
+config STMMAC_ETH
+        tristate "STM MAC Ethernet driver"
+        select MII
+        select PHYLIB
+        depends on NET_ETHERNET && (SH_ST_MB411 || SH_ST_MB448 || SH_ST_MB442)
+        ---help---
+          This is the driver for the STMMAC on-chip Ethernet controller.
+          The STb7109 ETH subsystem is composed of three main layers:
+	  a DMA layer, a Transaction Layer Interface (TLI), and a Media Access
+	  Controller layer (MAC).
+
+config DMA_RX_SIZE
+        int "RX DMA list size"
+        default "16"
+	depends on STMMAC_ETH
+        help
+          it's the max number of descriptors in the RX list.
+
+config DMA_TX_SIZE
+        int "TX DMA list size"
+        default "16"
+	depends on STMMAC_ETH
+        help
+          it's the max number of descriptors in the TX list.
+
+config STMMAC_DEBUG
+        boolean "Debug mode"
+	depends on STMMAC_ETH
+        help
+          it enables the debug mode for the IRQ handle.
+
+config STMMAC_NAPI
+        bool "Enable NAPI support (EXPERIMENTAL)"
+        depends on STMMAC_ETH && EXPERIMENTAL
+        help
+          NAPI is a new driver API designed to reduce CPU and interrupt load
+          when the driver is receiving lots of packets from the card.
+	  It is still somewhat experimental and thus not yet enabled by default.
+
+          Please, for more information about the NAPI support see:
+		<file:Documentation/networking/NAPI_HOWTO.txt>
+
+choice
+	depends on STMMAC_ETH && PHYLIB
+        prompt "MDIO communication mode"
+	default PHY_RMII if SH_ST_MB442
+	default PHY_MII if SH_ST_MB411
+	default PHY_RMII if LAN8700
+
+config  PHY_MII
+        bool "MII mode"
+	help
+	  Use the IEEE 802.3u Media Independent Interface (MII)
+	  between the MAC and PHY
+
+config  PHY_RMII
+        bool "RMII mode"
+        help
+	  Use the Reduced Media Independent Interface (RMII).
+	  The Reduced Media Independent Interface (RMII) provides a low cost
+	  alternative to the IEEE 802.3u MII interface.
+
+endchoice
+
+config STMMAC_EXT_CLK
+        boolean "External physical clock"
+        depends on STMMAC_ETH && PHY_RMII
+        help
+          Set this option if you want to use an external clock for physical layer
+	  (RMII mode).
+
 endif # NET_ETHERNET
 
 #

@@ -105,8 +105,8 @@ struct phy_device * get_phy_device(struct mii_bus *bus, int addr)
 
 	phy_id |= (phy_reg & 0xffff);
 
-	/* If the phy_id is all Fs, there is no device there */
-	if (0xffffffff == phy_id)
+	/* If the phy_id is mostly Fs, there is no device there */
+	if ((phy_id & 0x1fffffff) == 0x1fffffff)
 		return NULL;
 
 	dev = phy_device_create(bus, addr, phy_id);

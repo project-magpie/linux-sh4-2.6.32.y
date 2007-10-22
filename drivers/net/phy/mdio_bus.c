@@ -44,9 +44,9 @@
  *
  * Returns 0 on success or < 0 on error.
  */
-int mdiobus_register(struct mii_bus *bus)
+int mdiobus_register(struct mii_bus *bus, int ignorezero)
 {
-	int i;
+	int i = 0;
 	int err = 0;
 
 	spin_lock_init(&bus->mdio_lock);
@@ -59,7 +59,10 @@ int mdiobus_register(struct mii_bus *bus)
 	if (bus->reset)
 		bus->reset(bus);
 
-	for (i = 0; i < PHY_MAX_ADDR; i++) {
+	if (ignorezero)
+		i++;
+
+	for (; i < PHY_MAX_ADDR; i++) {
 		struct phy_device *phydev;
 
 		if (bus->phy_mask & (1 << i)) {
@@ -81,6 +84,7 @@ int mdiobus_register(struct mii_bus *bus)
 		 * 5) mii_bus
 		 * And, we need to register it */
 		if (phydev) {
+			printk(KERN_DEBUG "mdiobus_register: found PHY and assigning IRQ %d\n", bus->irq[i]);
 			phydev->irq = bus->irq[i];
 
 			phydev->dev.parent = bus->dev;

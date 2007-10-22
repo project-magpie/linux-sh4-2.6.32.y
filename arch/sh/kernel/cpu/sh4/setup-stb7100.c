@@ -24,6 +24,15 @@
 #define SYSCONF_SYS_STA(n)      (SYSCONF_BASE + 0x008 + ((n) * 4))
 #define SYSCONF_SYS_CFG(n)      (SYSCONF_BASE + 0x100 + ((n) * 4))
 
+#ifdef CONFIG_STMMAC_ETH
+#define MAC_SPEED_SEL	    0x00100000 /* MAC is running at 100 Mbps speed */
+#define PHY_CLK_EXT	    0x00080000 /* PHY clock is external (RMII mode)*/
+#define MII_MODE	    0x00040000 /* RMII interface activated */
+#define ETH_IF_ON	    0x00010000 /* ETH interface on */
+#define DVO_ETH_PAD_DISABLE 0x00020000 /* DVO eth pad disable */
+#define STB7109ETH_RESOURCE_NAME	"stb7109eth"
+#endif
+
 static struct plat_sci_port sci_platform_data[] = {
 	{
 		.mapbase	= 0xffe00000,
@@ -500,6 +509,64 @@ static struct platform_device sata_device = {
        }
 };
 
+static struct resource stb7109eth_resources[] = {
+        [0] = {
+                .start = 0x18110000,
+                .end   = 0x1811ffff,
+                .flags  = IORESOURCE_MEM,
+        },
+        [1] = {
+                .start  = 133,
+                .end    = 133,
+                .flags  = IORESOURCE_IRQ,
+        },
+};
+
+static struct plat_stmmacenet_data eth7109_private_data = {
+	.bus_id = 0,
+	.phy_addr = 0,
+	.phy_ignorezero = 0,
+	.phy_name = "ste101p",
+	.pbl = 1,
+};
+#if 0
+static struct plat_stmmacenet_data eth7109_private_data = {
+	.bus_id = 0,
+	.phy_addr = 14,
+	.phy_ignorezero = 1,
+	.phy_name = "ste100p",
+	.pbl = 1,
+};
+#endif
+
+static struct platform_device stb7109eth_device = {
+        .name           = "stmmaceth",
+        .id             = 0,
+        .num_resources  = 3,
+        .resource       = (struct resource[]) {
+        	{
+	                .start = 0x18110000,
+        	        .end   = 0x1811ffff,
+                	.flags  = IORESOURCE_MEM,
+        	},
+        	{
+			.name   = "macirq",
+                	.start  = 133,
+                	.end    = 133,
+                	.flags  = IORESOURCE_IRQ,
+        	},
+        	{
+			.name   = "phyirq",
+                	.start  = 7,
+                	.end    = 7,
+                	.flags  = IORESOURCE_IRQ,
+        	},
+	},
+	.dev = {
+		.platform_data = &eth7109_private_data,
+	}
+};
+
 static struct platform_device *stx710x_devices[] __initdata = {
 	&sci_device,
 	&wdt_device,
@@ -513,7 +580,43 @@ static struct platform_device *stx710x_devices[] __initdata = {
 	&alsa_710x_device_cnv,
 	&ssc_device,
 	&sata_device,
+	&stb7109eth_device,
 };
+
+#ifdef CONFIG_STB7109_ETH
+/* ETH MAC pad configuration */
+void stb7109eth_hw_setup(void)
+{
+	unsigned long sysconf;
+
+	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
+	sysconf |= (DVO_ETH_PAD_DISABLE | ETH_IF_ON /*| MAC_SPEED_SEL*/);
+
+#ifdef CONFIG_PHY_RMII
+	sysconf |= MII_MODE; /* RMII selected*/
+#else
+	sysconf &= ~MII_MODE; /* MII selected */
+#endif
+#ifdef CONFIG_STMMAC_EXT_CLK
+	sysconf |= PHY_CLK_EXT;
+#endif
+	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
+
+	/* Enable the external PHY interrupts */
+	sysconf = ctrl_inl(SYSCONF_SYS_CFG(10));
+	sysconf |= 0x0000000f;
+	ctrl_outl(sysconf, SYSCONF_SYS_CFG(10));
+
+	/* Configure e/net PHY clock */
+#ifndef CONFIG_STMMAC_EXT_CLK
+	stpio_request_pin(3, 7, STB7109ETH_RESOURCE_NAME, STPIO_ALT_OUT);
+#else
+	stpio_request_pin(3, 7, STB7109ETH_RESOURCE_NAME, STPIO_IN);
+#endif
+
+	return;
+}
+#endif
 
 static int __init stx710x_devices_setup(void)
 {
@@ -609,6 +712,19 @@ static int __init stx710x_devices_setup(void)
 		sata_private_info.only_32bit = 0;
 		sata_private_info.pc_glue_logic_init = 0x100ff;
 	}
+
+#ifdef CONFIG_STMMAC_ETH
+	/* Configure the ethernet MAC PBL depending on the cut of the chip */
+	if (chip_7109){
+	       if (chip_revision == 1){
+			eth7109_private_data.pbl = 1;
+		} else {
+			eth7109_private_data.pbl = 32;
+		}
+        }
+
+	stb7109eth_hw_setup();
+#endif
 
 	return platform_add_devices(stx710x_devices,
 				    ARRAY_SIZE(stx710x_devices));

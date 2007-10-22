@@ -410,6 +410,27 @@ ENTRY(handle_exception)
 	! Using k0, k1 for scratch registers (r0_bank1, r1_bank),
 	! save all registers onto stack.
 	!
+
+#ifdef CONFIG_GUSA
+	! Check for roll back (gUSA)
+	mov	r15, k0
+	shll	k0
+	bf/s	1f
+	 shll	k0
+	bf/s	1f
+	 stc	spc, k1
+	stc	r0_bank, k0
+	cmp/hs	k0, k1		! test k1 (saved PC) >= k0 (saved r0)
+	bt/s	2f
+	 stc	r1_bank, k1
+
+	add	#-2, k0
+	add	r15, k0
+	ldc	k0, spc		! PC = saved r0 + r15 - 2
+2:	mov	k1, r15		! SP = r1
+1:
+#endif
+
 	stc	ssr, k0		! Is it from kernel space?
 	shll	k0		! Check MD bit (bit30) by shifting it into...
 	shll	k0		!       ...the T bit

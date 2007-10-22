@@ -19,7 +19,6 @@
 #include <asm/io.h>
 #include <asm/machvec.h>
 #include <asm/led.h>
-#include <asm/machvec_init.h>
 
 static void __iomem *mb448_ioport_map(unsigned long port, unsigned int size)
 {
@@ -56,9 +55,12 @@ static void __init mb448_init_irq(void)
 	make_ipr_irq(IRL3_IRQ, IRL3_IPR_ADDR, IRL3_IPR_POS, IRL3_PRIORITY);
 }
 
-struct sh_machine_vector mv_mb448 __initmv = {
+void __init mb448_setup(char**);
+
+static struct sh_machine_vector mv_mb448 __initmv = {
+	.mv_name		= "mb448",
+	.mv_setup		= mb448_setup,
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= mb448_init_irq,
 	.mv_ioport_map		= mb448_ioport_map,
 };
-ALIAS_MV(mb448)

@@ -18,7 +18,6 @@
 #include <asm/io.h>
 #include <asm/machvec.h>
 #include <asm/led.h>
-#include <asm/machvec_init.h>
 #include <asm/io_generic.h>
 #include <asm/mb374/harp.h>
 #include "../../../drivers/pci/pci-st40.h"
@@ -45,7 +44,7 @@ unsigned long mb374_isa_port2addr(unsigned long offset)
         return CCN_PVR;
 }
 
-struct sh_machine_vector mv_mb374 __initmv = {
+static struct sh_machine_vector mv_mb374 __initmv = {
         .mv_nr_irqs             = NR_IRQS,
         .mv_isa_port2addr       = mb374_isa_port2addr,
 
@@ -56,5 +55,3 @@ struct sh_machine_vector mv_mb374 __initmv = {
         .mv_heartbeat           = heartbeat_knightrider,
 #endif
 };
-
-ALIAS_MV(mb374)

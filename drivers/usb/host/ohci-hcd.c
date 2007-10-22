@@ -918,7 +918,7 @@ MODULE_LICENSE ("GPL");
 #if defined(CONFIG_CPU_SUBTYPE_STB7100) || \
 	defined(CONFIG_CPU_SUBTYPE_STX7200)
 #include "ohci-stcore.c"
-#define PLATFORM_DRIVER		usb_hcd_stm_driver
+#define PLATFORM_DRIVER		ohci_hcd_stm_driver
 #endif
 
 

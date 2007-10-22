@@ -12,12 +12,10 @@
 
 #include <linux/init.h>
 #include <linux/irq.h>
-
 #include <asm/system.h>
 #include <asm/io.h>
 #include <asm/machvec.h>
-#include <asm/led.h>
-#include <asm/machvec_init.h>
+#include <asm/irq-stb7100.h>
 
 static void __iomem *hms1_ioport_map(unsigned long port, unsigned int size)
 {
@@ -39,7 +37,7 @@ static void __iomem *hms1_ioport_map(unsigned long port, unsigned int size)
 static void __init hms1_init_irq(void)
 {
 	/* enable individual interrupt mode for externals */
-	ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
+	ipr_irq_enable_irlm();
 
 	/* Set the ILC to route external interrupts to the the INTC */
 	/* Outputs 0-3 are the interrupt pins, 4-7 are routed to the INTC */
@@ -47,16 +45,14 @@ static void __init hms1_init_irq(void)
 	ilc_route_external(ILC_EXT_IRQ1, 5, 0);
 	ilc_route_external(ILC_EXT_IRQ2, 6, 0);
 	ilc_route_external(ILC_EXT_IRQ3, 7, 0);
-
-	make_ipr_irq(IRL0_IRQ, IRL0_IPR_ADDR, IRL0_IPR_POS, IRL0_PRIORITY);
-	make_ipr_irq(IRL1_IRQ, IRL1_IPR_ADDR, IRL1_IPR_POS, IRL1_PRIORITY);
-	make_ipr_irq(IRL2_IRQ, IRL2_IPR_ADDR, IRL2_IPR_POS, IRL2_PRIORITY);
-	make_ipr_irq(IRL3_IRQ, IRL3_IPR_ADDR, IRL3_IPR_POS, IRL3_PRIORITY);
 }
 
-struct sh_machine_vector mv_hms1 __initmv = {
+void __init hms1_setup(char**);
+
+static struct sh_machine_vector mv_hms1 __initmv = {
+	.mv_name		= "HMS1 board",
+	.mv_setup		= hms1_setup,
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= hms1_init_irq,
 	.mv_ioport_map		= hms1_ioport_map,
 };
-ALIAS_MV(hms1)

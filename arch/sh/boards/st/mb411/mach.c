@@ -15,8 +15,7 @@
 #include <asm/system.h>
 #include <asm/io.h>
 #include <asm/machvec.h>
-#include <asm/led.h>
-#include <asm/machvec_init.h>
+#include <asm/irq-stb7100.h>
 #include <asm/mb411/harp.h>
 
 static void __iomem *mb411_ioport_map(unsigned long port, unsigned int size)
@@ -26,7 +25,7 @@ static void __iomem *mb411_ioport_map(unsigned long port, unsigned int size)
 	 * in the middle of updating Flash. So I'm now using the processor core
 	 * version register, which is guaranted to be available, and non-writable.
 	 */
-	return CCN_PVR;
+        return (void __iomem *)CCN_PVR;
 }
 
 static void __init mb411_init_irq(void)
@@ -41,8 +40,7 @@ static void __init mb411_init_irq(void)
 #ifdef CONFIG_STMMAC_ETH
         /* Note that we invert the signal - the ste101p is connected
            to the mb411 as active low. The sh4 INTC expects active high */
-        ilc_route_external(70, 7, 1);
-        /*ilc_route_external(70, 7, 0);*/
+        ilc_route_external(ILC_EXT_MDINT, 7, 1);
 #else
         ilc_route_external(ILC_EXT_IRQ3, 7, 0);
 #endif
@@ -51,7 +49,11 @@ static void __init mb411_init_irq(void)
 	harp_init_irq();
 }
 
-struct sh_machine_vector mv_mediaref __initmv = {
+void __init mb411_setup(char**);
+
+static struct sh_machine_vector mv_mediaref __initmv = {
+	.mv_name		= "mb411",
+	.mv_setup		= mb411_setup,
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= mb411_init_irq,
 	.mv_ioport_map		= mb411_ioport_map,
@@ -60,4 +62,3 @@ struct sh_machine_vector mv_mediaref __initmv = {
 	.mv_heartbeat		= heartbeat_heart,
 #endif
 };
-ALIAS_MV(mediaref)

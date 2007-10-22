@@ -11,8 +11,10 @@
 #include <linux/platform_device.h>
 #include <linux/init.h>
 #include <linux/serial.h>
+#include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/stm/soc.h>
+#include <linux/phy.h>
 #include <asm/sci.h>
 #include <linux/stm/710x_fdma.h>
 #include <linux/stm/7100_fdma2_firmware.h>
@@ -119,32 +121,6 @@ static struct resource st40_ehci_resources[] = {
 	},
 };
 
-static u64 st40_dma_mask = 0xfffffff;
-
-static struct platform_device  st40_ohci_devices = {
-	.name = "ST40-ohci",
-	.id=1,
-	.dev = {
-		.dma_mask = &st40_dma_mask,
-		.coherent_dma_mask = 0xffffffful,
-		.platform_data = &usb_wrapper,
-	},
-	.num_resources = ARRAY_SIZE(st40_ohci_resources),
-	.resource = st40_ohci_resources,
-};
-
-static struct platform_device  st40_ehci_devices = {
-	.name = "ST40-ehci",
-	.id=2,
-	.dev = {
-		.dma_mask = &st40_dma_mask,
-		.coherent_dma_mask = 0xffffffful,
-		.platform_data = &usb_wrapper,
-	},
-	.num_resources = ARRAY_SIZE(st40_ehci_resources),
-	.resource = st40_ehci_resources,
-};
-
 /*
  * Defines for the controller register offsets
  */
@@ -176,6 +152,32 @@ static struct plat_usb_data usb_wrapper = {
 	.power_up = usb_power_up,
 	.initialised = 0,
 	.port_number = 0,
+};
+
+static u64 st40_dma_mask = 0xfffffff;
+
+static struct platform_device  st40_ohci_devices = {
+	.name = "ST40-ohci",
+	.id=1,
+	.dev = {
+		.dma_mask = &st40_dma_mask,
+		.coherent_dma_mask = 0xffffffful,
+		.platform_data = &usb_wrapper,
+	},
+	.num_resources = ARRAY_SIZE(st40_ohci_resources),
+	.resource = st40_ohci_resources,
+};
+
+static struct platform_device  st40_ehci_devices = {
+	.name = "ST40-ehci",
+	.id=2,
+	.dev = {
+		.dma_mask = &st40_dma_mask,
+		.coherent_dma_mask = 0xffffffful,
+		.platform_data = &usb_wrapper,
+	},
+	.num_resources = ARRAY_SIZE(st40_ehci_resources),
+	.resource = st40_ehci_resources,
 };
 
 /*
@@ -584,6 +586,61 @@ static struct platform_device sata_device = {
        }
 };
 
+#ifdef CONFIG_STB7109_ETH
+/* ETH MAC pad configuration */
+static void stb7109eth_hw_setup(void)
+{
+	unsigned long sysconf;
+	static struct stpio_pin *ethreset;
+
+	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
+	sysconf |= (DVO_ETH_PAD_DISABLE | ETH_IF_ON);
+	sysconf &= ~MII_MODE;
+#ifdef CONFIG_PHY_RMII
+	sysconf |= MII_MODE; /* RMII selected*/
+#else
+	sysconf &= ~MII_MODE; /* MII selected */
+#endif
+#ifdef CONFIG_STMMAC_EXT_CLK
+        sysconf |= PHY_CLK_EXT;
+#endif
+	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
+
+	/* Enable the external PHY interrupts */
+	sysconf = ctrl_inl(SYSCONF_SYS_CFG(10));
+	sysconf |= 0x0000000f;
+	ctrl_outl(sysconf, SYSCONF_SYS_CFG(10));
+
+	/* Remove the PHY clk */
+	stpio_reserve_pin(3, 7, "stmmac EXTCLK");
+}
+
+/**
+ * fix_mac_speed
+ * @speed: link speed
+ * Description: it is used for changing the MAC speed field in
+ * 		the SYS_CFG7 register (required when we are using
+ *		the RMII interface).
+ */
+static void fix_mac_speed(unsigned int speed)
+{
+#ifdef CONFIG_PHY_RMII
+	unsigned long sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
+
+	if (speed == SPEED_100)
+		sysconf |= MAC_SPEED_SEL;
+	else if (speed == SPEED_10)
+		sysconf &= ~MAC_SPEED_SEL;
+
+	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
+#endif
+	return;
+}
+#else
+static void stb7109eth_hw_setup(void) { }
+static void fix_mac_speed(unsigned int speed) { }
+#endif
+
 static struct resource stb7109eth_resources[] = {
         [0] = {
                 .start = 0x18110000,
@@ -599,20 +656,12 @@ static struct resource stb7109eth_resources[] = {
 
 static struct plat_stmmacenet_data eth7109_private_data = {
 	.bus_id = 0,
-	.phy_addr = 0,
-	.phy_ignorezero = 0,
-	.phy_name = "ste101p",
-	.pbl = 1,
-};
-#if 0
-static struct plat_stmmacenet_data eth7109_private_data = {
-	.bus_id = 0,
 	.phy_addr = 14,
-	.phy_mask = 1,
-	.phy_name = "ste100p",
 	.pbl = 1,
+	.interface = PHY_INTERFACE_MODE_MII,
+	.fix_mac_speed = fix_mac_speed,
+	.hw_setup = stb7109eth_hw_setup,
 };
-#endif
 
 static struct platform_device stb7109eth_device = {
         .name           = "stmmaceth",
@@ -684,61 +733,6 @@ static struct platform_device *stx710x_devices[] __initdata = {
 	&stb7109eth_device,
 	&stm_pwm_device,
 };
-
-#ifdef CONFIG_STB7109_ETH
-/* ETH MAC pad configuration */
-void stb7109eth_hw_setup(void)
-{
-	unsigned long sysconf;
-	static struct stpio_pin *ethreset;
-
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf |= (DVO_ETH_PAD_DISABLE | ETH_IF_ON);
-	sysconf &= ~MII_MODE;
-#ifdef CONFIG_PHY_RMII
-	sysconf |= MII_MODE; /* RMII selected*/
-#else
-	sysconf &= ~MII_MODE; /* MII selected */
-#endif
-#ifdef CONFIG_STMMAC_EXT_CLK
-        sysconf |= PHY_CLK_EXT;
-#endif
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* Enable the external PHY interrupts */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(10));
-	sysconf |= 0x0000000f;
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(10));
-
-	/* Remove the PHY clk */
-	stpio_reserve_pin(3, 7, "stmmac EXTCLK");
-}
-
-/**
- * fix_mac_speed
- * @speed: link speed
- * Description: it is used for changing the MAC speed field in
- * 		the SYS_CFG7 register (required when we are using
- *		the RMII interface).
- */
-static void fix_mac_speed(unsigned int speed)
-{
-#ifdef CONFIG_PHY_RMII
-	unsigned long sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-
-	if (speed == SPEED_100)
-		sysconf |= MAC_SPEED_SEL;
-	else if (speed == SPEED_10)
-		sysconf &= ~MAC_SPEED_SEL;
-
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-#endif
-	return;
-}
-#else
-static void stb7109eth_hw_setup(void) { }
-static void fix_mac_speed(unsigned int speed) { }
-#endif
 
 static int __init stx710x_devices_setup(void)
 {
@@ -1026,13 +1020,11 @@ static struct ipr_data ipr_irq_table[] = {
 	{ 18, 0,  4, 2 }, /* TMU2 TUNI */
 	{ 27, 1, 12, 2 }, /* WDT ITI */
 	{ 32, 2,  0, 7 }, /* HUDI */
-/* these here are only valid if INTC_ICR bit 7 is set to 1!
-#if 1
+/* these here are only valid if INTC_ICR bit 7 is set to 1! */
 	{  2, 3, 12, 3 }, /* IRL0 */
 	{  5, 3,  8, 3 }, /* IRL1 */
 	{  8, 3,  4, 3 }, /* IRL2 */
 	{ 11, 3,  0, 3 }, /* IRL3 */
-#endif
 };
 
 static unsigned long ipr_offsets[] = {
@@ -1040,3 +1032,36 @@ static unsigned long ipr_offsets[] = {
 	0xffd00008UL,	/* 1: IPRB */
 	0xffd0000cUL,	/* 2: IPRC */
 	0xffd00010UL,	/* 3: IPRD */
+};
+
+static struct ipr_desc ipr_irq_desc = {
+	.ipr_offsets	= ipr_offsets,
+	.nr_offsets	= ARRAY_SIZE(ipr_offsets),
+
+	.ipr_data	= ipr_irq_table,
+	.nr_irqs	= ARRAY_SIZE(ipr_irq_table),
+
+	.chip = {
+		.name	= "IPR-stx710x",
+	},
+};
+
+void __init plat_irq_setup(void)
+{
+	register_intc2_controller(&intc2_irq_desc);
+	register_ipr_controller(&ipr_irq_desc);
+}
+
+#define INTC_ICR	0xffd00000UL
+#define INTC_ICR_IRLM   (1<<7)
+
+/* enable individual interrupt mode for external interupts */
+void __init ipr_irq_enable_irlm(void)
+{
+#if defined(CONFIG_CPU_SUBTYPE_SH7750) || defined(CONFIG_CPU_SUBTYPE_SH7091)
+	BUG(); /* impossible to mask interrupts on SH7750 and SH7091 */
+#endif
+//	register_intc_controller(&intc_desc_irlm);
+
+	ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
+}

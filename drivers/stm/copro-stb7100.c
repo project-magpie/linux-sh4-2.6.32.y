@@ -3,6 +3,7 @@
 #include <linux/init.h>
 #include <linux/mm.h>
 #include <linux/seq_file.h>
+#include <linux/delay.h>
 #include <linux/stm/coprocessor.h>
 #include <asm/io.h>
 #include <asm/irq.h>

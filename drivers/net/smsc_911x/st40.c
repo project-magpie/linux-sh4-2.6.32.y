@@ -42,6 +42,8 @@
 #ifndef ST40_H
 #define ST40_H
 
+#include <asm-sh/irl.h>
+
 //for a description of these MACROs see readme.txt
 
 #define PLATFORM_IRQ_POL	(0UL)

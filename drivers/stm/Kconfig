@@ -21,6 +21,7 @@ config STM_PIO
 config STM_DMA
 	bool "STMicroelectronics DMA API"
 	depends on CPU_SUBTYPE_STB7100
+	select SH_DMA_API
 	default y
 	---help---
 	  Selecting this option will provide support for STMicroelectronics'

@@ -29,15 +29,6 @@ static irqreturn_t ohci_st40_irq(struct usb_hcd *hcd)
 	return retval;
 }
 
-static void
-ohci_hcd_st40_remove(struct usb_hcd *hcd, struct platform_device *dev)
-{
-	usb_remove_hcd(hcd);
-	iounmap(hcd->regs);
-	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
-	usb_put_hcd(hcd);
-}
-
 static int
 ohci_st40_start(struct usb_hcd *hcd)
 {
@@ -104,24 +95,26 @@ static const struct hc_driver ohci_st40_hc_driver = {
 	.start_port_reset =	ohci_start_port_reset,
 };
 
-static int ohci_hcd_st40_probe(const struct hc_driver *driver,
-			       struct usb_hcd **hcd_out,
-			       struct platform_device *dev)
+static int ohci_hcd_stm_probe(struct platform_device *pdev)
 {
-	struct usb_hcd *hcd;
+	struct usb_hcd *hcd = NULL;
+	const struct hc_driver *driver = &ohci_st40_hc_driver;
 	int retval;
 
-	ST40_start_host_control(dev);
+	if (usb_disabled())
+		return -ENODEV;
 
-	hcd = usb_create_hcd(driver, &dev->dev, DEVICE_NAME);
+	ST40_start_host_control(pdev);
+
+	hcd = usb_create_hcd(driver, &pdev->dev, DEVICE_NAME);
 	if (!hcd) {
 		pr_debug("hcd_create_hcd failed");
 		retval = -ENOMEM;
 		goto err0;
 	}
 
-	hcd->rsrc_start = dev->resource[0].start;
-	hcd->rsrc_len = dev->resource[0].end - dev->resource[0].start + 1;
+	hcd->rsrc_start = pdev->resource[0].start;
+	hcd->rsrc_len = pdev->resource[0].end - pdev->resource[0].start + 1;
 
 	if (!request_mem_region(hcd->rsrc_start, hcd->rsrc_len,	hcd_name)) {
 		pr_debug("request_mem_region failed");
@@ -138,7 +131,7 @@ static int ohci_hcd_st40_probe(const struct hc_driver *driver,
 
 	ohci_hcd_init(hcd_to_ohci(hcd));
 
-	retval = usb_add_hcd(hcd, dev->resource[1].start, SA_INTERRUPT);
+	retval = usb_add_hcd(hcd, pdev->resource[1].start, SA_INTERRUPT);
 	if (retval == 0)
 		return retval;
 
@@ -151,46 +144,22 @@ err0:
 	return retval;
 }
 
-static int ohci_hcd_st40_drv_probe(struct platform_device *pdev)
-{
-	struct usb_hcd *hcd = NULL;
-	int ret;
-
-	if (usb_disabled())
-		return -ENODEV;
-
-	ret = ohci_hcd_st40_probe(&ohci_st40_hc_driver, &hcd, pdev);
-	return ret;
-}
-
-static int ohci_hcd_st40_drv_remove(struct platform_device *pdev)
+static int ohci_hcd_stm_remove(struct platform_device *pdev)
 {
 	struct usb_hcd *hcd = platform_get_drvdata(pdev);
 
-	ohci_hcd_st40_remove(hcd, pdev);
+	usb_remove_hcd(hcd);
+	iounmap(hcd->regs);
+	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
+	usb_put_hcd(hcd);
+
 	return 0;
 }
 
-static struct platform_driver ohci_hcd_st40_driver = {
-	.probe = ohci_hcd_st40_drv_probe,
-	.remove = ohci_hcd_st40_drv_remove,
-	.shutdown = usb_hcd_platform_shutdown,
+static struct platform_driver ohci_hcd_stm_driver = {
 	.driver = {
-		.name = "ST40-ohci",
-		.owner = THIS_MODULE,
-	}
+		.name = "stm-ohci",
+	},
+	.probe = ohci_hcd_stm_probe,
+	.remove = ohci_hcd_stm_remove,
 };
-
-static int __init ohci_hcd_st40_init(void)
-{
-	printk(DRIVER_INFO " (ST40)\n");
-	return platform_driver_register(&ohci_hcd_st40_driver);
-}
-
-static void __exit ohci_hcd_st40_cleanup(void)
-{
-	platform_driver_unregister(&ohci_hcd_st40_driver);
-}
-
-module_init(ohci_hcd_st40_init);
-module_exit(ohci_hcd_st40_cleanup);

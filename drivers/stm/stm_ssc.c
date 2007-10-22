@@ -66,7 +66,7 @@ unsigned int ssc_device_available()
 
 unsigned int ssc_get_clock()
 {
-	return clk_get_rate(clk_get("comms_clk"));
+	return clk_get_rate(clk_get(NULL, "comms_clk"));
 }
 
 struct ssc_t *ssc_device_request(unsigned int device_id)

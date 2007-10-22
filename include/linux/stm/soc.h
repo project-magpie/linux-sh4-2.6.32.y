@@ -39,10 +39,11 @@ struct plat_stmmacenet_data {
 	int bus_id;
 	int phy_addr;
 	unsigned int phy_mask;
-	char *phy_name;
 	int pbl;
+	int interface;
 	int (*phy_reset)(void* priv);
 	void (*fix_mac_speed)(void *priv, unsigned int speed);
+	void (*hw_setup)(void);
 	void* bsp_priv;
 };
 

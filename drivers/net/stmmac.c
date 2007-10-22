@@ -204,8 +204,10 @@ struct eth_driver_local {
 	int phy_addr;
 	int phy_irq;
 	int phy_mask;
+	phy_interface_t phy_interface;
 	int (*phy_reset)(void *priv);
 	void (*fix_mac_speed)(void *priv, unsigned int speed);
+	void (*hw_setup)(void);
 	void *bsp_priv;
 	int oldlink;
 	int speed;
@@ -246,7 +248,7 @@ struct eth_driver_local {
 /* Module Arguments */
 #define TX_TIMEO (5*HZ)
 static int watchdog = TX_TIMEO;
-module_param(watchdog, int, S_IRUGO | S_IWUGO);
+module_param(watchdog, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(watchdog, "Transmit Timeout (in milliseconds)");
 
 static int debug = -1;		/* -1: default, 0: no output, 16:  all */
@@ -259,7 +261,7 @@ module_param(pause_time, int, S_IRUGO);
 MODULE_PARM_DESC(pause_time, "Pause Time (0-65535)");
 
 static int min_rx_pkt_size = ETH_FRAME_LEN;     /* Use memcpy by default */;
-module_param(min_rx_pkt_size, int, S_IRUGO | S_IWUGO);
+module_param(min_rx_pkt_size, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(min_rx_pkt_size, "Copy only tiny-frames");
 
 static int phy_n = -1;
@@ -271,7 +273,7 @@ module_param(dma_buffer_size, int, S_IRUGO);
 MODULE_PARM_DESC(dma_buffer_size, "DMA buffer size");
 
 static int tx_queue_size = 1;
-module_param(tx_queue_size, int, S_IRUGO | S_IWUGO);
+module_param(tx_queue_size, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(tx_queue_size, "transmit queue size");
 
 static const char version[] = "stmmaceth - (C) 2006-2007 STMicroelectronics\n";
@@ -280,8 +282,7 @@ static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_LINK | NETIF_MSG_IFUP |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
 
-static irqreturn_t stmmaceth_interrupt(int irq, void *dev_id,
-				       struct pt_regs *regs);
+static irqreturn_t stmmaceth_interrupt(int irq, void *dev_id);
 #ifndef CONFIG_STMMAC_NAPI
 static __inline__ int stmmaceth_rx(struct net_device *dev);
 #else
@@ -446,7 +447,7 @@ static int stmmac_init_phy(struct net_device *dev)
 	ETHPRINTK(probe, DEBUG, "stmmac_init_phy:  trying to attach to %s\n",
 		  phy_id);
 
-	phydev = phy_connect(dev, phy_id, &stmmac_adjust_link, 0);
+	phydev = phy_connect(dev, phy_id, &stmmac_adjust_link, 0, lp->phy_interface);
 
 	if (IS_ERR(phydev)) {
 		printk(KERN_ERR "%s: Could not attach to PHY\n", dev->name);
@@ -456,6 +457,8 @@ static int stmmac_init_phy(struct net_device *dev)
 	ETHPRINTK(probe, DEBUG,
 		  "stmmac_init_phy:  %s: attached to PHY. Link = %d\n",
 		  dev->name, phydev->link);
+
+	lp->hw_setup();
 
 	lp->phydev = phydev;
 
@@ -1790,7 +1793,7 @@ int stmmaceth_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 #ifdef NETIF_F_TSO
 	if (dev->features & NETIF_F_TSO) {
-		mss = skb_shinfo(skb)->tso_size;
+		mss = skb_shinfo(skb)->gso_size;
 
 		if (unlikely
 		    ((skb->len > ((2 * (lp->dma_buf_sz)) * CONFIG_DMA_TX_SIZE))
@@ -1803,13 +1806,13 @@ int stmmaceth_xmit(struct sk_buff *skb, struct net_device *dev)
 #endif
 	/* Verify the csum via software... it's necessary because the
 	 * hardware doesn't support a complete csum calculation. */
-	if (likely(skb->ip_summed == CHECKSUM_HW)) {
+#warning or should this be CHECKSUM_PARTIAL
+	if (likely(skb->ip_summed == CHECKSUM_COMPLETE)) {
 		unsigned int csum;
-		int offset = skb->h.raw - skb->data;
+		const int offset = skb_transport_offset(skb);
 
 		csum = skb_checksum(skb, offset, skb->len - offset, 0);
-		offset = skb->tail - skb->h.raw;
-		*(u16 *) (skb->h.raw + skb->csum) = csum_fold(csum);
+		*(u16 *) (skb->csum_start + skb->csum_offset) = csum_fold(csum);
 	}
 	/* Get the amount of non-paged data (skb->data). */
 	nopaged_len = skb_headlen(skb);
@@ -1930,8 +1933,8 @@ static __inline__ int stmmaceth_rx(struct net_device *dev)
 						lp->rx_skbuff_dma[entry],
 						lp->dma_buf_sz,
 						DMA_FROM_DEVICE);
-			eth_copy_and_sum(skb, lp->rx_skbuff[entry]->data,
-					 frame_len, 0);
+			skb_copy_to_linear_data(skb, lp->rx_skbuff[entry]->data,
+					 frame_len);
 			skb_put(skb, frame_len);
 			dma_sync_single_for_device(lp->device,
 						   lp->rx_skbuff_dma[entry],
@@ -2170,8 +2173,7 @@ static int stmmaceth_change_mtu(struct net_device *dev, int new_mtu)
 /* ---------------------------------------------------------------------------
 			REGULAR INTERRUPT FUNCTION
    ---------------------------------------------------------------------------*/
-static irqreturn_t stmmaceth_interrupt(int irq, void *dev_id,
-				       struct pt_regs *regs)
+static irqreturn_t stmmaceth_interrupt(int irq, void *dev_id)
 {
 	struct net_device *dev = (struct net_device *)dev_id;
 
@@ -2194,7 +2196,7 @@ static irqreturn_t stmmaceth_interrupt(int irq, void *dev_id,
 static void stmmaceth_poll_controller(struct net_device *dev)
 {
 	disable_irq(dev->irq);
-	stmmaceth_interrupt(dev->irq, dev, NULL);
+	stmmaceth_interrupt(dev->irq, dev);
 	enable_irq(dev->irq);
 }
 #endif
@@ -2583,8 +2585,10 @@ static int stmmaceth_dvr_probe(struct platform_device *pdev)
 	}
 	lp->phy_addr = plat_dat->phy_addr;
 	lp->phy_mask = plat_dat->phy_mask;
+	lp->phy_interface = plat_dat->interface;
 	lp->phy_reset = plat_dat->phy_reset;
 	lp->fix_mac_speed = plat_dat->fix_mac_speed;
+	lp->hw_setup = plat_dat->hw_setup;
 	lp->bsp_priv = plat_dat->bsp_priv;
 
 	/* MDIO bus Registration */

@@ -15,7 +15,6 @@
 #include <asm/system.h>
 #include <asm/io.h>
 #include <asm/machvec.h>
-#include <asm/machvec_init.h>
 #include <asm/irq-stb7100.h>
 
 static void __iomem *mb442_ioport_map(unsigned long port, unsigned int size)
@@ -55,11 +54,10 @@ static void __init mb442_init_irq(void)
 
 void __init mb442_setup(char**);
 
-struct sh_machine_vector mv_mb442 __initmv = {
+static struct sh_machine_vector mv_mb442 __initmv = {
 	.mv_name		= "STb7100 Reference board",
 	.mv_setup		= mb442_setup,
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= mb442_init_irq,
 	.mv_ioport_map		= mb442_ioport_map,
 };
-ALIAS_MV(mb442)

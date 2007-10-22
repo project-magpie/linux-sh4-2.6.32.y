@@ -196,7 +196,7 @@ unsigned int stpio_get_pin(struct stpio_pin* pin)
 	return (ctrl_inl(port->base + STPIO_PIN_OFFSET) & (1<<pinno)) ? 1 : 0;
 }
 
-static irqreturn_t stpio_interrupt(int irq, void *dev, struct pt_regs *regs)
+static irqreturn_t stpio_interrupt(int irq, void *dev)
 {
 	const struct stpio_port *port = dev;
 	unsigned portno = port - stpio_port_conf;

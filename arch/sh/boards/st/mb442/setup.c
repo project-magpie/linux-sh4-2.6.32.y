@@ -18,6 +18,7 @@
 #include <linux/platform_device.h>
 #include <linux/mtd/physmap.h>
 #include <asm/io.h>
+#include <asm/irl.h>
 
 #define SYSCONF_BASE 0xb9001000
 #define SYSCONF_DEVICEID	(SYSCONF_BASE + 0x000)

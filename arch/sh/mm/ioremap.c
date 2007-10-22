@@ -59,11 +59,20 @@ void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
 	if (is_pci_memaddr(phys_addr) && is_pci_memaddr(last_addr))
 		return (void __iomem *)phys_addr;
 
+#if 0
+	/*
+	 * SIM: This check will never fail, as ioremap() will already have
+	 * remapped this this using P1 or P2.
+	 * Its also incorrect as we almost certainly have devices before
+	 * the start of RAM that we do want to allow to be remapped.
+	 */
+
 	/*
 	 * Don't allow anybody to remap normal RAM that we're using..
 	 */
 	if (phys_addr < virt_to_phys(high_memory))
 		return NULL;
+#endif
 
 	/*
 	 * Mappings have to be page-aligned

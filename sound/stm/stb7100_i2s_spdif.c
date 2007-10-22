@@ -33,7 +33,7 @@ static snd_pcm_hardware_t stb7100_converter_hw =
 			 SNDRV_PCM_INFO_MMAP_VALID     |
 			 SNDRV_PCM_INFO_PAUSE),
 
-	.formats =	(SNDRV_PCM_FMTBIT_S32_LE | SNDRV_PCM_FMTBIT_S16_LE),
+	.formats =	(SNDRV_PCM_FMTBIT_S32_LE),
 
 	.rates =	(SNDRV_PCM_RATE_32000 |
 			 SNDRV_PCM_RATE_44100 |

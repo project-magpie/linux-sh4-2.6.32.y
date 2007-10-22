@@ -151,7 +151,9 @@ static snd_pcm_hardware_t stb7100_pcm_hw =
 			 SNDRV_PCM_INFO_MMAP_VALID     |
 			 SNDRV_PCM_INFO_PAUSE),
 
-	.formats =	(SNDRV_PCM_FMTBIT_S32_LE | SNDRV_PCM_FMTBIT_S16_LE),
+	/*.formats   now defined at runtime on card - card basis due
+	to reliability problems when switching between modes on cards utilising an external DAC*/	
+	
 
 	.rates =	(SNDRV_PCM_RATE_32000 |
 			 SNDRV_PCM_RATE_44100 |
@@ -351,7 +353,14 @@ static void stb7100_pcm_stop_playback(snd_pcm_substream_t *substream)
 	 * Note: the internal DAC doesn't absolutely need this (as it
 	 * can be reset).
 	 */
-	writel((chip->pcmplayer_control|PCMP_MUTE),chip->pcm_player+STM_PCMP_CONTROL);
+	 /* It is  possible for us to effect a mute at the internal DAC
+	 * rather than in the player.  For the externally connected DAC, this is not
+	 * possible.
+	 */
+	if( chip->card_data->major == PCM1_DEVICE){
+		writel((chip->pcmplayer_control|PCMP_OFF),chip->pcm_player+STM_PCMP_CONTROL);
+	}
+	else writel((chip->pcmplayer_control|PCMP_MUTE),chip->pcm_player+STM_PCMP_CONTROL);
 
 	spin_unlock(&chip->lock);
 	dma_stop_channel(chip->fdma_channel);
@@ -388,6 +397,8 @@ static void stb7100_pcm_start_playback(snd_pcm_substream_t *substream)
 	 * as the device is programmed */
 	if(chip->fifo_check_mode)
 		writel( ENABLE_INT_UNDERFLOW,chip->pcm_player + STM_PCMP_IRQ_EN_SET);
+
+	
 
 	spin_unlock(&chip->lock);
 }
@@ -577,8 +588,8 @@ static int stb7100_program_pcmplayer(snd_pcm_substream_t *substream)
 	unsigned long irqmask = MEM_FULL_READIRQ;
 	unsigned long flags=0;
 
-	fmtreg = PCMP_FORMAT_32  | PCMP_ALIGN_START       | PCMP_MSB_FIRST  |
-		 chip->i2s_sampling_edge | PCMP_LRLEVEL_LEFT_HIGH | PCMP_PADDING_ON;
+	fmtreg = PCMP_FORMAT_32  | PCMP_ALIGN_START  | PCMP_MSB_FIRST  |
+		 chip->i2s_sampling_edge |PCMP_PADDING_ON;
 
 	ctrlreg = (runtime->period_size * runtime->channels) << PCMP_SAMPLES_SHIFT;
 
@@ -594,13 +605,16 @@ static int stb7100_program_pcmplayer(snd_pcm_substream_t *substream)
          */
 
         ctrlreg |= PCMP_NO_ROUNDING;
-
+	
+	/*We will always clock out I2s from the DAC's, however, when in 16bit
+	 * mode we can flip the L/R ordering bit to give the correct LR ordering for
+	 * 16 bit packed into I2s.  With the caviat that */
         if(runtime->format == SNDRV_PCM_FORMAT_S16_LE) {
 		ctrlreg |= PCMP_MEM_FMT_16_16;
-		fmtreg  |= PCMP_LENGTH_16;
+		fmtreg  |= PCMP_LENGTH_16 | PCMP_LRLEVEL_LEFT_HIGH;
         } else {
 		ctrlreg |= PCMP_MEM_FMT_16_0;
-		fmtreg  |= PCMP_LENGTH_24;
+		fmtreg  |= PCMP_LENGTH_24| PCMP_LRLEVEL_LEFT_LOW;
         }
 
 
@@ -810,6 +824,17 @@ static int stb7100_pcm_open(snd_pcm_substream_t *substream)
 
 	runtime->hw.channels_min = chip->min_ch;
 	runtime->hw.channels_max = chip->max_ch;
+	
+	/*It is necessary for us to disable 16 bit mode
+	 * for devices attached to an external DAC due to reliability issues
+	 * affecting L/R channel switch when switching between 16/32b modes*/
+	if(	(chip->card_data->major == PCM0_DEVICE) || 
+		(chip->card_data->major == PROTOCOL_CONVERTER_DEVICE))
+	
+		runtime->hw.formats = SNDRV_PCM_FMTBIT_S32_LE;
+	else
+		runtime->hw.formats = (SNDRV_PCM_FMTBIT_S32_LE | SNDRV_PCM_FMTBIT_S16_LE);
+	
 	runtime->hw.buffer_bytes_max = FRAMES_TO_BYTES(PCM_MAX_FRAMES,chip->max_ch),
 	runtime->hw.period_bytes_min = FRAMES_TO_BYTES(1,chip->min_ch),
 	runtime->hw.period_bytes_max = FRAMES_TO_BYTES(PCM_MAX_FRAMES,chip->max_ch),

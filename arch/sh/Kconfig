@@ -838,6 +838,11 @@ source kernel/power/Kconfig
 
 endmenu
 
+config PM_SH3_FRQCR
+	bool
+	default y if PM && CPU_SH3
+	default n
+
 source "net/Kconfig"
 
 source "drivers/Kconfig"

@@ -398,6 +398,7 @@ syscall_exit:
 	bf	syscall_exit_work
 	bra	__restore_all
 	 nop
+ret_from_exception_end:
 	.align	2
 #if !defined(CONFIG_CPU_SH2)
 1:	.long	TRA
@@ -409,3 +410,73 @@ syscall_exit:
 5:	.long	trace_hardirqs_on
 6:	.long	trace_hardirqs_off
 #endif
+
+	.section	.debug_frame,"",@progbits
+.LCIE:
+	.ualong	.LCIE_end - .LCIE_start
+.LCIE_start:
+	.ualong	0xffffffff	/* CIE ID */
+	.byte	0x1		/* Version number */
+	.string	""		/* NUL-terminated augmentation string */
+	.uleb128 0x1		/* Code alignment factor */
+	.sleb128 -4		/* Data alignment factor */
+	.byte	0x11		/* Return address register column */
+				/* Augmentation length and data (none) */
+	.byte	0xc		/* DW_CFA_def_cfa */
+	.uleb128 0xf		/* r15 */
+	.uleb128 0x0		/* offset 0 */
+
+	.align 2
+.LCIE_end:
+
+	.ualong	.LFDE_end-.LFDE_start	/* Length FDE */
+.LFDE_start:
+	.ualong	.LCIE			/* CIE pointer */
+	.ualong	ret_from_exception-4	/* absolute start address */
+	.ualong	ret_from_exception_end-(ret_from_exception-4)
+					/* length */
+	.byte	0x4			/* DW_CFA_advance_loc4 */
+	.ualong	0			/*   by */
+	.byte	0xe			/* DW_CFA_def_cfa_offset */
+	.uleb128 OFF_TRA+4		/*   advance CFA by sizeof(ptregs)+4 */
+
+	.byte	0x80+0			/* DW_CFA_offset r0 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(0*4)))>>2
+	.byte	0x80+1			/* DW_CFA_offset r1 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(1*4)))>>2
+	.byte	0x80+2			/* DW_CFA_offset r2 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(2*4)))>>2
+	.byte	0x80+3			/* DW_CFA_offset r3 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(3*4)))>>2
+	.byte	0x80+4			/* DW_CFA_offset r4 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(4*4)))>>2
+	.byte	0x80+5			/* DW_CFA_offset r5 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(5*4)))>>2
+	.byte	0x80+6			/* DW_CFA_offset r6 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(6*4)))>>2
+	.byte	0x80+7			/* DW_CFA_offset r7 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(7*4)))>>2
+	.byte	0x80+8			/* DW_CFA_offset r8 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(8*4)))>>2
+	.byte	0x80+9			/* DW_CFA_offset r9 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(9*4)))>>2
+	.byte	0x80+10			/* DW_CFA_offset r10 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(10*4)))>>2
+	.byte	0x80+11			/* DW_CFA_offset r11 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(11*4)))>>2
+	.byte	0x80+12			/* DW_CFA_offset r12 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(12*4)))>>2
+	.byte	0x80+13			/* DW_CFA_offset r13 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(13*4)))>>2
+	.byte	0x80+14			/* DW_CFA_offset r14 */
+	.uleb128 ((OFF_TRA+4)-(OFF_R0+(14*4)))>>2
+	.byte	0x80+15			/* DW_CFA_offset r15 */
+	.uleb128 ((OFF_TRA+4)-OFF_SP)>>2
+	.byte	0x80+16			/* DW_CFA_offset r16=pc */
+	.uleb128 ((OFF_TRA+4)-OFF_PC)>>2
+	.byte	0x80+17			/* DW_CFA_offset r17=pr */
+	.uleb128 ((OFF_TRA+4)-OFF_PR)>>2
+	.align 2
+.LFDE_end:
+
+	.previous

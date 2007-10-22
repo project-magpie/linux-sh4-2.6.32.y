@@ -66,6 +66,7 @@ OFF_R6  =  24     	/* New ABI: arg2 */
 OFF_R7  =  28     	/* New ABI: arg3 */
 OFF_SP	=  (15*4)
 OFF_PC  =  (16*4)
+OFF_PR  =  (17*4)
 OFF_SR	=  (16*4+8)
 OFF_TRA	=  (16*4+6*4)
 

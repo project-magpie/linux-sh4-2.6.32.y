@@ -28,6 +28,7 @@ struct task_struct *__switch_to(struct task_struct *prev,
  register unsigned long *__ts6 __asm__ ("r6") = &next->thread.sp;	\
  register unsigned long __ts7 __asm__ ("r7") = next->thread.pc;		\
  __asm__ __volatile__ (".balign 4\n\t" 					\
+		       "__switch_to_begin:\n\t"				\
 		       "stc.l	gbr, @-r15\n\t" 			\
 		       "sts.l	pr, @-r15\n\t" 				\
 		       "mov.l	r8, @-r15\n\t" 				\
@@ -57,6 +58,7 @@ struct task_struct *__switch_to(struct task_struct *prev,
 		       "mov.l	@r15+, r8\n\t"				\
 		       "lds.l	@r15+, pr\n\t"				\
 		       "ldc.l	@r15+, gbr\n\t"				\
+		       "__switch_to_end:\n\t"				\
 		       : "=z" (__last)					\
 		       : "r" (__ts1), "r" (__ts2), "r" (__ts4), 	\
 			 "r" (__ts5), "r" (__ts6), "r" (__ts7) 		\

@@ -22,7 +22,7 @@
    occurrence should be flagged as an error.  */
 /* But... */
 /* XXX: This is not applicable to SuperH, just needed for alloc_bootmem */
-#define MAX_DMA_ADDRESS		(PAGE_OFFSET+0x10000000)
+#define MAX_DMA_ADDRESS		(PAGE_OFFSET+0x1fffffff)
 
 #ifdef CONFIG_NR_DMA_CHANNELS
 #  define MAX_DMA_CHANNELS	(CONFIG_NR_DMA_CHANNELS)

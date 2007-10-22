@@ -1053,6 +1053,11 @@ static const char * chip_ids[ 16 ] =  {
 
 #define ATTRIB_SIZE		((64*1024) << SMC_IO_SHIFT)
 
+/*
+ . EEPROM defintions
+ */
+#define EEPROM_SIZE		(64*2)	/* 64 x 16 bit words */
+
 
 /*
  * Macros to abstract register access according to the data bus

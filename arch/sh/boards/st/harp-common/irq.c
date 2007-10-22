@@ -65,6 +65,8 @@ static void disable_harp_irq(unsigned int irq)
 
 	ctrl_outl(mask, maskReg);
 
+	/* Read back the value we just wrote to flush any write posting */
+	epld_in(maskReg);
 }
 
 static void enable_harp_irq(unsigned int irq)

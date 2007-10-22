@@ -66,7 +66,7 @@ static unsigned int intc_prio_level[NR_IRQS]; /* for now */
 static inline struct intc_desc_int *get_intc_desc(unsigned int irq)
 {
 	struct irq_chip *chip = get_irq_chip(irq);
-	return (void *)((char *)chip - offsetof(struct intc_desc_int, chip));
+	return container_of(chip, struct intc_desc_int, chip);
 }
 
 static inline unsigned int set_field(unsigned int value,
@@ -84,31 +84,37 @@ static inline unsigned int set_field(unsigned int value,
 static void write_8(unsigned long addr, unsigned long h, unsigned long data)
 {
 	ctrl_outb(set_field(0, data, h), addr);
+	(void)ctrl_inb(addr);	/* Defeat write posting */
 }
 
 static void write_16(unsigned long addr, unsigned long h, unsigned long data)
 {
 	ctrl_outw(set_field(0, data, h), addr);
+	(void)ctrl_inw(addr);	/* Defeat write posting */
 }
 
 static void write_32(unsigned long addr, unsigned long h, unsigned long data)
 {
 	ctrl_outl(set_field(0, data, h), addr);
+	(void)ctrl_inl(addr);	/* Defeat write posting */
 }
 
 static void modify_8(unsigned long addr, unsigned long h, unsigned long data)
 {
 	ctrl_outb(set_field(ctrl_inb(addr), data, h), addr);
+	(void)ctrl_inb(addr);	/* Defeat write posting */
 }
 
 static void modify_16(unsigned long addr, unsigned long h, unsigned long data)
 {
 	ctrl_outw(set_field(ctrl_inw(addr), data, h), addr);
+	(void)ctrl_inw(addr);	/* Defeat write posting */
 }
 
 static void modify_32(unsigned long addr, unsigned long h, unsigned long data)
 {
 	ctrl_outl(set_field(ctrl_inl(addr), data, h), addr);
+	(void)ctrl_inl(addr);	/* Defeat write posting */
 }
 
 enum {	REG_FN_ERR = 0, REG_FN_WRITE_BASE = 1, REG_FN_MODIFY_BASE = 5 };

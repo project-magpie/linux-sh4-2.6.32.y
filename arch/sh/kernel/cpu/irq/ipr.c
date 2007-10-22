@@ -34,6 +34,7 @@ static void disable_ipr_irq(unsigned int irq)
 	unsigned long addr = get_ipr_desc(irq)->ipr_offsets[p->ipr_idx];
 	/* Set the priority in IPR to 0 */
 	ctrl_outw(ctrl_inw(addr) & (0xffff ^ (0xf << p->shift)), addr);
+	ctrl_inw(addr);	/* Read back to flush write posting */
 }
 
 static void enable_ipr_irq(unsigned int irq)

@@ -147,7 +147,7 @@ static void iic_state_machine(struct iic_transaction *trsc)
 {
 	struct iic_ssc* adap = trsc->adapter;
 	struct ssc_t *ssc_bus =
-		(struct ssc_t *)container_of(adap->adapter.dev.parent,struct ssc_t, dev);
+		(struct ssc_t *)container_of(adap->adapter.dev.parent,struct ssc_t, pdev.dev);
 	unsigned short status;
 	short tx_fifo_status;
 	unsigned int idx;
@@ -504,7 +504,7 @@ static int iic_stm_xfer(struct i2c_adapter *i2c_adap,
 	struct iic_ssc *adap =
 			(struct iic_ssc *)container_of(i2c_adap, struct iic_ssc, adapter);
 	struct ssc_t *ssc_bus =
-			(struct ssc_t *)container_of(i2c_adap->dev.parent,struct ssc_t, dev);
+			(struct ssc_t *)container_of(i2c_adap->dev.parent,struct ssc_t, pdev.dev);
 	struct iic_transaction transaction = {
 			.adapter      = adap,
 			.msgs_queue   = msgs,
@@ -579,7 +579,7 @@ static int iic_stm_xfer(struct i2c_adapter *i2c_adap,
 static void iic_stm_timing_trace(struct iic_ssc *adap)
 {
 	struct ssc_t *ssc_bus =
-			container_of(adap->adapter.dev.parent, struct ssc_t, dev);
+			container_of(adap->adapter.dev.parent, struct ssc_t, pdev.dev);
 	dgb_print("SSC_BRG  %d\n", adap->config >> 16);
 	dgb_print("SSC_REP_START_HOLD %d\n",
 		  ssc_load16(ssc_bus, SSC_REP_START_HOLD));
@@ -598,7 +598,7 @@ static void iic_stm_timing_trace(struct iic_ssc *adap)
 static void iic_stm_setup_timing(struct iic_ssc *adap)
 {
 	struct ssc_t *ssc_bus =
-			container_of(adap->adapter.dev.parent, struct ssc_t, dev);
+			container_of(adap->adapter.dev.parent, struct ssc_t, pdev.dev);
 	unsigned long iic_baudrate;
 	unsigned short iic_rep_start_hold;
 	unsigned short iic_start_hold, iic_rep_start_setup;
@@ -738,8 +738,8 @@ static int __init iic_stm_bus_init(void)
 		iic_stm->adapter.class   = I2C_CLASS_ALL;
 		sprintf(iic_stm->adapter.name,"i2c-ssc-%d",adapnr);
 		iic_stm->adapter.algo = &iic_stm_algo;
-		iic_stm->adapter.dev.bus = &i2c_bus_type;
-		iic_stm->adapter.dev.parent = &(ssc_device_request(idx)->dev);
+//		iic_stm->adapter.dev.bus = &i2c_bus_type;
+		iic_stm->adapter.dev.parent = &(ssc_device_request(idx)->pdev.dev);
 /*
 		iic_stm->adapter.dev.release
 */

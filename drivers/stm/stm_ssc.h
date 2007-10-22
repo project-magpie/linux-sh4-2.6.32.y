@@ -31,7 +31,7 @@
 #ifndef STM_SSC_H
 #define STM_SSC_H 1
 
-#include <linux/device.h>
+#include <linux/platform_device.h>
 #include <linux/wait.h>
 #include <linux/stm/pio.h>
 #include <linux/mutex.h>
@@ -157,7 +157,6 @@
 #define SSC_I2C_READY_NORMAL    0x0
 #define SSC_I2C_READY_FAST      0x1
 struct ssc_t {
-	unsigned int ssc_id;
 	struct stpio_pin *pio_clk;
 	struct stpio_pin *pio_data;
 	struct stpio_pin *pio_data_in;
@@ -167,7 +166,7 @@ struct ssc_t {
 	void (*irq_function) (void *);
 	void *irq_private_data;
         unsigned char    i2c_timing;
-        struct device dev;
+        struct platform_device pdev;
 };
 
 struct ssc_t *ssc_device_request(unsigned int ssc_id);

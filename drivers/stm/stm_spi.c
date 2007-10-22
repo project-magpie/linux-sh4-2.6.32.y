@@ -13,7 +13,6 @@
 #include "stm_spi.h"
 #include <linux/stm/pio.h>
 #include <asm/semaphore.h>
-#include <linux/config.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/cdev.h>
@@ -131,7 +130,7 @@ struct spi_device_t *spi_busses_array[MAX_NUMBER_SPI_BUSSES];
 void spi_state_machine(struct spi_transaction_t *transaction)
 {
 	struct spi_client_t *client = transaction->client;
-	struct ssc_t *ssc_bus = container_of(client->dev->dev.parent, struct ssc_t,dev);
+	struct ssc_t *ssc_bus = container_of(client->dev->dev.parent, struct ssc_t,pdev.dev);
 	unsigned short status;
 	short tx_fifo_status;
 	short rx_fifo_status;
@@ -298,7 +297,7 @@ int spi_write(struct spi_client_t *client, char *wr_buffer, size_t count)
 	int timeout;
 	int result = (int)count;
 	struct ssc_t *ssc_bus =
-		container_of(client->dev->dev.parent, struct ssc_t, dev);
+		container_of(client->dev->dev.parent, struct ssc_t, pdev.dev);
 	struct spi_transaction_t transaction = {.client = client,
 		.msg_length = count,
 		.next_state = SPI_FSM_PREPARE,
@@ -353,7 +352,7 @@ int spi_read(struct spi_client_t *client, char *rd_buffer, size_t count)
 	int timeout;
 	int result = (int)count;
 	struct ssc_t *ssc_bus =
-		container_of(client->dev->dev.parent, struct ssc_t, dev);
+		container_of(client->dev->dev.parent, struct ssc_t, pdev.dev);
 	unsigned int wide_frame =
 	    (client->config & SPI_WIDE_MASK) ? 1 : 0;
 	struct spi_transaction_t transaction = {.client = client,
@@ -427,7 +426,7 @@ int spi_write_then_read(struct spi_client_t *client, char *wr_buffer,
 	int timeout;
 	int result = (int)count;
 	struct ssc_t *ssc_bus =
-		container_of(client->dev->dev.parent, struct ssc_t, dev);
+		container_of(client->dev->dev.parent, struct ssc_t, pdev.dev);
 	struct spi_transaction_t transaction = {.client = client,
 		.msg_length = count,
 		.next_state = SPI_FSM_PREPARE,
@@ -860,7 +859,7 @@ static int spi_adapter_detect()
 		spi_dev = (struct spi_device_t *)
 		    kmalloc(sizeof(struct spi_device_t), GFP_KERNEL);
 		memset(&spi_dev->dev, 0, sizeof(struct device));
-		spi_dev->dev.parent = &(ssc_busses[idx]->dev);
+		spi_dev->dev.parent = &(ssc_busses[idx]->pdev.dev);
 		spi_dev->idx_dev = idx;
 		spi_add_adapter(spi_dev);
 	};

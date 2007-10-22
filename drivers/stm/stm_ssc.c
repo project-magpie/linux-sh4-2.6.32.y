@@ -57,11 +57,12 @@
 static struct ssc_t ssc_device[NR_SSC_BUSSES];
 
 static struct platform_device *ssc_device_data;
+static unsigned long nr_ssc_busses;
 
 unsigned int ssc_device_available()
 {
 	dgb_print("\n");
-	return ssc_device_data->num_resources / 2;
+	return nr_ssc_busses;
 }
 
 unsigned int ssc_get_clock()
@@ -72,7 +73,7 @@ unsigned int ssc_get_clock()
 struct ssc_t *ssc_device_request(unsigned int device_id)
 {
 	dgb_print("\n");
-	if (device_id >= ssc_device_data->num_resources / 2)
+	if (device_id >= nr_ssc_busses)
 		return NULL;
 
 	return &(ssc_device[device_id]);
@@ -83,7 +84,7 @@ unsigned int ssc_capability(unsigned int ssc_id)
 	struct plat_ssc_data *info;
 	dgb_print("\n");
 
-	if (ssc_id >= ssc_device_data->num_resources / 2)
+	if (ssc_id >= nr_ssc_busses)
 		return 0;
 
 	info = (struct plat_ssc_data *)
@@ -117,37 +118,54 @@ static irqreturn_t ssc_handler(int this_irq, void *dev_id, struct pt_regs *regs)
 	return IRQ_HANDLED;
 }
 
-static int __init stm_ssc_probe(struct device *dev)
+static int __init stm_ssc_probe(struct platform_device *dev)
 {
-   dgb_print("\n");
-	ssc_device_data = to_platform_device(dev);
-
-	if (!ssc_device_data->name ){
+	dgb_print("\n");
+	ssc_device_data = dev;
+	if (!ssc_device_data){
 		printk(KERN_ERR
 		       "Device probe failed.  Check your kernel SoC config!!\n");
-	}
+		}
 	return 0;
 }
 
-static int stm_ssc_remove(struct device *dev)
-{
-    dgb_print("\n");
-    return 0;
-}
-
-static void stm_ssc_shutdown(struct device *dev)
+static void stm_ssc_shutdown(struct platform_device *dev)
 {
     dgb_print("\n");
     return;
 }
 
-static struct device_driver ssc_driver = {
-	.name = "ssc",
-   .owner = THIS_MODULE,
-	.bus = &platform_bus_type,
+#ifdef CONFIG_PM
+static unsigned long pm_ssc_ctl[NR_SSC_BUSSES];
+static int stm_ssc_suspend(struct platform_device *dev, pm_message_t state)
+{
+	struct ssc_t *ssc=container_of(dev,struct ssc_t,pdev);
+	dgb_print("%s.%u\n",dev->name,dev->id);
+	ssc_request_bus(ssc,NULL,NULL);
+	pm_ssc_ctl[ssc->pdev.id]=ssc_load16(ssc,SSC_CTL);
+	ssc_store16(ssc,SSC_CTL,0);
+	return 0;
+}
+
+static int stm_ssc_resume(struct platform_device *dev)
+{
+	struct ssc_t *ssc=container_of(dev,struct ssc_t,pdev);
+	dgb_print("%s.%u\n",dev->name,dev->id);
+	ssc_store16(ssc,SSC_CTL,pm_ssc_ctl[ssc->pdev.id]);
+	ssc_release_bus(ssc);
+	return 0;
+}
+#endif
+
+static struct platform_driver ssc_driver = {
+	.driver.name = "ssc",
+	.driver.owner = THIS_MODULE,
 	.probe = stm_ssc_probe,
-   .shutdown = stm_ssc_shutdown,
-   .remove = stm_ssc_remove,
+	.shutdown = stm_ssc_shutdown,
+#ifdef CONFIG_PM
+	.suspend = stm_ssc_suspend,
+	.resume  = stm_ssc_resume,
+#endif
 };
 
 /*
@@ -172,7 +190,7 @@ static int ssc_hw_resrc_init(struct ssc_t *ssc_data)
 /*1.    IO Mem*/
 	res =
 	    platform_get_resource(ssc_device_data, IORESOURCE_MEM,
-				  ssc_data->ssc_id);
+				  ssc_data->pdev.id);
 	if (!res) {
 		printk(KERN_ERR
 		       "Error on platform_get_resource mem settings\n");
@@ -180,50 +198,50 @@ static int ssc_hw_resrc_init(struct ssc_t *ssc_data)
 	}
 	if (!request_mem_region(res->start, res->end - res->start, "ssc")) {
 		printk(KERN_ERR "ERROR: ssc %d Request MEM Region NOT Done\n",
-		       ssc_data->ssc_id);
+		       ssc_data->pdev.id);
 		return -ENODEV;
 	}
-	dgb_print("ssc bus %d Request MEM Region Done\n", ssc_data->ssc_id);
+	dgb_print("ssc bus %d Request MEM Region Done\n", ssc_data->pdev.id);
 	ssc_data->base = ioremap(res->start, res->end - res->start);
 
 	dgb_print("ssc bus %d Request MEM Region Remapping Done\n",
-		ssc_data->ssc_id);
+		ssc_data->pdev.id);
 /* 2.   Request of PIO pins */
 
 /* 2.1  Pio clock */
-	pio_bank = pio_info[ssc_data->ssc_id].sclbank;
-	pio_line = pio_info[ssc_data->ssc_id].sclpin;
+	pio_bank = pio_info[ssc_data->pdev.id].sclbank;
+	pio_line = pio_info[ssc_data->pdev.id].sclpin;
 
 	ssc_data->pio_clk = stpio_request_pin(pio_bank, pio_line,
 					      "ssc clock", STPIO_ALT_BIDIR);
 	if (!ssc_data->pio_clk) {
 		printk(KERN_ERR
 		       "ERROR: ssc bus %d Request PIO clock pins not Done\n",
-		       ssc_data->ssc_id);
+		       ssc_data->pdev.id);
 		goto release_mem_region;
 	}
-	dgb_print("ssc bus %d Request Clock: Pin%d[%d] Done\n", ssc_data->ssc_id,
+	dgb_print("ssc bus %d Request Clock: Pin%d[%d] Done\n", ssc_data->pdev.id,
 		pio_bank, pio_line);
 /* 2.2  Pio Data out */
-	pio_bank = pio_info[ssc_data->ssc_id].sdoutbank;
-	pio_line = pio_info[ssc_data->ssc_id].sdoutpin;
+	pio_bank = pio_info[ssc_data->pdev.id].sdoutbank;
+	pio_line = pio_info[ssc_data->pdev.id].sdoutpin;
 
 	ssc_data->pio_data = stpio_request_pin(pio_bank, pio_line,
 					       "ssc data", STPIO_ALT_BIDIR);
 	if (!ssc_data->pio_data) {
 		printk(KERN_ERR
 		       "ERROR: ssc bus %d Request PIO Data pins not Done\n",
-		       ssc_data->ssc_id);
+		       ssc_data->pdev.id);
 		goto release_pio_clk;
 	}
 	dgb_print("ssc bus %d Request Data: Pin%d[%d] Done\n",
-		ssc_data->ssc_id, pio_bank, pio_line);
+		ssc_data->pdev.id, pio_bank, pio_line);
 
 /* 2.3 Pio Data in */
 	ssc_data->pio_data_in = NULL;
 
-	pio_bank = pio_info[ssc_data->ssc_id].sdinbank;
-	pio_line = pio_info[ssc_data->ssc_id].sdinpin;
+	pio_bank = pio_info[ssc_data->pdev.id].sdinbank;
+	pio_line = pio_info[ssc_data->pdev.id].sdinpin;
 
 	if (pio_bank != 0xff) {
 		ssc_data->pio_data_in =
@@ -232,16 +250,16 @@ static int ssc_hw_resrc_init(struct ssc_t *ssc_data)
 		if (ssc_data->pio_data_in == NULL) {
 			printk(KERN_ERR
 			       "ERROR: ssc %d Request PIO DataIN pins not Done\n",
-			       ssc_data->ssc_id);
+			       ssc_data->pdev.id);
 			goto release_pio_data;
 		}
 		dgb_print("ssc bus %d Request DataIN Pin%d[%d] Done\n",
-			ssc_data->ssc_id, pio_bank, pio_line);
+			ssc_data->pdev.id, pio_bank, pio_line);
 	}
 	/* 3.  Request of IRQ */
 	res =
 	    platform_get_resource(ssc_device_data, IORESOURCE_IRQ,
-				  ssc_data->ssc_id);
+				  ssc_data->pdev.id);
 	if (!res) {
 		printk(KERN_ERR
 		       "Error on platform_get_resource irq settings\n");
@@ -250,15 +268,21 @@ static int ssc_hw_resrc_init(struct ssc_t *ssc_data)
 	if (request_irq(res->start, ssc_handler, SA_INTERRUPT, "ssc",
 			ssc_data) < 0) {
 		printk(KERN_ERR "ERROR: ssc bus %d Request IRQ NOT Done\n",
-		       ssc_data->ssc_id);
+		       ssc_data->pdev.id);
 		goto release_pio_data_in;
 	}
 	dgb_print("ssc bus %d Request IRQ %d Done\n",
-		ssc_data->ssc_id, res->start);
-        ssc_data->dev.driver = &ssc_driver;
-	ssc_data->dev.parent = &platform_bus ;
-        sprintf(ssc_data->dev.bus_id, "ssc-%d", ssc_data->ssc_id);
-	if ( device_register(&ssc_data->dev)<0){
+		ssc_data->pdev.id, res->start);
+/*
+ *	Already done in the platform_device_register(..) ... 
+ *	ssc_data->pdev.dev.parent = &platform_bus ;
+ *	ssc_data->pdev.dev.bus    = &platform_bus_type ;
+ */
+	
+	ssc_data->pdev.name = ssc_device_data->name;
+        ssc_data->pdev.dev.driver = &ssc_driver.driver;
+ 
+	if ( platform_device_register(&ssc_data->pdev)<0){
            printk(KERN_ERR "ERROR: Incapable to register ssc device\n");
            goto release_irq;
         }
@@ -275,7 +299,7 @@ static int ssc_hw_resrc_init(struct ssc_t *ssc_data)
       release_mem_region:
 	res =
 	    platform_get_resource(ssc_device_data, IORESOURCE_MEM,
-				  ssc_data->ssc_id);
+				  ssc_data->pdev.id);
 
 	release_mem_region(res->start, res->end - res->start);
 
@@ -288,13 +312,13 @@ static void ssc_hw_release(struct ssc_t *ssc_data)
 	dgb_print("\n");
 	res =
 	    platform_get_resource(ssc_device_data, IORESOURCE_MEM,
-				  ssc_data->ssc_id);
+				  ssc_data->pdev.id);
 
 	release_mem_region(res->start, res->end - res->start);
 
 	res =
 	    platform_get_resource(ssc_device_data, IORESOURCE_IRQ,
-				  ssc_data->ssc_id);
+				  ssc_data->pdev.id);
 	free_irq(res->start, ssc_data);
 
 	stpio_free_pin(ssc_data->pio_data);
@@ -308,19 +332,29 @@ static int __init ssc_bus_init(void)
 	unsigned int index;
 	struct ssc_t *pssc_bus;
         dgb_print("\n");
-	driver_register(&ssc_driver);
+	platform_driver_register(&ssc_driver);
 	dgb_print("ssc driver registered\n");
 	if (!ssc_device_data) {
 		printk(KERN_ERR "Error on ssc platform settings\n");
 		return -ENODEV;
 	}
-	for (index = 0; index < (ssc_device_data->num_resources) / 2; ++index) {
+/*
+ *      The ssc_device_data is removed from platform devices
+ *      to avoid problem with suspend/resume...
+ *      in any case it will be used as data base...
+ */
+	platform_device_del(ssc_device_data);
+
+	nr_ssc_busses=ssc_device_data->num_resources/2;
+
+	for (index = 0; index < nr_ssc_busses; ++index) {
 		pssc_bus = &(ssc_device[index]);
-		pssc_bus->ssc_id = index;
+		pssc_bus->pdev.id = index;
 		mutex_init(&(pssc_bus->mutex_bus));
 		init_waitqueue_head(&(pssc_bus->wait_queue));
 		ssc_hw_resrc_init(pssc_bus);
 	}
+
 	printk(KERN_INFO "stssc layer initialized\n");
 	return 0;
 }
@@ -333,7 +367,7 @@ static void __exit ssc_bus_exit(void)
 
 	if (!ssc_device_data)
 		return;
-	for (index = 0; index < (ssc_device_data->num_resources) / 2; ++index) {
+	for (index = 0; index < NR_SSC_BUSSES; ++index) {
 		ssc_hw_release(&(ssc_device[index]));
 	}
 }

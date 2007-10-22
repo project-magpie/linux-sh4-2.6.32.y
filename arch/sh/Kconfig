@@ -333,6 +333,14 @@ config SH_ST_MB448
 	  ST board ID: mb448). More information at:
 	  <http://www.stlinux.com/boards/mb448/>
 
+config SH_HMS1
+	bool "HMS1"
+	depends on CPU_SUBTYPE_STB7100
+	help
+	  Select HMS1 if configuring for a HMS1 board.
+	  More information at:
+	  <http://www.linuxsh.st.com/boards/hms1/>
+
 config SH_HP6XX
 	bool "HP6XX"
 	select SYS_SUPPORTS_APM_EMULATION

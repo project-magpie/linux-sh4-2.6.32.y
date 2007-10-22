@@ -70,6 +70,15 @@
 #define PLATFORM_CSBASE		(0xA1800000UL)
 #define PLATFORM_IRQ		(11UL)
 #endif
+#elif defined(CONFIG_SH_HMS1)
+/* SD HMS1 with in-built SMSC 911x */
+#undef PLATFORM_IRQ_POL
+#undef PLATFORM_IRQ_TYPE
+
+#define PLATFORM_CSBASE		(0xA1000000UL)
+#define PLATFORM_IRQ		IRL0_IRQ
+#define PLATFORM_IRQ_POL	(1UL)
+#define PLATFORM_IRQ_TYPE	(1UL)
 #else
 #error Unknown board
 #endif

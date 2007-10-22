@@ -178,12 +178,19 @@ struct ic_device {
 
 static struct ic_device *ic_first_dev __initdata = NULL;/* List of open device */
 static struct net_device *ic_dev __initdata = NULL;	/* Selected device */
+static unsigned int __initdata ipconf_delay = 0;
 
 static int __init ic_open_devs(void)
 {
 	struct ic_device *d, **last;
 	struct net_device *dev;
 	unsigned short oflags;
+
+	if (ipconf_delay) {
+		printk(KERN_INFO "Waiting %dsec before opening network devices...\n",
+		       ipconf_delay);
+		ssleep(ipconf_delay);
+	}
 
 	last = &ic_first_dev;
 	rtnl_lock();
@@ -1507,5 +1514,12 @@ static int __init nfsaddrs_config_setup(char *addrs)
 	return ip_auto_config_setup(addrs);
 }
 
+static int __init ipconfdelay_config_setup(char *str)
+{
+	ipconf_delay = simple_strtoul(str, NULL, 0);
+	return 1;
+}
+
 __setup("ip=", ip_auto_config_setup);
 __setup("nfsaddrs=", nfsaddrs_config_setup);
+__setup("ipconfdelay=", ipconfdelay_config_setup);

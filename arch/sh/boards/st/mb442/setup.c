@@ -155,6 +155,7 @@ static int __init device_init(void)
 	stx7100_configure_usb();
 	stx7100_configure_alsa();
 	stx7100_configure_lirc();
+	stx7100_configure_pata(3, IRL1_IRQ);
 
 	phy_reset_pin = stpio_request_set_pin(2, 4, "ste100p_reset",
 					      STPIO_OUT, 1);

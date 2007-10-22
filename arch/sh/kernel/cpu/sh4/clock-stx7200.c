@@ -360,7 +360,7 @@ static struct fdmalxclk lxclks[4] = {
 	CLKGENA_LX(lx_aud0_cpu_clk, 12),
 	CLKGENA_LX(lx_aud1_cpu_clk, 14),
 	CLKGENA_LX(lx_dmu0_cpu_clk, 16),
-	CLKGENA_LX(lx_dmu0_cpu_clk, 18)
+	CLKGENA_LX(lx_dmu1_cpu_clk, 18)
 };
 
 static struct fdmalxclk miscdivclks[9] = {

@@ -111,6 +111,7 @@ void stx7100_configure_usb(void);
 void stx7100_configure_alsa(void);
 void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus);
 void stx7100_configure_lirc(void);
+void stx7100_configure_pata(int bank, int irq);
 
 void stx7200_early_device_init(void);
 void stx7200_configure_asc(const int *ascs, int num_ascs, int console);

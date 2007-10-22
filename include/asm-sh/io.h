@@ -107,8 +107,12 @@
 #define __raw_writew(v, a)	__writew(v, (void __iomem *)(a))
 #define __raw_writel(v, a)	__writel(v, (void __iomem *)(a))
 
-void __raw_writesl(unsigned long addr, const void *data, int longlen);
-void __raw_readsl(unsigned long addr, void *data, int longlen);
+void __raw_readsb(const void __iomem *port, void *data, int longlen);
+void __raw_readsw(const void __iomem *port, void *data, int longlen);
+void __raw_readsl(const void __iomem *port, void *data, int longlen);
+void __raw_writesb(void __iomem *port, const void *data, int longlen);
+void __raw_writesw(void __iomem *port, const void *data, int longlen);
+void __raw_writesl(void __iomem *port, const void *data, int longlen);
 
 /*
  * The platform header files may define some of these macros to use
@@ -181,13 +185,13 @@ __BUILD_MEMORY_STRING(w, u16)
 #define iowrite32(v,a)		writel((v),(a))
 #define iowrite32be(v,a)	__raw_writel(cpu_to_be32((v)),(a))
 
-#define ioread8_rep(a,d,c)	insb((a),(d),(c))
-#define ioread16_rep(a,d,c)	insw((a),(d),(c))
-#define ioread32_rep(a,d,c)	insl((a),(d),(c))
+#define ioread8_rep(p,d,c)	__raw_readsb(p,d,c)
+#define ioread16_rep(p,d,c)	__raw_readsw(p,d,c)
+#define ioread32_rep(p,d,c)	__raw_readsl(p,d,c)
 
-#define iowrite8_rep(a,s,c)	outsb((a),(s),(c))
-#define iowrite16_rep(a,s,c)	outsw((a),(s),(c))
-#define iowrite32_rep(a,s,c)	outsl((a),(s),(c))
+#define iowrite8_rep(p,s,c)	__raw_writesb(p,s,c)
+#define iowrite16_rep(p,s,c)	__raw_writesw(p,s,c)
+#define iowrite32_rep(p,s,c)	__raw_writesl(p,s,c)
 
 #define mmiowb()	wmb()	/* synco on SH-4A, otherwise a nop */
 

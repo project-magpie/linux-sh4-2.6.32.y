@@ -18,6 +18,8 @@
 #include <linux/stm/pio.h>
 #include <linux/phy.h>
 #include <linux/stm/sysconf.h>
+#include <linux/stm/emi.h>
+#include <linux/pata_platform.h>
 #include <asm/sci.h>
 #include <linux/stm/fdma-plat.h>
 #include <linux/stm/fdma-reqs.h>
@@ -700,9 +702,9 @@ static struct platform_device sata_device = {
 	.id		= -1,
 	.num_resources	= ARRAY_SIZE(sata_resource),
 	.resource	= sata_resource,
-       .dev = {
-               .platform_data = &sata_private_info,
-       }
+	.dev = {
+		.platform_data = &sata_private_info,
+	}
 };
 
 void __init stx7100_configure_sata(void)
@@ -724,6 +726,64 @@ void __init stx7100_configure_sata(void)
 	}
 
 	platform_device_register(&sata_device);
+}
+
+/* PATA resources ---------------------------------------------------------- */
+
+/*
+ * EMI A21 = CS1 (active low)
+ * EMI A20 = CS0 (active low)
+ * EMI A19 = DA2
+ * EMI A18 = DA1
+ * EMI A17 = DA0
+ */
+
+static struct resource pata_resources[] = {
+	[0] = {	/* I/O base: CS1=N, CS0=A */
+		.start	= (1<<21),
+		.end	= (1<<21) + (7<<17)-1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {	/* CTL base: CS1=A, CS0=N, DA2=A, DA1=A, DA0=N */
+		.start	= (1<<20) + (6<<17),
+		.end	= (1<<20) + (6<<17) + 3,
+		.flags	= IORESOURCE_MEM,
+	},
+	[2] = {	/* IRQ */
+		.flags	= IORESOURCE_IRQ,
+	}
+};
+
+static struct pata_platform_info pata_info = {
+	.ioport_shift	= 17,
+};
+
+static struct platform_device pata_device = {
+	.name		= "pata_platform",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(pata_resources),
+	.resource	= pata_resources,
+	.dev = {
+		.platform_data = &pata_info,
+	}
+};
+
+void __init stx7100_configure_pata(int bank, int irq)
+{
+	unsigned long bank_base;
+
+	emi_init(0, 0x1a100000);
+	bank_base = emi_bank_base(bank);
+	pata_resources[0].start += bank_base;
+	pata_resources[0].end   += bank_base;
+	pata_resources[1].start += bank_base;
+	pata_resources[1].end   += bank_base;
+	pata_resources[2].start = irq;
+	pata_resources[2].end   = irq;
+
+	emi_config_pata(bank);
+
+	platform_device_register(&pata_device);
 }
 
 /* Ethernet MAC resources -------------------------------------------------- */
@@ -773,6 +833,9 @@ void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus)
 {
 	struct sysconf_field *sc;
 
+	if (!chip_7109)
+		return;
+
 	eth7109_private_data.bus_id = phy_bus;
 
 	/* DVO_ETH_PAD_DISABLE and ETH_IF_ON */
@@ -794,13 +857,11 @@ void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus)
 	stpio_request_pin(3, 7, "stmmac EXTCLK", STPIO_ALT_OUT);
 
 	/* Configure the ethernet MAC PBL depending on the cut of the chip */
-	if (chip_7109){
-	       if (chip_revision == 1){
-			eth7109_private_data.pbl = 1;
-		} else {
-			eth7109_private_data.pbl = 32;
-		}
-        }
+	if (chip_revision == 1){
+		eth7109_private_data.pbl = 1;
+	} else {
+		eth7109_private_data.pbl = 32;
+	}
 
 	platform_device_register(&stb7109eth_device);
 }

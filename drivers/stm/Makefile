@@ -12,3 +12,4 @@ obj-$(CONFIG_STM_COPROCESSOR_FRMW)   += stm-coprocessor_frmw.o
 ifneq ($(CONFIG_STM_COPROCESSOR)$(CONFIG_STM_COPROCESSOR_FRMW),nn)
 obj-$(CONFIG_CPU_SUBTYPE_STB7100)	+= copro-stb7100.o
 endif
+obj-y				+= emi.o

@@ -114,9 +114,20 @@ void memset_io(volatile void __iomem *dst, int c, unsigned long count)
 }
 EXPORT_SYMBOL(memset_io);
 
-void __raw_readsl(unsigned long addr, void *datap, int len)
+void __raw_readsw(const void __iomem *addrp, void *datap, int len)
+{
+	u16 *data;
+
+	for (data = datap; len != 0; len--)
+		*data++ = ctrl_inw(addrp);
+
+}
+EXPORT_SYMBOL(__raw_readsw);
+
+void __raw_readsl(const void __iomem *addrp, void *datap, int len)
 {
 	u32 *data;
+	unsigned long addr = (unsigned long)addrp;
 
 	for (data = datap; (len != 0) && (((u32)data & 0x1f) != 0); len--)
 		*data++ = ctrl_inl(addr);
@@ -163,8 +174,20 @@ void __raw_readsl(unsigned long addr, void *datap, int len)
 }
 EXPORT_SYMBOL(__raw_readsl);
 
-void __raw_writesl(unsigned long addr, const void *data, int len)
+void __raw_writesw(void __iomem *addrp, const void *datap, int len)
 {
+	u16 *data;
+
+	for (data = datap; len != 0; len--)
+		ctrl_outw(*data++, addrp);
+
+}
+EXPORT_SYMBOL(__raw_writesw);
+
+void __raw_writesl(void __iomem *addrp, const void *data, int len)
+{
+	unsigned long addr = (unsigned long)addrp;
+
 	if (likely(len != 0)) {
 		int tmp1;
 

@@ -1620,7 +1620,7 @@ struct rpc_xprt *xs_setup_tcp(struct rpc_xprtsock_create *args)
 	if (args->timeout)
 		xprt->timeout = *args->timeout;
 	else
-		xprt_set_timeout(&xprt->timeout, 2, 60 * HZ);
+		xprt_set_timeout(&xprt->timeout, 7, 60 * HZ);
 
 	xs_format_peer_addresses(xprt);
 	dprintk("RPC:       set up transport to address %s\n",

@@ -1499,6 +1499,9 @@ UNKNOWN_CHIP:
 			privateData->dwGeneration=3;
 			break;
 		};break;
+	default:
+		SMSC_TRACE("  unrecognised dwIdRev=0x%08lX",dwIdRev);
+		break;
 	}
 	dwFpgaRev=Lan_GetRegDW(FPGA_REV);
 	SMSC_TRACE("  FPGA_REV == 0x%08lX",dwFpgaRev);

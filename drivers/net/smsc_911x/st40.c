@@ -72,6 +72,18 @@
 #define PLATFORM_CSBASE		(0xA1800000UL)
 #define PLATFORM_IRQ		(11UL)
 #endif
+#elif defined(CONFIG_SH_ST_MB519)
+/* db641 STEM card plugged into mb519 */
+#ifdef DB641_USE_PORT0
+/* STEM CS0 = BANK1 and A23=0 */
+/* Make sure you read the comment about bodges in mb519/stx7200mboard_init_irq */
+#define PLATFORM_CSBASE		(0xA2000000UL)
+#define PLATFORM_IRQ		(MUXED_IRQ_BASE+4)
+#else
+/* STEM CS1 = BANK4 */
+#define PLATFORM_CSBASE		(0xA2800000UL)
+#define PLATFORM_IRQ		(MUXED_IRQ_BASE+4)
+#endif
 #elif defined(CONFIG_SH_HMS1)
 /* SD HMS1 with in-built SMSC 911x */
 #undef PLATFORM_IRQ_POL

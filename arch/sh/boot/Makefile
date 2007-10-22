@@ -8,6 +8,10 @@
 # Copyright (C) 1999 Stuart Menefy
 #
 
+# Set these to dummy values if not defined to avoid error messages.
+CONFIG_MEMORY_START     ?= 0
+CONFIG_ZERO_PAGE_OFFSET ?= 0
+
 MKIMAGE := $(srctree)/scripts/mkuboot.sh
 
 #

@@ -14,6 +14,9 @@
 #include <linux/init.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
+#include <linux/delay.h>
+#include <linux/platform_device.h>
+#include <linux/mtd/physmap.h>
 #include <asm/io.h>
 
 #define SYSCONF_BASE 0xb9001000
@@ -91,8 +94,56 @@ static struct platform_device smc91x_device = {
 	.resource	= smc91x_resources,
 };
 
+#ifdef CONFIG_MTD_PHYSMAP
+static struct mtd_partition mtd_parts_table[3] = {
+	{
+	 .name = "Boot firmware",
+	 .size = 0x00040000,
+	 .offset = 0x00000000,
+	 },
+	{
+	 .name = "Kernel",
+	 .size = 0x00100000,
+	 .offset = 0x00040000,
+
+	 },
+	{
+	 .name = "Root FS",
+	 .size = MTDPART_SIZ_FULL,	/* will expand to the end of the flash */
+	 .offset = 0x00140000,
+	 }
+};
+
+static struct physmap_flash_data physmap_flash_data = {
+	.width		= 2,
+	.set_vpp	= NULL,
+	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
+	.parts		= mtd_parts_table
+};
+#define physmap_flash_data_addr &physmap_flash_data
+#else
+#define physmap_flash_data_addr NULL
+#endif
+
+static struct resource physmap_flash_resource = {
+	.start		= 0x00000000,
+	.end		= 0x00800000 - 1,
+	.flags		= IORESOURCE_MEM,
+};
+
+static struct platform_device physmap_flash = {
+	.name		= "physmap-flash",
+	.id		= -1,
+	.dev		= {
+		.platform_data	= physmap_flash_data_addr,
+	},
+	.num_resources	= 1,
+	.resource	= &physmap_flash_resource,
+};
+
 static struct platform_device *mb442_devices[] __initdata = {
 	&smc91x_device,
+	&physmap_flash,
 };
 
 static int __init device_init(void)

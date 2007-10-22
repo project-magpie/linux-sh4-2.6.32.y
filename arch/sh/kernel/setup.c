@@ -83,8 +83,18 @@ extern int root_mountflags;
 
 static char __initdata command_line[COMMAND_LINE_SIZE] = { 0, };
 
-static struct resource code_resource = { .name = "Kernel code", };
-static struct resource data_resource = { .name = "Kernel data", };
+static struct resource ram_resource = {
+	.name	= "System RAM",
+	.flags	= IORESOURCE_BUSY | IORESOURCE_MEM,
+};
+static struct resource code_resource = {
+	.name	= "Kernel code",
+	.flags	= IORESOURCE_BUSY | IORESOURCE_MEM,
+};
+static struct resource data_resource = {
+	.name	= "Kernel data",
+	.flags	= IORESOURCE_BUSY | IORESOURCE_MEM,
+};
 
 unsigned long memory_start;
 EXPORT_SYMBOL(memory_start);
@@ -212,6 +222,21 @@ static void __init setup_memory(void)
 extern void __init setup_memory(void);
 #endif
 
+static int __init request_standard_resources(void)
+{
+	ram_resource.start = __pa(memory_start);
+	ram_resource.end = __pa(memory_end)-1;
+	code_resource.start = virt_to_phys(_text);
+	code_resource.end = virt_to_phys(_etext)-1;
+	data_resource.start = virt_to_phys(_etext);
+	data_resource.end = virt_to_phys(_edata)-1;
+
+	request_resource(&iomem_resource, &ram_resource);
+	request_resource(&ram_resource, &code_resource);
+	request_resource(&ram_resource, &data_resource);
+	return 0;
+}
+
 void __init setup_arch(char **cmdline_p)
 {
 	enable_mmu();
@@ -231,13 +256,9 @@ void __init setup_arch(char **cmdline_p)
 	init_mm.end_data = (unsigned long) _edata;
 	init_mm.brk = (unsigned long) _end;
 
-	code_resource.start = virt_to_phys(_text);
-	code_resource.end = virt_to_phys(_etext)-1;
-	data_resource.start = virt_to_phys(_etext);
-	data_resource.end = virt_to_phys(_edata)-1;
-
 	memory_start = (unsigned long)PAGE_OFFSET+__MEMORY_START;
 	memory_end = memory_start + __MEMORY_SIZE;
+	request_standard_resources();
 
 #ifdef CONFIG_CMDLINE_BOOL
 	strlcpy(command_line, CONFIG_CMDLINE, sizeof(command_line));

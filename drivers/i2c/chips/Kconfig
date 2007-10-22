@@ -186,32 +186,4 @@ config MENELAUS
 	  and other features that are often used in portable devices like
 	  cell phones and PDAs.
 
-config  SENSORS_M41ST85Y
-	tristate "M41ST85Y RTC Driver (EXPERIMENTAL)"
-	depends on CPU_SUBTYPE_ST40 && (I2C_STM || I2C_ST40_PIO) && EXPERIMENTAL
-	help
-	  Enable this entry to support the external M41ST85Y Real Time Clock
-	  device series roundly fitted on some I2C serial bus interface seeng that
-	  nothing board have one.
-
-config SENSORS_M41ST85Y_IRQPIO
-	depends on SENSORS_M41ST85Y
-	hex "IRQ PIO value"
-	default "0xff"
-	help
-	  This set the PIO pin to be use as RTC-IRQ line.
-	  Addressing syntax is [7:Not used:7][6:PIO-Port:3][2:PIO-Pin:0]
-	  For example, an address of 0x0F represents PIO1[7]. Default is
-	  an invalid value.
-
-config SENSORS_M41ST85Y_SQWPIO
-	depends on SENSORS_M41ST85Y
-	hex "SQW PIO value"
-	default "0xff"
-	help
-	  This set the PIO pin to be use as RTC-SQW line.
-	  Addressing syntax is [7:Not used:7][6:PIO-Port:3][2:PIO-Pin:0]
-	  For example, an address of 0x07 represents PIO0[7]. Default is
-	  an invalid value.
-
 endmenu

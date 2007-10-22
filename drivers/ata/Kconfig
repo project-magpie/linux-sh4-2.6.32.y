@@ -143,6 +143,15 @@ config SATA_SIS
 	  enable the PATA_SIS driver in the config.
 	  If unsure, say N.
 
+config SCSI_SATA_STM
+	tristate "STMicroelectronics SATA support"
+	depends on SCSI_SATA && (ARCH_ST200 || CPU_SUBTYPE_ST40)
+	help
+	  This option enables support for the on-chip SATA controller on
+	  some STMicroelectronics embedded processors.
+
+	  If unsure, say N.
+
 config SATA_ULI
 	tristate "ULi Electronics SATA support"
 	depends on PCI

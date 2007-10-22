@@ -641,6 +641,11 @@ struct ata_port_operations {
 
 	void (*bmdma_stop) (struct ata_queued_cmd *qc);
 	u8   (*bmdma_status) (struct ata_port *ap);
+
+	unsigned char (*readb)(const volatile void __iomem *addr);
+	unsigned short (*readw)(const volatile void __iomem *addr);
+	void (*writeb)(unsigned char b, volatile void __iomem *addr);
+	void (*writew)(unsigned short b, volatile void __iomem *addr);
 };
 
 struct ata_port_info {
@@ -688,6 +693,58 @@ static inline int ata_port_is_dummy(struct ata_port *ap)
 {
 	return ap->ops == &ata_dummy_port_ops;
 }
+
+static inline u8 sata_readb(struct ata_port *ap,
+			    const volatile void __iomem *addr)
+{
+	u8 r;
+	if (ap->ops->readb)
+		r = (ap->ops->readb)(addr);
+	else
+		r = readb(addr);
+
+	return r;
+}
+
+static inline u16 sata_readw(struct ata_port *ap,
+			     const volatile void __iomem *addr)
+{
+	u16 r;
+	if (ap->ops->readw)
+		r = (ap->ops->readw)(addr);
+	else
+		r = readw(addr);
+
+	return r;
+}
+
+static inline void sata_writeb(struct ata_port *ap,
+			       u8 b, volatile void __iomem *addr)
+{
+	if (ap->ops->writeb)
+		(ap->ops->writeb)(b, addr);
+	else
+		writeb(b, addr);
+}
+
+static inline void sata_writew(struct ata_port *ap,
+			       u16 b, volatile void __iomem *addr)
+{
+	if (ap->ops->writew)
+		(ap->ops->writew)(b, addr);
+	else
+		writew(b, addr);
+}
+
+#undef readb
+#define readb(a_)	sata_readb(ap, a_)
+#undef writeb
+#define writeb(v_,a_)	sata_writeb(ap, v_, a_)
+#undef readw
+#define readw(a_)	sata_readw(ap, a_)
+#undef writew
+#define writew(v_,a_)	sata_writew(ap, v_, a_)
+
 
 extern void sata_print_link_status(struct ata_port *ap);
 extern void ata_port_probe(struct ata_port *);

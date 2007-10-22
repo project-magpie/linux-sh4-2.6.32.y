@@ -16,4 +16,11 @@ struct plat_ssc_data {
 	struct plat_ssc_pio_t	*pio;		/* the PIO map */
 };
 
+/* Private data for the SATA driver */
+struct plat_sata_data {
+	unsigned long phy_init;
+	unsigned long pc_glue_logic_init;
+	unsigned int only_32bit;
+};
+
 #endif /* __LINUX_ST_SOC_H */

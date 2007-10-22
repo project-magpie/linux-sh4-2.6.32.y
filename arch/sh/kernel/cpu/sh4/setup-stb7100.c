@@ -476,6 +476,30 @@ struct platform_device ssc_device = {
 	}
 };
 
+static struct resource sata_resource[]= {
+	[0] = {
+		.start = 0x18000000 + 0x01209000,
+		.end   = 0x18000000 + 0x01209000 + 0xfff,
+		.flags = IORESOURCE_MEM
+	},
+	[1] = {
+		.start = 0xaa,
+		.flags = IORESOURCE_IRQ
+	},
+};
+
+static struct plat_sata_data sata_private_info;
+
+static struct platform_device sata_device = {
+	.name		= "stm-sata",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(sata_resource),
+	.resource	= sata_resource,
+       .dev = {
+               .platform_data = &sata_private_info,
+       }
+};
+
 static struct platform_device *stx710x_devices[] __initdata = {
 	&sci_device,
 	&wdt_device,
@@ -488,6 +512,7 @@ static struct platform_device *stx710x_devices[] __initdata = {
  	&alsa_710x_device_spdif,
 	&alsa_710x_device_cnv,
 	&ssc_device,
+	&sata_device,
 };
 
 static int __init stx710x_devices_setup(void)
@@ -563,6 +588,26 @@ static int __init stx710x_devices_setup(void)
 
 		alsa_710x_resource_cnv[1].start = STB7100_FDMA_REQ_PCM_0;
 		alsa_710x_resource_cnv[1].end = STB7100_FDMA_REQ_PCM_0;
+	}
+
+	devid = ctrl_inl(SYSCONF_DEVICEID);
+	chip_7109 = (((devid >> 12) & 0x3ff) == 0x02c);
+	chip_revision = (devid >> 28) + 1;
+
+	if ((! chip_7109) && (chip_revision == 1)) {
+		/* 7100 cut 1.x */
+		sata_private_info.phy_init = 0x0013704A;
+	} else {
+		/* 7100 cut 2.x and cut 3.x and 7109 */
+		sata_private_info.phy_init = 0x388fc;
+	}
+
+	if ((! chip_7109) || (chip_7109 && (chip_revision == 1))) {
+		sata_private_info.only_32bit = 1;
+		sata_private_info.pc_glue_logic_init = 0x1ff;
+	} else {
+		sata_private_info.only_32bit = 0;
+		sata_private_info.pc_glue_logic_init = 0x100ff;
 	}
 
 	return platform_add_devices(stx710x_devices,

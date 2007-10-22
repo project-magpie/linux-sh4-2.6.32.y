@@ -52,8 +52,13 @@
 #include <scsi/scsi.h>
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_host.h>
-#include <linux/libata.h>
+// #include <linux/libata.h>
 #include <asm/io.h>
+
+
+// Moved from above so that it is after this munging.
+#include <linux/libata.h>
+
 #include <asm/semaphore.h>
 #include <asm/byteorder.h>
 

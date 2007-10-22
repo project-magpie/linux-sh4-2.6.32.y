@@ -104,8 +104,7 @@ void generic_insl(unsigned long port, void *dst, unsigned long count)
 	u32 *buf = dst;
 
 	port_addr = (volatile u32 *)ioport_map(port, 4);
-	while (count--)
-		*buf++ = *port_addr;
+	__raw_readsl((void __iomem*)port, buf, count);
 
 	dummy_read();
 }
@@ -178,8 +177,7 @@ void generic_outsl(unsigned long port, const void *src, unsigned long count)
 	const u32 *buf = src;
 
 	port_addr = (volatile u32 __force *)ioport_map(port, 4);
-	while (count--)
-		*port_addr = *buf++;
+	__raw_writesl((void __iomem*)port, buf, count);
 
 	dummy_read();
 }

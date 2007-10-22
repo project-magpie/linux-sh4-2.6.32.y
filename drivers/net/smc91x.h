@@ -268,6 +268,45 @@ SMC_outw(u16 val, void __iomem *ioaddr, int reg)
 
 #define SMC_IRQ_FLAGS		(0)
 
+#elif defined(CONFIG_CPU_SUBTYPE_ST40)
+
+
+#define SMC_NOWAIT		0
+#undef  SMC_USE_PXA_DMA
+
+#ifdef SMC_STEM_BS_MASK
+/*
+ * We have to shift all addresses up by 1, because the STEM
+ * module connects A2 from the CPU to to A1 on the SMC device.
+ * This was done for compatibility with the ST20 EMI, which
+ * apparently does the opposite.
+ * However the byte strobes are not shifted in hardware, so
+ * these need to be left in place.
+ */
+#define REG_OFFSET(base,reg) ({                         		\
+        u_int __reg = (reg);                            		\
+        __reg = ( (__reg & (~SMC_STEM_BS_MASK))                 ) |	\
+                ( (__reg & ( SMC_STEM_BS_MASK)) >> SMC_IO_SHIFT );	\
+	(void __iomem *)((base) + __reg); })
+#else
+#define REG_OFFSET(base,reg) ((void __iomem*)((base) + (reg)))
+#endif
+
+#define dprintk(str, ...) // printk(str, ## __VA_ARGS__)
+#define SMC_inb(a, r)		({ void __iomem *_p = REG_OFFSET((a), (r)); u8  _v = readb(_p); dprintk("SMC_inb(%08p) = %02x\n", _p, _v); _v; })
+#define SMC_inw(a, r)		({ void __iomem *_p = REG_OFFSET((a), (r)); u16 _v = readw(_p); dprintk("SMC_inw(%08p) = %04x\n", _p, _v); _v; })
+#define SMC_inl(a, r)		({ void __iomem *_p = REG_OFFSET((a), (r)); u32 _v = readl(_p); dprintk("SMC_inl(%08p) = %08x\n", _p, _v); _v; })
+#define SMC_outb(v, a, r)	({ void __iomem *_p = REG_OFFSET((a), (r)); u8  _v = (v);  dprintk("SMC_outb(%02x, %08p)\n", _v, _p); writeb(_v, _p); })
+#define SMC_outw(v, a, r)	({ void __iomem *_p = REG_OFFSET((a), (r)); u16 _v = (v);  dprintk("SMC_outw(%04x, %08p)\n", _v, _p); writew(_v, _p); })
+#define SMC_outl(v, a, r)	({ void __iomem *_p = REG_OFFSET((a), (r)); u32 _v = (v);  dprintk("SMC_outl(%08x, %08p)\n", _v, _p); writel(_v, _p); })
+#define SMC_insl(a, r, p, l)	({ void __iomem *_p = REG_OFFSET((a), (r)); readsl(_p, p, l); })
+#define SMC_outsl(a, r, p, l)	({ void __iomem *_p = REG_OFFSET((a), (r)); writesl(_p, p, l); })
+
+#define set_irq_type(irq, type)
+
+#define RPC_LSA_DEFAULT		RPC_LED_TX_RX
+#define RPC_LSB_DEFAULT		RPC_LED_100_10
+
 #elif	defined(CONFIG_ISA)
 
 #define SMC_CAN_USE_8BIT	1
@@ -563,7 +602,7 @@ smc_pxa_dma_irq(int dma, void *dummy)
  * use of them.
  */
 
-#if ! SMC_CAN_USE_32BIT
+#if ! (SMC_CAN_USE_32BIT || SMC_CAN_USE_32BIT_DATA)
 #define SMC_inl(ioaddr, reg)		({ BUG(); 0; })
 #define SMC_outl(x, ioaddr, reg)	BUG()
 #define SMC_insl(a, r, p, l)		BUG()
@@ -1219,7 +1258,7 @@ static const char * chip_ids[ 16 ] =  {
 
 #define SMC_PUSH_DATA(p, l)						\
 	do {								\
-		if (SMC_CAN_USE_32BIT) {				\
+		if (SMC_CAN_USE_32BIT || SMC_CAN_USE_32BIT_DATA) {	\
 			void *__ptr = (p);				\
 			int __len = (l);				\
 			void __iomem *__ioaddr = ioaddr;		\
@@ -1243,7 +1282,7 @@ static const char * chip_ids[ 16 ] =  {
 
 #define SMC_PULL_DATA(p, l)						\
 	do {								\
-		if (SMC_CAN_USE_32BIT) {				\
+		if (SMC_CAN_USE_32BIT || SMC_CAN_USE_32BIT_DATA) {	\
 			void *__ptr = (p);				\
 			int __len = (l);				\
 			void __iomem *__ioaddr = ioaddr;		\

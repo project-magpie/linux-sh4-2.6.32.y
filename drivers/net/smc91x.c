@@ -2165,15 +2165,14 @@ static int __init smc_probe(struct net_device *dev, void __iomem *ioaddr)
 		printk("%s%s\n", nowait ? " [nowait]" : "",
 			THROTTLE_TX_PKTS ? " [throttle_tx]" : "");
 
+		/* Print the Ethernet address */
+		printk("%s: Ethernet addr: ", dev->name);
+		for (i = 0; i < 5; i++)
+			printk("%2.2x:", dev->dev_addr[i]);
+		printk("%2.2x\n", dev->dev_addr[5]);
 		if (!is_valid_ether_addr(dev->dev_addr)) {
 			printk("%s: Invalid ethernet MAC address.  Please "
 			       "set using ifconfig\n", dev->name);
-		} else {
-			/* Print the Ethernet address */
-			printk("%s: Ethernet addr: ", dev->name);
-			for (i = 0; i < 5; i++)
-				printk("%2.2x:", dev->dev_addr[i]);
-			printk("%2.2x\n", dev->dev_addr[5]);
 		}
 
 		if (lp->phy_type == 0) {

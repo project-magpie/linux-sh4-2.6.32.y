@@ -31,49 +31,6 @@ static LIST_HEAD(clock_list);
 static DEFINE_SPINLOCK(clock_lock);
 static DEFINE_MUTEX(clock_list_sem);
 
-/*
- * Each subtype is expected to define the init routines for these clocks,
- * as each subtype (or processor family) will have these clocks at the
- * very least. These are all provided through the CPG, which even some of
- * the more quirky parts (such as ST40, SH4-202, etc.) still have.
- *
- * The processor-specific code is expected to register any additional
- * clock sources that are of interest.
- */
-static struct clk master_clk = {
-	.name		= "master_clk",
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
-	.rate		= CONFIG_SH_PCLK_FREQ,
-};
-
-static struct clk module_clk = {
-	.name		= "module_clk",
-	.parent		= &master_clk,
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
-};
-
-static struct clk bus_clk = {
-	.name		= "bus_clk",
-	.parent		= &master_clk,
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
-};
-
-static struct clk cpu_clk = {
-	.name		= "cpu_clk",
-	.parent		= &master_clk,
-	.flags		= CLK_ALWAYS_ENABLED,
-};
-
-/*
- * The ordering of these clocks matters, do not change it.
- */
-static struct clk *onchip_clocks[] = {
-	&master_clk,
-	&module_clk,
-	&bus_clk,
-	&cpu_clk,
-};
-
 static void propagate_rate(struct clk *clk)
 {
 	struct clk *clkp;
@@ -291,16 +248,6 @@ void clk_put(struct clk *clk)
 }
 EXPORT_SYMBOL_GPL(clk_put);
 
-void __init __attribute__ ((weak))
-arch_init_clk_ops(struct clk_ops **ops, int type)
-{
-}
-
-void __init __attribute__ ((weak))
-arch_clk_init(void)
-{
-}
-
 static int show_clocks(char *buf, char **start, off_t off,
 		       int len, int *eof, void *data)
 {
@@ -322,28 +269,6 @@ static int show_clocks(char *buf, char **start, off_t off,
 	}
 
 	return p - buf;
-}
-
-int __init clk_init(void)
-{
-	int i, ret = 0;
-
-	BUG_ON(!master_clk.rate);
-
-	for (i = 0; i < ARRAY_SIZE(onchip_clocks); i++) {
-		struct clk *clk = onchip_clocks[i];
-
-		arch_init_clk_ops(&clk->ops, i);
-		ret |= clk_register(clk);
-	}
-
-	arch_clk_init();
-
-	/* Kick the child clocks.. */
-	propagate_rate(&master_clk);
-	propagate_rate(&bus_clk);
-
-	return ret;
 }
 
 static int __init clk_proc_init(void)

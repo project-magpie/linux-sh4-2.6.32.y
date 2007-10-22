@@ -12,3 +12,10 @@ obj-$(CONFIG_UBC_WAKEUP)	+= ubc.o
 obj-$(CONFIG_SH_ADC)		+= adc.o
 
 obj-y	+= irq/ init.o clock.o
+
+# Most chips still use the Hitachi standard CPG which has a few standard
+# clocks. Those which do not can remove it here, and define a complete
+# new clock architecture in their own processor specific code.
+archclock-y					:= clock-cpg.o
+archclock-$(CONFIG_CPU_SUBTYPE_STB7100)	:=
+obj-y	+= $(archclock-y)

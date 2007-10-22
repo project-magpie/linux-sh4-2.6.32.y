@@ -1,7 +1,7 @@
 #ifndef _SH_SETUP_H
 #define _SH_SETUP_H
 
-#define COMMAND_LINE_SIZE 256
+#define COMMAND_LINE_SIZE 512
 
 #ifdef __KERNEL__
 

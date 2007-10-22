@@ -6,7 +6,7 @@ static struct stm_dma_params tx_transfer;
 
 BOOLEAN Platform_IsValidDmaChannel(DWORD dwDmaCh)
 {
-	if ((dwDmaCh > 0) && (dwDmaCh < TRANSFER_PIO))
+	if ((dwDmaCh >= 0) && (dwDmaCh < TRANSFER_PIO))
 		return TRUE;
 	return FALSE;
 }

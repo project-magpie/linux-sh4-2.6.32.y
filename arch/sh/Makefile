@@ -128,11 +128,11 @@ machdir-$(CONFIG_SH_7619_SOLUTION_ENGINE)	+= se/7619
 machdir-$(CONFIG_SH_LBOX_RE2)			+= lboxre2
 machdir-$(CONFIG_SH_MAGIC_PANEL_R2)		+= magicpanelr2
 
-incdir-y	:= $(notdir $(machdir-y))
+incdir-y	:= $(notdir $(firstword $(machdir-y)))
 
 ifneq ($(machdir-y),)
 core-y	+= $(addprefix arch/sh/boards/, \
-	     $(filter-out ., $(patsubst %,%/,$(machdir-y))))
+	     $(filter-out ., $(addsuffix /,$(machdir-y))))
 endif
 
 # Companion chips

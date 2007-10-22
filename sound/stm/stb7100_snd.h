@@ -29,6 +29,7 @@
 #define PCMP0_BASE				0x18101000
 #define PCMP1_BASE				0x18101800
 #define PCM0_CONVERTER_BASE     		0x18103800
+#define PCMIN_BASE				0x18102000
 
 #define FDMA2_BASE_ADDRESS			0x19220000
 #define AUD_CFG_BASE				0x19210000
@@ -37,6 +38,7 @@
 #define LINUX_PCMPLAYER1_ALLREAD_IRQ		145
 #define LINUX_SPDIFPLAYER_ALLREAD_IRQ		147
 #define LINUX_SPDIFCONVERTER_ALLREAD_IRQ	142
+#define	LINUX_PCMREADER_ALLREAD_IRQ		146
 
 /*
  * Thankfully the block register offsets for PCM0/1 & spdif
@@ -237,6 +239,24 @@
 	(int)readl(chip->pcm_player+STM_PCMP_CONTROL),\
 	(int)readl(chip->pcm_player+STM_PCMP_STATUS ),\
 	(int)readl(chip->pcm_player+STM_PCMP_FORMAT )));
+
+#define DUMP_PCMIN(chip)( \
+	printk("%s\n %x PCMIN_ITS %x\n %x PCMIN_IT_EN %x\n %x PCMIN_CTRL %x\n %x \
+PCMIN_STA %x\n %x PCMIN_FMT %x\n %x AUD_IO_CTL %x\n %x IRQ_VECT_NR %x\n\n", \
+	__FUNCTION__, \
+	(int)chip->pcm_player + STM_PCMIN_ITS, \
+	(int)readl(chip->pcm_player + STM_PCMIN_ITS), \
+	(int)chip->pcm_player + STM_PCMIN_ITS_EN, \
+	(int)readl(chip->pcm_player + STM_PCMIN_ITS_EN), \
+	(int)chip->pcm_player + STM_PCMIN_CTRL, \
+	(int)readl(chip->pcm_player + STM_PCMIN_CTRL), \
+	(int)chip->pcm_player + STM_PCMIN_STA, \
+	(int)readl(chip->pcm_player + STM_PCMIN_STA), \
+	(int)chip->pcm_player + STM_PCMIN_FMT, \
+	(int)readl(chip->pcm_player + STM_PCMIN_FMT), \
+	(int)chip->pcm_clock_reg + AUD_IO_CTL_REG, \
+	(int)readl(chip->pcm_clock_reg + AUD_IO_CTL_REG), \
+	(int) ((chip->irq * 0x20) +0x200) ));
 /*
  * I2S to SPDIF Protocol converter defines
  */
@@ -296,9 +316,60 @@
 #define PR_CTRL_HW_STUFFING			(1L<<14)
 #define PR_CTRL_SAMPLES_SHIFT			15
 
+
+#define STM_PCMIN_HRST				0x00
+#define STM_PCMIN_DATA				0x04
+#define STM_PCMIN_ITS				0x08
+#define STM_PCMIN_ITS_CLR			0x0c
+#define STM_PCMIN_ITS_EN			0x10
+#define STM_PCMIN_ITS_EN_SET			0x14
+#define STM_PCMIN_ITS_EN_CLR			0x18
+#define STM_PCMIN_CTRL				0x1c
+#define STM_PCMIN_STA				0x20
+#define STM_PCMIN_FMT				0x24
+
+
+#define PCMIN_INT_OVF				(1<<0)
+#define PCMIN_INT_VSYNC				(1<<1)
+
+#define AUD_PCMIN_CTRL_SAMPLES_SHIFT		(1<<4)
+#define AUD_PCMIN_CTRL_MEM_FMT_16_16		(1<<2)
+#define AUD_PCMIN_CTRL_MEM_FMT_16_0		(0<<2)
+#define AUD_PCMIN_CTRL_NO_ROUND			(0<<3)
+#define AUD_PCMIN_CTRL_DATA_ROUND		(1<<3)
+#define AUD_PCMIN_CTRL_PCM_MODE			0x02
+#define AUD_PCMIN_CTRL_CD_MODE			0x00
+#define AUD_PCMIN_CTRL_OFF_MODE			0x03
+
+#define AUD_PCMIN_FMT_ORDER_MSB			(1<<7)
+#define AUD_PCMIN_FMT_ORDER_LSB			(0<<7)
+#define AUD_PCMIN_FMT_ALIGN_RL			(0<<6)
+#define AUD_PCMIN_FMT_ALIGN_LR			(1<<6)
+#define AUD_PCMIN_FMT_PADDING_ON		(0<<5)
+#define AUD_PCMIN_FMT_PADDING_OFF		(1<<5)
+#define AUD_PCMIN_FMT_SLCK_EDGE_RISING		(0<<4)
+#define AUD_PCMIN_FMT_SLCK_EDGE_FALLING		(1<<4)
+#define AUD_PCMIN_FMT_LR_POLARITY_HIGH		(1<<3)
+#define AUD_PCMIN_FMT_LR_POLARITY_LOW		(0<<3)
+#define AUD_PCMIN_FMT_DATA_SZ_24		(0<<1)
+#define AUD_PCMIN_FMT_DATA_SZ_18		(2<<1)
+#define AUD_PCMIN_FMT_DATA_SZ_20		(1<<1)
+#define AUD_PCMIN_FMT_DATA_SZ_16		(3<<1)
+#define AUD_PCMIN_FMT_NBIT_32			(0<<0)
+#define AUD_PCMIN_FMT_NBIT_16			(1<<0)
+
+#define AUD_PCMIN_STA_ALLREAD			1<<19
+#define AUD_PCMIN_STA_SAMPLES_MASK		0x1FFFC
+#define AUD_PCMIN_STA_RUNNING 			1
+
+#define PCMIN_TMR_OVRHD_MILLIS 	1
+#define PCMIN_MILLIS_PSEC		1000
+
 #endif /*STB7100_SND_H_*/
 
-static int stb7100_create_spdif_device(pcm_hw_t * chip,snd_card_t **card);
-static int stb7100_create_converter_device(pcm_hw_t *chip,snd_card_t **this_card);
+static int snd_pcmin_stb710x_probe(pcm_hw_t *chip,snd_card_t *card,int dev);
+static int snd_spdif_stb710x_probe(pcm_hw_t **chip,snd_card_t **card,int dev);
+static int stb7100_create_converter_device(pcm_hw_t *chip,snd_card_t **this_card,int dev);
+
 static int stb7100_converter_program_player(snd_pcm_substream_t *substream);
 static void stb7100_reset_pcm_player(pcm_hw_t *chip);

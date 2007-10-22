@@ -414,6 +414,32 @@ static struct resource alsa_710x_resource_cnv[2] = {
 		.flags = IORESOURCE_IRQ,
 	}};
 
+static struct resource alsa_710x_resource_pcmin[3] = {
+
+	[0] = {/*min allocatable channels*/
+		.start = 0,
+		.end   = 0,
+		.flags = IORESOURCE_IRQ,
+	},
+	[1] = {/*fdma reqline*/
+		/*.start = runtime dependant*/
+		/*.end   = runtime dependant*/
+		.flags = IORESOURCE_IRQ,
+	},
+	[2] = {/*fdma reqline*/
+		/*.start = runtime dependant*/
+		/*.end   = runtime dependant*/
+		.flags = IORESOURCE_IRQ,
+	}};
+
+
+static struct platform_device alsa_710x_device_pcmin = {
+	.name			= "710x_ALSA_PCMIN",
+	.id 			= -1,
+	.num_resources	= 	ARRAY_SIZE(alsa_710x_resource_pcmin),
+	.resource		= alsa_710x_resource_pcmin,
+};
+
 
 static struct platform_device alsa_710x_device_pcm0 = {
 	.name			= "710x_ALSA_PCM0",
@@ -663,6 +689,9 @@ static int __init stx710x_devices_setup(void)
 
 			alsa_710x_resource_pcm1[2].start =0;
 			alsa_710x_resource_pcm1[2].end = 0;
+
+			alsa_710x_resource_pcmin[2].start = 1;
+			alsa_710x_resource_pcmin[2].end =   1;
 			break;
 		case 2:
 			alsa_710x_resource_pcm0[2].start =0;
@@ -670,6 +699,10 @@ static int __init stx710x_devices_setup(void)
 
 			alsa_710x_resource_pcm1[2].start =0;
 			alsa_710x_resource_pcm1[2].end = 0;
+
+			alsa_710x_resource_pcmin[2].start = 0;
+			alsa_710x_resource_pcmin[2].end =   0;
+
 			fdma_710x_device.dev.platform_data =(void*) &stb7109_C2_fdma_plat_data;
 			break;
 		default:
@@ -680,6 +713,10 @@ static int __init stx710x_devices_setup(void)
 
 			alsa_710x_resource_pcm1[2].start =1;
 			alsa_710x_resource_pcm1[2].end = 1;
+
+			alsa_710x_resource_pcmin[2].start = 0;
+			alsa_710x_resource_pcmin[2].end =   0;
+
 			fdma_710x_device.dev.platform_data =(void*) &stb7109_C3_fdma_plat_data;
 			break;
 		}
@@ -703,6 +740,9 @@ static int __init stx710x_devices_setup(void)
 		alsa_710x_resource_cnv[0].end = 10;
 		alsa_710x_resource_cnv[1].start = STB7109_FDMA_REQ_PCM_0;
 		alsa_710x_resource_cnv[1].end = STB7109_FDMA_REQ_PCM_0;
+
+		alsa_710x_resource_pcmin[1].start = STB7109_FDMA_REQ_PCM_READ;
+		alsa_710x_resource_pcmin[1].end =   STB7109_FDMA_REQ_PCM_READ;
 	} else {
 		stb7100_Cx_fdma_plat_data.cpu_rev = chip_revision;
 		fdma_710x_device.dev.platform_data =(void*) &stb7100_Cx_fdma_plat_data;
@@ -740,6 +780,11 @@ static int __init stx710x_devices_setup(void)
 
 		alsa_710x_resource_pcm1[2].start =0;
 		alsa_710x_resource_pcm1[2].end = 0;
+
+		alsa_710x_resource_pcmin[1].start = STB7100_FDMA_REQ_PCM_READ;
+		alsa_710x_resource_pcmin[1].end =   STB7100_FDMA_REQ_PCM_READ;
+		alsa_710x_resource_pcmin[2].start = 0;
+		alsa_710x_resource_pcmin[2].end =   0;
 
 	}
 

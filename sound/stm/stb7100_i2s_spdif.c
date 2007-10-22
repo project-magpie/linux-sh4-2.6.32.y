@@ -361,10 +361,26 @@ static stm_playback_ops_t stb7100_converter_ops = {
 };
 
 
-static int stb7100_create_converter_device(pcm_hw_t *chip,snd_card_t  **this_card)
+static int stb7100_create_converter_device(pcm_hw_t *in_chip,snd_card_t  **this_card,int dev)
 {
 	int err = 0;
-	int irq = linux_pcm_irq[chip->card_data->major];
+	int irq = linux_pcm_irq[dev];
+	pcm_hw_t * chip = in_chip;
+
+	*this_card = snd_card_new(index[card_list[dev].major],id[card_list[dev].major], THIS_MODULE, 0);
+        if (this_card == NULL){
+      		printk(" cant allocate new card of %d\n",card_list[dev].major);
+      		return -ENOMEM;
+        }
+
+	chip->fdma_channel =-1;
+	chip->card_data = &card_list[dev];
+	spin_lock_init(&chip->lock);
+
+        chip->card          = *this_card;
+	chip->irq           = -1;
+	chip->pcm_clock_reg = ioremap(AUD_CFG_BASE, 0);
+	chip->out_pipe      = ioremap(FDMA2_BASE_ADDRESS,0);
 
 	strcpy((*this_card)->shortname, "STb7100_CNV");
 	strcpy((*this_card)->longname,  "STb7100_CNV");
@@ -422,7 +438,6 @@ static int stb7100_create_converter_device(pcm_hw_t *chip,snd_card_t  **this_car
         	stb7100_converter_free(chip);
 		return err;
     	}
-
     	return 0;
 }
 

@@ -29,7 +29,8 @@ static unsigned long pcm_base_addr[SND_DRV_CARDS] =
 	PCMP0_BASE,
 	PCMP1_BASE,
 	SPDIF_BASE,
-	PCM0_CONVERTER_BASE
+	PCM0_CONVERTER_BASE,
+	PCMIN_BASE
 };
 
 static unsigned long linux_pcm_irq[SND_DRV_CARDS] =
@@ -38,6 +39,7 @@ static unsigned long linux_pcm_irq[SND_DRV_CARDS] =
 	LINUX_PCMPLAYER1_ALLREAD_IRQ,
     	LINUX_SPDIFPLAYER_ALLREAD_IRQ,
     	LINUX_SPDIFCONVERTER_ALLREAD_IRQ,
+    	LINUX_PCMREADER_ALLREAD_IRQ,
 };
 /*
  * Extra PCM Player format regsiter define for 7100 Cut2/3
@@ -825,9 +827,12 @@ static int stb7100_pcm_open(snd_pcm_substream_t *substream)
 	runtime->hw.channels_min = chip->min_ch;
 	runtime->hw.channels_max = chip->max_ch;
 	
-	/*It is necessary for us to disable 16 bit mode
-	 * for devices attached to an external DAC due to reliability issues
-	 * affecting L/R channel switch when switching between 16/32b modes*/
+	/*
+	 *Here we disable 16b mode for PCM0/PCM_CNV.
+	 * There is a catch 22 in that both protocol converter & PCM0 will fail to
+	 * reinitialise correctly if their clock source is removed, and we cannot
+	 * guarantee correct L/R ordering after a 16/32 - 32/16b mode switch
+	 * unless we remove the clocks after playback*/
 	if(	(chip->card_data->major == PCM0_DEVICE) || 
 		(chip->card_data->major == PROTOCOL_CONVERTER_DEVICE))
 	
@@ -857,32 +862,35 @@ static stm_playback_ops_t stb7100_pcm_ops = {
 	.unpause_playback = stb7100_pcm_unpause_playback
 };
 
-
-static int main_device_allocate(snd_card_t *card, stm_snd_output_device_t *dev_data, pcm_hw_t *stb7100 )
-{
-	if(!card)
-		return -EINVAL;
-
-	spin_lock_init(&stb7100->lock);
-
-        stb7100->card          = card;
-	stb7100->irq           = -1;
-	stb7100->card_data     = dev_data;
-	stb7100->pcm_clock_reg = ioremap(AUD_CFG_BASE, 0);
-	stb7100->out_pipe      = ioremap(FDMA2_BASE_ADDRESS,0);
-	return 0;
-}
-
 static snd_device_ops_t ops = {
     .dev_free = snd_pcm_dev_free,
 };
 
 
-static int stb7100_create_lpcm_device(pcm_hw_t *chip,snd_card_t **this_card)
+static int stb7100_create_lpcm_device(pcm_hw_t *in_chip,snd_card_t **this_card,int dev)
 {
 	int err = 0;
-	int irq = linux_pcm_irq[chip->card_data->major];
+	int irq = linux_pcm_irq[dev];
 
+	pcm_hw_t * chip  = in_chip;
+	snd_card_t *card={0};
+
+	card = snd_card_new(index[card_list[dev].major],id[card_list[dev].major], THIS_MODULE, 0);
+        if (this_card == NULL){
+      		printk(" cant allocate new card of %d\n",card_list[dev].major);
+      		return -ENOMEM;
+        }
+
+	chip->fdma_channel =-1;
+	chip->card_data = &card_list[dev];
+	spin_lock_init(&chip->lock);
+
+
+
+        chip->card          = card;
+	chip->irq           = -1;
+	chip->pcm_clock_reg = ioremap(AUD_CFG_BASE, 0);
+	chip->out_pipe      = ioremap(FDMA2_BASE_ADDRESS,0);
 	chip->pcm_converter = 0;
 	chip->pcm_player    = ioremap(pcm_base_addr[chip->card_data->major],0);
         chip->hw            = stb7100_pcm_hw;
@@ -890,18 +898,15 @@ static int stb7100_create_lpcm_device(pcm_hw_t *chip,snd_card_t **this_card)
 
 	chip->playback_ops  = &stb7100_pcm_ops;
 
-
-	sprintf((*this_card)->shortname, "STb7100_PCM%d",chip->card_data->major);
-	sprintf((*this_card)->longname,  "STb7100_PCM%d",chip->card_data->major );
-	sprintf((*this_card)->driver,    "%d",chip->card_data->major);
-
+	sprintf(card->shortname, "STb7100_PCM%d",chip->card_data->major);
+	sprintf(card->longname,  "STb7100_PCM%d",chip->card_data->major );
+	sprintf(card->driver,    "%d",chip->card_data->major);
 
 	if(request_irq(irq, stb7100_pcm_interrupt, SA_INTERRUPT, "STB7100_PCM", (void*)chip)){
                		printk(">>> failed to get IRQ %d\n",irq);
 	                stb7100_pcm_free(chip);
         	        return -EBUSY;
         }
-
 	chip->irq = irq;
 
     	switch(chip->card_data->major){
@@ -916,7 +921,7 @@ static int stb7100_create_lpcm_device(pcm_hw_t *chip,snd_card_t **this_card)
 	set_default_device_clock(chip);
 	stb7100_reset_pcm_player(chip);
 
-	if((err = snd_card_pcm_allocate(chip,chip->card_data->minor,(*this_card)->longname)) < 0){
+	if((err = snd_card_pcm_allocate(chip,chip->card_data->minor,card->longname)) < 0){
         	printk(">>> Failed to create PCM stream \n");
 	        stb7100_pcm_free(chip);
     	}
@@ -925,22 +930,22 @@ static int stb7100_create_lpcm_device(pcm_hw_t *chip,snd_card_t **this_card)
 		return err;
 	}
 
-	if((err = snd_device_new((*this_card), SNDRV_DEV_LOWLEVEL,chip, &ops)) < 0){
+	if((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL,chip, &ops)) < 0){
 		printk(">>> creating sound device :%d,%d failed\n",chip->card_data->major,chip->card_data->minor);
 		stb7100_pcm_free(chip);
 		return err;
 	}
 
-	if ((err = snd_card_register((*this_card))) < 0) {
-		printk("registration failed !\n");
+	if ((err = snd_card_register(card)) < 0) {
+		printk("%s snd_card_registration() failed !\n",__FUNCTION__);
 		stb7100_pcm_free(chip);
 		return err;
 	}
+	*this_card = card;
 	return 0;
 }
 static struct platform_device *pcm0_platform_device;
 static struct platform_device *pcm1_platform_device;
-static struct platform_device *spdif_platform_device;
 static struct platform_device *cnv_platform_device;
 
 static int stb710x_platform_alsa_probe(struct device *dev);
@@ -965,14 +970,6 @@ static struct device_driver alsa_pcm1_driver = {
 	.bus   = &platform_bus_type,
 	.probe = stb710x_platform_alsa_probe,
 };
-static struct device_driver alsa_spdif_driver = {
-	.name  = "710x_ALSA_SPD",
-	.owner = THIS_MODULE,
-	.bus   = &platform_bus_type,
-	.probe = stb710x_platform_alsa_probe,
-};
-
-
 static struct device alsa_pcm1_device = {
 	.bus_id="alsa_710x_pcm1",
 	.driver = &alsa_pcm1_driver,
@@ -986,12 +983,6 @@ static struct device alsa_pcm0_device = {
 	.parent   = &platform_bus ,
 	.bus      = &platform_bus_type,
 };
-static struct device alsa_spdif_device = {
-	.bus_id="alsa_710x_spdif",
-	.driver = &alsa_spdif_driver,
-	.parent   = &platform_bus ,
-	.bus      = &platform_bus_type,
-};
 static struct device alsa_cnv_device = {
 	.bus_id="alsa_710x_cnv",
 	.driver = &alsa_cnv_driver,
@@ -1000,19 +991,13 @@ static struct device alsa_cnv_device = {
 };
 
 
-
-
 static int __init stb710x_platform_alsa_probe(struct device *dev)
 {
-
 	if(strcmp(dev->bus_id,alsa_pcm0_driver.name)==0)
 	        pcm0_platform_device = to_platform_device(dev);
 
 	else if(strcmp(dev->bus_id,alsa_pcm1_driver.name)==0)
 	        pcm1_platform_device = to_platform_device(dev);
-
-	else if(strcmp(dev->bus_id,alsa_spdif_driver.name)==0)
-	        spdif_platform_device = to_platform_device(dev);
 
 	else if(strcmp(dev->bus_id,alsa_cnv_driver.name)==0)
 	        cnv_platform_device = to_platform_device(dev);
@@ -1022,45 +1007,11 @@ static int __init stb710x_platform_alsa_probe(struct device *dev)
         return 0;
 }
 
-
-static int register_platform_driver(struct platform_device *platform_dev,pcm_hw_t *chip, int dev_nr)
+static int snd_pcm_card_generic_probe( int dev)
 {
-	static struct resource *res;
-	if (!platform_dev){
-       		printk("%s Failed. Check your kernel SoC config\n",__FUNCTION__);
-         	return -EINVAL;
-       	}
-
-	res = platform_get_resource(platform_dev, IORESOURCE_IRQ,0);    /*resource 0 */
-	if(res!=NULL){
-		chip->min_ch = res->start;
-		chip->max_ch = res->end;
-	}
-	else return -ENOSYS;
-
-	res = platform_get_resource(platform_dev, IORESOURCE_IRQ,1);
-	if(res!=NULL)
-		chip->fdma_req = res->start;
-	else return -ENOSYS;
-
-	/*we only care about this var for the analogue devices*/
-	if(dev_nr < SPDIF_DEVICE){
-		res = platform_get_resource(platform_dev, IORESOURCE_IRQ,2);
-		if(res!=NULL)
-			chip->i2s_sampling_edge =
-				(res->start ==1 ? PCMP_CLK_FALLING:PCMP_CLK_RISING);
-		else return -ENOSYS;
-	}
-	return 0;
-}
-
-
-
-static int snd_pcm_card_generic_probe(snd_card_t ** card, pcm_hw_t * chip, int dev)
-{
-	int err=0;
 	struct device_driver *  dev_driver;
 	struct device * device;
+
 	switch(dev){
 		case PCM0_DEVICE:
 			dev_driver= 	&alsa_pcm0_driver;
@@ -1069,10 +1020,6 @@ static int snd_pcm_card_generic_probe(snd_card_t ** card, pcm_hw_t * chip, int d
 		case PCM1_DEVICE:
 			dev_driver= 	&alsa_pcm1_driver;
 			device =  	&alsa_pcm1_device;
-			break;
-		case SPDIF_DEVICE:
-			dev_driver= 	&alsa_spdif_driver;
-			device =  	&alsa_spdif_device;
 			break;
 		case PROTOCOL_CONVERTER_DEVICE:
 			dev_driver= 	&alsa_cnv_driver;
@@ -1086,75 +1033,98 @@ static int snd_pcm_card_generic_probe(snd_card_t ** card, pcm_hw_t * chip, int d
 			return -ENOSYS;
 	}
 	else return -ENOSYS;
+	return 0;
+}
 
-	chip->fdma_channel =-1;
-	chip->card_data = &card_list[dev];
 
-	*card = snd_card_new(index[card_list[dev].major],id[card_list[dev].major], THIS_MODULE, 0);
-        if (card == NULL){
-      		printk(" cant allocate new card of %d\n",card_list[dev].major);
-      		return -ENOMEM;
-        }
-      	if((err = main_device_allocate(*card,&card_list[dev],chip)) < 0){
-              	printk(" snd card free on main alloc device\n");
+static int snd_pcm_stb710x_probe(pcm_hw_t **chip,snd_card_t **card,int dev)
+{
+	unsigned long err=0;
+	if( (err= snd_pcm_card_generic_probe(dev))<0){
                	snd_card_free(*card);
-       		return err;
-        }
+               	return -ENOSYS;
+	}
+
+	if((*chip =(pcm_hw_t *) kcalloc(1,sizeof(pcm_hw_t), GFP_KERNEL)) == NULL)
+        	return -ENOMEM;
+
+	switch(card_list[dev].major){
+       		case PROTOCOL_CONVERTER_DEVICE:
+			if(register_platform_driver(cnv_platform_device,*chip,card_list[dev].major)!=0){
+				printk("%s Error Registering Protocol Converter\n",__FUNCTION__);
+				return -ENODEV;
+			}
+	      		if((err=  stb7100_create_converter_device(*chip,card,dev))<0){
+	       		 	printk("%s Error Creating protocol Converter\n",__FUNCTION__);
+	       		       	snd_card_free(*card);
+	      		}
+			return err;
+	        case PCM0_DEVICE:
+	        	{
+			pcm_hw_t *ip_chip={0};
+
+			if(register_platform_driver(pcm0_platform_device,*chip,card_list[dev].major)!=0){
+				printk("%s Error Registering PCM0 player\n",__FUNCTION__);
+				return -ENODEV;
+			}
+	        	if((err = stb7100_create_lpcm_device(*chip,card,PCM0_DEVICE)) <0){
+				printk("%s Error Creating PCM0 player\n",__FUNCTION__);
+	                       	snd_card_free(*card);
+	        	}
+
+	 		if((err = snd_pcmin_stb710x_probe(ip_chip,*card,PCMIN_DEVICE))<0)
+				return -ENODEV;
+
+	              	return err;
+	        	}
+	        case PCM1_DEVICE:
+
+	        	if(register_platform_driver(pcm1_platform_device,*chip,card_list[dev].major)!=0){
+				printk("%s Error Registering PCM1 player\n",__FUNCTION__);
+				return -ENODEV;
+	        	}
+	               	if((err = stb7100_create_lpcm_device(*chip,card,PCM1_DEVICE)) <0){
+	               		printk("%s Error Creating PCM1 player\n",__FUNCTION__);
+	                      	snd_card_free(*card);
+	               	}
+	                return err;
+	        default:
+	        	printk("%s Cant Recognise Alsa Card %d\n",__FUNCTION__,dev);
+	              	return -ENODEV;
+	        }
 	return 0;
 }
 
 static int __init snd_pcm_card_probe(int dev)
 {
-	snd_card_t *card;
+	snd_card_t card={0};
+	snd_card_t * ptr  = &card;
 	pcm_hw_t *chip={0};
 	int err=0;
 
-	if((chip = kcalloc(1,sizeof(pcm_hw_t), GFP_KERNEL)) == NULL)
-        	return -ENOMEM;
-
-	snd_pcm_card_generic_probe(&card,chip,dev);
+	if(SPDIF_DEVICE == dev){
+		if((err = snd_spdif_stb710x_probe(&chip,&ptr,dev))<0)
+			goto err_exit;
+	}
+	else switch(dev){
+		case PCM0_DEVICE:
+		case PCM1_DEVICE:
+		case PROTOCOL_CONVERTER_DEVICE:
+	 		err = snd_pcm_stb710x_probe(&chip,&ptr,dev);
+	 		if(err < 0)
+	 			goto err_exit;
+	 		break;
+	 	default:
+	 		printk("%s Bad Alsa Card vector- %d\n",__FUNCTION__,dev);
+	 		goto err_exit;
+	}
 #if defined(CONFIG_STB7100_FIFO_DEBUG)
 	chip->fifo_check_mode=1;
 #else
 	chip->fifo_check_mode=0;
 #endif
-
-	switch(card_list[dev].major){
-        	case SPDIF_DEVICE:
-			if(register_platform_driver(spdif_platform_device,chip,card_list[dev].major)!=0)
-				goto err_exit;
-
-			if((err = stb7100_create_spdif_device(chip,&card))<0)
-				snd_card_free(card);
-			return err;
-
-            	case PROTOCOL_CONVERTER_DEVICE:
-			if(register_platform_driver(cnv_platform_device,chip,card_list[dev].major)!=0)
-				goto err_exit;
-
-            		if((err=  stb7100_create_converter_device(chip,&card))<0)
-             		         	snd_card_free(card);
-  			return err;
-
-            	case PCM0_DEVICE:
-			if(register_platform_driver(pcm0_platform_device,chip,card_list[dev].major)!=0)
-				goto err_exit;
-
-               		if((err = stb7100_create_lpcm_device(chip,&card)) <0)
-                        		snd_card_free(card);
-                	return err;
-
-            	case PCM1_DEVICE:
-			if(register_platform_driver(pcm1_platform_device,chip,card_list[dev].major)!=0)
-				goto err_exit;
-
-               		if((err = stb7100_create_lpcm_device(chip,&card)) <0)
-                        		snd_card_free(card);
-                	return err;
-             	default:
-                	return -ENODEV;
-        }
+        return 0;
 err_exit:
-	printk(" Error getting Platform resources for dev %d\n",card_list[dev].major);
-	return -ENODEV;
+	printk("%s Error Initialising Audio Device %d - err %d\n",__FUNCTION__,dev,err);
+	return err;
 }

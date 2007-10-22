@@ -59,9 +59,9 @@
 #include <asm/dma.h>
 #include "st_pcm.h"
 
-static int index[SNDRV_CARDS] = {SNDRV_DEFAULT_IDX1,SNDRV_DEFAULT_IDX1,SNDRV_DEFAULT_IDX1,SNDRV_DEFAULT_IDX1};
+static int index[SNDRV_CARDS] = {SNDRV_DEFAULT_IDX1,SNDRV_DEFAULT_IDX1,SNDRV_DEFAULT_IDX1,SNDRV_DEFAULT_IDX1,SNDRV_DEFAULT_IDX1};
         	/* Index 0-MAX */
-static char *id[SNDRV_CARDS] = {SNDRV_DEFAULT_STR1,SNDRV_DEFAULT_STR1,SNDRV_DEFAULT_STR1,SNDRV_DEFAULT_STR1};	/* ID for this card */
+static char *id[SNDRV_CARDS] = {SNDRV_DEFAULT_STR1,SNDRV_DEFAULT_STR1,SNDRV_DEFAULT_STR1,SNDRV_DEFAULT_STR1,SNDRV_DEFAULT_STR1};	/* ID for this card */
 
 static u8 global_spdif_sync_status=0;
 
@@ -79,20 +79,22 @@ void set_spdif_syncing_status(int enable)
 
 #if defined (CONFIG_CPU_SUBTYPE_STB7100)
 
-#define SND_DRV_CARDS  4
+#define SND_DRV_CARDS  5
 
 static stm_snd_output_device_t  card_list[SND_DRV_CARDS]= {
         /*major                      minor             input type          output type          */
         {PCM0_DEVICE,               MAIN_DEVICE, STM_DATA_TYPE_LPCM,     STM_DATA_TYPE_LPCM},
         {PCM1_DEVICE,               MAIN_DEVICE, STM_DATA_TYPE_LPCM,     STM_DATA_TYPE_LPCM},
         {SPDIF_DEVICE,              MAIN_DEVICE, STM_DATA_TYPE_IEC60958, STM_DATA_TYPE_IEC60958},
-        {PROTOCOL_CONVERTER_DEVICE, MAIN_DEVICE, STM_DATA_TYPE_LPCM,     STM_DATA_TYPE_IEC60958}
+        {PROTOCOL_CONVERTER_DEVICE, MAIN_DEVICE, STM_DATA_TYPE_LPCM,     STM_DATA_TYPE_IEC60958},
+        {PCM0_DEVICE,	   	    SUB_DEVICE1, STM_DATA_TYPE_I2S,	 STM_DATA_TYPE_LPCM}
 };
 
 #include "stb7100_snd.h"
 #include "stm7100_pcm.c"
 #include "stb7100_i2s_spdif.c"
 #include "stb7100_spdif.c"
+#include "stb7100_pcmin.c"
 #define DEVICE_NAME "STb7100"
 
 #else
@@ -154,6 +156,9 @@ static int snd_pcm_playback_prepare(snd_pcm_substream_t * substream)
 	if((card_list[PCM0_DEVICE].in_use               && (chip->card_data->major == PROTOCOL_CONVERTER_DEVICE)) ||
 	   (card_list[PROTOCOL_CONVERTER_DEVICE].in_use && (chip->card_data->major == PCM0_DEVICE)))
 	{
+		if(chip->card_data->minor == SUB_DEVICE1)
+			goto setup;
+
 		int converter_enable = (chip->card_data->major==PROTOCOL_CONVERTER_DEVICE ? 1:0);
 		printk("%s: device (%d,%d) is in use by (%d,%d)\n",
                 	__FUNCTION__,
@@ -167,7 +172,7 @@ static int snd_pcm_playback_prepare(snd_pcm_substream_t * substream)
         	return -EBUSY;
         }
 #endif
-
+setup:
 	chip->card_data->in_use = 1;
 	spin_unlock_irqrestore(&chip->lock,flags);
 
@@ -479,10 +484,19 @@ static int snd_pcm_copy(snd_pcm_substream_t	*substream,
 
 	totalbytes = frames_to_bytes(runtime, count);
 
-	if(copy_from_user(hwbuf, buf, totalbytes))
-		return -EFAULT;
-	dma_cache_wback(hwbuf, totalbytes);
+	if(substream->stream == SNDRV_PCM_STREAM_PLAYBACK){
 
+		if(copy_from_user(hwbuf, buf, totalbytes))
+			return -EFAULT;
+
+		dma_cache_wback(hwbuf, totalbytes);
+	}
+	else{
+		dma_cache_inv(hwbuf,totalbytes);
+
+		if(copy_to_user(buf,hwbuf,totalbytes))
+			return -EFAULT;
+	}
 	return 0;
 }
 
@@ -1202,15 +1216,23 @@ static int __devinit snd_card_pcm_allocate(pcm_hw_t *snd_card, int device,char* 
 	int err;
 	snd_pcm_t *pcm;
 
-	err = snd_pcm_new(snd_card->card,name,device, 1, 0, &pcm);
+	if(snd_card->card_data->input_type == STM_DATA_TYPE_IEC60958){
+
+		err = snd_pcm_new(snd_card->card,name, snd_card->card_data->minor,1, 0, &pcm);
+		snd_pcm_set_ops(pcm,SNDRV_PCM_STREAM_PLAYBACK,&snd_card_playback_ops_iec60958);
+	}
+	else if(snd_card->card_data->major == PCM0_DEVICE &&
+		snd_card->card_data->minor == SUB_DEVICE1){
+			err = snd_pcm_new(snd_card->card,name,snd_card->card_data->minor,0,1 , &pcm);
+			snd_pcm_set_ops(pcm,SNDRV_PCM_STREAM_CAPTURE,&snd_card_playback_ops_pcm);
+	}
+	else{
+		err = snd_pcm_new(snd_card->card,name, snd_card->card_data->minor,1, 0, &pcm);
+		snd_pcm_set_ops(pcm,SNDRV_PCM_STREAM_PLAYBACK,&snd_card_playback_ops_pcm);
+	}
+
 	if (err < 0)
 		return err;
-
-	if(snd_card->card_data->input_type == STM_DATA_TYPE_IEC60958)
-		snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &snd_card_playback_ops_iec60958);
-	else
-		snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &snd_card_playback_ops_pcm);
-
 
 	pcm->private_data = snd_card;
 	pcm->private_free = snd_card_pcm_free;
@@ -1225,11 +1247,41 @@ static int __devinit snd_card_pcm_allocate(pcm_hw_t *snd_card, int device,char* 
 	return 0;
 }
 
+static int register_platform_driver(struct platform_device *platform_dev,pcm_hw_t *chip, int dev_nr)
+{
+	static struct resource *res;
+	if (!platform_dev){
+       		printk("%s Failed. Check your kernel SoC config\n",__FUNCTION__);
+         	return -EINVAL;
+       	}
+
+	res = platform_get_resource(platform_dev, IORESOURCE_IRQ,0);    /*resource 0 */
+	if(res!=NULL){
+		chip->min_ch = res->start;
+		chip->max_ch = res->end;
+	}
+	else return -ENOSYS;
+
+	res = platform_get_resource(platform_dev, IORESOURCE_IRQ,1);
+	if(res!=NULL)
+		chip->fdma_req = res->start;
+	else return -ENOSYS;
+
+	/*we only care about this var for the analogue devices*/
+	if(dev_nr < SPDIF_DEVICE  || dev_nr == PCMIN_DEVICE)  {
+		res = platform_get_resource(platform_dev, IORESOURCE_IRQ,2);
+		if(res!=NULL)
+			chip->i2s_sampling_edge =
+				(res->start ==1 ? PCMP_CLK_FALLING:PCMP_CLK_RISING);
+		else return -ENOSYS;
+	}
+	return 0;
+}
 
 static int __init alsa_card_init(void)
 {
 	int i=0;
-	for(i=0;i<SND_DRV_CARDS;i++){
+	for(;i<SND_DRV_CARDS-1;i++){
 		if (snd_pcm_card_probe(i) < 0){
 			DEBUG_PRINT(("STm PCM Player not found or device busy\n"));
 			return -ENODEV;
@@ -1242,7 +1294,7 @@ static void __exit alsa_card_exit(void)
 {
 	int i=0;
 
-	for(i=0;i<SND_DRV_CARDS;i++){
+	for(i=0;i<SND_DRV_CARDS-1;i++){
 		if(card_list[i].device)
 			snd_card_free(card_list[i].device);
 	}
@@ -1253,3 +1305,4 @@ EXPORT_SYMBOL(snd_pcm_format_iec60958_copy);
 
 module_init(alsa_card_init)
 module_exit(alsa_card_exit)
+

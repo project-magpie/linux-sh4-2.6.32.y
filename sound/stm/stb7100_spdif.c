@@ -445,46 +445,77 @@ static stm_playback_ops_t stb7100_spdif_ops = {
 	.unpause_playback = stb7100_spdif_unpause_playback
 };
 
-int  stb7100_create_spdif_device(pcm_hw_t * chip,snd_card_t **card)
-{
-	int err=0;
-	unsigned long reg=0;
+static struct platform_device *spdif_platform_device;
 
+static int __init stb710x_alsa_spdif_probe(struct device *dev)
+{
+	spdif_platform_device = to_platform_device(dev);
+	return 0;
+}
+
+static struct device_driver alsa_spdif_driver = {
+	.name  = "710x_ALSA_SPD",
+	.owner = THIS_MODULE,
+	.bus   = &platform_bus_type,
+	.probe = stb710x_alsa_spdif_probe,
+};
+
+static struct device alsa_spdif_device = {
+	.bus_id="alsa_710x_spdif",
+	.driver = &alsa_spdif_driver,
+	.parent   = &platform_bus ,
+	.bus      = &platform_bus_type,
+};
+
+
+
+int snd_spdif_stb710x_probe(pcm_hw_t **in_chip,snd_card_t **card,int dev)
+{
+
+	int err=0;
+	pcm_hw_t *chip={0};
 	static snd_device_ops_t ops = {
 		.dev_free = snd_pcm_dev_free,
 	};
 
+	if(driver_register(&alsa_spdif_driver)==0){
+		if(device_register(&alsa_spdif_device)!=0)
+			return -ENOSYS;
+	}
+	else return -ENOSYS;
 
-	sprintf((*card)->driver,   "%d",chip->card_data->major);
+	if((chip = kcalloc(1,sizeof(pcm_hw_t), GFP_KERNEL)) == NULL)
+        	return -ENOMEM;
+
+	*card = snd_card_new(index[card_list[dev].major],id[card_list[dev].major], THIS_MODULE, 0);
+        if (card == NULL){
+      		printk(" cant allocate new card of %d\n",card_list[dev].major);
+      		return -ENOMEM;
+        }
+
+	sprintf((*card)->driver,   "%d",card_list[dev].major);
 	strcpy((*card)->shortname, "STb7100_SPDIF");
-	/*-2 on dev num as we are assuming 2 pcm outputs initialised before the spdif*/
-	sprintf((*card)->longname, "STb7100_SPDIF%d",chip->card_data->major -2);
+	sprintf((*card)->longname, "STb7100_SPDIF");
 
 	spin_lock_init(&chip->lock);
-	chip->card         = *card;
 	chip->irq          = -1;
-	chip->hw           = stb7100_spdif_hw;
-	chip->oversampling_frequency = 128; /* This is for HDMI compatibility */
+	chip->fdma_channel = -1;
 
+	chip->card         = *card;
+	chip->card_data = &card_list[dev];
+
+	chip->hw           = stb7100_spdif_hw;
+	chip->playback_ops  = &stb7100_spdif_ops;
+
+	chip->oversampling_frequency = 128; /* This is for HDMI compatibility */
 	chip->pcm_clock_reg = ioremap(AUD_CFG_BASE, 0);
 	chip->out_pipe      = ioremap(FDMA2_BASE_ADDRESS, 0);
 	chip->pcm_player    = ioremap(SPDIF_BASE,0);
 
-	chip->playback_ops  = &stb7100_spdif_ops;
-	chip->fdma_channel = -1;
+
+
 	iec60958_default_channel_status(chip);
 	chip->iec_encoding_mode = ENCODING_IEC60958;
-
-	/*
-	 * Set all the audio pins to be outputs
-	 */
-
-	reg =	PCM_DATA_OUT << PCM_CLK_OUT |
-		PCM_DATA_OUT << PCM0_OUT    |
-		PCM_DATA_OUT << PCM1_OUT    |
-		PCM_DATA_OUT << SPDIF_ENABLE;
-
-	writel(reg,chip->pcm_clock_reg+AUD_IO_CTL_REG);
 
 	if(request_irq(LINUX_SPDIFPLAYER_ALLREAD_IRQ,
                        stb7100_spdif_interrupt, SA_INTERRUPT,
@@ -496,6 +527,9 @@ int  stb7100_create_spdif_device(pcm_hw_t * chip,snd_card_t **card)
 	}
 	else
 		chip->irq = LINUX_SPDIFPLAYER_ALLREAD_IRQ;
+
+	if(register_platform_driver(spdif_platform_device,chip,card_list[dev].major)!=0)
+		return -ENODEV;
 
 	if ((err = snd_card_pcm_allocate(chip, chip->card_data->minor, (*card)->longname)) < 0){
 		printk(">>> failed to create PCM stream\n");
@@ -525,5 +559,6 @@ int  stb7100_create_spdif_device(pcm_hw_t * chip,snd_card_t **card)
 		snd_card_free(*card);
 		return err;
 	}
+	*in_chip = chip;
 	return 0;
 }

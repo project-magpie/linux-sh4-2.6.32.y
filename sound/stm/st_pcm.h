@@ -41,14 +41,16 @@ extern "C" {
 #define PCM1_DEVICE			1
 #define SPDIF_DEVICE			2
 #define PROTOCOL_CONVERTER_DEVICE	3
+#define PCMIN_DEVICE			4
 /*card minors*/
 #define MAIN_DEVICE			0
-
+#define SUB_DEVICE1			1
 struct pcm_hw_t;
 
 typedef enum {
 	STM_DATA_TYPE_LPCM,
-	STM_DATA_TYPE_IEC60958
+	STM_DATA_TYPE_IEC60958,
+	STM_DATA_TYPE_I2S
 } stm_snd_data_type_t;
 
 
@@ -220,6 +222,13 @@ typedef struct _IEC61937 {
 	int unpause_flag;
 }IEC61937_t;
 
+typedef struct pcmin_ctx{
+	struct 	timer_list period_timer;
+	int 	timer_halt;
+	int 	fr_delta;
+	int 	last_fr;
+}pcmin_ctx;
+
 typedef struct pcm_hw_t {
 	snd_card_t		*card;
 
@@ -257,6 +266,7 @@ typedef struct pcm_hw_t {
 	struct 	stm_dma_params  dmap;
 	int 			i2s_sampling_edge;
 	int			fifo_check_mode;
+	struct 	pcmin_ctx	pcmin;
 #if defined(CONFIG_CPU_SUBTYPE_STB7100)
 	int 			spdif_player_mode;
 	int			fdma_channel;
@@ -284,8 +294,9 @@ static int snd_pcm_dev_free(snd_device_t *dev);
 static int __devinit snd_card_pcm_allocate(pcm_hw_t *stm8000, int device,char* name);
 static int __devinit snd_iec60958_create_controls(pcm_hw_t *chip);
 static int __devinit snd_generic_create_controls(pcm_hw_t *chip);
-
-
+static int __devinit register_platform_driver(	struct platform_device *platform_dev,
+						pcm_hw_t *chip,
+						int dev_nr);
 void set_spdif_syncing_status(int enable);
 
 extern void iec60958_default_channel_status(pcm_hw_t *chip);

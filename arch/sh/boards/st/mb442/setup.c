@@ -130,7 +130,7 @@ static struct platform_device smc91x_device = {
 	.resource	= smc91x_resources,
 };
 
-static void phy_reset(void* bus)
+static int phy_reset(void* bus)
 {
 	static struct stpio_pin *phyreset;
 
@@ -143,6 +143,8 @@ static void phy_reset(void* bus)
 	stpio_set_pin(phyreset, 0);
 	udelay(1000);
 	stpio_set_pin(phyreset, 1);
+
+	return 1;
 }
 
 #ifdef CONFIG_MTD_PHYSMAP

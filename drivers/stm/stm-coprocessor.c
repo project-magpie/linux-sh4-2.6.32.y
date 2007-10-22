@@ -576,60 +576,74 @@ static void __exit st_coproc_exit(void)
  */
 static int __init parse_coproc_mem(char *from)
 {
-	/*
-	 * If this proc. is called from point to the next token of
-	 * "coprocessor_mem="
-	 */
 	char *cmdl = (from);	/* start scan from '=' char */
-	u_long value = 0;
+	u_long size, addr;
 	int i = 0;
 	char *error_msg;
-	int ready_for_address = 0;
+	static char size_error[] __initdata =
+		KERN_ERR "st-coprocessor: Error parsing size\n";
+	static char addr_error[] __initdata =
+		KERN_ERR "st-coprocessor: Error parsing address\n";
+	static char too_many_warn[] __initdata =
+		KERN_WARNING "st-coprocessor: More regions than coprocessors\n";
+	static char alloc_error[] __initdata =
+		KERN_ERR "st-coprocessor: Failed to reserve memory at 0x%08x\n";
 
-	DPRINTK(">>> parse_coproc_mem(*from: %11s...)\n", from);
-
-	for (i = 0; *cmdl; cmdl++) {
-		value = memparse(cmdl, &cmdl);
-
-		if (ready_for_address) {
-			/* the phisical offset must not overlap the code and data kernel */
-			/* if so the coprocessor ram isn't (!!!) reserved */
-			coproc[i].ram_offset =
-			    ((value + PAGE_OFFSET) <= (unsigned long)_end)
-			    ? 0 : value;	/* phisical address */
-		} else
-			coproc[i].ram_size = value;
-
-		switch (*cmdl) {
-		case ',':
-		case ' ':
-		case '\0':
-			ready_for_address = 0;
-			++i;
-			break;
-		case '@':
-			ready_for_address = 1;
-			break;
-		default:
-			error_msg = "syntax error";
+	while (*cmdl && (i < coproc_info.max_coprs)) {
+		size = memparse(cmdl, &cmdl);
+		if (*cmdl != '@') {
+			error_msg = size_error;
 			goto args_error;
 		}
-
+		addr = memparse(cmdl+1, &cmdl);
+		if (*cmdl) {
+			if (*cmdl++ != ',') {
+				error_msg = addr_error;
+				goto args_error;
+			}
+		}
+		coproc[i].ram_offset = addr;
+		coproc[i].ram_size = size;
+		++i;
 	}
-	for (i = 0; i < coproc_info.max_coprs; ++i)
-		if (coproc[i].ram_offset && coproc[i].ram_size &&
-		    ((coproc[i].ram_offset + coproc[i].ram_size) <
-		     PHYSADDR(memory_end)))
-			reserve_bootmem(coproc[i].ram_offset,
-					coproc[i].ram_size);
-		else
-			coproc[i].ram_offset = coproc[i].ram_size = 0;
 
-	return 0;
+	if (*cmdl) {
+		printk(too_many_warn);
+	}
 
-      args_error:
-	printk(KERN_ERR "Coproc. args: %s. Coproc. ignored!\n", error_msg);
-	return -EINVAL;
+	for (i = 0; i < coproc_info.max_coprs; ++i) {
+		if (coproc[i].ram_size) {
+			void* mem;
+			addr = coproc[i].ram_offset;
+			size = coproc[i].ram_size;
+			/* Switch to __alloc_bootmem_nopanic or
+			 * __alloc_bootmem_core when we update the kernel. */
+			mem = __alloc_bootmem(size, PAGE_SIZE, addr);
+			if (mem != __va(addr)) {
+				if (mem) {
+					free_bootmem(virt_to_phys(mem), size);
+				}
+				printk(alloc_error, addr);
+
+				/* TODO: It would be a good idea to disable the
+				 * co-processor here but at present we cannot
+				 * do so. Basically we haven't actually checked
+				 * that the coprocessor image and the kernel
+				 * memory overlap. Without this check we cannot
+				 * disable the coprocessor since failure to
+				 * allocate from bootmem is *expected* in this
+				 * case.
+				 */
+				/*coproc[i].ram_offset = coproc[i].ram_size = 0;*/
+			}
+		}
+	}
+
+	return 1;
+
+args_error:
+	printk(error_msg);
+	return 1;
 }
 
 __setup("coprocessor_mem=", parse_coproc_mem);

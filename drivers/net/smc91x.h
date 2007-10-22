@@ -270,7 +270,8 @@ SMC_outw(u16 val, void __iomem *ioaddr, int reg)
 
 #elif defined(CONFIG_CPU_SUBTYPE_ST40)
 
-#if defined(CONFIG_SH_ST_MB411)
+#if defined(CONFIG_SH_ST_MB411) || \
+      defined(CONFIG_SH_ST_MB442)
 /* 16 bit on board SMC91C111. No address shifting required.
  * Note we can't set SMC_CAN_USE_32BIT. This would causes SMC_SELECT_BANK
  * to do a SMC_outl, which on a 16 bit bus translates into two 16 bit writes.

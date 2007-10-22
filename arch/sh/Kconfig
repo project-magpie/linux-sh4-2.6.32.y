@@ -304,6 +304,16 @@ config SH_ST_MB411
 	  ST board ID: mb411). More information at:
 	  <http://www.stlinux.com/boards/mb411/>
 
+config SH_ST_MB442
+	bool "mb442: STB7100 Reference board"
+	depends on CPU_SUBTYPE_STB7100
+	help
+	  Select STB7100 Reference if configuring for an
+	  STMicroelectronics STB7100 Reference Board (product code: STB7100-REF).
+	  This is sometimes referred to as the CoCo board.
+	  More information at:
+	  <http://www.stlinux.com/boards/mb442/>
+
 config SH_HP6XX
 	bool "HP6XX"
 	select SYS_SUPPORTS_APM_EMULATION

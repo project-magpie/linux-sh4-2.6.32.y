@@ -93,14 +93,15 @@ static int __init nwhw_config(void)
 
         dev = __dev_get_by_name(user_dev_name);
 	if (! dev) {
-		printk("Failed to find device\n");
+		printk("%s: device not found\n", __FUNCTION__);
 		return -1;
 	}
 
 	if (valid_ether) {
 		if (!dev->set_mac_address ||
 		    dev->set_mac_address(dev, &ether_addr)) {
-			printk("Failed to set MAC address\n");
+			printk(KERN_WARNING "%s: not set MAC address...\n",
+				__FUNCTION__);
 		}
 	}
 
@@ -128,6 +129,27 @@ static int __init nwhw_config(void)
 }
 
 device_initcall(nwhw_config);
+
+#if defined (CONFIG_NETPOLL)
+void nwhw_uconfig(struct net_device *dev)
+{
+	struct sockaddr ether_addr;
+	int valid_ether = user_hw_addr[0];
+
+	if (valid_ether) {
+		valid_ether = parse_ether(user_hw_addr, &ether_addr);
+		if (! valid_ether) {
+			printk("%s: failed to parse ether addr: %s\n",
+			__FUNCTION__, user_hw_addr);
+			return;
+		}
+	}
+	if (!dev->set_mac_address || dev->set_mac_address(dev, &ether_addr)) {
+		printk(KERN_WARNING "%s: not set MAC address\n", __FUNCTION__);
+		return;
+	}
+}
+#endif
 
 static int __init nwhw_config_setup(char* str)
 {

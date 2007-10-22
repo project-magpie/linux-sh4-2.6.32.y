@@ -55,6 +55,10 @@
 #define SSC_CTL_MS		 0x100
 #define SSC_CTL_EN		 0x200
 #define SSC_CTL_LPB		 0x400
+#define SSC_CTL_EN_TX_FIFO       0x800
+#define SSC_CTL_EN_RX_FIFO       0x1000
+#define SSC_CTL_EN_CLST_RX       0x2000
+
 /* SSC Interrupt Enable */
 #define SSC_IEN               	0x10
 #define SSC_IEN_RIEN		0x1
@@ -67,6 +71,9 @@
 #define SSC_IEN_ARBLEN		0x100
 #define SSC_IEN_NACKEN		0x400
 #define SSC_IEN_REPSTRTEN	0x800
+#define SSC_IEN_TX_FIFO_HALF	0x1000
+#define SSC_IEN_RX_FIFO_FULL	0x4000
+
 /* SSC Status */
 #define SSC_STA                   0x14
 #define SSC_STA_RIR		  0x1
@@ -81,6 +88,10 @@
 #define SSC_STA_BUSY		0x200
 #define SSC_STA_NACK		0x400
 #define SSC_STA_REPSTRT		0x800
+#define SSC_STA_TX_FIFO_HALF	0x1000
+#define SSC_STA_TX_FIFO_FULL    0x2000
+#define SSC_STA_RX_FIFO_HALF    0x4000
+
 /*SSC I2C Control */
 #define SSC_I2C               	0x18
 #define SSC_I2C_I2CM		0x1
@@ -131,9 +142,14 @@
 #define SSC_PRSC		0x104
 #define SSC_PRSC_VALUE          0x0f
 
+/* SSC Max delay width*/
+#define SSC_MAX_DELAY		0x108
 
-#define SSC_TXFIFO_SIZE         0x7
-#define SSC_RXFIFO_SIZE         0x7
+/* SSC Prescaler for delay in dataout */
+#define SSC_PRSC_DATAOUT	0x10c
+
+#define SSC_TXFIFO_SIZE         0x8
+#define SSC_RXFIFO_SIZE         0x8
 /*
  * The I2C timing register could be ready
  * for normal or fast rate

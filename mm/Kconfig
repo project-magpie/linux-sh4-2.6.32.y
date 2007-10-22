@@ -177,3 +177,14 @@ config NR_QUICK
 config VIRT_TO_BUS
 	def_bool y
 	depends on !ARCH_NO_VIRT_TO_BUS
+
+config BPA2
+	bool "Big Physical Area version 2"
+	---help---
+	  Enables kernel support for reserving large areas of physical
+	  memory at boot-time for use by certain device drivers (such as
+	  video framegrabbers, etc.) which require it. This is backwards
+	  compatible wit the origional "Big Physical Area" API,
+	  but with extensions for multiple areas. It can also be configured
+	  from the architecture specific setup code.
+

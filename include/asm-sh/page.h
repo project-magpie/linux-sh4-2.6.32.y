@@ -154,8 +154,12 @@ typedef struct { unsigned long pgd; } pgd_t;
 /*
  * Slub defaults to 8-byte alignment, we're only interested in 4.
  * Slab defaults to BYTES_PER_WORD, which ends up being the same anyways.
+ *
+ * However some drivers need to perform DMA into kmalloc'ed buffers
+ * and so we have to increase the alignment for this.
  */
-#define ARCH_KMALLOC_MINALIGN	4
+/* #define ARCH_KMALLOC_MINALIGN	4 */
+#define ARCH_KMALLOC_MINALIGN	L1_CACHE_BYTES
 #define ARCH_SLAB_MINALIGN	4
 
 #endif /* __KERNEL__ */

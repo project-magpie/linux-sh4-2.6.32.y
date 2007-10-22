@@ -926,6 +926,8 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 
 		if ((var->activate & FB_ACTIVATE_MASK) == FB_ACTIVATE_NOW) {
 			struct fb_videomode mode;
+			struct fb_var_screeninfo oldvar = info->var;
+			int err = 0;
 
 			if (info->fbops->fb_get_caps) {
 				ret = fb_check_caps(info, var, activate);
@@ -936,8 +938,12 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 
 			info->var = *var;
 
-			if (info->fbops->fb_set_par)
-				info->fbops->fb_set_par(info);
+			if (info->fbops->fb_set_par) {
+				if((err = info->fbops->fb_set_par(info))) {
+					info->var = oldvar;
+					return err;
+				}
+			}
 
 			fb_pan_display(info, &info->var);
 			fb_set_cmap(&info->cmap, info);

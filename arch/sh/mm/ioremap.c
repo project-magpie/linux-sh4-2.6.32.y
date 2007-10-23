@@ -138,7 +138,7 @@ void __iounmap(void __iomem *addr)
 	unsigned long vaddr = (unsigned long __force)addr;
 	struct vm_struct *p;
 
-	if (PXSEG(phys_addr) == P4SEG)
+	if (PXSEG(vaddr) == P4SEG)
 		return;
 
 #ifndef CONFIG_32BIT

@@ -125,8 +125,8 @@ typedef struct { unsigned long pgd; } pgd_t;
 #define __pa(x)			((unsigned long)(x)-PAGE_OFFSET+__MEMORY_START)
 #define __va(x)			((void *)((unsigned long)(x)+PAGE_OFFSET-__MEMORY_START))
 #else
-#define __pa(x)			((unsigned long)(x)-PAGE_OFFSET+__MEMORY_START)
-#define __va(x)			((void *)((unsigned long)(x)+PAGE_OFFSET-__MEMORY_START))
+#define __pa(x)			((unsigned long)(x)-PAGE_OFFSET)
+#define __va(x)			((void *)((unsigned long)(x)+PAGE_OFFSET))
 #endif
 
 #define pfn_to_kaddr(pfn)	__va((pfn) << PAGE_SHIFT)

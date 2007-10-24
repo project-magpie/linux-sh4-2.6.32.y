@@ -209,11 +209,8 @@ void __init paging_init(void)
 	free_area_init_nodes(max_zone_pfns);
 
 	set_fixmap_nocache(FIX_UNCACHED_CODE, __pa(&_start_uncached));
-#if 0
-	cached_to_uncached = fix_to_virt(FIX_UNCACHED_CODE) -
-		(unsigned long)&_start_uncached;
-#elif 0
-	cached_to_uncached = 0x38000000;
+#ifndef CONFIG_32BIT
+	cached_to_uncached = 0x20000000;
 #endif
 }
 

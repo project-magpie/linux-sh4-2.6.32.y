@@ -152,7 +152,8 @@ do {								\
 #define __get_user_nocheck(x,ptr,size)				\
 ({								\
 	long __gu_err, __gu_val;				\
-	__get_user_size(__gu_val, (ptr), (size), __gu_err);	\
+	__typeof__(*(ptr)) *__pu_addr = (ptr);  \
+	__get_user_size(__gu_val, (__pu_addr), (size), __gu_err);	\
 	(x) = (__typeof__(*(ptr)))__gu_val;			\
 	__gu_err;						\
 })
@@ -160,9 +161,10 @@ do {								\
 #define __get_user_check(x,ptr,size)					\
 ({									\
 	long __gu_err, __gu_val;					\
-	__chk_user_ptr(ptr);						\
-	if (likely(__addr_ok((unsigned long)(ptr)))) {			\
-		__get_user_size(__gu_val, (ptr), (size), __gu_err);	\
+	__typeof__(*(ptr)) *__pu_addr = (ptr);	\
+	__chk_user_ptr(__pu_addr);						\
+	if (likely(__addr_ok((unsigned long)(__pu_addr)))) {			\
+		__get_user_size(__gu_val, (__pu_addr), (size), __gu_err);	\
 	} else {							\
 		__gu_err = -EFAULT;					\
 		__gu_val = 0;						\

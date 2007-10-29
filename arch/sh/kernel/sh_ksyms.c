@@ -44,6 +44,14 @@ EXPORT_SYMBOL(memset);
 EXPORT_SYMBOL(memmove);
 EXPORT_SYMBOL(__copy_user);
 
+#ifdef CONFIG_FLATMEM
+#include <linux/bootmem.h>
+EXPORT_SYMBOL(min_low_pfn);     /* defined by bootmem.c, but not exported by gen
+eric code */
+EXPORT_SYMBOL(max_low_pfn);     /* defined by bootmem.c, but not exported by gen
+eric code */
+#endif
+
 #ifdef CONFIG_MMU
 EXPORT_SYMBOL(get_vm_area);
 #endif

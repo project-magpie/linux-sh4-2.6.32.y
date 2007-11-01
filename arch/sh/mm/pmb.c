@@ -27,6 +27,7 @@
 #include <asm/pgtable.h>
 #include <asm/mmu.h>
 #include <asm/io.h>
+#include <asm/mmu_context.h>
 
 #define DPRINTK(fmt, args...) printk(KERN_ERR "%s: " fmt, __FUNCTION__, ## args)
 
@@ -429,6 +430,11 @@ apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapp
 				entry->flags | flags, entry->pos);
 		entry = entry->next;
 	} while (entry);
+
+	/* Flush out the TLB */
+	i =  ctrl_inl(MMUCR);
+	i |= MMUCR_TI;
+	ctrl_outl(i, MMUCR);
 
 	back_to_cached();
 }

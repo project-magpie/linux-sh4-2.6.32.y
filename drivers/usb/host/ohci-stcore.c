@@ -161,7 +161,9 @@ static int ohci_hcd_stm_remove(struct platform_device *pdev)
 static struct platform_driver ohci_hcd_stm_driver = {
 	.driver = {
 		.name = "stm-ohci",
+                .bus = &platform_bus_type
 	},
 	.probe = ohci_hcd_stm_probe,
 	.remove = ohci_hcd_stm_remove,
+        .shutdown = usb_hcd_platform_shutdown,
 };

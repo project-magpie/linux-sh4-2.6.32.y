@@ -154,7 +154,7 @@ static struct plat_usb_data usb_wrapper = {
 static u64 st40_dma_mask = 0xfffffff;
 
 static struct platform_device  st40_ohci_device = {
-	.name = "ST40-ohci",
+	.name = "stm-ohci",
 	.id=1,
 	.dev = {
 		.dma_mask = &st40_dma_mask,
@@ -166,7 +166,7 @@ static struct platform_device  st40_ohci_device = {
 };
 
 static struct platform_device  st40_ehci_device = {
-	.name = "ST40-ehci",
+	.name = "stm-ehci",
 	.id=2,
 	.dev = {
 		.dma_mask = &st40_dma_mask,

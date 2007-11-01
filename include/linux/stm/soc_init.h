@@ -51,7 +51,7 @@
 
 #define USB_EHCI_DEVICE(_port, _base, _irq)				\
 {									\
-	.name = "ST40-ehci",						\
+	.name = "stm-ehci",						\
 	.id=_port,							\
 	.dev = {							\
 		.dma_mask = &st40_dma_mask,				\
@@ -76,7 +76,7 @@
 
 #define USB_OHCI_DEVICE(_port, _base, _irq)				\
 {									\
-	.name = "ST40-ohci",						\
+	.name = "stm-ohci",						\
 	.id=_port,							\
 	.dev = {							\
 		.dma_mask = &st40_dma_mask,				\

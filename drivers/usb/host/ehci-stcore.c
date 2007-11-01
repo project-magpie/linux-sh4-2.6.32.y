@@ -173,7 +173,7 @@ static struct platform_driver ehci_hcd_st40_driver = {
 	.remove = ehci_hcd_st40_driver_remove,
 	.shutdown = usb_hcd_platform_shutdown,
 	.driver = {
-		.name = "ST40-ehci",
+		.name = "stm-ehci",
 		.bus = &platform_bus_type
 	}
 };

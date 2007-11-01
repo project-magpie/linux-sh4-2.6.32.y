@@ -114,10 +114,10 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION(DEVICE_NAME " ALSA driver");
 MODULE_SUPPORTED_DEVICE("{{STM," DEVICE_NAME "}}");
 
-static int snd_pcm_playback_hwfree(snd_pcm_substream_t * substream)
+static int snd_pcm_playback_hwfree(struct snd_pcm_substream * substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 
         chip->card_data->in_use = 0;
 
@@ -141,14 +141,14 @@ static int snd_pcm_playback_hwfree(snd_pcm_substream_t * substream)
 }
 
 
-static snd_pcm_uframes_t snd_pcm_playback_pointer(snd_pcm_substream_t * substream)
+static snd_pcm_uframes_t snd_pcm_playback_pointer(struct snd_pcm_substream * substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	return chip->playback_ops->playback_pointer(substream);
 }
 
 
-static int snd_pcm_playback_prepare(snd_pcm_substream_t * substream)
+static int snd_pcm_playback_prepare(struct snd_pcm_substream * substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	unsigned long flags=0;
@@ -164,10 +164,12 @@ static int snd_pcm_playback_prepare(snd_pcm_substream_t * substream)
 	if((card_list[PCM0_DEVICE].in_use               && (chip->card_data->major == PROTOCOL_CONVERTER_DEVICE)) ||
 	   (card_list[PROTOCOL_CONVERTER_DEVICE].in_use && (chip->card_data->major == PCM0_DEVICE)))
 	{
+		int converter_enable;
+
 		if(chip->card_data->minor == SUB_DEVICE1)
 			goto setup;
 
-		int converter_enable = (chip->card_data->major==PROTOCOL_CONVERTER_DEVICE ? 1:0);
+		converter_enable = (chip->card_data->major==PROTOCOL_CONVERTER_DEVICE ? 1:0);
 		printk("%s: device (%d,%d) is in use by (%d,%d)\n",
                 	__FUNCTION__,
                 	chip->card_data->major,
@@ -191,7 +193,7 @@ setup:
 }
 
 
-static int snd_pcm_dev_free(snd_device_t *dev)
+static int snd_pcm_dev_free(struct snd_device *dev)
 {
 	pcm_hw_t *snd_card = dev->device_data;
 
@@ -205,7 +207,7 @@ static int snd_pcm_dev_free(snd_device_t *dev)
 }
 
 
-static int snd_playback_trigger(snd_pcm_substream_t * substream, int cmd)
+static int snd_playback_trigger(struct snd_pcm_substream * substream, int cmd)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	switch(cmd)
@@ -231,7 +233,7 @@ static int snd_playback_trigger(snd_pcm_substream_t * substream, int cmd)
 }
 
 
-static int snd_pcm_playback_close(snd_pcm_substream_t * substream)
+static int snd_pcm_playback_close(struct snd_pcm_substream * substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 
@@ -254,14 +256,14 @@ static int snd_pcm_playback_close(snd_pcm_substream_t * substream)
 }
 
 
-static int snd_pcm_playback_hwparams(snd_pcm_substream_t * substream,
-					 snd_pcm_hw_params_t * hw_params)
+static int snd_pcm_playback_hwparams(struct snd_pcm_substream* substream,
+					 struct snd_pcm_hw_params* hw_params)
 {
 	int   err  = 0;
 	int   size = 0;
 	char* addr = 0;
 
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	size = params_buffer_bytes(hw_params);
 
 	if (STM_USE_BIGPHYS_AREA && size > PCM_BIGALLOC_SIZE){
@@ -318,12 +320,12 @@ exit:
  * for each alsa 10 channel frame. This means we also need to ensure that
  * the number of samples is an exact multiple of the number of channels.
  */
-static int snd_pcm_period_size_rule(snd_pcm_hw_params_t *params,
-				     snd_pcm_hw_rule_t   *rule)
+static int snd_pcm_period_size_rule(struct snd_pcm_hw_params *params,
+				     struct snd_pcm_hw_rule *rule)
 {
-	snd_interval_t *periodsize;
-	snd_interval_t *channels;
-	snd_interval_t  newperiodsize;
+	struct snd_interval *periodsize;
+	struct snd_interval *channels;
+	struct snd_interval  newperiodsize;
 
 	int refine = 0;
 
@@ -350,9 +352,9 @@ static int snd_pcm_period_size_rule(snd_pcm_hw_params_t *params,
 }
 
 
-static int snd_pcm_playback_open(snd_pcm_substream_t * substream)
+static int snd_pcm_playback_open(struct snd_pcm_substream * substream)
 {
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	int err = 0;
 
@@ -398,8 +400,8 @@ static int snd_pcm_playback_open(snd_pcm_substream_t * substream)
 
 static struct page *snd_pcm_mmap_data_nopage(struct vm_area_struct *area, unsigned long address, int *type)
 {
-        snd_pcm_substream_t *substream = (snd_pcm_substream_t *)area->vm_private_data;
-        snd_pcm_runtime_t *runtime;
+        struct snd_pcm_substream *substream = (struct snd_pcm_substream *)area->vm_private_data;
+        struct snd_pcm_runtime *runtime;
         unsigned long offset;
         struct page * page;
         void *vaddr;
@@ -441,7 +443,7 @@ static struct vm_operations_struct snd_pcm_vm_ops_data =
  * mmap the DMA buffer on RAM
  */
 
-static int snd_pcm_mmap(snd_pcm_substream_t *substream, struct vm_area_struct *area)
+static int snd_pcm_mmap(struct snd_pcm_substream *substream, struct vm_area_struct *area)
 {
         area->vm_ops = &snd_pcm_vm_ops_data;
         area->vm_private_data = substream;
@@ -449,15 +451,15 @@ static int snd_pcm_mmap(snd_pcm_substream_t *substream, struct vm_area_struct *a
 
         area->vm_page_prot = pgprot_noncached(area->vm_page_prot);
 
-        atomic_inc(&substream->runtime->mmap_count);
+        atomic_inc(&substream->mmap_count);
         return 0;
 }
 
 
-static int snd_pcm_silence(snd_pcm_substream_t *substream, int channel,
+static int snd_pcm_silence(struct snd_pcm_substream *substream, int channel,
                             snd_pcm_uframes_t    pos,       snd_pcm_uframes_t count)
 {
-        snd_pcm_runtime_t *runtime = substream->runtime;
+        struct snd_pcm_runtime *runtime = substream->runtime;
         char *hwbuf;
 	int   totalbytes;
 
@@ -474,13 +476,13 @@ static int snd_pcm_silence(snd_pcm_substream_t *substream, int channel,
 }
 
 
-static int snd_pcm_copy(snd_pcm_substream_t	*substream,
+static int snd_pcm_copy(struct snd_pcm_substream	*substream,
 			 int			 channel,
 			 snd_pcm_uframes_t	 pos,
 			 void __user		*buf,
 			 snd_pcm_uframes_t	 count)
 {
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	char		  *hwbuf;
 	int                totalbytes;
 
@@ -535,7 +537,7 @@ void iec60958_default_channel_status(pcm_hw_t *chip)
 }
 
 
-void iec60958_set_runtime_status(snd_pcm_substream_t *substream)
+void iec60958_set_runtime_status(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 
@@ -603,7 +605,7 @@ void iec60958_set_runtime_status(snd_pcm_substream_t *substream)
 }
 
 
-static int snd_iec60958_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
+static int snd_iec60958_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_IEC958;
 	uinfo->count = 1;
@@ -611,8 +613,8 @@ static int snd_iec60958_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uin
 }
 
 
-static int snd_iec60958_default_get(snd_kcontrol_t * kcontrol,
-				    snd_ctl_elem_value_t * ucontrol)
+static int snd_iec60958_default_get(struct snd_kcontrol *kcontrol,
+				    struct snd_ctl_elem_value *ucontrol)
 {
 	pcm_hw_t *chip = snd_kcontrol_chip(kcontrol);
 
@@ -625,8 +627,8 @@ static int snd_iec60958_default_get(snd_kcontrol_t * kcontrol,
 }
 
 
-static int snd_iec60958_default_put(snd_kcontrol_t * kcontrol,
-				    snd_ctl_elem_value_t * ucontrol)
+static int snd_iec60958_default_put(struct snd_kcontrol *kcontrol,
+				    struct snd_ctl_elem_value *ucontrol)
 {
 	pcm_hw_t *chip = snd_kcontrol_chip(kcontrol);
 	u32 val, old;
@@ -651,7 +653,7 @@ static int snd_iec60958_default_put(snd_kcontrol_t * kcontrol,
 }
 
 
-static snd_kcontrol_new_t snd_iec60958_default __devinitdata =
+static struct snd_kcontrol_new snd_iec60958_default __devinitdata =
 {
 	.iface =	SNDRV_CTL_ELEM_IFACE_PCM,
 	.name =         SNDRV_CTL_NAME_IEC958("",PLAYBACK,DEFAULT),
@@ -661,7 +663,7 @@ static snd_kcontrol_new_t snd_iec60958_default __devinitdata =
 };
 
 
-static snd_kcontrol_new_t snd_iec60958_stream __devinitdata =
+static struct snd_kcontrol_new snd_iec60958_stream __devinitdata =
 {
 	.iface =	SNDRV_CTL_ELEM_IFACE_PCM,
 	.name =         SNDRV_CTL_NAME_IEC958("",PLAYBACK,PCM_STREAM),
@@ -670,8 +672,8 @@ static snd_kcontrol_new_t snd_iec60958_stream __devinitdata =
 	.put =		snd_iec60958_default_put
 };
 
-static int snd_iec60958_maskc_get(snd_kcontrol_t * kcontrol,
-				  snd_ctl_elem_value_t * ucontrol)
+static int snd_iec60958_maskc_get(struct snd_kcontrol * kcontrol,
+				  struct snd_ctl_elem_value * ucontrol)
 {
 	ucontrol->value.iec958.status[0] = IEC958_AES0_NONAUDIO          |
 					   IEC958_AES0_PROFESSIONAL      |
@@ -688,8 +690,8 @@ static int snd_iec60958_maskc_get(snd_kcontrol_t * kcontrol,
 }
 
 
-static int snd_iec60958_maskp_get(snd_kcontrol_t * kcontrol,
-				       snd_ctl_elem_value_t * ucontrol)
+static int snd_iec60958_maskp_get(struct snd_kcontrol *kcontrol,
+				       struct snd_ctl_elem_value *ucontrol)
 {
 	ucontrol->value.iec958.status[0] = IEC958_AES0_NONAUDIO     |
 					   IEC958_AES0_PROFESSIONAL |
@@ -702,7 +704,7 @@ static int snd_iec60958_maskp_get(snd_kcontrol_t * kcontrol,
 }
 
 
-static snd_kcontrol_new_t snd_iec60958_maskc __devinitdata =
+static struct snd_kcontrol_new snd_iec60958_maskc __devinitdata =
 {
 	.access =	SNDRV_CTL_ELEM_ACCESS_READ,
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -712,7 +714,7 @@ static snd_kcontrol_new_t snd_iec60958_maskc __devinitdata =
 };
 
 
-static snd_kcontrol_new_t snd_iec60958_mask __devinitdata =
+static struct snd_kcontrol_new snd_iec60958_mask __devinitdata =
 {
 	.access =	SNDRV_CTL_ELEM_ACCESS_READ,
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -722,7 +724,7 @@ static snd_kcontrol_new_t snd_iec60958_mask __devinitdata =
 };
 
 
-static snd_kcontrol_new_t snd_iec60958_maskp __devinitdata =
+static struct snd_kcontrol_new snd_iec60958_maskp __devinitdata =
 {
 	.access =	SNDRV_CTL_ELEM_ACCESS_READ,
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -732,7 +734,7 @@ static snd_kcontrol_new_t snd_iec60958_maskp __devinitdata =
 };
 
 
-static int snd_iec60958_raw_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
+static int snd_iec60958_raw_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info * uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
 	uinfo->count = 1;
@@ -742,7 +744,7 @@ static int snd_iec60958_raw_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t *
 }
 
 
-static int snd_iec60958_raw_get(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t * ucontrol)
+static int snd_iec60958_raw_get(struct snd_kcontrol * kcontrol, struct snd_ctl_elem_value * ucontrol)
 {
 	pcm_hw_t *chip = snd_kcontrol_chip(kcontrol);
 	ucontrol->value.integer.value[0] = chip->iec60958_rawmode;
@@ -750,7 +752,7 @@ static int snd_iec60958_raw_get(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t 
 }
 
 
-static int snd_iec60958_raw_put(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t * ucontrol)
+static int snd_iec60958_raw_put(struct snd_kcontrol * kcontrol, struct snd_ctl_elem_value * ucontrol)
 {
 	pcm_hw_t *chip = snd_kcontrol_chip(kcontrol);
 	unsigned char old, val;
@@ -764,7 +766,7 @@ static int snd_iec60958_raw_put(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t 
 }
 
 
-static snd_kcontrol_new_t snd_iec60958_raw __devinitdata = {
+static struct snd_kcontrol_new snd_iec60958_raw __devinitdata = {
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name =		SNDRV_CTL_NAME_IEC958("",PLAYBACK,NONE) "RAW",
 	.info =		snd_iec60958_raw_info,
@@ -773,14 +775,14 @@ static snd_kcontrol_new_t snd_iec60958_raw __devinitdata = {
 };
 
 
-static int snd_iec60958_sync_get(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t * ucontrol)
+static int snd_iec60958_sync_get(struct snd_kcontrol * kcontrol, struct snd_ctl_elem_value * ucontrol)
 {
 	ucontrol->value.integer.value[0] = global_spdif_sync_status;
 	return 0;
 }
 
 
-static int snd_iec60958_sync_put(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t * ucontrol)
+static int snd_iec60958_sync_put(struct snd_kcontrol * kcontrol, struct snd_ctl_elem_value * ucontrol)
 {
 
 	unsigned char old, val;
@@ -792,7 +794,7 @@ static int snd_iec60958_sync_put(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t
 }
 
 
-static snd_kcontrol_new_t snd_iec60958_sync __devinitdata = {
+static struct snd_kcontrol_new snd_iec60958_sync __devinitdata = {
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name =		SNDRV_CTL_NAME_IEC958("",PLAYBACK,NONE) "PCM Sync",
 	.info =		snd_iec60958_raw_info, /* Reuse from the RAW switch */
@@ -829,7 +831,7 @@ static iec_encoding_mode_tbl_t iec_xfer_modes[12]=
 
 
 
-static int snd_iec_encoding_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
+static int snd_iec_encoding_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info * uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
 	uinfo->count = 1;
@@ -841,7 +843,7 @@ static int snd_iec_encoding_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t *
 	return 0;
 }
 
-static int snd_iec_encoding_get(snd_kcontrol_t* kcontrol,snd_ctl_elem_value_t* ucontrol)
+static int snd_iec_encoding_get(struct snd_kcontrol* kcontrol,struct snd_ctl_elem_value* ucontrol)
 {
 	int i;
 
@@ -851,8 +853,8 @@ static int snd_iec_encoding_get(snd_kcontrol_t* kcontrol,snd_ctl_elem_value_t* u
 	return 0;
 }
 
-static int snd_iec_encoding_put(	 snd_kcontrol_t * kcontrol,
-					 snd_ctl_elem_value_t * ucontrol)
+static int snd_iec_encoding_put(	 struct snd_kcontrol * kcontrol,
+					 struct snd_ctl_elem_value * ucontrol)
 {
 	pcm_hw_t *chip = snd_kcontrol_chip(kcontrol);
 	spin_lock_irq(&chip->lock);
@@ -862,7 +864,7 @@ static int snd_iec_encoding_put(	 snd_kcontrol_t * kcontrol,
 	return 0;
 }
 
-static snd_kcontrol_new_t snd_iec_encoding __devinitdata = {
+static struct snd_kcontrol_new snd_iec_encoding __devinitdata = {
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name =		SNDRV_CTL_NAME_IEC958("",PLAYBACK,NONE)"Encoding",
 	.info =		snd_iec_encoding_info,
@@ -870,7 +872,7 @@ static snd_kcontrol_new_t snd_iec_encoding __devinitdata = {
 	.put =		snd_iec_encoding_put,
 };
 
-static int snd_clock_put(snd_kcontrol_t * kcontrol,snd_ctl_elem_value_t * ucontrol)
+static int snd_clock_put(struct snd_kcontrol * kcontrol,struct snd_ctl_elem_value * ucontrol)
 {
 
 	pcm_hw_t *chip = snd_kcontrol_chip(kcontrol);
@@ -888,7 +890,7 @@ static int snd_clock_put(snd_kcontrol_t * kcontrol,snd_ctl_elem_value_t * ucontr
 
 
 
-static int snd_clock_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
+static int snd_clock_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info * uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
 	uinfo->value.integer.min = -10000;
@@ -897,7 +899,7 @@ static int snd_clock_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
 	return 0;
 }
 
-static snd_kcontrol_new_t snd_clock_adjust  __devinitdata = {
+static struct snd_kcontrol_new snd_clock_adjust  __devinitdata = {
 	.iface =	SNDRV_CTL_ELEM_IFACE_PCM,
 	.name =		"PLAYBACK Clock Adjust",
 	.info =		snd_clock_info,
@@ -909,7 +911,7 @@ static snd_kcontrol_new_t snd_clock_adjust  __devinitdata = {
 static int __devinit snd_generic_create_controls(pcm_hw_t *chip)
 {
 	int err;
-	snd_kcontrol_t *kctl;
+	struct snd_kcontrol *kctl;
 
 	err = snd_ctl_add(chip->card, kctl = snd_ctl_new1(&snd_clock_adjust,chip));
 	if(err < 0)
@@ -922,7 +924,7 @@ static int __devinit snd_generic_create_controls(pcm_hw_t *chip)
 static int __devinit snd_iec60958_create_controls(pcm_hw_t *chip)
 {
 	int err;
-	snd_kcontrol_t *kctl;
+	struct snd_kcontrol *kctl;
 
 	if(chip->card_data->input_type == STM_DATA_TYPE_IEC60958)
 	{
@@ -970,7 +972,7 @@ static int __devinit snd_iec60958_create_controls(pcm_hw_t *chip)
 }
 
 
-static void format_iec60958_frame(snd_pcm_substream_t *substream,
+static void format_iec60958_frame(struct snd_pcm_substream *substream,
 				  u32                 *left_subframe,
 				  u32                 *right_subframe)
 {
@@ -1067,13 +1069,13 @@ static void format_iec60958_frame(snd_pcm_substream_t *substream,
  * to get IEC60958 formatting. Note the interface is slightly manipulated
  * to allow channels to be skipped in the buffer.
  */
-int snd_pcm_format_iec60958_copy(snd_pcm_substream_t	*substream,
+int snd_pcm_format_iec60958_copy(struct snd_pcm_substream	*substream,
 				 int			data_channels,
 			 	 snd_pcm_uframes_t	pos,
 			 	 void	__user		*buffer,
 			 	 snd_pcm_uframes_t	count)
 {
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	u32 __user        *buf32   = (u32 __user *) buffer;
 	int i;
 
@@ -1128,12 +1130,12 @@ int snd_pcm_format_iec60958_copy(snd_pcm_substream_t	*substream,
 /*
  * This is the ALSA interface for the card "ops" structure
  */
-static int snd_iec60958_silence(snd_pcm_substream_t *substream,
+static int snd_iec60958_silence(struct snd_pcm_substream *substream,
 				int                  channel,
 				snd_pcm_uframes_t    pos,
 				snd_pcm_uframes_t    count)
 {
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	u32               *hwbuf;
 	static const int dstwidth  = sizeof(u32)*2;
 	int i;
@@ -1162,7 +1164,7 @@ static int snd_iec60958_silence(snd_pcm_substream_t *substream,
 }
 
 
-static int snd_iec60958_copy(snd_pcm_substream_t  *substream,
+static int snd_iec60958_copy(struct snd_pcm_substream  *substream,
 			     int                   channel,
 			     snd_pcm_uframes_t     pos,
 			     void __user          *buf,
@@ -1180,7 +1182,7 @@ static int snd_iec60958_copy(snd_pcm_substream_t  *substream,
 }
 
 
-static void snd_card_pcm_free(snd_pcm_t *pcm)
+static void snd_card_pcm_free(struct snd_pcm *pcm)
 {
 	DEBUG_PRINT(("snd_card_pcm_free(pcm = 0x%08lx)\n",pcm));
 
@@ -1188,7 +1190,7 @@ static void snd_card_pcm_free(snd_pcm_t *pcm)
 }
 
 
-static snd_pcm_ops_t  snd_card_playback_ops_pcm = {
+static struct snd_pcm_ops  snd_card_playback_ops_pcm = {
 	.open      =            snd_pcm_playback_open,
         .close     =            snd_pcm_playback_close,
         .mmap      =            snd_pcm_mmap,
@@ -1203,7 +1205,7 @@ static snd_pcm_ops_t  snd_card_playback_ops_pcm = {
 };
 
 
-static snd_pcm_ops_t  snd_card_playback_ops_iec60958 = {
+static struct snd_pcm_ops  snd_card_playback_ops_iec60958 = {
 	.open      =            snd_pcm_playback_open,
         .close     =            snd_pcm_playback_close,
         .mmap      =            snd_pcm_mmap,
@@ -1221,7 +1223,7 @@ static snd_pcm_ops_t  snd_card_playback_ops_iec60958 = {
 static int __devinit snd_card_pcm_allocate(pcm_hw_t *snd_card, int device,char* name)
 {
 	int err;
-	snd_pcm_t *pcm;
+	struct snd_pcm *pcm;
 
 	if(snd_card->card_data->input_type == STM_DATA_TYPE_IEC60958){
 

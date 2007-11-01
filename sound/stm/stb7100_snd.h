@@ -367,9 +367,9 @@ PCMIN_STA %x\n %x PCMIN_FMT %x\n %x AUD_IO_CTL %x\n %x IRQ_VECT_NR %x\n\n", \
 
 #endif /*STB7100_SND_H_*/
 
-static int snd_pcmin_stb710x_probe(pcm_hw_t *chip,snd_card_t *card,int dev);
-static int snd_spdif_stb710x_probe(pcm_hw_t **chip,snd_card_t **card,int dev);
-static int stb7100_create_converter_device(pcm_hw_t *chip,snd_card_t **this_card,int dev);
+static int snd_pcmin_stb710x_probe(pcm_hw_t *chip,struct snd_card *card,int dev);
+static int snd_spdif_stb710x_probe(pcm_hw_t **chip,struct snd_card **card,int dev);
+static int stb7100_create_converter_device(pcm_hw_t *chip,struct snd_card **this_card,int dev);
 
-static int stb7100_converter_program_player(snd_pcm_substream_t *substream);
+static int stb7100_converter_program_player(struct snd_pcm_substream *substream);
 static void stb7100_reset_pcm_player(pcm_hw_t *chip);

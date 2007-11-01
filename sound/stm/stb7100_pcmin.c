@@ -23,7 +23,7 @@
 #include <linux/platform_device.h>
 #include <linux/timer.h>
 
-static snd_pcm_hardware_t stb7100_pcmin_hw =
+static struct snd_pcm_hardware stb7100_pcmin_hw =
 {
 	.info =		(SNDRV_PCM_INFO_MMAP           |
 			 SNDRV_PCM_INFO_INTERLEAVED    |
@@ -49,16 +49,16 @@ static snd_pcm_hardware_t stb7100_pcmin_hw =
 	.periods_max	  = PCM_MAX_FRAMES
 };
 
-void stb7100_reset_pcmin(snd_pcm_substream_t *substream)
+void stb7100_reset_pcmin(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	writel(1,chip->pcm_player);
 	writel(0,chip->pcm_player);
 }
 
-static u32 get_target_time(snd_pcm_substream_t *substream)
+static u32 get_target_time(struct snd_pcm_substream *substream)
 {
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	u32 period_samples = bytes_to_samples(runtime,frames_to_bytes(runtime,runtime->period_size))/ runtime->channels;
 	u32 rate =runtime->rate;
 	/*TODO :- we may suffer from rounding err for 44.1 case,
@@ -70,13 +70,13 @@ static u32 get_target_time(snd_pcm_substream_t *substream)
 
 static void stb7100_pcmin_timer_irq(unsigned long handle)
 {
-	snd_pcm_substream_t *substream;
+	struct snd_pcm_substream *substream;
 	pcm_hw_t          *chip;
-	snd_pcm_runtime_t *runtime;
+	struct snd_pcm_runtime *runtime;
 	u32 pos,irqflags;
 	static u32 last_jiff;
 
-	substream =(snd_pcm_substream_t *) handle;
+	substream =(struct snd_pcm_substream *) handle;
 	runtime = substream->runtime;
 	chip     = snd_pcm_substream_chip(substream);
 
@@ -111,7 +111,7 @@ static void stb7100_pcmin_timer_irq(unsigned long handle)
 	spin_unlock_irqrestore(&chip->lock,irqflags);
 }
 
-static void stb7100_pcmin_stop_read(snd_pcm_substream_t *substream)
+static void stb7100_pcmin_stop_read(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	unsigned long irqflags;
@@ -132,7 +132,7 @@ static void stb7100_pcmin_stop_read(snd_pcm_substream_t *substream)
 
 }
 
-static void stb7100_pcmin_start_read(snd_pcm_substream_t *substream)
+static void stb7100_pcmin_start_read(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	unsigned long irqflags=0;
@@ -159,7 +159,7 @@ static void stb7100_pcmin_start_read(snd_pcm_substream_t *substream)
 
 
 
-static irqreturn_t stb7100_pcmin_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+static irqreturn_t stb7100_pcmin_interrupt(int irq, void *dev_id)
 {
 	unsigned long val;
 	pcm_hw_t *stb7100 = dev_id;
@@ -187,10 +187,10 @@ static struct stm_dma_req_config pcmin_req_config = {
 	.initiator	= 0, /* This was 1 for 7100, do we need to fix? */
 };
 
-static int stb7100_pcmin_program_fdma(snd_pcm_substream_t *substream)
+static int stb7100_pcmin_program_fdma(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t          *chip    = snd_pcm_substream_chip(substream);
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	unsigned long irqflags=0;
 	int err=0;
 
@@ -225,11 +225,11 @@ static int stb7100_pcmin_program_fdma(snd_pcm_substream_t *substream)
 	return err;
 }
 
-static int stb7100_program_pcmin(snd_pcm_substream_t *substream)
+static int stb7100_program_pcmin(struct snd_pcm_substream *substream)
 {
 
 	pcm_hw_t          *chip = snd_pcm_substream_chip(substream);
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	unsigned long ctrlreg, fmtreg;
 
 	/*The real SLCK format is to set data stable on falling edge*/
@@ -245,7 +245,7 @@ static int stb7100_program_pcmin(snd_pcm_substream_t *substream)
 	return 0;
 }
 
-static int stb7100_pcmin_program_hw(snd_pcm_substream_t *substream)
+static int stb7100_pcmin_program_hw(struct snd_pcm_substream *substream)
 {
 	int err=0;
 	if((err = stb7100_program_pcmin(substream)) < 0)
@@ -256,7 +256,7 @@ static int stb7100_pcmin_program_hw(snd_pcm_substream_t *substream)
 	return 0;
 }
 
-static int stb7100_pcmin_open(snd_pcm_substream_t *substream)
+static int stb7100_pcmin_open(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t          *chip = snd_pcm_substream_chip(substream);
 	int err=0;
@@ -323,12 +323,12 @@ static struct device alsa_pcmin_device = {
 };
 
 
-static int __init snd_pcmin_stb710x_probe(pcm_hw_t *in_chip,snd_card_t *card,int dev)
+static int __init snd_pcmin_stb710x_probe(pcm_hw_t *in_chip,struct snd_card *card,int dev)
 {
 	unsigned err=0;
 	pcm_hw_t * chip={0};
 
-	static snd_device_ops_t ops = {
+	static struct snd_device_ops ops = {
     		.dev_free = snd_pcm_dev_free,
 	};
 	if(driver_register(&alsa_pcmin_driver)==0){
@@ -357,7 +357,7 @@ static int __init snd_pcmin_stb710x_probe(pcm_hw_t *in_chip,snd_card_t *card,int
 
 	if(request_irq(	LINUX_PCMREADER_ALLREAD_IRQ,
 			stb7100_pcmin_interrupt,
-			SA_INTERRUPT,
+			IRQF_SHARED,
 			"STB7100_PCMIN",
 			(void*)chip)){
 

@@ -59,7 +59,7 @@ typedef struct {
         int                  minor;
         stm_snd_data_type_t  input_type;
         stm_snd_data_type_t  output_type;
-        snd_card_t          *device;
+        struct snd_card      *device;
         int                  in_use;
 } stm_snd_output_device_t;
 
@@ -189,7 +189,7 @@ typedef enum iec_encodings {
 
 typedef struct IEC60958 {
 	/* Channel status bits are the same for L/R subframes */
-       	snd_aes_iec958_t  channel;
+       	struct snd_aes_iec958    channel;
 
         /* Validity bits can be different on L and R e.g. in
          * professional applications
@@ -203,14 +203,14 @@ typedef struct IEC60958 {
 
 typedef struct {
 	int			(*free_device)     (struct pcm_hw_t *card);
-	int			(*open_device)     (snd_pcm_substream_t *substream);
-	int			(*program_hw)      (snd_pcm_substream_t *substream);
-	snd_pcm_uframes_t	(*playback_pointer)(snd_pcm_substream_t *substream);
+	int			(*open_device)     (struct snd_pcm_substream *substream);
+	int			(*program_hw)      (struct snd_pcm_substream *substream);
+	snd_pcm_uframes_t	(*playback_pointer)(struct snd_pcm_substream *substream);
 
-	void			(*start_playback)  (snd_pcm_substream_t *substream);
-	void			(*stop_playback)   (snd_pcm_substream_t *substream);
-	void			(*pause_playback)  (snd_pcm_substream_t *substream);
-	void			(*unpause_playback)(snd_pcm_substream_t *substream);
+	void			(*start_playback)  (struct snd_pcm_substream *substream);
+	void			(*stop_playback)   (struct snd_pcm_substream *substream);
+	void			(*pause_playback)  (struct snd_pcm_substream *substream);
+	void			(*unpause_playback)(struct snd_pcm_substream *substream);
 } stm_playback_ops_t;
 
 typedef struct _IEC61937 {
@@ -230,7 +230,7 @@ typedef struct pcmin_ctx{
 }pcmin_ctx;
 
 typedef struct pcm_hw_t {
-	snd_card_t		*card;
+	struct snd_card		*card;
 
 	spinlock_t		lock;
 	int			irq;
@@ -238,10 +238,10 @@ typedef struct pcm_hw_t {
 	unsigned long		buffer_start_addr;
 	unsigned long		pcmplayer_control;
 	unsigned long		irq_mask;
-	snd_pcm_hardware_t      hw;
+	struct snd_pcm_hardware hw;
 
 	snd_pcm_uframes_t    	hwbuf_current_addr;
-	snd_pcm_substream_t 	*current_substream;
+	struct snd_pcm_substream *current_substream;
 	char		   	*out_pipe;
 	char		    	*pcm_clock_reg;
 	char 			*pcm_player;
@@ -290,7 +290,7 @@ struct stm_freq_s {
 
 #define chip_t pcm_hw_t
 
-static int snd_pcm_dev_free(snd_device_t *dev);
+static int snd_pcm_dev_free(struct snd_device *dev);
 
 static int __devinit snd_card_pcm_allocate(pcm_hw_t *stm8000, int device,char* name);
 static int __devinit snd_iec60958_create_controls(pcm_hw_t *chip);
@@ -301,7 +301,7 @@ static int __devinit register_platform_driver(	struct platform_device *platform_
 void set_spdif_syncing_status(int enable);
 
 extern void iec60958_default_channel_status(pcm_hw_t *chip);
-extern void iec60958_set_runtime_status(snd_pcm_substream_t *substream);
+extern void iec60958_set_runtime_status(struct snd_pcm_substream *substream);
 
 
 #define DEBUG_PRINT(_x)

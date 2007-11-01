@@ -145,7 +145,7 @@ static unsigned long dev_fsynth_regs[4][SND_DRV_CARDS]= {
 #define SELECT_SYSBCLKINALT	(0x01 << 23)
 
 
-static snd_pcm_hardware_t stb7100_pcm_hw =
+static struct snd_pcm_hardware stb7100_pcm_hw =
 {
 	.info =		(SNDRV_PCM_INFO_MMAP           |
 			 SNDRV_PCM_INFO_INTERLEAVED    |
@@ -208,10 +208,10 @@ static struct stm_freq_s gClockSettings[NUM_CLOCK_SETTINGS] =
  * We can never calculate the exact output frequency from this driver,
  * so we utilise a quanta value which represents a % adjustment of each frequency
  * */
-int adjust_audio_clock(snd_pcm_substream_t *substream,int adjusts,int dir)
+int adjust_audio_clock(struct snd_pcm_substream *substream,int adjusts,int dir)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 
 	int i=0,total_shift=0;
 	unsigned long new_pe=0, peq=0,new_md=0,new_sdiv=0;
@@ -316,7 +316,7 @@ static void stb7100_reset_internal_DAC(pcm_hw_t *chip)
 }
 
 
-static void stb7100_pcm_stop_playback(snd_pcm_substream_t *substream)
+static void stb7100_pcm_stop_playback(struct snd_pcm_substream *substream)
 {
  	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	unsigned long reg=0;
@@ -372,7 +372,7 @@ static void stb7100_pcm_stop_playback(snd_pcm_substream_t *substream)
 }
 
 
-static void stb7100_pcm_start_playback(snd_pcm_substream_t *substream)
+static void stb7100_pcm_start_playback(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t     *chip = snd_pcm_substream_chip(substream);
 	unsigned long reg=0;
@@ -408,7 +408,7 @@ static void stb7100_pcm_start_playback(snd_pcm_substream_t *substream)
 }
 
 
-static void stb7100_pcm_unpause_playback(snd_pcm_substream_t *substream)
+static void stb7100_pcm_unpause_playback(struct snd_pcm_substream *substream)
 {
  	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	unsigned long reg=0;
@@ -426,7 +426,7 @@ static void stb7100_pcm_unpause_playback(snd_pcm_substream_t *substream)
 }
 
 
-static void stb7100_pcm_pause_playback(snd_pcm_substream_t *substream)
+static void stb7100_pcm_pause_playback(struct snd_pcm_substream *substream)
 {
         pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	unsigned long reg=0;
@@ -444,7 +444,7 @@ static void stb7100_pcm_pause_playback(snd_pcm_substream_t *substream)
 	spin_unlock(&chip->lock);
 }
 
-static snd_pcm_uframes_t stb7100_fdma_playback_pointer(snd_pcm_substream_t * substream)
+static snd_pcm_uframes_t stb7100_fdma_playback_pointer(struct snd_pcm_substream * substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	/*
@@ -458,7 +458,7 @@ static snd_pcm_uframes_t stb7100_fdma_playback_pointer(snd_pcm_substream_t * sub
 }
 
 
-static irqreturn_t stb7100_pcm_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+static irqreturn_t stb7100_pcm_interrupt(int irq, void *dev_id)
 {
 	unsigned long val;
 	pcm_hw_t *stb7100 = dev_id;
@@ -493,10 +493,10 @@ static struct stm_dma_req_config req_config = {
 	.initiator	= 0, /* This was 1 for 7100, do we need to fix? */
 };
 
-static int stb7100_program_fdma(snd_pcm_substream_t *substream)
+static int stb7100_program_fdma(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t          *chip    = snd_pcm_substream_chip(substream);
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	unsigned long irqflags=0;
 	int err=0;
 
@@ -534,10 +534,10 @@ static int stb7100_program_fdma(snd_pcm_substream_t *substream)
 }
 
 
-static int stb7100_program_fsynth(snd_pcm_substream_t *substream)
+static int stb7100_program_fsynth(struct snd_pcm_substream *substream)
 {
 	int i;
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
         unsigned long flags=0;
         int err=0, dev_num=0,sdiv=0;
@@ -599,10 +599,10 @@ exit:
 }
 
 
-static int stb7100_program_pcmplayer(snd_pcm_substream_t *substream)
+static int stb7100_program_pcmplayer(struct snd_pcm_substream *substream)
 {
 	unsigned long ctrlreg, fmtreg;
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	pcm_hw_t          *chip = snd_pcm_substream_chip(substream);
 	unsigned long irqmask = MEM_FULL_READIRQ;
 	unsigned long flags=0;
@@ -689,7 +689,7 @@ static int stb7100_program_pcmplayer(snd_pcm_substream_t *substream)
 }
 
 
-static int stb7100_pcm_program_hw(snd_pcm_substream_t *substream)
+static int stb7100_pcm_program_hw(struct snd_pcm_substream *substream)
 {
 	int err=0;
 	if((err = stb7100_program_fsynth(substream)) < 0)
@@ -807,15 +807,15 @@ static void stb7100_pcm0_create(pcm_hw_t *stb7100)
 static unsigned int stb7100_pcm_channels[] = { 2,4,6,8,10 };
 
 
-static snd_pcm_hw_constraint_list_t stb7100_constraints_channels = {
+static struct snd_pcm_hw_constraint_list stb7100_constraints_channels = {
 		.count = ARRAY_SIZE(stb7100_pcm_channels),
 		.list = stb7100_pcm_channels,
 		.mask = 0
 };
 
-static int stb7100_pcm_open(snd_pcm_substream_t *substream)
+static int stb7100_pcm_open(struct snd_pcm_substream *substream)
 {
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
     	int                err=0;
 	pcm_hw_t          *chip = snd_pcm_substream_chip(substream);
 	const char * dmac_id =STM_DMAC_ID;
@@ -879,18 +879,18 @@ static stm_playback_ops_t stb7100_pcm_ops = {
 	.unpause_playback = stb7100_pcm_unpause_playback
 };
 
-static snd_device_ops_t ops = {
+static struct snd_device_ops ops = {
     .dev_free = snd_pcm_dev_free,
 };
 
 
-static int stb7100_create_lpcm_device(pcm_hw_t *in_chip,snd_card_t **this_card,int dev)
+static int stb7100_create_lpcm_device(pcm_hw_t *in_chip, struct snd_card **this_card,int dev)
 {
 	int err = 0;
 	int irq = linux_pcm_irq[dev];
 
 	pcm_hw_t * chip  = in_chip;
-	snd_card_t *card={0};
+	struct snd_card *card={0};
 
 	card = snd_card_new(index[card_list[dev].major],id[card_list[dev].major], THIS_MODULE, 0);
         if (this_card == NULL){
@@ -919,7 +919,7 @@ static int stb7100_create_lpcm_device(pcm_hw_t *in_chip,snd_card_t **this_card,i
 	sprintf(card->longname,  "STb7100_PCM%d",chip->card_data->major );
 	sprintf(card->driver,    "%d",chip->card_data->major);
 
-	if(request_irq(irq, stb7100_pcm_interrupt, SA_INTERRUPT, "STB7100_PCM", (void*)chip)){
+	if(request_irq(irq, stb7100_pcm_interrupt, IRQF_SHARED, "STB7100_PCM", (void*)chip)){
                		printk(">>> failed to get IRQ %d\n",irq);
 	                stb7100_pcm_free(chip);
         	        return -EBUSY;
@@ -1054,7 +1054,7 @@ static int snd_pcm_card_generic_probe( int dev)
 }
 
 
-static int snd_pcm_stb710x_probe(pcm_hw_t **chip,snd_card_t **card,int dev)
+static int snd_pcm_stb710x_probe(pcm_hw_t **chip, struct snd_card **card,int dev)
 {
 	unsigned long err=0;
 	if( (err= snd_pcm_card_generic_probe(dev))<0){
@@ -1114,8 +1114,8 @@ static int snd_pcm_stb710x_probe(pcm_hw_t **chip,snd_card_t **card,int dev)
 
 static int __init snd_pcm_card_probe(int dev)
 {
-	snd_card_t card={0};
-	snd_card_t * ptr  = &card;
+	struct snd_card card={0};
+	struct snd_card * ptr  = &card;
 	pcm_hw_t *chip={0};
 	int err=0;
 

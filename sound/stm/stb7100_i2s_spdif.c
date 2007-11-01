@@ -25,7 +25,7 @@
  * Default HW template for PCM player 0 when used with the I2S->SPDIF
  * protocol converter.
  */
-static snd_pcm_hardware_t stb7100_converter_hw =
+static struct snd_pcm_hardware stb7100_converter_hw =
 {
 	.info =		(SNDRV_PCM_INFO_MMAP           |
 			 SNDRV_PCM_INFO_INTERLEAVED    |
@@ -57,7 +57,7 @@ static snd_pcm_hardware_t stb7100_converter_hw =
 DECLARE_WAIT_QUEUE_HEAD(software_reset_wq);
 static volatile int software_reset_complete = 0;
 
-static void reset_pcm_converter(snd_pcm_substream_t * substream)
+static void reset_pcm_converter(struct snd_pcm_substream * substream)
 {
 	pcm_hw_t * chip = snd_pcm_substream_chip(substream);
 	u32 reg;
@@ -69,7 +69,7 @@ static void reset_pcm_converter(snd_pcm_substream_t * substream)
 	writel(reg,chip->pcm_converter+AUD_SPDIF_PR_CFG);
 }
 
-static void reset_converter_fifo(snd_pcm_substream_t * substream)
+static void reset_converter_fifo(struct snd_pcm_substream * substream)
 {
 	pcm_hw_t * chip = snd_pcm_substream_chip(substream);
 	unsigned long reg =readl(chip->pcm_converter+AUD_SPDIF_PR_CFG);
@@ -138,7 +138,7 @@ static void stb7100_converter_write_channel_status(pcm_hw_t *chip)
 }
 
 
-static irqreturn_t stb7100_converter_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+static irqreturn_t stb7100_converter_interrupt(int irq, void *dev_id)
 {
 	unsigned long val;
 	unsigned long handled= IRQ_NONE;
@@ -171,19 +171,19 @@ static irqreturn_t stb7100_converter_interrupt(int irq, void *dev_id, struct pt_
 	return handled;
 }
 
-static void stb7100_converter_unpause_playback(snd_pcm_substream_t *substream)
+static void stb7100_converter_unpause_playback(struct snd_pcm_substream *substream)
 {
  	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	writel((chip->pcmplayer_control|PCMP_ON), chip->pcm_player+STM_PCMP_CONTROL);
 }
 
-static void stb7100_converter_pause_playback(snd_pcm_substream_t *substream)
+static void stb7100_converter_pause_playback(struct snd_pcm_substream *substream)
 {
         pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	writel((chip->pcmplayer_control|PCMP_MUTE),chip->pcm_player+STM_PCMP_CONTROL);
 }
 
-static void stb7100_converter_stop_playback(snd_pcm_substream_t *substream)
+static void stb7100_converter_stop_playback(struct snd_pcm_substream *substream)
 {
  	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	unsigned long reg=0;
@@ -212,7 +212,7 @@ static void stb7100_converter_stop_playback(snd_pcm_substream_t *substream)
 }
 
 
-static void stb7100_converter_start_playback(snd_pcm_substream_t *substream)
+static void stb7100_converter_start_playback(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t     *chip = snd_pcm_substream_chip(substream);
 	unsigned long cfg_reg;
@@ -239,7 +239,7 @@ static void stb7100_converter_start_playback(snd_pcm_substream_t *substream)
 
 }
 
-static int stb7100_converter_program_player(snd_pcm_substream_t * substream)
+static int stb7100_converter_program_player(struct snd_pcm_substream * substream)
 {
 	unsigned long cfg_reg = 0;
 	unsigned long ctl_reg = 0;
@@ -248,7 +248,7 @@ static int stb7100_converter_program_player(snd_pcm_substream_t * substream)
 					PR_AUDIO_SAMPLES_FULLY_READ_INT);
 	unsigned long flags=0;
 
-	snd_pcm_runtime_t * runtime = substream->runtime;
+	struct snd_pcm_runtime * runtime = substream->runtime;
 	pcm_hw_t          * chip    = snd_pcm_substream_chip(substream);
 	int val =0;
 
@@ -361,7 +361,7 @@ static stm_playback_ops_t stb7100_converter_ops = {
 };
 
 
-static int stb7100_create_converter_device(pcm_hw_t *in_chip,snd_card_t  **this_card,int dev)
+static int stb7100_create_converter_device(pcm_hw_t *in_chip,struct snd_card **this_card,int dev)
 {
 	int err = 0;
 	int irq = linux_pcm_irq[dev];
@@ -396,7 +396,7 @@ static int stb7100_create_converter_device(pcm_hw_t *in_chip,snd_card_t  **this_
 
 	chip->playback_ops  = &stb7100_converter_ops;
 
-	if(request_irq(irq, stb7100_converter_interrupt, SA_INTERRUPT, "STB7100_CNV",(void*)chip)){
+	if(request_irq(irq, stb7100_converter_interrupt, IRQF_SHARED, "STB7100_CNV",(void*)chip)){
                		printk(">>> failed to get IRQ %d\n",irq);
 	                stb7100_converter_free(chip);
         	        return -EBUSY;

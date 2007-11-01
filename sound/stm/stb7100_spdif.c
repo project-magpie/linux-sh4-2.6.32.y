@@ -31,7 +31,7 @@
 /*
  * Default HW template for SPDIF player.
  */
-static snd_pcm_hardware_t stb7100_spdif_hw =
+static struct snd_pcm_hardware stb7100_spdif_hw =
 {
 	.info =		(SNDRV_PCM_INFO_INTERLEAVED |
 			 SNDRV_PCM_INFO_PAUSE),
@@ -77,7 +77,7 @@ static void stb7100_iec61937_deferred_unpause(pcm_hw_t * chip)
 	snd_pcm_kernel_ioctl(chip->current_substream, SNDRV_PCM_IOCTL_XRUN, NULL);
 }
 
-static irqreturn_t stb7100_spdif_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+static irqreturn_t stb7100_spdif_interrupt(int irq, void *dev_id)
 {
 	unsigned long int_status;
 	pcm_hw_t *stb7100 = dev_id;
@@ -114,7 +114,7 @@ static irqreturn_t stb7100_spdif_interrupt(int irq, void *dev_id, struct pt_regs
 }
 
 
-static inline void stb7100_spdif_pause_playback(snd_pcm_substream_t *substream)
+static inline void stb7100_spdif_pause_playback(struct snd_pcm_substream *substream)
 {
  	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 
@@ -141,7 +141,7 @@ static inline void stb7100_spdif_pause_playback(snd_pcm_substream_t *substream)
 }
 
 
-static inline void stb7100_spdif_unpause_playback(snd_pcm_substream_t *substream)
+static inline void stb7100_spdif_unpause_playback(struct snd_pcm_substream *substream)
 {
  	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	/*we are doing pause burst, must count %frame_size*/
@@ -162,7 +162,7 @@ static inline void stb7100_spdif_unpause_playback(snd_pcm_substream_t *substream
 }
 
 
-static inline void stb7100_spdif_start_playback(snd_pcm_substream_t *substream)
+static inline void stb7100_spdif_start_playback(struct snd_pcm_substream *substream)
 {
  	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 
@@ -174,7 +174,7 @@ static inline void stb7100_spdif_start_playback(snd_pcm_substream_t *substream)
 }
 
 
-static inline void stb7100_spdif_stop_playback(snd_pcm_substream_t *substream)
+static inline void stb7100_spdif_stop_playback(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	spin_lock(&chip->lock);
@@ -186,7 +186,7 @@ static inline void stb7100_spdif_stop_playback(snd_pcm_substream_t *substream)
 }
 
 
-static void stb7100_spdif_set_iec_mode(snd_pcm_substream_t *substream)
+static void stb7100_spdif_set_iec_mode(struct snd_pcm_substream *substream)
 {
 	pcm_hw_t *chip = snd_pcm_substream_chip(substream);
 	unsigned int decode_lat=0;
@@ -278,10 +278,10 @@ generic_mpeg_encoding:
 }
 
 
-static int stb7100_program_spdifplayer(snd_pcm_substream_t *substream){
+static int stb7100_program_spdifplayer(struct snd_pcm_substream *substream){
 
 	unsigned long reg;
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	pcm_hw_t          *chip = snd_pcm_substream_chip(substream);
 	u32 val=0;
 	unsigned long flags=0;
@@ -389,7 +389,7 @@ static int stb7100_program_spdifplayer(snd_pcm_substream_t *substream){
 }
 
 
-static int stb7100_spdif_program_hw(snd_pcm_substream_t *substream)
+static int stb7100_spdif_program_hw(struct snd_pcm_substream *substream)
 {
 	int err;
 	if((err = stb7100_program_fsynth(substream)) < 0)
@@ -405,9 +405,9 @@ static int stb7100_spdif_program_hw(snd_pcm_substream_t *substream)
 }
 
 
-static int stb7100_spdif_open(snd_pcm_substream_t *substream)
+static int stb7100_spdif_open(struct snd_pcm_substream *substream)
 {
-	snd_pcm_runtime_t *runtime = substream->runtime;
+	struct snd_pcm_runtime *runtime = substream->runtime;
 	pcm_hw_t          *chip = snd_pcm_substream_chip(substream);
 	int err=0;
 	const char * dmac_id =STM_DMAC_ID;
@@ -469,12 +469,12 @@ static struct device alsa_spdif_device = {
 
 
 
-int snd_spdif_stb710x_probe(pcm_hw_t **in_chip,snd_card_t **card,int dev)
+int snd_spdif_stb710x_probe(pcm_hw_t **in_chip, struct snd_card **card,int dev)
 {
 
 	int err=0;
 	pcm_hw_t *chip={0};
-	static snd_device_ops_t ops = {
+	static struct snd_device_ops ops = {
 		.dev_free = snd_pcm_dev_free,
 	};
 
@@ -518,7 +518,7 @@ int snd_spdif_stb710x_probe(pcm_hw_t **in_chip,snd_card_t **card,int dev)
 	chip->iec_encoding_mode = ENCODING_IEC60958;
 
 	if(request_irq(LINUX_SPDIFPLAYER_ALLREAD_IRQ,
-                       stb7100_spdif_interrupt, SA_INTERRUPT,
+                       stb7100_spdif_interrupt, IRQF_SHARED,
                        "STB7100 SPDIF Player",(void*)chip))
 	{
 		printk((">>> failed to get IRQ\n"));

@@ -147,21 +147,8 @@ void __iounmap(void __iomem *addr)
 #endif
 
 #ifdef CONFIG_32BIT
-	/*
-	 * Purge any PMB entries that may have been established for this
-	 * mapping, then proceed with conventional VMA teardown.
-	 *
-	 * XXX: Note that due to the way that remove_vm_area() does
-	 * matching of the resultant VMA, we aren't able to fast-forward
-	 * the address past the PMB space until the end of the VMA where
-	 * the page tables reside. As such, unmap_vm_area() will be
-	 * forced to linearly scan over the area until it finds the page
-	 * tables where PTEs that need to be unmapped actually reside,
-	 * which is far from optimal. Perhaps we need to use a separate
-	 * VMA for the PMB mappings?
-	 *					-- PFM.
-	 */
-	pmb_unmap(vaddr);
+	if(pmb_unmap(vaddr))
+	  return;
 #endif
 
 	p = remove_vm_area((void *)(vaddr & PAGE_MASK));

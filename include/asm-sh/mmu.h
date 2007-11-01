@@ -41,7 +41,7 @@ typedef struct {
 
 /* arch/sh/mm/pmb.c */
 long pmb_remap(unsigned long phys, unsigned long size, unsigned long flags);
-void pmb_unmap(unsigned long addr);
+int  pmb_unmap(unsigned long addr);
 void pmb_init(void);
 
 #endif /* __MMU_H */

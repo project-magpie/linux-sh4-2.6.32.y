@@ -175,6 +175,9 @@ static struct pmb_mapping* pmb_mapping_alloc(void)
 	pmb_mappings_free = mapping->next;
 
 	memset(mapping, 0, sizeof(*mapping));
+        /* Set the first reference */
+        mapping->usage = 1;
+
 	return mapping;
 }
 
@@ -368,7 +371,7 @@ long pmb_remap(unsigned long phys,
 	return mapping->virt + offset;
 }
 
-void pmb_unmap(unsigned long addr)
+int pmb_unmap(unsigned long addr)
 {
 	struct pmb_mapping *mapping;
 	struct pmb_entry *entry;
@@ -380,17 +383,21 @@ void pmb_unmap(unsigned long addr)
 	}
 
 	if (unlikely(!mapping))
-		return;
+		return 0;
 
 	if (--mapping->usage == 0)
+	{
 		pmb_clear_mapping(mapping);
 
-	entry = mapping->entries;
-	do {
-		pmb_free(entry->pos);
-		entry = entry->next;
-	} while (entry);
-	pmb_mapping_free(mapping);
+		entry = mapping->entries;
+		do {
+			pmb_free(entry->pos);
+			entry = entry->next;
+		} while (entry);
+		pmb_mapping_free(mapping);
+	}
+
+	return 1;
 }
 
 static void noinline __uses_jump_to_uncached

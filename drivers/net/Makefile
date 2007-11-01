@@ -10,6 +10,7 @@ obj-$(CONFIG_CHELSIO_T3) += cxgb3/
 obj-$(CONFIG_EHEA) += ehea/
 obj-$(CONFIG_BONDING) += bonding/
 obj-$(CONFIG_ATL1) += atl1/
+obj-$(CONFIG_STMMAC_ETH) += stmmac/
 obj-$(CONFIG_GIANFAR) += gianfar_driver.o
 
 gianfar_driver-objs := gianfar.o \
@@ -208,7 +209,6 @@ obj-$(CONFIG_DM9000) += dm9000.o
 obj-$(CONFIG_FEC_8XX) += fec_8xx/
 obj-$(CONFIG_PASEMI_MAC) += pasemi_mac.o
 obj-$(CONFIG_MLX4_CORE) += mlx4/
-obj-$(CONFIG_STMMAC_ETH) += stmmac/
 
 obj-$(CONFIG_MACB) += macb.o
 

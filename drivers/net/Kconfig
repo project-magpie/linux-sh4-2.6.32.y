@@ -2027,17 +2027,6 @@ config NE_H8300
 source "drivers/net/fec_8xx/Kconfig"
 source "drivers/net/fs_enet/Kconfig"
 
-config STMMAC_ETH
-	tristate "MAC 10/100 Ethernet driver"
-	select MII
-	select PHYLIB
-	depends on NETDEVICES && (CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200)
-	---help---
-	  This is the driver for the MAC 10/100 on-chip Ethernet controller.
-	  The STb7109 ETH subsystem is composed of three main layers:
-	  a DMA layer, a Transaction Layer Interface (TLI), and a Media Access
-	  Controller layer (MAC).
-
 endif # NET_ETHERNET
 
 #
@@ -2506,11 +2495,16 @@ config ATL1
 	  To compile this driver as a module, choose M here.  The module
 	  will be called atl1.
 
-config STMGMAC_ETH
-	tristate "Gigabit Ethernet support (EXPERIMENTAL)"
-	depends on NETDEVICES && NOT_YET_SUPPORTED
+config STMMAC_ETH
+	tristate "MAC 10/100/1000 Ethernet driver"
+	select MII
+	select PHYLIB
+	depends on NETDEVICES && (CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200)
 	---help---
-	  This is the driver for the GMAC on-chip Ethernet controller.
+	  This is the driver for the MAC 10/100/1000 on-chip Ethernet 
+	  controller (Synopsys Core).
+	  This driver also supports the old embedded on-chip Ethernet in the
+	  Stb7109 CPU.
 
 endif # NETDEV_1000
 

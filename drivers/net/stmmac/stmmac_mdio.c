@@ -33,22 +33,26 @@
 int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 {
 	struct net_device *ndev = bus->priv;
+	struct eth_driver_local *lp = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
+	unsigned int mii_address = lp->mac->hw.mii.addr;
+	unsigned int mii_busy = lp->mac->hw.mii.addr_busy;
+	unsigned int mii_data = lp->mac->hw.mii.data;
 
 	int data;
 	u16 regValue = (((phyaddr << 11) & (0x0000F800)) |
 			((phyreg << 6) & (0x000007C0)));
 
-	while (((readl(ioaddr + MAC_MII_ADDR)) & MAC_MII_ADDR_BUSY) == 1) {
+	while (((readl(ioaddr + mii_address)) & mii_busy) == 1) {
 	}
 
-	writel(regValue, ioaddr + MAC_MII_ADDR);
+	writel(regValue, ioaddr + mii_address);
 
-	while (((readl(ioaddr + MAC_MII_ADDR)) & MAC_MII_ADDR_BUSY) == 1) {
+	while (((readl(ioaddr + mii_address)) & mii_busy) == 1) {
 	}
 
 	/* Read the data from the MII data register */
-	data = (int)readl(ioaddr + MAC_MII_DATA);
+	data = (int)readl(ioaddr + mii_data);
 	return data;
 }
 
@@ -63,22 +67,27 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 {
 	struct net_device *ndev = bus->priv;
+	struct eth_driver_local *lp = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
+	unsigned int mii_address = lp->mac->hw.mii.addr;
+	unsigned int mii_busy = lp->mac->hw.mii.addr_busy;
+	unsigned int mii_write = lp->mac->hw.mii.addr_write;
+	unsigned int mii_data = lp->mac->hw.mii.data;
 
 	u16 value =
 	    (((phyaddr << 11) & (0x0000F800)) | ((phyreg << 6) & (0x000007C0)))
-	    | MAC_MII_ADDR_WRITE;
+	    | mii_write;
 
 	/* Wait until any existing MII operation is complete */
-	while (((readl(ioaddr + MAC_MII_ADDR)) & MAC_MII_ADDR_BUSY) == 1) {
+	while (((readl(ioaddr + mii_address)) & mii_busy) == 1) {
 	}
 
 	/* Set the MII address register to write */
-	writel(phydata, ioaddr + MAC_MII_DATA);
-	writel(value, ioaddr + MAC_MII_ADDR);
+	writel(phydata, ioaddr + mii_data);
+	writel(value, ioaddr + mii_address);
 
 	/* Wait until any existing MII operation is complete */
-	while (((readl(ioaddr + MAC_MII_ADDR)) & MAC_MII_ADDR_BUSY) == 1) {
+	while (((readl(ioaddr + mii_address)) & mii_busy) == 1) {
 	}
 
 	/* NOTE: we need to perform this "extra" read in order to fix an error
@@ -93,6 +102,7 @@ int stmmac_mdio_reset(struct mii_bus *bus)
 	struct net_device *ndev = bus->priv;
 	struct eth_driver_local *lp = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
+	unsigned int mii_address = lp->mac->hw.mii.addr;
 
 	printk(KERN_DEBUG "stmmac_mdio_reset: called!\n");
 
@@ -105,7 +115,7 @@ int stmmac_mdio_reset(struct mii_bus *bus)
 	 * It doesn't complete its reset until at least one clock cycle
 	 * on MDC, so perform a dummy mdio read.
 	 */
-	writel(0, ioaddr + MAC_MII_ADDR);
+	writel(0, ioaddr + mii_address);
 
 	return 0;
 }

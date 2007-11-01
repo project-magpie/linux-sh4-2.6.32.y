@@ -20,17 +20,8 @@
 #include <linux/ethtool.h>
 #include <asm/io.h>
 
-#include "mac_hw.h"
-
-#undef GMAC_DEBUG
-#ifdef GMAC_DEBUG
-#define DBG(klevel, fmt, args...) \
-                printk(KERN_##klevel fmt, ## args)
-#else
-#define DBG(klevel, fmt, args...)  do { } while(0)
-#endif
-
-#define HASH_TABLE_SIZE 64
+#include "common.h"
+#include "gmac.h"
 
 static void gmac_mac_registers(unsigned long ioaddr)
 {
@@ -72,39 +63,39 @@ static int gmac_tx_summary(void *p, unsigned int status)
 	struct net_device_stats *stats = (struct net_device_stats *)p;
 
 	if (unlikely(status & TDES0_STATUS_DF)) {
-		DBG(WARNING, "gmac: DMA tx: deferred error\n");
+		MAC_DBG(WARNING, "gmac: DMA tx: deferred error\n");
 		ret = -1;
 	}
 	if (unlikely(status & TDES0_STATUS_VLAN)) {
-		DBG(WARNING, "gmac: DMA tx: VLAN frame Fails\n");
+		MAC_DBG(WARNING, "gmac: DMA tx: VLAN frame Fails\n");
 		ret = -1;
 	}
 	if (unlikely(status & TDES0_STATUS_ES)) {
-		DBG(ERR, "gmac: DMA tx ERROR: ");
+		MAC_DBG(ERR, "gmac: DMA tx ERROR: ");
 		if (unlikely(status & TDES0_STATUS_JT))
-			DBG(WARNING, "jabber timeout\n");
+			MAC_DBG(WARNING, "jabber timeout\n");
 		if (unlikely(status & TDES0_STATUS_FF))
-			DBG(WARNING, "frame flushed\n");
+			MAC_DBG(WARNING, "frame flushed\n");
 		if (unlikely(status & TDES0_STATUS_LOSS_CARRIER))
-			DBG(WARNING, "Loss of Carrier\n");
+			MAC_DBG(WARNING, "Loss of Carrier\n");
 		if (status & TDES0_STATUS_NO_CARRIER)
-			DBG(ERR, "No Carrier\n");
+			MAC_DBG(ERR, "No Carrier\n");
 		if (status & TDES0_STATUS_LATE_COL) {
-			DBG(ERR, "Late Collision\n");
+			MAC_DBG(ERR, "Late Collision\n");
 			stats->collisions +=
 			    ((status & TDES0_STATUS_COLCNT_MASK) >>
 			     TDES0_STATUS_COLCNT_SHIFT);
 		}
 		if (status & TDES0_STATUS_EX_COL) {
-			DBG(ERR, "Ex Collisions\n");
+			MAC_DBG(ERR, "Ex Collisions\n");
 			stats->collisions +=
 			    ((status & TDES0_STATUS_COLCNT_MASK) >>
 			     TDES0_STATUS_COLCNT_SHIFT);
 		}
 		if (status & TDES0_STATUS_EX_DEF)
-			DBG(ERR, "Ex Deferrals\n");
+			MAC_DBG(ERR, "Ex Deferrals\n");
 		if (status & TDES0_STATUS_UF)
-			DBG(ERR, "Underflow\n");
+			MAC_DBG(ERR, "Underflow\n");
 		ret = -1;
 	}
 
@@ -117,31 +108,31 @@ static int gmac_rx_summary(void *p, unsigned int status)
 	struct net_device_stats *stats = (struct net_device_stats *)p;
 
 	if (unlikely((status & RDES0_STATUS_ES))) {
-		DBG(ERR, "gmac: DMA rx ERROR: ");
+		MAC_DBG(ERR, "gmac: DMA rx ERROR: ");
 		if (unlikely(status & RDES0_STATUS_DE))
-			DBG(ERR, "descriptor\n");
+			MAC_DBG(ERR, "descriptor\n");
 		if (unlikely(status & RDES0_STATUS_OE))
-			DBG(ERR, "Overflow\n");
+			MAC_DBG(ERR, "Overflow\n");
 		if (unlikely(status & RDES0_STATUS_LC)) {
-			DBG(ERR, "late collision\n");
+			MAC_DBG(ERR, "late collision\n");
 			stats->collisions++;
 		}
 		if (unlikely(status & RDES0_STATUS_RWT))
-			DBG(ERR, "watchdog timeout\n");
+			MAC_DBG(ERR, "watchdog timeout\n");
 		if (unlikely(status & RDES0_STATUS_RE))
-			DBG(ERR, "Receive Error (MII)\n");
+			MAC_DBG(ERR, "Receive Error (MII)\n");
 		if (unlikely(status & RDES0_STATUS_CE)) {
-			DBG(ERR, "CRC Error\n");
+			MAC_DBG(ERR, "CRC Error\n");
 			stats->rx_crc_errors++;
 		}
 		ret = -1;
 	}
 	if (unlikely(status & RDES0_STATUS_FILTER_FAIL)) {
-		DBG(ERR, "DMA rx: DA Filtering Fails\n");
+		MAC_DBG(ERR, "DMA rx: DA Filtering Fails\n");
 		ret = -1;
 	}
 	if (unlikely(status & RDES0_STATUS_LENGTH_ERROR)) {
-		DBG(ERR, "DMA rx: Lenght error\n");
+		MAC_DBG(ERR, "DMA rx: Lenght error\n");
 		ret = -1;
 	}
 	return (ret);
@@ -165,10 +156,9 @@ static void gmac_rx_checksum(struct sk_buff *skb, int status)
 	return;
 }
 
-static void gmac_core_init(struct net_device *dev)
+static void gmac_core_init(unsigned long ioaddr)
 {
 	unsigned int value = 0;
-	unsigned long ioaddr = dev->base_addr;
 
 	/* Set the MAC control register with our default value */
 	value = (unsigned int)readl(ioaddr + MAC_CONTROL);
@@ -176,7 +166,7 @@ static void gmac_core_init(struct net_device *dev)
 	writel(value, ioaddr + MAC_CONTROL);
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-	writel(ETH_P_8021Q, dev->base_addr + MAC_VLAN);
+	writel(ETH_P_8021Q, ioaddr + MAC_VLAN);
 #endif
 	return;
 }
@@ -228,15 +218,33 @@ static void gmac_set_filter(struct net_device *dev)
 
 	writel(value, ioaddr + MAC_CONTROL);
 
-	DBG(DEBUG, "%s: CTRL reg: 0x%08x - Hash regs: HI 0x%08x, LO 0x%08x\n",
-	    __FUNCTION__, readl(ioaddr + MAC_CONTROL),
-	    readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
+	MAC_DBG(DEBUG,
+		"%s: CTRL reg: 0x%08x - Hash regs: HI 0x%08x, LO 0x%08x\n",
+		__FUNCTION__, readl(ioaddr + MAC_CONTROL),
+		readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
 	return;
 }
 
-struct stmmmac_driver mac_driver = {
-	.name = "gmac",
-	.have_hw_fix = 0,
+static void gmac_flow_ctrl(unsigned long ioaddr, unsigned int duplex,
+			   unsigned int fc, unsigned int pause_time)
+{
+	unsigned int flow = 0;
+
+	if (fc & FLOW_RX)
+		flow |= MAC_FLOW_CTRL_RFE;
+	if (fc & FLOW_TX)
+		flow |= MAC_FLOW_CTRL_TFE;
+
+	if (duplex) {
+		MAC_DBG(INFO, "mac100: flow control (pause 0x%x)\n.",
+			pause_time);
+		flow |= (pause_time << MAC_FLOW_CTRL_PT_SHIFT);
+	}
+	writel(flow, ioaddr + MAC_FLOW_CTRL);
+	return;
+}
+
+struct device_ops gmac_driver = {
 	.core_init = gmac_core_init,
 	.mac_registers = gmac_mac_registers,
 	.dma_registers = gmac_dma_registers,
@@ -245,4 +253,36 @@ struct stmmmac_driver mac_driver = {
 	.tx_checksum = gmac_tx_checksum,
 	.rx_checksum = gmac_rx_checksum,
 	.set_filter = gmac_set_filter,
+	.flow_ctrl = gmac_flow_ctrl,
 };
+
+struct device_info_t *gmac_setup(unsigned long ioaddr)
+{
+	struct device_info_t *mac;
+	unsigned int id;
+	id = (unsigned int)readl(ioaddr + MAC_VERSION);
+	id &= 0x000000ff;
+
+	if (id != GMAC_CORE_VERSION)
+		return NULL;
+
+	mac = kmalloc(sizeof(const struct device_info_t), GFP_KERNEL);
+	memset(mac, 0, sizeof(struct device_info_t));
+
+	mac->ops = &gmac_driver;
+	mac->name = "gmac";
+	mac->hw.control = MAC_CONTROL;
+	mac->hw.addr_high = MAC_ADDR_HIGH;
+	mac->hw.addr_low = MAC_ADDR_LOW;
+	mac->hw.enable_rx = MAC_CONTROL_RE;
+	mac->hw.enable_tx = MAC_CONTROL_TE;
+	mac->hw.link.port = MAC_CONTROL_PS;
+	mac->hw.link.duplex = MAC_CONTROL_DM;
+	mac->hw.link.speed = MAC_CONTROL_FES;
+	mac->hw.mii.addr = MAC_MII_ADDR;
+	mac->hw.mii.data = MAC_MII_DATA;
+	mac->hw.mii.addr_write = MAC_MII_ADDR_WRITE;
+	mac->hw.mii.addr_busy = MAC_MII_ADDR_BUSY;
+
+	return mac;
+}

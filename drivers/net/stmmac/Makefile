@@ -1,3 +1,3 @@
-obj-$(CONFIG_STMMAC_ETH) += mac100.o stmmac.o 
-obj-$(CONFIG_STMGMAC_ETH) += gmac.o stmmac.o 
-stmmac-objs:= stmmac_mdio.o stmmac_ethtool.o stmmac_main.o
+obj-$(CONFIG_STMMAC_ETH) += stmmac.o 
+stmmac-objs:= stmmac_main.o stmmac_ethtool.o stmmac_mdio.o \
+		mac100.o  gmac.o

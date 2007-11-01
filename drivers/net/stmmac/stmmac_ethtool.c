@@ -19,7 +19,7 @@
 
 #include "stmmac.h"
 
-#define REGDUMP_LEN         (32 * 1024)
+#define REG_SPACE_SIZE	0x1054
 
 void stmmac_ethtool_getdrvinfo(struct net_device *dev,
 			       struct ethtool_drvinfo *info)
@@ -60,9 +60,9 @@ int stmmac_ethtool_setsettings(struct net_device *dev, struct ethtool_cmd *cmd)
 	struct phy_device *phy = lp->phydev;
 	int rc;
 
-	spin_lock_irq(&lp->lock);
+	spin_lock(&lp->lock);
 	rc = phy_ethtool_sset(phy, cmd);
-	spin_unlock_irq(&lp->lock);
+	spin_unlock(&lp->lock);
 
 	return rc;
 }
@@ -89,7 +89,7 @@ int stmmac_check_if_running(struct net_device *dev)
 
 int stmmac_ethtool_get_regs_len(struct net_device *dev)
 {
-	return (REGDUMP_LEN);
+	return (REG_SPACE_SIZE);
 }
 
 void stmmac_ethtool_gregs(struct net_device *dev,
@@ -99,7 +99,7 @@ void stmmac_ethtool_gregs(struct net_device *dev,
 	u32 reg;
 	u32 *reg_space = (u32 *) space;
 
-	memset(reg_space, 0x0, REGDUMP_LEN);
+	memset(reg_space, 0x0, REG_SPACE_SIZE);
 
 	/* MAC registers */
 	for (i = 0; i < 11; i++) {
@@ -149,6 +149,66 @@ int stmmac_ethtool_set_rx_csum(struct net_device *dev, u32 data)
 	return 0;
 }
 
+static void
+stmmac_get_pauseparam(struct net_device *netdev,
+		      struct ethtool_pauseparam *pause)
+{
+	struct eth_driver_local *lp = netdev_priv(netdev);
+
+	spin_lock(&lp->lock);
+
+	pause->rx_pause = pause->tx_pause = 0;
+	pause->autoneg = lp->phydev->autoneg;
+
+	if (lp->flow_ctrl & FLOW_RX)
+		pause->rx_pause = 1;
+	if (lp->flow_ctrl & FLOW_TX)
+		pause->tx_pause = 1;
+
+	spin_unlock(&lp->lock);
+	return;
+}
+
+static int
+stmmac_set_pauseparam(struct net_device *netdev,
+		      struct ethtool_pauseparam *pause)
+{
+	struct eth_driver_local *lp = netdev_priv(netdev);
+	struct phy_device *phy = lp->phydev;
+	int new_pause = FLOW_OFF;
+	int ret = 0;
+
+	spin_lock(&lp->lock);
+
+	if (pause->rx_pause)
+		new_pause |= FLOW_RX;
+	if (pause->tx_pause)
+		new_pause |= FLOW_TX;
+
+	lp->flow_ctrl = new_pause;
+
+	if (phy->autoneg) {
+		if (netif_running(netdev)) {
+			struct ethtool_cmd cmd;
+			/* auto-negotiation automatically restarted */
+			cmd.cmd = ETHTOOL_NWAY_RST;
+			cmd.supported = phy->supported;
+			cmd.advertising = phy->advertising;
+			cmd.autoneg = phy->autoneg;
+			cmd.speed = phy->speed;
+			cmd.duplex = phy->duplex;
+			cmd.phy_address = phy->addr;
+			ret = phy_ethtool_sset(phy, &cmd);
+		}
+	} else {
+		unsigned long ioaddr = netdev->base_addr;
+		lp->mac->ops->flow_ctrl(ioaddr, phy->duplex,
+					lp->flow_ctrl, lp->pause);
+	}
+	spin_unlock(&lp->lock);
+	return ret;
+}
+
 struct ethtool_ops stmmac_ethtool_ops = {
 	.begin = stmmac_check_if_running,
 	.get_drvinfo = stmmac_ethtool_getdrvinfo,
@@ -171,4 +231,6 @@ struct ethtool_ops stmmac_ethtool_ops = {
 #endif
 	.get_ufo = ethtool_op_get_ufo,
 	.set_ufo = ethtool_op_set_ufo,
+	.get_pauseparam = stmmac_get_pauseparam,
+	.set_pauseparam = stmmac_set_pauseparam,
 };

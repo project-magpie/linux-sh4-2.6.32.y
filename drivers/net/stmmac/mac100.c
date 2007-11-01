@@ -21,17 +21,8 @@
 #include <linux/phy.h>
 #include <asm/io.h>
 
-#include "mac_hw.h"
-
-#define HASH_TABLE_SIZE 64
-
-#undef MAC100_DEBUG
-#ifdef MAC100_DEBUG
-#define DBG(klevel, fmt, args...) \
-                printk(KERN_##klevel fmt, ## args)
-#else
-#define DBG(klevel, fmt, args...)  do { } while(0)
-#endif
+#include "common.h"
+#include "mac100.h"
 
 static void mac100_mac_registers(unsigned long ioaddr)
 {
@@ -49,14 +40,12 @@ static void mac100_mac_registers(unsigned long ioaddr)
 	       readl(ioaddr + MAC_HASH_HIGH));
 	printk("\tmulticast hash LO (offset 0x%x): 0x%08x\n", MAC_HASH_LOW,
 	       readl(ioaddr + MAC_HASH_LOW));
-	printk("\tflow control (offset 0x%x): 0x%08x\n", MAC_FLOW_CONTROL,
-	       readl(ioaddr + MAC_FLOW_CONTROL));
-#if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
+	printk("\tflow control (offset 0x%x): 0x%08x\n", MAC_FLOW_CTRL,
+	       readl(ioaddr + MAC_FLOW_CTRL));
 	printk("\tVLAN1 tag (offset 0x%x): 0x%08x\n", MAC_VLAN1,
 	       readl(ioaddr + MAC_VLAN1));
 	printk("\tVLAN2 tag (offset 0x%x): 0x%08x\n", MAC_VLAN2,
 	       readl(ioaddr + MAC_VLAN2));
-#endif
 	printk("\tmac wakeup frame (offset 0x%x): 0x%08x\n", MAC_WAKEUP_FILTER,
 	       readl(ioaddr + MAC_WAKEUP_FILTER));
 	printk("\tmac wakeup crtl (offset 0x%x): 0x%08x\n",
@@ -100,17 +89,19 @@ static int mac100_tx_summary(void *p, unsigned int status)
 	struct net_device_stats *stats = (struct net_device_stats *)p;
 
 	if (unlikely(status & TDES0_STATUS_ES)) {
-		DBG(ERR, "mac100: DMA tx ERROR: ");
+		MAC_DBG(ERR, "mac100: DMA tx ERROR: ");
+/*		TO BE VERIFIED !
 		if (status & TDES0_STATUS_UF) {
-			DBG(ERR, "Underflow Error\n");
+			MAC_DBG(ERR, "Underflow Error\n");
 			stats->tx_fifo_errors++;
 		}
+*/
 		if (status & TDES0_STATUS_NO_CARRIER) {
-			DBG(ERR, "No Carrier detected\n");
+			MAC_DBG(ERR, "No Carrier detected\n");
 			stats->tx_carrier_errors++;
 		}
 		if (status & TDES0_STATUS_LOSS_CARRIER) {
-			DBG(ERR, "Loss of Carrier\n");
+			MAC_DBG(ERR, "Loss of Carrier\n");
 		}
 		if ((status & TDES0_STATUS_EX_DEF) ||
 		    (status & TDES0_STATUS_EX_COL) ||
@@ -123,12 +114,12 @@ static int mac100_tx_summary(void *p, unsigned int status)
 	}
 
 	if (unlikely(status & TDES0_STATUS_HRTBT_FAIL)) {
-		DBG(ERR, "mac100: Heartbeat Fail\n");
+		MAC_DBG(ERR, "mac100: Heartbeat Fail\n");
 		stats->tx_heartbeat_errors++;
 		ret = -1;
 	}
 	if (unlikely(status & TDES0_STATUS_DF)) {
-		DBG(WARNING, "mac100: tx deferred\n");
+		MAC_DBG(WARNING, "mac100: tx deferred\n");
 		/*ret = -1; */
 	}
 
@@ -143,28 +134,28 @@ static int mac100_rx_summary(void *p, unsigned int status)
 	struct net_device_stats *stats = (struct net_device_stats *)p;
 
 	if ((status & RDES0_STATUS_ERROR)) {
-		DBG(ERR, "stmmaceth RX:\n");
+		MAC_DBG(ERR, "stmmaceth RX:\n");
 		if (status & RDES0_STATUS_DE)
-			DBG(ERR, "\tdescriptor error\n");
+			MAC_DBG(ERR, "\tdescriptor error\n");
 		if (status & RDES0_STATUS_PFE)
-			DBG(ERR, "\tpartial frame error\n");
+			MAC_DBG(ERR, "\tpartial frame error\n");
 		if (status & RDES0_STATUS_RUNT_FRM)
-			DBG(ERR, "\trunt Frame\n");
+			MAC_DBG(ERR, "\trunt Frame\n");
 		if (status & RDES0_STATUS_TL)
-			DBG(ERR, "\tframe too long\n");
+			MAC_DBG(ERR, "\tframe too long\n");
 		if (status & RDES0_STATUS_COL_SEEN) {
-			DBG(ERR, "\tcollision seen\n");
+			MAC_DBG(ERR, "\tcollision seen\n");
 			stats->collisions++;
 		}
 		if (status & RDES0_STATUS_CE) {
-			DBG(ERR, "\tCRC Error\n");
+			MAC_DBG(ERR, "\tCRC Error\n");
 			stats->rx_crc_errors++;
 		}
 
 		if (status & RDES0_STATUS_LENGTH_ERROR)
-			DBG(ERR, "\tLenght error\n");
+			MAC_DBG(ERR, "\tLenght error\n");
 		if (status & RDES0_STATUS_MII_ERR)
-			DBG(ERR, "\tMII error\n");
+			MAC_DBG(ERR, "\tMII error\n");
 
 		ret = -1;
 	}
@@ -196,19 +187,20 @@ static void mac100_rx_checksum(struct sk_buff *skb, int status)
 	return;
 }
 
-static void mac100_core_init(struct net_device *dev)
+static void mac100_core_init(unsigned long ioaddr)
 {
 	unsigned int value = 0;
-	unsigned long ioaddr = dev->base_addr;
 
-	DBG(DEBUG, "mac100_core_init");
+	MAC_DBG(DEBUG, "mac100_core_init");
 
 	/* Set the MAC control register with our default value */
 	value = (unsigned int)readl(ioaddr + MAC_CONTROL);
 	writel((value | MAC_CORE_INIT), ioaddr + MAC_CONTROL);
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-	writel(ETH_P_8021Q, dev->base_addr + MAC_VLAN1);
+	/* VLAN1 Tag identifier register is programmed to 
+	 * the 802.1Q VLAN Extended Header (0x8100). */
+	writel(ETH_P_8021Q, ioaddr + MAC_VLAN1);
 #endif
 	return;
 }
@@ -260,15 +252,29 @@ static void mac100_set_filter(struct net_device *dev)
 
 	writel(value, ioaddr + MAC_CONTROL);
 
-	DBG(DEBUG, "%s: CTRL reg: 0x%08x - Hash regs: HI 0x%08x, LO 0x%08x\n",
-	    __FUNCTION__, readl(ioaddr + MAC_CONTROL),
-	    readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
+	MAC_DBG(DEBUG,
+		"%s: CTRL reg: 0x%08x - Hash regs: HI 0x%08x, LO 0x%08x\n",
+		__FUNCTION__, readl(ioaddr + MAC_CONTROL),
+		readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
 	return;
 }
 
-struct stmmmac_driver mac_driver = {
-	.name = "mac100",
-	.have_hw_fix = 1,
+static void mac100_flow_ctrl(unsigned long ioaddr, unsigned int duplex,
+			     unsigned int fc, unsigned int pause_time)
+{
+	unsigned int flow = MAC_FLOW_CTRL_ENABLE;
+
+	if (duplex) {
+		MAC_DBG(INFO, "mac100: flow control (pause 0x%x)\n.",
+			pause_time);
+		flow |= (pause_time << MAC_FLOW_CTRL_PT_SHIFT);
+	}
+	writel(flow, ioaddr + MAC_FLOW_CTRL);
+
+	return;
+}
+
+struct device_ops mac100_driver = {
 	.core_init = mac100_core_init,
 	.mac_registers = mac100_mac_registers,
 	.dma_registers = mac100_dma_registers,
@@ -277,4 +283,28 @@ struct stmmmac_driver mac_driver = {
 	.tx_checksum = mac100_tx_checksum,
 	.rx_checksum = mac100_rx_checksum,
 	.set_filter = mac100_set_filter,
+	.flow_ctrl = mac100_flow_ctrl,
 };
+
+struct device_info_t *mac100_setup(unsigned long ioaddr)
+{
+	struct device_info_t *mac;
+	mac = kmalloc(sizeof(const struct device_info_t), GFP_KERNEL);
+	memset(mac, 0, sizeof(struct device_info_t));
+	mac->ops = &mac100_driver;
+	mac->name = "mac100";
+	mac->hw.control = MAC_CONTROL;
+	mac->hw.addr_high = MAC_ADDR_HIGH;
+	mac->hw.addr_low = MAC_ADDR_LOW;
+	mac->hw.enable_rx = MAC_CONTROL_RE;
+	mac->hw.enable_tx = MAC_CONTROL_TE;
+	mac->hw.link.port = MAC_CONTROL_PS;
+	mac->hw.link.duplex = MAC_CONTROL_F;
+	mac->hw.link.speed = 0;
+	mac->hw.mii.addr = MAC_MII_ADDR;
+	mac->hw.mii.data = MAC_MII_DATA;
+	mac->hw.mii.addr_write = MAC_MII_ADDR_WRITE;
+	mac->hw.mii.addr_busy = MAC_MII_ADDR_BUSY;
+
+	return mac;
+}

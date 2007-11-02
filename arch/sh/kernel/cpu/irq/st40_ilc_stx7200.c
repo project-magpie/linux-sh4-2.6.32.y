@@ -36,7 +36,7 @@ static struct ilc_data ilc_data[ILC_NR_IRQS] =
 
 static struct list_head intc_data[16];
 
-static spinlock_t ilc_data_lock;
+static DEFINE_SPINLOCK(ilc_data_lock);
 
 /*
  * Debug printk macro

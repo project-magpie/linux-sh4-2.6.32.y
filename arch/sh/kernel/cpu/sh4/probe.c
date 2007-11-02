@@ -64,6 +64,9 @@ int __init detect_cpu_and_cache_system(void)
 	if ((cvr & 0x20000000) == 1)
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 
+	/* We don't know the chip cut */
+	boot_cpu_data.cut_major = boot_cpu_data.cut_minor = -1;
+
 	/* Mask off the upper chip ID */
 	pvr &= 0xffff;
 
@@ -166,16 +169,16 @@ int __init detect_cpu_and_cache_system(void)
 	case 0x610 ... 0x611:
 		/* 0x0610 cut 1.x */
 		/* 0x0611 cut 2.x */
-		cpu_data->type = CPU_STB7100;
-		cpu_data->icache.ways = 2;
-		cpu_data->dcache.ways = 2;
-		cpu_data->flags |= CPU_HAS_FPU;
+		boot_cpu_data.type = CPU_STB7100;
+		boot_cpu_data.icache.ways = 2;
+		boot_cpu_data.dcache.ways = 2;
+		boot_cpu_data.flags |= CPU_HAS_FPU;
 		break;
 	case 0x690:
-		cpu_data->type = CPU_STX7200;
-		cpu_data->icache.ways = 2;
-		cpu_data->dcache.ways = 2;
-		cpu_data->flags |= CPU_HAS_FPU;
+		boot_cpu_data.type = CPU_STX7200;
+		boot_cpu_data.icache.ways = 2;
+		boot_cpu_data.dcache.ways = 2;
+		boot_cpu_data.flags |= CPU_HAS_FPU;
 		break;
 	case 0x500 ... 0x501:
 		switch (prr) {

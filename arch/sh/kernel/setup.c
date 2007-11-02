@@ -327,7 +327,8 @@ static const char *cpu_name[] = {
 	[CPU_SH7751]	= "SH7751",	[CPU_SH7751R]	= "SH7751R",
 	[CPU_SH7760]	= "SH7760",
 	[CPU_ST40RA]	= "ST40RA",	[CPU_ST40GX1]	= "ST40GX1",
-	[CPU_STB7100]	= "STb710x",	[CPU_STX7200]	= "STx7200",
+	[CPU_STB7100]	= "STb7100",	[CPU_STB7109]	= "STb7109",
+	[CPU_STX7200]	= "STx7200",
 	[CPU_SH4_202]	= "SH4-202",	[CPU_SH4_501]	= "SH4-501",
 	[CPU_SH7770]	= "SH7770",	[CPU_SH7780]	= "SH7780",
 	[CPU_SH7781]	= "SH7781",	[CPU_SH7343]	= "SH7343",
@@ -393,6 +394,12 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	seq_printf(m, "processor\t: %d\n", cpu);
 	seq_printf(m, "cpu family\t: %s\n", init_utsname()->machine);
 	seq_printf(m, "cpu type\t: %s\n", get_cpu_subtype(c));
+	if (c->cut_major == -1)
+		seq_printf(m, "cut\t\t: unknown\n");
+	else if (c->cut_minor == -1)
+		seq_printf(m, "cut\t\t: %d.x\n", c->cut_major);
+	else
+		seq_printf(m, "cut\t\t: %d.%d\n", c->cut_major, c->cut_minor);
 
 	show_cpuflags(m, c);
 

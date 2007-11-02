@@ -1098,13 +1098,18 @@ void __init stx7100_early_device_init(void)
 	devid = sysconf_read(sc);
 	chip_7109 = (((devid >> 12) & 0x3ff) == 0x02c);
 	chip_revision = (devid >> 28) + 1;
+	boot_cpu_data.cut_major = chip_revision;
 
 	printk("%s version %ld.x\n",
 	       chip_7109 ? "STx7109" : "STx7100", chip_revision);
 
-	sc = sysconf_claim(SYS_STA, 9, 0, 7, "devid");
-	devid = sysconf_read(sc);
-	printk("Chip version %ld.%ld\n", (devid >> 4)+1, devid & 0xf);
+	if (chip_7109) {
+		boot_cpu_data.type = CPU_STB7109;
+		sc = sysconf_claim(SYS_STA, 9, 0, 7, "devid");
+		devid = sysconf_read(sc);
+		printk("Chip version %ld.%ld\n", (devid >> 4)+1, devid & 0xf);
+		boot_cpu_data.cut_minor = devid & 0xf;
+	}
 
 	/* Configure the ST40 RTC to source its clock from clockgenB.
 	 * In theory this should be board specific, but so far nobody

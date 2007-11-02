@@ -51,37 +51,31 @@ static unsigned long FDMA_RXREQ[ASC_MAX_PORTS];
 static unsigned long FDMA_TXREQ[ASC_MAX_PORTS];
 static struct asc_dma_port asc_dma_ports[ASC_MAX_PORTS];
 
-void asc_fdma_setreq(void)
+void __init asc_fdma_setreq(void)
 {
-#if defined(CONFIG_CPU_SUBTYPE_STB7100)
-#define SYSCONF_BASE		0xb9001000
-#define SYSCONF_DEVICEID	(SYSCONF_BASE + 0x000)
-
-	u32 devid = ctrl_inl(SYSCONF_DEVICEID);
-	u32 cpu_subtype = (((devid >> 12) & 0x3ff) == 0x02c) ? 7109 : 7100;
-
-	if (cpu_subtype == 7100)
-	{
+	switch (cpu_data->type) {
+	case CPU_STB7100:
 		FDMA_RXREQ[0] = STB7100_FDMA_REQ_UART_2_RX;
 		FDMA_RXREQ[1] = STB7100_FDMA_REQ_UART_3_RX;
 		FDMA_TXREQ[0] = STB7100_FDMA_REQ_UART_2_TX;
 		FDMA_TXREQ[1] = STB7100_FDMA_REQ_UART_3_TX;
-	}
-	else
-	{
+		break;
+	case CPU_STB7109:
 		FDMA_RXREQ[0] = STB7109_FDMA_REQ_UART_2_RX;
 		FDMA_RXREQ[1] = STB7109_FDMA_REQ_UART_3_RX;
 		FDMA_TXREQ[0] = STB7109_FDMA_REQ_UART_2_TX;
 		FDMA_TXREQ[1] = STB7109_FDMA_REQ_UART_3_TX;
+		break;
+	case CPU_STX7200:
+		FDMA_RXREQ[0] = STB7200_FDMA_REQ_UART_2_RX;
+		FDMA_RXREQ[1] = STB7200_FDMA_REQ_UART_3_RX;
+		FDMA_TXREQ[0] = STB7200_FDMA_REQ_UART_2_TX;
+		FDMA_TXREQ[1] = STB7200_FDMA_REQ_UART_3_TX;
+		break;
+	default:
+		printk(KERN_ERR "stasc-dma: Unknown CPU\n");
+		break;
 	}
-#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
-	FDMA_RXREQ[0] = STB7200_FDMA_REQ_UART_2_RX;
-	FDMA_RXREQ[1] = STB7200_FDMA_REQ_UART_3_RX;
-	FDMA_TXREQ[0] = STB7200_FDMA_REQ_UART_2_TX;
-	FDMA_TXREQ[1] = STB7200_FDMA_REQ_UART_3_TX;
-#else
-#error Unknown CPU
-#endif
 }
 
 static int asc_dma_rxflush_one_buffer(struct asc_port *ascport,

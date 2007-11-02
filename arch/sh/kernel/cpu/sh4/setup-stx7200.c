@@ -706,6 +706,8 @@ void __init stx7200_early_device_init(void)
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);
 	chip_revision = (devid >> 28) +1;
+	boot_cpu_data.cut_major = chip_revision;
+
 	printk("STx7200 version %ld.x\n", chip_revision);
 
 	/* ClockgenB powers up with all the frequency synths bypassed.

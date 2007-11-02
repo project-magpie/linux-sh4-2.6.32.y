@@ -50,7 +50,7 @@ enum cpu_type {
 	/* SH-4 types */
 	CPU_SH7750, CPU_SH7750S, CPU_SH7750R, CPU_SH7751, CPU_SH7751R,
 	CPU_SH7760, CPU_ST40RA, CPU_ST40GX1, CPU_STI5528, CPU_STM8000,
-	CPU_STB7100, CPU_STX7200, CPU_SH4_202, CPU_SH4_501,
+	CPU_STB7100, CPU_STB7109, CPU_STX7200, CPU_SH4_202, CPU_SH4_501,
 
 	/* SH-4A types */
 	CPU_SH7770, CPU_SH7780, CPU_SH7781, CPU_SH7785, CPU_SHX3,
@@ -64,6 +64,7 @@ enum cpu_type {
 
 struct sh_cpuinfo {
 	unsigned int type;
+	int cut_major, cut_minor;
 	unsigned long loops_per_jiffy;
 	unsigned long asid_cache;
 

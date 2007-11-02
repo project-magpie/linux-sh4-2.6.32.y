@@ -48,6 +48,16 @@ static int pata_platform_set_mode(struct ata_port *ap, struct ata_device **unuse
 	return 0;
 }
 
+static void pata_platform_data_xfer(struct ata_device *adev,
+				    unsigned char *buf,
+				    unsigned int buflen, int write_data)
+{
+	ata_data_xfer_noirq(adev, buf, buflen, write_data);
+	if (! write_data) {
+		__flush_wback_region(buf, buflen);
+	}
+}
+
 static int ata_dummy_ret0(struct ata_port *ap)	{ return 0; }
 
 static struct scsi_host_template pata_platform_sht = {
@@ -87,7 +97,7 @@ static struct ata_port_operations pata_platform_port_ops = {
 	.qc_prep		= ata_qc_prep,
 	.qc_issue		= ata_qc_issue_prot,
 
-	.data_xfer		= ata_data_xfer_noirq,
+	.data_xfer		= pata_platform_data_xfer,
 
 	.irq_clear		= ata_bmdma_irq_clear,
 	.irq_on			= ata_irq_on,

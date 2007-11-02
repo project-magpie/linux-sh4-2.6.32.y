@@ -7,129 +7,115 @@
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
  *
- * cb101 board support.
+ * STMicroelectronics cb101 board support.
  */
 
-#include <linux/kernel.h>
 #include <linux/init.h>
+#include <linux/platform_device.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
-#include <linux/delay.h>
-#include <linux/platform_device.h>
+#include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
-#include <asm/io.h>
+#include <linux/mtd/partitions.h>
+#include <linux/phy.h>
+#include <asm/irq-ilc.h>
 
-#define SYSCONF_BASE 0xfd704000
-#define SYSCONF_DEVICEID	(SYSCONF_BASE + 0x000)
-#define SYSCONF_SYS_STA(n)	(SYSCONF_BASE + 0x008 + ((n) * 4))
-#define SYSCONF_SYS_CFG(n)	(SYSCONF_BASE + 0x100 + ((n) * 4))
+static int ascs[2] __initdata = { 2, 3 };
 
-/*
- * Initialize the board
- */
 void __init cb101_setup(char** cmdline_p)
 {
-	unsigned long sysconf;
-	unsigned long chip_revision;
-
-	printk("cb101 board initialisation\n");
-
-	sysconf = ctrl_inl(SYSCONF_DEVICEID);
-	chip_revision = (sysconf >> 28) +1;
-
-	printk("STx7200 version %ld.x\n", chip_revision);
-
-	/* Serial port set up */
-	/* Route UART2&3 or SCI inputs instead of DVP to pins: conf_pad_dvp = 0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(40));
-	sysconf &= ~(1<<16);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(40));
-
-	/* Route UART2&3/SCI outputs instead of DVP to pins: conf_pad_pio[1]=0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~(1<<25);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* No idea, more routing: conf_pad_pio[0] = 0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~(1<<24);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* Route UART2 (inputs and outputs) instead of SCI to pins: ssc2_mux_sel = 0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~(1<<2);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* conf_pad_pio[4] = 0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~(1<<28);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* Route UART3 (inputs and outputs) instead of SCI to pins: ssc3_mux_sel = 0 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~(1<<3);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* conf_pad_clkobs = 1 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf |= (1<<14);
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* I2C and USB related routing */
-	/* bit4: ssc4_mux_sel = 0 (treat SSC4 as I2C) */
-	/* bit26: conf_pad_pio[2] = 0 route USB etc instead of DVO */
-	/* bit27: conf_pad_pio[3] = 0 DVO output selection (probably ignored) */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(7));
-	sysconf &= ~((1<<27)|(1<<26)|(1<<4));
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(7));
-
-	/* Enable SOFT_JTAG mode.
-	 * Taken from OS21, but is this correct?
-	 */
-	sysconf = ctrl_inl(SYSCONF_SYS_CFG(33));
-	sysconf |= (1<<6);
-	sysconf &= ~((1<<0)|(1<<1)|(1<<2)|(1<<3));
-	ctrl_outl(sysconf, SYSCONF_SYS_CFG(33));
-
-	/* ClockgenB powers up with all the frequency synths bypassed.
-	 * Enable them all here.  Without this, USB 1.1 doesn't work,
-	 * as it needs a 48MHz clock which is separate from the USB 2
-	 * clock which is derived from the SATA clock. */
-	ctrl_outl(0, 0xFD701048);
-
-	stx7200eth_hw_setup(0, 0, 0);
+	stx7200_early_device_init();
+	stx7200_configure_asc(ascs, 2, 1);
 }
 
-static void phy_reset(void* bus)
-{
-	static struct stpio_pin *ethreset = NULL;
+static struct plat_ssc_data ssc_private_info = {
+	.capability  =
+		((SSC_I2C_CAPABILITY                     ) << (0*2)) |
+		((SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY) << (1*2)) |
+		((SSC_I2C_CAPABILITY                     ) << (2*2)) |
+		((SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY) << (3*2)) |
+		((SSC_I2C_CAPABILITY                     ) << (4*2)),
+};
 
-	if (ethreset == NULL) {
-		ethreset = stpio_request_pin(4, 7, "STE101P_RST", STPIO_OUT);
+static struct mtd_partition mtd_parts_table[3] = {
+	{
+		.name = "Boot firmware",
+		.size = 0x00040000,
+		.offset = 0x00000000,
+	}, {
+		.name = "Kernel",
+		.size = 0x00100000,
+		.offset = 0x00040000,
+	}, {
+		.name = "Root FS",
+		.size = MTDPART_SIZ_FULL,
+		.offset = 0x00140000,
 	}
+};
 
-	stpio_set_pin(ethreset, 1);
-	udelay(1);
-	stpio_set_pin(ethreset, 0);
-	udelay(1000);
-	stpio_set_pin(ethreset, 1);
-}
+static struct physmap_flash_data physmap_flash_data = {
+	.width		= 2,
+	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
+	.parts		= mtd_parts_table
+};
 
-static struct plat_stmmacenet_data stmmaceth_private_data = {
+static struct platform_device physmap_flash = {
+	.name		= "physmap-flash",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start		= 0x00000000,
+			.end		= 32*1024*1024 - 1,
+			.flags		= IORESOURCE_MEM,
+		}
+	},
+	.dev		= {
+		.platform_data	= &physmap_flash_data,
+	},
+};
+
+static struct plat_stmmacphy_data phy_private_data = {
+	/* MAC0: STE101P */
 	.bus_id = 0,
-	.phy_addr = 14,
+	.phy_addr = 0,
 	.phy_mask = 0,
-	.phy_name = "ste101p",
-	.pbl = 32,
-	.fix_mac_speed = fix_mac_speed,
-	.phy_reset = phy_reset,
+	.interface = PHY_INTERFACE_MODE_MII,
+};
+
+static struct platform_device cb101_phy_device = {
+	.name		= "stmmacphy",
+	.id		= 0,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.name	= "phyirq",
+			/* See mb519 for why we disable interrupts here */
+			.start	= -1,
+			.end	= -1,
+			.flags	= IORESOURCE_IRQ,
+		},
+	},
+	.dev = {
+		.platform_data = &phy_private_data,
+	 }
+};
+
+static struct platform_device *cb101_devices[] __initdata = {
+	&physmap_flash,
+	&cb101_phy_device,
 };
 
 static int __init device_init(void)
 {
-	// return platform_add_devices(cb101_devices, ARRAY_SIZE(cb101_devices));
+	stx7200_configure_ssc(&ssc_private_info);
+	stx7200_configure_usb();
+	stx7200_configure_ethernet(0, 0, 1, 0);
+        stx7200_configure_lirc();
+
+	return platform_add_devices(cb101_devices, ARRAY_SIZE(cb101_devices));
 }
-device_initcall(device_init);
+arch_initcall(device_init);
 
 static void __iomem *cb101_ioport_map(unsigned long port, unsigned int size)
 {
@@ -143,12 +129,15 @@ static void __iomem *cb101_ioport_map(unsigned long port, unsigned int size)
 
 static void __init cb101_init_irq(void)
 {
+	/* enable individual interrupt mode for externals */
+	plat_irq_setup_pins(IRQ_MODE_IRQ);
+
 }
 
 struct sh_machine_vector mv_cb101 __initmv = {
-	.mv_name		= "cb101";
+	.mv_name		= "cb101",
 	.mv_setup		= cb101_setup,
 	.mv_nr_irqs		= NR_IRQS,
+	.mv_init_irq		= cb101_init_irq,
 	.mv_ioport_map		= cb101_ioport_map,
 };
-ALIAS_MV(cb101)

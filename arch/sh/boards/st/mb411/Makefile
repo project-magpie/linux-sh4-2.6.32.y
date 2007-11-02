@@ -2,4 +2,5 @@
 # Makefile for STMicroelectronics STb7100 Validation board
 #
 
-obj-y := setup.o mach.o
+obj-y := setup.o epld.o
+epld-y := ../harp-common/epld.o

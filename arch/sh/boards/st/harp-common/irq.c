@@ -11,16 +11,13 @@
  */
 
 #include <linux/init.h>
+#include <linux/platform_device.h>
 #include <linux/irq.h>
 #include <linux/interrupt.h>
 #include <asm/system.h>
 #include <asm/io.h>
 #include <asm/mach/harp.h>
-
-#ifndef epld_out
-#define epld_out(val,addr) ctrl_outl(val,addr)
-#define epld_in(addr)      ctrl_inl(addr)
-#endif
+#include "epld.h"
 
 #define NUM_EXTERNAL_IRQS 16
 
@@ -43,10 +40,10 @@ static void disable_harp_irq(unsigned int irq)
 	}
 	mask=1<<pri;
 
-	epld_out(mask, maskReg);
+	epld_write(mask, maskReg);
 
 	/* Read back the value we just wrote to flush any write posting */
-	epld_in(maskReg);
+	epld_read(maskReg);
 }
 
 static void enable_harp_irq(unsigned int irq)
@@ -68,13 +65,13 @@ static void enable_harp_irq(unsigned int irq)
 	}
 	mask=1<<pri;
 
-	epld_out(mask, maskReg);
+	epld_write(mask, maskReg);
 }
 
 static void __init disable_all_interrupts(void)
 {
-	epld_out(0x00, EPLD_INTMASK0);
-	epld_out(0x00, EPLD_INTMASK1);
+	epld_write(0x00, EPLD_INTMASK0);
+	epld_write(0x00, EPLD_INTMASK1);
 }
 
 static struct irq_chip harp_chips[NUM_EXTERNAL_IRQS] = {

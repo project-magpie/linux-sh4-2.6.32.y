@@ -20,12 +20,12 @@
 #include <linux/phy.h>
 #include <asm/irq-ilc.h>
 #include <asm/io.h>
+#include <asm/mach/harp.h>
 #include "../harp-common/epld.h"
-#include "epld.h"
 
 static int ascs[2] __initdata = { 2, 3 };
 
-void __init mb519_setup(char** cmdline_p)
+static void __init mb519_setup(char** cmdline_p)
 {
 	printk("STMicroelectronics STx7200 Mboard initialisation\n");
 
@@ -69,9 +69,9 @@ static void mtd_set_vpp(struct map_info *map, int vpp)
 	 */
 
 	if (vpp) {
-		epld_write(3, EPLD_Flash);
+		epld_write(3, EPLD_FLASH);
 	} else {
-		epld_write(2, EPLD_Flash);
+		epld_write(2, EPLD_FLASH);
 	}
 }
 
@@ -172,6 +172,7 @@ static struct platform_device epld_device = {
 };
 
 static struct platform_device *mb519_devices[] __initdata = {
+	&epld_device,
 	&physmap_flash,
 	&mb519_phy_devices[0],
 	&mb519_phy_devices[1],
@@ -182,10 +183,8 @@ static int __init device_init(void)
 	unsigned int epld_rev;
 	unsigned int pcb_rev;
 
-	harp_configure_epld(&epld_device);
-
-	epld_rev = epld_read(EPLD_ver);
-	pcb_rev = epld_read(EPLD_cpcbver);
+	epld_rev = epld_read(EPLD_EPLDVER);
+	pcb_rev = epld_read(EPLD_PCBVER);
 	printk("mb519 PCB rev %X EPLD rev %dr%d\n",
 	       pcb_rev,
 	       epld_rev >> 4, epld_rev & 0xf);
@@ -201,7 +200,7 @@ static int __init device_init(void)
 }
 arch_initcall(device_init);
 
-static void __iomem *stx7200mboard_ioport_map(unsigned long port, unsigned int size)
+static void __iomem *mb519_ioport_map(unsigned long port, unsigned int size)
 {
 	/* However picking somewhere safe isn't as easy as you might think.
 	 * I used to use external ROM, but that can cause problems if you are
@@ -211,8 +210,10 @@ static void __iomem *stx7200mboard_ioport_map(unsigned long port, unsigned int s
 	return (void __iomem *)CCN_PVR;
 }
 
-static void __init stx7200mboard_init_irq(void)
+static void __init mb519_init_irq(void)
 {
+	epld_early_init(&epld_device);
+
 #if 0
 	/* The off chip interrupts on the mb519 are a mess. The external
 	 * EPLD priority encodes them, but because they pass through the ILC3
@@ -228,10 +229,10 @@ static void __init stx7200mboard_init_irq(void)
 #endif
 }
 
-struct sh_machine_vector mv_stx7200mboard __initmv = {
+struct sh_machine_vector mv_mb519 __initmv = {
 	.mv_name		= "mb519",
 	.mv_setup		= mb519_setup,
 	.mv_nr_irqs		= NR_IRQS,
-	.mv_init_irq		= stx7200mboard_init_irq,
-	.mv_ioport_map		= stx7200mboard_ioport_map,
+	.mv_init_irq		= mb519_init_irq,
+	.mv_ioport_map		= mb519_ioport_map,
 };

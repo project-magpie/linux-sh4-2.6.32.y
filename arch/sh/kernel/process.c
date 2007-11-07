@@ -80,7 +80,7 @@ void cpu_idle(void)
 
 	/* endless idle loop with no priority at all */
 	while (1) {
-		void (*idle)(void) = pm_idle;
+		void (*idle) (void) = pm_idle;
 
 		if (!idle)
 			idle = default_idle;
@@ -97,11 +97,11 @@ void cpu_idle(void)
 	}
 }
 
-void machine_restart(char * __unused)
+void machine_restart(char *__unused)
 {
 	/* SR.BL=1 and invoke address error to let CPU reset (manual reset) */
-	asm volatile("ldc %0, sr\n\t"
-		     "mov.l @%1, %0" : : "r" (0x10000000), "r" (0x80000001));
+	asm volatile ("ldc %0, sr\n\t"
+		      "mov.l @%1, %0"::"r" (0x10000000), "r"(0x80000001));
 }
 
 void machine_halt(void)
@@ -118,7 +118,7 @@ void machine_power_off(void)
 		pm_power_off();
 }
 
-void show_regs(struct pt_regs * regs)
+void show_regs(struct pt_regs *regs)
 {
 	printk("\n");
 	printk("Pid : %d, Comm: %20s\n", current->pid, current->comm);
@@ -133,17 +133,13 @@ void show_regs(struct pt_regs * regs)
 	printk("%s\n", print_tainted());
 
 	printk("R0  : %08lx R1  : %08lx R2  : %08lx R3  : %08lx\n",
-	       regs->regs[0],regs->regs[1],
-	       regs->regs[2],regs->regs[3]);
+	       regs->regs[0], regs->regs[1], regs->regs[2], regs->regs[3]);
 	printk("R4  : %08lx R5  : %08lx R6  : %08lx R7  : %08lx\n",
-	       regs->regs[4],regs->regs[5],
-	       regs->regs[6],regs->regs[7]);
+	       regs->regs[4], regs->regs[5], regs->regs[6], regs->regs[7]);
 	printk("R8  : %08lx R9  : %08lx R10 : %08lx R11 : %08lx\n",
-	       regs->regs[8],regs->regs[9],
-	       regs->regs[10],regs->regs[11]);
+	       regs->regs[8], regs->regs[9], regs->regs[10], regs->regs[11]);
 	printk("R12 : %08lx R13 : %08lx R14 : %08lx\n",
-	       regs->regs[12],regs->regs[13],
-	       regs->regs[14]);
+	       regs->regs[12], regs->regs[13], regs->regs[14]);
 	printk("MACH: %08lx MACL: %08lx GBR : %08lx PR  : %08lx\n",
 	       regs->mach, regs->macl, regs->gbr, regs->pr);
 
@@ -213,7 +209,7 @@ void release_thread(struct task_struct *dead_task)
 }
 
 /* Fill in the fpu structure for a core dump.. */
-int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpu)
+int dump_fpu(struct pt_regs *regs, elf_fpregset_t * fpu)
 {
 	int fpvalid = 0;
 

@@ -1066,5 +1066,11 @@ config DEVPORT
 
 source "drivers/s390/char/Kconfig"
 
+#KPROBE-SH
+config KPROBE_EXAMPLE
+        tristate "kprobe example"
+	depends on KPROBES
+#KPROBE-SH
+
 endmenu
 

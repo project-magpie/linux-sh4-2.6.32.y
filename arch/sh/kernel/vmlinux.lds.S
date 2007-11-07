@@ -30,6 +30,9 @@ SECTIONS
 	TEXT_TEXT
 	SCHED_TEXT
 	LOCK_TEXT
+#if defined(CONFIG_KPROBES)	/* KPROBE-SH */
+	KPROBES_TEXT
+#endif	/* KPROBE-SH */
 	*(.fixup)
 	*(.gnu.warning)
 	} = 0x0009

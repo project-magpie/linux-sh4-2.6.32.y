@@ -37,6 +37,10 @@
 #define CHK_REMOTE_DEBUG(regs)
 #endif
 
+#ifdef CONFIG_KPROBES
+extern int kprobe_handle_illslot(unsigned long pc);
+#endif
+
 #ifdef CONFIG_CPU_SH2
 # define TRAP_RESERVED_INST	4
 # define TRAP_ILLEGAL_SLOT_INST	6
@@ -762,6 +766,11 @@ asmlinkage void do_illegal_slot_inst(unsigned long r4, unsigned long r5,
 	struct pt_regs *regs = RELOC_HIDE(&__regs, 0);
 	unsigned long error_code;
 	struct task_struct *tsk = current;
+#ifdef CONFIG_KPROBES
+	if (kprobe_handle_illslot(regs->pc) == 0)
+		return;
+#endif
+
 #ifdef CONFIG_SH_FPU_EMU
 	unsigned short inst = 0;
 

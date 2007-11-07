@@ -317,7 +317,11 @@ sys_cacheflush (unsigned long addr, unsigned long len, int op)
 			break;
 	}
 	if (op & CACHEFLUSH_I) {
+#ifdef CONFIG_CPU_SH4
+		flush_icache_range(addr, addr+len);
+#else
 		flush_cache_all();
+#endif
 	}
 
 #endif

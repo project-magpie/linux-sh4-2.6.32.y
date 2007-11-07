@@ -929,6 +929,54 @@ void show_trace(struct task_struct *tsk, unsigned long *sp,
 	debug_show_held_locks(tsk);
 }
 
+void get_stack(char *buf, unsigned long *sp, size_t size, size_t depth)
+{
+	unsigned long addr;
+#ifdef CONFIG_KALLSYMS
+	char *modname;
+	const char *name;
+	unsigned long offset, symbolsize;
+	char namebuf[KSYM_NAME_LEN + 1];
+#endif
+	int i = 0;
+	int pos = 0;
+
+	while (!kstack_end(sp) && i < depth) {
+		addr = *sp++;
+		if (kernel_text_address(addr)){
+			pos += snprintf(buf + pos, size - pos, "[<%08lx>] ",
+					addr);
+
+#ifdef CONFIG_KALLSYMS
+			name = kallsyms_lookup(addr, &symbolsize, &offset,
+					       &modname, namebuf);
+			if (!name) {
+				pos += snprintf(buf + pos, size - pos,
+					        "0x%lx", addr);
+			} else {
+				if (modname) {
+					pos += snprintf(buf + pos,
+					                size - pos,
+					                "%s+%#lx/%#lx [%s]\n",
+					                name, offset,
+					                symbolsize, modname);
+				} else {
+					pos += snprintf(buf + pos,
+					                size - pos,
+					                "%s+%#lx/%#lx\n", name,
+					                offset, symbolsize);
+				}
+			}
+#else
+			pos += snprintf(buf + pos, size - pos, "\n");
+#endif
+			i++;
+		}
+	}
+}
+
+EXPORT_SYMBOL_GPL(get_stack);
+
 void show_stack(struct task_struct *tsk, unsigned long *sp)
 {
 	unsigned long stack;

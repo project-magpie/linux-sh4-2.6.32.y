@@ -1257,6 +1257,15 @@ static void udf_fill_inode(struct inode *inode, struct buffer_head *bh)
 		inode->i_op = &page_symlink_inode_operations;
 		inode->i_mode = S_IFLNK | S_IRWXUGO;
 		break;
+		case ICBTAG_FILE_TYPE_MAIN:
+			udf_debug("METADATA FILE-----\n");
+			break;
+		case ICBTAG_FILE_TYPE_MIRROR:
+			udf_debug("METADATA MIRROR FILE-----\n");
+			break;
+		case ICBTAG_FILE_TYPE_BITMAP:
+			udf_debug("METADATA BITMAP FILE-----\n");
+			break;
 	default:
 		printk(KERN_ERR "udf: udf_fill_inode(ino %ld) failed unknown file type=%d\n",
 		       inode->i_ino, fe->icbTag.fileType);
@@ -1826,6 +1835,12 @@ int8_t udf_current_aext(struct inode * inode, struct extent_position * epos,
 		*eloc = lelb_to_cpu(lad->extLocation);
 		*elen = le32_to_cpu(lad->extLength) & UDF_EXTENT_LENGTH_MASK;
 		break;
+		case ICBTAG_FLAG_AD_IN_ICB:
+			etype = EXT_RECORDED_ALLOCATED;
+			eloc->logicalBlockNum = UDF_I_LOCATION(inode).logicalBlockNum;
+			eloc->partitionReferenceNum = UDF_I_LOCATION(inode).partitionReferenceNum;
+			*elen = UDF_I_LENALLOC(inode);
+			break;
 	default:
 		udf_debug("alloc_type = %d unsupported\n", UDF_I_ALLOCTYPE(inode));
 		return -1;

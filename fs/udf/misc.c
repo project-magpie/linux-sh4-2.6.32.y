@@ -197,10 +197,10 @@ struct buffer_head *udf_read_tagged(struct super_block *sb, uint32_t block,
 	if (block == 0xFFFFFFFF)
 		return NULL;
 
-	bh = udf_tread(sb, block + UDF_SB_SESSION(sb));
+	bh = udf_tread(sb, block /*+ UDF_SB_SESSION(sb)*/);
 	if (!bh) {
 		udf_debug("block=%d, location=%d: read failed\n",
-			  block + UDF_SB_SESSION(sb), location);
+			  block /*+ UDF_SB_SESSION(sb)*/, location);
 		return NULL;
 	}
 
@@ -210,7 +210,7 @@ struct buffer_head *udf_read_tagged(struct super_block *sb, uint32_t block,
 
 	if (location != le32_to_cpu(tag_p->tagLocation)) {
 		udf_debug("location mismatch block %u, tag %u != %u\n",
-			  block + UDF_SB_SESSION(sb), le32_to_cpu(tag_p->tagLocation), location);
+			  block /*+ UDF_SB_SESSION(sb)*/, le32_to_cpu(tag_p->tagLocation), location);
 		goto error_out;
 	}
 
@@ -240,7 +240,7 @@ struct buffer_head *udf_read_tagged(struct super_block *sb, uint32_t block,
 		return bh;
 	}
 	udf_debug("Crc failure block %d: crc = %d, crclen = %d\n",
-		  block + UDF_SB_SESSION(sb), le16_to_cpu(tag_p->descCRC),
+		  block /*+ UDF_SB_SESSION(sb)*/, le16_to_cpu(tag_p->descCRC),
 		  le16_to_cpu(tag_p->descCRCLength));
 
 error_out:

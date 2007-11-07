@@ -21,6 +21,7 @@ obj-$(CONFIG_EARLY_PRINTK)	+= early_printk.o
 #KPROBE-SH
 obj-$(CONFIG_KPROBES)		+= kprobes.o
 #KPROBE-SH
+obj-$(CONFIG_KPTRACE)		+= kptrace.o
 obj-$(CONFIG_KEXEC)		+= machine_kexec.o relocate_kernel.o
 obj-$(CONFIG_CRASH_DUMP)	+= crash_dump.o
 obj-$(CONFIG_PM_SH3_FRQCR)	+= pm.o

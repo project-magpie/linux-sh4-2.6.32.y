@@ -285,11 +285,17 @@ EXPORT_SYMBOL(bpa2_low_part);
  */
 unsigned long bpa2_alloc_pages(struct bpa2_part* bp, int count, int align, int priority)
 {
-	struct range *range, **range_ptr, *new_range, *align_range;
+	struct range *range, **range_ptr, *new_range, *align_range, *used_range;
 	unsigned long aligned_base=0;
+	unsigned long result = 0;
 
-	new_range   = NULL;
-	align_range = NULL;
+	/* Allocate the data structures we might need here so that we
+	 * don't have problems inside the spinlock.
+	 * Free at the end if not used. */
+	new_range = kmalloc(sizeof(struct range), priority);
+	align_range = kmalloc(sizeof(struct range), priority);
+	if ((new_range == NULL) || (align_range == NULL))
+		goto fail;
 
 	if (align == 0)
 		align = PAGE_SIZE;
@@ -311,27 +317,14 @@ unsigned long bpa2_alloc_pages(struct bpa2_part* bp, int count, int align, int p
 	     range_ptr = &range->next;
 	}
 	if (*range_ptr == NULL)
-		goto fail;
+		goto fail_unlock;
 	range = *range_ptr;
+
 	/*
 	 * When we have to align, the pages needed for alignment can
 	 * be put back to the free pool.
-	 * We check here if we need a second range data structure later
-	 * and allocate it now, so that we don't have to check for a
-	 * failed kmalloc later.
 	 */
-	if (aligned_base - range->base + count * PAGE_SIZE < range->size) {
-		new_range = kmalloc(sizeof(struct range), priority);
-		if (new_range == NULL)
-			goto fail;
-	}
 	if (aligned_base != range->base) {
-		align_range = kmalloc(sizeof(struct range), priority);
-		if (align_range == NULL) {
-			if (new_range != NULL)
-				kfree(new_range);
-			goto fail;
-		}
 		align_range->base = range->base;
 		align_range->size = aligned_base - range->base;
 		range->base = aligned_base;
@@ -339,8 +332,10 @@ unsigned long bpa2_alloc_pages(struct bpa2_part* bp, int count, int align, int p
 		align_range->next = range;
 		*range_ptr = align_range;
 		range_ptr = &align_range->next;
+		align_range = NULL;
 	}
-	if (new_range != NULL) {
+
+	if (count * PAGE_SIZE < range->size) {
 		/*
 		 * Range is larger than needed, create a new list element for
 		 * the used list and shrink the element in the free list.
@@ -349,26 +344,31 @@ unsigned long bpa2_alloc_pages(struct bpa2_part* bp, int count, int align, int p
 		new_range->size        = count * PAGE_SIZE;
 		range->base = new_range->base + new_range->size;
 		range->size = range->size - new_range->size;
+		used_range = new_range;
+		new_range = NULL;
 	} else {
 		/*
 		 * Range fits perfectly, remove it from free list.
 		 */
 		*range_ptr = range->next;
-		new_range = range;
+		used_range = range;
 	}
 	/*
 	 * Insert block into used list
 	 */
-	new_range->next = bp->used_list;
-	bp->used_list = new_range;
+	used_range->next = bp->used_list;
+	bp->used_list = used_range;
+	result = used_range->base;
 
+fail_unlock:
 	spin_unlock(&bpa2_lock);
-
-	return new_range->base;
-
 fail:
-	spin_unlock(&bpa2_lock);
-	return 0;
+	if (new_range)
+		kfree(new_range);
+	if (align_range)
+		kfree(align_range);
+
+	return result;
 }
 EXPORT_SYMBOL(bpa2_alloc_pages);
 
@@ -424,22 +424,26 @@ void bpa2_free_pages(struct bpa2_part* bp, unsigned long base)
 	 * Try for upper neighbor (next in list) first, then
 	 * for lower neighbor (predecessor in list).
 	 */
+	next = NULL;
 	if (range->next != NULL &&
 	    range->base + range->size == range->next->base) {
 		next = range->next;
 		range->size += range->next->size;
 		range->next = next->next;
-		if (next != &bp->initial_free_list)
-			kfree(next);
 	}
 	if (prev != NULL &&
 	    prev->base + prev->size == range->base) {
 		prev->size += prev->next->size;
 		prev->next = range->next;
-		if (range != &bp->initial_free_list)
-			kfree(range);
+	} else {
+		range = NULL;
 	}
 	spin_unlock(&bpa2_lock);
+
+	if (next && (next != &bp->initial_free_list))
+		kfree(next);
+	if (range && (range != &bp->initial_free_list))
+		kfree(range);
 }
 EXPORT_SYMBOL(bpa2_free_pages);
 

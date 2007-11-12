@@ -43,6 +43,7 @@ typedef struct {
 long pmb_remap(unsigned long phys, unsigned long size, unsigned long flags);
 int  pmb_unmap(unsigned long addr);
 void pmb_init(void);
+int pmb_virt_to_phys(void *addr, unsigned long *phys, unsigned long *flags);
 
 #endif /* __MMU_H */
 

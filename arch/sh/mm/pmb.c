@@ -371,16 +371,25 @@ long pmb_remap(unsigned long phys,
 	return mapping->virt + offset;
 }
 
-int pmb_unmap(unsigned long addr)
+static struct pmb_mapping *pmb_find(unsigned long addr)
 {
 	struct pmb_mapping *mapping;
-	struct pmb_entry *entry;
 
 	for (mapping = pmb_mappings; mapping; mapping=mapping->next) {
 		if ((addr >= mapping->virt) &&
 		    (addr < mapping->virt + mapping->size))
 			break;
 	}
+
+	return mapping;
+}
+
+int pmb_unmap(unsigned long addr)
+{
+	struct pmb_mapping *mapping;
+	struct pmb_entry *entry;
+
+	mapping = pmb_find(addr);
 
 	if (unlikely(!mapping))
 		return 0;
@@ -470,6 +479,25 @@ void __init pmb_init(void)
 	ram_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P1SEG, 0, PMB_C);
 	apply_boot_mappings(uc_mapping, ram_mapping);
 }
+
+int pmb_virt_to_phys(void *addr, unsigned long *phys, unsigned long *flags)
+{
+	struct pmb_mapping *mapping;
+	unsigned long vaddr = (unsigned long __force)addr;
+
+	mapping = pmb_find(vaddr);
+
+	if (!mapping)
+		return EFAULT;
+
+	if (phys)
+		*phys = mapping->phys + (vaddr - mapping->virt);
+	if (flags)
+		*flags = mapping->flags;
+
+	return 0;
+}
+EXPORT_SYMBOL(pmb_virt_to_phys);
 
 static int pmb_seq_show(struct seq_file *file, void *iter)
 {

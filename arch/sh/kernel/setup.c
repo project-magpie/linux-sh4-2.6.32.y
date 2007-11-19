@@ -32,12 +32,6 @@
 #include <asm/clock.h>
 #include <asm/mmu_context.h>
 
-extern void * __rd_start, * __rd_end;
-
-/*
- * Machine setup..
- */
-
 /*
  * Initialize loops_per_jiffy as 10000000 (1000MIPS).
  * This value will be used at the very early stage of serial setup.
@@ -189,26 +183,21 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 	sparse_memory_present_with_active_regions(0);
 
 #ifdef CONFIG_BLK_DEV_INITRD
-	if (&__rd_start != &__rd_end) {
-		initrd_start = (unsigned long)&__rd_start;
-		initrd_end = (unsigned long)&__rd_end;
-	} else if (LOADER_TYPE && INITRD_START) {
+	if (LOADER_TYPE && INITRD_START) {
 		/* INITRD_START is the offset from the start of RAM */
 
 		unsigned long initrd_start_phys = INITRD_START;
-#ifndef CONFIG_32BIT
 		initrd_start_phys += __MEMORY_START;
-#endif
 
-		if (initrd_start_phys + INITRD_SIZE <= (max_low_pfn << PAGE_SHIFT)) {
+		if (initrd_start_phys + INITRD_SIZE <= PFN_PHYS(max_low_pfn)) {
 			reserve_bootmem(initrd_start_phys, INITRD_SIZE);
-			initrd_start = initrd_start_phys + PAGE_OFFSET;
+			initrd_start = __va(initrd_start_phys);
 			initrd_end = initrd_start + INITRD_SIZE;
 		} else {
 			printk("initrd extends beyond end of memory "
-			    "(0x%08lx > 0x%08lx)\ndisabling initrd\n",
-				    INITRD_START + INITRD_SIZE,
-				    max_low_pfn << PAGE_SHIFT);
+			       "(0x%08lx > 0x%08lx)\ndisabling initrd\n",
+			       initrd_start_phys + INITRD_SIZE,
+			       PFN_PHYS(max_low_pfn));
 			initrd_start = 0;
 		}
 	}

@@ -310,7 +310,7 @@ void __init stx7200_configure_ssc(struct plat_ssc_data *data)
 	for (i=0, capability = data->capability;
 	     i<5;
 	     i++, capability >>= 2) {
-		if (! (capability & ((SSC_SPI_CAPABILITY|SSC_I2C_CAPABILITY) << (i*2))))
+		if (! (capability & (SSC_SPI_CAPABILITY|SSC_I2C_CAPABILITY)))
 			continue;
 
 		/* We only support SSC as master, so always set up as such.

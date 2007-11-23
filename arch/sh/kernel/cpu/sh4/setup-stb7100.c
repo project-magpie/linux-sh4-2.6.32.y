@@ -666,7 +666,7 @@ void __init stx7100_configure_ssc(struct plat_ssc_data *data)
 	for (i=0, capability = data->capability;
 	     i<3;
 	     i++, capability >>= 2) {
-		if (! (capability & ((SSC_SPI_CAPABILITY|SSC_I2C_CAPABILITY) << (i*2))))
+		if (! (capability & (SSC_SPI_CAPABILITY|SSC_I2C_CAPABILITY)))
 			continue;
 
 		if (i== 0) {

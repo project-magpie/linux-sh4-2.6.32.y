@@ -71,7 +71,7 @@ struct stpio_pin {
 static struct stpio_port stpio_port_confs[STPIO_MAX_PORTS];
 static int stpio_numports = STPIO_MAX_PORTS;
 static struct stpio_pin stpio_pin_conf[STPIO_MAX_PORTS*8];
-static spinlock_t stpio_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(stpio_lock);
 
 #define STPIO_PIN_DETAILS(pin, port, pinno)		\
 	unsigned int pinno;				\

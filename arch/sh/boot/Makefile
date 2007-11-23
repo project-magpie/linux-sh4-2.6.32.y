@@ -39,16 +39,24 @@ $(obj)/compressed/vmlinux: FORCE
 KERNEL_LOAD	:= $(shell /bin/bash -c 'printf "0x%8x" \
 		     $$[$(CONFIG_PAGE_OFFSET)  + \
 			$(CONFIG_MEMORY_START) + \
-			$(CONFIG_ZERO_PAGE_OFFSET)+0x1000]')
+			$(CONFIG_ZERO_PAGE_OFFSET)]')
+KERNEL_ENTRY	:= $(shell /bin/bash -c 'printf "0x%8x" \
+		     $$[$(KERNEL_LOAD)+0x1000]')
 
 quiet_cmd_uimage = UIMAGE  $@
       cmd_uimage = $(CONFIG_SHELL) $(MKIMAGE) -A sh -O linux -T kernel \
-		   -C gzip -a $(KERNEL_LOAD) -e $(KERNEL_LOAD) \
+		   -C gzip -a $(KERNEL_LOAD) -e $(KERNEL_ENTRY) \
 		   -n 'Linux-$(KERNELRELEASE)' -d $< $@
 
-$(obj)/uImage: $(obj)/zImage FORCE
+$(obj)/uImage: $(obj)/vmlinux.bin.gz FORCE
 	$(call if_changed,uimage)
 	@echo '  Image $@ is ready'
+
+$(obj)/vmlinux.bin: vmlinux FORCE
+	$(call if_changed,objcopy)
+
+$(obj)/vmlinux.bin.gz: $(obj)/vmlinux.bin FORCE
+	$(call if_changed,gzip)
 
 OBJCOPYFLAGS_vmlinux.srec := -I binary -O srec
 $(obj)/vmlinux.srec: $(obj)/compressed/vmlinux
@@ -59,3 +67,4 @@ $(obj)/uImage.srec: $(obj)/uImage
 	$(call if_changed,objcopy)
 
 clean-files	+= uImage uImage.srec vmlinux.srec
+clean-files	+= vmlinux.bin vmlinux.bin.gz

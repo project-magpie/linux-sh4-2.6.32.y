@@ -173,6 +173,11 @@ static int __init device_init(void)
 	stx7100_configure_alsa();
 	stx7100_configure_lirc();
 	stx7100_configure_ethernet(0, 0, 0);
+#ifdef CONFIG_PATA_PLATFORM
+	/* Set the EPLD ATAPI register to 1, enabling the IDE interface.*/
+	epld_write(1, EPLD_ATAPI);
+	stx7100_configure_pata(3, 8);
+#endif
 
 	return platform_add_devices(mb411_devices,
                                     ARRAY_SIZE(mb411_devices));

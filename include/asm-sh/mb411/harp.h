@@ -27,6 +27,7 @@
 #define EPLD_TEST		0x1e0000
 
 #define EPLD_FLASH		0x400000
+#define EPLD_ATAPI		0x900000
 
 /* Some registers are also available in the POD EPLD */
 #define EPLD_POD_BASE		0x02100000

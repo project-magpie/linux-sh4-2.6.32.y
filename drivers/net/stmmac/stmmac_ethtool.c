@@ -22,7 +22,7 @@
 #define REG_SPACE_SIZE	0x1054
 
 void stmmac_ethtool_getdrvinfo(struct net_device *dev,
-			       struct ethtool_drvinfo *info)
+				struct ethtool_drvinfo *info)
 {
 	strcpy(info->driver, ETH_RESOURCE_NAME);
 	strcpy(info->version, DRV_MODULE_VERSION);
@@ -37,13 +37,13 @@ int stmmac_ethtool_getsettings(struct net_device *dev, struct ethtool_cmd *cmd)
 	int rc;
 	if (phy == NULL) {
 		printk(KERN_ERR "%s: %s: PHY is not registered\n",
-		       __FUNCTION__, dev->name);
+			__FUNCTION__, dev->name);
 		return -ENODEV;
 	}
 
 	if (!netif_running(dev)) {
 		printk(KERN_ERR "%s: interface is disabled: we cannot track "
-		       "link speed / duplex setting\n", dev->name);
+			"link speed / duplex setting\n", dev->name);
 		return -EBUSY;
 	}
 
@@ -96,26 +96,19 @@ void stmmac_ethtool_gregs(struct net_device *dev,
 			  struct ethtool_regs *regs, void *space)
 {
 	int i;
-	u32 reg;
 	u32 *reg_space = (u32 *) space;
 
 	memset(reg_space, 0x0, REG_SPACE_SIZE);
-
 	/* MAC registers */
-	for (i = 0; i < 11; i++) {
-		reg = readl(dev->base_addr + i * 4);
-		memcpy((reg_space + i * 4), &reg, sizeof(u32));
+	for (i = 0; i < 12; i++) {
+		reg_space[i] = readl(dev->base_addr + (i * 4));
 	}
-
 	/* DMA registers */
 	for (i = 0; i < 9; i++) {
-		reg = readl(dev->base_addr + (DMA_BUS_MODE + i * 4));
-		memcpy((reg_space + (DMA_BUS_MODE + i * 4)), &reg, sizeof(u32));
+		reg_space[i+12] = readl(dev->base_addr + (DMA_BUS_MODE + (i * 4)));
 	}
-	reg = readl(dev->base_addr + DMA_CUR_TX_BUF_ADDR);
-	memcpy((reg_space + DMA_CUR_TX_BUF_ADDR), &reg, sizeof(u32));
-	reg = readl(dev->base_addr + DMA_CUR_RX_BUF_ADDR);
-	memcpy((reg_space + DMA_CUR_RX_BUF_ADDR), &reg, sizeof(u32));
+	reg_space[22] = readl(dev->base_addr + DMA_CUR_TX_BUF_ADDR);
+	reg_space[23] = readl(dev->base_addr + DMA_CUR_RX_BUF_ADDR);
 
 	return;
 }
@@ -209,6 +202,77 @@ stmmac_set_pauseparam(struct net_device *netdev,
 	return ret;
 }
 
+static struct {
+        const char str[ETH_GSTRING_LEN];
+} ethtool_stats_keys[] = {
+	{ "tx_underflow" },
+	{ "tx_carrier" },
+	{ "tx_losscarrier" },
+	{ "tx_heartbeat" },
+	{ "tx_deferred" },
+	{ "tx_vlan" },
+	{ "tx_jabber" },
+	{ "tx_frame_flushed" },
+	{ "rx_desc" },
+	{ "rx_partial" },
+	{ "rx_runt" },
+	{ "rx_toolong" },
+	{ "rx_collision" },
+	{ "rx_crc" },
+	{ "rx_lenght" },
+	{ "rx_mii" },
+	{ "rx_multicast" },
+	{ "rx_overflow" },
+	{ "rx_watchdog" },
+	{ "rx_filter" },
+	{ "rx_dropped" },
+	{ "rx_bytes" },
+	{ "tx_bytes" },
+	{ "tx_irq_n" },
+	{ "rx_irq_n" },
+	{ "tx_undeflow_irq" },
+	{ "tx_threshold" },
+	{ "tx_process_stopped_irq" },
+	{ "tx_jabber_irq" },
+	{ "rx_overflow_irq" },
+	{ "rx_buf_unav_irq" },
+	{ "rx_process_stopped_irq" },
+	{ "rx_watchdog_irq" },
+	{ "tx_early_irq" },
+	{ "fatal_bus_error_irq" },
+};
+
+static int stmmac_stats_count(struct net_device *dev)
+{
+	return EXTRA_STATS;
+}
+
+static void stmmac_ethtool_stats(struct net_device *dev, 
+		struct ethtool_stats *dummy, u64 * buf)
+{
+	struct eth_driver_local *lp = netdev_priv(dev);
+	int i;
+	u32 *extra = (u32 *) &lp->xstats;
+	for (i = 0; i < EXTRA_STATS; i++)
+		buf[i] = extra[i];
+	return;
+}
+
+static void stmmac_get_strings(struct net_device *dev, 
+				u32 stringset, u8 *buf)
+{
+	switch (stringset) {
+		case ETH_SS_STATS:
+			memcpy(buf, &ethtool_stats_keys, 
+				sizeof(ethtool_stats_keys));
+			break;
+		default:
+			WARN_ON(1);
+		break;
+	}
+	return;
+}
+
 struct ethtool_ops stmmac_ethtool_ops = {
 	.begin = stmmac_check_if_running,
 	.get_drvinfo = stmmac_ethtool_getdrvinfo,
@@ -233,4 +297,7 @@ struct ethtool_ops stmmac_ethtool_ops = {
 	.set_ufo = ethtool_op_set_ufo,
 	.get_pauseparam = stmmac_get_pauseparam,
 	.set_pauseparam = stmmac_set_pauseparam,
+	.get_ethtool_stats = stmmac_ethtool_stats,
+	.get_stats_count = stmmac_stats_count,
+	.get_strings = stmmac_get_strings,
 };

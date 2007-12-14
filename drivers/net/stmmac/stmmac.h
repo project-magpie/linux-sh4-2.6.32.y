@@ -54,6 +54,7 @@ struct eth_driver_local {
 	struct device *device;
 	unsigned int dma_tx_size;
 	unsigned int dma_rx_size;
+	int ttc; /* FIFO tx threshold */
 	struct device_info_t *mac;
 	unsigned int mac_type;
 	unsigned int flow_ctrl;	/* FC [on/off] - [RX/TX/AUTO] */
@@ -61,4 +62,6 @@ struct eth_driver_local {
 #ifdef STMMAC_VLAN_TAG_USED
 	struct vlan_group *vlgrp;
 #endif
+	struct net_device *dev;
+	struct stmmac_extra_stats xstats; /* Extra stats */
 };

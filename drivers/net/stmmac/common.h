@@ -33,26 +33,35 @@
 /* **************************************
    DMA Interrupt Enable register defines
  * **************************************/
-#define DMA_INTR_ENA_NIE 0x00010000	/* Normal Interrupt Summary */
-#define DMA_INTR_ENA_AIE 0x00008000	/* Abnormal Interrupt Summary */
+/**** NORMAL INTERRUPT ****/
+#define DMA_INTR_ENA_NIE 0x00010000	/* Normal Summary */
 #define DMA_INTR_ENA_ERE 0x00004000	/* Early Receive */
+#define DMA_INTR_ENA_RIE 0x00000040	/* Receive Interrupt */
+#define DMA_INTR_ENA_TIE 0x00000001	/* Transmit Interrupt */
+#define DMA_INTR_ENA_TUE 0x00000004	/* Transmit Buffer Unavailable */
+
+#define DMA_INTR_NORMAL	(DMA_INTR_ENA_RIE | DMA_INTR_ENA_TIE)
+
+/**** ABNORMAL INTERRUPT ****/
+#define DMA_INTR_ENA_AIE 0x00008000	/* Abnormal Summary */
 #define DMA_INTR_ENA_FBE 0x00002000	/* Fatal Bus Error */
 #define DMA_INTR_ENA_ETE 0x00000400	/* Early Transmit */
 #define DMA_INTR_ENA_RWE 0x00000200	/* Receive Watchdog */
 #define DMA_INTR_ENA_RSE 0x00000100	/* Receive Stopped */
 #define DMA_INTR_ENA_RUE 0x00000080	/* Receive Buffer Unavailable */
-#define DMA_INTR_ENA_RIE 0x00000040	/* Receive Interrupt */
-#define DMA_INTR_ENA_UNE 0x00000020	/* Underflow */
+#define DMA_INTR_ENA_UNE 0x00000020	/* Tx Underflow */
 #define DMA_INTR_ENA_OVE 0x00000010	/* Receive Overflow */
 #define DMA_INTR_ENA_TJE 0x00000008	/* Transmit Jabber */
-#define DMA_INTR_ENA_TUE 0x00000004	/* Transmit Buffer Unavailable */
 #define DMA_INTR_ENA_TSE 0x00000002	/* Transmit Stopped */
-#define DMA_INTR_ENA_TIE 0x00000001	/* Transmit Interrupt */
+
+#define DMA_INTR_ABNORMAL	(DMA_INTR_ENA_UNE)
 
 /* DMA default interrupt mask */
-#define DMA_INTR_DEFAULT_MASK	(DMA_INTR_ENA_NIE | DMA_INTR_ENA_RIE | \
-				 DMA_INTR_ENA_TIE)
-#define DMA_INTR_NO_RX		(DMA_INTR_ENA_NIE | DMA_INTR_ENA_TIE)
+#define DMA_INTR_DEFAULT_MASK	(DMA_INTR_ENA_NIE | DMA_INTR_NORMAL | \
+				DMA_INTR_ENA_AIE |DMA_INTR_ABNORMAL)
+/* Disable DMA Rx IRQ (NAPI) */
+#define DMA_INTR_NO_RX		(DMA_INTR_ENA_NIE |  DMA_INTR_ENA_TIE | \
+				DMA_INTR_ENA_AIE | DMA_INTR_ABNORMAL)
 
 /* ****************************
  *  DMA Status register defines
@@ -87,9 +96,13 @@
 #define DES1_CONTROL_CH		0x01000000	/* Second Address Chained */
 #define DES1_CONTROL_TER	0x02000000	/* End of Ring */
 #define DES1_RBS2_SIZE_MASK	0x003ff800	/* Buffer 2 Size Mask */
-#define DES1_RBS2_SIZE_SHIFT	11	/* Buffer 2 Size Shift */
+#define DES1_RBS2_SIZE_SHIFT	11		/* Buffer 2 Size Shift */
 #define DES1_RBS1_SIZE_MASK	0x000007ff	/* Buffer 1 Size Mask */
-#define DES1_RBS1_SIZE_SHIFT	0	/* Buffer 1 Size Shift */
+#define DES1_RBS1_SIZE_SHIFT	0		/* Buffer 1 Size Shift */
+
+
+/* Transmit descriptor 0*/
+#define TDES0_STATUS_ES		  0x00008000	/* Error Summary */
 
 /* Transmit descriptor 1*/
 #define TDES1_CONTROL_IC	0x80000000	/* Interrupt on Completion */
@@ -99,21 +112,15 @@
 #define TDES1_CONTROL_DPD	0x00800000	/* Disable Padding */
 
 /* Rx descriptor 0 */
-#define RDES0_STATUS_FL_MASK	0x3fff0000	/* Frame Length Mask */
-#define RDES0_STATUS_FL_SHIFT	16	/* Frame Length Shift */
+#define RDES0_STATUS_FL_MASK 0x3fff0000	/* Frame Length Mask */
+#define RDES0_STATUS_FL_SHIFT 16	/* Frame Length Shift */
+#define RDES0_STATUS_FS 0x00000200   /* First Descriptor */
+#define RDES0_STATUS_LS 0x00000100   /* Last Descriptor */
+#define RDES0_STATUS_ES	0x00008000	/* Error Summary */
 
 /* Other defines */
 #define HASH_TABLE_SIZE 64
 #define PAUSE_TIME 0x200
-
-#undef MAC_DEBUG
-/*#define MAC_DEBUG*/
-#ifdef MAC_DEBUG
-#define MAC_DBG(klevel, fmt, args...) \
-	printk(KERN_##klevel fmt, ## args)
-#else
-#define MAC_DBG(klevel, fmt, args...)  do { } while(0)
-#endif
 
 /* Flow Control defines */
 #define FLOW_OFF	0x0
@@ -121,17 +128,60 @@
 #define FLOW_TX		0x2
 #define FLOW_AUTO	(FLOW_TX | FLOW_RX)
 
+struct stmmac_extra_stats {
+	unsigned long tx_underflow;
+	unsigned long tx_carrier;
+	unsigned long tx_losscarrier;
+	unsigned long tx_heartbeat;
+	unsigned long tx_deferred;
+	unsigned long tx_vlan;
+	unsigned long tx_jabber;
+	unsigned long tx_frame_flushed;
+	unsigned long rx_desc;
+	unsigned long rx_partial;
+	unsigned long rx_runt;
+	unsigned long rx_toolong;
+	unsigned long rx_collision;
+	unsigned long rx_crc;
+	unsigned long rx_lenght;
+	unsigned long rx_mii;
+	unsigned long rx_multicast;
+	unsigned long rx_overflow;
+	unsigned long rx_watchdog;
+	unsigned long rx_filter;
+	unsigned long rx_dropped;
+	unsigned long rx_bytes;
+	unsigned long tx_bytes;
+	unsigned long tx_irq_n;
+	unsigned long rx_irq_n;
+	unsigned long tx_undeflow_irq;
+	unsigned long tx_threshold;
+	unsigned long tx_process_stopped_irq;
+	unsigned long tx_jabber_irq;
+	unsigned long rx_overflow_irq;
+	unsigned long rx_buf_unav_irq;
+	unsigned long rx_process_stopped_irq;
+	unsigned long rx_watchdog_irq;
+	unsigned long tx_early_irq;
+	unsigned long fatal_bus_error_irq;
+};
+#define EXTRA_STATS 35
+
 struct device_ops {
 	/* MAC controller initialization */
 	void (*core_init) (unsigned long ioaddr);
-	/* Dump MAC CORE registers */
+	/* MAC registers */
 	void (*mac_registers) (unsigned long ioaddr);
-	/* Dump DMA registers */
+	/* DMA registers */
 	void (*dma_registers) (unsigned long ioaddr);
+	/* DMA tx threshold */
+	void (*dma_ttc) (unsigned long ioaddr, int value);
 	/* Return zero if no error is happened during the transmission */
-	int (*check_tx_summary) (void *p, unsigned int status);
+	int (*tx_err) (void *p, struct stmmac_extra_stats *x,
+			unsigned int status);
 	/* Check if the frame was not successfully received */
-	int (*check_rx_summary) (void *p, unsigned int status);
+	int (*rx_err) (void *p, struct stmmac_extra_stats *x,
+			unsigned int status);
 	/* Verify the TX checksum */
 	void (*tx_checksum) (struct sk_buff * skb);
 	/* Verifies the RX checksum */

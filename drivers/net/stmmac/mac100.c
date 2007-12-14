@@ -66,46 +66,72 @@ static void mac100_mac_registers(unsigned long ioaddr)
 	return;
 }
 
+/* Store and Forward capability is not used.
+ * The transmit threshold can be programmed by
+ * setting the TTC bits in the DMA control register.*/
+static void mac100_dma_ttc(unsigned long ioaddr, int value)
+{
+	unsigned int csr6;
+	csr6 = (unsigned int)readl(ioaddr + DMA_CONTROL);
+
+	/* Operating on second frame seems to improve a 
+	 * little bit the performance. */
+	csr6 |= DMA_CONTROL_OSF; 
+
+	if (value <= 32)
+		csr6 |= DMA_CONTROL_TTC_32;
+	else if (value <= 64)
+		csr6 |= DMA_CONTROL_TTC_64;
+	else if (value <= 128)
+		csr6 |= DMA_CONTROL_TTC_128;
+	else
+		csr6 |= DMA_CONTROL_TTC_256;
+
+	writel(csr6, ioaddr + DMA_CONTROL);
+
+	return;
+}
+
 static void mac100_dma_registers(unsigned long ioaddr)
 {
 	int i;
-	printk("\t--------------------\n"
-	       "\t   MAC100 DMA CSR \n" "\t--------------------\n");
+
+	printk(KERN_DEBUG "MAC100 DMA CSR \n");
 	for (i = 0; i < 9; i++) {
-		printk("\t CSR%d (offset 0x%x): 0x%08x\n", i,
+		printk(KERN_DEBUG "\t CSR%d (offset 0x%x): 0x%08x\n", i,
 		       (DMA_BUS_MODE + i * 4),
 		       readl(ioaddr + DMA_BUS_MODE + i * 4));
 	}
-	printk("\t CSR20 (offset 0x%x): 0x%08x\n",
+	printk(KERN_DEBUG "\t CSR20 (offset 0x%x): 0x%08x\n",
 	       DMA_CUR_TX_BUF_ADDR, readl(ioaddr + DMA_CUR_TX_BUF_ADDR));
-	printk("\t CSR21 (offset 0x%x): 0x%08x\n",
+	printk(KERN_DEBUG "\t CSR21 (offset 0x%x): 0x%08x\n",
 	       DMA_CUR_RX_BUF_ADDR, readl(ioaddr + DMA_CUR_RX_BUF_ADDR));
 	return;
 }
 
-static int mac100_tx_summary(void *p, unsigned int status)
+static int mac100_tx_hw_error(void *p, struct stmmac_extra_stats *x,
+				unsigned int status)
 {
 	int ret = 0;
 	struct net_device_stats *stats = (struct net_device_stats *)p;
 
 	if (unlikely(status & TDES0_STATUS_ES)) {
-		MAC_DBG(ERR, "mac100: DMA tx ERROR: ");
-/*		TO BE VERIFIED !
-		if (status & TDES0_STATUS_UF) {
-			MAC_DBG(ERR, "Underflow Error\n");
+
+		if (unlikely(status & TDES0_STATUS_UF)) {
+			x->tx_underflow++;
 			stats->tx_fifo_errors++;
 		}
-*/
-		if (status & TDES0_STATUS_NO_CARRIER) {
-			MAC_DBG(ERR, "No Carrier detected\n");
+
+		if (unlikely(status & TDES0_STATUS_NO_CARRIER)) {
+			x->tx_carrier++;
 			stats->tx_carrier_errors++;
 		}
-		if (status & TDES0_STATUS_LOSS_CARRIER) {
-			MAC_DBG(ERR, "Loss of Carrier\n");
+		if (unlikely(status & TDES0_STATUS_LOSS_CARRIER)) {
+			x->tx_losscarrier++;
 		}
-		if ((status & TDES0_STATUS_EX_DEF) ||
+		if (unlikely((status & TDES0_STATUS_EX_DEF) ||
 		    (status & TDES0_STATUS_EX_COL) ||
-		    (status & TDES0_STATUS_LATE_COL)) {
+		    (status & TDES0_STATUS_LATE_COL))) {
 			stats->collisions +=
 			    ((status & TDES0_STATUS_COLCNT_MASK) >>
 			     TDES0_STATUS_COLCNT_SHIFT);
@@ -114,13 +140,13 @@ static int mac100_tx_summary(void *p, unsigned int status)
 	}
 
 	if (unlikely(status & TDES0_STATUS_HRTBT_FAIL)) {
-		MAC_DBG(ERR, "mac100: Heartbeat Fail\n");
+		x->tx_heartbeat++;
 		stats->tx_heartbeat_errors++;
 		ret = -1;
 	}
 	if (unlikely(status & TDES0_STATUS_DF)) {
-		MAC_DBG(WARNING, "mac100: tx deferred\n");
-		/*ret = -1; */
+		x->tx_deferred++;
+		ret = -1;
 	}
 
 	return (ret);
@@ -128,41 +154,52 @@ static int mac100_tx_summary(void *p, unsigned int status)
 
 /* This function verifies if the incoming frame has some errors 
  * and, if required, updates the multicast statistics. */
-static int mac100_rx_summary(void *p, unsigned int status)
+static int mac100_rx_hw_error(void *p, struct stmmac_extra_stats *x,
+				unsigned int status)
 {
 	int ret = 0;
 	struct net_device_stats *stats = (struct net_device_stats *)p;
 
-	if ((status & RDES0_STATUS_ERROR)) {
-		MAC_DBG(ERR, "stmmaceth RX:\n");
-		if (status & RDES0_STATUS_DE)
-			MAC_DBG(ERR, "\tdescriptor error\n");
-		if (status & RDES0_STATUS_PFE)
-			MAC_DBG(ERR, "\tpartial frame error\n");
-		if (status & RDES0_STATUS_RUNT_FRM)
-			MAC_DBG(ERR, "\trunt Frame\n");
-		if (status & RDES0_STATUS_TL)
-			MAC_DBG(ERR, "\tframe too long\n");
-		if (status & RDES0_STATUS_COL_SEEN) {
-			MAC_DBG(ERR, "\tcollision seen\n");
-			stats->collisions++;
-		}
-		if (status & RDES0_STATUS_CE) {
-			MAC_DBG(ERR, "\tCRC Error\n");
-			stats->rx_crc_errors++;
-		}
-
-		if (status & RDES0_STATUS_LENGTH_ERROR)
-			MAC_DBG(ERR, "\tLenght error\n");
-		if (status & RDES0_STATUS_MII_ERR)
-			MAC_DBG(ERR, "\tMII error\n");
-
+	if (unlikely(status & RDES0_STATUS_DE)) {
+		x->rx_desc++;
+		ret = -1;
+	}
+	if (unlikely(status & RDES0_STATUS_PFE)) {
+		x->rx_partial++;
+		ret = -1;
+	}
+	if (unlikely(status & RDES0_STATUS_RUNT_FRM)) {
+		x->rx_runt++;
+		ret = -1;
+	}
+	if (unlikely(status & RDES0_STATUS_TL)) {
+		x->rx_toolong++;
+		ret = -1;
+	}
+	if (unlikely(status & RDES0_STATUS_COL_SEEN)) {
+		x->rx_collision++;
+		stats->collisions++;
+		ret = -1;
+	}
+	if (unlikely(status & RDES0_STATUS_CE)) {
+		x->rx_crc++;
+		stats->rx_crc_errors++;
 		ret = -1;
 	}
 
-	/* update multicast stats */
-	if (status & RDES0_STATUS_MULTICST_FRM)
+	if (unlikely(status & RDES0_STATUS_LENGTH_ERROR)){
+		x->rx_lenght++;
+		ret = -1;
+	}
+	if (unlikely(status & RDES0_STATUS_MII_ERR)){
+		x->rx_mii++;
+		ret = -1;
+	}
+
+	if (unlikely(status & RDES0_STATUS_MULTICST_FRM)){
+		x->rx_multicast++;
 		stats->multicast++;
+	}
 
 	return (ret);
 }
@@ -191,7 +228,7 @@ static void mac100_core_init(unsigned long ioaddr)
 {
 	unsigned int value = 0;
 
-	MAC_DBG(DEBUG, "mac100_core_init");
+	printk(KERN_DEBUG "mac100_core_init");
 
 	/* Set the MAC control register with our default value */
 	value = (unsigned int)readl(ioaddr + MAC_CONTROL);
@@ -252,8 +289,8 @@ static void mac100_set_filter(struct net_device *dev)
 
 	writel(value, ioaddr + MAC_CONTROL);
 
-	MAC_DBG(DEBUG,
-		"%s: CTRL reg: 0x%08x - Hash regs: HI 0x%08x, LO 0x%08x\n",
+	printk(KERN_DEBUG "%s: CTRL reg: 0x%08x Hash regs: "
+		"HI 0x%08x, LO 0x%08x\n",
 		__FUNCTION__, readl(ioaddr + MAC_CONTROL),
 		readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
 	return;
@@ -264,11 +301,8 @@ static void mac100_flow_ctrl(unsigned long ioaddr, unsigned int duplex,
 {
 	unsigned int flow = MAC_FLOW_CTRL_ENABLE;
 
-	if (duplex) {
-		MAC_DBG(INFO, "mac100: flow control (pause 0x%x)\n.",
-			pause_time);
+	if (duplex)
 		flow |= (pause_time << MAC_FLOW_CTRL_PT_SHIFT);
-	}
 	writel(flow, ioaddr + MAC_FLOW_CTRL);
 
 	return;
@@ -278,8 +312,9 @@ struct device_ops mac100_driver = {
 	.core_init = mac100_core_init,
 	.mac_registers = mac100_mac_registers,
 	.dma_registers = mac100_dma_registers,
-	.check_tx_summary = mac100_tx_summary,
-	.check_rx_summary = mac100_rx_summary,
+	.dma_ttc = mac100_dma_ttc,
+	.tx_err = mac100_tx_hw_error,
+	.rx_err = mac100_rx_hw_error,
 	.tx_checksum = mac100_tx_checksum,
 	.rx_checksum = mac100_rx_checksum,
 	.set_filter = mac100_set_filter,

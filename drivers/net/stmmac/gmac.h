@@ -86,9 +86,17 @@
 #define DMA_STATUS_GLI		0x04000000	/* GMAC Line interface interrupt */
 
 /* DMA operation mode defines */
-#define DMA_CONTROL_SF	    0x00200000	/* Store And Forward */
-#define DMA_CONTROL_FTF		  0x00100000	/* Flush transmit FIFO */
-#define DMA_CONTROL_TTC_MASK      0x0001c000	/* Transmit Threshold Control */
+#define DMA_CONTROL_SF		0x00200000	/* Store And Forward */
+#define DMA_CONTROL_FTF		0x00100000	/* Flush transmit FIFO */
+#define DMA_CONTROL_TTC_MASK	0x0001c000	/* Transmit Threshold Control */
+#define DMA_CONTROL_TTC_64	0x00000000
+#define DMA_CONTROL_TTC_128	0x00040000
+#define DMA_CONTROL_TTC_192	0x00080000
+#define DMA_CONTROL_TTC_256	0x000c0000
+#define DMA_CONTROL_TTC_40	0x00100000
+#define DMA_CONTROL_TTC_32	0x00140000
+#define DMA_CONTROL_TTC_24	0x00180000
+#define DMA_CONTROL_TTC_16	0x001c0000
 
 /* --- Descriptor defines --- */
 /* Receive Descriptor 1*/
@@ -97,14 +105,11 @@
 #define RDES0_STATUS_FILTER_FAIL  0x40000000	/* DA Filtering Fails */
 #define RDES0_STATUS_FL_MASK      0x3fff0000	/* Frame Length Mask */
 #define RDES0_STATUS_FL_SHIFT     16	/* Frame Length Shift */
-#define RDES0_STATUS_ES	   0x00008000	/* Error Summary */
 #define RDES0_STATUS_DE	   0x00004000	/* Descriptor Error */
 #define RDES0_STATUS_SAF	  0x00002000	/* Source Address filter Fail */
 #define RDES0_STATUS_LENGTH_ERROR 0x00001000	/* Length Error */
 #define RDES0_STATUS_OE     0x00000800	/* Overflow Error */
 #define RDES0_STATUS_VLAN 0x00000400	/* VLAN tag */
-#define RDES0_STATUS_FS	   0x00000200	/* First Descriptor */
-#define RDES0_STATUS_LS	   0x00000100	/* Last Descriptor */
 #define RDES0_STATUS_IPC	   0x00000080	/* Checksum Error */
 #define RDES0_STATUS_LC     0x00000040	/* Collision Seen */
 #define RDES0_STATUS_FT     0x00000020	/* Frame Type */
@@ -115,7 +120,6 @@
 #define RDES0_STATUS_RX_MAC_ADDR	    0x00000001	/* RX MAC ADDR. */
 
 /* Transmit Descriptor */
-#define TDES0_STATUS_ES		  0x00008000	/* Error Summary */
 #define TDES0_STATUS_JT		  0x00004000	/* jabber timeout */
 #define TDES0_STATUS_FF		  0x00002000	/* frame flushed */
 #define TDES0_STATUS_LOSS_CARRIER 0x00000800	/* Loss of Carrier */

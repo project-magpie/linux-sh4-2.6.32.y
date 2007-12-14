@@ -99,14 +99,11 @@
 
 /* Receive Descriptor */
 #define RDES0_STATUS_FILTER_FAIL	0x40000000	/* Filtering Fail */
-#define RDES0_STATUS_ES		0x00008000	/* Error Summary */
 #define RDES0_STATUS_DE		0x00004000	/* Descriptor Error */
 #define RDES0_STATUS_PFE	0x00002000	/* Partial Frame Error */
 #define RDES0_STATUS_LENGTH_ERROR 0x00001000	/* Length Error */
 #define RDES0_STATUS_RUNT_FRM	0x00000800	/* Runt Frame */
 #define RDES0_STATUS_MULTICST_FRM 0x00000400	/* Multicast Frame */
-#define RDES0_STATUS_FS	0x00000200	/* First Descriptor */
-#define RDES0_STATUS_LS	0x00000100	/* Last Descriptor */
 #define RDES0_STATUS_TL	0x00000080	/* Frame Too Long */
 #define RDES0_STATUS_COL_SEEN	0x00000040	/* Collision Seen */
 #define RDES0_STATUS_FRM_TYPE	0x00000020	/* Frame Type */
@@ -120,7 +117,6 @@
 #define RDES0_STATUS_ERROR  (RDES0_STATUS_ES|RDES0_STATUS_LENGTH_ERROR|RDES0_STATUS_MII_ERR)
 
 /* Transmit Descriptor */
-#define TDES0_STATUS_ES	0x00008000	/* Error Summary */
 #define TDES0_STATUS_LOSS_CARRIER 0x00000800	/* Loss of Carrier */
 #define TDES0_STATUS_NO_CARRIER 0x00000400	/* No Carrier */
 #define TDES0_STATUS_LATE_COL 0x00000200	/* Late Collision */

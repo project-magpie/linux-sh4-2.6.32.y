@@ -89,8 +89,8 @@ static int ngroups_max = NGROUPS_MAX;
 #ifdef CONFIG_KMOD
 extern char modprobe_path[];
 #endif
-#ifdef CONFIG_FB_SPLASH
-extern char fbsplash_path[];
+#ifdef CONFIG_FB_CON_DECOR 
+extern char fbcon_decor_path[];
 #endif
 #ifdef CONFIG_CHR_DEV_SG
 extern int sg_big_buff;
@@ -488,11 +488,11 @@ static ctl_table kern_table[] = {
 		.strategy	= &sysctl_string,
 	},
 #endif
-#ifdef CONFIG_FB_SPLASH
+#ifdef CONFIG_FB_CON_DECOR
 	{
-		.ctl_name	= KERN_FBSPLASH,
-		.procname	= "fbsplash",
-		.data		= &fbsplash_path,
+		.ctl_name	= KERN_FBCON_DECOR,
+		.procname	= "fbcondecor",
+		.data		= &fbcon_decor_path,
 		.maxlen		= KMOD_PATH_LEN,
 		.mode		= 0644,
 		.proc_handler	= &proc_dostring,

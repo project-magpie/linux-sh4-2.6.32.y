@@ -15,7 +15,7 @@
 #include <linux/module.h>
 #include <linux/fb.h>
 #include <linux/slab.h>
-#include "fbsplash.h"
+#include "console/fbcondecor.h"
 
 #include <asm/uaccess.h>
 
@@ -243,9 +243,9 @@ int fb_set_cmap(struct fb_cmap *cmap, struct fb_info *info)
 	}
 	if (rc == 0) {
 		fb_copy_cmap(cmap, &info->cmap);
-		if (fbsplash_active(info, vc_cons[fg_console].d) &&
+		if (fbcon_decor_active(info, vc_cons[fg_console].d) &&
 		    info->fix.visual == FB_VISUAL_DIRECTCOLOR)
-			fbsplash_fix_pseudo_pal(info, vc_cons[fg_console].d);
+			fbcon_decor_fix_pseudo_pal(info, vc_cons[fg_console].d);
 	}
 	return rc;
 }

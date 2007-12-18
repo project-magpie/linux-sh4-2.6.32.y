@@ -1878,15 +1878,4 @@ if FB || SGI_NEWPORT_CONSOLE
 	source "drivers/video/logo/Kconfig"
 endif
 
-config FB_SPLASH
-	bool "Support for the framebuffer splash"
-	depends on FRAMEBUFFER_CONSOLE=y && !FB_TILEBLITTING
-	default n
-	---help---
-	  This option enables support for the Linux boot-up splash screen and
-	  graphical backgrounds on consoles. Note that you will need userspace
-	  splash utilities in order to take advantage of these features. Refer 
-	  to Documentation/fb/splash.txt for more information.
-
-	  If unsure, say N.
 endmenu

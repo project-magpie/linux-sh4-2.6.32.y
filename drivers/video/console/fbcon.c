@@ -91,7 +91,7 @@
 #endif
 
 #include "fbcon.h"
-#include "../fbsplash.h"
+#include "fbcondecor.h"
 
 #ifdef FBCONDEBUG
 #  define DPRINTK(fmt, args...) printk(KERN_DEBUG "%s: " fmt, __FUNCTION__ , ## args)
@@ -596,7 +596,7 @@ static int fbcon_takeover(int show_logo)
 		info_idx = -1;
 	}
 
-	fbsplash_init();
+	fbcon_decor_init();
 
 	return err;
 }
@@ -1040,9 +1040,9 @@ static const char *fbcon_startup(void)
 	cols /= vc->vc_font.width;
 	rows /= vc->vc_font.height;
 
-	if (fbsplash_active(info, vc)) {
-		cols = vc->vc_splash.twidth / vc->vc_font.width;
-		rows = vc->vc_splash.theight / vc->vc_font.height;
+	if (fbcon_decor_active(info, vc)) {
+		cols = vc->vc_decor.twidth / vc->vc_font.width;
+		rows = vc->vc_decor.theight / vc->vc_font.height;
 	}
 
 	vc_resize(vc, cols, rows);
@@ -1128,7 +1128,7 @@ static void fbcon_init(struct vc_data *vc, int init)
 	cap = info->flags;
 
 	if (vc != svc || logo_shown == FBCON_LOGO_DONTSHOW ||
-	    (info->fix.type == FB_TYPE_TEXT) || fbsplash_active(info, vc))
+	    (info->fix.type == FB_TYPE_TEXT) || fbcon_decor_active(info, vc))
 		logo = 0;
 
 	if (var_to_display(p, &info->var, info))
@@ -1327,8 +1327,8 @@ static void fbcon_clear(struct vc_data *vc, int sy, int sx, int height,
 	if (!height || !width)
 		return;
 
- 	if (fbsplash_active(info, vc)) {
- 		fbsplash_clear(vc, info, sy, sx, height, width);
+ 	if (fbcon_decor_active(info, vc)) {
+ 		fbcon_decor_clear(vc, info, sy, sx, height, width);
  		return;
  	}
  	
@@ -1353,12 +1353,12 @@ static void fbcon_putcs(struct vc_data *vc, const unsigned short *s,
 
 	if (!fbcon_is_inactive(vc, info)) {
 		
-		if (fbsplash_active(info, vc))
-			fbsplash_putcs(vc, info, s, count, ypos, xpos);
+		if (fbcon_decor_active(info, vc))
+			fbcon_decor_putcs(vc, info, s, count, ypos, xpos);
 		else
 			ops->putcs(vc, info, s, count, real_y(p, ypos), xpos,
-				   get_color(vc, info, scr_readw(s), 1),
-				   get_color(vc, info, scr_readw(s), 0));
+								get_color(vc, info, scr_readw(s), 1),
+								get_color(vc, info, scr_readw(s), 0));
 	}
 }
 
@@ -1376,10 +1376,10 @@ static void fbcon_clear_margins(struct vc_data *vc, int bottom_only)
 	struct fbcon_ops *ops = info->fbcon_par;
 
 	if (!fbcon_is_inactive(vc, info)) {
-	 	if (fbsplash_active(info, vc)) {
-	 		fbsplash_clear_margins(vc, info, bottom_only);
- 		} else {
-			ops->clear_margins(vc, info, bottom_only);
+		if (fbcon_decor_active(info, vc)) {
+			fbcon_decor_clear_margins(vc, info, bottom_only);
+		} else {
+				ops->clear_margins(vc, info, bottom_only);
 		}
 	}
 }
@@ -1901,7 +1901,7 @@ static int fbcon_scroll(struct vc_data *vc, int t, int b, int dir,
 			count = vc->vc_rows;
 		if (softback_top)
 			fbcon_softback_note(vc, t, count);
-		if (logo_shown >= 0 || fbsplash_active(info, vc))
+		if (logo_shown >= 0 || fbcon_decor_active(info, vc))
 			goto redraw_up;
 		switch (p->scrollmode) {
 		case SCROLL_MOVE:
@@ -1994,7 +1994,7 @@ static int fbcon_scroll(struct vc_data *vc, int t, int b, int dir,
 			count = vc->vc_rows;
 		if (logo_shown >= 0)
 			goto redraw_down;
-		if (fbsplash_active(info, vc))
+		if (fbcon_decor_active(info, vc))
 			goto redraw_down;
 		switch (p->scrollmode) {
 		case SCROLL_MOVE:
@@ -2145,9 +2145,9 @@ static void fbcon_bmove_rec(struct vc_data *vc, struct display *p, int sy, int s
 		return;
 	}
 
-	if (fbsplash_active(info, vc) && sy == dy && height == 1) {
+	if (fbcon_decor_active(info, vc) && sy == dy && height == 1) {
  		/* must use slower redraw bmove to keep background pic intact */
- 		fbsplash_bmove_redraw(vc, info, sy, sx, dx, width);
+ 		fbcon_decor_bmove_redraw(vc, info, sy, sx, dx, width);
  		return;
  	}
 	
@@ -2223,7 +2223,7 @@ static int fbcon_resize(struct vc_data *vc, unsigned int width,
 	y_diff = info->var.yres - var.yres;
 
 	if ((x_diff < 0 || x_diff > virt_fw ||
-	    y_diff < 0 || y_diff > virt_fh) && !vc->vc_splash.state) {
+	    y_diff < 0 || y_diff > virt_fh) && !vc->vc_decor.state) {
 		const struct fb_videomode *mode;
 
 		DPRINTK("attempting resize %ix%i\n", var.xres, var.yres);
@@ -2259,24 +2259,16 @@ static int fbcon_switch(struct vc_data *vc)
 
 	info = registered_fb[con2fb_map[vc->vc_num]];
 	ops = info->fbcon_par;
-	prev_console = ops->currcon;
+	prev_console = ops->currcon;	
 	if (prev_console != -1)
 		old_info = registered_fb[con2fb_map[prev_console]];
 
-	if (fbsplash_active_vc(vc)) {
-		struct vc_data *vc_curr = vc_cons[prev_console].d;
-		if (!vc_curr->vc_splash.theme || strcmp(vc->vc_splash.theme, vc_curr->vc_splash.theme)) {
-			if (fbsplash_call_helper("getpic", vc->vc_num))
-				fbsplash_disable(vc, 0);
-		}
-	} else if (info->fix.visual == FB_VISUAL_DIRECTCOLOR) { 
-		struct vc_data *vc_curr = vc_cons[prev_console].d;
-		if (vc_curr && fbsplash_active_vc(vc_curr)) {
+	if (!fbcon_decor_active_vc(vc) && info->fix.visual == FB_VISUAL_DIRECTCOLOR) {		struct vc_data *vc_curr = vc_cons[prev_console].d;
+  	if (vc_curr && fbcon_decor_active_vc(vc_curr)) {
 			/* Clear the screen to avoid displaying funky colors during
-			 * palette updates. */ 
-			memset((u8*)info->screen_base + info->fix.line_length * info->var.yoffset,
-			       0, info->var.yres * info->fix.line_length);
-		}
+		 	 * palette updates. */
+			memset((u8*)info->screen_base + info->fix.line_length * info->var.yoffset,					0, info->var.yres * info->fix.line_length);
+  	}
 	}
 
 	if (softback_top) {
@@ -2335,9 +2327,16 @@ static int fbcon_switch(struct vc_data *vc)
 			fbcon_del_cursor_timer(old_info);
 	}
 	
-	if (fbsplash_active_nores(info, vc) && !fbsplash_active(info, vc)) {
-		if (fbsplash_call_helper("modechange", vc->vc_num))
-			fbsplash_disable(vc, 0);
+	if (fbcon_decor_active_vc(vc)) {
+		struct vc_data *vc_curr = vc_cons[prev_console].d;
+
+ 		if (!vc_curr->vc_decor.theme ||
+			strcmp(vc->vc_decor.theme, vc_curr->vc_decor.theme) ||
+			(fbcon_decor_active_nores(info, vc_curr) &&
+			!fbcon_decor_active(info, vc_curr))) {
+				if (fbcon_decor_call_helper("modechange", vc->vc_num))
+					fbcon_decor_disable(vc, 0);
+		}
 	}
 
 	if (fbcon_is_inactive(vc, info) ||
@@ -2455,8 +2454,8 @@ static int fbcon_blank(struct vc_data *vc, int blank, int mode_switch)
 			ops->cursor_flash = (!blank);
 
 			if (fb_blank(info, blank)) {
-				if (fbsplash_active(info, vc))
-					fbsplash_blank(vc, info, blank);
+				if (fbcon_decor_active(info, vc))
+					fbcon_decor_blank(vc, info, blank);
 				else 
 					fbcon_generic_blank(vc, info, blank);
 			}
@@ -2617,9 +2616,9 @@ static int fbcon_do_set_font(struct vc_data *vc, int w, int h,
 		rows = FBCON_SWAP(ops->rotate, info->var.yres, info->var.xres);
 
  		info->var.xoffset = info->var.yoffset = p->yscroll = 0;
-		if (fbsplash_active(info, vc)) {
-			cols = vc->vc_splash.twidth;
-			rows = vc->vc_splash.theight;
+		if (fbcon_decor_active(info, vc)) {
+			cols = vc->vc_decor.twidth;
+			rows = vc->vc_decor.theight;
 		}
 		cols /= w;
 		rows /= h;
@@ -2780,7 +2779,7 @@ static int fbcon_set_palette(struct vc_data *vc, unsigned char *table)
 	} else
 		fb_copy_cmap(fb_default_cmap(1 << depth), &palette_cmap);
 
-	if (fbsplash_active(info, vc_cons[fg_console].d) &&
+	if (fbcon_decor_active(info, vc_cons[fg_console].d) &&
 	    info->fix.visual == FB_VISUAL_DIRECTCOLOR) {
 
 		u16 *red, *green, *blue;
@@ -2813,14 +2812,14 @@ static int fbcon_set_palette(struct vc_data *vc, unsigned char *table)
 		}
 
 		h = fb_set_cmap(&cmap, info);
-		fbsplash_fix_pseudo_pal(info, vc_cons[fg_console].d);
+		fbcon_decor_fix_pseudo_pal(info, vc_cons[fg_console].d);
 		kfree(red);
 		
 		return h;
 		
-	} else if (fbsplash_active(info, vc_cons[fg_console].d) && 
-		   info->var.bits_per_pixel == 8 && info->splash.cmap.red != NULL) 
-		fb_set_cmap(&info->splash.cmap, info);
+	} else if (fbcon_decor_active(info, vc_cons[fg_console].d) && 
+		   info->var.bits_per_pixel == 8 && info->bgdecor.cmap.red != NULL) 
+		fb_set_cmap(&info->bgdecor.cmap, info);
 		
 out:	return fb_set_cmap(&palette_cmap, info);
 }
@@ -3049,11 +3048,11 @@ static void fbcon_modechanged(struct fb_info *info)
 		cols /= vc->vc_font.width;
 		rows /= vc->vc_font.height;
 				
-		if (!fbsplash_active_nores(info, vc)) {
+		if (!fbcon_decor_active_nores(info, vc)) {
 			vc_resize(vc, cols, rows);
 		} else {
-			if (fbsplash_call_helper("modechange", vc->vc_num))
-				fbsplash_disable(vc, 0);
+			if (fbcon_decor_call_helper("modechange", vc->vc_num))
+				fbcon_decor_disable(vc, 0);
 		}
 
 		updatescrollmode(p, info, vc);
@@ -3683,7 +3682,7 @@ static void fbcon_exit(void)
 		}
 	}
 
-	fbsplash_exit();
+	fbcon_decor_exit();
 	fbcon_has_exited = 1;
 }
 

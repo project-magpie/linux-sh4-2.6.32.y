@@ -61,5 +61,11 @@ extern void __flush_invalidate_region(void *start, int size);
 
 #define HAVE_ARCH_UNMAPPED_AREA
 
+#define ARCH_HAS_FLUSH_KERNEL_DCACHE_PAGE
+static inline void flush_kernel_dcache_page(struct page *page)
+{
+	flush_dcache_page(page);
+}
+
 #endif /* __KERNEL__ */
 #endif /* __ASM_SH_CACHEFLUSH_H */

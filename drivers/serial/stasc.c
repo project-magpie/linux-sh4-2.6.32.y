@@ -28,8 +28,8 @@
 #include <asm/bitops.h>
 #include <asm/clock.h>
 
-#ifdef CONFIG_SH_KGDB
-#include <asm/kgdb.h>
+#ifdef CONFIG_KGDB
+#include <linux/kgdb.h>
 #endif
 
 #ifdef CONFIG_SH_STANDARD_BIOS
@@ -41,7 +41,6 @@
 #define DRIVER_NAME "stasc"
 
 #ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
-/* This is used as a system console, set by serial_console_setup */
 static struct console asc_console;
 #endif
 
@@ -52,7 +51,7 @@ static int  asc_request_irq(struct uart_port *);
 static void asc_free_irq(struct uart_port *);
 static void asc_transmit_chars(struct uart_port *);
 static int asc_remap_port(struct asc_port *ascport, int req);
-void        asc_set_termios_cflag (struct asc_port *, int ,int);
+void asc_set_termios_cflag (struct asc_port *, int ,int);
 static inline void asc_receive_chars(struct uart_port *);
 
 #ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
@@ -61,15 +60,10 @@ static void asc_console_write (struct console *, const char *,
 static int __init asc_console_setup (struct console *, char *);
 #endif
 
-#ifdef CONFIG_SH_KGDB
-int kgdb_asc_setup(void);
-static void kgdb_put_char(struct uart_port *port, char c);
-static struct asc_port *kgdb_asc_port;
-#ifdef CONFIG_SH_KGDB_CONSOLE
-static struct console kgdb_console;
-static struct tty_driver *kgdb_console_device(struct console *, int *);
-static int __init kgdb_console_setup(struct console *, char *);
-#endif
+#ifdef CONFIG_KGDB_ST_ASC
+static int kgdbasc_baud = CONFIG_KGDB_BAUDRATE;
+static int kgdbasc_portno = CONFIG_KGDB_PORT_NUM;
+# define kgdb_asc_port asc_ports[kgdbasc_portno]
 #endif
 
 /*---- Inline function definitions ---------------------------*/
@@ -709,7 +703,15 @@ static inline void asc_receive_chars(struct uart_port *port)
 				continue;
 			tty_insert_flip_char(tty, c & 0xff, flag);
 		}
-
+#if defined(CONFIG_KGDB_ST_ASC)
+		if (asc_default_console_device->id == kgdbasc_portno) {
+			if ((strncmp(tty->buf.head->char_buf_ptr,
+			     "$Hc-1#09",8) == 0)) {
+				breakpoint();
+				return;
+			}
+		}
+#endif
 		if (overrun) {
 			port->icount.overrun++;
 			tty_insert_flip_char(tty, 0, TTY_OVERRUN);
@@ -724,19 +726,41 @@ static inline void asc_receive_chars(struct uart_port *port)
 	}
 }
 
+/*
+ * The BRK_STATUS value has been calculated looking the status
+ * value into asc_interrupt function. When, on the system serial console,
+ * a <break> command is sent (for example "^af" using, under linux host,
+ * the minicom tool) the status is 0x57.
+ * In this case, the ASCx_STA register has: the RXBUFFFULL bit = 1
+ * (RX FIFO not empty), the Transmitter empty flag = 1, there is not
+ * a parity error and the FRAMEERROR bit is 1 (stop bit not found).
+ */
+#define BRK_STATUS 0x57
+
 static irqreturn_t asc_interrupt(int irq, void *ptr)
 {
 	struct uart_port *port = ptr;
 	unsigned long status;
 
 	spin_lock(&port->lock);
-
+#if defined(CONFIG_KGDB_ST_ASC)
+        /* To be Fixed: it seems that on a lot of ST40 platforms the breakpoint
+           condition is not checked without this delay. This problem probably
+           depends on an invalid port speed configuration.
+         */
+        udelay(1000);
+#endif
 	status = asc_in (port, STA);
 	if (status & ASC_STA_RBF) {
 		/* Receive FIFO not empty */
 		asc_receive_chars(port);
 	}
-
+#if defined(CONFIG_KGDB_ST_ASC)
+	if ((asc_default_console_device->id == kgdbasc_portno) &&
+			(status == BRK_STATUS)){
+		breakpoint();
+	}
+#endif
 	if ((status & ASC_STA_THE) && (asc_in(port, INTEN) & ASC_INTEN_THE)) {
 		/* Transmitter FIFO at least half empty */
 		asc_transmit_chars(port);
@@ -766,7 +790,7 @@ static void asc_free_irq(struct uart_port *port)
 
 /*----------------------------------------------------------------------*/
 
-#if defined(CONFIG_SH_STANDARD_BIOS) || defined(CONFIG_SH_KGDB)
+#if defined(CONFIG_SH_STANDARD_BIOS) || defined(CONFIG_KGDB)
 
 static int get_char(struct uart_port *port)
 {
@@ -823,7 +847,7 @@ put_string (struct uart_port *port, const char *buffer, int count)
 {
 	int i;
 	const unsigned char *p = buffer;
-#if defined(CONFIG_SH_STANDARD_BIOS) || defined(CONFIG_SH_KGDB)
+#if defined(CONFIG_SH_STANDARD_BIOS)
 	int checksum;
 	int usegdb=0;
 
@@ -831,9 +855,6 @@ put_string (struct uart_port *port, const char *buffer, int count)
 	 * called, and so is safe to do here unconditionally
 	 */
 	usegdb |= sh_bios_in_gdb_mode();
-#ifdef CONFIG_SH_KGDB
-	usegdb |= (kgdb_in_gdb_mode && (port == &kgdb_asc_port->port));
-#endif
 
 	if (usegdb) {
 	    /*  $<packet info>#<checksum>. */
@@ -858,7 +879,7 @@ put_string (struct uart_port *port, const char *buffer, int count)
 		put_char(port, lowhex(checksum));
 	    } while  (get_char(port) != '+');
 	} else
-#endif /* CONFIG_SH_STANDARD_BIOS || CONFIG_SH_KGDB */
+#endif /* CONFIG_SH_STANDARD_BIOS */
 
 	for (i = 0; i < count; i++) {
 		if (*p == 10)
@@ -912,142 +933,110 @@ asc_console_write (struct console *co, const char *s, unsigned count)
 	put_string(port, s, count);
 }
 
-/*----------------------------------------------------------------------*/
-/* KGDB ASC functions */
 
-#ifdef CONFIG_SH_KGDB
-/* write a char */
-static void kgdb_put_char(struct uart_port *port, char c)
+/* ===============================================================================
+				KGDB Functions
+   =============================================================================== */
+#ifdef CONFIG_KGDB_ST_ASC
+static int kgdbasc_read_char(void)
 {
-	unsigned long flags;
-	unsigned long status;
-
-	local_irq_save(flags);
-
-	do {
-		status = asc_in (port, STA);
-	} while (status & ASC_STA_TF);
-
-	asc_out (port, TXBUF, c);
-
-	local_irq_restore(flags);
+	return get_char(&kgdb_asc_port.port);
 }
 
-/* Called from stub to put a character */
-static void kgdb_asc_putchar(int c)
+/* Called from kgdbstub.c to put a character, just a wrapper */
+static void kgdbasc_write_char(u8 c)
 {
-        kgdb_put_char(&kgdb_asc_port->port, c);
+	put_char(&kgdb_asc_port.port, c);
 }
 
-/* Called from stub to get a character, i.e. is blocking */
-static int kgdb_asc_getchar(void)
+static int kgdbasc_set_termios(void)
 {
-	return get_char(&kgdb_asc_port->port);
-}
+	struct termios termios;
 
-/* Initialise the KGDB serial port.
-   Called from stub to setup the debug port
-*/
-int kgdb_asc_setup(void)
-{
-	int cflag = CREAD | HUPCL | CLOCAL | CSTOPB;
+	memset(&termios, 0, sizeof(struct termios));
 
-	if ((kgdb_portnum < 0) || (kgdb_portnum >= ASC_NPORTS))
-	{
-		printk (KERN_ERR "stasc: invalid ASC port number\n");
-		return -1;
+	termios.c_cflag = CREAD | HUPCL | CLOCAL | CS8;
+	switch (kgdbasc_baud) {
+		case 9600:
+			termios.c_cflag |= B9600;
+			break;
+		case 19200:
+			termios.c_cflag |= B19200;
+			break;
+		case 38400:
+			termios.c_cflag |= B38400;
+			break;
+		case 57600:
+			termios.c_cflag |= B57600;
+			break;
+		case 115200:
+			termios.c_cflag |= B115200;
+			break;
 	}
-
-        kgdb_asc_port = &asc_ports[kgdb_portnum];
-
-	switch (kgdb_baud) {
-        case 115200:
-                cflag |= B115200;
-                break;
-	case 57600:
-                cflag |= B57600;
-                break;
-        case 38400:
-                cflag |= B38400;
-                break;
-        case 19200:
-                cflag |= B19200;
-                break;
-	case 9600:
-		cflag = B9600;
-		break;
-        default:
-                cflag |= B115200;
-                kgdb_baud = 115200;
-		printk (KERN_WARNING "stasc: force the kgdb baud as %d\n",
-			kgdb_baud);
-                break;
-        }
-
-	switch (kgdb_bits) {
-        case '7':
-                cflag |= CS7;
-                break;
-        default:
-        case '8':
-                cflag |= CS8;
-                break;
-        }
-
-        switch (kgdb_parity) {
-        case 'O':
-                cflag |= PARODD;
-                break;
-        case 'E':
-                cflag |= PARENB;
-                break;
-        }
-        kgdb_cflag = cflag;
-        asc_set_termios_cflag(kgdb_asc_port, kgdb_cflag, kgdb_baud);
-
-	/* Setup complete: initialize function pointers */
-	kgdb_getchar = kgdb_asc_getchar;
-	kgdb_putchar = kgdb_asc_putchar;
-
-        return 0;
-}
-
-#ifdef CONFIG_SH_KGDB_CONSOLE
-/* Create a console device */
-static struct tty_driver *kgdb_console_device(struct console *co, int *index)
-{
-	struct uart_driver *p = co->data;
-	*index = co->index;
-	return p->tty_driver;
-}
-
-/* Set up the KGDB console */
-static int __init kgdb_console_setup(struct console *co, char *options)
-{
-        /* NB we ignore 'options' because we've already done the setup */
-        co->cflag = kgdb_cflag;
-        return 0;
-}
-
-/* The console structure for KGDB */
-static struct console kgdb_console= {
-	.name		= "ttyAS",
-	.device		= kgdb_console_device,
-	.write		= kgdb_console_write,
-	.setup		= kgdb_console_setup,
-	.flags		= CON_PRINTBUFFER | CON_ENABLED,
-	.index		= -1,
-	.data		= &asc_uart_driver,
-};
-
-#ifdef CONFIG_KGDB_DEFTYPE_ASC
-/* Register the KGDB console so we get messages (d'oh!) */
-int __init kgdb_console_init(void)
-{
-        register_console(&kgdb_console);
+	asc_set_termios_cflag(&kgdb_asc_port, termios.c_cflag, kgdbasc_baud);
 	return 0;
 }
-console_initcall(kgdb_console_init);
-#endif
-#endif /* CONFIG_SH_KGDB_CONSOLE */
-#endif /* CONFIG_SH_KGDB */
+
+static irqreturn_t kgdbasc_interrupt(int irq, void *ptr)
+{
+	/*
+	* If  there is some other CPU in KGDB then this is a
+	* spurious interrupt. so return without even checking a byte
+	*/
+	if (atomic_read(&debugger_active))
+		return IRQ_NONE;
+
+	breakpoint();
+	return IRQ_HANDLED;
+}
+
+static void __init kgdbasc_lateinit(void)
+{
+	if (asc_default_console_device->id != kgdbasc_portno) {
+
+		kgdbasc_set_termios();
+
+		if (request_irq(kgdb_asc_port.port.irq, kgdbasc_interrupt,
+			0, "stasc", &kgdb_asc_port.port)) {
+			printk(KERN_ERR "kgdb asc: cannot allocate irq.\n");
+			return;
+		}
+		asc_enable_rx_interrupts(&kgdb_asc_port.port);
+	}
+	return;
+}
+
+/* Early I/O initialization not yet supported ... */
+struct kgdb_io kgdb_io_ops = {
+	.read_char = kgdbasc_read_char,
+	.write_char = kgdbasc_write_char,
+	.late_init = kgdbasc_lateinit,
+};
+
+/*
+* Syntax for this cmdline option is "kgdbasc=ttyno,baudrate".
+*/
+static int __init
+kgdbasc_opt(char *str)
+{
+	if (*str < '0' || *str > ASC_MAX_PORTS + '0')
+		goto errout;
+	kgdbasc_portno = *str - '0';
+	str++;
+	if (*str != ',')
+		goto errout;
+	str++;
+	kgdbasc_baud = simple_strtoul(str, &str, 10);
+	if (kgdbasc_baud != 9600 && kgdbasc_baud != 19200 &&
+		kgdbasc_baud != 38400 && kgdbasc_baud != 57600 &&
+		kgdbasc_baud != 115200)
+			goto errout;
+
+	return 0;
+
+errout:
+	printk(KERN_ERR "Invalid syntax for option kgdbasc=\n");
+	return 1;
+}
+early_param("kgdbasc", kgdbasc_opt);
+#endif /* CONFIG_KGDB_ST_ASC */

@@ -496,12 +496,25 @@ qh_urb_transaction (
 	list_add_tail (&qtd->qtd_list, head);
 	qtd->urb = urb;
 
+	is_input = usb_pipein (urb->pipe);
+
 	token = QTD_STS_ACTIVE;
+#ifdef CONFIG_CPU_SUBTYPE_STB7100
+	/* The problem is that packets where the checksum has large numbers of 1's
+	 * the bitstuffing is still not correct. SMSC hubs seem to be very tight on the
+	 * specification, and fail. The workaround is to set the retry to infinite,
+	 * eventually the packet will go through, although it can rarely take up to a dozen
+	 * attempts. We only do this for output pipes, we leave input pipes with the
+	 * default TUNE_CERR value.
+	 */
+	if(is_input) token |= (EHCI_TUNE_CERR << 10);
+#else
 	token |= (EHCI_TUNE_CERR << 10);
+#endif
+
 	/* for split transactions, SplitXState initialized to zero */
 
 	len = urb->transfer_buffer_length;
-	is_input = usb_pipein (urb->pipe);
 	if (usb_pipecontrol (urb->pipe)) {
 		/* SETUP pid */
 		qtd_fill(ehci, qtd, urb->setup_dma,

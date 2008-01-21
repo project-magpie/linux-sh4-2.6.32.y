@@ -446,7 +446,7 @@ static struct platform_device fdma0_7200_device = {
 	.resource = (struct resource[2]) {
 		[0] = {
 			.start = STB7200_FDMA0_BASE,
-			.end   = STB7200_FDMA0_BASE + 0x10000,
+			.end   = STB7200_FDMA0_BASE + 0xffff,
 			.flags = IORESOURCE_MEM,
 		},
 		[1] = {
@@ -466,7 +466,7 @@ static struct platform_device fdma1_7200_device = {
 	.resource = (struct resource[2]) {
 		[0] = {
 			.start = STB7200_FDMA1_BASE,
-			.end   = STB7200_FDMA1_BASE + 0x10000,
+			.end   = STB7200_FDMA1_BASE + 0xffff,
 			.flags = IORESOURCE_MEM,
 		},
 		[1] = {
@@ -487,7 +487,7 @@ static struct platform_device fdma_xbar_device = {
 	.resource	= (struct resource[1]) {
 		{
 			.start	= STB7200_XBAR_BASE,
-			.end	= STB7200_XBAR_BASE+(4*1024),
+			.end	= STB7200_XBAR_BASE+(4*1024)-1,
 			.flags	= IORESOURCE_MEM,
 		},
 	},

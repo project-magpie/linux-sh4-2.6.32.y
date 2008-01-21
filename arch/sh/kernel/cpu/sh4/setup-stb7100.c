@@ -332,7 +332,7 @@ static struct platform_device fdma_710x_device = {
 	.resource = (struct resource[2]) {
 		[0] = {
 			.start = STB7100_FDMA_BASE,
-			.end   = STB7100_FDMA_BASE + 0x10000,
+			.end   = STB7100_FDMA_BASE + 0xffff,
 			.flags = IORESOURCE_MEM,
 		},
 		[1] = {

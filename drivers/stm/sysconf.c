@@ -56,12 +56,12 @@ struct sysconf_field* sysconf_claim(int regtype, int regnum, int lsb, int msb,
 void sysconf_write(struct sysconf_field *field, u64 value)
 {
 	void __iomem *reg;
-	int field_bits;	/* Actually number of bits -1 */
+	int field_bits;	/* Number of bits */
 
 	reg = sysconf_base + field->offset;
-	field_bits = field->msb - field->lsb;
+	field_bits = field->msb - field->lsb + 1;
 
-	if (field_bits == 31) {
+	if (field_bits == 32) {
 		/* Operating on the whole register, nice and easy */
 		writel(value, reg);
 	} else {
@@ -81,14 +81,14 @@ void sysconf_write(struct sysconf_field *field, u64 value)
 u64 sysconf_read(struct sysconf_field *field)
 {
 	void __iomem *reg;
-	int field_bits;	/* Actually number of bits -1 */
+	int field_bits;	/* Number of bits -1 */
 	u32 tmp;
 
 	reg = sysconf_base + field->offset;
 	tmp = readl(reg);
-	field_bits = field->msb - field->lsb;
+	field_bits = field->msb - field->lsb + 1;
 
-	if (field_bits != 31) {
+	if (field_bits != 32) {
 		tmp >>= field->lsb;
 		tmp &= (1 << field_bits) -1;
 	}

@@ -1,0 +1,196 @@
+#ifndef __STM_REGISTERS_AUD_PCMOUT_H
+#define __STM_REGISTERS_AUD_PCMOUT_H
+
+
+
+#define AUD_PCMOUT_RST 0x00
+
+#define AUD_PCMOUT_RST__SRSTP__SHIFT          0
+#define AUD_PCMOUT_RST__SRSTP__MASK           0x1
+#define AUD_PCMOUT_RST__SRSTP__VALUE__RUNNING 0x0
+#define AUD_PCMOUT_RST__SRSTP__VALUE__RESET   0x1
+
+
+
+#define AUD_PCMOUT_DATA 0x04
+
+#define AUD_PCMOUT_DATA__DATA__SHIFT 0
+#define AUD_PCMOUT_DATA__DATA__MASK  0xffffffff
+
+
+
+#define AUD_PCMOUT_ITS 0x08
+
+#define AUD_PCMOUT_ITS__UNF__SHIFT          0
+#define AUD_PCMOUT_ITS__UNF__MASK           0x1
+#define AUD_PCMOUT_ITS__UNF__VALUE__PENDING 0x1
+
+#define AUD_PCMOUT_ITS__NSAMPLE__SHIFT          1
+#define AUD_PCMOUT_ITS__NSAMPLE__MASK           0x1
+#define AUD_PCMOUT_ITS__NSAMPLE__VALUE__PENDING 0x1
+
+
+
+#define AUD_PCMOUT_ITS_CLR 0x0c
+
+#define AUD_PCMOUT_ITS_CLR__UNF__SHIFT        0
+#define AUD_PCMOUT_ITS_CLR__UNF__MASK         0x1
+#define AUD_PCMOUT_ITS_CLR__UNF__VALUE__CLEAR 0x1
+
+#define AUD_PCMOUT_ITS_CLR__NSAMPLE__SHIFT       1
+#define AUD_PCMOUT_ITS_CLR__NSAMPLE__MASK        0x1
+#define AUD_PCMOUT_ITS_CLR__NSAMPLE__VALUE_CLEAR 0x1
+
+
+
+#define AUD_PCMOUT_IT_EN 0x10
+
+#define AUD_PCMOUT_IT_EN__UNF__SHIFT           0
+#define AUD_PCMOUT_IT_EN__UNF__MASK            0x1
+#define AUD_PCMOUT_IT_EN__UNF__VALUE__DISABLED 0x0
+#define AUD_PCMOUT_IT_EN__UNF__VALUE__ENABLED  0x1
+
+#define AUD_PCMOUT_IT_EN__NSAMPLE__SHIFT           1
+#define AUD_PCMOUT_IT_EN__NSAMPLE__MASK            0x1
+#define AUD_PCMOUT_IT_EN__NSAMPLE__VALUE__DISABLED 0x0
+#define AUD_PCMOUT_IT_EN__NSAMPLE__VALUE__ENABLED  0x1
+
+
+
+#define AUD_PCMOUT_IT_EN_SET 0x14
+
+#define AUD_PCMOUT_IT_EN_SET__UNF__SHIFT      0
+#define AUD_PCMOUT_IT_EN_SET__UNF__MASK       0x1
+#define AUD_PCMOUT_IT_EN_SET__UNF__VALUE__SET 0x1
+
+#define AUD_PCMOUT_IT_EN_SET__NSAMPLE__SHIFT      1
+#define AUD_PCMOUT_IT_EN_SET__NSAMPLE__MASK       0x1
+#define AUD_PCMOUT_IT_EN_SET__NSAMPLE__VALUE__SET 0x1
+
+
+
+#define AUD_PCMOUT_IT_EN_CLR 0x18
+
+#define AUD_PCMOUT_IT_EN_CLR__UNF__SHIFT        0
+#define AUD_PCMOUT_IT_EN_CLR__UNF__MASK         0x1
+#define AUD_PCMOUT_IT_EN_CLR__UNF__VALUE__CLEAR 0x1
+
+#define AUD_PCMOUT_IT_EN_CLR__NSAMPLE__SHIFT        1
+#define AUD_PCMOUT_IT_EN_CLR__NSAMPLE__MASK         0x1
+#define AUD_PCMOUT_IT_EN_CLR__NSAMPLE__VALUE__CLEAR 0x1
+
+
+
+#define AUD_PCMOUT_CTRL 0x1c
+
+#define AUD_PCMOUT_CTRL__MODE__SHIFT       0
+#define AUD_PCMOUT_CTRL__MODE__MASK        0x3
+#define AUD_PCMOUT_CTRL__MODE__VALUE__OFF  0x0
+#define AUD_PCMOUT_CTRL__MODE__VALUE__MUTE 0x1
+#define AUD_PCMOUT_CTRL__MODE__VALUE__PCM  0x2
+#define AUD_PCMOUT_CTRL__MODE__VALUE__CD   0x3
+
+#define AUD_PCMOUT_CTRL__MEM_FMT__SHIFT                  2
+#define AUD_PCMOUT_CTRL__MEM_FMT__MASK                   0x1
+#define AUD_PCMOUT_CTRL__MEM_FMT__VALUE__16_BITS_0_BITS  0x0
+#define AUD_PCMOUT_CTRL__MEM_FMT__VALUE__16_BITS_16_BITS 0x1
+
+#define AUD_PCMOUT_CTRL__RND__SHIFT                   3
+#define AUD_PCMOUT_CTRL__RND__MASK                    0x1
+#define AUD_PCMOUT_CTRL__RND__VALUE__NO_ROUNDING      0x0
+#define AUD_PCMOUT_CTRL__RND__VALUE__16_BITS_ROUNDING 0x1
+
+#define AUD_PCMOUT_CTRL__CLK_DIV__SHIFT 4
+#define AUD_PCMOUT_CTRL__CLK_DIV__MASK  0xff
+
+#define AUD_PCMOUT_CTRL__SPDIF_LAT__SHIFT                 12
+#define AUD_PCMOUT_CTRL__SPDIF_LAT__MASK                  0x1
+#define AUD_PCMOUT_CTRL__SPDIF_LAT__VALUE__IGNORE_SPDIF   0x0
+#define AUD_PCMOUT_CTRL__SPDIF_LAT__VALUE__WAIT_FOR_SPDIF 0x1
+
+#define AUD_PCMOUT_CTRL__NSAMPLE__SHIFT 13
+#define AUD_PCMOUT_CTRL__NSAMPLE__MASK  0x0007ffff
+
+
+
+#define AUD_PCMOUT_STA 0x20
+
+#define AUD_PCMOUT_STA__RUN_STOP__SHIFT          0
+#define AUD_PCMOUT_STA__RUN_STOP__MASK           0x1
+#define AUD_PCMOUT_STA__RUN_STOP__VALUE__STOPPED 0x0
+#define AUD_PCMOUT_STA__RUN_STOP__VALUE__RUNNING 0x1
+
+#define AUD_PCMOUT_STA__UNF__SHIFT                     1
+#define AUD_PCMOUT_STA__UNF__MASK                      0x1
+#define AUD_PCMOUT_STA__UNF__VALUE__UNDERFLOW_DETECTED 0x1
+
+#define AUD_PCMOUT_STA__NSAMPLE__SHIFT       2
+#define AUD_PCMOUT_STA__NSAMPLE__MASK        0x1
+#define AUD_PCMOUT_STA__NSAMPLE__VALUE__DONE 0x1
+
+
+
+#define AUD_PCMOUT_FMT 0x24
+
+#define AUD_PCMOUT_FMT__NBIT__SHIFT          0
+#define AUD_PCMOUT_FMT__NBIT__MASK           0x1
+#define AUD_PCMOUT_FMT__NBIT__VALUE__32_BITS 0x0
+#define AUD_PCMOUT_FMT__NBIT__VALUE__16_BITS 0x1
+
+#define AUD_PCMOUT_FMT__DATA_SIZE__SHIFT          1
+#define AUD_PCMOUT_FMT__DATA_SIZE__MASK           0x3
+#define AUD_PCMOUT_FMT__DATA_SIZE__VALUE__24_BITS 0x0
+#define AUD_PCMOUT_FMT__DATA_SIZE__VALUE__20_BITS 0x1
+#define AUD_PCMOUT_FMT__DATA_SIZE__VALUE__18_BITS 0x2
+#define AUD_PCMOUT_FMT__DATA_SIZE__VALUE__16_BITS 0x3
+
+#define AUD_PCMOUT_FMT__LR_POL__SHIFT            3
+#define AUD_PCMOUT_FMT__LR_POL__MASK             0x1
+#define AUD_PCMOUT_FMT__LR_POL__VALUE__LEFT_LOW  0x0
+#define AUD_PCMOUT_FMT__LR_POL__VALUE__LEFT_HIGH 0x1
+
+#define AUD_PCMOUT_FMT__SCLK_EDGE__SHIFT          4
+#define AUD_PCMOUT_FMT__SCLK_EDGE__MASK           0x1
+/* Beware that in 7100 and some cuts of 7109 there is
+ * a HW bug and these values are inverted; such
+ * situation must be detected in runtime! */
+#define AUD_PCMOUT_FMT__SCLK_EDGE__VALUE__RISING  0x0
+#define AUD_PCMOUT_FMT__SCLK_EDGE__VALUE__FALLING 0x1
+
+#define AUD_PCMOUT_FMT__PADDING__SHIFT                5
+#define AUD_PCMOUT_FMT__PADDING__MASK                 0x1
+#define AUD_PCMOUT_FMT__PADDING__VALUE__1_CYCLE_DELAY 0x0
+#define AUD_PCMOUT_FMT__PADDING__VALUE__NO_DELAY      0x1
+
+#define AUD_PCMOUT_FMT__ALIGN__SHIFT        6
+#define AUD_PCMOUT_FMT__ALIGN__MASK         0x1
+#define AUD_PCMOUT_FMT__ALIGN__VALUE__LEFT  0x0
+#define AUD_PCMOUT_FMT__ALIGN__VALUE__RIGHT 0x1
+
+#define AUD_PCMOUT_FMT__ORDER__SHIFT            7
+#define AUD_PCMOUT_FMT__ORDER__MASK             0x1
+#define AUD_PCMOUT_FMT__ORDER__VALUE__LSB_FIRST 0x0
+#define AUD_PCMOUT_FMT__ORDER__VALUE__MSB_FIRST 0x1
+
+#define AUD_PCMOUT_FMT__NUM_CH__SHIFT             8
+#define AUD_PCMOUT_FMT__NUM_CH__MASK              0x7
+/* "1 channel" means 1 PCM player channel so
+ * 2 audio channels (stereo) */
+#define AUD_PCMOUT_FMT__NUM_CH__VALUE__1_CHANNEL  0x1
+#define AUD_PCMOUT_FMT__NUM_CH__VALUE__2_CHANNELS 0x2
+#define AUD_PCMOUT_FMT__NUM_CH__VALUE__3_CHANNELS 0x3
+#define AUD_PCMOUT_FMT__NUM_CH__VALUE__4_CHANNELS 0x4
+#define AUD_PCMOUT_FMT__NUM_CH__VALUE__5_CHANNELS 0x5
+
+/* According to 7200 Programming Manual vol. 2: */
+#if 0
+#define AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT__SHIFT 12
+#define AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT__MASK  0xf
+#endif
+/* According to GPFIFO based PCM Player Functional Spec: */
+#if 1
+#define AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT__SHIFT 11
+#define AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT__MASK  0x1f
+#endif
+
+#endif

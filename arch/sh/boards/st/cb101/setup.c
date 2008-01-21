@@ -19,6 +19,7 @@
 #include <linux/mtd/partitions.h>
 #include <linux/phy.h>
 #include <asm/irq-ilc.h>
+#include <linux/delay.h>
 
 static int ascs[2] __initdata = { 2, 3 };
 
@@ -75,12 +76,31 @@ static struct platform_device physmap_flash = {
 	},
 };
 
+static int phy_reset(void* bus)
+{
+	static struct stpio_pin *ethreset = NULL;
+
+	if (ethreset == NULL) {
+		ethreset = stpio_request_set_pin(4, 7, "STE101P_RST", STPIO_OUT, 1);
+	}
+
+	stpio_set_pin(ethreset, 1);
+	udelay(1);
+	stpio_set_pin(ethreset, 0);
+	udelay(1000);
+	stpio_set_pin(ethreset, 1);
+
+	return 0;
+}
+
+
 static struct plat_stmmacphy_data phy_private_data = {
 	/* MAC0: STE101P */
 	.bus_id = 0,
 	.phy_addr = 0,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_MII,
+	.phy_reset = phy_reset,
 };
 
 static struct platform_device cb101_phy_device = {
@@ -110,7 +130,7 @@ static int __init device_init(void)
 {
 	stx7200_configure_ssc(&ssc_private_info);
 	stx7200_configure_usb();
-	stx7200_configure_ethernet(0, 0, 1, 0);
+	stx7200_configure_ethernet(0, 0, 0, 0);
         stx7200_configure_lirc();
 
 	return platform_add_devices(cb101_devices, ARRAY_SIZE(cb101_devices));
@@ -129,9 +149,6 @@ static void __iomem *cb101_ioport_map(unsigned long port, unsigned int size)
 
 static void __init cb101_init_irq(void)
 {
-	/* enable individual interrupt mode for externals */
-	plat_irq_setup_pins(IRQ_MODE_IRQ);
-
 }
 
 struct sh_machine_vector mv_cb101 __initmv = {

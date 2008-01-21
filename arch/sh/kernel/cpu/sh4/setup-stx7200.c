@@ -331,7 +331,7 @@ static void fix_mac_speed(void *priv, unsigned int speed)
 {
 	unsigned port = (unsigned)priv;
 
-	sysconf_write(mac_speed_sc[port], (speed == SPEED_100) ? 0 : 1);
+	sysconf_write(mac_speed_sc[port], (speed == SPEED_100) ? 1 : 0);
 }
 
 static struct plat_stmmacenet_data stmmaceth_private_data[2] = {

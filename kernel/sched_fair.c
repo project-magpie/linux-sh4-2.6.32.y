@@ -645,7 +645,7 @@ static void enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		 * get a milliseconds-range estimation of the amount of
 		 * time that the task spent sleeping:
 		 */
-		if (unlikely(prof_on == SLEEP_PROFILING)) {
+		if (unlikely(immediate_read(prof_on) == SLEEP_PROFILING)) {
 			profile_hits(SLEEP_PROFILING, (void *)get_wchan(tsk),
 				     delta >> 20);
 		}

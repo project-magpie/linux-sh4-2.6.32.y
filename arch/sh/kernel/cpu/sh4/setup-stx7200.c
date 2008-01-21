@@ -24,6 +24,7 @@
 #include <linux/stm/fdma-reqs.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
+#include <linux/delay.h>
 
 static unsigned long chip_revision;
 static struct sysconf_field *sc7_2;
@@ -70,6 +71,266 @@ static struct platform_device st40_ohci_devices[3] = {
 	USB_OHCI_DEVICE(2, AHB2STBUS_OHCI_BASE(2), ILC_IRQ(85)),
 };
 
+/*
+ * Workaround for USB problems on 7200 cut 1; alternative to RC delay on board
+*/
+void __init usb_soft_jtag_reset(void) {
+	int i, j;
+	struct sysconf_field *sc;
+
+	sc = sysconf_claim(SYS_CFG, 33, 0, 6, NULL);
+
+	/* ENABLE SOFT JTAG */
+	sysconf_write(sc, 0x00000040);
+
+	/* RELEASE TAP RESET */
+	sysconf_write(sc, 0x00000044);
+
+	/* SET TAP INTO IDLE STATE */
+	sysconf_write(sc, 0x00000045);
+
+	/* SET TAP INTO SHIFT IR STATE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SHIFT DATA IN TDI = 101 select TCB*/
+	sysconf_write(sc, 0x00000046);
+	sysconf_write(sc, 0x00000047);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x0000004E);
+	sysconf_write(sc, 0x0000004F);
+
+	/* SET TAP INTO IDLE MODE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SET TAP INTO SHIFT DR STATE*/
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SHIFT DATA IN TCB */
+	for (i=0; i<=53; i++) {
+		if((i==0)||(i==1)||(i==19)||(i==36)) {
+			sysconf_write(sc, 0x00000044);
+			sysconf_write(sc, 0x00000045);
+		}
+
+		if((i==53)) {
+			sysconf_write(sc, 0x0000004c);
+			sysconf_write(sc, 0x0000004D);
+		}
+		sysconf_write(sc, 0x00000044);
+		sysconf_write(sc, 0x00000045);
+	}
+
+	/* SET TAP INTO IDLE MODE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	for (i=0; i<=53; i++) {
+		sysconf_write(sc, 0x00000045);
+		sysconf_write(sc, 0x00000044);
+	}
+
+	sysconf_write(sc, 0x00000040);
+
+	/* RELEASE TAP RESET */
+	sysconf_write(sc, 0x00000044);
+
+	/* SET TAP INTO IDLE STATE */
+	sysconf_write(sc, 0x00000045);
+
+	/* SET TAP INTO SHIFT IR STATE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SHIFT DATA IN TDI = 110 select TPR*/
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x00000046);
+	sysconf_write(sc, 0x00000047);
+	sysconf_write(sc, 0x0000004E);
+	sysconf_write(sc, 0x0000004F);
+
+	/* SET TAP INTO IDLE MODE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SET TAP INTO SHIFT DR STATE*/
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SHIFT DATA IN TDO */
+	for (i=0; i<=366; i++) {
+		sysconf_write(sc, 0x00000044);
+		sysconf_write(sc, 0x00000045);
+	}
+
+	for(j=0; j<2; j++) {
+		for (i=0; i<=365; i++) {
+			if ((i == 71) || (i== 192) || (i == 313)) {
+				sysconf_write(sc, 0x00000044);
+				sysconf_write(sc, 0x00000045);
+			}
+			sysconf_write(sc, 0x00000044);
+			sysconf_write(sc, 0x00000045);
+
+			if ((i == 365))	{
+				sysconf_write(sc, 0x0000004c);
+				sysconf_write(sc, 0x0000004d);
+			}
+		}
+	}
+
+	for (i=0; i<=366; i++) {
+		sysconf_write(sc, 0x00000045);
+		sysconf_write(sc, 0x00000044);
+	}
+
+	/* SET TAP INTO IDLE MODE */
+	sysconf_write(sc, 0x0000004C);
+	sysconf_write(sc, 0x0000004D);
+	sysconf_write(sc, 0x0000004C);
+	sysconf_write(sc, 0x0000004D);
+  	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SET TAP INTO SHIFT IR STATE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SHIFT DATA IN TDI = 101 select TCB */
+	sysconf_write(sc, 0x00000046);
+	sysconf_write(sc, 0x00000047);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x0000004E);
+	sysconf_write(sc, 0x0000004F);
+
+	/* SET TAP INTO IDLE MODE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SET TAP INTO SHIFT DR STATE*/
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SHIFT DATA IN TCB */
+	for (i=0; i<=53; i++) {
+		if((i==0)||(i==1)||(i==18)||(i==19)||(i==36)||(i==37)) {
+			sysconf_write(sc, 0x00000046);
+			sysconf_write(sc, 0x00000047);
+		}
+		if((i==53)) {
+			sysconf_write(sc, 0x0000004c);
+			sysconf_write(sc, 0x0000004D);
+		}
+		sysconf_write(sc, 0x00000044);
+		sysconf_write(sc, 0x00000045);
+	}
+
+	/* SET TAP INTO IDLE MODE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+
+	for (i=0; i<=53; i++) {
+		sysconf_write(sc, 0x00000045);
+		sysconf_write(sc, 0x00000044);
+	}
+
+	/* SET TAP INTO SHIFT IR STATE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SHIFT DATA IN TDI = 110 select TPR*/
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x00000046);
+	sysconf_write(sc, 0x00000047);
+	sysconf_write(sc, 0x0000004E);
+	sysconf_write(sc, 0x0000004F);
+
+	/* SET TAP INTO IDLE MODE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	/* SET TAP INTO SHIFT DR STATE*/
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	for (i=0; i<=366; i++) {
+		sysconf_write(sc, 0x00000044);
+		sysconf_write(sc, 0x00000045);
+	}
+
+	/* SET TAP INTO IDLE MODE */
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x0000004c);
+	sysconf_write(sc, 0x0000004d);
+	sysconf_write(sc, 0x00000044);
+	sysconf_write(sc, 0x00000045);
+
+	mdelay(20);
+	sysconf_write(sc, 0x00000040);
+}
+
 void __init stx7200_configure_usb(void)
 {
 	const unsigned char power_pins[3] = {1, 3, 4};
@@ -97,6 +358,7 @@ void __init stx7200_configure_usb(void)
 	sc = sysconf_claim(SYS_CFG, 33, 0, 3, "usb");
 	sysconf_write(sc, 0);
 
+	usb_soft_jtag_reset();
 	for (port=0; port<3; port++) {
 		usb_power_sc[port] = sysconf_claim(SYS_CFG, 22, 3+port,
 						   3+port, "usb");

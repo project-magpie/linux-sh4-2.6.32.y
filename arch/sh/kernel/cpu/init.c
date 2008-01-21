@@ -228,6 +228,10 @@ asmlinkage void __cpuinit sh_cpu_init(void)
 	if (current_cpu_data.type == CPU_SH_NONE)
 		panic("Unknown CPU");
 
+#ifdef CONFIG_32BIT
+	pmb_init();
+#endif
+
 	/* Init the cache */
 	cache_init();
 

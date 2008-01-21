@@ -157,7 +157,8 @@ do {							\
 		: "=&r" (__dummy));			\
 } while (0)
 
-#define __uses_jump_to_uncached __attribute__ ((__section__ (".uncached")))
+#define __uses_jump_to_uncached \
+	noinline __attribute__ ((__section__ (".uncached")))
 
 #if defined(CONFIG_SH_GRB)
 static inline unsigned long xchg_u32(volatile u32 * m, unsigned long val)

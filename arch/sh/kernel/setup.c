@@ -297,9 +297,6 @@ void __init setup_arch(char **cmdline_p)
 	/* Setup bootmem with available RAM */
 	setup_memory();
 	sparse_init();
-#ifdef CONFIG_32BIT
-	pmb_init();
-#endif
 
 #ifdef CONFIG_DUMMY_CONSOLE
 	conswitchp = &dummy_con;

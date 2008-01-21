@@ -28,7 +28,12 @@ void (*copy_page)(void *from, void *to);
 void (*clear_page)(void *to);
 
 extern char _start_uncached, _end_uncached;
-unsigned long cached_to_uncached;
+
+/* Offset of the uncached section from its cached alias.  Default
+ * value only valid in 29 bit mode, in 32bit mode will be overridden
+ * in pmb_init.
+ */
+unsigned long cached_to_uncached = 0x20000000;
 
 void show_mem(void)
 {
@@ -209,9 +214,6 @@ void __init paging_init(void)
 	free_area_init_nodes(max_zone_pfns);
 
 	set_fixmap_nocache(FIX_UNCACHED_CODE, __pa(&_start_uncached));
-#ifndef CONFIG_32BIT
-	cached_to_uncached = 0x20000000;
-#endif
 }
 
 static struct kcore_list kcore_mem, kcore_vmalloc;

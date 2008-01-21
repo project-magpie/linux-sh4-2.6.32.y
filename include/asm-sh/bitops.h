@@ -6,7 +6,7 @@
 /* For __swab32 */
 #include <asm/byteorder.h>
 
-#ifdef CONFIG_CPU_GRB
+#ifdef CONFIG_SH_GRB
 #include <asm/bitops-grb.h>
 #else
 #include <asm/bitops-irq.h>

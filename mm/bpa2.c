@@ -163,7 +163,7 @@ void __init bpa2_init(struct bpa2_partition_desc* partdescs, int nparts)
 			ok = bpa2_alloc_low(bp);
 		} else if ((start_pfn >= min_low_pfn) && (end_pfn <= max_low_pfn)) {
 			ok = bpa2_init_low(bp);
-		} else if ((start_pfn > max_low_pfn) || (end_pfn > min_low_pfn)) {
+		} else if ((start_pfn > max_low_pfn) || (end_pfn < min_low_pfn)) {
 			ok = bpa2_init_ext(bp);
 		} else {
 			bpa2_init_failure(bp, "spans low memory boundary");
@@ -189,9 +189,8 @@ void __init bpa2_init(struct bpa2_partition_desc* partdescs, int nparts)
 		partdescs++;
 	}
 
-	if (bpa2_bigphysarea_part == NULL) {
-		bp = bpa2_find_part("bigphysarea");
-
+	if ((bpa2_bigphysarea_part == NULL) &&
+	    ((bp = bpa2_find_part("bigphysarea")) != NULL)) {
 		if (bp->low_mem) {
 			bpa2_bigphysarea_part = bp;
 		} else {
@@ -513,7 +512,7 @@ static char* get_part_info(char *p, struct bpa2_part *bp)
 			used_max = ptr->size;
 	}
 
-	p += sprintf(p, "Partition: %s, size %ld kB\n", bp->name,
+	p += sprintf(p, "Partition: %s, size %d kB\n", bp->name,
 		     (bp->res.end - bp->res.start + 1) / 1024);
 	if (bp->aka) {
 		const char** aka;

@@ -826,11 +826,18 @@ put_char (struct uart_port *port, char c)
 	unsigned long flags;
 	unsigned long status;
 
-	spin_lock_irqsave(&port->lock, flags);
-
+try_again:
 	do {
 		status = asc_in (port, STA);
 	} while (status & ASC_STA_TF);
+
+	spin_lock_irqsave(&port->lock, flags);
+
+	status = asc_in (port, STA);
+	if (status & ASC_STA_TF) {
+		spin_unlock_irqrestore(&port->lock, flags);
+		goto try_again;
+	}
 
 	asc_out (port, TXBUF, c);
 

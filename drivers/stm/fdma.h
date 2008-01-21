@@ -21,9 +21,9 @@
 #define SOURCE_ADDR 					0x05
 #define DEST_ADDR   					0x07
 
-#define CMDSTAT_FDMA_START_CHANNEL  			1
-#define CMDSTAT_FDMA_PAUSE_CHANNEL  			3
-
+#define CMDSTAT_FDMA_CMD_MASK				0x1f
+#define CMDSTAT_FDMA_START_CHANNEL			1
+#define CMDSTAT_FDMA_RESTART_CHANNEL			0
 
 #define STB7100_FDMA_CHANS              		16
 #define STB7109_FDMA_CHANS              		STB7100_FDMA_CHANS
@@ -34,6 +34,7 @@
 /*******************************/
 /*MBOX SETUP VALUES*/
 
+#define MBOX_CMD_FLUSH_CHANNEL		 		3
 #define MBOX_CMD_PAUSE_CHANNEL		 		2
 #define MBOX_CMD_START_CHANNEL       			1
 #define CLEAR_WORD					0XFFFFFFFF
@@ -46,7 +47,6 @@
 #define IS_TRANSFER_SG(parms)((MODE_SRC_SCATTER==parms->mode)||(MODE_DST_SCATTER==parms->mode )?1:0)
 #define MBOX_STR_CMD(ch) (MBOX_CMD_START_CHANNEL << (ch*2))
 #define CMD_STAT_REG(ch)(fd->io_base + fd->regs.fdma_cmd_statn + (ch * CMD_STAT_OFFSET))
-#define CH_PTR_REG(ch)(fd->io_base + fd->regs.fdma_ptrn  + (ch * CMD_STAT_OFFSET))
 
 #define IS_NODE_MALLOCED(priv)((priv.node!=0))
 

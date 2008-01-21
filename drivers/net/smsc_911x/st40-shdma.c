@@ -152,6 +152,8 @@ void Platform_ReleaseDmaChannel(
 	DWORD dwDmaChannel)
 {
 	free_dma(dwDmaChannel);
+	dma_req_free(dwDmaChannel, dma_reqs[0]);
+	dma_req_free(dwDmaChannel, dma_reqs[1]);
 	dma_params_free(&tx_transfer);
 	Platform_ReleaseDmaChannel_sg();
 }

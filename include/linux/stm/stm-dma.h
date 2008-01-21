@@ -63,12 +63,14 @@ enum stm_dma_flags {
 #define STM_DMA_CAP_ETH_BUF		"STM_DMA_ETH_BUFFER"
 
 /* dma_extend() operations */
-#define STM_DMA_OP_PAUSE			1
-#define STM_DMA_OP_UNPAUSE			2
-#define STM_DMA_OP_STOP				3
-#define STM_DMA_OP_COMPILE			4
-#define STM_DMA_OP_STATUS			5
-#define STM_DMA_OP_PACING			7
+#define STM_DMA_OP_FLUSH      1
+#define STM_DMA_OP_PAUSE      2
+#define STM_DMA_OP_UNPAUSE    3
+#define STM_DMA_OP_STOP       4
+#define STM_DMA_OP_COMPILE    5
+#define STM_DMA_OP_STATUS     6
+#define STM_DMA_OP_REQ_CONFIG 7
+#define STM_DMA_OP_REQ_FREE   8
 
 /* Generic DMA request line configuration */
 
@@ -189,6 +191,12 @@ static inline int dma_get_status(unsigned int chan)
 	return dma_extend(chan,STM_DMA_OP_STATUS,NULL);
 }
 
+/* Flush implies pause - I mean pause+flush */
+static inline int dma_flush_channel(unsigned int chan)
+{
+	return dma_extend(chan, STM_DMA_OP_FLUSH,NULL);
+}
+
 static inline int dma_pause_channel(unsigned int chan)
 {
 	return dma_extend(chan, STM_DMA_OP_PAUSE,NULL);
@@ -231,7 +239,12 @@ static inline struct stm_dma_req *dma_req_config(unsigned int chan,
 	struct stm_dma_req_config* req_config)
 {
 	req_config->req_line = req_line;
-	return (struct stm_dma_req *)dma_extend(chan, STM_DMA_OP_PACING, req_config);
+	return (struct stm_dma_req *)dma_extend(chan, STM_DMA_OP_REQ_CONFIG, req_config);
+}
+
+static inline void dma_req_free(unsigned int chan, struct stm_dma_req *req)
+{
+	dma_extend(chan, STM_DMA_OP_REQ_FREE, req);
 }
 
 static inline  void dma_params_sg(	struct stm_dma_params *p,

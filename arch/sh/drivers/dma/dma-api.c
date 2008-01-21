@@ -113,6 +113,23 @@ static int search_cap(const char **haystack, const char *needle)
 	return 0;
 }
 
+static int matching_dmac(const char*dmac_req, const char* dmac_inst)
+{
+	char dr, di;
+
+	while ( (dr = *dmac_req) == (di = *dmac_inst) ) {
+		if (dr == '\0')
+			return 0;
+		dmac_req++;
+		dmac_inst++;
+	}
+
+	if ((dr == '\0') && (di == '.'))
+		return 0;
+
+	return 1;
+}
+
 /**
  * request_dma_bycap - Allocate a DMA channel based on its capabilities
  * @dmac: List of DMA controllers to search
@@ -136,7 +153,7 @@ int request_dma_bycap(const char **dmac, const char **caps, const char *dev_id)
 	BUG_ON(!dmac || !caps);
 
 	list_for_each_entry(info, &registered_dmac_list, list)
-		if (strcmp(*dmac, info->name) == 0) {
+		if (matching_dmac(*dmac, info->name) == 0) {
 			found = 1;
 			break;
 		}

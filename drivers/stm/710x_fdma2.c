@@ -230,7 +230,7 @@ static void fdma_start_channel(struct fdma_dev * fd,
 			      int ch_num,
 			      unsigned long start_addr)
 {
-	u32 cmd_sta_value = (start_addr  | CMDSTAT_FDMA_START_CHANNEL);
+	u32 cmd_sta_value = (start_addr | CMDSTAT_FDMA_START_CHANNEL);
 
 	writel(cmd_sta_value,CMD_STAT_REG(ch_num));
 	writel(MBOX_STR_CMD(ch_num),fd->io_base +fd->regs.fdma_cmd_set);
@@ -324,7 +324,7 @@ static inline void __handle_fdma_completion_irq(struct fdma_dev *fd,int chan_num
 	}
 }
 
-static irqreturn_t fdma_irq(int irq, void *dev_id, struct pt_regs *regs)
+static irqreturn_t fdma_irq(int irq, void *dev_id)
 {
 	struct fdma_dev * fd = (struct fdma_dev *)dev_id;
 	int chan_num;
@@ -363,6 +363,10 @@ static int xbar_local_req(int req_line,
 	return req_line;
 }
 
+static void xbar_local_free(struct channel_status *chan, int local_req_line)
+{
+}
+
 static int __init xbar_init(void)
 {
 	return 0;
@@ -391,7 +395,6 @@ static int xbar_local_req(int req_line,
 	struct fdma_dev *fd = chan->fd;
 	int local_req_line;
 	void* xbar_addr;
-	unsigned long xbar_val;
 
 	if (fd->req_lines_inuse == ~0UL)
 		return -1;
@@ -399,14 +402,18 @@ static int xbar_local_req(int req_line,
 	local_req_line = ffz(fd->req_lines_inuse);
 	fd->req_lines_inuse |= 1<<local_req_line;
 
-	xbar_addr = xbar_dev->io_base + (req_line >> 2);
-	xbar_val = readl(xbar_addr);
-	xbar_val &= ~(0xff << (req_line & 3));
-	xbar_val |= ((fd->fdma_num << 5) | local_req_line) <<
-		((req_line & 3) * 8);
-	writel(xbar_val, xbar_addr);
+	xbar_addr = xbar_dev->io_base +
+		(fd->fdma_num * 0x80) +
+		(local_req_line * 4);
+	writel(req_line, xbar_addr);
 
-	return req_line;
+	return local_req_line;
+}
+
+static void xbar_local_free(struct channel_status *chan, int local_req_line)
+{
+	struct fdma_dev *fd = chan->fd;
+	fd->req_lines_inuse &= ~(1<<local_req_line);
 }
 
 static int __init xbar_driver_probe(struct platform_device *pdev)
@@ -472,7 +479,7 @@ module_exit(xbar_exit)
 
 static DEFINE_SPINLOCK(fdma_req_lock);
 
-struct stm_dma_req *fdma_req_allocate(unsigned int req_line, struct channel_status *chan)
+static struct stm_dma_req *fdma_req_allocate(unsigned int req_line, struct channel_status *chan)
 {
 	struct stm_dma_req* req = NULL;
 	int local_req_line;
@@ -499,13 +506,16 @@ out:
 	return req;
 }
 
-/* Note that this may be called multiple times for the same req, for
- * example linked list of params with the same req line in each.
- * Maybe we should have an explicit free as there is an explicit
- * allocate via stb710x_configure_pace_channel() ? */
 static void fdma_req_free(struct stm_dma_req *req)
 {
+	spin_lock(&fdma_req_lock);
+
+	if (req->chan)
+		xbar_local_free(req->chan, req->local_req_line);
+
 	req->chan = NULL;
+
+	spin_unlock(&fdma_req_lock);
 }
 
 /*---------------------------------------------------------------------*
@@ -554,7 +564,7 @@ static void fdma_reset_channels(struct fdma_dev * fd)
 {
 	int channel=0;
 	for(;channel <(fd->ch_max-1);channel++)
-		writel(0,CMD_STAT_REG(0));
+		writel(0,CMD_STAT_REG(channel));
 }
 
 static struct stm_dma_req *stb710x_configure_pace_channel(struct fdma_dev *fd,
@@ -855,31 +865,25 @@ static  int stb710x_fdma_get_residue(struct dma_channel *chan)
 	struct fdma_dev *fd = FDMA_DEV(chan);
 	void __iomem *chan_base = fd->io_base + (chan->chan * NODE_DATA_OFFSET);
 	unsigned long irqflags;
-	unsigned long total = 0,count=0;
-	void *first_ptr=0;
-	fdma_llu_entry *cur_ptr;
+	unsigned long count;
+	fdma_llu_entry *current_node, *next_node;
 
 	spin_lock_irqsave(&fd->channel_lock, irqflags);
-	count = readl(chan_base +fd->regs.fdma_cntn);
-	/*first read the current node data*/
-	first_ptr = (void *) readl(chan_base + fd->regs.fdma_ptrn);
-	if(! first_ptr)
-		goto list_complete;
 
-	first_ptr = phys_to_virt(first_ptr);
+	/* Get info about current node */
+	current_node = (fdma_llu_entry *)phys_to_virt(readl(CMD_STAT_REG(chan->chan)) & ~0x1f);
+	count = readl(chan_base + fd->regs.fdma_cntn);
+
 	/* Accumulate the bytes remaining in the list */
-	cur_ptr = first_ptr;
-	do {
-		if(first_ptr >=(void*)phys_to_virt(cur_ptr->next_item)
-		   || cur_ptr->next_item ==0)
-			goto list_complete;
+	next_node = (fdma_llu_entry *)phys_to_virt(readl(chan_base + fd->regs.fdma_ptrn));
+	while (next_node && next_node > current_node) {
+		count += next_node->size_bytes;
+		next_node = (fdma_llu_entry *)phys_to_virt(next_node->next_item);
+	}
 
-		total += cur_ptr->size_bytes;
-	} while ((cur_ptr = phys_to_virt((fdma_llu_entry *) cur_ptr->next_item))!=0);
-list_complete:
 	spin_unlock_irqrestore(&fd->channel_lock, irqflags);
-	total+= count;
-	return total;
+
+	return count;
 }
 
 /*must only be called when channel is in pasued state*/
@@ -887,6 +891,7 @@ static int stb710x_fdma_unpause(struct fdma_dev * fd,struct dma_channel * channe
 {
 	struct channel_status *chan = FDMA_CHAN(channel);
 	unsigned long irqflags=0;
+	u32 cmd_sta_value;
 
 	spin_lock_irqsave(&fd->channel_lock,irqflags);
 	if (chan->sw_state != FDMA_PAUSED) {
@@ -894,14 +899,22 @@ static int stb710x_fdma_unpause(struct fdma_dev * fd,struct dma_channel * channe
 		return -EBUSY;
 	}
 
+	cmd_sta_value = readl(CMD_STAT_REG(channel->chan));
+	cmd_sta_value &= ~CMDSTAT_FDMA_CMD_MASK;
+	cmd_sta_value |= CMDSTAT_FDMA_RESTART_CHANNEL;
+	writel(cmd_sta_value, CMD_STAT_REG(channel->chan));
+
 	writel(MBOX_CMD_START_CHANNEL << (channel->chan*2),
 	       fd->io_base + fd->regs.fdma_cmd_set);
 	chan->sw_state = FDMA_RUNNING;
+
 	spin_unlock_irqrestore(&fd->channel_lock,irqflags);
 	return 0;
 }
 
-static int stb710x_fdma_pause(struct fdma_dev * fd,struct dma_channel * channel)
+static int stb710x_fdma_pause(struct fdma_dev * fd,
+		struct dma_channel * channel,
+		int flush)
 {
 	struct channel_status *chan = FDMA_CHAN(channel);
 	unsigned long irqflags=0;
@@ -919,8 +932,8 @@ static int stb710x_fdma_pause(struct fdma_dev * fd,struct dma_channel * channel)
 		return 0;
 	case FDMA_RUNNING:
 		/* Hardware is running, send the command */
-		writel(MBOX_CMD_PAUSE_CHANNEL << (channel->chan*2),
-		       fd->io_base + fd->regs.fdma_cmd_set);
+		writel((flush ? MBOX_CMD_FLUSH_CHANNEL : MBOX_CMD_PAUSE_CHANNEL)
+						<< (channel->chan*2), fd->io_base + fd->regs.fdma_cmd_set);
 		/* Fall through */
 	case FDMA_PAUSING:
 	case FDMA_STOPPING:
@@ -997,10 +1010,6 @@ static int stb710x_fdma_free_params(struct stm_dma_params *params)
 		if (desc) {
 			resize_nodelist_mem(fd, desc, 0, 0);
 			kfree(desc);
-		}
-
-		if (this->req) {
-			fdma_req_free(this->req);
 		}
 	}
 
@@ -1224,18 +1233,23 @@ static int stb710x_fdma_extended_op(struct dma_channel *  ch,
 {
 	struct fdma_dev *fd = FDMA_DEV(ch);
 	switch(opcode){
+		case STM_DMA_OP_FLUSH:
+			return stb710x_fdma_pause(fd,ch,1);
 		case STM_DMA_OP_PAUSE:
-			return stb710x_fdma_pause(fd,ch);
+			return stb710x_fdma_pause(fd,ch,0);
 		case STM_DMA_OP_UNPAUSE:
 			return  stb710x_fdma_unpause(fd,ch);
 		case STM_DMA_OP_STOP:
 			return stb710x_fdma_stop(fd,ch);
 		case STM_DMA_OP_COMPILE:
-			return stb710x_fdma_compile_params(fd, (struct stm_dma_params*)parm);
+			return stb710x_fdma_compile_params(fd, (struct stm_dma_params *)parm);
 		case STM_DMA_OP_STATUS:
 			return stb710x_get_engine_status(fd,ch->chan);
-		case STM_DMA_OP_PACING:
-			return (int)stb710x_configure_pace_channel(fd, ch, (struct stm_dma_req_config*)parm);
+		case STM_DMA_OP_REQ_CONFIG:
+			return (int)stb710x_configure_pace_channel(fd, ch, (struct stm_dma_req_config *)parm);
+		case STM_DMA_OP_REQ_FREE:
+			fdma_req_free((struct stm_dma_req *)parm);
+			return 0;
 		default:
 			return -ENOSYS;
 	}
@@ -1298,6 +1312,9 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 	fd->fw_name = plat_data->fw_device_name;
 	fd->fw = plat_data->fw;
 
+	/* 7200: Req lines 0 and 31 are connected internally, not to the xbar */
+	fd->req_lines_inuse = (1<<31) | (1<<0);
+
 	spin_lock_init(&(fd)->channel_lock);
 	init_waitqueue_head(&(fd)->fw_load_q);
 
@@ -1325,7 +1342,7 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 
 	err =request_irq(platform_get_irq(pdev, 0),
 			 fdma_irq,
-			 SA_INTERRUPT | SA_SHIRQ,
+			 IRQF_DISABLED | IRQF_SHARED,
 			 fd->name,
 			 fd);
 	if(err <0)

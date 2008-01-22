@@ -153,7 +153,6 @@ static int __init device_init(void)
 	stx7100_configure_pwm(&pwm_private_info);
 	stx7100_configure_ssc(&ssc_private_info);
 	stx7100_configure_usb();
-	stx7100_configure_alsa();
 	stx7100_configure_lirc();
 	stx7100_configure_pata(3, IRL1_IRQ);
 

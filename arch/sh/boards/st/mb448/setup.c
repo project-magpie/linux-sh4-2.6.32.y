@@ -142,7 +142,6 @@ static int __init device_init(void)
 	stx7100_configure_sata();
 	stx7100_configure_ssc(&ssc_private_info);
 	stx7100_configure_usb();
-	stx7100_configure_alsa();
 	stx7100_configure_ethernet(0, 0, 0);
 
 	vpp_pio = stpio_request_pin(2,7, "VPP", STPIO_OUT);

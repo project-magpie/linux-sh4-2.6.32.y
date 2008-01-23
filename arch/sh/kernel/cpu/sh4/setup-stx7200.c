@@ -689,6 +689,37 @@ void stx7200_configure_pwm(struct plat_stm_pwm_data *data)
 	platform_device_register(&stm_pwm_device);
 }
 
+/* SH-RTC resources ----------------------------------------------------------- */
+static struct resource rtc_resource[]= {
+        [0] = {
+		.start = 0xffc80000,
+		.end   = 0xffc80000 + 0x3c,
+	        .flags = IORESOURCE_IO
+	},
+	[1] = { /* periodic irq */
+		.start = 21,
+		.end   = 21,
+	        .flags = IORESOURCE_IRQ
+	},
+	[2] = { /* carry irq */
+		.start = 22,
+		.end   = 22,
+	        .flags = IORESOURCE_IRQ
+	},
+	[3] = { /* alarm irq */
+		.start = 20,
+		.end   = 20,
+	        .flags = IORESOURCE_IRQ
+	},
+};
+
+static struct platform_device rtc_device = {
+	.name           = "sh-rtc",
+	.id             = -1,
+	.num_resources  = ARRAY_SIZE(rtc_resource),
+	.resource       = rtc_resource,
+};
+
 /* LiRC resources ---------------------------------------------------------- */
 static struct lirc_pio lirc_pios[] = {
 	[0] = {
@@ -1494,6 +1525,12 @@ void __init stx7200_early_device_init(void)
 	 * clock which is derived from the SATA clock. */
 	ctrl_outl(0, 0xFD701048);
 
+	/* Configure the ST40 RTC to source its clock from clockgenB.
+	 * In theory this should be board specific, but so far nobody
+	 * has ever done this. */
+	sc = sysconf_claim(SYS_CFG, 8, 1, 1, "rtc");
+	sysconf_write(sc, 1);
+
 	/* We haven't configured the LPC, so the sleep instruction may
 	 * do bad things. Thus we disable it here. */
 	disable_hlt();
@@ -1530,6 +1567,7 @@ static struct platform_device *stx7200_devices[] __initdata = {
 	&fdma_xbar_device,
 	&sysconf_device,
 	&ilc3_device,
+        &rtc_device,
 };
 
 static int __init stx7200_devices_setup(void)

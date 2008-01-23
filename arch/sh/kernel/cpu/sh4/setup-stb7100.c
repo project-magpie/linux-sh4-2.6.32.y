@@ -68,29 +68,6 @@ struct platform_device wdt_device = {
 	.resource = wdt_resource,
 };
 
-static struct resource rtc_resource[]= {
-	[0] = {
-		.start = 0xffc80000,
-		.end   = 0xffc80000 + 0x40,
-		.flags = IORESOURCE_MEM
-	},
-	[1] = {
-		.start = 20,/* Alarm IRQ   */
-		.flags = IORESOURCE_IRQ
-	},
-	[2] = {
-		.start = 21,/* Periodic IRQ*/
-		.flags = IORESOURCE_IRQ
-	},
-};
-
-static struct platform_device rtc_device = {
-	.name		= "rtc",
-	.id		= -1,
-	.num_resources	= ARRAY_SIZE(rtc_resource),
-	.resource	= rtc_resource,
-};
-
 /* USB resources ----------------------------------------------------------- */
 
 static struct resource st40_ohci_resources[] = {
@@ -628,6 +605,37 @@ void stx7100_configure_pwm(struct plat_stm_pwm_data *data)
 	platform_device_register(&stm_pwm_device);
 }
 
+/* SH-RTC resources ----------------------------------------------------------- */
+static struct resource rtc_resource[]= {
+        [0] = {
+		.start = 0xffc80000,
+		.end   = 0xffc80000 + 0x3c,
+	        .flags = IORESOURCE_IO
+	},
+	[1] = { /* periodic irq */
+		.start = 21,
+		.end   = 21,
+	        .flags = IORESOURCE_IRQ
+	},
+	[2] = { /* carry irq */
+		.start = 22,
+		.end   = 22,
+	        .flags = IORESOURCE_IRQ
+	},
+	[3] = { /* alarm irq */
+		.start = 20,
+		.end   = 20,
+	        .flags = IORESOURCE_IRQ
+	},
+};
+
+static struct platform_device rtc_device = {
+	.name           = "sh-rtc",
+	.id             = -1,
+	.num_resources  = ARRAY_SIZE(rtc_resource),
+	.resource       = rtc_resource,
+};
+
 /* LiRC resources ---------------------------------------------------------- */
 static struct lirc_pio lirc_pios[] = {
 	[0] = {
@@ -1124,10 +1132,10 @@ static struct platform_device ilc3_device = {
 static struct platform_device *stx710x_devices[] __initdata = {
 	&sci_device,
 	&wdt_device,
-	&rtc_device,
 	&fdma_710x_device,
 	&sysconf_device,
 	&ilc3_device,
+	&rtc_device,
 };
 
 static int __init stx710x_devices_setup(void)

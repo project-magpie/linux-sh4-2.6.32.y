@@ -7,7 +7,7 @@
 #include <linux/stm/registers/stx710x/audcfg.h>
 #endif
 
-#if CONFIG_CPU_SUBTYPE_STX7200
+#ifdef CONFIG_CPU_SUBTYPE_STX7200
 #include <linux/stm/registers/stx7200/audcfg.h>
 #endif
 

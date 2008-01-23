@@ -114,6 +114,42 @@ struct nand_config_data {
 						/*  for multiple chips)		*/
 };
 
+
+
+/* Audio subsystem board level configuration -
+ * PCM formats & additional ALSA controls */
+struct plat_audio_config {
+	/* PCM format configuration - logical sum of PLAT_STM_AUDIO__*
+	 * flags listed below */
+	unsigned long pcm_format;
+
+	/* Required oversampling value (leave 0 to get default 256 ;-) */
+	unsigned int oversampling;
+};
+
+/* If CUSTOM bit is defined the rest of pcm_format will be treated
+ * as a AUD_PCMOUT_FMT register content and mirrored there; this
+ * is not recommended - be aware of chips differences (eg. hardware
+ * bug of inverted SCLK_EDGE on 7100 and _some_ cuts of 7109...) */
+#define PLAT_STM_AUDIO__CUSTOM          0x80000000
+/* Select data size & digital serial audio format; note that 0 describes
+ * I2S 24 bits mode, which is actually default :-) */
+#define PLAT_STM_AUDIO__OUTPUT_SUBFRAME_32_BITS 0x00000000
+#define PLAT_STM_AUDIO__OUTPUT_SUBFRAME_16_BITS 0x00000001
+#define PLAT_STM_AUDIO__DATA_SIZE_24_BITS       0x00000000
+#define PLAT_STM_AUDIO__DATA_SIZE_20_BITS       0x00000010
+#define PLAT_STM_AUDIO__DATA_SIZE_18_BITS       0x00000020
+#define PLAT_STM_AUDIO__DATA_SIZE_16_BITS       0x00000030
+#define PLAT_STM_AUDIO__FORMAT_I2S              0x00000000
+#define PLAT_STM_AUDIO__FORMAT_LEFT_JUSTIFIED   0x00000100
+#define PLAT_STM_AUDIO__FORMAT_RIGHT_JUSTIFIED  0x00000200
+/* Bit masks for above settings */
+#define PLAT_STM_AUDIO__OUTPUT_SUBFRAME_MASK    0x0000000f
+#define PLAT_STM_AUDIO__DATA_SIZE_MASK          0x000000f0
+#define PLAT_STM_AUDIO__FORMAT_MASK             0x00000f00
+
+
+
 void stx7100_early_device_init(void);
 void stb7100_configure_asc(const int *ascs, int num_ascs, int console);
 void sysconf_early_init(struct platform_device *pdev);
@@ -123,10 +159,12 @@ void stx7100_configure_sata(void);
 void stx7100_configure_pwm(struct plat_stm_pwm_data *data);
 void stx7100_configure_ssc(struct plat_ssc_data *data);
 void stx7100_configure_usb(void);
-void stx7100_configure_alsa(void);
 void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus);
 void stx7100_configure_lirc(void);
 void stx7100_configure_pata(int bank, int irq);
+void stx7100_configure_audio(struct plat_audio_config *pcm_reader_config,
+		struct plat_audio_config *pcm_player_0_config,
+		struct plat_audio_config *pcm_player_1_config);
 
 void stx7200_early_device_init(void);
 void stx7200_configure_asc(const int *ascs, int num_ascs, int console);
@@ -138,5 +176,11 @@ void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 				int phy_bus);
 void stx7200_configure_lirc(void);
 void stx7200_configure_nand(struct nand_config_data *data);
+void stx7200_configure_audio(struct plat_audio_config *pcm_reader_config,
+		struct plat_audio_config *pcm_player_0_config,
+		struct plat_audio_config *pcm_player_1_config,
+		struct plat_audio_config *pcm_player_2_config,
+		struct plat_audio_config *pcm_player_3_config,
+		struct plat_audio_config *hdmi_pcm_player_config);
 
 #endif /* __LINUX_ST_SOC_H */

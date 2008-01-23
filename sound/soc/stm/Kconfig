@@ -1,0 +1,11 @@
+config SND_STM
+	tristate "STMicroelectronics SoCs support"
+	depends on SND
+	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200
+	select SND_PCM
+	select STM_DMA
+	help
+	  Say Y here for ALSA support on the STx710x & STx7200 families.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called snd-stm.o

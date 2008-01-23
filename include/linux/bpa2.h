@@ -29,6 +29,8 @@ struct bpa2_partition_desc {
 	const char** aka;
 };
 
+#define BPA2_NORMAL    0x00000001
+
 struct bpa2_part;
 
 void bpa2_init(struct bpa2_partition_desc* partdescs, int nparts);

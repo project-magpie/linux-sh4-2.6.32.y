@@ -8,6 +8,14 @@
  * Extended for linux-2.1.121 till 2.4.0 (June 2000)
  *     by Pauline Middelink <middelink@polyware.nl>
  *
+ * 17th Jan 2007 : STMicroelectronics Ltd. <carl.shaw@st.com>
+ * 	Added kernel bpa2 command line parameter support:
+ * 	bpa2parts=<partdef>[,<partdef>]
+ * 	 <partdef> := <name>:<size>:[<base physical address>]:[flags]
+ * 	 <name>    := name (<= 20 bytes length)
+ * 	 <size>    := standard linux memory size (e.g. 4M)
+ *       <flags>   := currently unused
+ *
  * This is a set of routines which allow you to reserve a large (?)
  * amount of physical memory at boot-time, which can be allocated/deallocated
  * by drivers. This memory is intended to be used for devices such as
@@ -45,6 +53,8 @@
 #include <linux/pfn.h>
 #include <linux/bpa2.h>
 
+#define MAX_NAME_LEN 20
+
 struct range {
 	struct range *next;
 	unsigned long base;			/* base of allocated block */
@@ -52,13 +62,14 @@ struct range {
 };
 
 struct bpa2_part {
-	char res_name[20];
+	char res_name[MAX_NAME_LEN];
 	struct resource res;
 	const char* name;
 	const char** aka;
 	struct range *free_list;
 	struct range *used_list;
 	struct range initial_free_list;
+	int flags;
 	int low_mem;
 	struct list_head next;
 };
@@ -142,6 +153,7 @@ void __init bpa2_init(struct bpa2_partition_desc* partdescs, int nparts)
 	}
 
 	bp = new_parts;
+
 	for ( ; nparts; nparts--) {
 		unsigned long start_pfn, end_pfn;
 		struct range *free_list = &bp->initial_free_list;
@@ -158,6 +170,7 @@ void __init bpa2_init(struct bpa2_partition_desc* partdescs, int nparts)
 		bp->res.flags = IORESOURCE_BUSY | IORESOURCE_MEM;
 		bp->name = partdescs->name;
 		bp->aka = partdescs->aka;
+		bp->flags = partdescs->flags;
 
 		if (partdescs->start == 0) {
 			ok = bpa2_alloc_low(bp);
@@ -177,6 +190,11 @@ void __init bpa2_init(struct bpa2_partition_desc* partdescs, int nparts)
 			bpa2_init_failure(bp, "could not reserve");
 			continue;
 		}
+
+		printk(KERN_INFO "%s @ 0x%08x size 0x%08x\n",
+			bp->res.name,
+			bp->res.start,
+			(bp->res.end - bp->res.start) );
 
 		free_list->next = NULL;
 		free_list->base = bp->res.start;
@@ -200,14 +218,14 @@ void __init bpa2_init(struct bpa2_partition_desc* partdescs, int nparts)
 	}
 }
 
-static int __init bpa2_setup(char *str)
+static int __init bpa2_bigphys_setup(char *str)
 {
 	int par;
 	struct bpa2_partition_desc partdesc = {
 		.name   = "bigphysarea",
 		.start  = 0,
 		.size   = 0,
-		.flags  = 0,
+		.flags  = BPA2_NORMAL,
 		.aka    = NULL,
 	};
 
@@ -219,7 +237,79 @@ static int __init bpa2_setup(char *str)
 
 	return 1;
 }
-__setup("bigphysarea=", bpa2_setup);
+__setup("bigphysarea=", bpa2_bigphys_setup);
+
+/*
+ * Check for the new bpa2parts parameter
+ */
+static int __init bpa2_parts_setup(char *str)
+{
+	char *opt;
+	struct bpa2_partition_desc partdesc;
+	char *name;
+
+	if (!str || !*str)
+		return -EINVAL;
+
+	while ((opt = strsep(&str, ",")) != NULL){
+		char *p;
+
+		memset(&partdesc, 0, sizeof(partdesc));
+
+		/* Allocate memory for partition name, but we can't use kmalloc yet */
+		name = alloc_bootmem(MAX_NAME_LEN);
+		memset(name, 0, MAX_NAME_LEN);
+		partdesc.name = name;
+
+		/* Get name */
+		if ((p = strsep(&opt, ":")) == NULL)
+			goto invalid;
+
+		if (strlcpy(name, p, MAX_NAME_LEN) == 0){
+			printk(KERN_ERR "Invalid bpa2 partition name\n");
+			return -EINVAL;
+		}
+
+		/* Get size */
+		if ((p = strsep(&opt, ":")) == NULL)
+			goto invalid;
+
+		partdesc.size = memparse(p,&p);
+
+		if (partdesc.size < PAGE_SIZE){
+			printk(KERN_ERR "Invalid bpa2 partition size\n");
+                	return -EINVAL;
+		}
+
+		/* round size up to whole number of pages */
+		partdesc.size = ((partdesc.size+(PAGE_SIZE-1)) >> PAGE_SHIFT) << PAGE_SHIFT;
+
+		/* Get start address (optional) */
+		if ((p = strsep(&opt, ":")) == NULL)
+			goto invalid;
+
+		if (strlen(p) > 0){
+			if ((partdesc.start = memparse(p, &p)) == 0){
+				printk(KERN_ERR "Invalid bpa2 base address\n");
+                		return -EINVAL;
+			}
+		}
+
+		/* Get flags (optional) */
+		partdesc.flags = BPA2_NORMAL;
+
+		/* Add it to the list... */
+		bpa2_init(&partdesc, 1);
+	}
+
+	return 1;
+
+invalid:
+	printk(KERN_ERR "Invalid bpa2 partition definition\n");
+	return -EINVAL;
+}
+
+__setup("bpa2parts=", bpa2_parts_setup);
 
 /**
  * bpa2_find_part - find a bpa2 partition based on its name

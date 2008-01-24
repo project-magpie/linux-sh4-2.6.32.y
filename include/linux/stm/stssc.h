@@ -1,26 +1,14 @@
 /*
    --------------------------------------------------------------------
 
-   stm_ssc.h
+   stssc.h
    define and struct for STMicroelectronics SSC device
 
    --------------------------------------------------------------------
 
  *  This program is free software; you can redistribute  it and/or modify it
  *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- *
- *  THIS  SOFTWARE  IS PROVIDED   ``AS  IS'' AND   ANY  EXPRESS OR IMPLIED
- *  WARRANTIES,   INCLUDING, BUT NOT  LIMITED  TO, THE IMPLIED WARRANTIES OF
- *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN
- *  NO  EVENT  SHALL   THE AUTHOR  BE    LIABLE FOR ANY   DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- *  NOT LIMITED   TO, PROCUREMENT OF  SUBSTITUTE GOODS  OR SERVICES; LOSS OF
- *  USE, DATA,  OR PROFITS; OR  BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
- *  ANY THEORY OF LIABILITY, WHETHER IN  CONTRACT, STRICT LIABILITY, OR TORT
- *  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- *  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *  Free Software Foundation;  either version 2 of the  License.
  *
  *  You should have received a copy of the  GNU General Public License along
  *  with this program; if not, write  to the Free Software Foundation, Inc.,
@@ -30,13 +18,6 @@
 
 #ifndef STM_SSC_H
 #define STM_SSC_H 1
-
-#include <linux/platform_device.h>
-#include <linux/wait.h>
-#include <linux/stm/pio.h>
-#include <linux/mutex.h>
-#include <asm/io.h>
-
 
 /* SSC Baud Rate generator */
 #define SSC_BRG                  0x0
@@ -137,93 +118,24 @@
 #define SSC_CLR_REPSTRT     	0x800
 
 /* SSC Noise suppression Width */
-#define SSC_AGFR		0x100
+#define SSC_NOISE_SUPP_WIDTH	0x100
 /* SSC Clock Prescaler */
-#define SSC_PRSC		0x104
+#define SSC_PRSCALER		0x104
 #define SSC_PRSC_VALUE          0x0f
 
-/* SSC Max delay width*/
-#define SSC_MAX_DELAY		0x108
+/* SSC Noise suppression Width dataout */
+#define SSC_NOISE_SUPP_WIDTH_DATAOUT	0x108
 
 /* SSC Prescaler for delay in dataout */
-#define SSC_PRSC_DATAOUT	0x10c
+#define SSC_PRSCALER_DATAOUT	0x10c
 
 #define SSC_TXFIFO_SIZE         0x8
 #define SSC_RXFIFO_SIZE         0x8
 /*
- * The I2C timing register could be ready
- * for normal or fast rate
- */
-#define SSC_I2C_READY_NORMAL    0x0
-#define SSC_I2C_READY_FAST      0x1
-struct ssc_t {
-	struct stpio_pin *pio_clk;
-	struct stpio_pin *pio_data;
-	struct stpio_pin *pio_data_in;
-	wait_queue_head_t wait_queue;
-	struct mutex	  mutex_bus;
-	void *base;
-	void (*irq_function) (void *);
-	void *irq_private_data;
-        unsigned char    i2c_timing;
-        struct platform_device pdev;
-};
-
-struct ssc_t *ssc_device_request(unsigned int ssc_id);
-
-/*
- *  How many ssc device are available on this platform
- */
-unsigned int ssc_device_available(void);
-
-/*
- *  The input clock for each SSC device
- */
-
-unsigned int ssc_get_clock(void);
-
-/*
- *  To say if the ssc_is ssc can support I2C and/or SPI protocol
- */
-
-#define SSC_I2C_CAPABILITY  0x1
-#define SSC_SPI_CAPABILITY  0x2
-
-unsigned int ssc_capability(unsigned int ssc_id);
-/*
- *   To request the bus access
- *   The user registers also the function and the data that
- *   they want use in the IRQ_Function
- */
-void ssc_request_bus(struct ssc_t *, void (*irq_function) (void *),
-		     void *irq_data);
-
-/*
- *   To release the bus
- */
-void ssc_release_bus(struct ssc_t *);
-
-/*
    we have to use the following macro
    to access the SSC I/O Memory
 */
-#define ssc_store16(ssc , offset, value) iowrite16(value,ssc->base+offset)
-#define ssc_store8( ssc , offset, value) iowrite8( value,ssc->base+offset)
-
-#define ssc_load16( ssc,offset)          ioread16(ssc->base+offset)
-#define ssc_load8(  ssc,offset)	         ioread8( ssc->base+offset)
-
-/*
- *   This macro could be used to built the capability field
- *   of struct plat_ssc_data for each SoC
- */
-#define ssc_ability(idx_ssc, cap)  \
-         ( cap & (SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY ) ) << (idx_ssc*2)
-
-#define ssc0_ability(cap)  ssc_ability(0,cap)
-#define ssc1_ability(cap)  ssc_ability(1,cap)
-#define ssc2_ability(cap)  ssc_ability(2,cap)
-#define ssc3_ability(cap)  ssc_ability(3,cap)
-#define ssc4_ability(cap)  ssc_ability(4,cap)
+#define ssc_store32(ssc , offset, value) iowrite32(value,ssc->base+offset)
+#define ssc_load32( ssc,offset)	         ioread32( ssc->base+offset)
 
 #endif				/* STM_SSC_H */

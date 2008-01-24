@@ -6,17 +6,22 @@
    Version: 2.0 (1 April 2007)
    ----------------------------------------------------------------------------
    May be copied or modified under the terms of the GNU General Public
-   License.  See linux/COPYING for more information.
+   License V.2.  See linux/COPYING for more information.
 
    ------------------------------------------------------------------------- */
 
 #include "stm_spi.h"
 #include <linux/stm/pio.h>
+#include <linux/stm/soc.h>
 #include <asm/semaphore.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/kernel.h>
+#include <linux/interrupt.h>
 #include <linux/cdev.h>
 #include <linux/fs.h>
+#include <linux/clk.h>
+#include <linux/wait.h>
 #include <asm/uaccess.h>
 #include <asm/param.h>		/* for HZ */
 
@@ -114,11 +119,9 @@ struct spi_transaction_t {
  *  open device file
  */
 struct spi_device_t *spi_busses_array[MAX_NUMBER_SPI_BUSSES];
-//static LIST_HEAD(spi_busses);
 /*
  * In this way the spi bus will be available
  * with the spi_busses_array array
- * or the spi_busses list
  */
 
 #define jump_on_fsm_complete(trsc)	{ (trsc)->state = SPI_FSM_COMPLETE;	\
@@ -127,10 +130,10 @@ struct spi_device_t *spi_busses_array[MAX_NUMBER_SPI_BUSSES];
 #define jump_on_fsm_abort(trsc)		{ (trsc)->state = SPI_FSM_ABORT;	\
 					 goto be_fsm_abort;}
 
-void spi_state_machine(struct spi_transaction_t *transaction)
+static int spi_state_machine(int this_irq,struct spi_device_t *ssc_bus)
 {
+	struct spi_transaction_t *transaction = ssc_bus->trns;
 	struct spi_client_t *client = transaction->client;
-	struct ssc_t *ssc_bus = container_of(client->dev->dev.parent, struct ssc_t,pdev.dev);
 	unsigned short status;
 	short tx_fifo_status;
 	short rx_fifo_status;
@@ -146,6 +149,7 @@ void spi_state_machine(struct spi_transaction_t *transaction)
 
 	transaction->state = transaction->next_state;
 
+	dgb_print("\n");
 	switch (transaction->state) {
 	case SPI_FSM_PREPARE:
 		dgb_print("-SPI_FSM_PREPARE\n");
@@ -154,16 +158,12 @@ void spi_state_machine(struct spi_transaction_t *transaction)
 		hb       = ((config & SPI_MSB_MASK) ? 1 : 0);
 		wide_frame = ((config & SPI_WIDE_MASK) ? 1 : 0) * 0x8 + 0x7;
 
-		stpio_set_pin(ssc_bus->pio_clk, STPIO_OUT);
-		stpio_set_pin(ssc_bus->pio_data, STPIO_OUT);
-		stpio_set_pin(ssc_bus->pio_data, STPIO_IN);
-
-		ssc_store16(ssc_bus, SSC_BRG,
+		ssc_store32(ssc_bus, SSC_BRG,
 			    (config & SPI_BAUDRATE_MASK) >> SPI_BAUDRATE_SHIFT);
 
-		ssc_store16(ssc_bus, SSC_CTL, SSC_CTL_SR | 0x1);
-		ssc_store16(ssc_bus, SSC_I2C, 0x0);
-		ssc_store16(ssc_bus, SSC_CTL, SSC_CTL_EN | SSC_CTL_MS |
+		ssc_store32(ssc_bus, SSC_CTL, SSC_CTL_SR | 0x1);
+		ssc_store32(ssc_bus, SSC_I2C, 0x0);
+		ssc_store32(ssc_bus, SSC_CTL, SSC_CTL_EN | SSC_CTL_MS |
 			    (SSC_CTL_PO * polarity) |
 			    (SSC_CTL_PH * phase) | (SSC_CTL_HB * hb) |
 #ifdef SPI_LOOP_DEBUG
@@ -175,7 +175,7 @@ void spi_state_machine(struct spi_transaction_t *transaction)
 			    wide_frame);
 
 		transaction->next_state = SPI_FSM_RUNNING;
-		ssc_load16(ssc_bus, SSC_RBUF);	/* only to clear the status register */
+		ssc_load32(ssc_bus, SSC_RBUF);	/* only to clear the status register */
 #ifdef CONFIG_STM_SPI_HW_FIFO
 		for (tx_fifo_status = 0;
 		     tx_fifo_status < SSC_TXFIFO_SIZE - 1 &&
@@ -202,24 +202,24 @@ void spi_state_machine(struct spi_transaction_t *transaction)
 				    client->wr_buf[transaction->idx_write];
 			}
 			++transaction->idx_write;
-			ssc_store16(ssc_bus, SSC_TBUF, tmp.word);
+			ssc_store32(ssc_bus, SSC_TBUF, tmp.word);
 		}
-		ssc_store16(ssc_bus, SSC_IEN, SSC_IEN_TEEN | SSC_IEN_RIEN);
+		ssc_store32(ssc_bus, SSC_IEN, SSC_IEN_TEEN | SSC_IEN_RIEN);
 		break;
 
 	case SPI_FSM_RUNNING:
-		status = ssc_load16(ssc_bus, SSC_STA);
+		status = ssc_load32(ssc_bus, SSC_STA);
 		dgb_print(" SPI_FSM_RUNNING 0x%x\n", status);
 #ifndef CONFIG_STM_SPI_HW_FIFO
 		if ((status & SSC_STA_RIR) &&
 		    transaction->idx_read < transaction->msg_length) {
 #else
-		for (rx_fifo_status = ssc_load16(ssc_bus, SSC_RX_FSTAT);
+		for (rx_fifo_status = ssc_load32(ssc_bus, SSC_RX_FSTAT);
 		     rx_fifo_status &&
 		     transaction->idx_read < transaction->msg_length;
 		     --rx_fifo_status) {
 #endif
-			tmp.word = ssc_load16(ssc_bus, SSC_RBUF);
+			tmp.word = ssc_load32(ssc_bus, SSC_RBUF);
 			if (wide_frame) {
 				client->rd_buf[transaction->idx_read * 2] =
 				    tmp.bytes[1];
@@ -238,7 +238,7 @@ void spi_state_machine(struct spi_transaction_t *transaction)
 		if ((status & SSC_STA_TIR)
 		    && transaction->idx_write < transaction->msg_length) {
 #else
-		for (tx_fifo_status = ssc_load16(ssc_bus, SSC_TX_FSTAT);
+		for (tx_fifo_status = ssc_load32(ssc_bus, SSC_TX_FSTAT);
 		     tx_fifo_status < SSC_TXFIFO_SIZE - 1 &&
 		     transaction->idx_write < transaction->msg_length;
 		     ++tx_fifo_status) {
@@ -262,7 +262,7 @@ void spi_state_machine(struct spi_transaction_t *transaction)
 				    client->wr_buf[transaction->idx_write];
 			}
 			++transaction->idx_write;
-			ssc_store16(ssc_bus, SSC_TBUF, tmp.word);
+			ssc_store32(ssc_bus, SSC_TBUF, tmp.word);
 		}
 
 		if (transaction->idx_write >= transaction->msg_length &&
@@ -272,7 +272,7 @@ void spi_state_machine(struct spi_transaction_t *transaction)
 	case SPI_FSM_COMPLETE:
 	      be_fsm_complete:
 		dgb_print(" SPI_FSM_COMPLETE\n");
-		ssc_store16(ssc_bus, SSC_IEN, 0x0);
+		ssc_store32(ssc_bus, SSC_IEN, 0x0);
 		wake_up(&(ssc_bus->wait_queue));
 		break;
 
@@ -280,7 +280,7 @@ void spi_state_machine(struct spi_transaction_t *transaction)
 	default:
 		;
 	}
-	return;
+	return IRQ_HANDLED;
 }
 
 #define chip_asserted(client) if ((client)->config & SPI_CSACTIVE_MASK )	\
@@ -296,9 +296,9 @@ int spi_write(struct spi_client_t *client, char *wr_buffer, size_t count)
 	unsigned long flag;
 	int timeout;
 	int result = (int)count;
-	struct ssc_t *ssc_bus =
-		container_of(client->dev->dev.parent, struct ssc_t, pdev.dev);
+	struct spi_device_t *spi_bus =client->dev;
 	struct spi_transaction_t transaction = {.client = client,
+
 		.msg_length = count,
 		.next_state = SPI_FSM_PREPARE,
 		.idx_write = 0,
@@ -309,7 +309,7 @@ int spi_write(struct spi_client_t *client, char *wr_buffer, size_t count)
 	if (client->pio_chip == NULL)
 		return -ENODATA;
 
-	ssc_request_bus(ssc_bus, spi_state_machine, (void *)&transaction);
+	mutex_lock(&spi_bus->mutex_bus);
 	chip_asserted(client);
 
 	client->rd_buf = kmalloc(count, GFP_KERNEL);
@@ -317,15 +317,16 @@ int spi_write(struct spi_client_t *client, char *wr_buffer, size_t count)
 	if (client->config & SPI_WIDE_MASK)
 		transaction.msg_length >>= 1;
 
-	spi_state_machine(&transaction);
-	timeout = wait_event_interruptible_timeout(ssc_bus->wait_queue,
+	spi_bus->trns = &transaction;
+	spi_state_machine(NULL,spi_bus);
+	timeout = wait_event_interruptible_timeout(spi_bus->wait_queue,
 						   (transaction.state == SPI_FSM_COMPLETE),
 						   client->timeout * HZ);
 	if (timeout <= 0) {
 		/* Terminate transaction */
 		local_irq_save(flag);
 		transaction.next_state = SPI_FSM_COMPLETE;
-		spi_state_machine(&transaction);
+		spi_state_machine(NULL,spi_bus);
 		local_irq_restore(flag);
 
 		if (!timeout) {
@@ -339,7 +340,7 @@ int spi_write(struct spi_client_t *client, char *wr_buffer, size_t count)
 	}
 
 	chip_deasserted(client);
-	ssc_release_bus(ssc_bus);
+	mutex_unlock(&spi_bus->mutex_bus);
 	kfree(client->rd_buf);
 	client->rd_buf = NULL;
 	client->wr_buf = NULL;
@@ -351,8 +352,7 @@ int spi_read(struct spi_client_t *client, char *rd_buffer, size_t count)
 	unsigned long flag;
 	int timeout;
 	int result = (int)count;
-	struct ssc_t *ssc_bus =
-		container_of(client->dev->dev.parent, struct ssc_t, pdev.dev);
+	struct spi_device_t *spi_bus =client->dev;
 	unsigned int wide_frame =
 	    (client->config & SPI_WIDE_MASK) ? 1 : 0;
 	struct spi_transaction_t transaction = {.client = client,
@@ -364,7 +364,7 @@ int spi_read(struct spi_client_t *client, char *rd_buffer, size_t count)
 	/*
 	 * the first step is request the bus access
 	 */
-	ssc_request_bus(ssc_bus, spi_state_machine, (void *)&transaction);
+	mutex_lock(&spi_bus->mutex_bus);
 
 	chip_asserted(client);
 
@@ -387,9 +387,9 @@ int spi_read(struct spi_client_t *client, char *rd_buffer, size_t count)
  */
 	if (wide_frame)
 		transaction.msg_length >>= 1;	// frame oriented
-
-	spi_state_machine(&transaction);
-	timeout = wait_event_interruptible_timeout(ssc_bus->wait_queue,
+	spi_bus->trns=&transaction;
+	spi_state_machine(NULL,spi_bus);
+	timeout = wait_event_interruptible_timeout(spi_bus->wait_queue,
 						   (transaction.state == SPI_FSM_COMPLETE),
 						   client->timeout * HZ);
 
@@ -397,7 +397,7 @@ int spi_read(struct spi_client_t *client, char *rd_buffer, size_t count)
 		/* Terminate transaction */
 		local_irq_save(flag);
 		transaction.next_state = SPI_FSM_COMPLETE;
-		spi_state_machine(&transaction);
+		spi_state_machine(NULL,spi_bus);
 		local_irq_restore(flag);
 
 		if (!timeout) {
@@ -412,7 +412,7 @@ int spi_read(struct spi_client_t *client, char *rd_buffer, size_t count)
 
 	chip_deasserted(client);
 
-	ssc_release_bus(ssc_bus);
+	mutex_unlock(&spi_bus->mutex_bus);
 	kfree(client->wr_buf);
 	client->rd_buf = NULL;
 	client->wr_buf = NULL;
@@ -425,8 +425,7 @@ int spi_write_then_read(struct spi_client_t *client, char *wr_buffer,
 	unsigned long flag;
 	int timeout;
 	int result = (int)count;
-	struct ssc_t *ssc_bus =
-		container_of(client->dev->dev.parent, struct ssc_t, pdev.dev);
+	struct spi_device_t *spi_bus =client->dev;
 	struct spi_transaction_t transaction = {.client = client,
 		.msg_length = count,
 		.next_state = SPI_FSM_PREPARE,
@@ -438,7 +437,7 @@ int spi_write_then_read(struct spi_client_t *client, char *wr_buffer,
 	if (client->pio_chip == NULL)
 		return -ENODATA;
 
-	ssc_request_bus(ssc_bus, spi_state_machine, (void *)&transaction);
+	mutex_lock(&spi_bus->mutex_bus);
 
 	chip_asserted(client);
 
@@ -448,15 +447,16 @@ int spi_write_then_read(struct spi_client_t *client, char *wr_buffer,
 	if (client->config & SPI_WIDE_MASK)
 		transaction.msg_length >>= 1;	// frame oriented...
 
-	spi_state_machine(&transaction);
-	timeout = wait_event_interruptible_timeout(ssc_bus->wait_queue,
+	spi_bus->trns=&transaction;
+	spi_state_machine(NULL,spi_bus);
+	timeout = wait_event_interruptible_timeout(spi_bus->wait_queue,
 						  (transaction.state == SPI_FSM_COMPLETE),
 						  client->timeout * HZ);
 	if (timeout <= 0) {
 		/* Terminate transaction */
 		local_irq_save(flag);
 		transaction.next_state = SPI_FSM_COMPLETE;
-		spi_state_machine(&transaction);
+		spi_state_machine(NULL,spi_bus);
 		local_irq_restore(flag);
 
 		if (!timeout) {
@@ -470,7 +470,7 @@ int spi_write_then_read(struct spi_client_t *client, char *wr_buffer,
 	}
 
 	chip_deasserted(client);
-	ssc_release_bus(ssc_bus);
+	mutex_unlock(&spi_bus->mutex_bus);
 
 	return count;
 }
@@ -594,7 +594,7 @@ int spi_client_control(struct spi_client_t *client, int cmd, int arg)
 	case SPI_IOCTL_BUADRATE:
 		{
 			unsigned long baudrate;
-			baudrate = ssc_get_clock() / (2 * arg);
+			baudrate = clk_get_rate(clk_get(NULL,"comms_clk")) / (2 * arg);
 			client->config &= ~SPI_BAUDRATE_MASK;
 			client->config |= (baudrate << SPI_BAUDRATE_SHIFT);
 		}
@@ -685,7 +685,13 @@ static ssize_t spi_cdev_write(struct file *filp,
 	dgb_print("\n");
 
 	wr_buffer = kmalloc(count, GFP_KERNEL);
+	if (!wr_buffer)
+		return -ENOMEM;
 	rd_buffer = kmalloc(count, GFP_KERNEL);
+	if (!rd_buffer){
+		kfree(wr_buffer);
+		return -ENOMEM;
+	}
 
 	copy_from_user(wr_buffer, buff, count);
 
@@ -782,15 +788,6 @@ static int spi_bus_driver_probe(struct device *dev)
 	return spi_dev->dev_type == SPI_DEV_BUS_ADAPTER;
 };
 
-static void spi_bus_driver_remove(struct device *dev)
-{
-	struct spi_device_t *spi_dev;
-	spi_dev = container_of(dev, struct spi_device_t, dev);
-	dgb_print("\n");
-//   spi_del_adapter(spi_dev);
-//   dgb_print("..\n");
-	return;
-}
 static void spi_bus_driver_shutdown(struct device *dev)
 {
 	struct spi_device_t *spi_dev;
@@ -805,7 +802,6 @@ static struct device_driver spi_bus_drv = {
 	.bus = &spi_bus_type,
 	.probe = spi_bus_driver_probe,
 	.shutdown = spi_bus_driver_shutdown,
-	.remove = spi_bus_driver_remove,
 };
 
 int spi_add_adapter(struct spi_device_t *spi_dev)
@@ -818,7 +814,6 @@ int spi_add_adapter(struct spi_device_t *spi_dev)
 	spi_dev->dev_type = SPI_DEV_BUS_ADAPTER;
 	spi_dev->dev.bus = &(spi_bus_type);
 	sprintf(spi_dev->dev.bus_id, "spi-%d", idx_dev);
-	spi_dev->dev.release = spi_del_adapter;
 	spi_dev->dev.driver = &spi_bus_drv;
 	ret = device_register(&spi_dev->dev);
 	if (ret) {
@@ -837,45 +832,15 @@ int spi_add_adapter(struct spi_device_t *spi_dev)
 	return ret;
 }
 
-static int spi_adapter_detect()
-{
-	unsigned int idx;
-	unsigned int num_ssc_bus = ssc_device_available();
-	unsigned int num_spi_bus;
-	struct spi_device_t *spi_dev;
-	struct ssc_t **ssc_busses;
-	dgb_print("\n");
-/*
- *  Check the ssc on the platform
- */
-	ssc_busses = (struct ssc_t **)kmalloc(num_ssc_bus *
-					      sizeof(struct ssc_t *),
-					      GFP_KERNEL);
-	for (idx = 0, num_spi_bus = 0; idx < num_ssc_bus; ++idx)
-		if ((ssc_capability(idx) & SSC_SPI_CAPABILITY))
-			ssc_busses[num_spi_bus++] = ssc_device_request(idx);
-
-	for (idx = 0; idx < num_spi_bus; ++idx) {
-		spi_dev = (struct spi_device_t *)
-		    kmalloc(sizeof(struct spi_device_t), GFP_KERNEL);
-		memset(&spi_dev->dev, 0, sizeof(struct device));
-		spi_dev->dev.parent = &(ssc_busses[idx]->pdev.dev);
-		spi_dev->idx_dev = idx;
-		spi_add_adapter(spi_dev);
-	};
-	kfree(ssc_busses);
-	return 0;
-}
-
 static void __init spi_core_init(void)
 {
 	unsigned int ret;
 	dgb_print("\n");
 	ret = bus_register(&spi_bus_type);
-	if (ret) {
+	if(ret){
 		printk(KERN_WARNING "Unable to register spi bus\n");
 		return ;
-	}
+		}
 	ret = driver_register(&spi_bus_drv);
 	if (ret) {
 		printk(KERN_WARNING "Unable to register spi driver\n");
@@ -901,14 +866,124 @@ static void __init spi_cdev_init(void)
 	printk(KERN_INFO "spi /dev layer initialized\n");
 	return 0;
 }
-device_initcall(spi_cdev_init);
+fs_initcall(spi_cdev_init);
+#endif
+#define NAME "spi_stm_probe"
+static int __init spi_stm_probe(struct platform_device *pdev)
+{
+	struct ssc_pio_t *pio_info =
+			(struct ssc_pio_t *)pdev->dev.platform_data;
+        struct resource *res;
+	struct spi_device_t *dev;
+
+	dev = devm_kzalloc(&pdev->dev,sizeof(struct spi_device_t), GFP_KERNEL);
+
+	if(!dev)
+		return -ENOMEM;
+
+	if (!(res=platform_get_resource(pdev, IORESOURCE_MEM, 0)))
+		return -ENODEV;
+	if (!devm_request_mem_region(&pdev->dev, res->start, res->end - res->start, "spi")){
+		printk(KERN_ERR NAME " Request mem 0x%x region not done\n",res->start);
+		return -ENOMEM;
+	}
+	if (!(dev->base =
+		devm_ioremap_nocache(&pdev->dev, res->start, res->end - res->start))){
+		printk(KERN_ERR NAME " Request iomem 0x%x region not done\n",res->start);
+		return -ENOMEM;
+	}
+	if (!(res=platform_get_resource(pdev, IORESOURCE_IRQ, 0))){
+		printk(KERN_ERR NAME " Request irq %d not done\n",res->start);
+		return -ENODEV;
+	}
+	if(devm_request_irq(&pdev->dev,res->start, spi_state_machine,
+		IRQF_DISABLED, "spi", dev)<0){
+		printk(KERN_ERR NAME " Request irq not done\n");
+		return -ENODEV;
+	}
+	pio_info->clk = stpio_request_pin(pio_info->pio_port,pio_info->pio_pin[0],
+                                "SPI Clock", STPIO_OUT);
+	if(!pio_info->clk){
+		printk(KERN_ERR "Faild to clk pin allocation\n");
+		return -ENODEV;
+	}
+	pio_info->sdout = stpio_request_pin(pio_info->pio_port,pio_info->pio_pin[1],
+				"SPI Data out", STPIO_OUT);
+	if(!pio_info->sdout){
+		printk(KERN_ERR "Faild to sda pin allocation\n");
+		stpio_free_pin(pio_info->clk);
+		return -ENODEV;
+		}
+	pio_info->sdin = stpio_request_pin(pio_info->pio_port,pio_info->pio_pin[2],
+				"SPI Data in", STPIO_IN);
+	if(!pio_info->sdin){
+		printk(KERN_ERR "Faild to sdo pin allocation\n");
+		stpio_free_pin(pio_info->sdout);
+		stpio_free_pin(pio_info->clk);
+		return -ENODEV;
+		}
+
+	init_waitqueue_head(&dev->wait_queue);
+        mutex_init(&dev->mutex_bus);
+	dev->idx_dev = pdev->id;
+	dev->dev.parent = &pdev->dev;
+	pdev->dev.driver_data = dev;
+	if (spi_add_adapter(dev) < 0) {
+		printk(KERN_ERR
+			"spi/stm: The SPI Core refuses the spi/stm adapter\n");
+		return -ENODEV;
+	}
+	return 0;
+}
+
+static int  spi_stm_remove(struct platform_device *pdev)
+{
+	struct ssc_pio_t *pio_info =
+			(struct ssc_pio_t *)pdev->dev.platform_data;
+        struct resource *res;
+        struct spi_device_t *dev = pdev->dev.driver_data;
+
+	spi_del_adapter(dev);
+	devm_iounmap(&pdev->dev,dev->base);
+	devm_free_irq(&pdev->dev,res->start, dev);
+	devm_kfree(&pdev->dev,dev);
+	stpio_free_pin(pio_info->sdin);
+	stpio_free_pin(pio_info->clk);
+	stpio_free_pin(pio_info->sdout);
+        return 0;
+}
+
+#ifdef CONFIG_PM
+static int spi_stm_suspend(struct platform_device *pdev,pm_message_t state)
+{
+	struct spi_device_t *dev = pdev->dev.driver_data;
+	return 0;
+}
+
+static int spi_stm_resume(struct platform_device *pdev)
+{
+	struct spi_device_t *dev = pdev->dev.driver_data;
+	return 0;
+}
+#else
+#define spi_stm_suspend		NULL
+#define spi_stm_resume		NULL
 #endif
 
-static int __init spi_late_init(void)
+static struct platform_driver spi_hw_driver = {
+        .driver.name = "spi_st",
+        .driver.owner = THIS_MODULE,
+        .probe = spi_stm_probe,
+        .remove = spi_stm_remove,
+	.suspend = spi_stm_suspend,
+	.resume = spi_stm_resume,
+};
+
+
+static int __init spi_init(void)
 {
-	dgb_print("\n");
-	spi_adapter_detect();
-	return 0;
+        platform_driver_register(&spi_hw_driver);
+        return 0;
 }
 
 static int __exit spi_exit(void)
@@ -928,7 +1003,7 @@ static int __exit spi_exit(void)
 }
 
 subsys_initcall(spi_core_init);
-late_initcall(spi_late_init);
+module_init(spi_init);
 module_exit(spi_exit);
 
 MODULE_AUTHOR("STMicroelectronics  <www.st.com>");

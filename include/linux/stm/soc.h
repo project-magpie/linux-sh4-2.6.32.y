@@ -2,22 +2,39 @@
 #define __LINUX_ST_SOC_H
 
 /* This is the private platform data for the ssc driver */
-struct plat_ssc_pio_t {
-	unsigned char sclbank;
-	unsigned char sclpin;
-	unsigned char sdoutbank;
-	unsigned char sdoutpin;
-	unsigned char sdinbank;
-	unsigned char sdinpin;
+struct ssc_pio_t {
+	unsigned char pio_port;
+	unsigned char pio_pin[3];
+	struct stpio_pin* clk;
+	struct stpio_pin* sdout;
+	struct stpio_pin* sdin;
 };
 
-#define SSC_I2C_CAPABILITY  0x1
-#define SSC_SPI_CAPABILITY  0x2
+#define SSC_I2C_CAPABILITY  0x0
+#define SSC_SPI_CAPABILITY  0x1
+#define SSC_UNCONFIGURED    0x2
+/*
+ *   This macro could be used to build the capability field
+ *   of struct plat_ssc_data for each SoC
+ */
+#define ssc_capability(idx_ssc, cap)  \
+         ( (cap) & (SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY | SSC_UNCONFIGURED) ) << ((idx_ssc)*2)
+
+#define ssc0_has(cap)  ssc_capability(0,cap)
+#define ssc1_has(cap)  ssc_capability(1,cap)
+#define ssc2_has(cap)  ssc_capability(2,cap)
+#define ssc3_has(cap)  ssc_capability(3,cap)
+#define ssc4_has(cap)  ssc_capability(4,cap)
+#define ssc5_has(cap)  ssc_capability(5,cap)
+#define ssc6_has(cap)  ssc_capability(6,cap)
+#define ssc7_has(cap)  ssc_capability(7,cap)
+#define ssc8_has(cap)  ssc_capability(8,cap)
+#define ssc9_has(cap)  ssc_capability(9,cap)
 
 struct plat_ssc_data {
 	unsigned short		capability;	/* bitmask on the ssc capability */
-	struct plat_ssc_pio_t	*pio;		/* the PIO map */
 };
+
 
 /* Private data for the SATA driver */
 struct plat_sata_data {

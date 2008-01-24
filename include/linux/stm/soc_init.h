@@ -39,6 +39,27 @@
 	}								\
 }
 
+#define STSSC_DEVICE(_base, _irq, _pio_port, _pclk, _pdin, _pdout)	\
+{									\
+	.num_resources  = 2,						\
+	.resource       = (struct resource[]) {				\
+		{							\
+			.start  = _base,				\
+			.end    = _base + 0x10C,			\
+			.flags  = IORESOURCE_MEM			\
+		}, {							\
+			.start  = _irq,					\
+			.flags  = IORESOURCE_IRQ			\
+		}							\
+	},								\
+	.dev = {							\
+		.platform_data = &(struct ssc_pio_t ) {			\
+			.pio_port       = _pio_port,			\
+			.pio_pin        = { _pclk, _pdin, _pdout },	\
+		}                                                       \
+	}								\
+}
+
 #define USB_WRAPPER(_port, _wrapper_base, _protocol_base)	\
 {								\
 	.ahb2stbus_wrapper_glue_base = _wrapper_base,		\

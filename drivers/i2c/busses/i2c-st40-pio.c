@@ -25,229 +25,129 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/i2c.h>
 #include <linux/i2c-algo-bit.h>
 #include <linux/stm/pio.h>
+#include <linux/stm/soc.h>
 #include <asm/io.h>
 #include <asm/param.h> /* for HZ */
 
 #define NAME "i2c_st40_pio"
 
-typedef struct {
-	int sclbank;
-	int sclpin;
-	int sdabank;
-	int sdapin;
-} pio_address;
-
-typedef struct {
-	struct stpio_pin* scl;
-	struct stpio_pin* sda;
-} pio_pins;
-
-
-#if defined(CONFIG_CPU_SUBTYPE_STI5528)
-
-#define NR_I2C_BUSSES 1
-static pio_address i2c_address[NR_I2C_BUSSES] = {{3,1,3,0}};
-
-#elif defined(CONFIG_CPU_SUBTYPE_STM8000)
-
-#if defined(CONFIG_SH_STM8000_DEMO)
-#define NR_I2C_BUSSES 2
-static pio_address i2c_address[NR_I2C_BUSSES] = {
-	{6,0,6,1},
-	{6,2,6,3}  // This isn't strictly speaking I2C but some boards use it as such
-};
-#elif defined(CONFIG_SH_ST220_EVAL)
-#define NR_I2C_BUSSES 1
-static pio_address i2c_address[NR_I2C_BUSSES] = {
-	{6,0,6,1}
-	//  The "second" bus on the eval board is unconnected and hence floating
-	//  this causes a temporary hang on probe
-};
-#endif
-
-#elif defined(CONFIG_CPU_SUBTYPE_STB7100)
-
-#if defined(CONFIG_SH_ST_MB442)
-
-#define NR_I2C_BUSSES 2
-static pio_address i2c_address[NR_I2C_BUSSES] = {
-	{2,0,2,1},
-	{4,0,4,1}
-};
-
-#else
-
-#define NR_I2C_BUSSES 3
-static pio_address i2c_address[NR_I2C_BUSSES] = {
-	{2,0,2,1},
-	{3,0,3,1},
-	{4,0,4,1}
-};
-
-#endif
-
-#elif defined(CONFIG_CPU_SUBTYPE_STX7200)
-
-#define NR_I2C_BUSSES 5
-static pio_address i2c_address[NR_I2C_BUSSES] = {
-       {2,0,2,1},
-       {3,0,3,1},
-       {4,0,4,1},
-       {5,0,5,1},
-       {7,6,7,7},
-};
-
-#else
-#error Need to configure the default I2C pins for this chip
-#endif
-
-static pio_pins i2c_busses[NR_I2C_BUSSES] = {{0}};
-
 static void bit_st40_pio_setscl(void *data, int state)
 {
-	stpio_set_pin(((pio_pins*)data)->scl, state);
+	struct platform_device *pdev = (struct platform_device *)data;
+	struct ssc_pio_t *pio_info = (struct ssc_pio_t *)pdev->dev.platform_data;
+	stpio_set_pin(pio_info->clk, state);
 }
 
 static void bit_st40_pio_setsda(void *data, int state)
 {
-	stpio_set_pin(((pio_pins*)data)->sda, state);
+	struct platform_device *pdev = (struct platform_device *)data;
+	struct ssc_pio_t *pio_info = (struct ssc_pio_t *)pdev->dev.platform_data;
+	stpio_set_pin(pio_info->sdout, state);
 }
 
 static int bit_st40_pio_getscl(void *data)
 {
-	return stpio_get_pin(((pio_pins*)data)->scl);
+	struct platform_device *pdev = (struct platform_device *)data;
+	struct ssc_pio_t *pio_info = (struct ssc_pio_t *)pdev->dev.platform_data;
+	return stpio_get_pin(pio_info->clk);
 }
 
 static int bit_st40_pio_getsda(void *data)
 {
-	return stpio_get_pin(((pio_pins*)data)->sda);
+	struct platform_device *pdev = (struct platform_device *)data;
+	struct ssc_pio_t *pio_info = (struct ssc_pio_t *)pdev->dev.platform_data;
+	return stpio_get_pin(pio_info->sdout);
 }
 
-static int bit_st40_pio_init(void)
+static int __init i2c_st40_probe(struct platform_device *pdev)
 {
-	int i;
-	for(i = 0; i<NR_I2C_BUSSES; i++) {
-		i2c_busses[i].scl = stpio_request_pin(i2c_address[i].sclbank,
-						      i2c_address[i].sclpin,
-						      "I2C Clock",
-						      STPIO_BIDIR);
+	struct ssc_pio_t *pio_info =
+			(struct ssc_pio_t *)pdev->dev.platform_data;
 
-		printk(KERN_INFO NAME ": allocated pin (%d,%d) for scl (0x%p)\n",i2c_address[i].sclbank, i2c_address[i].sclpin, i2c_busses[i].scl);
+	struct i2c_adapter 	 *i2c_bus;
+	struct i2c_algo_bit_data *algo;
 
-		i2c_busses[i].sda = stpio_request_pin(i2c_address[i].sdabank,
-						      i2c_address[i].sdapin,
-						      "I2C Data",
-						      STPIO_BIDIR);
+	i2c_bus = devm_kzalloc(&pdev->dev,sizeof(struct i2c_adapter),GFP_KERNEL);
+	if (!i2c_bus)
+		return -1;
 
-		printk(KERN_INFO NAME ": allocated pin (%d,%d) for sda (0x%p)\n",i2c_address[i].sdabank, i2c_address[i].sdapin, i2c_busses[i].sda);
+	algo    = devm_kzalloc(&pdev->dev,sizeof(struct i2c_algo_bit_data),GFP_KERNEL);
+	if (!algo)
+		return -1;
 
-		if(i2c_busses[i].scl == NULL || i2c_busses[i].sda == NULL)
-		{
-			printk(KERN_INFO NAME ": failed to allocate bus pins\n");
-			return -1;
-		}
+	pio_info->clk = stpio_request_pin(pio_info->pio_port,pio_info->pio_pin[0],
+				"I2C Clock", STPIO_BIDIR);
 
-
-		stpio_set_pin(i2c_busses[i].sda, 1);
-		stpio_set_pin(i2c_busses[i].scl, 1);
+	if (!pio_info->clk){
+		printk(KERN_ERR NAME"Faild to clk pin allocation\n");
+		return -1;
+	}
+	pio_info->sdout = stpio_request_pin(pio_info->pio_port,pio_info->pio_pin[1],
+				"I2C Data", STPIO_BIDIR);
+	if (!pio_info->sdout){
+		printk(KERN_ERR NAME"Faild to sda pin allocation\n");
+		return -1;
 	}
 
+	stpio_set_pin(pio_info->clk, 1);
+        stpio_set_pin(pio_info->sdout, 1);
+
+	printk(KERN_INFO NAME ": allocated pin (%d,%d) for scl (0x%p)\n",
+		pio_info->pio_port, pio_info->pio_pin[0], pio_info->clk );
+	printk(KERN_INFO NAME ": allocated pin (%d,%d) for sda (0x%p)\n",
+		pio_info->pio_port, pio_info->pio_pin[1], pio_info->sdout);
+
+	sprintf(i2c_bus->name,"i2c_pio_%d",pdev->id);;
+	i2c_bus->id    = I2C_HW_B_ST40_PIO;
+	i2c_bus->algo_data = algo;
+	i2c_bus->dev.parent = &pdev->dev;
+
+	algo->data   = pdev;
+        algo->setsda = bit_st40_pio_setsda;
+        algo->setscl = bit_st40_pio_setscl;
+        algo->getsda = bit_st40_pio_getsda;
+        algo->getscl = bit_st40_pio_getscl;
+        algo->udelay = 5;
+        algo->timeout= HZ;
+
+	pdev->dev.driver_data = (void*)i2c_bus;
+	if (i2c_bit_add_bus(i2c_bus)<0){
+		printk(KERN_ERR NAME "The I2C Core refuses the i2c-pio adapter\n");
+		return -1;
+	}
+
+        return 0;
+}
+
+static int i2c_st40_remove(struct platform_device *pdev)
+{
+	struct ssc_pio_t *pio_info =
+			(struct ssc_pio_t *)pdev->dev.platform_data;
+
+	struct i2c_adapter *i2c_bus = (struct i2c_adapter*)pdev->dev.driver_data;;
+	struct i2c_algo_bit_data *algo = i2c_bus->algo_data;
+
+	i2c_del_adapter(i2c_bus);
+
+	stpio_free_pin(pio_info->clk);
+	stpio_free_pin(pio_info->sdout);
+	devm_kfree(&pdev->dev,algo);
+	devm_kfree(&pdev->dev,i2c_bus);
 	return 0;
 }
 
-static void bit_st40_pio_free(void)
-{
-	int i;
-	for(i=0; i<NR_I2C_BUSSES; i++) {
-		if(i2c_busses[i].scl)
-		{
-			stpio_free_pin(i2c_busses[i].scl);
-			i2c_busses[i].scl = NULL;
-		}
-
-		if(i2c_busses[i].sda)
-		{
-			stpio_free_pin(i2c_busses[i].sda);
-			i2c_busses[i].sda = NULL;
-		}
-	}
-}
-
-static struct i2c_algo_bit_data bit_st40_pio_data[NR_I2C_BUSSES] = {
-{
-	.data		= &i2c_busses[0],
-	.setsda		= bit_st40_pio_setsda,
-	.setscl		= bit_st40_pio_setscl,
-	.getsda		= bit_st40_pio_getsda,
-	.getscl		= bit_st40_pio_getscl,
-	.udelay		= 5,
-	.timeout	= HZ
-},
-#if NR_I2C_BUSSES > 1
-{
-	.data		= &i2c_busses[1],
-	.setsda		= bit_st40_pio_setsda,
-	.setscl		= bit_st40_pio_setscl,
-	.getsda		= bit_st40_pio_getsda,
-	.getscl		= bit_st40_pio_getscl,
-	.udelay		= 5,
-	.timeout	= HZ
-},
-#if NR_I2C_BUSSES > 2
-{
-        .data           = &i2c_busses[2],
-        .setsda         = bit_st40_pio_setsda,
-        .setscl         = bit_st40_pio_setscl,
-        .getsda         = bit_st40_pio_getsda,
-        .getscl         = bit_st40_pio_getscl,
-        .udelay         = 5,
-        .timeout        = HZ
-},
-#endif
-#endif
+static struct platform_driver i2c_sw_driver = {
+        .driver.name = "i2c_st",
+        .driver.owner = THIS_MODULE,
+        .probe = i2c_st40_probe,
+	.remove= i2c_st40_remove,
 };
-
-static struct i2c_adapter bit_st40_pio_ops[NR_I2C_BUSSES] = {
-{
-	.owner		= THIS_MODULE,
-	.name		= "ST40_PIO_0",
-	.id		= I2C_HW_B_ST40_PIO,
-	.algo_data	= &bit_st40_pio_data[0],
-},
-#if NR_I2C_BUSSES > 1
-{
-	.owner		= THIS_MODULE,
-	.name		= "ST40_PIO_1",
-	.id		= I2C_HW_B_ST40_PIO,
-	.algo_data	= &bit_st40_pio_data[1],
-},
-#if NR_I2C_BUSSES > 2
-{
-	.owner		= THIS_MODULE,
-	.name		= "ST40_PIO_2",
-	.id		= I2C_HW_B_ST40_PIO,
-	.algo_data	= &bit_st40_pio_data[2],
-}
-#endif
-#endif
-};
-
-static void bit_st40_pio_unregister(void)
-{
-	int i;
-
-	for(i=0;i<NR_I2C_BUSSES;i++)
-	{
-		i2c_del_adapter(&bit_st40_pio_ops[i]);
-	}
-
-	bit_st40_pio_free();
-}
 
 static int __init i2c_st40_pio_init(void)
 {
@@ -255,29 +155,14 @@ static int __init i2c_st40_pio_init(void)
 
 	printk(KERN_INFO NAME ": ST40 PIO based I2C Driver\n");
 
-	if (bit_st40_pio_init() < 0) {
-		printk(KERN_INFO NAME ": initialization failed\n");
-		bit_st40_pio_free();
-	}
+	platform_driver_register(&i2c_sw_driver);
 
-	for(i=0;i<NR_I2C_BUSSES;i++)
-	{
-		printk(KERN_INFO NAME " bus %d: SCL=PIO%u[%u], SDA=PIO%u[%u]\n", i,
-			i2c_address[i].sclbank, i2c_address[i].sclpin,
-			i2c_address[i].sdabank, i2c_address[i].sdapin);
-
-		if (i2c_bit_add_bus(&bit_st40_pio_ops[i]) < 0) {
-			printk(KERN_ERR NAME ": adapter registration failed\n");
-			bit_st40_pio_unregister();
-			return -ENODEV;
-		}
-	}
 	return 0;
 }
 
 static void __exit i2c_st40_pio_exit(void)
 {
-	bit_st40_pio_unregister();
+	platform_driver_unregister(&i2c_sw_driver);
 }
 
 MODULE_AUTHOR("Stuart Menefy <stuart.menefy@st.com>");

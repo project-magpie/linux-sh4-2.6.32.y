@@ -61,19 +61,27 @@
 
 
 #ifdef __KERNEL__
-#include "stm_ssc.h"
+#include <linux/stm/stssc.h>
 #include <linux/device.h>
+#include <linux/wait.h>
+#include <linux/mutex.h>
 
 extern struct bus_type spi_bus_type;
 
 #define SPI_DEV_BUS_ADAPTER      0x01
 #define SPI_DEV_CLIENT_ADAPTER   0x02
 
+struct spi_transaction_t;
+
 struct spi_device_t {
 	unsigned int idx_dev;
         unsigned int dev_type; /* SPI_DEV_BUS_ADAPTER xor SPI_DEV_CLIENT_ADAPTER*/
 	struct device dev;
 	struct class_device *class_dev;
+	unsigned long base;
+	struct mutex      mutex_bus;
+        wait_queue_head_t wait_queue;
+	struct spi_transaction_t *trns;
 };
 
 struct spi_client_t {

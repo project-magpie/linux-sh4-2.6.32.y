@@ -366,81 +366,44 @@ static void fdma_setup(int chip_7109, int chip_revision)
 }
 
 /* SSC resources ----------------------------------------------------------- */
-
-static struct resource ssc_resource[] = {
-        [0] = {
-		.start	= 0x18040000,
-		.end	= 0x18040000 + 0x108,
-		.flags	= IORESOURCE_MEM,
-	},
-        [1] = {
-		.start	= 0x18041000,
-		.end	= 0x18041000 + 0x108,
-		.flags	= IORESOURCE_MEM,
-	},
-        [2] = {
-		.start	= 0x18042000,
-		.end	= 0x18042000 + 0x108,
-		.flags	= IORESOURCE_MEM,
-	},
-        [3] = {
-		.start	= 119,
-		.end	= 119,
-		.flags	= IORESOURCE_IRQ,
-	},
-        [4] = {
-		.start	= 118,
-		.end	= 118,
-		.flags	= IORESOURCE_IRQ,
-	},
-        [5] = {
-		.start	= 117,
-		.end	= 117,
-               .flags	= IORESOURCE_IRQ,
-	},
+static char i2c_st[] = "i2c_st";
+static char spi_st[] = "spi_st";
+static struct platform_device stssc_devices[] = {
+	STSSC_DEVICE(0x18040000, 119, 2, 0, 1, 2),
+	STSSC_DEVICE(0x18041000, 118, 3, 0, 1, 2),
+	STSSC_DEVICE(0x18042000, 117, 4, 0, 1, 0xff),
 };
 
-static struct plat_ssc_pio_t ssc_pio[] = {
-	{2, 0, 2, 1, 2, 2},
-	{3, 0, 3, 1, 3, 2},
-	{4, 0, 4, 1, 0xff, 0xff},
-};
-
-struct platform_device ssc_device = {
-        .name = "ssc",
-        .id = -1,
-        .num_resources = ARRAY_SIZE(ssc_resource),
-        .resource = ssc_resource,
-};
-
+static int __initdata num_i2c;
+static int __initdata num_spi;
 void __init stx7100_configure_ssc(struct plat_ssc_data *data)
 {
 	int i;
-	int capability;
+	int capability = data->capability;
 	struct sysconf_field* ssc_sc;
 
-	data->pio = ssc_pio;
-	ssc_device.dev.platform_data = data;
-
-	for (i=0, capability = data->capability;
-	     i<3;
-	     i++, capability >>= 2) {
-		if (! (capability & (SSC_SPI_CAPABILITY|SSC_I2C_CAPABILITY)))
+	for (i=0; i<ARRAY_SIZE(stssc_devices); i++, capability >>= 2) {
+		if(capability & SSC_UNCONFIGURED)
 			continue;
-
-		if (i== 0) {
-			ssc_sc = sysconf_claim(SYS_CFG, 7, 10, 10, "ssc");
+		if(!i){
+			ssc_sc = sysconf_claim(SYS_CFG, 7, 10, 10, "stssc");
 			sysconf_write(ssc_sc, 0);
 		}
 
-		ssc_sc = sysconf_claim(SYS_CFG, 7, i+1, i+1, "ssc");
-		sysconf_write(ssc_sc,
-			      capability & SSC_I2C_CAPABILITY ? 0 : 1);
+		ssc_sc = sysconf_claim(SYS_CFG, 7, i+1, i+1, "stssc");
+		if(capability & SSC_SPI_CAPABILITY){
+			stssc_devices[i].name = spi_st;
+			sysconf_write(ssc_sc, 1);
+			stssc_devices[i].id = num_spi++;
+		} else {
+			stssc_devices[i].name = i2c_st;
+			sysconf_write(ssc_sc, 0);
+			stssc_devices[i].id = num_i2c++;
+		}
+		platform_device_register(&stssc_devices[i]);
 	}
 
-	platform_device_register(&ssc_device);
 }
-
 /* SATA resources ---------------------------------------------------------- */
 
 static struct resource sata_resource[]= {

@@ -35,9 +35,9 @@ void __init mb448_setup(char** cmdline_p)
 
 static struct plat_ssc_data ssc_private_info = {
 	.capability  =
-		(SSC_I2C_CAPABILITY << (0*2)) |
-		((SSC_SPI_CAPABILITY | SSC_I2C_CAPABILITY) << (1*2)) |
-		(SSC_I2C_CAPABILITY << (2*2)),
+		ssc0_has(SSC_I2C_CAPABILITY) |
+		ssc1_has(SSC_SPI_CAPABILITY) |
+		ssc2_has(SSC_I2C_CAPABILITY),
 };
 
 static struct resource smc91x_resources[] = {

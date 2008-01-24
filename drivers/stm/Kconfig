@@ -71,23 +71,8 @@ config STM_DMA_FW_KERNEL
 
 endchoice
 
-config STM_SSC
-       bool "STM Synchronous Serial Controller"
-       default y
-       ---help---
-         This driver is required to support the I2C and the SPI
-         Protocol on STM SOCs
-
-config  STM_SSC_DEBUG
-	bool "STM SSC Debug"
-	depends on STM_SSC
-	default n
-	---help---
-	  Enable this option to print out information on STM SSC device driver
-
 config STM_SPI
 	bool "STM Serial Peripheral Interface"
-	select STM_SSC
 	---help---
 	  This driver is required to support the SPI Protocol
 

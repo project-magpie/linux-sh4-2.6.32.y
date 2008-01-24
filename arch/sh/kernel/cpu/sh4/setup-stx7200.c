@@ -494,98 +494,42 @@ static struct platform_device fdma_xbar_device = {
 };
 
 /* SSC resources ----------------------------------------------------------- */
-
-static struct resource ssc_resource[] = {
-	[0] = {
-		.start	= 0xfd040000,
-		.end	= 0xfd040000 + 0x108,
-		.flags	= IORESOURCE_MEM,
-	},
-	[1] = {
-		.start	= 0xfd041000,
-		.end	= 0xfd041000 + 0x108,
-		.flags	= IORESOURCE_MEM,
-	},
-	[2] = {
-		.start	= 0xfd042000,
-		.end	= 0xfd042000 + 0x108,
-		.flags	= IORESOURCE_MEM,
-	},
-	[3] = {
-		.start	= 0xfd043000,
-		.end	= 0xfd043000 + 0x108,
-		.flags	= IORESOURCE_MEM,
-	},
-	[4] = {
-		.start	= 0xfd044000,
-		.end	= 0xfd044000 + 0x108,
-		.flags	= IORESOURCE_MEM,
-	},
-	[5] = {
-		.start	= ILC_IRQ(108),
-		.end	= ILC_IRQ(108),
-		.flags	= IORESOURCE_IRQ,
-	},
-	[6] = {
-		.start	= ILC_IRQ(109),
-		.end	= ILC_IRQ(109),
-		.flags	= IORESOURCE_IRQ,
-	},
-	[7] = {
-		.start	= ILC_IRQ(110),
-		.end	= ILC_IRQ(110),
-		.flags	= IORESOURCE_IRQ,
-	},
-	[8] = {
-		.start	= ILC_IRQ(111),
-		.end	= ILC_IRQ(111),
-		.flags	= IORESOURCE_IRQ,
-	},
-	[9] = {
-		.start	= ILC_IRQ(112),
-		.end	= ILC_IRQ(112),
-		.flags	= IORESOURCE_IRQ,
-	},
+static char i2c_st[] = "i2c_st";
+static char spi_st[] = "spi_st";
+static struct platform_device stssc_devices[] = {
+	STSSC_DEVICE(0xfd040000, ILC_IRQ(108), 2, 0, 1, 2),
+	STSSC_DEVICE(0xfd041000, ILC_IRQ(109), 3, 0, 1, 2),
+	STSSC_DEVICE(0xfd042000, ILC_IRQ(110), 4, 0, 1, 0xff),
+	STSSC_DEVICE(0xfd043000, ILC_IRQ(111), 5, 0, 1, 2),
+	STSSC_DEVICE(0xfd044000, ILC_IRQ(112), 7, 6, 7, 0xff),
 };
 
-static struct plat_ssc_pio_t ssc_pio[] = {
-	{2, 0, 2, 1, 2, 2},
-	{3, 0, 3, 1, 3, 2},
-	{4, 0, 4, 1, 0xff, 0xff},
-	{5, 0, 5, 1, 5, 2},
-	{7, 6, 7, 7, 0xff, 0xff},
-};
-
-struct platform_device ssc_device = {
-	.name = "ssc",
-	.id = -1,
-	.num_resources = ARRAY_SIZE(ssc_resource),
-	.resource = ssc_resource,
-};
-
+static int __initdata num_i2c;
+static int __initdata num_spi;
 void __init stx7200_configure_ssc(struct plat_ssc_data *data)
 {
 	int i;
-	int capability;
+	int capability = data->capability;
 	struct sysconf_field* ssc_sc;
 
-	data->pio = ssc_pio;
-	ssc_device.dev.platform_data = data;
-
-	for (i=0, capability = data->capability;
-	     i<5;
-	     i++, capability >>= 2) {
-		if (! (capability & (SSC_SPI_CAPABILITY|SSC_I2C_CAPABILITY)))
+	for (i=0; i<ARRAY_SIZE(stssc_devices); i++, capability >>= 2){
+		if(capability & SSC_UNCONFIGURED)
 			continue;
-
 		/* We only support SSC as master, so always set up as such.
 		 * ssc<x>_mux_sel = 0 */
 		ssc_sc = sysconf_claim(SYS_CFG, 7, i, i, "ssc");
-		sysconf_write(ssc_sc,
-			      capability & SSC_I2C_CAPABILITY ? 0 : 1);
-	}
+		if(capability & SSC_SPI_CAPABILITY){
+			stssc_devices[i].name = spi_st;
+			sysconf_write(ssc_sc, 1);
+			stssc_devices[i].id = num_spi++;
+		} else {
+			stssc_devices[i].name = i2c_st;
+			sysconf_write(ssc_sc, 0);
+			stssc_devices[i].id = num_i2c++;
+		}
+		platform_device_register(&stssc_devices[i]);
+        }
 
-	platform_device_register(&ssc_device);
 }
 
 /* Ethernet MAC resources -------------------------------------------------- */

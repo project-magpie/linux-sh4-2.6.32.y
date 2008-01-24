@@ -37,9 +37,9 @@ static struct plat_stm_pwm_data pwm_private_info = {
 
 static struct plat_ssc_data ssc_private_info = {
 	.capability  =
-		(SSC_I2C_CAPABILITY << (0*2)) |
-		((SSC_SPI_CAPABILITY | SSC_I2C_CAPABILITY) << (1*2)) |
-		(SSC_I2C_CAPABILITY << (2*2)),
+		ssc0_has(SSC_I2C_CAPABILITY) |
+		ssc1_has(SSC_SPI_CAPABILITY) |
+		ssc2_has(SSC_I2C_CAPABILITY),
 };
 
 static void set_vpp(struct map_info * info, int enable)

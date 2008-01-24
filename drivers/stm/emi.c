@@ -19,6 +19,11 @@ static void __iomem *emi_control;
 
 int __init emi_init(unsigned long memory_base, unsigned long control_base)
 {
+	static char initialised = 0;
+
+	if (initialised)
+		return 0;
+
 	if (!request_mem_region(control_base, 0x864, "EMI"))
 		return -EBUSY;
 
@@ -27,6 +32,8 @@ int __init emi_init(unsigned long memory_base, unsigned long control_base)
 		return -ENOMEM;
 
 	emi_memory_base = memory_base;
+
+	initialised = 1;
 
 	return 0;
 }
@@ -114,4 +121,41 @@ void __init emi_config_pata(int bank)
 	/* Set timings for PIO4 */
 	set_read_timings(bank, 120,35,30,20);
 	set_write_timings(bank, 120,35,30);
+}
+
+void set_nand_read_timings(int bank, int cycle_time,int IORD_start,
+				  int IORD_end, int RD_latch, int busreleasetime)
+{
+	cycle_time = cycle_time / 10;		/* cycles */
+	IORD_start = IORD_start / 5;		/* phases */
+	IORD_end   = IORD_end / 5;		/* phases */
+	RD_latch   = RD_latch / 10;		/* cycles */
+	busreleasetime = busreleasetime / 10;   /* cycles */
+
+	writel(0x04000699 | (busreleasetime << 11) | (RD_latch << 20),
+	       emi_control+BANK_EMICONFIGDATA(bank, 0));
+
+	writel((cycle_time << 24) | (IORD_start << 12) | (IORD_end << 8),
+	       emi_control+BANK_EMICONFIGDATA(bank,1));
+}
+
+void set_nand_write_timings(int bank, int cycle_time,int IOWR_start,
+					  int IOWR_end)
+{
+	cycle_time = cycle_time / 10;		/* cycles */
+	IOWR_start = IOWR_start / 5;		/* phases */
+	IOWR_end   = IOWR_end / 5;		/* phases */
+
+	writel((cycle_time << 24) | (IOWR_start << 12) | (IOWR_end << 8),
+	       emi_control+BANK_EMICONFIGDATA(bank,2));
+}
+
+void emi_config_nand(int bank, struct emi_timing_data *timing_data)
+{
+	set_nand_read_timings(bank, timing_data->rd_cycle_time, timing_data->rd_oee_start,
+			      timing_data->rd_oee_end, timing_data->rd_latchpoint,
+			      timing_data->busreleasetime);
+
+	set_nand_write_timings(bank, timing_data->wr_cycle_time, timing_data->wr_oee_start,
+			       timing_data->wr_oee_end);
 }

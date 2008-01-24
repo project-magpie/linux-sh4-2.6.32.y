@@ -12,6 +12,7 @@
 #include <linux/init.h>
 #include <linux/serial.h>
 #include <linux/io.h>
+#include <linux/stm/emi.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/soc_init.h>
 #include <linux/stm/pio.h>
@@ -21,6 +22,8 @@
 #include <asm/irq-ilc.h>
 #include <linux/stm/fdma-plat.h>
 #include <linux/stm/fdma-reqs.h>
+#include <linux/mtd/nand.h>
+#include <linux/mtd/partitions.h>
 
 static unsigned long chip_revision;
 static struct sysconf_field *sc7_2;
@@ -547,6 +550,135 @@ static struct platform_device lirc_device = {
 void __init stx7200_configure_lirc(void)
 {
 	platform_device_register(&lirc_device);
+}
+
+/* NAND Resources ---------------------------------------------------------- */
+
+static void nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
+{
+	struct nand_chip *this = mtd->priv;
+
+	if (ctrl & NAND_CTRL_CHANGE) {
+
+		if (ctrl & NAND_CLE) {
+			this->IO_ADDR_W = (void *)((unsigned int)this->IO_ADDR_W |
+						   (unsigned int)(1 << 17));
+		}
+		else {
+			this->IO_ADDR_W = (void *)((unsigned int)this->IO_ADDR_W &
+						   ~(unsigned int)(1 << 17));
+		}
+
+		if (ctrl & NAND_ALE) {
+			this->IO_ADDR_W = (void *)((unsigned int)this->IO_ADDR_W |
+						   (unsigned int)(1 << 18));
+		}
+		else {
+			this->IO_ADDR_W = (void *)((unsigned int)this->IO_ADDR_W &
+						   ~(unsigned int)(1 << 18));
+		}
+	}
+
+	if (cmd != NAND_CMD_NONE) {
+		writeb(cmd, this->IO_ADDR_W);
+	}
+}
+
+static void nand_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
+{
+	int i;
+	struct nand_chip *chip = mtd->priv;
+
+	/* write buf up to 4-byte boundary */
+	while ((unsigned int)buf & 0x3) {
+		writeb(*buf++, chip->IO_ADDR_W);
+		len--;
+	}
+
+	writesl(chip->IO_ADDR_W, buf, len/4);
+
+	/* mop up trailing bytes */
+	for (i = (len & ~0x3); i < len; i++) {
+		writeb(buf[i], chip->IO_ADDR_W);
+	}
+}
+
+static void nand_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
+{
+	int i;
+	struct nand_chip *chip = mtd->priv;
+
+	/* read buf up to 4-byte boundary */
+	while ((unsigned int)buf & 0x3) {
+		*buf++ = readb(chip->IO_ADDR_R);
+		len--;
+	}
+
+	readsl(chip->IO_ADDR_R, buf, len/4);
+
+	/* mop up trailing bytes */
+	for (i = (len & ~0x3); i < len; i++) {
+		buf[i] = readb(chip->IO_ADDR_R);
+	}
+}
+
+static struct stpio_pin *nand_RBn_pio = NULL;
+
+static int nand_device_ready(struct mtd_info *mtd) {
+
+	return stpio_get_pin(nand_RBn_pio);
+}
+
+static const char *nand_part_probes[] = { "cmdlinepart", NULL };
+
+static struct platform_device nand_flash[] = {
+	EMI_NAND_DEVICE(0),
+	EMI_NAND_DEVICE(1),
+	EMI_NAND_DEVICE(2),
+	EMI_NAND_DEVICE(3),
+	EMI_NAND_DEVICE(4),
+ };
+
+
+/*
+ * stx7200_configure_nand - Configures NAND support for the STx7200
+ *
+ * Requires generic platform NAND driver (CONFIG_MTD_NAND_PLATFORM).
+ * Uses 'gen_nand.x' as ID for specifying MTD partitions on the kernel
+ * command line.
+ */
+void __init stx7200_configure_nand(struct nand_config_data *data)
+{
+	unsigned int bank_base;
+	unsigned int emi_bank = data->emi_bank;
+
+	struct platform_nand_data *nand_private_data =
+		nand_flash[emi_bank].dev.platform_data;
+
+	if (data->rbn_port >= 0) {
+		if (nand_RBn_pio == NULL) {
+			nand_RBn_pio = stpio_request_pin(data->rbn_port, data->rbn_pin,
+					 "nand_RBn", STPIO_IN);
+		}
+		if (nand_RBn_pio) {
+			nand_private_data->ctrl.dev_ready = nand_device_ready;
+		}
+	}
+
+	emi_init(0, 0xfdf00000);
+	bank_base = emi_bank_base(emi_bank) + data->emi_withinbankoffset;
+
+	printk("Configuring EMI Bank%d for NAND device\n", emi_bank);
+	emi_config_nand(data->emi_bank, data->emi_timing_data);
+
+	nand_flash[emi_bank].resource[0].start = bank_base;
+	nand_flash[emi_bank].resource[0].end = bank_base + (1 << 18);
+
+	nand_private_data->chip.chip_delay = data->chip_delay;
+	nand_private_data->chip.partitions = data->mtd_parts;
+	nand_private_data->chip.nr_partitions = data->nr_parts;
+
+	platform_device_register(&nand_flash[emi_bank]);
 }
 
 /* ASC resources ----------------------------------------------------------- */

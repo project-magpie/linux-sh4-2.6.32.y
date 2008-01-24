@@ -6,6 +6,19 @@
  * License.  See linux/COPYING for more information.
  */
 
+struct emi_timing_data {
+	int rd_cycle_time;
+	int rd_oee_start;
+	int rd_oee_end;
+	int rd_latchpoint;
+	int busreleasetime;
+
+	int wr_cycle_time;
+	int wr_oee_start;
+	int wr_oee_end;
+};
+
 int emi_init(unsigned long memory_base, unsigned long control_base);
 unsigned long emi_bank_base(int bank);
 void emi_config_pata(int bank);
+void emi_config_nand(int bank, struct emi_timing_data *timing_data);

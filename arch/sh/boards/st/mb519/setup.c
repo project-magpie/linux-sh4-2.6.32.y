@@ -14,6 +14,7 @@
 #include <linux/platform_device.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
+#include <linux/stm/emi.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
@@ -171,6 +172,43 @@ static struct platform_device epld_device = {
 	},
 };
 
+static struct mtd_partition nand_partitions[] = {
+	{
+		.name	= "NAND root",
+		.offset	= 0,
+		.size 	= 0x00800000
+	}, {
+		.name	= "NAND home",
+		.offset	= MTDPART_OFS_APPEND,
+		.size	= MTDPART_SIZ_FULL
+	},
+};
+
+static struct nand_config_data mb519_nand_config = {
+	.emi_bank		= 1,
+	.emi_withinbankoffset	= 0,
+
+	/* Timing data for STEM Module MB588A (ST-NAND512W3A2C) */
+	.emi_timing_data = &(struct emi_timing_data) {
+		.rd_cycle_time	= 40,		 /* times in ns */
+		.rd_oee_start	= 0,
+		.rd_oee_end	= 10,
+		.rd_latchpoint	= 10,
+		.busreleasetime = 10,
+
+		.wr_cycle_time	= 40,
+		.wr_oee_start	= 0,
+		.wr_oee_end	= 10,
+	},
+
+	.chip_delay		= 20,
+	.mtd_parts		= nand_partitions,
+	.nr_parts		= ARRAY_SIZE(nand_partitions),
+	.rbn_port		= -1,
+	.rbn_pin		= -1,
+};
+
+
 static struct platform_device *mb519_devices[] __initdata = {
 	&epld_device,
 	&physmap_flash,
@@ -195,6 +233,7 @@ static int __init device_init(void)
 	stx7200_configure_ethernet(0, 0, 1, 0);
 	// stx7200_configure_ethernet(1, 0, 1, 1);
         stx7200_configure_lirc();
+	stx7200_configure_nand(&mb519_nand_config);
         
 	return platform_add_devices(mb519_devices, ARRAY_SIZE(mb519_devices));
 }

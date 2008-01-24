@@ -97,3 +97,32 @@
 		}							\
 	}								\
 }
+
+
+#define EMI_NAND_DEVICE(_id)							\
+{										\
+	.name		= "gen_nand",						\
+	.id		= _id,							\
+	.num_resources	= 1,							\
+	.resource	= (struct resource[]) {					\
+		{								\
+			.flags		= IORESOURCE_MEM,			\
+		}								\
+	},									\
+	.dev		= {							\
+		.platform_data	= &(struct platform_nand_data) {		\
+			.chip		=					\
+			{							\
+				.nr_chips		= 1,			\
+				.options		= NAND_NO_AUTOINCR,	\
+				.part_probe_types 	= nand_part_probes,	\
+			},							\
+			.ctrl		=					\
+			{							\
+				.cmd_ctrl		= nand_cmd_ctrl,	\
+				.write_buf		= nand_write_buf,	\
+				.read_buf		= nand_read_buf,	\
+			}							\
+		}								\
+	}									\
+}

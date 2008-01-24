@@ -43,6 +43,11 @@ static int __init plat_nand_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
+	if (!request_mem_region(pdev->resource[0].start,
+				pdev->resource[0].end - pdev->resource[0].start + 1,
+				pdev->name))
+		return -EBUSY;
+
 	data->io_base = ioremap(pdev->resource[0].start,
 				pdev->resource[0].end - pdev->resource[0].start + 1);
 	if (data->io_base == NULL) {
@@ -55,6 +60,8 @@ static int __init plat_nand_probe(struct platform_device *pdev)
 	data->mtd.priv = &data->chip;
 	data->mtd.owner = THIS_MODULE;
 
+	data->mtd.name = pdev->dev.bus_id;
+
 	data->chip.IO_ADDR_R = data->io_base;
 	data->chip.IO_ADDR_W = data->io_base;
 	data->chip.cmd_ctrl = pdata->ctrl.cmd_ctrl;
@@ -62,6 +69,9 @@ static int __init plat_nand_probe(struct platform_device *pdev)
 	data->chip.select_chip = pdata->ctrl.select_chip;
 	data->chip.chip_delay = pdata->chip.chip_delay;
 	data->chip.options |= pdata->chip.options;
+
+	data->chip.read_buf = pdata->ctrl.read_buf;
+	data->chip.write_buf = pdata->ctrl.write_buf;
 
 	data->chip.ecc.hwctl = pdata->ctrl.hwcontrol;
 	data->chip.ecc.layout = pdata->chip.ecclayout;

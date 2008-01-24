@@ -99,6 +99,21 @@ struct plat_sysconf_data {
 	int sys_cfg_offset;
 };
 
+/* NAND configuration data */
+struct nand_config_data {
+	unsigned int emi_bank;			/* EMI Bank#			*/
+	unsigned int emi_withinbankoffset;	/* Offset within EMI Bank	*/
+	void *emi_timing_data;			/* Timing data for EMI config   */
+	void *mtd_parts;			/* MTD partition table		*/
+	unsigned int chip_delay;		/* Read busy time for NAND chip */
+	int nr_parts;				/* Number of partitions		*/
+	int rbn_port;				/*  # : 'nand_RBn' PIO port #   */
+						/* -1 : if unconnected		*/
+	int rbn_pin;			        /*      'nand_RBn' PIO pin      */
+						/* (assumes shared RBn signal   */
+						/*  for multiple chips)		*/
+};
+
 void stx7100_early_device_init(void);
 void stb7100_configure_asc(const int *ascs, int num_ascs, int console);
 void sysconf_early_init(struct platform_device *pdev);
@@ -122,5 +137,6 @@ void stx7200_configure_usb(void);
 void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 				int phy_bus);
 void stx7200_configure_lirc(void);
+void stx7200_configure_nand(struct nand_config_data *data);
 
 #endif /* __LINUX_ST_SOC_H */

@@ -592,6 +592,8 @@ struct platform_nand_ctrl {
 	void		(*select_chip)(struct mtd_info *mtd, int chip);
 	void		(*cmd_ctrl)(struct mtd_info *mtd, int dat,
 				    unsigned int ctrl);
+	void		(*write_buf)(struct mtd_info *mtd, const uint8_t *buf, int len);
+	void		(*read_buf)(struct mtd_info *mtd, uint8_t *buf, int len);
 	void		*priv;
 };
 

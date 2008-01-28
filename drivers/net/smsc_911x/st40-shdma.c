@@ -65,7 +65,6 @@ DWORD Platform_RequestDmaChannelSg(
 	dma_reqs[0] = dma_req_config(chan, dma_req_lines[0], &dma_req_configs[0]);
 	dma_reqs[1] = dma_req_config(chan, dma_req_lines[1], &dma_req_configs[1]);
 
-printk("%s: req %x and %x\n", __FUNCTION__, dma_reqs[0], dma_reqs[1]);
 	return chan;
 }
 
@@ -75,6 +74,9 @@ static void Platform_ReleaseDmaChannel_sg(void)
 
 	for(i=0;i<MAX_NODELIST_LEN;i++)
 		dma_params_free(&rx_transfer_paced[i]);
+
+	dma_req_free(dwDmaChannel, dma_reqs[0]);
+	dma_req_free(dwDmaChannel, dma_reqs[1]);
 }
 
 static void Platform_DmaInitialize_sg(void)
@@ -152,8 +154,6 @@ void Platform_ReleaseDmaChannel(
 	DWORD dwDmaChannel)
 {
 	free_dma(dwDmaChannel);
-	dma_req_free(dwDmaChannel, dma_reqs[0]);
-	dma_req_free(dwDmaChannel, dma_reqs[1]);
 	dma_params_free(&tx_transfer);
 	Platform_ReleaseDmaChannel_sg();
 }

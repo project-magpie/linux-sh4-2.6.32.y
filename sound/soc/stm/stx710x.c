@@ -237,7 +237,7 @@ static struct snd_stm_component __initdata snd_stm_stx710x_components[] = {
  */
 
 static union snd_stm_value __initdata number_0 = { .number = 0 };
-static union snd_stm_value __initdata number_1 = { .number = 0 };
+static union snd_stm_value __initdata number_1 = { .number = 1 };
 static union snd_stm_value __initdata list_2  = {
 	.list.len = 1,
 	.list.numbers = (int []) { 2 }
@@ -325,6 +325,7 @@ int __init snd_stm_stx710x_init(void)
 
 	default:
 		/* Unknown CPU! */
+		soc_type = NULL; /* To avoid a -Os compilation warning */
 		snd_assert(0, return -EINVAL);
 		break;
 	}

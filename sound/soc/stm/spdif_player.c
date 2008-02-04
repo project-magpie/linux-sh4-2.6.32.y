@@ -692,6 +692,8 @@ static int snd_stm_spdif_player_copy(struct snd_pcm_substream *substream,
 				right_subframe <<= 8;
 				break;
 			default:
+				left_subframe = 0;  /* To avoid -Os */
+				right_subframe = 0; /* compilation warnings */
 				snd_assert(0, return -EINVAL);
 				break;
 			}
@@ -821,10 +823,10 @@ static int snd_stm_spdif_player_ctl_raw_get(struct snd_kcontrol *kcontrol,
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	spin_lock(spdif_player->modes_default_lock);
+	spin_lock(&spdif_player->modes_default_lock);
 	ucontrol->value.integer.value[0] = (spdif_player->input_mode_default
 			== SNDRV_STM_SPDIF_INPUT_MODE_RAW);
-	spin_unlock(spdif_player->modes_default_lock);
+	spin_unlock(&spdif_player->modes_default_lock);
 
 	return 0;
 }
@@ -847,10 +849,10 @@ static int snd_stm_spdif_player_ctl_raw_put(struct snd_kcontrol *kcontrol,
 	else
 		input_mode = SNDRV_STM_SPDIF_INPUT_MODE_NORMAL;
 
-	spin_lock(spdif_player->modes_default_lock);
+	spin_lock(&spdif_player->modes_default_lock);
 	changed = (input_mode != spdif_player->input_mode_default);
 	spdif_player->input_mode_default = input_mode;
-	spin_unlock(spdif_player->modes_default_lock);
+	spin_unlock(&spdif_player->modes_default_lock);
 
 	return changed;
 }
@@ -870,10 +872,10 @@ static int snd_stm_spdif_player_ctl_encoded_get(struct snd_kcontrol *kcontrol,
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	spin_lock(spdif_player->modes_default_lock);
+	spin_lock(&spdif_player->modes_default_lock);
 	ucontrol->value.integer.value[0] = (spdif_player->encoding_mode_default
 			== SNDRV_STM_SPDIF_ENCODING_MODE_ENCODED);
-	spin_unlock(spdif_player->modes_default_lock);
+	spin_unlock(&spdif_player->modes_default_lock);
 
 	return 0;
 }
@@ -896,10 +898,10 @@ static int snd_stm_spdif_player_ctl_encoded_put(struct snd_kcontrol *kcontrol,
 	else
 		encoding_mode = SNDRV_STM_SPDIF_ENCODING_MODE_PCM;
 
-	spin_lock(spdif_player->modes_default_lock);
+	spin_lock(&spdif_player->modes_default_lock);
 	changed = (encoding_mode != spdif_player->encoding_mode_default);
 	spdif_player->encoding_mode_default = encoding_mode;
-	spin_unlock(spdif_player->modes_default_lock);
+	spin_unlock(&spdif_player->modes_default_lock);
 
 	return changed;
 }

@@ -401,6 +401,7 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 		bits_in_output_frame = 32;
 		break;
 	default:
+		bits_in_output_frame = 0; /* Avoid a -Os compilation warning */
 		snd_assert(0, return -EINVAL);
 		break;
 	}

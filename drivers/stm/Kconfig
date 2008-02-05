@@ -99,7 +99,6 @@ config STM_COPROCESSOR_SUPPORT
 	bool "STMicroelectronics coprocessor support"
 	default y
 	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200
-	depends on !32BIT
 	---help---
         Many of the ST system-on-chip devices have multiple CPUs, where a
         master CPU running Linux has control over a number of slave CPUs,

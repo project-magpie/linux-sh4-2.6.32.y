@@ -546,10 +546,12 @@ static void fix_mac_speed(void *priv, unsigned int speed)
 static struct plat_stmmacenet_data stmmaceth_private_data[2] = {
 {
 	.pbl = 32,
+	.has_gmac = 0,
 	.fix_mac_speed = fix_mac_speed,
 	.bsp_priv = (void*)0,
 }, {
 	.pbl = 32,
+	.has_gmac = 0,
 	.fix_mac_speed = fix_mac_speed,
 	.bsp_priv = (void*)1,
 } };

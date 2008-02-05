@@ -503,6 +503,7 @@ static void stb7109eth_hw_setup_null(void)
 static struct plat_stmmacenet_data eth7109_private_data = {
 	.bus_id = 0,
 	.pbl = 1,
+	.has_gmac = 0,
 	.fix_mac_speed = fix_mac_speed,
 	.hw_setup = stb7109eth_hw_setup_null,
 };

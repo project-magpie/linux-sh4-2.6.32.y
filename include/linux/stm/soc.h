@@ -81,6 +81,7 @@ struct plat_lirc_data {
 struct plat_stmmacenet_data {
 	int bus_id;
 	int pbl;
+	int has_gmac;
 	void (*fix_mac_speed)(void *priv, unsigned int speed);
 	void (*hw_setup)(void);
 	void *bsp_priv;

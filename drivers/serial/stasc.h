@@ -13,16 +13,30 @@
  *    2) STm8000 Datasheet (ADCS: 7323276)
  */
 
-#include <linux/serial_core.h>
+#ifndef _STASC_H
+#define _STASC_H
 
-struct asc_port
-{
+#include <linux/serial_core.h>
+#include <linux/stm/stm-dma.h>
+
+struct asc_port_fdma {
+	int ready;
+	int enabled;
+	struct asc_port_fdma_rx_channel *rx;
+	unsigned int rx_req_id;
+	struct asc_port_fdma_tx_channel *tx;
+	unsigned int tx_req_id;
+};
+
+struct asc_port {
 	struct uart_port port;
 	unsigned char pio_port;
 	unsigned char pio_pin[4]; /* Tx, Rx, CTS, RTS */
 	struct stpio_pin *pios[4];
-	int     break_flag;
-	int dma_enabled;
+	int break_flag;
+#ifdef CONFIG_SERIAL_ST_ASC_FDMA
+	struct asc_port_fdma fdma;
+#endif
 };
 
 #define ASC_MAJOR		204
@@ -176,28 +190,28 @@ ASC_FUNC(RETRIES,   ASC_RETRIES)
 #define asc_in(port, reg)		asc_ ## reg ## _in (port)
 #define asc_out(port, reg, value)	asc_ ## reg ## _out ((port), (value))
 
-/*---- DMA interface ------------------------------------------*/
+/*---- FDMA interface ------------------------------------------*/
 
-#ifdef CONFIG_SERIAL_ST_ASC_DMA
-static int inline asc_dma_enabled(struct uart_port* port)
+#ifdef CONFIG_SERIAL_ST_ASC_FDMA
+int asc_fdma_startup(struct uart_port *port);
+void asc_fdma_shutdown(struct uart_port *port);
+int asc_fdma_enable(struct uart_port *port);
+void asc_fdma_disable(struct uart_port *port);
+static inline int asc_fdma_enabled(struct uart_port *port)
 {
-	struct asc_port *ascport = &asc_ports[port->line];
-	return ascport->dma_enabled;
+	return asc_ports[port->line].fdma.enabled;
 }
-void asc_fdma_setreq(void);
-int asc_enable_fdma(struct uart_port *port);
-void asc_disable_fdma(struct uart_port *port);
 #else
-static int inline asc_dma_enabled(struct uart_port* ascport)
-{
-	return 0;
-}
-static void inline asc_fdma_setreq(void) { }
-static int inline asc_enable_fdma(struct uart_port *port) { return -ENOSYS; }
-static void inline asc_disable_fdma(struct uart_port *port) { }
+int asc_fdma_startup(struct uart_port *port) { return -ENOSYS; }
+void asc_fdma_shutdown(struct uart_port *port) {}
+static inline int asc_fdma_enable(struct uart_port *port) { return -ENOSYS; }
+static inline void asc_fdma_disable(struct uart_port *port) {}
+static inline int asc_fdma_enabled(struct uart_port *port) { return 0; }
 #endif
 
-void asc_fdma_setreq(void);
-void asc_fdma_start_tx(struct uart_port *port);
-void asc_fdma_stop_tx(struct uart_port *port);
-void asc_fdma_stop_rx(struct uart_port *port);
+int asc_fdma_tx_start(struct uart_port *port);
+void asc_fdma_tx_stop(struct uart_port *port);
+void asc_fdma_rx_stop(struct uart_port *port);
+void asc_fdma_rx_timeout(struct uart_port *port);
+
+#endif /* _STASC_H */

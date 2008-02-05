@@ -728,10 +728,24 @@ void __init stx7100_configure_hwrng(void)
 /* ASC resources ----------------------------------------------------------- */
 
 static struct platform_device stm_stasc_devices[] = {
-	STASC_DEVICE(0x18030000, 123, 0, 0, 1, 4, 7), /* oe pin: 6 */
-	STASC_DEVICE(0x18031000, 122, 1, 0, 1, 4, 5), /* oe pin: 6 */
-	STASC_DEVICE(0x18032000, 121, 4, 3, 2, 4, 5),
-	STASC_DEVICE(0x18033000, 120, 5, 0, 1, 2, 3),
+	STASC_DEVICE(0x18030000, 123, -1, -1, 0, 0, 1, 4, 7), /* oe pin: 6 */
+	STASC_DEVICE(0x18031000, 122, -1, -1, 1, 0, 1, 4, 5), /* oe pin: 6 */
+	STASC_DEVICE(0x18032000, 121, -1, -1, 4, 3, 2, 4, 5),
+	STASC_DEVICE(0x18033000, 120, -1, -1, 5, 0, 1, 2, 3),
+};
+
+static unsigned int __initdata stm_stasc_fdma_requests_7100[][2] = {
+	{ STB7100_FDMA_REQ_UART_0_RX, STB7100_FDMA_REQ_UART_0_TX },
+	{ STB7100_FDMA_REQ_UART_1_RX, STB7100_FDMA_REQ_UART_1_TX },
+	{ STB7100_FDMA_REQ_UART_2_RX, STB7100_FDMA_REQ_UART_2_TX },
+	{ STB7100_FDMA_REQ_UART_3_RX, STB7100_FDMA_REQ_UART_3_TX },
+};
+
+static unsigned int __initdata stm_stasc_fdma_requests_7109[][2] = {
+	{ STB7109_FDMA_REQ_UART_0_RX, STB7109_FDMA_REQ_UART_0_TX },
+	{ STB7109_FDMA_REQ_UART_1_RX, STB7109_FDMA_REQ_UART_1_TX },
+	{ STB7109_FDMA_REQ_UART_2_RX, STB7109_FDMA_REQ_UART_2_TX },
+	{ STB7109_FDMA_REQ_UART_3_RX, STB7109_FDMA_REQ_UART_3_TX },
 };
 
 /* the serial console device */
@@ -750,6 +764,18 @@ void __init stb7100_configure_asc(const int *ascs, int num_ascs, int console)
 	struct platform_device *pdev;
 
 	for (i=0; i<num_ascs; i++) {
+		unsigned int *fdma_requests;
+
+		if (chip_7109)
+			fdma_requests = stm_stasc_fdma_requests_7109[ascs[i]];
+		else
+			fdma_requests = stm_stasc_fdma_requests_7100[ascs[i]];
+
+		stm_stasc_devices[ascs[i]].resource[2].start = fdma_requests[0];
+		stm_stasc_devices[ascs[i]].resource[2].end   = fdma_requests[0];
+		stm_stasc_devices[ascs[i]].resource[3].start = fdma_requests[1];
+		stm_stasc_devices[ascs[i]].resource[3].end   = fdma_requests[1];
+
 		pdev = &stm_stasc_devices[ascs[i]];
 
 		switch (ascs[i]) {

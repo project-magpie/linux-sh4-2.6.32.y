@@ -65,4 +65,4 @@ obj-$(CONFIG_SERIAL_NETX) += netx-serial.o
 obj-$(CONFIG_SERIAL_OF_PLATFORM) += of_serial.o
 obj-$(CONFIG_SERIAL_KS8695) += serial_ks8695.o
 obj-$(CONFIG_SERIAL_ST_ASC) += stasc.o
-obj-$(CONFIG_SERIAL_ST_ASC_DMA) += stasc-dma.o
+obj-$(CONFIG_SERIAL_ST_ASC_FDMA) += stasc-fdma.o

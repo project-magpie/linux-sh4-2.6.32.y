@@ -17,7 +17,8 @@
 }
 
 
-#define STASC_DEVICE(_base, _irq, _pio_port, _ptx, _prx, _pcts, _prts)	\
+#define STASC_DEVICE(_base, _irq, _fdma_req_rx, _fdma_req_tx,		\
+		_pio_port, _ptx, _prx, _pcts, _prts)			\
 {									\
 	.name		= "stasc",					\
 	.num_resources	= 2,						\
@@ -29,6 +30,14 @@
 		}, {							\
 			.start	= _irq,					\
 			.flags	= IORESOURCE_IRQ			\
+		}, {							\
+			.start	= _fdma_req_rx,				\
+			.end    = _fdma_req_rx,				\
+			.flags	= IORESOURCE_DMA			\
+		}, {							\
+			.start	= _fdma_req_tx,				\
+			.end    = _fdma_req_tx,				\
+			.flags	= IORESOURCE_DMA			\
 		}							\
 	},								\
 	.dev = {							\

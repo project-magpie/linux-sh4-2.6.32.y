@@ -1,6 +1,6 @@
 #define ETH_RESOURCE_NAME	"stmmaceth"
 #define PHY_RESOURCE_NAME	"stmmacphy"
-#define DRV_MODULE_VERSION	"Oct_2007"
+#define DRV_MODULE_VERSION	"Jan_08"
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
 #define STMMAC_VLAN_TAG_USED
@@ -33,6 +33,7 @@ struct eth_driver_local {
 	int oldduplex;
 	struct phy_device *phydev;
 	int pbl;
+	int is_gmac;
 	unsigned int ip_header_len;
 	struct mii_bus *mii;
 	struct net_device_stats stats;
@@ -54,9 +55,8 @@ struct eth_driver_local {
 	struct device *device;
 	unsigned int dma_tx_size;
 	unsigned int dma_rx_size;
-	int ttc; /* FIFO tx threshold */
+	int ttc;
 	struct device_info_t *mac;
-	unsigned int mac_type;
 	unsigned int flow_ctrl;	/* FC [on/off] - [RX/TX/AUTO] */
 	unsigned int pause;
 #ifdef STMMAC_VLAN_TAG_USED
@@ -64,4 +64,7 @@ struct eth_driver_local {
 #endif
 	struct net_device *dev;
 	struct stmmac_extra_stats xstats; /* Extra stats */
+	int wolopts;
+	int wolenabled;
+	int tx_aggregation;
 };

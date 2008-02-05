@@ -71,11 +71,11 @@ static void gmac_dma_ttc(unsigned long ioaddr, int value)
 static void gmac_dma_registers(unsigned long ioaddr)
 {
 	int i;
-	printk(KERN_DEBUG " DMA registers\n");
+	printk(KERN_INFO " DMA registers\n");
 	for (i = 0; i < 9; i++) {
 		if ((i < 9) || (i > 17)) {
 			int offset = i * 4;
-			printk(KERN_DEBUG "\t Reg No. %d (offset 0x%x): 0x%08x\n", 
+			printk(KERN_INFO "\t Reg No. %d (offset 0x%x): 0x%08x\n", 
 				i, (DMA_BUS_MODE + offset),
 			       readl(ioaddr + DMA_BUS_MODE + offset));
 		}
@@ -127,7 +127,7 @@ static int gmac_tx_hw_error(void *p, struct stmmac_extra_stats *x,
 }
 
 static int gmac_rx_hw_error(void *p, struct stmmac_extra_stats *x,
-			unsigned int status)
+			    unsigned int status)
 {
 	int ret = 0;
 	struct net_device_stats *stats = (struct net_device_stats *)p;
@@ -175,7 +175,7 @@ static void gmac_tx_checksum(struct sk_buff *skb)
 
 static void gmac_rx_checksum(struct sk_buff *skb, int status)
 {
-	/* IPC verification */
+	/* IPC verification (To be reviewed)*/
 	if (unlikely(status & RDES0_STATUS_IPC)) {
 		/* Packet with erroneous checksum, so let the
 		 * upper layers deal with it.  */
@@ -190,13 +190,13 @@ static void gmac_core_init(unsigned long ioaddr)
 {
 	unsigned int value = 0;
 
-	/* Set the MAC control register with our default value */
-	value = (unsigned int)readl(ioaddr + MAC_CONTROL);
-	value |= MAC_CORE_INIT;
-	writel(value, ioaddr + MAC_CONTROL);
+	/* Set the GMAC control register with our default value */
+	value = (unsigned int)readl(ioaddr + GMAC_CONTROL);
+	value |= GMAC_CORE_INIT;
+	writel(value, ioaddr + GMAC_CONTROL);
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-	writel(ETH_P_8021Q, ioaddr + MAC_VLAN);
+	writel(ETH_P_8021Q, ioaddr + GMAC_VLAN);
 #endif
 	return;
 }
@@ -204,21 +204,17 @@ static void gmac_core_init(unsigned long ioaddr)
 static void gmac_set_filter(struct net_device *dev)
 {
 	unsigned long ioaddr = dev->base_addr;
-	unsigned int value = (unsigned int)readl(ioaddr + MAC_FRAME_FILTER);
+	unsigned int value = 0;
 
 	if (dev->flags & IFF_PROMISC) {
-		value |= MAC_FRAME_FILTER_PR;
-		value &= ~(MAC_FRAME_FILTER_PM);
+		value = GMAC_FRAME_FILTER_PR;
 	} else if ((dev->mc_count > HASH_TABLE_SIZE)
 		   || (dev->flags & IFF_ALLMULTI)) {
-		value |= MAC_FRAME_FILTER_PM;
-		value &= ~(MAC_FRAME_FILTER_PR | MAC_FRAME_FILTER_DAIF);
-		writel(0xffffffff, ioaddr + MAC_HASH_HIGH);
-		writel(0xffffffff, ioaddr + MAC_HASH_LOW);
+		value = GMAC_FRAME_FILTER_PM; /// pass all multi
+		writel(0xffffffff, ioaddr + GMAC_HASH_HIGH);
+		writel(0xffffffff, ioaddr + GMAC_HASH_LOW);
 	} else if (dev->mc_count == 0) {
-		value |= MAC_FRAME_FILTER_HUC;
-		value &= ~(MAC_FRAME_FILTER_PM | MAC_FRAME_FILTER_PR |
-			   MAC_FRAME_FILTER_DAIF | MAC_FRAME_FILTER_HMC);
+		value = GMAC_FRAME_FILTER_HUC;
 	} else {		/* Store the addresses in the multicast HW filter */
 		int i;
 		u32 mc_filter[2];
@@ -226,9 +222,7 @@ static void gmac_set_filter(struct net_device *dev)
 
 		/* Perfect filter mode for physical address and Hash
 		   filter for multicast */
-		value |= MAC_FRAME_FILTER_HMC;
-		value &= ~(MAC_FRAME_FILTER_PR | MAC_FRAME_FILTER_DAIF
-			   | MAC_FRAME_FILTER_PM | MAC_FRAME_FILTER_HUC);
+		value = GMAC_FRAME_FILTER_HMC;
 
 		memset(mc_filter, 0, sizeof(mc_filter));
 		for (i = 0, mclist = dev->mc_list;
@@ -242,16 +236,16 @@ static void gmac_set_filter(struct net_device *dev)
 			   the register. */
 			mc_filter[bit_nr >> 5] |= 1 << (bit_nr & 31);
 		}
-		writel(mc_filter[0], ioaddr + MAC_HASH_HIGH);
-		writel(mc_filter[1], ioaddr + MAC_HASH_LOW);
+		writel(mc_filter[0], ioaddr + GMAC_HASH_LOW);
+		writel(mc_filter[1], ioaddr + GMAC_HASH_HIGH);
 	}
 
-	writel(value, ioaddr + MAC_CONTROL);
+	writel(value, ioaddr + GMAC_FRAME_FILTER);
 
-	printk(KERN_DEBUG "%s: CTRL reg: 0x%08x - Hash regs: "
+	printk(KERN_DEBUG "%s: GMAC frame filter reg: 0x%08x - Hash regs: "
 		"HI 0x%08x, LO 0x%08x\n",
-		__FUNCTION__, readl(ioaddr + MAC_CONTROL),
-		readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
+		__FUNCTION__, readl(ioaddr + GMAC_FRAME_FILTER),
+		readl(ioaddr + GMAC_HASH_HIGH), readl(ioaddr + GMAC_HASH_LOW));
 	return;
 }
 
@@ -261,13 +255,25 @@ static void gmac_flow_ctrl(unsigned long ioaddr, unsigned int duplex,
 	unsigned int flow = 0;
 
 	if (fc & FLOW_RX)
-		flow |= MAC_FLOW_CTRL_RFE;
+		flow |= GMAC_FLOW_CTRL_RFE;
 	if (fc & FLOW_TX)
-		flow |= MAC_FLOW_CTRL_TFE;
+		flow |= GMAC_FLOW_CTRL_TFE;
 
 	if (duplex)
-		flow |= (pause_time << MAC_FLOW_CTRL_PT_SHIFT);
-	writel(flow, ioaddr + MAC_FLOW_CTRL);
+		flow |= (pause_time << GMAC_FLOW_CTRL_PT_SHIFT);
+	writel(flow, ioaddr + GMAC_FLOW_CTRL);
+	return;
+}
+
+static void gmac_enable_wol(unsigned long ioaddr, unsigned long mode)
+{
+	/* To be reviewed! */
+	unsigned int pmt = 0x1; /* PWR_DOWN bit */
+
+	if (mode == WAKE_MAGIC)
+		pmt |= 0x2;
+
+	writel(pmt, ioaddr + MAC_PMT);
 	return;
 }
 
@@ -282,35 +288,30 @@ struct device_ops gmac_driver = {
 	.rx_checksum = gmac_rx_checksum,
 	.set_filter = gmac_set_filter,
 	.flow_ctrl = gmac_flow_ctrl,
+	.enable_wol = gmac_enable_wol,
 };
 
 struct device_info_t *gmac_setup(unsigned long ioaddr)
 {
 	struct device_info_t *mac;
 	unsigned int id;
-	id = (unsigned int)readl(ioaddr + MAC_VERSION);
-	id &= 0x000000ff;
+	id = (unsigned int)readl(ioaddr + GMAC_VERSION);
 
-	if (id != GMAC_CORE_VERSION)
-		return NULL;
+	printk(KERN_INFO "\tGMAC - user ID: 0x%x, Synopsys ID: 0x%x\n",
+		((id & 0x0000ff00)>>8), (id & 0x000000ff));
 
 	mac = kmalloc(sizeof(const struct device_info_t), GFP_KERNEL);
 	memset(mac, 0, sizeof(struct device_info_t));
 
 	mac->ops = &gmac_driver;
-	mac->name = "gmac";
-	mac->hw.control = MAC_CONTROL;
-	mac->hw.addr_high = MAC_ADDR_HIGH;
-	mac->hw.addr_low = MAC_ADDR_LOW;
-	mac->hw.enable_rx = MAC_CONTROL_RE;
-	mac->hw.enable_tx = MAC_CONTROL_TE;
-	mac->hw.link.port = MAC_CONTROL_PS;
-	mac->hw.link.duplex = MAC_CONTROL_DM;
-	mac->hw.link.speed = MAC_CONTROL_FES;
-	mac->hw.mii.addr = MAC_MII_ADDR;
-	mac->hw.mii.data = MAC_MII_DATA;
-	mac->hw.mii.addr_write = MAC_MII_ADDR_WRITE;
-	mac->hw.mii.addr_busy = MAC_MII_ADDR_BUSY;
+	mac->hw.pmt = PMT_SUPPORTED;
+	mac->hw.addr_high = GMAC_ADDR_HIGH;
+	mac->hw.addr_low = GMAC_ADDR_LOW;
+	mac->hw.link.port = GMAC_CONTROL_PS;
+	mac->hw.link.duplex = GMAC_CONTROL_DM;
+	mac->hw.link.speed = GMAC_CONTROL_FES;
+	mac->hw.mii.addr = GMAC_MII_ADDR;
+	mac->hw.mii.data = GMAC_MII_DATA;
 
 	return mac;
 }

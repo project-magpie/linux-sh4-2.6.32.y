@@ -35,12 +35,13 @@
  * **************************************/
 /**** NORMAL INTERRUPT ****/
 #define DMA_INTR_ENA_NIE 0x00010000	/* Normal Summary */
-#define DMA_INTR_ENA_ERE 0x00004000	/* Early Receive */
-#define DMA_INTR_ENA_RIE 0x00000040	/* Receive Interrupt */
 #define DMA_INTR_ENA_TIE 0x00000001	/* Transmit Interrupt */
 #define DMA_INTR_ENA_TUE 0x00000004	/* Transmit Buffer Unavailable */
+#define DMA_INTR_ENA_RIE 0x00000040	/* Receive Interrupt */
+#define DMA_INTR_ENA_ERE 0x00004000	/* Early Receive */
 
-#define DMA_INTR_NORMAL	(DMA_INTR_ENA_RIE | DMA_INTR_ENA_TIE)
+#define DMA_INTR_NORMAL	(DMA_INTR_ENA_NIE | DMA_INTR_ENA_RIE | DMA_INTR_ENA_TIE \
+			| DMA_INTR_ENA_ERE | DMA_INTR_ENA_TUE)
 
 /**** ABNORMAL INTERRUPT ****/
 #define DMA_INTR_ENA_AIE 0x00008000	/* Abnormal Summary */
@@ -54,14 +55,13 @@
 #define DMA_INTR_ENA_TJE 0x00000008	/* Transmit Jabber */
 #define DMA_INTR_ENA_TSE 0x00000002	/* Transmit Stopped */
 
-#define DMA_INTR_ABNORMAL	(DMA_INTR_ENA_UNE)
-
+#define DMA_INTR_ABNORMAL	DMA_INTR_ENA_AIE
+				
 /* DMA default interrupt mask */
-#define DMA_INTR_DEFAULT_MASK	(DMA_INTR_ENA_NIE | DMA_INTR_NORMAL | \
-				DMA_INTR_ENA_AIE |DMA_INTR_ABNORMAL)
+#define DMA_INTR_DEFAULT_MASK	(DMA_INTR_NORMAL | DMA_INTR_ABNORMAL)
 /* Disable DMA Rx IRQ (NAPI) */
-#define DMA_INTR_NO_RX		(DMA_INTR_ENA_NIE |  DMA_INTR_ENA_TIE | \
-				DMA_INTR_ENA_AIE | DMA_INTR_ABNORMAL)
+#define DMA_INTR_NO_RX	(DMA_INTR_ENA_NIE | DMA_INTR_ENA_TIE | \
+			DMA_INTR_ENA_TUE | DMA_INTR_ABNORMAL)
 
 /* ****************************
  *  DMA Status register defines
@@ -89,17 +89,20 @@
 #define DMA_STATUS_TPS	0x00000002	/* Transmit Process Stopped */
 #define DMA_STATUS_TI	0x00000001	/* Transmit Interrupt */
 
+#define MAC_WAKEUP_FILTER	0x00000028	/* Wake-up Frame Filter */
+#define MAC_PMT 		0x0000002c	/* PMT Control and Status */
+#define DMA_STATUS_PMT	0x10000000
+
 /* ****************************
  *     Descriptor defines
  * ****************************/
-#define OWN_BIT			0x80000000	/* Own Bit (owned by hardware) */
+#define OWN_BIT			0x80000000	/* Own Bit */
 #define DES1_CONTROL_CH		0x01000000	/* Second Address Chained */
 #define DES1_CONTROL_TER	0x02000000	/* End of Ring */
 #define DES1_RBS2_SIZE_MASK	0x003ff800	/* Buffer 2 Size Mask */
 #define DES1_RBS2_SIZE_SHIFT	11		/* Buffer 2 Size Shift */
 #define DES1_RBS1_SIZE_MASK	0x000007ff	/* Buffer 1 Size Mask */
 #define DES1_RBS1_SIZE_SHIFT	0		/* Buffer 1 Size Shift */
-
 
 /* Transmit descriptor 0*/
 #define TDES0_STATUS_ES		  0x00008000	/* Error Summary */
@@ -118,6 +121,19 @@
 #define RDES0_STATUS_LS 0x00000100   /* Last Descriptor */
 #define RDES0_STATUS_ES	0x00008000	/* Error Summary */
 
+#define RDES1_CONTROL_DIC 0x80000000 /* Prevents Interrupt on Completion */
+
+/* MAC 10/100 */
+
+#define MAC_CTRL_DESC_TER DES1_CONTROL_TER /*MAC RX/TX end-ring bit*/
+
+/* GMAC */
+#define GMAC_TX_CONTROL_TER  0x00200000 //TER bit: TDES0[21]
+#define GMAC_RX_CONTROL_TER  0x00008000 //TER bit: RDES1[25] 
+#define GMAC_TX_LAST_SEGMENT 0x20000000 //LAST SEG: TDES0[29]
+#define GMAC_TX_FIRST_SEGMENT 0x10000000 //FIRST SEG: TDES0[28]
+#define GMAC_TX_IC 0x40000000 //TDES0[30] interrupt on completion
+
 /* Other defines */
 #define HASH_TABLE_SIZE 64
 #define PAUSE_TIME 0x200
@@ -127,6 +143,15 @@
 #define FLOW_RX		0x1
 #define FLOW_TX		0x2
 #define FLOW_AUTO	(FLOW_TX | FLOW_RX)
+
+/* Power Down and WOL */
+#define PMT_NOT_SUPPORTED 0
+#define PMT_SUPPORTED 1
+
+/* Common MAC defines */
+#define MAC_CTRL_REG		0x00000000	/* MAC Control */
+#define MAC_ENABLE_TX		0x00000008	/* Transmitter Enable */
+#define MAC_RNABLE_RX		0x00000004	/* Receiver Enable */
 
 struct stmmac_extra_stats {
 	unsigned long tx_underflow;
@@ -164,9 +189,12 @@ struct stmmac_extra_stats {
 	unsigned long rx_watchdog_irq;
 	unsigned long tx_early_irq;
 	unsigned long fatal_bus_error_irq;
+	unsigned long rx_poll_n;
 };
-#define EXTRA_STATS 35
+#define EXTRA_STATS 36
 
+/* Specific device structures (to mark the
+ * difference between mac and gmac)*/
 struct device_ops {
 	/* MAC controller initialization */
 	void (*core_init) (unsigned long ioaddr);
@@ -191,7 +219,8 @@ struct device_ops {
 	/* Flow Control */
 	void (*flow_ctrl) (unsigned long ioaddr, unsigned int duplex,
 			   unsigned int fc, unsigned int pause_time);
-
+	/* Wake-up On Lan */
+	void (*enable_wol) (unsigned long ioaddr, unsigned long mode);
 };
 
 struct mac_link_t {
@@ -203,23 +232,18 @@ struct mac_link_t {
 struct mii_regs_t {
 	unsigned int addr;	/* MII Address */
 	unsigned int data;	/* MII Data */
-	unsigned int addr_write;	/* MII Write */
-	unsigned int addr_busy;	/* MII Busy */
 };
 
 struct mac_regs_t {
-	unsigned int control;	/* MAC CTRL register */
 	unsigned int addr_high;	/* Multicast Hash Table High */
 	unsigned int addr_low;	/* Multicast Hash Table Low */
-	unsigned int enable_rx;	/* Receiver Enable */
-	unsigned int enable_tx;	/* Transmitter Enable */
-	unsigned int version;	/* Core Version register */
+	unsigned int version;	/* Core Version register (GMAC)*/
+	unsigned int pmt;	/* Power-Down mode (GMAC) */
 	struct mac_link_t link;
 	struct mii_regs_t mii;
 };
 
 struct device_info_t {
-	char *name;		/* device name */
 	struct mac_regs_t hw;
 	struct device_ops *ops;
 };

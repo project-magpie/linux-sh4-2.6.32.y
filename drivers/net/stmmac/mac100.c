@@ -46,12 +46,6 @@ static void mac100_mac_registers(unsigned long ioaddr)
 	       readl(ioaddr + MAC_VLAN1));
 	printk("\tVLAN2 tag (offset 0x%x): 0x%08x\n", MAC_VLAN2,
 	       readl(ioaddr + MAC_VLAN2));
-	printk("\tmac wakeup frame (offset 0x%x): 0x%08x\n", MAC_WAKEUP_FILTER,
-	       readl(ioaddr + MAC_WAKEUP_FILTER));
-	printk("\tmac wakeup crtl (offset 0x%x): 0x%08x\n",
-	       MAC_WAKEUP_CONTROL_STATUS,
-	       readl(ioaddr + MAC_WAKEUP_CONTROL_STATUS));
-
 	printk("\n\tMAC management counter registers\n");
 	printk("\t MMC crtl (offset 0x%x): 0x%08x\n",
 	       MMC_CONTROL, readl(ioaddr + MMC_CONTROL));
@@ -75,8 +69,8 @@ static void mac100_dma_ttc(unsigned long ioaddr, int value)
 	csr6 = (unsigned int)readl(ioaddr + DMA_CONTROL);
 
 	/* Operating on second frame seems to improve a 
-	 * little bit the performance. */
-	csr6 |= DMA_CONTROL_OSF; 
+	 * little bit the performance.
+	csr6 |= DMA_CONTROL_OSF; */ 
 
 	if (value <= 32)
 		csr6 |= DMA_CONTROL_TTC_32;
@@ -116,12 +110,10 @@ static int mac100_tx_hw_error(void *p, struct stmmac_extra_stats *x,
 	struct net_device_stats *stats = (struct net_device_stats *)p;
 
 	if (unlikely(status & TDES0_STATUS_ES)) {
-
 		if (unlikely(status & TDES0_STATUS_UF)) {
 			x->tx_underflow++;
 			stats->tx_fifo_errors++;
 		}
-
 		if (unlikely(status & TDES0_STATUS_NO_CARRIER)) {
 			x->tx_carrier++;
 			stats->tx_carrier_errors++;
@@ -138,7 +130,6 @@ static int mac100_tx_hw_error(void *p, struct stmmac_extra_stats *x,
 		}
 		ret = -1;
 	}
-
 	if (unlikely(status & TDES0_STATUS_HRTBT_FAIL)) {
 		x->tx_heartbeat++;
 		stats->tx_heartbeat_errors++;
@@ -160,33 +151,29 @@ static int mac100_rx_hw_error(void *p, struct stmmac_extra_stats *x,
 	int ret = 0;
 	struct net_device_stats *stats = (struct net_device_stats *)p;
 
-	if (unlikely(status & RDES0_STATUS_DE)) {
-		x->rx_desc++;
+	if (unlikely(status & RDES0_STATUS_ES)) {
+		if (unlikely(status & RDES0_STATUS_DE)) {
+			x->rx_desc++;
+		}
+		if (unlikely(status & RDES0_STATUS_PFE)) {
+			x->rx_partial++;
+		}
+		if (unlikely(status & RDES0_STATUS_RUNT_FRM)) {
+			x->rx_runt++;
+		}
+		if (unlikely(status & RDES0_STATUS_TL)) {
+			x->rx_toolong++;
+		}
+		if (unlikely(status & RDES0_STATUS_COL_SEEN)) {
+			x->rx_collision++;
+			stats->collisions++;
+		}
+		if (unlikely(status & RDES0_STATUS_CE)) {
+			x->rx_crc++;
+			stats->rx_crc_errors++;
+		}
 		ret = -1;
 	}
-	if (unlikely(status & RDES0_STATUS_PFE)) {
-		x->rx_partial++;
-		ret = -1;
-	}
-	if (unlikely(status & RDES0_STATUS_RUNT_FRM)) {
-		x->rx_runt++;
-		ret = -1;
-	}
-	if (unlikely(status & RDES0_STATUS_TL)) {
-		x->rx_toolong++;
-		ret = -1;
-	}
-	if (unlikely(status & RDES0_STATUS_COL_SEEN)) {
-		x->rx_collision++;
-		stats->collisions++;
-		ret = -1;
-	}
-	if (unlikely(status & RDES0_STATUS_CE)) {
-		x->rx_crc++;
-		stats->rx_crc_errors++;
-		ret = -1;
-	}
-
 	if (unlikely(status & RDES0_STATUS_LENGTH_ERROR)){
 		x->rx_lenght++;
 		ret = -1;
@@ -195,12 +182,10 @@ static int mac100_rx_hw_error(void *p, struct stmmac_extra_stats *x,
 		x->rx_mii++;
 		ret = -1;
 	}
-
 	if (unlikely(status & RDES0_STATUS_MULTICST_FRM)){
 		x->rx_multicast++;
 		stats->multicast++;
 	}
-
 	return (ret);
 }
 
@@ -308,6 +293,14 @@ static void mac100_flow_ctrl(unsigned long ioaddr, unsigned int duplex,
 	return;
 }
 
+static void mac100_enable_wol(unsigned long ioaddr, unsigned long mode)
+{
+	/* There is no PMT module in the stb7109 so no wake-up-on-Lan hw feature
+	 * is supported. 
+	 */
+	return;
+}
+
 struct device_ops mac100_driver = {
 	.core_init = mac100_core_init,
 	.mac_registers = mac100_mac_registers,
@@ -319,27 +312,27 @@ struct device_ops mac100_driver = {
 	.rx_checksum = mac100_rx_checksum,
 	.set_filter = mac100_set_filter,
 	.flow_ctrl = mac100_flow_ctrl,
+	.enable_wol = mac100_enable_wol,
 };
 
 struct device_info_t *mac100_setup(unsigned long ioaddr)
 {
 	struct device_info_t *mac;
+
 	mac = kmalloc(sizeof(const struct device_info_t), GFP_KERNEL);
 	memset(mac, 0, sizeof(struct device_info_t));
+
+	printk(KERN_INFO "\tMAC 10/100\n");
+
 	mac->ops = &mac100_driver;
-	mac->name = "mac100";
-	mac->hw.control = MAC_CONTROL;
+	mac->hw.pmt = PMT_NOT_SUPPORTED;
 	mac->hw.addr_high = MAC_ADDR_HIGH;
 	mac->hw.addr_low = MAC_ADDR_LOW;
-	mac->hw.enable_rx = MAC_CONTROL_RE;
-	mac->hw.enable_tx = MAC_CONTROL_TE;
 	mac->hw.link.port = MAC_CONTROL_PS;
 	mac->hw.link.duplex = MAC_CONTROL_F;
 	mac->hw.link.speed = 0;
 	mac->hw.mii.addr = MAC_MII_ADDR;
 	mac->hw.mii.data = MAC_MII_DATA;
-	mac->hw.mii.addr_write = MAC_MII_ADDR_WRITE;
-	mac->hw.mii.addr_busy = MAC_MII_ADDR_BUSY;
 
 	return mac;
 }

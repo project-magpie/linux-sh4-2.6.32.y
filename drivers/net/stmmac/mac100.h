@@ -12,8 +12,6 @@
 #define MAC_FLOW_CTRL	0x0000001c	/* Flow Control */
 #define MAC_VLAN1	0x00000020	/* VLAN1 Tag */
 #define MAC_VLAN2	0x00000024	/* VLAN2 Tag */
-#define MAC_WAKEUP_FILTER	  0x00000028	/* Wake-up Frame Filter */
-#define MAC_WAKEUP_CONTROL_STATUS 0x0000002c	/* Wake-up Control And Status */
 
 /* MAC CTRL defines */
 #define MAC_CONTROL_RA	0x80000000	/* Receive All Mode */
@@ -112,9 +110,6 @@
 #define RDES0_STATUS_DRIBBLE	0x00000004	/* Dribbling Bit */
 #define RDES0_STATUS_CE	0x00000002	/* CRC Error */
 #define RDES0_STATUS_0	0x00000000	/* Always tied to zero */
-
-#define RDES1_CONTROL_DIOC	0x80000000	/* Disable Intr On Completion */
-#define RDES0_STATUS_ERROR  (RDES0_STATUS_ES|RDES0_STATUS_LENGTH_ERROR|RDES0_STATUS_MII_ERR)
 
 /* Transmit Descriptor */
 #define TDES0_STATUS_LOSS_CARRIER 0x00000800	/* Loss of Carrier */

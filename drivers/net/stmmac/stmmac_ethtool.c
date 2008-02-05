@@ -203,7 +203,7 @@ stmmac_set_pauseparam(struct net_device *netdev,
 }
 
 static struct {
-        const char str[ETH_GSTRING_LEN];
+	const char str[ETH_GSTRING_LEN];
 } ethtool_stats_keys[] = {
 	{ "tx_underflow" },
 	{ "tx_carrier" },
@@ -240,6 +240,7 @@ static struct {
 	{ "rx_watchdog_irq" },
 	{ "tx_early_irq" },
 	{ "fatal_bus_error_irq" },
+	{ "rx_poll_n" },
 };
 
 static int stmmac_stats_count(struct net_device *dev)
@@ -273,6 +274,36 @@ static void stmmac_get_strings(struct net_device *dev,
 	return;
 }
 
+static void stmmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
+{
+	struct eth_driver_local *lp = netdev_priv(dev);
+
+	spin_lock_irq(&lp->lock);
+	if (lp->wolenabled == PMT_SUPPORTED) {
+		wol->supported = WAKE_MAGIC;
+		wol->wolopts = lp->wolopts;
+	}
+	spin_unlock_irq(&lp->lock);
+}
+
+static int stmmac_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
+{
+	struct eth_driver_local *lp = netdev_priv(dev);
+	u32 support = WAKE_MAGIC;
+
+	if (lp->wolenabled == PMT_NOT_SUPPORTED)
+		return -EINVAL;
+
+	if (wol->wolopts & ~support)
+		return -EINVAL;
+
+	spin_lock_irq(&lp->lock);
+	lp->wolopts = wol->wolopts;
+	spin_unlock_irq(&lp->lock);
+
+	return 0;
+}
+
 struct ethtool_ops stmmac_ethtool_ops = {
 	.begin = stmmac_check_if_running,
 	.get_drvinfo = stmmac_ethtool_getdrvinfo,
@@ -300,4 +331,6 @@ struct ethtool_ops stmmac_ethtool_ops = {
 	.get_ethtool_stats = stmmac_ethtool_stats,
 	.get_stats_count = stmmac_stats_count,
 	.get_strings = stmmac_get_strings,
+	.get_wol = stmmac_get_wol,
+	.set_wol = stmmac_set_wol,
 };

@@ -23,12 +23,18 @@
 
 #include "stmmac.h"
 
+#define MII_BUSY 0x00000001
+#define MII_WRITE 0x00000002
+
 /**
  * stmmac_mdio_read
  * @bus: points to the mii_bus structure
  * @phyaddr: MII addr reg bits 15-11
  * @phyreg: MII addr reg bits 10-6
  * Description: it reads data from the MII register from within the phy device.
+ * For the 7111 GMAC, we must set the bit 0 in the MII address register while
+ * accessing the PHY registers.
+ * Fortunately, it seems this has no drawback for the 7109 MAC.
  */
 int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 {
@@ -36,19 +42,19 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 	struct eth_driver_local *lp = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
 	unsigned int mii_address = lp->mac->hw.mii.addr;
-	unsigned int mii_busy = lp->mac->hw.mii.addr_busy;
 	unsigned int mii_data = lp->mac->hw.mii.data;
 
 	int data;
 	u16 regValue = (((phyaddr << 11) & (0x0000F800)) |
 			((phyreg << 6) & (0x000007C0)));
+	regValue |= MII_BUSY; // GMAC
 
-	while (((readl(ioaddr + mii_address)) & mii_busy) == 1) {
+	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
 
 	writel(regValue, ioaddr + mii_address);
 
-	while (((readl(ioaddr + mii_address)) & mii_busy) == 1) {
+	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
 
 	/* Read the data from the MII data register */
@@ -62,7 +68,7 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
  * @phyaddr: MII addr reg bits 15-11
  * @phyreg: MII addr reg bits 10-6
  * @phydata: phy data
- * Description: it writes the data intto the MII register from within the device.
+ * Description: it writes the data into the MII register from within the device.
  */
 int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 {
@@ -70,16 +76,16 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	struct eth_driver_local *lp = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
 	unsigned int mii_address = lp->mac->hw.mii.addr;
-	unsigned int mii_busy = lp->mac->hw.mii.addr_busy;
-	unsigned int mii_write = lp->mac->hw.mii.addr_write;
 	unsigned int mii_data = lp->mac->hw.mii.data;
 
 	u16 value =
 	    (((phyaddr << 11) & (0x0000F800)) | ((phyreg << 6) & (0x000007C0)))
-	    | mii_write;
+	    | MII_WRITE;
+
+	value |= MII_BUSY; // GMAC
 
 	/* Wait until any existing MII operation is complete */
-	while (((readl(ioaddr + mii_address)) & mii_busy) == 1) {
+	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
 
 	/* Set the MII address register to write */
@@ -87,7 +93,7 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	writel(value, ioaddr + mii_address);
 
 	/* Wait until any existing MII operation is complete */
-	while (((readl(ioaddr + mii_address)) & mii_busy) == 1) {
+	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
 
 	/* NOTE: we need to perform this "extra" read in order to fix an error
@@ -107,7 +113,7 @@ int stmmac_mdio_reset(struct mii_bus *bus)
 	printk(KERN_DEBUG "stmmac_mdio_reset: called!\n");
 
 	if (lp->phy_reset) {
-		printk("stmmac_mdio_reset: calling phy_reset\n");
+		printk(KERN_DEBUG "stmmac_mdio_reset: calling phy_reset\n");
 		return lp->phy_reset(lp->bsp_priv);
 	}
 
@@ -156,8 +162,8 @@ int stmmac_mdio_register(struct net_device *ndev)
 	}
 
 	lp->mii = new_bus;
-	return 0;
 
+	return 0;
       bus_register_fail:
 	kfree(new_bus);
 	return err;

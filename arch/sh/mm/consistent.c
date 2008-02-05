@@ -41,7 +41,7 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *handle)
 	phys_addr = virt_to_phys(kernel_addr);
 
 #ifdef CONFIG_32BIT
-	area = get_vm_area(size, VM_IOREMAP);
+	area = get_vm_area_node(size, VM_IOREMAP, -1, gfp);
 	if (!area) {
 		free_pages(gfp, order);
 		return NULL;
@@ -54,7 +54,7 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *handle)
 		return NULL;
 	}
 
-	area->phys_addr = virt_to_phys(ret);
+	area->phys_addr = phys_addr;
 #else
 	ret = P2SEGADDR(kernel_addr);
 #endif
@@ -105,6 +105,7 @@ void consistent_free(void *vaddr, size_t size)
 	addr = P1SEGADDR((unsigned long)vaddr);
 #endif
 
+	BUG_ON(!virt_addr_valid(addr));
 	page = virt_to_page(addr);
 
 	for(i=0;i<num_pages;i++) {

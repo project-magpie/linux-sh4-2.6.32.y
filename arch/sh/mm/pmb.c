@@ -29,7 +29,12 @@
 #include <asm/io.h>
 #include <asm/mmu_context.h>
 
+#if 0
 #define DPRINTK(fmt, args...) printk(KERN_ERR "%s: " fmt, __FUNCTION__, ## args)
+#else
+#define DPRINTK(fmt, args...) do { ; } while (0)
+#endif
+
 
 #define NR_PMB_ENTRIES	16
 #define MIN_PMB_MAPPING_SIZE	(8*1024*1024)
@@ -53,7 +58,7 @@ struct pmb_mapping {
 	int usage;
 };
 
-static DEFINE_SPINLOCK(pmb_lock);
+static DEFINE_RWLOCK(pmb_lock);
 static unsigned long pmb_map;
 static struct pmb_entry   pmbe[NR_PMB_ENTRIES] __attribute__ ((__section__ (".uncached.data")));
 static struct pmb_mapping pmbm[NR_PMB_ENTRIES];
@@ -110,38 +115,6 @@ static void __uses_jump_to_uncached clear_pmb_entry(int pos)
 	back_to_cached();
 }
 
-static __always_inline void __pmb_set_mapping(struct pmb_mapping *mapping)
-{
-	struct pmb_entry *entry = mapping->entries;
-
-	do {
-		__set_pmb_entry(entry->vpn, entry->ppn,
-			      entry->flags | mapping->flags, entry->pos);
-		entry = entry->next;
-	} while (entry);
-}
-
-static void pmb_set_mapping(struct pmb_mapping *mapping)
-{
-	struct pmb_entry *entry = mapping->entries;
-
-	do {
-		set_pmb_entry(entry->vpn, entry->ppn,
-			      entry->flags | mapping->flags, entry->pos);
-		entry = entry->next;
-	} while (entry);
-}
-
-static void pmb_clear_mapping(struct pmb_mapping *mapping)
-{
-	struct pmb_entry *entry = mapping->entries;
-
-	do {
-		clear_pmb_entry(entry->pos);
-		entry = entry->next;
-	} while (entry);
-}
-
 static int pmb_alloc(int pos)
 {
 	if (unlikely(pos == PMB_NO_ENTRY))
@@ -185,6 +158,39 @@ static void pmb_mapping_free(struct pmb_mapping* mapping)
 {
 	mapping->next = pmb_mappings_free;
 	pmb_mappings_free = mapping;
+}
+
+static __always_inline void __pmb_mapping_set(struct pmb_mapping *mapping)
+{
+	struct pmb_entry *entry = mapping->entries;
+
+	do {
+		__set_pmb_entry(entry->vpn, entry->ppn,
+			      entry->flags | mapping->flags, entry->pos);
+		entry = entry->next;
+	} while (entry);
+}
+
+static void pmb_mapping_set(struct pmb_mapping *mapping)
+{
+	struct pmb_entry *entry = mapping->entries;
+
+	do {
+		set_pmb_entry(entry->vpn, entry->ppn,
+			      entry->flags | mapping->flags, entry->pos);
+		entry = entry->next;
+	} while (entry);
+}
+
+static void pmb_mapping_clear_and_free(struct pmb_mapping *mapping)
+{
+	struct pmb_entry *entry = mapping->entries;
+
+	do {
+		clear_pmb_entry(entry->pos);
+		pmb_free(entry->pos);
+		entry = entry->next;
+	} while (entry);
 }
 
 static struct {
@@ -347,7 +353,14 @@ long pmb_remap(unsigned long phys,
 	} else
 		pmb_flags = PMB_WT | PMB_UB;
 
+	DPRINTK("phys: %08lx, size %08lx, flags %08lx->%08x\n",
+		phys, size, flags, pmb_flags);
+
+	write_lock(&pmb_lock);
+
 	for (mapping = pmb_mappings; mapping; mapping=mapping->next) {
+		DPRINTK("check against phys %08lx size %08lx flags %08lx\n",
+			mapping->phys, mapping->size, mapping->flags);
 		if ((phys >= mapping->phys) &&
 		    (phys+size <= mapping->phys+mapping->size) &&
 		    (pmb_flags == mapping->flags))
@@ -357,29 +370,41 @@ long pmb_remap(unsigned long phys,
 	if (mapping) {
 		/* If we hit an existing mapping, use it */
 		mapping->usage++;
+		DPRINTK("found, usage now %d\n", mapping->usage);
 	} else if (size < MIN_PMB_MAPPING_SIZE) {
 		/* We spit upon small mappings */
+		write_unlock(&pmb_lock);
 		return 0;
 	} else {
 		mapping = pmb_calc(phys, size, 0, NULL, pmb_flags);
-		if (!mapping)
+		if (!mapping) {
+			write_unlock(&pmb_lock);
 			return 0;
-		pmb_set_mapping(mapping);
+		}
+		pmb_mapping_set(mapping);
 	}
+
+	write_unlock(&pmb_lock);
 
 	offset = phys - mapping->phys;
 	return mapping->virt + offset;
 }
 
-static struct pmb_mapping *pmb_find(unsigned long addr)
+static struct pmb_mapping *pmb_mapping_find(unsigned long addr,
+					    struct pmb_mapping ***prev)
 {
 	struct pmb_mapping *mapping;
+	struct pmb_mapping **prev_mapping = &pmb_mappings;
 
 	for (mapping = pmb_mappings; mapping; mapping=mapping->next) {
 		if ((addr >= mapping->virt) &&
 		    (addr < mapping->virt + mapping->size))
 			break;
+		prev_mapping = &mapping->next;
 	}
+
+	if (prev != NULL)
+		*prev = prev_mapping;
 
 	return mapping;
 }
@@ -387,24 +412,27 @@ static struct pmb_mapping *pmb_find(unsigned long addr)
 int pmb_unmap(unsigned long addr)
 {
 	struct pmb_mapping *mapping;
-	struct pmb_entry *entry;
+	struct pmb_mapping **prev_mapping;
 
-	mapping = pmb_find(addr);
+	write_lock(&pmb_lock);
 
-	if (unlikely(!mapping))
+	mapping = pmb_mapping_find(addr, &prev_mapping);
+
+	if (unlikely(!mapping)) {
+		write_unlock(&pmb_lock);
 		return 0;
+	}
 
-	if (--mapping->usage == 0)
-	{
-		pmb_clear_mapping(mapping);
+	DPRINTK("mapping: phys %08lx, size %08lx, count %d\n",
+		mapping->phys, mapping->size, mapping->usage);
 
-		entry = mapping->entries;
-		do {
-			pmb_free(entry->pos);
-			entry = entry->next;
-		} while (entry);
+	if (--mapping->usage == 0) {
+		pmb_mapping_clear_and_free(mapping);
+		*prev_mapping = mapping->next;
 		pmb_mapping_free(mapping);
 	}
+
+	write_unlock(&pmb_lock);
 
 	return 1;
 }
@@ -419,7 +447,7 @@ apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapp
 	register unsigned long flags __asm__("r4");
 
 	/* We can execute this directly, as the current PMB is uncached */
-	__pmb_set_mapping(uc_mapping);
+	__pmb_mapping_set(uc_mapping);
 
 	cached_to_uncached = uc_mapping->virt -
 		(((unsigned long)&_start_uncached) & ~(uc_mapping->entries->size-1));
@@ -485,15 +513,20 @@ int pmb_virt_to_phys(void *addr, unsigned long *phys, unsigned long *flags)
 	struct pmb_mapping *mapping;
 	unsigned long vaddr = (unsigned long __force)addr;
 
-	mapping = pmb_find(vaddr);
+	read_lock(&pmb_lock);
 
-	if (!mapping)
+	mapping = pmb_mapping_find(vaddr, NULL);
+	if (!mapping) {
+		read_unlock(&pmb_lock);
 		return EFAULT;
+	}
 
 	if (phys)
 		*phys = mapping->phys + (vaddr - mapping->virt);
 	if (flags)
 		*flags = mapping->flags;
+
+	read_unlock(&pmb_lock);
 
 	return 0;
 }

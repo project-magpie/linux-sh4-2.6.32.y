@@ -30,7 +30,7 @@ static void mb519_led_set(struct led_classdev *led_cdev, enum led_brightness bri
 static struct led_classdev mb519_led = {
 	.name = "mb519-led",
 	.brightness_set = mb519_led_set,
-	.default_trigger = "heartbeat";
+	.default_trigger = "heartbeat",
 };
 
 static int __init mb519_led_init(void)

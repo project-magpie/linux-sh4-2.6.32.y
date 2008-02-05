@@ -35,7 +35,7 @@ static void __init mb519_setup(char** cmdline_p)
 }
 
 static struct plat_stm_pwm_data pwm_private_info = {
-	.flags		= PLAT_STM_PWM_OUT1,
+	.flags		= PLAT_STM_PWM_OUT0,
 };
 
 static struct plat_ssc_data ssc_private_info = {

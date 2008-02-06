@@ -184,6 +184,14 @@ void stx7100_configure_audio(struct plat_audio_config *pcm_reader_config,
 		struct plat_audio_config *pcm_player_0_config,
 		struct plat_audio_config *pcm_player_1_config);
 
+void stx7111_early_device_init(void);
+void stx7111_configure_asc(const int *ascs, int num_ascs, int console);
+void stx7111_configure_pwm(struct plat_stm_pwm_data *data);
+void stx7111_configure_ssc(struct plat_ssc_data *data);
+void stx7111_configure_usb(void);
+void stx7111_configure_ethernet(int en_mii, int sel, int ext_clk, int phy_bus);
+void stx7111_configure_nand(struct nand_config_data *data);
+
 void stx7200_early_device_init(void);
 void stx7200_configure_asc(const int *ascs, int num_ascs, int console);
 

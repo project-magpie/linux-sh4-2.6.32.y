@@ -333,6 +333,15 @@ config SH_ST_MB448
 	  ST board ID: mb448). More information at:
 	  <http://www.stlinux.com/boards/mb448/>
 
+config SH_ST_MB618
+	bool "mb618: STx7111 Validation board"
+	depends on CPU_SUBTYPE_STX7111
+	help
+	  Select STx7111 Validation if configuring for an
+	  STMicroelectronics STx7111 Validation Board (product code: STB7111-MBOARD,
+	  ST board ID: mb618). More information at:
+	  <http://www.stlinux.com/boards/mb618/>
+
 config SH_ST_CB101
 	bool "cb101: ST Customer board 101"
 	depends on CPU_SUBTYPE_STX7200

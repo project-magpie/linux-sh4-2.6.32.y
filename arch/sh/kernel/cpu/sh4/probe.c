@@ -17,7 +17,7 @@
 
 int __init detect_cpu_and_cache_system(void)
 {
-	unsigned long pvr, prr, cvr;
+	unsigned long pvr, prr_all, prr, cvr, ramcr;
 	unsigned long size;
 
 	static unsigned long sizes[16] = {
@@ -29,7 +29,8 @@ int __init detect_cpu_and_cache_system(void)
 	};
 
 	pvr = (ctrl_inl(CCN_PVR) >> 8) & 0xffffff;
-	prr = (ctrl_inl(CCN_PRR) >> 4) & 0xff;
+	prr_all = ctrl_inl(CCN_PRR);
+	prr = (prr_all >> 4) & 0xff;
 	cvr = (ctrl_inl(CCN_CVR));
 
 	/*
@@ -155,6 +156,26 @@ int __init detect_cpu_and_cache_system(void)
 		boot_cpu_data.type = CPU_ST40GX1;
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		break;
+	case 0x9090 ... 0x9091:
+		/* ST40-300 core */
+		switch (prr_all) {
+		case 0x9500 ... 0x95ff:
+			/* CPU_STX7200_300; */
+			cpu_data->type = CPU_SH_NONE;
+			break;
+		case 0x9a10:
+			/* STx7111 */
+			boot_cpu_data.type = CPU_ST40_300;
+			break;
+		default:
+			cpu_data->type = CPU_SH_NONE;
+			break;
+		}
+		cpu_data->flags |= CPU_HAS_FPU;
+		ramcr = ctrl_inl(CCN_RAMCR);
+		boot_cpu_data.icache.ways = (ramcr & (1<<7)) ? 2 : 4;
+		boot_cpu_data.dcache.ways = (ramcr & (1<<6)) ? 2 : 4;
+		break;
 	case 0x700:
 		boot_cpu_data.type = CPU_SH4_501;
 		boot_cpu_data.icache.ways = 2;
@@ -175,6 +196,17 @@ int __init detect_cpu_and_cache_system(void)
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		break;
 	case 0x690:
+#if 0
+		/* When we tidy up this code... */
+		switch (prr_all) {
+		case 0x9500 ... 0x95ff:
+			cpu_data->type = CPU_STX7200_210;
+			break;
+		default:
+			cpu_data->type = CPU_SH_NONE;
+			break;
+		}
+#endif
 		boot_cpu_data.type = CPU_STX7200;
 		boot_cpu_data.icache.ways = 2;
 		boot_cpu_data.dcache.ways = 2;

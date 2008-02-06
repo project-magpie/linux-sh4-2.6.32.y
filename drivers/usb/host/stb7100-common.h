@@ -11,6 +11,9 @@
  * Some of these register are described in ADCS 7518758.
  */
 
+#if	defined(CONFIG_CPU_SUBTYPE_STB7100) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7200)
+
 /* The transaction opcode is programmed in this register */
 #define AHB2STBUS_STBUS_OPC_OFFSET	0x00	/* From AHB2STBUS_PROTOCOL_BASE */
 #define AHB2STBUS_STBUS_OPC_4BIT	0x00
@@ -46,6 +49,12 @@
 #define AHB2STBUS_PC_STATUS		(AHB2STBUS_PROTOCOL_BASE + 0x10)
 #define AHB2STBUS_PC_STATUS_IDLE	1
 
+#elif defined(CONFIG_CPU_SUBTYPE_STX7111)
+
+/* No documentation for this */
+#define AHB2STBUS_STBUS_CONFIG		0x04	/* From AHB2STBUS_PROTOCOL_BASE */
+
+#endif
 
 /* This register implements interrupt status for the OHCI controller */
 #define AHB2STBUS_OHCI_INT_STS		(AHB2STBUS_WRAPPER_GLUE_BASE + 0x08)

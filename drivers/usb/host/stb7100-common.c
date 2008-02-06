@@ -38,7 +38,7 @@ int ST40_start_host_control(struct platform_device *pdev)
 		usb_wrapper->ahb2stbus_wrapper_glue_base;
 	unsigned long ahb2stbus_protocol_base =
 		usb_wrapper->ahb2stbus_protocol_base;
-	unsigned long reg;
+	unsigned long reg, req_reg;
 	int retval;
 	void *wrapper_base;
 	void *protocol_base;
@@ -83,6 +83,9 @@ int ST40_start_host_control(struct platform_device *pdev)
 	       wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	mdelay(100);
 
+#if	defined(CONFIG_CPU_SUBTYPE_STB7100) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7200)
+
 	/* Set the STBus Opcode Config for load/store 32 */
 	writel(AHB2STBUS_STBUS_OPC_32BIT,
 	       protocol_base + AHB2STBUS_STBUS_OPC_OFFSET);
@@ -94,7 +97,26 @@ int ST40_start_host_control(struct platform_device *pdev)
 	writel(CHUNKSIZE,
 	       protocol_base + AHB2STBUS_CHUNKSIZE_OFFSET);
 
-	usb_wrapper->power_up(pdev);
+#elif defined(CONFIG_CPU_SUBTYPE_STX7111)
+
+	req_reg =
+		(1<<21) |  /* Turn on read-ahead */
+		(5<<16) |  /* Opcode is store/load 32 */
+		(0<<15) |  /* Turn off write posting */
+		(1<<14) |  /* Enable threshold */
+		(3<<9)  |  /* 2**3 Packets in a chunk */
+		(0<<4)  |  /* No messages */
+		(8<<0);    /* Threshold is 256 */
+
+	do {
+		writel(req_reg, protocol_base + AHB2STBUS_STBUS_CONFIG);
+		reg = readl(protocol_base + AHB2STBUS_STBUS_CONFIG);
+	} while ((reg & 0x7FFFFFFF) != req_reg);
+
+#endif
+
+	if (usb_wrapper->power_up)
+		usb_wrapper->power_up(pdev);
 
 	usb_wrapper->initialised = 1;
 

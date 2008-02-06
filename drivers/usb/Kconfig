@@ -43,6 +43,7 @@ config USB_ARCH_HAS_OHCI
 	default y if SOC_AU1X00
 	# SH
 	default y if CPU_SUBTYPE_STB7100
+	default y if CPU_SUBTYPE_STX7111
 	default y if CPU_SUBTYPE_STX7200
 	# more:
 	default PCI
@@ -53,6 +54,7 @@ config USB_ARCH_HAS_EHCI
 	default y if PPC_83xx
 	default y if SOC_AU1200
 	default y if CPU_SUBTYPE_STB7100
+	default y if CPU_SUBTYPE_STX7111
 	default y if CPU_SUBTYPE_STX7200
 	default PCI
 

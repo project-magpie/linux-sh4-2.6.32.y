@@ -939,7 +939,9 @@ MODULE_LICENSE ("GPL");
 #define	PLATFORM_DRIVER		ehci_hcd_au1xxx_driver
 #endif
 
-#if defined(CONFIG_CPU_SUBTYPE_STB7100) || defined(CONFIG_CPU_SUBTYPE_STX7200)
+#if defined(CONFIG_CPU_SUBTYPE_STB7100) || \
+    defined(CONFIG_CPU_SUBTYPE_STX7111) || \
+    defined(CONFIG_CPU_SUBTYPE_STX7200)
 #include "ehci-stcore.c"
 #define	PLATFORM_DRIVER		ehci_hcd_st40_driver
 #endif

@@ -20,12 +20,14 @@ obj-$(CONFIG_CPU_SUBTYPE_SH7760)	+= setup-sh7760.o
 obj-$(CONFIG_CPU_SUBTYPE_SH4_202)	+= setup-sh4-202.o
 obj-$(CONFIG_CPU_SUBTYPE_ST40STB1)	+= setup-st40ra.o
 obj-$(CONFIG_CPU_SUBTYPE_STB7100)	+= setup-stb7100.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= setup-stx7111.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= setup-stx7200.o
 
 # Primary on-chip clocks (common)
 ifndef CONFIG_CPU_SH4A
 clock-$(CONFIG_CPU_SH4)			:= clock-sh4.o
 clock-$(CONFIG_CPU_SUBTYPE_STB7100)	:= clock-stb7100.o
+clock-$(CONFIG_CPU_SUBTYPE_STX7111)	:= clock-stx7111.o
 clock-$(CONFIG_CPU_SUBTYPE_STX7200)	:= clock-stx7200.o
 endif
 

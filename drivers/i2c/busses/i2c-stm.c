@@ -561,7 +561,7 @@ static int iic_stm_xfer(struct i2c_adapter *i2c_adap,
 	if (unlikely(transaction.status_error != IIC_E_NO_ERROR || timeout <= 0)) {
 		/* There was some problem */
 		if(timeout<=0){
-			/* There was a timeout !!!
+			/* There was a timeout or signal.
 			   - disable the interrupt
 			   - generate a stop condition on the bus
 			   all this task are done without interrupt....

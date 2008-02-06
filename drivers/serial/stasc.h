@@ -33,7 +33,7 @@ struct asc_port {
 	unsigned char pio_port;
 	unsigned char pio_pin[4]; /* Tx, Rx, CTS, RTS */
 	struct stpio_pin *pios[4];
-	int break_flag;
+	unsigned char flags;
 #ifdef CONFIG_SERIAL_ST_ASC_FDMA
 	struct asc_port_fdma fdma;
 #endif

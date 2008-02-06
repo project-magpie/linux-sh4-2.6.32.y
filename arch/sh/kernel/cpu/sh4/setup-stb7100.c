@@ -749,12 +749,18 @@ static unsigned int __initdata stm_stasc_fdma_requests_7109[][2] = {
 	{ STB7109_FDMA_REQ_UART_3_RX, STB7109_FDMA_REQ_UART_3_TX },
 };
 
+/*
+ * Note these three variables are global, and shared with the stasc driver
+ * for console bring up prior to platform initialisation.
+ */
+
 /* the serial console device */
-struct platform_device *asc_default_console_device;
+int stasc_console_device __initdata;
 
 /* Platform devices to register */
-static struct platform_device *stasc_configured_devices[ARRAY_SIZE(stm_stasc_devices)] __initdata;
-static int stasc_configured_devices_count __initdata = 0;
+struct platform_device *stasc_configured_devices[ARRAY_SIZE(stm_stasc_devices)] __initdata;
+unsigned int stasc_configured_devices_count __initdata = 0;
+
 
 /* Configure the ASC's for this board.
  * This has to be called before console_init().
@@ -762,24 +768,28 @@ static int stasc_configured_devices_count __initdata = 0;
 void __init stb7100_configure_asc(const int *ascs, int num_ascs, int console)
 {
 	int i;
-	struct platform_device *pdev;
 
 	for (i=0; i<num_ascs; i++) {
+		int port;
+		unsigned char flags;
+		struct platform_device *pdev;
 		unsigned int *fdma_requests;
 
+		port = ascs[i] & 0xff;
+		flags = ascs[i] >> 8;
+		pdev = &stm_stasc_devices[port];
+
 		if (chip_7109)
-			fdma_requests = stm_stasc_fdma_requests_7109[ascs[i]];
+			fdma_requests = stm_stasc_fdma_requests_7109[port];
 		else
-			fdma_requests = stm_stasc_fdma_requests_7100[ascs[i]];
+			fdma_requests = stm_stasc_fdma_requests_7100[port];
 
-		stm_stasc_devices[ascs[i]].resource[2].start = fdma_requests[0];
-		stm_stasc_devices[ascs[i]].resource[2].end   = fdma_requests[0];
-		stm_stasc_devices[ascs[i]].resource[3].start = fdma_requests[1];
-		stm_stasc_devices[ascs[i]].resource[3].end   = fdma_requests[1];
+		pdev->resource[2].start = fdma_requests[0];
+		pdev->resource[2].end   = fdma_requests[0];
+		pdev->resource[3].start = fdma_requests[1];
+		pdev->resource[3].end   = fdma_requests[1];
 
-		pdev = &stm_stasc_devices[ascs[i]];
-
-		switch (ascs[i]) {
+		switch (port) {
 		case 2:
 			if (sys_cfg7_0 == NULL)
 				sys_cfg7_0 = sysconf_claim(SYS_CFG, 7, 0, 0, "asc");
@@ -788,10 +798,11 @@ void __init stb7100_configure_asc(const int *ascs, int num_ascs, int console)
 		}
 
 		pdev->id = i;
+		((struct stasc_uart_data*)(pdev->dev.platform_data))->flags = flags;
 		stasc_configured_devices[stasc_configured_devices_count++] = pdev;
 	}
 
-	asc_default_console_device = stasc_configured_devices[console];
+	stasc_console_device = console;
 }
 
 /* Add platform device as configured by board specific code */

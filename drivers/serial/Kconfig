@@ -1273,10 +1273,10 @@ config SERIAL_ST_ASC_CONSOLE
 	select SERIAL_CORE_CONSOLE
 
 config SERIAL_ST_ASC_FDMA
-	bool "Support for 710x & 7200 FDMA on ST ASC"
-	depends on (CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200) && SERIAL_ST_ASC && STM_DMA
+	bool "Support FDMA on ST ASC"
+	depends on SERIAL_ST_ASC && STM_DMA
 	help
 	  This enables on-chip FDMA to be used with the Asychronous Serial
-	  Controller on STMicroelectronics 710x/7200 system-on-chip devices.
+	  Controller on some STMicroelectronics system-on-chip devices.
 
 endmenu

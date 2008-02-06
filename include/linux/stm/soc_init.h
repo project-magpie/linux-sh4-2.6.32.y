@@ -29,6 +29,7 @@
 			.flags	= IORESOURCE_MEM			\
 		}, {							\
 			.start	= _irq,					\
+			.end	= _irq,					\
 			.flags	= IORESOURCE_IRQ			\
 		}, {							\
 			.start	= _fdma_req_rx,				\

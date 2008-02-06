@@ -937,12 +937,17 @@ static struct platform_device stm_stasc_devices[] = {
 			5, 4, 3, 5, 6),
 };
 
+/*
+ * Note these three variables are global, and shared with the stasc driver
+ * for console bring up prior to platform initialisation.
+ */
+
 /* the serial console device */
-struct platform_device *asc_default_console_device;
+int stasc_console_device __initdata;
 
 /* Platform devices to register */
-static struct platform_device *stasc_configured_devices[ARRAY_SIZE(stm_stasc_devices)] __initdata;
-static int stasc_configured_devices_count __initdata = 0;
+struct platform_device *stasc_configured_devices[ARRAY_SIZE(stm_stasc_devices)] __initdata;
+unsigned int stasc_configured_devices_count __initdata = 0;
 
 /* Configure the ASC's for this board.
  * This has to be called before console_init().
@@ -956,8 +961,10 @@ void __init stx7200_configure_asc(const int *ascs, int num_ascs, int console)
 		int port;
 		struct platform_device *pdev;
 		struct sysconf_field *sc;
+		unsigned char flags;
 
-		port = ascs[i];
+		port = ascs[i] & 0xff;
+		flags = ascs[i] >> 8;
 		pdev = &stm_stasc_devices[port];
 
 		if ((port == 0) || (port == 1)) {
@@ -972,26 +979,26 @@ void __init stx7200_configure_asc(const int *ascs, int num_ascs, int console)
 		case 0:
 			/* Route UART0 instead of PDES to pins.
 			 * pdes_scmux_out = 0 */
-#warning check these numbers
 			sc = sysconf_claim(SYS_CFG, 0,0,0, "asc");
 			sysconf_write(sc, 0);
 			break;
 
 		case 1:
-			/* Ideally we need an option here to allow section
-			 * of UART1, but with out RTS/CTS, to allow use
-			 * of PIO1[4] and PIO1[5] for dvo. At which point
-			 * this would need to become conditional.
+			/* Route UART1 RTS/CTS instead of dvo to pins.
 			 * conf_pad_pio[0] = 0 */
-			sc = sysconf_claim(SYS_CFG, 7, 24, 24, "asc");
-			sysconf_write(sc, 0);
+			if (!(flags & STASC_FLAG_NORTSCTS)) {
+				sc = sysconf_claim(SYS_CFG, 7, 24, 24, "asc");
+				sysconf_write(sc, 0);
+			}
 			break;
 
 		case 2:
 			/* Route UART2&3 or SCI inputs instead of DVP to pins.
 			 * conf_pad_dvp = 0 */
-			sc = sysconf_claim(SYS_CFG, 40, 16, 16, "asc");
-			sysconf_write(sc, 0);
+			if (!(flags & STASC_FLAG_NORTSCTS)) {
+				sc = sysconf_claim(SYS_CFG, 40, 16, 16, "asc");
+				sysconf_write(sc, 0);
+			}
 
 			/* Route UART2 (in and out) and PWM_OUT0 instead of SCI to pins.
 			 * ssc2_mux_sel = 0 */
@@ -1006,15 +1013,19 @@ void __init stx7200_configure_asc(const int *ascs, int num_ascs, int console)
 
 			/* No idea, more routing.
 			 * conf_pad_pio[0] = 0 */
-			sc = sysconf_claim(SYS_CFG, 7, 24, 24, "asc");
-			sysconf_write(sc, 0);
+			if (!(flags & STASC_FLAG_NORTSCTS)) {
+				sc = sysconf_claim(SYS_CFG, 7, 24, 24, "asc");
+				sysconf_write(sc, 0);
+			}
 			break;
 
 		case 3:
 			/* No idea, more routing.
 			 * conf_pad_pio[4] = 0 */
-			sc = sysconf_claim(SYS_CFG, 7, 28, 28, "asc");
-			sysconf_write(sc, 0);
+			if (!(flags & STASC_FLAG_NORTSCTS)) {
+				sc = sysconf_claim(SYS_CFG, 7, 28, 28, "asc");
+				sysconf_write(sc, 0);
+			}
 
 			/* Route UART3 (in and out) instead of SCI to pins
 			 * ssc3_mux_sel = 0 */
@@ -1024,10 +1035,11 @@ void __init stx7200_configure_asc(const int *ascs, int num_ascs, int console)
 		}
 
 		pdev->id = i;
+		((struct stasc_uart_data*)(pdev->dev.platform_data))->flags = flags;
 		stasc_configured_devices[stasc_configured_devices_count++] = pdev;
 	}
 
-	asc_default_console_device = stasc_configured_devices[console];
+	stasc_console_device = console;
 }
 
 /* Add platform device as configured by board specific code */

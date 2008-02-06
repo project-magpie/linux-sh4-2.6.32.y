@@ -64,7 +64,7 @@ static int __init asc_console_setup (struct console *, char *);
 #ifdef CONFIG_KGDB_ST_ASC
 static int kgdbasc_baud = CONFIG_KGDB_BAUDRATE;
 static int kgdbasc_portno = CONFIG_KGDB_PORT_NUM;
-# define kgdb_asc_port asc_ports[kgdbasc_portno]
+static struct asc_port *kgdb_asc_port;
 #endif
 
 /*---- Inline function definitions ---------------------------*/
@@ -237,8 +237,10 @@ static const char *asc_type(struct uart_port *port)
 
 static void asc_release_port(struct uart_port *port)
 {
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 	struct platform_device *pdev = to_platform_device(port->dev);
 	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
+	int i;
 
 	release_mem_region(port->mapbase, size);
 
@@ -246,6 +248,9 @@ static void asc_release_port(struct uart_port *port)
 		iounmap(port->membase);
 		port->membase = NULL;
 	}
+
+	for (i=0; i<((ascport->flags & STASC_FLAG_NORTSCTS) ? 2 : 4); i++)
+		stpio_free_pin(ascport->pios[i]);
 }
 
 static int asc_request_port(struct uart_port *port)
@@ -259,10 +264,9 @@ static int asc_request_port(struct uart_port *port)
 /* Set type field if successful */
 static void asc_config_port(struct uart_port *port, int flags)
 {
-	if (flags & UART_CONFIG_TYPE) {
+	if ((flags & UART_CONFIG_TYPE) &&
+	    (asc_request_port(port) == 0))
 		port->type = PORT_ASC;
-		asc_request_port(port);
-	}
 }
 
 static int
@@ -304,7 +308,7 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 
 	port->iotype	= UPIO_MEM;
 	port->flags	= UPF_BOOT_AUTOCONF;
-	port->ops	= &asc_uart_ops,
+	port->ops	= &asc_uart_ops;
 	port->fifosize	= FIFO_SIZE;
 	port->line	= pdev->id;
 	port->dev	= &pdev->dev;
@@ -331,6 +335,16 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	ascport->pio_port = data->pio_port;
 	for (i=0; i<4; i++)
 		ascport->pio_pin[i] = data->pio_pin[i];
+
+	ascport->flags = data->flags;
+}
+
+static void __init asc_init_ports(void)
+{
+	int i;
+
+	for (i=0; i<stasc_configured_devices_count; i++)
+		asc_init_port(&asc_ports[i], stasc_configured_devices[i]);
 }
 
 static struct uart_driver asc_uart_driver = {
@@ -359,13 +373,13 @@ static struct console asc_console = {
  */
 static int __init asc_console_init(void)
 {
-	if (asc_default_console_device) {
-		add_preferred_console("ttyAS", asc_default_console_device->id,
-				      NULL);
-		asc_init_port(&asc_ports[asc_default_console_device->id],
-			      asc_default_console_device);
-		register_console(&asc_console);
-        }
+	if (!stasc_configured_devices_count)
+		return 0;
+
+	asc_init_ports();
+	register_console(&asc_console);
+	if (stasc_console_device != -1)
+		add_preferred_console("ttyAS", stasc_console_device, NULL);
 
         return 0;
 }
@@ -376,7 +390,7 @@ console_initcall(asc_console_init);
  */
 static int __init asc_late_console_init(void)
 {
-	if (asc_default_console_device && !(asc_console.flags & CON_ENABLED))
+	if (!(asc_console.flags & CON_ENABLED))
 		register_console(&asc_console);
 
         return 0;
@@ -482,9 +496,9 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 		}
 	}
 
-	for (i=0; i<4; i++) {
+	for (i=0; i<((ascport->flags & STASC_FLAG_NORTSCTS) ? 2 : 4); i++) {
 		ascport->pios[i] = stpio_request_pin(ascport->pio_port,
-			ascport->pio_pin[0], DRIVER_NAME, pio_dirs[i]);
+			ascport->pio_pin[i], DRIVER_NAME, pio_dirs[i]);
 	}
 
 	return 0;
@@ -552,11 +566,7 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 		ctrl_val |= ASC_CTL_PARITYODD;
 
 	/* hardware flow control */
-	if (cflag & CRTSCTS)
-		ctrl_val |= ASC_CTL_CTSENABLE;
-
-	/* hardware flow control */
-	if (cflag & CRTSCTS)
+	if ((cflag & CRTSCTS) && (!(ascport->flags & STASC_FLAG_NORTSCTS)))
 		ctrl_val |= ASC_CTL_CTSENABLE;
 
 	/* set speed and baud generator mode */
@@ -719,7 +729,7 @@ static inline void asc_receive_chars(struct uart_port *port)
 			tty_insert_flip_char(tty, c & 0xff, flag);
 		}
 #if defined(CONFIG_KGDB_ST_ASC)
-		if (asc_default_console_device->id == kgdbasc_portno) {
+		if (port == &kgdb_asc_port->port) {
 			if ((strncmp(tty->buf.head->char_buf_ptr,
 			     "$Hc-1#09",8) == 0)) {
 				breakpoint();
@@ -784,7 +794,7 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 		}
 
 #if defined(CONFIG_KGDB_ST_ASC)
-	if ((asc_default_console_device->id == kgdbasc_portno) &&
+	if ((port == &kgdb_asc_port->port) &&
 			(status == BRK_STATUS)){
 		breakpoint();
 	}
@@ -938,14 +948,18 @@ put_string (struct uart_port *port, const char *buffer, int count)
 static int __init
 asc_console_setup (struct console *co, char *options)
 {
-	struct asc_port *ascport = &asc_ports[co->index];
+	struct asc_port *ascport;
 	int     baud = 9600;
 	int     bits = 8;
 	int     parity = 'n';
 	int     flow = 'n';
 	int ret;
 
-	if (ascport->port.membase == 0)	/* Port not initialized yet - delay setup */
+	if (co->index >= ASC_MAX_PORTS)
+		co->index = 0;
+
+	ascport = &asc_ports[co->index];
+	if ((ascport->port.mapbase == 0))
 		return -ENODEV;
 
 	if ((ret = asc_remap_port(ascport, 0)) != 0)
@@ -978,13 +992,13 @@ asc_console_write (struct console *co, const char *s, unsigned count)
 #ifdef CONFIG_KGDB_ST_ASC
 static int kgdbasc_read_char(void)
 {
-	return get_char(&kgdb_asc_port.port);
+	return get_char(&kgdb_asc_port->port);
 }
 
 /* Called from kgdbstub.c to put a character, just a wrapper */
 static void kgdbasc_write_char(u8 c)
 {
-	put_char(&kgdb_asc_port.port, c);
+	put_char(&kgdb_asc_port->port, c);
 }
 
 static int kgdbasc_set_termios(void)
@@ -1011,7 +1025,7 @@ static int kgdbasc_set_termios(void)
 			termios.c_cflag |= B115200;
 			break;
 	}
-	asc_set_termios_cflag(&kgdb_asc_port, termios.c_cflag, kgdbasc_baud);
+	asc_set_termios_cflag(kgdb_asc_port, termios.c_cflag, kgdbasc_baud);
 	return 0;
 }
 
@@ -1030,16 +1044,18 @@ static irqreturn_t kgdbasc_interrupt(int irq, void *ptr)
 
 static void __init kgdbasc_lateinit(void)
 {
-	if (asc_default_console_device->id != kgdbasc_portno) {
+	if (asc_console.index != kgdbasc_portno) {
 
 		kgdbasc_set_termios();
 
-		if (request_irq(kgdb_asc_port.port.irq, kgdbasc_interrupt,
-			0, "stasc", &kgdb_asc_port.port)) {
+		if (request_irq(kgdb_asc_port->port.irq, kgdbasc_interrupt,
+			0, "stasc", &kgdb_asc_port->port)) {
 			printk(KERN_ERR "kgdb asc: cannot allocate irq.\n");
 			return;
 		}
-		asc_enable_rx_interrupts(&kgdb_asc_port.port);
+		asc_enable_rx_interrupts(&kgdb_asc_port->port);
+
+		kgdb_asc_port = &asc_ports[kgdbasc_portno];
 	}
 	return;
 }

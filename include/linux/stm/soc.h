@@ -107,9 +107,14 @@ struct plat_usb_data {
 struct stasc_uart_data {
 	unsigned char pio_port;
 	unsigned char pio_pin[4]; /* Tx, Rx, CTS, RTS */
+	unsigned char flags;
 };
 
-extern struct platform_device *asc_default_console_device;
+#define STASC_FLAG_NORTSCTS	1
+
+extern int stasc_console_device;
+extern struct platform_device *stasc_configured_devices[];
+extern unsigned int stasc_configured_devices_count;
 
 struct plat_sysconf_data {
 	int sys_device_offset;

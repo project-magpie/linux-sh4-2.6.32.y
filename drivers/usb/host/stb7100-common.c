@@ -134,3 +134,8 @@ err1:
 	mutex_unlock(&wraper_mutex);
 	return retval;
 }
+EXPORT_SYMBOL(ST40_start_host_control);
+
+MODULE_DESCRIPTION ("STM USB Host Controller wrapper driver");
+MODULE_AUTHOR ("Mark Glaisher <mark.glaisher@st.com>");
+MODULE_LICENSE ("GPL");

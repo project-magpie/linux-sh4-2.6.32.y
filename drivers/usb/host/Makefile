@@ -16,6 +16,4 @@ obj-$(CONFIG_USB_SL811_HCD)	+= sl811-hcd.o
 obj-$(CONFIG_USB_SL811_CS)	+= sl811_cs.o
 obj-$(CONFIG_USB_U132_HCD)	+= u132-hcd.o
 obj-$(CONFIG_USB_R8A66597_HCD)	+= r8a66597-hcd.o
-obj-$(CONFIG_CPU_SUBTYPE_STB7100)	+= stb7100-common.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= stb7100-common.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= stb7100-common.o
+obj-$(CONFIG_USB_STM_COMMON)	+= stb7100-common.o

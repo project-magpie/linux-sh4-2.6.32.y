@@ -34,8 +34,6 @@ static struct sysconf_field *sc7_2;
 #define UHOST2C_BASE(N)                 (0xfd200000 + ((N)*0x00100000))
 
 #define AHB2STBUS_WRAPPER_GLUE_BASE(N)  (UHOST2C_BASE(N))
-#define AHB2STBUS_RESERVED1_BASE(N)     (UHOST2C_BASE(N) + 0x000e0000)
-#define AHB2STBUS_RESERVED2_BASE(N)     (UHOST2C_BASE(N) + 0x000f0000)
 #define AHB2STBUS_OHCI_BASE(N)          (UHOST2C_BASE(N) + 0x000ffc00)
 #define AHB2STBUS_EHCI_BASE(N)          (UHOST2C_BASE(N) + 0x000ffe00)
 #define AHB2STBUS_PROTOCOL_BASE(N)      (UHOST2C_BASE(N) + 0x000fff00)
@@ -54,27 +52,31 @@ static void usb_power_up(void* dev)
 }
 
 static struct plat_usb_data usb_wrapper[3] = {
-	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE(0), AHB2STBUS_PROTOCOL_BASE(0)),
-	USB_WRAPPER(1, AHB2STBUS_WRAPPER_GLUE_BASE(1), AHB2STBUS_PROTOCOL_BASE(1)),
-	USB_WRAPPER(2, AHB2STBUS_WRAPPER_GLUE_BASE(2), AHB2STBUS_PROTOCOL_BASE(2))
-};
-
-static struct platform_device st40_ehci_devices[3] = {
-	USB_EHCI_DEVICE(0, AHB2STBUS_EHCI_BASE(0), ILC_IRQ(80)),
-	USB_EHCI_DEVICE(1, AHB2STBUS_EHCI_BASE(1), ILC_IRQ(82)),
-	USB_EHCI_DEVICE(2, AHB2STBUS_EHCI_BASE(2), ILC_IRQ(84)),
+	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE(0),
+		    AHB2STBUS_PROTOCOL_BASE(0), usb_power_up),
+	USB_WRAPPER(1, AHB2STBUS_WRAPPER_GLUE_BASE(1),
+		    AHB2STBUS_PROTOCOL_BASE(1), usb_power_up),
+	USB_WRAPPER(2, AHB2STBUS_WRAPPER_GLUE_BASE(2),
+		    AHB2STBUS_PROTOCOL_BASE(2), usb_power_up),
 };
 
 static struct platform_device st40_ohci_devices[3] = {
-	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE(0), ILC_IRQ(81)),
-	USB_OHCI_DEVICE(1, AHB2STBUS_OHCI_BASE(1), ILC_IRQ(83)),
-	USB_OHCI_DEVICE(2, AHB2STBUS_OHCI_BASE(2), ILC_IRQ(85)),
+	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE(0), ILC_IRQ(81), &usb_wrapper[0]),
+	USB_OHCI_DEVICE(1, AHB2STBUS_OHCI_BASE(1), ILC_IRQ(83), &usb_wrapper[1]),
+	USB_OHCI_DEVICE(2, AHB2STBUS_OHCI_BASE(2), ILC_IRQ(85), &usb_wrapper[2]),
+};
+
+static struct platform_device st40_ehci_devices[3] = {
+	USB_EHCI_DEVICE(0, AHB2STBUS_EHCI_BASE(0), ILC_IRQ(80), &usb_wrapper[0]),
+	USB_EHCI_DEVICE(1, AHB2STBUS_EHCI_BASE(1), ILC_IRQ(82), &usb_wrapper[1]),
+	USB_EHCI_DEVICE(2, AHB2STBUS_EHCI_BASE(2), ILC_IRQ(84), &usb_wrapper[2]),
 };
 
 /*
  * Workaround for USB problems on 7200 cut 1; alternative to RC delay on board
 */
-void __init usb_soft_jtag_reset(void) {
+static void __init usb_soft_jtag_reset(void)
+{
 	int i, j;
 	struct sysconf_field *sc;
 

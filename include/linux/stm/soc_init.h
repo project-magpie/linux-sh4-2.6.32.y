@@ -70,24 +70,24 @@
 	}								\
 }
 
-#define USB_WRAPPER(_port, _wrapper_base, _protocol_base)	\
-{								\
-	.ahb2stbus_wrapper_glue_base = _wrapper_base,		\
-	.ahb2stbus_protocol_base = _protocol_base,		\
-	.power_up = usb_power_up,				\
-	.initialised = 0,					\
-	.port_number = _port,					\
+#define USB_WRAPPER(_port, _wrapper_base, _protocol_base, _power_up)	\
+{									\
+	.ahb2stbus_wrapper_glue_base = _wrapper_base,			\
+	.ahb2stbus_protocol_base = _protocol_base,			\
+	.power_up = _power_up,						\
+	.initialised = 0,						\
+	.port_number = _port,						\
 }
 
 
-#define USB_EHCI_DEVICE(_port, _base, _irq)				\
+#define USB_EHCI_DEVICE(_port, _base, _irq, _wrapper)			\
 {									\
 	.name = "stm-ehci",						\
 	.id=_port,							\
 	.dev = {							\
 		.dma_mask = &st40_dma_mask,				\
 		.coherent_dma_mask = 0xffffffful,			\
-		.platform_data = &usb_wrapper[_port],			\
+		.platform_data = _wrapper,				\
 	},								\
 	.num_resources = 2,						\
 	.resource = (struct resource[]) {				\
@@ -105,14 +105,14 @@
 }									\
 
 
-#define USB_OHCI_DEVICE(_port, _base, _irq)				\
+#define USB_OHCI_DEVICE(_port, _base, _irq, _wrapper)			\
 {									\
 	.name = "stm-ohci",						\
 	.id=_port,							\
 	.dev = {							\
 		.dma_mask = &st40_dma_mask,				\
 		.coherent_dma_mask = 0xffffffful,			\
-		.platform_data = &usb_wrapper[_port],			\
+		.platform_data = _wrapper,				\
 	},								\
 	.num_resources = 2,						\
 	.resource = (struct resource[]) {				\

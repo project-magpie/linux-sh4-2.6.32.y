@@ -31,72 +31,25 @@ static u64 st40_dma_mask = 0xfffffff;
 
 /* USB resources ----------------------------------------------------------- */
 
-/*
- * Defines for the controller register offsets
- */
 #define UHOST2C_BASE			0xfe100000
 #define AHB2STBUS_WRAPPER_GLUE_BASE	(UHOST2C_BASE)
-#define AHB2STBUS_RESERVED1_BASE	(UHOST2C_BASE + 0x000e0000)
-#define AHB2STBUS_RESERVED2_BASE	(UHOST2C_BASE + 0x000f0000)
 #define AHB2STBUS_OHCI_BASE		(UHOST2C_BASE + 0x000ffc00)
 #define AHB2STBUS_EHCI_BASE		(UHOST2C_BASE + 0x000ffe00)
 #define AHB2STBUS_PROTOCOL_BASE		(UHOST2C_BASE + 0x000fff00)
 
-static struct resource st40_ohci_resources[] = {
-	[0] = {
-		.start	= 0xfe100000 + 0xffc00,
-		.end	= 0xfe100000 + 0xffcff,
-		.flags	= IORESOURCE_MEM,
-	},
-	[1] = {
-		.start	= evt2irq(0x1700), /* 168, */
-		.end	= evt2irq(0x1700),
-		.flags	= IORESOURCE_IRQ,
-	}
-};
-static struct resource st40_ehci_resources[] = {
-	[0] =  {
-		.start	= 0xfe100000 + 0xffe00,
-		.end	= 0xfe100000 + 0xffeff,
-		.flags	= IORESOURCE_MEM,
-	},
-	[1] = {
-		.start	= evt2irq(0x1720), /* 169, */
-		.end	= evt2irq(0x1720),
-		.flags	= IORESOURCE_IRQ,
-	},
-};
+static struct plat_usb_data usb_wrapper =
+	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE, AHB2STBUS_PROTOCOL_BASE,
+		NULL);
 
-static struct plat_usb_data usb_wrapper = {
-	.ahb2stbus_wrapper_glue_base = AHB2STBUS_WRAPPER_GLUE_BASE,
-	.ahb2stbus_protocol_base = AHB2STBUS_PROTOCOL_BASE,
-	.initialised = 0,
-	.port_number = 0,
-};
+static struct platform_device  st40_ohci_device =
+	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE,
+			evt2irq(0x1700), /* 168 */
+			&usb_wrapper);
 
-static struct platform_device  st40_ohci_device = {
-	.name = "stm-ohci",
-	.id=1,
-	.dev = {
-		.dma_mask = &st40_dma_mask,
-		.coherent_dma_mask = 0xffffffful,
-		.platform_data = &usb_wrapper,
-	},
-	.num_resources = ARRAY_SIZE(st40_ohci_resources),
-	.resource = st40_ohci_resources,
-};
-
-static struct platform_device  st40_ehci_device = {
-	.name = "stm-ehci",
-	.id=2,
-	.dev = {
-		.dma_mask = &st40_dma_mask,
-		.coherent_dma_mask = 0xffffffful,
-		.platform_data = &usb_wrapper,
-	},
-	.num_resources = ARRAY_SIZE(st40_ehci_resources),
-	.resource = st40_ehci_resources,
-};
+static struct platform_device  st40_ehci_device =
+	USB_EHCI_DEVICE(0, AHB2STBUS_EHCI_BASE,
+			evt2irq(0x1720), /* 169 */
+			&usb_wrapper);
 
 void __init stx7111_configure_usb(void)
 {

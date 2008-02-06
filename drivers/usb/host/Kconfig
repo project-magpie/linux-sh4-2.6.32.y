@@ -248,3 +248,8 @@ config USB_R8A66597_HCD
 	  To compile this driver as a module, choose M here: the
 	  module will be called r8a66597-hcd.
 
+config USB_STM_COMMON
+       tristate
+       depends CPU_SUBTYPE_ST40
+       default y if USB_EHCI_HCD=y || USB_OHCI_HCD=y
+       default m if USB_EHCI_HCD=m || USB_OHCI_HCD=m

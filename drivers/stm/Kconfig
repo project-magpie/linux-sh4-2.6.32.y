@@ -113,7 +113,8 @@ config STM_SPI_HW_FIFO
 config STM_COPROCESSOR_SUPPORT
 	bool "STMicroelectronics coprocessor support"
 	default y
-        depends on CPU_SUBTYPE_STB7100
+	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200
+	depends on !32BIT
 	---help---
         Many of the ST system-on-chip devices have multiple CPUs, where a
         master CPU running Linux has control over a number of slave CPUs,
@@ -129,6 +130,14 @@ config STM_COPROCESSOR_SUPPORT
         size{n} defines the region size for the n.th slave core (max 16M).
 
         Example: coprocessor_mem=32m:16m,16m
+
+config STM_NUM_COPROCESSOR
+	int
+	depends on STM_COPROCESSOR_SUPPORT
+	default 2 if CPU_SUBTYPE_STB7100
+	default 4 if CPU_SUBTYPE_STX7200
+	default 0
+
 choice
 	prompt "STM coprocessor loading strategy"
         depends on STM_COPROCESSOR_SUPPORT
@@ -150,7 +159,7 @@ config  STM_COPROCESSOR_FRMW
 endchoice
 
 config  COPROCESSOR_DEBUG
-        depends on STM_COPROCESSOR || STM_COPROCESSOR_FRMW
+        depends on STM_COPROCESSOR_SUPPORT
         bool "STM coprocessor debug"
         default n
         ---help---

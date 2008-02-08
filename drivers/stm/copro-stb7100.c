@@ -2,19 +2,18 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/delay.h>
-#include <linux/seq_file.h>i
+#include <linux/seq_file.h>
 #include <linux/stm/coprocessor.h>
 #include <linux/stm/sysconf.h>
 #include <asm-generic/sections.h>
 #include <asm/io.h>
 
-#define N_COPROC	2
 struct coproc_board_info coproc_info = {
 	.name = "st231",
-	.max_coprs = N_COPROC,
+	.max_coprs = CONFIG_STM_NUM_COPROCESSOR,
 };
 
-coproc_t coproc[N_COPROC];
+coproc_t coproc[CONFIG_STM_NUM_COPROCESSOR];
 
 static struct sysconf_field* copro_reset_out;
 
@@ -22,7 +21,7 @@ struct cpu_reg {
 	struct sysconf_field* boot;
 	struct sysconf_field* reset;
 };
-static struct cpu_reg cpu_regs[N_COPROC];
+static struct cpu_reg cpu_regs[CONFIG_STM_NUM_COPROCESSOR];
 
 int coproc_cpu_open(coproc_t * cop)
 {
@@ -33,7 +32,19 @@ int __init coproc_cpu_init(coproc_t * cop)
 {
 	unsigned int id = cop->pdev.id;
 
+#if defined CONFIG_CPU_SUBTYPE_STB7100
+	const unsigned int boot_lookup[] =   { 28, 26 };
+	const unsigned int reset_lookup[]  = { 29, 27 };
+#elif defined CONFIG_CPU_SUBTYPE_STX7200
+	const unsigned int boot_lookup[] =   { 28, 36, 26, 34 };
+	const unsigned int reset_lookup[]  = { 29, 37, 27, 35 };
+#else
+#error Need to define the sysconf configuration for this CPU subtype
+#endif
+
+	BUG_ON(id >= ARRAY_SIZE(boot_lookup));
 	BUG_ON(id >= coproc_info.max_coprs);
+
 	if(!copro_reset_out)
 	if(!(copro_reset_out=sysconf_claim(SYS_CFG, 9, 27, 27, NULL))){
 		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_9\n");
@@ -41,14 +52,14 @@ int __init coproc_cpu_init(coproc_t * cop)
 		}
 
 	if(!cpu_regs[id].boot)
-	if(!(cpu_regs[id].boot = sysconf_claim(SYS_CFG,26+id*2, 0, 31, NULL))){
-		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n",26+id*2);
+	if(!(cpu_regs[id].boot = sysconf_claim(SYS_CFG, boot_lookup[id], 0, 31, NULL))){
+		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n", boot_lookup[id]);
 		return 1;
 		}
 
 	if(!cpu_regs[id].reset)
-	if(!(cpu_regs[id].reset = sysconf_claim(SYS_CFG, 27+id*2, 0,31, NULL))){
-		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n",27+id*2);
+	if(!(cpu_regs[id].reset = sysconf_claim(SYS_CFG, reset_lookup[id], 0,31, NULL))){
+		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n", reset_lookup[id]);
 		return 1;
 		}
 

@@ -42,10 +42,6 @@ config GENERIC_IRQ_PROBE
 	bool
 	default y
 
-config GENERIC_CALIBRATE_DELAY
-	bool
-	default y
-
 config GENERIC_IOMAP
 	bool
 
@@ -582,6 +578,18 @@ config SH_FAST_HZ
 	  interrupt load.
 
 	  This option needs to be set to use the SH watchdog.
+
+choice
+	prompt "Calibrate delay"
+	default GENERIC_CALIBRATE_DELAY
+
+config GENERIC_CALIBRATE_DELAY
+	bool "Use the generic calibrate delay"
+
+config SH4_CALIBRATE_DELAY
+	depends on CPU_SH4
+	bool "Use an SH-4 specific fast calibrate delay"
+endchoice
 
 menu "CPU Frequency scaling"
 

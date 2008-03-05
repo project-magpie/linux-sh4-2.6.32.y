@@ -7,5 +7,5 @@ lib-y  = delay.o memset.o memmove.o memchr.o \
 
 memcpy-y			:= memcpy.o
 memcpy-$(CONFIG_CPU_SH4)	:= memcpy-sh4.o
-
+lib-$(CONFIG_SH4_CALIBRATE_DELAY) += calibrate-sh4.o
 lib-y	+= $(memcpy-y)

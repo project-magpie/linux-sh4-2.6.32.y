@@ -451,7 +451,7 @@ do_fpu_error(unsigned long r4, unsigned long r5, unsigned long r6,
 		tsk->thread.fpu.hard.fpscr |= fpu_exception_flags;
 		/* Set the FPSCR flag as well as cause bits - simply replicate the cause */
 		tsk->thread.fpu.hard.fpscr |= (fpu_exception_flags >> 10);
-		grab_fpu(&regs);
+		grab_fpu(regs);
 		restore_fpu(tsk);
 		set_tsk_thread_flag(tsk, TIF_USEDFPU);
 		if ((((tsk->thread.fpu.hard.fpscr & FPSCR_ENABLE_MASK) >> 7) &

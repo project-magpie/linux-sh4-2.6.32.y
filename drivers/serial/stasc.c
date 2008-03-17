@@ -339,14 +339,6 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	ascport->flags = data->flags;
 }
 
-static void __init asc_init_ports(void)
-{
-	int i;
-
-	for (i=0; i<stasc_configured_devices_count; i++)
-		asc_init_port(&asc_ports[i], stasc_configured_devices[i]);
-}
-
 static struct uart_driver asc_uart_driver = {
 	.owner		= THIS_MODULE,
 	.driver_name	= DRIVER_NAME,
@@ -354,7 +346,9 @@ static struct uart_driver asc_uart_driver = {
 	.major		= ASC_MAJOR,
 	.minor		= ASC_MINOR_START,
 	.nr		= ASC_MAX_PORTS,
+#ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
 	.cons		= &asc_console,
+#endif
 };
 
 #ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
@@ -367,6 +361,14 @@ static struct console asc_console = {
 	.index		= -1,
 	.data		= &asc_uart_driver,
 };
+
+static void __init asc_init_ports(void)
+{
+	int i;
+
+	for (i = 0; i < stasc_configured_devices_count; i++)
+		asc_init_port(&asc_ports[i], stasc_configured_devices[i]);
+}
 
 /*
  * Early console initialization.
@@ -861,6 +863,7 @@ static __inline__ char lowhex(int  x)
 }
 #endif
 
+#ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
 static void
 put_char (struct uart_port *port, char c)
 {
@@ -984,6 +987,7 @@ asc_console_write (struct console *co, const char *s, unsigned count)
 
 	put_string(port, s, count);
 }
+#endif /* CONFIG_SERIAL_ST_ASC_CONSOLE */
 
 
 /* ===============================================================================

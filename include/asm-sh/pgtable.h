@@ -61,10 +61,15 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 #define PTE_PHYS_MASK		(PHYS_ADDR_MASK & PAGE_MASK)
 
 /*
+ * P3 usage:
  * First 1MB map is used by fixed purpose.
  * Currently only 4-entry (16kB) is used (see arch/sh/mm/cache.c)
+ * Then consistent allocations (32 bit mode only), vmalloc and finally
+ * fixmap.
  */
-#define VMALLOC_START  (P3SEG+0x00100000)
+#define CONSISTENT_BASE	(P3SEG+0x00100000)
+#define CONSISTENT_END	(P3SEG+0x01000000)
+#define VMALLOC_START	CONSISTENT_END
 #define VMALLOC_END	(FIXADDR_START-2*PAGE_SIZE)
 
 /*

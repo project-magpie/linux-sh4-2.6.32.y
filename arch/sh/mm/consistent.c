@@ -15,6 +15,192 @@
 #include <asm/addrspace.h>
 #include <asm/io.h>
 
+#ifdef CONFIG_32BIT
+
+/*
+ * This is yet another copy of the ARM (and powerpc) VM region allocation
+ * code (which is Copyright (C) 2000-2004 Russell King).
+ *
+ * We have to do this (rather than use get_vm_area()) because
+ * dma_alloc_coherent() can be (and is) called from interrupt level.
+ */
+
+static DEFINE_SPINLOCK(consistent_lock);
+
+/*
+ * VM region handling support.
+ *
+ * This should become something generic, handling VM region allocations for
+ * vmalloc and similar (ioremap, module space, etc).
+ *
+ * I envisage vmalloc()'s supporting vm_struct becoming:
+ *
+ *  struct vm_struct {
+ *    struct vm_region	region;
+ *    unsigned long	flags;
+ *    struct page	**pages;
+ *    unsigned int	nr_pages;
+ *    unsigned long	phys_addr;
+ *  };
+ *
+ * get_vm_area() would then call vm_region_alloc with an appropriate
+ * struct vm_region head (eg):
+ *
+ *  struct vm_region vmalloc_head = {
+ *	.vm_list	= LIST_HEAD_INIT(vmalloc_head.vm_list),
+ *	.vm_start	= VMALLOC_START,
+ *	.vm_end		= VMALLOC_END,
+ *  };
+ *
+ * However, vmalloc_head.vm_start is variable (typically, it is dependent on
+ * the amount of RAM found at boot time.)  I would imagine that get_vm_area()
+ * would have to initialise this each time prior to calling vm_region_alloc().
+ */
+struct vm_region {
+	struct list_head	vm_list;
+	unsigned long		vm_start;
+	unsigned long		vm_end;
+	struct page		*vm_pages;
+};
+
+static struct vm_region consistent_head = {
+	.vm_list	= LIST_HEAD_INIT(consistent_head.vm_list),
+	.vm_start	= CONSISTENT_BASE,
+	.vm_end		= CONSISTENT_END,
+};
+
+static struct vm_region *
+vm_region_alloc(struct vm_region *head, size_t size, gfp_t gfp)
+{
+	unsigned long addr = head->vm_start, end = head->vm_end - size;
+	unsigned long flags;
+	struct vm_region *c, *new;
+
+	new = kmalloc(sizeof(struct vm_region), gfp);
+	if (!new)
+		goto out;
+
+	spin_lock_irqsave(&consistent_lock, flags);
+
+	list_for_each_entry(c, &head->vm_list, vm_list) {
+		if ((addr + size) < addr)
+			goto nospc;
+		if ((addr + size) <= c->vm_start)
+			goto found;
+		addr = c->vm_end;
+		if (addr > end)
+			goto nospc;
+	}
+
+found:
+	/*
+	 * Insert this entry _before_ the one we found.
+	 */
+	list_add_tail(&new->vm_list, &c->vm_list);
+	new->vm_start = addr;
+	new->vm_end = addr + size;
+
+	spin_unlock_irqrestore(&consistent_lock, flags);
+	return new;
+
+nospc:
+	spin_unlock_irqrestore(&consistent_lock, flags);
+	kfree(new);
+out:
+	return NULL;
+}
+
+static struct vm_region *vm_region_find(struct vm_region *head,
+					 unsigned long addr)
+{
+	struct vm_region *c;
+
+	list_for_each_entry(c, &head->vm_list, vm_list) {
+		if (c->vm_start == addr)
+			goto out;
+	}
+	c = NULL;
+out:
+	return c;
+}
+
+static void *__consistent_map(struct page *page, size_t size, gfp_t gfp)
+{
+	struct vm_region *c;
+	unsigned long vaddr;
+	unsigned long paddr;
+
+	c = vm_region_alloc(&consistent_head, size,
+			    gfp & ~(__GFP_DMA | __GFP_HIGHMEM));
+	if (!c)
+		return NULL;
+
+	vaddr = c->vm_start;
+	paddr = page_to_phys(page);
+	if (ioremap_page_range(vaddr, vaddr+size, paddr, PAGE_KERNEL_NOCACHE)) {
+		list_del(&c->vm_list);
+		return NULL;
+	}
+
+	c->vm_pages = page;
+
+	return (void *)vaddr;
+}
+
+static struct page *__consistent_unmap(void *vaddr, size_t size)
+{
+	unsigned long flags;
+	struct vm_region *c;
+	struct page *page;
+
+	spin_lock_irqsave(&consistent_lock, flags);
+	c = vm_region_find(&consistent_head, (unsigned long)vaddr);
+	if (!c)
+		goto no_area;
+
+	if ((c->vm_end - c->vm_start) != size) {
+		printk(KERN_ERR "%s: freeing wrong coherent size (%ld != %d)\n",
+		       __func__, c->vm_end - c->vm_start, size);
+		dump_stack();
+		size = c->vm_end - c->vm_start;
+	}
+
+	page = c->vm_pages;
+
+	list_del(&c->vm_list);
+
+	spin_unlock_irqrestore(&consistent_lock, flags);
+
+	kfree(c);
+
+	return page;
+
+no_area:
+	spin_unlock_irqrestore(&consistent_lock, flags);
+	printk(KERN_ERR "%s: trying to free invalid coherent area: %p\n",
+	       __func__, vaddr);
+	dump_stack();
+
+	return NULL;
+}
+
+#else
+
+static void *__consistent_map(struct page *page, size_t size, gfp_t gfp)
+{
+	return P2SEGADDR(page_address(page));
+}
+
+static struct page *__consistent_unmap(void *vaddr, size_t size)
+{
+	unsigned long addr;
+
+	addr = P1SEGADDR((unsigned long)vaddr);
+	BUG_ON(!virt_addr_valid(addr));
+	return virt_to_page(addr);
+}
+
+#endif
 
 void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *handle)
 {
@@ -23,9 +209,6 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *handle)
 	int order;
 	unsigned long phys_addr;
 	void* kernel_addr;
-#ifdef CONFIG_32BIT
-	struct vm_struct * area;
-#endif
 
 	/* ignore region specifiers */
         gfp &= ~(__GFP_DMA | __GFP_HIGHMEM);
@@ -39,25 +222,11 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *handle)
 
 	kernel_addr = page_address(page);
 	phys_addr = virt_to_phys(kernel_addr);
-
-#ifdef CONFIG_32BIT
-	area = get_vm_area_node(size, VM_IOREMAP, -1, gfp);
-	if (!area) {
-		free_pages(gfp, order);
+	ret = __consistent_map(page, size, gfp);
+	if (!ret) {
+		__free_pages(page, order);
 		return NULL;
 	}
-
-	ret = area->addr;
-	if (ioremap_page_range(ret, ret+size, phys_addr, PAGE_KERNEL_NOCACHE)) {
-		free_pages(gfp, order);
-		remove_vm_area(ret);
-		return NULL;
-	}
-
-	area->phys_addr = phys_addr;
-#else
-	ret = P2SEGADDR(kernel_addr);
-#endif
 
 	memset(kernel_addr, 0, size);
 
@@ -79,41 +248,14 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *handle)
 
 void consistent_free(void *vaddr, size_t size)
 {
-	unsigned long addr;
 	struct page *page;
-	int num_pages=(size+PAGE_SIZE-1) >> PAGE_SHIFT;
 	int i;
 
-#ifdef CONFIG_32BIT
-	struct vm_struct * area;
-
-	read_lock(&vmlist_lock);
-	for (area = vmlist; area; area = area->next) {
-		if (area->addr == vaddr)
-			break;
-	}
-        read_unlock(&vmlist_lock);
-
-	if (!area) {
-		printk("%s: bad address %p\n", __FUNCTION__, vaddr);
-                dump_stack();
-                return;
-        }
-
-	addr = phys_to_virt(area->phys_addr);
-#else
-	addr = P1SEGADDR((unsigned long)vaddr);
-#endif
-
-	BUG_ON(!virt_addr_valid(addr));
-	page = virt_to_page(addr);
-
-	for(i=0;i<num_pages;i++) {
-		__free_page((page+i));
-	}
-#ifdef CONFIG_32BIT
-	remove_vm_area(vaddr);
-#endif
+	size = PAGE_ALIGN(size);
+	page = __consistent_unmap(vaddr, size);
+	if (page)
+		for (i = 0; i < (size>>PAGE_SHIFT); i++)
+			__free_page(page+i);
 }
 
 void consistent_sync(void *vaddr, size_t size, int direction)

@@ -378,6 +378,9 @@ unsigned long bpa2_alloc_pages(struct bpa2_part* bp, int count, int align, int p
 	unsigned long aligned_base=0;
 	unsigned long result = 0;
 
+	if (count == 0)
+		return 0;
+
 	/* Allocate the data structures we might need here so that we
 	 * don't have problems inside the spinlock.
 	 * Free at the end if not used. */

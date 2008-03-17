@@ -345,8 +345,12 @@ static int __devinit stpio_probe(struct platform_device *pdev)
 		}
 	}
 
-	request_irq(pdev->resource[1].start, stpio_interrupt,
-		    0, pdev->name, (void*)port);
+	if (request_irq(pdev->resource[1].start, stpio_interrupt,
+		    0, pdev->name, (void *)port) < 0) {
+		iounmap(port->base);
+		release_mem_region(pdev->resource[0].start, size);
+		return -EBUSY;
+	}
 
 	return 0;
 }

@@ -188,18 +188,10 @@ static struct platform_device *cb101_devices[] __initdata = {
 	&cb101_phy_device,
 };
 
-struct plat_audio_config left_justified_format = {
-	.pcm_format = PLAT_STM_AUDIO__FORMAT_LEFT_JUSTIFIED |
-			PLAT_STM_AUDIO__DATA_SIZE_24_BITS,
-	.oversampling = 256,
-};
-
 static int __init device_init(void)
 {
 	stx7200_configure_ssc(&ssc_private_info);
 	stx7200_configure_usb();
-	stx7200_configure_audio(&left_justified_format, NULL, NULL,
-			NULL, NULL, NULL);
 	stx7200_configure_ethernet(0, 0, 0, 0);
 	stx7200_configure_lirc();
 	stx7200_configure_nand(&cb101_nand_config[0]);

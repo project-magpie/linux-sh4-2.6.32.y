@@ -36,9 +36,10 @@
 #include <sound/pcm.h>
 #include <sound/control.h>
 #include <sound/info.h>
+#include <sound/pcm_params.h>
 
 #undef TRACE /* See common.h debug features */
-#define MAGIC 5 /* See common.h debug features */
+#define MAGIC 6 /* See common.h debug features */
 #include "common.h"
 
 
@@ -47,13 +48,9 @@
  * Some hardware-related definitions
  */
 
-#define INIT_SAMPLING_RATE 32000
-
+#define DEFAULT_FORMAT (SND_STM_FORMAT__I2S | \
+		SND_STM_FORMAT__OUTPUT_SUBFRAME_32_BITS)
 #define DEFAULT_OVERSAMPLING 256
-#define DEFAULT_FORMAT \
-		(PLAT_STM_AUDIO__FORMAT_I2S | \
-		PLAT_STM_AUDIO__OUTPUT_SUBFRAME_32_BITS | \
-		PLAT_STM_AUDIO__DATA_SIZE_24_BITS)
 
 /* The sample count field (NSAMPLES in CTRL register) is 19 bits wide */
 #define MAX_SAMPLES_PER_PERIOD ((1 << 19) - 1)
@@ -68,8 +65,8 @@
 
 struct snd_stm_pcm_player {
 	/* System informations */
-	const char *name;
-	const char *bus_id;
+	struct snd_stm_pcm_player_info *info;
+	struct device *device;
 	struct snd_pcm *pcm;
 
 	/* Resources */
@@ -77,34 +74,20 @@ struct snd_stm_pcm_player {
 	void *base;
 	unsigned long fifo_phys_address;
 	unsigned int irq;
-	int fdma_channel;
-	struct stm_dma_req *fdma_request;
+	unsigned int fdma_channel;
 
 	/* Environment settings */
-	struct device *fsynth;
+	struct device *fsynth_device;
 	int fsynth_channel;
-	struct device *dac;
+	struct snd_stm_conv *conv;
 	struct snd_pcm_hw_constraint_list channels_constraint;
-	unsigned int channels_constraint_list[MAX_CHANNELS / 2];
-
-	/* Board-specific settings */
-	unsigned long format;
-	unsigned int oversampling;
-
-	/* Value of SCLK_EDGE bit in AUD_PCMOUT_FMT register that
-	 * actually means "data clocking on the falling edge" -
-	 * STx7100 and _some_ cuts of STx7109 have this value
-	 * inverted than datasheets claim... (specs say 1) */
-	int sclk_edge_falling;
-
-	/* Workaround for L/R swap problem (see further) */
-	int lr_pol;
 
 	/* Runtime data */
 	void *buffer;
 	struct snd_info_entry *proc_entry;
 	struct snd_pcm_substream *substream;
 	struct stm_dma_params fdma_params;
+	struct stm_dma_req *fdma_request;
 
 	snd_stm_magic_field;
 };
@@ -136,7 +119,7 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 	/* Underflow? */
 	if (unlikely(status & REGFIELD_VALUE(AUD_PCMOUT_ITS, UNF, PENDING))) {
 		snd_stm_printe("Underflow detected in PCM player '%s'!\n",
-				pcm_player->bus_id);
+				pcm_player->device->bus_id);
 		result = IRQ_HANDLED;
 	}
 
@@ -146,7 +129,7 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 			snd_assert(pcm_player->substream, break);
 
 			snd_stm_printt("Period elapsed ('%s')\n",
-					pcm_player->bus_id);
+					pcm_player->device->bus_id);
 			snd_pcm_period_elapsed(pcm_player->substream);
 
 			result = IRQ_HANDLED;
@@ -170,7 +153,10 @@ static struct snd_pcm_hardware snd_stm_pcm_player_hw = {
 	.rates		= (SNDRV_PCM_RATE_32000 |
 				SNDRV_PCM_RATE_44100 |
 				SNDRV_PCM_RATE_48000 |
+				SNDRV_PCM_RATE_64000 |
+				SNDRV_PCM_RATE_88200 |
 				SNDRV_PCM_RATE_96000 |
+				SNDRV_PCM_RATE_176400 |
 				SNDRV_PCM_RATE_192000),
 	.rate_min	= 32000,
 	.rate_max	= 192000,
@@ -178,7 +164,7 @@ static struct snd_pcm_hardware snd_stm_pcm_player_hw = {
 	.channels_min	= 2,
 	.channels_max	= 10,
 
-	.periods_min	= 1,     /* TODO: I would say 2... */
+	.periods_min	= 2,
 	.periods_max	= 1024,  /* TODO: sample, work out this somehow... */
 
 	/* Values below were worked out mostly basing on ST media player
@@ -210,6 +196,17 @@ static int snd_stm_pcm_player_open(struct snd_pcm_substream *substream)
 
 	snd_pcm_set_sync(substream);  /* TODO: ??? */
 
+	/* Get attached converter handle */
+
+	pcm_player->conv = snd_stm_conv_get_attached(pcm_player->device);
+	if (pcm_player->conv)
+		snd_stm_printt("Converter '%s' attached to '%s'...\n",
+				pcm_player->conv->name,
+				pcm_player->device->bus_id);
+	else
+		snd_stm_printt("Warning! No converter attached to '%s'!\n",
+				pcm_player->device->bus_id);
+
 	/* Set up constraints & pass hardware capabilities info to ALSA */
 
 	result = snd_pcm_hw_constraint_list(runtime, 0,
@@ -229,6 +226,16 @@ static int snd_stm_pcm_player_open(struct snd_pcm_substream *substream)
 		return result;
 	}
 
+	/* Make the period (so buffer as well) length (in bytes) a multiply
+	 * of a FDMA transfer bytes (which varies depending on channels
+	 * number and sample bytes) */
+	result = snd_stm_pcm_hw_constraint_transfer_bytes(runtime,
+			pcm_player->info->fdma_max_transfer_size * 4);
+	if (result < 0) {
+		snd_stm_printe("Can't set buffer bytes constraint!\n");
+		return result;
+	}
+
 	runtime->hw = snd_stm_pcm_player_hw;
 
 	return 0;
@@ -244,66 +251,6 @@ static int snd_stm_pcm_player_close(struct snd_pcm_substream *substream)
 
 	snd_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
-
-	return 0;
-}
-
-static int snd_stm_pcm_player_hw_params(struct snd_pcm_substream *substream,
-		struct snd_pcm_hw_params *hw_params)
-{
-	int result;
-	struct snd_stm_pcm_player *pcm_player =
-			snd_pcm_substream_chip(substream);
-	struct snd_pcm_runtime *runtime = substream->runtime;
-	int buffer_bytes;
-
-	snd_stm_printt("snd_stm_pcm_player_hw_params(substream=0x%p,"
-			" hw_params=0x%p)\n", substream, hw_params);
-
-	snd_assert(pcm_player, return -EINVAL);
-	snd_stm_magic_assert(pcm_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
-
-	/* Allocate buffer */
-
-	buffer_bytes = params_buffer_bytes(hw_params);
-	pcm_player->buffer = bigphysarea_alloc(buffer_bytes);
-	/* TODO: move to BPA2, use pcm lib as fallback... */
-	if (!pcm_player->buffer) {
-		snd_stm_printe("Can't allocate %d bytes buffer for '%s'!\n",
-				buffer_bytes, pcm_player->bus_id);
-		return -ENOMEM;
-	}
-
-	runtime->dma_addr = virt_to_phys(pcm_player->buffer);
-	runtime->dma_area = ioremap_nocache(runtime->dma_addr, buffer_bytes);
-	runtime->dma_bytes = buffer_bytes;
-
-	snd_stm_printt("Allocated buffer for %s: buffer=0x%p, "
-			"dma_addr=0x%08x, dma_area=0x%p, "
-			"dma_bytes=%u\n", pcm_player->bus_id,
-			pcm_player->buffer, runtime->dma_addr,
-			runtime->dma_area, runtime->dma_bytes);
-
-	/* Configure FDMA transfer */
-
-	dma_params_init(&pcm_player->fdma_params, MODE_PACED,
-			STM_DMA_LIST_CIRC);
-
-	dma_params_DIM_1_x_0(&pcm_player->fdma_params);
-
-	dma_params_req(&pcm_player->fdma_params, pcm_player->fdma_request);
-
-	dma_params_addrs(&pcm_player->fdma_params, runtime->dma_addr,
-			pcm_player->fifo_phys_address, buffer_bytes);
-
-	result = dma_compile_list(pcm_player->fdma_channel,
-				&pcm_player->fdma_params, GFP_KERNEL);
-	if (result < 0) {
-		snd_stm_printe("Can't compile FDMA parameters for player"
-				" '%s'!\n", pcm_player->bus_id);
-		return -EINVAL;
-	}
 
 	return 0;
 }
@@ -328,25 +275,147 @@ static int snd_stm_pcm_player_hw_free(struct snd_pcm_substream *substream)
 
 		snd_stm_printt("Freeing buffer for %s: buffer=0x%p, "
 				"dma_addr=0x%08x, dma_area=0x%p, "
-				"dma_bytes=%u\n", pcm_player->bus_id,
+				"dma_bytes=%u\n", pcm_player->device->bus_id,
 				pcm_player->buffer, runtime->dma_addr,
 				runtime->dma_area, runtime->dma_bytes);
 
 		iounmap(runtime->dma_area);
+
+		/* TODO: symmetrical to the above (BPA2 etc.) */
+		bigphysarea_free(pcm_player->buffer, runtime->dma_bytes);
+
+		pcm_player->buffer = NULL;
 		runtime->dma_area = NULL;
 		runtime->dma_addr = 0;
 		runtime->dma_bytes = 0;
 
-		/* TODO: symmetrical to the above (BPA2 etc.) */
-		bigphysarea_free(pcm_player->buffer, runtime->dma_bytes);
-		pcm_player->buffer = NULL;
-
-		/* Dispose FDMA parameters */
+		/* Dispose FDMA parameters & configuration */
 
 		dma_params_free(&pcm_player->fdma_params);
+		dma_req_free(pcm_player->fdma_channel,
+				pcm_player->fdma_request);
 	}
 
 	return 0;
+}
+
+static int snd_stm_pcm_player_hw_params(struct snd_pcm_substream *substream,
+		struct snd_pcm_hw_params *hw_params)
+{
+	int result;
+	struct snd_stm_pcm_player *pcm_player =
+			snd_pcm_substream_chip(substream);
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	int buffer_bytes, frame_bytes, transfer_bytes;
+	unsigned int transfer_size;
+	struct stm_dma_req_config fdma_req_config = {
+		.rw        = REQ_CONFIG_WRITE,
+		.opcode    = REQ_CONFIG_OPCODE_4,
+		.increment = 0,
+		.hold_off  = 0,
+		.initiator = pcm_player->info->fdma_initiator,
+	};
+
+	snd_stm_printt("snd_stm_pcm_player_hw_params(substream=0x%p,"
+			" hw_params=0x%p)\n", substream, hw_params);
+
+	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_magic_assert(pcm_player, return -EINVAL);
+	snd_assert(runtime, return -EINVAL);
+
+	/* This function may be called many times, so let's be prepared... */
+	if (pcm_player->buffer)
+		snd_stm_pcm_player_hw_free(substream);
+
+	/* Allocate buffer */
+
+	buffer_bytes = params_buffer_bytes(hw_params);
+	pcm_player->buffer = bigphysarea_alloc(buffer_bytes);
+	/* TODO: move to BPA2, use pcm lib as fallback... */
+	if (!pcm_player->buffer) {
+		snd_stm_printe("Can't allocate %d bytes buffer for '%s'!\n",
+				buffer_bytes, pcm_player->device->bus_id);
+		result = -ENOMEM;
+		goto error_buf_alloc;
+	}
+
+	runtime->dma_addr = virt_to_phys(pcm_player->buffer);
+	runtime->dma_area = ioremap_nocache(runtime->dma_addr, buffer_bytes);
+	runtime->dma_bytes = buffer_bytes;
+
+	snd_stm_printt("Allocated buffer for %s: buffer=0x%p, "
+			"dma_addr=0x%08x, dma_area=0x%p, "
+			"dma_bytes=%u\n", pcm_player->device->bus_id,
+			pcm_player->buffer, runtime->dma_addr,
+			runtime->dma_area, runtime->dma_bytes);
+
+	/* Set FDMA transfer size (number of opcodes generated
+	 * after request line assertion) */
+
+	frame_bytes = snd_pcm_format_physical_width(params_format(hw_params)) *
+			params_channels(hw_params) / 8;
+	transfer_bytes = snd_stm_pcm_transfer_bytes(frame_bytes,
+			pcm_player->info->fdma_max_transfer_size * 4);
+	transfer_size = transfer_bytes / 4;
+	snd_stm_printt("FDMA request trigger limit and transfer size set to "
+			"%d.\n", transfer_size);
+
+	snd_assert(buffer_bytes % transfer_bytes == 0, return -EINVAL);
+	snd_assert(transfer_size <= pcm_player->info->fdma_max_transfer_size,
+			return -EINVAL);
+	fdma_req_config.count = transfer_size;
+
+	snd_assert(transfer_size == 1 || transfer_size % 2 == 0,
+			return -EINVAL);
+	snd_assert(transfer_size <= AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT__MASK,
+			return -EINVAL);
+	REGFIELD_POKE(pcm_player->base, AUD_PCMOUT_FMT,
+			DMA_REQ_TRIG_LMT, transfer_size);
+
+	/* Configure FDMA transfer */
+
+	pcm_player->fdma_request = dma_req_config(pcm_player->fdma_channel,
+			pcm_player->info->fdma_request_line, &fdma_req_config);
+	if (!pcm_player->fdma_request) {
+		snd_stm_printe("Can't configure FDMA pacing channel for player"
+				" '%s'!\n", pcm_player->device->bus_id);
+		result = -EINVAL;
+		goto error_req_config;
+	}
+
+	dma_params_init(&pcm_player->fdma_params, MODE_PACED,
+			STM_DMA_LIST_CIRC);
+
+	dma_params_DIM_1_x_0(&pcm_player->fdma_params);
+
+	dma_params_req(&pcm_player->fdma_params, pcm_player->fdma_request);
+
+	dma_params_addrs(&pcm_player->fdma_params, runtime->dma_addr,
+			pcm_player->fifo_phys_address, buffer_bytes);
+
+	result = dma_compile_list(pcm_player->fdma_channel,
+				&pcm_player->fdma_params, GFP_KERNEL);
+	if (result < 0) {
+		snd_stm_printe("Can't compile FDMA parameters for player"
+				" '%s'!\n", pcm_player->device->bus_id);
+		goto error_compile_list;
+	}
+
+	return 0;
+
+error_compile_list:
+	dma_req_free(pcm_player->fdma_channel,
+			pcm_player->fdma_request);
+error_req_config:
+	iounmap(runtime->dma_area);
+	/* TODO: symmetrical to the above (BPA2 etc.) */
+	bigphysarea_free(pcm_player->buffer, runtime->dma_bytes);
+	pcm_player->buffer = NULL;
+	runtime->dma_area = NULL;
+	runtime->dma_addr = 0;
+	runtime->dma_bytes = 0;
+error_buf_alloc:
+	return result;
 }
 
 static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
@@ -354,7 +423,8 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 	struct snd_stm_pcm_player *pcm_player =
 			snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	int bits_in_output_frame;
+	unsigned int format, lr_pol;
+	int oversampling, bits_in_output_frame;
 
 	snd_stm_printt("snd_stm_pcm_player_prepare(substream=0x%p)\n",
 			substream);
@@ -369,11 +439,120 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 
 	/* TODO */
 
+	/* Get format & oversampling value from connected converter */
+
+	if (pcm_player->conv) {
+		format = snd_stm_conv_get_format(pcm_player->conv);
+		oversampling = snd_stm_conv_get_oversampling(pcm_player->conv);
+		if (oversampling == 0)
+			oversampling = DEFAULT_OVERSAMPLING;
+	} else {
+		format = DEFAULT_FORMAT;
+		oversampling = DEFAULT_OVERSAMPLING;
+	}
+
+	snd_stm_printt("Player %s: sampling frequency %d, oversampling %d\n",
+			pcm_player->device->bus_id, runtime->rate,
+			oversampling);
+
+	snd_assert(oversampling > 0, return -EINVAL);
+
+	/* For 32 bits subframe oversampling must be a multiple of 128,
+	 * for 16 bits - of 64 */
+	snd_assert(((format & SND_STM_FORMAT__OUTPUT_SUBFRAME_32_BITS) &&
+				(oversampling % 128 == 0)) ||
+				(oversampling % 64 == 0), return -EINVAL);
+
 	/* Set up frequency synthesizer */
 
-	snd_stm_fsynth_set_frequency(pcm_player->fsynth,
+	snd_stm_fsynth_set_frequency(pcm_player->fsynth_device,
 			pcm_player->fsynth_channel,
-			runtime->rate * pcm_player->oversampling);
+			runtime->rate * oversampling);
+
+	/* Set up player hardware */
+
+	snd_stm_printt("Player %s format configuration:\n",
+			pcm_player->device->bus_id);
+
+	/* Number of bits per subframe (which is one channel sample)
+	 * on output - it determines serial clock frequency, which is
+	 * 64 times sampling rate for 32 bits subframe (2 channels 32
+	 * bits each means 64 bits per frame) and 32 times sampling
+	 * rate for 16 bits subframe
+	 * (you know why, don't you? :-) */
+
+	switch (format & SND_STM_FORMAT__OUTPUT_SUBFRAME_MASK) {
+	case SND_STM_FORMAT__OUTPUT_SUBFRAME_32_BITS:
+		snd_stm_printt("- 32 bits per subframe\n");
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT, NBIT, 32_BITS);
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
+				DATA_SIZE, 32_BITS);
+#else
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
+				DATA_SIZE, 24_BITS);
+#endif
+		bits_in_output_frame = 64; /* frame = 2 * subframe */
+		break;
+	case SND_STM_FORMAT__OUTPUT_SUBFRAME_16_BITS:
+		snd_stm_printt("- 16 bits per subframe\n");
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT, NBIT, 16_BITS);
+			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
+					DATA_SIZE, 16_BITS);
+			bits_in_output_frame = 32; /* frame = 2 * subframe */
+			break;
+	default:
+		snd_BUG();
+		return -EINVAL;
+	}
+
+	/* Serial audio interface format - for detailed explanation
+	 * see ie.:
+	 * http://www.cirrus.com/en/pubs/appNote/AN282REV1.pdf */
+
+	REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
+			ORDER, MSB_FIRST);
+
+	/* Value of SCLK_EDGE bit in AUD_PCMOUT_FMT register that
+	 * actually means "data clocking on the falling edge" -
+	 * STx7100 and _some_ cuts of STx7109 have this value
+	 * inverted than datasheets claim... (specs say 1) */
+
+	if (pcm_player->info->invert_sclk_edge_falling) {
+		snd_stm_printt("Inverted SCLK_EDGE!\n");
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
+				SCLK_EDGE, RISING);
+	} else {
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
+				SCLK_EDGE, FALLING);
+	}
+
+	switch (format & SND_STM_FORMAT__MASK) {
+	case SND_STM_FORMAT__I2S:
+		snd_stm_printt("- I2S\n");
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT, ALIGN, LEFT);
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
+				PADDING, 1_CYCLE_DELAY);
+		lr_pol = AUD_PCMOUT_FMT__LR_POL__VALUE__LEFT_LOW;
+		break;
+	case SND_STM_FORMAT__LEFT_JUSTIFIED:
+		snd_stm_printt("- left justified\n");
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT, ALIGN, LEFT);
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
+				PADDING, NO_DELAY);
+		lr_pol = AUD_PCMOUT_FMT__LR_POL__VALUE__LEFT_HIGH;
+		break;
+	case SND_STM_FORMAT__RIGHT_JUSTIFIED:
+		snd_stm_printt("- right justified\n");
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT, ALIGN, RIGHT);
+		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
+				PADDING, NO_DELAY);
+		lr_pol = AUD_PCMOUT_FMT__LR_POL__VALUE__LEFT_HIGH;
+		break;
+	default:
+		snd_BUG();
+		return -EINVAL;
+	}
 
 	/* Configure PCM player frequency divider
 	 *
@@ -393,21 +572,8 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 	 *                (32 or 64, depending on NBIT field of FMT register)
 	 */
 
-	switch (pcm_player->format & PLAT_STM_AUDIO__OUTPUT_SUBFRAME_MASK) {
-	case PLAT_STM_AUDIO__OUTPUT_SUBFRAME_32_BITS:
-		bits_in_output_frame = 64;
-		break;
-	case PLAT_STM_AUDIO__OUTPUT_SUBFRAME_16_BITS:
-		bits_in_output_frame = 32;
-		break;
-	default:
-		bits_in_output_frame = 0; /* Avoid a -Os compilation warning */
-		snd_assert(0, return -EINVAL);
-		break;
-	}
-
 	REGFIELD_POKE(pcm_player->base, AUD_PCMOUT_CTRL, CLK_DIV,
-			pcm_player->oversampling / (2 * bits_in_output_frame));
+			oversampling / (2 * bits_in_output_frame));
 
 	/* Configure data memory format & NSAMPLE interrupt */
 
@@ -426,36 +592,34 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 		 * by one sample...
 		 * (ask me for more details if above is not clear ;-)
 		 * TODO this somehow better... */
-		REGFIELD_POKE(pcm_player->base, AUD_PCMOUT_FMT, LR_POL,
-				!pcm_player->lr_pol);
+		REGFIELD_POKE(pcm_player->base, AUD_PCMOUT_FMT,
+				LR_POL, !lr_pol);
 
-		/* One word if fifo is two samples (two channels...) */
-
+		/* One word of data is two samples (two channels...) */
 		REGFIELD_POKE(pcm_player->base, AUD_PCMOUT_CTRL, NSAMPLE,
 				runtime->period_size * runtime->channels / 2);
 		break;
 
 	case SNDRV_PCM_FORMAT_S32_LE:
-		/* Actually "16 bits/0 bits" means "24/20/18/16 bits on the
-		 * left than zeros"... ;-) */
+		/* Actually "16 bits/0 bits" means "32/28/24/20/18/16 bits
+		 * on the left than zeros (if less than 32 bites)"... ;-) */
 		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_CTRL,
 				MEM_FMT, 16_BITS_0_BITS);
 
 		/* In x/0 bits memory mode there is no problem with
 		 * L/R polarity */
 		REGFIELD_POKE(pcm_player->base, AUD_PCMOUT_FMT, LR_POL,
-				pcm_player->lr_pol);
+				lr_pol);
 
 		/* One word of data is one sample, so period size
 		 * times channels */
-
 		REGFIELD_POKE(pcm_player->base, AUD_PCMOUT_CTRL, NSAMPLE,
 				runtime->period_size * runtime->channels);
 		break;
 
 	default:
-		snd_assert(0, return -EINVAL);
-		break;
+		snd_BUG();
+		return -EINVAL;
 	}
 
 	/* Number of channels... */
@@ -492,7 +656,7 @@ static inline int snd_stm_pcm_player_start(struct snd_pcm_substream *substream)
 			&pcm_player->fdma_params);
 	if (result != 0) {
 		snd_stm_printe("Can't launch FDMA transfer for player '%s'!\n",
-				pcm_player->bus_id);
+				pcm_player->device->bus_id);
 		return -EINVAL;
 	}
 
@@ -508,9 +672,9 @@ static inline int snd_stm_pcm_player_start(struct snd_pcm_substream *substream)
 
 	/* Wake up & unmute DAC */
 
-	if (pcm_player->dac) {
-		snd_stm_dac_wake_up(pcm_player->dac);
-		snd_stm_dac_unmute(pcm_player->dac);
+	if (pcm_player->conv) {
+		snd_stm_conv_enable(pcm_player->conv);
+		snd_stm_conv_unmute(pcm_player->conv);
 	}
 
 	return 0;
@@ -529,9 +693,9 @@ static inline int snd_stm_pcm_player_stop(struct snd_pcm_substream *substream)
 
 	/* Mute & shutdown DAC */
 
-	if (pcm_player->dac) {
-		snd_stm_dac_mute(pcm_player->dac);
-		snd_stm_dac_shut_down(pcm_player->dac);
+	if (pcm_player->conv) {
+		snd_stm_conv_mute(pcm_player->conv);
+		snd_stm_conv_disable(pcm_player->conv);
 	}
 
 	/* Disable interrupts */
@@ -688,6 +852,7 @@ static void snd_stm_pcm_player_dump_registers(struct snd_info_entry *entry,
 
 static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 {
+	int result;
 	struct snd_stm_pcm_player *pcm_player = snd_device->device_data;
 
 	snd_stm_printt("snd_stm_pcm_player_register(snd_device=0x%p)\n",
@@ -696,138 +861,40 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 	snd_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
-	/* Set a default clock frequency running for each device.
-	 * Not doing this can lead to clocks not starting correctly later,
-	 * for reasons that cannot be explained at this time. */
-	/* TODO: Check it, maybe obsolete now */
-	snd_stm_fsynth_set_frequency(pcm_player->fsynth,
-			pcm_player->fsynth_channel,
-			INIT_SAMPLING_RATE * pcm_player->oversampling);
-
-	/* Initialize hardware (format etc.) */
+	/* Set reset mode */
 
 	REGFIELD_SET(pcm_player->base, AUD_PCMOUT_RST, SRSTP, RESET);
 
 	/* TODO: well, hardcoded - shall anyone use it?
 	 * And what it actually means? */
+
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+	REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT, BACK_STALLING, DISABLED);
+#endif
 	REGFIELD_SET(pcm_player->base, AUD_PCMOUT_CTRL, RND, NO_ROUNDING);
-
-	if (pcm_player->format & PLAT_STM_AUDIO__CUSTOM) {
-		/* Custom format settings... Well, you asked for it! ;-) */
-		REGISTER_POKE(pcm_player->base, AUD_PCMOUT_CTRL,
-				pcm_player->format & !PLAT_STM_AUDIO__CUSTOM);
-	} else {
-		/* Number of bits per subframe (which is one channel sample)
-		 * on output - it determines serial clock frequency, which is
-		 * 64 times sampling rate for 32 bits subframe (2 channels 32
-		 * bits each means 64 bits per frame) and 32 times sampling
-		 * rate for 16 bits subframe
-		 * (you know why now, don't you? :-) */
-
-		switch (pcm_player->format &
-				PLAT_STM_AUDIO__OUTPUT_SUBFRAME_MASK) {
-		case PLAT_STM_AUDIO__OUTPUT_SUBFRAME_32_BITS:
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					NBIT, 32_BITS);
-			break;
-		case PLAT_STM_AUDIO__OUTPUT_SUBFRAME_16_BITS:
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					NBIT, 16_BITS);
-			break;
-		default:
-			snd_assert(0, return -EINVAL);
-			break;
-		}
-
-		/* Datasheet says: "The recommended configuration is to set
-		 * the PCM player fifo threshold that triggers the FDMA
-		 * request to 40 bytes (at least 80 bytes available) and
-		 * to configured the FDMA to perform a 80 bytes store
-		 * operation when servicing a dma request." My understanding
-		 * of "FIFO cell" is "4 bytes" ;-), so the value should be 20.
-		 * Surprisingly experiments suggest using something
-		 * like 10... */
-		REGFIELD_POKE(pcm_player->base, AUD_PCMOUT_FMT,
-				DMA_REQ_TRIG_LMT, 10);
-
-		/* Number of meaningful bits in subframe -
-		 * the rest are just zeros */
-
-		switch (pcm_player->format & PLAT_STM_AUDIO__DATA_SIZE_MASK) {
-		case PLAT_STM_AUDIO__DATA_SIZE_24_BITS:
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					DATA_SIZE, 24_BITS);
-			break;
-		case PLAT_STM_AUDIO__DATA_SIZE_20_BITS:
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					DATA_SIZE, 20_BITS);
-			break;
-		case PLAT_STM_AUDIO__DATA_SIZE_18_BITS:
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					DATA_SIZE, 18_BITS);
-			break;
-		case PLAT_STM_AUDIO__DATA_SIZE_16_BITS:
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					DATA_SIZE, 16_BITS);
-			break;
-		default:
-			snd_assert(0, return -EINVAL);
-			break;
-		}
-
-		/* Serial audio interface format - for detailed explanation
-		 * see ie.:
-		 * http://www.cirrus.com/en/pubs/appNote/AN282REV1.pdf */
-
-		REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-				ORDER, MSB_FIRST);
-		REGFIELD_POKE(pcm_player->base, AUD_PCMOUT_FMT,
-				SCLK_EDGE, pcm_player->sclk_edge_falling);
-		switch (pcm_player->format & PLAT_STM_AUDIO__FORMAT_MASK) {
-		case PLAT_STM_AUDIO__FORMAT_I2S:
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					ALIGN, LEFT);
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					PADDING, 1_CYCLE_DELAY);
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					LR_POL, LEFT_LOW);
-			break;
-		case PLAT_STM_AUDIO__FORMAT_LEFT_JUSTIFIED:
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					ALIGN, LEFT);
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					PADDING, NO_DELAY);
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					LR_POL, LEFT_HIGH);
-			break;
-		case PLAT_STM_AUDIO__FORMAT_RIGHT_JUSTIFIED:
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					ALIGN, RIGHT);
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					PADDING, NO_DELAY);
-			REGFIELD_SET(pcm_player->base, AUD_PCMOUT_FMT,
-					LR_POL, LEFT_HIGH);
-			break;
-		default:
-			snd_assert(0, return -EINVAL);
-			break;
-		}
-	}
-
-	/* Workaround for 16/16 memory format L/R channels swap (see above) */
-	pcm_player->lr_pol = REGFIELD_PEEK(pcm_player->base, AUD_PCMOUT_FMT,
-			LR_POL);
-
-	/* This combination is forbidden - please use 384 * Fs oversampling
-	 * frequency instead */
-	snd_assert(!(pcm_player->oversampling == 192 && (pcm_player->format &
-			PLAT_STM_AUDIO__OUTPUT_SUBFRAME_32_BITS)),
-			return -EINVAL);
 
 	/* Registers view in ALSA's procfs */
 
-	snd_stm_info_register(&pcm_player->proc_entry, pcm_player->bus_id,
+	snd_stm_info_register(&pcm_player->proc_entry,
+			pcm_player->device->bus_id,
 			snd_stm_pcm_player_dump_registers, pcm_player);
+
+	/* Create ALSA controls */
+
+	result = snd_stm_conv_add_route_ctl(pcm_player->device,
+			snd_device->card, pcm_player->info->card_device);
+	if (result < 0) {
+		snd_stm_printe("Failed to add converter route control!\n");
+		return result;
+	}
+
+	result = snd_stm_fsynth_add_adjustement_ctl(pcm_player->fsynth_device,
+			pcm_player->fsynth_channel,
+			snd_device->card, pcm_player->info->card_device);
+	if (result < 0) {
+		snd_stm_printe("Failed to add fsynth adjustment control!\n");
+		return result;
+	}
 
 	return 0;
 }
@@ -844,7 +911,7 @@ static int snd_stm_pcm_player_disconnect(struct snd_device *snd_device)
 	return 0;
 }
 
-static struct snd_device_ops snd_stm_pcm_player_ops = {
+static struct snd_device_ops snd_stm_pcm_player_snd_device_ops = {
 	.dev_register = snd_stm_pcm_player_register,
 	.dev_disconnect = snd_stm_pcm_player_disconnect,
 };
@@ -855,75 +922,14 @@ static struct snd_device_ops snd_stm_pcm_player_ops = {
  * Platform driver routines
  */
 
-#define FORMAT_STRING(f) \
-	((f & PLAT_STM_AUDIO__CUSTOM) == \
-		PLAT_STM_AUDIO__CUSTOM ? "custom" : \
-	(f & PLAT_STM_AUDIO__FORMAT_MASK) == \
-		PLAT_STM_AUDIO__FORMAT_I2S ? "I2S, " : \
-	(f & PLAT_STM_AUDIO__FORMAT_MASK) == \
-		PLAT_STM_AUDIO__FORMAT_LEFT_JUSTIFIED ? \
-		"left justified, " : \
-	(f & PLAT_STM_AUDIO__FORMAT_MASK) == \
-		PLAT_STM_AUDIO__FORMAT_RIGHT_JUSTIFIED ? \
-		"right justified, " : \
-	"")
-
-#define DATA_SIZE_STRING(f) \
-	((f & PLAT_STM_AUDIO__CUSTOM) == \
-		PLAT_STM_AUDIO__CUSTOM ? "" : \
-	(f & PLAT_STM_AUDIO__DATA_SIZE_MASK) == \
-		PLAT_STM_AUDIO__DATA_SIZE_24_BITS ? \
-		"24 bits data, " : \
-	(f & PLAT_STM_AUDIO__DATA_SIZE_MASK) == \
-		PLAT_STM_AUDIO__DATA_SIZE_20_BITS ? \
-		"20 bits data, " : \
-	(f & PLAT_STM_AUDIO__DATA_SIZE_MASK) == \
-		PLAT_STM_AUDIO__DATA_SIZE_18_BITS ? \
-		"18 bits data, " : \
-	(f & PLAT_STM_AUDIO__DATA_SIZE_MASK) == \
-		PLAT_STM_AUDIO__DATA_SIZE_16_BITS ? \
-		"16 bits data, " : \
-	"")
-
-#define OUTPUT_SUBFRAME_STRING(f) \
-	((f & PLAT_STM_AUDIO__CUSTOM) == \
-		PLAT_STM_AUDIO__CUSTOM ? "" : \
-	(f & PLAT_STM_AUDIO__OUTPUT_SUBFRAME_MASK) == \
-		PLAT_STM_AUDIO__OUTPUT_SUBFRAME_32_BITS ? \
-		"32 bits output subframe" : \
-	(f & PLAT_STM_AUDIO__OUTPUT_SUBFRAME_MASK) == \
-		PLAT_STM_AUDIO__OUTPUT_SUBFRAME_16_BITS ? \
-		"16 bits output subframe" : \
-	"")
-
-static struct stm_dma_req_config snd_stm_pcm_player_fdma_request_config = {
-	.rw        = REQ_CONFIG_WRITE,
-	.opcode    = REQ_CONFIG_OPCODE_4,
-	.count     = 1,
-	.increment = 0,
-	.hold_off  = 0,
-	/* .initiator value is defined in platform device resources */
-};
-
 static int __init snd_stm_pcm_player_probe(struct platform_device *pdev)
 {
 	int result = 0;
-	struct plat_audio_config *config = pdev->dev.platform_data;
-	struct snd_stm_component *component;
 	struct snd_stm_pcm_player *pcm_player;
 	struct snd_card *card;
-	int card_device;
-	int *channels_list;
-	int channels_list_len;
-	const char *card_id;
-	const char *fsynth_bus_id;
-	const char *dac_bus_id;
 	int i;
 
 	snd_printd("--- Probing device '%s'...\n", pdev->dev.bus_id);
-
-	component = snd_stm_components_get(pdev->dev.bus_id);
-	snd_assert(component, return -EINVAL);
 
 	pcm_player = kzalloc(sizeof(*pcm_player), GFP_KERNEL);
 	if (!pcm_player) {
@@ -933,7 +939,9 @@ static int __init snd_stm_pcm_player_probe(struct platform_device *pdev)
 		goto error_alloc;
 	}
 	snd_stm_magic_set(pcm_player);
-	pcm_player->bus_id = pdev->dev.bus_id;
+	pcm_player->info = pdev->dev.platform_data;
+	snd_assert(pcm_player->info != NULL, return -EINVAL);
+	pcm_player->device = &pdev->dev;
 
 	/* Get resources */
 
@@ -955,114 +963,40 @@ static int __init snd_stm_pcm_player_probe(struct platform_device *pdev)
 		goto error_irq_request;
 	}
 
-	result = snd_stm_fdma_request(pdev, &pcm_player->fdma_channel,
-			&pcm_player->fdma_request,
-			&snd_stm_pcm_player_fdma_request_config);
+	result = snd_stm_fdma_request(pdev, &pcm_player->fdma_channel);
 	if (result < 0) {
 		snd_stm_printe("FDMA request failed!\n");
 		goto error_fdma_request;
 	}
 
-	/* Get component caps */
+	/* Get player capabilities */
 
-	snd_printd("Player's name is '%s'\n", component->short_name);
+	snd_printd("Player's name is '%s'\n", pcm_player->info->name);
 
-	result = snd_stm_cap_get_string(component, "card_id", &card_id);
-	snd_assert(result == 0, return -EINVAL);
-	card = snd_stm_cards_get(card_id);
+	card = snd_stm_cards_get(pcm_player->info->card_id);
 	snd_assert(card != NULL, return -EINVAL);
-	snd_printd("Player will be a member of a card '%s'...\n", card_id);
+	snd_printd("Player will be a member of a card '%s' as a PCM device "
+			"no. %d.\n", card->id, pcm_player->info->card_device);
 
-	result = snd_stm_cap_get_number(component, "card_device",
-			&card_device);
-	snd_assert(result == 0, return -EINVAL);
-	snd_printd("... as a PCM device no %d.\n", card_device);
-
-	result = snd_stm_cap_get_list(component, "channels", &channels_list,
-			&channels_list_len);
-	snd_assert(result == 0, return -EINVAL);
-	memcpy(pcm_player->channels_constraint_list, channels_list,
-			sizeof(*channels_list) * channels_list_len);
-	pcm_player->channels_constraint.list =
-		pcm_player->channels_constraint_list;
-	pcm_player->channels_constraint.count =
-		(unsigned int)channels_list_len;
+	snd_assert(pcm_player->info->channels != NULL, return -EINVAL);
+	snd_assert(pcm_player->info->channels_num > 0, return -EINVAL);
+	pcm_player->channels_constraint.list = pcm_player->info->channels;
+	pcm_player->channels_constraint.count = pcm_player->info->channels_num;
 	pcm_player->channels_constraint.mask = 0;
-	for (i = 0; i < channels_list_len; i++)
-		snd_printd("Player capable of playing %d-channels PCM.\n",
-				channels_list[i]);
+	for (i = 0; i < pcm_player->info->channels_num; i++)
+		snd_printd("Player capable of playing %u-channels PCM.\n",
+				pcm_player->info->channels[i]);
 
-	result = snd_stm_cap_get_string(component, "fsynth_bus_id",
-			&fsynth_bus_id);
-	snd_assert(result == 0, return -EINVAL);
-	pcm_player->fsynth = snd_stm_device_get(fsynth_bus_id);
-	snd_assert(pcm_player->fsynth, return -EINVAL);
-	result = snd_stm_cap_get_number(component, "fsynth_channel",
-			&pcm_player->fsynth_channel);
-	snd_assert(result == 0, return -EINVAL);
-	snd_printd("Player clocked by channel %d of synthesizer %s.\n",
-			pcm_player->fsynth_channel, fsynth_bus_id);
+	/* Get fsynth device */
 
-	if (snd_stm_cap_get_string(component, "dac_bus_id", &dac_bus_id) == 0) {
-		pcm_player->dac = snd_stm_device_get(dac_bus_id);
-		snd_assert(pcm_player->dac, return -EINVAL);
-		snd_printd("Player connected to DAC %s.\n", dac_bus_id);
-	} else {
-		pcm_player->dac = NULL;
-	}
-
-	if (snd_stm_cap_get_number(component, "sclk_edge_falling",
-				&pcm_player->sclk_edge_falling) < 0)
-		pcm_player->sclk_edge_falling =
-			AUD_PCMOUT_FMT__SCLK_EDGE__VALUE__FALLING;
-
-	snd_printd("Player's SCLK_EDGE == %d means falling edge...\n",
-			pcm_player->sclk_edge_falling);
-
-	/* Board-specific configuration */
-
-	if (pcm_player->dac) {
-		/* If player is connected to an internal DAC just
-		 * ask it about required format instead of looking
-		 * for user-specified one */
-		result = snd_stm_dac_get_config(pcm_player->dac,
-				&pcm_player->format,
-				&pcm_player->oversampling);
-		snd_assert(result == 0, return -EINVAL);
-		snd_printd("Using DAC-defined PCM format (%s%s%s)"
-				" and oversampling (%u).\n",
-				FORMAT_STRING(pcm_player->format),
-				DATA_SIZE_STRING(pcm_player->format),
-				OUTPUT_SUBFRAME_STRING(pcm_player->format),
-				pcm_player->oversampling);
-	} else if (config) {
-		pcm_player->format = config->pcm_format;
-		pcm_player->oversampling = config->oversampling;
-		snd_printd("Using board specific PCM format (%s%s%s, 0x%08lx)"
-				" and oversampling (%u).\n",
-				FORMAT_STRING(pcm_player->format),
-				DATA_SIZE_STRING(pcm_player->format),
-				OUTPUT_SUBFRAME_STRING(pcm_player->format),
-				pcm_player->format,
-				pcm_player->oversampling);
-	} else {
-		pcm_player->format = DEFAULT_FORMAT;
-		pcm_player->oversampling = DEFAULT_OVERSAMPLING;
-		snd_printd("Using default PCM format (%s%s%s)"
-				" and oversampling (%u).\n",
-				FORMAT_STRING(pcm_player->format),
-				DATA_SIZE_STRING(pcm_player->format),
-				OUTPUT_SUBFRAME_STRING(pcm_player->format),
-				pcm_player->oversampling);
-	}
-	/* Allowed oversampling values */
-	snd_assert(pcm_player->oversampling == 128 ||
-			pcm_player->oversampling == 192 ||
-			pcm_player->oversampling == 256 ||
-			pcm_player->oversampling == 384 ||
-			pcm_player->oversampling == 512 ||
-			pcm_player->oversampling == 768,
-			return -EINVAL);
+	snd_assert(pcm_player->info->fsynth_bus_id != NULL, return -EINVAL);
+	snd_printd("Player connected to %s's output %d.\n",
+			pcm_player->info->fsynth_bus_id,
+			pcm_player->info->fsynth_output);
+	pcm_player->fsynth_device = snd_stm_find_device(NULL,
+			pcm_player->info->fsynth_bus_id);
+	snd_assert(pcm_player->fsynth_device != NULL, return -EINVAL);
+	pcm_player->fsynth_channel = pcm_player->info->fsynth_output;
 
 	/* Preallocate buffer */
 
@@ -1071,7 +1005,7 @@ static int __init snd_stm_pcm_player_probe(struct platform_device *pdev)
 	/* Create ALSA lowlevel device */
 
 	result = snd_device_new(card, SNDRV_DEV_LOWLEVEL, pcm_player,
-			&snd_stm_pcm_player_ops);
+			&snd_stm_pcm_player_snd_device_ops);
 	if (result < 0) {
 		snd_stm_printe("ALSA low level device creation failed!\n");
 		goto error_device;
@@ -1079,25 +1013,17 @@ static int __init snd_stm_pcm_player_probe(struct platform_device *pdev)
 
 	/* Create ALSA PCM device */
 
-	result = snd_pcm_new(card, NULL, card_device, 1, 0, &pcm_player->pcm);
+	result = snd_pcm_new(card, NULL, pcm_player->info->card_device, 1, 0,
+			&pcm_player->pcm);
 	if (result < 0) {
 		snd_stm_printe("ALSA PCM instance creation failed!\n");
 		goto error_pcm;
 	}
 	pcm_player->pcm->private_data = pcm_player;
-	strcpy(pcm_player->pcm->name, component->short_name);
+	strcpy(pcm_player->pcm->name, pcm_player->info->name);
 
 	snd_pcm_set_ops(pcm_player->pcm, SNDRV_PCM_STREAM_PLAYBACK,
 			&snd_stm_pcm_player_pcm_ops);
-
-	/* Create ALSA controls */
-
-	result = snd_stm_fsynth_add_adjustement_ctl(pcm_player->fsynth,
-			pcm_player->fsynth_channel, card, card_device);
-	if (result < 0) {
-		snd_stm_printe("Failed to add ALSA control!\n");
-		goto error_controls;
-	}
 
 	/* Done now */
 
@@ -1105,14 +1031,12 @@ static int __init snd_stm_pcm_player_probe(struct platform_device *pdev)
 
 	snd_printd("--- Probed successfully!\n");
 
-	return result;
+	return 0;
 
-error_controls:
 error_pcm:
 	snd_device_free(card, pcm_player);
 error_device:
-	snd_stm_fdma_release(pcm_player->fdma_channel,
-			pcm_player->fdma_request);
+	snd_stm_fdma_release(pcm_player->fdma_channel);
 error_fdma_request:
 	snd_stm_irq_release(pcm_player->irq, pcm_player);
 error_irq_request:
@@ -1131,8 +1055,7 @@ static int snd_stm_pcm_player_remove(struct platform_device *pdev)
 	snd_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
-	snd_stm_fdma_release(pcm_player->fdma_channel,
-			pcm_player->fdma_request);
+	snd_stm_fdma_release(pcm_player->fdma_channel);
 	snd_stm_irq_release(pcm_player->irq, pcm_player);
 	snd_stm_memory_release(pcm_player->mem_region, pcm_player->base);
 

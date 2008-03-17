@@ -39,14 +39,19 @@ static int __init alsa_card_stm_init(void)
 
 	snd_printd("=== STM ALSA driver is initializing...\n");
 
-#ifdef CONFIG_CPU_SUBTYPE_STB7100
+#if defined(CONFIG_CPU_SUBTYPE_STB7100)
 	result = snd_stm_stx710x_init();
 #endif
-#ifdef CONFIG_CPU_SUBTYPE_STX7200
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+	result = snd_stm_stx7111_init();
+#endif
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
 	result = snd_stm_stx7200_init();
 #endif
-	if (result != 0)
+	if (result != 0) {
+		snd_stm_printe("Can't initialize SOC platform!\n");
 		goto error_soc;
+	}
 
 	result = snd_stm_info_init();
 	if (result != 0) {
@@ -63,20 +68,30 @@ static int __init alsa_card_stm_init(void)
 		snd_stm_printe("Can't initialize frequency synthesizer!\n");
 		goto error_fsynth;
 	}
-	result = snd_stm_dac_internal_init();
+	result = snd_stm_conv_init();
+	if (result != 0) {
+		snd_stm_printe("Can't initialize converters infrastructure!\n");
+		goto error_conv;
+	}
+	result = snd_stm_conv_dummy_init();
+	if (result != 0) {
+		snd_stm_printe("Can't initialize dummy converter!\n");
+		goto error_conv_dummy;
+	}
+	result = snd_stm_conv_internal_dac_init();
 	if (result != 0) {
 		snd_stm_printe("Can't initialize internal DACs!\n");
-		goto error_dac_internal;
+		goto error_conv_internal_dac;
+	}
+	result = snd_stm_conv_i2s_spdif_init();
+	if (result != 0) {
+		snd_stm_printe("Can't initialize I2S to SPDIF converter!\n");
+		goto error_conv_i2s_spdif;
 	}
 	result = snd_stm_synchro_init();
 	if (result != 0) {
 		snd_stm_printe("Can't initialize synchronisation routines!\n");
 		goto error_synchro;
-	}
-	result = snd_stm_i2s_spdif_converter_init();
-	if (result != 0) {
-		snd_stm_printe("Can't initialize I2S to SPDIF converter!\n");
-		goto error_i2s_spdif_converter;
 	}
 	result = snd_stm_pcm_player_init();
 	if (result != 0) {
@@ -113,12 +128,16 @@ error_spdif_player:
 error_pcm_reader:
 	snd_stm_pcm_player_cleanup();
 error_pcm_player:
-	snd_stm_i2s_spdif_converter_cleanup();
-error_i2s_spdif_converter:
 	snd_stm_synchro_cleanup();
 error_synchro:
-	snd_stm_dac_internal_cleanup();
-error_dac_internal:
+	snd_stm_conv_i2s_spdif_cleanup();
+error_conv_i2s_spdif:
+	snd_stm_conv_internal_dac_cleanup();
+error_conv_internal_dac:
+	snd_stm_conv_dummy_cleanup();
+error_conv_dummy:
+	snd_stm_conv_cleanup();
+error_conv:
 	snd_stm_fsynth_cleanup();
 error_fsynth:
 	snd_stm_audio_outputs_cleanup();
@@ -139,12 +158,24 @@ static void __exit alsa_card_stm_exit(void)
 	snd_stm_spdif_player_cleanup();
 	snd_stm_pcm_reader_cleanup();
 	snd_stm_pcm_player_cleanup();
-	snd_stm_i2s_spdif_converter_cleanup();
 	snd_stm_synchro_cleanup();
-	snd_stm_dac_internal_cleanup();
+	snd_stm_conv_i2s_spdif_cleanup();
+	snd_stm_conv_internal_dac_cleanup();
+	snd_stm_conv_dummy_cleanup();
+	snd_stm_conv_cleanup();
 	snd_stm_fsynth_cleanup();
 	snd_stm_audio_outputs_cleanup();
 	snd_stm_info_cleanup();
+
+#if defined(CONFIG_CPU_SUBTYPE_STB7100)
+	snd_stm_stx710x_cleanup();
+#endif
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+	snd_stm_stx7111_cleanup();
+#endif
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
+	snd_stm_stx7200_cleanup();
+#endif
 }
 
 module_init(alsa_card_stm_init)

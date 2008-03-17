@@ -12,23 +12,28 @@
 
 #define AUDCFG_FSYN_CFG__PCM_CLK_SEL__SHIFT 2
 #define AUDCFG_FSYN_CFG__PCM_CLK_SEL__MASK  0xf
-/* Inverted in 7200 vs 710x - madness, isn't it? :-O */
-#ifdef CONFIG_CPU_SUBTYPE_STB7100
+#if defined(CONFIG_CPU_SUBTYPE_STB7100) || defined(CONFIG_CPU_SUBTYPE_STX7111)
 #define AUDCFG_FSYN_CFG__PCM_CLK_SEL__VALUE__EXTCLK(n) (0 << n)
 #define AUDCFG_FSYN_CFG__PCM_CLK_SEL__VALUE__FSYNTH(n) (1 << n)
 #endif
-#ifdef CONFIG_CPU_SUBTYPE_STX7200
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
 #define AUDCFG_FSYN_CFG__PCM_CLK_SEL__VALUE__FSYNTH(n) (0 << n)
 #define AUDCFG_FSYN_CFG__PCM_CLK_SEL__VALUE__EXTCLK(n) (1 << n)
 #endif
 
-/* Doesn't exist in 7200 - again, veeery strange... */
-#ifdef CONFIG_CPU_SUBTYPE_STB7100
+#if defined(CONFIG_CPU_SUBTYPE_STB7100)
 #define AUDCFG_FSYN_CFG__FS_EN__SHIFT              6
 #define AUDCFG_FSYN_CFG__FS_EN__MASK               0x7
 #define AUDCFG_FSYN_CFG__FS_EN__VALUE__DISABLED(n) (0 << n)
 #define AUDCFG_FSYN_CFG__FS_EN__VALUE__ENABLED(n)  (1 << n)
 #endif
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+#define AUDCFG_FSYN_CFG__FS_EN__SHIFT              6
+#define AUDCFG_FSYN_CFG__FS_EN__MASK               0xf
+#define AUDCFG_FSYN_CFG__FS_EN__VALUE__DISABLED(n) (0 << n)
+#define AUDCFG_FSYN_CFG__FS_EN__VALUE__ENABLED(n)  (1 << n)
+#endif
+/* Doesn't exist in 7200 - again, veeery strange... */
 
 #define AUDCFG_FSYN_CFG__NSB__SHIFT             10
 #define AUDCFG_FSYN_CFG__NSB__MASK              0xf
@@ -52,25 +57,25 @@
 #define AUDCFG_FSYN_CFG__BW_SEL__VALUE__BAD_REFERENCE       0x2
 #define AUDCFG_FSYN_CFG__BW_SEL__VALUE__VERY_BAD_REFERENCE  0x3
 
-#ifdef CONFIG_CPU_SUBTYPE_STX7200
-#define AUDCFG_FSYN_CFG__TST_CLK_SEL__SHIFT 18
-#define AUDCFG_FSYN_CFG__TST_CLK_SEL__MASK  0x3
-#endif
-
-#ifdef CONFIG_CPU_SUBTYPE_STX7200
-#define AUDCFG_FSYN_CFG__TST_PCMDAT__SHIFT 20
-#define AUDCFG_FSYN_CFG__TST_PCMDAT__MASK  0xf
-#endif
-
-#ifdef CONFIG_CPU_SUBTYPE_STB7100
+#if defined(CONFIG_CPU_SUBTYPE_STB7100)
 #define AUDCFG_FSYN_CFG__REF_CLK_IN__SHIFT               23
-#endif
-#ifdef CONFIG_CPU_SUBTYPE_STX7200
-#define AUDCFG_FSYN_CFG__REF_CLK_IN__SHIFT               24
-#endif
 #define AUDCFG_FSYN_CFG__REF_CLK_IN__MASK                0x1
 #define AUDCFG_FSYN_CFG__REF_CLK_IN__VALUE__30_MHZ_CLOCK 0x0
 #define AUDCFG_FSYN_CFG__REF_CLK_IN__VALUE__SYSBCLKINALT 0x1
+#endif
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
+#define AUDCFG_FSYN_CFG__REF_CLK_IN__SHIFT               24
+#define AUDCFG_FSYN_CFG__REF_CLK_IN__MASK                0x1
+#define AUDCFG_FSYN_CFG__REF_CLK_IN__VALUE__30_MHZ_CLOCK 0x0
+#define AUDCFG_FSYN_CFG__REF_CLK_IN__VALUE__SYSBCLKINALT 0x1
+#endif
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+#define AUDCFG_FSYN_CFG__REF_CLK_IN__SHIFT               23
+#define AUDCFG_FSYN_CFG__REF_CLK_IN__MASK                0x3
+#define AUDCFG_FSYN_CFG__REF_CLK_IN__VALUE__FE900_CLOCK  0x0
+#define AUDCFG_FSYN_CFG__REF_CLK_IN__VALUE__30_MHZ_CLOCK 0x1
+#define AUDCFG_FSYN_CFG__REF_CLK_IN__VALUE__SYSCLKINALT  0x2
+#endif
 
 
 

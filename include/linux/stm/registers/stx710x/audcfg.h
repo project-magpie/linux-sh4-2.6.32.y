@@ -29,6 +29,7 @@
 #define AUDCFG_IO_CTRL__HDMI_AUD_SRC__MASK                0x1
 #define AUDCFG_IO_CTRL__HDMI_AUD_SRC__VALUE__PCM_PLAYER   0x0
 #define AUDCFG_IO_CTRL__HDMI_AUD_SRC__VALUE__SPDIF_PLAYER 0x1
+/* Actually, in 7109 it seems to be a separate register (offset 0x04...) */
 
 
 

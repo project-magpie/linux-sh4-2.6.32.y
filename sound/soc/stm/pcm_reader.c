@@ -35,9 +35,10 @@
 #include <sound/pcm.h>
 #include <sound/control.h>
 #include <sound/info.h>
+#include <sound/pcm_params.h>
 
 #undef TRACE /* See common.h debug features */
-#define MAGIC 6 /* See common.h debug features */
+#define MAGIC 7 /* See common.h debug features */
 #include "common.h"
 
 
@@ -46,10 +47,8 @@
  * Some hardware-related definitions
  */
 
-#define DEFAULT_FORMAT \
-		(PLAT_STM_AUDIO__FORMAT_I2S | \
-		PLAT_STM_AUDIO__OUTPUT_SUBFRAME_32_BITS | \
-		PLAT_STM_AUDIO__DATA_SIZE_24_BITS)
+#define DEFAULT_FORMAT (SND_STM_FORMAT__I2S | \
+		SND_STM_FORMAT__OUTPUT_SUBFRAME_32_BITS)
 
 #define MAX_CHANNELS 10
 
@@ -61,8 +60,8 @@
 
 struct snd_stm_pcm_reader {
 	/* System informations */
-	const char *name;
-	const char *bus_id;
+	struct snd_stm_pcm_reader_info *info;
+	struct device *device;
 	struct snd_pcm *pcm;
 
 	/* Resources */
@@ -74,15 +73,8 @@ struct snd_stm_pcm_reader {
 	struct stm_dma_req *fdma_request;
 
 	/* Environment settings */
+	struct snd_stm_conv *conv;
 	struct snd_pcm_hw_constraint_list channels_constraint;
-	unsigned int channels_constraint_list[MAX_CHANNELS / 2];
-
-	/* Board-specific settings */
-	unsigned long format;
-	unsigned int oversampling;
-
-	/* Workaround for L/R swap problem (see further) */
-	int lr_pol;
 
 	/* Runtime data */
 	void *buffer;
@@ -120,15 +112,15 @@ static irqreturn_t snd_stm_pcm_reader_irq_handler(int irq, void *dev_id)
 	/* Overflow? */
 	if (unlikely(status & REGFIELD_VALUE(AUD_PCMIN_ITS, OVF, PENDING))) {
 		snd_stm_printe("Overflow detected in PCM reader '%s'!\n",
-				pcm_reader->bus_id);
-		get_dma_residue(pcm_reader->fdma_channel);
+				pcm_reader->device->bus_id);
 		result = IRQ_HANDLED;
+		snd_pcm_stop(pcm_reader->substream, SNDRV_PCM_STATE_XRUN);
 	}
 
 	/* Period successfully played */
 	if (likely(status & REGFIELD_VALUE(AUD_PCMIN_ITS, VSYNC, PENDING))) {
 		snd_stm_printt("Vsync interrupt detected by '%s'!\n",
-				pcm_reader->bus_id);
+				pcm_reader->device->bus_id);
 		/* TODO: Calculate sampling frequency */
 		result = IRQ_HANDLED;
 	}
@@ -153,7 +145,8 @@ static void snd_stm_pcm_reader_callback_node_done(unsigned long param)
 	/* This function will be called after stopping FDMA as well
 	 * and in this moment ALSA is already shut down... */
 	if (pcm_reader->substream) {
-		snd_stm_printt("Period elapsed ('%s')\n", pcm_reader->bus_id);
+		snd_stm_printt("Period elapsed ('%s')\n",
+				pcm_reader->device->bus_id);
 		snd_pcm_period_elapsed(pcm_reader->substream);
 	}
 }
@@ -170,7 +163,7 @@ static void snd_stm_pcm_reader_callback_node_error(unsigned long param)
 	snd_stm_magic_assert(pcm_reader, return);
 
 	snd_stm_printe("Error during FDMA transfer in reader '%s'!\n",
-			pcm_reader->bus_id);
+			pcm_reader->device->bus_id);
 }
 
 static struct snd_pcm_hardware snd_stm_pcm_reader_hw = {
@@ -194,7 +187,7 @@ static struct snd_pcm_hardware snd_stm_pcm_reader_hw = {
 	.channels_min	= 2,
 	.channels_max	= 10,
 
-	.periods_min	= 1,     /* TODO: I would say 2... */
+	.periods_min	= 2,
 	.periods_max	= 1024,  /* TODO: sample, work out this somehow... */
 
 	/* Values below were worked out mostly basing on ST media player
@@ -220,6 +213,19 @@ static int snd_stm_pcm_reader_open(struct snd_pcm_substream *substream)
 	snd_stm_magic_assert(pcm_reader, return -EINVAL);
 	snd_assert(runtime, return -EINVAL);
 
+	snd_pcm_set_sync(substream);  /* TODO: ??? */
+
+	/* Get attached converter handle */
+
+	pcm_reader->conv = snd_stm_conv_get_attached(pcm_reader->device);
+	if (pcm_reader->conv)
+		snd_printd("Converter '%s' attached to '%s'...\n",
+				pcm_reader->conv->name,
+				pcm_reader->device->bus_id);
+	else
+		snd_printd("Warning! No converter attached to '%s'!\n",
+				pcm_reader->device->bus_id);
+
 	/* Set up constraints & pass hardware capabilities info to ALSA */
 
 	result = snd_pcm_hw_constraint_list(runtime, 0,
@@ -236,6 +242,16 @@ static int snd_stm_pcm_reader_open(struct snd_pcm_substream *substream)
 			SNDRV_PCM_HW_PARAM_PERIODS);
 	if (result < 0) {
 		snd_stm_printe("Can't set periods constraint!\n");
+		return result;
+	}
+
+	/* Make the period (so buffer as well) length (in bytes) a multiply
+	 * of a FDMA transfer bytes (which varies depending on channels
+	 * number and sample bytes) */
+	result = snd_stm_pcm_hw_constraint_transfer_bytes(runtime,
+			pcm_reader->info->fdma_max_transfer_size * 4);
+	if (result < 0) {
+		snd_stm_printe("Can't set buffer bytes constraint!\n");
 		return result;
 	}
 
@@ -258,6 +274,50 @@ static int snd_stm_pcm_reader_close(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+static int snd_stm_pcm_reader_hw_free(struct snd_pcm_substream *substream)
+{
+	struct snd_stm_pcm_reader *pcm_reader =
+			snd_pcm_substream_chip(substream);
+	struct snd_pcm_runtime *runtime = substream->runtime;
+
+	snd_stm_printt("snd_stm_pcm_reader_hw_free(substream=0x%p)\n",
+			substream);
+
+	snd_assert(pcm_reader, return -EINVAL);
+	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+	snd_assert(runtime, return -EINVAL);
+
+	/* This callback may be called more than once... */
+
+	if (pcm_reader->buffer) {
+		/* Dispose buffer */
+
+		snd_stm_printt("Freeing buffer for %s: buffer=0x%p, "
+				"dma_addr=0x%08x, dma_area=0x%p, "
+				"dma_bytes=%u\n", pcm_reader->device->bus_id,
+				pcm_reader->buffer, runtime->dma_addr,
+				runtime->dma_area, runtime->dma_bytes);
+
+		iounmap(runtime->dma_area);
+
+		/* TODO: symmetrical to the above (BPA2 etc.) */
+		bigphysarea_free(pcm_reader->buffer, runtime->dma_bytes);
+
+		pcm_reader->buffer = NULL;
+		runtime->dma_area = NULL;
+		runtime->dma_addr = 0;
+		runtime->dma_bytes = 0;
+
+		/* Dispose FDMA parameters (whole list) */
+		dma_params_free(pcm_reader->fdma_params_list);
+		dma_req_free(pcm_reader->fdma_channel,
+				pcm_reader->fdma_request);
+		kfree(pcm_reader->fdma_params_list);
+	}
+
+	return 0;
+}
+
 static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 		struct snd_pcm_hw_params *hw_params)
 {
@@ -265,7 +325,15 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 	struct snd_stm_pcm_reader *pcm_reader =
 			snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	int buffer_bytes, period_bytes, periods;
+	int buffer_bytes, period_bytes, periods, frame_bytes, transfer_bytes;
+	unsigned int transfer_size;
+	struct stm_dma_req_config fdma_req_config = {
+		.rw        = REQ_CONFIG_READ,
+		.opcode    = REQ_CONFIG_OPCODE_4,
+		.increment = 0,
+		.hold_off  = 0,
+		.initiator = pcm_reader->info->fdma_initiator,
+	};
 	int i;
 
 	snd_stm_printt("snd_stm_pcm_reader_hw_params(substream=0x%p,"
@@ -274,6 +342,10 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 	snd_assert(pcm_reader, return -EINVAL);
 	snd_stm_magic_assert(pcm_reader, return -EINVAL);
 	snd_assert(runtime, return -EINVAL);
+
+	/* This function may be called many times, so let's be prepared... */
+	if (pcm_reader->buffer)
+		snd_stm_pcm_reader_hw_free(substream);
 
 	/* Get the numbers... */
 
@@ -288,8 +360,9 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 	/* TODO: move to BPA2, use pcm lib as fallback... */
 	if (!pcm_reader->buffer) {
 		snd_stm_printe("Can't allocate %d bytes buffer for '%s'!\n",
-				buffer_bytes, pcm_reader->bus_id);
-		return -ENOMEM;
+				buffer_bytes, pcm_reader->device->bus_id);
+		result = -ENOMEM;
+		goto error_buf_alloc;
 	}
 
 	runtime->dma_addr = virt_to_phys(pcm_reader->buffer);
@@ -298,22 +371,47 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 
 	snd_stm_printt("Allocated buffer for %s: buffer=0x%p, "
 			"dma_addr=0x%08x, dma_area=0x%p, "
-			"dma_bytes=%u\n", pcm_reader->bus_id,
+			"dma_bytes=%u\n", pcm_reader->device->bus_id,
 			pcm_reader->buffer, runtime->dma_addr,
 			runtime->dma_area, runtime->dma_bytes);
 
-	/* Configure FDMA transfer (one node per period) */
+	/* Set FDMA transfer size (number of opcodes generated
+	 * after request line assertion) */
+
+	frame_bytes = snd_pcm_format_physical_width(params_format(hw_params)) *
+			params_channels(hw_params) / 8;
+	transfer_bytes = snd_stm_pcm_transfer_bytes(frame_bytes,
+			pcm_reader->info->fdma_max_transfer_size * 4);
+	transfer_size = transfer_bytes / 4;
+
+	snd_stm_printt("FDMA request trigger limit set to %d.\n",
+			transfer_size);
+	snd_assert(buffer_bytes % transfer_bytes == 0, return -EINVAL);
+	snd_assert(transfer_size <= pcm_reader->info->fdma_max_transfer_size,
+			return -EINVAL);
+	fdma_req_config.count = transfer_size;
+
+	/* Configure FDMA transfer */
+
+	pcm_reader->fdma_request = dma_req_config(pcm_reader->fdma_channel,
+			pcm_reader->info->fdma_request_line, &fdma_req_config);
+	if (!pcm_reader->fdma_request) {
+		snd_stm_printe("Can't configure FDMA pacing channel for player"
+				" '%s'!\n", pcm_reader->device->bus_id);
+		result = -EINVAL;
+		goto error_req_config;
+	}
 
 	pcm_reader->fdma_params_list =
 			kmalloc(sizeof(*pcm_reader->fdma_params_list) *
-					periods, GFP_KERNEL);
+			periods, GFP_KERNEL);
 	if (!pcm_reader->fdma_params_list) {
 		/* TODO: move to BPA2 (see above) */
 		snd_stm_printe("Can't allocate %d bytes for FDMA parameters "
 				"list!\n", sizeof(*pcm_reader->fdma_params_list)
 				* periods);
-		bigphysarea_free(runtime->dma_area, runtime->dma_bytes);
-		return -ENOMEM;
+		result = -ENOMEM;
+		goto error_params_alloc;
 	}
 
 	snd_stm_printt("Configuring FDMA transfer nodes:\n");
@@ -358,58 +456,27 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 				pcm_reader->fdma_params_list, GFP_KERNEL);
 	if (result < 0) {
 		snd_stm_printe("Can't compile FDMA parameters for"
-				" reader '%s'!\n", pcm_reader->bus_id);
-		bigphysarea_free(runtime->dma_area, runtime->dma_bytes);
-		runtime->dma_area = NULL;
-		runtime->dma_addr = 0;
-		runtime->dma_bytes = 0;
-		kfree(pcm_reader->fdma_params_list);
-		/* TODO: symmetrical to the above (BPA2 etc.) */
-		return -EINVAL;
+				" reader '%s'!\n", pcm_reader->device->bus_id);
+		goto error_compile_list;
 	}
 
 	return 0;
-}
 
-static int snd_stm_pcm_reader_hw_free(struct snd_pcm_substream *substream)
-{
-	struct snd_stm_pcm_reader *pcm_reader =
-			snd_pcm_substream_chip(substream);
-	struct snd_pcm_runtime *runtime = substream->runtime;
-
-	snd_stm_printt("snd_stm_pcm_reader_hw_free(substream=0x%p)\n",
-			substream);
-
-	snd_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
-
-	/* This callback may be called more than once... */
-
-	if (pcm_reader->buffer) {
-		/* Dispose buffer */
-
-		snd_stm_printt("Freeing buffer for %s: buffer=0x%p, "
-				"dma_addr=0x%08x, dma_area=0x%p, "
-				"dma_bytes=%u\n", pcm_reader->bus_id,
-				pcm_reader->buffer, runtime->dma_addr,
-				runtime->dma_area, runtime->dma_bytes);
-
-		iounmap(runtime->dma_area);
-		runtime->dma_area = NULL;
-		runtime->dma_addr = 0;
-		runtime->dma_bytes = 0;
-
-		/* TODO: symmetrical to the above (BPA2 etc.) */
-		bigphysarea_free(pcm_reader->buffer, runtime->dma_bytes);
-		pcm_reader->buffer = NULL;
-
-		/* Dispose FDMA parameters (whole list) */
-		dma_params_free(pcm_reader->fdma_params_list);
-		kfree(pcm_reader->fdma_params_list);
-	}
-
-	return 0;
+error_compile_list:
+	dma_req_free(pcm_reader->fdma_channel,
+			pcm_reader->fdma_request);
+error_req_config:
+	iounmap(runtime->dma_area);
+	/* TODO: symmetrical to the above (BPA2 etc.) */
+	bigphysarea_free(pcm_reader->buffer, runtime->dma_bytes);
+	pcm_reader->buffer = NULL;
+	runtime->dma_area = NULL;
+	runtime->dma_addr = 0;
+	runtime->dma_bytes = 0;
+error_params_alloc:
+	kfree(pcm_reader->fdma_params_list);
+error_buf_alloc:
+	return result;
 }
 
 static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
@@ -417,6 +484,7 @@ static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
 	struct snd_stm_pcm_reader *pcm_reader =
 			snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
+	unsigned int format, lr_pol;
 
 	snd_stm_printt("snd_stm_pcm_reader_prepare(substream=0x%p)\n",
 			substream);
@@ -424,6 +492,70 @@ static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
 	snd_assert(pcm_reader, return -EINVAL);
 	snd_stm_magic_assert(pcm_reader, return -EINVAL);
 	snd_assert(runtime, return -EINVAL);
+
+	/* Get format value from connected converter */
+
+	if (pcm_reader->conv)
+		format = snd_stm_conv_get_format(pcm_reader->conv);
+	else
+		format = DEFAULT_FORMAT;
+
+	/* Number of bits per subframe (which is one channel sample)
+	 * on input. */
+
+	switch (format & SND_STM_FORMAT__OUTPUT_SUBFRAME_MASK) {
+	case SND_STM_FORMAT__OUTPUT_SUBFRAME_32_BITS:
+		snd_stm_printt("- 32 bits per subframe\n");
+		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT, NBIT, 32_BITS);
+		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
+				DATA_SIZE, 24_BITS);
+		break;
+	case SND_STM_FORMAT__OUTPUT_SUBFRAME_16_BITS:
+		snd_stm_printt("- 16 bits per subframe\n");
+		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT, NBIT, 16_BITS);
+		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
+				DATA_SIZE, 16_BITS);
+		break;
+	default:
+		snd_BUG();
+		return -EINVAL;
+	}
+
+	/* Serial audio interface format -
+	 * for detailed explanation see ie.
+	 * http://www.cirrus.com/en/pubs/appNote/AN282REV1.pdf */
+
+	REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
+			ORDER, MSB_FIRST);
+	REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
+			SCLK_EDGE, RISING);
+	switch (format & SND_STM_FORMAT__MASK) {
+	case SND_STM_FORMAT__I2S:
+		snd_stm_printt("- I2S\n");
+		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT, ALIGN, LEFT);
+		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
+				PADDING, 1_CYCLE_DELAY);
+		lr_pol = AUD_PCMOUT_FMT__LR_POL__VALUE__LEFT_LOW;
+		break;
+	case SND_STM_FORMAT__LEFT_JUSTIFIED:
+		snd_stm_printt("- left justified\n");
+		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT, ALIGN, LEFT);
+		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
+				PADDING, NO_DELAY);
+		lr_pol = AUD_PCMOUT_FMT__LR_POL__VALUE__LEFT_HIGH;
+		break;
+	case SND_STM_FORMAT__RIGHT_JUSTIFIED:
+		snd_stm_printt("- right justified\n");
+		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
+				ALIGN, RIGHT);
+		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
+				PADDING, NO_DELAY);
+		lr_pol = AUD_PCMOUT_FMT__LR_POL__VALUE__LEFT_HIGH;
+		break;
+	default:
+		snd_BUG();
+		return -EINVAL;
+	}
 
 	/* Configure data memory format */
 
@@ -441,8 +573,7 @@ static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
 		 * phases are shifted by one sample...
 		 * (ask me for more details if above is not clear ;-)
 		 * TODO this somehow better... */
-		REGFIELD_POKE(pcm_reader->base, AUD_PCMIN_FMT, LR_POL,
-				!pcm_reader->lr_pol);
+		REGFIELD_POKE(pcm_reader->base, AUD_PCMIN_FMT, LR_POL, !lr_pol);
 		break;
 
 	case SNDRV_PCM_FORMAT_S32_LE:
@@ -453,13 +584,12 @@ static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
 
 		/* In x/0 bits memory mode there is no problem with
 		 * L/R polarity */
-		REGFIELD_POKE(pcm_reader->base, AUD_PCMIN_FMT, LR_POL,
-				pcm_reader->lr_pol);
-			break;
+		REGFIELD_POKE(pcm_reader->base, AUD_PCMIN_FMT, LR_POL, lr_pol);
+		break;
 
 	default:
-		snd_assert(0, return -EINVAL);
-		break;
+		snd_BUG();
+		return -EINVAL;
 	}
 
 	/* Number of channels... */
@@ -499,7 +629,7 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 			pcm_reader->fdma_params_list);
 	if (result != 0) {
 		snd_stm_printe("Can't launch FDMA transfer for reader '%s'!\n",
-				pcm_reader->bus_id);
+				pcm_reader->device->bus_id);
 		return -EINVAL;
 	}
 
@@ -512,6 +642,13 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 
 	REGFIELD_SET(pcm_reader->base, AUD_PCMIN_IT_EN_SET, VSYNC, SET);
 	REGFIELD_SET(pcm_reader->base, AUD_PCMIN_IT_EN_SET, OVF, SET);
+
+	/* Wake up & unmute ADC */
+
+	if (pcm_reader->conv) {
+		snd_stm_conv_enable(pcm_reader->conv);
+		snd_stm_conv_unmute(pcm_reader->conv);
+	}
 
 	return 0;
 }
@@ -526,6 +663,13 @@ static inline int snd_stm_pcm_reader_stop(struct snd_pcm_substream *substream)
 
 	snd_assert(pcm_reader, return -EINVAL);
 	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+
+	/* Mute & shutdown DAC */
+
+	if (pcm_reader->conv) {
+		snd_stm_conv_mute(pcm_reader->conv);
+		snd_stm_conv_disable(pcm_reader->conv);
+	}
 
 	/* Disable interrupts */
 
@@ -636,6 +780,7 @@ static void snd_stm_pcm_reader_dump_registers(struct snd_info_entry *entry,
 
 static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 {
+	int result;
 	struct snd_stm_pcm_reader *pcm_reader = snd_device->device_data;
 
 	snd_stm_printt("snd_stm_pcm_reader_register(snd_device=0x%p)\n",
@@ -644,7 +789,7 @@ static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 	snd_assert(pcm_reader, return -EINVAL);
 	snd_stm_magic_assert(pcm_reader, return -EINVAL);
 
-	/* Initialize hardware (format etc.) */
+	/* Set reset mode */
 
 	REGFIELD_SET(pcm_reader->base, AUD_PCMIN_RST, RSTP, RESET);
 
@@ -652,101 +797,20 @@ static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 	 * And what it actually means? */
 	REGFIELD_SET(pcm_reader->base, AUD_PCMIN_CTRL, RND, NO_ROUNDING);
 
-	if (pcm_reader->format & PLAT_STM_AUDIO__CUSTOM) {
-		/* Custom format settings... Well, you asked for it! ;-) */
-		REGISTER_POKE(pcm_reader->base, AUD_PCMIN_CTRL,
-				pcm_reader->format & !PLAT_STM_AUDIO__CUSTOM);
-	} else {
-		/* Number of bits per subframe (which is one channel sample)
-		 * on input. */
-
-		switch (pcm_reader->format &
-				PLAT_STM_AUDIO__OUTPUT_SUBFRAME_MASK) {
-		case PLAT_STM_AUDIO__OUTPUT_SUBFRAME_32_BITS:
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					NBIT, 32_BITS);
-			break;
-		case PLAT_STM_AUDIO__OUTPUT_SUBFRAME_16_BITS:
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					NBIT, 16_BITS);
-			break;
-		default:
-			snd_assert(0, return -EINVAL);
-			break;
-		}
-
-		/* Number of meaningful bits in subframe -
-		 * the rest are ignored */
-
-		switch (pcm_reader->format & PLAT_STM_AUDIO__DATA_SIZE_MASK) {
-		case PLAT_STM_AUDIO__DATA_SIZE_24_BITS:
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					DATA_SIZE, 24_BITS);
-			break;
-		case PLAT_STM_AUDIO__DATA_SIZE_20_BITS:
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					DATA_SIZE, 20_BITS);
-			break;
-		case PLAT_STM_AUDIO__DATA_SIZE_18_BITS:
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					DATA_SIZE, 18_BITS);
-			break;
-		case PLAT_STM_AUDIO__DATA_SIZE_16_BITS:
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					DATA_SIZE, 16_BITS);
-			break;
-		default:
-			snd_assert(0, return -EINVAL);
-			break;
-		}
-
-		/* Serial audio interface format -
-		 * for detailed explanation see ie.
-		 * http://www.cirrus.com/en/pubs/appNote/AN282REV1.pdf */
-
-		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-				ORDER, MSB_FIRST);
-		REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-				SCLK_EDGE, RISING);
-		switch (pcm_reader->format & PLAT_STM_AUDIO__FORMAT_MASK) {
-		case PLAT_STM_AUDIO__FORMAT_I2S:
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					ALIGN, LEFT);
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					PADDING, 1_CYCLE_DELAY);
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					LR_POL, LEFT_LOW);
-			break;
-		case PLAT_STM_AUDIO__FORMAT_LEFT_JUSTIFIED:
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					ALIGN, LEFT);
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					PADDING, NO_DELAY);
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					LR_POL, LEFT_HIGH);
-			break;
-		case PLAT_STM_AUDIO__FORMAT_RIGHT_JUSTIFIED:
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					ALIGN, RIGHT);
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					PADDING, NO_DELAY);
-			REGFIELD_SET(pcm_reader->base, AUD_PCMIN_FMT,
-					LR_POL, LEFT_HIGH);
-			break;
-		default:
-			snd_assert(0, return -EINVAL);
-			break;
-		}
-	}
-
-	/* Workaround for 16/16 memory format L/R channels swap (see above) */
-	pcm_reader->lr_pol = REGFIELD_PEEK(pcm_reader->base,
-			AUD_PCMIN_FMT, LR_POL);
-
 	/* Registers view in ALSA's procfs */
 
-	snd_stm_info_register(&pcm_reader->proc_entry, pcm_reader->bus_id,
+	snd_stm_info_register(&pcm_reader->proc_entry,
+			pcm_reader->device->bus_id,
 			snd_stm_pcm_reader_dump_registers, pcm_reader);
+
+	/* Create ALSA controls */
+
+	result = snd_stm_conv_add_route_ctl(pcm_reader->device,
+			snd_device->card, pcm_reader->info->card_device);
+	if (result < 0) {
+		snd_stm_printe("Failed to add converter route control!\n");
+		return result;
+	}
 
 	return 0;
 }
@@ -763,7 +827,7 @@ static int snd_stm_pcm_reader_disconnect(struct snd_device *snd_device)
 	return 0;
 }
 
-static struct snd_device_ops snd_stm_pcm_reader_ops = {
+static struct snd_device_ops snd_stm_pcm_reader_snd_device_ops = {
 	.dev_register = snd_stm_pcm_reader_register,
 	.dev_disconnect = snd_stm_pcm_reader_disconnect,
 };
@@ -771,76 +835,17 @@ static struct snd_device_ops snd_stm_pcm_reader_ops = {
 
 
 /*
- * Driver initialization
+ * Platform driver routines
  */
-
-#define FORMAT_STRING(f) \
-	((f & PLAT_STM_AUDIO__CUSTOM) == \
-		PLAT_STM_AUDIO__CUSTOM ? "custom" : \
-	(f & PLAT_STM_AUDIO__FORMAT_MASK) == \
-		PLAT_STM_AUDIO__FORMAT_I2S ? "I2S, " : \
-	(f & PLAT_STM_AUDIO__FORMAT_MASK) == \
-		PLAT_STM_AUDIO__FORMAT_LEFT_JUSTIFIED ? \
-		"left justified, " : \
-	(f & PLAT_STM_AUDIO__FORMAT_MASK) == \
-		PLAT_STM_AUDIO__FORMAT_RIGHT_JUSTIFIED ? \
-		"right justified, " : \
-	"")
-
-#define DATA_SIZE_STRING(f) \
-	((f & PLAT_STM_AUDIO__CUSTOM) == \
-		PLAT_STM_AUDIO__CUSTOM ? "" : \
-	(f & PLAT_STM_AUDIO__DATA_SIZE_MASK) == \
-		PLAT_STM_AUDIO__DATA_SIZE_24_BITS ? \
-		"24 bits data, " : \
-	(f & PLAT_STM_AUDIO__DATA_SIZE_MASK) == \
-		PLAT_STM_AUDIO__DATA_SIZE_20_BITS ? \
-		"20 bits data, " : \
-	(f & PLAT_STM_AUDIO__DATA_SIZE_MASK) == \
-		PLAT_STM_AUDIO__DATA_SIZE_18_BITS ? \
-		"18 bits data, " : \
-	(f & PLAT_STM_AUDIO__DATA_SIZE_MASK) == \
-		PLAT_STM_AUDIO__DATA_SIZE_16_BITS ? \
-		"16 bits data, " : \
-	"")
-
-#define OUTPUT_SUBFRAME_STRING(f) \
-	((f & PLAT_STM_AUDIO__CUSTOM) == \
-		PLAT_STM_AUDIO__CUSTOM ? "" : \
-	(f & PLAT_STM_AUDIO__OUTPUT_SUBFRAME_MASK) == \
-		PLAT_STM_AUDIO__OUTPUT_SUBFRAME_32_BITS ? \
-		"32 bits output subframe" : \
-	(f & PLAT_STM_AUDIO__OUTPUT_SUBFRAME_MASK) == \
-		PLAT_STM_AUDIO__OUTPUT_SUBFRAME_16_BITS ? \
-		"16 bits output subframe" : \
-	"")
-
-static struct stm_dma_req_config snd_stm_pcm_reader_fdma_request_config = {
-	.rw        = REQ_CONFIG_READ,
-	.opcode    = REQ_CONFIG_OPCODE_4,
-	.count     = 1,
-	.increment = 0,
-	.hold_off  = 0,
-	/* .initiator value is defined in platform device resources */
-};
 
 static int __init snd_stm_pcm_reader_probe(struct platform_device *pdev)
 {
 	int result = 0;
-	struct plat_audio_config *config = pdev->dev.platform_data;
-	struct snd_stm_component *component;
 	struct snd_stm_pcm_reader *pcm_reader;
 	struct snd_card *card;
-	int card_device;
-	int *channels_list;
-	int channels_list_len;
-	const char *card_id;
 	int i;
 
 	snd_printd("--- Probing device '%s'...\n", pdev->dev.bus_id);
-
-	component = snd_stm_components_get(pdev->dev.bus_id);
-	snd_assert(component, return -EINVAL);
 
 	pcm_reader = kzalloc(sizeof(*pcm_reader), GFP_KERNEL);
 	if (!pcm_reader) {
@@ -850,7 +855,9 @@ static int __init snd_stm_pcm_reader_probe(struct platform_device *pdev)
 		goto error_alloc;
 	}
 	snd_stm_magic_set(pcm_reader);
-	pcm_reader->bus_id = pdev->dev.bus_id;
+	pcm_reader->info = pdev->dev.platform_data;
+	snd_assert(pcm_reader->info != NULL, return -EINVAL);
+	pcm_reader->device = &pdev->dev;
 
 	/* Get resources */
 
@@ -872,60 +879,29 @@ static int __init snd_stm_pcm_reader_probe(struct platform_device *pdev)
 		goto error_irq_request;
 	}
 
-	result = snd_stm_fdma_request(pdev, &pcm_reader->fdma_channel,
-			&pcm_reader->fdma_request,
-			&snd_stm_pcm_reader_fdma_request_config);
+	result = snd_stm_fdma_request(pdev, &pcm_reader->fdma_channel);
 	if (result < 0) {
 		snd_stm_printe("FDMA request failed!\n");
 		goto error_fdma_request;
 	}
 
-	/* Get component caps */
+	/* Get component capabilities */
 
-	snd_printd("Reader's name is '%s'\n", component->short_name);
+	snd_printd("Reader's name is '%s'\n", pcm_reader->info->name);
 
-	result = snd_stm_cap_get_string(component, "card_id", &card_id);
-	snd_assert(result == 0, return -EINVAL);
-	card = snd_stm_cards_get(card_id);
+	card = snd_stm_cards_get(pcm_reader->info->card_id);
 	snd_assert(card != NULL, return -EINVAL);
-	snd_printd("Reader will be a member of a card '%s'...\n", card_id);
+	snd_printd("Reader will be a member of a card '%s' as a PCM device "
+			"no. %d.\n", card->id, pcm_reader->info->card_device);
 
-	result = snd_stm_cap_get_number(component, "card_device",
-			&card_device);
-	snd_assert(result == 0, return -EINVAL);
-	snd_printd("... as a PCM device no %d.\n", card_device);
-
-	result = snd_stm_cap_get_list(component, "channels", &channels_list,
-			&channels_list_len);
-	snd_assert(result == 0, return -EINVAL);
-	memcpy(pcm_reader->channels_constraint_list, channels_list,
-			sizeof(*channels_list) * channels_list_len);
-	pcm_reader->channels_constraint.list =
-			pcm_reader->channels_constraint_list;
-	pcm_reader->channels_constraint.count =
-		(unsigned int)channels_list_len;
+	snd_assert(pcm_reader->info->channels != NULL, return -EINVAL);
+	snd_assert(pcm_reader->info->channels_num > 0, return -EINVAL);
+	pcm_reader->channels_constraint.list = pcm_reader->info->channels;
+	pcm_reader->channels_constraint.count = pcm_reader->info->channels_num;
 	pcm_reader->channels_constraint.mask = 0;
-	for (i = 0; i < channels_list_len; i++)
-		snd_printd("Reader capable of capturing %d-channels PCM.\n",
-				channels_list[i]);
-
-	/* Board-specific configuration */
-
-	if (config) {
-		pcm_reader->format = config->pcm_format;
-		snd_printd("Using board specific PCM format"
-				" (%s%s%s, 0x%08lx).\n",
-				FORMAT_STRING(pcm_reader->format),
-				DATA_SIZE_STRING(pcm_reader->format),
-				OUTPUT_SUBFRAME_STRING(pcm_reader->format),
-				pcm_reader->format);
-	} else {
-		pcm_reader->format = DEFAULT_FORMAT;
-		snd_printd("Using default PCM format (%s%s%s).\n",
-				FORMAT_STRING(pcm_reader->format),
-				DATA_SIZE_STRING(pcm_reader->format),
-				OUTPUT_SUBFRAME_STRING(pcm_reader->format));
-	}
+	for (i = 0; i < pcm_reader->info->channels_num; i++)
+		snd_printd("Player capable of playing %u-channels PCM.\n",
+				pcm_reader->info->channels[i]);
 
 	/* Preallocate buffer */
 
@@ -934,7 +910,7 @@ static int __init snd_stm_pcm_reader_probe(struct platform_device *pdev)
 	/* Create ALSA lowlevel device */
 
 	result = snd_device_new(card, SNDRV_DEV_LOWLEVEL, pcm_reader,
-			&snd_stm_pcm_reader_ops);
+			&snd_stm_pcm_reader_snd_device_ops);
 	if (result < 0) {
 		snd_stm_printe("ALSA low level device creation failed!\n");
 		goto error_device;
@@ -942,13 +918,14 @@ static int __init snd_stm_pcm_reader_probe(struct platform_device *pdev)
 
 	/* Create ALSA PCM device */
 
-	result = snd_pcm_new(card, NULL, card_device, 0, 1, &pcm_reader->pcm);
+	result = snd_pcm_new(card, NULL, pcm_reader->info->card_device, 0, 1,
+		       &pcm_reader->pcm);
 	if (result < 0) {
 		snd_stm_printe("ALSA PCM instance creation failed!\n");
 		goto error_pcm;
 	}
 	pcm_reader->pcm->private_data = pcm_reader;
-	strcpy(pcm_reader->pcm->name, component->short_name);
+	strcpy(pcm_reader->pcm->name, pcm_reader->info->name);
 
 	snd_pcm_set_ops(pcm_reader->pcm, SNDRV_PCM_STREAM_CAPTURE,
 			&snd_stm_pcm_reader_pcm_ops);
@@ -959,13 +936,12 @@ static int __init snd_stm_pcm_reader_probe(struct platform_device *pdev)
 
 	snd_printd("--- Probed successfully!\n");
 
-	return result;
+	return 0;
 
 error_pcm:
 	snd_device_free(card, pcm_reader);
 error_device:
-	snd_stm_fdma_release(pcm_reader->fdma_channel,
-			pcm_reader->fdma_request);
+	snd_stm_fdma_release(pcm_reader->fdma_channel);
 error_fdma_request:
 	snd_stm_irq_release(pcm_reader->irq, pcm_reader);
 error_irq_request:
@@ -984,8 +960,7 @@ static int snd_stm_pcm_reader_remove(struct platform_device *pdev)
 	snd_assert(pcm_reader, return -EINVAL);
 	snd_stm_magic_assert(pcm_reader, return -EINVAL);
 
-	snd_stm_fdma_release(pcm_reader->fdma_channel,
-			pcm_reader->fdma_request);
+	snd_stm_fdma_release(pcm_reader->fdma_channel);
 	snd_stm_irq_release(pcm_reader->irq, pcm_reader);
 	snd_stm_memory_release(pcm_reader->mem_region, pcm_reader->base);
 

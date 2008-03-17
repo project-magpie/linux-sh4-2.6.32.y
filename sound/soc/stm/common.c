@@ -24,11 +24,14 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/mm.h>
+#include <linux/platform_device.h>
 #include <linux/stm/soc.h>
 #include <sound/driver.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/info.h>
+#include <sound/pcm_params.h>
+#include <sound/asoundef.h>
 
 #undef TRACE
 #include "common.h"
@@ -123,41 +126,47 @@ struct snd_card __init *snd_stm_cards_get(const char *id)
 	return NULL;
 }
 
-struct snd_card __init *snd_stm_cards_default(const char **id)
+struct snd_card __init *snd_stm_cards_default(void)
 {
-	if (snd_stm_default && id)
-		*id = snd_stm_default->id;
-
 	return snd_stm_default;
 }
 
 
 
 /*
- * Components management
+ * Device management
  */
 
-static struct snd_stm_component *snd_stm_components;
-static int snd_stm_num_components;
-
-int __init snd_stm_components_init(struct snd_stm_component *components,
-		int num_components)
+static void dummy_release(struct device *dev)
 {
-	snd_stm_components = components;
-	snd_stm_num_components = num_components;
-
-	return 0;
 }
 
-struct snd_stm_component __init *snd_stm_components_get(const char *bus_id)
+int __init snd_stm_add_plaform_devices(struct platform_device **devices,
+		int cnt)
+{
+	int result = 0;
+	int i;
+
+	for (i = 0; i < cnt; i++) {
+		devices[i]->dev.release = dummy_release;
+		result = platform_device_register(devices[i]);
+		if (result != 0) {
+			while (--i >= 0)
+				platform_device_unregister(devices[i]);
+			break;
+		}
+	}
+
+	return result;
+}
+
+void __exit snd_stm_remove_plaform_devices(struct platform_device **devices,
+		int cnt)
 {
 	int i;
 
-	for (i = 0; i < snd_stm_num_components; i++)
-		if (strcmp(snd_stm_components[i].bus_id, bus_id) == 0)
-			return &snd_stm_components[i];
-
-	return NULL;
+	for (i = 0; i < cnt; i++)
+		platform_device_unregister(devices[i]);
 }
 
 static int snd_stm_bus_id_match(struct device *device, void *bus_id)
@@ -165,91 +174,14 @@ static int snd_stm_bus_id_match(struct device *device, void *bus_id)
 	return strcmp(device->bus_id, bus_id) == 0;
 }
 
-struct device __init *snd_stm_device_get(const char *bus_id)
+struct device *snd_stm_find_device(struct bus_type *bus,
+		const char *bus_id)
 {
-	return bus_find_device(&platform_bus_type, NULL,
-			(void *)bus_id, snd_stm_bus_id_match);
+	if (bus == NULL)
+		bus = &platform_bus_type;
+	return bus_find_device(bus, NULL, (void *)bus_id, snd_stm_bus_id_match);
 }
 
-
-
-/*
- * Component capabilities access
- */
-
-int __init snd_stm_cap_set(struct snd_stm_component *component,
-		const char *name, union snd_stm_value value)
-{
-	int result = -1;
-	int i;
-
-	for (i = 0; i < component->num_caps; i++)
-		if (strcmp(name, component->caps[i].name) == 0) {
-			component->caps[i].value = value;
-			result = 0;
-			break;
-		}
-
-	return result;
-}
-
-int __init snd_stm_cap_get(struct snd_stm_component *component,
-		const char *name, union snd_stm_value *value)
-{
-	int result = -1;
-	int i;
-
-	for (i = 0; i < component->num_caps; i++)
-		if (strcmp(name, component->caps[i].name) == 0) {
-			*value = component->caps[i].value;
-			result = 0;
-			break;
-		}
-
-	return result;
-}
-
-int __init snd_stm_cap_get_number(struct snd_stm_component *component,
-		const char *name, int *number)
-{
-	union snd_stm_value value;
-	int result = snd_stm_cap_get(component, name, &value);
-
-	*number = value.number;
-	return result;
-}
-
-int __init snd_stm_cap_get_string(struct snd_stm_component *component,
-		const char *name, const char **string)
-{
-	union snd_stm_value value;
-	int result = snd_stm_cap_get(component, name, &value);
-
-	*string = value.string;
-	return result;
-}
-
-int __init snd_stm_cap_get_range(struct snd_stm_component *component,
-		const char *name, int *from, int *to)
-{
-	union snd_stm_value value;
-	int result = snd_stm_cap_get(component, name, &value);
-
-	*from = value.range.from;
-	*to = value.range.to;
-	return result;
-}
-
-int __init snd_stm_cap_get_list(struct snd_stm_component *component,
-		const char *name, int **numbers, int *len)
-{
-	union snd_stm_value value;
-	int result = snd_stm_cap_get(component, name, &value);
-
-	*numbers = value.list.numbers;
-	*len = value.list.len;
-	return result;
-}
 
 
 
@@ -327,13 +259,11 @@ int  __init snd_stm_irq_request(struct platform_device *pdev,
 }
 
 int __init snd_stm_fdma_request(struct platform_device *pdev,
-		int *channel, struct stm_dma_req **request,
-		struct stm_dma_req_config *config)
+		unsigned int *channel)
 {
 	static const char *fdmac_id[] = { STM_DMAC_ID, NULL };
 	static const char *fdma_cap_lb[] = { STM_DMA_CAP_LOW_BW, NULL };
 	static const char *fdma_cap_hb[] = { STM_DMA_CAP_HIGH_BW, NULL };
-	struct resource *resource;
 
 	*channel = request_dma_bycap(fdmac_id, fdma_cap_lb, pdev->name);
 	if (*channel < 0) {
@@ -346,39 +276,7 @@ int __init snd_stm_fdma_request(struct platform_device *pdev,
 	}
 	snd_printd("FDMA channel: %d\n", *channel);
 
-	resource = platform_get_resource_byname(pdev, IORESOURCE_DMA,
-			"initiator");
-	if (!resource) {
-		snd_stm_printe("Failed to platform_get_resource"
-				"(IORESOURCE_DMA, initiator)!\n");
-		return -ENODEV;
-	}
-	snd_printd("FDMA initiator: %u\n", resource->start);
-	config->initiator = resource->start;
-
-	resource = platform_get_resource_byname(pdev, IORESOURCE_DMA,
-			"request_line");
-	if (!resource) {
-		snd_stm_printe("Failed to platform_get_resource"
-				"(IORESOURCE_DMA, request_line)!\n");
-		return -ENODEV;
-	}
-	snd_printd("FDMA request line: %u\n", resource->start);
-
-	*request = dma_req_config(*channel, resource->start, config);
-	if (!*request) {
-		snd_stm_printe("Failed to dma_req_config!\n");
-		return -EINVAL;
-	}
-
 	return 0;
-}
-
-void snd_stm_fdma_release(unsigned int channel,
-		struct stm_dma_req *request)
-{
-	dma_req_free(channel, request);
-	free_dma(channel);
 }
 
 
@@ -445,7 +343,7 @@ void snd_stm_info_unregister(struct snd_info_entry *entry)
 
 
 /*
- * PCM buffer memory mapping
+ * ALSA PCM buffer memory mapping
  */
 
 static struct page *snd_stm_mmap_nopage(struct vm_area_struct *area,
@@ -505,6 +403,105 @@ int snd_stm_mmap(struct snd_pcm_substream *substream,
 
 
 /*
+ * Common ALSA parameters constraints
+ */
+
+/*
+#define FIXED_TRANSFER_BYTES max_transfer_bytes > 16 ? 16 : max_transfer_bytes
+#define FIXED_TRANSFER_BYTES max_transfer_bytes
+*/
+
+#ifdef FIXED_TRANSFER_BYTES
+
+int snd_stm_pcm_transfer_bytes(unsigned int bytes_per_frame,
+		unsigned int max_transfer_bytes)
+{
+	int transfer_bytes = FIXED_TRANSFER_BYTES;
+
+	snd_stm_printt("snd_stm_pcm_transfer_bytes(bytes_per_frame=%u, "
+			"max_transfer_bytes=%u) = %u (FIXED)\n",
+			bytes_per_frame, max_transfer_bytes, transfer_bytes);
+
+	return transfer_bytes;
+}
+
+int snd_stm_pcm_hw_constraint_transfer_bytes(struct snd_pcm_runtime *runtime,
+		unsigned int max_transfer_bytes)
+{
+	return snd_pcm_hw_constraint_step(runtime, 0,
+			SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
+			snd_stm_pcm_transfer_bytes(0, max_transfer_bytes));
+}
+
+#else
+
+int snd_stm_pcm_transfer_bytes(unsigned int bytes_per_frame,
+		unsigned int max_transfer_bytes)
+{
+	unsigned int transfer_bytes;
+
+	for (transfer_bytes = bytes_per_frame;
+			transfer_bytes * 2 < max_transfer_bytes;
+			transfer_bytes *= 2)
+		;
+
+	snd_stm_printt("snd_stm_pcm_transfer_bytes(bytes_per_frame=%u, "
+			"max_transfer_bytes=%u) = %u\n", bytes_per_frame,
+			max_transfer_bytes, transfer_bytes);
+
+	return transfer_bytes;
+}
+
+static int snd_stm_pcm_hw_rule_transfer_bytes(struct snd_pcm_hw_params *params,
+		struct snd_pcm_hw_rule *rule)
+{
+	int changed = 0;
+	unsigned int max_transfer_bytes = (unsigned int)rule->private;
+	struct snd_interval *period_bytes = hw_param_interval(params,
+			SNDRV_PCM_HW_PARAM_PERIOD_BYTES);
+	struct snd_interval *frame_bits = hw_param_interval(params,
+			SNDRV_PCM_HW_PARAM_FRAME_BITS);
+	unsigned int transfer_bytes, n;
+
+	transfer_bytes = snd_stm_pcm_transfer_bytes(frame_bits->min / 8,
+			max_transfer_bytes);
+	n = period_bytes->min % transfer_bytes;
+	if (n != 0 || period_bytes->openmin) {
+		period_bytes->min += transfer_bytes - n;
+		changed = 1;
+	}
+
+	transfer_bytes = snd_stm_pcm_transfer_bytes(frame_bits->max / 8,
+			max_transfer_bytes);
+	n = period_bytes->max % transfer_bytes;
+	if (n != 0 || period_bytes->openmax) {
+		period_bytes->max -= n;
+		changed = 1;
+	}
+
+	if (snd_interval_checkempty(period_bytes)) {
+		period_bytes->empty = 1;
+		return -EINVAL;
+	}
+
+	return changed;
+}
+
+int snd_stm_pcm_hw_constraint_transfer_bytes(struct snd_pcm_runtime *runtime,
+		unsigned int max_transfer_bytes)
+{
+	return snd_pcm_hw_rule_add(runtime, 0, SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
+			snd_stm_pcm_hw_rule_transfer_bytes,
+			(void *)max_transfer_bytes,
+			SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
+			SNDRV_PCM_HW_PARAM_FRAME_BITS, -1);
+}
+
+#endif
+
+
+
+/*
  * Common ALSA controls routines
  */
 
@@ -519,6 +516,69 @@ int snd_stm_ctl_boolean_info(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+int snd_stm_ctl_iec958_info(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_IEC958;
+	uinfo->count = 1;
+
+	return 0;
+}
+
+
+int snd_stm_ctl_iec958_mask_get_con(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.iec958.status[0] = IEC958_AES0_PROFESSIONAL |
+			IEC958_AES0_NONAUDIO |
+			IEC958_AES0_CON_NOT_COPYRIGHT |
+			IEC958_AES0_CON_EMPHASIS |
+			IEC958_AES0_CON_MODE;
+	ucontrol->value.iec958.status[1] = IEC958_AES1_CON_CATEGORY |
+			IEC958_AES1_CON_ORIGINAL;
+	ucontrol->value.iec958.status[2] = IEC958_AES2_CON_SOURCE |
+			IEC958_AES2_CON_CHANNEL;
+	ucontrol->value.iec958.status[3] = IEC958_AES3_CON_FS |
+			IEC958_AES3_CON_CLOCK;
+	ucontrol->value.iec958.status[4] = IEC958_AES4_CON_MAX_WORDLEN_24 |
+			IEC958_AES4_CON_WORDLEN;
+
+	return 0;
+}
+
+int snd_stm_ctl_iec958_mask_get_pro(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.iec958.status[0] = IEC958_AES0_PROFESSIONAL |
+			IEC958_AES0_NONAUDIO |
+			IEC958_AES0_PRO_EMPHASIS |
+			IEC958_AES0_PRO_FREQ_UNLOCKED |
+			IEC958_AES0_PRO_FS;
+	ucontrol->value.iec958.status[1] = IEC958_AES1_PRO_MODE |
+			IEC958_AES1_PRO_USERBITS;
+	ucontrol->value.iec958.status[2] = IEC958_AES2_PRO_SBITS |
+			IEC958_AES2_PRO_WORDLEN;
+
+	return 0;
+}
+
+int snd_stm_iec958_cmp(const struct snd_aes_iec958 *a,
+		const struct snd_aes_iec958 *b)
+{
+	int result;
+
+	snd_assert(a != NULL, return -EINVAL);
+	snd_assert(b != NULL, return -EINVAL);
+
+	result = memcmp(a->status, b->status, sizeof(a->status));
+	if (result == 0)
+		result = memcmp(a->subcode, b->subcode, sizeof(a->subcode));
+	if (result == 0)
+		result = memcmp(a->dig_subframe, b->dig_subframe,
+				sizeof(a->dig_subframe));
+
+	return result;
+}
 
 
 /*
@@ -540,4 +600,42 @@ void snd_stm_hex_dump(void *data, int size)
 		if (i % 16 == 15 || i == size - 1)
 			printk(KERN_DEBUG "%s\n", line);
 	}
+}
+
+/* IEC958 structure dump */
+void snd_stm_iec958_dump(const struct snd_aes_iec958 *vuc)
+{
+	int i;
+	char line[54];
+	const unsigned char *data;
+
+	printk(KERN_DEBUG "                        "
+			"0  1  2  3  4  5  6  7  8  9\n");
+	data = vuc->status;
+	for (i = 0; i < 24; i++) {
+		if (i % 10 == 0)
+			sprintf(line, "%p status    %02d:",
+					(unsigned char *)vuc + i, i);
+		sprintf(line + 22 + ((i % 10) * 3), " %02x", *data++);
+		if (i % 10 == 9 || i == 23)
+			printk(KERN_DEBUG "%s\n", line);
+	}
+
+	data = vuc->subcode;
+	for (i = 0; i < 147; i++) {
+		if (i % 10 == 0)
+			sprintf(line, "%p subcode  %03d:",
+					(unsigned char *)vuc +
+					offsetof(struct snd_aes_iec958,
+					dig_subframe) + i, i);
+		sprintf(line + 22 + ((i % 10) * 3), " %02x", *data++);
+		if (i % 10 == 9 || i == 146)
+			printk(KERN_DEBUG "%s\n", line);
+	}
+
+	printk(KERN_DEBUG "%p dig_subframe: %02x %02x %02x %02x\n",
+			(unsigned char *)vuc +
+			offsetof(struct snd_aes_iec958, dig_subframe),
+			vuc->dig_subframe[0], vuc->dig_subframe[1],
+			vuc->dig_subframe[2], vuc->dig_subframe[3]);
 }

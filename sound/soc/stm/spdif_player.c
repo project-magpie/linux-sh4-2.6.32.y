@@ -48,13 +48,12 @@
  * Some hardware-related definitions
  */
 
-#define INIT_SAMPLING_RATE 32000
-
 #define DEFAULT_OVERSAMPLING 128
 
 /* The sample count field (MEMREAD in CTRL register) is 17 bits wide */
 #define MAX_SAMPLES_PER_PERIOD ((1 << 17) - 1)
 
+#define PREAMBLE_BYTES 8
 
 
 /*
@@ -71,10 +70,19 @@ enum snd_stm_spdif_player_encoding_mode {
 	SNDRV_STM_SPDIF_ENCODING_MODE_ENCODED
 };
 
+struct snd_stm_spdif_player_settings {
+	enum snd_stm_spdif_player_input_mode input_mode;
+	enum snd_stm_spdif_player_encoding_mode encoding_mode;
+	struct snd_aes_iec958 iec958;
+	unsigned char iec61937_preamble[PREAMBLE_BYTES]; /* Used in */
+	unsigned int iec61937_audio_repetition;          /* encoded */
+	unsigned int iec61937_pause_repetition;          /* mode */
+};
+
 struct snd_stm_spdif_player {
 	/* System informations */
-	const char *name;
-	const char *bus_id;
+	struct snd_stm_spdif_player_info *info;
+	struct device *device;
 	struct snd_pcm *pcm;
 
 	/* Resources */
@@ -82,33 +90,26 @@ struct snd_stm_spdif_player {
 	void *base;
 	unsigned long fifo_phys_address;
 	unsigned int irq;
-	int fdma_channel;
-	struct stm_dma_req *fdma_request;
+	unsigned int fdma_channel;
 
 	/* Environment settings */
-	struct device *fsynth;
+	struct device *fsynth_device;
 	int fsynth_channel;
+	struct snd_stm_conv *conv;
 
-	/* Board-specific settings */
-	unsigned int oversampling;
-
-	/* Default configuration */
-	enum snd_stm_spdif_player_input_mode input_mode_default;
-	enum snd_stm_spdif_player_encoding_mode encoding_mode_default;
-	spinlock_t modes_default_lock; /* Protects above two enums */
-	struct snd_aes_iec958 vuc_default;
-	spinlock_t vuc_default_lock; /* Protects vuc_default */
+	/* Default settings (controlled by controls ;-) */
+	struct snd_stm_spdif_player_settings default_settings;
+	spinlock_t default_settings_lock; /* Protects default_settings */
 
 	/* Runtime data */
 	void *buffer;
 	struct snd_info_entry *proc_entry;
 	struct snd_pcm_substream *substream;
 	struct stm_dma_params fdma_params;
-	struct snd_aes_iec958 vuc_stream;
-	spinlock_t vuc_stream_lock; /* Protects vuc_stream */
-	enum snd_stm_spdif_player_input_mode input_mode;
-	enum snd_stm_spdif_player_encoding_mode encoding_mode;
-	struct snd_aes_iec958 vuc;
+	struct stm_dma_req *fdma_request;
+	struct snd_stm_spdif_player_settings stream_settings;
+	int stream_iec958_status_cnt;
+	int stream_iec958_subcode_cnt;
 
 	snd_stm_magic_field;
 };
@@ -140,7 +141,7 @@ static irqreturn_t snd_stm_spdif_player_irq_handler(int irq, void *dev_id)
 	/* Underflow? */
 	if (unlikely(status & REGFIELD_VALUE(AUD_SPDIF_ITS, UNF, PENDING))) {
 		snd_stm_printe("Underflow detected in SPDIF player '%s'!\n",
-				spdif_player->bus_id);
+				spdif_player->device->bus_id);
 		result = IRQ_HANDLED;
 	}
 
@@ -150,7 +151,7 @@ static irqreturn_t snd_stm_spdif_player_irq_handler(int irq, void *dev_id)
 			snd_assert(spdif_player->substream, break);
 
 			snd_stm_printt("Period elapsed ('%s')\n",
-					spdif_player->bus_id);
+					spdif_player->device->bus_id);
 			snd_pcm_period_elapsed(spdif_player->substream);
 
 			result = IRQ_HANDLED;
@@ -166,8 +167,7 @@ static irqreturn_t snd_stm_spdif_player_irq_handler(int irq, void *dev_id)
  * It means:
  * 1. A lot of parsing...
  * 2. MMAPing is impossible...
- * 3. We can handle different formats and use ALSA standard
- *    structure for channel status & user data: snd_aes_iec958 */
+ * 3. We can handle some other formats! */
 static struct snd_pcm_hardware snd_stm_spdif_player_hw_normal = {
 	.info		= (SNDRV_PCM_INFO_INTERLEAVED |
 				SNDRV_PCM_INFO_BLOCK_TRANSFER |
@@ -177,14 +177,19 @@ static struct snd_pcm_hardware snd_stm_spdif_player_hw_normal = {
 
 	.rates		= (SNDRV_PCM_RATE_32000 |
 				SNDRV_PCM_RATE_44100 |
-				SNDRV_PCM_RATE_48000),
+				SNDRV_PCM_RATE_48000 |
+				SNDRV_PCM_RATE_64000 |
+				SNDRV_PCM_RATE_88200 |
+				SNDRV_PCM_RATE_96000 |
+				SNDRV_PCM_RATE_176400 |
+				SNDRV_PCM_RATE_192000),
 	.rate_min	= 32000,
-	.rate_max	= 48000,
+	.rate_max	= 192000,
 
 	.channels_min	= 2,
 	.channels_max	= 2,
 
-	.periods_min	= 1,     /* TODO: I would say 2... */
+	.periods_min	= 2,
 	.periods_max	= 1024,  /* TODO: sample, work out this somehow... */
 
 	/* Values below were worked out mostly basing on ST media player
@@ -228,14 +233,19 @@ static struct snd_pcm_hardware snd_stm_spdif_player_hw_raw = {
 
 	.rates		= (SNDRV_PCM_RATE_32000 |
 				SNDRV_PCM_RATE_44100 |
-				SNDRV_PCM_RATE_48000),
+				SNDRV_PCM_RATE_48000 |
+				SNDRV_PCM_RATE_64000 |
+				SNDRV_PCM_RATE_88200 |
+				SNDRV_PCM_RATE_96000 |
+				SNDRV_PCM_RATE_176400 |
+				SNDRV_PCM_RATE_192000),
 	.rate_min	= 32000,
-	.rate_max	= 48000,
+	.rate_max	= 192000,
 
 	.channels_min	= 2,
 	.channels_max	= 2,
 
-	.periods_min	= 1,     /* TODO: I would say 2... */
+	.periods_min	= 2,
 	.periods_max	= 1024,  /* TODO: sample, work out this somehow... */
 
 	/* See above... */
@@ -260,16 +270,22 @@ static int snd_stm_spdif_player_open(struct snd_pcm_substream *substream)
 
 	snd_pcm_set_sync(substream);  /* TODO: ??? */
 
+	/* Get attached converter handle */
+
+	spdif_player->conv = snd_stm_conv_get_attached(spdif_player->device);
+	if (spdif_player->conv)
+		snd_printd("Converter '%s' attached to '%s'...\n",
+				spdif_player->conv->name,
+				spdif_player->device->bus_id);
+	else
+		snd_printd("Warning! No converter attached to '%s'!\n",
+				spdif_player->device->bus_id);
+
 	/* Get default data */
 
-	spin_lock(&spdif_player->vuc_default_lock);
-	spdif_player->vuc_stream = spdif_player->vuc_default;
-	spin_unlock(&spdif_player->vuc_default_lock);
-
-	spin_lock(&spdif_player->modes_default_lock);
-	spdif_player->encoding_mode = spdif_player->encoding_mode_default;
-	spdif_player->input_mode = spdif_player->input_mode_default;
-	spin_unlock(&spdif_player->modes_default_lock);
+	spin_lock(&spdif_player->default_settings_lock);
+	spdif_player->stream_settings = spdif_player->default_settings;
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	/* Set up constraints & pass hardware capabilities info to ALSA */
 
@@ -282,7 +298,18 @@ static int snd_stm_spdif_player_open(struct snd_pcm_substream *substream)
 		return result;
 	}
 
-	if (spdif_player->input_mode == SNDRV_STM_SPDIF_INPUT_MODE_NORMAL)
+	/* Make the period (so buffer as well) length (in bytes) a multiply
+	 * of a FDMA transfer bytes (which varies depending on channels
+	 * number and sample bytes) */
+	result = snd_stm_pcm_hw_constraint_transfer_bytes(runtime,
+			spdif_player->info->fdma_max_transfer_size * 4);
+	if (result < 0) {
+		snd_stm_printe("Can't set buffer bytes constraint!\n");
+		return result;
+	}
+
+	if (spdif_player->stream_settings.input_mode ==
+			SNDRV_STM_SPDIF_INPUT_MODE_NORMAL)
 		runtime->hw = snd_stm_spdif_player_hw_normal;
 	else
 		runtime->hw = snd_stm_spdif_player_hw_raw;
@@ -300,68 +327,6 @@ static int snd_stm_spdif_player_close(struct snd_pcm_substream *substream)
 
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
-
-	return 0;
-}
-
-static int snd_stm_spdif_player_hw_params(struct snd_pcm_substream *substream,
-		struct snd_pcm_hw_params *hw_params)
-{
-	int result;
-	struct snd_stm_spdif_player *spdif_player =
-			snd_pcm_substream_chip(substream);
-	struct snd_pcm_runtime *runtime = substream->runtime;
-	int buffer_bytes;
-
-	snd_stm_printt("snd_stm_spdif_player_hw_params(substream=0x%p,"
-			" hw_params=0x%p)\n", substream, hw_params);
-
-	snd_assert(spdif_player, return -EINVAL);
-	snd_stm_magic_assert(spdif_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
-
-	/* Allocate buffer */
-
-	buffer_bytes = params_buffer_bytes(hw_params);
-	spdif_player->buffer = bigphysarea_alloc(buffer_bytes);
-	/* TODO: move to BPA2, use pcm lib as fallback... */
-	if (!spdif_player->buffer) {
-		snd_stm_printe("Can't allocate %d bytes buffer for '%s'!\n",
-				buffer_bytes, spdif_player->bus_id);
-		return -ENOMEM;
-	}
-
-	runtime->dma_addr = virt_to_phys(spdif_player->buffer);
-	runtime->dma_area = ioremap_nocache(runtime->dma_addr, buffer_bytes);
-	runtime->dma_bytes = buffer_bytes;
-
-	snd_stm_printt("Allocated buffer for %s: buffer=0x%p, "
-			"dma_addr=0x%08x, dma_area=0x%p, "
-			"dma_bytes=%u\n", spdif_player->bus_id,
-			spdif_player->buffer, runtime->dma_addr,
-			runtime->dma_area, runtime->dma_bytes);
-
-	/* Configure FDMA transfer */
-
-	/* TODO: try to use SPDIF FMDA channel */
-
-	dma_params_init(&spdif_player->fdma_params, MODE_PACED,
-			STM_DMA_LIST_CIRC);
-
-	dma_params_DIM_1_x_0(&spdif_player->fdma_params);
-
-	dma_params_req(&spdif_player->fdma_params, spdif_player->fdma_request);
-
-	dma_params_addrs(&spdif_player->fdma_params, runtime->dma_addr,
-			spdif_player->fifo_phys_address, buffer_bytes);
-
-	result = dma_compile_list(spdif_player->fdma_channel,
-				&spdif_player->fdma_params, GFP_KERNEL);
-	if (result < 0) {
-		snd_stm_printe("Can't compile FDMA parameters for player"
-				" '%s'!\n", spdif_player->bus_id);
-		return -EINVAL;
-	}
 
 	return 0;
 }
@@ -386,25 +351,152 @@ static int snd_stm_spdif_player_hw_free(struct snd_pcm_substream *substream)
 
 		snd_stm_printt("Freeing buffer for %s: buffer=0x%p, "
 				"dma_addr=0x%08x, dma_area=0x%p, "
-				"dma_bytes=%u\n", spdif_player->bus_id,
+				"dma_bytes=%u\n", spdif_player->device->bus_id,
 				spdif_player->buffer, runtime->dma_addr,
 				runtime->dma_area, runtime->dma_bytes);
 
 		iounmap(runtime->dma_area);
+
+		/* TODO: symmetrical to the above (BPA2 etc.) */
+		bigphysarea_free(spdif_player->buffer, runtime->dma_bytes);
+
+		spdif_player->buffer = NULL;
 		runtime->dma_area = NULL;
 		runtime->dma_addr = 0;
 		runtime->dma_bytes = 0;
 
-		/* TODO: symmetrical to the above (BPA2 etc.) */
-		bigphysarea_free(spdif_player->buffer, runtime->dma_bytes);
-		spdif_player->buffer = NULL;
-
 		/* Dispose FDMA parameters */
 
 		dma_params_free(&spdif_player->fdma_params);
+		dma_req_free(spdif_player->fdma_channel,
+				spdif_player->fdma_request);
 	}
 
 	return 0;
+}
+
+static int snd_stm_spdif_player_hw_params(struct snd_pcm_substream *substream,
+		struct snd_pcm_hw_params *hw_params)
+{
+	int result;
+	struct snd_stm_spdif_player *spdif_player =
+			snd_pcm_substream_chip(substream);
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	int buffer_bytes, frame_bytes, transfer_bytes;
+	unsigned int transfer_size;
+	struct stm_dma_req_config fdma_req_config = {
+		.rw        = REQ_CONFIG_WRITE,
+		.opcode    = REQ_CONFIG_OPCODE_4,
+		.increment = 0,
+		.hold_off  = 0,
+		.initiator = spdif_player->info->fdma_initiator,
+	};
+
+	snd_stm_printt("snd_stm_spdif_player_hw_params(substream=0x%p,"
+			" hw_params=0x%p)\n", substream, hw_params);
+
+	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_magic_assert(spdif_player, return -EINVAL);
+	snd_assert(runtime, return -EINVAL);
+
+	/* This function may be called many times, so let's be prepared... */
+	if (spdif_player->buffer)
+		snd_stm_spdif_player_hw_free(substream);
+
+	/* Allocate buffer */
+
+	buffer_bytes = params_buffer_bytes(hw_params);
+	spdif_player->buffer = bigphysarea_alloc(buffer_bytes);
+	/* TODO: move to BPA2, use pcm lib as fallback... */
+	if (!spdif_player->buffer) {
+		snd_stm_printe("Can't allocate %d bytes buffer for '%s'!\n",
+				buffer_bytes, spdif_player->device->bus_id);
+		result = -ENOMEM;
+		goto error_buf_alloc;
+	}
+
+	runtime->dma_addr = virt_to_phys(spdif_player->buffer);
+	runtime->dma_area = ioremap_nocache(runtime->dma_addr, buffer_bytes);
+	runtime->dma_bytes = buffer_bytes;
+
+	snd_stm_printt("Allocated buffer for %s: buffer=0x%p, "
+			"dma_addr=0x%08x, dma_area=0x%p, "
+			"dma_bytes=%u\n", spdif_player->device->bus_id,
+			spdif_player->buffer, runtime->dma_addr,
+			runtime->dma_area, runtime->dma_bytes);
+
+	/* Set FDMA transfer size (number of opcodes generated
+	 * after request line assertion) */
+
+	frame_bytes = snd_pcm_format_physical_width(params_format(hw_params)) *
+			params_channels(hw_params) / 8;
+	transfer_bytes = snd_stm_pcm_transfer_bytes(frame_bytes,
+			spdif_player->info->fdma_max_transfer_size * 4);
+	transfer_size = transfer_bytes / 4;
+	snd_stm_printt("FDMA request trigger limit and transfer size set to "
+			"%d.\n", transfer_size);
+
+	snd_assert(buffer_bytes % transfer_bytes == 0, return -EINVAL);
+	snd_assert(transfer_size <= spdif_player->info->fdma_max_transfer_size,
+			return -EINVAL);
+	fdma_req_config.count = transfer_size;
+
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+	snd_assert(transfer_size == 1 || transfer_size % 2 == 0,
+			return -EINVAL);
+	snd_assert(transfer_size <= AUD_SPDIF_CONFIG__DMA_REQ_TRIG_LMT__MASK,
+			return -EINVAL);
+	REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CONFIG,
+			DMA_REQ_TRIG_LMT, transfer_size);
+#endif
+
+	/* Configure FDMA transfer */
+
+	/* TODO: try to use SPDIF FMDA channel */
+
+	spdif_player->fdma_request = dma_req_config(spdif_player->fdma_channel,
+			spdif_player->info->fdma_request_line,
+			&fdma_req_config);
+	if (!spdif_player->fdma_request) {
+		snd_stm_printe("Can't configure FDMA pacing channel for player"
+				" '%s'!\n", spdif_player->device->bus_id);
+		result = -EINVAL;
+		goto error_req_config;
+	}
+
+	dma_params_init(&spdif_player->fdma_params, MODE_PACED,
+			STM_DMA_LIST_CIRC);
+
+	dma_params_DIM_1_x_0(&spdif_player->fdma_params);
+
+	dma_params_req(&spdif_player->fdma_params, spdif_player->fdma_request);
+
+	dma_params_addrs(&spdif_player->fdma_params, runtime->dma_addr,
+			spdif_player->fifo_phys_address, buffer_bytes);
+
+	result = dma_compile_list(spdif_player->fdma_channel,
+				&spdif_player->fdma_params, GFP_KERNEL);
+	if (result < 0) {
+		snd_stm_printe("Can't compile FDMA parameters for player"
+				" '%s'!\n", spdif_player->device->bus_id);
+		goto error_compile_list;
+	}
+
+	return 0;
+
+error_compile_list:
+	dma_req_free(spdif_player->fdma_channel,
+			spdif_player->fdma_request);
+error_req_config:
+	iounmap(runtime->dma_area);
+	/* TODO: symmetrical to the above (BPA2 etc.) */
+	bigphysarea_free(spdif_player->buffer, runtime->dma_bytes);
+	spdif_player->buffer = NULL;
+	runtime->dma_area = NULL;
+	runtime->dma_addr = 0;
+	runtime->dma_bytes = 0;
+error_buf_alloc:
+	return result;
 }
 
 static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
@@ -412,6 +504,9 @@ static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
 	struct snd_stm_spdif_player *spdif_player =
 			snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
+	int oversampling;
+	unsigned long status;
+	struct snd_aes_iec958 *iec958;
 
 	snd_stm_printt("snd_stm_spdif_player_prepare(substream=0x%p)\n",
 			substream);
@@ -426,11 +521,38 @@ static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
 
 	/* TODO */
 
+	/* Get oversampling value from connected converter */
+
+	if (spdif_player->conv) {
+		unsigned int format =
+				snd_stm_conv_get_format(spdif_player->conv);
+
+		snd_assert((format & SND_STM_FORMAT__MASK) ==
+				SND_STM_FORMAT__SPDIF, return -EINVAL);
+
+		oversampling = snd_stm_conv_get_oversampling(
+				spdif_player->conv);
+		if (oversampling == 0)
+			oversampling = DEFAULT_OVERSAMPLING;
+	} else {
+		oversampling = DEFAULT_OVERSAMPLING;
+	}
+
+	snd_stm_printt("Player %s: sampling frequency %d, oversampling %d\n",
+			spdif_player->device->bus_id, runtime->rate,
+			oversampling);
+
+	snd_assert(oversampling > 0, return -EINVAL);
+
+	/* Allowed oversampling values (SPDIF subframe is 32 bits long,
+	 * so oversampling must be multiple of 128... */
+	snd_assert(oversampling % 128 == 0, return -EINVAL);
+
 	/* Set up frequency synthesizer */
 
-	snd_stm_fsynth_set_frequency(spdif_player->fsynth,
+	snd_stm_fsynth_set_frequency(spdif_player->fsynth_device,
 			spdif_player->fsynth_channel,
-			runtime->rate * spdif_player->oversampling);
+			runtime->rate * oversampling);
 
 	/* Configure SPDIF player frequency divider
 	 *
@@ -448,13 +570,73 @@ static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
 	 */
 
 	REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CTRL, CLK_DIV,
-			spdif_player->oversampling / 128);
+			oversampling / 128);
 
 	/* Configure NSAMPLE interrupt (in samples,
 	 * so period size times channels) */
 
 	REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CTRL, MEMREAD,
 			runtime->period_size * 2);
+
+	/* Reset IEC958 software formatting counters */
+
+	spdif_player->stream_iec958_status_cnt = 0;
+	spdif_player->stream_iec958_subcode_cnt = 0;
+
+	/* Set VUC register settings */
+
+	/* Channel status */
+	iec958 = &spdif_player->stream_settings.iec958;
+	status = iec958->status[0] | iec958->status[1] << 8 |
+		iec958->status[2] << 16 | iec958->status[3] << 24;
+	REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CL1,
+			CL1, status);
+	REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CL2_CR2_UV,
+			CL2, iec958->status[4] & 0xf);
+	REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CR1,
+			CR1, status);
+	REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CL2_CR2_UV,
+			CR2, iec958->status[4] & 0xf);
+
+	/* User data - well, can't do too much here... */
+	REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CL2_CR2_UV, LU, 0);
+	REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CL2_CR2_UV, RU, 0);
+
+	if (spdif_player->stream_settings.encoding_mode ==
+			SNDRV_STM_SPDIF_ENCODING_MODE_PCM) {
+		/* Linear PCM: validity bit are zeroed */
+		REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CL2_CR2_UV, LV, 0);
+		REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CL2_CR2_UV, RV, 0);
+	} else {
+		struct snd_stm_spdif_player_settings *settings =
+				&spdif_player->stream_settings;
+
+		/* Encoded mode: validity bits are one */
+		REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CL2_CR2_UV, LV, 1);
+		REGFIELD_POKE(spdif_player->base, AUD_SPDIF_CL2_CR2_UV, RV, 1);
+
+		/* Number of frames is data/pause bursts */
+		REGFIELD_POKE(spdif_player->base, AUD_SPDIF_BST_FL, DBURST,
+				settings->iec61937_audio_repetition);
+		REGFIELD_POKE(spdif_player->base, AUD_SPDIF_BST_FL, PDBURST,
+				settings->iec61937_pause_repetition);
+
+		/* IEC61937 Preamble */
+		REGFIELD_POKE(spdif_player->base, AUD_SPDIF_PA_PB, PA,
+				settings->iec61937_preamble[0] |
+				settings->iec61937_preamble[1] << 8);
+		REGFIELD_POKE(spdif_player->base, AUD_SPDIF_PA_PB, PB,
+				settings->iec61937_preamble[2] |
+				settings->iec61937_preamble[3] << 8);
+		REGFIELD_POKE(spdif_player->base, AUD_SPDIF_PC_PD, PC,
+				settings->iec61937_preamble[4] |
+				settings->iec61937_preamble[5] << 8);
+		REGFIELD_POKE(spdif_player->base, AUD_SPDIF_PC_PD, PD,
+				settings->iec61937_preamble[6] |
+				settings->iec61937_preamble[7] << 8);
+
+		/* TODO: set AUD_SPDIF_PAU_LAT NPD_BURST somehow... */
+	}
 
 	return 0;
 }
@@ -482,7 +664,7 @@ static inline int snd_stm_spdif_player_start(struct snd_pcm_substream
 			&spdif_player->fdma_params);
 	if (result != 0) {
 		snd_stm_printe("Can't launch FDMA transfer for player '%s'!\n",
-				spdif_player->bus_id);
+				spdif_player->device->bus_id);
 		return -EINVAL;
 	}
 
@@ -490,7 +672,8 @@ static inline int snd_stm_spdif_player_start(struct snd_pcm_substream
 
 	spdif_player->substream = substream;
 
-	if (spdif_player->encoding_mode == SNDRV_STM_SPDIF_ENCODING_MODE_PCM)
+	if (spdif_player->stream_settings.encoding_mode ==
+			SNDRV_STM_SPDIF_ENCODING_MODE_PCM)
 		REGFIELD_SET(spdif_player->base, AUD_SPDIF_CTRL, MODE, PCM);
 	else
 		REGFIELD_SET(spdif_player->base, AUD_SPDIF_CTRL, MODE, ENCODED);
@@ -499,6 +682,13 @@ static inline int snd_stm_spdif_player_start(struct snd_pcm_substream
 
 	REGFIELD_SET(spdif_player->base, AUD_SPDIF_IT_EN_SET, NSAMPLE, SET);
 	REGFIELD_SET(spdif_player->base, AUD_SPDIF_IT_EN_SET, UNF, SET);
+
+	/* Wake up & unmute converter */
+
+	if (spdif_player->conv) {
+		snd_stm_conv_enable(spdif_player->conv);
+		snd_stm_conv_unmute(spdif_player->conv);
+	}
 
 	return 0;
 }
@@ -513,6 +703,13 @@ static inline int snd_stm_spdif_player_stop(struct snd_pcm_substream *substream)
 
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
+
+	/* Mute & shutdown converter */
+
+	if (spdif_player->conv) {
+		snd_stm_conv_mute(spdif_player->conv);
+		snd_stm_conv_disable(spdif_player->conv);
+	}
 
 	/* Disable interrupts */
 
@@ -529,6 +726,7 @@ static inline int snd_stm_spdif_player_stop(struct snd_pcm_substream *substream)
 	dma_stop_channel(spdif_player->fdma_channel);
 
 	/* Reset SPDIF player */
+
 	REGFIELD_SET(spdif_player->base, AUD_SPDIF_RST, SRSTP, RESET);
 
 	return 0;
@@ -550,7 +748,8 @@ static inline int snd_stm_spdif_player_pause(struct snd_pcm_substream
 	 * Documentation describes this mode in a wrong way - data is _not_
 	 * consumed in the "mute" mode, so it is actually a "pause" mode */
 
-	if (spdif_player->encoding_mode == SNDRV_STM_SPDIF_ENCODING_MODE_PCM)
+	if (spdif_player->stream_settings.encoding_mode ==
+			SNDRV_STM_SPDIF_ENCODING_MODE_PCM)
 		REGFIELD_SET(spdif_player->base, AUD_SPDIF_CTRL, MODE,
 				MUTE_PCM_NULL);
 	else
@@ -574,7 +773,8 @@ static inline int snd_stm_spdif_player_release(struct snd_pcm_substream
 
 	/* "Unmute" player */
 
-	if (spdif_player->encoding_mode == SNDRV_STM_SPDIF_ENCODING_MODE_PCM)
+	if (spdif_player->stream_settings.encoding_mode ==
+			SNDRV_STM_SPDIF_ENCODING_MODE_PCM)
 		REGFIELD_SET(spdif_player->base, AUD_SPDIF_CTRL, MODE, PCM);
 	else
 		REGFIELD_SET(spdif_player->base, AUD_SPDIF_CTRL, MODE, ENCODED);
@@ -629,15 +829,63 @@ static snd_pcm_uframes_t snd_stm_spdif_player_pointer(struct snd_pcm_substream
 	return pointer;
 }
 
+#define VUC_MASK 0xf
+#define V_BIT (1 << 3)
+#define U_BIT (1 << 2)
+#define C_BIT (1 << 1)
+
 #define GET_SAMPLE(kernel_var, user_ptr, memory_format) \
 	do { \
 		__get_user(kernel_var, (memory_format __user *)user_ptr); \
 		(*((memory_format __user **)&user_ptr))++; \
 	} while (0);
 
+static void snd_stm_spdif_player_format_frame(struct snd_stm_spdif_player
+		*spdif_player, unsigned long *left_subframe,
+		unsigned long *right_subframe)
+{
+	unsigned char data;
+
+	snd_assert(spdif_player, return);
+	snd_stm_magic_assert(spdif_player, return);
+
+	/* Clean VUC bits */
+	*left_subframe &= ~VUC_MASK;
+	*right_subframe &= ~VUC_MASK;
+
+	/* Validity bit should be set to one when non-PCM data are
+	 * transmitted... */
+	if (spdif_player->stream_settings.encoding_mode) {
+		*left_subframe |= V_BIT;
+		*right_subframe |= V_BIT;
+	}
+
+	/* User data consists of both subframe U-bits */
+	data = spdif_player->stream_settings.iec958.subcode[
+			spdif_player->stream_iec958_subcode_cnt / 8];
+	if (data & (1 << (spdif_player->stream_iec958_subcode_cnt % 8)))
+		*left_subframe |= U_BIT;
+	spdif_player->stream_iec958_subcode_cnt++;
+	if (data & (1 << (spdif_player->stream_iec958_subcode_cnt % 8)))
+		*right_subframe |= U_BIT;
+	spdif_player->stream_iec958_subcode_cnt =
+			(spdif_player->stream_iec958_subcode_cnt + 1) % 1176;
+
+	/* Channel status bit shall be the same for both subframes
+	 * (except channel number field, which we ignore.) */
+	data = spdif_player->stream_settings.iec958.status[
+			spdif_player->stream_iec958_status_cnt / 8];
+	if (data & (1 << (spdif_player->stream_iec958_status_cnt % 8))) {
+		*left_subframe |= C_BIT;
+		*right_subframe |= C_BIT;
+	}
+	spdif_player->stream_iec958_status_cnt =
+			(spdif_player->stream_iec958_status_cnt + 1) % 192;
+}
+
 static int snd_stm_spdif_player_copy(struct snd_pcm_substream *substream,
 		int channel, snd_pcm_uframes_t pos,
-		void __user *buf, snd_pcm_uframes_t count)
+		void __user *src, snd_pcm_uframes_t count)
 {
 	struct snd_stm_spdif_player *spdif_player =
 		snd_pcm_substream_chip(substream);
@@ -645,19 +893,20 @@ static int snd_stm_spdif_player_copy(struct snd_pcm_substream *substream,
 
 	snd_stm_printt("snd_stm_spdif_player_copy(substream=0x%p, channel=%d,"
 			" pos=%lu, buf=0x%p, count=%lu)\n", substream,
-			channel, pos, buf, count);
+			channel, pos, src, count);
 
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 	snd_assert(runtime, return -EINVAL);
 	snd_assert(channel == -1, return -EINVAL); /* Interleaved buffer */
 
-	if (spdif_player->input_mode == SNDRV_STM_SPDIF_INPUT_MODE_NORMAL) {
-		unsigned long *hwbuf = (unsigned long *)(runtime->dma_area +
+	if (spdif_player->stream_settings.input_mode ==
+			SNDRV_STM_SPDIF_INPUT_MODE_NORMAL) {
+		unsigned long *dest = (unsigned long *)(runtime->dma_area +
 				frames_to_bytes(runtime, pos));
 		int i;
 
-		if (!access_ok(VERIFY_READ, buf, frames_to_bytes(runtime,
+		if (!access_ok(VERIFY_READ, src, frames_to_bytes(runtime,
 						count)))
 			return -EFAULT;
 
@@ -668,7 +917,7 @@ static int snd_stm_spdif_player_copy(struct snd_pcm_substream *substream,
 		{
 			unsigned char data[64];
 
-			copy_from_user(data, buf, 64);
+			copy_from_user(data, src, 64);
 
 			snd_stm_printt("Input:\n");
 			snd_stm_hex_dump(data, 64);
@@ -680,30 +929,27 @@ static int snd_stm_spdif_player_copy(struct snd_pcm_substream *substream,
 
 			switch (runtime->format) {
 			case SNDRV_PCM_FORMAT_S32_LE:
-				GET_SAMPLE(left_subframe, buf, u32);
-				GET_SAMPLE(right_subframe, buf, u32);
+				GET_SAMPLE(left_subframe, src, u32);
+				GET_SAMPLE(right_subframe, src, u32);
 				break;
 			case SNDRV_PCM_FORMAT_S24_LE:
 				/* 24-bits sample are in lower 3 bytes,
 				 * while we want them in upper 3... ;-) */
-				GET_SAMPLE(left_subframe, buf, u32);
+				GET_SAMPLE(left_subframe, src, u32);
 				left_subframe <<= 8;
-				GET_SAMPLE(right_subframe, buf, u32);
+				GET_SAMPLE(right_subframe, src, u32);
 				right_subframe <<= 8;
 				break;
 			default:
-				left_subframe = 0;  /* To avoid -Os */
-				right_subframe = 0; /* compilation warnings */
-				snd_assert(0, return -EINVAL);
-				break;
+				snd_BUG();
+				return -EINVAL;
 			}
 
-			/* TODO: VUC bits, now just 000... */
-			left_subframe &= ~0x03;
-			right_subframe &= ~0x03;
+			snd_stm_spdif_player_format_frame(spdif_player,
+					&left_subframe, &right_subframe);
 
-			*(hwbuf++) = left_subframe;
-			*(hwbuf++) = right_subframe;
+			*(dest++) = left_subframe;
+			*(dest++) = right_subframe;
 		}
 
 #if 0
@@ -711,13 +957,10 @@ static int snd_stm_spdif_player_copy(struct snd_pcm_substream *substream,
 		snd_stm_hex_dump(runtime->dma_area +
 				frames_to_bytes(runtime, pos), 64);
 #endif
-		dma_cache_wback(runtime->dma_area +
-				frames_to_bytes(runtime, pos),
-				frames_to_bytes(runtime, count));
 	} else {
 		/* RAW mode */
 		if (copy_from_user(runtime->dma_area +
-				frames_to_bytes(runtime, pos), buf,
+				frames_to_bytes(runtime, pos), src,
 				frames_to_bytes(runtime, count)) != 0)
 			return -EFAULT;
 	}
@@ -728,6 +971,7 @@ static int snd_stm_spdif_player_copy(struct snd_pcm_substream *substream,
 static int snd_stm_spdif_player_silence(struct snd_pcm_substream *substream,
 		int channel, snd_pcm_uframes_t pos, snd_pcm_uframes_t count)
 {
+	int result = 0;
 	struct snd_stm_spdif_player *spdif_player =
 		snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
@@ -741,10 +985,29 @@ static int snd_stm_spdif_player_silence(struct snd_pcm_substream *substream,
 	snd_assert(runtime, return -EINVAL);
 	snd_assert(channel == -1, return -EINVAL); /* Interleaved buffer */
 
-	snd_assert(0, return -EINVAL); /* Not implemented yet */
-	/* TODO	*/
+	if (spdif_player->stream_settings.input_mode ==
+			SNDRV_STM_SPDIF_INPUT_MODE_NORMAL) {
+		unsigned long *buffer = (unsigned long *)(runtime->dma_area +
+				frames_to_bytes(runtime, pos));
+		unsigned long left_subframe = 0;
+		unsigned long right_subframe = 0;
+		int i;
 
-	return 0;
+		for (i = 0; i < count; i++) {
+			snd_stm_spdif_player_format_frame(spdif_player,
+					&left_subframe, &right_subframe);
+			*(buffer++) = left_subframe;
+			*(buffer++) = right_subframe;
+		}
+	} else {
+		/* RAW mode */
+		result = snd_pcm_format_set_silence(runtime->format,
+				runtime->dma_area +
+				frames_to_bytes(runtime, pos),
+				runtime->channels * count);
+	}
+
+	return result;
 }
 
 static struct snd_pcm_ops snd_stm_spdif_player_spdif_ops = {
@@ -767,42 +1030,43 @@ static struct snd_pcm_ops snd_stm_spdif_player_spdif_ops = {
  * ALSA controls
  */
 
-/* "Main switch" - controls IDLE mode of SPDIF player */
-
-static int snd_stm_spdif_player_ctl_switch_get(struct snd_kcontrol *kcontrol,
+static int snd_stm_spdif_player_ctl_default_get(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_stm_spdif_player *spdif_player = snd_kcontrol_chip(kcontrol);
 
-	snd_stm_printt("snd_stm_spdif_player_ctl_switch_get(kcontrol=0x%p, "
-			"ucontrol=0x%p)\n", kcontrol, ucontrol);
+	snd_stm_printt("snd_stm_spdif_player_ctl_default_get("
+			"kcontrol=0x%p, ucontrol=0x%p)\n", kcontrol, ucontrol);
 
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	ucontrol->value.integer.value[0] =
-			(REGFIELD_PEEK(spdif_player->base, AUD_SPDIF_CTRL,
-			IDLE) == AUD_SPDIF_CTRL__IDLE__VALUE__NORMAL);
+	spin_lock(&spdif_player->default_settings_lock);
+	ucontrol->value.iec958 = spdif_player->default_settings.iec958;
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return 0;
 }
 
-static int snd_stm_spdif_player_ctl_switch_put(struct snd_kcontrol *kcontrol,
+static int snd_stm_spdif_player_ctl_default_put(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_stm_spdif_player *spdif_player = snd_kcontrol_chip(kcontrol);
 	int changed = 0;
 
-	snd_stm_printt("snd_stm_spdif_player_ctl_switch_put(kcontrol=0x%p, "
-			"ucontrol=0x%p)\n", kcontrol, ucontrol);
+	snd_stm_printt("snd_stm_spdif_player_ctl_default_put("
+			"kcontrol=0x%p, ucontrol=0x%p)\n", kcontrol, ucontrol);
 
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	if (ucontrol->value.integer.value[0])
-		REGFIELD_SET(spdif_player->base, AUD_SPDIF_CTRL, IDLE, NORMAL);
-	else
-		REGFIELD_SET(spdif_player->base, AUD_SPDIF_CTRL, IDLE, IDLE);
+	spin_lock(&spdif_player->default_settings_lock);
+	if (snd_stm_iec958_cmp(&spdif_player->default_settings.iec958,
+				&ucontrol->value.iec958) != 0) {
+		spdif_player->default_settings.iec958 = ucontrol->value.iec958;
+		changed = 1;
+	}
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return changed;
 }
@@ -823,10 +1087,11 @@ static int snd_stm_spdif_player_ctl_raw_get(struct snd_kcontrol *kcontrol,
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	spin_lock(&spdif_player->modes_default_lock);
-	ucontrol->value.integer.value[0] = (spdif_player->input_mode_default
-			== SNDRV_STM_SPDIF_INPUT_MODE_RAW);
-	spin_unlock(&spdif_player->modes_default_lock);
+	spin_lock(&spdif_player->default_settings_lock);
+	ucontrol->value.integer.value[0] =
+			(spdif_player->default_settings.input_mode ==
+			SNDRV_STM_SPDIF_INPUT_MODE_RAW);
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return 0;
 }
@@ -849,10 +1114,10 @@ static int snd_stm_spdif_player_ctl_raw_put(struct snd_kcontrol *kcontrol,
 	else
 		input_mode = SNDRV_STM_SPDIF_INPUT_MODE_NORMAL;
 
-	spin_lock(&spdif_player->modes_default_lock);
-	changed = (input_mode != spdif_player->input_mode_default);
-	spdif_player->input_mode_default = input_mode;
-	spin_unlock(&spdif_player->modes_default_lock);
+	spin_lock(&spdif_player->default_settings_lock);
+	changed = (input_mode != spdif_player->default_settings.input_mode);
+	spdif_player->default_settings.input_mode = input_mode;
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return changed;
 }
@@ -872,10 +1137,11 @@ static int snd_stm_spdif_player_ctl_encoded_get(struct snd_kcontrol *kcontrol,
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	spin_lock(&spdif_player->modes_default_lock);
-	ucontrol->value.integer.value[0] = (spdif_player->encoding_mode_default
-			== SNDRV_STM_SPDIF_ENCODING_MODE_ENCODED);
-	spin_unlock(&spdif_player->modes_default_lock);
+	spin_lock(&spdif_player->default_settings_lock);
+	ucontrol->value.integer.value[0] =
+			(spdif_player->default_settings.encoding_mode ==
+			SNDRV_STM_SPDIF_ENCODING_MODE_ENCODED);
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return 0;
 }
@@ -898,10 +1164,11 @@ static int snd_stm_spdif_player_ctl_encoded_put(struct snd_kcontrol *kcontrol,
 	else
 		encoding_mode = SNDRV_STM_SPDIF_ENCODING_MODE_PCM;
 
-	spin_lock(&spdif_player->modes_default_lock);
-	changed = (encoding_mode != spdif_player->encoding_mode_default);
-	spdif_player->encoding_mode_default = encoding_mode;
-	spin_unlock(&spdif_player->modes_default_lock);
+	spin_lock(&spdif_player->default_settings_lock);
+	changed = (encoding_mode !=
+			spdif_player->default_settings.encoding_mode);
+	spdif_player->default_settings.encoding_mode = encoding_mode;
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return changed;
 }
@@ -914,7 +1181,7 @@ static int snd_stm_spdif_player_ctl_preamble_info(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
-	uinfo->count = 16;
+	uinfo->count = PREAMBLE_BYTES;
 	return 0;
 }
 
@@ -929,7 +1196,11 @@ static int snd_stm_spdif_player_ctl_preamble_get(struct snd_kcontrol *kcontrol,
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	/* TODO */
+	spin_lock(&spdif_player->default_settings_lock);
+	memcpy(ucontrol->value.bytes.data,
+			spdif_player->default_settings.iec61937_preamble,
+			PREAMBLE_BYTES);
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return 0;
 }
@@ -946,7 +1217,14 @@ static int snd_stm_spdif_player_ctl_preamble_put(struct snd_kcontrol *kcontrol,
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	/* TODO */
+	spin_lock(&spdif_player->default_settings_lock);
+	if (memcmp(spdif_player->default_settings.iec61937_preamble,
+			ucontrol->value.bytes.data, PREAMBLE_BYTES) != 0) {
+		changed = 1;
+		memcpy(spdif_player->default_settings.iec61937_preamble,
+				ucontrol->value.bytes.data, PREAMBLE_BYTES);
+	}
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return changed;
 }
@@ -972,7 +1250,10 @@ static int snd_stm_spdif_player_ctl_audio_repetition_get(struct snd_kcontrol
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	/* TODO */
+	spin_lock(&spdif_player->default_settings_lock);
+	ucontrol->value.integer.value[0] =
+		spdif_player->default_settings.iec61937_audio_repetition;
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return 0;
 }
@@ -989,7 +1270,14 @@ static int snd_stm_spdif_player_ctl_audio_repetition_put(struct snd_kcontrol
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	/* TODO */
+	spin_lock(&spdif_player->default_settings_lock);
+	if (spdif_player->default_settings.iec61937_audio_repetition !=
+			ucontrol->value.integer.value[0]) {
+		changed = 1;
+		spdif_player->default_settings.iec61937_audio_repetition =
+				ucontrol->value.integer.value[0];
+	}
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return changed;
 }
@@ -1005,7 +1293,10 @@ static int snd_stm_spdif_player_ctl_pause_repetition_get(struct snd_kcontrol
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	/* TODO */
+	spin_lock(&spdif_player->default_settings_lock);
+	ucontrol->value.integer.value[0] =
+		spdif_player->default_settings.iec61937_pause_repetition;
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return 0;
 }
@@ -1022,18 +1313,37 @@ static int snd_stm_spdif_player_ctl_pause_repetition_put(struct snd_kcontrol
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	/* TODO */
+	spin_lock(&spdif_player->default_settings_lock);
+	if (spdif_player->default_settings.iec61937_pause_repetition !=
+			ucontrol->value.integer.value[0]) {
+		changed = 1;
+		spdif_player->default_settings.iec61937_pause_repetition =
+				ucontrol->value.integer.value[0];
+	}
+	spin_unlock(&spdif_player->default_settings_lock);
 
 	return changed;
 }
 
 static struct snd_kcontrol_new __initdata snd_stm_spdif_player_ctls[] = {
 	{
+		.iface = SNDRV_CTL_ELEM_IFACE_PCM,
+		.name = SNDRV_CTL_NAME_IEC958("", PLAYBACK, DEFAULT),
+		.info = snd_stm_ctl_iec958_info,
+		.get = snd_stm_spdif_player_ctl_default_get,
+		.put = snd_stm_spdif_player_ctl_default_put,
+	}, {
+		.access = SNDRV_CTL_ELEM_ACCESS_READ,
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name = SNDRV_CTL_NAME_IEC958("", PLAYBACK, SWITCH),
-		.info = snd_stm_ctl_boolean_info,
-		.get = snd_stm_spdif_player_ctl_switch_get,
-		.put = snd_stm_spdif_player_ctl_switch_put,
+		.name =	SNDRV_CTL_NAME_IEC958("", PLAYBACK, CON_MASK),
+		.info =	snd_stm_ctl_iec958_info,
+		.get = snd_stm_ctl_iec958_mask_get_con,
+	}, {
+		.access = SNDRV_CTL_ELEM_ACCESS_READ,
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name =	SNDRV_CTL_NAME_IEC958("", PLAYBACK, PRO_MASK),
+		.info =	snd_stm_ctl_iec958_info,
+		.get = snd_stm_ctl_iec958_mask_get_pro,
 	}, {
 		.iface = SNDRV_CTL_ELEM_IFACE_PCM,
 		.name = SNDRV_CTL_NAME_IEC958("Raw Data ", PLAYBACK, DEFAULT),
@@ -1107,10 +1417,14 @@ static void snd_stm_spdif_player_dump_registers(struct snd_info_entry *entry,
 	DUMP_REGISTER(CL2_CR2_UV);
 	DUMP_REGISTER(PAU_LAT);
 	DUMP_REGISTER(BST_FL);
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+	DUMP_REGISTER(CONFIG);
+#endif
 }
 
 static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 {
+	int result;
 	struct snd_stm_spdif_player *spdif_player = snd_device->device_data;
 
 	snd_stm_printt("snd_stm_spdif_player_register(snd_device=0x%p)\n",
@@ -1118,14 +1432,6 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
-
-	/* Set a default clock frequency running for each device.
-	 * Not doing this can lead to clocks not starting correctly later,
-	 * for reasons that cannot be explained at this time. */
-	/* TODO: Check it, maybe obsolete now */
-	snd_stm_fsynth_set_frequency(spdif_player->fsynth,
-			spdif_player->fsynth_channel,
-			INIT_SAMPLING_RATE * spdif_player->oversampling);
 
 	/* Initialize hardware (format etc.) */
 
@@ -1138,12 +1444,31 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 	REGFIELD_SET(spdif_player->base, AUD_SPDIF_CTRL, IDLE, NORMAL);
 
 	/* Hardware stuffing is not implemented yet... */
+	/* TODO: oh, is that so? */
 	REGFIELD_SET(spdif_player->base, AUD_SPDIF_CTRL, STUFFING, SOFTWARE);
 
 	/* Registers view in ALSA's procfs */
 
-	snd_stm_info_register(&spdif_player->proc_entry, spdif_player->bus_id,
+	snd_stm_info_register(&spdif_player->proc_entry,
+			spdif_player->device->bus_id,
 			snd_stm_spdif_player_dump_registers, spdif_player);
+
+	/* Create ALSA controls */
+
+	result = snd_stm_conv_add_route_ctl(spdif_player->device,
+			snd_device->card, spdif_player->info->card_device);
+	if (result < 0) {
+		snd_stm_printe("Failed to add converter route control!\n");
+		return result;
+	}
+
+	result = snd_stm_fsynth_add_adjustement_ctl(spdif_player->fsynth_device,
+			spdif_player->fsynth_channel,
+			snd_device->card, spdif_player->info->card_device);
+	if (result < 0) {
+		snd_stm_printe("Failed to add fsynth adjustment control!\n");
+		return result;
+	}
 
 	return 0;
 }
@@ -1160,7 +1485,7 @@ static int snd_stm_spdif_player_disconnect(struct snd_device *snd_device)
 	return 0;
 }
 
-static struct snd_device_ops snd_stm_spdif_player_ops = {
+static struct snd_device_ops snd_stm_spdif_player_snd_device_ops = {
 	.dev_register = snd_stm_spdif_player_register,
 	.dev_disconnect = snd_stm_spdif_player_disconnect,
 };
@@ -1171,31 +1496,14 @@ static struct snd_device_ops snd_stm_spdif_player_ops = {
  * Platform driver routines
  */
 
-static struct stm_dma_req_config snd_stm_spdif_player_fdma_request_config = {
-	.rw        = REQ_CONFIG_WRITE,
-	.opcode    = REQ_CONFIG_OPCODE_4,
-	.count     = 1,
-	.increment = 0,
-	.hold_off  = 0,
-	/* .initiator value is defined in platform device resources */
-};
-
 static int __init snd_stm_spdif_player_probe(struct platform_device *pdev)
 {
 	int result = 0;
-	struct plat_audio_config *config = pdev->dev.platform_data;
-	struct snd_stm_component *component;
 	struct snd_stm_spdif_player *spdif_player;
 	struct snd_card *card;
-	int card_device;
-	const char *card_id;
-	const char *fsynth_bus_id;
 	int i;
 
 	snd_printd("--- Probing device '%s'...\n", pdev->dev.bus_id);
-
-	component = snd_stm_components_get(pdev->dev.bus_id);
-	snd_assert(component, return -EINVAL);
 
 	spdif_player = kzalloc(sizeof(*spdif_player), GFP_KERNEL);
 	if (!spdif_player) {
@@ -1205,11 +1513,11 @@ static int __init snd_stm_spdif_player_probe(struct platform_device *pdev)
 		goto error_alloc;
 	}
 	snd_stm_magic_set(spdif_player);
-	spdif_player->bus_id = pdev->dev.bus_id;
+	spdif_player->info = pdev->dev.platform_data;
+	snd_assert(spdif_player->info != NULL, return -EINVAL);
+	spdif_player->device = &pdev->dev;
 
-	spin_lock_init(&spdif_player->modes_default_lock);
-	spin_lock_init(&spdif_player->vuc_default_lock);
-	spin_lock_init(&spdif_player->vuc_stream_lock);
+	spin_lock_init(&spdif_player->default_settings_lock);
 
 	/* Get resources */
 
@@ -1231,9 +1539,7 @@ static int __init snd_stm_spdif_player_probe(struct platform_device *pdev)
 		goto error_irq_request;
 	}
 
-	result = snd_stm_fdma_request(pdev, &spdif_player->fdma_channel,
-			&spdif_player->fdma_request,
-			&snd_stm_spdif_player_fdma_request_config);
+	result = snd_stm_fdma_request(pdev, &spdif_player->fdma_channel);
 	if (result < 0) {
 		snd_stm_printe("FDMA request failed!\n");
 		goto error_fdma_request;
@@ -1241,50 +1547,22 @@ static int __init snd_stm_spdif_player_probe(struct platform_device *pdev)
 
 	/* Get component caps */
 
-	snd_printd("Player's name is '%s'\n", component->short_name);
+	snd_printd("Player's name is '%s'\n", spdif_player->info->name);
 
-	result = snd_stm_cap_get_string(component, "card_id", &card_id);
-	snd_assert(result == 0, return -EINVAL);
-	card = snd_stm_cards_get(card_id);
+	card = snd_stm_cards_get(spdif_player->info->card_id);
 	snd_assert(card != NULL, return -EINVAL);
-	snd_printd("Player will be a member of a card '%s'...\n", card_id);
+	snd_printd("Player will be a member of a card '%s' as a PCM device "
+			"no. %d.\n", card->id, spdif_player->info->card_device);
 
-	result = snd_stm_cap_get_number(component, "card_device",
-			&card_device);
-	snd_assert(result == 0, return -EINVAL);
-	snd_printd("... as a PCM device no %d.\n", card_device);
+	/* Get fsynth device */
 
-	result = snd_stm_cap_get_string(component, "fsynth_bus_id",
-			&fsynth_bus_id);
-	snd_assert(result == 0, return -EINVAL);
-	spdif_player->fsynth = snd_stm_device_get(fsynth_bus_id);
-	snd_assert(spdif_player->fsynth, return -EINVAL);
-	result = snd_stm_cap_get_number(component, "fsynth_channel",
-			&spdif_player->fsynth_channel);
-	snd_assert(result == 0, return -EINVAL);
-	snd_printd("Player clocked by channel %d of synthesizer %s.\n",
-			spdif_player->fsynth_channel, fsynth_bus_id);
-
-	/* Board-specific configuration */
-
-	if (config) {
-		spdif_player->oversampling = config->oversampling;
-	} else {
-		spdif_player->oversampling = DEFAULT_OVERSAMPLING;
-	}
-	/* Allowed oversampling values (SPDIF subframe is 32 bits long,
-	 * so oversampling 192x is forbidden, use ie. 384x instead) */
-	snd_assert(spdif_player->oversampling == 128 ||
-			spdif_player->oversampling == 256 ||
-			spdif_player->oversampling == 384 ||
-			spdif_player->oversampling == 512 ||
-			spdif_player->oversampling == 768,
-			return -EINVAL);
-
-	/* Default VUC data - consumer, PCM linear, no copyright */
-	/* TODO: make it configurable per board */
-	spdif_player->vuc_default.status[0] = IEC958_AES0_CON_NOT_COPYRIGHT;
-	/* All the rest is zeros, which is fine for us :-) */
+	snd_printd("Player connected to %s's output %d.\n",
+			spdif_player->info->fsynth_bus_id,
+			spdif_player->info->fsynth_output);
+	spdif_player->fsynth_device = snd_stm_find_device(NULL,
+			spdif_player->info->fsynth_bus_id);
+	snd_assert(spdif_player->fsynth_device != NULL, return -EINVAL);
+	spdif_player->fsynth_channel = spdif_player->info->fsynth_output;
 
 	/* Preallocate buffer */
 
@@ -1293,7 +1571,7 @@ static int __init snd_stm_spdif_player_probe(struct platform_device *pdev)
 	/* Create ALSA lowlevel device */
 
 	result = snd_device_new(card, SNDRV_DEV_LOWLEVEL, spdif_player,
-			&snd_stm_spdif_player_ops);
+			&snd_stm_spdif_player_snd_device_ops);
 	if (result < 0) {
 		snd_stm_printe("ALSA low level device creation failed!\n");
 		goto error_device;
@@ -1301,14 +1579,14 @@ static int __init snd_stm_spdif_player_probe(struct platform_device *pdev)
 
 	/* Create ALSA PCM device */
 
-	result = snd_pcm_new(card, NULL, card_device, 1, 0,
+	result = snd_pcm_new(card, NULL, spdif_player->info->card_device, 1, 0,
 			&spdif_player->pcm);
 	if (result < 0) {
 		snd_stm_printe("ALSA PCM instance creation failed!\n");
 		goto error_pcm;
 	}
 	spdif_player->pcm->private_data = spdif_player;
-	strcpy(spdif_player->pcm->name, component->short_name);
+	strcpy(spdif_player->pcm->name, spdif_player->info->name);
 
 	snd_pcm_set_ops(spdif_player->pcm, SNDRV_PCM_STREAM_PLAYBACK,
 			&snd_stm_spdif_player_spdif_ops);
@@ -1317,15 +1595,18 @@ static int __init snd_stm_spdif_player_probe(struct platform_device *pdev)
 
 	result = 0;
 	for (i = 0; i < ARRAY_SIZE(snd_stm_spdif_player_ctls); i++) {
-		snd_stm_spdif_player_ctls[i].device = card_device;
+		snd_stm_spdif_player_ctls[i].device =
+				spdif_player->info->card_device;
 		result |= snd_ctl_add(card,
 				snd_ctl_new1(&snd_stm_spdif_player_ctls[i],
 				spdif_player));
 		/* TODO: index per card */
 		snd_stm_spdif_player_ctls[i].index++;
 	}
-	result |= snd_stm_fsynth_add_adjustement_ctl(spdif_player->fsynth,
-			spdif_player->fsynth_channel, card, card_device);
+	result |= snd_stm_fsynth_add_adjustement_ctl(
+			spdif_player->fsynth_device,
+			spdif_player->fsynth_channel, card,
+			spdif_player->info->card_device);
 	if (result < 0) {
 		snd_stm_printe("Failed to add all ALSA controls!\n");
 		goto error_controls;
@@ -1337,14 +1618,13 @@ static int __init snd_stm_spdif_player_probe(struct platform_device *pdev)
 
 	snd_printd("--- Probed successfully!\n");
 
-	return result;
+	return 0;
 
 error_controls:
 error_pcm:
 	snd_device_free(card, spdif_player);
 error_device:
-	snd_stm_fdma_release(spdif_player->fdma_channel,
-			spdif_player->fdma_request);
+	snd_stm_fdma_release(spdif_player->fdma_channel);
 error_fdma_request:
 	snd_stm_irq_release(spdif_player->irq, spdif_player);
 error_irq_request:
@@ -1363,8 +1643,7 @@ static int snd_stm_spdif_player_remove(struct platform_device *pdev)
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
-	snd_stm_fdma_release(spdif_player->fdma_channel,
-			spdif_player->fdma_request);
+	snd_stm_fdma_release(spdif_player->fdma_channel);
 	snd_stm_irq_release(spdif_player->irq, spdif_player);
 	snd_stm_memory_release(spdif_player->mem_region, spdif_player->base);
 

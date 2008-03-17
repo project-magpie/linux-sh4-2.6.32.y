@@ -90,6 +90,7 @@ static inline void regfield_poke(void *base, unsigned long offset,
 #include <linux/stm/registers/aud_pcmin.h>
 #include <linux/stm/registers/aud_pcmout.h>
 #include <linux/stm/registers/aud_spdif.h>
+#include <linux/stm/registers/aud_spdifpc.h>
 #include <linux/stm/registers/audcfg.h>
 #include <linux/stm/registers/audcfg_adac.h>
 #include <linux/stm/registers/audcfg_fsyn.h>

@@ -64,11 +64,11 @@ static void snd_stm_audio_outputs_dump_registers(struct snd_info_entry *entry,
 	snd_assert(audio_outputs, return);
 	snd_stm_magic_assert(audio_outputs, return);
 
-#ifdef CONFIG_CPU_SUBTYPE_STB7100
+#if defined(CONFIG_CPU_SUBTYPE_STB7100) || defined(CONFIG_CPU_SUBTYPE_STX7111)
 	snd_iprintf(buffer, "AUDCFG_IO_CTRL (offset 0x00) = 0x%08x\n",
 			REGISTER_PEEK(audio_outputs->base, AUDCFG_IO_CTRL));
 #endif
-#ifdef CONFIG_CPU_SUBTYPE_STX7200
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
 	snd_iprintf(buffer, "AUDCFG_IOMUX_CTRL (offset 0x00) = 0x%08x\n",
 			REGISTER_PEEK(audio_outputs->base, AUDCFG_IOMUX_CTRL));
 	snd_iprintf(buffer, "AUDCFG_HDMI_CTRL (offset 0x04) = 0x%08x\n",
@@ -88,14 +88,20 @@ static int snd_stm_audio_outputs_register(struct snd_device *snd_device)
 
 	/* Enable audio outputs */
 
-#ifdef CONFIG_CPU_SUBTYPE_STB7100
+#if defined(CONFIG_CPU_SUBTYPE_STB7100)
 	REGISTER_POKE(audio_outputs->base, AUDCFG_IO_CTRL,
 			REGFIELD_VALUE(AUDCFG_IO_CTRL, SPDIF_EN, ENABLE) |
 			REGFIELD_VALUE(AUDCFG_IO_CTRL, DATA1_EN, OUTPUT) |
 			REGFIELD_VALUE(AUDCFG_IO_CTRL, DATA0_EN, OUTPUT) |
 			REGFIELD_VALUE(AUDCFG_IO_CTRL, PCM_CLK_EN, OUTPUT));
 #endif
-#ifdef CONFIG_CPU_SUBTYPE_STX7200
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+	REGISTER_POKE(audio_outputs->base, AUDCFG_IO_CTRL,
+			REGFIELD_VALUE(AUDCFG_IO_CTRL, PCMPLHDMI_EN, OUTPUT) |
+			REGFIELD_VALUE(AUDCFG_IO_CTRL, SPDIFHDMI_EN, OUTPUT) |
+			REGFIELD_VALUE(AUDCFG_IO_CTRL, PCM_CLK_EN, OUTPUT));
+#endif
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
 	REGISTER_POKE(audio_outputs->base, AUDCFG_IOMUX_CTRL,
 			REGFIELD_VALUE(AUDCFG_IOMUX_CTRL, SPDIF_EN, ENABLE) |
 			REGFIELD_VALUE(AUDCFG_IOMUX_CTRL, DATA2_EN, OUTPUT) |
@@ -125,14 +131,20 @@ static int snd_stm_audio_outputs_disconnect(struct snd_device *snd_device)
 
 	/* Disable audio outputs */
 
-#ifdef CONFIG_CPU_SUBTYPE_STB7100
+#if defined(CONFIG_CPU_SUBTYPE_STB7100)
 	REGISTER_POKE(audio_outputs->base, AUDCFG_IO_CTRL,
 			REGFIELD_VALUE(AUDCFG_IO_CTRL, SPDIF_EN, DISABLE) |
 			REGFIELD_VALUE(AUDCFG_IO_CTRL, DATA1_EN, INPUT) |
 			REGFIELD_VALUE(AUDCFG_IO_CTRL, DATA0_EN, INPUT) |
 			REGFIELD_VALUE(AUDCFG_IO_CTRL, PCM_CLK_EN, INPUT));
 #endif
-#ifdef CONFIG_CPU_SUBTYPE_STX7200
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+	REGISTER_POKE(audio_outputs->base, AUDCFG_IO_CTRL,
+			REGFIELD_VALUE(AUDCFG_IO_CTRL, PCMPLHDMI_EN, INPUT) |
+			REGFIELD_VALUE(AUDCFG_IO_CTRL, SPDIFHDMI_EN, INPUT) |
+			REGFIELD_VALUE(AUDCFG_IO_CTRL, PCM_CLK_EN, INPUT));
+#endif
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
 	REGISTER_POKE(audio_outputs->base, AUDCFG_IOMUX_CTRL,
 			REGFIELD_VALUE(AUDCFG_IOMUX_CTRL, SPDIF_EN, DISABLE) |
 			REGFIELD_VALUE(AUDCFG_IOMUX_CTRL, DATA2_EN, INPUT) |
@@ -144,7 +156,7 @@ static int snd_stm_audio_outputs_disconnect(struct snd_device *snd_device)
 	return 0;
 }
 
-static struct snd_device_ops snd_stm_audio_outputs_ops = {
+static struct snd_device_ops snd_stm_audio_outputs_snd_device_ops = {
 	.dev_register = snd_stm_audio_outputs_register,
 	.dev_disconnect = snd_stm_audio_outputs_disconnect,
 };
@@ -158,15 +170,10 @@ static struct snd_device_ops snd_stm_audio_outputs_ops = {
 static int __init snd_stm_audio_outputs_probe(struct platform_device *pdev)
 {
 	int result = 0;
-	struct snd_stm_component *component;
 	struct snd_stm_audio_outputs *audio_outputs;
-	const char *card_id;
 	struct snd_card *card;
 
 	snd_printd("--- Probing device '%s'...\n", pdev->dev.bus_id);
-
-	component = snd_stm_components_get(pdev->dev.bus_id);
-	snd_assert(component, return -EINVAL);
 
 	audio_outputs = kzalloc(sizeof(*audio_outputs), GFP_KERNEL);
 	if (!audio_outputs) {
@@ -184,14 +191,10 @@ static int __init snd_stm_audio_outputs_probe(struct platform_device *pdev)
 		goto error_memory_request;
 	}
 
-	result = snd_stm_cap_get_string(component, "card_id", &card_id);
-	if (result == 0)
-		card = snd_stm_cards_get(card_id);
-	else
-		card = snd_stm_cards_default(&card_id);
+	card = snd_stm_cards_default();
 	snd_assert(card, return -EINVAL);
 	snd_printd("Audio output controls will be a member of a card '%s'\n",
-		card_id);
+		card->id);
 
 	/* Register HDMI route control */
 
@@ -201,7 +204,7 @@ static int __init snd_stm_audio_outputs_probe(struct platform_device *pdev)
 	/* ALSA component */
 
 	result = snd_device_new(card, SNDRV_DEV_LOWLEVEL, audio_outputs,
-			&snd_stm_audio_outputs_ops);
+			&snd_stm_audio_outputs_snd_device_ops);
 	if (result < 0) {
 		snd_stm_printe("ALSA low level device creation failed!\n");
 		goto error_device;

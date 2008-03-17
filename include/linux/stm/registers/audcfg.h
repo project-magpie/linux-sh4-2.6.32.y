@@ -7,6 +7,10 @@
 #include <linux/stm/registers/stx710x/audcfg.h>
 #endif
 
+#ifdef CONFIG_CPU_SUBTYPE_STX7111
+#include <linux/stm/registers/stx7111/audcfg.h>
+#endif
+
 #ifdef CONFIG_CPU_SUBTYPE_STX7200
 #include <linux/stm/registers/stx7200/audcfg.h>
 #endif

@@ -15,31 +15,139 @@
 #include <sound/pcm.h>
 #include <sound/info.h>
 #include <sound/control.h>
+#include <sound/stm.h>
 
 
 
 /*
- * Audio DAC control interface
+ * Audio frequency synthesizer description (platform data)
  */
 
-int snd_stm_dac_get_config(struct device *device,
-		unsigned long *pcm_format, unsigned int *oversampling);
-int snd_stm_dac_shut_down(struct device *device);
-int snd_stm_dac_wake_up(struct device *device);
-int snd_stm_dac_mute(struct device *device);
-int snd_stm_dac_unmute(struct device *device);
+struct snd_stm_fsynth_info {
+	const char *card_id;
 
-
-
-/*
- * Audio frequency synthesizer interface
- */
+	int channels_from, channels_to;
+};
 
 int snd_stm_fsynth_set_frequency(struct device *device, int channel,
 		int frequency);
 
 int snd_stm_fsynth_add_adjustement_ctl(struct device *device, int channel,
 		struct snd_card *card, int card_device);
+
+
+
+/*
+ * Converters (DAC, ADC, I2S-SPDIF etc.) control interface
+ */
+
+struct snd_stm_conv *snd_stm_conv_get_attached(struct device *source);
+int snd_stm_conv_add_route_ctl(struct device *source,
+		struct snd_card *card, int card_device);
+
+unsigned int snd_stm_conv_get_format(struct snd_stm_conv *conv);
+int snd_stm_conv_get_oversampling(struct snd_stm_conv *conv);
+
+int snd_stm_conv_enable(struct snd_stm_conv *conv);
+int snd_stm_conv_disable(struct snd_stm_conv *conv);
+int snd_stm_conv_mute(struct snd_stm_conv *conv);
+int snd_stm_conv_unmute(struct snd_stm_conv *conv);
+
+
+
+/*
+ * Internal audio DAC description (platform data)
+ */
+
+struct snd_stm_conv_internal_dac_info {
+	const char *name;
+
+	const char *card_id;
+	int card_device;
+
+	const char *source_bus_id;
+};
+
+
+/*
+ * I2S to SPDIF converter description (platform data)
+ */
+
+struct snd_stm_conv_i2s_spdif_info {
+	const char *name;
+
+	const char *card_id;
+	int card_device;
+
+	const char *source_bus_id;
+
+	int full_channel_status;
+};
+
+
+
+/*
+ * PCM Player description (platform data)
+ */
+
+struct snd_stm_pcm_player_info {
+	const char *name;
+
+	const char *card_id;
+	int card_device;
+
+	const char *fsynth_bus_id;
+	int fsynth_output;
+
+	unsigned int channels_num;
+	unsigned int *channels;
+
+	unsigned char fdma_initiator;
+	unsigned int fdma_request_line;
+	int fdma_max_transfer_size;
+
+	int invert_sclk_edge_falling;
+};
+
+
+
+/*
+ * PCM Reader description (platform data)
+ */
+
+struct snd_stm_pcm_reader_info {
+	const char *name;
+
+	const char *card_id;
+	int card_device;
+
+	int channels_num;
+	int *channels;
+
+	unsigned char fdma_initiator;
+	unsigned int fdma_request_line;
+	int fdma_max_transfer_size;
+};
+
+
+
+/*
+ * SPDIF Player description (platform data)
+ */
+
+struct snd_stm_spdif_player_info {
+	const char *name;
+
+	const char *card_id;
+	int card_device;
+
+	const char *fsynth_bus_id;
+	int fsynth_output;
+
+	unsigned char fdma_initiator;
+	unsigned int fdma_request_line;
+	int fdma_max_transfer_size;
+};
 
 
 
@@ -59,10 +167,49 @@ int snd_stm_mmap(struct snd_pcm_substream *substream,
 int snd_stm_ctl_boolean_info(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_info *uinfo);
 
+int snd_stm_ctl_iec958_info(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_info *uinfo);
+
+int snd_stm_ctl_iec958_mask_get_con(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol);
+
+int snd_stm_ctl_iec958_mask_get_pro(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol);
+
+int snd_stm_iec958_cmp(const struct snd_aes_iec958 *a,
+		const struct snd_aes_iec958 *b);
+
 
 
 /*
- * Cards management
+ * Common ALSA parameters constraints
+ */
+
+int snd_stm_pcm_transfer_bytes(unsigned int bytes_per_frame,
+		unsigned int max_transfer_bytes);
+int snd_stm_pcm_hw_constraint_transfer_bytes(struct snd_pcm_runtime *runtime,
+		unsigned int max_transfer_bytes);
+
+
+
+/*
+ * Device management
+ */
+
+/* Add/remove a list of platform devices */
+int __init snd_stm_add_plaform_devices(struct platform_device **devices,
+		int cnt);
+void __exit snd_stm_remove_plaform_devices(struct platform_device **devices,
+		int cnt);
+
+/* Leave bus NULL to use default (platform) bus */
+struct device *snd_stm_find_device(struct bus_type *bus,
+		const char *bus_id);
+
+
+
+/*
+ * Components management
  */
 
 /* Card description */
@@ -84,72 +231,7 @@ void snd_stm_cards_free(void);
 /* Card list access */
 
 struct snd_card __init *snd_stm_cards_get(const char *id);
-struct snd_card __init *snd_stm_cards_default(const char **id);
-
-
-
-/*
- * Components
- *
- * Note that all component data and functions are marked
- * as a __init/__datainit, so are automatically cleaned
- * after initialization. THEY ARE NOT STATIC DATA!
- */
-
-/* Component description */
-
-struct snd_stm_component {
-	const char *bus_id;
-	const char *short_name;
-	int num_caps;
-	struct snd_stm_cap *caps;
-};
-
-/* Components list initialization */
-
-int __init snd_stm_components_init(struct snd_stm_component *components,
-		int num_components);
-
-/* Component & device access */
-
-struct snd_stm_component __init *snd_stm_components_get(const char *bus_id);
-struct device __init *snd_stm_device_get(const char *bus_id);
-
-/* Component capabilities description */
-
-union snd_stm_value {
-	int number;
-	const char *string;
-	struct {
-		int from;
-		int to;
-	} range;
-	struct {
-		int *numbers;
-		int len;
-	} list;
-};
-
-struct snd_stm_cap {
-	const char *name;
-	union snd_stm_value value;
-};
-
-/* Capabilities access */
-
-int __init snd_stm_cap_set(struct snd_stm_component *component,
-		const char *name, union snd_stm_value value);
-int __init snd_stm_cap_get(struct snd_stm_component *component,
-		const char *name, union snd_stm_value *value);
-
-int __init snd_stm_cap_get_number(struct snd_stm_component *component,
-		const char *name, int *number);
-int __init snd_stm_cap_get_string(struct snd_stm_component *component,
-		const char *name, const char **string);
-int __init snd_stm_cap_get_range(struct snd_stm_component *component,
-		const char *name, int *from, int *to);
-int __init snd_stm_cap_get_list(struct snd_stm_component *component,
-		const char *name, int **numbers, int *len);
+struct snd_card __init *snd_stm_cards_default(void);
 
 
 
@@ -182,10 +264,8 @@ int __init snd_stm_irq_request(struct platform_device *pdev,
 #define snd_stm_irq_release(irq, dev_id) free_irq(irq, dev_id)
 
 int __init snd_stm_fdma_request(struct platform_device *pdev,
-		int *channel, struct stm_dma_req **request,
-		struct stm_dma_req_config *config);
-void snd_stm_fdma_release(unsigned int channel,
-		struct stm_dma_req *request);
+		unsigned int *channel);
+#define snd_stm_fdma_release(channel) free_dma(channel)
 
 
 
@@ -193,11 +273,17 @@ void snd_stm_fdma_release(unsigned int channel,
  * Drivers initialization/cleanup
  */
 
-#ifdef CONFIG_CPU_SUBTYPE_STB7100
+#if defined(CONFIG_CPU_SUBTYPE_STB7100)
 int __init snd_stm_stx710x_init(void);
+void __exit snd_stm_stx710x_cleanup(void);
 #endif
-#ifdef CONFIG_CPU_SUBTYPE_STX7200
+#if defined(CONFIG_CPU_SUBTYPE_STX7111)
+int __init snd_stm_stx7111_init(void);
+void __exit snd_stm_stx7111_cleanup(void);
+#endif
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
 int __init snd_stm_stx7200_init(void);
+void __exit snd_stm_stx7200_cleanup(void);
 #endif
 
 int __init snd_stm_audio_outputs_init(void);
@@ -206,11 +292,17 @@ void snd_stm_audio_outputs_cleanup(void);
 int __init snd_stm_fsynth_init(void);
 void snd_stm_fsynth_cleanup(void);
 
-int __init snd_stm_dac_internal_init(void);
-void snd_stm_dac_internal_cleanup(void);
+int __init snd_stm_conv_init(void);
+void snd_stm_conv_cleanup(void);
 
-int __init snd_stm_i2s_spdif_converter_init(void);
-void snd_stm_i2s_spdif_converter_cleanup(void);
+int __init snd_stm_conv_dummy_init(void);
+void snd_stm_conv_dummy_cleanup(void);
+
+int __init snd_stm_conv_internal_dac_init(void);
+void snd_stm_conv_internal_dac_cleanup(void);
+
+int __init snd_stm_conv_i2s_spdif_init(void);
+void snd_stm_conv_i2s_spdif_cleanup(void);
 
 int __init snd_stm_pcm_player_init(void);
 void snd_stm_pcm_player_cleanup(void);
@@ -230,9 +322,10 @@ void snd_stm_synchro_cleanup(void);
  * Debug features
  */
 
-/* Memory dump function */
+/* Data dump functions */
 
 void snd_stm_hex_dump(void *data, int size);
+void snd_stm_iec958_dump(const struct snd_aes_iec958 *vuc);
 
 
 

@@ -153,7 +153,7 @@ static struct platform_device mb519_phy_devices[2] = {
 	},
 	.dev = {
 		.platform_data = &phy_private_data[1],
-	 }
+	}
 } };
 
 static struct platform_device epld_device = {
@@ -216,13 +216,6 @@ static struct platform_device *mb519_devices[] __initdata = {
 	&mb519_phy_devices[1],
 };
 
-struct plat_audio_config i2s_format = {
-	/* Actually this is a default value, but let's treat it as an example */
-	.pcm_format = PLAT_STM_AUDIO__FORMAT_I2S |
-			PLAT_STM_AUDIO__DATA_SIZE_24_BITS,
-	.oversampling = 256,
-};
-
 static int __init device_init(void)
 {
 	unsigned int epld_rev;
@@ -237,12 +230,6 @@ static int __init device_init(void)
 	stx7200_configure_pwm(&pwm_private_info);
 	stx7200_configure_ssc(&ssc_private_info);
 	stx7200_configure_usb();
-	stx7200_configure_audio(&i2s_format, /* PCM reader data */
-				NULL, /* PCM player 0 */
-				NULL, /* PCM player 1 */
-				&i2s_format, /* PCM player 2 */
-				&i2s_format, /* PCM player 3 */
-				NULL); /* HDMI PCM player */
 	stx7200_configure_ethernet(0, 0, 1, 0);
 	// stx7200_configure_ethernet(1, 0, 1, 1);
 	stx7200_configure_lirc();

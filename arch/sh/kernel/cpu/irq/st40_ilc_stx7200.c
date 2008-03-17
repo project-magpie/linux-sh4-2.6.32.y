@@ -12,7 +12,6 @@
 
 #include <linux/kernel.h>
 #include <linux/init.h>
-#include <linux/list.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/errno.h>
@@ -25,8 +24,13 @@
 #include "st40_ilc.h"
 
 struct ilc_data {
-	unsigned int priority;
-	struct list_head list;
+#define ilc_get_priority(_ilc)		((_ilc)->priority)
+#define ilc_set_priority(_ilc, _prio)	((_ilc)->priority = (_prio))
+	unsigned char priority;
+#define ILC_STATE_USED			0x1
+#define ilc_set_used(_ilc)		((_ilc)->state |= ILC_STATE_USED)
+#define ilc_set_unused(_ilc)		((_ilc)->state &= ~(ILC_STATE_USED))
+	unsigned char state;
 };
 
 static struct ilc_data ilc_data[ILC_NR_IRQS] =
@@ -34,9 +38,17 @@ static struct ilc_data ilc_data[ILC_NR_IRQS] =
 	[0 ... ILC_NR_IRQS-1 ] = { .priority = 7 }
 };
 
-static struct list_head intc_data[16];
-
 static DEFINE_SPINLOCK(ilc_data_lock);
+
+
+#define ILC_PRIORITY_MASK_SIZE		DIV_ROUND_UP(ILC_NR_IRQS, 32)
+
+struct pr_mask {
+	/* Each priority mask needs ILC_NR_IRQS bits */
+       unsigned long mask[ILC_PRIORITY_MASK_SIZE];
+};
+
+static struct pr_mask priority_mask[16];
 
 /*
  * Debug printk macro
@@ -63,30 +75,32 @@ static DEFINE_SPINLOCK(ilc_data_lock);
 
 /*
  * The interrupt demux function. Check if this was an ILC interrupt, and
- * of so which device generated the interrupt.
+ * if so which device generated the interrupt.
  */
-
 void ilc_irq_demux(unsigned int irq, struct irq_desc *desc)
 {
 	unsigned int priority = 14 - irq;
 	unsigned int irq_offset;
-	struct ilc_data *this;
 	int handled = 0;
+	int idx;
+	unsigned long status;
 
 	DPRINTK2("ilc demux got irq %d\n", irq);
 
-	list_for_each_entry(this, &intc_data[priority], list) {
+	for (idx = 0; idx < ILC_PRIORITY_MASK_SIZE; ++idx) {
+		struct irq_desc *desc;
 
-		irq_offset = this - ilc_data;
+		status = ioread32(ilc_base + ILC_BASE_STATUS + (idx<<2)) &
+			ioread32(ilc_base + ILC_BASE_ENABLE + (idx<<2)) &
+			priority_mask[priority].mask[idx] ;
+		if (!status)
+			continue;
 
-		if (ILC_GET_STATUS(irq_offset) && ILC_GET_ENABLE(irq_offset)) {
-			struct irq_desc *desc = irq_desc + ILC_IRQ(irq_offset);
-
-			DPRINTK2("ilc found ilc %d active\n", irq_offset);
-			ILC_CLR_STATUS(irq_offset);
-			desc->handle_irq(ILC_IRQ(irq_offset), desc);
-			handled = 1;
-		}
+		irq_offset = (idx*32)+ffs(status)-1;
+		desc = irq_desc + ILC_IRQ(irq_offset);
+		desc->handle_irq(ILC_IRQ(irq_offset), desc);
+		handled = 1;
+		ILC_CLR_STATUS(irq_offset);
 	}
 
 	if (!handled)
@@ -109,7 +123,9 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 	priority = this->priority;
 
 	spin_lock_irqsave(&ilc_data_lock, flags);
-	list_add(&this->list, &intc_data[priority]);
+	ilc_set_used(this);
+	priority_mask[priority].mask[_BANK(irq_offset)] |=
+		_BIT(irq_offset);
 	spin_unlock_irqrestore(&ilc_data_lock, flags);
 
 	ILC_SET_PRI(irq_offset, priority);
@@ -145,7 +161,9 @@ static void shutdown_ilc_irq(unsigned int irq)
 	ILC_SET_PRI(irq_offset, 0);
 
 	spin_lock_irqsave(&ilc_data_lock, flags);
-	list_del(&this->list);
+	ilc_set_unused(this);
+	priority_mask[priority].mask[_BANK(irq_offset)] &=
+		~(_BIT(irq_offset));
 	spin_unlock_irqrestore(&ilc_data_lock, flags);
 }
 
@@ -192,7 +210,4 @@ void __init ilc_stx7200_init(void)
 		set_irq_chip_and_handler_name(irq, &ilc_chip, handle_level_irq,
 					      "ILC");
 
-	for (irq = 0; irq < 16; irq++) {
-		INIT_LIST_HEAD(&intc_data[irq]);
-	}
 }

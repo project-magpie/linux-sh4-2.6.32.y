@@ -14,6 +14,10 @@ extern void __iomem *ilc_base;
 
 #define _BIT(_int)		     (1 << (_int % 32))
 #define _REG_OFF(_int)		     (sizeof(int) * (_int / 32))
+#define _BANK(irq)		     ((irq) >> 5)
+
+#define ILC_BASE_STATUS              0x200
+#define ILC_BASE_ENABLE              0x400
 
 #define ILC_INTERRUPT_REG(_int)      (ilc_base + 0x080 + _REG_OFF(_int))
 #define ILC_STATUS_REG(_int)         (ilc_base + 0x200 + _REG_OFF(_int))

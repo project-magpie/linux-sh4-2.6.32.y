@@ -616,6 +616,36 @@ static int genphy_config_init(struct phy_device *phydev)
 	return 0;
 }
 
+int genphy_suspend(struct phy_device *phydev)
+{
+	int value;
+
+	spin_lock_bh(&phydev->lock);
+
+	value = phy_read(phydev, MII_BMCR);
+	phy_write(phydev, MII_BMCR, (value | BMCR_PDOWN));
+
+	spin_unlock_bh(&phydev->lock);
+
+	return 0;
+}
+EXPORT_SYMBOL(genphy_suspend);
+
+int genphy_resume(struct phy_device *phydev)
+{
+	int value;
+
+	spin_lock_bh(&phydev->lock);
+
+	value = phy_read(phydev, MII_BMCR);
+	phy_write(phydev, MII_BMCR, (value & ~BMCR_PDOWN));
+
+	spin_unlock_bh(&phydev->lock);
+
+	return 0;
+}
+
+EXPORT_SYMBOL(genphy_resume);
 
 /**
  * phy_probe - probe and init a PHY device
@@ -690,8 +720,9 @@ static int phy_remove(struct device *dev)
 int phy_driver_register(struct phy_driver *new_driver)
 {
 	int retval;
-
-	memset(&new_driver->driver, 0, sizeof(new_driver->driver));
+/*
+ *	memset(&new_driver->driver, 0, sizeof(new_driver->driver));
+ */
 	new_driver->driver.name = new_driver->name;
 	new_driver->driver.bus = &mdio_bus_type;
 	new_driver->driver.probe = phy_probe;

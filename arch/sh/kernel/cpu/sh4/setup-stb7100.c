@@ -590,22 +590,26 @@ static struct lirc_pio lirc_pios[] = {
 	[0] = {
 		.bank = 3,
 		.pin  = 3,
-		.dir  = STPIO_IN
+		.dir  = STPIO_IN,
+                .pinof= 0x00 | LIRC_IR_RX | LIRC_PIO_ON
 	},
 	[1] = {
 		.bank = 3,
 		.pin  = 4,
-		.dir  = STPIO_IN
+		.dir  = STPIO_IN,
+                .pinof= 0x00 | LIRC_UHF_RX | LIRC_PIO_ON
 	},
 	[2] = {
 		.bank = 3,
 		.pin  = 5,
-		.dir  = STPIO_ALT_OUT
+		.dir  = STPIO_ALT_OUT,
+                .pinof= 0x00 | LIRC_IR_TX /* | LIRC_PIO_ON not available */
 	},
 	[3] = {
 		.bank = 3,
 		.pin  = 6,
-		.dir  = STPIO_ALT_OUT
+		.dir  = STPIO_ALT_OUT,
+                .pinof= 0x00 | LIRC_IR_TX /* | LIRC_PIO_ON not available */
 	}
 };
 

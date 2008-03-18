@@ -478,6 +478,79 @@ static int __init stb7111_add_asc(void)
 }
 arch_initcall(stb7111_add_asc);
 
+/* LiRC resources ---------------------------------------------------------- */
+static struct lirc_pio lirc_pios[] = {
+        [0] = {
+		.bank = 3,
+		.pin  = 3,
+		.dir  = STPIO_IN,
+                .pinof= 0x00 | LIRC_IR_RX | LIRC_PIO_ON
+	},
+	[1] = {
+		.bank = 3,
+		.pin  = 4,
+		.dir  = STPIO_IN,
+                .pinof= 0x00 | LIRC_UHF_RX /* | LIRC_PIO_ON not available */
+                },
+	[2] = {
+		.bank = 3,
+		.pin  = 5,
+		.dir  = STPIO_ALT_OUT,
+                .pinof= 0x00 | LIRC_IR_TX | LIRC_PIO_ON
+	},
+	[3] = {
+		.bank = 3,
+		.pin  = 6,
+		.dir  = STPIO_ALT_OUT,
+                .pinof= 0x00 | LIRC_IR_TX | LIRC_PIO_ON
+	},
+};
+
+static struct plat_lirc_data lirc_private_info = {
+	/* For the 7111, the clock settings will be calculated by the driver
+	 * from the system clock
+	 */
+	.irbclock	= 0, /* use current_cpu data */
+	.irbclkdiv      = 0, /* automatically calculate */
+	.irbperiodmult  = 0,
+	.irbperioddiv   = 0,
+	.irbontimemult  = 0,
+	.irbontimediv   = 0,
+	.irbrxmaxperiod = 0x5000,
+	.sysclkdiv	= 1,
+	.rxpolarity	= 1,
+	.pio_pin_arr  = lirc_pios,
+	.num_pio_pins = ARRAY_SIZE(lirc_pios)
+};
+
+static struct resource lirc_resource[]= {
+        [0] = {
+		.start = 0xfd018000,
+		.end   = 0xfd018000 + 0xa0,
+	        .flags = IORESOURCE_MEM
+	},
+	[1] = {
+		.start = evt2irq(0x11a0),
+		.end   = evt2irq(0x11a0),
+	        .flags = IORESOURCE_IRQ
+	},
+};
+
+static struct platform_device lirc_device = {
+	.name           = "lirc",
+	.id             = -1,
+	.num_resources  = ARRAY_SIZE(lirc_resource),
+	.resource       = lirc_resource,
+	.dev = {
+	           .platform_data = &lirc_private_info
+	}
+};
+
+void __init stx7111_configure_lirc(void)
+{
+	platform_device_register(&lirc_device);
+}
+
 /* NAND Resources ---------------------------------------------------------- */
 
 static void nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)

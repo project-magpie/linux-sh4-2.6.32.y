@@ -259,27 +259,20 @@ config LIRC_SUPPORT
 				default "4" if LIRC_SIR_COM1 || LIRC_SIR_COM3
 				default "3" if LIRC_SIR_COM2 || LIRC_SIR_COM4
 			depends on LIRC_SIR
-        config ST_LIRC
+        config LIRC_STM
                 tristate "STM Lirc support"
-                depends on LIRC_SUPPORT && (SH_ST_MB411 || SH_ST_MB442 || SH_ST_MB448 || SH_HMS1 || SH_ST_MB519)
+                depends on LIRC_SUPPORT && (SH_ST_MB411 || SH_ST_MB442 || SH_ST_MB448 || SH_HMS1 || SH_ST_MB519 || SH_ST_MB618)
+		help
+		  The IR and UHF are identical and independent, except
+		  that the IRB receiver does not use the noise filter.
+		  Not all ST platforms support both type of receivers.
+		  IR RX is the default mode.
 
-                choice
-                        prompt "Receiver type"
-                        depends on ST_LIRC
-			help
-			  The IRB and UHF are identical and indipendent, except
-			  that the IRB receiver does not use the noise filter.
-			  Not all the ST platforms support both type of receivers.
-
-                        config IRB_RECEIVER
-                        bool "IRB Receiver"
-			depends on ST_LIRC && (SH_ST_MB411 || SH_ST_MB442 || SH_ST_MB448 || SH_HMS1 || SH_ST_MB519)
-
-                        config UHF_RECEIVER
-                        bool "UHF Receiver"
-			depends on ST_LIRC && (SH_ST_MB411 || SH_ST_MB442 || SH_ST_MB519)
-
-                endchoice
+        config LIRC_STM_UHF_RX
+	        bool "UHF Receiver mode"
+		depends on LIRC_STM && (SH_ST_MB411 || SH_ST_MB442 || SH_ST_MB519 || SH_ST_MB618)
+		help
+		  This causes the driver to use UHF RX mode.
 
 endmenu
 

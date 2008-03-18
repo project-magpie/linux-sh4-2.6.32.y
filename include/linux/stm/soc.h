@@ -52,10 +52,16 @@ struct plat_stm_pwm_data {
 #define PLAT_STM_PWM_OUT1	(1<<1)
 
 /* This is the private platform data for the lirc driver */
+#define LIRC_PIO_ON		0x08	/* PIO pin available */
+#define LIRC_IR_RX		0x04	/* IR RX PIO line available */
+#define LIRC_IR_TX		0x02	/* IR TX PIOs lines available */
+#define LIRC_UHF_RX		0x01	/* UHF RX PIO line available */
+
 struct lirc_pio {
 	unsigned int bank;
 	unsigned int pin;
 	unsigned int dir;
+	char pinof;
         struct stpio_pin* pinaddr;
 };
 
@@ -159,10 +165,10 @@ void stx7111_configure_ssc(struct plat_ssc_data *data);
 void stx7111_configure_usb(void);
 void stx7111_configure_ethernet(int en_mii, int sel, int ext_clk, int phy_bus);
 void stx7111_configure_nand(struct nand_config_data *data);
+void stx7111_configure_lirc(void);
 
 void stx7200_early_device_init(void);
 void stx7200_configure_asc(const int *ascs, int num_ascs, int console);
-
 void stx7200_configure_pwm(struct plat_stm_pwm_data *data);
 void stx7200_configure_ssc(struct plat_ssc_data *data);
 void stx7200_configure_usb(void);

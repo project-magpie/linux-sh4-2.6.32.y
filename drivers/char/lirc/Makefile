@@ -17,5 +17,5 @@ obj-$(CONFIG_LIRC_PARALLEL) += lirc_parallel.o
 obj-$(CONFIG_LIRC_SASEM) += lirc_sasem.o
 obj-$(CONFIG_LIRC_SERIAL) += lirc_serial.o
 obj-$(CONFIG_LIRC_SIR) += lirc_sir.o
-obj-$(CONFIG_ST_LIRC) += lirc_stm.o
+obj-$(CONFIG_LIRC_STM) += lirc_stm.o
 obj-$(CONFIG_LIRC_STREAMZAP) += lirc_streamzap.o

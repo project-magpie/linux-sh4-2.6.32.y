@@ -5,6 +5,8 @@
  *
  * ----------------------------------------------------------------------------
  * Changelog:
+ *   March 2008
+ *      Added suspend/resume functions.
  *   May 2007
  *      Changed 101p PHY ID and mask to allow REV B variants
  *   Aug  2006
@@ -116,7 +118,9 @@ static struct phy_driver ste101p_pdriver = {
         .read_status    = genphy_read_status,
         .ack_interrupt  = ste10Xp_ack_interrupt,
         .config_intr    = ste10Xp_config_intr,
-        .driver         = { .owner = THIS_MODULE,},
+	.suspend	= genphy_suspend,
+	.resume		= genphy_resume,
+	.driver         = { .owner = THIS_MODULE, }
 };
 
 static struct phy_driver ste100p_pdriver = {
@@ -130,7 +134,9 @@ static struct phy_driver ste100p_pdriver = {
         .read_status    = genphy_read_status,
         .ack_interrupt  = ste10Xp_ack_interrupt,
         .config_intr    = ste10Xp_config_intr,
-        .driver         = { .owner = THIS_MODULE,},
+	.suspend	= genphy_suspend,
+	.resume 	= genphy_resume,
+	.driver         = { .owner = THIS_MODULE, }
 };
 
 static int __init ste10Xp_init(void)

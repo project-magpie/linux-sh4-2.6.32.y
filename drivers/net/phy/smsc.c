@@ -12,6 +12,9 @@
  * Free Software Foundation;  either version 2 of the  License, or (at your
  * option) any later version.
  *
+ * Changelog:
+ *	March 2008
+ *	- Added LAN8700 PHY (Giuseppe Cavallaro <peppe.cavallaro@st.com>)
  */
 
 #include <linux/kernel.h>
@@ -21,43 +24,52 @@
 #include <linux/phy.h>
 #include <linux/netdevice.h>
 
-#define MII_LAN83C185_ISF 29 /* Interrupt Source Flags */
-#define MII_LAN83C185_IM  30 /* Interrupt Mask */
+#define MII_SMSC_ISF 29 /* Interrupt Source Flags */
+#define MII_SMSC_IM  30 /* Interrupt Mask */
 
-#define MII_LAN83C185_ISF_INT1 (1<<1) /* Auto-Negotiation Page Received */
-#define MII_LAN83C185_ISF_INT2 (1<<2) /* Parallel Detection Fault */
-#define MII_LAN83C185_ISF_INT3 (1<<3) /* Auto-Negotiation LP Ack */
-#define MII_LAN83C185_ISF_INT4 (1<<4) /* Link Down */
-#define MII_LAN83C185_ISF_INT5 (1<<5) /* Remote Fault Detected */
-#define MII_LAN83C185_ISF_INT6 (1<<6) /* Auto-Negotiation complete */
-#define MII_LAN83C185_ISF_INT7 (1<<7) /* ENERGYON */
+#define MII_SMSC_ISF_INT1 (1<<1) /* Auto-Negotiation Page Received */
+#define MII_SMSC_ISF_INT2 (1<<2) /* Parallel Detection Fault */
+#define MII_SMSC_ISF_INT3 (1<<3) /* Auto-Negotiation LP Ack */
+#define MII_SMSC_ISF_INT4 (1<<4) /* Link Down */
+#define MII_SMSC_ISF_INT5 (1<<5) /* Remote Fault Detected */
+#define MII_SMSC_ISF_INT6 (1<<6) /* Auto-Negotiation complete */
+#define MII_SMSC_ISF_INT7 (1<<7) /* ENERGYON */
 
-#define MII_LAN83C185_ISF_INT_ALL (0x0e)
+#define MII_SMSC_ISF_INT_ALL (0x0e)
 
-#define MII_LAN83C185_ISF_INT_PHYLIB_EVENTS \
-	(MII_LAN83C185_ISF_INT6 | MII_LAN83C185_ISF_INT4)
+#define MII_SMSC_ISF_INT_PHYLIB_EVENTS \
+	(MII_SMSC_ISF_INT6 | MII_SMSC_ISF_INT4)
 
+/* LAN8700 phy identifier values */
+#define LAN8700_PHY_ID		0x0007c0c0
+#define LAN8700_PHY_LO_ID_REVA 	0xc0c1
+#define LAN8700_PHY_LO_ID_REVB 	0xc0c2
+#define LAN8700_PHY_LO_ID_REVC 	0xc0c3
+#define LAN8700_PHY_LO_ID_REVD 	0xc0c4
+#define LAN8700_PHY_LO_ID_REVE 	0xc0c5
+#define LAN8700_PHY_LO_ID_REVF 	0xc0c6
+#define LAN8700_PHY_LO_ID_REVG 	0xc0c7
 
-static int lan83c185_config_intr(struct phy_device *phydev)
+static int smsc_config_intr(struct phy_device *phydev)
 {
-	int rc = phy_write (phydev, MII_LAN83C185_IM,
+	int rc = phy_write (phydev, MII_SMSC_IM,
 			((PHY_INTERRUPT_ENABLED == phydev->interrupts)
-			? MII_LAN83C185_ISF_INT_PHYLIB_EVENTS
+			? MII_SMSC_ISF_INT_PHYLIB_EVENTS
 			: 0));
 
 	return rc < 0 ? rc : 0;
 }
 
-static int lan83c185_ack_interrupt(struct phy_device *phydev)
+static int smsc_ack_interrupt(struct phy_device *phydev)
 {
-	int rc = phy_read (phydev, MII_LAN83C185_ISF);
+	int rc = phy_read (phydev, MII_SMSC_ISF);
 
 	return rc < 0 ? rc : 0;
 }
 
-static int lan83c185_config_init(struct phy_device *phydev)
+static int smsc_config_init(struct phy_device *phydev)
 {
-	return lan83c185_ack_interrupt (phydev);
+	return smsc_ack_interrupt (phydev);
 }
 
 
@@ -73,23 +85,49 @@ static struct phy_driver lan83c185_driver = {
 	/* basic functions */
 	.config_aneg	= genphy_config_aneg,
 	.read_status	= genphy_read_status,
-	.config_init	= lan83c185_config_init,
+	.config_init	= smsc_config_init,
 
 	/* IRQ related */
-	.ack_interrupt	= lan83c185_ack_interrupt,
-	.config_intr	= lan83c185_config_intr,
+	.ack_interrupt	= smsc_ack_interrupt,
+	.config_intr	= smsc_config_intr,
 
 	.driver		= { .owner = THIS_MODULE, }
 };
 
+static struct phy_driver lan8700_driver = {
+        .phy_id         = LAN8700_PHY_ID,
+        .phy_id_mask    = 0xfffffff0,
+        .name           = "SMSC LAN8700",
+        .features       = PHY_BASIC_FEATURES | SUPPORTED_Pause
+				| SUPPORTED_Asym_Pause,
+        .flags          = PHY_HAS_INTERRUPT,
+	.config_init    = smsc_config_init,
+        .config_aneg    = genphy_config_aneg,
+        .read_status    = genphy_read_status,
+        .ack_interrupt  = smsc_ack_interrupt,
+        .config_intr    = smsc_config_intr,
+	.suspend 	= genphy_suspend,
+	.resume  	= genphy_resume,
+	.driver         = { .owner = THIS_MODULE, }
+};
+
+
 static int __init smsc_init(void)
 {
-	return phy_driver_register (&lan83c185_driver);
+	int retval;
+
+	retval = phy_driver_register (&lan83c185_driver);
+
+	if (retval < 0)
+		return retval;
+
+	return phy_driver_register(&lan8700_driver);
 }
 
 static void __exit smsc_exit(void)
 {
 	phy_driver_unregister (&lan83c185_driver);
+	phy_driver_unregister (&lan8700_driver);
 }
 
 MODULE_DESCRIPTION("SMSC PHY driver");

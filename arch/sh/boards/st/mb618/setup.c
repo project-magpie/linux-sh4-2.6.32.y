@@ -22,6 +22,7 @@
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <asm/io.h>
+#include "../common/epld.h"
 
 /* Whether the hardware supports NOR or NAND Flash depends on J34.
  * In position 1-2 CSA selects NAND, in position 2-3 is selects NOR.
@@ -97,6 +98,15 @@ static struct platform_device physmap_flash = {
 	},
 };
 
+static int mb618_phy_reset05(void *bus)
+{
+	/* Bring the PHY out of reset in MII mode */
+	epld_write(0x4 | 0, 0);
+	epld_write(0x4 | 1, 0);
+
+	return 1;
+}
+
 static struct plat_stmmacphy_data phy_private_data = {
 	/* SMSC LAN 8700 */
 	.bus_id = 0,
@@ -122,23 +132,22 @@ static struct platform_device mb618_phy_device = {
 	}
 };
 
-#if 0
 static struct platform_device epld_device = {
 	.name		= "epld",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
 		{
-			.start	= EPLD_BASE,
-			.end	= EPLD_BASE + EPLD_SIZE - 1,
+			.start	= 0x04000000,
+			/* Minimum size to ensure mapped by PMB */
+			.end	= 0x0400000f+(8*1024*1024),
 			.flags	= IORESOURCE_MEM,
 		}
 	},
 	.dev.platform_data = &(struct plat_epld_data) {
-		 .opsize = 16,
+		 .opsize = 8,
 	},
 };
-#endif
 
 /* J34 must be in the 1-2 position to enable NOR Flash */
 static struct mtd_partition nand_partitions[] = {
@@ -176,7 +185,7 @@ static struct nand_config_data mb618_nand_config = {
 };
 
 static struct platform_device *mb618_devices[] __initdata = {
-	//&epld_device,
+	&epld_device,
 #ifdef FLASH_NOR
 	&physmap_flash,
 #endif
@@ -185,17 +194,6 @@ static struct platform_device *mb618_devices[] __initdata = {
 
 static int __init device_init(void)
 {
-#if 0
-	unsigned int epld_rev;
-	unsigned int pcb_rev;
-
-	epld_rev = epld_read(EPLD_EPLDVER);
-	pcb_rev = epld_read(EPLD_PCBVER);
-	printk("mb618 PCB rev %X EPLD rev %dr%d\n",
-	       pcb_rev,
-	       epld_rev >> 4, epld_rev & 0xf);
-
-#endif
 	stx7111_configure_pwm(&pwm_private_info);
 	stx7111_configure_ssc(&ssc_private_info);
 	stx7111_configure_usb();
@@ -230,27 +228,79 @@ static void __iomem *mb618_ioport_map(unsigned long port, unsigned int size)
 	return (void __iomem *)CCN_PVR;
 }
 
+/*
+ * We have several EPLD versions to cope with, with slightly different memory
+ * maps and features:
+ *
+ * version 04:
+ * off  read        reset
+ *  0   Status      undef  (unused)
+ *  4   Ctrl        20     (unused)
+ *  8   Test        33
+ *  c   Ident       0      (should be 1 but broken)
+ * (note writes are broken)
+ *
+ * version 05:
+ * off  read     write       reset
+ *  0   Ident    Ctrl        45
+ *  4   Test     Test        55
+ *  8   IntStat  IntMaskSet  -
+ *  c   IntMask  IntMaskClr  0
+ */
 static void __init mb618_init_irq(void)
 {
-#if 0
+	unsigned char epld_reg;
+	int test_offset = -1;
+	int version_offset = -1;
+	int version = -1;
+
 	epld_early_init(&epld_device);
 
-	/* The off chip interrupts on the mb618 are a mess. The external
-	 * EPLD priority encodes them, but because they pass through the ILC3
-	 * there is no way to decode them.
-	 *
-	 * So here we bodge it as well. Only enable the STEM INTR0 signal,
-	 * and hope nothing else goes active. This will result in
-	 * SYSITRQ[3..0] = 0100.
-	 *
-	 * Note that the mapping of STEM_notINTR0 changed between EPLD
-	 * rev 1r2 and 1r3. This is correct for 1r3 which should be the
-	 * most common now.
-	 */
-	epld_write(0x00, EPLD_INTMASK0);
-	epld_write(0x00, EPLD_INTMASK1);
-	epld_write(1<<4, EPLD_INTMASK0SET); /* IntPriority(4) <= not STEM_notINTR0 */
-#endif
+	epld_reg = epld_read(0x4);
+	switch (epld_reg) {
+	case 0x20:
+		/*
+		 * Probably the Ctrl reg of a 04 EPLD. Look for the default
+		 * value in the test reg (we can't do a test as it is broken).
+		 */
+		epld_reg = epld_read(0x8);
+		if (epld_reg == 0x33)
+			version = 4;
+		break;
+	case 0x55:
+		/* Probably the Test reg of the 05 or later EPLD */
+		test_offset = 4;
+		version_offset = 0;
+		break;
+	}
+
+	if (test_offset > 0) {
+		epld_write(0x63, test_offset);
+		epld_reg = epld_read(test_offset);
+		if (epld_reg != (unsigned char)(~0x63)) {
+			printk(KERN_WARNING
+			       "Failed mb618 EPLD test (off %02x, res %02x)\n",
+			       test_offset, epld_reg);
+			return;
+		}
+
+		/* Assume we can trust the version register */
+		version = epld_read(version_offset) & 0xf;
+	}
+
+	if (version < 0) {
+		printk(KERN_WARNING "Unable to determine mb618 EPLD version\n");
+		return;
+	}
+
+	printk(KERN_INFO "mb618 EPLD version %02d\n", version);
+
+	switch (version) {
+	case 5:
+		/* We need to control the PHY reset in software */
+		phy_private_data.phy_reset = &mb618_phy_reset05;
+		break;
+	}
 }
 
 struct sh_machine_vector mv_mb618 __initmv = {

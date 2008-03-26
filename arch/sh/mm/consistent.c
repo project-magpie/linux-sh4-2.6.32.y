@@ -155,6 +155,7 @@ static struct page *__consistent_unmap(void *vaddr, size_t size)
 
 	spin_lock_irqsave(&consistent_lock, flags);
 	c = vm_region_find(&consistent_head, (unsigned long)vaddr);
+	spin_unlock_irqrestore(&consistent_lock, flags);
 	if (!c)
 		goto no_area;
 
@@ -167,8 +168,10 @@ static struct page *__consistent_unmap(void *vaddr, size_t size)
 
 	page = c->vm_pages;
 
-	list_del(&c->vm_list);
+	unmap_kernel_range(c->vm_start, size);
 
+	spin_lock_irqsave(&consistent_lock, flags);
+	list_del(&c->vm_list);
 	spin_unlock_irqrestore(&consistent_lock, flags);
 
 	kfree(c);
@@ -176,7 +179,6 @@ static struct page *__consistent_unmap(void *vaddr, size_t size)
 	return page;
 
 no_area:
-	spin_unlock_irqrestore(&consistent_lock, flags);
 	printk(KERN_ERR "%s: trying to free invalid coherent area: %p\n",
 	       __func__, vaddr);
 	dump_stack();

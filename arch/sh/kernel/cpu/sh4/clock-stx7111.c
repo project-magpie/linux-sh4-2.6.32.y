@@ -319,7 +319,7 @@ static struct clkgenaclk clkgenaclks[] = {
 	CLKGENA_CLK(1, "fdma0"),
 	CLKGENA_CLK(2, "fdma1"),
 	/* 3 not used */
-	CLKGENA_CLK(4, "sh4ick"),
+	CLKGENA_CLK(4, "sh4_clk"),
 	CLKGENA_CLK(5, "ic_if_100"),
 	CLKGENA_CLK(6, "lx_dmu_cpu"),
 	CLKGENA_CLK(7, "lx_aud_cpu"),

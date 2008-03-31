@@ -1,5 +1,5 @@
 /*
- * include/linux/st_pio.h
+ * include/linux/stm/pio.h
  *
  * Copyright (c) 2004 STMicroelectronics Limited
  * Author: Stuart Menefy <stuart.menefy@st.com>
@@ -11,8 +11,8 @@
  * routine for when input pins change state.
  */
 
-#ifndef _LINUX_ST_PIO_H_
-#define _LINUX_ST_PIO_H_ 1
+#ifndef __LINUX_STM_PIO_H
+#define __LINUX_STM_PIO_H
 
 /*
  * The ST40GX1 has two blocks of PIO registers:
@@ -61,4 +61,4 @@ void stpio_free_irq(struct stpio_pin* pin);
 void stpio_enable_irq(struct stpio_pin* pin, int mode);
 void stpio_disable_irq(struct stpio_pin* pin);
 
-#endif /* _LINUX_ST_PIO_H_ */
+#endif /* __LINUX_STM_PIO_H */

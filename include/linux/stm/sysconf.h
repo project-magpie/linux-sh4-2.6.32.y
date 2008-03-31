@@ -6,6 +6,11 @@
  * License.  See linux/COPYING for more information.
  */
 
+#ifndef __LINUX_STM_SYSCONF_H
+#define __LINUX_STM_SYSCONF_H
+
+#include <linux/types.h>
+
 struct sysconf_field;
 
 /**
@@ -49,3 +54,5 @@ u64 sysconf_read(struct sysconf_field *field);
 #define SYS_DEV 0
 #define SYS_STA 1
 #define SYS_CFG 2
+
+#endif

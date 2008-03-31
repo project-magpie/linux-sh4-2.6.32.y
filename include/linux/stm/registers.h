@@ -1,5 +1,5 @@
-#ifndef __STM_REGISTERS_H
-#define __STM_REGISTERS_H
+#ifndef __LINUX_STM_REGISTERS_H
+#define __LINUX_STM_REGISTERS_H
 
 #include <asm/io.h>
 

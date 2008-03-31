@@ -1,5 +1,5 @@
-#ifndef __LINUX_ST_SOC_H
-#define __LINUX_ST_SOC_H
+#ifndef __LINUX_STM_SOC_H
+#define __LINUX_STM_SOC_H
 
 /* This is the private platform data for the ssc driver */
 struct ssc_pio_t {

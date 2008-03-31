@@ -11,7 +11,7 @@
 #include <linux/io.h>
 #include "epld.h"
 
-#define DRIVER_NAME "harp-epld"
+#define DRIVER_NAME "epld"
 
 static void __iomem *epld_base;
 static int epld_opsize;

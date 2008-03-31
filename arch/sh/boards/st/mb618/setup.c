@@ -124,7 +124,7 @@ static struct platform_device mb618_phy_device = {
 
 #if 0
 static struct platform_device epld_device = {
-	.name		= "harp-epld",
+	.name		= "epld",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {

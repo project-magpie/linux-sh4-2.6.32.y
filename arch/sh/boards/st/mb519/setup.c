@@ -157,7 +157,7 @@ static struct platform_device mb519_phy_devices[2] = {
 } };
 
 static struct platform_device epld_device = {
-	.name		= "harp-epld",
+	.name		= "epld",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {

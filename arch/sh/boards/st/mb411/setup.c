@@ -22,7 +22,7 @@
 #include <asm/io.h>
 #include <asm/mach/harp.h>
 #include <asm/irq-stb7100.h>
-#include "../harp-common/epld.h"
+#include "../common/epld.h"
 
 static int ascs[2] __initdata = { 2, 3 };
 

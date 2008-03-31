@@ -3,4 +3,4 @@
 #
 
 obj-y := setup.o epld.o
-epld-y := ../harp-common/epld.o
+epld-y := ../common/epld.o

@@ -361,6 +361,13 @@ config SH_ST_MB519
 	  ST board ID: mb519). More information at:
 	  <http://www.stlinux.com/boards/mb519/>
 
+config SH_ST_MB562
+	bool "mb562: BD-DVD peripherals board"
+	depends on SH_ST_MB519
+	help
+	  Select SH_ST_MB562 if your processor board is connected
+	  with this multi-audio-outputs board.
+
 config SH_HP6XX
 	bool "HP6XX"
 	select SYS_SUPPORTS_APM_EMULATION

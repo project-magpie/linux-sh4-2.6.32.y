@@ -8,7 +8,7 @@
 
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
-#include <asm/io.h>
+#include <linux/io.h>
 #include "epld.h"
 
 #define DRIVER_NAME "harp-epld"
@@ -41,9 +41,8 @@ void __init epld_early_init(struct platform_device *pdev)
 	if (!epld_base)
 		panic("Unable to ioremap EPLD");
 
-	if (data) {
+	if (data)
 		epld_opsize = data->opsize;
-	}
 }
 
 static int __init epld_probe(struct platform_device *pdev)

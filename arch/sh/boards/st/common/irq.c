@@ -14,8 +14,8 @@
 #include <linux/platform_device.h>
 #include <linux/irq.h>
 #include <linux/interrupt.h>
+#include <linux/io.h>
 #include <asm/system.h>
-#include <asm/io.h>
 #include <asm/mach/harp.h>
 #include "epld.h"
 
@@ -38,7 +38,7 @@ static void disable_harp_irq(unsigned int irq)
 		maskReg = EPLD_INTMASK1CLR;
 		pri -= 8;
 	}
-	mask=1<<pri;
+	mask = 1 << pri;
 
 	epld_write(mask, maskReg);
 
@@ -63,7 +63,7 @@ static void enable_harp_irq(unsigned int irq)
 		maskReg = EPLD_INTMASK1SET;
 		pri -= 8;
 	}
-	mask=1<<pri;
+	mask = 1 << pri;
 
 	epld_write(mask, maskReg);
 }
@@ -75,7 +75,7 @@ static void __init disable_all_interrupts(void)
 }
 
 static struct irq_chip harp_chips[NUM_EXTERNAL_IRQS] = {
-	[0 ... NUM_EXTERNAL_IRQS-1 ] = {
+	[0 ... NUM_EXTERNAL_IRQS-1] = {
 		.mask = disable_harp_irq,
 		.unmask = enable_harp_irq,
 		.mask_ack = disable_harp_irq,

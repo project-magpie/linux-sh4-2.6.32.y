@@ -789,11 +789,12 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 	i2c_stm->adapter.timeout = 2;
 	i2c_stm->adapter.class   = I2C_CLASS_ALL;
 	sprintf(i2c_stm->adapter.name,"i2c-hw-%d",pdev->id);
+	i2c_stm->adapter.nr = pdev->id;
 	i2c_stm->adapter.algo = &iic_stm_algo;
 	i2c_stm->adapter.dev.parent = &(pdev->dev);
 	iic_stm_setup_timing(i2c_stm,clk_get_rate(clk_get(NULL,"comms_clk")));
 	init_waitqueue_head(&(i2c_stm->wait_queue));
-	if (i2c_add_adapter(&(i2c_stm->adapter)) < 0) {
+	if (i2c_add_numbered_adapter(&(i2c_stm->adapter)) < 0) {
 		printk(KERN_ERR
 		       "%s: The I2C Core refuses the i2c/stm adapter\n",__FUNCTION__);
 		return -ENODEV;

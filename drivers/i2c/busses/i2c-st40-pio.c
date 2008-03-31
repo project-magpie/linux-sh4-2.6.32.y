@@ -40,21 +40,24 @@
 static void bit_st40_pio_setscl(void *data, int state)
 {
 	struct platform_device *pdev = (struct platform_device *)data;
-	struct ssc_pio_t *pio_info = (struct ssc_pio_t *)pdev->dev.platform_data;
+	struct ssc_pio_t *pio_info =
+		(struct ssc_pio_t *)pdev->dev.platform_data;
 	stpio_set_pin(pio_info->clk, state);
 }
 
 static void bit_st40_pio_setsda(void *data, int state)
 {
 	struct platform_device *pdev = (struct platform_device *)data;
-	struct ssc_pio_t *pio_info = (struct ssc_pio_t *)pdev->dev.platform_data;
+	struct ssc_pio_t *pio_info =
+		(struct ssc_pio_t *)pdev->dev.platform_data;
 	stpio_set_pin(pio_info->sdout, state);
 }
 
 static int bit_st40_pio_getscl(void *data)
 {
 	struct platform_device *pdev = (struct platform_device *)data;
-	struct ssc_pio_t *pio_info = (struct ssc_pio_t *)pdev->dev.platform_data;
+	struct ssc_pio_t *pio_info =
+		(struct ssc_pio_t *)pdev->dev.platform_data;
 	return stpio_get_pin(pio_info->clk);
 }
 
@@ -68,69 +71,74 @@ static int bit_st40_pio_getsda(void *data)
 static int __init i2c_st40_probe(struct platform_device *pdev)
 {
 	struct ssc_pio_t *pio_info =
-			(struct ssc_pio_t *)pdev->dev.platform_data;
-
-	struct i2c_adapter 	 *i2c_bus;
+		(struct ssc_pio_t *)pdev->dev.platform_data;
+	struct i2c_adapter *i2c_bus;
 	struct i2c_algo_bit_data *algo;
 
-	i2c_bus = devm_kzalloc(&pdev->dev,sizeof(struct i2c_adapter),GFP_KERNEL);
+	i2c_bus = devm_kzalloc(&pdev->dev, sizeof(struct i2c_adapter),
+			GFP_KERNEL);
 	if (!i2c_bus)
 		return -1;
 
-	algo    = devm_kzalloc(&pdev->dev,sizeof(struct i2c_algo_bit_data),GFP_KERNEL);
+	algo = devm_kzalloc(&pdev->dev, sizeof(struct i2c_algo_bit_data),
+			GFP_KERNEL);
 	if (!algo)
 		return -1;
 
-	pio_info->clk = stpio_request_pin(pio_info->pio_port,pio_info->pio_pin[0],
-				"I2C Clock", STPIO_BIDIR);
+	pio_info->clk = stpio_request_pin(pio_info->pio_port,
+			pio_info->pio_pin[0], "I2C Clock", STPIO_BIDIR);
 
-	if (!pio_info->clk){
-		printk(KERN_ERR NAME"Faild to clk pin allocation\n");
+	if (!pio_info->clk) {
+		printk(KERN_ERR NAME"Failed to clk pin allocation\n");
 		return -1;
 	}
 	pio_info->sdout = stpio_request_pin(pio_info->pio_port,pio_info->pio_pin[1],
-				"I2C Data", STPIO_BIDIR);
+			"I2C Data", STPIO_BIDIR);
 	if (!pio_info->sdout){
-		printk(KERN_ERR NAME"Faild to sda pin allocation\n");
+		printk(KERN_ERR NAME"Failed to sda pin allocation\n");
 		return -1;
 	}
 
 	stpio_set_pin(pio_info->clk, 1);
-        stpio_set_pin(pio_info->sdout, 1);
+	stpio_set_pin(pio_info->sdout, 1);
 
-	printk(KERN_INFO NAME ": allocated pin (%d,%d) for scl (0x%p)\n",
-		pio_info->pio_port, pio_info->pio_pin[0], pio_info->clk );
-	printk(KERN_INFO NAME ": allocated pin (%d,%d) for sda (0x%p)\n",
-		pio_info->pio_port, pio_info->pio_pin[1], pio_info->sdout);
+	printk(KERN_INFO NAME": allocated pin (%d,%d) for scl (0x%p)\n",
+			pio_info->pio_port, pio_info->pio_pin[0],
+			pio_info->clk);
+	printk(KERN_INFO NAME": allocated pin (%d,%d) for sda (0x%p)\n",
+			pio_info->pio_port, pio_info->pio_pin[1],
+			pio_info->sdout);
 
-	sprintf(i2c_bus->name,"i2c_pio_%d",pdev->id);;
-	i2c_bus->id    = I2C_HW_B_ST40_PIO;
+	sprintf(i2c_bus->name, "i2c_pio_%d", pdev->id);
+	i2c_bus->nr = pdev->id;
+	i2c_bus->id = I2C_HW_B_ST40_PIO;
 	i2c_bus->algo_data = algo;
 	i2c_bus->dev.parent = &pdev->dev;
 
-	algo->data   = pdev;
-        algo->setsda = bit_st40_pio_setsda;
-        algo->setscl = bit_st40_pio_setscl;
-        algo->getsda = bit_st40_pio_getsda;
-        algo->getscl = bit_st40_pio_getscl;
-        algo->udelay = 5;
-        algo->timeout= HZ;
+	algo->data = pdev;
+	algo->setsda = bit_st40_pio_setsda;
+	algo->setscl = bit_st40_pio_setscl;
+	algo->getsda = bit_st40_pio_getsda;
+	algo->getscl = bit_st40_pio_getscl;
+	algo->udelay = 5;
+	algo->timeout = HZ;
 
-	pdev->dev.driver_data = (void*)i2c_bus;
-	if (i2c_bit_add_bus(i2c_bus)<0){
-		printk(KERN_ERR NAME "The I2C Core refuses the i2c-pio adapter\n");
+	pdev->dev.driver_data = (void *)i2c_bus;
+	if (i2c_bit_add_numbered_bus(i2c_bus) < 0) {
+		printk(KERN_ERR NAME "The I2C Core refuses the i2c-pio "
+				"adapter\n");
 		return -1;
 	}
 
-        return 0;
+	return 0;
 }
 
 static int i2c_st40_remove(struct platform_device *pdev)
 {
 	struct ssc_pio_t *pio_info =
-			(struct ssc_pio_t *)pdev->dev.platform_data;
-
-	struct i2c_adapter *i2c_bus = (struct i2c_adapter*)pdev->dev.driver_data;;
+		(struct ssc_pio_t *)pdev->dev.platform_data;
+	struct i2c_adapter *i2c_bus =
+		(struct i2c_adapter *)pdev->dev.driver_data;
 	struct i2c_algo_bit_data *algo = i2c_bus->algo_data;
 
 	i2c_del_adapter(i2c_bus);
@@ -143,9 +151,9 @@ static int i2c_st40_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver i2c_sw_driver = {
-        .driver.name = "i2c_st",
-        .driver.owner = THIS_MODULE,
-        .probe = i2c_st40_probe,
+	.driver.name = "i2c_st",
+	.driver.owner = THIS_MODULE,
+	.probe = i2c_st40_probe,
 	.remove= i2c_st40_remove,
 };
 
@@ -153,7 +161,7 @@ static int __init i2c_st40_pio_init(void)
 {
 	int i;
 
-	printk(KERN_INFO NAME ": ST40 PIO based I2C Driver\n");
+	printk(KERN_INFO NAME": ST40 PIO based I2C Driver\n");
 
 	platform_driver_register(&i2c_sw_driver);
 
@@ -171,4 +179,3 @@ MODULE_LICENSE("GPL");
 
 module_init(i2c_st40_pio_init);
 module_exit(i2c_st40_pio_exit);
-

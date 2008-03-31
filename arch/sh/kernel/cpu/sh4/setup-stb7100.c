@@ -13,6 +13,7 @@
 #include <linux/serial.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/i2c.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/soc_init.h>
 #include <linux/stm/pio.h>
@@ -328,6 +329,11 @@ void __init stx7100_configure_ssc(struct plat_ssc_data *data)
 		platform_device_register(&stssc_devices[i]);
 	}
 
+	/* I2C buses number reservation (to prevent any hot-plug device
+	 * from using it) */
+#ifdef CONFIG_I2C_BOARDINFO
+	i2c_register_board_info(num_i2c - 1, NULL, 0);
+#endif
 }
 /* SATA resources ---------------------------------------------------------- */
 

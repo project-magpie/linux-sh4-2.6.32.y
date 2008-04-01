@@ -30,6 +30,9 @@ config GENERIC_FIND_NEXT_BIT
 	bool
 	default y
 
+config GENERIC_GPIO
+	def_bool n
+
 config GENERIC_HWEIGHT
 	bool
 	default y

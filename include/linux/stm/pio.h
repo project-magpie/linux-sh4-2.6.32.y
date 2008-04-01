@@ -14,13 +14,7 @@
 #ifndef __LINUX_STM_PIO_H
 #define __LINUX_STM_PIO_H
 
-/*
- * The ST40GX1 has two blocks of PIO registers:
- *   3 in the ST40 core peripherals (PIO0 to PIO2)
- *   2 in the ST20 legacy peripherals (comms block) (IO_PIO0 and IO_PIO1)
- */
-#define STPIO_PIO_BANK(n) ((n)+0)
-#define STPIO_IO_PIO_BANK(n) ((n)+3)
+#include <linux/kernel.h>
 
 /* Pin configuration constants */
 /* Note that behaviour for modes 0, 6 and 7 differ between the ST40STB1
@@ -31,34 +25,42 @@
 #define STPIO_BIDIR_Z1     	0	/* Input weak pull-up (arch defn) */
 #define STPIO_BIDIR		1	/* Bidirectonal open-drain */
 #define STPIO_OUT		2	/* Output push-pull */
-/*efine STPIO_BIDIR		3	 * Bidirectional open drain */
 #define STPIO_IN		4	/* Input Hi-Z */
-/*efine STPIO_IN		5	 * Input Hi-Z */
 #define STPIO_ALT_OUT		6	/* Alt output push-pull (arch defn) */
 #define STPIO_ALT_BIDIR		7	/* Alt bidir open drain (arch defn) */
+
+/* Constant numbers */
+#define STPIO_MAX_PORTS		8
+#define STPIO_PINS_IN_PORT	8
 
 struct stpio_pin;
 
 /* Request and release exclusive use of a PIO pin */
-struct stpio_pin* stpio_request_pin(unsigned portno, unsigned pinno,
-				    const char* name, int direction);
-struct stpio_pin* stpio_request_set_pin(unsigned portno, unsigned pinno,
-				    const char* name, int direction, unsigned int value);
-void stpio_free_pin(struct stpio_pin* pin);
+#define stpio_request_pin(portno, pinno, name, direction) \
+		__stpio_request_pin(portno, pinno, name, direction, 0, 0)
+#define stpio_request_set_pin(portno, pinno, name, direction, value) \
+		__stpio_request_pin(portno, pinno, name, direction, 1, value)
+struct stpio_pin *__stpio_request_pin(unsigned int portno,
+		unsigned int pinno, const char *name, int direction,
+		int __set_value, unsigned int value);
+void stpio_free_pin(struct stpio_pin *pin);
+
+/* Change the mode of an existing pin */
+void stpio_configure_pin(struct stpio_pin *pin, int direction);
 
 /* Get, set value */
 void stpio_set_pin(struct stpio_pin* pin, unsigned int value);
 unsigned int stpio_get_pin(struct stpio_pin* pin);
 
-/* Change the mode of an existing pin */
-void stpio_configure_pin(struct stpio_pin* pin, int direction);
-
 /* Interrupt on external value change */
 void stpio_request_irq(struct stpio_pin* pin, int mode,
-		       void (*handler)(struct stpio_pin *pin, void *dev),
-		       void *dev);
+		void (*handler)(struct stpio_pin *pin, void *dev),
+		void *dev);
 void stpio_free_irq(struct stpio_pin* pin);
 void stpio_enable_irq(struct stpio_pin* pin, int mode);
 void stpio_disable_irq(struct stpio_pin* pin);
+
+/* Calculate gpio number of a given stpio pin... */
+#define stpio_to_gpio(portno, pinno) ((portno) * STPIO_PINS_IN_PORT + (pinno))
 
 #endif /* __LINUX_STM_PIO_H */

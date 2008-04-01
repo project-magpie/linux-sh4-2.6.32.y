@@ -32,6 +32,8 @@ config CPU_SH4AL_DSP
 config CPU_SUBTYPE_ST40
 	bool
 	select CPU_SH4
+	select GENERIC_GPIO
+	select HAVE_GPIO_LIB
 
 config CPU_SHX2
 	bool

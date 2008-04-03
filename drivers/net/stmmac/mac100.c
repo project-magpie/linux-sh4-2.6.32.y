@@ -7,7 +7,6 @@
  * Copyright (C) 2007 by STMicroelectronics
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
  *
- *
 */
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -24,7 +23,25 @@
 #include "common.h"
 #include "mac100.h"
 
-static void mac100_mac_registers(unsigned long ioaddr)
+static void mac100_core_init(unsigned long ioaddr)
+{
+	unsigned int value = 0;
+
+	printk(KERN_DEBUG "mac100_core_init");
+
+	/* Set the MAC control register with our default value */
+	value = (unsigned int)readl(ioaddr + MAC_CONTROL);
+	writel((value | MAC_CORE_INIT), ioaddr + MAC_CONTROL);
+
+#if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
+	/* VLAN1 Tag identifier register is programmed to 
+	 * the 802.1Q VLAN Extended Header (0x8100). */
+	writel(ETH_P_8021Q, ioaddr + MAC_VLAN1);
+#endif
+	return;
+}
+
+static void mac100_dump_mac_regs(unsigned long ioaddr)
 {
 	printk("\t----------------------------------------------\n"
 	       "\t  MAC100 CSR (base addr = 0x%8x)\n"
@@ -60,33 +77,55 @@ static void mac100_mac_registers(unsigned long ioaddr)
 	return;
 }
 
+static int mac100_dma_init(unsigned long ioaddr, int pbl, u32 dma_tx,
+			   u32 dma_rx)
+{
+	unsigned int value;
+
+	printk(KERN_DEBUG "GMAC: DMA Core setup\n");
+
+	/* DMA SW reset */
+	value = (unsigned int)readl(ioaddr + DMA_BUS_MODE);
+	value |= DMA_BUS_MODE_SFT_RESET;
+	writel(value, ioaddr + DMA_BUS_MODE);
+	while ((readl(ioaddr + DMA_BUS_MODE) & DMA_BUS_MODE_SFT_RESET)) {
+	}
+
+	/* Enable Application Access by writing to DMA CSR0 */
+	writel(DMA_BUS_MODE_DEFAULT | (pbl << DMA_BUS_MODE_PBL_SHIFT),
+	       ioaddr + DMA_BUS_MODE);
+
+	/* Mask interrupts by writing to CSR7 */
+	writel(DMA_INTR_DEFAULT_MASK, ioaddr + DMA_INTR_ENA);
+
+	/* The base address of the RX/TX descriptor lists must be written into
+	 * DMA CSR3 and CSR4, respectively. */
+	writel(dma_tx, ioaddr + DMA_TX_BASE_ADDR);
+	writel(dma_rx, ioaddr + DMA_RCV_BASE_ADDR);
+
+	return 0;
+}
+
 /* Store and Forward capability is not used.
  * The transmit threshold can be programmed by
  * setting the TTC bits in the DMA control register.*/
-static void mac100_dma_ttc(unsigned long ioaddr, int value)
+static void mac100_dma_operation_mode(unsigned long ioaddr, int ttc)
 {
-	unsigned int csr6;
-	csr6 = (unsigned int)readl(ioaddr + DMA_CONTROL);
+	unsigned int csr6 = (unsigned int)readl(ioaddr + DMA_CONTROL);
 
-	/* Operating on second frame seems to improve a 
-	 * little bit the performance.
-	csr6 |= DMA_CONTROL_OSF; */ 
-
-	if (value <= 32)
+	if (ttc <= 32)
 		csr6 |= DMA_CONTROL_TTC_32;
-	else if (value <= 64)
+	else if (ttc <= 64)
 		csr6 |= DMA_CONTROL_TTC_64;
-	else if (value <= 128)
-		csr6 |= DMA_CONTROL_TTC_128;
 	else
-		csr6 |= DMA_CONTROL_TTC_256;
+		csr6 |= DMA_CONTROL_TTC_128;
 
 	writel(csr6, ioaddr + DMA_CONTROL);
 
 	return;
 }
 
-static void mac100_dma_registers(unsigned long ioaddr)
+static void mac100_dump_dma_regs(unsigned long ioaddr)
 {
 	int i;
 
@@ -103,39 +142,71 @@ static void mac100_dma_registers(unsigned long ioaddr)
 	return;
 }
 
-static int mac100_tx_hw_error(void *p, struct stmmac_extra_stats *x,
-				unsigned int status)
+/* The DMA controller maintains two counters to track the number of
+   the receive missed frames. */
+static void mac100_dma_diagnostic_fr(void *data, struct stmmac_extra_stats *x,
+				     unsigned long ioaddr)
+{
+	unsigned long csr8;
+	struct net_device_stats *stats = (struct net_device_stats *)data;
+
+	csr8 = readl(ioaddr + DMA_MISSED_FRAME_CTR);
+
+	if (unlikely(csr8)) {
+		if (csr8 & DMA_MISSED_FRAME_OVE) {
+			stats->rx_over_errors += 0x800;
+			x->rx_overflow_cntr += 0x800;
+		} else {
+			unsigned int ove_cntr;
+			ove_cntr = ((csr8 & DMA_MISSED_FRAME_OVE_CNTR) >> 17);
+			stats->rx_over_errors += ove_cntr;
+			x->rx_overflow_cntr += ove_cntr;
+		}
+
+		if (csr8 & DMA_MISSED_FRAME_OVE_M) {
+			stats->rx_missed_errors += 0xffff;
+			x->rx_missed_cntr += 0xffff;
+		} else {
+			unsigned int miss_f = (csr8 & DMA_MISSED_FRAME_M_CNTR);
+			stats->rx_missed_errors += miss_f;
+			x->rx_missed_cntr += miss_f;
+		}
+	}
+	return;
+}
+
+static int mac100_get_tx_frame_status(void *data, struct stmmac_extra_stats *x,
+				      dma_desc * p, unsigned long ioaddr)
 {
 	int ret = 0;
-	struct net_device_stats *stats = (struct net_device_stats *)p;
+	struct net_device_stats *stats = (struct net_device_stats *)data;
 
-	if (unlikely(status & TDES0_STATUS_ES)) {
-		if (unlikely(status & TDES0_STATUS_UF)) {
+	if (unlikely(p->des01.tx.error_summary)) {
+		if (unlikely(p->des01.tx.underflow_error)) {
 			x->tx_underflow++;
 			stats->tx_fifo_errors++;
 		}
-		if (unlikely(status & TDES0_STATUS_NO_CARRIER)) {
+		if (unlikely(p->des01.tx.no_carrier)) {
 			x->tx_carrier++;
 			stats->tx_carrier_errors++;
 		}
-		if (unlikely(status & TDES0_STATUS_LOSS_CARRIER)) {
+		if (unlikely(p->des01.tx.loss_carrier)) {
 			x->tx_losscarrier++;
+			stats->tx_carrier_errors++;
 		}
-		if (unlikely((status & TDES0_STATUS_EX_DEF) ||
-		    (status & TDES0_STATUS_EX_COL) ||
-		    (status & TDES0_STATUS_LATE_COL))) {
-			stats->collisions +=
-			    ((status & TDES0_STATUS_COLCNT_MASK) >>
-			     TDES0_STATUS_COLCNT_SHIFT);
+		if (unlikely((p->des01.tx.excessive_deferral) ||
+			     (p->des01.tx.excessive_collisions) ||
+			     (p->des01.tx.late_collision))) {
+			stats->collisions += p->des01.tx.collision_count;
 		}
 		ret = -1;
 	}
-	if (unlikely(status & TDES0_STATUS_HRTBT_FAIL)) {
+	if (unlikely(p->des01.tx.heartbeat_fail)) {
 		x->tx_heartbeat++;
 		stats->tx_heartbeat_errors++;
 		ret = -1;
 	}
-	if (unlikely(status & TDES0_STATUS_DF)) {
+	if (unlikely(p->des01.tx.deferred)) {
 		x->tx_deferred++;
 		ret = -1;
 	}
@@ -145,86 +216,65 @@ static int mac100_tx_hw_error(void *p, struct stmmac_extra_stats *x,
 
 /* This function verifies if the incoming frame has some errors 
  * and, if required, updates the multicast statistics. */
-static int mac100_rx_hw_error(void *p, struct stmmac_extra_stats *x,
-				unsigned int status)
+static int mac100_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
+				      dma_desc * p)
 {
 	int ret = 0;
-	struct net_device_stats *stats = (struct net_device_stats *)p;
+	struct net_device_stats *stats = (struct net_device_stats *)data;
 
-	if (unlikely(status & RDES0_STATUS_ES)) {
-		if (unlikely(status & RDES0_STATUS_DE)) {
+	if (unlikely(p->des01.rx.last_descriptor == 0)) {
+		printk(KERN_WARNING "mac100 Error: Oversized Ethernet "
+		       "frame spanned multiple buffers\n");
+		stats->rx_length_errors++;
+		return -1;
+	}
+
+	if (unlikely(p->des01.rx.error_summary)) {
+		if (unlikely(p->des01.rx.descriptor_error)) {
 			x->rx_desc++;
 		}
-		if (unlikely(status & RDES0_STATUS_PFE)) {
+		if (unlikely(p->des01.rx.partial_frame_error)) {
 			x->rx_partial++;
 		}
-		if (unlikely(status & RDES0_STATUS_RUNT_FRM)) {
+		if (unlikely(p->des01.rx.run_frame)) {
 			x->rx_runt++;
 		}
-		if (unlikely(status & RDES0_STATUS_TL)) {
+		if (unlikely(p->des01.rx.frame_too_long)) {
 			x->rx_toolong++;
 		}
-		if (unlikely(status & RDES0_STATUS_COL_SEEN)) {
+		if (unlikely(p->des01.rx.collision)) {
 			x->rx_collision++;
 			stats->collisions++;
 		}
-		if (unlikely(status & RDES0_STATUS_CE)) {
+		if (unlikely(p->des01.rx.crc_error)) {
 			x->rx_crc++;
 			stats->rx_crc_errors++;
 		}
 		ret = -1;
 	}
-	if (unlikely(status & RDES0_STATUS_LENGTH_ERROR)){
+	if (unlikely(p->des01.rx.dribbling))
+		ret = -1;
+
+	if (unlikely(p->des01.rx.length_error)) {
 		x->rx_lenght++;
 		ret = -1;
 	}
-	if (unlikely(status & RDES0_STATUS_MII_ERR)){
+	if (unlikely(p->des01.rx.mii_error)) {
 		x->rx_mii++;
 		ret = -1;
 	}
-	if (unlikely(status & RDES0_STATUS_MULTICST_FRM)){
+	if (p->des01.rx.multicast_frame) {
 		x->rx_multicast++;
 		stats->multicast++;
+		/*no error!*/
 	}
 	return (ret);
 }
 
-static void mac100_tx_checksum(struct sk_buff *skb)
+static int mac100_rx_checksum(dma_desc * p)
 {
-	/* Verify the csum via software... it' necessary, because the
-	 * hardware doesn't support a complete csum calculation. */
-	if (likely(skb->ip_summed == CHECKSUM_PARTIAL)) {
-		const int offset = skb_transport_offset(skb);
-		unsigned int csum =
-		    skb_checksum(skb, offset, skb->len - offset, 0);
-		*(u16 *) (skb->data + offset + skb->csum_offset) =
-		    csum_fold(csum);
-	}
-	return;
-}
-
-static void mac100_rx_checksum(struct sk_buff *skb, int status)
-{
-	skb->ip_summed = CHECKSUM_NONE;
-	return;
-}
-
-static void mac100_core_init(unsigned long ioaddr)
-{
-	unsigned int value = 0;
-
-	printk(KERN_DEBUG "mac100_core_init");
-
-	/* Set the MAC control register with our default value */
-	value = (unsigned int)readl(ioaddr + MAC_CONTROL);
-	writel((value | MAC_CORE_INIT), ioaddr + MAC_CONTROL);
-
-#if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-	/* VLAN1 Tag identifier register is programmed to 
-	 * the 802.1Q VLAN Extended Header (0x8100). */
-	writel(ETH_P_8021Q, ioaddr + MAC_VLAN1);
-#endif
-	return;
+	/* The device is not able to compute the csum in HW. */
+	return -1;
 }
 
 static void mac100_set_filter(struct net_device *dev)
@@ -275,9 +325,9 @@ static void mac100_set_filter(struct net_device *dev)
 	writel(value, ioaddr + MAC_CONTROL);
 
 	printk(KERN_DEBUG "%s: CTRL reg: 0x%08x Hash regs: "
-		"HI 0x%08x, LO 0x%08x\n",
-		__FUNCTION__, readl(ioaddr + MAC_CONTROL),
-		readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
+	       "HI 0x%08x, LO 0x%08x\n",
+	       __FUNCTION__, readl(ioaddr + MAC_CONTROL),
+	       readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
 	return;
 }
 
@@ -293,7 +343,7 @@ static void mac100_flow_ctrl(unsigned long ioaddr, unsigned int duplex,
 	return;
 }
 
-static void mac100_enable_wol(unsigned long ioaddr, unsigned long mode)
+static void mac100_pmt(unsigned long ioaddr, unsigned long mode)
 {
 	/* There is no PMT module in the stb7109 so no wake-up-on-Lan hw feature
 	 * is supported. 
@@ -301,18 +351,117 @@ static void mac100_enable_wol(unsigned long ioaddr, unsigned long mode)
 	return;
 }
 
+static void mac100_init_rx_desc(dma_desc * p, unsigned int ring_size,
+				int rx_irq_threshold)
+{
+	int i;
+	for (i = 0; i < ring_size; i++) {
+		p->des01.rx.own = 1;
+		p->des01.rx.buffer1_size = DMA_BUFFER_SIZE - 1;
+		if (i % rx_irq_threshold)
+			p->des01.rx.disable_ic = 1;
+		if (i == ring_size - 1) {
+			p->des01.rx.end_ring = 1;
+		}
+		p++;
+	}
+	return;
+}
+
+static void mac100_init_tx_desc(dma_desc * p, unsigned int ring_size)
+{
+	int i;
+	for (i = 0; i < ring_size; i++) {
+		p->des01.tx.own = 0;
+		if (i == ring_size - 1) {
+			p->des01.tx.end_ring = 1;
+		}
+		p++;
+	}
+	return;
+}
+
+static int mac100_read_tx_owner(dma_desc * p)
+{
+	return p->des01.tx.own;
+}
+
+static int mac100_read_rx_owner(dma_desc * p)
+{
+	return p->des01.rx.own;
+}
+
+static void mac100_set_tx_owner(dma_desc * p)
+{
+	p->des01.tx.own = 1;
+}
+
+static void mac100_set_rx_owner(dma_desc * p)
+{
+	p->des01.rx.own = 1;
+}
+
+static int mac100_get_tx_ls(dma_desc * p)
+{
+	return p->des01.tx.last_segment;
+}
+
+static void mac100_release_tx_desc(dma_desc * p)
+{
+	int ter = p->des01.tx.end_ring;
+
+	memset(p, 0, sizeof(dma_desc));
+	p->des01.tx.end_ring = ter;
+
+	return;
+}
+static void mac100_prepare_tx_desc(dma_desc * p, int is_fs, int len,
+				   unsigned int csum_flags)
+{
+	p->des01.tx.first_segment = is_fs;
+	p->des01.tx.buffer1_size = len;
+}
+
+static void mac100_set_tx_ic(dma_desc * p, int value)
+{
+	p->des01.tx.interrupt = value;
+}
+
+static void mac100_set_tx_ls(dma_desc * p)
+{
+	p->des01.tx.last_segment = 1;
+}
+
+static int mac100_get_rx_frame_len(dma_desc * p)
+{
+	return p->des01.rx.frame_length;
+}
+
 struct device_ops mac100_driver = {
 	.core_init = mac100_core_init,
-	.mac_registers = mac100_mac_registers,
-	.dma_registers = mac100_dma_registers,
-	.dma_ttc = mac100_dma_ttc,
-	.tx_err = mac100_tx_hw_error,
-	.rx_err = mac100_rx_hw_error,
-	.tx_checksum = mac100_tx_checksum,
+	.dump_mac_regs = mac100_dump_mac_regs,
+	.dma_init = mac100_dma_init,
+	.dump_dma_regs = mac100_dump_dma_regs,
+	.dma_operation_mode = mac100_dma_operation_mode,
+	.dma_diagnostic_fr = mac100_dma_diagnostic_fr,
+	.tx_status = mac100_get_tx_frame_status,
+	.rx_status = mac100_get_rx_frame_status,
 	.rx_checksum = mac100_rx_checksum,
 	.set_filter = mac100_set_filter,
 	.flow_ctrl = mac100_flow_ctrl,
-	.enable_wol = mac100_enable_wol,
+	.pmt = mac100_pmt,
+	.init_rx_desc = mac100_init_rx_desc,
+	.init_tx_desc = mac100_init_tx_desc,
+	.read_tx_owner = mac100_read_tx_owner,
+	.read_rx_owner = mac100_read_rx_owner,
+	.release_tx_desc = mac100_release_tx_desc,
+	.prepare_tx_desc = mac100_prepare_tx_desc,
+	.set_tx_ic = mac100_set_tx_ic,
+	.set_tx_ls = mac100_set_tx_ls,
+	.get_tx_ls = mac100_get_tx_ls,
+	.set_tx_owner = mac100_set_tx_owner,
+	.set_rx_owner = mac100_set_rx_owner,
+	.get_rx_frame_len = mac100_get_rx_frame_len,
 };
 
 struct device_info_t *mac100_setup(unsigned long ioaddr)
@@ -326,6 +475,7 @@ struct device_info_t *mac100_setup(unsigned long ioaddr)
 
 	mac->ops = &mac100_driver;
 	mac->hw.pmt = PMT_NOT_SUPPORTED;
+	mac->hw.csum = NO_HW_CSUM;
 	mac->hw.addr_high = MAC_ADDR_HIGH;
 	mac->hw.addr_low = MAC_ADDR_LOW;
 	mac->hw.link.port = MAC_CONTROL_PS;

@@ -22,7 +22,7 @@
 #define REG_SPACE_SIZE	0x1054
 
 void stmmac_ethtool_getdrvinfo(struct net_device *dev,
-				struct ethtool_drvinfo *info)
+			       struct ethtool_drvinfo *info)
 {
 	strcpy(info->driver, ETH_RESOURCE_NAME);
 	strcpy(info->version, DRV_MODULE_VERSION);
@@ -37,13 +37,13 @@ int stmmac_ethtool_getsettings(struct net_device *dev, struct ethtool_cmd *cmd)
 	int rc;
 	if (phy == NULL) {
 		printk(KERN_ERR "%s: %s: PHY is not registered\n",
-			__FUNCTION__, dev->name);
+		       __FUNCTION__, dev->name);
 		return -ENODEV;
 	}
 
 	if (!netif_running(dev)) {
 		printk(KERN_ERR "%s: interface is disabled: we cannot track "
-			"link speed / duplex setting\n", dev->name);
+		       "link speed / duplex setting\n", dev->name);
 		return -EBUSY;
 	}
 
@@ -105,7 +105,8 @@ void stmmac_ethtool_gregs(struct net_device *dev,
 	}
 	/* DMA registers */
 	for (i = 0; i < 9; i++) {
-		reg_space[i+12] = readl(dev->base_addr + (DMA_BUS_MODE + (i * 4)));
+		reg_space[i + 12] =
+		    readl(dev->base_addr + (DMA_BUS_MODE + (i * 4)));
 	}
 	reg_space[22] = readl(dev->base_addr + DMA_CUR_TX_BUF_ADDR);
 	reg_space[23] = readl(dev->base_addr + DMA_CUR_RX_BUF_ADDR);
@@ -128,18 +129,6 @@ u32 stmmac_ethtool_get_rx_csum(struct net_device * dev)
 	struct eth_driver_local *lp = netdev_priv(dev);
 
 	return (lp->rx_csum);
-}
-
-int stmmac_ethtool_set_rx_csum(struct net_device *dev, u32 data)
-{
-	struct eth_driver_local *lp = netdev_priv(dev);
-
-	if (data)
-		lp->rx_csum = 1;
-	else
-		lp->rx_csum = 0;
-
-	return 0;
 }
 
 static void
@@ -195,8 +184,8 @@ stmmac_set_pauseparam(struct net_device *netdev,
 		}
 	} else {
 		unsigned long ioaddr = netdev->base_addr;
-		lp->mac->ops->flow_ctrl(ioaddr, phy->duplex,
-					lp->flow_ctrl, lp->pause);
+		lp->mac_type->ops->flow_ctrl(ioaddr, phy->duplex,
+					     lp->flow_ctrl, lp->pause);
 	}
 	spin_unlock(&lp->lock);
 	return ret;
@@ -205,70 +194,78 @@ stmmac_set_pauseparam(struct net_device *netdev,
 static struct {
 	const char str[ETH_GSTRING_LEN];
 } ethtool_stats_keys[] = {
-	{ "tx_underflow" },
-	{ "tx_carrier" },
-	{ "tx_losscarrier" },
-	{ "tx_heartbeat" },
-	{ "tx_deferred" },
-	{ "tx_vlan" },
-	{ "tx_jabber" },
-	{ "tx_frame_flushed" },
-	{ "rx_desc" },
-	{ "rx_partial" },
-	{ "rx_runt" },
-	{ "rx_toolong" },
-	{ "rx_collision" },
-	{ "rx_crc" },
-	{ "rx_lenght" },
-	{ "rx_mii" },
-	{ "rx_multicast" },
-	{ "rx_overflow" },
-	{ "rx_watchdog" },
-	{ "rx_filter" },
-	{ "rx_dropped" },
-	{ "rx_bytes" },
-	{ "tx_bytes" },
-	{ "tx_irq_n" },
-	{ "rx_irq_n" },
-	{ "tx_undeflow_irq" },
-	{ "tx_threshold" },
-	{ "tx_process_stopped_irq" },
-	{ "tx_jabber_irq" },
-	{ "rx_overflow_irq" },
-	{ "rx_buf_unav_irq" },
-	{ "rx_process_stopped_irq" },
-	{ "rx_watchdog_irq" },
-	{ "tx_early_irq" },
-	{ "fatal_bus_error_irq" },
-	{ "rx_poll_n" },
-};
+	{
+	"tx_underflow"}, {
+	"tx_carrier"}, {
+	"tx_losscarrier"}, {
+	"tx_heartbeat"}, {
+	"tx_deferred"}, {
+	"tx_vlan"}, {
+	"tx_jabber"}, {
+	"tx_frame_flushed"}, {
+	"rx_desc"}, {
+	"rx_partial"}, {
+	"rx_runt"}, {
+	"rx_toolong"}, {
+	"rx_collision"}, {
+	"rx_crc"}, {
+	"rx_lenght"}, {
+	"rx_mii"}, {
+	"rx_multicast"}, {
+	"rx_gmac_overflow"}, {
+	"rx_watchdog"}, {
+	"rx_filter"}, {
+	"rx_dropped"}, {
+	"rx_bytes"}, {
+	"tx_bytes"}, {
+	"tx_irq_n"}, {
+	"rx_irq_n"}, {
+	"tx_undeflow_irq"}, {
+	"threshold"}, {
+	"tx_process_stopped_irq"}, {
+	"tx_jabber_irq"}, {
+	"rx_overflow_irq"}, {
+	"rx_buf_unav_irq"}, {
+	"rx_process_stopped_irq"}, {
+	"rx_watchdog_irq"}, {
+	"tx_early_irq"}, {
+	"fatal_bus_error_irq"}, {
+	"rx_poll_n"}, {
+	"tx_payload_error"}, {
+	"tx_ip_header_error"}, {
+	"rx_missed_cntr"}, {
+"rx_overflow_cntr"},};
 
 static int stmmac_stats_count(struct net_device *dev)
 {
 	return EXTRA_STATS;
 }
 
-static void stmmac_ethtool_stats(struct net_device *dev, 
-		struct ethtool_stats *dummy, u64 * buf)
+static void stmmac_ethtool_stats(struct net_device *dev,
+				 struct ethtool_stats *dummy, u64 * buf)
 {
 	struct eth_driver_local *lp = netdev_priv(dev);
+	unsigned long ioaddr = dev->base_addr;
+	u32 *extra;
 	int i;
-	u32 *extra = (u32 *) &lp->xstats;
+
+	lp->mac_type->ops->dma_diagnostic_fr(&lp->stats, &lp->xstats, ioaddr);
+
+	extra = (u32 *) & lp->xstats;
+
 	for (i = 0; i < EXTRA_STATS; i++)
 		buf[i] = extra[i];
 	return;
 }
 
-static void stmmac_get_strings(struct net_device *dev, 
-				u32 stringset, u8 *buf)
+static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 * buf)
 {
 	switch (stringset) {
-		case ETH_SS_STATS:
-			memcpy(buf, &ethtool_stats_keys, 
-				sizeof(ethtool_stats_keys));
-			break;
-		default:
-			WARN_ON(1);
+	case ETH_SS_STATS:
+		memcpy(buf, &ethtool_stats_keys, sizeof(ethtool_stats_keys));
+		break;
+	default:
+		WARN_ON(1);
 		break;
 	}
 	return;
@@ -280,7 +277,7 @@ static void stmmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 
 	spin_lock_irq(&lp->lock);
 	if (lp->wolenabled == PMT_SUPPORTED) {
-		wol->supported = WAKE_MAGIC;
+		wol->supported = WAKE_MAGIC | WAKE_UCAST;
 		wol->wolopts = lp->wolopts;
 	}
 	spin_unlock_irq(&lp->lock);
@@ -315,7 +312,6 @@ struct ethtool_ops stmmac_ethtool_ops = {
 	.get_regs_len = stmmac_ethtool_get_regs_len,
 	.get_link = ethtool_op_get_link,
 	.get_rx_csum = stmmac_ethtool_get_rx_csum,
-	.set_rx_csum = stmmac_ethtool_set_rx_csum,
 	.get_tx_csum = ethtool_op_get_tx_csum,
 	.set_tx_csum = stmmac_ethtool_set_tx_csum,
 	.get_sg = ethtool_op_get_sg,

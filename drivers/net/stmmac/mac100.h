@@ -67,58 +67,37 @@
 /*----------------------------------------------------------------------------
  * 				DMA BLOCK defines
  *---------------------------------------------------------------------------*/
-/*  DMA Bus Mode register defines */
+
+/* DMA Bus Mode register defines */
 #define DMA_BUS_MODE_DBO	0x00100000	/* Descriptor Byte Ordering */
 #define DMA_BUS_MODE_BLE	0x00000080	/* Big Endian/Little Endian */
+#define DMA_BUS_MODE_PBL_MASK	0x00003f00	/* Programmable Burst Len */
+#define DMA_BUS_MODE_PBL_SHIFT	8
+#define DMA_BUS_MODE_DSL_MASK	0x0000007c	/* Descriptor Skip Length */
+#define DMA_BUS_MODE_DSL_SHIFT	2	/*   (in DWORDS)      */
+#define DMA_BUS_MODE_BAR_BUS	0x00000002	/* Bar-Bus Arbitration */
+#define DMA_BUS_MODE_SFT_RESET	0x00000001	/* Software Reset */
+#define DMA_BUS_MODE_DEFAULT	0x00000000
 
 /* DMA Control register defines */
 #define DMA_CONTROL_SF		0x00200000	/* Store And Forward */
+
 /* Transmit Threshold Control */
-#define DMA_CONTROL_TTC_DEFAULT	0x00000000	/* Threshold is 32 DWORDS */
-#define DMA_CONTROL_TTC_64	0x00004000	/* Threshold is 64 DWORDS */
-#define DMA_CONTROL_TTC_128	0x00008000	/* Threshold is 128 DWORDS */
-#define DMA_CONTROL_TTC_256	0x0000c000	/* Threshold is 256 DWORDS */
-#define DMA_CONTROL_TTC_18	0x00400000	/* Threshold is 18 DWORDS [22:1] */
-#define DMA_CONTROL_TTC_24	0x00404000	/* Threshold is 24 DWORDS [22:1] */
-#define DMA_CONTROL_TTC_32	0x00408000	/* Threshold is 32 DWORDS [22:1] */
-#define DMA_CONTROL_TTC_40	0x0040c000	/* Threshold is 40 DWORDS [22:1] */
-#define DMA_CONTROL_SE		0x00000008	/* Stop On Empty */
-#define DMA_CONTROL_OSF		0x00000004	/* Operate On 2nd Frame */
+enum ttc_control {
+	DMA_CONTROL_TTC_DEFAULT = 0x00000000,	/* Threshold is 32 DWORDS */
+	DMA_CONTROL_TTC_64 = 0x00004000,	/* Threshold is 64 DWORDS */
+	DMA_CONTROL_TTC_128 = 0x00008000,	/* Threshold is 128 DWORDS */
+	DMA_CONTROL_TTC_256 = 0x0000c000,	/* Threshold is 256 DWORDS */
+	DMA_CONTROL_TTC_18 = 0x00400000,	/* Threshold is 18 DWORDS [22:1] */
+	DMA_CONTROL_TTC_24 = 0x00404000,	/* Threshold is 24 DWORDS [22:1] */
+	DMA_CONTROL_TTC_32 = 0x00408000,	/* Threshold is 32 DWORDS [22:1] */
+	DMA_CONTROL_TTC_40 = 0x0040c000,	/* Threshold is 40 DWORDS [22:1] */
+	DMA_CONTROL_SE = 0x00000008,	/* Stop On Empty */
+	DMA_CONTROL_OSF = 0x00000004,	/* Operate On 2nd Frame */
+};
 
 /* STMAC110 DMA Missed Frame Counter register defines */
 #define DMA_MISSED_FRAME_OVE	0x10000000	/* FIFO Overflow Overflow */
 #define DMA_MISSED_FRAME_OVE_CNTR 0x0ffe0000	/* Overflow Frame Counter */
 #define DMA_MISSED_FRAME_OVE_M	0x00010000	/* Missed Frame Overflow */
 #define DMA_MISSED_FRAME_M_CNTR	0x0000ffff	/* Missed Frame Couinter */
-
-/*----------------------------------------------------------------------------
- * 		    	    Descriptor defines
- *---------------------------------------------------------------------------*/
-
-/* Receive Descriptor */
-#define RDES0_STATUS_FILTER_FAIL	0x40000000	/* Filtering Fail */
-#define RDES0_STATUS_DE		0x00004000	/* Descriptor Error */
-#define RDES0_STATUS_PFE	0x00002000	/* Partial Frame Error */
-#define RDES0_STATUS_LENGTH_ERROR 0x00001000	/* Length Error */
-#define RDES0_STATUS_RUNT_FRM	0x00000800	/* Runt Frame */
-#define RDES0_STATUS_MULTICST_FRM 0x00000400	/* Multicast Frame */
-#define RDES0_STATUS_TL	0x00000080	/* Frame Too Long */
-#define RDES0_STATUS_COL_SEEN	0x00000040	/* Collision Seen */
-#define RDES0_STATUS_FRM_TYPE	0x00000020	/* Frame Type */
-#define RDES0_STATUS_RX_WATCHDOG	0x00000010	/* Receive Watchdog */
-#define RDES0_STATUS_MII_ERR	0x00000008	/* Report on MII Error */
-#define RDES0_STATUS_DRIBBLE	0x00000004	/* Dribbling Bit */
-#define RDES0_STATUS_CE	0x00000002	/* CRC Error */
-#define RDES0_STATUS_0	0x00000000	/* Always tied to zero */
-
-/* Transmit Descriptor */
-#define TDES0_STATUS_LOSS_CARRIER 0x00000800	/* Loss of Carrier */
-#define TDES0_STATUS_NO_CARRIER 0x00000400	/* No Carrier */
-#define TDES0_STATUS_LATE_COL 0x00000200	/* Late Collision */
-#define TDES0_STATUS_EX_COL 0x00000100	/* Excessive Collisions */
-#define TDES0_STATUS_HRTBT_FAIL 0x00000080	/* Heartbeat Fail */
-#define TDES0_STATUS_COLCNT_MASK 0x00000078	/* Collision Count Mask */
-#define TDES0_STATUS_COLCNT_SHIFT 3	/* Collision Count Shift */
-#define TDES0_STATUS_EX_DEF 0x00000004	/* Excessive Deferrals */
-#define TDES0_STATUS_UF	0x00000002	/* Underflow Error */
-#define TDES0_STATUS_DF	0x00000001	/* Deferred */

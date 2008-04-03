@@ -2506,6 +2506,24 @@ config STMMAC_ETH
 	  This driver also supports the old embedded on-chip Ethernet in the
 	  Stb7109 CPU.
 
+config STMMAC_DA
+	depends on STMMAC_ETH
+	bool "STMMAC DMA arbitration scheme"
+	default n
+	---help---
+	  Selecting this option, rx has priority over Tx only for Giga Ethernet device,
+	  By default, the DMA arbitration scheme is based on Round-robin 
+	  (rx:tx priority is 1:1).
+
+config STMMAC_TIMER
+	depends on STMMAC_ETH && RTC_CLASS && EXPERIMENTAL
+	bool "STMMAC Timer optimization (EXPERIMENTAL)"
+	default n
+	---help---
+	  Real time clock device generates an interrupt at regular 
+	  intervals in order to notify the Ethernet driver about frame 
+	  receptions.
+
 endif # NETDEV_1000
 
 #

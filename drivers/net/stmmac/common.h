@@ -1,3 +1,5 @@
+#include "descs.h"
+
 /* *********************************************
    DMA CRS Control and Status Register Mapping 
  * *********************************************/
@@ -12,17 +14,6 @@
 #define DMA_MISSED_FRAME_CTR	0x00001020	/* Missed Frame Counter */
 #define DMA_CUR_TX_BUF_ADDR	0x00001050	/* Current Host Tx Buffer */
 #define DMA_CUR_RX_BUF_ADDR	0x00001054	/* Current Host Rx Buffer */
-
-/* ********************************
-   DMA Bus Mode register defines 
- * ********************************/
-#define DMA_BUS_MODE_PBL_MASK	0x00003f00	/* Programmable Burst Len */
-#define DMA_BUS_MODE_PBL_SHIFT	8
-#define DMA_BUS_MODE_DSL_MASK	0x0000007c	/* Descriptor Skip Length */
-#define DMA_BUS_MODE_DSL_SHIFT	2	/*   (in DWORDS)      */
-#define DMA_BUS_MODE_BAR_BUS	0x00000002	/* Bar-Bus Arbitration */
-#define DMA_BUS_MODE_SFT_RESET	0x00000001	/* Software Reset */
-#define DMA_BUS_MODE_DEFAULT	0x00000000
 
 /* ********************************
    DMA Control register defines
@@ -41,7 +32,7 @@
 #define DMA_INTR_ENA_ERE 0x00004000	/* Early Receive */
 
 #define DMA_INTR_NORMAL	(DMA_INTR_ENA_NIE | DMA_INTR_ENA_RIE | DMA_INTR_ENA_TIE \
-			| DMA_INTR_ENA_ERE | DMA_INTR_ENA_TUE)
+			/*| DMA_INTR_ENA_ERE | DMA_INTR_ENA_TUE*/)
 
 /**** ABNORMAL INTERRUPT ****/
 #define DMA_INTR_ENA_AIE 0x00008000	/* Abnormal Summary */
@@ -55,8 +46,8 @@
 #define DMA_INTR_ENA_TJE 0x00000008	/* Transmit Jabber */
 #define DMA_INTR_ENA_TSE 0x00000002	/* Transmit Stopped */
 
-#define DMA_INTR_ABNORMAL	DMA_INTR_ENA_AIE
-				
+#define DMA_INTR_ABNORMAL	DMA_INTR_ENA_AIE | DMA_INTR_ENA_FBE /*| DMA_INTR_ENA_UNE*/
+
 /* DMA default interrupt mask */
 #define DMA_INTR_DEFAULT_MASK	(DMA_INTR_NORMAL | DMA_INTR_ABNORMAL)
 /* Disable DMA Rx IRQ (NAPI) */
@@ -89,60 +80,21 @@
 #define DMA_STATUS_TPS	0x00000002	/* Transmit Process Stopped */
 #define DMA_STATUS_TI	0x00000001	/* Transmit Interrupt */
 
-#define MAC_WAKEUP_FILTER	0x00000028	/* Wake-up Frame Filter */
-#define MAC_PMT 		0x0000002c	/* PMT Control and Status */
-#define DMA_STATUS_PMT	0x10000000
-
-/* ****************************
- *     Descriptor defines
- * ****************************/
-#define OWN_BIT			0x80000000	/* Own Bit */
-#define DES1_CONTROL_CH		0x01000000	/* Second Address Chained */
-#define DES1_CONTROL_TER	0x02000000	/* End of Ring */
-#define DES1_RBS2_SIZE_MASK	0x003ff800	/* Buffer 2 Size Mask */
-#define DES1_RBS2_SIZE_SHIFT	11		/* Buffer 2 Size Shift */
-#define DES1_RBS1_SIZE_MASK	0x000007ff	/* Buffer 1 Size Mask */
-#define DES1_RBS1_SIZE_SHIFT	0		/* Buffer 1 Size Shift */
-
-/* Transmit descriptor 0*/
-#define TDES0_STATUS_ES		  0x00008000	/* Error Summary */
-
-/* Transmit descriptor 1*/
-#define TDES1_CONTROL_IC	0x80000000	/* Interrupt on Completion */
-#define TDES1_CONTROL_LS	0x40000000	/* Last Segment */
-#define TDES1_CONTROL_FS	0x20000000	/* First Segment */
-#define TDES1_CONTROL_AC	0x04000000	/* Add CRC Disable */
-#define TDES1_CONTROL_DPD	0x00800000	/* Disable Padding */
-
-/* Rx descriptor 0 */
-#define RDES0_STATUS_FL_MASK 0x3fff0000	/* Frame Length Mask */
-#define RDES0_STATUS_FL_SHIFT 16	/* Frame Length Shift */
-#define RDES0_STATUS_FS 0x00000200   /* First Descriptor */
-#define RDES0_STATUS_LS 0x00000100   /* Last Descriptor */
-#define RDES0_STATUS_ES	0x00008000	/* Error Summary */
-
-#define RDES1_CONTROL_DIC 0x80000000 /* Prevents Interrupt on Completion */
-
-/* MAC 10/100 */
-
-#define MAC_CTRL_DESC_TER DES1_CONTROL_TER /*MAC RX/TX end-ring bit*/
-
-/* GMAC */
-#define GMAC_TX_CONTROL_TER  0x00200000 //TER bit: TDES0[21]
-#define GMAC_RX_CONTROL_TER  0x00008000 //TER bit: RDES1[25] 
-#define GMAC_TX_LAST_SEGMENT 0x20000000 //LAST SEG: TDES0[29]
-#define GMAC_TX_FIRST_SEGMENT 0x10000000 //FIRST SEG: TDES0[28]
-#define GMAC_TX_IC 0x40000000 //TDES0[30] interrupt on completion
+#define DMA_BUFFER_SIZE	2048
 
 /* Other defines */
 #define HASH_TABLE_SIZE 64
 #define PAUSE_TIME 0x200
 
 /* Flow Control defines */
-#define FLOW_OFF	0x0
-#define FLOW_RX		0x1
-#define FLOW_TX		0x2
+#define FLOW_OFF	0
+#define FLOW_RX		1
+#define FLOW_TX		2
 #define FLOW_AUTO	(FLOW_TX | FLOW_RX)
+
+/* HW csum */
+#define NO_HW_CSUM 0
+#define HAS_HW_CSUM 1
 
 /* Power Down and WOL */
 #define PMT_NOT_SUPPORTED 0
@@ -171,7 +123,7 @@ struct stmmac_extra_stats {
 	unsigned long rx_lenght;
 	unsigned long rx_mii;
 	unsigned long rx_multicast;
-	unsigned long rx_overflow;
+	unsigned long rx_gmac_overflow;
 	unsigned long rx_watchdog;
 	unsigned long rx_filter;
 	unsigned long rx_dropped;
@@ -180,7 +132,7 @@ struct stmmac_extra_stats {
 	unsigned long tx_irq_n;
 	unsigned long rx_irq_n;
 	unsigned long tx_undeflow_irq;
-	unsigned long tx_threshold;
+	unsigned long threshold;
 	unsigned long tx_process_stopped_irq;
 	unsigned long tx_jabber_irq;
 	unsigned long rx_overflow_irq;
@@ -190,37 +142,58 @@ struct stmmac_extra_stats {
 	unsigned long tx_early_irq;
 	unsigned long fatal_bus_error_irq;
 	unsigned long rx_poll_n;
+	unsigned long tx_payload_error;
+	unsigned long tx_ip_header_error;
+	unsigned long rx_missed_cntr;
+	unsigned long rx_overflow_cntr;
 };
-#define EXTRA_STATS 36
+#define EXTRA_STATS 40
 
-/* Specific device structures (to mark the
- * difference between mac and gmac)*/
+/* Specific device structure VFP in order to mark the
+ * difference between mac and gmac in terms of registers, descriptors etc.
+ */
 struct device_ops {
-	/* MAC controller initialization */
+	/* MAC core */
 	void (*core_init) (unsigned long ioaddr);
-	/* MAC registers */
-	void (*mac_registers) (unsigned long ioaddr);
-	/* DMA registers */
-	void (*dma_registers) (unsigned long ioaddr);
-	/* DMA tx threshold */
-	void (*dma_ttc) (unsigned long ioaddr, int value);
-	/* Return zero if no error is happened during the transmission */
-	int (*tx_err) (void *p, struct stmmac_extra_stats *x,
-			unsigned int status);
-	/* Check if the frame was not successfully received */
-	int (*rx_err) (void *p, struct stmmac_extra_stats *x,
-			unsigned int status);
-	/* Verify the TX checksum */
-	void (*tx_checksum) (struct sk_buff * skb);
-	/* Verifies the RX checksum */
-	void (*rx_checksum) (struct sk_buff * skb, int status);
-	/* Enable/Disable Multicast filtering */
+	void (*dump_mac_regs) (unsigned long ioaddr);
+
+	/* DMA core */
+	int (*dma_init) (unsigned long ioaddr, int pbl, u32 dma_tx, u32 dma_rx);
+	void (*dump_dma_regs) (unsigned long ioaddr);
+	void (*dma_operation_mode) (unsigned long ioaddr, int threshold);
+	void (*dma_diagnostic_fr) (void *data, struct stmmac_extra_stats *x,
+					unsigned long ioaddr);
+
+
+	/* Descriptors */
+	void (*init_rx_desc) (dma_desc * p, unsigned int ring_size,
+			      int rx_irq_threshol);
+	void (*init_tx_desc) (dma_desc * p, unsigned int ring_size);
+	int (*set_buf_size) (unsigned int len);
+	int (*read_tx_ls) (void);
+	int (*read_tx_owner) (dma_desc * p);
+	int (*read_rx_owner) (dma_desc * p);
+	void (*release_tx_desc) (dma_desc * p);
+	void (*prepare_tx_desc) (dma_desc * p, int is_fs, int len, 
+				unsigned int csum_flags);
+	void (*set_tx_ic) (dma_desc * p, int value);
+	void (*set_tx_ls) (dma_desc * p);
+	int (*get_tx_ls) (dma_desc * p);
+	void (*set_tx_owner) (dma_desc * p);
+	void (*set_rx_owner) (dma_desc * p);
+	int (*get_rx_frame_len) (dma_desc * p);
+
+	/* driver functions */
+	int (*tx_status) (void *data, struct stmmac_extra_stats * x,
+			  dma_desc * p, unsigned long ioaddr);
+	int (*rx_status) (void *data, struct stmmac_extra_stats * x,
+			  dma_desc * p);
+	void (*tx_checksum) (struct sk_buff * skb, dma_desc * p);
+	int (*rx_checksum) (dma_desc * p);
 	void (*set_filter) (struct net_device * dev);
-	/* Flow Control */
 	void (*flow_ctrl) (unsigned long ioaddr, unsigned int duplex,
 			   unsigned int fc, unsigned int pause_time);
-	/* Wake-up On Lan */
-	void (*enable_wol) (unsigned long ioaddr, unsigned long mode);
+	void (*pmt) (unsigned long ioaddr, unsigned long mode);
 };
 
 struct mac_link_t {
@@ -237,8 +210,9 @@ struct mii_regs_t {
 struct mac_regs_t {
 	unsigned int addr_high;	/* Multicast Hash Table High */
 	unsigned int addr_low;	/* Multicast Hash Table Low */
-	unsigned int version;	/* Core Version register (GMAC)*/
+	unsigned int version;	/* Core Version register (GMAC) */
 	unsigned int pmt;	/* Power-Down mode (GMAC) */
+	unsigned int csum;	/* Checksum Offload */
 	struct mac_link_t link;
 	struct mii_regs_t mii;
 };

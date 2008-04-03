@@ -15,9 +15,22 @@
 
 /* GMAC ID */
 #define GMAC_VERSION	0x00000020	/* GMAC CORE Version */
+#define GMAC_INT_STATUS	0x00000038	/* interrupt status register */
+#define GMAC_INT_MASK	0x0000003c	/* interrupt status register */
 
-#define GMAC_INT_STATUS	0x00000038 /* interrupt status register */
-#define GMAC_INT_MASK	0x0000003c /* interrupt status register */
+#define GMAC_WAKEUP_FILTER       0x00000028      /* Wake-up Frame Filter */
+
+/* PMT Control and Statu */
+#define GMAC_PMT                 0x0000002c
+enum power_event{
+	pointer_reset  = 0x80000000,
+	global_unicast = 0x00000200,
+	wake_up_rx_frame  = 0x00000040,
+	magic_frame    = 0x00000020,
+	wake_up_frame_en = 0x00000004,
+	magic_pkt_en	 = 0x00000002,
+	power_down	 = 0x00000001,
+};
 
 /* GMAC HW ADDR regs */
 #define GMAC_ADDR_HIGH	0x00000040	/* Mac Address 0 HI */
@@ -32,14 +45,19 @@
 #define GMAC_ANE_EXP	0x000000d0	/* ANE expansion */
 #define GMAC_TBI	0x000000d4	/* TBI extend status */
 #define GMAC_GMII_STATUS 0x000000d8	/* S/R-GMII status */
+
 /* GMAC Configuration defines */
-#define GMAC_CONTROL_WD	0x00800000	/* Disable Watchdog */
+#define GMAC_CONTROL_TC	0x01000000	/* Transmit Conf. in RGMII/SGMII */
+#define GMAC_CONTROL_WD	0x00800000	/* Disable Watchdog on receive */
 #define GMAC_CONTROL_JD	0x00400000	/* Jabber disable */
 #define GMAC_CONTROL_BE	0x00200000	/* Frame Burst Enable */
 #define GMAC_CONTROL_JE	0x00100000	/* Jumbo frame */
-#define GMAC_CONTROL_IFG_88	0x00040000
-#define GMAC_CONTROL_IFG_80	0x00020000
-#define GMAC_CONTROL_IFG_40	0x000e0000
+enum inter_frame_gap {
+	GMAC_CONTROL_IFG_88 = 0x00040000,
+	GMAC_CONTROL_IFG_80 = 0x00020000,
+	GMAC_CONTROL_IFG_40 = 0x000e0000,
+};
+#define GMAC_CONTROL_DCRS	0x00010000	/* Disable carrier sense during tx */
 #define GMAC_CONTROL_PS		0x00008000	/* Port Select 0:GMI 1:MII */
 #define GMAC_CONTROL_FES	0x00004000	/* Speed 0:10 1:100 */
 #define GMAC_CONTROL_DO		0x00002000	/* Disable Rx Own */
@@ -53,16 +71,16 @@
 #define GMAC_CONTROL_TE		0x00000008	/* Transmitter Enable */
 #define GMAC_CONTROL_RE		0x00000004	/* Receiver Enable */
 
-#define GMAC_CORE_INIT (GMAC_CONTROL_PS | GMAC_CONTROL_ACS | GMAC_CONTROL_IPC)
+#define GMAC_CORE_INIT (GMAC_CONTROL_JD | GMAC_CONTROL_PS | GMAC_CONTROL_ACS | GMAC_CONTROL_IPC)
 
 /* GMAC Frame Filter defines */
 #define GMAC_FRAME_FILTER_PR	0x00000001	/* Promiscuous Mode */
-#define GMAC_FRAME_FILTER_HUC	0x00000002	/*Hash Unicast */
-#define GMAC_FRAME_FILTER_HMC	0x00000004	/*Hash Multicast */
-#define GMAC_FRAME_FILTER_DAIF	0x00000008	/*DA Inverse Filtering */
-#define GMAC_FRAME_FILTER_PM	0x00000010	/*Pass all multicast */
-#define GMAC_FRAME_FILTER_DBF	0x00000020	/*Disable Broadcast frames */
-#define GMAC_FRAME_FILTER_RA	0x80000000	/*Receive all mode */
+#define GMAC_FRAME_FILTER_HUC	0x00000002	/* Hash Unicast */
+#define GMAC_FRAME_FILTER_HMC	0x00000004	/* Hash Multicast */
+#define GMAC_FRAME_FILTER_DAIF	0x00000008	/* DA Inverse Filtering */
+#define GMAC_FRAME_FILTER_PM	0x00000010	/* Pass all multicast */
+#define GMAC_FRAME_FILTER_DBF	0x00000020	/* Disable Broadcast frames */
+#define GMAC_FRAME_FILTER_RA	0x80000000	/* Receive all mode */
 /* GMII ADDR  defines */
 #define GMAC_MII_ADDR_WRITE	0x00000002	/* MII Write */
 #define GMAC_MII_ADDR_BUSY	0x00000001	/* MII Busy */
@@ -74,6 +92,28 @@
 #define GMAC_FLOW_CTRL_FCB_BPA	0x00000001	/* Flow Control Busy ... */
 
 /*--- DMA BLOCK defines ---*/
+/* DMA Bus Mode register defines */
+#define DMA_BUS_MODE_SFT_RESET	0x00000001	/* Software Reset */
+#define DMA_BUS_MODE_DA		0x00000002	/* Arbitration scheme */
+#define DMA_BUS_MODE_DSL_MASK	0x0000007c	/* Descriptor Skip Length */
+#define DMA_BUS_MODE_DSL_SHIFT	2	/*   (in DWORDS)      */
+/* Programmable burst length (passed thorugh platform)*/
+#define DMA_BUS_MODE_PBL_MASK	0x00003f00	/* Programmable Burst Len */
+#define DMA_BUS_MODE_PBL_SHIFT	8
+
+enum rx_tx_priority_ratio {
+	double_ratio = 0x00004000,	/*2:1 */
+	triple_ratio = 0x00008000,	/*3:1 */
+	quadruple_ratio = 0x0000c000,	/*4:1 */
+};
+
+#define DMA_BUS_MODE_FB	0x00010000	/*Fixed burst */
+#define DMA_BUS_MODE_RPBL_MASK	0x003e0000	/* Rx-Programmable Burst Len */
+#define DMA_BUS_MODE_RPBL_SHIFT	17
+#define DMA_BUS_MODE_USP	0x00800000
+#define DMA_BUS_MODE_4PBL	0x01000000
+#define DMA_BUS_MODE_AAL	0x02000000
+
 /* DMA CRS Control and Status Register Mapping */
 #define DMA_HOST_TX_DESC	  0x00001048	/* Current Host Tx descriptor */
 #define DMA_HOST_RX_DESC	  0x0000104c	/* Current Host Rx descriptor */
@@ -87,48 +127,53 @@
 #define DMA_STATUS_GMI		0x08000000	/* MMC interrupt */
 #define DMA_STATUS_GLI		0x04000000	/* GMAC Line interface interrupt */
 
-/* DMA operation mode defines */
-#define DMA_CONTROL_SF		0x00200000	/* Store And Forward */
+/* DMA operation mode defines (start/stop tx/rx are placed in common header)*/
+#define DMA_CONTROL_DT		0x04000000	/* Disable Drop TCP/IP csum error */
+#define DMA_CONTROL_RSF		0x02000000	/* Receive Store and Forward */
+#define DMA_CONTROL_DFF		0x01000000	/* Disaable flushing */
+/* Theshold for Activating the FC */
+enum rfa {
+	act_full_minus_1 = 0x00800000,
+	act_full_minus_2 = 0x00800200,
+	act_full_minus_3 = 0x00800400,
+	act_full_minus_4 = 0x00800600,
+};
+/* Theshold for Deactivating the FC */
+enum rfd {
+	deac_full_minus_1 = 0x00400000,
+	deac_full_minus_2 = 0x00400800,
+	deac_full_minus_3 = 0x00401000,
+	deac_full_minus_4 = 0x00401800,
+};
+#define DMA_CONTROL_TSF		0x00200000	/* Transmit  Store and Forward */
 #define DMA_CONTROL_FTF		0x00100000	/* Flush transmit FIFO */
-#define DMA_CONTROL_TTC_MASK	0x0001c000	/* Transmit Threshold Control */
-#define DMA_CONTROL_TTC_64	0x00000000
-#define DMA_CONTROL_TTC_128	0x00040000
-#define DMA_CONTROL_TTC_192	0x00080000
-#define DMA_CONTROL_TTC_256	0x000c0000
-#define DMA_CONTROL_TTC_40	0x00100000
-#define DMA_CONTROL_TTC_32	0x00140000
-#define DMA_CONTROL_TTC_24	0x00180000
-#define DMA_CONTROL_TTC_16	0x001c0000
 
-/* --- Descriptor defines --- */
-/* Receive Descriptor 0*/
-#define RDES0_STATUS_FILTER_FAIL  0x40000000	/* DA Filtering Fails */
-#define RDES0_STATUS_FL_MASK      0x3fff0000	/* Frame Length Mask */
-#define RDES0_STATUS_FL_SHIFT     16	/* Frame Length Shift */
-#define RDES0_STATUS_DE		0x00004000	/* Descriptor Error */
-#define RDES0_STATUS_SAF	0x00002000	/* Source Address filter Fail */
-#define RDES0_STATUS_LENGTH_ERROR 0x00001000	/* Length Error */
-#define RDES0_STATUS_OE		0x00000800	/* Overflow Error */
-#define RDES0_STATUS_VLAN	0x00000400	/* VLAN tag */
-#define RDES0_STATUS_IPC	0x00000080	/* Checksum Error */
-#define RDES0_STATUS_LC		0x00000040	/* Collision Seen */
-#define RDES0_STATUS_FT		0x00000020	/* Frame Type */
-#define RDES0_STATUS_RWT	0x00000010	/* Receive Watchdog */
-#define RDES0_STATUS_RE		0x00000008	/* Receive Error  */
-#define RDES0_STATUS_DRIBBLE	0x00000004	/* Dribbling Bit */
-#define RDES0_STATUS_CE		0x00000002	/* CRC Error */
-#define RDES0_STATUS_RX_GMAC_ADDR 0x00000001	/* RX GMAC ADDR. */
+enum ttc_control {
+	DMA_CONTROL_TTC_64 = 0x00000000,
+	DMA_CONTROL_TTC_128 = 0x00040000,
+	DMA_CONTROL_TTC_192 = 0x00080000,
+	DMA_CONTROL_TTC_256 = 0x000c0000,
+	DMA_CONTROL_TTC_40 = 0x00100000,
+	DMA_CONTROL_TTC_32 = 0x00140000,
+	DMA_CONTROL_TTC_24 = 0x00180000,
+	DMA_CONTROL_TTC_16 = 0x001c0000,
+};
 
-/* Transmit Descriptor */
-#define TDES0_STATUS_JT		  0x00004000	/* jabber timeout */
-#define TDES0_STATUS_FF		  0x00002000	/* frame flushed */
-#define TDES0_STATUS_LOSS_CARRIER 0x00000800	/* Loss of Carrier */
-#define TDES0_STATUS_NO_CARRIER   0x00000400	/* No Carrier */
-#define TDES0_STATUS_LATE_COL     0x00000200	/* Late Collision */
-#define TDES0_STATUS_EX_COL	0x00000100	/* Excessive Collisions */
-#define TDES0_STATUS_VLAN	0x00000080	/* VLAN FRAME */
-#define TDES0_STATUS_COLCNT_MASK  0x00000078	/* Collision Count Mask */
-#define TDES0_STATUS_COLCNT_SHIFT 3	/* Collision Count Shift */
-#define TDES0_STATUS_EX_DEF	0x00000004	/* Excessive Deferrals */
-#define TDES0_STATUS_UF		0x00000002	/* Underflow Error */
-#define TDES0_STATUS_DF		0x00000001	/* Deferred */
+#define DMA_CONTROL_EFC		0x00000100
+#define DMA_CONTROL_FEF		0x00000080
+#define DMA_CONTROL_FUF		0x00000040
+
+enum rtc_control {
+	DMA_CONTROL_RTC_64 = 0x00000000,
+	DMA_CONTROL_RTC_32 = 0x00000010,
+	DMA_CONTROL_RTC_96 = 0x00000020,
+	DMA_CONTROL_RTC_128 = 0x00000030,
+};
+
+#define DMA_CONTROL_OSF	0x00000004	/* operate on second frame */
+
+/* Transmit COE type 2 cannot be done in cut-through mode */
+#undef GMAC_TX_STORE_AND_FORWARD
+#define GMAC_TX_STORE_AND_FORWARD
+#undef GMAC_RX_STORE_AND_FORWARD
+/*#define GMAC_RX_STORE_AND_FORWARD*/

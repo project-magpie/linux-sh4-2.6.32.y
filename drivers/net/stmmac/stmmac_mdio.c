@@ -41,13 +41,13 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 	struct net_device *ndev = bus->priv;
 	struct eth_driver_local *lp = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
-	unsigned int mii_address = lp->mac->hw.mii.addr;
-	unsigned int mii_data = lp->mac->hw.mii.data;
+	unsigned int mii_address = lp->mac_type->hw.mii.addr;
+	unsigned int mii_data = lp->mac_type->hw.mii.data;
 
 	int data;
 	u16 regValue = (((phyaddr << 11) & (0x0000F800)) |
 			((phyreg << 6) & (0x000007C0)));
-	regValue |= MII_BUSY; // GMAC
+	regValue |= MII_BUSY;	// GMAC
 
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
@@ -75,14 +75,14 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	struct net_device *ndev = bus->priv;
 	struct eth_driver_local *lp = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
-	unsigned int mii_address = lp->mac->hw.mii.addr;
-	unsigned int mii_data = lp->mac->hw.mii.data;
+	unsigned int mii_address = lp->mac_type->hw.mii.addr;
+	unsigned int mii_data = lp->mac_type->hw.mii.data;
 
 	u16 value =
 	    (((phyaddr << 11) & (0x0000F800)) | ((phyreg << 6) & (0x000007C0)))
 	    | MII_WRITE;
 
-	value |= MII_BUSY; // GMAC
+	value |= MII_BUSY;	// GMAC
 
 	/* Wait until any existing MII operation is complete */
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
@@ -108,7 +108,7 @@ int stmmac_mdio_reset(struct mii_bus *bus)
 	struct net_device *ndev = bus->priv;
 	struct eth_driver_local *lp = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
-	unsigned int mii_address = lp->mac->hw.mii.addr;
+	unsigned int mii_address = lp->mac_type->hw.mii.addr;
 
 	printk(KERN_DEBUG "stmmac_mdio_reset: called!\n");
 
@@ -144,14 +144,15 @@ int stmmac_mdio_register(struct net_device *ndev)
 	/* Assign IRQ to phy at address phy_addr */
 	irqlist[lp->phy_addr] = lp->phy_irq;
 
-	new_bus->name = "STMMAC MII Bus",
-	    new_bus->read = &stmmac_mdio_read,
-	    new_bus->write = &stmmac_mdio_write,
-	    new_bus->reset = &stmmac_mdio_reset, new_bus->id = (int)lp->bus_id;
+	new_bus->name = "STMMAC MII Bus";
+	new_bus->read = &stmmac_mdio_read;
+	new_bus->write = &stmmac_mdio_write;
+	new_bus->reset = &stmmac_mdio_reset;
+	new_bus->id = (int)lp->bus_id;
 	new_bus->priv = ndev;
 	new_bus->irq = irqlist;
 	new_bus->phy_mask = lp->phy_mask;
-	new_bus->dev = 0;	/* FIXME */
+	new_bus->dev = lp->device;
 	printk(KERN_DEBUG "calling mdiobus_register\n");
 	err = mdiobus_register(new_bus);
 	printk(KERN_DEBUG "calling mdiobus_register done\n");

@@ -364,12 +364,23 @@ config SH_ST_MB519
 	  ST board ID: mb519). More information at:
 	  <http://www.stlinux.com/boards/mb519/>
 
+config SH_ST_MB520
+	bool "mb520: STB peripherals board"
+	depends on SH_ST_MB519
+	select I2C
+	select I2C_BOARDINFO
+	select I2C_STM
+	select GPIO_PCF857X
+	help
+	  Select SH_ST_MB520 if your processor board is connected
+	  to this STB-like peripherals board.
+
 config SH_ST_MB562
 	bool "mb562: BD-DVD peripherals board"
 	depends on SH_ST_MB519
 	help
 	  Select SH_ST_MB562 if your processor board is connected
-	  with this multi-audio-outputs board.
+	  to this multi-audio-outputs board.
 
 config SH_HP6XX
 	bool "HP6XX"

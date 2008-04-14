@@ -12,10 +12,15 @@
 
 #include <linux/init.h>
 #include <linux/stm/sysconf.h>
+#include <linux/bug.h>
+#include <asm/processor.h>
 
 static int __init device_init(void)
 {
 	struct sysconf_field *sc;
+
+	/* So far valid only for 7200 processor board! */
+	BUG_ON(cpu_data->type != CPU_STX7200);
 
 	/* Set up "scenario 1" of audio outputs */
 

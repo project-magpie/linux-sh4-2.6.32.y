@@ -12,6 +12,7 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/leds.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/emi.h>
@@ -49,6 +50,25 @@ static struct plat_ssc_data ssc_private_info = {
 		ssc1_has(SSC_I2C_CAPABILITY) |
 		ssc2_has(SSC_I2C_CAPABILITY) |
 		ssc3_has(SSC_I2C_CAPABILITY),
+};
+
+static struct platform_device mb618_leds = {
+	.name = "leds-gpio",
+	.id = -1,
+	.dev.platform_data = &(struct gpio_led_platform_data) {
+		.num_leds = 2,
+		.leds = (struct gpio_led[]) {
+			{
+				.name = "HB green",
+				.default_trigger = "heartbeat",
+				.gpio = stpio_to_gpio(6, 0),
+			},
+			{
+				.name = "HB red",
+				.gpio = stpio_to_gpio(6, 1),
+			},
+		},
+	},
 };
 
 /* J34 must be in the 2-3 position to enable NOR Flash */
@@ -185,6 +205,7 @@ static struct nand_config_data mb618_nand_config = {
 };
 
 static struct platform_device *mb618_devices[] __initdata = {
+	&mb618_leds,
 	&epld_device,
 #ifdef FLASH_NOR
 	&physmap_flash,

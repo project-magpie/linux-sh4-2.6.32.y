@@ -108,13 +108,6 @@ config LEDS_MB374
 	  This option enables support for the LEDs on the STMicroelectronics
 	  mb374 (ST40RA Starter board).
 
-config LEDS_MB618
-	tristate "LED Support for STMicroelectronics mb618 LEDs"
-	depends on LEDS_CLASS && SH_ST_MB618
-	help
-	  This option enables support for the LEDs on the STMicroelectronics
-	  mb618 (STx7111 Mboard).
-
 comment "LED Triggers"
 
 config LEDS_TRIGGERS

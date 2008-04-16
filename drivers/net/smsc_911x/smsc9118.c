@@ -520,6 +520,7 @@ void Vl_ReleaseLock(PVERIFIABLE_LOCK pVl,VL_KEY keyCode,DWORD *pdwIntFlags);
 
 typedef struct _PRIVATE_DATA {
 	DWORD dwLanBase;
+	DWORD dwLanBasePhy;
 	DWORD dwIdRev;
 	DWORD dwFpgaRev;
 	struct net_device *dev;
@@ -1308,7 +1309,6 @@ void Smsc9118_cleanup_module(void)
 
 int Smsc9118_init(struct net_device *dev)
 {
-	DWORD dwLanBase=0UL;
 	DWORD dwIdRev=0UL;
 	DWORD dwFpgaRev=0UL;
 	PPRIVATE_DATA privateData=NULL;
@@ -1336,27 +1336,32 @@ int Smsc9118_init(struct net_device *dev)
 	privateData=(PPRIVATE_DATA)(dev->priv);
 	platformData=&(privateData->PlatformData);
 
-	dwLanBase=Platform_Initialize(
+	privateData->dwLanBasePhy=Platform_Initialize(
 		platformData,
 		lan_base,bus_width);
 
-	if(dwLanBase==0UL) {
+	privateData->dwLanBase = (DWORD)ioremap(privateData->dwLanBasePhy, 0x100);
+
+	SMSC_TRACE("Lan Base at 0x%08lX",privateData->dwLanBase);
+
+	if(privateData->dwLanBase==0UL) {
 		SMSC_WARNING("dwLanBase==0x00000000");
 		result=-ENODEV;
 		goto DONE;
 	}
 	platformInitialized=TRUE;
-	SMSC_TRACE("dwLanBase=0x%08lX",dwLanBase);
+	SMSC_TRACE("dwLanBase=0x%08lX",privateData->dwLanBase);
 
-	if(check_mem_region(dwLanBase,LAN_REGISTER_EXTENT)!=0) {
+	if(check_mem_region(privateData->dwLanBase,LAN_REGISTER_EXTENT)!=0) {
 		SMSC_WARNING("  Memory Region specified (0x%08lX to 0x%08lX) is not available.",
-			dwLanBase,dwLanBase+LAN_REGISTER_EXTENT-1UL);
+			privateData->dwLanBase,privateData->dwLanBase+LAN_REGISTER_EXTENT-1UL);
 		result=-ENOMEM;
 		goto DONE;
 	}
 
-	privateData->dwLanBase=dwLanBase;
 	dwIdRev=Lan_GetRegDW(ID_REV);
+	privateData->PlatformData.dwIdRev = dwIdRev;
+
 	if(HIWORD(dwIdRev)==LOWORD(dwIdRev)) {
 		//this may mean the chip is set for 32 bit
 		//  while the bus is reading as 16 bit
@@ -3708,7 +3713,7 @@ void Tx_Initialize(
 		{
 			SMSC_WARNING("Failed Platform_DmaInitialize, dwTxDmaCh=%lu",dwTxDmaCh);
 		}
-		privateData->TxDmaXfer.dwLanReg=privateData->dwLanBase+TX_DATA_FIFO;
+		privateData->TxDmaXfer.dwLanReg=privateData->dwLanBasePhy+TX_DATA_FIFO;
 		privateData->TxDmaXfer.pdwBuf=NULL;//this will be reset per dma request
 		privateData->TxDmaXfer.dwDmaCh=privateData->dwTxDmaCh;
 		privateData->TxDmaXfer.dwDwCnt=0;//this will be reset per dma request
@@ -4612,7 +4617,7 @@ void Rx_ProcessPackets(PPRIVATE_DATA privateData)
 		}
 
 		if (packets != 0) {
-			dmaXfer.dwLanReg=privateData->dwLanBase+RX_DATA_FIFO;
+			dmaXfer.dwLanReg=privateData->dwLanBasePhy+RX_DATA_FIFO;
 			dmaXfer.pdwBuf=(DWORD*)privateData->RxSgs;
 			dmaXfer.dwDmaCh=dwDmaCh;
 			dmaXfer.dwDwCnt=packets;
@@ -4622,7 +4627,7 @@ void Rx_ProcessPackets(PPRIVATE_DATA privateData)
 
 			RxPacketDepth[packets]++;
 			privateData->RxSkbsCount = packets;
-			if(!Platform_DmaStartSgXfer(platformData,&dmaXfer, Rx_DmaCompletionCallback, privateData)) {
+			if(!Platform_DmaStartSgXfer(platformData, &dmaXfer, Rx_DmaCompletionCallback, privateData)) {
 				SMSC_WARNING("Failed Platform_DmaStartXfer");
 			}
 		} else if (privateData->RxDropOnCallback != 0) {
@@ -4681,7 +4686,7 @@ BOOLEAN Rx_HandleInterrupt(
 	privateData->LastReasonForReleasingCPU=0;
 
 	if(dwIntSts&INT_STS_RXE_) {
-		SMSC_TRACE("Rx_HandleInterrupt: RXE signalled");
+		/*SMSC_TRACE("Rx_HandleInterrupt: RXE signalled");*/
 		privateData->stats.rx_errors++;
 		Lan_SetRegDW(INT_STS,INT_STS_RXE_);
 		result=TRUE;

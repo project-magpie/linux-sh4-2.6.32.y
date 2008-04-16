@@ -50,19 +50,8 @@
 #define PLATFORM_IRQ_TYPE	(0UL)
 
 #define DB641_USE_PORT0
-#if defined(CONFIG_SH_STI5528_EVAL)
-/* db641 STEM card plugged into mb376 */
-#ifdef DB641_USE_PORT0
-/* STEM CS0 = BANK3 */
-#define PLATFORM_CSBASE		(0xA3000000UL)
-#define PLATFORM_IRQ		(10UL)
-#else
-/* STEM CS1 = BANK4 */
-#define PLATFORM_CSBASE		(0xA3400000UL)
-#define PLATFORM_IRQ		(9UL)
-#endif
-#elif defined(CONFIG_SH_ST_MB411)
-/* db641 STEM card plugged into mb376 */
+#if defined(CONFIG_SH_ST_MB411)
+/* db641 STEM card plugged */
 #ifdef DB641_USE_PORT0
 /* STEM CS0 = BankB, A23=0 */
 #define PLATFORM_CSBASE		(0x01000000UL)
@@ -210,8 +199,6 @@ DWORD Platform_Initialize(
 	PPLATFORM_DATA platformData,
 	DWORD dwLanBase, DWORD dwBusWidth)
 {
-	DWORD dwIdRev=0;
-	SMSC_TRACE("--> Platform_Initialize");
 	SMSC_ASSERT(platformData!=NULL);
 	platformData->dwBitWidth=0;
 
@@ -219,16 +206,8 @@ DWORD Platform_Initialize(
 		dwLanBase=PLATFORM_CSBASE;
 	}
 
-	dwLanBase = ioremap(dwLanBase, 0x100);
-
-	SMSC_TRACE("Lan Base at 0x%08lX",dwLanBase);
-
 	platformData->dwBitWidth=16;
 
-	dwIdRev=(*(volatile unsigned long *)(dwLanBase+ID_REV_OFFSET));
-	platformData->dwIdRev = dwIdRev;
-
-	SMSC_TRACE("<-- Platform_Initialize");
 	return dwLanBase;
 }
 

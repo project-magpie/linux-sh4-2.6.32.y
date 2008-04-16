@@ -202,9 +202,10 @@ BOOLEAN Platform_DmaStartXfer(
 		return FALSE;
 	}
 
+	dwLanPhysAddr = pDmaXfer->dwLanReg;
 	// 3. calculate the physical transfer addresses
-	dwLanPhysAddr = CpuToPhysicalAddr((void *)pDmaXfer->dwLanReg);
-	dwMemPhysAddr = PHYSADDR(CpuToPhysicalAddr((void *)pDmaXfer->pdwBuf));
+	dwMemPhysAddr = dma_map_single(NULL, pDmaXfer->pdwBuf,
+				sizeof(pDmaXfer->pdwBuf), DMA_TO_DEVICE);
 
 	// 4. validate the address alignments
 	// need CL alignment for CL bursts
@@ -224,8 +225,8 @@ BOOLEAN Platform_DmaStartXfer(
 
 	// 5. Prepare the DMA channel structure
 	BUG_ON(pDmaXfer->fMemWr);
-	src = PHYSADDR(dwMemPhysAddr);
-	dst = PHYSADDR(dwLanPhysAddr);
+	src = dwMemPhysAddr;
+	dst = dwLanPhysAddr;
 	dmap = &tx_transfer;
 
 	dma_params_comp_cb(dmap,
@@ -256,7 +257,6 @@ BOOLEAN Platform_DmaStartSgXfer(
 	void (*pCallback)(void*),
 	void* pCallbackData)
 {
-	DWORD dwLanPhysAddr;
 	int res=0;
 	int sg_count;
 	struct scatterlist *sg;
@@ -276,9 +276,6 @@ BOOLEAN Platform_DmaStartSgXfer(
 		return FALSE;
 	}
 
-	// 3. calculate the physical transfer addresses
-	dwLanPhysAddr = PHYSADDR(CpuToPhysicalAddr((void *)pDmaXfer->dwLanReg));
-
 	// 4. Map (flush) the buffer
 	sg = (struct scatterlist*)pDmaXfer->pdwBuf;
 	sg_count = dma_map_sg(NULL, sg,
@@ -294,7 +291,7 @@ BOOLEAN Platform_DmaStartSgXfer(
 		if (long_len) {
 			dma_params_DIM_0_x_1(param);
 			dma_params_addrs(param,
-					dwLanPhysAddr,
+					pDmaXfer->dwLanReg,
 					sg_dma_address(sg),
 					long_len);
 			dma_params_req(param, dma_reqs[SMSC_LONG_PTK_CHAN]);
@@ -305,7 +302,7 @@ BOOLEAN Platform_DmaStartSgXfer(
 		if (short_len) {
 			dma_params_DIM_0_x_1(param);
 			dma_params_addrs(param,
-					dwLanPhysAddr,
+					pDmaXfer->dwLanReg,
 					sg_dma_address(sg) + long_len,
 					short_len);
 			dma_params_req(param, dma_reqs[SMSC_SHORT_PTK_CHAN]);
@@ -362,7 +359,8 @@ BOOLEAN Platform_DmaStartSgXfer(
 	}
 
 	// 3. calculate the physical transfer addresses
-	dwLanPhysAddr = PHYSADDR(CpuToPhysicalAddr((void *)pDmaXfer->dwLanReg));
+	dwLanPhysAddr = pDmaXfer->dwLanReg;
+
 #ifdef CONFIG_SMSC911x_DMA_FIFOSEL
 	dwLanPhysAddr += (1<<16);
 #endif

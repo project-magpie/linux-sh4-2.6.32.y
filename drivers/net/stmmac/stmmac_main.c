@@ -11,6 +11,11 @@
  * ----------------------------------------------------------------------------
  *
  * Changelog:
+ * April 2008:
+ *	- Added kernel timer for handling interrupts.
+ *	- Reviewed the GMAC HW configuration.
+ *	- Frozen GMAC MMC counters in order to handle related interrupts.
+ *	- Fixed a bug within the stmmac_rx function (wrong owner checking).
  * March 2008:
  *	- Added Rx timer optimization (also mitigated by using the normal
  *	  interrupt on completion). See stmmac_timer.c file.
@@ -132,28 +137,47 @@ static int threshold_ctrl = TTC_DEFAULT;
 module_param(threshold_ctrl, int, S_IRUGO);
 MODULE_PARM_DESC(threshold_ctrl, "tranfer threshold control");
 
-#ifdef CONFIG_STMMAC_TIMER
-/* Using timer optimization, it's worth having some interrupts on frame 
- * reception. That makes safe the network activity especially for TCP traffic.*/
-#define RX_IRQ_THRESHOLD 10
-/* Please pay attention to tune the timer irq frequency; take care of both RTC
- * hardware capability and network stabitily/performance impact. */
+#define STMMAC_NAPI
+
+#if defined (CONFIG_STMMAC_TIMER)
+#define RX_IRQ_THRESHOLD 16
+#else
+#define RX_IRQ_THRESHOLD 1 /* always Interrupt on completion */
+#endif
+
+/* Using timer optimizations, it's worth having some interrupts on frame 
+ * reception. This makes safe the network activity especially for the TCP 
+ * traffic.
+ * Note that it is possible to tune this value passing the "rxmit" option 
+ * into the kernel command line. */
+static int rx_irq_mitigation = RX_IRQ_THRESHOLD;
+module_param(rx_irq_mitigation, int, S_IRUGO);
+MODULE_PARM_DESC(rx_irq_mitigation, "Rx irq mitigation threshold");
+
+/* Pay attention to tune timer parameters; take care of both
+ * hardware capability and network stabitily/performance impact. 
+ * Many tests showed that ~4ms latency seems to be good enough. */
+#ifdef CONFIG_STMMAC_RTC_TIMER
 #define DEFAULT_PERIODIC_RATE	256
 static int periodic_rate = DEFAULT_PERIODIC_RATE;
 module_param(periodic_rate, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(periodic_rate, "Timer periodic rate (default: 256Hz)");
-#else
-#define RX_IRQ_THRESHOLD 1
 #endif
-static int rx_irq_mitigation = RX_IRQ_THRESHOLD;	/* use it with timer on */
-module_param(rx_irq_mitigation, int, S_IRUGO);
-MODULE_PARM_DESC(rx_irq_mitigation, "Rx irq mitigation threshold");
+
+#ifdef CONFIG_STMMAC_SW_TIMER
+#undef STMMAC_NAPI
+static int sw_timer_msec = 4;
+module_param(sw_timer_msec, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(sw_timer_msec, "Expiration time in msec");
+#define STMMAC_SW_TIMER_EXP (jiffies + msecs_to_jiffies(sw_timer_msec))
+#endif
 
 static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_LINK | NETIF_MSG_IFUP |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
 
 static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
+static int stmmac_rx(struct net_device *dev, int limit);
 
 extern struct ethtool_ops stmmac_ethtool_ops;
 extern struct device_info_t *gmac_setup(unsigned long addr);
@@ -161,7 +185,8 @@ extern struct device_info_t *mac100_setup(unsigned long addr);
 extern int stmmac_mdio_unregister(struct net_device *ndev);
 extern int stmmac_mdio_register(struct net_device *ndev);
 extern int stmmac_mdio_reset(struct mii_bus *bus);
-#ifdef CONFIG_STMMAC_TIMER
+
+#ifdef CONFIG_STMMAC_RTC_TIMER
 extern int stmmac_timer_close(void);
 extern int stmmac_timer_stop(void);
 extern int stmmac_timer_start(unsigned int freq);
@@ -197,7 +222,7 @@ static __inline__ void stmmac_verify_args(void)
 	return;
 }
 
-#ifdef STMMAC_DEBUG
+#if defined (STMMAC_XMIT_DEBUG) || defined (STMMAC_RX_DEBUG)
 static __inline__ void print_pkt(unsigned char *buf, int len)
 {
 	int j;
@@ -535,7 +560,8 @@ static void init_dma_desc_rings(struct net_device *dev)
 
 		lp->rx_skbuff[i] = skb;
 		lp->rx_skbuff_dma[i] = dma_map_single(lp->device, skb->data,
-						      bfsize, DMA_FROM_DEVICE);
+						      lp->dma_buf_sz, 
+						      DMA_FROM_DEVICE);
 		p->des2 = lp->rx_skbuff_dma[i];
 		DBG(probe, DEBUG, "[0x%08x]\t[0x%08x]\n",
 		    (unsigned int)lp->rx_skbuff[i],
@@ -552,7 +578,8 @@ static void init_dma_desc_rings(struct net_device *dev)
 	lp->dirty_tx = lp->cur_tx = 0;
 
 	/* Clear the Rx/Tx descriptors */
-	lp->mac_type->ops->init_rx_desc(lp->dma_rx, rxsize, rx_irq_mitigation);
+	lp->mac_type->ops->init_rx_desc(lp->dma_rx, rxsize, 
+			rx_irq_mitigation);
 	lp->mac_type->ops->init_tx_desc(lp->dma_tx, txsize);
 
 	if (netif_msg_hw(lp)) {
@@ -599,7 +626,7 @@ static void dma_free_tx_skbufs(struct net_device *dev)
 		if (lp->tx_skbuff[i] != NULL) {
 			if ((lp->dma_tx + i)->des2) {
 				dma_unmap_single(lp->device, p->des2,
-						 DMA_BUFFER_SIZE,
+						lp->mac_type->ops->get_tx_len(p),
 						 DMA_TO_DEVICE);
 			}
 			dev_kfree_skb_any(lp->tx_skbuff[i]);
@@ -692,7 +719,7 @@ static __inline__ void stmmac_dma_enable_irq_rx(unsigned long ioaddr)
 	return;
 }
 
-void stmmac_dma_disable_irq_rx(unsigned long ioaddr)
+static __inline__ void stmmac_dma_disable_irq_rx(unsigned long ioaddr)
 {
 	writel(DMA_INTR_NO_RX, ioaddr + DMA_INTR_ENA);
 	return;
@@ -785,7 +812,7 @@ static void show_rx_process_state(unsigned int status)
  * @dev: net device structure
  * Description: reclaim resources after transmit completes.
  */
-static __inline__ void stmmac_tx(struct net_device *dev)
+static void stmmac_tx(struct net_device *dev)
 {
 	struct eth_driver_local *lp = netdev_priv(dev);
 	unsigned int txsize = lp->dma_tx_size;
@@ -814,7 +841,8 @@ static __inline__ void stmmac_tx(struct net_device *dev)
 		    lp->dirty_tx);
 
 		if (likely(p->des2)) {
-			dma_unmap_single(lp->device, p->des2, DMA_BUFFER_SIZE,
+			dma_unmap_single(lp->device, p->des2,
+					 lp->mac_type->ops->get_tx_len(p),
 					 DMA_TO_DEVICE);
 		}
 		if (likely(lp->tx_skbuff[entry] != NULL)) {
@@ -860,6 +888,51 @@ static __inline__ void stmmac_tx_err(struct net_device *dev)
 	spin_unlock(&lp->tx_lock);
 	return;
 }
+
+/**
+ * stmmac_schedule_rx: 
+ * @dev: net device structure
+ * Description: it schedules the reception process.
+ */
+void stmmac_schedule_rx(struct net_device *dev)
+{
+	stmmac_dma_disable_irq_rx(dev->base_addr);
+
+	if (likely(netif_rx_schedule_prep(dev))) {
+#ifdef CONFIG_STMMAC_RTC_TIMER
+		stmmac_timer_stop();
+#endif
+		__netif_rx_schedule(dev);
+	}
+
+	return;
+}
+
+#ifdef CONFIG_STMMAC_SW_TIMER
+/**
+ * stmmac_timer_handler: 
+ * @dev: net device structure
+ * Description: this is the software timer handler.
+ * It reclaims the transmit resources and schedules the reception process.
+ */
+static void stmmac_timer_handler(unsigned long data)
+{
+        struct net_device *dev = (struct net_device *)data;
+	struct eth_driver_local *lp = netdev_priv(dev);
+	unsigned long flags;
+
+	spin_lock_irqsave(&lp->lock, flags);
+
+	stmmac_tx(dev);
+	stmmac_rx(dev, lp->dma_rx_size);
+
+	mod_timer(&lp->timer, STMMAC_SW_TIMER_EXP);
+
+	spin_unlock_irqrestore(&lp->lock, flags);
+
+	return;
+}
+#endif
 
 /**
  * stmmac_dma_interrupt - Interrupt handler for the STMMAC DMA
@@ -933,19 +1006,20 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 	}
 
 	/* NORMAL interrupts */
-	if (likely(intr_status & DMA_STATUS_NIS)) {
+	if (intr_status & DMA_STATUS_NIS) {
 		DBG(intr, INFO, " CSR5[16]: DMA NORMAL IRQ: ");
-		if (likely(intr_status & DMA_STATUS_RI)) {
+		if (intr_status & DMA_STATUS_RI) {
 
 			RX_DBG("Receive irq [buf: 0x%08x]\n",
 			       readl(ioaddr + DMA_CUR_RX_BUF_ADDR));
 			lp->xstats.rx_irq_n++;
-			stmmac_dma_disable_irq_rx(ioaddr);
-			if (likely(netif_rx_schedule_prep(dev))) {
-				__netif_rx_schedule(dev);
-			}
+#ifdef STMMAC_NAPI
+			stmmac_schedule_rx(dev);
+#else
+			stmmac_rx(dev, lp->dma_rx_size);
+#endif
 		}
-		if (likely(intr_status & (DMA_STATUS_TI))) {
+		if (unlikely(intr_status & (DMA_STATUS_TI))) {
 			DBG(intr, INFO, " Transmit irq [buf: 0x%08x]\n",
 			    readl(ioaddr + DMA_CUR_TX_BUF_ADDR));
 			lp->xstats.tx_irq_n++;
@@ -988,11 +1062,11 @@ static int stmmac_enable(struct net_device *dev)
 		       __FUNCTION__, dev->irq, ret);
 		return ret;
 	}
-#ifdef CONFIG_STMMAC_TIMER
+#ifdef CONFIG_STMMAC_RTC_TIMER
 	lp->has_timer = stmmac_timer_open(dev, periodic_rate);
 	if (unlikely(lp->has_timer < 0)) {
 		printk(KERN_WARNING "stmmac: timer opt disabled\n");
-		rx_irq_mitigation = 1;	/* always interrupt on completion */
+		rx_irq_mitigation = 1;
 	}
 #endif
 
@@ -1021,7 +1095,6 @@ static int stmmac_enable(struct net_device *dev)
 
 	/* Extra statistics */
 	memset(&lp->xstats, 0, sizeof(struct stmmac_extra_stats));
-	lp->max_refill_threshold = 0;
 	lp->xstats.threshold = threshold_ctrl;
 
 	/* Estabish the tx/rx operating modes and commands */
@@ -1032,7 +1105,17 @@ static int stmmac_enable(struct net_device *dev)
 	    ETH_RESOURCE_NAME);
 	stmmac_dma_start_tx(ioaddr);
 	stmmac_dma_start_rx(ioaddr);
-#ifdef CONFIG_STMMAC_TIMER
+
+#ifdef CONFIG_STMMAC_SW_TIMER
+	/* Use a kernel timer for handling interrupts */
+	init_timer(&lp->timer);
+	lp->timer.expires = STMMAC_SW_TIMER_EXP;
+	lp->timer.data = (unsigned long)dev;
+        lp->timer.function = stmmac_timer_handler;
+        add_timer(&lp->timer);
+#endif
+
+#ifdef CONFIG_STMMAC_RTC_TIMER
 	if (likely(lp->has_timer == 0))
 		stmmac_timer_start(periodic_rate);
 #endif
@@ -1059,6 +1142,7 @@ static int stmmac_enable(struct net_device *dev)
  */
 static int stmmac_open(struct net_device *dev)
 {
+
 	/* Check that the MAC address is valid.  If its not, refuse
 	 * to bring the device up. The user must specify an
 	 * address using the following linux command:
@@ -1084,7 +1168,11 @@ static int stmmac_shutdown(struct net_device *dev)
 	phy_disconnect(lp->phydev);
 	lp->phydev = NULL;
 
-#ifdef CONFIG_STMMAC_TIMER
+#ifdef CONFIG_STMMAC_SW_TIMER
+	del_timer_sync(&lp->timer);
+#endif
+
+#ifdef CONFIG_STMMAC_RTC_TIMER
 	if (likely(lp->has_timer == 0)) {
 		stmmac_timer_stop();
 		stmmac_timer_close();
@@ -1172,7 +1260,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	hwcsum = 0;
-	if (skb->ip_summed == CHECKSUM_PARTIAL) {
+	if (likely(skb->ip_summed == CHECKSUM_PARTIAL)) {
 		if (lp->mac_type->hw.csum == NO_HW_CSUM)
 			stmmac_tx_checksum(skb);
 		else
@@ -1182,17 +1270,18 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	/* Get the amount of non-paged data (skb->data). */
 	nopaged_len = skb_headlen(skb);
 #ifdef STMMAC_XMIT_DEBUG
-	if (nfrags > 0)
+	if (nfrags > 0) {
 		printk("stmmac xmit: len: %d, nopaged_len: %d n_frags: %d\n",
 		       skb->len, nopaged_len, nfrags);
+	}
 #endif
 
 	/* Handle non-paged data (skb->data) */
-	lp->mac_type->ops->prepare_tx_desc((p + entry), 1, nopaged_len, hwcsum);
-	lp->tx_skbuff[entry] = skb;
 	p[entry].des2 = dma_map_single(lp->device, skb->data,
-				       STMMAC_ALIGN(nopaged_len),
-				       DMA_TO_DEVICE);
+				       nopaged_len, DMA_TO_DEVICE);
+	lp->tx_skbuff[entry] = skb;
+	lp->mac_type->ops->prepare_tx_desc((p + entry), 1, nopaged_len, hwcsum);
+
 	/* Handle paged fragments */
 	for (i = 0; i < nfrags; i++) {
 		skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
@@ -1204,24 +1293,28 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 #ifdef STMMAC_XMIT_DEBUG
 		printk("\t[entry %d] segment len: %d\n", entry, len);
 #endif
-		lp->mac_type->ops->prepare_tx_desc((p + entry), 0, len, hwcsum);
-		lp->mac_type->ops->set_tx_owner(p + entry);
 		p[entry].des2 = dma_map_page(lp->device, frag->page,
 					     frag->page_offset,
-					     lp->dma_buf_sz, DMA_TO_DEVICE);
+					     len, DMA_TO_DEVICE);
 		lp->tx_skbuff[entry] = NULL;
+		lp->mac_type->ops->prepare_tx_desc((p + entry), 0, len, hwcsum);
+		lp->mac_type->ops->set_tx_owner(p + entry);
 	}
 
 	/* If there are more than one fragment, we set the interrupt
 	 * on completition bit in the latest segment. */
 	lp->mac_type->ops->set_tx_owner(p + first);	/* to avoid raise condition */
 	lp->mac_type->ops->set_tx_ls(p + entry);
+
+#ifndef CONFIG_STMMAC_SW_TIMER
 	lp->mac_type->ops->set_tx_ic(p + entry, 1);
+#endif
 
 	lp->cur_tx++;
 
 #ifdef STMMAC_XMIT_DEBUG
 	if (netif_msg_pktdata(lp)) {
+	{
 		printk("stmmac xmit: current=%d, dirty=%d, entry=%d, "
 		       "first=%d, nfrags=%d\n",
 		       (lp->cur_tx % txsize), (lp->dirty_tx % txsize), entry,
@@ -1231,11 +1324,12 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		print_pkt(skb->data, skb->len);
 	}
 #endif
-
 	if (TX_BUFFS_AVAIL(lp) <= (MAX_SKB_FRAGS + 1) ||
 	    (!(lp->mac_type->hw.link.duplex) && hwcsum)) {
 		netif_stop_queue(dev);
-	} else {
+	}
+#ifndef CONFIG_STMMAC_SW_TIMER
+	else {
 		/* Aggregation of Tx interrupts */
 		if (lp->tx_aggregation <= tx_aggregation) {
 			lp->tx_aggregation++;
@@ -1244,6 +1338,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 			lp->tx_aggregation = 0;
 		}
 	}
+#endif
 
 	lp->stats.tx_bytes += skb->len;
 	lp->xstats.tx_bytes += skb->len;
@@ -1302,7 +1397,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 	for (count = 0; count < limit; ++count) {
 		dma_desc *p = lp->dma_rx + entry;
 
-		if (lp->mac_type->ops->read_tx_owner(p))
+		if (lp->mac_type->ops->read_rx_owner(p))
 			break;
 		/* read the status of the incoming frame */
 		if (unlikely((lp->mac_type->ops->rx_status(&lp->stats,
@@ -1378,7 +1473,11 @@ static int stmmac_rx(struct net_device *dev, int limit)
 				skb->ip_summed = CHECKSUM_NONE;
 			else
 				skb->ip_summed = CHECKSUM_UNNECESSARY;
+#ifdef STMMAC_NAPI
 			netif_receive_skb(skb);
+#else
+			netif_rx(skb);
+#endif
 
 			lp->stats.rx_packets++;
 			lp->stats.rx_bytes += frame_len;
@@ -1389,16 +1488,12 @@ static int stmmac_rx(struct net_device *dev, int limit)
 		p = lp->dma_rx + entry;
 	}
 
-	lp->max_refill_threshold += count;
-	if (lp->max_refill_threshold >= (rxsize / 2)) {
-		RX_DBG("\t Rx Fill threshold: %d\n", lp->max_refill_threshold);
-		lp->max_refill_threshold = 0;
-		stmmac_rx_refill(dev);
-	}
+	stmmac_rx_refill(dev);
 
 	return count;
 }
 
+#ifdef STMMAC_NAPI
 /**
  *  stmmac_poll - stmmac poll method (NAPI)
  *  @dev : pointer to the netdev structure.
@@ -1412,7 +1507,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 static int stmmac_poll(struct net_device *dev, int *budget)
 {
 	int work_done;
-#ifdef CONFIG_STMMAC_TIMER
+#ifdef CONFIG_STMMAC_RTC_TIMER
 	struct eth_driver_local *lp = netdev_priv(dev);
 #endif
 
@@ -1424,7 +1519,7 @@ static int stmmac_poll(struct net_device *dev, int *budget)
 		RX_DBG(">>> rx work completed.\n");
 		__netif_rx_complete(dev);
 		stmmac_dma_enable_irq_rx(dev->base_addr);
-#ifdef CONFIG_STMMAC_TIMER
+#ifdef CONFIG_STMMAC_RTC_TIMER
 		if (likely(lp->has_timer == 0))
 			stmmac_timer_start(periodic_rate);
 #endif
@@ -1432,6 +1527,7 @@ static int stmmac_poll(struct net_device *dev, int *budget)
 	}
 	return 1;
 }
+#endif
 
 /**
  *  stmmac_tx_timeout
@@ -1555,12 +1651,18 @@ static int stmmac_change_mtu(struct net_device *dev, int new_mtu)
 static irqreturn_t stmmac_interrupt(int irq, void *dev_id)
 {
 	struct net_device *dev = (struct net_device *)dev_id;
+	struct eth_driver_local *lp = netdev_priv(dev);
 
 	if (unlikely(!dev)) {
 		printk(KERN_ERR "%s: invalid dev pointer\n", __FUNCTION__);
 		return IRQ_NONE;
 	}
 
+	if (lp->is_gmac) {
+		unsigned long ioaddr = dev->base_addr;
+		/* To handle GMAC own interrupts */
+		lp->mac_type->ops->host_irq_status(ioaddr);
+	}
 	stmmac_dma_interrupt(dev);
 
 	return IRQ_HANDLED;
@@ -1666,20 +1768,22 @@ static int stmmac_probe(struct net_device *dev)
 
 	lp->msg_enable = netif_msg_init(debug, default_msg_level);
 
-	if (lp->is_gmac)
+	if (lp->is_gmac){
 		lp->rx_csum = 1;
+	}
 
 	/* Just to keep aligned values. */
 	lp->dma_tx_size = STMMAC_ALIGN(dma_tx_size_param);
 	lp->dma_rx_size = STMMAC_ALIGN(dma_rx_size_param);
-	lp->dma_buf_sz = STMMAC_ALIGN(DMA_BUFFER_SIZE);
+	lp->dma_buf_sz = lp->mac_type->hw.buf_size;
 
 	if (flow_ctrl)
 		lp->flow_ctrl = FLOW_AUTO;	/* RX/TX pause on */
 
 	lp->pause = pause;
-
+#ifdef STMMAC_NAPI
 	dev->poll = stmmac_poll;
+#endif
 	dev->weight = lp->dma_rx_size;
 
 	/* Get the MAC address */
@@ -2087,7 +2191,11 @@ static int __init stmmac_cmdline_opt(char *str)
 			tx_aggregation = simple_strtoul(opt + 6, NULL, 0);
 		} else if (!strncmp(opt, "rxmit:", 6)) {
 			rx_irq_mitigation = simple_strtoul(opt + 6, NULL, 0);
-#ifdef CONFIG_STMMAC_TIMER
+#ifdef CONFIG_STMMAC_SW_TIMER
+		} else if (!strncmp(opt, "expire:", 7)) {
+			sw_timer_msec = simple_strtoul(opt + 7, NULL, 0);
+#endif
+#ifdef CONFIG_STMMAC_RTC_TIMER
 		} else if (!strncmp(opt, "period:", 7)) {
 			periodic_rate = simple_strtoul(opt + 7, NULL, 0);
 #endif

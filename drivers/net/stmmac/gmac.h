@@ -16,11 +16,22 @@
 /* GMAC ID */
 #define GMAC_VERSION	0x00000020	/* GMAC CORE Version */
 #define GMAC_INT_STATUS	0x00000038	/* interrupt status register */
-#define GMAC_INT_MASK	0x0000003c	/* interrupt status register */
+enum gmac_irq_status{
+        time_stamp_irq = 0x0200,
+        mmc_rx_csum_offload_irq = 0x0080,
+        mmc_tx_irq = 0x0040,
+        mmc_rx_irq= 0x0020,
+        mmc_irq= 0x0010,
+        pmt_irq= 0x0008,
+        pcs_ane_irq= 0x0004,
+        pcs_link_irq= 0x0002,
+        rgmii_irq= 0x0001,
+};
+#define GMAC_INT_MASK	0x0000003c	/* interrupt mask register */
 
 #define GMAC_WAKEUP_FILTER       0x00000028      /* Wake-up Frame Filter */
 
-/* PMT Control and Statu */
+/* PMT Control and Status */
 #define GMAC_PMT                 0x0000002c
 enum power_event{
 	pointer_reset  = 0x80000000,
@@ -172,8 +183,19 @@ enum rtc_control {
 
 #define DMA_CONTROL_OSF	0x00000004	/* operate on second frame */
 
+/* MMC registers offset */
+#define GMAC_MMC_CTRL      0x100
+#define GMAC_MMC_RX_INTR   0x104
+#define GMAC_MMC_TX_INTR   0x108
+#define GMAC_MMC_RX_CSUM_OFFLOAD   0x208
+
 /* Transmit COE type 2 cannot be done in cut-through mode */
 #undef GMAC_TX_STORE_AND_FORWARD
 #define GMAC_TX_STORE_AND_FORWARD
 #undef GMAC_RX_STORE_AND_FORWARD
 /*#define GMAC_RX_STORE_AND_FORWARD*/
+
+#define STBUS_BRIDGE_OFFSET	0x00007000
+#define STBUS_BRIDGE_MAGIC	0x25C608 /* from validation */
+
+#define DMA_BUFFER_SIZE	8192 /* To support Jumbo */

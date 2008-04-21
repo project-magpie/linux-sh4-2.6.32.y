@@ -1,7 +1,9 @@
 /* 
  * drivers/net/stmmac/stmmac_timer.c
  *
- * Timer-driver-interrupt optimization
+ * Real time clock device generates an interrupt at regular 
+ * intervals in order to notify the Ethernet driver about frame
+ * receptions.
  *
  * Copyright (C) 2007 by STMicroelectronics
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
@@ -15,7 +17,7 @@
 struct rtc_device *stmmac_rtc;
 rtc_task_t stmmac_task;
 
-extern void stmmac_dma_disable_irq_rx(unsigned long ioaddr);
+extern void stmmac_schedule_rx(struct net_device *dev);
 
 int stmmac_timer_close(void)
 {
@@ -37,18 +39,14 @@ int stmmac_timer_stop(void)
 }
 
 /*
- * Use periodic interrupt for scheduling the reception process
+ * Use periodic interrupt for handling the reception process
  */
 static void stmmac_rtc_handler(void *priv)
 {
 	struct net_device *dev = (struct net_device *)priv;
-	unsigned long ioaddr = dev->base_addr;
 
-	if (likely(netif_rx_schedule_prep(dev))) {
-		stmmac_timer_stop();
-		stmmac_dma_disable_irq_rx(ioaddr);
-		__netif_rx_schedule(dev);
-	}
+	stmmac_schedule_rx(dev);
+
 	return;
 }
 

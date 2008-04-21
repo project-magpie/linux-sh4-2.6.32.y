@@ -1,6 +1,6 @@
 #define ETH_RESOURCE_NAME	"stmmaceth"
 #define PHY_RESOURCE_NAME	"stmmacphy"
-#define DRV_MODULE_VERSION	"March_08"
+#define DRV_MODULE_VERSION	"April_08"
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
 #define STMMAC_VLAN_TAG_USED
@@ -56,6 +56,6 @@ struct eth_driver_local {
 	int wolopts;
 	int wolenabled;
 	int tx_aggregation;
-	int max_refill_threshold;
 	int has_timer;
+	struct timer_list timer;
 };

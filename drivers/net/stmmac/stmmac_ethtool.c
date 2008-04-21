@@ -234,7 +234,7 @@ static struct {
 	"tx_payload_error"}, {
 	"tx_ip_header_error"}, {
 	"rx_missed_cntr"}, {
-"rx_overflow_cntr"},};
+	"rx_overflow_cntr"},};
 
 static int stmmac_stats_count(struct net_device *dev)
 {

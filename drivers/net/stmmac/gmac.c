@@ -40,12 +40,13 @@ static void gmac_dump_regs(unsigned long ioaddr)
 	       (unsigned int)ioaddr);
 
 	for (i = 0; i < 55; i++) {
-		if ((i < 12) || (i > 15)) {
-			int offset = i * 4;
-			printk("\tReg No. %d (offset 0x%x): 0x%08x\n", i,
-			       offset, readl(ioaddr + offset));
-		}
+		int offset = i * 4;
+		printk("\tReg No. %d (offset 0x%x): 0x%08x\n", i,
+		       offset, readl(ioaddr + offset));
 	}
+	printk("\tSTBus brigde: reg: 0x%x, 0x%08x\n",
+		(unsigned int)(ioaddr + STBUS_BRIDGE_OFFSET),
+		readl(ioaddr + STBUS_BRIDGE_OFFSET));
 	return;
 }
 
@@ -61,8 +62,9 @@ static int gmac_dma_init(unsigned long ioaddr, int pbl, u32 dma_tx, u32 dma_rx)
 	}
 
 	/* Enable Application Access by writing to DMA CSR0 */
-	value = DMA_BUS_MODE_4PBL | ((pbl << DMA_BUS_MODE_PBL_SHIFT) |
-				     (pbl << DMA_BUS_MODE_RPBL_SHIFT));
+	value = /* DMA_BUS_MODE_FB | */DMA_BUS_MODE_4PBL |
+		((pbl << DMA_BUS_MODE_PBL_SHIFT) |
+		(pbl << DMA_BUS_MODE_RPBL_SHIFT));
 
 #ifdef CONFIG_STMMAC_DA
 	value |= DMA_BUS_MODE_DA;	/* Rx has priority over tx */
@@ -230,6 +232,11 @@ static int gmac_get_tx_frame_status(void *data, struct stmmac_extra_stats *x,
 	return (ret);
 }
 
+static int gmac_get_tx_len(dma_desc * p)
+{
+	return (p->des01.etx.buffer1_size);
+}
+
 static int gmac_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 				    dma_desc * p)
 {
@@ -285,6 +292,38 @@ static int gmac_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 	return (ret);
 }
 
+/* It is necessary to handle other events (e.g.  power management interrupt) */
+static void gmac_irq_status(unsigned long ioaddr)
+{
+	unsigned int intr_status;
+
+        intr_status = (unsigned int)readl(ioaddr + GMAC_INT_STATUS);
+
+	/* Do not handle all the events, e.g. MMC interrupts 
+         * (not used by default). Indeed, to "clear" these events 
+	 * we should read the register that generated the interrupt.
+	 */
+	if ((intr_status & mmc_tx_irq)) {
+		printk("GMAC: MMC tx interrupt: 0x%08x\n",
+			readl(ioaddr + GMAC_MMC_TX_INTR));
+	}
+	if (unlikely(intr_status & mmc_rx_irq)) {
+		printk("GMAC: MMC rx interrupt: 0x%08x\n",
+			readl(ioaddr + GMAC_MMC_RX_INTR));
+	}
+	if (unlikely(intr_status & mmc_rx_csum_offload_irq))
+		printk("GMAC: MMC rx csum offload: 0x%08x\n",
+			readl(ioaddr + GMAC_MMC_RX_CSUM_OFFLOAD));
+	if (unlikely(intr_status & pmt_irq)){
+		printk(KERN_DEBUG "GMAC: received Magic frame\n");
+		/* clear the PMT bits 5 and 6 by reading the PMT
+		 * status register. */
+		readl(ioaddr + GMAC_PMT);
+	}
+
+	return;
+}
+
 static int gmac_rx_checksum(dma_desc * p)
 {
 	int ret = 0;
@@ -314,6 +353,12 @@ static void gmac_core_init(unsigned long ioaddr)
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
 	writel(ETH_P_8021Q, ioaddr + GMAC_VLAN);
 #endif
+	/* STBus Bridge Configuration */
+	writel(STBUS_BRIDGE_MAGIC, ioaddr + STBUS_BRIDGE_OFFSET);
+	/* Freeze MMC counters */
+	writel(0x8, ioaddr + GMAC_MMC_CTRL);
+	/* Mask GMAC interrupts */
+	writel(0x207, ioaddr + GMAC_INT_MASK);
 
 	return;
 }
@@ -395,8 +440,10 @@ static void gmac_pmt(unsigned long ioaddr, unsigned long mode)
 	unsigned int pmt = power_down;
 
 	if (mode == WAKE_MAGIC) {
+		DBG(KERN_DEBUG "GMAC: WOL Magic frame\n");
 		pmt |= magic_pkt_en;
 	} else if (mode == WAKE_UCAST) {
+		DBG(KERN_DEBUG "GMAC: WOL on global unicast\n");
 		pmt |= global_unicast;
 	}
 
@@ -503,6 +550,7 @@ struct device_ops gmac_driver = {
 	.dma_diagnostic_fr = gmac_dma_diagnostic_fr,
 	.tx_status = gmac_get_tx_frame_status,
 	.rx_status = gmac_get_rx_frame_status,
+	.get_tx_len = gmac_get_tx_len,
 	.rx_checksum = gmac_rx_checksum,
 	.set_filter = gmac_set_filter,
 	.flow_ctrl = gmac_flow_ctrl,
@@ -519,6 +567,7 @@ struct device_ops gmac_driver = {
 	.set_tx_owner = gmac_set_tx_owner,
 	.set_rx_owner = gmac_set_rx_owner,
 	.get_rx_frame_len = gmac_get_rx_frame_len,
+	.host_irq_status = gmac_irq_status,
 };
 
 struct device_info_t *gmac_setup(unsigned long ioaddr)
@@ -540,6 +589,7 @@ struct device_info_t *gmac_setup(unsigned long ioaddr)
 #else
 	mac->hw.csum = NO_HW_CSUM;
 #endif
+	mac->hw.buf_size = DMA_BUFFER_SIZE;
 	mac->hw.addr_high = GMAC_ADDR_HIGH;
 	mac->hw.addr_low = GMAC_ADDR_LOW;
 	mac->hw.link.port = GMAC_CONTROL_PS;

@@ -80,8 +80,6 @@
 #define DMA_STATUS_TPS	0x00000002	/* Transmit Process Stopped */
 #define DMA_STATUS_TI	0x00000001	/* Transmit Interrupt */
 
-#define DMA_BUFFER_SIZE	2048
-
 /* Other defines */
 #define HASH_TABLE_SIZE 64
 #define PAUSE_TIME 0x200
@@ -188,12 +186,14 @@ struct device_ops {
 			  dma_desc * p, unsigned long ioaddr);
 	int (*rx_status) (void *data, struct stmmac_extra_stats * x,
 			  dma_desc * p);
+	int (*get_tx_len) (dma_desc * p); /* Get the frm len */
 	void (*tx_checksum) (struct sk_buff * skb, dma_desc * p);
 	int (*rx_checksum) (dma_desc * p);
 	void (*set_filter) (struct net_device * dev);
 	void (*flow_ctrl) (unsigned long ioaddr, unsigned int duplex,
 			   unsigned int fc, unsigned int pause_time);
 	void (*pmt) (unsigned long ioaddr, unsigned long mode);
+	void (*host_irq_status) (unsigned long ioaddr);
 };
 
 struct mac_link_t {
@@ -207,17 +207,18 @@ struct mii_regs_t {
 	unsigned int data;	/* MII Data */
 };
 
-struct mac_regs_t {
+struct hw_cap_t {
 	unsigned int addr_high;	/* Multicast Hash Table High */
 	unsigned int addr_low;	/* Multicast Hash Table Low */
 	unsigned int version;	/* Core Version register (GMAC) */
 	unsigned int pmt;	/* Power-Down mode (GMAC) */
 	unsigned int csum;	/* Checksum Offload */
+	unsigned int buf_size;	/* Buffer size */
 	struct mac_link_t link;
 	struct mii_regs_t mii;
 };
 
 struct device_info_t {
-	struct mac_regs_t hw;
+	struct hw_cap_t hw;
 	struct device_ops *ops;
 };

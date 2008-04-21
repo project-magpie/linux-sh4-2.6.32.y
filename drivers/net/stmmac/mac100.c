@@ -2,7 +2,7 @@
  * drivers/net/stmmac/mac100.c
  *
  * This is a driver for the MAC 10/100 on-chip
- * Ethernet controller currently present on STb7109.
+ * Ethernet controller currently present on STb7109 and 7200 SoCs.
  *
  * Copyright (C) 2007 by STMicroelectronics
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
@@ -23,11 +23,16 @@
 #include "common.h"
 #include "mac100.h"
 
+#undef MAC100_DEBUG
+/*#define MAC100_DEBUG*/
+#ifdef MAC100_DEBUG
+#define DBG(fmt,args...)  printk(fmt, ## args)
+#else
+#define DBG(fmt, args...)  do { } while(0)
+#endif
 static void mac100_core_init(unsigned long ioaddr)
 {
 	unsigned int value = 0;
-
-	printk(KERN_DEBUG "mac100_core_init");
 
 	/* Set the MAC control register with our default value */
 	value = (unsigned int)readl(ioaddr + MAC_CONTROL);
@@ -82,8 +87,6 @@ static int mac100_dma_init(unsigned long ioaddr, int pbl, u32 dma_tx,
 {
 	unsigned int value;
 
-	printk(KERN_DEBUG "GMAC: DMA Core setup\n");
-
 	/* DMA SW reset */
 	value = (unsigned int)readl(ioaddr + DMA_BUS_MODE);
 	value |= DMA_BUS_MODE_SFT_RESET;
@@ -129,15 +132,15 @@ static void mac100_dump_dma_regs(unsigned long ioaddr)
 {
 	int i;
 
-	printk(KERN_DEBUG "MAC100 DMA CSR \n");
+	DBG(KERN_DEBUG "MAC100 DMA CSR \n");
 	for (i = 0; i < 9; i++) {
 		printk(KERN_DEBUG "\t CSR%d (offset 0x%x): 0x%08x\n", i,
 		       (DMA_BUS_MODE + i * 4),
 		       readl(ioaddr + DMA_BUS_MODE + i * 4));
 	}
-	printk(KERN_DEBUG "\t CSR20 (offset 0x%x): 0x%08x\n",
+	DBG(KERN_DEBUG "\t CSR20 (offset 0x%x): 0x%08x\n",
 	       DMA_CUR_TX_BUF_ADDR, readl(ioaddr + DMA_CUR_TX_BUF_ADDR));
-	printk(KERN_DEBUG "\t CSR21 (offset 0x%x): 0x%08x\n",
+	DBG(KERN_DEBUG "\t CSR21 (offset 0x%x): 0x%08x\n",
 	       DMA_CUR_RX_BUF_ADDR, readl(ioaddr + DMA_CUR_RX_BUF_ADDR));
 	return;
 }
@@ -214,6 +217,12 @@ static int mac100_get_tx_frame_status(void *data, struct stmmac_extra_stats *x,
 	return (ret);
 }
 
+static int mac100_get_tx_len(dma_desc * p)
+{
+	return (p->des01.tx.buffer1_size);
+}
+
+
 /* This function verifies if the incoming frame has some errors 
  * and, if required, updates the multicast statistics. */
 static int mac100_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
@@ -266,9 +275,14 @@ static int mac100_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 	if (p->des01.rx.multicast_frame) {
 		x->rx_multicast++;
 		stats->multicast++;
-		/*no error!*/
+		/* no error! */
 	}
 	return (ret);
+}
+
+static void mac100_irq_status(unsigned long ioaddr)
+{
+	return;
 }
 
 static int mac100_rx_checksum(dma_desc * p)
@@ -324,7 +338,7 @@ static void mac100_set_filter(struct net_device *dev)
 
 	writel(value, ioaddr + MAC_CONTROL);
 
-	printk(KERN_DEBUG "%s: CTRL reg: 0x%08x Hash regs: "
+	DBG(KERN_INFO "%s: CTRL reg: 0x%08x Hash regs: "
 	       "HI 0x%08x, LO 0x%08x\n",
 	       __FUNCTION__, readl(ioaddr + MAC_CONTROL),
 	       readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
@@ -446,6 +460,7 @@ struct device_ops mac100_driver = {
 	.dma_diagnostic_fr = mac100_dma_diagnostic_fr,
 	.tx_status = mac100_get_tx_frame_status,
 	.rx_status = mac100_get_rx_frame_status,
+	.get_tx_len = mac100_get_tx_len,
 	.rx_checksum = mac100_rx_checksum,
 	.set_filter = mac100_set_filter,
 	.flow_ctrl = mac100_flow_ctrl,
@@ -462,6 +477,7 @@ struct device_ops mac100_driver = {
 	.set_tx_owner = mac100_set_tx_owner,
 	.set_rx_owner = mac100_set_rx_owner,
 	.get_rx_frame_len = mac100_get_rx_frame_len,
+	.host_irq_status = mac100_irq_status,
 };
 
 struct device_info_t *mac100_setup(unsigned long ioaddr)
@@ -475,6 +491,7 @@ struct device_info_t *mac100_setup(unsigned long ioaddr)
 
 	mac->ops = &mac100_driver;
 	mac->hw.pmt = PMT_NOT_SUPPORTED;
+	mac->hw.buf_size = DMA_BUFFER_SIZE;
 	mac->hw.csum = NO_HW_CSUM;
 	mac->hw.addr_high = MAC_ADDR_HIGH;
 	mac->hw.addr_low = MAC_ADDR_LOW;

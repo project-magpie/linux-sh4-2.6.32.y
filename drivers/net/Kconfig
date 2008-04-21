@@ -2516,13 +2516,36 @@ config STMMAC_DA
 	  (rx:tx priority is 1:1).
 
 config STMMAC_TIMER
-	depends on STMMAC_ETH && RTC_CLASS && EXPERIMENTAL
+	depends on STMMAC_ETH
 	bool "STMMAC Timer optimization (EXPERIMENTAL)"
 	default n
+	---help---
+		Timers-Driven Interrupts.
+
+choice
+        prompt "Select timer optimization"
+        depends on STMMAC_ETH && STMMAC_TIMER
+        default no
+	---help---
+
+config STMMAC_RTC_TIMER
+        bool "Real time clock to handle the reception"
+        depends on STMMAC_TIMER && RTC_CLASS && EXPERIMENTAL
 	---help---
 	  Real time clock device generates an interrupt at regular 
 	  intervals in order to notify the Ethernet driver about frame 
 	  receptions.
+
+config STMMAC_SW_TIMER
+        bool "Kernel timers to handle tx/rx processes"
+        depends on STMMAC_TIMER
+	---help---
+	   Kernel timer is used for handling both the transmission
+	   and the reception processes. This optimization can be 
+	   used for incrementing performance and saving the CPU
+	   utilization.
+
+endchoice
 
 endif # NETDEV_1000
 

@@ -73,6 +73,20 @@
 #define PLATFORM_CSBASE		(0x02800000UL)
 #define PLATFORM_IRQ		(MUXED_IRQ_BASE+4)
 #endif
+#elif defined(CONFIG_SH_ST_MB618)
+#include <asm/irq-ilc.h>
+/* db641 STEM card plugged into mb618 */
+#ifdef DB641_USE_PORT0
+/* STEM CS0 = BANK1 (notCSB). This assumes J30-B is in the 4-5 position */
+/* Note R100 needs to be fitted */
+#define PLATFORM_CSBASE		(0x02000000UL)
+#define PLATFORM_IRQ		ILC_EXT_IRQ(2)
+#else
+/* STEM CS1 = BANK3 (notCSD). This assumes J11 is in the 1-2 position. */
+/* Note R109 needs to be fitted */
+#define PLATFORM_CSBASE		(0x02800000UL)
+#define PLATFORM_IRQ		ILC_EXT_IRQ(1)
+#endif
 #elif defined(CONFIG_SH_HMS1)
 /* SD HMS1 with in-built SMSC 911x */
 #undef PLATFORM_IRQ_POL

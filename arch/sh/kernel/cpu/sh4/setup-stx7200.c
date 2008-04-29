@@ -1263,7 +1263,7 @@ void __init plat_irq_setup(void)
 	}
 
 	ilc_early_init(&ilc3_device);
-	ilc_stx7200_init();
+	ilc_demux_init();
 }
 
 #define INTC_ICR	0xffd00000UL

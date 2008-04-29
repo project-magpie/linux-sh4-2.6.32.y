@@ -79,7 +79,11 @@ static struct pr_mask priority_mask[16];
  */
 void ilc_irq_demux(unsigned int irq, struct irq_desc *desc)
 {
+#if	defined(CONFIG_CPU_SUBTYPE_STX7111)
+	const unsigned int priority = 7;
+#elif	defined(CONFIG_CPU_SUBTYPE_STX7200)
 	unsigned int priority = 14 - irq;
+#endif
 	unsigned int irq_offset;
 	int handled = 0;
 	int idx;
@@ -128,14 +132,25 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 		_BIT(irq_offset);
 	spin_unlock_irqrestore(&ilc_data_lock, flags);
 
+#if	defined(CONFIG_CPU_SUBTYPE_STX7111)
+	/* ILC_EXT_OUT[4] -> IRL[0] (default priority 13 = irq  2) */
+	/* ILC_EXT_OUT[5] -> IRL[1] (default priority 10 = irq  5) */
+	/* ILC_EXT_OUT[6] -> IRL[2] (default priority  7 = irq  8) */
+	/* ILC_EXT_OUT[7] -> IRL[3] (default priority  4 = irq 11) */
+	ILC_SET_PRI(irq_offset, 0x8007);
+#elif	defined(CONFIG_CPU_SUBTYPE_STX7200)
 	ILC_SET_PRI(irq_offset, priority);
+#endif
+
 	ILC_SET_TRIGMODE(irq_offset, ILC_TRIGGERMODE_HIGH);
 
+#if CONFIG_CPU_SUBTYPE_STX7200
 	/* Gross hack for external Ethernet PHYs which are active low */
 	/* FIXME: Move this into the BSP code */
 	if ((irq_offset == 93)  ||  (irq_offset == 95)) {
 		ILC_SET_TRIGMODE(irq_offset, ILC_TRIGGERMODE_LOW);
 	}
+#endif
 
 	ILC_SET_ENABLE(irq_offset);
 
@@ -190,7 +205,7 @@ DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
 }
 
 static struct irq_chip ilc_chip = {
-	.name		= "ILC3-IRQ",
+	.name		= "ILC3",
 	.startup	= startup_ilc_irq,
 	.shutdown	= shutdown_ilc_irq,
 	.mask		= disable_ilc_irq,
@@ -198,11 +213,11 @@ static struct irq_chip ilc_chip = {
 	.unmask		= enable_ilc_irq,
 };
 
-void __init ilc_stx7200_init(void)
+void __init ilc_demux_init(void)
 {
 	int irq;
 
-	DPRINTK("STx7200: Initialising ILC\n");
+	DPRINTK("Initialising ILC demux\n");
 
 	for (irq = ILC_FIRST_IRQ; irq < (ILC_FIRST_IRQ+ILC_NR_IRQS); irq++)
 		/* SIM: Should we do the masking etc in ilc_irq_demux and

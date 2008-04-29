@@ -24,6 +24,7 @@
 #include <linux/stm/fdma-reqs.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
+#include <asm/irl.h>
 #include <asm/irq-ilc.h>
 
 static struct sysconf_field *sc7_3;
@@ -747,8 +748,8 @@ static struct platform_device ilc3_device = {
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
 		{
-			.start	= 0xfd804000,
-			.end	= 0xfd804000 + 0x900,
+			.start	= 0xfd000000,
+			.end	= 0xfd000000 + 0x900,
 			.flags	= IORESOURCE_MEM
 		}
 	},
@@ -946,21 +947,17 @@ static struct intc_mask_reg mask_registers[] = {
 static DECLARE_INTC_DESC(intc_desc, "stx7111", vectors, groups,
 			 priorities, mask_registers, prio_registers, NULL);
 
-static struct intc_vect vectors_irlm[] = {
-	INTC_VECT(IRL0, 0x240), INTC_VECT(IRL1, 0x2a0),
-	INTC_VECT(IRL2, 0x300), INTC_VECT(IRL3, 0x360),
-};
-
-static DECLARE_INTC_DESC(intc_desc_irlm, "stx7111_irlm", vectors_irlm, NULL,
-			 priorities, NULL, prio_registers, NULL);
+#define INTC_ICR	0xffd00000UL
+#define INTC_ICR_IRLM   (1<<7)
 
 void __init plat_irq_setup(void)
 {
 	struct sysconf_field *sc;
 	unsigned long intc2_base = (unsigned long)ioremap(0xfe001000, 0x400);
 	int i;
-
-	ilc_early_init(&ilc3_device);
+	static const int irl_irqs[4] = {
+		IRL0_IRQ, IRL1_IRQ, IRL2_IRQ, IRL3_IRQ
+	};
 
 	for (i=4; i<=6; i++)
 		prio_registers[i].set_reg += intc2_base;
@@ -969,24 +966,25 @@ void __init plat_irq_setup(void)
 		mask_registers[i].clr_reg += intc2_base;
 	}
 
+	register_intc_controller(&intc_desc);
+
 	/* Configure the external interrupt pins as inputs */
 	sc = sysconf_claim(SYS_CFG, 10, 0, 3, "irq");
 	sysconf_write(sc, 0xf);
 
-	register_intc_controller(&intc_desc);
-}
+	/* Disable encoded interrupts */
+	ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
 
-#define INTC_ICR	0xffd00000UL
-#define INTC_ICR_IRLM   (1<<7)
+	/* Don't change the default priority assignments, so we get a
+	 * range of priorities for the ILC3 interrupts by picking the
+	 * correct output. */
 
-void __init plat_irq_setup_pins(int mode)
-{
-	switch (mode) {
-	case IRQ_MODE_IRQ: /* individual interrupt mode for IRL3-0 */
-		register_intc_controller(&intc_desc_irlm);
-		ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
-		break;
-	default:
-		BUG();
+	for (i=0; i<4; i++) {
+		int irq = irl_irqs[i];
+		set_irq_chip(irq, &dummy_irq_chip);
+		set_irq_chained_handler(irq, ilc_irq_demux);
 	}
+
+	ilc_early_init(&ilc3_device);
+	ilc_demux_init();
 }

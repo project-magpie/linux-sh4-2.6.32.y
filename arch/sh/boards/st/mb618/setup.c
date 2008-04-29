@@ -360,6 +360,21 @@ static void __init mb618_init_irq(void)
 	case 5:
 		/* We need to control the PHY reset in software */
 		phy_private_data.phy_reset = &mb618_phy_reset05;
+
+		/* Quick hack to test STEM Ethernet card */
+
+		/* The version 05 EPLD contains the harp style encoded
+		 * interrupt controller, which as usual gives us problems.
+		 * Enable the STEM INTR0 signal, and ignore the others.
+		 * This results in SYSITRQ[3..0] = 0100 when active,
+		 * SYSITRQ[3..0] = 0100 when inactive, so we can treat
+		 * SYSITRQ[2] as an active high interrupt pin.
+		 */
+		epld_write(1<<4, 8);
+		ctrl_outl(0x041086f1, 0xfe700000+0x140+0);
+		ctrl_outl(0x93110000, 0xfe700000+0x140+8);
+		ctrl_outl(0x91110000, 0xfe700000+0x140+0x10);
+
 		break;
 	}
 }

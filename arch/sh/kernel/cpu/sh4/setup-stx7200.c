@@ -1119,7 +1119,8 @@ void __init stx7200_early_device_init(void)
 	/* Initialise PIO and sysconf drivers */
 
 	sysconf_early_init(&sysconf_device);
-	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices));
+	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices),
+		ILC_FIRST_IRQ+ILC_NR_IRQS);
 
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);

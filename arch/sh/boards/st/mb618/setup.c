@@ -20,6 +20,8 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/phy.h>
+#include <linux/gpio_keys.h>
+#include <linux/input.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <asm/io.h>
@@ -69,6 +71,43 @@ static struct platform_device mb618_leds = {
 			},
 		},
 	},
+};
+
+static struct gpio_keys_button mb618_buttons[] = {
+	{
+		.code = BTN_0,
+		.gpio = stpio_to_gpio(6, 2),
+		.desc = "SW2",
+	},
+	{
+		.code = BTN_1,
+		.gpio = stpio_to_gpio(6, 3),
+		.desc = "SW3",
+	},
+	{
+		.code = BTN_2,
+		.gpio = stpio_to_gpio(6, 4),
+		.desc = "SW4",
+	},
+	{
+		.code = BTN_3,
+		.gpio = stpio_to_gpio(6, 5),
+		.desc = "SW5",
+	},
+};
+
+static struct gpio_keys_platform_data mb618_button_data = {
+	.buttons = mb618_buttons,
+	.nbuttons = ARRAY_SIZE(mb618_buttons),
+};
+
+static struct platform_device mb618_button_device = {
+	.name = "gpio-keys",
+	.id = -1,
+	.num_resources = 0,
+	.dev = {
+		.platform_data = &mb618_button_data,
+	}
 };
 
 /* J34 must be in the 2-3 position to enable NOR Flash */
@@ -211,6 +250,7 @@ static struct platform_device *mb618_devices[] __initdata = {
 	&physmap_flash,
 #endif
 	&mb618_phy_device,
+	&mb618_button_device,
 };
 
 static int __init device_init(void)

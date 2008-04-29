@@ -163,7 +163,7 @@ struct nand_config_data {
 void stx7100_early_device_init(void);
 void stb7100_configure_asc(const int *ascs, int num_ascs, int console);
 void sysconf_early_init(struct platform_device *pdev);
-void stpio_early_init(struct platform_device *pdev, int num_pdevs);
+void stpio_early_init(struct platform_device *pdev, int num_pdevs, int irq);
 
 void stx7100_configure_sata(void);
 void stx7100_configure_pwm(struct plat_stm_pwm_data *data);

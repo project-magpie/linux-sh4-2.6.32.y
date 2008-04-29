@@ -75,6 +75,14 @@ struct stpio_pin {
 	const char *name;
 	void (*func)(struct stpio_pin *pin, void *dev);
 	void *dev;
+	unsigned char type;
+	unsigned char flags;
+#define PIN_FAKE_EDGE		4
+#define PIN_IGNORE_EDGE_FLAG	2
+#define PIN_IGNORE_EDGE_VAL	1
+#define PIN_IGNORE_RISING_EDGE	(PIN_IGNORE_EDGE_FLAG | 0)
+#define PIN_IGNORE_FALLING_EDGE	(PIN_IGNORE_EDGE_FLAG | 1)
+#define PIN_IGNORE_EDGE_MASK	(PIN_IGNORE_EDGE_FLAG | PIN_IGNORE_EDGE_VAL)
 };
 
 struct stpio_port {
@@ -83,12 +91,14 @@ struct stpio_port {
 #ifdef CONFIG_HAVE_GPIO_LIB
 	struct gpio_chip gpio_chip;
 #endif
+	unsigned int level_mask;
 };
 
 
 
 static struct stpio_port stpio_ports[STPIO_MAX_PORTS];
 static DEFINE_SPINLOCK(stpio_lock);
+static int stpio_irq_base;
 
 
 
@@ -164,32 +174,114 @@ unsigned int stpio_get_pin(struct stpio_pin *pin)
 }
 EXPORT_SYMBOL(stpio_get_pin);
 
-static irqreturn_t stpio_interrupt(int irq, void *dev)
+static void stpio_irq_chip_handler(unsigned int irq, struct irq_desc *desc)
 {
-	const struct stpio_port *port = dev;
+	const struct stpio_port *port = get_irq_data(irq);
 	unsigned int portno = port - stpio_ports;
-    	unsigned long in, mask, comp;
+	unsigned long in, mask, comp, active;
 	unsigned int pinno;
+	unsigned int level_mask = port->level_mask;
+
+	/*
+	 * We don't want to mask the INTC2/ILC first level interrupt here,
+	 * and as these are both level based, there is no need to ack.
+	 */
 
 	in   = readl(port->base + STPIO_PIN_OFFSET);
 	mask = readl(port->base + STPIO_PMASK_OFFSET);
 	comp = readl(port->base + STPIO_PCOMP_OFFSET);
 
-	mask &= in ^ comp;
+	active = (in ^ comp) & mask;
 
-	while ((pinno = ffs(mask)) != 0) {
+	/* Level sensitive interrupts we can mask for the duration */
+	writel(level_mask,
+	       port->base + STPIO_PMASK_OFFSET + STPIO_CLEAR_OFFSET);
+
+	/* Edge sensitive we want to know about if they change */
+	writel(~level_mask & active & comp,
+	       port->base + STPIO_PCOMP_OFFSET + STPIO_CLEAR_OFFSET);
+	writel(~level_mask & active & ~comp,
+	       port->base + STPIO_PCOMP_OFFSET + STPIO_SET_OFFSET);
+
+	while ((pinno = ffs(active)) != 0) {
+		struct irq_desc *desc;
 		struct stpio_pin *pin;
+		unsigned long pinmask;
 
 		pinno--;
-		pin = &stpio_ports[portno].pins[pinno];
-		if (pin->func != 0)
-			pin->func(pin, pin->dev);
-		else
-			printk(KERN_NOTICE "unexpected PIO interrupt, "
-					"PIO%d[%d]\n", portno, pinno);
-		mask &= ~(1 << pinno);
+		irq = stpio_irq_base + (portno*STPIO_PINS_IN_PORT) + pinno;
+		desc = irq_desc + irq;
+		pin = get_irq_chip_data(irq);
+		pinmask = 1 << pinno;
+
+		if (pin->flags & PIN_FAKE_EDGE) {
+			int val = stpio_get_pin(pin);
+			writel(pinmask, port->base + STPIO_PCOMP_OFFSET +
+			       (val ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
+			if ((pin->flags & PIN_IGNORE_EDGE_MASK) ==
+			    (PIN_IGNORE_EDGE_FLAG | val))
+				continue;
+		}
+
+		if (unlikely(desc->status & (IRQ_INPROGRESS | IRQ_DISABLED))) {
+			writel(pinmask, port->base +
+			       STPIO_PMASK_OFFSET + STPIO_CLEAR_OFFSET);
+			/* The unmasking will be done by enable_irq in
+			 * case it is disabled or after returning from
+			 * the handler if it's already running.
+			 */
+			if (desc->status & IRQ_INPROGRESS) {
+				/* Level triggered interrupts won't
+				 * ever be reentered
+				 */
+				BUG_ON(level_mask & pinmask);
+				desc->status |= IRQ_PENDING;
+			}
+			continue;
+		}
+
+		desc->handle_irq(irq, desc);
+
+		if (unlikely((desc->status & (IRQ_PENDING | IRQ_DISABLED)) ==
+			     IRQ_PENDING)) {
+			desc->status &= ~IRQ_PENDING;
+			writel(pinmask, port->base +
+			       STPIO_PMASK_OFFSET + STPIO_SET_OFFSET);
+		} else
+			active &= ~pinmask;
 	}
 
+	/* Re-enable level */
+	writel(level_mask & mask,
+	       port->base + STPIO_PMASK_OFFSET + STPIO_SET_OFFSET);
+
+	/* Do we need a software level as well, to cope with interrupts
+	 * which get disabled during the handler execution? */
+}
+
+/*
+ * Currently gpio_to_irq and irq_to_gpio don't go through the gpiolib
+ * layer. Hopefully this will change one day...
+ */
+int gpio_to_irq(unsigned gpio)
+{
+	return gpio + stpio_irq_base;
+}
+
+int irq_to_gpio(unsigned irq)
+{
+	return irq - stpio_irq_base;
+}
+
+static inline int pin_to_irq(struct stpio_pin *pin)
+{
+	return gpio_to_irq(stpio_to_gpio(pin->port - stpio_ports, pin->no));
+}
+
+static irqreturn_t stpio_irq_wrapper(int irq, void *dev_id)
+{
+	struct stpio_pin *pin = dev_id;
+	pin->func(pin, pin->dev);
 	return IRQ_HANDLED;
 }
 
@@ -198,13 +290,20 @@ void stpio_request_irq(struct stpio_pin *pin, int comp,
 		       void *dev)
 {
 	unsigned long flags;
+	int irq = pin_to_irq(pin);
+	int ret;
 
 	spin_lock_irqsave(&stpio_lock, flags);
+
+	/* stpio style interrupt handling doesn't allow sharing. */
+	BUG_ON(pin->func);
 
 	pin->func = handler;
 	pin->dev = dev;
 
-	stpio_enable_irq(pin, comp);
+	set_irq_type(irq, comp ? IRQ_TYPE_LEVEL_LOW : IRQ_TYPE_LEVEL_HIGH);
+	ret = request_irq(irq, stpio_irq_wrapper, 0, pin->name, pin);
+	BUG_ON(ret);
 
 	spin_unlock_irqrestore(&stpio_lock, flags);
 }
@@ -213,10 +312,12 @@ EXPORT_SYMBOL(stpio_request_irq);
 void stpio_free_irq(struct stpio_pin *pin)
 {
 	unsigned long flags;
+	int irq = pin_to_irq(pin);
 
 	spin_lock_irqsave(&stpio_lock, flags);
 
-	stpio_disable_irq(pin);
+	free_irq(irq, pin);
+
 	pin->func = 0;
 	pin->dev = 0;
 
@@ -226,21 +327,18 @@ EXPORT_SYMBOL(stpio_free_irq);
 
 void stpio_enable_irq(struct stpio_pin *pin, int comp)
 {
-	writel(1 << pin->no, pin->port->base + STPIO_PCOMP_OFFSET +
-			(comp ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
-	writel(1 << pin->no, pin->port->base + STPIO_PMASK_OFFSET +
-			STPIO_SET_OFFSET);
+	int irq = pin_to_irq(pin);
+	set_irq_type(irq, comp ? IRQ_TYPE_LEVEL_LOW : IRQ_TYPE_LEVEL_HIGH);
+	enable_irq(irq);
 }
 EXPORT_SYMBOL(stpio_enable_irq);
 
 void stpio_disable_irq(struct stpio_pin *pin)
 {
-	writel(1 << pin->no, pin->port->base + STPIO_PMASK_OFFSET +
-			STPIO_CLEAR_OFFSET);
+	int irq = pin_to_irq(pin);
+	disable_irq(irq);
 }
 EXPORT_SYMBOL(stpio_disable_irq);
-
-
 
 #ifdef CONFIG_PROC_FS
 
@@ -384,7 +482,81 @@ static void stpio_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 
 #endif /* CONFIG_HAVE_GPIO_LIB */
 
+static void stpio_irq_chip_disable(unsigned int irq)
+{
+	struct stpio_pin *pin = get_irq_chip_data(irq);
+	struct stpio_port *port = pin->port;
+	int pinno = pin->no;
 
+	writel(1<<pinno, port->base + STPIO_PMASK_OFFSET + STPIO_CLEAR_OFFSET);
+}
+
+static void stpio_irq_chip_enable(unsigned int irq)
+{
+	struct stpio_pin *pin = get_irq_chip_data(irq);
+	struct stpio_port *port = pin->port;
+	int pinno = pin->no;
+
+	writel(1<<pinno, port->base + STPIO_PMASK_OFFSET + STPIO_SET_OFFSET);
+}
+
+static int stpio_irq_chip_type(unsigned int irq, unsigned type)
+{
+	struct stpio_pin *pin = get_irq_chip_data(irq);
+	struct stpio_port *port = pin->port;
+	int pinno = pin->no;
+	int flags;
+	int comp;
+
+	spin_lock_irqsave(&stpio_lock, flags);
+
+	pin->type = type;
+
+	switch (type) {
+	case IRQ_TYPE_EDGE_RISING:
+		pin->flags = PIN_FAKE_EDGE | PIN_IGNORE_FALLING_EDGE;
+		comp = 0;
+		port->level_mask &= ~(1<<pinno);
+		break;
+	case IRQ_TYPE_LEVEL_HIGH:
+		pin->flags = 0;
+		comp = 0;
+		port->level_mask |= ~(1<<pinno);
+		break;
+	case IRQ_TYPE_EDGE_FALLING:
+		pin->flags = PIN_FAKE_EDGE | PIN_IGNORE_RISING_EDGE;
+		comp = 1;
+		port->level_mask &= ~(1<<pinno);
+		break;
+	case IRQ_TYPE_LEVEL_LOW:
+		pin->flags = 0;
+		comp = 1;
+		port->level_mask |= ~(1<<pinno);
+		break;
+	case IRQ_TYPE_EDGE_BOTH:
+		pin->flags = PIN_FAKE_EDGE;
+		comp = stpio_get_pin(pin);
+		port->level_mask &= ~(1<<pinno);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	writel(1<<pinno, port->base + STPIO_PCOMP_OFFSET +
+	       (comp ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
+
+	spin_unlock_irqrestore(&stpio_lock, flags);
+
+	return 0;
+}
+
+static struct irq_chip stpio_irq_chip = {
+	.name		= "PIO-IRQ",
+	.mask		= stpio_irq_chip_disable,
+	.mask_ack	= stpio_irq_chip_disable,
+	.unmask		= stpio_irq_chip_enable,
+	.set_type	= stpio_irq_chip_type,
+};
 
 static int stpio_init_port(struct platform_device *pdev, int early)
 {
@@ -442,22 +614,34 @@ static int stpio_init_port(struct platform_device *pdev, int early)
 	}
 
 	if (!early) {
-		result = request_irq(irq->start, stpio_interrupt, 0,
-				pdev->name, port);
-		if (result < 0)
-			goto error_request_irq;
+		int irq;
+		struct stpio_pin *pin;
+		int i;
+
+		irq = stpio_irq_base + (portno * STPIO_PINS_IN_PORT);
+		for (i = 0; i < STPIO_PINS_IN_PORT; i++) {
+			pin = &port->pins[i];
+			set_irq_chip_and_handler_name(irq,
+						      &stpio_irq_chip,
+						      handle_simple_irq,
+						      "STPIO");
+			set_irq_chip_data(irq, pin);
+			stpio_irq_chip_type(irq, IRQ_TYPE_LEVEL_HIGH);
+			irq++;
+			pin++;
+		}
+
+		irq = pdev->resource[1].start;
+		set_irq_chained_handler(irq, stpio_irq_chip_handler);
+		set_irq_data(irq, port);
 	}
 
 	return 0;
 
-error_request_irq:
-	release_mem_region(memory->start, size);
 #ifdef CONFIG_HAVE_GPIO_LIB
-	if (gpiochip_remove(&port->gpio_chip) != 0)
-		printk(KERN_ERR "stpio aaargh!\n");
 error_gpiochip_add:
-#endif
 	iounmap(port->base);
+#endif
 error_ioremap:
 	if (!early)
 		release_mem_region(memory->start, size);
@@ -470,12 +654,14 @@ error_get_resources:
 
 /* This is called early to allow board start up code to use PIO
  * (in particular console devices). */
-void __init stpio_early_init(struct platform_device *pdev, int num)
+void __init stpio_early_init(struct platform_device *pdev, int num, int irq)
 {
 	int i;
 
 	for (i = 0; i < num; i++)
 		stpio_init_port(pdev++, 1);
+
+	stpio_irq_base = irq;
 }
 
 static int __devinit stpio_probe(struct platform_device *pdev)
@@ -528,19 +714,7 @@ static int __init stpio_init(void)
 
 	return platform_driver_register(&stpio_driver);
 }
-
-static void __exit stpio_exit(void)
-{
-#ifdef CONFIG_PROC_FS
-	if (proc_stpio)
-		remove_proc_entry("stpio", NULL);
-#endif
-
-	platform_driver_unregister(&stpio_driver);
-}
-
-module_init(stpio_init);
-module_exit(stpio_exit);
+subsys_initcall(stpio_init);
 
 MODULE_AUTHOR("Stuart Menefy <stuart.menefy@st.com>");
 MODULE_DESCRIPTION("STMicroelectronics PIO driver");

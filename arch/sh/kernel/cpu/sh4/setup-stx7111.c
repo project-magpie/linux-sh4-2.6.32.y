@@ -312,7 +312,6 @@ static struct platform_device stx7111eth_device = {
 void stx7111_configure_ethernet(int en_mii, int sel, int ext_clk, int phy_bus)
 {
 	struct sysconf_field *sc;
-	unsigned long  value;
 
 	stx7111eth_private_data.bus_id = phy_bus;
 
@@ -716,7 +715,9 @@ void __init stx7111_early_device_init(void)
 	/* Initialise PIO and sysconf drivers */
 
 	sysconf_early_init(&sysconf_device);
-	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices));
+	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices),
+			 /* should be: ILC_FIRST_IRQ+ILC_NR_IRQS */
+			 176);
 
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);
@@ -755,6 +756,16 @@ static struct platform_device ilc3_device = {
 
 /* Late resources ---------------------------------------------------------- */
 
+static int __init stx7111_subsys_setup(void)
+{
+	/* we need to do PIO setup before module init, because some
+	 * drivers (eg gpio-keys) require that the interrupts
+	 * are available. */
+	pio_late_setup();
+	return 0;
+}
+subsys_initcall(stx7111_subsys_setup);
+
 static struct platform_device *stx7111_devices[] __initdata = {
 	&fdma0_device,
 	//&fdma1_device,
@@ -765,8 +776,6 @@ static struct platform_device *stx7111_devices[] __initdata = {
 
 static int __init stx7111_devices_setup(void)
 {
-	pio_late_setup();
-
 	return platform_add_devices(stx7111_devices,
 				    ARRAY_SIZE(stx7111_devices));
 }

@@ -18,16 +18,7 @@
 #define gpio_set_value __gpio_set_value
 #define gpio_cansleep  __gpio_cansleep
 
-/* GPIO interrupts are not supported in this moment... */
-
-static inline int gpio_to_irq(unsigned gpio)
-{
-	return -EINVAL;
-}
-
-static inline int irq_to_gpio(unsigned irq)
-{
-	return -EINVAL;
-}
+int gpio_to_irq(unsigned gpio);
+int irq_to_gpio(unsigned irq);
 
 #endif

@@ -1,11 +1,11 @@
 /*
-   --------------------------------------------------------------------
-
-   stssc.h
-   define and struct for STMicroelectronics SSC device
-
-   --------------------------------------------------------------------
-
+ *  --------------------------------------------------------------------------
+ *
+ *  stssc.h
+ *  define and struct for STMicroelectronics SSC device
+ *
+ *  --------------------------------------------------------------------------
+ *
  *  This program is free software; you can redistribute  it and/or modify it
  *  under  the terms of  the GNU General  Public License as published by the
  *  Free Software Foundation;  either version 2 of the  License.
@@ -13,8 +13,8 @@
  *  You should have received a copy of the  GNU General Public License along
  *  with this program; if not, write  to the Free Software Foundation, Inc.,
  *  675 Mass Ave, Cambridge, MA 02139, USA.
-
-*/
+ *  --------------------------------------------------------------------------
+ */
 
 #ifndef STM_SSC_H
 #define STM_SSC_H 1
@@ -131,11 +131,13 @@
 
 #define SSC_TXFIFO_SIZE         0x8
 #define SSC_RXFIFO_SIZE         0x8
-/*
-   we have to use the following macro
-   to access the SSC I/O Memory
-*/
-#define ssc_store32(ssc , offset, value) iowrite32(value,ssc->base+offset)
-#define ssc_load32( ssc,offset)	         ioread32( ssc->base+offset)
+
+/* Use the following macros to access SSC I/O memory */
+#define ssc_store32(ssc, offset, value)	iowrite32(value, ssc->base+offset)
+#define ssc_store16(ssc, offset, value)	iowrite16(value, ssc->base+offset)
+#define ssc_store8(ssc, offset, value)	iowrite8(value, ssc->base+offset)
+#define ssc_load32(ssc, offset)		ioread32(ssc->base+offset)
+#define ssc_load16(ssc, offset)		ioread16(ssc->base+offset)
+#define ssc_load8(ssc, offset)		XSioread8(ssc->base+offset)
 
 #endif				/* STM_SSC_H */

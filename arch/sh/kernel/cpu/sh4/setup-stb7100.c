@@ -319,7 +319,7 @@ void __init stx7100_configure_ssc(struct plat_ssc_data *data)
 		ssc_sc = sysconf_claim(SYS_CFG, 7, i+1, i+1, "stssc");
 		if(capability & SSC_SPI_CAPABILITY){
 			stssc_devices[i].name = spi_st;
-			sysconf_write(ssc_sc, 1);
+			sysconf_write(ssc_sc, 0);
 			stssc_devices[i].id = num_spi++;
 		} else {
 			stssc_devices[i].name = i2c_st;

@@ -14,6 +14,7 @@
 #include <linux/platform_device.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
+#include <linux/spi/spi.h>
 #include <linux/delay.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>

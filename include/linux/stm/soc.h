@@ -35,6 +35,21 @@ struct plat_ssc_data {
 	unsigned short		capability;	/* bitmask on the ssc capability */
 };
 
+#define SPI_LINE_SHIFT		0x0
+#define SPI_LINE_MASK		0x7
+#define SPI_BANK_SHIFT		0x3
+#define SPI_BANK_MASK		0xf
+#define spi_get_bank(address)  (((address) >> SPI_BANK_SHIFT) & SPI_BANK_MASK)
+#define spi_get_line(address)  (((address) >> SPI_LINE_SHIFT) & SPI_LINE_MASK)
+#define spi_set_cs(bank, line) ((((bank) & SPI_BANK_MASK) << SPI_BANK_SHIFT) | \
+				 (((line) & SPI_LINE_MASK) << SPI_LINE_SHIFT))
+/* each spi bus is able to manage 'all' the pios as chip selector
+   therefore each master must have 8(pioline)x10(piobank)
+   10 pio banks is enough for our boards
+   SPI_NO_CHIPSELECT to specify SPI device with no CS (ie CS tied to 'active')
+*/
+#define SPI_NO_CHIPSELECT	(spi_set_cs(9, 7) + 1)
+
 
 /* Private data for the SATA driver */
 struct plat_sata_data {

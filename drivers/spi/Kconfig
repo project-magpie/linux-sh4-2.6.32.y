@@ -174,6 +174,28 @@ config SPI_S3C24XX_GPIO
 	  the inbuilt hardware cannot provide the transfer mode, or
 	  where the board is using non hardware connected pins.
 
+config SPI_STM
+	bool "STMicroelectronics SPI support"
+	depends on SPI_MASTER && CPU_SUBTYPE_ST40
+	select SPI_BITBANG
+	help
+	  STMicroelectronics SoCs support for SPI.
+
+config SPI_STM_PIO
+        bool "SPI bit-banging PIO driver"
+	depends on SPI_STM
+	help
+	  If you say yes to this option, support will be included for the
+	  PIO driven SPI in bit-banging mode.
+	  This driver can also be built as a module.
+
+config SPI_STM_SSC
+	bool "SPI hardware SSC driver"
+	depends on SPI_STM
+	help
+	  If you say yes to this option, support will be included for the
+	  SSC driven SPI.
+
 config SPI_TXX9
 	tristate "Toshiba TXx9 SPI controller"
 	depends on SPI_MASTER && GENERIC_GPIO && CPU_TX49XX

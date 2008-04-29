@@ -504,7 +504,7 @@ static struct platform_device fdma_xbar_device = {
 
 /* SSC resources ----------------------------------------------------------- */
 static char i2c_st[] = "i2c_st";
-static char spi_st[] = "spi_st";
+static char spi_st[] = "spi_st_ssc";
 static struct platform_device stssc_devices[] = {
 	STSSC_DEVICE(0xfd040000, ILC_IRQ(108), 2, 0, 1, 2),
 	STSSC_DEVICE(0xfd041000, ILC_IRQ(109), 3, 0, 1, 2),
@@ -528,8 +528,17 @@ void __init stx7200_configure_ssc(struct plat_ssc_data *data)
 		 * ssc<x>_mux_sel = 0 */
 		ssc_sc = sysconf_claim(SYS_CFG, 7, i, i, "ssc");
 		if(capability & SSC_SPI_CAPABILITY){
+			/* !!FIXME!!
+			   For some reason, nand_rb signal (PIO2[7]) must be
+			   disabled for SSC0/SPI to get input */
+			if (i == 0) {
+				ssc_sc = sysconf_claim(SYS_CFG,
+						       7, 15, 15, "ssc");
+				sysconf_write(ssc_sc, 0);
+			}
+
 			stssc_devices[i].name = spi_st;
-			sysconf_write(ssc_sc, 1);
+			sysconf_write(ssc_sc, 0);
 			stssc_devices[i].id = num_spi++;
 		} else {
 			stssc_devices[i].name = i2c_st;

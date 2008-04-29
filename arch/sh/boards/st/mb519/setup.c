@@ -15,6 +15,7 @@
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/emi.h>
+#include <linux/spi/spi.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
@@ -207,7 +208,6 @@ static struct nand_config_data mb519_nand_config = {
 	.rbn_port		= -1,
 	.rbn_pin		= -1,
 };
-
 
 static struct platform_device *mb519_devices[] __initdata = {
 	&epld_device,

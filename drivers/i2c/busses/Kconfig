@@ -679,29 +679,36 @@ config I2C_STM
 
 endchoice
 
-config I2C_STM_HW_FIFO
-	bool "I2C hardware SSC Fifo support"
-	depends on I2C_STM
-	help
-	  Enable this option to print out information on STM I2C (SSC) device driver
-
 config I2C_STM_GLITCH_SUPPORT
-	bool "I2C hardware glitch suppression support"
-	depends on I2C_STM
-	help
-	  Enable this option to add the glitch suppression support in the
-	  STM I2C (SSC) device driver.
-	  Moreover you can set the glitch width in nanosecond (on both clock and data)
-	  or use the default value.
+        bool "I2C timing glitch suppression support"
+        depends on I2C_STM
+        help
+          Enable this option to add timing glitch suppression support in the
+          STM I2C (SSC) device driver.
+          You can set the glitch width in nanosecond (on both clock and data)
+          or use the default value of 500ns.
 
 config GLITCH_CLK_WIDTH
-	depends on I2C_STM_GLITCH_SUPPORT
-	int "Glitch clock width"
-	default "500"
+        depends on I2C_STM_GLITCH_SUPPORT
+        int "Glitch clock width in ns"
+        default "500"
 
 config GLITCH_DATA_WIDTH
-	depends on I2C_STM_GLITCH_SUPPORT
-	int "Glitch data width"
-	default "500"
+        depends on I2C_STM_GLITCH_SUPPORT
+        int "Glitch data width in ns"
+        default "500"
+
+config I2C_STM_HW_GLITCH
+        bool "I2C filter glitch suppression support"
+        depends on I2C_STM
+        help
+          Enable this option to add filter glitch suppression support in the
+          STM I2C (SSC) device driver.
+          Set the glitch width in MICROSECONDS or use the default value of 1uS.
+
+config HW_GLITCH_WIDTH
+        depends on I2C_STM_HW_GLITCH
+        int "Glitch suppression width in uS"
+        default "1"
 
 endmenu

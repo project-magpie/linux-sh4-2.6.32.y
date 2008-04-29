@@ -7,7 +7,16 @@
  * Version: 2.0.1 (20 Dec 2007)
  *   + Removed the ssc layer.
  * Version: 2.1 (3 Jan 2008)
- *   + Added the glitch suppression support
+ *   + Added the timing glitch suppression support
+ * Version: 2.2 (25th Apr 2008)
+ *   + Added hardware glitch filter support
+ *   + Improved reset and register configuration
+ *   + Switch to using FIFO mode all the time
+ *   + Use standard I2C clock settings
+ *   + Adjust baud rate to give true 100/400 kHz operation
+ *   + Fix bug in clock rounding
+ *   + Use stpio_request_set_pin on init to set SDA and SCL to high
+ *   + Fix compile-time warnings
  *
  * --------------------------------------------------------------------
  *
@@ -53,27 +62,31 @@
 #endif
 
 /* --- Defines for I2C --- */
-#define DEVICE_ID                    0x041175
+/* These values WILL produce physical clocks which are slower */
+/* Especially if hardware glith suppression is enabled        */
+/* They should probably be made board dependent?              */
+#define I2C_RATE_NORMAL                 100000
+#define I2C_RATE_FASTMODE		400000
 
-#define I2C_RATE_NORMAL            100000
-#define I2C_RATE_FASTMODE          400000
-#define NANOSEC_PER_SEC            1000000000
 
-#if 0
-#define REP_START_HOLD_TIME_NORMAL	4000	/* standard */
-#define REP_START_HOLD_TIME_FAST	 600	/* standard*/
-#define START_HOLD_TIME_NORMAL		4000	/* standard */
-#define START_HOLD_TIME_FAST		 600	/* standard */
-#define REP_START_SETUP_TIME_NORMAL	4700	/* standard */
-#define REP_START_SETUP_TIME_FAST	 600	/* standard */
-#define DATA_SETUP_TIME_NORMAL		 250	/* standard */
-#define DATA_SETUP_TIME_FAST		 100	/* standard */
-#define STOP_SETUP_TIME_NORMAL		4000	/* standard */
-#define STOP_SETUP_TIME_FAST		 600	/* standard */
-#define BUS_FREE_TIME_NORMAL		4700	/* standard */
-#define BUS_FREE_TIME_FAST		1300	/* standard */
-#else
-/* These valus cames directly from hw boys... */
+#define NANOSEC_PER_SEC			1000000000
+
+/* Standard I2C timings */
+#define REP_START_HOLD_TIME_NORMAL	4000
+#define REP_START_HOLD_TIME_FAST	 600
+#define START_HOLD_TIME_NORMAL		4000
+#define START_HOLD_TIME_FAST		 600
+#define REP_START_SETUP_TIME_NORMAL	4700
+#define REP_START_SETUP_TIME_FAST	 600
+#define DATA_SETUP_TIME_NORMAL		 250
+#define DATA_SETUP_TIME_FAST		 100
+#define STOP_SETUP_TIME_NORMAL		4000
+#define STOP_SETUP_TIME_FAST		 600
+#define BUS_FREE_TIME_NORMAL		4700
+#define BUS_FREE_TIME_FAST		1300
+
+/* These values come from hw boys... */
+/*
 #define REP_START_HOLD_TIME_NORMAL	4000
 #define REP_START_HOLD_TIME_FAST	6500
 #define START_HOLD_TIME_NORMAL		4500
@@ -86,7 +99,7 @@
 #define STOP_SETUP_TIME_FAST		800
 #define BUS_FREE_TIME_NORMAL		5700
 #define BUS_FREE_TIME_FAST		1500
-#endif
+*/
 
 /* Define for glitch suppression support */
 #ifdef CONFIG_I2C_STM_GLITCH_SUPPORT
@@ -104,6 +117,15 @@
     #define GLITCH_WIDTH_DATA			0
     #define GLITCH_WIDTH_CLOCK			0
 #endif
+
+#ifdef CONFIG_I2C_STM_HW_GLITCH
+  #if CONFIG_HW_GLITCH_WIDTH > 0
+    #define HW_GLITCH_WIDTH			CONFIG_HW_GLITCH_WIDTH
+  #else
+    #define HW_GLITCH_WIDTH			1 /* in microseconds */
+  #endif
+#endif
+
 
 /* To manage normal vs fast mode */
 #define IIC_STM_CONFIG_SPEED_MASK          0x1
@@ -150,7 +172,7 @@ struct iic_transaction {
 };
 
 struct iic_ssc {
-	unsigned long base;
+	void __iomem *base;
 	struct iic_transaction *trns;
 	struct i2c_adapter adapter;
 	unsigned long config;
@@ -184,8 +206,9 @@ struct iic_ssc {
 
 static void iic_stm_setup_timing(struct iic_ssc *adap,unsigned long rate);
 
-static irqreturn_t iic_state_machine(int this_irq, struct iic_ssc* adap)
+static irqreturn_t iic_state_machine(int this_irq, void *data)
 {
+	struct iic_ssc *adap = (struct iic_ssc *)data;
 	struct iic_transaction *trsc = adap->trns;
 	unsigned short status;
 	short tx_fifo_status;
@@ -203,9 +226,21 @@ static irqreturn_t iic_state_machine(int this_irq, struct iic_ssc* adap)
 	fast_mode = check_fastmode(adap);
 	pmsg = trsc->msgs_queue + trsc->current_msg;
 
+	status = ssc_load32(adap, SSC_STA);
+	if (!(status & SSC_STA_ARBL) && !(ssc_load32(adap, SSC_CTL) & SSC_CTL_MS)){
+		printk(KERN_ERR "i2c-stm: Status OK but in SLAVE MODE\n");
+	}
+
+	if (status & SSC_STA_ARBL)
+		printk(KERN_ERR "i2c-stm: ARBL from 0x%x (st = 0x%x) (ctl = 0x%x) (i2c = 0x%x)\n",
+					trsc->state,
+					status, (unsigned int)ssc_load32(adap, SSC_CTL),
+					(unsigned int)ssc_load32(adap, SSC_I2C));
+
 	trsc->state = trsc->next_state;
 
 	barrier();
+
 	switch (trsc->state) {
 	case IIC_FSM_PREPARE:
 		dgb_print2("-Prepare\n");
@@ -213,8 +248,8 @@ static irqreturn_t iic_state_machine(int this_irq, struct iic_ssc* adap)
 		 * check if the i2c timing register
 		 * of ssc are ready to use
 		 */
-		if (check_fastmode(adap) && !check_ready_fastmode(adap) ||
-		    !check_fastmode(adap) && check_ready_fastmode(adap))
+		if ((check_fastmode(adap) && !check_ready_fastmode(adap)) ||
+		    (!check_fastmode(adap) && check_ready_fastmode(adap)) )
 			iic_stm_setup_timing(adap,
 				clk_get_rate(clk_get(NULL,"comms_clk")));
 		jump_on_fsm_start(trsc);
@@ -223,67 +258,65 @@ static irqreturn_t iic_state_machine(int this_irq, struct iic_ssc* adap)
 	case IIC_FSM_START:
 	      be_fsm_start:
 		dgb_print2("-Start address 0x%x\n", pmsg->addr);
-		ssc_store32(adap, SSC_CTL, SSC_CTL_SR | SSC_CTL_EN | 0x1);
+		ssc_store32(adap, SSC_CTL, SSC_CTL_SR | SSC_CTL_EN | SSC_CTL_MS |
+			    SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8);
+		/* enable RX, TX FIFOs */
 		ssc_store32(adap, SSC_CTL,
 			    SSC_CTL_EN | SSC_CTL_MS |
-			    SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8);
-		ssc_store32(adap, SSC_CLR, 0xdc0);
+			    SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8 |
+			    SSC_CTL_EN_TX_FIFO | SSC_CTL_EN_RX_FIFO);
+
 		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
 			    (SSC_I2C_I2CFSMODE * fast_mode));
-		address = (pmsg->addr << 2) | 0x1;
+
 		trsc->start_state = IIC_FSM_START;
 		trsc->next_state  = IIC_FSM_DATA_WRITE;
+
+		address = (pmsg->addr << 2) | 0x1;
 		if (pmsg->flags & I2C_M_RD){
 			address |= 0x2;
 			trsc->next_state = IIC_FSM_PREPARE_2_READ;
 		}
 		trsc->idx_current_msg = 0;
-		ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN | SSC_IEN_TEEN);
+
+		status = ssc_load32(adap, SSC_STA);
+		if (status & SSC_STA_BUSY){
+			dgb_print2("I2C_FSM_START: bus BUSY!\n");
+			trsc->waitcondition = 0; /* to not sleep */
+			trsc->status_error = IIC_E_RUNNING;	/* to raise the error */
+			return -1;
+		}
+
+		ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN | SSC_IEN_TEEN | SSC_IEN_ARBLEN);
 		ssc_store32(adap, SSC_TBUF, address);
 		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
 			    SSC_I2C_STRTG | SSC_I2C_TXENB |
 			    (SSC_I2C_I2CFSMODE * fast_mode));
 		break;
+
 	case IIC_FSM_PREPARE_2_READ:
-		/* Just to clear th RBUF */
-		ssc_load32(adap, SSC_RBUF);
+		/* Just to clear the RBUF */
+		for (;ssc_load32(adap, SSC_RX_FSTAT);){
+			dgb_print2(".");
+			ssc_load32(adap, SSC_RBUF);
+		}
 		status = ssc_load32(adap, SSC_STA);
 		dgb_print2(" Prepare to Read... Status=0x%x\n", status);
 		if (status & SSC_STA_NACK)
 			jump_on_fsm_abort(trsc);
 		trsc->next_state = IIC_FSM_DATA_READ;
-#if !defined(CONFIG_I2C_STM_HW_FIFO)
-		if (!pmsg->len) {
-			dgb_print("Zero Read\n");
-			jump_on_fsm_stop(trsc);
-		}
-		ssc_store32(adap, SSC_TBUF, 0x1ff);
-		if (pmsg->len == 1) {
-			ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN);
-			ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
-				    (SSC_I2C_I2CFSMODE * fast_mode));
-		} else {
-			ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
-				    SSC_I2C_ACKG |
-				    (SSC_I2C_I2CFSMODE * fast_mode));
-			ssc_store32(adap, SSC_IEN, SSC_IEN_RIEN);
-		}
-                break;
-#else
+
 		switch (pmsg->len) {
 		case 0: dgb_print2("Zero Read\n");
 			jump_on_fsm_stop(trsc);
 
-		case 1: ssc_store32(adap, SSC_TBUF, 0x1ff);
+		case 1:
+			ssc_store32(adap, SSC_TBUF, 0x1ff);
 			ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
 				(SSC_I2C_I2CFSMODE * fast_mode));
 			ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN);
 		   break;
 		default:
-			/* enable the fifos */
-			ssc_store32(adap, SSC_CTL, SSC_CTL_EN | SSC_CTL_MS |
-				SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8 |
-				SSC_CTL_EN_TX_FIFO | SSC_CTL_EN_RX_FIFO );
 			ssc_store32(adap, SSC_CLR, 0xdc0);
 			ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM | SSC_I2C_ACKG |
 				(SSC_I2C_I2CFSMODE * fast_mode));
@@ -293,35 +326,11 @@ static irqreturn_t iic_state_machine(int this_irq, struct iic_ssc* adap)
 			for ( idx = 0;  idx < SSC_RXFIFO_SIZE &&
 					idx < pmsg->len-1 ;  ++idx )
 				ssc_store32(adap, SSC_TBUF, 0x1ff);
-			ssc_store32(adap, SSC_IEN, SSC_IEN_RIEN | SSC_IEN_TIEN);
+			ssc_store32(adap, SSC_IEN, SSC_IEN_RIEN | SSC_IEN_TIEN | SSC_IEN_ARBLEN);
 		}
 		break;
-#endif
+
 	case IIC_FSM_DATA_READ:
-#if !defined(CONFIG_I2C_STM_HW_FIFO)
-		status = ssc_load32(adap, SSC_STA);
-		if (!(status & SSC_STA_TE))
-			break;
-		tmp.word = ssc_load32(adap, SSC_RBUF);
-		tmp.word = tmp.word >> 1;
-		pmsg->buf[trsc->idx_current_msg++] = tmp.bytes[0];
-		dgb_print2(" Data Read...Status=0x%x %d-%c\n",
-			status, tmp.bytes[0], tmp.bytes[0]);
-		/*Did we finish? */
-		if (trsc->idx_current_msg == pmsg->len) {
-			status &= ~SSC_STA_NACK;
-			jump_on_fsm_stop(trsc);
-		} else {
-			ssc_store32(adap, SSC_TBUF, 0x1ff);
-			/*Is this the last byte? */
-			if (trsc->idx_current_msg == (pmsg->len - 1)) {
-				ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
-					 (SSC_I2C_I2CFSMODE * fast_mode));
-				ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN);
-			}
-		}
-		break;
-#else
 		status = ssc_load32(adap, SSC_STA);
 		if (!(status & SSC_STA_TE))
 			break;
@@ -353,63 +362,61 @@ static irqreturn_t iic_state_machine(int this_irq, struct iic_ssc* adap)
 		for (idx=0; idx<SSC_TXFIFO_SIZE &&
 			   (trsc->idx_current_msg+idx)<pmsg->len-1; ++idx)
 			ssc_store32(adap, SSC_TBUF, 0x1ff);
+
 		dgb_print2(" Asked %x bytes in fifo mode\n",idx);
-		ssc_store32(adap,SSC_IEN,SSC_IEN_RIEN | SSC_IEN_TIEN);
+
+		ssc_store32(adap, SSC_IEN, SSC_IEN_RIEN | SSC_IEN_TIEN | SSC_IEN_ARBLEN);
+
 		/*Is the next byte the last byte? */
 		if (trsc->idx_current_msg == (pmsg->len - 1)) {
 			dgb_print2(" Asked the last byte\n");
 			ssc_store32(adap, SSC_CLR, 0xdc0);
-			/* disable the fifos */
-			ssc_store32(adap, SSC_CTL, SSC_CTL_EN | SSC_CTL_MS |
-				SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8 );
 			ssc_store32(adap, SSC_TBUF, 0x1ff);
 			ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
 					    (SSC_I2C_I2CFSMODE * fast_mode) );
-			ssc_store32(adap,SSC_IEN,SSC_IEN_NACKEN);
+			ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN | SSC_IEN_ARBLEN);
 		}
 		break;
-#endif
+
 	case IIC_FSM_DATA_WRITE:
 		/* just to clear some bits in the STATUS register */
-		ssc_load32(adap, SSC_RBUF);
+		for (;ssc_load32(adap, SSC_RX_FSTAT);)
+			ssc_load32(adap, SSC_RBUF);
 /*
  * Be careful!!!!
  * Here I don't have to use 0xdc0 for
  * the SSC_CLR register
  */
 		ssc_store32(adap, SSC_CLR, 0x9c0);
+
 		status = ssc_load32(adap, SSC_STA);
 		if (status & SSC_STA_NACK)
 			jump_on_fsm_abort(trsc);
-#if defined(CONFIG_I2C_STM_HW_FIFO)
+
 		tx_fifo_status = ssc_load32(adap,SSC_TX_FSTAT);
 		if ( tx_fifo_status ) {
 			dgb_print2(" Fifo not empty\n");
 			break;
 		}
-#endif
+
 		if (trsc->idx_current_msg == pmsg->len || !(pmsg->len))
 			jump_on_fsm_stop(trsc);
+
 		dgb_print2(" Data Write...Status=0x%x 0x%x-%c\n", status,
 			  pmsg->buf[trsc->idx_current_msg],
 			  pmsg->buf[trsc->idx_current_msg]);
+
 		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM | SSC_I2C_TXENB |
 			    (SSC_I2C_I2CFSMODE * fast_mode));
 
 		trsc->next_state = IIC_FSM_DATA_WRITE;
-#if !defined(CONFIG_I2C_STM_HW_FIFO)
-		ssc_store32(adap, SSC_IEN, SSC_IEN_TEEN | SSC_IEN_NACKEN);
-#else
-		ssc_store32(adap, SSC_IEN, SSC_IEN_TEEN | SSC_IEN_NACKEN);
-		ssc_store32(adap, SSC_CTL, SSC_CTL_EN | SSC_CTL_MS |
-                            SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8 |
-			    SSC_CTL_EN_TX_FIFO);
+		ssc_store32(adap, SSC_IEN, SSC_IEN_TEEN | SSC_IEN_NACKEN | SSC_IEN_ARBLEN);
+
 		for (; tx_fifo_status < SSC_TXFIFO_SIZE &&
 			trsc->idx_current_msg < pmsg->len ;++tx_fifo_status )
-#endif
 		{
-		tmp.bytes[0] = pmsg->buf[trsc->idx_current_msg++];
-		ssc_store32(adap, SSC_TBUF, tmp.word << 1 | 0x1);
+			tmp.bytes[0] = pmsg->buf[trsc->idx_current_msg++];
+			ssc_store32(adap, SSC_TBUF, tmp.word << 1 | 0x1);
 		}
 		break;
 
@@ -427,15 +434,15 @@ static irqreturn_t iic_state_machine(int this_irq, struct iic_ssc* adap)
 		}
 		dgb_print2(" Stop\n");
 		ssc_store32(adap, SSC_CLR, 0xdc0);
+		trsc->next_state = IIC_FSM_COMPLETE;
 		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
 			    SSC_I2C_TXENB | SSC_I2C_STOPG |
 			    (SSC_I2C_I2CFSMODE * fast_mode));
-		trsc->next_state = IIC_FSM_COMPLETE;
-		ssc_store32(adap, SSC_IEN, SSC_IEN_STOPEN);
+		ssc_store32(adap, SSC_IEN, SSC_IEN_STOPEN | SSC_IEN_ARBLEN);
 		break;
 
 	case IIC_FSM_COMPLETE:
-		be_fsm_complete:
+		/* be_fsm_complete: */
 		dgb_print2(" Complete\n");
 		ssc_store32(adap, SSC_IEN, 0x0);
 /*
@@ -450,9 +457,11 @@ static irqreturn_t iic_state_machine(int this_irq, struct iic_ssc* adap)
 		}
 		if (!(trsc->status_error & IIC_E_NOTACK))
 			trsc->status_error = IIC_E_NO_ERROR;
+
 		trsc->waitcondition = 0;
 		wake_up(&(adap->wait_queue));
 		break;
+
 	case IIC_FSM_REPSTART:
 	      be_fsm_repstart:
 		pmsg = trsc->msgs_queue + trsc->current_msg;
@@ -464,13 +473,13 @@ static irqreturn_t iic_state_machine(int this_irq, struct iic_ssc* adap)
 		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM | SSC_I2C_TXENB
 			    | SSC_I2C_REPSTRTG | (SSC_I2C_I2CFSMODE *
 						  fast_mode));
-		ssc_store32(adap, SSC_IEN, SSC_IEN_REPSTRTEN);
+		ssc_store32(adap, SSC_IEN, SSC_IEN_REPSTRTEN | SSC_IEN_ARBLEN);
 		break;
+
 	case IIC_FSM_REPSTART_ADDR:
 		dgb_print2("-Rep Start addr 0x%x\n", pmsg->addr);
 		ssc_store32(adap, SSC_CLR, 0xdc0);
-		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM | SSC_I2C_TXENB |
-			    (SSC_I2C_I2CFSMODE * fast_mode));
+
 		address = (pmsg->addr << 2) | 0x1;
 		trsc->next_state = IIC_FSM_DATA_WRITE;
 		if (pmsg->flags & I2C_M_RD) {
@@ -478,12 +487,13 @@ static irqreturn_t iic_state_machine(int this_irq, struct iic_ssc* adap)
 			trsc->next_state = IIC_FSM_PREPARE_2_READ;
 		}
 		ssc_store32(adap, SSC_TBUF, address);
-		ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN | SSC_IEN_TEEN);
+		ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN | SSC_IEN_TEEN | SSC_IEN_ARBLEN);
 		break;
 	default:
-		printk(KERN_ERR " Error in the FSM\n");
+		printk(KERN_ERR "i2c-stm: Error in the FSM\n");
 		;
 	}
+
 	return IRQ_HANDLED;
 }
 
@@ -517,7 +527,7 @@ static void iic_wait_free_bus(struct iic_ssc *adap)
   }
 /*
  * At this point I hope I detected a free bus
- * but in any case I return and I will tour off the ssc....
+ * but in any case I return and I will turn off the ssc....
  */
 }
 
@@ -548,7 +558,7 @@ static int iic_stm_xfer(struct i2c_adapter *i2c_adap,
 
 	adap->trns = &transaction;
 
-	iic_state_machine(NULL,adap);
+	iic_state_machine(0, adap);
 
 	timeout = wait_event_interruptible_timeout(adap->wait_queue,
 					(transaction.waitcondition==0),
@@ -559,6 +569,13 @@ static int iic_stm_xfer(struct i2c_adapter *i2c_adap,
 	result = transaction.current_msg;
 
 	if (unlikely(transaction.status_error != IIC_E_NO_ERROR || timeout <= 0)) {
+		if (!(ssc_load32(adap, SSC_CTL) & SSC_CTL_MS)){
+			printk(KERN_ALERT "i2c-stm: in timeout, state = 0x%x, next_state = 0x%x slave mode!\n",
+					transaction.state, transaction.next_state);
+			ssc_store32(adap, SSC_CLR, SSC_CLR_SSCARBL);
+			ssc_store32(adap, SSC_CTL, ssc_load32(adap, SSC_CTL) | SSC_CTL_MS);
+		}
+
 		/* There was some problem */
 		if(timeout<=0){
 			/* There was a timeout or signal.
@@ -580,10 +597,10 @@ static int iic_stm_xfer(struct i2c_adapter *i2c_adap,
 
 		if (!timeout){
 			printk(KERN_ERR
-			       "stm-i2c: Error timeout in the finite state machine\n");
+			       "i2c-stm: Error timeout in the finite state machine\n");
 			result = -ETIMEDOUT;
 		} else if (timeout < 0) {
-			dgb_print("stm-i2c: interrupt or error in wait event\n");
+			dgb_print("i2c-stm: interrupt or error in wait event\n");
 			result = timeout;
 		} else
 			result = -EREMOTEIO;
@@ -593,6 +610,7 @@ static int iic_stm_xfer(struct i2c_adapter *i2c_adap,
 	return result;
 }
 
+#ifdef  CONFIG_I2C_DEBUG_BUS
 static void iic_stm_timing_trace(struct iic_ssc *adap)
 {
 	dgb_print("SSC_BRG  %d\n",ssc_load32(adap, SSC_BRG));
@@ -615,6 +633,7 @@ static void iic_stm_timing_trace(struct iic_ssc *adap)
 	dgb_print("SSC_PRSCALER_DATAOUT %d\n",
 			ssc_load32(adap, SSC_PRSCALER_DATAOUT));
 }
+#endif
 
 static void iic_stm_setup_timing(struct iic_ssc *adap, unsigned long clock)
 {
@@ -626,26 +645,23 @@ static void iic_stm_setup_timing(struct iic_ssc *adap, unsigned long clock)
 	unsigned short iic_stop_setup;
 	unsigned short iic_bus_free;
 	unsigned short iic_pre_scale_baudrate = 1;
+#ifdef CONFIG_I2C_STM_HW_GLITCH
 	unsigned short iic_glitch_width;
 	unsigned short iic_glitch_width_dataout;
 	unsigned char  iic_prescaler;
-	unsigned short iic_prescaler_dataout ;
+	unsigned short iic_prescaler_dataout;
+#endif
 	unsigned long  ns_per_clk;
 
 	dgb_print("Assuming %d MHz for the Timing Setup\n",
 		  clock / 1000000);
 
-	clock += 5000000; /* +5000000 for rounding */
+	clock += 500000; /* +0.5 Mhz for rounding */
 	ns_per_clk = NANOSEC_PER_SEC / clock;
-
-	iic_prescaler		= clock / 10000000;
-	iic_prescaler_dataout	= clock / 10000000;
-	iic_glitch_width_dataout = GLITCH_WIDTH_DATA/100;
 
 	if (check_fastmode(adap)) {
 		set_ready_fastmode(adap);
 		iic_baudrate = clock / (2 * I2C_RATE_FASTMODE);
-		iic_glitch_width = 0;
 		iic_rep_start_hold  =(REP_START_HOLD_TIME_FAST +GLITCH_WIDTH_DATA) /ns_per_clk;
 		iic_rep_start_setup =(REP_START_SETUP_TIME_FAST+GLITCH_WIDTH_CLOCK) /ns_per_clk;
 		if(GLITCH_WIDTH_DATA<200)
@@ -658,7 +674,6 @@ static void iic_stm_setup_timing(struct iic_ssc *adap, unsigned long clock)
 	} else {
 		clear_ready_fastmode(adap);
 		iic_baudrate = clock  / (2 * I2C_RATE_NORMAL);
-		iic_glitch_width = (GLITCH_WIDTH_DATA*(clock/10000000))/(iic_prescaler*1000);
 		iic_rep_start_hold =( REP_START_HOLD_TIME_NORMAL+GLITCH_WIDTH_DATA) / ns_per_clk;
 		iic_rep_start_setup =( REP_START_SETUP_TIME_NORMAL+GLITCH_WIDTH_CLOCK) / ns_per_clk;
 		if(GLITCH_WIDTH_DATA<1200)
@@ -670,7 +685,6 @@ static void iic_stm_setup_timing(struct iic_ssc *adap, unsigned long clock)
 		iic_bus_free =( BUS_FREE_TIME_NORMAL+GLITCH_WIDTH_DATA) / ns_per_clk;
 	}
 
-	ssc_store32(adap, SSC_BRG,iic_baudrate);
 	ssc_store32(adap, SSC_REP_START_HOLD, iic_rep_start_hold);
 	ssc_store32(adap, SSC_START_HOLD, iic_start_hold);
 	ssc_store32(adap, SSC_REP_START_SETUP, iic_rep_start_setup);
@@ -678,12 +692,30 @@ static void iic_stm_setup_timing(struct iic_ssc *adap, unsigned long clock)
 	ssc_store32(adap, SSC_STOP_SETUP, iic_stop_setup);
 	ssc_store32(adap, SSC_BUS_FREE, iic_bus_free);
 	ssc_store32(adap, SSC_PRE_SCALER_BRG, iic_pre_scale_baudrate);
+
+#ifdef CONFIG_I2C_STM_HW_GLITCH
+	/* See DDTS GNBvd40668 */
+	iic_prescaler = 1;
+	iic_glitch_width = HW_GLITCH_WIDTH * clock / 100000000; /* width in uS */
+	iic_glitch_width_dataout = 1;
+	iic_prescaler_dataout = clock / 10000000;
+
 	ssc_store32(adap, SSC_PRSCALER, iic_prescaler);
 	ssc_store32(adap, SSC_NOISE_SUPP_WIDTH, iic_glitch_width);
 	ssc_store32(adap, SSC_NOISE_SUPP_WIDTH_DATAOUT, iic_glitch_width_dataout);
 	ssc_store32(adap, SSC_PRSCALER_DATAOUT, iic_prescaler_dataout);
+#endif
 
+	ssc_store32(adap, SSC_CTL, SSC_CTL_EN | SSC_CTL_MS |
+			SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x1 |
+			SSC_CTL_SR);
+
+	ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM);
+	ssc_store32(adap, SSC_BRG, iic_baudrate);
+
+#ifdef  CONFIG_I2C_DEBUG_BUS
 	iic_stm_timing_trace(adap);
+#endif
 	return;
 }
 
@@ -759,27 +791,29 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 	}
 	if (!(i2c_stm->base =
 		devm_ioremap_nocache(&pdev->dev, res->start, res->end - res->start))){
-		printk(KERN_ERR "%s: Request iomem 0x%x region not done\n",__FUNCTION__,res->start);
+		printk(KERN_ERR "%s: Request iomem 0x%x region not done\n",__FUNCTION__,
+			(unsigned int)res->start);
 		return -ENOMEM;
 	}
 	if (!(res=platform_get_resource(pdev, IORESOURCE_IRQ, 0))){
 		printk(KERN_ERR "%s Request irq %d not done\n",__FUNCTION__,res->start);
 		return -ENODEV;
 	}
-	if(devm_request_irq(&pdev->dev,res->start, iic_state_machine,
+	if(devm_request_irq(&pdev->dev, res->start, iic_state_machine,
 		IRQF_DISABLED, "i2c", i2c_stm)<0){
 		printk(KERN_ERR "%s: Request irq not done\n",__FUNCTION__);
 		return -ENODEV;
 	}
-	pio_info->clk = stpio_request_pin(pio_info->pio_port,pio_info->pio_pin[0],
-				"I2C Clock", STPIO_ALT_BIDIR);
+
+	pio_info->clk = stpio_request_set_pin(pio_info->pio_port,pio_info->pio_pin[0],
+				"I2C Clock", STPIO_ALT_BIDIR, 1);
 	if(!pio_info->clk){
-		printk(KERN_ERR "%s: Faild to clk pin allocation\n",__FUNCTION__);
+		printk(KERN_ERR "i2c-stm: %s: Failed to get clk pin allocation\n",__FUNCTION__);
 		return -ENODEV;
 	}
 
-	pio_info->sdout = stpio_request_pin(pio_info->pio_port,pio_info->pio_pin[1],
-				"I2C Data", STPIO_ALT_BIDIR);
+	pio_info->sdout = stpio_request_set_pin(pio_info->pio_port,pio_info->pio_pin[1],
+				"I2C Data", STPIO_ALT_BIDIR, 1);
 	if(!pio_info->sdout){
 		printk(KERN_ERR "%s: Faild to sda pin allocation\n",__FUNCTION__);
 		return -ENODEV;
@@ -799,7 +833,8 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 		       "%s: The I2C Core refuses the i2c/stm adapter\n",__FUNCTION__);
 		return -ENODEV;
 	} else {
-		device_create_file(&(i2c_stm->adapter.dev), &dev_attr_fastmode);
+		if (device_create_file(&(i2c_stm->adapter.dev), &dev_attr_fastmode))
+			printk(KERN_ERR "i2c-stm: cannot create fastmode sysfs entry\n");
 	}
 	return 0;
 
@@ -815,15 +850,14 @@ static int iic_stm_remove(struct platform_device *pdev)
 	i2c_del_adapter(&iic_stm->adapter);
 	/* irq */
 	res=platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	devm_free_irq(&pdev->dev,res->start,iic_stm);
+	devm_free_irq(&pdev->dev, res->start, iic_stm);
 	/* mem */
-	res=platform_get_resource(pdev, IORESOURCE_MEM,0);
-	devm_iounmap(&pdev->dev,res->start);
+	devm_iounmap(&pdev->dev, iic_stm->base);
 	/* pio */
 	stpio_free_pin(pio_info->clk);
 	stpio_free_pin(pio_info->sdout);
 	/* kmem */
-	devm_kfree(&pdev->dev,iic_stm);
+	devm_kfree(&pdev->dev, iic_stm);
 	return 0;
 }
 

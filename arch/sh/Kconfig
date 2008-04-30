@@ -375,6 +375,15 @@ config SH_ST_MB520
 	  Select SH_ST_MB520 if your processor board is connected
 	  to this STB-like peripherals board.
 
+config SH_ST_MB671
+	bool "mb671: STx7200 Mboard"
+	depends on CPU_SUBTYPE_STX7200
+	help
+	  Select SH_ST_MB671 if configuring for an
+	  STMicroelectronics STx7200 Mboard (product code: STB7200-MBOARD,
+	  ST board ID: mb671). More information at:
+	  <http://www.stlinux.com/boards/>
+
 config SH_ST_MB562
 	bool "mb562: BD-DVD peripherals board"
 	depends on SH_ST_MB519

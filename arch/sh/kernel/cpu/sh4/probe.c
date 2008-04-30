@@ -156,12 +156,12 @@ int __init detect_cpu_and_cache_system(void)
 		boot_cpu_data.type = CPU_ST40GX1;
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		break;
-	case 0x9090 ... 0x9091:
+	case 0x9090 ... 0x9092:
 		/* ST40-300 core */
 		switch (prr_all) {
 		case 0x9500 ... 0x95ff:
-			/* CPU_STX7200_300; */
-			cpu_data->type = CPU_SH_NONE;
+			/* CPU_STX7200 cut 2.0 */
+			cpu_data->type = CPU_STX7200;
 			break;
 		case 0x9a10:
 			/* STx7111 */

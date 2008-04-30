@@ -115,6 +115,7 @@ machdir-$(CONFIG_SH_ST_MB448)			+= st/mb448
 machdir-$(CONFIG_SH_ST_MB618)			+= st/mb618
 machdir-$(CONFIG_SH_HMS1)			+= st/hms1
 machdir-$(CONFIG_SH_ST_MB519)			+= st/mb519
+machdir-$(CONFIG_SH_ST_MB671)			+= st/mb671
 machdir-$(CONFIG_SH_ST_CB101)			+= st/cb101
 machdir-$(CONFIG_SH_HP6XX)			+= hp6xx
 machdir-$(CONFIG_SH_DREAMCAST)			+= dreamcast

@@ -352,16 +352,19 @@ void __init stx7200_configure_usb(void)
 	sc = sysconf_claim(SYS_CFG, 7, 27, 27, "usb");
 	sysconf_write(sc, 0);
 
-	/* Enable soft JTAG mode for USB and SATA
-	 * Taken from OS21, but is this correct?
-	 * soft_jtag_en = 1 */
-	sc = sysconf_claim(SYS_CFG, 33, 6, 6, "usb");
-	sysconf_write(sc, 1);
-	/* tck = tdi = trstn_usb = tms_usb = 0 */
-	sc = sysconf_claim(SYS_CFG, 33, 0, 3, "usb");
-	sysconf_write(sc, 0);
+	if (cpu_data->cut_major < 2) {
+		/* Enable soft JTAG mode for USB and SATA
+		 * Taken from OS21, but is this correct?
+		 * soft_jtag_en = 1 */
+		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "usb");
+		sysconf_write(sc, 1);
+		/* tck = tdi = trstn_usb = tms_usb = 0 */
+		sc = sysconf_claim(SYS_CFG, 33, 0, 3, "usb");
+		sysconf_write(sc, 0);
 
-	usb_soft_jtag_reset();
+		usb_soft_jtag_reset();
+	}
+
 	for (port=0; port<3; port++) {
 		usb_power_sc[port] = sysconf_claim(SYS_CFG, 22, 3+port,
 						   3+port, "usb");
@@ -369,8 +372,11 @@ void __init stx7200_configure_usb(void)
 		pio = stpio_request_pin(7, power_pins[port], "USB power",
 					STPIO_ALT_OUT);
 		stpio_set_pin(pio, 1);
-		pio = stpio_request_pin(7, oc_pins[port], "USB oc",
+
+		if (cpu_data->cut_major < 2) {
+			pio = stpio_request_pin(7, oc_pins[port], "USB oc",
 					STPIO_ALT_BIDIR);
+		}
 
 		platform_device_register(&st40_ohci_devices[port]);
 		platform_device_register(&st40_ehci_devices[port]);

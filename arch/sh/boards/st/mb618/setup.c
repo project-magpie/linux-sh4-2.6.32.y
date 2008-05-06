@@ -29,6 +29,8 @@
 
 /* Whether the hardware supports NOR or NAND Flash depends on J34.
  * In position 1-2 CSA selects NAND, in position 2-3 is selects NOR.
+ * Note that J30A must be in position 2-3 to select the on board Flash
+ * (both NOR and NAND).
  */
 #define FLASH_NOR
 

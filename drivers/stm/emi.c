@@ -44,6 +44,13 @@ unsigned long __init emi_bank_base(int bank)
 	return emi_memory_base + (reg << 22);
 }
 
+void __init emi_bank_configure(int bank, unsigned long data[4])
+{
+	int i;
+	for (i=0; i<4; i++)
+		writel(data[i], emi_control+BANK_EMICONFIGDATA(bank,i));
+}
+
 /*
                ______________________________
 FMIADDR    ___/                              \________

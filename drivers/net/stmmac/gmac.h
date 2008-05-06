@@ -133,11 +133,6 @@ enum rx_tx_priority_ratio {
 #define DMA_BUS_PR_RATIO_SHIFT	  14
 #define DMA_BUS_FB	  	  0x00010000	/* Fixed Burst */
 
-/* DMA Status register defines */
-#define DMA_STATUS_GPI		0x10000000	/* PMT interrupt */
-#define DMA_STATUS_GMI		0x08000000	/* MMC interrupt */
-#define DMA_STATUS_GLI		0x04000000	/* GMAC Line interface interrupt */
-
 /* DMA operation mode defines (start/stop tx/rx are placed in common header)*/
 #define DMA_CONTROL_DT		0x04000000	/* Disable Drop TCP/IP csum error */
 #define DMA_CONTROL_RSF		0x02000000	/* Receive Store and Forward */

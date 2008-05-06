@@ -64,8 +64,11 @@
 	},								\
 	.dev = {							\
 		.platform_data = &(struct ssc_pio_t ) {			\
-			.pio_port       = _pio_port,			\
-			.pio_pin        = { _pclk, _pdin, _pdout },	\
+			.pio = {					\
+				{ _pio_port, _pclk },			\
+				{ _pio_port, _pdin },			\
+				{ _pio_port, _pdout }			\
+			}						\
 		}                                                       \
 	}								\
 }

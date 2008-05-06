@@ -85,14 +85,16 @@ static int __init i2c_st40_probe(struct platform_device *pdev)
 	if (!algo)
 		return -1;
 
-	pio_info->clk = stpio_request_pin(pio_info->pio_port,
-			pio_info->pio_pin[0], "I2C Clock", STPIO_BIDIR);
+	pio_info->clk = stpio_request_pin(pio_info->pio[0].pio_port,
+			pio_info->pio[0].pio_pin,
+			"I2C Clock", STPIO_BIDIR);
 
 	if (!pio_info->clk) {
 		printk(KERN_ERR NAME"Failed to clk pin allocation\n");
 		return -1;
 	}
-	pio_info->sdout = stpio_request_pin(pio_info->pio_port,pio_info->pio_pin[1],
+	pio_info->sdout = stpio_request_pin(pio_info->pio[1].pio_port,
+			pio_info->pio[1].pio_pin,
 			"I2C Data", STPIO_BIDIR);
 	if (!pio_info->sdout){
 		printk(KERN_ERR NAME"Failed to sda pin allocation\n");
@@ -103,10 +105,12 @@ static int __init i2c_st40_probe(struct platform_device *pdev)
 	stpio_set_pin(pio_info->sdout, 1);
 
 	printk(KERN_INFO NAME": allocated pin (%d,%d) for scl (0x%p)\n",
-			pio_info->pio_port, pio_info->pio_pin[0],
+			pio_info->pio[0].pio_port,
+			pio_info->pio[0].pio_pin,
 			pio_info->clk);
 	printk(KERN_INFO NAME": allocated pin (%d,%d) for sda (0x%p)\n",
-			pio_info->pio_port, pio_info->pio_pin[1],
+			pio_info->pio[1].pio_port,
+			pio_info->pio[1].pio_pin,
 			pio_info->sdout);
 
 	sprintf(i2c_bus->name, "i2c_pio_%d", pdev->id);

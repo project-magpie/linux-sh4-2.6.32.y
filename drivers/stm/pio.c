@@ -618,6 +618,13 @@ static int stpio_init_port(struct platform_device *pdev, int early)
 		struct stpio_pin *pin;
 		int i;
 
+		irq = pdev->resource[1].start;
+		if (irq == -1)
+			goto no_irq;
+
+		set_irq_chained_handler(irq, stpio_irq_chip_handler);
+		set_irq_data(irq, port);
+
 		irq = stpio_irq_base + (portno * STPIO_PINS_IN_PORT);
 		for (i = 0; i < STPIO_PINS_IN_PORT; i++) {
 			pin = &port->pins[i];
@@ -630,11 +637,8 @@ static int stpio_init_port(struct platform_device *pdev, int early)
 			irq++;
 			pin++;
 		}
-
-		irq = pdev->resource[1].start;
-		set_irq_chained_handler(irq, stpio_irq_chip_handler);
-		set_irq_data(irq, port);
 	}
+no_irq:
 
 	return 0;
 

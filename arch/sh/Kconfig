@@ -341,6 +341,15 @@ config SH_ST_MB618
 	  ST board ID: mb618). More information at:
 	  <http://www.stlinux.com/boards/mb618/>
 
+config SH_ST_MB680
+	bool "mb680: STx7105 Validation board"
+	depends on CPU_SUBTYPE_STX7105
+	help
+	  Select STx7105 Validation if configuring for an
+	  STMicroelectronics STx7105 Validation Board (product code: STi7105-MBOARD,
+	  ST board ID: mb680). More information at:
+	  <http://www.stlinux.com/boards/mb680/>
+
 config SH_ST_CB101
 	bool "cb101: ST Customer board 101"
 	depends on CPU_SUBTYPE_STX7200

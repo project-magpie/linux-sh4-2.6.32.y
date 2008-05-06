@@ -70,6 +70,11 @@ config STE10XP
           Say Y if you want it compiled into the kernel. To compile this
           driver as a module, choose M here.
 
+config NATIONAL_PHY
+	tristate "Drivers for National Semiconductor PHYs"
+	---help---
+	  Currently supports the DP83865 PHY.
+
 config FIXED_PHY
 	tristate "Drivers for PHY emulation on fixed speed/link"
 	---help---

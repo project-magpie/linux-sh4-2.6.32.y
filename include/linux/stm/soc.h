@@ -3,8 +3,10 @@
 
 /* This is the private platform data for the ssc driver */
 struct ssc_pio_t {
-	unsigned char pio_port;
-	unsigned char pio_pin[3];
+	struct {
+		unsigned char pio_port;
+		unsigned char pio_pin;
+	} pio[3]; /* clk, in, out */
 	struct stpio_pin* clk;
 	struct stpio_pin* sdout;
 	struct stpio_pin* sdin;
@@ -33,7 +35,38 @@ struct ssc_pio_t {
 
 struct plat_ssc_data {
 	unsigned short		capability;	/* bitmask on the ssc capability */
+	unsigned long		routing;
 };
+
+#define SSC_SCLK_SHIFT(n)	(0+(n*6))
+#define SSC_MTSR_SHIFT(n)	(2+(n*6))
+#define SSC_MRST_SHIFT(n)	(4+(n*6))
+
+#define SSC2_SCLK_PIO3_4	(0 << SSC_SCLK_SHIFT(2))
+#define SSC2_SCLK_PIO12_0	(2 << SSC_SCLK_SHIFT(2))
+#define SSC2_SCLK_PIO13_4	(3 << SSC_SCLK_SHIFT(2))
+
+#define SSC2_MTSR_PIO3_5	(0 << SSC_MTSR_SHIFT(2))
+#define SSC2_MTSR_PIO12_1	(1 << SSC_MTSR_SHIFT(2))
+#define SSC2_MTSR_PIO13_5	(2 << SSC_MTSR_SHIFT(2))
+
+#define SSC2_MRST_PIO2_0	(0 << SSC_MRST_SHIFT(2))
+#define SSC2_MRST_PIO3_5	(1 << SSC_MRST_SHIFT(2))
+#define SSC2_MRST_PIO12_1	(2 << SSC_MRST_SHIFT(2))
+#define SSC2_MRST_PIO13_5	(3 << SSC_MRST_SHIFT(2))
+
+#define SSC3_SCLK_PIO3_6	(0 << SSC_SCLK_SHIFT(3))
+#define SSC3_SCLK_PIO13_2	(1 << SSC_SCLK_SHIFT(3))
+#define SSC3_SCLK_PIO13_6	(2 << SSC_SCLK_SHIFT(3))
+
+#define SSC3_MTSR_PIO3_7	(0 << SSC_MTSR_SHIFT(3))
+#define SSC3_MTSR_PIO13_3	(1 << SSC_MTSR_SHIFT(3))
+#define SSC3_MTSR_PIO13_7	(2 << SSC_MTSR_SHIFT(3))
+
+#define SSC3_MRST_PIO2_1	(0 << SSC_MRST_SHIFT(3))
+#define SSC3_MRST_PIO3_7	(1 << SSC_MRST_SHIFT(3))
+#define SSC3_MRST_PIO13_3	(2 << SSC_MRST_SHIFT(3))
+#define SSC3_MRST_PIO13_7	(3 << SSC_MRST_SHIFT(3))
 
 #define SPI_LINE_SHIFT		0x0
 #define SPI_LINE_MASK		0x7
@@ -172,6 +205,17 @@ void stx7100_configure_usb(void);
 void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus);
 void stx7100_configure_lirc(void);
 void stx7100_configure_pata(int bank, int irq);
+
+void stx7105_early_device_init(void);
+void stx7105_configure_asc(const int *ascs, int num_ascs, int console);
+void stx7105_configure_pwm(struct plat_stm_pwm_data *data);
+void stx7105_configure_ssc(struct plat_ssc_data *data);
+void stx7105_configure_usb(int port, int oc_en, int oc_actlow, int oc_pinsel,
+			   int pwr_en, int pwr_pinsel);
+void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
+				int ext_mdio, int ext_clk, int phy_bus);
+void stx7105_configure_nand(struct nand_config_data *data);
+void stx7105_configure_lirc(void);
 
 void stx7111_early_device_init(void);
 void stx7111_configure_asc(const int *ascs, int num_ascs, int console);

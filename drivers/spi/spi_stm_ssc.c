@@ -451,8 +451,8 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	}
 
 	/* Get PIO pins */
-	pio_info->clk = stpio_request_set_pin(pio_info->pio_port,
-					      pio_info->pio_pin[0],
+	pio_info->clk = stpio_request_set_pin(pio_info->pio[0].pio_port,
+					  pio_info->pio[0].pio_pin,
 					      "SPI Clock", STPIO_BIDIR, 0);
 	if (!pio_info->clk) {
 		printk(KERN_ERR NAME
@@ -460,8 +460,8 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 		       pio_info->pio_port, pio_info->pio_pin[0]);
 		return -ENODEV;
 	}
-	pio_info->sdout = stpio_request_set_pin(pio_info->pio_port,
-						pio_info->pio_pin[1],
+	pio_info->sdout = stpio_request_set_pin(pio_info->pio[1].pio_port,
+					    pio_info->pio[1].pio_pin,
 						"SPI Data out", STPIO_BIDIR, 0);
 	if (!pio_info->sdout) {
 		printk(KERN_ERR NAME
@@ -469,8 +469,8 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 		       pio_info->pio_port, pio_info->pio_pin[1]);
 		return -ENODEV;
 	}
-	pio_info->sdin = stpio_request_pin(pio_info->pio_port,
-					   pio_info->pio_pin[2],
+	pio_info->sdin = stpio_request_pin(pio_info->pio[2].pio_port,
+					   pio_info->pio[2].pio_pin,
 					   "SPI Data in", STPIO_IN);
 	if (!pio_info->sdin) {
 		printk(KERN_ERR NAME

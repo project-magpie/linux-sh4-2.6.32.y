@@ -59,6 +59,7 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 
 	/* Read the data from the MII data register */
 	data = (int)readl(ioaddr + mii_data);
+
 	return data;
 }
 

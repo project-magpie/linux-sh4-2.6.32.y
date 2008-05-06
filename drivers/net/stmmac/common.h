@@ -57,6 +57,11 @@
 /* ****************************
  *  DMA Status register defines
  * ****************************/
+#define DMA_STATUS_GPI		0x10000000	/* PMT interrupt */
+#define DMA_STATUS_GMI		0x08000000	/* MMC interrupt */
+#define DMA_STATUS_GLI		0x04000000	/* GMAC Line interface interrupt */
+#define DMA_STATUS_GMI		0x08000000
+#define DMA_STATUS_GLI		0x04000000
 #define DMA_STATUS_EB_MASK	0x00380000	/* Error Bits Mask */
 #define DMA_STATUS_EB_TX_ABORT	0x00080000	/* Error Bits - TX Abort */
 #define DMA_STATUS_EB_RX_ABORT	0x00100000	/* Error Bits - RX Abort */
@@ -102,6 +107,17 @@
 #define MAC_CTRL_REG		0x00000000	/* MAC Control */
 #define MAC_ENABLE_TX		0x00000008	/* Transmitter Enable */
 #define MAC_RNABLE_RX		0x00000004	/* Receiver Enable */
+
+/* MAC Management Counters register */
+#define MMC_CONTROL		0x00000100	/* MMC Control */
+#define MMC_HIGH_INTR		0x00000104	/* MMC High Interrupt */
+#define MMC_LOW_INTR		0x00000108	/* MMC Low Interrupt */
+#define MMC_HIGH_INTR_MASK	0x0000010c	/* MMC High Interrupt Mask */
+#define MMC_LOW_INTR_MASK	0x00000110	/* MMC Low Interrupt Mask */
+
+#define MMC_CONTROL_MAX_FRM_MASK	0x0003ff8	/* Maximum Frame Size */
+#define MMC_CONTROL_MAX_FRM_SHIFT	3
+#define MMC_CONTROL_MAX_FRAME		0x7FF
 
 struct stmmac_extra_stats {
 	unsigned long tx_underflow;

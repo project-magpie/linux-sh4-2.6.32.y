@@ -805,14 +805,16 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	pio_info->clk = stpio_request_set_pin(pio_info->pio_port,pio_info->pio_pin[0],
+	pio_info->clk = stpio_request_set_pin(pio_info->pio[0].pio_port,
+					  pio_info->pio[0].pio_pin,
 				"I2C Clock", STPIO_ALT_BIDIR, 1);
 	if(!pio_info->clk){
 		printk(KERN_ERR "i2c-stm: %s: Failed to get clk pin allocation\n",__FUNCTION__);
 		return -ENODEV;
 	}
 
-	pio_info->sdout = stpio_request_set_pin(pio_info->pio_port,pio_info->pio_pin[1],
+	pio_info->sdout = stpio_request_set_pin(pio_info->pio[1].pio_port,
+					    pio_info->pio[1].pio_pin,
 				"I2C Data", STPIO_ALT_BIDIR, 1);
 	if(!pio_info->sdout){
 		printk(KERN_ERR "%s: Faild to sda pin allocation\n",__FUNCTION__);

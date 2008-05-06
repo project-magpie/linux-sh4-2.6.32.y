@@ -940,6 +940,7 @@ MODULE_LICENSE ("GPL");
 #endif
 
 #if defined(CONFIG_CPU_SUBTYPE_STB7100) || \
+    defined(CONFIG_CPU_SUBTYPE_STX7105) || \
     defined(CONFIG_CPU_SUBTYPE_STX7111) || \
     defined(CONFIG_CPU_SUBTYPE_STX7200)
 #include "ehci-stcore.c"

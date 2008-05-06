@@ -68,6 +68,22 @@ int ST40_start_host_control(struct platform_device *pdev)
 	if (!protocol_base)
 		goto err4;
 
+
+#if	defined(CONFIG_CPU_SUBTYPE_STX7105)
+	req_reg =
+		(1<<21) |  /* Turn on read-ahead */
+		(5<<16) |  /* Opcode is store/load 32 */
+		(0<<15) |  /* Turn off write posting */
+		(1<<14) |  /* Enable threshold */
+		(3<<9)  |  /* 2**3 Packets in a chunk */
+		(0<<4)  |  /* No messages */
+		7;         /* Threshold is 128 */
+
+	do {
+		writel(req_reg, protocol_base + AHB2STBUS_STBUS_CONFIG);
+		reg = readl(protocol_base + AHB2STBUS_STBUS_CONFIG);
+	} while ((reg & 0x7FFFFFFF) != req_reg);
+#else
 	/* Set strap mode */
 	reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	reg &= ~AHB2STBUS_STRAP_16_BIT;
@@ -97,7 +113,7 @@ int ST40_start_host_control(struct platform_device *pdev)
 	writel(CHUNKSIZE,
 	       protocol_base + AHB2STBUS_CHUNKSIZE_OFFSET);
 
-#elif defined(CONFIG_CPU_SUBTYPE_STX7111)
+#elif	defined(CONFIG_CPU_SUBTYPE_STX7111)
 
 	req_reg =
 		(1<<21) |  /* Turn on read-ahead */
@@ -113,6 +129,9 @@ int ST40_start_host_control(struct platform_device *pdev)
 		reg = readl(protocol_base + AHB2STBUS_STBUS_CONFIG);
 	} while ((reg & 0x7FFFFFFF) != req_reg);
 
+#else
+#error Unknown CPU
+#endif
 #endif
 
 	if (usb_wrapper->power_up)

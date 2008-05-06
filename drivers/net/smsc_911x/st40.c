@@ -87,6 +87,25 @@
 #define PLATFORM_CSBASE		(0x02800000UL)
 #define PLATFORM_IRQ		ILC_EXT_IRQ(1)
 #endif
+#elif defined(CONFIG_SH_ST_MB680)
+/* db641 STEM card plugged into mb680 */
+#include <asm/irq-ilc.h>
+#include <linux/stm/emi.h>
+#ifdef DB641_USE_PORT0
+/* STEM CS0 = BANK2 */
+/* Need to set J14A to 1-2 (notStemCS(0) <= notEMICSC) and
+ * J4 to 1-2 and fit J2A (notStemIntr(0) <= SysIRQ2) if mb680 used
+ * standalone. */
+#define PLATFORM_CSBASE		emi_bank_base(2)
+#define PLATFORM_IRQ		ILC_EXT_IRQ(2)
+#else
+/* STEM CS1 = BANK3 */
+/* Need to set J14B to 1-2 (notStemCS(1) <= notEMICSD) and
+ * fit J2B (notStemIntr(1) <= SysIRQ1) if mb680 used
+ * standalone. */
+#define PLATFORM_CSBASE		emi_bank_base(3)
+#define PLATFORM_IRQ		ILC_EXT_IRQ(1)
+#endif
 #elif defined(CONFIG_SH_HMS1)
 /* SD HMS1 with in-built SMSC 911x */
 #undef PLATFORM_IRQ_POL

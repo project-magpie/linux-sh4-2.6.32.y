@@ -18,14 +18,17 @@
 struct sysconf_field {
 	u16 offset;
 	u8 lsb, msb;
+	char* dev;
+	struct list_head list;
 };
 
 static void __iomem *sysconf_base;
 static int sysconf_offsets[3];
 static DEFINE_SPINLOCK(sysconf_lock);
+static LIST_HEAD(sysconf_fields);
 
 /* We need a small stash of allocations before kmalloc becomes available */
-#define NUM_EARLY_FIELDS 10
+#define NUM_EARLY_FIELDS 50
 static struct sysconf_field early_fields[NUM_EARLY_FIELDS];
 static int next_early_field = 0;
 
@@ -40,18 +43,47 @@ static struct sysconf_field* field_alloc(void)
 struct sysconf_field* sysconf_claim(int regtype, int regnum, int lsb, int msb,
 				    const char *dev)
 {
-	struct sysconf_field *field;
+	struct sysconf_field *field, *new_field;
+	int offset = sysconf_offsets[regtype] + (regnum * 4);
+
+
+#if 0
+	spin_lock(&sysconf_lock);
+
+	list_for_each(field, sysconf_fields) {
+		if (field->offset < offset)
+			continue;
+		if (field->offset > offset)
+			break;
+		if (field->lsb > msb)
+			continue;
+		if (field->msb < lsb)
+			break;
+
+	}
+
+	/* Insert before field */
+	list_add_tail(new_field, field);
+#endif
+
 
 	field = field_alloc();
 	if (!field)
 		return NULL;
 
-	field->offset = sysconf_offsets[regtype] + (regnum * 4);
+	field->offset = offset;
 	field->lsb = lsb;
 	field->msb = msb;
 
 	return field;
 }
+EXPORT_SYMBOL(sysconf_claim);
+
+void sysconf_release(struct sysconf_field *field)
+{
+
+}
+EXPORT_SYMBOL(sysconf_release);
 
 void sysconf_write(struct sysconf_field *field, u64 value)
 {
@@ -77,6 +109,7 @@ void sysconf_write(struct sysconf_field *field, u64 value)
 		spin_unlock(&sysconf_lock);
 	}
 }
+EXPORT_SYMBOL(sysconf_write);
 
 u64 sysconf_read(struct sysconf_field *field)
 {
@@ -95,6 +128,7 @@ u64 sysconf_read(struct sysconf_field *field)
 
 	return (u64)tmp;
 }
+EXPORT_SYMBOL(sysconf_read);
 
 /* This is called early to allow board start up code to use sysconf
  * registers (in particular console devices). */

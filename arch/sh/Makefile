@@ -113,6 +113,7 @@ machdir-$(CONFIG_SH_ST_MB411)			+= st/mb411
 machdir-$(CONFIG_SH_ST_MB442)			+= st/mb442
 machdir-$(CONFIG_SH_ST_MB448)			+= st/mb448
 machdir-$(CONFIG_SH_ST_MB618)			+= st/mb618
+machdir-$(CONFIG_SH_ST_MB680)			+= st/mb680
 machdir-$(CONFIG_SH_HMS1)			+= st/hms1
 machdir-$(CONFIG_SH_ST_MB519)			+= st/mb519
 machdir-$(CONFIG_SH_ST_MB671)			+= st/mb671

@@ -33,6 +33,15 @@ struct sysconf_field* sysconf_claim(int regtype, int regnum, int lsb, int msb,
 				    const char* dev);
 
 /**
+ * sysconf_release - Release ownership of a field of a sysconfig register
+ * @field: the sysconfig field to write to
+ *
+ * Release ownership of a field from a sysconf register.
+ * @field must have been claimed using sysconf_claim().
+ */
+void sysconf_release(struct sysconf_field *field);
+
+/**
  * sysconf_write - Write a value into a field of a sysconfig register
  * @field: the sysconfig field to write to
  * @value: the value to write into the field

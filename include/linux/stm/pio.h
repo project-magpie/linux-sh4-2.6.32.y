@@ -30,7 +30,7 @@
 #define STPIO_ALT_BIDIR		7	/* Alt bidir open drain (arch defn) */
 
 /* Constant numbers */
-#define STPIO_MAX_PORTS		8
+#define STPIO_MAX_PORTS		20
 #define STPIO_PINS_IN_PORT	8
 
 struct stpio_pin;

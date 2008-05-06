@@ -24,7 +24,7 @@
 #include "gmac.h"
 
 #undef GMAC_DEBUG
-/*#define GMAC_DEBUG*/
+#define GMAC_DEBUG
 #ifdef GMAC_DEBUG
 #define DBG(fmt,args...)  printk(fmt, ## args)
 #else
@@ -203,22 +203,24 @@ static int gmac_get_tx_frame_status(void *data, struct stmmac_extra_stats *x,
 			gmac_flush_tx_fifo(ioaddr);
 			x->tx_underflow++;
 		}
+		ret = -1;
+	}
 
 		if (unlikely(p->des01.etx.payload_error)) {
 			DBG(KERN_ERR "%s: TX Addr/Payload csum error\n",
 			    __FUNCTION__);
 			x->tx_payload_error++;
 			gmac_flush_tx_fifo(ioaddr);
+			ret = -1;
 		}
 
 		if (unlikely(p->des01.etx.ip_header_error)) {
 			DBG(KERN_ERR "%s: TX IP header csum error\n",
-			    __FUNCTION__);
+		    __FUNCTION__);
 			x->tx_ip_header_error++;
+			ret = -1;
 		}
 
-		ret = -1;
-	}
 
 	if (unlikely(p->des01.etx.deferred)) {
 		x->tx_deferred++;

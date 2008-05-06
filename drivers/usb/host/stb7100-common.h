@@ -49,11 +49,14 @@
 #define AHB2STBUS_PC_STATUS		(AHB2STBUS_PROTOCOL_BASE + 0x10)
 #define AHB2STBUS_PC_STATUS_IDLE	1
 
-#elif defined(CONFIG_CPU_SUBTYPE_STX7111)
+#elif	defined(CONFIG_CPU_SUBTYPE_STX7105) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7111)
 
 /* No documentation for this */
 #define AHB2STBUS_STBUS_CONFIG		0x04	/* From AHB2STBUS_PROTOCOL_BASE */
 
+#else
+#error Unknown CPU
 #endif
 
 /* This register implements interrupt status for the OHCI controller */

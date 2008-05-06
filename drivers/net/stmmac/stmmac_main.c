@@ -295,6 +295,7 @@ static void stmmac_adjust_link(struct net_device *dev)
 				} else {
 					ctrl &= ~lp->mac_type->hw.link.port;
 				}
+				lp->fix_mac_speed(lp->bsp_priv, phydev->speed);
 				break;
 			default:
 				if (netif_msg_link(lp))
@@ -1026,6 +1027,13 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 			stmmac_tx(dev);
 		}
 	}
+
+	/* Optional hardware blocks, interrupts should be disabled */
+	if (unlikely(intr_status &
+		    (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI))) {
+		    printk("%s: unexpected status %08x\n", __FUNCTION__, intr_status);
+	}
+
 	DBG(intr, INFO, "\n\n");
 
 	return;
@@ -1088,6 +1096,10 @@ static int stmmac_enable(struct net_device *dev)
 	/* Initialize the MAC Core */
 	lp->mac_type->ops->core_init(ioaddr);
 	lp->tx_aggregation = 0;
+
+	/* Initialise the MMC (if present) to disable all interrupts */
+	writel(0xffffffff, ioaddr+MMC_HIGH_INTR_MASK);
+	writel(0xffffffff, ioaddr+MMC_LOW_INTR_MASK);
 
 	/* Enable the MAC Rx/Tx */
 	stmmac_mac_enable_rx(dev);

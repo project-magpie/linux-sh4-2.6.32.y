@@ -159,6 +159,10 @@ int __init detect_cpu_and_cache_system(void)
 	case 0x9090 ... 0x9092:
 		/* ST40-300 core */
 		switch (prr_all) {
+		case 0x10:
+			/* STx7105 */
+			cpu_data->type = CPU_STX7105;
+			break;
 		case 0x9500 ... 0x95ff:
 			/* CPU_STX7200 cut 2.0 */
 			cpu_data->type = CPU_STX7200;

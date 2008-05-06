@@ -53,17 +53,6 @@
 #define MAC_MII_ADDR_WRITE	0x00000002	/* MII Write */
 #define MAC_MII_ADDR_BUSY	0x00000001	/* MII Busy */
 
-/* MAC Management Counters register */
-#define MMC_CONTROL		0x00000100	/* MMC Control */
-#define MMC_HIGH_INTR		0x00000104	/* MMC High Interrupt */
-#define MMC_LOW_INTR		0x00000108	/* MMC Low Interrupt */
-#define MMC_HIGH_INTR_MASK	0x0000010c	/* MMC High Interrupt Mask */
-#define MMC_LOW_INTR_MASK	0x00000110	/* MMC Low Interrupt Mask */
-
-#define MMC_CONTROL_MAX_FRM_MASK	0x0003ff8	/* Maximum Frame Size */
-#define MMC_CONTROL_MAX_FRM_SHIFT	3
-#define MMC_CONTROL_MAX_FRAME		0x7FF
-
 /*----------------------------------------------------------------------------
  * 				DMA BLOCK defines
  *---------------------------------------------------------------------------*/

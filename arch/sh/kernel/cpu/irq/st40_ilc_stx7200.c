@@ -81,7 +81,8 @@ void ilc_irq_demux(unsigned int irq, struct irq_desc *desc)
 {
 #if	defined(CONFIG_CPU_SUBTYPE_STX7111)
 	const unsigned int priority = 7;
-#elif	defined(CONFIG_CPU_SUBTYPE_STX7200)
+#elif	defined(CONFIG_CPU_SUBTYPE_STX7105) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7200)
 	unsigned int priority = 14 - irq;
 #endif
 	unsigned int irq_offset;
@@ -138,7 +139,8 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 	/* ILC_EXT_OUT[6] -> IRL[2] (default priority  7 = irq  8) */
 	/* ILC_EXT_OUT[7] -> IRL[3] (default priority  4 = irq 11) */
 	ILC_SET_PRI(irq_offset, 0x8007);
-#elif	defined(CONFIG_CPU_SUBTYPE_STX7200)
+#elif	defined(CONFIG_CPU_SUBTYPE_STX7105) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7200)
 	ILC_SET_PRI(irq_offset, priority);
 #endif
 
@@ -148,6 +150,11 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 	/* Gross hack for external Ethernet PHYs which are active low */
 	/* FIXME: Move this into the BSP code */
 	if ((irq_offset == 93)  ||  (irq_offset == 95)) {
+		ILC_SET_TRIGMODE(irq_offset, ILC_TRIGGERMODE_LOW);
+	}
+#elif defined(CONFIG_CPU_SUBTYPE_STX7105)
+	/* Similarly for STEM interrupts which are active low */
+	if ((irq == ILC_EXT_IRQ(2)) || (irq == ILC_EXT_IRQ(3))) {
 		ILC_SET_TRIGMODE(irq_offset, ILC_TRIGGERMODE_LOW);
 	}
 #endif

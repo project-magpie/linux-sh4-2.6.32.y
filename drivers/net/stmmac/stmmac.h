@@ -26,7 +26,6 @@ struct eth_driver_local {
 	int is_gmac;
 	unsigned int ip_header_len;
 	struct mii_bus *mii;
-	struct net_device_stats stats;
 	u32 msg_enable;
 	spinlock_t lock;
 	spinlock_t tx_lock;

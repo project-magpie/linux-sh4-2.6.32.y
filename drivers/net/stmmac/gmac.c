@@ -24,7 +24,7 @@
 #include "gmac.h"
 
 #undef GMAC_DEBUG
-#define GMAC_DEBUG
+/*#define GMAC_DEBUG*/
 #ifdef GMAC_DEBUG
 #define DBG(fmt,args...)  printk(fmt, ## args)
 #else

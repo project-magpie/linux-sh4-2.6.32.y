@@ -11,6 +11,8 @@
  * ----------------------------------------------------------------------------
  *
  * Changelog:
+ * May 2008:
+ *	- Removed stats from the private structure.
  * April 2008:
  *	- Added kernel timer for handling interrupts.
  *	- Reviewed the GMAC HW configuration.
@@ -829,13 +831,13 @@ static void stmmac_tx(struct net_device *dev)
 		/* verify tx error by looking at the last segment */
 		last = lp->mac_type->ops->get_tx_ls(p);
 		if (likely(last)) {
-			int tx_error = lp->mac_type->ops->tx_status(&lp->stats,
+			int tx_error = lp->mac_type->ops->tx_status(&dev->stats,
 								    &lp->xstats,
 								    p, ioaddr);
 			if (likely(tx_error == 0)) {
-				lp->stats.tx_packets++;
+				dev->stats.tx_packets++;
 			} else {
-				lp->stats.tx_errors++;
+				dev->stats.tx_errors++;
 			}
 		}
 		DBG(intr, DEBUG, "stmmac_tx: curr %d, dirty %d\n", lp->cur_tx,
@@ -883,7 +885,7 @@ static __inline__ void stmmac_tx_err(struct net_device *dev)
 	lp->dirty_tx = lp->cur_tx = 0;
 	stmmac_dma_start_tx(dev->base_addr);
 
-	lp->stats.tx_errors++;
+	dev->stats.tx_errors++;
 	netif_wake_queue(dev);
 
 	spin_unlock(&lp->tx_lock);
@@ -900,9 +902,6 @@ void stmmac_schedule_rx(struct net_device *dev)
 	stmmac_dma_disable_irq_rx(dev->base_addr);
 
 	if (likely(netif_rx_schedule_prep(dev))) {
-#ifdef CONFIG_STMMAC_RTC_TIMER
-		stmmac_timer_stop();
-#endif
 		__netif_rx_schedule(dev);
 	}
 
@@ -1210,13 +1209,11 @@ static int stmmac_shutdown(struct net_device *dev)
 
 static void stmmac_tx_checksum(struct sk_buff *skb)
 {
-	if (likely(skb->ip_summed == CHECKSUM_PARTIAL)) {
-		const int offset = skb_transport_offset(skb);
-		unsigned int csum =
-		    skb_checksum(skb, offset, skb->len - offset, 0);
-		*(u16 *) (skb->data + offset + skb->csum_offset) =
-		    csum_fold(csum);
-	}
+	const int offset = skb_transport_offset(skb);
+	unsigned int csum =
+	    skb_checksum(skb, offset, skb->len - offset, 0);
+	*(u16 *) (skb->data + offset + skb->csum_offset) =
+	    csum_fold(csum);
 	return;
 }
 
@@ -1267,7 +1264,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		printk(KERN_ERR "%s: BUG! Inconsistent Tx skb utilization\n",
 		       dev->name);
 		dev_kfree_skb_any(skb);
-		lp->stats.tx_dropped += 1;
+		dev->stats.tx_dropped += 1;
 		return -1;
 	}
 
@@ -1326,7 +1323,6 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 
 #ifdef STMMAC_XMIT_DEBUG
 	if (netif_msg_pktdata(lp)) {
-	{
 		printk("stmmac xmit: current=%d, dirty=%d, entry=%d, "
 		       "first=%d, nfrags=%d\n",
 		       (lp->cur_tx % txsize), (lp->dirty_tx % txsize), entry,
@@ -1352,7 +1348,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 #endif
 
-	lp->stats.tx_bytes += skb->len;
+	dev->stats.tx_bytes += skb->len;
 	lp->xstats.tx_bytes += skb->len;
 
 	/* CSR1 enables the transmit DMA to check for new descriptor */
@@ -1412,10 +1408,10 @@ static int stmmac_rx(struct net_device *dev, int limit)
 		if (lp->mac_type->ops->read_rx_owner(p))
 			break;
 		/* read the status of the incoming frame */
-		if (unlikely((lp->mac_type->ops->rx_status(&lp->stats,
+		if (unlikely((lp->mac_type->ops->rx_status(&dev->stats,
 							   &lp->xstats,
 							   p) < 0))) {
-			lp->stats.rx_errors++;
+			dev->stats.rx_errors++;
 		} else {
 			struct sk_buff *skb;
 			/* Length should omit the CRC */
@@ -1437,7 +1433,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 						       "%s: low memory, "
 						       "packet dropped.\n",
 						       dev->name);
-					lp->stats.rx_dropped++;
+					dev->stats.rx_dropped++;
 					break;
 				}
 
@@ -1463,7 +1459,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 					printk(KERN_ERR "%s: Inconsistent Rx "
 					       "descriptor chain.\n",
 					       dev->name);
-					lp->stats.rx_dropped++;
+					dev->stats.rx_dropped++;
 					lp->xstats.rx_dropped++;
 					break;
 				}
@@ -1491,8 +1487,8 @@ static int stmmac_rx(struct net_device *dev, int limit)
 			netif_rx(skb);
 #endif
 
-			lp->stats.rx_packets++;
-			lp->stats.rx_bytes += frame_len;
+			dev->stats.rx_packets++;
+			dev->stats.rx_bytes += frame_len;
 			lp->xstats.rx_bytes += frame_len;
 			dev->last_rx = jiffies;
 		}
@@ -1519,9 +1515,6 @@ static int stmmac_rx(struct net_device *dev, int limit)
 static int stmmac_poll(struct net_device *dev, int *budget)
 {
 	int work_done;
-#ifdef CONFIG_STMMAC_RTC_TIMER
-	struct eth_driver_local *lp = netdev_priv(dev);
-#endif
 
 	work_done = stmmac_rx(dev, dev->quota);
 	dev->quota -= work_done;
@@ -1531,10 +1524,6 @@ static int stmmac_poll(struct net_device *dev, int *budget)
 		RX_DBG(">>> rx work completed.\n");
 		__netif_rx_complete(dev);
 		stmmac_dma_enable_irq_rx(dev->base_addr);
-#ifdef CONFIG_STMMAC_RTC_TIMER
-		if (likely(lp->has_timer == 0))
-			stmmac_timer_start(periodic_rate);
-#endif
 		return 0;
 	}
 	return 1;
@@ -1573,21 +1562,6 @@ static void stmmac_tx_timeout(struct net_device *dev)
 	dev->trans_start = jiffies;
 
 	return;
-}
-
-/**
- *  stmmac_stats
- *  @dev : Pointer to net device structure
- *  Description: this function returns statistics to the caller application
- */
-struct net_device_stats *stmmac_stats(struct net_device *dev)
-{
-	struct eth_driver_local *lp = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
-
-	lp->mac_type->ops->dma_diagnostic_fr(&lp->stats, &lp->xstats, ioaddr);
-
-	return &lp->stats;
 }
 
 /* Configuration changes (passed on by ifconfig) */
@@ -1762,7 +1736,6 @@ static int stmmac_probe(struct net_device *dev)
 	dev->hard_start_xmit = stmmac_xmit;
 	dev->features |= (NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_HIGHDMA);
 
-	dev->get_stats = stmmac_stats;
 	dev->tx_timeout = stmmac_tx_timeout;
 	dev->watchdog_timeo = msecs_to_jiffies(watchdog);
 	dev->set_multicast_list = stmmac_multicast_list;

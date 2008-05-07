@@ -249,7 +249,7 @@ static void stmmac_ethtool_stats(struct net_device *dev,
 	u32 *extra;
 	int i;
 
-	lp->mac_type->ops->dma_diagnostic_fr(&lp->stats, &lp->xstats, ioaddr);
+	lp->mac_type->ops->dma_diagnostic_fr(&dev->stats, &lp->xstats, ioaddr);
 
 	extra = (u32 *) & lp->xstats;
 

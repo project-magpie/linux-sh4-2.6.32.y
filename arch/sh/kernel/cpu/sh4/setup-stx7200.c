@@ -1204,7 +1204,6 @@ enum {
 	UNUSED = 0,
 
 	/* interrupt sources */
-	IRL0, IRL1, IRL2, IRL3, /* only IRLM mode described here */
 	TMU0, TMU1, TMU2_TUNI, TMU2_TICPI,
 	RTC_ATI, RTC_PRI, RTC_CUI,
 	SCIF_ERI, SCIF_RXI, SCIF_BRI, SCIF_TXI,
@@ -1241,18 +1240,9 @@ static struct intc_prio_reg prio_registers[] = {
 	{ 0xffd00004, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2,   RTC } },
 	{ 0xffd00008, 0, 16, 4, /* IPRB */ {  WDT,    0, SCIF,     0 } },
 	{ 0xffd0000c, 0, 16, 4, /* IPRC */ {    0,    0,    0,  HUDI } },
-	{ 0xffd00010, 0, 16, 4, /* IPRD */ { IRL0, IRL1,  IRL2, IRL3 } },
 };
 
 static DECLARE_INTC_DESC(intc_desc, "stx7200", vectors, groups,
-			 priorities, NULL, prio_registers, NULL);
-
-static struct intc_vect vectors_irlm[] = {
-	INTC_VECT(IRL0, 0x240), INTC_VECT(IRL1, 0x2a0),
-	INTC_VECT(IRL2, 0x300), INTC_VECT(IRL3, 0x360),
-};
-
-static DECLARE_INTC_DESC(intc_desc_irlm, "stx7100_irlm", vectors_irlm, NULL,
 			 priorities, NULL, prio_registers, NULL);
 
 void __init plat_irq_setup(void)
@@ -1273,19 +1263,4 @@ void __init plat_irq_setup(void)
 
 	ilc_early_init(&ilc3_device);
 	ilc_demux_init();
-}
-
-#define INTC_ICR	0xffd00000UL
-#define INTC_ICR_IRLM   (1<<7)
-
-void __init plat_irq_setup_pins(int mode)
-{
-	switch (mode) {
-	case IRQ_MODE_IRQ: /* individual interrupt mode for IRL3-0 */
-		register_intc_controller(&intc_desc_irlm);
-		ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
-		break;
-	default:
-		BUG();
-	}
 }

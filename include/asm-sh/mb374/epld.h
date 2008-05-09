@@ -7,6 +7,9 @@
  * Defintions applicable to the STMicroelectronics ST40RA Starter Board.
  */
 
+#ifndef __ASM_SH_MB374_EPLD_H
+#define __ASM_SH_MB374_EPLD_H
+
 #define EPLD_BASE		0xa7000000
 #define EPLD_SIZE		0x34
 
@@ -45,3 +48,5 @@ extern inline void harp_set_vpp_off(void)
 
 void harp_init_irq(void);
 #endif /* !__ASSEMBLY__ */
+
+#endif

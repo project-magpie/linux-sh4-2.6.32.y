@@ -16,7 +16,7 @@
 #include <linux/leds.h>
 #include <linux/stm/pio.h>
 #include <asm/io.h>
-#include <asm/mb374/harp.h>
+#include <asm/mb374/epld.h>
 
 struct mb374_led {
 	struct led_classdev	cdev;

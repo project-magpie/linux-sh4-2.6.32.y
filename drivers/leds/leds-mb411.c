@@ -15,7 +15,7 @@
 #include <linux/device.h>
 #include <linux/leds.h>
 #include <asm/io.h>
-#include <asm/mb411/harp.h>
+#include <asm/mb411/epld.h>
 
 static void mb411_led_set(struct led_classdev *led_cdev, enum led_brightness brightness)
 {

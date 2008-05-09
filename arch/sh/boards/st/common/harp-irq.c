@@ -16,8 +16,8 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <asm/system.h>
-#include <asm/mach/harp.h>
-#include "epld.h"
+#include <asm/mach/epld.h>
+#include "common.h"
 
 #define NUM_EXTERNAL_IRQS 16
 

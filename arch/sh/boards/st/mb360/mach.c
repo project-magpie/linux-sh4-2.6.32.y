@@ -19,7 +19,7 @@
 #include <asm/machvec.h>
 #include <asm/led.h>
 #include <asm/io_generic.h>
-#include <asm/mb360/harp.h>
+#include <asm/mb360/epld.h>
 #include "../../../drivers/pci/pci-st40.h"
 
 unsigned long stb1eval_isa_port2addr(unsigned long offset)

@@ -12,7 +12,7 @@
 #include <linux/stm/pio.h>
 #include <asm/io.h>
 #include <asm/led.h>
-#include <asm/mb360/harp.h>
+#include <asm/mb360/epld.h>
 
 /* ST40 Eval: Flash LD9 (PIO LED) connected to PIO1 bit 3 */
 void mach_led(int position, int value)

@@ -21,9 +21,9 @@
 #include <linux/phy.h>
 #include <sound/stm.h>
 #include <asm/io.h>
-#include <asm/mach/harp.h>
+#include <asm/mb411/epld.h>
 #include <asm/irq-stb7100.h>
-#include "../common/epld.h"
+#include "../common/common.h"
 
 static int ascs[2] __initdata = { 2, 3 };
 

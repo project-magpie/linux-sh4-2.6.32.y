@@ -7,6 +7,9 @@
  * Defintions applicable to the STMicroelectronics ST40RA Eval board.
  */
 
+#ifndef __ASM_SH_MB360_EPLD_H
+#define __ASM_SH_MB360_EPLD_H
+
 #define EPLD_BASE		0xa6000000
 #define EPLD_SIZE		0x40
 
@@ -30,3 +33,5 @@ extern inline int harp_has_intmask_setclr(void)
 
 void harp_init_irq(void);
 #endif /* !__ASSEMBLY__ */
+
+#endif

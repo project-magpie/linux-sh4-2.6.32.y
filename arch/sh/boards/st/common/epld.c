@@ -9,7 +9,7 @@
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
-#include "epld.h"
+#include "common.h"
 
 #define DRIVER_NAME "epld"
 

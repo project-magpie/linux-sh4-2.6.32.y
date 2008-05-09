@@ -25,7 +25,7 @@
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <asm/io.h>
-#include "../common/epld.h"
+#include "../common/common.h"
 
 /* Whether the hardware supports NOR or NAND Flash depends on J34.
  * In position 1-2 CSA selects NAND, in position 2-3 is selects NOR.

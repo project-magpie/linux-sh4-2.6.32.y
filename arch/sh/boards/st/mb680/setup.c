@@ -25,7 +25,7 @@
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <asm/io.h>
-#include "../common/epld.h"
+#include "../common/common.h"
 
 static int ascs[2] __initdata = { 2, 3 };
 

@@ -15,7 +15,7 @@
 #include <linux/pci.h>
 
 #include <asm/io.h>
-#include <asm/mb360/harp.h>
+#include <asm/mb360/epld.h>
 #include "../../../drivers/pci/pci-st40.h"
 
 /*

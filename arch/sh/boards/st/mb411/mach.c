@@ -16,7 +16,7 @@
 #include <asm/io.h>
 #include <asm/machvec.h>
 #include <asm/irq-stb7100.h>
-#include <asm/mb411/harp.h>
+#include <asm/mb411/epld.h>
 
 static void __iomem *mb411_ioport_map(unsigned long port, unsigned int size)
 {

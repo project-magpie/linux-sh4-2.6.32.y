@@ -1,3 +1,16 @@
+/*
+ * Copyright (C) 2007 STMicroelectronics Limited
+ * Author: Stuart Menefy <stuart.menefy@st.com>
+ *
+ * May be copied or modified under the terms of the GNU General Public
+ * License.  See linux/COPYING for more information.
+ *
+ * Definitions applicable to the STMicroelectronics STb7100 Validation board.
+ */
+
+#ifndef __ASM_SH_MB519_EPLD_H
+#define __ASM_SH_MB519_EPLD_H
+
 #define EPLD_BASE	0x05000000
 #define EPLD_SIZE	0x01000000
 
@@ -21,3 +34,5 @@
 #define EPLD_STEMSET		0x600000
 #define EPLD_STEMCLR		0x700000
 #define EPLD_DACSPMUX		0xD00000
+
+#endif

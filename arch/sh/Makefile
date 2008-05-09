@@ -130,15 +130,15 @@ machdir-$(CONFIG_SH_MAGIC_PANEL_R2)		+= magicpanelr2
 # ST Boards
 machdir-$(CONFIG_SH_ST_CB101)			+= st/cb101
 machdir-$(CONFIG_SH_ST_HMS1)			+= st/hms1
-machdir-$(CONFIG_SH_ST_MB360)			+= st/mb360
-machdir-$(CONFIG_SH_ST_MB374)			+= st/mb374
-machdir-$(CONFIG_SH_ST_MB411)			+= st/mb411
+machdir-$(CONFIG_SH_ST_MB360)			+= st/mb360 st/common
+machdir-$(CONFIG_SH_ST_MB374)			+= st/mb374 st/common
+machdir-$(CONFIG_SH_ST_MB411)			+= st/mb411 st/common
 machdir-$(CONFIG_SH_ST_MB442)			+= st/mb442
 machdir-$(CONFIG_SH_ST_MB448)			+= st/mb448
-machdir-$(CONFIG_SH_ST_MB519)			+= st/mb519
-machdir-$(CONFIG_SH_ST_MB618)			+= st/mb618
-machdir-$(CONFIG_SH_ST_MB671)			+= st/mb671
-machdir-$(CONFIG_SH_ST_MB680)			+= st/mb680
+machdir-$(CONFIG_SH_ST_MB519)			+= st/mb519 st/common
+machdir-$(CONFIG_SH_ST_MB618)			+= st/mb618 st/common
+machdir-$(CONFIG_SH_ST_MB671)			+= st/mb671 st/common
+machdir-$(CONFIG_SH_ST_MB680)			+= st/mb680 st/common
 
 incdir-y	:= $(notdir $(firstword $(machdir-y)))
 

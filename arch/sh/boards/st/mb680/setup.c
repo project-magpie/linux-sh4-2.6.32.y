@@ -128,10 +128,6 @@ static int __init device_init(void)
 	stx7200_configure_pata(1, ILC_IRQ(6));	/* irq_ilc_ext_in[2] */
 #endif
 
-	/* Configure BANK2 for the db641 STEM card */
-	emi_bank_configure(2, (unsigned long[4]){ 0x041086f1, 0x0e024400,
-				0x0e024400, 0 });
-
 	return platform_add_devices(mb680_devices, ARRAY_SIZE(mb680_devices));
 }
 arch_initcall(device_init);

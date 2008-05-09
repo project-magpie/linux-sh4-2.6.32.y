@@ -236,7 +236,7 @@ static int __init device_init(void)
 	stx7200_configure_ethernet(1, 0, 1, 1);
 #endif
 	stx7200_configure_lirc();
-	stx7200_configure_nand(&mb519_nand_config);
+//	stx7200_configure_nand(&mb519_nand_config);
 //	stx7200_configure_pata(1, ILC_IRQ(6));	/* irq_ilc_ext_in[2] */
 
 	return platform_add_devices(mb519_devices, ARRAY_SIZE(mb519_devices));
@@ -257,18 +257,22 @@ static void __init mb519_init_irq(void)
 {
 	epld_early_init(&epld_device);
 
-#if 0
+#if defined(CONFIG_SH_ST_STEM)
 	/* The off chip interrupts on the mb519 are a mess. The external
 	 * EPLD priority encodes them, but because they pass through the ILC3
 	 * there is no way to decode them.
 	 *
 	 * So here we bodge it as well. Only enable the STEM INTR0 signal,
-	 * and hope nothing else goes active.
+	 * and hope nothing else goes active. This will result in
+	 * SYS_ITRQ[3..0] = 0100.
 	 *
-	 * Note that this changed between EPLD rev 1r2 and 1r3. This is correct
-	 * for 1r3 which should be the most common now.
+	 * BTW. According to EPLD code author - "masking" interrupts
+	 * means "enabling" them... Just to let you know... ;-)
 	 */
-	ctrl_outw(1<<4, EPLD_IntMask0Set); /* IntPriority(4) <= not STEM_notINTR0 */
+	epld_write(0xff, EPLD_INTMASK0CLR);
+	epld_write(0xff, EPLD_INTMASK1CLR);
+	/* IntPriority(4) <= not STEM_notINTR0 */
+	epld_write(1 << 4, EPLD_INTMASK0SET);
 #endif
 }
 

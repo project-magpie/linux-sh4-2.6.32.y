@@ -412,6 +412,26 @@ config SH_MAGIC_PANEL_R2
 
 comment "ST Main Boards"
 
+config SH_ST_HARP_IRQ
+	bool
+	default n
+
+config SH_ST_EPLD
+	bool
+	default n
+
+config SH_ST_STEM
+	bool
+	default n
+
+config SH_ST_STPM_HD_V1
+	bool
+	default n
+
+config SH_ST_STPM_HD_V2
+	bool
+	default n
+
 config SH_ST_CB101
 	bool "cb101: ST Customer board 101"
 	depends on CPU_SUBTYPE_STX7200
@@ -430,6 +450,8 @@ config SH_ST_HMS1
 config SH_ST_MB360
 	bool "mb360: ST40RA Eval"
 	depends on CPU_SUBTYPE_ST40STB1
+	select SH_ST_HARP_IRQ
+	select SH_ST_STEM
 	help
 	  Select ST40RA-Eval if configuring for an
 	  STMicroelectronics ST40RA Eval Board (product code: ST40RA-Eval,
@@ -438,8 +460,10 @@ config SH_ST_MB360
 
 config SH_ST_MB374
 	bool "mb374: ST40RA Starter"
+	depends on CPU_SUBTYPE_ST40STB1
 	select SYS_SUPPORTS_PCI
-       depends on CPU_SUBTYPE_ST40STB1
+	select SH_ST_HARP_IRQ
+	select SH_ST_STEM
 	help
 	  Select ST40RA-Starter if configuring for an
 	  STMicroelectronics ST40RA Starter Board (also known as the
@@ -450,6 +474,9 @@ config SH_ST_MB374
 config SH_ST_MB411
 	bool "mb411: STB7100 Validation board"
 	depends on CPU_SUBTYPE_STB7100
+	select SH_ST_HARP_IRQ
+	select SH_ST_EPLD
+	select SH_ST_STEM
 	help
 	  Select STB7100 Validation if configuring for an
 	  STMicroelectronics STB7100 Validation Board (product code:
@@ -477,6 +504,9 @@ config SH_ST_MB448
 config SH_ST_MB519
 	bool "mb519: STx7200 Mboard"
 	depends on CPU_SUBTYPE_STX7200
+	select SH_ST_EPLD
+	select SH_ST_STEM
+	select SH_ST_STPM_HD_V1
 	help
 	  Select SH_ST_MB519 if configuring for an
 	  STMicroelectronics STx7200 Mboard (product code: STB7200-MBOARD,
@@ -486,6 +516,8 @@ config SH_ST_MB519
 config SH_ST_MB618
 	bool "mb618: STx7111 Validation board"
 	depends on CPU_SUBTYPE_STX7111
+	select SH_ST_EPLD
+	select SH_ST_STEM
 	help
 	  Select STx7111 Validation if configuring for an
 	  STMicroelectronics STx7111 Validation Board (product code:
@@ -495,6 +527,9 @@ config SH_ST_MB618
 config SH_ST_MB671
 	bool "mb671: STx7200 cut 2.0 Mboard"
 	depends on CPU_SUBTYPE_STX7200
+	select SH_ST_EPLD
+	select SH_ST_STEM
+	select SH_ST_STPM_HD_V1
 	help
 	  Select SH_ST_MB671 if configuring for an STMicroelectronics
 	  STx7200 cut 2.0 Mboard (ST board ID: mb671).
@@ -503,17 +538,19 @@ config SH_ST_MB671
 config SH_ST_MB680
 	bool "mb680: STx7105 Validation board"
 	depends on CPU_SUBTYPE_STX7105
+	select SH_ST_STEM
+	select SH_ST_STPM_HD_V2
 	help
 	  Select STx7105 Validation if configuring for an
 	  STMicroelectronics STx7105 Validation Board (product code:
 	  STi7105-MBOARD, ST board ID: mb680). More information at:
 	  <http://www.stlinux.com/boards/mb680/>
 
-comment "ST Peripherals Boards"
+comment "ST Peripheral Boards"
 
 config SH_ST_MB520
 	bool "mb520: STB peripherals board"
-	depends on SH_ST_MB519 || SH_ST_MB671
+	depends on SH_ST_STPM_HD_V1
 	select I2C
 	select I2C_BOARDINFO
 	select I2C_STM
@@ -525,7 +562,7 @@ config SH_ST_MB520
 
 config SH_ST_MB562
 	bool "mb562: BD-DVD peripherals board"
-	depends on SH_ST_MB519 || SH_ST_MB671
+	depends on SH_ST_STPM_HD_V1
 	help
 	  Select SH_ST_MB562 if your processor board is connected
 	  to this multi-audio-outputs board.

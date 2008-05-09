@@ -1,0 +1,408 @@
+#ifndef __SND_STM_7200_AUDCFG_H
+#define __SND_STM_7200_AUDCFG_H
+
+
+
+/*
+ * 7200_AUDCFG_IOMUX_CTRL
+ */
+
+#define offset__7200_AUDCFG_IOMUX_CTRL(ip) 0x00
+#define get__7200_AUDCFG_IOMUX_CTRL(ip) readl(ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL(ip, value) writel((value), \
+	ip->base + offset__7200_AUDCFG_IOMUX_CTRL(ip))
+
+/* PCM_CLK_EN */
+
+#define shift__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip) 0
+#define mask__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip) 0x1
+#define get__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip) ((readl(ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip)) >> \
+	shift__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip)) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_IOMUX_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip))) | (((value) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip)) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip)), ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__INPUT(ip) 0x0
+#define mask__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__INPUT(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__INPUT(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__INPUT(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__INPUT(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__OUTPUT(ip) 0x1
+#define mask__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__OUTPUT(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__OUTPUT(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__OUTPUT(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__OUTPUT(ip))
+
+/* DATA0_EN */
+
+#define shift__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip) 1
+#define mask__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip) 0x1
+#define get__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip) ((readl(ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip)) >> \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip)) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_IOMUX_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip))) | (((value) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip)) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip)), ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__INPUT(ip) 0x0
+#define mask__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__INPUT(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__INPUT(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__INPUT(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__INPUT(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__OUTPUT(ip) 0x1
+#define mask__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__OUTPUT(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__OUTPUT(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__OUTPUT(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__DATA0_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__OUTPUT(ip))
+
+/* DATA1_EN */
+
+#define shift__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip) 2
+#define mask__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip) 0x1
+#define get__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip) ((readl(ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip)) >> \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip)) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_IOMUX_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip))) | (((value) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip)) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip)), ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__INPUT(ip) 0x0
+#define mask__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__INPUT(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__INPUT(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__INPUT(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__INPUT(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__OUTPUT(ip) 0x1
+#define mask__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__OUTPUT(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__OUTPUT(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__OUTPUT(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__DATA1_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__OUTPUT(ip))
+
+/* DATA2_EN */
+
+#define shift__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip) 3
+#define mask__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip) 0x1
+#define get__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip) ((readl(ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip)) >> \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip)) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_IOMUX_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip))) | (((value) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip)) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip)), ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__INPUT(ip) 0x0
+#define mask__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__INPUT(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__INPUT(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__INPUT(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__INPUT(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__OUTPUT(ip) 0x1
+#define mask__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__OUTPUT(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__OUTPUT(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__OUTPUT(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__DATA2_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__OUTPUT(ip))
+
+/* SPDIF_EN */
+
+#define shift__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip) 4
+#define mask__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip) 0x1
+#define get__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip) ((readl(ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip)) >> \
+	shift__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip)) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_IOMUX_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip))) | (((value) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip)) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip)), ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__DISABLE(ip) 0x0
+#define mask__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__DISABLE(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__DISABLE(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__DISABLE(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__DISABLE(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__ENABLE(ip) 0x1
+#define mask__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__ENABLE(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__ENABLE(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__ENABLE(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__ENABLE(ip))
+
+
+
+/*
+ * 7200_AUDCFG_HDMI_CTRL
+ */
+
+#define offset__7200_AUDCFG_HDMI_CTRL(ip) 0x04
+#define get__7200_AUDCFG_HDMI_CTRL(ip) readl(ip->base + \
+	offset__7200_AUDCFG_HDMI_CTRL(ip))
+#define set__7200_AUDCFG_HDMI_CTRL(ip, value) writel((value), ip->base \
+	+ offset__7200_AUDCFG_HDMI_CTRL(ip))
+
+/* HDMI_DEBUG */
+
+#define shift__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip) 0
+#define mask__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip) 0x1
+#define get__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip) ((readl(ip->base + \
+	offset__7200_AUDCFG_HDMI_CTRL(ip)) >> \
+	shift__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip)) & \
+	mask__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip))
+#define set__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_HDMI_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip) << \
+	shift__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip))) | (((value) & \
+	mask__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip)) << \
+	shift__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip)), ip->base + \
+	offset__7200_AUDCFG_HDMI_CTRL(ip))
+
+#define value__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG__PCM_PLAYERS(ip) 0x0
+#define mask__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG__PCM_PLAYERS(ip) \
+	(value__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG__PCM_PLAYERS(ip) << \
+	shift__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip))
+#define set__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG__PCM_PLAYERS(ip) \
+	set__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip, \
+	value__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG__PCM_PLAYERS(ip))
+
+#define value__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG__HDMI(ip) 0x1
+#define mask__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG__HDMI(ip) \
+	(value__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG__HDMI(ip) << \
+	shift__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip))
+#define set__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG__HDMI(ip) \
+	set__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG(ip, \
+	value__7200_AUDCFG_HDMI_CTRL__HDMI_DEBUG__HDMI(ip))
+
+/* HDMI_SPDIF */
+
+#define shift__7200_AUDCFG_HDMI_CTRL__HDMI_SPDIF(ip) 1
+#define mask__7200_AUDCFG_HDMI_CTRL__HDMI_SPDIF(ip) 0x1
+#define get__7200_AUDCFG_HDMI_CTRL__HDMI_SPDIF(ip) ((readl(ip->base + \
+	offset__7200_AUDCFG_HDMI_CTRL(ip)) >> \
+	shift__7200_AUDCFG_HDMI_CTRL__HDMI_SPDIF(ip)) & \
+	mask__7200_AUDCFG_HDMI_CTRL__HDMI_SPDIF(ip))
+#define set__7200_AUDCFG_HDMI_CTRL__HDMI_SPDIF(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_HDMI_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_HDMI_CTRL__HDMI_SPDIF(ip) << \
+	shift__7200_AUDCFG_HDMI_CTRL__HDMI_SPDIF(ip))) | (((value) & \
+	mask__7200_AUDCFG_HDMI_CTRL__HDMI_SPDIF(ip)) << \
+	shift__7200_AUDCFG_HDMI_CTRL__HDMI_SPDIF(ip)), ip->base + \
+	offset__7200_AUDCFG_HDMI_CTRL(ip))
+
+
+
+/*
+ * 7200_AUDCFG_RECOVERY_CTRL
+ */
+
+#define offset__7200_AUDCFG_RECOVERY_CTRL(ip) 0x08
+#define get__7200_AUDCFG_RECOVERY_CTRL(ip) readl(ip->base + \
+	offset__7200_AUDCFG_RECOVERY_CTRL(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL(ip, value) writel((value), \
+	ip->base + offset__7200_AUDCFG_RECOVERY_CTRL(ip))
+
+/* RECO_EN0 */
+
+#define shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EN0(ip) 0
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EN0(ip) 0x1
+#define get__7200_AUDCFG_RECOVERY_CTRL__RECO_EN0(ip) ((readl(ip->base \
+	+ offset__7200_AUDCFG_RECOVERY_CTRL(ip)) >> \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EN0(ip)) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EN0(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_EN0(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_RECOVERY_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EN0(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EN0(ip))) | (((value) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EN0(ip)) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EN0(ip)), ip->base + \
+	offset__7200_AUDCFG_RECOVERY_CTRL(ip))
+
+/* RECO_SEL0 */
+
+#define shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip) 1
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip) 0x3
+#define get__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip) ((readl(ip->base \
+	+ offset__7200_AUDCFG_RECOVERY_CTRL(ip)) >> \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip)) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_RECOVERY_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip))) | (((value) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip)) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip)), ip->base + \
+	offset__7200_AUDCFG_RECOVERY_CTRL(ip))
+
+#define value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK0(ip) 0x0
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK0(ip) \
+	(value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK0(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK0(ip) \
+	set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip, \
+	value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK0(ip))
+
+#define value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK1(ip) 0x1
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK1(ip) \
+	(value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK1(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK1(ip) \
+	set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip, \
+	value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK1(ip))
+
+#define value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK2(ip) 0x2
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK2(ip) \
+	(value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK2(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK2(ip) \
+	set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip, \
+	value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK2(ip))
+
+#define value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK3(ip) 0x3
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK3(ip) \
+	(value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK3(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK3(ip) \
+	set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0(ip, \
+	value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL0__CLK3(ip))
+
+/* RECO_EXT0 */
+
+#define shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT0(ip) 3
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT0(ip) 0x1
+#define get__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT0(ip) ((readl(ip->base \
+	+ offset__7200_AUDCFG_RECOVERY_CTRL(ip)) >> \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT0(ip)) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT0(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT0(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_RECOVERY_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT0(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT0(ip))) | (((value) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT0(ip)) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT0(ip)), ip->base + \
+	offset__7200_AUDCFG_RECOVERY_CTRL(ip))
+
+/* RECO_EN1 */
+
+#define shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EN1(ip) 4
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EN1(ip) 0x1
+#define get__7200_AUDCFG_RECOVERY_CTRL__RECO_EN1(ip) ((readl(ip->base \
+	+ offset__7200_AUDCFG_RECOVERY_CTRL(ip)) >> \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EN1(ip)) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EN1(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_EN1(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_RECOVERY_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EN1(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EN1(ip))) | (((value) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EN1(ip)) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EN1(ip)), ip->base + \
+	offset__7200_AUDCFG_RECOVERY_CTRL(ip))
+
+/* RECO_SEL1 */
+
+#define shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip) 5
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip) 0x3
+#define get__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip) ((readl(ip->base \
+	+ offset__7200_AUDCFG_RECOVERY_CTRL(ip)) >> \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip)) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_RECOVERY_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip))) | (((value) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip)) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip)), ip->base + \
+	offset__7200_AUDCFG_RECOVERY_CTRL(ip))
+
+#define value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK0(ip) 0x0
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK0(ip) \
+	(value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK0(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK0(ip) \
+	set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip, \
+	value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK0(ip))
+
+#define value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK1(ip) 0x1
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK1(ip) \
+	(value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK1(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK1(ip) \
+	set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip, \
+	value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK1(ip))
+
+#define value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK2(ip) 0x2
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK2(ip) \
+	(value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK2(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK2(ip) \
+	set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip, \
+	value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK2(ip))
+
+#define value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK3(ip) 0x3
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK3(ip) \
+	(value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK3(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK3(ip) \
+	set__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1(ip, \
+	value__7200_AUDCFG_RECOVERY_CTRL__RECO_SEL1__CLK3(ip))
+
+/* RECO_EXT1 */
+
+#define shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip) 7
+#define mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip) 0x1
+#define get__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip) ((readl(ip->base \
+	+ offset__7200_AUDCFG_RECOVERY_CTRL(ip)) >> \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip)) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip))
+#define set__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_RECOVERY_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip))) | (((value) & \
+	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip)) << \
+	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip)), ip->base + \
+	offset__7200_AUDCFG_RECOVERY_CTRL(ip))
+
+#endif

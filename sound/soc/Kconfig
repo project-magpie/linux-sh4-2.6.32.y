@@ -32,7 +32,4 @@ source "sound/soc/sh/Kconfig"
 # Supported codecs
 source "sound/soc/codecs/Kconfig"
 
-# STMicroelectronics' SoCs support
-source "sound/soc/stm/Kconfig"
-
 endmenu

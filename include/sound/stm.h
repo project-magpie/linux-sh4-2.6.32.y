@@ -36,19 +36,19 @@
 /* Link type (format) description
  * Please note, that 0 value means I2S with 32 bits per
  * subframe (channel) and is a default setting. */
-#define SND_STM_FORMAT__I2S              0x00000000
-#define SND_STM_FORMAT__LEFT_JUSTIFIED   0x00000001
-#define SND_STM_FORMAT__RIGHT_JUSTIFIED  0x00000002
-#define SND_STM_FORMAT__SPDIF            0x00000003
+#define SND_STM_FORMAT__I2S              0x00000001
+#define SND_STM_FORMAT__LEFT_JUSTIFIED   0x00000002
+#define SND_STM_FORMAT__RIGHT_JUSTIFIED  0x00000003
+#define SND_STM_FORMAT__SPDIF            0x00000004
 #define SND_STM_FORMAT__MASK             0x0000000f
 
 /* Following values are valid only for I2S, Left Justified and
  * Right justified formats and can be bit-added to format;
  * they define size of one subframe (channel) transmitted.
  * For SPDIF the frame size is fixed and defined by standard. */
-#define SND_STM_FORMAT__OUTPUT_SUBFRAME_32_BITS 0x00000000
-#define SND_STM_FORMAT__OUTPUT_SUBFRAME_16_BITS 0x00000010
-#define SND_STM_FORMAT__OUTPUT_SUBFRAME_MASK    0x000000f0
+#define SND_STM_FORMAT__SUBFRAME_32_BITS 0x00000010
+#define SND_STM_FORMAT__SUBFRAME_16_BITS 0x00000020
+#define SND_STM_FORMAT__SUBFRAME_MASK    0x000000f0
 
 /* Converter handle */
 struct snd_stm_conv {
@@ -68,7 +68,9 @@ struct snd_stm_conv {
 	struct snd_stm_conv *master;
 };
 
-int snd_stm_conv_attach(struct snd_stm_conv *conv, struct device *source);
+/* Returns negative value on error or unique converter index number (>=0) */
+int snd_stm_conv_attach(struct snd_stm_conv *conv, struct bus_type *source_bus,
+		const char *source_bus_id);
 
 
 
@@ -82,50 +84,66 @@ int snd_stm_conv_attach(struct snd_stm_conv *conv, struct device *source);
  * as a platform data:
  *
  * static struct i2c_board_info external_dac __initdata = {
- * 	.driver_name = "snd_conv_i2c",
+ * 	I2C_BOARD_INFO("snd_conv_i2c", <I2C address>),
  * 	.type = "<i.e. chip model>",
- * 	.addr = <I2C address>
  * 	.platform_data = &(struct snd_stm_conv_i2c_info) {
  * 		<see below>
  * 	},
  * };
  *
- * and add it using:
+ * and add it:
  *
- * i2c_new_device(i2c_get_adapter(<i2c adapter (bus) id>), &external_dac);
+ * i2c_register_board_info(<I2C bus number>, &external_dac, 1);
  */
-
 struct snd_stm_conv_i2c_info {
 	const char *name;
-	const char *card_id;
+
+	int card_device;
+	const char *source_bus_id;
+	unsigned int format;
+	int oversampling;
 
 	const char *enable_cmd;
 	int enable_cmd_len;
 	const char *disable_cmd;
 	int disable_cmd_len;
+
+	int mute_supported;
 	const char *mute_cmd;
 	int mute_cmd_len;
 	const char *unmute_cmd;
 	int unmute_cmd_len;
 };
 
-/* GPIO-controlled (STPIO interface) DAC/ADC generic implementation
+/* GPIO-controlled DAC/ADC generic implementation
  *
- * Define platform device named "snd_conv_stpio", pass
+ * Define platform device named "snd_conv_gpio", pass
  * following structure as platform_data and add it in normal way :-) */
-
-struct snd_stm_conv_stpio_info {
+struct snd_stm_conv_gpio_info {
 	const char *name;
-	const char *card_id;
 
-	struct stpio_pin *enable_pin;
-	unsigned int enable_value;
-	struct stpio_pin *disable_pin;
-	unsigned int disable_value;
-	struct stpio_pin *mute_pin;
-	unsigned int mute_value;
-	struct stpio_pin *unmute_pin;
-	unsigned int unmute_value;
+	int card_device;
+	const char *source_bus_id;
+	unsigned int format;
+	int oversampling;
+
+	unsigned enable_gpio;
+	int enable_value;
+
+	int mute_supported;
+	unsigned mute_gpio;
+	int mute_value;
+};
+
+/* Dummy converter - use it (as a platform device) to define format or
+ * oversampling only */
+struct snd_stm_conv_dummy_info {
+	const char *name;
+
+	int card_device;
+	const char *source_bus_id;
+	unsigned int format;
+	int oversampling;
 };
 
 #endif

@@ -81,6 +81,9 @@ source "sound/parisc/Kconfig"
 
 source "sound/soc/Kconfig"
 
+# STMicroelectronics' SoCs support
+source "sound/stm/Kconfig"
+
 endmenu
 
 menu "Open Sound System"

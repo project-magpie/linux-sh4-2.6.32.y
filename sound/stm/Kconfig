@@ -1,0 +1,121 @@
+menuconfig SND_STM
+	tristate "STMicroelectronics SoCs support"
+	depends on SND
+	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7200
+	select STM_DMA
+	select SND_PCM
+	select SND_DYNAMIC_MINORS
+	help
+		Say Y here for ALSA support on the STMicroelectronics SoCs.
+
+		This driver provides core functionality - you have to build
+		(at least one) SoC-specific driver as well. Additionally, it is
+		using dynamic device minor number allocation, so udev-like
+		utility is required.
+
+		It is recommended to have BPA2 enabled with dedicated
+		partition defined, however it is not absolutely necessary.
+
+		To compile this driver as a module, choose M here: the module
+	 	will be called snd-stm.ko
+
+config SND_STM_BPA2_PARTITION_NAME
+	string "Name of BPA2 partition to allocate buffers from"
+	depends on SND_STM
+	depends on BPA2
+	default "audio"
+	help
+		Define a name of BPA2 partition the driver should try to
+		allocate from.
+
+		If name is not given or given partition does not exist, driver
+		will try to use "bigphysmem" partition or eventually
+		preallocate some system memory using
+		ALSA snd_pcm_lib_preallocate_pages_for_all() method.
+
+		This value can be overridden by module parameter
+		"bpa2_part=<name>" (or kernel command line parameter
+		"snd-stm.bpa2_part=<name>", if driver is compiled into
+		kernel).
+
+config SND_STM_DEBUG_LEVEL
+	int "Default debug verbosity level"
+	depends on SND_STM
+	depends on SND_DEBUG
+	default 0
+	help
+		Defines debug verbosity level (bigger number equals more
+		messages). This can be overridden using "debug=<n>" module
+		parameter or "snd-stm.debug=<n>" kernel command line
+		parameter. You can also change this value in runtime,
+		using /sys/module/snd_stm/parameters/debug.
+
+		There is also fine-grained debug verbosity control available -
+		just put "#define DEBUG <n>" in debugged component _before_
+		#including "common.h", or alter the value using sysfs file
+		/sys/module/snd_stm/parameter/debug_component_name (or
+		use module/kernel command line parameter ;-)...
+
+config SND_STM_STX710X
+	tristate "STx7100 and STx7109 support"
+	depends on SND_STM
+	default y if CPU_SUBTYPE_STB7100
+	help
+		Select this to get ALSA driver for STx7100 and STx7109 chips.
+
+		If you compile this driver as a module, it will be
+		called snd-stm-stx710x.ko
+
+config SND_STM_STX7111
+	tristate "STx7111 support"
+	depends on SND_STM
+	default y if CPU_SUBTYPE_STX7111
+	help
+		Select this to get ALSA driver for STx7111 chip.
+
+		If you compile this driver as a module, it will be
+		called snd-stm-stx7111.ko
+
+config SND_STM_STX7200
+	tristate "STx7200 support"
+	depends on SND_STM
+	default y if CPU_SUBTYPE_STX7200
+	help
+		Select this to get ALSA driver for STx7200 chip.
+
+		If you compile this driver as a module, it will be
+		called snd-stm-stx7111.ko
+
+config SND_STM_CONV_DUMMY
+	tristate "Dummy converter driver"
+	depends on SND_STM
+	help
+		This provides dummy converter driver to configure
+		digital audio interface format (I2S, Left-Justified,
+		Right-Justified). See include/sound/stm.h for
+		more information.
+
+		If compiled as module, it will be called
+		snd-stm-conv-dummy.ko.
+
+config SND_STM_CONV_GPIO
+	tristate "Generic GPIO-controlled converter driver"
+	depends on SND_STM
+	help
+		This provides generic driver for GPIO-controlled
+		converters. See include/sound/stm.h for informations
+		how to define GPIO line numbers.
+
+		If compiled as module, it will be called
+		snd-stm-conv-gpio.ko.
+
+config SND_STM_CONV_I2C
+	tristate "Generic I2C-controlled converter driver"
+	depends on SND_STM
+	help
+		This provides generic driver for I2C-controlled
+		converters. See include/sound/stm.h for informations
+		how to define required I2C addresses & commands.
+
+		If compiled as module, it will be called
+		snd-stm-conv-gpio.ko.

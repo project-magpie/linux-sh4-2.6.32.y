@@ -20,6 +20,7 @@
 #include <linux/phy.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
+#include <linux/pata_platform.h>
 #include <asm/sci.h>
 #include <asm/irq-ilc.h>
 #include <linux/stm/fdma-plat.h>
@@ -553,6 +554,63 @@ void __init stx7200_configure_ssc(struct plat_ssc_data *data)
 #ifdef CONFIG_I2C_BOARDINFO
 	i2c_register_board_info(num_i2c - 1, NULL, 0);
 #endif
+}
+
+/* PATA resources ---------------------------------------------------------- */
+
+/*
+ * EMI A20 = CS1 (active low)
+ * EMI A21 = CS0 (active low)
+ * EMI A19 = DA2
+ * EMI A18 = DA1
+ * EMI A17 = DA0
+ */
+
+static struct resource pata_resources[] = {
+	[0] = {	/* I/O base: CS1=N, CS0=A */
+		.start	= (1<<20),
+		.end	= (1<<20) + (8<<17)-1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {	/* CTL base: CS1=A, CS0=N, DA2=A, DA1=A, DA0=N */
+		.start	= (1<<21) + (6<<17),
+		.end	= (1<<21) + (6<<17) + 3,
+		.flags	= IORESOURCE_MEM,
+	},
+	[2] = {	/* IRQ */
+		.flags	= IORESOURCE_IRQ,
+	}
+};
+
+static struct pata_platform_info pata_info = {
+	.ioport_shift	= 17,
+};
+
+static struct platform_device pata_device = {
+	.name		= "pata_platform",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(pata_resources),
+	.resource	= pata_resources,
+	.dev = {
+		.platform_data = &pata_info,
+	}
+};
+
+void __init stx7200_configure_pata(int bank, int irq)
+{
+	unsigned long bank_base;
+
+	bank_base = emi_bank_base(bank);
+	pata_resources[0].start += bank_base;
+	pata_resources[0].end   += bank_base;
+	pata_resources[1].start += bank_base;
+	pata_resources[1].end   += bank_base;
+	pata_resources[2].start = irq;
+	pata_resources[2].end   = irq;
+
+	emi_config_pata(bank);
+
+	platform_device_register(&pata_device);
 }
 
 /* Ethernet MAC resources -------------------------------------------------- */

@@ -235,5 +235,6 @@ void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 				int phy_bus);
 void stx7200_configure_lirc(void);
 void stx7200_configure_nand(struct nand_config_data *data);
+void stx7200_configure_pata(int bank, int irq);
 
 #endif /* __LINUX_ST_SOC_H */

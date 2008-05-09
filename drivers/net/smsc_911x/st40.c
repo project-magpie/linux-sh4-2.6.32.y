@@ -42,82 +42,15 @@
 #ifndef ST40_H
 #define ST40_H
 
-#include <asm-sh/irl.h>
 
 //for a description of these MACROs see readme.txt
 
-#define PLATFORM_IRQ_POL	(0UL)
-#define PLATFORM_IRQ_TYPE	(0UL)
-
-#define DB641_USE_PORT0
-#if defined(CONFIG_SH_ST_MB411)
-/* db641 STEM card plugged */
-#ifdef DB641_USE_PORT0
-/* STEM CS0 = BankB, A23=0 */
-#define PLATFORM_CSBASE		(0x01000000UL)
-#define PLATFORM_IRQ		(12UL)
-#else
-/* STEM CS1 = BankB, A23=1 */
-#define PLATFORM_CSBASE		(0x01800000UL)
-#define PLATFORM_IRQ		(11UL)
-#endif
-#elif defined(CONFIG_SH_ST_MB519)
-/* db641 STEM card plugged into mb519 */
-#ifdef DB641_USE_PORT0
-/* STEM CS0 = BANK1 and A23=0 */
-/* Make sure you read the comment about bodges in mb519/stx7200mboard_init_irq */
-#define PLATFORM_CSBASE		(0x02000000UL)
-#define PLATFORM_IRQ		(MUXED_IRQ_BASE+4)
-#else
-/* STEM CS1 = BANK4 */
-#define PLATFORM_CSBASE		(0x02800000UL)
-#define PLATFORM_IRQ		(MUXED_IRQ_BASE+4)
-#endif
-#elif defined(CONFIG_SH_ST_MB618)
-#include <asm/irq-ilc.h>
-/* db641 STEM card plugged into mb618 */
-#ifdef DB641_USE_PORT0
-/* STEM CS0 = BANK1 (notCSB). This assumes J30-B is in the 4-5 position */
-/* Note R100 needs to be fitted */
-#define PLATFORM_CSBASE		(0x02000000UL)
-#define PLATFORM_IRQ		ILC_EXT_IRQ(2)
-#else
-/* STEM CS1 = BANK3 (notCSD). This assumes J11 is in the 1-2 position. */
-/* Note R109 needs to be fitted */
-#define PLATFORM_CSBASE		(0x02800000UL)
-#define PLATFORM_IRQ		ILC_EXT_IRQ(1)
-#endif
-#elif defined(CONFIG_SH_ST_MB680)
-/* db641 STEM card plugged into mb680 */
-#include <asm/irq-ilc.h>
-#include <linux/stm/emi.h>
-#ifdef DB641_USE_PORT0
-/* STEM CS0 = BANK2 */
-/* Need to set J14A to 1-2 (notStemCS(0) <= notEMICSC) and
- * J4 to 1-2 and fit J2A (notStemIntr(0) <= SysIRQ2) if mb680 used
- * standalone. */
-#define PLATFORM_CSBASE		emi_bank_base(2)
-#define PLATFORM_IRQ		ILC_EXT_IRQ(2)
-#else
-/* STEM CS1 = BANK3 */
-/* Need to set J14B to 1-2 (notStemCS(1) <= notEMICSD) and
- * fit J2B (notStemIntr(1) <= SysIRQ1) if mb680 used
- * standalone. */
-#define PLATFORM_CSBASE		emi_bank_base(3)
-#define PLATFORM_IRQ		ILC_EXT_IRQ(1)
-#endif
-#elif defined(CONFIG_SH_ST_HMS1)
-/* SD HMS1 with in-built SMSC 911x */
-#undef PLATFORM_IRQ_POL
-#undef PLATFORM_IRQ_TYPE
-
-#define PLATFORM_CSBASE		(0x01000000UL)
-#define PLATFORM_IRQ		IRL0_IRQ
-#define PLATFORM_IRQ_POL	(1UL)
-#define PLATFORM_IRQ_TYPE	(1UL)
-#else
-#error Unknown board
-#endif
+/* Following informations are now passed as platform device resources
+ * (see Smsc9118_probe() in smsc9118.c) */
+#define PLATFORM_CSBASE -1
+#define PLATFORM_IRQ -1
+#define PLATFORM_IRQ_POL -1
+#define PLATFORM_IRQ_TYPE -1
 
 #define PLATFORM_CACHE_LINE_BYTES (32UL)
 #ifndef CONFIG_SMSC911x_DMA_NONE
@@ -461,14 +394,14 @@ void Platform_WriteFifo(
 	DWORD *pdwBuf,
 	DWORD dwDwordCount)
 {
-	writesl(dwLanBase+TX_DATA_FIFO, pdwBuf, dwDwordCount);
+	writesl((void *)(dwLanBase + TX_DATA_FIFO), pdwBuf, dwDwordCount);
 }
 void Platform_ReadFifo(
 	DWORD dwLanBase,
 	DWORD *pdwBuf,
 	DWORD dwDwordCount)
 {
-	readsl(dwLanBase+RX_DATA_FIFO, pdwBuf, dwDwordCount);
+	readsl((void *)(dwLanBase + RX_DATA_FIFO), pdwBuf, dwDwordCount);
 }
 #endif
 

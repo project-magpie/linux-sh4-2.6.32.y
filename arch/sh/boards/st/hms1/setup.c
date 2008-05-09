@@ -87,8 +87,41 @@ static struct platform_device physmap_flash = {
 	.resource	= &physmap_flash_resource,
 };
 
+static struct platform_device smsc_lan9117 = {
+	.name		= "smc911x",
+	.id		= -1,
+	.num_resources	= 4,
+	.resource	= (struct resource []) {
+		{
+			.flags = IORESOURCE_MEM,
+			.start = 0x01000000,
+			.end   = 0x010000ff,
+		},
+		{
+			.flags = IORESOURCE_IRQ,
+			.start = IRL0_IRQ,
+			.end   = IRL0_IRQ,
+		},
+		/* See end of "drivers/net/smsc_911x/smsc9118.c" file
+		 * for description of two following resources. */
+		{
+			.flags = IORESOURCE_IRQ,
+			.name  = "polarity",
+			.start = 1,
+			.end   = 1,
+		},
+		{
+			.flags = IORESOURCE_IRQ,
+			.name  = "type",
+			.start = 1,
+			.end   = 1,
+		},
+	},
+};
+
 static struct platform_device *hms1_devices[] __initdata = {
 	&physmap_flash,
+	&smsc_lan9117,
 };
 
 static int __init hms1_device_init(void)

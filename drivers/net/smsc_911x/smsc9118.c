@@ -42,6 +42,7 @@
 #include <linux/mii.h>
 #include <linux/timer.h>
 #include <linux/string.h>
+#include <linux/platform_device.h>
 #include <asm/irq.h>
 #include <asm/dma.h>
 #include <asm/bitops.h>
@@ -1078,8 +1079,6 @@ MODULE_PARM_DESC(max_work_load,"See Readme.txt");
 
 MODULE_LICENSE("GPL");
 
-int Smsc9118_init_module(void);
-void Smsc9118_cleanup_module(void);
 int Smsc9118_init(struct net_device *dev);
 int Smsc9118_open(struct net_device *dev);
 int Smsc9118_stop(struct net_device *dev);
@@ -1095,12 +1094,46 @@ struct net_device SMSC9118;
 struct net_device SMSC9118 = {init: Smsc9118_init,};
 #endif //not USING_LINT
 
-int Smsc9118_init_module(void)
+static int Smsc9118_probe(struct platform_device *pdev)
 {
 	int result=0;
 	int device_present=0;
 
-	SMSC_TRACE("--> init_module()");
+	SMSC_TRACE("--> probe()");
+
+	if (lan_base == 0) {
+		struct resource *res = platform_get_resource(pdev,
+				IORESOURCE_MEM, 0);
+
+		if (res)
+			lan_base = res->start;
+	}
+
+	if (irq == PLATFORM_IRQ) {
+		int res = platform_get_irq(pdev, 0);
+
+		if (res >= 0)
+			irq = res;
+	}
+
+	if (irq_pol == PLATFORM_IRQ_POL) {
+		int res = platform_get_irq_byname(pdev, "polarity");
+
+		if (res >= 0)
+			irq_pol = res;
+		else
+			irq_pol = 0;
+	}
+
+	if (irq_type == PLATFORM_IRQ_TYPE) {
+		int res = platform_get_irq_byname(pdev, "type");
+
+		if (res >= 0)
+			irq_type = res;
+		else
+			irq_type = 0;
+	}
+
 	SMSC_TRACE("Driver Version = %lX.%02lX",
 		(DRIVER_VERSION>>8),(DRIVER_VERSION&0xFFUL));
 	SMSC_TRACE("Compiled: %s, %s",__DATE__,__TIME__);
@@ -1289,13 +1322,13 @@ int Smsc9118_init_module(void)
 		SMSC_TRACE("  Interface Name = \"%s\"",SMSC9118.name);
 	}
 	result=result;//make lint happy
-	SMSC_TRACE("<-- init_module()");
+	SMSC_TRACE("<-- probe()");
 	return device_present ? 0 : -ENODEV;
 }
 
-void Smsc9118_cleanup_module(void)
+static int Smsc9118_remove(struct platform_device *pdev)
 {
-	SMSC_TRACE("--> cleanup_module()");
+	SMSC_TRACE("--> remove()");
 	if(SMSC9118.priv!=NULL) {
 		PPRIVATE_DATA privateData=(PPRIVATE_DATA)SMSC9118.priv;
 		PPLATFORM_DATA platformData=(PPLATFORM_DATA)&(privateData->PlatformData);
@@ -1304,7 +1337,8 @@ void Smsc9118_cleanup_module(void)
 		SMSC9118.priv=NULL;
 	}
 	unregister_netdev(&SMSC9118);
-	SMSC_TRACE("<-- cleanup_module()");
+	SMSC_TRACE("<-- remove()");
+	return 0;
 }
 
 int Smsc9118_init(struct net_device *dev)
@@ -5560,6 +5594,35 @@ void Vl_ReleaseLock(PVERIFIABLE_LOCK pVl,VL_KEY keyCode,DWORD *pdwIntFlags)
 }
 
 #ifndef USING_LINT
+/* Platform device registration */
+
+static struct platform_driver Smsc9118_driver = {
+	.probe = Smsc9118_probe,
+	.remove = Smsc9118_remove,
+	/* Driver name is intentionally identical to the one used
+	 * by "driver/net/smc911x.c", so you can define common
+	 * platform device and decide which driver you want to use
+	 * later... The only difference is that in case of this
+	 * driver you can provide additional IRQ resources,
+	 * following IRQ number; name them "polarity" and "type" -
+	 * they will be used as IRQ_POL and IRQ_TYPE values (both
+	 * in IRQ_CFG register). If not defined default value (zero)
+	 * will be used. */
+	.driver = {
+		.name = "smc911x",
+	},
+};
+
+static int __init Smsc9118_init_module(void)
+{
+	return platform_driver_register(&Smsc9118_driver);
+}
+
+static void __exit Smsc9118_cleanup_module(void)
+{
+	platform_driver_unregister(&Smsc9118_driver);
+}
+
 module_init(Smsc9118_init_module);
 module_exit(Smsc9118_cleanup_module);
 #endif

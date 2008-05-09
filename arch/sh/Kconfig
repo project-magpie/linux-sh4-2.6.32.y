@@ -284,122 +284,6 @@ config SH_7751_SYSTEMH
 	  Select SystemH if you are configuring for a Renesas SystemH
 	  7751R evaluation board.
 
-config SH_ST_MB360
-	bool "mb360: ST40RA Eval"
-	depends on CPU_SUBTYPE_ST40STB1
-	help
-	  Select ST40RA-Eval if configuring for an
-	  STMicroelectronics ST40RA Eval Board (product code: ST40RA-Eval,
-	  ST board ID: mb360). More information at:
-	  <http://www.stlinux.com/boards/mb360/>
-
-config SH_ST_MB374
-	bool "mb374: ST40RA Starter"
-	select SYS_SUPPORTS_PCI
-       depends on CPU_SUBTYPE_ST40STB1
-	help
-	  Select ST40RA-Starter if configuring for an
-	  STMicroelectronics ST40RA Starter Board (also known as the
-	  ST40RA DDR Eval board) (product code: ST40RA-Starter,
-	  ST board ID: mb374). More information at:
-	  <http://www.stlinux.com/boards/mb374/>
-
-config SH_ST_MB411
-	bool "mb411: STB7100 Validation board"
-	depends on CPU_SUBTYPE_STB7100
-	help
-	  Select STB7100 Validation if configuring for an
-	  STMicroelectronics STB7100 Validation Board (product code: STB7100-MBOARD,
-	  ST board ID: mb411). More information at:
-	  <http://www.stlinux.com/boards/mb411/>
-
-config SH_ST_MB442
-	bool "mb442: STB7100 Reference board"
-	depends on CPU_SUBTYPE_STB7100
-	help
-	  Select STB7100 Reference if configuring for an
-	  STMicroelectronics STB7100 Reference Board (product code: STB7100-REF).
-	  This is sometimes referred to as the CoCo board.
-	  More information at:
-	  <http://www.stlinux.com/boards/mb442/>
-
-config SH_ST_MB448
-	bool "mb448: STB7109E Reference board"
-	depends on CPU_SUBTYPE_STB7100
-	help
-	  Select STB7109E Reference if configuring for an
-	  STMicroelectronics STB7109E Reference Board (product code: STB7109E-REF,
-	  ST board ID: mb448). More information at:
-	  <http://www.stlinux.com/boards/mb448/>
-
-config SH_ST_MB618
-	bool "mb618: STx7111 Validation board"
-	depends on CPU_SUBTYPE_STX7111
-	help
-	  Select STx7111 Validation if configuring for an
-	  STMicroelectronics STx7111 Validation Board (product code: STB7111-MBOARD,
-	  ST board ID: mb618). More information at:
-	  <http://www.stlinux.com/boards/mb618/>
-
-config SH_ST_MB680
-	bool "mb680: STx7105 Validation board"
-	depends on CPU_SUBTYPE_STX7105
-	help
-	  Select STx7105 Validation if configuring for an
-	  STMicroelectronics STx7105 Validation Board (product code: STi7105-MBOARD,
-	  ST board ID: mb680). More information at:
-	  <http://www.stlinux.com/boards/mb680/>
-
-config SH_ST_CB101
-	bool "cb101: ST Customer board 101"
-	depends on CPU_SUBTYPE_STX7200
-	help
-	  Select SH_ST_CB101 if configuring for this board.
-
-config SH_HMS1
-	bool "HMS1"
-	depends on CPU_SUBTYPE_STB7100
-	help
-	  Select HMS1 if configuring for a HMS1 board.
-	  More information at:
-	  <http://www.linuxsh.st.com/boards/hms1/>
-
-config SH_ST_MB519
-	bool "mb519: STx7200 Mboard"
-	depends on CPU_SUBTYPE_STX7200
-	help
-	  Select SH_ST_MB519 if configuring for an
-	  STMicroelectronics STx7200 Mboard (product code: STB7200-MBOARD,
-	  ST board ID: mb519). More information at:
-	  <http://www.stlinux.com/boards/mb519/>
-
-config SH_ST_MB520
-	bool "mb520: STB peripherals board"
-	depends on SH_ST_MB519
-	select I2C
-	select I2C_BOARDINFO
-	select I2C_STM
-	select GPIO_PCF857X
-	help
-	  Select SH_ST_MB520 if your processor board is connected
-	  to this STB-like peripherals board.
-
-config SH_ST_MB671
-	bool "mb671: STx7200 Mboard"
-	depends on CPU_SUBTYPE_STX7200
-	help
-	  Select SH_ST_MB671 if configuring for an
-	  STMicroelectronics STx7200 Mboard (product code: STB7200-MBOARD,
-	  ST board ID: mb671). More information at:
-	  <http://www.stlinux.com/boards/>
-
-config SH_ST_MB562
-	bool "mb562: BD-DVD peripherals board"
-	depends on SH_ST_MB519
-	help
-	  Select SH_ST_MB562 if your processor board is connected
-	  to this multi-audio-outputs board.
-
 config SH_HP6XX
 	bool "HP6XX"
 	select SYS_SUPPORTS_APM_EMULATION
@@ -525,6 +409,126 @@ config SH_MAGIC_PANEL_R2
 	depends on CPU_SUBTYPE_SH7720
 	help
 	  Select Magic Panel R2 if configuring for Magic Panel R2.
+
+comment "ST Main Boards"
+
+config SH_ST_CB101
+	bool "cb101: ST Customer board 101"
+	depends on CPU_SUBTYPE_STX7200
+	select SND_STM_CONV_DUMMY if SND_STM
+	help
+	  Select SH_ST_CB101 if configuring for this board.
+
+config SH_ST_HMS1
+	bool "HMS1"
+	depends on CPU_SUBTYPE_STB7100
+	help
+	  Select HMS1 if configuring for a HMS1 board.
+	  More information at:
+	  <http://www.linuxsh.st.com/boards/hms1/>
+
+config SH_ST_MB360
+	bool "mb360: ST40RA Eval"
+	depends on CPU_SUBTYPE_ST40STB1
+	help
+	  Select ST40RA-Eval if configuring for an
+	  STMicroelectronics ST40RA Eval Board (product code: ST40RA-Eval,
+	  ST board ID: mb360). More information at:
+	  <http://www.stlinux.com/boards/mb360/>
+
+config SH_ST_MB374
+	bool "mb374: ST40RA Starter"
+	select SYS_SUPPORTS_PCI
+       depends on CPU_SUBTYPE_ST40STB1
+	help
+	  Select ST40RA-Starter if configuring for an
+	  STMicroelectronics ST40RA Starter Board (also known as the
+	  ST40RA DDR Eval board) (product code: ST40RA-Starter,
+	  ST board ID: mb374). More information at:
+	  <http://www.stlinux.com/boards/mb374/>
+
+config SH_ST_MB411
+	bool "mb411: STB7100 Validation board"
+	depends on CPU_SUBTYPE_STB7100
+	help
+	  Select STB7100 Validation if configuring for an
+	  STMicroelectronics STB7100 Validation Board (product code:
+	  STB7100-MBOARD, ST board ID: mb411). More information at:
+	  <http://www.stlinux.com/boards/mb411/>
+
+config SH_ST_MB442
+	bool "mb442: STB7100 Reference board"
+	depends on CPU_SUBTYPE_STB7100
+	help
+	  Select STB7100 Reference if configuring for an
+	  STMicroelectronics STB7100 Reference Board (product code:
+	  STB7100-REF). This is sometimes referred to as the CoCo board.
+	  More information at: <http://www.stlinux.com/boards/mb442/>
+
+config SH_ST_MB448
+	bool "mb448: STB7109E Reference board"
+	depends on CPU_SUBTYPE_STB7100
+	help
+	  Select STB7109E Reference if configuring for an
+	  STMicroelectronics STB7109E Reference Board (product code:
+	  STB7109E-REF, ST board ID: mb448). More information at:
+	  <http://www.stlinux.com/boards/mb448/>
+
+config SH_ST_MB519
+	bool "mb519: STx7200 Mboard"
+	depends on CPU_SUBTYPE_STX7200
+	help
+	  Select SH_ST_MB519 if configuring for an
+	  STMicroelectronics STx7200 Mboard (product code: STB7200-MBOARD,
+	  ST board ID: mb519). More information at:
+	  <http://www.stlinux.com/boards/mb519/>
+
+config SH_ST_MB618
+	bool "mb618: STx7111 Validation board"
+	depends on CPU_SUBTYPE_STX7111
+	help
+	  Select STx7111 Validation if configuring for an
+	  STMicroelectronics STx7111 Validation Board (product code:
+	  STB7111-MBOARD, ST board ID: mb618). More information at:
+	  <http://www.stlinux.com/boards/mb618/>
+
+config SH_ST_MB671
+	bool "mb671: STx7200 cut 2.0 Mboard"
+	depends on CPU_SUBTYPE_STX7200
+	help
+	  Select SH_ST_MB671 if configuring for an STMicroelectronics
+	  STx7200 cut 2.0 Mboard (ST board ID: mb671).
+	  More information at: <http://www.stlinux.com/boards/>
+
+config SH_ST_MB680
+	bool "mb680: STx7105 Validation board"
+	depends on CPU_SUBTYPE_STX7105
+	help
+	  Select STx7105 Validation if configuring for an
+	  STMicroelectronics STx7105 Validation Board (product code:
+	  STi7105-MBOARD, ST board ID: mb680). More information at:
+	  <http://www.stlinux.com/boards/mb680/>
+
+comment "ST Peripherals Boards"
+
+config SH_ST_MB520
+	bool "mb520: STB peripherals board"
+	depends on SH_ST_MB519 || SH_ST_MB671
+	select I2C
+	select I2C_BOARDINFO
+	select I2C_STM
+	select GPIO_PCF857X
+	select SND_STM_CONV_GPIO if SND_STM
+	help
+	  Select SH_ST_MB520 if your processor board is connected
+	  to this STB-like peripherals board.
+
+config SH_ST_MB562
+	bool "mb562: BD-DVD peripherals board"
+	depends on SH_ST_MB519 || SH_ST_MB671
+	help
+	  Select SH_ST_MB562 if your processor board is connected
+	  to this multi-audio-outputs board.
 
 endmenu
 

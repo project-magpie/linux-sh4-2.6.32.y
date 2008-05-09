@@ -106,7 +106,7 @@
 #define PLATFORM_CSBASE		emi_bank_base(3)
 #define PLATFORM_IRQ		ILC_EXT_IRQ(1)
 #endif
-#elif defined(CONFIG_SH_HMS1)
+#elif defined(CONFIG_SH_ST_HMS1)
 /* SD HMS1 with in-built SMSC 911x */
 #undef PLATFORM_IRQ_POL
 #undef PLATFORM_IRQ_TYPE

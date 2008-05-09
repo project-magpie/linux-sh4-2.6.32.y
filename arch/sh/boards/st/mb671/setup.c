@@ -19,16 +19,17 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/phy.h>
+#include <linux/io.h>
 #include <asm/irq-ilc.h>
-#include <asm/io.h>
 #include <asm/mach/harp.h>
 #include "../common/epld.h"
 
 static int ascs[2] __initdata = { 2, 3 };
 
-static void __init mb671_setup(char** cmdline_p)
+static void __init mb671_setup(char **cmdline_p)
 {
-	printk("STMicroelectronics STx7200 Mboard initialisation\n");
+	printk(KERN_NOTICE "STMicroelectronics STx7200 Mboard "
+			"initialisation\n");
 
 	stx7200_early_device_init();
 	stx7200_configure_asc(ascs, 2, 0);
@@ -40,11 +41,11 @@ static struct plat_stm_pwm_data pwm_private_info = {
 
 static struct plat_ssc_data ssc_private_info = {
 	.capability  = (
-		ssc0_has(SSC_I2C_CAPABILITY) |
-		ssc1_has(SSC_SPI_CAPABILITY) |
-		ssc2_has(SSC_I2C_CAPABILITY) |
-		ssc3_has(SSC_SPI_CAPABILITY) |
-		ssc4_has(SSC_I2C_CAPABILITY)),
+			ssc0_has(SSC_I2C_CAPABILITY) |
+			ssc1_has(SSC_SPI_CAPABILITY) |
+			ssc2_has(SSC_I2C_CAPABILITY) |
+			ssc3_has(SSC_SPI_CAPABILITY) |
+			ssc4_has(SSC_I2C_CAPABILITY)),
 };
 
 static struct mtd_partition mtd_parts_table[3] = {
@@ -100,61 +101,61 @@ static struct platform_device physmap_flash = {
 };
 
 static struct plat_stmmacphy_data phy_private_data[2] = {
-{
-	/* MAC0: SMSC LAN8700 */
-	.bus_id = 0,
-	.phy_addr = 0,
-	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,      
-}, {
-	/* MAC1: STEM */
-	.bus_id = 1,
-	.phy_addr = 0,
-	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
-} };
+	{
+		/* MAC0: SMSC LAN8700 */
+		.bus_id = 0,
+		.phy_addr = 0,
+		.phy_mask = 0,
+		.interface = PHY_INTERFACE_MODE_MII,
+	}, {
+		/* MAC1: STEM */
+		.bus_id = 1,
+		.phy_addr = 0,
+		.phy_mask = 0,
+		.interface = PHY_INTERFACE_MODE_MII,
+	} };
 
 static struct platform_device mb671_phy_devices[2] = {
-{
-	.name		= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			/* This should be:
-			 * .start = ILC_IRQ(93),
-			 * .end = ILC_IRQ(93),
-			 * but because the mb671 uses the MII0_MDINT line
-			 * as MODE4, and the STE101P MDINT pin is O/C,
-			 * there may or maynot be a pull-up resistor
-			 * depending on switch SW1-4. Most of the time there
-			 * isn't, so disable the interrupt.
-			 */
-			.start	= -1,
-			.end	= -1,
-			.flags	= IORESOURCE_IRQ,
+	{
+		.name		= "stmmacphy",
+		.id		= 0,
+		.num_resources	= 1,
+		.resource	= (struct resource[]) {
+			{
+				.name	= "phyirq",
+				/* This should be:
+				 * .start = ILC_IRQ(93),
+				 * .end = ILC_IRQ(93),
+				 * but because the mb671 uses the MII0_MDINT
+				 * line as MODE4, and the STE101P MDINT pin
+				 * is O/C, there may or maynot be a pull-up
+				 * resistor depending on switch SW1-4.
+				 * Most of the time there isn't,
+				 * so disable the interrupt. */
+				.start	= -1,
+				.end	= -1,
+				.flags	= IORESOURCE_IRQ,
+			},
 		},
-	},
-	.dev = {
-		.platform_data = &phy_private_data[0],
-	 }
-}, {
-	.name		= "stmmacphy",
-	.id		= 1,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= ILC_IRQ(95),
-			.end	= ILC_IRQ(95),
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev = {
-		.platform_data = &phy_private_data[1],
-	}
-} };
+		.dev = {
+			.platform_data = &phy_private_data[0],
+		}
+	}, {
+		.name		= "stmmacphy",
+			.id		= 1,
+			.num_resources	= 1,
+			.resource	= (struct resource[]) {
+				{
+					.name	= "phyirq",
+					.start	= ILC_IRQ(95),
+					.end	= ILC_IRQ(95),
+					.flags	= IORESOURCE_IRQ,
+				},
+			},
+			.dev = {
+				.platform_data = &phy_private_data[1],
+			}
+	} };
 
 static struct platform_device epld_device = {
 	.name		= "epld",
@@ -168,7 +169,7 @@ static struct platform_device epld_device = {
 		}
 	},
 	.dev.platform_data = &(struct plat_epld_data) {
-		 .opsize = 16,
+		.opsize = 16,
 	},
 };
 
@@ -208,7 +209,6 @@ static struct nand_config_data mb671_nand_config = {
 	.rbn_pin		= -1,
 };
 
-
 static struct platform_device *mb671_devices[] __initdata = {
 	&epld_device,
 	&physmap_flash,
@@ -224,9 +224,8 @@ static int __init device_init(void)
 
 	epld_rev = epld_read(EPLD_EPLDVER);
 	pcb_rev = epld_read(EPLD_PCBVER);
-	printk("mb671 PCB rev %X EPLD rev %dr%d\n",
-	       pcb_rev,
-	       epld_rev >> 4, epld_rev & 0xf);
+	printk(KERN_NOTICE "mb671 PCB rev %X EPLD rev %dr%d\n",
+			pcb_rev, epld_rev >> 4, epld_rev & 0xf);
 
 	stx7200_configure_pwm(&pwm_private_info);
 	stx7200_configure_ssc(&ssc_private_info);
@@ -243,8 +242,11 @@ static int __init device_init(void)
 
 	stx7200_configure_usb();
 
+#if 1 /* On-board PHY (MII0) */
 	stx7200_configure_ethernet(0, 0, 1, 0);
-//	stx7200_configure_ethernet(1, 0, 1, 1);
+#else /* External PHY board (MII1) */
+	stx7200_configure_ethernet(1, 0, 1, 1);
+#endif
 	stx7200_configure_lirc();
 	stx7200_configure_nand(&mb671_nand_config);
 
@@ -277,7 +279,9 @@ static void __init mb671_init_irq(void)
 	 * Note that this changed between EPLD rev 1r2 and 1r3. This is correct
 	 * for 1r3 which should be the most common now.
 	 */
-	ctrl_outw(1<<4, EPLD_IntMask0Set); /* IntPriority(4) <= not STEM_notINTR0 */
+
+	/* IntPriority(4) <= not STEM_notINTR0 */
+	ctrl_outw(1<<4, EPLD_IntMask0Set);
 #endif
 }
 

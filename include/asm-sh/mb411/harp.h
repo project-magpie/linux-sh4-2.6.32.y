@@ -9,7 +9,7 @@
  */
 
 #define EPLD_BASE		0x03000000
-#define EPLD_SIZE		0x00800000
+#define EPLD_SIZE		0x00E00000
 
 #define EPLD_EPLDVER		0x000000
 #define EPLD_PCBVER		0x020000
@@ -28,6 +28,10 @@
 
 #define EPLD_FLASH		0x400000
 #define EPLD_ATAPI		0x900000
+
+#define EPLD_DAC_CTRL		0xa00000
+#define EPLD_DAC_PNOTS		0xb00000
+#define EPLD_DAC_SPMUX		0xd00000
 
 /* Some registers are also available in the POD EPLD */
 #define EPLD_POD_BASE		0x02100000

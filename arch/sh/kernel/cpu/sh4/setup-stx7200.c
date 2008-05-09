@@ -373,10 +373,9 @@ void __init stx7200_configure_usb(void)
 					STPIO_ALT_OUT);
 		stpio_set_pin(pio, 1);
 
-		if (cpu_data->cut_major < 2) {
+		if (cpu_data->cut_major < 2)
 			pio = stpio_request_pin(7, oc_pins[port], "USB oc",
 					STPIO_ALT_BIDIR);
-		}
 
 		platform_device_register(&st40_ohci_devices[port]);
 		platform_device_register(&st40_ehci_devices[port]);

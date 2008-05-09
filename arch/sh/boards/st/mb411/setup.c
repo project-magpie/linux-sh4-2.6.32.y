@@ -19,6 +19,7 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/phy.h>
+#include <sound/stm.h>
 #include <asm/io.h>
 #include <asm/mach/harp.h>
 #include <asm/irq-stb7100.h>
@@ -157,11 +158,32 @@ static struct platform_device epld_device = {
 	},
 };
 
+#ifdef CONFIG_SND
+/* Unfortunately PDN and SMUTE can't be controlled using
+ * default audio EPLD "firmware"...
+ * That is why dummy converter is enough. */
+static struct platform_device mb411_snd_ext_dacs = {
+	.name = "snd_conv_dummy",
+	.id = -1,
+	.dev.platform_data = &(struct snd_stm_conv_dummy_info) {
+		.name = "AK4394*2/AK4356",
+		.card_device = 1,
+		.source_bus_id = "snd_pcm_player.1",
+		.format = SND_STM_FORMAT__LEFT_JUSTIFIED |
+				SND_STM_FORMAT__SUBFRAME_32_BITS,
+		.oversampling = 256,
+	},
+};
+#endif
+
 static struct platform_device *mb411_devices[] __initdata = {
 	&epld_device,
 	&smc91x_device,
 	&physmap_flash,
 	&mb411_phy_device,
+#ifdef CONFIG_SND
+	&mb411_snd_ext_dacs,
+#endif
 };
 
 static int __init device_init(void)
@@ -172,10 +194,17 @@ static int __init device_init(void)
 	stx7100_configure_usb();
 	stx7100_configure_lirc();
 	stx7100_configure_ethernet(0, 0, 0);
+
 #ifdef CONFIG_PATA_PLATFORM
 	/* Set the EPLD ATAPI register to 1, enabling the IDE interface.*/
 	epld_write(1, EPLD_ATAPI);
 	stx7100_configure_pata(3, 8);
+#endif
+
+#ifdef CONFIG_SND
+	/* Initialize audio EPLD */
+	epld_write(0x1, EPLD_DAC_PNOTS);
+	epld_write(0x7, EPLD_DAC_SPMUX);
 #endif
 
 	return platform_add_devices(mb411_devices,

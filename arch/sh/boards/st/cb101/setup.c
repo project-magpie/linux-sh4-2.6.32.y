@@ -21,6 +21,7 @@
 #include <linux/phy.h>
 #include <asm/irq-ilc.h>
 #include <linux/delay.h>
+#include <sound/stm.h>
 
 static int ascs[2] __initdata = { 2, 3 };
 
@@ -182,10 +183,28 @@ static struct nand_config_data cb101_nand_config[] = {
 }
 };
 
+#ifdef CONFIG_SND
+/* ALSA dummy converter for PCM input, to configure required
+ * Left Justified mode */
+static struct platform_device cb101_snd_input = {
+	.name = "snd_conv_dummy",
+	.id = -1,
+	.dev.platform_data = &(struct snd_stm_conv_dummy_info) {
+		.name = "AK4113/AK5381ET",
+		.card_device = 0,
+		.source_bus_id = "snd_pcm_reader",
+		.format = SND_STM_FORMAT__LEFT_JUSTIFIED |
+				SND_STM_FORMAT__SUBFRAME_32_BITS,
+	},
+};
+#endif
 
 static struct platform_device *cb101_devices[] __initdata = {
 	&physmap_flash,
 	&cb101_phy_device,
+#ifdef CONFIG_SND
+	&cb101_snd_input,
+#endif
 };
 
 static int __init device_init(void)

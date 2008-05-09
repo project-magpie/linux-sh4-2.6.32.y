@@ -19,6 +19,7 @@
 #include <linux/stm/pio.h>
 #include <linux/phy.h>
 #include <linux/stm/sysconf.h>
+#include <linux/stm/emi.h>
 #include <asm/sci.h>
 #include <asm/irq-ilc.h>
 #include <linux/stm/fdma-plat.h>
@@ -930,7 +931,6 @@ void __init stx7200_configure_nand(struct nand_config_data *data)
 		}
 	}
 
-	emi_init(0, 0xfdf00000);
 	bank_base = emi_bank_base(emi_bank) + data->emi_withinbankoffset;
 
 	printk("Configuring EMI Bank%d for NAND device\n", emi_bank);
@@ -1167,6 +1167,16 @@ static struct platform_device ilc3_device = {
 		}
 	},
 };
+
+/* Pre-arch initialisation ------------------------------------------------- */
+
+static int __init stx7200_postcore_setup(void)
+{
+	emi_init(0, 0xfdf00000);
+
+	return 0;
+}
+postcore_initcall(stx7200_postcore_setup);
 
 /* Late resources ---------------------------------------------------------- */
 

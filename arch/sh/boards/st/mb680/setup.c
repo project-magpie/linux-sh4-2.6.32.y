@@ -129,7 +129,6 @@ static int __init device_init(void)
 #endif
 
 	/* Configure BANK2 for the db641 STEM card */
-	emi_init(0, 0xfe700000);
 	emi_bank_configure(2, (unsigned long[4]){ 0x041086f1, 0x0e024400,
 				0x0e024400, 0 });
 

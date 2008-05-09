@@ -426,7 +426,6 @@ void __init stx7100_configure_pata(int bank, int irq)
 {
 	unsigned long bank_base;
 
-	emi_init(0, 0x1a100000);
 	bank_base = emi_bank_base(bank);
 	pata_resources[0].start += bank_base;
 	pata_resources[0].end   += bank_base;
@@ -873,6 +872,16 @@ static struct platform_device ilc3_device = {
 		}
 	},
 };
+
+/* Pre-arch initialisation ------------------------------------------------- */
+
+static int __init stx710x_postcore_setup(void)
+{
+	emi_init(0, 0x1a100000);
+
+	return 0;
+}
+postcore_initcall(stx710x_postcore_setup);
 
 /* Late resources ---------------------------------------------------------- */
 

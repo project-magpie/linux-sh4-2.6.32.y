@@ -852,7 +852,6 @@ void __init stx7105_configure_nand(struct nand_config_data *data)
 	struct platform_nand_data *nand_private_data =
 		nand_flash[emi_bank].dev.platform_data;
 
-	emi_init(0, 0xfe700000);
 	bank_base = emi_bank_base(emi_bank) + data->emi_withinbankoffset;
 	if (emi_bank == 4)
 		bank_end = 0x07ffffff;
@@ -969,6 +968,16 @@ static struct platform_device ilc3_device = {
 	},
 };
 
+/* Pre-arch initialisation ------------------------------------------------- */
+
+static int __init stx7105_postcore_setup(void)
+{
+	emi_init(0, 0xfe700000);
+
+	return 0;
+}
+postcore_initcall(stx7105_postcore_setup);
+
 /* Late resources ---------------------------------------------------------- */
 
 static int __init stx7105_subsys_setup(void)
@@ -977,6 +986,7 @@ static int __init stx7105_subsys_setup(void)
 	 * drivers (eg gpio-keys) require that the interrupts
 	 * are available. */
 	pio_late_setup();
+
 	return 0;
 }
 subsys_initcall(stx7105_subsys_setup);

@@ -6,6 +6,9 @@
  * License.  See linux/COPYING for more information.
  */
 
+#ifndef __LINUX_STM_EMI_H
+#define __LINUX_STM_EMI_H
+
 struct emi_timing_data {
 	int rd_cycle_time;
 	int rd_oee_start;
@@ -24,3 +27,5 @@ void emi_bank_configure(int bank, unsigned long data[4]);
 
 void emi_config_pata(int bank);
 void emi_config_nand(int bank, struct emi_timing_data *timing_data);
+
+#endif

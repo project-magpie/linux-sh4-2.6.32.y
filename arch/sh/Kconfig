@@ -575,6 +575,13 @@ config SH_ST_MB562
 	  Select SH_ST_MB562 if your processor board is connected
 	  to this multi-audio-outputs board.
 
+config SH_ST_MB588
+	bool "mb588: NAND Flash STEM board"
+	depends on SH_ST_STEM
+	help
+	  Supports MB588 STEM board. See "arch/sh/boards/st/common/mb588.c"
+	  for configuration informations.
+
 endmenu
 
 source "arch/sh/boards/renesas/hs7751rvoip/Kconfig"

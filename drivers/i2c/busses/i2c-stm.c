@@ -17,6 +17,12 @@
  *   + Fix bug in clock rounding
  *   + Use stpio_request_set_pin on init to set SDA and SCL to high
  *   + Fix compile-time warnings
+ * Version: 2.3 (9th Mar 2008)
+ *   + Added manual PIO reset on arbitration/slave mode detection
+ *   + Ensure that clock stretching is always cleared (even in 1 byte read)
+ *   + Check for an unexpected stop condition on the bus
+ *   + Fix auto-retry on address error condition
+ *   + Clear repstart bit
  *
  * --------------------------------------------------------------------
  *
@@ -150,7 +156,8 @@ typedef enum _iic_state_machine_e {
 typedef enum _iic_fsm_error_e {
 	IIC_E_NO_ERROR = 0x0,
 	IIC_E_RUNNING = 0x1,
-	IIC_E_NOTACK = 0x2
+	IIC_E_NOTACK = 0x2,
+	IIC_E_ARBL = 0x4
 } iic_fsm_error_e;
 
 /*
@@ -177,6 +184,7 @@ struct iic_ssc {
 	struct i2c_adapter adapter;
 	unsigned long config;
 	wait_queue_head_t wait_queue;
+	struct ssc_pio_t *pio_info;
 };
 
 #define jump_on_fsm_start(x)	{ (x)->state = IIC_FSM_START;	\
@@ -212,7 +220,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 	struct iic_transaction *trsc = adap->trns;
 	unsigned short status;
 	short tx_fifo_status;
-	unsigned int idx;
+	unsigned int idx, previntmask;
 	unsigned short address;
 	struct i2c_msg *pmsg;
 	char fast_mode;
@@ -226,20 +234,25 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 	fast_mode = check_fastmode(adap);
 	pmsg = trsc->msgs_queue + trsc->current_msg;
 
-	status = ssc_load32(adap, SSC_STA);
-	if (!(status & SSC_STA_ARBL) && !(ssc_load32(adap, SSC_CTL) & SSC_CTL_MS)){
-		printk(KERN_ERR "i2c-stm: Status OK but in SLAVE MODE\n");
-	}
+	/* Disable interrupts */
+	previntmask = ssc_load32(adap, SSC_IEN);
+	ssc_store32(adap, SSC_IEN, 0);
 
-	if (status & SSC_STA_ARBL)
-		printk(KERN_ERR "i2c-stm: ARBL from 0x%x (st = 0x%x) (ctl = 0x%x) (i2c = 0x%x)\n",
-					trsc->state,
-					status, (unsigned int)ssc_load32(adap, SSC_CTL),
-					(unsigned int)ssc_load32(adap, SSC_I2C));
+	status = ssc_load32(adap, SSC_STA);
 
 	trsc->state = trsc->next_state;
 
-	barrier();
+	/* Slave mode detection - this should never happen as we don't support multi-master */
+	if ( trsc->state > IIC_FSM_START &&
+	     ((status & SSC_STA_ARBL) || !(ssc_load32(adap, SSC_CTL) & SSC_CTL_MS)) ){
+		dgb_print2("In SLAVE mode (state %d, status %08x)!\n", trsc->state, status);
+		trsc->status_error = IIC_E_ARBL;
+		ssc_store32(adap, SSC_TBUF, 0x1ff);
+		ssc_store32(adap, SSC_CLR, 0xdc0);
+		trsc->waitcondition = 0;
+		wake_up(&(adap->wait_queue));
+		return IRQ_HANDLED;
+	}
 
 	switch (trsc->state) {
 	case IIC_FSM_PREPARE:
@@ -281,7 +294,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 
 		status = ssc_load32(adap, SSC_STA);
 		if (status & SSC_STA_BUSY){
-			dgb_print2("I2C_FSM_START: bus BUSY!\n");
+			dgb_print2("    bus BUSY!\n");
 			trsc->waitcondition = 0; /* to not sleep */
 			trsc->status_error = IIC_E_RUNNING;	/* to raise the error */
 			return -1;
@@ -295,15 +308,22 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 		break;
 
 	case IIC_FSM_PREPARE_2_READ:
-		/* Just to clear the RBUF */
-		for (;ssc_load32(adap, SSC_RX_FSTAT);){
+		/* Clear the RBUF */
+		while (ssc_load32(adap, SSC_RX_FSTAT)){
 			dgb_print2(".");
 			ssc_load32(adap, SSC_RBUF);
 		}
+
+		if (ssc_load32(adap, SSC_TX_FSTAT)){
+			printk(KERN_ERR "i2c-stm: IIC_FSM_PREPARE_2_READ:TX FIFO NOT empty!\n");
+		}
+
 		status = ssc_load32(adap, SSC_STA);
 		dgb_print2(" Prepare to Read... Status=0x%x\n", status);
+
 		if (status & SSC_STA_NACK)
 			jump_on_fsm_abort(trsc);
+
 		trsc->next_state = IIC_FSM_DATA_READ;
 
 		switch (pmsg->len) {
@@ -314,7 +334,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 			ssc_store32(adap, SSC_TBUF, 0x1ff);
 			ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
 				(SSC_I2C_I2CFSMODE * fast_mode));
-			ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN);
+			ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN | SSC_IEN_ARBLEN);
 		   break;
 		default:
 			ssc_store32(adap, SSC_CLR, 0xdc0);
@@ -323,7 +343,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 			/* P.S.: in any case the last byte has to be
 			 *       managed in a different manner
 			 */
-			for ( idx = 0;  idx < SSC_RXFIFO_SIZE &&
+			for ( idx = 0;  idx < SSC_TXFIFO_SIZE &&
 					idx < pmsg->len-1 ;  ++idx )
 				ssc_store32(adap, SSC_TBUF, 0x1ff);
 			ssc_store32(adap, SSC_IEN, SSC_IEN_RIEN | SSC_IEN_TIEN | SSC_IEN_ARBLEN);
@@ -331,9 +351,18 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 		break;
 
 	case IIC_FSM_DATA_READ:
-		status = ssc_load32(adap, SSC_STA);
-		if (!(status & SSC_STA_TE))
+		/* Check for transmit problem */
+		if (!(status & SSC_STA_TE)){
+			ssc_store32(adap, SSC_IEN, previntmask);
 			break;
+		}
+
+		/* Check for unexpected bus STOP condition */
+		if (status & SSC_STA_STOP){
+			ssc_store32(adap, SSC_CLR, 0xdc0);
+			jump_on_fsm_abort(trsc);
+		}
+
 		dgb_print2(" Data Read...Status=0x%x\n",status);
 		/* 1.0 Is it the last byte */
 		if (trsc->idx_current_msg == pmsg->len-1) {
@@ -341,20 +370,27 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 			tmp.word = tmp.word >> 1;
 			pmsg->buf[trsc->idx_current_msg++] = tmp.bytes[0];
 			dgb_print2(" Rx Data %d-%c\n",tmp.bytes[0], tmp.bytes[0]);
-		} else
-		/* 1.1 take the bytes from Rx fifo */
-		for (idx = 0 ;  idx < SSC_RXFIFO_SIZE &&
-			trsc->idx_current_msg < pmsg->len-1; ++idx ) {
-				tmp.word = ssc_load32(adap, SSC_RBUF);
-				tmp.word = tmp.word >> 1;
-				pmsg->buf[trsc->idx_current_msg++] = tmp.bytes[0];
-				dgb_print2(" Rx Data %d-%c\n",tmp.bytes[0], tmp.bytes[0]);
-				}
+		} else {
+			/* 1.1 take the bytes from Rx fifo */
+			for (idx = 0 ;  idx < SSC_RXFIFO_SIZE &&
+				trsc->idx_current_msg < pmsg->len-1; ++idx ) {
+					tmp.word = ssc_load32(adap, SSC_RBUF);
+					tmp.word = tmp.word >> 1;
+					pmsg->buf[trsc->idx_current_msg++] = tmp.bytes[0];
+					dgb_print2(" Rx Data %d-%c\n",tmp.bytes[0], tmp.bytes[0]);
+			}
+		}
+
+		/* Release any clock stretch */
+		if (status & SSC_STA_CLST)
+			ssc_store32(adap, SSC_TBUF, 0x1ff);
+
 		/* 2. Do we finish? */
 		if (trsc->idx_current_msg == pmsg->len) {
 			status &= ~SSC_STA_NACK;
 			jump_on_fsm_stop(trsc);
 		}
+
 		/* 3. Ask other 'idx' bytes in fifo mode
 		 *    but we want save the latest [pmsg->len-1]
 		 *    in any case...
@@ -379,8 +415,14 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 		break;
 
 	case IIC_FSM_DATA_WRITE:
+		/* Check for unexpected bus STOP condition */
+		if (status & SSC_STA_STOP){
+			ssc_store32(adap, SSC_CLR, 0xdc0);
+			jump_on_fsm_abort(trsc);
+		}
+
 		/* just to clear some bits in the STATUS register */
-		for (;ssc_load32(adap, SSC_RX_FSTAT);)
+		while (ssc_load32(adap, SSC_RX_FSTAT))
 			ssc_load32(adap, SSC_RBUF);
 /*
  * Be careful!!!!
@@ -396,6 +438,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 		tx_fifo_status = ssc_load32(adap,SSC_TX_FSTAT);
 		if ( tx_fifo_status ) {
 			dgb_print2(" Fifo not empty\n");
+			ssc_store32(adap, SSC_IEN, previntmask);
 			break;
 		}
 
@@ -444,17 +487,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 	case IIC_FSM_COMPLETE:
 		/* be_fsm_complete: */
 		dgb_print2(" Complete\n");
-		ssc_store32(adap, SSC_IEN, 0x0);
-/*
- *  If there was some problem i can try again for adap->adapter.retries time...
- */
-		if ((trsc->status_error & IIC_E_NOTACK) &&	/* there was a problem */
-		    trsc->start_state == IIC_FSM_START &&	/* it cames from start state */
-		    trsc->idx_current_msg == 0 &&		/* the problem is on address */
-		    ++trsc->attempt <= adap->adapter.retries) {
-			trsc->status_error = 0;
-			jump_on_fsm_start(trsc);
-		}
+
 		if (!(trsc->status_error & IIC_E_NOTACK))
 			trsc->status_error = IIC_E_NO_ERROR;
 
@@ -478,8 +511,11 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 
 	case IIC_FSM_REPSTART_ADDR:
 		dgb_print2("-Rep Start addr 0x%x\n", pmsg->addr);
-		ssc_store32(adap, SSC_CLR, 0xdc0);
+		/* Clear repstart bit */
+		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM | SSC_I2C_TXENB
+				  | (SSC_I2C_I2CFSMODE * fast_mode));
 
+		ssc_store32(adap, SSC_CLR, 0xdc0);
 		address = (pmsg->addr << 2) | 0x1;
 		trsc->next_state = IIC_FSM_DATA_WRITE;
 		if (pmsg->flags & I2C_M_RD) {
@@ -497,38 +533,63 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static void iic_wait_stop_condition(struct iic_ssc *adap)
+
+/*
+ * Wait for stop to be detected on bus
+ */
+static int iic_wait_stop_condition(struct iic_ssc *adap)
 {
-  unsigned int idx;
-/*
- * Look for a stop condition on the bus
- */
-  dgb_print("\n");
-  for ( idx = 0; idx < 5 ; ++idx )
-    if ((ssc_load32(adap,SSC_STA) & SSC_STA_STOP) == 0)
-        mdelay(2);
-/*
- * At this point I hope I detected a stop condition
- * but in any case I return and I will tour off the ssc....
- */
+	unsigned int idx;
+
+	dgb_print("\n");
+	for ( idx = 0; idx < 5 ; ++idx ){
+		if (ssc_load32(adap,SSC_STA) & SSC_STA_STOP)
+			return 1;
+		mdelay(2);
+	}
+
+	return 0;
 }
 
-static void iic_wait_free_bus(struct iic_ssc *adap)
+/*
+ * Wait for bus to become free
+ */
+static int iic_wait_free_bus(struct iic_ssc *adap)
 {
-  unsigned int idx;
+	unsigned int idx;
+
+	dgb_print("\n");
+	for ( idx = 0; idx < 5 ; ++idx ) {
+		if (!(ssc_load32(adap,SSC_STA) & SSC_STA_BUSY) )
+			return 1;
+		mdelay(2);
+	}
+
+	return 0;
+}
+
 /*
- * Look for a free condition on the bus
+ * Issue stop condition on the bus by toggling PIO lines
  */
-  dgb_print("\n");
-  for ( idx = 0; idx < 5 ; ++idx ) {
-    if (!(ssc_load32(adap,SSC_STA) & SSC_STA_BUSY) )
-	return ;
-    mdelay(2);
-  }
-/*
- * At this point I hope I detected a free bus
- * but in any case I return and I will turn off the ssc....
- */
+static void iic_pio_stop(struct iic_ssc *adap)
+{
+	printk(KERN_WARNING "i2c-stm: doing PIO stop!\n");
+	stpio_set_pin((adap->pio_info)->clk, 0);
+	stpio_configure_pin((adap->pio_info)->clk, STPIO_BIDIR);
+	udelay(10);
+	stpio_set_pin((adap->pio_info)->sdout, 0);
+	stpio_configure_pin((adap->pio_info)->sdout, STPIO_BIDIR);
+	udelay(10);
+	stpio_set_pin((adap->pio_info)->clk, 1);
+	udelay(10);
+	stpio_set_pin((adap->pio_info)->sdout, 1);
+	udelay(30);
+	stpio_configure_pin((adap->pio_info)->clk, STPIO_ALT_BIDIR);
+	stpio_configure_pin((adap->pio_info)->sdout, STPIO_ALT_BIDIR);
+
+	/* Reset SSC */
+	ssc_store32(adap, SSC_CTL, SSC_CTL_SR | SSC_CTL_EN | SSC_CTL_MS |
+			    SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8);
 }
 
 /*
@@ -554,9 +615,14 @@ static int iic_stm_xfer(struct i2c_adapter *i2c_adap,
 
 	dgb_print("\n");
 
-	iic_wait_free_bus(adap);
-
 	adap->trns = &transaction;
+
+iic_xfer_retry:
+
+	/* Wait for bus to become free - do a forced PIO reset if necessary to */
+	/* recover the bus */
+	if (!iic_wait_free_bus(adap))
+		iic_pio_stop(adap);
 
 	iic_state_machine(0, adap);
 
@@ -569,41 +635,59 @@ static int iic_stm_xfer(struct i2c_adapter *i2c_adap,
 	result = transaction.current_msg;
 
 	if (unlikely(transaction.status_error != IIC_E_NO_ERROR || timeout <= 0)) {
-		if (!(ssc_load32(adap, SSC_CTL) & SSC_CTL_MS)){
-			printk(KERN_ALERT "i2c-stm: in timeout, state = 0x%x, next_state = 0x%x slave mode!\n",
-					transaction.state, transaction.next_state);
+		if ((transaction.status_error & IIC_E_NOTACK) &&
+			transaction.start_state == IIC_FSM_START &&
+			++transaction.attempt <= adap->adapter.retries){
+				/* error on the address - automatically retry */
+				/* this used to be done in the FSM complete but it was not safe */
+				/* there as we need to wait for the bus to not be busy before */
+				/* doing another transaction */
+				printk(KERN_ERR "i2c-stm: error on address.  auto retry %d\n", transaction.attempt);
+				transaction.status_error = 0;
+				local_irq_restore(flag);
+				goto iic_xfer_retry;
+		} else if (transaction.status_error == IIC_E_ARBL){
+			/* Arbitration error */
+			printk(KERN_ERR "i2c-stm: arbitration error\n");
 			ssc_store32(adap, SSC_CLR, SSC_CLR_SSCARBL);
 			ssc_store32(adap, SSC_CTL, ssc_load32(adap, SSC_CTL) | SSC_CTL_MS);
+			local_irq_restore(flag);
+
+			/* Manually issue stop condition on the bus */
+			iic_pio_stop(adap);
+		} else {
+			/* There was another problem */
+			if(timeout<=0){
+				/* There was a timeout or signal.
+				   - disable the interrupt
+				   - generate a stop condition on the bus
+				   all this task are done without interrupt....
+				 */
+				ssc_store32(adap, SSC_IEN, 0x0);
+				ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
+					    SSC_I2C_STOPG | SSC_I2C_TXENB |
+					    (SSC_I2C_I2CFSMODE * check_fastmode(adap)));
+				/* wait until the ssc detects a Stop condition on the bus */
+				/* but before we do that we enable all the interrupts     */
+				local_irq_restore(flag);
+
+				if (!iic_wait_stop_condition(adap)){
+					printk(KERN_ERR "i2c-stm: Error.  Manually stopping transaction.\n");
+					iic_pio_stop(adap);
+				}
+			} else
+				local_irq_restore(flag);
+
+			if (!timeout){
+				printk(KERN_ERR
+				       "i2c-stm: Error timeout in the finite state machine\n");
+				result = -ETIMEDOUT;
+			} else if (timeout < 0) {
+				dgb_print("i2c-stm: interrupt or error in wait event\n");
+				result = timeout;
+			} else
+				result = -EREMOTEIO;
 		}
-
-		/* There was some problem */
-		if(timeout<=0){
-			/* There was a timeout or signal.
-			   - disable the interrupt
-			   - generate a stop condition on the bus
-			   all this task are done without interrupt....
-			 */
-			ssc_store32(adap, SSC_IEN, 0x0);
-			ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
-				    SSC_I2C_STOPG | SSC_I2C_TXENB |
-				    (SSC_I2C_I2CFSMODE * check_fastmode(adap)));
-			/* wait until the ssc detects a Stop condition on the bus */
-			/* but before we do that we enable all the interrupts     */
-			local_irq_restore(flag);
-
-			iic_wait_stop_condition(adap);
-		} else
-			local_irq_restore(flag);
-
-		if (!timeout){
-			printk(KERN_ERR
-			       "i2c-stm: Error timeout in the finite state machine\n");
-			result = -ETIMEDOUT;
-		} else if (timeout < 0) {
-			dgb_print("i2c-stm: interrupt or error in wait event\n");
-			result = timeout;
-		} else
-			result = -EREMOTEIO;
 	} else
 		local_irq_restore(flag);
 
@@ -705,10 +789,6 @@ static void iic_stm_setup_timing(struct iic_ssc *adap, unsigned long clock)
 	ssc_store32(adap, SSC_NOISE_SUPP_WIDTH_DATAOUT, iic_glitch_width_dataout);
 	ssc_store32(adap, SSC_PRSCALER_DATAOUT, iic_prescaler_dataout);
 #endif
-
-	ssc_store32(adap, SSC_CTL, SSC_CTL_EN | SSC_CTL_MS |
-			SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x1 |
-			SSC_CTL_SR);
 
 	ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM);
 	ssc_store32(adap, SSC_BRG, iic_baudrate);
@@ -819,7 +899,7 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 	if(!pio_info->sdout){
 		printk(KERN_ERR "%s: Faild to sda pin allocation\n",__FUNCTION__);
 		return -ENODEV;
-		}
+	}
 	pdev->dev.driver_data = i2c_stm;
 	i2c_stm->adapter.id = I2C_HW_STM_SSC;
 	i2c_stm->adapter.timeout = 2;
@@ -830,6 +910,7 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 	i2c_stm->adapter.dev.parent = &(pdev->dev);
 	iic_stm_setup_timing(i2c_stm,clk_get_rate(clk_get(NULL,"comms_clk")));
 	init_waitqueue_head(&(i2c_stm->wait_queue));
+	i2c_stm->pio_info = pio_info;
 	if (i2c_add_numbered_adapter(&(i2c_stm->adapter)) < 0) {
 		printk(KERN_ERR
 		       "%s: The I2C Core refuses the i2c/stm adapter\n",__FUNCTION__);

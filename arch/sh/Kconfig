@@ -548,6 +548,14 @@ config SH_ST_MB680
 
 comment "ST Peripheral Boards"
 
+config SH_ST_DB641
+	bool "db641: STEM board with double SMSC LAN9117 Ethernet interface"
+	depends on SH_ST_STEM
+	help
+	  Supports DB641 STEM board. Only first port (CN1) is supported.
+	  See "arch/sh/boards/st/common/db641.c" for configuration
+	  informations.
+
 config SH_ST_MB520
 	bool "mb520: STB peripherals board"
 	depends on SH_ST_STPM_HD_V1

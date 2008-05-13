@@ -1,3 +1,6 @@
+#ifndef __ASM_SH_IRQ_ILC_H
+#define __ASM_SH_IRQ_ILC_H
+
 #if defined(CONFIG_CPU_SUBTYPE_STX7105)
 #define ILC_FIRST_IRQ	176
 #define ILC_NR_IRQS	(64+16)
@@ -26,3 +29,5 @@
 void __init ilc_early_init(struct platform_device* pdev);
 void __init ilc_demux_init(void);
 void ilc_irq_demux(unsigned int irq, struct irq_desc *desc);
+
+#endif

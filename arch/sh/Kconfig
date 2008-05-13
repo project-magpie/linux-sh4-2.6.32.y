@@ -556,6 +556,13 @@ config SH_ST_DB641
 	  See "arch/sh/boards/st/common/db641.c" for configuration
 	  informations.
 
+config SH_ST_DB679
+	bool "db679: STEM based EMI to ATAPI drive interface"
+	depends on SH_ST_STEM
+	help
+	  Supports DB679 STEM board. See "arch/sh/boards/st/common/db679.c"
+	  for configuration informations.
+
 config SH_ST_MB520
 	bool "mb520: STB peripherals board"
 	depends on SH_ST_STPM_HD_V1

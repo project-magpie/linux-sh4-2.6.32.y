@@ -124,9 +124,6 @@ static int __init device_init(void)
 #if 0
         stx7105_configure_lirc();
 #endif
-#if 0
-	stx7200_configure_pata(1, ILC_IRQ(6));	/* irq_ilc_ext_in[2] */
-#endif
 
 	return platform_add_devices(mb680_devices, ARRAY_SIZE(mb680_devices));
 }

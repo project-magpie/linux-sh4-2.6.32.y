@@ -200,7 +200,6 @@ static int __init device_init(void)
 	stx7200_configure_ethernet(1, 0, 1, 1);
 #endif
 	stx7200_configure_lirc();
-//	stx7200_configure_pata(1, ILC_IRQ(6));	/* irq_ilc_ext_in[2] */
 
 	return platform_add_devices(mb519_devices, ARRAY_SIZE(mb519_devices));
 }

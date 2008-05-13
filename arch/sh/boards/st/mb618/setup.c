@@ -262,10 +262,6 @@ static int __init device_init(void)
 	stx7111_configure_usb();
 	stx7111_configure_ethernet(1, 0, 0, 0);
         stx7111_configure_lirc();
-#if 0
-	// stx7200_configure_ethernet(1, 0, 1, 1);
-	stx7200_configure_pata(1, ILC_IRQ(6));	/* irq_ilc_ext_in[2] */
-#endif
 
 	vpp_pio = stpio_request_pin(3,4, "VPP", STPIO_OUT);
 

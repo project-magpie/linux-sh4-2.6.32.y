@@ -175,14 +175,7 @@ static struct snd_pcm_hardware snd_stm_spdif_player_hw_normal = {
 	.formats	= (SNDRV_PCM_FMTBIT_S32_LE |
 				SNDRV_PCM_FMTBIT_S24_LE),
 
-	.rates		= (SNDRV_PCM_RATE_32000 |
-				SNDRV_PCM_RATE_44100 |
-				SNDRV_PCM_RATE_48000 |
-				SNDRV_PCM_RATE_64000 |
-				SNDRV_PCM_RATE_88200 |
-				SNDRV_PCM_RATE_96000 |
-				SNDRV_PCM_RATE_176400 |
-				SNDRV_PCM_RATE_192000),
+	.rates		= SNDRV_PCM_RATE_CONTINUOUS,
 	.rate_min	= 32000,
 	.rate_max	= 192000,
 
@@ -231,14 +224,7 @@ static struct snd_pcm_hardware snd_stm_spdif_player_hw_raw = {
 				SNDRV_PCM_INFO_PAUSE),
 	.formats	= (SNDRV_PCM_FMTBIT_S32_LE),
 
-	.rates		= (SNDRV_PCM_RATE_32000 |
-				SNDRV_PCM_RATE_44100 |
-				SNDRV_PCM_RATE_48000 |
-				SNDRV_PCM_RATE_64000 |
-				SNDRV_PCM_RATE_88200 |
-				SNDRV_PCM_RATE_96000 |
-				SNDRV_PCM_RATE_176400 |
-				SNDRV_PCM_RATE_192000),
+	.rates		= SNDRV_PCM_RATE_CONTINUOUS,
 	.rate_min	= 32000,
 	.rate_max	= 192000,
 

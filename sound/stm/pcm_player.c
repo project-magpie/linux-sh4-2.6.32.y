@@ -146,14 +146,7 @@ static struct snd_pcm_hardware snd_stm_pcm_player_hw = {
 	.formats	= (SNDRV_PCM_FMTBIT_S32_LE |
 				SNDRV_PCM_FMTBIT_S16_LE),
 
-	.rates		= (SNDRV_PCM_RATE_32000 |
-				SNDRV_PCM_RATE_44100 |
-				SNDRV_PCM_RATE_48000 |
-				SNDRV_PCM_RATE_64000 |
-				SNDRV_PCM_RATE_88200 |
-				SNDRV_PCM_RATE_96000 |
-				SNDRV_PCM_RATE_176400 |
-				SNDRV_PCM_RATE_192000),
+	.rates		= SNDRV_PCM_RATE_CONTINUOUS,
 	.rate_min	= 32000,
 	.rate_max	= 192000,
 

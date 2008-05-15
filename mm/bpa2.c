@@ -664,9 +664,13 @@ void bpa2_memory(struct bpa2_part *part, unsigned long *base,
 		 unsigned long *size)
 {
 	if (base)
-		*base = (unsigned long)phys_to_virt(part->res.start);
+		*base = part?
+			(unsigned long)phys_to_virt(part->res.start)
+			: 0;
 	if (size)
-		*size = part->res.end - part->res.start + 1;
+		*size = part?
+			part->res.end - part->res.start + 1
+			: 0;
 }
 
 void bigphysarea_memory(unsigned long *base, unsigned long *size)

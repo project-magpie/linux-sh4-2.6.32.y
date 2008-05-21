@@ -444,7 +444,7 @@ printk("%s: speed %d\n", __FUNCTION__, speed);
 
 static struct plat_stmmacenet_data stx7105eth_private_data = {
 	.bus_id = 0,
-	.pbl = 32,
+	.pbl = 8,
 	.has_gmac = 1,
 	.fix_mac_speed = fix_mac_speed,
 };

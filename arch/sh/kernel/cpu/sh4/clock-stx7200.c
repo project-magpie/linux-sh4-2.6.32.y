@@ -173,7 +173,7 @@ static void sh4_clk_recalc(struct clk *clk)
 {
 	struct sh4clk *sh4clk = container_of(clk, struct sh4clk, clk);
 	unsigned long div_cfg = ctrl_inl(CLOCKGEN_DIV_CFG);
-	unsigned long div1, div2;
+	unsigned long div1 = 1, div2;
 
 	switch ((div_cfg >> 20) & 3) {
 	case 0:
@@ -350,8 +350,6 @@ static struct clk *clockgena_clocks[] = {
 	&pllclks[1].clk,
 	&pllclks[2].clk,
 	&sh4clks[0].clk,
-	&sh4clks[1].clk,
-	&sh4clks[2].clk,
 	&fdmaclks[0].clk,
 	&fdmaclks[1].clk,
 	&lxclks[0].clk,
@@ -588,6 +586,12 @@ static struct clk comms_clk = {
 	.ops		= &comms_clk_ops
 };
 
+static struct clk new_module_clk = {
+	.name		= "module_clk",
+	.parent		= &clkB_miscclks[0],
+	.flags		= CLK_ALWAYS_ENABLED,
+	.ops		= &comms_clk_ops
+};
 
 int __init clk_init(void)
 {
@@ -601,6 +605,15 @@ int __init clk_init(void)
 
 		ret |= clk_register(clk);
 		clk_enable(clk);
+	}
+	if (cpu_data->cut_major < 2) {
+		/* module clock */
+		ret |= clk_register(&sh4clks[2].clk);
+		clk_enable(&sh4clks[2].clk);
+
+		/* interconnect clock */
+		ret |= clk_register(&sh4clks[1].clk);
+		clk_enable(&sh4clks[1].clk);
 	}
 
 	/* Propagate the PLL values down */
@@ -635,6 +648,15 @@ int __init clk_init(void)
 
 	ret |= clk_register(&comms_clk);
 	clk_enable(&comms_clk);
+
+	/* Cut 2 uses clockgen B for module clock so we need to detect chip
+	 * type  and use the correct source. Also cut 2 no longer has the
+	 * interconnect clock so don't register it */
+
+	if (cpu_data->cut_major > 1) {
+		ret |= clk_register(&new_module_clk);
+		clk_enable(&new_module_clk);
+	}
 
 	/* Propagate the PLL values down */
 	for (fs=0; fs<3; fs++) {

@@ -745,8 +745,7 @@ void __init stx7111_early_device_init(void)
 
 	sysconf_early_init(&sysconf_device);
 	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices),
-			 /* should be: ILC_FIRST_IRQ+ILC_NR_IRQS */
-			 176);
+			 ILC_FIRST_IRQ+ILC_NR_IRQS);
 
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);

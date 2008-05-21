@@ -23,6 +23,23 @@
  *	Code cleanup, gpiolib integration
  *		Pawel Moll <pawel.moll@st.com>
  *
+ *	20/05/2008
+ *	Fix enable/disable calling - chip_irq structure needs
+ *	  .enable and .disable defined (contrary to header file!)
+ *	Add stpio_flagged_request_irq() - can now set initial
+ *	  state to IRQ_DISABLED
+ *	Deprecate stpio_request_irq()
+ *	Add stpio_set_irq_type()
+ *	  wrapper for set_irq_type()
+ *	Fix stpio_irq_chip_handler():
+ *		- stop infinite looping
+ *		- keep pin disabled if user handler disables it
+ *		- fix sense of edge-triggering
+ *	Fix stpio_irq_chip_type() - make sure level_mask is
+ *	  correctly set for level triggered interrupts
+ *
+ *		Carl Shaw <carl.shaw@st.com>
+ *
  */
 
 #include <linux/kernel.h>
@@ -47,7 +64,15 @@
 #include <asm/io.h>
 #include <asm/irq-ilc.h>
 
+/* Debug Macros */
+/* #define DEBUG */
+#undef DEBUG
 
+#ifdef DEBUG
+#define DPRINTK(fmt, args...) printk(KERN_DEBUG "%s: " fmt, __FUNCTION__ , ## args)
+#else
+#define DPRINTK(fmt, args...)
+#endif
 
 #define STPIO_POUT_OFFSET	0x00
 #define STPIO_PIN_OFFSET	0x10
@@ -95,11 +120,9 @@ struct stpio_port {
 };
 
 
-
 static struct stpio_port stpio_ports[STPIO_MAX_PORTS];
 static DEFINE_SPINLOCK(stpio_lock);
 static int stpio_irq_base;
-
 
 
 struct stpio_pin *__stpio_request_pin(unsigned int portno,
@@ -182,6 +205,8 @@ static void stpio_irq_chip_handler(unsigned int irq, struct irq_desc *desc)
 	unsigned int pinno;
 	unsigned int level_mask = port->level_mask;
 
+	DPRINTK("called\n");
+
 	/*
 	 * We don't want to mask the INTC2/ILC first level interrupt here,
 	 * and as these are both level based, there is no need to ack.
@@ -192,6 +217,8 @@ static void stpio_irq_chip_handler(unsigned int irq, struct irq_desc *desc)
 	comp = readl(port->base + STPIO_PCOMP_OFFSET);
 
 	active = (in ^ comp) & mask;
+
+	DPRINTK("levelmask = 0x%08x\n", level_mask);
 
 	/* Level sensitive interrupts we can mask for the duration */
 	writel(level_mask,
@@ -208,18 +235,23 @@ static void stpio_irq_chip_handler(unsigned int irq, struct irq_desc *desc)
 		struct stpio_pin *pin;
 		unsigned long pinmask;
 
+		DPRINTK("active = %d  pinno = %d\n", active, pinno);
+
 		pinno--;
 		irq = stpio_irq_base + (portno*STPIO_PINS_IN_PORT) + pinno;
 		desc = irq_desc + irq;
 		pin = get_irq_chip_data(irq);
 		pinmask = 1 << pinno;
 
+		active &= ~pinmask;
+
 		if (pin->flags & PIN_FAKE_EDGE) {
 			int val = stpio_get_pin(pin);
+			DPRINTK("pinno %d PIN_FAKE_EDGE val %d\n", pinno, val);
 			writel(pinmask, port->base + STPIO_PCOMP_OFFSET +
 			       (val ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
 			if ((pin->flags & PIN_IGNORE_EDGE_MASK) ==
-			    (PIN_IGNORE_EDGE_FLAG | val))
+			    (PIN_IGNORE_EDGE_FLAG | (val^1)))
 				continue;
 		}
 
@@ -238,17 +270,24 @@ static void stpio_irq_chip_handler(unsigned int irq, struct irq_desc *desc)
 				desc->status |= IRQ_PENDING;
 			}
 			continue;
-		}
+		} else {
+			desc->handle_irq(irq, desc);
 
-		desc->handle_irq(irq, desc);
+			/* If our handler has disabled interrupts, then don't */
+			/* re-enable them                                     */
+			if (desc->status & IRQ_DISABLED){
+				DPRINTK("handler has disabled interrupts!\n");
+				mask &= ~pinmask;
+			}
+		}
 
 		if (unlikely((desc->status & (IRQ_PENDING | IRQ_DISABLED)) ==
 			     IRQ_PENDING)) {
 			desc->status &= ~IRQ_PENDING;
 			writel(pinmask, port->base +
 			       STPIO_PMASK_OFFSET + STPIO_SET_OFFSET);
-		} else
-			active &= ~pinmask;
+		}
+
 	}
 
 	/* Re-enable level */
@@ -257,6 +296,8 @@ static void stpio_irq_chip_handler(unsigned int irq, struct irq_desc *desc)
 
 	/* Do we need a software level as well, to cope with interrupts
 	 * which get disabled during the handler execution? */
+
+	DPRINTK("exiting\n");
 }
 
 /*
@@ -281,19 +322,22 @@ static inline int pin_to_irq(struct stpio_pin *pin)
 static irqreturn_t stpio_irq_wrapper(int irq, void *dev_id)
 {
 	struct stpio_pin *pin = dev_id;
+	DPRINTK("calling pin handler\n");
 	pin->func(pin, pin->dev);
 	return IRQ_HANDLED;
 }
 
-void stpio_request_irq(struct stpio_pin *pin, int comp,
+
+void stpio_flagged_request_irq(struct stpio_pin *pin, int comp,
 		       void (*handler)(struct stpio_pin *pin, void *dev),
-		       void *dev)
+		       void *dev, unsigned long flags)
 {
-	unsigned long flags;
 	int irq = pin_to_irq(pin);
 	int ret;
 
-	spin_lock_irqsave(&stpio_lock, flags);
+	DPRINTK("called\n");
+
+	spin_lock(&stpio_lock);
 
 	/* stpio style interrupt handling doesn't allow sharing. */
 	BUG_ON(pin->func);
@@ -305,9 +349,12 @@ void stpio_request_irq(struct stpio_pin *pin, int comp,
 	ret = request_irq(irq, stpio_irq_wrapper, 0, pin->name, pin);
 	BUG_ON(ret);
 
-	spin_unlock_irqrestore(&stpio_lock, flags);
+	if (flags & IRQ_DISABLED)
+		disable_irq(irq);
+
+	spin_unlock(&stpio_lock);
 }
-EXPORT_SYMBOL(stpio_request_irq);
+EXPORT_SYMBOL(stpio_flagged_request_irq);
 
 void stpio_free_irq(struct stpio_pin *pin)
 {
@@ -316,6 +363,7 @@ void stpio_free_irq(struct stpio_pin *pin)
 
 	spin_lock_irqsave(&stpio_lock, flags);
 
+	DPRINTK("calling free_irq\n");
 	free_irq(irq, pin);
 
 	pin->func = 0;
@@ -329,6 +377,7 @@ void stpio_enable_irq(struct stpio_pin *pin, int comp)
 {
 	int irq = pin_to_irq(pin);
 	set_irq_type(irq, comp ? IRQ_TYPE_LEVEL_LOW : IRQ_TYPE_LEVEL_HIGH);
+	DPRINTK("calling enable_irq for pin %s\n", pin->name);
 	enable_irq(irq);
 }
 EXPORT_SYMBOL(stpio_enable_irq);
@@ -336,9 +385,18 @@ EXPORT_SYMBOL(stpio_enable_irq);
 void stpio_disable_irq(struct stpio_pin *pin)
 {
 	int irq = pin_to_irq(pin);
+	DPRINTK("calling disable_irq for pin %s\n", pin->name);
 	disable_irq(irq);
 }
 EXPORT_SYMBOL(stpio_disable_irq);
+
+void stpio_set_irq_type(struct stpio_pin* pin, int triggertype)
+{
+	int irq = pin_to_irq(pin);
+	DPRINTK("setting pin %s to type %d\n", pin->name, triggertype);
+	set_irq_type(irq, triggertype);
+}
+EXPORT_SYMBOL(stpio_set_irq_type);
 
 #ifdef CONFIG_PROC_FS
 
@@ -488,6 +546,7 @@ static void stpio_irq_chip_disable(unsigned int irq)
 	struct stpio_port *port = pin->port;
 	int pinno = pin->no;
 
+	DPRINTK("disabling pin %d\n", pinno);
 	writel(1<<pinno, port->base + STPIO_PMASK_OFFSET + STPIO_CLEAR_OFFSET);
 }
 
@@ -497,6 +556,7 @@ static void stpio_irq_chip_enable(unsigned int irq)
 	struct stpio_port *port = pin->port;
 	int pinno = pin->no;
 
+	DPRINTK("enabling pin %d\n", pinno);
 	writel(1<<pinno, port->base + STPIO_PMASK_OFFSET + STPIO_SET_OFFSET);
 }
 
@@ -505,33 +565,31 @@ static int stpio_irq_chip_type(unsigned int irq, unsigned type)
 	struct stpio_pin *pin = get_irq_chip_data(irq);
 	struct stpio_port *port = pin->port;
 	int pinno = pin->no;
-	int flags;
 	int comp;
 
-	spin_lock_irqsave(&stpio_lock, flags);
-
+	DPRINTK("setting pin %d to type %d\n", pinno, type);
 	pin->type = type;
 
 	switch (type) {
 	case IRQ_TYPE_EDGE_RISING:
 		pin->flags = PIN_FAKE_EDGE | PIN_IGNORE_FALLING_EDGE;
-		comp = 0;
+		comp = 1;
 		port->level_mask &= ~(1<<pinno);
 		break;
 	case IRQ_TYPE_LEVEL_HIGH:
 		pin->flags = 0;
 		comp = 0;
-		port->level_mask |= ~(1<<pinno);
+		port->level_mask |= (1<<pinno);
 		break;
 	case IRQ_TYPE_EDGE_FALLING:
 		pin->flags = PIN_FAKE_EDGE | PIN_IGNORE_RISING_EDGE;
-		comp = 1;
+		comp = 0;
 		port->level_mask &= ~(1<<pinno);
 		break;
 	case IRQ_TYPE_LEVEL_LOW:
 		pin->flags = 0;
 		comp = 1;
-		port->level_mask |= ~(1<<pinno);
+		port->level_mask |= (1<<pinno);
 		break;
 	case IRQ_TYPE_EDGE_BOTH:
 		pin->flags = PIN_FAKE_EDGE;
@@ -545,8 +603,6 @@ static int stpio_irq_chip_type(unsigned int irq, unsigned type)
 	writel(1<<pinno, port->base + STPIO_PCOMP_OFFSET +
 	       (comp ? STPIO_SET_OFFSET : STPIO_CLEAR_OFFSET));
 
-	spin_unlock_irqrestore(&stpio_lock, flags);
-
 	return 0;
 }
 
@@ -555,6 +611,8 @@ static struct irq_chip stpio_irq_chip = {
 	.mask		= stpio_irq_chip_disable,
 	.mask_ack	= stpio_irq_chip_disable,
 	.unmask		= stpio_irq_chip_enable,
+	.enable		= stpio_irq_chip_enable,
+	.disable	= stpio_irq_chip_disable,
 	.set_type	= stpio_irq_chip_type,
 };
 

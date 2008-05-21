@@ -53,12 +53,19 @@ void stpio_set_pin(struct stpio_pin* pin, unsigned int value);
 unsigned int stpio_get_pin(struct stpio_pin* pin);
 
 /* Interrupt on external value change */
-void stpio_request_irq(struct stpio_pin* pin, int mode,
-		void (*handler)(struct stpio_pin *pin, void *dev),
-		void *dev);
+void stpio_flagged_request_irq(struct stpio_pin *pin, int comp,
+                       void (*handler)(struct stpio_pin *pin, void *dev),
+                       void *dev, unsigned long irqflags);
+static inline void __deprecated stpio_request_irq(struct stpio_pin *pin, int comp,
+                       void (*handler)(struct stpio_pin *pin, void *dev),
+                       void *dev)
+{
+        stpio_flagged_request_irq (pin, comp, handler, dev, 0);
+}
 void stpio_free_irq(struct stpio_pin* pin);
 void stpio_enable_irq(struct stpio_pin* pin, int mode);
 void stpio_disable_irq(struct stpio_pin* pin);
+void stpio_set_irq_type(struct stpio_pin* pin, int triggertype);
 
 /* Calculate gpio number of a given stpio pin... */
 #define stpio_to_gpio(portno, pinno) ((portno) * STPIO_PINS_IN_PORT + (pinno))

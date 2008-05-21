@@ -160,3 +160,30 @@
 		}								\
 	}									\
 }
+
+#define SATA_DEVICE(_port, _base, _irq_hostc, _irq_dmac, _private)	\
+{									\
+	.name = "sata_stm",						\
+	.id = _port,							\
+	.dev = {							\
+		.platform_data = _private,				\
+	},								\
+	.num_resources = 3,						\
+	.resource = (struct resource[]) {				\
+		[0] = {							\
+			.start = _base,					\
+			.end   = _base + 0xfff,				\
+			.flags = IORESOURCE_MEM,			\
+		},							\
+		[1] = {							\
+			.start = _irq_hostc,				\
+			.end   = _irq_hostc,				\
+			.flags = IORESOURCE_IRQ,			\
+		},							\
+		[2] = {							\
+			.start = _irq_dmac,				\
+			.end   = _irq_dmac,				\
+			.flags = IORESOURCE_IRQ,			\
+		}							\
+	}								\
+}

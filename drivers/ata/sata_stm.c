@@ -228,8 +228,10 @@
 
 #define SATA_FIS_SIZE	(8*1024)
 
-static u32 stm_sata_scr_read (struct ata_port *ap, unsigned int sc_reg);
-static void stm_sata_scr_write (struct ata_port *ap, unsigned int sc_reg, u32 val);
+static int stm_sata_scr_read(struct ata_port *ap, unsigned int sc_reg,
+			     u32 *val);
+static int stm_sata_scr_write(struct ata_port *ap, unsigned int sc_reg,
+			      u32 val);
 
 /* Layout of a DMAC Linked List Item (LLI)
  * DMAH_CH0_STAT_DST and DMAH_CH0_STAT_SRC are both 0 */
@@ -245,6 +247,8 @@ struct stm_host_priv
 {
 	unsigned long phy_init;		/* Initial value for PHYCR */
 	int softsg;			/* If using softsg */
+	int shared_dma_host_irq;	/* If we the interrupt from the DMA
+					 * and HOSTC are or'ed together */
 };
 
 struct stm_port_priv
@@ -290,8 +294,10 @@ DPRINTK("ENTER\n");
 	 * phy_ctrl[24:20] iddqsub[4:0]
 	 * phy_ctrl[31:25] NOT DEFINED
 	 */
-	writel(hpriv->phy_init, mmio + SATA_PHYCR);
-        mdelay(100);
+	if (hpriv->phy_init) {
+		writel(hpriv->phy_init, mmio + SATA_PHYCR);
+		mdelay(100);
+	}
 
 	sata_phy_reset(ap);
 }
@@ -609,61 +615,67 @@ static void stm_data_xfer(struct ata_device *adev, unsigned char *buf,
 	writel(0xffffffff, mmio_base + SATA_ERRMR);
 }
 
+
+/* This needs munging to give per controller stats */
 static unsigned long error_count;
 static unsigned int print_error=1;
 
-static irqreturn_t stm_sata_interrupt(int irq, void *dev_instance)
+static unsigned stm_sata_dma_irq(struct ata_port *ap)
 {
-	struct ata_host *host = dev_instance;
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
+	struct stm_port_priv *pp = ap->private_data;
+	int handled = 1;
+
+	if (readl(mmio + DMAC_STATUSTFR) & 1) {
+		/* DMA Transfer complete update soft S/G */
+
+		/* Ack the interrupt */
+		writel(1<<0, mmio + DMAC_CLEARTFR);
+
+		DPRINTK("softsg_node %p, end %p\n",
+			pp->softsg_node, pp->softsg_end);
+
+		writel(pp->softsg_node->sar, mmio + DMAC_SAR0);
+		writel(pp->softsg_node->dar, mmio + DMAC_DAR0);
+
+		writel(pp->softsg_node->ctl0, mmio + DMAC_CTL0_0);
+		writel(pp->softsg_node->ctl1, mmio + DMAC_CTL0_1);
+
+		if (pp->softsg_node != pp->softsg_end) {
+			pp->softsg_node++;
+		} else {
+			writel(1<<8 | 0<<0, mmio + DMAC_MASKTFR);
+		}
+
+		writel((1<<8) | (1<<0), mmio + DMAC_ChEnReg);
+	} else if (readl(mmio + DMAC_RAWERR) & 1) {
+		ata_port_printk(ap, KERN_ERR, "DMA error asserted\n");
+	}
+
+	return handled;
+
+}
+
+static unsigned stm_sata_host_irq(struct ata_port *ap)
+{
 	unsigned int handled = 0;
-	unsigned int i;
-	unsigned long flags;
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
+	u32 status, error;
 
-DPRINTK("ENTER\n");
+	if (readl(mmio + SATA_INTPR) & (SATA_INT_ERR)) {
 
-	spin_lock_irqsave(&host->lock, flags);
-
-	for (i = 0; i < host->n_ports; i++) {
-		struct ata_port *ap = host->ports[i];
-		void __iomem *mmio = ap->ioaddr.cmd_addr;
-
-		if (readl(mmio + DMAC_STATUSTFR) & 1) {
-			/* DMA Transfer complete update soft S/G */
-			struct stm_port_priv *pp = ap->private_data;
-
-			/* Ack the interrupt */
-			writel(1<<0, mmio + DMAC_CLEARTFR);
-
-			DPRINTK("softsg_node %p, end %p\n", pp->softsg_node, pp->softsg_end);
-
-			writel(pp->softsg_node->sar, mmio + DMAC_SAR0);
-			writel(pp->softsg_node->dar, mmio + DMAC_DAR0);
-
-			writel(pp->softsg_node->ctl0, mmio + DMAC_CTL0_0);
-			writel(pp->softsg_node->ctl1, mmio + DMAC_CTL0_1);
-
-			if (pp->softsg_node != pp->softsg_end) {
-				pp->softsg_node++;
-			} else {
-				writel(1<<8 | 0<<0, mmio + DMAC_MASKTFR);
-			}
-
-			writel((1<<8) | (1<<0), mmio + DMAC_ChEnReg);
-		} else
-		if (readl(mmio + DMAC_RAWERR) & 1) {
-			printk("DMA error asserted\n");
-		} else
-		if (readl(mmio + SATA_INTPR) & (SATA_INT_ERR)) {
-			/* Error code set in SError */
-			if (print_error) {
-				printk("%s: SStatus 0x%08x, SError 0x%08x\n", __FUNCTION__,
-				       stm_sata_scr_read(ap, SCR_STATUS),
-				       stm_sata_scr_read(ap, SCR_ERROR));
-			}
-			error_count++;
-			stm_sata_scr_write(ap, SCR_ERROR, -1);
-			handled = 1;
-		} else
+		/* Error code set in SError */
+		if (print_error) {
+			stm_sata_scr_read(ap, SCR_STATUS, &status);
+			stm_sata_scr_read(ap, SCR_ERROR, &error);
+			ata_port_printk(ap, KERN_ERR,
+					"SStatus 0x%08x, SError 0x%08x\n",
+					status, error);
+		}
+		error_count++;
+		stm_sata_scr_write(ap, SCR_ERROR, -1);
+		handled = 1;
+	} else
 		if (ap && (!(ap->flags & ATA_FLAG_DISABLED))) {
 			struct ata_queued_cmd *qc;
 
@@ -672,6 +684,47 @@ DPRINTK("ENTER\n");
 				handled += ata_host_intr(ap, qc);
 		}
 
+	return handled;
+}
+
+static irqreturn_t stm_sata_dma_interrupt(int irq, void *dev_instance)
+{
+	struct ata_host *host = dev_instance;
+	unsigned int handled = 0;
+	unsigned int i;
+	unsigned long flags;
+	struct stm_host_priv *hpriv = host->private_data;
+
+DPRINTK("ENTER DMA\n");
+
+	BUG_ON(hpriv->shared_dma_host_irq);
+
+	spin_lock_irqsave(&host->lock, flags);
+
+	for (i = 0; i < host->n_ports; i++)
+		handled += stm_sata_dma_irq(host->ports[i]);
+
+	spin_unlock_irqrestore(&host->lock, flags);
+
+	return IRQ_RETVAL(handled);
+}
+
+static irqreturn_t stm_sata_interrupt(int irq, void *dev_instance)
+{
+	struct ata_host *host = dev_instance;
+	unsigned int handled = 0;
+	unsigned int i;
+	unsigned long flags;
+	struct stm_host_priv *hpriv = host->private_data;
+
+DPRINTK("ENTER\n");
+
+	spin_lock_irqsave(&host->lock, flags);
+
+	for (i = 0; i < host->n_ports; i++) {
+		if (hpriv->shared_dma_host_irq)
+			handled += stm_sata_dma_irq(host->ports[i]);
+		handled += stm_sata_host_irq(host->ports[i]);
 	}
 
 	spin_unlock_irqrestore(&host->lock, flags);
@@ -684,28 +737,25 @@ static void stm_irq_clear(struct ata_port *ap)
 	/* TODO */
 }
 
-
-static u32 stm_sata_scr_read (struct ata_port *ap, unsigned int sc_reg)
+static int stm_sata_scr_read(struct ata_port *ap, unsigned int sc_reg, u32 *val)
 {
 	void __iomem *mmio = ap->ioaddr.cmd_addr;
-	u32 val;
 
-	if (sc_reg > SCR_CONTROL)
-		return 0xffffffffU;
+	if (sc_reg > SCR_CONTROL) return -EINVAL;
 
-	val = readl(mmio + SATA_SCR0 + (sc_reg * 4));
-	return val;
+	*val = readl(mmio + SATA_SCR0 + (sc_reg * 4));
+	return 0;
 }
 
-static void stm_sata_scr_write (struct ata_port *ap, unsigned int sc_reg, u32 val)
+static int stm_sata_scr_write(struct ata_port *ap, unsigned int sc_reg, u32 val)
 {
 	void __iomem *mmio = ap->ioaddr.cmd_addr;
 
 DPRINTK("%d = %08x\n", sc_reg, val);
-	if (sc_reg > SCR_CONTROL)
-		return;
+	if (sc_reg > SCR_CONTROL) return -EINVAL;
 
 	writel(val, mmio + SATA_SCR0 + (sc_reg * 4));
+	return 0;
 }
 
 static int stm_port_start (struct ata_port *ap)
@@ -887,6 +937,9 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	struct ata_port *ap;
 	struct stm_host_priv *hpriv = NULL;
 	unsigned long sata_rev, dmac_rev;
+	int dma_irq;
+	int ret;
+
 
 	printk(KERN_DEBUG DRV_NAME " version " DRV_VERSION "\n");
 
@@ -982,8 +1035,9 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	/* time out count = 0xa0(160 dec)
 	 * time out enable = 1
 	 */
-	writel(sata_private_info->pc_glue_logic_init,
-		mmio_base + SATA_PC_GLUE_LOGIC);
+	if (sata_private_info->pc_glue_logic_init)
+		writel(sata_private_info->pc_glue_logic_init,
+		       mmio_base + SATA_PC_GLUE_LOGIC);
 
 	/* DMA controller set up */
 
@@ -1003,9 +1057,32 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 
 	/* Finished hardware set up */
 
-	return ata_host_activate(host, platform_get_irq(pdev, 0),
-				 stm_sata_interrupt,
-				 IRQF_SHARED, &stm_sht);
+	/* Now, are we on one of the later SATA IP's, we have the DMA and
+	 * host controller interrupt lines separated out. So if we have two
+	 * irq resources, then it is one of these
+	 */
+
+	dma_irq = platform_get_irq(pdev, 1);
+	if (dma_irq > 0) {
+		/* We have two interrupts */
+		if (devm_request_irq(host->dev, dma_irq, stm_sata_dma_interrupt,
+				     0, dev_driver_string(host->dev), host) < 0)
+			panic("Cannot register SATA dma interrupt %d\n",
+			      dma_irq);
+		hpriv->shared_dma_host_irq = 0;
+	} else {
+		hpriv->shared_dma_host_irq = 1;
+	}
+
+	ret = ata_host_activate(host, platform_get_irq(pdev, 0),
+				stm_sata_interrupt,
+				IRQF_SHARED, &stm_sht);
+
+	if (ret && dma_irq > 0)
+		devm_free_irq(host->dev, dma_irq, host);
+
+	return ret;
+
 }
 
 static int stm_sata_remove(struct platform_device *pdev)

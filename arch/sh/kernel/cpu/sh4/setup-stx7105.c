@@ -401,6 +401,37 @@ printk("%s: ssc %d, pin %d, bit %d = r %d, port %d, pin %d\n",
 #endif
 }
 
+/* SATA resources ---------------------------------------------------------- */
+
+/* Ok to have same private data for both controllers */
+static struct plat_sata_data sata_private_info = {
+	.phy_init = 0,
+	.pc_glue_logic_init = 0,
+	.only_32bit = 0,
+};
+
+static struct platform_device sata_device[2] = {
+	SATA_DEVICE(0, 0xfe209000, evt2irq(0xb00), evt2irq(0xa80),
+		    &sata_private_info),
+	SATA_DEVICE(1, 0xfd100000, ILC_EXT_IRQ(33), ILC_EXT_IRQ(34),
+		    &sata_private_info),
+};
+
+void __init stx7200_configure_sata(unsigned int port)
+{
+	struct sysconf_field *sc;
+
+	/* Power up SATA phy */
+	sc = sysconf_claim(SYS_CFG, 32, 8+port, 8+port, "USB");
+	sysconf_write(sc, 0);
+
+	/* Power up SATA host */
+	sc = sysconf_claim(SYS_CFG, 32, 10+port, 10+port, "USB");
+	sysconf_write(sc, (port == 0) ? 1 : 0);
+
+	platform_device_register(sata_device + port);
+}
+
 /* Ethernet MAC resources -------------------------------------------------- */
 
 static struct sysconf_field *mac_speed_sc;

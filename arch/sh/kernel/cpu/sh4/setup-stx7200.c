@@ -384,6 +384,28 @@ void __init stx7200_configure_usb(void)
 	}
 }
 
+/* SATA resources ---------------------------------------------------------- */
+
+/* Ok to have same private data for both controllers */
+static struct plat_sata_data sata_private_info = {
+	.phy_init = 0x0,
+	.pc_glue_logic_init = 0x0,
+	.only_32bit = 0,
+};
+
+static struct platform_device sata_device[2] = {
+	SATA_DEVICE(0, 0xfd520000, ILC_IRQ(89), ILC_IRQ(88),
+		    &sata_private_info),
+	SATA_DEVICE(1, 0xfd521000, ILC_IRQ(91), ILC_IRQ(90),
+		    &sata_private_info),
+};
+
+void __init stx7200_configure_sata(unsigned int port)
+{
+	BUG_ON(port > 1);
+	platform_device_register(sata_device + port);
+}
+
 /* FDMA resources ---------------------------------------------------------- */
 
 #ifdef CONFIG_STM_DMA

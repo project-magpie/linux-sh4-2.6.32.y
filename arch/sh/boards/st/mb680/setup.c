@@ -102,6 +102,8 @@ static struct platform_device *mb680_devices[] __initdata = {
 
 static int __init device_init(void)
 {
+	stx7200_configure_sata(0);
+	stx7200_configure_sata(1);
 #if 0
 	stx7105_configure_pwm(&pwm_private_info);
 #endif

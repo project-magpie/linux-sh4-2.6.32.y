@@ -814,6 +814,7 @@ void __init stx7105_configure_lirc(void)
 {
 	platform_device_register(&lirc_device);
 }
+#endif
 
 /* NAND Resources ---------------------------------------------------------- */
 
@@ -929,8 +930,6 @@ void __init stx7105_configure_nand(struct nand_config_data *data)
 
 	platform_device_register(&nand_flash[emi_bank]);
 }
-
-#endif
 
 /* Early resources (sysconf and PIO) --------------------------------------- */
 

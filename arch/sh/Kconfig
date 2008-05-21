@@ -589,6 +589,30 @@ config SH_ST_MB588
 	  Supports MB588 STEM board. See "arch/sh/boards/st/common/mb588.c"
 	  for configuration informations.
 
+config SH_ST_MB705
+	bool "mb705: Generic HD peripherals board"
+	depends on SH_ST_STPM_HD_V2
+	select SH_ST_EPLD
+	help
+	  Select SH_ST_MB705 if your processor board is connected
+	  to this STB-like peripherals board.
+
+config SH_ST_MB705_DISPLAY
+	bool "Driver for LED display on mb705"
+	depends on SH_ST_MB705
+	default y
+	help
+	  Select this option to enable a simple driver for the alphanumeric
+	  LED display on the mb705.
+
+config SH_ST_MB705_FPBUTTON
+	bool "Driver for the front pannel button on mb705"
+	depends on SH_ST_MB705
+	default y
+	help
+	  Select this option to enable a simple driver for the front
+	  pannel button on the mb705.
+
 endmenu
 
 source "arch/sh/boards/renesas/hs7751rvoip/Kconfig"

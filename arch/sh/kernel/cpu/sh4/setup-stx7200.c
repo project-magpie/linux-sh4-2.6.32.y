@@ -1019,6 +1019,19 @@ static struct platform_device hwrandom_rng_device = {
 	}
 };
 
+static struct platform_device devrandom_rng_device = {
+	.name           = "stm_rng",
+	.id             = 0,
+	.num_resources  = 1,
+	.resource       = (struct resource[]){
+		{
+			.start  = 0xfdb70000,
+			.end    = 0xfdb70fff,
+			.flags  = IORESOURCE_MEM
+		},
+	}
+};
+
 /* ASC resources ----------------------------------------------------------- */
 
 static struct platform_device stm_stasc_devices[] = {
@@ -1261,6 +1274,7 @@ static struct platform_device *stx7200_devices[] __initdata = {
 	&ilc3_device,
         &rtc_device,
 	&hwrandom_rng_device,
+	&devrandom_rng_device,
 };
 
 static int __init stx7200_devices_setup(void)

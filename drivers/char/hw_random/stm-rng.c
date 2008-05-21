@@ -1,11 +1,11 @@
 /*
- * drivers/char/hw_random/omap-rng.c
+ * drivers/char/hw_random/stm-rng.c
  *
- * RNG driver for ST Microelectronics STx7109, STx7200 SoCs
+ * RNG driver for ST Microelectronics STx7xxx  SoCs
  *
  * Author: Carl Shaw <carl.shaw@st.com>
  *
- * Copyright 2007 (c) ST Microelectronics R&D Ltd.
+ * Copyright (c) 2007-2008 ST Microelectronics R&D Ltd.
  *
  * Based on omap RNG driver
  *

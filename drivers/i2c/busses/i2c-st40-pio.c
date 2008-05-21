@@ -153,8 +153,8 @@ static int bit_st40_pio_init(void)
 		}
 
 
-		stpio_set_pin(i2c_busses[i].sda, 0);
-		stpio_set_pin(i2c_busses[i].scl, 0);
+		stpio_set_pin(i2c_busses[i].sda, 1);
+		stpio_set_pin(i2c_busses[i].scl, 1);
 	}
 
 	return 0;
@@ -185,7 +185,7 @@ static struct i2c_algo_bit_data bit_st40_pio_data[NR_I2C_BUSSES] = {
 	.setscl		= bit_st40_pio_setscl,
 	.getsda		= bit_st40_pio_getsda,
 	.getscl		= bit_st40_pio_getscl,
-	.udelay		= 10,
+	.udelay		= 5,
 	.timeout	= HZ
 },
 #if NR_I2C_BUSSES > 1
@@ -195,7 +195,7 @@ static struct i2c_algo_bit_data bit_st40_pio_data[NR_I2C_BUSSES] = {
 	.setscl		= bit_st40_pio_setscl,
 	.getsda		= bit_st40_pio_getsda,
 	.getscl		= bit_st40_pio_getscl,
-	.udelay		= 10,
+	.udelay		= 5,
 	.timeout	= HZ
 },
 #if NR_I2C_BUSSES > 2
@@ -205,7 +205,7 @@ static struct i2c_algo_bit_data bit_st40_pio_data[NR_I2C_BUSSES] = {
         .setscl         = bit_st40_pio_setscl,
         .getsda         = bit_st40_pio_getsda,
         .getscl         = bit_st40_pio_getscl,
-        .udelay         = 10,
+        .udelay         = 5,
         .timeout        = HZ
 },
 #endif
@@ -215,21 +215,21 @@ static struct i2c_algo_bit_data bit_st40_pio_data[NR_I2C_BUSSES] = {
 static struct i2c_adapter bit_st40_pio_ops[NR_I2C_BUSSES] = {
 {
 	.owner		= THIS_MODULE,
-	.name		= "ST40 (PIO based)",
+	.name		= "ST40_PIO_0",
 	.id		= I2C_HW_B_ST40_PIO,
 	.algo_data	= &bit_st40_pio_data[0],
 },
 #if NR_I2C_BUSSES > 1
 {
 	.owner		= THIS_MODULE,
-	.name		= "ST40 (PIO based)",
+	.name		= "ST40_PIO_1",
 	.id		= I2C_HW_B_ST40_PIO,
 	.algo_data	= &bit_st40_pio_data[1],
 },
 #if NR_I2C_BUSSES > 2
 {
 	.owner		= THIS_MODULE,
-	.name		= "ST40 (PIO based)",
+	.name		= "ST40_PIO_2",
 	.id		= I2C_HW_B_ST40_PIO,
 	.algo_data	= &bit_st40_pio_data[2],
 }

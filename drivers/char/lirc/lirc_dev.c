@@ -866,9 +866,9 @@ EXPORT_SYMBOL(lirc_register_plugin);
 EXPORT_SYMBOL(lirc_unregister_plugin);
 
 #if defined(CONFIG_ST_LIRC) || defined(MODULE)
-static int __init lirc_probe(struct device *dev)
+static int __init lirc_probe(struct platform_device *dev)
 {
-	lirc_platform_device=to_platform_device(dev);
+	lirc_platform_device=dev;
 
 	if (lirc_platform_device->name != NULL)
 		printk(KERN_INFO "lirc_dev: Device probe found data for platform device %s\n", 
@@ -879,10 +879,9 @@ static int __init lirc_probe(struct device *dev)
         return 0;
 }
 
-static struct device_driver lirc_device_driver = {
-        .name           = IRCTL_DEV_NAME,
-        .bus            = &platform_bus_type,
-        .probe          = lirc_probe,
+static struct platform_driver lirc_device_driver = {
+        .driver.name  = IRCTL_DEV_NAME,
+        .probe        = lirc_probe,
 };
 
 void* lirc_get_config()
@@ -906,7 +905,7 @@ static int __init lirc_dev_init(void)
 	}
 
 #if defined(CONFIG_ST_LIRC) || defined(MODULE)
-	if(driver_register(&lirc_device_driver)) {
+	if(platform_driver_register(&lirc_device_driver)) {
 		printk(KERN_ERR "lirc_dev: driver_register failed\n");
 		goto out;
         }
@@ -940,7 +939,7 @@ out:
 void __exit lirc_dev_exit(void)
 {
 #if defined(CONFIG_ST_LIRC) || defined(MODULE)
-	driver_unregister(&lirc_device_driver);
+	platform_driver_unregister(&lirc_device_driver);
 #endif
 	unregister_chrdev(IRCTL_DEV_MAJOR, IRCTL_DEV_NAME);
 	class_destroy(lirc_class);

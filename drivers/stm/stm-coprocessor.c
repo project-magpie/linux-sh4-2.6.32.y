@@ -116,8 +116,8 @@ static void __debug(coproc_t * cop, const char *fnc)
 	if (cop->h2c_port)
 		printk
 		    ("    Channels : h->c 0x%08x (%08lx)    c->h 0x%08x (%08lx)\n",
-		     cop->h2c_port, readl(cop->h2c_port), cop->c2h_port,
-		     readl(cop->c2h_port));
+					cop->h2c_port, (long unsigned int)readl(cop->h2c_port), cop->c2h_port,
+					(long unsigned int)readl(cop->c2h_port));
 	else
 #endif
 		printk("    Channels : Not defined\n");
@@ -483,6 +483,7 @@ static struct platform_driver st_coproc_driver = {
 #endif
 };
 
+static struct class *coproc_dev_class;
 static int __init st_coproc_init(void)
 {
 	int i;
@@ -503,6 +504,8 @@ static int __init st_coproc_init(void)
 		return (-EAGAIN);
 	}
 
+	coproc_dev_class = class_create(THIS_MODULE, "coproc-dev");
+
 	for (cop = &coproc[0], i = 0; i < coproc_info.max_coprs; i++, cop++) {
 		if (!cop->ram_offset) {
 			printk("st-coprocessor-%d: No RAM reserved\n", i);
@@ -510,7 +513,7 @@ static int __init st_coproc_init(void)
 		} else {
 			cop->control |= COPROC_SPACE_ALLOCATE;
 			cop->vma_address =
-				ioremap_nocache((unsigned long)cop->ram_offset, cop->ram_size);
+				(int)ioremap_nocache((unsigned long)cop->ram_offset, cop->ram_size);
 		}
 		/*
 		 ** Nodes:
@@ -535,9 +538,14 @@ static int __init st_coproc_init(void)
 			       "Error on ST-Coprocessor device registration\n");
 		else {
 			/* Add the attributes on the device */
-			device_create_file(&pdev->dev, &dev_attr_mem_base);
-			device_create_file(&pdev->dev, &dev_attr_mem_size);
-			device_create_file(&pdev->dev, &dev_attr_running);
+			if(device_create_file(&pdev->dev, &dev_attr_mem_base) |
+					device_create_file(&pdev->dev, &dev_attr_mem_size) |
+					device_create_file(&pdev->dev, &dev_attr_running))
+				printk(KERN_ERR "Error to add attribute to the coprocessor device\n");
+			/* Create the device file via Discovery System */
+			cop->class_dev = class_device_create(coproc_dev_class, NULL,
+						MKDEV(COPROCESSOR_MAJOR,pdev->id),
+						NULL,"st231-%d", pdev->id);
 		}
 
 		/* Now complete with the platform dependent init stage */

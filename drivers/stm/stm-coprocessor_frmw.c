@@ -90,7 +90,7 @@ static int st_coproc_open(struct inode *inode, struct file *file)
 	unsigned long minor = MINOR((file)->f_dentry->d_inode->i_rdev);
 	unsigned long id_device = minor_2_device(minor);
 	unsigned long id_firmware = minor_2_firmware(minor);
-	struct firmware *fw = NULL;
+	const struct firmware *fw = NULL;
 	int res;
 
 	coproc_t *cop = &coproc[id_device];
@@ -120,18 +120,18 @@ static int st_coproc_open(struct inode *inode, struct file *file)
 		/* move the firmware in the coprocessor memory */
 		dbg_print("Received firmware size %d bytes\n", fw->size - 4);
 		dbg_print("cop->ram_size    = 0x%x\n", cop->ram_size);
-		dbg_print("cop->ram_offset  = 0x%x\n", cop->ram_offset);
+		dbg_print("cop->ram_offset  = 0x%x\n", (unsigned int)cop->ram_offset);
 		/*
 		 * The last 4 bytes in the fw->data buffer
 		 * aren't code.
 		 * They are the boot vma (relocated) address!
 		 */
 		memcpy(&boot_address, (fw->data) + (fw->size - 4), 4);
-		dbg_print("boot address     = 0x%x\n", boot_address);
-		memcpy(cop->vma_address, fw->data, fw->size - 4);
+		dbg_print("boot address     = 0x%x\n", (unsigned int)boot_address);
+		memcpy((int*)cop->vma_address, fw->data, fw->size - 4);
 		release_firmware(fw);
 		dbg_print("Run the Firmware code\n");
-		coproc_cpu_grant(cop, boot_address);	//7100 only...
+		coproc_cpu_grant(cop, (unsigned int)boot_address);	//7100 only...
 		res = 0;
 	} else {
 		dbg_print("Error on Firmware Download\n");
@@ -156,7 +156,7 @@ static struct file_operations coproc_fops = {
 };
 
 /* Start: ST-Coprocessor Device Attribute on SysFs*/
-static ssize_t st_copro_show_running(struct device *dev, char *buf)
+static ssize_t st_copro_show_running(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	coproc_t *cop = container_of(dev, coproc_t, pdev.dev);
 	return sprintf(buf, "%d", cop->control & COPROC_IN_USE);
@@ -164,7 +164,7 @@ static ssize_t st_copro_show_running(struct device *dev, char *buf)
 
 static DEVICE_ATTR(running, S_IRUGO, st_copro_show_running, NULL);
 
-static ssize_t st_copro_show_mem_size(struct device *dev, char *buf)
+static ssize_t st_copro_show_mem_size(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	coproc_t *cop = container_of(dev, coproc_t, pdev.dev);
 	return sprintf(buf, "0x%x", cop->ram_size);
@@ -172,7 +172,7 @@ static ssize_t st_copro_show_mem_size(struct device *dev, char *buf)
 
 static DEVICE_ATTR(mem_size, S_IRUGO, st_copro_show_mem_size, NULL);
 
-static ssize_t st_copro_show_mem_base(struct device *dev, char *buf)
+static ssize_t st_copro_show_mem_base(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	coproc_t *cop = container_of(dev, coproc_t, pdev.dev);
 	return sprintf(buf, "0x%x", (int)COPR_ADDR(cop, 0));
@@ -218,9 +218,11 @@ static struct platform_driver st_coproc_driver = {
 #endif
 };
 
+static struct class *coproc_dev_class;
 static int __init st_coproc_init(void)
 {
 	int i;
+	int frmw_idx;
 	coproc_t *cop;
 	struct platform_device *pdev;
 
@@ -238,6 +240,8 @@ static int __init st_coproc_init(void)
 		platform_driver_unregister(&st_coproc_driver);
 		return (-EAGAIN);
 	}
+
+	coproc_dev_class = class_create(THIS_MODULE, "coproc-dev");
 
 	for (cop = &coproc[0], i = 0; i < coproc_info.max_coprs; i++, cop++) {
        /**
@@ -272,9 +276,20 @@ static int __init st_coproc_init(void)
 			       "Error on ST-Coprocessor device registration\n");
 		else {
 			/* Add the attributes on the device */
-			device_create_file(&pdev->dev, &dev_attr_mem_base);
-			device_create_file(&pdev->dev, &dev_attr_mem_size);
-			device_create_file(&pdev->dev, &dev_attr_running);
+			if(device_create_file(&pdev->dev, &dev_attr_mem_base) |
+					device_create_file(&pdev->dev, &dev_attr_mem_size) |
+					device_create_file(&pdev->dev, &dev_attr_running))
+				printk(KERN_ERR "Error to add attribute to the coprocessor device\n");
+			/*
+			 * Create the six device file [firmware]
+			 * for each coprocessor via Discovery System
+			 */
+			for(frmw_idx=0; frmw_idx < 10; ++frmw_idx)
+			/* Be carefull the '6' used in MKDEV(..) depends on
+			* minor number device file translation */
+			cop->class_dev = class_device_create(coproc_dev_class, NULL,
+						MKDEV(COPROCESSOR_MAJOR,pdev->id<<6 | frmw_idx),
+						NULL,"st231-%d-%d", pdev->id, frmw_idx);
 		}
 	}
 

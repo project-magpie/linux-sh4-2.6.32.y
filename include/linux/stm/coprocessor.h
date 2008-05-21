@@ -91,6 +91,7 @@ typedef struct {
 	u_long	    mbox_entryp;	/* where to put the entry point...  */
 	u_long	    mbox_enable;	/* ... to trigger the CPU start     */
 	struct platform_device pdev;
+	struct class_device *class_dev;
 } coproc_t;
 
 struct coproc_board_info {

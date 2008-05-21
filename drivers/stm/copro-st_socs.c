@@ -79,7 +79,8 @@ int coproc_cpu_grant(coproc_t * cop, unsigned long arg)
 		bootAddr = arg;
 	/* Now set the less meaningful bit to trigger the ST231 start */
 	bootAddr |= 1;
-	DPRINTK(">>> platform: st231.%u start from 0x%x...\n",id, bootAddr);
+	DPRINTK(">>> platform: st231.%u start from 0x%x...\n",
+					id, (unsigned int)bootAddr);
 	/* bypass the st40 to reset only the coprocessor */
 	sysconf_write(copro_reset_out, 1);
 

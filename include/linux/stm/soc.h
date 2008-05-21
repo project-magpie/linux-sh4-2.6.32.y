@@ -1,6 +1,8 @@
 #ifndef __LINUX_STM_SOC_H
 #define __LINUX_STM_SOC_H
 
+#include <linux/lirc.h>
+
 /* This is the private platform data for the ssc driver */
 struct ssc_pio_t {
 	struct {
@@ -129,6 +131,7 @@ struct plat_lirc_data {
 					/* through the 555-based threshold detector on ST boards */
 	struct lirc_pio *pio_pin_arr;	/* PIO pin settings for driver */
 	unsigned int num_pio_pins;
+	lirc_scd_t *scd_info;		/* SCD settings */
 };
 
 /* Private data for the STM on-board ethernet driver */
@@ -138,6 +141,7 @@ struct plat_stmmacenet_data {
 	int has_gmac;
 	void (*fix_mac_speed)(void *priv, unsigned int speed);
 	void (*hw_setup)(void);
+
 	void *bsp_priv;
 };
 
@@ -203,7 +207,7 @@ void stx7100_configure_pwm(struct plat_stm_pwm_data *data);
 void stx7100_configure_ssc(struct plat_ssc_data *data);
 void stx7100_configure_usb(void);
 void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus);
-void stx7100_configure_lirc(void);
+void stx7100_configure_lirc(lirc_scd_t *scd);
 void stx7100_configure_pata(int bank, int irq);
 
 void stx7105_early_device_init(void);
@@ -224,7 +228,7 @@ void stx7111_configure_ssc(struct plat_ssc_data *data);
 void stx7111_configure_usb(void);
 void stx7111_configure_ethernet(int en_mii, int sel, int ext_clk, int phy_bus);
 void stx7111_configure_nand(struct nand_config_data *data);
-void stx7111_configure_lirc(void);
+void stx7111_configure_lirc(lirc_scd_t *scd);
 
 void stx7200_early_device_init(void);
 void stx7200_configure_asc(const int *ascs, int num_ascs, int console);
@@ -233,7 +237,7 @@ void stx7200_configure_ssc(struct plat_ssc_data *data);
 void stx7200_configure_usb(void);
 void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 				int phy_bus);
-void stx7200_configure_lirc(void);
+void stx7200_configure_lirc(lirc_scd_t *scd);
 void stx7200_configure_nand(struct nand_config_data *data);
 void stx7200_configure_pata(int bank, int irq);
 

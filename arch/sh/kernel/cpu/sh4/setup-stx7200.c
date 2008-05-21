@@ -871,8 +871,10 @@ static struct platform_device lirc_device = {
 	}
 };
 
-void __init stx7200_configure_lirc(void)
+void __init stx7200_configure_lirc(lirc_scd_t *scd)
 {
+	lirc_private_info.scd_info = scd;
+
 	platform_device_register(&lirc_device);
 }
 

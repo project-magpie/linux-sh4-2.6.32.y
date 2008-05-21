@@ -106,4 +106,19 @@ typedef int lirc_t;
 
 #define LIRC_NOTIFY_DECODE             _IO('i', 0x00000020)
 
+/* start code detect (SCD) support */
+typedef struct {
+        unsigned int code;		/* code symbols to be detect. */
+	unsigned int codelen;		/* start code length */
+	unsigned int alt_code;		/* alternative start code to be detected */
+	unsigned int alt_codelen;	/* alternative start code length */
+        unsigned int nomtime;		/* nominal symbol time in us */
+	unsigned int noiserecov;	/* noise recovery configuration */
+} lirc_scd_t;
+
+#define LIRC_SCD_CONFIGURE             _IOW('i', 0x00000021, __u32)
+#define LIRC_SCD_ENABLE                _IOW('i', 0x00000022, __u32)
+#define LIRC_SCD_DISABLE               _IOW('i', 0x00000023, __u32)
+#define LIRC_SCD_STATUS                _IOW('i', 0x00000024, __u32)
+
 #endif

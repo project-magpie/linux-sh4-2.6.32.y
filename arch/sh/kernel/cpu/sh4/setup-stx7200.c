@@ -1004,6 +1004,21 @@ void __init stx7200_configure_nand(struct nand_config_data *data)
 	platform_device_register(&nand_flash[emi_bank]);
 }
 
+/* Hardware RNG resources -------------------------------------------------- */
+
+static struct platform_device hwrandom_rng_device = {
+	.name	   = "stm_hwrandom",
+	.id	     = -1,
+	.num_resources  = 1,
+	.resource       = (struct resource[]){
+		{
+			.start  = 0xfdb70000,
+			.end    = 0xfdb70fff,
+			.flags  = IORESOURCE_MEM
+		},
+	}
+};
+
 /* ASC resources ----------------------------------------------------------- */
 
 static struct platform_device stm_stasc_devices[] = {
@@ -1245,6 +1260,7 @@ static struct platform_device *stx7200_devices[] __initdata = {
 	&sysconf_device,
 	&ilc3_device,
         &rtc_device,
+	&hwrandom_rng_device,
 };
 
 static int __init stx7200_devices_setup(void)

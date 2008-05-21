@@ -678,11 +678,6 @@ static struct platform_device hwrandom_rng_device = {
 	}
 };
 
-void __init stx7100_configure_hwrng(void)
-{
-        platform_device_register(&hwrandom_rng_device);
-}
-
 /* ASC resources ----------------------------------------------------------- */
 
 static struct platform_device stm_stasc_devices[] = {
@@ -892,6 +887,7 @@ static struct platform_device *stx710x_devices[] __initdata = {
 	&sysconf_device,
 	&ilc3_device,
 	&rtc_device,
+	&hwrandom_rng_device,
 };
 
 static int __init stx710x_devices_setup(void)

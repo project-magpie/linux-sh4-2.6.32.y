@@ -1,16 +1,14 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
-#include <linux/mm.h>
-#include <linux/seq_file.h>
 #include <linux/delay.h>
+#include <linux/seq_file.h>i
 #include <linux/stm/coprocessor.h>
+#include <linux/stm/sysconf.h>
+#include <asm-generic/sections.h>
 #include <asm/io.h>
-#include <asm/irq.h>
-#include <asm/mach/coproc.h>
-#include <asm/sections.h>
-#include <asm/addrspace.h>
 
+#define N_COPROC	2
 struct coproc_board_info coproc_info = {
 	.name = "st231",
 	.max_coprs = N_COPROC,
@@ -18,48 +16,71 @@ struct coproc_board_info coproc_info = {
 
 coproc_t coproc[N_COPROC];
 
+static struct sysconf_field* copro_reset_out;
+
+struct cpu_reg {
+	struct sysconf_field* boot;
+	struct sysconf_field* reset;
+};
+static struct cpu_reg cpu_regs[N_COPROC];
+
 int coproc_cpu_open(coproc_t * cop)
 {
 	return (0);
 }
 
-int coproc_cpu_init(coproc_t * cop)
+int __init coproc_cpu_init(coproc_t * cop)
 {
-	BUG_ON(cop->id >= N_COPROC);
+	unsigned int id = cop->pdev.id;
 
-	/*
-	 * define for the STb7100 the ST231 view of the LMI base address
-	 */
-	return (0);
+	BUG_ON(id >= coproc_info.max_coprs);
+	if(!copro_reset_out)
+	if(!(copro_reset_out=sysconf_claim(SYS_CFG, 9, 27, 27, NULL))){
+		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_9\n");
+		return 1;
+		}
+
+	if(!cpu_regs[id].boot)
+	if(!(cpu_regs[id].boot = sysconf_claim(SYS_CFG,26+id*2, 0, 31, NULL))){
+		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n",26+id*2);
+		return 1;
+		}
+
+	if(!cpu_regs[id].reset)
+	if(!(cpu_regs[id].reset = sysconf_claim(SYS_CFG, 27+id*2, 0,31, NULL))){
+		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n",27+id*2);
+		return 1;
+		}
+
+	return 0;
 }
 
 int coproc_cpu_grant(coproc_t * cop, unsigned long arg)
 {
 	u_long bootAddr;
-	u_long cpu = cop->id;
+	int id = cop->pdev.id;
 
-	BUG_ON(cpu >= N_COPROC);
+	BUG_ON(id >= coproc_info.max_coprs);
 
 	if (arg == 0)
 		bootAddr = COPR_ADDR(cop, 0);
 	else
 		bootAddr = arg;
-
 	/* Now set the less meaningful bit to trigger the ST231 start */
 	bootAddr |= 1;
-	DPRINTK(">>> %s: ST231-%ld start from 0x%lx...\n",
-		xstring(PLATFORM), cpu, bootAddr);
+	DPRINTK(">>> platform: st231.%u start from 0x%x...\n",id, bootAddr);
+	/* bypass the st40 to reset only the coprocessor */
+	sysconf_write(copro_reset_out, 1);
 
-	/* stick it into the System configuration and... good luck! */
-	writel((readl(SYSCFG_09) | 0x08000000), SYSCFG_09);
-	writel(bootAddr, SYSCFG_BOOT_REG(cpu));
-	writel((readl(SYSCFG_RESET_REG(cpu)) | 0x1), SYSCFG_RESET_REG(cpu));
-	writel((readl(SYSCFG_RESET_REG(cpu)) & ~0x1), SYSCFG_RESET_REG(cpu));
+	sysconf_write(cpu_regs[id].boot, bootAddr);
+
+	sysconf_write(cpu_regs[id].reset, sysconf_read(cpu_regs[id].reset) | 1) ;
+	msleep(5);
+	sysconf_write(cpu_regs[id].reset, sysconf_read(cpu_regs[id].reset) & ~1);
 
 	msleep(10);
-
-	writel((readl(SYSCFG_09) & ~0x18000000), SYSCFG_09);
-
+	/* remove the st40 bypass */
+	sysconf_write(copro_reset_out, 0);
 	cop->control |= COPROC_RUNNING;
 	return (0);
 }
@@ -72,20 +93,21 @@ int coproc_cpu_release(coproc_t * cop)
 
 int coproc_cpu_reset(coproc_t * cop)
 {
-	u_long cpu = cop->id;
+ 	int id = cop->pdev.id;
 
-	/* Enable the ST231 CPUs to be resetted */
-	writel((readl(SYSCFG_09) | 0x08000000), SYSCFG_09);
+ 	DPRINTK("\n");
+ 	/* bypass the st40 to reset only the coprocessor */
+ 	sysconf_write(copro_reset_out,  1);
+ 	msleep(5);
+ 	sysconf_write(cpu_regs[id].reset, sysconf_read(cpu_regs[id].reset) | 1);
+ 	msleep(5);
+ 	sysconf_write(cpu_regs[id].reset, sysconf_read(cpu_regs[id].reset) & ~1);
+ 	msleep(10);
 
-	writel((readl(SYSCFG_RESET_REG(cpu)) | 0x1), SYSCFG_RESET_REG(cpu));
-	writel((readl(SYSCFG_RESET_REG(cpu)) & ~0x1), SYSCFG_RESET_REG(cpu));
+ 	/* remove the st40 bypass */
+ 	sysconf_write(copro_reset_out, 0);
 
-	msleep(10);
-
-	/* Disable the ST231 CPUs to be resetted */
-	writel((readl(SYSCFG_09) & ~0x18000000), SYSCFG_09);
-
-	return 0;
+ 	return 0;
 }
 
 void coproc_proc_other_info(coproc_t * cop_dump, struct seq_file *s_file)
@@ -95,15 +117,13 @@ void coproc_proc_other_info(coproc_t * cop_dump, struct seq_file *s_file)
 
 int coproc_check_area(u_long addr, u_long size, int i, coproc_t * coproc)
 {
-#if 0
-        if (((addr >= CONFIG_MEMORY_START) && (addr < PHYSADDR(_end))) || \
-                (((addr + size) > CONFIG_MEMORY_START) && \
-		(addr < CONFIG_MEMORY_START)))
-        {
-                coproc[i].ram_offset = coproc[i].ram_size = 0;
-                return 1;
-        }
-#endif
-        return 0;
+       if (((addr >= CONFIG_MEMORY_START) && (addr < __pa(_end))) || \
+           (((addr + size) > CONFIG_MEMORY_START) && \
+            (addr < CONFIG_MEMORY_START)))
+       {
+           coproc[i].ram_offset = coproc[i].ram_size = 0;
+           return 1;
+       }
+       return 0;
 }
 

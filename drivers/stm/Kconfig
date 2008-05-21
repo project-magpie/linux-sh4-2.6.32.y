@@ -110,12 +110,11 @@ config STM_SPI_HW_FIFO
 	---help---
 	Enable this option to add the ssc-hardware fifo support
 
-
-choice
-	prompt "STMicroelectronics coprocessor support"
-        depends on CPU_SUBTYPE_STM8000 || CPU_SUBTYPE_STB7100
-	default STM_COPROCESSOR
-        ---help---
+config STM_COPROCESSOR_SUPPORT
+	bool "STMicroelectronics coprocessor support"
+	default y
+        depends on CPU_SUBTYPE_STB7100
+	---help---
         Many of the ST system-on-chip devices have multiple CPUs, where a
         master CPU running Linux has control over a number of slave CPUs,
         which are usually used to run dedicated algorithms.
@@ -130,6 +129,10 @@ choice
         size{n} defines the region size for the n.th slave core (max 16M).
 
         Example: coprocessor_mem=32m:16m,16m
+choice
+	prompt "STM coprocessor loading strategy"
+        depends on STM_COPROCESSOR_SUPPORT
+        default STM_COPROCESSOR
 
 config  STM_COPROCESSOR
 	bool "STM coprocessor support"
@@ -138,7 +141,6 @@ config  STM_COPROCESSOR
 	  found on many ST system-on-chip devices.
 
 config  STM_COPROCESSOR_FRMW
-	depends on CPU_SUBTYPE_STB7100
 	bool "The new STM coprocessor firmware support "
 	select FW_LOADER
 	help

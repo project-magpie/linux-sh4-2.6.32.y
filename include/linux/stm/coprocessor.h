@@ -74,7 +74,6 @@ typedef struct {
 #define COPROC_RUNNING   	 0x0004	/* coproc. is running (ioctl GRANT) */
 
 typedef struct {
-	u_int	    id;			/* CPU ID, now the CPU N. 	    */
 	u_int	    control;		/* see flags above (driver control) */
 	/*
 	 * The base address of coprocessor region, both sides: host (ST40)

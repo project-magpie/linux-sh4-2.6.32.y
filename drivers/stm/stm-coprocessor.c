@@ -457,8 +457,6 @@ static int st_coproc_driver_probe(struct platform_device *dev)
 {
 	if (!strncmp("st2", dev->name, 3))
 		return 1;
-	if (!strncmp("lx2", dev->name, 3))
-		return 1;
 	return 0;
 }
 
@@ -506,10 +504,8 @@ static int __init st_coproc_init(void)
 	}
 
 	for (cop = &coproc[0], i = 0; i < coproc_info.max_coprs; i++, cop++) {
-		cop->id = i;
-
 		if (!cop->ram_offset) {
-			printk("st-coprocessor-%d: No RAM reserved\n", cop->id);
+			printk("st-coprocessor-%d: No RAM reserved\n", i);
 			cop->control &= ~COPROC_SPACE_ALLOCATE;
 		} else {
 			cop->control |= COPROC_SPACE_ALLOCATE;
@@ -518,10 +514,7 @@ static int __init st_coproc_init(void)
 		}
 		/*
 		 ** Nodes:
-		 **    STm8000/ST220Eval: /dev/st220-0    c   63   0
-		 **                       /dev/st220-1    c   63   1
-		 **                       /dev/st220-2    c   63   2
-		 **    STb7100          : /dev/st231-0    c   63   0
+		 **    STb7100         : /dev/st231-0    c   63   0
 		 **                    : /dev/st231-1    c   63   1
 		 ** if the device file system support is configured the above
 		 ** devices are autonatically generated
@@ -531,7 +524,12 @@ static int __init st_coproc_init(void)
 		pdev->name = coproc_info.name;
 		pdev->id   = i;
 		pdev->dev.driver = &st_coproc_driver.driver;
-
+		/* Now complete with the platform dependent init stage */
+		if (coproc_cpu_init(cop)){
+			printk(KERN_ERR
+				"CPU %d : HW dep. initialization failed!\n", i);
+			continue;
+		}
 		if (platform_device_register(pdev)<0)
 			printk(KERN_ERR
 			       "Error on ST-Coprocessor device registration\n");

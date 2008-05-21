@@ -242,15 +242,11 @@ static int __init st_coproc_init(void)
 	for (cop = &coproc[0], i = 0; i < coproc_info.max_coprs; i++, cop++) {
        /**
         ** Nodes:
-        **    STm8000/ST220Eval: /dev/st220-0    c   63   0
-        **                       /dev/st220-1    c   63   1
-        **                       /dev/st220-2    c   63   2
         **    STb7100          : /dev/st231-0    c   63   0
         **                       /dev/st231-1    c   63   1
         **/
-		cop->id = i;
 		if (!cop->ram_offset) {
-			printk("st-coprocessor-%d: No RAM reserved\n", cop->id);
+			printk("st-coprocessor-%d: No RAM reserved\n", i);
 			cop->control &= ~COPROC_SPACE_ALLOCATE;
 		} else {
 			cop->control |= COPROC_SPACE_ALLOCATE;
@@ -262,12 +258,15 @@ static int __init st_coproc_init(void)
 		 */
 		pdev = &(cop->pdev);
 		memset(pdev, 0, sizeof(struct platform_device));
-//		sprintf(cop->dev.bus_id, "%s-%d", coproc_info.name, i);
 		pdev->name = coproc_info.name;
 		pdev->id   = i;
 		pdev->dev.driver = &st_coproc_driver.driver;
-//		dev->parent = &platform_bus;
-//		dev->bus = &platform_bus_type;
+		/* Now complete with the platform dependent init stage */
+		if (coproc_cpu_init(cop)){
+			printk(KERN_ERR
+				"CPU %d : HW dep. initialization failed!\n", i);
+			return (1);
+			}
 		if (platform_device_register(pdev))
 			printk(KERN_ERR
 			       "Error on ST-Coprocessor device registration\n");
@@ -276,13 +275,6 @@ static int __init st_coproc_init(void)
 			device_create_file(&pdev->dev, &dev_attr_mem_base);
 			device_create_file(&pdev->dev, &dev_attr_mem_size);
 			device_create_file(&pdev->dev, &dev_attr_running);
-		}
-
-		/* Now complete with the platform dependent init stage */
-		if (coproc_cpu_init(cop)) {
-			printk(KERN_ERR
-			       "CPU %d : HW dep. initialization failed!\n", i);
-			return (1);
 		}
 	}
 

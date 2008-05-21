@@ -105,3 +105,14 @@ config HW_RANDOM_PASEMI
 
 	  If unsure, say Y.
 
+config HW_RANDOM_STM
+	tristate "ST Microelectronics HW Random Number Generator support"
+	depends on HW_RANDOM && CPU_SUBTYPE_ST40
+	---help---
+	  This driver provides kernel-side support for the Random Number
+	  Generator hardware found on ST STx7109 and STx7200 SoCs.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called stm-rng.
+
+	  If unsure, say Y.

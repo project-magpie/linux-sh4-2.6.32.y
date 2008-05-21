@@ -975,6 +975,26 @@ void __init stx7100_configure_lirc(void)
         platform_device_register(&lirc_device);
 }
 
+/* Hardware RNG resources -------------------------------------------------- */
+
+static struct platform_device hwrandom_rng_device = {
+	.name           = "stm_hwrandom",
+	.id             = -1,
+	.num_resources  = 1,
+	.resource       = (struct resource[]){
+		{
+			.start  = 0x19250000,
+			.end    = 0x19250fff,
+			.flags  = IORESOURCE_MEM
+		},
+	}
+};
+
+void __init stx7100_configure_hwrng(void)
+{
+        platform_device_register(&hwrandom_rng_device);
+}
+
 /* ASC resources ----------------------------------------------------------- */
 
 static struct platform_device stm_stasc_devices[] = {

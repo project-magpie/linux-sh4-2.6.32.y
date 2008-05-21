@@ -79,9 +79,15 @@ static struct mtd_partition mtd_parts_table[3] = {
 	}
 };
 
+static struct stpio_pin *vpp_pio;
+static void set_vpp(struct map_info *info, int enable)
+{
+	stpio_set_pin(vpp_pio, enable);
+}
+
 static struct physmap_flash_data physmap_flash_data = {
 	.width		= 2,
-	.set_vpp	= NULL,
+	.set_vpp	= set_vpp,
 	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
 	.parts		= mtd_parts_table
 };
@@ -156,6 +162,8 @@ static int __init device_init(void)
 	stx7100_configure_usb();
 	stx7100_configure_lirc();
 	stx7100_configure_pata(3, IRL1_IRQ);
+
+	vpp_pio = stpio_request_set_pin(2, 7, "flash_VPP", STPIO_OUT, 0);
 
 	phy_reset_pin = stpio_request_set_pin(2, 4, "ste100p_reset",
 					      STPIO_OUT, 1);

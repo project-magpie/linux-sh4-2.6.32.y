@@ -144,21 +144,6 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 	ILC_SET_PRI(irq_offset, priority);
 #endif
 
-	ILC_SET_TRIGMODE(irq_offset, ILC_TRIGGERMODE_HIGH);
-
-#if CONFIG_CPU_SUBTYPE_STX7200
-	/* Gross hack for external Ethernet PHYs which are active low */
-	/* FIXME: Move this into the BSP code */
-	if ((irq_offset == 93)  ||  (irq_offset == 95)) {
-		ILC_SET_TRIGMODE(irq_offset, ILC_TRIGGERMODE_LOW);
-	}
-#elif defined(CONFIG_CPU_SUBTYPE_STX7105)
-	/* Similarly for STEM interrupts which are active low */
-	if ((irq == ILC_EXT_IRQ(2)) || (irq == ILC_EXT_IRQ(3))) {
-		ILC_SET_TRIGMODE(irq_offset, ILC_TRIGGERMODE_LOW);
-	}
-#endif
-
 	ILC_SET_ENABLE(irq_offset);
 
 	return 0;
@@ -211,6 +196,36 @@ DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
 	(void)ILC_GET_ENABLE(irq_offset); /* Defeat write posting */
 }
 
+static int set_type_ilc_irq(unsigned int irq, unsigned int flow_type)
+{
+	int irq_offset = irq - ILC_FIRST_IRQ;
+	int mode;
+
+	switch (flow_type) {
+	case IRQ_TYPE_EDGE_RISING:
+		mode = ILC_TRIGGERMODE_RISING;
+		break;
+	case IRQ_TYPE_EDGE_FALLING:
+		mode = ILC_TRIGGERMODE_FALLING;
+		break;
+	case IRQ_TYPE_EDGE_BOTH:
+		mode = ILC_TRIGGERMODE_ANY;
+		break;
+	case IRQ_TYPE_LEVEL_HIGH:
+		mode = ILC_TRIGGERMODE_HIGH;
+		break;
+	case IRQ_TYPE_LEVEL_LOW:
+		mode = ILC_TRIGGERMODE_LOW;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ILC_SET_TRIGMODE(irq_offset, mode);
+
+	return 0;
+}
+
 static struct irq_chip ilc_chip = {
 	.name		= "ILC3",
 	.startup	= startup_ilc_irq,
@@ -218,13 +233,17 @@ static struct irq_chip ilc_chip = {
 	.mask		= disable_ilc_irq,
 	.mask_ack	= mask_and_ack_ilc,
 	.unmask		= enable_ilc_irq,
+	.set_type	= set_type_ilc_irq,
 };
 
 void __init ilc_demux_init(void)
 {
 	int irq;
+	int irq_offset;
 
-	DPRINTK("Initialising ILC demux\n");
+	/* Deafult all interrupts to active high. */
+	for (irq_offset = 0; irq_offset < ILC_NR_IRQS; irq_offset++)
+		ILC_SET_TRIGMODE(irq_offset, ILC_TRIGGERMODE_HIGH);
 
 	for (irq = ILC_FIRST_IRQ; irq < (ILC_FIRST_IRQ+ILC_NR_IRQS); irq++)
 		/* SIM: Should we do the masking etc in ilc_irq_demux and

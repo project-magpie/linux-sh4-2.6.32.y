@@ -143,6 +143,11 @@ static void __iomem *mb680_ioport_map(unsigned long port, unsigned int size)
 
 static void __init mb680_init_irq(void)
 {
+#ifndef CONFIG_SH_ST_MB705
+	/* Configure STEM interrupts as active low. */
+	set_irq_type(ILC_EXT_IRQ(1), IRQ_TYPE_LEVEL_LOW);
+	set_irq_type(ILC_EXT_IRQ(2), IRQ_TYPE_LEVEL_LOW);
+#endif
 }
 
 struct sh_machine_vector mv_mb680 __initmv = {

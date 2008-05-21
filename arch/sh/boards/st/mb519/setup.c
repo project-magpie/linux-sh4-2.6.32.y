@@ -229,6 +229,10 @@ static void __init mb519_init_irq(void)
 {
 	epld_early_init(&epld_device);
 
+	/* Mark Ethernet PHY as active low */
+	set_irq_type(ILC_IRQ(93), IRQ_TYPE_LEVEL_LOW);
+	set_irq_type(ILC_IRQ(95), IRQ_TYPE_LEVEL_LOW);
+
 #if defined(CONFIG_SH_ST_STEM)
 	/* The off chip interrupts on the mb519 are a mess. The external
 	 * EPLD priority encodes them, but because they pass through the ILC3

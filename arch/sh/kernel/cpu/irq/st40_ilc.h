@@ -42,5 +42,9 @@ extern void __iomem *ilc_base;
 
 #define ILC_SET_TRIGMODE(_int, _mod) ctrl_outl((_mod), ILC_TRIGMODE_REG(_int))
 
+#define ILC_TRIGGERMODE_NONE	0
 #define ILC_TRIGGERMODE_HIGH	1
 #define ILC_TRIGGERMODE_LOW	2
+#define ILC_TRIGGERMODE_RISING	3
+#define ILC_TRIGGERMODE_FALLING	4
+#define ILC_TRIGGERMODE_ANY	5

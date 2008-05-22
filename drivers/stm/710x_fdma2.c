@@ -17,6 +17,8 @@
 
 #include "fdma.h"
 
+
+
 static int setup_freerunning_node(struct stm_dma_params *params,
 				  struct fdma_llu_entry* llu)
 {
@@ -241,7 +243,7 @@ static int stb710x_get_engine_status(struct fdma_dev * fd,int channel)
 	return readl(CMD_STAT_REG(channel))&3;
 }
 
-static inline void __handle_fdma_err_irq(struct fdma_dev * fd,int chan_num)
+static inline void __handle_fdma_err_irq(struct fdma_dev *fd, int chan_num)
 {
 	struct channel_status *chan = &fd->channel[chan_num];
 	void (*err_cb)(unsigned long) = chan->params->err_cb;
@@ -249,22 +251,21 @@ static inline void __handle_fdma_err_irq(struct fdma_dev * fd,int chan_num)
 
 	spin_lock(&fd->channel_lock);
 
-	printk("%s ERROR CH_%d err %d\n",
-		__FUNCTION__,
-		chan_num,
-		(int)( readl(CMD_STAT_REG(chan_num))& 0x1c) >>2);
-			/*err is bits 2-4*/
-	/*clearing the channel interface here will stop further
-	 * transactions after the err and reset the channel*/
-	writel(0,CMD_STAT_REG(chan_num));
-	writel(readl(fd->io_base + fd->regs.fdma_cmd_sta),
-	       fd->io_base + fd->regs.fdma_cmd_clr);
-	chan->sw_state = FDMA_IDLE;
+	/*err is bits 2-4*/
+	fdma_dbg(fd, "%s: FDMA error %d on channel %d\n", __FUNCTION__,
+			(readl(CMD_STAT_REG(chan_num)) >> 2) & 0x7, chan_num);
+
+	/* According to the spec, in case of error transfer "may be
+	 * aborted" (or may not be, sigh) so let's make the situation
+	 * clear and stop it explicitly now. */
+	writel(MBOX_CMD_PAUSE_CHANNEL << (chan_num * 2),
+			fd->io_base + fd->regs.fdma_cmd_set);
+	chan->sw_state = FDMA_STOPPING;
 
 	spin_unlock(&fd->channel_lock);
 
-//printk("%s: wake_up %x\n", __FUNCTION__, &chan->cur_cfg->wait_queue);
 	wake_up(&chan->cur_cfg->wait_queue);
+
 	if (err_cb) {
 		if (chan->params->err_cb_isr)
 			err_cb(err_cb_parm);
@@ -273,7 +274,8 @@ static inline void __handle_fdma_err_irq(struct fdma_dev * fd,int chan_num)
 	}
 }
 
-static inline void __handle_fdma_completion_irq(struct fdma_dev *fd,int chan_num)
+static inline void __handle_fdma_completion_irq(struct fdma_dev *fd,
+		int chan_num)
 {
 	struct channel_status *chan = &fd->channel[chan_num];
 	void (*comp_cb)(unsigned long) = chan->params->comp_cb;
@@ -281,7 +283,7 @@ static inline void __handle_fdma_completion_irq(struct fdma_dev *fd,int chan_num
 
 	spin_lock(&fd->channel_lock);
 
-	switch(stb710x_get_engine_status(fd,chan_num)){
+	switch (stb710x_get_engine_status(fd, chan_num)) {
 	case FDMA_CHANNEL_PAUSED:
 		switch (chan->sw_state) {
 		case FDMA_RUNNING:	/* Hit a pause node */
@@ -316,6 +318,7 @@ static inline void __handle_fdma_completion_irq(struct fdma_dev *fd,int chan_num
 	spin_unlock(&fd->channel_lock);
 
 	wake_up(&chan->cur_cfg->wait_queue);
+
 	if (comp_cb) {
 		if (chan->params->comp_cb_isr)
 			comp_cb(comp_cb_parm);
@@ -772,7 +775,7 @@ static int fdma_do_bootload(struct fdma_dev * fd)
 	memcpy(&hdr,slimcore_elf->data,sizeof(struct elf32_hdr));
 
 
-	// build the section header tbl
+	/* build the section header tbl */
 	for(i=0;i < hdr.e_shnum;i++){
 		struct elf32_shdr sect_hdr;
 		char* sh_addr = (char*)&slimcore_elf->data[hdr.e_shoff + (i * sizeof(struct elf32_shdr))];
@@ -933,7 +936,8 @@ static int stb710x_fdma_pause(struct fdma_dev * fd,
 	case FDMA_RUNNING:
 		/* Hardware is running, send the command */
 		writel((flush ? MBOX_CMD_FLUSH_CHANNEL : MBOX_CMD_PAUSE_CHANNEL)
-						<< (channel->chan*2), fd->io_base + fd->regs.fdma_cmd_set);
+				<< (channel->chan * 2),
+				fd->io_base + fd->regs.fdma_cmd_set);
 		/* Fall through */
 	case FDMA_PAUSING:
 	case FDMA_STOPPING:

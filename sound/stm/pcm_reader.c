@@ -114,14 +114,6 @@ static irqreturn_t snd_stm_pcm_reader_irq_handler(int irq, void *dev_id)
 		snd_pcm_stop(pcm_reader->substream, SNDRV_PCM_STATE_XRUN);
 	}
 
-	/* Period successfully played */
-	if (likely(status & mask__AUD_PCMIN_ITS__VSYNC__PENDING(pcm_reader))) {
-		snd_stm_printd(2, "Vsync interrupt detected by '%s'!\n",
-				pcm_reader->device->bus_id);
-		/* TODO: Calculate sampling frequency */
-		result = IRQ_HANDLED;
-	}
-
 	/* Some alien interrupt??? */
 	snd_assert(result == IRQ_HANDLED);
 
@@ -139,13 +131,10 @@ static void snd_stm_pcm_reader_callback_node_done(unsigned long param)
 	snd_assert(pcm_reader, return);
 	snd_stm_magic_assert(pcm_reader, return);
 
-	/* This function will be called after stopping FDMA as well
-	 * and in this moment ALSA is already shut down... */
-	if (pcm_reader->substream) {
-		snd_stm_printd(2, "Period elapsed ('%s')\n",
-				pcm_reader->device->bus_id);
-		snd_pcm_period_elapsed(pcm_reader->substream);
-	}
+	snd_stm_printd(2, "Period elapsed ('%s')\n",
+			pcm_reader->device->bus_id);
+
+	snd_pcm_period_elapsed(pcm_reader->substream);
 }
 
 static void snd_stm_pcm_reader_callback_node_error(unsigned long param)
@@ -161,6 +150,8 @@ static void snd_stm_pcm_reader_callback_node_error(unsigned long param)
 
 	snd_stm_printe("Error during FDMA transfer in reader '%s'!\n",
 			pcm_reader->device->bus_id);
+
+	snd_pcm_stop(pcm_reader->substream, SNDRV_PCM_STATE_XRUN);
 }
 
 static struct snd_pcm_hardware snd_stm_pcm_reader_hw = {
@@ -177,7 +168,7 @@ static struct snd_pcm_hardware snd_stm_pcm_reader_hw = {
 
 	/* Keep in mind that we are working in slave mode, so sampling
 	 * rate is determined by external components... */
-	.rates		= (SNDRV_PCM_RATE_CONTINUOUS),
+	.rates		= SNDRV_PCM_RATE_CONTINUOUS,
 	.rate_min	= 32000,
 	.rate_max	= 192000,
 
@@ -256,6 +247,9 @@ static int snd_stm_pcm_reader_open(struct snd_pcm_substream *substream)
 
 	runtime->hw = snd_stm_pcm_reader_hw;
 
+	/* Interrupt handlers will need the substream pointer... */
+	pcm_reader->substream = substream;
+
 	return 0;
 }
 
@@ -269,6 +263,8 @@ static int snd_stm_pcm_reader_close(struct snd_pcm_substream *substream)
 
 	snd_assert(pcm_reader, return -EINVAL);
 	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+
+	pcm_reader->substream = NULL;
 
 	return 0;
 }
@@ -289,6 +285,9 @@ static int snd_stm_pcm_reader_hw_free(struct snd_pcm_substream *substream)
 	/* This callback may be called more than once... */
 
 	if (snd_stm_buffer_is_allocated(pcm_reader->buffer)) {
+		/* Let the FDMA stop */
+		dma_wait_for_completion(pcm_reader->fdma_channel);
+
 		/* Free buffer */
 		snd_stm_buffer_free(pcm_reader->buffer);
 
@@ -599,12 +598,10 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 
 	/* Launch PCM reader */
 
-	pcm_reader->substream = substream;
 	set__AUD_PCMIN_CTRL__MODE__PCM(pcm_reader);
 
-	/* Enable reader interrupts */
+	/* Enable required reader interrupts */
 
-	set__AUD_PCMIN_IT_EN_SET__VSYNC__SET(pcm_reader);
 	set__AUD_PCMIN_IT_EN_SET__OVF__SET(pcm_reader);
 
 	/* Wake up & unmute ADC */
@@ -637,13 +634,11 @@ static inline int snd_stm_pcm_reader_stop(struct snd_pcm_substream *substream)
 
 	/* Disable interrupts */
 
-	set__AUD_PCMIN_IT_EN_CLR__VSYNC__CLEAR(pcm_reader);
 	set__AUD_PCMIN_IT_EN_CLR__OVF__CLEAR(pcm_reader);
 
 	/* Stop PCM reader */
 
 	set__AUD_PCMIN_CTRL__MODE__OFF(pcm_reader);
-	pcm_reader->substream = NULL;
 
 	/* Stop FDMA transfer */
 

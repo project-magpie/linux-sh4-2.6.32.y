@@ -229,6 +229,9 @@ static int snd_stm_pcm_player_open(struct snd_pcm_substream *substream)
 
 	runtime->hw = snd_stm_pcm_player_hw;
 
+	/* Interrupt handler will need the substream pointer... */
+	pcm_player->substream = substream;
+
 	return 0;
 }
 
@@ -242,6 +245,8 @@ static int snd_stm_pcm_player_close(struct snd_pcm_substream *substream)
 
 	snd_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
+
+	pcm_player->substream = NULL;
 
 	return 0;
 }
@@ -262,6 +267,9 @@ static int snd_stm_pcm_player_hw_free(struct snd_pcm_substream *substream)
 	/* This callback may be called more than once... */
 
 	if (snd_stm_buffer_is_allocated(pcm_player->buffer)) {
+		/* Let the FDMA stop */
+		dma_wait_for_completion(pcm_player->fdma_channel);
+
 		/* Free buffer */
 		snd_stm_buffer_free(pcm_player->buffer);
 
@@ -601,7 +609,6 @@ static inline int snd_stm_pcm_player_start(struct snd_pcm_substream *substream)
 
 	/* Launch PCM player */
 
-	pcm_player->substream = substream;
 	set__AUD_PCMOUT_CTRL__MODE__PCM(pcm_player);
 
 	/* Enable player interrupts */
@@ -645,7 +652,6 @@ static inline int snd_stm_pcm_player_stop(struct snd_pcm_substream *substream)
 	/* Stop PCM player */
 
 	set__AUD_PCMOUT_CTRL__MODE__OFF(pcm_player);
-	pcm_player->substream = NULL;
 
 	/* Stop FDMA transfer */
 

@@ -301,6 +301,9 @@ static int snd_stm_spdif_player_open(struct snd_pcm_substream *substream)
 	else
 		runtime->hw = snd_stm_spdif_player_hw_raw;
 
+	/* Interrupt handler will need the substream pointer... */
+	spdif_player->substream = substream;
+
 	return 0;
 }
 
@@ -314,6 +317,8 @@ static int snd_stm_spdif_player_close(struct snd_pcm_substream *substream)
 
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
+
+	spdif_player->substream = NULL;
 
 	return 0;
 }
@@ -334,6 +339,9 @@ static int snd_stm_spdif_player_hw_free(struct snd_pcm_substream *substream)
 	/* This callback may be called more than once... */
 
 	if (snd_stm_buffer_is_allocated(spdif_player->buffer)) {
+		/* Let the FDMA stop */
+		dma_wait_for_completion(spdif_player->fdma_channel);
+
 		/* Free buffer */
 		snd_stm_buffer_free(spdif_player->buffer);
 
@@ -620,8 +628,6 @@ static inline int snd_stm_spdif_player_start(struct snd_pcm_substream
 
 	/* Launch SPDIF player */
 
-	spdif_player->substream = substream;
-
 	if (spdif_player->stream_settings.encoding_mode ==
 			SNDRV_STM_SPDIF_ENCODING_MODE_PCM)
 		set__AUD_SPDIF_CTRL__MODE__PCM(spdif_player);
@@ -669,7 +675,6 @@ static inline int snd_stm_spdif_player_stop(struct snd_pcm_substream *substream)
 	/* Stop SPDIF player */
 
 	set__AUD_SPDIF_CTRL__MODE__OFF(spdif_player);
-	spdif_player->substream = NULL;
 
 	/* Stop FDMA transfer */
 

@@ -863,25 +863,30 @@ static int fdma_check_firmware_state(struct fdma_dev * fd)
  *---------------------------------------------------------------------*/
 
 /*returns the number of bytes left to transfer for the current node*/
-static  int stb710x_fdma_get_residue(struct dma_channel *chan)
+static int stb710x_fdma_get_residue(struct dma_channel *chan)
 {
 	struct fdma_dev *fd = FDMA_DEV(chan);
-	void __iomem *chan_base = fd->io_base + (chan->chan * NODE_DATA_OFFSET);
 	unsigned long irqflags;
-	unsigned long count;
-	fdma_llu_entry *current_node, *next_node;
+	int count = 0;
 
 	spin_lock_irqsave(&fd->channel_lock, irqflags);
 
-	/* Get info about current node */
-	current_node = (fdma_llu_entry *)phys_to_virt(readl(CMD_STAT_REG(chan->chan)) & ~0x1f);
-	count = readl(chan_base + fd->regs.fdma_cntn);
+	if (likely(FDMA_CHAN(chan)->sw_state != FDMA_IDLE)) {
+		void __iomem *chan_base = fd->io_base +
+				(chan->chan * NODE_DATA_OFFSET);
+		fdma_llu_entry *current_node, *next_node;
 
-	/* Accumulate the bytes remaining in the list */
-	next_node = (fdma_llu_entry *)phys_to_virt(readl(chan_base + fd->regs.fdma_ptrn));
-	while (next_node && next_node > current_node) {
-		count += next_node->size_bytes;
-		next_node = (fdma_llu_entry *)phys_to_virt(next_node->next_item);
+		/* Get info about current node */
+		current_node = phys_to_virt(readl(CMD_STAT_REG(chan->chan)) &
+				~0x1f);
+		count = readl(chan_base + fd->regs.fdma_cntn);
+
+		/* Accumulate the bytes remaining in the list */
+		next_node = phys_to_virt(readl(chan_base + fd->regs.fdma_ptrn));
+		while (next_node && next_node > current_node) {
+			count += next_node->size_bytes;
+			next_node = phys_to_virt(next_node->next_item);
+		}
 	}
 
 	spin_unlock_irqrestore(&fd->channel_lock, irqflags);
@@ -889,7 +894,7 @@ static  int stb710x_fdma_get_residue(struct dma_channel *chan)
 	return count;
 }
 
-/*must only be called when channel is in pasued state*/
+/*must only be called when channel is in paused state*/
 static int stb710x_fdma_unpause(struct fdma_dev * fd,struct dma_channel * channel)
 {
 	struct channel_status *chan = FDMA_CHAN(channel);

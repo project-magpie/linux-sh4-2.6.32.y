@@ -208,8 +208,12 @@ static int __init device_init(void)
 
 	stx7200_configure_sata(0);
 
-	stx7200_configure_ethernet(0, 0, 1, 0);
-//	stx7200_configure_ethernet(1, 0, 1, 1);
+#if 1 /* On-board PHY (MII0) in RMII mode, using MII_CLK */
+	stx7200_configure_ethernet(0, 1, 0, 0);
+#else /* External PHY board (MII1) in MII mode, using its own clock */
+	stx7200_configure_ethernet(1, 0, 1, 1);
+#endif
+
 	stx7200_configure_lirc(NULL);
 
 	return platform_add_devices(mb671_devices, ARRAY_SIZE(mb671_devices));

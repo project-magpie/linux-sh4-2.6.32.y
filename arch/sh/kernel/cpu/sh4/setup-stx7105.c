@@ -93,11 +93,7 @@ static struct platform_device st40_ehci_devices[2] = {
 /**
  * stx7105_configure_usb - Configure a USB port
  * @port: USB port number (0 or 1)
- * @oc_en: enable OC detection (0 or 1)
- * @oc_actlow: whether OC detection is active low (0 or 1)
- * @oc_pinsel: use alternate pin for OC detection (0 or 1)
- * @pwr_en: enable power enable (0 or 1)
- * @pwr_pinsel: use alternate pin for power enable (0 or 1)
+ * @init_data: details of how to configure port
  *
  * Configure a USB port. Pins:
  *		  PORT 0	PORT 1
@@ -107,8 +103,7 @@ static struct platform_device st40_ehci_devices[2] = {
  * PWR	normal	|  4[5]		 4[7]
  *	alt	| 12[6]		14[7]
  */
-void __init stx7105_configure_usb(int port, int oc_en, int oc_actlow,
-				  int oc_pinsel, int pwr_en, int pwr_pinsel)
+void __init stx7105_configure_usb(int port, struct usb_init_data *data)
 {
 	static struct stpio_pin *pin;
 	struct sysconf_field *sc;
@@ -126,9 +121,9 @@ void __init stx7105_configure_usb(int port, int oc_en, int oc_actlow,
 
 	/* USB overcurrent enable */
 	sc = sysconf_claim(SYS_CFG, 4, 11+port,11+port, "USBOC");
-	sysconf_write(sc, oc_en);
+	sysconf_write(sc, data->oc_en);
 
-	if (oc_en) {
+	if (data->oc_en) {
 		const struct {
 			int portno;
 			int pinno;
@@ -138,21 +133,21 @@ void __init stx7105_configure_usb(int port, int oc_en, int oc_actlow,
 			{ { 4, 6, 4 }, { 14, 6, 2 } }
 		};
 
-		int oc_portno = oc_pio[port][oc_pinsel].portno;
-		int oc_pinno  = oc_pio[port][oc_pinsel].pinno;
-		int oc_alt = oc_pio[port][oc_pinsel].alt;
+		int oc_portno = oc_pio[port][data->oc_pinsel].portno;
+		int oc_pinno  = oc_pio[port][data->oc_pinsel].pinno;
+		int oc_alt = oc_pio[port][data->oc_pinsel].alt;
 
 		sc = sysconf_claim(SYS_CFG, 4, 5+port,5+port, "USBOC");
-		sysconf_write(sc, oc_pinsel);
+		sysconf_write(sc, data->oc_pinsel);
 
 		stx7105_pio_sysconf(oc_portno, oc_pinno, oc_alt, "USBOC");
 		pin = stpio_request_pin(oc_portno, oc_pinno, "USBOC", STPIO_IN);
 
 		sc = sysconf_claim(SYS_CFG, 4, 3+port,3+port, "USBOC");
-		sysconf_write(sc, oc_actlow);
+		sysconf_write(sc, data->oc_actlow);
 	}
 
-	if (pwr_en) {
+	if (data->pwr_en) {
 		const struct {
 			int portno;
 			int pinno;
@@ -162,9 +157,9 @@ void __init stx7105_configure_usb(int port, int oc_en, int oc_actlow,
 			{ { 4, 7, 4 }, { 14, 7, 2 } }
 		};
 
-		int pwr_portno = pwr_pio[port][pwr_pinsel].portno;
-		int pwr_pinno  = pwr_pio[port][pwr_pinsel].pinno;
-		int pwr_alt = pwr_pio[port][pwr_pinsel].alt;
+		int pwr_portno = pwr_pio[port][data->pwr_pinsel].portno;
+		int pwr_pinno  = pwr_pio[port][data->pwr_pinsel].pinno;
+		int pwr_alt = pwr_pio[port][data->pwr_pinsel].alt;
 
 		stx7105_pio_sysconf(pwr_portno, pwr_pinno, pwr_alt, "USBPWR");
 		pin = stpio_request_pin(pwr_portno, pwr_pinno, "USBPWR", STPIO_ALT_OUT);
@@ -372,9 +367,6 @@ void __init stx7105_configure_ssc(struct plat_ssc_data *data)
 				ssc_pio->pio[pin].pio_port = portno;
 				ssc_pio->pio[pin].pio_pin  = pinno;
 
-printk("%s: ssc %d, pin %d, bit %d = r %d, port %d, pin %d\n",
-       __FUNCTION__, i, pin, bit, r, ssc_pio->pio[pin].pio_port, ssc_pio->pio[pin].pio_pin);
-
 				if ((pin==2) && !(capability & SSC_SPI_CAPABILITY))
 					continue;
 
@@ -438,7 +430,6 @@ static struct sysconf_field *mac_speed_sc;
 
 static void fix_mac_speed(void* priv, unsigned int speed)
 {
-printk("%s: speed %d\n", __FUNCTION__, speed);
 	sysconf_write(mac_speed_sc, (speed == SPEED_100) ? 0 : 1);
 }
 

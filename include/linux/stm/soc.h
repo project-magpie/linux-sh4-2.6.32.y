@@ -171,6 +171,34 @@ struct plat_usb_data {
 	int port_number;
 };
 
+/**
+ * struct usb_init_data - initialisation data for a USB port
+ * @oc_en: enable OC detection (0 or 1)
+ * @oc_actlow: whether OC detection is active low (0 or 1)
+ * @oc_pinsel: use alternate pin for OC detection (0 or 1)
+ * @pwr_en: enable power enable (0 or 1)
+ * @pwr_pinsel: use alternate pin for power enable (0 or 1)
+ */
+struct usb_init_data {
+	char oc_en;
+	char oc_actlow;
+	int oc_pinsel;
+	char pwr_en;
+	int pwr_pinsel;
+};
+
+#ifdef CONFIG_CPU_SUBTYPE_STX7105
+#define USB0_OC_PIO4_4		(0<<0)
+#define USB0_OC_PIO12_5		(1<<0)
+#define USB0_PWR_PIO4_5		(0<<1)
+#define USB0_PWR_PIO12_6	(1<<1)
+
+#define USB1_OC_PIO4_6		(0<<0)
+#define USB1_OC_PIO14_6		(1<<0)
+#define USB1_PWR_PIO4_7		(0<<1)
+#define USB1_PWR_PIO14_7	(1<<1)
+#endif
+
 struct stasc_uart_data {
 	unsigned char pio_port;
 	unsigned char pio_pin[4]; /* Tx, Rx, CTS, RTS */
@@ -224,8 +252,7 @@ void stx7105_early_device_init(void);
 void stx7105_configure_asc(const int *ascs, int num_ascs, int console);
 void stx7105_configure_pwm(struct plat_stm_pwm_data *data);
 void stx7105_configure_ssc(struct plat_ssc_data *data);
-void stx7105_configure_usb(int port, int oc_en, int oc_actlow, int oc_pinsel,
-			   int pwr_en, int pwr_pinsel);
+void stx7105_configure_usb(int port, struct usb_init_data *data);
 void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 				int ext_mdio, int ext_clk, int phy_bus);
 void stx7105_configure_nand(struct nand_config_data *data);

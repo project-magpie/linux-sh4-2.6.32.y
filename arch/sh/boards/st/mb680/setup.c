@@ -52,6 +52,22 @@ static struct plat_ssc_data ssc_private_info = {
 		SSC3_SCLK_PIO3_6 | SSC3_MTSR_PIO3_7 | SSC3_MRST_PIO3_7,
 };
 
+static struct usb_init_data usb_init[2] __initdata = {
+	{
+		.oc_en = 1,
+		.oc_actlow = 0,
+		.oc_pinsel = USB0_OC_PIO4_4,
+		.pwr_en = 1,
+		.pwr_pinsel = USB0_PWR_PIO4_5,
+	}, {
+		.oc_en = 1,
+		.oc_actlow = 0,
+		.oc_pinsel = USB1_OC_PIO4_6,
+		.pwr_en = 1,
+		.pwr_pinsel = USB1_PWR_PIO4_7,
+	}
+};
+
 static struct platform_device mb680_leds = {
 	.name = "leds-gpio",
 	.id = -1,
@@ -119,8 +135,8 @@ static int __init device_init(void)
 	 *	alt	| 12[6]	J5B 1-2		14[7]	J10B 1-2
 	 */
 
-	stx7105_configure_usb(0, 1, 0, 0, 1, 0);
-	stx7105_configure_usb(1, 1, 0, 0, 1, 0);
+	stx7105_configure_usb(0, &usb_init[0]);
+	stx7105_configure_usb(1, &usb_init[1]);
 	stx7105_configure_ethernet(0, 0, 0, 1, 0, 0);
 #if 0
         stx7105_configure_lirc();

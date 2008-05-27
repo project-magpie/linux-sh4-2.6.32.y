@@ -14,10 +14,9 @@
 #include <asm/freq.h>
 #include <asm/io.h>
 
-/* Values for mb618 */
-#define SYSACLKIN	30000000
-#define SYSBCLKIN	30000000
-#define SYSAALTCLKIN	0
+/* Values for mb680 */
+#define SYSCLKIN	30000000
+#define SYSCLKINALT	30000000
 
 #define CLOCKGENA_BASE_ADDR	0xfe213000	/* Clockgen A */
 #define CLOCKGENB_BASE_ADDR	0xfe000000	/* Clockgen B */
@@ -34,6 +33,8 @@
 #define CKGA_PLL0HS_DIV_CFG(x)		(0x900+((x)*4))
 #define CKGA_PLL0LS_DIV_CFG(x)		(0xa10+(((x)-4)*4))
 #define CKGA_PLL1_DIV_CFG(x)		(0xb00+((x)*4))
+
+#if 0
 
 /* Definitions taken from targetpack sti7105_clockgenb_regs.xml */
 #define CLOCKGENB_FS0_CTRL		0x14
@@ -75,8 +76,6 @@
 #define CLOCKGENB_OUT_CTRL		0xb4
 #define CLOCKGENB_CRISTAL_SEL		0xb8
 
-
-#if 0
 #define CLOCKGEN_PLL_CFG(pll)	(CLOCKGEN_BASE_ADDR + ((pll)*0x4))
 #define   CLOCKGEN_PLL_CFG_BYPASS		(1<<20)
 #define CLOCKGEN_MUX_CFG	(CLOCKGEN_BASE_ADDR + 0x0c)
@@ -99,37 +98,17 @@
 
 #endif
 
-static unsigned long clkin[4] = {
-	SYSACLKIN,	/* clk_osc_a */
-	SYSBCLKIN,	/* clk_osc_b */
-	SYSAALTCLKIN,	/* clk_osc_c */
-	0		/* clk_osc_d */
+static unsigned long clkin[2] = {
+	SYSCLKIN,	/* clk_osc_a */
+	SYSCLKINALT,	/* clk_osc_b */
 };
 
 static struct sysconf_field *clkgena_clkosc_sel_sc;
 
 static void __iomem *clkgena_base, *clkgenb_base;
 
-#if 0
-
-                                    /* 0  1  2  3  4  5  6     7  */
-static const unsigned int ratio1[] = { 1, 2, 3, 4, 6, 8, 1024, 1 };
-
-static unsigned long final_divider(unsigned long input, int div_ratio, int div)
-{
-	switch (div_ratio) {
-	case 1:
-		return input / 1024;
-	case 2:
-	case 3:
-		return input / div;
-	}
-
-	return 0;
-}
-
-#endif
-
+static struct sysconf_field *clkgend_ddiv, *clkgend_rdiv;
+static struct sysconf_field *clkgend_clk_sel;
 
 /* Clkgen A clk_osc -------------------------------------------------------- */
 
@@ -323,12 +302,11 @@ static struct clkgenaclk clkgenaclks[] = {
 	CLKGENA_CLK(5, "ic_if_100"),
 	CLKGENA_CLK(6, "lx_dmu_cpu"),
 	CLKGENA_CLK(7, "lx_aud_cpu"),
-	CLKGENA_CLK(8, "ic_bdisp_200"),
-	CLKGENA_CLK(9, "ic_disp_200"),
+	CLKGENA_CLK(8, "ic_disp_200"),
+	CLKGENA_CLK(9, "ic_bdisp_200"),
 	CLKGENA_CLK(10, "ic_ts_200"),
 	CLKGENA_CLK(11, "disp_pipe_200"),
-	CLKGENA_CLK(12, "blit_proc"),	/* Note duplicate clock 12 */
-	CLKGENA_CLK(12, "ic_delta_200"),/* Note duplicate clock 12 */
+	CLKGENA_CLK(12, "blit_proc"),
 	CLKGENA_CLK(13, "ethernet_phy"),
 	CLKGENA_CLK(14, "pci"),
 	CLKGENA_CLK(15, "emi_master"),
@@ -361,13 +339,39 @@ static struct clk generic_comms_clk = {
 	.ops		= &generic_clk_ops,
 };
 
+/* Clockgen D clocks ------------------------------------------------------- */
+
+static void clkgend_clk_init(struct clk *clk)
+{
+	int clk_sel = sysconf_read(clkgend_clk_sel);
+	int ddiv = sysconf_read(clkgend_ddiv);
+	int rdiv = sysconf_read(clkgend_rdiv);
+
+	if (rdiv == 0)
+		clk->rate = 0;
+	else
+		clk->rate = (clkin[clk_sel] * ddiv) / rdiv;
+}
+
+static struct clk_ops clkgend_clk_ops = {
+	.init		= clkgend_clk_init,
+};
+
+static struct clk clkgend_clk = {
+	.name		= "lmi2x",
+	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
+	.ops		= &clkgend_clk_ops,
+};
+
+/* ------------------------------------------------------------------------- */
+
 int __init clk_init(void)
 {
 	int i, ret;
 
 	/* Clockgen A */
 
-	clkgena_clkosc_sel_sc = sysconf_claim(SYS_STA, 1, 0, 1, "clkgena");
+	clkgena_clkosc_sel_sc = sysconf_claim(SYS_STA, 1, 0, 0, "clkgena");
 	clkgena_base = ioremap(CLOCKGENA_BASE_ADDR, 0x50);
 	clkgenb_base = ioremap(CLOCKGENB_BASE_ADDR, 0xc00);
 
@@ -392,6 +396,15 @@ int __init clk_init(void)
 	/* Propagate the clk osc value down */
 	clk_set_rate(&clkgena_clk_osc, clk_get_rate(&clkgena_clk_osc));
 	clk_put(&clkgena_clk_osc);
+
+	/* Clockgen D */
+
+	clkgend_clk_sel = sysconf_claim(SYS_CFG, 40, 0, 0, "clkgend");
+	clkgend_ddiv = sysconf_claim(SYS_CFG, 11, 1, 8, "clkgend");
+	clkgend_rdiv = sysconf_claim(SYS_CFG, 11, 9, 11, "clkgend");
+
+	ret = clk_register(&clkgend_clk);
+	clk_enable(&clkgend_clk);
 
 	return ret;
 }

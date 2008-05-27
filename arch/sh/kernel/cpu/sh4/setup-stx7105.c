@@ -169,7 +169,6 @@ void __init stx7105_configure_usb(int port, struct usb_init_data *data)
 	platform_device_register(&st40_ehci_devices[port]);
 }
 
-#if 0
 /* FDMA resources ---------------------------------------------------------- */
 
 #ifdef CONFIG_STM_DMA
@@ -288,7 +287,6 @@ static struct platform_device fdma_xbar_device = {
 		},
 	},
 };
-#endif
 
 /* SSC resources ----------------------------------------------------------- */
 
@@ -1044,9 +1042,9 @@ static int __init stx7105_subsys_setup(void)
 subsys_initcall(stx7105_subsys_setup);
 
 static struct platform_device *stx7105_devices[] __initdata = {
-	//&fdma0_device,
-	//&fdma1_device,
-	//&fdma_xbar_device,
+	&fdma0_device,
+	&fdma1_device,
+	&fdma_xbar_device,
 	&sysconf_device,
 	&ilc3_device,
 	&hwrandom_rng_device,

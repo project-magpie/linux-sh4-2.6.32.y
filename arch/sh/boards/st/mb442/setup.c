@@ -171,7 +171,7 @@ static int __init device_init(void)
 	stx7100_configure_ssc(&ssc_private_info);
 	stx7100_configure_usb();
 	stx7100_configure_lirc(&lirc_scd);
-	stx7100_configure_pata(3, IRL1_IRQ);
+	stx7100_configure_pata(3, 1, IRL1_IRQ);
 
 	vpp_pio = stpio_request_set_pin(2, 7, "flash_VPP", STPIO_OUT, 0);
 

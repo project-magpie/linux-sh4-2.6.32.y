@@ -131,7 +131,7 @@ static int __init hms1_device_init(void)
 	stx7100_configure_pwm(&pwm_private_info);
 	stx7100_configure_ssc(&ssc_private_info);
 	stx7100_configure_usb();
-	stx7100_configure_pata(3, IRL1_IRQ);
+	stx7100_configure_pata(3, 1, IRL1_IRQ);
 	stx7100_configure_lirc(NULL);
 
 	vpp_pio = stpio_request_pin(2,5, "VPP", STPIO_OUT);

@@ -618,7 +618,7 @@ static struct platform_device pata_device = {
 	}
 };
 
-void __init stx7200_configure_pata(int bank, int irq)
+void __init stx7200_configure_pata(int bank, int pc_mode, int irq)
 {
 	unsigned long bank_base;
 
@@ -630,7 +630,7 @@ void __init stx7200_configure_pata(int bank, int irq)
 	pata_resources[2].start = irq;
 	pata_resources[2].end   = irq;
 
-	emi_config_pata(bank);
+	emi_config_pata(bank, pc_mode);
 
 	platform_device_register(&pata_device);
 }

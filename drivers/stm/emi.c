@@ -12,7 +12,7 @@
 #include <linux/stm/emi.h>
 
 
-
+#define EMI_GEN_CFG			0x0028
 #define BANK_BASEADDRESS(b)		(0x800 + (0x10 * b))
 #define BANK_EMICONFIGDATA(b, r)	(0x100 + (0x40 * b) + (8 * r))
 
@@ -135,16 +135,37 @@ static void __init set_pata_write_timings(int bank, int cycle_time,
 			emi_control + BANK_EMICONFIGDATA(bank, 2));
 }
 
-void __init emi_config_pata(int bank)
+void __init emi_config_pata(int bank, int pc_mode)
 {
+	int mask;
+
 	BUG_ON(!emi_initialised);
 
 	/* Set timings for PIO4 */
 	set_pata_read_timings(bank, 120, 35, 30, 20);
 	set_pata_write_timings(bank, 120, 35, 30);
+
+	switch (bank) {
+	case 2:	/* Bank C */
+		mask = 1<<3;
+		break;
+	case 3:	/* Bank D */
+		mask = 1<<4;
+		break;
+	default:
+		mask = 0;
+		break;
+	}
+
+	if (mask) {
+		u32 val = readl(emi_control + EMI_GEN_CFG);
+		if (pc_mode)
+			val |= mask;
+		else
+			val &= (~mask);
+		writel(val, emi_control + EMI_GEN_CFG);
+	}
 }
-
-
 
 static void __init set_nand_read_timings(int bank, int cycle_time,
 		int IORD_start, int IORD_end,

@@ -208,7 +208,7 @@ static int __init device_init(void)
 #ifdef CONFIG_PATA_PLATFORM
 	/* Set the EPLD ATAPI register to 1, enabling the IDE interface.*/
 	epld_write(1, EPLD_ATAPI);
-	stx7100_configure_pata(3, 8);
+	stx7100_configure_pata(3, 1, 8);
 #endif
 
 #ifdef CONFIG_SND

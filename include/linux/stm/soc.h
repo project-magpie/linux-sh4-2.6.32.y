@@ -245,7 +245,7 @@ void stx7100_configure_ssc(struct plat_ssc_data *data);
 void stx7100_configure_usb(void);
 void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus);
 void stx7100_configure_lirc(lirc_scd_t *scd);
-void stx7100_configure_pata(int bank, int irq);
+void stx7100_configure_pata(int bank, int pc_mode, int irq);
 
 void stx7105_configure_sata(unsigned int port);
 void stx7105_early_device_init(void);
@@ -257,6 +257,7 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 				int ext_mdio, int ext_clk, int phy_bus);
 void stx7105_configure_nand(struct nand_config_data *data);
 void stx7105_configure_lirc(void);
+void stx7105_configure_pata(int bank, int pc_mode, int irq);
 
 void stx7111_early_device_init(void);
 void stx7111_configure_asc(const int *ascs, int num_ascs, int console);
@@ -277,6 +278,6 @@ void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 				int phy_bus);
 void stx7200_configure_lirc(lirc_scd_t *scd);
 void stx7200_configure_nand(struct nand_config_data *data);
-void stx7200_configure_pata(int bank, int irq);
+void stx7200_configure_pata(int bank, int pc_mode, int irq);
 
 #endif /* __LINUX_ST_SOC_H */

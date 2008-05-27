@@ -39,6 +39,7 @@ static void __init mb680_setup(char** cmdline_p)
 
 static struct plat_stm_pwm_data pwm_private_info = {
 	.flags		= PLAT_STM_PWM_OUT0,
+	.routing	= PWM_OUT0_PIO13_0,
 };
 
 static struct plat_ssc_data ssc_private_info = {
@@ -104,9 +105,7 @@ static int __init device_init(void)
 {
 	stx7200_configure_sata(0);
 	stx7200_configure_sata(1);
-#if 0
 	stx7105_configure_pwm(&pwm_private_info);
-#endif
 	stx7105_configure_ssc(&ssc_private_info);
 
 	/*

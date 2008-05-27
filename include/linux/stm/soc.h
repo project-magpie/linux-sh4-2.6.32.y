@@ -40,6 +40,7 @@ struct plat_ssc_data {
 	unsigned long		routing;
 };
 
+#ifdef CONFIG_CPU_SUBTYPE_STX7105
 #define SSC_SCLK_SHIFT(n)	(0+(n*6))
 #define SSC_MTSR_SHIFT(n)	(2+(n*6))
 #define SSC_MRST_SHIFT(n)	(4+(n*6))
@@ -84,7 +85,7 @@ struct plat_ssc_data {
    SPI_NO_CHIPSELECT to specify SPI device with no CS (ie CS tied to 'active')
 */
 #define SPI_NO_CHIPSELECT	(spi_set_cs(9, 7) + 1)
-
+#endif
 
 /* Private data for the SATA driver */
 struct plat_sata_data {
@@ -96,10 +97,18 @@ struct plat_sata_data {
 /* Private data for the PWM driver */
 struct plat_stm_pwm_data {
 	unsigned long flags;
+	unsigned long routing;
 };
 
 #define PLAT_STM_PWM_OUT0	(1<<0)
 #define PLAT_STM_PWM_OUT1	(1<<1)
+
+#ifdef CONFIG_CPU_SUBTYPE_STX7105
+#define PWM_OUT0_PIO4_4		(0 << 0)
+#define PWM_OUT0_PIO13_0	(1 << 0)
+#define PWM_OUT1_PIO4_5		(0 << 1)
+#define PWM_OUT1_PIO13_1	(1 << 1)
+#endif
 
 /* This is the private platform data for the lirc driver */
 #define LIRC_PIO_ON		0x08	/* PIO pin available */

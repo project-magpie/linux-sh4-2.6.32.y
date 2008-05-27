@@ -590,7 +590,6 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 
 	platform_device_register(&stx7105eth_device);
 }
-#if 0
 
 /* PWM resources ----------------------------------------------------------- */
 
@@ -616,25 +615,30 @@ static struct platform_device stm_pwm_device = {
 
 void stx7105_configure_pwm(struct plat_stm_pwm_data *data)
 {
+	int pwm;
+	const struct {
+		unsigned char port, pin, alt;
+	} pwm_pios[2][2] = {
+		{ { 4, 4, 3 }, { 13, 0, 3 } }, 	/* PWM0 */
+		{ { 4, 5, 3 }, { 13, 1, 3 } },	/* PWM1 */
+	};
+
 	stm_pwm_device.dev.platform_data = data;
 
-	if (data->flags & PLAT_STM_PWM_OUT0) {
-		/* Route UART2 (in and out) and PWM_OUT0 instead of SCI to pins
-		 * ssc2_mux_sel = 0 */
-		if (!sc7_3)
-			sc7_3 = sysconf_claim(SYS_CFG, 7, 3, 3, "pwm");
-		sysconf_write(sc7_3, 0);
-		stpio_request_pin(4, 6, "PWM", STPIO_ALT_OUT);
-	}
+	for (pwm = 0; pwm < 2; pwm++) {
+		if (data->flags & (1<<pwm)) {
+			int r = (data->routing >> pwm) & 1;
+			int port = pwm_pios[pwm][r].port;
+			int pin  = pwm_pios[pwm][r].pin;
+			int alt  = pwm_pios[pwm][r].alt;
 
-	if (data->flags & PLAT_STM_PWM_OUT1) {
-		stpio_request_pin(4, 7, "PWM", STPIO_ALT_OUT);
+			stx7105_pio_sysconf(port, pin, alt, "pwm");
+			stpio_request_pin(port, pin, "pwm", STPIO_ALT_OUT);
+		}
 	}
 
 	platform_device_register(&stm_pwm_device);
 }
-
-#endif
 
 /* Hardware RNG resources -------------------------------------------------- */
 

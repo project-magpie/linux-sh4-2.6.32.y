@@ -306,18 +306,18 @@ static void gmac_irq_status(unsigned long ioaddr)
 	 * we should read the register that generated the interrupt.
 	 */
 	if ((intr_status & mmc_tx_irq)) {
-		printk("GMAC: MMC tx interrupt: 0x%08x\n",
+		DBG(KERN_DEBUG "GMAC: MMC tx interrupt: 0x%08x\n",
 			readl(ioaddr + GMAC_MMC_TX_INTR));
 	}
 	if (unlikely(intr_status & mmc_rx_irq)) {
-		printk("GMAC: MMC rx interrupt: 0x%08x\n",
+		DBG(KERN_DEBUG "GMAC: MMC rx interrupt: 0x%08x\n",
 			readl(ioaddr + GMAC_MMC_RX_INTR));
 	}
 	if (unlikely(intr_status & mmc_rx_csum_offload_irq))
-		printk("GMAC: MMC rx csum offload: 0x%08x\n",
+		DBG(KERN_DEBUG "GMAC: MMC rx csum offload: 0x%08x\n",
 			readl(ioaddr + GMAC_MMC_RX_CSUM_OFFLOAD));
 	if (unlikely(intr_status & pmt_irq)){
-		printk(KERN_DEBUG "GMAC: received Magic frame\n");
+		DBG(KERN_DEBUG "GMAC: received Magic frame\n");
 		/* clear the PMT bits 5 and 6 by reading the PMT
 		 * status register. */
 		readl(ioaddr + GMAC_PMT);
@@ -393,8 +393,8 @@ static void gmac_set_filter(struct net_device *dev)
 		     mclist && i < dev->mc_count; i++, mclist = mclist->next) {
 			/* The upper 6 bits of the calculated CRC are used to index
 			   the contens of the hash table */
-			int bit_nr =
-			    ether_crc(ETH_ALEN, mclist->dmi_addr) >> 26;
+			int bit_nr = 
+				bitrev32(~crc32_le(~0, mclist->dmi_addr, 6)) >> 26;
 			/* The most significant bit determines the register to use
 			   (H/L) while the other 5 bits determine the bit within
 			   the register. */
@@ -404,6 +404,11 @@ static void gmac_set_filter(struct net_device *dev)
 		writel(mc_filter[1], ioaddr + GMAC_HASH_HIGH);
 	}
 
+#ifdef GMAC_DEBUG
+	/* Receive all mode enabled. Useful for debugging 
+	   filtering_fail errors. */
+	value |= GMAC_FRAME_FILTER_RA;
+#endif
 	writel(value, ioaddr + GMAC_FRAME_FILTER);
 
 	DBG(KERN_INFO "%s: GMAC frame filter reg: 0x%08x - Hash regs: "

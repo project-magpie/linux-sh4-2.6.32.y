@@ -12,6 +12,9 @@
  *
  * Changelog:
  * May 2008:
+ *	- Suspend/resume functions reviewed and tested the Wake-Up-on LAN
+ *	  on the GMAC (mb618).
+ *	- Fixed the GMAC 6-bit CRC hash filtering.
  *	- Removed stats from the private structure.
  * April 2008:
  *	- Added kernel timer for handling interrupts.
@@ -186,7 +189,6 @@ extern struct device_info_t *gmac_setup(unsigned long addr);
 extern struct device_info_t *mac100_setup(unsigned long addr);
 extern int stmmac_mdio_unregister(struct net_device *ndev);
 extern int stmmac_mdio_register(struct net_device *ndev);
-extern int stmmac_mdio_reset(struct mii_bus *bus);
 
 #ifdef CONFIG_STMMAC_RTC_TIMER
 extern int stmmac_timer_close(void);
@@ -917,7 +919,7 @@ void stmmac_schedule_rx(struct net_device *dev)
  */
 static void stmmac_timer_handler(unsigned long data)
 {
-        struct net_device *dev = (struct net_device *)data;
+	struct net_device *dev = (struct net_device *)data;
 	struct eth_driver_local *lp = netdev_priv(dev);
 	unsigned long flags;
 
@@ -1039,18 +1041,28 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 }
 
 /**
- *  stmmac_enable - MAC/DMA initialization
+ *  stmmac_open - open entry point of the driver
  *  @dev : pointer to the device structure.
  *  Description:
- *  This function inits both the DMA and the MAC core and starts the Rx/Tx
- *  processes.
- *  It also copies the MAC addr into the HW (in case we have set it with nwhw).
+ *  This function is the open entry point of the driver.
+ *  Return value:
+ *  0 on success and an appropriate (-)ve integer as defined in errno.h
+ *  file on failure.
  */
-static int stmmac_enable(struct net_device *dev)
+static int stmmac_open(struct net_device *dev)
 {
 	struct eth_driver_local *lp = netdev_priv(dev);
 	unsigned long ioaddr = dev->base_addr;
 	int ret;
+
+	/* Check that the MAC address is valid.  If its not, refuse
+	 * to bring the device up. The user must specify an
+	 * address using the following linux command:
+	 *      ifconfig eth0 hw ether xx:xx:xx:xx:xx:xx  */
+	if (!is_valid_ether_addr(dev->dev_addr)) {
+		printk(KERN_ERR "%s: no valid eth hw addr\n", __FUNCTION__);
+		return -EINVAL;
+	}
 
 	/* Attach the PHY */
 	ret = stmmac_init_phy(dev);
@@ -1122,8 +1134,8 @@ static int stmmac_enable(struct net_device *dev)
 	init_timer(&lp->timer);
 	lp->timer.expires = STMMAC_SW_TIMER_EXP;
 	lp->timer.data = (unsigned long)dev;
-        lp->timer.function = stmmac_timer_handler;
-        add_timer(&lp->timer);
+	lp->timer.function = stmmac_timer_handler;
+	add_timer(&lp->timer);
 #endif
 
 #ifdef CONFIG_STMMAC_RTC_TIMER
@@ -1139,38 +1151,27 @@ static int stmmac_enable(struct net_device *dev)
 
 	phy_start(lp->phydev);
 
-	return 0;
-}
-
-/**
- *  stmmac_open - open entry point of the driver
- *  @dev : pointer to the device structure.
- *  Description:
- *  This function is the open entry point of the driver.
- *  Return value:
- *  0 on success and an appropriate (-)ve integer as defined in errno.h
- *  file on failure.
- */
-static int stmmac_open(struct net_device *dev)
-{
-
-	/* Check that the MAC address is valid.  If its not, refuse
-	 * to bring the device up. The user must specify an
-	 * address using the following linux command:
-	 *      ifconfig eth0 hw ether xx:xx:xx:xx:xx:xx  */
-	if (!is_valid_ether_addr(dev->dev_addr)) {
-		printk(KERN_ERR "%s: no valid eth hw addr\n", __FUNCTION__);
-		return -EINVAL;
-	}
-
-	/* Enable MAC/DMA, call irq_request and allocate the rings */
-	stmmac_enable(dev);
-
 	netif_start_queue(dev);
 	return 0;
 }
 
-static int stmmac_shutdown(struct net_device *dev)
+static void stmmac_tx_checksum(struct sk_buff *skb)
+{
+	const int offset = skb_transport_offset(skb);
+	unsigned int csum =
+	    skb_checksum(skb, offset, skb->len - offset, 0);
+	*(u16 *) (skb->data + offset + skb->csum_offset) =
+	    csum_fold(csum);
+	return;
+}
+
+/**
+ *  stmmac_release - close entry point of the driver
+ *  @dev : device pointer.
+ *  Description:
+ *  This is the stop entry point of the driver.
+ */
+static int stmmac_release(struct net_device *dev)
 {
 	struct eth_driver_local *lp = netdev_priv(dev);
 
@@ -1203,32 +1204,6 @@ static int stmmac_shutdown(struct net_device *dev)
 	/* Disable the MAC core */
 	stmmac_mac_disable_tx(dev);
 	stmmac_mac_disable_rx(dev);
-
-	return 0;
-}
-
-static void stmmac_tx_checksum(struct sk_buff *skb)
-{
-	const int offset = skb_transport_offset(skb);
-	unsigned int csum =
-	    skb_checksum(skb, offset, skb->len - offset, 0);
-	*(u16 *) (skb->data + offset + skb->csum_offset) =
-	    csum_fold(csum);
-	return;
-}
-
-/**
- *  stmmac_release - close entry point of the driver
- *  @dev : device pointer.
- *  Description:
- *  This is the stop entry point of the driver.
- *  Return value:
- *  0 on success and an appropriate (-)ve integer as defined in errno.h
- *  file on failure.
- */
-static int stmmac_release(struct net_device *dev)
-{
-	stmmac_shutdown(dev);
 
 	netif_carrier_off(dev);
 
@@ -2040,30 +2015,6 @@ static int stmmac_dvr_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-static void stmmac_powerdown(struct net_device *dev)
-{
-	struct eth_driver_local *lp = netdev_priv(dev);
-
-	/* Stop TX DMA */
-	stmmac_dma_stop_tx(dev->base_addr);
-	/* Disable MAC transmitter and receiver */
-	stmmac_mac_disable_tx(dev);
-	stmmac_mac_disable_rx(dev);
-
-	/* Sanity state for the rings */
-	lp->mac_type->ops->init_rx_desc(lp->dma_rx, lp->dma_rx_size,
-					rx_irq_mitigation);
-	lp->mac_type->ops->init_tx_desc(lp->dma_tx, lp->dma_tx_size);
-
-	/* Enable Power down mode by programming the PMT regs */
-	if (lp->wolenabled == PMT_SUPPORTED)
-		lp->mac_type->ops->pmt(dev->base_addr, lp->wolopts);
-
-	/* Enable receiver */
-	stmmac_mac_enable_rx(dev);
-
-	return;
-}
 
 static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 {
@@ -2075,14 +2026,37 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 	if (!dev || !netif_running(dev))
 		return 0;
 
-	if (state.event == PM_EVENT_SUSPEND && device_may_wakeup(&(pdev->dev))) {
-		stmmac_powerdown(dev);
-		return 0;
-	}
-
 	netif_device_detach(dev);
+
 	netif_stop_queue(dev);
-	stmmac_shutdown(dev);
+
+	phy_stop(lp->phydev);
+
+	netif_stop_queue(dev);
+
+#ifdef CONFIG_STMMAC_RTC_TIMER
+	if (likely(lp->has_timer == 0))
+		stmmac_timer_stop();
+#endif
+	/* Stop TX/RX DMA */
+	stmmac_dma_stop_tx(dev->base_addr);
+	stmmac_dma_stop_rx(dev->base_addr);
+
+	/* Clear the Rx/Tx descriptors */
+	lp->mac_type->ops->init_rx_desc(lp->dma_rx, lp->dma_rx_size, 
+			rx_irq_mitigation);
+	lp->mac_type->ops->init_tx_desc(lp->dma_tx, lp->dma_tx_size);
+
+	stmmac_mac_disable_tx(dev);
+
+	if (state.event == PM_EVENT_SUSPEND && 
+		device_may_wakeup(&(pdev->dev))) {
+		/* Enable Power down mode by programming the PMT regs */
+		if (lp->wolenabled == PMT_SUPPORTED)
+			lp->mac_type->ops->pmt(dev->base_addr, lp->wolopts);
+	} else {
+		stmmac_mac_disable_rx(dev);
+	}
 
 	spin_unlock(&lp->lock);
 	return 0;
@@ -2092,18 +2066,26 @@ static int stmmac_resume(struct platform_device *pdev)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
 	struct eth_driver_local *lp = netdev_priv(dev);
+	unsigned long ioaddr = dev->base_addr;
 
 	spin_lock(&lp->lock);
 	if (!netif_running(dev))
 		return 0;
 
-	if (lp->mii->reset)
-		stmmac_mdio_reset(lp->mii);
-
 	netif_device_attach(dev);
 
-	stmmac_enable(dev);
+	/* Enable the MAC and DMA */
+	stmmac_mac_enable_rx(dev);
+	stmmac_mac_enable_tx(dev);
+	stmmac_dma_start_tx(ioaddr);
+	stmmac_dma_start_rx(ioaddr);
 
+#ifdef CONFIG_STMMAC_RTC_TIMER
+	if (likely(lp->has_timer == 0))
+		stmmac_timer_start(periodic_rate);
+#endif
+	phy_start(lp->phydev);
+	
 	netif_start_queue(dev);
 	spin_unlock(&lp->lock);
 	return 0;

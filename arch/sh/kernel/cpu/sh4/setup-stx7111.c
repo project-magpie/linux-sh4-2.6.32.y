@@ -304,6 +304,10 @@ static struct platform_device stx7111eth_device = {
         	},
 	},
 	.dev = {
+		.power.can_wakeup    = 1,
+#ifdef  CONFIG_PM_SLEEP
+		.power.should_wakeup = 1,
+#endif
 		.platform_data = &stx7111eth_private_data,
 	}
 };

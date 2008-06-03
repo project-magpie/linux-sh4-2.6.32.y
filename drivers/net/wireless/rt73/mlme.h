@@ -321,6 +321,7 @@ typedef struct {
 } BSS_TABLE, *PBSS_TABLE;
 
 typedef struct _MLME_QUEUE_ELEM {
+    UCHAR             Msg[MAX_LEN_OF_MLME_BUFFER];
     ULONG             Machine;
     ULONG             MsgType;
     ULONG             MsgLen;
@@ -330,7 +331,6 @@ typedef struct _MLME_QUEUE_ELEM {
     UCHAR             Channel;
     BOOLEAN           Occupied;
     BOOLEAN           bReqIsFromNdis;
-    UCHAR             Msg[MAX_LEN_OF_MLME_BUFFER];
 } MLME_QUEUE_ELEM, *PMLME_QUEUE_ELEM;
 
 typedef struct _MLME_QUEUE {

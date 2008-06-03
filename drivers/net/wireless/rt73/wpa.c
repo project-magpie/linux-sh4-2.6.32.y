@@ -588,14 +588,17 @@ VOID	WpaPairMsg1Action(
 	else
 	{
 		INT i;
-		DBGPRINT_RAW(RT_DEBUG_INFO, " PMK = ");
+		DBGPRINT(RT_DEBUG_INFO, " PMK = ");
 		for (i = 0; i < 16; i++)
 			DBGPRINT_RAW(RT_DEBUG_INFO, "%2x-", pAd->PortCfg.PskKey.Key[i]);
+		DBGPRINT_RAW(RT_DEBUG_INFO, "\n");
 
-		DBGPRINT_RAW(RT_DEBUG_INFO, "\n PTK = ");
+		DBGPRINT(RT_DEBUG_INFO, "PTK = ");
 		for (i = 0; i < 64; i++)
 			DBGPRINT_RAW(RT_DEBUG_INFO, "%2x-", pAd->PortCfg.PTK[i]);
-		DBGPRINT_RAW(RT_DEBUG_INFO, "\n FrameLen = %d\n", FrameLen);
+		DBGPRINT_RAW(RT_DEBUG_INFO, "\n");
+
+		DBGPRINT(RT_DEBUG_INFO, "FrameLen = %d\n", FrameLen);
 
 	    hmac_md5(PTK,  LEN_EAP_MICK, pOutBuffer, FrameLen, Mic);
 	}
@@ -879,16 +882,20 @@ VOID	WpaPairMsg3Action(
 		DBGPRINT(RT_DEBUG_TRACE, " MIC VALID in msg 3 of 4-way handshake!!!!!!!!!! \n");
 
 	// 3. Check Replay Counter, it has to be larger than last one. No need to be exact one larger
-	if (RTMPCompareMemory(pMsg3->KeyDesc.ReplayCounter, pAd->PortCfg.ReplayCounter, LEN_KEY_DESC_REPLAY) != 1)
+	if (RTMPCompareMemory(pMsg3->KeyDesc.ReplayCounter, pAd->PortCfg.ReplayCounter, LEN_KEY_DESC_REPLAY) != 1) {
+		DBGPRINT(RT_DEBUG_ERROR, "WPA - (%s) invalid replay ctr\n",
+				__FUNCTION__);
 		return;
-
+	}
 	// Update new replay counter
 	memcpy(pAd->PortCfg.ReplayCounter, pMsg3->KeyDesc.ReplayCounter, LEN_KEY_DESC_REPLAY);
 
 	// 4. Double check ANonce
-	if (!NdisEqualMemory(pAd->PortCfg.ANonce, pMsg3->KeyDesc.KeyNonce, LEN_KEY_DESC_NONCE))
+	if (!NdisEqualMemory(pAd->PortCfg.ANonce, pMsg3->KeyDesc.KeyNonce, LEN_KEY_DESC_NONCE)) {
+		DBGPRINT(RT_DEBUG_ERROR, "WPA - (%s) Nonce mismatch\n",
+				__FUNCTION__);
 		return;
-
+	}
 	// 5. Construct Message 4
 	// =====================================
 	// Use Priority Ring & MiniportMMRequest
@@ -1016,7 +1023,6 @@ VOID	WpaPairMsg3Action(
 	// Send using priority queue
 	MiniportMMRequest(pAd, pOutBuffer, FrameLen);
 
-
 	DBGPRINT(RT_DEBUG_TRACE, "WpaPairMsg3Action <-----\n");
 }
 
@@ -1103,21 +1109,23 @@ VOID    Wpa2PairMsg3Action(
         DBGPRINT(RT_DEBUG_TRACE, " MIC VALID in msg 3 of 4-way handshake!!!!!!!!!! \n");
 
     // 3. Check Replay Counter, it has to be larger than last one. No need to be exact one larger
-    if (RTMPCompareMemory(pMsg3->KeyDesc.ReplayCounter, pAd->PortCfg.ReplayCounter, LEN_KEY_DESC_REPLAY) != 1)
+    if (RTMPCompareMemory(pMsg3->KeyDesc.ReplayCounter, pAd->PortCfg.ReplayCounter, LEN_KEY_DESC_REPLAY) != 1) {
+		DBGPRINT(RT_DEBUG_ERROR, "WPA - (%s) invalid replay ctr\n",
+				__FUNCTION__);
         return;
-
-
+	}
     // Update new replay counter
     memcpy(pAd->PortCfg.ReplayCounter, pMsg3->KeyDesc.ReplayCounter, LEN_KEY_DESC_REPLAY);
 
     // 4. Double check ANonce
-    if (!NdisEqualMemory(pAd->PortCfg.ANonce, pMsg3->KeyDesc.KeyNonce, LEN_KEY_DESC_NONCE))
+    if (!NdisEqualMemory(pAd->PortCfg.ANonce, pMsg3->KeyDesc.KeyNonce, LEN_KEY_DESC_NONCE)) {
+		DBGPRINT(RT_DEBUG_ERROR, "WPA - (%s) Nonce mismatch\n",
+				__FUNCTION__);
         return;
-
-
+	}
     // Obtain GTK
     // 5. Decrypt GTK from Key Data
-    DBGPRINT_RAW(RT_DEBUG_TRACE, "EKD = %d\n", pMsg3->KeyDesc.KeyInfo.EKD_DL);
+    DBGPRINT(RT_DEBUG_INFO, "EKD = %d\n", pMsg3->KeyDesc.KeyInfo.EKD_DL);
     if (pAd->PortCfg.WepStatus == Ndis802_11Encryption3Enabled)
     {
 
@@ -1140,14 +1148,17 @@ VOID    Wpa2PairMsg3Action(
         // Decrypt GTK. Becareful, there is no ICV to check the result is correct or not
         ARCFOUR_DECRYPT(&pAd->PrivateInfo.WEPCONTEXT, KEYDATA, pMsg3->KeyDesc.KeyData, pMsg3->KeyDesc.KeyDataLen[1]);
 
-        DBGPRINT_RAW(RT_DEBUG_TRACE, "KEYDATA = \n");
+        DBGPRINT(RT_DEBUG_TRACE, "KEYDATA =\n");
+        DBGPRINT(RT_DEBUG_TRACE, " ");
         for (i = 0; i < 100; i++)
         {
-            DBGPRINT_RAW(RT_DEBUG_TRACE, "%2x ", KEYDATA[i]);
-            if (i%16 == 15)
-                DBGPRINT_RAW(RT_DEBUG_TRACE, "\n ");
+            DBGPRINT_RAW(RT_DEBUG_TRACE, " %2x", KEYDATA[i]);
+            if (i%16 == 15) {
+                DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
+                DBGPRINT(RT_DEBUG_TRACE, " ");
+			}
         }
-        DBGPRINT_RAW(RT_DEBUG_TRACE, "\n  \n");
+        DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
 
         ParseKeyData(pAd, KEYDATA, pMsg3->KeyDesc.KeyDataLen[1]);
 
@@ -1276,8 +1287,7 @@ VOID    Wpa2PairMsg3Action(
     // Send using priority queue
     MiniportMMRequest(pAd, pOutBuffer, FrameLen);
 
-
-    DBGPRINT(RT_DEBUG_ERROR, "Wpa2PairMsg3Action <-----\n");
+    DBGPRINT(RT_DEBUG_TRACE, "Wpa2PairMsg3Action <-----\n");
 
 }
 
@@ -1465,14 +1475,12 @@ VOID	WpaGroupMsg1Action(
 	    memcpy(pGroupKey->KeyMaterial, KEYDATA, 32);
 	    memcpy(GTK, KEYDATA, 32);
 
-        DBGPRINT_RAW(RT_DEBUG_TRACE, "GTK = \n");
+        DBGPRINT(RT_DEBUG_TRACE, "AES GTK =");
         for (i = 0; i < 32; i++)
         {
-            DBGPRINT_RAW(RT_DEBUG_TRACE, "%02x ", pGroup->KeyDesc.KeyData[i]);
-            if (i%16 == 15)
-                DBGPRINT_RAW(RT_DEBUG_TRACE, "\n ");
+            DBGPRINT_RAW(RT_DEBUG_TRACE, " %02x", pGroup->KeyDesc.KeyData[i]);
         }
-        DBGPRINT_RAW(RT_DEBUG_TRACE, "\n  \n");
+        DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
 
 
         // Call Add peer key function
@@ -1493,14 +1501,12 @@ VOID	WpaGroupMsg1Action(
 		// Decrypt GTK. Becareful, there is no ICV to check the result is correct or not
         ARCFOUR_DECRYPT(&pAd->PrivateInfo.WEPCONTEXT, GTK, pGroup->KeyDesc.KeyData, 32);
 
-        DBGPRINT_RAW(RT_DEBUG_TRACE, "GTK = \n");
+        DBGPRINT(RT_DEBUG_TRACE, "TKIP GTK =");
         for (i = 0; i < 32; i++)
         {
-            DBGPRINT_RAW(RT_DEBUG_TRACE, "%2x ", GTK[i]);
-            if (i%16 == 15)
-                DBGPRINT_RAW(RT_DEBUG_TRACE, "\n ");
+            DBGPRINT_RAW(RT_DEBUG_TRACE, " %2x", GTK[i]);
         }
-        DBGPRINT_RAW(RT_DEBUG_TRACE, "\n  \n");
+        DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
 
         //RTMPWPAAddKeyProc(pAd, pGroupKey);
         //ParseKeyData(pAd, KEYDATA, pGroup->KeyDesc.KeyDataLen[1]);
@@ -1584,10 +1590,11 @@ VOID	WpaGroupMsg1Action(
 	{
 		INT i;
 
-		DBGPRINT_RAW(RT_DEBUG_INFO, "PTK = ");
+		DBGPRINT(RT_DEBUG_INFO, "PTK = ");
 		for (i = 0; i < 64; i++)
 			DBGPRINT_RAW(RT_DEBUG_INFO, "%2x-", pAd->PortCfg.PTK[i]);
-		DBGPRINT_RAW(RT_DEBUG_INFO, "\n FrameLen = %d\n", FrameLen);
+		DBGPRINT_RAW(RT_DEBUG_INFO, "\n");
+		DBGPRINT(RT_DEBUG_INFO, "- FrameLen = %d\n", FrameLen);
 
 		hmac_md5(pAd->PortCfg.PTK, LEN_EAP_MICK, pOutBuffer, FrameLen, Mic);
 	}
@@ -1767,22 +1774,22 @@ VOID ParseKeyData(
     {
         pMyKeyData = pKeyData + *(pKeyData+1) + 2;
         KeyDataLength -= (2 + *(pKeyData+1));
-        DBGPRINT_RAW(RT_DEBUG_TRACE,"WPA RSN IE length %d contained in Msg3 = \n", (2 + *(pKeyData+1)));
+        DBGPRINT(RT_DEBUG_TRACE,"WPA RSN IE length %d contained in Msg3 = \n", (2 + *(pKeyData+1)));
     }
     if ((*pMyKeyData == WPA2RSNIE) && (*(pMyKeyData+1) != 0) && (KeyDataLength >= (2 + *(pMyKeyData+1))))
     {
         pMyKeyData += (*(pMyKeyData+1) + 2);
         KeyDataLength -= (2 + *(pMyKeyData+1));
-        DBGPRINT_RAW(RT_DEBUG_TRACE,"WPA2 RSN IE length %d contained in Msg3 = \n", (2 + *(pMyKeyData+1)));
+        DBGPRINT(RT_DEBUG_TRACE,"WPA2 RSN IE length %d contained in Msg3 = \n", (2 + *(pMyKeyData+1)));
     }
-        DBGPRINT_RAW(RT_DEBUG_TRACE,"KeyDataLength %d   \n", KeyDataLength);
+        DBGPRINT(RT_DEBUG_TRACE,"KeyDataLength %d   \n", KeyDataLength);
     pKDE = (PKDE_ENCAP) pMyKeyData;//Modified by Thomas:for WPA2 crashed  error.
 
     if ((KeyDataLength >= 8) && (KeyDataLength <= sizeof(KDE_ENCAP)))
     {
 	//pKDE = (PKDE_ENCAP) pMyKeyData;
-        DBGPRINT_RAW(RT_DEBUG_TRACE,"pKDE = \n");
-        DBGPRINT_RAW(RT_DEBUG_TRACE,"pKDE->Type %x:", pKDE->Type);
+        DBGPRINT(RT_DEBUG_TRACE,"pKDE = \n");
+        DBGPRINT(RT_DEBUG_TRACE,"pKDE->Type %x:", pKDE->Type);
         DBGPRINT_RAW(RT_DEBUG_TRACE,"pKDE->Len 0x%x:", pKDE->Len);
         DBGPRINT_RAW(RT_DEBUG_TRACE,"pKDE->OUI %x %x %x :", pKDE->OUI[0],pKDE->OUI[1],pKDE->OUI[2] );
         DBGPRINT_RAW(RT_DEBUG_TRACE,"\n");
@@ -1790,13 +1797,13 @@ VOID ParseKeyData(
 
     if (pKDE->GTKEncap.Kid == 0)
     {
-        DBGPRINT_RAW(RT_DEBUG_ERROR,"GTK Key index zero , error\n");
+        DBGPRINT(RT_DEBUG_ERROR,"GTK Key index zero , error\n");
         return;
     }
 
         GTKLEN = pKDE->Len -6;
 
-        DBGPRINT_RAW(RT_DEBUG_TRACE,"GTK Key[%d] len=%d ", pKDE->GTKEncap.Kid, GTKLEN);
+        DBGPRINT(RT_DEBUG_TRACE,"GTK Key[%d] len=%d ", pKDE->GTKEncap.Kid, GTKLEN);
         for (i = 0; i < GTKLEN; i++)
         {
             DBGPRINT_RAW(RT_DEBUG_TRACE,"%02x:", pKDE->GTKEncap.GTK[i]);
@@ -2052,14 +2059,16 @@ VOID    AES_GTK_KEY_UNWRAP(
         plaintext[i] = R[i];
     }
 
-    DBGPRINT_RAW(RT_DEBUG_TRACE, "plaintext = \n");
+    DBGPRINT(RT_DEBUG_TRACE, "plaintext =");
     for (i = 0; i < (num_blocks *8); i++)
     {
         DBGPRINT_RAW(RT_DEBUG_TRACE, "%2x ", plaintext[i]);
-        if (i%16 == 15)
-            DBGPRINT_RAW(RT_DEBUG_TRACE, "\n ");
+        if (i%16 == 15) {
+            DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
+            DBGPRINT(RT_DEBUG_TRACE, " ");
+		}
     }
-    DBGPRINT_RAW(RT_DEBUG_TRACE, "\n  \n");
+    DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
 
 
 }
@@ -2089,7 +2098,7 @@ VOID RTMPToWirelessSta(
     	// 1. build a NDIS packet and call RTMPSendPacket();
      	//    be careful about how/when to release this internal allocated NDIS PACKET buffer
 #ifdef RTMP_EMBEDDED
-   		if ((skb = __dev_alloc_skb(FrameLen + 2, GFP_DMA|GFP_ATOMIC)) != NULL)
+   		if ((skb = __dev_alloc_skb(FrameLen + 2, GFP_DMA|GFP_KERNEL)) != NULL)
 #else
     	if ((skb = dev_alloc_skb(FrameLen + 2)) != NULL)
 #endif

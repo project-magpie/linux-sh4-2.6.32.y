@@ -490,7 +490,7 @@ VOID PeerBeaconAtScanAction(
 		CHAR CfgData[MAX_CFG_BUFFER_LEN+1] = {0};
 		if (BackDoorProbeRspSanity(pAd, Elem->Msg, Elem->MsgLen, CfgData))
 		{
-			printk("MlmeEnqueueForRecv: CfgData(len:%d):\n%s\n", (int)strlen(CfgData), CfgData);
+			//DBGPRINT(RT_DEBUG_INFO, "MlmeEnqueueForRecv: CfgData(len:%d):\n%s\n", (int)strlen(CfgData), CfgData);
 			pAd->PortCfg.bGetAPConfig = FALSE;
 		}
 	}
@@ -595,7 +595,7 @@ VOID PeerBeaconAtJoinAction(
 		//    a new JOIN-AUTH-ASSOC sequence.
 		if (MAC_ADDR_EQUAL(pAd->MlmeAux.Bssid, Bssid))
         {
-            DBGPRINT(RT_DEBUG_TRACE, "SYNC - receive desired BEACON at JoinWaitBeacon... Channel = %d\n", Channel);
+            DBGPRINT(RT_DEBUG_TRACE, "SYNC (%s) - receive desired BEACON Chan=%d\n", __FUNCTION__, Channel);
 
 		    RTMPCancelTimer(&pAd->MlmeAux.BeaconTimer);
 
@@ -860,6 +860,9 @@ VOID PeerBeacon(
 			// collapse into the ADHOC network which has bigger BSSID value.
 			for (i = 0; i < 6; i++)
 			{
+				if (Bssid[i] < pAd->PortCfg.Bssid[i])
+					break;
+
 				if (Bssid[i] > pAd->PortCfg.Bssid[i])
 				{
 					DBGPRINT(RT_DEBUG_TRACE, "SYNC - merge to the IBSS with bigger BSSID=%02x:%02x:%02x:%02x:%02x:%02x\n",
@@ -874,7 +877,7 @@ VOID PeerBeacon(
 			}
 		}
 
-		DBGPRINT(RT_DEBUG_INFO, "SYNC - PeerBeacon from %02x:%02x:%02x:%02x:%02x:%02x - Dtim=%d/%d, Rssi=%02x\n",
+		DBGPRINT(RT_DEBUG_INFO, "SYNC - PeerBeacon from %02x:%02x:%02x:%02x:%02x:%02x - Dtim=%d/%d, Rssi=%ddBm\n",
 			Bssid[0], Bssid[1], Bssid[2], Bssid[3], Bssid[4], Bssid[5],
 			DtimCount, DtimPeriod, RealRssi);
 
@@ -1515,6 +1518,7 @@ VOID EnqueueBeaconFrame(
 			DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 			return;
 		}
+
 #ifndef BIG_ENDIAN
 	pTxD = &pAd->BeaconTxD;
 #else
@@ -1545,6 +1549,7 @@ VOID EnqueueBeaconFrame(
     RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
     WriteBackToDescriptor((PUCHAR)pDestTxD, (PUCHAR)pTxD, FALSE, TYPE_TXD);
 #endif
+
 	kfree(Tsf);
 }
 
@@ -1750,10 +1755,12 @@ VOID BuildChannelList(
 
     DBGPRINT(RT_DEBUG_TRACE,"country code=%d/%d, RFIC=%d, PHY mode=%d, support %d channels\n",
         pAd->PortCfg.CountryRegion, pAd->PortCfg.CountryRegionForABand, pAd->RfIcType, pAd->PortCfg.PhyMode, pAd->ChannelListNum);
+	DBGPRINT(RT_DEBUG_TRACE, "channel #");
     for (i=0;i<index;i++)
     {
-        DBGPRINT_RAW(RT_DEBUG_TRACE,"channel #%d\n", pAd->ChannelList[i].Channel);
+        DBGPRINT_RAW(RT_DEBUG_TRACE," %d", pAd->ChannelList[i].Channel);
     }
+	DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
 }
 
 /*

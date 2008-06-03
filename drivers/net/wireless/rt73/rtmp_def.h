@@ -40,12 +40,6 @@
 //
 //	Debug information verbosity: lower values indicate higher urgency
 //
-
-#ifdef __BIG_ENDIAN
-#warning "Big endian support is still experimental, use at your own risk."
-#define BIG_ENDIAN
-#endif
-
 #define RT_DEBUG_OFF		0
 #define RT_DEBUG_ERROR		1
 #define RT_DEBUG_WARN		2
@@ -822,12 +816,13 @@ typedef UCHAR ADDRESS[MAC_ADDRESS_LENGTH];
  /* ASUS */\
  {USB_DEVICE(0x0b05,0x1723)},\
  {USB_DEVICE(0x0b05,0x1724)},\
- /* Buffalo */\                                                                                                                     
+ /* Buffalo */\
  {USB_DEVICE(0x0411,0x00f4)},\
  /* Belkin */\
  {USB_DEVICE(0x050d,0x7050)},\
  {USB_DEVICE(0x050d,0x705a)},\
  {USB_DEVICE(0x050d,0x905b)},\
+ {USB_DEVICE(0x050d,0x905c)},\
  /* Billionton */\
  {USB_DEVICE(0x1631,0xc019)},\
  /* CNet */\
@@ -835,10 +830,13 @@ typedef UCHAR ADDRESS[MAC_ADDRESS_LENGTH];
  {USB_DEVICE(0x1371,0x9032)},\
  /* Conceptronic */\
  {USB_DEVICE(0x14b2,0x3c22)},\
+ /* Corega */\
+ {USB_DEVICE(0x07aa, 0x002e)}, /* CG-WLUSB2GPX*/\
  /* D-Link */\
  {USB_DEVICE(0x07d1,0x3c03)},\
  {USB_DEVICE(0x07d1,0x3c04)},\
  {USB_DEVICE(0x07d1,0x3c06)},\
+ {USB_DEVICE(0x07d1,0x3c07)},\
  /* Gemtek*/\
  {USB_DEVICE(0x15a9,0x0004)},\
  /* Gigabyte */\
@@ -854,6 +852,7 @@ typedef UCHAR ADDRESS[MAC_ADDRESS_LENGTH];
  {USB_DEVICE(0x13b1,0x0023)},\
  /* MSI */\
  {USB_DEVICE(0x0db0,0x6877)},\
+ {USB_DEVICE(0x0db0,0x6874)},\
  {USB_DEVICE(0x0db0,0xa861)},\
  {USB_DEVICE(0x0db0,0xa874)},\
  /* Ralink */\
@@ -873,7 +872,7 @@ typedef UCHAR ADDRESS[MAC_ADDRESS_LENGTH];
  {USB_DEVICE(0x2019,0xab50)},\
  /* Senao */\
  {USB_DEVICE(0x1740,0x7100)},\
- {USB_DEVICE(0,0)}} /* end marker */
+ {0}} /* end marker */
 
 
 #endif	// __RTMP_DEF_H__

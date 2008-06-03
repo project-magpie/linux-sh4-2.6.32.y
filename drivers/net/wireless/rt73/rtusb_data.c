@@ -78,12 +78,7 @@ VOID REPORT_ETHERNET_FRAME_TO_LLC(
 {
 	struct sk_buff	*pSkb;
 
-#ifdef RTMP_EMBEDDED
-	if ((pSkb = __dev_alloc_skb(DataSize + LENGTH_802_3 + 2, GFP_DMA|GFP_ATOMIC)) != NULL)
-#else
-	if ((pSkb = dev_alloc_skb(DataSize + LENGTH_802_3 + 2)) != NULL)
-#endif
-
+	if ((pSkb = __dev_alloc_skb(DataSize + LENGTH_802_3 + 2, MEM_ALLOC_FLAG)) != NULL)
 	{
 		pSkb->dev = net_dev;
 		skb_reserve(pSkb, 2);	// 16 byte align the IP header
@@ -98,6 +93,8 @@ VOID REPORT_ETHERNET_FRAME_TO_LLC(
 
 		pAd->Counters8023.GoodReceives++;
 	}
+	//DBGPRINT(RT_DEBUG_TRACE, "<-- %s: pSkb %s\n", __FUNCTION__,
+			//pSkb? "found": "n/a");
 }
 
 // Enqueue this frame to MLME engine
@@ -159,7 +156,7 @@ NDIS_STATUS	RTMPSendPacket(
 	NDIS_STATUS 	Status = NDIS_STATUS_SUCCESS;
 	struct sk_buff_head	*pTxQueue;
 	UCHAR			PsMode;
-	unsigned long IrqFlags;
+	unsigned long flags;
 
 	DBGPRINT(RT_DEBUG_INFO, "====> RTMPSendPacket\n");
 
@@ -177,9 +174,9 @@ NDIS_STATUS	RTMPSendPacket(
 	if (pSkb && pAd->PortCfg.BssType == BSS_MONITOR &&
 		   pAd->bAcceptRFMONTx == TRUE)
 	{
-		NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[QID_AC_BE], IrqFlags);
+		NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[QID_AC_BE]);
 		skb_queue_tail(&pAd->SendTxWaitQueue[QID_AC_BE], pSkb);
-		NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[QID_AC_BE], IrqFlags);
+		NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[QID_AC_BE]);
 		return (NDIS_STATUS_SUCCESS);
 	}
 
@@ -290,7 +287,7 @@ NDIS_STATUS	RTMPSendPacket(
 	RTMP_SET_PACKET_UP(pSkb, UserPriority);
 
 	// Make sure SendTxWait queue resource won't be used by other threads
-	NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[QueIdx], IrqFlags);
+	NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[QueIdx]);
 
 	pTxQueue = &pAd->SendTxWaitQueue[QueIdx];
 
@@ -327,7 +324,7 @@ NDIS_STATUS	RTMPSendPacket(
 		}
 	}
 
-	NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[QueIdx], IrqFlags);
+	NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[QueIdx]);
 
 	return (Status);
 }
@@ -501,10 +498,12 @@ NDIS_STATUS RTUSBHardTransmit(
 
 		if (pAd->TxRingTotalNumber[QueIdx] >= TX_RING_SIZE)
 		{
-			DBGPRINT(RT_DEBUG_TRACE,"RTUSBHardTransmit: TX RING full\n");
+			//Modified by Thomas
+			DBGPRINT_ERR("RTUSBHardTransmit: TX RING full\n");
 			//pAd->RalinkCounters.TxRingErrCount++;
 
-			return (NDIS_STATUS_RESOURCES);
+			//return (NDIS_STATUS_RESOURCES);
+			return (NDIS_STATUS_RINGFULL);
 		}
 
 		pTxContext->InUse	= TRUE;
@@ -554,8 +553,7 @@ NDIS_STATUS RTUSBHardTransmit(
 		pTxContext->bWaitingBulkOut = TRUE;
 		RTUSB_SET_BULK_FLAG(pAd, (fRTUSB_BULK_OUT_DATA_NORMAL << QueIdx));
 
-		pAd->TxRingTotalNumber[QueIdx]++;	// sync. to TxCount
-		atomic_inc(&pAd->TxCount);
+		pAd->TxRingTotalNumber[QueIdx]++;	// sync. to PendingTx
 		RELEASE_NDIS_PACKET(pAd, pSkb);
 
 		return (NDIS_STATUS_SUCCESS);
@@ -575,12 +573,12 @@ NDIS_STATUS RTUSBHardTransmit(
 	// Check for virtual address allocation, it might fail !!!
 	if (pSrcBufVA == NULL)
 	{
-		DBGPRINT_RAW(RT_DEBUG_TRACE, "pSrcBufVA == NULL\n");
+		DBGPRINT(RT_DEBUG_TRACE, "pSrcBufVA == NULL\n");
 		return(NDIS_STATUS_RESOURCES);
 	}
 	if (SrcBufLen < 14)
 	{
-		DBGPRINT_RAW(RT_DEBUG_ERROR, "RTUSBHardTransmit --> Skb buffer error !!!\n");
+		DBGPRINT(RT_DEBUG_ERROR, "RTUSBHardTransmit --> Skb buffer error !!!\n");
 		return (NDIS_STATUS_FAILURE);
 	}
 
@@ -634,7 +632,7 @@ NDIS_STATUS RTUSBHardTransmit(
 		((pAd->PortCfg.PortSecured == WPA_802_1X_PORT_NOT_SECURED) || (pAd->PortCfg.MicErrCnt >= 2)) &&
 		(bEAPOLFrame == FALSE))
 	{
-		DBGPRINT_RAW(RT_DEBUG_INFO, "RTUSBHardTransmit --> Drop packet before port secured !!!\n");
+		DBGPRINT(RT_DEBUG_INFO, "RTUSBHardTransmit --> Drop packet before port secured !!!\n");
 		return (NDIS_STATUS_FAILURE);
 	}
 
@@ -850,9 +848,11 @@ NDIS_STATUS RTUSBHardTransmit(
 		if ((pTxContext->bWaitingBulkOut == TRUE) || (pTxContext->InUse == TRUE) ||
 			(pAd->TxRingTotalNumber[QueIdx] >= TX_RING_SIZE))
 		{
-			DBGPRINT(RT_DEBUG_TRACE,"RTUSBHardTransmit: TX RING full\n");
+			//Modified by Thomas
+			DBGPRINT_ERR("RTUSBHardTransmit: TX RING full\n");
 			//pAd->RalinkCounters.TxRingErrCount++;
-			return (NDIS_STATUS_RESOURCES);
+			//return (NDIS_STATUS_RESOURCES);
+			return (NDIS_STATUS_RINGFULL);
 		}
 		pTxContext->InUse	= TRUE;
 
@@ -1038,12 +1038,12 @@ NDIS_STATUS RTUSBHardTransmit(
 				INT i;
 
 				SrcBufLen = 8;		// Set length to MIC length
-				DBGPRINT_RAW(RT_DEBUG_INFO, "Calculated TX MIC value =");
+				DBGPRINT(RT_DEBUG_INFO, "Calculated TX MIC value =");
 				for (i = 0; i < 8; i++)
 				{
 					DBGPRINT_RAW(RT_DEBUG_INFO, "%02x:", pAd->PrivateInfo.Tx.MIC[i]);
 				}
-					DBGPRINT_RAW(RT_DEBUG_INFO, "\n");
+				DBGPRINT_RAW(RT_DEBUG_INFO, "\n");
 
 				if (FreeMpduSize >= SrcBufLen)
 				{
@@ -1169,8 +1169,7 @@ NDIS_STATUS RTUSBHardTransmit(
 			pTxContext->LastOne = FALSE;
 		}
 
-		pAd->TxRingTotalNumber[QueIdx]++;	// sync. to TxCount
-		atomic_inc(&pAd->TxCount);
+		pAd->TxRingTotalNumber[QueIdx]++;	// sync. to PendingTx
 
 	}	while (NumberRequired > 0);
 
@@ -1186,15 +1185,15 @@ NDIS_STATUS RTUSBHardTransmit(
 		MLME_DISASSOC_REQ_STRUCT	DisassocReq;
 
 		// disassoc from current AP first
-              printk("<0>MLME - disassociate with current AP after sending second continuous EAPOL frame\n");
-		DBGPRINT(RT_DEBUG_TRACE, "MLME - disassociate with current AP after sending second continuous EAPOL frame\n");
+		DBGPRINT(RT_DEBUG_INFO, "- (%s) disassociate with current AP after"
+				" sending second continuous EAPOL frame\n",
+				__FUNCTION__);
 		DisassocParmFill(pAd, &DisassocReq, pAd->PortCfg.Bssid, REASON_MIC_FAILURE);
 		MlmeEnqueue(pAd, ASSOC_STATE_MACHINE, MT2_MLME_DISASSOC_REQ,
 					sizeof(MLME_DISASSOC_REQ_STRUCT), &DisassocReq);
 
 		pAd->Mlme.CntlMachine.CurrState = CNTL_WAIT_DISASSOC;
 		pAd->PortCfg.bBlockAssoc = TRUE;
-		printk("<0>bBlockAssoc = %d\n", pAd->PortCfg.bBlockAssoc);
 	}
 
 
@@ -1244,7 +1243,7 @@ VOID	RTUSBMlmeHardTransmit(
 	UCHAR			QueIdx;
 	UCHAR			MlmeRate;
 
-	DBGPRINT_RAW(RT_DEBUG_INFO, "--->MlmeHardTransmit\n");
+	DBGPRINT(RT_DEBUG_INFO, "--->MlmeHardTransmit\n");
 
 	pAd->PrioRingTxCnt++;
 
@@ -1285,9 +1284,8 @@ VOID	RTUSBMlmeHardTransmit(
 	if ((pAd->LatchRfRegs.Channel > 14) && (MlmeRate < RATE_6)) // 11A band
 		MlmeRate = RATE_6;
 
-	DBGPRINT(RT_DEBUG_TRACE, "<---MlmeRate %d	Channel %d\n",MlmeRate, pAd->LatchRfRegs.Channel );
-
-
+	DBGPRINT(RT_DEBUG_INFO, "- %s: Rate %d Channel %d\n",
+			__FUNCTION__, MlmeRate, pAd->LatchRfRegs.Channel );
 
     // Before radar detection done, mgmt frame can not be sent but probe req
 	// Because we need to use probe req to trigger driver to send probe req in passive scan
@@ -1450,7 +1448,7 @@ NDIS_STATUS	RTUSBFreeDescriptorRequest(
 			break;
 
 		default:
-			DBGPRINT_RAW(RT_DEBUG_ERROR, "--->RTUSBFreeDescriptorRequest() -----!! \n");
+			DBGPRINT(RT_DEBUG_ERROR, "--->RTUSBFreeDescriptorRequest() -----!! \n");
 
 			break;
 	}
@@ -1475,18 +1473,18 @@ VOID	RTUSBRejectPendingPackets(
 	IN	PRTMP_ADAPTER	pAd)
 {
 	UCHAR			Index;
-	unsigned long IrqFlags;
+	unsigned long flags;
 
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "--->RejectPendingPackets\n");
+	DBGPRINT(RT_DEBUG_TRACE, "--->RejectPendingPackets\n");
 
 	for (Index = 0; Index < 4; Index++)
 	{
-		NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[Index], IrqFlags);
+		NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[Index]);
 		skb_queue_purge(&pAd->SendTxWaitQueue[Index]);
-		NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[Index], IrqFlags);
+		NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[Index]);
 	}
 
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "<---RejectPendingPackets\n");
+	DBGPRINT(RT_DEBUG_TRACE, "<---RejectPendingPackets\n");
 }
 
 /*
@@ -1704,18 +1702,18 @@ VOID	RTMPDeQueuePacket(
 	UCHAR			Count = 0;
 	struct sk_buff_head	*pQueue;
 	UCHAR			QueIdx;
-	unsigned long IrqFlags;
+	unsigned long flags;
 
-	NdisAcquireSpinLock(&pAd->DeQueueLock[BulkOutPipeId], IrqFlags);
+	NdisAcquireSpinLock(&pAd->DeQueueLock[BulkOutPipeId]);
 	if (pAd->DeQueueRunning[BulkOutPipeId])
 	{
-		NdisReleaseSpinLock(&pAd->DeQueueLock[BulkOutPipeId], IrqFlags);
+		NdisReleaseSpinLock(&pAd->DeQueueLock[BulkOutPipeId]);
 		return;
 	}
 	else
 	{
 		pAd->DeQueueRunning[BulkOutPipeId] = TRUE;
-		NdisReleaseSpinLock(&pAd->DeQueueLock[BulkOutPipeId], IrqFlags);
+		NdisReleaseSpinLock(&pAd->DeQueueLock[BulkOutPipeId]);
 	}
 
 	QueIdx = BulkOutPipeId;
@@ -1724,7 +1722,7 @@ VOID	RTMPDeQueuePacket(
 		DBGPRINT(RT_DEBUG_INFO,"--RTMPDeQueuePacket %d TxRingTotalNumber= %d !!--\n", BulkOutPipeId, (INT)pAd->TxRingTotalNumber[BulkOutPipeId]);
 
 	// Make sure SendTxWait queue resource won't be used by other threads
-	NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId], IrqFlags);
+	NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId]);
 
 	// Select Queue
 	pQueue = &pAd->SendTxWaitQueue[BulkOutPipeId];
@@ -1734,10 +1732,16 @@ VOID	RTMPDeQueuePacket(
 	{
 		// Reset is in progress, stop immediately
 		if ( RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS) ||
-			 RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS) ||
 			 RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS))
 		{
 			DBGPRINT(RT_DEBUG_ERROR,"--RTMPDeQueuePacket %d reset-in-progress !!--\n", BulkOutPipeId);
+			RTUSBFreeSkbBuffer(skb_dequeue(pQueue));
+			continue;
+		}
+		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)) {
+			DBGPRINT(RT_DEBUG_TRACE,
+				 "RTUSBDeQueuePacket scanning. Flags = 0x%x\n",
+				 pAd->Flags);
 			break;
 		}
 
@@ -1754,12 +1758,12 @@ VOID	RTMPDeQueuePacket(
 			// Avaliable ring descriptors are enough for this frame
 			// Call hard transmit
 			// Nitro mode / Normal mode selection
-			NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId], IrqFlags);
+			NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId]);
 
 			Status = RTUSBHardTransmit(pAd, pSkb, FragmentRequired, QueIdx);
 
 			// Acquire the resource again, snice we may need to process it in this while-loop.
-			NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId], IrqFlags);
+			NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId]);
 
 			if (Status == NDIS_STATUS_FAILURE)
 			{
@@ -1793,11 +1797,11 @@ VOID	RTMPDeQueuePacket(
 	}
 
 	// Release TxSwQueue0 resources
-	NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId],  IrqFlags);
+	NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId]);
 
-	NdisAcquireSpinLock(&pAd->DeQueueLock[BulkOutPipeId],  IrqFlags);
+	NdisAcquireSpinLock(&pAd->DeQueueLock[BulkOutPipeId]);
 	pAd->DeQueueRunning[BulkOutPipeId] = FALSE;
-	NdisReleaseSpinLock(&pAd->DeQueueLock[BulkOutPipeId],  IrqFlags);
+	NdisReleaseSpinLock(&pAd->DeQueueLock[BulkOutPipeId]);
 
 }
 
@@ -1806,6 +1810,8 @@ VOID	RTMPDeQueuePacket(
 	 Description:
 		This is the completion routine for the USB_RxPacket which submits
 		a URB to USBD for a transmission.
+	Note:
+		Called in process context.
 	========================================================================
 */
 VOID	RTUSBRxPacket(
@@ -1832,18 +1838,20 @@ VOID	RTUSBRxPacket(
 	wlan_ng_prism2_header	*ph;
 	int				i;
 
-	DBGPRINT_RAW(RT_DEBUG_INFO, "--->RTUSBRxPacket\n");
-
 	pRxContext = (PRX_CONTEXT)pUrb->context;
 	pAd = pRxContext->pAd;
 	net_dev = pAd->net_dev;
+	Status = pUrb->status;
 
-	if( RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST) )
+	DBGPRINT(RT_DEBUG_TRACE, "--> RTUSBRxPacket len=%d, status=%d\n",
+			pRxContext->pUrb->actual_length, Status);
+
+	if(Status || RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST) ) {
+		DBGPRINT(RT_DEBUG_TRACE, "<-- RTUSBRxPacket disconnected\n");
 		return;
-
+	}
 	do
 	{
-		DBGPRINT_RAW(RT_DEBUG_INFO, "BulkIn actual length(%d)\n", pRxContext->pUrb->actual_length);
 		if (pRxContext->pUrb->actual_length >= sizeof(RXD_STRUC)+ LENGTH_802_11)
 		{
 		pData = pRxContext->TransferBuffer;
@@ -1879,7 +1887,7 @@ VOID	RTUSBRxPacket(
 		if (pAd->PortCfg.BssType == BSS_MONITOR && Status == NDIS_STATUS_SUCCESS)
          	{
  	        	struct sk_buff  *skb;
- 	       		if ((skb = __dev_alloc_skb(2048, GFP_DMA|GFP_ATOMIC)) != NULL)
+ 	       		if ((skb = __dev_alloc_skb(2048, GFP_DMA|GFP_KERNEL)) != NULL)
  	        	{
 				if (pAd->bAcceptRFMONTx == TRUE) {
 					if (pAd->ForcePrismHeader != 1)
@@ -1891,7 +1899,7 @@ VOID	RTUSBRxPacket(
 					// setup the wlan-ng prismheader
 
 				if (skb_headroom(skb) < sizeof(wlan_ng_prism2_header))
-					pskb_expand_head(skb, sizeof(wlan_ng_prism2_header), 0, GFP_ATOMIC);
+					pskb_expand_head(skb, sizeof(wlan_ng_prism2_header), 0, GFP_KERNEL);
 
 				ph = (wlan_ng_prism2_header *)
 					skb_push(skb, sizeof(wlan_ng_prism2_header));
@@ -1949,14 +1957,7 @@ VOID	RTUSBRxPacket(
         			skb->ip_summed = CHECKSUM_NONE;
 	               		netif_rx(skb);
        			}
-
-			if ((!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS)) &&
-			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BULKIN_RESET)) &&
-			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF)) &&
-			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS)) &&
-			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
-				RTUSBBulkReceive(pAd);
-         			continue;
+         	continue;
 		}
 
 		if (Status == NDIS_STATUS_SUCCESS)
@@ -1989,7 +1990,7 @@ VOID	RTUSBRxPacket(
 					// Found retry frame in tuple cache, Discard this frame / fragment
 					// Increase 802.11 counters
 					INC_COUNTER64(pAd->WlanCounters.FrameDuplicateCount);
-					DBGPRINT_RAW(RT_DEBUG_INFO, "duplicate frame %d\n", pHeader->Sequence);
+					DBGPRINT(RT_DEBUG_INFO, "duplicate frame %d\n", pHeader->Sequence);
 					Status = NDIS_STATUS_FAILURE;
 				}
 				else
@@ -2028,6 +2029,7 @@ VOID	RTUSBRxPacket(
 				//
 				if (pHeader->FC.Type == BTYPE_DATA)
 				{
+					DBGPRINT(RT_DEBUG_INFO, "-  %s: data frame\n", __FUNCTION__);
 					// before LINK UP, all DATA frames are rejected
 					if (!OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED))
 					{
@@ -2069,9 +2071,11 @@ VOID	RTUSBRxPacket(
 					else
 						EAPOLFrame = FALSE;
 
-					if ((pRxD->MyBss == 0) && (EAPOLFrame != TRUE))
+					if ((pRxD->MyBss == 0) && (EAPOLFrame != TRUE)) {
+						DBGPRINT(RT_DEBUG_INFO, "-  %s: !MyBss || !EAPOL\n",
+								__FUNCTION__);
 						break; // give up this frame
-
+					}
 					// Drop NULL (+CF-POLL) (+CF-ACK) data frame
 					if ((pHeader->FC.SubType & 0x04) == 0x04)
 					{
@@ -2091,10 +2095,12 @@ VOID	RTUSBRxPacket(
 					{
 						if (pRxD->CipherAlg == CIPHER_NONE) // unsupported cipher suite
 						{
+							DBGPRINT(RT_DEBUG_INFO, "-  %s: nonsup cipher\n", __FUNCTION__);
 							break; // give up this frame
 						}
 						else if (pAd->SharedKey[pRxD->KeyIndex].KeyLen == 0)
 						{
+							DBGPRINT(RT_DEBUG_INFO, "-  %s: keylen=0\n", __FUNCTION__);
 							break; // give up this frame since the keylen is invalid.
 						}
 					}
@@ -2107,6 +2113,7 @@ VOID	RTUSBRxPacket(
 							(pAd->PortCfg.PrivacyFilter == Ndis802_11PrivFilter8021xWEP) &&
 							(!NdisEqualMemory(EAPOL_LLC_SNAP, pData, LENGTH_802_1_H)))
 						{
+							DBGPRINT(RT_DEBUG_INFO, "-  %s: clear text\n", __FUNCTION__);
 							break; // give up this frame
 						}
 					}
@@ -2123,12 +2130,14 @@ VOID	RTUSBRxPacket(
 						// Drop Mcast/Bcast frame with fragment bit on
 						if (pHeader->FC.MoreFrag)
 						{
+							DBGPRINT(RT_DEBUG_INFO, "-  %s: mcast w/more\n", __FUNCTION__);
 							break; // give up this frame
 						}
 
 						// Filter out Bcast frame which AP relayed for us
 						if (pHeader->FC.FrDs && MAC_ADDR_EQUAL(pHeader->Addr3, pAd->CurrentAddress))
 						{
+							DBGPRINT(RT_DEBUG_INFO, "-  %s: relay mcast\n", __FUNCTION__);
 							break; // give up this frame
 						}
 
@@ -2158,7 +2167,7 @@ VOID	RTUSBRxPacket(
 						if ( pAd->PortCfg.IEEE8021X == TRUE
 						    && (EAP_CODE_SUCCESS == RTMPCheckWPAframeForEapCode(pAd, pData, DataSize, LENGTH_802_1_H)))
 						{
-								DBGPRINT_RAW(RT_DEBUG_TRACE, "Receive EAP-SUCCESS Packet\n");
+								DBGPRINT(RT_DEBUG_TRACE, "Receive EAP-SUCCESS Packet\n");
 								pAd->PortCfg.PortSecured = WPA_802_1X_PORT_SECURED;
 
 								success = 1;
@@ -2167,7 +2176,7 @@ VOID	RTUSBRxPacket(
 						// build 802.3 header and decide if remove the 8-byte LLC/SNAP encapsulation
 						CONVERT_TO_802_3(Header802_3, pDA, pSA, pData, DataSize, pRemovedLLCSNAP);
                     				REPORT_ETHERNET_FRAME_TO_LLC(pAd, Header802_3, pData, DataSize, net_dev);
-						DBGPRINT_RAW(RT_DEBUG_TRACE, "!!! report EAPoL DATA to LLC (len=%d) !!!\n", DataSize);
+						DBGPRINT(RT_DEBUG_TRACE, "!!! report EAPoL DATA to LLC (len=%d) !!!\n", DataSize);
 
 						if(success)
 						{
@@ -2179,7 +2188,7 @@ VOID	RTUSBRxPacket(
 								idx = pAd->PortCfg.DefaultKeyId;
 								for (idx=0; idx < 4; idx++)
 								{
-									DBGPRINT_RAW(RT_DEBUG_TRACE, "Set WEP key to Asic again =>\n");
+									DBGPRINT(RT_DEBUG_TRACE, "Set WEP key to Asic again =>\n");
 
 									if(pAd->PortCfg.DesireSharedKey[idx].KeyLen != 0)
 									{
@@ -2211,7 +2220,7 @@ VOID	RTUSBRxPacket(
 
 						break;
 					}
-				    }
+				    } /* End (pAd->PortCfg.WPA_Supplicant == TRUE) */
 			else
 			{
 //#else
@@ -2221,7 +2230,7 @@ VOID	RTUSBRxPacket(
 						{
 							DataSize += LENGTH_802_11;
 							REPORT_MGMT_FRAME_TO_MLME(pAd, pHeader, DataSize, pRxD->PlcpRssi, pRxD->PlcpSignal);
-							DBGPRINT_RAW(RT_DEBUG_TRACE, "!!! report EAPOL/AIRONET DATA to MLME (len=%d) !!!\n", DataSize);
+							DBGPRINT(RT_DEBUG_TRACE, "!!! report EAPOL/AIRONET DATA to MLME (len=%d) !!!\n", DataSize);
 							break;	// end of processing this frame
 						}
 //#endif
@@ -2229,6 +2238,7 @@ VOID	RTUSBRxPacket(
 						if (pHeader->Frag == 0) 	// First or Only fragment
 						{
 							PUCHAR pRemovedLLCSNAP;
+							DBGPRINT(RT_DEBUG_INFO, "-  %s: 1st/only frag\n", __FUNCTION__);
 
 							CONVERT_TO_802_3(Header802_3, pDA, pSA, pData, DataSize, pRemovedLLCSNAP);
 							pAd->FragFrame.Flags &= 0xFFFFFFFE;
@@ -2260,14 +2270,14 @@ VOID	RTUSBRxPacket(
 
 									pData2 = pData + Payload1Size + LENGTH_802_3;
 									REPORT_ETHERNET_FRAME_TO_LLC(pAd, pData + Payload1Size, pData2, Payload2Size, pAd->net_dev);
-									DBGPRINT_RAW(RT_DEBUG_INFO, "!!! report segregated MSDU2 to LLC (len=%d, proto=%02x:%02x) %02x:%02x:%02x:%02x-%02x:%02x:%02x:%02x\n",
+									DBGPRINT(RT_DEBUG_INFO, "!!! report segregated MSDU2 to LLC (len=%d, proto=%02x:%02x) %02x:%02x:%02x:%02x-%02x:%02x:%02x:%02x\n",
 															LENGTH_802_3+Payload2Size, *(pData2 -2), *(pData2 - 1),
 															*pData2, *(pData2+1),*(pData2+2),*(pData2+3),*(pData2+4),*(pData2+5),*(pData2+6),*(pData2+7));
 								}
 								else
 								{
 									REPORT_ETHERNET_FRAME_TO_LLC(pAd, Header802_3, pData, DataSize, pAd->net_dev);
-									DBGPRINT_RAW(RT_DEBUG_INFO, "!!! report DATA (no frag) to LLC (len=%d, proto=%02x:%02x) %02x:%02x:%02x:%02x-%02x:%02x:%02x:%02x\n",
+									DBGPRINT(RT_DEBUG_INFO, "!!! report DATA (no frag) to LLC (len=%d, proto=%02x:%02x) %02x:%02x:%02x:%02x-%02x:%02x:%02x:%02x\n",
 															DataSize, Header802_3[12], Header802_3[13],
 															*pData, *(pData+1),*(pData+2),*(pData+3),*(pData+4),*(pData+5),*(pData+6),*(pData+7));
 								}
@@ -2285,6 +2295,7 @@ VOID	RTUSBRxPacket(
 						// Middle & End of fragment burst fragments
 						else
 						{
+							DBGPRINT(RT_DEBUG_INFO, "-  %s: mid/end frag\n", __FUNCTION__);
 							// No LLC-SNAP header in except the first fragment frame
 							if ((pHeader->Sequence != pAd->FragFrame.Sequence) ||
 								(pHeader->Frag != (pAd->FragFrame.LastFrag + 1)))
@@ -2310,6 +2321,7 @@ VOID	RTUSBRxPacket(
 							// Last fragment
 							if (pHeader->FC.MoreFrag == FALSE)
 							{
+								DBGPRINT(RT_DEBUG_INFO, "-  %s: end frag\n", __FUNCTION__);
 								// For TKIP frame, calculate the MIC value
 								if (pRxD->CipherAlg == CIPHER_TKIP)
 								{
@@ -2345,7 +2357,7 @@ VOID	RTUSBRxPacket(
 											pWpaKey->RxMic,
 											DataSize) == FALSE)
 									{
-										DBGPRINT_RAW(RT_DEBUG_ERROR,"Rx MIC Value error 2\n");
+										DBGPRINT(RT_DEBUG_ERROR,"Rx MIC Value error 2\n");
 										RTMPReportMicError(pAd, pWpaKey);
 										break;	// give up this frame
 									}
@@ -2374,8 +2386,10 @@ VOID	RTUSBRxPacket(
 				//
 				// CASE IV. receive a frame of invalid type
 				//
-				else
+				else {
+					DBGPRINT(RT_DEBUG_INFO, "-  %s: unkn frame\n", __FUNCTION__);
 					break; // give up this frame
+				}
 			} while (FALSE); // ************* exit point *********
 
 		}//if (Status == NDIS_STATUS_SUCCESS)
@@ -2383,6 +2397,7 @@ VOID	RTUSBRxPacket(
 		else if (Status == NDIS_STATUS_RESET)
 		{
 			RTUSBEnqueueInternalCmd(pAd, RT_OID_USB_RESET_BULK_IN);
+			DBGPRINT(RT_DEBUG_TRACE, "<---RTUSBRxPacket RESET_BULK\n");
 			return;
 		}
 
@@ -2392,23 +2407,55 @@ VOID	RTUSBRxPacket(
 #endif
 	  }//if (pRxContext->pUrb->actual_length >= sizeof(RXD_STRUC)+ LENGTH_802_11)
 
+	} while (0);
 
+	DBGPRINT(RT_DEBUG_TRACE, "<---RTUSBRxPacket\n");
+}
+
+/*
+	========================================================================
+
+	Routine Description:
+		Called only from MLMEThread.
+		Service each packet that is done and not yet serviced.
+
+	Arguments:
+
+	Return Value:
+
+	Note:
+		Called in process context.
+
+	========================================================================
+*/
+VOID	RTUSBDequeueRxPackets(
+	IN	PRTMP_ADAPTER	pAd)
+{
+	int			i = pAd->CurRxBulkInIndex;
+
+	do {
+		PRX_CONTEXT pRxContext = &pAd->RxContext[i];
+
+		if (atomic_read(&pRxContext->IrpLock) != IRPLOCK_COMPLETED ||
+			pRxContext->InUse == FALSE) {
+			break;
+		}
+		RTUSBRxPacket((unsigned long)pRxContext->pUrb);
 		pRxContext->InUse = FALSE;
 
 		if ((!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS)) &&
 			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BULKIN_RESET)) &&
 			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF)) &&
 			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS)) &&
-			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
-		{
-			   pAd->rx_bk.data = (unsigned long)pAd;
-			   tasklet_schedule(&pAd->rx_bk);
+			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))) {
+				RTUSBBulkReceive(pAd);
 		}
+		if (++i >= RX_RING_SIZE) i = 0;
+	} while (1);
 
-	} while (0);
+	pAd->CurRxBulkInIndex = i;
 
-	DBGPRINT_RAW(RT_DEBUG_INFO, "<---RTUSBRxPacket Complete\n");
-}
+} /* End RTUSBDequeueRxPackets () */
 
 /*
 	========================================================================
@@ -2427,10 +2474,10 @@ VOID	RTUSBDequeueMLMEPacket(
 	IN	PRTMP_ADAPTER	pAd)
 {
 	PMGMT_STRUC		pMgmt;
-	unsigned long IrqFlags;
+	unsigned long flags;
 
 	DBGPRINT(RT_DEBUG_INFO, "RTUSBDequeueMLMEPacket\n");
-	NdisAcquireSpinLock(&pAd->MLMEWaitQueueLock,  IrqFlags);
+	NdisAcquireSpinLock(&pAd->MLMEWaitQueueLock);
 	while ((pAd->PopMgmtIndex != pAd->PushMgmtIndex) || (atomic_read(&pAd->MgmtQueueSize) > 0))
 	{
 		pMgmt = &pAd->MgmtRing[pAd->PopMgmtIndex];
@@ -2439,7 +2486,7 @@ VOID	RTUSBDequeueMLMEPacket(
 		{
 			atomic_dec(&pAd->MgmtQueueSize);
 			pAd->PopMgmtIndex = (pAd->PopMgmtIndex + 1) % MGMT_RING_SIZE;
-			NdisReleaseSpinLock(&pAd->MLMEWaitQueueLock,  IrqFlags);
+			NdisReleaseSpinLock(&pAd->MLMEWaitQueueLock);
 
 			RTUSBMlmeHardTransmit(pAd, pMgmt);
 
@@ -2447,7 +2494,7 @@ VOID	RTUSBDequeueMLMEPacket(
 			pMgmt->pBuffer = NULL;
 			pMgmt->Valid = FALSE;
 
-			NdisAcquireSpinLock(&pAd->MLMEWaitQueueLock,  IrqFlags);
+			NdisAcquireSpinLock(&pAd->MLMEWaitQueueLock);
 		}
 		else
 		{
@@ -2458,7 +2505,7 @@ VOID	RTUSBDequeueMLMEPacket(
 			break;
 		}
 	}
-	NdisReleaseSpinLock(&pAd->MLMEWaitQueueLock,  IrqFlags);
+	NdisReleaseSpinLock(&pAd->MLMEWaitQueueLock);
 }
 
 /*
@@ -2478,11 +2525,11 @@ VOID	RTUSBCleanUpMLMEWaitQueue(
 	IN	PRTMP_ADAPTER	pAd)
 {
 	PMGMT_STRUC		pMgmt;
-	unsigned long IrqFlags;
+	unsigned long flags;
 
 	DBGPRINT(RT_DEBUG_TRACE, "--->CleanUpMLMEWaitQueue\n");
 
-	NdisAcquireSpinLock(&pAd->MLMEWaitQueueLock,  IrqFlags);
+	NdisAcquireSpinLock(&pAd->MLMEWaitQueueLock);
 	while (pAd->PopMgmtIndex != pAd->PushMgmtIndex)
 	{
 		pMgmt = (PMGMT_STRUC)&pAd->MgmtRing[pAd->PopMgmtIndex];
@@ -2497,7 +2544,7 @@ VOID	RTUSBCleanUpMLMEWaitQueue(
 			pAd->PopMgmtIndex = 0;
 		}
 	}
-	NdisReleaseSpinLock(&pAd->MLMEWaitQueueLock, IrqFlags);
+	NdisReleaseSpinLock(&pAd->MLMEWaitQueueLock);
 
 	DBGPRINT(RT_DEBUG_TRACE, "<---CleanUpMLMEWaitQueue\n");
 }
@@ -2607,24 +2654,24 @@ VOID	MiniportMMRequest(
 	IN	PVOID			pBuffer,
 	IN	ULONG			Length)
 {
-	unsigned long IrqFlags;
+	unsigned long flags;
 
-	DBGPRINT_RAW(RT_DEBUG_INFO, "---> MiniportMMRequest\n");
+	DBGPRINT(RT_DEBUG_INFO, "---> MiniportMMRequest\n");
 
 	if (pBuffer)
 	{
 		PMGMT_STRUC	pMgmt;
 
 		// Check management ring free avaliability
-		NdisAcquireSpinLock(&pAd->MLMEWaitQueueLock, IrqFlags);
+		NdisAcquireSpinLock(&pAd->MLMEWaitQueueLock);
 		pMgmt = (PMGMT_STRUC)&pAd->MgmtRing[pAd->PushMgmtIndex];
 		// This management cell has been occupied
 		if (pMgmt->Valid == TRUE)
 		{
-			NdisReleaseSpinLock(&pAd->MLMEWaitQueueLock, IrqFlags);
+			NdisReleaseSpinLock(&pAd->MLMEWaitQueueLock);
 			MlmeFreeMemory(pAd, pBuffer);
 			pAd->RalinkCounters.MgmtRingFullCount++;
-			DBGPRINT_RAW(RT_DEBUG_WARN, "MiniportMMRequest (error:: MgmtRing full)\n");
+			DBGPRINT(RT_DEBUG_WARN, "MiniportMMRequest (error:: MgmtRing full)\n");
 		}
 		// Insert this request into software managemnet ring
 		else
@@ -2638,7 +2685,7 @@ VOID	MiniportMMRequest(
 			{
 				pAd->PushMgmtIndex = 0;
 			}
-			NdisReleaseSpinLock(&pAd->MLMEWaitQueueLock, IrqFlags);
+			NdisReleaseSpinLock(&pAd->MLMEWaitQueueLock);
 		}
 	}
 	else
@@ -2655,7 +2702,7 @@ VOID	MiniportMMRequest(
 		RTUSBKickBulkOut(pAd);
 	}
 
-	DBGPRINT_RAW(RT_DEBUG_INFO, "<--- MiniportMMRequest\n");
+	DBGPRINT(RT_DEBUG_INFO, "<--- MiniportMMRequest\n");
 }
 
 /*
@@ -2901,7 +2948,7 @@ NDIS_STATUS	RTMPCheckRxDescriptor(
 	// Phy errors & CRC errors
 	if (/*(pRxD->PhyErr) ||*/ (pRxD->Crc))
 	{
-		DBGPRINT_RAW(RT_DEBUG_ERROR, "pRxD->Crc error\n")
+		DBGPRINT(RT_DEBUG_ERROR, "pRxD->Crc error\n")
 		return (NDIS_STATUS_FAILURE);
 	}
 
@@ -2912,7 +2959,7 @@ NDIS_STATUS	RTMPCheckRxDescriptor(
 	// Paul 04-03 for OFDM Rx length issue
 	if (pRxD->DataByteCnt > MAX_AGGREGATION_SIZE)
 	{
-		DBGPRINT_RAW(RT_DEBUG_ERROR, "received packet too long\n");
+		DBGPRINT(RT_DEBUG_ERROR, "received packet too long\n");
 		return (NDIS_STATUS_FAILURE);
 	}
 
@@ -2926,7 +2973,7 @@ NDIS_STATUS	RTMPCheckRxDescriptor(
 	{
 		UINT i;
 		PUCHAR ptr = (PUCHAR)pHeader;
-		DBGPRINT_RAW(RT_DEBUG_TRACE,"ERROR: CRC ok but CipherErr %d (len = %d, Mcast=%d, Cipher=%s, KeyId=%d)\n",
+		DBGPRINT(RT_DEBUG_TRACE,"ERROR: CRC ok but CipherErr %d (len = %d, Mcast=%d, Cipher=%s, KeyId=%d)\n",
 			pRxD->CipherErr,
 			pRxD->DataByteCnt,
 			pRxD->Mcast | pRxD->Bcast,
@@ -2935,7 +2982,7 @@ NDIS_STATUS	RTMPCheckRxDescriptor(
 #if 1
 		for (i=0;i<64; i+=16)
 		{
-			DBGPRINT_RAW(RT_DEBUG_TRACE,"%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x - %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",
+			DBGPRINT(RT_DEBUG_TRACE,"%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x - %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",
 				*ptr,*(ptr+1),*(ptr+2),*(ptr+3),*(ptr+4),*(ptr+5),*(ptr+6),*(ptr+7),
 				*(ptr+8),*(ptr+9),*(ptr+10),*(ptr+11),*(ptr+12),*(ptr+13),*(ptr+14),*(ptr+15));
 			ptr += 16;
@@ -2950,7 +2997,7 @@ NDIS_STATUS	RTMPCheckRxDescriptor(
 		{
 			pWpaKey = &pAd->SharedKey[pRxD->KeyIndex];
 			RTMPReportMicError(pAd, pWpaKey);
-			DBGPRINT_RAW(RT_DEBUG_ERROR,"Rx MIC Value error\n");
+			DBGPRINT(RT_DEBUG_ERROR,"Rx MIC Value error\n");
 		}
 
 		if ((pRxD->CipherAlg == CIPHER_AES) &&
@@ -3156,7 +3203,8 @@ VOID	RTMPSendNullFrame(
 		RTUSBWriteTxDescriptor(pAd, pTxD, CIPHER_NONE, 0,0, FALSE, FALSE, FALSE, SHORT_RETRY,
 			IFS_BACKOFF, TxRate, sizeof(HEADER_802_11), QueIdx, PID_MGMT_FRAME, FALSE);
 
-		DBGPRINT(RT_DEBUG_ERROR, "SYNC - send NULL Frame @%d Mbps...\n", RateIdToMbps[TxRate]);
+		DBGPRINT(RT_DEBUG_INFO, "- (%s) send NULL Frame @%d Mbps...\n",
+				__FUNCTION__, RateIdToMbps[TxRate]);
 	}
 
 	// Build our URB for USBD
@@ -3296,8 +3344,7 @@ VOID	RTMPSendRTSCTSFrame(
 		pTxContext->bWaitingBulkOut = TRUE;
 
 
-        pAd->TxRingTotalNumber[QueIdx]++;  // sync. to TxCount
-		atomic_inc(&pAd->TxCount);
+        pAd->TxRingTotalNumber[QueIdx]++;  // sync. to PendingTx
 		RTUSB_SET_BULK_FLAG(pAd, fRTUSB_BULK_OUT_DATA_NORMAL << QueIdx);
 
 	}

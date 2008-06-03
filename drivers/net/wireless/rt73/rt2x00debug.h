@@ -20,57 +20,54 @@
 
 /*
 	Module: rt2x00debug
-	Abstract: Data structures for the rt2x00debug module.
-	Supported chipsets: RT2460, RT2560, RT2570,
-	rt2561, rt2561s, rt2661 & rt2573.
+	Abstract: Data structures for the rt2x00debug.
  */
 
-typedef void (debug_access_t)(void *dev, const unsigned long word, void *data);
+#ifndef RT2X00DEBUG_H
+#define RT2X00DEBUG_H
 
-struct rt2x00debug_reg {
-	debug_access_t *read;
-	debug_access_t *write;
+#include "rt_config.h"
 
-	unsigned int word_size;
-	unsigned int length;
-};
+struct rt2x00_dev;
+
+#define RT2X00DEBUGFS_REGISTER_ENTRY(__name, __type)		\
+struct reg##__name {						\
+	void (*read)(const struct rt2x00_dev *rt2x00dev,	\
+		     const unsigned int word, __type *data);	\
+	void (*write)(const struct rt2x00_dev *rt2x00dev,	\
+		      const unsigned int word, __type data);	\
+								\
+	unsigned int word_size;					\
+	unsigned int word_count;				\
+} __name
 
 struct rt2x00debug {
-	/*
-	 * Name of the interface.
-	 */
-	char intf_name[16];
-
 	/*
 	 * Reference to the modules structure.
 	 */
 	struct module *owner;
 
 	/*
-	 * Driver module information
+	 * Register access entries.
 	 */
-	char *mod_name;
-	char *mod_version;
-
-	/*
-	 * Register access information.
-	 */
-	struct rt2x00debug_reg reg_csr;
-	struct rt2x00debug_reg reg_eeprom;
-	struct rt2x00debug_reg reg_bbp;
-
-	/*
-	 * Pointer to driver structure where
-	 * this debugfs entry belongs to.
-	 */
-	void *dev;
-
-	/*
-	 * Pointer to rt2x00debug private data,
-	 * individual driver should not touch this.
-	 */
-	void *priv;
+	RT2X00DEBUGFS_REGISTER_ENTRY(csr, u32);
+	RT2X00DEBUGFS_REGISTER_ENTRY(eeprom, u16);
+	RT2X00DEBUGFS_REGISTER_ENTRY(bbp, u8);
+	RT2X00DEBUGFS_REGISTER_ENTRY(rf, u32);
 };
 
-extern int rt2x00debug_register(struct rt2x00debug *debug);
-extern void rt2x00debug_deregister(struct rt2x00debug *debug);
+struct rt2x00_ops {
+	const struct rt2x00debug *debugfs;
+};
+
+struct rt2x00_dev {
+	RTMP_ADAPTER *pAd;
+
+	const struct rt2x00debug_intf *debugfs_intf;
+	struct rt2x00_ops *ops;
+};
+
+void rt2x00debug_register(struct rt2x00_dev *rt2x00dev);
+void rt2x00debug_deregister(struct rt2x00_dev *rt2x00dev);
+
+#endif /* RT2X00DEBUG_H */

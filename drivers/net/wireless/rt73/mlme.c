@@ -235,10 +235,13 @@ NDIS_STATUS MlmeInit(
 {
 	NDIS_STATUS Status = NDIS_STATUS_SUCCESS;
 
-	DBGPRINT(RT_DEBUG_TRACE, "--> MLME Initialize\n");
+	DBGPRINT(RT_DEBUG_TRACE, "--> MlmeInit\n");
 
 	do
 	{
+		pAd->Mlme.Running = FALSE;
+
+		NdisAllocateSpinLock(&pAd->Mlme.Queue.Lock);
 		Status = MlmeQueueInit(&pAd->Mlme.Queue);
 		if(Status != NDIS_STATUS_SUCCESS)
 			break;
@@ -251,9 +254,6 @@ NDIS_STATUS MlmeInit(
 			MlmeQueueDestroy(&pAd->Mlme.Queue);
 			break;
 		}
-
-		pAd->Mlme.bRunning = FALSE;
-		NdisAllocateSpinLock(&pAd->Mlme.TaskLock);
 
 		// initialize table
 		BssTableInit(&pAd->ScanTab);
@@ -279,10 +279,7 @@ NDIS_STATUS MlmeInit(
 		MlmeCntlInit(pAd, &pAd->Mlme.CntlMachine, NULL);
 
 		// Init mlme periodic timer
-		RTMPInitTimer(pAd, &pAd->Mlme.PeriodicTimer, &MlmePeriodicExec);
-
-		// Set mlme periodic timer
-		RTMPSetTimer(pAd, &pAd->Mlme.PeriodicTimer, MLME_TASK_EXEC_INTV);
+		RTMPInitTimer(pAd, &pAd->Mlme.PeriodicTimer, &MlmePeriodicExecTimeout);
 
 		// software-based RX Antenna diversity
 		RTMPInitTimer(pAd, &pAd->RxAnt.RxAntDiversityTimer, &AsicRxAntEvalTimeout);
@@ -292,7 +289,7 @@ NDIS_STATUS MlmeInit(
 
 	} while (FALSE);
 
-	DBGPRINT(RT_DEBUG_TRACE, "<-- MLME Initialize\n");
+	DBGPRINT(RT_DEBUG_TRACE, "<-- MlmeInit\n");
 
 	return Status;
 }
@@ -306,66 +303,44 @@ NDIS_STATUS MlmeInit(
 	Note:
 		This function is invoked from MPSetInformation and MPReceive;
 		This task guarantee only one MlmeHandler will run.
-
 	==========================================================================
  */
 VOID MlmeHandler(
 	IN PRTMP_ADAPTER pAd)
 {
 	MLME_QUEUE_ELEM	*Elem = NULL;
-	unsigned long			IrqFlags;
+	unsigned long			flags;
 
-	// Only accept MLME and Frame from peer side, no other (control/data) frame should
-	// get into this state machine
-	NdisAcquireSpinLock(&pAd->Mlme.TaskLock, IrqFlags);
+	// Only accept MLME and Frame from peer side, no other (control/data)
+	// frame should get into this state machine
 
-
-	if(pAd->Mlme.bRunning)
+	// We fix the multiple context service drop problem identified by
+	// Ben Hutchings in an SMP- safe way by combining TaskLock and Queue.Lock
+	// per his suggestion.
+	NdisAcquireSpinLock(&pAd->Mlme.Queue.Lock);
+	if(pAd->Mlme.Running)
 	{
-		NdisReleaseSpinLock(&pAd->Mlme.TaskLock, IrqFlags);
+		NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
 		return;
 	}
-	else
-	{
-		pAd->Mlme.bRunning = TRUE;
-	}
+	pAd->Mlme.Running = TRUE;
 
-	NdisReleaseSpinLock(&pAd->Mlme.TaskLock, IrqFlags);
+	// If there's a bubble, wait for it to collapse before proceeding.
+    while (MlmeGetHead(&pAd->Mlme.Queue, &Elem)) {
+		smp_read_barrier_depends();
+		if (!Elem->Occupied) break;
 
-
-	while (TRUE) {
-		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_MLME_RESET_IN_PROGRESS) ||
-			RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS) ||
-			RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))
-		{
-			DBGPRINT(RT_DEBUG_TRACE, "Device Halted or Removed or MlmeRest, exit MlmeHandler! (queue num = %d)\n", pAd->Mlme.Queue.Num);
-			break;
-		}
-
-		NdisAcquireSpinLock(&pAd->Mlme.Queue.Lock, IrqFlags);
-		if (!MlmeDequeue(&pAd->Mlme.Queue, &Elem)) {
-			NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock, IrqFlags);
-			break;
-		}
-		NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock, IrqFlags);
-
-		//From message type, determine which state machine I should drive
-		if (pAd->PortCfg.BssType == BSS_MONITOR)
-			continue;
+		NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
 
 		if (Elem->MsgType == RT_CMD_RESET_MLME)
 		{
-			DBGPRINT_RAW(RT_DEBUG_TRACE, "!!! reset MLME state machine !!!\n");
+			DBGPRINT(RT_DEBUG_TRACE, "-  %s: reset MLME state machine !!!\n",
+					__FUNCTION__);
 			MlmeRestartStateMachine(pAd);
 			MlmePostRestartStateMachine(pAd);
-			Elem->Occupied = FALSE;
-			Elem->MsgLen = 0;
-			continue;
 		}
-
-
-		// if dequeue success
-		switch (Elem->Machine)
+        //From message type, determine which state machine I should drive
+		else if (pAd->PortCfg.BssType != BSS_MONITOR) switch (Elem->Machine)
 		{
 			case ASSOC_STATE_MACHINE:
 				StateMachinePerformAction(pAd, &pAd->Mlme.AssocMachine, Elem);
@@ -386,19 +361,25 @@ VOID MlmeHandler(
 				StateMachinePerformAction(pAd, &pAd->Mlme.WpaPskMachine, Elem);
 				break;
 			default:
-				DBGPRINT(RT_DEBUG_TRACE, "ERROR: Illegal machine in MlmeHandler()\n");
+				DBGPRINT(RT_DEBUG_ERROR, "ERROR: Illegal machine in MlmeHandler()\n");
 				break;
 		} // end of switch
 
 		// free MLME element
-		Elem->Occupied = FALSE;
-		Elem->MsgLen = 0;
+        smp_mb();
+        Elem->Occupied = FALSE;	// sic - bb
+		NdisAcquireSpinLock(&pAd->Mlme.Queue.Lock);
+		MlmeDequeue(&pAd->Mlme.Queue);
 	}
+	pAd->Mlme.Running = FALSE;
+	NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
+}
 
-	NdisAcquireSpinLock(&pAd->Mlme.TaskLock, IrqFlags);
-	pAd->Mlme.bRunning = FALSE;
-	NdisReleaseSpinLock(&pAd->Mlme.TaskLock, IrqFlags);
-
+VOID MlmeStart(
+	IN PRTMP_ADAPTER pAd)
+{
+	// Set mlme periodic timer
+	RTMPSetTimer(pAd, &pAd->Mlme.PeriodicTimer, MLME_TASK_EXEC_INTV);
 }
 
 /*
@@ -418,23 +399,15 @@ VOID MlmeHalt(
 
 	DBGPRINT(RT_DEBUG_TRACE, "==> MlmeHalt\n");
 
+	MlmeRestartStateMachine(pAd);
+
 	// Cancel pending timers
-	RTMPCancelTimer(&pAd->MlmeAux.AssocTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.ReassocTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.DisassocTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.AuthTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.BeaconTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.ScanTimer);
 	RTMPCancelTimer(&pAd->Mlme.PeriodicTimer);
 	RTMPCancelTimer(&pAd->Mlme.LinkDownTimer);
 
+	msleep(500); //RTMPusecDelay(500000); // 0.5 sec to guarantee timer canceled
 
-	RTMPusecDelay(500000);	  // 0.5 sec to guarantee timer canceled
-
-	MlmeQueueDestroy(&pAd->Mlme.Queue);
-	NdisFreeSpinLock(&pAd->Mlme.TaskLock);
-
-	MlmeFreeMemoryHandler(pAd); //Free MLME memory handler
+	MlmeQueueInit(&pAd->Mlme.Queue);
 
 	DBGPRINT(RT_DEBUG_TRACE, "<== MlmeHalt\n");
 }
@@ -444,7 +417,7 @@ VOID MlmeSuspend(
 	IN BOOLEAN linkdown)
 {
 	MLME_QUEUE_ELEM		*Elem = NULL;
-	unsigned long				IrqFlags;
+	unsigned long				flags;
 
 	DBGPRINT(RT_DEBUG_TRACE, "==>MlmeSuspend\n");
 
@@ -458,10 +431,10 @@ VOID MlmeSuspend(
 
 	while (TRUE)
 	{
-		NdisAcquireSpinLock(&pAd->Mlme.TaskLock, IrqFlags);
-		if(pAd->Mlme.bRunning)
+		NdisAcquireSpinLock(&pAd->Mlme.Queue.Lock);
+		if(pAd->Mlme.Running)
 		{
-			NdisReleaseSpinLock(&pAd->Mlme.TaskLock, IrqFlags);
+			NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
 			if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS))
 				return;
 
@@ -469,25 +442,25 @@ VOID MlmeSuspend(
 		}
 		else
 		{
-			pAd->Mlme.bRunning = TRUE;
-			NdisReleaseSpinLock(&pAd->Mlme.TaskLock, IrqFlags);
+			pAd->Mlme.Running = TRUE;
+			NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
 			break;
 		}
 	}
 
 	// Remove all Mlme queues elements
-	NdisAcquireSpinLock(&pAd->Mlme.Queue.Lock, IrqFlags);
-	while (MlmeDequeue(&pAd->Mlme.Queue, &Elem)) {
+	NdisAcquireSpinLock(&pAd->Mlme.Queue.Lock);
+	while (MlmeGetHead(&pAd->Mlme.Queue, &Elem)) {
 		// free MLME element
+		MlmeDequeue(&pAd->Mlme.Queue);
 		Elem->Occupied = FALSE;
-		Elem->MsgLen = 0;
 	}
-	NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock, IrqFlags);
+	NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
 
 	// Remove running state
-	NdisAcquireSpinLock(&pAd->Mlme.TaskLock, IrqFlags);
-	pAd->Mlme.bRunning = FALSE;
-	NdisReleaseSpinLock(&pAd->Mlme.TaskLock, IrqFlags);
+	NdisAcquireSpinLock(&pAd->Mlme.Queue.Lock);
+	pAd->Mlme.Running = FALSE;
+	NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
 
 	RTUSBCleanUpMLMEWaitQueue(pAd);
 	RTUSBCleanUpMLMEBulkOutQueue(pAd);
@@ -546,21 +519,36 @@ VOID MlmeResume(
  */
 
 #define ADHOC_BEACON_LOST_TIME		(10*HZ)  // 4 sec
-VOID MlmePeriodicExec(
+
+// interrupt context (timer handler)
+VOID MlmePeriodicExecTimeout(
 	IN	unsigned long data)
 {
 	RTMP_ADAPTER	*pAd = (RTMP_ADAPTER *)data;
-	unsigned long			IrqFlags;
+	RTUSBEnqueueInternalCmd(pAd, RT_OID_PERIODIC_EXECUT);
+}
+
+// process context
+VOID MlmePeriodicExec(
+	IN	PRTMP_ADAPTER pAd)
+{
+	unsigned long			flags;
 
 	// Timer need to reset every time, so using do-while loop
 	do
 	{
 		if (pAd->PortCfg.BssType == BSS_MONITOR)
 		{
-			RTMPSetTimer(pAd, &pAd->Mlme.PeriodicTimer, MLME_TASK_EXEC_INTV);
-			return;
+			DBGPRINT(RT_DEBUG_TRACE, "==> MlmePeriodicExec Monitor Mode\n");
+			break;
 		}
+		DBGPRINT(RT_DEBUG_TRACE, "==> MlmePeriodicExec\n");
 
+		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
+		{
+			DBGPRINT(RT_DEBUG_INFO, "- MlmePeriodicExec scan active\n");
+			break;
+		}
 		if ((pAd->PortCfg.bHardwareRadio == TRUE) &&
 			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)) &&
 			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS)))
@@ -573,13 +561,14 @@ VOID MlmePeriodicExec(
 		if ((RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS)) ||
 			(RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF)) ||
 			(RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_MEASUREMENT)) ||
-			(RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS)))
+			(RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS))) {
+			DBGPRINT(RT_DEBUG_INFO, "- MlmePeriodicExec Hlt or Radio Off\n");
 			break;
-
+		}
 		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_MEDIA_STATE_PENDING))
 		{
 			RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_MEDIA_STATE_PENDING);
-			DBGPRINT(RT_DEBUG_TRACE, "NDIS_STATUS_MEDIA_DISCONNECT Event B!\n");
+			DBGPRINT(RT_DEBUG_INFO, "NDIS_STATUS_MEDIA_DISCONNECT Event B!\n");
 		}
 
 		//
@@ -587,6 +576,7 @@ VOID MlmePeriodicExec(
 		//
 		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))
 		{
+			DBGPRINT(RT_DEBUG_INFO, "- MlmePeriodicExec NIC not exist\n");
 			RTUSBRejectPendingPackets(pAd);
 			break;
 		}
@@ -601,13 +591,18 @@ VOID MlmePeriodicExec(
 			PCmdQElmt	cmdqelmt;
 
 			RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS);
+			DBGPRINT(RT_DEBUG_ERROR, "- (%s) mgmt ring full, count=%d\n",
+					__FUNCTION__, pAd->RalinkCounters.MgmtRingFullCount);
 
-			NdisAcquireSpinLock(&pAd->CmdQLock, IrqFlags);
+			NdisAcquireSpinLock(&pAd->CmdQLock);
 			while (pAd->CmdQ.size > 0)
 			{
 				RTUSBDequeueCmd(&pAd->CmdQ, &cmdqelmt);
-				if(cmdqelmt == NULL)//Thomas
+				if(cmdqelmt == NULL) {	//Thomas
+				DBGPRINT(RT_DEBUG_INFO,
+						"- MlmePeriodicExec (cmdqelmt==NULL)\n");
 					break;
+				}
 				if (cmdqelmt->CmdFromNdis == TRUE)
 				{
 					if ((cmdqelmt->command != RT_OID_MULTI_READ_MAC) &&
@@ -625,31 +620,35 @@ VOID MlmePeriodicExec(
 				else
 					cmdqelmt->InUse = FALSE;
 			}
-			NdisReleaseSpinLock(&pAd->CmdQLock, IrqFlags);
+			NdisReleaseSpinLock(&pAd->CmdQLock);
 
 			RTUSBEnqueueInternalCmd(pAd, RT_OID_RESET_FROM_ERROR);
-
-			DBGPRINT_RAW(RT_DEBUG_ERROR, "<---MlmePeriodicExec (Mgmt Ring Full)\n");
 			break;
 		}
 		pAd->RalinkCounters.MgmtRingFullCount = 0;
 
-		RTUSBEnqueueInternalCmd(pAd, RT_OID_PERIODIC_EXECUT); //STAMlmePeriodicExec(pAd);
+		DBGPRINT(RT_DEBUG_INFO, "- MlmePeriodicExec call STAExec\n");
+		STAMlmePeriodicExec(pAd);
 
-		RTUSBMlmeUp(pAd);
-
-	}	while (0);
-
+	} while (0);
 
 	if ((!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS)) &&
 		(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS)) &&
 		(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
 	{
-		RTMPSetTimer(pAd, &pAd->Mlme.PeriodicTimer, MLME_TASK_EXEC_INTV);
+		/* Only start the next period if we haven't been told to close while
+		 * waiting for register I/O to complete. Otherwise, we can get into
+		 * trouble when we (redundantly) start the timer on the next open.
+		 * - bb */
+		if (netif_running(pAd->net_dev)) {
+			RTMPSetTimer(pAd, &pAd->Mlme.PeriodicTimer, MLME_TASK_EXEC_INTV);
+		}
 	}
 
+	DBGPRINT(RT_DEBUG_TRACE, "<== MlmePeriodicExec\n");
 }
 
+// process context
 VOID STAMlmePeriodicExec(
 	IN	PRTMP_ADAPTER pAd)
 {
@@ -660,18 +659,15 @@ VOID STAMlmePeriodicExec(
 #endif
 
 	if(!CurTxRxCsr4) {
-                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return;
 	}
 
 	// WPA MIC error should block association attempt for 60 seconds
 	if (pAd->PortCfg.bBlockAssoc && (time_after(pAd->Mlme.Now, pAd->PortCfg.LastMicErrorTime + (60 * HZ))))
 		pAd->PortCfg.bBlockAssoc = FALSE;
-
-	DBGPRINT(RT_DEBUG_INFO,"MMCHK - PortCfg.Ssid[%d]=%c%c%c%c... MlmeAux.Ssid[%d]=%c%c%c%c...\n",
-			pAd->PortCfg.SsidLen, pAd->PortCfg.Ssid[0], pAd->PortCfg.Ssid[1], pAd->PortCfg.Ssid[2], pAd->PortCfg.Ssid[3],
-			pAd->MlmeAux.SsidLen, pAd->MlmeAux.Ssid[0], pAd->MlmeAux.Ssid[1], pAd->MlmeAux.Ssid[2], pAd->MlmeAux.Ssid[3]);
-
+	DBGPRINT(RT_DEBUG_INFO, "MMCHK - PortCfg.Ssid=%s ... MlmeAux.Ssid=%s\n",
+			pAd->PortCfg.Ssid, pAd->MlmeAux.Ssid);
 
 	// add the most up-to-date h/w raw counters into software variable, so that
 	// the dynamic tuning mechanism below are based on most up-to-date information
@@ -887,13 +883,15 @@ VOID STAMlmePeriodicExec(
 				{
 					MLME_SCAN_REQ_STRUCT	   ScanReq;
 
-					//if (time_after(pAd->Mlme.Now, pAd->PortCfg.LastScanTime + 10 * HZ))
 					if (time_after(pAd->Mlme.Now - INITIAL_JIFFIES, pAd->PortCfg.LastScanTime + 10 * HZ))
 					{
 						DBGPRINT(RT_DEBUG_TRACE, "CNTL - No matching BSS, start a new ACTIVE scan SSID[%s]\n", pAd->MlmeAux.AutoReconnectSsid);
 						ScanParmFill(pAd, &ScanReq, pAd->MlmeAux.AutoReconnectSsid, pAd->MlmeAux.AutoReconnectSsidLen, BSS_ANY, SCAN_ACTIVE);
-						MlmeEnqueue(pAd, SYNC_STATE_MACHINE, MT2_MLME_SCAN_REQ, sizeof(MLME_SCAN_REQ_STRUCT), &ScanReq);
+						MlmeEnqueue(pAd, SYNC_STATE_MACHINE, MT2_MLME_SCAN_REQ,
+								sizeof(MLME_SCAN_REQ_STRUCT), &ScanReq);
 						pAd->Mlme.CntlMachine.CurrState = CNTL_WAIT_OID_LIST_SCAN;
+						RTUSBMlmeUp(pAd);
+
 						// Reset Missed scan number
 						pAd->PortCfg.LastScanTime = pAd->Mlme.Now;
 					}
@@ -1464,7 +1462,7 @@ VOID MlmeDynamicTxRateSwitching(
 	if (TxTotalCnt)
 		TxErrorRatio = ((pAd->RalinkCounters.OneSecTxRetryOkCount + pAd->RalinkCounters.OneSecTxFailCount) *100) / TxTotalCnt;
 
-	DBGPRINT_RAW(RT_DEBUG_TRACE,"%d: NDIS push BE=%d, BK=%d, VI=%d, VO=%d, TX/RX AGGR=<%d,%d>, p-NDIS=%d, RSSI=%d, ACKbmap=%03x, PER=%d%%\n",
+	DBGPRINT(RT_DEBUG_TRACE,"%d: NDIS push BE=%d, BK=%d, VI=%d, VO=%d, TX/RX AGGR=<%d,%d>, p-NDIS=%d, RSSI=%d, ACKbmap=%03x, PER=%d%%\n",
 		RateIdToMbps[CurrRate],
 		pAd->RalinkCounters.OneSecOsTxCount[QID_AC_BE],
 		pAd->RalinkCounters.OneSecOsTxCount[QID_AC_BK],
@@ -1596,7 +1594,7 @@ VOID MlmeDynamicTxRateSwitching(
 			((pAd->DrsCounters.PER[CurrRate]+5) > pAd->DrsCounters.PER[UpRate]))
 		{
 			// we believe this is a noisy environment. better stay at UpRate
-			DBGPRINT_RAW(RT_DEBUG_TRACE,"DRS: #### enter Noisy environment ####\n");
+			DBGPRINT(RT_DEBUG_TRACE,"DRS: #### enter Noisy environment ####\n");
 			pAd->DrsCounters.fNoisyEnvironment = TRUE;
 
 			// 2004-3-14 when claiming noisy environment, we're not only switch back
@@ -1629,7 +1627,7 @@ VOID MlmeDynamicTxRateSwitching(
 			if (JumpUpRate > pAd->PortCfg.MaxTxRate)
 				JumpUpRate = pAd->PortCfg.MaxTxRate;
 
-			DBGPRINT_RAW(RT_DEBUG_TRACE,"DRS: #### leave Noisy environment ####, RSSI=%d, JumpUpRate=%d\n",
+			DBGPRINT(RT_DEBUG_TRACE,"DRS: #### leave Noisy environment ####, RSSI=%d, JumpUpRate=%d\n",
 				dbm, RateIdToMbps[JumpUpRate]);
 
 			if (JumpUpRate > CurrRate)
@@ -1652,7 +1650,7 @@ VOID MlmeDynamicTxRateSwitching(
 			(pAd->DrsCounters.TxQuality[CurrRate] <= 1) &&
 			(pAd->DrsCounters.TxQuality[UpRate] <= 1))
 		{
-			DBGPRINT_RAW(RT_DEBUG_TRACE,"DRS: 2 NULL frames at UpRate = %d Mbps\n",RateIdToMbps[UpRate]);
+			DBGPRINT(RT_DEBUG_TRACE,"DRS: 2 NULL frames at UpRate = %d Mbps\n",RateIdToMbps[UpRate]);
 			RTMPSendNullFrame(pAd, UpRate);
 		}
 
@@ -1815,7 +1813,7 @@ VOID MlmeSetPsmBit(
 	TXRX_CSR4_STRUC *csr4 = kzalloc(sizeof(TXRX_CSR4_STRUC), GFP_KERNEL);
 
 	if(!csr4) {
-                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return;
 	}
 
@@ -1834,11 +1832,12 @@ VOID MlmeSetTxPreamble(
 	TXRX_CSR4_STRUC *csr4 = kzalloc(sizeof(TXRX_CSR4_STRUC), GFP_KERNEL);
 
 	if(!csr4) {
-                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return;
 	}
 
 	RTUSBReadMACRegister(pAd, TXRX_CSR4, &csr4->word);
+
 	if (TxPreamble == Rt802_11PreambleShort)
 	{
 		// NOTE: 1Mbps should always use long preamble
@@ -2106,7 +2105,7 @@ VOID MlmeRadioOff(
 			memcpy(MsgElem.Msg, &DisReq, sizeof(MLME_DISASSOC_REQ_STRUCT));
 
 			MlmeDisassocReqAction(pAd, &MsgElem);
-			RTMPusecDelay(1000);
+			msleep(1);	//RTMPusecDelay(1000);
 		}
 
 		// Set Radio off flag will turn off RTUSBKickBulkOut function
@@ -2141,7 +2140,8 @@ VOID MlmeRadioOff(
 	{
 		if (atomic_read(&pAd->PendingRx) > 0)
 		{
-			DBGPRINT_RAW(RT_DEBUG_TRACE, "BulkIn IRP Pending!!!\n");
+			DBGPRINT(RT_DEBUG_TRACE,
+					"- (%s) BulkIn IRP Pending!!!\n", __FUNCTION__);
 			RTUSB_VendorRequest(pAd,
 				0,
 				DEVICE_VENDOR_REQUEST_OUT,
@@ -2157,7 +2157,8 @@ VOID MlmeRadioOff(
 			(pAd->BulkOutPending[2] == TRUE) ||
 			(pAd->BulkOutPending[3] == TRUE))
 		{
-			DBGPRINT_RAW(RT_DEBUG_TRACE, "BulkOut IRP Pending!!!\n");
+			DBGPRINT(RT_DEBUG_TRACE,
+					"- (%s) BulkOut IRP Pending!!!\n", __FUNCTION__);
 			if (i == 0)
 			{
 				RTUSBCancelPendingBulkOutIRP(pAd);
@@ -2165,7 +2166,7 @@ VOID MlmeRadioOff(
 			}
 		}
 
-		RTMPusecDelay(500000);
+		msleep(500);	//RTMPusecDelay(500000);
 	}
 
 	// Clean up old bss table
@@ -3217,8 +3218,9 @@ NDIS_STATUS MlmeQueueInit(
 	IN MLME_QUEUE *Queue)
 {
 	INT i;
+	unsigned long			flags;
 
-	NdisAllocateSpinLock(&Queue->Lock);
+	NdisAcquireSpinLock(&(Queue->Lock));
 
 	Queue->Num	= 0;
 	Queue->Head = 0;
@@ -3230,6 +3232,7 @@ NDIS_STATUS MlmeQueueInit(
 		Queue->Entry[i].MsgLen = 0;
 		memset(Queue->Entry[i].Msg, 0, MAX_LEN_OF_MLME_BUFFER);
 	}
+	NdisReleaseSpinLock(&(Queue->Lock));
 
 	return NDIS_STATUS_SUCCESS;
 }
@@ -3254,7 +3257,7 @@ BOOLEAN MlmeEnqueue(
 {
 	INT Tail;
 	MLME_QUEUE	*Queue = (MLME_QUEUE *)&pAd->Mlme.Queue;
-	unsigned long		IrqFlags;
+	unsigned long		flags;
 
 	// Do nothing if the driver is starting halt state.
 	// This might happen when timer already been fired before cancel timer with mlmehalt
@@ -3270,24 +3273,37 @@ BOOLEAN MlmeEnqueue(
 
 	if (pAd->MLMEThr_pid > 0)
 	{
-		NdisAcquireSpinLock(&Queue->Lock, IrqFlags);
+		NdisAcquireSpinLock(&Queue->Lock);
 		if (Queue->Num == MAX_LEN_OF_MLME_QUEUE) {
-			NdisReleaseSpinLock(&Queue->Lock, IrqFlags);
+			NdisReleaseSpinLock(&Queue->Lock);
 			DBGPRINT_ERR("MlmeEnqueue: full, msg dropped and may corrupt MLME\n");
 			return FALSE;
 		}
+		// If another context preempts us, it uses the next element - sic. bb
 		Tail = Queue->Tail++;
 		Queue->Tail %= MAX_LEN_OF_MLME_QUEUE;
 		Queue->Num++;
-		NdisReleaseSpinLock(&Queue->Lock, IrqFlags);
 
-		Queue->Entry[Tail].Occupied = TRUE;
+	// We guard against Ben Hutchings' incomplete queue element problem by not
+	// setting the Occupied flag until the memcpy is done. The ocurrence of a
+	// refresh cycle during a copy can stretch the time by up to 100 usec
+	// (well, quite a few usec, anyway); not good when interrupts are disabled.
+	// Note that this can leave a bubble in the queue, but it will have
+	// disappeared by the time this thread gets around to calling MlmeHandler.
+	// All items will be handled in their proper order, but possibly not in the
+	// context in which they were added. - bb
+		NdisReleaseSpinLock(&Queue->Lock);
+		DBGPRINT(RT_DEBUG_INFO, "MlmeEnqueue, num=%d\n",Queue->Num);
+
 		Queue->Entry[Tail].Machine = Machine;
 		Queue->Entry[Tail].MsgType = MsgType;
 		Queue->Entry[Tail].MsgLen  = MsgLen;
 		memcpy(Queue->Entry[Tail].Msg, Msg, MsgLen);
 
-		DBGPRINT(RT_DEBUG_INFO, "MlmeEnqueue, num=%d\n",Queue->Num);
+		//MlmeHandler will stop when it finds this false.
+    	smp_wmb();
+    	Queue->Entry[Tail].Occupied = TRUE;
+
 	}
 
 	return TRUE;
@@ -3313,16 +3329,18 @@ BOOLEAN MlmeEnqueueForRecv(
 	PFRAME_802_11	pFrame = (PFRAME_802_11)Msg;
 	ULONG			MsgType;
 	MLME_QUEUE		*Queue = (MLME_QUEUE *)&pAd->Mlme.Queue;
-	unsigned long			IrqFlags;
+	unsigned long	flags;
 
-	if((pAd->MLMEThr_pid <= 0))
+	if((pAd->MLMEThr_pid <= 0)) {
+		DBGPRINT_ERR("MlmeEnqueueForRecv: MLME Thread inactive\n");
 		return FALSE;
-
+	}
 	// Do nothing if the driver is starting halt state.
 	// This might happen when timer already been fired before cancel timer with mlmehalt
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS))
+	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS)) {
+		DBGPRINT(RT_DEBUG_INFO, "MlmeEnqueueForRecv: Halt in progress\n");
 		return FALSE;
-
+	}
 	// First check the size, it MUST not exceed the mlme queue size
 	if (MsgLen > MAX_LEN_OF_MLME_BUFFER)
 	{
@@ -3343,27 +3361,28 @@ BOOLEAN MlmeEnqueueForRecv(
 			CHAR CfgData[MAX_CFG_BUFFER_LEN+1] = {0};
 			if (BackDoorProbeRspSanity(pAd, Msg, MsgLen, CfgData))
 			{
-				printk("MlmeEnqueueForRecv: CfgData(len:%d):\n%s\n", (int)strlen(CfgData), CfgData);
+				DBGPRINT(RT_DEBUG_INFO,
+						"MlmeEnqueueForRecv: CfgData(len:%d):\n%s\n",
+						(int)strlen(CfgData), CfgData);
 				pAd->PortCfg.bGetAPConfig = FALSE;
 			}
 		}
 	}
 
-
-	NdisAcquireSpinLock(&Queue->Lock, IrqFlags);
+	NdisAcquireSpinLock(&Queue->Lock);
 	if (Queue->Num == MAX_LEN_OF_MLME_QUEUE) {
-		NdisReleaseSpinLock(&Queue->Lock, IrqFlags);
+		NdisReleaseSpinLock(&Queue->Lock);
 		DBGPRINT_ERR("MlmeEnqueueForRecv: full and dropped\n");
 		return FALSE;
 	}
 	Tail = Queue->Tail++;
 	Queue->Tail %= MAX_LEN_OF_MLME_QUEUE;
 	Queue->Num++;
-	NdisReleaseSpinLock(&Queue->Lock, IrqFlags);
+	NdisReleaseSpinLock(&Queue->Lock);
 	DBGPRINT(RT_DEBUG_INFO, "MlmeEnqueueForRecv, num=%d\n",Queue->Num);
 
 	// OK, we got all the informations, it is time to put things into queue
-	Queue->Entry[Tail].Occupied = TRUE;
+	// See MlmeEnqueue note for use of Occupied flag.
 	Queue->Entry[Tail].Machine = Machine;
 	Queue->Entry[Tail].MsgType = MsgType;
 	Queue->Entry[Tail].MsgLen  = MsgLen;
@@ -3372,40 +3391,53 @@ BOOLEAN MlmeEnqueueForRecv(
 	Queue->Entry[Tail].bReqIsFromNdis = FALSE;
 	Queue->Entry[Tail].Channel = pAd->LatchRfRegs.Channel;
 	memcpy(Queue->Entry[Tail].Msg, Msg, MsgLen);
-
-	RTUSBMlmeUp(pAd);
+    smp_wmb();
+    Queue->Entry[Tail].Occupied = TRUE;
 
 	return TRUE;
 }
 
-/*! \brief	 Dequeue a message from the MLME Queue
+/*! \brief   Get the first message from the MLME Queue
  * 			WARNING: Must be call with Mlme.Queue.Lock held
- *	\param	*Queue	  The MLME Queue
- *	\param	*Elem	  The message dequeued from MLME Queue
- *	\return  TRUE if the Elem contains something, FALSE otherwise
- *	\pre
- *	\post
+ *  \param  *Queue    The MLME Queue
+ *  \param  *Elem     The message dequeued from MLME Queue
+ *  \return  TRUE if the Elem contains something, FALSE otherwise
+ *  \pre
+ *  \post
+ */
+BOOLEAN MlmeGetHead(
+    IN MLME_QUEUE *Queue,
+    OUT MLME_QUEUE_ELEM **Elem)
+{
+    if (Queue->Num == 0)
+	    return FALSE;
+    *Elem = &Queue->Entry[Queue->Head];
+    return TRUE;
+}
+
+/*! \brief   Remove the first message from the MLME Queue
+ * 			WARNING: Must be call with Mlme.Queue.Lock held
+ *  \param  *Queue    The MLME Queue
+ *  \return  TRUE if a message was removed, FALSE if the queue was empty
+ *  \pre
+ *  \post
  */
 BOOLEAN MlmeDequeue(
-	IN MLME_QUEUE *Queue,
-	OUT MLME_QUEUE_ELEM **Elem)
+    IN MLME_QUEUE *Queue)
 {
+    if (Queue->Num == 0)
+	    return FALSE;
+    Queue->Head = (Queue->Head + 1) % MAX_LEN_OF_MLME_QUEUE;
+    Queue->Num--;
+    DBGPRINT(RT_DEBUG_INFO, "MlmeDequeue, num=%d\n",Queue->Num);
 
-	if (Queue->Num == 0)
-		return FALSE;
-
-	*Elem = &Queue->Entry[Queue->Head++];
-	Queue->Head %= MAX_LEN_OF_MLME_QUEUE;
-	Queue->Num--;
-	DBGPRINT(RT_DEBUG_INFO, "MlmeDequeue, num=%d\n",Queue->Num);
-
-	return TRUE;
+    return TRUE;
 }
 
 VOID MlmeRestartStateMachine(
 	IN	PRTMP_ADAPTER	pAd)
 {
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "!!! MlmeRestartStateMachine !!!\n");
+	DBGPRINT(RT_DEBUG_TRACE, "!!! MlmeRestartStateMachine !!!\n");
 
 	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_MLME_RESET_IN_PROGRESS);
 
@@ -3446,9 +3478,9 @@ VOID MlmePostRestartStateMachine(
 	// Since MlmeRestartStateMachine will do nothing when Mlme is running.
 	//
 	while (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_MLME_RESET_IN_PROGRESS))
-		RTMPusecDelay(100000);
+		msleep(100);	//RTMPusecDelay(100000);
 
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "!!! MlmePostRestartStateMachine !!!\n");
+	DBGPRINT(RT_DEBUG_TRACE, "!!! MlmePostRestartStateMachine !!!\n");
 
 	// Change back to original channel in case of doing scan
 	AsicSwitchChannel(pAd, pAd->PortCfg.Channel);
@@ -3468,15 +3500,15 @@ VOID MlmePostRestartStateMachine(
 VOID MlmeQueueDestroy(
 	IN MLME_QUEUE *pQueue)
 {
-	unsigned long			IrqFlags;
+	unsigned long			flags;
 
-	NdisAcquireSpinLock(&(pQueue->Lock), IrqFlags);
+	NdisAcquireSpinLock(&(pQueue->Lock));
 
 	pQueue->Num  = 0;
 	pQueue->Head = 0;
 	pQueue->Tail = 0;
 
-	NdisReleaseSpinLock(&(pQueue->Lock), IrqFlags);
+	NdisReleaseSpinLock(&(pQueue->Lock));
 	NdisFreeSpinLock(&(pQueue->Lock));
 }
 
@@ -3997,7 +4029,7 @@ VOID AsicAntennaSelect(
 	IN	PRTMP_ADAPTER	pAd,
 	IN	UCHAR			Channel)
 {
-	ULONG	*value = kzalloc(sizeof(ULONG), GFP_KERNEL);
+	ULONG *value = kzalloc(sizeof(ULONG), GFP_KERNEL);
 	ABGBAND_STATE	BandState;
 
 
@@ -4005,9 +4037,10 @@ VOID AsicAntennaSelect(
 		Channel, AntStr[pAd->Antenna.field.TxDefaultAntenna], AntStr[pAd->Antenna.field.RxDefaultAntenna]);
 
 	if(!value) {
-                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return;
 	}
+
 	if (Channel <= 14)
 		BandState = BG_BAND;
 	else
@@ -4716,7 +4749,7 @@ VOID AsicDisableSync(
 	DBGPRINT(RT_DEBUG_TRACE, "--->Disable TSF synchronization\n");
 
 	if(!csr) {
-                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return;
 	}
 
@@ -4745,12 +4778,11 @@ VOID AsicEnableBssSync(
 	DBGPRINT(RT_DEBUG_TRACE, "--->AsicEnableBssSync(INFRA mode)\n");
 
 	if(!csr) {
-                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return;
 	}
 
 	RTUSBReadMACRegister(pAd, TXRX_CSR9, &csr->word);
-
 
 	csr->field.BeaconInterval = pAd->PortCfg.BeaconPeriod << 4; // ASIC register in units of 1/16 TU
 	csr->field.bTsfTicking = 1;
@@ -4821,7 +4853,6 @@ VOID AsicEnableIbssSync(
 	csr9->field.bBeaconGen = 1;
 	RTUSBWriteMACRegister(pAd, TXRX_CSR9, csr9->word);
 	kfree(csr9);
-
 }
 
 /*
@@ -4960,22 +4991,22 @@ VOID AsicSetSlotTime(
 	MAC_CSR9_STRUC *Csr9 = kzalloc(sizeof(MAC_CSR9_STRUC), GFP_KERNEL);
 
 	if(!Csr9) {
-                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return;
 	}
+
 	if ( pAd->PortCfg.Channel > 14)  //check if in the A band
 		bUseShortSlotTime = TRUE;
 
-	if (bUseShortSlotTime && OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED))
-	{
+	if (bUseShortSlotTime && OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED)) {
 		kfree(Csr9);
 		return;
 	}
-	else if ((!bUseShortSlotTime) && (!OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED)))
-	{
+	else if ((!bUseShortSlotTime) && (!OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED))) {
 		kfree(Csr9);
 		return;
 	}
+
 	if (bUseShortSlotTime)
 		OPSTATUS_SET_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED);
 	else
@@ -4993,9 +5024,8 @@ VOID AsicSetSlotTime(
 
 	RTUSBWriteMACRegister(pAd, MAC_CSR9, Csr9->word);
 
-
 	DBGPRINT(RT_DEBUG_TRACE, "AsicSetSlotTime(=%d us)\n", Csr9->field.SlotTime);
-        kfree(Csr9);
+	kfree(Csr9);
 }
 
 /*
@@ -5195,8 +5225,9 @@ VOID AsicAddSharedKeyEntry(
 	IN PUCHAR		 pRxMic)
 {
 	INT   i;
-	ULONG offset, csr0;
-	SEC_CSR1_STRUC csr1;
+	ULONG offset;
+	ULONG *csr0 = kzalloc(sizeof(ULONG), GFP_KERNEL);
+	SEC_CSR1_STRUC *csr1 = kzalloc(sizeof(SEC_CSR1_STRUC), GFP_KERNEL);
 
 		union aaa {
 		ULONG	temp_ul;
@@ -5208,8 +5239,13 @@ VOID AsicAddSharedKeyEntry(
 			} temp_uc;
 	} ddd;
 
+	if (!csr0 || !csr1) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+    return;
+  }
+
 	DBGPRINT(RT_DEBUG_TRACE, "AsicAddSharedKeyEntry: %s key #%d\n", CipherName[CipherAlg], BssIndex*4 + KeyIdx);
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "	   Key =");
+	DBGPRINT(RT_DEBUG_TRACE, "   Key =");
 	for (i = 0; i < 16; i++)
 	{
 		DBGPRINT_RAW(RT_DEBUG_TRACE, "%02x:", pKey[i]);
@@ -5217,7 +5253,7 @@ VOID AsicAddSharedKeyEntry(
 	DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
 	if (pRxMic)
 	{
-		DBGPRINT_RAW(RT_DEBUG_TRACE, "	   Rx MIC Key = ");
+		DBGPRINT(RT_DEBUG_TRACE, "   Rx MIC Key = ");
 		for (i = 0; i < 8; i++)
 		{
 			DBGPRINT_RAW(RT_DEBUG_TRACE, "%02x:", pRxMic[i]);
@@ -5226,7 +5262,7 @@ VOID AsicAddSharedKeyEntry(
 	}
 	if (pTxMic)
 	{
-		DBGPRINT_RAW(RT_DEBUG_TRACE, "	   Tx MIC Key = ");
+		DBGPRINT(RT_DEBUG_TRACE, "   Tx MIC Key = ");
 		for (i = 0; i < 8; i++)
 		{
 			DBGPRINT_RAW(RT_DEBUG_TRACE, "%02x:", pTxMic[i]);
@@ -5237,8 +5273,8 @@ VOID AsicAddSharedKeyEntry(
 	//
 	// enable this key entry
 	//
-	RTUSBReadMACRegister(pAd, SEC_CSR0, &csr0);
-	csr0 = csr0 & ~BIT32[BssIndex*4 + KeyIdx];	   // turrn off   the valid bit
+	RTUSBReadMACRegister(pAd, SEC_CSR0, csr0);
+	*csr0 = *csr0 & ~BIT32[BssIndex*4 + KeyIdx];	// turn off the valid bit
 	RTUSBWriteMACRegister(pAd, SEC_CSR0, csr0);
 
 
@@ -5287,23 +5323,25 @@ VOID AsicAddSharedKeyEntry(
 	//
 	// Update cipher algorithm. STA always use BSS0
 	//
-	RTUSBReadMACRegister(pAd, SEC_CSR1, &csr1.word);
+	RTUSBReadMACRegister(pAd, SEC_CSR1, &csr1->word);
 	if (KeyIdx == 0)
-		csr1.field.Bss0Key0CipherAlg = CipherAlg;
+		csr1->field.Bss0Key0CipherAlg = CipherAlg;
 	else if (KeyIdx == 1)
-		csr1.field.Bss0Key1CipherAlg = CipherAlg;
+		csr1->field.Bss0Key1CipherAlg = CipherAlg;
 	else if (KeyIdx == 2)
-		csr1.field.Bss0Key2CipherAlg = CipherAlg;
+		csr1->field.Bss0Key2CipherAlg = CipherAlg;
 	else
-		csr1.field.Bss0Key3CipherAlg = CipherAlg;
-	RTUSBWriteMACRegister(pAd, SEC_CSR1, csr1.word);
+		csr1->field.Bss0Key3CipherAlg = CipherAlg;
+	RTUSBWriteMACRegister(pAd, SEC_CSR1, csr1->word);
 
 	//
 	// enable this key entry
 	//
-	RTUSBReadMACRegister(pAd, SEC_CSR0, &csr0);
-	csr0 |= BIT32[BssIndex*4 + KeyIdx]; 	// turrn on the valid bit
+	RTUSBReadMACRegister(pAd, SEC_CSR0, csr0);
+	*csr0 |= BIT32[BssIndex*4 + KeyIdx]; 	// turrn on the valid bit
 	RTUSBWriteMACRegister(pAd, SEC_CSR0, csr0);
+	kfree(csr0);
+	kfree(csr1);
 }
 
 VOID AsicRemoveSharedKeyEntry(
@@ -5944,7 +5982,7 @@ NDIS_STATUS MlmeInitMemoryHandler(
 	NDIS_STATUS 				Status = NDIS_STATUS_SUCCESS;
 	UINT						i;
 
-	DBGPRINT(RT_DEBUG_INFO,"==> MlmeInitMemory\n");
+	DBGPRINT(RT_DEBUG_TRACE,"==> MlmeInitMemoryHandler\n");
 	pAd->Mlme.MemHandler.MemoryCount = 0;
 	pAd->Mlme.MemHandler.pInUseHead = NULL;
 	pAd->Mlme.MemHandler.pInUseTail = NULL;
@@ -6004,17 +6042,20 @@ NDIS_STATUS MlmeInitMemoryHandler(
 			pAd->Mlme.MemHandler.pUnUseTail = Current;
 
 	}
-
 	if (pAd->Mlme.MemHandler.MemoryCount < Number)
 	{
 		Status = NDIS_STATUS_RESOURCES;
-		DBGPRINT(RT_DEBUG_TRACE, "MlmeInitMemory Initial failed [Require=%d, available=%d]\n", Number, pAd->Mlme.MemHandler.MemoryCount);
+		DBGPRINT(RT_DEBUG_TRACE,
+				"MlmeInitMemoryHandler failed [Require=%d, available=%d]\n",
+				Number, pAd->Mlme.MemHandler.MemoryCount);
+		MlmeFreeMemoryHandler(pAd);
 	}
-
-	pAd->Mlme.MemHandler.InUseCount = 0;
-	pAd->Mlme.MemHandler.UnUseCount = Number;
-	pAd->Mlme.MemHandler.PendingCount = 0;
-	DBGPRINT(RT_DEBUG_INFO, "<== MlmeInitMemory\n");
+	else {
+		pAd->Mlme.MemHandler.InUseCount = 0;
+		pAd->Mlme.MemHandler.UnUseCount = Number;
+		pAd->Mlme.MemHandler.PendingCount = 0;
+	}
+	DBGPRINT(RT_DEBUG_TRACE, "<== MlmeInitMemoryHandler Status=%d\n",Status);
 
 	return (Status);
 }
@@ -6037,7 +6078,7 @@ VOID MlmeFreeMemoryHandler(
 {
 	PMLME_MEMORY_STRUCT 	 pMlmeMemoryStruct = NULL;
 
-	DBGPRINT_RAW(RT_DEBUG_INFO, "--->MlmeFreeMemoryHandler\n");
+	DBGPRINT(RT_DEBUG_TRACE, "--->MlmeFreeMemoryHandler\n");
 
 	//Free nonpaged memory, free it in the *In-used* link list.
 	while (pAd->Mlme.MemHandler.pInUseHead != NULL)
@@ -6070,7 +6111,7 @@ VOID MlmeFreeMemoryHandler(
 		}
 	}
 
-	DBGPRINT_RAW(RT_DEBUG_INFO, "<---MlmeFreeMemoryHandler\n");
+	DBGPRINT(RT_DEBUG_TRACE, "<---MlmeFreeMemoryHandler\n");
 }
 
 /*

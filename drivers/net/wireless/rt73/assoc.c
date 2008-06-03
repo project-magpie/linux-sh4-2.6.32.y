@@ -627,16 +627,15 @@ static void _rtmp_hexdump(int level, const char *title, const u8 *buf,
 			 size_t len, int show)
 {
 	size_t i;
-	if (level & RTDebugLevel) {
-		printk("%s - hexdump(len=%lu):", title, (unsigned long) len);
-		if (show) {
-			for (i = 0; i < len; i++)
-				printk(" %02x", buf[i]);
-		} else {
-			printk(" [REMOVED]");
-		}
-		printk("\n");
+
+	DBGPRINT(level, "%s - hexdump(len=%lu):", title, (unsigned long)len);
+	if (show) {
+		for (i = 0; i < len; i++)
+			DBGPRINT_RAW(level, " %02x", buf[i]);
+	} else {
+		DBGPRINT_RAW(level, " [REMOVED]");
 	}
+	DBGPRINT_RAW(level, "\n");
 }
 
 void rtmp_hexdump(int level, const char *title, const u8 *buf, size_t len)

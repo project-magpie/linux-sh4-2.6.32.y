@@ -36,12 +36,17 @@
 #ifndef	__RT_CONFIG_H__
 #define	__RT_CONFIG_H__
 
+// Propagate predefined compiler variables asap - bb.
+#if defined(__BIG_ENDIAN) || defined(__BIG_ENDIAN__) || defined(_BIG_ENDIAN)
+#define BIG_ENDIAN TRUE
+#endif /* __BIG_ENDIAN */
+
 #define PROFILE_PATH                "/etc/Wireless/RT73STA/rt73sta.dat"
 #define NIC_DEVICE_NAME             "RT73STA"
 #define RT2573_IMAGE_FILE_NAME      "rt73.bin"
 #define DRIVER_NAME                 "rt73"
 #define DRIVER_VERSION		    "1.0.3.6 CVS"
-#define DRIVER_RELDATE              "2007091001"
+#define DRIVER_RELDATE              "2008050900"
 
 // Query from UI
 #define DRV_MAJORVERSION        1
@@ -76,9 +81,9 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
+#include <linux/delay.h>		// For udelay, mdelay
 #include <linux/wireless.h>
 #include <linux/proc_fs.h>
-#include <linux/delay.h>
 #include <linux/if_arp.h>
 #include <linux/ctype.h>
 #include <linux/sched.h>
@@ -185,7 +190,6 @@ typedef union _LARGE_INTEGER {
 //
 //	Miniport defined header files
 //
-#include	"rt2x00debug.h"
 #include	"rtmp_type.h"
 #include	"rtmp_def.h"
 #include    "oid.h"
@@ -193,12 +197,17 @@ typedef union _LARGE_INTEGER {
 #include    "md5.h"
 #include    "wpa.h"
 #include	"rtmp.h"
+#include	"rt2x00debug.h"
 
-
-#define MEM_ALLOC_FLAG      (GFP_DMA | GFP_ATOMIC)
+#define MEM_ALLOC_FLAG      (GFP_DMA | GFP_KERNEL)
 
 #ifndef KERNEL_VERSION
 #define KERNEL_VERSION(a,b,c) ((a)*65536+(b)*256+(c))
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,25)
+/* 2.6 compatibility */
+#define SET_NETDEV_DEV(net, pdev) do { } while (0)
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,29)
@@ -236,18 +245,31 @@ static inline unsigned long msecs_to_jiffies(const unsigned int m)
 	return (m * HZ + 999) / 1000;
 #endif
 }
+#endif
 
-static inline void msleep(unsigned long msecs)
-{
-        set_current_state(TASK_UNINTERRUPTIBLE);
-        schedule_timeout(msecs_to_jiffies(msecs) + 1);
-}
+#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,4,35) )
+// This forward compatibility macro appeared in 2.4.35 and
+// is copied from that patch file - bb.
+#define msleep(x)	do { set_current_state(TASK_UNINTERRUPTIBLE); \
+				schedule_timeout((x * HZ)/1000 + 2); \
+			} while (0)
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0)
+#define reserve_module(x)	try_module_get(x)
+#define release_module(x)	module_put(x)
 #define rtusb_submit_urb(purb) usb_submit_urb(purb, GFP_KERNEL)
 #else
+#define usb_get_dev			usb_inc_dev_use
+#define usb_put_dev			usb_dec_dev_use
+#define reserve_module(x)  	MOD_INC_USE_COUNT
+#define release_module(x)	MOD_DEC_USE_COUNT
 #define rtusb_submit_urb(purb) usb_submit_urb(purb)
+#endif
+
+// 2.5.44? 2.5.26?
+#ifndef smp_read_barrier_depends
+#define smp_read_barrier_depends() ((void)0)
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,7)
@@ -262,6 +284,12 @@ static inline void msleep(unsigned long msecs)
 #define first_net_device()		dev_base
 #define next_net_device(device)	((device)->next)
 
+#endif
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24))
+#define SET_MODULE_OWNER(some_struct) do { } while (0)
+#define dev_get_by_name(slot_name) dev_get_by_name(&init_net, slot_name)
+#define first_net_device() first_net_device(&init_net)
 #endif
 
 #ifndef USB_ST_NOERROR

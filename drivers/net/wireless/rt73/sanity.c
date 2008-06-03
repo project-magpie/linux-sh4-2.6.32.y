@@ -1366,12 +1366,13 @@ BOOLEAN BackDoorProbeRspSanity(
                         {
                             //memcpy((pCfgDataBuf + cfgDataLen), (eid_ptr->Octet + 4), (eid_ptr->Len - 4));
                             memcpy(CfgData, (eid_ptr->Octet + 4), (eid_ptr->Len - 4));
-                            printk("%s\n", CfgData);
+                            KPRINT(KERN_INFO, "%s\n", CfgData);
                             return TRUE;
                         }
                         else
                         {
-                            printk("BackDoorProbeRspSanity: cfgDataLen > MAX_CFG_BUFFER_LEN\n");
+                            KPRINT(KERN_INFO,
+								"BackDoorProbeRspSanity: cfgDataLen > MAX_CFG_BUFFER_LEN\n");
                             return FALSE;
                         }
                     }
@@ -1382,11 +1383,12 @@ BOOLEAN BackDoorProbeRspSanity(
                         memcpy(CfgData, (eid_ptr->Octet + 4), (eid_ptr->Len - 4));
                         if (cfgDataLen > MAX_CFG_BUFFER_LEN)
                         {
-                            printk("BackDoorProbeRspSanity: cfgDataLen > MAX_CFG_BUFFER_LEN\n");
+                            KPRINT(KERN_INFO,
+								"BackDoorProbeRspSanity: cfgDataLen > MAX_CFG_BUFFER_LEN\n");
                             return FALSE;
                         }
                         else
-                            printk("%s", CfgData);
+                            KPRINT(KERN_INFO, "%s", CfgData);
                     }
                     break;
                 }

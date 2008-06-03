@@ -40,7 +40,6 @@
 #include	"rt_config.h"
 #include <net/iw_handler.h>
 
-
 #ifdef DBG
 extern ULONG	RTDebugLevel;
 #endif
@@ -109,10 +108,12 @@ struct iw_priv_args privtab[] = {
 
 };
 
-static struct {
+struct rt_priv_support {
 	CHAR *name;
 	INT (*set_proc)(PRTMP_ADAPTER pAdapter, PUCHAR arg);
-} *PRTMP_PRIVATE_SET_PROC, RTMP_PRIVATE_SUPPORT_PROC[] = {
+};
+
+static struct rt_priv_support RTMP_PRIVATE_SUPPORT_PROC[] = {
 	{"DriverVersion",				Set_DriverVersion_Proc},
 	{"CountryRegion",				Set_CountryRegion_Proc},
 	{"CountryRegionABand",			Set_CountryRegionABand_Proc},
@@ -183,9 +184,10 @@ int rt_ioctl_siwfreq(struct net_device *dev,
     if (pAdapter->RTUSBCmdThr_pid < 0)
         return -ENETDOWN;
 
-	if (freq->e > 1)
+	if (freq->e > 1) {
+		DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 		return -EINVAL;
-
+	}
 	if((freq->e == 0) && (freq->m <= 1000))
 		chan = freq->m;	// Setting by channel number
 	else
@@ -577,8 +579,10 @@ int rt_ioctl_siwscan(struct net_device *dev,
     if (pAdapter->RTUSBCmdThr_pid < 0)
         return -ENETDOWN;
 
-	if (RTMP_TEST_FLAG(pAdapter, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
-		return 0;
+	if (RTMP_TEST_FLAG(pAdapter, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)) {
+		DBGPRINT(RT_DEBUG_TRACE,"<===rt_ioctl_siwscan still scanning\n");
+		return -EINPROGRESS;
+	}
 	do{
 		Now = jiffies;
 
@@ -597,6 +601,8 @@ int rt_ioctl_siwscan(struct net_device *dev,
 
 		if (pAdapter->Mlme.CntlMachine.CurrState != CNTL_IDLE  && (pAdapter->MLMEThr_pid > 0))
 		{
+			DBGPRINT(RT_DEBUG_INFO,"- %s:: CNTL SM not idle (state=%d)\n",
+					__FUNCTION__, pAdapter->Mlme.CntlMachine.CurrState);
 			MlmeEnqueue(pAdapter,
                         MLME_CNTL_STATE_MACHINE,
                         RT_CMD_RESET_MLME,
@@ -622,6 +628,7 @@ int rt_ioctl_siwscan(struct net_device *dev,
 		//StateMachineTouched = TRUE;
 
 	}while(0);
+	DBGPRINT(RT_DEBUG_TRACE,"<===rt_ioctl_siwscan\n");
 	return 0;
 }
 
@@ -860,7 +867,8 @@ rt_ioctl_giwscan(struct net_device *dev,
 
 	}
 	data->length = current_ev - extra;
-	DBGPRINT(RT_DEBUG_ERROR,"===>rt_ioctl_giwscan. %d(%d) BSS returned\n",i , pAdapter->ScanTab.BssNr);
+	DBGPRINT(RT_DEBUG_TRACE,"<===rt_ioctl_giwscan. %d(%d) BSS returned\n",
+			i, pAdapter->ScanTab.BssNr);
 	return 0;
 }
 #endif
@@ -874,14 +882,10 @@ int rt_ioctl_siwessid(struct net_device *dev,
 	NDIS_802_11_SSID					Ssid, *pSsid=NULL;
 	ULONG		Length;
 
-    //check if the interface is down
-    if (pAdapter->RTUSBCmdThr_pid < 0)
-        return -ENETDOWN;
-
     memset(&Ssid, 0, sizeof(NDIS_802_11_SSID));
 
 	#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19)
-	Length = data->length - 1;
+	Length = data->length - 1;	// minus null character
 	#else
 	Length = data->length;
 	#endif
@@ -902,46 +906,37 @@ int rt_ioctl_siwessid(struct net_device *dev,
 	else
 	{
 		Ssid.SsidLength = 0;  // ANY ssid
-        memcpy(Ssid.Ssid, "", 0);
+		Ssid.Ssid[0] = 0;
 
 		// reset to infra/open/none as the user set ANY ssid
         // $ iwconfig [interface] essid ""
 		pAdapter->PortCfg.BssType = BSS_INFRA;
-		pAdapter->PortCfg.AuthMode = Ndis802_11AuthModeOpen;
+		pAdapter->PortCfg.AuthMode = Ndis802_11AuthModeOpen;//FIXME whaa? - bb
 		pAdapter->PortCfg.WepStatus  = Ndis802_11EncryptionDisabled;
     }
 
 	pSsid = &Ssid;
+	pAdapter->MlmeAux.CurrReqIsFromNdis = FALSE;
 
-	if ((pAdapter->Mlme.CntlMachine.CurrState != CNTL_IDLE) && (pAdapter->MLMEThr_pid > 0))
+	if ((pAdapter->Mlme.CntlMachine.CurrState != CNTL_IDLE))
 	{
+		DBGPRINT(RT_DEBUG_INFO,"- %s:: CNTL SM not idle\n",
+				__FUNCTION__);
 		MlmeEnqueue(pAdapter,
                     MLME_CNTL_STATE_MACHINE,
                     RT_CMD_RESET_MLME,
                     0,
                     NULL);
     }
-
-	// tell CNTL state machine to call NdisMSetInformationComplete() after completing
-	// this request, because this request is initiated by NDIS.
-
-	// To prevent some kernel thread is very low priority ...so essid copy immediately for later wpapsk counting.
-	if ((pAdapter->PortCfg.AuthMode >= Ndis802_11AuthModeWPA) && (pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPANone))
-		memcpy(pAdapter->MlmeAux.Ssid, Ssid.Ssid, Ssid.SsidLength);
-
-	pAdapter->MlmeAux.CurrReqIsFromNdis = FALSE;
-	DBGPRINT(RT_DEBUG_TRACE,"===>rt_ioctl_siwessid:: (Ssid.SsidLength = %d, %s)\n",Ssid.SsidLength, Ssid.Ssid);
-
-	if (pAdapter->MLMEThr_pid > 0)
-	{
-		MlmeEnqueue(pAdapter,
-					MLME_CNTL_STATE_MACHINE,
-					OID_802_11_SSID,
-					sizeof(NDIS_802_11_SSID),
-					(VOID *)pSsid);
-	}
+	MlmeEnqueue(pAdapter,
+				MLME_CNTL_STATE_MACHINE,
+				OID_802_11_SSID,
+				sizeof(NDIS_802_11_SSID),
+				(VOID *)pSsid);
 	RTUSBMlmeUp(pAdapter);
-
+	DBGPRINT(RT_DEBUG_TRACE,
+			"<-- rt_ioctl_siwessid:: (Ssid.SsidLength = %d, %s)\n",
+			Ssid.SsidLength, Ssid.Ssid);
 	return 0;
 }
 
@@ -1017,8 +1012,10 @@ int rt_ioctl_siwrts(struct net_device *dev,
 
 	if (rts->disabled)
 		val = MAX_RTS_THRESHOLD;
-	else if (rts->value < 0 || rts->value > MAX_RTS_THRESHOLD)
+	else if (rts->value < 0 || rts->value > MAX_RTS_THRESHOLD) {
+		DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 		return -EINVAL;
+	}
 	else if (rts->value == 0)
 		val = MAX_RTS_THRESHOLD;
 	else
@@ -1063,9 +1060,10 @@ int rt_ioctl_siwfrag(struct net_device *dev,
 		val = __cpu_to_le16(rts->value & ~0x1); /* even numbers only */
 	else if (rts->value == 0)
 		val = MAX_FRAG_THRESHOLD;
-	else
+	else {
+		DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 		return -EINVAL;
-
+	}
 	pAdapter->PortCfg.FragmentThreshold = val;
 	return 0;
 }
@@ -1129,14 +1127,20 @@ int rt_ioctl_siwencode(struct net_device *dev,
 	if ((erq->flags & IW_ENCODE_DISABLED) == 0)
 	{
 		/* Enable crypto. */
-		if (erq->length > IFNAMSIZ)
+		if (erq->length > IFNAMSIZ) {
+			DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid length argument (%d)\n",
+					__FUNCTION__, erq->length);
 			return -EINVAL;
-
+		}
 		/* Old solution to take  default key  */
 		index = (erq->flags & IW_ENCODE_INDEX) ;
-		if((index < 0) || (index > NR_WEP_KEYS))
+		if((index < 0) || (index > NR_WEP_KEYS)) {
+			DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid index argument (%d)\n",
+					__FUNCTION__, index);
 			return -EINVAL;
-		DBGPRINT(RT_DEBUG_TRACE," erq->flags = %x\n",erq->flags);
+		}
+		DBGPRINT(RT_DEBUG_TRACE,"- %s: erq->length=%d, erq->flags=0x%04x\n",
+				__FUNCTION__, erq->length, erq->flags);
 
 		if (index != 0)
 		{
@@ -1147,10 +1151,13 @@ int rt_ioctl_siwencode(struct net_device *dev,
 		{
 			/* New solution to take  default key  when old way not work, not change KeyMaterial*/
 			memcpy(&kid, keybuf, 1 );
-			if((index < 0) || (index >= NR_WEP_KEYS))
+			if((index < 0) || (index >= NR_WEP_KEYS)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				return -EINVAL;
-
-			DBGPRINT(RT_DEBUG_TRACE,"kid = %d , erq->length = %d\n",kid, erq->length);
+			}
+			DBGPRINT(RT_DEBUG_TRACE,"kid = %d , erq->length = %d\n",
+					kid, erq->length);
 			if (kid > 0)
 				pAdapter->PortCfg.DefaultKeyId = kid-1;
 			else
@@ -1158,31 +1165,37 @@ int rt_ioctl_siwencode(struct net_device *dev,
 		}
 		else
 		{
-			DBGPRINT(RT_DEBUG_TRACE,"DefaultKeyId = %d , erq->length = %d, flags 0x%x\n",pAdapter->PortCfg.DefaultKeyId, erq->length,erq->flags);
+			DBGPRINT(RT_DEBUG_TRACE, "- %s: DefaultKeyId = %d, erq->length=%d, erq->flags=0x%04x\n", __FUNCTION__, pAdapter->PortCfg.DefaultKeyId, erq->length, erq->flags);
 			len = erq->length;
 			if(len > WEP_LARGE_KEY_LEN)
 				len = WEP_LARGE_KEY_LEN;
 
-			// If this instruction default key
-			memset(pAdapter->SharedKey[pAdapter->PortCfg.DefaultKeyId].Key, 0, MAX_LEN_OF_KEY);
-			memcpy(pAdapter->SharedKey[pAdapter->PortCfg.DefaultKeyId].Key, keybuf, len);
-			memcpy(WepKey.keyinfo.KeyMaterial, keybuf, len);
-			WepKey.keyinfo.KeyIndex = 0x80000000 + pAdapter->PortCfg.DefaultKeyId;
-			WepKey.keyinfo.KeyLength = len;
-			pAdapter->SharedKey[pAdapter->PortCfg.DefaultKeyId].KeyLen =(UCHAR) (len <= WEP_SMALL_KEY_LEN ? WEP_SMALL_KEY_LEN : WEP_LARGE_KEY_LEN);
-			DBGPRINT(RT_DEBUG_TRACE,"SharedKey	");
-			for (i=0; i < 5;i++)
-				DBGPRINT_RAW(RT_DEBUG_TRACE,"	%x ", pAdapter->SharedKey[pAdapter->PortCfg.DefaultKeyId].Key[i]);
-			DBGPRINT(RT_DEBUG_TRACE,   "\n");
-			// need to enqueue cmd to thread
-			RTUSBEnqueueCmdFromNdis(pAdapter, OID_802_11_ADD_WEP, TRUE, &WepKey, sizeof(WepKey.keyinfo) + len - 1);
-
+			// If we're just turning on encryption, don't try to set key - bb
+			if (len) {
+				// If this instruction default key
+				memset(pAdapter->SharedKey[pAdapter->PortCfg.DefaultKeyId].Key, 0, MAX_LEN_OF_KEY);
+				memcpy(pAdapter->SharedKey[pAdapter->PortCfg.DefaultKeyId].Key, keybuf, len);
+				memcpy(WepKey.keyinfo.KeyMaterial, keybuf, len);
+				WepKey.keyinfo.KeyIndex = 0x80000000 + pAdapter->PortCfg.DefaultKeyId;
+				WepKey.keyinfo.KeyLength = len;
+				pAdapter->SharedKey[pAdapter->PortCfg.DefaultKeyId].KeyLen =(UCHAR) (len <= WEP_SMALL_KEY_LEN ? WEP_SMALL_KEY_LEN : WEP_LARGE_KEY_LEN);
+				DBGPRINT(RT_DEBUG_TRACE,"SharedKey ");
+				for (i=0; i < 5;i++)
+					DBGPRINT_RAW(RT_DEBUG_TRACE," %02x ", pAdapter->SharedKey[pAdapter->PortCfg.DefaultKeyId].Key[i]);
+				DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
+				// need to enqueue cmd to thread
+				RTUSBEnqueueCmdFromNdis(pAdapter, OID_802_11_ADD_WEP, TRUE, &WepKey, sizeof(WepKey.keyinfo) + len - 1);
+			}
 		}
+	} /* End if (encoding not disabled) */
 
-	}
-	DBGPRINT(RT_DEBUG_TRACE, "==>rt_ioctl_siwencode::AuthMode=%x\n",pAdapter->PortCfg.AuthMode);
-	DBGPRINT(RT_DEBUG_TRACE, "==>rt_ioctl_siwencode::DefaultKeyId=%x, KeyLen = %d\n",pAdapter->PortCfg.DefaultKeyId , pAdapter->SharedKey[pAdapter->PortCfg.DefaultKeyId].KeyLen);
-	DBGPRINT(RT_DEBUG_TRACE, "==>rt_ioctl_siwencode::WepStatus=%x\n",pAdapter->PortCfg.WepStatus);
+	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: AuthMode=%d"
+			" DefaultKeyId=%d, KeyLen=%d, WepStatus=%d\n",
+			__FUNCTION__,
+			pAdapter->PortCfg.AuthMode,
+			pAdapter->PortCfg.DefaultKeyId,
+			pAdapter->SharedKey[pAdapter->PortCfg.DefaultKeyId].KeyLen,
+			pAdapter->PortCfg.WepStatus);
 	return 0;
 }
 
@@ -1247,26 +1260,31 @@ rt_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
 			 void *w, char *extra)
 {
 	PRTMP_ADAPTER pAdapter = (PRTMP_ADAPTER) dev->priv;
+	struct rt_priv_support *PRTMP_PRIVATE_SET_PROC;
 	char *this_char = extra;
 	char *value;
 	int  Status=0;
+
+	DBGPRINT(RT_DEBUG_TRACE, "--> %s\n", __FUNCTION__);
 
     //check if the interface is down
     if (pAdapter->RTUSBCmdThr_pid < 0)
         return -ENETDOWN;
 
-	if (!*this_char)
-		return Status;
-
+	if (!*this_char) {
+		DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
+		return -EINVAL;
+	}
 	if ((value = rtstrchr(this_char, '=')) != NULL)
 		*value++ = 0;
 
-	if (!value)
-		return Status;
-
+	else {
+		DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
+		return -EINVAL;
+	}
 	// reject setting nothing besides ANY ssid(ssidLen=0)
 	if (!*value && (strcmp(this_char, "SSID") != 0))
-		return Status;
+		return -ENOSYS;
 
 	for (PRTMP_PRIVATE_SET_PROC = RTMP_PRIVATE_SUPPORT_PROC; PRTMP_PRIVATE_SET_PROC->name; PRTMP_PRIVATE_SET_PROC++)
 	{
@@ -1274,6 +1292,8 @@ rt_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
 		{
 			if(!PRTMP_PRIVATE_SET_PROC->set_proc(pAdapter, value))
 			{	//FALSE:Set private failed then return Invalid argument
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status = -EINVAL;
 			}
 			break;	//Exit for loop.
@@ -1393,7 +1413,6 @@ INT RTMPSetInformation(
 	INT 								Status = NDIS_STATUS_SUCCESS;
 	ULONG								AntDiv;
 	BOOLEAN 							RadioState;
-    BOOLEAN							    StateMachineTouched = FALSE;
 
 #if WPA_SUPPLICANT_SUPPORT
     PNDIS_802_11_WEP			        pWepKey =NULL;
@@ -1406,8 +1425,11 @@ INT RTMPSetInformation(
 
 	switch(cmd & 0x7FFF) {
 		case RT_OID_802_11_COUNTRY_REGION:
-			if (wrq->u.data.length < sizeof(UCHAR))
+			if (wrq->u.data.length < sizeof(UCHAR)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status = -EINVAL;
+			}
 			else if (!(pAdapter->PortCfg.CountryRegion & 0x80) && !(pAdapter->PortCfg.CountryRegionForABand & 0x80))	// Only avaliable when EEPROM not programming
 			{
 				ULONG	Country;
@@ -1457,21 +1479,27 @@ INT RTMPSetInformation(
 			Status = RTUSBEnqueueCmdFromNdis(pAdapter, OID_802_11_BSSID_LIST_SCAN, TRUE, NULL, 0);
 			break;
 		case OID_802_11_SSID:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_SSID))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_SSID)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status = -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&Ssid, wrq->u.data.pointer, wrq->u.data.length);
 				pSsid = &Ssid;
 
-				if (pSsid->SsidLength > MAX_LEN_OF_SSID)
+				if (pSsid->SsidLength > MAX_LEN_OF_SSID) {
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
 					Status = -EINVAL;
+				}
 				else
 				{
 					// reset SSID to null
 					if (pSsid->SsidLength == 0)
 					{
-						memcpy(pSsid->Ssid, "", 0);
+						Ssid.Ssid[0] = 0;
 					}
 
 					RTUSBEnqueueCmdFromNdis(pAdapter, OID_802_11_SSID, TRUE, pSsid, sizeof(NDIS_802_11_SSID));
@@ -1480,8 +1508,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case OID_802_11_BSSID:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_MAC_ADDRESS))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_MAC_ADDRESS)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&Bssid, wrq->u.data.pointer, wrq->u.data.length);
@@ -1492,8 +1523,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case RT_OID_802_11_RADIO:
-			if (wrq->u.data.length != sizeof(BOOLEAN))
+			if (wrq->u.data.length != sizeof(BOOLEAN)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&RadioState, wrq->u.data.pointer, wrq->u.data.length);
@@ -1510,8 +1544,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case RT_OID_802_11_PHY_MODE:
-			if (wrq->u.data.length != sizeof(RT_802_11_PHY_MODE))
+			if (wrq->u.data.length != sizeof(RT_802_11_PHY_MODE)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&PhyMode, wrq->u.data.pointer, wrq->u.data.length);
@@ -1520,8 +1557,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case RT_OID_802_11_STA_CONFIG:
-			if (wrq->u.data.length != sizeof(RT_802_11_STA_CONFIG))
+			if (wrq->u.data.length != sizeof(RT_802_11_STA_CONFIG)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&StaConfig, wrq->u.data.pointer, wrq->u.data.length);
@@ -1536,8 +1576,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case OID_802_11_DESIRED_RATES:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_RATES))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_RATES)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&aryRates, wrq->u.data.pointer, wrq->u.data.length);
@@ -1553,8 +1596,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case RT_OID_802_11_PREAMBLE:
-			if (wrq->u.data.length != sizeof(RT_802_11_PREAMBLE))
+			if (wrq->u.data.length != sizeof(RT_802_11_PREAMBLE)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&Preamble, wrq->u.data.pointer, wrq->u.data.length);
@@ -1564,6 +1610,8 @@ INT RTMPSetInformation(
 				}
 				else
 				{
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
 					Status = -EINVAL;
 					break;
 				}
@@ -1571,8 +1619,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case OID_802_11_WEP_STATUS:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_WEP_STATUS))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_WEP_STATUS)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&WepStatus, wrq->u.data.pointer, wrq->u.data.length);
@@ -1592,6 +1643,8 @@ INT RTMPSetInformation(
 				}
 				else
 				{
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
 					Status	= -EINVAL;
 					break;
 				}
@@ -1599,13 +1652,18 @@ INT RTMPSetInformation(
 			}
 			break;
 		case OID_802_11_AUTHENTICATION_MODE:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_AUTHENTICATION_MODE))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_AUTHENTICATION_MODE)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&AuthMode, wrq->u.data.pointer, wrq->u.data.length);
 				if (AuthMode > Ndis802_11AuthModeMax)
 				{
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
 					Status	= -EINVAL;
 					break;
 				}
@@ -1623,8 +1681,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case OID_802_11_INFRASTRUCTURE_MODE:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_NETWORK_INFRASTRUCTURE))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_NETWORK_INFRASTRUCTURE)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&BssType, wrq->u.data.pointer, wrq->u.data.length);
@@ -1658,6 +1719,8 @@ INT RTMPSetInformation(
 				}
 				else
 				{
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
 					Status	= -EINVAL;
 					DBGPRINT(RT_DEBUG_TRACE, "Set::OID_802_11_INFRASTRUCTURE_MODE (unknown)\n");
 				}
@@ -1668,6 +1731,8 @@ INT RTMPSetInformation(
 	    case OID_802_11_REMOVE_WEP:
             DBGPRINT(RT_DEBUG_TRACE, "Set::OID_802_11_REMOVE_WEP\n");
             if (wrq->u.data.length != sizeof(NDIS_802_11_KEY_INDEX)){
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 		        Status = -EINVAL;
             }
             else
@@ -1677,12 +1742,16 @@ INT RTMPSetInformation(
 		        if (KeyIdx & 0x80000000)
 		        {
 			        // Should never set default bit when remove key
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
 			        Status = -EINVAL;
 		        }
 		        else
 		        {
 			        KeyIdx = KeyIdx & 0x0fffffff;
 			        if (KeyIdx >= 4){
+						DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+								__FUNCTION__);
 				        Status = -EINVAL;
 			        }
 			        else
@@ -1704,21 +1773,30 @@ INT RTMPSetInformation(
 			DBGPRINT(RT_DEBUG_TRACE, "Set::RT_OID_802_11_RESET_COUNTERS (=%d)\n", pAdapter->Counters8023.GoodReceives);
 			break;
 		case OID_802_11_RTS_THRESHOLD:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_RTS_THRESHOLD))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_RTS_THRESHOLD)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&RtsThresh, wrq->u.data.pointer, wrq->u.data.length);
-				if (RtsThresh > MAX_RTS_THRESHOLD)
+				if (RtsThresh > MAX_RTS_THRESHOLD) {
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
 					Status	= -EINVAL;
+				}
 				else
 					pAdapter->PortCfg.RtsThreshold = (USHORT)RtsThresh;
 			}
 			DBGPRINT(RT_DEBUG_TRACE, "Set::OID_802_11_RTS_THRESHOLD (=%d)\n",RtsThresh);
 			break;
 		case OID_802_11_FRAGMENTATION_THRESHOLD:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_FRAGMENTATION_THRESHOLD))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_FRAGMENTATION_THRESHOLD)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&FragThresh, wrq->u.data.pointer, wrq->u.data.length);
@@ -1730,8 +1808,11 @@ INT RTMPSetInformation(
 						pAdapter->PortCfg.FragmentThreshold = MAX_FRAG_THRESHOLD;
 						pAdapter->PortCfg.bFragmentZeroDisable = TRUE;
 					}
-					else
+					else {
+						DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+								__FUNCTION__);
 						Status	= -EINVAL;
+					}
 				}
 				else
 					pAdapter->PortCfg.FragmentThreshold = (USHORT)FragThresh;
@@ -1739,8 +1820,11 @@ INT RTMPSetInformation(
 			DBGPRINT(RT_DEBUG_TRACE, "Set::OID_802_11_FRAGMENTATION_THRESHOLD (=%d) \n",FragThresh);
 			break;
 		case OID_802_11_POWER_MODE:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_POWER_MODE))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_POWER_MODE)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status = -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&PowerMode, wrq->u.data.pointer, wrq->u.data.length);
@@ -1777,27 +1861,39 @@ INT RTMPSetInformation(
 					pAdapter->PortCfg.WindowsBatteryPowerMode = PowerMode;
 					pAdapter->PortCfg.DefaultListenCount = 3;
 				}
-				else
+				else {
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
 					Status = -EINVAL;
+				}
 			}
 			DBGPRINT(RT_DEBUG_TRACE, "Set::OID_802_11_POWER_MODE (=%d)\n",PowerMode);
 			break;
 		case OID_802_11_TX_POWER_LEVEL:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_TX_POWER_LEVEL))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_TX_POWER_LEVEL)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&TxPowerLevel, wrq->u.data.pointer, wrq->u.data.length);
-				if (TxPowerLevel > MAX_TX_POWER_LEVEL)
+				if (TxPowerLevel > MAX_TX_POWER_LEVEL) {
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
 					Status	= -EINVAL;
+				}
 				else
 					pAdapter->PortCfg.TxPower = (UCHAR)TxPowerLevel;
 			}
 			DBGPRINT(RT_DEBUG_TRACE, "Set::OID_802_11_TX_POWER_LEVEL (=%d) \n",TxPowerLevel);
 			break;
 		case RT_OID_802_11_TX_POWER_LEVEL_1:
-			if (wrq->u.data.length	< sizeof(ULONG))
+			if (wrq->u.data.length	< sizeof(ULONG)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status = -EINVAL;
+			}
 			else
 			{
 				ULONG	PowerTemp;
@@ -1815,8 +1911,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case OID_802_11_PRIVACY_FILTER:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_PRIVACY_FILTER))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_PRIVACY_FILTER)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status = -EINVAL;
+			}
 			else
 			{
 				NDIS_802_11_PRIVACY_FILTER	Filter;
@@ -1824,14 +1923,20 @@ INT RTMPSetInformation(
 				Status = copy_from_user(&Filter, wrq->u.data.pointer, wrq->u.data.length);
 				if ((Filter == Ndis802_11PrivFilterAcceptAll) || (Filter == Ndis802_11PrivFilter8021xWEP))
 					pAdapter->PortCfg.PrivacyFilter = Filter;
-				else
+				else {
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
 					Status = -EINVAL;
+				}
 			}
 			DBGPRINT(RT_DEBUG_TRACE, "Set::OID_802_11_PRIVACY_FILTER (=%d) \n",pAdapter->PortCfg.PrivacyFilter);
 			break;
 		case OID_802_11_NETWORK_TYPE_IN_USE:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_NETWORK_TYPE))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_NETWORK_TYPE)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status = -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&NetType, wrq->u.data.pointer, wrq->u.data.length);
@@ -1841,8 +1946,11 @@ INT RTMPSetInformation(
 			break;
 
 		case OID_802_11_RX_ANTENNA_SELECTED:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_ANTENNA))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_ANTENNA)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status = -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&AntDiv, wrq->u.data.pointer, wrq->u.data.length);
@@ -1850,8 +1958,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case OID_802_11_TX_ANTENNA_SELECTED:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_ANTENNA))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_ANTENNA)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status = -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&AntDiv, wrq->u.data.pointer, wrq->u.data.length);
@@ -1894,12 +2005,12 @@ INT RTMPSetInformation(
 					// Start STA supplicant state machine
 					pAdapter->PortCfg.WpaState = SS_START;
 
-					DBGPRINT(RT_DEBUG_TRACE,"PskKey =  Len = %d \n ",pKey->KeyLength);
+					DBGPRINT(RT_DEBUG_TRACE,"PskKey =  Len = %d \n",pKey->KeyLength);
 					for (i = 0; i < 32; i++)
 					{
 						DBGPRINT_RAW(RT_DEBUG_TRACE,"%02x:", pAdapter->PortCfg.PskKey.Key[i]);
 					}
-					DBGPRINT(RT_DEBUG_TRACE,"\n");
+					DBGPRINT_RAW(RT_DEBUG_TRACE,"\n");
 					// Use RaConfig as PSK agent.
 					// Start STA supplicant state machine
 					pAdapter->PortCfg.WpaState = SS_START;
@@ -1986,8 +2097,11 @@ INT RTMPSetInformation(
 			break;
 #if WPA_SUPPLICANT_SUPPORT
 		case OID_802_11_SET_IEEE8021X:
-			if (wrq->u.data.length != sizeof(BOOLEAN))
+			if (wrq->u.data.length != sizeof(BOOLEAN)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
                 Status  = -EINVAL;
+			}
             else
             {
                 Status = copy_from_user(&IEEE8021xState, wrq->u.data.pointer, wrq->u.data.length);
@@ -2002,7 +2116,7 @@ INT RTMPSetInformation(
                      idx = pAdapter->PortCfg.DefaultKeyId;
                      //for (idx=0; idx < 4; idx++)
                      {
-                          DBGPRINT_RAW(RT_DEBUG_TRACE, "Set WEP key to Asic for static wep mode =>\n");
+                          DBGPRINT(RT_DEBUG_TRACE, "Set WEP key to Asic for static wep mode =>\n");
 
                           if(pAdapter->PortCfg.DesireSharedKey[idx].KeyLen != 0)
                           {
@@ -2021,8 +2135,11 @@ INT RTMPSetInformation(
 			}
 			break;
 		case OID_802_11_SET_IEEE8021X_REQUIRE_KEY:
-			if (wrq->u.data.length != sizeof(BOOLEAN))
+			if (wrq->u.data.length != sizeof(BOOLEAN)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				 Status  = -EINVAL;
+			}
             else
             {
                 Status = copy_from_user(&IEEE8021x_required_keys, wrq->u.data.pointer, wrq->u.data.length);
@@ -2119,8 +2236,11 @@ INT RTMPSetInformation(
 	        break;
 #endif
 		case OID_802_11_CONFIGURATION:
-			if (wrq->u.data.length != sizeof(NDIS_802_11_CONFIGURATION))
+			if (wrq->u.data.length != sizeof(NDIS_802_11_CONFIGURATION)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 				Status	= -EINVAL;
+			}
 			else
 			{
 				Status = copy_from_user(&Config, wrq->u.data.pointer, wrq->u.data.length);
@@ -2166,6 +2286,8 @@ INT RTMPSetInformation(
 		    {
 		        if (pAdapter->Mlme.CntlMachine.CurrState != CNTL_IDLE)
 			    {
+					DBGPRINT(RT_DEBUG_INFO,"- %s:: CNTL SM not idle\n",
+							__FUNCTION__);
 				    MlmeEnqueue(pAdapter,
 				                MLME_CNTL_STATE_MACHINE,
 				                RT_CMD_RESET_MLME,
@@ -2178,8 +2300,7 @@ INT RTMPSetInformation(
 						    OID_802_11_DISASSOCIATE,
 						    0,
 						    NULL);
-
-		        StateMachineTouched = TRUE;
+				RTUSBMlmeUp(pAdapter);
 		    }
 		    break;
 		case OID_802_11_PMKID:
@@ -2234,8 +2355,11 @@ INT RTMPSetInformation(
 		   }
 		   break;
 		case RT_OID_WPA_SUPPLICANT_SUPPORT:
-		    if (wrq->u.data.length != sizeof(BOOLEAN))
+		    if (wrq->u.data.length != sizeof(BOOLEAN)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 		        Status  = -EINVAL;
+			}
 		    else
 		    {
 		        Status = copy_from_user(&wpa_supplicant_enable, wrq->u.data.pointer, wrq->u.data.length);
@@ -2244,8 +2368,11 @@ INT RTMPSetInformation(
 		    }
 		    break;
 		case OID_802_11_RCV_BEACON:
-		    if (wrq->u.data.length != sizeof(BOOLEAN))
+		    if (wrq->u.data.length != sizeof(BOOLEAN)) {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
 		        Status  = -EINVAL;
+			}
 		    else
 		    {
 		        Status = copy_from_user(&start_send_beacon_up, wrq->u.data.pointer, wrq->u.data.length);
@@ -2741,7 +2868,7 @@ INT rt73_ioctl(
 		return -ENETDOWN;
 	}
 
-    	if (pAd->RTUSBCmdThr_pid < 0)
+   	if (pAd->RTUSBCmdThr_pid < 0)
 		return -ENETDOWN;
 
 	switch(cmd)
@@ -2758,6 +2885,7 @@ INT rt73_ioctl(
 			strcpy(wrq->u.name, "RT73 WLAN");
 			break;
 		case SIOCSIWESSID:	//Set ESSID
+			DBGPRINT(RT_DEBUG_TRACE, "IOCTL::SIOCSIWESSID\n");
 			erq = &wrq->u.essid;
 			memset(&Ssid, 0, sizeof(NDIS_802_11_SSID));
 			if (erq->flags)
@@ -2774,11 +2902,13 @@ INT rt73_ioctl(
 			else
 			{
 				Ssid.SsidLength = 0;  // ANY ssid
-				memcpy(pSsid->Ssid, "", 0);
+				Ssid.Ssid[0] = 0;
 			}
 			pSsid = &Ssid;
 			if (pAd->Mlme.CntlMachine.CurrState != CNTL_IDLE)
 			{
+				DBGPRINT(RT_DEBUG_INFO,"- %s:: CNTL SM not idle\n",
+						__FUNCTION__);
 				MlmeEnqueue(pAd,
 				            MLME_CNTL_STATE_MACHINE,
 				            RT_CMD_RESET_MLME,
@@ -2979,6 +3109,8 @@ INT rt73_ioctl(
 					sizeof(NDIS_802_11_MAC_ADDRESS));
 			if (pAd->Mlme.CntlMachine.CurrState != CNTL_IDLE)
 			{
+				DBGPRINT(RT_DEBUG_INFO,"- %s:: CNTL SM not idle\n",
+						__FUNCTION__);
 				MlmeEnqueue(pAd,
 				            MLME_CNTL_STATE_MACHINE,
 				            RT_CMD_RESET_MLME,
@@ -3076,7 +3208,7 @@ INT rt73_ioctl(
 			}
 			else
 			{
-				Status	= -EINVAL;
+				Status = -EINVAL;
 				DBGPRINT(RT_DEBUG_TRACE, "IOCTL::SIOCSIWMODE (unknown)\n");
 			}
 			// Reset Ralink supplicant to not use, it will be set to start when UI set PMK key
@@ -3094,6 +3226,7 @@ INT rt73_ioctl(
 			Status = -EOPNOTSUPP;
 			break;
 		case RT_PRIV_IOCTL:
+		case RT_PRIV_IOCTL_WPA_SUPPLICANT:
 			subcmd = wrq->u.data.flags;
 			if( subcmd & OID_GET_SET_TOGGLE)
 				Status = RTMPSetInformation(pAd, rq, subcmd);
@@ -3101,51 +3234,79 @@ INT rt73_ioctl(
 				Status = RTMPQueryInformation(pAd, rq, subcmd);
 			break;
 		case SIOCGIWPRIV:
+			DBGPRINT(RT_DEBUG_TRACE, "IOCTL::SIOCGIWPRIV\n");
 			if (wrq->u.data.pointer) {
-				if ( access_ok(VERIFY_WRITE, wrq->u.data.pointer, sizeof(privtab)) != TRUE)
-					break;
-				wrq->u.data.length = sizeof(privtab) / sizeof(privtab[0]);
-				if (copy_to_user(wrq->u.data.pointer, privtab, sizeof(privtab)))
-					Status = -EFAULT;
+				if (access_ok(VERIFY_WRITE,
+							wrq->u.data.pointer, sizeof(privtab))) {
+					wrq->u.data.length = sizeof(privtab) / sizeof(privtab[0]);
+					if (copy_to_user(wrq->u.data.pointer,
+								privtab, sizeof(privtab)) == 0) {
+						break;
+					}
+				}
+				Status = -EFAULT;
+			}
+			else {
+				DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+						__FUNCTION__);
+				Status = -EINVAL;
 			}
 			break;
 		case RTPRIV_IOCTL_SET:
 			{
-				CHAR *this_char;
+				CHAR *this_char = NULL;
 				CHAR *value;
+				struct rt_priv_support *PRTMP_PRIVATE_SET_PROC;
 
-				if( access_ok(VERIFY_READ, wrq->u.data.pointer, wrq->u.data.length)!=TRUE )
+				do {
+				DBGPRINT(RT_DEBUG_TRACE, "IOCTL::RTPRIV_IOCTL_SET\n");
+
+				if(access_ok(VERIFY_READ,
+							wrq->u.data.pointer, wrq->u.data.length)!=TRUE )
+				{
+					Status = -EFAULT;
 					break;
-
-				this_char = kmalloc(wrq->u.data.length, MEM_ALLOC_FLAG);
+				}
+				this_char = kmalloc(wrq->u.data.length + 1, MEM_ALLOC_FLAG);
 				if(this_char == NULL)
 				{
 					Status = -ENOMEM;
 					break;
 				}
-
-				Status = copy_from_user(this_char, wrq->u.data.pointer, wrq->u.data.length);
-
-				if (!*this_char)
+				Status = copy_from_user(this_char,
+						wrq->u.data.pointer, wrq->u.data.length);
+				if (Status)
+				{
+					Status = -EFAULT;
 					break;
+				}
+				this_char[wrq->u.data.length] = 0;
 
 				if ((value = rtstrchr(this_char, '=')) != NULL)
 					*value++ = 0;
-
-				if (!value)
+				else {
+					DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n",
+							__FUNCTION__);
+					Status = -EINVAL;
 					break;
-
+				}
 				// reject setting nothing besides ANY ssid(ssidLen=0)
 				if (!*value && (strcmp(this_char, "SSID") != 0))
+				{
+					Status = -ENOSYS;
 					break;
-
-				for (PRTMP_PRIVATE_SET_PROC = RTMP_PRIVATE_SUPPORT_PROC; PRTMP_PRIVATE_SET_PROC->name; PRTMP_PRIVATE_SET_PROC++)
+				}
+				for (PRTMP_PRIVATE_SET_PROC = RTMP_PRIVATE_SUPPORT_PROC;
+					PRTMP_PRIVATE_SET_PROC->name; PRTMP_PRIVATE_SET_PROC++)
 				{
 					if (!strcmp(this_char, PRTMP_PRIVATE_SET_PROC->name))
 					{
 						if(!PRTMP_PRIVATE_SET_PROC->set_proc(pAd, value))
-						{	//FALSE:Set private failed then return Invalid argument
+						{	//FALSE:Set private failed return Invalid argument
 							Status = -EINVAL;
+							DBGPRINT(RT_DEBUG_ERROR,
+									"IOCTL::(iwpriv) %s failed]\n",
+									PRTMP_PRIVATE_SET_PROC->name);
 						}
 						break;	//Exit for loop.
 					}
@@ -3154,9 +3315,12 @@ INT rt73_ioctl(
 				if(PRTMP_PRIVATE_SET_PROC->name == NULL)
 				{  //Not found argument
 					Status = -EINVAL;
-					DBGPRINT(RT_DEBUG_TRACE, "IOCTL::(iwpriv) Command not Support [%s=%s]\n", this_char, value);
+					DBGPRINT(RT_DEBUG_ERROR,
+							"IOCTL::(iwpriv) Command not Support [%s=%s]\n",
+							this_char, value);
 					break;
 				}
+				} while (0);
 				if(this_char != NULL){
 					kfree(this_char);
 				}
@@ -3392,27 +3556,31 @@ NDIS_STATUS	RTMPWPAAddKeyProc(
 	DBGPRINT(RT_DEBUG_TRACE, "pAd->SharedKey[%d].CipherAlg = %d\n", KeyIdx, pAd->SharedKey[KeyIdx].CipherAlg);
 
 #if 0
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "%s Key #%d", CipherName[pAd->SharedKey[KeyIdx].CipherAlg],KeyIdx);
+	DBGPRINT(RT_DEBUG_TRACE, "%s Key #%d", CipherName[pAd->SharedKey[KeyIdx].CipherAlg],KeyIdx);
 	for (i = 0; i < 16; i++)
 	{
 		DBGPRINT_RAW(RT_DEBUG_TRACE, "%02x:", pAd->SharedKey[KeyIdx].Key[i]);
 	}
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "\n	 Rx MIC Key = ");
+	DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
+	DBGPRINT(RT_DEBUG_TRACE, "        Rx MIC Key = ");
 	for (i = 0; i < 8; i++)
 	{
 		DBGPRINT_RAW(RT_DEBUG_TRACE, "%02x:", pAd->SharedKey[KeyIdx].RxMic[i]);
 	}
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "\n	 Tx MIC Key = ");
+	DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
+	DBGPRINT(RT_DEBUG_TRACE, "        Tx MIC Key = ");
 	for (i = 0; i < 8; i++)
 	{
 		DBGPRINT_RAW(RT_DEBUG_TRACE, "%02x:", pAd->SharedKey[KeyIdx].TxMic[i]);
 	}
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "\n	 RxTSC = ");
+	DBGPRINT_RAW(RT_DEBUG_TRACE, "\n");
+	DBGPRINT(RT_DEBUG_TRACE, "        RxTSC = ");
 	for (i = 0; i < 6; i++)
 	{
 		DBGPRINT_RAW(RT_DEBUG_TRACE, "%02x:", pAd->SharedKey[KeyIdx].RxTsc[i]);
 	}
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "\n	 BSSID:%02x:%02x:%02x:%02x:%02x:%02x \n",
+	DBGPRINT(RT_DEBUG_TRACE, "    ");
+	DBGPRINT(RT_DEBUG_TRACE, "BSSID:%02x:%02x:%02x:%02x:%02x:%02x \n",
 		pKey->BSSID[0],pKey->BSSID[1],pKey->BSSID[2],pKey->BSSID[3],pKey->BSSID[4],pKey->BSSID[5]);
 #endif
 	AsicAddSharedKeyEntry(pAd,
@@ -3969,7 +4137,7 @@ INT Set_SSID_Proc(
 		else
 		{
 			Ssid.SsidLength = 0; //ANY ssid
-            memcpy(Ssid.Ssid, "", 0);
+			Ssid.Ssid[0] = 0;
 
 			// reset to infra/open/none as the user sets ANY ssid
             // $ iwpriv [interface] set SSID=""
@@ -3982,6 +4150,8 @@ INT Set_SSID_Proc(
 
 		if (pAdapter->Mlme.CntlMachine.CurrState != CNTL_IDLE)
 		{
+			DBGPRINT(RT_DEBUG_INFO,"- %s:: CNTL SM not idle\n",
+					__FUNCTION__);
 			MlmeEnqueue(pAdapter,
                         MLME_CNTL_STATE_MACHINE,
                         RT_CMD_RESET_MLME,
@@ -4938,25 +5108,27 @@ INT Set_WPAPSK_Proc(
 	IN	PRTMP_ADAPTER	pAdapter,
 	IN	PUCHAR			arg)
 {
-	UCHAR					keyMaterial[40];
-	INT 					Status;
+	int					KeyLen = strnlen(arg, 64);
+	UCHAR				keyMaterial[40];
+	INT 				Status;
+
+	DBGPRINT(RT_DEBUG_TRACE, "--> Set_WPAPSK_Proc: key len=%d\n", KeyLen);
 
 	if ((pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPAPSK) &&\
 		(pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPA2PSK) &&\
-		(pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPANone) )
+		(pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPANone) ) {
+		DBGPRINT(RT_DEBUG_TRACE, "<-- %s: invalid auth\n", __FUNCTION__);
 		return TRUE;	// do nothing
-
-	DBGPRINT(RT_DEBUG_TRACE, "Set_WPAPSK_Proc::(WPAPSK=%s)\n", arg);
-
-	memset(keyMaterial, 0, 40);
-
-	if ((strlen(arg) < 8) || (strlen(arg) > 64))
-	{
-		DBGPRINT(RT_DEBUG_TRACE, "Set failed!!(WPAPSK=%s), WPAPSK key-string required 8 ~ 64 characters \n", arg);
-		return FALSE;
 	}
 
-	if (strlen(arg) == 64)
+	if (KeyLen < 8 || arg[KeyLen])
+	{
+		DBGPRINT(RT_DEBUG_TRACE, "<-- %s: invalid key length\n", __FUNCTION__);
+		return FALSE;
+	}
+	memset(keyMaterial, 0, sizeof(keyMaterial));
+
+	if (KeyLen == 64)
 	{
 		AtoH(arg, keyMaterial, 32);
 		memcpy(pAdapter->PortCfg.PskKey.Key, keyMaterial, 32);
@@ -4974,10 +5146,10 @@ INT Set_WPAPSK_Proc(
 	{
 		//RTUSBEnqueueCmdFromNdis(pAdapter, OID_802_11_ADD_KEY, TRUE, &Key, sizeof(Key));
 		Status = RTMPWPANoneAddKeyProc(pAdapter, &keyMaterial[0]);
-
-		if (Status != NDIS_STATUS_SUCCESS)
+		if (Status != NDIS_STATUS_SUCCESS) {
+			DBGPRINT(RT_DEBUG_TRACE, "<-- %s: add key failed\n", __FUNCTION__);
 			return FALSE;
-
+		}
 		pAdapter->PortCfg.WpaState = SS_NOTUSE;
 	}
 	else	// Use RaConfig as PSK agent.
@@ -4986,6 +5158,7 @@ INT Set_WPAPSK_Proc(
 		pAdapter->PortCfg.WpaState = SS_START;
 	}
 
+	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: OK\n", __FUNCTION__);
 	return TRUE;
 }
 
@@ -5217,13 +5390,13 @@ VOID RTMPIoctlBBP(
 					DBGPRINT(RT_DEBUG_INFO, "msg=%s\n", msg);
 				}
 				else
-				{//Invalid parametes, so default printk all bbp
+				{//Invalid parametes, so default KPRINT all bbp
 					bIsPrintAllBBP = TRUE;
 					goto next;
 				}
 			}
 			else
-			{ //Invalid parametes, so default printk all bbp
+			{ //Invalid parametes, so default KPRINT all bbp
 				bIsPrintAllBBP = TRUE;
 				goto next;
 			}
@@ -5243,13 +5416,13 @@ VOID RTMPIoctlBBP(
 					DBGPRINT(RT_DEBUG_INFO, "msg=%s\n", msg);
 				}
 				else
-				{//Invalid parametes, so default printk all bbp
+				{//Invalid parametes, so default KPRINT all bbp
 					bIsPrintAllBBP = TRUE;
 					goto next;
 				}
 			}
 			else
-			{ //Invalid parametes, so default printk all bbp
+			{ //Invalid parametes, so default KPRINT all bbp
 				bIsPrintAllBBP = TRUE;
 				goto next;
 			}
@@ -5371,7 +5544,7 @@ VOID RTMPIoctlMAC(
 					DBGPRINT(RT_DEBUG_INFO, "msg=%s\n", msg);
 				}
 				else
-				{//Invalid parametes, so default printk all bbp
+				{//Invalid parametes, so default KPRINT all bbp
 					goto next;
 				}
 			}
@@ -5658,7 +5831,7 @@ VOID RTMPMakeRSNIE(
 		// Modify AKM
 		pAdapter->PortCfg.RSN_IE[19] = ((pAdapter->PortCfg.AuthMode == Ndis802_11AuthModeWPA2) ? 0x1 : 0x2);
 
-		DBGPRINT_RAW(RT_DEBUG_TRACE,"WPA2PSK GroupC=%d, PairC=%d\n",pAdapter->PortCfg.GroupCipher ,
+		DBGPRINT(RT_DEBUG_TRACE,"WPA2PSK GroupC=%d, PairC=%d\n",pAdapter->PortCfg.GroupCipher ,
 			pAdapter->PortCfg.PairCipher);
 
 		pAdapter->PortCfg.RSN_IELen = CipherWpa2TemplateLen;
@@ -5673,7 +5846,7 @@ VOID RTMPMakeRSNIE(
 		// Modify AKM
 		pAdapter->PortCfg.RSN_IE[23] = ((pAdapter->PortCfg.AuthMode == Ndis802_11AuthModeWPA) ? 0x1 : 0x2);
 
-		DBGPRINT_RAW(RT_DEBUG_TRACE,"WPAPSK GroupC = %d, PairC=%d ,  \n ",pAdapter->PortCfg.GroupCipher ,
+		DBGPRINT(RT_DEBUG_TRACE,"WPAPSK GroupC = %d, PairC=%d ,  \n",pAdapter->PortCfg.GroupCipher ,
 			pAdapter->PortCfg.PairCipher);
 
 		pAdapter->PortCfg.RSN_IELen = CipherWpaPskTkipLen;
@@ -5701,7 +5874,7 @@ NDIS_STATUS RTMPWPANoneAddKeyProc(
 	pKey = kmalloc(BufLen, MEM_ALLOC_FLAG);
 	if (pKey == NULL)
 	{
-		DBGPRINT(RT_DEBUG_TRACE, "RTMPWPANoneAddKeyProc() allocate memory failed \n");
+		DBGPRINT(RT_DEBUG_ERROR, "RTMPWPANoneAddKeyProc() allocate memory failed \n");
 		Status = NDIS_STATUS_FAILURE;
 		return	Status;
 	}
@@ -5730,6 +5903,7 @@ INT RTMPIoctlAdhocOfdm(
 
 	if (wrq->u.data.length != 1)
 	{
+		DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 		Status = -EINVAL;
 		return (Status);
 
@@ -5746,6 +5920,7 @@ INT RTMPIoctlAdhocOfdm(
 			pAdapter->PortCfg.AdhocMode = 2;
 		else
 		{
+			DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 			Status = -EINVAL;
 			return (Status);
 		}
@@ -5766,6 +5941,7 @@ INT RTMPIoctlSetAuth(
 
 	if (wrq->u.data.length != 1)
 	{
+		DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 		Status = -EINVAL;
 		return (Status);
 
@@ -5786,6 +5962,7 @@ INT RTMPIoctlSetAuth(
 			pAdapter->PortCfg.AuthMode = Ndis802_11AuthModeWPANone;
 		else
 		{
+			DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 			Status = -EINVAL;
 			return (Status);
 		}
@@ -5807,6 +5984,7 @@ INT RTMPIoctlSetEncryp(
 
 	if (wrq->u.data.length != 1)
 	{
+		DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 		Status = -EINVAL;
 		return (Status);
 	}
@@ -5843,6 +6021,7 @@ INT RTMPIoctlSetEncryp(
 		}
 		else
 		{
+			DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 			Status = -EINVAL;
 			return (Status);
 		}
@@ -5865,22 +6044,32 @@ INT RTMPIoctlSetWpapsk(
 	UCHAR			keyMaterial[40];
 	INT 			Status = 0;
 
-	if ((pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPAPSK) &&\
-		(pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPA2PSK) &&\
-		(pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPANone) )
-		return TRUE;	// do nothing
-
-	Status = copy_from_user(arg, wrq->u.data.pointer, wrq->u.data.length);
-
-	memset(keyMaterial, 0, 40);
-
+	DBGPRINT(RT_DEBUG_TRACE, "--> %s: key len=%d\n",
+			__FUNCTION__, wrq->u.data.length);
+	if ((pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPAPSK) &&
+		(pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPA2PSK) &&
+		(pAdapter->PortCfg.AuthMode != Ndis802_11AuthModeWPANone) ) {
+		DBGPRINT(RT_DEBUG_TRACE, "<-- %s: invalid auth\n", __FUNCTION__);
+		return 0;	// do nothing
+	}
 	if ((wrq->u.data.length < 8) || (wrq->u.data.length > 64))
 	{
-		DBGPRINT(RT_DEBUG_TRACE, "Set failed!!(WPAPSK=%s), WPAPSK key-string required 8 ~ 64 characters \n", arg);
+		DBGPRINT(RT_DEBUG_TRACE, "<-- %s: invalid key len(%d)\n",
+				__FUNCTION__, wrq->u.data.length);
 		Status = -EINVAL;
 		return (Status);
 	}
-	else if (wrq->u.data.length == 64)
+	Status = copy_from_user(arg, wrq->u.data.pointer, wrq->u.data.length);
+	if (Status) {
+		DBGPRINT(RT_DEBUG_TRACE, "<-- %s: key copy failed (len=%d)\n",
+				__FUNCTION__, wrq->u.data.length);
+		Status = -EFAULT;
+		return (Status);
+	}
+	arg[wrq->u.data.length] = 0;
+	memset(keyMaterial, 0, 40);
+
+	if (wrq->u.data.length == 64)
 	{
 		AtoH(arg, keyMaterial, 32);
 		memcpy(pAdapter->PortCfg.PskKey.Key, keyMaterial, 32);
@@ -5893,15 +6082,16 @@ INT RTMPIoctlSetWpapsk(
 
 	RTMPMakeRSNIE(pAdapter, pAdapter->PortCfg.GroupCipher);
 
-	if(pAdapter->PortCfg.BssType == BSS_ADHOC &&\
+	if(pAdapter->PortCfg.BssType == BSS_ADHOC &&
 	   pAdapter->PortCfg.AuthMode == Ndis802_11AuthModeWPANone)
 	{
 		//RTUSBEnqueueCmdFromNdis(pAdapter, OID_802_11_ADD_KEY, TRUE, &Key, sizeof(Key));
 		Status = RTMPWPANoneAddKeyProc(pAdapter, &keyMaterial[0]);
 
-		if (Status != NDIS_STATUS_SUCCESS)
+		if (Status != NDIS_STATUS_SUCCESS) {
+			DBGPRINT(RT_DEBUG_TRACE, "<-- %s: add key failed\n", __FUNCTION__);
 			return -ENOMEM;
-
+		}
 		pAdapter->PortCfg.WpaState = SS_NOTUSE;
 	}
 	else	 // Use RaConfig as PSK agent.
@@ -5910,7 +6100,7 @@ INT RTMPIoctlSetWpapsk(
 		pAdapter->PortCfg.WpaState = SS_START;
 	}
 
-	DBGPRINT(RT_DEBUG_TRACE, "RTMPIoctlSetWpapsk::(WPAPSK=%s)\n", arg);
+	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: (WPAPSK=%s)\n", __FUNCTION__, arg);
 
 	return (Status);
 }
@@ -5924,6 +6114,7 @@ INT RTMPIoctlSetPsm(
 
 	if (wrq->u.data.length != 1)
 	{
+		DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 		Status = -EINVAL;
 		return (Status);
 	}
@@ -5966,6 +6157,7 @@ INT RTMPIoctlSetPsm(
 		}
 		else
 		{
+			DBGPRINT(RT_DEBUG_ERROR,"- %s: Invalid argument\n", __FUNCTION__);
 			Status = -EINVAL;
 			return (Status);
 		}

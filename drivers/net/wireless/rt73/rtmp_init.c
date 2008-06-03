@@ -37,7 +37,7 @@
 
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0)
-#define RT_USB_ALLOC_URB(iso)	usb_alloc_urb(iso, GFP_ATOMIC);
+#define RT_USB_ALLOC_URB(iso)	usb_alloc_urb(iso, GFP_KERNEL);
 #else
 #define RT_USB_ALLOC_URB(iso)	usb_alloc_urb(iso);
 #endif
@@ -155,30 +155,68 @@ RTMP_REG_PAIR	MACRegTable[] =	{
 };
 #define	NUM_MAC_REG_PARMS	(sizeof(MACRegTable) / sizeof(RTMP_REG_PAIR))
 
-VOID CreateThreads( struct net_device *net_dev )
+VOID CreateThreads(PRTMP_ADAPTER pAd)
 {
-	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER) net_dev->priv;
-
 	// Creat MLME Thread
-	pAd->MLMEThr_pid= -1;
-
 	pAd->MLMEThr_pid = kernel_thread(MlmeThread, pAd, CLONE_VM);
 	if (pAd->MLMEThr_pid < 0) {
-		printk (KERN_WARNING "%s: unable to start mlme thread\n",pAd->net_dev->name);
+		DBGPRINT(RT_DEBUG_ERROR, "%s: unable to start mlme thread for %s\n",
+				__FUNCTION__, pAd->net_dev->name);
+		KPRINT(KERN_WARNING, "%s: unable to start mlme thread\n",
+				pAd->net_dev->name);
 	}
 
 	// Creat Command Thread
-	pAd->RTUSBCmdThr_pid= -1;
-
 	pAd->RTUSBCmdThr_pid = kernel_thread(RTUSBCmdThread, pAd, CLONE_VM);
 	if (pAd->RTUSBCmdThr_pid < 0) {
-		printk (KERN_WARNING "%s: unable to start RTUSBCmd thread\n",pAd->net_dev->name);
+		DBGPRINT(RT_DEBUG_ERROR, "%s: unable to start Cmd thread for %s\n",
+				__FUNCTION__, pAd->net_dev->name);
+		KPRINT(KERN_WARNING, "%s: unable to start Cmd thread\n",
+				pAd->net_dev->name);
 	}
-
-	/* Wait for the thread to start */
-	wait_for_completion(&(pAd->notify));
-
+	DBGPRINT(RT_DEBUG_INFO, "-  (%s) Mlme pid=%d, Cmd pid=%d\n",
+			__FUNCTION__, pAd->MLMEThr_pid, pAd->RTUSBCmdThr_pid);
 }
+
+void KillThreads(PRTMP_ADAPTER pAd)
+{
+	int             ret;
+
+	if (pAd->MLMEThr_pid > 0)
+	{
+		ret = kill_proc (pAd->MLMEThr_pid, SIGTERM, 1);
+		if (ret)
+		{
+			DBGPRINT(RT_DEBUG_ERROR, "%s(%s): unable to signal mlme thread"
+					" (pid=%d, err=%d)\n",
+					__FUNCTION__, pAd->net_dev->name, pAd->MLMEThr_pid, ret);
+			KPRINT(KERN_ERR, "(%s) unable to signal mlme thread"
+					" (pid=%d, err=%d)\n",
+					pAd->net_dev->name, pAd->MLMEThr_pid, ret);
+			//return ret;		Fix process killing
+		}
+		else wait_for_completion (&pAd->mlmenotify);
+	}
+	if (pAd->RTUSBCmdThr_pid> 0)
+	{
+		ret = kill_proc (pAd->RTUSBCmdThr_pid, SIGTERM, 1);
+		if (ret)
+		{
+			DBGPRINT(RT_DEBUG_ERROR, "%s(%s): unable to signal cmd thread"
+					" (pid=%d, err=%d)\n",
+					__FUNCTION__, pAd->net_dev->name, pAd->MLMEThr_pid, ret);
+			KPRINT(KERN_ERR, "(%s) unable to signal cmd thread"
+					" (pid=%d, err=%d)\n",
+					pAd->net_dev->name, pAd->RTUSBCmdThr_pid, ret);
+			//return ret;		Fix process killing
+		}
+		else wait_for_completion (&pAd->cmdnotify);
+	}
+	// reset mlme & command thread
+    pAd->MLMEThr_pid = -1;
+	pAd->RTUSBCmdThr_pid = -1;
+
+} /* End KillThreads () */
 
 NDIS_STATUS NICInitTransmit(
 	IN	PRTMP_ADAPTER	 pAd )
@@ -205,7 +243,6 @@ NDIS_STATUS NICInitTransmit(
 
 	pAd->PrivateInfo.TxRingFullCnt = 0;
 
-	pAd->NextRxBulkInIndex	   = 0;	// Rx Bulk pointer
 	pAd->NextMLMEIndex		   = 0;
 	pAd->PushMgmtIndex		   = 0;
 	pAd->PopMgmtIndex		   = 0;
@@ -496,7 +533,8 @@ NDIS_STATUS NICInitRecv(
 
 
 	DBGPRINT(RT_DEBUG_TRACE,"--> NICInitRecv\n");
-	pAd->NextRxBulkInIndex = 0;
+	pAd->NextRxBulkInIndex = 0;	// Rx Bulk pointer
+	pAd->CurRxBulkInIndex = 0;
 	atomic_set( &pAd->PendingRx, 0);
 	for (i = 0; i < RX_RING_SIZE; i++)
 	{
@@ -521,10 +559,12 @@ NDIS_STATUS NICInitRecv(
 
 		pRxContext->pAd	= pAd;
 		pRxContext->InUse = FALSE;
+		atomic_set(&pRxContext->IrpLock, IRPLOCK_COMPLETED);
 		pRxContext->IRPPending	= FALSE;
 	}
+	if (Status) ReleaseAdapter(pAd, TRUE, FALSE);
 
-	DBGPRINT(RT_DEBUG_TRACE,"<-- NICInitRecv\n");
+	DBGPRINT(RT_DEBUG_TRACE,"<-- NICInitRecv status=%d\n", Status);
 	return Status;
 }
 
@@ -534,9 +574,7 @@ NDIS_STATUS NICInitRecv(
 //		ReleaseAdapter
 //
 //	DESCRIPTION
-//		Calls USB_InterfaceStop and frees memory allocated for the URBs
-//		calls NdisMDeregisterDevice and frees the memory
-//		allocated in VNetInitialize for the Adapter Object
+//		Frees memory allocated for URBs and transfer buffers.
 //
 //	INPUT
 //		Adapter 	Pointer to RTMP_ADAPTER structure
@@ -698,18 +736,15 @@ VOID ReleaseAdapter(
 		Adapter		Pointer to our adapter
 
 	Return Value:
-		NDIS_STATUS_SUCCESS
-		NDIS_STATUS_FAILURE
-		NDIS_STATUS_RESOURCES
+		None.
 
 	Note:
 
 	========================================================================
 */
-NDIS_STATUS	RTMPInitAdapterBlock(
+void RTMPInitAdapterBlock(
 	IN	PRTMP_ADAPTER	pAd)
 {
-	NDIS_STATUS		Status=NDIS_STATUS_SUCCESS;
 	UINT			i;
 	PCmdQElmt		cmdqelmt;
 
@@ -756,17 +791,18 @@ NDIS_STATUS	RTMPInitAdapterBlock(
 		}
 		RTUSBInitializeCmdQ(&pAd->CmdQ);
 
-		init_MUTEX(&(pAd->usbdev_semaphore));
-		init_MUTEX(&(pAd->mlme_semaphore));
-		down(&pAd->mlme_semaphore);
-		init_MUTEX(&(pAd->RTUSBCmd_semaphore));
-		down(&pAd->RTUSBCmd_semaphore);
+		pAd->MLMEThr_pid= -1;
+		pAd->RTUSBCmdThr_pid= -1;
 
-		init_completion (&pAd->notify); 	// event initially non-signalled
+		init_MUTEX_LOCKED(&(pAd->usbdev_semaphore));
+		init_MUTEX_LOCKED(&(pAd->mlme_semaphore));
+		init_MUTEX_LOCKED(&(pAd->RTUSBCmd_semaphore));
+
+		init_completion (&pAd->mlmenotify);	// event initially non-signalled
+		init_completion (&pAd->cmdnotify); 	// event initially non-signalled
 
 		////////////////////////
 		// Spinlock
-		NdisAllocateSpinLock(&pAd->MLMEQLock);
 		NdisAllocateSpinLock(&pAd->BulkOutLock[0]);
 		NdisAllocateSpinLock(&pAd->BulkOutLock[1]);
 		NdisAllocateSpinLock(&pAd->BulkOutLock[2]);
@@ -780,59 +816,69 @@ NDIS_STATUS	RTMPInitAdapterBlock(
 		NdisAllocateSpinLock(&pAd->DeQueueLock[1]);
 		NdisAllocateSpinLock(&pAd->DeQueueLock[2]);
 		NdisAllocateSpinLock(&pAd->DeQueueLock[3]);
-		NdisAllocateSpinLock(&pAd->DataQLock[0]);
-		NdisAllocateSpinLock(&pAd->DataQLock[1]);
-		NdisAllocateSpinLock(&pAd->DataQLock[2]);
-		NdisAllocateSpinLock(&pAd->DataQLock[3]);
 
 		NdisAllocateSpinLock(&pAd->MLMEWaitQueueLock);
+		NdisAllocateSpinLock(&pAd->MLMEQLock);
 
 	}	while (FALSE);
 
 	DBGPRINT(RT_DEBUG_TRACE, "<-- RTMPInitAdapterBlock\n");
-
-	return Status;
 }
 
 NDIS_STATUS	RTUSBWriteHWMACAddress(
 	IN	PRTMP_ADAPTER		pAd)
 {
-	MAC_CSR2_STRUC		StaMacReg0;
-	MAC_CSR3_STRUC		StaMacReg1;
+	MAC_CSR2_STRUC		*StaMacReg0 = kzalloc(sizeof(MAC_CSR2_STRUC), GFP_KERNEL);
+	MAC_CSR3_STRUC		*StaMacReg1 = kzalloc(sizeof(MAC_CSR3_STRUC), GFP_KERNEL);
 	NDIS_STATUS			Status = NDIS_STATUS_SUCCESS;
 	PUCHAR			curMAC;
 	int			t;
 
+	if (!StaMacReg0 || !StaMacReg1) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+    return -ENOMEM;
+  }
 	if (pAd->bLocalAdminMAC != TRUE)
 	{
 		if (!memcmp(pAd->net_dev->dev_addr, "\x00\x00\x00\x00\x00\x00", 6)) {
-			printk(KERN_INFO "***rt73***: Interface goes up for the first time, activating permanent MAC\n");
+			KPRINT(KERN_INFO, "using permanent MAC addr\n");
+			DBGPRINT(RT_DEBUG_INFO, "-   using permanent MAC addr\n");
 			curMAC = pAd->PermanentAddress;
+			// Also meets 2.6.24 pre-up requirements - bb
+			memcpy(pAd->net_dev->dev_addr, curMAC, pAd->net_dev->addr_len);
 		} else {
-			printk(KERN_INFO "***rt73***: net_device supplies MAC, activating this one\n");
+			KPRINT(KERN_INFO, "using net dev supplied MAC addr\n");
+			DBGPRINT(RT_DEBUG_INFO, "-   using net dev supplied MAC addr\n");
 			curMAC = pAd->net_dev->dev_addr;
 		}
 
-		printk(KERN_INFO "***rt73***: Active MAC is: %02x:%02x:%02x:%02x:%02x:%02x.\n", curMAC[0], curMAC[1], curMAC[2], curMAC[3], curMAC[4], curMAC[5]);
+		KPRINT(KERN_INFO, "Active MAC addr: %02x:%02x:%02x:%02x:%02x:%02x\n",
+			curMAC[0], curMAC[1], curMAC[2], curMAC[3], curMAC[4], curMAC[5]);
 		for (t=0; t<6; t++) pAd->CurrentAddress[t] = curMAC[t];
 	}
 
 	// Write New MAC address to MAC_CSR2 & MAC_CSR3 & let ASIC know our new MAC
-	StaMacReg0.field.Byte0 = pAd->CurrentAddress[0];
-	StaMacReg0.field.Byte1 = pAd->CurrentAddress[1];
-	StaMacReg0.field.Byte2 = pAd->CurrentAddress[2];
-	StaMacReg0.field.Byte3 = pAd->CurrentAddress[3];
-	StaMacReg1.field.Byte4 = pAd->CurrentAddress[4];
-	StaMacReg1.field.Byte5 = pAd->CurrentAddress[5];
-	StaMacReg1.field.U2MeMask = 0xff;
+	StaMacReg0->field.Byte0 = pAd->CurrentAddress[0];
+	StaMacReg0->field.Byte1 = pAd->CurrentAddress[1];
+	StaMacReg0->field.Byte2 = pAd->CurrentAddress[2];
+	StaMacReg0->field.Byte3 = pAd->CurrentAddress[3];
+	StaMacReg1->field.Byte4 = pAd->CurrentAddress[4];
+	StaMacReg1->field.Byte5 = pAd->CurrentAddress[5];
+	StaMacReg1->field.U2MeMask = 0xff;
 
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "Local MAC = %02x:%02x:%02x:%02x:%02x:%02x\n",
-			pAd->CurrentAddress[0], pAd->CurrentAddress[1], pAd->CurrentAddress[2],
-			pAd->CurrentAddress[3], pAd->CurrentAddress[4], pAd->CurrentAddress[5]);
+	KPRINT(KERN_INFO, "Local MAC = %02x:%02x:%02x:%02x:%02x:%02x\n",
+		pAd->CurrentAddress[0], pAd->CurrentAddress[1], pAd->CurrentAddress[2],
+		pAd->CurrentAddress[3], pAd->CurrentAddress[4], pAd->CurrentAddress[5]);
+	DBGPRINT(RT_DEBUG_INFO, "- %s: Local MAC = %02x:%02x:%02x:%02x:%02x:%02x\n",
+		__FUNCTION__,
+		pAd->CurrentAddress[0], pAd->CurrentAddress[1], pAd->CurrentAddress[2],
+		pAd->CurrentAddress[3], pAd->CurrentAddress[4], pAd->CurrentAddress[5]);
 
-	RTUSBWriteMACRegister(pAd, MAC_CSR2, StaMacReg0.word);
-	RTUSBWriteMACRegister(pAd, MAC_CSR3, StaMacReg1.word);
+	RTUSBWriteMACRegister(pAd, MAC_CSR2, StaMacReg0->word);
+	RTUSBWriteMACRegister(pAd, MAC_CSR3, StaMacReg1->word);
 
+	kfree(StaMacReg0);
+	kfree(StaMacReg1);
 	return Status;
 }
 
@@ -855,7 +901,7 @@ NDIS_STATUS	RTUSBWriteHWMACAddress(
 VOID NICReadEEPROMParameters(
 	IN	PRTMP_ADAPTER	pAd)
 {
-	USHORT  i, value2;
+	USHORT					i, value2;
 	USHORT  *value = kzalloc(sizeof(USHORT), GFP_KERNEL);
 	EEPROM_ANTENNA_STRUC	Antenna;
 	EEPROM_VERSION_STRUC  *Version = kzalloc(sizeof(EEPROM_VERSION_STRUC), GFP_KERNEL);
@@ -869,10 +915,12 @@ VOID NICReadEEPROMParameters(
 		return;
 	}
 	//Read MAC address.
-	RTUSBReadEEPROM(pAd, EEPROM_MAC_ADDRESS_BASE_OFFSET, pAd->PermanentAddress, MAC_ADDR_LEN);
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "Local MAC = %02x:%02x:%02x:%02x:%02x:%02x\n",
-			pAd->PermanentAddress[0], pAd->PermanentAddress[1], pAd->PermanentAddress[2],
-			pAd->PermanentAddress[3], pAd->PermanentAddress[4], pAd->PermanentAddress[5]);
+	RTUSBReadEEPROM(pAd, EEPROM_MAC_ADDRESS_BASE_OFFSET,
+					pAd->PermanentAddress, MAC_ADDR_LEN);
+	DBGPRINT(RT_DEBUG_INFO, "- Local MAC = %02x:%02x:%02x:%02x:%02x:%02x\n",
+			pAd->PermanentAddress[0], pAd->PermanentAddress[1],
+			pAd->PermanentAddress[2], pAd->PermanentAddress[3],
+			pAd->PermanentAddress[4], pAd->PermanentAddress[5]);
 
 	// Init the channel number for TX channel power
 	// 0. 11b/g
@@ -897,6 +945,7 @@ VOID NICReadEEPROMParameters(
 	RTUSBReadEEPROM(pAd, EEPROM_VERSION_OFFSET, (PUCHAR)&Version->word, 2);
 	pAd->EepromVersion = Version->field.Version + Version->field.FaeReleaseNumber * 256;
 	DBGPRINT(RT_DEBUG_TRACE, "E2PROM: Version = %d, FAE release #%d\n", Version->field.Version, Version->field.FaeReleaseNumber);
+
 	// Read BBP default value from EEPROM and store to array(EEPROMDefaultValue) in pAd
 	RTUSBReadEEPROM(pAd, EEPROM_BBP_BASE_OFFSET, (PUCHAR)(pAd->EEPROMDefaultValue), 2 * NUM_EEPROM_BBP_PARMS);
 
@@ -948,7 +997,7 @@ VOID NICReadEEPROMParameters(
 		else
 			pAd->TxPower[i].Power = ChannelTxPower[i];
 
-		DBGPRINT_RAW(RT_DEBUG_INFO, "Tx power for channel %d : %0x\n", pAd->TxPower[i].Channel, pAd->TxPower[i].Power);
+		DBGPRINT(RT_DEBUG_INFO, "Tx power for channel %d : 0x%02x\n", pAd->TxPower[i].Channel, (UCHAR)(pAd->TxPower[i].Power));
 	}
 
 	// 1. UNI 36 - 64, HipperLAN 2 100 - 140, UNI 140 - 165
@@ -960,7 +1009,7 @@ VOID NICReadEEPROMParameters(
 			pAd->TxPower[i + 14].Power = 24;
 		else
 			pAd->TxPower[i + 14].Power = ChannelTxPower[i];
-		DBGPRINT_RAW(RT_DEBUG_INFO, "Tx power for channel %d : %0x\n", pAd->TxPower[i + 14].Channel, pAd->TxPower[i + 14].Power);
+		DBGPRINT(RT_DEBUG_INFO, "Tx power for channel %d : 0x%02x\n", pAd->TxPower[i + 14].Channel, (UCHAR)(pAd->TxPower[i + 14].Power));
 	}
 
 	//
@@ -978,7 +1027,7 @@ VOID NICReadEEPROMParameters(
 		else
 			pAd->TxPower[J52_CHANNEL_START_OFFSET + i].Power = ChannelTxPower[i + 1];
 
-		DBGPRINT_RAW(RT_DEBUG_INFO, "Tx power for channel %d : %0x\n", pAd->TxPower[J52_CHANNEL_START_OFFSET + i].Channel, pAd->TxPower[J52_CHANNEL_START_OFFSET + i].Power);
+		DBGPRINT(RT_DEBUG_INFO, "Tx power for channel %d : %0x\n", pAd->TxPower[J52_CHANNEL_START_OFFSET + i].Channel, pAd->TxPower[J52_CHANNEL_START_OFFSET + i].Power);
 	}
 
 	// Read TSSI reference and TSSI boundary for temperature compensation.
@@ -1036,8 +1085,8 @@ VOID NICReadEEPROMParameters(
 			pAd->TssiPlusBoundaryA[1], pAd->TssiPlusBoundaryA[2], pAd->TssiPlusBoundaryA[3], pAd->TssiPlusBoundaryA[4],
 			pAd->TxAgcStepA, pAd->bAutoTxAgcA);
 	}
-
 	pAd->BbpRssiToDbmDelta = 0x79;
+
 	RTUSBReadEEPROM(pAd, EEPROM_FREQ_OFFSET, (PUCHAR)value, 2);
 	if ((*value & 0xFF00) == 0xFF00)
 	{
@@ -1045,7 +1094,7 @@ VOID NICReadEEPROMParameters(
 	}
 	else
 	{
-		pAd->RFProgSeq = (*value & 0x0300) >> 8;  // bit 8,9
+		pAd->RFProgSeq = (*value & 0x0300) >> 8;	// bit 8,9
 	}
 
 	*value &= 0x00FF;
@@ -1058,7 +1107,7 @@ VOID NICReadEEPROMParameters(
 	//CountryRegion byte offset = 0x25
 	*value = pAd->EEPROMDefaultValue[2] >> 8;
 	value2 = pAd->EEPROMDefaultValue[2] & 0x00FF;
-    if ((*value <= REGION_MAXIMUM_BG_BAND) && (value2 <= REGION_MAXIMUM_A_BAND))
+	if ((*value <= REGION_MAXIMUM_BG_BAND) && (value2 <= REGION_MAXIMUM_A_BAND))
 	{
 		pAd->PortCfg.CountryRegion = ((UCHAR) *value) | 0x80;
 		pAd->PortCfg.CountryRegionForABand = ((UCHAR) value2) | 0x80;
@@ -1071,6 +1120,7 @@ VOID NICReadEEPROMParameters(
 	RTUSBReadEEPROM(pAd, EEPROM_RSSI_BG_OFFSET, (PUCHAR)value, 2);
 	pAd->BGRssiOffset1 = *value & 0x00ff;
 	pAd->BGRssiOffset2 = (*value >> 8);
+
 	// Validate 11b/g RSSI_1 offset.
 	if ((pAd->BGRssiOffset1 < -10) || (pAd->BGRssiOffset1 > 10))
 		pAd->BGRssiOffset1 = 0;
@@ -1110,7 +1160,6 @@ VOID NICReadEEPROMParameters(
 		LedSetting->field.PolarityGPIO_4 = 0; // Active High.
 		LedSetting->field.LedMode = LED_MODE_DEFAULT;
 	}
-	pAd->LedCntl.word = 0;
 	pAd->LedCntl.field.LedMode = LedSetting->field.LedMode;
 	pAd->LedCntl.field.PolarityRDY_G = LedSetting->field.PolarityRDY_G;
 	pAd->LedCntl.field.PolarityRDY_A = LedSetting->field.PolarityRDY_A;
@@ -1295,7 +1344,6 @@ NDIS_STATUS	NICInitializeAsic(
 		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return -ENOMEM;
 	}
-
 	*Value = 0xff;
 	RTUSBReadMACRegister(pAd, MAC_CSR0, Version);
 
@@ -1341,6 +1389,7 @@ NDIS_STATUS	NICInitializeAsic(
 	RTUSBReadMACRegister(pAd, STA_CSR0, Counter);
 	RTUSBReadMACRegister(pAd, STA_CSR1, Counter);
 	RTUSBReadMACRegister(pAd, STA_CSR2, Counter);
+
 	// assert HOST ready bit
 	RTUSBWriteMACRegister(pAd, MAC_CSR1, 0x4);
 
@@ -1452,14 +1501,12 @@ VOID NICUpdateRawCounters(
 	// Update RX Overflow counter
 	RTUSBReadMACRegister(pAd, STA_CSR2, &StaCsr2->word);
 	pAd->Counters8023.RxNoBuffer += (StaCsr2->field.RxOverflowCount + StaCsr2->field.RxFifoOverflowCount);
-
 	// Update BEACON sent count
 	RTUSBReadMACRegister(pAd, STA_CSR3, &StaCsr3->word);
 	pAd->RalinkCounters.OneSecBeaconSentCnt += StaCsr3->field.TxBeaconCount;
 
 	RTUSBReadMACRegister(pAd, STA_CSR4, &StaCsr4->word);
 	RTUSBReadMACRegister(pAd, STA_CSR5, &StaCsr5->word);
-
 	// 1st - Transmit Success
 	OldValue = pAd->WlanCounters.TransmittedFragmentCount.vv.LowPart;
 	pAd->WlanCounters.TransmittedFragmentCount.vv.LowPart += (StaCsr4->field.TxOneRetryCount + StaCsr4->field.TxNoRetryCount + StaCsr5->field.TxMultiRetryCount);
@@ -1569,16 +1616,16 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 
 	// Access firmware file
 	if ((status = request_firmware(&fw_entry, firmName, udevice))) {
-		printk(KERN_ERR "rt73: Failed to request_firmware. "
+		KPRINT(KERN_ERR, "Failed to request_firmware. "
 				"Check your firmware file location\n");
 		goto fw_error;
 	}
 
 	if (fw_entry->size != FIRMWARE_IMAGE_SIZE) {
-		printk(KERN_ERR "rt73: Firmware file size error "
+		KPRINT(KERN_ERR, "Firmware file size error "
 			"(%d instead of %d)\n",
 			fw_entry->size, FIRMWARE_IMAGE_SIZE);
-		status = EBADF;
+		status = -EBADF;
 		goto error;
 	}
 
@@ -1592,9 +1639,9 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 	crc = ByteCRC16(0x00, crc);
 
 	if (crc != ((fw_entry->data[size] << 8) | fw_entry->data[size + 1])) {
-		printk(KERN_ERR "rt73: Firmware CRC error "
+		KPRINT(KERN_ERR, "Firmware CRC error "
 				"Check your firmware file integrity\n");
-		status = EBADF;
+		status = -EBADF;
 		goto error;
 	}
 
@@ -1607,8 +1654,8 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 	}
 
 	if (!reg) {
-		printk(KERN_ERR "rt73: Unstable hardware\n");
-		status = EBUSY;
+		KPRINT(KERN_ERR, "Unstable hardware\n");
+		status = -EBUSY;
 		goto error;
 	}
 
@@ -1621,7 +1668,7 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 #endif
 		if ((status = RTUSBMultiWrite(pAd, FIRMWARE_IMAGE_BASE + i,
 						&buf, sizeof(buf))) < 0) {
-			printk(KERN_ERR "rt73: Firmware loading error\n");
+			KPRINT(KERN_ERR, "Firmware loading error\n");
 			goto error;
 		}
 		loaded += status;
@@ -1630,15 +1677,15 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 
 	if (loaded < FIRMWARE_IMAGE_SIZE) {
 		// Should never happen
-		printk(KERN_ERR "rt73: Firmware loading incomplete\n");
-		status = EIO;
+		KPRINT(KERN_ERR, "Firmware loading incomplete\n");
+		status = -EIO;
 		goto error;
 	}
 
 
 	// Send 'run firmware' request to device
 	if ((status = RTUSBFirmwareRun(pAd)) < 0) {
-		printk(KERN_ERR "rt73: Device refuses to run firmware\n");
+		KPRINT(KERN_ERR, "Device refuses to run firmware\n");
 		goto error;
 	}
 
@@ -1867,21 +1914,21 @@ VOID	RTMPMoveMemory(
 #ifdef RTMP_EMBEDDED
 	if(Length <= 8)
 	{
-		*(((PUCHAR)pDest)++) = *(((PUCHAR)pSrc)++);
+		*(PUCHAR)pDest++ = *(PUCHAR)pSrc++;
 		if(--Length == 0)	return;
-		*(((PUCHAR)pDest)++) = *(((PUCHAR)pSrc)++);
+		*(PUCHAR)pDest++ = *(PUCHAR)pSrc++;
 		if(--Length == 0)	return;
-		*(((PUCHAR)pDest)++) = *(((PUCHAR)pSrc)++);
+		*(PUCHAR)pDest++ = *(PUCHAR)pSrc++;
 		if(--Length == 0)	return;
-		*(((PUCHAR)pDest)++) = *(((PUCHAR)pSrc)++);
+		*(PUCHAR)pDest++ = *(PUCHAR)pSrc++;
 		if(--Length == 0)	return;
-		*(((PUCHAR)pDest)++) = *(((PUCHAR)pSrc)++);
+		*(PUCHAR)pDest++ = *(PUCHAR)pSrc++;
 		if(--Length == 0)	return;
-		*(((PUCHAR)pDest)++) = *(((PUCHAR)pSrc)++);
+		*(PUCHAR)pDest++ = *(PUCHAR)pSrc++;
 		if(--Length == 0)	return;
-		*(((PUCHAR)pDest)++) = *(((PUCHAR)pSrc)++);
+		*(PUCHAR)pDest++ = *(PUCHAR)pSrc++;
 		if(--Length == 0)	return;
-		*(((PUCHAR)pDest)++) = *(((PUCHAR)pSrc)++);
+		*(PUCHAR)pDest++ = *(PUCHAR)pSrc++;
 		if(--Length == 0)	return;
 	}
 	else
@@ -2265,7 +2312,6 @@ VOID RTMPCckBbpTuning(
 	IN	UINT			TxRate)
 {
 	CHAR		Bbp94 = 0xFF;
-	USHORT		Value = 0;
 
 	//
 	// Do nothing if TxPowerEnable == FALSE
@@ -2297,8 +2343,8 @@ VOID RTMPCckBbpTuning(
 
 	if ((Bbp94 >= 0) && (Bbp94 <= 0x0C))
 	{
-		Value = (Bbp94 << 8) + BBP_R94;
-        RTUSBEnqueueCmdFromNdis(pAd, RT_OID_VENDOR_WRITE_BBP, TRUE, (PVOID) &Value, sizeof(Value));
+		// sb safe, because we're now in process context.
+		RTUSBWriteBBPRegister(pAd, BBP_R94, Bbp94);
 	}
 }
 

@@ -302,16 +302,16 @@ NTSTATUS	RTUSBReadBBPRegister(
 		//
 		*pValue = pAd->BbpWriteLatch[Id];
 
-		DBGPRINT_RAW(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
+		DBGPRINT(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
 		kfree(PhyCsr3);
 		return STATUS_UNSUCCESSFUL;
 	}
 
 	// Prepare for write material
-	PhyCsr3->word         = 0;
-	PhyCsr3->field.fRead      = 1;
-	PhyCsr3->field.Busy     = 1;
-	PhyCsr3->field.RegNum     = Id;
+	PhyCsr3->word 				= 0;
+	PhyCsr3->field.fRead			= 1;
+	PhyCsr3->field.Busy			= 1;
+	PhyCsr3->field.RegNum 		= Id;
 	RTUSBWriteMACRegister(pAd, PHY_CSR3, PhyCsr3->word);
 
 	i = 0;
@@ -335,7 +335,7 @@ NTSTATUS	RTUSBReadBBPRegister(
 		//
 		*pValue = pAd->BbpWriteLatch[Id];
 
-		DBGPRINT_RAW(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
+		DBGPRINT(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
 		kfree(PhyCsr3);
 		return STATUS_UNSUCCESSFUL;
 	}
@@ -381,7 +381,7 @@ NTSTATUS	RTUSBWriteBBPRegister(
 
 	if ((i == RETRY_LIMIT) || (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
 	{
-		DBGPRINT_RAW(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
+		DBGPRINT(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
 		kfree(PhyCsr3);
 		return STATUS_UNSUCCESSFUL;
 	}
@@ -393,6 +393,7 @@ NTSTATUS	RTUSBWriteBBPRegister(
 	PhyCsr3->field.Busy     = 1;
 	PhyCsr3->field.RegNum     = Id;
 	RTUSBWriteMACRegister(pAd, PHY_CSR3, PhyCsr3->word);
+
 	pAd->BbpWriteLatch[Id] = Value;
 
 	kfree(PhyCsr3);
@@ -434,7 +435,7 @@ NTSTATUS	RTUSBWriteRFRegister(
 
 	if ((i == RETRY_LIMIT) || (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
 	{
-		DBGPRINT_RAW(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
+		DBGPRINT(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
 		kfree(PhyCsr4);
 		return STATUS_UNSUCCESSFUL;
 	}
@@ -618,7 +619,7 @@ NDIS_STATUS	RTUSBEnqueueCmdFromNdis(
 {
 	PCmdQElmt	cmdqelmt = NULL;
     PCmdQElmt	Dcmdqelmt = NULL;
-	unsigned long       IrqFlags;
+	unsigned long       flags;
 
 	if (pAd->RTUSBCmdThr_pid < 0)
 		return (NDIS_STATUS_RESOURCES);
@@ -671,12 +672,12 @@ NDIS_STATUS	RTUSBEnqueueCmdFromNdis(
 	else
 		cmdqelmt->SetOperation = FALSE;
 
-	NdisAcquireSpinLock(&pAd->CmdQLock,  IrqFlags);
+	NdisAcquireSpinLock(&pAd->CmdQLock);
 	EnqueueCmd((&pAd->CmdQ), cmdqelmt);
-	NdisReleaseSpinLock(&pAd->CmdQLock,  IrqFlags);
+	NdisReleaseSpinLock(&pAd->CmdQLock);
 
 #if 1
-	NdisAcquireSpinLock(&pAd->CmdQLock,  IrqFlags);
+	NdisAcquireSpinLock(&pAd->CmdQLock);
 	if( pAd->CmdQ.size > 2048 ){//Thomas add
 		RTUSBDequeueCmd(&pAd->CmdQ, &Dcmdqelmt);
 		if(Dcmdqelmt != NULL){
@@ -687,7 +688,7 @@ NDIS_STATUS	RTUSBEnqueueCmdFromNdis(
 			Dcmdqelmt=NULL;
 		}
 	}
-	NdisReleaseSpinLock(&pAd->CmdQLock,  IrqFlags);
+	NdisReleaseSpinLock(&pAd->CmdQLock);
 #endif
 
 	RTUSBCMDUp(pAd);
@@ -721,11 +722,12 @@ VOID	RTUSBEnqueueInternalCmd(
 	IN	NDIS_OID		Oid)
 {
 	PCmdQElmt	cmdqelmt = NULL;
-	unsigned long       IrqFlags;
+	unsigned long       flags;
 
-	if (pAd->RTUSBCmdThr_pid < 0)
+	if (pAd->RTUSBCmdThr_pid < 0) {
+		DBGPRINT(RT_DEBUG_TRACE, "<-- %s: no CmdThr\n", __FUNCTION__);
 		return;
-
+	}
 	switch (Oid)
 	{
 		case RT_OID_CHECK_GPIO:
@@ -790,12 +792,14 @@ VOID	RTUSBEnqueueInternalCmd(
 		cmdqelmt->InUse = TRUE;
 		cmdqelmt->command = Oid;
 
-		NdisAcquireSpinLock(&pAd->CmdQLock, IrqFlags);
+		NdisAcquireSpinLock(&pAd->CmdQLock);
 		EnqueueCmd((&pAd->CmdQ), cmdqelmt);
-		NdisReleaseSpinLock(&pAd->CmdQLock, IrqFlags);
+		NdisReleaseSpinLock(&pAd->CmdQLock);
 
 		RTUSBCMDUp(pAd);
+		DBGPRINT(RT_DEBUG_TRACE, "<-- %s: CmdThr up\n", __FUNCTION__);
 	}
+	else DBGPRINT(RT_DEBUG_TRACE, "<-- %s CMDThr in use\n", __FUNCTION__);
 }
 
 /*
@@ -898,31 +902,23 @@ INT	    RTUSB_VendorRequest(
 			DBGPRINT(RT_DEBUG_ERROR,"vendor request direction is failed\n");
 			ret = -1;
 		}
+    if (ret < 0) {
+			switch (ret) {
+			case -ECONNRESET:		// async unlink via call to usb_unlink_urb()
+			case -ENOENT:			// stopped by call to usb_kill_urb
+			case -ESHUTDOWN:		// hardware gone = -108
+			case -EPROTO:			// unplugged = -71
+				RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST);
+				DBGPRINT(RT_DEBUG_ERROR,"=== %s: Non-recoverable err = %d\n",
+					__FUNCTION__, ret);
 
-        if (ret < 0)
-			DBGPRINT(RT_DEBUG_ERROR,"USBVendorRequest failed ret=%d \n",ret);
+				break;
 
-#if 0
-        // retry
-		if (ret < 0) {
-			int temp_i=0;
-			DBGPRINT(RT_DEBUG_ERROR,"USBVendorRequest failed ret=%d, \n",ret);
-			ret = 0;
-			do
-			{
-				if( RequestType == DEVICE_VENDOR_REQUEST_OUT)
-					ret=usb_control_msg(pAd->pUsb_Dev, usb_sndctrlpipe( pAd->pUsb_Dev, 0 ), Request, RequestType, Value,Index, TransferBuffer, TransferBufferLength, CONTROL_TIMEOUT_JIFFIES);
-				else if(RequestType == DEVICE_VENDOR_REQUEST_IN)
-					ret=usb_control_msg(pAd->pUsb_Dev, usb_rcvctrlpipe( pAd->pUsb_Dev, 0 ), Request, RequestType, Value,Index, TransferBuffer, TransferBufferLength, CONTROL_TIMEOUT_JIFFIES);
-				temp_i++;
-			} while( (ret < 0) && (temp_i <= 1) );
-
-			if( ret >= 0)
-				return ret;
-
+			default:
+				DBGPRINT(RT_DEBUG_ERROR,"USBVendorRequest failed ret=%d \n",ret);
+				break;
+			}
 		}
-#endif
-
 	}
 	return ret;
 }
@@ -948,7 +944,7 @@ NTSTATUS	RTUSB_ResetDevice(
 {
 	NTSTATUS		Status = TRUE;
 
-	DBGPRINT_RAW(RT_DEBUG_TRACE, "--->USB_ResetDevice\n");
+	DBGPRINT(RT_DEBUG_TRACE, "--->USB_ResetDevice\n");
 	//RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS);
 	return Status;
 }

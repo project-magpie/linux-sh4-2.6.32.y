@@ -380,19 +380,19 @@ BOOLEAN	    RTMPTkipCompareMICValue(
 	// Since the MIC value might cross MPDUs.
 	if(!NdisEqualMemory(pAdapter->PrivateInfo.Rx.MIC, OldMic, 8))
 	{
-		DBGPRINT_RAW(RT_DEBUG_ERROR, "! TKIP MIC Error !\n");  //MIC error.
-		DBGPRINT_RAW(RT_DEBUG_INFO, "Orig MIC value =");  //MIC error.
+		DBGPRINT(RT_DEBUG_ERROR, "! TKIP MIC Error !\n");  //MIC error.
+		DBGPRINT(RT_DEBUG_ERROR, "Orig MIC value =");  //MIC error.
 		for (i = 0; i < 8; i++)
 		{
-			DBGPRINT_RAW(RT_DEBUG_INFO, "%02x:", OldMic[i]);  //MIC error.
+			DBGPRINT_RAW(RT_DEBUG_ERROR, "%02x:", OldMic[i]);  //MIC error.
 		}
-		DBGPRINT_RAW(RT_DEBUG_INFO, "\n");  //MIC error.
-		DBGPRINT_RAW(RT_DEBUG_INFO, "Calculated MIC value =");  //MIC error.
+		DBGPRINT(RT_DEBUG_ERROR, "\n");  //MIC error.
+		DBGPRINT(RT_DEBUG_ERROR, "Calculated MIC value =");  //MIC error.
 		for (i = 0; i < 8; i++)
 		{
-			DBGPRINT_RAW(RT_DEBUG_INFO, "%02x:", pAdapter->PrivateInfo.Rx.MIC[i]);  //MIC error.
+			DBGPRINT_RAW(RT_DEBUG_ERROR, "%02x:", pAdapter->PrivateInfo.Rx.MIC[i]);  //MIC error.
 		}
-		DBGPRINT_RAW(RT_DEBUG_INFO, "\n");  //MIC error.
+		DBGPRINT_RAW(RT_DEBUG_ERROR, "\n");  //MIC error.
 		return (FALSE);
 	}
 	return (TRUE);
@@ -459,19 +459,19 @@ BOOLEAN	    RTMPTkipCompareMICValueWithLLC(
 	// Since the MIC value might cross MPDUs.
 	if(!NdisEqualMemory(pAdapter->PrivateInfo.Rx.MIC, OldMic, 8))
 	{
-		DBGPRINT_RAW(RT_DEBUG_ERROR, "! TKIP MIC Error !\n");  //MIC error.
-		DBGPRINT_RAW(RT_DEBUG_INFO, "Orig MIC value =");  //MIC error.
+		DBGPRINT(RT_DEBUG_ERROR, "! TKIP MIC Error !\n");  //MIC error.
+		DBGPRINT(RT_DEBUG_ERROR, "Orig MIC value =");  //MIC error.
 		for (i = 0; i < 8; i++)
 		{
-			DBGPRINT_RAW(RT_DEBUG_INFO, "%02x:", OldMic[i]);  //MIC error.
+			DBGPRINT_RAW(RT_DEBUG_ERROR, "%02x:", OldMic[i]);  //MIC error.
 		}
-		DBGPRINT_RAW(RT_DEBUG_INFO, "\n");  //MIC error.
-		DBGPRINT_RAW(RT_DEBUG_INFO, "Calculated MIC value =");  //MIC error.
+		DBGPRINT_RAW(RT_DEBUG_ERROR, "\n");  //MIC error.
+		DBGPRINT(RT_DEBUG_ERROR, "Calculated MIC value =");  //MIC error.
 		for (i = 0; i < 8; i++)
 		{
-			DBGPRINT_RAW(RT_DEBUG_INFO, "%02x:", pAdapter->PrivateInfo.Rx.MIC[i]);  //MIC error.
+			DBGPRINT_RAW(RT_DEBUG_ERROR, "%02x:", pAdapter->PrivateInfo.Rx.MIC[i]);  //MIC error.
 		}
-		DBGPRINT_RAW(RT_DEBUG_INFO, "\n");  //MIC error.
+		DBGPRINT_RAW(RT_DEBUG_ERROR, "\n");  //MIC error.
 		return (FALSE);
 	}
 	return (TRUE);

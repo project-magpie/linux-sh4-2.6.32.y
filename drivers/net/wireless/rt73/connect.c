@@ -618,6 +618,7 @@ VOID CntlWaitJoinProc(
 				DBGPRINT(RT_DEBUG_TRACE, "CNTL - join the IBSS = %02x:%02x:%02x:%02x:%02x:%02x ...\n",
 					pAd->PortCfg.Bssid[0],pAd->PortCfg.Bssid[1],pAd->PortCfg.Bssid[2],
 					pAd->PortCfg.Bssid[3],pAd->PortCfg.Bssid[4],pAd->PortCfg.Bssid[5]);
+				OPSTATUS_SET_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED);
 			}
 			// 2. joined a new INFRA network, start from authentication
 			else
@@ -632,7 +633,7 @@ VOID CntlWaitJoinProc(
 				{
 					AuthParmFill(pAd, &AuthReq, pAd->MlmeAux.Bssid, Ndis802_11AuthModeOpen);
 				}
-
+				DBGPRINT(RT_DEBUG_TRACE, "CNTL - authenticating\n");
 				MlmeEnqueue(pAd, AUTH_STATE_MACHINE, MT2_MLME_AUTH_REQ,
 							sizeof(MLME_AUTH_REQ_STRUCT), &AuthReq);
 
@@ -643,6 +644,8 @@ VOID CntlWaitJoinProc(
 		{
 			// 3. failed, try next BSS
 			pAd->MlmeAux.BssIdx++;
+			DBGPRINT(RT_DEBUG_TRACE, "CNTL - trying next BSS - #%d\n",
+					pAd->MlmeAux.BssIdx);
 			IterateOnBssTab(pAd);
 		}
 	}
@@ -874,6 +877,7 @@ VOID LinkUp(
 		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return;
 	}
+
 	//
 	// ASSOC - DisassocTimeoutAction
 	// CNTL - Dis-associate successful
@@ -1016,6 +1020,7 @@ VOID LinkUp(
 	//
 	RTUSBReadMACRegister(pAd, TXRX_CSR4, &CurTxRxCsr4->word);
 	NewTxRxCsr4->word = CurTxRxCsr4->word;
+	
 	if ((pAd->PortCfg.Channel <= 14) &&
 		((pAd->PortCfg.PhyMode == PHY_11B) ||
 		 (pAd->PortCfg.PhyMode == PHY_11BG_MIXED) ||
@@ -1030,7 +1035,6 @@ VOID LinkUp(
 
 	if (NewTxRxCsr4->word!= CurTxRxCsr4->word)
 		RTUSBWriteMACRegister(pAd, TXRX_CSR4, NewTxRxCsr4->word);
-
 
 	pAd->Mlme.PeriodicRound = 0;		// re-schedule MlmePeriodicExec()
 	pAd->bConfigChanged = FALSE;		// Reset config flag
@@ -1072,9 +1076,9 @@ VOID LinkDown(
 	DBGPRINT(RT_DEBUG_TRACE, "!!! LINK DOWN !!!\n");
 
 	if (!CurTxRxCsr4) {
-                DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return;
-	} 	
+	}
 
 	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_AGGREGATION_INUSED);
 

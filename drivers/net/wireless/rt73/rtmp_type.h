@@ -38,34 +38,17 @@
 // Put platform dependent declaration here
 // For example, linux type definition
 
+#ifdef RTMP_EMBEDDED
+#define ALIGN_USB_RCV  __attribute__ ((aligned(2)))
+#else
+#define ALIGN_USB_RCV
+#endif
+
 //#ifdef  Linux
 typedef u16      UINT16;
 typedef u32      UINT32;
 typedef u64      UINT64;
 //#endif
-
-#ifndef Win32
-#define Win32
-
-#undef  BIG_ENDIAN          // Only little endian for WIN32 system
-
-//
-// Following type define have been already define in
-// %include%\basetsd.h     eg. c:\winddk\3790\inc\wxp\basetsd.h
-//     Defined  Win2k      WinXP
-//     UINT16     X           O
-//     UINT32     O           O
-//     UINT64     X           O
-#ifdef NDIS50_MINIPORT
-
-typedef unsigned short      UINT16;
-//typedef   unsigned long       UINT32;
-typedef unsigned __int64    UINT64;
-
-#endif //#ifdef NDIS50_MINIPORT
-
-#endif //#ifndef Win32
-
 
 // Endian byte swapping codes
 #define SWAP16(x) \
@@ -113,7 +96,7 @@ typedef unsigned __int64    UINT64;
 #ifdef RTMP_EMBEDDED
 #define PACKED  __attribute__ ((packed))
 #else
-#define PACKED
+#define PACKED		// FIXME Whaaa?
 #endif  // RTMP_EMBEDDED
 
 

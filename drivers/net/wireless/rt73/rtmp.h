@@ -125,6 +125,8 @@ typedef struct usb_ctrlrequest devctrlrequest;
 typedef LONG		NTSTATUS;
 typedef NTSTATUS	*PNTSTATUS;
 
+#define KPRINT(Level, fmt, args...) \
+	printk(Level DRIVER_NAME ": " fmt, ## args)
 //
 //	Macro for debugging information
 //
@@ -143,7 +145,7 @@ extern ULONG	RTDebugLevel;
 {																	\
 	if (RT_DEBUG_ERROR & RTDebugLevel)										\
 	{																\
-		printk(KERN_DEBUG DRIVER_NAME " ERROR!!! " fmt, ## args);	\
+		printk(KERN_DEBUG DRIVER_NAME ": ERROR!!! " fmt, ## args);	\
 	}																\
 }
 
@@ -188,29 +190,29 @@ extern ULONG	RTDebugLevel;
 	spin_lock_init(lock);			\
 }
 #if 0
-#define NdisReleaseSpinLock(lock, flagg)    \
+#define NdisReleaseSpinLock(lock)    \
 {											\
 	if (in_interrupt())						\
-		spin_unlock_irqrestore(lock, flagg);\
+		spin_unlock_irqrestore(lock, flags);\
 	else									\
 		spin_unlock(lock);					\
 }
 
-#define NdisAcquireSpinLock(lock, flagg)    \
+#define NdisAcquireSpinLock(lock)    \
 {											\
 	if (in_interrupt())						\
-		spin_lock_irqsave(lock, flagg);		\
+		spin_lock_irqsave(lock, flags);		\
 	else									\
 		spin_lock(lock);					\
 }
 #else
-#define NdisReleaseSpinLock(lock, flagg)	\
+#define NdisReleaseSpinLock(lock)	\
 {											\
-	spin_unlock_irqrestore(lock, (unsigned long)flagg);	\
+	spin_unlock_irqrestore(lock, (unsigned long)flags);	\
 }
-#define NdisAcquireSpinLock(lock, flagg)	\
+#define NdisAcquireSpinLock(lock)	\
 {											\
-	spin_lock_irqsave(lock, flagg);			\
+	spin_lock_irqsave(lock, flags);			\
 }
 #endif
 
@@ -661,7 +663,6 @@ typedef struct _RTMP_SCATTER_GATHER_LIST {
 	(_t)->bWaitingBulkOut = FALSE;		\
 	(_t)->BulkOutSize= 0;				\
 	(_p)->NextBulkOutIndex[_b] = (((_p)->NextBulkOutIndex[_b] + 1) % TX_RING_SIZE);	\
-	atomic_dec(&(_p)->TxCount); \
 }
 
 #define	LOCAL_TX_RING_EMPTY(_p, _i)		(((_p)->TxContext[_i][(_p)->NextBulkOutIndex[_i]].InUse) == FALSE)
@@ -1079,8 +1080,7 @@ typedef struct _MLME_STRUCT {
 	ULONG					ChannelQuality;  // 0..100, Channel Quality Indication for Roaming
 	unsigned long				Now;			 // latch the value of NdisGetSystemUpTime()
 
-	BOOLEAN 				bRunning;
-	spinlock_t				TaskLock;
+	BOOLEAN 				Running;
 	MLME_QUEUE				Queue;
 
 	UINT					ShiftReg;
@@ -1347,7 +1347,6 @@ typedef struct _RTMP_ADAPTER
 	struct usb_config_descriptor	*config;
 	devctrlrequest					*devreq;
 
-	struct rt2x00debug debug;
 	INT	EAPOLVer;
 
 	/* The device we're working with
@@ -1359,7 +1358,8 @@ typedef struct _RTMP_ADAPTER
 	struct semaphore	mlme_semaphore;			/* to sleep thread on	*/
 	struct semaphore	RTUSBCmd_semaphore;		/* to sleep thread on	*/
 
-	struct completion	notify;					/* thread begin/end	 */
+	struct completion	mlmenotify;				/* thread begin/end	 */
+	struct completion	cmdnotify;				/* thread begin/end	 */
 	pid_t			MLMEThr_pid;
 	pid_t			RTUSBCmdThr_pid;
 
@@ -1387,9 +1387,13 @@ typedef struct _RTMP_ADAPTER
 	HEADER_802_11			NullFrame;
 
 	// configuration: read from Registry & E2PROM
-	BOOLEAN 				bLocalAdminMAC; 					// Use user changed MAC
-	UCHAR					PermanentAddress[MAC_ADDR_LEN]; 	// Factory default MAC address
-	UCHAR					CurrentAddress[MAC_ADDR_LEN];		// User changed MAC address
+	BOOLEAN bLocalAdminMAC; 					// Use user changed MAC
+
+	// Factory default MAC address
+	UCHAR	PermanentAddress[MAC_ADDR_LEN] ALIGN_USB_RCV;
+
+	// User changed MAC address
+	UCHAR	CurrentAddress[MAC_ADDR_LEN];
 
 	MLME_STRUCT 			Mlme;
 
@@ -1545,16 +1549,13 @@ typedef struct _RTMP_ADAPTER
 	// SpinLocks
 	spinlock_t			SendTxWaitQueueLock[4]; // SendTxWaitQueue spinlock
 
-	spinlock_t			DataQLock[4];
 	spinlock_t			DeQueueLock[4];
 
 	spinlock_t			MLMEWaitQueueLock;	// SendTxWaitQueue spinlock
 	spinlock_t			CmdQLock;			// SendTxWaitQueue spinlock
 	spinlock_t			BulkOutLock[4];		// SendTxWaitQueue spinlock for 4 ACs
 
-//	spinlock_t			ControlLock;		// SendTxWaitQueue spinlock
 	spinlock_t			MLMEQLock;			// SendTxWaitQueue spinlock
-//	spinlock_t			GenericLock;		// SendTxWaitQueue spinlock
 
 	/////////////////////
 	// Transmit Path
@@ -1578,6 +1579,7 @@ typedef struct _RTMP_ADAPTER
 	UCHAR					PopMgmtIndex;				// Next SW management ring index
 	atomic_t				MgmtQueueSize;				// Number of Mgmt request stored in MgmtRing
 	UCHAR					NextRxBulkInIndex;
+	UCHAR					CurRxBulkInIndex;
 
 	// 4 sets of Bulk Out index and pending flag
 	UCHAR					NextBulkOutIndex[4];
@@ -1587,9 +1589,7 @@ typedef struct _RTMP_ADAPTER
 	ULONG					PrioRingTxCnt;
 	UCHAR					PrioRingFirstIndex;
 
-	atomic_t				TxCount;		// Number of Bulkout waiting to be send.
-	LONG					PendingTx;
-
+	atomic_t				PendingTx;		// Number of Bulkout waiting to be send.
 	// Data related context and AC specified, 4 AC supported
 	TX_CONTEXT				TxContext[4][TX_RING_SIZE];
 	LONG					NumPacketsQueued[4];
@@ -1612,7 +1612,6 @@ typedef struct _RTMP_ADAPTER
 	// Flags for bulk out data priority
 	ULONG					BulkFlags;
 
-//	spinlock_t				MemLock;	// need to check
 	ULONG					BulkOutDataOneSecCount;
 	ULONG					BulkInDataOneSecCount;
 	ULONG					BulkLastOneSecCount; // BulkOutDataOneSecCount + BulkInDataOneSecCount
@@ -1666,7 +1665,8 @@ long rt_abs(long arg);
 //
 // Routines in rtmp_init.c
 //
-VOID CreateThreads( struct net_device *net_dev );
+VOID CreateThreads(PRTMP_ADAPTER pAd);
+void KillThreads(PRTMP_ADAPTER pAd);
 
 NDIS_STATUS NICInitTransmit(
 	IN	PRTMP_ADAPTER	 pAd );
@@ -1679,7 +1679,7 @@ VOID ReleaseAdapter(
     IN  BOOLEAN         IsFree,
     IN  BOOLEAN         IsOnlyTx);
 
-NDIS_STATUS	RTMPInitAdapterBlock(
+VOID	RTMPInitAdapterBlock(
 	IN	PRTMP_ADAPTER	pAd);
 
 NDIS_STATUS	RTUSBWriteHWMACAddress(
@@ -2003,6 +2003,9 @@ NDIS_STATUS MlmeInit(
 VOID MlmeHandler(
 	IN PRTMP_ADAPTER pAd);
 
+VOID MlmeStart(
+	IN PRTMP_ADAPTER pAd);
+
 VOID MlmeHalt(
 	IN PRTMP_ADAPTER pAd) ;
 
@@ -2013,8 +2016,11 @@ VOID MlmeSuspend(
 VOID MlmeResume(
 	IN	PRTMP_ADAPTER	pAd);
 
-VOID MlmePeriodicExec(
+VOID MlmePeriodicExecTimeout(
 	IN	unsigned long data);
+
+VOID MlmePeriodicExec(
+	IN	PRTMP_ADAPTER pAd);
 
 VOID STAMlmePeriodicExec(
 	IN	PRTMP_ADAPTER pAd);
@@ -2089,9 +2095,12 @@ BOOLEAN MlmeEnqueueForRecv(
 	IN VOID *Msg,
 	IN UCHAR Signal);
 
+BOOLEAN MlmeGetHead(
+    IN MLME_QUEUE *Queue,
+    OUT MLME_QUEUE_ELEM **Elem);
+
 BOOLEAN MlmeDequeue(
-	IN MLME_QUEUE *Queue,
-	OUT MLME_QUEUE_ELEM **Elem);
+    IN MLME_QUEUE *Queue);
 
 VOID MlmeRestartStateMachine(
 	IN	PRTMP_ADAPTER	pAd);
@@ -2890,6 +2899,9 @@ VOID	RTMPDeQueuePacket(
 VOID	RTUSBRxPacket(
 	IN	 unsigned long data);
 
+VOID	RTUSBDequeueRxPackets(
+	IN	PRTMP_ADAPTER	pAd);
+
 VOID	RTUSBDequeueMLMEPacket(
 	IN	PRTMP_ADAPTER	pAd);
 
@@ -3513,6 +3525,9 @@ static inline VOID	RTMPFrameEndianChange(
 				// swab 16 bit fields - CapabilityInfo field
 				pMacHdr += sizeof(USHORT);
 				*(USHORT *)pMacHdr = SWAP16(*(USHORT *)pMacHdr);
+
+				// swab AtimWin is too tough to do here because
+				// its preceeded by IEs
 				break;
 
 			case SUBTYPE_DEAUTH:

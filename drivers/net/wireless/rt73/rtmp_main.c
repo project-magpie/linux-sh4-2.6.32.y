@@ -38,16 +38,21 @@
 
 ULONG	RTDebugLevel = RT_DEBUG_OFF;
 static ULONG	debug = RT_DEBUG_OFF;
+static char *ifname = NULL;
 static char *firmName = RT2573_IMAGE_FILE_NAME;
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
 MODULE_PARM(debug, "i");
+MODULE_PARM(ifname, "s");
+MODULE_PARM(firmName, "s");
 #else
 module_param(debug, int, 0);
+module_param(ifname, charp, 0444);
 module_param(firmName, charp, S_IRUGO );
 #endif
 
 MODULE_PARM_DESC(debug, "Debug mask: n selects filter, 0 for none");
+MODULE_PARM_DESC(ifname, "Network device name (default wlan%d)");
 MODULE_PARM_DESC(firmName, "Permit to load a different firmware: (default: rt73.bin) ");
 
 // Following information will be show when you run 'modinfo'
@@ -61,8 +66,6 @@ MODULE_LICENSE("GPL");
  * packets that have a "complete" function are sent here. This way, the
  * completion is run out of kernel context, and doesn't block the rest of
  * the stack. */
-static int mlme_kill;
-static int RTUSBCmd_kill;
 
 extern	const struct iw_handler_def rt73_iw_handler_def;
 
@@ -223,7 +226,7 @@ VOID RTUSBHalt(
 	MLME_QUEUE_ELEM          MsgElem;
 	INT                      i;
 
-	DBGPRINT(RT_DEBUG_TRACE, "====> RTUSBHalt\n");
+	DBGPRINT(RT_DEBUG_TRACE, "--> RTUSBHalt\n");
 
 	//
 	// before set flag fRTMP_ADAPTER_HALT_IN_PROGRESS,
@@ -263,6 +266,12 @@ VOID RTUSBHalt(
 
 	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS);
 
+	// We want to wait until all pending receives and sends to the
+	// device object. We cancel any
+	// irps. Wait until sends and receives have stopped.
+	//
+	RTUSBCancelPendingIRPs(pAd);
+
 	RTUSBCleanUpMLMEWaitQueue(pAd);
 	RTUSBCleanUpMLMEBulkOutQueue(pAd);
 
@@ -275,20 +284,11 @@ VOID RTUSBHalt(
     // Sleep 50 milliseconds so pending io might finish normally
 	RTMPusecDelay(50000);
 
-	// We want to wait until all pending receives and sends to the
-	// device object. We cancel any
-	// irps. Wait until sends and receives have stopped.
-	//
-	RTUSBCancelPendingIRPs(pAd);
-
-    // Free the entire adapter object
-	ReleaseAdapter(pAd, IsFree, FALSE);
-
-	// reset mlme & command thread
-    pAd->MLMEThr_pid = -1;
-	pAd->RTUSBCmdThr_pid = -1;
-
-	RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS);
+	// initialize table
+	BssTableInit(&pAd->ScanTab);
+	RTMP_CLEAR_FLAGS(pAd);
+	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_INFRA_ON|fOP_STATUS_ADHOC_ON);
+	DBGPRINT(RT_DEBUG_TRACE, "<-- RTUSBHalt\n");
 }
 
 VOID CMDHandler(
@@ -297,26 +297,32 @@ VOID CMDHandler(
 	PCmdQElmt	cmdqelmt;
 	PUCHAR	    pData;
 	NDIS_STATUS	NdisStatus = NDIS_STATUS_SUCCESS;
-  unsigned long IrqFlags;
+	unsigned long flags;
     ULONG       Now;
 
 	while (pAd->CmdQ.size > 0)
 	{
 
 		NdisStatus = NDIS_STATUS_SUCCESS;
-		NdisAcquireSpinLock(&pAd->CmdQLock, IrqFlags);
+		NdisAcquireSpinLock(&pAd->CmdQLock);
 		RTUSBDequeueCmd(&pAd->CmdQ, &cmdqelmt);
-		NdisReleaseSpinLock(&pAd->CmdQLock, IrqFlags);
+		NdisReleaseSpinLock(&pAd->CmdQLock);
+
+        DBGPRINT(RT_DEBUG_INFO, "- %s: Cmd = %04x\n",
+				__FUNCTION__, cmdqelmt == NULL? 0xdeadbeef: cmdqelmt->command);
+
 		if (cmdqelmt == NULL)
 			break;
 		pData = cmdqelmt->buffer;
-
-        //DBGPRINT_RAW(RT_DEBUG_INFO, "Cmd = %x\n", cmdqelmt->command);
 		switch (cmdqelmt->command)
 		{
 			case RT_OID_CHECK_GPIO:
 			{
 				ULONG data;
+
+				DBGPRINT(RT_DEBUG_TRACE, "- (%s)::RT_OID_CHECK_GPIO\n",
+						__FUNCTION__);
+
 				// Read GPIO pin7 as Hardware controlled radio state
 				RTUSBReadMACRegister(pAd, MAC_CSR13, &data);
 				if (data & 0x80)
@@ -347,7 +353,7 @@ VOID CMDHandler(
 			break;
 
 			case RT_OID_PERIODIC_EXECUT:
-			    STAMlmePeriodicExec(pAd);
+			    MlmePeriodicExec(pAd);
 			break;
 
 			case OID_802_11_BSSID_LIST_SCAN:
@@ -567,7 +573,7 @@ VOID CMDHandler(
 			{
 				INT 	Index;
 
-		        DBGPRINT_RAW(RT_DEBUG_ERROR, "RT_OID_USB_RESET_BULK_OUT\n");
+		        DBGPRINT(RT_DEBUG_ERROR, "RT_OID_USB_RESET_BULK_OUT\n");
 
 				RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RESET_PIPE_IN_PROGRESS);
 
@@ -576,7 +582,7 @@ VOID CMDHandler(
 				RTUSBCleanUpDataBulkOutQueue(pAd);
 
 				NICInitializeAsic(pAd);
-				ReleaseAdapter(pAd, FALSE, TRUE);   // unlink urb releated tx context
+				//ReleaseAdapter(pAd, FALSE, TRUE);   // unlink urb releated tx context
 				NICInitTransmit(pAd);
 
 				RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_RESET_PIPE_IN_PROGRESS);
@@ -605,7 +611,7 @@ VOID CMDHandler(
 			case RT_OID_USB_RESET_BULK_IN:
 		    {
 			    int	i;
-				DBGPRINT_RAW(RT_DEBUG_ERROR, "!!!!!RT_OID_USB_RESET_BULK_IN\n");
+				DBGPRINT(RT_DEBUG_ERROR, "!!!!!RT_OID_USB_RESET_BULK_IN\n");
 				RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RESET_PIPE_IN_PROGRESS);
 				NICInitializeAsic(pAd);
 				//RTUSBWriteMACRegister(pAd, TXRX_CSR0, 0x025eb032); // ??
@@ -717,6 +723,9 @@ VOID CMDHandler(
 			{
 				UINT	i = 0;
 
+				DBGPRINT(RT_DEBUG_TRACE, "- (%s)::RT_OID_RESET_FROM_ERROR\n",
+						__FUNCTION__);
+
 				RTUSBRejectPendingPackets(pAd);//reject all NDIS packets waiting in TX queue
 				RTUSBCleanUpDataBulkOutQueue(pAd);
 				MlmeSuspend(pAd, FALSE);
@@ -734,7 +743,8 @@ VOID CMDHandler(
 				{
 				    if (atomic_read(&pAd->PendingRx) > 0)
 					{
-						DBGPRINT_RAW(RT_DEBUG_TRACE, "BulkIn IRP Pending!!!\n");
+						DBGPRINT(RT_DEBUG_TRACE,
+								"- (%s) BulkIn IRP Pending!!!\n", __FUNCTION__);
 						RTUSB_VendorRequest(pAd,
 											0,
 											DEVICE_VENDOR_REQUEST_OUT,
@@ -750,7 +760,8 @@ VOID CMDHandler(
 						(pAd->BulkOutPending[2] == TRUE) ||
 						(pAd->BulkOutPending[3] == TRUE))
 					{
-						DBGPRINT_RAW(RT_DEBUG_TRACE, "BulkOut IRP Pending!!!\n");
+						DBGPRINT(RT_DEBUG_TRACE,
+							"- (%s) BulkOut IRP Pending!!!\n", __FUNCTION__);
 						if (i == 0)
 						{
 							RTUSBCancelPendingBulkOutIRP(pAd);
@@ -789,7 +800,7 @@ VOID CMDHandler(
 			break;
 
 			case RT_OID_LINK_DOWN:
-				DBGPRINT_RAW(RT_DEBUG_TRACE, "LinkDown(RT_OID_LINK_DOWN)\n");
+				DBGPRINT(RT_DEBUG_TRACE, "LinkDown(RT_OID_LINK_DOWN)\n");
 				LinkDown(pAd, TRUE);
 			break;
 
@@ -798,7 +809,7 @@ VOID CMDHandler(
 				UCHAR	Offset, Value;
 				Offset = *((PUCHAR)pData);
 				Value = *((PUCHAR)(pData + 1));
-				DBGPRINT_RAW(RT_DEBUG_INFO, "offset = 0x%02x	value = 0x%02x\n", Offset, Value);
+				DBGPRINT(RT_DEBUG_INFO, "offset = 0x%02x	value = 0x%02x\n", Offset, Value);
 				RTUSBWriteBBPRegister(pAd, Offset, Value);
 			}
 			break;
@@ -808,9 +819,9 @@ VOID CMDHandler(
 				UCHAR	Offset = *((PUCHAR)pData);
 				PUCHAR	pValue = (PUCHAR)(pData + 1);
 
-				DBGPRINT_RAW(RT_DEBUG_INFO, "offset = 0x%02x\n", Offset);
+				DBGPRINT(RT_DEBUG_INFO, "offset = 0x%02x\n", Offset);
 				RTUSBReadBBPRegister(pAd, Offset, pValue);
-				DBGPRINT_RAW(RT_DEBUG_INFO, "value = 0x%02x\n", *pValue);
+				DBGPRINT(RT_DEBUG_INFO, "value = 0x%02x\n", *pValue);
 			}
 			break;
 
@@ -818,7 +829,7 @@ VOID CMDHandler(
 			{
 				ULONG	Value = *((PULONG)pData);
 
-				DBGPRINT_RAW(RT_DEBUG_INFO, "value = 0x%08x\n", Value);
+				DBGPRINT(RT_DEBUG_INFO, "value = 0x%08x\n", Value);
 				RTUSBWriteRFRegister(pAd, Value);
 			}
 			break;
@@ -876,13 +887,13 @@ VOID CMDHandler(
 				RTUSBReadMACRegister(pAd, PHY_CSR6, &Value2);
 				if (*pData == 1)
 				{
-					DBGPRINT_RAW(RT_DEBUG_INFO, "I/Q Flip\n");
+					DBGPRINT(RT_DEBUG_INFO, "I/Q Flip\n");
 					Value1 = Value1 | 0x0004;
 					Value2 = Value2 | 0x0004;
 				}
 				else
 				{
-					DBGPRINT_RAW(RT_DEBUG_INFO, "I/Q Not Flip\n");
+					DBGPRINT(RT_DEBUG_INFO, "I/Q Not Flip\n");
 					Value1 = Value1 & 0xFFFB;
 					Value2 = Value2 & 0xFFFB;
 				}
@@ -1029,16 +1040,20 @@ VOID CMDHandler(
 				ULONG	KeyIdx;
 				PNDIS_802_11_WEP	pWepKey;
 
-				DBGPRINT(RT_DEBUG_TRACE, "CMDHandler::OID_802_11_ADD_WEP  \n");
+				DBGPRINT(RT_DEBUG_TRACE, "CMDHandler::OID_802_11_ADD_WEP\n");
 
 				pWepKey = (PNDIS_802_11_WEP)pData;
 				KeyIdx = pWepKey->KeyIndex & 0x0fffffff;
 
 				// it is a shared key
-				if ((KeyIdx >= 4) || ((pWepKey->KeyLength != 5) && (pWepKey->KeyLength != 13)))
+				if ((KeyIdx >= 4) ||
+					((pWepKey->KeyLength != 5) && (pWepKey->KeyLength != 13)))
 				{
 					NdisStatus = NDIS_STATUS_FAILURE;
-					DBGPRINT(RT_DEBUG_ERROR, "CMDHandler::OID_802_11_ADD_WEP, INVALID_DATA!!\n");
+					DBGPRINT(RT_DEBUG_ERROR,
+							"CMDHandler::OID_802_11_ADD_WEP "
+							"Invalid index(%d) or len(%d)\n",
+							KeyIdx, pWepKey->KeyLength);
 				}
 				else
 				{
@@ -1052,7 +1067,13 @@ VOID CMDHandler(
 						// Default key for tx (shared key)
 						pAd->PortCfg.DefaultKeyId = (UCHAR) KeyIdx;
 					}
-					AsicAddSharedKeyEntry(pAd, 0, (UCHAR)KeyIdx, CipherAlg, pWepKey->KeyMaterial, NULL, NULL);
+					AsicAddSharedKeyEntry(pAd,
+										0,
+										(UCHAR)KeyIdx,
+										CipherAlg,
+										pWepKey->KeyMaterial,
+										NULL,
+										NULL);
 					DBGPRINT(RT_DEBUG_TRACE, "CMDHandler::OID_802_11_ADD_WEP (KeyIdx=%d, Len=%d-byte)\n", KeyIdx, pWepKey->KeyLength);
 				}
 			}
@@ -1371,133 +1392,140 @@ VOID CMDHandler(
 #define EEPROM_BASE			0x0000
 #define EEPROM_SIZE			0x0100
 #define BBP_SIZE			0x0080
+#define RF_SIZE				0x0014
 
+#define CSR_OFFSET(__word)	( CSR_REG_BASE + ((__word) * sizeof(u32)) )
 
-static void rt73usb_read_csr(void *dev, const unsigned long word,
-		void *data)
+static void rt73usb_read_csr(const struct rt2x00_dev *rt2x00dev,
+			     const unsigned int word, u32 *data)
 {
-	RTMP_ADAPTER *pAd = dev;
-
-	RTUSBReadMACRegister(pAd, CSR_REG_BASE + (word * sizeof(u32)), (u32*)data);
+	RTUSBReadMACRegister(rt2x00dev->pAd, CSR_OFFSET(word), data);
 }
 
-static void rt73usb_write_csr(void *dev, const unsigned long word,
-	void *data)
+static void rt73usb_write_csr(const struct rt2x00_dev *rt2x00dev,
+			      const unsigned int word, u32 data)
 {
-	RTMP_ADAPTER *pAd = dev;
-
-	RTUSBWriteMACRegister(pAd, word, *((u32*)data));
+	RTUSBWriteMACRegister(rt2x00dev->pAd, CSR_OFFSET(word), data);
 }
 
-static void rt73usb_read_eeprom(void *dev, const unsigned long word,
-		void *data)
-{
-	RTMP_ADAPTER *pAd = dev;
 
-	RTUSBReadEEPROM(pAd, word * sizeof(u16), ((u8*)data), 2);
+static void rt73usb_read_eeprom(const struct rt2x00_dev *rt2x00dev,
+			        const unsigned int word, u16 *data)
+{
+	RTUSBReadEEPROM(rt2x00dev->pAd, word * sizeof(u16), (PUCHAR)data, sizeof(u16));
 }
 
-static void rt73usb_write_eeprom(void *dev, const unsigned long word,
-	void *data)
+static void rt73usb_write_eeprom(const struct rt2x00_dev *rt2x00dev,
+			         const unsigned int word, u16 data)
 {
-	/* DANGEROUS, DON'T DO THIS! */
+
 }
 
-static void rt73usb_read_bbp(void *dev, const unsigned long word,
-		void *data)
+static void rt73usb_read_bbp(const struct rt2x00_dev *rt2x00dev,
+			     const unsigned int word, u8 *data)
 {
-	RTMP_ADAPTER *pAd = dev;
-
-	RTUSBReadBBPRegister(pAd, (u8)word, ((u8*)data));
+	RTUSBReadBBPRegister(rt2x00dev->pAd, word, data);
 }
 
-static void rt73usb_write_bbp(void *dev, const unsigned long word,
-	void *data)
+static void rt73usb_write_bbp(const struct rt2x00_dev *rt2x00dev,
+			      const unsigned int word, u8 data)
 {
-	RTMP_ADAPTER *pAd = dev;
-
-	RTUSBWriteBBPRegister(pAd, word, *((u8*)data));
+	RTUSBWriteBBPRegister(rt2x00dev->pAd, word, data);
 }
+
+static void rt2500usb_read_rf(const struct rt2x00_dev *rt2x00dev,
+			     const unsigned int word, u32 *data)
+{
+	*data = 0;
+}
+
+static void rt2500usb_write_rf(const struct rt2x00_dev *rt2x00dev,
+			      const unsigned int word, u32 data)
+{
+}
+
+static const struct rt2x00debug rt73usb_rt2x00debug = {
+	.owner	= THIS_MODULE,
+	.csr	= {
+		.read		= rt73usb_read_csr,
+		.write		= rt73usb_write_csr,
+		.word_size	= sizeof(u32),
+		.word_count	= CSR_REG_SIZE / sizeof(u32),
+	},
+	.eeprom	= {
+		.read		= rt73usb_read_eeprom,
+		.write		= rt73usb_write_eeprom,
+		.word_size	= sizeof(u16),
+		.word_count	= EEPROM_SIZE / sizeof(u16),
+	},
+	.bbp	= {
+		.read		= rt73usb_read_bbp,
+		.write		= rt73usb_write_bbp,
+		.word_size	= sizeof(u8),
+		.word_count	= BBP_SIZE / sizeof(u8),
+	},
+	.rf	= {
+		.read		= rt73usb_read_rf,
+		.write		= rt73usb_write_rf,
+		.word_size	= sizeof(u32),
+		.word_count	= RF_SIZE / sizeof(u32),
+	},
+};
+
+static struct rt2x00_dev _rt2x00dev;
+static struct rt2x00_ops _ops;
 
 static void rt73usb_open_debugfs(RTMP_ADAPTER *pAd)
 {
-	struct rt2x00debug *debug = &pAd->debug;
+	_rt2x00dev.pAd = pAd;
+	_rt2x00dev.ops = &_ops;
+	_rt2x00dev.ops->debugfs = &rt73usb_rt2x00debug;
 
-	debug->owner 			= THIS_MODULE;
-	debug->mod_name			= DRIVER_NAME;
-	debug->mod_version		= DRIVER_VERSION;
-	debug->reg_csr.read		= rt73usb_read_csr;
-	debug->reg_csr.write		= rt73usb_write_csr;
-	debug->reg_csr.word_size	= sizeof(u32);
-	debug->reg_csr.length		= CSR_REG_SIZE;
-	debug->reg_eeprom.read		= rt73usb_read_eeprom;
-	debug->reg_eeprom.write		= rt73usb_write_eeprom;
-	debug->reg_eeprom.word_size	= sizeof(u16);
-	debug->reg_eeprom.length	= EEPROM_SIZE;
-	debug->reg_bbp.read		= rt73usb_read_bbp;
-	debug->reg_bbp.write		= rt73usb_write_bbp;
-	debug->reg_bbp.word_size	= sizeof(u8);
-	debug->reg_bbp.length		= BBP_SIZE;
-	debug->dev 			= pAd;
-
-	snprintf(debug->intf_name, sizeof(debug->intf_name),
-		"%s", pAd->net_dev->name);
-
-	if (rt2x00debug_register(debug))
-		printk(KERN_ERR "Failed to register debug handler.\n");
+	rt2x00debug_register(&_rt2x00dev);
 }
 
 static void rt73usb_close_debugfs(RTMP_ADAPTER *pAd)
 {
-	rt2x00debug_deregister(&pAd->debug);
+	rt2x00debug_deregister(&_rt2x00dev);
 }
 #else /* RT2X00DEBUGFS */
 static inline void rt73usb_open_debugfs(RTMP_ADAPTER *pAd){}
 static inline void rt73usb_close_debugfs(RTMP_ADAPTER *pAd){}
 #endif /* RT2X00DEBUGFS */
 
-static int usb_rtusb_open(struct net_device *net_dev)
+static inline int common_probe(PRTMP_ADAPTER pAd)
 {
-	PRTMP_ADAPTER   pAd = (PRTMP_ADAPTER) net_dev->priv;
-	NDIS_STATUS     Status = NDIS_STATUS_SUCCESS;
-	UCHAR           TmpPhy;
-	int ret = 0;
+	//struct net_device   *netdev = pAd->net_dev;
+	int		Status = 0;
+	UCHAR   TmpPhy;
 
-	printk("rt73 driver version - %s\n", DRIVER_VERSION);
-	if ( !OPSTATUS_TEST_FLAG (pAd,fOP_STATUS_FIRMWARE_LOAD) ) {
-		DBGPRINT(RT_DEBUG_ERROR, "Firmware not load");
-		ret = -EIO;
-		goto out_firmware_error;
+	if (!reserve_module(THIS_MODULE)) {
+		KPRINT(KERN_CRIT, "cannot reserve module\n");
+		return -1;
 	}
-
-	init_MUTEX(&(pAd->usbdev_semaphore));
-
-	// init mediastate to disconnected
-	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED);
-
-	pAd->rx_bh.func = RTUSBRxPacket;
-	pAd->rx_bk.func = rtusb_bulkrx;
+	Status = LoadFirmware(pAd, firmName);
+	if (Status) {
+		DBGPRINT(RT_DEBUG_ERROR, "- %s: Failed to load Firmware.\n",
+				__FUNCTION__);
+		KPRINT(KERN_CRIT, "Failed to load Firmware.\n");
+		goto out;
+	}
 
 	// Initialize pAd->PortCfg to manufacture default
 	PortCfgInit(pAd);
 
-
 	// Init  RTMP_ADAPTER CmdQElements
-	Status = RTMPInitAdapterBlock(pAd);
-	if (Status != NDIS_STATUS_SUCCESS)
-	{
-		return Status;
-	}
+	RTMPInitAdapterBlock(pAd);
 
     //
 	// Init send data structures and related parameters
     //
-	Status = NICInitTransmit(pAd);
+	Status = NICInitTransmit(pAd);	// First dynamic memory alloc
 	if (Status != NDIS_STATUS_SUCCESS)
 	{
-		return Status;
+		DBGPRINT(RT_DEBUG_TRACE, "<-- %s: Status=%d\n", __FUNCTION__, Status);
+		goto out;
 	}
-
 	//
 	// Init receive data structures and related parameters
 	//
@@ -1506,10 +1534,16 @@ static int usb_rtusb_open(struct net_device *net_dev)
 	{
 		goto out;
 	}
-
+	//
+	// initialize MLME
+    //
+	Status = MlmeInit(pAd);
+	if(Status != NDIS_STATUS_SUCCESS)
+	{
+		goto out;
+	}
 	// Initialize Asics
-	NICInitializeAsic(pAd);
-
+	NICInitializeAsic(pAd);		// First USB I/O
 	//
 	// Read additional info from NIC such as MAC address
 	// This function must called after register CSR base address
@@ -1528,177 +1562,151 @@ static int usb_rtusb_open(struct net_device *net_dev)
 		pAd->BbpTuning.R17LowerBoundG += 0x10;
 		pAd->BbpTuning.R17UpperBoundG += 0x10;
 	}
-
 	// hardware initialization after all parameters are acquired from
 	// Registry or E2PROM
 	TmpPhy = pAd->PortCfg.PhyMode;
 	pAd->PortCfg.PhyMode = 0xff;
 	RTMPSetPhyMode(pAd, TmpPhy);
+    // USB_ID info for UI
+    pAd->VendorDesc = 0x148F2573;
 
+	//pAd->rx_bh.data = (unsigned long)pAd;
+	pAd->rx_bh.func = RTUSBRxPacket;
+	pAd->rx_bk.func = rtusb_bulkrx;
 
-	//
-	// initialize MLME
-    //
-	Status = MlmeInit(pAd);
-	if(Status != NDIS_STATUS_SUCCESS)
-	{
+	CreateThreads(pAd);
+
+out:
+	release_module(THIS_MODULE);
+	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: Status = %d\n", __FUNCTION__, Status);
+	return Status;
+
+} /* End common_probe () */
+
+static int usb_rtusb_open(struct net_device *net_dev)
+{
+	PRTMP_ADAPTER   pAd = (PRTMP_ADAPTER) net_dev->priv;
+	NDIS_STATUS     Status = NDIS_STATUS_SUCCESS;
+
+	DBGPRINT(RT_DEBUG_TRACE, "--> %s: driver version - %s\n",
+			__FUNCTION__, DRIVER_VERSION);
+	KPRINT(KERN_INFO, "driver version - %s\n", DRIVER_VERSION);
+	if (!reserve_module(THIS_MODULE)) {
+		KPRINT(KERN_CRIT, "cannot reserve module\n");
+		Status = -1;
 		goto out;
 	}
-
-	// mlmethread & RTUSBCmd flag restart
-	mlme_kill = 0;
-	RTUSBCmd_kill = 0;
-
-	CreateThreads(net_dev);
+	if ( !OPSTATUS_TEST_FLAG (pAd,fOP_STATUS_FIRMWARE_LOAD) ) {
+		KPRINT(KERN_ERR, "Firmware not load\n");
+		DBGPRINT(RT_DEBUG_ERROR, "Firmware not loaded\n");
+		Status = -EIO;
+		goto out_firmware_error;
+	}
+	RTMP_CLEAR_FLAGS(pAd);
 
 	// at every open handler, copy mac address.
-	if (!memcmp(net_dev->dev_addr, "\x00\x00\x00\x00\x00\x00", 6))
-		memcpy(pAd->net_dev->dev_addr, pAd->CurrentAddress, pAd->net_dev->addr_len);
-	else
-		memcpy(pAd->CurrentAddress, pAd->net_dev->dev_addr, pAd->net_dev->addr_len);
+	NICInitializeAsic(pAd);		// First USB I/O
+#ifdef	INIT_FROM_EEPROM
+	NICInitAsicFromEEPROM(pAd);
+#endif
+	RTUSBWriteHWMACAddress(pAd);
+
+	// needed for open after close because CipherAlg lost on close - bb
+	AsicAddSharedKeyEntry(pAd,
+						0,
+						pAd->PortCfg.DefaultKeyId,
+						pAd->SharedKey[pAd->PortCfg.DefaultKeyId].CipherAlg,
+						pAd->SharedKey[pAd->PortCfg.DefaultKeyId].Key,
+						NULL,
+						NULL);
+	// init mediastate to disconnected
+	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED);
 
 	// Clear Reset Flag before starting receiving/transmitting
 	RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS);
-
 
 	if (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF))
 	{
 		RTUSBBulkReceive(pAd);
         RTUSBWriteMACRegister(pAd, TXRX_CSR0, 0x025eb032);    // enable RX of MAC block, Staion not drop control frame
-        // Initialize RF register to default value
-	    AsicSwitchChannel(pAd, pAd->PortCfg.Channel);
-	    AsicLockChannel(pAd, pAd->PortCfg.Channel);
 	}
-
-
-    // USB_ID info for UI
-    pAd->VendorDesc = 0x148F2573;
+	MlmeStart(pAd);
 
 	// Start net_dev interface tx /rx
-	netif_start_queue(net_dev);
-
-	netif_carrier_on(net_dev);
+	netif_carrier_on(net_dev);	// FIXME should reflect state of radio - bb
 	netif_wake_queue(net_dev);
+
+	/* unlock the device pointers */
+	up(&(pAd->usbdev_semaphore));
+
+	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: OK\n", __FUNCTION__);
 	return 0;
 
-
-out:
-	ReleaseAdapter(pAd, TRUE, FALSE);
 out_firmware_error:
-	return ret;
+	release_module(THIS_MODULE);
+out:
+	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: Status=%d\n", __FUNCTION__, Status);
+	return Status;
 
-}
+} /* End usb_rtusb_open () */
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
 static int usb_rtusb_close(struct net_device *net_dev)
 {
 	PRTMP_ADAPTER   pAd = (PRTMP_ADAPTER) net_dev->priv;
-	int             ret;
-	int		i = 0;
 
 	DECLARE_WAIT_QUEUE_HEAD (unlink_wakeup);
 	DECLARE_WAITQUEUE (wait, current);
 
-	DBGPRINT(RT_DEBUG_TRACE,"-->rt73_close\n");
+	DBGPRINT(RT_DEBUG_TRACE,"-->usb_rtusb_close\n");
 
-	netif_carrier_off(pAd->net_dev);
+	netif_carrier_off(pAd->net_dev);// FIXME should reflect state of radio - bb
 	netif_stop_queue(pAd->net_dev);
 
-	DBGPRINT(RT_DEBUG_INFO,"Ensure there are no more active urbs \n");
 	// ensure there are no more active urbs.
 	add_wait_queue (&unlink_wakeup, &wait);
 	pAd->wait = &unlink_wakeup;
-	// maybe wait for deletions to finish.
-	while ((i < 10) && atomic_read(&pAd->PendingRx) > 0) {
-		//msleep(UNLINK_TIMEOUT_MS);
-		i++;
-		DBGPRINT (RT_DEBUG_INFO,"waited for %d urb to complete\n", atomic_read(&pAd->PendingRx));
-	}
+
 	pAd->wait = NULL;
 	remove_wait_queue (&unlink_wakeup, &wait);
 
-	if (pAd->MLMEThr_pid >= 0)
-	{
-		mlme_kill = 1;
-		RTUSBMlmeUp(pAd);
-		wmb(); // need to check
-		ret = kill_proc (pAd->MLMEThr_pid, SIGTERM, 1);
-		if (ret)
-		{
-			printk (KERN_ERR "%s: unable to signal thread\n", pAd->net_dev->name);
-			//return ret;		Fix process killing
-		}
-		wait_for_completion (&pAd->notify);
-	}
-	if (pAd->RTUSBCmdThr_pid>= 0)
-	{
-		RTUSBCmd_kill = 1;
-		RTUSBCMDUp(pAd);
-		wmb(); // need to check
-		ret = kill_proc (pAd->RTUSBCmdThr_pid, SIGTERM, 1);
-		if (ret)
-		{
-			printk (KERN_ERR "%s: unable to signal thread\n", pAd->net_dev->name);
-			//return ret;		Fix process killing
-		}
-	    wait_for_completion (&pAd->notify);
-	}
+	/* lock the device pointers */
+	down_interruptible(&pAd->usbdev_semaphore);
 
 	RTUSBHalt(pAd, TRUE);
-	DBGPRINT(RT_DEBUG_TRACE,"<--rt73_close\n");
+
+	DBGPRINT(RT_DEBUG_TRACE,"<--usb_rtusb_close\n");
+	KPRINT(KERN_INFO, "closed\n");
+	release_module(THIS_MODULE);
 
 	return 0;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
 INT MlmeThread(
     IN void * Context)
 {
 	PRTMP_ADAPTER	pAd = (PRTMP_ADAPTER)Context;
 
+	DBGPRINT(RT_DEBUG_TRACE,"--> %s (2.4)\n", __FUNCTION__);
+
 	daemonize();
 	current->flags |= PF_NOFREEZE;
-	/* signal that we've started the thread */
-	complete(&(pAd->notify));
-#if 1
-	while (1)
+
+	/* Bail on any enabled signal */
+	while (down_interruptible(&pAd->mlme_semaphore) == 0)
 	{
-		//if(down_interruptible(&pAd->mlme_semaphore))
-			//break;
-
-		/* lock the device pointers */
-		down(&(pAd->mlme_semaphore));
-
-		if (mlme_kill)
-			break;
-
 		/* lock the device pointers , need to check if required*/
-		down(&(pAd->usbdev_semaphore));
+		if (down_interruptible(&(pAd->usbdev_semaphore))) break;
+
+		// Always call Bulk routine, even reset bulk.
+		// The protectioon of rest bulk should be in BulkOut routine
+		RTUSBKickBulkOut(pAd);
+		RTUSBDequeueRxPackets(pAd);
 		MlmeHandler(pAd);
 
 		/* unlock the device pointers */
 		up(&(pAd->usbdev_semaphore));
 	}
-#else
-	// I tried this way for thread handling
-	while(1)
-	{
-		timeout = next_tick;
-		do {
-			timeout = interruptible_sleep_on_timeout (&pAd->MLMEThr_wait, timeout);
-			/* make swsusp happy with our thread */
-			if (current->flags & PF_FREEZE)
-				refrigerator(PF_FREEZE);
-			DBGPRINT(RT_DEBUG_TRACE, "current->flags  = 0x%x\n",current->flags );
-		} while (!signal_pending (current) && (timeout > 0));
-
-		if (signal_pending (current)) {
-			flush_signals(current);
-		}
-
-		if (mlme_kill)
-			break;
-	}
-#endif
 
 	/* notify the exit routine that we're actually exiting now
 	 *
@@ -1714,8 +1722,8 @@ INT MlmeThread(
 	 * This is important in preemption kernels, which transfer the flow
 	 * of execution immediately upon a complete().
 	 */
-	complete_and_exit (&pAd->notify, 0);
-	DBGPRINT(RT_DEBUG_TRACE, "<---MlmeThread\n");
+	DBGPRINT(RT_DEBUG_TRACE, "<-- MlmeThread\n");
+	complete_and_exit (&pAd->mlmenotify, 0);
 
 }
 INT RTUSBCmdThread(
@@ -1723,24 +1731,16 @@ INT RTUSBCmdThread(
 {
 	PRTMP_ADAPTER	pAd = (PRTMP_ADAPTER)Context;
 
+	DBGPRINT(RT_DEBUG_TRACE,"--> %s (2.4)\n", __FUNCTION__);
+
 	daemonize();
 	current->flags |= PF_NOFREEZE;
-	/* signal that we've started the thread */
-	complete(&(pAd->notify));
 
-	while (1)
+	/* Bail on any enabled signal */
+	while (down_interruptible(&pAd->RTUSBCmd_semaphore) == 0)
 	{
-		//if(down_interruptible(&pAd->mlme_semaphore))
-			//break;
-
-		/* lock the device pointers */
-		down(&(pAd->RTUSBCmd_semaphore));
-
-		if (RTUSBCmd_kill)
-			break;
-
 		/* lock the device pointers , need to check if required*/
-		down(&(pAd->usbdev_semaphore));
+		if (down_interruptible(&(pAd->usbdev_semaphore))) break;
 		CMDHandler(pAd);
 
 		/* unlock the device pointers */
@@ -1761,32 +1761,35 @@ INT RTUSBCmdThread(
 	 * This is important in preemption kernels, which transfer the flow
 	 * of execution immediately upon a complete().
 	 */
-	complete_and_exit (&pAd->notify, 0);
-	DBGPRINT(RT_DEBUG_TRACE, "<---RTUSBCmdThread\n");
+	DBGPRINT(RT_DEBUG_TRACE, "<-- RTUSBCmdThread\n");
+	complete_and_exit (&pAd->cmdnotify, 0);
 
 }
 
 static void *usb_rtusb_probe(struct usb_device *dev, UINT interface,
 				const struct usb_device_id *id_table)
 {
-		PRTMP_ADAPTER       pAd;
+	PRTMP_ADAPTER       pAd;
 	int                 i;
 	struct net_device   *netdev;
 	int                 res = -ENOMEM;
 
+	DBGPRINT(RT_DEBUG_TRACE,"--> %s (2.4)\n", __FUNCTION__);
+
+	usb_get_dev(dev);
 	for (i = 0; i < rtusb_usb_id_len; i++)
 	{
 		if (le16_to_cpu(dev->descriptor.idVendor) == rtusb_usb_id[i].idVendor &&
 			le16_to_cpu(dev->descriptor.idProduct) == rtusb_usb_id[i].idProduct)
 		{
-			DBGPRINT(RT_DEBUG_TRACE, "idVendor = 0x%x, idProduct = 0x%x \n",
+			KPRINT(KERN_INFO, "idVendor = 0x%x, idProduct = 0x%x \n",
 					le16_to_cpu(dev->descriptor.idVendor),
 					le16_to_cpu(dev->descriptor.idProduct));
 			break;
 		}
 	}
 	if (i == rtusb_usb_id_len) {
-		printk("Device Descriptor not matching\n");
+		KPRINT(KERN_CRIT, "Device Descriptor not matching\n");
 		goto out_noalloc;
 	}
 
@@ -1795,12 +1798,13 @@ static void *usb_rtusb_probe(struct usb_device *dev, UINT interface,
 	   exceed 128KB and fail.  So we allocate it separately. */
 	pAd = kzalloc(sizeof (*pAd), GFP_KERNEL);
 	if (!pAd) {
-		printk("couldn't allocate RTMP_ADAPTER\n");
+		KPRINT(KERN_CRIT, "couldn't allocate RTMP_ADAPTER\n");
 		goto out_noalloc;
 	}
 
 	netdev = alloc_etherdev(0);
 	if (!netdev) {
+		KPRINT(KERN_CRIT, "alloc_etherdev failed\n");
 		goto out_nonetdev;
 	}
 
@@ -1815,9 +1819,8 @@ static void *usb_rtusb_probe(struct usb_device *dev, UINT interface,
 	netdev->open = usb_rtusb_open;
 	netdev->hard_start_xmit = RTMPSendPackets;
 	netdev->stop = usb_rtusb_close;
-	netdev->priv = pAd;
 	netdev->get_stats = rt73_get_ether_stats;
-#if WIRELESS_EXT >= 15
+#if WIRELESS_EXT >= 12
 #if WIRELESS_EXT < 17
 	netdev->get_wireless_stats = rt73_get_wireless_stats;
 #endif
@@ -1833,6 +1836,11 @@ static void *usb_rtusb_probe(struct usb_device *dev, UINT interface,
 
 	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED);
 
+	pAd->MLMEThr_pid= -1;
+	pAd->RTUSBCmdThr_pid= -1;
+
+	SET_NETDEV_DEV(netdev, &intf->dev);
+
 	{// find available
 		int 	i=0;
 		char	slot_name[IFNAMSIZ];
@@ -1841,15 +1849,20 @@ static void *usb_rtusb_probe(struct usb_device *dev, UINT interface,
         struct  usb_interface_descriptor *as;
         struct  usb_endpoint_descriptor *ep;
 
+    	if (ifname == NULL)
+			strcpy(netdev->name, "wlan%d");
+    	else
+			strncpy(netdev->name, ifname, IFNAMSIZ);
+
 		for (i = 0; i < 8; i++)
 		{
-			sprintf(slot_name, "wlan%d", i);
+			sprintf(slot_name, netdev->name, i);
 
 			read_lock_bh(&dev_base_lock); // avoid multiple init
 			for (device = first_net_device(); device != NULL;
 					device = next_net_device(device))
 			{
-				if (strncmp(device->name, slot_name, 4) == 0)
+				if (strncmp(device->name, slot_name, IFNAMSIZ) == 0)
 				{
 					break;
 				}
@@ -1861,11 +1874,12 @@ static void *usb_rtusb_probe(struct usb_device *dev, UINT interface,
 		if(i == 8)
 		{
 			DBGPRINT(RT_DEBUG_ERROR, "No available slot name\n");
+			KPRINT(KERN_CRIT, "No available slot name\n");
 			goto out;
 		}
 
-		sprintf(netdev->name, "wlan%d", i);
-		DBGPRINT(RT_DEBUG_ERROR, "usb device name %s\n",netdev->name);
+		sprintf(netdev->name, slot_name, i);
+		DBGPRINT(RT_DEBUG_INFO, "usb device name %s\n",netdev->name);
 
         /* get Max Packet Size from usb_dev endpoint */
 //        ifp = dev->actconfig->interface + i;
@@ -1878,16 +1892,15 @@ static void *usb_rtusb_probe(struct usb_device *dev, UINT interface,
 
 	}
 
-	//pAd->rx_bh.data = (unsigned long)pAd;
-	pAd->rx_bh.func = RTUSBRxPacket;
-	pAd->rx_bk.func = rtusb_bulkrx;
-
 	res = register_netdev(netdev);
 	if (res) {
-		printk("register_netdev failed err=%d\n",res);
+		KPRINT(KERN_CRIT, "register_netdev failed err=%d\n",res);
 		goto out;
 	}
+	res = common_probe(pAd);
+	if (res) goto out;
 
+	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: adapter present\n", __FUNCTION__);
 	return pAd;
 
 out:
@@ -1895,8 +1908,8 @@ out:
 out_nonetdev:
 	kfree(pAd);
 out_noalloc:
-	MOD_DEC_USE_COUNT;
-	usb_dec_dev_use(dev);
+	usb_put_dev(dev);
+	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: adapter=NULL\n", __FUNCTION__);
 	return NULL;
 }
 
@@ -1905,122 +1918,66 @@ static void usb_rtusb_disconnect(struct usb_device *dev, void *ptr)
 {
 	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER) ptr;
 
+	DBGPRINT(RT_DEBUG_TRACE,"--> %s\n", __FUNCTION__);
 
-	if (!pAd)
+	if (!pAd) {
+		DBGPRINT(RT_DEBUG_ERROR, "- (%s) NULL adapter ptr!\n", __FUNCTION__);
 		return;
+	}
+	netif_device_detach(pAd->net_dev);
 
-	tasklet_kill(&pAd->rx_bh);
-	tasklet_kill(&pAd->rx_bk);
 	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST);
 	// for debug, wait to show some messages to /proc system
 	udelay(1);
 	//After Add Thread implementation, Upon exec there, pAd->net_dev seems becomes NULL,
 	//need to check why???
 	//assert(pAd->net_dev != NULL)
+	// Can call close function - bb
 	if(pAd->net_dev != NULL)
 	{
-		printk("unregister_netdev()\n");
+		DBGPRINT(RT_DEBUG_INFO, "unregister_netdev\n");
 		unregister_netdev (pAd->net_dev);
 	}
 	udelay(1);
 	udelay(1);
 
-	while (MOD_IN_USE > 0) {
-		MOD_DEC_USE_COUNT;
-	}
-	udelay(1);
-	DBGPRINT(RT_DEBUG_ERROR,"<=== RTUSB disconnect successfully\n");
+	tasklet_kill(&pAd->rx_bh);
+	tasklet_kill(&pAd->rx_bk);
+	KillThreads(pAd);
 
+	ReleaseAdapter(pAd, TRUE, FALSE);	// Free URB and transfer buffer memory.
+	MlmeFreeMemoryHandler(pAd);
+
+	free_netdev(pAd->net_dev);
+	kfree(pAd);
+	usb_put_dev(dev);
+
+	DBGPRINT(RT_DEBUG_TRACE,"<-- %s\n", __FUNCTION__);
+	KPRINT(KERN_INFO, "disconnected\n");
 }
 
-#else
-static int usb_rtusb_close(struct net_device *net_dev)
-{
-	PRTMP_ADAPTER   pAd = (PRTMP_ADAPTER) net_dev->priv;
-	int             ret;
-	int	            i = 0;
-
-	DECLARE_WAIT_QUEUE_HEAD (unlink_wakeup);
-	DECLARE_WAITQUEUE (wait, current);
-
-	DBGPRINT(RT_DEBUG_TRACE,"-->rt73_close \n");
-
-	netif_carrier_off(pAd->net_dev);
-	netif_stop_queue(pAd->net_dev);
-
-	// ensure there are no more active urbs.
-	add_wait_queue (&unlink_wakeup, &wait);
-	pAd->wait = &unlink_wakeup;
-
-	// maybe wait for deletions to finish.
-	while ((i < 25) && atomic_read(&pAd->PendingRx) > 0) {
-#if LINUX_VERSION_CODE >KERNEL_VERSION(2,6,9)
-
-		msleep(UNLINK_TIMEOUT_MS);
-#endif
-		i++;
-	}
-	pAd->wait = NULL;
-	remove_wait_queue (&unlink_wakeup, &wait);
-
-	if (pAd->MLMEThr_pid >= 0)
-	{
-		mlme_kill = 1;
-		RTUSBMlmeUp(pAd);
-		wmb(); // need to check
-		ret = kill_proc (pAd->MLMEThr_pid, SIGTERM, 1);
-		if (ret)
-		{
-			printk (KERN_ERR "%s: unable to signal thread\n", pAd->net_dev->name);
-			//return ret;
-		}
-		wait_for_completion (&pAd->notify);
-	}
-	if (pAd->RTUSBCmdThr_pid>= 0)
-	{
-		RTUSBCmd_kill = 1;
-		RTUSBCMDUp(pAd);
-		wmb(); // need to check
-		ret = kill_proc (pAd->RTUSBCmdThr_pid, SIGTERM, 1);
-		if (ret)
-		{
-			printk (KERN_ERR "%s: unable to signal thread\n", pAd->net_dev->name);
-			//return ret;
-		}
-		wait_for_completion (&pAd->notify);
-	}
-	RTUSBHalt(pAd, TRUE);
-
-	DBGPRINT(RT_DEBUG_TRACE,"<--rt73_close \n");
-
-	return 0;
-}
-
+#else	// Kernel version > 2.5.0
 INT MlmeThread(
     IN void * Context)
 {
 	PRTMP_ADAPTER	pAd = (PRTMP_ADAPTER)Context;
 
-	daemonize("rt73");
+	DBGPRINT(RT_DEBUG_TRACE,"--> %s (2.6)\n", __FUNCTION__);
+
+	daemonize("rt73Mlme");
 	allow_signal(SIGTERM);
 	current->flags |= PF_NOFREEZE;
-	/* signal that we've started the thread */
-	complete(&(pAd->notify));
 
-	while (1)
+	/* Bail on any enabled signal */
+	while (down_interruptible(&pAd->mlme_semaphore) == 0)
 	{
-		//if(down_interruptible(&pAd->mlme_semaphore))
-			//break;
-
-		/* lock the device pointers */
-		down(&(pAd->mlme_semaphore));
-
-		if (mlme_kill)
-			break;
-
 		/* lock the device pointers , need to check if required*/
-		down(&(pAd->usbdev_semaphore));
+		if (down_interruptible(&(pAd->usbdev_semaphore))) break;
 
+		// Always call Bulk routine, even reset bulk.
+		// The protectioon of rest bulk should be in BulkOut routine
+		RTUSBKickBulkOut(pAd);
+		RTUSBDequeueRxPackets(pAd);
 		MlmeHandler(pAd);
 
 		/* unlock the device pointers */
@@ -2041,8 +1998,8 @@ INT MlmeThread(
 	 * This is important in preemption kernels, which transfer the flow
 	 * of execution immediately upon a complete().
 	 */
-	complete_and_exit (&pAd->notify, 0);
-	DBGPRINT(RT_DEBUG_TRACE, "<---MlmeThread\n");
+	DBGPRINT(RT_DEBUG_TRACE, "<-- MlmeThread\n");
+	complete_and_exit (&pAd->mlmenotify, 0);
 }
 
 INT RTUSBCmdThread(
@@ -2050,26 +2007,17 @@ INT RTUSBCmdThread(
 {
 	PRTMP_ADAPTER	pAd = (PRTMP_ADAPTER)Context;
 
-	daemonize("rt73");
+	DBGPRINT(RT_DEBUG_TRACE,"--> %s (2.6)\n", __FUNCTION__);
+
+	daemonize("rt73Cmd");
 	allow_signal(SIGTERM);
 	current->flags |= PF_NOFREEZE;
-	/* signal that we've started the thread */
-	complete(&(pAd->notify));
 
-	while (1)
+	/* Bail on any enabled signal */
+	while (down_interruptible(&pAd->RTUSBCmd_semaphore) == 0)
 	{
-		//if(down_interruptible(&pAd->mlme_semaphore))
-			//break;
-
-		/* lock the device pointers */
-		down(&(pAd->RTUSBCmd_semaphore));
-
-		if (RTUSBCmd_kill)
-			break;
-
 		/* lock the device pointers , need to check if required*/
-		down(&(pAd->usbdev_semaphore));
-
+		if (down_interruptible(&(pAd->usbdev_semaphore))) break;
 		CMDHandler(pAd);
 
 		/* unlock the device pointers */
@@ -2090,7 +2038,8 @@ INT RTUSBCmdThread(
 	 * This is important in preemption kernels, which transfer the flow
 	 * of execution immediately upon a complete().
 	 */
-	complete_and_exit (&pAd->notify, 0);
+	DBGPRINT(RT_DEBUG_TRACE,"<-- %s\n", __FUNCTION__);
+	complete_and_exit (&pAd->cmdnotify, 0);
 }
 
 static int usb_rtusb_probe (struct usb_interface *intf,
@@ -2102,21 +2051,22 @@ static int usb_rtusb_probe (struct usb_interface *intf,
 	struct net_device   *netdev;
 	int                 res = -ENOMEM;
 
+	DBGPRINT(RT_DEBUG_TRACE,"--> %s (2.6)\n", __FUNCTION__);
+
 	usb_get_dev(dev);
 	for (i = 0; i < rtusb_usb_id_len; i++)
 	{
 		if (le16_to_cpu(dev->descriptor.idVendor) == rtusb_usb_id[i].idVendor &&
 			le16_to_cpu(dev->descriptor.idProduct) == rtusb_usb_id[i].idProduct)
 		{
-			/* printk("idVendor = 0x%x, idProduct = 0x%x \n",
+			KPRINT(KERN_INFO, "idVendor = 0x%x, idProduct = 0x%x \n",
 					le16_to_cpu(dev->descriptor.idVendor),
 					le16_to_cpu(dev->descriptor.idProduct));
-			*/
 			break;
 		}
 	}
 	if (i == rtusb_usb_id_len) {
-		printk("Device Descriptor not matching\n");
+		KPRINT(KERN_CRIT, "Device Descriptor not matching\n");
 		goto out_noalloc;
 	}
 
@@ -2125,13 +2075,13 @@ static int usb_rtusb_probe (struct usb_interface *intf,
 	   exceed 128KB and fail.  So we allocate it separately. */
 	pAd = kzalloc(sizeof (*pAd), GFP_KERNEL);
 	if (!pAd) {
-		printk("couldn't allocate RTMP_ADAPTER\n");
+		KPRINT(KERN_CRIT, "couldn't allocate RTMP_ADAPTER\n");
 		goto out_noalloc;
 	}
 
 	netdev = alloc_etherdev(0);
 	if (!netdev) {
-		printk("alloc_etherdev failed\n");
+		KPRINT(KERN_CRIT, "alloc_etherdev failed\n");
 		goto out_nonetdev;
 	}
 
@@ -2145,7 +2095,6 @@ static int usb_rtusb_probe (struct usb_interface *intf,
 
 	netdev->open = usb_rtusb_open;
 	netdev->stop = usb_rtusb_close;
-	netdev->priv = pAd;
 	netdev->hard_start_xmit = RTMPSendPackets;
 	netdev->get_stats = rt73_get_ether_stats;
 
@@ -2160,7 +2109,7 @@ static int usb_rtusb_probe (struct usb_interface *intf,
 	netdev->hard_header_len = 14;
 	netdev->mtu = 1500;
 	netdev->addr_len = 6;
-	netdev->weight = 64;
+	//netdev->weight = 64;	// Used only for poll. N/A in 2.6.24 - bb
 
 	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED);
 
@@ -2176,10 +2125,14 @@ static int usb_rtusb_probe (struct usb_interface *intf,
         struct  usb_host_interface *iface_desc;
         struct  usb_endpoint_descriptor *endpoint;
 
+    	if (ifname == NULL)
+			strcpy(pAd->net_dev->name, "wlan%d");
+    	else
+			strncpy(pAd->net_dev->name, ifname, IFNAMSIZ);
 
 		for (i = 0; i < 8; i++)
 		{
-			sprintf(slot_name, "wlan%d", i);
+			sprintf(slot_name, pAd->net_dev->name, i);
 
 #if 1
 			if(dev_get_by_name(slot_name)==NULL)
@@ -2189,7 +2142,7 @@ static int usb_rtusb_probe (struct usb_interface *intf,
 			for (device = first_net_device(); device != NULL;
 					device = next_net_device(device))
 			{
-				if (strncmp(device->name, slot_name, 4) == 0)
+				if (strncmp(device->name, slot_name, IFNAMSIZ) == 0)
 				{
 					break;
 				}
@@ -2202,10 +2155,11 @@ static int usb_rtusb_probe (struct usb_interface *intf,
 		if(i == 8)
 		{
 			DBGPRINT(RT_DEBUG_ERROR, "No available slot name\n");
-			return res;
+			KPRINT(KERN_CRIT, "No available slot name\n");
+			goto out;
 		}
 
-		sprintf(pAd->net_dev->name, "wlan%d", i);
+		sprintf(pAd->net_dev->name, slot_name, i);
 		DBGPRINT(RT_DEBUG_ERROR, "usb device name %s\n", pAd->net_dev->name);
 
 
@@ -2221,26 +2175,19 @@ static int usb_rtusb_probe (struct usb_interface *intf,
 
 	}
 
-    //bottom half data is assign at  each task_scheduler
-	//pAd->rx_bh.data = (unsigned long)pAd;
-	pAd->rx_bh.func = RTUSBRxPacket;
-
-
 	res = register_netdev(netdev);
 	if (res) {
-		printk("register_netdev failed err=%d\n",res);
+		KPRINT(KERN_CRIT, "register_netdev failed err=%d\n",res);
 		goto out;
 	}
 
 	usb_set_intfdata(intf, pAd);
 
-
 	rt73usb_open_debugfs(pAd);
-	res = LoadFirmware(pAd, firmName);
-	if (res) {
-		DBGPRINT(RT_DEBUG_ERROR, "Failed to request Firmware.\n");
-		goto out;
-	}
+	res = common_probe(pAd);
+	if (res) goto out;
+
+	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: res=%d\n", __FUNCTION__, res);
 	return 0;
 
 out:
@@ -2248,7 +2195,8 @@ out:
 out_nonetdev:
 	kfree(pAd);
 out_noalloc:
-	module_put(THIS_MODULE);
+	usb_put_dev(dev);
+	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: res=%d\n", __FUNCTION__, res);
 	return res;
 }
 
@@ -2257,41 +2205,52 @@ static void usb_rtusb_disconnect(struct usb_interface *intf)
 	struct usb_device   *dev = interface_to_usbdev(intf);
 	PRTMP_ADAPTER       pAd = (PRTMP_ADAPTER)NULL;
 
+	DBGPRINT(RT_DEBUG_TRACE,"--> %s\n", __FUNCTION__);
+
 	pAd = usb_get_intfdata(intf);
+	if (!pAd) {
+		DBGPRINT(RT_DEBUG_ERROR, "- (%s) NULL adapter ptr!\n", __FUNCTION__);
+		return;
+	}
+	netif_device_detach(pAd->net_dev);
 
 	usb_set_intfdata(intf, NULL);
 	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST);
-	DBGPRINT(RT_DEBUG_ERROR,"unregister usbnet usb-%s-%s\n",
+	DBGPRINT(RT_DEBUG_INFO,"disconnect usbnet usb-%s-%s\n",
 		dev->bus->bus_name, dev->devpath);
-	if (!pAd)
-		return;
 
 	rt73usb_close_debugfs(pAd);
 
-	tasklet_kill(&pAd->rx_bh);
-	tasklet_kill(&pAd->rx_bk);
 	// for debug, wait to show some messages to /proc system
 	udelay(1);
 	//After Add Thread implementation, Upon exec there, pAd->net_dev seems becomes NULL,
 	//need to check why???
 	//assert(pAd->net_dev != NULL)
+	// Can call close function - bb
 	if(pAd->net_dev!= NULL)
 	{
-		//printk("unregister_netdev()\n");
+		DBGPRINT(RT_DEBUG_INFO, "unregister_netdev\n");
 		unregister_netdev (pAd->net_dev);
 	}
 	udelay(1);
-	flush_scheduled_work ();
-	udelay(1);
+
+	tasklet_kill(&pAd->rx_bh);
+	tasklet_kill(&pAd->rx_bk);
+	KillThreads(pAd);
+
+    // Free the entire adapter object
+	ReleaseAdapter(pAd, TRUE, FALSE);
+	MlmeFreeMemoryHandler(pAd); //Free MLME memory handler
 
 	free_netdev(pAd->net_dev);
 	kfree(pAd);
 	usb_put_dev(dev);
-	udelay(1);
-	DBGPRINT(RT_DEBUG_ERROR,"<=== RTUSB disconnect successfully\n");
+
+	DBGPRINT(RT_DEBUG_TRACE,"<-- %s\n", __FUNCTION__);
+	KPRINT(KERN_INFO, "disconnected\n");
 
 }
-#endif
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0) */
 
 
 //
@@ -2299,7 +2258,7 @@ static void usb_rtusb_disconnect(struct usb_interface *intf)
 //
 INT __init usb_rtusb_init(void)
 {
-    //printk("rtusb init ====>\n");
+    KPRINT(KERN_INFO, "init\n");
 	#ifdef DBG
     RTDebugLevel = debug;
 	#else
@@ -2312,6 +2271,16 @@ INT __init usb_rtusb_init(void)
 	return usb_register(&rtusb_driver);
 }
 
+static int __init rt73_wlan_opt(char *str)
+{
+	if (!str || !*str)
+		return -EINVAL;
+	if (!strncmp(str, "debug:", 6)) {
+		debug = simple_strtoul(str + 6, NULL, 0);
+	}
+	return 0;
+}
+
 //
 // Driver module unload function
 //
@@ -2321,21 +2290,8 @@ VOID __exit usb_rtusb_exit(void)
 	udelay(1);
 	usb_deregister(&rtusb_driver);
 
-	//printk("<=== rtusb exit\n");
+	KPRINT(KERN_INFO, "exit\n");
 }
-
-static int __init rt73_wlan_opt(char *str)
-{
-	if (!str || !*str)
-		return -EINVAL;
-
-	if (!strncmp(str, "debug:", 6)) {
-		debug = simple_strtoul(str + 6, NULL, 0);
-	}
-
-	return 0;
-}
-
 /**************************************/
 __setup("rt73wlan=", rt73_wlan_opt);
 module_init(usb_rtusb_init);

@@ -298,26 +298,29 @@ typedef struct _HW_PAIRWISE_TA_ENTRY {  // 8-byte per entry
 //
 #ifdef BIG_ENDIAN
 typedef	struct	_TXD_STRUC {
-	//Word 0
-	ULONG       Reserved:7;
-	ULONG       bWaitingDmaDoneInt:1; // pure s/w flag. 1:TXD been filled with data and waiting for TxDoneISR for housekeeping
-	ULONG       BbpTxPower:8;
-	ULONG       PktId:8;            // driver assigned packet ID to categorize TXResult in TxDoneInterrupt
-	ULONG       FrameOffset:8;      // frame start offset inside ASIC TXFIFO (after TXINFO field)
+	// Word 0
+	ULONG       CipherAlg:3;
+	ULONG       Burst2:1;			// definition as same as "Burst", for backward compatible set this one to the same as "Burst" set.
+	ULONG       DataByteCnt:12;
+	ULONG       KeyIndex:6;         // Key index (0~31) to the pairwise KEY table; or
+									// 0~3 to shared KEY table 0 (BSS0). STA always use BSS0
+									// 4~7 to shared KEY table 1 (BSS1)
+									// 8~11 to shared KEY table 2 (BSS2)
+									// 12~15 to shared KEY table 3 (BSS3)
+
+	ULONG       KeyTable:1;        	// 1: use per-client pairwise KEY table, 0: shared KEY table
+	ULONG       TkipMic:1;         	// 1: ASIC is responsible for appending TKIP MIC if TKIP is inused
+	ULONG		RetryMd:1;         	// 1: Long retry (4 times), 0: short retry (7 times)
+	ULONG		IFS:1;             	// 1: require a BACKOFF before this frame, 0:SIFS before this frame
+	ULONG      	Ofdm:1;				// 1: TX using OFDM rates
+	ULONG		Timestamp:1;		// 1: MAC auto overwrite current TSF into frame body
+	ULONG		ACK:1;             	// 1: ACK is required
+	ULONG		MoreFrag:1;			// 1: More fragment following this frame
+	ULONG		Drop:1;				// 0: skip this frame, 1:valid frame inside
+	ULONG		Burst:1;			// 1: Contiguously used current End Ponit, eg, Fragment packet should turn on.
+									//	Tell EDCA that the next frame belongs to the same "burst" even though TXOP=0
 
 	// Word	1
-	ULONG       Eiv;
-
-	// Word	2
-	ULONG       Iv;
-
-	// Word	3
-	ULONG      	PlcpLengthHigh:8;
-	ULONG      	PlcpLengthLow:8;
-	ULONG      	PlcpService:8;
-	ULONG      	PlcpSignal:8;
-
-	//Word 4
 	ULONG       BufCount:3;         // number of buffers in this TXD
 	ULONG       HwSeq:1;            // MAC auto replace the 12-bit frame sequence #
 	ULONG       :6;
@@ -327,27 +330,31 @@ typedef	struct	_TXD_STRUC {
 	ULONG       Aifsn:4;
 	ULONG       HostQId:4;          // EDCA/HCCA queue ID
 
-	//Word 5
-	ULONG       CipherAlg:3;
-	ULONG       Burst2:1;            // definition as same as "Burst", for backward compatible set this one to the same as "Burst" set.
-	ULONG       DataByteCnt:12;
-	ULONG       KeyIndex:6;         // Key index (0~31) to the pairwise KEY table; or
-									// 0~3 to shared KEY table 0 (BSS0). STA always use BSS0
-									// 4~7 to shared KEY table 1 (BSS1)
-									// 8~11 to shared KEY table 2 (BSS2)
-									// 12~15 to shared KEY table 3 (BSS3)
-	ULONG       KeyTable:1;         	// 1: use per-client pairwise KEY table, 0: shared KEY table
-	ULONG       TkipMic:1;          	// 1: ASIC is responsible for appending TKIP MIC if TKIP is inused
-	ULONG		RetryMd:1;          	// 1: Long retry (4 times), 0: short retry (7 times)
-	ULONG		IFS:1;              	// 1: require a BACKOFF before this frame, 0:SIFS before this frame
-	ULONG       	Ofdm:1;             	// 1: TX using OFDM rates
-	ULONG		Timestamp:1;    	// 1: MAC auto overwrite current TSF into frame body
-	ULONG		ACK:1;              	// 1: ACK is required
-	ULONG		MoreFrag:1;		// 1: More fragment following this frame
-	ULONG		Drop:1;			// 0: skip this frame, 1:valid frame inside
-	ULONG		Burst:1;		// 1: Contiguously used current End Ponit, eg, Fragment packet should turn on.
-						//	Tell EDCA that the next frame belongs to the same "burst" even though TXOP=0
+	// Word	2
+	ULONG      	PlcpLengthHigh:8;
+	ULONG      	PlcpLengthLow:8;
+	ULONG      	PlcpService:8;
+	ULONG      	PlcpSignal:8;
 
+	// Word	3
+	ULONG       Iv;
+
+	// Word	4
+	ULONG       Eiv;
+
+	// Word 5
+	ULONG       Reserved:7;
+	ULONG       bWaitingDmaDoneInt:1; // pure s/w flag. 1:TXD been filled with data and waiting for TxDoneISR for housekeeping
+	ULONG       BbpTxPower:8;
+	ULONG       PktId:8;            // driver assigned packet ID to categorize TXResult in TxDoneInterrupt
+	ULONG       FrameOffset:8;      // frame start offset inside ASIC TXFIFO (after TXINFO field)
+
+	// the above 24-byte is called TXINFO and will be DMAed to MAC block through TXFIFO.
+	// MAC block use this TXINFO to control the transmission behavior of this frame.
+
+	// The following fields are not used by MAC block. They are used by DMA block and HOST
+	// driver only. Once a frame has been DMA to ASIC, all the following fields are useless
+	// to ASIC.
 }	TXD_STRUC, *PTXD_STRUC;
 #else
 typedef	struct	_TXD_STRUC {
@@ -417,23 +424,7 @@ typedef	struct	_TXD_STRUC {
 //
 #ifdef BIG_ENDIAN
 typedef	struct	_RXD_STRUC	{
-	//Word 0
-	ULONG		Rsv3;	// BufPhyAddr;
-
-	//Word 1
-	ULONG		Rsv2;
-
-	//Word 2
-	ULONG		Iv;                 // received IV if originally encrypted; for replay attack checking
-
-	//Word 3
-	ULONG		Rsv1:1;
-	ULONG		FrameOffset:7;
-	ULONG		Rsv0:8;
-	ULONG		PlcpRssi:8;         // RSSI reported by BBP
-	ULONG		PlcpSignal:8;       // RX raw data rate reported by BBP
-
-	//Word 4
+	// Word	0
 	ULONG		CipherAlg:3;
 	ULONG		Rsv:1;
 	ULONG		DataByteCnt:12;
@@ -449,6 +440,43 @@ typedef	struct	_RXD_STRUC	{
 	ULONG		Drop:1;             // 1: drop without receiving to HOST
 	ULONG		Owner:1;            // 1: owned by ASIC, 0: owned by HOST driver
 
+	// Word 1
+	ULONG		Rsv1:1;
+	ULONG		FrameOffset:7;
+	ULONG		Rsv0:8;
+	ULONG		PlcpRssi:8;         // RSSI reported by BBP
+	ULONG		PlcpSignal:8;       // RX raw data rate reported by BBP
+
+	// Word 2
+	ULONG		Iv;                 // received IV if originally encrypted; for replay attack checking
+
+	// Word 3
+	ULONG       Eiv;                // received EIV if originally encrypted; for replay attack checking
+
+	// Word 4
+	ULONG		Rsv2;
+
+	// The above 20-byte is called RXINFO and is prepared by MAC RX block and passed
+	// the HOST driver.
+
+	// The following fields are for DMA block and HOST usage only. Can't be touched
+	// by ASIC MAC block.
+
+	// Word	5
+	ULONG		Rsv3;	// BufPhyAddr;
+#if 0
+	// Word	6~15
+	ULONG       Rsv3;
+	ULONG       Rsv4;
+	ULONG       Rsv5;
+	ULONG       Rsv6;
+	ULONG       Rsv7;
+	ULONG       Rsv8;
+	ULONG       Rsv9;
+	ULONG       Rsv10;
+	ULONG       Rsv11;
+	ULONG       Rsv12;
+#endif
 }	RXD_STRUC, *PRXD_STRUC;
 #else
 typedef	struct	_RXD_STRUC	{
@@ -824,7 +852,7 @@ typedef	union	_MAC_CSR9_STRUC	{
 //
 // MAC_CSR11: Power saving transition time register
 //
-#ifdef BG_ENDIAN
+#ifdef BIG_ENDIAN
 typedef union _MAC_CSR11_STRUC {
 	struct {
 		ULONG       :12;
@@ -861,7 +889,7 @@ typedef	union	_MAC_CSR12_STRUC	{
 		ULONG		CurrentPowerState:1;	// 0:sleep, 1:awake
 	}	field;
 	ULONG			word;
-}	PMAC_CSR12_STRUC, *PMAC_CSR12_STRUC;
+}	MAC_CSR12_STRUC, *PMAC_CSR12_STRUC;
 #else
 typedef	union	_MAC_CSR12_STRUC	{
 	struct	{

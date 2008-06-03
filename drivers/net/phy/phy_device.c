@@ -757,6 +757,8 @@ static struct phy_driver genphy_driver = {
 	.features	= 0,
 	.config_aneg	= genphy_config_aneg,
 	.read_status	= genphy_read_status,
+	.suspend	= genphy_suspend,
+	.resume		= genphy_resume,
 	.driver		= {.owner= THIS_MODULE, },
 };
 

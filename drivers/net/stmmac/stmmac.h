@@ -57,4 +57,5 @@ struct eth_driver_local {
 	int tx_aggregation;
 	int has_timer;
 	struct timer_list timer;
+	int shutdown;
 };

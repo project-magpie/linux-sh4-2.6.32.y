@@ -277,7 +277,7 @@ static void stmmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 
 	spin_lock_irq(&lp->lock);
 	if (lp->wolenabled == PMT_SUPPORTED) {
-		wol->supported = WAKE_MAGIC | WAKE_UCAST;
+		wol->supported = WAKE_MAGIC /*| WAKE_UCAST*/;
 		wol->wolopts = lp->wolopts;
 	}
 	spin_unlock_irq(&lp->lock);
@@ -293,6 +293,11 @@ static int stmmac_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 
 	if (wol->wolopts & ~support)
 		return -EINVAL;
+
+	if (wol->wolopts == 0)
+		device_set_wakeup_enable(lp->device, 0);
+	else
+		device_set_wakeup_enable(lp->device, 1);
 
 	spin_lock_irq(&lp->lock);
 	lp->wolopts = wol->wolopts;

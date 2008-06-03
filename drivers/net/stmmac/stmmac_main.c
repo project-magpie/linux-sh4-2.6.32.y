@@ -1107,6 +1107,7 @@ static int stmmac_open(struct net_device *dev)
 	/* Initialize the MAC Core */
 	lp->mac_type->ops->core_init(ioaddr);
 	lp->tx_aggregation = 0;
+	lp->shutdown = 0;
 
 	/* Initialise the MMC (if present) to disable all interrupts */
 	writel(0xffffffff, ioaddr+MMC_HIGH_INTR_MASK);
@@ -2021,41 +2022,45 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 	struct net_device *dev = platform_get_drvdata(pdev);
 	struct eth_driver_local *lp = netdev_priv(dev);
 
-	spin_lock(&lp->lock);
 
 	if (!dev || !netif_running(dev))
 		return 0;
 
-	netif_device_detach(dev);
+	spin_lock(&lp->lock);
 
-	netif_stop_queue(dev);
-
-	phy_stop(lp->phydev);
-
-	netif_stop_queue(dev);
+	if (state.event == PM_EVENT_SUSPEND) {
+		netif_device_detach(dev);
+		netif_stop_queue(dev);
+		phy_stop(lp->phydev);
+		netif_stop_queue(dev);
 
 #ifdef CONFIG_STMMAC_RTC_TIMER
-	if (likely(lp->has_timer == 0))
-		stmmac_timer_stop();
+		if (likely(lp->has_timer == 0))
+			stmmac_timer_stop();
 #endif
-	/* Stop TX/RX DMA */
-	stmmac_dma_stop_tx(dev->base_addr);
-	stmmac_dma_stop_rx(dev->base_addr);
+		/* Stop TX/RX DMA */
+		stmmac_dma_stop_tx(dev->base_addr);
+		stmmac_dma_stop_rx(dev->base_addr);
+		/* Clear the Rx/Tx descriptors */
+		lp->mac_type->ops->init_rx_desc(lp->dma_rx, lp->dma_rx_size, 
+				rx_irq_mitigation);
+		lp->mac_type->ops->init_tx_desc(lp->dma_tx, lp->dma_tx_size);
 
-	/* Clear the Rx/Tx descriptors */
-	lp->mac_type->ops->init_rx_desc(lp->dma_rx, lp->dma_rx_size, 
-			rx_irq_mitigation);
-	lp->mac_type->ops->init_tx_desc(lp->dma_tx, lp->dma_tx_size);
+		stmmac_mac_disable_tx(dev);
 
-	stmmac_mac_disable_tx(dev);
-
-	if (state.event == PM_EVENT_SUSPEND && 
-		device_may_wakeup(&(pdev->dev))) {
-		/* Enable Power down mode by programming the PMT regs */
-		if (lp->wolenabled == PMT_SUPPORTED)
-			lp->mac_type->ops->pmt(dev->base_addr, lp->wolopts);
+		if (device_may_wakeup(&(pdev->dev))) {
+			/* Enable Power down mode by programming the PMT regs */
+			if (lp->wolenabled == PMT_SUPPORTED)
+				lp->mac_type->ops->pmt(dev->base_addr, lp->wolopts);
+		} else {
+			stmmac_mac_disable_rx(dev);
+		}
 	} else {
-		stmmac_mac_disable_rx(dev);
+		lp->shutdown = 1;
+		/* Although this can appear slightly redundant it actually 
+		 * makes fast the standby operation and guarantees the driver 
+		 * working if hibernation is on media. */
+		stmmac_release(dev);
 	}
 
 	spin_unlock(&lp->lock);
@@ -2068,9 +2073,17 @@ static int stmmac_resume(struct platform_device *pdev)
 	struct eth_driver_local *lp = netdev_priv(dev);
 	unsigned long ioaddr = dev->base_addr;
 
-	spin_lock(&lp->lock);
 	if (!netif_running(dev))
 		return 0;
+
+	spin_lock(&lp->lock);
+
+	if (lp->shutdown){
+		/* Re-open the interface and re-init the MAC/DMA
+		   and the rings. */
+		stmmac_open(dev);
+		goto out_resume;
+	}
 
 	netif_device_attach(dev);
 
@@ -2087,6 +2100,8 @@ static int stmmac_resume(struct platform_device *pdev)
 	phy_start(lp->phydev);
 	
 	netif_start_queue(dev);
+
+out_resume:
 	spin_unlock(&lp->lock);
 	return 0;
 }

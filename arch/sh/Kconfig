@@ -439,6 +439,13 @@ config SH_ST_CB101
 	help
 	  Select SH_ST_CB101 if configuring for this board.
 
+config SH_ST_CB102
+	bool "cb102: ST Customer board 102"
+	depends on CPU_SUBTYPE_STX7200
+	select SND_STM_CONV_DUMMY if SND_STM
+	help
+	  Select SH_ST_CB102 if configuring for this board.
+
 config SH_ST_HMS1
 	bool "HMS1"
 	depends on CPU_SUBTYPE_STB7100

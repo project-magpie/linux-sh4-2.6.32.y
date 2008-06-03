@@ -129,6 +129,7 @@ machdir-$(CONFIG_SH_LBOX_RE2)			+= lboxre2
 machdir-$(CONFIG_SH_MAGIC_PANEL_R2)		+= magicpanelr2
 # ST Boards
 machdir-$(CONFIG_SH_ST_CB101)			+= st/cb101
+machdir-$(CONFIG_SH_ST_CB102)			+= st/cb102
 machdir-$(CONFIG_SH_ST_HMS1)			+= st/hms1
 machdir-$(CONFIG_SH_ST_MB360)			+= st/mb360 st/common
 machdir-$(CONFIG_SH_ST_MB374)			+= st/mb374 st/common

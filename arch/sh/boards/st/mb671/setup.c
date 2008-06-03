@@ -12,14 +12,15 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/delay.h>
+#include <linux/io.h>
+#include <linux/phy.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/emi.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
-#include <linux/phy.h>
-#include <linux/io.h>
 #include <asm/irq-ilc.h>
 #include <asm/mb671/epld.h>
 #include "../common/common.h"
@@ -102,18 +103,19 @@ static struct platform_device physmap_flash = {
 
 static struct plat_stmmacphy_data phy_private_data[2] = {
 	{
-		/* MAC0: SMSC LAN8700 */
+		/* MII0: SMSC LAN8700 */
 		.bus_id = 0,
 		.phy_addr = 0,
 		.phy_mask = 0,
-		.interface = PHY_INTERFACE_MODE_MII,
+		.interface = PHY_INTERFACE_MODE_RMII,
 	}, {
-		/* MAC1: STEM */
+		/* MII1: MB539B connected to J2 */
 		.bus_id = 1,
 		.phy_addr = 0,
 		.phy_mask = 0,
 		.interface = PHY_INTERFACE_MODE_MII,
-	} };
+	}
+};
 
 static struct platform_device mb671_phy_devices[2] = {
 	{
@@ -126,12 +128,9 @@ static struct platform_device mb671_phy_devices[2] = {
 				/* This should be:
 				 * .start = ILC_IRQ(93),
 				 * .end = ILC_IRQ(93),
-				 * but because the mb671 uses the MII0_MDINT
-				 * line as MODE4, and the STE101P MDINT pin
-				 * is O/C, there may or maynot be a pull-up
-				 * resistor depending on switch SW1-4.
-				 * Most of the time there isn't,
-				 * so disable the interrupt. */
+				 * but mode pins setup (MII0_RXD[3] pulled
+				 * down) disables nINT pin of LAN8700, so
+				 * we are unable to use it... */
 				.start	= -1,
 				.end	= -1,
 				.flags	= IORESOURCE_IRQ,
@@ -142,20 +141,21 @@ static struct platform_device mb671_phy_devices[2] = {
 		}
 	}, {
 		.name		= "stmmacphy",
-			.id		= 1,
-			.num_resources	= 1,
-			.resource	= (struct resource[]) {
-				{
-					.name	= "phyirq",
-					.start	= ILC_IRQ(95),
-					.end	= ILC_IRQ(95),
-					.flags	= IORESOURCE_IRQ,
-				},
+		.id		= 1,
+		.num_resources	= 1,
+		.resource	= (struct resource[]) {
+			{
+				.name	= "phyirq",
+				.start	= ILC_IRQ(95),
+				.end	= ILC_IRQ(95),
+				.flags	= IORESOURCE_IRQ,
 			},
-			.dev = {
-				.platform_data = &phy_private_data[1],
-			}
-	} };
+		},
+		.dev = {
+			.platform_data = &phy_private_data[1],
+		}
+	}
+};
 
 static struct platform_device epld_device = {
 	.name		= "epld",
@@ -184,7 +184,6 @@ static int __init device_init(void)
 {
 	unsigned int epld_rev;
 	unsigned int pcb_rev;
-	int port;
 
 	epld_rev = epld_read(EPLD_EPLDVER);
 	pcb_rev = epld_read(EPLD_PCBVER);
@@ -194,23 +193,13 @@ static int __init device_init(void)
 	stx7200_configure_pwm(&pwm_private_info);
 	stx7200_configure_ssc(&ssc_private_info);
 
-	/* Overcurrent pins are pulled low by default. They need
-	 * to be high for USB to work. So lets do this...
-	 * It may be removed in future if board is fixed. */
-	for (port = 0; port < 3; port++) {
-		static unsigned oc_pins[3] = {0, 2, 5};
-		struct stpio_pin *pio = stpio_request_pin(7, oc_pins[port],
-				"USB oc", STPIO_OUT);
-		stpio_set_pin(pio, 1);
-	}
-
 	stx7200_configure_usb();
 
 	stx7200_configure_sata(0);
 
 #if 1 /* On-board PHY (MII0) in RMII mode, using MII_CLK */
 	stx7200_configure_ethernet(0, 1, 0, 0);
-#else /* External PHY board (MII1) in MII mode, using its own clock */
+#else /* External PHY board (MB539B) on MII1 in MII mode, using its own clock */
 	stx7200_configure_ethernet(1, 0, 1, 1);
 #endif
 

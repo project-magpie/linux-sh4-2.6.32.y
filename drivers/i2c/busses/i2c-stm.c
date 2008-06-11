@@ -228,6 +228,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 		char bytes[2];
 		short word;
 	} tmp;
+	int tmp2=0;
 
 	dgb_print2("\n");
 
@@ -381,10 +382,12 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 			}
 		}
 
+		idx=0;
 		/* Release any clock stretch */
-		if (status & SSC_STA_CLST)
+		if (status & SSC_STA_CLST){
+			++idx;
 			ssc_store32(adap, SSC_TBUF, 0x1ff);
-
+		}
 		/* 2. Do we finish? */
 		if (trsc->idx_current_msg == pmsg->len) {
 			status &= ~SSC_STA_NACK;
@@ -395,7 +398,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 		 *    but we want save the latest [pmsg->len-1]
 		 *    in any case...
 		 */
-		for (idx=0; idx<SSC_TXFIFO_SIZE &&
+		for (; idx<SSC_TXFIFO_SIZE &&
 			   (trsc->idx_current_msg+idx)<pmsg->len-1; ++idx)
 			ssc_store32(adap, SSC_TBUF, 0x1ff);
 
@@ -503,9 +506,13 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 		trsc->idx_current_msg = 0;
 		trsc->next_state = IIC_FSM_REPSTART_ADDR;
 		ssc_store32(adap, SSC_CLR, 0xdc0);
+		if(ssc_load32(adap,SSC_STA) & SSC_STA_REPSTRT)
+			tmp2=1;
 		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM | SSC_I2C_TXENB
 			    | SSC_I2C_REPSTRTG | (SSC_I2C_I2CFSMODE *
 						  fast_mode));
+		if(tmp2) /* we was not able to clear the status bit */
+			udelay(5);
 		ssc_store32(adap, SSC_IEN, SSC_IEN_REPSTRTEN | SSC_IEN_ARBLEN);
 		break;
 

@@ -218,6 +218,14 @@ extern int stasc_console_device;
 extern struct platform_device *stasc_configured_devices[];
 extern unsigned int stasc_configured_devices_count;
 
+#ifdef CONFIG_CPU_SUBTYPE_STX7141
+#define ASC1_MCARD		0
+#define ASC1_PIO10		2
+
+#define ASC2_PIO1		0
+#define ASC2_PIO6		4
+#endif
+
 struct plat_sysconf_data {
 	int sys_device_offset;
 	int sys_sta_offset;
@@ -274,6 +282,14 @@ void stx7111_configure_usb(int inv_enable);
 void stx7111_configure_ethernet(int en_mii, int sel, int ext_clk, int phy_bus);
 void stx7111_configure_nand(struct nand_config_data *data);
 void stx7111_configure_lirc(lirc_scd_t *scd);
+
+void stx7141_early_device_init(void);
+void stx7141_configure_asc(const int *ascs, int num_ascs, int console);
+void stx7141_configure_pwm(struct plat_stm_pwm_data *data);
+void stx7141_configure_ssc(struct plat_ssc_data *data);
+void stx7141_configure_usb(int port);
+void stx7141_configure_ethernet(int port, int reverse_mii, int mode,
+				int phy_bus);
 
 void stx7200_early_device_init(void);
 void stx7200_configure_asc(const int *ascs, int num_ascs, int console);

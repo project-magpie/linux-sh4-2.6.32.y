@@ -20,5 +20,6 @@ archclock-y					:= clock-cpg.o
 archclock-$(CONFIG_CPU_SUBTYPE_STB7100)	:=
 archclock-$(CONFIG_CPU_SUBTYPE_STX7105)	:=
 archclock-$(CONFIG_CPU_SUBTYPE_STX7111)	:=
+archclock-$(CONFIG_CPU_SUBTYPE_STX7141)	:=
 archclock-$(CONFIG_CPU_SUBTYPE_STX7200)	:=
 obj-y	+= $(archclock-y)

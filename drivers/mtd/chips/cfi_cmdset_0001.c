@@ -102,8 +102,8 @@ static struct mtd_chip_driver cfi_intelext_chipdrv = {
 	.module		= THIS_MODULE
 };
 
-/* #define DEBUG_LOCK_BITS */
-/* #define DEBUG_CFI_FEATURES */
+#undef DEBUG_LOCK_BITS
+#define DEBUG_CFI_FEATURES
 
 #ifdef DEBUG_CFI_FEATURES
 static void cfi_tell_features(struct cfi_pri_intelext *extp)

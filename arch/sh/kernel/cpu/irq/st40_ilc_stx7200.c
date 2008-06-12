@@ -79,7 +79,8 @@ static struct pr_mask priority_mask[16];
  */
 void ilc_irq_demux(unsigned int irq, struct irq_desc *desc)
 {
-#if	defined(CONFIG_CPU_SUBTYPE_STX7111)
+#if	defined(CONFIG_CPU_SUBTYPE_STX7111) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7141)
 	const unsigned int priority = 7;
 #elif	defined(CONFIG_CPU_SUBTYPE_STX7105) || \
 	defined(CONFIG_CPU_SUBTYPE_STX7200)
@@ -142,6 +143,8 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 #elif	defined(CONFIG_CPU_SUBTYPE_STX7105) || \
 	defined(CONFIG_CPU_SUBTYPE_STX7200)
 	ILC_SET_PRI(irq_offset, priority);
+#elif	defined(CONFIG_CPU_SUBTYPE_STX7141)
+	ILC_SET_PRI(irq_offset, 0x0);
 #endif
 
 	ILC_SET_ENABLE(irq_offset);

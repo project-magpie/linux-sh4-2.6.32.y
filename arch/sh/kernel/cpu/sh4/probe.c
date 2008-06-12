@@ -160,7 +160,6 @@ int __init detect_cpu_and_cache_system(void)
 		/* ST40-300 core */
 		switch (prr_all) {
 		case 0x10:
-			/* STx7105 */
 			cpu_data->type = CPU_STX7105;
 			break;
 		case 0x9500 ... 0x95ff:
@@ -168,8 +167,10 @@ int __init detect_cpu_and_cache_system(void)
 			cpu_data->type = CPU_STX7200;
 			break;
 		case 0x9a10:
-			/* STx7111 */
-			boot_cpu_data.type = CPU_ST40_300;
+			boot_cpu_data.type = CPU_STX7111;
+			break;
+		case 0x9b00:
+			boot_cpu_data.type = CPU_STX7141;
 			break;
 		default:
 			cpu_data->type = CPU_SH_NONE;
@@ -200,17 +201,7 @@ int __init detect_cpu_and_cache_system(void)
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		break;
 	case 0x690:
-#if 0
-		/* When we tidy up this code... */
-		switch (prr_all) {
-		case 0x9500 ... 0x95ff:
-			cpu_data->type = CPU_STX7200_210;
-			break;
-		default:
-			cpu_data->type = CPU_SH_NONE;
-			break;
-		}
-#endif
+		/* CPU_STx7200 cut 1.0 */
 		boot_cpu_data.type = CPU_STX7200;
 		boot_cpu_data.icache.ways = 2;
 		boot_cpu_data.dcache.ways = 2;

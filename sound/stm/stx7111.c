@@ -504,8 +504,7 @@ static int __init snd_stm_stx7111_init(void)
 
 	snd_stm_printd(0, "snd_stm_stx7111_init()\n");
 
-	/* TODO: 7111 is identified now as ST40-300... */
-	if (cpu_data->type != CPU_ST40_300) {
+	if (cpu_data->type != CPU_STX7111) {
 		snd_stm_printe("Not supported (other than STx7111) SOC "
 				"detected!\n");
 		result = -EINVAL;

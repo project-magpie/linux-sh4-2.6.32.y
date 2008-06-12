@@ -531,6 +531,17 @@ config SH_ST_MB618
 	  STB7111-MBOARD, ST board ID: mb618). More information at:
 	  <http://www.stlinux.com/boards/mb618/>
 
+config SH_ST_MB628
+	bool "mb628: STx7141 Mboard"
+	depends on CPU_SUBTYPE_STX7141
+	select SH_ST_EPLD
+	select SH_ST_STEM
+	help
+	  Select STx7141 Mboard if configuring for an
+	  STMicroelectronics STx7141 MBoard (product code:
+	  STi7141-MBOARD, ST board ID: mb628). More information at:
+	  <http://www.stlinux.com/boards/mb628/>
+
 config SH_ST_MB671
 	bool "mb671: STx7200 cut 2.0 Mboard"
 	depends on CPU_SUBTYPE_STX7200

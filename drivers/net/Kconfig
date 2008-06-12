@@ -2499,7 +2499,7 @@ config STMMAC_ETH
 	tristate "STMicroelectronics 10/100/1000 Ethernet driver"
 	select MII
 	select PHYLIB
-	depends on NETDEVICES && (CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7105 || CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7200)
+	depends on NETDEVICES && CPU_SUBTYPE_ST40
 	---help---
 	  This is the driver for the MAC 10/100/1000 on-chip Ethernet 
 	  controller (Synopsys Core).

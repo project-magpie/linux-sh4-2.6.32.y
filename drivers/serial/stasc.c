@@ -477,10 +477,17 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
 	int i;
 	static int pio_dirs[4] = {
+#ifdef CONFIG_CPU_SUBTYPE_STX7141
+		STPIO_OUT,	/* Tx */
+		STPIO_IN,	/* Rx */
+		STPIO_IN,	/* CTS */
+		STPIO_OUT	/* RTS */
+#else
 		STPIO_ALT_OUT,	/* Tx */
 		STPIO_IN,	/* Rx */
 		STPIO_IN,	/* CTS */
 		STPIO_ALT_OUT	/* RTS */
+#endif
 	};
 
 	if (req && !request_mem_region(port->mapbase, size, pdev->name))

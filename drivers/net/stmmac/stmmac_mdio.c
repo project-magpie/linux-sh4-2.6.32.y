@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
+#include <linux/delay.h>
 
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -51,6 +52,14 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
+
+	/*
+	 * Gross hack to work around the problem that the pull up resistors
+	 * on the MDC line are too high on some boards (eg mb628) because
+	 * of the additional pull up resistor for MODE selection. This forms
+	 * an RC network which we have to allow to discharge.
+	 */
+	mdelay(10);
 
 	writel(regValue, ioaddr + mii_address);
 
@@ -88,6 +97,9 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	/* Wait until any existing MII operation is complete */
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
+
+	/* Gross hack. See stmmac_mdio_read() for comment */
+	mdelay(10);
 
 	/* Set the MII address register to write */
 	writel(phydata, ioaddr + mii_data);

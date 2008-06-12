@@ -190,6 +190,13 @@ config CPU_SUBTYPE_STX7111
 	help
 	  Select STX7111 if you have an STx7111 CPU.
 
+config CPU_SUBTYPE_STX7141
+	bool "Support STx7141 processors"
+	select CPU_SUBTYPE_ST40
+	select SUPPORTS_32BIT
+	help
+	  Select STX7141 if you have an STx7141 CPU.
+
 config CPU_SUBTYPE_STX7200
 	bool "Support STx7200 processor"
 	select CPU_SUBTYPE_ST40

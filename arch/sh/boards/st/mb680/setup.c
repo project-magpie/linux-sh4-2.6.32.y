@@ -70,7 +70,7 @@ static struct usb_init_data usb_init[2] __initdata = {
 
 static struct platform_device mb680_leds = {
 	.name = "leds-gpio",
-	.id = -1,
+	.id = 0,
 	.dev.platform_data = &(struct gpio_led_platform_data) {
 		.num_leds = 2,
 		.leds = (struct gpio_led[]) {

@@ -169,6 +169,17 @@ static int mb618_phy_reset05(void *bus)
 	return 1;
 }
 
+static int mb618_phy_reset06(void *bus)
+{
+	epld_write(1, 0);	/* bank = Ctrl */
+
+	/* Bring the PHY out of reset in MII mode */
+	epld_write(0x4 | 0, 4);
+	epld_write(0x4 | 1, 4);
+
+	return 1;
+}
+
 static struct plat_stmmacphy_data phy_private_data = {
 	/* SMSC LAN 8700 */
 	.bus_id = 0,
@@ -200,9 +211,9 @@ static struct platform_device epld_device = {
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
 		{
-			.start	= 0x04000000,
+			.start	= 0x06000000,
 			/* Minimum size to ensure mapped by PMB */
-			.end	= 0x0400000f+(8*1024*1024),
+			.end	= 0x06000000+(8*1024*1024)-1,
 			.flags	= IORESOURCE_MEM,
 		}
 	},
@@ -315,7 +326,24 @@ static void __iomem *mb618_ioport_map(unsigned long port, unsigned int size)
  *  4   Test     Test        55
  *  8   IntStat  IntMaskSet  -
  *  c   IntMask  IntMaskClr  0
+ *
+ * version 06:
+ * off        read       write         reset
+ *  0         Ident      Bank          46 (Bank register defaults to 0)
+ *  4 bank=0  Test       Test          55
+ *  4 bank=1  Ctrl       Ctrl          0e
+ *  4 bank=2  IntPri0    IntPri0  f9
+ *  4 bank=3  IntPri1    IntPri1  f0
+ *  8         IntStat    IntMaskSet    -
+ *  c         IntMask    IntMaskClr    00
+ *
+ * Ctrl register bits:
+ *  0 = Ethernet Phy notReset
+ *  1 = RMIInotMIISelect
+ *  2 = Mode Select_7111 (ModeSelect when D0 == 1)
+ *  3 = Mode Select_8700 (ModeSelect when D0 == 0)
  */
+
 static void __init mb618_init_irq(void)
 {
 	unsigned char epld_reg;
@@ -365,6 +393,9 @@ static void __init mb618_init_irq(void)
 	printk(KERN_INFO "mb618 EPLD version %02d\n", version);
 
 	switch (version) {
+	case 0 ... 4:
+		/* EPLD is unusable */
+		break;
 	case 5:
 		/* We need to control the PHY reset in software */
 		phy_private_data.phy_reset = &mb618_phy_reset05;
@@ -379,11 +410,29 @@ static void __init mb618_init_irq(void)
 		 * SYSITRQ[2] as an active high interrupt pin.
 		 */
 		epld_write(1<<4, 8);
-		ctrl_outl(0x041086f1, 0xfe700000+0x140+0);
-		ctrl_outl(0x93110000, 0xfe700000+0x140+8);
-		ctrl_outl(0x91110000, 0xfe700000+0x140+0x10);
 
 		break;
+	default:
+		/* Assume v6 and above EPLDs are compatible */
+
+		/* We need to control the PHY reset in software */
+		phy_private_data.phy_reset = &mb618_phy_reset06;
+
+		/*
+		 * We have the nice new shiny interrupt system at last.
+		 * For the moment just replicate the functionality to
+		 * route the STEM interrupt through.
+		 */
+
+		/* Route STEM Int0 (EPLD int 4) to output 2 */
+		epld_write(3, 0);	/* bank = IntPri1 */
+		epld_reg = epld_read(4);
+		epld_reg &= 0xfc;
+		epld_reg |= 2;
+		epld_write(epld_reg, 4);
+
+		/* Enable it */
+		epld_write(1<<4, 8);
 	}
 }
 

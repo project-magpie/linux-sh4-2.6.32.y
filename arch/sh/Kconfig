@@ -520,6 +520,15 @@ config SH_ST_MB519
 	  ST board ID: mb519). More information at:
 	  <http://www.stlinux.com/boards/mb519/>
 
+config SH_ST_MB602
+	bool "STB5202 Reference board"
+	depends on CPU_SUBTYPE_STB7100
+	help
+	  Select STB5202 Reference if configuring for an
+	  STMicroelectronics STB5202 Reference Board (product code: STB5202-REF,
+	  ST board ID: mb602). More information at:
+	  <http://www.linuxsh.st.com/boards/mb602/>
+
 config SH_ST_MB618
 	bool "mb618: STx7111 Validation board"
 	depends on CPU_SUBTYPE_STX7111

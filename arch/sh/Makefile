@@ -137,6 +137,7 @@ machdir-$(CONFIG_SH_ST_MB411)			+= st/mb411 st/common
 machdir-$(CONFIG_SH_ST_MB442)			+= st/mb442
 machdir-$(CONFIG_SH_ST_MB448)			+= st/mb448
 machdir-$(CONFIG_SH_ST_MB519)			+= st/mb519 st/common
+machdir-$(CONFIG_SH_ST_MB602)		+= st/mb602
 machdir-$(CONFIG_SH_ST_MB618)			+= st/mb618 st/common
 machdir-$(CONFIG_SH_ST_MB628)			+= st/mb628 st/common
 machdir-$(CONFIG_SH_ST_MB671)			+= st/mb671 st/common

@@ -44,7 +44,7 @@ static struct plat_stm_pwm_data pwm_private_info = {
 static struct plat_ssc_data ssc_private_info = {
 	.capability  = (
 			ssc0_has(SSC_I2C_CAPABILITY) |
-			ssc1_has(SSC_SPI_CAPABILITY) |
+			ssc1_has(SSC_I2C_CAPABILITY) |
 			ssc2_has(SSC_I2C_CAPABILITY) |
 			ssc3_has(SSC_SPI_CAPABILITY) |
 			ssc4_has(SSC_I2C_CAPABILITY)),

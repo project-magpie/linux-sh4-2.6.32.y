@@ -16,18 +16,7 @@
 
 extern int usb_disabled(void);
 
-#define DEVICE_NAME "STB7100 OHCI"
 #include "stb7100-common.h"
-
-static irqreturn_t ohci_st40_irq(struct usb_hcd *hcd)
-{
-	irqreturn_t retval;
-
-	usb_hcd_st40_wait_irq();
-	retval = ohci_irq(hcd);
-
-	return retval;
-}
 
 static int
 ohci_st40_start(struct usb_hcd *hcd)
@@ -47,6 +36,7 @@ ohci_st40_start(struct usb_hcd *hcd)
 	return 0;
 }
 
+#ifdef	CONFIG_PM
 static int
 ohci_st40_suspend(struct usb_hcd *hcd, pm_message_t message)
 {
@@ -58,14 +48,15 @@ ohci_st40_resume(struct usb_hcd *hcd)
 {
 	return 0;
 }
+#endif
 
 static const struct hc_driver ohci_st40_hc_driver = {
 	.description =		hcd_name,
-	.product_desc =		DEVICE_NAME,
+	.product_desc =		"STM OHCI Host Controller",
 	.hcd_priv_size =	sizeof(struct ohci_hcd),
 
 	/* generic hardware linkage */
-	.irq =			ohci_st40_irq,
+	.irq =			ohci_irq,
 	.flags =		HCD_USB11 | HCD_MEMORY,
 
 	/* basic lifecycle operations */
@@ -108,7 +99,7 @@ static int ohci_hcd_stm_probe(struct platform_device *pdev)
 	if (retval)
 		return retval;
 
-	hcd = usb_create_hcd(driver, &pdev->dev, DEVICE_NAME);
+	hcd = usb_create_hcd(driver, &pdev->dev, pdev->dev.bus_id);
 	if (!hcd) {
 		pr_debug("hcd_create_hcd failed");
 		retval = -ENOMEM;
@@ -133,7 +124,7 @@ static int ohci_hcd_stm_probe(struct platform_device *pdev)
 
 	ohci_hcd_init(hcd_to_ohci(hcd));
 
-	retval = usb_add_hcd(hcd, pdev->resource[1].start, SA_INTERRUPT);
+	retval = usb_add_hcd(hcd, pdev->resource[1].start, 0);
 	if (retval == 0)
 		return retval;
 

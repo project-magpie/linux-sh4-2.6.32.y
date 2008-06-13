@@ -166,10 +166,17 @@ struct plat_stmmacphy_data {
 struct plat_usb_data {
 	unsigned long ahb2stbus_wrapper_glue_base;
 	unsigned long ahb2stbus_protocol_base;
-	void (*power_up)(void* dev);
+	unsigned long flags;
 	int initialised;
 	int port_number;
 };
+
+#define USB_FLAGS_STRAP_8BIT			(1<<0)
+#define USB_FLAGS_STRAP_16BIT			(2<<0)
+#define USB_FLAGS_STRAP_PLL			(1<<2)
+#define USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE		(1<<3)
+#define USB_FLAGS_STBUS_CONFIG_THRESHOLD128	(1<<4)
+#define USB_FLAGS_STBUS_CONFIG_THRESHOLD256	(2<<4)
 
 /**
  * struct usb_init_data - initialisation data for a USB port
@@ -263,7 +270,7 @@ void stx7111_early_device_init(void);
 void stx7111_configure_asc(const int *ascs, int num_ascs, int console);
 void stx7111_configure_pwm(struct plat_stm_pwm_data *data);
 void stx7111_configure_ssc(struct plat_ssc_data *data);
-void stx7111_configure_usb(void);
+void stx7111_configure_usb(int inv_enable);
 void stx7111_configure_ethernet(int en_mii, int sel, int ext_clk, int phy_bus);
 void stx7111_configure_nand(struct nand_config_data *data);
 void stx7111_configure_lirc(lirc_scd_t *scd);
@@ -272,7 +279,7 @@ void stx7200_early_device_init(void);
 void stx7200_configure_asc(const int *ascs, int num_ascs, int console);
 void stx7200_configure_pwm(struct plat_stm_pwm_data *data);
 void stx7200_configure_ssc(struct plat_ssc_data *data);
-void stx7200_configure_usb(void);
+void stx7200_configure_usb(int port);
 void stx7200_configure_sata(unsigned int port);
 void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 				int phy_bus);

@@ -193,7 +193,9 @@ static int __init device_init(void)
 	stx7200_configure_pwm(&pwm_private_info);
 	stx7200_configure_ssc(&ssc_private_info);
 
-	stx7200_configure_usb();
+	stx7200_configure_usb(0);
+	stx7200_configure_usb(1);
+	stx7200_configure_usb(2);
 
 	stx7200_configure_sata(0);
 

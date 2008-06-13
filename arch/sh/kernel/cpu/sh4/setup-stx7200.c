@@ -43,24 +43,22 @@ static struct sysconf_field *sc7_2;
 
 static u64 st40_dma_mask = 0xfffffff;
 
-static struct sysconf_field *usb_power_sc[3];
-
-static void usb_power_up(void* dev)
-{
-	struct platform_device *pdev = dev;
-	struct plat_usb_data *usb_wrapper = pdev->dev.platform_data;
-	int port = usb_wrapper->port_number;
-
-	sysconf_write(usb_power_sc[port], 0);
-}
-
 static struct plat_usb_data usb_wrapper[3] = {
 	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE(0),
-		    AHB2STBUS_PROTOCOL_BASE(0), usb_power_up),
+		    AHB2STBUS_PROTOCOL_BASE(0),
+		    USB_FLAGS_STRAP_8BIT		|
+		    USB_FLAGS_STRAP_PLL			|
+		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE),
 	USB_WRAPPER(1, AHB2STBUS_WRAPPER_GLUE_BASE(1),
-		    AHB2STBUS_PROTOCOL_BASE(1), usb_power_up),
+		    AHB2STBUS_PROTOCOL_BASE(1),
+		    USB_FLAGS_STRAP_8BIT		|
+		    USB_FLAGS_STRAP_PLL			|
+		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE),
 	USB_WRAPPER(2, AHB2STBUS_WRAPPER_GLUE_BASE(2),
-		    AHB2STBUS_PROTOCOL_BASE(2), usb_power_up),
+		    AHB2STBUS_PROTOCOL_BASE(2),
+		    USB_FLAGS_STRAP_8BIT		|
+		    USB_FLAGS_STRAP_PLL			|
+		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE),
 };
 
 static struct platform_device st40_ohci_devices[3] = {
@@ -336,27 +334,26 @@ static void __init usb_soft_jtag_reset(void)
 	sysconf_write(sc, 0x00000040);
 }
 
-void __init stx7200_configure_usb(void)
+void __init stx7200_configure_usb(int port)
 {
+	static int first = 1;
 	const unsigned char power_pins[3] = {1, 3, 4};
 	const unsigned char oc_pins[3] = {0, 2, 5};
-	static struct stpio_pin *pio;
+	struct stpio_pin *pio;
 	struct sysconf_field *sc;
-	int port;
 
-	/* route USB and parts of MAFE instead of DVO.
-	 * conf_pad_pio[2] = 0 */
-	sc = sysconf_claim(SYS_CFG, 7, 26, 26, "usb");
-	sysconf_write(sc, 0);
+	if (first) {
+		/* route USB and parts of MAFE instead of DVO.
+		 * conf_pad_pio[2] = 0 */
+		sc = sysconf_claim(SYS_CFG, 7, 26, 26, "usb");
+		sysconf_write(sc, 0);
 
-	/* DVO output selection (probably ignored).
-	 * conf_pad_pio[3] = 0 */
-	sc = sysconf_claim(SYS_CFG, 7, 27, 27, "usb");
-	sysconf_write(sc, 0);
+		/* DVO output selection (probably ignored).
+		 * conf_pad_pio[3] = 0 */
+		sc = sysconf_claim(SYS_CFG, 7, 27, 27, "usb");
+		sysconf_write(sc, 0);
 
-	if (cpu_data->cut_major < 2) {
 		/* Enable soft JTAG mode for USB and SATA
-		 * Taken from OS21, but is this correct?
 		 * soft_jtag_en = 1 */
 		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "usb");
 		sysconf_write(sc, 1);
@@ -364,27 +361,29 @@ void __init stx7200_configure_usb(void)
 		sc = sysconf_claim(SYS_CFG, 33, 0, 3, "usb");
 		sysconf_write(sc, 0);
 
-		usb_soft_jtag_reset();
+		if (cpu_data->cut_major < 2)
+			usb_soft_jtag_reset();
+
+		first = 0;
 	}
 
-	for (port=0; port<3; port++) {
-		usb_power_sc[port] = sysconf_claim(SYS_CFG, 22, 3+port,
-						   3+port, "usb");
+	/* Power up port */
+	sc = sysconf_claim(SYS_CFG, 22, 3+port, 3+port, "usb");
+	sysconf_write(sc, 0);
 
-		pio = stpio_request_pin(7, power_pins[port], "USB power",
-					STPIO_ALT_OUT);
-		stpio_set_pin(pio, 1);
+	pio = stpio_request_pin(7, power_pins[port], "USB power",
+				STPIO_ALT_OUT);
+	stpio_set_pin(pio, 1);
 
-		if (cpu_data->cut_major < 2)
-			pio = stpio_request_pin(7, oc_pins[port], "USB oc",
+	if (cpu_data->cut_major < 2)
+		pio = stpio_request_pin(7, oc_pins[port], "USB oc",
 					STPIO_ALT_BIDIR);
-		else
-			pio = stpio_request_pin(7, oc_pins[port], "USB oc",
+	else
+		pio = stpio_request_pin(7, oc_pins[port], "USB oc",
 					STPIO_IN);
 
-		platform_device_register(&st40_ohci_devices[port]);
-		platform_device_register(&st40_ehci_devices[port]);
-	}
+	platform_device_register(&st40_ohci_devices[port]);
+	platform_device_register(&st40_ehci_devices[port]);
 }
 
 /* SATA resources ---------------------------------------------------------- */

@@ -269,7 +269,7 @@ static int __init device_init(void)
 {
 	stx7111_configure_pwm(&pwm_private_info);
 	stx7111_configure_ssc(&ssc_private_info);
-	stx7111_configure_usb();
+	stx7111_configure_usb(1); /* Enable inverter */
 	stx7111_configure_ethernet(1, 0, 0, 0);
         stx7111_configure_lirc(&lirc_scd);
 

@@ -75,9 +75,13 @@ static void stx7105_pio_sysconf(int bank, int pin, int alt, const char* name)
 
 static struct plat_usb_data usb_wrapper[2] = {
 	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE(0),
-		    AHB2STBUS_PROTOCOL_BASE(0), NULL),
+		    AHB2STBUS_PROTOCOL_BASE(0),
+		    USB_FLAGS_STRAP_8BIT	|
+		    USB_FLAGS_STBUS_CONFIG_THRESHOLD128),
 	USB_WRAPPER(1, AHB2STBUS_WRAPPER_GLUE_BASE(1),
-		    AHB2STBUS_PROTOCOL_BASE(1), NULL),
+		    AHB2STBUS_PROTOCOL_BASE(1),
+		    USB_FLAGS_STRAP_8BIT	|
+		    USB_FLAGS_STBUS_CONFIG_THRESHOLD128),
 };
 
 static struct platform_device st40_ohci_devices[2] = {
@@ -756,7 +760,7 @@ void __init stx7105_configure_asc(const int *ascs, int num_ascs, int console)
 		struct platform_device *pdev;
 		struct stasc_uart_data *uart_data;
 
-		port = ascs[i];
+		port = ascs[i] & 0xff;
 		flags = ascs[i] >> 8;
 		pdev = &stm_stasc_devices[port];
 		uart_data = pdev->dev.platform_data;

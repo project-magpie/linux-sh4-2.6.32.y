@@ -26,16 +26,6 @@ static int ehci_st40_resume(struct usb_hcd *hcd)
 }
 #endif
 
-static irqreturn_t ehci_st40_irq(struct usb_hcd *hcd)
-{
-	irqreturn_t retval;
-
-	usb_hcd_st40_wait_irq();
-	retval = ehci_irq(hcd);
-
-	return retval;
-}
-
 static int ehci_st40_reset(struct usb_hcd *hcd)
 {
 	writel(AHB2STBUS_INOUT_THRESHOLD,
@@ -45,13 +35,13 @@ static int ehci_st40_reset(struct usb_hcd *hcd)
 
 static const struct hc_driver ehci_st40_hc_driver = {
 	.description = hcd_name,
-	.product_desc = "ST EHCI Host Controller",
+	.product_desc = "STM EHCI Host Controller",
 	.hcd_priv_size = sizeof(struct ehci_hcd),
 
 	/*
 	 * generic hardware linkage
 	 */
-	.irq = ehci_st40_irq,
+	.irq = ehci_irq,
 	.flags = HCD_MEMORY | HCD_USB2,
 
 	/*
@@ -106,7 +96,7 @@ static int ehci_hcd_st40_probe(const struct hc_driver *driver,
 	if (retval)
 		return retval;
 
-	hcd = usb_create_hcd(driver, &dev->dev, "STB7100_EHCI");
+	hcd = usb_create_hcd(driver, &dev->dev, dev->dev.bus_id);
 	if (!hcd) {
 		retval = -ENOMEM;
 		goto err0;
@@ -135,7 +125,7 @@ static int ehci_hcd_st40_probe(const struct hc_driver *driver,
 	/* cache this readonly data; minimize device reads */
 	ehci->hcs_params = readl(&ehci->caps->hcs_params);
 
-	retval=usb_add_hcd(hcd, dev->resource[1].start, SA_SHIRQ);
+	retval = usb_add_hcd(hcd, dev->resource[1].start, 0);
 	if (retval == 0)
 		return retval;
 

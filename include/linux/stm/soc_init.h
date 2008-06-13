@@ -73,11 +73,11 @@
 	}								\
 }
 
-#define USB_WRAPPER(_port, _wrapper_base, _protocol_base, _power_up)	\
+#define USB_WRAPPER(_port, _wrapper_base, _protocol_base, _flags)	\
 {									\
 	.ahb2stbus_wrapper_glue_base = _wrapper_base,			\
 	.ahb2stbus_protocol_base = _protocol_base,			\
-	.power_up = _power_up,						\
+	.flags = _flags,						\
 	.initialised = 0,						\
 	.port_number = _port,						\
 }

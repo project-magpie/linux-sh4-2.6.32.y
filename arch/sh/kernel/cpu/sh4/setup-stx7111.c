@@ -40,7 +40,9 @@ static u64 st40_dma_mask = 0xfffffff;
 
 static struct plat_usb_data usb_wrapper =
 	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE, AHB2STBUS_PROTOCOL_BASE,
-		NULL);
+		    USB_FLAGS_STRAP_16BIT	|
+		    USB_FLAGS_STRAP_PLL		|
+		    USB_FLAGS_STBUS_CONFIG_THRESHOLD256);
 
 static struct platform_device  st40_ohci_device =
 	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE,
@@ -52,7 +54,7 @@ static struct platform_device  st40_ehci_device =
 			evt2irq(0x1720), /* 169 */
 			&usb_wrapper);
 
-void __init stx7111_configure_usb(void)
+void __init stx7111_configure_usb(int inv_enable)
 {
 	static struct stpio_pin *pin;
 	struct sysconf_field *sc;
@@ -67,7 +69,7 @@ void __init stx7111_configure_usb(void)
 	 * an inverter on the overcurrent signal.
 	 */
 	sc = sysconf_claim(SYS_CFG, 6, 29,29, "USB");
-	sysconf_write(sc, 1);
+	sysconf_write(sc, inv_enable);
 
 	pin = stpio_request_pin(5,6, "USBOC", STPIO_IN);
 	pin = stpio_request_pin(5,7, "USBPWR", STPIO_ALT_OUT);
@@ -447,7 +449,7 @@ void __init stx7111_configure_asc(const int *ascs, int num_ascs, int console)
 		struct platform_device *pdev;
 		struct sysconf_field *sc;
 
-		port = ascs[i];
+		port = ascs[i] & 0xff;
 		flags = ascs[i] >> 8;
 		pdev = &stm_stasc_devices[port];
 

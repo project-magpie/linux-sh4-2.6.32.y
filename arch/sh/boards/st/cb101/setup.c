@@ -210,7 +210,9 @@ static struct platform_device *cb101_devices[] __initdata = {
 static int __init device_init(void)
 {
 	stx7200_configure_ssc(&ssc_private_info);
-	stx7200_configure_usb();
+	stx7200_configure_usb(0);
+	stx7200_configure_usb(1);
+	stx7200_configure_usb(2);
 	stx7200_configure_ethernet(0, 0, 0, 0);
 	stx7200_configure_lirc(NULL);
 	stx7200_configure_nand(&cb101_nand_config[0]);

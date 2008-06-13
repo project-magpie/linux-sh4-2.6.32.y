@@ -14,16 +14,6 @@
 #include <asm/io.h>
 #include "stb7100-common.h"
 
-#ifdef CONFIG_CPU_SUBTYPE_STX7200
-#define STRAP_MODE	0 /* 8 bit */
-#define MSGSIZE		AHB2STBUS_MSGSIZE_4
-#define CHUNKSIZE	AHB2STBUS_CHUNKSIZE_4
-#else
-#define STRAP_MODE	AHB2STBUS_STRAP_16_BIT
-#define MSGSIZE		AHB2STBUS_MSGSIZE_64
-#define CHUNKSIZE	AHB2STBUS_CHUNKSIZE_64
-#endif
-
 #define RESOURCE_NAME "USB wrapper"
 
 static DEFINE_MUTEX(wraper_mutex);
@@ -68,74 +58,70 @@ int ST40_start_host_control(struct platform_device *pdev)
 	if (!protocol_base)
 		goto err4;
 
+	if (usb_wrapper->flags &
+	    (USB_FLAGS_STRAP_8BIT | USB_FLAGS_STRAP_16BIT)) {
+		/* Set strap mode */
+		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
+		if (usb_wrapper->flags & USB_FLAGS_STRAP_16BIT)
+			reg |= AHB2STBUS_STRAP_16_BIT;
+		else
+			reg &= ~AHB2STBUS_STRAP_16_BIT;
+		writel(reg, wrapper_base + AHB2STBUS_STRAP_OFFSET);
+	}
 
-#if	defined(CONFIG_CPU_SUBTYPE_STX7105)
-	req_reg =
-		(1<<21) |  /* Turn on read-ahead */
-		(5<<16) |  /* Opcode is store/load 32 */
-		(0<<15) |  /* Turn off write posting */
-		(1<<14) |  /* Enable threshold */
-		(3<<9)  |  /* 2**3 Packets in a chunk */
-		(0<<4)  |  /* No messages */
-		7;         /* Threshold is 128 */
+	if (usb_wrapper->flags & USB_FLAGS_STRAP_PLL) {
+		/* Start PLL */
+		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
+		writel(reg | AHB2STBUS_STRAP_PLL,
+		       wrapper_base + AHB2STBUS_STRAP_OFFSET);
+		mdelay(30);
+		writel(reg & (~AHB2STBUS_STRAP_PLL),
+		       wrapper_base + AHB2STBUS_STRAP_OFFSET);
+		mdelay(30);
+	}
 
-	do {
-		writel(req_reg, protocol_base + AHB2STBUS_STBUS_CONFIG);
-		reg = readl(protocol_base + AHB2STBUS_STBUS_CONFIG);
-	} while ((reg & 0x7FFFFFFF) != req_reg);
-#else
-	/* Set strap mode */
-	reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
-	reg &= ~AHB2STBUS_STRAP_16_BIT;
-	reg |= STRAP_MODE;
-	writel(reg, wrapper_base + AHB2STBUS_STRAP_OFFSET);
+	if (usb_wrapper->flags & USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE) {
+		/* Set the STBus Opcode Config for load/store 32 */
+		writel(AHB2STBUS_STBUS_OPC_32BIT,
+		       protocol_base + AHB2STBUS_STBUS_OPC_OFFSET);
 
-	/* Start PLL */
-	reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
-	writel(reg | AHB2STBUS_STRAP_PLL,
-	       wrapper_base + AHB2STBUS_STRAP_OFFSET);
-	mdelay(100);
-	writel(reg & (~AHB2STBUS_STRAP_PLL),
-	       wrapper_base + AHB2STBUS_STRAP_OFFSET);
-	mdelay(100);
+		/* Set the Message Size Config to n packets per message */
+		writel(AHB2STBUS_MSGSIZE_4,
+		       protocol_base + AHB2STBUS_MSGSIZE_OFFSET);
 
-#if	defined(CONFIG_CPU_SUBTYPE_STB7100) || \
-	defined(CONFIG_CPU_SUBTYPE_STX7200)
+		/* Set the chunksize to n packets */
+		writel(AHB2STBUS_CHUNKSIZE_4,
+		       protocol_base + AHB2STBUS_CHUNKSIZE_OFFSET);
+	}
 
-	/* Set the STBus Opcode Config for load/store 32 */
-	writel(AHB2STBUS_STBUS_OPC_32BIT,
-	       protocol_base + AHB2STBUS_STBUS_OPC_OFFSET);
+	if (usb_wrapper->flags &
+	    (USB_FLAGS_STBUS_CONFIG_THRESHOLD128 |
+	     USB_FLAGS_STBUS_CONFIG_THRESHOLD256)) {
 
-	/* Set the Message Size Config to n packets per message */
-	writel(MSGSIZE,
-	       protocol_base + AHB2STBUS_MSGSIZE_OFFSET);
+		if (usb_wrapper->flags & USB_FLAGS_STBUS_CONFIG_THRESHOLD128)
+			req_reg =
+				(1<<21) |  /* Turn on read-ahead */
+				(5<<16) |  /* Opcode is store/load 32 */
+				(0<<15) |  /* Turn off write posting */
+				(1<<14) |  /* Enable threshold */
+				(3<<9)  |  /* 2**3 Packets in a chunk */
+				(0<<4)  |  /* No messages */
+				7;         /* Threshold is 128 */
+		else
+			req_reg =
+				(1<<21) |  /* Turn on read-ahead */
+				(5<<16) |  /* Opcode is store/load 32 */
+				(0<<15) |  /* Turn off write posting */
+				(1<<14) |  /* Enable threshold */
+				(3<<9)  |  /* 2**3 Packets in a chunk */
+				(0<<4)  |  /* No messages */
+				(8<<0);    /* Threshold is 256 */
 
-	writel(CHUNKSIZE,
-	       protocol_base + AHB2STBUS_CHUNKSIZE_OFFSET);
-
-#elif	defined(CONFIG_CPU_SUBTYPE_STX7111)
-
-	req_reg =
-		(1<<21) |  /* Turn on read-ahead */
-		(5<<16) |  /* Opcode is store/load 32 */
-		(0<<15) |  /* Turn off write posting */
-		(1<<14) |  /* Enable threshold */
-		(3<<9)  |  /* 2**3 Packets in a chunk */
-		(0<<4)  |  /* No messages */
-		(8<<0);    /* Threshold is 256 */
-
-	do {
-		writel(req_reg, protocol_base + AHB2STBUS_STBUS_CONFIG);
-		reg = readl(protocol_base + AHB2STBUS_STBUS_CONFIG);
-	} while ((reg & 0x7FFFFFFF) != req_reg);
-
-#else
-#error Unknown CPU
-#endif
-#endif
-
-	if (usb_wrapper->power_up)
-		usb_wrapper->power_up(pdev);
+		do {
+			writel(req_reg, protocol_base + AHB2STBUS_STBUS_CONFIG);
+			reg = readl(protocol_base + AHB2STBUS_STBUS_CONFIG);
+		} while ((reg & 0x7FFFFFFF) != req_reg);
+	}
 
 	usb_wrapper->initialised = 1;
 

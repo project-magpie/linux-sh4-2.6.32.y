@@ -79,23 +79,11 @@ struct platform_device wdt_device = {
 
 static u64 st40_dma_mask = 0xfffffff;
 
-static struct sysconf_field *usb_power_sc;
-
-static void usb_power_up(void* dev)
-{
-	unsigned long reg;
-
-	/* Make sure PLL is on */
-	reg = sysconf_read(usb_power_sc);
-	if (reg) {
-		sysconf_write(usb_power_sc, 0);
-		mdelay(100);
-	}
-}
-
 static struct plat_usb_data usb_wrapper =
 	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE, AHB2STBUS_PROTOCOL_BASE,
-		usb_power_up);
+		    USB_FLAGS_STRAP_16BIT	|
+		    USB_FLAGS_STRAP_PLL		|
+		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE);
 
 static struct platform_device  st40_ohci_device =
 	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE, 168, &usb_wrapper);
@@ -105,7 +93,9 @@ static struct platform_device  st40_ehci_device =
 
 void __init stx7100_configure_usb(void)
 {
-	static struct stpio_pin *pin;
+	struct stpio_pin *pin;
+	struct sysconf_field *sc;
+	u32 reg;
 
 	/* Work around for USB over-current detection chip being
 	 * active low, and the 710x being active high.
@@ -145,7 +135,12 @@ void __init stx7100_configure_usb(void)
 	pin = stpio_request_pin(5,7, "USBPWR", STPIO_OUT);
 	stpio_set_pin(pin, 1);
 
-	usb_power_sc = sysconf_claim(SYS_CFG, 2, 1, 1, "usb");
+	sc = sysconf_claim(SYS_CFG, 2, 1, 1, "usb");
+	reg = sysconf_read(sc);
+	if (reg) {
+		sysconf_write(sc, 0);
+		mdelay(30);
+	}
 
 	platform_device_register(&st40_ohci_device);
 	platform_device_register(&st40_ehci_device);

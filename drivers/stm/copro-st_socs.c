@@ -5,6 +5,7 @@
 #include <linux/seq_file.h>
 #include <linux/stm/coprocessor.h>
 #include <linux/stm/sysconf.h>
+#include <linux/pfn.h>
 #include <asm-generic/sections.h>
 #include <asm/io.h>
 
@@ -129,13 +130,36 @@ void coproc_proc_other_info(coproc_t * cop_dump, struct seq_file *s_file)
 
 int coproc_check_area(u_long addr, u_long size, int i, coproc_t * coproc)
 {
-       if (((addr >= CONFIG_MEMORY_START) && (addr < __pa(_end))) || \
-           (((addr + size) > CONFIG_MEMORY_START) && \
-            (addr < CONFIG_MEMORY_START)))
-       {
-           coproc[i].ram_offset = coproc[i].ram_size = 0;
-           return 1;
-       }
-       return 0;
+	/*
+	 * This function is called if we failed to reserve the
+	 * requested memory with the bootmem allocator.  This could be
+	 * because the memory is outside the memory known to the boot
+	 * memory allocator, or because it has been already reserved.
+	 */
+	unsigned long start_pfn = PFN_DOWN(addr);
+	unsigned long end_pfn = PFN_UP(addr + size);
+
+	if ((start_pfn >= min_low_pfn) && (end_pfn <= max_low_pfn)) {
+		/*
+		 * Region is contained entirely within Linux memory, and
+		 * so should have been allocated.
+		 *
+		 * However we need to allow the region between the start of
+		 * memory and the start of the kernel (typically
+		 * CONFIG_ZERO_PAGE_OFFSET has been raised).
+		 */
+		if (end_pfn <= PFN_DOWN(__pa(_text)))
+			return 0;
+
+		printk(KERN_ERR "st-coprocessor: Region already reserved\n");
+	} else if ((start_pfn > max_low_pfn) || (end_pfn < min_low_pfn)) {
+		/* Region is entirely outside Linux memory. */
+		return 0;
+	} else {
+		printk(KERN_ERR "st-coprocessor: Region spans memory boundary\n");
+	}
+
+	coproc[i].ram_offset = coproc[i].ram_size = 0;
+	return 1;
 }
 

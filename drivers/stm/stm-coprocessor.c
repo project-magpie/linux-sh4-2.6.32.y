@@ -42,11 +42,6 @@ static int __init proc_st_coproc_init(void);
 static int __init parse_coproc_mem(char *from);
 
 /* ---------------------------------------------------------------------------
- *    Exported and Imported
- * ------------------------------------------------------------------------ */
-extern unsigned long memory_start, memory_end;
-
-/* ---------------------------------------------------------------------------
  * 		Co-processor: Hardware dependent support
  * This includes:
  *    - per platform device and memory addresses
@@ -632,9 +627,7 @@ static int __init parse_coproc_mem(char *from)
 			void* mem;
 			addr = coproc[i].ram_offset;
 			size = coproc[i].ram_size;
-			/* Switch to __alloc_bootmem_nopanic or
-			 * __alloc_bootmem_core when we update the kernel. */
-			mem = __alloc_bootmem(size, PAGE_SIZE, addr);
+			mem = __alloc_bootmem_nopanic(size, PAGE_SIZE, addr);
 			if (mem != __va(addr)) {
 				if (mem) {
 					free_bootmem(virt_to_phys(mem), size);

@@ -171,14 +171,15 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 	 * case of us accidentally initializing the bootmem allocator with
 	 * an invalid RAM area.
 	 */
-	reserve_bootmem(__MEMORY_START+PAGE_SIZE,
-		(PFN_PHYS(free_pfn)+bootmap_size+PAGE_SIZE-1)-__MEMORY_START);
+	reserve_bootmem(__MEMORY_START + CONFIG_ZERO_PAGE_OFFSET,
+			(PFN_PHYS(free_pfn) + bootmap_size + PAGE_SIZE - 1) -
+			(__MEMORY_START + CONFIG_ZERO_PAGE_OFFSET));
 
 	/*
 	 * reserve physical page 0 - it's a special BIOS page on many boxes,
 	 * enabling clean reboots, SMP operation, laptop functions.
 	 */
-	reserve_bootmem(__MEMORY_START, PAGE_SIZE);
+	reserve_bootmem(__MEMORY_START, CONFIG_ZERO_PAGE_OFFSET);
 
 	sparse_memory_present_with_active_regions(0);
 
@@ -265,7 +266,6 @@ void __init setup_arch(char **cmdline_p)
 	memory_start = (unsigned long)PAGE_OFFSET+__MEMORY_START;
 #endif
 	memory_end = memory_start + __MEMORY_SIZE;
-	request_standard_resources();
 
 #ifdef CONFIG_CMDLINE_BOOL
 	strlcpy(command_line, CONFIG_CMDLINE, sizeof(command_line));
@@ -278,6 +278,8 @@ void __init setup_arch(char **cmdline_p)
 	*cmdline_p = command_line;
 
 	parse_early_param();
+
+	request_standard_resources();
 
 	sh_mv_setup();
 

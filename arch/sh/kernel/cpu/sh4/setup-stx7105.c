@@ -330,7 +330,7 @@ void __init stx7105_configure_ssc(struct plat_ssc_data *data)
 	} };
 
 	for (i=0; i < ARRAY_SIZE(stssc_devices);
-	     i++, capability >>= 2, routing >>= 6) {
+	     i++, capability >>= SSC_BITS_SIZE, routing >>= 6) {
 		struct ssc_pio_t *ssc_pio = stssc_devices[i].dev.platform_data;
 
 		if(capability & SSC_UNCONFIGURED)

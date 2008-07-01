@@ -17,12 +17,14 @@ struct ssc_pio_t {
 #define SSC_I2C_CAPABILITY  0x0
 #define SSC_SPI_CAPABILITY  0x1
 #define SSC_UNCONFIGURED    0x2
+
+#define SSC_BITS_SIZE       0x2
 /*
  *   This macro could be used to build the capability field
  *   of struct plat_ssc_data for each SoC
  */
 #define ssc_capability(idx_ssc, cap)  \
-         ( (cap) & (SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY | SSC_UNCONFIGURED) ) << ((idx_ssc)*2)
+         ( (cap) & (SSC_I2C_CAPABILITY | SSC_SPI_CAPABILITY | SSC_UNCONFIGURED) ) << ((idx_ssc)*SSC_BITS_SIZE)
 
 #define ssc0_has(cap)  ssc_capability(0,cap)
 #define ssc1_has(cap)  ssc_capability(1,cap)

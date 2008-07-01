@@ -575,6 +575,8 @@ static int iic_wait_free_bus(struct iic_ssc *adap)
  */
 static void iic_pio_stop(struct iic_ssc *adap)
 {
+	if(!(adap->pio_info)->clk)
+		return; /* ssc hard wired */
 	printk(KERN_WARNING "i2c-stm: doing PIO stop!\n");
 	stpio_set_pin((adap->pio_info)->clk, 0);
 	stpio_configure_pin((adap->pio_info)->clk, STPIO_BIDIR);
@@ -887,6 +889,9 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
+	if(pio_info->pio[0].pio_port==0xff) /* this means it doesn't use GPIO */
+		goto i2c_hard_wired;
+
 	pio_info->clk = stpio_request_set_pin(pio_info->pio[0].pio_port,
 					  pio_info->pio[0].pio_pin,
 				"I2C Clock", STPIO_ALT_BIDIR, 1);
@@ -902,6 +907,8 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 		printk(KERN_ERR "%s: Faild to sda pin allocation\n",__FUNCTION__);
 		return -ENODEV;
 	}
+
+i2c_hard_wired:
 	pdev->dev.driver_data = i2c_stm;
 	i2c_stm->adapter.id = I2C_HW_STM_SSC;
 	i2c_stm->adapter.timeout = 2;
@@ -939,8 +946,10 @@ static int iic_stm_remove(struct platform_device *pdev)
 	/* mem */
 	devm_iounmap(&pdev->dev, iic_stm->base);
 	/* pio */
-	stpio_free_pin(pio_info->clk);
-	stpio_free_pin(pio_info->sdout);
+	if(pio_info->clk){
+		stpio_free_pin(pio_info->clk);
+		stpio_free_pin(pio_info->sdout);
+	}
 	/* kmem */
 	devm_kfree(&pdev->dev, iic_stm);
 	return 0;

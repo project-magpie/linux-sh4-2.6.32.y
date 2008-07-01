@@ -217,7 +217,7 @@ void __init stx7111_configure_ssc(struct plat_ssc_data *data)
 	int capability = data->capability;
 	struct sysconf_field* ssc_sc;
 
-	for (i=0; i < ARRAY_SIZE(stssc_devices); i++, capability >>= 2){
+	for (i=0; i < ARRAY_SIZE(stssc_devices); i++, capability >>= SSC_BITS_SIZE){
 		if(capability & SSC_UNCONFIGURED)
 			continue;
 

@@ -382,12 +382,6 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 			}
 		}
 
-		idx=0;
-		/* Release any clock stretch */
-		if (status & SSC_STA_CLST){
-			++idx;
-			ssc_store32(adap, SSC_TBUF, 0x1ff);
-		}
 		/* 2. Do we finish? */
 		if (trsc->idx_current_msg == pmsg->len) {
 			status &= ~SSC_STA_NACK;
@@ -397,8 +391,9 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 		/* 3. Ask other 'idx' bytes in fifo mode
 		 *    but we want save the latest [pmsg->len-1]
 		 *    in any case...
+		 *    This will also clear any pending clockstretch
 		 */
-		for (; idx<SSC_TXFIFO_SIZE &&
+		for (idx=0; idx<SSC_TXFIFO_SIZE &&
 			   (trsc->idx_current_msg+idx)<pmsg->len-1; ++idx)
 			ssc_store32(adap, SSC_TBUF, 0x1ff);
 

@@ -113,6 +113,11 @@ static struct clk *onchip_clocks[] = {
 	&comms_clk,
 };
 
+void* clk_get_iomem(void)
+{
+	return clkgen_base;
+}
+
 int __init clk_init(void)
 {
 	int i, ret = 0;

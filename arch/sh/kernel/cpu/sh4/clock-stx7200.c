@@ -593,6 +593,11 @@ static struct clk new_module_clk = {
 	.ops		= &comms_clk_ops
 };
 
+void* clk_get_iomem()
+{
+        return (void*)0xfd700000;
+}
+
 int __init clk_init(void)
 {
 	int i, ret = 0;

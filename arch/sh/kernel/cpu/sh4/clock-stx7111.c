@@ -361,6 +361,11 @@ static struct clk generic_comms_clk = {
 	.ops		= &generic_clk_ops,
 };
 
+void* clk_get_iomem(void)
+{
+	return clkgena_base;
+}
+
 int __init clk_init(void)
 {
 	int i, ret;

@@ -17,6 +17,7 @@ struct eth_driver_local {
 	phy_interface_t phy_interface;
 	int (*phy_reset) (void *priv);
 	void (*fix_mac_speed) (void *priv, unsigned int speed);
+	int (*fix_mdio_rw) (void);
 	void *bsp_priv;
 	int oldlink;
 	int speed;

@@ -149,7 +149,7 @@ struct plat_stmmacenet_data {
 	int pbl;
 	int has_gmac;
 	void (*fix_mac_speed)(void *priv, unsigned int speed);
-	void (*hw_setup)(void);
+	int (*fix_mdio_rw)(void);
 
 	void *bsp_priv;
 };

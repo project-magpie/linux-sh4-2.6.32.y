@@ -1241,6 +1241,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		       dev->name);
 		dev_kfree_skb_any(skb);
 		dev->stats.tx_dropped += 1;
+		spin_unlock_irqrestore(&lp->tx_lock, flags);
 		return -1;
 	}
 
@@ -1960,6 +1961,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	}
 
 	lp->fix_mac_speed = plat_dat->fix_mac_speed;
+	lp->fix_mdio_rw = plat_dat->fix_mdio_rw;
 	lp->bsp_priv = plat_dat->bsp_priv;
 
 	/* MDIO bus Registration */

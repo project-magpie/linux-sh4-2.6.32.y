@@ -16,7 +16,6 @@
 #include <linux/module.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
-#include <linux/delay.h>
 
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -53,13 +52,8 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
 
-	/*
-	 * Gross hack to work around the problem that the pull up resistors
-	 * on the MDC line are too high on some boards (eg mb628) because
-	 * of the additional pull up resistor for MODE selection. This forms
-	 * an RC network which we have to allow to discharge.
-	 */
-	mdelay(10);
+	if (unlikely(lp->fix_mdio_rw != NULL))
+		lp->fix_mdio_rw();
 
 	writel(regValue, ioaddr + mii_address);
 
@@ -98,8 +92,8 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
 
-	/* Gross hack. See stmmac_mdio_read() for comment */
-	mdelay(10);
+	if (unlikely(lp->fix_mdio_rw != NULL))
+		lp->fix_mdio_rw();
 
 	/* Set the MII address register to write */
 	writel(phydata, ioaddr + mii_data);
@@ -109,9 +103,15 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
 
-	/* NOTE: we need to perform this "extra" read in order to fix an error
-	 * during the write operation */
+#if 0
+	/* This "extra" read was added, in the past, to fix an
+	 * issue related to the control MII bus specific operation (MDC/MDIO).
+	 * It forced the close operation of the message on the bus (hw hack
+	 * was to add a specific pull-up on one of the two MCD/MDIO lines).
+	 * It can be removed because no new board actually needs it.*/
 	stmmac_mdio_read(bus, phyaddr, phyreg);
+#endif
+
 	return 0;
 }
 

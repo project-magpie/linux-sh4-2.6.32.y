@@ -20,6 +20,8 @@
 #include <asm/uaccess.h>
 #include <asm/io.h>
 
+#include "op_sh_model.h"
+
 #define PM_CR_BASE	0xff000084	/* 16-bit */
 #define PM_CTR_BASE	0xff100004	/* 32-bit */
 
@@ -257,7 +259,7 @@ static struct oprofile_operations sh7750_perf_counter_ops = {
 	.stop		= sh7750_perf_counter_stop,
 };
 
-int __init oprofile_arch_init(struct oprofile_operations **ops)
+int __init oprofile_arch_init(struct oprofile_operations *ops)
 {
 	if (!(current_cpu_data.flags & CPU_HAS_PERF_COUNTER))
 		return -ENODEV;

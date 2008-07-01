@@ -45,16 +45,16 @@ do { \
 
 #define xip_enable(base, map, cfi) \
 do { \
-	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL); \
 	cfi_send_gen_cmd(0xFF, 0, base, map, cfi, cfi->device_type, NULL); \
+	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL); \
 	xip_allowed(base, map); \
 } while (0)
 
 #define xip_disable_qry(base, map, cfi) \
 do { \
 	xip_disable(); \
-	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL); \
 	cfi_send_gen_cmd(0xFF, 0, base, map, cfi, cfi->device_type, NULL); \
+	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL); \
 	cfi_send_gen_cmd(0x98, 0x55, base, map, cfi, cfi->device_type, NULL); \
 } while (0)
 
@@ -117,8 +117,8 @@ static int __xipram cfi_probe_chip(struct map_info *map, __u32 base,
 	}
 
 	xip_disable();
-	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
 	cfi_send_gen_cmd(0xFF, 0, base, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
 	cfi_send_gen_cmd(0x98, 0x55, base, map, cfi, cfi->device_type, NULL);
 
 	if (!qry_present(map,base,cfi)) {
@@ -145,8 +145,8 @@ static int __xipram cfi_probe_chip(struct map_info *map, __u32 base,
 		if (qry_present(map, start, cfi)) {
 			/* Eep. This chip also had the QRY marker.
 			 * Is it an alias for the new one? */
-			cfi_send_gen_cmd(0xF0, 0, start, map, cfi, cfi->device_type, NULL);
 			cfi_send_gen_cmd(0xFF, 0, start, map, cfi, cfi->device_type, NULL);
+			cfi_send_gen_cmd(0xF0, 0, start, map, cfi, cfi->device_type, NULL);
 
 			/* If the QRY marker goes away, it's an alias */
 			if (!qry_present(map, start, cfi)) {
@@ -159,8 +159,8 @@ static int __xipram cfi_probe_chip(struct map_info *map, __u32 base,
 			 * unfortunate. Stick the new chip in read mode
 			 * too and if it's the same, assume it's an alias. */
 			/* FIXME: Use other modes to do a proper check */
-			cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
 			cfi_send_gen_cmd(0xFF, 0, start, map, cfi, cfi->device_type, NULL);
+			cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
 
 			if (qry_present(map, base, cfi)) {
 				xip_allowed(base, map);
@@ -177,8 +177,8 @@ static int __xipram cfi_probe_chip(struct map_info *map, __u32 base,
 	cfi->numchips++;
 
 	/* Put it back into Read Mode */
-	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
 	cfi_send_gen_cmd(0xFF, 0, base, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
 	xip_allowed(base, map);
 
 	printk(KERN_INFO "%s: Found %d x%d devices at 0x%x in %d-bit bank\n",
@@ -233,9 +233,9 @@ static int __xipram cfi_chip_setup(struct map_info *map,
 	cfi->id = cfi_read_query16(map, base + ofs_factor);
 
 	/* Put it back into Read Mode */
-	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
-	/* ... even if it's an Intel chip */
 	cfi_send_gen_cmd(0xFF, 0, base, map, cfi, cfi->device_type, NULL);
+	/* ... even if it's an Intel chip */
+	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
 	xip_allowed(base, map);
 
 	/* Do any necessary byteswapping */

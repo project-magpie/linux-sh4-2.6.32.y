@@ -623,6 +623,14 @@ static char* get_part_info(char *p, struct bpa2_part *bp)
 	p += sprintf(p, "total:                 %8d kB            %8d kB\n",
 		     free_total / 1024, used_total /1024);
 
+	if (used_count) {
+		p += sprintf(p, "allocations:      base          size\n");
+		for (ptr = bp->used_list; ptr != NULL; ptr = ptr->next) {
+			p += sprintf(p, "               0x%.8lx   %8lu B\n",
+				     ptr->base, ptr->size);
+		}
+	}
+
 	return  p;
 }
 

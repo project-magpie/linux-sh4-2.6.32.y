@@ -484,8 +484,10 @@
 
 /* NUM_FRAMES */
 
-#define shift__AUD_PCMIN_CTRL__NUM_FRAMES(ip) 4
-#define mask__AUD_PCMIN_CTRL__NUM_FRAMES(ip) 0xfffffff
+#define shift__AUD_PCMIN_CTRL__NUM_FRAMES(ip) (ip->ver < \
+	ver__AUD_PCMIN__65_3_1 ? 4 : -1)
+#define mask__AUD_PCMIN_CTRL__NUM_FRAMES(ip) (ip->ver < \
+	ver__AUD_PCMIN__65_3_1 ? 0xfffffff : -1)
 #define get__AUD_PCMIN_CTRL__NUM_FRAMES(ip) ((readl(ip->base + \
 	offset__AUD_PCMIN_CTRL(ip)) >> shift__AUD_PCMIN_CTRL__NUM_FRAMES(ip)) \
 	& mask__AUD_PCMIN_CTRL__NUM_FRAMES(ip))
@@ -495,6 +497,24 @@
 	shift__AUD_PCMIN_CTRL__NUM_FRAMES(ip))) | (((value) & \
 	mask__AUD_PCMIN_CTRL__NUM_FRAMES(ip)) << \
 	shift__AUD_PCMIN_CTRL__NUM_FRAMES(ip)), ip->base + \
+	offset__AUD_PCMIN_CTRL(ip))
+
+/* MASTER_CLK_DIV */
+
+#define shift__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip) (ip->ver < \
+	ver__AUD_PCMIN__65_3_1 ? -1 : 4)
+#define mask__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip) (ip->ver < \
+	ver__AUD_PCMIN__65_3_1 ? -1 : 0xf)
+#define get__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip) ((readl(ip->base + \
+	offset__AUD_PCMIN_CTRL(ip)) >> \
+	shift__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip)) & \
+	mask__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip))
+#define set__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip, value) \
+	writel((readl(ip->base + offset__AUD_PCMIN_CTRL(ip)) & \
+	~(mask__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip) << \
+	shift__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip))) | (((value) & \
+	mask__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip)) << \
+	shift__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip)), ip->base + \
 	offset__AUD_PCMIN_CTRL(ip))
 
 

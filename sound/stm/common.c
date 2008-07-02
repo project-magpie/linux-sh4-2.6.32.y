@@ -92,7 +92,7 @@ static void dummy_release(struct device *dev)
 {
 }
 
-int snd_stm_add_plaform_devices(struct platform_device **devices,
+int snd_stm_add_platform_devices(struct platform_device **devices,
 		int cnt)
 {
 	int result = 0;
@@ -110,9 +110,9 @@ int snd_stm_add_plaform_devices(struct platform_device **devices,
 
 	return result;
 }
-EXPORT_SYMBOL(snd_stm_add_plaform_devices);
+EXPORT_SYMBOL(snd_stm_add_platform_devices);
 
-void snd_stm_remove_plaform_devices(struct platform_device **devices,
+void snd_stm_remove_platform_devices(struct platform_device **devices,
 		int cnt)
 {
 	int i;
@@ -120,7 +120,7 @@ void snd_stm_remove_plaform_devices(struct platform_device **devices,
 	for (i = 0; i < cnt; i++)
 		platform_device_unregister(devices[i]);
 }
-EXPORT_SYMBOL(snd_stm_remove_plaform_devices);
+EXPORT_SYMBOL(snd_stm_remove_platform_devices);
 
 
 

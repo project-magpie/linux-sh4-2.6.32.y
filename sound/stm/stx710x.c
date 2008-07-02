@@ -518,7 +518,7 @@ static int __init snd_stm_stx710x_init(void)
 			"audio subsystem", soc_type, cpu_data->cut_major,
 			cpu_data->cut_minor);
 
-	result = snd_stm_add_plaform_devices(snd_stm_stx710x_devices,
+	result = snd_stm_add_platform_devices(snd_stm_stx710x_devices,
 			ARRAY_SIZE(snd_stm_stx710x_devices));
 	if (result != 0) {
 		snd_stm_printe("Failed to add platform devices!\n");
@@ -534,7 +534,7 @@ static int __init snd_stm_stx710x_init(void)
 	return 0;
 
 error_card_register:
-	snd_stm_remove_plaform_devices(snd_stm_stx710x_devices,
+	snd_stm_remove_platform_devices(snd_stm_stx710x_devices,
 			ARRAY_SIZE(snd_stm_stx710x_devices));
 error_add_devices:
 	snd_stm_card_free();
@@ -551,7 +551,7 @@ static void __exit snd_stm_stx710x_exit(void)
 
 	snd_stm_card_free();
 
-	snd_stm_remove_plaform_devices(snd_stm_stx710x_devices,
+	snd_stm_remove_platform_devices(snd_stm_stx710x_devices,
 			ARRAY_SIZE(snd_stm_stx710x_devices));
 
 	platform_driver_unregister(&snd_stm_stx710x_glue_driver);

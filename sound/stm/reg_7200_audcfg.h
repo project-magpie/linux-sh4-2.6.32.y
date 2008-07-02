@@ -1,6 +1,16 @@
 #ifndef __SND_STM_7200_AUDCFG_H
 #define __SND_STM_7200_AUDCFG_H
 
+/*
+ * IP versions
+ */
+
+/* 7200 1.0 */
+#define ver__7200_AUDCFG__1 1
+
+/* 7200 2.0 */
+#define ver__7200_AUDCFG__2 2
+
 
 
 /*
@@ -172,6 +182,42 @@
 #define set__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__ENABLE(ip) \
 	set__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN(ip, \
 	value__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__ENABLE(ip))
+
+/* PCMRDR1_EN */
+
+#define shift__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip) (ip->ver < \
+	ver__7200_AUDCFG__2 ? -1 : 5)
+#define mask__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip) (ip->ver < \
+	ver__7200_AUDCFG__2 ? -1 : 0x1)
+#define get__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip) ((readl(ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip)) >> \
+	shift__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip)) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip, value) \
+	writel((readl(ip->base + offset__7200_AUDCFG_IOMUX_CTRL(ip)) & \
+	~(mask__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip))) | (((value) & \
+	mask__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip)) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip)), ip->base + \
+	offset__7200_AUDCFG_IOMUX_CTRL(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__DISABLE(ip) \
+	(ip->ver < ver__7200_AUDCFG__2 ? -1 : 0x0)
+#define mask__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__DISABLE(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__DISABLE(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__DISABLE(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__DISABLE(ip))
+
+#define value__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__ENABLE(ip) (ip->ver \
+	< ver__7200_AUDCFG__2 ? -1 : 0x1)
+#define mask__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__ENABLE(ip) \
+	(value__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__ENABLE(ip) << \
+	shift__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__ENABLE(ip) \
+	set__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN(ip, \
+	value__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__ENABLE(ip))
 
 
 

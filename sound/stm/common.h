@@ -212,9 +212,9 @@ int snd_stm_pcm_hw_constraint_transfer_bytes(struct snd_pcm_runtime *runtime,
  */
 
 /* Add/remove a list of platform devices */
-int snd_stm_add_plaform_devices(struct platform_device **devices,
+int snd_stm_add_platform_devices(struct platform_device **devices,
 		int cnt);
-void snd_stm_remove_plaform_devices(struct platform_device **devices,
+void snd_stm_remove_platform_devices(struct platform_device **devices,
 		int cnt);
 
 

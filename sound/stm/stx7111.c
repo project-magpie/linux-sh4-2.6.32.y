@@ -543,7 +543,7 @@ static int __init snd_stm_stx7111_init(void)
 	snprintf(card->longname, 79, "STMicroelectronics STx7111 cut %d "
 			"SOC audio subsystem", cpu_data->cut_major);
 
-	result = snd_stm_add_plaform_devices(snd_stm_stx7111_devices,
+	result = snd_stm_add_platform_devices(snd_stm_stx7111_devices,
 			ARRAY_SIZE(snd_stm_stx7111_devices));
 	if (result != 0) {
 		snd_stm_printe("Failed to add platform devices!\n");
@@ -559,7 +559,7 @@ static int __init snd_stm_stx7111_init(void)
 	return 0;
 
 error_card_register:
-	snd_stm_remove_plaform_devices(snd_stm_stx7111_devices,
+	snd_stm_remove_platform_devices(snd_stm_stx7111_devices,
 			ARRAY_SIZE(snd_stm_stx7111_devices));
 error_add_devices:
 	snd_stm_card_free();
@@ -576,7 +576,7 @@ static void __exit snd_stm_stx7111_exit(void)
 
 	snd_stm_card_free();
 
-	snd_stm_remove_plaform_devices(snd_stm_stx7111_devices,
+	snd_stm_remove_platform_devices(snd_stm_stx7111_devices,
 			ARRAY_SIZE(snd_stm_stx7111_devices));
 
 	platform_driver_unregister(&snd_stm_stx7111_glue_driver);

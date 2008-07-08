@@ -24,6 +24,7 @@
 #include <linux/stm/fdma-reqs.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
+#include <linux/delay.h>
 #include <asm/irq-ilc.h>
 
 static u64 st40_dma_mask = 0xfffffff;
@@ -817,7 +818,6 @@ unsigned int stasc_configured_devices_count __initdata = 0;
 /* Configure the ASC's for this board.
  * This has to be called before console_init().
  */
-#include <linux/delay.h>
 void __init stx7141_configure_asc(const int *ascs, int num_ascs, int console)
 {
 	int i;

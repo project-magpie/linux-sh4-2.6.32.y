@@ -944,6 +944,33 @@ static struct intc_group groups[] = {
 };
 
 static struct intc_prio priorities[] = {
+/* INTC */
+	INTC_PRIO(RTC,        4),
+	INTC_PRIO(TMU2,      15),
+	INTC_PRIO(TMU1,      15),
+	INTC_PRIO(TMU0,       1),
+	INTC_PRIO(WDT,       15),
+	INTC_PRIO(HUDI,      15),
+	/* INTC_PRIO(SCIF,       7), */
+/* INTC2 */
+	INTC_PRIO(PCI_DEV0,  12),
+	INTC_PRIO(GROUP0_1,  12),
+	INTC_PRIO(GROUP0_2,   7),
+	INTC_PRIO(GROUP1,     6),
+	INTC_PRIO(GROUP2,     7),
+	INTC_PRIO(GROUP3,     7),
+	INTC_PRIO(GROUP4,     7),
+	INTC_PRIO(GROUP5,     7),
+	INTC_PRIO(GROUP6,     8),
+	INTC_PRIO(GROUP7,    12),
+	INTC_PRIO(GROUP8,    10),
+	INTC_PRIO(GROUP9,    11),
+	INTC_PRIO(GROUP10,   12),
+	INTC_PRIO(GROUP11,   13),
+	INTC_PRIO(GROUP12,    9),
+	INTC_PRIO(GROUP13,    9),
+	INTC_PRIO(GROUP15,    9),
+	INTC_PRIO(GROUP15,    7),
 };
 
 static struct intc_prio_reg prio_registers[] = {

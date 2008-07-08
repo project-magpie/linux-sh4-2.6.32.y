@@ -382,13 +382,24 @@ void stpio_enable_irq(struct stpio_pin *pin, int comp)
 }
 EXPORT_SYMBOL(stpio_enable_irq);
 
+/* This function is safe to call in an IRQ UNLESS it is called in */
+/* the PIO interrupt callback function                            */
 void stpio_disable_irq(struct stpio_pin *pin)
 {
 	int irq = pin_to_irq(pin);
-	DPRINTK("calling disable_irq for pin %s\n", pin->name);
+	DPRINTK("calling disable_irq for irq %d\n", irq);
 	disable_irq(irq);
 }
 EXPORT_SYMBOL(stpio_disable_irq);
+
+/* This is safe to call in IRQ context */
+void stpio_disable_irq_nosync(struct stpio_pin *pin)
+{
+	int irq = pin_to_irq(pin);
+	DPRINTK("calling disable_irq_nosync for irq %d\n", irq);
+	disable_irq_nosync(irq);
+}
+EXPORT_SYMBOL(stpio_disable_irq_nosync);
 
 void stpio_set_irq_type(struct stpio_pin* pin, int triggertype)
 {

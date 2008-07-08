@@ -65,6 +65,7 @@ static inline void __deprecated stpio_request_irq(struct stpio_pin *pin, int com
 void stpio_free_irq(struct stpio_pin* pin);
 void stpio_enable_irq(struct stpio_pin* pin, int mode);
 void stpio_disable_irq(struct stpio_pin* pin);
+void stpio_disable_irq_nosync(struct stpio_pin* pin);
 void stpio_set_irq_type(struct stpio_pin* pin, int triggertype);
 
 /* Calculate gpio number of a given stpio pin... */

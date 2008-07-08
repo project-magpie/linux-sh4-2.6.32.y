@@ -28,6 +28,7 @@
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/delay.h>
+#include <linux/dma-mapping.h>
 
 static unsigned long chip_revision;
 static struct sysconf_field *sc7_2;
@@ -41,7 +42,7 @@ static struct sysconf_field *sc7_2;
 #define AHB2STBUS_EHCI_BASE(N)          (UHOST2C_BASE(N) + 0x000ffe00)
 #define AHB2STBUS_PROTOCOL_BASE(N)      (UHOST2C_BASE(N) + 0x000fff00)
 
-static u64 st40_dma_mask = 0xfffffff;
+static u64 st40_dma_mask = DMA_32BIT_MASK;
 
 static struct plat_usb_data usb_wrapper[3] = {
 	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE(0),

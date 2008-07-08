@@ -23,11 +23,12 @@
 #include <linux/stm/fdma-reqs.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
+#include <linux/dma-mapping.h>
 #include <asm/irl.h>
 #include <asm/irq-ilc.h>
 
 static struct sysconf_field *sc7_3;
-static u64 st40_dma_mask = 0xfffffff;
+static u64 st40_dma_mask = DMA_32BIT_MASK;
 
 
 /* USB resources ----------------------------------------------------------- */

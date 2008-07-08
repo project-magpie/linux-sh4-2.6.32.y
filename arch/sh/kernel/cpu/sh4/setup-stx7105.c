@@ -24,9 +24,10 @@
 #include <linux/stm/fdma-reqs.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
+#include <linux/dma-mapping.h>
 #include <asm/irq-ilc.h>
 
-static u64 st40_dma_mask = 0xfffffff;
+static u64 st40_dma_mask = DMA_32BIT_MASK;
 
 static struct {
 	unsigned char syscfg;

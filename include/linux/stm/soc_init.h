@@ -89,7 +89,7 @@
 	.id=_port,							\
 	.dev = {							\
 		.dma_mask = &st40_dma_mask,				\
-		.coherent_dma_mask = 0xffffffful,			\
+		.coherent_dma_mask = DMA_32BIT_MASK,			\
 		.platform_data = _wrapper,				\
 	},								\
 	.num_resources = 2,						\
@@ -114,7 +114,7 @@
 	.id=_port,							\
 	.dev = {							\
 		.dma_mask = &st40_dma_mask,				\
-		.coherent_dma_mask = 0xffffffful,			\
+		.coherent_dma_mask = DMA_32BIT_MASK,			\
 		.platform_data = _wrapper,				\
 	},								\
 	.num_resources = 2,						\

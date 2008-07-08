@@ -21,6 +21,7 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
 #include <linux/pata_platform.h>
+#include <linux/dma-mapping.h>
 #include <asm/sci.h>
 #include <asm/irq-ilc.h>
 #include <linux/stm/fdma-plat.h>
@@ -77,7 +78,7 @@ struct platform_device wdt_device = {
 #define AHB2STBUS_EHCI_BASE		(UHOST2C_BASE + 0x000ffe00)
 #define AHB2STBUS_PROTOCOL_BASE		(UHOST2C_BASE + 0x000fff00)
 
-static u64 st40_dma_mask = 0xfffffff;
+static u64 st40_dma_mask = DMA_32BIT_MASK;
 
 static struct plat_usb_data usb_wrapper =
 	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE, AHB2STBUS_PROTOCOL_BASE,

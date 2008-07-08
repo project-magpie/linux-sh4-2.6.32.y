@@ -636,10 +636,6 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 	stx7105_pio_sysconf(9, 6, 1, "eth");
 	pin = stpio_request_pin(9, 6, "eth", STPIO_ALT_BIDIR);
 
-	/* MDO_EN */
-	stx7105_pio_sysconf(9, 7, 1, "eth");
-	pin = stpio_request_pin(9, 7, "eth", STPIO_ALT_OUT);
-
 	platform_device_register(&stx7105eth_device);
 }
 

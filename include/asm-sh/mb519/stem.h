@@ -14,8 +14,8 @@
 #define STEM_CS0_BANK 1
 #define STEM_CS0_OFFSET 0
 
-#define STEM_CS1_BANK 4
-#define STEM_CS1_OFFSET 0
+#define STEM_CS1_BANK 1
+#define STEM_CS1_OFFSET (1 << 23)
 
 #define STEM_INTR0_IRQ ILC_IRQ(6)
 

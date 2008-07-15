@@ -7,7 +7,7 @@
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
  *
- * STMicroelectronics NAND Flash STEM board
+ * STMicroelectronics Parallel ATA STEM board
  *
  * This code assumes that STEM_notCS0 and STEM_notINTR0 lines are used,
  * so jumpers J1 and J2 shall be set to 1-2 positions.

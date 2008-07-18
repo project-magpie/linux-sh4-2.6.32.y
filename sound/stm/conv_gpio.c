@@ -345,11 +345,12 @@ static struct snd_kcontrol_new snd_stm_conv_gpio_ctl_mute = {
 static void snd_stm_conv_gpio_read_info(struct snd_info_entry *entry,
 		struct snd_info_buffer *buffer)
 {
-	struct snd_stm_conv_gpio *conv_gpio =
-		entry->private_data;
+	struct snd_stm_conv_gpio *conv_gpio = entry->private_data;
 
 	snd_assert(conv_gpio, return);
 	snd_stm_magic_assert(conv_gpio, return);
+
+	snd_iprintf(buffer, "--- %s ---\n", conv_gpio->bus_id);
 
 	snd_iprintf(buffer, "enable_gpio(%d) = %d\n",
 			conv_gpio->info->enable_gpio,
@@ -359,10 +360,7 @@ static void snd_stm_conv_gpio_read_info(struct snd_info_entry *entry,
 				conv_gpio->info->mute_gpio,
 				gpio_get_value(conv_gpio->info->mute_gpio));
 
-	snd_iprintf(buffer, "enabled = %d\n", conv_gpio->enabled);
-	snd_iprintf(buffer, "muted_by_source = %d\n",
-			conv_gpio->muted_by_source);
-	snd_iprintf(buffer, "muted_by_user = %d\n", conv_gpio->muted_by_user);
+	snd_iprintf(buffer, "\n");
 }
 
 static int snd_stm_conv_gpio_register(struct snd_device *snd_device)

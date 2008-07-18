@@ -782,6 +782,9 @@ static void snd_stm_pcm_player_dump_registers(struct snd_info_entry *entry,
 	snd_assert(pcm_player, return);
 	snd_stm_magic_assert(pcm_player, return);
 
+	snd_iprintf(buffer, "--- %s ---\n", pcm_player->device->bus_id);
+	snd_iprintf(buffer, "base = 0x%p\n", pcm_player->base);
+
 	DUMP_REGISTER(RST);
 	DUMP_REGISTER(DATA);
 	DUMP_REGISTER(ITS);
@@ -792,6 +795,8 @@ static void snd_stm_pcm_player_dump_registers(struct snd_info_entry *entry,
 	DUMP_REGISTER(CTRL);
 	DUMP_REGISTER(STA);
 	DUMP_REGISTER(FMT);
+
+	snd_iprintf(buffer, "\n");
 }
 
 static int snd_stm_pcm_player_register(struct snd_device *snd_device)

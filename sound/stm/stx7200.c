@@ -570,12 +570,17 @@ static void snd_stm_stx7200_glue_dump_registers(struct snd_info_entry *entry,
 	snd_assert(stx7200_glue, return);
 	snd_stm_magic_assert(stx7200_glue, return);
 
+	snd_iprintf(buffer, "--- snd_stx7200_glue ---\n");
+	snd_iprintf(buffer, "base = 0x%p\n", stx7200_glue->base);
+
 	snd_iprintf(buffer, "AUDCFG_IOMUX_CTRL (offset 0x00) = 0x%08x\n",
 			get__7200_AUDCFG_IOMUX_CTRL(stx7200_glue));
 	snd_iprintf(buffer, "AUDCFG_HDMI_CTRL (offset 0x04) = 0x%08x\n",
 			get__7200_AUDCFG_HDMI_CTRL(stx7200_glue));
 	snd_iprintf(buffer, "AUDCFG_RECOVERY_CTRL (offset 0x08) = 0x%08x\n",
 			get__7200_AUDCFG_RECOVERY_CTRL(stx7200_glue));
+
+	snd_iprintf(buffer, "\n");
 }
 
 static int __init snd_stm_stx7200_glue_register(struct snd_device *snd_device)

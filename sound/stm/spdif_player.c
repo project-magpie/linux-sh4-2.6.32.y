@@ -1353,6 +1353,9 @@ static void snd_stm_spdif_player_dump_registers(struct snd_info_entry *entry,
 	snd_assert(spdif_player, return);
 	snd_stm_magic_assert(spdif_player, return);
 
+	snd_iprintf(buffer, "--- %s ---\n", spdif_player->device->bus_id);
+	snd_iprintf(buffer, "base = 0x%p\n", spdif_player->base);
+
 	DUMP_REGISTER(RST);
 	DUMP_REGISTER(DATA);
 	DUMP_REGISTER(ITS);
@@ -1371,6 +1374,8 @@ static void snd_stm_spdif_player_dump_registers(struct snd_info_entry *entry,
 	DUMP_REGISTER(BST_FL);
 	if (spdif_player->ver >= ver__AUD_SPDIF__65_3_1)
 		DUMP_REGISTER(CONFIG);
+
+	snd_iprintf(buffer, "\n");
 }
 
 static int snd_stm_spdif_player_register(struct snd_device *snd_device)

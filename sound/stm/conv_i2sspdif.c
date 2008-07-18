@@ -481,6 +481,9 @@ static void snd_stm_conv_i2sspdif_dump_registers(struct snd_info_entry *entry,
 	snd_assert(conv_i2sspdif, return);
 	snd_stm_magic_assert(conv_i2sspdif, return);
 
+	snd_iprintf(buffer, "--- %s ---\n", conv_i2sspdif->device->bus_id);
+	snd_iprintf(buffer, "base = 0x%p\n", conv_i2sspdif->base);
+
 	DUMP_REGISTER(CFG);
 	DUMP_REGISTER(STA);
 	DUMP_REGISTER(IT_EN);
@@ -502,6 +505,8 @@ static void snd_stm_conv_i2sspdif_dump_registers(struct snd_info_entry *entry,
 	DUMP_REGISTER(CL1);
 	DUMP_REGISTER(CR1);
 	DUMP_REGISTER(SUV);
+
+	snd_iprintf(buffer, "\n");
 }
 
 static int snd_stm_conv_i2sspdif_register(

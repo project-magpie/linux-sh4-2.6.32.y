@@ -260,6 +260,10 @@ int snd_stm_info_register(struct snd_info_entry **entry,
 {
 	int result = 0;
 
+	/* Skip the "snd_" prefix, if bus_id has been simply given */
+	if (strncmp(name, "snd_", 4) == 0)
+		name += 4;
+
 	*entry = snd_info_create_module_entry(THIS_MODULE, name,
 			snd_stm_info_root);
 	if (*entry) {

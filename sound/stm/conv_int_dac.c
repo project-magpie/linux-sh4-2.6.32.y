@@ -282,14 +282,13 @@ static void snd_stm_conv_int_dac_read_info(struct snd_info_entry *entry,
 	snd_assert(conv_int_dac, return);
 	snd_stm_magic_assert(conv_int_dac, return);
 
+	snd_iprintf(buffer, "--- %s ---\n", conv_int_dac->bus_id);
+	snd_iprintf(buffer, "base = 0x%p\n", conv_int_dac->base);
+
 	snd_iprintf(buffer, "AUDCFG_ADAC_CTRL (offset 0x00) = 0x%08x\n",
 			get__AUDCFG_ADAC_CTRL(conv_int_dac));
 
-	snd_iprintf(buffer, "enabled = %d\n", conv_int_dac->enabled);
-	snd_iprintf(buffer, "muted_by_source = %d\n",
-			conv_int_dac->muted_by_source);
-	snd_iprintf(buffer, "muted_by_user = %d\n",
-			conv_int_dac->muted_by_user);
+	snd_iprintf(buffer, "\n");
 }
 
 static int snd_stm_conv_int_dac_register(struct snd_device *snd_device)

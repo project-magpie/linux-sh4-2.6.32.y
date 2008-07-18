@@ -564,6 +564,9 @@ static void snd_stm_fsynth_dump_registers(struct snd_info_entry *entry,
 	snd_assert(fsynth, return);
 	snd_stm_magic_assert(fsynth, return);
 
+	snd_iprintf(buffer, "--- %s ---\n", fsynth->bus_id);
+	snd_iprintf(buffer, "base = 0x%p\n", fsynth->base);
+
 	snd_iprintf(buffer, "AUDCFG_FSYN_CFG (offset 0x00) = 0x%08x\n",
 			get__AUDCFG_FSYN_CFG(fsynth));
 
@@ -573,6 +576,8 @@ static void snd_stm_fsynth_dump_registers(struct snd_info_entry *entry,
 		DUMP_REGISTER(SDIV, i);
 		DUMP_REGISTER(PROGEN, i);
 	}
+
+	snd_iprintf(buffer, "\n");
 }
 
 static int snd_stm_fsynth_register(struct snd_device *snd_device)

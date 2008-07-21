@@ -315,7 +315,7 @@ static struct platform_device pcm_reader = {
 		},
 	},
 	.dev.platform_data = &(struct snd_stm_pcm_reader_info) {
-		.name = "PCM reader",
+		.name = "PCM Reader",
 		.ver = 4,
 		.card_device = 3,
 		.channels = 2,

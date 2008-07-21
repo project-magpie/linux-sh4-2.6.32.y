@@ -480,7 +480,7 @@ static struct platform_device pcm_reader_0 = {
 		},
 	},
 	.dev.platform_data = &(struct snd_stm_pcm_reader_info) {
-		.name = "PCM reader",
+		.name = "PCM Reader #0",
 		/* .ver = see snd_stm_stx7200_init() */
 		.card_device = 7,
 		.channels = 2,
@@ -507,7 +507,7 @@ static struct platform_device pcm_reader_1 = {
 		},
 	},
 	.dev.platform_data = &(struct snd_stm_pcm_reader_info) {
-		.name = "PCM reader",
+		.name = "PCM Reader #1",
 		.ver = 5,
 		.card_device = 8,
 		.channels = 8,

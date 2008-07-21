@@ -234,7 +234,7 @@ static struct platform_device conv_i2sspdif = {
 /* PCM reader */
 
 struct snd_stm_pcm_reader_info pcm_reader_info = {
-	.name = "PCM reader",
+	.name = "PCM Reader",
 	/* .ver = see snd_stm_stx710x_init() */
 	.card_device = 3,
 	.channels = 2,

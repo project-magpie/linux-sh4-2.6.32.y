@@ -172,6 +172,10 @@ static int mb628_phy_reset(void *bus)
 	reg |= EPLD_RESET_MII;
 	epld_write(reg, EPLD_RESET);
 
+	/* DP83865 (PHY chip) has a looong initialization
+	 * procedure... Let's give him some time to settle down... */
+	udelay(1000);
+
 	return 1;
 }
 

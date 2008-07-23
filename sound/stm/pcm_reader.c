@@ -362,8 +362,6 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 	snd_assert(buffer_bytes % transfer_bytes == 0, return -EINVAL);
 	snd_assert(transfer_size <= pcm_reader->fdma_max_transfer_size,
 			return -EINVAL);
-	fdma_req_config.count = transfer_size;
-
 	if (pcm_reader->ver > ver__AUD_PCMIN__65_2_0) {
 		snd_assert(transfer_size == 1 || transfer_size % 2 == 0,
 				return -EINVAL);
@@ -371,7 +369,20 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 				mask__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(
 				pcm_reader), return -EINVAL);
 		set__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(pcm_reader, transfer_size);
+		set__AUD_PCMIN_FMT__BACK_STALLING__DISABLED(pcm_reader);
+
+		/* This is a workaround for a problem with PCM Reader
+		 * FIFO underrunning (!!!), caused by FDMA issuing
+		 * more than one read per request line assertion... */
+		if (transfer_size > 2)
+			fdma_req_config.count = transfer_size / 2;
+		else
+			fdma_req_config.count = transfer_size;
+	} else {
+		fdma_req_config.count = transfer_size;
 	}
+	snd_stm_printd(1, "FDMA transfer size set to %d.\n",
+			fdma_req_config.count);
 
 	/* Configure FDMA transfer */
 
@@ -759,8 +770,6 @@ static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 	/* TODO: well, hardcoded - shall anyone use it?
 	 * And what it actually means? */
 
-	if (pcm_reader->ver > ver__AUD_PCMIN__65_2_0)
-		set__AUD_PCMIN_FMT__BACK_STALLING__DISABLED(pcm_reader);
 	set__AUD_PCMIN_CTRL__RND__NO_ROUNDING(pcm_reader);
 
 	/* Registers view in ALSA's procfs */

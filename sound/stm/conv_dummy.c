@@ -53,7 +53,7 @@ static unsigned int snd_stm_conv_dummy_get_format(void *priv)
 
 	snd_stm_printd(1, "snd_stm_conv_dummy_get_format(priv=%p)\n", priv);
 
-	snd_assert(conv_dummy, return -EINVAL);
+	snd_stm_assert(conv_dummy, return -EINVAL);
 	snd_stm_magic_assert(conv_dummy, return -EINVAL);
 
 	return conv_dummy->info->format;
@@ -66,7 +66,7 @@ static int snd_stm_conv_dummy_get_oversampling(void *priv)
 	snd_stm_printd(1, "snd_stm_conv_dummy_get_oversampling(priv=%p)\n",
 			priv);
 
-	snd_assert(conv_dummy, return -EINVAL);
+	snd_stm_assert(conv_dummy, return -EINVAL);
 	snd_stm_magic_assert(conv_dummy, return -EINVAL);
 
 	return conv_dummy->info->oversampling;
@@ -89,7 +89,7 @@ static int snd_stm_conv_dummy_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
 
-	snd_assert(pdev->dev.platform_data != NULL, return -EINVAL);
+	snd_stm_assert(pdev->dev.platform_data != NULL, return -EINVAL);
 
 	conv_dummy = kzalloc(sizeof(*conv_dummy), GFP_KERNEL);
 	if (!conv_dummy) {
@@ -126,7 +126,7 @@ static int snd_stm_conv_dummy_remove(struct platform_device *pdev)
 {
 	struct snd_stm_conv_dummy *conv_dummy = platform_get_drvdata(pdev);
 
-	snd_assert(conv_dummy, return -EINVAL);
+	snd_stm_assert(conv_dummy, return -EINVAL);
 	snd_stm_magic_assert(conv_dummy, return -EINVAL);
 
 	snd_stm_conv_unregister_converter(conv_dummy->converter);

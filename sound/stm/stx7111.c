@@ -363,7 +363,7 @@ static void snd_stm_stx7111_glue_dump_registers(struct snd_info_entry *entry,
 {
 	struct snd_stm_stx7111_glue *stx7111_glue = entry->private_data;
 
-	snd_assert(stx7111_glue, return);
+	snd_stm_assert(stx7111_glue, return);
 	snd_stm_magic_assert(stx7111_glue, return);
 
 	snd_iprintf(buffer, "--- snd_stx7111_glue ---\n");
@@ -379,7 +379,7 @@ static int __init snd_stm_stx7111_glue_register(struct snd_device *snd_device)
 {
 	struct snd_stm_stx7111_glue *stx7111_glue = snd_device->device_data;
 
-	snd_assert(stx7111_glue, return -EINVAL);
+	snd_stm_assert(stx7111_glue, return -EINVAL);
 	snd_stm_magic_assert(stx7111_glue, return -EINVAL);
 
 	/* Enable audio outputs */
@@ -401,7 +401,7 @@ static int __exit snd_stm_stx7111_glue_disconnect(struct snd_device *snd_device)
 {
 	struct snd_stm_stx7111_glue *stx7111_glue = snd_device->device_data;
 
-	snd_assert(stx7111_glue, return -EINVAL);
+	snd_stm_assert(stx7111_glue, return -EINVAL);
 	snd_stm_magic_assert(stx7111_glue, return -EINVAL);
 
 	/* Remove procfs entry */
@@ -477,7 +477,7 @@ static int __exit snd_stm_stx7111_glue_remove(struct platform_device *pdev)
 	struct snd_stm_stx7111_glue *stx7111_glue =
 			platform_get_drvdata(pdev);
 
-	snd_assert(stx7111_glue, return -EINVAL);
+	snd_stm_assert(stx7111_glue, return -EINVAL);
 	snd_stm_magic_assert(stx7111_glue, return -EINVAL);
 
 	snd_stm_memory_release(stx7111_glue->mem_region, stx7111_glue->base);

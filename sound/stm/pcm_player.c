@@ -104,7 +104,7 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 	snd_stm_printd(2, "snd_stm_pcm_player_irq_handler(irq=%d, "
 			"dev_id=0x%p)\n", irq, dev_id);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
 	/* Get interrupt status & clear them immediately */
@@ -123,7 +123,7 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 	/* Period successfully played */
 	if (likely(status & mask__AUD_PCMOUT_ITS__NSAMPLE__PENDING(pcm_player)))
 		do {
-			snd_assert(pcm_player->substream, break);
+			snd_stm_assert(pcm_player->substream, break);
 
 			snd_stm_printd(2, "Period elapsed ('%s')\n",
 					pcm_player->device->bus_id);
@@ -133,7 +133,7 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 		} while (0);
 
 	/* Some alien interrupt??? */
-	snd_assert(result == IRQ_HANDLED);
+	snd_stm_assert(result == IRQ_HANDLED);
 
 	return result;
 }
@@ -181,9 +181,9 @@ static int snd_stm_pcm_player_open(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_open(substream=0x%p)\n",
 			substream);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
+	snd_stm_assert(runtime, return -EINVAL);
 
 	snd_pcm_set_sync(substream);  /* TODO: ??? */
 
@@ -244,7 +244,7 @@ static int snd_stm_pcm_player_close(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_close(substream=0x%p)\n",
 			substream);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
 	if (pcm_player->conv_group) {
@@ -266,9 +266,9 @@ static int snd_stm_pcm_player_hw_free(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_hw_free(substream=0x%p)\n",
 			substream);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
+	snd_stm_assert(runtime, return -EINVAL);
 
 	/* This callback may be called more than once... */
 
@@ -308,9 +308,9 @@ static int snd_stm_pcm_player_hw_params(struct snd_pcm_substream *substream,
 	snd_stm_printd(1, "snd_stm_pcm_player_hw_params(substream=0x%p,"
 			" hw_params=0x%p)\n", substream, hw_params);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
+	snd_stm_assert(runtime, return -EINVAL);
 
 	/* This function may be called many times, so let's be prepared... */
 	if (snd_stm_buffer_is_allocated(pcm_player->buffer))
@@ -339,14 +339,14 @@ static int snd_stm_pcm_player_hw_params(struct snd_pcm_substream *substream,
 	snd_stm_printd(1, "FDMA request trigger limit and transfer size set "
 			"to %d.\n", transfer_size);
 
-	snd_assert(buffer_bytes % transfer_bytes == 0, return -EINVAL);
-	snd_assert(transfer_size <= pcm_player->fdma_max_transfer_size,
+	snd_stm_assert(buffer_bytes % transfer_bytes == 0, return -EINVAL);
+	snd_stm_assert(transfer_size <= pcm_player->fdma_max_transfer_size,
 			return -EINVAL);
 	fdma_req_config.count = transfer_size;
 
-	snd_assert(transfer_size == 1 || transfer_size % 2 == 0,
+	snd_stm_assert(transfer_size == 1 || transfer_size % 2 == 0,
 			return -EINVAL);
-	snd_assert(transfer_size <=
+	snd_stm_assert(transfer_size <=
 			mask__AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT(pcm_player),
 			return -EINVAL);
 	set__AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT(pcm_player, transfer_size);
@@ -402,10 +402,10 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_prepare(substream=0x%p)\n",
 			substream);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
-	snd_assert(runtime->period_size * runtime->channels <
+	snd_stm_assert(runtime, return -EINVAL);
+	snd_stm_assert(runtime->period_size * runtime->channels <
 			MAX_SAMPLES_PER_PERIOD, return -EINVAL);
 
 	/* Configure SPDIF synchronisation */
@@ -429,11 +429,11 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 			pcm_player->device->bus_id, runtime->rate,
 			oversampling);
 
-	snd_assert(oversampling > 0, return -EINVAL);
+	snd_stm_assert(oversampling > 0, return -EINVAL);
 
 	/* For 32 bits subframe oversampling must be a multiple of 128,
 	 * for 16 bits - of 64 */
-	snd_assert(((format & SND_STM_FORMAT__SUBFRAME_32_BITS) &&
+	snd_stm_assert(((format & SND_STM_FORMAT__SUBFRAME_32_BITS) &&
 				(oversampling % 128 == 0)) ||
 				(oversampling % 64 == 0), return -EINVAL);
 
@@ -579,8 +579,8 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 
 	/* Number of channels... */
 
-	snd_assert(runtime->channels % 2 == 0, return -EINVAL);
-	snd_assert(runtime->channels >= 2 && runtime->channels <= 10,
+	snd_stm_assert(runtime->channels % 2 == 0, return -EINVAL);
+	snd_stm_assert(runtime->channels >= 2 && runtime->channels <= 10,
 			return -EINVAL);
 
 	set__AUD_PCMOUT_FMT__NUM_CH(pcm_player, runtime->channels / 2);
@@ -597,7 +597,7 @@ static inline int snd_stm_pcm_player_start(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_start(substream=0x%p)\n",
 			substream);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
 	/* Un-reset PCM player */
@@ -642,7 +642,7 @@ static inline int snd_stm_pcm_player_stop(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_stop(substream=0x%p)\n",
 			substream);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
 	/* Mute & shutdown DAC */
@@ -680,7 +680,7 @@ static inline int snd_stm_pcm_player_pause(struct snd_pcm_substream
 	snd_stm_printd(1, "snd_stm_pcm_player_pause(substream=0x%p)\n",
 			substream);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
 	/* "Mute" player
@@ -701,7 +701,7 @@ static inline int snd_stm_pcm_player_release(struct snd_pcm_substream
 	snd_stm_printd(1, "snd_stm_pcm_player_release(substream=0x%p)\n",
 			substream);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
 	/* "Unmute" player */
@@ -743,9 +743,9 @@ static snd_pcm_uframes_t snd_stm_pcm_player_pointer(struct snd_pcm_substream
 	snd_stm_printd(2, "snd_stm_pcm_player_pointer(substream=0x%p)\n",
 			substream);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
+	snd_stm_assert(runtime, return -EINVAL);
 
 	residue = get_dma_residue(pcm_player->fdma_channel);
 	pointer = bytes_to_frames(runtime, runtime->dma_bytes - residue);
@@ -787,7 +787,7 @@ static void snd_stm_pcm_player_dump_registers(struct snd_info_entry *entry,
 {
 	struct snd_stm_pcm_player *pcm_player = entry->private_data;
 
-	snd_assert(pcm_player, return);
+	snd_stm_assert(pcm_player, return);
 	snd_stm_magic_assert(pcm_player, return);
 
 	snd_iprintf(buffer, "--- %s ---\n", pcm_player->device->bus_id);
@@ -815,7 +815,7 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 	snd_stm_printd(1, "snd_stm_pcm_player_register(snd_device=0x%p)\n",
 			snd_device);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
 	snd_stm_printd(0, "--- Registering player '%s'...\n",
@@ -834,7 +834,7 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 
 	/* Get frequency synthesizer channel */
 
-	snd_assert(pcm_player->info->fsynth_bus_id != NULL, return -EINVAL);
+	snd_stm_assert(pcm_player->info->fsynth_bus_id != NULL, return -EINVAL);
 	snd_stm_printd(0, "Player connected to %s's output %d.\n",
 			pcm_player->info->fsynth_bus_id,
 			pcm_player->info->fsynth_output);
@@ -842,7 +842,7 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 	pcm_player->fsynth_channel = snd_stm_fsynth_get_channel(
 			pcm_player->info->fsynth_bus_id,
 			pcm_player->info->fsynth_output);
-	snd_assert(pcm_player->fsynth_channel != NULL, return -EINVAL);
+	snd_stm_assert(pcm_player->fsynth_channel != NULL, return -EINVAL);
 
 	/* Registers view in ALSA's procfs */
 
@@ -871,7 +871,7 @@ static int __exit snd_stm_pcm_player_disconnect(struct snd_device *snd_device)
 	snd_stm_printd(1, "snd_stm_pcm_player_disconnect(snd_device=0x%p)\n",
 			snd_device);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
 	snd_stm_info_unregister(pcm_player->proc_entry);
@@ -899,7 +899,7 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
 
-	snd_assert(card != NULL, return -EINVAL);
+	snd_stm_assert(card != NULL, return -EINVAL);
 
 	pcm_player = kzalloc(sizeof(*pcm_player), GFP_KERNEL);
 	if (!pcm_player) {
@@ -910,9 +910,9 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 	}
 	snd_stm_magic_set(pcm_player);
 	pcm_player->info = pdev->dev.platform_data;
-	snd_assert(pcm_player->info != NULL, return -EINVAL);
+	snd_stm_assert(pcm_player->info != NULL, return -EINVAL);
 	pcm_player->ver = pcm_player->info->ver;
-	snd_assert(pcm_player->ver > 0, return -EINVAL);
+	snd_stm_assert(pcm_player->ver > 0, return -EINVAL);
 	pcm_player->device = &pdev->dev;
 
 	/* Get resources */
@@ -957,9 +957,9 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "Player's name is '%s'\n", pcm_player->info->name);
 
-	snd_assert(pcm_player->info->channels > 0, return -EINVAL);
-	snd_assert(pcm_player->info->channels <= 10, return -EINVAL);
-	snd_assert(pcm_player->info->channels % 2 == 0, return -EINVAL);
+	snd_stm_assert(pcm_player->info->channels > 0, return -EINVAL);
+	snd_stm_assert(pcm_player->info->channels <= 10, return -EINVAL);
+	snd_stm_assert(pcm_player->info->channels % 2 == 0, return -EINVAL);
 	if (pcm_player->ver > ver__AUD_PCMOUT__90_1_1) {
 		static unsigned int channels_2_10[] = { 2, 4, 6, 8, 10 };
 
@@ -1058,7 +1058,7 @@ static int snd_stm_pcm_player_remove(struct platform_device *pdev)
 {
 	struct snd_stm_pcm_player *pcm_player = platform_get_drvdata(pdev);
 
-	snd_assert(pcm_player, return -EINVAL);
+	snd_stm_assert(pcm_player, return -EINVAL);
 	snd_stm_magic_assert(pcm_player, return -EINVAL);
 
 	snd_stm_conv_unregister_source(pcm_player->conv_source);

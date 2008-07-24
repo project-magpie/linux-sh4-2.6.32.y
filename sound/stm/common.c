@@ -49,8 +49,8 @@ static int snd_stm_card_registered;
 struct snd_card *snd_stm_card_new(int index, const char *id,
 		struct module *module)
 {
-	snd_assert(snd_stm_card == NULL, return NULL);
-	snd_assert(!snd_stm_card_registered, return NULL);
+	snd_stm_assert(snd_stm_card == NULL, return NULL);
+	snd_stm_assert(!snd_stm_card_registered, return NULL);
 
 	snd_stm_card = snd_card_new(index, id, module, 0);
 
@@ -62,8 +62,8 @@ int snd_stm_card_register(void)
 {
 	int result;
 
-	snd_assert(snd_stm_card != NULL, return -EINVAL);
-	snd_assert(!snd_stm_card_registered, return -EINVAL);
+	snd_stm_assert(snd_stm_card != NULL, return -EINVAL);
+	snd_stm_assert(!snd_stm_card_registered, return -EINVAL);
 
 	result = snd_card_register(snd_stm_card);
 
@@ -76,7 +76,7 @@ EXPORT_SYMBOL(snd_stm_card_register);
 
 int snd_stm_card_is_registered(void)
 {
-	snd_assert(snd_stm_card != NULL, return -EINVAL);
+	snd_stm_assert(snd_stm_card != NULL, return -EINVAL);
 
 	return snd_stm_card_registered;
 }
@@ -84,8 +84,8 @@ EXPORT_SYMBOL(snd_stm_card_is_registered);
 
 void snd_stm_card_free(void)
 {
-	snd_assert(snd_stm_card != NULL, return);
-	snd_assert(snd_stm_card_registered, return);
+	snd_stm_assert(snd_stm_card != NULL, return);
+	snd_stm_assert(snd_stm_card_registered, return);
 
 	snd_card_free(snd_stm_card);
 
@@ -96,7 +96,7 @@ EXPORT_SYMBOL(snd_stm_card_free);
 
 struct snd_card *snd_stm_card_get(void)
 {
-	snd_assert(snd_stm_card != NULL, return NULL);
+	snd_stm_assert(snd_stm_card != NULL, return NULL);
 
 	return snd_stm_card;
 }
@@ -339,7 +339,7 @@ struct snd_stm_buffer *snd_stm_buffer_create(struct snd_pcm *pcm,
 	snd_stm_printd(1, "snd_stm_buffer_init(pcm=%p, prealloc_size=%d)\n",
 			pcm, prealloc_size);
 
-	snd_assert(pcm, return NULL);
+	snd_stm_assert(pcm, return NULL);
 
 	buffer = kzalloc(sizeof(*buffer), GFP_KERNEL);
 	if (!buffer) {
@@ -382,9 +382,9 @@ void snd_stm_buffer_dispose(struct snd_stm_buffer *buffer)
 {
 	snd_stm_printd(1, "snd_stm_buffer_dispose(buffer=%p)\n", buffer);
 
-	snd_assert(buffer, return);
+	snd_stm_assert(buffer, return);
 	snd_stm_magic_assert(buffer, return);
-	snd_assert(!buffer->allocated, return);
+	snd_stm_assert(!buffer->allocated, return);
 
 	if (!buffer->bpa2_part)
 		snd_pcm_lib_preallocate_free_for_all(buffer->pcm);
@@ -398,7 +398,7 @@ inline int snd_stm_buffer_is_allocated(struct snd_stm_buffer *buffer)
 	snd_stm_printd(1, "snd_stm_buffer_is_allocated(buffer=%p)\n",
 			buffer);
 
-	snd_assert(buffer, return -EINVAL);
+	snd_stm_assert(buffer, return -EINVAL);
 	snd_stm_magic_assert(buffer, return -EINVAL);
 
 	return buffer->allocated;
@@ -410,10 +410,10 @@ int snd_stm_buffer_alloc(struct snd_stm_buffer *buffer,
 	snd_stm_printd(1, "snd_stm_buffer_alloc(buffer=%p, substream=%p, "
 			"size=%d)\n", buffer, substream, size);
 
-	snd_assert(buffer, return -EINVAL);
+	snd_stm_assert(buffer, return -EINVAL);
 	snd_stm_magic_assert(buffer, return -EINVAL);
-	snd_assert(!buffer->allocated, return -EINVAL);
-	snd_assert(size > 0, return -EINVAL);
+	snd_stm_assert(!buffer->allocated, return -EINVAL);
+	snd_stm_assert(size > 0, return -EINVAL);
 
 	if (buffer->bpa2_part) {
 #if defined(CONFIG_BPA2)
@@ -458,9 +458,9 @@ void snd_stm_buffer_free(struct snd_stm_buffer *buffer)
 
 	snd_stm_printd(1, "snd_stm_buffer_free(buffer=%p)\n", buffer);
 
-	snd_assert(buffer, return);
+	snd_stm_assert(buffer, return);
 	snd_stm_magic_assert(buffer, return);
-	snd_assert(buffer->allocated, return);
+	snd_stm_assert(buffer->allocated, return);
 
 	runtime = buffer->substream->runtime;
 
@@ -711,8 +711,8 @@ int snd_stm_iec958_cmp(const struct snd_aes_iec958 *a,
 {
 	int result;
 
-	snd_assert(a != NULL, return -EINVAL);
-	snd_assert(b != NULL, return -EINVAL);
+	snd_stm_assert(a != NULL, return -EINVAL);
+	snd_stm_assert(b != NULL, return -EINVAL);
 
 	result = memcmp(a->status, b->status, sizeof(a->status));
 	if (result == 0)

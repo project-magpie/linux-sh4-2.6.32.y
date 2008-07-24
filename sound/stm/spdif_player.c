@@ -128,7 +128,7 @@ static irqreturn_t snd_stm_spdif_player_irq_handler(int irq, void *dev_id)
 	snd_stm_printd(2, "snd_stm_spdif_player_irq_handler(irq=%d, "
 			"dev_id=0x%p)\n", irq, dev_id);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	/* Get interrupt status & clear them immediately */
@@ -149,7 +149,7 @@ static irqreturn_t snd_stm_spdif_player_irq_handler(int irq, void *dev_id)
 	if (likely(status &
 			mask__AUD_SPDIF_ITS__NSAMPLE__PENDING(spdif_player)))
 		do {
-			snd_assert(spdif_player->substream, break);
+			snd_stm_assert(spdif_player->substream, break);
 
 			snd_stm_printd(2, "Period elapsed ('%s')\n",
 					spdif_player->device->bus_id);
@@ -159,7 +159,7 @@ static irqreturn_t snd_stm_spdif_player_irq_handler(int irq, void *dev_id)
 		} while (0);
 
 	/* Some alien interrupt??? */
-	snd_assert(result == IRQ_HANDLED);
+	snd_stm_assert(result == IRQ_HANDLED);
 
 	return result;
 }
@@ -251,9 +251,9 @@ static int snd_stm_spdif_player_open(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_spdif_player_open(substream=0x%p)\n",
 			substream);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
+	snd_stm_assert(runtime, return -EINVAL);
 
 	snd_pcm_set_sync(substream);  /* TODO: ??? */
 
@@ -317,7 +317,7 @@ static int snd_stm_spdif_player_close(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_spdif_player_close(substream=0x%p)\n",
 			substream);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	if (spdif_player->conv_group) {
@@ -339,9 +339,9 @@ static int snd_stm_spdif_player_hw_free(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_spdif_player_hw_free(substream=0x%p)\n",
 			substream);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
+	snd_stm_assert(runtime, return -EINVAL);
 
 	/* This callback may be called more than once... */
 
@@ -382,9 +382,9 @@ static int snd_stm_spdif_player_hw_params(struct snd_pcm_substream *substream,
 	snd_stm_printd(1, "snd_stm_spdif_player_hw_params(substream=0x%p,"
 			" hw_params=0x%p)\n", substream, hw_params);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
+	snd_stm_assert(runtime, return -EINVAL);
 
 	/* This function may be called many times, so let's be prepared... */
 	if (snd_stm_buffer_is_allocated(spdif_player->buffer))
@@ -413,17 +413,17 @@ static int snd_stm_spdif_player_hw_params(struct snd_pcm_substream *substream,
 	snd_stm_printd(1, "FDMA request trigger limit and transfer size set "
 			"to %d.\n", transfer_size);
 
-	snd_assert(buffer_bytes % transfer_bytes == 0, return -EINVAL);
-	snd_assert(transfer_size <= spdif_player->fdma_max_transfer_size,
+	snd_stm_assert(buffer_bytes % transfer_bytes == 0, return -EINVAL);
+	snd_stm_assert(transfer_size <= spdif_player->fdma_max_transfer_size,
 			return -EINVAL);
 	fdma_req_config.count = transfer_size;
 
 	if (spdif_player->ver >= ver__AUD_SPDIF__65_3_1) {
 		/* FDMA request trigger control was introduced in
 		 * STx7111... */
-		snd_assert(transfer_size == 1 || transfer_size % 2 == 0,
+		snd_stm_assert(transfer_size == 1 || transfer_size % 2 == 0,
 				return -EINVAL);
-		snd_assert(transfer_size <=
+		snd_stm_assert(transfer_size <=
 				mask__AUD_SPDIF_CONFIG__DMA_REQ_TRIG_LMT(
 				spdif_player), return -EINVAL);
 		set__AUD_SPDIF_CONFIG__DMA_REQ_TRIG_LMT(spdif_player,
@@ -483,10 +483,10 @@ static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_spdif_player_prepare(substream=0x%p)\n",
 			substream);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
-	snd_assert(runtime->period_size * runtime->channels <
+	snd_stm_assert(runtime, return -EINVAL);
+	snd_stm_assert(runtime->period_size * runtime->channels <
 			MAX_SAMPLES_PER_PERIOD, return -EINVAL);
 
 	/* Configure SPDIF-PCM synchronisation */
@@ -499,7 +499,7 @@ static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
 		unsigned int format = snd_stm_conv_get_format(
 				spdif_player->conv_group);
 
-		snd_assert((format & SND_STM_FORMAT__MASK) ==
+		snd_stm_assert((format & SND_STM_FORMAT__MASK) ==
 				SND_STM_FORMAT__SPDIF, return -EINVAL);
 
 		oversampling = snd_stm_conv_get_oversampling(
@@ -514,11 +514,11 @@ static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
 			spdif_player->device->bus_id, runtime->rate,
 			oversampling);
 
-	snd_assert(oversampling > 0, return -EINVAL);
+	snd_stm_assert(oversampling > 0, return -EINVAL);
 
 	/* Allowed oversampling values (SPDIF subframe is 32 bits long,
 	 * so oversampling must be multiple of 128... */
-	snd_assert(oversampling % 128 == 0, return -EINVAL);
+	snd_stm_assert(oversampling % 128 == 0, return -EINVAL);
 
 	/* Set up frequency synthesizer */
 
@@ -616,7 +616,7 @@ static inline int snd_stm_spdif_player_start(struct snd_pcm_substream
 	snd_stm_printd(1, "snd_stm_spdif_player_start(substream=0x%p)\n",
 			substream);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	/* Un-reset SPDIF player */
@@ -665,7 +665,7 @@ static inline int snd_stm_spdif_player_stop(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_spdif_player_stop(substream=0x%p)\n",
 			substream);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	/* Mute & shutdown converter */
@@ -704,7 +704,7 @@ static inline int snd_stm_spdif_player_pause(struct snd_pcm_substream
 	snd_stm_printd(1, "snd_stm_spdif_player_pause(substream=0x%p)\n",
 			substream);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	/* "Mute" player
@@ -729,7 +729,7 @@ static inline int snd_stm_spdif_player_release(struct snd_pcm_substream
 	snd_stm_printd(1, "snd_stm_spdif_player_release(substream=0x%p)\n",
 			substream);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	/* "Unmute" player */
@@ -775,9 +775,9 @@ static snd_pcm_uframes_t snd_stm_spdif_player_pointer(struct snd_pcm_substream
 	snd_stm_printd(2, "snd_stm_spdif_player_pointer(substream=0x%p)\n",
 			substream);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
+	snd_stm_assert(runtime, return -EINVAL);
 
 	residue = get_dma_residue(spdif_player->fdma_channel);
 	pointer = bytes_to_frames(runtime, runtime->dma_bytes - residue);
@@ -807,7 +807,7 @@ static void snd_stm_spdif_player_format_frame(struct snd_stm_spdif_player
 {
 	unsigned char data;
 
-	snd_assert(spdif_player, return);
+	snd_stm_assert(spdif_player, return);
 	snd_stm_magic_assert(spdif_player, return);
 
 	/* Clean VUC bits */
@@ -856,10 +856,10 @@ static int snd_stm_spdif_player_copy(struct snd_pcm_substream *substream,
 			"channel=%d, pos=%lu, buf=0x%p, count=%lu)\n",
 			substream, channel, pos, src, count);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
-	snd_assert(channel == -1, return -EINVAL); /* Interleaved buffer */
+	snd_stm_assert(runtime, return -EINVAL);
+	snd_stm_assert(channel == -1, return -EINVAL); /* Interleaved buffer */
 
 	if (spdif_player->stream_settings.input_mode ==
 			SNDRV_STM_SPDIF_INPUT_MODE_NORMAL) {
@@ -941,10 +941,10 @@ static int snd_stm_spdif_player_silence(struct snd_pcm_substream *substream,
 			"channel=%d, pos=%lu, count=%lu)\n",
 			substream, channel, pos, count);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
-	snd_assert(runtime, return -EINVAL);
-	snd_assert(channel == -1, return -EINVAL); /* Interleaved buffer */
+	snd_stm_assert(runtime, return -EINVAL);
+	snd_stm_assert(channel == -1, return -EINVAL); /* Interleaved buffer */
 
 	if (spdif_player->stream_settings.input_mode ==
 			SNDRV_STM_SPDIF_INPUT_MODE_NORMAL) {
@@ -999,7 +999,7 @@ static int snd_stm_spdif_player_ctl_default_get(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_default_get("
 			"kcontrol=0x%p, ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	spin_lock(&spdif_player->default_settings_lock);
@@ -1018,7 +1018,7 @@ static int snd_stm_spdif_player_ctl_default_put(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_default_put("
 			"kcontrol=0x%p, ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	spin_lock(&spdif_player->default_settings_lock);
@@ -1045,7 +1045,7 @@ static int snd_stm_spdif_player_ctl_raw_get(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_raw_get(kcontrol=0x%p, "
 			"ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	spin_lock(&spdif_player->default_settings_lock);
@@ -1067,7 +1067,7 @@ static int snd_stm_spdif_player_ctl_raw_put(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_raw_put(kcontrol=0x%p, "
 			"ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	if (ucontrol->value.integer.value[0])
@@ -1095,7 +1095,7 @@ static int snd_stm_spdif_player_ctl_encoded_get(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_encoded_get(kcontrol=0x%p, "
 			" ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	spin_lock(&spdif_player->default_settings_lock);
@@ -1117,7 +1117,7 @@ static int snd_stm_spdif_player_ctl_encoded_put(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_encoded_put(kcontrol=0x%p,"
 			" ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	if (ucontrol->value.integer.value[0])
@@ -1154,7 +1154,7 @@ static int snd_stm_spdif_player_ctl_preamble_get(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_preamble_get(kcontrol=0x%p"
 			", ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	spin_lock(&spdif_player->default_settings_lock);
@@ -1175,7 +1175,7 @@ static int snd_stm_spdif_player_ctl_preamble_put(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_preamble_put(kcontrol=0x%p"
 			", ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	spin_lock(&spdif_player->default_settings_lock);
@@ -1208,7 +1208,7 @@ static int snd_stm_spdif_player_ctl_audio_repetition_get(struct snd_kcontrol
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_audio_repetition_get("
 			"kcontrol=0x%p, ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	spin_lock(&spdif_player->default_settings_lock);
@@ -1228,7 +1228,7 @@ static int snd_stm_spdif_player_ctl_audio_repetition_put(struct snd_kcontrol
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_audio_repetition_put("
 			"kcontrol=0x%p, ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	spin_lock(&spdif_player->default_settings_lock);
@@ -1251,7 +1251,7 @@ static int snd_stm_spdif_player_ctl_pause_repetition_get(struct snd_kcontrol
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_pause_repetition_get("
 			"kcontrol=0x%p, ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	spin_lock(&spdif_player->default_settings_lock);
@@ -1271,7 +1271,7 @@ static int snd_stm_spdif_player_ctl_pause_repetition_put(struct snd_kcontrol
 	snd_stm_printd(1, "snd_stm_spdif_player_ctl_pause_repetition_put("
 			"kcontrol=0x%p, ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	spin_lock(&spdif_player->default_settings_lock);
@@ -1358,7 +1358,7 @@ static void snd_stm_spdif_player_dump_registers(struct snd_info_entry *entry,
 {
 	struct snd_stm_spdif_player *spdif_player = entry->private_data;
 
-	snd_assert(spdif_player, return);
+	snd_stm_assert(spdif_player, return);
 	snd_stm_magic_assert(spdif_player, return);
 
 	snd_iprintf(buffer, "--- %s ---\n", spdif_player->device->bus_id);
@@ -1395,7 +1395,7 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 	snd_stm_printd(1, "snd_stm_spdif_player_register(snd_device=0x%p)\n",
 			snd_device);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	snd_stm_printd(0, "--- Registering player '%s'...\n",
@@ -1417,7 +1417,8 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 
 	/* Get frequency synthesizer channel */
 
-	snd_assert(spdif_player->info->fsynth_bus_id != NULL, return -EINVAL);
+	snd_stm_assert(spdif_player->info->fsynth_bus_id != NULL,
+			return -EINVAL);
 	snd_stm_printd(0, "Player connected to %s's output %d.\n",
 			spdif_player->info->fsynth_bus_id,
 			spdif_player->info->fsynth_output);
@@ -1425,7 +1426,7 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 	spdif_player->fsynth_channel = snd_stm_fsynth_get_channel(
 			spdif_player->info->fsynth_bus_id,
 			spdif_player->info->fsynth_output);
-	snd_assert(spdif_player->fsynth_channel != NULL, return -EINVAL);
+	snd_stm_assert(spdif_player->fsynth_channel != NULL, return -EINVAL);
 
 	/* Registers view in ALSA's procfs */
 
@@ -1468,7 +1469,7 @@ static int snd_stm_spdif_player_disconnect(struct snd_device *snd_device)
 	snd_stm_printd(1, "snd_stm_spdif_player_disconnect(snd_device=0x%p)\n",
 			snd_device);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	snd_stm_info_unregister(spdif_player->proc_entry);
@@ -1496,7 +1497,7 @@ static int snd_stm_spdif_player_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
 
-	snd_assert(card != NULL, return -EINVAL);
+	snd_stm_assert(card != NULL, return -EINVAL);
 
 	spdif_player = kzalloc(sizeof(*spdif_player), GFP_KERNEL);
 	if (!spdif_player) {
@@ -1507,9 +1508,9 @@ static int snd_stm_spdif_player_probe(struct platform_device *pdev)
 	}
 	snd_stm_magic_set(spdif_player);
 	spdif_player->info = pdev->dev.platform_data;
-	snd_assert(spdif_player->info != NULL, return -EINVAL);
+	snd_stm_assert(spdif_player->info != NULL, return -EINVAL);
 	spdif_player->ver = spdif_player->info->ver;
-	snd_assert(spdif_player->ver > 0, return -EINVAL);
+	snd_stm_assert(spdif_player->ver > 0, return -EINVAL);
 	spdif_player->device = &pdev->dev;
 
 	spin_lock_init(&spdif_player->default_settings_lock);
@@ -1635,7 +1636,7 @@ static int snd_stm_spdif_player_remove(struct platform_device *pdev)
 {
 	struct snd_stm_spdif_player *spdif_player = platform_get_drvdata(pdev);
 
-	snd_assert(spdif_player, return -EINVAL);
+	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
 	snd_stm_conv_unregister_source(spdif_player->conv_source);

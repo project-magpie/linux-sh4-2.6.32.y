@@ -74,7 +74,7 @@ static void snd_stm_conv_gpio_work(struct work_struct *work)
 
 	snd_stm_printd(1, "snd_stm_conv_gpio_work(work=%p)\n", work);
 
-	snd_assert(conv_gpio, return);
+	snd_stm_assert(conv_gpio, return);
 	snd_stm_magic_assert(conv_gpio, return);
 
 	spin_lock(&conv_gpio->work_lock);
@@ -101,7 +101,7 @@ static void snd_stm_conv_gpio_set_value(struct snd_stm_conv_gpio *conv_gpio,
 			"enable_not_mute=%d, value=%d)\n",
 			conv_gpio, enable_not_mute, value);
 
-	snd_assert(conv_gpio, return);
+	snd_stm_assert(conv_gpio, return);
 	snd_stm_magic_assert(conv_gpio, return);
 
 	if (conv_gpio->may_sleep) {
@@ -130,7 +130,7 @@ static unsigned int snd_stm_conv_gpio_get_format(void *priv)
 
 	snd_stm_printd(1, "snd_stm_conv_gpio_get_format(priv=%p)\n", priv);
 
-	snd_assert(conv_gpio, return -EINVAL);
+	snd_stm_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
 
 	return conv_gpio->info->format;
@@ -143,7 +143,7 @@ static int snd_stm_conv_gpio_get_oversampling(void *priv)
 	snd_stm_printd(1, "snd_stm_conv_gpio_get_oversampling(priv=%p)\n",
 			priv);
 
-	snd_assert(conv_gpio, return -EINVAL);
+	snd_stm_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
 
 	return conv_gpio->info->oversampling;
@@ -156,7 +156,7 @@ static int snd_stm_conv_gpio_set_enabled(int enabled, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_gpio_enable(enabled=%d, priv=%p)\n",
 			enabled, priv);
 
-	snd_assert(conv_gpio, return -EINVAL);
+	snd_stm_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
 
 	snd_stm_printd(1, "%sabling DAC %s's.\n", enabled ? "En" : "Dis",
@@ -176,9 +176,9 @@ static int snd_stm_conv_gpio_set_muted(int muted, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_gpio_set_muted(muted=%d, priv=%p)\n",
 			muted, priv);
 
-	snd_assert(conv_gpio, return -EINVAL);
+	snd_stm_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
-	snd_assert(conv_gpio->info->mute_supported, return -EINVAL);
+	snd_stm_assert(conv_gpio->info->mute_supported, return -EINVAL);
 
 	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
 			conv_gpio->bus_id);
@@ -214,7 +214,7 @@ static void snd_stm_conv_gpio_read_info(struct snd_info_entry *entry,
 {
 	struct snd_stm_conv_gpio *conv_gpio = entry->private_data;
 
-	snd_assert(conv_gpio, return);
+	snd_stm_assert(conv_gpio, return);
 	snd_stm_magic_assert(conv_gpio, return);
 
 	snd_iprintf(buffer, "--- %s ---\n", conv_gpio->bus_id);
@@ -243,7 +243,7 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
 
-	snd_assert(pdev->dev.platform_data != NULL, return -EINVAL);
+	snd_stm_assert(pdev->dev.platform_data != NULL, return -EINVAL);
 
 	conv_gpio = kzalloc(sizeof(*conv_gpio), GFP_KERNEL);
 	if (!conv_gpio) {
@@ -258,7 +258,7 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 
 	/* Get connections */
 
-	snd_assert(conv_gpio->info->source_bus_id != NULL,
+	snd_stm_assert(conv_gpio->info->source_bus_id != NULL,
 			return -EINVAL);
 	snd_stm_printd(0, "This DAC is attached to PCM player '%s'.\n",
 			conv_gpio->info->source_bus_id);
@@ -350,7 +350,7 @@ static int snd_stm_conv_gpio_remove(struct platform_device *pdev)
 {
 	struct snd_stm_conv_gpio *conv_gpio = platform_get_drvdata(pdev);
 
-	snd_assert(conv_gpio, return -EINVAL);
+	snd_stm_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
 
 	snd_device_free(snd_stm_card_get(), conv_gpio);

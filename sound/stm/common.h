@@ -344,12 +344,17 @@ extern int *snd_stm_debug_level;
 #endif
 
 #if defined(CONFIG_SND_VERBOSE_PRINTK)
+
 #define snd_stm_printd(level, format, args...) \
 		do { \
 			if (level <= verbosity) \
 				snd_printk(KERN_INFO format, ## args); \
 		} while (0)
+
+#define snd_stm_assert snd_assert
+
 #else
+
 #define snd_stm_printd(level, format, args...) \
 		do { \
 			if (level <= verbosity) \
@@ -357,11 +362,26 @@ extern int *snd_stm_debug_level;
 						__snd_stm_component, \
 						__LINE__, ## args); \
 		} while (0)
+
+#define snd_stm_assert(expr, args...) \
+		do { \
+			if (unlikely(!(expr))) { \
+				printk(KERN_ERR "snd-stm:%s:%d: BUG? " \
+						"(%s)\n", \
+						__snd_stm_component, \
+						__LINE__, \
+						__stringify(expr)); \
+				dump_stack(); \
+				args; \
+			} \
+		} while (0)
 #endif
 
 #else
 
 #define snd_stm_printd(...) /* nothing */
+
+#define snd_stm_assert snd_assert
 
 #endif
 
@@ -378,17 +398,20 @@ extern int *snd_stm_debug_level;
 
 /* Magic value checking in device structures */
 
-#if defined(SND_DEBUG) || defined(DEBUG)
+#if defined(CONFIG_SND_DEBUG) || defined(DEBUG)
 
-#define snd_stm_magic ((&__snd_stm_component & 0xffff0000) >> 16 ^ \
-		(&__snd_stm_component & 0xffff))
+#define snd_stm_magic \
+		(((unsigned)(&__snd_stm_component) & 0xffff0000) >> 16 ^ \
+		((unsigned)(&__snd_stm_component) & 0xffff))
 #define snd_stm_magic_good (0x600d0000 | snd_stm_magic)
 #define snd_stm_magic_bad (0xbaad0000 | snd_stm_magic)
 #define snd_stm_magic_field unsigned __snd_stm_magic
-#define snd_stm_magic_set(object) (object)->__magic = snd_stm_magic_good
-#define snd_stm_magic_clear(object) (object)->__magic = snd_stm_magic_bad
+#define snd_stm_magic_set(object) \
+		(object)->__snd_stm_magic = snd_stm_magic_good
+#define snd_stm_magic_clear(object) \
+		(object)->__snd_stm_magic = snd_stm_magic_bad
 #define snd_stm_magic_assert(object, args...) \
-		snd_assert((object)->__snd_stm_magic == \
+		snd_stm_assert((object)->__snd_stm_magic == \
 				snd_stm_magic_good, ## args)
 
 #else

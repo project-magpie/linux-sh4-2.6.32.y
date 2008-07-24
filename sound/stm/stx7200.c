@@ -565,7 +565,7 @@ static void snd_stm_stx7200_glue_dump_registers(struct snd_info_entry *entry,
 {
 	struct snd_stm_stx7200_glue *stx7200_glue = entry->private_data;
 
-	snd_assert(stx7200_glue, return);
+	snd_stm_assert(stx7200_glue, return);
 	snd_stm_magic_assert(stx7200_glue, return);
 
 	snd_iprintf(buffer, "--- snd_stx7200_glue ---\n");
@@ -585,7 +585,7 @@ static int __init snd_stm_stx7200_glue_register(struct snd_device *snd_device)
 {
 	struct snd_stm_stx7200_glue *stx7200_glue = snd_device->device_data;
 
-	snd_assert(stx7200_glue, return -EINVAL);
+	snd_stm_assert(stx7200_glue, return -EINVAL);
 	snd_stm_magic_assert(stx7200_glue, return -EINVAL);
 
 	/* Enable audio outputs */
@@ -614,7 +614,7 @@ static int __exit snd_stm_stx7200_glue_disconnect(struct snd_device *snd_device)
 {
 	struct snd_stm_stx7200_glue *stx7200_glue = snd_device->device_data;
 
-	snd_assert(stx7200_glue, return -EINVAL);
+	snd_stm_assert(stx7200_glue, return -EINVAL);
 	snd_stm_magic_assert(stx7200_glue, return -EINVAL);
 
 	/* Remove procfs entry */
@@ -698,7 +698,7 @@ static int __exit snd_stm_stx7200_glue_remove(struct platform_device *pdev)
 	struct snd_stm_stx7200_glue *stx7200_glue =
 			platform_get_drvdata(pdev);
 
-	snd_assert(stx7200_glue, return -EINVAL);
+	snd_stm_assert(stx7200_glue, return -EINVAL);
 	snd_stm_magic_assert(stx7200_glue, return -EINVAL);
 
 	snd_stm_memory_release(stx7200_glue->mem_region, stx7200_glue->base);
@@ -742,11 +742,11 @@ static int __init snd_stm_stx7200_init(void)
 	}
 
 	/* We assume farther that MEM resource is first, lets check it... */
-	snd_assert(spdif_player.resource[0].flags == IORESOURCE_MEM,
+	snd_stm_assert(spdif_player.resource[0].flags == IORESOURCE_MEM,
 			return -EINVAL);
-	snd_assert(hdmi_pcm_player.resource[0].flags == IORESOURCE_MEM,
+	snd_stm_assert(hdmi_pcm_player.resource[0].flags == IORESOURCE_MEM,
 			return -EINVAL);
-	snd_assert(hdmi_spdif_player.resource[0].flags == IORESOURCE_MEM,
+	snd_stm_assert(hdmi_spdif_player.resource[0].flags == IORESOURCE_MEM,
 			return -EINVAL);
 
 	switch (cpu_data->cut_major) {

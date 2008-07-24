@@ -30,6 +30,7 @@
 
 #define TMU0		(0)
 #define TMU1		(1)
+#define TMU2		(2)
 
 
 static inline void _tmu_start(int tmu_num)
@@ -57,7 +58,7 @@ static inline void _tmu_clear_status(int tmu_num)
 
 static inline unsigned long _tmu_read(int tmu_num)
 {
-        return ctrl_inl(TMU0_TCNT+0xC*tmu_num);
+	return ctrl_inl(TMU0_TCNT+0xC*tmu_num);
 }
 
 static int tmu_timer_start(void)
@@ -203,6 +204,14 @@ static void tmu_clk_recalc(struct clk *clk)
 
 	_tmu_start(TMU0);
 
+	_tmu_stop(TMU2);
+	if(tmus_are_scaled)
+		tmu_latest_interval[TMU2] >>= 1;
+	else 	tmu_latest_interval[TMU2] <<= 1;
+
+	tmu_timer_set_interval(TMU2, tmu_latest_interval[TMU2], 1);
+	_tmu_start(TMU2);
+
 	local_irq_restore(flags);
 }
 
@@ -221,15 +230,97 @@ static struct clk tmu1_clk = {
 	.ops		= &tmu_clk_ops,
 };
 
+static void (*tmu2_interrupt_fnt) (void *);
+static void *tmu2_interrupt_data;
+static irqreturn_t tmu2_timer_interrupt(int irq, void *dummy)
+{
+	_tmu_clear_status(TMU2);
+	if (tmu2_interrupt_fnt != NULL)
+		tmu2_interrupt_fnt(tmu2_interrupt_data);
+
+	return IRQ_HANDLED;
+}
+
+int tmu2_register_user(void *fnt, void *data)
+{
+	if (tmu2_interrupt_fnt != NULL)
+		return -1;
+
+	tmu2_interrupt_fnt = fnt;
+	tmu2_interrupt_data = data;
+
+	return 0;
+}
+
+void tmu2_unregister_user(void)
+{
+	tmu2_interrupt_fnt = NULL;
+	tmu2_interrupt_data = NULL;
+
+	return;
+}
+
+static struct irqaction tmu2_irq = {
+	.name		= "TMU2 periodic timer",
+	.handler	= tmu2_timer_interrupt,
+	.flags		= IRQF_DISABLED | IRQF_TIMER | IRQF_IRQPOLL,
+	.mask		= CPU_MASK_NONE,
+};
+
+static void tmu2_enable(struct clk *clk)
+{
+	_tmu_start(TMU2);
+	_tmu_set_irq(TMU2,1);
+
+	return;
+}
+
+static void tmu2_disable(struct clk *clk)
+{
+	_tmu_stop(TMU2);
+	_tmu_set_irq(TMU2,0);
+	_tmu_clear_status(TMU2);
+
+	return;
+}
+
+static int tmu2_set_rate(struct clk *clk, unsigned long freq, int algo_id)
+{
+	unsigned long interval;
+
+	if (freq == 0)
+		return -1;
+
+	interval = clk->rate / freq;
+	tmu_timer_set_interval(TMU2, interval, 1);
+
+	return interval;
+}
+
+static struct clk_ops tmu2_clk_ops = {
+	.init		= tmu_clk_init,
+	.enable		= tmu2_enable,
+	.disable	= tmu2_disable,
+	.recalc		= tmu_clk_recalc,
+	.set_rate	= tmu2_set_rate,
+};
+
+static struct clk tmu2_clk = {
+	.name		= "tmu2_clk",
+	.ops		= &tmu2_clk_ops,
+};
+
 static int tmu_timer_init(void)
 {
 	unsigned long interval;
 	unsigned long frequency;
 
 	setup_irq(CONFIG_SH_TIMER_IRQ, &tmu0_irq);
+	setup_irq(TMU2_IRQ, &tmu2_irq);
 
 	tmu0_clk.parent = clk_get(NULL, "module_clk");
 	tmu1_clk.parent = clk_get(NULL, "module_clk");
+	tmu2_clk.parent = clk_get(NULL, "module_clk");
 
 	tmu_timer_stop();
 
@@ -242,6 +333,7 @@ static int tmu_timer_init(void)
 
 	clk_register(&tmu0_clk);
 	clk_register(&tmu1_clk);
+	clk_register(&tmu2_clk);
 	clk_enable(&tmu0_clk);
 	clk_enable(&tmu1_clk);
 

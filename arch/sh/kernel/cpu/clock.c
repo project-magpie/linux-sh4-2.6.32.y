@@ -47,17 +47,6 @@ static void propagate_rate(struct clk *clk)
 
 int __clk_enable(struct clk *clk)
 {
-	/*
-	 * See if this is the first time we're enabling the clock, some
-	 * clocks that are always enabled still require "special"
-	 * initialization. This is especially true if the clock mode
-	 * changes and the clock needs to hunt for the proper set of
-	 * divisors to use before it can effectively recalc.
-	 */
-	if (unlikely(atomic_read(&clk->kref.refcount) == 1))
-		if (clk->ops && clk->ops->init)
-			clk->ops->init(clk);
-
 	kref_get(&clk->kref);
 
 	if (clk->flags & CLK_ALWAYS_ENABLED)
@@ -121,10 +110,11 @@ int clk_register(struct clk *clk)
 
 	mutex_unlock(&clock_list_sem);
 
+	if (clk->ops && clk->ops->init)
+		clk->ops->init(clk);
+
 	if (clk->flags & CLK_ALWAYS_ENABLED) {
 		pr_debug( "Clock '%s' is ALWAYS_ENABLED\n", clk->name);
-		if (clk->ops && clk->ops->init)
-			clk->ops->init(clk);
 		if (clk->ops && clk->ops->enable)
 			clk->ops->enable(clk);
 		pr_debug( "Enabled.");

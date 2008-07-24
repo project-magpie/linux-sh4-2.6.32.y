@@ -44,6 +44,7 @@
 #define TMU2_TCNT       (TMU_012_BASE + 0x24)
 #define TMU2_TCR	(TMU_012_BASE + 0x28)
 #define TMU2_TCPR	(TMU_012_BASE + 0x2c)
+#define TMU2_IRQ	18
 
 #define TMU3_TCOR	(TMU_345_BASE + 0x08)
 #define TMU3_TCNT	(TMU_345_BASE + 0x0c)

@@ -1026,7 +1026,7 @@ static struct intc_group groups[] = {
 static struct intc_prio priorities[] = {
 /* INTC */
 	INTC_PRIO(RTC,        4),
-	INTC_PRIO(TMU2,      15),
+	INTC_PRIO(TMU2,       4),
 	INTC_PRIO(TMU1,      15),
 	INTC_PRIO(TMU0,       1),
 	INTC_PRIO(WDT,       15),

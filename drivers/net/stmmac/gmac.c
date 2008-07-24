@@ -45,8 +45,8 @@ static void gmac_dump_regs(unsigned long ioaddr)
 		       offset, readl(ioaddr + offset));
 	}
 	printk("\tSTBus brigde: reg: 0x%x, 0x%08x\n",
-		(unsigned int)(ioaddr + STBUS_BRIDGE_OFFSET),
-		readl(ioaddr + STBUS_BRIDGE_OFFSET));
+	       (unsigned int)(ioaddr + STBUS_BRIDGE_OFFSET),
+	       readl(ioaddr + STBUS_BRIDGE_OFFSET));
 	return;
 }
 
@@ -62,9 +62,9 @@ static int gmac_dma_init(unsigned long ioaddr, int pbl, u32 dma_tx, u32 dma_rx)
 	}
 
 	/* Enable Application Access by writing to DMA CSR0 */
-	value = /* DMA_BUS_MODE_FB | */DMA_BUS_MODE_4PBL |
-		((pbl << DMA_BUS_MODE_PBL_SHIFT) |
-		(pbl << DMA_BUS_MODE_RPBL_SHIFT));
+	value = /* DMA_BUS_MODE_FB | */ DMA_BUS_MODE_4PBL |
+	    ((pbl << DMA_BUS_MODE_PBL_SHIFT) |
+	     (pbl << DMA_BUS_MODE_RPBL_SHIFT));
 
 #ifdef CONFIG_STMMAC_DA
 	value |= DMA_BUS_MODE_DA;	/* Rx has priority over tx */
@@ -206,21 +206,18 @@ static int gmac_get_tx_frame_status(void *data, struct stmmac_extra_stats *x,
 		ret = -1;
 	}
 
-		if (unlikely(p->des01.etx.payload_error)) {
-			DBG(KERN_ERR "%s: TX Addr/Payload csum error\n",
-			    __FUNCTION__);
-			x->tx_payload_error++;
-			gmac_flush_tx_fifo(ioaddr);
-			ret = -1;
-		}
+	if (unlikely(p->des01.etx.payload_error)) {
+		DBG(KERN_ERR "%s: TX Addr/Payload csum error\n", __FUNCTION__);
+		x->tx_payload_error++;
+		gmac_flush_tx_fifo(ioaddr);
+		ret = -1;
+	}
 
-		if (unlikely(p->des01.etx.ip_header_error)) {
-			DBG(KERN_ERR "%s: TX IP header csum error\n",
-		    __FUNCTION__);
-			x->tx_ip_header_error++;
-			ret = -1;
-		}
-
+	if (unlikely(p->des01.etx.ip_header_error)) {
+		DBG(KERN_ERR "%s: TX IP header csum error\n", __FUNCTION__);
+		x->tx_ip_header_error++;
+		ret = -1;
+	}
 
 	if (unlikely(p->des01.etx.deferred)) {
 		x->tx_deferred++;
@@ -299,24 +296,24 @@ static void gmac_irq_status(unsigned long ioaddr)
 {
 	unsigned int intr_status;
 
-        intr_status = (unsigned int)readl(ioaddr + GMAC_INT_STATUS);
+	intr_status = (unsigned int)readl(ioaddr + GMAC_INT_STATUS);
 
 	/* Do not handle all the events, e.g. MMC interrupts 
-         * (not used by default). Indeed, to "clear" these events 
+	 * (not used by default). Indeed, to "clear" these events
 	 * we should read the register that generated the interrupt.
 	 */
 	if ((intr_status & mmc_tx_irq)) {
 		DBG(KERN_DEBUG "GMAC: MMC tx interrupt: 0x%08x\n",
-			readl(ioaddr + GMAC_MMC_TX_INTR));
+		    readl(ioaddr + GMAC_MMC_TX_INTR));
 	}
 	if (unlikely(intr_status & mmc_rx_irq)) {
 		DBG(KERN_DEBUG "GMAC: MMC rx interrupt: 0x%08x\n",
-			readl(ioaddr + GMAC_MMC_RX_INTR));
+		    readl(ioaddr + GMAC_MMC_RX_INTR));
 	}
 	if (unlikely(intr_status & mmc_rx_csum_offload_irq))
 		DBG(KERN_DEBUG "GMAC: MMC rx csum offload: 0x%08x\n",
-			readl(ioaddr + GMAC_MMC_RX_CSUM_OFFLOAD));
-	if (unlikely(intr_status & pmt_irq)){
+		    readl(ioaddr + GMAC_MMC_RX_CSUM_OFFLOAD));
+	if (unlikely(intr_status & pmt_irq)) {
 		DBG(KERN_DEBUG "GMAC: received Magic frame\n");
 		/* clear the PMT bits 5 and 6 by reading the PMT
 		 * status register. */
@@ -393,8 +390,8 @@ static void gmac_set_filter(struct net_device *dev)
 		     mclist && i < dev->mc_count; i++, mclist = mclist->next) {
 			/* The upper 6 bits of the calculated CRC are used to index
 			   the contens of the hash table */
-			int bit_nr = 
-				bitrev32(~crc32_le(~0, mclist->dmi_addr, 6)) >> 26;
+			int bit_nr =
+			    bitrev32(~crc32_le(~0, mclist->dmi_addr, 6)) >> 26;
 			/* The most significant bit determines the register to use
 			   (H/L) while the other 5 bits determine the bit within
 			   the register. */

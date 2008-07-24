@@ -139,9 +139,9 @@ static void mac100_dump_dma_regs(unsigned long ioaddr)
 		       readl(ioaddr + DMA_BUS_MODE + i * 4));
 	}
 	DBG(KERN_DEBUG "\t CSR20 (offset 0x%x): 0x%08x\n",
-	       DMA_CUR_TX_BUF_ADDR, readl(ioaddr + DMA_CUR_TX_BUF_ADDR));
+	    DMA_CUR_TX_BUF_ADDR, readl(ioaddr + DMA_CUR_TX_BUF_ADDR));
 	DBG(KERN_DEBUG "\t CSR21 (offset 0x%x): 0x%08x\n",
-	       DMA_CUR_RX_BUF_ADDR, readl(ioaddr + DMA_CUR_RX_BUF_ADDR));
+	    DMA_CUR_RX_BUF_ADDR, readl(ioaddr + DMA_CUR_RX_BUF_ADDR));
 	return;
 }
 
@@ -221,7 +221,6 @@ static int mac100_get_tx_len(dma_desc * p)
 {
 	return (p->des01.tx.buffer1_size);
 }
-
 
 /* This function verifies if the incoming frame has some errors 
  * and, if required, updates the multicast statistics. */
@@ -339,9 +338,9 @@ static void mac100_set_filter(struct net_device *dev)
 	writel(value, ioaddr + MAC_CONTROL);
 
 	DBG(KERN_INFO "%s: CTRL reg: 0x%08x Hash regs: "
-	       "HI 0x%08x, LO 0x%08x\n",
-	       __FUNCTION__, readl(ioaddr + MAC_CONTROL),
-	       readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
+	    "HI 0x%08x, LO 0x%08x\n",
+	    __FUNCTION__, readl(ioaddr + MAC_CONTROL),
+	    readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
 	return;
 }
 
@@ -424,11 +423,29 @@ static void mac100_release_tx_desc(dma_desc * p)
 {
 	int ter = p->des01.tx.end_ring;
 
-	memset(p, 0, sizeof(dma_desc));
+/*	memset(p, 0, sizeof(dma_desc));*/
+	/* clean field used within the xmit */
+	p->des01.tx.first_segment = 0;
+	p->des01.tx.last_segment = 0;
+	p->des01.tx.buffer1_size = 0;
+
+	/* clean status reported */
+	p->des01.tx.error_summary = 0;
+	p->des01.tx.underflow_error = 0;
+	p->des01.tx.no_carrier = 0;
+	p->des01.tx.loss_carrier = 0;
+	p->des01.tx.excessive_deferral = 0;
+	p->des01.tx.excessive_collisions = 0;
+	p->des01.tx.late_collision = 0;
+	p->des01.tx.heartbeat_fail = 0;
+	p->des01.tx.deferred = 0;
+
+	/* set termination field */
 	p->des01.tx.end_ring = ter;
 
 	return;
 }
+
 static void mac100_prepare_tx_desc(dma_desc * p, int is_fs, int len,
 				   unsigned int csum_flags)
 {

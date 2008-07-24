@@ -234,7 +234,7 @@ static struct {
 	"tx_payload_error"}, {
 	"tx_ip_header_error"}, {
 	"rx_missed_cntr"}, {
-	"rx_overflow_cntr"},};
+"rx_overflow_cntr"},};
 
 static int stmmac_stats_count(struct net_device *dev)
 {
@@ -277,7 +277,7 @@ static void stmmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 
 	spin_lock_irq(&lp->lock);
 	if (lp->wolenabled == PMT_SUPPORTED) {
-		wol->supported = WAKE_MAGIC /*| WAKE_UCAST*/;
+		wol->supported = WAKE_MAGIC /*| WAKE_UCAST */ ;
 		wol->wolopts = lp->wolopts;
 	}
 	spin_unlock_irq(&lp->lock);

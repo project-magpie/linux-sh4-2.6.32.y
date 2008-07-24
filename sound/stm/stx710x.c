@@ -113,7 +113,7 @@ static struct platform_device conv_int_dac = {
 /* PCM players */
 
 struct snd_stm_pcm_player_info pcm_player_0_info = {
-	.name = "PCM player #0",
+	.name = "PCM player #0 (HDMI)",
 	/* .ver = see snd_stm_stx710x_init() */
 	.card_device = 0,
 	.fsynth_bus_id = "snd_fsynth",
@@ -175,7 +175,7 @@ static struct platform_device pcm_player_1 = {
 /* SPDIF player */
 
 struct snd_stm_spdif_player_info spdif_player_info = {
-	.name = "SPDIF player",
+	.name = "SPDIF player (HDMI)",
 	/* .ver = see snd_stm_stx710x_init() */
 	.card_device = 2,
 	.fsynth_bus_id = "snd_fsynth",

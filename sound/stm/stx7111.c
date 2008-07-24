@@ -127,7 +127,7 @@ static struct platform_device pcm_player_0 = {
 		},
 	},
 	.dev.platform_data = &(struct snd_stm_pcm_player_info) {
-		.name = "PCM player #0",
+		.name = "PCM player #0 (HDMI)",
 		.ver = 6,
 		.card_device = 0,
 		.fsynth_bus_id = "snd_fsynth",
@@ -187,7 +187,7 @@ static struct platform_device spdif_player = {
 		},
 	},
 	.dev.platform_data = &(struct snd_stm_spdif_player_info) {
-		.name = "SPDIF player",
+		.name = "SPDIF player (HDMI)",
 		.ver = 4,
 		.card_device = 2,
 		.fsynth_bus_id = "snd_fsynth",

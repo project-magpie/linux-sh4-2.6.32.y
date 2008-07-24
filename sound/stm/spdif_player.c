@@ -137,17 +137,17 @@ static irqreturn_t snd_stm_spdif_player_irq_handler(int irq, void *dev_id)
 	set__AUD_SPDIF_ITS_CLR(spdif_player, status);
 	preempt_enable();
 
-	/* Underflow? */
 	if (unlikely(status &
 			mask__AUD_SPDIF_ITS__UNF__PENDING(spdif_player))) {
 		snd_stm_printe("Underflow detected in SPDIF player '%s'!\n",
 				spdif_player->device->bus_id);
-		result = IRQ_HANDLED;
-	}
 
-	/* Period successfully played */
-	if (likely(status &
-			mask__AUD_SPDIF_ITS__NSAMPLE__PENDING(spdif_player)))
+		snd_pcm_stop(spdif_player->substream, SNDRV_PCM_STATE_XRUN);
+
+		result = IRQ_HANDLED;
+	} else if (likely(status &
+			mask__AUD_SPDIF_ITS__NSAMPLE__PENDING(spdif_player))) {
+		/* Period successfully played */
 		do {
 			snd_stm_assert(spdif_player->substream, break);
 
@@ -157,6 +157,7 @@ static irqreturn_t snd_stm_spdif_player_irq_handler(int irq, void *dev_id)
 
 			result = IRQ_HANDLED;
 		} while (0);
+	}
 
 	/* Some alien interrupt??? */
 	snd_stm_assert(result == IRQ_HANDLED);

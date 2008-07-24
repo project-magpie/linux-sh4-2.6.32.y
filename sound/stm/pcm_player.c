@@ -117,11 +117,13 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 	if (unlikely(status & mask__AUD_PCMOUT_ITS__UNF__PENDING(pcm_player))) {
 		snd_stm_printe("Underflow detected in PCM player '%s'!\n",
 				pcm_player->device->bus_id);
-		result = IRQ_HANDLED;
-	}
 
-	/* Period successfully played */
-	if (likely(status & mask__AUD_PCMOUT_ITS__NSAMPLE__PENDING(pcm_player)))
+		snd_pcm_stop(pcm_player->substream, SNDRV_PCM_STATE_XRUN);
+
+		result = IRQ_HANDLED;
+	} else if (likely(status &
+			mask__AUD_PCMOUT_ITS__NSAMPLE__PENDING(pcm_player))) {
+		/* Period successfully played */
 		do {
 			snd_stm_assert(pcm_player->substream, break);
 
@@ -131,6 +133,7 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 
 			result = IRQ_HANDLED;
 		} while (0);
+	}
 
 	/* Some alien interrupt??? */
 	snd_stm_assert(result == IRQ_HANDLED);

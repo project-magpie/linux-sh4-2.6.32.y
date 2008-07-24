@@ -111,8 +111,10 @@ static irqreturn_t snd_stm_pcm_reader_irq_handler(int irq, void *dev_id)
 	if (unlikely(status & mask__AUD_PCMIN_ITS__OVF__PENDING(pcm_reader))) {
 		snd_stm_printe("Overflow detected in PCM reader '%s'!\n",
 				pcm_reader->device->bus_id);
-		result = IRQ_HANDLED;
+
 		snd_pcm_stop(pcm_reader->substream, SNDRV_PCM_STATE_XRUN);
+
+		result = IRQ_HANDLED;
 	}
 
 	/* Some alien interrupt??? */

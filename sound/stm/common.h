@@ -43,19 +43,30 @@ int snd_stm_fsynth_set_frequency(struct snd_stm_fsynth_channel *fsynth_channel,
  * Converters (DAC, ADC, I2S-SPDIF etc.) control interface
  */
 
-struct snd_stm_conv *snd_stm_conv_get_attached(struct bus_type *source_bus,
-		const char *source_bus_id);
-int snd_stm_conv_add_route_ctl(struct bus_type *source_bus,
-		const char *source_bus_id, struct snd_card *card,
-		int card_device);
+struct snd_stm_conv_source;
+struct snd_stm_conv_group;
+struct snd_stm_conv_converter;
 
-unsigned int snd_stm_conv_get_format(struct snd_stm_conv *conv);
-int snd_stm_conv_get_oversampling(struct snd_stm_conv *conv);
+struct snd_stm_conv_source *snd_stm_conv_register_source(struct bus_type *bus,
+		const char *bus_id, int channels_num,
+		struct snd_card *card, int card_device);
+int snd_stm_conv_unregister_source(struct snd_stm_conv_source *source);
 
-int snd_stm_conv_enable(struct snd_stm_conv *conv);
-int snd_stm_conv_disable(struct snd_stm_conv *conv);
-int snd_stm_conv_mute(struct snd_stm_conv *conv);
-int snd_stm_conv_unmute(struct snd_stm_conv *conv);
+int snd_stm_conv_get_card_device(struct snd_stm_conv_converter *converter);
+
+struct snd_stm_conv_group *snd_stm_conv_request_group(
+		struct snd_stm_conv_source *source);
+int snd_stm_conv_release_group(struct snd_stm_conv_group *group);
+
+const char *snd_stm_conv_get_name(struct snd_stm_conv_group *group);
+unsigned int snd_stm_conv_get_format(struct snd_stm_conv_group *group);
+int snd_stm_conv_get_oversampling(struct snd_stm_conv_group *group);
+
+int snd_stm_conv_enable(struct snd_stm_conv_group *group,
+		int channel_from, int channel_to);
+int snd_stm_conv_disable(struct snd_stm_conv_group *group);
+int snd_stm_conv_mute(struct snd_stm_conv_group *group);
+int snd_stm_conv_unmute(struct snd_stm_conv_group *group);
 
 
 
@@ -76,11 +87,10 @@ struct snd_stm_fsynth_info {
  */
 
 struct snd_stm_conv_int_dac_info {
-	const char *name;
 	int ver;
 
-	int card_device;
 	const char *source_bus_id;
+	int channel_from, channel_to;
 };
 
 
@@ -89,11 +99,10 @@ struct snd_stm_conv_int_dac_info {
  */
 
 struct snd_stm_conv_i2sspdif_info {
-	const char *name;
 	int ver;
 
-	int card_device;
 	const char *source_bus_id;
+	int channel_from, channel_to;
 };
 
 
@@ -226,6 +235,7 @@ void snd_stm_remove_platform_devices(struct platform_device **devices,
 struct snd_card *snd_stm_card_new(int index, const char *id,
 		struct module *module);
 int snd_stm_card_register(void);
+int snd_stm_card_is_registered(void);
 void snd_stm_card_free(void);
 
 struct snd_card *snd_stm_card_get(void);

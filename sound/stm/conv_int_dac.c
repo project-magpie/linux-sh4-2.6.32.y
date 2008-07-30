@@ -51,22 +51,14 @@
  */
 
 struct snd_stm_conv_int_dac {
-	/* Generic converter interface */
-	struct snd_stm_conv conv;
-
 	/* System informations */
+	struct snd_stm_conv_converter *converter;
 	const char *bus_id;
 	int ver; /* IP version, used by register access macros */
 
 	/* Resources */
 	struct resource *mem_region;
 	void *base;
-
-	/* Runtime data */
-	int enabled;
-	int muted_by_source;
-	int muted_by_user;
-	spinlock_t status_lock; /* Protects enabled & muted_by_* */
 
 	struct snd_info_entry *proc_entry;
 
@@ -79,192 +71,71 @@ struct snd_stm_conv_int_dac {
  * Converter interface implementation
  */
 
-static unsigned int snd_stm_conv_int_dac_get_format(struct snd_stm_conv
-		*conv)
+static unsigned int snd_stm_conv_int_dac_get_format(void *priv)
 {
-	snd_stm_printd(1, "snd_stm_conv_int_dac_get_format(conv=%p)\n", conv);
+	snd_stm_printd(1, "snd_stm_conv_int_dac_get_format(priv=%p)\n", priv);
 
 	return FORMAT;
 }
 
-static int snd_stm_conv_int_dac_get_oversampling(struct snd_stm_conv *conv)
+static int snd_stm_conv_int_dac_get_oversampling(void *priv)
 {
-	snd_stm_printd(1, "snd_stm_conv_int_dac_get_oversampling(conv=%p)\n",
-			conv);
+	snd_stm_printd(1, "snd_stm_conv_int_dac_get_oversampling(priv=%p)\n",
+			priv);
 
 	return OVERSAMPLING;
 }
 
-static int snd_stm_conv_int_dac_enable(struct snd_stm_conv *conv)
+static int snd_stm_conv_int_dac_set_enabled(int enabled, void *priv)
 {
-	struct snd_stm_conv_int_dac *conv_int_dac = container_of(conv,
-			struct snd_stm_conv_int_dac, conv);
+	struct snd_stm_conv_int_dac *conv_int_dac = priv;
 
-	snd_stm_printd(1, "snd_stm_conv_int_dac_enable(conv=%p)\n", conv);
-
-	snd_assert(conv_int_dac, return -EINVAL);
-	snd_stm_magic_assert(conv_int_dac, return -EINVAL);
-	snd_assert(!conv_int_dac->enabled, return -EINVAL);
-
-	snd_stm_printd(1, "Enabling DAC %s's digital part. (still muted)\n",
-			conv_int_dac->bus_id);
-
-	spin_lock(&conv_int_dac->status_lock);
-
-	set__AUDCFG_ADAC_CTRL__NSB__NORMAL(conv_int_dac);
-	set__AUDCFG_ADAC_CTRL__NRST__NORMAL(conv_int_dac);
-
-	conv_int_dac->enabled = 1;
-
-	spin_unlock(&conv_int_dac->status_lock);
-
-	return 0;
-}
-
-static int snd_stm_conv_int_dac_disable(struct snd_stm_conv *conv)
-{
-	struct snd_stm_conv_int_dac *conv_int_dac = container_of(conv,
-			struct snd_stm_conv_int_dac, conv);
-
-	snd_stm_printd(1, "snd_stm_conv_int_dac_disable(conv=%p)\n", conv);
-
-	snd_assert(conv_int_dac, return -EINVAL);
-	snd_stm_magic_assert(conv_int_dac, return -EINVAL);
-	snd_assert(conv_int_dac->enabled, return -EINVAL);
-
-	snd_stm_printd(1, "Disabling DAC %s's digital part.\n",
-			conv_int_dac->bus_id);
-
-	spin_lock(&conv_int_dac->status_lock);
-
-	set__AUDCFG_ADAC_CTRL__NRST__RESET(conv_int_dac);
-	set__AUDCFG_ADAC_CTRL__NSB__POWER_DOWN(conv_int_dac);
-
-	conv_int_dac->enabled = 0;
-
-	spin_unlock(&conv_int_dac->status_lock);
-
-	return 0;
-}
-
-static int snd_stm_conv_int_dac_mute(struct snd_stm_conv *conv)
-{
-	struct snd_stm_conv_int_dac *conv_int_dac = container_of(conv,
-			struct snd_stm_conv_int_dac, conv);
-
-	snd_stm_printd(1, "snd_stm_conv_int_dac_mute(conv=%p)\n", conv);
-
-	snd_assert(conv_int_dac, return -EINVAL);
-	snd_stm_magic_assert(conv_int_dac, return -EINVAL);
-	snd_assert(conv_int_dac->enabled, return -EINVAL);
-
-	snd_stm_printd(1, "Muting DAC %s.\n", conv_int_dac->bus_id);
-
-	spin_lock(&conv_int_dac->status_lock);
-
-	conv_int_dac->muted_by_source = 1;
-	if (!conv_int_dac->muted_by_user)
-		set__AUDCFG_ADAC_CTRL__SOFTMUTE__MUTE(conv_int_dac);
-
-	spin_unlock(&conv_int_dac->status_lock);
-
-	return 0;
-}
-
-static int snd_stm_conv_int_dac_unmute(struct snd_stm_conv *conv)
-{
-	struct snd_stm_conv_int_dac *conv_int_dac = container_of(conv,
-			struct snd_stm_conv_int_dac, conv);
-
-	snd_stm_printd(1, "snd_stm_conv_int_dac_unmute(conv=%p)\n", conv);
-
-	snd_assert(conv_int_dac, return -EINVAL);
-	snd_stm_magic_assert(conv_int_dac, return -EINVAL);
-	snd_assert(conv_int_dac->enabled, return -EINVAL);
-
-	snd_stm_printd(1, "Unmuting DAC %s.\n", conv_int_dac->bus_id);
-
-	spin_lock(&conv_int_dac->status_lock);
-
-	conv_int_dac->muted_by_source = 0;
-	if (!conv_int_dac->muted_by_user)
-		set__AUDCFG_ADAC_CTRL__SOFTMUTE__NORMAL(conv_int_dac);
-
-	spin_unlock(&conv_int_dac->status_lock);
-
-	return 0;
-}
-
-
-
-/*
- * ALSA controls
- */
-
-static int snd_stm_conv_int_dac_ctl_mute_get(struct snd_kcontrol *kcontrol,
-		struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_stm_conv_int_dac *conv_int_dac =
-			snd_kcontrol_chip(kcontrol);
-
-	snd_stm_printd(1, "snd_stm_conv_int_dac_ctl_mute_get(kcontrol=0x%p,"
-			" ucontrol=0x%p)\n", kcontrol, ucontrol);
+	snd_stm_printd(1, "snd_stm_conv_int_dac_set_enabled(enabled=%d, "
+			"priv=%p)\n", enabled, priv);
 
 	snd_assert(conv_int_dac, return -EINVAL);
 	snd_stm_magic_assert(conv_int_dac, return -EINVAL);
 
-	spin_lock(&conv_int_dac->status_lock);
+	snd_stm_printd(1, "%sabling DAC %s's digital part.\n",
+			enabled ? "En" : "Dis", conv_int_dac->bus_id);
 
-	ucontrol->value.integer.value[0] = !conv_int_dac->muted_by_user;
-
-	spin_unlock(&conv_int_dac->status_lock);
-
-	return 0;
-}
-
-static int snd_stm_conv_int_dac_ctl_mute_put(struct snd_kcontrol *kcontrol,
-		struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_stm_conv_int_dac *conv_int_dac =
-			snd_kcontrol_chip(kcontrol);
-	int changed = 0;
-
-	snd_stm_printd(1, "snd_stm_conv_int_dac_ctl_mute_put(kcontrol=0x%p,"
-			" ucontrol=0x%p)\n", kcontrol, ucontrol);
-
-	snd_assert(conv_int_dac, return -EINVAL);
-	snd_stm_magic_assert(conv_int_dac, return -EINVAL);
-
-	spin_lock(&conv_int_dac->status_lock);
-
-	if (ucontrol->value.integer.value[0] !=
-			!conv_int_dac->muted_by_user) {
-		changed = 1;
-
-		conv_int_dac->muted_by_user =
-				!ucontrol->value.integer.value[0];
-
-		if (conv_int_dac->enabled &&
-				conv_int_dac->muted_by_user &&
-				!conv_int_dac->muted_by_source)
-			set__AUDCFG_ADAC_CTRL__SOFTMUTE__MUTE(conv_int_dac);
-		else if (conv_int_dac->enabled &&
-				!conv_int_dac->muted_by_user &&
-				!conv_int_dac->muted_by_source)
-			set__AUDCFG_ADAC_CTRL__SOFTMUTE__NORMAL(conv_int_dac);
+	if (enabled) {
+		set__AUDCFG_ADAC_CTRL__NSB__NORMAL(conv_int_dac);
+		set__AUDCFG_ADAC_CTRL__NRST__NORMAL(conv_int_dac);
+	} else {
+		set__AUDCFG_ADAC_CTRL__NRST__RESET(conv_int_dac);
+		set__AUDCFG_ADAC_CTRL__NSB__POWER_DOWN(conv_int_dac);
 	}
 
-	spin_unlock(&conv_int_dac->status_lock);
-
-	return changed;
+	return 0;
 }
 
-static struct snd_kcontrol_new snd_stm_conv_int_dac_ctl_mute = {
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.name = "Master Playback Switch",
-	.info = snd_stm_ctl_boolean_info,
-	.get = snd_stm_conv_int_dac_ctl_mute_get,
-	.put = snd_stm_conv_int_dac_ctl_mute_put,
+static int snd_stm_conv_int_dac_set_muted(int muted, void *priv)
+{
+	struct snd_stm_conv_int_dac *conv_int_dac = priv;
+
+	snd_stm_printd(1, "snd_stm_conv_int_dac_set_muted(muted=%d, priv=%p)\n",
+		       muted, priv);
+
+	snd_assert(conv_int_dac, return -EINVAL);
+	snd_stm_magic_assert(conv_int_dac, return -EINVAL);
+
+	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
+			conv_int_dac->bus_id);
+
+	if (muted)
+		set__AUDCFG_ADAC_CTRL__SOFTMUTE__MUTE(conv_int_dac);
+	else
+		set__AUDCFG_ADAC_CTRL__SOFTMUTE__NORMAL(conv_int_dac);
+
+	return 0;
+}
+
+static struct snd_stm_conv_ops snd_stm_conv_int_dac_ops = {
+	.get_format = snd_stm_conv_int_dac_get_format,
+	.get_oversampling = snd_stm_conv_int_dac_get_oversampling,
+	.set_enabled = snd_stm_conv_int_dac_set_enabled,
+	.set_muted = snd_stm_conv_int_dac_set_muted,
 };
 
 
@@ -298,12 +169,9 @@ static int snd_stm_conv_int_dac_register(struct snd_device *snd_device)
 
 	snd_assert(conv_int_dac, return -EINVAL);
 	snd_stm_magic_assert(conv_int_dac, return -EINVAL);
-	snd_assert(!conv_int_dac->enabled, return -EINVAL);
 
 	/* Initialize DAC with digital part down, analog up and muted */
 
-	conv_int_dac->enabled = 0;
-	conv_int_dac->muted_by_source = 1;
 	set__AUDCFG_ADAC_CTRL(conv_int_dac,
 			mask__AUDCFG_ADAC_CTRL__NRST__RESET(conv_int_dac) |
 			mask__AUDCFG_ADAC_CTRL__MODE__DEFAULT(conv_int_dac) |
@@ -329,7 +197,6 @@ static int __exit snd_stm_conv_int_dac_disconnect(struct snd_device *snd_device)
 
 	snd_assert(conv_int_dac, return -EINVAL);
 	snd_stm_magic_assert(conv_int_dac, return -EINVAL);
-	snd_assert(!conv_int_dac->enabled, return -EINVAL);
 
 	/* Remove procfs entry */
 
@@ -366,7 +233,6 @@ static int snd_stm_conv_int_dac_probe(struct platform_device *pdev)
 			pdev->dev.platform_data;
 	struct snd_stm_conv_int_dac *conv_int_dac;
 	struct snd_card *card = snd_stm_card_get();
-	int index;
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
 
@@ -384,19 +250,6 @@ static int snd_stm_conv_int_dac_probe(struct platform_device *pdev)
 	conv_int_dac->ver = conv_int_dac_info->ver;
 	snd_assert(conv_int_dac->ver > 0, return -EINVAL);
 	conv_int_dac->bus_id = pdev->dev.bus_id;
-	spin_lock_init(&conv_int_dac->status_lock);
-
-	/* Converter interface initialization */
-
-	conv_int_dac->conv.name = conv_int_dac_info->name;
-	conv_int_dac->conv.get_format =
-			snd_stm_conv_int_dac_get_format;
-	conv_int_dac->conv.get_oversampling =
-			snd_stm_conv_int_dac_get_oversampling;
-	conv_int_dac->conv.enable = snd_stm_conv_int_dac_enable;
-	conv_int_dac->conv.disable = snd_stm_conv_int_dac_disable;
-	conv_int_dac->conv.mute = snd_stm_conv_int_dac_mute;
-	conv_int_dac->conv.unmute = snd_stm_conv_int_dac_unmute;
 
 	/* Get resources */
 
@@ -413,11 +266,14 @@ static int snd_stm_conv_int_dac_probe(struct platform_device *pdev)
 			return -EINVAL);
 	snd_stm_printd(0, "This DAC is attached to PCM player '%s'.\n",
 			conv_int_dac_info->source_bus_id);
-	index = snd_stm_conv_attach(&conv_int_dac->conv, &platform_bus_type,
-			conv_int_dac_info->source_bus_id);
-	if (index < 0) {
+	conv_int_dac->converter = snd_stm_conv_register_converter(
+			"Analog Output",
+			&snd_stm_conv_int_dac_ops, conv_int_dac,
+			&platform_bus_type, conv_int_dac_info->source_bus_id,
+			conv_int_dac_info->channel_from,
+			conv_int_dac_info->channel_to, NULL);
+	if (!conv_int_dac->converter) {
 		snd_stm_printe("Can't attach to PCM player!\n");
-		result = index;
 		goto error_attach;
 	}
 
@@ -430,28 +286,14 @@ static int snd_stm_conv_int_dac_probe(struct platform_device *pdev)
 		goto error_device;
 	}
 
-	/* Create ALSA control */
-
-	snd_stm_conv_int_dac_ctl_mute.device =
-			conv_int_dac_info->card_device;
-	snd_stm_conv_int_dac_ctl_mute.index = index;
-	result = snd_ctl_add(card,
-			snd_ctl_new1(&snd_stm_conv_int_dac_ctl_mute,
-			conv_int_dac));
-	if (result < 0) {
-		snd_stm_printe("Failed to add all ALSA control!\n");
-		goto error_control;
-	}
-
 	/* Done now */
 
-	platform_set_drvdata(pdev, &conv_int_dac->conv);
+	platform_set_drvdata(pdev, conv_int_dac);
 
 	snd_stm_printd(0, "--- Probed successfully!\n");
 
 	return 0;
 
-error_control:
 error_device:
 error_attach:
 	snd_stm_memory_release(conv_int_dac->mem_region,
@@ -465,13 +307,12 @@ error_alloc:
 
 static int snd_stm_conv_int_dac_remove(struct platform_device *pdev)
 {
-	struct snd_stm_conv_int_dac *conv_int_dac =
-			container_of(platform_get_drvdata(pdev),
-			struct snd_stm_conv_int_dac, conv);
+	struct snd_stm_conv_int_dac *conv_int_dac = platform_get_drvdata(pdev);
 
 	snd_assert(conv_int_dac, return -EINVAL);
 	snd_stm_magic_assert(conv_int_dac, return -EINVAL);
 
+	snd_stm_conv_unregister_converter(conv_int_dac->converter);
 	snd_stm_memory_release(conv_int_dac->mem_region,
 			conv_int_dac->base);
 

@@ -30,15 +30,12 @@
 #include "common.h"
 
 
-
 /*
  * Dummy converter instance structure
  */
 
 struct snd_stm_conv_dummy {
-	/* Generic converter interface */
-	struct snd_stm_conv conv;
-
+	struct snd_stm_conv_converter *converter;
 	struct snd_stm_conv_dummy_info *info;
 
 	snd_stm_magic_field;
@@ -50,13 +47,11 @@ struct snd_stm_conv_dummy {
  * Converter interface implementation
  */
 
-static unsigned int snd_stm_conv_dummy_get_format(struct snd_stm_conv
-		*conv)
+static unsigned int snd_stm_conv_dummy_get_format(void *priv)
 {
-	struct snd_stm_conv_dummy *conv_dummy = container_of(conv,
-			struct snd_stm_conv_dummy, conv);
+	struct snd_stm_conv_dummy *conv_dummy = priv;
 
-	snd_stm_printd(1, "snd_stm_conv_dummy_get_format(conv=%p)\n", conv);
+	snd_stm_printd(1, "snd_stm_conv_dummy_get_format(priv=%p)\n", priv);
 
 	snd_assert(conv_dummy, return -EINVAL);
 	snd_stm_magic_assert(conv_dummy, return -EINVAL);
@@ -64,13 +59,12 @@ static unsigned int snd_stm_conv_dummy_get_format(struct snd_stm_conv
 	return conv_dummy->info->format;
 }
 
-static int snd_stm_conv_dummy_get_oversampling(struct snd_stm_conv *conv)
+static int snd_stm_conv_dummy_get_oversampling(void *priv)
 {
-	struct snd_stm_conv_dummy *conv_dummy = container_of(conv,
-			struct snd_stm_conv_dummy, conv);
+	struct snd_stm_conv_dummy *conv_dummy = priv;
 
-	snd_stm_printd(1, "snd_stm_conv_dummy_get_oversampling(conv=%p)\n",
-			conv);
+	snd_stm_printd(1, "snd_stm_conv_dummy_get_oversampling(priv=%p)\n",
+			priv);
 
 	snd_assert(conv_dummy, return -EINVAL);
 	snd_stm_magic_assert(conv_dummy, return -EINVAL);
@@ -78,33 +72,10 @@ static int snd_stm_conv_dummy_get_oversampling(struct snd_stm_conv *conv)
 	return conv_dummy->info->oversampling;
 }
 
-static int snd_stm_conv_dummy_enable(struct snd_stm_conv *conv)
-{
-	snd_stm_printd(1, "snd_stm_conv_dummy_enable(conv=%p)\n", conv);
-
-	return 0;
-}
-
-static int snd_stm_conv_dummy_disable(struct snd_stm_conv *conv)
-{
-	snd_stm_printd(1, "snd_stm_conv_dummy_disable(conv=%p)\n", conv);
-
-	return 0;
-}
-
-static int snd_stm_conv_dummy_mute(struct snd_stm_conv *conv)
-{
-	snd_stm_printd(1, "snd_stm_conv_dummy_mute(conv=%p)\n", conv);
-
-	return 0;
-}
-
-static int snd_stm_conv_dummy_unmute(struct snd_stm_conv *conv)
-{
-	snd_stm_printd(1, "snd_stm_conv_dummy_unmute(conv=%p)\n", conv);
-
-	return 0;
-}
+static struct snd_stm_conv_ops snd_stm_conv_dummy_ops = {
+	.get_format = snd_stm_conv_dummy_get_format,
+	.get_oversampling = snd_stm_conv_dummy_get_oversampling,
+};
 
 
 
@@ -114,7 +85,6 @@ static int snd_stm_conv_dummy_unmute(struct snd_stm_conv *conv)
 
 static int snd_stm_conv_dummy_probe(struct platform_device *pdev)
 {
-	int result;
 	struct snd_stm_conv_dummy *conv_dummy;
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
@@ -130,19 +100,15 @@ static int snd_stm_conv_dummy_probe(struct platform_device *pdev)
 	snd_stm_magic_set(conv_dummy);
 	conv_dummy->info = pdev->dev.platform_data;
 
-	conv_dummy->conv.name = conv_dummy->info->name;
-	conv_dummy->conv.get_format = snd_stm_conv_dummy_get_format;
-	conv_dummy->conv.get_oversampling = snd_stm_conv_dummy_get_oversampling;
-	conv_dummy->conv.enable = snd_stm_conv_dummy_enable;
-	conv_dummy->conv.disable = snd_stm_conv_dummy_disable;
-	conv_dummy->conv.mute = snd_stm_conv_dummy_mute;
-	conv_dummy->conv.unmute = snd_stm_conv_dummy_unmute;
-
 	snd_stm_printd(0, "This dummy DAC is attached to PCM player '%s'.\n",
 			conv_dummy->info->source_bus_id);
-	result = snd_stm_conv_attach(&conv_dummy->conv, &platform_bus_type,
-			conv_dummy->info->source_bus_id);
-	if (result < 0) {
+	conv_dummy->converter = snd_stm_conv_register_converter(
+			conv_dummy->info->group,
+			&snd_stm_conv_dummy_ops, conv_dummy,
+			&platform_bus_type, conv_dummy->info->source_bus_id,
+			conv_dummy->info->channel_from,
+			conv_dummy->info->channel_to, NULL);
+	if (!conv_dummy->converter) {
 		snd_stm_printe("Can't attach to PCM player!\n");
 		return -EINVAL;
 	}
@@ -158,7 +124,15 @@ static int snd_stm_conv_dummy_probe(struct platform_device *pdev)
 
 static int snd_stm_conv_dummy_remove(struct platform_device *pdev)
 {
-	kfree(platform_get_drvdata(pdev));
+	struct snd_stm_conv_dummy *conv_dummy = platform_get_drvdata(pdev);
+
+	snd_assert(conv_dummy, return -EINVAL);
+	snd_stm_magic_assert(conv_dummy, return -EINVAL);
+
+	snd_stm_conv_unregister_converter(conv_dummy->converter);
+
+	snd_stm_magic_clear(conv_dummy);
+	kfree(conv_dummy);
 
 	return 0;
 }

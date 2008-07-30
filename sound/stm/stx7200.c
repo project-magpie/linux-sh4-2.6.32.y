@@ -127,10 +127,10 @@ static struct platform_device conv_int_dac_0 = {
 		},
 	},
 	.dev.platform_data = &(struct snd_stm_conv_int_dac_info) {
-		.name = "Internal audio DAC #0",
 		/* .ver = see snd_stm_stx7200_init() */
-		.card_device = 0,
 		.source_bus_id = "snd_pcm_player.0",
+		.channel_from = 0,
+		.channel_to = 1,
 	},
 };
 
@@ -146,10 +146,10 @@ static struct platform_device conv_int_dac_1 = {
 		},
 	},
 	.dev.platform_data = &(struct snd_stm_conv_int_dac_info) {
-		.name = "Internal audio DAC #1 (slave)",
 		/* .ver = see snd_stm_stx7200_init() */
-		.card_device = 1,
 		.source_bus_id = "snd_pcm_player.1",
+		.channel_from = 0,
+		.channel_to = 1,
 	},
 };
 
@@ -315,8 +315,6 @@ static struct platform_device hdmi_pcm_player = {
 			.flags = IORESOURCE_MEM,
 			/* .start = see snd_stm_stx7200_init() */
 			/* .end = see snd_stm_stx7200_init() */
-			.start = 0xfd112d00,
-			.end   = 0xfd112d27,
 		},
 		{
 			.flags = IORESOURCE_IRQ,
@@ -381,10 +379,10 @@ static struct platform_device hdmi_conv_i2sspdif_0 = {
 		}
 	},
 	.dev.platform_data = &(struct snd_stm_conv_i2sspdif_info) {
-		.name = "I2S to SPDIF converter #0",
 		.ver = 4,
-		.card_device = 4,
 		.source_bus_id = "snd_pcm_player.4",
+		.channel_from = 0,
+		.channel_to = 1,
 	},
 };
 
@@ -406,10 +404,10 @@ static struct platform_device hdmi_conv_i2sspdif_1 = {
 		}
 	},
 	.dev.platform_data = &(struct snd_stm_conv_i2sspdif_info) {
-		.name = "I2S to SPDIF converter #1",
 		.ver = 4,
-		.card_device = 4,
 		.source_bus_id = "snd_pcm_player.4",
+		.channel_from = 2,
+		.channel_to = 3,
 	},
 };
 
@@ -431,10 +429,10 @@ static struct platform_device hdmi_conv_i2sspdif_2 = {
 		}
 	},
 	.dev.platform_data = &(struct snd_stm_conv_i2sspdif_info) {
-		.name = "I2S to SPDIF converter #2",
 		.ver = 4,
-		.card_device = 4,
 		.source_bus_id = "snd_pcm_player.4",
+		.channel_from = 4,
+		.channel_to = 5,
 	},
 };
 
@@ -456,10 +454,10 @@ static struct platform_device hdmi_conv_i2sspdif_3 = {
 		}
 	},
 	.dev.platform_data = &(struct snd_stm_conv_i2sspdif_info) {
-		.name = "I2S to SPDIF converter #3",
 		.ver = 4,
-		.card_device = 4,
 		.source_bus_id = "snd_pcm_player.4",
+		.channel_from = 6,
+		.channel_to = 7,
 	},
 };
 
@@ -467,7 +465,7 @@ static struct platform_device hdmi_conv_i2sspdif_3 = {
 
 static struct platform_device pcm_reader_0 = {
 	.name          = "snd_pcm_reader",
-	/* .id = see snd_stm_stx7200_init() */
+	.id = 0,
 	.num_resources = 2,
 	.resource      = (struct resource []) {
 		{
@@ -776,7 +774,6 @@ static int __init snd_stm_stx7200_init(void)
 		hdmi_spdif_player.resource[0].end = 0xfd106c3f;
 
 		SET_VER(snd_stm_pcm_reader_info, pcm_reader_0, 3);
-		pcm_reader_0.id = -1; /* Only one reader */
 
 		break;
 
@@ -804,7 +801,6 @@ static int __init snd_stm_stx7200_init(void)
 		hdmi_spdif_player.resource[0].end = 0xfd112c43;
 
 		SET_VER(snd_stm_pcm_reader_info, pcm_reader_0, 5);
-		pcm_reader_0.id = 0;
 		SET_VER(snd_stm_pcm_reader_info, pcm_reader_1, 5);
 
 		break;

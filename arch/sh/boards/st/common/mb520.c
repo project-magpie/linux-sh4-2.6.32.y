@@ -75,10 +75,11 @@ static struct platform_device conv_external_dac = {
 	.name = "snd_conv_gpio",
 	.id = 0,
 	.dev.platform_data = &(struct snd_stm_conv_gpio_info) {
-		.name = "AK4388 DAC",
+		.group = "External DAC",
 
-		.card_device = 3,
 		.source_bus_id = "snd_pcm_player.3",
+		.channel_from = 0,
+		.channel_to = 1,
 		.format = SND_STM_FORMAT__I2S |
 				SND_STM_FORMAT__SUBFRAME_32_BITS,
 		.oversampling = 256,
@@ -97,10 +98,11 @@ static struct platform_device conv_spdif_to_i2s = {
 	.name = "snd_conv_gpio",
 	.id = 1,
 	.dev.platform_data = &(struct snd_stm_conv_gpio_info) {
-		.name = "CS8416 SPDIF to I2S converter",
+		.group = "SPDIF Input",
 
-		.card_device = 0,
-		.source_bus_id = "snd_pcm_reader",
+		.source_bus_id = "snd_pcm_reader.0",
+		.channel_from = 0,
+		.channel_to = 1,
 		.format = SND_STM_FORMAT__I2S |
 				SND_STM_FORMAT__SUBFRAME_32_BITS,
 

@@ -167,9 +167,10 @@ static struct platform_device mb411_snd_ext_dacs = {
 	.name = "snd_conv_dummy",
 	.id = -1,
 	.dev.platform_data = &(struct snd_stm_conv_dummy_info) {
-		.name = "AK4394*2/AK4356",
-		.card_device = 1,
+		.group = "External DACs",
 		.source_bus_id = "snd_pcm_player.1",
+		.channel_from = 0,
+		.channel_to = 9,
 		.format = SND_STM_FORMAT__LEFT_JUSTIFIED |
 				SND_STM_FORMAT__SUBFRAME_32_BITS,
 		.oversampling = 256,

@@ -43,18 +43,12 @@
  */
 
 struct snd_stm_conv_gpio {
-	/* Generic converter interface */
-	struct snd_stm_conv conv;
-
 	/* System informations */
 	const char *bus_id;
+	struct snd_stm_conv_converter *converter;
 	struct snd_stm_conv_gpio_info *info;
 
 	/* Runtime data */
-	int enabled;
-	int muted_by_source;
-	int muted_by_user;
-	spinlock_t status_lock; /* Protects enabled & muted_by_* */
 	int may_sleep;
 	struct work_struct work; /* Used if may_sleep */
 	int work_enable_value;
@@ -130,13 +124,11 @@ static void snd_stm_conv_gpio_set_value(struct snd_stm_conv_gpio *conv_gpio,
  * Converter interface implementation
  */
 
-static unsigned int snd_stm_conv_gpio_get_format(struct snd_stm_conv
-		*conv)
+static unsigned int snd_stm_conv_gpio_get_format(void *priv)
 {
-	struct snd_stm_conv_gpio *conv_gpio = container_of(conv,
-			struct snd_stm_conv_gpio, conv);
+	struct snd_stm_conv_gpio *conv_gpio = priv;
 
-	snd_stm_printd(1, "snd_stm_conv_gpio_get_format(conv=%p)\n", conv);
+	snd_stm_printd(1, "snd_stm_conv_gpio_get_format(priv=%p)\n", priv);
 
 	snd_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
@@ -144,13 +136,12 @@ static unsigned int snd_stm_conv_gpio_get_format(struct snd_stm_conv
 	return conv_gpio->info->format;
 }
 
-static int snd_stm_conv_gpio_get_oversampling(struct snd_stm_conv *conv)
+static int snd_stm_conv_gpio_get_oversampling(void *priv)
 {
-	struct snd_stm_conv_gpio *conv_gpio = container_of(conv,
-			struct snd_stm_conv_gpio, conv);
+	struct snd_stm_conv_gpio *conv_gpio = priv;
 
-	snd_stm_printd(1, "snd_stm_conv_gpio_get_oversampling(conv=%p)\n",
-			conv);
+	snd_stm_printd(1, "snd_stm_conv_gpio_get_oversampling(priv=%p)\n",
+			priv);
 
 	snd_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
@@ -158,188 +149,64 @@ static int snd_stm_conv_gpio_get_oversampling(struct snd_stm_conv *conv)
 	return conv_gpio->info->oversampling;
 }
 
-static int snd_stm_conv_gpio_enable(struct snd_stm_conv *conv)
+static int snd_stm_conv_gpio_set_enabled(int enabled, void *priv)
 {
-	struct snd_stm_conv_gpio *conv_gpio = container_of(conv,
-			struct snd_stm_conv_gpio, conv);
+	struct snd_stm_conv_gpio *conv_gpio = priv;
 
-	snd_stm_printd(1, "snd_stm_conv_gpio_enable(conv=%p)\n", conv);
+	snd_stm_printd(1, "snd_stm_conv_gpio_enable(enabled=%d, priv=%p)\n",
+			enabled, priv);
 
 	snd_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
-	snd_assert(!conv_gpio->enabled, return -EINVAL);
 
-	snd_stm_printd(1, "Enabling DAC %s's digital part. (still muted)\n",
+	snd_stm_printd(1, "%sabling DAC %s's.\n", enabled ? "En" : "Dis",
 			conv_gpio->bus_id);
 
-	spin_lock(&conv_gpio->status_lock);
-
 	snd_stm_conv_gpio_set_value(conv_gpio, 1,
-			conv_gpio->info->enable_value);
-	conv_gpio->enabled = 1;
-
-	spin_unlock(&conv_gpio->status_lock);
-
-	return 0;
-}
-
-static int snd_stm_conv_gpio_disable(struct snd_stm_conv *conv)
-{
-	struct snd_stm_conv_gpio *conv_gpio = container_of(conv,
-			struct snd_stm_conv_gpio, conv);
-
-	snd_stm_printd(1, "snd_stm_conv_gpio_disable(conv=%p)\n", conv);
-
-	snd_assert(conv_gpio, return -EINVAL);
-	snd_stm_magic_assert(conv_gpio, return -EINVAL);
-	snd_assert(conv_gpio->enabled, return -EINVAL);
-
-	snd_stm_printd(1, "Disabling DAC %s's digital part.\n",
-			conv_gpio->bus_id);
-
-	spin_lock(&conv_gpio->status_lock);
-
-	snd_stm_conv_gpio_set_value(conv_gpio, 1,
+			enabled ? conv_gpio->info->enable_value :
 			!conv_gpio->info->enable_value);
-	conv_gpio->enabled = 0;
-
-	spin_unlock(&conv_gpio->status_lock);
 
 	return 0;
 }
 
-static int snd_stm_conv_gpio_mute(struct snd_stm_conv *conv)
+static int snd_stm_conv_gpio_set_muted(int muted, void *priv)
 {
-	struct snd_stm_conv_gpio *conv_gpio = container_of(conv,
-			struct snd_stm_conv_gpio, conv);
+	struct snd_stm_conv_gpio *conv_gpio = priv;
 
-	snd_stm_printd(1, "snd_stm_conv_gpio_mute(conv=%p)\n", conv);
+	snd_stm_printd(1, "snd_stm_conv_gpio_set_muted(muted=%d, priv=%p)\n",
+			muted, priv);
 
 	snd_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
-	snd_assert(conv_gpio->enabled, return -EINVAL);
+	snd_assert(conv_gpio->info->mute_supported, return -EINVAL);
 
-	if (conv_gpio->info->mute_supported) {
-		snd_stm_printd(1, "Muting DAC %s.\n", conv_gpio->bus_id);
+	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
+			conv_gpio->bus_id);
 
-		spin_lock(&conv_gpio->status_lock);
-
-		conv_gpio->muted_by_source = 1;
-		if (!conv_gpio->muted_by_user)
-			snd_stm_conv_gpio_set_value(conv_gpio, 0,
-					conv_gpio->info->mute_value);
-
-		spin_unlock(&conv_gpio->status_lock);
-	}
+	snd_stm_conv_gpio_set_value(conv_gpio, 0,
+			muted ? conv_gpio->info->mute_value :
+			!conv_gpio->info->mute_value);
 
 	return 0;
 }
 
-static int snd_stm_conv_gpio_unmute(struct snd_stm_conv *conv)
-{
-	struct snd_stm_conv_gpio *conv_gpio = container_of(conv,
-			struct snd_stm_conv_gpio, conv);
+static struct snd_stm_conv_ops snd_stm_conv_gpio_ops_with_mute = {
+	.get_format = snd_stm_conv_gpio_get_format,
+	.get_oversampling = snd_stm_conv_gpio_get_oversampling,
+	.set_enabled = snd_stm_conv_gpio_set_enabled,
+	.set_muted = snd_stm_conv_gpio_set_muted,
+};
 
-	snd_stm_printd(1, "snd_stm_conv_gpio_unmute(conv=%p)\n", conv);
-
-	snd_assert(conv_gpio, return -EINVAL);
-	snd_stm_magic_assert(conv_gpio, return -EINVAL);
-	snd_assert(conv_gpio->enabled, return -EINVAL);
-
-	if (conv_gpio->info->mute_supported) {
-		snd_stm_printd(1, "Unmuting DAC %s.\n", conv_gpio->bus_id);
-
-		spin_lock(&conv_gpio->status_lock);
-
-		conv_gpio->muted_by_source = 0;
-		if (!conv_gpio->muted_by_user)
-			snd_stm_conv_gpio_set_value(conv_gpio, 0,
-					!conv_gpio->info->mute_value);
-
-		spin_unlock(&conv_gpio->status_lock);
-	}
-
-	return 0;
-}
-
-
-
-/*
- * ALSA controls
- */
-
-static int snd_stm_conv_gpio_ctl_mute_get(struct snd_kcontrol *kcontrol,
-		struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_stm_conv_gpio *conv_gpio =
-			snd_kcontrol_chip(kcontrol);
-
-	snd_stm_printd(1, "snd_stm_conv_gpio_ctl_mute_get(kcontrol=0x%p,"
-			" ucontrol=0x%p)\n", kcontrol, ucontrol);
-
-	snd_assert(conv_gpio, return -EINVAL);
-	snd_stm_magic_assert(conv_gpio, return -EINVAL);
-
-	spin_lock(&conv_gpio->status_lock);
-
-	ucontrol->value.integer.value[0] = !conv_gpio->muted_by_user;
-
-	spin_unlock(&conv_gpio->status_lock);
-
-	return 0;
-}
-
-static int snd_stm_conv_gpio_ctl_mute_put(struct snd_kcontrol *kcontrol,
-		struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_stm_conv_gpio *conv_gpio =
-			snd_kcontrol_chip(kcontrol);
-	int changed = 0;
-
-	snd_stm_printd(1, "snd_stm_conv_gpio_ctl_mute_put(kcontrol=0x%p,"
-			" ucontrol=0x%p)\n", kcontrol, ucontrol);
-
-	snd_assert(conv_gpio, return -EINVAL);
-	snd_stm_magic_assert(conv_gpio, return -EINVAL);
-
-	spin_lock(&conv_gpio->status_lock);
-
-	if (ucontrol->value.integer.value[0] !=
-			!conv_gpio->muted_by_user) {
-		changed = 1;
-
-		conv_gpio->muted_by_user =
-				!ucontrol->value.integer.value[0];
-
-		if (conv_gpio->enabled &&
-				conv_gpio->muted_by_user &&
-				!conv_gpio->muted_by_source)
-			snd_stm_conv_gpio_set_value(conv_gpio, 0,
-					conv_gpio->info->mute_value);
-		else if (conv_gpio->enabled &&
-				!conv_gpio->muted_by_user &&
-				!conv_gpio->muted_by_source)
-			snd_stm_conv_gpio_set_value(conv_gpio, 0,
-					!conv_gpio->info->mute_value);
-	}
-
-	spin_unlock(&conv_gpio->status_lock);
-
-	return changed;
-}
-
-static struct snd_kcontrol_new snd_stm_conv_gpio_ctl_mute = {
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.name = "Master Playback Switch",
-	.info = snd_stm_ctl_boolean_info,
-	.get = snd_stm_conv_gpio_ctl_mute_get,
-	.put = snd_stm_conv_gpio_ctl_mute_put,
+static struct snd_stm_conv_ops snd_stm_conv_gpio_ops_without_mute = {
+	.get_format = snd_stm_conv_gpio_get_format,
+	.get_oversampling = snd_stm_conv_gpio_get_oversampling,
+	.set_enabled = snd_stm_conv_gpio_set_enabled,
 };
 
 
 
 /*
- * ALSA lowlevel device implementation
+ * Procfs status callback
  */
 
 static void snd_stm_conv_gpio_read_info(struct snd_info_entry *entry,
@@ -363,64 +230,6 @@ static void snd_stm_conv_gpio_read_info(struct snd_info_entry *entry,
 	snd_iprintf(buffer, "\n");
 }
 
-static int snd_stm_conv_gpio_register(struct snd_device *snd_device)
-{
-	struct snd_stm_conv_gpio *conv_gpio =
-			snd_device->device_data;
-
-	snd_assert(conv_gpio, return -EINVAL);
-	snd_stm_magic_assert(conv_gpio, return -EINVAL);
-	snd_assert(!conv_gpio->enabled, return -EINVAL);
-
-	/* Initialize DAC disabled and mute */
-
-	conv_gpio->enabled = 0;
-	conv_gpio->muted_by_source = 1;
-	gpio_set_value(conv_gpio->info->enable_gpio,
-			!conv_gpio->info->enable_value);
-	if (conv_gpio->info->mute_supported)
-		gpio_set_value(conv_gpio->info->mute_gpio,
-				conv_gpio->info->mute_value);
-
-	/* Additional procfs info */
-
-	snd_stm_info_register(&conv_gpio->proc_entry,
-			conv_gpio->bus_id,
-			snd_stm_conv_gpio_read_info,
-			conv_gpio);
-
-	return 0;
-}
-
-static int snd_stm_conv_gpio_disconnect(struct snd_device *snd_device)
-{
-	struct snd_stm_conv_gpio *conv_gpio =
-			snd_device->device_data;
-
-	snd_assert(conv_gpio, return -EINVAL);
-	snd_stm_magic_assert(conv_gpio, return -EINVAL);
-	snd_assert(!conv_gpio->enabled, return -EINVAL);
-
-	/* Remove procfs entry */
-
-	snd_stm_info_unregister(conv_gpio->proc_entry);
-
-	/* Muting and disabling - just to be sure ;-) */
-
-	if (conv_gpio->info->mute_supported)
-		gpio_set_value(conv_gpio->info->mute_gpio,
-				conv_gpio->info->mute_value);
-	gpio_set_value(conv_gpio->info->enable_gpio,
-			!conv_gpio->info->enable_value);
-
-	return 0;
-}
-
-static struct snd_device_ops snd_stm_conv_gpio_snd_device_ops = {
-	.dev_register = snd_stm_conv_gpio_register,
-	.dev_disconnect = snd_stm_conv_gpio_disconnect,
-};
-
 
 
 /*
@@ -431,12 +240,9 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 {
 	int result = 0;
 	struct snd_stm_conv_gpio *conv_gpio;
-	struct snd_card *card = snd_stm_card_get();
-	int index;
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
 
-	snd_assert(card, return -EINVAL);
 	snd_assert(pdev->dev.platform_data != NULL, return -EINVAL);
 
 	conv_gpio = kzalloc(sizeof(*conv_gpio), GFP_KERNEL);
@@ -449,19 +255,6 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 	snd_stm_magic_set(conv_gpio);
 	conv_gpio->bus_id = pdev->dev.bus_id;
 	conv_gpio->info = pdev->dev.platform_data;
-	spin_lock_init(&conv_gpio->status_lock);
-
-	/* Converter interface initialization */
-
-	conv_gpio->conv.name = conv_gpio->info->name;
-	conv_gpio->conv.get_format =
-			snd_stm_conv_gpio_get_format;
-	conv_gpio->conv.get_oversampling =
-			snd_stm_conv_gpio_get_oversampling;
-	conv_gpio->conv.enable = snd_stm_conv_gpio_enable;
-	conv_gpio->conv.disable = snd_stm_conv_gpio_disable;
-	conv_gpio->conv.mute = snd_stm_conv_gpio_mute;
-	conv_gpio->conv.unmute = snd_stm_conv_gpio_unmute;
 
 	/* Get connections */
 
@@ -469,29 +262,32 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 			return -EINVAL);
 	snd_stm_printd(0, "This DAC is attached to PCM player '%s'.\n",
 			conv_gpio->info->source_bus_id);
-	index = snd_stm_conv_attach(&conv_gpio->conv, &platform_bus_type,
-			conv_gpio->info->source_bus_id);
-	if (index < 0) {
+	conv_gpio->converter = snd_stm_conv_register_converter(
+			conv_gpio->info->group,
+			(conv_gpio->info->mute_supported ?
+			&snd_stm_conv_gpio_ops_with_mute :
+			&snd_stm_conv_gpio_ops_without_mute), conv_gpio,
+			&platform_bus_type, conv_gpio->info->source_bus_id,
+			conv_gpio->info->channel_from,
+			conv_gpio->info->channel_to, NULL);
+	if (!conv_gpio->converter) {
 		snd_stm_printe("Can't attach to PCM player!\n");
-		result = index;
+		result = -EINVAL;
 		goto error_attach;
 	}
 
-	/* Create ALSA lowlevel device*/
-
-	result = snd_device_new(card, SNDRV_DEV_LOWLEVEL, conv_gpio,
-			&snd_stm_conv_gpio_snd_device_ops);
-	if (result < 0) {
-		snd_stm_printe("ALSA low level device creation failed!\n");
-		goto error_device;
-	}
-
-	/* Reserve GPIO lines */
+	/* Reserve & initialize GPIO lines (enabled & mute) */
 
 	result = gpio_request(conv_gpio->info->enable_gpio, conv_gpio->bus_id);
 	if (result != 0) {
 		snd_stm_printe("Can't reserve 'enable' GPIO line!\n");
 		goto error_gpio_request_enable;
+	}
+
+	if (gpio_direction_output(conv_gpio->info->enable_gpio,
+			!conv_gpio->info->enable_value) != 0) {
+		snd_stm_printe("Can't set 'enable' GPIO line as output!\n");
+		goto error_gpio_direction_output_enable;
 	}
 
 	if (conv_gpio->info->mute_supported) {
@@ -501,7 +297,17 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 			snd_stm_printe("Can't reserve 'mute' GPIO line!\n");
 			goto error_gpio_request_mute;
 		}
+
+		if (conv_gpio->info->mute_supported &&
+				gpio_direction_output(
+				conv_gpio->info->mute_gpio,
+				conv_gpio->info->mute_value) != 0) {
+			snd_stm_printe("Can't set 'mute' GPIO line as output!"
+					"\n");
+			goto error_gpio_direction_output_mute;
+		}
 	}
+
 	if (gpio_cansleep(conv_gpio->info->enable_gpio) ||
 			(conv_gpio->info->mute_supported &&
 			gpio_cansleep(conv_gpio->info->mute_gpio))) {
@@ -512,36 +318,27 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 		conv_gpio->work_mute_value = -1;
 	}
 
-	/* Create ALSA control */
+	/* Additional procfs info */
 
-	if (conv_gpio->info->mute_supported) {
-		snd_stm_conv_gpio_ctl_mute.device =
-			conv_gpio->info->card_device;
-		snd_stm_conv_gpio_ctl_mute.index = index;
-		result = snd_ctl_add(card,
-				snd_ctl_new1(&snd_stm_conv_gpio_ctl_mute,
-				conv_gpio));
-		if (result < 0) {
-			snd_stm_printe("Failed to add all ALSA control!\n");
-			goto error_control;
-		}
-	}
+	snd_stm_info_register(&conv_gpio->proc_entry,
+			conv_gpio->bus_id,
+			snd_stm_conv_gpio_read_info,
+			conv_gpio);
 
 	/* Done now */
 
-	platform_set_drvdata(pdev, &conv_gpio->conv);
+	platform_set_drvdata(pdev, conv_gpio);
 
 	snd_stm_printd(0, "--- Probed successfully!\n");
 
 	return 0;
 
-error_control:
-	if (conv_gpio->info->mute_supported)
-		gpio_free(conv_gpio->info->mute_gpio);
+error_gpio_direction_output_mute:
+	gpio_free(conv_gpio->info->mute_gpio);
 error_gpio_request_mute:
+error_gpio_direction_output_enable:
 	gpio_free(conv_gpio->info->enable_gpio);
 error_gpio_request_enable:
-error_device:
 error_attach:
 	snd_stm_magic_clear(conv_gpio);
 	kfree(conv_gpio);
@@ -551,15 +348,28 @@ error_alloc:
 
 static int snd_stm_conv_gpio_remove(struct platform_device *pdev)
 {
-	struct snd_stm_conv_gpio *conv_gpio =
-			container_of(platform_get_drvdata(pdev),
-			struct snd_stm_conv_gpio, conv);
+	struct snd_stm_conv_gpio *conv_gpio = platform_get_drvdata(pdev);
 
 	snd_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
 
-	if (conv_gpio->info->mute_supported)
+	snd_device_free(snd_stm_card_get(), conv_gpio);
+	snd_stm_conv_unregister_converter(conv_gpio->converter);
+
+	/* Remove procfs entry */
+
+	snd_stm_info_unregister(conv_gpio->proc_entry);
+
+	/* Muting and disabling - just to be sure ;-) */
+
+	if (conv_gpio->info->mute_supported) {
+		gpio_set_value(conv_gpio->info->mute_gpio,
+				conv_gpio->info->mute_value);
 		gpio_free(conv_gpio->info->mute_gpio);
+	}
+
+	gpio_set_value(conv_gpio->info->enable_gpio,
+			!conv_gpio->info->enable_value);
 	gpio_free(conv_gpio->info->enable_gpio);
 
 	snd_stm_magic_clear(conv_gpio);

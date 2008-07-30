@@ -190,9 +190,10 @@ static struct platform_device cb101_snd_input = {
 	.name = "snd_conv_dummy",
 	.id = -1,
 	.dev.platform_data = &(struct snd_stm_conv_dummy_info) {
-		.name = "AK4113/AK5381ET",
-		.card_device = 0,
-		.source_bus_id = "snd_pcm_reader",
+		.group = "SPDIF/Analog Input",
+		.source_bus_id = "snd_pcm_reader.0",
+		.channel_from = 0,
+		.channel_to = 1,
 		.format = SND_STM_FORMAT__LEFT_JUSTIFIED |
 				SND_STM_FORMAT__SUBFRAME_32_BITS,
 	},

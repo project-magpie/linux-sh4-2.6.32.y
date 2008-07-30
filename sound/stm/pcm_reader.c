@@ -68,10 +68,11 @@ struct snd_stm_pcm_reader {
 	int fdma_channel;
 
 	/* Environment settings */
-	struct snd_stm_conv *conv;
 	struct snd_pcm_hw_constraint_list channels_constraint;
+	struct snd_stm_conv_source *conv_source;
 
 	/* Runtime data */
+	struct snd_stm_conv_group *conv_group;
 	struct snd_stm_buffer *buffer;
 	struct snd_info_entry *proc_entry;
 	struct snd_pcm_substream *substream;
@@ -204,14 +205,14 @@ static int snd_stm_pcm_reader_open(struct snd_pcm_substream *substream)
 
 	snd_pcm_set_sync(substream);  /* TODO: ??? */
 
-	/* Get attached converter handle */
+	/* Get attached converters handle */
 
-	pcm_reader->conv = snd_stm_conv_get_attached(&platform_bus_type,
-			pcm_reader->device->bus_id);
-	if (pcm_reader->conv)
-		snd_stm_printd(1, "Converter '%s' attached to '%s'...\n",
-				pcm_reader->conv->name,
-				pcm_reader->device->bus_id);
+	pcm_reader->conv_group =
+			snd_stm_conv_request_group(pcm_reader->conv_source);
+	if (pcm_reader->conv_group)
+		snd_stm_printd(1, "'%s' is attached to '%s' converter(s)...\n",
+				pcm_reader->device->bus_id,
+				snd_stm_conv_get_name(pcm_reader->conv_group));
 	else
 		snd_stm_printd(1, "Warning! No converter attached to '%s'!\n",
 				pcm_reader->device->bus_id);
@@ -263,6 +264,11 @@ static int snd_stm_pcm_reader_close(struct snd_pcm_substream *substream)
 
 	snd_assert(pcm_reader, return -EINVAL);
 	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+
+	if (pcm_reader->conv_group) {
+		snd_stm_conv_release_group(pcm_reader->conv_group);
+		pcm_reader->conv_group = NULL;
+	}
 
 	pcm_reader->substream = NULL;
 
@@ -482,8 +488,8 @@ static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
 
 	/* Get format value from connected converter */
 
-	if (pcm_reader->conv)
-		format = snd_stm_conv_get_format(pcm_reader->conv);
+	if (pcm_reader->conv_group)
+		format = snd_stm_conv_get_format(pcm_reader->conv_group);
 	else
 		format = DEFAULT_FORMAT;
 
@@ -617,9 +623,10 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 
 	/* Wake up & unmute ADC */
 
-	if (pcm_reader->conv) {
-		snd_stm_conv_enable(pcm_reader->conv);
-		snd_stm_conv_unmute(pcm_reader->conv);
+	if (pcm_reader->conv_group) {
+		snd_stm_conv_enable(pcm_reader->conv_group,
+				0, substream->runtime->channels - 1);
+		snd_stm_conv_unmute(pcm_reader->conv_group);
 	}
 
 	return 0;
@@ -638,9 +645,9 @@ static inline int snd_stm_pcm_reader_stop(struct snd_pcm_substream *substream)
 
 	/* Mute & shutdown DAC */
 
-	if (pcm_reader->conv) {
-		snd_stm_conv_mute(pcm_reader->conv);
-		snd_stm_conv_disable(pcm_reader->conv);
+	if (pcm_reader->conv_group) {
+		snd_stm_conv_mute(pcm_reader->conv_group);
+		snd_stm_conv_disable(pcm_reader->conv_group);
 	}
 
 	/* Disable interrupts */
@@ -756,7 +763,6 @@ static void snd_stm_pcm_reader_dump_registers(struct snd_info_entry *entry,
 
 static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 {
-	int result;
 	struct snd_stm_pcm_reader *pcm_reader = snd_device->device_data;
 
 	snd_stm_printd(1, "snd_stm_pcm_reader_register(snd_device=0x%p)\n",
@@ -782,16 +788,6 @@ static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 	snd_stm_info_register(&pcm_reader->proc_entry,
 			pcm_reader->device->bus_id,
 			snd_stm_pcm_reader_dump_registers, pcm_reader);
-
-	/* Create ALSA controls */
-
-	result = snd_stm_conv_add_route_ctl(&platform_bus_type,
-			pcm_reader->device->bus_id, snd_device->card,
-			pcm_reader->info->card_device);
-	if (result < 0) {
-		snd_stm_printe("Failed to add converter route control!\n");
-		return result;
-	}
 
 	snd_stm_printd(0, "--- Registered successfully!\n");
 
@@ -946,6 +942,18 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 		goto error_buffer_create;
 	}
 
+	/* Register in converters router */
+
+	pcm_reader->conv_source = snd_stm_conv_register_source(
+			&platform_bus_type, pdev->dev.bus_id,
+			pcm_reader->info->channels,
+			card, pcm_reader->info->card_device);
+	if (!pcm_reader->conv_source) {
+		snd_stm_printe("Cannot register in converters router!\n");
+		result = -ENOMEM;
+		goto error_conv_register_source;
+	}
+
 	/* Done now */
 
 	platform_set_drvdata(pdev, pcm_reader);
@@ -954,6 +962,8 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 
 	return 0;
 
+error_conv_register_source:
+	snd_stm_buffer_dispose(pcm_reader->buffer);
 error_buffer_create:
 	/* snd_pcm_free() is not available - PCM device will be released
 	 * during card release */
@@ -979,6 +989,7 @@ static int snd_stm_pcm_reader_remove(struct platform_device *pdev)
 	snd_assert(pcm_reader, return -EINVAL);
 	snd_stm_magic_assert(pcm_reader, return -EINVAL);
 
+	snd_stm_conv_unregister_source(pcm_reader->conv_source);
 	snd_stm_buffer_dispose(pcm_reader->buffer);
 	snd_stm_fdma_release(pcm_reader->fdma_channel);
 	snd_stm_irq_release(pcm_reader->irq, pcm_reader);

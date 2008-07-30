@@ -33,9 +33,7 @@
  * Converters (DAC, ADC, I2S to SPDIF, SPDIF to I2S, etc.)
  */
 
-/* Link type (format) description
- * Please note, that 0 value means I2S with 32 bits per
- * subframe (channel) and is a default setting. */
+/* Link type (format) description */
 #define SND_STM_FORMAT__I2S              0x00000001
 #define SND_STM_FORMAT__LEFT_JUSTIFIED   0x00000002
 #define SND_STM_FORMAT__RIGHT_JUSTIFIED  0x00000003
@@ -50,28 +48,34 @@
 #define SND_STM_FORMAT__SUBFRAME_16_BITS 0x00000020
 #define SND_STM_FORMAT__SUBFRAME_MASK    0x000000f0
 
-/* Converter handle */
-struct snd_stm_conv {
-	const char *name;
+/* Converter operations
+ * All converter should be disabled and muted till explicitly
+ * enabled/unmuted. */
 
+struct snd_stm_conv_converter;
+
+struct snd_stm_conv_ops {
 	/* Configuration */
-	unsigned int (*get_format)(struct snd_stm_conv *conv);
-	int (*get_oversampling)(struct snd_stm_conv *conv);
+	unsigned int (*get_format)(void *priv);
+	int (*get_oversampling)(void *priv);
 
 	/* Operations */
-	int (*enable)(struct snd_stm_conv *conv);
-	int (*disable)(struct snd_stm_conv *conv);
-	int (*mute)(struct snd_stm_conv *conv);
-	int (*unmute)(struct snd_stm_conv *conv);
-
-	/* Master (must be enabled prior to this one) */
-	struct snd_stm_conv *master;
+	int (*set_enabled)(int enabled, void *priv);
+	int (*set_muted)(int muted, void *priv);
 };
 
-/* Returns negative value on error or unique converter index number (>=0) */
-int snd_stm_conv_attach(struct snd_stm_conv *conv, struct bus_type *source_bus,
-		const char *source_bus_id);
+/* Registers new converter
+ * Converters sharing the same group name shall use the same input format
+ * and oversampling value - they usually should represent one "output";
+ * when more than one group is connected to the same source, active one
+ * will be selectable using "Route" ALSA control.
+ * Returns negative value on error or unique converter index number (>=0) */
+struct snd_stm_conv_converter *snd_stm_conv_register_converter(
+		const char *group, struct snd_stm_conv_ops *ops, void *priv,
+		struct bus_type *source_bus, const char *source_bus_id,
+		int source_channel_from, int source_channel_to, int *index);
 
+int snd_stm_conv_unregister_converter(struct snd_stm_conv_converter *converter);
 
 
 /*
@@ -96,10 +100,10 @@ int snd_stm_conv_attach(struct snd_stm_conv *conv, struct bus_type *source_bus,
  * i2c_register_board_info(<I2C bus number>, &external_dac, 1);
  */
 struct snd_stm_conv_i2c_info {
-	const char *name;
+	const char *group;
 
-	int card_device;
 	const char *source_bus_id;
+	int channel_from, channel_to;
 	unsigned int format;
 	int oversampling;
 
@@ -120,10 +124,10 @@ struct snd_stm_conv_i2c_info {
  * Define platform device named "snd_conv_gpio", pass
  * following structure as platform_data and add it in normal way :-) */
 struct snd_stm_conv_gpio_info {
-	const char *name;
+	const char *group;
 
-	int card_device;
 	const char *source_bus_id;
+	int channel_from, channel_to;
 	unsigned int format;
 	int oversampling;
 
@@ -138,10 +142,10 @@ struct snd_stm_conv_gpio_info {
 /* Dummy converter - use it (as a platform device) to define format or
  * oversampling only */
 struct snd_stm_conv_dummy_info {
-	const char *name;
+	const char *group;
 
-	int card_device;
 	const char *source_bus_id;
+	int channel_from, channel_to;
 	unsigned int format;
 	int oversampling;
 };

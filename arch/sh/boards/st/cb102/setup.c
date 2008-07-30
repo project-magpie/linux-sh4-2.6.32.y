@@ -132,15 +132,30 @@ static struct platform_device cb102_phy_device = {
 };
 
 #ifdef CONFIG_SND
-/* ALSA dummy converter for PCM input, to configure required
+/* ALSA dummy converters for PCM inputs, to configure required
  * Left Justified mode */
-static struct platform_device cb102_snd_input = {
+
+static struct platform_device cb102_snd_spdif_analog_input = {
 	.name = "snd_conv_dummy",
-	.id = -1,
+	.id = 0,
 	.dev.platform_data = &(struct snd_stm_conv_dummy_info) {
-		.name = "AK4113/AK5381ET",
-		.card_device = 0,
-		.source_bus_id = "snd_pcm_reader",
+		.group = "SPDIF/Analog Input",
+		.source_bus_id = "snd_pcm_reader.0",
+		.channel_from = 0,
+		.channel_to = 1,
+		.format = SND_STM_FORMAT__LEFT_JUSTIFIED |
+				SND_STM_FORMAT__SUBFRAME_32_BITS,
+	},
+};
+
+static struct platform_device cb102_snd_hdmi_input = {
+	.name = "snd_conv_dummy",
+	.id = 1,
+	.dev.platform_data = &(struct snd_stm_conv_dummy_info) {
+		.group = "HDMI Input",
+		.source_bus_id = "snd_pcm_reader.1",
+		.channel_from = 0,
+		.channel_to = 7,
 		.format = SND_STM_FORMAT__LEFT_JUSTIFIED |
 				SND_STM_FORMAT__SUBFRAME_32_BITS,
 	},
@@ -151,7 +166,8 @@ static struct platform_device *cb102_devices[] __initdata = {
 	&cb102_physmap_flash,
 	&cb102_phy_device,
 #ifdef CONFIG_SND
-	&cb102_snd_input,
+	&cb102_snd_spdif_analog_input,
+	&cb102_snd_hdmi_input,
 #endif
 };
 

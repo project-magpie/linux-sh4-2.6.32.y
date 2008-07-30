@@ -44,11 +44,13 @@
  */
 
 static struct snd_card *snd_stm_card;
+static int snd_stm_card_registered;
 
 struct snd_card *snd_stm_card_new(int index, const char *id,
 		struct module *module)
 {
 	snd_assert(snd_stm_card == NULL, return NULL);
+	snd_assert(!snd_stm_card_registered, return NULL);
 
 	snd_stm_card = snd_card_new(index, id, module, 0);
 
@@ -58,18 +60,36 @@ EXPORT_SYMBOL(snd_stm_card_new);
 
 int snd_stm_card_register(void)
 {
-	snd_assert(snd_stm_card != NULL, return -EINVAL);
+	int result;
 
-	return snd_card_register(snd_stm_card);
+	snd_assert(snd_stm_card != NULL, return -EINVAL);
+	snd_assert(!snd_stm_card_registered, return -EINVAL);
+
+	result = snd_card_register(snd_stm_card);
+
+	if (result == 0)
+		snd_stm_card_registered = 1;
+
+	return result;
 }
 EXPORT_SYMBOL(snd_stm_card_register);
+
+int snd_stm_card_is_registered(void)
+{
+	snd_assert(snd_stm_card != NULL, return -EINVAL);
+
+	return snd_stm_card_registered;
+}
+EXPORT_SYMBOL(snd_stm_card_is_registered);
 
 void snd_stm_card_free(void)
 {
 	snd_assert(snd_stm_card != NULL, return);
+	snd_assert(snd_stm_card_registered, return);
 
 	snd_card_free(snd_stm_card);
 
+	snd_stm_card_registered = 0;
 	snd_stm_card = NULL;
 }
 EXPORT_SYMBOL(snd_stm_card_free);

@@ -101,10 +101,10 @@ static struct platform_device conv_int_dac = {
 		},
 	},
 	.dev.platform_data = &(struct snd_stm_conv_int_dac_info) {
-		.name = "Internal audio DAC",
 		.ver = 4,
-		.card_device = 1,
 		.source_bus_id = "snd_pcm_player.1",
+		.channel_from = 0,
+		.channel_to = 1,
 	},
 };
 
@@ -216,10 +216,10 @@ static struct platform_device conv_i2sspdif_0 = {
 		}
 	},
 	.dev.platform_data = &(struct snd_stm_conv_i2sspdif_info) {
-		.name = "I2S to SPDIF converter #0",
 		.ver = 4,
-		.card_device = 0,
 		.source_bus_id = "snd_pcm_player.0",
+		.channel_from = 0,
+		.channel_to = 1,
 	},
 };
 
@@ -240,10 +240,10 @@ static struct platform_device conv_i2sspdif_1 = {
 		}
 	},
 	.dev.platform_data = &(struct snd_stm_conv_i2sspdif_info) {
-		.name = "I2S to SPDIF converter #1",
 		.ver = 4,
-		.card_device = 0,
 		.source_bus_id = "snd_pcm_player.0",
+		.channel_from = 2,
+		.channel_to = 3,
 	},
 };
 
@@ -264,10 +264,10 @@ static struct platform_device conv_i2sspdif_2 = {
 		}
 	},
 	.dev.platform_data = &(struct snd_stm_conv_i2sspdif_info) {
-		.name = "I2S to SPDIF converter #2",
 		.ver = 4,
-		.card_device = 0,
 		.source_bus_id = "snd_pcm_player.0",
+		.channel_from = 4,
+		.channel_to = 5,
 	},
 };
 
@@ -288,10 +288,10 @@ static struct platform_device conv_i2sspdif_3 = {
 		}
 	},
 	.dev.platform_data = &(struct snd_stm_conv_i2sspdif_info) {
-		.name = "I2S to SPDIF converter #3",
 		.ver = 4,
-		.card_device = 0,
 		.source_bus_id = "snd_pcm_player.0",
+		.channel_from = 6,
+		.channel_to = 7,
 	},
 };
 

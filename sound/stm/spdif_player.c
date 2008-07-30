@@ -92,13 +92,14 @@ struct snd_stm_spdif_player {
 
 	/* Environment settings */
 	struct snd_stm_fsynth_channel *fsynth_channel;
-	struct snd_stm_conv *conv;
+	struct snd_stm_conv_source *conv_source;
 
 	/* Default settings (controlled by controls ;-) */
 	struct snd_stm_spdif_player_settings default_settings;
 	spinlock_t default_settings_lock; /* Protects default_settings */
 
 	/* Runtime data */
+	struct snd_stm_conv_group *conv_group;
 	struct snd_stm_buffer *buffer;
 	struct snd_info_entry *proc_entry;
 	struct snd_pcm_substream *substream;
@@ -256,14 +257,15 @@ static int snd_stm_spdif_player_open(struct snd_pcm_substream *substream)
 
 	snd_pcm_set_sync(substream);  /* TODO: ??? */
 
-	/* Get attached converter handle */
+	/* Get attached converters handle */
 
-	spdif_player->conv = snd_stm_conv_get_attached(&platform_bus_type,
-			spdif_player->device->bus_id);
-	if (spdif_player->conv)
-		snd_stm_printd(1, "Converter '%s' attached to '%s'...\n",
-				spdif_player->conv->name,
-				spdif_player->device->bus_id);
+	spdif_player->conv_group =
+			snd_stm_conv_request_group(spdif_player->conv_source);
+	if (spdif_player->conv_group)
+		snd_stm_printd(1, "'%s' is attached to '%s' converter(s)...\n",
+				spdif_player->device->bus_id,
+				snd_stm_conv_get_name(
+				spdif_player->conv_group));
 	else
 		snd_stm_printd(1, "Warning! No converter attached to '%s'!\n",
 				spdif_player->device->bus_id);
@@ -317,6 +319,11 @@ static int snd_stm_spdif_player_close(struct snd_pcm_substream *substream)
 
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
+
+	if (spdif_player->conv_group) {
+		snd_stm_conv_release_group(spdif_player->conv_group);
+		spdif_player->conv_group = NULL;
+	}
 
 	spdif_player->substream = NULL;
 
@@ -488,15 +495,15 @@ static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
 
 	/* Get oversampling value from connected converter */
 
-	if (spdif_player->conv) {
-		unsigned int format =
-				snd_stm_conv_get_format(spdif_player->conv);
+	if (spdif_player->conv_group) {
+		unsigned int format = snd_stm_conv_get_format(
+				spdif_player->conv_group);
 
 		snd_assert((format & SND_STM_FORMAT__MASK) ==
 				SND_STM_FORMAT__SPDIF, return -EINVAL);
 
 		oversampling = snd_stm_conv_get_oversampling(
-				spdif_player->conv);
+				spdif_player->conv_group);
 		if (oversampling == 0)
 			oversampling = DEFAULT_OVERSAMPLING;
 	} else {
@@ -641,9 +648,10 @@ static inline int snd_stm_spdif_player_start(struct snd_pcm_substream
 
 	/* Wake up & unmute converter */
 
-	if (spdif_player->conv) {
-		snd_stm_conv_enable(spdif_player->conv);
-		snd_stm_conv_unmute(spdif_player->conv);
+	if (spdif_player->conv_group) {
+		snd_stm_conv_enable(spdif_player->conv_group,
+				0, substream->runtime->channels - 1);
+		snd_stm_conv_unmute(spdif_player->conv_group);
 	}
 
 	return 0;
@@ -662,9 +670,9 @@ static inline int snd_stm_spdif_player_stop(struct snd_pcm_substream *substream)
 
 	/* Mute & shutdown converter */
 
-	if (spdif_player->conv) {
-		snd_stm_conv_mute(spdif_player->conv);
-		snd_stm_conv_disable(spdif_player->conv);
+	if (spdif_player->conv_group) {
+		snd_stm_conv_mute(spdif_player->conv_group);
+		snd_stm_conv_disable(spdif_player->conv_group);
 	}
 
 	/* Disable interrupts */
@@ -1427,14 +1435,6 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 
 	/* Create ALSA controls */
 
-	result = snd_stm_conv_add_route_ctl(&platform_bus_type,
-			spdif_player->device->bus_id, snd_device->card,
-			spdif_player->info->card_device);
-	if (result < 0) {
-		snd_stm_printe("Failed to add converter route control!\n");
-		return result;
-	}
-
 	result = snd_stm_fsynth_add_adjustement_ctl(
 			spdif_player->fsynth_channel, snd_device->card,
 			spdif_player->info->card_device);
@@ -1592,6 +1592,17 @@ static int snd_stm_spdif_player_probe(struct platform_device *pdev)
 		goto error_buffer_create;
 	}
 
+	/* Register in converters router */
+
+	spdif_player->conv_source = snd_stm_conv_register_source(
+			&platform_bus_type, pdev->dev.bus_id,
+			2, card, spdif_player->info->card_device);
+	if (!spdif_player->conv_source) {
+		snd_stm_printe("Cannot register in converters router!\n");
+		result = -ENOMEM;
+		goto error_conv_register_source;
+	}
+
 	/* Done now */
 
 	platform_set_drvdata(pdev, spdif_player);
@@ -1600,6 +1611,8 @@ static int snd_stm_spdif_player_probe(struct platform_device *pdev)
 
 	return 0;
 
+error_conv_register_source:
+	snd_stm_buffer_dispose(spdif_player->buffer);
 error_buffer_create:
 	/* snd_pcm_free() is not available - PCM device will be released
 	 * during card release */
@@ -1625,6 +1638,7 @@ static int snd_stm_spdif_player_remove(struct platform_device *pdev)
 	snd_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);
 
+	snd_stm_conv_unregister_source(spdif_player->conv_source);
 	snd_stm_buffer_dispose(spdif_player->buffer);
 	snd_stm_fdma_release(spdif_player->fdma_channel);
 	snd_stm_irq_release(spdif_player->irq, spdif_player);

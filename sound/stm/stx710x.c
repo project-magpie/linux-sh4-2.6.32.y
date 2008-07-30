@@ -90,10 +90,10 @@ static struct platform_device fsynth = {
 /* Internal DAC */
 
 static struct snd_stm_conv_int_dac_info conv_int_dac_info = {
-	.name = "Internal audio DAC",
 	/* .ver = see snd_stm_stx710x_init() */
-	.card_device = 1,
 	.source_bus_id = "snd_pcm_player.1",
+	.channel_from = 0,
+	.channel_to = 1,
 };
 
 static struct platform_device conv_int_dac = {
@@ -206,10 +206,10 @@ static struct platform_device spdif_player = {
 /* HDMI-connected I2S to SPDIF converter */
 
 static struct snd_stm_conv_i2sspdif_info conv_i2sspdif_info = {
-	.name = "I2S to SPDIF converter",
 	/* .ver = see snd_stm_stx710x_init() */
-	.card_device = 0,
 	.source_bus_id = "snd_pcm_player.0",
+	.channel_from = 0,
+	.channel_to = 1,
 };
 
 static struct platform_device conv_i2sspdif = {

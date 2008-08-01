@@ -23,12 +23,16 @@
  *   + Check for an unexpected stop condition on the bus
  *   + Fix auto-retry on address error condition
  *   + Clear repstart bit
+ * Version 2.4 (23rd Jul 2008)
+ *   + Remove clock stretch check
+ *   + Improve manual PIO reset
+ *   + Add delay after stop to ensure I2C tBUF satisfied
+ *   + Clear SSC status after reset
+ *   + Reorder TX & I2C config register pokes in prepare to read phase
  *
  * --------------------------------------------------------------------
  *
- *  Copyright (C) 2006: STMicroelectronics
- *  Copyright (C) 2007: STMicroelectronics
- *  Copyright (C) 2008: STMicroelectronics
+ *  Copyright (C) 2006, 2007, 2008 : STMicroelectronics
  *  Author: Francesco Virlinzi     <francesco.virlinzi@st.com>
  *
  * May be copied or modified under the terms of the GNU General Public
@@ -272,8 +276,11 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 	case IIC_FSM_START:
 	      be_fsm_start:
 		dgb_print2("-Start address 0x%x\n", pmsg->addr);
+		/* Reset SSC */
 		ssc_store32(adap, SSC_CTL, SSC_CTL_SR | SSC_CTL_EN | SSC_CTL_MS |
 			    SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8);
+		ssc_store32(adap, SSC_CLR, 0xdc0);
+
 		/* enable RX, TX FIFOs */
 		ssc_store32(adap, SSC_CTL,
 			    SSC_CTL_EN | SSC_CTL_MS |
@@ -332,9 +339,10 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 			jump_on_fsm_stop(trsc);
 
 		case 1:
-			ssc_store32(adap, SSC_TBUF, 0x1ff);
 			ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM |
 				(SSC_I2C_I2CFSMODE * fast_mode));
+			ssc_store32(adap, SSC_CLR, 0xdc0);
+			ssc_store32(adap, SSC_TBUF, 0x1ff);
 			ssc_store32(adap, SSC_IEN, SSC_IEN_NACKEN | SSC_IEN_ARBLEN);
 		   break;
 		default:
@@ -485,6 +493,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 	case IIC_FSM_COMPLETE:
 		/* be_fsm_complete: */
 		dgb_print2(" Complete\n");
+		udelay(5);
 
 		if (!(trsc->status_error & IIC_E_NOTACK))
 			trsc->status_error = IIC_E_NO_ERROR;
@@ -575,17 +584,20 @@ static int iic_wait_free_bus(struct iic_ssc *adap)
  */
 static void iic_pio_stop(struct iic_ssc *adap)
 {
+	int cnt = 0;
+
 	if(!(adap->pio_info)->clk)
 		return; /* ssc hard wired */
 	printk(KERN_WARNING "i2c-stm: doing PIO stop!\n");
+
+	/* Send STOP */
 	stpio_set_pin((adap->pio_info)->clk, 0);
-	stpio_configure_pin((adap->pio_info)->clk, STPIO_BIDIR);
-	udelay(10);
 	stpio_set_pin((adap->pio_info)->sdout, 0);
+	stpio_configure_pin((adap->pio_info)->clk, STPIO_BIDIR);
 	stpio_configure_pin((adap->pio_info)->sdout, STPIO_BIDIR);
-	udelay(10);
+	udelay(20);
 	stpio_set_pin((adap->pio_info)->clk, 1);
-	udelay(10);
+	udelay(20);
 	stpio_set_pin((adap->pio_info)->sdout, 1);
 	udelay(30);
 	stpio_configure_pin((adap->pio_info)->clk, STPIO_ALT_BIDIR);
@@ -594,6 +606,16 @@ static void iic_pio_stop(struct iic_ssc *adap)
 	/* Reset SSC */
 	ssc_store32(adap, SSC_CTL, SSC_CTL_SR | SSC_CTL_EN | SSC_CTL_MS |
 			    SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8);
+	ssc_store32(adap, SSC_CLR, 0xdc0);
+
+	/* Make sure SSC thinks the bus is free before continuing */
+	while (cnt < 10 && (ssc_load32(adap,SSC_STA) & (SSC_STA_BUSY | SSC_STA_NACK))){
+		mdelay(2);
+		cnt ++;
+	}
+
+	if (cnt == 10)
+		printk(KERN_ERR "i2c-stm:  Cannot recover bus.  Status: 0x%08x\n", ssc_load32(adap,SSC_STA));
 }
 
 /*

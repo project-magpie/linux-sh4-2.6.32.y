@@ -118,6 +118,18 @@ config SND_STM_CONV_DUMMY
 		If compiled as module, it will be called
 		snd-stm-conv-dummy.ko.
 
+config SND_STM_CONV_EPLD
+	tristate "Generic EPLD-controlled converter driver"
+	depends on SND_STM
+	depends on SH_ST_EPLD
+	help
+		This provides generic driver for EPLD-controlled
+		converters. See include/sound/stm.h for informations
+		how to define EPLD offsets & values.
+
+		If compiled as module, it will be called
+		snd-stm-conv-epld.ko.
+
 config SND_STM_CONV_GPIO
 	tristate "Generic GPIO-controlled converter driver"
 	depends on SND_STM

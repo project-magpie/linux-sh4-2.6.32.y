@@ -24,5 +24,8 @@ snd-stm-conv-dummy-y := conv_dummy.o
 obj-$(CONFIG_SND_STM_CONV_GPIO) += snd-stm-conv-gpio.o
 snd-stm-conv-gpio-y := conv_gpio.o
 
+obj-$(CONFIG_SND_STM_CONV_EPLD) += snd-stm-conv-epld.o
+snd-stm-conv-epld-y := conv_epld.o
+
 obj-$(CONFIG_SND_STM_CONV_I2C) += snd-stm-conv-i2c.o
 snd-stm-conv-i2c-y := conv_i2c.o

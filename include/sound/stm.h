@@ -139,6 +139,31 @@ struct snd_stm_conv_gpio_info {
 	int mute_value;
 };
 
+/* EPLD-controlled DAC/ADC generic implementation
+ *
+ * Define platform device named "snd_conv_epld", pass
+ * following structure as platform_data and add it in normal way :-) */
+struct snd_stm_conv_epld_info {
+	const char *group;
+
+	const char *source_bus_id;
+	int channel_from, channel_to;
+	unsigned int format;
+	int oversampling;
+
+	int enable_supported;
+	unsigned enable_offset;
+	unsigned enable_mask;
+	unsigned enable_value;
+	unsigned disable_value;
+
+	int mute_supported;
+	unsigned mute_offset;
+	unsigned mute_mask;
+	unsigned mute_value;
+	unsigned unmute_value;
+};
+
 /* Dummy converter - use it (as a platform device) to define format or
  * oversampling only */
 struct snd_stm_conv_dummy_info {

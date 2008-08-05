@@ -6,6 +6,9 @@ snd-stm-y += pcm_player.o pcm_reader.o spdif_player.o
 obj-$(CONFIG_SND_STM_STX710X) += snd-stm-stx710x.o
 snd-stm-stx710x-y := stx710x.o
 
+obj-$(CONFIG_SND_STM_STX7105) += snd-stm-stx7105.o
+snd-stm-stx7105-y := stx7105.o
+
 obj-$(CONFIG_SND_STM_STX7111) += snd-stm-stx7111.o
 snd-stm-stx7111-y := stx7111.o
 

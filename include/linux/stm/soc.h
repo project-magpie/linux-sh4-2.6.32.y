@@ -275,6 +275,7 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 void stx7105_configure_nand(struct nand_config_data *data);
 void stx7105_configure_lirc(void);
 void stx7105_configure_pata(int bank, int pc_mode, int irq);
+void stx7105_configure_audio_pins(int pcmout, int spdif, int pcmin);
 
 void stx7111_early_device_init(void);
 void stx7111_configure_asc(const int *ascs, int num_ascs, int console);

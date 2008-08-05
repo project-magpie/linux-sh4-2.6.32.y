@@ -639,6 +639,58 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 	platform_device_register(&stx7105eth_device);
 }
 
+/* Audio output ------------------------------------------------------------ */
+
+void stx7105_configure_audio_pins(int pcmout, int spdif, int pcmin)
+{
+	/* Claim PIO pins as digital audio outputs, depending
+	 * on how many DATA outputs are to be used... */
+
+	if (pcmout > 0) {
+		stx7105_pio_sysconf(10, 3, 1, "AUD0PCMOUT_CLKIN/OUT");
+		stpio_request_pin(10, 3, "AUD0PCMOUT_CLKIN/OUT",
+				STPIO_ALT_OUT);
+		stx7105_pio_sysconf(10, 4, 1, "AUD0PCMOUT_LRCLK");
+		stpio_request_pin(10, 4, "AUD0PCMOUT_LRCLK", STPIO_ALT_OUT);
+		stx7105_pio_sysconf(10, 5, 1, "AUD0PCMOUT_SCLK");
+		stpio_request_pin(10, 5, "AUD0PCMOUT_SCLK", STPIO_ALT_OUT);
+		stx7105_pio_sysconf(10, 0, 1, "AUD0PCMOUT_DATA0");
+		stpio_request_pin(10, 0, "AUD0PCMOUT_DATA0", STPIO_ALT_OUT);
+	}
+	if (pcmout > 1) {
+		stx7105_pio_sysconf(10, 1, 1, "AUD0PCMOUT_DATA1");
+		stpio_request_pin(10, 1, "AUD0PCMOUT_DATA1", STPIO_ALT_OUT);
+	}
+	if (pcmout > 2) {
+		stx7105_pio_sysconf(10, 2, 1, "AUD0PCMOUT_DATA2");
+		stpio_request_pin(10, 2, "AUD0PCMOUT_DATA2", STPIO_ALT_OUT);
+	}
+	if (pcmout > 3)
+		BUG();
+
+	/* Claim PIO pin as SPDIF output... */
+
+	if (spdif > 0) {
+		stx7105_pio_sysconf(10, 6, 1, "AUDSPDIFOUT");
+		stpio_request_pin(10, 6, "AUDSPDIFOUT", STPIO_ALT_OUT);
+	}
+	if (spdif > 1)
+		BUG();
+
+	/* Claim PIO pins as digital audio inputs... */
+
+	if (pcmin > 0) {
+		stx7105_pio_sysconf(10, 7, 1, "AUD0PCMIN_DATA");
+		stpio_request_pin(10, 7, "AUD0PCMIN_DATA", STPIO_ALT_BIDIR);
+		stx7105_pio_sysconf(11, 0, 1, "AUD0PCMIN_SCLK");
+		stpio_request_pin(11, 0, "AUD0PCMIN_SCLK", STPIO_ALT_BIDIR);
+		stx7105_pio_sysconf(11, 1, 1, "AUD0PCMIN_LRCLK");
+		stpio_request_pin(11, 1, "AUD0PCMIN_LRCLK", STPIO_ALT_BIDIR);
+	}
+	if (pcmin > 1)
+		BUG();
+}
+
 /* PWM resources ----------------------------------------------------------- */
 
 static struct resource stm_pwm_resource[]= {

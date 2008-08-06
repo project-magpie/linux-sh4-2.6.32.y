@@ -978,30 +978,29 @@ static int __init stx7141_add_asc(void)
 }
 arch_initcall(stx7141_add_asc);
 
-#if 0
 /* LiRC resources ---------------------------------------------------------- */
 static struct lirc_pio lirc_pios[] = {
 	[0] = {
 		.bank  = 3,
-		.pin   = 3,
+		.pin   = 7,
 		.dir   = STPIO_IN,
-		.pinof = 0x00 | LIRC_IR_RX | LIRC_PIO_ON
+		.pinof = 0x00 | LIRC_UHF_RX | LIRC_PIO_ON
 	},
 	[1] = {
-		.bank  = 3,
-		.pin   = 4,
+		.bank  = 5,
+		.pin   = 2,
 		.dir   = STPIO_IN,
-		.pinof = 0x00 | LIRC_UHF_RX /* | LIRC_PIO_ON not available */
+		.pinof = 0x00 | LIRC_IR_RX | LIRC_PIO_ON //not available
 		},
 	[2] = {
-		.bank  = 3,
-		.pin   = 5,
+		.bank  = 5,
+		.pin   = 3,
 		.dir   = STPIO_ALT_OUT,
 		.pinof = 0x00 | LIRC_IR_TX | LIRC_PIO_ON
 	},
 	[3] = {
-		.bank  = 3,
-		.pin   = 6,
+		.bank  = 5,
+		.pin   = 4,
 		.dir   = STPIO_ALT_OUT,
 		.pinof = 0x00 | LIRC_IR_TX | LIRC_PIO_ON
 	},
@@ -1031,8 +1030,8 @@ static struct resource lirc_resource[] = {
 		.flags = IORESOURCE_MEM
 	},
 	[1] = {
-		.start = evt2irq(0x11a0),
-		.end   = evt2irq(0x11a0),
+		.start = ILC_IRQ(81),
+		.end   = ILC_IRQ(81),
 		.flags = IORESOURCE_IRQ
 	},
 };
@@ -1047,11 +1046,15 @@ static struct platform_device lirc_device = {
 	}
 };
 
-void __init stx7141_configure_lirc(void)
+void __init stx7141_configure_lirc(lirc_scd_t *scd)
 {
+	lirc_private_info.scd_info = scd;
+	stx7141_pio_sysconf(5, 2, 1, "lirc");
+	stx7141_pio_sysconf(3, 7, 1, "lirc");
+	stx7141_pio_sysconf(5, 3, 1, "lirc");
+	stx7141_pio_sysconf(5, 4, 1, "lirc");
 	platform_device_register(&lirc_device);
 }
-#endif
 
 /* NAND Resources ---------------------------------------------------------- */
 

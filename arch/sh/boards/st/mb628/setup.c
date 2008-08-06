@@ -303,9 +303,7 @@ static int __init device_init(void)
 	 */
 
 	stx7141_configure_ethernet(1, 0, 0, 0);
-#if 0
 	stx7141_configure_lirc(&lirc_scd);
-#endif
 
 #ifndef FLASH_NOR
 	stx7141_configure_nand(&mb628_nand_config);

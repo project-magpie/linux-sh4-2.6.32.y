@@ -52,9 +52,6 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
 
-	if (unlikely(lp->fix_mdio_rw != NULL))
-		lp->fix_mdio_rw();
-
 	writel(regValue, ioaddr + mii_address);
 
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
@@ -92,9 +89,6 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
 
-	if (unlikely(lp->fix_mdio_rw != NULL))
-		lp->fix_mdio_rw();
-
 	/* Set the MII address register to write */
 	writel(phydata, ioaddr + mii_data);
 	writel(value, ioaddr + mii_address);
@@ -103,15 +97,9 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
 
-#if 0
-	/* This "extra" read was added, in the past, to fix an
-	 * issue related to the control MII bus specific operation (MDC/MDIO).
-	 * It forced the close operation of the message on the bus (hw hack
-	 * was to add a specific pull-up on one of the two MCD/MDIO lines).
-	 * It can be removed because no new board actually needs it.*/
+	/* NOTE: we need to perform this "extra" read in order to fix an error
+	 * during the write operation */
 	stmmac_mdio_read(bus, phyaddr, phyreg);
-#endif
-
 	return 0;
 }
 

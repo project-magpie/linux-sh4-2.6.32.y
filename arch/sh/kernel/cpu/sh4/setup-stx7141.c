@@ -566,34 +566,18 @@ static void fix_mac_speed(void *priv, unsigned int speed)
 	sysconf_write(sc, (speed == SPEED_100) ? 0 : 1);
 }
 
-static int fix_mdio_rw(void)
-{
-	/*
-	* Gross hack to work around the problem that the pull up resistors
-	* on the MDC line are too high on some boards (eg mb628) because
-	* of the additional pull up resistor for MODE selection. This forms
-	* an RC network which we have to allow to discharge.
-	* Invoked both in the MDIO read and write.
-	*/
-	mdelay(10);
-	return 1;
-}
-
-
 static struct plat_stmmacenet_data stx7141eth_private_data[2] = {
 {
 	.bus_id = 0,
 	.pbl = 8,
 	.has_gmac = 1,
 	.fix_mac_speed = fix_mac_speed,
-	.fix_mdio_rw = fix_mdio_rw,
 	.bsp_priv = 0,
 }, {
 	.bus_id = 1,
 	.pbl = 8,
 	.has_gmac = 1,
 	.fix_mac_speed = fix_mac_speed,
-	.fix_mdio_rw = fix_mdio_rw,
 	.bsp_priv = 1,
 } };
 

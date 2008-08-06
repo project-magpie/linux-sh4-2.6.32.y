@@ -276,11 +276,17 @@ static void fix_mac_speed(void* priv, unsigned int speed)
 	sysconf_write(mac_speed_sc, (speed == SPEED_100) ? 0 : 1);
 }
 
+/* Hopefully I can remove this now */
+static void stx7111eth_hw_setup_null(void)
+{
+}
+
 static struct plat_stmmacenet_data stx7111eth_private_data = {
 	.bus_id = 0,
 	.pbl = 32,
 	.has_gmac = 1,
 	.fix_mac_speed = fix_mac_speed,
+	.hw_setup = stx7111eth_hw_setup_null,
 };
 
 static struct platform_device stx7111eth_device = {

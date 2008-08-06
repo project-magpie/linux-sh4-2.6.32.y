@@ -715,6 +715,99 @@ void stx7141_configure_ethernet(int port, int reverse_mii, int mode,
 	platform_device_register(&stx7141eth_devices[port]);
 }
 
+/* Audio output ------------------------------------------------------------ */
+
+void stx7141_configure_audio_pins(int pcmout1, int pcmout2, int spdif,
+		int pcmin1, int pcmin2)
+{
+	/* Claim PIO pins as first PCM player outputs, depending on
+	 * how many DATA outputs are to be used... */
+
+	if (pcmout1 > 0) {
+		stx7141_pio_sysconf(15, 4, 1, "AUDD1_PCMCLKOUT");
+		stpio_request_pin(15, 4, "AUDD1_PCMCLKOUT", STPIO_OUT);
+		stx7141_pio_sysconf(15, 5, 1, "AUDD1_LRCLKOUT");
+		stpio_request_pin(15, 5, "AUDD1_LRCLKOUT", STPIO_OUT);
+		stx7141_pio_sysconf(15, 6, 1, "AUDD1_SCLKOUT");
+		stpio_request_pin(15, 6, "AUDD1_SCLKOUT", STPIO_OUT);
+		stx7141_pio_sysconf(15, 3, 1, "AUDD1_PCMOUT");
+		stpio_request_pin(15, 3, "AUDD1_PCMOUT", STPIO_OUT);
+	}
+	if (pcmout1 > 1) {
+		stx7141_pio_sysconf(15, 7, 2, "AUDD1_PCMOUT[1]");
+		stpio_request_pin(15, 7, "AUDD1_PCMOUT", STPIO_OUT);
+	}
+	if (pcmout1 > 2) {
+		stx7141_pio_sysconf(16, 0, 2, "AUDD1_PCMOUT[2]");
+		stpio_request_pin(16, 0, "AUDD1_PCMOUT", STPIO_OUT);
+	}
+	if (pcmout1 > 3) {
+		stx7141_pio_sysconf(16, 1, 2, "AUDD1_PCMOUT[3]");
+		stpio_request_pin(16, 1, "AUDD1_PCMOUT", STPIO_OUT);
+	}
+	if (pcmout1 > 4) {
+		stx7141_pio_sysconf(16, 2, 2, "AUDD1_PCMOUT[4]");
+		stpio_request_pin(16, 2, "AUDD1_PCMOUT", STPIO_OUT);
+	}
+	if (pcmout1 > 5)
+		BUG();
+
+	/* Claim PIO pins for second PCM player outputs, however
+	 * they are multiplexed with the first player's ones... */
+
+	if (pcmout2 > 0) {
+		if (pcmout1 > 1)
+			BUG();
+
+		stx7141_pio_sysconf(16, 0, 1, "AUDD2_PCMCLKOUT");
+		stpio_request_pin(16, 0, "AUDD2_PCMCLKOUT", STPIO_OUT);
+		stx7141_pio_sysconf(16, 1, 1, "AUDD2_LRCLKOUT");
+		stpio_request_pin(16, 1, "AUDD2_LRCLKOUT", STPIO_OUT);
+		stx7141_pio_sysconf(16, 2, 1, "AUDD2_SCLKOUT");
+		stpio_request_pin(16, 2, "AUDD2_SCLKOUT", STPIO_OUT);
+		stx7141_pio_sysconf(15, 7, 1, "AUDD2_PCMOUT");
+		stpio_request_pin(15, 7, "AUDD2_PCMOUT", STPIO_OUT);
+	}
+	if (pcmout2 > 1)
+		BUG();
+
+	/* Claim PIO pin as SPDIF output... */
+
+	if (spdif > 0) {
+		stx7141_pio_sysconf(16, 3, 1, "AUDD_SPDIFOUT");
+		stpio_request_pin(16, 3, "AUDD_SPDIFOUT", STPIO_OUT);
+	}
+	if (spdif > 1)
+		BUG();
+
+
+	/* Claim PIO for the first PCM reader inputs... */
+
+	if (pcmin1 > 0) {
+		stx7141_pio_sysconf(15, 0, 1, "AUDD1_PCMIN");
+		stpio_request_pin(15, 0, "AUDD1_PCMIN", STPIO_IN);
+		stx7141_pio_sysconf(15, 1, 1, "AUDD1_LRCLKIN");
+		stpio_request_pin(15, 1, "AUDD1_LRCLKIN", STPIO_IN);
+		stx7141_pio_sysconf(15, 2, 1, "AUDD1_SCLKIN");
+		stpio_request_pin(15, 2, "AUDD1_SCLKIN", STPIO_IN);
+	}
+	if (pcmin1 > 1)
+		BUG();
+
+	/* Claim PIO for the second PCM reader inputs... */
+
+	if (pcmin2 > 0) {
+		stx7141_pio_sysconf(16, 4, 1, "AUDD2_PCMIN");
+		stpio_request_pin(16, 4, "AUDD2_PCMIN", STPIO_IN);
+		stx7141_pio_sysconf(16, 5, 1, "AUDD2_LRCLKIN");
+		stpio_request_pin(16, 5, "AUDD2_LRCLKIN", STPIO_IN);
+		stx7141_pio_sysconf(16, 6, 1, "AUDD2_SCLKIN");
+		stpio_request_pin(16, 6, "AUDD2_SCLKIN", STPIO_IN);
+	}
+	if (pcmin2 > 1)
+		BUG();
+}
+
 /* PWM resources ----------------------------------------------------------- */
 
 static struct resource stm_pwm_resource[] = {

@@ -1,7 +1,7 @@
 menuconfig SND_STM
 	tristate "STMicroelectronics SoCs support"
 	depends on SND
-	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7200
+	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7141 || CPU_SUBTYPE_STX7200
 	select STM_DMA
 	select SND_PCM
 	select SND_DYNAMIC_MINORS
@@ -75,6 +75,16 @@ config SND_STM_STX7111
 
 		If you compile this driver as a module, it will be
 		called snd-stm-stx7111.ko
+
+config SND_STM_STX7141
+	tristate "STx7141 support"
+	depends on SND_STM
+	default y if CPU_SUBTYPE_STX7141
+	help
+		Select this to get ALSA driver for STx7141 chip.
+
+		If you compile this driver as a module, it will be
+		called snd-stm-stx7141.ko
 
 config SND_STM_STX7200
 	tristate "STx7200 support"

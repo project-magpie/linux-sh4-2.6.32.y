@@ -545,6 +545,8 @@ config SH_ST_MB628
 	depends on CPU_SUBTYPE_STX7141
 	select SH_ST_EPLD
 	select SH_ST_STEM
+	select SND_STM_CONV_DUMMY if SND_STM
+	select SND_STM_CONV_EPLD if SND_STM
 	help
 	  Select STx7141 Mboard if configuring for an
 	  STMicroelectronics STx7141 MBoard (product code:

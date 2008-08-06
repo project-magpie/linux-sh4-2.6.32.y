@@ -28,6 +28,7 @@
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <asm/mb628/epld.h>
+#include <sound/stm.h>
 #include "../common/common.h"
 
 #define FLASH_NOR
@@ -221,10 +222,54 @@ static struct platform_device epld_device = {
 	},
 };
 
+#ifdef CONFIG_SND
+/* CS8416 SPDIF to I2S converter (IC14) */
+static struct platform_device mb628_snd_spdif_input = {
+	.name = "snd_conv_dummy",
+	.id = -1,
+	.dev.platform_data = &(struct snd_stm_conv_dummy_info) {
+		.group = "SPDIF Input",
+
+		.source_bus_id = "snd_pcm_reader.0",
+		.channel_from = 0,
+		.channel_to = 1,
+		.format = SND_STM_FORMAT__I2S |
+				SND_STM_FORMAT__SUBFRAME_32_BITS,
+	},
+};
+
+static struct platform_device mb628_snd_external_dacs = {
+	.name = "snd_conv_epld",
+	.id = -1,
+	.dev.platform_data = &(struct snd_stm_conv_epld_info) {
+		.group = "External DACs",
+
+		.source_bus_id = "snd_pcm_player.0",
+		.channel_from = 0,
+		.channel_to = 9,
+		.format = SND_STM_FORMAT__I2S |
+				SND_STM_FORMAT__SUBFRAME_32_BITS,
+		.oversampling = 256,
+
+		.mute_supported = 1,
+		.mute_offset = EPLD_AUDIO,
+		.mute_mask = EPLD_AUDIO_PCMDAC1_SMUTE |
+				EPLD_AUDIO_PCMDAC2_SMUTE,
+		.mute_value = EPLD_AUDIO_PCMDAC1_SMUTE |
+				EPLD_AUDIO_PCMDAC2_SMUTE,
+		.unmute_value = 0,
+	},
+};
+#endif
+
 static struct platform_device *mb628_devices[] __initdata = {
 	&epld_device,
 	&physmap_flash,
 	&dp83865_phy_device,
+#ifdef CONFIG_SND
+	&mb628_snd_spdif_input,
+	&mb628_snd_external_dacs,
+#endif
 };
 
 /* Configuration based on Futarque-RC signals train. */
@@ -268,6 +313,68 @@ static int __init device_init(void)
 	 * (or hardware write protect) so permanently enable it.
 	 */
 	epld_write(EPLD_FLASH_NOTWP | EPLD_FLASH_NOTRESET, EPLD_FLASH);
+#endif
+
+#ifdef CONFIG_SND
+	/* Audio peripherals
+	 *
+	 * WARNING! Board rev. A has swapped silkscreen labels of J16 & J32!
+	 *
+	 * The recommended audio setup of MB628 is as follows:
+	 * SW2[1..4] - [ON, OFF, OFF, ON]
+	 * SW5[1..4] - [OFF, OFF, OFF, OFF]
+	 * SW3[1..4] - [OFF, OFF, ON, OFF]
+	 * SW12[1..4] - [OFF, OFF, OFF, OFF]
+	 * SW13[1..4] - [OFF, OFF, OFF, OFF]
+	 * J2 - 2-3
+	 * J3 - 1-2
+	 * J6 - 1-2
+	 * J7 - 1-2
+	 * J8 - 1-2
+	 * J12 - 1-2
+	 * J16-A - 1-2, J16-B - 1-2
+	 * J23-A - 2-3, J23-B - 2-3
+	 * J26-A - 1-2, J26-B - 2-3
+	 * J34-A - 1-2, J34-B - 2-3
+	 * J41-A - 3-2, J41-B - 3-2
+	 *
+	 * Additionally the audio EPLD should be updated to the latest
+	 * available release.
+	 *
+	 * With such settings the audio outputs layout presents as follows:
+	 *
+	 * +--------------------------------------+
+	 * |                                      |
+	 * |  (S.I)   (1.R)  (1.L)  (0.4)  (0.3)  | TOP
+	 * |                                      |
+	 * |  (---)   (0.2)  (0.1)  (0.10) (0.9)  |
+	 * |                                      |
+	 * |  (S.O)   (0.6)  (0.5)  (0.8)  (0.7)  | BOTTOM
+	 * |                                      |
+	 * +--------------------------------------+
+	 *     CN6     CN5    CN4    CN3     CN2
+	 *
+	 * where:
+	 *   - S.I - SPDIF input - PCM Reader #0
+	 *   - S.O - SPDIF output - SPDIF Player (HDMI)
+	 *   - 1.R, 1.L - audio outputs - PCM Player #1, channel L(1)/R(2)
+	 *   - 0.1-10 - audio outputs - PCM Player #0, channels 1 to 10
+	 */
+
+	/* As digital audio outputs are now GPIOs, we have to claim them... */
+	stx7141_configure_audio_pins(5, 0, 1, 1, 1);
+
+	/* We use both DACs to get full 10-channels output from
+	 * PCM Player #0 (EPLD muxing mode #1) */
+	{
+		unsigned int value = epld_read(EPLD_AUDIO);
+
+		value &= ~(EPLD_AUDIO_AUD_SW_CTRL_MASK <<
+				EPLD_AUDIO_AUD_SW_CTRL_SHIFT);
+		value |= 0x1 << EPLD_AUDIO_AUD_SW_CTRL_SHIFT;
+
+		epld_write(value, EPLD_AUDIO);
+	}
 #endif
 
 	return platform_add_devices(mb628_devices, ARRAY_SIZE(mb628_devices));

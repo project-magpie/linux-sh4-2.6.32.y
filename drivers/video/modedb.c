@@ -609,12 +609,15 @@ done:
 	diff = refresh;
 	best = -1;
 	for (i = 0; i < dbsize; i++) {
+		int mode_interlace = (db[i].vmode & FB_VMODE_INTERLACED)?1:0;
+
 		if (name_matches(db[i], name, namelen) ||
 		    (res_specified && res_matches(db[i], xres, yres))) {
 			if(!fb_try_mode(var, info, &db[i], bpp)) {
-				if(!refresh_specified || db[i].refresh == refresh)
+				if((!refresh_specified || db[i].refresh == refresh) &&
+				   (interlace == mode_interlace)) {
 					return 1;
-				else {
+				} else {
 					if(diff > abs(db[i].refresh - refresh)) {
 						diff = abs(db[i].refresh - refresh);
 						best = i;

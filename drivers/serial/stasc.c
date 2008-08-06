@@ -538,9 +538,6 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 	unsigned int ctrl_val;
 	unsigned long flags;
 
-	/* wait for end of current transmission */
-	while (!asc_tx_empty(port)){};
-
 	spin_lock_irqsave(&port->lock, flags);
 
 	/* read control register */

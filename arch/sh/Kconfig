@@ -529,6 +529,15 @@ config SH_ST_MB602
 	  ST board ID: mb602). More information at:
 	  <http://www.linuxsh.st.com/boards/mb602/>
 
+config SH_ST_HDREF
+        bool "ST HDref board"
+        depends on CPU_SUBTYPE_STB7100
+        help
+          Select ST HDref board if configuring for an
+          STMicroelectronics ST HD Reference Board
+          More information at:
+          <http://www.linuxsh.st.com/boards/hdref/>
+
 config SH_ST_MB618
 	bool "mb618: STx7111 Validation board"
 	depends on CPU_SUBTYPE_STX7111

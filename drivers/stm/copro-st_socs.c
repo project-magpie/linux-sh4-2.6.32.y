@@ -36,6 +36,15 @@ int __init coproc_cpu_init(coproc_t * cop)
 #if defined CONFIG_CPU_SUBTYPE_STB7100
 	const unsigned int boot_lookup[] =   { 28, 26 };
 	const unsigned int reset_lookup[]  = { 29, 27 };
+#elif defined CONFIG_CPU_SUBTYPE_STX7105
+	const unsigned int boot_lookup[] =   { 28, 26 };
+	const unsigned int reset_lookup[]  = { 29, 27 };
+#elif defined CONFIG_CPU_SUBTYPE_STX7111
+	const unsigned int boot_lookup[] =   { 28, 26 };
+	const unsigned int reset_lookup[]  = { 29, 27 };
+#elif defined CONFIG_CPU_SUBTYPE_STX7141
+	const unsigned int boot_lookup[] =   { 28, 26 };
+	const unsigned int reset_lookup[]  = { 29, 27 };
 #elif defined CONFIG_CPU_SUBTYPE_STX7200
 	const unsigned int boot_lookup[] =   { 28, 36, 26, 34 };
 	const unsigned int reset_lookup[]  = { 29, 37, 27, 35 };

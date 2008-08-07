@@ -248,6 +248,9 @@ static void stmmac_adjust_link(struct net_device *dev)
 	int new_state = 0;
 	unsigned int fc = lp->flow_ctrl, pause_time = lp->pause;
 
+        if (phydev == NULL)
+           return;
+
 	DBG(probe, DEBUG, "stmmac_adjust_link: called.  address %d link %d\n",
 	    phydev->addr, phydev->link);
 
@@ -345,6 +348,11 @@ static int stmmac_init_phy(struct net_device *dev)
 	lp->oldlink = 0;
 	lp->speed = 0;
 	lp->oldduplex = -1;
+
+        if (lp->phy_addr == -1) {
+                /* We don't have a PHY, so do nothing */
+                return 0;
+        }
 
 	snprintf(phy_id, BUS_ID_SIZE, PHY_ID_FMT, lp->bus_id, lp->phy_addr);
 	DBG(probe, DEBUG, "stmmac_init_phy:  trying to attach to %s\n", phy_id);
@@ -1128,7 +1136,8 @@ static int stmmac_open(struct net_device *dev)
 		lp->mac_type->ops->dump_dma_regs(ioaddr);
 	}
 
-	phy_start(lp->phydev);
+        if (lp->phydev)
+	   phy_start(lp->phydev);
 
 	netif_start_queue(dev);
 	return 0;

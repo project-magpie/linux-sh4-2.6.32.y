@@ -273,7 +273,7 @@ void stx7105_configure_usb(int port, struct usb_init_data *data);
 void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 				int ext_mdio, int ext_clk, int phy_bus);
 void stx7105_configure_nand(struct nand_config_data *data);
-void stx7105_configure_lirc(void);
+void stx7105_configure_lirc(lirc_scd_t *scd);
 void stx7105_configure_pata(int bank, int pc_mode, int irq);
 void stx7105_configure_audio_pins(int pcmout, int spdif, int pcmin);
 

@@ -47,7 +47,7 @@ int __init coproc_cpu_init(coproc_t * cop)
 	BUG_ON(id >= coproc_info.max_coprs);
 
 	if(!copro_reset_out)
-	if(!(copro_reset_out=sysconf_claim(SYS_CFG, 9, 27, 27, NULL))){
+	if(!(copro_reset_out=sysconf_claim(SYS_CFG, 9, 27, 28, NULL))){
 		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_9\n");
 		return 1;
 		}
@@ -78,22 +78,34 @@ int coproc_cpu_grant(coproc_t * cop, unsigned long arg)
 		bootAddr = COPR_ADDR(cop, 0);
 	else
 		bootAddr = arg;
-	/* Now set the less meaningful bit to trigger the ST231 start */
-	bootAddr |= 1;
+
 	DPRINTK(">>> platform: st231.%u start from 0x%x...\n",
 					id, (unsigned int)bootAddr);
+
 	/* bypass the st40 to reset only the coprocessor */
-	sysconf_write(copro_reset_out, 1);
+	sysconf_write(copro_reset_out, 3);
+	msleep(5);
 
 	sysconf_write(cpu_regs[id].boot, bootAddr);
+	msleep(5);
 
 	sysconf_write(cpu_regs[id].reset, sysconf_read(cpu_regs[id].reset) | 1) ;
 	msleep(5);
-	sysconf_write(cpu_regs[id].reset, sysconf_read(cpu_regs[id].reset) & ~1);
 
+	/* Now set the least significant bit to trigger the ST231 start */
+   	bootAddr |= 1;
+	sysconf_write(cpu_regs[id].boot, bootAddr);
+	msleep(5);
+
+      	bootAddr |= 0;
+	sysconf_write(cpu_regs[id].boot, bootAddr);
+
+	sysconf_write(cpu_regs[id].reset, sysconf_read(cpu_regs[id].reset) & ~1);
 	msleep(10);
+
 	/* remove the st40 bypass */
 	sysconf_write(copro_reset_out, 0);
+
 	cop->control |= COPROC_RUNNING;
 	return (0);
 }

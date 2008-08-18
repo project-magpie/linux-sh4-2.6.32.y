@@ -1,6 +1,8 @@
 #ifndef __ARCH_SH_BOARDS_ST_COMMON_COMMON_H
 #define __ARCH_SH_BOARDS_ST_COMMON_COMMON_H
 
+#include <linux/platform_device.h>
+
 /* epld.c */
 
 struct plat_epld_data {

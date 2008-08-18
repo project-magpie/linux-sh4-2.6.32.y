@@ -461,6 +461,18 @@ config SH_ST_MB705
 	  Select SH_ST_MB705 if your processor board is connected
 	  to this STB-like peripherals board.
 
+config SH_ST_MB705_AUDIO
+	tristate "Driver for audio peripherals on mb705"
+	depends on SH_ST_MB705
+	depends on SND_STM
+	default y
+	help
+	  Select this option to enable support for audio perypeharals
+	  on the mb705 (DACs and SPDIF-I2S converter).
+
+	  If you compile this driver as a module, it will be
+	  called mb705-audio.ko
+
 config SH_ST_MB705_DISPLAY
 	bool "Driver for LED display on mb705"
 	depends on SH_ST_MB705

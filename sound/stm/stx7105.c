@@ -3,7 +3,7 @@
  *
  *   Copyright (c) 2005-2007 STMicroelectronics Limited
  *
- *   Author: Pawel MOLL <pawel.moll@st.com>
+ *   Author: Pawel Moll <pawel.moll@st.com>
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -583,7 +583,7 @@ static void __exit snd_stm_stx7105_exit(void)
 	platform_driver_unregister(&snd_stm_stx7105_glue_driver);
 }
 
-MODULE_AUTHOR("Pawel MOLL <pawel.moll@st.com>");
+MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");
 MODULE_DESCRIPTION("STMicroelectronics STx7105 audio driver");
 MODULE_LICENSE("GPL");
 

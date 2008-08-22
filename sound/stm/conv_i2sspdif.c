@@ -3,7 +3,7 @@
  *
  *   Copyright (c) 2005-2007 STMicroelectronics Limited
  *
- *   Author: Pawel MOLL <pawel.moll@st.com>
+ *   Author: Pawel Moll <pawel.moll@st.com>
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by

@@ -3,7 +3,7 @@
  *
  *   Copyright (c) 2005-2007 STMicroelectronics Limited
  *
- *   Author: Pawel MOLL <pawel.moll@st.com>
+ *   Author: Pawel Moll <pawel.moll@st.com>
  *           Mark Glaisher
  *
  *   This program is free software; you can redistribute it and/or modify

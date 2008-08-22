@@ -3,7 +3,7 @@
  *
  *   Copyright (c) 2005-2007 STMicroelectronics Limited
  *
- *   Author: Pawel MOLL <pawel.moll@st.com>
+ *   Author: Pawel Moll <pawel.moll@st.com>
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -355,7 +355,7 @@ static void __exit snd_stm_conv_i2c_exit(void)
 	i2c_del_driver(&snd_stm_conv_i2c_driver);
 }
 
-MODULE_AUTHOR("Pawel MOLL <pawel.moll@st.com>");
+MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");
 MODULE_DESCRIPTION("STMicroelectronics I2C-controlled audio converter driver");
 MODULE_LICENSE("GPL");
 

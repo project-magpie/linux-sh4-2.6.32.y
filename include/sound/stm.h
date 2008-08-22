@@ -24,6 +24,7 @@
 #ifndef __SOUND_STM_H
 #define __SOUND_STM_H
 
+#include <linux/i2c.h>
 #include <sound/driver.h>
 #include <sound/core.h>
 
@@ -98,6 +99,10 @@ int snd_stm_conv_unregister_converter(struct snd_stm_conv_converter *converter);
  * and add it:
  *
  * i2c_register_board_info(<I2C bus number>, &external_dac, 1);
+ *
+ * If you wish to perform some actions on the device before it
+ * is being used, you may define "init" callback, which will
+ * be called with i2c_client pointer during driver probe.
  */
 struct snd_stm_conv_i2c_info {
 	const char *group;
@@ -107,6 +112,10 @@ struct snd_stm_conv_i2c_info {
 	unsigned int format;
 	int oversampling;
 
+	int (*init)(struct i2c_client *client, void *priv);
+	void *priv;
+
+	int enable_supported;
 	const char *enable_cmd;
 	int enable_cmd_len;
 	const char *disable_cmd;

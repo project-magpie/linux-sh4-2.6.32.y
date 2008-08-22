@@ -23,6 +23,8 @@
 #include <linux/lirc.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
+#include <linux/i2c.h>
+#include <sound/stm.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <asm/io.h>
@@ -276,6 +278,40 @@ lirc_scd_t lirc_scd = {
 	.noiserecov = 0,
 };
 
+#ifdef CONFIG_SND
+/* SCART switch simple control */
+
+/* Enable CVBS output to both (TV & VCR) SCART outputs */
+static int mb618_scart_audio_init(struct i2c_client *client, void *priv)
+{
+	const char cmd[] = { 0x2, 0x11 };
+	int cmd_len = sizeof(cmd);
+
+	return i2c_master_send(client, cmd, cmd_len) != cmd_len;
+}
+
+/* Audio on SCART outputs control */
+static struct i2c_board_info mb618_scart_audio __initdata = {
+	I2C_BOARD_INFO("snd_conv_i2c", 0x4b),
+	.type = "STV6417",
+	.platform_data = &(struct snd_stm_conv_i2c_info) {
+		.group = "Analog Output",
+		.source_bus_id = "snd_pcm_player.1",
+		.channel_from = 0,
+		.channel_to = 1,
+		.format = SND_STM_FORMAT__I2S |
+				SND_STM_FORMAT__SUBFRAME_32_BITS,
+		.oversampling = 256,
+		.init = mb618_scart_audio_init,
+		.enable_supported = 1,
+		.enable_cmd = (char []){ 0x01, 0x09 },
+		.enable_cmd_len = 2,
+		.disable_cmd = (char []){ 0x01, 0x00 },
+		.disable_cmd_len = 2,
+	},
+};
+#endif
+
 static int __init device_init(void)
 {
 	stx7111_configure_pwm(&pwm_private_info);
@@ -285,6 +321,10 @@ static int __init device_init(void)
         stx7111_configure_lirc(&lirc_scd);
 
 	vpp_pio = stpio_request_pin(3,4, "VPP", STPIO_OUT);
+
+#ifdef CONFIG_SND
+	i2c_register_board_info(1, &mb618_scart_audio, 1);
+#endif
 
 #ifndef FLASH_NOR
 	stx7111_configure_nand(&mb618_nand_config);

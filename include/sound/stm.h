@@ -131,6 +131,7 @@ struct snd_stm_conv_gpio_info {
 	unsigned int format;
 	int oversampling;
 
+	int enable_supported;
 	unsigned enable_gpio;
 	int enable_value;
 

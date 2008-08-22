@@ -47,6 +47,7 @@ struct snd_stm_conv_gpio {
 	const char *bus_id;
 	struct snd_stm_conv_converter *converter;
 	struct snd_stm_conv_gpio_info *info;
+	struct snd_stm_conv_ops ops;
 
 	/* Runtime data */
 	int may_sleep;
@@ -88,10 +89,12 @@ static void snd_stm_conv_gpio_work(struct work_struct *work)
 	spin_unlock(&conv_gpio->work_lock);
 
 	if (enable_value != -1)
-		gpio_set_value(conv_gpio->info->enable_gpio, enable_value);
+		gpio_set_value_cansleep(conv_gpio->info->enable_gpio,
+				enable_value);
 
 	if (mute_value != -1)
-		gpio_set_value(conv_gpio->info->mute_gpio, mute_value);
+		gpio_set_value_cansleep(conv_gpio->info->mute_gpio,
+				mute_value);
 }
 
 static void snd_stm_conv_gpio_set_value(struct snd_stm_conv_gpio *conv_gpio,
@@ -158,6 +161,7 @@ static int snd_stm_conv_gpio_set_enabled(int enabled, void *priv)
 
 	snd_stm_assert(conv_gpio, return -EINVAL);
 	snd_stm_magic_assert(conv_gpio, return -EINVAL);
+	snd_stm_assert(conv_gpio->info->enable_supported, return -EINVAL);
 
 	snd_stm_printd(1, "%sabling DAC %s's.\n", enabled ? "En" : "Dis",
 			conv_gpio->bus_id);
@@ -189,19 +193,6 @@ static int snd_stm_conv_gpio_set_muted(int muted, void *priv)
 
 	return 0;
 }
-
-static struct snd_stm_conv_ops snd_stm_conv_gpio_ops_with_mute = {
-	.get_format = snd_stm_conv_gpio_get_format,
-	.get_oversampling = snd_stm_conv_gpio_get_oversampling,
-	.set_enabled = snd_stm_conv_gpio_set_enabled,
-	.set_muted = snd_stm_conv_gpio_set_muted,
-};
-
-static struct snd_stm_conv_ops snd_stm_conv_gpio_ops_without_mute = {
-	.get_format = snd_stm_conv_gpio_get_format,
-	.get_oversampling = snd_stm_conv_gpio_get_oversampling,
-	.set_enabled = snd_stm_conv_gpio_set_enabled,
-};
 
 
 
@@ -256,6 +247,13 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 	conv_gpio->bus_id = pdev->dev.bus_id;
 	conv_gpio->info = pdev->dev.platform_data;
 
+	conv_gpio->ops.get_format = snd_stm_conv_gpio_get_format;
+	conv_gpio->ops.get_oversampling = snd_stm_conv_gpio_get_oversampling;
+	if (conv_gpio->info->enable_supported)
+		conv_gpio->ops.set_enabled = snd_stm_conv_gpio_set_enabled;
+	if (conv_gpio->info->mute_supported)
+		conv_gpio->ops.set_muted = snd_stm_conv_gpio_set_muted;
+
 	/* Get connections */
 
 	snd_stm_assert(conv_gpio->info->source_bus_id != NULL,
@@ -263,10 +261,7 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 	snd_stm_printd(0, "This DAC is attached to PCM player '%s'.\n",
 			conv_gpio->info->source_bus_id);
 	conv_gpio->converter = snd_stm_conv_register_converter(
-			conv_gpio->info->group,
-			(conv_gpio->info->mute_supported ?
-			&snd_stm_conv_gpio_ops_with_mute :
-			&snd_stm_conv_gpio_ops_without_mute), conv_gpio,
+			conv_gpio->info->group, &conv_gpio->ops, conv_gpio,
 			&platform_bus_type, conv_gpio->info->source_bus_id,
 			conv_gpio->info->channel_from,
 			conv_gpio->info->channel_to, NULL);
@@ -278,16 +273,23 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 
 	/* Reserve & initialize GPIO lines (enabled & mute) */
 
-	result = gpio_request(conv_gpio->info->enable_gpio, conv_gpio->bus_id);
-	if (result != 0) {
-		snd_stm_printe("Can't reserve 'enable' GPIO line!\n");
-		goto error_gpio_request_enable;
-	}
+	if (conv_gpio->info->enable_supported) {
+		result = gpio_request(conv_gpio->info->enable_gpio,
+				conv_gpio->bus_id);
+		if (result != 0) {
+			snd_stm_printe("Can't reserve 'enable' GPIO line!\n");
+			goto error_gpio_request_enable;
+		}
 
-	if (gpio_direction_output(conv_gpio->info->enable_gpio,
-			!conv_gpio->info->enable_value) != 0) {
-		snd_stm_printe("Can't set 'enable' GPIO line as output!\n");
-		goto error_gpio_direction_output_enable;
+		if (gpio_direction_output(conv_gpio->info->enable_gpio,
+				!conv_gpio->info->enable_value) != 0) {
+			snd_stm_printe("Can't set 'enable' GPIO line as "
+					"output!\n");
+			goto error_gpio_direction_output_enable;
+		}
+
+		conv_gpio->may_sleep = gpio_cansleep(
+				conv_gpio->info->enable_gpio);
 	}
 
 	if (conv_gpio->info->mute_supported) {
@@ -298,20 +300,18 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 			goto error_gpio_request_mute;
 		}
 
-		if (conv_gpio->info->mute_supported &&
-				gpio_direction_output(
-				conv_gpio->info->mute_gpio,
+		if (gpio_direction_output(conv_gpio->info->mute_gpio,
 				conv_gpio->info->mute_value) != 0) {
 			snd_stm_printe("Can't set 'mute' GPIO line as output!"
 					"\n");
 			goto error_gpio_direction_output_mute;
 		}
+
+		conv_gpio->may_sleep |= gpio_cansleep(
+				conv_gpio->info->mute_gpio);
 	}
 
-	if (gpio_cansleep(conv_gpio->info->enable_gpio) ||
-			(conv_gpio->info->mute_supported &&
-			gpio_cansleep(conv_gpio->info->mute_gpio))) {
-		conv_gpio->may_sleep = 1;
+	if (conv_gpio->may_sleep) {
 		INIT_WORK(&conv_gpio->work, snd_stm_conv_gpio_work);
 		spin_lock_init(&conv_gpio->work_lock);
 		conv_gpio->work_enable_value = -1;
@@ -334,11 +334,14 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 	return 0;
 
 error_gpio_direction_output_mute:
-	gpio_free(conv_gpio->info->mute_gpio);
+	if (conv_gpio->info->mute_supported)
+		gpio_free(conv_gpio->info->mute_gpio);
 error_gpio_request_mute:
 error_gpio_direction_output_enable:
-	gpio_free(conv_gpio->info->enable_gpio);
+	if (conv_gpio->info->enable_supported)
+		gpio_free(conv_gpio->info->enable_gpio);
 error_gpio_request_enable:
+	snd_stm_conv_unregister_converter(conv_gpio->converter);
 error_attach:
 	snd_stm_magic_clear(conv_gpio);
 	kfree(conv_gpio);
@@ -360,17 +363,24 @@ static int snd_stm_conv_gpio_remove(struct platform_device *pdev)
 
 	snd_stm_info_unregister(conv_gpio->proc_entry);
 
+	/* Wait for the possibly scheduled work... */
+
+	if (conv_gpio->may_sleep);
+		flush_scheduled_work();
+
 	/* Muting and disabling - just to be sure ;-) */
 
 	if (conv_gpio->info->mute_supported) {
-		gpio_set_value(conv_gpio->info->mute_gpio,
+		gpio_set_value_cansleep(conv_gpio->info->mute_gpio,
 				conv_gpio->info->mute_value);
 		gpio_free(conv_gpio->info->mute_gpio);
 	}
 
-	gpio_set_value(conv_gpio->info->enable_gpio,
-			!conv_gpio->info->enable_value);
-	gpio_free(conv_gpio->info->enable_gpio);
+	if (conv_gpio->info->enable_supported) {
+		gpio_set_value_cansleep(conv_gpio->info->enable_gpio,
+				!conv_gpio->info->enable_value);
+		gpio_free(conv_gpio->info->enable_gpio);
+	}
 
 	snd_stm_magic_clear(conv_gpio);
 	kfree(conv_gpio);

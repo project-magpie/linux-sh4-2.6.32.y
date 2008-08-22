@@ -84,6 +84,7 @@ static struct platform_device conv_external_dac = {
 				SND_STM_FORMAT__SUBFRAME_32_BITS,
 		.oversampling = 256,
 
+		.enable_supported = 1,
 		.enable_gpio = EXTENDER_GPIO(0, 7),
 		.enable_value = 1,
 
@@ -106,6 +107,7 @@ static struct platform_device conv_spdif_to_i2s = {
 		.format = SND_STM_FORMAT__I2S |
 				SND_STM_FORMAT__SUBFRAME_32_BITS,
 
+		.enable_supported = 1,
 		.enable_gpio = EXTENDER_GPIO(1, 6),
 		.enable_value = 1,
 

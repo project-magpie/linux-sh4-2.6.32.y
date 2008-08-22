@@ -71,12 +71,6 @@ static int __init snd_stm_init(void)
 				" failed!\n");
 		goto error_conv_i2sspdif;
 	}
-	result = snd_stm_synchro_init();
-	if (result != 0) {
-		snd_stm_printe("Synchronisation routines initialization"
-				" failed!\n");
-		goto error_synchro;
-	}
 	result = snd_stm_pcm_player_init();
 	if (result != 0) {
 		snd_stm_printe("PCM player driver initialization failed!\n");
@@ -100,8 +94,6 @@ error_spdif_player:
 error_pcm_reader:
 	snd_stm_pcm_player_exit();
 error_pcm_player:
-	snd_stm_synchro_exit();
-error_synchro:
 	snd_stm_conv_i2sspdif_exit();
 error_conv_i2sspdif:
 	snd_stm_conv_int_dac_exit();
@@ -122,7 +114,6 @@ static void __exit snd_stm_exit(void)
 	snd_stm_spdif_player_exit();
 	snd_stm_pcm_reader_exit();
 	snd_stm_pcm_player_exit();
-	snd_stm_synchro_exit();
 	snd_stm_conv_i2sspdif_exit();
 	snd_stm_conv_int_dac_exit();
 	snd_stm_conv_exit();

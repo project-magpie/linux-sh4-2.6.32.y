@@ -620,6 +620,7 @@ static void __init early_cmdline_parse(void)
 #define OV1_PPC_2_03		0x10	/* set if we support PowerPC 2.03 */
 #define OV1_PPC_2_04		0x08	/* set if we support PowerPC 2.04 */
 #define OV1_PPC_2_05		0x04	/* set if we support PowerPC 2.05 */
+#define OV1_PPC_2_06		0x02	/* set if we support PowerPC 2.06 */
 
 /* Option vector 2: Open Firmware options supported */
 #define OV2_REAL_MODE		0x20	/* set if we want OF in real mode */
@@ -642,6 +643,11 @@ static void __init early_cmdline_parse(void)
 #else
 #define OV5_MSI			0x00
 #endif /* CONFIG_PCI_MSI */
+#ifdef CONFIG_PPC_SMLPAR
+#define OV5_CMO			0x80	/* Cooperative Memory Overcommitment */
+#else
+#define OV5_CMO			0x00
+#endif
 
 /*
  * The architecture vector has an array of PVR mask/value pairs,
@@ -650,6 +656,8 @@ static void __init early_cmdline_parse(void)
 static unsigned char ibm_architecture_vec[] = {
 	W(0xfffe0000), W(0x003a0000),	/* POWER5/POWER5+ */
 	W(0xffff0000), W(0x003e0000),	/* POWER6 */
+	W(0xffff0000), W(0x003f0000),	/* POWER7 */
+	W(0xffffffff), W(0x0f000003),	/* all 2.06-compliant */
 	W(0xffffffff), W(0x0f000002),	/* all 2.05-compliant */
 	W(0xfffffffe), W(0x0f000001),	/* all 2.04-compliant and earlier */
 	5 - 1,				/* 5 option vectors */
@@ -658,7 +666,7 @@ static unsigned char ibm_architecture_vec[] = {
 	3 - 2,				/* length */
 	0,				/* don't ignore, don't halt */
 	OV1_PPC_2_00 | OV1_PPC_2_01 | OV1_PPC_2_02 | OV1_PPC_2_03 |
-	OV1_PPC_2_04 | OV1_PPC_2_05,
+	OV1_PPC_2_04 | OV1_PPC_2_05 | OV1_PPC_2_06,
 
 	/* option vector 2: Open Firmware options supported */
 	34 - 2,				/* length */
@@ -684,10 +692,12 @@ static unsigned char ibm_architecture_vec[] = {
 	0,				/* don't halt */
 
 	/* option vector 5: PAPR/OF options */
-	3 - 2,				/* length */
+	5 - 2,				/* length */
 	0,				/* don't ignore, don't halt */
 	OV5_LPAR | OV5_SPLPAR | OV5_LARGE_PAGES | OV5_DRCONF_MEMORY |
 	OV5_DONATE_DEDICATE_CPU | OV5_MSI,
+	0,
+	OV5_CMO,
 };
 
 /* Old method - ELF header with PT_NOTE sections */
@@ -1199,7 +1209,7 @@ static void __init prom_initialize_tce_table(void)
 		if ((type[0] == 0) || (strstr(type, RELOC("pci")) == NULL))
 			continue;
 
-		/* Keep the old logic in tack to avoid regression. */
+		/* Keep the old logic intact to avoid regression. */
 		if (compatible[0] != 0) {
 			if ((strstr(compatible, RELOC("python")) == NULL) &&
 			    (strstr(compatible, RELOC("Speedwagon")) == NULL) &&
@@ -1244,7 +1254,7 @@ static void __init prom_initialize_tce_table(void)
 			local_alloc_bottom = base;
 
 		/* It seems OF doesn't null-terminate the path :-( */
-		memset(path, 0, sizeof(path));
+		memset(path, 0, PROM_SCRATCH_SIZE);
 		/* Call OF to setup the TCE hardware */
 		if (call_prom("package-to-path", 3, 1, node,
 			      path, PROM_SCRATCH_SIZE-1) == PROM_ERROR) {
@@ -2046,6 +2056,7 @@ static void __init fixup_device_tree_maple(void)
 /*
  * Pegasos and BriQ lacks the "ranges" property in the isa node
  * Pegasos needs decimal IRQ 14/15, not hexadecimal
+ * Pegasos has the IDE configured in legacy mode, but advertised as native
  */
 static void __init fixup_device_tree_chrp(void)
 {
@@ -2083,9 +2094,13 @@ static void __init fixup_device_tree_chrp(void)
 		prom_printf("Fixing up IDE interrupt on Pegasos...\n");
 		prop[0] = 14;
 		prop[1] = 0x0;
-		prop[2] = 15;
-		prop[3] = 0x0;
-		prom_setprop(ph, name, "interrupts", prop, 4*sizeof(u32));
+		prom_setprop(ph, name, "interrupts", prop, 2*sizeof(u32));
+		prom_printf("Fixing up IDE class-code on Pegasos...\n");
+		rc = prom_getprop(ph, "class-code", prop, sizeof(u32));
+		if (rc == sizeof(u32)) {
+			prop[0] &= ~0x5;
+			prom_setprop(ph, name, "class-code", prop, sizeof(u32));
+		}
 	}
 }
 #else
@@ -2137,49 +2152,84 @@ static void __init fixup_device_tree_pmac(void)
 #endif
 
 #ifdef CONFIG_PPC_EFIKA
-/* The current fw of the Efika has a device tree needs quite a few
- * fixups to be compliant with the mpc52xx bindings. It's currently
- * unknown if it will ever be compliant (come on bPlan ...) so we do fixups.
- * NOTE that we (barely) tolerate it because the EFIKA was out before
- * the bindings were finished, for any new boards -> RTFM ! */
+/*
+ * The MPC5200 FEC driver requires an phy-handle property to tell it how
+ * to talk to the phy.  If the phy-handle property is missing, then this
+ * function is called to add the appropriate nodes and link it to the
+ * ethernet node.
+ */
+static void __init fixup_device_tree_efika_add_phy(void)
+{
+	u32 node;
+	char prop[64];
+	int rv;
 
-struct subst_entry {
-	char *path;
-	char *property;
-	void *value;
-	int value_len;
-};
+	/* Check if /builtin/ethernet exists - bail if it doesn't */
+	node = call_prom("finddevice", 1, 1, ADDR("/builtin/ethernet"));
+	if (!PHANDLE_VALID(node))
+		return;
+
+	/* Check if the phy-handle property exists - bail if it does */
+	rv = prom_getprop(node, "phy-handle", prop, sizeof(prop));
+	if (!rv)
+		return;
+
+	/*
+	 * At this point the ethernet device doesn't have a phy described.
+	 * Now we need to add the missing phy node and linkage
+	 */
+
+	/* Check for an MDIO bus node - if missing then create one */
+	node = call_prom("finddevice", 1, 1, ADDR("/builtin/mdio"));
+	if (!PHANDLE_VALID(node)) {
+		prom_printf("Adding Ethernet MDIO node\n");
+		call_prom("interpret", 1, 1,
+			" s\" /builtin\" find-device"
+			" new-device"
+				" 1 encode-int s\" #address-cells\" property"
+				" 0 encode-int s\" #size-cells\" property"
+				" s\" mdio\" device-name"
+				" s\" fsl,mpc5200b-mdio\" encode-string"
+				" s\" compatible\" property"
+				" 0xf0003000 0x400 reg"
+				" 0x2 encode-int"
+				" 0x5 encode-int encode+"
+				" 0x3 encode-int encode+"
+				" s\" interrupts\" property"
+			" finish-device");
+	};
+
+	/* Check for a PHY device node - if missing then create one and
+	 * give it's phandle to the ethernet node */
+	node = call_prom("finddevice", 1, 1,
+			 ADDR("/builtin/mdio/ethernet-phy"));
+	if (!PHANDLE_VALID(node)) {
+		prom_printf("Adding Ethernet PHY node\n");
+		call_prom("interpret", 1, 1,
+			" s\" /builtin/mdio\" find-device"
+			" new-device"
+				" s\" ethernet-phy\" device-name"
+				" 0x10 encode-int s\" reg\" property"
+				" my-self"
+				" ihandle>phandle"
+			" finish-device"
+			" s\" /builtin/ethernet\" find-device"
+				" encode-int"
+				" s\" phy-handle\" property"
+			" device-end");
+	}
+}
 
 static void __init fixup_device_tree_efika(void)
 {
-	/* Substitution table */
-	#define prop_cstr(x) x, sizeof(x)
-	int prop_sound_irq[3] = { 2, 2, 0 };
-	int prop_bcomm_irq[3*16] = { 3,0,0, 3,1,0, 3,2,0, 3,3,0,
-	                             3,4,0, 3,5,0, 3,6,0, 3,7,0,
-	                             3,8,0, 3,9,0, 3,10,0, 3,11,0,
-	                             3,12,0, 3,13,0, 3,14,0, 3,15,0 };
-	struct subst_entry efika_subst_table[] = {
-		{ "/",			"device_type",	prop_cstr("efika") },
-		{ "/builtin",		"device_type",	prop_cstr("soc") },
-		{ "/builtin/ata",	"compatible",	prop_cstr("mpc5200b-ata\0mpc5200-ata"), },
-		{ "/builtin/bestcomm",	"compatible",	prop_cstr("mpc5200b-bestcomm\0mpc5200-bestcomm") },
-		{ "/builtin/bestcomm",	"interrupts",	prop_bcomm_irq, sizeof(prop_bcomm_irq) },
-		{ "/builtin/ethernet",	"compatible",	prop_cstr("mpc5200b-fec\0mpc5200-fec") },
-		{ "/builtin/pic",	"compatible",	prop_cstr("mpc5200b-pic\0mpc5200-pic") },
-		{ "/builtin/serial",	"compatible",	prop_cstr("mpc5200b-psc-uart\0mpc5200-psc-uart") },
-		{ "/builtin/sound",	"compatible",	prop_cstr("mpc5200b-psc-ac97\0mpc5200-psc-ac97") },
-		{ "/builtin/sound",	"interrupts",	prop_sound_irq, sizeof(prop_sound_irq) },
-		{ "/builtin/sram",	"compatible",	prop_cstr("mpc5200b-sram\0mpc5200-sram") },
-		{ "/builtin/sram",	"device_type",	prop_cstr("sram") },
-		{}
-	};
-	#undef prop_cstr
-
-	/* Vars */
+	int sound_irq[3] = { 2, 2, 0 };
+	int bcomm_irq[3*16] = { 3,0,0, 3,1,0, 3,2,0, 3,3,0,
+				3,4,0, 3,5,0, 3,6,0, 3,7,0,
+				3,8,0, 3,9,0, 3,10,0, 3,11,0,
+				3,12,0, 3,13,0, 3,14,0, 3,15,0 };
 	u32 node;
 	char prop[64];
-	int rv, i;
+	int rv, len;
 
 	/* Check if we're really running on a EFIKA */
 	node = call_prom("finddevice", 1, 1, ADDR("/"));
@@ -2194,23 +2244,44 @@ static void __init fixup_device_tree_efika(void)
 
 	prom_printf("Applying EFIKA device tree fixups\n");
 
-	/* Process substitution table */
-	for (i=0; efika_subst_table[i].path; i++) {
-		struct subst_entry *se = &efika_subst_table[i];
+	/* Claiming to be 'chrp' is death */
+	node = call_prom("finddevice", 1, 1, ADDR("/"));
+	rv = prom_getprop(node, "device_type", prop, sizeof(prop));
+	if (rv != PROM_ERROR && (strcmp(prop, "chrp") == 0))
+		prom_setprop(node, "/", "device_type", "efika", sizeof("efika"));
 
-		node = call_prom("finddevice", 1, 1, ADDR(se->path));
-		if (!PHANDLE_VALID(node)) {
-			prom_printf("fixup_device_tree_efika: ",
-				"skipped entry %x - not found\n", i);
-			continue;
+	/* CODEGEN,description is exposed in /proc/cpuinfo so
+	   fix that too */
+	rv = prom_getprop(node, "CODEGEN,description", prop, sizeof(prop));
+	if (rv != PROM_ERROR && (strstr(prop, "CHRP")))
+		prom_setprop(node, "/", "CODEGEN,description",
+			     "Efika 5200B PowerPC System",
+			     sizeof("Efika 5200B PowerPC System"));
+
+	/* Fixup bestcomm interrupts property */
+	node = call_prom("finddevice", 1, 1, ADDR("/builtin/bestcomm"));
+	if (PHANDLE_VALID(node)) {
+		len = prom_getproplen(node, "interrupts");
+		if (len == 12) {
+			prom_printf("Fixing bestcomm interrupts property\n");
+			prom_setprop(node, "/builtin/bestcom", "interrupts",
+				     bcomm_irq, sizeof(bcomm_irq));
 		}
-
-		rv = prom_setprop(node, se->path, se->property,
-					se->value, se->value_len );
-		if (rv == PROM_ERROR)
-			prom_printf("fixup_device_tree_efika: ",
-				"skipped entry %x - setprop error\n", i);
 	}
+
+	/* Fixup sound interrupts property */
+	node = call_prom("finddevice", 1, 1, ADDR("/builtin/sound"));
+	if (PHANDLE_VALID(node)) {
+		rv = prom_getprop(node, "interrupts", prop, sizeof(prop));
+		if (rv == PROM_ERROR) {
+			prom_printf("Adding sound interrupts property\n");
+			prom_setprop(node, "/builtin/sound", "interrupts",
+				     sound_irq, sizeof(sound_irq));
+		}
+	}
+
+	/* Make sure ethernet phy-handle property exists */
+	fixup_device_tree_efika_add_phy();
 }
 #else
 #define fixup_device_tree_efika()
@@ -2226,7 +2297,7 @@ static void __init fixup_device_tree(void)
 
 static void __init prom_find_boot_cpu(void)
 {
-       	struct prom_t *_prom = &RELOC(prom);
+	struct prom_t *_prom = &RELOC(prom);
 	u32 getprop_rval;
 	ihandle prom_cpu;
 	phandle cpu_pkg;
@@ -2246,7 +2317,7 @@ static void __init prom_find_boot_cpu(void)
 static void __init prom_check_initrd(unsigned long r3, unsigned long r4)
 {
 #ifdef CONFIG_BLK_DEV_INITRD
-       	struct prom_t *_prom = &RELOC(prom);
+	struct prom_t *_prom = &RELOC(prom);
 
 	if (r3 && r4 && r4 != 0xdeadbeef) {
 		unsigned long val;
@@ -2279,7 +2350,7 @@ unsigned long __init prom_init(unsigned long r3, unsigned long r4,
 			       unsigned long pp,
 			       unsigned long r6, unsigned long r7)
 {	
-       	struct prom_t *_prom;
+	struct prom_t *_prom;
 	unsigned long hdr;
 	unsigned long offset = reloc_offset();
 
@@ -2338,8 +2409,8 @@ unsigned long __init prom_init(unsigned long r3, unsigned long r4,
 	/*
 	 * Copy the CPU hold code
 	 */
-       	if (RELOC(of_platform) != PLATFORM_POWERMAC)
-       		copy_and_flush(0, KERNELBASE + offset, 0x100, 0);
+	if (RELOC(of_platform) != PLATFORM_POWERMAC)
+		copy_and_flush(0, KERNELBASE + offset, 0x100, 0);
 
 	/*
 	 * Do early parsing of command line

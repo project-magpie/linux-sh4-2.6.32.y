@@ -167,8 +167,8 @@ static struct irq_chip ps3_irq_chip = {
  * ps3_private data.
  */
 
-int ps3_virq_setup(enum ps3_cpu_binding cpu, unsigned long outlet,
-	unsigned int *virq)
+static int ps3_virq_setup(enum ps3_cpu_binding cpu, unsigned long outlet,
+			  unsigned int *virq)
 {
 	int result;
 	struct ps3_private *pd;
@@ -217,7 +217,7 @@ fail_create:
  * Clears chip data and calls irq_dispose_mapping() for the virq.
  */
 
-int ps3_virq_destroy(unsigned int virq)
+static int ps3_virq_destroy(unsigned int virq)
 {
 	const struct ps3_private *pd = get_irq_chip_data(virq);
 
@@ -673,9 +673,16 @@ static int ps3_host_map(struct irq_host *h, unsigned int virq,
 	return 0;
 }
 
+static int ps3_host_match(struct irq_host *h, struct device_node *np)
+{
+	/* Match all */
+	return 1;
+}
+
 static struct irq_host_ops ps3_host_ops = {
 	.map = ps3_host_map,
 	.unmap = ps3_host_unmap,
+	.match = ps3_host_match,
 };
 
 void __init ps3_register_ipi_debug_brk(unsigned int cpu, unsigned int virq)
@@ -702,7 +709,7 @@ static unsigned int ps3_get_irq(void)
 	asm volatile("cntlzd %0,%1" : "=r" (plug) : "r" (x));
 	plug &= 0x3f;
 
-	if (unlikely(plug) == NO_IRQ) {
+	if (unlikely(plug == NO_IRQ)) {
 		pr_debug("%s:%d: no plug found: thread_id %lu\n", __func__,
 			__LINE__, pd->thread_id);
 		dump_bmp(&per_cpu(ps3_private, 0));
@@ -726,7 +733,7 @@ void __init ps3_init_IRQ(void)
 	unsigned cpu;
 	struct irq_host *host;
 
-	host = irq_alloc_host(IRQ_HOST_MAP_NOMAP, 0, &ps3_host_ops,
+	host = irq_alloc_host(NULL, IRQ_HOST_MAP_NOMAP, 0, &ps3_host_ops,
 		PS3_INVALID_OUTLET);
 	irq_set_default_host(host);
 	irq_set_virq_count(PS3_PLUG_MAX + 1);

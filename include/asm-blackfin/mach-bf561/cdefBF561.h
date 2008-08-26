@@ -31,11 +31,8 @@
 #ifndef _CDEF_BF561_H
 #define _CDEF_BF561_H
 
-/*
-#if !defined(__ADSPBF561__)
-#warning cdefBF561.h should only be included for BF561 chip.
-#endif
-*/
+#include <asm/blackfin.h>
+
 /* include all Core registers and bit definitions */
 #include "defBF561.h"
 
@@ -50,7 +47,30 @@
 
 /* Clock and System Control (0xFFC00000 - 0xFFC000FF) */
 #define bfin_read_PLL_CTL()                  bfin_read16(PLL_CTL)
-#define bfin_write_PLL_CTL(val)              bfin_write16(PLL_CTL,val)
+/* Writing to PLL_CTL initiates a PLL relock sequence. */
+static __inline__ void bfin_write_PLL_CTL(unsigned int val)
+{
+	unsigned long flags, iwr0, iwr1;
+
+	if (val == bfin_read_PLL_CTL())
+		return;
+
+	local_irq_save(flags);
+	/* Enable the PLL Wakeup bit in SIC IWR */
+	iwr0 = bfin_read32(SICA_IWR0);
+	iwr1 = bfin_read32(SICA_IWR1);
+	/* Only allow PPL Wakeup) */
+	bfin_write32(SICA_IWR0, IWR_ENABLE(0));
+	bfin_write32(SICA_IWR1, 0);
+
+	bfin_write16(PLL_CTL, val);
+	SSYNC();
+	asm("IDLE;");
+
+	bfin_write32(SICA_IWR0, iwr0);
+	bfin_write32(SICA_IWR1, iwr1);
+	local_irq_restore(flags);
+}
 #define bfin_read_PLL_DIV()                  bfin_read16(PLL_DIV)
 #define bfin_write_PLL_DIV(val)              bfin_write16(PLL_DIV,val)
 #define bfin_read_VR_CTL()                   bfin_read16(VR_CTL)
@@ -59,6 +79,10 @@ static __inline__ void bfin_write_VR_CTL(unsigned int val)
 {
 	unsigned long flags, iwr0, iwr1;
 
+	if (val == bfin_read_VR_CTL())
+		return;
+
+	local_irq_save(flags);
 	/* Enable the PLL Wakeup bit in SIC IWR */
 	iwr0 = bfin_read32(SICA_IWR0);
 	iwr1 = bfin_read32(SICA_IWR1);
@@ -67,13 +91,12 @@ static __inline__ void bfin_write_VR_CTL(unsigned int val)
 	bfin_write32(SICA_IWR1, 0);
 
 	bfin_write16(VR_CTL, val);
-	__builtin_bfin_ssync();
-
-	local_irq_save(flags);
+	SSYNC();
 	asm("IDLE;");
-	local_irq_restore(flags);
+
 	bfin_write32(SICA_IWR0, iwr0);
 	bfin_write32(SICA_IWR1, iwr1);
+	local_irq_restore(flags);
 }
 #define bfin_read_PLL_STAT()                 bfin_read16(PLL_STAT)
 #define bfin_write_PLL_STAT(val)             bfin_write16(PLL_STAT,val)
@@ -562,6 +585,7 @@ static __inline__ void bfin_write_VR_CTL(unsigned int val)
 #define bfin_write_PPI0_CONTROL(val)         bfin_write16(PPI0_CONTROL,val)
 #define bfin_read_PPI0_STATUS()              bfin_read16(PPI0_STATUS)
 #define bfin_write_PPI0_STATUS(val)          bfin_write16(PPI0_STATUS,val)
+#define bfin_clear_PPI0_STATUS()             bfin_read_PPI0_STATUS()
 #define bfin_read_PPI0_COUNT()               bfin_read16(PPI0_COUNT)
 #define bfin_write_PPI0_COUNT(val)           bfin_write16(PPI0_COUNT,val)
 #define bfin_read_PPI0_DELAY()               bfin_read16(PPI0_DELAY)
@@ -573,6 +597,7 @@ static __inline__ void bfin_write_VR_CTL(unsigned int val)
 #define bfin_write_PPI1_CONTROL(val)         bfin_write16(PPI1_CONTROL,val)
 #define bfin_read_PPI1_STATUS()              bfin_read16(PPI1_STATUS)
 #define bfin_write_PPI1_STATUS(val)          bfin_write16(PPI1_STATUS,val)
+#define bfin_clear_PPI1_STATUS()             bfin_read_PPI1_STATUS()
 #define bfin_read_PPI1_COUNT()               bfin_read16(PPI1_COUNT)
 #define bfin_write_PPI1_COUNT(val)           bfin_write16(PPI1_COUNT,val)
 #define bfin_read_PPI1_DELAY()               bfin_read16(PPI1_DELAY)

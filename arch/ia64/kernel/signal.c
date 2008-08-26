@@ -98,7 +98,7 @@ restore_sigcontext (struct sigcontext __user *sc, struct sigscratch *scr)
 	if ((flags & IA64_SC_FLAG_FPH_VALID) != 0) {
 		struct ia64_psr *psr = ia64_psr(&scr->pt);
 
-		__copy_from_user(current->thread.fph, &sc->sc_fr[32], 96*16);
+		err |= __copy_from_user(current->thread.fph, &sc->sc_fr[32], 96*16);
 		psr->mfh = 0;	/* drop signal handler's fph contents... */
 		preempt_disable();
 		if (psr->dfh)
@@ -227,7 +227,7 @@ ia64_rt_sigreturn (struct sigscratch *scr)
 	si.si_signo = SIGSEGV;
 	si.si_errno = 0;
 	si.si_code = SI_KERNEL;
-	si.si_pid = current->pid;
+	si.si_pid = task_pid_vnr(current);
 	si.si_uid = current->uid;
 	si.si_addr = sc;
 	force_sig_info(SIGSEGV, &si, current);
@@ -244,7 +244,7 @@ static long
 setup_sigcontext (struct sigcontext __user *sc, sigset_t *mask, struct sigscratch *scr)
 {
 	unsigned long flags = 0, ifs, cfm, nat;
-	long err;
+	long err = 0;
 
 	ifs = scr->pt.cr_ifs;
 
@@ -257,12 +257,12 @@ setup_sigcontext (struct sigcontext __user *sc, sigset_t *mask, struct sigscratc
 	ia64_flush_fph(current);
 	if ((current->thread.flags & IA64_THREAD_FPH_VALID)) {
 		flags |= IA64_SC_FLAG_FPH_VALID;
-		__copy_to_user(&sc->sc_fr[32], current->thread.fph, 96*16);
+		err = __copy_to_user(&sc->sc_fr[32], current->thread.fph, 96*16);
 	}
 
 	nat = ia64_get_scratch_nat_bits(&scr->pt, scr->scratch_unat);
 
-	err  = __put_user(flags, &sc->sc_flags);
+	err |= __put_user(flags, &sc->sc_flags);
 	err |= __put_user(nat, &sc->sc_nat);
 	err |= PUT_SIGSET(mask, &sc->sc_mask);
 	err |= __put_user(cfm, &sc->sc_cfm);
@@ -280,15 +280,7 @@ setup_sigcontext (struct sigcontext __user *sc, sigset_t *mask, struct sigscratc
 	err |= __copy_to_user(&sc->sc_gr[15], &scr->pt.r15, 8);		/* r15 */
 	err |= __put_user(scr->pt.cr_iip + ia64_psr(&scr->pt)->ri, &sc->sc_ip);
 
-	if (flags & IA64_SC_FLAG_IN_SYSCALL) {
-		/* Clear scratch registers if the signal interrupted a system call. */
-		err |= __put_user(0, &sc->sc_ar_ccv);				/* ar.ccv */
-		err |= __put_user(0, &sc->sc_br[7]);				/* b7 */
-		err |= __put_user(0, &sc->sc_gr[14]);				/* r14 */
-		err |= __clear_user(&sc->sc_ar25, 2*8);			/* ar.csd & ar.ssd */
-		err |= __clear_user(&sc->sc_gr[2], 2*8);			/* r2-r3 */
-		err |= __clear_user(&sc->sc_gr[16], 16*8);			/* r16-r31 */
-	} else {
+	if (!(flags & IA64_SC_FLAG_IN_SYSCALL)) {
 		/* Copy scratch regs to sigcontext if the signal didn't interrupt a syscall. */
 		err |= __put_user(scr->pt.ar_ccv, &sc->sc_ar_ccv);		/* ar.ccv */
 		err |= __put_user(scr->pt.b7, &sc->sc_br[7]);			/* b7 */
@@ -332,7 +324,7 @@ force_sigsegv_info (int sig, void __user *addr)
 	si.si_signo = SIGSEGV;
 	si.si_errno = 0;
 	si.si_code = SI_KERNEL;
-	si.si_pid = current->pid;
+	si.si_pid = task_pid_vnr(current);
 	si.si_uid = current->uid;
 	si.si_addr = addr;
 	force_sig_info(SIGSEGV, &si, current);
@@ -350,15 +342,33 @@ setup_frame (int sig, struct k_sigaction *ka, siginfo_t *info, sigset_t *set,
 
 	new_sp = scr->pt.r12;
 	tramp_addr = (unsigned long) __kernel_sigtramp;
-	if ((ka->sa.sa_flags & SA_ONSTACK) && sas_ss_flags(new_sp) == 0) {
-		new_sp = current->sas_ss_sp + current->sas_ss_size;
-		/*
-		 * We need to check for the register stack being on the signal stack
-		 * separately, because it's switched separately (memory stack is switched
-		 * in the kernel, register stack is switched in the signal trampoline).
-		 */
-		if (!rbs_on_sig_stack(scr->pt.ar_bspstore))
-			new_rbs = (current->sas_ss_sp + sizeof(long) - 1) & ~(sizeof(long) - 1);
+	if (ka->sa.sa_flags & SA_ONSTACK) {
+		int onstack = sas_ss_flags(new_sp);
+
+		if (onstack == 0) {
+			new_sp = current->sas_ss_sp + current->sas_ss_size;
+			/*
+			 * We need to check for the register stack being on the
+			 * signal stack separately, because it's switched
+			 * separately (memory stack is switched in the kernel,
+			 * register stack is switched in the signal trampoline).
+			 */
+			if (!rbs_on_sig_stack(scr->pt.ar_bspstore))
+				new_rbs = ALIGN(current->sas_ss_sp,
+						sizeof(long));
+		} else if (onstack == SS_ONSTACK) {
+			unsigned long check_sp;
+
+			/*
+			 * If we are on the alternate signal stack and would
+			 * overflow it, don't. Return an always-bogus address
+			 * instead so we will die with SIGSEGV.
+			 */
+			check_sp = (new_sp - sizeof(*frame)) & -STACK_ALIGN;
+			if (!likely(on_sig_stack(check_sp)))
+				return force_sigsegv_info(sig, (void __user *)
+							  check_sp);
+		}
 	}
 	frame = (void __user *) ((new_sp - sizeof(*frame)) & -STACK_ALIGN);
 
@@ -454,7 +464,7 @@ ia64_do_signal (struct sigscratch *scr, long in_syscall)
 	if (!user_mode(&scr->pt))
 		return;
 
-	if (test_thread_flag(TIF_RESTORE_SIGMASK))
+	if (current_thread_info()->status & TS_RESTORE_SIGMASK)
 		oldset = &current->saved_sigmask;
 	else
 		oldset = &current->blocked;
@@ -520,12 +530,13 @@ ia64_do_signal (struct sigscratch *scr, long in_syscall)
 		 * continue to iterate in this loop so we can deliver the SIGSEGV...
 		 */
 		if (handle_signal(signr, &ka, &info, oldset, scr)) {
-			/* a signal was successfully delivered; the saved
+			/*
+			 * A signal was successfully delivered; the saved
 			 * sigmask will have been stored in the signal frame,
 			 * and will be restored by sigreturn, so we can simply
-			 * clear the TIF_RESTORE_SIGMASK flag */
-			if (test_thread_flag(TIF_RESTORE_SIGMASK))
-				clear_thread_flag(TIF_RESTORE_SIGMASK);
+			 * clear the TS_RESTORE_SIGMASK flag.
+			 */
+			current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
 			return;
 		}
 	}
@@ -556,8 +567,8 @@ ia64_do_signal (struct sigscratch *scr, long in_syscall)
 
 	/* if there's no signal to deliver, we just put the saved sigmask
 	 * back */
-	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
-		clear_thread_flag(TIF_RESTORE_SIGMASK);
+	if (current_thread_info()->status & TS_RESTORE_SIGMASK) {
+		current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
 		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
 	}
 }

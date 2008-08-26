@@ -50,7 +50,7 @@
 #include <linux/bitops.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
-#ifdef CONFIG_HAVE_GPIO_LIB
+#ifdef CONFIG_GPIOLIB
 #include <linux/gpio.h>
 #endif
 #ifdef CONFIG_PROC_FS
@@ -113,7 +113,7 @@ struct stpio_pin {
 struct stpio_port {
 	void __iomem *base;
 	struct stpio_pin pins[STPIO_PINS_IN_PORT];
-#ifdef CONFIG_HAVE_GPIO_LIB
+#ifdef CONFIG_GPIOLIB
 	struct gpio_chip gpio_chip;
 #endif
 	unsigned int level_mask;
@@ -136,7 +136,7 @@ struct stpio_pin *__stpio_request_pin(unsigned int portno,
 
 	spin_lock(&stpio_lock);
 
-#ifdef CONFIG_HAVE_GPIO_LIB
+#ifdef CONFIG_GPIOLIB
 	if (gpio_request(stpio_to_gpio(portno, pinno), name) == 0) {
 #else
 	if (stpio_ports[portno].pins[pinno].name == NULL) {
@@ -160,7 +160,7 @@ void stpio_free_pin(struct stpio_pin *pin)
 	pin->name = NULL;
 	pin->func = 0;
 	pin->dev  = 0;
-#ifdef CONFIG_HAVE_GPIO_LIB
+#ifdef CONFIG_GPIOLIB
 	gpio_free(stpio_to_gpio(pin->port - stpio_ports, pin->no));
 #endif
 }
@@ -490,7 +490,7 @@ done:
 
 
 
-#ifdef CONFIG_HAVE_GPIO_LIB
+#ifdef CONFIG_GPIOLIB
 
 #define to_stpio_port(chip) container_of(chip, struct stpio_port, gpio_chip)
 
@@ -549,7 +549,7 @@ static void stpio_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 	stpio_set_pin(pin, (unsigned int)value);
 }
 
-#endif /* CONFIG_HAVE_GPIO_LIB */
+#endif /* CONFIG_GPIOLIB */
 
 static void stpio_irq_chip_disable(unsigned int irq)
 {
@@ -666,7 +666,7 @@ static int stpio_init_port(struct platform_device *pdev, int early)
 			port->pins[pinno].port = port;
 		}
 
-#ifdef CONFIG_HAVE_GPIO_LIB
+#ifdef CONFIG_GPIOLIB
 		port->gpio_chip.label = pdev->dev.bus_id;
 		port->gpio_chip.direction_input = stpio_gpio_direction_input;
 		port->gpio_chip.get = stpio_gpio_get;
@@ -711,7 +711,7 @@ no_irq:
 
 	return 0;
 
-#ifdef CONFIG_HAVE_GPIO_LIB
+#ifdef CONFIG_GPIOLIB
 error_gpiochip_add:
 	iounmap(port->base);
 #endif
@@ -749,7 +749,7 @@ static int __devexit stpio_remove(struct platform_device *pdev)
 
 	BUG_ON(pdev->id >= STPIO_MAX_PORTS);
 
-#ifdef CONFIG_HAVE_GPIO_LIB
+#ifdef CONFIG_GPIOLIB
 	if (gpiochip_remove(&port->gpio_chip) != 0)
 		return -EBUSY;
 #endif

@@ -2,7 +2,11 @@
 #define __LINUX_MROUTE_H
 
 #include <linux/sockios.h>
+#include <linux/types.h>
+#ifdef __KERNEL__
 #include <linux/in.h>
+#endif
+#include <linux/pim.h>
 
 /*
  *	Based on the MROUTING 3.5 defines primarily to keep
@@ -128,11 +132,49 @@ struct igmpmsg
 #ifdef __KERNEL__
 #include <net/sock.h>
 
+#ifdef CONFIG_IP_MROUTE
+static inline int ip_mroute_opt(int opt)
+{
+	return (opt >= MRT_BASE) && (opt <= MRT_BASE + 10);
+}
+#else
+static inline int ip_mroute_opt(int opt)
+{
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_IP_MROUTE
 extern int ip_mroute_setsockopt(struct sock *, int, char __user *, int);
 extern int ip_mroute_getsockopt(struct sock *, int, char __user *, int __user *);
 extern int ipmr_ioctl(struct sock *sk, int cmd, void __user *arg);
-extern void ip_mr_init(void);
+extern int ip_mr_init(void);
+#else
+static inline
+int ip_mroute_setsockopt(struct sock *sock,
+			 int optname, char __user *optval, int optlen)
+{
+	return -ENOPROTOOPT;
+}
 
+static inline
+int ip_mroute_getsockopt(struct sock *sock,
+			 int optname, char __user *optval, int __user *optlen)
+{
+	return -ENOPROTOOPT;
+}
+
+static inline
+int ipmr_ioctl(struct sock *sk, int cmd, void __user *arg)
+{
+	return -ENOIOCTLCMD;
+}
+
+static inline int ip_mr_init(void)
+{
+	return 0;
+}
+#endif
 
 struct vif_device
 {
@@ -198,27 +240,6 @@ struct mfc_cache
 #define IGMPMSG_WHOLEPKT	3		/* For PIM Register processing */
 
 #ifdef __KERNEL__
-
-#define PIM_V1_VERSION		__constant_htonl(0x10000000)
-#define PIM_V1_REGISTER		1
-
-#define PIM_VERSION		2
-#define PIM_REGISTER		1
-
-#define PIM_NULL_REGISTER	__constant_htonl(0x40000000)
-
-/* PIMv2 register message header layout (ietf-draft-idmr-pimvsm-v2-00.ps */
-
-struct pimreghdr
-{
-	__u8	type;
-	__u8	reserved;
-	__be16	csum;
-	__be32	flags;
-};
-
-extern int pim_rcv_v1(struct sk_buff *);
-
 struct rtmsg;
 extern int ipmr_get_route(struct sk_buff *skb, struct rtmsg *rtm, int nowait);
 #endif

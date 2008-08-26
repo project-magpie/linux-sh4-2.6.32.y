@@ -93,6 +93,8 @@ struct clocksource {
 #endif
 };
 
+extern struct clocksource *clock;	/* current clocksource */
+
 /*
  * Clock source flags bits::
  */
@@ -103,7 +105,7 @@ struct clocksource {
 #define CLOCK_SOURCE_VALID_FOR_HRES		0x20
 
 /* simplify initialization of mask field */
-#define CLOCKSOURCE_MASK(bits) (cycle_t)(bits<64 ? ((1ULL<<bits)-1) : -1)
+#define CLOCKSOURCE_MASK(bits) (cycle_t)((bits) < 64 ? ((1ULL<<(bits))-1) : -1)
 
 /**
  * clocksource_khz2mult - calculates mult from khz and shift
@@ -215,14 +217,21 @@ static inline void clocksource_calculate_interval(struct clocksource *c,
 
 /* used to install a new clocksource */
 extern int clocksource_register(struct clocksource*);
+extern void clocksource_unregister(struct clocksource*);
+extern void clocksource_touch_watchdog(void);
 extern struct clocksource* clocksource_get_next(void);
 extern void clocksource_change_rating(struct clocksource *cs, int rating);
 extern void clocksource_resume(void);
 
 #ifdef CONFIG_GENERIC_TIME_VSYSCALL
 extern void update_vsyscall(struct timespec *ts, struct clocksource *c);
+extern void update_vsyscall_tz(void);
 #else
 static inline void update_vsyscall(struct timespec *ts, struct clocksource *c)
+{
+}
+
+static inline void update_vsyscall_tz(void)
 {
 }
 #endif

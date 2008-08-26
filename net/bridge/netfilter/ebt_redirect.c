@@ -8,42 +8,35 @@
  *
  */
 
+#include <linux/netfilter.h>
 #include <linux/netfilter_bridge/ebtables.h>
 #include <linux/netfilter_bridge/ebt_redirect.h>
 #include <linux/module.h>
 #include <net/sock.h>
 #include "../br_private.h"
 
-static int ebt_target_redirect(struct sk_buff **pskb, unsigned int hooknr,
+static int ebt_target_redirect(struct sk_buff *skb, unsigned int hooknr,
    const struct net_device *in, const struct net_device *out,
    const void *data, unsigned int datalen)
 {
-	struct ebt_redirect_info *info = (struct ebt_redirect_info *)data;
+	const struct ebt_redirect_info *info = data;
 
-	if (skb_shared(*pskb) || skb_cloned(*pskb)) {
-		struct sk_buff *nskb;
+	if (!skb_make_writable(skb, 0))
+		return EBT_DROP;
 
-		nskb = skb_copy(*pskb, GFP_ATOMIC);
-		if (!nskb)
-			return NF_DROP;
-		if ((*pskb)->sk)
-			skb_set_owner_w(nskb, (*pskb)->sk);
-		kfree_skb(*pskb);
-		*pskb = nskb;
-	}
 	if (hooknr != NF_BR_BROUTING)
-		memcpy(eth_hdr(*pskb)->h_dest,
+		memcpy(eth_hdr(skb)->h_dest,
 		       in->br_port->br->dev->dev_addr, ETH_ALEN);
 	else
-		memcpy(eth_hdr(*pskb)->h_dest, in->dev_addr, ETH_ALEN);
-	(*pskb)->pkt_type = PACKET_HOST;
+		memcpy(eth_hdr(skb)->h_dest, in->dev_addr, ETH_ALEN);
+	skb->pkt_type = PACKET_HOST;
 	return info->target;
 }
 
 static int ebt_target_redirect_check(const char *tablename, unsigned int hookmask,
    const struct ebt_entry *e, void *data, unsigned int datalen)
 {
-	struct ebt_redirect_info *info = (struct ebt_redirect_info *)data;
+	const struct ebt_redirect_info *info = data;
 
 	if (datalen != EBT_ALIGN(sizeof(struct ebt_redirect_info)))
 		return -EINVAL;
@@ -58,8 +51,7 @@ static int ebt_target_redirect_check(const char *tablename, unsigned int hookmas
 	return 0;
 }
 
-static struct ebt_target redirect_target =
-{
+static struct ebt_target redirect_target __read_mostly = {
 	.name		= EBT_REDIRECT_TARGET,
 	.target		= ebt_target_redirect,
 	.check		= ebt_target_redirect_check,
@@ -78,4 +70,5 @@ static void __exit ebt_redirect_fini(void)
 
 module_init(ebt_redirect_init);
 module_exit(ebt_redirect_fini);
+MODULE_DESCRIPTION("Ebtables: Packet redirection to localhost");
 MODULE_LICENSE("GPL");

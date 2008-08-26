@@ -26,6 +26,13 @@
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 
+#ifndef pgprot_modify
+static inline pgprot_t pgprot_modify(pgprot_t oldprot, pgprot_t newprot)
+{
+	return newprot;
+}
+#endif
+
 static void change_pte_range(struct mm_struct *mm, pmd_t *pmd,
 		unsigned long addr, unsigned long end, pgprot_t newprot,
 		int dirty_accountable)
@@ -40,20 +47,17 @@ static void change_pte_range(struct mm_struct *mm, pmd_t *pmd,
 		if (pte_present(oldpte)) {
 			pte_t ptent;
 
-			/* Avoid an SMP race with hardware updated dirty/clean
-			 * bits by wiping the pte and then setting the new pte
-			 * into place.
-			 */
-			ptent = ptep_get_and_clear(mm, addr, pte);
+			ptent = ptep_modify_prot_start(mm, addr, pte);
 			ptent = pte_modify(ptent, newprot);
+
 			/*
 			 * Avoid taking write faults for pages we know to be
 			 * dirty.
 			 */
 			if (dirty_accountable && pte_dirty(ptent))
 				ptent = pte_mkwrite(ptent);
-			set_pte_at(mm, addr, pte, ptent);
-			lazy_mmu_prot_update(ptent);
+
+			ptep_modify_prot_commit(mm, addr, pte, ptent);
 #ifdef CONFIG_MIGRATION
 		} else if (!pte_file(oldpte)) {
 			swp_entry_t entry = pte_to_swp_entry(oldpte);
@@ -149,12 +153,10 @@ mprotect_fixup(struct vm_area_struct *vma, struct vm_area_struct **pprev,
 	 * If we make a private mapping writable we increase our commit;
 	 * but (without finer accounting) cannot reduce our commit if we
 	 * make it unwritable again.
-	 *
-	 * FIXME? We haven't defined a VM_NORESERVE flag, so mprotecting
-	 * a MAP_NORESERVE private mapping to writable will now reserve.
 	 */
 	if (newflags & VM_WRITE) {
-		if (!(oldflags & (VM_ACCOUNT|VM_WRITE|VM_SHARED))) {
+		if (!(oldflags & (VM_ACCOUNT|VM_WRITE|
+						VM_SHARED|VM_NORESERVE))) {
 			charged = nrpages;
 			if (security_vm_enough_memory(charged))
 				return -ENOMEM;
@@ -193,11 +195,11 @@ success:
 	 * held in write mode.
 	 */
 	vma->vm_flags = newflags;
-	vma->vm_page_prot = protection_map[newflags &
-		(VM_READ|VM_WRITE|VM_EXEC|VM_SHARED)];
+	vma->vm_page_prot = pgprot_modify(vma->vm_page_prot,
+					  vm_get_page_prot(newflags));
+
 	if (vma_wants_writenotify(vma)) {
-		vma->vm_page_prot = protection_map[newflags &
-			(VM_READ|VM_WRITE|VM_EXEC)];
+		vma->vm_page_prot = vm_get_page_prot(newflags & ~VM_SHARED);
 		dirty_accountable = 1;
 	}
 
@@ -233,7 +235,7 @@ sys_mprotect(unsigned long start, size_t len, unsigned long prot)
 	end = start + len;
 	if (end <= start)
 		return -ENOMEM;
-	if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC | PROT_SEM))
+	if (!arch_validate_prot(prot))
 		return -EINVAL;
 
 	reqprot = prot;

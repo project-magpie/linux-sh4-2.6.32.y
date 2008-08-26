@@ -4,7 +4,7 @@
  *	Author:	Manish Lachwani, mlachwani@mvista.com
  * Copyright (C) 2004  MIPS Technologies, Inc.  All rights reserved.
  *	Author: Maciej W. Rozycki <macro@mips.com>
- * Copyright (c) 2006  Maciej W. Rozycki
+ * Copyright (c) 2006, 2008  Maciej W. Rozycki
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -61,30 +61,25 @@ static struct resource swarm_ide_resource = {
 
 static struct platform_device *swarm_ide_dev;
 
+static const struct ide_port_info swarm_port_info = {
+	.name			= DRV_NAME,
+	.host_flags		= IDE_HFLAG_MMIO | IDE_HFLAG_NO_DMA,
+};
+
 /*
  * swarm_ide_probe - if the board header indicates the existence of
  * Generic Bus IDE, allocate a HWIF for it.
  */
 static int __devinit swarm_ide_probe(struct device *dev)
 {
-	ide_hwif_t *hwif;
 	u8 __iomem *base;
+	struct ide_host *host;
 	phys_t offset, size;
-	int i;
+	int i, rc;
+	hw_regs_t hw, *hws[] = { &hw, NULL, NULL, NULL };
 
 	if (!SIBYTE_HAVE_IDE)
 		return -ENODEV;
-
-	/* Find an empty slot.  */
-	for (i = 0; i < MAX_HWIFS; i++)
-		if (!ide_hwifs[i].io_ports[IDE_DATA_OFFSET])
-			break;
-	if (i >= MAX_HWIFS) {
-		printk(KERN_ERR DRV_NAME ": no free slot for interface\n");
-		return -ENOMEM;
-	}
-
-	hwif = ide_hwifs + i;
 
 	base = ioremap(A_IO_EXT_BASE, 0x800);
 	offset = __raw_readq(base + R_IO_EXT_REG(R_IO_EXT_START_ADDR, IDE_CS));
@@ -112,29 +107,25 @@ static int __devinit swarm_ide_probe(struct device *dev)
 
 	base = ioremap(offset, size);
 
-	/* Setup MMIO ops.  */
-	default_hwif_mmiops(hwif);
-	/* Prevent resource map manipulation.  */
-	hwif->mmio = 1;
-	hwif->noprobe = 0;
-
-	for (i = IDE_DATA_OFFSET; i <= IDE_STATUS_OFFSET; i++)
-		hwif->hw.io_ports[i] =
+	for (i = 0; i <= 7; i++)
+		hw.io_ports_array[i] =
 				(unsigned long)(base + ((0x1f0 + i) << 5));
-	hwif->hw.io_ports[IDE_CONTROL_OFFSET] =
+	hw.io_ports.ctl_addr =
 				(unsigned long)(base + (0x3f6 << 5));
-	hwif->hw.irq = K_INT_GB_IDE;
+	hw.irq = K_INT_GB_IDE;
+	hw.chipset = ide_generic;
 
-	memcpy(hwif->io_ports, hwif->hw.io_ports, sizeof(hwif->io_ports));
-	hwif->irq = hwif->hw.irq;
+	rc = ide_host_add(&swarm_port_info, hws, &host);
+	if (rc)
+		goto err;
 
-	probe_hwif_init(hwif);
-
-	ide_proc_register_port(hwif);
-
-	dev_set_drvdata(dev, hwif);
+	dev_set_drvdata(dev, host);
 
 	return 0;
+err:
+	release_resource(&swarm_ide_resource);
+	iounmap(base);
+	return rc;
 }
 
 static struct device_driver swarm_ide_driver = {

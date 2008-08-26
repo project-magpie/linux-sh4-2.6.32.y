@@ -45,8 +45,6 @@ void show_mem(void)
 
 	printk(KERN_INFO "Mem-info:\n");
 	show_free_areas();
-	printk(KERN_INFO "Free swap:       %6ldkB\n",
-	       nr_swap_pages<<(PAGE_SHIFT-10));
 	printk(KERN_INFO "Node memory in pages:\n");
 	for_each_online_pgdat(pgdat) {
 		unsigned long present;
@@ -146,6 +144,46 @@ find_bootmap_location (unsigned long start, unsigned long end, void *arg)
 	return 0;
 }
 
+#ifdef CONFIG_SMP
+static void *cpu_data;
+/**
+ * per_cpu_init - setup per-cpu variables
+ *
+ * Allocate and setup per-cpu data areas.
+ */
+void * __cpuinit
+per_cpu_init (void)
+{
+	int cpu;
+	static int first_time=1;
+
+	/*
+	 * get_free_pages() cannot be used before cpu_init() done.  BSP
+	 * allocates "NR_CPUS" pages for all CPUs to avoid that AP calls
+	 * get_zeroed_page().
+	 */
+	if (first_time) {
+		first_time=0;
+		for (cpu = 0; cpu < NR_CPUS; cpu++) {
+			memcpy(cpu_data, __phys_per_cpu_start, __per_cpu_end - __per_cpu_start);
+			__per_cpu_offset[cpu] = (char *) cpu_data - __per_cpu_start;
+			cpu_data += PERCPU_PAGE_SIZE;
+			per_cpu(local_per_cpu_offset, cpu) = __per_cpu_offset[cpu];
+		}
+	}
+	return __per_cpu_start + __per_cpu_offset[smp_processor_id()];
+}
+
+static inline void
+alloc_per_cpu_data(void)
+{
+	cpu_data = __alloc_bootmem(PERCPU_PAGE_SIZE * NR_CPUS,
+				   PERCPU_PAGE_SIZE, __pa(MAX_DMA_ADDRESS));
+}
+#else
+#define alloc_per_cpu_data() do { } while (0)
+#endif /* CONFIG_SMP */
+
 /**
  * find_memory - setup memory map
  *
@@ -178,44 +216,12 @@ find_memory (void)
 
 	/* Free all available memory, then mark bootmem-map as being in use. */
 	efi_memmap_walk(filter_rsvd_memory, free_bootmem);
-	reserve_bootmem(bootmap_start, bootmap_size);
+	reserve_bootmem(bootmap_start, bootmap_size, BOOTMEM_DEFAULT);
 
 	find_initrd();
 
+	alloc_per_cpu_data();
 }
-
-#ifdef CONFIG_SMP
-/**
- * per_cpu_init - setup per-cpu variables
- *
- * Allocate and setup per-cpu data areas.
- */
-void * __cpuinit
-per_cpu_init (void)
-{
-	void *cpu_data;
-	int cpu;
-	static int first_time=1;
-
-	/*
-	 * get_free_pages() cannot be used before cpu_init() done.  BSP
-	 * allocates "NR_CPUS" pages for all CPUs to avoid that AP calls
-	 * get_zeroed_page().
-	 */
-	if (first_time) {
-		first_time=0;
-		cpu_data = __alloc_bootmem(PERCPU_PAGE_SIZE * NR_CPUS,
-					   PERCPU_PAGE_SIZE, __pa(MAX_DMA_ADDRESS));
-		for (cpu = 0; cpu < NR_CPUS; cpu++) {
-			memcpy(cpu_data, __phys_per_cpu_start, __per_cpu_end - __per_cpu_start);
-			__per_cpu_offset[cpu] = (char *) cpu_data - __per_cpu_start;
-			cpu_data += PERCPU_PAGE_SIZE;
-			per_cpu(local_per_cpu_offset, cpu) = __per_cpu_offset[cpu];
-		}
-	}
-	return __per_cpu_start + __per_cpu_offset[smp_processor_id()];
-}
-#endif /* CONFIG_SMP */
 
 static int
 count_pages (u64 start, u64 end, void *arg)
@@ -247,7 +253,7 @@ paging_init (void)
 	max_zone_pfns[ZONE_NORMAL] = max_low_pfn;
 
 #ifdef CONFIG_VIRTUAL_MEM_MAP
-	efi_memmap_walk(register_active_ranges, NULL);
+	efi_memmap_walk(filter_memory, register_active_ranges);
 	efi_memmap_walk(find_largest_hole, (u64 *)&max_gap);
 	if (max_gap < LARGE_GAP) {
 		vmem_map = (struct page *) 0;

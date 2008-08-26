@@ -87,7 +87,10 @@
 
 #define OCFS2_FEATURE_COMPAT_SUPP	OCFS2_FEATURE_COMPAT_BACKUP_SB
 #define OCFS2_FEATURE_INCOMPAT_SUPP	(OCFS2_FEATURE_INCOMPAT_LOCAL_MOUNT \
-					 | OCFS2_FEATURE_INCOMPAT_SPARSE_ALLOC)
+					 | OCFS2_FEATURE_INCOMPAT_SPARSE_ALLOC \
+					 | OCFS2_FEATURE_INCOMPAT_INLINE_DATA \
+					 | OCFS2_FEATURE_INCOMPAT_EXTENDED_SLOT_MAP \
+					 | OCFS2_FEATURE_INCOMPAT_USERSPACE_STACK)
 #define OCFS2_FEATURE_RO_COMPAT_SUPP	OCFS2_FEATURE_RO_COMPAT_UNWRITTEN
 
 /*
@@ -111,6 +114,35 @@
 #define OCFS2_FEATURE_INCOMPAT_SPARSE_ALLOC	0x0010
 
 /*
+ * Tunefs sets this incompat flag before starting an operation which
+ * would require cleanup on abort. This is done to protect users from
+ * inadvertently mounting the fs after an aborted run without
+ * fsck-ing.
+ *
+ * s_tunefs_flags on the super block describes precisely which
+ * operations were in progress.
+ */
+#define OCFS2_FEATURE_INCOMPAT_TUNEFS_INPROG	0x0020
+
+/* Support for data packed into inode blocks */
+#define OCFS2_FEATURE_INCOMPAT_INLINE_DATA	0x0040
+
+/* Support for the extended slot map */
+#define OCFS2_FEATURE_INCOMPAT_EXTENDED_SLOT_MAP 0x100
+
+
+/*
+ * Support for alternate, userspace cluster stacks.  If set, the superblock
+ * field s_cluster_info contains a tag for the alternate stack in use as
+ * well as the name of the cluster being joined.
+ * mount.ocfs2 must pass in a matching stack name.
+ *
+ * If not set, the classic stack will be used.  This is compatbile with
+ * all older versions.
+ */
+#define OCFS2_FEATURE_INCOMPAT_USERSPACE_STACK	0x0080
+
+/*
  * backup superblock flag is used to indicate that this volume
  * has backup superblocks.
  */
@@ -130,6 +162,11 @@
 #define OCFS2_MAX_BACKUP_SUPERBLOCKS	6
 
 /*
+ * Flags on ocfs2_super_block.s_tunefs_flags
+ */
+#define OCFS2_TUNEFS_INPROG_REMOVE_SLOT		0x0001	/* Removing slots */
+
+/*
  * Flags on ocfs2_dinode.i_flags
  */
 #define OCFS2_VALID_FL		(0x00000001)	/* Inode is valid */
@@ -145,6 +182,17 @@
 #define OCFS2_HEARTBEAT_FL	(0x00000200)	/* Heartbeat area */
 #define OCFS2_CHAIN_FL		(0x00000400)	/* Chain allocator */
 #define OCFS2_DEALLOC_FL	(0x00000800)	/* Truncate log */
+
+/*
+ * Flags on ocfs2_dinode.i_dyn_features
+ *
+ * These can change much more often than i_flags. When adding flags,
+ * keep in mind that i_dyn_features is only 16 bits wide.
+ */
+#define OCFS2_INLINE_DATA_FL	(0x0001)	/* Data stored in inode block */
+#define OCFS2_HAS_XATTR_FL	(0x0002)
+#define OCFS2_INLINE_XATTR_FL	(0x0004)
+#define OCFS2_INDEXED_DIR_FL	(0x0008)
 
 /* Inode attributes, keep in sync with EXT2 */
 #define OCFS2_SECRM_FL		(0x00000001)	/* Secure deletion */
@@ -200,6 +248,20 @@ struct ocfs2_space_resv {
 #define OCFS2_IOC_RESVSP64	_IOW ('X', 42, struct ocfs2_space_resv)
 #define OCFS2_IOC_UNRESVSP64	_IOW ('X', 43, struct ocfs2_space_resv)
 
+/* Used to pass group descriptor data when online resize is done */
+struct ocfs2_new_group_input {
+	__u64 group;		/* Group descriptor's blkno. */
+	__u32 clusters;		/* Total number of clusters in this group */
+	__u32 frees;		/* Total free clusters in this group */
+	__u16 chain;		/* Chain for this group */
+	__u16 reserved1;
+	__u32 reserved2;
+};
+
+#define OCFS2_IOC_GROUP_EXTEND	_IOW('o', 1, int)
+#define OCFS2_IOC_GROUP_ADD	_IOW('o', 2,struct ocfs2_new_group_input)
+#define OCFS2_IOC_GROUP_ADD64	_IOW('o', 3,struct ocfs2_new_group_input)
+
 /*
  * Journal Flags (ocfs2_dinode.id1.journal1.i_flags)
  */
@@ -222,8 +284,20 @@ struct ocfs2_space_resv {
 #define OCFS2_VOL_UUID_LEN		16
 #define OCFS2_MAX_VOL_LABEL_LEN		64
 
+/* The alternate, userspace stack fields */
+#define OCFS2_STACK_LABEL_LEN		4
+#define OCFS2_CLUSTER_NAME_LEN		16
+
 /* Journal limits (in bytes) */
 #define OCFS2_MIN_JOURNAL_SIZE		(4 * 1024 * 1024)
+
+/*
+ * Default local alloc size (in megabytes)
+ *
+ * The value chosen should be such that most allocations, including new
+ * block groups, use local alloc.
+ */
+#define OCFS2_DEFAULT_LOCAL_ALLOC_SIZE	8
 
 struct ocfs2_system_inode_info {
 	char	*si_name;
@@ -422,6 +496,47 @@ struct ocfs2_extent_block
 };
 
 /*
+ * On disk slot map for OCFS2.  This defines the contents of the "slot_map"
+ * system file.  A slot is valid if it contains a node number >= 0.  The
+ * value -1 (0xFFFF) is OCFS2_INVALID_SLOT.  This marks a slot empty.
+ */
+struct ocfs2_slot_map {
+/*00*/	__le16 sm_slots[0];
+/*
+ * Actual on-disk size is one block.  OCFS2_MAX_SLOTS is 255,
+ * 255 * sizeof(__le16) == 512B, within the 512B block minimum blocksize.
+ */
+};
+
+struct ocfs2_extended_slot {
+/*00*/	__u8	es_valid;
+	__u8	es_reserved1[3];
+	__le32	es_node_num;
+/*10*/
+};
+
+/*
+ * The extended slot map, used when OCFS2_FEATURE_INCOMPAT_EXTENDED_SLOT_MAP
+ * is set.  It separates out the valid marker from the node number, and
+ * has room to grow.  Unlike the old slot map, this format is defined by
+ * i_size.
+ */
+struct ocfs2_slot_map_extended {
+/*00*/	struct ocfs2_extended_slot se_slots[0];
+/*
+ * Actual size is i_size of the slot_map system file.  It should
+ * match s_max_slots * sizeof(struct ocfs2_extended_slot)
+ */
+};
+
+struct ocfs2_cluster_info {
+/*00*/	__u8   ci_stack[OCFS2_STACK_LABEL_LEN];
+	__le32 ci_reserved;
+/*08*/	__u8   ci_cluster[OCFS2_CLUSTER_NAME_LEN];
+/*18*/
+};
+
+/*
  * On disk superblock for OCFS2
  * Note that it is contained inside an ocfs2_dinode, so all offsets
  * are relative to the start of ocfs2_dinode.id2.
@@ -447,13 +562,26 @@ struct ocfs2_super_block {
 	__le32 s_clustersize_bits;	/* Clustersize for this fs */
 /*40*/	__le16 s_max_slots;		/* Max number of simultaneous mounts
 					   before tunefs required */
-	__le16 s_reserved1;
-	__le32 s_reserved2;
+	__le16 s_tunefs_flag;
+	__le32 s_reserved1;
 	__le64 s_first_cluster_group;	/* Block offset of 1st cluster
 					 * group header */
 /*50*/	__u8  s_label[OCFS2_MAX_VOL_LABEL_LEN];	/* Label for mounting, etc. */
 /*90*/	__u8  s_uuid[OCFS2_VOL_UUID_LEN];	/* 128-bit uuid */
-/*A0*/
+/*A0*/  struct ocfs2_cluster_info s_cluster_info; /* Selected userspace
+						     stack.  Only valid
+						     with INCOMPAT flag. */
+/*B8*/  __le64 s_reserved2[17];		/* Fill out superblock */
+/*140*/
+
+	/*
+	 * NOTE: As stated above, all offsets are relative to
+	 * ocfs2_dinode.id2, which is at 0xC0 in the inode.
+	 * 0xC0 + 0x140 = 0x200 or 512 bytes.  A superblock must fit within
+	 * our smallest blocksize, which is 512 bytes.  To ensure this,
+	 * we reserve the space in s_reserved2.  Anything past s_reserved2
+	 * will not be available on the smallest blocksize.
+	 */
 };
 
 /*
@@ -468,6 +596,19 @@ struct ocfs2_local_alloc
 	__le16 la_reserved1;
 	__le64 la_reserved2;
 /*10*/	__u8   la_bitmap[0];
+};
+
+/*
+ * Data-in-inode header. This is only used if i_dyn_features has
+ * OCFS2_INLINE_DATA_FL set.
+ */
+struct ocfs2_inline_data
+{
+/*00*/	__le16	id_count;	/* Number of bytes that can be used
+				 * for data, starting at id_data */
+	__le16	id_reserved0;
+	__le32	id_reserved1;
+	__u8	id_data[0];	/* Start of user data */
 };
 
 /*
@@ -502,7 +643,7 @@ struct ocfs2_dinode {
 	__le32 i_attr;
 	__le16 i_orphaned_slot;		/* Only valid when OCFS2_ORPHANED_FL
 					   was set in i_flags */
-	__le16 i_reserved1;
+	__le16 i_dyn_features;
 /*70*/	__le64 i_reserved2[8];
 /*B8*/	union {
 		__le64 i_pad1;		/* Generic way to refer to this
@@ -528,6 +669,7 @@ struct ocfs2_dinode {
 		struct ocfs2_chain_list		i_chain;
 		struct ocfs2_extent_list	i_list;
 		struct ocfs2_truncate_log	i_dealloc;
+		struct ocfs2_inline_data	i_data;
 		__u8               		i_symlink[0];
 	} id2;
 /* Actual on-disk size is one block */
@@ -575,6 +717,12 @@ static inline int ocfs2_fast_symlink_chars(struct super_block *sb)
 {
 	return  sb->s_blocksize -
 		 offsetof(struct ocfs2_dinode, id2.i_symlink);
+}
+
+static inline int ocfs2_max_inline_data(struct super_block *sb)
+{
+	return sb->s_blocksize -
+		offsetof(struct ocfs2_dinode, id2.i_data.id_data);
 }
 
 static inline int ocfs2_extent_recs_per_inode(struct super_block *sb)
@@ -654,6 +802,11 @@ static inline u64 ocfs2_backup_super_blkno(struct super_block *sb, int index)
 static inline int ocfs2_fast_symlink_chars(int blocksize)
 {
 	return blocksize - offsetof(struct ocfs2_dinode, id2.i_symlink);
+}
+
+static inline int ocfs2_max_inline_data(int blocksize)
+{
+	return blocksize - offsetof(struct ocfs2_dinode, id2.i_data.id_data);
 }
 
 static inline int ocfs2_extent_recs_per_inode(int blocksize)
@@ -748,7 +901,7 @@ static inline int ocfs2_sprintf_system_inode_name(char *buf, int len,
          * list has a copy per slot.
          */
 	if (type <= OCFS2_LAST_GLOBAL_SYSTEM_INODE)
-		chars = snprintf(buf, len,
+		chars = snprintf(buf, len, "%s",
 				 ocfs2_system_inodes[type].si_name);
 	else
 		chars = snprintf(buf, len,

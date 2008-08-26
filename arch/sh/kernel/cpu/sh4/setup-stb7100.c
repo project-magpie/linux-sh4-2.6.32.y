@@ -20,9 +20,9 @@
 #include <linux/phy.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
-#include <linux/pata_platform.h>
+#include <linux/ata_platform.h>
 #include <linux/dma-mapping.h>
-#include <asm/sci.h>
+#include <linux/serial_sci.h>
 #include <asm/irq-ilc.h>
 #include <linux/stm/fdma-plat.h>
 #include <linux/stm/fdma-reqs.h>
@@ -1023,37 +1023,6 @@ static struct intc_group groups[] = {
 	INTC_GROUP(GROUP15, ICAM3_KTE, ICAM3, MES_LMI_VID, MES_LMI_SYS),
 };
 
-static struct intc_prio priorities[] = {
-/* INTC */
-	INTC_PRIO(RTC,        4),
-	INTC_PRIO(TMU2,       4),
-	INTC_PRIO(TMU1,      15),
-	INTC_PRIO(TMU0,       1),
-	INTC_PRIO(WDT,       15),
-	INTC_PRIO(HUDI,      15),
-	INTC_PRIO(SCIF,       7),
-/* INTC2 */
-	INTC_PRIO(PIO0,       5),
-	INTC_PRIO(PIO1,       5),
-	INTC_PRIO(PIO2,       5),
-	INTC_PRIO(SATA_SPLIT, 9),
-	INTC_PRIO(GROUP0,     6),
-	INTC_PRIO(GROUP1,     7),
-	INTC_PRIO(GROUP3,     7),
-	INTC_PRIO(GROUP4,     7),
-	INTC_PRIO(GROUP5,     8),
-	INTC_PRIO(GROUP6,    12),
-	INTC_PRIO(GROUP7,    10),
-	INTC_PRIO(GROUP8,    11),
-	INTC_PRIO(GROUP9,    12),
-	INTC_PRIO(GROUP10,   13),
-	INTC_PRIO(GROUP11,    5),
-	INTC_PRIO(GROUP12,    9),
-	INTC_PRIO(GROUP13,    8),
-	INTC_PRIO(GROUP14,    9),
-	INTC_PRIO(GROUP15,    7),
-};
-
 static struct intc_prio_reg prio_registers[] = {
 					   /*   15-12, 11-8,  7-4,   3-0 */
 	{ 0xffd00004, 0, 16, 4, /* IPRA */     { TMU0, TMU1, TMU2,   RTC } },
@@ -1098,7 +1067,7 @@ static struct intc_mask_reg mask_registers[] = {
 };
 
 static DECLARE_INTC_DESC(intc_desc, "stx7100", vectors, groups,
-			 priorities, mask_registers, prio_registers, NULL);
+			 mask_registers, prio_registers, NULL);
 
 static struct intc_vect vectors_irlm[] = {
 	INTC_VECT(IRL0, 0x240), INTC_VECT(IRL1, 0x2a0),
@@ -1106,7 +1075,7 @@ static struct intc_vect vectors_irlm[] = {
 };
 
 static DECLARE_INTC_DESC(intc_desc_irlm, "stx7100_irlm", vectors_irlm, NULL,
-			 priorities, NULL, prio_registers, NULL);
+			 NULL, prio_registers, NULL);
 
 void __init plat_irq_setup(void)
 {

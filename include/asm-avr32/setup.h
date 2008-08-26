@@ -2,7 +2,7 @@
  * Copyright (C) 2004-2006 Atmel Corporation
  *
  * Based on linux/include/asm-arm/setup.h
- *   Copyright (C) 1997-1999 Russel King
+ *   Copyright (C) 1997-1999 Russell King
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -110,7 +110,7 @@ struct tagtable {
 	int	(*parse)(struct tag *);
 };
 
-#define __tag __attribute_used__ __attribute__((__section__(".taglist.init")))
+#define __tag __used __attribute__((__section__(".taglist.init")))
 #define __tagtable(tag, fn)						\
 	static struct tagtable __tagtable_##fn __tag = { tag, fn }
 

@@ -35,6 +35,7 @@
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/io.h>
+#include <linux/scatterlist.h>
 #include <asm/cacheflush.h>
 #include <asm/bfin-global.h>
 
@@ -58,7 +59,7 @@ void dma_alloc_init(unsigned long start, unsigned long end)
 	memset((void *)dma_base, 0, DMA_UNCACHED_REGION);
 	dma_initialized = 1;
 
-	printk(KERN_INFO "%s: dma_page @ 0x%p - %d pages at 0x%08lx\n", __FUNCTION__,
+	printk(KERN_INFO "%s: dma_page @ 0x%p - %d pages at 0x%08lx\n", __func__,
 	       dma_page, dma_pages, dma_base);
 }
 
@@ -99,7 +100,7 @@ static void __free_dma_pages(unsigned long addr, unsigned int pages)
 	int i;
 
 	if ((page + pages) > dma_pages) {
-		printk(KERN_ERR "%s: freeing outside range.\n", __FUNCTION__);
+		printk(KERN_ERR "%s: freeing outside range.\n", __func__);
 		BUG();
 	}
 
@@ -160,8 +161,7 @@ dma_map_sg(struct device *dev, struct scatterlist *sg, int nents,
 	BUG_ON(direction == DMA_NONE);
 
 	for (i = 0; i < nents; i++, sg++) {
-		sg->dma_address = (dma_addr_t)(page_address(sg->page) +
-					sg->offset);
+		sg->dma_address = (dma_addr_t) sg_virt(sg);
 
 		invalidate_dcache_range(sg_dma_address(sg),
 					sg_dma_address(sg) +

@@ -29,7 +29,6 @@
 #include <linux/personality.h>
 #include <linux/init.h>
 
-#include <asm/a.out.h>
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
 
@@ -44,7 +43,7 @@ static int load_som_library(struct file *);
  * don't even try.
  */
 #if 0
-static int som_core_dump(long signr, struct pt_regs * regs);
+static int som_core_dump(long signr, struct pt_regs *regs, unsigned long limit);
 #else
 #define som_core_dump	NULL
 #endif
@@ -195,7 +194,6 @@ load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	unsigned long som_entry;
 	struct som_hdr *som_ex;
 	struct som_exec_auxhdr *hpuxhdr;
-	struct files_struct *files;
 
 	/* Get the exec-header */
 	som_ex = (struct som_hdr *) bprm->buf;
@@ -220,15 +218,6 @@ load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 		if (retval >= 0)
 			retval = -EIO;
 		goto out_free;
-	}
-
-	files = current->files; /* Refcounted so ok */
-	retval = unshare_files();
-	if (retval < 0)
-		goto out_free;
-	if (files == current->files) {
-		put_files_struct(files);
-		files = NULL;
 	}
 
 	retval = get_unused_fd();
@@ -285,8 +274,6 @@ load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	map_hpux_gateway_page(current,current->mm);
 
 	start_thread_som(regs, som_entry, bprm->p);
-	if (current->ptrace & PT_PTRACED)
-		send_sig(SIGTRAP, current, 0);
 	return 0;
 
 	/* error cleanup */

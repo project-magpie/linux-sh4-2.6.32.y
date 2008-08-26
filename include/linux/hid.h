@@ -2,8 +2,6 @@
 #define __HID_H
 
 /*
- * $Id: hid.h,v 1.24 2001/12/27 10:37:41 vojtech Exp $
- *
  *  Copyright (c) 1999 Andreas Gal
  *  Copyright (c) 2000-2001 Vojtech Pavlik
  *  Copyright (c) 2006-2007 Jiri Kosina
@@ -28,13 +26,6 @@
  * e-mail - mail your message to <vojtech@ucw.cz>, or by paper mail:
  * Vojtech Pavlik, Simunkova 1594, Prague 8, 182 00 Czech Republic
  */
-
-#include <linux/types.h>
-#include <linux/slab.h>
-#include <linux/list.h>
-#include <linux/timer.h>
-#include <linux/workqueue.h>
-#include <linux/input.h>
 
 /*
  * USB HID (Human Interface Device) interface class code
@@ -68,6 +59,17 @@
 #define HID_DT_HID			(USB_TYPE_CLASS | 0x01)
 #define HID_DT_REPORT			(USB_TYPE_CLASS | 0x02)
 #define HID_DT_PHYSICAL			(USB_TYPE_CLASS | 0x03)
+
+#define HID_MAX_DESCRIPTOR_SIZE		4096
+
+#ifdef __KERNEL__
+
+#include <linux/types.h>
+#include <linux/slab.h>
+#include <linux/list.h>
+#include <linux/timer.h>
+#include <linux/workqueue.h>
+#include <linux/input.h>
 
 /*
  * We parse each description item into this structure. Short items data
@@ -263,10 +265,10 @@ struct hid_item {
 #define HID_QUIRK_2WHEEL_MOUSE_HACK_5		0x00000100
 #define HID_QUIRK_2WHEEL_MOUSE_HACK_ON		0x00000200
 #define HID_QUIRK_MIGHTYMOUSE			0x00000400
-#define HID_QUIRK_POWERBOOK_HAS_FN		0x00000800
-#define HID_QUIRK_POWERBOOK_FN_ON		0x00001000
+#define HID_QUIRK_APPLE_HAS_FN			0x00000800
+#define HID_QUIRK_APPLE_FN_ON			0x00001000
 #define HID_QUIRK_INVERT_HWHEEL			0x00002000
-#define HID_QUIRK_POWERBOOK_ISO_KEYBOARD        0x00004000
+#define HID_QUIRK_APPLE_ISO_KEYBOARD		0x00004000
 #define HID_QUIRK_BAD_RELATIVE_KEYS		0x00008000
 #define HID_QUIRK_SKIP_OUTPUT_REPORTS		0x00010000
 #define HID_QUIRK_IGNORE_MOUSE			0x00020000
@@ -276,6 +278,12 @@ struct hid_item {
 #define HID_QUIRK_HIDINPUT			0x00200000
 #define HID_QUIRK_LOGITECH_IGNORE_DOUBLED_WHEEL	0x00400000
 #define HID_QUIRK_LOGITECH_EXPANDED_KEYMAP	0x00800000
+#define HID_QUIRK_IGNORE_HIDINPUT		0x01000000
+#define HID_QUIRK_2WHEEL_MOUSE_HACK_B8		0x02000000
+#define HID_QUIRK_HWHEEL_WHEEL_INVERT		0x04000000
+#define HID_QUIRK_MICROSOFT_KEYS		0x08000000
+#define HID_QUIRK_FULLSPEED_INTERVAL		0x10000000
+#define HID_QUIRK_APPLE_NUMLOCK_EMULATION	0x20000000
 
 /*
  * Separate quirks for runtime report descriptor fixup
@@ -285,6 +293,11 @@ struct hid_item {
 #define HID_QUIRK_RDESC_LOGITECH		0x00000002
 #define HID_QUIRK_RDESC_SWAPPED_MIN_MAX		0x00000004
 #define HID_QUIRK_RDESC_PETALYNX		0x00000008
+#define HID_QUIRK_RDESC_MACBOOK_JIS		0x00000010
+#define HID_QUIRK_RDESC_BUTTON_CONSUMER		0x00000020
+#define HID_QUIRK_RDESC_SAMSUNG_REMOTE		0x00000040
+#define HID_QUIRK_RDESC_MICROSOFT_RECV_1028	0x00000080
+#define HID_QUIRK_RDESC_SUNPLUS_WDESKTOP	0x00000100
 
 /*
  * This is the global environment of the parser. This information is
@@ -309,8 +322,7 @@ struct hid_global {
  * This is the local environment. It is persistent up the next main-item.
  */
 
-#define HID_MAX_DESCRIPTOR_SIZE		4096
-#define HID_MAX_USAGES			8192
+#define HID_MAX_USAGES			12288
 #define HID_DEFAULT_NUM_COLLECTIONS	16
 
 struct hid_local {
@@ -403,6 +415,7 @@ struct hid_control_fifo {
 
 #define HID_CLAIMED_INPUT	1
 #define HID_CLAIMED_HIDDEV	2
+#define HID_CLAIMED_HIDRAW	4
 
 #define HID_CTRL_RUNNING	1
 #define HID_OUT_RUNNING		2
@@ -410,6 +423,7 @@ struct hid_control_fifo {
 #define HID_RESET_PENDING	4
 #define HID_SUSPENDED		5
 #define HID_CLEAR_HALT		6
+#define HID_DISCONNECTED	7
 
 struct hid_input {
 	struct list_head list;
@@ -438,9 +452,8 @@ struct hid_device {							/* device report descriptor */
 
 	struct list_head inputs;					/* The list of inputs */
 	void *hiddev;							/* The hiddev structure */
+	void *hidraw;
 	int minor;							/* Hiddev minor number */
-
-	wait_queue_head_t wait;						/* For sleeping */
 
 	int open;							/* is the device open by anyone? */
 	char name[128];							/* Device name */
@@ -448,6 +461,8 @@ struct hid_device {							/* device report descriptor */
 	char uniq[64];							/* Device unique identifier (serial #) */
 
 	void *driver_data;
+
+	__s32 delayed_value;						/* For A4 Tech mice hwheel quirk */
 
 	/* device-specific function pointers */
 	int (*hidinput_input_event) (struct input_dev *, unsigned int, unsigned int, int);
@@ -458,9 +473,12 @@ struct hid_device {							/* device report descriptor */
 	void (*hiddev_hid_event) (struct hid_device *, struct hid_field *field,
 				  struct hid_usage *, __s32);
 	void (*hiddev_report_event) (struct hid_device *, struct hid_report *);
+
+	/* handler for raw output data, used by hidraw */
+	int (*hid_output_raw_report) (struct hid_device *, __u8 *, size_t);
 #ifdef CONFIG_USB_HIDINPUT_POWERBOOK
-	unsigned long pb_pressed_fn[NBITS(KEY_MAX)];
-	unsigned long pb_pressed_numlock[NBITS(KEY_MAX)];
+	unsigned long apple_pressed_fn[BITS_TO_LONGS(KEY_CNT)];
+	unsigned long pb_pressed_numlock[BITS_TO_LONGS(KEY_CNT)];
 #endif
 };
 
@@ -479,13 +497,13 @@ struct hid_parser {
 
 struct hid_class_descriptor {
 	__u8  bDescriptorType;
-	__u16 wDescriptorLength;
+	__le16 wDescriptorLength;
 } __attribute__ ((packed));
 
 struct hid_descriptor {
 	__u8  bLength;
 	__u8  bDescriptorType;
-	__u16 bcdHID;
+	__le16 bcdHID;
 	__u8  bCountryCode;
 	__u8  bNumDescriptors;
 
@@ -494,7 +512,7 @@ struct hid_descriptor {
 
 /* Applications from HID Usage Tables 4/8/99 Version 1.1 */
 /* We ignore a few input applications that are not widely used */
-#define IS_INPUT_APPLICATION(a) (((a >= 0x00010000) && (a <= 0x00010008)) || (a == 0x00010080) || (a == 0x000c0001))
+#define IS_INPUT_APPLICATION(a) (((a >= 0x00010000) && (a <= 0x00010008)) || (a == 0x00010080) || (a == 0x000c0001) || (a == 0x000d0002))
 
 /* HID core API */
 
@@ -510,14 +528,15 @@ extern void hidinput_disconnect(struct hid_device *);
 int hid_set_field(struct hid_field *, unsigned, __s32);
 int hid_input_report(struct hid_device *, int type, u8 *, int, int);
 int hidinput_find_field(struct hid_device *hid, unsigned int type, unsigned int code, struct hid_field **field);
-void hid_input_field(struct hid_device *hid, struct hid_field *field, __u8 *data, int interrupt);
+int hidinput_mapping_quirks(struct hid_usage *, struct input_dev *, unsigned long **, int *);
+int hidinput_event_quirks(struct hid_device *, struct hid_field *, struct hid_usage *, __s32);
+int hidinput_apple_event(struct hid_device *, struct input_dev *, struct hid_usage *, __s32);
 void hid_output_report(struct hid_report *report, __u8 *data);
 void hid_free_device(struct hid_device *device);
 struct hid_device *hid_parse_report(__u8 *start, unsigned size);
 
 /* HID quirks API */
 u32 usbhid_lookup_quirk(const u16 idVendor, const u16 idProduct);
-int usbhid_modify_dquirk(const u16 idVendor, const u16 idProduct, const u32 quirks);
 int usbhid_quirks_init(char **quirks_param);
 void usbhid_quirks_exit(void);
 void usbhid_fixup_report_descriptor(const u16, const u16, char *, unsigned, char **);
@@ -526,6 +545,7 @@ void usbhid_fixup_report_descriptor(const u16, const u16, char *, unsigned, char
 int hid_ff_init(struct hid_device *hid);
 
 int hid_lgff_init(struct hid_device *hid);
+int hid_lg2ff_init(struct hid_device *hid);
 int hid_plff_init(struct hid_device *hid);
 int hid_tmff_init(struct hid_device *hid);
 int hid_zpff_init(struct hid_device *hid);
@@ -546,11 +566,16 @@ static inline int hid_ff_init(struct hid_device *hid) { return -1; }
 #define dbg_hid_line(format, arg...) if (hid_debug) \
 				printk(format, ## arg)
 #else
-#define dbg_hid(format, arg...) do {} while (0)
+static inline int __attribute__((format(printf, 1, 2)))
+dbg_hid(const char *fmt, ...)
+{
+	return 0;
+}
 #define dbg_hid_line dbg_hid
 #endif
 
 #define err_hid(format, arg...) printk(KERN_ERR "%s: " format "\n" , \
 		__FILE__ , ## arg)
+#endif
 #endif
 

@@ -66,7 +66,7 @@ nfs4_renew_state(struct work_struct *work)
 	unsigned long last, now;
 
 	down_read(&clp->cl_sem);
-	dprintk("%s: start\n", __FUNCTION__);
+	dprintk("%s: start\n", __func__);
 	/* Are there any active superblocks? */
 	if (list_empty(&clp->cl_superblocks))
 		goto out;
@@ -92,17 +92,17 @@ nfs4_renew_state(struct work_struct *work)
 		spin_lock(&clp->cl_lock);
 	} else
 		dprintk("%s: failed to call renewd. Reason: lease not expired \n",
-				__FUNCTION__);
+				__func__);
 	if (timeout < 5 * HZ)    /* safeguard */
 		timeout = 5 * HZ;
 	dprintk("%s: requeueing work. Lease period = %ld\n",
-			__FUNCTION__, (timeout + HZ - 1) / HZ);
+			__func__, (timeout + HZ - 1) / HZ);
 	cancel_delayed_work(&clp->cl_renewd);
 	schedule_delayed_work(&clp->cl_renewd, timeout);
 	spin_unlock(&clp->cl_lock);
 out:
 	up_read(&clp->cl_sem);
-	dprintk("%s: done\n", __FUNCTION__);
+	dprintk("%s: done\n", __func__);
 }
 
 /* Must be called with clp->cl_sem locked for writes */
@@ -117,7 +117,7 @@ nfs4_schedule_state_renewal(struct nfs_client *clp)
 	if (timeout < 5 * HZ)
 		timeout = 5 * HZ;
 	dprintk("%s: requeueing work. Lease period = %ld\n",
-			__FUNCTION__, (timeout + HZ - 1) / HZ);
+			__func__, (timeout + HZ - 1) / HZ);
 	cancel_delayed_work(&clp->cl_renewd);
 	schedule_delayed_work(&clp->cl_renewd, timeout);
 	set_bit(NFS_CS_RENEWD, &clp->cl_res_state);
@@ -133,9 +133,7 @@ nfs4_renewd_prepare_shutdown(struct nfs_server *server)
 void
 nfs4_kill_renewd(struct nfs_client *clp)
 {
-	down_read(&clp->cl_sem);
 	cancel_delayed_work_sync(&clp->cl_renewd);
-	up_read(&clp->cl_sem);
 }
 
 /*

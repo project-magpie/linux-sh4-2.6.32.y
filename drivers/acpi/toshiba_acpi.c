@@ -99,6 +99,13 @@ MODULE_LICENSE("GPL");
 #define HCI_VIDEO_OUT_CRT		0x2
 #define HCI_VIDEO_OUT_TV		0x4
 
+static const struct acpi_device_id toshiba_device_ids[] = {
+	{"TOS6200", 0},
+	{"TOS1900", 0},
+	{"", 0},
+};
+MODULE_DEVICE_TABLE(acpi, toshiba_device_ids);
+
 /* utility
  */
 
@@ -362,7 +369,7 @@ static unsigned long write_video(const char *buffer, unsigned long count)
 	int crt_out = -1;
 	int tv_out = -1;
 	u32 hci_result;
-	int video_out;
+	u32 video_out;
 
 	/* scan expression.  Multiple expressions may be delimited with ;
 	 *
@@ -591,9 +598,12 @@ static int __init toshiba_acpi_init(void)
 						NULL,
 						&toshiba_backlight_data);
         if (IS_ERR(toshiba_backlight_device)) {
+		int ret = PTR_ERR(toshiba_backlight_device);
+
 		printk(KERN_ERR "Could not register toshiba backlight device\n");
 		toshiba_backlight_device = NULL;
 		toshiba_acpi_exit();
+		return ret;
 	}
         toshiba_backlight_device->props.max_brightness = HCI_LCD_BRIGHTNESS_LEVELS - 1;
 

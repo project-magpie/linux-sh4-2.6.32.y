@@ -1,4 +1,3 @@
-//kernel/linux-omap-fsample/arch/arm/mach-omap1/clock.c#2 - edit change 3808 (text)
 /*
  *  linux/arch/arm/mach-omap1/clock.c
  *
@@ -47,6 +46,15 @@ static void omap1_uart_recalc(struct clk * clk)
 		clk->rate = 48000000;
 	else
 		clk->rate = 12000000;
+}
+
+static void omap1_sossi_recalc(struct clk *clk)
+{
+	u32 div = omap_readl(MOD_CONF_CTRL_1);
+
+	div = (div >> 17) & 0x7;
+	div++;
+	clk->rate = clk->parent->rate / div;
 }
 
 static int omap1_clk_enable_dsp_domain(struct clk *clk)
@@ -396,6 +404,31 @@ static int omap1_set_ext_clk_rate(struct clk * clk, unsigned long rate)
 	return 0;
 }
 
+static int omap1_set_sossi_rate(struct clk *clk, unsigned long rate)
+{
+	u32 l;
+	int div;
+	unsigned long p_rate;
+
+	p_rate = clk->parent->rate;
+	/* Round towards slower frequency */
+	div = (p_rate + rate - 1) / rate;
+	div--;
+	if (div < 0 || div > 7)
+		return -EINVAL;
+
+	l = omap_readl(MOD_CONF_CTRL_1);
+	l &= ~(7 << 17);
+	l |= div << 17;
+	omap_writel(l, MOD_CONF_CTRL_1);
+
+	clk->rate = p_rate / (div + 1);
+	if (unlikely(clk->flags & RATE_PROPAGATES))
+		propagate_rate(clk);
+
+	return 0;
+}
+
 static long omap1_round_ext_clk_rate(struct clk * clk, unsigned long rate)
 {
 	return 96000000 / calc_ext_dsor(rate);
@@ -616,9 +649,9 @@ static void __init omap1_clk_disable_unused(struct clk *clk)
 
 	/* FIXME: This clock seems to be necessary but no-one
 	 * has asked for its activation. */
-	if (clk == &tc2_ck		// FIX: pm.c (SRAM), CCP, Camera
-	    || clk == &ck_dpll1out.clk	// FIX: SoSSI, SSR
-	    || clk == &arm_gpio_ck	// FIX: GPIO code for 1510
+	if (clk == &tc2_ck		/* FIX: pm.c (SRAM), CCP, Camera */
+	    || clk == &ck_dpll1out.clk	/* FIX: SoSSI, SSR */
+	    || clk == &arm_gpio_ck	/* FIX: GPIO code for 1510 */
 		) {
 		printk(KERN_INFO "FIXME: Clock \"%s\" seems unused\n",
 		       clk->name);

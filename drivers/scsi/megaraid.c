@@ -46,6 +46,7 @@
 #include <linux/pci.h>
 #include <linux/init.h>
 #include <linux/dma-mapping.h>
+#include <linux/smp_lock.h>
 #include <scsi/scsicam.h>
 
 #include "scsi.h"
@@ -151,19 +152,19 @@ mega_setup_mailbox(adapter_t *adapter)
 	 */
 	if( adapter->flag & BOARD_IOMAP ) {
 
-		outb_p(adapter->mbox_dma & 0xFF,
+		outb(adapter->mbox_dma & 0xFF,
 				adapter->host->io_port + MBOX_PORT0);
 
-		outb_p((adapter->mbox_dma >> 8) & 0xFF,
+		outb((adapter->mbox_dma >> 8) & 0xFF,
 				adapter->host->io_port + MBOX_PORT1);
 
-		outb_p((adapter->mbox_dma >> 16) & 0xFF,
+		outb((adapter->mbox_dma >> 16) & 0xFF,
 				adapter->host->io_port + MBOX_PORT2);
 
-		outb_p((adapter->mbox_dma >> 24) & 0xFF,
+		outb((adapter->mbox_dma >> 24) & 0xFF,
 				adapter->host->io_port + MBOX_PORT3);
 
-		outb_p(ENABLE_MBOX_BYTE,
+		outb(ENABLE_MBOX_BYTE,
 				adapter->host->io_port + ENABLE_MBOX_REGION);
 
 		irq_ack(adapter);
@@ -658,7 +659,7 @@ mega_build_cmd(adapter_t *adapter, Scsi_Cmnd *cmd, int *busy)
 			struct scatterlist *sg;
 
 			sg = scsi_sglist(cmd);
-			buf = kmap_atomic(sg->page, KM_IRQ0) + sg->offset;
+			buf = kmap_atomic(sg_page(sg), KM_IRQ0) + sg->offset;
 
 			memset(buf, 0, cmd->cmnd[4]);
 			kunmap_atomic(buf - sg->offset, KM_IRQ0);
@@ -1542,10 +1543,8 @@ mega_cmd_done(adapter_t *adapter, u8 completed[], int nstatus, int status)
 		if( cmd->cmnd[0] == INQUIRY && !islogical ) {
 
 			sgl = scsi_sglist(cmd);
-			if( sgl->page ) {
-				c = *(unsigned char *)
-					page_address((&sgl[0])->page) +
-					(&sgl[0])->offset; 
+			if( sg_page(sgl) ) {
+				c = *(unsigned char *) sg_virt(&sgl[0]);
 			} else {
 				printk(KERN_WARNING
 				       "megaraid: invalid sg.\n");
@@ -3274,12 +3273,12 @@ mega_init_scb(adapter_t *adapter)
  * @filep - unused
  *
  * Routines for the character/ioctl interface to the driver. Find out if this
- * is a valid open. If yes, increment the module use count so that it cannot
- * be unloaded.
+ * is a valid open. 
  */
 static int
 megadev_open (struct inode *inode, struct file *filep)
 {
+	cycle_kernel_lock();
 	/*
 	 * Only allow superuser to access private ioctl interface
 	 */
@@ -4416,8 +4415,7 @@ mega_internal_command(adapter_t *adapter, megacmd_t *mc, mega_passthru *pthru)
 	scmd = &adapter->int_scmd;
 	memset(scmd, 0, sizeof(Scsi_Cmnd));
 
-	sdev = kmalloc(sizeof(struct scsi_device), GFP_KERNEL);
-	memset(sdev, 0, sizeof(struct scsi_device));
+	sdev = kzalloc(sizeof(struct scsi_device), GFP_KERNEL);
 	scmd->device = sdev;
 
 	scmd->device->host = adapter->host;
@@ -4891,7 +4889,7 @@ __megaraid_shutdown(adapter_t *adapter)
 		mdelay(1000);
 }
 
-static void
+static void __devexit
 megaraid_remove_one(struct pci_dev *pdev)
 {
 	struct Scsi_Host *host = pci_get_drvdata(pdev);
@@ -4999,7 +4997,7 @@ static int __init megaraid_init(void)
 		max_mbox_busy_wait = MBOX_BUSY_WAIT;
 
 #ifdef CONFIG_PROC_FS
-	mega_proc_dir_entry = proc_mkdir("megaraid", &proc_root);
+	mega_proc_dir_entry = proc_mkdir("megaraid", NULL);
 	if (!mega_proc_dir_entry) {
 		printk(KERN_WARNING
 				"megaraid: failed to create megaraid root\n");
@@ -5008,7 +5006,7 @@ static int __init megaraid_init(void)
 	error = pci_register_driver(&megaraid_pci_driver);
 	if (error) {
 #ifdef CONFIG_PROC_FS
-		remove_proc_entry("megaraid", &proc_root);
+		remove_proc_entry("megaraid", NULL);
 #endif
 		return error;
 	}
@@ -5038,7 +5036,7 @@ static void __exit megaraid_exit(void)
 	pci_unregister_driver(&megaraid_pci_driver);
 
 #ifdef CONFIG_PROC_FS
-	remove_proc_entry("megaraid", &proc_root);
+	remove_proc_entry("megaraid", NULL);
 #endif
 }
 

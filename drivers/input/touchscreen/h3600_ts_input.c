@@ -1,6 +1,4 @@
 /*
- * $Id: h3600_ts_input.c,v 1.4 2002/01/23 06:39:37 jsimmons Exp $
- *
  *  Copyright (c) 2001 "Crazy" James Simmons jsimmons@transvirtual.com
  *
  *  Sponsored by Transvirtual Technology.
@@ -109,7 +107,7 @@ struct h3600_dev {
 static irqreturn_t action_button_handler(int irq, void *dev_id)
 {
 	int down = (GPLR & GPIO_BITSY_ACTION_BUTTON) ? 0 : 1;
-	struct input_dev *dev = (struct input_dev *) dev_id;
+	struct input_dev *dev = dev_id;
 
 	input_report_key(dev, KEY_ENTER, down);
 	input_sync(dev);
@@ -120,7 +118,7 @@ static irqreturn_t action_button_handler(int irq, void *dev_id)
 static irqreturn_t npower_button_handler(int irq, void *dev_id)
 {
 	int down = (GPLR & GPIO_BITSY_NPOWER_BUTTON) ? 0 : 1;
-	struct input_dev *dev = (struct input_dev *) dev_id;
+	struct input_dev *dev = dev_id;
 
 	/*
 	 * This interrupt is only called when we release the key. So we have
@@ -373,8 +371,9 @@ static int h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 
 	input_dev->event = h3600ts_event;
 
-	input_dev->evbit[0] = BIT(EV_KEY) | BIT(EV_ABS) | BIT(EV_LED) | BIT(EV_PWR);
-	input_dev->ledbit[0] = BIT(LED_SLEEP);
+	input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS) |
+		BIT_MASK(EV_LED) | BIT_MASK(EV_PWR);
+	input_dev->ledbit[0] = BIT_MASK(LED_SLEEP);
 	input_set_abs_params(input_dev, ABS_X, 60, 985, 0, 0);
 	input_set_abs_params(input_dev, ABS_Y, 35, 1024, 0, 0);
 

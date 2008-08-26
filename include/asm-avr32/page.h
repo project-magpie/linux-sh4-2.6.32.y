@@ -8,15 +8,11 @@
 #ifndef __ASM_AVR32_PAGE_H
 #define __ASM_AVR32_PAGE_H
 
-#ifdef __KERNEL__
+#include <linux/const.h>
 
 /* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT	12
-#ifdef __ASSEMBLY__
-#define PAGE_SIZE	(1 << PAGE_SHIFT)
-#else
-#define PAGE_SIZE	(1UL << PAGE_SHIFT)
-#endif
+#define PAGE_SIZE	(_AC(1, UL) << PAGE_SHIFT)
 #define PAGE_MASK	(~(PAGE_SIZE-1))
 #define PTE_MASK	PAGE_MASK
 
@@ -36,6 +32,7 @@ extern void copy_page(void *to, void *from);
 typedef struct { unsigned long pte; } pte_t;
 typedef struct { unsigned long pgd; } pgd_t;
 typedef struct { unsigned long pgprot; } pgprot_t;
+typedef struct page *pgtable_t;
 
 #define pte_val(x)		((x).pte)
 #define pgd_val(x)		((x).pgd)
@@ -59,9 +56,6 @@ static inline int get_order(unsigned long size)
 }
 
 #endif /* !__ASSEMBLY__ */
-
-/* Align the pointer to the (next) page boundary */
-#define PAGE_ALIGN(addr)	(((addr) + PAGE_SIZE - 1) & PAGE_MASK)
 
 /*
  * The hardware maps the virtual addresses 0x80000000 -> 0x9fffffff
@@ -106,7 +100,5 @@ static inline int get_order(unsigned long size)
  * Memory above this physical address will be considered highmem.
  */
 #define HIGHMEM_START		0x20000000UL
-
-#endif /* __KERNEL__ */
 
 #endif /* __ASM_AVR32_PAGE_H */

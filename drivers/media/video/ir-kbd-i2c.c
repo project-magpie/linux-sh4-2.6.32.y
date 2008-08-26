@@ -10,6 +10,8 @@
  *      Ulrich Mueller <ulrich.mueller42@web.de>
  * modified for em2820 based USB TV tuners by
  *      Markus Rechberger <mrechberger@gmail.com>
+ * modified for DViCO Fusion HDTV 5 RT GOLD by
+ *      Chaogui Zhang <czhang1974@gmail.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,7 +30,6 @@
  */
 
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
@@ -39,7 +40,6 @@
 #include <linux/i2c.h>
 #include <linux/i2c-id.h>
 #include <linux/workqueue.h>
-#include <asm/semaphore.h>
 
 #include <media/ir-common.h>
 #include <media/ir-kbd-i2c.h>
@@ -50,7 +50,7 @@
 static int debug;
 module_param(debug, int, 0644);    /* debug level (0,1,2) */
 
-static int hauppauge = 0;
+static int hauppauge;
 module_param(hauppauge, int, 0644);    /* Choose Hauppauge remote */
 MODULE_PARM_DESC(hauppauge, "Specify Hauppauge remote: 0=black, 1=grey (defaults to 0)");
 
@@ -142,6 +142,30 @@ static int get_key_pv951(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 	return 1;
 }
 
+static int get_key_fusionhdtv(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
+{
+	unsigned char buf[4];
+
+	/* poll IR chip */
+	if (4 != i2c_master_recv(&ir->c,buf,4)) {
+		dprintk(1,"read error\n");
+		return -EIO;
+	}
+
+	if(buf[0] !=0 || buf[1] !=0 || buf[2] !=0 || buf[3] != 0)
+		dprintk(2, "%s: 0x%2x 0x%2x 0x%2x 0x%2x\n", __func__,
+			buf[0], buf[1], buf[2], buf[3]);
+
+	/* no key pressed or signal from other ir remote */
+	if(buf[0] != 0x1 ||  buf[1] != 0xfe)
+		return 0;
+
+	*ir_key = buf[2];
+	*ir_raw = (buf[2] << 8) | buf[3];
+
+	return 1;
+}
+
 static int get_key_knc1(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 {
 	unsigned char b;
@@ -169,88 +193,6 @@ static int get_key_knc1(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 	*ir_raw = b;
 	return 1;
 }
-
-/* Common (grey or coloured) pinnacle PCTV remote handling
- *
- */
-static int get_key_pinnacle(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw,
-			    int parity_offset, int marker, int code_modulo)
-{
-	unsigned char b[4];
-	unsigned int start = 0,parity = 0,code = 0;
-
-	/* poll IR chip */
-	if (4 != i2c_master_recv(&ir->c,b,4)) {
-		dprintk(2,"read error\n");
-		return -EIO;
-	}
-
-	for (start = 0; start < ARRAY_SIZE(b); start++) {
-		if (b[start] == marker) {
-			code=b[(start+parity_offset+1)%4];
-			parity=b[(start+parity_offset)%4];
-		}
-	}
-
-	/* Empty Request */
-	if (parity==0)
-		return 0;
-
-	/* Repeating... */
-	if (ir->old == parity)
-		return 0;
-
-	ir->old = parity;
-
-	/* drop special codes when a key is held down a long time for the grey controller
-	   In this case, the second bit of the code is asserted */
-	if (marker == 0xfe && (code & 0x40))
-		return 0;
-
-	code %= code_modulo;
-
-	*ir_raw = code;
-	*ir_key = code;
-
-	dprintk(1,"Pinnacle PCTV key %02x\n", code);
-
-	return 1;
-}
-
-/* The grey pinnacle PCTV remote
- *
- *  There are one issue with this remote:
- *   - I2c packet does not change when the same key is pressed quickly. The workaround
- *     is to hold down each key for about half a second, so that another code is generated
- *     in the i2c packet, and the function can distinguish key presses.
- *
- * Sylvain Pasche <sylvain.pasche@gmail.com>
- */
-int get_key_pinnacle_grey(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
-{
-
-	return get_key_pinnacle(ir, ir_key, ir_raw, 1, 0xfe, 0xff);
-}
-
-EXPORT_SYMBOL_GPL(get_key_pinnacle_grey);
-
-
-/* The new pinnacle PCTV remote (with the colored buttons)
- *
- * Ricardo Cerqueira <v4l@cerqueira.org>
- */
-int get_key_pinnacle_color(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
-{
-	/* code_modulo parameter (0x88) is used to reduce code value to fit inside IR_KEYTAB_SIZE
-	 *
-	 * this is the only value that results in 42 unique
-	 * codes < 128
-	 */
-
-	return get_key_pinnacle(ir, ir_key, ir_raw, 2, 0x80, 0x88);
-}
-
-EXPORT_SYMBOL_GPL(get_key_pinnacle_color);
 
 /* ----------------------------------------------------------------------- */
 
@@ -364,9 +306,16 @@ static int ir_attach(struct i2c_adapter *adap, int addr,
 		ir_type     = IR_TYPE_OTHER;
 		ir_codes    = ir_codes_empty;
 		break;
+	case 0x6b:
+		name        = "FusionHDTV";
+		ir->get_key = get_key_fusionhdtv;
+		ir_type     = IR_TYPE_RC5;
+		ir_codes    = ir_codes_fusionhdtv_mce;
+		break;
 	case 0x7a:
 	case 0x47:
 	case 0x71:
+	case 0x2d:
 		if (adap->id == I2C_HW_B_CX2388x) {
 			/* Handled by cx88-input */
 			name        = "CX2388x remote";
@@ -473,13 +422,17 @@ static int ir_probe(struct i2c_adapter *adap)
 	*/
 
 	static const int probe_bttv[] = { 0x1a, 0x18, 0x4b, 0x64, 0x30, -1};
-	static const int probe_saa7134[] = { 0x7a, 0x47, 0x71, -1 };
+	static const int probe_saa7134[] = { 0x7a, 0x47, 0x71, 0x2d, -1 };
 	static const int probe_em28XX[] = { 0x30, 0x47, -1 };
-	static const int probe_cx88[] = { 0x18, 0x71, -1 };
-	const int *probe = NULL;
-	struct i2c_client c;
-	unsigned char buf;
-	int i,rc;
+	static const int probe_cx88[] = { 0x18, 0x6b, 0x71, -1 };
+	static const int probe_cx23885[] = { 0x6b, -1 };
+	const int *probe;
+	struct i2c_msg msg = {
+		.flags = I2C_M_RD,
+		.len = 0,
+		.buf = NULL,
+	};
+	int i, rc;
 
 	switch (adap->id) {
 	case I2C_HW_B_BT848:
@@ -497,20 +450,21 @@ static int ir_probe(struct i2c_adapter *adap)
 	case I2C_HW_B_CX2388x:
 		probe = probe_cx88;
 		break;
-	}
-	if (NULL == probe)
+	case I2C_HW_B_CX23885:
+		probe = probe_cx23885;
+		break;
+	default:
 		return 0;
+	}
 
-	memset(&c,0,sizeof(c));
-	c.adapter = adap;
 	for (i = 0; -1 != probe[i]; i++) {
-		c.addr = probe[i];
-		rc = i2c_master_recv(&c,&buf,0);
+		msg.addr = probe[i];
+		rc = i2c_transfer(adap, &msg, 1);
 		dprintk(1,"probe 0x%02x @ %s: %s\n",
 			probe[i], adap->name,
-			(0 == rc) ? "yes" : "no");
-		if (0 == rc) {
-			ir_attach(adap,probe[i],0,0);
+			(1 == rc) ? "yes" : "no");
+		if (1 == rc) {
+			ir_attach(adap, probe[i], 0, 0);
 			break;
 		}
 	}

@@ -420,12 +420,6 @@ static void *r_start(struct seq_file *m, loff_t * pos)
 		return NULL;
 
 	up_write(&s->s_umount);
-
-	if (de->deleted) {
-		deactivate_super(s);
-		return NULL;
-	}
-
 	return s;
 }
 
@@ -450,7 +444,7 @@ static int r_show(struct seq_file *m, void *v)
 	return show(m, v);
 }
 
-static struct seq_operations r_ops = {
+static const struct seq_operations r_ops = {
 	.start = r_start,
 	.next = r_next,
 	.stop = r_stop,
@@ -473,6 +467,7 @@ static const struct file_operations r_file_operations = {
 	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = seq_release,
+	.owner = THIS_MODULE,
 };
 
 static struct proc_dir_entry *proc_info_root = NULL;
@@ -481,12 +476,8 @@ static const char proc_info_root_name[] = "fs/reiserfs";
 static void add_file(struct super_block *sb, char *name,
 		     int (*func) (struct seq_file *, struct super_block *))
 {
-	struct proc_dir_entry *de;
-	de = create_proc_entry(name, 0, REISERFS_SB(sb)->procdir);
-	if (de) {
-		de->data = func;
-		de->proc_fops = &r_file_operations;
-	}
+	proc_create_data(name, 0, REISERFS_SB(sb)->procdir,
+			 &r_file_operations, func);
 }
 
 int reiserfs_proc_info_init(struct super_block *sb)

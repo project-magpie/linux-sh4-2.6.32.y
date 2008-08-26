@@ -11,7 +11,6 @@
 #include <linux/interrupt.h>
 
 #include <asm/atomic.h>
-#include <asm/semaphore.h>
 #include <asm/uaccess.h>
 
 /* Since we effect priority and affinity (both of which are visible
@@ -29,14 +28,14 @@ enum stopmachine_state {
 static enum stopmachine_state stopmachine_state;
 static unsigned int stopmachine_num_threads;
 static atomic_t stopmachine_thread_ack;
-static DECLARE_MUTEX(stopmachine_mutex);
 
 static int stopmachine(void *cpu)
 {
 	int irqs_disabled = 0;
 	int prepared = 0;
+	cpumask_of_cpu_ptr(cpumask, (int)(long)cpu);
 
-	set_cpus_allowed(current, cpumask_of_cpu((int)(long)cpu));
+	set_cpus_allowed_ptr(current, cpumask);
 
 	/* Ack: we are alive */
 	smp_mb(); /* Theoretically the ack = 0 might not be on this CPU yet. */
@@ -64,8 +63,7 @@ static int stopmachine(void *cpu)
 		 * help our sisters onto their CPUs. */
 		if (!prepared && !irqs_disabled)
 			yield();
-		else
-			cpu_relax();
+		cpu_relax();
 	}
 
 	/* Ack: we are exiting. */
@@ -108,8 +106,10 @@ static int stop_machine(void)
 	}
 
 	/* Wait for them all to come to life. */
-	while (atomic_read(&stopmachine_thread_ack) != stopmachine_num_threads)
+	while (atomic_read(&stopmachine_thread_ack) != stopmachine_num_threads) {
 		yield();
+		cpu_relax();
+	}
 
 	/* If some failed, kill them all. */
 	if (ret < 0) {
@@ -136,8 +136,7 @@ static void restart_machine(void)
 	preempt_enable_no_resched();
 }
 
-struct stop_machine_data
-{
+struct stop_machine_data {
 	int (*fn)(void *);
 	void *data;
 	struct completion done;
@@ -170,6 +169,7 @@ static int do_stop(void *_smdata)
 struct task_struct *__stop_machine_run(int (*fn)(void *), void *data,
 				       unsigned int cpu)
 {
+	static DEFINE_MUTEX(stopmachine_mutex);
 	struct stop_machine_data smdata;
 	struct task_struct *p;
 
@@ -177,7 +177,7 @@ struct task_struct *__stop_machine_run(int (*fn)(void *), void *data,
 	smdata.data = data;
 	init_completion(&smdata.done);
 
-	down(&stopmachine_mutex);
+	mutex_lock(&stopmachine_mutex);
 
 	/* If they don't care which CPU fn runs on, bind to any online one. */
 	if (cpu == NR_CPUS)
@@ -188,12 +188,12 @@ struct task_struct *__stop_machine_run(int (*fn)(void *), void *data,
 		struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
 
 		/* One high-prio thread per cpu.  We'll do this one. */
-		sched_setscheduler(p, SCHED_FIFO, &param);
+		sched_setscheduler_nocheck(p, SCHED_FIFO, &param);
 		kthread_bind(p, cpu);
 		wake_up_process(p);
 		wait_for_completion(&smdata.done);
 	}
-	up(&stopmachine_mutex);
+	mutex_unlock(&stopmachine_mutex);
 	return p;
 }
 
@@ -203,13 +203,13 @@ int stop_machine_run(int (*fn)(void *), void *data, unsigned int cpu)
 	int ret;
 
 	/* No CPUs can come up or down during this. */
-	lock_cpu_hotplug();
+	get_online_cpus();
 	p = __stop_machine_run(fn, data, cpu);
 	if (!IS_ERR(p))
 		ret = kthread_stop(p);
 	else
 		ret = PTR_ERR(p);
-	unlock_cpu_hotplug();
+	put_online_cpus();
 
 	return ret;
 }

@@ -40,7 +40,6 @@
 #include <linux/smp_lock.h>
 
 #include <linux/kernel.h>
-#include <linux/moduleparam.h>
 #include <linux/sched.h>
 #include <linux/types.h>
 #include <linux/fcntl.h>
@@ -52,6 +51,7 @@
 #include <linux/crc32.h>
 #include <linux/i2c.h>
 #include <linux/kthread.h>
+#include <asm/unaligned.h>
 
 #include <asm/system.h>
 
@@ -112,6 +112,8 @@ module_param(wss_cfg_16_9, int, 0444);
 MODULE_PARM_DESC(wss_cfg_16_9, "WSS 16:9 - default 0x0007 - bit 15: disable, 14: burst mode, 13..0: wss data");
 module_param(tv_standard, int, 0444);
 MODULE_PARM_DESC(tv_standard, "TV standard: 0 PAL (default), 1 NTSC");
+
+DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
 static void restart_feeds(struct av7110 *av7110);
 
@@ -360,7 +362,7 @@ static inline void start_debi_dma(struct av7110 *av7110, int dir,
 {
 	dprintk(8, "%c %08lx %u\n", dir == DEBI_READ ? 'R' : 'W', addr, len);
 	if (saa7146_wait_for_debi_done(av7110->dev, 0)) {
-		printk(KERN_ERR "%s: saa7146_wait_for_debi_done timed out\n", __FUNCTION__);
+		printk(KERN_ERR "%s: saa7146_wait_for_debi_done timed out\n", __func__);
 		return;
 	}
 
@@ -498,7 +500,7 @@ static void gpioirq(unsigned long data)
 		       saa7146_read(av7110->dev, SSR));
 
 	if (saa7146_wait_for_debi_done(av7110->dev, 0)) {
-		printk(KERN_ERR "%s: saa7146_wait_for_debi_done timed out\n", __FUNCTION__);
+		printk(KERN_ERR "%s: saa7146_wait_for_debi_done timed out\n", __func__);
 		BUG(); /* maybe we should try resetting the debi? */
 	}
 
@@ -585,7 +587,7 @@ static void gpioirq(unsigned long data)
 		}
 		DVB_RINGBUFFER_SKIP(cibuf, 2);
 
-		dvb_ringbuffer_read(cibuf, av7110->debi_virt, len, 0);
+		dvb_ringbuffer_read(cibuf, av7110->debi_virt, len);
 
 		iwdebi(av7110, DEBINOSWAP, TX_LEN, len, 2);
 		iwdebi(av7110, DEBINOSWAP, IRQ_STATE_EXT, len, 2);
@@ -828,7 +830,7 @@ static int StartHWFilter(struct dvb_demux_filter *dvbdmxfilter)
 	if (ret != 0 || handle >= 32) {
 		printk("dvb-ttpci: %s error  buf %04x %04x %04x %04x  "
 				"ret %d  handle %04x\n",
-				__FUNCTION__, buf[0], buf[1], buf[2], buf[3],
+				__func__, buf[0], buf[1], buf[2], buf[3],
 				ret, handle);
 		dvbdmxfilter->hw_handle = 0xffff;
 		if (!ret)
@@ -855,7 +857,7 @@ static int StopHWFilter(struct dvb_demux_filter *dvbdmxfilter)
 	handle = dvbdmxfilter->hw_handle;
 	if (handle >= 32) {
 		printk("%s tried to stop invalid filter %04x, filter type = %x\n",
-				__FUNCTION__, handle, dvbdmxfilter->type);
+				__func__, handle, dvbdmxfilter->type);
 		return -EINVAL;
 	}
 
@@ -868,7 +870,7 @@ static int StopHWFilter(struct dvb_demux_filter *dvbdmxfilter)
 	if (ret != 0 || answ[1] != handle) {
 		printk("dvb-ttpci: %s error  cmd %04x %04x %04x  ret %x  "
 				"resp %04x %04x  pid %d\n",
-				__FUNCTION__, buf[0], buf[1], buf[2], ret,
+				__func__, buf[0], buf[1], buf[2], ret,
 				answ[0], answ[1], dvbdmxfilter->feed->pid);
 		if (!ret)
 			ret = -1;
@@ -1123,7 +1125,7 @@ static int dvb_get_stc(struct dmx_demux *demux, unsigned int num,
 
 	ret = av7110_fw_request(av7110, &tag, 0, fwstc, 4);
 	if (ret) {
-		printk(KERN_ERR "%s: av7110_fw_request error\n", __FUNCTION__);
+		printk(KERN_ERR "%s: av7110_fw_request error\n", __func__);
 		return ret;
 	}
 	dprintk(2, "fwstc = %04hx %04hx %04hx %04hx\n",
@@ -1196,7 +1198,6 @@ static int start_ts_capture(struct av7110 *budget)
 	if (budget->feeding1)
 		return ++budget->feeding1;
 	memset(budget->grabbing, 0x00, TS_HEIGHT * TS_WIDTH);
-	budget->tsf = 0xff;
 	budget->ttbp = 0;
 	SAA7146_IER_ENABLE(budget->dev, MASK_10); /* VPE */
 	saa7146_write(budget->dev, MC1, (MASK_04 | MASK_20)); /* DMA3 on */
@@ -1460,9 +1461,9 @@ static int check_firmware(struct av7110* av7110)
 	ptr += 4;
 
 	/* check dpram file */
-	crc = ntohl(*(u32*) ptr);
+	crc = get_unaligned_be32(ptr);
 	ptr += 4;
-	len = ntohl(*(u32*) ptr);
+	len = get_unaligned_be32(ptr);
 	ptr += 4;
 	if (len >= 512) {
 		printk("dvb-ttpci: dpram file is way too big.\n");
@@ -1477,9 +1478,9 @@ static int check_firmware(struct av7110* av7110)
 	ptr += len;
 
 	/* check root file */
-	crc = ntohl(*(u32*) ptr);
+	crc = get_unaligned_be32(ptr);
 	ptr += 4;
-	len = ntohl(*(u32*) ptr);
+	len = get_unaligned_be32(ptr);
 	ptr += 4;
 
 	if (len <= 200000 || len >= 300000 ||
@@ -1543,7 +1544,7 @@ static int get_firmware(struct av7110* av7110)
 	}
 
 	/* check if the firmware is available */
-	av7110->bin_fw = (unsigned char *) vmalloc(fw->size);
+	av7110->bin_fw = vmalloc(fw->size);
 	if (NULL == av7110->bin_fw) {
 		dprintk(1, "out of memory\n");
 		release_firmware(fw);
@@ -2401,18 +2402,18 @@ static int __devinit av7110_attach(struct saa7146_dev* dev,
 		saa7146_write(dev, MC1, MASK_29);
 		/* RPS1 timeout disable */
 		saa7146_write(dev, RPS_TOV1, 0);
-		WRITE_RPS1(cpu_to_le32(CMD_PAUSE | EVT_VBI_B));
-		WRITE_RPS1(cpu_to_le32(CMD_WR_REG_MASK | (GPIO_CTRL>>2)));
-		WRITE_RPS1(cpu_to_le32(GPIO3_MSK));
-		WRITE_RPS1(cpu_to_le32(SAA7146_GPIO_OUTLO<<24));
+		WRITE_RPS1(CMD_PAUSE | EVT_VBI_B);
+		WRITE_RPS1(CMD_WR_REG_MASK | (GPIO_CTRL>>2));
+		WRITE_RPS1(GPIO3_MSK);
+		WRITE_RPS1(SAA7146_GPIO_OUTLO<<24);
 #if RPS_IRQ
 		/* issue RPS1 interrupt to increment counter */
-		WRITE_RPS1(cpu_to_le32(CMD_INTERRUPT));
+		WRITE_RPS1(CMD_INTERRUPT);
 #endif
-		WRITE_RPS1(cpu_to_le32(CMD_STOP));
+		WRITE_RPS1(CMD_STOP);
 		/* Jump to begin of RPS program as safety measure               (p37) */
-		WRITE_RPS1(cpu_to_le32(CMD_JUMP));
-		WRITE_RPS1(cpu_to_le32(dev->d_rps1.dma_handle));
+		WRITE_RPS1(CMD_JUMP);
+		WRITE_RPS1(dev->d_rps1.dma_handle);
 
 #if RPS_IRQ
 		/* set event counter 1 source as RPS1 interrupt (0x03)          (rE4 p53)
@@ -2462,7 +2463,7 @@ static int __devinit av7110_attach(struct saa7146_dev* dev,
 		goto err_kfree_0;
 
 	ret = dvb_register_adapter(&av7110->dvb_adapter, av7110->card_name,
-				   THIS_MODULE, &dev->pci->dev);
+				   THIS_MODULE, &dev->pci->dev, adapter_nr);
 	if (ret < 0)
 		goto err_put_firmware_1;
 
@@ -2470,11 +2471,7 @@ static int __devinit av7110_attach(struct saa7146_dev* dev,
 	   get recognized before the main driver is fully loaded */
 	saa7146_write(dev, GPIO_CTRL, 0x500000);
 
-#ifdef I2C_ADAP_CLASS_TV_DIGITAL
-	av7110->i2c_adap.class = I2C_ADAP_CLASS_TV_DIGITAL;
-#else
 	av7110->i2c_adap.class = I2C_CLASS_TV_DIGITAL;
-#endif
 	strlcpy(av7110->i2c_adap.name, pci_ext->ext_priv, sizeof(av7110->i2c_adap.name));
 
 	saa7146_i2c_adapter_prepare(dev, &av7110->i2c_adap, SAA7146_I2C_BUS_BIT_RATE_120); /* 275 kHz */
@@ -2525,28 +2522,28 @@ static int __devinit av7110_attach(struct saa7146_dev* dev,
 		count = 0;
 
 		/* Wait Source Line Counter Threshold                           (p36) */
-		WRITE_RPS1(cpu_to_le32(CMD_PAUSE | EVT_HS));
+		WRITE_RPS1(CMD_PAUSE | EVT_HS);
 		/* Set GPIO3=1                                                  (p42) */
-		WRITE_RPS1(cpu_to_le32(CMD_WR_REG_MASK | (GPIO_CTRL>>2)));
-		WRITE_RPS1(cpu_to_le32(GPIO3_MSK));
-		WRITE_RPS1(cpu_to_le32(SAA7146_GPIO_OUTHI<<24));
+		WRITE_RPS1(CMD_WR_REG_MASK | (GPIO_CTRL>>2));
+		WRITE_RPS1(GPIO3_MSK);
+		WRITE_RPS1(SAA7146_GPIO_OUTHI<<24);
 #if RPS_IRQ
 		/* issue RPS1 interrupt */
-		WRITE_RPS1(cpu_to_le32(CMD_INTERRUPT));
+		WRITE_RPS1(CMD_INTERRUPT);
 #endif
 		/* Wait reset Source Line Counter Threshold                     (p36) */
-		WRITE_RPS1(cpu_to_le32(CMD_PAUSE | RPS_INV | EVT_HS));
+		WRITE_RPS1(CMD_PAUSE | RPS_INV | EVT_HS);
 		/* Set GPIO3=0                                                  (p42) */
-		WRITE_RPS1(cpu_to_le32(CMD_WR_REG_MASK | (GPIO_CTRL>>2)));
-		WRITE_RPS1(cpu_to_le32(GPIO3_MSK));
-		WRITE_RPS1(cpu_to_le32(SAA7146_GPIO_OUTLO<<24));
+		WRITE_RPS1(CMD_WR_REG_MASK | (GPIO_CTRL>>2));
+		WRITE_RPS1(GPIO3_MSK);
+		WRITE_RPS1(SAA7146_GPIO_OUTLO<<24);
 #if RPS_IRQ
 		/* issue RPS1 interrupt */
-		WRITE_RPS1(cpu_to_le32(CMD_INTERRUPT));
+		WRITE_RPS1(CMD_INTERRUPT);
 #endif
 		/* Jump to begin of RPS program                                 (p37) */
-		WRITE_RPS1(cpu_to_le32(CMD_JUMP));
-		WRITE_RPS1(cpu_to_le32(dev->d_rps1.dma_handle));
+		WRITE_RPS1(CMD_JUMP);
+		WRITE_RPS1(dev->d_rps1.dma_handle);
 
 		/* Fix VSYNC level */
 		saa7146_setgpio(dev, 3, SAA7146_GPIO_OUTLO);
@@ -2596,7 +2593,8 @@ static int __devinit av7110_attach(struct saa7146_dev* dev,
 	mutex_init(&av7110->osd_mutex);
 
 	/* TV standard */
-	av7110->vidmode = tv_standard == 1 ? VIDEO_MODE_NTSC : VIDEO_MODE_PAL;
+	av7110->vidmode = tv_standard == 1 ? AV7110_VIDEO_MODE_NTSC
+					   : AV7110_VIDEO_MODE_PAL;
 
 	/* ARM "watchdog" */
 	init_waitqueue_head(&av7110->arm_wait);
@@ -2801,12 +2799,12 @@ static void av7110_irq(struct saa7146_dev* dev, u32 *isr)
 }
 
 
-static struct saa7146_extension av7110_extension;
+static struct saa7146_extension av7110_extension_driver;
 
 #define MAKE_AV7110_INFO(x_var,x_name) \
 static struct saa7146_pci_extension_data x_var = { \
 	.ext_priv = x_name, \
-	.ext = &av7110_extension }
+	.ext = &av7110_extension_driver }
 
 MAKE_AV7110_INFO(tts_1_X_fsc,"Technotrend/Hauppauge WinTV DVB-S rev1.X or Fujitsu Siemens DVB-C");
 MAKE_AV7110_INFO(ttt_1_X,    "Technotrend/Hauppauge WinTV DVB-T rev1.X");
@@ -2844,7 +2842,7 @@ static struct pci_device_id pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci, pci_tbl);
 
 
-static struct saa7146_extension av7110_extension = {
+static struct saa7146_extension av7110_extension_driver = {
 	.name		= "dvb",
 	.flags		= SAA7146_USE_I2C_IRQ,
 
@@ -2861,14 +2859,14 @@ static struct saa7146_extension av7110_extension = {
 static int __init av7110_init(void)
 {
 	int retval;
-	retval = saa7146_register_extension(&av7110_extension);
+	retval = saa7146_register_extension(&av7110_extension_driver);
 	return retval;
 }
 
 
 static void __exit av7110_exit(void)
 {
-	saa7146_unregister_extension(&av7110_extension);
+	saa7146_unregister_extension(&av7110_extension_driver);
 }
 
 module_init(av7110_init);

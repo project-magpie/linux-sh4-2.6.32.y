@@ -104,8 +104,7 @@ asmlinkage void resume(void);
 #define mb()   asm volatile (""   : : :"memory")
 #define rmb()  asm volatile (""   : : :"memory")
 #define wmb()  asm volatile (""   : : :"memory")
-#define set_rmb(var, value)    do { xchg(&var, value); } while (0)
-#define set_mb(var, value)     set_rmb(var, value)
+#define set_mb(var, value)	({ (var) = (value); wmb(); })
 
 #ifdef CONFIG_SMP
 #define smp_mb()	mb()
@@ -118,6 +117,8 @@ asmlinkage void resume(void);
 #define smp_wmb()	barrier()
 #define smp_read_barrier_depends()	do { } while(0)
 #endif
+
+#define read_barrier_depends()  ((void)0)
 
 #define xchg(ptr,x) ((__typeof__(*(ptr)))__xchg((unsigned long)(x),(ptr),sizeof(*(ptr))))
 
@@ -187,42 +188,19 @@ static inline unsigned long __xchg(unsigned long x, volatile void * ptr, int siz
 }
 #endif
 
+#include <asm-generic/cmpxchg-local.h>
+
 /*
- * Atomic compare and exchange.  Compare OLD with MEM, if identical,
- * store NEW in MEM.  Return the initial value in MEM.  Success is
- * indicated by comparing RETURN with OLD.
+ * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
+ * them available.
  */
-#define __HAVE_ARCH_CMPXCHG	1
+#define cmpxchg_local(ptr, o, n)				  	       \
+	((__typeof__(*(ptr)))__cmpxchg_local_generic((ptr), (unsigned long)(o),\
+			(unsigned long)(n), sizeof(*(ptr))))
+#define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
 
-static __inline__ unsigned long
-cmpxchg(volatile int *p, int old, int new)
-{
-	unsigned long flags;
-	int prev;
-
-	local_irq_save(flags);
-	if ((prev = *p) == old)
-		*p = new;
-	local_irq_restore(flags);
-	return(prev);
-}
-
-
-#ifdef CONFIG_M68332
-#define HARD_RESET_NOW() ({		\
-        local_irq_disable();		\
-        asm("				\
-	movew   #0x0000, 0xfffa6a;	\
-        reset;				\
-        /*movew #0x1557, 0xfffa44;*/	\
-        /*movew #0x0155, 0xfffa46;*/	\
-        moveal #0, %a0;			\
-        movec %a0, %vbr;		\
-        moveal 0, %sp;			\
-        moveal 4, %a0;			\
-        jmp (%a0);			\
-        ");				\
-})
+#ifndef CONFIG_SMP
+#include <asm-generic/cmpxchg.h>
 #endif
 
 #if defined( CONFIG_M68328 ) || defined( CONFIG_M68EZ328 ) || \
@@ -253,8 +231,7 @@ cmpxchg(volatile int *p, int old, int new)
         ");				\
 })
 #elif defined(CONFIG_NETtel) || defined(CONFIG_eLIA) || \
-      defined(CONFIG_DISKtel) || defined(CONFIG_SECUREEDGEMP3) || \
-      defined(CONFIG_CLEOPATRA)
+      defined(CONFIG_SECUREEDGEMP3) || defined(CONFIG_CLEOPATRA)
 #define HARD_RESET_NOW() ({		\
         asm("				\
 	movew #0x2700, %sr;		\
@@ -334,5 +311,14 @@ cmpxchg(volatile int *p, int old, int new)
 #endif
 #endif
 #define arch_align_stack(x) (x)
+
+
+static inline int irqs_disabled_flags(unsigned long flags)
+{
+	if (flags & 0x0700)
+		return 0;
+	else
+		return 1;
+}
 
 #endif /* _M68KNOMMU_SYSTEM_H */

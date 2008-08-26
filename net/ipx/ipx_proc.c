@@ -9,6 +9,7 @@
 #include <linux/proc_fs.h>
 #include <linux/spinlock.h>
 #include <linux/seq_file.h>
+#include <net/net_namespace.h>
 #include <net/tcp_states.h>
 #include <net/ipx.h>
 
@@ -353,25 +354,22 @@ int __init ipx_proc_init(void)
 	struct proc_dir_entry *p;
 	int rc = -ENOMEM;
 
-	ipx_proc_dir = proc_mkdir("ipx", proc_net);
+	ipx_proc_dir = proc_mkdir("ipx", init_net.proc_net);
 
 	if (!ipx_proc_dir)
 		goto out;
-	p = create_proc_entry("interface", S_IRUGO, ipx_proc_dir);
+	p = proc_create("interface", S_IRUGO,
+			ipx_proc_dir, &ipx_seq_interface_fops);
 	if (!p)
 		goto out_interface;
 
-	p->proc_fops = &ipx_seq_interface_fops;
-	p = create_proc_entry("route", S_IRUGO, ipx_proc_dir);
+	p = proc_create("route", S_IRUGO, ipx_proc_dir, &ipx_seq_route_fops);
 	if (!p)
 		goto out_route;
 
-	p->proc_fops = &ipx_seq_route_fops;
-	p = create_proc_entry("socket", S_IRUGO, ipx_proc_dir);
+	p = proc_create("socket", S_IRUGO, ipx_proc_dir, &ipx_seq_socket_fops);
 	if (!p)
 		goto out_socket;
-
-	p->proc_fops = &ipx_seq_socket_fops;
 
 	rc = 0;
 out:
@@ -381,7 +379,7 @@ out_socket:
 out_route:
 	remove_proc_entry("interface", ipx_proc_dir);
 out_interface:
-	remove_proc_entry("ipx", proc_net);
+	remove_proc_entry("ipx", init_net.proc_net);
 	goto out;
 }
 
@@ -390,7 +388,7 @@ void __exit ipx_proc_exit(void)
 	remove_proc_entry("interface", ipx_proc_dir);
 	remove_proc_entry("route", ipx_proc_dir);
 	remove_proc_entry("socket", ipx_proc_dir);
-	remove_proc_entry("ipx", proc_net);
+	remove_proc_entry("ipx", init_net.proc_net);
 }
 
 #else /* CONFIG_PROC_FS */

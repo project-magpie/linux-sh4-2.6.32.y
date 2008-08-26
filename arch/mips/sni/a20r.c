@@ -117,17 +117,26 @@ static struct resource sc26xx_rsrc[] = {
 	}
 };
 
+static unsigned int sc26xx_data[2] = {
+	/* DTR   |   RTS    |   DSR    |   CTS     |   DCD     |   RI    */
+	(8 << 0) | (4 << 4) | (6 << 8) | (0 << 12) | (6 << 16) | (0 << 20),
+	(3 << 0) | (2 << 4) | (1 << 8) | (2 << 12) | (3 << 16) | (4 << 20)
+};
+
 static struct platform_device sc26xx_pdev = {
 	.name           = "SC26xx",
 	.num_resources  = ARRAY_SIZE(sc26xx_rsrc),
-	.resource       = sc26xx_rsrc
+	.resource       = sc26xx_rsrc,
+	.dev			= {
+		.platform_data	= sc26xx_data,
+	}
 };
 
 static u32 a20r_ack_hwint(void)
 {
 	u32 status = read_c0_status();
 
-	write_c0_status (status | 0x00010000);
+	write_c0_status(status | 0x00010000);
 	asm volatile(
 	"	.set	push			\n"
 	"	.set	noat			\n"
@@ -195,7 +204,7 @@ static void a20r_hwint(void)
 	u32 cause, status;
 	int irq;
 
-	clear_c0_status (IE_IRQ0);
+	clear_c0_status(IE_IRQ0);
 	status = a20r_ack_hwint();
 	cause = read_c0_cause();
 
@@ -213,7 +222,7 @@ void __init sni_a20r_irq_init(void)
 		set_irq_chip(i, &a20r_irq_type);
 	sni_hwint = a20r_hwint;
 	change_c0_status(ST0_IM, IE_IRQ0);
-	setup_irq (SNI_A20R_IRQ_BASE + 3, &sni_isa_irq);
+	setup_irq(SNI_A20R_IRQ_BASE + 3, &sni_isa_irq);
 }
 
 void sni_a20r_init(void)
@@ -231,9 +240,9 @@ static int __init snirm_a20r_setup_devinit(void)
 	        platform_device_register(&sc26xx_pdev);
 	        platform_device_register(&a20r_serial8250_device);
 	        platform_device_register(&a20r_ds1216_device);
+		sni_eisa_root_init();
 	        break;
 	}
-
 	return 0;
 }
 

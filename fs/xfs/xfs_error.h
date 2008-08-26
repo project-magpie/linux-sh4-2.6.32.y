@@ -144,12 +144,11 @@ extern void xfs_error_test_init(void);
 #endif /* __ANSI_CPP__ */
 
 extern int xfs_errortag_add(int error_tag, xfs_mount_t *mp);
-extern int xfs_errortag_clearall(xfs_mount_t *mp);
-extern int xfs_errortag_clearall_umount(int64_t fsid, char *fsname, int loud);
+extern int xfs_errortag_clearall(xfs_mount_t *mp, int loud);
 #else
 #define XFS_TEST_ERROR(expr, mp, tag, rf)	(expr)
 #define xfs_errortag_add(tag, mp)		(ENOSYS)
-#define xfs_errortag_clearall(mp)		(ENOSYS)
+#define xfs_errortag_clearall(mp, loud)		(ENOSYS)
 #endif /* (DEBUG || INDUCE_IO_ERROR) */
 
 /*
@@ -174,6 +173,8 @@ extern void xfs_cmn_err(int panic_tag, int level, struct xfs_mount *mp,
 			char *fmt, ...);
 /* PRINTFLIKE3 */
 extern void xfs_fs_cmn_err(int level, struct xfs_mount *mp, char *fmt, ...);
+
+extern void xfs_hex_dump(void *p, int length);
 
 #define xfs_fs_repair_cmn_err(level, mp, fmt, args...) \
 	xfs_fs_cmn_err(level, mp, fmt "  Unmount and run xfs_repair.", ## args)

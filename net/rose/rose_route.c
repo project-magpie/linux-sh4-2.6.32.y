@@ -583,7 +583,7 @@ static struct net_device *rose_ax25_dev_get(char *devname)
 {
 	struct net_device *dev;
 
-	if ((dev = dev_get_by_name(devname)) == NULL)
+	if ((dev = dev_get_by_name(&init_net, devname)) == NULL)
 		return NULL;
 
 	if ((dev->flags & IFF_UP) && dev->type == ARPHRD_AX25)
@@ -601,7 +601,7 @@ struct net_device *rose_dev_first(void)
 	struct net_device *dev, *first = NULL;
 
 	read_lock(&dev_base_lock);
-	for_each_netdev(dev) {
+	for_each_netdev(&init_net, dev) {
 		if ((dev->flags & IFF_UP) && dev->type == ARPHRD_ROSE)
 			if (first == NULL || strncmp(dev->name, first->name, 3) < 0)
 				first = dev;
@@ -619,7 +619,7 @@ struct net_device *rose_dev_get(rose_address *addr)
 	struct net_device *dev;
 
 	read_lock(&dev_base_lock);
-	for_each_netdev(dev) {
+	for_each_netdev(&init_net, dev) {
 		if ((dev->flags & IFF_UP) && dev->type == ARPHRD_ROSE && rosecmp(addr, (rose_address *)dev->dev_addr) == 0) {
 			dev_hold(dev);
 			goto out;
@@ -636,7 +636,7 @@ static int rose_dev_exists(rose_address *addr)
 	struct net_device *dev;
 
 	read_lock(&dev_base_lock);
-	for_each_netdev(dev) {
+	for_each_netdev(&init_net, dev) {
 		if ((dev->flags & IFF_UP) && dev->type == ARPHRD_ROSE && rosecmp(addr, (rose_address *)dev->dev_addr) == 0)
 			goto out;
 	}
@@ -662,27 +662,34 @@ struct rose_route *rose_route_free_lci(unsigned int lci, struct rose_neigh *neig
 }
 
 /*
- *	Find a neighbour given a ROSE address.
+ *	Find a neighbour or a route given a ROSE address.
  */
 struct rose_neigh *rose_get_neigh(rose_address *addr, unsigned char *cause,
-	unsigned char *diagnostic)
+	unsigned char *diagnostic, int new)
 {
 	struct rose_neigh *res = NULL;
 	struct rose_node *node;
 	int failed = 0;
 	int i;
 
-	spin_lock_bh(&rose_node_list_lock);
+	if (!new) spin_lock_bh(&rose_node_list_lock);
 	for (node = rose_node_list; node != NULL; node = node->next) {
 		if (rosecmpm(addr, &node->address, node->mask) == 0) {
 			for (i = 0; i < node->count; i++) {
-				if (!rose_ftimer_running(node->neighbour[i])) {
-					res = node->neighbour[i];
-					goto out;
-				} else
-					failed = 1;
+				if (new) {
+					if (node->neighbour[i]->restarted) {
+						res = node->neighbour[i];
+						goto out;
+					}
+				}
+				else {
+					if (!rose_ftimer_running(node->neighbour[i])) {
+						res = node->neighbour[i];
+						goto out;
+					} else
+						failed = 1;
+				}
 			}
-			break;
 		}
 	}
 
@@ -695,7 +702,7 @@ struct rose_neigh *rose_get_neigh(rose_address *addr, unsigned char *cause,
 	}
 
 out:
-	spin_unlock_bh(&rose_node_list_lock);
+	if (!new) spin_unlock_bh(&rose_node_list_lock);
 
 	return res;
 }
@@ -857,7 +864,6 @@ int rose_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 	src_addr  = (rose_address *)(skb->data + 9);
 	dest_addr = (rose_address *)(skb->data + 4);
 
-	spin_lock_bh(&rose_node_list_lock);
 	spin_lock_bh(&rose_neigh_list_lock);
 	spin_lock_bh(&rose_route_list_lock);
 
@@ -994,8 +1000,8 @@ int rose_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 		goto out;
 	}
 
-	len  = (((skb->data[3] >> 4) & 0x0F) + 1) / 2;
-	len += (((skb->data[3] >> 0) & 0x0F) + 1) / 2;
+	len  = (((skb->data[3] >> 4) & 0x0F) + 1) >> 1;
+	len += (((skb->data[3] >> 0) & 0x0F) + 1) >> 1;
 
 	memset(&facilities, 0x00, sizeof(struct rose_facilities_struct));
 
@@ -1019,7 +1025,7 @@ int rose_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 		rose_route = rose_route->next;
 	}
 
-	if ((new_neigh = rose_get_neigh(dest_addr, &cause, &diagnostic)) == NULL) {
+	if ((new_neigh = rose_get_neigh(dest_addr, &cause, &diagnostic, 1)) == NULL) {
 		rose_transmit_clear_request(rose_neigh, lci, cause, diagnostic);
 		goto out;
 	}
@@ -1060,7 +1066,6 @@ int rose_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 out:
 	spin_unlock_bh(&rose_route_list_lock);
 	spin_unlock_bh(&rose_neigh_list_lock);
-	spin_unlock_bh(&rose_node_list_lock);
 
 	return res;
 }
@@ -1068,11 +1073,12 @@ out:
 #ifdef CONFIG_PROC_FS
 
 static void *rose_node_start(struct seq_file *seq, loff_t *pos)
+	__acquires(rose_node_list_lock)
 {
 	struct rose_node *rose_node;
 	int i = 1;
 
-	spin_lock_bh(&rose_neigh_list_lock);
+	spin_lock_bh(&rose_node_list_lock);
 	if (*pos == 0)
 		return SEQ_START_TOKEN;
 
@@ -1091,8 +1097,9 @@ static void *rose_node_next(struct seq_file *seq, void *v, loff_t *pos)
 }
 
 static void rose_node_stop(struct seq_file *seq, void *v)
+	__releases(rose_node_list_lock)
 {
-	spin_unlock_bh(&rose_neigh_list_lock);
+	spin_unlock_bh(&rose_node_list_lock);
 }
 
 static int rose_node_show(struct seq_file *seq, void *v)
@@ -1144,6 +1151,7 @@ const struct file_operations rose_nodes_fops = {
 };
 
 static void *rose_neigh_start(struct seq_file *seq, loff_t *pos)
+	__acquires(rose_neigh_list_lock)
 {
 	struct rose_neigh *rose_neigh;
 	int i = 1;
@@ -1167,6 +1175,7 @@ static void *rose_neigh_next(struct seq_file *seq, void *v, loff_t *pos)
 }
 
 static void rose_neigh_stop(struct seq_file *seq, void *v)
+	__releases(rose_neigh_list_lock)
 {
 	spin_unlock_bh(&rose_neigh_list_lock);
 }
@@ -1227,6 +1236,7 @@ const struct file_operations rose_neigh_fops = {
 
 
 static void *rose_route_start(struct seq_file *seq, loff_t *pos)
+	__acquires(rose_route_list_lock)
 {
 	struct rose_route *rose_route;
 	int i = 1;
@@ -1250,6 +1260,7 @@ static void *rose_route_next(struct seq_file *seq, void *v, loff_t *pos)
 }
 
 static void rose_route_stop(struct seq_file *seq, void *v)
+	__releases(rose_route_list_lock)
 {
 	spin_unlock_bh(&rose_route_list_lock);
 }

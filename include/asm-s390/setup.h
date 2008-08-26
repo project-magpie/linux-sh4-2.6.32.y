@@ -8,14 +8,16 @@
 #ifndef _ASM_S390_SETUP_H
 #define _ASM_S390_SETUP_H
 
-#define COMMAND_LINE_SIZE 	896
+#define COMMAND_LINE_SIZE	1024
+
+#define ARCH_COMMAND_LINE_SIZE	896
 
 #ifdef __KERNEL__
 
 #include <asm/types.h>
 
 #define PARMAREA		0x10400
-#define MEMORY_CHUNKS		16	/* max 0x7fff */
+#define MEMORY_CHUNKS		256
 
 #ifndef __ASSEMBLY__
 
@@ -36,11 +38,13 @@
 struct mem_chunk {
 	unsigned long addr;
 	unsigned long size;
-	unsigned long type;
+	int type;
 };
 
 extern struct mem_chunk memory_chunk[];
 extern unsigned long real_memory_size;
+
+void detect_memory_layout(struct mem_chunk chunk[]);
 
 #ifdef CONFIG_S390_SWITCH_AMODE
 extern unsigned int switch_amode;
@@ -59,25 +63,43 @@ extern unsigned int s390_noexec;
  */
 extern unsigned long machine_flags;
 
-#define MACHINE_IS_VM		(machine_flags & 1)
-#define MACHINE_IS_P390		(machine_flags & 4)
-#define MACHINE_HAS_MVPG	(machine_flags & 16)
-#define MACHINE_HAS_IDTE	(machine_flags & 128)
-#define MACHINE_HAS_DIAG9C	(machine_flags & 256)
+#define MACHINE_FLAG_VM		(1UL << 0)
+#define MACHINE_FLAG_IEEE	(1UL << 1)
+#define MACHINE_FLAG_P390	(1UL << 2)
+#define MACHINE_FLAG_CSP	(1UL << 3)
+#define MACHINE_FLAG_MVPG	(1UL << 4)
+#define MACHINE_FLAG_DIAG44	(1UL << 5)
+#define MACHINE_FLAG_IDTE	(1UL << 6)
+#define MACHINE_FLAG_DIAG9C	(1UL << 7)
+#define MACHINE_FLAG_MVCOS	(1UL << 8)
+#define MACHINE_FLAG_KVM	(1UL << 9)
+#define MACHINE_FLAG_HPAGE	(1UL << 10)
+#define MACHINE_FLAG_PFMF	(1UL << 11)
+
+#define MACHINE_IS_VM		(machine_flags & MACHINE_FLAG_VM)
+#define MACHINE_IS_KVM		(machine_flags & MACHINE_FLAG_KVM)
+#define MACHINE_HAS_DIAG9C	(machine_flags & MACHINE_FLAG_DIAG9C)
 
 #ifndef __s390x__
-#define MACHINE_HAS_IEEE	(machine_flags & 2)
-#define MACHINE_HAS_CSP		(machine_flags & 8)
+#define MACHINE_HAS_IEEE	(machine_flags & MACHINE_FLAG_IEEE)
+#define MACHINE_HAS_CSP		(machine_flags & MACHINE_FLAG_CSP)
+#define MACHINE_HAS_IDTE	(0)
 #define MACHINE_HAS_DIAG44	(1)
+#define MACHINE_HAS_MVPG	(machine_flags & MACHINE_FLAG_MVPG)
 #define MACHINE_HAS_MVCOS	(0)
+#define MACHINE_HAS_HPAGE	(0)
+#define MACHINE_HAS_PFMF	(0)
 #else /* __s390x__ */
 #define MACHINE_HAS_IEEE	(1)
 #define MACHINE_HAS_CSP		(1)
-#define MACHINE_HAS_DIAG44	(machine_flags & 32)
-#define MACHINE_HAS_MVCOS	(machine_flags & 512)
+#define MACHINE_HAS_IDTE	(machine_flags & MACHINE_FLAG_IDTE)
+#define MACHINE_HAS_DIAG44	(machine_flags & MACHINE_FLAG_DIAG44)
+#define MACHINE_HAS_MVPG	(1)
+#define MACHINE_HAS_MVCOS	(machine_flags & MACHINE_FLAG_MVCOS)
+#define MACHINE_HAS_HPAGE	(machine_flags & MACHINE_FLAG_HPAGE)
+#define MACHINE_HAS_PFMF	(machine_flags & MACHINE_FLAG_PFMF)
 #endif /* __s390x__ */
 
-#define MACHINE_HAS_SCLP	(!MACHINE_IS_P390)
 #define ZFCPDUMP_HSA_SIZE	(32UL<<20)
 
 /*

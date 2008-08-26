@@ -43,7 +43,7 @@
 #include "defBF537.h"
 #endif
 
-#if !(defined(__ASSEMBLY__) || defined(ASSEMBLY))
+#if !defined(__ASSEMBLY__)
 #include "cdefBF534.h"
 
 /* UART 0*/
@@ -82,8 +82,6 @@
 #define STATUS_P1	0x02
 #define STATUS_P0	0x01
 
-/* UART 0*/
-
 /* DMA Channnel */
 #define bfin_read_CH_UART_RX() bfin_read_CH_UART0_RX()
 #define bfin_write_CH_UART_RX(val) bfin_write_CH_UART0_RX(val)
@@ -106,320 +104,57 @@
 /* MMR Registers*/
 #define bfin_read_UART_THR() bfin_read_UART0_THR()
 #define bfin_write_UART_THR(val) bfin_write_UART0_THR(val)
-#define UART_THR UART0_THR
+#define BFIN_UART_THR UART0_THR
 #define bfin_read_UART_RBR() bfin_read_UART0_RBR()
 #define bfin_write_UART_RBR(val) bfin_write_UART0_RBR(val)
-#define UART_RBR UART0_RBR
+#define BFIN_UART_RBR UART0_RBR
 #define bfin_read_UART_DLL() bfin_read_UART0_DLL()
 #define bfin_write_UART_DLL(val) bfin_write_UART0_DLL(val)
-#define UART_DLL UART0_DLL
+#define BFIN_UART_DLL UART0_DLL
 #define bfin_read_UART_IER() bfin_read_UART0_IER()
 #define bfin_write_UART_IER(val) bfin_write_UART0_IER(val)
-#define UART_IER UART0_IER
+#define BFIN_UART_IER UART0_IER
 #define bfin_read_UART_DLH() bfin_read_UART0_DLH()
 #define bfin_write_UART_DLH(val) bfin_write_UART0_DLH(val)
-#define UART_DLH UART0_DLH
+#define BFIN_UART_DLH UART0_DLH
 #define bfin_read_UART_IIR() bfin_read_UART0_IIR()
 #define bfin_write_UART_IIR(val) bfin_write_UART0_IIR(val)
-#define UART_IIR UART0_IIR
+#define BFIN_UART_IIR UART0_IIR
 #define bfin_read_UART_LCR() bfin_read_UART0_LCR()
 #define bfin_write_UART_LCR(val) bfin_write_UART0_LCR(val)
-#define UART_LCR UART0_LCR
+#define BFIN_UART_LCR UART0_LCR
 #define bfin_read_UART_MCR() bfin_read_UART0_MCR()
 #define bfin_write_UART_MCR(val) bfin_write_UART0_MCR(val)
-#define UART_MCR UART0_MCR
+#define BFIN_UART_MCR UART0_MCR
 #define bfin_read_UART_LSR() bfin_read_UART0_LSR()
 #define bfin_write_UART_LSR(val) bfin_write_UART0_LSR(val)
-#define UART_LSR UART0_LSR
+#define BFIN_UART_LSR UART0_LSR
 #define bfin_read_UART_SCR() bfin_read_UART0_SCR()
 #define bfin_write_UART_SCR(val) bfin_write_UART0_SCR(val)
-#define UART_SCR  UART0_SCR
+#define BFIN_UART_SCR  UART0_SCR
 #define bfin_read_UART_GCTL() bfin_read_UART0_GCTL()
 #define bfin_write_UART_GCTL(val) bfin_write_UART0_GCTL(val)
-#define UART_GCTL UART0_GCTL
+#define BFIN_UART_GCTL UART0_GCTL
+
+#define BFIN_UART_NR_PORTS	2
+
+#define OFFSET_THR              0x00	/* Transmit Holding register            */
+#define OFFSET_RBR              0x00	/* Receive Buffer register              */
+#define OFFSET_DLL              0x00	/* Divisor Latch (Low-Byte)             */
+#define OFFSET_IER              0x04	/* Interrupt Enable Register            */
+#define OFFSET_DLH              0x04	/* Divisor Latch (High-Byte)            */
+#define OFFSET_IIR              0x08	/* Interrupt Identification Register    */
+#define OFFSET_LCR              0x0C	/* Line Control Register                */
+#define OFFSET_MCR              0x10	/* Modem Control Register               */
+#define OFFSET_LSR              0x14	/* Line Status Register                 */
+#define OFFSET_MSR              0x18	/* Modem Status Register                */
+#define OFFSET_SCR              0x1C	/* SCR Scratch Register                 */
+#define OFFSET_GCTL             0x24	/* Global Control Register              */
 
 /* DPMC*/
 #define bfin_read_STOPCK_OFF() bfin_read_STOPCK()
 #define bfin_write_STOPCK_OFF(val) bfin_write_STOPCK(val)
 #define STOPCK_OFF STOPCK
-
-/* FIO USE PORT F*/
-#ifdef CONFIG_BF537_PORT_F
-#define bfin_read_PORT_FER() bfin_read_PORTF_FER()
-#define bfin_write_PORT_FER(val) bfin_write_PORTF_FER(val)
-#define bfin_read_FIO_FLAG_D() bfin_read_PORTFIO()
-#define bfin_write_FIO_FLAG_D(val) bfin_write_PORTFIO(val)
-#define bfin_read_FIO_FLAG_C() bfin_read_PORTFIO_CLEAR()
-#define bfin_write_FIO_FLAG_C(val) bfin_write_PORTFIO_CLEAR(val)
-#define bfin_read_FIO_FLAG_S() bfin_read_PORTFIO_SET()
-#define bfin_write_FIO_FLAG_S(val) bfin_write_PORTFIO_SET(val)
-#define bfin_read_FIO_FLAG_T() bfin_read_PORTFIO_TOGGLE()
-#define bfin_write_FIO_FLAG_T(val) bfin_write_PORTFIO_TOGGLE(val)
-#define bfin_read_FIO_MASKA_D() bfin_read_PORTFIO_MASKA()
-#define bfin_write_FIO_MASKA_D(val) bfin_write_PORTFIO_MASKA(val)
-#define bfin_read_FIO_MASKA_C() bfin_read_PORTFIO_MASKA_CLEAR()
-#define bfin_write_FIO_MASKA_C(val) bfin_write_PORTFIO_MASKA_CLEAR(val)
-#define bfin_read_FIO_MASKA_S() bfin_read_PORTFIO_MASKA_SET()
-#define bfin_write_FIO_MASKA_S(val) bfin_write_PORTFIO_MASKA_SET(val)
-#define bfin_read_FIO_MASKA_T() bfin_read_PORTFIO_MASKA_TOGGLE()
-#define bfin_write_FIO_MASKA_T(val) bfin_write_PORTFIO_MASKA_TOGGLE(val)
-#define bfin_read_FIO_MASKB_D() bfin_read_PORTFIO_MASKB()
-#define bfin_write_FIO_MASKB_D(val) bfin_write_PORTFIO_MASKB(val)
-#define bfin_read_FIO_MASKB_C() bfin_read_PORTFIO_MASKB_CLEAR()
-#define bfin_write_FIO_MASKB_C(val) bfin_write_PORTFIO_MASKB_CLEAR(val)
-#define bfin_read_FIO_MASKB_S() bfin_read_PORTFIO_MASKB_SET()
-#define bfin_write_FIO_MASKB_S(val) bfin_write_PORTFIO_MASKB_SET(val)
-#define bfin_read_FIO_MASKB_T() bfin_read_PORTFIO_MASKB_TOGGLE()
-#define bfin_write_FIO_MASKB_T(val) bfin_write_PORTFIO_MASKB_TOGGLE(val)
-#define bfin_read_FIO_DIR() bfin_read_PORTFIO_DIR()
-#define bfin_write_FIO_DIR(val) bfin_write_PORTFIO_DIR(val)
-#define bfin_read_FIO_POLAR() bfin_read_PORTFIO_POLAR()
-#define bfin_write_FIO_POLAR(val) bfin_write_PORTFIO_POLAR(val)
-#define bfin_read_FIO_EDGE() bfin_read_PORTFIO_EDGE()
-#define bfin_write_FIO_EDGE(val) bfin_write_PORTFIO_EDGE(val)
-#define bfin_read_FIO_BOTH() bfin_read_PORTFIO_BOTH()
-#define bfin_write_FIO_BOTH(val) bfin_write_PORTFIO_BOTH(val)
-#define bfin_read_FIO_INEN() bfin_read_PORTFIO_INEN()
-#define bfin_write_FIO_INEN(val) bfin_write_PORTFIO_INEN(val)
-
-#define bfin_read_FIO_FLAG_D() bfin_read_PORTFIO()
-#define bfin_write_FIO_FLAG_D(val) bfin_write_PORTFIO(val)
-#define FIO_FLAG_D		PORTFIO
-#define bfin_read_FIO_FLAG_C() bfin_read_PORTFIO_CLEAR()
-#define bfin_write_FIO_FLAG_C(val) bfin_write_PORTFIO_CLEAR(val)
-#define FIO_FLAG_C		PORTFIO_CLEAR
-#define bfin_read_FIO_FLAG_S() bfin_read_PORTFIO_SET()
-#define bfin_write_FIO_FLAG_S(val) bfin_write_PORTFIO_SET(val)
-#define FIO_FLAG_S		PORTFIO_SET
-#define bfin_read_FIO_FLAG_T() bfin_read_PORTFIO_TOGGLE()
-#define bfin_write_FIO_FLAG_T(val) bfin_write_PORTFIO_TOGGLE(val)
-#define FIO_FLAG_T		PORTFIO_TOGGLE
-#define bfin_read_FIO_MASKA_D() bfin_read_PORTFIO_MASKA()
-#define bfin_write_FIO_MASKA_D(val) bfin_write_PORTFIO_MASKA(val)
-#define FIO_MASKA_D	    PORTFIO_MASKA
-#define bfin_read_FIO_MASKA_C() bfin_read_PORTFIO_MASKA_CLEAR()
-#define bfin_write_FIO_MASKA_C(val) bfin_write_PORTFIO_MASKA_CLEAR(val)
-#define FIO_MASKA_C     PORTFIO_MASKA_CLEAR
-#define bfin_read_FIO_MASKA_S() bfin_read_PORTFIO_MASKA_SET()
-#define bfin_write_FIO_MASKA_S(val) bfin_write_PORTFIO_MASKA_SET(val)
-#define FIO_MASKA_S     PORTFIO_MASKA_SET
-#define bfin_read_FIO_MASKA_T() bfin_read_PORTFIO_MASKA_TOGGLE()
-#define bfin_write_FIO_MASKA_T(val) bfin_write_PORTFIO_MASKA_TOGGLE(val)
-#define FIO_MASKA_T     PORTFIO_MASKA_TOGGLE
-#define bfin_read_FIO_MASKB_D() bfin_read_PORTFIO_MASKB()
-#define bfin_write_FIO_MASKB_D(val) bfin_write_PORTFIO_MASKB(val)
-#define FIO_MASKB_D     PORTFIO_MASKB
-#define bfin_read_FIO_MASKB_C() bfin_read_PORTFIO_MASKB_CLEAR()
-#define bfin_write_FIO_MASKB_C(val) bfin_write_PORTFIO_MASKB_CLEAR(val)
-#define FIO_MASKB_C     PORTFIO_MASKB_CLEAR
-#define bfin_read_FIO_MASKB_S() bfin_read_PORTFIO_MASKB_SET()
-#define bfin_write_FIO_MASKB_S(val) bfin_write_PORTFIO_MASKB_SET(val)
-#define FIO_MASKB_S     PORTFIO_MASKB_SET
-#define bfin_read_FIO_MASKB_T() bfin_read_PORTFIO_MASKB_TOGGLE()
-#define bfin_write_FIO_MASKB_T(val) bfin_write_PORTFIO_MASKB_TOGGLE(val)
-#define FIO_MASKB_T     PORTFIO_MASKB_TOGGLE
-#define bfin_read_FIO_DIR() bfin_read_PORTFIO_DIR()
-#define bfin_write_FIO_DIR(val) bfin_write_PORTFIO_DIR(val)
-#define FIO_DIR		    PORTFIO_DIR
-#define bfin_read_FIO_POLAR() bfin_read_PORTFIO_POLAR()
-#define bfin_write_FIO_POLAR(val) bfin_write_PORTFIO_POLAR(val)
-#define FIO_POLAR		PORTFIO_POLAR
-#define bfin_read_FIO_EDGE() bfin_read_PORTFIO_EDGE()
-#define bfin_write_FIO_EDGE(val) bfin_write_PORTFIO_EDGE(val)
-#define FIO_EDGE		PORTFIO_EDGE
-#define bfin_read_FIO_BOTH() bfin_read_PORTFIO_BOTH()
-#define bfin_write_FIO_BOTH(val) bfin_write_PORTFIO_BOTH(val)
-#define FIO_BOTH		PORTFIO_BOTH
-#define bfin_read_FIO_INEN() bfin_read_PORTFIO_INEN()
-#define bfin_write_FIO_INEN(val) bfin_write_PORTFIO_INEN(val)
-#define FIO_INEN		PORTFIO_INEN
-#endif
-
-/* FIO USE PORT G*/
-#ifdef CONFIG_BF537_PORT_G
-#define bfin_read_PORT_FER() bfin_read_PORTG_FER()
-#define bfin_write_PORT_FER(val) bfin_write_PORTG_FER(val)
-#define bfin_read_FIO_FLAG_D() bfin_read_PORTGIO()
-#define bfin_write_FIO_FLAG_D(val) bfin_write_PORTGIO(val)
-#define bfin_read_FIO_FLAG_C() bfin_read_PORTGIO_CLEAR()
-#define bfin_write_FIO_FLAG_C(val) bfin_write_PORTGIO_CLEAR(val)
-#define bfin_read_FIO_FLAG_S() bfin_read_PORTGIO_SET()
-#define bfin_write_FIO_FLAG_S(val) bfin_write_PORTGIO_SET(val)
-#define bfin_read_FIO_FLAG_T() bfin_read_PORTGIO_TOGGLE()
-#define bfin_write_FIO_FLAG_T(val) bfin_write_PORTGIO_TOGGLE(val)
-#define bfin_read_FIO_MASKA_D() bfin_read_PORTGIO_MASKA()
-#define bfin_write_FIO_MASKA_D(val) bfin_write_PORTGIO_MASKA(val)
-#define bfin_read_FIO_MASKA_C() bfin_read_PORTGIO_MASKA_CLEAR()
-#define bfin_write_FIO_MASKA_C(val) bfin_write_PORTGIO_MASKA_CLEAR(val)
-#define bfin_read_FIO_MASKA_S() bfin_read_PORTGIO_MASKA_SET()
-#define bfin_write_FIO_MASKA_S(val) bfin_write_PORTGIO_MASKA_SET(val)
-#define bfin_read_FIO_MASKA_T() bfin_read_PORTGIO_MASKA_TOGGLE()
-#define bfin_write_FIO_MASKA_T(val) bfin_write_PORTGIO_MASKA_TOGGLE(val)
-#define bfin_read_FIO_MASKB_D() bfin_read_PORTGIO_MASKB()
-#define bfin_write_FIO_MASKB_D(val) bfin_write_PORTGIO_MASKB(val)
-#define bfin_read_FIO_MASKB_C() bfin_read_PORTGIO_MASKB_CLEAR()
-#define bfin_write_FIO_MASKB_C(val) bfin_write_PORTGIO_MASKB_CLEAR(val)
-#define bfin_read_FIO_MASKB_S() bfin_read_PORTGIO_MASKB_SET()
-#define bfin_write_FIO_MASKB_S(val) bfin_write_PORTGIO_MASKB_SET(val)
-#define bfin_read_FIO_MASKB_T() bfin_read_PORTGIO_MASKB_TOGGLE()
-#define bfin_write_FIO_MASKB_T(val) bfin_write_PORTGIO_MASKB_TOGGLE(val)
-#define bfin_read_FIO_DIR() bfin_read_PORTGIO_DIR()
-#define bfin_write_FIO_DIR(val) bfin_write_PORTGIO_DIR(val)
-#define bfin_read_FIO_POLAR() bfin_read_PORTGIO_POLAR()
-#define bfin_write_FIO_POLAR(val) bfin_write_PORTGIO_POLAR(val)
-#define bfin_read_FIO_EDGE() bfin_read_PORTGIO_EDGE()
-#define bfin_write_FIO_EDGE(val) bfin_write_PORTGIO_EDGE(val)
-#define bfin_read_FIO_BOTH() bfin_read_PORTGIO_BOTH()
-#define bfin_write_FIO_BOTH(val) bfin_write_PORTGIO_BOTH(val)
-#define bfin_read_FIO_INEN() bfin_read_PORTGIO_INEN()
-#define bfin_write_FIO_INEN(val) bfin_write_PORTGIO_INEN(val)
-
-#define bfin_read_FIO_FLAG_D() bfin_read_PORTGIO()
-#define bfin_write_FIO_FLAG_D(val) bfin_write_PORTGIO(val)
-#define FIO_FLAG_D		PORTGIO
-#define bfin_read_FIO_FLAG_C() bfin_read_PORTGIO_CLEAR()
-#define bfin_write_FIO_FLAG_C(val) bfin_write_PORTGIO_CLEAR(val)
-#define FIO_FLAG_C		PORTGIO_CLEAR
-#define bfin_read_FIO_FLAG_S() bfin_read_PORTGIO_SET()
-#define bfin_write_FIO_FLAG_S(val) bfin_write_PORTGIO_SET(val)
-#define FIO_FLAG_S		PORTGIO_SET
-#define bfin_read_FIO_FLAG_T() bfin_read_PORTGIO_TOGGLE()
-#define bfin_write_FIO_FLAG_T(val) bfin_write_PORTGIO_TOGGLE(val)
-#define FIO_FLAG_T		PORTGIO_TOGGLE
-#define bfin_read_FIO_MASKA_D() bfin_read_PORTGIO_MASKA()
-#define bfin_write_FIO_MASKA_D(val) bfin_write_PORTGIO_MASKA(val)
-#define FIO_MASKA_D	    PORTGIO_MASKA
-#define bfin_read_FIO_MASKA_C() bfin_read_PORTGIO_MASKA_CLEAR()
-#define bfin_write_FIO_MASKA_C(val) bfin_write_PORTGIO_MASKA_CLEAR(val)
-#define FIO_MASKA_C	    PORTGIO_MASKA_CLEAR
-#define bfin_read_FIO_MASKA_S() bfin_read_PORTGIO_MASKA_SET()
-#define bfin_write_FIO_MASKA_S(val) bfin_write_PORTGIO_MASKA_SET(val)
-#define FIO_MASKA_S	    PORTGIO_MASKA_SET
-#define bfin_read_FIO_MASKA_T() bfin_read_PORTGIO_MASKA_TOGGLE()
-#define bfin_write_FIO_MASKA_T(val) bfin_write_PORTGIO_MASKA_TOGGLE(val)
-#define FIO_MASKA_T	    PORTGIO_MASKA_TOGGLE
-#define bfin_read_FIO_MASKB_D() bfin_read_PORTGIO_MASKB()
-#define bfin_write_FIO_MASKB_D(val) bfin_write_PORTGIO_MASKB(val)
-#define FIO_MASKB_D	    PORTGIO_MASKB
-#define bfin_read_FIO_MASKB_C() bfin_read_PORTGIO_MASKB_CLEAR()
-#define bfin_write_FIO_MASKB_C(val) bfin_write_PORTGIO_MASKB_CLEAR(val)
-#define FIO_MASKB_C	    PORTGIO_MASKB_CLEAR
-#define bfin_read_FIO_MASKB_S() bfin_read_PORTGIO_MASKB_SET()
-#define bfin_write_FIO_MASKB_S(val) bfin_write_PORTGIO_MASKB_SET(val)
-#define FIO_MASKB_S	    PORTGIO_MASKB_SET
-#define bfin_read_FIO_MASKB_T() bfin_read_PORTGIO_MASKB_TOGGLE()
-#define bfin_write_FIO_MASKB_T(val) bfin_write_PORTGIO_MASKB_TOGGLE(val)
-#define FIO_MASKB_T	    PORTGIO_MASKB_TOGGLE
-#define bfin_read_FIO_DIR() bfin_read_PORTGIO_DIR()
-#define bfin_write_FIO_DIR(val) bfin_write_PORTGIO_DIR(val)
-#define FIO_DIR		    PORTGIO_DIR
-#define bfin_read_FIO_POLAR() bfin_read_PORTGIO_POLAR()
-#define bfin_write_FIO_POLAR(val) bfin_write_PORTGIO_POLAR(val)
-#define FIO_POLAR		PORTGIO_POLAR
-#define bfin_read_FIO_EDGE() bfin_read_PORTGIO_EDGE()
-#define bfin_write_FIO_EDGE(val) bfin_write_PORTGIO_EDGE(val)
-#define FIO_EDGE		PORTGIO_EDGE
-#define bfin_read_FIO_BOTH() bfin_read_PORTGIO_BOTH()
-#define bfin_write_FIO_BOTH(val) bfin_write_PORTGIO_BOTH(val)
-#define FIO_BOTH		PORTGIO_BOTH
-#define bfin_read_FIO_INEN() bfin_read_PORTGIO_INEN()
-#define bfin_write_FIO_INEN(val) bfin_write_PORTGIO_INEN(val)
-#define FIO_INEN		PORTGIO_INEN
-
-#endif
-
-/* FIO USE PORT H*/
-#ifdef CONFIG_BF537_PORT_H
-#define bfin_read_PORT_FER() bfin_read_PORTH_FER()
-#define bfin_write_PORT_FER(val) bfin_write_PORTH_FER(val)
-#define bfin_read_FIO_FLAG_D() bfin_read_PORTHIO()
-#define bfin_write_FIO_FLAG_D(val) bfin_write_PORTHIO(val)
-#define bfin_read_FIO_FLAG_C() bfin_read_PORTHIO_CLEAR()
-#define bfin_write_FIO_FLAG_C(val) bfin_write_PORTHIO_CLEAR(val)
-#define bfin_read_FIO_FLAG_S() bfin_read_PORTHIO_SET()
-#define bfin_write_FIO_FLAG_S(val) bfin_write_PORTHIO_SET(val)
-#define bfin_read_FIO_FLAG_T() bfin_read_PORTHIO_TOGGLE()
-#define bfin_write_FIO_FLAG_T(val) bfin_write_PORTHIO_TOGGLE(val)
-#define bfin_read_FIO_MASKA_D() bfin_read_PORTHIO_MASKA()
-#define bfin_write_FIO_MASKA_D(val) bfin_write_PORTHIO_MASKA(val)
-#define bfin_read_FIO_MASKA_C() bfin_read_PORTHIO_MASKA_CLEAR()
-#define bfin_write_FIO_MASKA_C(val) bfin_write_PORTHIO_MASKA_CLEAR(val)
-#define bfin_read_FIO_MASKA_S() bfin_read_PORTHIO_MASKA_SET()
-#define bfin_write_FIO_MASKA_S(val) bfin_write_PORTHIO_MASKA_SET(val)
-#define bfin_read_FIO_MASKA_T() bfin_read_PORTHIO_MASKA_TOGGLE()
-#define bfin_write_FIO_MASKA_T(val) bfin_write_PORTHIO_MASKA_TOGGLE(val)
-#define bfin_read_FIO_MASKB_D() bfin_read_PORTHIO_MASKB()
-#define bfin_write_FIO_MASKB_D(val) bfin_write_PORTHIO_MASKB(val)
-#define bfin_read_FIO_MASKB_C() bfin_read_PORTHIO_MASKB_CLEAR()
-#define bfin_write_FIO_MASKB_C(val) bfin_write_PORTHIO_MASKB_CLEAR(val)
-#define bfin_read_FIO_MASKB_S() bfin_read_PORTHIO_MASKB_SET()
-#define bfin_write_FIO_MASKB_S(val) bfin_write_PORTHIO_MASKB_SET(val)
-#define bfin_read_FIO_MASKB_T() bfin_read_PORTHIO_MASKB_TOGGLE()
-#define bfin_write_FIO_MASKB_T(val) bfin_write_PORTHIO_MASKB_TOGGLE(val)
-#define bfin_read_FIO_DIR() bfin_read_PORTHIO_DIR()
-#define bfin_write_FIO_DIR(val) bfin_write_PORTHIO_DIR(val)
-#define bfin_read_FIO_POLAR() bfin_read_PORTHIO_POLAR()
-#define bfin_write_FIO_POLAR(val) bfin_write_PORTHIO_POLAR(val)
-#define bfin_read_FIO_EDGE() bfin_read_PORTHIO_EDGE()
-#define bfin_write_FIO_EDGE(val) bfin_write_PORTHIO_EDGE(val)
-#define bfin_read_FIO_BOTH() bfin_read_PORTHIO_BOTH()
-#define bfin_write_FIO_BOTH(val) bfin_write_PORTHIO_BOTH(val)
-#define bfin_read_FIO_INEN() bfin_read_PORTHIO_INEN()
-#define bfin_write_FIO_INEN(val) bfin_write_PORTHIO_INEN(val)
-
-#define bfin_read_FIO_FLAG_D() bfin_read_PORTHIO()
-#define bfin_write_FIO_FLAG_D(val) bfin_write_PORTHIO(val)
-#define FIO_FLAG_D		PORTHIO
-#define bfin_read_FIO_FLAG_C() bfin_read_PORTHIO_CLEAR()
-#define bfin_write_FIO_FLAG_C(val) bfin_write_PORTHIO_CLEAR(val)
-#define FIO_FLAG_C		PORTHIO_CLEAR
-#define bfin_read_FIO_FLAG_S() bfin_read_PORTHIO_SET()
-#define bfin_write_FIO_FLAG_S(val) bfin_write_PORTHIO_SET(val)
-#define FIO_FLAG_S		PORTHIO_SET
-#define bfin_read_FIO_FLAG_T() bfin_read_PORTHIO_TOGGLE()
-#define bfin_write_FIO_FLAG_T(val) bfin_write_PORTHIO_TOGGLE(val)
-#define FIO_FLAG_T		PORTHIO_TOGGLE
-#define bfin_read_FIO_MASKA_D() bfin_read_PORTHIO_MASKA()
-#define bfin_write_FIO_MASKA_D(val) bfin_write_PORTHIO_MASKA(val)
-#define FIO_MASKA_D	    PORTHIO_MASKA
-#define bfin_read_FIO_MASKA_C() bfin_read_PORTHIO_MASKA_CLEAR()
-#define bfin_write_FIO_MASKA_C(val) bfin_write_PORTHIO_MASKA_CLEAR(val)
-#define FIO_MASKA_C	    PORTHIO_MASKA_CLEAR
-#define bfin_read_FIO_MASKA_S() bfin_read_PORTHIO_MASKA_SET()
-#define bfin_write_FIO_MASKA_S(val) bfin_write_PORTHIO_MASKA_SET(val)
-#define FIO_MASKA_S	    PORTHIO_MASKA_SET
-#define bfin_read_FIO_MASKA_T() bfin_read_PORTHIO_MASKA_TOGGLE()
-#define bfin_write_FIO_MASKA_T(val) bfin_write_PORTHIO_MASKA_TOGGLE(val)
-#define FIO_MASKA_T	    PORTHIO_MASKA_TOGGLE
-#define bfin_read_FIO_MASKB_D() bfin_read_PORTHIO_MASKB()
-#define bfin_write_FIO_MASKB_D(val) bfin_write_PORTHIO_MASKB(val)
-#define FIO_MASKB_D	    PORTHIO_MASKB
-#define bfin_read_FIO_MASKB_C() bfin_read_PORTHIO_MASKB_CLEAR()
-#define bfin_write_FIO_MASKB_C(val) bfin_write_PORTHIO_MASKB_CLEAR(val)
-#define FIO_MASKB_C	    PORTHIO_MASKB_CLEAR
-#define bfin_read_FIO_MASKB_S() bfin_read_PORTHIO_MASKB_SET()
-#define bfin_write_FIO_MASKB_S(val) bfin_write_PORTHIO_MASKB_SET(val)
-#define FIO_MASKB_S	    PORTHIO_MASKB_SET
-#define bfin_read_FIO_MASKB_T() bfin_read_PORTHIO_MASKB_TOGGLE()
-#define bfin_write_FIO_MASKB_T(val) bfin_write_PORTHIO_MASKB_TOGGLE(val)
-#define FIO_MASKB_T	    PORTHIO_MASKB_TOGGLE
-#define bfin_read_FIO_DIR() bfin_read_PORTHIO_DIR()
-#define bfin_write_FIO_DIR(val) bfin_write_PORTHIO_DIR(val)
-#define FIO_DIR		    PORTHIO_DIR
-#define bfin_read_FIO_POLAR() bfin_read_PORTHIO_POLAR()
-#define bfin_write_FIO_POLAR(val) bfin_write_PORTHIO_POLAR(val)
-#define FIO_POLAR		PORTHIO_POLAR
-#define bfin_read_FIO_EDGE() bfin_read_PORTHIO_EDGE()
-#define bfin_write_FIO_EDGE(val) bfin_write_PORTHIO_EDGE(val)
-#define FIO_EDGE		PORTHIO_EDGE
-#define bfin_read_FIO_BOTH() bfin_read_PORTHIO_BOTH()
-#define bfin_write_FIO_BOTH(val) bfin_write_PORTHIO_BOTH(val)
-#define FIO_BOTH		PORTHIO_BOTH
-#define bfin_read_FIO_INEN() bfin_read_PORTHIO_INEN()
-#define bfin_write_FIO_INEN(val) bfin_write_PORTHIO_INEN(val)
-#define FIO_INEN		PORTHIO_INEN
-
-#endif
 
 /* PLL_DIV Masks													*/
 #define CCLK_DIV1 CSEL_DIV1	/*          CCLK = VCO / 1                                  */

@@ -5,8 +5,6 @@
  *
  *		Implementation of the Transmission Control Protocol(TCP).
  *
- * Version:	$Id: tcp_minisocks.c,v 1.15 2002/02/01 22:01:04 davem Exp $
- *
  * Authors:	Ross Biro
  *		Fred N. van Kempen, <waltje@uWalt.NL.Mugnet.ORG>
  *		Mark Evans, <evansmp@uhura.aston.ac.uk>
@@ -35,6 +33,8 @@
 #endif
 
 int sysctl_tcp_syncookies __read_mostly = SYNC_INIT;
+EXPORT_SYMBOL(sysctl_tcp_syncookies);
+
 int sysctl_tcp_abort_on_overflow __read_mostly;
 
 struct inet_timewait_death_row tcp_death_row = {
@@ -244,7 +244,7 @@ kill:
 	}
 
 	if (paws_reject)
-		NET_INC_STATS_BH(LINUX_MIB_PAWSESTABREJECTED);
+		NET_INC_STATS_BH(twsk_net(tw), LINUX_MIB_PAWSESTABREJECTED);
 
 	if (!th->rst) {
 		/* In this case we must reset the TIMEWAIT timer.
@@ -368,6 +368,12 @@ void tcp_twsk_destructor(struct sock *sk)
 
 EXPORT_SYMBOL_GPL(tcp_twsk_destructor);
 
+static inline void TCP_ECN_openreq_child(struct tcp_sock *tp,
+					 struct request_sock *req)
+{
+	tp->ecn_flags = inet_rsk(req)->ecn_ok ? TCP_ECN_OK : 0;
+}
+
 /* This is not only more efficient than what we used to do, it eliminates
  * a lot of code duplication between IPv4/IPv6 SYN recv processing. -DaveM
  *
@@ -399,7 +405,6 @@ struct sock *tcp_create_openreq_child(struct sock *sk, struct request_sock *req,
 		newicsk->icsk_rto = TCP_TIMEOUT_INIT;
 
 		newtp->packets_out = 0;
-		newtp->left_out = 0;
 		newtp->retrans_out = 0;
 		newtp->sacked_out = 0;
 		newtp->fackets_out = 0;
@@ -440,7 +445,7 @@ struct sock *tcp_create_openreq_child(struct sock *sk, struct request_sock *req,
 		newtp->rx_opt.tstamp_ok = ireq->tstamp_ok;
 		if ((newtp->rx_opt.sack_ok = ireq->sack_ok) != 0) {
 			if (sysctl_tcp_fack)
-				newtp->rx_opt.sack_ok |= 2;
+				tcp_enable_fack(newtp);
 		}
 		newtp->window_clamp = req->window_clamp;
 		newtp->rcv_ssthresh = req->rcv_wnd;
@@ -475,7 +480,7 @@ struct sock *tcp_create_openreq_child(struct sock *sk, struct request_sock *req,
 		newtp->rx_opt.mss_clamp = req->mss;
 		TCP_ECN_openreq_child(newtp, req);
 
-		TCP_INC_STATS_BH(TCP_MIB_PASSIVEOPENS);
+		TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_PASSIVEOPENS);
 	}
 	return newsk;
 }
@@ -531,7 +536,7 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 		 * Enforce "SYN-ACK" according to figure 8, figure 6
 		 * of RFC793, fixed by RFC1122.
 		 */
-		req->rsk_ops->rtx_syn_ack(sk, req, NULL);
+		req->rsk_ops->rtx_syn_ack(sk, req);
 		return NULL;
 	}
 
@@ -606,7 +611,7 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 		if (!(flg & TCP_FLAG_RST))
 			req->rsk_ops->send_ack(skb, req);
 		if (paws_reject)
-			NET_INC_STATS_BH(LINUX_MIB_PAWSESTABREJECTED);
+			NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_PAWSESTABREJECTED);
 		return NULL;
 	}
 
@@ -625,7 +630,7 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 		 *	   "fourth, check the SYN bit"
 		 */
 		if (flg & (TCP_FLAG_RST|TCP_FLAG_SYN)) {
-			TCP_INC_STATS_BH(TCP_MIB_ATTEMPTFAILS);
+			TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_ATTEMPTFAILS);
 			goto embryonic_reset;
 		}
 
@@ -690,7 +695,7 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 		}
 
 	embryonic_reset:
-		NET_INC_STATS_BH(LINUX_MIB_EMBRYONICRSTS);
+		NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_EMBRYONICRSTS);
 		if (!(flg & TCP_FLAG_RST))
 			req->rsk_ops->send_reset(sk, skb);
 

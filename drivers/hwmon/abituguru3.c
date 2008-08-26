@@ -30,6 +30,7 @@
 #include <linux/platform_device.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
+#include <linux/dmi.h>
 #include <asm/io.h>
 
 /* uGuru3 bank addresses */
@@ -124,7 +125,7 @@ struct abituguru3_motherboard_info {
    The structure is dynamically allocated, at the same time when a new
    abituguru3 device is allocated. */
 struct abituguru3_data {
-	struct class_device *class_dev; /* hwmon registered device */
+	struct device *hwmon_dev;	/* hwmon registered device */
 	struct mutex update_lock;	/* protect access to data and uGuru */
 	unsigned short addr;		/* uguru base address */
 	char valid;			/* !=0 if following fields are valid */
@@ -323,7 +324,7 @@ static const struct abituguru3_motherboard_info abituguru3_motherboards[] = {
 		{ "AUX1 Fan",		36, 2, 60, 1, 0 },
 		{ NULL, 0, 0, 0, 0, 0 } }
 	},
-	{ 0x0013, "unknown", {
+	{ 0x0013, "Abit AW8D", {
 		{ "CPU Core",		 0, 0, 10, 1, 0 },
 		{ "DDR",		 1, 0, 10, 1, 0 },
 		{ "DDR VTT",		 2, 0, 10, 1, 0 },
@@ -349,6 +350,7 @@ static const struct abituguru3_motherboard_info abituguru3_motherboards[] = {
 		{ "AUX2 Fan",		36, 2, 60, 1, 0 },
 		{ "AUX3 Fan",		37, 2, 60, 1, 0 },
 		{ "AUX4 Fan",		38, 2, 60, 1, 0 },
+		{ "AUX5 Fan",		39, 2, 60, 1, 0 },
 		{ NULL, 0, 0, 0, 0, 0 } }
 	},
 	{ 0x0014, "Abit AB9 Pro", {
@@ -503,7 +505,7 @@ static const struct abituguru3_motherboard_info abituguru3_motherboards[] = {
 		{ "AUX3 FAN",		36, 2, 60, 1, 0 },
 		{ NULL, 0, 0, 0, 0, 0 } }
 	},
-	{ 0x001A, "unknown", {
+	{ 0x001A, "Abit IP35 Pro", {
 		{ "CPU Core",		 0, 0, 10, 1, 0 },
 		{ "DDR2",		 1, 0, 20, 1, 0 },
 		{ "DDR2 VTT",		 2, 0, 10, 1, 0 },
@@ -519,6 +521,61 @@ static const struct abituguru3_motherboard_info abituguru3_motherboards[] = {
 		{ "CPU",		24, 1, 1, 1, 0 },
 		{ "System ",		25, 1, 1, 1, 0 },
 		{ "PWM ",		26, 1, 1, 1, 0 },
+		{ "PWM Phase2",		27, 1, 1, 1, 0 },
+		{ "PWM Phase3",		28, 1, 1, 1, 0 },
+		{ "PWM Phase4",		29, 1, 1, 1, 0 },
+		{ "PWM Phase5",		30, 1, 1, 1, 0 },
+		{ "CPU Fan",		32, 2, 60, 1, 0 },
+		{ "SYS Fan",		34, 2, 60, 1, 0 },
+		{ "AUX1 Fan",		33, 2, 60, 1, 0 },
+		{ "AUX2 Fan",		35, 2, 60, 1, 0 },
+		{ "AUX3 Fan",		36, 2, 60, 1, 0 },
+		{ "AUX4 Fan",		37, 2, 60, 1, 0 },
+		{ NULL, 0, 0, 0, 0, 0 } }
+	},
+	{ 0x001B, "unknown", {
+		{ "CPU Core",		 0, 0, 10, 1, 0 },
+		{ "DDR3",		 1, 0, 20, 1, 0 },
+		{ "DDR3 VTT",		 2, 0, 10, 1, 0 },
+		{ "CPU VTT",		 3, 0, 10, 1, 0 },
+		{ "MCH 1.25V",		 4, 0, 10, 1, 0 },
+		{ "ICHIO 1.5V",		 5, 0, 10, 1, 0 },
+		{ "ICH 1.05V",		 6, 0, 10, 1, 0 },
+		{ "ATX +12V (24-Pin)",	 7, 0, 60, 1, 0 },
+		{ "ATX +12V (8-pin)",	 8, 0, 60, 1, 0 },
+		{ "ATX +5V",		 9, 0, 30, 1, 0 },
+		{ "+3.3V",		10, 0, 20, 1, 0 },
+		{ "5VSB",		11, 0, 30, 1, 0 },
+		{ "CPU",		24, 1, 1, 1, 0 },
+		{ "System",		25, 1, 1, 1, 0 },
+		{ "PWM Phase1",		26, 1, 1, 1, 0 },
+		{ "PWM Phase2",		27, 1, 1, 1, 0 },
+		{ "PWM Phase3",		28, 1, 1, 1, 0 },
+		{ "PWM Phase4",		29, 1, 1, 1, 0 },
+		{ "PWM Phase5",		30, 1, 1, 1, 0 },
+		{ "CPU Fan",		32, 2, 60, 1, 0 },
+		{ "SYS Fan",		34, 2, 60, 1, 0 },
+		{ "AUX1 Fan",		33, 2, 60, 1, 0 },
+		{ "AUX2 Fan",		35, 2, 60, 1, 0 },
+		{ "AUX3 Fan",		36, 2, 60, 1, 0 },
+		{ NULL, 0, 0, 0, 0, 0 } }
+	},
+	{ 0x001C, "unknown", {
+		{ "CPU Core",		 0, 0, 10, 1, 0 },
+		{ "DDR2",		 1, 0, 20, 1, 0 },
+		{ "DDR2 VTT",		 2, 0, 10, 1, 0 },
+		{ "CPU VTT",		 3, 0, 10, 1, 0 },
+		{ "MCH 1.25V",		 4, 0, 10, 1, 0 },
+		{ "ICHIO 1.5V",		 5, 0, 10, 1, 0 },
+		{ "ICH 1.05V",		 6, 0, 10, 1, 0 },
+		{ "ATX +12V (24-Pin)",	 7, 0, 60, 1, 0 },
+		{ "ATX +12V (8-pin)",	 8, 0, 60, 1, 0 },
+		{ "ATX +5V",		 9, 0, 30, 1, 0 },
+		{ "+3.3V",		10, 0, 20, 1, 0 },
+		{ "5VSB",		11, 0, 30, 1, 0 },
+		{ "CPU",		24, 1, 1, 1, 0 },
+		{ "System",		25, 1, 1, 1, 0 },
+		{ "PWM Phase1",		26, 1, 1, 1, 0 },
 		{ "PWM Phase2",		27, 1, 1, 1, 0 },
 		{ "PWM Phase3",		28, 1, 1, 1, 0 },
 		{ "PWM Phase4",		29, 1, 1, 1, 0 },
@@ -933,9 +990,9 @@ static int __devinit abituguru3_probe(struct platform_device *pdev)
 				&abituguru3_sysfs_attr[i].dev_attr))
 			goto abituguru3_probe_error;
 
-	data->class_dev = hwmon_device_register(&pdev->dev);
-	if (IS_ERR(data->class_dev)) {
-		res = PTR_ERR(data->class_dev);
+	data->hwmon_dev = hwmon_device_register(&pdev->dev);
+	if (IS_ERR(data->hwmon_dev)) {
+		res = PTR_ERR(data->hwmon_dev);
 		goto abituguru3_probe_error;
 	}
 
@@ -957,7 +1014,7 @@ static int __devexit abituguru3_remove(struct platform_device *pdev)
 	struct abituguru3_data *data = platform_get_drvdata(pdev);
 
 	platform_set_drvdata(pdev, NULL);
-	hwmon_device_unregister(data->class_dev);
+	hwmon_device_unregister(data->hwmon_dev);
 	for (i = 0; data->sysfs_attr[i].dev_attr.attr.name; i++)
 		device_remove_file(&pdev->dev, &data->sysfs_attr[i].dev_attr);
 	for (i = 0; i < ARRAY_SIZE(abituguru3_sysfs_attr); i++)
@@ -1056,11 +1113,12 @@ static int __init abituguru3_detect(void)
 {
 	/* See if there is an uguru3 there. An idle uGuru3 will hold 0x00 or
 	   0x08 at DATA and 0xAC at CMD. Sometimes the uGuru3 will hold 0x05
-	   at CMD instead, why is unknown. So we test for 0x05 too. */
+	   or 0x55 at CMD instead, why is unknown. */
 	u8 data_val = inb_p(ABIT_UGURU3_BASE + ABIT_UGURU3_DATA);
 	u8 cmd_val = inb_p(ABIT_UGURU3_BASE + ABIT_UGURU3_CMD);
 	if (((data_val == 0x00) || (data_val == 0x08)) &&
-			((cmd_val == 0xAC) || (cmd_val == 0x05)))
+			((cmd_val == 0xAC) || (cmd_val == 0x05) ||
+			 (cmd_val == 0x55)))
 		return ABIT_UGURU3_BASE;
 
 	ABIT_UGURU3_DEBUG("no Abit uGuru3 found, data = 0x%02X, cmd = "
@@ -1082,6 +1140,15 @@ static int __init abituguru3_init(void)
 {
 	int address, err;
 	struct resource res = { .flags = IORESOURCE_IO };
+
+#ifdef CONFIG_DMI
+	const char *board_vendor = dmi_get_system_info(DMI_BOARD_VENDOR);
+
+	/* safety check, refuse to load on non Abit motherboards */
+	if (!force && (!board_vendor ||
+			strcmp(board_vendor, "http://www.abit.com.tw/")))
+		return -ENODEV;
+#endif
 
 	address = abituguru3_detect();
 	if (address < 0)

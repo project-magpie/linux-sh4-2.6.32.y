@@ -291,7 +291,7 @@ static ssize_t stk17ta8_nvram_write(struct kobject *kobj,
 static struct bin_attribute stk17ta8_nvram_attr = {
 	.attr = {
 		.name = "nvram",
-		.mode = S_IRUGO | S_IWUGO,
+		.mode = S_IRUGO | S_IWUSR,
 		.owner = THIS_MODULE,
 	},
 	.size = RTC_OFFSET,
@@ -393,6 +393,9 @@ static int __devexit stk17ta8_rtc_remove(struct platform_device *pdev)
 	kfree(pdata);
 	return 0;
 }
+
+/* work with hotplug and coldplug */
+MODULE_ALIAS("platform:stk17ta8");
 
 static struct platform_driver stk17ta8_rtc_driver = {
 	.probe		= stk17ta8_rtc_probe,

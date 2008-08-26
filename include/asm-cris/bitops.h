@@ -14,17 +14,14 @@
 /* Currently this is unsuitable for consumption outside the kernel.  */
 #ifdef __KERNEL__ 
 
+#ifndef _LINUX_BITOPS_H
+#error only <linux/bitops.h> can be included directly
+#endif
+
 #include <asm/arch/bitops.h>
 #include <asm/system.h>
 #include <asm/atomic.h>
 #include <linux/compiler.h>
-
-/*
- * Some hacks to defeat gcc over-optimizations..
- */
-struct __dummy { unsigned long a[100]; };
-#define ADDR (*(struct __dummy *) addr)
-#define CONST_ADDR (*(const struct __dummy *) addr)
 
 /*
  * set_bit - Atomically set a bit in memory
@@ -154,6 +151,7 @@ static inline int test_and_change_bit(int nr, volatile unsigned long *addr)
 #include <asm-generic/bitops/fls64.h>
 #include <asm-generic/bitops/hweight.h>
 #include <asm-generic/bitops/find.h>
+#include <asm-generic/bitops/lock.h>
 
 #include <asm-generic/bitops/ext2-non-atomic.h>
 

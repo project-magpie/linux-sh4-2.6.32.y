@@ -933,7 +933,7 @@ xfs_qm_dqget(
 	       type == XFS_DQ_PROJ ||
 	       type == XFS_DQ_GROUP);
 	if (ip) {
-		ASSERT(XFS_ISLOCKED_INODE_EXCL(ip));
+		ASSERT(xfs_isilocked(ip, XFS_ILOCK_EXCL));
 		if (type == XFS_DQ_USER)
 			ASSERT(ip->i_udquot == NULL);
 		else
@@ -1088,7 +1088,7 @@ xfs_qm_dqget(
 	xfs_qm_mplist_unlock(mp);
 	XFS_DQ_HASH_UNLOCK(h);
  dqret:
-	ASSERT((ip == NULL) || XFS_ISLOCKED_INODE_EXCL(ip));
+	ASSERT((ip == NULL) || xfs_isilocked(ip, XFS_ILOCK_EXCL));
 	xfs_dqtrace_entry(dqp, "DQGET DONE");
 	*O_dqpp = dqp;
 	return (0);
@@ -1209,7 +1209,6 @@ xfs_qm_dqflush(
 	xfs_buf_t		*bp;
 	xfs_disk_dquot_t	*ddqp;
 	int			error;
-	SPLDECL(s);
 
 	ASSERT(XFS_DQ_IS_LOCKED(dqp));
 	ASSERT(XFS_DQ_IS_FLUSH_LOCKED(dqp));
@@ -1270,9 +1269,9 @@ xfs_qm_dqflush(
 	mp = dqp->q_mount;
 
 	/* lsn is 64 bits */
-	AIL_LOCK(mp, s);
+	spin_lock(&mp->m_ail_lock);
 	dqp->q_logitem.qli_flush_lsn = dqp->q_logitem.qli_item.li_lsn;
-	AIL_UNLOCK(mp, s);
+	spin_unlock(&mp->m_ail_lock);
 
 	/*
 	 * Attach an iodone routine so that we can remove this dquot from the
@@ -1292,7 +1291,7 @@ xfs_qm_dqflush(
 	if (flags & XFS_QMOPT_DELWRI) {
 		xfs_bdwrite(mp, bp);
 	} else if (flags & XFS_QMOPT_ASYNC) {
-		xfs_bawrite(mp, bp);
+		error = xfs_bawrite(mp, bp);
 	} else {
 		error = xfs_bwrite(mp, bp);
 	}
@@ -1318,7 +1317,6 @@ xfs_qm_dqflush_done(
 	xfs_dq_logitem_t	*qip)
 {
 	xfs_dquot_t		*dqp;
-	SPLDECL(s);
 
 	dqp = qip->qli_dquot;
 
@@ -1333,15 +1331,15 @@ xfs_qm_dqflush_done(
 	if ((qip->qli_item.li_flags & XFS_LI_IN_AIL) &&
 	    qip->qli_item.li_lsn == qip->qli_flush_lsn) {
 
-		AIL_LOCK(dqp->q_mount, s);
+		spin_lock(&dqp->q_mount->m_ail_lock);
 		/*
 		 * xfs_trans_delete_ail() drops the AIL lock.
 		 */
 		if (qip->qli_item.li_lsn == qip->qli_flush_lsn)
 			xfs_trans_delete_ail(dqp->q_mount,
-					     (xfs_log_item_t*)qip, s);
+					     (xfs_log_item_t*)qip);
 		else
-			AIL_UNLOCK(dqp->q_mount, s);
+			spin_unlock(&dqp->q_mount->m_ail_lock);
 	}
 
 	/*
@@ -1441,9 +1439,7 @@ xfs_qm_dqpurge(
 	uint		flags)
 {
 	xfs_dqhash_t	*thishash;
-	xfs_mount_t	*mp;
-
-	mp = dqp->q_mount;
+	xfs_mount_t	*mp = dqp->q_mount;
 
 	ASSERT(XFS_QM_IS_MPLIST_LOCKED(mp));
 	ASSERT(XFS_DQ_IS_HASH_LOCKED(dqp->q_hash));
@@ -1487,6 +1483,7 @@ xfs_qm_dqpurge(
 	 * we're unmounting, we do care, so we flush it and wait.
 	 */
 	if (XFS_DQ_IS_DIRTY(dqp)) {
+		int	error;
 		xfs_dqtrace_entry(dqp, "DQPURGE ->DQFLUSH: DQDIRTY");
 		/* dqflush unlocks dqflock */
 		/*
@@ -1497,7 +1494,10 @@ xfs_qm_dqpurge(
 		 * We don't care about getting disk errors here. We need
 		 * to purge this dquot anyway, so we go ahead regardless.
 		 */
-		(void) xfs_qm_dqflush(dqp, XFS_QMOPT_SYNC);
+		error = xfs_qm_dqflush(dqp, XFS_QMOPT_SYNC);
+		if (error)
+			xfs_fs_cmn_err(CE_WARN, mp,
+				"xfs_qm_dqpurge: dquot %p flush failed", dqp);
 		xfs_dqflock(dqp);
 	}
 	ASSERT(dqp->q_pincount == 0);
@@ -1582,12 +1582,18 @@ xfs_qm_dqflock_pushbuf_wait(
 		    XFS_INCORE_TRYLOCK);
 	if (bp != NULL) {
 		if (XFS_BUF_ISDELAYWRITE(bp)) {
+			int	error;
 			if (XFS_BUF_ISPINNED(bp)) {
 				xfs_log_force(dqp->q_mount,
 					      (xfs_lsn_t)0,
 					      XFS_LOG_FORCE);
 			}
-			xfs_bawrite(dqp->q_mount, bp);
+			error = xfs_bawrite(dqp->q_mount, bp);
+			if (error)
+				xfs_fs_cmn_err(CE_WARN, dqp->q_mount,
+					"xfs_qm_dqflock_pushbuf_wait: "
+					"pushbuf error %d on dqp %p, bp %p",
+					error, dqp, bp);
 		} else {
 			xfs_buf_relse(bp);
 		}

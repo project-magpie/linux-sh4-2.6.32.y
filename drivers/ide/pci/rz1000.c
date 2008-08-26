@@ -1,6 +1,4 @@
 /*
- *  linux/drivers/ide/pci/rz1000.c	Version 0.06	January 12, 2003
- *
  *  Copyright (C) 1995-1998  Linus Torvalds & author (see below)
  */
 
@@ -18,52 +16,46 @@
 #include <linux/types.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/delay.h>
-#include <linux/timer.h>
-#include <linux/mm.h>
-#include <linux/ioport.h>
-#include <linux/blkdev.h>
 #include <linux/hdreg.h>
 #include <linux/pci.h>
 #include <linux/ide.h>
 #include <linux/init.h>
 
-#include <asm/io.h>
+#define DRV_NAME "rz1000"
 
 static void __devinit init_hwif_rz1000 (ide_hwif_t *hwif)
 {
+	struct pci_dev *dev = to_pci_dev(hwif->dev);
 	u16 reg;
-	struct pci_dev *dev = hwif->pci_dev;
 
-	hwif->chipset = ide_rz1000;
 	if (!pci_read_config_word (dev, 0x40, &reg) &&
 	    !pci_write_config_word(dev, 0x40, reg & 0xdfff)) {
 		printk(KERN_INFO "%s: disabled chipset read-ahead "
 			"(buggy RZ1000/RZ1001)\n", hwif->name);
 	} else {
-		hwif->serialized = 1;
-		hwif->drives[0].no_unmask = 1;
-		hwif->drives[1].no_unmask = 1;
+		if (hwif->mate)
+			hwif->mate->serialized = hwif->serialized = 1;
+		hwif->host_flags |= IDE_HFLAG_NO_UNMASK_IRQS;
 		printk(KERN_INFO "%s: serialized, disabled unmasking "
 			"(buggy RZ1000/RZ1001)\n", hwif->name);
 	}
 }
 
-static ide_pci_device_t rz1000_chipset __devinitdata = {
-	.name		= "RZ100x",
+static const struct ide_port_info rz1000_chipset __devinitdata = {
+	.name		= DRV_NAME,
 	.init_hwif	= init_hwif_rz1000,
-	.autodma	= NODMA,
-	.bootable	= ON_BOARD,
+	.chipset	= ide_rz1000,
+	.host_flags	= IDE_HFLAG_NO_DMA,
 };
 
 static int __devinit rz1000_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
-	return ide_setup_pci_device(dev, &rz1000_chipset);
+	return ide_pci_init_one(dev, &rz1000_chipset, NULL);
 }
 
-static struct pci_device_id rz1000_pci_tbl[] = {
-	{ PCI_VENDOR_ID_PCTECH, PCI_DEVICE_ID_PCTECH_RZ1000, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
-	{ PCI_VENDOR_ID_PCTECH, PCI_DEVICE_ID_PCTECH_RZ1001, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
+static const struct pci_device_id rz1000_pci_tbl[] = {
+	{ PCI_VDEVICE(PCTECH, PCI_DEVICE_ID_PCTECH_RZ1000), 0 },
+	{ PCI_VDEVICE(PCTECH, PCI_DEVICE_ID_PCTECH_RZ1001), 0 },
 	{ 0, },
 };
 MODULE_DEVICE_TABLE(pci, rz1000_pci_tbl);
@@ -72,6 +64,7 @@ static struct pci_driver driver = {
 	.name		= "RZ1000_IDE",
 	.id_table	= rz1000_pci_tbl,
 	.probe		= rz1000_init_one,
+	.remove		= ide_pci_remove,
 };
 
 static int __init rz1000_ide_init(void)
@@ -79,7 +72,13 @@ static int __init rz1000_ide_init(void)
 	return ide_pci_register_driver(&driver);
 }
 
+static void __exit rz1000_ide_exit(void)
+{
+	pci_unregister_driver(&driver);
+}
+
 module_init(rz1000_ide_init);
+module_exit(rz1000_ide_exit);
 
 MODULE_AUTHOR("Andre Hedrick");
 MODULE_DESCRIPTION("PCI driver module for RZ1000 IDE");

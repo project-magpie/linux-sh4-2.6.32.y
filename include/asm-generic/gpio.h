@@ -1,7 +1,11 @@
 #ifndef _ASM_GENERIC_GPIO_H
 #define _ASM_GENERIC_GPIO_H
 
-#ifdef CONFIG_HAVE_GPIO_LIB
+#include <linux/types.h>
+
+#ifdef CONFIG_GPIOLIB
+
+#include <linux/compiler.h>
 
 /* Platforms may implement their GPIO interface with library code,
  * at a small performance cost for non-inlined operations and some
@@ -9,18 +13,27 @@
  *
  * While the GPIO programming interface defines valid GPIO numbers
  * to be in the range 0..MAX_INT, this library restricts them to the
- * smaller range 0..ARCH_NR_GPIOS.
+ * smaller range 0..ARCH_NR_GPIOS-1.
  */
 
 #ifndef ARCH_NR_GPIOS
 #define ARCH_NR_GPIOS		256
 #endif
 
+static inline int gpio_is_valid(int number)
+{
+	/* only some non-negative numbers are valid */
+	return ((unsigned)number) < ARCH_NR_GPIOS;
+}
+
 struct seq_file;
+struct module;
 
 /**
  * struct gpio_chip - abstract a GPIO controller
  * @label: for diagnostics
+ * @dev: optional device providing the GPIOs
+ * @owner: helps prevent removal of modules exporting active GPIOs
  * @direction_input: configures signal "offset" as input, or returns error
  * @get: returns value for signal "offset"; for output signals this
  *	returns either the value actually sensed, or zero
@@ -48,6 +61,8 @@ struct seq_file;
  */
 struct gpio_chip {
 	char			*label;
+	struct device		*dev;
+	struct module		*owner;
 
 	int			(*direction_input)(struct gpio_chip *chip,
 						unsigned offset);
@@ -62,10 +77,12 @@ struct gpio_chip {
 	int			base;
 	u16			ngpio;
 	unsigned		can_sleep:1;
+	unsigned		exported:1;
 };
 
 extern const char *gpiochip_is_requested(struct gpio_chip *chip,
 			unsigned offset);
+extern int __must_check gpiochip_reserve(int start, int ngpio);
 
 /* add/remove chips */
 extern int gpiochip_add(struct gpio_chip *chip);
@@ -95,7 +112,24 @@ extern void __gpio_set_value(unsigned gpio, int value);
 extern int __gpio_cansleep(unsigned gpio);
 
 
-#else
+#ifdef CONFIG_GPIO_SYSFS
+
+/*
+ * A sysfs interface can be exported by individual drivers if they want,
+ * but more typically is configured entirely from userspace.
+ */
+extern int gpio_export(unsigned gpio, bool direction_may_change);
+extern void gpio_unexport(unsigned gpio);
+
+#endif	/* CONFIG_GPIO_SYSFS */
+
+#else	/* !CONFIG_HAVE_GPIO_LIB */
+
+static inline int gpio_is_valid(int number)
+{
+	/* only non-negative numbers are valid */
+	return number >= 0;
+}
 
 /* platforms that don't directly support access to GPIOs through I2C, SPI,
  * or other blocking infrastructure can use these wrappers.
@@ -118,6 +152,20 @@ static inline void gpio_set_value_cansleep(unsigned gpio, int value)
 	gpio_set_value(gpio, value);
 }
 
-#endif
+#endif /* !CONFIG_HAVE_GPIO_LIB */
+
+#ifndef CONFIG_GPIO_SYSFS
+
+/* sysfs support is only available with gpiolib, where it's optional */
+
+static inline int gpio_export(unsigned gpio, bool direction_may_change)
+{
+	return -ENOSYS;
+}
+
+static inline void gpio_unexport(unsigned gpio)
+{
+}
+#endif	/* CONFIG_GPIO_SYSFS */
 
 #endif /* _ASM_GENERIC_GPIO_H */

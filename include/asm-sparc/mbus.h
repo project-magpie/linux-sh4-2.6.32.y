@@ -1,4 +1,4 @@
-/* $Id: mbus.h,v 1.9 1997/06/24 15:48:12 jj Exp $
+/*
  * mbus.h:  Various defines for MBUS modules.
  *
  * Copyright (C) 1995 David S. Miller (davem@caip.rutgers.edu)
@@ -42,8 +42,6 @@ extern unsigned int viking_rev, swift_rev, cypress_rev;
 #define HWBUG_PC_BADFAULT_ADDR       0x00000040
 #define HWBUG_SUPERSCALAR_BAD        0x00000080
 #define HWBUG_PACINIT_BITROT         0x00000100
-
-extern unsigned int hwbug_bitmask;
 
 /* First the module type values. To find out which you have, just load
  * the mmu control register from ASI_M_MMUREG alternate address space and

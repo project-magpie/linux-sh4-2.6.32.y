@@ -4,7 +4,7 @@
 
 config UCC_SLOW
 	bool
-	default n
+	default y if SERIAL_QE
 	help
 	  This option provides qe_lib support to UCC slow
 	  protocols: UART, BISYNC, QMC
@@ -20,3 +20,16 @@ config UCC
 	bool
 	default y if UCC_FAST || UCC_SLOW
 
+config QE_USB
+	bool
+	help
+	  QE USB Host Controller support
+
+config QE_GPIO
+	bool "QE GPIO support"
+	depends on QUICC_ENGINE
+	select GENERIC_GPIO
+	select ARCH_REQUIRE_GPIOLIB
+	help
+	  Say Y here if you're going to use hardware that connects to the
+	  QE GPIOs.

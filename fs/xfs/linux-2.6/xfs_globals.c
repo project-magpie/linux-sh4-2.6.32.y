@@ -20,11 +20,6 @@
 #include "xfs_sysctl.h"
 
 /*
- * System memory size - used to scale certain data structures in XFS.
- */
-unsigned long xfs_physmem;
-
-/*
  * Tunable XFS parameters.  xfs_params is required even when CONFIG_SYSCTL=n,
  * other XFS code uses these values.  Times are measured in centisecs (i.e.
  * 100ths of a second).
@@ -52,5 +47,6 @@ xfs_param_t xfs_params = {
 /*
  * Global system credential structure.
  */
-cred_t sys_cred_val, *sys_cred = &sys_cred_val;
+static cred_t sys_cred_val;
+cred_t *sys_cred = &sys_cred_val;
 

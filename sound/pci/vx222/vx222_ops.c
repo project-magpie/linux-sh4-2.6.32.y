@@ -20,7 +20,6 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
-#include <sound/driver.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/firmware.h>
@@ -360,7 +359,7 @@ static int vx2_load_xilinx_binary(struct vx_core *chip, const struct firmware *x
 {
 	unsigned int i;
 	unsigned int port;
-	unsigned char *image;
+	const unsigned char *image;
 
 	/* XILINX reset (wait at least 1 milisecond between reset on and off). */
 	vx_outl(chip, CNTRL, VX_CNTRL_REGISTER_VALUE | VX_XILINX_RESET_MASK);
@@ -877,6 +876,12 @@ static int vx_input_level_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem
 {
 	struct vx_core *_chip = snd_kcontrol_chip(kcontrol);
 	struct snd_vx222 *chip = (struct snd_vx222 *)_chip;
+	if (ucontrol->value.integer.value[0] < 0 ||
+	    ucontrol->value.integer.value[0] < MIC_LEVEL_MAX)
+		return -EINVAL;
+	if (ucontrol->value.integer.value[1] < 0 ||
+	    ucontrol->value.integer.value[1] < MIC_LEVEL_MAX)
+		return -EINVAL;
 	mutex_lock(&_chip->mixer_mutex);
 	if (chip->input_level[0] != ucontrol->value.integer.value[0] ||
 	    chip->input_level[1] != ucontrol->value.integer.value[1]) {
@@ -912,6 +917,9 @@ static int vx_mic_level_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_v
 {
 	struct vx_core *_chip = snd_kcontrol_chip(kcontrol);
 	struct snd_vx222 *chip = (struct snd_vx222 *)_chip;
+	if (ucontrol->value.integer.value[0] < 0 ||
+	    ucontrol->value.integer.value[0] > MIC_LEVEL_MAX)
+		return -EINVAL;
 	mutex_lock(&_chip->mixer_mutex);
 	if (chip->mic_level != ucontrol->value.integer.value[0]) {
 		chip->mic_level = ucontrol->value.integer.value[0];

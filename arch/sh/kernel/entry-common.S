@@ -1,9 +1,6 @@
-/* $Id: entry.S,v 1.37 2004/06/11 13:02:46 doyu Exp $
- *
- *  linux/arch/sh/entry.S
- *
+/* 
  *  Copyright (C) 1999, 2000, 2002  Niibe Yutaka
- *  Copyright (C) 2003  Paul Mundt
+ *  Copyright (C) 2003 - 2008  Paul Mundt
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
@@ -205,7 +202,7 @@ work_resched:
 syscall_exit_work:
 	! r0: current_thread_info->flags
 	! r8: current_thread_info
-	tst	#_TIF_SYSCALL_TRACE | _TIF_SINGLESTEP, r0
+	tst	#_TIF_SYSCALL_TRACE | _TIF_SINGLESTEP | _TIF_SYSCALL_AUDIT, r0
 	bt/s	work_pending
 	 tst	#_TIF_NEED_RESCHED, r0
 #ifdef CONFIG_TRACE_IRQFLAGS
@@ -215,6 +212,8 @@ syscall_exit_work:
 #endif
 	sti
 	! XXX setup arguments...
+	mov	r15, r4
+	mov	#1, r5
 	mov.l	4f, r0			! do_syscall_trace
 	jsr	@r0
 	 nop
@@ -225,6 +224,8 @@ syscall_exit_work:
 syscall_trace_entry:
 	!                     	Yes it is traced.
 	! XXX setup arguments...
+	mov     r15, r4
+	mov     #0, r5
 	mov.l	4f, r11		! Call do_syscall_trace which notifies
 	jsr	@r11	    	! superior (will chomp R[0-7])
 	 nop
@@ -258,6 +259,7 @@ __restore_all:
 
 	.align	2
 syscall_badsys:			! Bad syscall number
+	get_current_thread_info r8, r0
 	mov	#-ENOSYS, r0
 	bra	resume_userspace
 	 mov.l	r0, @(OFF_R0,r15)	! Return value
@@ -277,7 +279,9 @@ debug_trap:
 	mov.l	1f, r8
 	add	r0, r8
 	mov.l	@r8, r8
-	jmp	@r8
+	jsr	@r8
+	 nop
+	bra	__restore_all
 	 nop
 
 	.align	2
@@ -347,7 +351,7 @@ ENTRY(system_call)
 	!
 	get_current_thread_info r8, r10
 	mov.l	@(TI_FLAGS,r8), r8
-	mov	#_TIF_SYSCALL_TRACE, r10
+	mov	#(_TIF_SYSCALL_TRACE | _TIF_SYSCALL_AUDIT), r10
 	tst	r10, r8
 	bf	syscall_trace_entry
 	!

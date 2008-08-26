@@ -1,30 +1,11 @@
 /*
- * File:         drivers/serial/bfin_5xx.c
- * Based on:     Based on drivers/serial/sa1100.c
- * Author:       Aubrey Li <aubrey.li@analog.com>
+ * Blackfin On-Chip Serial Driver
  *
- * Created:
- * Description:  Driver for blackfin 5xx serial ports
+ * Copyright 2006-2007 Analog Devices Inc.
  *
- * Modified:
- *               Copyright 2006 Analog Devices Inc.
+ * Enter bugs at http://blackfin.uclinux.org/
  *
- * Bugs:         Enter bugs at http://blackfin.uclinux.org/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see the file COPYING, or write
- * to the Free Software Foundation, Inc.,
- * 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * Licensed under the GPL-2 or later.
  */
 
 #if defined(CONFIG_SERIAL_BFIN_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
@@ -67,14 +48,13 @@
 #define DMA_RX_XCOUNT		512
 #define DMA_RX_YCOUNT		(PAGE_SIZE / DMA_RX_XCOUNT)
 
-#define DMA_RX_FLUSH_JIFFIES	5
+#define DMA_RX_FLUSH_JIFFIES	(HZ / 50)
+#define CTS_CHECK_JIFFIES	(HZ / 50)
 
 #ifdef CONFIG_SERIAL_BFIN_DMA
 static void bfin_serial_dma_tx_chars(struct bfin_serial_port *uart);
 #else
-static void bfin_serial_do_work(struct work_struct *work);
 static void bfin_serial_tx_chars(struct bfin_serial_port *uart);
-static void local_put_char(struct bfin_serial_port *uart, char ch);
 #endif
 
 static void bfin_serial_mctrl_check(struct bfin_serial_port *uart);
@@ -85,29 +65,23 @@ static void bfin_serial_mctrl_check(struct bfin_serial_port *uart);
 static void bfin_serial_stop_tx(struct uart_port *port)
 {
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
+	struct circ_buf *xmit = &uart->port.info->xmit;
 
-#ifdef CONFIG_BF54x
 	while (!(UART_GET_LSR(uart) & TEMT))
-		continue;
-#endif
+		cpu_relax();
 
 #ifdef CONFIG_SERIAL_BFIN_DMA
 	disable_dma(uart->tx_dma_channel);
+	xmit->tail = (xmit->tail + uart->tx_count) & (UART_XMIT_SIZE - 1);
+	uart->port.icount.tx += uart->tx_count;
+	uart->tx_count = 0;
+	uart->tx_done = 1;
 #else
 #ifdef CONFIG_BF54x
-	/* Waiting for Transmission Finished */
-	while (!(UART_GET_LSR(uart) & TFI))
-		continue;
 	/* Clear TFI bit */
 	UART_PUT_LSR(uart, TFI);
-	UART_CLEAR_IER(uart, ETBEI);
-#else
-	unsigned short ier;
-
-	ier = UART_GET_IER(uart);
-	ier &= ~ETBEI;
-	UART_PUT_IER(uart, ier);
 #endif
+	UART_CLEAR_IER(uart, ETBEI);
 #endif
 }
 
@@ -119,17 +93,11 @@ static void bfin_serial_start_tx(struct uart_port *port)
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
 
 #ifdef CONFIG_SERIAL_BFIN_DMA
-	bfin_serial_dma_tx_chars(uart);
+	if (uart->tx_done)
+		bfin_serial_dma_tx_chars(uart);
 #else
-#ifdef CONFIG_BF54x
 	UART_SET_IER(uart, ETBEI);
-#else
-	unsigned short ier;
-	ier = UART_GET_IER(uart);
-	ier |= ETBEI;
-	UART_PUT_IER(uart, ier);
 	bfin_serial_tx_chars(uart);
-#endif
 #endif
 }
 
@@ -139,18 +107,10 @@ static void bfin_serial_start_tx(struct uart_port *port)
 static void bfin_serial_stop_rx(struct uart_port *port)
 {
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
-#ifdef CONFIG_BF54x
-	UART_CLEAR_IER(uart, ERBFI);
-#else
-	unsigned short ier;
-
-	ier = UART_GET_IER(uart);
-#ifdef	CONFIG_KGDB_UART
+#ifdef CONFIG_KGDB_UART
 	if (uart->port.line != CONFIG_KGDB_UART_PORT)
 #endif
-	ier &= ~ERBFI;
-	UART_PUT_IER(uart, ier);
-#endif
+	UART_CLEAR_IER(uart, ERBFI);
 }
 
 /*
@@ -167,18 +127,19 @@ void kgdb_put_debug_char(int chr)
 {
 	struct bfin_serial_port *uart;
 	
-	if (CONFIG_KGDB_UART_PORT<0 || CONFIG_KGDB_UART_PORT>=NR_PORTS)
+	if (CONFIG_KGDB_UART_PORT < 0
+		|| CONFIG_KGDB_UART_PORT >= BFIN_UART_NR_PORTS)
 		uart = &bfin_serial_ports[0];
 	else
 		uart = &bfin_serial_ports[CONFIG_KGDB_UART_PORT];
 	
 	while (!(UART_GET_LSR(uart) & THRE)) {
-		__builtin_bfin_ssync();
+		SSYNC();
 	}
-	UART_PUT_LCR(uart, UART_GET_LCR(uart)&(~DLAB));
-	__builtin_bfin_ssync();
+
+	UART_CLEAR_DLAB(uart);
 	UART_PUT_CHAR(uart, (unsigned char)chr);
-	__builtin_bfin_ssync();
+	SSYNC();
 }
 
 int kgdb_get_debug_char(void)
@@ -186,58 +147,47 @@ int kgdb_get_debug_char(void)
 	struct bfin_serial_port *uart;
 	unsigned char chr;
 
-	if (CONFIG_KGDB_UART_PORT<0 || CONFIG_KGDB_UART_PORT>=NR_PORTS)
+	if (CONFIG_KGDB_UART_PORT < 0
+		|| CONFIG_KGDB_UART_PORT >= BFIN_UART_NR_PORTS)
 		uart = &bfin_serial_ports[0];
 	else
 		uart = &bfin_serial_ports[CONFIG_KGDB_UART_PORT];
 	
 	while(!(UART_GET_LSR(uart) & DR)) {
-		__builtin_bfin_ssync();
+		SSYNC();
 	}
-	UART_PUT_LCR(uart, UART_GET_LCR(uart)&(~DLAB));
-	__builtin_bfin_ssync();
+	UART_CLEAR_DLAB(uart);
 	chr = UART_GET_CHAR(uart);
-	__builtin_bfin_ssync();
+	SSYNC();
 
 	return chr;
 }
 #endif
 
+#if ANOMALY_05000363 && defined(CONFIG_SERIAL_BFIN_PIO)
+# define UART_GET_ANOMALY_THRESHOLD(uart)    ((uart)->anomaly_threshold)
+# define UART_SET_ANOMALY_THRESHOLD(uart, v) ((uart)->anomaly_threshold = (v))
+#else
+# define UART_GET_ANOMALY_THRESHOLD(uart)    0
+# define UART_SET_ANOMALY_THRESHOLD(uart, v)
+#endif
+
 #ifdef CONFIG_SERIAL_BFIN_PIO
-static void local_put_char(struct bfin_serial_port *uart, char ch)
-{
-	unsigned short status;
-	int flags = 0;
-
-	spin_lock_irqsave(&uart->port.lock, flags);
-
-	do {
-		status = UART_GET_LSR(uart);
-	} while (!(status & THRE));
-
-	UART_PUT_CHAR(uart, ch);
-	SSYNC();
-
-	spin_unlock_irqrestore(&uart->port.lock, flags);
-}
-
 static void bfin_serial_rx_chars(struct bfin_serial_port *uart)
 {
-	struct tty_struct *tty = uart->port.info->tty;
+	struct tty_struct *tty = uart->port.info->port.tty;
 	unsigned int status, ch, flg;
-#ifdef CONFIG_KGDB_UART
-	struct pt_regs *regs = get_irq_regs();
-#endif
-#ifdef BF533_FAMILY
-	static int in_break = 0;
-#endif
+	static struct timeval anomaly_start = { .tv_sec = 0 };
 
 	status = UART_GET_LSR(uart);
+	UART_CLEAR_LSR(uart);
+
  	ch = UART_GET_CHAR(uart);
  	uart->port.icount.rx++;
 
 #ifdef CONFIG_KGDB_UART
 	if (uart->port.line == CONFIG_KGDB_UART_PORT) {
+		struct pt_regs *regs = get_irq_regs();
 		if (uart->port.cons->index == CONFIG_KGDB_UART_PORT && ch == 0x1) { /* Ctrl + A */
 			kgdb_breakkey_pressed(regs);
 			return;
@@ -256,29 +206,55 @@ static void bfin_serial_rx_chars(struct bfin_serial_port *uart)
 		}
 	}
 #endif
- 
-#ifdef BF533_FAMILY
-	/* The BF533 family of processors have a nice misbehavior where
-	 * they continuously generate characters for a "single" break.
-	 * We have to basically ignore this flood until the "next" valid
-	 * character comes across.  All other Blackfin families operate
-	 * properly though.
-	 */
-	if (in_break) {
-		if (ch != 0) {
-			in_break = 0;
-			ch = UART_GET_CHAR(uart);
-			if (bfin_revid() < 5)
-				return;
-		} else
+
+	if (ANOMALY_05000363) {
+		/* The BF533 (and BF561) family of processors have a nice anomaly
+		 * where they continuously generate characters for a "single" break.
+		 * We have to basically ignore this flood until the "next" valid
+		 * character comes across.  Due to the nature of the flood, it is
+		 * not possible to reliably catch bytes that are sent too quickly
+		 * after this break.  So application code talking to the Blackfin
+		 * which sends a break signal must allow at least 1.5 character
+		 * times after the end of the break for things to stabilize.  This
+		 * timeout was picked as it must absolutely be larger than 1
+		 * character time +/- some percent.  So 1.5 sounds good.  All other
+		 * Blackfin families operate properly.  Woo.
+		 */
+		if (anomaly_start.tv_sec) {
+			struct timeval curr;
+			suseconds_t usecs;
+
+			if ((~ch & (~ch + 1)) & 0xff)
+				goto known_good_char;
+
+			do_gettimeofday(&curr);
+			if (curr.tv_sec - anomaly_start.tv_sec > 1)
+				goto known_good_char;
+
+			usecs = 0;
+			if (curr.tv_sec != anomaly_start.tv_sec)
+				usecs += USEC_PER_SEC;
+			usecs += curr.tv_usec - anomaly_start.tv_usec;
+
+			if (usecs > UART_GET_ANOMALY_THRESHOLD(uart))
+				goto known_good_char;
+
+			if (ch)
+				anomaly_start.tv_sec = 0;
+			else
+				anomaly_start = curr;
+
 			return;
+
+ known_good_char:
+			anomaly_start.tv_sec = 0;
+		}
 	}
-#endif
 
 	if (status & BI) {
-#ifdef BF533_FAMILY
-		in_break = 1;
-#endif
+		if (ANOMALY_05000363)
+			if (bfin_revid() < 5)
+				do_gettimeofday(&anomaly_start);
 		uart->port.icount.brk++;
 		if (uart_handle_break(&uart->port))
 			goto ignore_char;
@@ -315,12 +291,6 @@ static void bfin_serial_tx_chars(struct bfin_serial_port *uart)
 {
 	struct circ_buf *xmit = &uart->port.info->xmit;
 
-	if (uart->port.x_char) {
-		UART_PUT_CHAR(uart, uart->port.x_char);
-		uart->port.icount.tx++;
-		uart->port.x_char = 0;
-		return;
-	}
 	/*
 	 * Check the modem control lines before
 	 * transmitting anything.
@@ -332,9 +302,18 @@ static void bfin_serial_tx_chars(struct bfin_serial_port *uart)
 		return;
 	}
 
-	local_put_char(uart, xmit->buf[xmit->tail]);
-	xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
-	uart->port.icount.tx++;
+	if (uart->port.x_char) {
+		UART_PUT_CHAR(uart, uart->port.x_char);
+		uart->port.icount.tx++;
+		uart->port.x_char = 0;
+	}
+
+	while ((UART_GET_LSR(uart) & THRE) && xmit->tail != xmit->head) {
+		UART_PUT_CHAR(uart, xmit->buf[xmit->tail]);
+		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
+		uart->port.icount.tx++;
+		SSYNC();
+	}
 
 	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 		uart_write_wakeup(&uart->port);
@@ -347,21 +326,11 @@ static irqreturn_t bfin_serial_rx_int(int irq, void *dev_id)
 {
 	struct bfin_serial_port *uart = dev_id;
 
-#ifdef CONFIG_BF54x
-	unsigned short status;
 	spin_lock(&uart->port.lock);
-	status = UART_GET_LSR(uart);
-	while ((UART_GET_IER(uart) & ERBFI) && (status & DR)) {
-		bfin_serial_rx_chars(uart);
-		status = UART_GET_LSR(uart);
-	}
-	spin_unlock(&uart->port.lock);
-#else
-	spin_lock(&uart->port.lock);
-	while ((UART_GET_IIR(uart) & IIR_STATUS) == IIR_RX_READY)
+	while (UART_GET_LSR(uart) & DR)
 		bfin_serial_rx_chars(uart);
 	spin_unlock(&uart->port.lock);
-#endif
+
 	return IRQ_HANDLED;
 }
 
@@ -369,30 +338,12 @@ static irqreturn_t bfin_serial_tx_int(int irq, void *dev_id)
 {
 	struct bfin_serial_port *uart = dev_id;
 
-#ifdef CONFIG_BF54x
-	unsigned short status;
 	spin_lock(&uart->port.lock);
-	status = UART_GET_LSR(uart);
-	while ((UART_GET_IER(uart) & ETBEI) && (status & THRE)) {
-		bfin_serial_tx_chars(uart);
-		status = UART_GET_LSR(uart);
-	}
-	spin_unlock(&uart->port.lock);
-#else
-	spin_lock(&uart->port.lock);
-	while ((UART_GET_IIR(uart) & IIR_STATUS) == IIR_TX_READY)
+	if (UART_GET_LSR(uart) & THRE)
 		bfin_serial_tx_chars(uart);
 	spin_unlock(&uart->port.lock);
-#endif
+
 	return IRQ_HANDLED;
-}
-
-
-static void bfin_serial_do_work(struct work_struct *work)
-{
-	struct bfin_serial_port *uart = container_of(work, struct bfin_serial_port, cts_workqueue);
-
-	bfin_serial_mctrl_check(uart);
 }
 #endif
 
@@ -400,21 +351,9 @@ static void bfin_serial_do_work(struct work_struct *work)
 static void bfin_serial_dma_tx_chars(struct bfin_serial_port *uart)
 {
 	struct circ_buf *xmit = &uart->port.info->xmit;
-	unsigned short ier;
-	int flags = 0;
-
-	if (!uart->tx_done)
-		return;
 
 	uart->tx_done = 0;
 
-	if (uart->port.x_char) {
-		UART_PUT_CHAR(uart, uart->port.x_char);
-		uart->port.icount.tx++;
-		uart->port.x_char = 0;
-		uart->tx_done = 1;
-		return;
-	}
 	/*
 	 * Check the modem control lines before
 	 * transmitting anything.
@@ -422,12 +361,17 @@ static void bfin_serial_dma_tx_chars(struct bfin_serial_port *uart)
 	bfin_serial_mctrl_check(uart);
 
 	if (uart_circ_empty(xmit) || uart_tx_stopped(&uart->port)) {
-		bfin_serial_stop_tx(&uart->port);
+		uart->tx_count = 0;
 		uart->tx_done = 1;
 		return;
 	}
 
-	spin_lock_irqsave(&uart->port.lock, flags);
+	if (uart->port.x_char) {
+		UART_PUT_CHAR(uart, uart->port.x_char);
+		uart->port.icount.tx++;
+		uart->port.x_char = 0;
+	}
+
 	uart->tx_count = CIRC_CNT(xmit->head, xmit->tail, UART_XMIT_SIZE);
 	if (uart->tx_count > (UART_XMIT_SIZE - xmit->tail))
 		uart->tx_count = UART_XMIT_SIZE - xmit->tail;
@@ -437,28 +381,27 @@ static void bfin_serial_dma_tx_chars(struct bfin_serial_port *uart)
 		set_bfin_dma_config(DIR_READ, DMA_FLOW_STOP,
 			INTR_ON_BUF,
 			DIMENSION_LINEAR,
-			DATA_SIZE_8));
+			DATA_SIZE_8,
+			DMA_SYNC_RESTART));
 	set_dma_start_addr(uart->tx_dma_channel, (unsigned long)(xmit->buf+xmit->tail));
 	set_dma_x_count(uart->tx_dma_channel, uart->tx_count);
 	set_dma_x_modify(uart->tx_dma_channel, 1);
 	enable_dma(uart->tx_dma_channel);
-#ifdef CONFIG_BF54x
+
 	UART_SET_IER(uart, ETBEI);
-#else
-	ier = UART_GET_IER(uart);
-	ier |= ETBEI;
-	UART_PUT_IER(uart, ier);
-#endif
-	spin_unlock_irqrestore(&uart->port.lock, flags);
 }
 
 static void bfin_serial_dma_rx_chars(struct bfin_serial_port *uart)
 {
-	struct tty_struct *tty = uart->port.info->tty;
+	struct tty_struct *tty = uart->port.info->port.tty;
 	int i, flg, status;
 
 	status = UART_GET_LSR(uart);
-	uart->port.icount.rx += CIRC_CNT(uart->rx_dma_buf.head, uart->rx_dma_buf.tail, UART_XMIT_SIZE);;
+	UART_CLEAR_LSR(uart);
+
+	uart->port.icount.rx +=
+		CIRC_CNT(uart->rx_dma_buf.head, uart->rx_dma_buf.tail,
+		UART_XMIT_SIZE);
 
 	if (status & BI) {
 		uart->port.icount.brk++;
@@ -484,10 +427,12 @@ static void bfin_serial_dma_rx_chars(struct bfin_serial_port *uart)
 	else
 		flg = TTY_NORMAL;
 
-	for (i = uart->rx_dma_buf.head; i < uart->rx_dma_buf.tail; i++) {
-		if (uart_handle_sysrq_char(&uart->port, uart->rx_dma_buf.buf[i]))
-			goto dma_ignore_char;
-		uart_insert_char(&uart->port, status, OE, uart->rx_dma_buf.buf[i], flg);
+	for (i = uart->rx_dma_buf.tail; i != uart->rx_dma_buf.head; i++) {
+		if (i >= UART_XMIT_SIZE)
+			i = 0;
+		if (!uart_handle_sysrq_char(&uart->port, uart->rx_dma_buf.buf[i]))
+			uart_insert_char(&uart->port, status, OE,
+				uart->rx_dma_buf.buf[i], flg);
 	}
 
  dma_ignore_char:
@@ -497,53 +442,43 @@ static void bfin_serial_dma_rx_chars(struct bfin_serial_port *uart)
 void bfin_serial_rx_dma_timeout(struct bfin_serial_port *uart)
 {
 	int x_pos, pos;
-	int flags = 0;
 
-	bfin_serial_dma_tx_chars(uart);
-
-	spin_lock_irqsave(&uart->port.lock, flags);
-	x_pos = DMA_RX_XCOUNT - get_dma_curr_xcount(uart->rx_dma_channel);
+	uart->rx_dma_nrows = get_dma_curr_ycount(uart->rx_dma_channel);
+	x_pos = get_dma_curr_xcount(uart->rx_dma_channel);
+	uart->rx_dma_nrows = DMA_RX_YCOUNT - uart->rx_dma_nrows;
+	if (uart->rx_dma_nrows == DMA_RX_YCOUNT)
+		uart->rx_dma_nrows = 0;
+	x_pos = DMA_RX_XCOUNT - x_pos;
 	if (x_pos == DMA_RX_XCOUNT)
 		x_pos = 0;
 
 	pos = uart->rx_dma_nrows * DMA_RX_XCOUNT + x_pos;
-
-	if (pos>uart->rx_dma_buf.tail) {
-		uart->rx_dma_buf.tail = pos;
+	if (pos != uart->rx_dma_buf.tail) {
+		uart->rx_dma_buf.head = pos;
 		bfin_serial_dma_rx_chars(uart);
-		uart->rx_dma_buf.head = uart->rx_dma_buf.tail;
+		uart->rx_dma_buf.tail = uart->rx_dma_buf.head;
 	}
-	spin_unlock_irqrestore(&uart->port.lock, flags);
-	uart->rx_dma_timer.expires = jiffies + DMA_RX_FLUSH_JIFFIES;
-	add_timer(&(uart->rx_dma_timer));
+
+	mod_timer(&(uart->rx_dma_timer), jiffies + DMA_RX_FLUSH_JIFFIES);
 }
 
 static irqreturn_t bfin_serial_dma_tx_int(int irq, void *dev_id)
 {
 	struct bfin_serial_port *uart = dev_id;
 	struct circ_buf *xmit = &uart->port.info->xmit;
-	unsigned short ier;
 
 	spin_lock(&uart->port.lock);
 	if (!(get_dma_curr_irqstat(uart->tx_dma_channel)&DMA_RUN)) {
-		clear_dma_irqstat(uart->tx_dma_channel);
 		disable_dma(uart->tx_dma_channel);
-#ifdef CONFIG_BF54x
+		clear_dma_irqstat(uart->tx_dma_channel);
 		UART_CLEAR_IER(uart, ETBEI);
-#else
-		ier = UART_GET_IER(uart);
-		ier &= ~ETBEI;
-		UART_PUT_IER(uart, ier);
-#endif
-		xmit->tail = (xmit->tail+uart->tx_count) &(UART_XMIT_SIZE -1);
-		uart->port.icount.tx+=uart->tx_count;
+		xmit->tail = (xmit->tail + uart->tx_count) & (UART_XMIT_SIZE - 1);
+		uart->port.icount.tx += uart->tx_count;
 
 		if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 			uart_write_wakeup(&uart->port);
 
-		if (uart_circ_empty(xmit))
-			bfin_serial_stop_tx(&uart->port);
-		uart->tx_done = 1;
+		bfin_serial_dma_tx_chars(uart);
 	}
 
 	spin_unlock(&uart->port.lock);
@@ -555,18 +490,13 @@ static irqreturn_t bfin_serial_dma_rx_int(int irq, void *dev_id)
 	struct bfin_serial_port *uart = dev_id;
 	unsigned short irqstat;
 
-	uart->rx_dma_nrows++;
-	if (uart->rx_dma_nrows == DMA_RX_YCOUNT) {
-		uart->rx_dma_nrows = 0;
-		uart->rx_dma_buf.tail = DMA_RX_XCOUNT*DMA_RX_YCOUNT;
-		bfin_serial_dma_rx_chars(uart);
-		uart->rx_dma_buf.head = uart->rx_dma_buf.tail = 0;
-	}
 	spin_lock(&uart->port.lock);
 	irqstat = get_dma_curr_irqstat(uart->rx_dma_channel);
 	clear_dma_irqstat(uart->rx_dma_channel);
-
 	spin_unlock(&uart->port.lock);
+
+	mod_timer(&(uart->rx_dma_timer), jiffies);
+
 	return IRQ_HANDLED;
 }
 #endif
@@ -593,7 +523,7 @@ static unsigned int bfin_serial_get_mctrl(struct uart_port *port)
 	if (uart->cts_pin < 0)
 		return TIOCM_CTS | TIOCM_DSR | TIOCM_CAR;
 
-	if (gpio_get_value(uart->cts_pin))
+	if (UART_GET_CTS(uart))
 		return TIOCM_DSR | TIOCM_CAR;
 	else
 #endif
@@ -608,9 +538,9 @@ static void bfin_serial_set_mctrl(struct uart_port *port, unsigned int mctrl)
 		return;
 
 	if (mctrl & TIOCM_RTS)
-		gpio_set_value(uart->rts_pin, 0);
+		UART_CLEAR_RTS(uart);
 	else
-		gpio_set_value(uart->rts_pin, 1);
+		UART_SET_RTS(uart);
 #endif
 }
 
@@ -621,22 +551,20 @@ static void bfin_serial_mctrl_check(struct bfin_serial_port *uart)
 {
 #ifdef CONFIG_SERIAL_BFIN_CTSRTS
 	unsigned int status;
-# ifdef CONFIG_SERIAL_BFIN_DMA
 	struct uart_info *info = uart->port.info;
-	struct tty_struct *tty = info->tty;
+	struct tty_struct *tty = info->port.tty;
 
 	status = bfin_serial_get_mctrl(&uart->port);
+	uart_handle_cts_change(&uart->port, status & TIOCM_CTS);
 	if (!(status & TIOCM_CTS)) {
 		tty->hw_stopped = 1;
+		uart->cts_timer.data = (unsigned long)(uart);
+		uart->cts_timer.function = (void *)bfin_serial_mctrl_check;
+		uart->cts_timer.expires = jiffies + CTS_CHECK_JIFFIES;
+		add_timer(&(uart->cts_timer));
 	} else {
 		tty->hw_stopped = 0;
 	}
-# else
-	status = bfin_serial_get_mctrl(&uart->port);
-	uart_handle_cts_change(&uart->port, status & TIOCM_CTS);
-	if (!(status & TIOCM_CTS))
-		schedule_work(&uart->cts_workqueue);
-# endif
 #endif
 }
 
@@ -684,7 +612,8 @@ static int bfin_serial_startup(struct uart_port *port)
 	set_dma_config(uart->rx_dma_channel,
 		set_bfin_dma_config(DIR_WRITE, DMA_FLOW_AUTO,
 				INTR_ON_ROW, DIMENSION_2D,
-				DATA_SIZE_8));
+				DATA_SIZE_8,
+				DMA_SYNC_RESTART));
 	set_dma_x_count(uart->rx_dma_channel, DMA_RX_XCOUNT);
 	set_dma_x_modify(uart->rx_dma_channel, 1);
 	set_dma_y_count(uart->rx_dma_channel, DMA_RX_YCOUNT);
@@ -697,15 +626,16 @@ static int bfin_serial_startup(struct uart_port *port)
 	uart->rx_dma_timer.expires = jiffies + DMA_RX_FLUSH_JIFFIES;
 	add_timer(&(uart->rx_dma_timer));
 #else
-# ifdef	CONFIG_KGDB_UART
-	if (uart->port.line != CONFIG_KGDB_UART_PORT && request_irq
-# else
-	if (request_irq
-# endif
-	    (uart->port.irq, bfin_serial_rx_int, IRQF_DISABLED,
+	if (request_irq(uart->port.irq, bfin_serial_rx_int, IRQF_DISABLED,
 	     "BFIN_UART_RX", uart)) {
+# ifdef	CONFIG_KGDB_UART
+		if (uart->port.line != CONFIG_KGDB_UART_PORT) {
+# endif
 		printk(KERN_NOTICE "Unable to attach BlackFin UART RX interrupt\n");
 		return -EBUSY;
+# ifdef	CONFIG_KGDB_UART
+		}
+# endif
 	}
 
 	if (request_irq
@@ -716,11 +646,7 @@ static int bfin_serial_startup(struct uart_port *port)
 		return -EBUSY;
 	}
 #endif
-#ifdef CONFIG_BF54x
 	UART_SET_IER(uart, ERBFI);
-#else
-	UART_PUT_IER(uart, UART_GET_IER(uart) | ERBFI);
-#endif
 	return 0;
 }
 
@@ -734,6 +660,7 @@ static void bfin_serial_shutdown(struct uart_port *port)
 	disable_dma(uart->rx_dma_channel);
 	free_dma(uart->rx_dma_channel);
 	del_timer(&(uart->rx_dma_timer));
+	dma_free_coherent(NULL, PAGE_SIZE, uart->rx_dma_buf.buf, 0);
 #else
 #ifdef	CONFIG_KGDB_UART
 	if (uart->port.line != CONFIG_KGDB_UART_PORT)
@@ -750,7 +677,7 @@ bfin_serial_set_termios(struct uart_port *port, struct ktermios *termios,
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
 	unsigned long flags;
 	unsigned int baud, quot;
-	unsigned short val, ier, lsr, lcr = 0;
+	unsigned short val, ier, lcr = 0;
 
 	switch (termios->c_cflag & CSIZE) {
 	case CS8:
@@ -767,7 +694,7 @@ bfin_serial_set_termios(struct uart_port *port, struct ktermios *termios,
 		break;
 	default:
 		printk(KERN_ERR "%s: word lengh not supported\n",
-			__FUNCTION__);
+			__func__);
 	}
 
 	if (termios->c_cflag & CSTOPB)
@@ -805,47 +732,26 @@ bfin_serial_set_termios(struct uart_port *port, struct ktermios *termios,
 	quot = uart_get_divisor(port, baud);
 	spin_lock_irqsave(&uart->port.lock, flags);
 
-	do {
-		lsr = UART_GET_LSR(uart);
-	} while (!(lsr & TEMT));
+	UART_SET_ANOMALY_THRESHOLD(uart, USEC_PER_SEC / baud * 15);
 
 	/* Disable UART */
 	ier = UART_GET_IER(uart);
-#ifdef CONFIG_BF54x
-	UART_CLEAR_IER(uart, 0xF);
-#else
-	UART_PUT_IER(uart, 0);
-#endif
+	UART_DISABLE_INTS(uart);
 
-#ifndef CONFIG_BF54x
 	/* Set DLAB in LCR to Access DLL and DLH */
-	val = UART_GET_LCR(uart);
-	val |= DLAB;
-	UART_PUT_LCR(uart, val);
-	SSYNC();
-#endif
+	UART_SET_DLAB(uart);
 
 	UART_PUT_DLL(uart, quot & 0xFF);
-	SSYNC();
 	UART_PUT_DLH(uart, (quot >> 8) & 0xFF);
 	SSYNC();
 
-#ifndef CONFIG_BF54x
 	/* Clear DLAB in LCR to Access THR RBR IER */
-	val = UART_GET_LCR(uart);
-	val &= ~DLAB;
-	UART_PUT_LCR(uart, val);
-	SSYNC();
-#endif
+	UART_CLEAR_DLAB(uart);
 
 	UART_PUT_LCR(uart, lcr);
 
 	/* Enable UART */
-#ifdef CONFIG_BF54x
-	UART_SET_IER(uart, ier);
-#else
-	UART_PUT_IER(uart, ier);
-#endif
+	UART_ENABLE_INTS(uart, ier);
 
 	val = UART_GET_GCTL(uart);
 	val |= UCEN;
@@ -899,6 +805,31 @@ bfin_serial_verify_port(struct uart_port *port, struct serial_struct *ser)
 	return 0;
 }
 
+/*
+ * Enable the IrDA function if tty->ldisc.num is N_IRDA.
+ * In other cases, disable IrDA function.
+ */
+static void bfin_serial_set_ldisc(struct uart_port *port)
+{
+	int line = port->line;
+	unsigned short val;
+
+	if (line >= port->info->port.tty->driver->num)
+		return;
+
+	switch (port->info->port.tty->ldisc.num) {
+	case N_IRDA:
+		val = UART_GET_GCTL(&bfin_serial_ports[line]);
+		val |= (IREN | RPOLC);
+		UART_PUT_GCTL(&bfin_serial_ports[line], val);
+		break;
+	default:
+		val = UART_GET_GCTL(&bfin_serial_ports[line]);
+		val &= ~(IREN | RPOLC);
+		UART_PUT_GCTL(&bfin_serial_ports[line], val);
+	}
+}
+
 static struct uart_ops bfin_serial_pops = {
 	.tx_empty	= bfin_serial_tx_empty,
 	.set_mctrl	= bfin_serial_set_mctrl,
@@ -911,6 +842,7 @@ static struct uart_ops bfin_serial_pops = {
 	.startup	= bfin_serial_startup,
 	.shutdown	= bfin_serial_shutdown,
 	.set_termios	= bfin_serial_set_termios,
+	.set_ldisc	= bfin_serial_set_ldisc,
 	.type		= bfin_serial_type,
 	.release_port	= bfin_serial_release_port,
 	.request_port	= bfin_serial_request_port,
@@ -947,10 +879,9 @@ static void __init bfin_serial_init_ports(void)
 		bfin_serial_ports[i].rx_dma_channel =
 			bfin_serial_resource[i].uart_rx_dma_channel;
 		init_timer(&(bfin_serial_ports[i].rx_dma_timer));
-#else
-		INIT_WORK(&bfin_serial_ports[i].cts_workqueue, bfin_serial_do_work);
 #endif
 #ifdef CONFIG_SERIAL_BFIN_CTSRTS
+		init_timer(&(bfin_serial_ports[i].cts_timer));
 		bfin_serial_ports[i].cts_pin	    =
 			bfin_serial_resource[i].uart_cts_pin;
 		bfin_serial_ports[i].rts_pin	    =
@@ -960,6 +891,93 @@ static void __init bfin_serial_init_ports(void)
 	}
 
 }
+
+#ifdef CONFIG_SERIAL_BFIN_CONSOLE
+/*
+ * If the port was already initialised (eg, by a boot loader),
+ * try to determine the current setup.
+ */
+static void __init
+bfin_serial_console_get_options(struct bfin_serial_port *uart, int *baud,
+			   int *parity, int *bits)
+{
+	unsigned short status;
+
+	status = UART_GET_IER(uart) & (ERBFI | ETBEI);
+	if (status == (ERBFI | ETBEI)) {
+		/* ok, the port was enabled */
+		u16 lcr, dlh, dll;
+
+		lcr = UART_GET_LCR(uart);
+
+		*parity = 'n';
+		if (lcr & PEN) {
+			if (lcr & EPS)
+				*parity = 'e';
+			else
+				*parity = 'o';
+		}
+		switch (lcr & 0x03) {
+			case 0:	*bits = 5; break;
+			case 1:	*bits = 6; break;
+			case 2:	*bits = 7; break;
+			case 3:	*bits = 8; break;
+		}
+		/* Set DLAB in LCR to Access DLL and DLH */
+		UART_SET_DLAB(uart);
+
+		dll = UART_GET_DLL(uart);
+		dlh = UART_GET_DLH(uart);
+
+		/* Clear DLAB in LCR to Access THR RBR IER */
+		UART_CLEAR_DLAB(uart);
+
+		*baud = get_sclk() / (16*(dll | dlh << 8));
+	}
+	pr_debug("%s:baud = %d, parity = %c, bits= %d\n", __func__, *baud, *parity, *bits);
+}
+#endif
+
+#if defined(CONFIG_SERIAL_BFIN_CONSOLE) || defined(CONFIG_EARLY_PRINTK)
+static struct uart_driver bfin_serial_reg;
+
+static int __init
+bfin_serial_console_setup(struct console *co, char *options)
+{
+	struct bfin_serial_port *uart;
+# ifdef CONFIG_SERIAL_BFIN_CONSOLE
+	int baud = 57600;
+	int bits = 8;
+	int parity = 'n';
+#  ifdef CONFIG_SERIAL_BFIN_CTSRTS
+	int flow = 'r';
+#  else
+	int flow = 'n';
+#  endif
+# endif
+
+	/*
+	 * Check whether an invalid uart number has been specified, and
+	 * if so, search for the first available port that does have
+	 * console support.
+	 */
+	if (co->index == -1 || co->index >= nr_ports)
+		co->index = 0;
+	uart = &bfin_serial_ports[co->index];
+
+# ifdef CONFIG_SERIAL_BFIN_CONSOLE
+	if (options)
+		uart_parse_options(options, &baud, &parity, &bits, &flow);
+	else
+		bfin_serial_console_get_options(uart, &baud, &parity, &bits);
+
+	return uart_set_options(&uart->port, co, baud, parity, bits, flow);
+# else
+	return 0;
+# endif
+}
+#endif /* defined (CONFIG_SERIAL_BFIN_CONSOLE) ||
+				 defined (CONFIG_EARLY_PRINTK) */
 
 #ifdef CONFIG_SERIAL_BFIN_CONSOLE
 static void bfin_serial_console_putchar(struct uart_port *port, int ch)
@@ -986,90 +1004,6 @@ bfin_serial_console_write(struct console *co, const char *s, unsigned int count)
 
 }
 
-/*
- * If the port was already initialised (eg, by a boot loader),
- * try to determine the current setup.
- */
-static void __init
-bfin_serial_console_get_options(struct bfin_serial_port *uart, int *baud,
-			   int *parity, int *bits)
-{
-	unsigned short status;
-
-	status = UART_GET_IER(uart) & (ERBFI | ETBEI);
-	if (status == (ERBFI | ETBEI)) {
-		/* ok, the port was enabled */
-		unsigned short lcr, val;
-		unsigned short dlh, dll;
-
-		lcr = UART_GET_LCR(uart);
-
-		*parity = 'n';
-		if (lcr & PEN) {
-			if (lcr & EPS)
-				*parity = 'e';
-			else
-				*parity = 'o';
-		}
-		switch (lcr & 0x03) {
-			case 0:	*bits = 5; break;
-			case 1:	*bits = 6; break;
-			case 2:	*bits = 7; break;
-			case 3:	*bits = 8; break;
-		}
-#ifndef CONFIG_BF54x
-		/* Set DLAB in LCR to Access DLL and DLH */
-		val = UART_GET_LCR(uart);
-		val |= DLAB;
-		UART_PUT_LCR(uart, val);
-#endif
-
-		dll = UART_GET_DLL(uart);
-		dlh = UART_GET_DLH(uart);
-
-#ifndef CONFIG_BF54x
-		/* Clear DLAB in LCR to Access THR RBR IER */
-		val = UART_GET_LCR(uart);
-		val &= ~DLAB;
-		UART_PUT_LCR(uart, val);
-#endif
-
-		*baud = get_sclk() / (16*(dll | dlh << 8));
-	}
-	pr_debug("%s:baud = %d, parity = %c, bits= %d\n", __FUNCTION__, *baud, *parity, *bits);
-}
-
-static int __init
-bfin_serial_console_setup(struct console *co, char *options)
-{
-	struct bfin_serial_port *uart;
-	int baud = 57600;
-	int bits = 8;
-	int parity = 'n';
-#ifdef CONFIG_SERIAL_BFIN_CTSRTS
-	int flow = 'r';
-#else
-	int flow = 'n';
-#endif
-
-	/*
-	 * Check whether an invalid uart number has been specified, and
-	 * if so, search for the first available port that does have
-	 * console support.
-	 */
-	if (co->index == -1 || co->index >= nr_ports)
-		co->index = 0;
-	uart = &bfin_serial_ports[co->index];
-
-	if (options)
-		uart_parse_options(options, &baud, &parity, &bits, &flow);
-	else
-		bfin_serial_console_get_options(uart, &baud, &parity, &bits);
-
-	return uart_set_options(&uart->port, co, baud, parity, bits, flow);
-}
-
-static struct uart_driver bfin_serial_reg;
 static struct console bfin_serial_console = {
 	.name		= BFIN_SERIAL_NAME,
 	.write		= bfin_serial_console_write,
@@ -1095,7 +1029,64 @@ console_initcall(bfin_serial_rs_console_init);
 #define BFIN_SERIAL_CONSOLE	&bfin_serial_console
 #else
 #define BFIN_SERIAL_CONSOLE	NULL
-#endif
+#endif /* CONFIG_SERIAL_BFIN_CONSOLE */
+
+
+#ifdef CONFIG_EARLY_PRINTK
+static __init void early_serial_putc(struct uart_port *port, int ch)
+{
+	unsigned timeout = 0xffff;
+	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
+
+	while ((!(UART_GET_LSR(uart) & THRE)) && --timeout)
+		cpu_relax();
+	UART_PUT_CHAR(uart, ch);
+}
+
+static __init void early_serial_write(struct console *con, const char *s,
+					unsigned int n)
+{
+	struct bfin_serial_port *uart = &bfin_serial_ports[con->index];
+	unsigned int i;
+
+	for (i = 0; i < n; i++, s++) {
+		if (*s == '\n')
+			early_serial_putc(&uart->port, '\r');
+		early_serial_putc(&uart->port, *s);
+	}
+}
+
+static struct __init console bfin_early_serial_console = {
+	.name = "early_BFuart",
+	.write = early_serial_write,
+	.device = uart_console_device,
+	.flags = CON_PRINTBUFFER,
+	.setup = bfin_serial_console_setup,
+	.index = -1,
+	.data  = &bfin_serial_reg,
+};
+
+struct console __init *bfin_earlyserial_init(unsigned int port,
+						unsigned int cflag)
+{
+	struct bfin_serial_port *uart;
+	struct ktermios t;
+
+	if (port == -1 || port >= nr_ports)
+		port = 0;
+	bfin_serial_init_ports();
+	bfin_early_serial_console.index = port;
+	uart = &bfin_serial_ports[port];
+	t.c_cflag = cflag;
+	t.c_iflag = 0;
+	t.c_oflag = 0;
+	t.c_lflag = ICANON;
+	t.c_line = port;
+	bfin_serial_set_termios(&uart->port, &t, &t);
+	return &bfin_early_serial_console;
+}
+
+#endif /* CONFIG_SERIAL_BFIN_CONSOLE */
 
 static struct uart_driver bfin_serial_reg = {
 	.owner			= THIS_MODULE,
@@ -1103,7 +1094,7 @@ static struct uart_driver bfin_serial_reg = {
 	.dev_name		= BFIN_SERIAL_NAME,
 	.major			= BFIN_SERIAL_MAJOR,
 	.minor			= BFIN_SERIAL_MINOR,
-	.nr			= NR_PORTS,
+	.nr			= BFIN_UART_NR_PORTS,
 	.cons			= BFIN_SERIAL_CONSOLE,
 };
 
@@ -1174,6 +1165,7 @@ static struct platform_driver bfin_serial_driver = {
 	.resume		= bfin_serial_resume,
 	.driver		= {
 		.name	= "bfin-uart",
+		.owner	= THIS_MODULE,
 	},
 };
 
@@ -1182,7 +1174,7 @@ static int __init bfin_serial_init(void)
 	int ret;
 #ifdef CONFIG_KGDB_UART
 	struct bfin_serial_port *uart = &bfin_serial_ports[CONFIG_KGDB_UART_PORT];
-	struct termios t;
+	struct ktermios t;
 #endif
 
 	pr_info("Serial: Blackfin serial driver\n");
@@ -1199,11 +1191,11 @@ static int __init bfin_serial_init(void)
 	}
 #ifdef CONFIG_KGDB_UART
 	if (uart->port.cons->index != CONFIG_KGDB_UART_PORT) {
-		request_irq(uart->port.irq, bfin_serial_int,
+		request_irq(uart->port.irq, bfin_serial_rx_int,
 			IRQF_DISABLED, "BFIN_UART_RX", uart);
 		pr_info("Request irq for kgdb uart port\n");
-		UART_PUT_IER(uart, UART_GET_IER(uart) | ERBFI);
-		__builtin_bfin_ssync();
+		UART_SET_IER(uart, ERBFI);
+		SSYNC();
 		t.c_cflag = CS8|B57600;
 		t.c_iflag = 0;
 		t.c_oflag = 0;
@@ -1228,3 +1220,4 @@ MODULE_AUTHOR("Aubrey.Li <aubrey.li@analog.com>");
 MODULE_DESCRIPTION("Blackfin generic serial port driver");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_CHARDEV_MAJOR(BFIN_SERIAL_MAJOR);
+MODULE_ALIAS("platform:bfin-uart");

@@ -28,6 +28,7 @@
 #include <asm/mmu.h>
 #include <asm/io.h>
 #include <asm/mmu_context.h>
+#include <asm/sections.h>
 
 #if 0
 #define DPRINTK(fmt, args...) printk(KERN_ERR "%s: " fmt, __FUNCTION__, ## args)
@@ -440,7 +441,6 @@ int pmb_unmap(unsigned long addr)
 static void noinline __uses_jump_to_uncached
 apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapping)
 {
-	extern char _start_uncached;
 	register int i __asm__("r1");
 	register unsigned long c2uc __asm__("r2");
 	register struct pmb_entry *entry __asm__("r3");
@@ -450,7 +450,7 @@ apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapp
 	__pmb_mapping_set(uc_mapping);
 
 	cached_to_uncached = uc_mapping->virt -
-		(((unsigned long)&_start_uncached) & ~(uc_mapping->entries->size-1));
+		(((unsigned long)&__uncached_start) & ~(uc_mapping->entries->size-1));
 
 	jump_to_uncached();
 
@@ -487,7 +487,6 @@ void __init pmb_init(void)
 {
 	int i;
 	int entry;
-	extern char _start_uncached, _end_uncached;
 	struct pmb_mapping *uc_mapping, *ram_mapping;
 
 	/* Create the free list of mappings */
@@ -502,7 +501,7 @@ void __init pmb_init(void)
 
 	/* Create the initial mappings */
 	entry = NR_PMB_ENTRIES-1;
-	uc_mapping = pmb_calc(__pa(&_start_uncached), &_end_uncached - &_start_uncached,
+	uc_mapping = pmb_calc(__pa(&__uncached_start), &__uncached_end - &__uncached_start,
 		 P3SEG-0x01000000, &entry, PMB_WT | PMB_UB);
 	ram_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P1SEG, 0, PMB_C);
 	apply_boot_mappings(uc_mapping, ram_mapping);
@@ -576,7 +575,7 @@ static const struct file_operations pmb_debugfs_fops = {
 	.open		= pmb_debugfs_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
-	.release	= seq_release,
+	.release	= single_release,
 };
 
 static int __init pmb_debugfs_init(void)
@@ -584,7 +583,7 @@ static int __init pmb_debugfs_init(void)
 	struct dentry *dentry;
 
 	dentry = debugfs_create_file("pmb", S_IFREG | S_IRUGO,
-				     NULL, NULL, &pmb_debugfs_fops);
+				     sh_debugfs_root, NULL, &pmb_debugfs_fops);
 	if (IS_ERR(dentry))
 		return PTR_ERR(dentry);
 

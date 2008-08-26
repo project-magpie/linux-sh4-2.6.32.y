@@ -16,14 +16,15 @@
 #include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/highmem.h>
+#include <linux/log2.h>
 #include <linux/mmc/host.h>
 #include <linux/amba/bus.h>
 #include <linux/clk.h>
+#include <linux/scatterlist.h>
 
 #include <asm/cacheflush.h>
 #include <asm/div64.h>
 #include <asm/io.h>
-#include <asm/scatterlist.h>
 #include <asm/sizes.h>
 #include <asm/mach/mmc.h>
 
@@ -154,11 +155,11 @@ mmci_data_irq(struct mmci_host *host, struct mmc_data *data,
 	}
 	if (status & (MCI_DATACRCFAIL|MCI_DATATIMEOUT|MCI_TXUNDERRUN|MCI_RXOVERRUN)) {
 		if (status & MCI_DATACRCFAIL)
-			data->error = MMC_ERR_BADCRC;
+			data->error = -EILSEQ;
 		else if (status & MCI_DATATIMEOUT)
-			data->error = MMC_ERR_TIMEOUT;
+			data->error = -ETIMEDOUT;
 		else if (status & (MCI_TXUNDERRUN|MCI_RXOVERRUN))
-			data->error = MMC_ERR_FIFO;
+			data->error = -EIO;
 		status |= MCI_DATAEND;
 
 		/*
@@ -166,7 +167,7 @@ mmci_data_irq(struct mmci_host *host, struct mmc_data *data,
 		 * partially written to a page is properly coherent.
 		 */
 		if (host->sg_len && data->flags & MMC_DATA_READ)
-			flush_dcache_page(host->sg_ptr->page);
+			flush_dcache_page(sg_page(host->sg_ptr));
 	}
 	if (status & MCI_DATAEND) {
 		mmci_stop_data(host);
@@ -193,12 +194,12 @@ mmci_cmd_irq(struct mmci_host *host, struct mmc_command *cmd,
 	cmd->resp[3] = readl(base + MMCIRESPONSE3);
 
 	if (status & MCI_CMDTIMEOUT) {
-		cmd->error = MMC_ERR_TIMEOUT;
+		cmd->error = -ETIMEDOUT;
 	} else if (status & MCI_CMDCRCFAIL && cmd->flags & MMC_RSP_CRC) {
-		cmd->error = MMC_ERR_BADCRC;
+		cmd->error = -EILSEQ;
 	}
 
-	if (!cmd->data || cmd->error != MMC_ERR_NONE) {
+	if (!cmd->data || cmd->error) {
 		if (host->data)
 			mmci_stop_data(host);
 		mmci_request_end(host, cmd->mrq);
@@ -212,9 +213,10 @@ static int mmci_pio_read(struct mmci_host *host, char *buffer, unsigned int rema
 	void __iomem *base = host->base;
 	char *ptr = buffer;
 	u32 status;
+	int host_remain = host->size;
 
 	do {
-		int count = host->size - (readl(base + MMCIFIFOCNT) << 2);
+		int count = host_remain - (readl(base + MMCIFIFOCNT) << 2);
 
 		if (count > remain)
 			count = remain;
@@ -226,6 +228,7 @@ static int mmci_pio_read(struct mmci_host *host, char *buffer, unsigned int rema
 
 		ptr += count;
 		remain -= count;
+		host_remain -= count;
 
 		if (remain == 0)
 			break;
@@ -318,7 +321,7 @@ static irqreturn_t mmci_pio_irq(int irq, void *dev_id)
 		 * page, ensure that the data cache is coherent.
 		 */
 		if (status & MCI_RXACTIVE)
-			flush_dcache_page(host->sg_ptr->page);
+			flush_dcache_page(sg_page(host->sg_ptr));
 
 		if (!mmci_next_sg(host))
 			break;
@@ -391,6 +394,14 @@ static void mmci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	WARN_ON(host->mrq != NULL);
 
+	if (mrq->data && !is_power_of_2(mrq->data->blksz)) {
+		printk(KERN_ERR "%s: Unsupported block size (%d bytes)\n",
+			mmc_hostname(mmc), mrq->data->blksz);
+		mrq->cmd->error = -EINVAL;
+		mmc_request_done(mmc, mrq);
+		return;
+	}
+
 	spin_lock_irq(&host->lock);
 
 	host->mrq = mrq;
@@ -414,7 +425,7 @@ static void mmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 			host->cclk = host->mclk;
 		} else {
 			clk = host->mclk / (2 * ios->clock) - 1;
-			if (clk > 256)
+			if (clk >= 256)
 				clk = 255;
 			host->cclk = host->mclk / (2 * (clk + 1));
 		}
@@ -501,6 +512,18 @@ static int mmci_probe(struct amba_device *dev, void *id)
 
 	host->plat = plat;
 	host->mclk = clk_get_rate(host->clk);
+	/*
+	 * According to the spec, mclk is max 100 MHz,
+	 * so we try to adjust the clock down to this,
+	 * (if possible).
+	 */
+	if (host->mclk > 100000000) {
+		ret = clk_set_rate(host->clk, 100000000);
+		if (ret < 0)
+			goto clk_disable;
+		host->mclk = clk_get_rate(host->clk);
+		DBG(host, "eventual mclk rate: %u Hz\n", host->mclk);
+	}
 	host->mmc = mmc;
 	host->base = ioremap(dev->res.start, SZ_4K);
 	if (!host->base) {
@@ -512,7 +535,6 @@ static int mmci_probe(struct amba_device *dev, void *id)
 	mmc->f_min = (host->mclk + 511) / 512;
 	mmc->f_max = min(host->mclk, fmax);
 	mmc->ocr_avail = plat->ocr_mask;
-	mmc->caps = MMC_CAP_MULTIWRITE;
 
 	/*
 	 * We can do SGIO

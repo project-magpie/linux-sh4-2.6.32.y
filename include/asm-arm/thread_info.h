@@ -62,6 +62,9 @@ struct thread_info {
 	struct crunch_state	crunchstate;
 	union fp_state		fpstate __attribute__((aligned(8)));
 	union vfp_state		vfpstate;
+#ifdef CONFIG_ARM_THUMBEE
+	unsigned long		thumbee_state;	/* ThumbEE Handler Base register */
+#endif
 	struct restart_block	restart_block;
 };
 
@@ -93,19 +96,6 @@ static inline struct thread_info *current_thread_info(void)
 	register unsigned long sp asm ("sp");
 	return (struct thread_info *)(sp & ~(THREAD_SIZE - 1));
 }
-
-/* thread information allocation */
-#ifdef CONFIG_DEBUG_STACK_USAGE
-#define alloc_thread_info(tsk) \
-	((struct thread_info *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, \
-		THREAD_SIZE_ORDER))
-#else
-#define alloc_thread_info(tsk) \
-	((struct thread_info *)__get_free_pages(GFP_KERNEL, THREAD_SIZE_ORDER))
-#endif
-
-#define free_thread_info(info) \
-	free_pages((unsigned long)info, THREAD_SIZE_ORDER);
 
 #define thread_saved_pc(tsk)	\
 	((unsigned long)(pc_pointer(task_thread_info(tsk)->cpu_context.pc)))

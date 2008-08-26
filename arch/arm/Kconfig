@@ -8,8 +8,15 @@ mainmenu "Linux Kernel Configuration"
 config ARM
 	bool
 	default y
+	select HAVE_IDE
 	select RTC_LIB
 	select SYS_SUPPORTS_APM_EMULATION
+	select HAVE_OPROFILE
+	select HAVE_ARCH_KGDB
+	select HAVE_KPROBES if (!XIP_KERNEL)
+	select HAVE_KRETPROBES if (HAVE_KPROBES)
+	select HAVE_FTRACE if (!XIP_KERNEL)
+	select HAVE_DYNAMIC_FTRACE if (HAVE_FTRACE)
 	help
 	  The ARM series is a line of low-power-consumption RISC chip designs
 	  licensed by ARM Ltd and targeted at embedded applications and
@@ -17,6 +24,9 @@ config ARM
 	  manufactured, but legacy ARM-based PC hardware remains popular in
 	  Europe.  There is an ARM Linux project with a web page at
 	  <http://www.arm.linux.org.uk/>.
+
+config HAVE_PWM
+	bool
 
 config SYS_SUPPORTS_APM_EMULATION
 	bool
@@ -32,6 +42,11 @@ config GENERIC_TIME
 config GENERIC_CLOCKEVENTS
 	bool
 	default n
+
+config GENERIC_CLOCKEVENTS_BROADCAST
+	bool
+	depends on GENERIC_CLOCKEVENTS
+	default y if SMP && !LOCAL_TIMERS
 
 config MMU
 	bool
@@ -75,6 +90,11 @@ config STACKTRACE_SUPPORT
 	bool
 	default y
 
+config HAVE_LATENCYTOP_SUPPORT
+	bool
+	depends on !SMP
+	default y
+
 config LOCKDEP_SUPPORT
 	bool
 	default y
@@ -90,6 +110,11 @@ config HARDIRQS_SW_RESEND
 config GENERIC_IRQ_PROBE
 	bool
 	default y
+
+config GENERIC_LOCKBREAK
+	bool
+	default y
+	depends on SMP && PREEMPT
 
 config RWSEM_GENERIC_SPINLOCK
 	bool
@@ -114,6 +139,9 @@ config GENERIC_CALIBRATE_DELAY
 	bool
 	default y
 
+config ARCH_SUPPORTS_AOUT
+	def_bool y
+
 config ARCH_MAY_HAVE_PC_FDC
 	bool
 
@@ -129,6 +157,27 @@ config FIQ
 
 config ARCH_MTD_XIP
 	bool
+
+config GENERIC_HARDIRQS_NO__DO_IRQ
+	bool
+	def_bool y
+
+if OPROFILE
+
+config OPROFILE_ARMV6
+	def_bool y
+	depends on CPU_V6 && !SMP
+	select OPROFILE_ARM11_CORE
+
+config OPROFILE_MPCORE
+	def_bool y
+	depends on CPU_V6 && SMP
+	select OPROFILE_ARM11_CORE
+
+config OPROFILE_ARM11_CORE
+	bool
+
+endif
 
 config VECTORS_BASE
 	hex
@@ -149,12 +198,14 @@ choice
 config ARCH_AAEC2000
 	bool "Agilent AAEC-2000 based"
 	select ARM_AMBA
+	select HAVE_CLK
 	help
 	  This enables support for systems based on the Agilent AAEC-2000
 
 config ARCH_INTEGRATOR
 	bool "ARM Ltd. Integrator family"
 	select ARM_AMBA
+	select HAVE_CLK
 	select ICST525
 	help
 	  Support for ARM's Integrator platform.
@@ -162,7 +213,10 @@ config ARCH_INTEGRATOR
 config ARCH_REALVIEW
 	bool "ARM Ltd. RealView family"
 	select ARM_AMBA
+	select HAVE_CLK
 	select ICST307
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
 	help
 	  This enables support for ARM Ltd RealView boards.
 
@@ -170,6 +224,7 @@ config ARCH_VERSATILE
 	bool "ARM Ltd. Versatile family"
 	select ARM_AMBA
 	select ARM_VIC
+	select HAVE_CLK
 	select ICST307
 	select GENERIC_TIME
 	select GENERIC_CLOCKEVENTS
@@ -180,8 +235,8 @@ config ARCH_AT91
 	bool "Atmel AT91"
 	select GENERIC_GPIO
 	help
-	  This enables support for systems based on the Atmel AT91RM9200
-	  and AT91SAM9xxx processors.
+	  This enables support for systems based on the Atmel AT91RM9200,
+	  AT91SAM9 and AT91CAP9 processors.
 
 config ARCH_CLPS7500
 	bool "Cirrus CL-PS7500FE"
@@ -195,13 +250,6 @@ config ARCH_CLPS711X
 	bool "Cirrus Logic CLPS711x/EP721x-based"
 	help
 	  Support for Cirrus Logic 711x/721x based boards.
-
-config ARCH_CO285
-	bool "Co-EBSA285"
-	select FOOTBRIDGE
-	select FOOTBRIDGE_ADDIN
-	help
-	  Support for Intel's EBSA285 companion chip.
 
 config ARCH_EBSA110
 	bool "EBSA-110"
@@ -217,6 +265,10 @@ config ARCH_EP93XX
 	bool "EP93xx-based"
 	select ARM_AMBA
 	select ARM_VIC
+	select GENERIC_GPIO
+	select HAVE_CLK
+	select HAVE_CLK
+	select ARCH_REQUIRE_GPIOLIB
 	help
 	  This enables support for the Cirrus EP93xx series of CPUs.
 
@@ -261,6 +313,8 @@ config ARCH_IOP32X
 	depends on MMU
 	select PLAT_IOP
 	select PCI
+	select GENERIC_GPIO
+	select ARCH_REQUIRE_GPIOLIB
 	help
 	  Support for Intel's 80219 and IOP32X (XScale) family of
 	  processors.
@@ -270,6 +324,8 @@ config ARCH_IOP33X
 	depends on MMU
 	select PLAT_IOP
 	select PCI
+	select GENERIC_GPIO
+	select ARCH_REQUIRE_GPIOLIB
 	help
 	  Support for Intel's IOP33X (XScale) family of processors.
 
@@ -309,6 +365,16 @@ config ARCH_L7200
 	  If you have any questions or comments about the Linux kernel port
 	  to this board, send e-mail to <sjhill@cotw.com>.
 
+config ARCH_KIRKWOOD
+	bool "Marvell Kirkwood"
+	select PCI
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select PLAT_ORION
+	help
+	  Support for the following Marvell Kirkwood series SoCs:
+	  88F6180, 88F6192 and 88F6281.
+
 config ARCH_KS8695
 	bool "Micrel/Kendin KS8695"
 	select GENERIC_GPIO
@@ -318,32 +384,75 @@ config ARCH_KS8695
 
 config ARCH_NS9XXX
 	bool "NetSilicon NS9xxx"
+	select GENERIC_GPIO
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select HAVE_CLK
 	help
 	  Say Y here if you intend to run this kernel on a NetSilicon NS9xxx
 	  System.
 
 	  <http://www.digi.com/products/microprocessors/index.jsp>
 
+config ARCH_LOKI
+	bool "Marvell Loki (88RC8480)"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select PLAT_ORION
+	help
+	  Support for the Marvell Loki (88RC8480) SoC.
+
+config ARCH_MV78XX0
+	bool "Marvell MV78xx0"
+	select PCI
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select PLAT_ORION
+	help
+	  Support for the following Marvell MV78xx0 series SoCs:
+	  MV781x0, MV782x0.
+
 config ARCH_MXC
 	bool "Freescale MXC/iMX-based"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
 	select ARCH_MTD_XIP
+	select GENERIC_GPIO
+	select ARCH_REQUIRE_GPIOLIB
 	help
 	  Support for Freescale MXC/iMX-based family of processors
 
+config ARCH_ORION5X
+	bool "Marvell Orion"
+	depends on MMU
+	select PCI
+	select GENERIC_GPIO
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select PLAT_ORION
+	help
+	  Support for the following Marvell Orion 5x series SoCs:
+	  Orion-1 (5181), Orion-VoIP (5181L), Orion-NAS (5182),
+	  Orion-2 (5281).
+
 config ARCH_PNX4008
 	bool "Philips Nexperia PNX4008 Mobile"
+	select HAVE_CLK
 	help
 	  This enables support for Philips PNX4008 mobile platform.
 
 config ARCH_PXA
-	bool "PXA2xx-based"
+	bool "PXA2xx/PXA3xx-based"
 	depends on MMU
 	select ARCH_MTD_XIP
 	select GENERIC_GPIO
+	select HAVE_CLK
+	select ARCH_REQUIRE_GPIOLIB
 	select GENERIC_TIME
 	select GENERIC_CLOCKEVENTS
+	select TICK_ONESHOT
 	help
-	  Support for Intel's PXA2XX processor line.
+	  Support for Intel/Marvell's PXA2xx/PXA3xx processor line.
 
 config ARCH_RPC
 	bool "RiscPC"
@@ -351,6 +460,7 @@ config ARCH_RPC
 	select FIQ
 	select TIMER_ACORN
 	select ARCH_MAY_HAVE_PC_FDC
+	select HAVE_PATA_PLATFORM
 	select ISA_DMA_API
 	select NO_IOPORT
 	help
@@ -361,14 +471,22 @@ config ARCH_SA1100
 	bool "SA1100-based"
 	select ISA
 	select ARCH_DISCONTIGMEM_ENABLE
+	select ARCH_SPARSEMEM_ENABLE
+	select ARCH_SELECT_MEMORY_MODEL
 	select ARCH_MTD_XIP
 	select GENERIC_GPIO
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select HAVE_CLK
+	select TICK_ONESHOT
+	select ARCH_REQUIRE_GPIOLIB
 	help
 	  Support for StrongARM 11x0 based boards.
 
 config ARCH_S3C2410
 	bool "Samsung S3C2410, S3C2412, S3C2413, S3C2440, S3C2442, S3C2443"
 	select GENERIC_GPIO
+	select HAVE_CLK
 	help
 	  Samsung S3C2410X CPU based systems, such as the Simtec Electronics
 	  BAST (<http://www.simtec.co.uk/products/EB110ITX/>), the IPAQ 1940 or
@@ -396,15 +514,30 @@ config ARCH_DAVINCI
 	select GENERIC_TIME
 	select GENERIC_CLOCKEVENTS
 	select GENERIC_GPIO
+	select HAVE_CLK
 	help
 	  Support for TI's DaVinci platform.
 
 config ARCH_OMAP
 	bool "TI OMAP"
 	select GENERIC_GPIO
+	select HAVE_CLK
+	select ARCH_REQUIRE_GPIOLIB
 	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
 	help
 	  Support for TI's OMAP platform (OMAP1 and OMAP2).
+
+config ARCH_MSM7X00A
+	bool "Qualcomm MSM7X00A"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	help
+	  Support for Qualcomm MSM7X00A based systems.  This runs on the ARM11
+	  apps processor of the MSM7X00A and depends on a shared memory
+	  interface to the ARM9 modem processor which runs the baseband stack
+	  and controls some vital subsystems (clock and power control, etc).
+	  <http://www.cdmatech.com/products/msm7200_chipset_solution.jsp>
 
 endchoice
 
@@ -428,6 +561,10 @@ source "arch/arm/mach-ixp2000/Kconfig"
 
 source "arch/arm/mach-ixp23xx/Kconfig"
 
+source "arch/arm/mach-loki/Kconfig"
+
+source "arch/arm/mach-mv78xx0/Kconfig"
+
 source "arch/arm/mach-pxa/Kconfig"
 
 source "arch/arm/mach-sa1100/Kconfig"
@@ -437,6 +574,10 @@ source "arch/arm/plat-omap/Kconfig"
 source "arch/arm/mach-omap1/Kconfig"
 
 source "arch/arm/mach-omap2/Kconfig"
+
+source "arch/arm/mach-orion5x/Kconfig"
+
+source "arch/arm/mach-kirkwood/Kconfig"
 
 source "arch/arm/plat-s3c24xx/Kconfig"
 source "arch/arm/plat-s3c/Kconfig"
@@ -474,6 +615,8 @@ source "arch/arm/mach-davinci/Kconfig"
 
 source "arch/arm/mach-ks8695/Kconfig"
 
+source "arch/arm/mach-msm/Kconfig"
+
 # Definitions to make life easier
 config ARCH_ACORN
 	bool
@@ -481,12 +624,15 @@ config ARCH_ACORN
 config PLAT_IOP
 	bool
 
+config PLAT_ORION
+	bool
+
 source arch/arm/mm/Kconfig
 
 config IWMMXT
 	bool "Enable iWMMXt support"
 	depends on CPU_XSCALE || CPU_XSC3
-	default y if PXA27x
+	default y if PXA27x || PXA3xx
 	help
 	  Enable support for iWMMXt context switching at run time if
 	  running on a CPU that supports it.
@@ -534,17 +680,12 @@ config ISA_DMA_API
 	bool
 
 config PCI
-	bool "PCI support" if ARCH_INTEGRATOR_AP || ARCH_VERSATILE_PB || ARCH_IXP4XX || ARCH_KS8695
+	bool "PCI support" if ARCH_INTEGRATOR_AP || ARCH_VERSATILE_PB || ARCH_IXP4XX || ARCH_KS8695 || MACH_ARMCORE
 	help
 	  Find out whether you have a PCI motherboard. PCI is the name of a
 	  bus system, i.e. the way the CPU talks to the other stuff inside
 	  your box. Other bus systems are ISA, EISA, MicroChannel (MCA) or
 	  VESA. If you have PCI, say Y, otherwise N.
-
-	  The PCI-HOWTO, available from
-	  <http://www.tldp.org/docs.html#howto>, contains valuable
-	  information about which PCI hardware does work under Linux and which
-	  doesn't.
 
 config PCI_SYSCALL
 	def_bool PCI
@@ -554,6 +695,12 @@ config PCI_HOST_VIA82C505
 	bool
 	depends on PCI && ARCH_SHARK
 	default y
+
+config PCI_HOST_ITE8152
+	bool
+	depends on PCI && MACH_ARMCORE
+	default y
+	select DMABOUNCE
 
 source "drivers/pci/Kconfig"
 
@@ -567,7 +714,8 @@ source "kernel/time/Kconfig"
 
 config SMP
 	bool "Symmetric Multi-Processing (EXPERIMENTAL)"
-	depends on EXPERIMENTAL && REALVIEW_MPCORE
+	depends on EXPERIMENTAL && (REALVIEW_EB_ARM11MP || MACH_REALVIEW_PB11MP)
+	select USE_GENERIC_SMP_HELPERS
 	help
 	  This enables support for systems with more than one CPU. If you have
 	  a system with only one CPU, like most personal computers, say N. If
@@ -579,8 +727,7 @@ config SMP
 	  processor machines. On a single processor machine, the kernel will
 	  run faster if you say N here.
 
-	  See also the <file:Documentation/smp.txt>,
-	  <file:Documentation/i386/IO-APIC.txt>,
+	  See also <file:Documentation/i386/IO-APIC.txt>,
 	  <file:Documentation/nmi_watchdog.txt> and the SMP-HOWTO available at
 	  <http://www.linuxdoc.org/docs.html#howto>.
 
@@ -601,7 +748,7 @@ config HOTPLUG_CPU
 
 config LOCAL_TIMERS
 	bool "Use local timer interrupts"
-	depends on SMP && REALVIEW_MPCORE
+	depends on SMP && (REALVIEW_EB_ARM11MP || MACH_REALVIEW_PB11MP)
 	default y
 	help
 	  Enable support for local timers on SMP platforms, rather then the
@@ -622,32 +769,12 @@ config PREEMPT
 	  Say Y here if you are building a kernel for a desktop, embedded
 	  or real-time system.  Say N if you are unsure.
 
-config NO_IDLE_HZ
-	bool "Dynamic tick timer"
-	depends on !GENERIC_CLOCKEVENTS
-	help
-	  Select this option if you want to disable continuous timer ticks
-	  and have them programmed to occur as required. This option saves
-	  power as the system can remain in idle state for longer.
-
-	  By default dynamic tick is disabled during the boot, and can be
-	  manually enabled with:
-
-	    echo 1 > /sys/devices/system/timer/timer0/dyn_tick
-
-	  Alternatively, if you want dynamic tick automatically enabled
-	  during boot, pass "dyntick=enable" via the kernel command string.
-
-	  Please note that dynamic tick may affect the accuracy of
-	  timekeeping on some platforms depending on the implementation.
-	  Currently at least OMAP, PXA2xx and SA11x0 platforms are known
-	  to have accurate timekeeping with dynamic tick.
-
 config HZ
 	int
 	default 128 if ARCH_L7200
 	default 200 if ARCH_EBSA110 || ARCH_S3C2410
 	default OMAP_32K_TIMER_HZ if ARCH_OMAP && OMAP_32K_TIMER
+	default AT91_TIMER_HZ if ARCH_AT91
 	default 100
 
 config AEABI
@@ -691,6 +818,12 @@ config ARCH_DISCONTIGMEM_ENABLE
 	  or have huge holes in the physical address space for other reasons.
 	  See <file:Documentation/vm/numa> for more.
 
+config ARCH_SPARSEMEM_ENABLE
+	bool
+
+config ARCH_SELECT_MEMORY_MODEL
+	bool
+
 config NODES_SHIFT
 	int
 	default "4" if ARCH_LH7A40X
@@ -701,13 +834,13 @@ source "mm/Kconfig"
 
 config LEDS
 	bool "Timer and CPU usage LEDs"
-	depends on ARCH_CDB89712 || ARCH_CO285 || ARCH_EBSA110 || \
+	depends on ARCH_CDB89712 || ARCH_EBSA110 || \
 		   ARCH_EBSA285 || ARCH_IMX || ARCH_INTEGRATOR || \
 		   ARCH_LUBBOCK || MACH_MAINSTONE || ARCH_NETWINDER || \
 		   ARCH_OMAP || ARCH_P720T || ARCH_PXA_IDP || \
 		   ARCH_SA1100 || ARCH_SHARK || ARCH_VERSATILE || \
 		   ARCH_AT91 || MACH_TRIZEPS4 || ARCH_DAVINCI || \
-		   ARCH_KS8695
+		   ARCH_KS8695 || MACH_RD88F5182
 	help
 	  If you say Y here, the LEDs on your machine will be used
 	  to provide useful information about your current system status.
@@ -848,7 +981,7 @@ config KEXEC
 	help
 	  kexec is a system call that implements the ability to shutdown your
 	  current kernel, and to start another kernel.  It is like a reboot
-	  but it is indepedent of the system firmware.   And like a reboot
+	  but it is independent of the system firmware.   And like a reboot
 	  you can start any kernel with it, not just Linux.
 
 	  It is an ongoing process to be certain the hardware in a machine
@@ -856,9 +989,17 @@ config KEXEC
 	  initially work for you.  It may help to enable device hotplugging
 	  support.
 
+config ATAGS_PROC
+	bool "Export atags in procfs"
+	depends on KEXEC
+	default y
+	help
+	  Should the atags used to boot the kernel be exported in an "atags"
+	  file in procfs. Useful with kexec.
+
 endmenu
 
-if (ARCH_SA1100 || ARCH_INTEGRATOR || ARCH_OMAP || ARCH_IMX )
+if (ARCH_SA1100 || ARCH_INTEGRATOR || ARCH_OMAP || ARCH_IMX || ARCH_PXA)
 
 menu "CPU Frequency scaling"
 
@@ -893,6 +1034,12 @@ config CPU_FREQ_IMX
 	  This enables the CPUfreq driver for i.MX CPUs.
 
 	  If in doubt, say N.
+
+config CPU_FREQ_PXA
+	bool
+	depends on CPU_FREQ && ARCH_PXA && PXA25x
+	default y
+	select CPU_FREQ_DEFAULT_GOV_USERSPACE
 
 endmenu
 
@@ -942,7 +1089,7 @@ config FPE_FASTFPE
 
 config VFP
 	bool "VFP-format floating point maths"
-	depends on CPU_V6 || CPU_ARM926T
+	depends on CPU_V6 || CPU_ARM926T || CPU_V7 || CPU_FEROCEON
 	help
 	  Say Y to include VFP support code in the kernel. This is needed
 	  if your hardware includes a VFP unit.
@@ -951,6 +1098,18 @@ config VFP
 	  release notes and additional status information.
 
 	  Say N if your target does not have VFP hardware.
+
+config VFPv3
+	bool
+	depends on VFP
+	default y if CPU_V7
+
+config NEON
+	bool "Advanced SIMD (NEON) Extension support"
+	depends on VFPv3 && CPU_V7
+	help
+	  Say Y to include support code for NEON, the ARMv7 Advanced SIMD
+	  Extension.
 
 endmenu
 
@@ -974,6 +1133,9 @@ menu "Power management options"
 
 source "kernel/power/Kconfig"
 
+config ARCH_SUSPEND_POSSIBLE
+	def_bool y
+
 endmenu
 
 source "net/Kconfig"
@@ -994,12 +1156,11 @@ source "drivers/pnp/Kconfig"
 
 source "drivers/block/Kconfig"
 
-if PCMCIA || ARCH_CLPS7500 || ARCH_IOP32X || ARCH_IOP33X || ARCH_IXP4XX \
-	|| ARCH_L7200 || ARCH_LH7A40X || ARCH_PXA || ARCH_RPC \
-	|| ARCH_S3C2410 || ARCH_SA1100 || ARCH_SHARK || FOOTBRIDGE \
-	|| ARCH_IXP23XX
+# misc before ide - BLK_DEV_SGIIOC4 depends on SGI_IOC4
+
+source "drivers/misc/Kconfig"
+
 source "drivers/ide/Kconfig"
-endif
 
 source "drivers/scsi/Kconfig"
 
@@ -1031,15 +1192,17 @@ source "drivers/gpio/Kconfig"
 
 source "drivers/w1/Kconfig"
 
+source "drivers/power/Kconfig"
+
 source "drivers/hwmon/Kconfig"
+
+source "drivers/watchdog/Kconfig"
+
+source "drivers/ssb/Kconfig"
 
 #source "drivers/l3/Kconfig"
 
-source "drivers/misc/Kconfig"
-
 source "drivers/mfd/Kconfig"
-
-source "drivers/leds/Kconfig"
 
 source "drivers/media/Kconfig"
 
@@ -1053,15 +1216,19 @@ source "drivers/usb/Kconfig"
 
 source "drivers/mmc/Kconfig"
 
+source "drivers/leds/Kconfig"
+
 source "drivers/rtc/Kconfig"
 
 source "drivers/dma/Kconfig"
 
+source "drivers/dca/Kconfig"
+
+source "drivers/uio/Kconfig"
+
 endmenu
 
 source "fs/Kconfig"
-
-source "arch/arm/oprofile/Kconfig"
 
 source "arch/arm/Kconfig.debug"
 

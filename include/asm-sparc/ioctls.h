@@ -15,10 +15,14 @@
 #define TCSETS		_IOW('T', 9, struct termios)
 #define TCSETSW		_IOW('T', 10, struct termios)
 #define TCSETSF		_IOW('T', 11, struct termios)
+#define TCGETS2		_IOR('T', 12, struct termios2)
+#define TCSETS2		_IOW('T', 13, struct termios2)
+#define TCSETSW2	_IOW('T', 14, struct termios2)
+#define TCSETSF2	_IOW('T', 15, struct termios2)
 
 /* Note that all the ioctls that are not available in Linux have a 
  * double underscore on the front to: a) avoid some programs to
- * thing we support some ioctls under Linux (autoconfiguration stuff)
+ * think we support some ioctls under Linux (autoconfiguration stuff)
  */
 /* Little t */
 #define TIOCGETD	_IOR('t', 0, int)
@@ -39,8 +43,6 @@
 #define __TIOCSETX        _IOW('t', 34, int) /* SunOS Specific */
 #define __TIOCGETX        _IOR('t', 35, int) /* SunOS Specific */
 #define TIOCCONS	_IO('t', 36)
-#define __TIOCSSIZE     _IOW('t', 37, struct sunos_ttysize) /* SunOS Specific */
-#define __TIOCGSIZE     _IOR('t', 38, struct sunos_ttysize) /* SunOS Specific */
 #define TIOCGSOFTCAR	_IOR('t', 100, int)
 #define TIOCSSOFTCAR	_IOW('t', 101, int)
 #define __TIOCUCNTL       _IOW('t', 102, int) /* SunOS Specific */
@@ -108,7 +110,7 @@
 #define TIOCSERGETLSR   0x5459 /* Get line status register */
 #define TIOCSERGETMULTI 0x545A /* Get multiport config  */
 #define TIOCSERSETMULTI 0x545B /* Set multiport config */
-#define TIOCMIWAIT	0x545C /* Wait input */
+#define TIOCMIWAIT	0x545C /* Wait for change on serial input line(s) */
 #define TIOCGICOUNT	0x545D /* Read serial port inline interrupt counts */
 
 /* Kernel definitions */

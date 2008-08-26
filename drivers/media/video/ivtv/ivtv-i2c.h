@@ -18,6 +18,9 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#ifndef IVTV_I2C_H
+#define IVTV_I2C_H
+
 int ivtv_cx25840(struct ivtv *itv, unsigned int cmd, void *arg);
 int ivtv_saa7115(struct ivtv *itv, unsigned int cmd, void *arg);
 int ivtv_saa7127(struct ivtv *itv, unsigned int cmd, void *arg);
@@ -30,7 +33,10 @@ int ivtv_i2c_hw(struct ivtv *itv, u32 hw, unsigned int cmd, void *arg);
 int ivtv_i2c_id(struct ivtv *itv, u32 id, unsigned int cmd, void *arg);
 int ivtv_call_i2c_client(struct ivtv *itv, int addr, unsigned int cmd, void *arg);
 void ivtv_call_i2c_clients(struct ivtv *itv, unsigned int cmd, void *arg);
+int ivtv_i2c_register(struct ivtv *itv, unsigned idx);
 
 /* init + register i2c algo-bit adapter */
-int __devinit init_ivtv_i2c(struct ivtv *itv);
-void __devexit exit_ivtv_i2c(struct ivtv *itv);
+int init_ivtv_i2c(struct ivtv *itv);
+void exit_ivtv_i2c(struct ivtv *itv);
+
+#endif

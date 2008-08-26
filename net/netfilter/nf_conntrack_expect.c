@@ -20,6 +20,7 @@
 #include <linux/percpu.h>
 #include <linux/kernel.h>
 #include <linux/jhash.h>
+#include <net/net_namespace.h>
 
 #include <net/netfilter/nf_conntrack.h>
 #include <net/netfilter/nf_conntrack_core.h>
@@ -40,7 +41,6 @@ static int nf_ct_expect_hash_rnd_initted __read_mostly;
 static int nf_ct_expect_vmalloc;
 
 static struct kmem_cache *nf_ct_expect_cachep __read_mostly;
-static unsigned int nf_ct_expect_next_id;
 
 /* nf_conntrack_expect helper functions */
 void nf_ct_unlink_expect(struct nf_conntrack_expect *exp)
@@ -50,11 +50,11 @@ void nf_ct_unlink_expect(struct nf_conntrack_expect *exp)
 	NF_CT_ASSERT(master_help);
 	NF_CT_ASSERT(!timer_pending(&exp->timeout));
 
-	hlist_del(&exp->hnode);
+	hlist_del_rcu(&exp->hnode);
 	nf_ct_expect_count--;
 
 	hlist_del(&exp->lnode);
-	master_help->expecting--;
+	master_help->expecting[exp->class]--;
 	nf_ct_expect_put(exp);
 
 	NF_CT_STAT_INC(expect_delete);
@@ -65,23 +65,25 @@ static void nf_ct_expectation_timed_out(unsigned long ul_expect)
 {
 	struct nf_conntrack_expect *exp = (void *)ul_expect;
 
-	write_lock_bh(&nf_conntrack_lock);
+	spin_lock_bh(&nf_conntrack_lock);
 	nf_ct_unlink_expect(exp);
-	write_unlock_bh(&nf_conntrack_lock);
+	spin_unlock_bh(&nf_conntrack_lock);
 	nf_ct_expect_put(exp);
 }
 
 static unsigned int nf_ct_expect_dst_hash(const struct nf_conntrack_tuple *tuple)
 {
+	unsigned int hash;
+
 	if (unlikely(!nf_ct_expect_hash_rnd_initted)) {
 		get_random_bytes(&nf_ct_expect_hash_rnd, 4);
 		nf_ct_expect_hash_rnd_initted = 1;
 	}
 
-	return jhash2(tuple->dst.u3.all, ARRAY_SIZE(tuple->dst.u3.all),
+	hash = jhash2(tuple->dst.u3.all, ARRAY_SIZE(tuple->dst.u3.all),
 		      (((tuple->dst.protonum ^ tuple->src.l3num) << 16) |
-		       (__force __u16)tuple->dst.u.all) ^ nf_ct_expect_hash_rnd) %
-	       nf_ct_expect_hsize;
+		       (__force __u16)tuple->dst.u.all) ^ nf_ct_expect_hash_rnd);
+	return ((u64)hash * nf_ct_expect_hsize) >> 32;
 }
 
 struct nf_conntrack_expect *
@@ -95,7 +97,7 @@ __nf_ct_expect_find(const struct nf_conntrack_tuple *tuple)
 		return NULL;
 
 	h = nf_ct_expect_dst_hash(tuple);
-	hlist_for_each_entry(i, n, &nf_ct_expect_hash[h], hnode) {
+	hlist_for_each_entry_rcu(i, n, &nf_ct_expect_hash[h], hnode) {
 		if (nf_ct_tuple_mask_cmp(tuple, &i->tuple, &i->mask))
 			return i;
 	}
@@ -109,11 +111,11 @@ nf_ct_expect_find_get(const struct nf_conntrack_tuple *tuple)
 {
 	struct nf_conntrack_expect *i;
 
-	read_lock_bh(&nf_conntrack_lock);
+	rcu_read_lock();
 	i = __nf_ct_expect_find(tuple);
-	if (i)
-		atomic_inc(&i->use);
-	read_unlock_bh(&nf_conntrack_lock);
+	if (i && !atomic_inc_not_zero(&i->use))
+		i = NULL;
+	rcu_read_unlock();
 
 	return i;
 }
@@ -124,9 +126,21 @@ EXPORT_SYMBOL_GPL(nf_ct_expect_find_get);
 struct nf_conntrack_expect *
 nf_ct_find_expectation(const struct nf_conntrack_tuple *tuple)
 {
-	struct nf_conntrack_expect *exp;
+	struct nf_conntrack_expect *i, *exp = NULL;
+	struct hlist_node *n;
+	unsigned int h;
 
-	exp = __nf_ct_expect_find(tuple);
+	if (!nf_ct_expect_count)
+		return NULL;
+
+	h = nf_ct_expect_dst_hash(tuple);
+	hlist_for_each_entry(i, n, &nf_ct_expect_hash[h], hnode) {
+		if (!(i->flags & NF_CT_EXPECT_INACTIVE) &&
+		    nf_ct_tuple_mask_cmp(tuple, &i->tuple, &i->mask)) {
+			exp = i;
+			break;
+		}
+	}
 	if (!exp)
 		return NULL;
 
@@ -157,7 +171,7 @@ void nf_ct_remove_expectations(struct nf_conn *ct)
 	struct hlist_node *n, *next;
 
 	/* Optimization: most connection never expect any others. */
-	if (!help || help->expecting == 0)
+	if (!help)
 		return;
 
 	hlist_for_each_entry_safe(exp, n, next, &help->expectations, lnode) {
@@ -191,7 +205,7 @@ static inline int expect_clash(const struct nf_conntrack_expect *a,
 static inline int expect_matches(const struct nf_conntrack_expect *a,
 				 const struct nf_conntrack_expect *b)
 {
-	return a->master == b->master
+	return a->master == b->master && a->class == b->class
 		&& nf_ct_tuple_equal(&a->tuple, &b->tuple)
 		&& nf_ct_tuple_mask_equal(&a->mask, &b->mask);
 }
@@ -199,12 +213,12 @@ static inline int expect_matches(const struct nf_conntrack_expect *a,
 /* Generally a bad idea to call this: could have matched already. */
 void nf_ct_unexpect_related(struct nf_conntrack_expect *exp)
 {
-	write_lock_bh(&nf_conntrack_lock);
+	spin_lock_bh(&nf_conntrack_lock);
 	if (del_timer(&exp->timeout)) {
 		nf_ct_unlink_expect(exp);
 		nf_ct_expect_put(exp);
 	}
-	write_unlock_bh(&nf_conntrack_lock);
+	spin_unlock_bh(&nf_conntrack_lock);
 }
 EXPORT_SYMBOL_GPL(nf_ct_unexpect_related);
 
@@ -221,14 +235,16 @@ struct nf_conntrack_expect *nf_ct_expect_alloc(struct nf_conn *me)
 
 	new->master = me;
 	atomic_set(&new->use, 1);
+	INIT_RCU_HEAD(&new->rcu);
 	return new;
 }
 EXPORT_SYMBOL_GPL(nf_ct_expect_alloc);
 
-void nf_ct_expect_init(struct nf_conntrack_expect *exp, int family,
-		       union nf_conntrack_address *saddr,
-		       union nf_conntrack_address *daddr,
-		       u_int8_t proto, __be16 *src, __be16 *dst)
+void nf_ct_expect_init(struct nf_conntrack_expect *exp, unsigned int class,
+		       int family,
+		       const union nf_inet_addr *saddr,
+		       const union nf_inet_addr *daddr,
+		       u_int8_t proto, const __be16 *src, const __be16 *dst)
 {
 	int len;
 
@@ -238,6 +254,7 @@ void nf_ct_expect_init(struct nf_conntrack_expect *exp, int family,
 		len = 16;
 
 	exp->flags = 0;
+	exp->class = class;
 	exp->expectfn = NULL;
 	exp->helper = NULL;
 	exp->tuple.src.l3num = family;
@@ -276,66 +293,81 @@ void nf_ct_expect_init(struct nf_conntrack_expect *exp, int family,
 }
 EXPORT_SYMBOL_GPL(nf_ct_expect_init);
 
+static void nf_ct_expect_free_rcu(struct rcu_head *head)
+{
+	struct nf_conntrack_expect *exp;
+
+	exp = container_of(head, struct nf_conntrack_expect, rcu);
+	kmem_cache_free(nf_ct_expect_cachep, exp);
+}
+
 void nf_ct_expect_put(struct nf_conntrack_expect *exp)
 {
 	if (atomic_dec_and_test(&exp->use))
-		kmem_cache_free(nf_ct_expect_cachep, exp);
+		call_rcu(&exp->rcu, nf_ct_expect_free_rcu);
 }
 EXPORT_SYMBOL_GPL(nf_ct_expect_put);
 
 static void nf_ct_expect_insert(struct nf_conntrack_expect *exp)
 {
 	struct nf_conn_help *master_help = nfct_help(exp->master);
+	const struct nf_conntrack_expect_policy *p;
 	unsigned int h = nf_ct_expect_dst_hash(&exp->tuple);
 
 	atomic_inc(&exp->use);
 
 	hlist_add_head(&exp->lnode, &master_help->expectations);
-	master_help->expecting++;
+	master_help->expecting[exp->class]++;
 
-	hlist_add_head(&exp->hnode, &nf_ct_expect_hash[h]);
+	hlist_add_head_rcu(&exp->hnode, &nf_ct_expect_hash[h]);
 	nf_ct_expect_count++;
 
 	setup_timer(&exp->timeout, nf_ct_expectation_timed_out,
 		    (unsigned long)exp);
-	exp->timeout.expires = jiffies + master_help->helper->timeout * HZ;
+	p = &master_help->helper->expect_policy[exp->class];
+	exp->timeout.expires = jiffies + p->timeout * HZ;
 	add_timer(&exp->timeout);
 
-	exp->id = ++nf_ct_expect_next_id;
 	atomic_inc(&exp->use);
 	NF_CT_STAT_INC(expect_create);
 }
 
 /* Race with expectations being used means we could have none to find; OK. */
-static void evict_oldest_expect(struct nf_conn *master)
+static void evict_oldest_expect(struct nf_conn *master,
+				struct nf_conntrack_expect *new)
 {
 	struct nf_conn_help *master_help = nfct_help(master);
-	struct nf_conntrack_expect *exp = NULL;
+	struct nf_conntrack_expect *exp, *last = NULL;
 	struct hlist_node *n;
 
-	hlist_for_each_entry(exp, n, &master_help->expectations, lnode)
-		; /* nothing */
+	hlist_for_each_entry(exp, n, &master_help->expectations, lnode) {
+		if (exp->class == new->class)
+			last = exp;
+	}
 
-	if (exp && del_timer(&exp->timeout)) {
-		nf_ct_unlink_expect(exp);
-		nf_ct_expect_put(exp);
+	if (last && del_timer(&last->timeout)) {
+		nf_ct_unlink_expect(last);
+		nf_ct_expect_put(last);
 	}
 }
 
 static inline int refresh_timer(struct nf_conntrack_expect *i)
 {
 	struct nf_conn_help *master_help = nfct_help(i->master);
+	const struct nf_conntrack_expect_policy *p;
 
 	if (!del_timer(&i->timeout))
 		return 0;
 
-	i->timeout.expires = jiffies + master_help->helper->timeout*HZ;
+	p = &master_help->helper->expect_policy[i->class];
+	i->timeout.expires = jiffies + p->timeout * HZ;
 	add_timer(&i->timeout);
 	return 1;
 }
 
 int nf_ct_expect_related(struct nf_conntrack_expect *expect)
 {
+	const struct nf_conntrack_expect_policy *p;
 	struct nf_conntrack_expect *i;
 	struct nf_conn *master = expect->master;
 	struct nf_conn_help *master_help = nfct_help(master);
@@ -345,7 +377,7 @@ int nf_ct_expect_related(struct nf_conntrack_expect *expect)
 
 	NF_CT_ASSERT(master_help);
 
-	write_lock_bh(&nf_conntrack_lock);
+	spin_lock_bh(&nf_conntrack_lock);
 	if (!master_help->helper) {
 		ret = -ESHUTDOWN;
 		goto out;
@@ -364,14 +396,20 @@ int nf_ct_expect_related(struct nf_conntrack_expect *expect)
 		}
 	}
 	/* Will be over limit? */
-	if (master_help->helper->max_expected &&
-	    master_help->expecting >= master_help->helper->max_expected)
-		evict_oldest_expect(master);
+	p = &master_help->helper->expect_policy[expect->class];
+	if (p->max_expected &&
+	    master_help->expecting[expect->class] >= p->max_expected) {
+		evict_oldest_expect(master, expect);
+		if (master_help->expecting[expect->class] >= p->max_expected) {
+			ret = -EMFILE;
+			goto out;
+		}
+	}
 
 	if (nf_ct_expect_count >= nf_ct_expect_max) {
 		if (net_ratelimit())
 			printk(KERN_WARNING
-			       "nf_conntrack: expectation table full");
+			       "nf_conntrack: expectation table full\n");
 		ret = -EMFILE;
 		goto out;
 	}
@@ -380,7 +418,7 @@ int nf_ct_expect_related(struct nf_conntrack_expect *expect)
 	nf_ct_expect_event(IPEXP_NEW, expect);
 	ret = 0;
 out:
-	write_unlock_bh(&nf_conntrack_lock);
+	spin_unlock_bh(&nf_conntrack_lock);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(nf_ct_expect_related);
@@ -393,10 +431,12 @@ struct ct_expect_iter_state {
 static struct hlist_node *ct_expect_get_first(struct seq_file *seq)
 {
 	struct ct_expect_iter_state *st = seq->private;
+	struct hlist_node *n;
 
 	for (st->bucket = 0; st->bucket < nf_ct_expect_hsize; st->bucket++) {
-		if (!hlist_empty(&nf_ct_expect_hash[st->bucket]))
-			return nf_ct_expect_hash[st->bucket].first;
+		n = rcu_dereference(nf_ct_expect_hash[st->bucket].first);
+		if (n)
+			return n;
 	}
 	return NULL;
 }
@@ -406,11 +446,11 @@ static struct hlist_node *ct_expect_get_next(struct seq_file *seq,
 {
 	struct ct_expect_iter_state *st = seq->private;
 
-	head = head->next;
+	head = rcu_dereference(head->next);
 	while (head == NULL) {
 		if (++st->bucket >= nf_ct_expect_hsize)
 			return NULL;
-		head = nf_ct_expect_hash[st->bucket].first;
+		head = rcu_dereference(nf_ct_expect_hash[st->bucket].first);
 	}
 	return head;
 }
@@ -426,8 +466,9 @@ static struct hlist_node *ct_expect_get_idx(struct seq_file *seq, loff_t pos)
 }
 
 static void *exp_seq_start(struct seq_file *seq, loff_t *pos)
+	__acquires(RCU)
 {
-	read_lock_bh(&nf_conntrack_lock);
+	rcu_read_lock();
 	return ct_expect_get_idx(seq, *pos);
 }
 
@@ -438,14 +479,16 @@ static void *exp_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 }
 
 static void exp_seq_stop(struct seq_file *seq, void *v)
+	__releases(RCU)
 {
-	read_unlock_bh(&nf_conntrack_lock);
+	rcu_read_unlock();
 }
 
 static int exp_seq_show(struct seq_file *s, void *v)
 {
 	struct nf_conntrack_expect *expect;
 	struct hlist_node *n = v;
+	char *delim = "";
 
 	expect = hlist_entry(n, struct nf_conntrack_expect, hnode);
 
@@ -461,6 +504,14 @@ static int exp_seq_show(struct seq_file *s, void *v)
 		    __nf_ct_l3proto_find(expect->tuple.src.l3num),
 		    __nf_ct_l4proto_find(expect->tuple.src.l3num,
 				       expect->tuple.dst.protonum));
+
+	if (expect->flags & NF_CT_EXPECT_PERMANENT) {
+		seq_printf(s, "PERMANENT");
+		delim = ",";
+	}
+	if (expect->flags & NF_CT_EXPECT_INACTIVE)
+		seq_printf(s, "%sINACTIVE", delim);
+
 	return seq_putc(s, '\n');
 }
 
@@ -473,22 +524,8 @@ static const struct seq_operations exp_seq_ops = {
 
 static int exp_open(struct inode *inode, struct file *file)
 {
-	struct seq_file *seq;
-	struct ct_expect_iter_state *st;
-	int ret;
-
-	st = kzalloc(sizeof(struct ct_expect_iter_state), GFP_KERNEL);
-	if (!st)
-		return -ENOMEM;
-	ret = seq_open(file, &exp_seq_ops);
-	if (ret)
-		goto out_free;
-	seq          = file->private_data;
-	seq->private = st;
-	return ret;
-out_free:
-	kfree(st);
-	return ret;
+	return seq_open_private(file, &exp_seq_ops,
+			sizeof(struct ct_expect_iter_state));
 }
 
 static const struct file_operations exp_file_ops = {
@@ -505,7 +542,7 @@ static int __init exp_proc_init(void)
 #ifdef CONFIG_PROC_FS
 	struct proc_dir_entry *proc;
 
-	proc = proc_net_fops_create("nf_conntrack_expect", 0440, &exp_file_ops);
+	proc = proc_net_fops_create(&init_net, "nf_conntrack_expect", 0440, &exp_file_ops);
 	if (!proc)
 		return -ENOMEM;
 #endif /* CONFIG_PROC_FS */
@@ -515,7 +552,7 @@ static int __init exp_proc_init(void)
 static void exp_proc_remove(void)
 {
 #ifdef CONFIG_PROC_FS
-	proc_net_remove("nf_conntrack_expect");
+	proc_net_remove(&init_net, "nf_conntrack_expect");
 #endif /* CONFIG_PROC_FS */
 }
 
@@ -550,10 +587,10 @@ int __init nf_conntrack_expect_init(void)
 	return 0;
 
 err3:
+	kmem_cache_destroy(nf_ct_expect_cachep);
+err2:
 	nf_ct_free_hashtable(nf_ct_expect_hash, nf_ct_expect_vmalloc,
 			     nf_ct_expect_hsize);
-err2:
-	kmem_cache_destroy(nf_ct_expect_cachep);
 err1:
 	return err;
 }

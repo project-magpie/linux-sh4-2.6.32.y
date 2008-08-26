@@ -3,6 +3,7 @@
  */
 
 #include <linux/types.h>
+#include <linux/smp_lock.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/miscdevice.h>
@@ -14,8 +15,9 @@
 #include <asm/uaccess.h>
 #include <asm/sections.h>
 #include <asm/prom.h>
-#include <asm/ans-lcd.h>
 #include <asm/io.h>
+
+#include "ans-lcd.h"
 
 #define ANSLCD_ADDR		0xf301c000
 #define ANSLCD_CTRL_IX 0x00
@@ -118,6 +120,7 @@ anslcd_ioctl( struct inode * inode, struct file * file,
 static int
 anslcd_open( struct inode * inode, struct file * file )
 {
+	cycle_kernel_lock();
 	return 0;
 }
 

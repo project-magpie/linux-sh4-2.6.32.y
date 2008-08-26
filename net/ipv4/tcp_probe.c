@@ -26,6 +26,7 @@
 #include <linux/module.h>
 #include <linux/ktime.h>
 #include <linux/time.h>
+#include <net/net_namespace.h>
 
 #include <net/tcp.h>
 
@@ -152,7 +153,7 @@ static int tcpprobe_sprint(char *tbuf, int n)
 		= ktime_to_timespec(ktime_sub(p->tstamp, tcp_probe.start));
 
 	return snprintf(tbuf, n,
-			"%lu.%09lu %d.%d.%d.%d:%u %d.%d.%d.%d:%u"
+			"%lu.%09lu " NIPQUAD_FMT ":%u " NIPQUAD_FMT ":%u"
 			" %d %#x %#x %u %u %u %u\n",
 			(unsigned long) tv.tv_sec,
 			(unsigned long) tv.tv_nsec,
@@ -189,19 +190,18 @@ static ssize_t tcpprobe_read(struct file *file, char __user *buf,
 
 		width = tcpprobe_sprint(tbuf, sizeof(tbuf));
 
-		if (width < len)
+		if (cnt + width < len)
 			tcp_probe.tail = (tcp_probe.tail + 1) % bufsize;
 
 		spin_unlock_bh(&tcp_probe.lock);
 
 		/* if record greater than space available
 		   return partial buffer (so far) */
-		if (width >= len)
+		if (cnt + width >= len)
 			break;
 
-		error = copy_to_user(buf + cnt, tbuf, width);
-		if (error)
-			break;
+		if (copy_to_user(buf + cnt, tbuf, width))
+			return -EFAULT;
 		cnt += width;
 	}
 
@@ -224,11 +224,11 @@ static __init int tcpprobe_init(void)
 	if (bufsize < 0)
 		return -EINVAL;
 
-	tcp_probe.log = kcalloc(sizeof(struct tcp_log), bufsize, GFP_KERNEL);
+	tcp_probe.log = kcalloc(bufsize, sizeof(struct tcp_log), GFP_KERNEL);
 	if (!tcp_probe.log)
 		goto err0;
 
-	if (!proc_net_fops_create(procname, S_IRUSR, &tcpprobe_fops))
+	if (!proc_net_fops_create(&init_net, procname, S_IRUSR, &tcpprobe_fops))
 		goto err0;
 
 	ret = register_jprobe(&tcp_jprobe);
@@ -238,7 +238,7 @@ static __init int tcpprobe_init(void)
 	pr_info("TCP probe registered (port=%d)\n", port);
 	return 0;
  err1:
-	proc_net_remove(procname);
+	proc_net_remove(&init_net, procname);
  err0:
 	kfree(tcp_probe.log);
 	return ret;
@@ -247,7 +247,7 @@ module_init(tcpprobe_init);
 
 static __exit void tcpprobe_exit(void)
 {
-	proc_net_remove(procname);
+	proc_net_remove(&init_net, procname);
 	unregister_jprobe(&tcp_jprobe);
 	kfree(tcp_probe.log);
 }

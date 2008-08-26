@@ -29,10 +29,10 @@ static ext_int_info_t ext_int_info_hwc;
 /* Lock to protect internal data consistency. */
 static DEFINE_SPINLOCK(sclp_lock);
 
-/* Mask of events that we can receive from the sclp interface. */
+/* Mask of events that we can send to the sclp interface. */
 static sccb_mask_t sclp_receive_mask;
 
-/* Mask of events that we can send to the sclp interface. */
+/* Mask of events that we can receive from the sclp interface. */
 static sccb_mask_t sclp_send_mask;
 
 /* List of registered event listeners and senders. */
@@ -93,6 +93,7 @@ static volatile enum sclp_mask_state_t {
 #define SCLP_RETRY_INTERVAL	30
 
 static void sclp_process_queue(void);
+static void __sclp_make_read_req(void);
 static int sclp_init_mask(int calculate);
 static int sclp_init(void);
 
@@ -115,7 +116,6 @@ sclp_service_call(sclp_cmdw_t command, void *sccb)
 	return 0;
 }
 
-static inline void __sclp_make_read_req(void);
 
 static void
 __sclp_queue_read_req(void)
@@ -318,8 +318,7 @@ sclp_read_cb(struct sclp_req *req, void *data)
 }
 
 /* Prepare read event data request. Called while sclp_lock is locked. */
-static inline void
-__sclp_make_read_req(void)
+static void __sclp_make_read_req(void)
 {
 	struct sccb_header *sccb;
 
@@ -381,7 +380,7 @@ sclp_interrupt_handler(__u16 code)
 		}
 		sclp_running_state = sclp_running_state_idle;
 	}
-	if (evbuf_pending && sclp_receive_mask != 0 &&
+	if (evbuf_pending &&
 	    sclp_activation_state == sclp_activation_state_active)
 		__sclp_queue_read_req();
 	spin_unlock(&sclp_lock);
@@ -460,8 +459,8 @@ sclp_dispatch_state_change(void)
 		reg = NULL;
 		list_for_each(l, &sclp_reg_list) {
 			reg = list_entry(l, struct sclp_register, list);
-			receive_mask = reg->receive_mask & sclp_receive_mask;
-			send_mask = reg->send_mask & sclp_send_mask;
+			receive_mask = reg->send_mask & sclp_receive_mask;
+			send_mask = reg->receive_mask & sclp_send_mask;
 			if (reg->sclp_receive_mask != receive_mask ||
 			    reg->sclp_send_mask != send_mask) {
 				reg->sclp_receive_mask = receive_mask;
@@ -507,6 +506,8 @@ sclp_state_change_cb(struct evbuf_header *evbuf)
 	if (scbuf->validity_sclp_send_mask)
 		sclp_send_mask = scbuf->sclp_send_mask;
 	spin_unlock_irqrestore(&sclp_lock, flags);
+	if (scbuf->validity_sclp_active_facility_mask)
+		sclp_facilities = scbuf->sclp_active_facility_mask;
 	sclp_dispatch_state_change();
 }
 
@@ -616,8 +617,8 @@ struct init_sccb {
 	u16 mask_length;
 	sccb_mask_t receive_mask;
 	sccb_mask_t send_mask;
-	sccb_mask_t sclp_send_mask;
 	sccb_mask_t sclp_receive_mask;
+	sccb_mask_t sclp_send_mask;
 } __attribute__((packed));
 
 /* Prepare init mask request. Called while sclp_lock is locked. */
@@ -783,11 +784,9 @@ sclp_check_handler(__u16 code)
 	/* Is this the interrupt we are waiting for? */
 	if (finished_sccb == 0)
 		return;
-	if (finished_sccb != (u32) (addr_t) sclp_init_sccb) {
-		printk(KERN_WARNING SCLP_HEADER "unsolicited interrupt "
-		       "for buffer at 0x%x\n", finished_sccb);
-		return;
-	}
+	if (finished_sccb != (u32) (addr_t) sclp_init_sccb)
+		panic("sclp: unsolicited interrupt for buffer at 0x%x\n",
+		      finished_sccb);
 	spin_lock(&sclp_lock);
 	if (sclp_running_state == sclp_running_state_running) {
 		sclp_init_req.status = SCLP_REQ_DONE;
@@ -884,8 +883,6 @@ sclp_init(void)
 	unsigned long flags;
 	int rc;
 
-	if (!MACHINE_HAS_SCLP)
-		return -ENODEV;
 	spin_lock_irqsave(&sclp_lock, flags);
 	/* Check for previous or running initialization */
 	if (sclp_init_state != sclp_init_state_uninitialized) {

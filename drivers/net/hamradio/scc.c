@@ -174,6 +174,7 @@
 #include <linux/seq_file.h>
 #include <linux/bitops.h>
 
+#include <net/net_namespace.h>
 #include <net/ax25.h>
 
 #include <asm/irq.h>
@@ -200,7 +201,6 @@ static void z8530_init(void);
 
 static void init_channel(struct scc_channel *scc);
 static void scc_key_trx (struct scc_channel *scc, char tx);
-static irqreturn_t scc_isr(int irq, void *dev_id);
 static void scc_init_timer(struct scc_channel *scc);
 
 static int scc_net_alloc(const char *name, struct scc_channel *scc);
@@ -628,6 +628,7 @@ static void scc_isr_dispatch(struct scc_channel *scc, int vector)
 
 static irqreturn_t scc_isr(int irq, void *dev_id)
 {
+	int chip_irq = (long) dev_id;
 	unsigned char vector;	
 	struct scc_channel *scc;
 	struct scc_ctrl *ctrl;
@@ -664,7 +665,7 @@ static irqreturn_t scc_isr(int irq, void *dev_id)
 	ctrl = SCC_ctrl;
 	while (ctrl->chan_A)
 	{
-		if (ctrl->irq != irq)
+		if (ctrl->irq != chip_irq)
 		{
 			ctrl++;
 			continue;
@@ -1339,9 +1340,10 @@ static unsigned int scc_set_param(struct scc_channel *scc, unsigned int cmd, uns
 		case PARAM_RTS:	
 			if ( !(scc->wreg[R5] & RTS) )
 			{
-				if (arg != TX_OFF)
+				if (arg != TX_OFF) {
 					scc_key_trx(scc, TX_ON);
 					scc_start_tx_timer(scc, t_txdelay, scc->kiss.txdelay);
+				}
 			} else {
 				if (arg == TX_OFF)
 				{
@@ -1550,8 +1552,8 @@ static void scc_net_setup(struct net_device *dev)
 	dev->stop	     = scc_net_close;
 
 	dev->hard_start_xmit = scc_net_tx;
-	dev->hard_header     = ax25_hard_header;
-	dev->rebuild_header  = ax25_rebuild_header;
+	dev->header_ops      = &ax25_header_ops;
+
 	dev->set_mac_address = scc_net_set_mac_address;
 	dev->get_stats       = scc_net_get_stats;
 	dev->do_ioctl        = scc_net_ioctl;
@@ -1731,7 +1733,9 @@ static int scc_net_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				
 			if (!Ivec[hwcfg.irq].used && hwcfg.irq)
 			{
-				if (request_irq(hwcfg.irq, scc_isr, IRQF_DISABLED, "AX.25 SCC", NULL))
+				if (request_irq(hwcfg.irq, scc_isr,
+						IRQF_DISABLED, "AX.25 SCC",
+						(void *)(long) hwcfg.irq))
 					printk(KERN_WARNING "z8530drv: warning, cannot get IRQ %d\n", hwcfg.irq);
 				else
 					Ivec[hwcfg.irq].used = 1;
@@ -2114,7 +2118,7 @@ static int __init scc_init_driver (void)
 	}
 	rtnl_unlock();
 
-	proc_net_fops_create("z8530drv", 0, &scc_net_seq_fops);
+	proc_net_fops_create(&init_net, "z8530drv", 0, &scc_net_seq_fops);
 
 	return 0;
 }
@@ -2169,7 +2173,7 @@ static void __exit scc_cleanup_driver(void)
 	if (Vector_Latch)
 		release_region(Vector_Latch, 1);
 
-	proc_net_remove("z8530drv");
+	proc_net_remove(&init_net, "z8530drv");
 }
 
 MODULE_AUTHOR("Joerg Reuter <jreuter@yaina.de>");

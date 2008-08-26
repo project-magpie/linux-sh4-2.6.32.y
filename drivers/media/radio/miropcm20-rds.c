@@ -12,6 +12,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/smp_lock.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
 #include <linux/delay.h>
@@ -19,7 +20,7 @@
 #include "miropcm20-rds-core.h"
 
 static char * text_buffer;
-static int rds_users = 0;
+static int rds_users;
 
 
 static int rds_f_open(struct inode *in, struct file *fi)
@@ -27,13 +28,16 @@ static int rds_f_open(struct inode *in, struct file *fi)
 	if (rds_users)
 		return -EBUSY;
 
+	lock_kernel();
 	rds_users++;
 	if ((text_buffer=kmalloc(66, GFP_KERNEL)) == 0) {
 		rds_users--;
 		printk(KERN_NOTICE "aci-rds: Out of memory by open()...\n");
+		unlock_kernel();
 		return -ENOMEM;
 	}
 
+	unlock_kernel();
 	return 0;
 }
 

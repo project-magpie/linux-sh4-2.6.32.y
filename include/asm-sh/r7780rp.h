@@ -55,11 +55,11 @@
 #define PA_SCSPTR1      (PA_BCR+0x0524) /* SCIF1 Serial Port control */
 #define PA_SCLSR1       (PA_BCR+0x0528) /* SCIF1 Line Status control */
 #define PA_SCRER1       (PA_BCR+0x052c) /* SCIF1 Serial Error control */
-#define PA_ICCR         (PA_BCR+0x0600) /* Serial control */
-#define PA_SAR          (PA_BCR+0x0602) /* Serial Slave control */
-#define PA_MDR          (PA_BCR+0x0604) /* Serial Mode control */
-#define PA_ADR1         (PA_BCR+0x0606) /* Serial Address1 control */
-#define PA_DAR1         (PA_BCR+0x0646) /* Serial Data1 control */
+#define PA_SMCR         (PA_BCR+0x0600) /* 2-wire Serial control */
+#define PA_SMSMADR      (PA_BCR+0x0602) /* 2-wire Serial Slave control */
+#define PA_SMMR         (PA_BCR+0x0604) /* 2-wire Serial Mode control */
+#define PA_SMSADR1      (PA_BCR+0x0606) /* 2-wire Serial Address1 control */
+#define PA_SMTRDR1      (PA_BCR+0x0646) /* 2-wire Serial Data1 control */
 #define PA_VERREG       (PA_BCR+0x0700) /* FPGA Version Register */
 #define PA_POFF         (PA_BCR+0x0800) /* System Power Off control */
 #define PA_PMR          (PA_BCR+0x0900) /*  */
@@ -107,11 +107,11 @@
 #define PA_SCFCR	(PA_BCR+0x040c)	/* SCIF FIFO control */
 #define PA_SCFDR	(PA_BCR+0x040e)	/* SCIF FIFO data control */
 #define PA_SCLSR	(PA_BCR+0x0412)	/* SCIF Line Status control */
-#define PA_ICCR		(PA_BCR+0x0500)	/* Serial control */
-#define PA_SAR		(PA_BCR+0x0502)	/* Serial Slave control */
-#define PA_MDR		(PA_BCR+0x0504)	/* Serial Mode control */
-#define PA_ADR1		(PA_BCR+0x0506)	/* Serial Address1 control */
-#define PA_DAR1		(PA_BCR+0x0546)	/* Serial Data1 control */
+#define PA_SMCR		(PA_BCR+0x0500)	/* 2-wire Serial control */
+#define PA_SMSMADR	(PA_BCR+0x0502)	/* 2-wire Serial Slave control */
+#define PA_SMMR		(PA_BCR+0x0504)	/* 2-wire Serial Mode control */
+#define PA_SMSADR1	(PA_BCR+0x0506)	/* 2-wire Serial Address1 control */
+#define PA_SMTRDR1	(PA_BCR+0x0546)	/* 2-wire Serial Data1 control */
 #define PA_VERREG	(PA_BCR+0x0600)	/* FPGA Version Register */
 
 #define PA_AX88796L	0xa5800400	/* AX88796L Area */
@@ -120,21 +120,6 @@
 #define AX88796L_IO_BASE	0x1000	/* AX88796L IO Base Address */
 
 #define IRLCNTR1	(PA_BCR + 0)	/* Interrupt Control Register1 */
-
-#define IRQ_PCISLOT1	0		/* PCI Slot #1 IRQ */
-#define IRQ_PCISLOT2	1		/* PCI Slot #2 IRQ */
-#define IRQ_PCISLOT3	2		/* PCI Slot #3 IRQ */
-#define IRQ_PCISLOT4	3		/* PCI Slot #4 IRQ */
-#define IRQ_CFINST	5		/* CF Card Insert IRQ */
-#define IRQ_M66596	6		/* M66596 IRQ */
-#define IRQ_SDCARD	7		/* SD Card IRQ */
-#define IRQ_TUCHPANEL	8		/* Touch Panel IRQ */
-#define IRQ_SCI		9		/* SCI IRQ */
-#define IRQ_2SERIAL	10		/* Serial IRQ */
-#define	IRQ_EXTENTION	11		/* EXTn IRQ */
-#define IRQ_ONETH	12		/* On board Ethernet IRQ */
-#define IRQ_PSW		13		/* Push Switch IRQ */
-#define IRQ_ZIGBEE	14		/* Ziggbee IO IRQ */
 
 #define IVDR_CK_ON	8		/* iVDR Clock ON */
 
@@ -192,19 +177,22 @@
 
 #define IRQ_AX88796		(HL_FPGA_IRQ_BASE + 0)
 #define IRQ_CF			(HL_FPGA_IRQ_BASE + 1)
-#ifndef IRQ_PSW
 #define IRQ_PSW			(HL_FPGA_IRQ_BASE + 2)
-#endif
-#define IRQ_EXT1		(HL_FPGA_IRQ_BASE + 3)
-#define IRQ_EXT4		(HL_FPGA_IRQ_BASE + 4)
+#define IRQ_EXT0		(HL_FPGA_IRQ_BASE + 3)
+#define IRQ_EXT1		(HL_FPGA_IRQ_BASE + 4)
+#define IRQ_EXT2		(HL_FPGA_IRQ_BASE + 5)
+#define IRQ_EXT3		(HL_FPGA_IRQ_BASE + 6)
+#define IRQ_EXT4		(HL_FPGA_IRQ_BASE + 7)
+#define IRQ_EXT5		(HL_FPGA_IRQ_BASE + 8)
+#define IRQ_EXT6		(HL_FPGA_IRQ_BASE + 9)
+#define IRQ_EXT7		(HL_FPGA_IRQ_BASE + 10)
+#define IRQ_SMBUS		(HL_FPGA_IRQ_BASE + 11)
+#define IRQ_TP			(HL_FPGA_IRQ_BASE + 12)
+#define IRQ_RTC			(HL_FPGA_IRQ_BASE + 13)
+#define IRQ_TH_ALERT		(HL_FPGA_IRQ_BASE + 14)
+#define IRQ_SCIF0		(HL_FPGA_IRQ_BASE + 15)
+#define IRQ_SCIF1		(HL_FPGA_IRQ_BASE + 16)
 
-void make_r7780rp_irq(unsigned int irq);
-
-unsigned char *highlander_init_irq_r7780mp(void);
-unsigned char *highlander_init_irq_r7780rp(void);
-unsigned char *highlander_init_irq_r7785rp(void);
-
-#define __IO_PREFIX	r7780rp
-#include <asm/io_generic.h>
+unsigned char *highlander_plat_irq_setup(void);
 
 #endif  /* __ASM_SH_RENESAS_R7780RP */

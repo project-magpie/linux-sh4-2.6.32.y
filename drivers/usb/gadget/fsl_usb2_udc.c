@@ -35,7 +35,7 @@
 #include <linux/moduleparam.h>
 #include <linux/device.h>
 #include <linux/usb/ch9.h>
-#include <linux/usb_gadget.h>
+#include <linux/usb/gadget.h>
 #include <linux/usb/otg.h>
 #include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
@@ -773,11 +773,11 @@ fsl_ep_queue(struct usb_ep *_ep, struct usb_request *_req, gfp_t gfp_flags)
 	/* catch various bogus parameters */
 	if (!_req || !req->req.complete || !req->req.buf
 			|| !list_empty(&req->queue)) {
-		VDBG("%s, bad params\n", __FUNCTION__);
+		VDBG("%s, bad params\n", __func__);
 		return -EINVAL;
 	}
-	if (!_ep || (!ep->desc && ep_index(ep))) {
-		VDBG("%s, bad ep\n", __FUNCTION__);
+	if (unlikely(!_ep || !ep->desc)) {
+		VDBG("%s, bad ep\n", __func__);
 		return -EINVAL;
 	}
 	if (ep->desc->bmAttributes == USB_ENDPOINT_XFER_ISOC) {
@@ -1090,14 +1090,11 @@ static int fsl_vbus_session(struct usb_gadget *gadget, int is_active)
  */
 static int fsl_vbus_draw(struct usb_gadget *gadget, unsigned mA)
 {
-#ifdef CONFIG_USB_OTG
 	struct fsl_udc *udc;
 
 	udc = container_of(gadget, struct fsl_udc, gadget);
-
 	if (udc->transceiver)
 		return otg_set_power(udc->transceiver, mA);
-#endif
 	return -ENOTSUPP;
 }
 
@@ -1120,7 +1117,7 @@ static int fsl_pullup(struct usb_gadget *gadget, int is_on)
 	return 0;
 }
 
-/* defined in usb_gadget.h */
+/* defined in gadget.h */
 static struct usb_gadget_ops fsl_gadget_ops = {
 	.get_frame = fsl_get_frame,
 	.wakeup = fsl_wakeup,
@@ -1321,7 +1318,7 @@ static void setup_received_irq(struct fsl_udc *udc,
 				| USB_TYPE_STANDARD)) {
 			/* Note: The driver has not include OTG support yet.
 			 * This will be set when OTG support is added */
-			if (!udc->gadget.is_otg)
+			if (!gadget_is_otg(&udc->gadget))
 				break;
 			else if (setup->bRequest == USB_DEVICE_B_HNP_ENABLE)
 				udc->gadget.b_hnp_enable = 1;
@@ -1330,6 +1327,8 @@ static void setup_received_irq(struct fsl_udc *udc,
 			else if (setup->bRequest ==
 					USB_DEVICE_A_ALT_HNP_SUPPORT)
 				udc->gadget.a_alt_hnp_support = 1;
+			else
+				break;
 			rc = 0;
 		} else
 			break;
@@ -1539,7 +1538,7 @@ static void dtd_complete_irq(struct fsl_udc *udc)
 
 		/* If the ep is configured */
 		if (curr_ep->name == NULL) {
-			WARN("Invalid EP?");
+			WARNING("Invalid EP?");
 			continue;
 		}
 
@@ -1628,7 +1627,9 @@ static int reset_queues(struct fsl_udc *udc)
 		udc_reset_ep_queue(udc, pipe);
 
 	/* report disconnect; the driver is already quiesced */
+	spin_unlock(&udc->lock);
 	udc->driver->disconnect(&udc->gadget);
+	spin_lock(&udc->lock);
 
 	return 0;
 }
@@ -1840,10 +1841,8 @@ int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
 	if (!driver || driver != udc_controller->driver || !driver->unbind)
 		return -EINVAL;
 
-#ifdef CONFIG_USB_OTG
 	if (udc_controller->transceiver)
 		(void)otg_set_peripheral(udc_controller->transceiver, 0);
-#endif
 
 	/* stop DR, disable intr */
 	dr_controller_stop(udc_controller);
@@ -1899,7 +1898,7 @@ static int fsl_proc_read(char *page, char **start, off_t off, int count,
 
 	spin_lock_irqsave(&udc->lock, flags);
 
-	/* ------basic driver infomation ---- */
+	/* ------basic driver information ---- */
 	t = scnprintf(next, size,
 			DRIVER_DESC "\n"
 			"%s version: %s\n"
@@ -2332,7 +2331,7 @@ static int __init fsl_udc_probe(struct platform_device *pdev)
 	udc_controller->gadget.name = driver_name;
 
 	/* Setup gadget.dev and register with kernel */
-	strcpy(udc_controller->gadget.dev.bus_id, "gadget");
+	dev_set_name(&udc_controller->gadget.dev, "gadget");
 	udc_controller->gadget.dev.release = fsl_udc_release;
 	udc_controller->gadget.dev.parent = &pdev->dev;
 	ret = device_register(&udc_controller->gadget.dev);
@@ -2478,3 +2477,4 @@ module_exit(udc_exit);
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:fsl-usb2-udc");

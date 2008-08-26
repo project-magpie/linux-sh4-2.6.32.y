@@ -26,7 +26,7 @@
  *			   Anthony Tong <atong@uiuc.edu>
  *
  *  Generic LCD support written by Daniel Mantione, ported from 2.4.20 by Alex Kern
- *  Many Thanks to Ville Syrj‰l‰ for patches and fixing nasting 16 bit color bug.
+ *  Many Thanks to Ville Syrj√§l√§ for patches and fixing nasting 16 bit color bug.
  *
  *  This file is subject to the terms and conditions of the GNU General Public
  *  License. See the file COPYING in the main directory of this archive for
@@ -68,7 +68,7 @@
 #include <linux/backlight.h>
 
 #include <asm/io.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include <video/mach64.h>
 #include "atyfb.h"
@@ -424,7 +424,6 @@ static struct {
 #endif /* CONFIG_FB_ATY_CT */
 };
 
-/* can not fail */
 static int __devinit correct_chipset(struct atyfb_par *par)
 {
 	u8 rev;
@@ -436,6 +435,9 @@ static int __devinit correct_chipset(struct atyfb_par *par)
 	for (i = ARRAY_SIZE(aty_chips) - 1; i >= 0; i--)
 		if (par->pci_id == aty_chips[i].pci_id)
 			break;
+
+	if (i < 0)
+		return -ENODEV;
 
 	name = aty_chips[i].name;
 	par->pll_limits.pll_max = aty_chips[i].pll;
@@ -540,8 +542,6 @@ static char ram_sdram32[] __devinitdata = "SDRAM (2:1) (32-bit)";
 static char ram_off[] __devinitdata = "OFF";
 #endif /* CONFIG_FB_ATY_CT */
 
-
-static u32 pseudo_palette[16];
 
 #ifdef CONFIG_FB_ATY_GX
 static char *aty_gx_ram[8] __devinitdata = {
@@ -1915,61 +1915,6 @@ static int atyfb_mmap(struct fb_info *info, struct vm_area_struct *vma)
 		par->mmaped = 1;
 	return 0;
 }
-
-static struct {
-	u32 yoffset;
-	u8 r[2][256];
-	u8 g[2][256];
-	u8 b[2][256];
-} atyfb_save;
-
-static void atyfb_save_palette(struct atyfb_par *par, int enter)
-{
-	int i, tmp;
-
-	for (i = 0; i < 256; i++) {
-		tmp = aty_ld_8(DAC_CNTL, par) & 0xfc;
-		if (M64_HAS(EXTRA_BRIGHT))
-			tmp |= 0x2;
-		aty_st_8(DAC_CNTL, tmp, par);
-		aty_st_8(DAC_MASK, 0xff, par);
-
-		aty_st_8(DAC_R_INDEX, i, par);
-		atyfb_save.r[enter][i] = aty_ld_8(DAC_DATA, par);
-		atyfb_save.g[enter][i] = aty_ld_8(DAC_DATA, par);
-		atyfb_save.b[enter][i] = aty_ld_8(DAC_DATA, par);
-		aty_st_8(DAC_W_INDEX, i, par);
-		aty_st_8(DAC_DATA, atyfb_save.r[1 - enter][i], par);
-		aty_st_8(DAC_DATA, atyfb_save.g[1 - enter][i], par);
-		aty_st_8(DAC_DATA, atyfb_save.b[1 - enter][i], par);
-	}
-}
-
-static void atyfb_palette(int enter)
-{
-	struct atyfb_par *par;
-	struct fb_info *info;
-	int i;
-
-	for (i = 0; i < FB_MAX; i++) {
-		info = registered_fb[i];
-		if (info && info->fbops == &atyfb_ops) {
-			par = (struct atyfb_par *) info->par;
-			
-			atyfb_save_palette(par, enter);
-			if (enter) {
-				atyfb_save.yoffset = info->var.yoffset;
-				info->var.yoffset = 0;
-				set_off_pitch(par, info);
-			} else {
-				info->var.yoffset = atyfb_save.yoffset;
-				set_off_pitch(par, info);
-			}
-			aty_st_le32(CRTC_OFF_PITCH, par->crtc.off_pitch, par);
-			break;
-		}
-	}
-}
 #endif /* __sparc__ */
 
 
@@ -2286,6 +2231,7 @@ static int __devinit aty_init(struct fb_info *info)
 	const char *ramname = NULL, *xtal;
 	int gtb_memsize, has_var = 0;
 	struct fb_var_screeninfo var;
+	int ret;
 
 	init_waitqueue_head(&par->vblank.wait);
 	spin_lock_init(&par->int_lock);
@@ -2577,7 +2523,7 @@ static int __devinit aty_init(struct fb_info *info)
 #endif
 
 	info->fbops = &atyfb_ops;
-	info->pseudo_palette = pseudo_palette;
+	info->pseudo_palette = par->pseudo_palette;
 	info->flags = FBINFO_DEFAULT           |
 	              FBINFO_HWACCEL_IMAGEBLIT |
 	              FBINFO_HWACCEL_FILLRECT  |
@@ -2667,14 +2613,11 @@ static int __devinit aty_init(struct fb_info *info)
 			var.yres_virtual = var.yres;
 	}
 
-	if (atyfb_check_var(&var, info)) {
+	ret = atyfb_check_var(&var, info);
+	if (ret) {
 		PRINTKE("can't set default video mode\n");
 		goto aty_init_exit;
 	}
-
-#ifdef __sparc__
-	atyfb_save_palette(par, 0);
-#endif
 
 #ifdef CONFIG_FB_ATY_CT
 	if (!noaccel && M64_HAS(INTEGRATED))
@@ -2682,10 +2625,15 @@ static int __devinit aty_init(struct fb_info *info)
 #endif /* CONFIG_FB_ATY_CT */
 	info->var = var;
 
-	fb_alloc_cmap(&info->cmap, 256, 0);
-
-	if (register_framebuffer(info) < 0)
+	ret = fb_alloc_cmap(&info->cmap, 256, 0);
+	if (ret < 0)
 		goto aty_init_exit;
+
+	ret = register_framebuffer(info);
+	if (ret < 0) {
+		fb_dealloc_cmap(&info->cmap);
+		goto aty_init_exit;
+	}
 
 	fb_list = info;
 
@@ -2708,7 +2656,7 @@ aty_init_exit:
 	    par->mtrr_aper = -1;
 	}
 #endif
-	return -1;
+	return ret;
 }
 
 static void aty_resume_chip(struct fb_info *info)
@@ -2767,8 +2715,7 @@ static int atyfb_blank(int blank, struct fb_info *info)
 	if (par->lock_blank || par->asleep)
 		return 0;
 
-#ifdef CONFIG_FB_ATY_BACKLIGHT
-#elif defined(CONFIG_FB_ATY_GENERIC_LCD)
+#ifdef CONFIG_FB_ATY_GENERIC_LCD
 	if (par->lcd_table && blank > FB_BLANK_NORMAL &&
 	    (aty_ld_lcd(LCD_GEN_CNTL, par) & LCD_ON)) {
 		u32 pm = aty_ld_lcd(POWER_MANAGEMENT, par);
@@ -2797,8 +2744,7 @@ static int atyfb_blank(int blank, struct fb_info *info)
 	}
 	aty_st_le32(CRTC_GEN_CNTL, gen_cntl, par);
 
-#ifdef CONFIG_FB_ATY_BACKLIGHT
-#elif defined(CONFIG_FB_ATY_GENERIC_LCD)
+#ifdef CONFIG_FB_ATY_GENERIC_LCD
 	if (par->lcd_table && blank <= FB_BLANK_NORMAL &&
 	    (aty_ld_lcd(LCD_GEN_CNTL, par) & LCD_ON)) {
 		u32 pm = aty_ld_lcd(POWER_MANAGEMENT, par);
@@ -2901,8 +2847,6 @@ static int atyfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 #ifdef CONFIG_PCI
 
 #ifdef __sparc__
-
-extern void (*prom_palette) (int);
 
 static int __devinit atyfb_setup_sparc(struct pci_dev *pdev,
 			struct fb_info *info, unsigned long addr)
@@ -3391,7 +3335,7 @@ static int __devinit init_from_bios(struct atyfb_par *par)
 		PRINTKE("no BIOS frequency table found, use parameters\n");
 		ret = -ENXIO;
 	}
-	iounmap((void* __iomem )bios_base);
+	iounmap((void __iomem *)bios_base);
 
 	return ret;
 }
@@ -3416,7 +3360,7 @@ static int __devinit atyfb_setup_generic(struct pci_dev *pdev, struct fb_info *i
 
 	info->fix.mmio_start = raddr;
 	par->ati_regbase = ioremap(info->fix.mmio_start, 0x1000);
-	if (par->ati_regbase == 0)
+	if (par->ati_regbase == NULL)
 		return -ENOMEM;
 
 	info->fix.mmio_start += par->aux_start ? 0x400 : 0xc00;
@@ -3478,14 +3422,7 @@ static int __devinit atyfb_pci_probe(struct pci_dev *pdev, const struct pci_devi
 	struct fb_info *info;
 	struct resource *rp;
 	struct atyfb_par *par;
-	int i, rc = -ENOMEM;
-
-	for (i = ARRAY_SIZE(aty_chips) - 1; i >= 0; i--)
-		if (pdev->device == aty_chips[i].pci_id)
-			break;
-
-	if (i < 0)
-		return -ENODEV;
+	int rc = -ENOMEM;
 
 	/* Enable device in PCI config */
 	if (pci_enable_device(pdev)) {
@@ -3516,7 +3453,7 @@ static int __devinit atyfb_pci_probe(struct pci_dev *pdev, const struct pci_devi
 	par = info->par;
 	info->fix = atyfb_fix;
 	info->device = &pdev->dev;
-	par->pci_id = aty_chips[i].pci_id;
+	par->pci_id = pdev->device;
 	par->res_start = res_start;
 	par->res_size = res_size;
 	par->irq = pdev->irq;
@@ -3534,13 +3471,11 @@ static int __devinit atyfb_pci_probe(struct pci_dev *pdev, const struct pci_devi
 	pci_set_drvdata(pdev, info);
 
 	/* Init chip & register framebuffer */
-	if (aty_init(info))
+	rc = aty_init(info);
+	if (rc)
 		goto err_release_io;
 
 #ifdef __sparc__
-	if (!prom_palette)
-		prom_palette = atyfb_palette;
-
 	/*
 	 * Add /dev/fb mmap values.
 	 */
@@ -3718,17 +3653,61 @@ static void __devexit atyfb_pci_remove(struct pci_dev *pdev)
 	atyfb_remove(info);
 }
 
-/*
- * This driver uses its own matching table. That will be more difficult
- * to fix, so for now, we just match against any ATI ID and let the
- * probe() function find out what's up. That also mean we don't have
- * a module ID table though.
- */
 static struct pci_device_id atyfb_pci_tbl[] = {
-	{ PCI_VENDOR_ID_ATI, PCI_ANY_ID, PCI_ANY_ID, PCI_ANY_ID,
-	  PCI_BASE_CLASS_DISPLAY << 16, 0xff0000, 0 },
-	{ 0, }
+#ifdef CONFIG_FB_ATY_GX
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GX) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64CX) },
+#endif /* CONFIG_FB_ATY_GX */
+
+#ifdef CONFIG_FB_ATY_CT
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64CT) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64ET) },
+
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LT) },
+
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64VT) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GT) },
+
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64VU) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GU) },
+
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LG) },
+
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64VV) },
+
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GV) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GW) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GY) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GZ) },
+
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GB) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GD) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GI) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GP) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GQ) },
+
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LB) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LD) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LI) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LP) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LQ) },
+
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GM) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GN) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GO) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GL) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GR) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GS) },
+
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LM) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LN) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LR) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64LS) },
+#endif /* CONFIG_FB_ATY_CT */
+	{ }
 };
+
+MODULE_DEVICE_TABLE(pci, atyfb_pci_tbl);
 
 static struct pci_driver atyfb_driver = {
 	.name		= "atyfb",

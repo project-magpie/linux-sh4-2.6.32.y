@@ -73,10 +73,14 @@
 #include <linux/signal.h>
 #include <linux/highmem.h>
 #include <linux/file.h>
+#include <linux/fdtable.h>
 #include <linux/times.h>
 #include <linux/cpuset.h>
 #include <linux/rcupdate.h>
 #include <linux/delayacct.h>
+#include <linux/seq_file.h>
+#include <linux/pid_namespace.h>
+#include <linux/tracehook.h>
 
 #include <asm/pgtable.h>
 #include <asm/processor.h>
@@ -87,18 +91,21 @@
 do { memcpy(buffer, string, strlen(string)); \
      buffer += strlen(string); } while (0)
 
-static inline char *task_name(struct task_struct *p, char *buf)
+static inline void task_name(struct seq_file *m, struct task_struct *p)
 {
 	int i;
+	char *buf, *end;
 	char *name;
 	char tcomm[sizeof(p->comm)];
 
 	get_task_comm(tcomm, p);
 
-	ADDBUF(buf, "Name:\t");
+	seq_printf(m, "Name:\t");
+	end = m->buf + m->size;
+	buf = m->buf + m->count;
 	name = tcomm;
 	i = sizeof(tcomm);
-	do {
+	while (i && (buf < end)) {
 		unsigned char c = *name;
 		name++;
 		i--;
@@ -106,20 +113,21 @@ static inline char *task_name(struct task_struct *p, char *buf)
 		if (!c)
 			break;
 		if (c == '\\') {
-			buf[1] = c;
-			buf += 2;
+			buf++;
+			if (buf < end)
+				*buf++ = c;
 			continue;
 		}
 		if (c == '\n') {
-			buf[0] = '\\';
-			buf[1] = 'n';
-			buf += 2;
+			*buf++ = '\\';
+			if (buf < end)
+				*buf++ = 'n';
 			continue;
 		}
 		buf++;
-	} while (i);
-	*buf = '\n';
-	return buf+1;
+	}
+	m->count = buf - m->buf;
+	seq_printf(m, "\n");
 }
 
 /*
@@ -140,13 +148,7 @@ static const char *task_state_array[] = {
 
 static inline const char *get_task_state(struct task_struct *tsk)
 {
-	unsigned int state = (tsk->state & (TASK_RUNNING |
-					    TASK_INTERRUPTIBLE |
-					    TASK_UNINTERRUPTIBLE |
-					    TASK_STOPPED |
-					    TASK_TRACED)) |
-			(tsk->exit_state & (EXIT_ZOMBIE |
-					    EXIT_DEAD));
+	unsigned int state = (tsk->state & TASK_REPORT) | tsk->exit_state;
 	const char **p = &task_state_array[0];
 
 	while (state) {
@@ -156,14 +158,24 @@ static inline const char *get_task_state(struct task_struct *tsk)
 	return *p;
 }
 
-static inline char *task_state(struct task_struct *p, char *buffer)
+static inline void task_state(struct seq_file *m, struct pid_namespace *ns,
+				struct pid *pid, struct task_struct *p)
 {
 	struct group_info *group_info;
 	int g;
 	struct fdtable *fdt = NULL;
+	pid_t ppid, tpid;
 
 	rcu_read_lock();
-	buffer += sprintf(buffer,
+	ppid = pid_alive(p) ?
+		task_tgid_nr_ns(rcu_dereference(p->real_parent), ns) : 0;
+	tpid = 0;
+	if (pid_alive(p)) {
+		struct task_struct *tracer = tracehook_tracer_task(p);
+		if (tracer)
+			tpid = task_pid_nr_ns(tracer, ns);
+	}
+	seq_printf(m,
 		"State:\t%s\n"
 		"Tgid:\t%d\n"
 		"Pid:\t%d\n"
@@ -172,16 +184,16 @@ static inline char *task_state(struct task_struct *p, char *buffer)
 		"Uid:\t%d\t%d\t%d\t%d\n"
 		"Gid:\t%d\t%d\t%d\t%d\n",
 		get_task_state(p),
-		p->tgid, p->pid,
-		pid_alive(p) ? rcu_dereference(p->real_parent)->tgid : 0,
-		pid_alive(p) && p->ptrace ? rcu_dereference(p->parent)->pid : 0,
+		task_tgid_nr_ns(p, ns),
+		pid_nr_ns(pid, ns),
+		ppid, tpid,
 		p->uid, p->euid, p->suid, p->fsuid,
 		p->gid, p->egid, p->sgid, p->fsgid);
 
 	task_lock(p);
 	if (p->files)
 		fdt = files_fdtable(p->files);
-	buffer += sprintf(buffer,
+	seq_printf(m,
 		"FDSize:\t%d\n"
 		"Groups:\t",
 		fdt ? fdt->max_fds : 0);
@@ -192,20 +204,18 @@ static inline char *task_state(struct task_struct *p, char *buffer)
 	task_unlock(p);
 
 	for (g = 0; g < min(group_info->ngroups, NGROUPS_SMALL); g++)
-		buffer += sprintf(buffer, "%d ", GROUP_AT(group_info, g));
+		seq_printf(m, "%d ", GROUP_AT(group_info, g));
 	put_group_info(group_info);
 
-	buffer += sprintf(buffer, "\n");
-	return buffer;
+	seq_printf(m, "\n");
 }
 
-static char *render_sigset_t(const char *header, sigset_t *set, char *buffer)
+static void render_sigset_t(struct seq_file *m, const char *header,
+				sigset_t *set)
 {
-	int i, len;
+	int i;
 
-	len = strlen(header);
-	memcpy(buffer, header, len);
-	buffer += len;
+	seq_printf(m, "%s", header);
 
 	i = _NSIG;
 	do {
@@ -216,12 +226,10 @@ static char *render_sigset_t(const char *header, sigset_t *set, char *buffer)
 		if (sigismember(set, i+2)) x |= 2;
 		if (sigismember(set, i+3)) x |= 4;
 		if (sigismember(set, i+4)) x |= 8;
-		*buffer++ = (x < 10 ? '0' : 'a' - 10) + x;
+		seq_printf(m, "%x", x);
 	} while (i >= 4);
 
-	*buffer++ = '\n';
-	*buffer = 0;
-	return buffer;
+	seq_printf(m, "\n");
 }
 
 static void collect_sigign_sigcatch(struct task_struct *p, sigset_t *ign,
@@ -239,7 +247,7 @@ static void collect_sigign_sigcatch(struct task_struct *p, sigset_t *ign,
 	}
 }
 
-static inline char *task_sig(struct task_struct *p, char *buffer)
+static inline void task_sig(struct seq_file *m, struct task_struct *p)
 {
 	unsigned long flags;
 	sigset_t pending, shpending, blocked, ignored, caught;
@@ -266,58 +274,67 @@ static inline char *task_sig(struct task_struct *p, char *buffer)
 	}
 	rcu_read_unlock();
 
-	buffer += sprintf(buffer, "Threads:\t%d\n", num_threads);
-	buffer += sprintf(buffer, "SigQ:\t%lu/%lu\n", qsize, qlim);
+	seq_printf(m, "Threads:\t%d\n", num_threads);
+	seq_printf(m, "SigQ:\t%lu/%lu\n", qsize, qlim);
 
 	/* render them all */
-	buffer = render_sigset_t("SigPnd:\t", &pending, buffer);
-	buffer = render_sigset_t("ShdPnd:\t", &shpending, buffer);
-	buffer = render_sigset_t("SigBlk:\t", &blocked, buffer);
-	buffer = render_sigset_t("SigIgn:\t", &ignored, buffer);
-	buffer = render_sigset_t("SigCgt:\t", &caught, buffer);
-
-	return buffer;
+	render_sigset_t(m, "SigPnd:\t", &pending);
+	render_sigset_t(m, "ShdPnd:\t", &shpending);
+	render_sigset_t(m, "SigBlk:\t", &blocked);
+	render_sigset_t(m, "SigIgn:\t", &ignored);
+	render_sigset_t(m, "SigCgt:\t", &caught);
 }
 
-static inline char *task_cap(struct task_struct *p, char *buffer)
+static void render_cap_t(struct seq_file *m, const char *header,
+			kernel_cap_t *a)
 {
-    return buffer + sprintf(buffer, "CapInh:\t%016x\n"
-			    "CapPrm:\t%016x\n"
-			    "CapEff:\t%016x\n",
-			    cap_t(p->cap_inheritable),
-			    cap_t(p->cap_permitted),
-			    cap_t(p->cap_effective));
+	unsigned __capi;
+
+	seq_printf(m, "%s", header);
+	CAP_FOR_EACH_U32(__capi) {
+		seq_printf(m, "%08x",
+			   a->cap[(_KERNEL_CAPABILITY_U32S-1) - __capi]);
+	}
+	seq_printf(m, "\n");
 }
 
-static inline char *task_context_switch_counts(struct task_struct *p,
-						char *buffer)
+static inline void task_cap(struct seq_file *m, struct task_struct *p)
 {
-	return buffer + sprintf(buffer, "voluntary_ctxt_switches:\t%lu\n"
-			    "nonvoluntary_ctxt_switches:\t%lu\n",
-			    p->nvcsw,
-			    p->nivcsw);
+	render_cap_t(m, "CapInh:\t", &p->cap_inheritable);
+	render_cap_t(m, "CapPrm:\t", &p->cap_permitted);
+	render_cap_t(m, "CapEff:\t", &p->cap_effective);
+	render_cap_t(m, "CapBnd:\t", &p->cap_bset);
 }
 
-int proc_pid_status(struct task_struct *task, char *buffer)
+static inline void task_context_switch_counts(struct seq_file *m,
+						struct task_struct *p)
 {
-	char *orig = buffer;
+	seq_printf(m,	"voluntary_ctxt_switches:\t%lu\n"
+			"nonvoluntary_ctxt_switches:\t%lu\n",
+			p->nvcsw,
+			p->nivcsw);
+}
+
+int proc_pid_status(struct seq_file *m, struct pid_namespace *ns,
+			struct pid *pid, struct task_struct *task)
+{
 	struct mm_struct *mm = get_task_mm(task);
 
-	buffer = task_name(task, buffer);
-	buffer = task_state(task, buffer);
+	task_name(m, task);
+	task_state(m, ns, pid, task);
 
 	if (mm) {
-		buffer = task_mem(mm, buffer);
+		task_mem(m, mm);
 		mmput(mm);
 	}
-	buffer = task_sig(task, buffer);
-	buffer = task_cap(task, buffer);
-	buffer = cpuset_task_status_allowed(task, buffer);
+	task_sig(m, task);
+	task_cap(m, task);
+	cpuset_task_status_allowed(m, task);
 #if defined(CONFIG_S390)
-	buffer = task_show_regs(task, buffer);
+	task_show_regs(m, task);
 #endif
-	buffer = task_context_switch_counts(task, buffer);
-	return buffer - orig;
+	task_context_switch_counts(m, task);
+	return 0;
 }
 
 /*
@@ -351,7 +368,8 @@ static cputime_t task_utime(struct task_struct *p)
 	}
 	utime = (clock_t)temp;
 
-	return clock_t_to_cputime(utime);
+	p->prev_utime = max(p->prev_utime, clock_t_to_cputime(utime));
+	return p->prev_utime;
 }
 
 static cputime_t task_stime(struct task_struct *p)
@@ -366,18 +384,26 @@ static cputime_t task_stime(struct task_struct *p)
 	stime = nsec_to_clock_t(p->se.sum_exec_runtime) -
 			cputime_to_clock_t(task_utime(p));
 
-	return clock_t_to_cputime(stime);
+	if (stime >= 0)
+		p->prev_stime = max(p->prev_stime, clock_t_to_cputime(stime));
+
+	return p->prev_stime;
 }
 #endif
 
-static int do_task_stat(struct task_struct *task, char *buffer, int whole)
+static cputime_t task_gtime(struct task_struct *p)
+{
+	return p->gtime;
+}
+
+static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
+			struct pid *pid, struct task_struct *task, int whole)
 {
 	unsigned long vsize, eip, esp, wchan = ~0UL;
 	long priority, nice;
 	int tty_pgrp = -1, tty_nr = 0;
 	sigset_t sigign, sigcatch;
 	char state;
-	int res;
 	pid_t ppid = 0, pgid = -1, sid = -1;
 	int num_threads = 0;
 	struct mm_struct *mm;
@@ -385,6 +411,7 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 	unsigned long cmin_flt = 0, cmaj_flt = 0;
 	unsigned long  min_flt = 0,  maj_flt = 0;
 	cputime_t cutime, cstime, utime, stime;
+	cputime_t cgtime, gtime;
 	unsigned long rsslim = 0;
 	char tcomm[sizeof(task->comm)];
 	unsigned long flags;
@@ -403,13 +430,15 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 	sigemptyset(&sigign);
 	sigemptyset(&sigcatch);
 	cutime = cstime = utime = stime = cputime_zero;
+	cgtime = gtime = cputime_zero;
 
-	rcu_read_lock();
 	if (lock_task_sighand(task, &flags)) {
 		struct signal_struct *sig = task->signal;
 
 		if (sig->tty) {
-			tty_pgrp = pid_nr(sig->tty->pgrp);
+			struct pid *pgrp = tty_get_pgrp(sig->tty);
+			tty_pgrp = pid_nr_ns(pgrp, ns);
+			put_pid(pgrp);
 			tty_nr = new_encode_dev(tty_devnum(sig->tty));
 		}
 
@@ -420,6 +449,7 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 		cmaj_flt = sig->cmaj_flt;
 		cutime = sig->cutime;
 		cstime = sig->cstime;
+		cgtime = sig->cgtime;
 		rsslim = sig->rlim[RLIMIT_RSS].rlim_cur;
 
 		/* add up live thread stats at the group level */
@@ -430,6 +460,7 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 				maj_flt += t->maj_flt;
 				utime = cputime_add(utime, task_utime(t));
 				stime = cputime_add(stime, task_stime(t));
+				gtime = cputime_add(gtime, task_gtime(t));
 				t = next_thread(t);
 			} while (t != task);
 
@@ -437,15 +468,15 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 			maj_flt += sig->maj_flt;
 			utime = cputime_add(utime, sig->utime);
 			stime = cputime_add(stime, sig->stime);
+			gtime = cputime_add(gtime, sig->gtime);
 		}
 
-		sid = signal_session(sig);
-		pgid = process_group(task);
-		ppid = rcu_dereference(task->real_parent)->tgid;
+		sid = task_session_nr_ns(task, ns);
+		ppid = task_tgid_nr_ns(task->real_parent, ns);
+		pgid = task_pgrp_nr_ns(task, ns);
 
 		unlock_task_sighand(task, &flags);
 	}
-	rcu_read_unlock();
 
 	if (!whole || num_threads < 2)
 		wchan = get_wchan(task);
@@ -454,6 +485,7 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 		maj_flt = task->maj_flt;
 		utime = task_utime(task);
 		stime = task_stime(task);
+		gtime = task_gtime(task);
 	}
 
 	/* scale priority and nice values from timeslices to -20..20 */
@@ -469,10 +501,10 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 	/* convert nsec -> ticks */
 	start_time = nsec_to_clock_t(start_time);
 
-	res = sprintf(buffer, "%d (%s) %c %d %d %d %d %d %u %lu \
+	seq_printf(m, "%d (%s) %c %d %d %d %d %d %u %lu \
 %lu %lu %lu %lu %lu %ld %ld %ld %ld %d 0 %llu %lu %ld %lu %lu %lu %lu %lu \
-%lu %lu %lu %lu %lu %lu %lu %lu %d %d %u %u %llu\n",
-		task->pid,
+%lu %lu %lu %lu %lu %lu %lu %lu %d %d %u %u %llu %lu %ld\n",
+		pid_nr_ns(pid, ns),
 		tcomm,
 		state,
 		ppid,
@@ -516,23 +548,28 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 		task_cpu(task),
 		task->rt_priority,
 		task->policy,
-		(unsigned long long)delayacct_blkio_ticks(task));
+		(unsigned long long)delayacct_blkio_ticks(task),
+		cputime_to_clock_t(gtime),
+		cputime_to_clock_t(cgtime));
 	if (mm)
 		mmput(mm);
-	return res;
+	return 0;
 }
 
-int proc_tid_stat(struct task_struct *task, char *buffer)
+int proc_tid_stat(struct seq_file *m, struct pid_namespace *ns,
+			struct pid *pid, struct task_struct *task)
 {
-	return do_task_stat(task, buffer, 0);
+	return do_task_stat(m, ns, pid, task, 0);
 }
 
-int proc_tgid_stat(struct task_struct *task, char *buffer)
+int proc_tgid_stat(struct seq_file *m, struct pid_namespace *ns,
+			struct pid *pid, struct task_struct *task)
 {
-	return do_task_stat(task, buffer, 1);
+	return do_task_stat(m, ns, pid, task, 1);
 }
 
-int proc_pid_statm(struct task_struct *task, char *buffer)
+int proc_pid_statm(struct seq_file *m, struct pid_namespace *ns,
+			struct pid *pid, struct task_struct *task)
 {
 	int size = 0, resident = 0, shared = 0, text = 0, lib = 0, data = 0;
 	struct mm_struct *mm = get_task_mm(task);
@@ -541,7 +578,8 @@ int proc_pid_statm(struct task_struct *task, char *buffer)
 		size = task_statm(mm, &shared, &text, &data, &resident);
 		mmput(mm);
 	}
+	seq_printf(m, "%d %d %d %d %d %d %d\n",
+			size, resident, shared, text, lib, data, 0);
 
-	return sprintf(buffer, "%d %d %d %d %d %d %d\n",
-		       size, resident, shared, text, lib, data, 0);
+	return 0;
 }

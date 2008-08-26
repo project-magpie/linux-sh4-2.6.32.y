@@ -9,68 +9,6 @@
 #ifndef __ASM_POWERPC_REG_BOOKE_H__
 #define __ASM_POWERPC_REG_BOOKE_H__
 
-#ifndef __ASSEMBLY__
-/* Performance Monitor Registers */
-#define mfpmr(rn)	({unsigned int rval; \
-			asm volatile("mfpmr %0," __stringify(rn) \
-				     : "=r" (rval)); rval;})
-#define mtpmr(rn, v)	asm volatile("mtpmr " __stringify(rn) ",%0" : : "r" (v))
-#endif /* __ASSEMBLY__ */
-
-/* Freescale Book E Performance Monitor APU Registers */
-#define PMRN_PMC0	0x010	/* Performance Monitor Counter 0 */
-#define PMRN_PMC1	0x011	/* Performance Monitor Counter 1 */
-#define PMRN_PMC2	0x012	/* Performance Monitor Counter 1 */
-#define PMRN_PMC3	0x013	/* Performance Monitor Counter 1 */
-#define PMRN_PMLCA0	0x090	/* PM Local Control A0 */
-#define PMRN_PMLCA1	0x091	/* PM Local Control A1 */
-#define PMRN_PMLCA2	0x092	/* PM Local Control A2 */
-#define PMRN_PMLCA3	0x093	/* PM Local Control A3 */
-
-#define PMLCA_FC	0x80000000	/* Freeze Counter */
-#define PMLCA_FCS	0x40000000	/* Freeze in Supervisor */
-#define PMLCA_FCU	0x20000000	/* Freeze in User */
-#define PMLCA_FCM1	0x10000000	/* Freeze when PMM==1 */
-#define PMLCA_FCM0	0x08000000	/* Freeze when PMM==0 */
-#define PMLCA_CE	0x04000000	/* Condition Enable */
-
-#define PMLCA_EVENT_MASK 0x007f0000	/* Event field */
-#define PMLCA_EVENT_SHIFT	16
-
-#define PMRN_PMLCB0	0x110	/* PM Local Control B0 */
-#define PMRN_PMLCB1	0x111	/* PM Local Control B1 */
-#define PMRN_PMLCB2	0x112	/* PM Local Control B2 */
-#define PMRN_PMLCB3	0x113	/* PM Local Control B3 */
-
-#define PMLCB_THRESHMUL_MASK	0x0700	/* Threshhold Multiple Field */
-#define PMLCB_THRESHMUL_SHIFT	8
-
-#define PMLCB_THRESHOLD_MASK	0x003f	/* Threshold Field */
-#define PMLCB_THRESHOLD_SHIFT	0
-
-#define PMRN_PMGC0	0x190	/* PM Global Control 0 */
-
-#define PMGC0_FAC	0x80000000	/* Freeze all Counters */
-#define PMGC0_PMIE	0x40000000	/* Interrupt Enable */
-#define PMGC0_FCECE	0x20000000	/* Freeze countes on
-					   Enabled Condition or
-					   Event */
-
-#define PMRN_UPMC0	0x000	/* User Performance Monitor Counter 0 */
-#define PMRN_UPMC1	0x001	/* User Performance Monitor Counter 1 */
-#define PMRN_UPMC2	0x002	/* User Performance Monitor Counter 1 */
-#define PMRN_UPMC3	0x003	/* User Performance Monitor Counter 1 */
-#define PMRN_UPMLCA0	0x080	/* User PM Local Control A0 */
-#define PMRN_UPMLCA1	0x081	/* User PM Local Control A1 */
-#define PMRN_UPMLCA2	0x082	/* User PM Local Control A2 */
-#define PMRN_UPMLCA3	0x083	/* User PM Local Control A3 */
-#define PMRN_UPMLCB0	0x100	/* User PM Local Control B0 */
-#define PMRN_UPMLCB1	0x101	/* User PM Local Control B1 */
-#define PMRN_UPMLCB2	0x102	/* User PM Local Control B2 */
-#define PMRN_UPMLCB3	0x103	/* User PM Local Control B3 */
-#define PMRN_UPMGC0	0x180	/* User PM Global Control 0 */
-
-
 /* Machine State Register (MSR) Fields */
 #define MSR_UCLE	(1<<26)	/* User-mode cache lock enable */
 #define MSR_SPE		(1<<25)	/* Enable SPE */
@@ -123,16 +61,26 @@
 #define SPRN_SPEFSCR	0x200	/* SPE & Embedded FP Status & Control */
 #define SPRN_BBEAR	0x201	/* Branch Buffer Entry Address Register */
 #define SPRN_BBTAR	0x202	/* Branch Buffer Target Address Register */
+#define SPRN_L1CFG0	0x203	/* L1 Cache Configure Register 0 */
+#define SPRN_L1CFG1	0x204	/* L1 Cache Configure Register 1 */
+#define SPRN_ATB	0x20E	/* Alternate Time Base */
+#define SPRN_ATBL	0x20E	/* Alternate Time Base Lower */
+#define SPRN_ATBU	0x20F	/* Alternate Time Base Upper */
 #define SPRN_IVOR32	0x210	/* Interrupt Vector Offset Register 32 */
 #define SPRN_IVOR33	0x211	/* Interrupt Vector Offset Register 33 */
 #define SPRN_IVOR34	0x212	/* Interrupt Vector Offset Register 34 */
 #define SPRN_IVOR35	0x213	/* Interrupt Vector Offset Register 35 */
+#define SPRN_IVOR36	0x214	/* Interrupt Vector Offset Register 36 */
+#define SPRN_IVOR37	0x215	/* Interrupt Vector Offset Register 37 */
 #define SPRN_MCSRR0	0x23A	/* Machine Check Save and Restore Register 0 */
 #define SPRN_MCSRR1	0x23B	/* Machine Check Save and Restore Register 1 */
 #define SPRN_MCSR	0x23C	/* Machine Check Status Register */
 #define SPRN_MCAR	0x23D	/* Machine Check Address Register */
 #define SPRN_DSRR0	0x23E	/* Debug Save and Restore Register 0 */
 #define SPRN_DSRR1	0x23F	/* Debug Save and Restore Register 1 */
+#define SPRN_SPRG8	0x25C	/* Special Purpose Register General 8 */
+#define SPRN_SPRG9	0x25D	/* Special Purpose Register General 9 */
+#define SPRN_L1CSR2	0x25E	/* L1 Cache Control and Status Register 2 */
 #define SPRN_MAS0	0x270	/* MMU Assist Register 0 */
 #define SPRN_MAS1	0x271	/* MMU Assist Register 1 */
 #define SPRN_MAS2	0x272	/* MMU Assist Register 2 */
@@ -140,15 +88,18 @@
 #define SPRN_MAS4	0x274	/* MMU Assist Register 4 */
 #define SPRN_MAS5	0x275	/* MMU Assist Register 5 */
 #define SPRN_MAS6	0x276	/* MMU Assist Register 6 */
-#define SPRN_MAS7	0x3b0	/* MMU Assist Register 7 */
 #define SPRN_PID1	0x279	/* Process ID Register 1 */
 #define SPRN_PID2	0x27A	/* Process ID Register 2 */
 #define SPRN_TLB0CFG	0x2B0	/* TLB 0 Config Register */
 #define SPRN_TLB1CFG	0x2B1	/* TLB 1 Config Register */
+#define SPRN_EPR	0x2BE	/* External Proxy Register */
 #define SPRN_CCR1	0x378	/* Core Configuration Register 1 */
 #define SPRN_ZPR	0x3B0	/* Zone Protection Register (40x) */
+#define SPRN_MAS7	0x3B0	/* MMU Assist Register 7 */
 #define SPRN_MMUCR	0x3B2	/* MMU Control Register */
 #define SPRN_CCR0	0x3B3	/* Core Configuration Register 0 */
+#define SPRN_EPLC	0x3B3	/* External Process ID Load Context */
+#define SPRN_EPSC	0x3B4	/* External Process ID Store Context */
 #define SPRN_SGR	0x3B9	/* Storage Guarded Register */
 #define SPRN_DCWR	0x3BA	/* Data Cache Write-thru Register */
 #define SPRN_SLER	0x3BB	/* Little-endian real mode */
@@ -159,6 +110,9 @@
 #define SPRN_L1CSR0	0x3F2	/* L1 Cache Control and Status Register 0 */
 #define SPRN_L1CSR1	0x3F3	/* L1 Cache Control and Status Register 1 */
 #define SPRN_PIT	0x3DB	/* Programmable Interval Timer */
+#define SPRN_BUCSR	0x3F5	/* Branch Unit Control and Status */
+#define SPRN_L2CSR0	0x3F9	/* L2 Data Cache Control and Status Register 0 */
+#define SPRN_L2CSR1	0x3FA	/* L2 Data Cache Control and Status Register 1 */
 #define SPRN_DCCR	0x3FA	/* Data Cache Cacheability Register */
 #define SPRN_ICCR	0x3FB	/* Instruction Cache Cacheability Register */
 #define SPRN_SVR	0x3FF	/* System Version Register */
@@ -207,7 +161,6 @@
 #define	CCR1_TCS	0x00000080 /* Timer Clock Select */
 
 /* Bit definitions for the MCSR. */
-#ifdef CONFIG_440A
 #define MCSR_MCS	0x80000000 /* Machine Check Summary */
 #define MCSR_IB		0x40000000 /* Instruction PLB Error */
 #define MCSR_DRB	0x20000000 /* Data Read PLB Error */
@@ -217,7 +170,7 @@
 #define MCSR_DCSP	0x02000000 /* D-Cache Search Parity Error */
 #define MCSR_DCFP	0x01000000 /* D-Cache Flush Parity Error */
 #define MCSR_IMPE	0x00800000 /* Imprecise Machine Check Exception */
-#endif
+
 #ifdef CONFIG_E500
 #define MCSR_MCP 	0x80000000UL /* Machine Check Input Pin */
 #define MCSR_ICPERR 	0x40000000UL /* I-Cache Parity Error */
@@ -262,6 +215,7 @@
 #ifdef CONFIG_BOOKE
 #define DBSR_IC		0x08000000	/* Instruction Completion */
 #define DBSR_BT		0x04000000	/* Branch Taken */
+#define DBSR_IRPT	0x02000000	/* Exception Debug Event */
 #define DBSR_TIE	0x01000000	/* Trap Instruction Event */
 #define DBSR_IAC1	0x00800000	/* Instr Address Compare 1 Event */
 #define DBSR_IAC2	0x00400000	/* Instr Address Compare 2 Event */
@@ -271,10 +225,14 @@
 #define DBSR_DAC1W	0x00040000	/* Data Addr Compare 1 Write Event */
 #define DBSR_DAC2R	0x00020000	/* Data Addr Compare 2 Read Event */
 #define DBSR_DAC2W	0x00010000	/* Data Addr Compare 2 Write Event */
+#define DBSR_RET	0x00008000	/* Return Debug Event */
+#define DBSR_CIRPT	0x00000040	/* Critical Interrupt Taken Event */
+#define DBSR_CRET	0x00000020	/* Critical Return Debug Event */
 #endif
 #ifdef CONFIG_40x
 #define DBSR_IC		0x80000000	/* Instruction Completion */
 #define DBSR_BT		0x40000000	/* Branch taken */
+#define DBSR_IRPT	0x20000000	/* Exception Debug Event */
 #define DBSR_TIE	0x10000000	/* Trap Instruction debug Event */
 #define DBSR_IAC1	0x04000000	/* Instruction Address Compare 1 Event */
 #define DBSR_IAC2	0x02000000	/* Instruction Address Compare 2 Event */
@@ -293,7 +251,7 @@
 #define ESR_IMCB	0x20000000	/* Instr. Machine Check - Bus error */
 #define ESR_IMCT	0x10000000	/* Instr. Machine Check - Timeout */
 #define ESR_PIL		0x08000000	/* Program Exception - Illegal */
-#define ESR_PPR		0x04000000	/* Program Exception - Priveleged */
+#define ESR_PPR		0x04000000	/* Program Exception - Privileged */
 #define ESR_PTR		0x02000000	/* Program Exception - Trap */
 #define ESR_FP		0x01000000	/* Floating Point Operation */
 #define ESR_DST		0x00800000	/* Storage Exception - Data miss */
@@ -305,6 +263,7 @@
 #define ESR_BO		0x00020000	/* Byte Ordering */
 
 /* Bit definitions related to the DBCR0. */
+#if defined(CONFIG_40x)
 #define DBCR0_EDM	0x80000000	/* External Debug Mode */
 #define DBCR0_IDM	0x40000000	/* Internal Debug Mode */
 #define DBCR0_RST	0x30000000	/* all the bits in the RST field */
@@ -313,20 +272,69 @@
 #define DBCR0_RST_CORE	0x10000000	/* Core Reset */
 #define DBCR0_RST_NONE	0x00000000	/* No Reset */
 #define DBCR0_IC	0x08000000	/* Instruction Completion */
+#define DBCR0_ICMP	DBCR0_IC
 #define DBCR0_BT	0x04000000	/* Branch Taken */
+#define DBCR0_BRT	DBCR0_BT
 #define DBCR0_EDE	0x02000000	/* Exception Debug Event */
+#define DBCR0_IRPT	DBCR0_EDE
 #define DBCR0_TDE	0x01000000	/* TRAP Debug Event */
 #define DBCR0_IA1	0x00800000	/* Instr Addr compare 1 enable */
+#define DBCR0_IAC1	DBCR0_IA1
 #define DBCR0_IA2	0x00400000	/* Instr Addr compare 2 enable */
+#define DBCR0_IAC2	DBCR0_IA2
 #define DBCR0_IA12	0x00200000	/* Instr Addr 1-2 range enable */
 #define DBCR0_IA12X	0x00100000	/* Instr Addr 1-2 range eXclusive */
 #define DBCR0_IA3	0x00080000	/* Instr Addr compare 3 enable */
+#define DBCR0_IAC3	DBCR0_IA3
 #define DBCR0_IA4	0x00040000	/* Instr Addr compare 4 enable */
+#define DBCR0_IAC4	DBCR0_IA4
 #define DBCR0_IA34	0x00020000	/* Instr Addr 3-4 range Enable */
 #define DBCR0_IA34X	0x00010000	/* Instr Addr 3-4 range eXclusive */
 #define DBCR0_IA12T	0x00008000	/* Instr Addr 1-2 range Toggle */
 #define DBCR0_IA34T	0x00004000	/* Instr Addr 3-4 range Toggle */
 #define DBCR0_FT	0x00000001	/* Freeze Timers on debug event */
+#elif defined(CONFIG_BOOKE)
+#define DBCR0_EDM	0x80000000	/* External Debug Mode */
+#define DBCR0_IDM	0x40000000	/* Internal Debug Mode */
+#define DBCR0_RST	0x30000000	/* all the bits in the RST field */
+/* DBCR0_RST_* is 44x specific and not followed in fsl booke */
+#define DBCR0_RST_SYSTEM 0x30000000	/* System Reset */
+#define DBCR0_RST_CHIP	0x20000000	/* Chip Reset */
+#define DBCR0_RST_CORE	0x10000000	/* Core Reset */
+#define DBCR0_RST_NONE	0x00000000	/* No Reset */
+#define DBCR0_ICMP	0x08000000	/* Instruction Completion */
+#define DBCR0_IC	DBCR0_ICMP
+#define DBCR0_BRT	0x04000000	/* Branch Taken */
+#define DBCR0_BT	DBCR0_BRT
+#define DBCR0_IRPT	0x02000000	/* Exception Debug Event */
+#define DBCR0_TDE	0x01000000	/* TRAP Debug Event */
+#define DBCR0_TIE	DBCR0_TDE
+#define DBCR0_IAC1	0x00800000	/* Instr Addr compare 1 enable */
+#define DBCR0_IAC2	0x00400000	/* Instr Addr compare 2 enable */
+#define DBCR0_IAC3	0x00200000	/* Instr Addr compare 3 enable */
+#define DBCR0_IAC4	0x00100000	/* Instr Addr compare 4 enable */
+#define DBCR0_DAC1R	0x00080000	/* DAC 1 Read enable */
+#define DBCR0_DAC1W	0x00040000	/* DAC 1 Write enable */
+#define DBCR0_DAC2R	0x00020000	/* DAC 2 Read enable */
+#define DBCR0_DAC2W	0x00010000	/* DAC 2 Write enable */
+#define DBCR0_RET	0x00008000	/* Return Debug Event */
+#define DBCR0_CIRPT	0x00000040	/* Critical Interrupt Taken Event */
+#define DBCR0_CRET	0x00000020	/* Critical Return Debug Event */
+#define DBCR0_FT	0x00000001	/* Freeze Timers on debug event */
+
+/* Bit definitions related to the DBCR1. */
+#define DBCR1_IAC12M	0x00800000	/* Instr Addr 1-2 range enable */
+#define DBCR1_IAC12MX	0x00C00000	/* Instr Addr 1-2 range eXclusive */
+#define DBCR1_IAC12AT	0x00010000	/* Instr Addr 1-2 range Toggle */
+#define DBCR1_IAC34M	0x00000080	/* Instr Addr 3-4 range enable */
+#define DBCR1_IAC34MX	0x000000C0	/* Instr Addr 3-4 range eXclusive */
+#define DBCR1_IAC34AT	0x00000001	/* Instr Addr 3-4 range Toggle */
+
+/* Bit definitions related to the DBCR2. */
+#define DBCR2_DAC12M	0x00800000	/* DAC 1-2 range enable */
+#define DBCR2_DAC12MX	0x00C00000	/* DAC 1-2 range eXclusive */
+#define DBCR2_DAC12A	0x00200000	/* DAC 1-2 Asynchronous */
+#endif
 
 /* Bit definitions related to the TCR. */
 #define TCR_WP(x)	(((x)&0x3)<<30)	/* WDT Period */
@@ -387,6 +395,20 @@
 #define L1CSR1_ICLFR	0x00000100	/* Instr Cache Lock Bits Flash Reset */
 #define L1CSR1_ICFI	0x00000002	/* Instr Cache Flash Invalidate */
 #define L1CSR1_ICE	0x00000001	/* Instr Cache Enable */
+
+/* Bit definitions for L2CSR0. */
+#define L2CSR0_L2E	0x80000000	/* L2 Cache Enable */
+#define L2CSR0_L2PE	0x40000000	/* L2 Cache Parity/ECC Enable */
+#define L2CSR0_L2WP	0x1c000000	/* L2 I/D Way Partioning */
+#define L2CSR0_L2CM	0x03000000	/* L2 Cache Coherency Mode */
+#define L2CSR0_L2FI	0x00200000	/* L2 Cache Flash Invalidate */
+#define L2CSR0_L2IO	0x00100000	/* L2 Cache Instruction Only */
+#define L2CSR0_L2DO	0x00010000	/* L2 Cache Data Only */
+#define L2CSR0_L2REP	0x00003000	/* L2 Line Replacement Algo */
+#define L2CSR0_L2FL	0x00000800	/* L2 Cache Flush */
+#define L2CSR0_L2LFC	0x00000400	/* L2 Cache Lock Flash Clear */
+#define L2CSR0_L2LOA	0x00000080	/* L2 Cache Lock Overflow Allocate */
+#define L2CSR0_L2LO	0x00000020	/* L2 Cache Lock Overflow */
 
 /* Bit definitions for SGR. */
 #define SGR_NORMAL	0		/* Speculative fetching allowed. */

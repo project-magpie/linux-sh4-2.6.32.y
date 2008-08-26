@@ -765,6 +765,9 @@ do {									\
 #define read_c0_index()		__read_32bit_c0_register($0, 0)
 #define write_c0_index(val)	__write_32bit_c0_register($0, 0, val)
 
+#define read_c0_random()	__read_32bit_c0_register($1, 0)
+#define write_c0_random(val)	__write_32bit_c0_register($1, 0, val)
+
 #define read_c0_entrylo0()	__read_ulong_c0_register($2, 0)
 #define write_c0_entrylo0(val)	__write_ulong_c0_register($2, 0, val)
 
@@ -981,7 +984,7 @@ do {									\
 #define write_c0_errorepc(val)	__write_ulong_c0_register($30, 0, val)
 
 /* MIPSR2 */
-#define read_c0_hwrena()	__read_32bit_c0_register($7,0)
+#define read_c0_hwrena()	__read_32bit_c0_register($7, 0)
 #define write_c0_hwrena(val)	__write_32bit_c0_register($7, 0, val)
 
 #define read_c0_intctl()	__read_32bit_c0_register($12, 1)
@@ -993,7 +996,7 @@ do {									\
 #define read_c0_srsmap()	__read_32bit_c0_register($12, 3)
 #define write_c0_srsmap(val)	__write_32bit_c0_register($12, 3, val)
 
-#define read_c0_ebase()		__read_32bit_c0_register($15,1)
+#define read_c0_ebase()		__read_32bit_c0_register($15, 1)
 #define write_c0_ebase(val)	__write_32bit_c0_register($15, 1, val)
 
 /*

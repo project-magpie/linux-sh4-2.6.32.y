@@ -18,6 +18,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
+#include <linux/bug.h>
 
 #include <net/sock.h>
 
@@ -31,8 +32,7 @@ struct request_sock_ops {
 	int		obj_size;
 	struct kmem_cache	*slab;
 	int		(*rtx_syn_ack)(struct sock *sk,
-				       struct request_sock *req,
-				       struct dst_entry *dst);
+				       struct request_sock *req);
 	void		(*send_ack)(struct sk_buff *skb,
 				    struct request_sock *req);
 	void		(*send_reset)(struct sock *sk,
@@ -46,7 +46,7 @@ struct request_sock {
 	struct request_sock		*dl_next; /* Must be first member! */
 	u16				mss;
 	u8				retrans;
-	u8				__pad;
+	u8				cookie_ts; /* syncookie: encode tcpopts in timestamp */
 	/* The following two fields can be easily recomputed I think -AK */
 	u32				window_clamp; /* window clamp at creation time */
 	u32				rcv_wnd;	  /* rcv_wnd offered first time */
@@ -124,23 +124,7 @@ struct request_sock_queue {
 extern int reqsk_queue_alloc(struct request_sock_queue *queue,
 			     unsigned int nr_table_entries);
 
-static inline struct listen_sock *reqsk_queue_yank_listen_sk(struct request_sock_queue *queue)
-{
-	struct listen_sock *lopt;
-
-	write_lock_bh(&queue->syn_wait_lock);
-	lopt = queue->listen_opt;
-	queue->listen_opt = NULL;
-	write_unlock_bh(&queue->syn_wait_lock);
-
-	return lopt;
-}
-
-static inline void __reqsk_queue_destroy(struct request_sock_queue *queue)
-{
-	kfree(reqsk_queue_yank_listen_sk(queue));
-}
-
+extern void __reqsk_queue_destroy(struct request_sock_queue *queue);
 extern void reqsk_queue_destroy(struct request_sock_queue *queue);
 
 static inline struct request_sock *
@@ -187,7 +171,7 @@ static inline struct request_sock *reqsk_queue_remove(struct request_sock_queue 
 {
 	struct request_sock *req = queue->rskq_accept_head;
 
-	BUG_TRAP(req != NULL);
+	WARN_ON(req == NULL);
 
 	queue->rskq_accept_head = req->dl_next;
 	if (queue->rskq_accept_head == NULL)
@@ -202,7 +186,7 @@ static inline struct sock *reqsk_queue_get_child(struct request_sock_queue *queu
 	struct request_sock *req = reqsk_queue_remove(queue);
 	struct sock *child = req->sk;
 
-	BUG_TRAP(child != NULL);
+	WARN_ON(child == NULL);
 
 	sk_acceptq_removed(parent);
 	__reqsk_free(req);

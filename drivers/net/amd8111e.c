@@ -101,9 +101,9 @@ Revision History:
 
 #include "amd8111e.h"
 #define MODULE_NAME	"amd8111e"
-#define MODULE_VERS	"3.0.6"
+#define MODULE_VERS	"3.0.7"
 MODULE_AUTHOR("Advanced Micro Devices, Inc.");
-MODULE_DESCRIPTION ("AMD8111 based 10/100 Ethernet Controller. Driver Version 3.0.6");
+MODULE_DESCRIPTION ("AMD8111 based 10/100 Ethernet Controller. Driver Version "MODULE_VERS);
 MODULE_LICENSE("GPL");
 MODULE_DEVICE_TABLE(pci, amd8111e_pci_tbl);
 module_param_array(speed_duplex, int, NULL, 0);
@@ -671,11 +671,7 @@ This is the receive indication function for packets with vlan tag.
 */
 static int amd8111e_vlan_rx(struct amd8111e_priv *lp, struct sk_buff *skb, u16 vlan_tag)
 {
-#ifdef CONFIG_AMD8111E_NAPI
 	return vlan_hwaccel_receive_skb(skb, lp->vlgrp,vlan_tag);
-#else
-	return vlan_hwaccel_rx(skb, lp->vlgrp, vlan_tag);
-#endif /* CONFIG_AMD8111E_NAPI */
 }
 #endif
 
@@ -709,7 +705,8 @@ static int amd8111e_tx(struct net_device *dev)
 		lp->tx_complete_idx++;
 		/*COAL update tx coalescing parameters */
 		lp->coal_conf.tx_packets++;
-		lp->coal_conf.tx_bytes += lp->tx_ring[tx_index].buff_count;
+		lp->coal_conf.tx_bytes +=
+			le16_to_cpu(lp->tx_ring[tx_index].buff_count);
 
 		if (netif_queue_stopped(dev) &&
 			lp->tx_complete_idx > lp->tx_idx - NUM_TX_BUFFERS +2){
@@ -721,23 +718,22 @@ static int amd8111e_tx(struct net_device *dev)
 	return 0;
 }
 
-#ifdef CONFIG_AMD8111E_NAPI
 /* This function handles the driver receive operation in polling mode */
-static int amd8111e_rx_poll(struct net_device *dev, int * budget)
+static int amd8111e_rx_poll(struct napi_struct *napi, int budget)
 {
-	struct amd8111e_priv *lp = netdev_priv(dev);
+	struct amd8111e_priv *lp = container_of(napi, struct amd8111e_priv, napi);
+	struct net_device *dev = lp->amd8111e_net_dev;
 	int rx_index = lp->rx_idx & RX_RING_DR_MOD_MASK;
 	void __iomem *mmio = lp->mmio;
 	struct sk_buff *skb,*new_skb;
 	int min_pkt_len, status;
 	unsigned int intr0;
 	int num_rx_pkt = 0;
-	/*int max_rx_pkt = NUM_RX_BUFFERS;*/
 	short pkt_len;
 #if AMD8111E_VLAN_TAG_USED
 	short vtag;
 #endif
-	int rx_pkt_limit = dev->quota;
+	int rx_pkt_limit = budget;
 	unsigned long flags;
 
 	do{
@@ -838,125 +834,16 @@ static int amd8111e_rx_poll(struct net_device *dev, int * budget)
 	} while(intr0 & RINT0);
 
 	/* Receive descriptor is empty now */
-	dev->quota -= num_rx_pkt;
-	*budget -= num_rx_pkt;
-
 	spin_lock_irqsave(&lp->lock, flags);
-	netif_rx_complete(dev);
+	__netif_rx_complete(dev, napi);
 	writel(VAL0|RINTEN0, mmio + INTEN0);
 	writel(VAL2 | RDMD0, mmio + CMD0);
 	spin_unlock_irqrestore(&lp->lock, flags);
-	return 0;
 
 rx_not_empty:
-	/* Do not call a netif_rx_complete */
-	dev->quota -= num_rx_pkt;
-	*budget -= num_rx_pkt;
-	return 1;
+	return num_rx_pkt;
 }
 
-#else
-/*
-This function will check the ownership of receive buffers and descriptors. It will indicate to kernel up to half the number of maximum receive buffers in the descriptor ring, in a single receive interrupt. It will also replenish the descriptors with new skbs.
-*/
-static int amd8111e_rx(struct net_device *dev)
-{
-	struct amd8111e_priv *lp = netdev_priv(dev);
-	struct sk_buff *skb,*new_skb;
-	int rx_index = lp->rx_idx & RX_RING_DR_MOD_MASK;
-	int min_pkt_len, status;
-	int num_rx_pkt = 0;
-	int max_rx_pkt = NUM_RX_BUFFERS;
-	short pkt_len;
-#if AMD8111E_VLAN_TAG_USED
-	short vtag;
-#endif
-
-	/* If we own the next entry, it's a new packet. Send it up. */
-	while(++num_rx_pkt <= max_rx_pkt){
-		status = le16_to_cpu(lp->rx_ring[rx_index].rx_flags);
-		if(status & OWN_BIT)
-			return 0;
-
-		/* check if err summary bit is set */
-		if(status & ERR_BIT){
-			/*
-			 * There is a tricky error noted by John Murphy,
-			 * <murf@perftech.com> to Russ Nelson: Even with full-sized
-			 * buffers it's possible for a jabber packet to use two
-			 * buffers, with only the last correctly noting the error.			 */
-			/* reseting flags */
-			lp->rx_ring[rx_index].rx_flags &= RESET_RX_FLAGS;
-			goto err_next_pkt;
-		}
-		/* check for STP and ENP */
-		if(!((status & STP_BIT) && (status & ENP_BIT))){
-			/* reseting flags */
-			lp->rx_ring[rx_index].rx_flags &= RESET_RX_FLAGS;
-			goto err_next_pkt;
-		}
-		pkt_len = le16_to_cpu(lp->rx_ring[rx_index].msg_count) - 4;
-
-#if AMD8111E_VLAN_TAG_USED
-		vtag = status & TT_MASK;
-		/*MAC will strip vlan tag*/
-		if(lp->vlgrp != NULL && vtag !=0)
-			min_pkt_len =MIN_PKT_LEN - 4;
-		else
-#endif
-			min_pkt_len =MIN_PKT_LEN;
-
-		if (pkt_len < min_pkt_len) {
-			lp->rx_ring[rx_index].rx_flags &= RESET_RX_FLAGS;
-			lp->drv_rx_errors++;
-			goto err_next_pkt;
-		}
-		if(!(new_skb = dev_alloc_skb(lp->rx_buff_len))){
-			/* if allocation fail,
-				ignore that pkt and go to next one */
-			lp->rx_ring[rx_index].rx_flags &= RESET_RX_FLAGS;
-			lp->drv_rx_errors++;
-			goto err_next_pkt;
-		}
-
-		skb_reserve(new_skb, 2);
-		skb = lp->rx_skbuff[rx_index];
-		pci_unmap_single(lp->pci_dev,lp->rx_dma_addr[rx_index],
-			lp->rx_buff_len-2, PCI_DMA_FROMDEVICE);
-		skb_put(skb, pkt_len);
-		lp->rx_skbuff[rx_index] = new_skb;
-		lp->rx_dma_addr[rx_index] = pci_map_single(lp->pci_dev,
-			new_skb->data, lp->rx_buff_len-2,PCI_DMA_FROMDEVICE);
-
-		skb->protocol = eth_type_trans(skb, dev);
-
-#if AMD8111E_VLAN_TAG_USED
-		if(lp->vlgrp != NULL && (vtag == TT_VLAN_TAGGED)){
-			amd8111e_vlan_rx(lp, skb,
-				 le16_to_cpu(lp->rx_ring[rx_index].tag_ctrl_info));
-		} else
-#endif
-
-			netif_rx (skb);
-			/*COAL update rx coalescing parameters*/
-			lp->coal_conf.rx_packets++;
-			lp->coal_conf.rx_bytes += pkt_len;
-
-			dev->last_rx = jiffies;
-
-err_next_pkt:
-		lp->rx_ring[rx_index].buff_phy_addr
-			 = cpu_to_le32(lp->rx_dma_addr[rx_index]);
-		lp->rx_ring[rx_index].buff_count =
-				cpu_to_le16(lp->rx_buff_len-2);
-		wmb();
-		lp->rx_ring[rx_index].rx_flags |= cpu_to_le16(OWN_BIT);
-		rx_index = (++lp->rx_idx) & RX_RING_DR_MOD_MASK;
-	}
-
-	return 0;
-}
-#endif /* CONFIG_AMD8111E_NAPI */
 /*
 This function will indicate the link status to the kernel.
 */
@@ -1116,7 +1003,7 @@ static struct net_device_stats *amd8111e_get_stats(struct net_device * dev)
 
 	return new_stats;
 }
-/* This function recalculate the interupt coalescing  mode on every interrupt
+/* This function recalculate the interrupt coalescing  mode on every interrupt
 according to the datarate and the packet rate.
 */
 static int amd8111e_calc_coalesce(struct net_device *dev)
@@ -1285,29 +1172,22 @@ static irqreturn_t amd8111e_interrupt(int irq, void *dev_id)
 	writel(intr0, mmio + INT0);
 
 	/* Check if Receive Interrupt has occurred. */
-#ifdef CONFIG_AMD8111E_NAPI
-	if(intr0 & RINT0){
-		if(netif_rx_schedule_prep(dev)){
+	if (intr0 & RINT0) {
+		if (netif_rx_schedule_prep(dev, &lp->napi)) {
 			/* Disable receive interupts */
 			writel(RINTEN0, mmio + INTEN0);
 			/* Schedule a polling routine */
-			__netif_rx_schedule(dev);
-		}
-		else if (intren0 & RINTEN0) {
+			__netif_rx_schedule(dev, &lp->napi);
+		} else if (intren0 & RINTEN0) {
 			printk("************Driver bug! \
 				interrupt while in poll\n");
 			/* Fix by disable receive interrupts */
 			writel(RINTEN0, mmio + INTEN0);
 		}
 	}
-#else
-	if(intr0 & RINT0){
-		amd8111e_rx(dev);
-		writel(VAL2 | RDMD0, mmio + CMD0);
-	}
-#endif /* CONFIG_AMD8111E_NAPI */
+
 	/* Check if  Transmit Interrupt has occurred. */
-	if(intr0 & TINT0)
+	if (intr0 & TINT0)
 		amd8111e_tx(dev);
 
 	/* Check if  Link Change Interrupt has occurred. */
@@ -1345,6 +1225,8 @@ static int amd8111e_close(struct net_device * dev)
 	struct amd8111e_priv *lp = netdev_priv(dev);
 	netif_stop_queue(dev);
 
+	napi_disable(&lp->napi);
+
 	spin_lock_irq(&lp->lock);
 
 	amd8111e_disable_interrupt(lp);
@@ -1375,12 +1257,15 @@ static int amd8111e_open(struct net_device * dev )
 					 dev->name, dev))
 		return -EAGAIN;
 
+	napi_enable(&lp->napi);
+
 	spin_lock_irq(&lp->lock);
 
 	amd8111e_init_hw_default(lp);
 
 	if(amd8111e_restart(dev)){
 		spin_unlock_irq(&lp->lock);
+		napi_disable(&lp->napi);
 		if (dev->irq)
 			free_irq(dev->irq, dev);
 		return -ENOMEM;
@@ -1405,7 +1290,7 @@ This function checks if there is any transmit  descriptors available to queue mo
 static int amd8111e_tx_queue_avail(struct amd8111e_priv* lp )
 {
 	int tx_index = lp->tx_idx & TX_BUFF_MOD_MASK;
-	if(lp->tx_skbuff[tx_index] != 0)
+	if (lp->tx_skbuff[tx_index])
 		return -1;
 	else
 		return 0;
@@ -1442,7 +1327,7 @@ static int amd8111e_start_xmit(struct sk_buff *skb, struct net_device * dev)
 	lp->tx_dma_addr[tx_index] =
 	    pci_map_single(lp->pci_dev, skb->data, skb->len, PCI_DMA_TODEVICE);
 	lp->tx_ring[tx_index].buff_phy_addr =
-	    (u32) cpu_to_le32(lp->tx_dma_addr[tx_index]);
+	    cpu_to_le32(lp->tx_dma_addr[tx_index]);
 
 	/*  Set FCS and LTINT bits */
 	wmb();
@@ -1935,16 +1820,17 @@ static int __devinit amd8111e_probe_one(struct pci_dev *pdev,
 	unsigned long reg_addr,reg_len;
 	struct amd8111e_priv* lp;
 	struct net_device* dev;
+	DECLARE_MAC_BUF(mac);
 
 	err = pci_enable_device(pdev);
 	if(err){
-		printk(KERN_ERR "amd8111e: Cannot enable new PCI device,"
+		printk(KERN_ERR "amd8111e: Cannot enable new PCI device, "
 			"exiting.\n");
 		return err;
 	}
 
 	if(!(pci_resource_flags(pdev, 0) & IORESOURCE_MEM)){
-		printk(KERN_ERR "amd8111e: Cannot find PCI base address"
+		printk(KERN_ERR "amd8111e: Cannot find PCI base address, "
 		       "exiting.\n");
 		err = -ENODEV;
 		goto err_disable_pdev;
@@ -1983,7 +1869,6 @@ static int __devinit amd8111e_probe_one(struct pci_dev *pdev,
 		goto err_free_reg;
 	}
 
-	SET_MODULE_OWNER(dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
 #if AMD8111E_VLAN_TAG_USED
@@ -1999,7 +1884,7 @@ static int __devinit amd8111e_probe_one(struct pci_dev *pdev,
 	spin_lock_init(&lp->lock);
 
 	lp->mmio = ioremap(reg_addr, reg_len);
-	if (lp->mmio == 0) {
+	if (!lp->mmio) {
 		printk(KERN_ERR "amd8111e: Cannot map device registers, "
 		       "exiting\n");
 		err = -ENOMEM;
@@ -2008,7 +1893,7 @@ static int __devinit amd8111e_probe_one(struct pci_dev *pdev,
 
 	/* Initializing MAC address */
 	for(i = 0; i < ETH_ADDR_LEN; i++)
-			dev->dev_addr[i] =readb(lp->mmio + PADR + i);
+		dev->dev_addr[i] = readb(lp->mmio + PADR + i);
 
 	/* Setting user defined parametrs */
 	lp->ext_phy_option = speed_duplex[card_idx];
@@ -2030,10 +1915,7 @@ static int __devinit amd8111e_probe_one(struct pci_dev *pdev,
 	dev->irq =pdev->irq;
 	dev->tx_timeout = amd8111e_tx_timeout;
 	dev->watchdog_timeo = AMD8111E_TX_TIMEOUT;
-#ifdef CONFIG_AMD8111E_NAPI
-	dev->poll = amd8111e_rx_poll;
-	dev->weight = 32;
-#endif
+	netif_napi_add(dev, &lp->napi, amd8111e_rx_poll, 32);
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	dev->poll_controller = amd8111e_poll;
 #endif
@@ -2078,11 +1960,10 @@ static int __devinit amd8111e_probe_one(struct pci_dev *pdev,
 	/*  display driver and device information */
 
     	chip_version = (readl(lp->mmio + CHIPID) & 0xf0000000)>>28;
-    	printk(KERN_INFO "%s: AMD-8111e Driver Version: %s\n",								 dev->name,MODULE_VERS);
-    	printk(KERN_INFO "%s: [ Rev %x ] PCI 10/100BaseT Ethernet ",							dev->name, chip_version);
-    	for (i = 0; i < 6; i++)
-		printk("%2.2x%c",dev->dev_addr[i],i == 5 ? ' ' : ':');
-    	printk( "\n");
+	printk(KERN_INFO "%s: AMD-8111e Driver Version: %s\n",
+	       dev->name,MODULE_VERS);
+	printk(KERN_INFO "%s: [ Rev %x ] PCI 10/100BaseT Ethernet %s\n",
+	       dev->name, chip_version, print_mac(mac, dev->dev_addr));
 	if (lp->ext_phy_id)
 		printk(KERN_INFO "%s: Found MII PHY ID 0x%08x at address 0x%02x\n",
 		       dev->name, lp->ext_phy_id, lp->ext_phy_addr);

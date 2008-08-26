@@ -49,7 +49,7 @@ static void local_rm9k_perfcounter_irq_startup(void *args)
 
 static unsigned int rm9k_perfcounter_irq_startup(unsigned int irq)
 {
-	on_each_cpu(local_rm9k_perfcounter_irq_startup, (void *) irq, 0, 1);
+	on_each_cpu(local_rm9k_perfcounter_irq_startup, (void *) irq, 1);
 
 	return 0;
 }
@@ -66,7 +66,7 @@ static void local_rm9k_perfcounter_irq_shutdown(void *args)
 
 static void rm9k_perfcounter_irq_shutdown(unsigned int irq)
 {
-	on_each_cpu(local_rm9k_perfcounter_irq_shutdown, (void *) irq, 0, 1);
+	on_each_cpu(local_rm9k_perfcounter_irq_shutdown, (void *) irq, 1);
 }
 
 static struct irq_chip rm9k_irq_controller = {
@@ -75,6 +75,7 @@ static struct irq_chip rm9k_irq_controller = {
 	.mask = mask_rm9k_irq,
 	.mask_ack = mask_rm9k_irq,
 	.unmask = unmask_rm9k_irq,
+	.eoi	= unmask_rm9k_irq
 };
 
 static struct irq_chip rm9k_perfcounter_irq = {
@@ -104,5 +105,5 @@ void __init rm9k_cpu_irq_init(void)
 
 	rm9000_perfcount_irq = base + 1;
 	set_irq_chip_and_handler(rm9000_perfcount_irq, &rm9k_perfcounter_irq,
-				 handle_level_irq);
+				 handle_percpu_irq);
 }

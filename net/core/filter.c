@@ -27,6 +27,7 @@
 #include <linux/if_packet.h>
 #include <net/ip.h>
 #include <net/protocol.h>
+#include <net/netlink.h>
 #include <linux/skbuff.h>
 #include <net/sock.h>
 #include <linux/errno.h>
@@ -62,6 +63,40 @@ static inline void *load_pointer(struct sk_buff *skb, int k,
 		return __load_pointer(skb, k);
 	}
 }
+
+/**
+ *	sk_filter - run a packet through a socket filter
+ *	@sk: sock associated with &sk_buff
+ *	@skb: buffer to filter
+ *
+ * Run the filter code and then cut skb->data to correct size returned by
+ * sk_run_filter. If pkt_len is 0 we toss packet. If skb->len is smaller
+ * than pkt_len we keep whole skb->data. This is the socket level
+ * wrapper to sk_run_filter. It returns 0 if the packet should
+ * be accepted or -EPERM if the packet should be tossed.
+ *
+ */
+int sk_filter(struct sock *sk, struct sk_buff *skb)
+{
+	int err;
+	struct sk_filter *filter;
+
+	err = security_sock_rcv_skb(sk, skb);
+	if (err)
+		return err;
+
+	rcu_read_lock_bh();
+	filter = rcu_dereference(sk->sk_filter);
+	if (filter) {
+		unsigned int pkt_len = sk_run_filter(skb, filter->insns,
+				filter->len);
+		err = pkt_len ? pskb_trim(skb, pkt_len) : -EPERM;
+	}
+	rcu_read_unlock_bh();
+
+	return err;
+}
+EXPORT_SYMBOL(sk_filter);
 
 /**
  *	sk_run_filter - run a filter on a socket
@@ -177,7 +212,7 @@ unsigned int sk_run_filter(struct sk_buff *skb, struct sock_filter *filter, int 
 load_w:
 			ptr = load_pointer(skb, k, 4, &tmp);
 			if (ptr != NULL) {
-				A = ntohl(get_unaligned((__be32 *)ptr));
+				A = get_unaligned_be32(ptr);
 				continue;
 			}
 			break;
@@ -186,7 +221,7 @@ load_w:
 load_h:
 			ptr = load_pointer(skb, k, 2, &tmp);
 			if (ptr != NULL) {
-				A = ntohs(get_unaligned((__be16 *)ptr));
+				A = get_unaligned_be16(ptr);
 				continue;
 			}
 			break;
@@ -268,6 +303,22 @@ load_b:
 		case SKF_AD_IFINDEX:
 			A = skb->dev->ifindex;
 			continue;
+		case SKF_AD_NLATTR: {
+			struct nlattr *nla;
+
+			if (skb_is_nonlinear(skb))
+				return 0;
+			if (A > skb->len - sizeof(struct nlattr))
+				return 0;
+
+			nla = nla_find((struct nlattr *)&skb->data[A],
+				       skb->len - A, X);
+			if (nla)
+				A = (void *)nla - (void *)skb->data;
+			else
+				A = 0;
+			continue;
+		}
 		default:
 			return 0;
 		}
@@ -275,6 +326,7 @@ load_b:
 
 	return 0;
 }
+EXPORT_SYMBOL(sk_run_filter);
 
 /**
  *	sk_chk_filter - verify socket filter code
@@ -385,6 +437,26 @@ int sk_chk_filter(struct sock_filter *filter, int flen)
 
 	return (BPF_CLASS(filter[flen - 1].code) == BPF_RET) ? 0 : -EINVAL;
 }
+EXPORT_SYMBOL(sk_chk_filter);
+
+/**
+ * 	sk_filter_rcu_release: Release a socket filter by rcu_head
+ *	@rcu: rcu_head that contains the sk_filter to free
+ */
+static void sk_filter_rcu_release(struct rcu_head *rcu)
+{
+	struct sk_filter *fp = container_of(rcu, struct sk_filter, rcu);
+
+	sk_filter_release(fp);
+}
+
+static void sk_filter_delayed_uncharge(struct sock *sk, struct sk_filter *fp)
+{
+	unsigned int size = sk_filter_len(fp);
+
+	atomic_sub(size, &sk->sk_omem_alloc);
+	call_rcu_bh(&fp->rcu, sk_filter_rcu_release);
+}
 
 /**
  *	sk_attach_filter - attach a socket filter
@@ -398,7 +470,7 @@ int sk_chk_filter(struct sock_filter *filter, int flen)
  */
 int sk_attach_filter(struct sock_fprog *fprog, struct sock *sk)
 {
-	struct sk_filter *fp;
+	struct sk_filter *fp, *old_fp;
 	unsigned int fsize = sizeof(struct sock_filter) * fprog->len;
 	int err;
 
@@ -418,20 +490,33 @@ int sk_attach_filter(struct sock_fprog *fprog, struct sock *sk)
 	fp->len = fprog->len;
 
 	err = sk_chk_filter(fp->insns, fp->len);
-	if (!err) {
-		struct sk_filter *old_fp;
-
-		rcu_read_lock_bh();
-		old_fp = rcu_dereference(sk->sk_filter);
-		rcu_assign_pointer(sk->sk_filter, fp);
-		rcu_read_unlock_bh();
-		fp = old_fp;
+	if (err) {
+		sk_filter_uncharge(sk, fp);
+		return err;
 	}
 
-	if (fp)
-		sk_filter_release(sk, fp);
-	return err;
+	rcu_read_lock_bh();
+	old_fp = rcu_dereference(sk->sk_filter);
+	rcu_assign_pointer(sk->sk_filter, fp);
+	rcu_read_unlock_bh();
+
+	if (old_fp)
+		sk_filter_delayed_uncharge(sk, old_fp);
+	return 0;
 }
 
-EXPORT_SYMBOL(sk_chk_filter);
-EXPORT_SYMBOL(sk_run_filter);
+int sk_detach_filter(struct sock *sk)
+{
+	int ret = -ENOENT;
+	struct sk_filter *filter;
+
+	rcu_read_lock_bh();
+	filter = rcu_dereference(sk->sk_filter);
+	if (filter) {
+		rcu_assign_pointer(sk->sk_filter, NULL);
+		sk_filter_delayed_uncharge(sk, filter);
+		ret = 0;
+	}
+	rcu_read_unlock_bh();
+	return ret;
+}

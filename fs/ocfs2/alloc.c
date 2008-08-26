@@ -354,7 +354,6 @@ struct ocfs2_insert_type {
 	enum ocfs2_append_type	ins_appending;
 	enum ocfs2_contig_type	ins_contig;
 	int			ins_contig_index;
-	int			ins_free_records;
 	int			ins_tree_depth;
 };
 
@@ -362,7 +361,6 @@ struct ocfs2_merge_ctxt {
 	enum ocfs2_contig_type	c_contig_type;
 	int			c_has_empty_extent;
 	int			c_split_covers_rec;
-	int			c_used_tail_recs;
 };
 
 /*
@@ -1031,8 +1029,7 @@ static void ocfs2_rotate_leaf(struct ocfs2_extent_list *el,
 	BUG_ON(!next_free);
 
 	/* The tree code before us didn't allow enough room in the leaf. */
-	if (el->l_next_free_rec == el->l_count && !has_empty)
-		BUG();
+	BUG_ON(el->l_next_free_rec == el->l_count && !has_empty);
 
 	/*
 	 * The easiest way to approach this is to just remove the
@@ -1452,6 +1449,8 @@ static void ocfs2_adjust_root_records(struct ocfs2_extent_list *root_el,
  *   - When our insert into the right path leaf is at the leftmost edge
  *     and requires an update of the path immediately to it's left. This
  *     can occur at the end of some types of rotation and appending inserts.
+ *   - When we've adjusted the last extent record in the left path leaf and the
+ *     1st extent record in the right path leaf during cross extent block merge.
  */
 static void ocfs2_complete_edge_insert(struct inode *inode, handle_t *handle,
 				       struct ocfs2_path *left_path,
@@ -2391,6 +2390,18 @@ static int __ocfs2_rotate_tree_left(struct inode *inode,
 			goto out;
 		}
 
+		/*
+		 * Caller might still want to make changes to the
+		 * tree root, so re-add it to the journal here.
+		 */
+		ret = ocfs2_journal_access(handle, inode,
+					   path_root_bh(left_path),
+					   OCFS2_JOURNAL_ACCESS_WRITE);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
+		}
+
 		ret = ocfs2_rotate_subtree_left(inode, handle, left_path,
 						right_path, subtree_root,
 						dealloc, &deleted);
@@ -2702,24 +2713,147 @@ static void ocfs2_cleanup_merge(struct ocfs2_extent_list *el,
 	}
 }
 
-/*
- * Remove split_rec clusters from the record at index and merge them
- * onto the beginning of the record at index + 1.
- */
-static int ocfs2_merge_rec_right(struct inode *inode, struct buffer_head *bh,
-				handle_t *handle,
-				struct ocfs2_extent_rec *split_rec,
-				struct ocfs2_extent_list *el, int index)
+static int ocfs2_get_right_path(struct inode *inode,
+				struct ocfs2_path *left_path,
+				struct ocfs2_path **ret_right_path)
 {
 	int ret;
+	u32 right_cpos;
+	struct ocfs2_path *right_path = NULL;
+	struct ocfs2_extent_list *left_el;
+
+	*ret_right_path = NULL;
+
+	/* This function shouldn't be called for non-trees. */
+	BUG_ON(left_path->p_tree_depth == 0);
+
+	left_el = path_leaf_el(left_path);
+	BUG_ON(left_el->l_next_free_rec != left_el->l_count);
+
+	ret = ocfs2_find_cpos_for_right_leaf(inode->i_sb, left_path,
+					     &right_cpos);
+	if (ret) {
+		mlog_errno(ret);
+		goto out;
+	}
+
+	/* This function shouldn't be called for the rightmost leaf. */
+	BUG_ON(right_cpos == 0);
+
+	right_path = ocfs2_new_path(path_root_bh(left_path),
+				    path_root_el(left_path));
+	if (!right_path) {
+		ret = -ENOMEM;
+		mlog_errno(ret);
+		goto out;
+	}
+
+	ret = ocfs2_find_path(inode, right_path, right_cpos);
+	if (ret) {
+		mlog_errno(ret);
+		goto out;
+	}
+
+	*ret_right_path = right_path;
+out:
+	if (ret)
+		ocfs2_free_path(right_path);
+	return ret;
+}
+
+/*
+ * Remove split_rec clusters from the record at index and merge them
+ * onto the beginning of the record "next" to it.
+ * For index < l_count - 1, the next means the extent rec at index + 1.
+ * For index == l_count - 1, the "next" means the 1st extent rec of the
+ * next extent block.
+ */
+static int ocfs2_merge_rec_right(struct inode *inode,
+				 struct ocfs2_path *left_path,
+				 handle_t *handle,
+				 struct ocfs2_extent_rec *split_rec,
+				 int index)
+{
+	int ret, next_free, i;
 	unsigned int split_clusters = le16_to_cpu(split_rec->e_leaf_clusters);
 	struct ocfs2_extent_rec *left_rec;
 	struct ocfs2_extent_rec *right_rec;
+	struct ocfs2_extent_list *right_el;
+	struct ocfs2_path *right_path = NULL;
+	int subtree_index = 0;
+	struct ocfs2_extent_list *el = path_leaf_el(left_path);
+	struct buffer_head *bh = path_leaf_bh(left_path);
+	struct buffer_head *root_bh = NULL;
 
 	BUG_ON(index >= le16_to_cpu(el->l_next_free_rec));
-
 	left_rec = &el->l_recs[index];
-	right_rec = &el->l_recs[index + 1];
+
+	if (index == le16_to_cpu(el->l_next_free_rec) - 1 &&
+	    le16_to_cpu(el->l_next_free_rec) == le16_to_cpu(el->l_count)) {
+		/* we meet with a cross extent block merge. */
+		ret = ocfs2_get_right_path(inode, left_path, &right_path);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
+		}
+
+		right_el = path_leaf_el(right_path);
+		next_free = le16_to_cpu(right_el->l_next_free_rec);
+		BUG_ON(next_free <= 0);
+		right_rec = &right_el->l_recs[0];
+		if (ocfs2_is_empty_extent(right_rec)) {
+			BUG_ON(next_free <= 1);
+			right_rec = &right_el->l_recs[1];
+		}
+
+		BUG_ON(le32_to_cpu(left_rec->e_cpos) +
+		       le16_to_cpu(left_rec->e_leaf_clusters) !=
+		       le32_to_cpu(right_rec->e_cpos));
+
+		subtree_index = ocfs2_find_subtree_root(inode,
+							left_path, right_path);
+
+		ret = ocfs2_extend_rotate_transaction(handle, subtree_index,
+						      handle->h_buffer_credits,
+						      right_path);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
+		}
+
+		root_bh = left_path->p_node[subtree_index].bh;
+		BUG_ON(root_bh != right_path->p_node[subtree_index].bh);
+
+		ret = ocfs2_journal_access(handle, inode, root_bh,
+					   OCFS2_JOURNAL_ACCESS_WRITE);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
+		}
+
+		for (i = subtree_index + 1;
+		     i < path_num_items(right_path); i++) {
+			ret = ocfs2_journal_access(handle, inode,
+						   right_path->p_node[i].bh,
+						   OCFS2_JOURNAL_ACCESS_WRITE);
+			if (ret) {
+				mlog_errno(ret);
+				goto out;
+			}
+
+			ret = ocfs2_journal_access(handle, inode,
+						   left_path->p_node[i].bh,
+						   OCFS2_JOURNAL_ACCESS_WRITE);
+			if (ret) {
+				mlog_errno(ret);
+				goto out;
+			}
+		}
+
+	} else {
+		BUG_ON(index == le16_to_cpu(el->l_next_free_rec) - 1);
+		right_rec = &el->l_recs[index + 1];
+	}
 
 	ret = ocfs2_journal_access(handle, inode, bh,
 				   OCFS2_JOURNAL_ACCESS_WRITE);
@@ -2741,30 +2875,156 @@ static int ocfs2_merge_rec_right(struct inode *inode, struct buffer_head *bh,
 	if (ret)
 		mlog_errno(ret);
 
+	if (right_path) {
+		ret = ocfs2_journal_dirty(handle, path_leaf_bh(right_path));
+		if (ret)
+			mlog_errno(ret);
+
+		ocfs2_complete_edge_insert(inode, handle, left_path,
+					   right_path, subtree_index);
+	}
 out:
+	if (right_path)
+		ocfs2_free_path(right_path);
+	return ret;
+}
+
+static int ocfs2_get_left_path(struct inode *inode,
+			       struct ocfs2_path *right_path,
+			       struct ocfs2_path **ret_left_path)
+{
+	int ret;
+	u32 left_cpos;
+	struct ocfs2_path *left_path = NULL;
+
+	*ret_left_path = NULL;
+
+	/* This function shouldn't be called for non-trees. */
+	BUG_ON(right_path->p_tree_depth == 0);
+
+	ret = ocfs2_find_cpos_for_left_leaf(inode->i_sb,
+					    right_path, &left_cpos);
+	if (ret) {
+		mlog_errno(ret);
+		goto out;
+	}
+
+	/* This function shouldn't be called for the leftmost leaf. */
+	BUG_ON(left_cpos == 0);
+
+	left_path = ocfs2_new_path(path_root_bh(right_path),
+				   path_root_el(right_path));
+	if (!left_path) {
+		ret = -ENOMEM;
+		mlog_errno(ret);
+		goto out;
+	}
+
+	ret = ocfs2_find_path(inode, left_path, left_cpos);
+	if (ret) {
+		mlog_errno(ret);
+		goto out;
+	}
+
+	*ret_left_path = left_path;
+out:
+	if (ret)
+		ocfs2_free_path(left_path);
 	return ret;
 }
 
 /*
  * Remove split_rec clusters from the record at index and merge them
- * onto the tail of the record at index - 1.
+ * onto the tail of the record "before" it.
+ * For index > 0, the "before" means the extent rec at index - 1.
+ *
+ * For index == 0, the "before" means the last record of the previous
+ * extent block. And there is also a situation that we may need to
+ * remove the rightmost leaf extent block in the right_path and change
+ * the right path to indicate the new rightmost path.
  */
-static int ocfs2_merge_rec_left(struct inode *inode, struct buffer_head *bh,
+static int ocfs2_merge_rec_left(struct inode *inode,
+				struct ocfs2_path *right_path,
 				handle_t *handle,
 				struct ocfs2_extent_rec *split_rec,
-				struct ocfs2_extent_list *el, int index)
+				struct ocfs2_cached_dealloc_ctxt *dealloc,
+				int index)
 {
-	int ret, has_empty_extent = 0;
+	int ret, i, subtree_index = 0, has_empty_extent = 0;
 	unsigned int split_clusters = le16_to_cpu(split_rec->e_leaf_clusters);
 	struct ocfs2_extent_rec *left_rec;
 	struct ocfs2_extent_rec *right_rec;
+	struct ocfs2_extent_list *el = path_leaf_el(right_path);
+	struct buffer_head *bh = path_leaf_bh(right_path);
+	struct buffer_head *root_bh = NULL;
+	struct ocfs2_path *left_path = NULL;
+	struct ocfs2_extent_list *left_el;
 
-	BUG_ON(index <= 0);
+	BUG_ON(index < 0);
 
-	left_rec = &el->l_recs[index - 1];
 	right_rec = &el->l_recs[index];
-	if (ocfs2_is_empty_extent(&el->l_recs[0]))
-		has_empty_extent = 1;
+	if (index == 0) {
+		/* we meet with a cross extent block merge. */
+		ret = ocfs2_get_left_path(inode, right_path, &left_path);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
+		}
+
+		left_el = path_leaf_el(left_path);
+		BUG_ON(le16_to_cpu(left_el->l_next_free_rec) !=
+		       le16_to_cpu(left_el->l_count));
+
+		left_rec = &left_el->l_recs[
+				le16_to_cpu(left_el->l_next_free_rec) - 1];
+		BUG_ON(le32_to_cpu(left_rec->e_cpos) +
+		       le16_to_cpu(left_rec->e_leaf_clusters) !=
+		       le32_to_cpu(split_rec->e_cpos));
+
+		subtree_index = ocfs2_find_subtree_root(inode,
+							left_path, right_path);
+
+		ret = ocfs2_extend_rotate_transaction(handle, subtree_index,
+						      handle->h_buffer_credits,
+						      left_path);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
+		}
+
+		root_bh = left_path->p_node[subtree_index].bh;
+		BUG_ON(root_bh != right_path->p_node[subtree_index].bh);
+
+		ret = ocfs2_journal_access(handle, inode, root_bh,
+					   OCFS2_JOURNAL_ACCESS_WRITE);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
+		}
+
+		for (i = subtree_index + 1;
+		     i < path_num_items(right_path); i++) {
+			ret = ocfs2_journal_access(handle, inode,
+						   right_path->p_node[i].bh,
+						   OCFS2_JOURNAL_ACCESS_WRITE);
+			if (ret) {
+				mlog_errno(ret);
+				goto out;
+			}
+
+			ret = ocfs2_journal_access(handle, inode,
+						   left_path->p_node[i].bh,
+						   OCFS2_JOURNAL_ACCESS_WRITE);
+			if (ret) {
+				mlog_errno(ret);
+				goto out;
+			}
+		}
+	} else {
+		left_rec = &el->l_recs[index - 1];
+		if (ocfs2_is_empty_extent(&el->l_recs[0]))
+			has_empty_extent = 1;
+	}
 
 	ret = ocfs2_journal_access(handle, inode, bh,
 				   OCFS2_JOURNAL_ACCESS_WRITE);
@@ -2780,9 +3040,8 @@ static int ocfs2_merge_rec_left(struct inode *inode, struct buffer_head *bh,
 		*left_rec = *split_rec;
 
 		has_empty_extent = 0;
-	} else {
+	} else
 		le16_add_cpu(&left_rec->e_leaf_clusters, split_clusters);
-	}
 
 	le32_add_cpu(&right_rec->e_cpos, split_clusters);
 	le64_add_cpu(&right_rec->e_blkno,
@@ -2795,49 +3054,72 @@ static int ocfs2_merge_rec_left(struct inode *inode, struct buffer_head *bh,
 	if (ret)
 		mlog_errno(ret);
 
+	if (left_path) {
+		ret = ocfs2_journal_dirty(handle, path_leaf_bh(left_path));
+		if (ret)
+			mlog_errno(ret);
+
+		/*
+		 * In the situation that the right_rec is empty and the extent
+		 * block is empty also,  ocfs2_complete_edge_insert can't handle
+		 * it and we need to delete the right extent block.
+		 */
+		if (le16_to_cpu(right_rec->e_leaf_clusters) == 0 &&
+		    le16_to_cpu(el->l_next_free_rec) == 1) {
+
+			ret = ocfs2_remove_rightmost_path(inode, handle,
+							  right_path, dealloc);
+			if (ret) {
+				mlog_errno(ret);
+				goto out;
+			}
+
+			/* Now the rightmost extent block has been deleted.
+			 * So we use the new rightmost path.
+			 */
+			ocfs2_mv_path(right_path, left_path);
+			left_path = NULL;
+		} else
+			ocfs2_complete_edge_insert(inode, handle, left_path,
+						   right_path, subtree_index);
+	}
 out:
+	if (left_path)
+		ocfs2_free_path(left_path);
 	return ret;
 }
 
 static int ocfs2_try_to_merge_extent(struct inode *inode,
 				     handle_t *handle,
-				     struct ocfs2_path *left_path,
+				     struct ocfs2_path *path,
 				     int split_index,
 				     struct ocfs2_extent_rec *split_rec,
 				     struct ocfs2_cached_dealloc_ctxt *dealloc,
 				     struct ocfs2_merge_ctxt *ctxt)
 
 {
-	int ret = 0, delete_tail_recs = 0;
-	struct ocfs2_extent_list *el = path_leaf_el(left_path);
+	int ret = 0;
+	struct ocfs2_extent_list *el = path_leaf_el(path);
 	struct ocfs2_extent_rec *rec = &el->l_recs[split_index];
 
 	BUG_ON(ctxt->c_contig_type == CONTIG_NONE);
 
-	if (ctxt->c_split_covers_rec) {
-		delete_tail_recs++;
-
-		if (ctxt->c_contig_type == CONTIG_LEFTRIGHT ||
-		    ctxt->c_has_empty_extent)
-			delete_tail_recs++;
-
-		if (ctxt->c_has_empty_extent) {
-			/*
-			 * The merge code will need to create an empty
-			 * extent to take the place of the newly
-			 * emptied slot. Remove any pre-existing empty
-			 * extents - having more than one in a leaf is
-			 * illegal.
-			 */
-			ret = ocfs2_rotate_tree_left(inode, handle, left_path,
-						     dealloc);
-			if (ret) {
-				mlog_errno(ret);
-				goto out;
-			}
-			split_index--;
-			rec = &el->l_recs[split_index];
+	if (ctxt->c_split_covers_rec && ctxt->c_has_empty_extent) {
+		/*
+		 * The merge code will need to create an empty
+		 * extent to take the place of the newly
+		 * emptied slot. Remove any pre-existing empty
+		 * extents - having more than one in a leaf is
+		 * illegal.
+		 */
+		ret = ocfs2_rotate_tree_left(inode, handle, path,
+					     dealloc);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
 		}
+		split_index--;
+		rec = &el->l_recs[split_index];
 	}
 
 	if (ctxt->c_contig_type == CONTIG_LEFTRIGHT) {
@@ -2845,7 +3127,6 @@ static int ocfs2_try_to_merge_extent(struct inode *inode,
 		 * Left-right contig implies this.
 		 */
 		BUG_ON(!ctxt->c_split_covers_rec);
-		BUG_ON(split_index == 0);
 
 		/*
 		 * Since the leftright insert always covers the entire
@@ -2856,9 +3137,14 @@ static int ocfs2_try_to_merge_extent(struct inode *inode,
 		 * Since the adding of an empty extent shifts
 		 * everything back to the right, there's no need to
 		 * update split_index here.
+		 *
+		 * When the split_index is zero, we need to merge it to the
+		 * prevoius extent block. It is more efficient and easier
+		 * if we do merge_right first and merge_left later.
 		 */
-		ret = ocfs2_merge_rec_left(inode, path_leaf_bh(left_path),
-					   handle, split_rec, el, split_index);
+		ret = ocfs2_merge_rec_right(inode, path,
+					    handle, split_rec,
+					    split_index);
 		if (ret) {
 			mlog_errno(ret);
 			goto out;
@@ -2869,32 +3155,30 @@ static int ocfs2_try_to_merge_extent(struct inode *inode,
 		 */
 		BUG_ON(!ocfs2_is_empty_extent(&el->l_recs[0]));
 
-		/*
-		 * The left merge left us with an empty extent, remove
-		 * it.
-		 */
-		ret = ocfs2_rotate_tree_left(inode, handle, left_path, dealloc);
+		/* The merge left us with an empty extent, remove it. */
+		ret = ocfs2_rotate_tree_left(inode, handle, path, dealloc);
 		if (ret) {
 			mlog_errno(ret);
 			goto out;
 		}
-		split_index--;
+
 		rec = &el->l_recs[split_index];
 
 		/*
 		 * Note that we don't pass split_rec here on purpose -
-		 * we've merged it into the left side.
+		 * we've merged it into the rec already.
 		 */
-		ret = ocfs2_merge_rec_right(inode, path_leaf_bh(left_path),
-					    handle, rec, el, split_index);
+		ret = ocfs2_merge_rec_left(inode, path,
+					   handle, rec,
+					   dealloc,
+					   split_index);
+
 		if (ret) {
 			mlog_errno(ret);
 			goto out;
 		}
 
-		BUG_ON(!ocfs2_is_empty_extent(&el->l_recs[0]));
-
-		ret = ocfs2_rotate_tree_left(inode, handle, left_path,
+		ret = ocfs2_rotate_tree_left(inode, handle, path,
 					     dealloc);
 		/*
 		 * Error from this last rotate is not critical, so
@@ -2913,8 +3197,9 @@ static int ocfs2_try_to_merge_extent(struct inode *inode,
 		 */
 		if (ctxt->c_contig_type == CONTIG_RIGHT) {
 			ret = ocfs2_merge_rec_left(inode,
-						   path_leaf_bh(left_path),
-						   handle, split_rec, el,
+						   path,
+						   handle, split_rec,
+						   dealloc,
 						   split_index);
 			if (ret) {
 				mlog_errno(ret);
@@ -2922,8 +3207,8 @@ static int ocfs2_try_to_merge_extent(struct inode *inode,
 			}
 		} else {
 			ret = ocfs2_merge_rec_right(inode,
-						    path_leaf_bh(left_path),
-						    handle, split_rec, el,
+						    path,
+						    handle, split_rec,
 						    split_index);
 			if (ret) {
 				mlog_errno(ret);
@@ -2936,7 +3221,7 @@ static int ocfs2_try_to_merge_extent(struct inode *inode,
 			 * The merge may have left an empty extent in
 			 * our leaf. Try to rotate it away.
 			 */
-			ret = ocfs2_rotate_tree_left(inode, handle, left_path,
+			ret = ocfs2_rotate_tree_left(inode, handle, path,
 						     dealloc);
 			if (ret)
 				mlog_errno(ret);
@@ -3299,16 +3584,6 @@ static int ocfs2_insert_path(struct inode *inode,
 	int ret, subtree_index;
 	struct buffer_head *leaf_bh = path_leaf_bh(right_path);
 
-	/*
-	 * Pass both paths to the journal. The majority of inserts
-	 * will be touching all components anyway.
-	 */
-	ret = ocfs2_journal_access_path(inode, handle, right_path);
-	if (ret < 0) {
-		mlog_errno(ret);
-		goto out;
-	}
-
 	if (left_path) {
 		int credits = handle->h_buffer_credits;
 
@@ -3333,14 +3608,35 @@ static int ocfs2_insert_path(struct inode *inode,
 		}
 	}
 
+	/*
+	 * Pass both paths to the journal. The majority of inserts
+	 * will be touching all components anyway.
+	 */
+	ret = ocfs2_journal_access_path(inode, handle, right_path);
+	if (ret < 0) {
+		mlog_errno(ret);
+		goto out;
+	}
+
 	if (insert->ins_split != SPLIT_NONE) {
 		/*
 		 * We could call ocfs2_insert_at_leaf() for some types
-		 * of splits, but it's easier to just let one seperate
+		 * of splits, but it's easier to just let one separate
 		 * function sort it all out.
 		 */
 		ocfs2_split_record(inode, left_path, right_path,
 				   insert_rec, insert->ins_split);
+
+		/*
+		 * Split might have modified either leaf and we don't
+		 * have a guarantee that the later edge insert will
+		 * dirty this for us.
+		 */
+		if (left_path)
+			ret = ocfs2_journal_dirty(handle,
+						  path_leaf_bh(left_path));
+			if (ret)
+				mlog_errno(ret);
 	} else
 		ocfs2_insert_at_leaf(insert_rec, path_leaf_el(right_path),
 				     insert, inode);
@@ -3440,6 +3736,17 @@ static int ocfs2_do_insert_extent(struct inode *inode,
 			mlog_errno(ret);
 			goto out;
 		}
+
+		/*
+		 * ocfs2_rotate_tree_right() might have extended the
+		 * transaction without re-journaling our tree root.
+		 */
+		ret = ocfs2_journal_access(handle, inode, di_bh,
+					   OCFS2_JOURNAL_ACCESS_WRITE);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
+		}
 	} else if (type->ins_appending == APPEND_TAIL
 		   && type->ins_contig != CONTIG_LEFT) {
 		ret = ocfs2_append_rec_to_path(inode, handle, insert_rec,
@@ -3474,20 +3781,57 @@ out:
 }
 
 static enum ocfs2_contig_type
-ocfs2_figure_merge_contig_type(struct inode *inode,
+ocfs2_figure_merge_contig_type(struct inode *inode, struct ocfs2_path *path,
 			       struct ocfs2_extent_list *el, int index,
 			       struct ocfs2_extent_rec *split_rec)
 {
-	struct ocfs2_extent_rec *rec;
+	int status;
 	enum ocfs2_contig_type ret = CONTIG_NONE;
+	u32 left_cpos, right_cpos;
+	struct ocfs2_extent_rec *rec = NULL;
+	struct ocfs2_extent_list *new_el;
+	struct ocfs2_path *left_path = NULL, *right_path = NULL;
+	struct buffer_head *bh;
+	struct ocfs2_extent_block *eb;
+
+	if (index > 0) {
+		rec = &el->l_recs[index - 1];
+	} else if (path->p_tree_depth > 0) {
+		status = ocfs2_find_cpos_for_left_leaf(inode->i_sb,
+						       path, &left_cpos);
+		if (status)
+			goto out;
+
+		if (left_cpos != 0) {
+			left_path = ocfs2_new_path(path_root_bh(path),
+						   path_root_el(path));
+			if (!left_path)
+				goto out;
+
+			status = ocfs2_find_path(inode, left_path, left_cpos);
+			if (status)
+				goto out;
+
+			new_el = path_leaf_el(left_path);
+
+			if (le16_to_cpu(new_el->l_next_free_rec) !=
+			    le16_to_cpu(new_el->l_count)) {
+				bh = path_leaf_bh(left_path);
+				eb = (struct ocfs2_extent_block *)bh->b_data;
+				OCFS2_RO_ON_INVALID_EXTENT_BLOCK(inode->i_sb,
+								 eb);
+				goto out;
+			}
+			rec = &new_el->l_recs[
+				le16_to_cpu(new_el->l_next_free_rec) - 1];
+		}
+	}
 
 	/*
 	 * We're careful to check for an empty extent record here -
 	 * the merge code will know what to do if it sees one.
 	 */
-
-	if (index > 0) {
-		rec = &el->l_recs[index - 1];
+	if (rec) {
 		if (index == 1 && ocfs2_is_empty_extent(rec)) {
 			if (split_rec->e_cpos == el->l_recs[index].e_cpos)
 				ret = CONTIG_RIGHT;
@@ -3496,10 +3840,45 @@ ocfs2_figure_merge_contig_type(struct inode *inode,
 		}
 	}
 
-	if (index < (le16_to_cpu(el->l_next_free_rec) - 1)) {
+	rec = NULL;
+	if (index < (le16_to_cpu(el->l_next_free_rec) - 1))
+		rec = &el->l_recs[index + 1];
+	else if (le16_to_cpu(el->l_next_free_rec) == le16_to_cpu(el->l_count) &&
+		 path->p_tree_depth > 0) {
+		status = ocfs2_find_cpos_for_right_leaf(inode->i_sb,
+							path, &right_cpos);
+		if (status)
+			goto out;
+
+		if (right_cpos == 0)
+			goto out;
+
+		right_path = ocfs2_new_path(path_root_bh(path),
+					    path_root_el(path));
+		if (!right_path)
+			goto out;
+
+		status = ocfs2_find_path(inode, right_path, right_cpos);
+		if (status)
+			goto out;
+
+		new_el = path_leaf_el(right_path);
+		rec = &new_el->l_recs[0];
+		if (ocfs2_is_empty_extent(rec)) {
+			if (le16_to_cpu(new_el->l_next_free_rec) <= 1) {
+				bh = path_leaf_bh(right_path);
+				eb = (struct ocfs2_extent_block *)bh->b_data;
+				OCFS2_RO_ON_INVALID_EXTENT_BLOCK(inode->i_sb,
+								 eb);
+				goto out;
+			}
+			rec = &new_el->l_recs[1];
+		}
+	}
+
+	if (rec) {
 		enum ocfs2_contig_type contig_type;
 
-		rec = &el->l_recs[index + 1];
 		contig_type = ocfs2_extent_contig(inode, rec, split_rec);
 
 		if (contig_type == CONTIG_LEFT && ret == CONTIG_RIGHT)
@@ -3507,6 +3886,12 @@ ocfs2_figure_merge_contig_type(struct inode *inode,
 		else if (ret == CONTIG_NONE)
 			ret = contig_type;
 	}
+
+out:
+	if (left_path)
+		ocfs2_free_path(left_path);
+	if (right_path)
+		ocfs2_free_path(right_path);
 
 	return ret;
 }
@@ -3593,6 +3978,7 @@ static int ocfs2_figure_insert_type(struct inode *inode,
 				    struct buffer_head *di_bh,
 				    struct buffer_head **last_eb_bh,
 				    struct ocfs2_extent_rec *insert_rec,
+				    int *free_records,
 				    struct ocfs2_insert_type *insert)
 {
 	int ret;
@@ -3633,7 +4019,7 @@ static int ocfs2_figure_insert_type(struct inode *inode,
 	 * XXX: This test is simplistic, we can search for empty
 	 * extent records too.
 	 */
-	insert->ins_free_records = le16_to_cpu(el->l_count) -
+	*free_records = le16_to_cpu(el->l_count) -
 		le16_to_cpu(el->l_next_free_rec);
 
 	if (!insert->ins_tree_depth) {
@@ -3730,9 +4116,12 @@ int ocfs2_insert_extent(struct ocfs2_super *osb,
 			struct ocfs2_alloc_context *meta_ac)
 {
 	int status;
+	int uninitialized_var(free_records);
 	struct buffer_head *last_eb_bh = NULL;
 	struct ocfs2_insert_type insert = {0, };
 	struct ocfs2_extent_rec rec;
+
+	BUG_ON(OCFS2_I(inode)->ip_dyn_features & OCFS2_INLINE_DATA_FL);
 
 	mlog(0, "add %u clusters at position %u to inode %llu\n",
 	     new_clusters, cpos, (unsigned long long)OCFS2_I(inode)->ip_blkno);
@@ -3752,7 +4141,7 @@ int ocfs2_insert_extent(struct ocfs2_super *osb,
 	rec.e_flags = flags;
 
 	status = ocfs2_figure_insert_type(inode, fe_bh, &last_eb_bh, &rec,
-					  &insert);
+					  &free_records, &insert);
 	if (status < 0) {
 		mlog_errno(status);
 		goto bail;
@@ -3762,9 +4151,9 @@ int ocfs2_insert_extent(struct ocfs2_super *osb,
 	     "Insert.contig_index: %d, Insert.free_records: %d, "
 	     "Insert.tree_depth: %d\n",
 	     insert.ins_appending, insert.ins_contig, insert.ins_contig_index,
-	     insert.ins_free_records, insert.ins_tree_depth);
+	     free_records, insert.ins_tree_depth);
 
-	if (insert.ins_contig == CONTIG_NONE && insert.ins_free_records == 0) {
+	if (insert.ins_contig == CONTIG_NONE && free_records == 0) {
 		status = ocfs2_grow_tree(inode, handle, fe_bh,
 					 &insert.ins_tree_depth, &last_eb_bh,
 					 meta_ac);
@@ -3847,26 +4236,17 @@ leftright:
 
 	if (le16_to_cpu(rightmost_el->l_next_free_rec) ==
 	    le16_to_cpu(rightmost_el->l_count)) {
-		int old_depth = depth;
-
 		ret = ocfs2_grow_tree(inode, handle, di_bh, &depth, last_eb_bh,
 				      meta_ac);
 		if (ret) {
 			mlog_errno(ret);
 			goto out;
 		}
-
-		if (old_depth != depth) {
-			eb = (struct ocfs2_extent_block *)(*last_eb_bh)->b_data;
-			rightmost_el = &eb->h_list;
-		}
 	}
 
 	memset(&insert, 0, sizeof(struct ocfs2_insert_type));
 	insert.ins_appending = APPEND_NONE;
 	insert.ins_contig = CONTIG_NONE;
-	insert.ins_free_records = le16_to_cpu(rightmost_el->l_count)
-		- le16_to_cpu(rightmost_el->l_next_free_rec);
 	insert.ins_tree_depth = depth;
 
 	insert_range = le32_to_cpu(split_rec.e_cpos) +
@@ -3956,12 +4336,12 @@ static int __ocfs2_mark_extent_written(struct inode *inode,
 {
 	int ret = 0;
 	struct ocfs2_extent_list *el = path_leaf_el(path);
-	struct buffer_head *eb_bh, *last_eb_bh = NULL;
+	struct buffer_head *last_eb_bh = NULL;
 	struct ocfs2_extent_rec *rec = &el->l_recs[split_index];
 	struct ocfs2_merge_ctxt ctxt;
 	struct ocfs2_extent_list *rightmost_el;
 
-	if (!rec->e_flags & OCFS2_EXT_UNWRITTEN) {
+	if (!(rec->e_flags & OCFS2_EXT_UNWRITTEN)) {
 		ret = -EIO;
 		mlog_errno(ret);
 		goto out;
@@ -3975,15 +4355,7 @@ static int __ocfs2_mark_extent_written(struct inode *inode,
 		goto out;
 	}
 
-	eb_bh = path_leaf_bh(path);
-	ret = ocfs2_journal_access(handle, inode, eb_bh,
-				   OCFS2_JOURNAL_ACCESS_WRITE);
-	if (ret) {
-		mlog_errno(ret);
-		goto out;
-	}
-
-	ctxt.c_contig_type = ocfs2_figure_merge_contig_type(inode, el,
+	ctxt.c_contig_type = ocfs2_figure_merge_contig_type(inode, path, el,
 							    split_index,
 							    split_rec);
 
@@ -4015,11 +4387,6 @@ static int __ocfs2_mark_extent_written(struct inode *inode,
 	} else
 		rightmost_el = path_root_el(path);
 
-	ctxt.c_used_tail_recs = le16_to_cpu(rightmost_el->l_next_free_rec);
-	if (ctxt.c_used_tail_recs > 0 &&
-	    ocfs2_is_empty_extent(&rightmost_el->l_recs[0]))
-		ctxt.c_used_tail_recs--;
-
 	if (rec->e_cpos == split_rec->e_cpos &&
 	    rec->e_leaf_clusters == split_rec->e_leaf_clusters)
 		ctxt.c_split_covers_rec = 1;
@@ -4028,10 +4395,9 @@ static int __ocfs2_mark_extent_written(struct inode *inode,
 
 	ctxt.c_has_empty_extent = ocfs2_is_empty_extent(&el->l_recs[0]);
 
-	mlog(0, "index: %d, contig: %u, used_tail_recs: %u, "
-	     "has_empty: %u, split_covers: %u\n", split_index,
-	     ctxt.c_contig_type, ctxt.c_used_tail_recs,
-	     ctxt.c_has_empty_extent, ctxt.c_split_covers_rec);
+	mlog(0, "index: %d, contig: %u, has_empty: %u, split_covers: %u\n",
+	     split_index, ctxt.c_contig_type, ctxt.c_has_empty_extent,
+	     ctxt.c_split_covers_rec);
 
 	if (ctxt.c_contig_type == CONTIG_NONE) {
 		if (ctxt.c_split_covers_rec)
@@ -4049,8 +4415,6 @@ static int __ocfs2_mark_extent_written(struct inode *inode,
 		if (ret)
 			mlog_errno(ret);
 	}
-
-	ocfs2_journal_dirty(handle, eb_bh);
 
 out:
 	brelse(last_eb_bh);
@@ -4180,18 +4544,11 @@ static int ocfs2_split_tree(struct inode *inode, struct buffer_head *di_bh,
 
 	if (le16_to_cpu(rightmost_el->l_next_free_rec) ==
 	    le16_to_cpu(rightmost_el->l_count)) {
-		int old_depth = depth;
-
 		ret = ocfs2_grow_tree(inode, handle, di_bh, &depth, &last_eb_bh,
 				      meta_ac);
 		if (ret) {
 			mlog_errno(ret);
 			goto out;
-		}
-
-		if (old_depth != depth) {
-			eb = (struct ocfs2_extent_block *)last_eb_bh->b_data;
-			rightmost_el = &eb->h_list;
 		}
 	}
 
@@ -4199,8 +4556,6 @@ static int ocfs2_split_tree(struct inode *inode, struct buffer_head *di_bh,
 	insert.ins_appending = APPEND_NONE;
 	insert.ins_contig = CONTIG_NONE;
 	insert.ins_split = SPLIT_RIGHT;
-	insert.ins_free_records = le16_to_cpu(rightmost_el->l_count)
-		- le16_to_cpu(rightmost_el->l_next_free_rec);
 	insert.ins_tree_depth = depth;
 
 	ret = ocfs2_do_insert_extent(inode, handle, di_bh, &split_rec, &insert);
@@ -4737,7 +5092,7 @@ int __ocfs2_flush_truncate_log(struct ocfs2_super *osb)
 
 	mutex_lock(&data_alloc_inode->i_mutex);
 
-	status = ocfs2_meta_lock(data_alloc_inode, &data_alloc_bh, 1);
+	status = ocfs2_inode_lock(data_alloc_inode, &data_alloc_bh, 1);
 	if (status < 0) {
 		mlog_errno(status);
 		goto out_mutex;
@@ -4759,7 +5114,7 @@ int __ocfs2_flush_truncate_log(struct ocfs2_super *osb)
 
 out_unlock:
 	brelse(data_alloc_bh);
-	ocfs2_meta_unlock(data_alloc_inode, 1);
+	ocfs2_inode_unlock(data_alloc_inode, 1);
 
 out_mutex:
 	mutex_unlock(&data_alloc_inode->i_mutex);
@@ -4794,6 +5149,8 @@ static void ocfs2_truncate_log_worker(struct work_struct *work)
 	status = ocfs2_flush_truncate_log(osb);
 	if (status < 0)
 		mlog_errno(status);
+	else
+		ocfs2_init_inode_steal_slot(osb);
 
 	mlog_exit(status);
 }
@@ -5083,7 +5440,7 @@ static int ocfs2_free_cached_items(struct ocfs2_super *osb,
 
 	mutex_lock(&inode->i_mutex);
 
-	ret = ocfs2_meta_lock(inode, &di_bh, 1);
+	ret = ocfs2_inode_lock(inode, &di_bh, 1);
 	if (ret) {
 		mlog_errno(ret);
 		goto out_mutex;
@@ -5124,7 +5481,7 @@ out_journal:
 	ocfs2_commit_trans(osb, handle);
 
 out_unlock:
-	ocfs2_meta_unlock(inode, 1);
+	ocfs2_inode_unlock(inode, 1);
 	brelse(di_bh);
 out_mutex:
 	mutex_unlock(&inode->i_mutex);
@@ -5665,12 +6022,50 @@ static int ocfs2_ordered_zero_func(handle_t *handle, struct buffer_head *bh)
 	return ocfs2_journal_dirty_data(handle, bh);
 }
 
+static void ocfs2_map_and_dirty_page(struct inode *inode, handle_t *handle,
+				     unsigned int from, unsigned int to,
+				     struct page *page, int zero, u64 *phys)
+{
+	int ret, partial = 0;
+
+	ret = ocfs2_map_page_blocks(page, phys, inode, from, to, 0);
+	if (ret)
+		mlog_errno(ret);
+
+	if (zero)
+		zero_user_segment(page, from, to);
+
+	/*
+	 * Need to set the buffers we zero'd into uptodate
+	 * here if they aren't - ocfs2_map_page_blocks()
+	 * might've skipped some
+	 */
+	if (ocfs2_should_order_data(inode)) {
+		ret = walk_page_buffers(handle,
+					page_buffers(page),
+					from, to, &partial,
+					ocfs2_ordered_zero_func);
+		if (ret < 0)
+			mlog_errno(ret);
+	} else {
+		ret = walk_page_buffers(handle, page_buffers(page),
+					from, to, &partial,
+					ocfs2_writeback_zero_func);
+		if (ret < 0)
+			mlog_errno(ret);
+	}
+
+	if (!partial)
+		SetPageUptodate(page);
+
+	flush_dcache_page(page);
+}
+
 static void ocfs2_zero_cluster_pages(struct inode *inode, loff_t start,
 				     loff_t end, struct page **pages,
 				     int numpages, u64 phys, handle_t *handle)
 {
-	int i, ret, partial = 0;
-	void *kaddr;
+	int i;
 	struct page *page;
 	unsigned int from, to = PAGE_CACHE_SIZE;
 	struct super_block *sb = inode->i_sb;
@@ -5691,87 +6086,31 @@ static void ocfs2_zero_cluster_pages(struct inode *inode, loff_t start,
 		BUG_ON(from > PAGE_CACHE_SIZE);
 		BUG_ON(to > PAGE_CACHE_SIZE);
 
-		ret = ocfs2_map_page_blocks(page, &phys, inode, from, to, 0);
-		if (ret)
-			mlog_errno(ret);
-
-		kaddr = kmap_atomic(page, KM_USER0);
-		memset(kaddr + from, 0, to - from);
-		kunmap_atomic(kaddr, KM_USER0);
-
-		/*
-		 * Need to set the buffers we zero'd into uptodate
-		 * here if they aren't - ocfs2_map_page_blocks()
-		 * might've skipped some
-		 */
-		if (ocfs2_should_order_data(inode)) {
-			ret = walk_page_buffers(handle,
-						page_buffers(page),
-						from, to, &partial,
-						ocfs2_ordered_zero_func);
-			if (ret < 0)
-				mlog_errno(ret);
-		} else {
-			ret = walk_page_buffers(handle, page_buffers(page),
-						from, to, &partial,
-						ocfs2_writeback_zero_func);
-			if (ret < 0)
-				mlog_errno(ret);
-		}
-
-		if (!partial)
-			SetPageUptodate(page);
-
-		flush_dcache_page(page);
+		ocfs2_map_and_dirty_page(inode, handle, from, to, page, 1,
+					 &phys);
 
 		start = (page->index + 1) << PAGE_CACHE_SHIFT;
 	}
 out:
-	if (pages) {
-		for (i = 0; i < numpages; i++) {
-			page = pages[i];
-			unlock_page(page);
-			mark_page_accessed(page);
-			page_cache_release(page);
-		}
-	}
+	if (pages)
+		ocfs2_unlock_and_free_pages(pages, numpages);
 }
 
 static int ocfs2_grab_eof_pages(struct inode *inode, loff_t start, loff_t end,
-				struct page **pages, int *num, u64 *phys)
+				struct page **pages, int *num)
 {
-	int i, numpages = 0, ret = 0;
-	unsigned int ext_flags;
+	int numpages, ret = 0;
 	struct super_block *sb = inode->i_sb;
 	struct address_space *mapping = inode->i_mapping;
 	unsigned long index;
 	loff_t last_page_bytes;
 
-	BUG_ON(!ocfs2_sparse_alloc(OCFS2_SB(sb)));
 	BUG_ON(start > end);
-
-	if (start == end)
-		goto out;
 
 	BUG_ON(start >> OCFS2_SB(sb)->s_clustersize_bits !=
 	       (end - 1) >> OCFS2_SB(sb)->s_clustersize_bits);
 
-	ret = ocfs2_extent_map_get_blocks(inode, start >> sb->s_blocksize_bits,
-					  phys, NULL, &ext_flags);
-	if (ret) {
-		mlog_errno(ret);
-		goto out;
-	}
-
-	/* Tail is a hole. */
-	if (*phys == 0)
-		goto out;
-
-	/* Tail is marked as unwritten, we can count on write to zero
-	 * in that case. */
-	if (ext_flags & OCFS2_EXT_UNWRITTEN)
-		goto out;
-
+	numpages = 0;
 	last_page_bytes = PAGE_ALIGN(end);
 	index = start >> PAGE_CACHE_SHIFT;
 	do {
@@ -5788,14 +6127,8 @@ static int ocfs2_grab_eof_pages(struct inode *inode, loff_t start, loff_t end,
 
 out:
 	if (ret != 0) {
-		if (pages) {
-			for (i = 0; i < numpages; i++) {
-				if (pages[i]) {
-					unlock_page(pages[i]);
-					page_cache_release(pages[i]);
-				}
-			}
-		}
+		if (pages)
+			ocfs2_unlock_and_free_pages(pages, numpages);
 		numpages = 0;
 	}
 
@@ -5816,18 +6149,20 @@ out:
 int ocfs2_zero_range_for_truncate(struct inode *inode, handle_t *handle,
 				  u64 range_start, u64 range_end)
 {
-	int ret, numpages;
+	int ret = 0, numpages;
 	struct page **pages = NULL;
 	u64 phys;
+	unsigned int ext_flags;
+	struct super_block *sb = inode->i_sb;
 
 	/*
 	 * File systems which don't support sparse files zero on every
 	 * extend.
 	 */
-	if (!ocfs2_sparse_alloc(OCFS2_SB(inode->i_sb)))
+	if (!ocfs2_sparse_alloc(OCFS2_SB(sb)))
 		return 0;
 
-	pages = kcalloc(ocfs2_pages_per_cluster(inode->i_sb),
+	pages = kcalloc(ocfs2_pages_per_cluster(sb),
 			sizeof(struct page *), GFP_NOFS);
 	if (pages == NULL) {
 		ret = -ENOMEM;
@@ -5835,15 +6170,30 @@ int ocfs2_zero_range_for_truncate(struct inode *inode, handle_t *handle,
 		goto out;
 	}
 
-	ret = ocfs2_grab_eof_pages(inode, range_start, range_end, pages,
-				   &numpages, &phys);
+	if (range_start == range_end)
+		goto out;
+
+	ret = ocfs2_extent_map_get_blocks(inode,
+					  range_start >> sb->s_blocksize_bits,
+					  &phys, NULL, &ext_flags);
 	if (ret) {
 		mlog_errno(ret);
 		goto out;
 	}
 
-	if (numpages == 0)
+	/*
+	 * Tail is a hole, or is marked unwritten. In either case, we
+	 * can count on read and write to return/push zero's.
+	 */
+	if (phys == 0 || ext_flags & OCFS2_EXT_UNWRITTEN)
 		goto out;
+
+	ret = ocfs2_grab_eof_pages(inode, range_start, range_end, pages,
+				   &numpages);
+	if (ret) {
+		mlog_errno(ret);
+		goto out;
+	}
 
 	ocfs2_zero_cluster_pages(inode, range_start, range_end, pages,
 				 numpages, phys, handle);
@@ -5861,6 +6211,178 @@ int ocfs2_zero_range_for_truncate(struct inode *inode, handle_t *handle,
 out:
 	if (pages)
 		kfree(pages);
+
+	return ret;
+}
+
+static void ocfs2_zero_dinode_id2(struct inode *inode, struct ocfs2_dinode *di)
+{
+	unsigned int blocksize = 1 << inode->i_sb->s_blocksize_bits;
+
+	memset(&di->id2, 0, blocksize - offsetof(struct ocfs2_dinode, id2));
+}
+
+void ocfs2_dinode_new_extent_list(struct inode *inode,
+				  struct ocfs2_dinode *di)
+{
+	ocfs2_zero_dinode_id2(inode, di);
+	di->id2.i_list.l_tree_depth = 0;
+	di->id2.i_list.l_next_free_rec = 0;
+	di->id2.i_list.l_count = cpu_to_le16(ocfs2_extent_recs_per_inode(inode->i_sb));
+}
+
+void ocfs2_set_inode_data_inline(struct inode *inode, struct ocfs2_dinode *di)
+{
+	struct ocfs2_inode_info *oi = OCFS2_I(inode);
+	struct ocfs2_inline_data *idata = &di->id2.i_data;
+
+	spin_lock(&oi->ip_lock);
+	oi->ip_dyn_features |= OCFS2_INLINE_DATA_FL;
+	di->i_dyn_features = cpu_to_le16(oi->ip_dyn_features);
+	spin_unlock(&oi->ip_lock);
+
+	/*
+	 * We clear the entire i_data structure here so that all
+	 * fields can be properly initialized.
+	 */
+	ocfs2_zero_dinode_id2(inode, di);
+
+	idata->id_count = cpu_to_le16(ocfs2_max_inline_data(inode->i_sb));
+}
+
+int ocfs2_convert_inline_data_to_extents(struct inode *inode,
+					 struct buffer_head *di_bh)
+{
+	int ret, i, has_data, num_pages = 0;
+	handle_t *handle;
+	u64 uninitialized_var(block);
+	struct ocfs2_inode_info *oi = OCFS2_I(inode);
+	struct ocfs2_super *osb = OCFS2_SB(inode->i_sb);
+	struct ocfs2_dinode *di = (struct ocfs2_dinode *)di_bh->b_data;
+	struct ocfs2_alloc_context *data_ac = NULL;
+	struct page **pages = NULL;
+	loff_t end = osb->s_clustersize;
+
+	has_data = i_size_read(inode) ? 1 : 0;
+
+	if (has_data) {
+		pages = kcalloc(ocfs2_pages_per_cluster(osb->sb),
+				sizeof(struct page *), GFP_NOFS);
+		if (pages == NULL) {
+			ret = -ENOMEM;
+			mlog_errno(ret);
+			goto out;
+		}
+
+		ret = ocfs2_reserve_clusters(osb, 1, &data_ac);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
+		}
+	}
+
+	handle = ocfs2_start_trans(osb, OCFS2_INLINE_TO_EXTENTS_CREDITS);
+	if (IS_ERR(handle)) {
+		ret = PTR_ERR(handle);
+		mlog_errno(ret);
+		goto out_unlock;
+	}
+
+	ret = ocfs2_journal_access(handle, inode, di_bh,
+				   OCFS2_JOURNAL_ACCESS_WRITE);
+	if (ret) {
+		mlog_errno(ret);
+		goto out_commit;
+	}
+
+	if (has_data) {
+		u32 bit_off, num;
+		unsigned int page_end;
+		u64 phys;
+
+		ret = ocfs2_claim_clusters(osb, handle, data_ac, 1, &bit_off,
+					   &num);
+		if (ret) {
+			mlog_errno(ret);
+			goto out_commit;
+		}
+
+		/*
+		 * Save two copies, one for insert, and one that can
+		 * be changed by ocfs2_map_and_dirty_page() below.
+		 */
+		block = phys = ocfs2_clusters_to_blocks(inode->i_sb, bit_off);
+
+		/*
+		 * Non sparse file systems zero on extend, so no need
+		 * to do that now.
+		 */
+		if (!ocfs2_sparse_alloc(osb) &&
+		    PAGE_CACHE_SIZE < osb->s_clustersize)
+			end = PAGE_CACHE_SIZE;
+
+		ret = ocfs2_grab_eof_pages(inode, 0, end, pages, &num_pages);
+		if (ret) {
+			mlog_errno(ret);
+			goto out_commit;
+		}
+
+		/*
+		 * This should populate the 1st page for us and mark
+		 * it up to date.
+		 */
+		ret = ocfs2_read_inline_data(inode, pages[0], di_bh);
+		if (ret) {
+			mlog_errno(ret);
+			goto out_commit;
+		}
+
+		page_end = PAGE_CACHE_SIZE;
+		if (PAGE_CACHE_SIZE > osb->s_clustersize)
+			page_end = osb->s_clustersize;
+
+		for (i = 0; i < num_pages; i++)
+			ocfs2_map_and_dirty_page(inode, handle, 0, page_end,
+						 pages[i], i > 0, &phys);
+	}
+
+	spin_lock(&oi->ip_lock);
+	oi->ip_dyn_features &= ~OCFS2_INLINE_DATA_FL;
+	di->i_dyn_features = cpu_to_le16(oi->ip_dyn_features);
+	spin_unlock(&oi->ip_lock);
+
+	ocfs2_dinode_new_extent_list(inode, di);
+
+	ocfs2_journal_dirty(handle, di_bh);
+
+	if (has_data) {
+		/*
+		 * An error at this point should be extremely rare. If
+		 * this proves to be false, we could always re-build
+		 * the in-inode data from our pages.
+		 */
+		ret = ocfs2_insert_extent(osb, handle, inode, di_bh,
+					  0, block, 1, 0, NULL);
+		if (ret) {
+			mlog_errno(ret);
+			goto out_commit;
+		}
+
+		inode->i_blocks = ocfs2_inode_sector_count(inode);
+	}
+
+out_commit:
+	ocfs2_commit_trans(osb, handle);
+
+out_unlock:
+	if (data_ac)
+		ocfs2_free_alloc_context(data_ac);
+
+out:
+	if (pages) {
+		ocfs2_unlock_and_free_pages(pages, num_pages);
+		kfree(pages);
+	}
 
 	return ret;
 }
@@ -5957,8 +6479,6 @@ start:
 
 	mlog(0, "clusters_to_del = %u in this pass, tail blk=%llu\n",
 	     clusters_to_del, (unsigned long long)path_leaf_bh(path)->b_blocknr);
-
-	BUG_ON(clusters_to_del == 0);
 
 	mutex_lock(&tl_inode->i_mutex);
 	tl_sem = 1;
@@ -6088,6 +6608,81 @@ bail:
 	}
 	mlog_exit_void();
 	return status;
+}
+
+/*
+ * 'start' is inclusive, 'end' is not.
+ */
+int ocfs2_truncate_inline(struct inode *inode, struct buffer_head *di_bh,
+			  unsigned int start, unsigned int end, int trunc)
+{
+	int ret;
+	unsigned int numbytes;
+	handle_t *handle;
+	struct ocfs2_super *osb = OCFS2_SB(inode->i_sb);
+	struct ocfs2_dinode *di = (struct ocfs2_dinode *)di_bh->b_data;
+	struct ocfs2_inline_data *idata = &di->id2.i_data;
+
+	if (end > i_size_read(inode))
+		end = i_size_read(inode);
+
+	BUG_ON(start >= end);
+
+	if (!(OCFS2_I(inode)->ip_dyn_features & OCFS2_INLINE_DATA_FL) ||
+	    !(le16_to_cpu(di->i_dyn_features) & OCFS2_INLINE_DATA_FL) ||
+	    !ocfs2_supports_inline_data(osb)) {
+		ocfs2_error(inode->i_sb,
+			    "Inline data flags for inode %llu don't agree! "
+			    "Disk: 0x%x, Memory: 0x%x, Superblock: 0x%x\n",
+			    (unsigned long long)OCFS2_I(inode)->ip_blkno,
+			    le16_to_cpu(di->i_dyn_features),
+			    OCFS2_I(inode)->ip_dyn_features,
+			    osb->s_feature_incompat);
+		ret = -EROFS;
+		goto out;
+	}
+
+	handle = ocfs2_start_trans(osb, OCFS2_INODE_UPDATE_CREDITS);
+	if (IS_ERR(handle)) {
+		ret = PTR_ERR(handle);
+		mlog_errno(ret);
+		goto out;
+	}
+
+	ret = ocfs2_journal_access(handle, inode, di_bh,
+				   OCFS2_JOURNAL_ACCESS_WRITE);
+	if (ret) {
+		mlog_errno(ret);
+		goto out_commit;
+	}
+
+	numbytes = end - start;
+	memset(idata->id_data + start, 0, numbytes);
+
+	/*
+	 * No need to worry about the data page here - it's been
+	 * truncated already and inline data doesn't need it for
+	 * pushing zero's to disk, so we'll let readpage pick it up
+	 * later.
+	 */
+	if (trunc) {
+		i_size_write(inode, start);
+		di->i_size = cpu_to_le64(start);
+	}
+
+	inode->i_blocks = ocfs2_inode_sector_count(inode);
+	inode->i_ctime = inode->i_mtime = CURRENT_TIME;
+
+	di->i_ctime = di->i_mtime = cpu_to_le64(inode->i_ctime.tv_sec);
+	di->i_ctime_nsec = di->i_mtime_nsec = cpu_to_le32(inode->i_ctime.tv_nsec);
+
+	ocfs2_journal_dirty(handle, di_bh);
+
+out_commit:
+	ocfs2_commit_trans(osb, handle);
+
+out:
+	return ret;
 }
 
 static void ocfs2_free_truncate_context(struct ocfs2_truncate_context *tc)

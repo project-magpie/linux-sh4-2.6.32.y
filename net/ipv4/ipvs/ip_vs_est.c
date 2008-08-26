@@ -1,8 +1,6 @@
 /*
  * ip_vs_est.c: simple rate estimator for IPVS
  *
- * Version:     $Id: ip_vs_est.c,v 1.4 2002/11/30 01:50:35 wensong Exp $
- *
  * Authors:     Wensong Zhang <wensong@linuxvirtualserver.org>
  *
  *              This program is free software; you can redistribute it and/or
@@ -18,6 +16,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/interrupt.h>
+#include <linux/sysctl.h>
 
 #include <net/ip_vs.h>
 
@@ -146,9 +145,8 @@ int ip_vs_new_estimator(struct ip_vs_stats *stats)
 	write_lock_bh(&est_lock);
 	est->next = est_list;
 	if (est->next == NULL) {
-		init_timer(&est_timer);
+		setup_timer(&est_timer, estimation_timer, 0);
 		est_timer.expires = jiffies + 2*HZ;
-		est_timer.function = estimation_timer;
 		add_timer(&est_timer);
 	}
 	est_list = est;

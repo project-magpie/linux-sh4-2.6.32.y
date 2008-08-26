@@ -50,6 +50,7 @@
 #include <net/udp.h>
 
 #include <net/netfilter/nf_nat.h>
+#include <net/netfilter/nf_conntrack_expect.h>
 #include <net/netfilter/nf_conntrack_helper.h>
 #include <net/netfilter/nf_nat_helper.h>
 
@@ -60,7 +61,7 @@ MODULE_ALIAS("ip_nat_snmp_basic");
 
 #define SNMP_PORT 161
 #define SNMP_TRAP_PORT 162
-#define NOCT1(n) (*(u8 *)n)
+#define NOCT1(n) (*(u8 *)(n))
 
 static int debug;
 static DEFINE_SPINLOCK(snmp_lock);
@@ -219,7 +220,7 @@ static unsigned char asn1_length_decode(struct asn1_ctx *ctx,
 		if (ch < 0x80)
 			*len = ch;
 		else {
-			cnt = (unsigned char) (ch & 0x7F);
+			cnt = ch & 0x7F;
 			*len = 0;
 
 			while (cnt > 0) {
@@ -231,6 +232,11 @@ static unsigned char asn1_length_decode(struct asn1_ctx *ctx,
 			}
 		}
 	}
+
+	/* don't trust len bigger than ctx buffer */
+	if (*len > ctx->end - ctx->pointer)
+		return 0;
+
 	return 1;
 }
 
@@ -249,6 +255,10 @@ static unsigned char asn1_header_decode(struct asn1_ctx *ctx,
 	if (!asn1_length_decode(ctx, &def, &len))
 		return 0;
 
+	/* primitive shall be definite, indefinite shall be constructed */
+	if (*con == ASN1_PRI && !def)
+		return 0;
+
 	if (def)
 		*eoc = ctx->pointer + len;
 	else
@@ -260,7 +270,7 @@ static unsigned char asn1_eoc_decode(struct asn1_ctx *ctx, unsigned char *eoc)
 {
 	unsigned char ch;
 
-	if (eoc == 0) {
+	if (eoc == NULL) {
 		if (!asn1_octet_decode(ctx, &ch))
 			return 0;
 
@@ -429,10 +439,15 @@ static unsigned char asn1_oid_decode(struct asn1_ctx *ctx,
 				     unsigned int *len)
 {
 	unsigned long subid;
-	unsigned int  size;
 	unsigned long *optr;
+	size_t size;
 
 	size = eoc - ctx->pointer + 1;
+
+	/* first subid actually encodes first two subids */
+	if (size < 2 || size > ULONG_MAX/sizeof(unsigned long))
+		return 0;
+
 	*oid = kmalloc(size * sizeof(unsigned long), GFP_ATOMIC);
 	if (*oid == NULL) {
 		if (net_ratelimit())
@@ -617,8 +632,7 @@ struct snmp_cnv
 	int syntax;
 };
 
-static struct snmp_cnv snmp_conv [] =
-{
+static const struct snmp_cnv snmp_conv[] = {
 	{ASN1_UNI, ASN1_NUL, SNMP_NULL},
 	{ASN1_UNI, ASN1_INT, SNMP_INTEGER},
 	{ASN1_UNI, ASN1_OTS, SNMP_OCTETSTR},
@@ -643,7 +657,7 @@ static unsigned char snmp_tag_cls2syntax(unsigned int tag,
 					 unsigned int cls,
 					 unsigned short *syntax)
 {
-	struct snmp_cnv *cnv;
+	const struct snmp_cnv *cnv;
 
 	cnv = snmp_conv;
 
@@ -903,7 +917,7 @@ static inline void mangle_address(unsigned char *begin,
 		u_int32_t old;
 
 		if (debug)
-			memcpy(&old, (unsigned char *)addr, sizeof(old));
+			memcpy(&old, addr, sizeof(old));
 
 		*addr = map->to;
 
@@ -998,7 +1012,7 @@ err_id_free:
  *
  *****************************************************************************/
 
-static void hex_dump(unsigned char *buf, size_t len)
+static void hex_dump(const unsigned char *buf, size_t len)
 {
 	size_t i;
 
@@ -1079,7 +1093,7 @@ static int snmp_parse_mangle(unsigned char *msg,
 	if (cls != ASN1_CTX || con != ASN1_CON)
 		return 0;
 	if (debug > 1) {
-		unsigned char *pdus[] = {
+		static const unsigned char *const pdus[] = {
 			[SNMP_PDU_GET] = "get",
 			[SNMP_PDU_NEXT] = "get-next",
 			[SNMP_PDU_RESPONSE] = "response",
@@ -1188,9 +1202,9 @@ static int snmp_parse_mangle(unsigned char *msg,
  */
 static int snmp_translate(struct nf_conn *ct,
 			  enum ip_conntrack_info ctinfo,
-			  struct sk_buff **pskb)
+			  struct sk_buff *skb)
 {
-	struct iphdr *iph = ip_hdr(*pskb);
+	struct iphdr *iph = ip_hdr(skb);
 	struct udphdr *udph = (struct udphdr *)((__be32 *)iph + iph->ihl);
 	u_int16_t udplen = ntohs(udph->len);
 	u_int16_t paylen = udplen - sizeof(struct udphdr);
@@ -1225,14 +1239,14 @@ static int snmp_translate(struct nf_conn *ct,
 
 /* We don't actually set up expectations, just adjust internal IP
  * addresses if this is being NATted */
-static int help(struct sk_buff **pskb, unsigned int protoff,
+static int help(struct sk_buff *skb, unsigned int protoff,
 		struct nf_conn *ct,
 		enum ip_conntrack_info ctinfo)
 {
 	int dir = CTINFO2DIR(ctinfo);
 	unsigned int ret;
-	struct iphdr *iph = ip_hdr(*pskb);
-	struct udphdr *udph = (struct udphdr *)((u_int32_t *)iph + iph->ihl);
+	const struct iphdr *iph = ip_hdr(skb);
+	const struct udphdr *udph = (struct udphdr *)((__be32 *)iph + iph->ihl);
 
 	/* SNMP replies and originating SNMP traps get mangled */
 	if (udph->source == htons(SNMP_PORT) && dir != IP_CT_DIR_REPLY)
@@ -1250,7 +1264,7 @@ static int help(struct sk_buff **pskb, unsigned int protoff,
 	 * enough room for a UDP header.  Just verify the UDP length field so we
 	 * can mess around with the payload.
 	 */
-	if (ntohs(udph->len) != (*pskb)->len - (iph->ihl << 2)) {
+	if (ntohs(udph->len) != skb->len - (iph->ihl << 2)) {
 		 if (net_ratelimit())
 			 printk(KERN_WARNING "SNMP: dropping malformed packet "
 				"src=%u.%u.%u.%u dst=%u.%u.%u.%u\n",
@@ -1258,20 +1272,24 @@ static int help(struct sk_buff **pskb, unsigned int protoff,
 		 return NF_DROP;
 	}
 
-	if (!skb_make_writable(pskb, (*pskb)->len))
+	if (!skb_make_writable(skb, skb->len))
 		return NF_DROP;
 
 	spin_lock_bh(&snmp_lock);
-	ret = snmp_translate(ct, ctinfo, pskb);
+	ret = snmp_translate(ct, ctinfo, skb);
 	spin_unlock_bh(&snmp_lock);
 	return ret;
 }
 
+static const struct nf_conntrack_expect_policy snmp_exp_policy = {
+	.max_expected	= 0,
+	.timeout	= 180,
+};
+
 static struct nf_conntrack_helper snmp_helper __read_mostly = {
-	.max_expected		= 0,
-	.timeout		= 180,
 	.me			= THIS_MODULE,
 	.help			= help,
+	.expect_policy		= &snmp_exp_policy,
 	.name			= "snmp",
 	.tuple.src.l3num	= AF_INET,
 	.tuple.src.u.udp.port	= __constant_htons(SNMP_PORT),
@@ -1279,10 +1297,9 @@ static struct nf_conntrack_helper snmp_helper __read_mostly = {
 };
 
 static struct nf_conntrack_helper snmp_trap_helper __read_mostly = {
-	.max_expected		= 0,
-	.timeout		= 180,
 	.me			= THIS_MODULE,
 	.help			= help,
+	.expect_policy		= &snmp_exp_policy,
 	.name			= "snmp_trap",
 	.tuple.src.l3num	= AF_INET,
 	.tuple.src.u.udp.port	= __constant_htons(SNMP_TRAP_PORT),

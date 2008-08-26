@@ -29,6 +29,7 @@
 #include <linux/seq_file.h>
 #include <linux/smp_lock.h>
 
+#include <net/net_namespace.h>
 #include <asm/io.h>
 
 #define PROC_STATS_FORMAT "%30s: %12lu\n"
@@ -277,7 +278,7 @@ static const struct file_operations wandev_fops = {
 	.read	 = seq_read,
 	.llseek	 = seq_lseek,
 	.release = single_release,
-	.ioctl	 = wanrouter_ioctl,
+	.unlocked_ioctl  = wanrouter_ioctl,
 };
 
 /*
@@ -287,23 +288,21 @@ static const struct file_operations wandev_fops = {
 int __init wanrouter_proc_init(void)
 {
 	struct proc_dir_entry *p;
-	proc_router = proc_mkdir(ROUTER_NAME, proc_net);
+	proc_router = proc_mkdir(ROUTER_NAME, init_net.proc_net);
 	if (!proc_router)
 		goto fail;
 
-	p = create_proc_entry("config", S_IRUGO, proc_router);
+	p = proc_create("config", S_IRUGO, proc_router, &config_fops);
 	if (!p)
 		goto fail_config;
-	p->proc_fops = &config_fops;
-	p = create_proc_entry("status", S_IRUGO, proc_router);
+	p = proc_create("status", S_IRUGO, proc_router, &status_fops);
 	if (!p)
 		goto fail_stat;
-	p->proc_fops = &status_fops;
 	return 0;
 fail_stat:
 	remove_proc_entry("config", proc_router);
 fail_config:
-	remove_proc_entry(ROUTER_NAME, proc_net);
+	remove_proc_entry(ROUTER_NAME, init_net.proc_net);
 fail:
 	return -ENOMEM;
 }
@@ -316,7 +315,7 @@ void wanrouter_proc_cleanup(void)
 {
 	remove_proc_entry("config", proc_router);
 	remove_proc_entry("status", proc_router);
-	remove_proc_entry(ROUTER_NAME, proc_net);
+	remove_proc_entry(ROUTER_NAME, init_net.proc_net);
 }
 
 /*
@@ -328,10 +327,10 @@ int wanrouter_proc_add(struct wan_device* wandev)
 	if (wandev->magic != ROUTER_MAGIC)
 		return -EINVAL;
 
-	wandev->dent = create_proc_entry(wandev->name, S_IRUGO, proc_router);
+	wandev->dent = proc_create(wandev->name, S_IRUGO,
+				   proc_router, &wandev_fops);
 	if (!wandev->dent)
 		return -ENOMEM;
-	wandev->dent->proc_fops	= &wandev_fops;
 	wandev->dent->data	= wandev;
 	return 0;
 }

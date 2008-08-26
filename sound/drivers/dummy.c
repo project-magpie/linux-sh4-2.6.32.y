@@ -1,6 +1,6 @@
 /*
  *  Dummy soundcard
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -18,7 +18,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/err.h>
 #include <linux/platform_device.h>
@@ -34,7 +33,7 @@
 #include <sound/rawmidi.h>
 #include <sound/initval.h>
 
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("Dummy soundcard (/dev/null)");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{ALSA,Dummy soundcard}}");
@@ -182,10 +181,10 @@ struct snd_dummy_pcm {
 	struct snd_dummy *dummy;
 	spinlock_t lock;
 	struct timer_list timer;
-	unsigned int pcm_size;
-	unsigned int pcm_count;
+	unsigned int pcm_buffer_size;
+	unsigned int pcm_period_size;
 	unsigned int pcm_bps;		/* bytes per second */
-	unsigned int pcm_jiffie;	/* bytes per one jiffie */
+	unsigned int pcm_hz;		/* HZ */
 	unsigned int pcm_irq_pos;	/* IRQ position */
 	unsigned int pcm_buf_pos;	/* position in buffer */
 	struct snd_pcm_substream *substream;
@@ -231,19 +230,24 @@ static int snd_card_dummy_pcm_prepare(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_dummy_pcm *dpcm = runtime->private_data;
-	unsigned int bps;
+	int bps;
 
-	bps = runtime->rate * runtime->channels;
-	bps *= snd_pcm_format_width(runtime->format);
-	bps /= 8;
+	bps = snd_pcm_format_width(runtime->format) * runtime->rate *
+		runtime->channels / 8;
+
 	if (bps <= 0)
 		return -EINVAL;
+
 	dpcm->pcm_bps = bps;
-	dpcm->pcm_jiffie = bps / HZ;
-	dpcm->pcm_size = snd_pcm_lib_buffer_bytes(substream);
-	dpcm->pcm_count = snd_pcm_lib_period_bytes(substream);
+	dpcm->pcm_hz = HZ;
+	dpcm->pcm_buffer_size = snd_pcm_lib_buffer_bytes(substream);
+	dpcm->pcm_period_size = snd_pcm_lib_period_bytes(substream);
 	dpcm->pcm_irq_pos = 0;
 	dpcm->pcm_buf_pos = 0;
+
+	snd_pcm_format_set_silence(runtime->format, runtime->dma_area,
+			bytes_to_samples(runtime, runtime->dma_bytes));
+
 	return 0;
 }
 
@@ -255,11 +259,11 @@ static void snd_card_dummy_pcm_timer_function(unsigned long data)
 	spin_lock_irqsave(&dpcm->lock, flags);
 	dpcm->timer.expires = 1 + jiffies;
 	add_timer(&dpcm->timer);
-	dpcm->pcm_irq_pos += dpcm->pcm_jiffie;
-	dpcm->pcm_buf_pos += dpcm->pcm_jiffie;
-	dpcm->pcm_buf_pos %= dpcm->pcm_size;
-	if (dpcm->pcm_irq_pos >= dpcm->pcm_count) {
-		dpcm->pcm_irq_pos %= dpcm->pcm_count;
+	dpcm->pcm_irq_pos += dpcm->pcm_bps;
+	dpcm->pcm_buf_pos += dpcm->pcm_bps;
+	dpcm->pcm_buf_pos %= dpcm->pcm_buffer_size * dpcm->pcm_hz;
+	if (dpcm->pcm_irq_pos >= dpcm->pcm_period_size * dpcm->pcm_hz) {
+		dpcm->pcm_irq_pos %= dpcm->pcm_period_size * dpcm->pcm_hz;
 		spin_unlock_irqrestore(&dpcm->lock, flags);
 		snd_pcm_period_elapsed(dpcm->substream);
 	} else
@@ -271,7 +275,7 @@ static snd_pcm_uframes_t snd_card_dummy_pcm_pointer(struct snd_pcm_substream *su
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_dummy_pcm *dpcm = runtime->private_data;
 
-	return bytes_to_frames(runtime, dpcm->pcm_buf_pos);
+	return bytes_to_frames(runtime, dpcm->pcm_buf_pos / dpcm->pcm_hz);
 }
 
 static struct snd_pcm_hardware snd_card_dummy_playback =
@@ -510,15 +514,7 @@ static const DECLARE_TLV_DB_SCALE(db_scale_dummy, -4500, 30, 0);
   .get = snd_dummy_capsrc_get, .put = snd_dummy_capsrc_put, \
   .private_value = addr }
 
-static int snd_dummy_capsrc_info(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 2;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_dummy_capsrc_info	snd_ctl_boolean_stereo_info
  
 static int snd_dummy_capsrc_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)

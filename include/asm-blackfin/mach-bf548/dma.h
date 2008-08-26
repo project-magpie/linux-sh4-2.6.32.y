@@ -51,10 +51,15 @@
 #define CH_PIXC_OVERLAY		16
 #define CH_PIXC_OUTPUT		17
 #define CH_SPORT2_RX		18
+#define CH_UART2_RX		18
 #define CH_SPORT2_TX		19
+#define CH_UART2_TX		19
 #define CH_SPORT3_RX		20
+#define CH_UART3_RX		20
 #define CH_SPORT3_TX		21
+#define CH_UART3_TX		21
 #define CH_SDH			22
+#define CH_NFC			22
 #define CH_SPI2			23
 
 #define CH_MEM_STREAM0_DEST	24
@@ -68,6 +73,4 @@
 
 #define MAX_BLACKFIN_DMA_CHANNEL 32
 
-extern int channel2irq(unsigned int channel);
-extern struct dma_register *base_addr[];
 #endif

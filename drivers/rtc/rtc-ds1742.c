@@ -160,10 +160,13 @@ static ssize_t ds1742_nvram_write(struct kobject *kobj,
 static struct bin_attribute ds1742_nvram_attr = {
 	.attr = {
 		.name = "nvram",
-		.mode = S_IRUGO | S_IWUGO,
+		.mode = S_IRUGO | S_IWUSR,
 	},
 	.read = ds1742_nvram_read,
 	.write = ds1742_nvram_write,
+	/* REVISIT: size in sysfs won't match actual size... if it's
+	 * not a constant, each RTC should have its own attribute.
+	 */
 };
 
 static int __devinit ds1742_rtc_probe(struct platform_device *pdev)
@@ -251,7 +254,7 @@ static struct platform_driver ds1742_rtc_driver = {
 	.probe		= ds1742_rtc_probe,
 	.remove		= __devexit_p(ds1742_rtc_remove),
 	.driver		= {
-		.name	= "ds1742",
+		.name	= "rtc-ds1742",
 		.owner	= THIS_MODULE,
 	},
 };
@@ -273,3 +276,4 @@ MODULE_AUTHOR("Atsushi Nemoto <anemo@mba.ocn.ne.jp>");
 MODULE_DESCRIPTION("Dallas DS1742 RTC driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(DRV_VERSION);
+MODULE_ALIAS("platform:rtc-ds1742");

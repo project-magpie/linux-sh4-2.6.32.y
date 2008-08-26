@@ -41,7 +41,8 @@
  *   http://www.maxim-ic.com/quick_view2.cfm/qv_pk/2578
  * Note that there is no easy way to differentiate between the three
  * variants. The extra address and features of the MAX6659 are not
- * supported by this driver.
+ * supported by this driver. These chips lack the remote temperature
+ * offset feature.
  *
  * This driver also supports the MAX6680 and MAX6681, two other sensor
  * chips made by Maxim. These are quite similar to the other Maxim
@@ -100,10 +101,8 @@
  * 0x4c, 0x4d or 0x4e.
  */
 
-static unsigned short normal_i2c[] = { 0x18, 0x19, 0x1a,
-				       0x29, 0x2a, 0x2b,
-				       0x4c, 0x4d, 0x4e,
-				       I2C_CLIENT_END };
+static const unsigned short normal_i2c[] = {
+	0x18, 0x19, 0x1a, 0x29, 0x2a, 0x2b, 0x4c, 0x4d, 0x4e, I2C_CLIENT_END };
 
 /*
  * Insmod parameters
@@ -188,24 +187,44 @@ I2C_CLIENT_INSMOD_7(lm90, adm1032, lm99, lm86, max6657, adt7461, max6680);
  * Functions declaration
  */
 
-static int lm90_attach_adapter(struct i2c_adapter *adapter);
-static int lm90_detect(struct i2c_adapter *adapter, int address,
-	int kind);
+static int lm90_detect(struct i2c_client *client, int kind,
+		       struct i2c_board_info *info);
+static int lm90_probe(struct i2c_client *client,
+		      const struct i2c_device_id *id);
 static void lm90_init_client(struct i2c_client *client);
-static int lm90_detach_client(struct i2c_client *client);
+static int lm90_remove(struct i2c_client *client);
 static struct lm90_data *lm90_update_device(struct device *dev);
 
 /*
  * Driver data (common to all clients)
  */
 
+static const struct i2c_device_id lm90_id[] = {
+	{ "adm1032", adm1032 },
+	{ "adt7461", adt7461 },
+	{ "lm90", lm90 },
+	{ "lm86", lm86 },
+	{ "lm89", lm99 },
+	{ "lm99", lm99 },	/* Missing temperature offset */
+	{ "max6657", max6657 },
+	{ "max6658", max6657 },
+	{ "max6659", max6657 },
+	{ "max6680", max6680 },
+	{ "max6681", max6680 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, lm90_id);
+
 static struct i2c_driver lm90_driver = {
+	.class		= I2C_CLASS_HWMON,
 	.driver = {
 		.name	= "lm90",
 	},
-	.id		= I2C_DRIVERID_LM90,
-	.attach_adapter	= lm90_attach_adapter,
-	.detach_client	= lm90_detach_client,
+	.probe		= lm90_probe,
+	.remove		= lm90_remove,
+	.id_table	= lm90_id,
+	.detect		= lm90_detect,
+	.address_data	= &addr_data,
 };
 
 /*
@@ -213,8 +232,7 @@ static struct i2c_driver lm90_driver = {
  */
 
 struct lm90_data {
-	struct i2c_client client;
-	struct class_device *class_dev;
+	struct device *hwmon_dev;
 	struct mutex update_lock;
 	char valid; /* zero until following fields are valid */
 	unsigned long last_updated; /* in jiffies */
@@ -226,9 +244,10 @@ struct lm90_data {
 			   2: local high limit
 			   3: local critical limit
 			   4: remote critical limit */
-	s16 temp11[3];	/* 0: remote input
+	s16 temp11[4];	/* 0: remote input
 			   1: remote low limit
-			   2: remote high limit */
+			   2: remote high limit
+			   3: remote offset (except max6657) */
 	u8 temp_hyst;
 	u8 alarms; /* bitvector */
 };
@@ -282,11 +301,13 @@ static ssize_t show_temp11(struct device *dev, struct device_attribute *devattr,
 static ssize_t set_temp11(struct device *dev, struct device_attribute *devattr,
 			  const char *buf, size_t count)
 {
-	static const u8 reg[4] = {
+	static const u8 reg[6] = {
 		LM90_REG_W_REMOTE_LOWH,
 		LM90_REG_W_REMOTE_LOWL,
 		LM90_REG_W_REMOTE_HIGHH,
 		LM90_REG_W_REMOTE_HIGHL,
+		LM90_REG_W_REMOTE_OFFSH,
+		LM90_REG_W_REMOTE_OFFSL,
 	};
 
 	struct sensor_device_attribute *attr = to_sensor_dev_attr(devattr);
@@ -367,6 +388,8 @@ static SENSOR_DEVICE_ATTR(temp2_crit, S_IWUSR | S_IRUGO, show_temp8,
 static SENSOR_DEVICE_ATTR(temp1_crit_hyst, S_IWUSR | S_IRUGO, show_temphyst,
 	set_temphyst, 3);
 static SENSOR_DEVICE_ATTR(temp2_crit_hyst, S_IRUGO, show_temphyst, NULL, 4);
+static SENSOR_DEVICE_ATTR(temp2_offset, S_IWUSR | S_IRUGO, show_temp11,
+	set_temp11, 3);
 
 /* Individual alarm files */
 static SENSOR_DEVICE_ATTR(temp1_crit_alarm, S_IRUGO, show_alarm, NULL, 0);
@@ -474,40 +497,16 @@ static int lm90_read_reg(struct i2c_client* client, u8 reg, u8 *value)
 	return 0;
 }
 
-static int lm90_attach_adapter(struct i2c_adapter *adapter)
+/* Return 0 if detection is successful, -ENODEV otherwise */
+static int lm90_detect(struct i2c_client *new_client, int kind,
+		       struct i2c_board_info *info)
 {
-	if (!(adapter->class & I2C_CLASS_HWMON))
-		return 0;
-	return i2c_probe(adapter, &addr_data, lm90_detect);
-}
-
-/*
- * The following function does more than just detection. If detection
- * succeeds, it also registers the new chip.
- */
-static int lm90_detect(struct i2c_adapter *adapter, int address, int kind)
-{
-	struct i2c_client *new_client;
-	struct lm90_data *data;
-	int err = 0;
+	struct i2c_adapter *adapter = new_client->adapter;
+	int address = new_client->addr;
 	const char *name = "";
 
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
-		goto exit;
-
-	if (!(data = kzalloc(sizeof(struct lm90_data), GFP_KERNEL))) {
-		err = -ENOMEM;
-		goto exit;
-	}
-
-	/* The common I2C client data is placed right before the
-	   LM90-specific data. */
-	new_client = &data->client;
-	i2c_set_clientdata(new_client, data);
-	new_client->addr = address;
-	new_client->adapter = adapter;
-	new_client->driver = &lm90_driver;
-	new_client->flags = 0;
+		return -ENODEV;
 
 	/*
 	 * Now we do the remaining detection. A negative kind means that
@@ -525,25 +524,25 @@ static int lm90_detect(struct i2c_adapter *adapter, int address, int kind)
 		kind = lm90;
 
 	if (kind < 0) { /* detection and identification */
-		u8 man_id, chip_id, reg_config1, reg_convrate;
+		int man_id, chip_id, reg_config1, reg_convrate;
 
-		if (lm90_read_reg(new_client, LM90_REG_R_MAN_ID,
-				  &man_id) < 0
-		 || lm90_read_reg(new_client, LM90_REG_R_CHIP_ID,
-		 		  &chip_id) < 0
-		 || lm90_read_reg(new_client, LM90_REG_R_CONFIG1,
-		 		  &reg_config1) < 0
-		 || lm90_read_reg(new_client, LM90_REG_R_CONVRATE,
-		 		  &reg_convrate) < 0)
-			goto exit_free;
+		if ((man_id = i2c_smbus_read_byte_data(new_client,
+						LM90_REG_R_MAN_ID)) < 0
+		 || (chip_id = i2c_smbus_read_byte_data(new_client,
+						LM90_REG_R_CHIP_ID)) < 0
+		 || (reg_config1 = i2c_smbus_read_byte_data(new_client,
+						LM90_REG_R_CONFIG1)) < 0
+		 || (reg_convrate = i2c_smbus_read_byte_data(new_client,
+						LM90_REG_R_CONVRATE)) < 0)
+			return -ENODEV;
 		
 		if ((address == 0x4C || address == 0x4D)
 		 && man_id == 0x01) { /* National Semiconductor */
-			u8 reg_config2;
+			int reg_config2;
 
-			if (lm90_read_reg(new_client, LM90_REG_R_CONFIG2,
-					  &reg_config2) < 0)
-				goto exit_free;
+			if ((reg_config2 = i2c_smbus_read_byte_data(new_client,
+						LM90_REG_R_CONFIG2)) < 0)
+				return -ENODEV;
 
 			if ((reg_config1 & 0x2A) == 0x00
 			 && (reg_config2 & 0xF8) == 0x00
@@ -607,10 +606,11 @@ static int lm90_detect(struct i2c_adapter *adapter, int address, int kind)
 			dev_info(&adapter->dev,
 			    "Unsupported chip (man_id=0x%02X, "
 			    "chip_id=0x%02X).\n", man_id, chip_id);
-			goto exit_free;
+			return -ENODEV;
 		}
 	}
 
+	/* Fill the i2c board info */
 	if (kind == lm90) {
 		name = "lm90";
 	} else if (kind == adm1032) {
@@ -618,7 +618,7 @@ static int lm90_detect(struct i2c_adapter *adapter, int address, int kind)
 		/* The ADM1032 supports PEC, but only if combined
 		   transactions are not used. */
 		if (i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE))
-			new_client->flags |= I2C_CLIENT_PEC;
+			info->flags |= I2C_CLIENT_PEC;
 	} else if (kind == lm99) {
 		name = "lm99";
 	} else if (kind == lm86) {
@@ -630,32 +630,53 @@ static int lm90_detect(struct i2c_adapter *adapter, int address, int kind)
 	} else if (kind == adt7461) {
 		name = "adt7461";
 	}
+	strlcpy(info->type, name, I2C_NAME_SIZE);
 
-	/* We can fill in the remaining client fields */
-	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-	data->valid = 0;
-	data->kind = kind;
+	return 0;
+}
+
+static int lm90_probe(struct i2c_client *new_client,
+		      const struct i2c_device_id *id)
+{
+	struct i2c_adapter *adapter = to_i2c_adapter(new_client->dev.parent);
+	struct lm90_data *data;
+	int err;
+
+	data = kzalloc(sizeof(struct lm90_data), GFP_KERNEL);
+	if (!data) {
+		err = -ENOMEM;
+		goto exit;
+	}
+	i2c_set_clientdata(new_client, data);
 	mutex_init(&data->update_lock);
 
-	/* Tell the I2C layer a new client has arrived */
-	if ((err = i2c_attach_client(new_client)))
-		goto exit_free;
+	/* Set the device type */
+	data->kind = id->driver_data;
+	if (data->kind == adm1032) {
+		if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE))
+			new_client->flags &= ~I2C_CLIENT_PEC;
+	}
 
 	/* Initialize the LM90 chip */
 	lm90_init_client(new_client);
 
 	/* Register sysfs hooks */
 	if ((err = sysfs_create_group(&new_client->dev.kobj, &lm90_group)))
-		goto exit_detach;
+		goto exit_free;
 	if (new_client->flags & I2C_CLIENT_PEC) {
 		if ((err = device_create_file(&new_client->dev,
 					      &dev_attr_pec)))
 			goto exit_remove_files;
 	}
+	if (data->kind != max6657) {
+		if ((err = device_create_file(&new_client->dev,
+				&sensor_dev_attr_temp2_offset.dev_attr)))
+			goto exit_remove_files;
+	}
 
-	data->class_dev = hwmon_device_register(&new_client->dev);
-	if (IS_ERR(data->class_dev)) {
-		err = PTR_ERR(data->class_dev);
+	data->hwmon_dev = hwmon_device_register(&new_client->dev);
+	if (IS_ERR(data->hwmon_dev)) {
+		err = PTR_ERR(data->hwmon_dev);
 		goto exit_remove_files;
 	}
 
@@ -664,8 +685,6 @@ static int lm90_detect(struct i2c_adapter *adapter, int address, int kind)
 exit_remove_files:
 	sysfs_remove_group(&new_client->dev.kobj, &lm90_group);
 	device_remove_file(&new_client->dev, &dev_attr_pec);
-exit_detach:
-	i2c_detach_client(new_client);
 exit_free:
 	kfree(data);
 exit:
@@ -702,17 +721,16 @@ static void lm90_init_client(struct i2c_client *client)
 		i2c_smbus_write_byte_data(client, LM90_REG_W_CONFIG1, config);
 }
 
-static int lm90_detach_client(struct i2c_client *client)
+static int lm90_remove(struct i2c_client *client)
 {
 	struct lm90_data *data = i2c_get_clientdata(client);
-	int err;
 
-	hwmon_device_unregister(data->class_dev);
+	hwmon_device_unregister(data->hwmon_dev);
 	sysfs_remove_group(&client->dev.kobj, &lm90_group);
 	device_remove_file(&client->dev, &dev_attr_pec);
-
-	if ((err = i2c_detach_client(client)))
-		return err;
+	if (data->kind != max6657)
+		device_remove_file(&client->dev,
+				   &sensor_dev_attr_temp2_offset.dev_attr);
 
 	kfree(data);
 	return 0;
@@ -763,6 +781,13 @@ static struct lm90_data *lm90_update_device(struct device *dev)
 		if (lm90_read_reg(client, LM90_REG_R_REMOTE_HIGHH, &newh) == 0
 		 && lm90_read_reg(client, LM90_REG_R_REMOTE_HIGHL, &l) == 0)
 			data->temp11[2] = (newh << 8) | l;
+		if (data->kind != max6657) {
+			if (lm90_read_reg(client, LM90_REG_R_REMOTE_OFFSH,
+					  &newh) == 0
+			 && lm90_read_reg(client, LM90_REG_R_REMOTE_OFFSL,
+					  &l) == 0)
+				data->temp11[3] = (newh << 8) | l;
+		}
 		lm90_read_reg(client, LM90_REG_R_STATUS, &data->alarms);
 
 		data->last_updated = jiffies;

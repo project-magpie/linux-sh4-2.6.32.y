@@ -19,7 +19,6 @@
  */
 
 #include <linux/mutex.h>
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <sound/core.h>
@@ -116,7 +115,7 @@ __snd_util_memblk_new(struct snd_util_memhdr *hdr, unsigned int units,
 	if (blk == NULL)
 		return NULL;
 
-	if (! prev || prev == &hdr->block)
+	if (prev == &hdr->block)
 		blk->offset = 0;
 	else {
 		struct snd_util_memblk *p = get_memblk(prev);

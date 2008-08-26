@@ -28,9 +28,10 @@
 #include <asm/bootinfo.h>
 #include <asm/reboot.h>
 #include <asm/sibyte/board.h>
+#include <asm/smp-ops.h>
 
-#include "cfe_api.h"
-#include "cfe_error.h"
+#include <asm/fw/cfe/cfe_api.h>
+#include <asm/fw/cfe/cfe_error.h>
 
 /* Max ram addressable in 32-bit segments */
 #ifdef CONFIG_64BIT
@@ -73,7 +74,7 @@ static void __noreturn cfe_linux_exit(void *arg)
 		if (!reboot_smp) {
 			/* Get CPU 0 to do the cfe_exit */
 			reboot_smp = 1;
-			smp_call_function(cfe_linux_exit, arg, 1, 0);
+			smp_call_function(cfe_linux_exit, arg, 0);
 		}
 	} else {
 		printk("Passing control back to CFE...\n");
@@ -232,6 +233,9 @@ static int __init initrd_setup(char *str)
 
 #endif
 
+extern struct plat_smp_ops sb_smp_ops;
+extern struct plat_smp_ops bcm1480_smp_ops;
+
 /*
  * prom_init is called just after the cpu type is determined, from setup_arch()
  */
@@ -297,9 +301,6 @@ void __init prom_init(void)
 			 *  command line
 			 */
 			strcpy(arcs_cmdline, "root=/dev/ram0 ");
-#ifdef CONFIG_SIBYTE_PTSWARM
-			strcat(arcs_cmdline, "console=ttyS0,115200 ");
-#endif
 		} else {
 			/* The loader should have set the command line */
 			/* too early for panic to do any good */
@@ -309,7 +310,7 @@ void __init prom_init(void)
 	}
 
 #ifdef CONFIG_KGDB
-	if ((arg = strstr(arcs_cmdline,"kgdb=duart")) != NULL)
+	if ((arg = strstr(arcs_cmdline, "kgdb=duart")) != NULL)
 		kgdb_port = (arg[10] == '0') ? 0 : 1;
 	else
 		kgdb_port = 1;
@@ -339,8 +340,14 @@ void __init prom_init(void)
 	/* Not sure this is needed, but it's the safe way. */
 	arcs_cmdline[CL_SIZE-1] = 0;
 
-	mips_machgroup = MACH_GROUP_SIBYTE;
 	prom_meminit();
+
+#if defined(CONFIG_SIBYTE_BCM112X) || defined(CONFIG_SIBYTE_SB1250)
+	register_smp_ops(&sb_smp_ops);
+#endif
+#if defined(CONFIG_SIBYTE_BCM1x55) || defined(CONFIG_SIBYTE_BCM1x80)
+	register_smp_ops(&bcm1480_smp_ops);
+#endif
 }
 
 void __init prom_free_prom_memory(void)

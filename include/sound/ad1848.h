@@ -2,7 +2,7 @@
 #define __SOUND_AD1848_H
 
 /*
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *  Definitions for AD1847/AD1848/CS4248 chips
  *
  *
@@ -27,7 +27,7 @@
 
 /* IO ports */
 
-#define AD1848P( codec, x ) ( (chip) -> port + c_d_c_AD1848##x )
+#define AD1848P( chip, x ) ( (chip) -> port + c_d_c_AD1848##x )
 
 #define c_d_c_AD1848REGSEL	0
 #define c_d_c_AD1848REG		1
@@ -48,7 +48,7 @@
 #define AD1848_IFACE_CTRL	0x09	/* interface control - bits 7-2 MCE */
 #define AD1848_PIN_CTRL		0x0a	/* pin control */
 #define AD1848_TEST_INIT	0x0b	/* test and initialization */
-#define AD1848_MISC_INFO	0x0c	/* miscellaneaous information */
+#define AD1848_MISC_INFO	0x0c	/* miscellaneous information */
 #define AD1848_LOOPBACK		0x0d	/* loopback control */
 #define AD1848_DATA_UPR_CNT	0x0e	/* playback/capture upper base count */
 #define AD1848_DATA_LWR_CNT	0x0f	/* playback/capture lower base count */
@@ -154,7 +154,6 @@ struct snd_ad1848 {
 #endif
 
 	spinlock_t reg_lock;
-	struct mutex open_mutex;
 };
 
 /* exported functions */

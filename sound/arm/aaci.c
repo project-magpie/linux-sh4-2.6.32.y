@@ -23,7 +23,6 @@
 #include <asm/irq.h>
 #include <asm/sizes.h>
 
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <sound/initval.h>
 #include <sound/ac97_codec.h>
@@ -209,7 +208,7 @@ static void aaci_fifo_irq(struct aaci *aaci, int channel, u32 mask)
 		void *ptr;
 
 		if (!aacirun->substream || !aacirun->start) {
-			dev_warn(&aaci->dev->dev, "RX interrupt???");
+			dev_warn(&aaci->dev->dev, "RX interrupt???\n");
 			writel(0, aacirun->base + AACI_IE);
 			return;
 		}
@@ -263,7 +262,7 @@ static void aaci_fifo_irq(struct aaci *aaci, int channel, u32 mask)
 		void *ptr;
 
 		if (!aacirun->substream || !aacirun->start) {
-			dev_warn(&aaci->dev->dev, "TX interrupt???");
+			dev_warn(&aaci->dev->dev, "TX interrupt???\n");
 			writel(0, aacirun->base + AACI_IE);
 			return;
 		}

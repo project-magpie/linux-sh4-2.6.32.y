@@ -51,6 +51,8 @@
 
 #define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
+void ret_from_user_signal(void);
+void ret_from_user_rt_signal(void);
 asmlinkage int do_signal(sigset_t *oldset, struct pt_regs *regs);
 
 /*
@@ -539,10 +541,6 @@ static inline int rt_setup_ucontext(struct ucontext *uc, struct pt_regs *regs)
 	return err;
 }
 
-static inline void push_cache (unsigned long vaddr)
-{
-}
-
 static inline void *
 get_sigframe(struct k_sigaction *ka, struct pt_regs *regs, size_t frame_size)
 {
@@ -586,15 +584,10 @@ static void setup_frame (int sig, struct k_sigaction *ka,
 	err |= copy_to_user (&frame->sc, &context, sizeof(context));
 
 	/* Set up to return from userspace.  */
-	err |= __put_user(frame->retcode, &frame->pretcode);
-	/* moveq #,d0; trap #0 */
-	err |= __put_user(0x70004e40 + (__NR_sigreturn << 16),
-			  (long *)(frame->retcode));
+	err |= __put_user((void *) ret_from_user_signal, &frame->pretcode);
 
 	if (err)
 		goto give_sigsegv;
-
-	push_cache ((unsigned long) &frame->retcode);
 
 	/* Set up registers for signal handler */
 	wrusp ((unsigned long) frame);
@@ -655,16 +648,10 @@ static void setup_rt_frame (int sig, struct k_sigaction *ka, siginfo_t *info,
 	err |= copy_to_user (&frame->uc.uc_sigmask, set, sizeof(*set));
 
 	/* Set up to return from userspace.  */
-	err |= __put_user(frame->retcode, &frame->pretcode);
-	/* moveq #,d0; notb d0; trap #0 */
-	err |= __put_user(0x70004600 + ((__NR_rt_sigreturn ^ 0xff) << 16),
-			  (long *)(frame->retcode + 0));
-	err |= __put_user(0x4e40, (short *)(frame->retcode + 4));
+	err |= __put_user((void *) ret_from_user_rt_signal, &frame->pretcode);
 
 	if (err)
 		goto give_sigsegv;
-
-	push_cache ((unsigned long) &frame->retcode);
 
 	/* Set up registers for signal handler */
 	wrusp ((unsigned long) frame);
@@ -781,15 +768,7 @@ asmlinkage int do_signal(sigset_t *oldset, struct pt_regs *regs)
 	/* Did we come from a system call? */
 	if (regs->orig_d0 >= 0) {
 		/* Restart the system call - no handlers present */
-		if (regs->d0 == -ERESTARTNOHAND
-		    || regs->d0 == -ERESTARTSYS
-		    || regs->d0 == -ERESTARTNOINTR) {
-			regs->d0 = regs->orig_d0;
-			regs->pc -= 2;
-		} else if (regs->d0 == -ERESTART_RESTARTBLOCK) {
-			regs->d0 = __NR_restart_syscall;
-			regs->pc -= 2;
-		}
+		handle_restart(regs, NULL, 0);
 	}
 	return 0;
 }

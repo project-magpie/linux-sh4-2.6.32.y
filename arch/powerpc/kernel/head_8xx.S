@@ -38,12 +38,9 @@
 #else
 #define DO_8xx_CPU6(val, reg)
 #endif
-	.text
-	.globl	_stext
-_stext:
-	.text
-	.globl	_start
-_start:
+	.section	.text.head, "ax"
+_ENTRY(_stext);
+_ENTRY(_start);
 
 /* MPC8xx
  * This port was done on an MBX board with an 860.  Right now I only
@@ -301,6 +298,12 @@ InstructionTLBMiss:
 	stw	r10, 0(r0)
 	stw	r11, 4(r0)
 	mfspr	r10, SPRN_SRR0	/* Get effective address of fault */
+#ifdef CONFIG_8xx_CPU15
+	addi	r11, r10, 0x1000
+	tlbie	r11
+	addi	r11, r10, -0x1000
+	tlbie	r11
+#endif
 	DO_8xx_CPU6(0x3780, r3)
 	mtspr	SPRN_MD_EPN, r10	/* Have to use MD_EPN for walk, MI_EPN can't */
 	mfspr	r10, SPRN_M_TWB	/* Get level 1 table entry address */
@@ -329,8 +332,18 @@ InstructionTLBMiss:
 	mfspr	r11, SPRN_MD_TWC	/* ....and get the pte address */
 	lwz	r10, 0(r11)	/* Get the pte */
 
+#ifdef CONFIG_SWAP
+	/* do not set the _PAGE_ACCESSED bit of a non-present page */
+	andi.	r11, r10, _PAGE_PRESENT
+	beq	4f
+	ori	r10, r10, _PAGE_ACCESSED
+	mfspr	r11, SPRN_MD_TWC	/* get the pte address again */
+	stw	r10, 0(r11)
+4:
+#else
 	ori	r10, r10, _PAGE_ACCESSED
 	stw	r10, 0(r11)
+#endif
 
 	/* The Linux PTE won't go exactly into the MMU TLB.
 	 * Software indicator bits 21, 22 and 28 must be clear.
@@ -395,8 +408,17 @@ DataStoreTLBMiss:
 	DO_8xx_CPU6(0x3b80, r3)
 	mtspr	SPRN_MD_TWC, r11
 
-	mfspr	r11, SPRN_MD_TWC	/* get the pte address again */
+#ifdef CONFIG_SWAP
+	/* do not set the _PAGE_ACCESSED bit of a non-present page */
+	andi.	r11, r10, _PAGE_PRESENT
+	beq	4f
 	ori	r10, r10, _PAGE_ACCESSED
+4:
+	/* and update pte in table */
+#else
+	ori	r10, r10, _PAGE_ACCESSED
+#endif
+	mfspr	r11, SPRN_MD_TWC	/* get the pte address again */
 	stw	r10, 0(r11)
 
 	/* The Linux PTE won't go exactly into the MMU TLB.
@@ -504,7 +526,16 @@ DataTLBError:
 
 	/* Update 'changed', among others.
 	*/
+#ifdef CONFIG_SWAP
+	ori	r10, r10, _PAGE_DIRTY|_PAGE_HWWRITE
+	/* do not set the _PAGE_ACCESSED bit of a non-present page */
+	andi.	r11, r10, _PAGE_PRESENT
+	beq	4f
+	ori	r10, r10, _PAGE_ACCESSED
+4:
+#else
 	ori	r10, r10, _PAGE_DIRTY|_PAGE_ACCESSED|_PAGE_HWWRITE
+#endif
 	mfspr	r11, SPRN_MD_TWC		/* Get pte address again */
 	stw	r10, 0(r11)		/* and update pte in table */
 
@@ -730,13 +761,13 @@ initial_mmu:
 	mtspr	SPRN_MD_TWC, r9
 	li	r11, MI_BOOTINIT	/* Create RPN for address 0 */
 	addis	r11, r11, 0x0080	/* Add 8M */
-	mtspr	SPRN_MD_RPN, r8
+	mtspr	SPRN_MD_RPN, r11
 
 	addis	r8, r8, 0x0080		/* Add 8M */
 	mtspr	SPRN_MD_EPN, r8
 	mtspr	SPRN_MD_TWC, r9
 	addis	r11, r11, 0x0080	/* Add 8M */
-	mtspr	SPRN_MD_RPN, r8
+	mtspr	SPRN_MD_RPN, r11
 #endif
 
 	/* Since the cache is enabled according to the information we
@@ -834,14 +865,6 @@ empty_zero_page:
 	.globl	swapper_pg_dir
 swapper_pg_dir:
 	.space	4096
-
-/*
- * This space gets a copy of optional info passed to us by the bootstrap
- * Used to pass parameters into the kernel like root=/dev/sda1, etc.
- */
-	.globl	cmd_line
-cmd_line:
-	.space	512
 
 /* Room for two PTE table poiners, usually the kernel and current user
  * pointer to their respective root page table (pgdir).

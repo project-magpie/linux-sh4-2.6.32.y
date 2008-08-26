@@ -42,7 +42,7 @@ MODULE_DESCRIPTION ("Linux for S/390 IUCV special message driver");
 static struct iucv_path *smsg_path;
 
 static DEFINE_SPINLOCK(smsg_list_lock);
-static struct list_head smsg_list = LIST_HEAD_INIT(smsg_list);
+static LIST_HEAD(smsg_list);
 
 static int smsg_path_pending(struct iucv_path *, u8 ipvmid[8], u8 ipuser[16]);
 static void smsg_message_pending(struct iucv_path *, struct iucv_message *);
@@ -148,15 +148,16 @@ static int __init smsg_init(void)
 {
 	int rc;
 
+	if (!MACHINE_IS_VM) {
+		rc = -EPROTONOSUPPORT;
+		goto out;
+	}
 	rc = driver_register(&smsg_driver);
 	if (rc != 0)
 		goto out;
 	rc = iucv_register(&smsg_handler, 1);
-	if (rc) {
-		printk(KERN_ERR "SMSGIUCV: failed to register to iucv");
-		rc = -EIO;	/* better errno ? */
+	if (rc)
 		goto out_driver;
-	}
 	smsg_path = iucv_path_alloc(255, 0, GFP_KERNEL);
 	if (!smsg_path) {
 		rc = -ENOMEM;
@@ -164,11 +165,8 @@ static int __init smsg_init(void)
 	}
 	rc = iucv_path_connect(smsg_path, &smsg_handler, "*MSG    ",
 			       NULL, NULL, NULL);
-	if (rc) {
-		printk(KERN_ERR "SMSGIUCV: failed to connect to *MSG");
-		rc = -EIO;	/* better errno ? */
+	if (rc)
 		goto out_free;
-	}
 	cpcmd("SET SMSG IUCV", NULL, 0, NULL);
 	return 0;
 

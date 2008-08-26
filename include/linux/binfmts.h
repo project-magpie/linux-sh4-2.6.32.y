@@ -34,10 +34,12 @@ struct linux_binprm{
 #endif
 	struct mm_struct *mm;
 	unsigned long p; /* current top of mem */
-	int sh_bang;
+	unsigned int sh_bang:1,
+		     misc_bang:1;
 	struct file * file;
 	int e_uid, e_gid;
-	kernel_cap_t cap_inheritable, cap_permitted, cap_effective;
+	kernel_cap_t cap_post_exec_permitted;
+	bool cap_effective;
 	void *security;
 	int argc, envc;
 	char * filename;	/* Name of binary as seen by procps */
@@ -47,7 +49,6 @@ struct linux_binprm{
 	unsigned interp_flags;
 	unsigned interp_data;
 	unsigned long loader, exec;
-	unsigned long argv_len;
 };
 
 #define BINPRM_FLAGS_ENFORCE_NONDUMP_BIT 0
@@ -63,17 +64,17 @@ struct linux_binprm{
  * linux accepts.
  */
 struct linux_binfmt {
-	struct linux_binfmt * next;
+	struct list_head lh;
 	struct module *module;
 	int (*load_binary)(struct linux_binprm *, struct  pt_regs * regs);
 	int (*load_shlib)(struct file *);
-	int (*core_dump)(long signr, struct pt_regs * regs, struct file * file);
+	int (*core_dump)(long signr, struct pt_regs *regs, struct file *file, unsigned long limit);
 	unsigned long min_coredump;	/* minimal dump size */
 	int hasvdso;
 };
 
 extern int register_binfmt(struct linux_binfmt *);
-extern int unregister_binfmt(struct linux_binfmt *);
+extern void unregister_binfmt(struct linux_binfmt *);
 
 extern int prepare_binprm(struct linux_binprm *);
 extern int __must_check remove_arg_zero(struct linux_binprm *);
@@ -98,6 +99,7 @@ extern int copy_strings_kernel(int argc,char ** argv,struct linux_binprm *bprm);
 extern void compute_creds(struct linux_binprm *binprm);
 extern int do_coredump(long signr, int exit_code, struct pt_regs * regs);
 extern int set_binfmt(struct linux_binfmt *new);
+extern void free_bprm(struct linux_binprm *);
 
 #endif /* __KERNEL__ */
 #endif /* _LINUX_BINFMTS_H */

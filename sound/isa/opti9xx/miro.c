@@ -22,7 +22,6 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/err.h>
 #include <linux/isa.h>
@@ -242,14 +241,7 @@ static int aci_setvalue(struct snd_miro * miro, unsigned char index, int value)
  *  MIXER part
  */
 
-static int snd_miro_info_capture(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-
-	return 0;
-}
+#define snd_miro_info_capture	snd_ctl_boolean_mono_info
 
 static int snd_miro_get_capture(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
@@ -344,14 +336,7 @@ static int snd_miro_put_preamp(struct snd_kcontrol *kcontrol,
 	return change;
 }
 
-static int snd_miro_info_amp(struct snd_kcontrol *kcontrol,
-			     struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-
-	return 0;
-}
+#define snd_miro_info_amp	snd_ctl_boolean_mono_info
 
 static int snd_miro_get_amp(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *ucontrol)
@@ -497,6 +482,10 @@ static int snd_miro_put_double(struct snd_kcontrol *kcontrol,
 
 		/* equalizer elements */
 
+		if (left < -0x7f || left > 0x7f ||
+		    right < -0x7f || right > 0x7f)
+			return -EINVAL;
+
 		if (left_old > 0x80) 
 			left_old = 0x80 - left_old;
 		if (right_old > 0x80) 
@@ -533,6 +522,10 @@ static int snd_miro_put_double(struct snd_kcontrol *kcontrol,
 	} else {
 
 		/* non-equalizer elements */
+
+		if (left < 0 || left > 0x20 ||
+		    right < 0 || right > 0x20)
+			return -EINVAL;
 
 		left_old = 0x20 - left_old;
 		right_old = 0x20 - right_old;
@@ -676,7 +669,7 @@ static int __devinit snd_set_aci_init_values(struct snd_miro *miro)
 	return 0;
 }
 
-static int snd_miro_mixer(struct snd_miro *miro)
+static int __devinit snd_miro_mixer(struct snd_miro *miro)
 {
 	struct snd_card *card;
 	unsigned int idx;

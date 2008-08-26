@@ -149,29 +149,6 @@ static int i2o_block_device_flush(struct i2o_device *dev)
 };
 
 /**
- *	i2o_block_issue_flush - device-flush interface for block-layer
- *	@queue: the request queue of the device which should be flushed
- *	@disk: gendisk
- *	@error_sector: error offset
- *
- *	Helper function to provide flush functionality to block-layer.
- *
- *	Returns 0 on success or negative error code on failure.
- */
-
-static int i2o_block_issue_flush(struct request_queue * queue, struct gendisk *disk,
-				 sector_t * error_sector)
-{
-	struct i2o_block_device *i2o_blk_dev = queue->queuedata;
-	int rc = -ENODEV;
-
-	if (likely(i2o_blk_dev))
-		rc = i2o_block_device_flush(i2o_blk_dev->i2o_dev);
-
-	return rc;
-}
-
-/**
  *	i2o_block_device_mount - Mount (load) the media of device dev
  *	@dev: I2O device which should receive the mount request
  *	@media_id: Media Identifier
@@ -307,6 +284,7 @@ static inline struct i2o_block_request *i2o_block_request_alloc(void)
 		return ERR_PTR(-ENOMEM);
 
 	INIT_LIST_HEAD(&ireq->queue);
+	sg_init_table(ireq->sg_table, I2O_MAX_PHYS_SEGMENTS);
 
 	return ireq;
 };
@@ -393,7 +371,7 @@ static int i2o_block_prep_req_fn(struct request_queue *q, struct request *req)
 	/* connect the i2o_block_request to the request */
 	if (!req->special) {
 		ireq = i2o_block_request_alloc();
-		if (unlikely(IS_ERR(ireq))) {
+		if (IS_ERR(ireq)) {
 			osm_debug("unable to allocate i2o_block_request!\n");
 			return BLKPREP_DEFER;
 		}
@@ -434,13 +412,13 @@ static void i2o_block_delayed_request_fn(struct work_struct *work)
 /**
  *	i2o_block_end_request - Post-processing of completed commands
  *	@req: request which should be completed
- *	@uptodate: 1 for success, 0 for I/O error, < 0 for specific error
+ *	@error: 0 for success, < 0 for error
  *	@nr_bytes: number of bytes to complete
  *
  *	Mark the request as complete. The lock must not be held when entering.
  *
  */
-static void i2o_block_end_request(struct request *req, int uptodate,
+static void i2o_block_end_request(struct request *req, int error,
 				  int nr_bytes)
 {
 	struct i2o_block_request *ireq = req->special;
@@ -448,21 +426,17 @@ static void i2o_block_end_request(struct request *req, int uptodate,
 	struct request_queue *q = req->q;
 	unsigned long flags;
 
-	if (end_that_request_chunk(req, uptodate, nr_bytes)) {
+	if (blk_end_request(req, error, nr_bytes)) {
 		int leftover = (req->hard_nr_sectors << KERNEL_SECTOR_SHIFT);
 
 		if (blk_pc_request(req))
 			leftover = req->data_len;
 
-		if (end_io_error(uptodate))
-			end_that_request_chunk(req, 0, leftover);
+		if (error)
+			blk_end_request(req, -EIO, leftover);
 	}
 
-	add_disk_randomness(req->rq_disk);
-
 	spin_lock_irqsave(q->queue_lock, flags);
-
-	end_that_request_last(req, uptodate);
 
 	if (likely(dev)) {
 		dev->open_queue_depth--;
@@ -490,7 +464,7 @@ static int i2o_block_reply(struct i2o_controller *c, u32 m,
 			   struct i2o_message *msg)
 {
 	struct request *req;
-	int uptodate = 1;
+	int error = 0;
 
 	req = i2o_cntxt_list_get(c, le32_to_cpu(msg->u.s.tcntxt));
 	if (unlikely(!req)) {
@@ -523,10 +497,10 @@ static int i2o_block_reply(struct i2o_controller *c, u32 m,
 
 		req->errors++;
 
-		uptodate = 0;
+		error = -EIO;
 	}
 
-	i2o_block_end_request(req, uptodate, le32_to_cpu(msg->body[1]));
+	i2o_block_end_request(req, error, le32_to_cpu(msg->body[1]));
 
 	return 1;
 };
@@ -1009,7 +983,6 @@ static struct i2o_block_device *i2o_block_device_alloc(void)
 	}
 
 	blk_queue_prep_rq(queue, i2o_block_prep_req_fn);
-	blk_queue_issue_flush_fn(queue, i2o_block_issue_flush);
 
 	gd->major = I2O_MAJOR;
 	gd->queue = queue;
@@ -1100,8 +1073,8 @@ static int i2o_block_probe(struct device *dev)
 	blk_queue_max_sectors(queue, max_sectors);
 	blk_queue_max_hw_segments(queue, i2o_sg_tablesize(c, body_size));
 
-	osm_debug("max sectors = %d\n", queue->max_phys_segments);
-	osm_debug("phys segments = %d\n", queue->max_sectors);
+	osm_debug("max sectors = %d\n", queue->max_sectors);
+	osm_debug("phys segments = %d\n", queue->max_phys_segments);
 	osm_debug("max hw segments = %d\n", queue->max_hw_segments);
 
 	/*

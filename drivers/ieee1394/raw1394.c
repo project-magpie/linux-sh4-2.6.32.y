@@ -858,7 +858,7 @@ static int arm_read(struct hpsb_host *host, int nodeid, quadlet_t * buffer,
 	int found = 0, size = 0, rcode = -1;
 	struct arm_request_response *arm_req_resp = NULL;
 
-	DBGMSG("arm_read  called by node: %X"
+	DBGMSG("arm_read  called by node: %X "
 	       "addr: %4.4x %8.8x length: %Zu", nodeid,
 	       (u16) ((addr >> 32) & 0xFFFF), (u32) (addr & 0xFFFFFFFF),
 	       length);
@@ -1012,7 +1012,7 @@ static int arm_write(struct hpsb_host *host, int nodeid, int destid,
 	int found = 0, size = 0, rcode = -1, length_conflict = 0;
 	struct arm_request_response *arm_req_resp = NULL;
 
-	DBGMSG("arm_write called by node: %X"
+	DBGMSG("arm_write called by node: %X "
 	       "addr: %4.4x %8.8x length: %Zu", nodeid,
 	       (u16) ((addr >> 32) & 0xFFFF), (u32) (addr & 0xFFFFFFFF),
 	       length);
@@ -2356,13 +2356,16 @@ static void rawiso_activity_cb(struct hpsb_iso *iso)
 static void raw1394_iso_fill_status(struct hpsb_iso *iso,
 				    struct raw1394_iso_status *stat)
 {
+	int overflows = atomic_read(&iso->overflows);
+	int skips = atomic_read(&iso->skips);
+
 	stat->config.data_buf_size = iso->buf_size;
 	stat->config.buf_packets = iso->buf_packets;
 	stat->config.channel = iso->channel;
 	stat->config.speed = iso->speed;
 	stat->config.irq_interval = iso->irq_interval;
 	stat->n_packets = hpsb_iso_n_ready(iso);
-	stat->overflows = atomic_read(&iso->overflows);
+	stat->overflows = ((skips & 0xFFFF) << 16) | ((overflows & 0xFFFF));
 	stat->xmit_cycle = iso->xmit_cycle;
 }
 
@@ -2437,6 +2440,8 @@ static int raw1394_iso_get_status(struct file_info *fi, void __user * uaddr)
 
 	/* reset overflow counter */
 	atomic_set(&iso->overflows, 0);
+	/* reset skip counter */
+	atomic_set(&iso->skips, 0);
 
 	return 0;
 }
@@ -2544,8 +2549,8 @@ static int raw1394_mmap(struct file *file, struct vm_area_struct *vma)
 }
 
 /* ioctl is only used for rawiso operations */
-static int raw1394_ioctl(struct inode *inode, struct file *file,
-			 unsigned int cmd, unsigned long arg)
+static long do_raw1394_ioctl(struct file *file, unsigned int cmd,
+							unsigned long arg)
 {
 	struct file_info *fi = file->private_data;
 	void __user *argp = (void __user *)arg;
@@ -2651,6 +2656,16 @@ static int raw1394_ioctl(struct inode *inode, struct file *file,
 	return -EINVAL;
 }
 
+static long raw1394_ioctl(struct file *file, unsigned int cmd,
+							unsigned long arg)
+{
+	long ret;
+	lock_kernel();
+	ret = do_raw1394_ioctl(file, cmd, arg);
+	unlock_kernel();
+	return ret;
+}
+
 #ifdef CONFIG_COMPAT
 struct raw1394_iso_packets32 {
         __u32 n_packets;
@@ -2685,7 +2700,7 @@ static long raw1394_iso_xmit_recv_packets32(struct file *file, unsigned int cmd,
 	    !copy_from_user(&infos32, &arg->infos, sizeof infos32)) {
 		infos = compat_ptr(infos32);
 		if (!copy_to_user(&dst->infos, &infos, sizeof infos))
-			err = raw1394_ioctl(NULL, file, cmd, (unsigned long)dst);
+			err = do_raw1394_ioctl(file, cmd, (unsigned long)dst);
 	}
 	return err;
 }
@@ -2726,7 +2741,7 @@ static long raw1394_compat_ioctl(struct file *file,
 	case RAW1394_IOC_ISO_GET_STATUS:
 	case RAW1394_IOC_ISO_SHUTDOWN:
 	case RAW1394_IOC_ISO_QUEUE_ACTIVITY:
-		err = raw1394_ioctl(NULL, file, cmd, arg);
+		err = do_raw1394_ioctl(file, cmd, arg);
 		break;
 	/* These request have different format. */
 	case RAW1394_IOC_ISO_RECV_PACKETS32:
@@ -2935,6 +2950,7 @@ static int raw1394_release(struct inode *inode, struct file *file)
 /*
  * Export information about protocols/devices supported by this driver.
  */
+#ifdef MODULE
 static struct ieee1394_device_id raw1394_id_table[] = {
 	{
 	 .match_flags = IEEE1394_MATCH_SPECIFIER_ID | IEEE1394_MATCH_VERSION,
@@ -2956,10 +2972,10 @@ static struct ieee1394_device_id raw1394_id_table[] = {
 };
 
 MODULE_DEVICE_TABLE(ieee1394, raw1394_id_table);
+#endif /* MODULE */
 
 static struct hpsb_protocol_driver raw1394_driver = {
 	.name = "raw1394",
-	.id_table = raw1394_id_table,
 };
 
 /******************************************************************************/
@@ -2978,7 +2994,7 @@ static const struct file_operations raw1394_fops = {
 	.read = raw1394_read,
 	.write = raw1394_write,
 	.mmap = raw1394_mmap,
-	.ioctl = raw1394_ioctl,
+	.unlocked_ioctl = raw1394_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = raw1394_compat_ioctl,
 #endif
@@ -2994,17 +3010,16 @@ static int __init init_raw1394(void)
 	hpsb_register_highlevel(&raw1394_highlevel);
 
 	if (IS_ERR
-	    (device_create(
+	    (device_create_drvdata(
 	      hpsb_protocol_class, NULL,
 	      MKDEV(IEEE1394_MAJOR, IEEE1394_MINOR_BLOCK_RAW1394 * 16),
-	      RAW1394_DEVICE_NAME))) {
+	      NULL, RAW1394_DEVICE_NAME))) {
 		ret = -EFAULT;
 		goto out_unreg;
 	}
 
 	cdev_init(&raw1394_cdev, &raw1394_fops);
 	raw1394_cdev.owner = THIS_MODULE;
-	kobject_set_name(&raw1394_cdev.kobj, RAW1394_DEVICE_NAME);
 	ret = cdev_add(&raw1394_cdev, IEEE1394_RAW1394_DEV, 1);
 	if (ret) {
 		HPSB_ERR("raw1394 failed to register minor device block");

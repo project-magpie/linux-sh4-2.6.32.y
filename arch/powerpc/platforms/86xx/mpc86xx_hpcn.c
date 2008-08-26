@@ -18,6 +18,7 @@
 #include <linux/kdev_t.h>
 #include <linux/delay.h>
 #include <linux/seq_file.h>
+#include <linux/of_platform.h>
 
 #include <asm/system.h>
 #include <asm/time.h>
@@ -27,7 +28,6 @@
 #include <asm/prom.h>
 #include <mm/mmu_decl.h>
 #include <asm/udbg.h>
-#include <asm/i8259.h>
 
 #include <asm/mpic.h>
 
@@ -35,7 +35,6 @@
 #include <sysdev/fsl_soc.h>
 
 #include "mpc86xx.h"
-#include "mpc8641_hpcn.h"
 
 #undef DEBUG
 
@@ -46,68 +45,6 @@
 #endif
 
 #ifdef CONFIG_PCI
-static void mpc86xx_8259_cascade(unsigned int irq, struct irq_desc *desc)
-{
-	unsigned int cascade_irq = i8259_irq();
-	if (cascade_irq != NO_IRQ)
-		generic_handle_irq(cascade_irq);
-	desc->chip->eoi(irq);
-}
-#endif	/* CONFIG_PCI */
-
-void __init
-mpc86xx_hpcn_init_irq(void)
-{
-	struct mpic *mpic1;
-	struct device_node *np;
-	struct resource res;
-#ifdef CONFIG_PCI
-	struct device_node *cascade_node = NULL;
-	int cascade_irq;
-#endif
-
-	/* Determine PIC address. */
-	np = of_find_node_by_type(NULL, "open-pic");
-	if (np == NULL)
-		return;
-	of_address_to_resource(np, 0, &res);
-
-	/* Alloc mpic structure and per isu has 16 INT entries. */
-	mpic1 = mpic_alloc(np, res.start,
-			MPIC_PRIMARY | MPIC_WANTS_RESET | MPIC_BIG_ENDIAN,
-			0, 256, " MPIC     ");
-	BUG_ON(mpic1 == NULL);
-
-	mpic_init(mpic1);
-
-#ifdef CONFIG_PCI
-	/* Initialize i8259 controller */
-	for_each_node_by_type(np, "interrupt-controller")
-		if (of_device_is_compatible(np, "chrp,iic")) {
-			cascade_node = np;
-			break;
-		}
-	if (cascade_node == NULL) {
-		printk(KERN_DEBUG "mpc86xxhpcn: no ISA interrupt controller\n");
-		return;
-	}
-
-	cascade_irq = irq_of_parse_and_map(cascade_node, 0);
-	if (cascade_irq == NO_IRQ) {
-		printk(KERN_ERR "mpc86xxhpcn: failed to map cascade interrupt");
-		return;
-	}
-	DBG("mpc86xxhpcn: cascade mapped to irq %d\n", cascade_irq);
-
-	i8259_init(cascade_node, 0);
-	of_node_put(cascade_node);
-
-	set_irq_chained_handler(cascade_irq, mpc86xx_8259_cascade);
-#endif
-}
-
-#ifdef CONFIG_PCI
-extern int uses_fsl_uli_m1575;
 extern int uli_exclude_device(struct pci_controller *hose,
 				u_char bus, u_char devfn);
 
@@ -117,7 +54,7 @@ static int mpc86xx_exclude_device(struct pci_controller *hose,
 	struct device_node* node;	
 	struct resource rsrc;
 
-	node = (struct device_node *)hose->arch_data;
+	node = hose->dn;
 	of_address_to_resource(node, 0, &rsrc);
 
 	if ((rsrc.start & 0xfffff) == 0x8000) {
@@ -132,25 +69,15 @@ static int mpc86xx_exclude_device(struct pci_controller *hose,
 static void __init
 mpc86xx_hpcn_setup_arch(void)
 {
+#ifdef CONFIG_PCI
 	struct device_node *np;
+#endif
 
 	if (ppc_md.progress)
 		ppc_md.progress("mpc86xx_hpcn_setup_arch()", 0);
 
-	np = of_find_node_by_type(NULL, "cpu");
-	if (np != 0) {
-		const unsigned int *fp;
-
-		fp = of_get_property(np, "clock-frequency", NULL);
-		if (fp != 0)
-			loops_per_jiffy = *fp / HZ;
-		else
-			loops_per_jiffy = 50000000 / HZ;
-		of_node_put(np);
-	}
-
 #ifdef CONFIG_PCI
-	for (np = NULL; (np = of_find_node_by_type(np, "pci")) != NULL;) {
+	for_each_compatible_node(np, "pci", "fsl,mpc8641-pcie") {
 		struct resource rsrc;
 		of_address_to_resource(np, 0, &rsrc);
 		if ((rsrc.start & 0xfffff) == 0x8000)
@@ -158,7 +85,7 @@ mpc86xx_hpcn_setup_arch(void)
 		else
 			fsl_add_bridge(np, 0);
 	}
-	uses_fsl_uli_m1575 = 1;
+
 	ppc_md.pci_exclude_device = mpc86xx_exclude_device;
 
 #endif
@@ -171,7 +98,7 @@ mpc86xx_hpcn_setup_arch(void)
 }
 
 
-void
+static void
 mpc86xx_hpcn_show_cpuinfo(struct seq_file *m)
 {
 	struct device_node *root;
@@ -199,30 +126,19 @@ static int __init mpc86xx_hpcn_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
 
-	if (of_flat_dt_is_compatible(root, "mpc86xx"))
+	if (of_flat_dt_is_compatible(root, "fsl,mpc8641hpcn"))
 		return 1;	/* Looks good */
+
+	/* Be nice and don't give silent boot death.  Delete this in 2.6.27 */
+	if (of_flat_dt_is_compatible(root, "mpc86xx")) {
+		pr_warning("WARNING: your dts/dtb is old. You must update before the next kernel release\n");
+		return 1;
+	}
 
 	return 0;
 }
 
-
-void
-mpc86xx_restart(char *cmd)
-{
-	void __iomem *rstcr;
-
-	rstcr = ioremap(get_immrbase() + MPC86XX_RSTCR_OFFSET, 0x100);
-
-	local_irq_disable();
-
-	/* Assert reset request to Reset Control Register */
-	out_be32(rstcr, 0x2);
-
-	/* not reached */
-}
-
-
-long __init
+static long __init
 mpc86xx_time_init(void)
 {
 	unsigned int temp;
@@ -239,14 +155,28 @@ mpc86xx_time_init(void)
 	return 0;
 }
 
+static __initdata struct of_device_id of_bus_ids[] = {
+	{ .compatible = "simple-bus", },
+	{ .compatible = "fsl,rapidio-delta", },
+	{},
+};
+
+static int __init declare_of_platform_devices(void)
+{
+	of_platform_bus_probe(NULL, of_bus_ids, NULL);
+
+	return 0;
+}
+machine_device_initcall(mpc86xx_hpcn, declare_of_platform_devices);
+
 define_machine(mpc86xx_hpcn) {
 	.name			= "MPC86xx HPCN",
 	.probe			= mpc86xx_hpcn_probe,
 	.setup_arch		= mpc86xx_hpcn_setup_arch,
-	.init_IRQ		= mpc86xx_hpcn_init_irq,
+	.init_IRQ		= mpc86xx_init_irq,
 	.show_cpuinfo		= mpc86xx_hpcn_show_cpuinfo,
 	.get_irq		= mpic_get_irq,
-	.restart		= mpc86xx_restart,
+	.restart		= fsl_rstcr_restart,
 	.time_init		= mpc86xx_time_init,
 	.calibrate_decr		= generic_calibrate_decr,
 	.progress		= udbg_progress,

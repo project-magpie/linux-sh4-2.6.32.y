@@ -172,6 +172,15 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 	if (IS_ERR(clk))
 		return -EINVAL;
 
+	/* We do not default just do a clk->rate = rate as
+	 * the clock may have been made this way by choice.
+	 */
+
+	WARN_ON(clk->set_rate == NULL);
+
+	if (clk->set_rate == NULL)
+		return -EINVAL;
+
 	mutex_lock(&clocks_mutex);
 	ret = (clk->set_rate)(clk, rate);
 	mutex_unlock(&clocks_mutex);
@@ -213,6 +222,12 @@ EXPORT_SYMBOL(clk_set_parent);
 
 /* base clocks */
 
+static int clk_default_setrate(struct clk *clk, unsigned long rate)
+{
+	clk->rate = rate;
+	return 0;
+}
+
 struct clk clk_xtal = {
 	.name		= "xtal",
 	.id		= -1,
@@ -224,6 +239,7 @@ struct clk clk_xtal = {
 struct clk clk_mpll = {
 	.name		= "mpll",
 	.id		= -1,
+	.set_rate	= clk_default_setrate,
 };
 
 struct clk clk_upll = {
@@ -239,6 +255,7 @@ struct clk clk_f = {
 	.rate		= 0,
 	.parent		= &clk_mpll,
 	.ctrlbit	= 0,
+	.set_rate	= clk_default_setrate,
 };
 
 struct clk clk_h = {
@@ -247,6 +264,7 @@ struct clk clk_h = {
 	.rate		= 0,
 	.parent		= NULL,
 	.ctrlbit	= 0,
+	.set_rate	= clk_default_setrate,
 };
 
 struct clk clk_p = {
@@ -255,6 +273,7 @@ struct clk clk_p = {
 	.rate		= 0,
 	.parent		= NULL,
 	.ctrlbit	= 0,
+	.set_rate	= clk_default_setrate,
 };
 
 struct clk clk_usb_bus = {
@@ -313,6 +332,58 @@ static int s3c24xx_dclk_setparent(struct clk *clk, struct clk *parent)
 	return 0;
 }
 
+static unsigned long s3c24xx_calc_div(struct clk *clk, unsigned long rate)
+{
+	unsigned long div;
+
+	if ((rate == 0) || !clk->parent)
+		return 0;
+
+	div = clk_get_rate(clk->parent) / rate;
+	if (div < 2)
+		div = 2;
+	else if (div > 16)
+		div = 16;
+
+	return div;
+}
+
+static unsigned long s3c24xx_round_dclk_rate(struct clk *clk,
+	unsigned long rate)
+{
+	unsigned long div = s3c24xx_calc_div(clk, rate);
+
+	if (div == 0)
+		return 0;
+
+	return clk_get_rate(clk->parent) / div;
+}
+
+static int s3c24xx_set_dclk_rate(struct clk *clk, unsigned long rate)
+{
+	unsigned long mask, data, div = s3c24xx_calc_div(clk, rate);
+
+	if (div == 0)
+		return -EINVAL;
+
+	if (clk == &s3c24xx_dclk0) {
+		mask = S3C2410_DCLKCON_DCLK0_DIV_MASK |
+			S3C2410_DCLKCON_DCLK0_CMP_MASK;
+		data = S3C2410_DCLKCON_DCLK0_DIV(div) |
+			S3C2410_DCLKCON_DCLK0_CMP((div + 1) / 2);
+	} else if (clk == &s3c24xx_dclk1) {
+		mask = S3C2410_DCLKCON_DCLK1_DIV_MASK |
+			S3C2410_DCLKCON_DCLK1_CMP_MASK;
+		data = S3C2410_DCLKCON_DCLK1_DIV(div) |
+			S3C2410_DCLKCON_DCLK1_CMP((div + 1) / 2);
+	} else
+		return -EINVAL;
+
+	clk->rate = clk_get_rate(clk->parent) / div;
+	__raw_writel(((__raw_readl(S3C24XX_DCLKCON) & ~mask) | data),
+		S3C24XX_DCLKCON);
+	return clk->rate;
+}
 
 static int s3c24xx_clkout_setparent(struct clk *clk, struct clk *parent)
 {
@@ -340,7 +411,7 @@ static int s3c24xx_clkout_setparent(struct clk *clk, struct clk *parent)
 
 	clk->parent = parent;
 
-	if (clk == &s3c24xx_dclk0)
+	if (clk == &s3c24xx_clkout0)
 		mask = S3C2410_MISCCR_CLK0_MASK;
 	else {
 		source <<= 4;
@@ -359,14 +430,18 @@ struct clk s3c24xx_dclk0 = {
 	.ctrlbit	= S3C2410_DCLKCON_DCLK0EN,
 	.enable	        = s3c24xx_dclk_enable,
 	.set_parent	= s3c24xx_dclk_setparent,
+	.set_rate	= s3c24xx_set_dclk_rate,
+	.round_rate	= s3c24xx_round_dclk_rate,
 };
 
 struct clk s3c24xx_dclk1 = {
 	.name		= "dclk1",
 	.id		= -1,
-	.ctrlbit	= S3C2410_DCLKCON_DCLK0EN,
+	.ctrlbit	= S3C2410_DCLKCON_DCLK1EN,
 	.enable		= s3c24xx_dclk_enable,
 	.set_parent	= s3c24xx_dclk_setparent,
+	.set_rate	= s3c24xx_set_dclk_rate,
+	.round_rate	= s3c24xx_round_dclk_rate,
 };
 
 struct clk s3c24xx_clkout0 = {

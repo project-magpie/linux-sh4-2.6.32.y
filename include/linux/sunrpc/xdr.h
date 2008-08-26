@@ -70,7 +70,10 @@ struct xdr_buf {
 
 	struct page **	pages;		/* Array of contiguous pages */
 	unsigned int	page_base,	/* Start of page data */
-			page_len;	/* Length of page data */
+			page_len,	/* Length of page data */
+			flags;		/* Flags for data disposition */
+#define XDRBUF_READ		0x01		/* target of file read */
+#define XDRBUF_WRITE		0x02		/* source of file write */
 
 	unsigned int	buflen,		/* Total length of storage buffer */
 			len;		/* Length of XDR encoded message */
@@ -109,7 +112,8 @@ struct xdr_buf {
 __be32 *xdr_encode_opaque_fixed(__be32 *p, const void *ptr, unsigned int len);
 __be32 *xdr_encode_opaque(__be32 *p, const void *ptr, unsigned int len);
 __be32 *xdr_encode_string(__be32 *p, const char *s);
-__be32 *xdr_decode_string_inplace(__be32 *p, char **sp, int *lenp, int maxlen);
+__be32 *xdr_decode_string_inplace(__be32 *p, char **sp, unsigned int *lenp,
+			unsigned int maxlen);
 __be32 *xdr_encode_netobj(__be32 *p, const struct xdr_netobj *);
 __be32 *xdr_decode_netobj(__be32 *p, struct xdr_netobj *);
 

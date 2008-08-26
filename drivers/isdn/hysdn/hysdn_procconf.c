@@ -16,6 +16,7 @@
 #include <linux/proc_fs.h>
 #include <linux/pci.h>
 #include <linux/smp_lock.h>
+#include <net/net_namespace.h>
 
 #include "hysdn_defs.h"
 
@@ -206,30 +207,17 @@ hysdn_conf_write(struct file *file, const char __user *buf, size_t count, loff_t
 /* read conf file -> output card info data */
 /*******************************************/
 static ssize_t
-hysdn_conf_read(struct file *file, char __user *buf, size_t count, loff_t * off)
+hysdn_conf_read(struct file *file, char __user *buf, size_t count, loff_t *off)
 {
 	char *cp;
-	int i;
 
-	if (file->f_mode & FMODE_READ) {
-		if (!(cp = file->private_data))
-			return (-EFAULT);	/* should never happen */
-		i = strlen(cp);	/* get total string length */
-		if (*off < i) {
-			/* still bytes to transfer */
-			cp += *off;	/* point to desired data offset */
-			i -= *off;	/* remaining length */
-			if (i > count)
-				i = count;	/* limit length to transfer */
-			if (copy_to_user(buf, cp, i))
-				return (-EFAULT);	/* copy error */
-			*off += i;	/* adjust offset */
-		} else
-			return (0);
-	} else
-		return (-EPERM);	/* no permission to read */
+	if (!(file->f_mode & FMODE_READ))
+		return -EPERM;	/* no permission to read */
 
-	return (i);
+	if (!(cp = file->private_data))
+		return -EFAULT;	/* should never happen */
+
+	return simple_read_from_buffer(buf, count, off, cp, strlen(cp));
 }				/* hysdn_conf_read */
 
 /******************/
@@ -369,6 +357,7 @@ hysdn_conf_close(struct inode *ino, struct file *filep)
 /******************************************************/
 static const struct file_operations conf_fops =
 {
+	.owner		= THIS_MODULE,
 	.llseek         = no_llseek,
 	.read           = hysdn_conf_read,
 	.write          = hysdn_conf_write,
@@ -392,7 +381,7 @@ hysdn_procconf_init(void)
 	hysdn_card *card;
 	unsigned char conf_name[20];
 
-	hysdn_proc_entry = proc_mkdir(PROC_SUBDIR_NAME, proc_net);
+	hysdn_proc_entry = proc_mkdir(PROC_SUBDIR_NAME, init_net.proc_net);
 	if (!hysdn_proc_entry) {
 		printk(KERN_ERR "HYSDN: unable to create hysdn subdir\n");
 		return (-1);
@@ -401,11 +390,10 @@ hysdn_procconf_init(void)
 	while (card) {
 
 		sprintf(conf_name, "%s%d", PROC_CONF_BASENAME, card->myid);
-		if ((card->procconf = (void *) create_proc_entry(conf_name,
-					     S_IFREG | S_IRUGO | S_IWUSR,
-					    hysdn_proc_entry)) != NULL) {
-			((struct proc_dir_entry *) card->procconf)->proc_fops = &conf_fops;
-			((struct proc_dir_entry *) card->procconf)->owner = THIS_MODULE;
+		if ((card->procconf = (void *) proc_create(conf_name,
+						S_IFREG | S_IRUGO | S_IWUSR,
+						hysdn_proc_entry,
+						&conf_fops)) != NULL) {
 			hysdn_proclog_init(card);	/* init the log file entry */
 		}
 		card = card->next;	/* next entry */
@@ -437,5 +425,5 @@ hysdn_procconf_release(void)
 		card = card->next;	/* point to next card */
 	}
 
-	remove_proc_entry(PROC_SUBDIR_NAME, proc_net);
+	remove_proc_entry(PROC_SUBDIR_NAME, init_net.proc_net);
 }

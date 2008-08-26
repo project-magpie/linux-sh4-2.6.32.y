@@ -31,16 +31,14 @@
 #include <linux/smp_lock.h>
 #include <linux/unistd.h>
 #include <linux/user.h>
-#include <linux/a.out.h>
 #include <linux/uaccess.h>
+#include <linux/sched.h>
+#include <linux/tick.h>
 #include <linux/fs.h>
 #include <linux/err.h>
 
 #include <asm/blackfin.h>
 #include <asm/fixed_code.h>
-
-#define	LED_ON	0
-#define	LED_OFF	1
 
 asmlinkage void ret_from_fork(void);
 
@@ -70,114 +68,51 @@ void (*pm_power_off)(void) = NULL;
 EXPORT_SYMBOL(pm_power_off);
 
 /*
- * We are using a different LED from the one used to indicate timer interrupt.
- */
-#if defined(CONFIG_BFIN_IDLE_LED)
-static inline void leds_switch(int flag)
-{
-	unsigned short tmp = 0;
-
-	tmp = bfin_read_CONFIG_BFIN_IDLE_LED_PORT();
-	SSYNC();
-
-	if (flag == LED_ON)
-		tmp &= ~CONFIG_BFIN_IDLE_LED_PIN;	/* light on */
-	else
-		tmp |= CONFIG_BFIN_IDLE_LED_PIN;	/* light off */
-
-	bfin_write_CONFIG_BFIN_IDLE_LED_PORT(tmp);
-	SSYNC();
-
-}
-#else
-static inline void leds_switch(int flag)
-{
-}
-#endif
-
-/*
  * The idle loop on BFIN
  */
 #ifdef CONFIG_IDLE_L1
-void default_idle(void)__attribute__((l1_text));
+static void default_idle(void)__attribute__((l1_text));
 void cpu_idle(void)__attribute__((l1_text));
 #endif
 
-void default_idle(void)
+/*
+ * This is our default idle handler.  We need to disable
+ * interrupts here to ensure we don't miss a wakeup call.
+ */
+static void default_idle(void)
 {
-	while (!need_resched()) {
-		leds_switch(LED_OFF);
-		local_irq_disable();
-		if (likely(!need_resched()))
-			idle_with_irq_disabled();
-		local_irq_enable();
-		leds_switch(LED_ON);
-	}
+	local_irq_disable();
+	if (!need_resched())
+		idle_with_irq_disabled();
+
+	local_irq_enable();
 }
 
-void (*idle)(void) = default_idle;
-
 /*
- * The idle thread. There's no useful work to be
- * done, so just try to conserve power and have a
- * low exit latency (ie sit in a loop waiting for
- * somebody to say that they'd like to reschedule)
+ * The idle thread.  We try to conserve power, while trying to keep
+ * overall latency low.  The architecture specific idle is passed
+ * a value to indicate the level of "idleness" of the system.
  */
 void cpu_idle(void)
 {
 	/* endless idle loop with no priority at all */
 	while (1) {
-		idle();
+		void (*idle)(void) = pm_idle;
+
+#ifdef CONFIG_HOTPLUG_CPU
+		if (cpu_is_offline(smp_processor_id()))
+			cpu_die();
+#endif
+		if (!idle)
+			idle = default_idle;
+		tick_nohz_stop_sched_tick(1);
+		while (!need_resched())
+			idle();
+		tick_nohz_restart_sched_tick();
 		preempt_enable_no_resched();
 		schedule();
 		preempt_disable();
 	}
-}
-
-void machine_restart(char *__unused)
-{
-#if defined(CONFIG_BLKFIN_CACHE)
-	bfin_write_IMEM_CONTROL(0x01);
-	SSYNC();
-#endif
-	bfin_reset();
-	/* Dont do anything till the reset occurs */
-	while (1) {
-		SSYNC();
-	}
-}
-
-void machine_halt(void)
-{
-	for (;;)
-		asm volatile ("idle");
-}
-
-void machine_power_off(void)
-{
-	for (;;)
-		asm volatile ("idle");
-}
-
-void show_regs(struct pt_regs *regs)
-{
-	printk(KERN_NOTICE "\n");
-	printk(KERN_NOTICE
-	       "PC: %08lu  Status: %04lu  SysStatus: %04lu  RETS: %08lu\n",
-	       regs->pc, regs->astat, regs->seqstat, regs->rets);
-	printk(KERN_NOTICE
-	       "A0.x: %08lx  A0.w: %08lx  A1.x: %08lx  A1.w: %08lx\n",
-	       regs->a0x, regs->a0w, regs->a1x, regs->a1w);
-	printk(KERN_NOTICE "P0: %08lx  P1: %08lx  P2: %08lx  P3: %08lx\n",
-	       regs->p0, regs->p1, regs->p2, regs->p3);
-	printk(KERN_NOTICE "P4: %08lx  P5: %08lx\n", regs->p4, regs->p5);
-	printk(KERN_NOTICE "R0: %08lx  R1: %08lx  R2: %08lx  R3: %08lx\n",
-	       regs->r0, regs->r1, regs->r2, regs->r3);
-	printk(KERN_NOTICE "R4: %08lx  R5: %08lx  R6: %08lx  R7: %08lx\n",
-	       regs->r4, regs->r5, regs->r6, regs->r7);
-
-	if (!regs->ipend)
-		printk(KERN_NOTICE "USP: %08lx\n", rdusp());
 }
 
 /* Fill in the fpu structure for a core dump.  */
@@ -264,55 +199,10 @@ copy_thread(int nr, unsigned long clone_flags,
 }
 
 /*
- * fill in the user structure for a core dump..
- */
-void dump_thread(struct pt_regs *regs, struct user *dump)
-{
-	dump->magic = CMAGIC;
-	dump->start_code = 0;
-	dump->start_stack = rdusp() & ~(PAGE_SIZE - 1);
-	dump->u_tsize = ((unsigned long)current->mm->end_code) >> PAGE_SHIFT;
-	dump->u_dsize = ((unsigned long)(current->mm->brk +
-					 (PAGE_SIZE - 1))) >> PAGE_SHIFT;
-	dump->u_dsize -= dump->u_tsize;
-	dump->u_ssize = 0;
-
-	if (dump->start_stack < TASK_SIZE)
-		dump->u_ssize =
-		    ((unsigned long)(TASK_SIZE -
-				     dump->start_stack)) >> PAGE_SHIFT;
-
-	dump->u_ar0 = (struct user_regs_struct *)((int)&dump->regs - (int)dump);
-
-	dump->regs.r0 = regs->r0;
-	dump->regs.r1 = regs->r1;
-	dump->regs.r2 = regs->r2;
-	dump->regs.r3 = regs->r3;
-	dump->regs.r4 = regs->r4;
-	dump->regs.r5 = regs->r5;
-	dump->regs.r6 = regs->r6;
-	dump->regs.r7 = regs->r7;
-	dump->regs.p0 = regs->p0;
-	dump->regs.p1 = regs->p1;
-	dump->regs.p2 = regs->p2;
-	dump->regs.p3 = regs->p3;
-	dump->regs.p4 = regs->p4;
-	dump->regs.p5 = regs->p5;
-	dump->regs.orig_p0 = regs->orig_p0;
-	dump->regs.a0w = regs->a0w;
-	dump->regs.a1w = regs->a1w;
-	dump->regs.a0x = regs->a0x;
-	dump->regs.a1x = regs->a1x;
-	dump->regs.rets = regs->rets;
-	dump->regs.astat = regs->astat;
-	dump->regs.pc = regs->pc;
-}
-
-/*
  * sys_execve() executes a new program.
  */
 
-asmlinkage int sys_execve(char *name, char **argv, char **envp)
+asmlinkage int sys_execve(char __user *name, char __user * __user *argv, char __user * __user *envp)
 {
 	int error;
 	char *filename;
@@ -355,23 +245,25 @@ unsigned long get_wchan(struct task_struct *p)
 
 void finish_atomic_sections (struct pt_regs *regs)
 {
+	int __user *up0 = (int __user *)regs->p0;
+
 	if (regs->pc < ATOMIC_SEQS_START || regs->pc >= ATOMIC_SEQS_END)
 		return;
 
 	switch (regs->pc) {
 	case ATOMIC_XCHG32 + 2:
-		put_user(regs->r1, (int *)regs->p0);
+		put_user(regs->r1, up0);
 		regs->pc += 2;
 		break;
 
 	case ATOMIC_CAS32 + 2:
 	case ATOMIC_CAS32 + 4:
 		if (regs->r0 == regs->r1)
-			put_user(regs->r2, (int *)regs->p0);
+			put_user(regs->r2, up0);
 		regs->pc = ATOMIC_CAS32 + 8;
 		break;
 	case ATOMIC_CAS32 + 6:
-		put_user(regs->r2, (int *)regs->p0);
+		put_user(regs->r2, up0);
 		regs->pc += 2;
 		break;
 
@@ -379,7 +271,7 @@ void finish_atomic_sections (struct pt_regs *regs)
 		regs->r0 = regs->r1 + regs->r0;
 		/* fall through */
 	case ATOMIC_ADD32 + 4:
-		put_user(regs->r0, (int *)regs->p0);
+		put_user(regs->r0, up0);
 		regs->pc = ATOMIC_ADD32 + 6;
 		break;
 
@@ -387,7 +279,7 @@ void finish_atomic_sections (struct pt_regs *regs)
 		regs->r0 = regs->r1 - regs->r0;
 		/* fall through */
 	case ATOMIC_SUB32 + 4:
-		put_user(regs->r0, (int *)regs->p0);
+		put_user(regs->r0, up0);
 		regs->pc = ATOMIC_SUB32 + 6;
 		break;
 
@@ -395,7 +287,7 @@ void finish_atomic_sections (struct pt_regs *regs)
 		regs->r0 = regs->r1 | regs->r0;
 		/* fall through */
 	case ATOMIC_IOR32 + 4:
-		put_user(regs->r0, (int *)regs->p0);
+		put_user(regs->r0, up0);
 		regs->pc = ATOMIC_IOR32 + 6;
 		break;
 
@@ -403,7 +295,7 @@ void finish_atomic_sections (struct pt_regs *regs)
 		regs->r0 = regs->r1 & regs->r0;
 		/* fall through */
 	case ATOMIC_AND32 + 4:
-		put_user(regs->r0, (int *)regs->p0);
+		put_user(regs->r0, up0);
 		regs->pc = ATOMIC_AND32 + 6;
 		break;
 
@@ -411,16 +303,18 @@ void finish_atomic_sections (struct pt_regs *regs)
 		regs->r0 = regs->r1 ^ regs->r0;
 		/* fall through */
 	case ATOMIC_XOR32 + 4:
-		put_user(regs->r0, (int *)regs->p0);
+		put_user(regs->r0, up0);
 		regs->pc = ATOMIC_XOR32 + 6;
 		break;
 	}
 }
 
 #if defined(CONFIG_ACCESS_CHECK)
+/* Return 1 if access to memory range is OK, 0 otherwise */
 int _access_ok(unsigned long addr, unsigned long size)
 {
-
+	if (size == 0)
+		return 1;
 	if (addr > (addr + size))
 		return 0;
 	if (segment_eq(get_fs(), KERNEL_DS))
@@ -430,6 +324,12 @@ int _access_ok(unsigned long addr, unsigned long size)
 		return 1;
 	if (addr >= memory_mtd_end && (addr + size) <= physical_mem_end)
 		return 1;
+
+#ifdef CONFIG_ROMFS_MTD_FS
+	/* For XIP, allow user space to use pointers within the ROMFS.  */
+	if (addr >= memory_mtd_start && (addr + size) <= memory_mtd_end)
+		return 1;
+#endif
 #else
 	if (addr >= memory_start && (addr + size) <= physical_mem_end)
 		return 1;

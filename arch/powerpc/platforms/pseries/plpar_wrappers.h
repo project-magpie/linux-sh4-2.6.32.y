@@ -8,11 +8,6 @@ static inline long poll_pending(void)
 	return plpar_hcall_norets(H_POLL_PENDING);
 }
 
-static inline long prod_processor(void)
-{
-	return plpar_hcall_norets(H_PROD);
-}
-
 static inline long cede_processor(void)
 {
 	return plpar_hcall_norets(H_CEDE);
@@ -45,6 +40,16 @@ static inline long unregister_slb_shadow(unsigned long cpu, unsigned long vpa)
 static inline long register_slb_shadow(unsigned long cpu, unsigned long vpa)
 {
 	return vpa_call(0x3, cpu, vpa);
+}
+
+static inline long plpar_page_set_loaned(unsigned long vpa)
+{
+	return plpar_hcall_norets(H_PAGE_INIT, H_PAGE_SET_LOANED, vpa, 0);
+}
+
+static inline long plpar_page_set_active(unsigned long vpa)
+{
+	return plpar_hcall_norets(H_PAGE_INIT, H_PAGE_SET_ACTIVE, vpa, 0);
 }
 
 extern void vpa_init(int cpu);

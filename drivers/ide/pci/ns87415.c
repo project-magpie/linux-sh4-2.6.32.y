@@ -1,6 +1,4 @@
 /*
- * linux/drivers/ide/pci/ns87415.c		Version 2.00  Sep. 10, 2002
- *
  * Copyright (C) 1997-1998	Mark Lord <mlord@pobox.com>
  * Copyright (C) 1998		Eddie C. Dost <ecd@skynet.be>
  * Copyright (C) 1999-2000	Andre Hedrick <andre@linux-ide.org>
@@ -12,11 +10,7 @@
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
-#include <linux/timer.h>
-#include <linux/mm.h>
-#include <linux/ioport.h>
 #include <linux/interrupt.h>
-#include <linux/blkdev.h>
 #include <linux/hdreg.h>
 #include <linux/pci.h>
 #include <linux/delay.h>
@@ -24,6 +18,8 @@
 #include <linux/init.h>
 
 #include <asm/io.h>
+
+#define DRV_NAME "ns87415"
 
 #ifdef CONFIG_SUPERIO
 /* SUPERIO 87560 is a PoS chip that NatSem denies exists.
@@ -34,10 +30,6 @@
  */
 #include <asm/superio.h>
 
-static unsigned long superio_ide_status[2];
-static unsigned long superio_ide_select[2];
-static unsigned long superio_ide_dma_status[2];
-
 #define SUPERIO_IDE_MAX_RETRIES 25
 
 /* Because of a defect in Super I/O, all reads of the PCI DMA status 
@@ -46,57 +38,100 @@ static unsigned long superio_ide_dma_status[2];
  */
 static u8 superio_ide_inb (unsigned long port)
 {
-	if (port == superio_ide_status[0] ||
-	    port == superio_ide_status[1] ||
-	    port == superio_ide_select[0] ||
-	    port == superio_ide_select[1] ||
-	    port == superio_ide_dma_status[0] ||
-	    port == superio_ide_dma_status[1]) {
-		u8 tmp;
-		int retries = SUPERIO_IDE_MAX_RETRIES;
+	u8 tmp;
+	int retries = SUPERIO_IDE_MAX_RETRIES;
 
-		/* printk(" [ reading port 0x%x with retry ] ", port); */
+	/* printk(" [ reading port 0x%x with retry ] ", port); */
 
-		do {
-			tmp = inb(port);
-			if (tmp == 0)
-				udelay(50);
-		} while (tmp == 0 && retries-- > 0);
+	do {
+		tmp = inb(port);
+		if (tmp == 0)
+			udelay(50);
+	} while (tmp == 0 && retries-- > 0);
 
-		return tmp;
-	}
-
-	return inb(port);
+	return tmp;
 }
 
-static void __devinit superio_ide_init_iops (struct hwif_s *hwif)
+static u8 superio_read_status(ide_hwif_t *hwif)
 {
-	u32 base, dmabase;
-	u8 tmp;
-	struct pci_dev *pdev = hwif->pci_dev;
-	u8 port = hwif->channel;
+	return superio_ide_inb(hwif->io_ports.status_addr);
+}
 
-	base = pci_resource_start(pdev, port * 2) & ~3;
-	dmabase = pci_resource_start(pdev, 4) & ~3;
+static u8 superio_read_sff_dma_status(ide_hwif_t *hwif)
+{
+	return superio_ide_inb(hwif->dma_base + ATA_DMA_STATUS);
+}
 
-	superio_ide_status[port] = base + IDE_STATUS_OFFSET;
-	superio_ide_select[port] = base + IDE_SELECT_OFFSET;
-	superio_ide_dma_status[port] = dmabase + (!port ? 2 : 0xa);
+static void superio_tf_read(ide_drive_t *drive, ide_task_t *task)
+{
+	struct ide_io_ports *io_ports = &drive->hwif->io_ports;
+	struct ide_taskfile *tf = &task->tf;
+
+	if (task->tf_flags & IDE_TFLAG_IN_DATA) {
+		u16 data = inw(io_ports->data_addr);
+
+		tf->data = data & 0xff;
+		tf->hob_data = (data >> 8) & 0xff;
+	}
+
+	/* be sure we're looking at the low order bits */
+	outb(ATA_DEVCTL_OBS & ~0x80, io_ports->ctl_addr);
+
+	if (task->tf_flags & IDE_TFLAG_IN_FEATURE)
+		tf->feature = inb(io_ports->feature_addr);
+	if (task->tf_flags & IDE_TFLAG_IN_NSECT)
+		tf->nsect  = inb(io_ports->nsect_addr);
+	if (task->tf_flags & IDE_TFLAG_IN_LBAL)
+		tf->lbal   = inb(io_ports->lbal_addr);
+	if (task->tf_flags & IDE_TFLAG_IN_LBAM)
+		tf->lbam   = inb(io_ports->lbam_addr);
+	if (task->tf_flags & IDE_TFLAG_IN_LBAH)
+		tf->lbah   = inb(io_ports->lbah_addr);
+	if (task->tf_flags & IDE_TFLAG_IN_DEVICE)
+		tf->device = superio_ide_inb(io_ports->device_addr);
+
+	if (task->tf_flags & IDE_TFLAG_LBA48) {
+		outb(ATA_DEVCTL_OBS | 0x80, io_ports->ctl_addr);
+
+		if (task->tf_flags & IDE_TFLAG_IN_HOB_FEATURE)
+			tf->hob_feature = inb(io_ports->feature_addr);
+		if (task->tf_flags & IDE_TFLAG_IN_HOB_NSECT)
+			tf->hob_nsect   = inb(io_ports->nsect_addr);
+		if (task->tf_flags & IDE_TFLAG_IN_HOB_LBAL)
+			tf->hob_lbal    = inb(io_ports->lbal_addr);
+		if (task->tf_flags & IDE_TFLAG_IN_HOB_LBAM)
+			tf->hob_lbam    = inb(io_ports->lbam_addr);
+		if (task->tf_flags & IDE_TFLAG_IN_HOB_LBAH)
+			tf->hob_lbah    = inb(io_ports->lbah_addr);
+	}
+}
+
+static const struct ide_tp_ops superio_tp_ops = {
+	.exec_command		= ide_exec_command,
+	.read_status		= superio_read_status,
+	.read_altstatus		= ide_read_altstatus,
+	.read_sff_dma_status	= superio_read_sff_dma_status,
+
+	.set_irq		= ide_set_irq,
+
+	.tf_load		= ide_tf_load,
+	.tf_read		= superio_tf_read,
+
+	.input_data		= ide_input_data,
+	.output_data		= ide_output_data,
+};
+
+static void __devinit superio_init_iops(struct hwif_s *hwif)
+{
+	struct pci_dev *pdev = to_pci_dev(hwif->dev);
+	u32 dma_stat;
+	u8 port = hwif->channel, tmp;
+
+	dma_stat = (pci_resource_start(pdev, 4) & ~3) + (!port ? 2 : 0xa);
 
 	/* Clear error/interrupt, enable dma */
-	tmp = superio_ide_inb(superio_ide_dma_status[port]);
-	outb(tmp | 0x66, superio_ide_dma_status[port]);
-
-	/* We need to override inb to workaround a SuperIO errata */
-	hwif->INB = superio_ide_inb;
-}
-
-static void __devinit init_iops_ns87415(ide_hwif_t *hwif)
-{
-	if (PCI_SLOT(hwif->pci_dev->devfn) == 0xE) {
-		/* Built-in - assume it's under superio. */
-		superio_ide_init_iops(hwif);
-	}
+	tmp = superio_ide_inb(dma_stat);
+	outb(tmp | 0x66, dma_stat);
 }
 #endif
 
@@ -110,8 +145,8 @@ static unsigned int ns87415_count = 0, ns87415_control[MAX_HWIFS] = { 0 };
 static void ns87415_prepare_drive (ide_drive_t *drive, unsigned int use_dma)
 {
 	ide_hwif_t *hwif = HWIF(drive);
+	struct pci_dev *dev = to_pci_dev(hwif->dev);
 	unsigned int bit, other, new, *old = (unsigned int *) hwif->select_data;
-	struct pci_dev *dev = hwif->pci_dev;
 	unsigned long flags;
 
 	local_irq_save(flags);
@@ -156,27 +191,27 @@ static void ns87415_selectproc (ide_drive_t *drive)
 	ns87415_prepare_drive (drive, drive->using_dma);
 }
 
-static int ns87415_ide_dma_end (ide_drive_t *drive)
+static int ns87415_dma_end(ide_drive_t *drive)
 {
 	ide_hwif_t      *hwif = HWIF(drive);
 	u8 dma_stat = 0, dma_cmd = 0;
 
 	drive->waiting_for_dma = 0;
-	dma_stat = hwif->INB(hwif->dma_status);
-	/* get dma command mode */
-	dma_cmd = hwif->INB(hwif->dma_command);
+	dma_stat = hwif->tp_ops->read_sff_dma_status(hwif);
+	/* get DMA command mode */
+	dma_cmd = inb(hwif->dma_base + ATA_DMA_CMD);
 	/* stop DMA */
-	outb(dma_cmd & ~1, hwif->dma_command);
+	outb(dma_cmd & ~1, hwif->dma_base + ATA_DMA_CMD);
 	/* from ERRATA: clear the INTR & ERROR bits */
-	dma_cmd = hwif->INB(hwif->dma_command);
-	outb(dma_cmd | 6, hwif->dma_command);
+	dma_cmd = inb(hwif->dma_base + ATA_DMA_CMD);
+	outb(dma_cmd | 6, hwif->dma_base + ATA_DMA_CMD);
 	/* and free any DMA resources */
 	ide_destroy_dmatable(drive);
 	/* verify good DMA status */
 	return (dma_stat & 7) != 4;
 }
 
-static int ns87415_ide_dma_setup(ide_drive_t *drive)
+static int ns87415_dma_setup(ide_drive_t *drive)
 {
 	/* select DMA xfer */
 	ns87415_prepare_drive(drive, 1);
@@ -189,16 +224,13 @@ static int ns87415_ide_dma_setup(ide_drive_t *drive)
 
 static void __devinit init_hwif_ns87415 (ide_hwif_t *hwif)
 {
-	struct pci_dev *dev = hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(hwif->dev);
 	unsigned int ctrl, using_inta;
 	u8 progif;
 #ifdef __sparc_v9__
 	int timeout;
 	u8 stat;
 #endif
-
-	hwif->autodma = 0;
-	hwif->selectproc = &ns87415_selectproc;
 
 	/*
 	 * We cannot probe for IRQ: both ports share common IRQ on INTA.
@@ -232,16 +264,16 @@ static void __devinit init_hwif_ns87415 (ide_hwif_t *hwif)
 
 #ifdef __sparc_v9__
 		/*
-		 * XXX: Reset the device, if we don't it will not respond
-		 *      to SELECT_DRIVE() properly during first probe_hwif().
+		 * XXX: Reset the device, if we don't it will not respond to
+		 *      SELECT_DRIVE() properly during first ide_probe_port().
 		 */
 		timeout = 10000;
-		outb(12, hwif->io_ports[IDE_CONTROL_OFFSET]);
+		outb(12, hwif->io_ports.ctl_addr);
 		udelay(10);
-		outb(8, hwif->io_ports[IDE_CONTROL_OFFSET]);
+		outb(8, hwif->io_ports.ctl_addr);
 		do {
 			udelay(50);
-			stat = hwif->INB(hwif->io_ports[IDE_STATUS_OFFSET]);
+			stat = hwif->tp_ops->read_status(hwif);
                 	if (stat == 0xff)
                         	break;
         	} while ((stat & BUSY_STAT) && --timeout);
@@ -249,40 +281,56 @@ static void __devinit init_hwif_ns87415 (ide_hwif_t *hwif)
 	}
 
 	if (!using_inta)
-		hwif->irq = ide_default_irq(hwif->io_ports[IDE_DATA_OFFSET]);
+		hwif->irq = __ide_default_irq(hwif->io_ports.data_addr);
 	else if (!hwif->irq && hwif->mate && hwif->mate->irq)
 		hwif->irq = hwif->mate->irq;	/* share IRQ with mate */
 
 	if (!hwif->dma_base)
 		return;
 
-	outb(0x60, hwif->dma_status);
-	hwif->dma_setup = &ns87415_ide_dma_setup;
-	hwif->ide_dma_end = &ns87415_ide_dma_end;
-
-	if (!noautodma)
-		hwif->autodma = 1;
-	hwif->drives[0].autodma = hwif->autodma;
-	hwif->drives[1].autodma = hwif->autodma;
+	outb(0x60, hwif->dma_base + ATA_DMA_STATUS);
 }
 
-static ide_pci_device_t ns87415_chipset __devinitdata = {
-	.name		= "NS87415",
-#ifdef CONFIG_SUPERIO
-	.init_iops	= init_iops_ns87415,
-#endif
+static const struct ide_port_ops ns87415_port_ops = {
+	.selectproc		= ns87415_selectproc,
+};
+
+static const struct ide_dma_ops ns87415_dma_ops = {
+	.dma_host_set		= ide_dma_host_set,
+	.dma_setup		= ns87415_dma_setup,
+	.dma_exec_cmd		= ide_dma_exec_cmd,
+	.dma_start		= ide_dma_start,
+	.dma_end		= ns87415_dma_end,
+	.dma_test_irq		= ide_dma_test_irq,
+	.dma_lost_irq		= ide_dma_lost_irq,
+	.dma_timeout		= ide_dma_timeout,
+};
+
+static const struct ide_port_info ns87415_chipset __devinitdata = {
+	.name		= DRV_NAME,
 	.init_hwif	= init_hwif_ns87415,
-	.autodma	= AUTODMA,
-	.bootable	= ON_BOARD,
+	.port_ops	= &ns87415_port_ops,
+	.dma_ops	= &ns87415_dma_ops,
+	.host_flags	= IDE_HFLAG_TRUST_BIOS_FOR_DMA |
+			  IDE_HFLAG_NO_ATAPI_DMA,
 };
 
 static int __devinit ns87415_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
-	return ide_setup_pci_device(dev, &ns87415_chipset);
+	struct ide_port_info d = ns87415_chipset;
+
+#ifdef CONFIG_SUPERIO
+	if (PCI_SLOT(dev->devfn) == 0xE) {
+		/* Built-in - assume it's under superio. */
+		d.init_iops = superio_init_iops;
+		d.tp_ops = &superio_tp_ops;
+	}
+#endif
+	return ide_pci_init_one(dev, &d, NULL);
 }
 
-static struct pci_device_id ns87415_pci_tbl[] = {
-	{ PCI_VENDOR_ID_NS, PCI_DEVICE_ID_NS_87415, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
+static const struct pci_device_id ns87415_pci_tbl[] = {
+	{ PCI_VDEVICE(NS, PCI_DEVICE_ID_NS_87415), 0 },
 	{ 0, },
 };
 MODULE_DEVICE_TABLE(pci, ns87415_pci_tbl);
@@ -291,6 +339,7 @@ static struct pci_driver driver = {
 	.name		= "NS87415_IDE",
 	.id_table	= ns87415_pci_tbl,
 	.probe		= ns87415_init_one,
+	.remove		= ide_pci_remove,
 };
 
 static int __init ns87415_ide_init(void)
@@ -298,7 +347,13 @@ static int __init ns87415_ide_init(void)
 	return ide_pci_register_driver(&driver);
 }
 
+static void __exit ns87415_ide_exit(void)
+{
+	pci_unregister_driver(&driver);
+}
+
 module_init(ns87415_ide_init);
+module_exit(ns87415_ide_exit);
 
 MODULE_AUTHOR("Mark Lord, Eddie Dost, Andre Hedrick");
 MODULE_DESCRIPTION("PCI driver module for NS87415 IDE");

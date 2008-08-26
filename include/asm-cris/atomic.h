@@ -3,6 +3,8 @@
 #ifndef __ASM_CRIS_ATOMIC__
 #define __ASM_CRIS_ATOMIC__
 
+#include <linux/compiler.h>
+
 #include <asm/system.h>
 #include <asm/arch/atomic.h>
 
@@ -89,7 +91,7 @@ static inline int atomic_inc_return(volatile atomic_t *v)
 	unsigned long flags;
 	int retval;
 	cris_atomic_save(v, flags);
-	retval = (v->counter)++;
+	retval = ++(v->counter);
 	cris_atomic_restore(v, flags);
 	return retval;
 }
@@ -99,7 +101,7 @@ static inline int atomic_dec_return(volatile atomic_t *v)
 	unsigned long flags;
 	int retval;
 	cris_atomic_save(v, flags);
-	retval = (v->counter)--;
+	retval = --(v->counter);
 	cris_atomic_restore(v, flags);
 	return retval;
 }

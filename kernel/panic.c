@@ -19,6 +19,8 @@
 #include <linux/nmi.h>
 #include <linux/kexec.h>
 #include <linux/debug_locks.h>
+#include <linux/random.h>
+#include <linux/kallsyms.h>
 
 int panic_on_oops;
 int tainted;
@@ -56,14 +58,14 @@ EXPORT_SYMBOL(panic_blink);
  *
  *	This function never returns.
  */
- 
+
 NORET_TYPE void panic(const char * fmt, ...)
 {
 	long i;
 	static char buf[1024];
 	va_list args;
 #if defined(CONFIG_S390)
-        unsigned long caller = (unsigned long) __builtin_return_address(0);
+	unsigned long caller = (unsigned long) __builtin_return_address(0);
 #endif
 
 	/*
@@ -128,7 +130,7 @@ NORET_TYPE void panic(const char * fmt, ...)
 	}
 #endif
 #if defined(CONFIG_S390)
-        disabled_wait(caller);
+	disabled_wait(caller);
 #endif
 	local_irq_enable();
 	for (i = 0;;) {
@@ -148,26 +150,30 @@ EXPORT_SYMBOL(panic);
  *  'F' - Module has been forcibly loaded.
  *  'S' - SMP with CPUs not designed for SMP.
  *  'R' - User forced a module unload.
- *  'M' - Machine had a machine check experience.
+ *  'M' - System experienced a machine check exception.
  *  'B' - System has hit bad_page.
  *  'U' - Userspace-defined naughtiness.
+ *  'A' - ACPI table overridden.
+ *  'W' - Taint on warning.
  *
  *	The string is overwritten by the next call to print_taint().
  */
- 
+
 const char *print_tainted(void)
 {
 	static char buf[20];
 	if (tainted) {
-		snprintf(buf, sizeof(buf), "Tainted: %c%c%c%c%c%c%c%c",
+		snprintf(buf, sizeof(buf), "Tainted: %c%c%c%c%c%c%c%c%c%c",
 			tainted & TAINT_PROPRIETARY_MODULE ? 'P' : 'G',
 			tainted & TAINT_FORCED_MODULE ? 'F' : ' ',
 			tainted & TAINT_UNSAFE_SMP ? 'S' : ' ',
 			tainted & TAINT_FORCED_RMMOD ? 'R' : ' ',
- 			tainted & TAINT_MACHINE_CHECK ? 'M' : ' ',
+			tainted & TAINT_MACHINE_CHECK ? 'M' : ' ',
 			tainted & TAINT_BAD_PAGE ? 'B' : ' ',
 			tainted & TAINT_USER ? 'U' : ' ',
-			tainted & TAINT_DIE ? 'D' : ' ');
+			tainted & TAINT_DIE ? 'D' : ' ',
+			tainted & TAINT_OVERRIDDEN_ACPI_TABLE ? 'A' : ' ',
+			tainted & TAINT_WARN ? 'W' : ' ');
 	}
 	else
 		snprintf(buf, sizeof(buf), "Not tainted");
@@ -266,13 +272,75 @@ void oops_enter(void)
 }
 
 /*
+ * 64-bit random ID for oopses:
+ */
+static u64 oops_id;
+
+static int init_oops_id(void)
+{
+	if (!oops_id)
+		get_random_bytes(&oops_id, sizeof(oops_id));
+
+	return 0;
+}
+late_initcall(init_oops_id);
+
+static void print_oops_end_marker(void)
+{
+	init_oops_id();
+	printk(KERN_WARNING "---[ end trace %016llx ]---\n",
+		(unsigned long long)oops_id);
+}
+
+/*
  * Called when the architecture exits its oops handler, after printing
  * everything.
  */
 void oops_exit(void)
 {
 	do_oops_enter_exit();
+	print_oops_end_marker();
 }
+
+#ifdef WANT_WARN_ON_SLOWPATH
+void warn_on_slowpath(const char *file, int line)
+{
+	char function[KSYM_SYMBOL_LEN];
+	unsigned long caller = (unsigned long) __builtin_return_address(0);
+	sprint_symbol(function, caller);
+
+	printk(KERN_WARNING "------------[ cut here ]------------\n");
+	printk(KERN_WARNING "WARNING: at %s:%d %s()\n", file,
+		line, function);
+	print_modules();
+	dump_stack();
+	print_oops_end_marker();
+	add_taint(TAINT_WARN);
+}
+EXPORT_SYMBOL(warn_on_slowpath);
+
+
+void warn_slowpath(const char *file, int line, const char *fmt, ...)
+{
+	va_list args;
+	char function[KSYM_SYMBOL_LEN];
+	unsigned long caller = (unsigned long)__builtin_return_address(0);
+	sprint_symbol(function, caller);
+
+	printk(KERN_WARNING "------------[ cut here ]------------\n");
+	printk(KERN_WARNING "WARNING: at %s:%d %s()\n", file,
+		line, function);
+	va_start(args, fmt);
+	vprintk(fmt, args);
+	va_end(args);
+
+	print_modules();
+	dump_stack();
+	print_oops_end_marker();
+	add_taint(TAINT_WARN);
+}
+EXPORT_SYMBOL(warn_slowpath);
+#endif
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 /*

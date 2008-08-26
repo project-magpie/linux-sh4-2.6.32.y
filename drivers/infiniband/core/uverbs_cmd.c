@@ -31,8 +31,6 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
- *
- * $Id: uverbs_cmd.c 2708 2005-06-24 17:27:21Z roland $
  */
 
 #include <linux/file.h>
@@ -147,8 +145,12 @@ static struct ib_uobject *__idr_get_uobj(struct idr *idr, int id,
 
 	spin_lock(&ib_uverbs_idr_lock);
 	uobj = idr_find(idr, id);
-	if (uobj)
-		kref_get(&uobj->ref);
+	if (uobj) {
+		if (uobj->context == context)
+			kref_get(&uobj->ref);
+		else
+			uobj = NULL;
+	}
 	spin_unlock(&ib_uverbs_idr_lock);
 
 	return uobj;
@@ -915,7 +917,7 @@ ssize_t ib_uverbs_poll_cq(struct ib_uverbs_file *file,
 		resp->wc[i].opcode 	   = wc[i].opcode;
 		resp->wc[i].vendor_err 	   = wc[i].vendor_err;
 		resp->wc[i].byte_len 	   = wc[i].byte_len;
-		resp->wc[i].imm_data 	   = (__u32 __force) wc[i].imm_data;
+		resp->wc[i].ex.imm_data    = (__u32 __force) wc[i].ex.imm_data;
 		resp->wc[i].qp_num 	   = wc[i].qp->qp_num;
 		resp->wc[i].src_qp 	   = wc[i].src_qp;
 		resp->wc[i].wc_flags 	   = wc[i].wc_flags;
@@ -1061,6 +1063,7 @@ ssize_t ib_uverbs_create_qp(struct ib_uverbs_file *file,
 	attr.srq           = srq;
 	attr.sq_sig_type   = cmd.sq_sig_all ? IB_SIGNAL_ALL_WR : IB_SIGNAL_REQ_WR;
 	attr.qp_type       = cmd.qp_type;
+	attr.create_flags  = 0;
 
 	attr.cap.max_send_wr     = cmd.max_send_wr;
 	attr.cap.max_recv_wr     = cmd.max_recv_wr;
@@ -1458,7 +1461,6 @@ ssize_t ib_uverbs_post_send(struct ib_uverbs_file *file,
 		next->num_sge    = user_wr->num_sge;
 		next->opcode     = user_wr->opcode;
 		next->send_flags = user_wr->send_flags;
-		next->imm_data   = (__be32 __force) user_wr->imm_data;
 
 		if (is_ud) {
 			next->wr.ud.ah = idr_read_ah(user_wr->wr.ud.ah,
@@ -1471,13 +1473,23 @@ ssize_t ib_uverbs_post_send(struct ib_uverbs_file *file,
 			next->wr.ud.remote_qkey = user_wr->wr.ud.remote_qkey;
 		} else {
 			switch (next->opcode) {
-			case IB_WR_RDMA_WRITE:
 			case IB_WR_RDMA_WRITE_WITH_IMM:
+				next->ex.imm_data =
+					(__be32 __force) user_wr->ex.imm_data;
+			case IB_WR_RDMA_WRITE:
 			case IB_WR_RDMA_READ:
 				next->wr.rdma.remote_addr =
 					user_wr->wr.rdma.remote_addr;
 				next->wr.rdma.rkey        =
 					user_wr->wr.rdma.rkey;
+				break;
+			case IB_WR_SEND_WITH_IMM:
+				next->ex.imm_data =
+					(__be32 __force) user_wr->ex.imm_data;
+				break;
+			case IB_WR_SEND_WITH_INV:
+				next->ex.invalidate_rkey =
+					user_wr->ex.invalidate_rkey;
 				break;
 			case IB_WR_ATOMIC_CMP_AND_SWP:
 			case IB_WR_ATOMIC_FETCH_AND_ADD:

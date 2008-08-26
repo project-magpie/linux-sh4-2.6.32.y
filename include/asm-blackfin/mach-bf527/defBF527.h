@@ -32,12 +32,12 @@
 #define _DEF_BF527_H
 
 /* Include all Core registers and bit definitions */
-#include <def_LPBlackfin.h>
+#include <asm/mach-common/def_LPBlackfin.h>
 
 /* SYSTEM & MMR ADDRESS DEFINITIONS FOR ADSP-BF527 */
 
 /* Include defBF52x_base.h for the set of #defines that are common to all ADSP-BF52x processors */
-#include <defBF52x_base.h>
+#include "defBF52x_base.h"
 
 /* The following are the #defines needed by ADSP-BF527 that are not in the common header */
 /* 10/100 Ethernet Controller	(0xFFC03000 - 0xFFC031FF) */
@@ -302,6 +302,7 @@
 #define	PHYIE             0x00000001    /* PHY_INT Interrupt Enable                               */
 #define	RXDWA             0x00000002    /* Receive Frame DMA Word Alignment (Odd/Even*)           */
 #define	RXCKS             0x00000004    /* Enable RX Frame TCP/UDP Checksum Computation           */
+#define	TXDWA             0x00000010    /* Transmit Frame DMA Word Alignment (Odd/Even*)          */
 #define	MDCDIV            0x00003F00    /* SCLK:MDC Clock Divisor [MDC=SCLK/(2*(N+1))]            */
 
 #define	SET_MDCDIV(x) (((x)&0x3F)<< 8)   /* Set MDC Clock Divisor                                 */

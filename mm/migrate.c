@@ -9,7 +9,7 @@
  * IWAMOTO Toshihiro <iwamoto@valinux.co.jp>
  * Hirokazu Takahashi <taka@valinux.co.jp>
  * Dave Hansen <haveblue@us.ibm.com>
- * Christoph Lameter <clameter@sgi.com>
+ * Christoph Lameter
  */
 
 #include <linux/migrate.h>
@@ -19,6 +19,7 @@
 #include <linux/pagemap.h>
 #include <linux/buffer_head.h>
 #include <linux/mm_inline.h>
+#include <linux/nsproxy.h>
 #include <linux/pagevec.h>
 #include <linux/rmap.h>
 #include <linux/topology.h>
@@ -28,6 +29,8 @@
 #include <linux/mempolicy.h>
 #include <linux/vmalloc.h>
 #include <linux/security.h>
+#include <linux/memcontrol.h>
+#include <linux/syscalls.h>
 
 #include "internal.h"
 
@@ -114,11 +117,6 @@ int putback_lru_pages(struct list_head *l)
 	return count;
 }
 
-static inline int is_swap_pte(pte_t pte)
-{
-	return !pte_none(pte) && !pte_present(pte) && !pte_file(pte);
-}
-
 /*
  * Restore a potential migration pte to a working pte entry
  */
@@ -167,10 +165,25 @@ static void remove_migration_pte(struct vm_area_struct *vma,
 	if (!is_migration_entry(entry) || migration_entry_to_page(entry) != old)
 		goto out;
 
+	/*
+	 * Yes, ignore the return value from a GFP_ATOMIC mem_cgroup_charge.
+	 * Failure is not an option here: we're now expected to remove every
+	 * migration pte, and will cause crashes otherwise.  Normally this
+	 * is not an issue: mem_cgroup_prepare_migration bumped up the old
+	 * page_cgroup count for safety, that's now attached to the new page,
+	 * so this charge should just be another incrementation of the count,
+	 * to keep in balance with rmap.c's mem_cgroup_uncharging.  But if
+	 * there's been a force_empty, those reference counts may no longer
+	 * be reliable, and this charge can actually fail: oh well, we don't
+	 * make the situation any worse by proceeding as if it had succeeded.
+	 */
+	mem_cgroup_charge(new, mm, GFP_ATOMIC);
+
 	get_page(new);
 	pte = pte_mkold(mk_pte(new, vma->vm_page_prot));
 	if (is_write_migration_entry(entry))
 		pte = pte_mkwrite(pte);
+	flush_cache_page(vma, addr, pte_pfn(pte));
 	set_pte_at(mm, addr, ptep, pte);
 
 	if (PageAnon(new))
@@ -180,7 +193,6 @@ static void remove_migration_pte(struct vm_area_struct *vma,
 
 	/* No need to invalidate - it was non-present before */
 	update_mmu_cache(vma, addr, pte);
-	lazy_mmu_prot_update(pte);
 
 out:
 	pte_unmap_unlock(ptep, ptl);
@@ -273,7 +285,15 @@ void migration_entry_wait(struct mm_struct *mm, pmd_t *pmd,
 
 	page = migration_entry_to_page(entry);
 
-	get_page(page);
+	/*
+	 * Once radix-tree replacement of page migration started, page_count
+	 * *must* be zero. And, we don't want to call wait_on_page_locked()
+	 * against a page without get_page().
+	 * So, we use get_page_unless_zero(), here. Even failed, page fault
+	 * will occur again.
+	 */
+	if (!get_page_unless_zero(page))
+		goto out;
 	pte_unmap_unlock(ptep, ptl);
 	wait_on_page_locked(page);
 	put_page(page);
@@ -293,6 +313,7 @@ out:
 static int migrate_page_move_mapping(struct address_space *mapping,
 		struct page *newpage, struct page *page)
 {
+	int expected_count;
 	void **pslot;
 
 	if (!mapping) {
@@ -302,14 +323,20 @@ static int migrate_page_move_mapping(struct address_space *mapping,
 		return 0;
 	}
 
-	write_lock_irq(&mapping->tree_lock);
+	spin_lock_irq(&mapping->tree_lock);
 
 	pslot = radix_tree_lookup_slot(&mapping->page_tree,
  					page_index(page));
 
-	if (page_count(page) != 2 + !!PagePrivate(page) ||
+	expected_count = 2 + !!PagePrivate(page);
+	if (page_count(page) != expected_count ||
 			(struct page *)radix_tree_deref_slot(pslot) != page) {
-		write_unlock_irq(&mapping->tree_lock);
+		spin_unlock_irq(&mapping->tree_lock);
+		return -EAGAIN;
+	}
+
+	if (!page_freeze_refs(page, expected_count)) {
+		spin_unlock_irq(&mapping->tree_lock);
 		return -EAGAIN;
 	}
 
@@ -326,6 +353,7 @@ static int migrate_page_move_mapping(struct address_space *mapping,
 
 	radix_tree_replace_slot(pslot, newpage);
 
+	page_unfreeze_refs(page, expected_count);
 	/*
 	 * Drop cache reference from old page.
 	 * We know this isn't the last reference.
@@ -345,7 +373,9 @@ static int migrate_page_move_mapping(struct address_space *mapping,
 	__dec_zone_page_state(page, NR_FILE_PAGES);
 	__inc_zone_page_state(newpage, NR_FILE_PAGES);
 
-	write_unlock_irq(&mapping->tree_lock);
+	spin_unlock_irq(&mapping->tree_lock);
+	if (!PageSwapCache(newpage))
+		mem_cgroup_uncharge_cache_page(page);
 
 	return 0;
 }
@@ -372,7 +402,14 @@ static void migrate_page_copy(struct page *newpage, struct page *page)
 
 	if (PageDirty(page)) {
 		clear_page_dirty_for_io(page);
-		set_page_dirty(newpage);
+		/*
+		 * Want to mark the page and the radix tree as dirty, and
+		 * redo the accounting that clear_page_dirty_for_io undid,
+		 * but we can't use set_page_dirty because that function
+		 * is actually a signal that all of the page has become dirty.
+		 * Wheras only part of our page may be dirty.
+		 */
+		__set_page_dirty_nobuffers(newpage);
  	}
 
 #ifdef CONFIG_SWAP
@@ -591,9 +628,9 @@ static int move_to_new_page(struct page *newpage, struct page *page)
 	else
 		rc = fallback_migrate_page(mapping, newpage, page);
 
-	if (!rc)
+	if (!rc) {
 		remove_migration_ptes(page, newpage);
-	else
+	} else
 		newpage->mapping = NULL;
 
 	unlock_page(newpage);
@@ -612,6 +649,7 @@ static int unmap_and_move(new_page_t get_new_page, unsigned long private,
 	int *result = NULL;
 	struct page *newpage = get_new_page(page, private, &result);
 	int rcu_locked = 0;
+	int charge = 0;
 
 	if (!newpage)
 		return -ENOMEM;
@@ -619,6 +657,14 @@ static int unmap_and_move(new_page_t get_new_page, unsigned long private,
 	if (page_count(page) == 1)
 		/* page was freed from under us. So we are done. */
 		goto move_newpage;
+
+	charge = mem_cgroup_prepare_migration(page, newpage);
+	if (charge == -ENOMEM) {
+		rc = -ENOMEM;
+		goto move_newpage;
+	}
+	/* prepare cgroup just returns 0 or -ENOMEM */
+	BUG_ON(charge);
 
 	rc = -EAGAIN;
 	if (TestSetPageLocked(page)) {
@@ -644,15 +690,33 @@ static int unmap_and_move(new_page_t get_new_page, unsigned long private,
 		rcu_read_lock();
 		rcu_locked = 1;
 	}
+
 	/*
-	 * This is a corner case handling.
-	 * When a new swap-cache is read into, it is linked to LRU
-	 * and treated as swapcache but has no rmap yet.
-	 * Calling try_to_unmap() against a page->mapping==NULL page is
-	 * BUG. So handle it here.
+	 * Corner case handling:
+	 * 1. When a new swap-cache page is read into, it is added to the LRU
+	 * and treated as swapcache but it has no rmap yet.
+	 * Calling try_to_unmap() against a page->mapping==NULL page will
+	 * trigger a BUG.  So handle it here.
+	 * 2. An orphaned page (see truncate_complete_page) might have
+	 * fs-private metadata. The page can be picked up due to memory
+	 * offlining.  Everywhere else except page reclaim, the page is
+	 * invisible to the vm, so the page can not be migrated.  So try to
+	 * free the metadata, so the page can be freed.
 	 */
-	if (!page->mapping)
+	if (!page->mapping) {
+		if (!PageAnon(page) && PagePrivate(page)) {
+			/*
+			 * Go direct to try_to_free_buffers() here because
+			 * a) that's what try_to_release_page() would do anyway
+			 * b) we may be under rcu_read_lock() here, so we can't
+			 *    use GFP_KERNEL which is what try_to_release_page()
+			 *    needs to be effective.
+			 */
+			try_to_free_buffers(page);
+		}
 		goto rcu_unlock;
+	}
+
 	/* Establish migration ptes or remove ptes */
 	try_to_unmap(page, 1);
 
@@ -681,6 +745,8 @@ unlock:
 	}
 
 move_newpage:
+	if (!charge)
+		mem_cgroup_end_migration(newpage);
 	/*
 	 * Move the new page to the LRU. If migration was not successful
 	 * then this will free the page.
@@ -705,7 +771,7 @@ move_newpage:
  * The function returns after 10 attempts or if no pages
  * are movable anymore because to has become empty
  * or no retryable pages exist anymore. All pages will be
- * retruned to the LRU or freed.
+ * returned to the LRU or freed.
  *
  * Return: Number of pages not migrated or error code.
  */
@@ -822,6 +888,11 @@ static int do_move_pages(struct mm_struct *mm, struct page_to_node *pm,
 			goto set_status;
 
 		page = follow_page(vma, pp->addr, FOLL_GET);
+
+		err = PTR_ERR(page);
+		if (IS_ERR(page))
+			goto set_status;
+
 		err = -ENOENT;
 		if (!page)
 			goto set_status;
@@ -885,6 +956,11 @@ static int do_pages_stat(struct mm_struct *mm, struct page_to_node *pm)
 			goto set_status;
 
 		page = follow_page(vma, pm->addr, 0);
+
+		err = PTR_ERR(page);
+		if (IS_ERR(page))
+			goto set_status;
+
 		err = -ENOENT;
 		/* Use PageReserved to check for zero page */
 		if (!page || PageReserved(page))
@@ -924,7 +1000,7 @@ asmlinkage long sys_move_pages(pid_t pid, unsigned long nr_pages,
 
 	/* Find the mm_struct */
 	read_lock(&tasklist_lock);
-	task = pid ? find_task_by_pid(pid) : current;
+	task = pid ? find_task_by_vpid(pid) : current;
 	if (!task) {
 		read_unlock(&tasklist_lock);
 		return -ESRCH;
@@ -972,7 +1048,7 @@ asmlinkage long sys_move_pages(pid_t pid, unsigned long nr_pages,
 	 * array. Return various errors if the user did something wrong.
 	 */
 	for (i = 0; i < nr_pages; i++) {
-		const void *p;
+		const void __user *p;
 
 		err = -EFAULT;
 		if (get_user(p, pages + i))
@@ -986,7 +1062,7 @@ asmlinkage long sys_move_pages(pid_t pid, unsigned long nr_pages,
 				goto out;
 
 			err = -ENODEV;
-			if (!node_online(node))
+			if (!node_state(node, N_HIGH_MEMORY))
 				goto out;
 
 			err = -EACCES;
@@ -1017,7 +1093,6 @@ out2:
 	mmput(mm);
 	return err;
 }
-#endif
 
 /*
  * Call migration functions in the vma_ops that may prepare
@@ -1039,3 +1114,4 @@ int migrate_vmas(struct mm_struct *mm, const nodemask_t *to,
  	}
  	return err;
 }
+#endif

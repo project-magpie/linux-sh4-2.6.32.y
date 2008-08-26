@@ -31,7 +31,8 @@
  * each (assuming 8KB page size), for a total of 8TB of user virtual
  * address space.
  */
-#define TASK_SIZE		(current->thread.task_size)
+#define TASK_SIZE_OF(tsk)	((tsk)->thread.task_size)
+#define TASK_SIZE       	TASK_SIZE_OF(current)
 
 /*
  * This decides where the kernel will search for a free chunk of vm
@@ -116,6 +117,69 @@ struct ia64_psr {
 	__u64 ed : 1;
 	__u64 bn : 1;
 	__u64 reserved4 : 19;
+};
+
+union ia64_isr {
+	__u64  val;
+	struct {
+		__u64 code : 16;
+		__u64 vector : 8;
+		__u64 reserved1 : 8;
+		__u64 x : 1;
+		__u64 w : 1;
+		__u64 r : 1;
+		__u64 na : 1;
+		__u64 sp : 1;
+		__u64 rs : 1;
+		__u64 ir : 1;
+		__u64 ni : 1;
+		__u64 so : 1;
+		__u64 ei : 2;
+		__u64 ed : 1;
+		__u64 reserved2 : 20;
+	};
+};
+
+union ia64_lid {
+	__u64 val;
+	struct {
+		__u64  rv  : 16;
+		__u64  eid : 8;
+		__u64  id  : 8;
+		__u64  ig  : 32;
+	};
+};
+
+union ia64_tpr {
+	__u64 val;
+	struct {
+		__u64 ig0 : 4;
+		__u64 mic : 4;
+		__u64 rsv : 8;
+		__u64 mmi : 1;
+		__u64 ig1 : 47;
+	};
+};
+
+union ia64_itir {
+	__u64 val;
+	struct {
+		__u64 rv3  :  2; /* 0-1 */
+		__u64 ps   :  6; /* 2-7 */
+		__u64 key  : 24; /* 8-31 */
+		__u64 rv4  : 32; /* 32-63 */
+	};
+};
+
+union  ia64_rr {
+	__u64 val;
+	struct {
+		__u64  ve	:  1;  /* enable hw walker */
+		__u64  reserved0:  1;  /* reserved */
+		__u64  ps	:  6;  /* log page size */
+		__u64  rid	: 24;  /* region id */
+		__u64  reserved1: 32;  /* reserved */
+	};
 };
 
 /*
@@ -472,7 +536,7 @@ ia64_set_psr (__u64 psr)
 {
 	ia64_stop();
 	ia64_setreg(_IA64_REG_PSR_L, psr);
-	ia64_srlz_d();
+	ia64_srlz_i();
 }
 
 /*
@@ -699,6 +763,8 @@ prefetchw (const void *x)
 #define spin_lock_prefetch(x)	prefetchw(x)
 
 extern unsigned long boot_option_idle_override;
+extern unsigned long idle_halt;
+extern unsigned long idle_nomwait;
 
 #endif /* !__ASSEMBLY__ */
 

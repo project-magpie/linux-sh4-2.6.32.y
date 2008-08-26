@@ -14,6 +14,7 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/smp_lock.h>
 #include <linux/types.h>
 #include <linux/miscdevice.h>
 #include <linux/major.h>
@@ -193,6 +194,7 @@ static int hpet_open(struct inode *inode, struct file *file)
 	if (file->f_mode & FMODE_WRITE)
 		return -EINVAL;
 
+	lock_kernel();
 	spin_lock_irq(&hpet_lock);
 
 	for (devp = NULL, hpetp = hpets; hpetp && !devp; hpetp = hpetp->hp_next)
@@ -207,6 +209,7 @@ static int hpet_open(struct inode *inode, struct file *file)
 
 	if (!devp) {
 		spin_unlock_irq(&hpet_lock);
+		unlock_kernel();
 		return -EBUSY;
 	}
 
@@ -214,6 +217,7 @@ static int hpet_open(struct inode *inode, struct file *file)
 	devp->hd_irqdata = 0;
 	devp->hd_flags |= HPET_OPEN;
 	spin_unlock_irq(&hpet_lock);
+	unlock_kernel();
 
 	return 0;
 }
@@ -308,7 +312,7 @@ static int hpet_mmap(struct file *file, struct vm_area_struct *vma)
 	if (io_remap_pfn_range(vma, vma->vm_start, addr >> PAGE_SHIFT,
 					PAGE_SIZE, vma->vm_page_prot)) {
 		printk(KERN_ERR "%s: io_remap_pfn_range failed\n",
-			__FUNCTION__);
+			__func__);
 		return -EAGAIN;
 	}
 
@@ -600,63 +604,6 @@ static int hpet_is_known(struct hpet_data *hdp)
 	return 0;
 }
 
-EXPORT_SYMBOL(hpet_alloc);
-EXPORT_SYMBOL(hpet_register);
-EXPORT_SYMBOL(hpet_unregister);
-EXPORT_SYMBOL(hpet_control);
-
-int hpet_register(struct hpet_task *tp, int periodic)
-{
-	unsigned int i;
-	u64 mask;
-	struct hpet_timer __iomem *timer;
-	struct hpet_dev *devp;
-	struct hpets *hpetp;
-
-	switch (periodic) {
-	case 1:
-		mask = Tn_PER_INT_CAP_MASK;
-		break;
-	case 0:
-		mask = 0;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	tp->ht_opaque = NULL;
-
-	spin_lock_irq(&hpet_task_lock);
-	spin_lock(&hpet_lock);
-
-	for (devp = NULL, hpetp = hpets; hpetp && !devp; hpetp = hpetp->hp_next)
-		for (timer = hpetp->hp_hpet->hpet_timers, i = 0;
-		     i < hpetp->hp_ntimer; i++, timer++) {
-			if ((readq(&timer->hpet_config) & Tn_PER_INT_CAP_MASK)
-			    != mask)
-				continue;
-
-			devp = &hpetp->hp_dev[i];
-
-			if (devp->hd_flags & HPET_OPEN || devp->hd_task) {
-				devp = NULL;
-				continue;
-			}
-
-			tp->ht_opaque = devp;
-			devp->hd_task = tp;
-			break;
-		}
-
-	spin_unlock(&hpet_lock);
-	spin_unlock_irq(&hpet_task_lock);
-
-	if (tp->ht_opaque)
-		return 0;
-	else
-		return -EBUSY;
-}
-
 static inline int hpet_tpcheck(struct hpet_task *tp)
 {
 	struct hpet_dev *devp;
@@ -676,6 +623,7 @@ static inline int hpet_tpcheck(struct hpet_task *tp)
 	return -ENXIO;
 }
 
+#if 0
 int hpet_unregister(struct hpet_task *tp)
 {
 	struct hpet_dev *devp;
@@ -705,24 +653,7 @@ int hpet_unregister(struct hpet_task *tp)
 
 	return 0;
 }
-
-int hpet_control(struct hpet_task *tp, unsigned int cmd, unsigned long arg)
-{
-	struct hpet_dev *devp;
-	int err;
-
-	if ((err = hpet_tpcheck(tp)))
-		return err;
-
-	spin_lock_irq(&hpet_lock);
-	devp = tp->ht_opaque;
-	if (devp->hd_task != tp) {
-		spin_unlock_irq(&hpet_lock);
-		return -ENXIO;
-	}
-	spin_unlock_irq(&hpet_lock);
-	return hpet_ioctl_common(devp, cmd, arg, 1);
-}
+#endif  /*  0  */
 
 static ctl_table hpet_table[] = {
 	{
@@ -823,7 +754,7 @@ int hpet_alloc(struct hpet_data *hdp)
 	 */
 	if (hpet_is_known(hdp)) {
 		printk(KERN_DEBUG "%s: duplicate HPET ignored\n",
-			__FUNCTION__);
+			__func__);
 		return 0;
 	}
 
@@ -944,7 +875,7 @@ static acpi_status hpet_resources(struct acpi_resource *res, void *data)
 
 		if (hpet_is_known(hdp)) {
 			printk(KERN_DEBUG "%s: 0x%lx is busy\n",
-				__FUNCTION__, hdp->hd_phys_address);
+				__func__, hdp->hd_phys_address);
 			iounmap(hdp->hd_address);
 			return AE_ALREADY_EXISTS;
 		}
@@ -961,7 +892,7 @@ static acpi_status hpet_resources(struct acpi_resource *res, void *data)
 
 		if (hpet_is_known(hdp)) {
 			printk(KERN_DEBUG "%s: 0x%lx is busy\n",
-				__FUNCTION__, hdp->hd_phys_address);
+				__func__, hdp->hd_phys_address);
 			iounmap(hdp->hd_address);
 			return AE_ALREADY_EXISTS;
 		}
@@ -1000,7 +931,7 @@ static int hpet_acpi_add(struct acpi_device *device)
 		return -ENODEV;
 
 	if (!data.hd_address || !data.hd_nirqs) {
-		printk("%s: no address or irqs in _CRS\n", __FUNCTION__);
+		printk("%s: no address or irqs in _CRS\n", __func__);
 		return -ENODEV;
 	}
 

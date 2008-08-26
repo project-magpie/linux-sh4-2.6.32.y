@@ -24,9 +24,7 @@
  * This read-write spinlock protects us from races in SMP while
  * playing with xtime and avenrun.
  */
-__attribute__((weak)) __cacheline_aligned_in_smp DEFINE_SEQLOCK(xtime_lock);
-
-EXPORT_SYMBOL(xtime_lock);
+__cacheline_aligned_in_smp DEFINE_SEQLOCK(xtime_lock);
 
 
 /*
@@ -47,23 +45,15 @@ EXPORT_SYMBOL(xtime_lock);
 struct timespec xtime __attribute__ ((aligned (16)));
 struct timespec wall_to_monotonic __attribute__ ((aligned (16)));
 static unsigned long total_sleep_time;		/* seconds */
-EXPORT_SYMBOL(xtime);
 
-
-#ifdef CONFIG_NO_HZ
 static struct timespec xtime_cache __attribute__ ((aligned (16)));
-static inline void update_xtime_cache(u64 nsec)
+void update_xtime_cache(u64 nsec)
 {
 	xtime_cache = xtime;
 	timespec_add_ns(&xtime_cache, nsec);
 }
-#else
-#define xtime_cache xtime
-/* We do *not* want to evaluate the argument for this case */
-#define update_xtime_cache(n) do { } while (0)
-#endif
 
-static struct clocksource *clock; /* pointer to current clocksource */
+struct clocksource *clock;
 
 
 #ifdef CONFIG_GENERIC_TIME
@@ -92,13 +82,12 @@ static inline s64 __get_nsec_offset(void)
 }
 
 /**
- * __get_realtime_clock_ts - Returns the time of day in a timespec
+ * getnstimeofday - Returns the time of day in a timespec
  * @ts:		pointer to the timespec to be set
  *
- * Returns the time of day in a timespec. Used by
- * do_gettimeofday() and get_realtime_clock_ts().
+ * Returns the time of day in a timespec.
  */
-static inline void __get_realtime_clock_ts(struct timespec *ts)
+void getnstimeofday(struct timespec *ts)
 {
 	unsigned long seq;
 	s64 nsecs;
@@ -114,30 +103,19 @@ static inline void __get_realtime_clock_ts(struct timespec *ts)
 	timespec_add_ns(ts, nsecs);
 }
 
-/**
- * getnstimeofday - Returns the time of day in a timespec
- * @ts:		pointer to the timespec to be set
- *
- * Returns the time of day in a timespec.
- */
-void getnstimeofday(struct timespec *ts)
-{
-	__get_realtime_clock_ts(ts);
-}
-
 EXPORT_SYMBOL(getnstimeofday);
 
 /**
  * do_gettimeofday - Returns the time of day in a timeval
  * @tv:		pointer to the timeval to be set
  *
- * NOTE: Users should be converted to using get_realtime_clock_ts()
+ * NOTE: Users should be converted to using getnstimeofday()
  */
 void do_gettimeofday(struct timeval *tv)
 {
 	struct timespec now;
 
-	__get_realtime_clock_ts(&now);
+	getnstimeofday(&now);
 	tv->tv_sec = now.tv_sec;
 	tv->tv_usec = now.tv_nsec/1000;
 }
@@ -167,6 +145,7 @@ int do_settimeofday(struct timespec *tv)
 
 	set_normalized_timespec(&xtime, sec, nsec);
 	set_normalized_timespec(&wall_to_monotonic, wtm_sec, wtm_nsec);
+	update_xtime_cache(0);
 
 	clock->error = 0;
 	ntp_clear();
@@ -199,6 +178,7 @@ static void change_clocksource(void)
 	if (clock == new)
 		return;
 
+	new->cycle_last = 0;
 	now = clocksource_read(new);
 	nsec =  __get_nsec_offset();
 	timespec_add_ns(&xtime, nsec);
@@ -212,8 +192,12 @@ static void change_clocksource(void)
 
 	tick_clock_notify();
 
+	/*
+	 * We're holding xtime lock and waking up klogd would deadlock
+	 * us on enqueue.  So no printing!
 	printk(KERN_INFO "Time: %s clocksource has been installed.\n",
 	       clock->name);
+	 */
 }
 #else
 static inline void change_clocksource(void) { }
@@ -221,9 +205,9 @@ static inline s64 __get_nsec_offset(void) { return 0; }
 #endif
 
 /**
- * timekeeping_is_continuous - check to see if timekeeping is free running
+ * timekeeping_valid_for_hres - Check if timekeeping is suitable for hres
  */
-int timekeeping_is_continuous(void)
+int timekeeping_valid_for_hres(void)
 {
 	unsigned long seq;
 	int ret;
@@ -262,7 +246,7 @@ void __init timekeeping_init(void)
 
 	write_seqlock_irqsave(&xtime_lock, flags);
 
-	ntp_clear();
+	ntp_init();
 
 	clock = clocksource_get_next();
 	clocksource_calculate_interval(clock, NTP_INTERVAL_LENGTH);
@@ -272,8 +256,8 @@ void __init timekeeping_init(void)
 	xtime.tv_nsec = 0;
 	set_normalized_timespec(&wall_to_monotonic,
 		-xtime.tv_sec, -xtime.tv_nsec);
+	update_xtime_cache(0);
 	total_sleep_time = 0;
-
 	write_sequnlock_irqrestore(&xtime_lock, flags);
 }
 
@@ -310,7 +294,9 @@ static int timekeeping_resume(struct sys_device *dev)
 	}
 	/* Make sure that we have the correct xtime reference */
 	timespec_add_ns(&xtime, timekeeping_suspend_nsecs);
+	update_xtime_cache(0);
 	/* re-base the last cycle value */
+	clock->cycle_last = 0;
 	clock->cycle_last = clocksource_read(clock);
 	clock->error = 0;
 	timekeeping_suspended = 0;
@@ -345,9 +331,9 @@ static int timekeeping_suspend(struct sys_device *dev, pm_message_t state)
 
 /* sysfs resume/suspend bits for timekeeping */
 static struct sysdev_class timekeeping_sysclass = {
+	.name		= "timekeeping",
 	.resume		= timekeeping_resume,
 	.suspend	= timekeeping_suspend,
-	set_kset_name("timekeeping"),
 };
 
 static struct sys_device device_timer = {
@@ -382,10 +368,10 @@ static __always_inline int clocksource_bigadjust(s64 error, s64 *interval,
 	 * with losing too many ticks, otherwise we would overadjust and
 	 * produce an even larger error.  The smaller the adjustment the
 	 * faster we try to adjust for it, as lost ticks can do less harm
-	 * here.  This is tuned so that an error of about 1 msec is adusted
+	 * here.  This is tuned so that an error of about 1 msec is adjusted
 	 * within about 1 sec (or 2^20 nsec in 2^SHIFT_HZ ticks).
 	 */
-	error2 = clock->error >> (TICK_LENGTH_SHIFT + 22 - 2 * SHIFT_HZ);
+	error2 = clock->error >> (NTP_SCALE_SHIFT + 22 - 2 * SHIFT_HZ);
 	error2 = abs(error2);
 	for (look_ahead = 0; error2 > 0; look_ahead++)
 		error2 >>= 2;
@@ -394,8 +380,7 @@ static __always_inline int clocksource_bigadjust(s64 error, s64 *interval,
 	 * Now calculate the error in (1 << look_ahead) ticks, but first
 	 * remove the single look ahead already included in the error.
 	 */
-	tick_error = current_tick_length() >>
-		(TICK_LENGTH_SHIFT - clock->shift + 1);
+	tick_error = tick_length >> (NTP_SCALE_SHIFT - clock->shift + 1);
 	tick_error -= clock->xtime_interval >> 1;
 	error = ((error - tick_error) >> look_ahead) + tick_error;
 
@@ -426,7 +411,7 @@ static void clocksource_adjust(s64 offset)
 	s64 error, interval = clock->cycle_interval;
 	int adj;
 
-	error = clock->error >> (TICK_LENGTH_SHIFT - clock->shift - 1);
+	error = clock->error >> (NTP_SCALE_SHIFT - clock->shift - 1);
 	if (error > interval) {
 		error >>= 2;
 		if (likely(error <= interval))
@@ -448,7 +433,7 @@ static void clocksource_adjust(s64 offset)
 	clock->xtime_interval += interval;
 	clock->xtime_nsec -= offset;
 	clock->error -= (interval - offset) <<
-			(TICK_LENGTH_SHIFT - clock->shift);
+			(NTP_SCALE_SHIFT - clock->shift);
 }
 
 /**
@@ -487,8 +472,8 @@ void update_wall_time(void)
 		}
 
 		/* accumulate error between NTP and clock interval */
-		clock->error += current_tick_length();
-		clock->error -= clock->xtime_interval << (TICK_LENGTH_SHIFT - clock->shift);
+		clock->error += tick_length;
+		clock->error -= clock->xtime_interval << (NTP_SCALE_SHIFT - clock->shift);
 	}
 
 	/* correct the clock when NTP error is too big */

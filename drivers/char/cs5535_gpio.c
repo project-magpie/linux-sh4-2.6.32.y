@@ -17,6 +17,7 @@
 #include <linux/cdev.h>
 #include <linux/ioport.h>
 #include <linux/pci.h>
+#include <linux/smp_lock.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
 
@@ -104,6 +105,11 @@ static ssize_t cs5535_gpio_write(struct file *file, const char __user *data,
 		for (j = 0; j < ARRAY_SIZE(rm); j++) {
 			if (c == rm[j].on) {
 				outl(m1, base + rm[j].wr_offset);
+				/* If enabling output, turn off AUX 1 and AUX 2 */
+				if (c == 'O') {
+					outl(m0, base + 0x10);
+					outl(m0, base + 0x14);
+				}
 				break;
 			} else if (c == rm[j].off) {
 				outl(m0, base + rm[j].wr_offset);
@@ -152,6 +158,7 @@ static int cs5535_gpio_open(struct inode *inode, struct file *file)
 {
 	u32 m = iminor(inode);
 
+	cycle_kernel_lock();
 	/* the mask says which pins are usable by this driver */
 	if ((mask & (1 << m)) == 0)
 		return -EINVAL;
@@ -210,7 +217,7 @@ static int __init cs5535_gpio_init(void)
 	else
 		mask = 0x0b003c66;
 
-	if (request_region(gpio_base, CS5535_GPIO_SIZE, NAME) == 0) {
+	if (!request_region(gpio_base, CS5535_GPIO_SIZE, NAME)) {
 		printk(KERN_ERR NAME ": can't allocate I/O for GPIO\n");
 		return -ENODEV;
 	}

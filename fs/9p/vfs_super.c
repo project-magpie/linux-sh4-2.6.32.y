@@ -75,6 +75,7 @@ static int v9fs_set_super(struct super_block *s, void *data)
  * v9fs_fill_super - populate superblock with info
  * @sb: superblock
  * @v9ses: session information
+ * @flags: flags propagated from v9fs_get_sb()
  *
  */
 
@@ -119,6 +120,7 @@ static int v9fs_get_sb(struct file_system_type *fs_type, int flags,
 
 	P9_DPRINTK(P9_DEBUG_VFS, " \n");
 
+	st = NULL;
 	v9ses = kzalloc(sizeof(struct v9fs_session_info), GFP_KERNEL);
 	if (!v9ses)
 		return -ENOMEM;
@@ -126,29 +128,26 @@ static int v9fs_get_sb(struct file_system_type *fs_type, int flags,
 	fid = v9fs_session_init(v9ses, dev_name, data);
 	if (IS_ERR(fid)) {
 		retval = PTR_ERR(fid);
-		fid = NULL;
-		kfree(v9ses);
-		v9ses = NULL;
-		goto error;
+		goto close_session;
 	}
 
 	st = p9_client_stat(fid);
 	if (IS_ERR(st)) {
 		retval = PTR_ERR(st);
-		goto error;
+		goto clunk_fid;
 	}
 
 	sb = sget(fs_type, NULL, v9fs_set_super, v9ses);
 	if (IS_ERR(sb)) {
 		retval = PTR_ERR(sb);
-		goto error;
+		goto free_stat;
 	}
 	v9fs_fill_super(sb, v9ses, flags);
 
 	inode = v9fs_get_inode(sb, S_IFDIR | mode);
 	if (IS_ERR(inode)) {
 		retval = PTR_ERR(inode);
-		goto error;
+		goto release_sb;
 	}
 
 	inode->i_uid = uid;
@@ -157,29 +156,32 @@ static int v9fs_get_sb(struct file_system_type *fs_type, int flags,
 	root = d_alloc_root(inode);
 	if (!root) {
 		retval = -ENOMEM;
-		goto error;
+		goto release_sb;
 	}
 
 	sb->s_root = root;
 	root->d_inode->i_ino = v9fs_qid2ino(&st->qid);
 	v9fs_stat2inode(st, root->d_inode, sb);
 	v9fs_fid_add(root, fid);
+	kfree(st);
 
 	return simple_set_mnt(mnt, sb);
 
-error:
-	if (fid)
-		p9_client_clunk(fid);
-
-	if (v9ses) {
-		v9fs_session_close(v9ses);
-		kfree(v9ses);
-	}
-
+release_sb:
 	if (sb) {
 		up_write(&sb->s_umount);
 		deactivate_super(sb);
 	}
+
+free_stat:
+	kfree(st);
+
+clunk_fid:
+	p9_client_clunk(fid);
+
+close_session:
+	v9fs_session_close(v9ses);
+	kfree(v9ses);
 
 	return retval;
 }
@@ -216,34 +218,16 @@ static int v9fs_show_options(struct seq_file *m, struct vfsmount *mnt)
 {
 	struct v9fs_session_info *v9ses = mnt->mnt_sb->s_fs_info;
 
-	if (v9ses->debug != 0)
-		seq_printf(m, ",debug=%x", v9ses->debug);
-	if (v9ses->port != V9FS_PORT)
-		seq_printf(m, ",port=%u", v9ses->port);
-	if (v9ses->maxdata != 9000)
-		seq_printf(m, ",msize=%u", v9ses->maxdata);
-	if (v9ses->afid != ~0)
-		seq_printf(m, ",afid=%u", v9ses->afid);
-	if (v9ses->proto == PROTO_UNIX)
-		seq_puts(m, ",proto=unix");
-	if (v9ses->extended == 0)
-		seq_puts(m, ",noextend");
-	if (v9ses->nodev == 1)
-		seq_puts(m, ",nodevmap");
-	seq_printf(m, ",name=%s", v9ses->name);
-	seq_printf(m, ",aname=%s", v9ses->remotename);
-	seq_printf(m, ",uid=%u", v9ses->uid);
-	seq_printf(m, ",gid=%u", v9ses->gid);
+	seq_printf(m, "%s", v9ses->options);
 	return 0;
 }
 
 static void
-v9fs_umount_begin(struct vfsmount *vfsmnt, int flags)
+v9fs_umount_begin(struct super_block *sb)
 {
-	struct v9fs_session_info *v9ses = vfsmnt->mnt_sb->s_fs_info;
+	struct v9fs_session_info *v9ses = sb->s_fs_info;
 
-	if (flags & MNT_FORCE)
-		v9fs_session_cancel(v9ses);
+	v9fs_session_cancel(v9ses);
 }
 
 static const struct super_operations v9fs_super_ops = {

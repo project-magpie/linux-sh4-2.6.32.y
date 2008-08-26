@@ -69,6 +69,11 @@ static struct resource imx_uart1_resources[] = {
 		.end	= (UART1_MINT_TX),
 		.flags	= IORESOURCE_IRQ,
 	},
+	[3] = {
+		.start	= UART1_MINT_RTS,
+		.end	= UART1_MINT_RTS,
+		.flags	= IORESOURCE_IRQ,
+	},
 };
 
 static struct platform_device imx_uart1_device = {
@@ -97,6 +102,11 @@ static struct resource imx_uart2_resources[] = {
 		.end	= (UART2_MINT_TX),
 		.flags	= IORESOURCE_IRQ,
 	},
+	[3] = {
+		.start	= UART2_MINT_RTS,
+		.end	= UART2_MINT_RTS,
+		.flags	= IORESOURCE_IRQ,
+	},
 };
 
 static struct platform_device imx_uart2_device = {
@@ -116,7 +126,7 @@ static struct platform_device *devices[] __initdata = {
 };
 
 #ifdef CONFIG_MMC_IMX
-static int mx1ads_mmc_card_present(void)
+static int mx1ads_mmc_card_present(struct device *dev)
 {
 	/* MMC/SD Card Detect is PB 20 on MX1ADS V1.0.7 */
 	return (SSR(1) & (1 << 20) ? 0 : 1);

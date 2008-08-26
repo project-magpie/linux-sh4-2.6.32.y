@@ -38,7 +38,7 @@
 #define MXB_BOARD_CAN_DO_VBI(dev)   (dev->revision != 0)
 
 /* global variable */
-static int mxb_num = 0;
+static int mxb_num;
 
 /* initial frequence the tuner will be tuned to.
    in verden (lower saxony, germany) 4148 is a
@@ -47,7 +47,7 @@ static int freq = 4148;
 module_param(freq, int, 0644);
 MODULE_PARM_DESC(freq, "initial frequency the tuner will be tuned to while setup");
 
-static int debug = 0;
+static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Turn on/off device debugging (default:off).");
 
@@ -149,11 +149,33 @@ struct mxb
 
 static struct saa7146_extension extension;
 
+static int mxb_check_clients(struct device *dev, void *data)
+{
+	struct mxb* mxb = data;
+	struct i2c_client *client = i2c_verify_client(dev);
+
+	if( !client )
+		return 0;
+
+	if( I2C_ADDR_TEA6420_1 == client->addr )
+		mxb->tea6420_1 = client;
+	if( I2C_ADDR_TEA6420_2 == client->addr )
+		mxb->tea6420_2 = client;
+	if( I2C_TEA6415C_2 == client->addr )
+		mxb->tea6415c = client;
+	if( I2C_ADDR_TDA9840 == client->addr )
+		mxb->tda9840 = client;
+	if( I2C_SAA7111 == client->addr )
+		mxb->saa7111a = client;
+	if( 0x60 == client->addr )
+		mxb->tuner = client;
+
+	return 0;
+}
+
 static int mxb_probe(struct saa7146_dev* dev)
 {
 	struct mxb* mxb = NULL;
-	struct i2c_client *client;
-	struct list_head *item;
 	int result;
 
 	if ((result = request_module("saa7111")) < 0) {
@@ -196,26 +218,11 @@ static int mxb_probe(struct saa7146_dev* dev)
 	}
 
 	/* loop through all i2c-devices on the bus and look who is there */
-	list_for_each(item,&mxb->i2c_adapter.clients) {
-		client = list_entry(item, struct i2c_client, list);
-		if( I2C_ADDR_TEA6420_1 == client->addr )
-			mxb->tea6420_1 = client;
-		if( I2C_ADDR_TEA6420_2 == client->addr )
-			mxb->tea6420_2 = client;
-		if( I2C_TEA6415C_2 == client->addr )
-			mxb->tea6415c = client;
-		if( I2C_ADDR_TDA9840 == client->addr )
-			mxb->tda9840 = client;
-		if( I2C_SAA7111 == client->addr )
-			mxb->saa7111a = client;
-		if( 0x60 == client->addr )
-			mxb->tuner = client;
-	}
+	device_for_each_child(&mxb->i2c_adapter.dev, mxb, mxb_check_clients);
 
 	/* check if all devices are present */
-	if(    0 == mxb->tea6420_1	|| 0 == mxb->tea6420_2	|| 0 == mxb->tea6415c
-	    || 0 == mxb->tda9840	|| 0 == mxb->saa7111a	|| 0 == mxb->tuner ) {
-
+	if (!mxb->tea6420_1 || !mxb->tea6420_2 || !mxb->tea6415c ||
+	    !mxb->tda9840 || !mxb->saa7111a || !mxb->tuner) {
 		printk("mxb: did not find all i2c devices. aborting\n");
 		i2c_del_adapter(&mxb->i2c_adapter);
 		kfree(mxb);

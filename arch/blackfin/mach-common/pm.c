@@ -4,7 +4,7 @@
  * Author:       Cliff Brake <cbrake@accelent.com> Copyright (c) 2001
  *
  * Created:      2001
- * Description:  Power management for the bfin
+ * Description:  Blackfin power management
  *
  * Modified:     Nicolas Pitre - PXA250 support
  *                Copyright (c) 2002 Monta Vista Software, Inc.
@@ -12,7 +12,7 @@
  *                Copyright (c) 2002 Monta Vista Software, Inc.
  *               Dirk Behme <dirk.behme@de.bosch.com> - OMAP1510/1610
  *                Copyright 2004
- *               Copyright 2004-2006 Analog Devices Inc.
+ *               Copyright 2004-2008 Analog Devices Inc.
  *
  * Bugs:         Enter bugs at http://blackfin.uclinux.org/
  *
@@ -32,14 +32,15 @@
  * 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <linux/pm.h>
+#include <linux/suspend.h>
 #include <linux/sched.h>
 #include <linux/proc_fs.h>
 #include <linux/io.h>
 #include <linux/irq.h>
 
-#include <asm/dpmc.h>
 #include <asm/gpio.h>
+#include <asm/dma.h>
+#include <asm/dpmc.h>
 
 #ifdef CONFIG_PM_WAKEUP_GPIO_POLAR_H
 #define WAKEUP_TYPE	PM_WAKE_HIGH
@@ -61,56 +62,254 @@
 #define WAKEUP_TYPE	PM_WAKE_BOTH_EDGES
 #endif
 
+
 void bfin_pm_suspend_standby_enter(void)
 {
+	unsigned long flags;
+
 #ifdef CONFIG_PM_WAKEUP_BY_GPIO
 	gpio_pm_wakeup_request(CONFIG_PM_WAKEUP_GPIO_NUMBER, WAKEUP_TYPE);
 #endif
 
-#if defined(CONFIG_PM_WAKEUP_BY_GPIO) || defined(CONFIG_PM_WAKEUP_GPIO_API)
-	{
-		u32 flags;
+	local_irq_save(flags);
+	bfin_pm_standby_setup();
 
-		local_irq_save(flags);
-
-		sleep_deeper(gpio_pm_setup()); /*Goto Sleep*/
-
-		gpio_pm_restore();
-
-		bfin_write_SIC_IWR(IWR_ENABLE_ALL);
-
-		local_irq_restore(flags);
-	}
+#ifdef CONFIG_PM_BFIN_SLEEP_DEEPER
+	sleep_deeper(bfin_sic_iwr[0], bfin_sic_iwr[1], bfin_sic_iwr[2]);
+#else
+	sleep_mode(bfin_sic_iwr[0], bfin_sic_iwr[1], bfin_sic_iwr[2]);
 #endif
 
-#if defined(CONFIG_PM_WAKEUP_GPIO_BY_SIC_IWR)
-	sleep_deeper(CONFIG_PM_WAKEUP_SIC_IWR);
+	bfin_pm_standby_restore();
+
+#if defined(CONFIG_BF54x) || defined(CONFIG_BF52x)  || defined(CONFIG_BF561)
+	bfin_write_SIC_IWR0(IWR_ENABLE_ALL);
+	bfin_write_SIC_IWR1(IWR_ENABLE_ALL);
+# ifdef CONFIG_BF54x
+	bfin_write_SIC_IWR2(IWR_ENABLE_ALL);
+# endif
+#else
 	bfin_write_SIC_IWR(IWR_ENABLE_ALL);
-#endif				/* CONFIG_PM_WAKEUP_GPIO_BY_SIC_IWR */
+#endif
+
+	local_irq_restore(flags);
 }
 
-
-/*
- *	bfin_pm_prepare - Do preliminary suspend work.
- *	@state:		suspend state we're entering.
- *
- */
-static int bfin_pm_prepare(suspend_state_t state)
+int bf53x_suspend_l1_mem(unsigned char *memptr)
 {
-	int error = 0;
+	dma_memcpy(memptr, (const void *) L1_CODE_START, L1_CODE_LENGTH);
+	dma_memcpy(memptr + L1_CODE_LENGTH, (const void *) L1_DATA_A_START,
+			L1_DATA_A_LENGTH);
+	dma_memcpy(memptr + L1_CODE_LENGTH + L1_DATA_A_LENGTH,
+			(const void *) L1_DATA_B_START, L1_DATA_B_LENGTH);
+	memcpy(memptr + L1_CODE_LENGTH + L1_DATA_A_LENGTH +
+			L1_DATA_B_LENGTH, (const void *) L1_SCRATCH_START,
+			L1_SCRATCH_LENGTH);
 
-	switch (state) {
-	case PM_SUSPEND_STANDBY:
-		break;
+	return 0;
+}
 
-	case PM_SUSPEND_MEM:
-		return -ENOTSUPP;
+int bf53x_resume_l1_mem(unsigned char *memptr)
+{
+	dma_memcpy((void *) L1_CODE_START, memptr, L1_CODE_LENGTH);
+	dma_memcpy((void *) L1_DATA_A_START, memptr + L1_CODE_LENGTH,
+			L1_DATA_A_LENGTH);
+	dma_memcpy((void *) L1_DATA_B_START, memptr + L1_CODE_LENGTH +
+			L1_DATA_A_LENGTH, L1_DATA_B_LENGTH);
+	memcpy((void *) L1_SCRATCH_START, memptr + L1_CODE_LENGTH +
+			L1_DATA_A_LENGTH + L1_DATA_B_LENGTH, L1_SCRATCH_LENGTH);
 
-	default:
-		return -EINVAL;
+	return 0;
+}
+
+#ifdef CONFIG_BFIN_WB
+static void flushinv_all_dcache(void)
+{
+	u32 way, bank, subbank, set;
+	u32 status, addr;
+	u32 dmem_ctl = bfin_read_DMEM_CONTROL();
+
+	for (bank = 0; bank < 2; ++bank) {
+		if (!(dmem_ctl & (1 << (DMC1_P - bank))))
+			continue;
+
+		for (way = 0; way < 2; ++way)
+			for (subbank = 0; subbank < 4; ++subbank)
+				for (set = 0; set < 64; ++set) {
+
+					bfin_write_DTEST_COMMAND(
+						way << 26 |
+						bank << 23 |
+						subbank << 16 |
+						set << 5
+					);
+					CSYNC();
+					status = bfin_read_DTEST_DATA0();
+
+					/* only worry about valid/dirty entries */
+					if ((status & 0x3) != 0x3)
+						continue;
+
+					/* construct the address using the tag */
+					addr = (status & 0xFFFFC800) | (subbank << 12) | (set << 5);
+
+					/* flush it */
+					__asm__ __volatile__("FLUSHINV[%0];" : : "a"(addr));
+				}
+	}
+}
+#endif
+
+static inline void dcache_disable(void)
+{
+#ifdef CONFIG_BFIN_DCACHE
+	unsigned long ctrl;
+
+#ifdef CONFIG_BFIN_WB
+	flushinv_all_dcache();
+#endif
+	SSYNC();
+	ctrl = bfin_read_DMEM_CONTROL();
+	ctrl &= ~ENDCPLB;
+	bfin_write_DMEM_CONTROL(ctrl);
+	SSYNC();
+#endif
+}
+
+static inline void dcache_enable(void)
+{
+#ifdef CONFIG_BFIN_DCACHE
+	unsigned long ctrl;
+	SSYNC();
+	ctrl = bfin_read_DMEM_CONTROL();
+	ctrl |= ENDCPLB;
+	bfin_write_DMEM_CONTROL(ctrl);
+	SSYNC();
+#endif
+}
+
+static inline void icache_disable(void)
+{
+#ifdef CONFIG_BFIN_ICACHE
+	unsigned long ctrl;
+	SSYNC();
+	ctrl = bfin_read_IMEM_CONTROL();
+	ctrl &= ~ENICPLB;
+	bfin_write_IMEM_CONTROL(ctrl);
+	SSYNC();
+#endif
+}
+
+static inline void icache_enable(void)
+{
+#ifdef CONFIG_BFIN_ICACHE
+	unsigned long ctrl;
+	SSYNC();
+	ctrl = bfin_read_IMEM_CONTROL();
+	ctrl |= ENICPLB;
+	bfin_write_IMEM_CONTROL(ctrl);
+	SSYNC();
+#endif
+}
+
+int bfin_pm_suspend_mem_enter(void)
+{
+	unsigned long flags;
+	int wakeup, ret;
+
+	unsigned char *memptr = kmalloc(L1_CODE_LENGTH + L1_DATA_A_LENGTH
+					 + L1_DATA_B_LENGTH + L1_SCRATCH_LENGTH,
+					  GFP_KERNEL);
+
+	if (memptr == NULL) {
+		panic("bf53x_suspend_l1_mem malloc failed");
+		return -ENOMEM;
 	}
 
-	return error;
+	wakeup = bfin_read_VR_CTL() & ~FREQ;
+	wakeup |= SCKELOW;
+
+	/* FIXME: merge this somehow with set_irq_wake */
+#ifdef CONFIG_PM_BFIN_WAKE_RTC
+	wakeup |= WAKE;
+#endif
+#ifdef CONFIG_PM_BFIN_WAKE_PH6
+	wakeup |= PHYWE;
+#endif
+#ifdef CONFIG_PM_BFIN_WAKE_CAN
+	wakeup |= CANWE;
+#endif
+#ifdef CONFIG_PM_BFIN_WAKE_GP
+	wakeup |= GPWE;
+#endif
+#ifdef CONFIG_PM_BFIN_WAKE_USB
+	wakeup |= USBWE;
+#endif
+#ifdef CONFIG_PM_BFIN_WAKE_KEYPAD
+	wakeup |= KPADWE;
+#endif
+#ifdef CONFIG_PM_BFIN_WAKE_ROTARY
+	wakeup |= ROTWE;
+#endif
+
+	local_irq_save(flags);
+
+	ret = blackfin_dma_suspend();
+
+	if (ret) {
+		local_irq_restore(flags);
+		kfree(memptr);
+		return ret;
+	}
+
+	bfin_gpio_pm_hibernate_suspend();
+
+	dcache_disable();
+	icache_disable();
+	bf53x_suspend_l1_mem(memptr);
+
+	do_hibernate(wakeup);	/* Goodbye */
+
+	bf53x_resume_l1_mem(memptr);
+
+	icache_enable();
+	dcache_enable();
+
+	bfin_gpio_pm_hibernate_restore();
+	blackfin_dma_resume();
+
+	local_irq_restore(flags);
+	kfree(memptr);
+
+	return 0;
+}
+
+/*
+ *	bfin_pm_valid - Tell the PM core that we only support the standby sleep
+ *			state
+ *	@state:		suspend state we're checking.
+ *
+ */
+static int bfin_pm_valid(suspend_state_t state)
+{
+	return (state == PM_SUSPEND_STANDBY
+#ifndef BF533_FAMILY
+	/*
+	 * On BF533/2/1:
+	 * If we enter Hibernate the SCKE Pin is driven Low,
+	 * so that the SDRAM enters Self Refresh Mode.
+	 * However when the reset sequence that follows hibernate
+	 * state is executed, SCKE is driven High, taking the
+	 * SDRAM out of Self Refresh.
+	 *
+	 * If you reconfigure and access the SDRAM "very quickly",
+	 * you are likely to avoid errors, otherwise the SDRAM
+	 * start losing its contents.
+	 * An external HW workaround is possible using logic gates.
+	 */
+	|| state == PM_SUSPEND_MEM
+#endif
+	);
 }
 
 /*
@@ -124,33 +323,9 @@ static int bfin_pm_enter(suspend_state_t state)
 	case PM_SUSPEND_STANDBY:
 		bfin_pm_suspend_standby_enter();
 		break;
-
 	case PM_SUSPEND_MEM:
-		return -ENOTSUPP;
-
-	default:
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-/*
- *	bfin_pm_finish - Finish up suspend sequence.
- *	@state:		State we're coming out of.
- *
- *	This is called after we wake back up (or if entering the sleep state
- *	failed).
- */
-static int bfin_pm_finish(suspend_state_t state)
-{
-	switch (state) {
-	case PM_SUSPEND_STANDBY:
+		bfin_pm_suspend_mem_enter();
 		break;
-
-	case PM_SUSPEND_MEM:
-		return -ENOTSUPP;
-
 	default:
 		return -EINVAL;
 	}
@@ -158,21 +333,14 @@ static int bfin_pm_finish(suspend_state_t state)
 	return 0;
 }
 
-static int bfin_pm_valid(suspend_state_t state)
-{
-	return (state == PM_SUSPEND_STANDBY);
-}
-
-struct pm_ops bfin_pm_ops = {
-	.prepare = bfin_pm_prepare,
+struct platform_suspend_ops bfin_pm_ops = {
 	.enter = bfin_pm_enter,
-	.finish = bfin_pm_finish,
 	.valid	= bfin_pm_valid,
 };
 
 static int __init bfin_pm_init(void)
 {
-	pm_set_ops(&bfin_pm_ops);
+	suspend_set_ops(&bfin_pm_ops);
 	return 0;
 }
 

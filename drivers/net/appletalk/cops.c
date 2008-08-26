@@ -69,6 +69,7 @@ static const char *version =
 #include <linux/atalk.h>
 #include <linux/spinlock.h>
 #include <linux/bitops.h>
+#include <linux/jiffies.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
@@ -194,10 +195,6 @@ static void cops_timeout(struct net_device *dev);
 static void cops_rx (struct net_device *dev);
 static int  cops_send_packet (struct sk_buff *skb, struct net_device *dev);
 static void set_multicast_list (struct net_device *dev);
-static int  cops_hard_header (struct sk_buff *skb, struct net_device *dev,
-			      unsigned short type, void *daddr, void *saddr, 
-			      unsigned len);
-
 static int  cops_ioctl (struct net_device *dev, struct ifreq *rq, int cmd);
 static int  cops_close (struct net_device *dev);
 static struct net_device_stats *cops_get_stats (struct net_device *dev);
@@ -234,8 +231,6 @@ struct net_device * __init cops_probe(int unit)
 	} else {
 		base_addr = dev->base_addr = io;
 	}
-
-	SET_MODULE_OWNER(dev);
 
 	if (base_addr > 0x1ff) {    /* Check a single specified location. */
 		err = cops_probe1(dev, base_addr);
@@ -333,7 +328,6 @@ static int __init cops_probe1(struct net_device *dev, int ioaddr)
 	dev->base_addr = ioaddr;
 
         lp = netdev_priv(dev);
-        memset(lp, 0, sizeof(struct cops_local));
         spin_lock_init(&lp->lock);
 
 	/* Copy local board variable to lp struct. */
@@ -342,7 +336,7 @@ static int __init cops_probe1(struct net_device *dev, int ioaddr)
 	dev->hard_start_xmit    = cops_send_packet;
 	dev->tx_timeout		= cops_timeout;
 	dev->watchdog_timeo	= HZ * 2;
-	dev->hard_header	= cops_hard_header;
+
         dev->get_stats          = cops_get_stats;
 	dev->open               = cops_open;
         dev->stop               = cops_close;
@@ -505,19 +499,13 @@ static void cops_reset(struct net_device *dev, int sleep)
         {
                 outb(0, ioaddr+DAYNA_RESET);	/* Assert the reset port */
                 inb(ioaddr+DAYNA_RESET);	/* Clear the reset */
-                if(sleep)
-                {
-                        long snap=jiffies;
-
-			/* Let card finish initializing, about 1/3 second */
-	                while(jiffies-snap<HZ/3)
-                                schedule();
-                }
-                else
-                        mdelay(333);
+		if (sleep)
+			msleep(333);
+		else
+			mdelay(333);
         }
+
 	netif_wake_queue(dev);
-	return;
 }
 
 static void cops_load (struct net_device *dev)
@@ -947,19 +935,6 @@ static void set_multicast_list(struct net_device *dev)
 }
 
 /*
- *      Another Dummy function to keep the Appletalk layer happy.
- */
- 
-static int cops_hard_header(struct sk_buff *skb, struct net_device *dev,
-			    unsigned short type, void *daddr, void *saddr, 
-			    unsigned len)
-{
-        if(cops_debug >= 3)
-                printk("%s: cops_hard_header executed. Wow!\n", dev->name);
-        return 0;
-}
-
-/*
  *      System ioctls for the COPS LocalTalk card.
  */
  
@@ -1030,7 +1005,7 @@ module_param(io, int, 0);
 module_param(irq, int, 0);
 module_param(board_type, int, 0);
 
-int __init init_module(void)
+static int __init cops_module_init(void)
 {
 	if (io == 0)
 		printk(KERN_WARNING "%s: You shouldn't autoprobe with insmod\n",
@@ -1041,12 +1016,14 @@ int __init init_module(void)
         return 0;
 }
 
-void __exit cleanup_module(void)
+static void __exit cops_module_exit(void)
 {
 	unregister_netdev(cops_dev);
 	cleanup_card(cops_dev);
 	free_netdev(cops_dev);
 }
+module_init(cops_module_init);
+module_exit(cops_module_exit);
 #endif /* MODULE */
 
 /*

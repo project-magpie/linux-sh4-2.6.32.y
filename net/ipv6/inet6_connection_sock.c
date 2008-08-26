@@ -33,6 +33,10 @@ int inet6_csk_bind_conflict(const struct sock *sk,
 	const struct hlist_node *node;
 
 	/* We must walk the whole port owner list in this case. -DaveM */
+	/*
+	 * See comment in inet_csk_bind_conflict about sock lookup
+	 * vs net namespaces issues.
+	 */
 	sk_for_each_bound(sk2, node, &tb->owners) {
 		if (sk != sk2 &&
 		    (!sk->sk_bound_dev_if ||
@@ -94,7 +98,7 @@ struct request_sock *inet6_csk_search_req(const struct sock *sk,
 		    ipv6_addr_equal(&treq->rmt_addr, raddr) &&
 		    ipv6_addr_equal(&treq->loc_addr, laddr) &&
 		    (!treq->iif || treq->iif == iif)) {
-			BUG_TRAP(req->sk == NULL);
+			WARN_ON(req->sk != NULL);
 			*prevp = prev;
 			return req;
 		}
@@ -139,6 +143,41 @@ void inet6_csk_addr2sockaddr(struct sock *sk, struct sockaddr * uaddr)
 
 EXPORT_SYMBOL_GPL(inet6_csk_addr2sockaddr);
 
+static inline
+void __inet6_csk_dst_store(struct sock *sk, struct dst_entry *dst,
+			   struct in6_addr *daddr, struct in6_addr *saddr)
+{
+	__ip6_dst_store(sk, dst, daddr, saddr);
+
+#ifdef CONFIG_XFRM
+	{
+		struct rt6_info *rt = (struct rt6_info  *)dst;
+		rt->rt6i_flow_cache_genid = atomic_read(&flow_cache_genid);
+	}
+#endif
+}
+
+static inline
+struct dst_entry *__inet6_csk_dst_check(struct sock *sk, u32 cookie)
+{
+	struct dst_entry *dst;
+
+	dst = __sk_dst_check(sk, cookie);
+
+#ifdef CONFIG_XFRM
+	if (dst) {
+		struct rt6_info *rt = (struct rt6_info *)dst;
+		if (rt->rt6i_flow_cache_genid != atomic_read(&flow_cache_genid)) {
+			sk->sk_dst_cache = NULL;
+			dst_release(dst);
+			dst = NULL;
+		}
+	}
+#endif
+
+	return dst;
+}
+
 int inet6_csk_xmit(struct sk_buff *skb, int ipfragok)
 {
 	struct sock *sk = skb->sk;
@@ -166,7 +205,7 @@ int inet6_csk_xmit(struct sk_buff *skb, int ipfragok)
 		final_p = &final;
 	}
 
-	dst = __sk_dst_check(sk, np->dst_cookie);
+	dst = __inet6_csk_dst_check(sk, np->dst_cookie);
 
 	if (dst == NULL) {
 		int err = ip6_dst_lookup(sk, &dst, &fl);
@@ -186,7 +225,7 @@ int inet6_csk_xmit(struct sk_buff *skb, int ipfragok)
 			return err;
 		}
 
-		__ip6_dst_store(sk, dst, NULL, NULL);
+		__inet6_csk_dst_store(sk, dst, NULL, NULL);
 	}
 
 	skb->dst = dst_clone(dst);

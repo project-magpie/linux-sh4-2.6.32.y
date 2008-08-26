@@ -12,14 +12,17 @@
  *      2 of the License, or (at your option) any later version.
  */
 
+#include <linux/lmb.h>
+
 #include <asm/pgtable.h>
 #include <asm/mmu.h>
 #include <asm/mmu_context.h>
 #include <asm/paca.h>
 #include <asm/cputable.h>
-#include <asm/lmb.h>
+#include <asm/prom.h>
 #include <asm/abs_addr.h>
 #include <asm/firmware.h>
+#include <asm/iseries/hv_call.h>
 
 struct stab_entry {
 	unsigned long esid_data;
@@ -27,8 +30,8 @@ struct stab_entry {
 };
 
 #define NR_STAB_CACHE_ENTRIES 8
-DEFINE_PER_CPU(long, stab_cache_ptr);
-DEFINE_PER_CPU(long, stab_cache[NR_STAB_CACHE_ENTRIES]);
+static DEFINE_PER_CPU(long, stab_cache_ptr);
+static DEFINE_PER_CPU(long, stab_cache[NR_STAB_CACHE_ENTRIES]);
 
 /*
  * Create a segment table entry for the given esid/vsid pair.
@@ -122,12 +125,12 @@ static int __ste_allocate(unsigned long ea, struct mm_struct *mm)
 
 	/* Kernel or user address? */
 	if (is_kernel_addr(ea)) {
-		vsid = get_kernel_vsid(ea);
+		vsid = get_kernel_vsid(ea, MMU_SEGSIZE_256M);
 	} else {
 		if ((ea >= TASK_SIZE_USER64) || (! mm))
 			return 1;
 
-		vsid = get_vsid(mm->context.id, ea);
+		vsid = get_vsid(mm->context.id, ea, MMU_SEGSIZE_256M);
 	}
 
 	stab_entry = make_ste(get_paca()->stab_addr, GET_ESID(ea), vsid);
@@ -261,7 +264,7 @@ void __init stabs_alloc(void)
  */
 void stab_initialize(unsigned long stab)
 {
-	unsigned long vsid = get_kernel_vsid(PAGE_OFFSET);
+	unsigned long vsid = get_kernel_vsid(PAGE_OFFSET, MMU_SEGSIZE_256M);
 	unsigned long stabreal;
 
 	asm volatile("isync; slbia; isync":::"memory");

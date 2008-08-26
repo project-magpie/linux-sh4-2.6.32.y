@@ -1,7 +1,6 @@
 /*
- * Copyright 2000 MontaVista Software Inc.
- * Author: MontaVista Software, Inc.
- *         	ppopov@mvista.com or source@mvista.com
+ * Copyright 2000, 2007-2008 MontaVista Software Inc.
+ * Author: MontaVista Software, Inc. <source@mvista.com
  *
  * Updates to 2.6, Pete Popov, Embedded Alley Solutions, Inc.
  *
@@ -25,39 +24,30 @@
  *  with this program; if not, write  to the Free Software Foundation, Inc.,
  *  675 Mass Ave, Cambridge, MA 02139, USA.
  */
+
 #include <linux/init.h>
-#include <linux/sched.h>
 #include <linux/ioport.h>
-#include <linux/mm.h>
-#include <linux/delay.h>
-#include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/pm.h>
 
-#include <asm/cpu.h>
-#include <asm/bootinfo.h>
-#include <asm/irq.h>
 #include <asm/mipsregs.h>
 #include <asm/reboot.h>
-#include <asm/pgtable.h>
-#include <asm/mach-au1x00/au1000.h>
 #include <asm/time.h>
 
-extern char * prom_getcmdline(void);
+#include <au1000.h>
+#include <prom.h>
+
 extern void __init board_setup(void);
 extern void au1000_restart(char *);
 extern void au1000_halt(void);
 extern void au1000_power_off(void);
-extern void au1x_time_init(void);
-extern void au1x_timer_setup(struct irqaction *irq);
-extern void au1xxx_time_init(void);
 extern void set_cpuspec(void);
 
 void __init plat_mem_setup(void)
 {
 	struct	cpu_spec *sp;
 	char *argptr;
-	unsigned long prid, cpupll, bclk = 1;
+	unsigned long prid, cpufreq, bclk;
 
 	set_cpuspec();
 	sp = cur_cpu_spec[0];
@@ -65,44 +55,48 @@ void __init plat_mem_setup(void)
 	board_setup();  /* board specific setup */
 
 	prid = read_c0_prid();
-	cpupll = (au_readl(0xB1900060) & 0x3F) * 12;
-	printk("(PRId %08lx) @ %ldMHZ\n", prid, cpupll);
+	if (sp->cpu_pll_wo)
+#ifdef CONFIG_SOC_AU1000_FREQUENCY
+		cpufreq = CONFIG_SOC_AU1000_FREQUENCY / 1000000;
+#else
+		cpufreq = 396;
+#endif
+	else
+		cpufreq = (au_readl(SYS_CPUPLL) & 0x3F) * 12;
+	printk(KERN_INFO "(PRID %08lx) @ %ld MHz\n", prid, cpufreq);
 
-	bclk = sp->cpu_bclk;
-	if (bclk)
-	{
+	if (sp->cpu_bclk) {
 		/* Enable BCLK switching */
-		bclk = au_readl(0xB190003C);
-		au_writel(bclk | 0x60, 0xB190003C);
-		printk("BCLK switching enabled!\n");
+		bclk = au_readl(SYS_POWERCTRL);
+		au_writel(bclk | 0x60, SYS_POWERCTRL);
+		printk(KERN_INFO "BCLK switching enabled!\n");
 	}
 
-	if (sp->cpu_od) {
-		/* Various early Au1000 Errata corrected by this */
-		set_c0_config(1<<19); /* Set Config[OD] */
-	}
-	else {
+	if (sp->cpu_od)
+		/* Various early Au1xx0 errata corrected by this */
+		set_c0_config(1 << 19); /* Set Config[OD] */
+	else
 		/* Clear to obtain best system bus performance */
-		clear_c0_config(1<<19); /* Clear Config[OD] */
-	}
+		clear_c0_config(1 << 19); /* Clear Config[OD] */
 
 	argptr = prom_getcmdline();
 
 #ifdef CONFIG_SERIAL_8250_CONSOLE
-	if ((argptr = strstr(argptr, "console=")) == NULL) {
+	argptr = strstr(argptr, "console=");
+	if (argptr == NULL) {
 		argptr = prom_getcmdline();
 		strcat(argptr, " console=ttyS0,115200");
 	}
 #endif
 
 #ifdef CONFIG_FB_AU1100
-    if ((argptr = strstr(argptr, "video=")) == NULL) {
-        argptr = prom_getcmdline();
-        /* default panel */
-        /*strcat(argptr, " video=au1100fb:panel:Sharp_320x240_16");*/
-    }
+	argptr = strstr(argptr, "video=");
+	if (argptr == NULL) {
+		argptr = prom_getcmdline();
+		/* default panel */
+		/*strcat(argptr, " video=au1100fb:panel:Sharp_320x240_16");*/
+	}
 #endif
-
 
 #if defined(CONFIG_SOUND_AU1X00) && !defined(CONFIG_SOC_AU1000)
 	/* au1000 does not support vra, au1500 and au1100 do */
@@ -112,7 +106,6 @@ void __init plat_mem_setup(void)
 	_machine_restart = au1000_restart;
 	_machine_halt = au1000_halt;
 	pm_power_off = au1000_power_off;
-	board_time_init = au1xxx_time_init;
 
 	/* IO/MEM resources. */
 	set_io_port_base(0);
@@ -132,34 +125,33 @@ void __init plat_mem_setup(void)
 /* This routine should be valid for all Au1x based boards */
 phys_t __fixup_bigphys_addr(phys_t phys_addr, phys_t size)
 {
-	/* Don't fixup 36 bit addresses */
+	/* Don't fixup 36-bit addresses */
 	if ((phys_addr >> 32) != 0)
 		return phys_addr;
 
 #ifdef CONFIG_PCI
 	{
-		u32 start, end;
+		u32 start = (u32)Au1500_PCI_MEM_START;
+		u32 end   = (u32)Au1500_PCI_MEM_END;
 
-		start = (u32)Au1500_PCI_MEM_START;
-		end = (u32)Au1500_PCI_MEM_END;
-		/* check for pci memory window */
-		if ((phys_addr >= start) && ((phys_addr + size) < end))
+		/* Check for PCI memory window */
+		if (phys_addr >= start && (phys_addr + size - 1) <= end)
 			return (phys_t)
 			       ((phys_addr - start) + Au1500_PCI_MEM_START);
 	}
 #endif
 
-	/* All Au1x SOCs have a pcmcia controller */
-	/* We setup our 32 bit pseudo addresses to be equal to the
-	 * 36 bit addr >> 4, to make it easier to check the address
+	/*
+	 * All Au1xx0 SOCs have a PCMCIA controller.
+	 * We setup our 32-bit pseudo addresses to be equal to the
+	 * 36-bit addr >> 4, to make it easier to check the address
 	 * and fix it.
-	 * The Au1x socket 0 phys attribute address is 0xF 4000 0000.
+	 * The PCMCIA socket 0 physical attribute address is 0xF 4000 0000.
 	 * The pseudo address we use is 0xF400 0000. Any address over
-	 * 0xF400 0000 is a pcmcia pseudo address.
+	 * 0xF400 0000 is a PCMCIA pseudo address.
 	 */
-	if ((phys_addr >= 0xF4000000) && (phys_addr < 0xFFFFFFFF)) {
+	if ((phys_addr >= 0xF4000000) && (phys_addr < 0xFFFFFFFF))
 		return (phys_t)(phys_addr << 4);
-	}
 
 	/* default nop */
 	return phys_addr;

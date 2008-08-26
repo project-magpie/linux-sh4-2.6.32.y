@@ -31,8 +31,6 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
- *
- * $Id: ib_cm.h 4311 2005-12-05 18:42:01Z sean.hefty $
  */
 #if !defined(IB_CM_H)
 #define IB_CM_H
@@ -477,12 +475,15 @@ int ib_send_cm_rej(struct ib_cm_id *cm_id,
 		   const void *private_data,
 		   u8 private_data_len);
 
+#define IB_CM_MRA_FLAG_DELAY 0x80  /* Send MRA only after a duplicate msg */
+
 /**
  * ib_send_cm_mra - Sends a message receipt acknowledgement to a connection
  *   message.
  * @cm_id: Connection identifier associated with the connection message.
- * @service_timeout: The maximum time required for the sender to reply to
- *   to the connection message.
+ * @service_timeout: The lower 5-bits specify the maximum time required for
+ *   the sender to reply to to the connection message.  The upper 3-bits
+ *   specify additional control flags.
  * @private_data: Optional user-defined private data sent with the
  *   message receipt acknowledgement.
  * @private_data_len: Size of the private data buffer, in bytes.

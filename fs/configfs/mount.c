@@ -92,7 +92,7 @@ static int configfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	root = d_alloc_root(inode);
 	if (!root) {
-		pr_debug("%s: could not get root dentry!\n",__FUNCTION__);
+		pr_debug("%s: could not get root dentry!\n",__func__);
 		iput(inode);
 		return -ENOMEM;
 	}
@@ -128,7 +128,7 @@ void configfs_release_fs(void)
 }
 
 
-static decl_subsys(config, NULL, NULL);
+static struct kobject *config_kobj;
 
 static int __init configfs_init(void)
 {
@@ -140,9 +140,8 @@ static int __init configfs_init(void)
 	if (!configfs_dir_cachep)
 		goto out;
 
-	kobj_set_kset_s(&config_subsys, kernel_subsys);
-	err = subsystem_register(&config_subsys);
-	if (err) {
+	config_kobj = kobject_create_and_add("config", kernel_kobj);
+	if (!config_kobj) {
 		kmem_cache_destroy(configfs_dir_cachep);
 		configfs_dir_cachep = NULL;
 		goto out;
@@ -151,11 +150,19 @@ static int __init configfs_init(void)
 	err = register_filesystem(&configfs_fs_type);
 	if (err) {
 		printk(KERN_ERR "configfs: Unable to register filesystem!\n");
-		subsystem_unregister(&config_subsys);
+		kobject_put(config_kobj);
+		kmem_cache_destroy(configfs_dir_cachep);
+		configfs_dir_cachep = NULL;
+		goto out;
+	}
+
+	err = configfs_inode_init();
+	if (err) {
+		unregister_filesystem(&configfs_fs_type);
+		kobject_put(config_kobj);
 		kmem_cache_destroy(configfs_dir_cachep);
 		configfs_dir_cachep = NULL;
 	}
-
 out:
 	return err;
 }
@@ -163,9 +170,10 @@ out:
 static void __exit configfs_exit(void)
 {
 	unregister_filesystem(&configfs_fs_type);
-	subsystem_unregister(&config_subsys);
+	kobject_put(config_kobj);
 	kmem_cache_destroy(configfs_dir_cachep);
 	configfs_dir_cachep = NULL;
+	configfs_inode_exit();
 }
 
 MODULE_AUTHOR("Oracle");

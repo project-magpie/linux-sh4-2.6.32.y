@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *  GUS's memory allocation routines / bottom layer
  *
  *
@@ -19,7 +19,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <sound/core.h>

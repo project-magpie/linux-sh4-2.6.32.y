@@ -72,15 +72,18 @@
 #include "stv680.h"
 
 static int video_nr = -1;
-static int swapRGB = 0;   /* default for auto sleect */
-static int swapRGB_on = 0; /* default to allow auto select; -1=swap never, +1= swap always */
 
-static unsigned int debug = 0;
+static int swapRGB;	/* 0 = default for auto select */
+
+/* 0 = default to allow auto select; -1 = swap never, +1 = swap always */
+static int swapRGB_on;
+
+static unsigned int debug;
 
 #define PDEBUG(level, fmt, args...) \
 	do { \
 	if (debug >= level)	\
-		info("[%s:%d] " fmt, __FUNCTION__, __LINE__ , ## args);	\
+		info("[%s:%d] " fmt, __func__, __LINE__ , ## args);	\
 	} while (0)
 
 
@@ -499,13 +502,14 @@ exit:
  *  sysfs
  ***************************************************************************/
 #define stv680_file(name, variable, field)				\
-static ssize_t show_##name(struct class_device *class_dev, char *buf)	\
+static ssize_t show_##name(struct device *class_dev,			\
+			   struct device_attribute *attr, char *buf)	\
 {									\
 	struct video_device *vdev = to_video_device(class_dev);		\
 	struct usb_stv *stv = video_get_drvdata(vdev);			\
 	return sprintf(buf, field, stv->variable);			\
 }									\
-static CLASS_DEVICE_ATTR(name, S_IRUGO, show_##name, NULL);
+static DEVICE_ATTR(name, S_IRUGO, show_##name, NULL);
 
 stv680_file(model, camera_name, "%s\n");
 stv680_file(in_use, user, "%d\n");
@@ -520,53 +524,53 @@ static int stv680_create_sysfs_files(struct video_device *vdev)
 {
 	int rc;
 
-	rc = video_device_create_file(vdev, &class_device_attr_model);
+	rc = video_device_create_file(vdev, &dev_attr_model);
 	if (rc) goto err;
-	rc = video_device_create_file(vdev, &class_device_attr_in_use);
+	rc = video_device_create_file(vdev, &dev_attr_in_use);
 	if (rc) goto err_model;
-	rc = video_device_create_file(vdev, &class_device_attr_streaming);
+	rc = video_device_create_file(vdev, &dev_attr_streaming);
 	if (rc) goto err_inuse;
-	rc = video_device_create_file(vdev, &class_device_attr_palette);
+	rc = video_device_create_file(vdev, &dev_attr_palette);
 	if (rc) goto err_stream;
-	rc = video_device_create_file(vdev, &class_device_attr_frames_total);
+	rc = video_device_create_file(vdev, &dev_attr_frames_total);
 	if (rc) goto err_pal;
-	rc = video_device_create_file(vdev, &class_device_attr_frames_read);
+	rc = video_device_create_file(vdev, &dev_attr_frames_read);
 	if (rc) goto err_framtot;
-	rc = video_device_create_file(vdev, &class_device_attr_packets_dropped);
+	rc = video_device_create_file(vdev, &dev_attr_packets_dropped);
 	if (rc) goto err_framread;
-	rc = video_device_create_file(vdev, &class_device_attr_decoding_errors);
+	rc = video_device_create_file(vdev, &dev_attr_decoding_errors);
 	if (rc) goto err_dropped;
 
 	return 0;
 
 err_dropped:
-	video_device_remove_file(vdev, &class_device_attr_packets_dropped);
+	video_device_remove_file(vdev, &dev_attr_packets_dropped);
 err_framread:
-	video_device_remove_file(vdev, &class_device_attr_frames_read);
+	video_device_remove_file(vdev, &dev_attr_frames_read);
 err_framtot:
-	video_device_remove_file(vdev, &class_device_attr_frames_total);
+	video_device_remove_file(vdev, &dev_attr_frames_total);
 err_pal:
-	video_device_remove_file(vdev, &class_device_attr_palette);
+	video_device_remove_file(vdev, &dev_attr_palette);
 err_stream:
-	video_device_remove_file(vdev, &class_device_attr_streaming);
+	video_device_remove_file(vdev, &dev_attr_streaming);
 err_inuse:
-	video_device_remove_file(vdev, &class_device_attr_in_use);
+	video_device_remove_file(vdev, &dev_attr_in_use);
 err_model:
-	video_device_remove_file(vdev, &class_device_attr_model);
+	video_device_remove_file(vdev, &dev_attr_model);
 err:
 	return rc;
 }
 
 static void stv680_remove_sysfs_files(struct video_device *vdev)
 {
-	video_device_remove_file(vdev, &class_device_attr_model);
-	video_device_remove_file(vdev, &class_device_attr_in_use);
-	video_device_remove_file(vdev, &class_device_attr_streaming);
-	video_device_remove_file(vdev, &class_device_attr_palette);
-	video_device_remove_file(vdev, &class_device_attr_frames_total);
-	video_device_remove_file(vdev, &class_device_attr_frames_read);
-	video_device_remove_file(vdev, &class_device_attr_packets_dropped);
-	video_device_remove_file(vdev, &class_device_attr_decoding_errors);
+	video_device_remove_file(vdev, &dev_attr_model);
+	video_device_remove_file(vdev, &dev_attr_in_use);
+	video_device_remove_file(vdev, &dev_attr_streaming);
+	video_device_remove_file(vdev, &dev_attr_palette);
+	video_device_remove_file(vdev, &dev_attr_frames_total);
+	video_device_remove_file(vdev, &dev_attr_frames_read);
+	video_device_remove_file(vdev, &dev_attr_packets_dropped);
+	video_device_remove_file(vdev, &dev_attr_decoding_errors);
 }
 
 /********************************************************************
@@ -1390,14 +1394,15 @@ static const struct file_operations stv680_fops = {
 	.read =		stv680_read,
 	.mmap =		stv680_mmap,
 	.ioctl =        stv680_ioctl,
+#ifdef CONFIG_COMPAT
 	.compat_ioctl = v4l_compat_ioctl32,
+#endif
 	.llseek =       no_llseek,
 };
 static struct video_device stv680_template = {
 	.owner =	THIS_MODULE,
 	.name =		"STV0680 USB camera",
 	.type =		VID_TYPE_CAPTURE,
-	.hardware =	VID_HARDWARE_SE401,
 	.fops =         &stv680_fops,
 	.release =	video_device_release,
 	.minor = 	-1,

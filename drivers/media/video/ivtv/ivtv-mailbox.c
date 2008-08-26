@@ -177,7 +177,8 @@ static int get_mailbox(struct ivtv *itv, struct ivtv_mailbox_data *mbdata, int f
 
 		/* Sleep before a retry, if not atomic */
 		if (!(flags & API_NO_WAIT_MB)) {
-			if (jiffies - then > msecs_to_jiffies(10*retries))
+			if (time_after(jiffies,
+				       then + msecs_to_jiffies(10*retries)))
 			       break;
 			ivtv_msleep_timeout(10, 0);
 		}
@@ -225,15 +226,15 @@ static int ivtv_api_call(struct ivtv *itv, int cmd, int args, u32 data[])
 	}
 	if (args < 0 || args > CX2341X_MBOX_MAX_DATA ||
 	    cmd < 0 || cmd > 255 || api_info[cmd].name == NULL) {
-		IVTV_ERR("Invalid API call: cmd = 0x%02x, args = %d\n", cmd, args);
+		IVTV_ERR("Invalid MB call: cmd = 0x%02x, args = %d\n", cmd, args);
 		return -EINVAL;
 	}
 
 	if (api_info[cmd].flags & API_HIGH_VOL) {
-	    IVTV_DEBUG_HI_API("API Call: %s\n", api_info[cmd].name);
+	    IVTV_DEBUG_HI_MB("MB Call: %s\n", api_info[cmd].name);
 	}
 	else {
-	    IVTV_DEBUG_API("API Call: %s\n", api_info[cmd].name);
+	    IVTV_DEBUG_MB("MB Call: %s\n", api_info[cmd].name);
 	}
 
 	/* clear possibly uninitialized part of data array */
@@ -244,7 +245,9 @@ static int ivtv_api_call(struct ivtv *itv, int cmd, int args, u32 data[])
 	   data, then just return 0 as there is no need to issue this command again.
 	   Just an optimization to prevent unnecessary use of mailboxes. */
 	if (itv->api_cache[cmd].last_jiffies &&
-	    jiffies - itv->api_cache[cmd].last_jiffies < msecs_to_jiffies(1800000) &&
+	    time_before(jiffies,
+			itv->api_cache[cmd].last_jiffies +
+			msecs_to_jiffies(1800000)) &&
 	    !memcmp(data, itv->api_cache[cmd].data, sizeof(itv->api_cache[cmd].data))) {
 		itv->api_cache[cmd].last_jiffies = jiffies;
 		return 0;
@@ -299,7 +302,7 @@ static int ivtv_api_call(struct ivtv *itv, int cmd, int args, u32 data[])
 		}
 	}
 	while (!(readl(&mbox->flags) & IVTV_MBOX_FIRMWARE_DONE)) {
-		if (jiffies - then > api_timeout) {
+		if (time_after(jiffies, then + api_timeout)) {
 			IVTV_DEBUG_WARN("Could not get result (%s)\n", api_info[cmd].name);
 			/* reset the mailbox, but it is likely too late already */
 			write_sync(0, &mbox->flags);
@@ -311,7 +314,7 @@ static int ivtv_api_call(struct ivtv *itv, int cmd, int args, u32 data[])
 		else
 			ivtv_msleep_timeout(1, 0);
 	}
-	if (jiffies - then > msecs_to_jiffies(100))
+	if (time_after(jiffies, then + msecs_to_jiffies(100)))
 		IVTV_DEBUG_WARN("%s took %u jiffies\n",
 				api_info[cmd].name,
 				jiffies_to_msecs(jiffies - then));
@@ -333,7 +336,7 @@ int ivtv_api(struct ivtv *itv, int cmd, int args, u32 data[])
 	return (res == -EBUSY) ? ivtv_api_call(itv, cmd, args, data) : res;
 }
 
-int ivtv_api_func(void *priv, int cmd, int in, int out, u32 data[CX2341X_MBOX_MAX_DATA])
+int ivtv_api_func(void *priv, u32 cmd, int in, int out, u32 data[CX2341X_MBOX_MAX_DATA])
 {
 	return ivtv_api(priv, cmd, in, data);
 }

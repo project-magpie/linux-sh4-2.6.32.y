@@ -208,7 +208,7 @@ static const unsigned char formats[][7] = {
 	[INSTR_RRF_F0FF]  = { 0xff, F_16,F_24,F_28,0,0,0 },    /* e.g. madbr */
 	[INSTR_RRF_FUFF]  = { 0xff, F_24,F_16,F_28,U4_20,0,0 },/* e.g. didbr */
 	[INSTR_RRF_RURR]  = { 0xff, R_24,R_28,R_16,U4_20,0,0 },/* e.g. .insn */
-	[INSTR_RRF_R0RR]  = { 0xff, R_24,R_28,R_16,0,0,0 },    /* e.g. idte  */
+	[INSTR_RRF_R0RR]  = { 0xff, R_24,R_16,R_28,0,0,0 },    /* e.g. idte  */
 	[INSTR_RRF_U0FF]  = { 0xff, F_24,U4_16,F_28,0,0,0 },   /* e.g. fixr  */
 	[INSTR_RRF_U0RF]  = { 0xff, R_24,U4_16,F_28,0,0,0 },   /* e.g. cfebr */
 	[INSTR_RRF_M0RR]  = { 0xff, R_24,R_28,M_16,0,0,0 },    /* e.g. sske  */
@@ -1162,6 +1162,7 @@ static int print_insn(char *buffer, unsigned char *code, unsigned long addr)
 	unsigned int value;
 	char separator;
 	char *ptr;
+	int i;
 
 	ptr = buffer;
 	insn = find_insn(code);
@@ -1169,7 +1170,8 @@ static int print_insn(char *buffer, unsigned char *code, unsigned long addr)
 		ptr += sprintf(ptr, "%.5s\t", insn->name);
 		/* Extract the operands. */
 		separator = 0;
-		for (ops = formats[insn->format] + 1; *ops != 0; ops++) {
+		for (ops = formats[insn->format] + 1, i = 0;
+		     *ops != 0 && i < 6; ops++, i++) {
 			operand = operands + *ops;
 			value = extract_operand(code, operand);
 			if ((operand->flags & OPERAND_INDEX)  && value == 0)
@@ -1241,7 +1243,6 @@ void show_code(struct pt_regs *regs)
 	}
 	/* Find a starting point for the disassembly. */
 	while (start < 32) {
-		hops = 0;
 		for (i = 0, hops = 0; start + i < 32 && hops < 3; hops++) {
 			if (!find_insn(code + start + i))
 				break;

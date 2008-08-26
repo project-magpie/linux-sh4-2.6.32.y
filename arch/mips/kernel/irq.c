@@ -44,8 +44,6 @@ again:
 	return irq;
 }
 
-EXPORT_SYMBOL_GPL(allocate_irqno);
-
 /*
  * Allocate the 16 legacy interrupts for i8259 devices.  This happens early
  * in the kernel initialization so treating allocation failure as BUG() is
@@ -65,8 +63,6 @@ void free_irqno(unsigned int irq)
 	clear_bit(irq, irq_map);
 	smp_mb__after_clear_bit();
 }
-
-EXPORT_SYMBOL_GPL(free_irqno);
 
 /*
  * 'what should we do if we get a hw irq event on an illegal vector'.
@@ -93,7 +89,7 @@ int show_interrupts(struct seq_file *p, void *v)
 	if (i == 0) {
 		seq_printf(p, "           ");
 		for_each_online_cpu(j)
-			seq_printf(p, "CPU%d       ",j);
+			seq_printf(p, "CPU%d       ", j);
 		seq_putc(p, '\n');
 	}
 
@@ -102,7 +98,7 @@ int show_interrupts(struct seq_file *p, void *v)
 		action = irq_desc[i].action;
 		if (!action)
 			goto skip;
-		seq_printf(p, "%3d: ",i);
+		seq_printf(p, "%3d: ", i);
 #ifndef CONFIG_SMP
 		seq_printf(p, "%10u ", kstat_irqs(i));
 #else
@@ -145,6 +141,11 @@ __setup("nokgdb", nokgdb);
 
 void __init init_IRQ(void)
 {
+	int i;
+
+	for (i = 0; i < NR_IRQS; i++)
+		set_irq_noprobe(i);
+
 	arch_init_irq();
 
 #ifdef CONFIG_KGDB

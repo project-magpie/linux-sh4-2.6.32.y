@@ -27,12 +27,8 @@
 /*
  * Display register base.
  */
-#ifdef CONFIG_MIPS_SEAD
-#define ASCII_DISPLAY_POS_BASE     0x1f0005c0
-#else
 #define ASCII_DISPLAY_WORD_BASE    0x1f000410
 #define ASCII_DISPLAY_POS_BASE     0x1f000418
-#endif
 
 
 /*
@@ -44,13 +40,8 @@
 /*
  * Reset register.
  */
-#ifdef CONFIG_MIPS_SEAD
-#define SOFTRES_REG       0x1e800050
-#define GORESET           0x4d
-#else
 #define SOFTRES_REG       0x1f000500
 #define GORESET           0x42
-#endif
 
 /*
  * Revision register.
@@ -68,6 +59,7 @@
 #define MIPS_REVISION_CORID_CORE_FPGA3     9
 #define MIPS_REVISION_CORID_CORE_24K       10
 #define MIPS_REVISION_CORID_CORE_FPGA4     11
+#define MIPS_REVISION_CORID_CORE_FPGA5     12
 
 /**** Artificial corid defines ****/
 /*
@@ -97,10 +89,16 @@ extern int mips_revision_corid;
 
 extern int mips_revision_sconid;
 
+extern void mips_reboot_setup(void);
+
 #ifdef CONFIG_PCI
 extern void mips_pcibios_init(void);
 #else
 #define mips_pcibios_init() do { } while (0)
+#endif
+
+#ifdef CONFIG_KGDB
+extern void kgdb_config(void);
 #endif
 
 #endif  /* __ASM_MIPS_BOARDS_GENERIC_H */

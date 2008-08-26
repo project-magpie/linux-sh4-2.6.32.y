@@ -1,6 +1,4 @@
 /*
- * $Id: pmc551.c,v 1.32 2005/11/07 11:14:25 gleixner Exp $
- *
  * PMC551 PCI Mezzanine Ram Device
  *
  * Author:
@@ -30,8 +28,8 @@
  *
  * Notes:
  *	Due to what I assume is more buggy SROM, the 64M PMC551 I
- *	have available claims that all 4 of it's DRAM banks have 64M
- *	of ram configured (making a grand total of 256M onboard).
+ *	have available claims that all 4 of its DRAM banks have 64MiB
+ *	of ram configured (making a grand total of 256MiB onboard).
  *	This is slightly annoying since the BAR0 size reflects the
  *	aperture size, not the dram size, and the V370PDC supplies no
  *	other method for memory size discovery.  This problem is
@@ -70,7 +68,7 @@
  *	 made the memory unusable, added a fix to code to touch up
  *	 the DRAM some.
  *
- * Bugs/FIXME's:
+ * Bugs/FIXMEs:
  *	* MUST fix the init function to not spin on a register
  *	waiting for it to set .. this does not safely handle busted
  *	devices that never reset the register correctly which will
@@ -134,7 +132,8 @@ static int pmc551_erase(struct mtd_info *mtd, struct erase_info *instr)
 	eoff_lo = end & (priv->asize - 1);
 	soff_lo = instr->addr & (priv->asize - 1);
 
-	pmc551_point(mtd, instr->addr, instr->len, &retlen, &ptr);
+	pmc551_point(mtd, instr->addr, instr->len, &retlen,
+		     (void **)&ptr, NULL);
 
 	if (soff_hi == eoff_hi || mtd->size == priv->asize) {
 		/* The whole thing fits within one access, so just one shot
@@ -154,7 +153,8 @@ static int pmc551_erase(struct mtd_info *mtd, struct erase_info *instr)
 			}
 			soff_hi += priv->asize;
 			pmc551_point(mtd, (priv->base_map0 | soff_hi),
-				     priv->asize, &retlen, &ptr);
+				     priv->asize, &retlen,
+				     (void **)&ptr, NULL);
 		}
 		memset(ptr, 0xff, eoff_lo);
 	}
@@ -170,7 +170,7 @@ static int pmc551_erase(struct mtd_info *mtd, struct erase_info *instr)
 }
 
 static int pmc551_point(struct mtd_info *mtd, loff_t from, size_t len,
-			size_t * retlen, u_char ** mtdbuf)
+			size_t *retlen, void **virt, resource_size_t *phys)
 {
 	struct mypriv *priv = mtd->priv;
 	u32 soff_hi;
@@ -188,6 +188,10 @@ static int pmc551_point(struct mtd_info *mtd, loff_t from, size_t len,
 		return -EINVAL;
 	}
 
+	/* can we return a physical address with this driver? */
+	if (phys)
+		return -EINVAL;
+
 	soff_hi = from & ~(priv->asize - 1);
 	soff_lo = from & (priv->asize - 1);
 
@@ -198,13 +202,12 @@ static int pmc551_point(struct mtd_info *mtd, loff_t from, size_t len,
 		priv->curr_map0 = soff_hi;
 	}
 
-	*mtdbuf = priv->start + soff_lo;
+	*virt = priv->start + soff_lo;
 	*retlen = len;
 	return 0;
 }
 
-static void pmc551_unpoint(struct mtd_info *mtd, u_char * addr, loff_t from,
-			   size_t len)
+static void pmc551_unpoint(struct mtd_info *mtd, loff_t from, size_t len)
 {
 #ifdef CONFIG_MTD_PMC551_DEBUG
 	printk(KERN_DEBUG "pmc551_unpoint()\n");
@@ -242,7 +245,7 @@ static int pmc551_read(struct mtd_info *mtd, loff_t from, size_t len,
 	soff_lo = from & (priv->asize - 1);
 	eoff_lo = end & (priv->asize - 1);
 
-	pmc551_point(mtd, from, len, retlen, &ptr);
+	pmc551_point(mtd, from, len, retlen, (void **)&ptr, NULL);
 
 	if (soff_hi == eoff_hi) {
 		/* The whole thing fits within one access, so just one shot
@@ -263,7 +266,8 @@ static int pmc551_read(struct mtd_info *mtd, loff_t from, size_t len,
 				goto out;
 			}
 			soff_hi += priv->asize;
-			pmc551_point(mtd, soff_hi, priv->asize, retlen, &ptr);
+			pmc551_point(mtd, soff_hi, priv->asize, retlen,
+				     (void **)&ptr, NULL);
 		}
 		memcpy(copyto, ptr, eoff_lo);
 		copyto += eoff_lo;
@@ -308,7 +312,7 @@ static int pmc551_write(struct mtd_info *mtd, loff_t to, size_t len,
 	soff_lo = to & (priv->asize - 1);
 	eoff_lo = end & (priv->asize - 1);
 
-	pmc551_point(mtd, to, len, retlen, &ptr);
+	pmc551_point(mtd, to, len, retlen, (void **)&ptr, NULL);
 
 	if (soff_hi == eoff_hi) {
 		/* The whole thing fits within one access, so just one shot
@@ -329,7 +333,8 @@ static int pmc551_write(struct mtd_info *mtd, loff_t to, size_t len,
 				goto out;
 			}
 			soff_hi += priv->asize;
-			pmc551_point(mtd, soff_hi, priv->asize, retlen, &ptr);
+			pmc551_point(mtd, soff_hi, priv->asize, retlen,
+				     (void **)&ptr, NULL);
 		}
 		memcpy(ptr, copyfrom, eoff_lo);
 		copyfrom += eoff_lo;
@@ -562,10 +567,10 @@ static u32 fixup_pmc551(struct pci_dev *dev)
 	/*
 	 * Some screen fun
 	 */
-	printk(KERN_DEBUG "pmc551: %d%c (0x%x) of %sprefetchable memory at "
+	printk(KERN_DEBUG "pmc551: %d%sB (0x%x) of %sprefetchable memory at "
 		"0x%llx\n", (size < 1024) ? size : (size < 1048576) ?
 		size >> 10 : size >> 20,
-		(size < 1024) ? 'B' : (size < 1048576) ? 'K' : 'M', size,
+		(size < 1024) ? "" : (size < 1048576) ? "Ki" : "Mi", size,
 		((dcmd & (0x1 << 3)) == 0) ? "non-" : "",
 		(unsigned long long)pci_resource_start(dev, 0));
 
@@ -649,14 +654,10 @@ MODULE_DESCRIPTION(PMC551_VERSION);
  * Stuff these outside the ifdef so as to not bust compiled in driver support
  */
 static int msize = 0;
-#if defined(CONFIG_MTD_PMC551_APERTURE_SIZE)
-static int asize = CONFIG_MTD_PMC551_APERTURE_SIZE;
-#else
 static int asize = 0;
-#endif
 
 module_param(msize, int, 0);
-MODULE_PARM_DESC(msize, "memory size in Megabytes [1 - 1024]");
+MODULE_PARM_DESC(msize, "memory size in MiB [1 - 1024]");
 module_param(asize, int, 0);
 MODULE_PARM_DESC(asize, "aperture size, must be <= memsize [1-1024]");
 
@@ -799,8 +800,7 @@ static int __init init_pmc551(void)
 		mtd->owner = THIS_MODULE;
 
 		if (add_mtd_device(mtd)) {
-			printk(KERN_NOTICE "pmc551: Failed to register new "
-				"device\n");
+			printk(KERN_NOTICE "pmc551: Failed to register new device\n");
 			pci_iounmap(PCI_Device, priv->start);
 			kfree(mtd->priv);
 			kfree(mtd);
@@ -811,13 +811,13 @@ static int __init init_pmc551(void)
 		pci_dev_get(PCI_Device);
 
 		printk(KERN_NOTICE "Registered pmc551 memory device.\n");
-		printk(KERN_NOTICE "Mapped %dM of memory from 0x%p to 0x%p\n",
+		printk(KERN_NOTICE "Mapped %dMiB of memory from 0x%p to 0x%p\n",
 			priv->asize >> 20,
 			priv->start, priv->start + priv->asize);
-		printk(KERN_NOTICE "Total memory is %d%c\n",
+		printk(KERN_NOTICE "Total memory is %d%sB\n",
 			(length < 1024) ? length :
 			(length < 1048576) ? length >> 10 : length >> 20,
-			(length < 1024) ? 'B' : (length < 1048576) ? 'K' : 'M');
+			(length < 1024) ? "" : (length < 1048576) ? "Ki" : "Mi");
 		priv->nextpmc551 = pmc551list;
 		pmc551list = mtd;
 		found++;
@@ -850,7 +850,7 @@ static void __exit cleanup_pmc551(void)
 		pmc551list = priv->nextpmc551;
 
 		if (priv->start) {
-			printk(KERN_DEBUG "pmc551: unmapping %dM starting at "
+			printk(KERN_DEBUG "pmc551: unmapping %dMiB starting at "
 				"0x%p\n", priv->asize >> 20, priv->start);
 			pci_iounmap(priv->dev, priv->start);
 		}

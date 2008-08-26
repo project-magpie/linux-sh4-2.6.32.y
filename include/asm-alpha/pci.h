@@ -4,6 +4,7 @@
 #ifdef __KERNEL__
 
 #include <linux/spinlock.h>
+#include <linux/dma-mapping.h>
 #include <asm/scatterlist.h>
 #include <asm/machvec.h>
 
@@ -75,7 +76,13 @@ extern inline void pcibios_penalize_isa_irq(int irq, int active)
    successful and sets *DMA_ADDRP to the pci side dma address as well,
    else DMA_ADDRP is undefined.  */
 
-extern void *pci_alloc_consistent(struct pci_dev *, size_t, dma_addr_t *);
+extern void *__pci_alloc_consistent(struct pci_dev *, size_t,
+				    dma_addr_t *, gfp_t);
+static inline void *
+pci_alloc_consistent(struct pci_dev *dev, size_t size, dma_addr_t *dma)
+{
+	return __pci_alloc_consistent(dev, size, dma, GFP_ATOMIC);
+}
 
 /* Free and unmap a consistent DMA buffer.  CPU_ADDR and DMA_ADDR must
    be values that were returned from pci_alloc_consistent.  SIZE must
@@ -99,7 +106,7 @@ extern dma_addr_t pci_map_page(struct pci_dev *, struct page *,
 /* Test for pci_map_single or pci_map_page having generated an error.  */
 
 static inline int
-pci_dma_mapping_error(dma_addr_t dma_addr)
+pci_dma_mapping_error(struct pci_dev *pdev, dma_addr_t dma_addr)
 {
 	return dma_addr == 0;
 }

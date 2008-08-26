@@ -1584,8 +1584,6 @@ static int vlsi_irda_init(struct net_device *ndev)
 	vlsi_irda_dev_t *idev = ndev->priv;
 	struct pci_dev *pdev = idev->pdev;
 
-	SET_MODULE_OWNER(ndev);
-
 	ndev->irq = pdev->irq;
 	ndev->base_addr = pci_resource_start(pdev,0);
 
@@ -1676,13 +1674,12 @@ vlsi_irda_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (vlsi_proc_root != NULL) {
 		struct proc_dir_entry *ent;
 
-		ent = create_proc_entry(ndev->name, S_IFREG|S_IRUGO, vlsi_proc_root);
+		ent = proc_create_data(ndev->name, S_IFREG|S_IRUGO,
+				       vlsi_proc_root, VLSI_PROC_FOPS, ndev);
 		if (!ent) {
 			IRDA_WARNING("%s: failed to create proc entry\n",
 				     __FUNCTION__);
 		} else {
-			ent->data = ndev;
-			ent->proc_fops = VLSI_PROC_FOPS;
 			ent->size = 0;
 		}
 		idev->proc_entry = ent;

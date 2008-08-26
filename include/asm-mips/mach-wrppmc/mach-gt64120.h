@@ -43,10 +43,9 @@
 #define GT_PCI_MEM_SIZE	0x02000000UL
 #define GT_PCI_IO_BASE	0x11000000UL
 #define GT_PCI_IO_SIZE	0x02000000UL
-#define GT_ISA_IO_BASE	PCI_IO_BASE
 
 /*
- * PCI interrupts will come in on either the INTA or INTD interrups lines,
+ * PCI interrupts will come in on either the INTA or INTD interrupt lines,
  * which are mapped to the #2 and #5 interrupt pins of the MIPS.  On our
  * boards, they all either come in on IntD or they all come in on IntA, they
  * aren't mixed. There can be numerous PCI interrupts, so we keep a list of the

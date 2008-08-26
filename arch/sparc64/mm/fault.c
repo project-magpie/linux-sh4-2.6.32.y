@@ -1,7 +1,7 @@
-/* $Id: fault.c,v 1.59 2002/02/09 19:49:31 davem Exp $
+/*
  * arch/sparc64/mm/fault.c: Page fault handlers for the 64-bit Sparc.
  *
- * Copyright (C) 1996 David S. Miller (davem@caip.rutgers.edu)
+ * Copyright (C) 1996, 2008 David S. Miller (davem@davemloft.net)
  * Copyright (C) 1997, 1999 Jakub Jelinek (jj@ultra.linux.cz)
  */
 
@@ -18,7 +18,6 @@
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/kprobes.h>
-#include <linux/kallsyms.h>
 #include <linux/kdebug.h>
 
 #include <asm/page.h>
@@ -115,7 +114,7 @@ static void bad_kernel_pc(struct pt_regs *regs, unsigned long vaddr)
 	printk(KERN_CRIT "OOPS: Bogus kernel PC [%016lx] in fault handler\n",
 	       regs->tpc);
 	printk(KERN_CRIT "OOPS: RPC [%016lx]\n", regs->u_regs[15]);
-	print_symbol("RPC: <%s>\n", regs->u_regs[15]);
+	printk("OOPS: RPC <%pS>\n", (void *) regs->u_regs[15]);
 	printk(KERN_CRIT "OOPS: Fault was to vaddr[%lx]\n", vaddr);
 	dump_stack();
 	unhandled_fault(regs->tpc, current, regs);
@@ -244,16 +243,8 @@ static void do_kernel_fault(struct pt_regs *regs, int si_code, int fault_code,
 	if (regs->tstate & TSTATE_PRIV) {
 		const struct exception_table_entry *entry;
 
-		if (asi == ASI_P && (insn & 0xc0800000) == 0xc0800000) {
-			if (insn & 0x2000)
-				asi = (regs->tstate >> 24);
-			else
-				asi = (insn >> 5);
-		}
-	
-		/* Look in asi.h: All _S asis have LS bit set */
-		if ((asi & 0x1) &&
-		    (entry = search_exception_tables(regs->tpc))) {
+		entry = search_exception_tables(regs->tpc);
+		if (entry) {
 			regs->tpc = entry->fixup;
 			regs->tnpc = regs->tpc + 4;
 			return;
@@ -294,7 +285,7 @@ asmlinkage void __kprobes do_sparc64_fault(struct pt_regs *regs)
 		unsigned long tpc = regs->tpc;
 
 		/* Sanity check the PC. */
-		if ((tpc >= KERNBASE && tpc < (unsigned long) _etext) ||
+		if ((tpc >= KERNBASE && tpc < (unsigned long) __init_end) ||
 		    (tpc >= MODULES_VADDR && tpc < MODULES_END)) {
 			/* Valid, no problems... */
 		} else {
@@ -463,7 +454,7 @@ out_of_memory:
 	up_read(&mm->mmap_sem);
 	printk("VM: killing process %s\n", current->comm);
 	if (!(regs->tstate & TSTATE_PRIV))
-		do_exit(SIGKILL);
+		do_group_exit(SIGKILL);
 	goto handle_kernel_fault;
 
 intr_or_no_mm:

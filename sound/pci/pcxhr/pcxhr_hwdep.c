@@ -20,7 +20,6 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
-#include <sound/driver.h>
 #include <linux/interrupt.h>
 #include <linux/vmalloc.h>
 #include <linux/firmware.h>
@@ -395,7 +394,7 @@ static int pcxhr_hwdep_dsp_load(struct snd_hwdep *hw,
 			   (unsigned long)fw.size);
 		return -ENOMEM;
 	}
-	if (copy_from_user(fw.data, dsp->image, dsp->length)) {
+	if (copy_from_user((void *)fw.data, dsp->image, dsp->length)) {
 		vfree(fw.data);
 		return -EFAULT;
 	}

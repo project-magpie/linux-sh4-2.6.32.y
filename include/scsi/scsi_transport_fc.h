@@ -163,8 +163,8 @@ enum fc_tgtid_binding_type  {
 
 
 /* Macro for use in defining Virtual Port attributes */
-#define FC_VPORT_ATTR(_name,_mode,_show,_store)				\
-struct class_device_attribute class_device_attr_vport_##_name = 	\
+#define FC_VPORT_ATTR(_name,_mode,_show,_store)		\
+struct device_attribute dev_attr_vport_##_name = 	\
 	__ATTR(_name,_mode,_show,_store)
 
 
@@ -176,7 +176,7 @@ struct class_device_attribute class_device_attr_vport_##_name = 	\
  * ports has a unique presense on the SAN, and may be instantiated via
  * NPIV, Virtual Fabrics, or via additional ALPAs. As the vport is a
  * unique presense, each vport has it's own view of the fabric,
- * authentication priviledge, and priorities.
+ * authentication privilege, and priorities.
  *
  * A virtual port may support 1 or more FC4 roles. Typically it is a
  * FCP Initiator. It could be a FCP Target, or exist sole for an IP over FC
@@ -234,8 +234,8 @@ struct fc_vport {
 
 #define	dev_to_vport(d)				\
 	container_of(d, struct fc_vport, dev)
-#define transport_class_to_vport(classdev)	\
-	dev_to_vport(classdev->dev)
+#define transport_class_to_vport(dev)		\
+	dev_to_vport(dev->parent)
 #define vport_to_shost(v)			\
 	(v->shost)
 #define vport_to_shost_channel(v)		\
@@ -271,7 +271,7 @@ struct fc_rport_identifiers {
 
 /* Macro for use in defining Remote Port attributes */
 #define FC_RPORT_ATTR(_name,_mode,_show,_store)				\
-struct class_device_attribute class_device_attr_rport_##_name = 	\
+struct device_attribute dev_attr_rport_##_name = 	\
 	__ATTR(_name,_mode,_show,_store)
 
 
@@ -341,8 +341,8 @@ struct fc_rport {	/* aka fc_starget_attrs */
 
 #define	dev_to_rport(d)				\
 	container_of(d, struct fc_rport, dev)
-#define transport_class_to_rport(classdev)	\
-	dev_to_rport(classdev->dev)
+#define transport_class_to_rport(dev)	\
+	dev_to_rport(dev->parent)
 #define rport_to_shost(r)			\
 	dev_to_shost(r->dev.parent)
 
@@ -489,9 +489,9 @@ struct fc_host_attrs {
 	u16 npiv_vports_inuse;
 
 	/* work queues for rport state manipulation */
-	char work_q_name[KOBJ_NAME_LEN];
+	char work_q_name[20];
 	struct workqueue_struct *work_q;
-	char devloss_work_q_name[KOBJ_NAME_LEN];
+	char devloss_work_q_name[20];
 	struct workqueue_struct *devloss_work_q;
 };
 
@@ -589,6 +589,10 @@ struct fc_function_template {
 	int	(*vport_disable)(struct fc_vport *, bool);
 	int  	(*vport_delete)(struct fc_vport *);
 
+	/* target-mode drivers' functions */
+	int     (* tsk_mgmt_response)(struct Scsi_Host *, u64, u64, int);
+	int     (* it_nexus_response)(struct Scsi_Host *, u64, int);
+
 	/* allocation lengths for host-specific data */
 	u32	 			dd_fcrport_size;
 	u32	 			dd_fcvport_size;
@@ -632,6 +636,8 @@ struct fc_function_template {
 	unsigned long	show_host_fabric_name:1;
 	unsigned long	show_host_symbolic_name:1;
 	unsigned long	show_host_system_hostname:1;
+
+	unsigned long	disable_target_scan:1;
 };
 
 

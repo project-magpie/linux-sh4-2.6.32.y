@@ -51,6 +51,7 @@
 #include <asm/mca.h>
 #include <asm/meminit.h>
 #include <asm/page.h>
+#include <asm/paravirt.h>
 #include <asm/patch.h>
 #include <asm/pgtable.h>
 #include <asm/processor.h>
@@ -59,6 +60,7 @@
 #include <asm/setup.h>
 #include <asm/smp.h>
 #include <asm/system.h>
+#include <asm/tlbflush.h>
 #include <asm/unistd.h>
 #include <asm/hpsim.h>
 
@@ -70,8 +72,6 @@
 unsigned long __per_cpu_offset[NR_CPUS];
 EXPORT_SYMBOL(__per_cpu_offset);
 #endif
-
-extern void ia64_setup_printk_clock(void);
 
 DEFINE_PER_CPU(struct cpuinfo_ia64, cpu_info);
 DEFINE_PER_CPU(unsigned long, local_per_cpu_offset);
@@ -90,7 +90,11 @@ static struct resource code_resource = {
 	.name	= "Kernel code",
 	.flags	= IORESOURCE_BUSY | IORESOURCE_MEM
 };
-extern char _text[], _end[], _etext[];
+
+static struct resource bss_resource = {
+	.name	= "Kernel bss",
+	.flags	= IORESOURCE_BUSY | IORESOURCE_MEM
+};
 
 unsigned long ia64_max_cacheline_size;
 
@@ -174,6 +178,29 @@ filter_rsvd_memory (unsigned long start, unsigned long end, void *arg)
 	return 0;
 }
 
+/*
+ * Similar to "filter_rsvd_memory()", but the reserved memory ranges
+ * are not filtered out.
+ */
+int __init
+filter_memory(unsigned long start, unsigned long end, void *arg)
+{
+	void (*func)(unsigned long, unsigned long, int);
+
+#if IGNORE_PFN0
+	if (start == PAGE_OFFSET) {
+		printk(KERN_WARNING "warning: skipping physical page 0\n");
+		start += PAGE_SIZE;
+		if (start >= end)
+			return 0;
+	}
+#endif
+	func = arg;
+	if (start < end)
+		call_pernode_memory(__pa(start), end - start, func);
+	return 0;
+}
+
 static void __init
 sort_regions (struct rsvd_region *rsvd_region, int max)
 {
@@ -200,13 +227,87 @@ static int __init register_memory(void)
 	code_resource.start = ia64_tpa(_text);
 	code_resource.end   = ia64_tpa(_etext) - 1;
 	data_resource.start = ia64_tpa(_etext);
-	data_resource.end   = ia64_tpa(_end) - 1;
-	efi_initialize_iomem_resources(&code_resource, &data_resource);
+	data_resource.end   = ia64_tpa(_edata) - 1;
+	bss_resource.start  = ia64_tpa(__bss_start);
+	bss_resource.end    = ia64_tpa(_end) - 1;
+	efi_initialize_iomem_resources(&code_resource, &data_resource,
+			&bss_resource);
 
 	return 0;
 }
 
 __initcall(register_memory);
+
+
+#ifdef CONFIG_KEXEC
+
+/*
+ * This function checks if the reserved crashkernel is allowed on the specific
+ * IA64 machine flavour. Machines without an IO TLB use swiotlb and require
+ * some memory below 4 GB (i.e. in 32 bit area), see the implementation of
+ * lib/swiotlb.c. The hpzx1 architecture has an IO TLB but cannot use that
+ * in kdump case. See the comment in sba_init() in sba_iommu.c.
+ *
+ * So, the only machvec that really supports loading the kdump kernel
+ * over 4 GB is "sn2".
+ */
+static int __init check_crashkernel_memory(unsigned long pbase, size_t size)
+{
+	if (ia64_platform_is("sn2") || ia64_platform_is("uv"))
+		return 1;
+	else
+		return pbase < (1UL << 32);
+}
+
+static void __init setup_crashkernel(unsigned long total, int *n)
+{
+	unsigned long long base = 0, size = 0;
+	int ret;
+
+	ret = parse_crashkernel(boot_command_line, total,
+			&size, &base);
+	if (ret == 0 && size > 0) {
+		if (!base) {
+			sort_regions(rsvd_region, *n);
+			base = kdump_find_rsvd_region(size,
+					rsvd_region, *n);
+		}
+
+		if (!check_crashkernel_memory(base, size)) {
+			pr_warning("crashkernel: There would be kdump memory "
+				"at %ld GB but this is unusable because it "
+				"must\nbe below 4 GB. Change the memory "
+				"configuration of the machine.\n",
+				(unsigned long)(base >> 30));
+			return;
+		}
+
+		if (base != ~0UL) {
+			printk(KERN_INFO "Reserving %ldMB of memory at %ldMB "
+					"for crashkernel (System RAM: %ldMB)\n",
+					(unsigned long)(size >> 20),
+					(unsigned long)(base >> 20),
+					(unsigned long)(total >> 20));
+			rsvd_region[*n].start =
+				(unsigned long)__va(base);
+			rsvd_region[*n].end =
+				(unsigned long)__va(base + size);
+			(*n)++;
+			crashk_res.start = base;
+			crashk_res.end = base + size - 1;
+		}
+	}
+	efi_memmap_res.start = ia64_boot_param->efi_memmap;
+	efi_memmap_res.end = efi_memmap_res.start +
+		ia64_boot_param->efi_memmap_size;
+	boot_param_res.start = __pa(ia64_boot_param);
+	boot_param_res.end = boot_param_res.start +
+		sizeof(*ia64_boot_param);
+}
+#else
+static inline void __init setup_crashkernel(unsigned long total, int *n)
+{}
+#endif
 
 /**
  * reserve_memory - setup reserved memory areas
@@ -219,6 +320,7 @@ void __init
 reserve_memory (void)
 {
 	int n = 0;
+	unsigned long total_memory;
 
 	/*
 	 * none of the entries in this table overlap
@@ -240,6 +342,8 @@ reserve_memory (void)
 	rsvd_region[n].end   = (unsigned long) ia64_imva(_end);
 	n++;
 
+	n += paravirt_reserve_memory(&rsvd_region[n]);
+
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (ia64_boot_param->initrd_start) {
 		rsvd_region[n].start = (unsigned long)__va(ia64_boot_param->initrd_start);
@@ -254,50 +358,11 @@ reserve_memory (void)
 		n++;
 #endif
 
-	efi_memmap_init(&rsvd_region[n].start, &rsvd_region[n].end);
+	total_memory = efi_memmap_init(&rsvd_region[n].start, &rsvd_region[n].end);
 	n++;
 
-#ifdef CONFIG_KEXEC
-	/* crashkernel=size@offset specifies the size to reserve for a crash
-	 * kernel. If offset is 0, then it is determined automatically.
-	 * By reserving this memory we guarantee that linux never set's it
-	 * up as a DMA target.Useful for holding code to do something
-	 * appropriate after a kernel panic.
-	 */
-	{
-		char *from = strstr(boot_command_line, "crashkernel=");
-		unsigned long base, size;
-		if (from) {
-			size = memparse(from + 12, &from);
-			if (*from == '@')
-				base = memparse(from+1, &from);
-			else
-				base = 0;
-			if (size) {
-				if (!base) {
-					sort_regions(rsvd_region, n);
-					base = kdump_find_rsvd_region(size,
-							      	rsvd_region, n);
-					}
-				if (base != ~0UL) {
-					rsvd_region[n].start =
-						(unsigned long)__va(base);
-					rsvd_region[n].end =
-						(unsigned long)__va(base + size);
-					n++;
-					crashk_res.start = base;
-					crashk_res.end = base + size - 1;
-				}
-			}
-		}
-		efi_memmap_res.start = ia64_boot_param->efi_memmap;
-                efi_memmap_res.end = efi_memmap_res.start +
-                        ia64_boot_param->efi_memmap_size;
-                boot_param_res.start = __pa(ia64_boot_param);
-                boot_param_res.end = boot_param_res.start +
-                        sizeof(*ia64_boot_param);
-	}
-#endif
+	setup_crashkernel(total_memory, &n);
+
 	/* end of memory marker */
 	rsvd_region[n].start = ~0UL;
 	rsvd_region[n].end   = ~0UL;
@@ -405,34 +470,6 @@ mark_bsp_online (void)
 #endif
 }
 
-#ifdef CONFIG_SMP
-static void __init
-check_for_logical_procs (void)
-{
-	pal_logical_to_physical_t info;
-	s64 status;
-
-	status = ia64_pal_logical_to_phys(0, &info);
-	if (status == -1) {
-		printk(KERN_INFO "No logical to physical processor mapping "
-		       "available\n");
-		return;
-	}
-	if (status) {
-		printk(KERN_ERR "ia64_pal_logical_to_phys failed with %ld\n",
-		       status);
-		return;
-	}
-	/*
-	 * Total number of siblings that BSP has.  Though not all of them 
-	 * may have booted successfully. The correct number of siblings 
-	 * booted is in info.overview_num_log.
-	 */
-	smp_num_siblings = info.overview_tpc;
-	smp_num_cpucores = info.overview_cpp;
-}
-#endif
-
 static __initdata int nomca;
 static __init int setup_nomca(char *s)
 {
@@ -485,6 +522,8 @@ setup_arch (char **cmdline_p)
 {
 	unw_init();
 
+	paravirt_arch_setup_early();
+
 	ia64_patch_vtop((u64) __start___vtop_patchlist, (u64) __end___vtop_patchlist);
 
 	*cmdline_p = __va(ia64_boot_param->command_line);
@@ -512,6 +551,9 @@ setup_arch (char **cmdline_p)
 	acpi_table_init();
 # ifdef CONFIG_ACPI_NUMA
 	acpi_numa_init();
+	per_cpu_scan_finalize((cpus_weight(early_cpu_possible_map) == 0 ?
+		32 : cpus_weight(early_cpu_possible_map)),
+		additional_cpus > 0 ? additional_cpus : 0);
 # endif
 #else
 # ifdef CONFIG_SMP
@@ -524,33 +566,30 @@ setup_arch (char **cmdline_p)
 	/* process SAL system table: */
 	ia64_sal_init(__va(efi.sal_systab));
 
-	ia64_setup_printk_clock();
+#ifdef CONFIG_ITANIUM
+	ia64_patch_rse((u64) __start___rse_patchlist, (u64) __end___rse_patchlist);
+#else
+	{
+		u64 num_phys_stacked;
+
+		if (ia64_pal_rse_info(&num_phys_stacked, 0) == 0 && num_phys_stacked > 96)
+			ia64_patch_rse((u64) __start___rse_patchlist, (u64) __end___rse_patchlist);
+	}
+#endif
 
 #ifdef CONFIG_SMP
 	cpu_physical_id(0) = hard_smp_processor_id();
-
-	cpu_set(0, cpu_sibling_map[0]);
-	cpu_set(0, cpu_core_map[0]);
-
-	check_for_logical_procs();
-	if (smp_num_cpucores > 1)
-		printk(KERN_INFO
-		       "cpu package is Multi-Core capable: number of cores=%d\n",
-		       smp_num_cpucores);
-	if (smp_num_siblings > 1)
-		printk(KERN_INFO
-		       "cpu package is Multi-Threading capable: number of siblings=%d\n",
-		       smp_num_siblings);
 #endif
 
 	cpu_init();	/* initialize the bootstrap CPU */
 	mmu_context_init();	/* initialize context_id bitmap */
 
-	check_sal_cache_flush();
-
 #ifdef CONFIG_ACPI
 	acpi_boot_init();
 #endif
+
+	paravirt_banner();
+	paravirt_arch_setup_console(cmdline_p);
 
 #ifdef CONFIG_VT
 	if (!conswitchp) {
@@ -571,10 +610,13 @@ setup_arch (char **cmdline_p)
 #endif
 
 	/* enable IA-64 Machine Check Abort Handling unless disabled */
+	if (paravirt_arch_setup_nomca())
+		nomca = 1;
 	if (!nomca)
 		ia64_mca_init();
 
 	platform_setup(cmdline_p);
+	check_sal_cache_flush();
 	paging_init();
 }
 
@@ -653,12 +695,13 @@ show_cpuinfo (struct seq_file *m, void *v)
 		   lpj*HZ/500000, (lpj*HZ/5000) % 100);
 #ifdef CONFIG_SMP
 	seq_printf(m, "siblings   : %u\n", cpus_weight(cpu_core_map[cpunum]));
+	if (c->socket_id != -1)
+		seq_printf(m, "physical id: %u\n", c->socket_id);
 	if (c->threads_per_core > 1 || c->cores_per_socket > 1)
 		seq_printf(m,
-		   	   "physical id: %u\n"
-		   	   "core id    : %u\n"
-		   	   "thread id  : %u\n",
-		   	   c->socket_id, c->core_id, c->thread_id);
+			   "core id    : %u\n"
+			   "thread id  : %u\n",
+			   c->core_id, c->thread_id);
 #endif
 	seq_printf(m,"\n");
 
@@ -687,7 +730,7 @@ c_stop (struct seq_file *m, void *v)
 {
 }
 
-struct seq_operations cpuinfo_op = {
+const struct seq_operations cpuinfo_op = {
 	.start =	c_start,
 	.next =		c_next,
 	.stop =		c_stop,
@@ -723,7 +766,7 @@ get_model_name(__u8 family, __u8 model)
 	if (overflow++ == 0)
 		printk(KERN_ERR
 		       "%s: Table overflow. Some processor model information will be missing\n",
-		       __FUNCTION__);
+		       __func__);
 	return "Unknown";
 }
 
@@ -770,6 +813,9 @@ identify_cpu (struct cpuinfo_ia64 *c)
 	c->socket_id = -1;
 
 	identify_siblings(c);
+
+	if (c->threads_per_core > smp_num_siblings)
+		smp_num_siblings = c->threads_per_core;
 #endif
 	c->ppn = cpuid.field.ppn;
 	c->number = cpuid.field.number;
@@ -815,7 +861,7 @@ get_max_cacheline_size (void)
         status = ia64_pal_cache_summary(&levels, &unique_caches);
         if (status != 0) {
                 printk(KERN_ERR "%s: ia64_pal_cache_summary() failed (status=%ld)\n",
-                       __FUNCTION__, status);
+                       __func__, status);
                 max = SMP_CACHE_BYTES;
 		/* Safest setup for "flush_icache_range()" */
 		ia64_i_cache_stride_shift = I_CACHE_STRIDE_SHIFT;
@@ -828,7 +874,7 @@ get_max_cacheline_size (void)
 		if (status != 0) {
 			printk(KERN_ERR
 			       "%s: ia64_pal_cache_config_info(l=%lu, 2) failed (status=%ld)\n",
-			       __FUNCTION__, l, status);
+			       __func__, l, status);
 			max = SMP_CACHE_BYTES;
 			/* The safest setup for "flush_icache_range()" */
 			cci.pcci_stride = I_CACHE_STRIDE_SHIFT;
@@ -844,7 +890,7 @@ get_max_cacheline_size (void)
 			if (status != 0) {
 				printk(KERN_ERR
 				"%s: ia64_pal_cache_config_info(l=%lu, 1) failed (status=%ld)\n",
-					__FUNCTION__, l, status);
+					__func__, l, status);
 				/* The safest setup for "flush_icache_range()" */
 				cci.pcci_stride = I_CACHE_STRIDE_SHIFT;
 			}
@@ -873,6 +919,16 @@ cpu_init (void)
 	void *cpu_data;
 
 	cpu_data = per_cpu_init();
+#ifdef CONFIG_SMP
+	/*
+	 * insert boot cpu into sibling and core mapes
+	 * (must be done after per_cpu area is setup)
+	 */
+	if (smp_processor_id() == 0) {
+		cpu_set(0, per_cpu(cpu_sibling_map, 0));
+		cpu_set(0, cpu_core_map[0]);
+	}
+#endif
 
 	/*
 	 * We set ar.k3 so that assembly code in MCA handler can compute
@@ -966,9 +1022,10 @@ cpu_init (void)
 #endif
 
 	/* set ia64_ctx.max_rid to the maximum RID that is supported by all CPUs: */
-	if (ia64_pal_vm_summary(NULL, &vmi) == 0)
+	if (ia64_pal_vm_summary(NULL, &vmi) == 0) {
 		max_ctx = (1U << (vmi.pal_vm_info_2_s.rid_size - 3)) - 1;
-	else {
+		setup_ptcg_sem(vmi.pal_vm_info_2_s.max_purges, NPTCG_FROM_PAL);
+	} else {
 		printk(KERN_WARNING "cpu_init: PAL VM summary failed, assuming 18 RID bits\n");
 		max_ctx = (1U << 15) - 1;	/* use architected minimum */
 	}

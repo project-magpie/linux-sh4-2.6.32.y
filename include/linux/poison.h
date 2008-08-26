@@ -10,6 +10,13 @@
 #define LIST_POISON1  ((void *) 0x00100100)
 #define LIST_POISON2  ((void *) 0x00200200)
 
+/********** include/linux/timer.h **********/
+/*
+ * Magic number "tsta" to indicate a static timer initializer
+ * for the object debugging code.
+ */
+#define TIMER_ENTRY_STATIC	((void *) 0x74737461)
+
 /********** mm/slab.c **********/
 /*
  * Magic nums for obj red zoning.
@@ -36,7 +43,8 @@
  */
 
 /********** fs/jbd/journal.c **********/
-#define JBD_POISON_FREE	0x5b
+#define JBD_POISON_FREE		0x5b
+#define JBD2_POISON_FREE	0x5c
 
 /********** drivers/base/dmapool.c **********/
 #define	POOL_POISON_FREED	0xa7	/* !inuse */

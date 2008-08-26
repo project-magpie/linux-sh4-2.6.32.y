@@ -56,7 +56,7 @@ int nfs_mount(struct sockaddr *addr, size_t len, char *hostname, char *path,
 		.program	= &mnt_program,
 		.version	= version,
 		.authflavor	= RPC_AUTH_UNIX,
-		.flags		= RPC_CLNT_CREATE_INTR,
+		.flags		= 0,
 	};
 	struct rpc_clnt		*mnt_clnt;
 	int			status;
@@ -130,10 +130,11 @@ static int xdr_decode_fhstatus3(struct rpc_rqst *req, __be32 *p,
 				struct mnt_fhstatus *res)
 {
 	struct nfs_fh *fh = res->fh;
+	unsigned size;
 
 	if ((res->status = ntohl(*p++)) == 0) {
-		int size = ntohl(*p++);
-		if (size <= NFS3_FHSIZE) {
+		size = ntohl(*p++);
+		if (size <= NFS3_FHSIZE && size != 0) {
 			fh->size = size;
 			memcpy(fh->data, p, size);
 		} else

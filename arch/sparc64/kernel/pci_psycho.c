@@ -801,7 +801,7 @@ static void pbm_config_busmastering(struct pci_pbm_info *pbm)
 	pci_config_write8(addr, 64);
 }
 
-static void psycho_scan_bus(struct pci_pbm_info *pbm)
+static void __init psycho_scan_bus(struct pci_pbm_info *pbm)
 {
 	pbm_config_busmastering(pbm);
 	pbm->is_66mhz_capable = 0;
@@ -848,7 +848,8 @@ static int psycho_iommu_init(struct pci_pbm_info *pbm)
 	/* Leave diag mode enabled for full-flushing done
 	 * in pci_iommu.c
 	 */
-	err = iommu_table_init(iommu, IO_TSB_SIZE, 0xc0000000, 0xffffffff);
+	err = iommu_table_init(iommu, IO_TSB_SIZE, 0xc0000000, 0xffffffff,
+			       pbm->numa_node);
 	if (err)
 		return err;
 
@@ -965,7 +966,7 @@ static void psycho_pbm_strbuf_init(struct pci_pbm_info *pbm,
 #define PSYCHO_MEMSPACE_B	0x180000000UL
 #define PSYCHO_MEMSPACE_SIZE	0x07fffffffUL
 
-static void psycho_pbm_init(struct pci_controller_info *p,
+static void __init psycho_pbm_init(struct pci_controller_info *p,
 			    struct device_node *dp, int is_pbm_a)
 {
 	struct property *prop;
@@ -978,6 +979,8 @@ static void psycho_pbm_init(struct pci_controller_info *p,
 
 	pbm->next = pci_pbm_root;
 	pci_pbm_root = pbm;
+
+	pbm->numa_node = -1;
 
 	pbm->scan_bus = psycho_scan_bus;
 	pbm->pci_ops = &sun4u_pci_ops;
@@ -1012,7 +1015,7 @@ static void psycho_pbm_init(struct pci_controller_info *p,
 
 #define PSYCHO_CONFIGSPACE	0x001000000UL
 
-void psycho_init(struct device_node *dp, char *model_name)
+void __init psycho_init(struct device_node *dp, char *model_name)
 {
 	struct linux_prom64_registers *pr_regs;
 	struct pci_controller_info *p;
@@ -1057,12 +1060,6 @@ void psycho_init(struct device_node *dp, char *model_name)
 
 	p->pbm_A.config_space = p->pbm_B.config_space =
 		(pr_regs[2].phys_addr + PSYCHO_CONFIGSPACE);
-
-	/*
-	 * Psycho's PCI MEM space is mapped to a 2GB aligned area, so
-	 * we need to adjust our MEM space mask.
-	 */
-	pci_memspace_mask = 0x7fffffffUL;
 
 	psycho_controller_hwinit(&p->pbm_A);
 

@@ -18,15 +18,3 @@ extern struct hda_codec_preset snd_hda_preset_atihdmi[];
 extern struct hda_codec_preset snd_hda_preset_conexant[];
 /* VIA codecs */
 extern struct hda_codec_preset snd_hda_preset_via[];
-
-static const struct hda_codec_preset *hda_preset_tables[] = {
-	snd_hda_preset_realtek,
-	snd_hda_preset_cmedia,
-	snd_hda_preset_analog,
-	snd_hda_preset_sigmatel,
-	snd_hda_preset_si3054,
-	snd_hda_preset_atihdmi,
-	snd_hda_preset_conexant,
-	snd_hda_preset_via,
-	NULL
-};

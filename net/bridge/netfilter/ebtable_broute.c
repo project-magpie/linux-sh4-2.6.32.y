@@ -46,16 +46,16 @@ static struct ebt_table broute_table =
 	.name		= "broute",
 	.table		= &initial_table,
 	.valid_hooks	= 1 << NF_BR_BROUTING,
-	.lock		= RW_LOCK_UNLOCKED,
+	.lock		= __RW_LOCK_UNLOCKED(broute_table.lock),
 	.check		= check,
 	.me		= THIS_MODULE,
 };
 
-static int ebt_broute(struct sk_buff **pskb)
+static int ebt_broute(struct sk_buff *skb)
 {
 	int ret;
 
-	ret = ebt_do_table(NF_BR_BROUTING, pskb, (*pskb)->dev, NULL,
+	ret = ebt_do_table(NF_BR_BROUTING, skb, skb->dev, NULL,
 	   &broute_table);
 	if (ret == NF_DROP)
 		return 1; /* route it */
@@ -70,13 +70,13 @@ static int __init ebtable_broute_init(void)
 	if (ret < 0)
 		return ret;
 	/* see br_input.c */
-	br_should_route_hook = ebt_broute;
+	rcu_assign_pointer(br_should_route_hook, ebt_broute);
 	return ret;
 }
 
 static void __exit ebtable_broute_fini(void)
 {
-	br_should_route_hook = NULL;
+	rcu_assign_pointer(br_should_route_hook, NULL);
 	synchronize_net();
 	ebt_unregister_table(&broute_table);
 }

@@ -131,14 +131,8 @@ static const struct file_operations proc_iomem_operations = {
 
 static int __init ioresources_init(void)
 {
-	struct proc_dir_entry *entry;
-
-	entry = create_proc_entry("ioports", 0, NULL);
-	if (entry)
-		entry->proc_fops = &proc_ioports_operations;
-	entry = create_proc_entry("iomem", 0, NULL);
-	if (entry)
-		entry->proc_fops = &proc_iomem_operations;
+	proc_create("ioports", 0, NULL, &proc_ioports_operations);
+	proc_create("iomem", 0, NULL, &proc_iomem_operations);
 	return 0;
 }
 __initcall(ioresources_init);
@@ -228,13 +222,13 @@ int release_resource(struct resource *old)
 
 EXPORT_SYMBOL(release_resource);
 
-#ifdef CONFIG_MEMORY_HOTPLUG
+#if defined(CONFIG_MEMORY_HOTPLUG) && !defined(CONFIG_ARCH_HAS_WALK_MEMORY)
 /*
  * Finds the lowest memory reosurce exists within [res->start.res->end)
  * the caller must specify res->start, res->end, res->flags.
  * If found, returns 0, res is overwritten, if not found, returns -1.
  */
-int find_next_system_ram(struct resource *res)
+static int find_next_system_ram(struct resource *res)
 {
 	resource_size_t start, end;
 	struct resource *p;
@@ -267,6 +261,30 @@ int find_next_system_ram(struct resource *res)
 		res->end = p->end;
 	return 0;
 }
+int
+walk_memory_resource(unsigned long start_pfn, unsigned long nr_pages, void *arg,
+			int (*func)(unsigned long, unsigned long, void *))
+{
+	struct resource res;
+	unsigned long pfn, len;
+	u64 orig_end;
+	int ret = -1;
+	res.start = (u64) start_pfn << PAGE_SHIFT;
+	res.end = ((u64)(start_pfn + nr_pages) << PAGE_SHIFT) - 1;
+	res.flags = IORESOURCE_MEM | IORESOURCE_BUSY;
+	orig_end = res.end;
+	while ((res.start < res.end) && (find_next_system_ram(&res) >= 0)) {
+		pfn = (unsigned long)(res.start >> PAGE_SHIFT);
+		len = (unsigned long)((res.end + 1 - res.start) >> PAGE_SHIFT);
+		ret = (*func)(pfn, len, arg);
+		if (ret)
+			break;
+		res.start = res.end + 1;
+		res.end = orig_end;
+	}
+	return ret;
+}
+
 #endif
 
 /*
@@ -461,6 +479,24 @@ int adjust_resource(struct resource *res, resource_size_t start, resource_size_t
 }
 
 EXPORT_SYMBOL(adjust_resource);
+
+/**
+ * resource_alignment - calculate resource's alignment
+ * @res: resource pointer
+ *
+ * Returns alignment on success, 0 (invalid alignment) on failure.
+ */
+resource_size_t resource_alignment(struct resource *res)
+{
+	switch (res->flags & (IORESOURCE_SIZEALIGN | IORESOURCE_STARTALIGN)) {
+	case IORESOURCE_SIZEALIGN:
+		return res->end - res->start + 1;
+	case IORESOURCE_STARTALIGN:
+		return res->start;
+	default:
+		return 0;
+	}
+}
 
 /*
  * This is compatibility stuff for IO resources.

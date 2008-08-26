@@ -535,7 +535,7 @@ static int __init etherh_addr(char *addr, struct expansion_card *ec)
 	
 	if (!ecard_readchunk(&cd, ec, 0xf5, 0)) {
 		printk(KERN_ERR "%s: unable to read podule description string\n",
-		       ec->dev.bus_id);
+		       dev_name(&ec->dev));
 		goto no_addr;
 	}
 
@@ -554,7 +554,7 @@ static int __init etherh_addr(char *addr, struct expansion_card *ec)
 	}
 
 	printk(KERN_ERR "%s: unable to parse MAC address: %s\n",
-	       ec->dev.bus_id, cd.d.string);
+	       dev_name(&ec->dev), cd.d.string);
 
  no_addr:
 	return -ENODEV;
@@ -585,7 +585,7 @@ static void etherh_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *i
 {
 	strlcpy(info->driver, DRV_NAME, sizeof(info->driver));
 	strlcpy(info->version, DRV_VERSION, sizeof(info->version));
-	strlcpy(info->bus_info, dev->dev.parent->bus_id,
+	strlcpy(info->bus_info, dev_name(dev->dev.parent),
 		sizeof(info->bus_info));
 }
 
@@ -647,7 +647,8 @@ etherh_probe(struct expansion_card *ec, const struct ecard_id *id)
 	struct ei_device *ei_local;
 	struct net_device *dev;
 	struct etherh_priv *eh;
-	int i, ret;
+	int ret;
+	DECLARE_MAC_BUF(mac);
 
 	etherh_banner();
 
@@ -661,7 +662,6 @@ etherh_probe(struct expansion_card *ec, const struct ecard_id *id)
 		goto release;
 	}
 
-	SET_MODULE_OWNER(dev);
 	SET_NETDEV_DEV(dev, &ec->dev);
 
 	dev->open		= etherh_open;
@@ -746,11 +746,8 @@ etherh_probe(struct expansion_card *ec, const struct ecard_id *id)
 	if (ret)
 		goto free;
 
-	printk(KERN_INFO "%s: %s in slot %d, ",
-		dev->name, data->name, ec->slot_no);
-
-	for (i = 0; i < 6; i++)
-		printk("%2.2x%c", dev->dev_addr[i], i == 5 ? '\n' : ':');
+	printk(KERN_INFO "%s: %s in slot %d, %s\n",
+		dev->name, data->name, ec->slot_no, print_mac(mac, dev->dev_addr));
 
 	ecard_set_drvdata(ec, dev);
 

@@ -21,13 +21,13 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <sound/core.h>
 #include "hda_codec.h"
 #include "hda_local.h"
+#include "hda_patch.h"
 
 struct atihdmi_spec {
 	struct hda_multi_out multiout;
@@ -59,21 +59,12 @@ static int atihdmi_build_controls(struct hda_codec *codec)
 static int atihdmi_init(struct hda_codec *codec)
 {
 	snd_hda_sequence_write(codec, atihdmi_basic_init);
+	/* SI codec requires to unmute the pin */
+	if (get_wcaps(codec, 0x03) & AC_WCAP_OUT_AMP)
+		snd_hda_codec_write(codec, 0x03, 0, AC_VERB_SET_AMP_GAIN_MUTE,
+				    AMP_OUT_UNMUTE);
 	return 0;
 }
-
-#ifdef CONFIG_PM
-/*
- * resume
- */
-static int atihdmi_resume(struct hda_codec *codec)
-{
-	atihdmi_init(codec);
-	snd_hda_resume_spdif_out(codec);
-
-	return 0;
-}
-#endif
 
 /*
  * Digital out
@@ -126,6 +117,7 @@ static int atihdmi_build_pcms(struct hda_codec *codec)
 	codec->pcm_info = info;
 
 	info->name = "ATI HDMI";
+	info->pcm_type = HDA_PCM_TYPE_HDMI;
 	info->stream[SNDRV_PCM_STREAM_PLAYBACK] = atihdmi_pcm_digital_playback;
 
 	return 0;
@@ -141,9 +133,6 @@ static struct hda_codec_ops atihdmi_patch_ops = {
 	.build_pcms = atihdmi_build_pcms,
 	.init = atihdmi_init,
 	.free = atihdmi_free,
-#ifdef CONFIG_PM
-	.resume = atihdmi_resume,
-#endif
 };
 
 static int patch_atihdmi(struct hda_codec *codec)
@@ -174,6 +163,8 @@ struct hda_codec_preset snd_hda_preset_atihdmi[] = {
 	{ .id = 0x1002793c, .name = "ATI RS600 HDMI", .patch = patch_atihdmi },
 	{ .id = 0x10027919, .name = "ATI RS600 HDMI", .patch = patch_atihdmi },
 	{ .id = 0x1002791a, .name = "ATI RS690/780 HDMI", .patch = patch_atihdmi },
-	{ .id = 0x1002aa01, .name = "ATI R600 HDMI", .patch = patch_atihdmi },
+	{ .id = 0x1002aa01, .name = "ATI R6xx HDMI", .patch = patch_atihdmi },
+	{ .id = 0x10951392, .name = "SiI1392 HDMI", .patch = patch_atihdmi },
+	{ .id = 0x17e80047, .name = "Chrontel HDMI",  .patch = patch_atihdmi },
 	{} /* terminator */
 };

@@ -9,7 +9,8 @@
  *	the Free Software Foundation; either version 2 of the License, or
  *	(at your option) any later version.
  *
- * See Documentation/usb/usb-serial.txt for more information on using this driver
+ * See Documentation/usb/usb-serial.txt for more information on using this
+ * driver
  */
 
 #include <linux/kernel.h>
@@ -50,9 +51,6 @@ static struct usb_serial_driver hp49gp_device = {
 	},
 	.id_table =		id_table,
 	.usb_driver = 		&hp49gp_driver,
-	.num_interrupt_in =	NUM_DONT_CARE,
-	.num_bulk_in =		NUM_DONT_CARE,
-	.num_bulk_out =		NUM_DONT_CARE,
 	.num_ports =		1,
 };
 

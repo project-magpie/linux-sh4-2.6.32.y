@@ -14,14 +14,6 @@
 #endif
 #include <asm/io.h>
 
-#ifndef MAX_HWIFS
-#ifdef __powerpc64__
-#define MAX_HWIFS	10
-#else
-#define MAX_HWIFS	8
-#endif
-#endif
-
 #define __ide_mm_insw(p, a, c)	readsw((void __iomem *)(p), (a), (c))
 #define __ide_mm_insl(p, a, c)	readsl((void __iomem *)(p), (a), (c))
 #define __ide_mm_outsw(p, a, c)	writesw((void __iomem *)(p), (a), (c))
@@ -31,51 +23,36 @@
 #include <linux/hdreg.h>
 #include <linux/ioport.h>
 
-struct ide_machdep_calls {
-        int         (*default_irq)(unsigned long base);
-        unsigned long (*default_io_base)(int index);
-        void        (*ide_init_hwif)(hw_regs_t *hw,
-                                     unsigned long data_port,
-                                     unsigned long ctrl_port,
-                                     int *irq);
-};
-
-extern struct ide_machdep_calls ppc_ide_md;
-
-#undef	SUPPORT_SLOW_DATA_PORTS
-#define	SUPPORT_SLOW_DATA_PORTS	0
-
-#define IDE_ARCH_OBSOLETE_DEFAULTS
-
+/* FIXME: use ide_platform host driver */
 static __inline__ int ide_default_irq(unsigned long base)
 {
-	if (ppc_ide_md.default_irq)
-		return ppc_ide_md.default_irq(base);
+#ifdef CONFIG_PPLUS
+	switch (base) {
+	case 0x1f0:	return 14;
+	case 0x170:	return 15;
+	}
+#endif
 	return 0;
 }
 
+/* FIXME: use ide_platform host driver */
 static __inline__ unsigned long ide_default_io_base(int index)
 {
-	if (ppc_ide_md.default_io_base)
-		return ppc_ide_md.default_io_base(index);
+#ifdef CONFIG_PPLUS
+	switch (index) {
+	case 0:		return 0x1f0;
+	case 1:		return 0x170;
+	}
+#endif
 	return 0;
 }
 
-#ifdef CONFIG_PCI
-#define ide_init_default_irq(base)	(0)
-#else
-#define ide_init_default_irq(base)	ide_default_irq(base)
-#endif
-
-#if (defined CONFIG_APUS || defined CONFIG_BLK_DEV_MPC8xx_IDE )
+#ifdef CONFIG_BLK_DEV_MPC8xx_IDE
 #define IDE_ARCH_ACK_INTR  1
-#define ide_ack_intr(hwif) (hwif->hw.ack_intr ? hwif->hw.ack_intr(hwif) : 1)
+#define ide_ack_intr(hwif) ((hwif)->ack_intr ? (hwif)->ack_intr(hwif) : 1)
 #endif
 
 #endif /* __powerpc64__ */
-
-#define IDE_ARCH_OBSOLETE_INIT
-#define ide_default_io_ctl(base)	((base) + 0x206) /* obsolete */
 
 #endif /* __KERNEL__ */
 

@@ -195,7 +195,8 @@ struct ib_mr *ipath_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 		goto bail;
 	}
 
-	umem = ib_umem_get(pd->uobject->context, start, length, mr_access_flags);
+	umem = ib_umem_get(pd->uobject->context, start, length,
+			   mr_access_flags, 0);
 	if (IS_ERR(umem))
 		return (void *) umem;
 
@@ -225,7 +226,7 @@ struct ib_mr *ipath_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 		for (i = 0; i < chunk->nents; i++) {
 			void *vaddr;
 
-			vaddr = page_address(chunk->page_list[i].page);
+			vaddr = page_address(sg_page(&chunk->page_list[i]));
 			if (!vaddr) {
 				ret = ERR_PTR(-EINVAL);
 				goto bail;

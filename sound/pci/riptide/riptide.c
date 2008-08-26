@@ -88,7 +88,6 @@
             Adopted for Windows NT driver          01/20/98      CNL
 */
 
-#include <sound/driver.h>
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -683,7 +682,7 @@ static union firmware_version firmware_versions[] = {
 	},
 };
 
-static u32 atoh(unsigned char *in, unsigned int len)
+static u32 atoh(const unsigned char *in, unsigned int len)
 {
 	u32 sum = 0;
 	unsigned int mult = 1;
@@ -703,12 +702,12 @@ static u32 atoh(unsigned char *in, unsigned int len)
 	return sum;
 }
 
-static int senddata(struct cmdif *cif, unsigned char *in, u32 offset)
+static int senddata(struct cmdif *cif, const unsigned char *in, u32 offset)
 {
 	u32 addr;
 	u32 data;
 	u32 i;
-	unsigned char *p;
+	const unsigned char *p;
 
 	i = atoh(&in[1], 2);
 	addr = offset + atoh(&in[3], 4);
@@ -727,10 +726,10 @@ static int senddata(struct cmdif *cif, unsigned char *in, u32 offset)
 	return 0;
 }
 
-static int loadfirmware(struct cmdif *cif, unsigned char *img,
+static int loadfirmware(struct cmdif *cif, const unsigned char *img,
 			unsigned int size)
 {
-	unsigned char *in;
+	const unsigned char *in;
 	u32 laddr, saddr, t, val;
 	int err = 0;
 
@@ -1631,14 +1630,14 @@ static int snd_riptide_playback_open(struct snd_pcm_substream *substream)
 	struct snd_riptide *chip = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct pcmhw *data;
-	int index = substream->number;
+	int sub_num = substream->number;
 
-	chip->playback_substream[index] = substream;
+	chip->playback_substream[sub_num] = substream;
 	runtime->hw = snd_riptide_playback;
 	data = kzalloc(sizeof(struct pcmhw), GFP_KERNEL);
-	data->paths = lbus_play_paths[index];
-	data->id = play_ids[index];
-	data->source = play_sources[index];
+	data->paths = lbus_play_paths[sub_num];
+	data->id = play_ids[sub_num];
+	data->source = play_sources[sub_num];
 	data->intdec[0] = 0xff;
 	data->intdec[1] = 0xff;
 	data->state = ST_STOP;
@@ -1671,10 +1670,10 @@ static int snd_riptide_playback_close(struct snd_pcm_substream *substream)
 {
 	struct snd_riptide *chip = snd_pcm_substream_chip(substream);
 	struct pcmhw *data = get_pcmhwdev(substream);
-	int index = substream->number;
+	int sub_num = substream->number;
 
 	substream->runtime->private_data = NULL;
-	chip->playback_substream[index] = NULL;
+	chip->playback_substream[sub_num] = NULL;
 	kfree(data);
 	return 0;
 }

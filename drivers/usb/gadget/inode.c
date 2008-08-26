@@ -20,8 +20,7 @@
  */
 
 
-// #define	DEBUG			/* data to help fault diagnosis */
-// #define	VERBOSE		/* extra debug messages (success too) */
+/* #define VERBOSE_DEBUG */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -33,12 +32,13 @@
 #include <asm/uaccess.h>
 #include <linux/slab.h>
 #include <linux/poll.h>
+#include <linux/smp_lock.h>
 
 #include <linux/device.h>
 #include <linux/moduleparam.h>
 
 #include <linux/usb/gadgetfs.h>
-#include <linux/usb_gadget.h>
+#include <linux/usb/gadget.h>
 
 
 /*
@@ -253,7 +253,7 @@ static const char *CHIP;
 	do { } while (0)
 #endif /* DEBUG */
 
-#ifdef VERBOSE
+#ifdef VERBOSE_DEBUG
 #define VDEBUG	DBG
 #else
 #define VDEBUG(dev,fmt,args...) \
@@ -262,8 +262,6 @@ static const char *CHIP;
 
 #define ERROR(dev,fmt,args...) \
 	xprintk(dev , KERN_ERR , fmt , ## args)
-#define WARN(dev,fmt,args...) \
-	xprintk(dev , KERN_WARNING , fmt , ## args)
 #define INFO(dev,fmt,args...) \
 	xprintk(dev , KERN_INFO , fmt , ## args)
 
@@ -484,8 +482,7 @@ ep_release (struct inode *inode, struct file *fd)
 	return 0;
 }
 
-static int ep_ioctl (struct inode *inode, struct file *fd,
-		unsigned code, unsigned long value)
+static long ep_ioctl(struct file *fd, unsigned code, unsigned long value)
 {
 	struct ep_data		*data = fd->private_data;
 	int			status;
@@ -741,7 +738,7 @@ static const struct file_operations ep_io_operations = {
 
 	.read =		ep_read,
 	.write =	ep_write,
-	.ioctl =	ep_ioctl,
+	.unlocked_ioctl = ep_ioctl,
 	.release =	ep_release,
 
 	.aio_read =	ep_aio_read,
@@ -1010,11 +1007,12 @@ ep0_read (struct file *fd, char __user *buf, size_t len, loff_t *ptr)
 			/* assume that was SET_CONFIGURATION */
 			if (dev->current_config) {
 				unsigned power;
-#ifdef	CONFIG_USB_GADGET_DUALSPEED
-				if (dev->gadget->speed == USB_SPEED_HIGH)
+
+				if (gadget_is_dualspeed(dev->gadget)
+						&& (dev->gadget->speed
+							== USB_SPEED_HIGH))
 					power = dev->hs_config->bMaxPower;
 				else
-#endif
 					power = dev->config->bMaxPower;
 				usb_gadget_vbus_draw(dev->gadget, 2 * power);
 			}
@@ -1107,13 +1105,13 @@ scan:
 
 	switch (state) {
 	default:
-		DBG (dev, "fail %s, state %d\n", __FUNCTION__, state);
+		DBG (dev, "fail %s, state %d\n", __func__, state);
 		retval = -ESRCH;
 		break;
 	case STATE_DEV_UNCONNECTED:
 	case STATE_DEV_CONNECTED:
 		spin_unlock_irq (&dev->lock);
-		DBG (dev, "%s wait\n", __FUNCTION__);
+		DBG (dev, "%s wait\n", __func__);
 
 		/* wait for events */
 		retval = wait_event_interruptible (dev->wait,
@@ -1222,7 +1220,7 @@ ep0_write (struct file *fd, const char __user *buf, size_t len, loff_t *ptr)
 			DBG(dev, "bogus ep0out stall!\n");
 		}
 	} else
-		DBG (dev, "fail %s, state %d\n", __FUNCTION__, dev->state);
+		DBG (dev, "fail %s, state %d\n", __func__, dev->state);
 
 	spin_unlock_irq (&dev->lock);
 	return retval;
@@ -1233,7 +1231,7 @@ ep0_fasync (int f, struct file *fd, int on)
 {
 	struct dev_data		*dev = fd->private_data;
 	// caller must F_SETOWN before signal delivery happens
-	VDEBUG (dev, "%s %s\n", __FUNCTION__, on ? "on" : "off");
+	VDEBUG (dev, "%s %s\n", __func__, on ? "on" : "off");
 	return fasync_helper (f, fd, on, &dev->fasync);
 }
 
@@ -1294,15 +1292,18 @@ out:
        return mask;
 }
 
-static int dev_ioctl (struct inode *inode, struct file *fd,
-		unsigned code, unsigned long value)
+static long dev_ioctl (struct file *fd, unsigned code, unsigned long value)
 {
 	struct dev_data		*dev = fd->private_data;
 	struct usb_gadget	*gadget = dev->gadget;
+	long ret = -ENOTTY;
 
-	if (gadget->ops->ioctl)
-		return gadget->ops->ioctl (gadget, code, value);
-	return -ENOTTY;
+	if (gadget->ops->ioctl) {
+		lock_kernel();
+		ret = gadget->ops->ioctl (gadget, code, value);
+		unlock_kernel();
+	}
+	return ret;
 }
 
 /* used after device configuration */
@@ -1314,7 +1315,7 @@ static const struct file_operations ep0_io_operations = {
 	.write =	ep0_write,
 	.fasync =	ep0_fasync,
 	.poll =		ep0_poll,
-	.ioctl =	dev_ioctl,
+	.unlocked_ioctl =	dev_ioctl,
 	.release =	dev_release,
 };
 
@@ -1355,24 +1356,21 @@ static int
 config_buf (struct dev_data *dev, u8 type, unsigned index)
 {
 	int		len;
-#ifdef CONFIG_USB_GADGET_DUALSPEED
-	int		hs;
-#endif
+	int		hs = 0;
 
 	/* only one configuration */
 	if (index > 0)
 		return -EINVAL;
 
-#ifdef CONFIG_USB_GADGET_DUALSPEED
-	hs = (dev->gadget->speed == USB_SPEED_HIGH);
-	if (type == USB_DT_OTHER_SPEED_CONFIG)
-		hs = !hs;
+	if (gadget_is_dualspeed(dev->gadget)) {
+		hs = (dev->gadget->speed == USB_SPEED_HIGH);
+		if (type == USB_DT_OTHER_SPEED_CONFIG)
+			hs = !hs;
+	}
 	if (hs) {
 		dev->req->buf = dev->hs_config;
 		len = le16_to_cpu(dev->hs_config->wTotalLength);
-	} else
-#endif
-	{
+	} else {
 		dev->req->buf = dev->config;
 		len = le16_to_cpu(dev->config->wTotalLength);
 	}
@@ -1393,13 +1391,13 @@ gadgetfs_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 	spin_lock (&dev->lock);
 	dev->setup_abort = 0;
 	if (dev->state == STATE_DEV_UNCONNECTED) {
-#ifdef	CONFIG_USB_GADGET_DUALSPEED
-		if (gadget->speed == USB_SPEED_HIGH && dev->hs_config == NULL) {
+		if (gadget_is_dualspeed(gadget)
+				&& gadget->speed == USB_SPEED_HIGH
+				&& dev->hs_config == NULL) {
 			spin_unlock(&dev->lock);
 			ERROR (dev, "no high speed config??\n");
 			return -EINVAL;
 		}
-#endif	/* CONFIG_USB_GADGET_DUALSPEED */
 
 		dev->state = STATE_DEV_CONNECTED;
 		dev->dev->bMaxPacketSize0 = gadget->ep0->maxpacket;
@@ -1461,7 +1459,7 @@ gadgetfs_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 	/* currently one config, two speeds */
 	case USB_REQ_SET_CONFIGURATION:
 		if (ctrl->bRequestType != 0)
-			break;
+			goto unrecognized;
 		if (0 == (u8) w_value) {
 			value = 0;
 			dev->current_config = 0;
@@ -1469,13 +1467,12 @@ gadgetfs_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 			// user mode expected to disable endpoints
 		} else {
 			u8	config, power;
-#ifdef	CONFIG_USB_GADGET_DUALSPEED
-			if (gadget->speed == USB_SPEED_HIGH) {
+
+			if (gadget_is_dualspeed(gadget)
+					&& gadget->speed == USB_SPEED_HIGH) {
 				config = dev->hs_config->bConfigurationValue;
 				power = dev->hs_config->bMaxPower;
-			} else
-#endif
-			{
+			} else {
 				config = dev->config->bConfigurationValue;
 				power = dev->config->bMaxPower;
 			}
@@ -1505,11 +1502,11 @@ gadgetfs_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 		}
 		break;
 
-#ifndef	CONFIG_USB_GADGET_PXA2XX
+#ifndef	CONFIG_USB_GADGET_PXA25X
 	/* PXA automagically handles this request too */
 	case USB_REQ_GET_CONFIGURATION:
 		if (ctrl->bRequestType != 0x80)
-			break;
+			goto unrecognized;
 		*(u8 *)req->buf = dev->current_config;
 		value = min (w_length, (u16) 1);
 		break;
@@ -1579,7 +1576,7 @@ static void destroy_ep_files (struct dev_data *dev)
 {
 	struct list_head	*entry, *tmp;
 
-	DBG (dev, "%s %d\n", __FUNCTION__, dev->state);
+	DBG (dev, "%s %d\n", __func__, dev->state);
 
 	/* dev->state must prevent interference */
 restart:
@@ -1666,7 +1663,7 @@ enomem1:
 	put_dev (dev);
 	kfree (data);
 enomem0:
-	DBG (dev, "%s enomem\n", __FUNCTION__);
+	DBG (dev, "%s enomem\n", __func__);
 	destroy_ep_files (dev);
 	return -ENOMEM;
 }
@@ -1676,7 +1673,7 @@ gadgetfs_unbind (struct usb_gadget *gadget)
 {
 	struct dev_data		*dev = get_gadget_data (gadget);
 
-	DBG (dev, "%s\n", __FUNCTION__);
+	DBG (dev, "%s\n", __func__);
 
 	spin_lock_irq (&dev->lock);
 	dev->state = STATE_DEV_UNBOUND;
@@ -1689,7 +1686,7 @@ gadgetfs_unbind (struct usb_gadget *gadget)
 	/* we've already been disconnected ... no i/o is active */
 	if (dev->req)
 		usb_ep_free_request (gadget->ep0, dev->req);
-	DBG (dev, "%s done\n", __FUNCTION__);
+	DBG (dev, "%s done\n", __func__);
 	put_dev (dev);
 }
 
@@ -1703,7 +1700,7 @@ gadgetfs_bind (struct usb_gadget *gadget)
 	if (!dev)
 		return -ESRCH;
 	if (0 != strcmp (CHIP, gadget->name)) {
-		printk (KERN_ERR "%s expected %s controller not %s\n",
+		pr_err("%s expected %s controller not %s\n",
 			shortname, CHIP, gadget->name);
 		return -ENODEV;
 	}
@@ -1937,7 +1934,7 @@ dev_config (struct file *fd, const char __user *buf, size_t len, loff_t *ptr)
 
 fail:
 	spin_unlock_irq (&dev->lock);
-	pr_debug ("%s: %s fail %Zd, %p\n", shortname, __FUNCTION__, value, dev);
+	pr_debug ("%s: %s fail %Zd, %p\n", shortname, __func__, value, dev);
 	kfree (dev->buf);
 	dev->buf = NULL;
 	return value;
@@ -1968,7 +1965,7 @@ static const struct file_operations dev_init_operations = {
 	.open =		dev_open,
 	.write =	dev_config,
 	.fasync =	ep0_fasync,
-	.ioctl =	dev_ioctl,
+	.unlocked_ioctl = dev_ioctl,
 	.release =	dev_release,
 };
 

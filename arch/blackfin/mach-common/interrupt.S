@@ -30,13 +30,16 @@
 
 #include <asm/blackfin.h>
 #include <asm/mach/irq.h>
-#include <linux/autoconf.h>
 #include <linux/linkage.h>
 #include <asm/entry.h>
 #include <asm/asm-offsets.h>
 #include <asm/trace.h>
+#include <asm/traps.h>
+#include <asm/thread_info.h>
 
 #include <asm/mach-common/context.S>
+
+.extern _ret_from_exception
 
 #ifdef CONFIG_I_ENTRY_L1
 .section .l1.text
@@ -45,30 +48,6 @@
 #endif
 
 .align 4 	/* just in case */
-
-/*
- * initial interrupt handlers
- */
-
-#ifndef CONFIG_KGDB
- 	/* interrupt routine for emulation - 0 */
-	/* Currently used only if GDB stub is not in - invalid */
-	/* gdb-stub set the evt itself */
-	/* save registers for post-mortem only */
-ENTRY(_evt_emulation)
-	SAVE_ALL_SYS
-#ifdef CONFIG_FRAME_POINTER
-	fp = 0;
-#endif
-	r0 = IRQ_EMU;
-	r1 = sp;
-	SP += -12;
-	call _irq_panic;
-	SP += 12;
-	/* - GDB stub fills this in by itself (if defined) */
-	rte;
-ENDPROC(_evt_emulation)
-#endif
 
 /* Common interrupt entry code.	 First we do CLI, then push
  * RETI, to keep interrupts disabled, but to allow this state to be changed
@@ -140,10 +119,10 @@ __common_int_entry:
 	fp = 0;
 #endif
 
-#if defined (ANOMALY_05000283) || defined (ANOMALY_05000315)
+#if ANOMALY_05000283 || ANOMALY_05000315
 	cc = r7 == r7;
-	p5.h = 0xffc0;
-	p5.l = 0x0014;
+	p5.h = HI(CHIPID);
+	p5.l = LO(CHIPID);
 	if cc jump 1f;
 	r7.l = W[p5];
 1:
@@ -159,26 +138,22 @@ __common_int_entry:
 
 /* interrupt routine for ivhw - 5 */
 ENTRY(_evt_ivhw)
-	SAVE_CONTEXT
+	SAVE_ALL_SYS
 #ifdef CONFIG_FRAME_POINTER
 	fp = 0;
 #endif
-#ifdef	ANOMALY_05000283
+
+#if ANOMALY_05000283
 	cc = r7 == r7;
-	p5.h = 0xffc0;
-	p5.l = 0x0014;
+	p5.h = HI(CHIPID);
+	p5.l = LO(CHIPID);
 	if cc jump 1f;
 	r7.l = W[p5];
 1:
 #endif
 
-	trace_buffer_stop(p0, r0);
-
-	r0 = IRQ_HWERR;
-	r1 = sp;
-
 #ifdef CONFIG_HARDWARE_PM
-	r7 = SEQSTAT;
+	r7 = [sp + PT_SEQSTAT];
 	r7 = r7 >>> 0xe;
 	r6 = 0x1F;
 	r7 = r7 & r6;
@@ -186,11 +161,29 @@ ENTRY(_evt_ivhw)
 	cc = r7 == r5;
 	if cc jump .Lcall_do_ovf; /* deal with performance counter overflow */
 #endif
+	# We are going to dump something out, so make sure we print IPEND properly
+	p2.l = lo(IPEND);
+	p2.h = hi(IPEND);
+	r0 = [p2];
+	[sp + PT_IPEND] = r0;
 
+	/* set the EXCAUSE to HWERR for trap_c */
+	r0 = [sp + PT_SEQSTAT];
+	R1.L = LO(VEC_HWERR);
+	R1.H = HI(VEC_HWERR);
+	R0 = R0 | R1;
+	[sp + PT_SEQSTAT] = R0;
+
+	r0 = sp;        /* stack frame pt_regs pointer argument ==> r0 */
 	SP += -12;
-	call _irq_panic;
+	call _trap_c;
 	SP += 12;
+
+	call _ret_from_exception;
+.Lcommon_restore_all_sys:
+	RESTORE_ALL_SYS
 	rti;
+
 #ifdef CONFIG_HARDWARE_PM
 .Lcall_do_ovf:
 
@@ -198,30 +191,20 @@ ENTRY(_evt_ivhw)
 	call _pm_overflow;
 	SP += 12;
 
-	jump .Lcommon_restore_context;
+	jump .Lcommon_restore_all_sys;
 #endif
 
-/* interrupt routine for evt2 - 2.  This is NMI.  */
-ENTRY(_evt_evt2)
-	SAVE_CONTEXT
-#ifdef CONFIG_FRAME_POINTER
-	fp = 0;
-#endif
-#ifdef	ANOMALY_05000283
-	cc = r7 == r7;
-	p5.h = 0xffc0;
-	p5.l = 0x0014;
-	if cc jump 1f;
-	r7.l = W[p5];
-1:
-#endif
-	r0 = IRQ_NMI;
-	r1 =  sp;
-	SP += -12;
-	call _asm_do_IRQ;
-	SP += 12;
-	RESTORE_CONTEXT
+ENDPROC(_evt_ivhw)
+
+/* Interrupt routine for evt2 (NMI).
+ * We don't actually use this, so just return.
+ * For inner circle type details, please see:
+ * http://docs.blackfin.uclinux.org/doku.php?id=linux:nmi
+ */
+ENTRY(_evt_nmi)
+.weak _evt_nmi
 	rtn;
+ENDPROC(_evt_nmi)
 
 /* interrupt routine for core timer - 6 */
 ENTRY(_evt_timer)

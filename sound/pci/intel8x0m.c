@@ -1,7 +1,7 @@
 /*
  *   ALSA modem driver for Intel ICH (i8x0) chipsets
  *
- *	Copyright (c) 2000 Jaroslav Kysela <perex@suse.cz>
+ *	Copyright (c) 2000 Jaroslav Kysela <perex@perex.cz>
  *
  *   This is modified (by Sasha Khapyorsky <sashak@alsa-project.org>) version
  *   of ALSA ICH sound driver intel8x0.c .
@@ -23,7 +23,6 @@
  *
  */      
 
-#include <sound/driver.h>
 #include <asm/io.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
@@ -37,7 +36,7 @@
 #include <sound/info.h>
 #include <sound/initval.h>
 
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("Intel 82801AA,82901AB,i810,i820,i830,i840,i845,MX440; "
 		   "SiS 7013; NVidia MCP/2/2S/3 modems");
 MODULE_LICENSE("GPL");
@@ -986,17 +985,15 @@ static int snd_intel8x0_free(struct intel8x0m *chip)
 	/* reset channels */
 	for (i = 0; i < chip->bdbars_count; i++)
 		iputbyte(chip, ICH_REG_OFF_CR + chip->ichd[i].reg_offset, ICH_RESETREGS);
-	/* --- */
-	synchronize_irq(chip->irq);
-      __hw_end:
+ __hw_end:
+	if (chip->irq >= 0)
+		free_irq(chip->irq, chip);
 	if (chip->bdbars.area)
 		snd_dma_free_pages(&chip->bdbars);
 	if (chip->addr)
 		pci_iounmap(chip->pci, chip->addr);
 	if (chip->bmaddr)
 		pci_iounmap(chip->pci, chip->bmaddr);
-	if (chip->irq >= 0)
-		free_irq(chip->irq, chip);
 	pci_release_regions(chip->pci);
 	pci_disable_device(chip->pci);
 	kfree(chip);
@@ -1018,7 +1015,6 @@ static int intel8x0m_suspend(struct pci_dev *pci, pm_message_t state)
 		snd_pcm_suspend_all(chip->pcm[i]);
 	snd_ac97_suspend(chip->ac97);
 	if (chip->irq >= 0) {
-		synchronize_irq(chip->irq);
 		free_irq(chip->irq, chip);
 		chip->irq = -1;
 	}

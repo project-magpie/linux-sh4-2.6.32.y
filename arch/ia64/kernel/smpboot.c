@@ -50,6 +50,7 @@
 #include <asm/machvec.h>
 #include <asm/mca.h>
 #include <asm/page.h>
+#include <asm/paravirt.h>
 #include <asm/pgalloc.h>
 #include <asm/pgtable.h>
 #include <asm/processor.h>
@@ -120,7 +121,6 @@ static volatile unsigned long go[SLAVE + 1];
 
 #define DEBUG_ITC_SYNC	0
 
-extern void __devinit calibrate_delay (void);
 extern void start_ap (void);
 extern unsigned long ia64_iobase;
 
@@ -138,9 +138,10 @@ cpumask_t cpu_possible_map = CPU_MASK_NONE;
 EXPORT_SYMBOL(cpu_possible_map);
 
 cpumask_t cpu_core_map[NR_CPUS] __cacheline_aligned;
-cpumask_t cpu_sibling_map[NR_CPUS] __cacheline_aligned;
+DEFINE_PER_CPU_SHARED_ALIGNED(cpumask_t, cpu_sibling_map);
+EXPORT_PER_CPU_SYMBOL(cpu_sibling_map);
+
 int smp_num_siblings = 1;
-int smp_num_cpucores = 1;
 
 /* which logical CPU number maps to which CPU (physical APIC ID) */
 volatile int ia64_cpu_to_sapicid[NR_CPUS];
@@ -317,7 +318,7 @@ ia64_sync_itc (unsigned int master)
 
 	go[MASTER] = 1;
 
-	if (smp_call_function_single(master, sync_master, NULL, 1, 0) < 0) {
+	if (smp_call_function_single(master, sync_master, NULL, 0) < 0) {
 		printk(KERN_ERR "sync_itc: failed to get attention of CPU %u!\n", master);
 		return;
 	}
@@ -395,14 +396,14 @@ smp_callin (void)
 
 	fix_b0_for_bsp();
 
-	lock_ipi_calllock();
+	ipi_call_lock_irq();
 	spin_lock(&vector_lock);
 	/* Setup the per cpu irq handling data structures */
 	__setup_vector_irq(cpuid);
 	cpu_set(cpuid, cpu_online_map);
-	unlock_ipi_calllock();
 	per_cpu(cpu_state, cpuid) = CPU_ONLINE;
 	spin_unlock(&vector_lock);
+	ipi_call_unlock_irq();
 
 	smp_setup_percpu_timer();
 
@@ -476,7 +477,7 @@ start_secondary (void *unused)
 	return 0;
 }
 
-struct pt_regs * __devinit idle_regs(struct pt_regs *regs)
+struct pt_regs * __cpuinit idle_regs(struct pt_regs *regs)
 {
 	return NULL;
 }
@@ -642,6 +643,7 @@ void __devinit smp_prepare_boot_cpu(void)
 	cpu_set(smp_processor_id(), cpu_online_map);
 	cpu_set(smp_processor_id(), cpu_callin_map);
 	per_cpu(cpu_state, smp_processor_id()) = CPU_ONLINE;
+	paravirt_post_smp_prepare_boot_cpu();
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
@@ -650,12 +652,12 @@ clear_cpu_sibling_map(int cpu)
 {
 	int i;
 
-	for_each_cpu_mask(i, cpu_sibling_map[cpu])
-		cpu_clear(cpu, cpu_sibling_map[i]);
+	for_each_cpu_mask(i, per_cpu(cpu_sibling_map, cpu))
+		cpu_clear(cpu, per_cpu(cpu_sibling_map, i));
 	for_each_cpu_mask(i, cpu_core_map[cpu])
 		cpu_clear(cpu, cpu_core_map[i]);
 
-	cpu_sibling_map[cpu] = cpu_core_map[cpu] = CPU_MASK_NONE;
+	per_cpu(cpu_sibling_map, cpu) = cpu_core_map[cpu] = CPU_MASK_NONE;
 }
 
 static void
@@ -666,7 +668,7 @@ remove_siblinginfo(int cpu)
 	if (cpu_data(cpu)->threads_per_core == 1 &&
 	    cpu_data(cpu)->cores_per_socket == 1) {
 		cpu_clear(cpu, cpu_core_map[cpu]);
-		cpu_clear(cpu, cpu_sibling_map[cpu]);
+		cpu_clear(cpu, per_cpu(cpu_sibling_map, cpu));
 		return;
 	}
 
@@ -766,17 +768,6 @@ void __cpu_die(unsigned int cpu)
 	}
  	printk(KERN_ERR "CPU %u didn't die...\n", cpu);
 }
-#else /* !CONFIG_HOTPLUG_CPU */
-int __cpu_disable(void)
-{
-	return -ENOSYS;
-}
-
-void __cpu_die(unsigned int cpu)
-{
-	/* We said "no" in __cpu_disable */
-	BUG();
-}
 #endif /* CONFIG_HOTPLUG_CPU */
 
 void
@@ -807,8 +798,8 @@ set_cpu_sibling_map(int cpu)
 			cpu_set(i, cpu_core_map[cpu]);
 			cpu_set(cpu, cpu_core_map[i]);
 			if (cpu_data(cpu)->core_id == cpu_data(i)->core_id) {
-				cpu_set(i, cpu_sibling_map[cpu]);
-				cpu_set(cpu, cpu_sibling_map[i]);
+				cpu_set(i, per_cpu(cpu_sibling_map, cpu));
+				cpu_set(cpu, per_cpu(cpu_sibling_map, i));
 			}
 		}
 	}
@@ -839,7 +830,7 @@ __cpu_up (unsigned int cpu)
 
 	if (cpu_data(cpu)->threads_per_core == 1 &&
 	    cpu_data(cpu)->cores_per_socket == 1) {
-		cpu_set(cpu, cpu_sibling_map[cpu]);
+		cpu_set(cpu, per_cpu(cpu_sibling_map, cpu));
 		cpu_set(cpu, cpu_core_map[cpu]);
 		return 0;
 	}
@@ -884,20 +875,34 @@ identify_siblings(struct cpuinfo_ia64 *c)
 	u16 pltid;
 	pal_logical_to_physical_t info;
 
-	if (smp_num_cpucores == 1 && smp_num_siblings == 1)
-		return;
+	status = ia64_pal_logical_to_phys(-1, &info);
+	if (status != PAL_STATUS_SUCCESS) {
+		if (status != PAL_STATUS_UNIMPLEMENTED) {
+			printk(KERN_ERR
+				"ia64_pal_logical_to_phys failed with %ld\n",
+				status);
+			return;
+		}
 
-	if ((status = ia64_pal_logical_to_phys(-1, &info)) != PAL_STATUS_SUCCESS) {
-		printk(KERN_ERR "ia64_pal_logical_to_phys failed with %ld\n",
-		       status);
-		return;
+		info.overview_ppid = 0;
+		info.overview_cpp  = 1;
+		info.overview_tpc  = 1;
 	}
-	if ((status = ia64_sal_physical_id_info(&pltid)) != PAL_STATUS_SUCCESS) {
-		printk(KERN_ERR "ia64_sal_pltid failed with %ld\n", status);
+
+	status = ia64_sal_physical_id_info(&pltid);
+	if (status != PAL_STATUS_SUCCESS) {
+		if (status != PAL_STATUS_UNIMPLEMENTED)
+			printk(KERN_ERR
+				"ia64_sal_pltid failed with %ld\n",
+				status);
 		return;
 	}
 
 	c->socket_id =  (pltid << 8) | info.overview_ppid;
+
+	if (info.overview_cpp == 1 && info.overview_tpc == 1)
+		return;
+
 	c->cores_per_socket = info.overview_cpp;
 	c->threads_per_core = info.overview_tpc;
 	c->num_log = info.overview_num_log;

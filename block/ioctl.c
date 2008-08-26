@@ -17,6 +17,7 @@ static int blkpg_ioctl(struct block_device *bdev, struct blkpg_ioctl_arg __user 
 	long long start, length;
 	int part;
 	int i;
+	int err;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
@@ -61,9 +62,9 @@ static int blkpg_ioctl(struct block_device *bdev, struct blkpg_ioctl_arg __user 
 				}
 			}
 			/* all seems OK */
-			add_partition(disk, part, start, length, ADDPART_FLAG_NONE);
+			err = add_partition(disk, part, start, length, ADDPART_FLAG_NONE);
 			mutex_unlock(&bdev->bd_mutex);
-			return 0;
+			return err;
 		case BLKPG_DEL_PARTITION:
 			if (!disk->part[part-1])
 				return -ENXIO;
@@ -217,6 +218,10 @@ int blkdev_driver_ioctl(struct inode *inode, struct file *file,
 }
 EXPORT_SYMBOL_GPL(blkdev_driver_ioctl);
 
+/*
+ * always keep this in sync with compat_blkdev_ioctl() and
+ * compat_blkdev_locked_ioctl()
+ */
 int blkdev_ioctl(struct inode *inode, struct file *file, unsigned cmd,
 			unsigned long arg)
 {
@@ -284,21 +289,4 @@ int blkdev_ioctl(struct inode *inode, struct file *file, unsigned cmd,
 
 	return blkdev_driver_ioctl(inode, file, disk, cmd, arg);
 }
-
-/* Most of the generic ioctls are handled in the normal fallback path.
-   This assumes the blkdev's low level compat_ioctl always returns
-   ENOIOCTLCMD for unknown ioctls. */
-long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
-{
-	struct block_device *bdev = file->f_path.dentry->d_inode->i_bdev;
-	struct gendisk *disk = bdev->bd_disk;
-	int ret = -ENOIOCTLCMD;
-	if (disk->fops->compat_ioctl) {
-		lock_kernel();
-		ret = disk->fops->compat_ioctl(file, cmd, arg);
-		unlock_kernel();
-	}
-	return ret;
-}
-
 EXPORT_SYMBOL_GPL(blkdev_ioctl);

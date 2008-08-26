@@ -91,30 +91,28 @@ static void ps3disk_scatter_gather(struct ps3_storage_device *dev,
 				   struct request *req, int gather)
 {
 	unsigned int offset = 0;
-	struct bio *bio;
-	sector_t sector;
+	struct req_iterator iter;
 	struct bio_vec *bvec;
-	unsigned int i = 0, j;
+	unsigned int i = 0;
 	size_t size;
 	void *buf;
 
-	rq_for_each_bio(bio, req) {
-		sector = bio->bi_sector;
+	rq_for_each_segment(bvec, req, iter) {
+		unsigned long flags;
 		dev_dbg(&dev->sbd.core,
 			"%s:%u: bio %u: %u segs %u sectors from %lu\n",
-			__func__, __LINE__, i, bio_segments(bio),
-			bio_sectors(bio), sector);
-		bio_for_each_segment(bvec, bio, j) {
-			size = bvec->bv_len;
-			buf = __bio_kmap_atomic(bio, j, KM_IRQ0);
-			if (gather)
-				memcpy(dev->bounce_buf+offset, buf, size);
-			else
-				memcpy(buf, dev->bounce_buf+offset, size);
-			offset += size;
-			flush_kernel_dcache_page(bio_iovec_idx(bio, j)->bv_page);
-			__bio_kunmap_atomic(bio, KM_IRQ0);
-		}
+			__func__, __LINE__, i, bio_segments(iter.bio),
+			bio_sectors(iter.bio), iter.bio->bi_sector);
+
+		size = bvec->bv_len;
+		buf = bvec_kmap_irq(bvec, &flags);
+		if (gather)
+			memcpy(dev->bounce_buf+offset, buf, size);
+		else
+			memcpy(buf, dev->bounce_buf+offset, size);
+		offset += size;
+		flush_kernel_dcache_page(bvec->bv_page);
+		bvec_kunmap_irq(bvec, &flags);
 		i++;
 	}
 }
@@ -130,12 +128,13 @@ static int ps3disk_submit_request_sg(struct ps3_storage_device *dev,
 
 #ifdef DEBUG
 	unsigned int n = 0;
-	struct bio *bio;
+	struct bio_vec *bv;
+	struct req_iterator iter;
 
-	rq_for_each_bio(bio, req)
+	rq_for_each_segment(bv, req, iter)
 		n++;
 	dev_dbg(&dev->sbd.core,
-		"%s:%u: %s req has %u bios for %lu sectors %lu hard sectors\n",
+		"%s:%u: %s req has %u bvecs for %lu sectors %lu hard sectors\n",
 		__func__, __LINE__, op, n, req->nr_sectors,
 		req->hard_nr_sectors);
 #endif
@@ -229,7 +228,7 @@ static irqreturn_t ps3disk_interrupt(int irq, void *data)
 	struct ps3_storage_device *dev = data;
 	struct ps3disk_private *priv;
 	struct request *req;
-	int res, read, uptodate;
+	int res, read, error;
 	u64 tag, status;
 	unsigned long num_sectors;
 	const char *op;
@@ -270,21 +269,17 @@ static irqreturn_t ps3disk_interrupt(int irq, void *data)
 	if (status) {
 		dev_dbg(&dev->sbd.core, "%s:%u: %s failed 0x%lx\n", __func__,
 			__LINE__, op, status);
-		uptodate = 0;
+		error = -EIO;
 	} else {
 		dev_dbg(&dev->sbd.core, "%s:%u: %s completed\n", __func__,
 			__LINE__, op);
-		uptodate = 1;
+		error = 0;
 		if (read)
 			ps3disk_scatter_gather(dev, req, 0);
 	}
 
 	spin_lock(&priv->lock);
-	if (!end_that_request_first(req, uptodate, num_sectors)) {
-		add_disk_randomness(req->rq_disk);
-		blkdev_dequeue_request(req);
-		end_that_request_last(req, uptodate);
-	}
+	__blk_end_request(req, error, num_sectors << 9);
 	priv->req = NULL;
 	ps3disk_do_request(dev, priv->queue);
 	spin_unlock(&priv->lock);
@@ -410,29 +405,8 @@ static void ps3disk_prepare_flush(struct request_queue *q, struct request *req)
 
 	dev_dbg(&dev->sbd.core, "%s:%u\n", __func__, __LINE__);
 
-	memset(req->cmd, 0, sizeof(req->cmd));
 	req->cmd_type = REQ_TYPE_FLUSH;
 }
-
-static int ps3disk_issue_flush(struct request_queue *q, struct gendisk *gendisk,
-			       sector_t *sector)
-{
-	struct ps3_storage_device *dev = q->queuedata;
-	struct request *req;
-	int res;
-
-	dev_dbg(&dev->sbd.core, "%s:%u\n", __func__, __LINE__);
-
-	req = blk_get_request(q, WRITE, __GFP_WAIT);
-	ps3disk_prepare_flush(q, req);
-	res = blk_execute_rq(q, gendisk, req, 0);
-	if (res)
-		dev_err(&dev->sbd.core, "%s:%u: flush request failed %d\n",
-			__func__, __LINE__, res);
-	blk_put_request(req);
-	return res;
-}
-
 
 static unsigned long ps3disk_mask;
 
@@ -506,7 +480,6 @@ static int __devinit ps3disk_probe(struct ps3_system_bus_device *_dev)
 	blk_queue_dma_alignment(queue, dev->blk_size-1);
 	blk_queue_hardsect_size(queue, dev->blk_size);
 
-	blk_queue_issue_flush_fn(queue, ps3disk_issue_flush);
 	blk_queue_ordered(queue, QUEUE_ORDERED_DRAIN_FLUSH,
 			  ps3disk_prepare_flush);
 

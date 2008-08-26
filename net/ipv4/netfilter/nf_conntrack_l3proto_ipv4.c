@@ -23,29 +23,36 @@
 #include <net/netfilter/nf_conntrack_l3proto.h>
 #include <net/netfilter/nf_conntrack_core.h>
 #include <net/netfilter/ipv4/nf_conntrack_ipv4.h>
+#include <net/netfilter/nf_nat_helper.h>
 
-static int ipv4_pkt_to_tuple(const struct sk_buff *skb, unsigned int nhoff,
-			     struct nf_conntrack_tuple *tuple)
+int (*nf_nat_seq_adjust_hook)(struct sk_buff *skb,
+			      struct nf_conn *ct,
+			      enum ip_conntrack_info ctinfo);
+EXPORT_SYMBOL_GPL(nf_nat_seq_adjust_hook);
+
+static bool ipv4_pkt_to_tuple(const struct sk_buff *skb, unsigned int nhoff,
+			      struct nf_conntrack_tuple *tuple)
 {
-	__be32 _addrs[2], *ap;
+	const __be32 *ap;
+	__be32 _addrs[2];
 	ap = skb_header_pointer(skb, nhoff + offsetof(struct iphdr, saddr),
 				sizeof(u_int32_t) * 2, _addrs);
 	if (ap == NULL)
-		return 0;
+		return false;
 
 	tuple->src.u3.ip = ap[0];
 	tuple->dst.u3.ip = ap[1];
 
-	return 1;
+	return true;
 }
 
-static int ipv4_invert_tuple(struct nf_conntrack_tuple *tuple,
-			   const struct nf_conntrack_tuple *orig)
+static bool ipv4_invert_tuple(struct nf_conntrack_tuple *tuple,
+			      const struct nf_conntrack_tuple *orig)
 {
 	tuple->src.u3.ip = orig->dst.u3.ip;
 	tuple->dst.u3.ip = orig->src.u3.ip;
 
-	return 1;
+	return true;
 }
 
 static int ipv4_print_tuple(struct seq_file *s,
@@ -56,32 +63,28 @@ static int ipv4_print_tuple(struct seq_file *s,
 			  NIPQUAD(tuple->dst.u3.ip));
 }
 
-static int ipv4_print_conntrack(struct seq_file *s,
-				const struct nf_conn *conntrack)
-{
-	return 0;
-}
-
 /* Returns new sk_buff, or NULL */
-static struct sk_buff *
-nf_ct_ipv4_gather_frags(struct sk_buff *skb, u_int32_t user)
+static int nf_ct_ipv4_gather_frags(struct sk_buff *skb, u_int32_t user)
 {
+	int err;
+
 	skb_orphan(skb);
 
 	local_bh_disable();
-	skb = ip_defrag(skb, user);
+	err = ip_defrag(skb, user);
 	local_bh_enable();
 
-	if (skb)
+	if (!err)
 		ip_send_check(ip_hdr(skb));
 
-	return skb;
+	return err;
 }
 
 static int ipv4_get_l4proto(const struct sk_buff *skb, unsigned int nhoff,
 			    unsigned int *dataoff, u_int8_t *protonum)
 {
-	struct iphdr _iph, *iph;
+	const struct iphdr *iph;
+	struct iphdr _iph;
 
 	iph = skb_header_pointer(skb, nhoff, sizeof(_iph), &_iph);
 	if (iph == NULL)
@@ -99,147 +102,138 @@ static int ipv4_get_l4proto(const struct sk_buff *skb, unsigned int nhoff,
 }
 
 static unsigned int ipv4_confirm(unsigned int hooknum,
-				 struct sk_buff **pskb,
+				 struct sk_buff *skb,
 				 const struct net_device *in,
 				 const struct net_device *out,
 				 int (*okfn)(struct sk_buff *))
 {
-	/* We've seen it coming out the other side: confirm it */
-	return nf_conntrack_confirm(pskb);
-}
-
-static unsigned int ipv4_conntrack_help(unsigned int hooknum,
-				      struct sk_buff **pskb,
-				      const struct net_device *in,
-				      const struct net_device *out,
-				      int (*okfn)(struct sk_buff *))
-{
 	struct nf_conn *ct;
 	enum ip_conntrack_info ctinfo;
-	struct nf_conn_help *help;
-	struct nf_conntrack_helper *helper;
+	const struct nf_conn_help *help;
+	const struct nf_conntrack_helper *helper;
+	unsigned int ret;
 
 	/* This is where we call the helper: as the packet goes out. */
-	ct = nf_ct_get(*pskb, &ctinfo);
+	ct = nf_ct_get(skb, &ctinfo);
 	if (!ct || ctinfo == IP_CT_RELATED + IP_CT_IS_REPLY)
-		return NF_ACCEPT;
+		goto out;
 
 	help = nfct_help(ct);
 	if (!help)
-		return NF_ACCEPT;
+		goto out;
+
 	/* rcu_read_lock()ed by nf_hook_slow */
 	helper = rcu_dereference(help->helper);
 	if (!helper)
-		return NF_ACCEPT;
-	return helper->help(pskb, skb_network_offset(*pskb) + ip_hdrlen(*pskb),
-			    ct, ctinfo);
+		goto out;
+
+	ret = helper->help(skb, skb_network_offset(skb) + ip_hdrlen(skb),
+			   ct, ctinfo);
+	if (ret != NF_ACCEPT)
+		return ret;
+
+	if (test_bit(IPS_SEQ_ADJUST_BIT, &ct->status)) {
+		typeof(nf_nat_seq_adjust_hook) seq_adjust;
+
+		seq_adjust = rcu_dereference(nf_nat_seq_adjust_hook);
+		if (!seq_adjust || !seq_adjust(skb, ct, ctinfo))
+			return NF_DROP;
+	}
+out:
+	/* We've seen it coming out the other side: confirm it */
+	return nf_conntrack_confirm(skb);
 }
 
 static unsigned int ipv4_conntrack_defrag(unsigned int hooknum,
-					  struct sk_buff **pskb,
+					  struct sk_buff *skb,
 					  const struct net_device *in,
 					  const struct net_device *out,
 					  int (*okfn)(struct sk_buff *))
 {
 	/* Previously seen (loopback)?  Ignore.  Do this before
 	   fragment check. */
-	if ((*pskb)->nfct)
+	if (skb->nfct)
 		return NF_ACCEPT;
 
 	/* Gather fragments. */
-	if (ip_hdr(*pskb)->frag_off & htons(IP_MF | IP_OFFSET)) {
-		*pskb = nf_ct_ipv4_gather_frags(*pskb,
-						hooknum == NF_IP_PRE_ROUTING ?
-						IP_DEFRAG_CONNTRACK_IN :
-						IP_DEFRAG_CONNTRACK_OUT);
-		if (!*pskb)
+	if (ip_hdr(skb)->frag_off & htons(IP_MF | IP_OFFSET)) {
+		if (nf_ct_ipv4_gather_frags(skb,
+					    hooknum == NF_INET_PRE_ROUTING ?
+					    IP_DEFRAG_CONNTRACK_IN :
+					    IP_DEFRAG_CONNTRACK_OUT))
 			return NF_STOLEN;
 	}
 	return NF_ACCEPT;
 }
 
 static unsigned int ipv4_conntrack_in(unsigned int hooknum,
-				      struct sk_buff **pskb,
+				      struct sk_buff *skb,
 				      const struct net_device *in,
 				      const struct net_device *out,
 				      int (*okfn)(struct sk_buff *))
 {
-	return nf_conntrack_in(PF_INET, hooknum, pskb);
+	return nf_conntrack_in(PF_INET, hooknum, skb);
 }
 
 static unsigned int ipv4_conntrack_local(unsigned int hooknum,
-					 struct sk_buff **pskb,
+					 struct sk_buff *skb,
 					 const struct net_device *in,
 					 const struct net_device *out,
 					 int (*okfn)(struct sk_buff *))
 {
 	/* root is playing with raw sockets. */
-	if ((*pskb)->len < sizeof(struct iphdr)
-	    || ip_hdrlen(*pskb) < sizeof(struct iphdr)) {
+	if (skb->len < sizeof(struct iphdr) ||
+	    ip_hdrlen(skb) < sizeof(struct iphdr)) {
 		if (net_ratelimit())
 			printk("ipt_hook: happy cracking.\n");
 		return NF_ACCEPT;
 	}
-	return nf_conntrack_in(PF_INET, hooknum, pskb);
+	return nf_conntrack_in(PF_INET, hooknum, skb);
 }
 
 /* Connection tracking may drop packets, but never alters them, so
    make it the first hook. */
-static struct nf_hook_ops ipv4_conntrack_ops[] = {
+static struct nf_hook_ops ipv4_conntrack_ops[] __read_mostly = {
 	{
 		.hook		= ipv4_conntrack_defrag,
 		.owner		= THIS_MODULE,
 		.pf		= PF_INET,
-		.hooknum	= NF_IP_PRE_ROUTING,
+		.hooknum	= NF_INET_PRE_ROUTING,
 		.priority	= NF_IP_PRI_CONNTRACK_DEFRAG,
 	},
 	{
 		.hook		= ipv4_conntrack_in,
 		.owner		= THIS_MODULE,
 		.pf		= PF_INET,
-		.hooknum	= NF_IP_PRE_ROUTING,
+		.hooknum	= NF_INET_PRE_ROUTING,
 		.priority	= NF_IP_PRI_CONNTRACK,
 	},
 	{
 		.hook           = ipv4_conntrack_defrag,
 		.owner          = THIS_MODULE,
 		.pf             = PF_INET,
-		.hooknum        = NF_IP_LOCAL_OUT,
+		.hooknum        = NF_INET_LOCAL_OUT,
 		.priority       = NF_IP_PRI_CONNTRACK_DEFRAG,
 	},
 	{
 		.hook		= ipv4_conntrack_local,
 		.owner		= THIS_MODULE,
 		.pf		= PF_INET,
-		.hooknum	= NF_IP_LOCAL_OUT,
+		.hooknum	= NF_INET_LOCAL_OUT,
 		.priority	= NF_IP_PRI_CONNTRACK,
-	},
-	{
-		.hook		= ipv4_conntrack_help,
-		.owner		= THIS_MODULE,
-		.pf		= PF_INET,
-		.hooknum	= NF_IP_POST_ROUTING,
-		.priority	= NF_IP_PRI_CONNTRACK_HELPER,
-	},
-	{
-		.hook		= ipv4_conntrack_help,
-		.owner		= THIS_MODULE,
-		.pf		= PF_INET,
-		.hooknum	= NF_IP_LOCAL_IN,
-		.priority	= NF_IP_PRI_CONNTRACK_HELPER,
 	},
 	{
 		.hook		= ipv4_confirm,
 		.owner		= THIS_MODULE,
 		.pf		= PF_INET,
-		.hooknum	= NF_IP_POST_ROUTING,
+		.hooknum	= NF_INET_POST_ROUTING,
 		.priority	= NF_IP_PRI_CONNTRACK_CONFIRM,
 	},
 	{
 		.hook		= ipv4_confirm,
 		.owner		= THIS_MODULE,
 		.pf		= PF_INET,
-		.hooknum	= NF_IP_LOCAL_IN,
+		.hooknum	= NF_INET_LOCAL_IN,
 		.priority	= NF_IP_PRI_CONNTRACK_CONFIRM,
 	},
 };
@@ -305,11 +299,11 @@ static ctl_table ip_ct_sysctl_table[] = {
 static int
 getorigdst(struct sock *sk, int optval, void __user *user, int *len)
 {
-	struct inet_sock *inet = inet_sk(sk);
-	struct nf_conntrack_tuple_hash *h;
+	const struct inet_sock *inet = inet_sk(sk);
+	const struct nf_conntrack_tuple_hash *h;
 	struct nf_conntrack_tuple tuple;
 
-	NF_CT_TUPLE_U_BLANK(&tuple);
+	memset(&tuple, 0, sizeof(tuple));
 	tuple.src.u3.ip = inet->rcv_saddr;
 	tuple.src.u.tcp.port = inet->sport;
 	tuple.dst.u3.ip = inet->daddr;
@@ -360,35 +354,30 @@ getorigdst(struct sock *sk, int optval, void __user *user, int *len)
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/nfnetlink_conntrack.h>
 
-static int ipv4_tuple_to_nfattr(struct sk_buff *skb,
+static int ipv4_tuple_to_nlattr(struct sk_buff *skb,
 				const struct nf_conntrack_tuple *tuple)
 {
-	NFA_PUT(skb, CTA_IP_V4_SRC, sizeof(u_int32_t),
-		&tuple->src.u3.ip);
-	NFA_PUT(skb, CTA_IP_V4_DST, sizeof(u_int32_t),
-		&tuple->dst.u3.ip);
+	NLA_PUT_BE32(skb, CTA_IP_V4_SRC, tuple->src.u3.ip);
+	NLA_PUT_BE32(skb, CTA_IP_V4_DST, tuple->dst.u3.ip);
 	return 0;
 
-nfattr_failure:
+nla_put_failure:
 	return -1;
 }
 
-static const size_t cta_min_ip[CTA_IP_MAX] = {
-	[CTA_IP_V4_SRC-1]       = sizeof(u_int32_t),
-	[CTA_IP_V4_DST-1]       = sizeof(u_int32_t),
+static const struct nla_policy ipv4_nla_policy[CTA_IP_MAX+1] = {
+	[CTA_IP_V4_SRC]	= { .type = NLA_U32 },
+	[CTA_IP_V4_DST]	= { .type = NLA_U32 },
 };
 
-static int ipv4_nfattr_to_tuple(struct nfattr *tb[],
+static int ipv4_nlattr_to_tuple(struct nlattr *tb[],
 				struct nf_conntrack_tuple *t)
 {
-	if (!tb[CTA_IP_V4_SRC-1] || !tb[CTA_IP_V4_DST-1])
+	if (!tb[CTA_IP_V4_SRC] || !tb[CTA_IP_V4_DST])
 		return -EINVAL;
 
-	if (nfattr_bad_size(tb, CTA_IP_MAX, cta_min_ip))
-		return -EINVAL;
-
-	t->src.u3.ip = *(__be32 *)NFA_DATA(tb[CTA_IP_V4_SRC-1]);
-	t->dst.u3.ip = *(__be32 *)NFA_DATA(tb[CTA_IP_V4_DST-1]);
+	t->src.u3.ip = nla_get_be32(tb[CTA_IP_V4_SRC]);
+	t->dst.u3.ip = nla_get_be32(tb[CTA_IP_V4_DST]);
 
 	return 0;
 }
@@ -408,11 +397,11 @@ struct nf_conntrack_l3proto nf_conntrack_l3proto_ipv4 __read_mostly = {
 	.pkt_to_tuple	 = ipv4_pkt_to_tuple,
 	.invert_tuple	 = ipv4_invert_tuple,
 	.print_tuple	 = ipv4_print_tuple,
-	.print_conntrack = ipv4_print_conntrack,
 	.get_l4proto	 = ipv4_get_l4proto,
 #if defined(CONFIG_NF_CT_NETLINK) || defined(CONFIG_NF_CT_NETLINK_MODULE)
-	.tuple_to_nfattr = ipv4_tuple_to_nfattr,
-	.nfattr_to_tuple = ipv4_nfattr_to_tuple,
+	.tuple_to_nlattr = ipv4_tuple_to_nlattr,
+	.nlattr_to_tuple = ipv4_nlattr_to_tuple,
+	.nla_policy	 = ipv4_nla_policy,
 #endif
 #if defined(CONFIG_SYSCTL) && defined(CONFIG_NF_CONNTRACK_PROC_COMPAT)
 	.ctl_table_path  = nf_net_ipv4_netfilter_sysctl_path,
@@ -420,6 +409,9 @@ struct nf_conntrack_l3proto nf_conntrack_l3proto_ipv4 __read_mostly = {
 #endif
 	.me		 = THIS_MODULE,
 };
+
+module_param_call(hashsize, nf_conntrack_set_hashsize, param_get_uint,
+		  &nf_conntrack_htable_size, 0600);
 
 MODULE_ALIAS("nf_conntrack-" __stringify(AF_INET));
 MODULE_ALIAS("ip_conntrack");

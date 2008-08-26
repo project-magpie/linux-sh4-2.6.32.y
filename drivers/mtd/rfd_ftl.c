@@ -3,8 +3,6 @@
  *
  * Copyright (C) 2005  Sean Young <sean@mess.org>
  *
- * $Id: rfd_ftl.c,v 1.8 2006/01/15 12:51:44 sean Exp $
- *
  * This type of flash translation layer (FTL) is used by the Embedded BIOS
  * by General Software. It is known as the Resident Flash Disk (RFD), see:
  *
@@ -779,10 +777,8 @@ static void rfd_ftl_add_mtd(struct mtd_blktrans_ops *tr, struct mtd_info *mtd)
 	else {
 		if (!mtd->erasesize) {
 			printk(KERN_WARNING PREFIX "please provide block_size");
-			kfree(part);
-			return;
-		}
-		else
+			goto out;
+		} else
 			part->block_size = mtd->erasesize;
 	}
 
@@ -804,7 +800,7 @@ static void rfd_ftl_add_mtd(struct mtd_blktrans_ops *tr, struct mtd_info *mtd)
 		if (!add_mtd_blktrans_dev((void*)part))
 			return;
 	}
-
+out:
 	kfree(part);
 }
 
@@ -825,7 +821,7 @@ static void rfd_ftl_remove_dev(struct mtd_blktrans_dev *dev)
 	kfree(part);
 }
 
-struct mtd_blktrans_ops rfd_ftl_tr = {
+static struct mtd_blktrans_ops rfd_ftl_tr = {
 	.name		= "rfd",
 	.major		= RFD_FTL_MAJOR,
 	.part_bits	= PART_BITS,

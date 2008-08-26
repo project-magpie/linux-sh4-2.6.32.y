@@ -75,8 +75,8 @@ static void winbond_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	else
 		ata_timing_compute(adev, adev->pio_mode, &t, 30303, 1000);
 
-	active = (FIT(t.active, 3, 17) - 1) & 0x0F;
-	recovery = (FIT(t.recover, 1, 15) + 1) & 0x0F;
+	active = (clamp_val(t.active, 3, 17) - 1) & 0x0F;
+	recovery = (clamp_val(t.recover, 1, 15) + 1) & 0x0F;
 	timing = (active << 4) | recovery;
 	winbond_writecfg(winbond->config, timing, reg);
 
@@ -87,82 +87,49 @@ static void winbond_set_piomode(struct ata_port *ap, struct ata_device *adev)
 		reg |= 0x08;	/* FIFO off */
 	if (!ata_pio_need_iordy(adev))
 		reg |= 0x02;	/* IORDY off */
-	reg |= (FIT(t.setup, 0, 3) << 6);
+	reg |= (clamp_val(t.setup, 0, 3) << 6);
 	winbond_writecfg(winbond->config, timing + 1, reg);
 }
 
 
-static void winbond_data_xfer(struct ata_device *adev, unsigned char *buf, unsigned int buflen, int write_data)
+static unsigned int winbond_data_xfer(struct ata_device *dev,
+			unsigned char *buf, unsigned int buflen, int rw)
 {
-	struct ata_port *ap = adev->ap;
+	struct ata_port *ap = dev->link->ap;
 	int slop = buflen & 3;
 
-	if (ata_id_has_dword_io(adev->id)) {
-		if (write_data)
-			iowrite32_rep(ap->ioaddr.data_addr, buf, buflen >> 2);
-		else
+	if (ata_id_has_dword_io(dev->id)) {
+		if (rw == READ)
 			ioread32_rep(ap->ioaddr.data_addr, buf, buflen >> 2);
+		else
+			iowrite32_rep(ap->ioaddr.data_addr, buf, buflen >> 2);
 
 		if (unlikely(slop)) {
-			u32 pad;
-			if (write_data) {
-				memcpy(&pad, buf + buflen - slop, slop);
-				pad = le32_to_cpu(pad);
-				iowrite32(pad, ap->ioaddr.data_addr);
-			} else {
-				pad = ioread32(ap->ioaddr.data_addr);
-				pad = cpu_to_le16(pad);
+			__le32 pad;
+			if (rw == READ) {
+				pad = cpu_to_le32(ioread32(ap->ioaddr.data_addr));
 				memcpy(buf + buflen - slop, &pad, slop);
+			} else {
+				memcpy(&pad, buf + buflen - slop, slop);
+				iowrite32(le32_to_cpu(pad), ap->ioaddr.data_addr);
 			}
+			buflen += 4 - slop;
 		}
 	} else
-		ata_data_xfer(adev, buf, buflen, write_data);
+		buflen = ata_sff_data_xfer(dev, buf, buflen, rw);
+
+	return buflen;
 }
 
 static struct scsi_host_template winbond_sht = {
-	.module			= THIS_MODULE,
-	.name			= DRV_NAME,
-	.ioctl			= ata_scsi_ioctl,
-	.queuecommand		= ata_scsi_queuecmd,
-	.can_queue		= ATA_DEF_QUEUE,
-	.this_id		= ATA_SHT_THIS_ID,
-	.sg_tablesize		= LIBATA_MAX_PRD,
-	.cmd_per_lun		= ATA_SHT_CMD_PER_LUN,
-	.emulated		= ATA_SHT_EMULATED,
-	.use_clustering		= ATA_SHT_USE_CLUSTERING,
-	.proc_name		= DRV_NAME,
-	.dma_boundary		= ATA_DMA_BOUNDARY,
-	.slave_configure	= ata_scsi_slave_config,
-	.slave_destroy		= ata_scsi_slave_destroy,
-	.bios_param		= ata_std_bios_param,
+	ATA_PIO_SHT(DRV_NAME),
 };
 
 static struct ata_port_operations winbond_port_ops = {
-	.port_disable	= ata_port_disable,
-	.set_piomode	= winbond_set_piomode,
-
-	.tf_load	= ata_tf_load,
-	.tf_read	= ata_tf_read,
-	.check_status 	= ata_check_status,
-	.exec_command	= ata_exec_command,
-	.dev_select 	= ata_std_dev_select,
-
-	.freeze		= ata_bmdma_freeze,
-	.thaw		= ata_bmdma_thaw,
-	.error_handler	= ata_bmdma_error_handler,
-	.post_internal_cmd = ata_bmdma_post_internal_cmd,
+	.inherits	= &ata_sff_port_ops,
+	.sff_data_xfer	= winbond_data_xfer,
 	.cable_detect	= ata_cable_40wire,
-
-	.qc_prep 	= ata_qc_prep,
-	.qc_issue	= ata_qc_issue_prot,
-
-	.data_xfer	= winbond_data_xfer,
-
-	.irq_clear	= ata_bmdma_irq_clear,
-	.irq_on		= ata_irq_on,
-	.irq_ack	= ata_irq_ack,
-
-	.port_start	= ata_port_start,
+	.set_piomode	= winbond_set_piomode,
 };
 
 /**
@@ -195,10 +162,11 @@ static __init int winbond_init_one(unsigned long port)
 	reg = winbond_readcfg(port, 0x81);
 
 	if (!(reg & 0x03))		/* Disabled */
-		return 0;
+		return -ENODEV;
 
 	for (i = 0; i < 2 ; i ++) {
 		unsigned long cmd_port = 0x1F0 - (0x80 * i);
+		unsigned long ctl_port = cmd_port + 0x206;
 		struct ata_host *host;
 		struct ata_port *ap;
 		void __iomem *cmd_addr, *ctl_addr;
@@ -214,21 +182,23 @@ static __init int winbond_init_one(unsigned long port)
 		host = ata_host_alloc(&pdev->dev, 1);
 		if (!host)
 			goto err_unregister;
+		ap = host->ports[0];
 
 		rc = -ENOMEM;
 		cmd_addr = devm_ioport_map(&pdev->dev, cmd_port, 8);
-		ctl_addr = devm_ioport_map(&pdev->dev, cmd_port + 0x0206, 1);
+		ctl_addr = devm_ioport_map(&pdev->dev, ctl_port, 1);
 		if (!cmd_addr || !ctl_addr)
 			goto err_unregister;
 
-		ap = host->ports[0];
+		ata_port_desc(ap, "cmd 0x%lx ctl 0x%lx", cmd_port, ctl_port);
+
 		ap->ops = &winbond_port_ops;
 		ap->pio_mask = 0x1F;
 		ap->flags |= ATA_FLAG_SLAVE_POSS;
 		ap->ioaddr.cmd_addr = cmd_addr;
 		ap->ioaddr.altstatus_addr = ctl_addr;
 		ap->ioaddr.ctl_addr = ctl_addr;
-		ata_std_ports(&ap->ioaddr);
+		ata_sff_std_ports(&ap->ioaddr);
 
 		/* hook in a private data structure per channel */
 		host->private_data = &winbond_data[nr_winbond_host];
@@ -236,7 +206,7 @@ static __init int winbond_init_one(unsigned long port)
 		winbond_data[nr_winbond_host].platform_dev = pdev;
 
 		/* activate */
-		rc = ata_host_activate(host, 14 + i, ata_interrupt, 0,
+		rc = ata_host_activate(host, 14 + i, ata_sff_interrupt, 0,
 				       &winbond_sht);
 		if (rc)
 			goto err_unregister;
@@ -278,7 +248,7 @@ static __init int winbond_init(void)
 
 			if (request_region(port, 2, "pata_winbond")) {
 				ret = winbond_init_one(port);
-				if(ret <= 0)
+				if (ret <= 0)
 					release_region(port, 2);
 				else ct+= ret;
 			}

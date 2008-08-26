@@ -90,10 +90,8 @@ of the locking scheme for directory operations.
 prototypes:
 	struct inode *(*alloc_inode)(struct super_block *sb);
 	void (*destroy_inode)(struct inode *);
-	void (*read_inode) (struct inode *);
 	void (*dirty_inode) (struct inode *);
 	int (*write_inode) (struct inode *, int);
-	void (*put_inode) (struct inode *);
 	void (*drop_inode) (struct inode *);
 	void (*delete_inode) (struct inode *);
 	void (*put_super) (struct super_block *);
@@ -114,10 +112,8 @@ locking rules:
 			BKL	s_lock	s_umount
 alloc_inode:		no	no	no
 destroy_inode:		no
-read_inode:		no				(see below)
 dirty_inode:		no				(must not sleep)
 write_inode:		no
-put_inode:		no
 drop_inode:		no				!!!inode_lock!!!
 delete_inode:		no
 put_super:		yes	yes	no
@@ -133,7 +129,6 @@ show_options:		no				(vfsmount->sem)
 quota_read:		no	no	no		(see below)
 quota_write:		no	no	no		(see below)
 
-->read_inode() is not a method - it's a callback used in iget().
 ->remount_fs() will have the s_umount lock if it's already mounted.
 When called from get_sb_single, it does NOT have the s_umount lock.
 ->quota_read() and ->quota_write() functions are both guaranteed to
@@ -178,15 +173,18 @@ prototypes:
 locking rules:
 	All except set_page_dirty may block
 
-			BKL	PageLocked(page)
+			BKL	PageLocked(page)	i_sem
 writepage:		no	yes, unlocks (see below)
 readpage:		no	yes, unlocks
 sync_page:		no	maybe
 writepages:		no
 set_page_dirty		no	no
 readpages:		no
-prepare_write:		no	yes
-commit_write:		no	yes
+prepare_write:		no	yes			yes
+commit_write:		no	yes			yes
+write_begin:		no	locks the page		yes
+write_end:		no	yes, unlocks		yes
+perform_write:		no	n/a			yes
 bmap:			yes
 invalidatepage:		no	yes
 releasepage:		no	yes
@@ -221,7 +219,7 @@ against the page the filesystem should redirty the page with
 redirty_page_for_writepage(), then unlock the page and return zero.
 This may also be done to avoid internal deadlocks, but rarely.
 
-If the filesytem is called for sync then it must wait on any
+If the filesystem is called for sync then it must wait on any
 in-progress I/O and then start new I/O.
 
 The filesystem should unlock the page synchronously, before returning to the
@@ -511,16 +509,16 @@ prototypes:
 	void (*open)(struct vm_area_struct*);
 	void (*close)(struct vm_area_struct*);
 	int (*fault)(struct vm_area_struct*, struct vm_fault *);
-	struct page *(*nopage)(struct vm_area_struct*, unsigned long, int *);
 	int (*page_mkwrite)(struct vm_area_struct *, struct page *);
+	int (*access)(struct vm_area_struct *, unsigned long, void*, int, int);
 
 locking rules:
 		BKL	mmap_sem	PageLocked(page)
 open:		no	yes
 close:		no	yes
 fault:		no	yes
-nopage:		no	yes
 page_mkwrite:	no	yes		no
+access:		no	yes
 
 	->page_mkwrite() is called when a previously read-only page is
 about to become writeable. The file system is responsible for
@@ -528,6 +526,11 @@ protecting against truncate races. Once appropriate action has been
 taking to lock out truncate, the page range should be verified to be
 within i_size. The page mapping should also be checked that it is not
 NULL.
+
+	->access() is called when get_user_pages() fails in
+acces_process_vm(), typically used to debug a process through
+/proc/pid/mem or ptrace.  This function is needed only for
+VM_IO | VM_PFNMAP VMAs.
 
 ================================================================================
 			Dubious stuff
@@ -537,4 +540,3 @@ NULL.
 
 ipc/shm.c::shm_delete() - may need BKL.
 ->read() and ->write() in many drivers are (probably) missing BKL.
-drivers/sgi/char/graphics.c::sgi_graphics_nopage() - may need BKL.

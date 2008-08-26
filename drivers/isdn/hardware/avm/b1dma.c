@@ -486,11 +486,13 @@ static void b1dma_handle_rx(avmcard *card)
 					card->name);
 		} else {
 			memcpy(skb_put(skb, MsgLen), card->msgbuf, MsgLen);
-			if (CAPIMSG_CMD(skb->data) == CAPI_DATA_B3_CONF)
+			if (CAPIMSG_CMD(skb->data) == CAPI_DATA_B3_CONF) {
+				spin_lock(&card->lock);
 				capilib_data_b3_conf(&cinfo->ncci_head, ApplId,
-						     CAPIMSG_NCCI(skb->data),
-						     CAPIMSG_MSGID(skb->data));
-
+					CAPIMSG_NCCI(skb->data),
+					CAPIMSG_MSGID(skb->data));
+				spin_unlock(&card->lock);
+			}
 			capi_ctr_handle_message(ctrl, ApplId, skb);
 		}
 		break;
@@ -500,9 +502,9 @@ static void b1dma_handle_rx(avmcard *card)
 		ApplId = _get_word(&p);
 		NCCI = _get_word(&p);
 		WindowSize = _get_word(&p);
-
+		spin_lock(&card->lock);
 		capilib_new_ncci(&cinfo->ncci_head, ApplId, NCCI, WindowSize);
-
+		spin_unlock(&card->lock);
 		break;
 
 	case RECEIVE_FREE_NCCI:
@@ -510,9 +512,11 @@ static void b1dma_handle_rx(avmcard *card)
 		ApplId = _get_word(&p);
 		NCCI = _get_word(&p);
 
-		if (NCCI != 0xffffffff)
+		if (NCCI != 0xffffffff) {
+			spin_lock(&card->lock);
 			capilib_free_ncci(&cinfo->ncci_head, ApplId, NCCI);
-
+			spin_unlock(&card->lock);
+		}
 		break;
 
 	case RECEIVE_START:
@@ -751,10 +755,10 @@ void b1dma_reset_ctr(struct capi_ctr *ctrl)
 
 	spin_lock_irqsave(&card->lock, flags);
  	b1dma_reset(card);
-	spin_unlock_irqrestore(&card->lock, flags);
 
 	memset(cinfo->version, 0, sizeof(cinfo->version));
 	capilib_release(&cinfo->ncci_head);
+	spin_unlock_irqrestore(&card->lock, flags);
 	capi_ctr_reseted(ctrl);
 }
 
@@ -803,8 +807,11 @@ void b1dma_release_appl(struct capi_ctr *ctrl, u16 appl)
 	avmcard *card = cinfo->card;
 	struct sk_buff *skb;
 	void *p;
+	unsigned long flags;
 
+	spin_lock_irqsave(&card->lock, flags);
 	capilib_release_appl(&cinfo->ncci_head, appl);
+	spin_unlock_irqrestore(&card->lock, flags);
 
 	skb = alloc_skb(7, GFP_ATOMIC);
 	if (!skb) {
@@ -832,10 +839,13 @@ u16 b1dma_send_message(struct capi_ctr *ctrl, struct sk_buff *skb)
 	u16 retval = CAPI_NOERROR;
 
  	if (CAPIMSG_CMD(skb->data) == CAPI_DATA_B3_REQ) {
+		unsigned long flags;
+		spin_lock_irqsave(&card->lock, flags);
 		retval = capilib_data_b3_req(&cinfo->ncci_head,
 					     CAPIMSG_APPID(skb->data),
 					     CAPIMSG_NCCI(skb->data),
 					     CAPIMSG_MSGID(skb->data));
+		spin_unlock_irqrestore(&card->lock, flags);
 	}
 	if (retval == CAPI_NOERROR) 
 		b1dma_queue_tx(card, skb);
@@ -873,11 +883,11 @@ int b1dmactl_read_proc(char *page, char **start, off_t off,
 	default: s = "???"; break;
 	}
 	len += sprintf(page+len, "%-16s %s\n", "type", s);
-	if ((s = cinfo->version[VER_DRIVER]) != 0)
+	if ((s = cinfo->version[VER_DRIVER]) != NULL)
 	   len += sprintf(page+len, "%-16s %s\n", "ver_driver", s);
-	if ((s = cinfo->version[VER_CARDTYPE]) != 0)
+	if ((s = cinfo->version[VER_CARDTYPE]) != NULL)
 	   len += sprintf(page+len, "%-16s %s\n", "ver_cardtype", s);
-	if ((s = cinfo->version[VER_SERIAL]) != 0)
+	if ((s = cinfo->version[VER_SERIAL]) != NULL)
 	   len += sprintf(page+len, "%-16s %s\n", "ver_serial", s);
 
 	if (card->cardtype != avm_m1) {
@@ -960,9 +970,9 @@ static int __init b1dma_init(void)
 	char *p;
 	char rev[32];
 
-	if ((p = strchr(revision, ':')) != 0 && p[1]) {
+	if ((p = strchr(revision, ':')) != NULL && p[1]) {
 		strlcpy(rev, p + 2, sizeof(rev));
-		if ((p = strchr(rev, '$')) != 0 && p > rev)
+		if ((p = strchr(rev, '$')) != NULL && p > rev)
 		   *(p-1) = 0;
 	} else
 		strcpy(rev, "1.0");

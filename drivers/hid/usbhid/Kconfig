@@ -25,12 +25,13 @@ comment "Input core support is needed for USB HID input layer or HIDBP support"
 	depends on USB_HID && INPUT=n
 
 config USB_HIDINPUT_POWERBOOK
-	bool "Enable support for iBook/PowerBook/MacBook/MacBookPro special keys"
+	bool "Enable support for Apple laptop/aluminum USB special keys"
 	default n
 	depends on USB_HID
 	help
 	  Say Y here if you want support for the special keys (Fn, Numlock) on
-	  Apple iBooks, PowerBooks, MacBooks and MacBook Pros.
+	  Apple iBooks, PowerBooks, MacBooks, MacBook Pros and aluminum USB
+	  keyboards.
 
 	  If unsure, say N.
 
@@ -70,20 +71,29 @@ config LOGITECH_FF
 	  Note: if you say N here, this device will still be supported, but without
 	  force feedback.
 
-config PANTHERLORD_FF
-	bool "PantherLord USB/PS2 2in1 Adapter support"
+config LOGIRUMBLEPAD2_FF
+	bool "Logitech Rumblepad 2 support"
 	depends on HID_FF
 	select INPUT_FF_MEMLESS if USB_HID
 	help
-	  Say Y here if you have a PantherLord USB/PS2 2in1 Adapter and want
-	  to enable force feedback support for it.
+	  Say Y here if you want to enable force feedback support for Logitech
+	  Rumblepad 2 devices.
 
-config THRUSTMASTER_FF
-	bool "ThrustMaster FireStorm Dual Power 2 support (EXPERIMENTAL)"
-	depends on HID_FF && EXPERIMENTAL
+config PANTHERLORD_FF
+	bool "PantherLord/GreenAsia based device support"
+	depends on HID_FF
 	select INPUT_FF_MEMLESS if USB_HID
 	help
-	  Say Y here if you have a THRUSTMASTER FireStore Dual Power 2,
+	  Say Y here if you have a PantherLord/GreenAsia based game controller
+	  or adapter and want to enable force feedback support for it.
+
+config THRUSTMASTER_FF
+	bool "ThrustMaster devices support"
+	depends on HID_FF
+	select INPUT_FF_MEMLESS if USB_HID
+	help
+	  Say Y here if you have a THRUSTMASTER FireStore Dual Power 2 or
+	  a THRUSTMASTER Ferrari GT Rumble Force or Force Feedback Wheel,
 	  and want to enable force feedback support for it.
 	  Note: if you say N here, this device will still be supported, but without
 	  force feedback.

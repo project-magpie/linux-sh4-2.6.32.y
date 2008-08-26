@@ -30,6 +30,7 @@
 #define  OHCI1394_HCControl_softReset		0x00010000
 #define OHCI1394_SelfIDBuffer                 0x064
 #define OHCI1394_SelfIDCount                  0x068
+#define  OHCI1394_SelfIDCount_selfIDError	0x80000000
 #define OHCI1394_IRMultiChanMaskHiSet         0x070
 #define OHCI1394_IRMultiChanMaskHiClear       0x074
 #define OHCI1394_IRMultiChanMaskLoSet         0x078
@@ -59,6 +60,8 @@
 #define   OHCI1394_LinkControl_cycleSource	(1 << 22)
 #define OHCI1394_NodeID                       0x0E8
 #define   OHCI1394_NodeID_idValid             0x80000000
+#define   OHCI1394_NodeID_nodeNumber          0x0000003f
+#define   OHCI1394_NodeID_busNumber           0x0000ffc0
 #define OHCI1394_PhyControl                   0x0EC
 #define   OHCI1394_PhyControl_Read(addr)	(((addr) << 8) | 0x00008000)
 #define   OHCI1394_PhyControl_ReadDone		0x80000000
@@ -122,6 +125,7 @@
 #define OHCI1394_lockRespErr		0x00000200
 #define OHCI1394_selfIDComplete		0x00010000
 #define OHCI1394_busReset		0x00020000
+#define OHCI1394_regAccessFail		0x00040000
 #define OHCI1394_phy			0x00080000
 #define OHCI1394_cycleSynch		0x00100000
 #define OHCI1394_cycle64Seconds		0x00200000

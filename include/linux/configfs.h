@@ -35,8 +35,7 @@
 #ifndef _CONFIGFS_H_
 #define _CONFIGFS_H_
 
-#ifdef __KERNEL__
-
+#include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/list.h>
 #include <linux/kref.h>
@@ -149,7 +148,8 @@ struct configfs_attribute {
  * items.  If the item is a group, it may support mkdir(2).
  * Groups supply one of make_group() and make_item().  If the
  * group supports make_group(), one can create group children.  If it
- * supports make_item(), one can create config_item children.  If it has
+ * supports make_item(), one can create config_item children.  make_group()
+ * and make_item() return ERR_PTR() on errors.  If it has
  * default_groups on group->default_groups, it has automatically created
  * group children.  default_groups may coexist alongsize make_group() or
  * make_item(), but if the group wishes to have only default_groups
@@ -192,7 +192,5 @@ void configfs_unregister_subsystem(struct configfs_subsystem *subsys);
 /* WARNING: These cannot be called underneath configfs callbacks!! */
 int configfs_depend_item(struct configfs_subsystem *subsys, struct config_item *target);
 void configfs_undepend_item(struct configfs_subsystem *subsys, struct config_item *target);
-
-#endif  /* __KERNEL__ */
 
 #endif /* _CONFIGFS_H_ */

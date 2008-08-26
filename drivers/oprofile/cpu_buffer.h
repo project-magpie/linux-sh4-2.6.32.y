@@ -14,6 +14,7 @@
 #include <linux/spinlock.h>
 #include <linux/workqueue.h>
 #include <linux/cache.h>
+#include <linux/sched.h>
  
 struct task_struct;
  
@@ -42,11 +43,12 @@ struct oprofile_cpu_buffer {
 	unsigned long sample_received;
 	unsigned long sample_lost_overflow;
 	unsigned long backtrace_aborted;
+	unsigned long sample_invalid_eip;
 	int cpu;
 	struct delayed_work work;
-} ____cacheline_aligned;
+};
 
-extern struct oprofile_cpu_buffer cpu_buffer[];
+DECLARE_PER_CPU(struct oprofile_cpu_buffer, cpu_buffer);
 
 void cpu_buffer_reset(struct oprofile_cpu_buffer * cpu_buf);
 

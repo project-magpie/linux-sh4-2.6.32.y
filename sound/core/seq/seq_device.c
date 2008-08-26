@@ -36,7 +36,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <sound/core.h>
 #include <sound/info.h>
@@ -125,7 +124,7 @@ static void snd_seq_device_info(struct snd_info_entry *entry,
  * load all registered drivers (called from seq_clientmgr.c)
  */
 
-#ifdef CONFIG_KMOD
+#ifdef CONFIG_MODULES
 /* avoid auto-loading during module_init() */
 static int snd_seq_in_init;
 void snd_seq_autoload_lock(void)
@@ -141,16 +140,13 @@ void snd_seq_autoload_unlock(void)
 
 void snd_seq_device_load_drivers(void)
 {
-#ifdef CONFIG_KMOD
+#ifdef CONFIG_MODULES
 	struct ops_list *ops;
 
 	/* Calling request_module during module_init()
 	 * may cause blocking.
 	 */
 	if (snd_seq_in_init)
-		return;
-
-	if (! current->fs->root)
 		return;
 
 	mutex_lock(&ops_mutex);
@@ -570,7 +566,5 @@ EXPORT_SYMBOL(snd_seq_device_load_drivers);
 EXPORT_SYMBOL(snd_seq_device_new);
 EXPORT_SYMBOL(snd_seq_device_register_driver);
 EXPORT_SYMBOL(snd_seq_device_unregister_driver);
-#ifdef CONFIG_KMOD
 EXPORT_SYMBOL(snd_seq_autoload_lock);
 EXPORT_SYMBOL(snd_seq_autoload_unlock);
-#endif

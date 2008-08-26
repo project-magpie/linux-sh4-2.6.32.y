@@ -30,6 +30,7 @@
 #include <asm/thread_info.h>
 #include <asm/ppc_asm.h>
 #include <asm/asm-offsets.h>
+#include <asm/ptrace.h>
 
 /* 601 only have IBAT; cr0.eq is set on 601 when using this macro */
 #define LOAD_BAT(n, reg, RA, RB)	\
@@ -48,20 +49,17 @@
 	mtspr	SPRN_DBAT##n##L,RB;	\
 1:
 
-	.text
+	.section	.text.head, "ax"
 	.stabs	"arch/powerpc/kernel/",N_SO,0,0,0f
 	.stabs	"head_32.S",N_SO,0,0,0f
 0:
-	.globl	_stext
-_stext:
+_ENTRY(_stext);
 
 /*
  * _start is defined this way because the XCOFF loader in the OpenFirmware
  * on the powermac expects the entry point to be a procedure descriptor.
  */
-	.text
-	.globl	_start
-_start:
+_ENTRY(_start);
 	/*
 	 * These are here for legacy reasons, the kernel used to
 	 * need to look like a coff function entry for the pmac
@@ -151,6 +149,9 @@ __after_mmu_off:
 	bl	initial_bats
 #if defined(CONFIG_BOOTX_TEXT)
 	bl	setup_disp_bat
+#endif
+#ifdef CONFIG_PPC_EARLY_DEBUG_CPM
+	bl	setup_cpm_bat
 #endif
 
 /*
@@ -268,8 +269,8 @@ __secondary_hold_acknowledge:
 	li	r10,MSR_KERNEL & ~(MSR_IR|MSR_DR); /* can take exceptions */ \
 	MTMSRD(r10);			/* (except for mach check in rtas) */ \
 	stw	r0,GPR0(r11);	\
-	lis	r10,0x7265;		/* put exception frame marker */ \
-	addi	r10,r10,0x6773;	\
+	lis	r10,STACK_FRAME_REGS_MARKER@ha; /* exception frame marker */ \
+	addi	r10,r10,STACK_FRAME_REGS_MARKER@l; \
 	stw	r10,8(r11);	\
 	SAVE_4GPRS(3, r11);	\
 	SAVE_2GPRS(7, r11)
@@ -420,8 +421,10 @@ BEGIN_FTR_SECTION
 	b 	ProgramCheck
 END_FTR_SECTION_IFSET(CPU_FTR_FPU_UNAVAILABLE)
 	EXCEPTION_PROLOG
-	bne	load_up_fpu		/* if from user, just load it up */
-	addi	r3,r1,STACK_FRAME_OVERHEAD
+	beq	1f
+	bl	load_up_fpu		/* if from user, just load it up */
+	b	fast_exception_return
+1:	addi	r3,r1,STACK_FRAME_OVERHEAD
 	EXC_XFER_EE_LITE(0x800, kernel_fp_unavailable_exception)
 
 /* Decrementer */
@@ -469,16 +472,16 @@ InstructionTLBMiss:
 	mfctr	r0
 	/* Get PTE (linux-style) and check access */
 	mfspr	r3,SPRN_IMISS
-	lis	r1,KERNELBASE@h		/* check if kernel address */
-	cmplw	0,r3,r1
+	lis	r1,PAGE_OFFSET@h		/* check if kernel address */
+	cmplw	0,r1,r3
 	mfspr	r2,SPRN_SPRG3
 	li	r1,_PAGE_USER|_PAGE_PRESENT /* low addresses tested as user */
 	lwz	r2,PGDIR(r2)
-	blt+	112f
+	bge-	112f
+	mfspr	r2,SPRN_SRR1		/* and MSR_PR bit from SRR1 */
+	rlwimi	r1,r2,32-12,29,29	/* shift MSR_PR to _PAGE_USER posn */
 	lis	r2,swapper_pg_dir@ha	/* if kernel address, use */
 	addi	r2,r2,swapper_pg_dir@l	/* kernel page table */
-	mfspr	r1,SPRN_SRR1		/* and MSR_PR bit from SRR1 */
-	rlwinm	r1,r1,32-12,29,29	/* shift MSR_PR to _PAGE_USER posn */
 112:	tophys(r2,r2)
 	rlwimi	r2,r3,12,20,29		/* insert top 10 bits of address */
 	lwz	r2,0(r2)		/* get pmd entry */
@@ -543,16 +546,16 @@ DataLoadTLBMiss:
 	mfctr	r0
 	/* Get PTE (linux-style) and check access */
 	mfspr	r3,SPRN_DMISS
-	lis	r1,KERNELBASE@h		/* check if kernel address */
-	cmplw	0,r3,r1
+	lis	r1,PAGE_OFFSET@h		/* check if kernel address */
+	cmplw	0,r1,r3
 	mfspr	r2,SPRN_SPRG3
 	li	r1,_PAGE_USER|_PAGE_PRESENT /* low addresses tested as user */
 	lwz	r2,PGDIR(r2)
-	blt+	112f
+	bge-	112f
+	mfspr	r2,SPRN_SRR1		/* and MSR_PR bit from SRR1 */
+	rlwimi	r1,r2,32-12,29,29	/* shift MSR_PR to _PAGE_USER posn */
 	lis	r2,swapper_pg_dir@ha	/* if kernel address, use */
 	addi	r2,r2,swapper_pg_dir@l	/* kernel page table */
-	mfspr	r1,SPRN_SRR1		/* and MSR_PR bit from SRR1 */
-	rlwinm	r1,r1,32-12,29,29	/* shift MSR_PR to _PAGE_USER posn */
 112:	tophys(r2,r2)
 	rlwimi	r2,r3,12,20,29		/* insert top 10 bits of address */
 	lwz	r2,0(r2)		/* get pmd entry */
@@ -615,16 +618,16 @@ DataStoreTLBMiss:
 	mfctr	r0
 	/* Get PTE (linux-style) and check access */
 	mfspr	r3,SPRN_DMISS
-	lis	r1,KERNELBASE@h		/* check if kernel address */
-	cmplw	0,r3,r1
+	lis	r1,PAGE_OFFSET@h		/* check if kernel address */
+	cmplw	0,r1,r3
 	mfspr	r2,SPRN_SPRG3
 	li	r1,_PAGE_RW|_PAGE_USER|_PAGE_PRESENT /* access flags */
 	lwz	r2,PGDIR(r2)
-	blt+	112f
+	bge-	112f
+	mfspr	r2,SPRN_SRR1		/* and MSR_PR bit from SRR1 */
+	rlwimi	r1,r2,32-12,29,29	/* shift MSR_PR to _PAGE_USER posn */
 	lis	r2,swapper_pg_dir@ha	/* if kernel address, use */
 	addi	r2,r2,swapper_pg_dir@l	/* kernel page table */
-	mfspr	r1,SPRN_SRR1		/* and MSR_PR bit from SRR1 */
-	rlwinm	r1,r1,32-12,29,29	/* shift MSR_PR to _PAGE_USER posn */
 112:	tophys(r2,r2)
 	rlwimi	r2,r3,12,20,29		/* insert top 10 bits of address */
 	lwz	r2,0(r2)		/* get pmd entry */
@@ -763,23 +766,6 @@ load_up_altivec:
 	b	fast_exception_return
 
 /*
- * AltiVec unavailable trap from kernel - print a message, but let
- * the task use AltiVec in the kernel until it returns to user mode.
- */
-KernelAltiVec:
-	lwz	r3,_MSR(r1)
-	oris	r3,r3,MSR_VEC@h
-	stw	r3,_MSR(r1)	/* enable use of AltiVec after return */
-	lis	r3,87f@h
-	ori	r3,r3,87f@l
-	mr	r4,r2		/* current */
-	lwz	r5,_NIP(r1)
-	bl	printk
-	b	ret_from_except
-87:	.string	"AltiVec used in kernel  (task=%p, pc=%x)  \n"
-	.align	4,0
-
-/*
  * giveup_altivec(tsk)
  * Disable AltiVec for the task given as the argument,
  * and save the AltiVec registers in its thread_struct.
@@ -841,7 +827,7 @@ relocate_kernel:
  * r3 = dest addr, r4 = source addr, r5 = copy limit, r6 = start offset
  * on exit, r3, r4, r5 are unchanged, r6 is updated to be >= r5.
  */
-_GLOBAL(copy_and_flush)
+_ENTRY(copy_and_flush)
 	addi	r5,r5,-4
 	addi	r6,r6,-4
 4:	li	r0,L1_CACHE_BYTES/4
@@ -954,9 +940,9 @@ __secondary_start:
  * included in CONFIG_6xx
  */
 #if !defined(CONFIG_6xx)
-_GLOBAL(__save_cpu_setup)
+_ENTRY(__save_cpu_setup)
 	blr
-_GLOBAL(__restore_cpu_setup)
+_ENTRY(__restore_cpu_setup)
 	blr
 #endif /* !defined(CONFIG_6xx) */
 
@@ -1080,7 +1066,7 @@ start_here:
 /*
  * Set up the segment registers for a new context.
  */
-_GLOBAL(set_context)
+_ENTRY(set_context)
 	mulli	r3,r3,897	/* multiply context by skew factor */
 	rlwinm	r3,r3,4,8,27	/* VSID = (context & 0xfffff) << 4 */
 	addis	r3,r3,0x6000	/* Set Ks, Ku bits */
@@ -1248,6 +1234,19 @@ setup_disp_bat:
 	blr
 #endif /* CONFIG_BOOTX_TEXT */
 
+#ifdef CONFIG_PPC_EARLY_DEBUG_CPM
+setup_cpm_bat:
+	lis	r8, 0xf000
+	ori	r8, r8,	0x002a
+	mtspr	SPRN_DBAT1L, r8
+
+	lis	r11, 0xf000
+	ori	r11, r11, (BL_1M << 2) | 2
+	mtspr	SPRN_DBAT1U, r11
+
+	blr
+#endif
+
 #ifdef CONFIG_8260
 /* Jump into the system reset for the rom.
  * We first disable the MMU, and then jump to the ROM reset address.
@@ -1298,15 +1297,7 @@ empty_zero_page:
 
 	.globl	swapper_pg_dir
 swapper_pg_dir:
-	.space	4096
-
-/*
- * This space gets a copy of optional info passed to us by the bootstrap
- * Used to pass parameters into the kernel like root=/dev/sda1, etc.
- */
-	.globl	cmd_line
-cmd_line:
-	.space	512
+	.space	PGD_TABLE_SIZE
 
 	.globl intercept_table
 intercept_table:

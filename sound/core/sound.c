@@ -1,6 +1,6 @@
 /*
  *  Advanced Linux Sound Architecture
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -19,9 +19,9 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/smp_lock.h>
 #include <linux/time.h>
 #include <linux/device.h>
 #include <linux/moduleparam.h>
@@ -40,7 +40,7 @@ EXPORT_SYMBOL(snd_major);
 
 static int cards_limit = 1;
 
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("Advanced Linux Sound Architecture driver for soundcards.");
 MODULE_LICENSE("GPL");
 module_param(major, int, 0444);
@@ -59,19 +59,17 @@ EXPORT_SYMBOL(snd_ecards_limit);
 static struct snd_minor *snd_minors[SNDRV_OS_MINORS];
 static DEFINE_MUTEX(sound_mutex);
 
-#ifdef CONFIG_KMOD
+#ifdef CONFIG_MODULES
 
 /**
  * snd_request_card - try to load the card module
  * @card: the card number
  *
  * Tries to load the module "snd-card-X" for the given card number
- * via KMOD.  Returns immediately if already loaded.
+ * via request_module.  Returns immediately if already loaded.
  */
 void snd_request_card(int card)
 {
-	if (! current->fs->root)
-		return;
 	if (snd_card_locked(card))
 		return;
 	if (card < 0 || card >= cards_limit)
@@ -85,8 +83,6 @@ static void snd_request_other(int minor)
 {
 	char *str;
 
-	if (! current->fs->root)
-		return;
 	switch (minor) {
 	case SNDRV_MINOR_SEQUENCER:	str = "snd-seq";	break;
 	case SNDRV_MINOR_TIMER:		str = "snd-timer";	break;
@@ -95,7 +91,7 @@ static void snd_request_other(int minor)
 	request_module(str);
 }
 
-#endif				/* request_module support */
+#endif	/* modular kernel */
 
 /**
  * snd_lookup_minor_data - get user data of a registered device
@@ -124,7 +120,7 @@ void *snd_lookup_minor_data(unsigned int minor, int type)
 
 EXPORT_SYMBOL(snd_lookup_minor_data);
 
-static int snd_open(struct inode *inode, struct file *file)
+static int __snd_open(struct inode *inode, struct file *file)
 {
 	unsigned int minor = iminor(inode);
 	struct snd_minor *mptr = NULL;
@@ -135,7 +131,7 @@ static int snd_open(struct inode *inode, struct file *file)
 		return -ENODEV;
 	mptr = snd_minors[minor];
 	if (mptr == NULL) {
-#ifdef CONFIG_KMOD
+#ifdef CONFIG_MODULES
 		int dev = SNDRV_MINOR_DEVICE(minor);
 		if (dev == SNDRV_MINOR_CONTROL) {
 			/* /dev/aloadC? */
@@ -164,6 +160,18 @@ static int snd_open(struct inode *inode, struct file *file)
 	}
 	fops_put(old_fops);
 	return err;
+}
+
+
+/* BKL pushdown: nasty #ifdef avoidance wrapper */
+static int snd_open(struct inode *inode, struct file *file)
+{
+	int ret;
+
+	lock_kernel();
+	ret = __snd_open(inode, file);
+	unlock_kernel();
+	return ret;
 }
 
 static const struct file_operations snd_fops =
@@ -262,10 +270,16 @@ int snd_register_device_for_dev(int type, struct snd_card *card, int dev,
 		return minor;
 	}
 	snd_minors[minor] = preg;
-	preg->dev = device_create(sound_class, device, MKDEV(major, minor),
-				  "%s", name);
-	if (preg->dev)
-		dev_set_drvdata(preg->dev, private_data);
+	preg->dev = device_create_drvdata(sound_class, device,
+					  MKDEV(major, minor),
+					  private_data, "%s", name);
+	if (IS_ERR(preg->dev)) {
+		snd_minors[minor] = NULL;
+		mutex_unlock(&sound_mutex);
+		minor = PTR_ERR(preg->dev);
+		kfree(preg);
+		return minor;
+	}
 
 	mutex_unlock(&sound_mutex);
 	return 0;

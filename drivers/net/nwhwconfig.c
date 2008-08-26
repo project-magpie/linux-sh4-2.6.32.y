@@ -99,7 +99,8 @@ static int __init nwhw_config(void)
 	int ndev = 0;
 
 	while ((ndev < NWHW_MAX_DEV) &&
-	       (dev = __dev_get_by_name(nwhwdev[ndev].user_dev_name))) {
+	       (dev = __dev_get_by_name(&init_net,
+					nwhwdev[ndev].user_dev_name))) {
 
 		if (!dev)
 			break;

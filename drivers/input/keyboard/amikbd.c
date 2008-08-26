@@ -1,6 +1,4 @@
 /*
- * $Id: amikbd.c,v 1.13 2002/02/01 16:02:24 vojtech Exp $
- *
  *  Copyright (c) 2000-2001 Vojtech Pavlik
  *
  *  Based on the work of:
@@ -209,7 +207,7 @@ static int __init amikbd_init(void)
 	amikbd_dev->id.product = 0x0001;
 	amikbd_dev->id.version = 0x0100;
 
-	amikbd_dev->evbit[0] = BIT(EV_KEY) | BIT(EV_REP);
+	amikbd_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_REP);
 
 	for (i = 0; i < 0x78; i++)
 		set_bit(i, amikbd_dev->keybit);

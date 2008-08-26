@@ -19,7 +19,7 @@
  *     published by the Free Software Foundation; either version 2 of 
  *     the License, or (at your option) any later version.
  *  
- *     Neither Dag Brattli nor University of Tromsø admit liability nor
+ *     Neither Dag Brattli nor University of TromsÃ¸ admit liability nor
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *     
@@ -231,13 +231,13 @@ struct st_fifo {
 
 struct frame_cb {
 	void *start; /* Start of frame in DMA mem */
-	int len;     /* Lenght of frame in DMA mem */
+	int len;     /* Length of frame in DMA mem */
 };
 
 struct tx_fifo {
 	struct frame_cb queue[MAX_TX_WINDOW]; /* Info about frames in queue */
 	int             ptr;                  /* Currently being sent */
-	int             len;                  /* Lenght of queue */
+	int             len;                  /* Length of queue */
 	int             free;                 /* Next free slot */
 	void           *tail;                 /* Next free start in DMA mem */
 };

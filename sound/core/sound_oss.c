@@ -1,6 +1,6 @@
 /*
  *  Advanced Linux Sound Architecture
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -18,8 +18,6 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  *
  */
-
-#include <sound/driver.h>
 
 #ifdef CONFIG_SND_OSSEMUL
 

@@ -26,12 +26,6 @@
  *
  */
 
-#ifdef CONFIG_MMC_DEBUG
-#define DEBUG
-#else
-#undef  DEBUG
-#endif
-
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/ioport.h>
@@ -42,6 +36,7 @@
 #include <linux/mmc/host.h>
 #include <linux/mmc/card.h>
 #include <linux/delay.h>
+#include <linux/clk.h>
 
 #include <asm/dma.h>
 #include <asm/io.h>
@@ -92,6 +87,8 @@ struct imxmci_host {
 	unsigned char		actual_bus_width;
 
 	int			prev_cmd_code;
+
+	struct clk		*clk;
 };
 
 #define IMXMCI_PEND_IRQ_b	0
@@ -262,7 +259,7 @@ static void imxmci_setup_data(struct imxmci_host *host, struct mmc_data *data)
 		}
 
 		/* Convert back to virtual address */
-		host->data_ptr = (u16*)(page_address(data->sg->page) + data->sg->offset);
+		host->data_ptr = (u16*)sg_virt(data->sg);
 		host->data_cnt = 0;
 
 		clear_bit(IMXMCI_PEND_DMA_DATA_b, &host->pending_events);
@@ -428,11 +425,11 @@ static int imxmci_finish_data(struct imxmci_host *host, unsigned int stat)
 	if ( stat & STATUS_ERR_MASK ) {
 		dev_dbg(mmc_dev(host->mmc), "request failed. status: 0x%08x\n",stat);
 		if(stat & (STATUS_CRC_READ_ERR | STATUS_CRC_WRITE_ERR))
-			data->error = MMC_ERR_BADCRC;
+			data->error = -EILSEQ;
 		else if(stat & STATUS_TIME_OUT_READ)
-			data->error = MMC_ERR_TIMEOUT;
+			data->error = -ETIMEDOUT;
 		else
-			data->error = MMC_ERR_FAILED;
+			data->error = -EIO;
 	} else {
 		data->bytes_xfered = host->dma_size;
 	}
@@ -458,10 +455,10 @@ static int imxmci_cmd_done(struct imxmci_host *host, unsigned int stat)
 
 	if (stat & STATUS_TIME_OUT_RESP) {
 		dev_dbg(mmc_dev(host->mmc), "CMD TIMEOUT\n");
-		cmd->error = MMC_ERR_TIMEOUT;
+		cmd->error = -ETIMEDOUT;
 	} else if (stat & STATUS_RESP_CRC_ERR && cmd->flags & MMC_RSP_CRC) {
 		dev_dbg(mmc_dev(host->mmc), "cmd crc error\n");
-		cmd->error = MMC_ERR_BADCRC;
+		cmd->error = -EILSEQ;
 	}
 
 	if(cmd->flags & MMC_RSP_PRESENT) {
@@ -482,7 +479,7 @@ static int imxmci_cmd_done(struct imxmci_host *host, unsigned int stat)
 	dev_dbg(mmc_dev(host->mmc), "RESP 0x%08x, 0x%08x, 0x%08x, 0x%08x, error %d\n",
 		cmd->resp[0], cmd->resp[1], cmd->resp[2], cmd->resp[3], cmd->error);
 
-	if (data && (cmd->error == MMC_ERR_NONE) && !(stat & STATUS_ERR_MASK)) {
+	if (data && !cmd->error && !(stat & STATUS_ERR_MASK)) {
 		if (host->req->data->flags & MMC_DATA_WRITE) {
 
 			/* Wait for FIFO to be empty before starting DMA write */
@@ -491,7 +488,7 @@ static int imxmci_cmd_done(struct imxmci_host *host, unsigned int stat)
 			if(imxmci_busy_wait_for_status(host, &stat,
 				STATUS_APPL_BUFF_FE,
 				40, "imxmci_cmd_done DMA WR") < 0) {
-				cmd->error = MMC_ERR_FIFO;
+				cmd->error = -EIO;
 				imxmci_finish_data(host, stat);
 				if(host->req)
 					imxmci_finish_request(host, host->req);
@@ -841,7 +838,7 @@ static void imxmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		/* The prescaler is 5 for PERCLK2 equal to 96MHz
 		 * then 96MHz / 5 = 19.2 MHz
 		 */
-		clk=imx_get_perclk2();
+		clk = clk_get_rate(host->clk);
 		prescaler=(clk+(CLK_RATE*7)/8)/CLK_RATE;
 		switch(prescaler) {
 		case 0:
@@ -884,36 +881,32 @@ static void imxmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	}
 }
 
+static int imxmci_get_ro(struct mmc_host *mmc)
+{
+	struct imxmci_host *host = mmc_priv(mmc);
+
+	if (host->pdata && host->pdata->get_ro)
+		return !!host->pdata->get_ro(mmc_dev(mmc));
+	/*
+	 * Board doesn't support read only detection; let the mmc core
+	 * decide what to do.
+	 */
+	return -ENOSYS;
+}
+
+
 static const struct mmc_host_ops imxmci_ops = {
 	.request	= imxmci_request,
 	.set_ios	= imxmci_set_ios,
+	.get_ro		= imxmci_get_ro,
 };
-
-static struct resource *platform_device_resource(struct platform_device *dev, unsigned int mask, int nr)
-{
-	int i;
-
-	for (i = 0; i < dev->num_resources; i++)
-		if (dev->resource[i].flags == mask && nr-- == 0)
-			return &dev->resource[i];
-	return NULL;
-}
-
-static int platform_device_irq(struct platform_device *dev, int nr)
-{
-	int i;
-
-	for (i = 0; i < dev->num_resources; i++)
-		if (dev->resource[i].flags == IORESOURCE_IRQ && nr-- == 0)
-			return dev->resource[i].start;
-	return NO_IRQ;
-}
 
 static void imxmci_check_status(unsigned long data)
 {
 	struct imxmci_host *host = (struct imxmci_host *)data;
 
-	if( host->pdata->card_present() != host->present ) {
+	if (host->pdata && host->pdata->card_present &&
+	    host->pdata->card_present(mmc_dev(host->mmc)) != host->present) {
 		host->present ^= 1;
 		dev_info(mmc_dev(host->mmc), "card %s\n",
 		      host->present ? "inserted" : "removed");
@@ -944,13 +937,12 @@ static int imxmci_probe(struct platform_device *pdev)
 
 	printk(KERN_INFO "i.MX mmc driver\n");
 
-	r = platform_device_resource(pdev, IORESOURCE_MEM, 0);
-	irq = platform_device_irq(pdev, 0);
-	if (!r || irq == NO_IRQ)
+	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	irq = platform_get_irq(pdev, 0);
+	if (!r || irq < 0)
 		return -ENXIO;
 
-	r = request_mem_region(r->start, 0x100, "IMXMCI");
-	if (!r)
+	if (!request_mem_region(r->start, 0x100, pdev->name))
 		return -EBUSY;
 
 	mmc = mmc_alloc_host(sizeof(struct imxmci_host), &pdev->dev);
@@ -963,7 +955,7 @@ static int imxmci_probe(struct platform_device *pdev)
 	mmc->f_min = 150000;
 	mmc->f_max = CLK_RATE/2;
 	mmc->ocr_avail = MMC_VDD_32_33;
-	mmc->caps = MMC_CAP_4_BIT_DATA | MMC_CAP_BYTEBLOCK;
+	mmc->caps = MMC_CAP_4_BIT_DATA;
 
 	/* MMC core transfer sizes tunable parameters */
 	mmc->max_hw_segs = 64;
@@ -977,10 +969,19 @@ static int imxmci_probe(struct platform_device *pdev)
 	host->mmc = mmc;
 	host->dma_allocated = 0;
 	host->pdata = pdev->dev.platform_data;
+	if (!host->pdata)
+		dev_warn(&pdev->dev, "No platform data provided!\n");
 
 	spin_lock_init(&host->lock);
 	host->res = r;
 	host->irq = irq;
+
+	host->clk = clk_get(&pdev->dev, "perclk2");
+	if (IS_ERR(host->clk)) {
+		ret = PTR_ERR(host->clk);
+		goto out;
+	}
+	clk_enable(host->clk);
 
 	imx_gpio_mode(PB8_PF_SD_DAT0);
 	imx_gpio_mode(PB9_PF_SD_DAT1);
@@ -1005,8 +1006,8 @@ static int imxmci_probe(struct platform_device *pdev)
 	host->imask = IMXMCI_INT_MASK_DEFAULT;
 	MMC_INT_MASK = host->imask;
 
-
-	if(imx_dma_request_by_prio(&host->dma, DRIVER_NAME, DMA_PRIO_LOW)<0){
+	host->dma = imx_dma_request_by_prio(DRIVER_NAME, DMA_PRIO_LOW);
+	if(host->dma < 0) {
 		dev_err(mmc_dev(host->mmc), "imx_dma_request_by_prio failed\n");
 		ret = -EBUSY;
 		goto out;
@@ -1022,7 +1023,11 @@ static int imxmci_probe(struct platform_device *pdev)
 	if (ret)
 		goto out;
 
-	host->present = host->pdata->card_present();
+	if (host->pdata && host->pdata->card_present)
+		host->present = host->pdata->card_present(mmc_dev(mmc));
+	else	/* if there is no way to detect assume that card is present */
+		host->present = 1;
+
 	init_timer(&host->timer);
 	host->timer.data = (unsigned long)host;
 	host->timer.function = imxmci_check_status;
@@ -1041,10 +1046,14 @@ out:
 			imx_dma_free(host->dma);
 			host->dma_allocated=0;
 		}
+		if (host->clk) {
+			clk_disable(host->clk);
+			clk_put(host->clk);
+		}
 	}
 	if (mmc)
 		mmc_free_host(mmc);
-	release_resource(r);
+	release_mem_region(r->start, 0x100);
 	return ret;
 }
 
@@ -1070,7 +1079,10 @@ static int imxmci_remove(struct platform_device *pdev)
 
 		tasklet_kill(&host->tasklet);
 
-		release_resource(host->res);
+		clk_disable(host->clk);
+		clk_put(host->clk);
+
+		release_mem_region(host->res->start, 0x100);
 
 		mmc_free_host(mmc);
 	}
@@ -1116,6 +1128,7 @@ static struct platform_driver imxmci_driver = {
 	.resume		= imxmci_resume,
 	.driver		= {
 		.name		= DRIVER_NAME,
+		.owner		= THIS_MODULE,
 	}
 };
 
@@ -1135,3 +1148,4 @@ module_exit(imxmci_exit);
 MODULE_DESCRIPTION("i.MX Multimedia Card Interface Driver");
 MODULE_AUTHOR("Sascha Hauer, Pengutronix");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:imx-mmc");

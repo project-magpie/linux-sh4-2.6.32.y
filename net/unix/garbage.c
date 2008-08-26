@@ -92,7 +92,7 @@ static LIST_HEAD(gc_inflight_list);
 static LIST_HEAD(gc_candidates);
 static DEFINE_SPINLOCK(unix_gc_lock);
 
-atomic_t unix_tot_inflight = ATOMIC_INIT(0);
+unsigned int unix_tot_inflight;
 
 
 static struct sock *unix_get_socket(struct file *filp)
@@ -127,13 +127,13 @@ void unix_inflight(struct file *fp)
 	if(s) {
 		struct unix_sock *u = unix_sk(s);
 		spin_lock(&unix_gc_lock);
-		if (atomic_inc_return(&u->inflight) == 1) {
+		if (atomic_long_inc_return(&u->inflight) == 1) {
 			BUG_ON(!list_empty(&u->link));
 			list_add_tail(&u->link, &gc_inflight_list);
 		} else {
 			BUG_ON(list_empty(&u->link));
 		}
-		atomic_inc(&unix_tot_inflight);
+		unix_tot_inflight++;
 		spin_unlock(&unix_gc_lock);
 	}
 }
@@ -145,9 +145,9 @@ void unix_notinflight(struct file *fp)
 		struct unix_sock *u = unix_sk(s);
 		spin_lock(&unix_gc_lock);
 		BUG_ON(list_empty(&u->link));
-		if (atomic_dec_and_test(&u->inflight))
+		if (atomic_long_dec_and_test(&u->inflight))
 			list_del_init(&u->link);
-		atomic_dec(&unix_tot_inflight);
+		unix_tot_inflight--;
 		spin_unlock(&unix_gc_lock);
 	}
 }
@@ -161,7 +161,7 @@ static inline struct sk_buff *sock_queue_head(struct sock *sk)
 	for (skb = sock_queue_head(sk)->next, next = skb->next; \
 	     skb != sock_queue_head(sk); skb = next, next = skb->next)
 
-static void scan_inflight(struct sock *x, void (*func)(struct sock *),
+static void scan_inflight(struct sock *x, void (*func)(struct unix_sock *),
 			  struct sk_buff_head *hitlist)
 {
 	struct sk_buff *skb;
@@ -185,9 +185,9 @@ static void scan_inflight(struct sock *x, void (*func)(struct sock *),
 				 *	if it indeed does so
 				 */
 				struct sock *sk = unix_get_socket(*fp++);
-				if(sk) {
+				if (sk) {
 					hit = true;
-					func(sk);
+					func(unix_sk(sk));
 				}
 			}
 			if (hit && hitlist != NULL) {
@@ -199,7 +199,7 @@ static void scan_inflight(struct sock *x, void (*func)(struct sock *),
 	spin_unlock(&x->sk_receive_queue.lock);
 }
 
-static void scan_children(struct sock *x, void (*func)(struct sock *),
+static void scan_children(struct sock *x, void (*func)(struct unix_sock *),
 			  struct sk_buff_head *hitlist)
 {
 	if (x->sk_state != TCP_LISTEN)
@@ -235,21 +235,19 @@ static void scan_children(struct sock *x, void (*func)(struct sock *),
 	}
 }
 
-static void dec_inflight(struct sock *sk)
+static void dec_inflight(struct unix_sock *usk)
 {
-	atomic_dec(&unix_sk(sk)->inflight);
+	atomic_long_dec(&usk->inflight);
 }
 
-static void inc_inflight(struct sock *sk)
+static void inc_inflight(struct unix_sock *usk)
 {
-	atomic_inc(&unix_sk(sk)->inflight);
+	atomic_long_inc(&usk->inflight);
 }
 
-static void inc_inflight_move_tail(struct sock *sk)
+static void inc_inflight_move_tail(struct unix_sock *u)
 {
-	struct unix_sock *u = unix_sk(sk);
-
-	atomic_inc(&u->inflight);
+	atomic_long_inc(&u->inflight);
 	/*
 	 * If this is still a candidate, move it to the end of the
 	 * list, so that it's checked even if it was already passed
@@ -290,11 +288,11 @@ void unix_gc(void)
 	 * before the detach without atomicity guarantees.
 	 */
 	list_for_each_entry_safe(u, next, &gc_inflight_list, link) {
-		int total_refs;
-		int inflight_refs;
+		long total_refs;
+		long inflight_refs;
 
 		total_refs = file_count(u->sk.sk_socket->file);
-		inflight_refs = atomic_read(&u->inflight);
+		inflight_refs = atomic_long_read(&u->inflight);
 
 		BUG_ON(inflight_refs < 1);
 		BUG_ON(total_refs < inflight_refs);
@@ -326,7 +324,7 @@ void unix_gc(void)
 		/* Move cursor to after the current position. */
 		list_move(&cursor, &u->link);
 
-		if (atomic_read(&u->inflight) > 0) {
+		if (atomic_long_read(&u->inflight) > 0) {
 			list_move_tail(&u->link, &gc_inflight_list);
 			u->gc_candidate = 0;
 			scan_children(&u->sk, inc_inflight_move_tail, NULL);

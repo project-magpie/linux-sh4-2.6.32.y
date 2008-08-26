@@ -1,7 +1,7 @@
 /*
  *  ALSA sequencer Client Manager
  *  Copyright (c) 1998-2001 by Frank van de Pol <fvdpol@coil.demon.nl>
- *                             Jaroslav Kysela <perex@suse.cz>
+ *                             Jaroslav Kysela <perex@perex.cz>
  *                             Takashi Iwai <tiwai@suse.de>
  *
  *
@@ -21,7 +21,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <sound/core.h>
@@ -130,8 +129,6 @@ static struct snd_seq_client *clientptr(int clientid)
 	return clienttab[clientid];
 }
 
-extern int seq_client_load[];
-
 struct snd_seq_client *snd_seq_client_use_ptr(int clientid)
 {
 	unsigned long flags;
@@ -151,14 +148,14 @@ struct snd_seq_client *snd_seq_client_use_ptr(int clientid)
 		return NULL;
 	}
 	spin_unlock_irqrestore(&clients_lock, flags);
-#ifdef CONFIG_KMOD
-	if (!in_interrupt() && current->fs->root) {
+#ifdef CONFIG_MODULES
+	if (!in_interrupt()) {
 		static char client_requested[SNDRV_SEQ_GLOBAL_CLIENTS];
 		static char card_requested[SNDRV_CARDS];
 		if (clientid < SNDRV_SEQ_GLOBAL_CLIENTS) {
 			int idx;
 			
-			if (! client_requested[clientid] && current->fs->root) {
+			if (!client_requested[clientid]) {
 				client_requested[clientid] = 1;
 				for (idx = 0; idx < 15; idx++) {
 					if (seq_client_load[idx] < 0)
@@ -966,8 +963,7 @@ static int check_event_type_and_length(struct snd_seq_event *ev)
 			return -EINVAL;
 		break;
 	case SNDRV_SEQ_EVENT_LENGTH_VARUSR:
-		if (! snd_seq_ev_is_instr_type(ev) ||
-		    ! snd_seq_ev_is_direct(ev))
+		if (! snd_seq_ev_is_direct(ev))
 			return -EINVAL;
 		break;
 	}

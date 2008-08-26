@@ -125,7 +125,7 @@ static inline int arlan_drop_tx(struct net_device *dev)
 {
 	struct arlan_private *priv = netdev_priv(dev);
 
-	priv->stats.tx_errors++;
+	dev->stats.tx_errors++;
 	if (priv->Conf->tx_delay_ms)
 	{
 		priv->tx_done_delayed = jiffies + priv->Conf->tx_delay_ms * HZ / 1000 + 1;
@@ -1269,7 +1269,7 @@ static void arlan_tx_done_interrupt(struct net_device *dev, int status)
 		{
 			IFDEBUG(ARLAN_DEBUG_TX_CHAIN)
 				printk("arlan intr: transmit OK\n");
-			priv->stats.tx_packets++;
+			dev->stats.tx_packets++;
 			priv->bad = 0;
 			priv->reset = 0;
 			priv->retransmissions = 0;
@@ -1469,10 +1469,10 @@ static void arlan_rx_interrupt(struct net_device *dev, u_char rxStatus, u_short 
 					while (dmi)
 					{							if (dmi->dmi_addrlen == 6)
 						{
+							DECLARE_MAC_BUF(mac);
 							if (arlan_debug & ARLAN_DEBUG_HEADER_DUMP)
-								printk(KERN_ERR "%s mcl %2x:%2x:%2x:%2x:%2x:%2x \n", dev->name,
-										 dmi->dmi_addr[0], dmi->dmi_addr[1], dmi->dmi_addr[2],
-										 dmi->dmi_addr[3], dmi->dmi_addr[4], dmi->dmi_addr[5]);
+								printk(KERN_ERR "%s mcl %s\n",
+								       dev->name, print_mac(mac, dmi->dmi_addr));
 							for (i = 0; i < 6; i++)
 								if (dmi->dmi_addr[i] != hw_dst_addr[i])
 									break;
@@ -1496,7 +1496,7 @@ static void arlan_rx_interrupt(struct net_device *dev, u_char rxStatus, u_short 
 			if (skb == NULL)
 			{
 				printk(KERN_ERR "%s: Memory squeeze, dropping packet.\n", dev->name);
-				priv->stats.rx_dropped++;
+				dev->stats.rx_dropped++;
 				break;
 			}
 			skb_reserve(skb, 2);
@@ -1512,17 +1512,18 @@ static void arlan_rx_interrupt(struct net_device *dev, u_char rxStatus, u_short 
 			{
 				char immedDestAddress[6];
 				char immedSrcAddress[6];
+				DECLARE_MAC_BUF(mac);
+				DECLARE_MAC_BUF(mac2);
+				DECLARE_MAC_BUF(mac3);
+				DECLARE_MAC_BUF(mac4);
 				memcpy_fromio(immedDestAddress, arlan->immedDestAddress, 6);
 				memcpy_fromio(immedSrcAddress, arlan->immedSrcAddress, 6);
 
-				printk(KERN_WARNING "%s t %2x:%2x:%2x:%2x:%2x:%2x f %2x:%2x:%2x:%2x:%2x:%2x imd %2x:%2x:%2x:%2x:%2x:%2x ims %2x:%2x:%2x:%2x:%2x:%2x\n", dev->name,
-					(unsigned char) skbtmp[0], (unsigned char) skbtmp[1], (unsigned char) skbtmp[2], (unsigned char) skbtmp[3],
-					(unsigned char) skbtmp[4], (unsigned char) skbtmp[5], (unsigned char) skbtmp[6], (unsigned char) skbtmp[7],
-					(unsigned char) skbtmp[8], (unsigned char) skbtmp[9], (unsigned char) skbtmp[10], (unsigned char) skbtmp[11],
-					immedDestAddress[0], immedDestAddress[1], immedDestAddress[2],
-					immedDestAddress[3], immedDestAddress[4], immedDestAddress[5],
-					immedSrcAddress[0], immedSrcAddress[1], immedSrcAddress[2],
-					immedSrcAddress[3], immedSrcAddress[4], immedSrcAddress[5]);
+				printk(KERN_WARNING "%s t %s f %s imd %s ims %s\n",
+				       dev->name, print_mac(mac, skbtmp),
+				       print_mac(mac2, &skbtmp[6]),
+				       print_mac(mac3, immedDestAddress),
+				       print_mac(mac4, immedSrcAddress));
 			}
 			skb->protocol = eth_type_trans(skb, dev);
 			IFDEBUG(ARLAN_DEBUG_HEADER_DUMP)
@@ -1535,14 +1536,14 @@ static void arlan_rx_interrupt(struct net_device *dev, u_char rxStatus, u_short 
 				}
 			netif_rx(skb);
 			dev->last_rx = jiffies;
-			priv->stats.rx_packets++;
-			priv->stats.rx_bytes += pkt_len;
+			dev->stats.rx_packets++;
+			dev->stats.rx_bytes += pkt_len;
 		}
 		break;
 		
 		default:
 			printk(KERN_ERR "arlan intr: received unknown status\n");
-			priv->stats.rx_crc_errors++;
+			dev->stats.rx_crc_errors++;
 			break;
 	}
 	ARLAN_DEBUG_EXIT("arlan_rx_interrupt");
@@ -1718,23 +1719,23 @@ static struct net_device_stats *arlan_statistics(struct net_device *dev)
 
 	/* Update the statistics from the device registers. */
 
-	READSHM(priv->stats.collisions, arlan->numReTransmissions, u_int);
-	READSHM(priv->stats.rx_crc_errors, arlan->numCRCErrors, u_int);
-	READSHM(priv->stats.rx_dropped, arlan->numFramesDiscarded, u_int);
-	READSHM(priv->stats.rx_fifo_errors, arlan->numRXBufferOverflows, u_int);
-	READSHM(priv->stats.rx_frame_errors, arlan->numReceiveFramesLost, u_int);
-	READSHM(priv->stats.rx_over_errors, arlan->numRXOverruns, u_int);
-	READSHM(priv->stats.rx_packets, arlan->numDatagramsReceived, u_int);
-	READSHM(priv->stats.tx_aborted_errors, arlan->numAbortErrors, u_int);
-	READSHM(priv->stats.tx_carrier_errors, arlan->numStatusTimeouts, u_int);
-	READSHM(priv->stats.tx_dropped, arlan->numDatagramsDiscarded, u_int);
-	READSHM(priv->stats.tx_fifo_errors, arlan->numTXUnderruns, u_int);
-	READSHM(priv->stats.tx_packets, arlan->numDatagramsTransmitted, u_int);
-	READSHM(priv->stats.tx_window_errors, arlan->numHoldOffs, u_int);
+	READSHM(dev->stats.collisions, arlan->numReTransmissions, u_int);
+	READSHM(dev->stats.rx_crc_errors, arlan->numCRCErrors, u_int);
+	READSHM(dev->stats.rx_dropped, arlan->numFramesDiscarded, u_int);
+	READSHM(dev->stats.rx_fifo_errors, arlan->numRXBufferOverflows, u_int);
+	READSHM(dev->stats.rx_frame_errors, arlan->numReceiveFramesLost, u_int);
+	READSHM(dev->stats.rx_over_errors, arlan->numRXOverruns, u_int);
+	READSHM(dev->stats.rx_packets, arlan->numDatagramsReceived, u_int);
+	READSHM(dev->stats.tx_aborted_errors, arlan->numAbortErrors, u_int);
+	READSHM(dev->stats.tx_carrier_errors, arlan->numStatusTimeouts, u_int);
+	READSHM(dev->stats.tx_dropped, arlan->numDatagramsDiscarded, u_int);
+	READSHM(dev->stats.tx_fifo_errors, arlan->numTXUnderruns, u_int);
+	READSHM(dev->stats.tx_packets, arlan->numDatagramsTransmitted, u_int);
+	READSHM(dev->stats.tx_window_errors, arlan->numHoldOffs, u_int);
 
 	ARLAN_DEBUG_EXIT("arlan_statistics");
 
-	return &priv->stats;
+	return &dev->stats;
 }
 
 
@@ -1791,8 +1792,6 @@ struct net_device * __init arlan_probe(int unit)
 			     + sizeof(struct arlan_shmem));
 	if (!dev)
 		return ERR_PTR(-ENOMEM);
-
-	SET_MODULE_OWNER(dev);
 
 	if (unit >= 0) {
 		sprintf(dev->name, "eth%d", unit);

@@ -12,11 +12,11 @@
 
 LDFLAGS_vmlinux	:=-p --no-undefined -X
 CPPFLAGS_vmlinux.lds = -DTEXT_OFFSET=$(TEXT_OFFSET)
-OBJCOPYFLAGS	:=-O binary -R .note -R .comment -S
+OBJCOPYFLAGS	:=-O binary -R .note -R .note.gnu.build-id -R .comment -S
 GZFLAGS		:=-9
-#CFLAGS		+=-pipe
+#KBUILD_CFLAGS	+=-pipe
 # Explicitly specifiy 32-bit ARM ISA since toolchain default can be -mthumb:
-CFLAGS		+=$(call cc-option,-marm,)
+KBUILD_CFLAGS	+=$(call cc-option,-marm,)
 
 # Do not use arch/arm/defconfig - it's always outdated.
 # Select a platform tht is kept up-to-date
@@ -28,15 +28,15 @@ MMUEXT		:= -nommu
 endif
 
 ifeq ($(CONFIG_FRAME_POINTER),y)
-CFLAGS		+=-fno-omit-frame-pointer -mapcs -mno-sched-prolog
+KBUILD_CFLAGS	+=-fno-omit-frame-pointer -mapcs -mno-sched-prolog
 endif
 
 ifeq ($(CONFIG_CPU_BIG_ENDIAN),y)
-CPPFLAGS	+= -mbig-endian
+KBUILD_CPPFLAGS	+= -mbig-endian
 AS		+= -EB
 LD		+= -EB
 else
-CPPFLAGS	+= -mlittle-endian
+KBUILD_CPPFLAGS	+= -mlittle-endian
 AS		+= -EL
 LD		+= -EL
 endif
@@ -67,7 +67,7 @@ tune-$(CONFIG_CPU_ARM720T)	:=-mtune=arm7tdmi
 tune-$(CONFIG_CPU_ARM740T)	:=-mtune=arm7tdmi
 tune-$(CONFIG_CPU_ARM9TDMI)	:=-mtune=arm9tdmi
 tune-$(CONFIG_CPU_ARM940T)	:=-mtune=arm9tdmi
-tune-$(CONFIG_CPU_ARM946T)	:=$(call cc-option,-mtune=arm9e,-mtune=arm9tdmi)
+tune-$(CONFIG_CPU_ARM946E)	:=$(call cc-option,-mtune=arm9e,-mtune=arm9tdmi)
 tune-$(CONFIG_CPU_ARM920T)	:=-mtune=arm9tdmi
 tune-$(CONFIG_CPU_ARM922T)	:=-mtune=arm9tdmi
 tune-$(CONFIG_CPU_ARM925T)	:=-mtune=arm9tdmi
@@ -85,8 +85,8 @@ CFLAGS_ABI	:=$(call cc-option,-mapcs-32,-mabi=apcs-gnu) $(call cc-option,-mno-th
 endif
 
 # Need -Uarm for gcc < 3.x
-CFLAGS		+=$(CFLAGS_ABI) $(arch-y) $(tune-y) $(call cc-option,-mshort-load-bytes,$(call cc-option,-malignment-traps,)) -msoft-float -Uarm
-AFLAGS		+=$(CFLAGS_ABI) $(arch-y) $(tune-y) -msoft-float
+KBUILD_CFLAGS	+=$(CFLAGS_ABI) $(arch-y) $(tune-y) $(call cc-option,-mshort-load-bytes,$(call cc-option,-malignment-traps,)) -msoft-float -Uarm
+KBUILD_AFLAGS	+=$(CFLAGS_ABI) $(arch-y) $(tune-y) -msoft-float
 
 CHECKFLAGS	+= -D__arm__
 
@@ -100,8 +100,6 @@ textofs-y	:= 0x00008000
   incdir-$(CONFIG_ARCH_CLPS7500)   := cl7500
  machine-$(CONFIG_FOOTBRIDGE)	   := footbridge
   incdir-$(CONFIG_FOOTBRIDGE)	   := ebsa285
- machine-$(CONFIG_ARCH_CO285)	   := footbridge
-  incdir-$(CONFIG_ARCH_CO285)	   := ebsa285
  machine-$(CONFIG_ARCH_SHARK)	   := shark
  machine-$(CONFIG_ARCH_SA1100)	   := sa1100
 ifeq ($(CONFIG_ARCH_SA1100),y)
@@ -134,11 +132,16 @@ endif
  machine-$(CONFIG_ARCH_PNX4008)	   := pnx4008
  machine-$(CONFIG_ARCH_NETX)	   := netx
  machine-$(CONFIG_ARCH_NS9XXX)	   := ns9xxx
- textofs-$(CONFIG_ARCH_NS9XXX)	   := 0x00108000
  machine-$(CONFIG_ARCH_DAVINCI)	   := davinci
+ machine-$(CONFIG_ARCH_KIRKWOOD)   := kirkwood
  machine-$(CONFIG_ARCH_KS8695)     := ks8695
   incdir-$(CONFIG_ARCH_MXC)	   := mxc
+ machine-$(CONFIG_ARCH_MX2)	   := mx2
  machine-$(CONFIG_ARCH_MX3)	   := mx3
+ machine-$(CONFIG_ARCH_ORION5X)	   := orion5x
+ machine-$(CONFIG_ARCH_MSM7X00A)   := msm
+ machine-$(CONFIG_ARCH_LOKI)       := loki
+ machine-$(CONFIG_ARCH_MV78XX0)    := mv78xx0
 
 ifeq ($(CONFIG_ARCH_EBSA110),y)
 # This is what happens if you forget the IOCS16 line.
@@ -183,13 +186,12 @@ core-$(CONFIG_VFP)		+= arch/arm/vfp/
 
 # If we have a common platform directory, then include it in the build.
 core-$(CONFIG_PLAT_IOP)		+= arch/arm/plat-iop/
+core-$(CONFIG_PLAT_ORION)		+= arch/arm/plat-orion/
 core-$(CONFIG_ARCH_OMAP)	+= arch/arm/plat-omap/
 core-$(CONFIG_PLAT_S3C24XX)		+= arch/arm/plat-s3c24xx/
 core-$(CONFIG_ARCH_MXC)		+= arch/arm/plat-mxc/
 
 drivers-$(CONFIG_OPROFILE)      += arch/arm/oprofile/
-drivers-$(CONFIG_ARCH_CLPS7500)	+= drivers/acorn/char/
-drivers-$(CONFIG_ARCH_L7200)	+= drivers/acorn/char/
 
 libs-y				:= arch/arm/lib/ $(libs-y)
 
@@ -249,6 +251,7 @@ define archhelp
   echo  '* zImage        - Compressed kernel image (arch/$(ARCH)/boot/zImage)'
   echo  '  Image         - Uncompressed kernel image (arch/$(ARCH)/boot/Image)'
   echo  '* xipImage      - XIP kernel image, if configured (arch/$(ARCH)/boot/xipImage)'
+  echo  '  uImage        - U-Boot wrapped zImage'
   echo  '  bootpImage    - Combined zImage and initial RAM disk' 
   echo  '                  (supply initrd image via make variable INITRD=<path>)'
   echo  '  install       - Install uncompressed kernel'

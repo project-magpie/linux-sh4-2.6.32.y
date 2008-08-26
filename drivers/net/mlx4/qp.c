@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2004 Topspin Communications.  All rights reserved.
  * Copyright (c) 2005, 2006, 2007 Cisco Systems, Inc. All rights reserved.
- * Copyright (c) 2005 Mellanox Technologies. All rights reserved.
+ * Copyright (c) 2005, 2006, 2007, 2008 Mellanox Technologies. All rights reserved.
  * Copyright (c) 2004 Voltaire, Inc. All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -113,7 +113,7 @@ int mlx4_qp_modify(struct mlx4_dev *dev, struct mlx4_mtt *mtt,
 	struct mlx4_cmd_mailbox *mailbox;
 	int ret = 0;
 
-	if (cur_state >= MLX4_QP_NUM_STATE || cur_state >= MLX4_QP_NUM_STATE ||
+	if (cur_state >= MLX4_QP_NUM_STATE || new_state >= MLX4_QP_NUM_STATE ||
 	    !op[cur_state][new_state])
 		return -EINVAL;
 
@@ -240,7 +240,8 @@ void mlx4_qp_free(struct mlx4_dev *dev, struct mlx4_qp *qp)
 	mlx4_table_put(dev, &qp_table->auxc_table, qp->qpn);
 	mlx4_table_put(dev, &qp_table->qp_table, qp->qpn);
 
-	mlx4_bitmap_free(&qp_table->bitmap, qp->qpn);
+	if (qp->qpn >= dev->caps.sqp_start + 8)
+		mlx4_bitmap_free(&qp_table->bitmap, qp->qpn);
 }
 EXPORT_SYMBOL_GPL(mlx4_qp_free);
 
@@ -250,7 +251,7 @@ static int mlx4_CONF_SPECIAL_QP(struct mlx4_dev *dev, u32 base_qpn)
 			MLX4_CMD_TIME_CLASS_B);
 }
 
-int __devinit mlx4_init_qp_table(struct mlx4_dev *dev)
+int mlx4_init_qp_table(struct mlx4_dev *dev)
 {
 	struct mlx4_qp_table *qp_table = &mlx4_priv(dev)->qp_table;
 	int err;
@@ -298,3 +299,34 @@ int mlx4_qp_query(struct mlx4_dev *dev, struct mlx4_qp *qp,
 }
 EXPORT_SYMBOL_GPL(mlx4_qp_query);
 
+int mlx4_qp_to_ready(struct mlx4_dev *dev, struct mlx4_mtt *mtt,
+		     struct mlx4_qp_context *context,
+		     struct mlx4_qp *qp, enum mlx4_qp_state *qp_state)
+{
+	int err;
+	int i;
+	enum mlx4_qp_state states[] = {
+		MLX4_QP_STATE_RST,
+		MLX4_QP_STATE_INIT,
+		MLX4_QP_STATE_RTR,
+		MLX4_QP_STATE_RTS
+	};
+
+	for (i = 0; i < ARRAY_SIZE(states) - 1; i++) {
+		context->flags &= cpu_to_be32(~(0xf << 28));
+		context->flags |= cpu_to_be32(states[i + 1] << 28);
+		err = mlx4_qp_modify(dev, mtt, states[i], states[i + 1],
+				     context, 0, 0, qp);
+		if (err) {
+			mlx4_err(dev, "Failed to bring QP to state: "
+				 "%d with error: %d\n",
+				 states[i + 1], err);
+			return err;
+		}
+
+		*qp_state = states[i + 1];
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(mlx4_qp_to_ready);

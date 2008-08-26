@@ -29,7 +29,8 @@
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#if (CONFIG_MEM_MT48LC16M16A2TG_75 || CONFIG_MEM_MT48LC64M4A2FB_7E || CONFIG_MEM_GENERIC_BOARD)
+#if (CONFIG_MEM_MT48LC16M16A2TG_75 || CONFIG_MEM_MT48LC64M4A2FB_7E || \
+     CONFIG_MEM_MT48LC32M16A2TG_75 || CONFIG_MEM_GENERIC_BOARD)
 #if (CONFIG_SCLK_HZ > 119402985)
 #define SDRAM_tRP       TRP_2
 #define SDRAM_tRP_num   2
@@ -118,39 +119,19 @@
 #define SDRAM_CL    CL_3
 #endif
 
+#if (CONFIG_MEM_MT48LC32M16A2TG_75)
+  /*SDRAM INFORMATION: */
+#define SDRAM_Tref  64		/* Refresh period in milliseconds   */
+#define SDRAM_NRA   8192	/* Number of row addresses in SDRAM */
+#define SDRAM_CL    CL_3
+#endif
+
 #if (CONFIG_MEM_GENERIC_BOARD)
   /*SDRAM INFORMATION: Modify this for your board */
 #define SDRAM_Tref  64		/* Refresh period in milliseconds   */
 #define SDRAM_NRA   8192	/* Number of row addresses in SDRAM */
 #define SDRAM_CL    CL_3
 #endif
-
-#if (CONFIG_MEM_SIZE == 128)
-#define SDRAM_SIZE      EBSZ_128
-#endif
-#if (CONFIG_MEM_SIZE == 64)
-#define SDRAM_SIZE      EBSZ_64
-#endif
-#if (CONFIG_MEM_SIZE == 32)
-#define SDRAM_SIZE      EBSZ_32
-#endif
-#if (CONFIG_MEM_SIZE == 16)
-#define SDRAM_SIZE      EBSZ_16
-#endif
-#if (CONFIG_MEM_ADD_WIDTH == 11)
-#define SDRAM_WIDTH     EBCAW_11
-#endif
-#if (CONFIG_MEM_ADD_WIDTH == 10)
-#define SDRAM_WIDTH     EBCAW_10
-#endif
-#if (CONFIG_MEM_ADD_WIDTH == 9)
-#define SDRAM_WIDTH     EBCAW_9
-#endif
-#if (CONFIG_MEM_ADD_WIDTH == 8)
-#define SDRAM_WIDTH     EBCAW_8
-#endif
-
-#define mem_SDBCTL      (SDRAM_WIDTH | SDRAM_SIZE | EBE)
 
 /* Equation from section 17 (p17-46) of BF533 HRM */
 #define mem_SDRRC       (((CONFIG_SCLK_HZ / 1000) * SDRAM_Tref)  / SDRAM_NRA) - (SDRAM_tRAS_num + SDRAM_tRP_num)

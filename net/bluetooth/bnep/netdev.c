@@ -2,7 +2,7 @@
    BNEP implementation for Linux Bluetooth stack (BlueZ).
    Copyright (C) 2001-2002 Inventel Systemes
    Written 2001-2002 by
-	Clément Moreau <clement.moreau@inventel.fr>
+	ClÃ©ment Moreau <clement.moreau@inventel.fr>
 	David Libault  <david.libault@inventel.fr>
 
    Copyright (C) 2002 Maxim Krasnyansky <maxk@qualcomm.com>
@@ -24,10 +24,6 @@
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS
    SOFTWARE IS DISCLAIMED.
 */
-
-/*
- * $Id: netdev.c,v 1.8 2002/08/04 21:23:58 maxk Exp $
- */
 
 #include <linux/module.h>
 

@@ -34,7 +34,6 @@
 
 #include <linux/list.h>
 #include <asm/atomic.h>
-#include <asm/semaphore.h>
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
 #include <linux/skbuff.h>
@@ -46,7 +45,8 @@ struct cxgb3_client;
 
 enum t3ctype {
 	T3A = 0,
-	T3B
+	T3B,
+	T3C,
 };
 
 struct t3cdev {
@@ -64,6 +64,7 @@ struct t3cdev {
 	void *l3opt;		/* optional layer 3 data */
 	void *l4opt;		/* optional layer 4 data */
 	void *ulp;		/* ulp stuff */
+	void *ulp_iscsi;	/* ulp iscsi */
 };
 
 #endif				/* _T3CDEV_H_ */

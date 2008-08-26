@@ -25,6 +25,7 @@
 #define		AT91RM9200_PMC_MCKUDP	(1 <<  2)		/* USB Device Port Master Clock Automatic Disable on Suspend [AT91RM9200 only] */
 #define		AT91RM9200_PMC_UHP	(1 <<  4)		/* USB Host Port Clock [AT91RM9200 only] */
 #define		AT91SAM926x_PMC_UHP	(1 <<  6)		/* USB Host Port Clock [AT91SAM926x only] */
+#define		AT91CAP9_PMC_UHP	(1 <<  6)		/* USB Host Port Clock [AT91CAP9 only] */
 #define		AT91SAM926x_PMC_UDP	(1 <<  7)		/* USB Devcice Port Clock [AT91SAM926x only] */
 #define		AT91_PMC_PCK0		(1 <<  8)		/* Programmable Clock 0 */
 #define		AT91_PMC_PCK1		(1 <<  9)		/* Programmable Clock 1 */
@@ -37,9 +38,15 @@
 #define	AT91_PMC_PCDR		(AT91_PMC + 0x14)	/* Peripheral Clock Disable Register */
 #define	AT91_PMC_PCSR		(AT91_PMC + 0x18)	/* Peripheral Clock Status Register */
 
-#define	AT91_CKGR_MOR		(AT91_PMC + 0x20)	/* Main Oscillator Register */
+#define	AT91_CKGR_UCKR		(AT91_PMC + 0x1C)	/* UTMI Clock Register [SAM9RL, CAP9] */
+#define		AT91_PMC_UPLLEN		(1   << 16)		/* UTMI PLL Enable */
+#define		AT91_PMC_UPLLCOUNT	(0xf << 20)		/* UTMI PLL Start-up Time */
+#define		AT91_PMC_BIASEN		(1   << 24)		/* UTMI BIAS Enable */
+#define		AT91_PMC_BIASCOUNT	(0xf << 28)		/* UTMI PLL Start-up Time */
+
+#define	AT91_CKGR_MOR		(AT91_PMC + 0x20)	/* Main Oscillator Register [not on SAM9RL] */
 #define		AT91_PMC_MOSCEN		(1    << 0)		/* Main Oscillator Enable */
-#define		AT91_PMC_OSCBYPASS	(1    << 1)		/* Oscillator Bypass [AT91SAM926x only] */
+#define		AT91_PMC_OSCBYPASS	(1    << 1)		/* Oscillator Bypass [SAM9x, CAP9] */
 #define		AT91_PMC_OSCOUNT	(0xff << 8)		/* Main Oscillator Start-up Time */
 
 #define	AT91_CKGR_MCFR		(AT91_PMC + 0x24)	/* Main Clock Frequency Register */
@@ -52,6 +59,10 @@
 #define		AT91_PMC_PLLCOUNT	(0x3f  <<  8)		/* PLL Counter */
 #define		AT91_PMC_OUT		(3     << 14)		/* PLL Clock Frequency Range */
 #define		AT91_PMC_MUL		(0x7ff << 16)		/* PLL Multiplier */
+#define		AT91_PMC_USBDIV		(3     << 28)		/* USB Divisor (PLLB only) */
+#define			AT91_PMC_USBDIV_1		(0 << 28)
+#define			AT91_PMC_USBDIV_2		(1 << 28)
+#define			AT91_PMC_USBDIV_4		(2 << 28)
 #define		AT91_PMC_USB96M		(1     << 28)		/* Divider by 2 Enable (PLLB only) */
 
 #define	AT91_PMC_MCKR		(AT91_PMC + 0x30)	/* Master Clock Register */
@@ -69,10 +80,17 @@
 #define			AT91_PMC_PRES_32		(5 << 2)
 #define			AT91_PMC_PRES_64		(6 << 2)
 #define		AT91_PMC_MDIV		(3 <<  8)		/* Master Clock Division */
-#define			AT91_PMC_MDIV_1			(0 << 8)
-#define			AT91_PMC_MDIV_2			(1 << 8)
-#define			AT91_PMC_MDIV_3			(2 << 8)
-#define			AT91_PMC_MDIV_4			(3 << 8)
+#define			AT91RM9200_PMC_MDIV_1		(0 << 8)	/* [AT91RM9200 only] */
+#define			AT91RM9200_PMC_MDIV_2		(1 << 8)
+#define			AT91RM9200_PMC_MDIV_3		(2 << 8)
+#define			AT91RM9200_PMC_MDIV_4		(3 << 8)
+#define			AT91SAM9_PMC_MDIV_1		(0 << 8)	/* [SAM9,CAP9 only] */
+#define			AT91SAM9_PMC_MDIV_2		(1 << 8)
+#define			AT91SAM9_PMC_MDIV_4		(2 << 8)
+#define			AT91SAM9_PMC_MDIV_6		(3 << 8)
+#define		AT91_PMC_PDIV		(1 << 12)		/* Processor Clock Division [some SAM9 only] */
+#define			AT91_PMC_PDIV_1			(0 << 12)
+#define			AT91_PMC_PDIV_2			(1 << 12)
 
 #define	AT91_PMC_PCKR(n)	(AT91_PMC + 0x40 + ((n) * 4))	/* Programmable Clock 0-3 Registers */
 
@@ -83,6 +101,7 @@
 #define		AT91_PMC_LOCKA		(1 <<  1)		/* PLLA Lock */
 #define		AT91_PMC_LOCKB		(1 <<  2)		/* PLLB Lock */
 #define		AT91_PMC_MCKRDY		(1 <<  3)		/* Master Clock */
+#define		AT91_PMC_LOCKU		(1 <<  6)		/* UPLL Lock [AT91CAP9 only] */
 #define		AT91_PMC_PCK0RDY	(1 <<  8)		/* Programmable Clock 0 */
 #define		AT91_PMC_PCK1RDY	(1 <<  9)		/* Programmable Clock 1 */
 #define		AT91_PMC_PCK2RDY	(1 << 10)		/* Programmable Clock 2 */

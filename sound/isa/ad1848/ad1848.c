@@ -1,8 +1,8 @@
 /*
  *  Generic driver for AD1848/AD1847/CS4248 chips (0.1 Alpha)
  *  Copyright (c) by Tugrul Galatali <galatalt@stuy.edu>,
- *                   Jaroslav Kysela <perex@suse.cz>
- *  Based on card-4232.c by Jaroslav Kysela <perex@suse.cz>
+ *                   Jaroslav Kysela <perex@perex.cz>
+ *  Based on card-4232.c by Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/err.h>
 #include <linux/isa.h>
@@ -36,7 +35,7 @@
 #define DEV_NAME "ad1848"
 
 MODULE_DESCRIPTION(CRD_NAME);
-MODULE_AUTHOR("Tugrul Galatali <galatalt@stuy.edu>, Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Tugrul Galatali <galatalt@stuy.edu>, Jaroslav Kysela <perex@perex.cz>");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Analog Devices,AD1848},"
 	        "{Analog Devices,AD1847},"

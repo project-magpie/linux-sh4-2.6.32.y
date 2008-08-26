@@ -1,7 +1,6 @@
 /*
- * linux/drivers/ide/pci/hpt34x.c		Version 0.40	Sept 10, 2002
- *
  * Copyright (C) 1998-2000	Andre Hedrick <andre@linux-ide.org>
+ *
  * May be copied or modified under the terms of the GNU General Public License
  *
  *
@@ -27,26 +26,20 @@
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
-#include <linux/delay.h>
-#include <linux/timer.h>
-#include <linux/mm.h>
 #include <linux/ioport.h>
-#include <linux/blkdev.h>
 #include <linux/hdreg.h>
 #include <linux/interrupt.h>
 #include <linux/pci.h>
 #include <linux/init.h>
 #include <linux/ide.h>
 
-#include <asm/io.h>
-#include <asm/irq.h>
+#define DRV_NAME "hpt34x"
 
 #define HPT343_DEBUG_DRIVE_INFO		0
 
-static int hpt34x_tune_chipset (ide_drive_t *drive, u8 xferspeed)
+static void hpt34x_set_mode(ide_drive_t *drive, const u8 speed)
 {
-	struct pci_dev *dev	= HWIF(drive)->pci_dev;
-	u8 speed = ide_rate_filter(drive, xferspeed);
+	struct pci_dev *dev = to_pci_dev(drive->hwif->dev);
 	u32 reg1= 0, tmp1 = 0, reg2 = 0, tmp2 = 0;
 	u8			hi_speed, lo_speed;
 
@@ -74,27 +67,11 @@ static int hpt34x_tune_chipset (ide_drive_t *drive, u8 xferspeed)
 		drive->dn, reg1, tmp1, reg2, tmp2,
 		hi_speed, lo_speed);
 #endif /* HPT343_DEBUG_DRIVE_INFO */
-
-	return(ide_config_drive_speed(drive, speed));
 }
 
-static void hpt34x_tune_drive (ide_drive_t *drive, u8 pio)
+static void hpt34x_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
-	pio = ide_get_best_pio_mode(drive, pio, 5);
-	(void) hpt34x_tune_chipset(drive, (XFER_PIO_0 + pio));
-}
-
-static int hpt34x_config_drive_xfer_rate (ide_drive_t *drive)
-{
-	drive->init_speed = 0;
-
-	if (ide_tune_dma(drive))
-		return -1;
-
-	if (ide_use_fast_pio(drive))
-		hpt34x_tune_drive(drive, 255);
-
-	return -1;
+	hpt34x_set_mode(drive, XFER_PIO_0 + pio);
 }
 
 /*
@@ -102,7 +79,7 @@ static int hpt34x_config_drive_xfer_rate (ide_drive_t *drive)
  */
 #define	HPT34X_PCI_INIT_REG		0x80
 
-static unsigned int __devinit init_chipset_hpt34x(struct pci_dev *dev, const char *name)
+static unsigned int __devinit init_chipset_hpt34x(struct pci_dev *dev)
 {
 	int i = 0;
 	unsigned long hpt34xIoBase = pci_resource_start(dev, 4);
@@ -140,61 +117,52 @@ static unsigned int __devinit init_chipset_hpt34x(struct pci_dev *dev, const cha
 	return dev->irq;
 }
 
-static void __devinit init_hwif_hpt34x(ide_hwif_t *hwif)
-{
-	u16 pcicmd = 0;
+static const struct ide_port_ops hpt34x_port_ops = {
+	.set_pio_mode		= hpt34x_set_pio_mode,
+	.set_dma_mode		= hpt34x_set_mode,
+};
 
-	hwif->autodma = 0;
+#define IDE_HFLAGS_HPT34X \
+	(IDE_HFLAG_NO_ATAPI_DMA | \
+	 IDE_HFLAG_NO_DSC | \
+	 IDE_HFLAG_NO_AUTODMA)
 
-	hwif->tuneproc = &hpt34x_tune_drive;
-	hwif->speedproc = &hpt34x_tune_chipset;
-	hwif->drives[0].autotune = 1;
-	hwif->drives[1].autotune = 1;
-
-	pci_read_config_word(hwif->pci_dev, PCI_COMMAND, &pcicmd);
-
-	if (!hwif->dma_base)
-		return;
-
+static const struct ide_port_info hpt34x_chipsets[] __devinitdata = {
+	{ /* 0: HPT343 */
+		.name		= DRV_NAME,
+		.init_chipset	= init_chipset_hpt34x,
+		.port_ops	= &hpt34x_port_ops,
+		.host_flags	= IDE_HFLAGS_HPT34X | IDE_HFLAG_NON_BOOTABLE,
+		.pio_mask	= ATA_PIO5,
+	},
+	{ /* 1: HPT345 */
+		.name		= DRV_NAME,
+		.init_chipset	= init_chipset_hpt34x,
+		.port_ops	= &hpt34x_port_ops,
+		.host_flags	= IDE_HFLAGS_HPT34X | IDE_HFLAG_OFF_BOARD,
+		.pio_mask	= ATA_PIO5,
 #ifdef CONFIG_HPT34X_AUTODMA
-	hwif->ultra_mask = 0x07;
-	hwif->mwdma_mask = 0x07;
-	hwif->swdma_mask = 0x07;
+		.swdma_mask	= ATA_SWDMA2,
+		.mwdma_mask	= ATA_MWDMA2,
+		.udma_mask	= ATA_UDMA2,
 #endif
-
-	hwif->ide_dma_check = &hpt34x_config_drive_xfer_rate;
-	if (!noautodma)
-		hwif->autodma = (pcicmd & PCI_COMMAND_MEMORY) ? 1 : 0;
-	hwif->drives[0].autodma = hwif->autodma;
-	hwif->drives[1].autodma = hwif->autodma;
-}
-
-static ide_pci_device_t hpt34x_chipset __devinitdata = {
-	.name		= "HPT34X",
-	.init_chipset	= init_chipset_hpt34x,
-	.init_hwif	= init_hwif_hpt34x,
-	.autodma	= NOAUTODMA,
-	.bootable	= NEVER_BOARD,
-	.extra		= 16,
-	.pio_mask	= ATA_PIO5,
+	}
 };
 
 static int __devinit hpt34x_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
-	ide_pci_device_t *d = &hpt34x_chipset;
-	static char *chipset_names[] = {"HPT343", "HPT345"};
+	const struct ide_port_info *d;
 	u16 pcicmd = 0;
 
 	pci_read_config_word(dev, PCI_COMMAND, &pcicmd);
 
-	d->name = chipset_names[(pcicmd & PCI_COMMAND_MEMORY) ? 1 : 0];
-	d->bootable = (pcicmd & PCI_COMMAND_MEMORY) ? OFF_BOARD : NEVER_BOARD;
+	d = &hpt34x_chipsets[(pcicmd & PCI_COMMAND_MEMORY) ? 1 : 0];
 
-	return ide_setup_pci_device(dev, d);
+	return ide_pci_init_one(dev, d, NULL);
 }
 
-static struct pci_device_id hpt34x_pci_tbl[] = {
-	{ PCI_VENDOR_ID_TTI, PCI_DEVICE_ID_TTI_HPT343, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
+static const struct pci_device_id hpt34x_pci_tbl[] = {
+	{ PCI_VDEVICE(TTI, PCI_DEVICE_ID_TTI_HPT343), 0 },
 	{ 0, },
 };
 MODULE_DEVICE_TABLE(pci, hpt34x_pci_tbl);
@@ -203,6 +171,7 @@ static struct pci_driver driver = {
 	.name		= "HPT34x_IDE",
 	.id_table	= hpt34x_pci_tbl,
 	.probe		= hpt34x_init_one,
+	.remove		= ide_pci_remove,
 };
 
 static int __init hpt34x_ide_init(void)
@@ -210,7 +179,13 @@ static int __init hpt34x_ide_init(void)
 	return ide_pci_register_driver(&driver);
 }
 
+static void __exit hpt34x_ide_exit(void)
+{
+	pci_unregister_driver(&driver);
+}
+
 module_init(hpt34x_ide_init);
+module_exit(hpt34x_ide_exit);
 
 MODULE_AUTHOR("Andre Hedrick");
 MODULE_DESCRIPTION("PCI driver module for Highpoint 34x IDE");

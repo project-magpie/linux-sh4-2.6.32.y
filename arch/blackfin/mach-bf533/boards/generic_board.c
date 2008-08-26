@@ -35,7 +35,7 @@
 /*
  * Name the Board for the /proc/cpuinfo
  */
-char *bfin_board_name = "UNKNOWN BOARD";
+const char bfin_board_name[] = "UNKNOWN BOARD";
 
 #if defined(CONFIG_RTC_DRV_BFIN) || defined(CONFIG_RTC_DRV_BFIN_MODULE)
 static struct platform_device rtc_device = {
@@ -58,10 +58,6 @@ static struct resource smc91x_resources[] = {
 		.end = IRQ_PROG_INTB,
 		.flags = IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHLEVEL,
 	}, {
-		/*
-		 *  denotes the flag pin and is used directly if
-		 *  CONFIG_IRQCHIP_DEMUX_GPIO is defined.
-		 */
 		.start = IRQ_PF7,
 		.end = IRQ_PF7,
 		.flags = IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHLEVEL,
@@ -88,7 +84,7 @@ static struct platform_device *generic_board_devices[] __initdata = {
 
 static int __init generic_board_init(void)
 {
-	printk(KERN_INFO "%s(): registering device resources\n", __FUNCTION__);
+	printk(KERN_INFO "%s(): registering device resources\n", __func__);
 	return platform_add_devices(generic_board_devices, ARRAY_SIZE(generic_board_devices));
 }
 

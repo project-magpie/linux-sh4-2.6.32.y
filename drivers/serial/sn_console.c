@@ -471,7 +471,7 @@ sn_receive_chars(struct sn_cons_port *port, unsigned long flags)
 
 	if (port->sc_port.info) {
 		/* The serial_core stuffs are initilized, use them */
-		tty = port->sc_port.info->tty;
+		tty = port->sc_port.info->port.tty;
 	}
 	else {
 		/* Not registered yet - can't pass to tty layer.  */
@@ -839,7 +839,7 @@ static int __init sn_sal_module_init(void)
 
 	if (uart_add_one_port(&sal_console_uart, &sal_console_port.sc_port) < 0) {
 		/* error - not sure what I'd do - so I'll do nothing */
-		printk(KERN_ERR "%s: unable to add port\n", __FUNCTION__);
+		printk(KERN_ERR "%s: unable to add port\n", __func__);
 	}
 
 	/* when this driver is compiled in, the console initialization

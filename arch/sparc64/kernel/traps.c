@@ -1,7 +1,6 @@
-/* $Id: traps.c,v 1.85 2002/02/09 19:49:31 davem Exp $
- * arch/sparc64/kernel/traps.c
+/* arch/sparc64/kernel/traps.c
  *
- * Copyright (C) 1995,1997 David S. Miller (davem@caip.rutgers.edu)
+ * Copyright (C) 1995,1997,2008 David S. Miller (davem@davemloft.net)
  * Copyright (C) 1997,1999,2000 Jakub Jelinek (jakub@redhat.com)
  */
 
@@ -12,7 +11,6 @@
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/kernel.h>
-#include <linux/kallsyms.h>
 #include <linux/signal.h>
 #include <linux/smp.h>
 #include <linux/mm.h>
@@ -38,11 +36,9 @@
 #include <asm/processor.h>
 #include <asm/timer.h>
 #include <asm/head.h>
-#ifdef CONFIG_KMOD
-#include <linux/kmod.h>
-#endif
 #include <asm/prom.h>
 
+#include "entry.h"
 
 /* When an irrecoverable trap occurs at tl > 0, the trap entry
  * code logs the trap state registers at every level in the trap
@@ -74,13 +70,8 @@ static void dump_tl1_traplog(struct tl1_traplog *p)
 		       i + 1,
 		       p->trapstack[i].tstate, p->trapstack[i].tpc,
 		       p->trapstack[i].tnpc, p->trapstack[i].tt);
-		print_symbol("TRAPLOG: TPC<%s>\n", p->trapstack[i].tpc);
+		printk("TRAPLOG: TPC<%pS>\n", (void *) p->trapstack[i].tpc);
 	}
-}
-
-void do_call_debug(struct pt_regs *regs) 
-{ 
-	notify_die(DIE_CALL, "debug call", regs, 0, 255, SIGINT); 
 }
 
 void bad_trap(struct pt_regs *regs, long lvl)
@@ -551,41 +542,6 @@ static unsigned long ecache_flush_physbase;
 static unsigned long ecache_flush_linesize;
 static unsigned long ecache_flush_size;
 
-/* WARNING: The error trap handlers in assembly know the precise
- *	    layout of the following structure.
- *
- * C-level handlers below use this information to log the error
- * and then determine how to recover (if possible).
- */
-struct cheetah_err_info {
-/*0x00*/u64 afsr;
-/*0x08*/u64 afar;
-
-	/* D-cache state */
-/*0x10*/u64 dcache_data[4];	/* The actual data	*/
-/*0x30*/u64 dcache_index;	/* D-cache index	*/
-/*0x38*/u64 dcache_tag;		/* D-cache tag/valid	*/
-/*0x40*/u64 dcache_utag;	/* D-cache microtag	*/
-/*0x48*/u64 dcache_stag;	/* D-cache snooptag	*/
-
-	/* I-cache state */
-/*0x50*/u64 icache_data[8];	/* The actual insns + predecode	*/
-/*0x90*/u64 icache_index;	/* I-cache index	*/
-/*0x98*/u64 icache_tag;		/* I-cache phys tag	*/
-/*0xa0*/u64 icache_utag;	/* I-cache microtag	*/
-/*0xa8*/u64 icache_stag;	/* I-cache snooptag	*/
-/*0xb0*/u64 icache_upper;	/* I-cache upper-tag	*/
-/*0xb8*/u64 icache_lower;	/* I-cache lower-tag	*/
-
-	/* E-cache state */
-/*0xc0*/u64 ecache_data[4];	/* 32 bytes from staging registers */
-/*0xe0*/u64 ecache_index;	/* E-cache index	*/
-/*0xe8*/u64 ecache_tag;		/* E-cache tag/state	*/
-
-/*0xf0*/u64 __pad[32 - 30];
-};
-#define CHAFSR_INVALID		((u64)-1L)
-
 /* This table is ordered in priority of errors and matches the
  * AFAR overwrite policy as well.
  */
@@ -759,13 +715,9 @@ static struct afsr_error_table __jalapeno_error_table[] = {
 static struct afsr_error_table *cheetah_error_table;
 static unsigned long cheetah_afsr_errors;
 
-/* This is allocated at boot time based upon the largest hardware
- * cpu ID in the system.  We allocate two entries per cpu, one for
- * TL==0 logging and one for TL >= 1 logging.
- */
 struct cheetah_err_info *cheetah_error_log;
 
-static __inline__ struct cheetah_err_info *cheetah_get_error_log(unsigned long afsr)
+static inline struct cheetah_err_info *cheetah_get_error_log(unsigned long afsr)
 {
 	struct cheetah_err_info *p;
 	int cpu = smp_processor_id();
@@ -1085,7 +1037,7 @@ static unsigned char cheetah_mtag_syntab[] = {
 };
 
 /* Return the highest priority error conditon mentioned. */
-static __inline__ unsigned long cheetah_get_hipri(unsigned long afsr)
+static inline unsigned long cheetah_get_hipri(unsigned long afsr)
 {
 	unsigned long tmp = 0;
 	int i;
@@ -1125,7 +1077,7 @@ static void cheetah_log_errors(struct pt_regs *regs, struct cheetah_err_info *in
 	       regs->tpc, regs->tnpc, regs->u_regs[UREG_I7], regs->tstate);
 	printk("%s" "ERROR(%d): ",
 	       (recoverable ? KERN_WARNING : KERN_CRIT), smp_processor_id());
-	print_symbol("TPC<%s>\n", regs->tpc);
+	printk("TPC<%pS>\n", (void *) regs->tpc);
 	printk("%s" "ERROR(%d): M_SYND(%lx),  E_SYND(%lx)%s%s\n",
 	       (recoverable ? KERN_WARNING : KERN_CRIT), smp_processor_id(),
 	       (afsr & CHAFSR_M_SYNDROME) >> CHAFSR_M_SYNDROME_SHIFT,
@@ -1733,7 +1685,7 @@ void cheetah_plus_parity_error(int type, struct pt_regs *regs)
 		       smp_processor_id(),
 		       (type & 0x1) ? 'I' : 'D',
 		       regs->tpc);
-		print_symbol(KERN_EMERG "TPC<%s>\n", regs->tpc);
+		printk(KERN_EMERG "TPC<%pS>\n", (void *) regs->tpc);
 		panic("Irrecoverable Cheetah+ parity error.");
 	}
 
@@ -1741,7 +1693,7 @@ void cheetah_plus_parity_error(int type, struct pt_regs *regs)
 	       smp_processor_id(),
 	       (type & 0x1) ? 'I' : 'D',
 	       regs->tpc);
-	print_symbol(KERN_WARNING "TPC<%s>\n", regs->tpc);
+	printk(KERN_WARNING "TPC<%pS>\n", (void *) regs->tpc);
 }
 
 struct sun4v_error_entry {
@@ -1791,8 +1743,6 @@ static const char *sun4v_err_type_to_str(u32 type)
 		return "unknown";
 	};
 }
-
-extern void __show_regs(struct pt_regs * regs);
 
 static void sun4v_log_error(struct pt_regs *regs, struct sun4v_error_entry *ent, int cpu, const char *pfx, atomic_t *ocnt)
 {
@@ -1950,7 +1900,10 @@ void sun4v_itlb_error_report(struct pt_regs *regs, int tl)
 
 	printk(KERN_EMERG "SUN4V-ITLB: Error at TPC[%lx], tl %d\n",
 	       regs->tpc, tl);
-	print_symbol(KERN_EMERG "SUN4V-ITLB: TPC<%s>\n", regs->tpc);
+	printk(KERN_EMERG "SUN4V-ITLB: TPC<%pS>\n", (void *) regs->tpc);
+	printk(KERN_EMERG "SUN4V-ITLB: O7[%lx]\n", regs->u_regs[UREG_I7]);
+	printk(KERN_EMERG "SUN4V-ITLB: O7<%pS>\n",
+	       (void *) regs->u_regs[UREG_I7]);
 	printk(KERN_EMERG "SUN4V-ITLB: vaddr[%lx] ctx[%lx] "
 	       "pte[%lx] error[%lx]\n",
 	       sun4v_err_itlb_vaddr, sun4v_err_itlb_ctx,
@@ -1971,7 +1924,10 @@ void sun4v_dtlb_error_report(struct pt_regs *regs, int tl)
 
 	printk(KERN_EMERG "SUN4V-DTLB: Error at TPC[%lx], tl %d\n",
 	       regs->tpc, tl);
-	print_symbol(KERN_EMERG "SUN4V-DTLB: TPC<%s>\n", regs->tpc);
+	printk(KERN_EMERG "SUN4V-DTLB: TPC<%pS>\n", (void *) regs->tpc);
+	printk(KERN_EMERG "SUN4V-DTLB: O7[%lx]\n", regs->u_regs[UREG_I7]);
+	printk(KERN_EMERG "SUN4V-DTLB: O7<%pS>\n",
+	       (void *) regs->u_regs[UREG_I7]);
 	printk(KERN_EMERG "SUN4V-DTLB: vaddr[%lx] ctx[%lx] "
 	       "pte[%lx] error[%lx]\n",
 	       sun4v_err_dtlb_vaddr, sun4v_err_dtlb_ctx,
@@ -2101,7 +2057,7 @@ void do_div0(struct pt_regs *regs)
 	force_sig_info(SIGFPE, &info, current);
 }
 
-void instruction_dump (unsigned int *pc)
+static void instruction_dump(unsigned int *pc)
 {
 	int i;
 
@@ -2114,7 +2070,7 @@ void instruction_dump (unsigned int *pc)
 	printk("\n");
 }
 
-static void user_instruction_dump (unsigned int __user *pc)
+static void user_instruction_dump(unsigned int __user *pc)
 {
 	int i;
 	unsigned int buf[9];
@@ -2133,9 +2089,8 @@ static void user_instruction_dump (unsigned int __user *pc)
 
 void show_stack(struct task_struct *tsk, unsigned long *_ksp)
 {
-	unsigned long pc, fp, thread_base, ksp;
+	unsigned long fp, thread_base, ksp;
 	struct thread_info *tp;
-	struct reg_window *rw;
 	int count = 0;
 
 	ksp = (unsigned long) _ksp;
@@ -2154,24 +2109,31 @@ void show_stack(struct task_struct *tsk, unsigned long *_ksp)
 	fp = ksp + STACK_BIAS;
 	thread_base = (unsigned long) tp;
 
-	printk("Call Trace:");
-#ifdef CONFIG_KALLSYMS
-	printk("\n");
-#endif
+	printk("Call Trace:\n");
 	do {
+		struct sparc_stackf *sf;
+		struct pt_regs *regs;
+		unsigned long pc;
+
 		/* Bogus frame pointer? */
 		if (fp < (thread_base + sizeof(struct thread_info)) ||
 		    fp >= (thread_base + THREAD_SIZE))
 			break;
-		rw = (struct reg_window *)fp;
-		pc = rw->ins[7];
-		printk(" [%016lx] ", pc);
-		print_symbol("%s\n", pc);
-		fp = rw->ins[6] + STACK_BIAS;
+		sf = (struct sparc_stackf *) fp;
+		regs = (struct pt_regs *) (sf + 1);
+
+		if ((regs->magic & ~0x1ff) == PT_REGS_MAGIC) {
+			if (!(regs->tstate & TSTATE_PRIV))
+				break;
+			pc = regs->tpc;
+			fp = regs->u_regs[UREG_I6] + STACK_BIAS;
+		} else {
+			pc = sf->callers_pc;
+			fp = (unsigned long)sf->fp + STACK_BIAS;
+		}
+
+		printk(" [%016lx] %pS\n", pc, (void *) pc);
 	} while (++count < 16);
-#ifndef CONFIG_KALLSYMS
-	printk("\n");
-#endif
 }
 
 void dump_stack(void)
@@ -2225,7 +2187,7 @@ void die_if_kernel(char *str, struct pt_regs *regs)
 "              /_| \\__/ |_\\\n"
 "                 \\__U_/\n");
 
-	printk("%s(%d): %s [#%d]\n", current->comm, current->pid, str, ++die_counter);
+	printk("%s(%d): %s [#%d]\n", current->comm, task_pid_nr(current), str, ++die_counter);
 	notify_die(DIE_OOPS, str, regs, 0, 255, SIGSEGV);
 	__asm__ __volatile__("flushw");
 	__show_regs(regs);
@@ -2240,9 +2202,8 @@ void die_if_kernel(char *str, struct pt_regs *regs)
 		while (rw &&
 		       count++ < 30&&
 		       is_kernel_stack(current, rw)) {
-			printk("Caller[%016lx]", rw->ins[7]);
-			print_symbol(": %s", rw->ins[7]);
-			printk("\n");
+			printk("Caller[%016lx]: %pS\n", rw->ins[7],
+			       (void *) rw->ins[7]);
 
 			rw = kernel_stack_up(rw);
 		}
@@ -2569,8 +2530,8 @@ void __init trap_init(void)
 	     offsetof(struct trap_per_cpu, tsb_huge)) ||
 	    (TRAP_PER_CPU_TSB_HUGE_TEMP !=
 	     offsetof(struct trap_per_cpu, tsb_huge_temp)) ||
-	    (TRAP_PER_CPU_IRQ_WORKLIST !=
-	     offsetof(struct trap_per_cpu, irq_worklist)) ||
+	    (TRAP_PER_CPU_IRQ_WORKLIST_PA !=
+	     offsetof(struct trap_per_cpu, irq_worklist_pa)) ||
 	    (TRAP_PER_CPU_CPU_MONDO_QMASK !=
 	     offsetof(struct trap_per_cpu, cpu_mondo_qmask)) ||
 	    (TRAP_PER_CPU_DEV_MONDO_QMASK !=

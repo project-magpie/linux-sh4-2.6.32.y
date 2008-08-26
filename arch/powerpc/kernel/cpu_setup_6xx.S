@@ -17,7 +17,13 @@
 #include <asm/cache.h>
 
 _GLOBAL(__setup_cpu_603)
-	b	setup_common_caches
+	mflr	r4
+BEGIN_FTR_SECTION
+	bl	__init_fpu_registers
+END_FTR_SECTION_IFCLR(CPU_FTR_FPU_UNAVAILABLE)
+	bl	setup_common_caches
+	mtlr	r4
+	blr
 _GLOBAL(__setup_cpu_604)
 	mflr	r4
 	bl	setup_common_caches
@@ -113,7 +119,7 @@ setup_604_hid0:
  * around #3 and with the same fix we use. We may want to
  * check if the CPU is using 60x bus mode in which case
  * the workaround for errata #4 is useless. Also, we may
- * want to explicitely clear HID0_NOPDST as this is not
+ * want to explicitly clear HID0_NOPDST as this is not
  * needed once we have applied workaround #5 (though it's
  * not set by Apple's firmware at least).
  */

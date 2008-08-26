@@ -46,6 +46,8 @@
 #include "lnbp21.h"
 #include "bsbe1.h"
 #include "bsru6.h"
+#include "tda1002x.h"
+#include "tda827x.h"
 
 /*
  * Regarding DEBIADDR_IR:
@@ -86,7 +88,7 @@ static int rc5_device = -1;
 module_param(rc5_device, int, 0644);
 MODULE_PARM_DESC(rc5_device, "only IR commands to given RC5 device (device = 0 - 31, any device = 255, default: autodetect)");
 
-static int ir_debug = 0;
+static int ir_debug;
 module_param(ir_debug, int, 0644);
 MODULE_PARM_DESC(ir_debug, "enable debugging information for IR decoding");
 
@@ -214,7 +216,6 @@ static int msp430_ir_init(struct budget_ci *budget_ci)
 	case 0x100f:
 	case 0x1011:
 	case 0x1012:
-	case 0x1017:
 		/* The hauppauge keymap is a superset of these remotes */
 		ir_input_init(input_dev, &budget_ci->ir.state,
 			      IR_TYPE_RC5, ir_codes_hauppauge_new);
@@ -225,6 +226,8 @@ static int msp430_ir_init(struct budget_ci *budget_ci)
 			budget_ci->ir.rc5_device = rc5_device;
 		break;
 	case 0x1010:
+	case 0x1017:
+	case 0x101a:
 		/* for the Technotrend 1500 bundled remote */
 		ir_input_init(input_dev, &budget_ci->ir.state,
 			      IR_TYPE_RC5, ir_codes_tt_1500);
@@ -728,7 +731,7 @@ static struct stv0299_config philips_su1278_tt_config = {
 	.mclk = 64000000UL,
 	.invert = 0,
 	.skip_reinit = 1,
-	.lock_output = STV0229_LOCKOUTPUT_1,
+	.lock_output = STV0299_LOCKOUTPUT_1,
 	.volt13_op0_op1 = STV0299_VOLT13_OP1,
 	.min_delay_ms = 50,
 	.set_symbol_rate = philips_su1278_tt_set_symbol_rate,
@@ -1056,6 +1059,15 @@ static struct stv0297_config dvbc_philips_tdm1316l_config = {
 	.stop_during_read = 1,
 };
 
+static struct tda10023_config tda10023_config = {
+	.demod_address = 0xc,
+	.invert = 0,
+	.xtal = 16000000,
+	.pll_m = 11,
+	.pll_p = 3,
+	.pll_n = 1,
+	.deltaf = 0xa511,
+};
 
 
 
@@ -1121,12 +1133,22 @@ static void frontend_init(struct budget_ci *budget_ci)
 
 			budget_ci->budget.dvb_frontend->ops.dishnetwork_send_legacy_command = NULL;
 			if (dvb_attach(lnbp21_attach, budget_ci->budget.dvb_frontend, &budget_ci->budget.i2c_adap, LNBP21_LLC, 0) == NULL) {
-				printk("%s: No LNBP21 found!\n", __FUNCTION__);
+				printk("%s: No LNBP21 found!\n", __func__);
 				dvb_frontend_detach(budget_ci->budget.dvb_frontend);
 				budget_ci->budget.dvb_frontend = NULL;
 			}
 		}
+		break;
 
+	case 0x101a: /* TT Budget-C-1501 (philips tda10023/philips tda8274A) */
+		budget_ci->budget.dvb_frontend = dvb_attach(tda10023_attach, &tda10023_config, &budget_ci->budget.i2c_adap, 0x48);
+		if (budget_ci->budget.dvb_frontend) {
+			if (dvb_attach(tda827x_attach, budget_ci->budget.dvb_frontend, 0x61, &budget_ci->budget.i2c_adap, NULL) == NULL) {
+				printk(KERN_ERR "%s: No tda827x found!\n", __func__);
+				dvb_frontend_detach(budget_ci->budget.dvb_frontend);
+				budget_ci->budget.dvb_frontend = NULL;
+			}
+		}
 		break;
 	}
 
@@ -1216,6 +1238,7 @@ MAKE_BUDGET_INFO(ttbci, "TT-Budget/WinTV-NOVA-CI PCI", BUDGET_TT_HW_DISEQC);
 MAKE_BUDGET_INFO(ttbt2, "TT-Budget/WinTV-NOVA-T	 PCI", BUDGET_TT);
 MAKE_BUDGET_INFO(ttbtci, "TT-Budget-T-CI PCI", BUDGET_TT);
 MAKE_BUDGET_INFO(ttbcci, "TT-Budget-C-CI PCI", BUDGET_TT);
+MAKE_BUDGET_INFO(ttc1501, "TT-Budget C-1501 PCI", BUDGET_TT);
 
 static struct pci_device_id pci_tbl[] = {
 	MAKE_EXTENSION_PCI(ttbci, 0x13c2, 0x100c),
@@ -1224,6 +1247,7 @@ static struct pci_device_id pci_tbl[] = {
 	MAKE_EXTENSION_PCI(ttbt2, 0x13c2, 0x1011),
 	MAKE_EXTENSION_PCI(ttbtci, 0x13c2, 0x1012),
 	MAKE_EXTENSION_PCI(ttbs2, 0x13c2, 0x1017),
+	MAKE_EXTENSION_PCI(ttc1501, 0x13c2, 0x101a),
 	{
 	 .vendor = 0,
 	 }

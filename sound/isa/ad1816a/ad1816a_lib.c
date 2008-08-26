@@ -17,7 +17,6 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
 */
 
-#include <sound/driver.h>
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -453,7 +452,6 @@ static int snd_ad1816a_playback_open(struct snd_pcm_substream *substream)
 
 	if ((error = snd_ad1816a_open(chip, AD1816A_MODE_PLAYBACK)) < 0)
 		return error;
-	snd_pcm_set_sync(substream);
 	runtime->hw = snd_ad1816a_playback;
 	snd_pcm_limit_isa_dma_size(chip->dma1, &runtime->hw.buffer_bytes_max);
 	snd_pcm_limit_isa_dma_size(chip->dma1, &runtime->hw.period_bytes_max);
@@ -469,7 +467,6 @@ static int snd_ad1816a_capture_open(struct snd_pcm_substream *substream)
 
 	if ((error = snd_ad1816a_open(chip, AD1816A_MODE_CAPTURE)) < 0)
 		return error;
-	snd_pcm_set_sync(substream);
 	runtime->hw = snd_ad1816a_capture;
 	snd_pcm_limit_isa_dma_size(chip->dma2, &runtime->hw.buffer_bytes_max);
 	snd_pcm_limit_isa_dma_size(chip->dma2, &runtime->hw.period_bytes_max);

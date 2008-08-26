@@ -33,10 +33,10 @@
 #include <linux/pnp.h>
 #include <linux/highmem.h>
 #include <linux/mmc/host.h>
+#include <linux/scatterlist.h>
 
 #include <asm/io.h>
 #include <asm/dma.h>
-#include <asm/scatterlist.h>
 
 #include "wbsd.h"
 
@@ -68,16 +68,16 @@ static const int unlock_codes[] = { 0x83, 0x87 };
 
 static const int valid_ids[] = {
 	0x7112,
-	};
+};
 
 #ifdef CONFIG_PNP
-static unsigned int nopnp = 0;
+static unsigned int param_nopnp = 0;
 #else
-static const unsigned int nopnp = 1;
+static const unsigned int param_nopnp = 1;
 #endif
-static unsigned int io = 0x248;
-static unsigned int irq = 6;
-static int dma = 2;
+static unsigned int param_io = 0x248;
+static unsigned int param_irq = 6;
+static int param_dma = 2;
 
 /*
  * Basic functions
@@ -269,7 +269,7 @@ static inline int wbsd_next_sg(struct wbsd_host *host)
 
 static inline char *wbsd_sg_to_buffer(struct wbsd_host *host)
 {
-	return page_address(host->cur_sg->page) + host->cur_sg->offset;
+	return sg_virt(host->cur_sg);
 }
 
 static inline void wbsd_sg_to_dma(struct wbsd_host *host, struct mmc_data *data)
@@ -283,7 +283,7 @@ static inline void wbsd_sg_to_dma(struct wbsd_host *host, struct mmc_data *data)
 	len = data->sg_len;
 
 	for (i = 0; i < len; i++) {
-		sgbuf = page_address(sg[i].page) + sg[i].offset;
+		sgbuf = sg_virt(&sg[i]);
 		memcpy(dmabuf, sgbuf, sg[i].length);
 		dmabuf += sg[i].length;
 	}
@@ -300,7 +300,7 @@ static inline void wbsd_dma_to_sg(struct wbsd_host *host, struct mmc_data *data)
 	len = data->sg_len;
 
 	for (i = 0; i < len; i++) {
-		sgbuf = page_address(sg[i].page) + sg[i].offset;
+		sgbuf = sg_virt(&sg[i]);
 		memcpy(sgbuf, dmabuf, sg[i].length);
 		dmabuf += sg[i].length;
 	}
@@ -317,7 +317,7 @@ static inline void wbsd_get_short_reply(struct wbsd_host *host,
 	 * Correct response type?
 	 */
 	if (wbsd_read_index(host, WBSD_IDX_RSPLEN) != WBSD_RSP_SHORT) {
-		cmd->error = MMC_ERR_INVALID;
+		cmd->error = -EILSEQ;
 		return;
 	}
 
@@ -337,7 +337,7 @@ static inline void wbsd_get_long_reply(struct wbsd_host *host,
 	 * Correct response type?
 	 */
 	if (wbsd_read_index(host, WBSD_IDX_RSPLEN) != WBSD_RSP_LONG) {
-		cmd->error = MMC_ERR_INVALID;
+		cmd->error = -EILSEQ;
 		return;
 	}
 
@@ -372,7 +372,7 @@ static void wbsd_send_command(struct wbsd_host *host, struct mmc_command *cmd)
 	for (i = 3; i >= 0; i--)
 		outb((cmd->arg >> (i * 8)) & 0xff, host->base + WBSD_CMDR);
 
-	cmd->error = MMC_ERR_NONE;
+	cmd->error = 0;
 
 	/*
 	 * Wait for the request to complete.
@@ -392,13 +392,13 @@ static void wbsd_send_command(struct wbsd_host *host, struct mmc_command *cmd)
 
 		/* Card removed? */
 		if (isr & WBSD_INT_CARD)
-			cmd->error = MMC_ERR_TIMEOUT;
+			cmd->error = -ENOMEDIUM;
 		/* Timeout? */
 		else if (isr & WBSD_INT_TIMEOUT)
-			cmd->error = MMC_ERR_TIMEOUT;
+			cmd->error = -ETIMEDOUT;
 		/* CRC? */
 		else if ((cmd->flags & MMC_RSP_CRC) && (isr & WBSD_INT_CRC))
-			cmd->error = MMC_ERR_BADCRC;
+			cmd->error = -EILSEQ;
 		/* All ok */
 		else {
 			if (cmd->flags & MMC_RSP_136)
@@ -585,7 +585,7 @@ static void wbsd_prepare_data(struct wbsd_host *host, struct mmc_data *data)
 			((blksize >> 4) & 0xF0) | WBSD_DATA_WIDTH);
 		wbsd_write_index(host, WBSD_IDX_PBSLSB, blksize & 0xFF);
 	} else {
-		data->error = MMC_ERR_INVALID;
+		data->error = -EINVAL;
 		return;
 	}
 
@@ -607,7 +607,7 @@ static void wbsd_prepare_data(struct wbsd_host *host, struct mmc_data *data)
 		 */
 		BUG_ON(size > 0x10000);
 		if (size > 0x10000) {
-			data->error = MMC_ERR_INVALID;
+			data->error = -EINVAL;
 			return;
 		}
 
@@ -669,7 +669,7 @@ static void wbsd_prepare_data(struct wbsd_host *host, struct mmc_data *data)
 		}
 	}
 
-	data->error = MMC_ERR_NONE;
+	data->error = 0;
 }
 
 static void wbsd_finish_data(struct wbsd_host *host, struct mmc_data *data)
@@ -724,8 +724,8 @@ static void wbsd_finish_data(struct wbsd_host *host, struct mmc_data *data)
 				"%d bytes left.\n",
 				mmc_hostname(host->mmc), count);
 
-			if (data->error == MMC_ERR_NONE)
-				data->error = MMC_ERR_FAILED;
+			if (!data->error)
+				data->error = -EIO;
 		} else {
 			/*
 			 * Transfer data from DMA buffer to
@@ -735,7 +735,7 @@ static void wbsd_finish_data(struct wbsd_host *host, struct mmc_data *data)
 				wbsd_dma_to_sg(host, data);
 		}
 
-		if (data->error != MMC_ERR_NONE) {
+		if (data->error) {
 			if (data->bytes_xfered)
 				data->bytes_xfered -= data->blksz;
 		}
@@ -767,11 +767,10 @@ static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	host->mrq = mrq;
 
 	/*
-	 * If there is no card in the slot then
-	 * timeout immediatly.
+	 * Check that there is actually a card in the slot.
 	 */
 	if (!(host->flags & WBSD_FCARD_PRESENT)) {
-		cmd->error = MMC_ERR_TIMEOUT;
+		cmd->error = -ENOMEDIUM;
 		goto done;
 	}
 
@@ -807,7 +806,7 @@ static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 				"supported by this controller.\n",
 				mmc_hostname(host->mmc), cmd->opcode);
 #endif
-			cmd->error = MMC_ERR_INVALID;
+			cmd->error = -EINVAL;
 
 			goto done;
 		};
@@ -819,7 +818,7 @@ static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	if (cmd->data) {
 		wbsd_prepare_data(host, cmd->data);
 
-		if (cmd->data->error != MMC_ERR_NONE)
+		if (cmd->data->error)
 			goto done;
 	}
 
@@ -830,7 +829,7 @@ static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	 * will be finished after the data has
 	 * transfered.
 	 */
-	if (cmd->data && (cmd->error == MMC_ERR_NONE)) {
+	if (cmd->data && !cmd->error) {
 		/*
 		 * Dirty fix for hardware bug.
 		 */
@@ -940,7 +939,7 @@ static int wbsd_get_ro(struct mmc_host *mmc)
 
 	spin_unlock_bh(&host->lock);
 
-	return csr & WBSD_WRPT;
+	return !!(csr & WBSD_WRPT);
 }
 
 static const struct mmc_host_ops wbsd_ops = {
@@ -1033,7 +1032,7 @@ static void wbsd_tasklet_card(unsigned long param)
 				mmc_hostname(host->mmc));
 			wbsd_reset(host);
 
-			host->mrq->cmd->error = MMC_ERR_FAILED;
+			host->mrq->cmd->error = -ENOMEDIUM;
 			tasklet_schedule(&host->finish_tasklet);
 		}
 
@@ -1097,7 +1096,7 @@ static void wbsd_tasklet_crc(unsigned long param)
 
 	DBGF("CRC error\n");
 
-	data->error = MMC_ERR_BADCRC;
+	data->error = -EILSEQ;
 
 	tasklet_schedule(&host->finish_tasklet);
 
@@ -1121,7 +1120,7 @@ static void wbsd_tasklet_timeout(unsigned long param)
 
 	DBGF("Timeout\n");
 
-	data->error = MMC_ERR_TIMEOUT;
+	data->error = -ETIMEDOUT;
 
 	tasklet_schedule(&host->finish_tasklet);
 
@@ -1220,7 +1219,7 @@ static int __devinit wbsd_alloc_mmc(struct device *dev)
 	mmc->f_min = 375000;
 	mmc->f_max = 24000000;
 	mmc->ocr_avail = MMC_VDD_32_33 | MMC_VDD_33_34;
-	mmc->caps = MMC_CAP_4_BIT_DATA | MMC_CAP_MULTIWRITE | MMC_CAP_BYTEBLOCK;
+	mmc->caps = MMC_CAP_4_BIT_DATA;
 
 	spin_lock_init(&host->lock);
 
@@ -1421,7 +1420,7 @@ kfree:
 
 	dma_unmap_single(mmc_dev(host->mmc), host->dma_addr,
 		WBSD_DMA_SIZE, DMA_BIDIRECTIONAL);
-	host->dma_addr = (dma_addr_t)NULL;
+	host->dma_addr = 0;
 
 	kfree(host->dma_buffer);
 	host->dma_buffer = NULL;
@@ -1446,7 +1445,7 @@ static void wbsd_release_dma(struct wbsd_host *host)
 
 	host->dma = -1;
 	host->dma_buffer = NULL;
-	host->dma_addr = (dma_addr_t)NULL;
+	host->dma_addr = 0;
 }
 
 /*
@@ -1458,17 +1457,7 @@ static int __devinit wbsd_request_irq(struct wbsd_host *host, int irq)
 	int ret;
 
 	/*
-	 * Allocate interrupt.
-	 */
-
-	ret = request_irq(irq, wbsd_irq, IRQF_SHARED, DRIVER_NAME, host);
-	if (ret)
-		return ret;
-
-	host->irq = irq;
-
-	/*
-	 * Set up tasklets.
+	 * Set up tasklets. Must be done before requesting interrupt.
 	 */
 	tasklet_init(&host->card_tasklet, wbsd_tasklet_card,
 			(unsigned long)host);
@@ -1480,6 +1469,15 @@ static int __devinit wbsd_request_irq(struct wbsd_host *host, int irq)
 			(unsigned long)host);
 	tasklet_init(&host->finish_tasklet, wbsd_tasklet_finish,
 			(unsigned long)host);
+
+	/*
+	 * Allocate interrupt.
+	 */
+	ret = request_irq(irq, wbsd_irq, IRQF_SHARED, DRIVER_NAME, host);
+	if (ret)
+		return ret;
+
+	host->irq = irq;
 
 	return 0;
 }
@@ -1767,7 +1765,7 @@ static void __devexit wbsd_shutdown(struct device *dev, int pnp)
 static int __devinit wbsd_probe(struct platform_device *dev)
 {
 	/* Use the module parameters for resources */
-	return wbsd_init(&dev->dev, io, irq, dma, 0);
+	return wbsd_init(&dev->dev, param_io, param_irq, param_dma, 0);
 }
 
 static int __devexit wbsd_remove(struct platform_device *dev)
@@ -1949,6 +1947,7 @@ static struct platform_driver wbsd_driver = {
 	.resume		= wbsd_platform_resume,
 	.driver		= {
 		.name	= DRIVER_NAME,
+		.owner	= THIS_MODULE,
 	},
 };
 
@@ -1980,14 +1979,14 @@ static int __init wbsd_drv_init(void)
 
 #ifdef CONFIG_PNP
 
-	if (!nopnp) {
+	if (!param_nopnp) {
 		result = pnp_register_driver(&wbsd_pnp_driver);
 		if (result < 0)
 			return result;
 	}
 #endif /* CONFIG_PNP */
 
-	if (nopnp) {
+	if (param_nopnp) {
 		result = platform_driver_register(&wbsd_driver);
 		if (result < 0)
 			return result;
@@ -2013,12 +2012,12 @@ static void __exit wbsd_drv_exit(void)
 {
 #ifdef CONFIG_PNP
 
-	if (!nopnp)
+	if (!param_nopnp)
 		pnp_unregister_driver(&wbsd_pnp_driver);
 
 #endif /* CONFIG_PNP */
 
-	if (nopnp) {
+	if (param_nopnp) {
 		platform_device_unregister(wbsd_device);
 
 		platform_driver_unregister(&wbsd_driver);
@@ -2030,11 +2029,11 @@ static void __exit wbsd_drv_exit(void)
 module_init(wbsd_drv_init);
 module_exit(wbsd_drv_exit);
 #ifdef CONFIG_PNP
-module_param(nopnp, uint, 0444);
+module_param_named(nopnp, param_nopnp, uint, 0444);
 #endif
-module_param(io, uint, 0444);
-module_param(irq, uint, 0444);
-module_param(dma, int, 0444);
+module_param_named(io, param_io, uint, 0444);
+module_param_named(irq, param_irq, uint, 0444);
+module_param_named(dma, param_dma, int, 0444);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Pierre Ossman <drzeus@drzeus.cx>");

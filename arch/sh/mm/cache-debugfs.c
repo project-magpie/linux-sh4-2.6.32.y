@@ -22,7 +22,8 @@ enum cache_type {
 	CACHE_TYPE_UNIFIED,
 };
 
-static int __uses_jump_to_uncached cache_seq_show(struct seq_file *file, void *iter)
+static int __uses_jump_to_uncached cache_seq_show(struct seq_file *file,
+						  void *iter)
 {
 	unsigned int cache_type = (unsigned int)file->private;
 	struct cache_info *cache;
@@ -119,20 +120,20 @@ static const struct file_operations cache_debugfs_fops = {
 	.open		= cache_debugfs_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
-	.release	= seq_release,
+	.release	= single_release,
 };
 
 static int __init cache_debugfs_init(void)
 {
 	struct dentry *dcache_dentry, *icache_dentry;
 
-	dcache_dentry = debugfs_create_file("dcache", S_IRUSR, NULL,
+	dcache_dentry = debugfs_create_file("dcache", S_IRUSR, sh_debugfs_root,
 					    (unsigned int *)CACHE_TYPE_DCACHE,
 					    &cache_debugfs_fops);
 	if (IS_ERR(dcache_dentry))
 		return PTR_ERR(dcache_dentry);
 
-	icache_dentry = debugfs_create_file("icache", S_IRUSR, NULL,
+	icache_dentry = debugfs_create_file("icache", S_IRUSR, sh_debugfs_root,
 					    (unsigned int *)CACHE_TYPE_ICACHE,
 					    &cache_debugfs_fops);
 	if (IS_ERR(icache_dentry)) {

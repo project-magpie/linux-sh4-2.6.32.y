@@ -33,7 +33,7 @@ static int fb_notifier_callback(struct notifier_block *self,
 	ld = container_of(self, struct lcd_device, fb_notif);
 	mutex_lock(&ld->ops_lock);
 	if (ld->ops)
-		if (!ld->ops->check_fb || ld->ops->check_fb(evdata->info))
+		if (!ld->ops->check_fb || ld->ops->check_fb(ld, evdata->info))
 			ld->ops->set_power(ld, *(int *)evdata->data);
 	mutex_unlock(&ld->ops_lock);
 	return 0;
@@ -149,7 +149,7 @@ static ssize_t lcd_show_max_contrast(struct device *dev,
 	return sprintf(buf, "%d\n", ld->props.max_contrast);
 }
 
-struct class *lcd_class;
+static struct class *lcd_class;
 
 static void lcd_device_release(struct device *dev)
 {

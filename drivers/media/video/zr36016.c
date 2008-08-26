@@ -38,11 +38,11 @@
    #include<linux/videodev.h> */
 
 /* I/O commands, error codes */
-#include<asm/io.h>
+#include <asm/io.h>
 //#include<errno.h>
 
 /* v4l  API */
-#include<linux/videodev.h>
+#include <linux/videodev.h>
 
 /* headerfile of this module */
 #include"zr36016.h"
@@ -55,11 +55,10 @@
 #define MAX_CODECS 20
 
 /* amount of chips attached via this driver */
-static int zr36016_codecs = 0;
+static int zr36016_codecs;
 
 /* debugging is available via module parameter */
-
-static int debug = 0;
+static int debug;
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "Debug level (0-4)");
 

@@ -313,7 +313,6 @@ orinoco_cs_config(struct pcmcia_device *link)
 	/* Ok, we have the configuration, prepare to register the netdev */
 	dev->base_addr = link->io.BasePort1;
 	dev->irq = link->irq.AssignedIRQ;
-	SET_MODULE_OWNER(dev);
 	card->node.major = card->node.minor = 0;
 
 	SET_NETDEV_DEV(dev, &handle_to_dev(link));
@@ -462,6 +461,7 @@ static struct pcmcia_device_id orinoco_cs_ids[] = {
 	PCMCIA_DEVICE_MANF_CARD(0x028a, 0x0673), /* Linksys WCF12 Wireless CompactFlash Card */
 	PCMCIA_DEVICE_MANF_CARD(0x02aa, 0x0002), /* ASUS SpaceLink WL-100 */
 	PCMCIA_DEVICE_MANF_CARD(0x02ac, 0x0002), /* SpeedStream SS1021 Wireless Adapter */
+	PCMCIA_DEVICE_MANF_CARD(0x02ac, 0x3021), /* SpeedStream Wireless Adapter */
 	PCMCIA_DEVICE_MANF_CARD(0x14ea, 0xb001), /* PLANEX RoadLannerWave GW-NS11H */
 	PCMCIA_DEVICE_MANF_CARD(0x50c2, 0x7300), /* Airvast WN-100 */
 	PCMCIA_DEVICE_MANF_CARD(0x9005, 0x0021), /* Adaptec Ultra Wireless ANW-8030 */

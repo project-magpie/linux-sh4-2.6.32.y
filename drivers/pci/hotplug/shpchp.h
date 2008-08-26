@@ -170,6 +170,7 @@ extern void shpchp_queue_pushbutton_work(struct work_struct *work);
 extern int shpc_init( struct controller *ctrl, struct pci_dev *pdev);
 
 #ifdef CONFIG_ACPI
+#include <linux/pci-acpi.h>
 static inline int get_hp_params_from_firmware(struct pci_dev *dev,
 					      struct hotplug_params *hpp)
 {
@@ -177,14 +178,15 @@ static inline int get_hp_params_from_firmware(struct pci_dev *dev,
 			return -ENODEV;
 	return 0;
 }
-#define get_hp_hw_control_from_firmware(pdev)				\
-	do {								\
-		if (DEVICE_ACPI_HANDLE(&(pdev->dev)))			\
-			acpi_run_oshp(DEVICE_ACPI_HANDLE(&(pdev->dev)));\
-	} while (0)
+
+static inline int get_hp_hw_control_from_firmware(struct pci_dev *dev)
+{
+	u32 flags = OSC_SHPC_NATIVE_HP_CONTROL;
+	return acpi_get_hp_hw_control_from_firmware(dev, flags);
+}
 #else
 #define get_hp_params_from_firmware(dev, hpp) (-ENODEV)
-#define get_hp_hw_control_from_firmware(dev) do { } while (0)
+#define get_hp_hw_control_from_firmware(dev) (0)
 #endif
 
 struct ctrl_reg {
@@ -234,7 +236,7 @@ static inline struct slot *shpchp_find_slot(struct controller *ctrl, u8 device)
 			return slot;
 	}
 
-	err("%s: slot (device=0x%x) not found\n", __FUNCTION__, device);
+	err("%s: slot (device=0x%x) not found\n", __func__, device);
 	return NULL;
 }
 
@@ -268,7 +270,7 @@ static inline void amd_pogo_errata_restore_misc_reg(struct slot *p_slot)
 	pci_read_config_dword(p_slot->ctrl->pci_dev, PCIX_MISC_BRIDGE_ERRORS_OFFSET, &pcix_bridge_errors_reg);
 	perr_set = pcix_bridge_errors_reg & PERR_OBSERVED_MASK;
 	if (perr_set) {
-		dbg ("%s  W1C: Bridge_Errors[ PERR_OBSERVED = %08X]\n",__FUNCTION__ , perr_set);
+		dbg ("%s  W1C: Bridge_Errors[ PERR_OBSERVED = %08X]\n",__func__ , perr_set);
 
 		pci_write_config_dword(p_slot->ctrl->pci_dev, PCIX_MISC_BRIDGE_ERRORS_OFFSET, perr_set);
 	}
@@ -277,7 +279,7 @@ static inline void amd_pogo_errata_restore_misc_reg(struct slot *p_slot)
 	pci_read_config_dword(p_slot->ctrl->pci_dev, PCIX_MEM_BASE_LIMIT_OFFSET, &pcix_mem_base_reg);
 	rse_set = pcix_mem_base_reg & RSE_MASK;
 	if (rse_set) {
-		dbg ("%s  W1C: Memory_Base_Limit[ RSE ]\n",__FUNCTION__ );
+		dbg ("%s  W1C: Memory_Base_Limit[ RSE ]\n",__func__ );
 
 		pci_write_config_dword(p_slot->ctrl->pci_dev, PCIX_MEM_BASE_LIMIT_OFFSET, rse_set);
 	}

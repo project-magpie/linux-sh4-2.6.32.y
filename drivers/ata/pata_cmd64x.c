@@ -31,7 +31,7 @@
 #include <linux/libata.h>
 
 #define DRV_NAME "pata_cmd64x"
-#define DRV_VERSION "0.2.4"
+#define DRV_VERSION "0.2.5"
 
 /*
  * CMD64x specific registers definition.
@@ -88,14 +88,15 @@ static int cmd648_cable_detect(struct ata_port *ap)
 }
 
 /**
- *	cmd64x_set_piomode	-	set initial PIO mode data
+ *	cmd64x_set_piomode	-	set PIO and MWDMA timing
  *	@ap: ATA interface
  *	@adev: ATA device
+ *	@mode: mode
  *
- *	Called to do the PIO mode setup.
+ *	Called to do the PIO and MWDMA mode setup.
  */
 
-static void cmd64x_set_piomode(struct ata_port *ap, struct ata_device *adev)
+static void cmd64x_set_timing(struct ata_port *ap, struct ata_device *adev, u8 mode)
 {
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	struct ata_timing t;
@@ -117,8 +118,9 @@ static void cmd64x_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	int arttim = arttim_port[ap->port_no][adev->devno];
 	int drwtim = drwtim_port[ap->port_no][adev->devno];
 
-
-	if (ata_timing_compute(adev, adev->pio_mode, &t, T, 0) < 0) {
+	/* ata_timing_compute is smart and will produce timings for MWDMA
+	   that don't violate the drives PIO capabilities. */
+	if (ata_timing_compute(adev, mode, &t, T, 0) < 0) {
 		printk(KERN_ERR DRV_NAME ": mode computation failed.\n");
 		return;
 	}
@@ -168,6 +170,20 @@ static void cmd64x_set_piomode(struct ata_port *ap, struct ata_device *adev)
 }
 
 /**
+ *	cmd64x_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Used when configuring the devices ot set the PIO timings. All the
+ *	actual work is done by the PIO/MWDMA setting helper
+ */
+
+static void cmd64x_set_piomode(struct ata_port *ap, struct ata_device *adev)
+{
+	cmd64x_set_timing(ap, adev, adev->pio_mode);
+}
+
+/**
  *	cmd64x_set_dmamode	-	set initial DMA mode data
  *	@ap: ATA interface
  *	@adev: ATA device
@@ -179,9 +195,6 @@ static void cmd64x_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
 	static const u8 udma_data[] = {
 		0x30, 0x20, 0x10, 0x20, 0x10, 0x00
-	};
-	static const u8 mwdma_data[] = {
-		0x30, 0x20, 0x10
 	};
 
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
@@ -202,14 +215,16 @@ static void cmd64x_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 	regU &= ~(0x05 << adev->devno);
 
 	if (adev->dma_mode >= XFER_UDMA_0) {
-		/* Merge thge timing value */
+		/* Merge the timing value */
 		regU |= udma_data[adev->dma_mode - XFER_UDMA_0] << shift;
 		/* Merge the control bits */
 		regU |= 1 << adev->devno; /* UDMA on */
 		if (adev->dma_mode > 2)	/* 15nS timing */
 			regU |= 4 << adev->devno;
-	} else
-		regD |= mwdma_data[adev->dma_mode - XFER_MW_DMA_0] << shift;
+	} else {
+		regU &= ~ (1 << adev->devno);	/* UDMA off */
+		cmd64x_set_timing(ap, adev, adev->dma_mode);
+	}
 
 	regD |= 0x20 << adev->devno;
 
@@ -251,126 +266,30 @@ static void cmd646r1_bmdma_stop(struct ata_queued_cmd *qc)
 }
 
 static struct scsi_host_template cmd64x_sht = {
-	.module			= THIS_MODULE,
-	.name			= DRV_NAME,
-	.ioctl			= ata_scsi_ioctl,
-	.queuecommand		= ata_scsi_queuecmd,
-	.can_queue		= ATA_DEF_QUEUE,
-	.this_id		= ATA_SHT_THIS_ID,
-	.sg_tablesize		= LIBATA_MAX_PRD,
-	.cmd_per_lun		= ATA_SHT_CMD_PER_LUN,
-	.emulated		= ATA_SHT_EMULATED,
-	.use_clustering		= ATA_SHT_USE_CLUSTERING,
-	.proc_name		= DRV_NAME,
-	.dma_boundary		= ATA_DMA_BOUNDARY,
-	.slave_configure	= ata_scsi_slave_config,
-	.slave_destroy		= ata_scsi_slave_destroy,
-	.bios_param		= ata_std_bios_param,
+	ATA_BMDMA_SHT(DRV_NAME),
+};
+
+static const struct ata_port_operations cmd64x_base_ops = {
+	.inherits	= &ata_bmdma_port_ops,
+	.set_piomode	= cmd64x_set_piomode,
+	.set_dmamode	= cmd64x_set_dmamode,
 };
 
 static struct ata_port_operations cmd64x_port_ops = {
-	.port_disable	= ata_port_disable,
-	.set_piomode	= cmd64x_set_piomode,
-	.set_dmamode	= cmd64x_set_dmamode,
-	.mode_filter	= ata_pci_default_filter,
-	.tf_load	= ata_tf_load,
-	.tf_read	= ata_tf_read,
-	.check_status 	= ata_check_status,
-	.exec_command	= ata_exec_command,
-	.dev_select 	= ata_std_dev_select,
-
-	.freeze		= ata_bmdma_freeze,
-	.thaw		= ata_bmdma_thaw,
-	.error_handler	= ata_bmdma_error_handler,
-	.post_internal_cmd = ata_bmdma_post_internal_cmd,
+	.inherits	= &cmd64x_base_ops,
 	.cable_detect	= ata_cable_40wire,
-
-	.bmdma_setup 	= ata_bmdma_setup,
-	.bmdma_start 	= ata_bmdma_start,
-	.bmdma_stop	= ata_bmdma_stop,
-	.bmdma_status 	= ata_bmdma_status,
-
-	.qc_prep 	= ata_qc_prep,
-	.qc_issue	= ata_qc_issue_prot,
-
-	.data_xfer	= ata_data_xfer,
-
-	.irq_handler	= ata_interrupt,
-	.irq_clear	= ata_bmdma_irq_clear,
-	.irq_on		= ata_irq_on,
-	.irq_ack	= ata_irq_ack,
-
-	.port_start	= ata_port_start,
 };
 
 static struct ata_port_operations cmd646r1_port_ops = {
-	.port_disable	= ata_port_disable,
-	.set_piomode	= cmd64x_set_piomode,
-	.set_dmamode	= cmd64x_set_dmamode,
-	.mode_filter	= ata_pci_default_filter,
-	.tf_load	= ata_tf_load,
-	.tf_read	= ata_tf_read,
-	.check_status 	= ata_check_status,
-	.exec_command	= ata_exec_command,
-	.dev_select 	= ata_std_dev_select,
-
-	.freeze		= ata_bmdma_freeze,
-	.thaw		= ata_bmdma_thaw,
-	.error_handler	= ata_bmdma_error_handler,
-	.post_internal_cmd = ata_bmdma_post_internal_cmd,
-	.cable_detect	= ata_cable_40wire,
-
-	.bmdma_setup 	= ata_bmdma_setup,
-	.bmdma_start 	= ata_bmdma_start,
+	.inherits	= &cmd64x_base_ops,
 	.bmdma_stop	= cmd646r1_bmdma_stop,
-	.bmdma_status 	= ata_bmdma_status,
-
-	.qc_prep 	= ata_qc_prep,
-	.qc_issue	= ata_qc_issue_prot,
-
-	.data_xfer	= ata_data_xfer,
-
-	.irq_handler	= ata_interrupt,
-	.irq_clear	= ata_bmdma_irq_clear,
-	.irq_on		= ata_irq_on,
-	.irq_ack	= ata_irq_ack,
-
-	.port_start	= ata_port_start,
+	.cable_detect	= ata_cable_40wire,
 };
 
 static struct ata_port_operations cmd648_port_ops = {
-	.port_disable	= ata_port_disable,
-	.set_piomode	= cmd64x_set_piomode,
-	.set_dmamode	= cmd64x_set_dmamode,
-	.mode_filter	= ata_pci_default_filter,
-	.tf_load	= ata_tf_load,
-	.tf_read	= ata_tf_read,
-	.check_status 	= ata_check_status,
-	.exec_command	= ata_exec_command,
-	.dev_select 	= ata_std_dev_select,
-
-	.freeze		= ata_bmdma_freeze,
-	.thaw		= ata_bmdma_thaw,
-	.error_handler	= ata_bmdma_error_handler,
-	.post_internal_cmd = ata_bmdma_post_internal_cmd,
-	.cable_detect	= cmd648_cable_detect,
-
-	.bmdma_setup 	= ata_bmdma_setup,
-	.bmdma_start 	= ata_bmdma_start,
+	.inherits	= &cmd64x_base_ops,
 	.bmdma_stop	= cmd648_bmdma_stop,
-	.bmdma_status 	= ata_bmdma_status,
-
-	.qc_prep 	= ata_qc_prep,
-	.qc_issue	= ata_qc_issue_prot,
-
-	.data_xfer	= ata_data_xfer,
-
-	.irq_handler	= ata_interrupt,
-	.irq_clear	= ata_bmdma_irq_clear,
-	.irq_on		= ata_irq_on,
-	.irq_ack	= ata_irq_ack,
-
-	.port_start	= ata_port_start,
+	.cable_detect	= cmd648_cable_detect,
 };
 
 static int cmd64x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
@@ -379,21 +298,18 @@ static int cmd64x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	static const struct ata_port_info cmd_info[6] = {
 		{	/* CMD 643 - no UDMA */
-			.sht = &cmd64x_sht,
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = 0x1f,
 			.mwdma_mask = 0x07,
 			.port_ops = &cmd64x_port_ops
 		},
 		{	/* CMD 646 with broken UDMA */
-			.sht = &cmd64x_sht,
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = 0x1f,
 			.mwdma_mask = 0x07,
 			.port_ops = &cmd64x_port_ops
 		},
 		{	/* CMD 646 with working UDMA */
-			.sht = &cmd64x_sht,
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = 0x1f,
 			.mwdma_mask = 0x07,
@@ -401,14 +317,12 @@ static int cmd64x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 			.port_ops = &cmd64x_port_ops
 		},
 		{	/* CMD 646 rev 1  */
-			.sht = &cmd64x_sht,
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = 0x1f,
 			.mwdma_mask = 0x07,
 			.port_ops = &cmd646r1_port_ops
 		},
 		{	/* CMD 648 */
-			.sht = &cmd64x_sht,
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = 0x1f,
 			.mwdma_mask = 0x07,
@@ -416,7 +330,6 @@ static int cmd64x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 			.port_ops = &cmd648_port_ops
 		},
 		{	/* CMD 649 */
-			.sht = &cmd64x_sht,
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = 0x1f,
 			.mwdma_mask = 0x07,
@@ -426,12 +339,17 @@ static int cmd64x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	};
 	const struct ata_port_info *ppi[] = { &cmd_info[id->driver_data], NULL };
 	u8 mrdmode;
+	int rc;
+
+	rc = pcim_enable_device(pdev);
+	if (rc)
+		return rc;
 
 	pci_read_config_dword(pdev, PCI_CLASS_REVISION, &class_rev);
 	class_rev &= 0xFF;
 
 	if (id->driver_data == 0)	/* 643 */
-		ata_pci_clear_simplex(pdev);
+		ata_pci_bmdma_clear_simplex(pdev);
 
 	if (pdev->device == PCI_DEVICE_ID_CMD_646) {
 		/* Does UDMA work ? */
@@ -455,13 +373,20 @@ static int cmd64x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	pci_write_config_byte(pdev, UDIDETCR0, 0xF0);
 #endif
 
-	return ata_pci_init_one(pdev, ppi);
+	return ata_pci_sff_init_one(pdev, ppi, &cmd64x_sht, NULL);
 }
 
 #ifdef CONFIG_PM
 static int cmd64x_reinit_one(struct pci_dev *pdev)
 {
+	struct ata_host *host = dev_get_drvdata(&pdev->dev);
 	u8 mrdmode;
+	int rc;
+
+	rc = ata_pci_device_do_resume(pdev);
+	if (rc)
+		return rc;
+
 	pci_write_config_byte(pdev, PCI_LATENCY_TIMER, 64);
 	pci_read_config_byte(pdev, MRDMODE, &mrdmode);
 	mrdmode &= ~ 0x30;	/* IRQ set up */
@@ -470,7 +395,8 @@ static int cmd64x_reinit_one(struct pci_dev *pdev)
 #ifdef CONFIG_PPC
 	pci_write_config_byte(pdev, UDIDETCR0, 0xF0);
 #endif
-	return ata_pci_device_resume(pdev);
+	ata_host_resume(host);
+	return 0;
 }
 #endif
 

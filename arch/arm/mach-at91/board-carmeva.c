@@ -40,24 +40,21 @@
 #include "generic.h"
 
 
-/*
- * Serial port configuration.
- *    0 .. 3 = USART0 .. USART3
- *    4      = DBGU
- */
-static struct at91_uart_config __initdata carmeva_uart_config = {
-	.console_tty	= 0,				/* ttyS0 */
-	.nr_tty		= 2,
-	.tty_map	= { 4, 1, -1, -1, -1 }		/* ttyS0, ..., ttyS4 */
-};
-
 static void __init carmeva_map_io(void)
 {
 	/* Initialize processor: 20.000 MHz crystal */
 	at91rm9200_initialize(20000000, AT91RM9200_BGA);
 
-	/* Setup the serial ports and console */
-	at91_init_serial(&carmeva_uart_config);
+	/* DBGU on ttyS0. (Rx & Tx only) */
+	at91_register_uart(0, 0, 0);
+
+	/* USART1 on ttyS1. (Rx, Tx, CTS, RTS, DTR, DSR, DCD, RI) */
+	at91_register_uart(AT91RM9200_ID_US1, 1, ATMEL_UART_CTS | ATMEL_UART_RTS
+			   | ATMEL_UART_DTR | ATMEL_UART_DSR | ATMEL_UART_DCD
+			   | ATMEL_UART_RI);
+
+	/* set serial console to ttyS0 (ie, DBGU) */
+	at91_set_serial_console(0);
 }
 
 static void __init carmeva_init_irq(void)
@@ -128,7 +125,7 @@ static void __init carmeva_board_init(void)
 	/* USB Device */
 	at91_add_device_udc(&carmeva_udc_data);
 	/* I2C */
-	at91_add_device_i2c();
+	at91_add_device_i2c(NULL, 0);
 	/* SPI */
 	at91_add_device_spi(carmeva_spi_devices, ARRAY_SIZE(carmeva_spi_devices));
 	/* Compact Flash */

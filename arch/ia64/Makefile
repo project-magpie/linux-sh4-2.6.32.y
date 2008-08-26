@@ -11,6 +11,8 @@
 # Copyright (C) 1998-2004 by David Mosberger-Tang <davidm@hpl.hp.com>
 #
 
+KBUILD_DEFCONFIG := generic_defconfig
+
 NM := $(CROSS_COMPILE)nm -B
 READELF := $(CROSS_COMPILE)readelf
 
@@ -29,7 +31,7 @@ cflags-y	:= -pipe $(EXTRA) -ffixed-r13 -mfixed-range=f12-f15,f32-f127 \
 CFLAGS_KERNEL	:= -mconstant-gp
 
 GAS_STATUS	= $(shell $(srctree)/arch/ia64/scripts/check-gas "$(CC)" "$(OBJDUMP)")
-CPPFLAGS += $(shell $(srctree)/arch/ia64/scripts/toolchain-flags "$(CC)" "$(OBJDUMP)" "$(READELF)")
+KBUILD_CPPFLAGS += $(shell $(srctree)/arch/ia64/scripts/toolchain-flags "$(CC)" "$(OBJDUMP)" "$(READELF)")
 
 ifeq ($(GAS_STATUS),buggy)
 $(error Sorry, you need a newer version of the assember, one that is built from	\
@@ -44,7 +46,7 @@ ifeq ($(call cc-version),0304)
 	cflags-$(CONFIG_MCKINLEY)	+= -mtune=mckinley
 endif
 
-CFLAGS += $(cflags-y)
+KBUILD_CFLAGS += $(cflags-y)
 head-y := arch/ia64/kernel/head.o arch/ia64/kernel/init_task.o
 
 libs-y				+= arch/ia64/lib/
@@ -55,12 +57,14 @@ core-$(CONFIG_IA64_GENERIC) 	+= arch/ia64/dig/
 core-$(CONFIG_IA64_HP_ZX1)	+= arch/ia64/dig/
 core-$(CONFIG_IA64_HP_ZX1_SWIOTLB) += arch/ia64/dig/
 core-$(CONFIG_IA64_SGI_SN2)	+= arch/ia64/sn/
+core-$(CONFIG_IA64_SGI_UV)	+= arch/ia64/uv/
+core-$(CONFIG_KVM) 		+= arch/ia64/kvm/
 
 drivers-$(CONFIG_PCI)		+= arch/ia64/pci/
 drivers-$(CONFIG_IA64_HP_SIM)	+= arch/ia64/hp/sim/
 drivers-$(CONFIG_IA64_HP_ZX1)	+= arch/ia64/hp/common/ arch/ia64/hp/zx1/
 drivers-$(CONFIG_IA64_HP_ZX1_SWIOTLB) += arch/ia64/hp/common/ arch/ia64/hp/zx1/
-drivers-$(CONFIG_IA64_GENERIC)	+= arch/ia64/hp/common/ arch/ia64/hp/zx1/ arch/ia64/hp/sim/ arch/ia64/sn/
+drivers-$(CONFIG_IA64_GENERIC)	+= arch/ia64/hp/common/ arch/ia64/hp/zx1/ arch/ia64/hp/sim/ arch/ia64/sn/ arch/ia64/uv/
 drivers-$(CONFIG_OPROFILE)	+= arch/ia64/oprofile/
 
 boot := arch/ia64/hp/sim/boot
@@ -77,7 +81,7 @@ vmlinux.gz: vmlinux
 	$(Q)$(MAKE) $(build)=$(boot) $@
 
 unwcheck: vmlinux
-	-$(Q)READELF=$(READELF) $(srctree)/arch/ia64/scripts/unwcheck.py $<
+	-$(Q)READELF=$(READELF) python $(srctree)/arch/ia64/scripts/unwcheck.py $<
 
 archclean:
 	$(Q)$(MAKE) $(clean)=$(boot)
@@ -96,3 +100,9 @@ define archhelp
   echo '  boot		- Build vmlinux and bootloader for Ski simulator'
   echo '* unwcheck	- Check vmlinux for invalid unwind info'
 endef
+
+archprepare: make_nr_irqs_h FORCE
+PHONY += make_nr_irqs_h FORCE
+
+make_nr_irqs_h: FORCE
+	$(Q)$(MAKE) $(build)=arch/ia64/kernel include/asm-ia64/nr-irqs.h

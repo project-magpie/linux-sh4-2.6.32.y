@@ -53,11 +53,11 @@ int av7110_debiwrite(struct av7110 *av7110, u32 config,
 	struct saa7146_dev *dev = av7110->dev;
 
 	if (count <= 0 || count > 32764) {
-		printk("%s: invalid count %d\n", __FUNCTION__, count);
+		printk("%s: invalid count %d\n", __func__, count);
 		return -1;
 	}
 	if (saa7146_wait_for_debi_done(av7110->dev, 0) < 0) {
-		printk("%s: wait_for_debi_done failed\n", __FUNCTION__);
+		printk("%s: wait_for_debi_done failed\n", __func__);
 		return -1;
 	}
 	saa7146_write(dev, DEBI_CONFIG, config);
@@ -76,11 +76,11 @@ u32 av7110_debiread(struct av7110 *av7110, u32 config, int addr, int count)
 	u32 result = 0;
 
 	if (count > 32764 || count <= 0) {
-		printk("%s: invalid count %d\n", __FUNCTION__, count);
+		printk("%s: invalid count %d\n", __func__, count);
 		return 0;
 	}
 	if (saa7146_wait_for_debi_done(av7110->dev, 0) < 0) {
-		printk("%s: wait_for_debi_done #1 failed\n", __FUNCTION__);
+		printk("%s: wait_for_debi_done #1 failed\n", __func__);
 		return 0;
 	}
 	saa7146_write(dev, DEBI_AD, av7110->debi_bus);
@@ -91,7 +91,7 @@ u32 av7110_debiread(struct av7110 *av7110, u32 config, int addr, int count)
 	if (count > 4)
 		return count;
 	if (saa7146_wait_for_debi_done(av7110->dev, 0) < 0) {
-		printk("%s: wait_for_debi_done #2 failed\n", __FUNCTION__);
+		printk("%s: wait_for_debi_done #2 failed\n", __func__);
 		return 0;
 	}
 
@@ -332,7 +332,7 @@ int av7110_wait_msgstate(struct av7110 *av7110, u16 flags)
 			break;
 		if (err) {
 			printk(KERN_ERR "%s: timeout waiting for MSGSTATE %04x\n",
-				__FUNCTION__, stat & flags);
+				__func__, stat & flags);
 			return -ETIMEDOUT;
 		}
 		msleep(1);
@@ -362,7 +362,7 @@ static int __av7110_send_fw_cmd(struct av7110 *av7110, u16* buf, int length)
 		if (rdebi(av7110, DEBINOSWAP, COMMAND, 0, 2) == 0)
 			break;
 		if (err) {
-			printk(KERN_ERR "dvb-ttpci: %s(): timeout waiting for COMMAND idle\n", __FUNCTION__);
+			printk(KERN_ERR "dvb-ttpci: %s(): timeout waiting for COMMAND idle\n", __func__);
 			av7110->arm_errors++;
 			return -ETIMEDOUT;
 		}
@@ -379,7 +379,7 @@ static int __av7110_send_fw_cmd(struct av7110 *av7110, u16* buf, int length)
 		if (rdebi(av7110, DEBINOSWAP, HANDSHAKE_REG, 0, 2) == 0)
 			break;
 		if (err) {
-			printk(KERN_ERR "dvb-ttpci: %s(): timeout waiting for HANDSHAKE_REG\n", __FUNCTION__);
+			printk(KERN_ERR "dvb-ttpci: %s(): timeout waiting for HANDSHAKE_REG\n", __func__);
 			return -ETIMEDOUT;
 		}
 		msleep(1);
@@ -419,14 +419,15 @@ static int __av7110_send_fw_cmd(struct av7110 *av7110, u16* buf, int length)
 			stat = rdebi(av7110, DEBINOSWAP, MSGSTATE, 0, 2);
 			if (stat & flags[0]) {
 				printk(KERN_ERR "%s: %s QUEUE overflow\n",
-					__FUNCTION__, type);
+					__func__, type);
 				return -1;
 			}
 			if ((stat & flags[1]) == 0)
 				break;
 			if (err) {
 				printk(KERN_ERR "%s: timeout waiting on busy %s QUEUE\n",
-					__FUNCTION__, type);
+					__func__, type);
+				av7110->arm_errors++;
 				return -ETIMEDOUT;
 			}
 			msleep(1);
@@ -454,7 +455,7 @@ static int __av7110_send_fw_cmd(struct av7110 *av7110, u16* buf, int length)
 			break;
 		if (err) {
 			printk(KERN_ERR "dvb-ttpci: %s(): timeout waiting for COMMAND %d to complete\n",
-			       __FUNCTION__, (buf[0] >> 8) & 0xff);
+			       __func__, (buf[0] >> 8) & 0xff);
 			return -ETIMEDOUT;
 		}
 		msleep(1);
@@ -462,11 +463,11 @@ static int __av7110_send_fw_cmd(struct av7110 *av7110, u16* buf, int length)
 
 	stat = rdebi(av7110, DEBINOSWAP, MSGSTATE, 0, 2);
 	if (stat & GPMQOver) {
-		printk(KERN_ERR "dvb-ttpci: %s(): GPMQOver\n", __FUNCTION__);
+		printk(KERN_ERR "dvb-ttpci: %s(): GPMQOver\n", __func__);
 		return -ENOSPC;
 	}
 	else if (stat & OSDQOver) {
-		printk(KERN_ERR "dvb-ttpci: %s(): OSDQOver\n", __FUNCTION__);
+		printk(KERN_ERR "dvb-ttpci: %s(): OSDQOver\n", __func__);
 		return -ENOSPC;
 	}
 #endif
@@ -491,7 +492,7 @@ static int av7110_send_fw_cmd(struct av7110 *av7110, u16* buf, int length)
 	mutex_unlock(&av7110->dcomlock);
 	if (ret && ret!=-ERESTARTSYS)
 		printk(KERN_ERR "dvb-ttpci: %s(): av7110_send_fw_cmd error %d\n",
-		       __FUNCTION__, ret);
+		       __func__, ret);
 	return ret;
 }
 
@@ -575,7 +576,7 @@ int av7110_fw_request(struct av7110 *av7110, u16 *request_buf,
 		if (rdebi(av7110, DEBINOSWAP, COMMAND, 0, 2) == 0)
 			break;
 		if (err) {
-			printk(KERN_ERR "%s: timeout waiting for COMMAND to complete\n", __FUNCTION__);
+			printk(KERN_ERR "%s: timeout waiting for COMMAND to complete\n", __func__);
 			mutex_unlock(&av7110->dcomlock);
 			return -ETIMEDOUT;
 		}
@@ -591,7 +592,7 @@ int av7110_fw_request(struct av7110 *av7110, u16 *request_buf,
 		if (rdebi(av7110, DEBINOSWAP, HANDSHAKE_REG, 0, 2) == 0)
 			break;
 		if (err) {
-			printk(KERN_ERR "%s: timeout waiting for HANDSHAKE_REG\n", __FUNCTION__);
+			printk(KERN_ERR "%s: timeout waiting for HANDSHAKE_REG\n", __func__);
 			mutex_unlock(&av7110->dcomlock);
 			return -ETIMEDOUT;
 		}
@@ -602,12 +603,12 @@ int av7110_fw_request(struct av7110 *av7110, u16 *request_buf,
 #ifdef COM_DEBUG
 	stat = rdebi(av7110, DEBINOSWAP, MSGSTATE, 0, 2);
 	if (stat & GPMQOver) {
-		printk(KERN_ERR "%s: GPMQOver\n", __FUNCTION__);
+		printk(KERN_ERR "%s: GPMQOver\n", __func__);
 		mutex_unlock(&av7110->dcomlock);
 		return -1;
 	}
 	else if (stat & OSDQOver) {
-		printk(KERN_ERR "%s: OSDQOver\n", __FUNCTION__);
+		printk(KERN_ERR "%s: OSDQOver\n", __func__);
 		mutex_unlock(&av7110->dcomlock);
 		return -1;
 	}
@@ -741,7 +742,7 @@ static int FlushText(struct av7110 *av7110)
 			break;
 		if (err) {
 			printk(KERN_ERR "dvb-ttpci: %s(): timeout waiting for BUFF1_BASE == 0\n",
-			       __FUNCTION__);
+			       __func__);
 			mutex_unlock(&av7110->dcomlock);
 			return -ETIMEDOUT;
 		}
@@ -768,7 +769,7 @@ static int WriteText(struct av7110 *av7110, u8 win, u16 x, u16 y, char *buf)
 			break;
 		if (ret) {
 			printk(KERN_ERR "dvb-ttpci: %s: timeout waiting for BUFF1_BASE == 0\n",
-			       __FUNCTION__);
+			       __func__);
 			mutex_unlock(&av7110->dcomlock);
 			return -ETIMEDOUT;
 		}
@@ -782,7 +783,7 @@ static int WriteText(struct av7110 *av7110, u8 win, u16 x, u16 y, char *buf)
 			break;
 		if (ret) {
 			printk(KERN_ERR "dvb-ttpci: %s: timeout waiting for HANDSHAKE_REG\n",
-			       __FUNCTION__);
+			       __func__);
 			mutex_unlock(&av7110->dcomlock);
 			return -ETIMEDOUT;
 		}
@@ -853,10 +854,8 @@ static osd_raw_window_t bpp2bit[8] = {
 
 static inline int WaitUntilBmpLoaded(struct av7110 *av7110)
 {
-	int ret = wait_event_interruptible_timeout(av7110->bmpq,
+	int ret = wait_event_timeout(av7110->bmpq,
 				av7110->bmp_state != BMP_LOADING, 10*HZ);
-	if (ret == -ERESTARTSYS)
-		return ret;
 	if (ret == 0) {
 		printk("dvb-ttpci: warning: timeout waiting in LoadBitmap: %d, %d\n",
 		       ret, av7110->bmp_state);
@@ -978,24 +977,24 @@ static int OSDSetColor(struct av7110 *av7110, u8 color, u8 r, u8 g, u8 b, u8 ble
 
 static int OSDSetPalette(struct av7110 *av7110, u32 __user * colors, u8 first, u8 last)
 {
-       int i;
-       int length = last - first + 1;
+	int i;
+	int length = last - first + 1;
 
-       if (length * 4 > DATA_BUFF3_SIZE)
-	       return -EINVAL;
+	if (length * 4 > DATA_BUFF3_SIZE)
+		return -EINVAL;
 
-       for (i = 0; i < length; i++) {
-	       u32 color, blend, yuv;
+	for (i = 0; i < length; i++) {
+		u32 color, blend, yuv;
 
-	       if (get_user(color, colors + i))
-		       return -EFAULT;
-	       blend = (color & 0xF0000000) >> 4;
-	       yuv = blend ? RGB2YUV(color & 0xFF, (color >> 8) & 0xFF,
+		if (get_user(color, colors + i))
+			return -EFAULT;
+		blend = (color & 0xF0000000) >> 4;
+		yuv = blend ? RGB2YUV(color & 0xFF, (color >> 8) & 0xFF,
 				     (color >> 16) & 0xFF) | blend : 0;
-	       yuv = ((yuv & 0xFFFF0000) >> 16) | ((yuv & 0x0000FFFF) << 16);
-	       wdebi(av7110, DEBINOSWAP, DATA_BUFF3_BASE + i * 4, yuv, 4);
-       }
-       return av7110_fw_cmd(av7110, COMTYPE_OSD, Set_Palette, 4,
+		yuv = ((yuv & 0xFFFF0000) >> 16) | ((yuv & 0x0000FFFF) << 16);
+		wdebi(av7110, DEBINOSWAP, DATA_BUFF3_BASE + i * 4, yuv, 4);
+	}
+	return av7110_fw_cmd(av7110, COMTYPE_OSD, Set_Palette, 4,
 			    av7110->osdwin,
 			    bpp2pal[av7110->osdbpp[av7110->osdwin]],
 			    first, last);

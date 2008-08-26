@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2007, R. Byron Moore
+ * Copyright (C) 2000 - 2008, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -83,7 +83,8 @@ acpi_ut_get_element_length(u8 object_type,
  *
  ******************************************************************************/
 
-union acpi_operand_object *acpi_ut_create_internal_object_dbg(char *module_name,
+union acpi_operand_object *acpi_ut_create_internal_object_dbg(const char
+							      *module_name,
 							      u32 line_number,
 							      u32 component_id,
 							      acpi_object_type
@@ -107,6 +108,7 @@ union acpi_operand_object *acpi_ut_create_internal_object_dbg(char *module_name,
 	switch (type) {
 	case ACPI_TYPE_REGION:
 	case ACPI_TYPE_BUFFER_FIELD:
+	case ACPI_TYPE_LOCAL_BANK_FIELD:
 
 		/* These types require a secondary object */
 
@@ -174,8 +176,8 @@ union acpi_operand_object *acpi_ut_create_package_object(u32 count)
 	 * Create the element array. Count+1 allows the array to be null
 	 * terminated.
 	 */
-	package_elements = ACPI_ALLOCATE_ZEROED((acpi_size)
-						(count + 1) * sizeof(void *));
+	package_elements = ACPI_ALLOCATE_ZEROED(((acpi_size) count +
+						 1) * sizeof(void *));
 	if (!package_elements) {
 		acpi_ut_remove_reference(package_desc);
 		return_PTR(NULL);
@@ -346,7 +348,7 @@ u8 acpi_ut_valid_internal_object(void *object)
  *
  ******************************************************************************/
 
-void *acpi_ut_allocate_object_desc_dbg(char *module_name,
+void *acpi_ut_allocate_object_desc_dbg(const char *module_name,
 				       u32 line_number, u32 component_id)
 {
 	union acpi_operand_object *object;
@@ -432,7 +434,7 @@ acpi_ut_get_simple_object_size(union acpi_operand_object *internal_object,
 	 * element -- which is legal)
 	 */
 	if (!internal_object) {
-		*obj_length = 0;
+		*obj_length = sizeof(union acpi_object);
 		return_ACPI_STATUS(AE_OK);
 	}
 
@@ -469,9 +471,8 @@ acpi_ut_get_simple_object_size(union acpi_operand_object *internal_object,
 	case ACPI_TYPE_PROCESSOR:
 	case ACPI_TYPE_POWER:
 
-		/*
-		 * No extra data for these types
-		 */
+		/* No extra data for these types */
+
 		break;
 
 	case ACPI_TYPE_LOCAL_REFERENCE:

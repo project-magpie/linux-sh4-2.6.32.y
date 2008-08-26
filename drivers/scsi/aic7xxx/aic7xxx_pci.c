@@ -168,8 +168,7 @@ static ahc_device_setup_t ahc_aha394XX_setup;
 static ahc_device_setup_t ahc_aha494XX_setup;
 static ahc_device_setup_t ahc_aha398XX_setup;
 
-static struct ahc_pci_identity ahc_pci_ident_table [] =
-{
+static const struct ahc_pci_identity ahc_pci_ident_table[] = {
 	/* aic7850 based controllers */
 	{
 		ID_AHA_2902_04_10_15_20C_30C,
@@ -633,8 +632,6 @@ static void    write_brdctl(struct ahc_softc *ahc, uint8_t value);
 static uint8_t read_brdctl(struct ahc_softc *ahc);
 static void ahc_pci_intr(struct ahc_softc *ahc);
 static int  ahc_pci_chip_init(struct ahc_softc *ahc);
-static int  ahc_pci_suspend(struct ahc_softc *ahc);
-static int  ahc_pci_resume(struct ahc_softc *ahc);
 
 static int
 ahc_9005_subdevinfo_valid(uint16_t device, uint16_t vendor,
@@ -670,7 +667,7 @@ ahc_9005_subdevinfo_valid(uint16_t device, uint16_t vendor,
 	return (result);
 }
 
-struct ahc_pci_identity *
+const struct ahc_pci_identity *
 ahc_find_pci_device(ahc_dev_softc_t pci)
 {
 	uint64_t  full_id;
@@ -678,7 +675,7 @@ ahc_find_pci_device(ahc_dev_softc_t pci)
 	uint16_t  vendor;
 	uint16_t  subdevice;
 	uint16_t  subvendor;
-	struct	  ahc_pci_identity *entry;
+	const struct ahc_pci_identity *entry;
 	u_int	  i;
 
 	vendor = ahc_pci_read_config(pci, PCIR_DEVVENDOR, /*bytes*/2);
@@ -712,7 +709,7 @@ ahc_find_pci_device(ahc_dev_softc_t pci)
 }
 
 int
-ahc_pci_config(struct ahc_softc *ahc, struct ahc_pci_identity *entry)
+ahc_pci_config(struct ahc_softc *ahc, const struct ahc_pci_identity *entry)
 {
 	u_int	 command;
 	u_int	 our_id;
@@ -791,8 +788,6 @@ ahc_pci_config(struct ahc_softc *ahc, struct ahc_pci_identity *entry)
 
 	ahc->bus_intr = ahc_pci_intr;
 	ahc->bus_chip_init = ahc_pci_chip_init;
-	ahc->bus_suspend = ahc_pci_suspend;
-	ahc->bus_resume = ahc_pci_resume;
 
 	/* Remeber how the card was setup in case there is no SEEPROM */
 	if ((ahc_inb(ahc, HCNTRL) & POWRDN) == 0) {
@@ -2024,18 +2019,10 @@ ahc_pci_chip_init(struct ahc_softc *ahc)
 	return (ahc_chip_init(ahc));
 }
 
-static int
-ahc_pci_suspend(struct ahc_softc *ahc)
-{
-	return (ahc_suspend(ahc));
-}
-
-static int
+#ifdef CONFIG_PM
+void
 ahc_pci_resume(struct ahc_softc *ahc)
 {
-
-	pci_set_power_state(ahc->dev_softc, AHC_POWER_STATE_D0);
-
 	/*
 	 * We assume that the OS has restored our register
 	 * mappings, etc.  Just update the config space registers
@@ -2063,8 +2050,8 @@ ahc_pci_resume(struct ahc_softc *ahc)
 				      &sxfrctl1);
 		ahc_release_seeprom(&sd);
 	}
-	return (ahc_resume(ahc));
 }
+#endif
 
 static int
 ahc_aic785X_setup(struct ahc_softc *ahc)

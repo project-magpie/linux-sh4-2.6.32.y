@@ -1,6 +1,10 @@
 #ifndef _PARISC_BITOPS_H
 #define _PARISC_BITOPS_H
 
+#ifndef _LINUX_BITOPS_H
+#error only <linux/bitops.h> can be included directly
+#endif
+
 #include <linux/compiler.h>
 #include <asm/types.h>		/* for BITS_PER_LONG/SHIFT_PER_LONG */
 #include <asm/byteorder.h>
@@ -206,8 +210,10 @@ static __inline__ int fls(int x)
 	return ret;
 }
 
+#include <asm-generic/bitops/__fls.h>
 #include <asm-generic/bitops/fls64.h>
 #include <asm-generic/bitops/hweight.h>
+#include <asm-generic/bitops/lock.h>
 #include <asm-generic/bitops/sched.h>
 
 #endif /* __KERNEL__ */

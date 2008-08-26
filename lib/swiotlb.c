@@ -31,11 +31,12 @@
 
 #include <linux/init.h>
 #include <linux/bootmem.h>
+#include <linux/iommu-helper.h>
 
 #define OFFSET(val,align) ((unsigned long)	\
 	                   ( (val) & ( (align) - 1)))
 
-#define SG_ENT_VIRT_ADDRESS(sg)	(page_address((sg)->page) + (sg)->offset)
+#define SG_ENT_VIRT_ADDRESS(sg)	(sg_virt((sg)))
 #define SG_ENT_PHYS_ADDRESS(sg)	virt_to_bus(SG_ENT_VIRT_ADDRESS(sg))
 
 /*
@@ -292,6 +293,18 @@ map_single(struct device *hwdev, char *buffer, size_t size, int dir)
 	char *dma_addr;
 	unsigned int nslots, stride, index, wrap;
 	int i;
+	unsigned long start_dma_addr;
+	unsigned long mask;
+	unsigned long offset_slots;
+	unsigned long max_slots;
+
+	mask = dma_get_seg_boundary(hwdev);
+	start_dma_addr = virt_to_bus(io_tlb_start) & mask;
+
+	offset_slots = ALIGN(start_dma_addr, 1 << IO_TLB_SHIFT) >> IO_TLB_SHIFT;
+	max_slots = mask + 1
+		    ? ALIGN(mask + 1, 1 << IO_TLB_SHIFT) >> IO_TLB_SHIFT
+		    : 1UL << (BITS_PER_LONG - IO_TLB_SHIFT);
 
 	/*
 	 * For mappings greater than a page, we limit the stride (and
@@ -310,46 +323,53 @@ map_single(struct device *hwdev, char *buffer, size_t size, int dir)
 	 * request and allocate a buffer from that IO TLB pool.
 	 */
 	spin_lock_irqsave(&io_tlb_lock, flags);
-	{
-		wrap = index = ALIGN(io_tlb_index, stride);
+	index = ALIGN(io_tlb_index, stride);
+	if (index >= io_tlb_nslabs)
+		index = 0;
+	wrap = index;
 
-		if (index >= io_tlb_nslabs)
-			wrap = index = 0;
-
-		do {
-			/*
-			 * If we find a slot that indicates we have 'nslots'
-			 * number of contiguous buffers, we allocate the
-			 * buffers from that slot and mark the entries as '0'
-			 * indicating unavailable.
-			 */
-			if (io_tlb_list[index] >= nslots) {
-				int count = 0;
-
-				for (i = index; i < (int) (index + nslots); i++)
-					io_tlb_list[i] = 0;
-				for (i = index - 1; (OFFSET(i, IO_TLB_SEGSIZE) != IO_TLB_SEGSIZE -1) && io_tlb_list[i]; i--)
-					io_tlb_list[i] = ++count;
-				dma_addr = io_tlb_start + (index << IO_TLB_SHIFT);
-
-				/*
-				 * Update the indices to avoid searching in
-				 * the next round.
-				 */
-				io_tlb_index = ((index + nslots) < io_tlb_nslabs
-						? (index + nslots) : 0);
-
-				goto found;
-			}
+	do {
+		while (iommu_is_span_boundary(index, nslots, offset_slots,
+					      max_slots)) {
 			index += stride;
 			if (index >= io_tlb_nslabs)
 				index = 0;
-		} while (index != wrap);
+			if (index == wrap)
+				goto not_found;
+		}
 
-		spin_unlock_irqrestore(&io_tlb_lock, flags);
-		return NULL;
-	}
-  found:
+		/*
+		 * If we find a slot that indicates we have 'nslots' number of
+		 * contiguous buffers, we allocate the buffers from that slot
+		 * and mark the entries as '0' indicating unavailable.
+		 */
+		if (io_tlb_list[index] >= nslots) {
+			int count = 0;
+
+			for (i = index; i < (int) (index + nslots); i++)
+				io_tlb_list[i] = 0;
+			for (i = index - 1; (OFFSET(i, IO_TLB_SEGSIZE) != IO_TLB_SEGSIZE - 1) && io_tlb_list[i]; i--)
+				io_tlb_list[i] = ++count;
+			dma_addr = io_tlb_start + (index << IO_TLB_SHIFT);
+
+			/*
+			 * Update the indices to avoid searching in the next
+			 * round.
+			 */
+			io_tlb_index = ((index + nslots) < io_tlb_nslabs
+					? (index + nslots) : 0);
+
+			goto found;
+		}
+		index += stride;
+		if (index >= io_tlb_nslabs)
+			index = 0;
+	} while (index != wrap);
+
+not_found:
+	spin_unlock_irqrestore(&io_tlb_lock, flags);
+	return NULL;
+found:
 	spin_unlock_irqrestore(&io_tlb_lock, flags);
 
 	/*
@@ -472,7 +492,7 @@ swiotlb_alloc_coherent(struct device *hwdev, size_t size,
 		 */
 		dma_addr_t handle;
 		handle = swiotlb_map_single(NULL, NULL, size, DMA_FROM_DEVICE);
-		if (swiotlb_dma_mapping_error(handle))
+		if (swiotlb_dma_mapping_error(hwdev, handle))
 			return NULL;
 
 		ret = bus_to_virt(handle);
@@ -497,6 +517,7 @@ void
 swiotlb_free_coherent(struct device *hwdev, size_t size, void *vaddr,
 		      dma_addr_t dma_handle)
 {
+	WARN_ON(irqs_disabled());
 	if (!(vaddr >= (void *)io_tlb_start
                     && vaddr < (void *)io_tlb_end))
 		free_pages((unsigned long) vaddr, get_order(size));
@@ -534,7 +555,8 @@ swiotlb_full(struct device *dev, size_t size, int dir, int do_panic)
  * either swiotlb_unmap_single or swiotlb_dma_sync_single is performed.
  */
 dma_addr_t
-swiotlb_map_single(struct device *hwdev, void *ptr, size_t size, int dir)
+swiotlb_map_single_attrs(struct device *hwdev, void *ptr, size_t size,
+			 int dir, struct dma_attrs *attrs)
 {
 	dma_addr_t dev_addr = virt_to_bus(ptr);
 	void *map;
@@ -567,6 +589,13 @@ swiotlb_map_single(struct device *hwdev, void *ptr, size_t size, int dir)
 
 	return dev_addr;
 }
+EXPORT_SYMBOL(swiotlb_map_single_attrs);
+
+dma_addr_t
+swiotlb_map_single(struct device *hwdev, void *ptr, size_t size, int dir)
+{
+	return swiotlb_map_single_attrs(hwdev, ptr, size, dir, NULL);
+}
 
 /*
  * Unmap a single streaming mode DMA translation.  The dma_addr and size must
@@ -577,8 +606,8 @@ swiotlb_map_single(struct device *hwdev, void *ptr, size_t size, int dir)
  * whatever the device wrote there.
  */
 void
-swiotlb_unmap_single(struct device *hwdev, dma_addr_t dev_addr, size_t size,
-		     int dir)
+swiotlb_unmap_single_attrs(struct device *hwdev, dma_addr_t dev_addr,
+			   size_t size, int dir, struct dma_attrs *attrs)
 {
 	char *dma_addr = bus_to_virt(dev_addr);
 
@@ -588,7 +617,14 @@ swiotlb_unmap_single(struct device *hwdev, dma_addr_t dev_addr, size_t size,
 	else if (dir == DMA_FROM_DEVICE)
 		dma_mark_clean(dma_addr, size);
 }
+EXPORT_SYMBOL(swiotlb_unmap_single_attrs);
 
+void
+swiotlb_unmap_single(struct device *hwdev, dma_addr_t dev_addr, size_t size,
+		     int dir)
+{
+	return swiotlb_unmap_single_attrs(hwdev, dev_addr, size, dir, NULL);
+}
 /*
  * Make physical memory consistent for a single streaming mode DMA translation
  * after a transfer.
@@ -659,6 +695,8 @@ swiotlb_sync_single_range_for_device(struct device *hwdev, dma_addr_t dev_addr,
 				  SYNC_FOR_DEVICE);
 }
 
+void swiotlb_unmap_sg_attrs(struct device *, struct scatterlist *, int, int,
+			    struct dma_attrs *);
 /*
  * Map a set of buffers described by scatterlist in streaming mode for DMA.
  * This is the scatter-gather version of the above swiotlb_map_single
@@ -676,16 +714,17 @@ swiotlb_sync_single_range_for_device(struct device *hwdev, dma_addr_t dev_addr,
  * same here.
  */
 int
-swiotlb_map_sg(struct device *hwdev, struct scatterlist *sg, int nelems,
-	       int dir)
+swiotlb_map_sg_attrs(struct device *hwdev, struct scatterlist *sgl, int nelems,
+		     int dir, struct dma_attrs *attrs)
 {
+	struct scatterlist *sg;
 	void *addr;
 	dma_addr_t dev_addr;
 	int i;
 
 	BUG_ON(dir == DMA_NONE);
 
-	for (i = 0; i < nelems; i++, sg++) {
+	for_each_sg(sgl, sg, nelems, i) {
 		addr = SG_ENT_VIRT_ADDRESS(sg);
 		dev_addr = virt_to_bus(addr);
 		if (swiotlb_force || address_needs_mapping(hwdev, dev_addr)) {
@@ -694,8 +733,9 @@ swiotlb_map_sg(struct device *hwdev, struct scatterlist *sg, int nelems,
 				/* Don't panic here, we expect map_sg users
 				   to do proper error handling. */
 				swiotlb_full(hwdev, sg->length, dir, 0);
-				swiotlb_unmap_sg(hwdev, sg - i, i, dir);
-				sg[0].dma_length = 0;
+				swiotlb_unmap_sg_attrs(hwdev, sgl, i, dir,
+						       attrs);
+				sgl[0].dma_length = 0;
 				return 0;
 			}
 			sg->dma_address = virt_to_bus(map);
@@ -705,25 +745,43 @@ swiotlb_map_sg(struct device *hwdev, struct scatterlist *sg, int nelems,
 	}
 	return nelems;
 }
+EXPORT_SYMBOL(swiotlb_map_sg_attrs);
+
+int
+swiotlb_map_sg(struct device *hwdev, struct scatterlist *sgl, int nelems,
+	       int dir)
+{
+	return swiotlb_map_sg_attrs(hwdev, sgl, nelems, dir, NULL);
+}
 
 /*
  * Unmap a set of streaming mode DMA translations.  Again, cpu read rules
  * concerning calls here are the same as for swiotlb_unmap_single() above.
  */
 void
-swiotlb_unmap_sg(struct device *hwdev, struct scatterlist *sg, int nelems,
-		 int dir)
+swiotlb_unmap_sg_attrs(struct device *hwdev, struct scatterlist *sgl,
+		       int nelems, int dir, struct dma_attrs *attrs)
 {
+	struct scatterlist *sg;
 	int i;
 
 	BUG_ON(dir == DMA_NONE);
 
-	for (i = 0; i < nelems; i++, sg++)
+	for_each_sg(sgl, sg, nelems, i) {
 		if (sg->dma_address != SG_ENT_PHYS_ADDRESS(sg))
 			unmap_single(hwdev, bus_to_virt(sg->dma_address),
 				     sg->dma_length, dir);
 		else if (dir == DMA_FROM_DEVICE)
 			dma_mark_clean(SG_ENT_VIRT_ADDRESS(sg), sg->dma_length);
+	}
+}
+EXPORT_SYMBOL(swiotlb_unmap_sg_attrs);
+
+void
+swiotlb_unmap_sg(struct device *hwdev, struct scatterlist *sgl, int nelems,
+		 int dir)
+{
+	return swiotlb_unmap_sg_attrs(hwdev, sgl, nelems, dir, NULL);
 }
 
 /*
@@ -734,19 +792,21 @@ swiotlb_unmap_sg(struct device *hwdev, struct scatterlist *sg, int nelems,
  * and usage.
  */
 static void
-swiotlb_sync_sg(struct device *hwdev, struct scatterlist *sg,
+swiotlb_sync_sg(struct device *hwdev, struct scatterlist *sgl,
 		int nelems, int dir, int target)
 {
+	struct scatterlist *sg;
 	int i;
 
 	BUG_ON(dir == DMA_NONE);
 
-	for (i = 0; i < nelems; i++, sg++)
+	for_each_sg(sgl, sg, nelems, i) {
 		if (sg->dma_address != SG_ENT_PHYS_ADDRESS(sg))
 			sync_single(hwdev, bus_to_virt(sg->dma_address),
 				    sg->dma_length, dir, target);
 		else if (dir == DMA_FROM_DEVICE)
 			dma_mark_clean(SG_ENT_VIRT_ADDRESS(sg), sg->dma_length);
+	}
 }
 
 void
@@ -764,7 +824,7 @@ swiotlb_sync_sg_for_device(struct device *hwdev, struct scatterlist *sg,
 }
 
 int
-swiotlb_dma_mapping_error(dma_addr_t dma_addr)
+swiotlb_dma_mapping_error(struct device *hwdev, dma_addr_t dma_addr)
 {
 	return (dma_addr == virt_to_bus(io_tlb_overflow_buffer));
 }

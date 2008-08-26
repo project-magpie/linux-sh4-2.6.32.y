@@ -14,6 +14,7 @@
 #include <linux/dccp.h>
 #include <linux/module.h>
 #include <linux/types.h>
+#include <asm/unaligned.h>
 #include <linux/kernel.h>
 #include <linux/skbuff.h>
 
@@ -28,16 +29,6 @@ int sysctl_dccp_feat_tx_ccid	      = DCCPF_INITIAL_CCID;
 int sysctl_dccp_feat_ack_ratio	      = DCCPF_INITIAL_ACK_RATIO;
 int sysctl_dccp_feat_send_ack_vector = DCCPF_INITIAL_SEND_ACK_VECTOR;
 int sysctl_dccp_feat_send_ndp_count  = DCCPF_INITIAL_SEND_NDP_COUNT;
-
-void dccp_minisock_init(struct dccp_minisock *dmsk)
-{
-	dmsk->dccpms_sequence_window = sysctl_dccp_feat_sequence_window;
-	dmsk->dccpms_rx_ccid	     = sysctl_dccp_feat_rx_ccid;
-	dmsk->dccpms_tx_ccid	     = sysctl_dccp_feat_tx_ccid;
-	dmsk->dccpms_ack_ratio	     = sysctl_dccp_feat_ack_ratio;
-	dmsk->dccpms_send_ack_vector = sysctl_dccp_feat_send_ack_vector;
-	dmsk->dccpms_send_ndp_count  = sysctl_dccp_feat_send_ndp_count;
-}
 
 static u32 dccp_decode_value_var(const unsigned char *bf, const u8 len)
 {
@@ -55,7 +46,13 @@ static u32 dccp_decode_value_var(const unsigned char *bf, const u8 len)
 	return value;
 }
 
-int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
+/**
+ * dccp_parse_options  -  Parse DCCP options present in @skb
+ * @sk: client|server|listening dccp socket (when @dreq != NULL)
+ * @dreq: request socket to use during connection setup, or NULL
+ */
+int dccp_parse_options(struct sock *sk, struct dccp_request_sock *dreq,
+		       struct sk_buff *skb)
 {
 	struct dccp_sock *dp = dccp_sk(sk);
 	const struct dccp_hdr *dh = dccp_hdr(skb);
@@ -69,6 +66,7 @@ int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
 	unsigned char opt, len;
 	unsigned char *value;
 	u32 elapsed_time;
+	__be32 opt_val;
 	int rc;
 	int mandatory = 0;
 
@@ -100,6 +98,22 @@ int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
 				goto out_invalid_option;
 		}
 
+		/*
+		 * CCID-Specific Options (from RFC 4340, sec. 10.3):
+		 *
+		 * Option numbers 128 through 191 are for options sent from the
+		 * HC-Sender to the HC-Receiver; option numbers 192 through 255
+		 * are for options sent from the HC-Receiver to	the HC-Sender.
+		 *
+		 * CCID-specific options are ignored during connection setup, as
+		 * negotiation may still be in progress (see RFC 4340, 10.3).
+		 * The same applies to Ack Vectors, as these depend on the CCID.
+		 *
+		 */
+		if (dreq != NULL && (opt >= 128 ||
+		    opt == DCCPO_ACK_VECTOR_0 || opt == DCCPO_ACK_VECTOR_1))
+			goto ignore_option;
+
 		switch (opt) {
 		case DCCPO_PADDING:
 			break;
@@ -110,16 +124,18 @@ int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
 				mandatory = 1;
 			break;
 		case DCCPO_NDP_COUNT:
-			if (len > 3)
+			if (len > 6)
 				goto out_invalid_option;
 
 			opt_recv->dccpor_ndp = dccp_decode_value_var(value, len);
-			dccp_pr_debug("%s rx opt: NDP count=%d\n", dccp_role(sk),
-				      opt_recv->dccpor_ndp);
+			dccp_pr_debug("%s opt: NDP count=%llu\n", dccp_role(sk),
+				      (unsigned long long)opt_recv->dccpor_ndp);
 			break;
 		case DCCPO_CHANGE_L:
 			/* fall through */
 		case DCCPO_CHANGE_R:
+			if (pkt_type == DCCP_PKT_DATA)
+				break;
 			if (len < 2)
 				goto out_invalid_option;
 			rc = dccp_feat_change_recv(sk, opt, *value, value + 1,
@@ -136,7 +152,9 @@ int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
 		case DCCPO_CONFIRM_L:
 			/* fall through */
 		case DCCPO_CONFIRM_R:
-			if (len < 2)
+			if (pkt_type == DCCP_PKT_DATA)
+				break;
+			if (len < 2)	/* FIXME this disallows empty confirm */
 				goto out_invalid_option;
 			if (dccp_feat_confirm_recv(sk, opt, *value,
 						   value + 1, len - 1))
@@ -144,7 +162,7 @@ int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
 			break;
 		case DCCPO_ACK_VECTOR_0:
 		case DCCPO_ACK_VECTOR_1:
-			if (pkt_type == DCCP_PKT_DATA)
+			if (dccp_packet_without_ack(skb))   /* RFC 4340, 11.4 */
 				break;
 
 			if (dccp_msk(sk)->dccpms_send_ack_vector &&
@@ -154,14 +172,27 @@ int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
 		case DCCPO_TIMESTAMP:
 			if (len != 4)
 				goto out_invalid_option;
+			/*
+			 * RFC 4340 13.1: "The precise time corresponding to
+			 * Timestamp Value zero is not specified". We use
+			 * zero to indicate absence of a meaningful timestamp.
+			 */
+			opt_val = get_unaligned((__be32 *)value);
+			if (unlikely(opt_val == 0)) {
+				DCCP_WARN("Timestamp with zero value\n");
+				break;
+			}
 
-			opt_recv->dccpor_timestamp = ntohl(*(__be32 *)value);
-
-			dp->dccps_timestamp_echo = opt_recv->dccpor_timestamp;
-			dccp_timestamp(sk, &dp->dccps_timestamp_time);
-
+			if (dreq != NULL) {
+				dreq->dreq_timestamp_echo = ntohl(opt_val);
+				dreq->dreq_timestamp_time = dccp_timestamp();
+			} else {
+				opt_recv->dccpor_timestamp =
+					dp->dccps_timestamp_echo = ntohl(opt_val);
+				dp->dccps_timestamp_time = dccp_timestamp();
+			}
 			dccp_pr_debug("%s rx opt: TIMESTAMP=%u, ackno=%llu\n",
-				      dccp_role(sk), opt_recv->dccpor_timestamp,
+				      dccp_role(sk), ntohl(opt_val),
 				      (unsigned long long)
 				      DCCP_SKB_CB(skb)->dccpd_ack_seq);
 			break;
@@ -169,7 +200,8 @@ int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
 			if (len != 4 && len != 6 && len != 8)
 				goto out_invalid_option;
 
-			opt_recv->dccpor_timestamp_echo = ntohl(*(__be32 *)value);
+			opt_val = get_unaligned((__be32 *)value);
+			opt_recv->dccpor_timestamp_echo = ntohl(opt_val);
 
 			dccp_pr_debug("%s rx opt: TIMESTAMP_ECHO=%u, len=%d, "
 				      "ackno=%llu", dccp_role(sk),
@@ -178,34 +210,40 @@ int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
 				      (unsigned long long)
 				      DCCP_SKB_CB(skb)->dccpd_ack_seq);
 
+			value += 4;
 
-			if (len == 4) {
+			if (len == 4) {		/* no elapsed time included */
 				dccp_pr_debug_cat("\n");
 				break;
 			}
 
-			if (len == 6)
-				elapsed_time = ntohs(*(__be16 *)(value + 4));
-			else
-				elapsed_time = ntohl(*(__be32 *)(value + 4));
+			if (len == 6) {		/* 2-byte elapsed time */
+				__be16 opt_val2 = get_unaligned((__be16 *)value);
+				elapsed_time = ntohs(opt_val2);
+			} else {		/* 4-byte elapsed time */
+				opt_val = get_unaligned((__be32 *)value);
+				elapsed_time = ntohl(opt_val);
+			}
 
-			dccp_pr_debug_cat(", ELAPSED_TIME=%d\n", elapsed_time);
+			dccp_pr_debug_cat(", ELAPSED_TIME=%u\n", elapsed_time);
 
 			/* Give precedence to the biggest ELAPSED_TIME */
 			if (elapsed_time > opt_recv->dccpor_elapsed_time)
 				opt_recv->dccpor_elapsed_time = elapsed_time;
 			break;
 		case DCCPO_ELAPSED_TIME:
-			if (len != 2 && len != 4)
+			if (dccp_packet_without_ack(skb))   /* RFC 4340, 13.2 */
+				break;
+
+			if (len == 2) {
+				__be16 opt_val2 = get_unaligned((__be16 *)value);
+				elapsed_time = ntohs(opt_val2);
+			} else if (len == 4) {
+				opt_val = get_unaligned((__be32 *)value);
+				elapsed_time = ntohl(opt_val);
+			} else {
 				goto out_invalid_option;
-
-			if (pkt_type == DCCP_PKT_DATA)
-				continue;
-
-			if (len == 2)
-				elapsed_time = ntohs(*(__be16 *)value);
-			else
-				elapsed_time = ntohl(*(__be32 *)value);
+			}
 
 			if (elapsed_time > opt_recv->dccpor_elapsed_time)
 				opt_recv->dccpor_elapsed_time = elapsed_time;
@@ -213,15 +251,6 @@ int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
 			dccp_pr_debug("%s rx opt: ELAPSED_TIME=%d\n",
 				      dccp_role(sk), elapsed_time);
 			break;
-			/*
-			 * From RFC 4340, sec. 10.3:
-			 *
-			 *	Option numbers 128 through 191 are for
-			 *	options sent from the HC-Sender to the
-			 *	HC-Receiver; option numbers 192 through 255
-			 *	are for options sent from the HC-Receiver to
-			 *	the HC-Sender.
-			 */
 		case 128 ... 191: {
 			const u16 idx = value - options;
 
@@ -245,7 +274,7 @@ int dccp_parse_options(struct sock *sk, struct sk_buff *skb)
 				  "implemented, ignoring", sk, opt, len);
 			break;
 		}
-
+ignore_option:
 		if (opt != DCCPO_MANDATORY)
 			mandatory = 0;
 	}
@@ -278,9 +307,11 @@ static void dccp_encode_value_var(const u32 value, unsigned char *to,
 		*to++ = (value & 0xFF);
 }
 
-static inline int dccp_ndp_len(const int ndp)
+static inline u8 dccp_ndp_len(const u64 ndp)
 {
-	return likely(ndp <= 0xFF) ? 1 : ndp <= 0xFFFF ? 2 : 3;
+	if (likely(ndp <= 0xFF))
+		return 1;
+	return likely(ndp <= USHORT_MAX) ? 2 : (ndp <= UINT_MAX ? 4 : 6);
 }
 
 int dccp_insert_option(struct sock *sk, struct sk_buff *skb,
@@ -307,7 +338,7 @@ EXPORT_SYMBOL_GPL(dccp_insert_option);
 static int dccp_insert_option_ndp(struct sock *sk, struct sk_buff *skb)
 {
 	struct dccp_sock *dp = dccp_sk(sk);
-	int ndp = dp->dccps_ndp_count;
+	u64 ndp = dp->dccps_ndp_count;
 
 	if (dccp_non_data_packet(skb))
 		++dp->dccps_ndp_count;
@@ -370,29 +401,9 @@ int dccp_insert_option_elapsed_time(struct sock *sk, struct sk_buff *skb,
 
 EXPORT_SYMBOL_GPL(dccp_insert_option_elapsed_time);
 
-void dccp_timestamp(const struct sock *sk, struct timeval *tv)
-{
-	const struct dccp_sock *dp = dccp_sk(sk);
-
-	do_gettimeofday(tv);
-	tv->tv_sec  -= dp->dccps_epoch.tv_sec;
-	tv->tv_usec -= dp->dccps_epoch.tv_usec;
-
-	while (tv->tv_usec < 0) {
-		tv->tv_sec--;
-		tv->tv_usec += USEC_PER_SEC;
-	}
-}
-
-EXPORT_SYMBOL_GPL(dccp_timestamp);
-
 int dccp_insert_option_timestamp(struct sock *sk, struct sk_buff *skb)
 {
-	struct timeval tv;
-	__be32 now;
-
-	dccp_timestamp(sk, &tv);
-	now = htonl(timeval_usecs(&tv) / 10);
+	__be32 now = htonl(dccp_timestamp());
 	/* yes this will overflow but that is the point as we want a
 	 * 10 usec 32 bit timer which mean it wraps every 11.9 hours */
 
@@ -401,18 +412,24 @@ int dccp_insert_option_timestamp(struct sock *sk, struct sk_buff *skb)
 
 EXPORT_SYMBOL_GPL(dccp_insert_option_timestamp);
 
-static int dccp_insert_option_timestamp_echo(struct sock *sk,
+static int dccp_insert_option_timestamp_echo(struct dccp_sock *dp,
+					     struct dccp_request_sock *dreq,
 					     struct sk_buff *skb)
 {
-	struct dccp_sock *dp = dccp_sk(sk);
-	struct timeval now;
 	__be32 tstamp_echo;
-	u32 elapsed_time;
-	int len, elapsed_time_len;
 	unsigned char *to;
+	u32 elapsed_time, elapsed_time_len, len;
 
-	dccp_timestamp(sk, &now);
-	elapsed_time = timeval_delta(&now, &dp->dccps_timestamp_time) / 10;
+	if (dreq != NULL) {
+		elapsed_time = dccp_timestamp() - dreq->dreq_timestamp_time;
+		tstamp_echo  = htonl(dreq->dreq_timestamp_echo);
+		dreq->dreq_timestamp_echo = 0;
+	} else {
+		elapsed_time = dccp_timestamp() - dp->dccps_timestamp_time;
+		tstamp_echo  = htonl(dp->dccps_timestamp_echo);
+		dp->dccps_timestamp_echo = 0;
+	}
+
 	elapsed_time_len = dccp_elapsed_time_len(elapsed_time);
 	len = 6 + elapsed_time_len;
 
@@ -425,7 +442,6 @@ static int dccp_insert_option_timestamp_echo(struct sock *sk,
 	*to++ = DCCPO_TIMESTAMP_ECHO;
 	*to++ = len;
 
-	tstamp_echo = htonl(dp->dccps_timestamp_echo);
 	memcpy(to, &tstamp_echo, 4);
 	to += 4;
 
@@ -437,9 +453,6 @@ static int dccp_insert_option_timestamp_echo(struct sock *sk,
 		memcpy(to, &var32, 4);
 	}
 
-	dp->dccps_timestamp_echo = 0;
-	dp->dccps_timestamp_time.tv_sec = 0;
-	dp->dccps_timestamp_time.tv_usec = 0;
 	return 0;
 }
 
@@ -532,6 +545,18 @@ static int dccp_insert_options_feat(struct sock *sk, struct sk_buff *skb)
 	return 0;
 }
 
+/* The length of all options needs to be a multiple of 4 (5.8) */
+static void dccp_insert_option_padding(struct sk_buff *skb)
+{
+	int padding = DCCP_SKB_CB(skb)->dccpd_opt_len % 4;
+
+	if (padding != 0) {
+		padding = 4 - padding;
+		memset(skb_push(skb, padding), 0, padding);
+		DCCP_SKB_CB(skb)->dccpd_opt_len += padding;
+	}
+}
+
 int dccp_insert_options(struct sock *sk, struct sk_buff *skb)
 {
 	struct dccp_sock *dp = dccp_sk(sk);
@@ -547,10 +572,6 @@ int dccp_insert_options(struct sock *sk, struct sk_buff *skb)
 		if (dmsk->dccpms_send_ack_vector &&
 		    dccp_ackvec_pending(dp->dccps_hc_rx_ackvec) &&
 		    dccp_insert_option_ackvec(sk, skb))
-			return -1;
-
-		if (dp->dccps_timestamp_echo != 0 &&
-		    dccp_insert_option_timestamp_echo(sk, skb))
 			return -1;
 	}
 
@@ -575,18 +596,22 @@ int dccp_insert_options(struct sock *sk, struct sk_buff *skb)
 	    dccp_insert_option_timestamp(sk, skb))
 		return -1;
 
-	/* XXX: insert other options when appropriate */
+	if (dp->dccps_timestamp_echo != 0 &&
+	    dccp_insert_option_timestamp_echo(dp, NULL, skb))
+		return -1;
 
-	if (DCCP_SKB_CB(skb)->dccpd_opt_len != 0) {
-		/* The length of all options has to be a multiple of 4 */
-		int padding = DCCP_SKB_CB(skb)->dccpd_opt_len % 4;
+	dccp_insert_option_padding(skb);
+	return 0;
+}
 
-		if (padding != 0) {
-			padding = 4 - padding;
-			memset(skb_push(skb, padding), 0, padding);
-			DCCP_SKB_CB(skb)->dccpd_opt_len += padding;
-		}
-	}
+int dccp_insert_options_rsk(struct dccp_request_sock *dreq, struct sk_buff *skb)
+{
+	DCCP_SKB_CB(skb)->dccpd_opt_len = 0;
 
+	if (dreq->dreq_timestamp_echo != 0 &&
+	    dccp_insert_option_timestamp_echo(NULL, dreq, skb))
+		return -1;
+
+	dccp_insert_option_padding(skb);
 	return 0;
 }

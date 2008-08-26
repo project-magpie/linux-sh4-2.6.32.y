@@ -26,9 +26,14 @@ static inline void wrusp(unsigned long usp)
 
 /*
  * User space process size: 1st byte beyond user address space.
+ * Fairly meaningless on nommu.  Parts of user programs can be scattered
+ * in a lot of places, so just disable this by setting it to 0xFFFFFFFF.
  */
-extern unsigned long memory_end;
-#define TASK_SIZE	(memory_end)
+#define TASK_SIZE	0xFFFFFFFF
+
+#ifdef __KERNEL__
+#define STACK_TOP	TASK_SIZE
+#endif
 
 #define TASK_UNMAPPED_BASE	0
 
@@ -104,13 +109,32 @@ unsigned long get_wchan(struct task_struct *p);
 #define cpu_relax()    	barrier()
 
 /* Get the Silicon Revision of the chip */
-static inline __attribute_pure__ uint32_t bfin_revid(void)
+static inline uint32_t __pure bfin_revid(void)
 {
 	/* stored in the upper 4 bits */
-	return bfin_read_CHIPID() >> 28;
+	uint32_t revid = bfin_read_CHIPID() >> 28;
+
+#ifdef CONFIG_BF52x
+	/* ANOMALY_05000357
+	 * Incorrect Revision Number in DSPID Register
+	 */
+	if (revid == 0)
+		switch (bfin_read16(_BOOTROM_GET_DXE_ADDRESS_TWI)) {
+		case 0x0010:
+			revid = 0;
+			break;
+		case 0x2796:
+			revid = 1;
+			break;
+		default:
+			revid = 0xFFFF;
+			break;
+		}
+#endif
+	return revid;
 }
 
-static inline __attribute_pure__ uint32_t bfin_compiled_revid(void)
+static inline uint32_t __pure bfin_compiled_revid(void)
 {
 #if defined(CONFIG_BF_REV_0_0)
 	return 0;

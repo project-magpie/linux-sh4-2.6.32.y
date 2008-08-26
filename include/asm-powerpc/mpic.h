@@ -22,7 +22,9 @@
 #define MPIC_GREG_GLOBAL_CONF_0		0x00020
 #define		MPIC_GREG_GCONF_RESET			0x80000000
 #define		MPIC_GREG_GCONF_8259_PTHROU_DIS		0x20000000
+#define		MPIC_GREG_GCONF_NO_BIAS			0x10000000
 #define		MPIC_GREG_GCONF_BASE_MASK		0x000fffff
+#define		MPIC_GREG_GCONF_MCK			0x08000000
 #define MPIC_GREG_GLOBAL_CONF_1		0x00030
 #define		MPIC_GREG_GLOBAL_CONF_1_SIE		0x08000000
 #define		MPIC_GREG_GLOBAL_CONF_1_CLK_RATIO_MASK	0x70000000
@@ -78,6 +80,7 @@
 #define 	MPIC_CPU_WHOAMI_MASK			0x0000001f
 #define MPIC_CPU_INTACK			0x000a0
 #define MPIC_CPU_EOI			0x000b0
+#define MPIC_CPU_MCACK			0x000c0
 
 /*
  * Per-source registers
@@ -141,6 +144,7 @@
 #define TSI108_CPU_WHOAMI		0xffffffff
 #define TSI108_CPU_INTACK		0x00004
 #define TSI108_CPU_EOI			0x00008
+#define TSI108_CPU_MCACK		0x00004 /* Doesn't really exist here */
 
 /*
  * Per-source registers
@@ -183,6 +187,7 @@ enum {
 	MPIC_IDX_CPU_WHOAMI,
 	MPIC_IDX_CPU_INTACK,
 	MPIC_IDX_CPU_EOI,
+	MPIC_IDX_CPU_MCACK,
 
 	MPIC_IDX_IRQ_BASE,
 	MPIC_IDX_IRQ_STRIDE,
@@ -224,8 +229,6 @@ struct mpic_reg_bank {
 	u32 __iomem	*base;
 #ifdef CONFIG_PPC_DCR
 	dcr_host_t	dhost;
-	unsigned int	dbase;
-	unsigned int	doff;
 #endif /* CONFIG_PPC_DCR */
 };
 
@@ -240,9 +243,6 @@ struct mpic_irq_save {
 /* The instance data of a given MPIC */
 struct mpic
 {
-	/* The device node of the interrupt controller */
-	struct device_node	*of_node;
-
 	/* The remapper for this MPIC */
 	struct irq_host		*irqhost;
 
@@ -292,10 +292,6 @@ struct mpic
 	struct mpic_reg_bank	cpuregs[MPIC_MAX_CPUS];
 	struct mpic_reg_bank	isus[MPIC_MAX_ISU];
 
-#ifdef CONFIG_PPC_DCR
-	unsigned int		dcr_base;
-#endif
-
 	/* Protected sources */
 	unsigned long		*protected;
 
@@ -307,6 +303,10 @@ struct mpic
 #ifdef CONFIG_PCI_MSI
 	spinlock_t		bitmap_lock;
 	unsigned long		*hwirq_bitmap;
+#endif
+
+#ifdef CONFIG_MPIC_BROKEN_REGREAD
+	u32			isu_reg0_shadow[MPIC_MAX_IRQ_SOURCES];
 #endif
 
 	/* link */
@@ -349,6 +349,12 @@ struct mpic
 #define MPIC_USES_DCR			0x00000080
 /* MPIC has 11-bit vector fields (or larger) */
 #define MPIC_LARGE_VECTORS		0x00000100
+/* Enable delivery of prio 15 interrupts as MCK instead of EE */
+#define MPIC_ENABLE_MCK			0x00000200
+/* Disable bias among target selection, spread interrupts evenly */
+#define MPIC_NO_BIAS			0x00000400
+/* Ignore NIRQS as reported by FRR */
+#define MPIC_BROKEN_FRR_NIRQS		0x00000800
 
 /* MPIC HW modification ID */
 #define MPIC_REGSET_MASK		0xf0000000
@@ -424,12 +430,11 @@ extern void mpic_init(struct mpic *mpic);
  */
 
 
-/* Change/Read the priority of an interrupt. Default is 8 for irqs and
+/* Change the priority of an interrupt. Default is 8 for irqs and
  * 10 for IPIs. You can call this on both IPIs and IRQ numbers, but the
  * IPI number is then the offset'ed (linux irq number mapped to the IPI)
  */
 extern void mpic_irq_set_priority(unsigned int irq, unsigned int pri);
-extern unsigned int mpic_irq_get_priority(unsigned int irq);
 
 /* Setup a non-boot CPU */
 extern void mpic_setup_this_cpu(void);
@@ -452,10 +457,19 @@ extern void mpic_send_ipi(unsigned int ipi_no, unsigned int cpu_mask);
 /* Send a message (IPI) to a given target (cpu number or MSG_*) */
 void smp_mpic_message_pass(int target, int msg);
 
+/* Unmask a specific virq */
+extern void mpic_unmask_irq(unsigned int irq);
+/* Mask a specific virq */
+extern void mpic_mask_irq(unsigned int irq);
+/* EOI a specific virq */
+extern void mpic_end_irq(unsigned int irq);
+
 /* Fetch interrupt from a given mpic */
 extern unsigned int mpic_get_one_irq(struct mpic *mpic);
-/* This one gets to the primary mpic */
+/* This one gets from the primary mpic */
 extern unsigned int mpic_get_irq(void);
+/* Fetch Machine Check interrupt from primary mpic */
+extern unsigned int mpic_get_mcirq(void);
 
 /* Set the EPIC clock ratio */
 void mpic_set_clk_ratio(struct mpic *mpic, u32 clock_ratio);

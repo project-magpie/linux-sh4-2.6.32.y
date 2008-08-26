@@ -178,6 +178,9 @@ static int get_date_field(char **p, u32 * value)
 	 * Try to find delimeter, only to insert null.  The end of the
 	 * string won't have one, but is still valid.
 	 */
+	if (*p == NULL)
+		return result;
+
 	next = strpbrk(*p, "- :");
 	if (next)
 		*next++ = '\0';
@@ -190,8 +193,27 @@ static int get_date_field(char **p, u32 * value)
 
 	if (next)
 		*p = next;
+	else
+		*p = NULL;
 
 	return result;
+}
+
+/* Read a possibly BCD register, always return binary */
+static u32 cmos_bcd_read(int offset, int rtc_control)
+{
+	u32 val = CMOS_READ(offset);
+	if (!(rtc_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD)
+		BCD_TO_BIN(val);
+	return val;
+}
+
+/* Write binary value into possibly BCD register */
+static void cmos_bcd_write(u32 val, int offset, int rtc_control)
+{
+	if (!(rtc_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD)
+		BIN_TO_BCD(val);
+	CMOS_WRITE(val, offset);
 }
 
 static ssize_t
@@ -234,86 +256,40 @@ acpi_system_write_alarm(struct file *file,
 	if ((result = get_date_field(&p, &sec)))
 		goto end;
 
-	if (sec > 59) {
-		min += 1;
-		sec -= 60;
-	}
-	if (min > 59) {
-		hr += 1;
-		min -= 60;
-	}
-	if (hr > 23) {
-		day += 1;
-		hr -= 24;
-	}
-	if (day > 31) {
-		mo += 1;
-		day -= 31;
-	}
-	if (mo > 12) {
-		yr += 1;
-		mo -= 12;
-	}
-
 	spin_lock_irq(&rtc_lock);
 
 	rtc_control = CMOS_READ(RTC_CONTROL);
-	if (!(rtc_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD) {
-		BIN_TO_BCD(yr);
-		BIN_TO_BCD(mo);
-		BIN_TO_BCD(day);
-		BIN_TO_BCD(hr);
-		BIN_TO_BCD(min);
-		BIN_TO_BCD(sec);
-	}
 
 	if (adjust) {
-		yr += CMOS_READ(RTC_YEAR);
-		mo += CMOS_READ(RTC_MONTH);
-		day += CMOS_READ(RTC_DAY_OF_MONTH);
-		hr += CMOS_READ(RTC_HOURS);
-		min += CMOS_READ(RTC_MINUTES);
-		sec += CMOS_READ(RTC_SECONDS);
+		yr += cmos_bcd_read(RTC_YEAR, rtc_control);
+		mo += cmos_bcd_read(RTC_MONTH, rtc_control);
+		day += cmos_bcd_read(RTC_DAY_OF_MONTH, rtc_control);
+		hr += cmos_bcd_read(RTC_HOURS, rtc_control);
+		min += cmos_bcd_read(RTC_MINUTES, rtc_control);
+		sec += cmos_bcd_read(RTC_SECONDS, rtc_control);
 	}
 
 	spin_unlock_irq(&rtc_lock);
 
-	if (!(rtc_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD) {
-		BCD_TO_BIN(yr);
-		BCD_TO_BIN(mo);
-		BCD_TO_BIN(day);
-		BCD_TO_BIN(hr);
-		BCD_TO_BIN(min);
-		BCD_TO_BIN(sec);
-	}
-
 	if (sec > 59) {
-		min++;
-		sec -= 60;
+		min += sec/60;
+		sec = sec%60;
 	}
 	if (min > 59) {
-		hr++;
-		min -= 60;
+		hr += min/60;
+		min = min%60;
 	}
 	if (hr > 23) {
-		day++;
-		hr -= 24;
+		day += hr/24;
+		hr = hr%24;
 	}
 	if (day > 31) {
-		mo++;
-		day -= 31;
+		mo += day/32;
+		day = day%32;
 	}
 	if (mo > 12) {
-		yr++;
-		mo -= 12;
-	}
-	if (!(rtc_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD) {
-		BIN_TO_BCD(yr);
-		BIN_TO_BCD(mo);
-		BIN_TO_BCD(day);
-		BIN_TO_BCD(hr);
-		BIN_TO_BCD(min);
-		BIN_TO_BCD(sec);
+		yr += mo/13;
+		mo = mo%13;
 	}
 
 	spin_lock_irq(&rtc_lock);
@@ -326,9 +302,9 @@ acpi_system_write_alarm(struct file *file,
 	CMOS_READ(RTC_INTR_FLAGS);
 
 	/* write the fields the rtc knows about */
-	CMOS_WRITE(hr, RTC_HOURS_ALARM);
-	CMOS_WRITE(min, RTC_MINUTES_ALARM);
-	CMOS_WRITE(sec, RTC_SECONDS_ALARM);
+	cmos_bcd_write(hr, RTC_HOURS_ALARM, rtc_control);
+	cmos_bcd_write(min, RTC_MINUTES_ALARM, rtc_control);
+	cmos_bcd_write(sec, RTC_SECONDS_ALARM, rtc_control);
 
 	/*
 	 * If the system supports an enhanced alarm it will have non-zero
@@ -336,11 +312,14 @@ acpi_system_write_alarm(struct file *file,
 	 * to the RTC area of memory.
 	 */
 	if (acpi_gbl_FADT.day_alarm)
-		CMOS_WRITE(day, acpi_gbl_FADT.day_alarm);
+		cmos_bcd_write(day, acpi_gbl_FADT.day_alarm, rtc_control);
 	if (acpi_gbl_FADT.month_alarm)
-		CMOS_WRITE(mo, acpi_gbl_FADT.month_alarm);
-	if (acpi_gbl_FADT.century)
-		CMOS_WRITE(yr / 100, acpi_gbl_FADT.century);
+		cmos_bcd_write(mo, acpi_gbl_FADT.month_alarm, rtc_control);
+	if (acpi_gbl_FADT.century) {
+		if (adjust)
+			yr += cmos_bcd_read(acpi_gbl_FADT.century, rtc_control) * 100;
+		cmos_bcd_write(yr / 100, acpi_gbl_FADT.century, rtc_control);
+	}
 	/* enable the rtc alarm interrupt */
 	rtc_control |= RTC_AIE;
 	CMOS_WRITE(rtc_control, RTC_CONTROL);
@@ -464,6 +443,7 @@ acpi_system_wakeup_device_open_fs(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations acpi_system_wakeup_device_fops = {
+	.owner = THIS_MODULE,
 	.open = acpi_system_wakeup_device_open_fs,
 	.read = seq_read,
 	.write = acpi_system_write_wakeup_device,
@@ -473,6 +453,7 @@ static const struct file_operations acpi_system_wakeup_device_fops = {
 
 #ifdef	CONFIG_ACPI_PROCFS
 static const struct file_operations acpi_system_sleep_fops = {
+	.owner = THIS_MODULE,
 	.open = acpi_system_sleep_open_fs,
 	.read = seq_read,
 	.write = acpi_system_write_sleep,
@@ -483,6 +464,7 @@ static const struct file_operations acpi_system_sleep_fops = {
 
 #ifdef	HAVE_ACPI_LEGACY_ALARM
 static const struct file_operations acpi_system_alarm_fops = {
+	.owner = THIS_MODULE,
 	.open = acpi_system_alarm_open_fs,
 	.read = seq_read,
 	.write = acpi_system_write_alarm,
@@ -501,37 +483,32 @@ static u32 rtc_handler(void *context)
 
 static int __init acpi_sleep_proc_init(void)
 {
-	struct proc_dir_entry *entry = NULL;
-
 	if (acpi_disabled)
 		return 0;
 
 #ifdef	CONFIG_ACPI_PROCFS
 	/* 'sleep' [R/W] */
-	entry =
-	    create_proc_entry("sleep", S_IFREG | S_IRUGO | S_IWUSR,
-			      acpi_root_dir);
-	if (entry)
-		entry->proc_fops = &acpi_system_sleep_fops;
+	proc_create("sleep", S_IFREG | S_IRUGO | S_IWUSR,
+		    acpi_root_dir, &acpi_system_sleep_fops);
 #endif				/* CONFIG_ACPI_PROCFS */
 
 #ifdef	HAVE_ACPI_LEGACY_ALARM
 	/* 'alarm' [R/W] */
-	entry =
-	    create_proc_entry("alarm", S_IFREG | S_IRUGO | S_IWUSR,
-			      acpi_root_dir);
-	if (entry)
-		entry->proc_fops = &acpi_system_alarm_fops;
+	proc_create("alarm", S_IFREG | S_IRUGO | S_IWUSR,
+		    acpi_root_dir, &acpi_system_alarm_fops);
 
 	acpi_install_fixed_event_handler(ACPI_EVENT_RTC, rtc_handler, NULL);
+	/*
+	 * Disable the RTC event after installing RTC handler.
+	 * Only when RTC alarm is set will it be enabled.
+	 */
+	acpi_clear_event(ACPI_EVENT_RTC);
+	acpi_disable_event(ACPI_EVENT_RTC, 0);
 #endif				/* HAVE_ACPI_LEGACY_ALARM */
 
 	/* 'wakeup device' [R/W] */
-	entry =
-	    create_proc_entry("wakeup", S_IFREG | S_IRUGO | S_IWUSR,
-			      acpi_root_dir);
-	if (entry)
-		entry->proc_fops = &acpi_system_wakeup_device_fops;
+	proc_create("wakeup", S_IFREG | S_IRUGO | S_IWUSR,
+		    acpi_root_dir, &acpi_system_wakeup_device_fops);
 
 	return 0;
 }

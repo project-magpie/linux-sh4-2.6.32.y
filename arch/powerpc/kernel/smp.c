@@ -61,18 +61,16 @@ struct thread_info *secondary_ti;
 
 cpumask_t cpu_possible_map = CPU_MASK_NONE;
 cpumask_t cpu_online_map = CPU_MASK_NONE;
-cpumask_t cpu_sibling_map[NR_CPUS] = { [0 ... NR_CPUS-1] = CPU_MASK_NONE };
+DEFINE_PER_CPU(cpumask_t, cpu_sibling_map) = CPU_MASK_NONE;
 
 EXPORT_SYMBOL(cpu_online_map);
 EXPORT_SYMBOL(cpu_possible_map);
-EXPORT_SYMBOL(cpu_sibling_map);
+EXPORT_PER_CPU_SYMBOL(cpu_sibling_map);
 
 /* SMP operations for this machine */
 struct smp_ops_t *smp_ops;
 
 static volatile unsigned int cpu_callin_map[NR_CPUS];
-
-void smp_call_function_interrupt(void);
 
 int smt_enabled_at_boot = 1;
 
@@ -97,11 +95,14 @@ void smp_message_recv(int msg)
 {
 	switch(msg) {
 	case PPC_MSG_CALL_FUNCTION:
-		smp_call_function_interrupt();
+		generic_smp_call_function_interrupt();
 		break;
 	case PPC_MSG_RESCHEDULE:
 		/* XXX Do we have to do this? */
 		set_need_resched();
+		break;
+	case PPC_MSG_CALL_FUNC_SINGLE:
+		generic_smp_call_function_single_interrupt();
 		break;
 	case PPC_MSG_DEBUGGER_BREAK:
 		if (crash_ipi_function_ptr) {
@@ -124,6 +125,19 @@ void smp_send_reschedule(int cpu)
 {
 	if (likely(smp_ops))
 		smp_ops->message_pass(cpu, PPC_MSG_RESCHEDULE);
+}
+
+void arch_send_call_function_single_ipi(int cpu)
+{
+	smp_ops->message_pass(cpu, PPC_MSG_CALL_FUNC_SINGLE);
+}
+
+void arch_send_call_function_ipi(cpumask_t mask)
+{
+	unsigned int cpu;
+
+	for_each_cpu_mask(cpu, mask)
+		smp_ops->message_pass(cpu, PPC_MSG_CALL_FUNCTION);
 }
 
 #ifdef CONFIG_DEBUGGER
@@ -154,190 +168,10 @@ static void stop_this_cpu(void *dummy)
 
 void smp_send_stop(void)
 {
-	smp_call_function(stop_this_cpu, NULL, 1, 0);
+	smp_call_function(stop_this_cpu, NULL, 0);
 }
-
-/*
- * Structure and data for smp_call_function(). This is designed to minimise
- * static memory requirements. It also looks cleaner.
- * Stolen from the i386 version.
- */
-static  __cacheline_aligned_in_smp DEFINE_SPINLOCK(call_lock);
-
-static struct call_data_struct {
-	void (*func) (void *info);
-	void *info;
-	atomic_t started;
-	atomic_t finished;
-	int wait;
-} *call_data;
-
-/* delay of at least 8 seconds */
-#define SMP_CALL_TIMEOUT	8
-
-/*
- * These functions send a 'generic call function' IPI to other online
- * CPUS in the system.
- *
- * [SUMMARY] Run a function on other CPUs.
- * <func> The function to run. This must be fast and non-blocking.
- * <info> An arbitrary pointer to pass to the function.
- * <nonatomic> currently unused.
- * <wait> If true, wait (atomically) until function has completed on other CPUs.
- * [RETURNS] 0 on success, else a negative status code. Does not return until
- * remote CPUs are nearly ready to execute <<func>> or are or have executed.
- *
- * You must not call this function with disabled interrupts or from a
- * hardware interrupt handler or from a bottom half handler.
- */
-int smp_call_function_map(void (*func) (void *info), void *info, int nonatomic,
-			int wait, cpumask_t map)
-{
-	struct call_data_struct data;
-	int ret = -1, num_cpus;
-	int cpu;
-	u64 timeout;
-
-	/* Can deadlock when called with interrupts disabled */
-	WARN_ON(irqs_disabled());
-
-	if (unlikely(smp_ops == NULL))
-		return ret;
-
-	data.func = func;
-	data.info = info;
-	atomic_set(&data.started, 0);
-	data.wait = wait;
-	if (wait)
-		atomic_set(&data.finished, 0);
-
-	spin_lock(&call_lock);
-
-	/* remove 'self' from the map */
-	if (cpu_isset(smp_processor_id(), map))
-		cpu_clear(smp_processor_id(), map);
-
-	/* sanity check the map, remove any non-online processors. */
-	cpus_and(map, map, cpu_online_map);
-
-	num_cpus = cpus_weight(map);
-	if (!num_cpus)
-		goto done;
-
-	call_data = &data;
-	smp_wmb();
-	/* Send a message to all CPUs in the map */
-	for_each_cpu_mask(cpu, map)
-		smp_ops->message_pass(cpu, PPC_MSG_CALL_FUNCTION);
-
-	timeout = get_tb() + (u64) SMP_CALL_TIMEOUT * tb_ticks_per_sec;
-
-	/* Wait for indication that they have received the message */
-	while (atomic_read(&data.started) != num_cpus) {
-		HMT_low();
-		if (get_tb() >= timeout) {
-			printk("smp_call_function on cpu %d: other cpus not "
-				"responding (%d)\n", smp_processor_id(),
-				atomic_read(&data.started));
-			debugger(NULL);
-			goto out;
-		}
-	}
-
-	/* optionally wait for the CPUs to complete */
-	if (wait) {
-		while (atomic_read(&data.finished) != num_cpus) {
-			HMT_low();
-			if (get_tb() >= timeout) {
-				printk("smp_call_function on cpu %d: other "
-					"cpus not finishing (%d/%d)\n",
-					smp_processor_id(),
-					atomic_read(&data.finished),
-					atomic_read(&data.started));
-				debugger(NULL);
-				goto out;
-			}
-		}
-	}
-
- done:
-	ret = 0;
-
- out:
-	call_data = NULL;
-	HMT_medium();
-	spin_unlock(&call_lock);
-	return ret;
-}
-
-int smp_call_function(void (*func) (void *info), void *info, int nonatomic,
-			int wait)
-{
-	return smp_call_function_map(func,info,nonatomic,wait,cpu_online_map);
-}
-EXPORT_SYMBOL(smp_call_function);
-
-int smp_call_function_single(int cpu, void (*func) (void *info), void *info, int nonatomic,
-			int wait)
-{
-	cpumask_t map = CPU_MASK_NONE;
-	int ret = 0;
-
-	if (!cpu_online(cpu))
-		return -EINVAL;
-
-	cpu_set(cpu, map);
-	if (cpu != get_cpu())
-		ret = smp_call_function_map(func,info,nonatomic,wait,map);
-	else {
-		local_irq_disable();
-		func(info);
-		local_irq_enable();
-	}
-	put_cpu();
-	return ret;
-}
-EXPORT_SYMBOL(smp_call_function_single);
-
-void smp_call_function_interrupt(void)
-{
-	void (*func) (void *info);
-	void *info;
-	int wait;
-
-	/* call_data will be NULL if the sender timed out while
-	 * waiting on us to receive the call.
-	 */
-	if (!call_data)
-		return;
-
-	func = call_data->func;
-	info = call_data->info;
-	wait = call_data->wait;
-
-	if (!wait)
-		smp_mb__before_atomic_inc();
-
-	/*
-	 * Notify initiating CPU that I've grabbed the data and am
-	 * about to execute the function
-	 */
-	atomic_inc(&call_data->started);
-	/*
-	 * At this point the info structure may be out of scope unless wait==1
-	 */
-	(*func)(info);
-	if (wait) {
-		smp_mb__before_atomic_inc();
-		atomic_inc(&call_data->finished);
-	}
-}
-
-extern struct gettimeofday_struct do_gtod;
 
 struct thread_info *current_set[NR_CPUS];
-
-DECLARE_PER_CPU(unsigned int, pvr);
 
 static void __devinit smp_store_cpu_info(int id)
 {
@@ -354,6 +188,8 @@ static void __init smp_create_idle(unsigned int cpu)
 		panic("failed fork for CPU %u: %li", cpu, PTR_ERR(p));
 #ifdef CONFIG_PPC64
 	paca[cpu].__current = p;
+	paca[cpu].kstack = (unsigned long) task_thread_info(p)
+		+ THREAD_SIZE - STACK_FRAME_OVERHEAD;
 #endif
 	current_set[cpu] = task_thread_info(p);
 	task_thread_info(p)->cpu = cpu;
@@ -560,9 +396,11 @@ int __devinit start_secondary(void *unused)
 	if (system_state > SYSTEM_BOOTING)
 		snapshot_timebase();
 
-	spin_lock(&call_lock);
+	secondary_cpu_time_init();
+
+	ipi_call_lock();
 	cpu_set(cpu, cpu_online_map);
-	spin_unlock(&call_lock);
+	ipi_call_unlock();
 
 	local_irq_enable();
 

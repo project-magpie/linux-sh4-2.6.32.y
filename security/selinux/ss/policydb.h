@@ -12,12 +12,12 @@
  *
  * Updated: Frank Mayer <mayerf@tresys.com> and Karl MacMillan <kmacmillan@tresys.com>
  *
- * 	Added conditional policy language extensions
+ *	Added conditional policy language extensions
  *
  * Copyright (C) 2004-2005 Trusted Computer Solutions, Inc.
  * Copyright (C) 2003 - 2004 Tresys Technology, LLC
  *	This program is free software; you can redistribute it and/or modify
- *  	it under the terms of the GNU General Public License as published by
+ *	it under the terms of the GNU General Public License as published by
  *	the Free Software Foundation, version 2.
  */
 
@@ -221,7 +221,7 @@ struct policydb {
 	/* type enforcement conditional access vectors and transitions */
 	struct avtab te_cond_avtab;
 	/* linked list indexing te_cond_avtab by conditional */
-	struct cond_node* cond_list;
+	struct cond_node *cond_list;
 
 	/* role allows */
 	struct role_allow *role_allow;
@@ -230,10 +230,10 @@ struct policydb {
 	   TCP or UDP port numbers, network interfaces and nodes */
 	struct ocontext *ocontexts[OCON_NUM];
 
-        /* security contexts for files in filesystems that cannot support
+	/* security contexts for files in filesystems that cannot support
 	   a persistent label mapping or use another
 	   fixed labeling behavior. */
-  	struct genfs *genfs;
+	struct genfs *genfs;
 
 	/* range transitions */
 	struct range_trans *range_tr;
@@ -241,17 +241,32 @@ struct policydb {
 	/* type -> attribute reverse mapping */
 	struct ebitmap *type_attr_map;
 
+	struct ebitmap policycaps;
+
+	struct ebitmap permissive_map;
+
 	unsigned int policyvers;
+
+	unsigned int reject_unknown : 1;
+	unsigned int allow_unknown : 1;
+	u32 *undefined_perms;
 };
 
 extern void policydb_destroy(struct policydb *p);
 extern int policydb_load_isids(struct policydb *p, struct sidtab *s);
 extern int policydb_context_isvalid(struct policydb *p, struct context *c);
+extern int policydb_class_isvalid(struct policydb *p, unsigned int class);
+extern int policydb_type_isvalid(struct policydb *p, unsigned int type);
+extern int policydb_role_isvalid(struct policydb *p, unsigned int role);
 extern int policydb_read(struct policydb *p, void *fp);
 
 #define PERM_SYMTAB_SIZE 32
 
 #define POLICYDB_CONFIG_MLS    1
+
+/* the config flags related to unknown classes/perms are bits 2 and 3 */
+#define REJECT_UNKNOWN	0x00000002
+#define ALLOW_UNKNOWN	0x00000004
 
 #define OBJECT_R "object_r"
 #define OBJECT_R_VAL 1

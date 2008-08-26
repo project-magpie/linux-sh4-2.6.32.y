@@ -1,7 +1,6 @@
 #ifndef _LINUX__INIT_TASK_H
 #define _LINUX__INIT_TASK_H
 
-#include <linux/file.h>
 #include <linux/rcupdate.h>
 #include <linux/irqflags.h>
 #include <linux/utsname.h>
@@ -9,28 +8,10 @@
 #include <linux/ipc.h>
 #include <linux/pid_namespace.h>
 #include <linux/user_namespace.h>
+#include <linux/securebits.h>
+#include <net/net_namespace.h>
 
-#define INIT_FDTABLE \
-{							\
-	.max_fds	= NR_OPEN_DEFAULT, 		\
-	.fd		= &init_files.fd_array[0], 	\
-	.close_on_exec	= (fd_set *)&init_files.close_on_exec_init, \
-	.open_fds	= (fd_set *)&init_files.open_fds_init, 	\
-	.rcu		= RCU_HEAD_INIT, 		\
-	.next		= NULL,		 		\
-}
-
-#define INIT_FILES \
-{ 							\
-	.count		= ATOMIC_INIT(1), 		\
-	.fdt		= &init_files.fdtab, 		\
-	.fdtab		= INIT_FDTABLE,			\
-	.file_lock	= __SPIN_LOCK_UNLOCKED(init_task.file_lock), \
-	.next_fd	= 0, 				\
-	.close_on_exec_init = { { 0, } }, 		\
-	.open_fds_init	= { { 0, } }, 			\
-	.fd_array	= { NULL, } 			\
-}
+extern struct files_struct init_files;
 
 #define INIT_KIOCTX(name, which_mm) \
 {							\
@@ -66,18 +47,15 @@
 	.posix_timers	 = LIST_HEAD_INIT(sig.posix_timers),		\
 	.cpu_timers	= INIT_CPU_TIMERS(sig.cpu_timers),		\
 	.rlim		= INIT_RLIMITS,					\
-	.pgrp		= 0,						\
-	.tty_old_pgrp   = NULL,						\
-	{ .__session      = 0},						\
 }
 
 extern struct nsproxy init_nsproxy;
 #define INIT_NSPROXY(nsproxy) {						\
 	.pid_ns		= &init_pid_ns,					\
 	.count		= ATOMIC_INIT(1),				\
-	.nslock		= __SPIN_LOCK_UNLOCKED(nsproxy.nslock),		\
 	.uts_ns		= &init_uts_ns,					\
 	.mnt_ns		= NULL,						\
+	INIT_NET_NS(net_ns)                                             \
 	INIT_IPC_NS(ipc_ns)						\
 	.user_ns	= &init_user_ns,				\
 }
@@ -93,15 +71,18 @@ extern struct group_info init_groups;
 
 #define INIT_STRUCT_PID {						\
 	.count 		= ATOMIC_INIT(1),				\
-	.nr		= 0, 						\
-	/* Don't put this struct pid in pid_hash */			\
-	.pid_chain	= { .next = NULL, .pprev = NULL },		\
 	.tasks		= {						\
 		{ .first = &init_task.pids[PIDTYPE_PID].node },		\
 		{ .first = &init_task.pids[PIDTYPE_PGID].node },	\
 		{ .first = &init_task.pids[PIDTYPE_SID].node },		\
 	},								\
 	.rcu		= RCU_HEAD_INIT,				\
+	.level		= 0,						\
+	.numbers	= { {						\
+		.nr		= 0,					\
+		.ns		= &init_pid_ns,				\
+		.pid_chain	= { .next = NULL, .pprev = NULL },	\
+	}, }								\
 }
 
 #define INIT_PID_LINK(type) 					\
@@ -113,6 +94,25 @@ extern struct group_info init_groups;
 	.pid = &init_struct_pid,				\
 }
 
+#ifdef CONFIG_AUDITSYSCALL
+#define INIT_IDS \
+	.loginuid = -1, \
+	.sessionid = -1,
+#else
+#define INIT_IDS
+#endif
+
+#ifdef CONFIG_SECURITY_FILE_CAPABILITIES
+/*
+ * Because of the reduced scope of CAP_SETPCAP when filesystem
+ * capabilities are in effect, it is safe to allow CAP_SETPCAP to
+ * be available in the default configuration.
+ */
+# define CAP_INIT_BSET  CAP_FULL_SET
+#else
+# define CAP_INIT_BSET  CAP_INIT_EFF_SET
+#endif
+
 /*
  *  INIT_TASK is used to set up the first task table, touch at
  * your own risk!. Base=0, limit=0x1fffff (=2MB)
@@ -122,7 +122,7 @@ extern struct group_info init_groups;
 	.state		= 0,						\
 	.stack		= &init_thread_info,				\
 	.usage		= ATOMIC_INIT(2),				\
-	.flags		= 0,						\
+	.flags		= PF_KTHREAD,					\
 	.lock_depth	= -1,						\
 	.prio		= MAX_PRIO-20,					\
 	.static_prio	= MAX_PRIO-20,					\
@@ -131,12 +131,17 @@ extern struct group_info init_groups;
 	.cpus_allowed	= CPU_MASK_ALL,					\
 	.mm		= NULL,						\
 	.active_mm	= &init_mm,					\
-	.run_list	= LIST_HEAD_INIT(tsk.run_list),			\
-	.ioprio		= 0,						\
-	.time_slice	= HZ,						\
+	.se		= {						\
+		.group_node 	= LIST_HEAD_INIT(tsk.se.group_node),	\
+	},								\
+	.rt		= {						\
+		.run_list	= LIST_HEAD_INIT(tsk.rt.run_list),	\
+		.time_slice	= HZ, 					\
+		.nr_cpus_allowed = NR_CPUS,				\
+	},								\
 	.tasks		= LIST_HEAD_INIT(tsk.tasks),			\
-	.ptrace_children= LIST_HEAD_INIT(tsk.ptrace_children),		\
-	.ptrace_list	= LIST_HEAD_INIT(tsk.ptrace_list),		\
+	.ptraced	= LIST_HEAD_INIT(tsk.ptraced),			\
+	.ptrace_entry	= LIST_HEAD_INIT(tsk.ptrace_entry),		\
 	.real_parent	= &tsk,						\
 	.parent		= &tsk,						\
 	.children	= LIST_HEAD_INIT(tsk.children),			\
@@ -146,7 +151,8 @@ extern struct group_info init_groups;
 	.cap_effective	= CAP_INIT_EFF_SET,				\
 	.cap_inheritable = CAP_INIT_INH_SET,				\
 	.cap_permitted	= CAP_FULL_SET,					\
-	.keep_capabilities = 0,						\
+	.cap_bset 	= CAP_INIT_BSET,				\
+	.securebits     = SECUREBITS_DEFAULT,				\
 	.user		= INIT_USER,					\
 	.comm		= "swapper",					\
 	.thread		= INIT_THREAD,					\
@@ -169,6 +175,8 @@ extern struct group_info init_groups;
 		[PIDTYPE_PGID] = INIT_PID_LINK(PIDTYPE_PGID),		\
 		[PIDTYPE_SID]  = INIT_PID_LINK(PIDTYPE_SID),		\
 	},								\
+	.dirties = INIT_PROP_LOCAL_SINGLE(dirties),			\
+	INIT_IDS							\
 	INIT_TRACE_IRQFLAGS						\
 	INIT_LOCKDEP							\
 }

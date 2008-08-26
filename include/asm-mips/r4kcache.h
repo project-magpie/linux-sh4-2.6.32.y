@@ -354,7 +354,7 @@ static inline void blast_##pfx##cache##lsize(void)			\
 									\
 	for (ws = 0; ws < ws_end; ws += ws_inc)				\
 		for (addr = start; addr < end; addr += lsize * 32)	\
-			cache##lsize##_unroll32(addr|ws,indexop);	\
+			cache##lsize##_unroll32(addr|ws, indexop);	\
 									\
 	__##pfx##flush_epilogue						\
 }									\
@@ -367,7 +367,7 @@ static inline void blast_##pfx##cache##lsize##_page(unsigned long page)	\
 	__##pfx##flush_prologue						\
 									\
 	do {								\
-		cache##lsize##_unroll32(start,hitop);			\
+		cache##lsize##_unroll32(start, hitop);			\
 		start += lsize * 32;					\
 	} while (start < end);						\
 									\
@@ -388,7 +388,7 @@ static inline void blast_##pfx##cache##lsize##_page_indexed(unsigned long page) 
 									\
 	for (ws = 0; ws < ws_end; ws += ws_inc)				\
 		for (addr = start; addr < end; addr += lsize * 32)	\
-			cache##lsize##_unroll32(addr|ws,indexop);	\
+			cache##lsize##_unroll32(addr|ws, indexop);	\
 									\
 	__##pfx##flush_epilogue						\
 }
@@ -402,6 +402,13 @@ __BUILD_BLAST_CACHE(s, scache, Index_Writeback_Inv_SD, Hit_Writeback_Inv_SD, 32)
 __BUILD_BLAST_CACHE(i, icache, Index_Invalidate_I, Hit_Invalidate_I, 64)
 __BUILD_BLAST_CACHE(s, scache, Index_Writeback_Inv_SD, Hit_Writeback_Inv_SD, 64)
 __BUILD_BLAST_CACHE(s, scache, Index_Writeback_Inv_SD, Hit_Writeback_Inv_SD, 128)
+
+__BUILD_BLAST_CACHE(inv_d, dcache, Index_Writeback_Inv_D, Hit_Invalidate_D, 16)
+__BUILD_BLAST_CACHE(inv_d, dcache, Index_Writeback_Inv_D, Hit_Invalidate_D, 32)
+__BUILD_BLAST_CACHE(inv_s, scache, Index_Writeback_Inv_SD, Hit_Invalidate_SD, 16)
+__BUILD_BLAST_CACHE(inv_s, scache, Index_Writeback_Inv_SD, Hit_Invalidate_SD, 32)
+__BUILD_BLAST_CACHE(inv_s, scache, Index_Writeback_Inv_SD, Hit_Invalidate_SD, 64)
+__BUILD_BLAST_CACHE(inv_s, scache, Index_Writeback_Inv_SD, Hit_Invalidate_SD, 128)
 
 /* build blast_xxx_range, protected_blast_xxx_range */
 #define __BUILD_BLAST_CACHE_RANGE(pfx, desc, hitop, prot) \

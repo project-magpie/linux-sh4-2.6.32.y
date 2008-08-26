@@ -22,15 +22,19 @@
 #include <linux/device.h>
 #include <linux/signal.h>
 #include <linux/platform_device.h>
+#include <linux/clk.h>
 
 #include <asm/mach-types.h>
 #include <asm/hardware.h>
 #include <asm/arch/pxa-regs.h>
+#include <asm/arch/pxa2xx-regs.h> /* FIXME: for PSSR */
 #include <asm/arch/ohci.h>
 
 #define PXA_UHC_MAX_PORTNUM    3
 
 #define UHCRHPS(x)              __REG2( 0x4C000050, (x)<<2 )
+
+static struct clk *usb_clk;
 
 /*
   PMM_NPS_MODE -- PMM Non-power switching mode
@@ -80,7 +84,7 @@ static int pxa27x_start_hc(struct device *dev)
 
 	inf = dev->platform_data;
 
-	pxa_set_cken(CKEN_USBHOST, 1);
+	clk_enable(usb_clk);
 
 	UHCHR |= UHCHR_FHR;
 	udelay(11);
@@ -101,7 +105,7 @@ static int pxa27x_start_hc(struct device *dev)
 	UHCHIE = (UHCHIE_UPRIE | UHCHIE_RWIE);
 
 	/* Clear any OTG Pin Hold */
-	if (PSSR & PSSR_OTGPH)
+	if (cpu_is_pxa27x() && (PSSR & PSSR_OTGPH))
 		PSSR |= PSSR_OTGPH;
 
 	return 0;
@@ -123,7 +127,7 @@ static void pxa27x_stop_hc(struct device *dev)
 	UHCCOMS |= 1;
 	udelay(10);
 
-	pxa_set_cken(CKEN_USBHOST, 0);
+	clk_disable(usb_clk);
 }
 
 
@@ -157,6 +161,10 @@ int usb_hcd_pxa27x_probe (const struct hc_driver *driver, struct platform_device
 		pr_debug ("resource[1] is not IORESOURCE_IRQ");
 		return -ENOMEM;
 	}
+
+	usb_clk = clk_get(&pdev->dev, "USBCLK");
+	if (IS_ERR(usb_clk))
+		return PTR_ERR(usb_clk);
 
 	hcd = usb_create_hcd (driver, &pdev->dev, "pxa27x");
 	if (!hcd)
@@ -201,6 +209,7 @@ int usb_hcd_pxa27x_probe (const struct hc_driver *driver, struct platform_device
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
  err1:
 	usb_put_hcd(hcd);
+	clk_put(usb_clk);
 	return retval;
 }
 
@@ -225,6 +234,7 @@ void usb_hcd_pxa27x_remove (struct usb_hcd *hcd, struct platform_device *pdev)
 	iounmap(hcd->regs);
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
 	usb_put_hcd(hcd);
+	clk_put(usb_clk);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -330,7 +340,6 @@ static int ohci_hcd_pxa27x_drv_suspend(struct platform_device *pdev, pm_message_
 
 	pxa27x_stop_hc(&pdev->dev);
 	hcd->state = HC_STATE_SUSPENDED;
-	pdev->dev.power.power_state = PMSG_SUSPEND;
 
 	return 0;
 }
@@ -348,13 +357,13 @@ static int ohci_hcd_pxa27x_drv_resume(struct platform_device *pdev)
 	if ((status = pxa27x_start_hc(&pdev->dev)) < 0)
 		return status;
 
-	pdev->dev.power.power_state = PMSG_ON;
-	usb_hcd_resume_root_hub(hcd);
-
+	ohci_finish_controller_resume(hcd);
 	return 0;
 }
 #endif
 
+/* work with hotplug and coldplug */
+MODULE_ALIAS("platform:pxa27x-ohci");
 
 static struct platform_driver ohci_hcd_pxa27x_driver = {
 	.probe		= ohci_hcd_pxa27x_drv_probe,
@@ -366,6 +375,7 @@ static struct platform_driver ohci_hcd_pxa27x_driver = {
 #endif
 	.driver		= {
 		.name	= "pxa27x-ohci",
+		.owner	= THIS_MODULE,
 	},
 };
 

@@ -3,7 +3,7 @@
 
 /*
  *  Header file for control interface
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -129,9 +129,6 @@ int snd_ctl_unregister_ioctl_compat(snd_kctl_ioctl_func_t fcn);
 #define snd_ctl_unregister_ioctl_compat(fcn)
 #endif
 
-int snd_ctl_elem_read(struct snd_card *card, struct snd_ctl_elem_value *control);
-int snd_ctl_elem_write(struct snd_card *card, struct snd_ctl_file *file, struct snd_ctl_elem_value *control);
-
 static inline unsigned int snd_ctl_get_ioffnum(struct snd_kcontrol *kctl, struct snd_ctl_elem_id *id)
 {
 	return id->numid - kctl->id.numid;
@@ -161,4 +158,19 @@ static inline struct snd_ctl_elem_id *snd_ctl_build_ioff(struct snd_ctl_elem_id 
 	return dst_id;
 }
 
+/*
+ * Frequently used control callbacks
+ */
+int snd_ctl_boolean_mono_info(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_info *uinfo);
+int snd_ctl_boolean_stereo_info(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_info *uinfo);
+
+/*
+ * virtual master control
+ */
+struct snd_kcontrol *snd_ctl_make_virtual_master(char *name,
+						 const unsigned int *tlv);
+int snd_ctl_add_slave(struct snd_kcontrol *master, struct snd_kcontrol *slave);
+		      
 #endif	/* __SOUND_CONTROL_H */

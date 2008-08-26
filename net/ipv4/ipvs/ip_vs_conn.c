@@ -5,8 +5,6 @@
  *              high-performance and highly available server based on a
  *              cluster of servers.
  *
- * Version:     $Id: ip_vs_conn.c,v 1.31 2003/04/18 09:03:16 wensong Exp $
- *
  * Authors:     Wensong Zhang <wensong@linuxvirtualserver.org>
  *              Peter Kese <peter.kese@ijs.si>
  *              Julian Anastasov <ja@ssi.bg>
@@ -35,6 +33,7 @@
 #include <linux/jhash.h>
 #include <linux/random.h>
 
+#include <net/net_namespace.h>
 #include <net/ip_vs.h>
 
 
@@ -392,7 +391,15 @@ ip_vs_bind_dest(struct ip_vs_conn *cp, struct ip_vs_dest *dest)
 	atomic_inc(&dest->refcnt);
 
 	/* Bind with the destination and its corresponding transmitter */
-	cp->flags |= atomic_read(&dest->conn_flags);
+	if ((cp->flags & IP_VS_CONN_F_SYNC) &&
+	    (!(cp->flags & IP_VS_CONN_F_TEMPLATE)))
+		/* if the connection is not template and is created
+		 * by sync, preserve the activity flag.
+		 */
+		cp->flags |= atomic_read(&dest->conn_flags) &
+			     (~IP_VS_CONN_F_INACTIVE);
+	else
+		cp->flags |= atomic_read(&dest->conn_flags);
 	cp->dest = dest;
 
 	IP_VS_DBG(7, "Bind-dest %s c:%u.%u.%u.%u:%d v:%u.%u.%u.%u:%d "
@@ -411,7 +418,11 @@ ip_vs_bind_dest(struct ip_vs_conn *cp, struct ip_vs_dest *dest)
 		/* It is a normal connection, so increase the inactive
 		   connection counter because it is in TCP SYNRECV
 		   state (inactive) or other protocol inacive state */
-		atomic_inc(&dest->inactconns);
+		if ((cp->flags & IP_VS_CONN_F_SYNC) &&
+		    (!(cp->flags & IP_VS_CONN_F_INACTIVE)))
+			atomic_inc(&dest->activeconns);
+		else
+			atomic_inc(&dest->inactconns);
 	} else {
 		/* It is a persistent connection/template, so increase
 		   the peristent connection counter */
@@ -421,6 +432,24 @@ ip_vs_bind_dest(struct ip_vs_conn *cp, struct ip_vs_dest *dest)
 	if (dest->u_threshold != 0 &&
 	    ip_vs_dest_totalconns(dest) >= dest->u_threshold)
 		dest->flags |= IP_VS_DEST_F_OVERLOAD;
+}
+
+
+/*
+ * Check if there is a destination for the connection, if so
+ * bind the connection to the destination.
+ */
+struct ip_vs_dest *ip_vs_try_bind_dest(struct ip_vs_conn *cp)
+{
+	struct ip_vs_dest *dest;
+
+	if ((cp) && (!cp->dest)) {
+		dest = ip_vs_find_dest(cp->daddr, cp->dport,
+				       cp->vaddr, cp->vport, cp->protocol);
+		ip_vs_bind_dest(cp, dest);
+		return dest;
+	} else
+		return NULL;
 }
 
 
@@ -610,9 +639,7 @@ ip_vs_conn_new(int proto, __be32 caddr, __be16 cport, __be32 vaddr, __be16 vport
 	}
 
 	INIT_LIST_HEAD(&cp->c_list);
-	init_timer(&cp->timer);
-	cp->timer.data     = (unsigned long)cp;
-	cp->timer.function = ip_vs_conn_expire;
+	setup_timer(&cp->timer, ip_vs_conn_expire, (unsigned long)cp);
 	cp->protocol	   = proto;
 	cp->caddr	   = caddr;
 	cp->cport	   = cport;
@@ -764,6 +791,57 @@ static const struct file_operations ip_vs_conn_fops = {
 	.llseek  = seq_lseek,
 	.release = seq_release,
 };
+
+static const char *ip_vs_origin_name(unsigned flags)
+{
+	if (flags & IP_VS_CONN_F_SYNC)
+		return "SYNC";
+	else
+		return "LOCAL";
+}
+
+static int ip_vs_conn_sync_seq_show(struct seq_file *seq, void *v)
+{
+
+	if (v == SEQ_START_TOKEN)
+		seq_puts(seq,
+   "Pro FromIP   FPrt ToIP     TPrt DestIP   DPrt State       Origin Expires\n");
+	else {
+		const struct ip_vs_conn *cp = v;
+
+		seq_printf(seq,
+			"%-3s %08X %04X %08X %04X %08X %04X %-11s %-6s %7lu\n",
+				ip_vs_proto_name(cp->protocol),
+				ntohl(cp->caddr), ntohs(cp->cport),
+				ntohl(cp->vaddr), ntohs(cp->vport),
+				ntohl(cp->daddr), ntohs(cp->dport),
+				ip_vs_state_name(cp->protocol, cp->state),
+				ip_vs_origin_name(cp->flags),
+				(cp->timer.expires-jiffies)/HZ);
+	}
+	return 0;
+}
+
+static const struct seq_operations ip_vs_conn_sync_seq_ops = {
+	.start = ip_vs_conn_seq_start,
+	.next  = ip_vs_conn_seq_next,
+	.stop  = ip_vs_conn_seq_stop,
+	.show  = ip_vs_conn_sync_seq_show,
+};
+
+static int ip_vs_conn_sync_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &ip_vs_conn_sync_seq_ops);
+}
+
+static const struct file_operations ip_vs_conn_sync_fops = {
+	.owner	 = THIS_MODULE,
+	.open    = ip_vs_conn_sync_open,
+	.read    = seq_read,
+	.llseek  = seq_lseek,
+	.release = seq_release,
+};
+
 #endif
 
 
@@ -922,7 +1000,8 @@ int ip_vs_conn_init(void)
 		rwlock_init(&__ip_vs_conntbl_lock_array[idx].l);
 	}
 
-	proc_net_fops_create("ip_vs_conn", 0, &ip_vs_conn_fops);
+	proc_net_fops_create(&init_net, "ip_vs_conn", 0, &ip_vs_conn_fops);
+	proc_net_fops_create(&init_net, "ip_vs_conn_sync", 0, &ip_vs_conn_sync_fops);
 
 	/* calculate the random value for connection hash */
 	get_random_bytes(&ip_vs_conn_rnd, sizeof(ip_vs_conn_rnd));
@@ -938,6 +1017,7 @@ void ip_vs_conn_cleanup(void)
 
 	/* Release the empty cache */
 	kmem_cache_destroy(ip_vs_conn_cachep);
-	proc_net_remove("ip_vs_conn");
+	proc_net_remove(&init_net, "ip_vs_conn");
+	proc_net_remove(&init_net, "ip_vs_conn_sync");
 	vfree(ip_vs_conn_tab);
 }

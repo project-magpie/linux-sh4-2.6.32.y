@@ -86,8 +86,6 @@ static int __init do_hp_probe(struct net_device *dev)
 	int base_addr = dev->base_addr;
 	int irq = dev->irq;
 
-	SET_MODULE_OWNER(dev);
-
 	if (base_addr > 0x1ff)		/* Check a single specified location. */
 		return hp_probe1(dev, base_addr);
 	else if (base_addr != 0)	/* Don't probe at all. */
@@ -105,7 +103,7 @@ static int __init do_hp_probe(struct net_device *dev)
 #ifndef MODULE
 struct net_device * __init hp_probe(int unit)
 {
-	struct net_device *dev = alloc_ei_netdev();
+	struct net_device *dev = alloc_eip_netdev();
 	int err;
 
 	if (!dev)
@@ -129,6 +127,7 @@ static int __init hp_probe1(struct net_device *dev, int ioaddr)
 	int i, retval, board_id, wordmode;
 	const char *name;
 	static unsigned version_printed;
+	DECLARE_MAC_BUF(mac);
 
 	if (!request_region(ioaddr, HP_IO_EXTENT, DRV_NAME))
 		return -EBUSY;
@@ -160,7 +159,9 @@ static int __init hp_probe1(struct net_device *dev, int ioaddr)
 	printk("%s: %s (ID %02x) at %#3x,", dev->name, name, board_id, ioaddr);
 
 	for(i = 0; i < ETHER_ADDR_LEN; i++)
-		printk(" %2.2x", dev->dev_addr[i] = inb(ioaddr + i));
+		dev->dev_addr[i] = inb(ioaddr + i);
+
+	printk(" %s", print_mac(mac, dev->dev_addr));
 
 	/* Snarf the interrupt now.  Someday this could be moved to open(). */
 	if (dev->irq < 2) {
@@ -175,7 +176,7 @@ static int __init hp_probe1(struct net_device *dev, int ioaddr)
 				outb_p(irqmap[irq] | HP_RUN, ioaddr + HP_CONFIGURE);
 				outb_p( 0x00 | HP_RUN, ioaddr + HP_CONFIGURE);
 				if (irq == probe_irq_off(cookie)		 /* It's a good IRQ line! */
-					&& request_irq (irq, ei_interrupt, 0, DRV_NAME, dev) == 0) {
+					&& request_irq (irq, eip_interrupt, 0, DRV_NAME, dev) == 0) {
 					printk(" selecting IRQ %d.\n", irq);
 					dev->irq = *irqp;
 					break;
@@ -190,7 +191,7 @@ static int __init hp_probe1(struct net_device *dev, int ioaddr)
 	} else {
 		if (dev->irq == 2)
 			dev->irq = 9;
-		if ((retval = request_irq(dev->irq, ei_interrupt, 0, DRV_NAME, dev))) {
+		if ((retval = request_irq(dev->irq, eip_interrupt, 0, DRV_NAME, dev))) {
 			printk (" unable to get IRQ %d.\n", dev->irq);
 			goto out;
 		}
@@ -201,7 +202,7 @@ static int __init hp_probe1(struct net_device *dev, int ioaddr)
 	dev->open = &hp_open;
 	dev->stop = &hp_close;
 #ifdef CONFIG_NET_POLL_CONTROLLER
-	dev->poll_controller = ei_poll;
+	dev->poll_controller = eip_poll;
 #endif
 
 	ei_status.name = name;
@@ -230,14 +231,14 @@ out:
 static int
 hp_open(struct net_device *dev)
 {
-	ei_open(dev);
+	eip_open(dev);
 	return 0;
 }
 
 static int
 hp_close(struct net_device *dev)
 {
-	ei_close(dev);
+	eip_close(dev);
 	return 0;
 }
 
@@ -388,7 +389,7 @@ static void __init
 hp_init_card(struct net_device *dev)
 {
 	int irq = dev->irq;
-	NS8390_init(dev, 0);
+	NS8390p_init(dev, 0);
 	outb_p(irqmap[irq&0x0f] | HP_RUN,
 		   dev->base_addr - NIC_OFFSET + HP_CONFIGURE);
 	return;
@@ -420,7 +421,7 @@ init_module(void)
 			if (this_dev != 0) break; /* only autoprobe 1st one */
 			printk(KERN_NOTICE "hp.c: Presently autoprobing (not recommended) for a single card.\n");
 		}
-		dev = alloc_ei_netdev();
+		dev = alloc_eip_netdev();
 		if (!dev)
 			break;
 		dev->irq = irq[this_dev];

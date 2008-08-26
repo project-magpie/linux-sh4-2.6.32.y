@@ -106,7 +106,7 @@ static void dccp_retransmit_timer(struct sock *sk)
 	 *	-- Acks     in client-PARTOPEN state (sec. 8.1.5)
 	 *	-- CloseReq in server-CLOSEREQ state (sec. 8.3)
 	 *	-- Close    in   node-CLOSING  state (sec. 8.3)                */
-	BUG_TRAP(sk->sk_send_head != NULL);
+	WARN_ON(sk->sk_send_head == NULL);
 
 	/*
 	 * More than than 4MSL (8 minutes) has passed, a RESET(aborted) was
@@ -224,7 +224,7 @@ static void dccp_delack_timer(unsigned long data)
 	if (sock_owned_by_user(sk)) {
 		/* Try again later. */
 		icsk->icsk_ack.blocked = 1;
-		NET_INC_STATS_BH(LINUX_MIB_DELAYEDACKLOCKED);
+		NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_DELAYEDACKLOCKED);
 		sk_reset_timer(sk, &icsk->icsk_delack_timer,
 			       jiffies + TCP_DELACK_MIN);
 		goto out;
@@ -254,7 +254,7 @@ static void dccp_delack_timer(unsigned long data)
 			icsk->icsk_ack.ato = TCP_ATO_MIN;
 		}
 		dccp_send_ack(sk);
-		NET_INC_STATS_BH(LINUX_MIB_DELAYEDACKS);
+		NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_DELAYEDACKS);
 	}
 out:
 	bh_unlock_sock(sk);
@@ -280,9 +280,8 @@ static void dccp_init_write_xmit_timer(struct sock *sk)
 {
 	struct dccp_sock *dp = dccp_sk(sk);
 
-	init_timer(&dp->dccps_xmit_timer);
-	dp->dccps_xmit_timer.data = (unsigned long)sk;
-	dp->dccps_xmit_timer.function = dccp_write_xmit_timer;
+	setup_timer(&dp->dccps_xmit_timer, dccp_write_xmit_timer,
+			(unsigned long)sk);
 }
 
 void dccp_init_xmit_timers(struct sock *sk)
@@ -290,4 +289,25 @@ void dccp_init_xmit_timers(struct sock *sk)
 	dccp_init_write_xmit_timer(sk);
 	inet_csk_init_xmit_timers(sk, &dccp_write_timer, &dccp_delack_timer,
 				  &dccp_keepalive_timer);
+}
+
+static ktime_t dccp_timestamp_seed;
+/**
+ * dccp_timestamp  -  10s of microseconds time source
+ * Returns the number of 10s of microseconds since loading DCCP. This is native
+ * DCCP time difference format (RFC 4340, sec. 13).
+ * Please note: This will wrap around about circa every 11.9 hours.
+ */
+u32 dccp_timestamp(void)
+{
+	s64 delta = ktime_us_delta(ktime_get_real(), dccp_timestamp_seed);
+
+	do_div(delta, 10);
+	return delta;
+}
+EXPORT_SYMBOL_GPL(dccp_timestamp);
+
+void __init dccp_timestamping_init(void)
+{
+	dccp_timestamp_seed = ktime_get_real();
 }

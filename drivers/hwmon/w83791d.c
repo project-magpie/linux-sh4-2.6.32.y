@@ -2,7 +2,7 @@
     w83791d.c - Part of lm_sensors, Linux kernel modules for hardware
                 monitoring
 
-    Copyright (C) 2006 Charles Spirakis <bezaur@gmail.com>
+    Copyright (C) 2006-2007 Charles Spirakis <bezaur@gmail.com>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -47,7 +47,8 @@
 #define NUMBER_OF_TEMPIN	3
 
 /* Addresses to scan */
-static unsigned short normal_i2c[] = { 0x2c, 0x2d, 0x2e, 0x2f, I2C_CLIENT_END };
+static const unsigned short normal_i2c[] = { 0x2c, 0x2d, 0x2e, 0x2f,
+						I2C_CLIENT_END };
 
 /* Insmod parameters */
 I2C_CLIENT_INSMOD_1(w83791d);
@@ -246,8 +247,7 @@ static u8 div_to_reg(int nr, long val)
 }
 
 struct w83791d_data {
-	struct i2c_client client;
-	struct class_device *class_dev;
+	struct device *hwmon_dev;
 	struct mutex update_lock;
 
 	char valid;			/* !=0 if following fields are valid */
@@ -285,9 +285,11 @@ struct w83791d_data {
 	u8 vrm;			/* hwmon-vid */
 };
 
-static int w83791d_attach_adapter(struct i2c_adapter *adapter);
-static int w83791d_detect(struct i2c_adapter *adapter, int address, int kind);
-static int w83791d_detach_client(struct i2c_client *client);
+static int w83791d_probe(struct i2c_client *client,
+			 const struct i2c_device_id *id);
+static int w83791d_detect(struct i2c_client *client, int kind,
+			  struct i2c_board_info *info);
+static int w83791d_remove(struct i2c_client *client);
 
 static int w83791d_read(struct i2c_client *client, u8 register);
 static int w83791d_write(struct i2c_client *client, u8 register, u8 value);
@@ -299,12 +301,22 @@ static void w83791d_print_debug(struct w83791d_data *data, struct device *dev);
 
 static void w83791d_init_client(struct i2c_client *client);
 
+static const struct i2c_device_id w83791d_id[] = {
+	{ "w83791d", w83791d },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, w83791d_id);
+
 static struct i2c_driver w83791d_driver = {
+	.class		= I2C_CLASS_HWMON,
 	.driver = {
 		.name = "w83791d",
 	},
-	.attach_adapter = w83791d_attach_adapter,
-	.detach_client = w83791d_detach_client,
+	.probe		= w83791d_probe,
+	.remove		= w83791d_remove,
+	.id_table	= w83791d_id,
+	.detect		= w83791d_detect,
+	.address_data	= &addr_data,
 };
 
 /* following are the sysfs callback functions */
@@ -382,6 +394,85 @@ static struct sensor_device_attribute sda_in_max[] = {
 	SENSOR_ATTR(in7_max, S_IWUSR | S_IRUGO, show_in_max, store_in_max, 7),
 	SENSOR_ATTR(in8_max, S_IWUSR | S_IRUGO, show_in_max, store_in_max, 8),
 	SENSOR_ATTR(in9_max, S_IWUSR | S_IRUGO, show_in_max, store_in_max, 9),
+};
+
+
+static ssize_t show_beep(struct device *dev, struct device_attribute *attr,
+			char *buf)
+{
+	struct sensor_device_attribute *sensor_attr =
+						to_sensor_dev_attr(attr);
+	struct w83791d_data *data = w83791d_update_device(dev);
+	int bitnr = sensor_attr->index;
+
+	return sprintf(buf, "%d\n", (data->beep_mask >> bitnr) & 1);
+}
+
+static ssize_t store_beep(struct device *dev, struct device_attribute *attr,
+			const char *buf, size_t count)
+{
+	struct sensor_device_attribute *sensor_attr =
+						to_sensor_dev_attr(attr);
+	struct i2c_client *client = to_i2c_client(dev);
+	struct w83791d_data *data = i2c_get_clientdata(client);
+	int bitnr = sensor_attr->index;
+	int bytenr = bitnr / 8;
+	long val = simple_strtol(buf, NULL, 10) ? 1 : 0;
+
+	mutex_lock(&data->update_lock);
+
+	data->beep_mask &= ~(0xff << (bytenr * 8));
+	data->beep_mask |= w83791d_read(client, W83791D_REG_BEEP_CTRL[bytenr])
+		<< (bytenr * 8);
+
+	data->beep_mask &= ~(1 << bitnr);
+	data->beep_mask |= val << bitnr;
+
+	w83791d_write(client, W83791D_REG_BEEP_CTRL[bytenr],
+		(data->beep_mask >> (bytenr * 8)) & 0xff);
+
+	mutex_unlock(&data->update_lock);
+
+	return count;
+}
+
+static ssize_t show_alarm(struct device *dev, struct device_attribute *attr,
+			char *buf)
+{
+	struct sensor_device_attribute *sensor_attr =
+						to_sensor_dev_attr(attr);
+	struct w83791d_data *data = w83791d_update_device(dev);
+	int bitnr = sensor_attr->index;
+
+	return sprintf(buf, "%d\n", (data->alarms >> bitnr) & 1);
+}
+
+/* Note: The bitmask for the beep enable/disable is different than
+   the bitmask for the alarm. */
+static struct sensor_device_attribute sda_in_beep[] = {
+	SENSOR_ATTR(in0_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 0),
+	SENSOR_ATTR(in1_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 13),
+	SENSOR_ATTR(in2_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 2),
+	SENSOR_ATTR(in3_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 3),
+	SENSOR_ATTR(in4_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 8),
+	SENSOR_ATTR(in5_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 9),
+	SENSOR_ATTR(in6_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 10),
+	SENSOR_ATTR(in7_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 16),
+	SENSOR_ATTR(in8_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 17),
+	SENSOR_ATTR(in9_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 14),
+};
+
+static struct sensor_device_attribute sda_in_alarm[] = {
+	SENSOR_ATTR(in0_alarm, S_IRUGO, show_alarm, NULL, 0),
+	SENSOR_ATTR(in1_alarm, S_IRUGO, show_alarm, NULL, 1),
+	SENSOR_ATTR(in2_alarm, S_IRUGO, show_alarm, NULL, 2),
+	SENSOR_ATTR(in3_alarm, S_IRUGO, show_alarm, NULL, 3),
+	SENSOR_ATTR(in4_alarm, S_IRUGO, show_alarm, NULL, 8),
+	SENSOR_ATTR(in5_alarm, S_IRUGO, show_alarm, NULL, 9),
+	SENSOR_ATTR(in6_alarm, S_IRUGO, show_alarm, NULL, 10),
+	SENSOR_ATTR(in7_alarm, S_IRUGO, show_alarm, NULL, 19),
+	SENSOR_ATTR(in8_alarm, S_IRUGO, show_alarm, NULL, 20),
+	SENSOR_ATTR(in9_alarm, S_IRUGO, show_alarm, NULL, 14),
 };
 
 #define show_fan_reg(reg) \
@@ -536,6 +627,22 @@ static struct sensor_device_attribute sda_fan_div[] = {
 			show_fan_div, store_fan_div, 4),
 };
 
+static struct sensor_device_attribute sda_fan_beep[] = {
+	SENSOR_ATTR(fan1_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 6),
+	SENSOR_ATTR(fan2_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 7),
+	SENSOR_ATTR(fan3_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 11),
+	SENSOR_ATTR(fan4_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 21),
+	SENSOR_ATTR(fan5_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 22),
+};
+
+static struct sensor_device_attribute sda_fan_alarm[] = {
+	SENSOR_ATTR(fan1_alarm, S_IRUGO, show_alarm, NULL, 6),
+	SENSOR_ATTR(fan2_alarm, S_IRUGO, show_alarm, NULL, 7),
+	SENSOR_ATTR(fan3_alarm, S_IRUGO, show_alarm, NULL, 11),
+	SENSOR_ATTR(fan4_alarm, S_IRUGO, show_alarm, NULL, 21),
+	SENSOR_ATTR(fan5_alarm, S_IRUGO, show_alarm, NULL, 22),
+};
+
 /* read/write the temperature1, includes measured value and limits */
 static ssize_t show_temp1(struct device *dev, struct device_attribute *devattr,
 				char *buf)
@@ -618,6 +725,19 @@ static struct sensor_device_attribute_2 sda_temp_max_hyst[] = {
 			show_temp23, store_temp23, 1, 2),
 };
 
+/* Note: The bitmask for the beep enable/disable is different than
+   the bitmask for the alarm. */
+static struct sensor_device_attribute sda_temp_beep[] = {
+	SENSOR_ATTR(temp1_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 4),
+	SENSOR_ATTR(temp2_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 5),
+	SENSOR_ATTR(temp3_beep, S_IWUSR | S_IRUGO, show_beep, store_beep, 1),
+};
+
+static struct sensor_device_attribute sda_temp_alarm[] = {
+	SENSOR_ATTR(temp1_alarm, S_IRUGO, show_alarm, NULL, 4),
+	SENSOR_ATTR(temp2_alarm, S_IRUGO, show_alarm, NULL, 5),
+	SENSOR_ATTR(temp3_alarm, S_IRUGO, show_alarm, NULL, 13),
+};
 
 /* get reatime status of all sensors items: voltage, temp, fan */
 static ssize_t show_alarms_reg(struct device *dev,
@@ -724,7 +844,7 @@ static DEVICE_ATTR(cpu0_vid, S_IRUGO, show_vid_reg, NULL);
 static ssize_t show_vrm_reg(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
-	struct w83791d_data *data = w83791d_update_device(dev);
+	struct w83791d_data *data = dev_get_drvdata(dev);
 	return sprintf(buf, "%d\n", data->vrm);
 }
 
@@ -732,14 +852,12 @@ static ssize_t store_vrm_reg(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	struct i2c_client *client = to_i2c_client(dev);
-	struct w83791d_data *data = i2c_get_clientdata(client);
-	unsigned long val = simple_strtoul(buf, NULL, 10);
+	struct w83791d_data *data = dev_get_drvdata(dev);
 
 	/* No lock needed as vrm is internal to the driver
 	   (not read from a chip register) and so is not
 	   updated in w83791d_update_device() */
-	data->vrm = val;
+	data->vrm = simple_strtoul(buf, NULL, 10);
 
 	return count;
 }
@@ -749,17 +867,23 @@ static DEVICE_ATTR(vrm, S_IRUGO | S_IWUSR, show_vrm_reg, store_vrm_reg);
 #define IN_UNIT_ATTRS(X) \
 	&sda_in_input[X].dev_attr.attr, \
 	&sda_in_min[X].dev_attr.attr,   \
-	&sda_in_max[X].dev_attr.attr
+	&sda_in_max[X].dev_attr.attr,   \
+	&sda_in_beep[X].dev_attr.attr,  \
+	&sda_in_alarm[X].dev_attr.attr
 
 #define FAN_UNIT_ATTRS(X) \
 	&sda_fan_input[X].dev_attr.attr,        \
 	&sda_fan_min[X].dev_attr.attr,          \
-	&sda_fan_div[X].dev_attr.attr
+	&sda_fan_div[X].dev_attr.attr,          \
+	&sda_fan_beep[X].dev_attr.attr,         \
+	&sda_fan_alarm[X].dev_attr.attr
 
 #define TEMP_UNIT_ATTRS(X) \
 	&sda_temp_input[X].dev_attr.attr,       \
 	&sda_temp_max[X].dev_attr.attr,         \
-	&sda_temp_max_hyst[X].dev_attr.attr
+	&sda_temp_max_hyst[X].dev_attr.attr,    \
+	&sda_temp_beep[X].dev_attr.attr,        \
+	&sda_temp_alarm[X].dev_attr.attr
 
 static struct attribute *w83791d_attributes[] = {
 	IN_UNIT_ATTRS(0),
@@ -792,49 +916,12 @@ static const struct attribute_group w83791d_group = {
 	.attrs = w83791d_attributes,
 };
 
-/* This function is called when:
-     * w83791d_driver is inserted (when this module is loaded), for each
-       available adapter
-     * when a new adapter is inserted (and w83791d_driver is still present) */
-static int w83791d_attach_adapter(struct i2c_adapter *adapter)
+
+static int w83791d_detect_subclients(struct i2c_client *client)
 {
-	if (!(adapter->class & I2C_CLASS_HWMON))
-		return 0;
-	return i2c_probe(adapter, &addr_data, w83791d_detect);
-}
-
-
-static int w83791d_create_subclient(struct i2c_adapter *adapter,
-				struct i2c_client *client, int addr,
-				struct i2c_client **sub_cli)
-{
-	int err;
-	struct i2c_client *sub_client;
-
-	(*sub_cli) = sub_client =
-			kzalloc(sizeof(struct i2c_client), GFP_KERNEL);
-	if (!(sub_client)) {
-		return -ENOMEM;
-	}
-	sub_client->addr = 0x48 + addr;
-	i2c_set_clientdata(sub_client, NULL);
-	sub_client->adapter = adapter;
-	sub_client->driver = &w83791d_driver;
-	strlcpy(sub_client->name, "w83791d subclient", I2C_NAME_SIZE);
-	if ((err = i2c_attach_client(sub_client))) {
-		dev_err(&client->dev, "subclient registration "
-			"at address 0x%x failed\n", sub_client->addr);
-		kfree(sub_client);
-		return err;
-	}
-	return 0;
-}
-
-
-static int w83791d_detect_subclients(struct i2c_adapter *adapter, int address,
-				int kind, struct i2c_client *client)
-{
+	struct i2c_adapter *adapter = client->adapter;
 	struct w83791d_data *data = i2c_get_clientdata(client);
+	int address = client->addr;
 	int i, id, err;
 	u8 val;
 
@@ -858,10 +945,7 @@ static int w83791d_detect_subclients(struct i2c_adapter *adapter, int address,
 
 	val = w83791d_read(client, W83791D_REG_I2C_SUBADDR);
 	if (!(val & 0x08)) {
-		err = w83791d_create_subclient(adapter, client,
-						val & 0x7, &data->lm75[0]);
-		if (err < 0)
-			goto error_sc_0;
+		data->lm75[0] = i2c_new_dummy(adapter, 0x48 + (val & 0x7));
 	}
 	if (!(val & 0x80)) {
 		if ((data->lm75[0] != NULL) &&
@@ -873,10 +957,8 @@ static int w83791d_detect_subclients(struct i2c_adapter *adapter, int address,
 			err = -ENODEV;
 			goto error_sc_1;
 		}
-		err = w83791d_create_subclient(adapter, client,
-					(val >> 4) & 0x7, &data->lm75[1]);
-		if (err < 0)
-			goto error_sc_1;
+		data->lm75[1] = i2c_new_dummy(adapter,
+					      0x48 + ((val >> 4) & 0x7));
 	}
 
 	return 0;
@@ -884,53 +966,31 @@ static int w83791d_detect_subclients(struct i2c_adapter *adapter, int address,
 /* Undo inits in case of errors */
 
 error_sc_1:
-	if (data->lm75[0] != NULL) {
-		i2c_detach_client(data->lm75[0]);
-		kfree(data->lm75[0]);
-	}
+	if (data->lm75[0] != NULL)
+		i2c_unregister_device(data->lm75[0]);
 error_sc_0:
 	return err;
 }
 
 
-static int w83791d_detect(struct i2c_adapter *adapter, int address, int kind)
+/* Return 0 if detection is successful, -ENODEV otherwise */
+static int w83791d_detect(struct i2c_client *client, int kind,
+			  struct i2c_board_info *info)
 {
-	struct i2c_client *client;
-	struct device *dev;
-	struct w83791d_data *data;
-	int i, val1, val2;
-	int err = 0;
-	const char *client_name = "";
+	struct i2c_adapter *adapter = client->adapter;
+	int val1, val2;
+	unsigned short address = client->addr;
 
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA)) {
-		goto error0;
+		return -ENODEV;
 	}
-
-	/* OK. For now, we presume we have a valid client. We now create the
-	   client structure, even though we cannot fill it completely yet.
-	   But it allows us to access w83791d_{read,write}_value. */
-	if (!(data = kzalloc(sizeof(struct w83791d_data), GFP_KERNEL))) {
-		err = -ENOMEM;
-		goto error0;
-	}
-
-	client = &data->client;
-	dev = &client->dev;
-	i2c_set_clientdata(client, data);
-	client->addr = address;
-	client->adapter = adapter;
-	client->driver = &w83791d_driver;
-	mutex_init(&data->update_lock);
-
-	/* Now, we do the remaining detection. */
 
 	/* The w83791d may be stuck in some other bank than bank 0. This may
 	   make reading other information impossible. Specify a force=...
 	   parameter, and the Winbond will be reset to the right bank. */
 	if (kind < 0) {
 		if (w83791d_read(client, W83791D_REG_CONFIG) & 0x80) {
-			dev_dbg(dev, "Detection failed at step 1\n");
-			goto error1;
+			return -ENODEV;
 		}
 		val1 = w83791d_read(client, W83791D_REG_BANK);
 		val2 = w83791d_read(client, W83791D_REG_CHIPMAN);
@@ -939,15 +999,13 @@ static int w83791d_detect(struct i2c_adapter *adapter, int address, int kind)
 			/* yes it is Bank0 */
 			if (((!(val1 & 0x80)) && (val2 != 0xa3)) ||
 			    ((val1 & 0x80) && (val2 != 0x5c))) {
-				dev_dbg(dev, "Detection failed at step 2\n");
-				goto error1;
+				return -ENODEV;
 			}
 		}
 		/* If Winbond chip, address of chip and W83791D_REG_I2C_ADDR
 		   should match */
 		if (w83791d_read(client, W83791D_REG_I2C_ADDR) != address) {
-			dev_dbg(dev, "Detection failed at step 3\n");
-			goto error1;
+			return -ENODEV;
 		}
 	}
 
@@ -962,30 +1020,33 @@ static int w83791d_detect(struct i2c_adapter *adapter, int address, int kind)
 		/* get vendor ID */
 		val2 = w83791d_read(client, W83791D_REG_CHIPMAN);
 		if (val2 != 0x5c) {	/* the vendor is NOT Winbond */
-			dev_dbg(dev, "Detection failed at step 4\n");
-			goto error1;
+			return -ENODEV;
 		}
 		val1 = w83791d_read(client, W83791D_REG_WCHIPID);
 		if (val1 == 0x71) {
 			kind = w83791d;
 		} else {
 			if (kind == 0)
-				dev_warn(dev,
+				dev_warn(&adapter->dev,
 					"w83791d: Ignoring 'force' parameter "
 					"for unknown chip at adapter %d, "
 					"address 0x%02x\n",
 					i2c_adapter_id(adapter), address);
-			goto error1;
+			return -ENODEV;
 		}
 	}
 
-	if (kind == w83791d) {
-		client_name = "w83791d";
-	} else {
-		dev_err(dev, "w83791d: Internal error: unknown kind (%d)?!?",
-			kind);
-		goto error1;
-	}
+	strlcpy(info->type, "w83791d", I2C_NAME_SIZE);
+
+	return 0;
+}
+
+static int w83791d_probe(struct i2c_client *client,
+			 const struct i2c_device_id *id)
+{
+	struct w83791d_data *data;
+	struct device *dev = &client->dev;
+	int i, val1, err;
 
 #ifdef DEBUG
 	val1 = w83791d_read(client, W83791D_REG_DID_VID4);
@@ -993,15 +1054,18 @@ static int w83791d_detect(struct i2c_adapter *adapter, int address, int kind)
 			(val1 >> 5) & 0x07, (val1 >> 1) & 0x0f, val1);
 #endif
 
-	/* Fill in the remaining client fields and put into the global list */
-	strlcpy(client->name, client_name, I2C_NAME_SIZE);
+	data = kzalloc(sizeof(struct w83791d_data), GFP_KERNEL);
+	if (!data) {
+		err = -ENOMEM;
+		goto error0;
+	}
 
-	/* Tell the I2C layer a new client has arrived */
-	if ((err = i2c_attach_client(client)))
+	i2c_set_clientdata(client, data);
+	mutex_init(&data->update_lock);
+
+	err = w83791d_detect_subclients(client);
+	if (err)
 		goto error1;
-
-	if ((err = w83791d_detect_subclients(adapter, address, kind, client)))
-		goto error2;
 
 	/* Initialize the chip */
 	w83791d_init_client(client);
@@ -1017,9 +1081,9 @@ static int w83791d_detect(struct i2c_adapter *adapter, int address, int kind)
 		goto error3;
 
 	/* Everything is ready, now register the working device */
-	data->class_dev = hwmon_device_register(dev);
-	if (IS_ERR(data->class_dev)) {
-		err = PTR_ERR(data->class_dev);
+	data->hwmon_dev = hwmon_device_register(dev);
+	if (IS_ERR(data->hwmon_dev)) {
+		err = PTR_ERR(data->hwmon_dev);
 		goto error4;
 	}
 
@@ -1028,43 +1092,29 @@ static int w83791d_detect(struct i2c_adapter *adapter, int address, int kind)
 error4:
 	sysfs_remove_group(&client->dev.kobj, &w83791d_group);
 error3:
-	if (data->lm75[0] != NULL) {
-		i2c_detach_client(data->lm75[0]);
-		kfree(data->lm75[0]);
-	}
-	if (data->lm75[1] != NULL) {
-		i2c_detach_client(data->lm75[1]);
-		kfree(data->lm75[1]);
-	}
-error2:
-	i2c_detach_client(client);
+	if (data->lm75[0] != NULL)
+		i2c_unregister_device(data->lm75[0]);
+	if (data->lm75[1] != NULL)
+		i2c_unregister_device(data->lm75[1]);
 error1:
 	kfree(data);
 error0:
 	return err;
 }
 
-static int w83791d_detach_client(struct i2c_client *client)
+static int w83791d_remove(struct i2c_client *client)
 {
 	struct w83791d_data *data = i2c_get_clientdata(client);
-	int err;
 
-	/* main client */
-	if (data) {
-		hwmon_device_unregister(data->class_dev);
-		sysfs_remove_group(&client->dev.kobj, &w83791d_group);
-	}
+	hwmon_device_unregister(data->hwmon_dev);
+	sysfs_remove_group(&client->dev.kobj, &w83791d_group);
 
-	if ((err = i2c_detach_client(client)))
-		return err;
+	if (data->lm75[0] != NULL)
+		i2c_unregister_device(data->lm75[0]);
+	if (data->lm75[1] != NULL)
+		i2c_unregister_device(data->lm75[1]);
 
-	/* main client */
-	if (data)
-		kfree(data);
-	/* subclient */
-	else
-		kfree(client);
-
+	kfree(data);
 	return 0;
 }
 

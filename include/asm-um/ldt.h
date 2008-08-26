@@ -8,14 +8,10 @@
 #ifndef __ASM_LDT_H
 #define __ASM_LDT_H
 
-#include "asm/semaphore.h"
+#include <linux/mutex.h>
 #include "asm/host_ldt.h"
 
-struct mmu_context_skas;
 extern void ldt_host_info(void);
-extern long init_new_ldt(struct mmu_context_skas * to_mm,
-			 struct mmu_context_skas * from_mm);
-extern void free_ldt(struct mmu_context_skas * mm);
 
 #define LDT_PAGES_MAX \
 	((LDT_ENTRIES * LDT_ENTRY_SIZE)/PAGE_SIZE)
@@ -31,7 +27,7 @@ struct ldt_entry {
 
 typedef struct uml_ldt {
 	int entry_count;
-	struct semaphore semaphore;
+	struct mutex lock;
 	union {
 		struct ldt_entry * pages[LDT_PAGES_MAX];
 		struct ldt_entry entries[LDT_DIRECT_ENTRIES];

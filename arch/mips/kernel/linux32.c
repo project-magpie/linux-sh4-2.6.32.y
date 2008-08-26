@@ -11,7 +11,6 @@
 #include <linux/file.h>
 #include <linux/smp_lock.h>
 #include <linux/highuid.h>
-#include <linux/dirent.h>
 #include <linux/resource.h>
 #include <linux/highmem.h>
 #include <linux/time.h>
@@ -35,12 +34,12 @@
 #include <linux/security.h>
 #include <linux/compat.h>
 #include <linux/vfs.h>
+#include <linux/ipc.h>
 
 #include <net/sock.h>
 #include <net/scm.h>
 
 #include <asm/compat-signal.h>
-#include <asm/ipc.h>
 #include <asm/sim.h>
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -58,10 +57,10 @@
 #define AA(__x) ((unsigned long)((int)__x))
 
 #ifdef __MIPSEB__
-#define merge_64(r1,r2)	((((r1) & 0xffffffffUL) << 32) + ((r2) & 0xffffffffUL))
+#define merge_64(r1, r2) ((((r1) & 0xffffffffUL) << 32) + ((r2) & 0xffffffffUL))
 #endif
 #ifdef __MIPSEL__
-#define merge_64(r1,r2)	((((r2) & 0xffffffffUL) << 32) + ((r1) & 0xffffffffUL))
+#define merge_64(r1, r2) ((((r2) & 0xffffffffUL) << 32) + ((r1) & 0xffffffffUL))
 #endif
 
 /*
@@ -96,7 +95,7 @@ int cp_compat_stat(struct kstat *stat, struct compat_stat __user *statbuf)
 #endif
 	tmp.st_blocks = stat->blocks;
 	tmp.st_blksize = stat->blksize;
-	return copy_to_user(statbuf,&tmp,sizeof(tmp)) ? -EFAULT : 0;
+	return copy_to_user(statbuf, &tmp, sizeof(tmp)) ? -EFAULT : 0;
 }
 
 asmlinkage unsigned long
@@ -129,23 +128,6 @@ out:
 	return error;
 }
 
-
-asmlinkage int sys_truncate64(const char __user *path, unsigned int high,
-			      unsigned int low)
-{
-	if ((int)high < 0)
-		return -EINVAL;
-	return sys_truncate(path, ((long) high << 32) | low);
-}
-
-asmlinkage int sys_ftruncate64(unsigned int fd, unsigned int high,
-			       unsigned int low)
-{
-	if ((int)high < 0)
-		return -EINVAL;
-	return sys_ftruncate(fd, ((long) high << 32) | low);
-}
-
 /*
  * sys_execve() executes a new program.
  */
@@ -174,36 +156,16 @@ struct rlimit32 {
 	int	rlim_max;
 };
 
-#ifdef __MIPSEB__
-asmlinkage long sys32_truncate64(const char __user * path, unsigned long __dummy,
-	int length_hi, int length_lo)
-#endif
-#ifdef __MIPSEL__
-asmlinkage long sys32_truncate64(const char __user * path, unsigned long __dummy,
-	int length_lo, int length_hi)
-#endif
+asmlinkage long sys32_truncate64(const char __user * path,
+	unsigned long __dummy, int a2, int a3)
 {
-	loff_t length;
-
-	length = ((unsigned long) length_hi << 32) | (unsigned int) length_lo;
-
-	return sys_truncate(path, length);
+	return sys_truncate(path, merge_64(a2, a3));
 }
 
-#ifdef __MIPSEB__
 asmlinkage long sys32_ftruncate64(unsigned int fd, unsigned long __dummy,
-	int length_hi, int length_lo)
-#endif
-#ifdef __MIPSEL__
-asmlinkage long sys32_ftruncate64(unsigned int fd, unsigned long __dummy,
-	int length_lo, int length_hi)
-#endif
+	int a2, int a3)
 {
-	loff_t length;
-
-	length = ((unsigned long) length_hi << 32) | (unsigned int) length_lo;
-
-	return sys_ftruncate(fd, length);
+	return sys_ftruncate(fd, merge_64(a2, a3));
 }
 
 static inline long
@@ -300,13 +262,13 @@ asmlinkage int sys32_sched_rr_get_interval(compat_pid_t pid,
 {
 	struct timespec t;
 	int ret;
-	mm_segment_t old_fs = get_fs ();
+	mm_segment_t old_fs = get_fs();
 
-	set_fs (KERNEL_DS);
+	set_fs(KERNEL_DS);
 	ret = sys_sched_rr_get_interval(pid, (struct timespec __user *)&t);
-	set_fs (old_fs);
+	set_fs(old_fs);
 	if (put_user (t.tv_sec, &interval->tv_sec) ||
-	    __put_user (t.tv_nsec, &interval->tv_nsec))
+	    __put_user(t.tv_nsec, &interval->tv_nsec))
 		return -EFAULT;
 	return ret;
 }
@@ -314,7 +276,7 @@ asmlinkage int sys32_sched_rr_get_interval(compat_pid_t pid,
 #ifdef CONFIG_SYSVIPC
 
 asmlinkage long
-sys32_ipc (u32 call, int first, int second, int third, u32 ptr, u32 fifth)
+sys32_ipc(u32 call, int first, int second, int third, u32 ptr, u32 fifth)
 {
 	int version, err;
 
@@ -373,7 +335,7 @@ sys32_ipc (u32 call, int first, int second, int third, u32 ptr, u32 fifth)
 #else
 
 asmlinkage long
-sys32_ipc (u32 call, int first, int second, int third, u32 ptr, u32 fifth)
+sys32_ipc(u32 call, int first, int second, int third, u32 ptr, u32 fifth)
 {
 	return -ENOSYS;
 }
@@ -505,16 +467,16 @@ asmlinkage int sys32_ustat(dev_t dev, struct ustat32 __user * ubuf32)
 
 	set_fs(KERNEL_DS);
 	err = sys_ustat(dev, (struct ustat __user *)&tmp);
-	set_fs (old_fs);
+	set_fs(old_fs);
 
 	if (err)
 		goto out;
 
-	memset(&tmp32,0,sizeof(struct ustat32));
+	memset(&tmp32, 0, sizeof(struct ustat32));
 	tmp32.f_tfree = tmp.f_tfree;
 	tmp32.f_tinode = tmp.f_tinode;
 
-	err = copy_to_user(ubuf32,&tmp32,sizeof(struct ustat32)) ? -EFAULT : 0;
+	err = copy_to_user(ubuf32, &tmp32, sizeof(struct ustat32)) ? -EFAULT : 0;
 
 out:
 	return err;

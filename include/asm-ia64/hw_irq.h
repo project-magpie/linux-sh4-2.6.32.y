@@ -15,7 +15,11 @@
 #include <asm/ptrace.h>
 #include <asm/smp.h>
 
+#ifndef CONFIG_PARAVIRT
 typedef u8 ia64_vector;
+#else
+typedef u16 ia64_vector;
+#endif
 
 /*
  * 0 special
@@ -63,7 +67,7 @@ extern int ia64_last_device_vector;
 #define IA64_NUM_DEVICE_VECTORS		(IA64_LAST_DEVICE_VECTOR - IA64_FIRST_DEVICE_VECTOR + 1)
 
 #define IA64_MCA_RENDEZ_VECTOR		0xe8	/* MCA rendez interrupt */
-#define IA64_PERFMON_VECTOR		0xee	/* performanc monitor interrupt vector */
+#define IA64_PERFMON_VECTOR		0xee	/* performance monitor interrupt vector */
 #define IA64_TIMER_VECTOR		0xef	/* use highest-prio group 15 interrupt for timer */
 #define	IA64_MCA_WAKEUP_VECTOR		0xf0	/* MCA wakeup (must be >MCA_RENDEZ_VECTOR) */
 #define IA64_IPI_LOCAL_TLB_FLUSH	0xfc	/* SMP flush local TLB */
@@ -93,6 +97,9 @@ extern __u8 isa_irq_to_vector_map[16];
 struct irq_cfg {
 	ia64_vector vector;
 	cpumask_t domain;
+	cpumask_t old_domain;
+	unsigned move_cleanup_count;
+	u8 move_in_progress : 1;
 };
 extern spinlock_t vector_lock;
 extern struct irq_cfg irq_cfg[NR_IRQS];
@@ -101,18 +108,36 @@ DECLARE_PER_CPU(int[IA64_NUM_VECTORS], vector_irq);
 
 extern struct hw_interrupt_type irq_type_ia64_lsapic;	/* CPU-internal interrupt controller */
 
+#ifdef CONFIG_PARAVIRT_GUEST
+#include <asm/paravirt.h>
+#else
+#define ia64_register_ipi	ia64_native_register_ipi
+#define assign_irq_vector	ia64_native_assign_irq_vector
+#define free_irq_vector		ia64_native_free_irq_vector
+#define register_percpu_irq	ia64_native_register_percpu_irq
+#define ia64_resend_irq		ia64_native_resend_irq
+#endif
+
+extern void ia64_native_register_ipi(void);
 extern int bind_irq_vector(int irq, int vector, cpumask_t domain);
-extern int assign_irq_vector (int irq);	/* allocate a free vector */
-extern void free_irq_vector (int vector);
+extern int ia64_native_assign_irq_vector (int irq);	/* allocate a free vector */
+extern void ia64_native_free_irq_vector (int vector);
 extern int reserve_irq_vector (int vector);
 extern void __setup_vector_irq(int cpu);
-extern int reassign_irq_vector(int irq, int cpu);
 extern void ia64_send_ipi (int cpu, int vector, int delivery_mode, int redirect);
-extern void register_percpu_irq (ia64_vector vec, struct irqaction *action);
+extern void ia64_native_register_percpu_irq (ia64_vector vec, struct irqaction *action);
 extern int check_irq_used (int irq);
 extern void destroy_and_reserve_irq (unsigned int irq);
 
-static inline void ia64_resend_irq(unsigned int vector)
+#if defined(CONFIG_SMP) && (defined(CONFIG_IA64_GENERIC) || defined(CONFIG_IA64_DIG))
+extern int irq_prepare_move(int irq, int cpu);
+extern void irq_complete_move(unsigned int irq);
+#else
+static inline int irq_prepare_move(int irq, int cpu) { return 0; }
+static inline void irq_complete_move(unsigned int irq) {}
+#endif
+
+static inline void ia64_native_resend_irq(unsigned int vector)
 {
 	platform_send_ipi(smp_processor_id(), vector, IA64_IPI_DM_INT, 0);
 }

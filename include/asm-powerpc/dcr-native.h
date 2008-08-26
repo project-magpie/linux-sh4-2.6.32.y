@@ -22,14 +22,22 @@
 #ifdef __KERNEL__
 #ifndef __ASSEMBLY__
 
-typedef struct {} dcr_host_t;
+#include <linux/spinlock.h>
 
-#define DCR_MAP_OK(host)	(1)
+typedef struct {
+	unsigned int base;
+} dcr_host_native_t;
 
-#define dcr_map(dev, dcr_n, dcr_c)	((dcr_host_t){})
-#define dcr_unmap(host, dcr_n, dcr_c)	do {} while (0)
-#define dcr_read(host, dcr_n)		mfdcr(dcr_n)
-#define dcr_write(host, dcr_n, value)	mtdcr(dcr_n, value)
+static inline bool dcr_map_ok_native(dcr_host_native_t host)
+{
+	return 1;
+}
+
+#define dcr_map_native(dev, dcr_n, dcr_c) \
+	((dcr_host_native_t){ .base = (dcr_n) })
+#define dcr_unmap_native(host, dcr_c)		do {} while (0)
+#define dcr_read_native(host, dcr_n)		mfdcr(dcr_n + host.base)
+#define dcr_write_native(host, dcr_n, value)	mtdcr(dcr_n + host.base, value)
 
 /* Device Control Registers */
 void __mtdcr(int reg, unsigned int val);
@@ -53,20 +61,56 @@ do {								\
 } while (0)
 
 /* R/W of indirect DCRs make use of standard naming conventions for DCRs */
-#define mfdcri(base, reg)			\
-({						\
-	mtdcr(base ## _CFGADDR, base ## _ ## reg);	\
-	mfdcr(base ## _CFGDATA);			\
-})
+extern spinlock_t dcr_ind_lock;
 
-#define mtdcri(base, reg, data)			\
-do {						\
-	mtdcr(base ## _CFGADDR, base ## _ ## reg);	\
-	mtdcr(base ## _CFGDATA, data);		\
-} while (0)
+static inline unsigned __mfdcri(int base_addr, int base_data, int reg)
+{
+	unsigned long flags;
+	unsigned int val;
+
+	spin_lock_irqsave(&dcr_ind_lock, flags);
+	__mtdcr(base_addr, reg);
+	val = __mfdcr(base_data);
+	spin_unlock_irqrestore(&dcr_ind_lock, flags);
+	return val;
+}
+
+static inline void __mtdcri(int base_addr, int base_data, int reg,
+			    unsigned val)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&dcr_ind_lock, flags);
+	__mtdcr(base_addr, reg);
+	__mtdcr(base_data, val);
+	spin_unlock_irqrestore(&dcr_ind_lock, flags);
+}
+
+static inline void __dcri_clrset(int base_addr, int base_data, int reg,
+				 unsigned clr, unsigned set)
+{
+	unsigned long flags;
+	unsigned int val;
+
+	spin_lock_irqsave(&dcr_ind_lock, flags);
+	__mtdcr(base_addr, reg);
+	val = (__mfdcr(base_data) & ~clr) | set;
+	__mtdcr(base_data, val);
+	spin_unlock_irqrestore(&dcr_ind_lock, flags);
+}
+
+#define mfdcri(base, reg)	__mfdcri(DCRN_ ## base ## _CONFIG_ADDR,	\
+					 DCRN_ ## base ## _CONFIG_DATA,	\
+					 reg)
+
+#define mtdcri(base, reg, data)	__mtdcri(DCRN_ ## base ## _CONFIG_ADDR,	\
+					 DCRN_ ## base ## _CONFIG_DATA,	\
+					 reg, data)
+
+#define dcri_clrset(base, reg, clr, set)	__dcri_clrset(DCRN_ ## base ## _CONFIG_ADDR,	\
+							      DCRN_ ## base ## _CONFIG_DATA,	\
+							      reg, clr, set)
 
 #endif /* __ASSEMBLY__ */
 #endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_DCR_NATIVE_H */
-
-

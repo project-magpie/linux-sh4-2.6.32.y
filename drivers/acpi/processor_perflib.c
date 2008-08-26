@@ -50,6 +50,10 @@ ACPI_MODULE_NAME("processor_perflib");
 
 static DEFINE_MUTEX(performance_mutex);
 
+/* Use cpufreq debug layer for _PPC changes. */
+#define cpufreq_printk(msg...) cpufreq_debug_printk(CPUFREQ_DEBUG_CORE, \
+						"cpufreq-core", msg)
+
 /*
  * _PPC support is implemented as a CPUfreq policy notifier:
  * This means each time a CPUfreq driver registered also with
@@ -59,6 +63,11 @@ static DEFINE_MUTEX(performance_mutex);
  * Also, when a new platform limit value is detected, the CPUfreq
  * policy is adjusted accordingly.
  */
+
+static unsigned int ignore_ppc = 0;
+module_param(ignore_ppc, uint, 0644);
+MODULE_PARM_DESC(ignore_ppc, "If the frequency of your machine gets wrongly" \
+		 "limited by BIOS, this should help");
 
 #define PPC_REGISTERED   1
 #define PPC_IN_USE       2
@@ -72,12 +81,15 @@ static int acpi_processor_ppc_notifier(struct notifier_block *nb,
 	struct acpi_processor *pr;
 	unsigned int ppc = 0;
 
+	if (ignore_ppc)
+		return 0;
+
 	mutex_lock(&performance_mutex);
 
 	if (event != CPUFREQ_INCOMPATIBLE)
 		goto out;
 
-	pr = processors[policy->cpu];
+	pr = per_cpu(processors, policy->cpu);
 	if (!pr || !pr->performance)
 		goto out;
 
@@ -123,6 +135,9 @@ static int acpi_processor_get_platform_limit(struct acpi_processor *pr)
 		return -ENODEV;
 	}
 
+	cpufreq_printk("CPU %d: _PPC is %d - frequency %s limited\n", pr->id,
+		       (int)ppc, ppc ? "" : "not");
+
 	pr->performance_platform_limit = (int)ppc;
 
 	return 0;
@@ -130,7 +145,13 @@ static int acpi_processor_get_platform_limit(struct acpi_processor *pr)
 
 int acpi_processor_ppc_has_changed(struct acpi_processor *pr)
 {
-	int ret = acpi_processor_get_platform_limit(pr);
+	int ret;
+
+	if (ignore_ppc)
+		return 0;
+
+	ret = acpi_processor_get_platform_limit(pr);
+
 	if (ret < 0)
 		return (ret);
 	else
@@ -390,6 +411,7 @@ EXPORT_SYMBOL(acpi_processor_notify_smm);
 
 static int acpi_processor_perf_open_fs(struct inode *inode, struct file *file);
 static struct file_operations acpi_processor_perf_fops = {
+	.owner = THIS_MODULE,
 	.open = acpi_processor_perf_open_fs,
 	.read = seq_read,
 	.llseek = seq_lseek,
@@ -435,7 +457,6 @@ static int acpi_processor_perf_open_fs(struct inode *inode, struct file *file)
 
 static void acpi_cpufreq_add_file(struct acpi_processor *pr)
 {
-	struct proc_dir_entry *entry = NULL;
 	struct acpi_device *device = NULL;
 
 
@@ -443,14 +464,9 @@ static void acpi_cpufreq_add_file(struct acpi_processor *pr)
 		return;
 
 	/* add file 'performance' [R/W] */
-	entry = create_proc_entry(ACPI_PROCESSOR_FILE_PERFORMANCE,
-				  S_IFREG | S_IRUGO,
-				  acpi_device_dir(device));
-	if (entry){
-		entry->proc_fops = &acpi_processor_perf_fops;
-		entry->data = acpi_driver_data(device);
-		entry->owner = THIS_MODULE;
-	}
+	proc_create_data(ACPI_PROCESSOR_FILE_PERFORMANCE, S_IFREG | S_IRUGO,
+			 acpi_device_dir(device),
+			 &acpi_processor_perf_fops, acpi_driver_data(device));
 	return;
 }
 
@@ -556,7 +572,7 @@ int acpi_processor_preregister_performance(
 
 	/* Call _PSD for all CPUs */
 	for_each_possible_cpu(i) {
-		pr = processors[i];
+		pr = per_cpu(processors, i);
 		if (!pr) {
 			/* Look only at processors in ACPI namespace */
 			continue;
@@ -587,7 +603,7 @@ int acpi_processor_preregister_performance(
 	 * domain info.
 	 */
 	for_each_possible_cpu(i) {
-		pr = processors[i];
+		pr = per_cpu(processors, i);
 		if (!pr)
 			continue;
 
@@ -608,7 +624,7 @@ int acpi_processor_preregister_performance(
 
 	cpus_clear(covered_cpus);
 	for_each_possible_cpu(i) {
-		pr = processors[i];
+		pr = per_cpu(processors, i);
 		if (!pr)
 			continue;
 
@@ -635,7 +651,7 @@ int acpi_processor_preregister_performance(
 			if (i == j)
 				continue;
 
-			match_pr = processors[j];
+			match_pr = per_cpu(processors, j);
 			if (!match_pr)
 				continue;
 
@@ -664,7 +680,7 @@ int acpi_processor_preregister_performance(
 			if (i == j)
 				continue;
 
-			match_pr = processors[j];
+			match_pr = per_cpu(processors, j);
 			if (!match_pr)
 				continue;
 
@@ -681,7 +697,7 @@ int acpi_processor_preregister_performance(
 
 err_ret:
 	for_each_possible_cpu(i) {
-		pr = processors[i];
+		pr = per_cpu(processors, i);
 		if (!pr || !pr->performance)
 			continue;
 
@@ -712,7 +728,7 @@ acpi_processor_register_performance(struct acpi_processor_performance
 
 	mutex_lock(&performance_mutex);
 
-	pr = processors[cpu];
+	pr = per_cpu(processors, cpu);
 	if (!pr) {
 		mutex_unlock(&performance_mutex);
 		return -ENODEV;
@@ -750,7 +766,7 @@ acpi_processor_unregister_performance(struct acpi_processor_performance
 
 	mutex_lock(&performance_mutex);
 
-	pr = processors[cpu];
+	pr = per_cpu(processors, cpu);
 	if (!pr) {
 		mutex_unlock(&performance_mutex);
 		return;

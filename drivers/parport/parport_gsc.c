@@ -80,12 +80,6 @@ static int clear_epp_timeout(struct parport *pb)
  * of these are in parport_gsc.h.
  */
 
-static irqreturn_t parport_gsc_interrupt(int irq, void *dev_id)
-{
-	parport_generic_irq(irq, (struct parport *) dev_id);
-	return IRQ_HANDLED;
-}
-
 void parport_gsc_init_state(struct pardevice *dev, struct parport_state *s)
 {
 	s->u.pc.ctr = 0xc | (dev->irq_func ? 0x10 : 0x0);
@@ -324,7 +318,7 @@ struct parport *__devinit parport_gsc_probe_port (unsigned long base,
 	printk("]\n");
 
 	if (p->irq != PARPORT_IRQ_NONE) {
-		if (request_irq (p->irq, parport_gsc_interrupt,
+		if (request_irq (p->irq, parport_irq_handler,
 				 0, p->name, p)) {
 			printk (KERN_WARNING "%s: irq %d in use, "
 				"resorting to polled operation\n",
@@ -371,11 +365,11 @@ static int __devinit parport_init_chip(struct parisc_device *dev)
 	if (boot_cpu_data.cpu_type > pcxt && !pdc_add_valid(port+4)) {
 
 		/* Initialize bidirectional-mode (0x10) & data-tranfer-mode #1 (0x20) */
-		printk("%s: initialize bidirectional-mode.\n", __FUNCTION__);
+		printk("%s: initialize bidirectional-mode.\n", __func__);
 		parport_writeb ( (0x10 + 0x20), port + 4);
 
 	} else {
-		printk("%s: enhanced parport-modes not supported.\n", __FUNCTION__);
+		printk("%s: enhanced parport-modes not supported.\n", __func__);
 	}
 	
 	p = parport_gsc_probe_port(port, 0, dev->irq,

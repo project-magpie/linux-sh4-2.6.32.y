@@ -145,7 +145,7 @@ static void jsm_tty_send_xchar(struct uart_port *port, char ch)
 	struct ktermios *termios;
 
 	spin_lock_irqsave(&port->lock, lock_flags);
-	termios = port->info->tty->termios;
+	termios = port->info->port.tty->termios;
 	if (ch == termios->c_cc[VSTART])
 		channel->ch_bd->bd_ops->send_start_character(channel);
 
@@ -239,7 +239,7 @@ static int jsm_tty_open(struct uart_port *port)
 	channel->ch_cached_lsr = 0;
 	channel->ch_stops_sent = 0;
 
-	termios = port->info->tty->termios;
+	termios = port->info->port.tty->termios;
 	channel->ch_c_cflag	= termios->c_cflag;
 	channel->ch_c_iflag	= termios->c_iflag;
 	channel->ch_c_oflag	= termios->c_oflag;
@@ -272,7 +272,7 @@ static void jsm_tty_close(struct uart_port *port)
 	jsm_printk(CLOSE, INFO, &channel->ch_bd->pci_dev, "start\n");
 
 	bd = channel->ch_bd;
-	ts = channel->uart_port.info->tty->termios;
+	ts = channel->uart_port.info->port.tty->termios;
 
 	channel->ch_flags &= ~(CH_STOPI);
 
@@ -500,13 +500,11 @@ void jsm_input(struct jsm_channel *ch)
 {
 	struct jsm_board *bd;
 	struct tty_struct *tp;
-	struct tty_ldisc *ld;
 	u32 rmask;
 	u16 head;
 	u16 tail;
 	int data_len;
 	unsigned long lock_flags;
-	int flip_len = 0;
 	int len = 0;
 	int n = 0;
 	int s = 0;
@@ -517,7 +515,7 @@ void jsm_input(struct jsm_channel *ch)
 	if (!ch)
 		return;
 
-	tp = ch->uart_port.info->tty;
+	tp = ch->uart_port.info->port.tty;
 
 	bd = ch->ch_bd;
 	if(!bd)
@@ -574,45 +572,13 @@ void jsm_input(struct jsm_channel *ch)
 
 	jsm_printk(READ, INFO, &ch->ch_bd->pci_dev, "start 2\n");
 
-	/*
-	 * If the rxbuf is empty and we are not throttled, put as much
-	 * as we can directly into the linux TTY buffer.
-	 *
-	 */
-	flip_len = TTY_FLIPBUF_SIZE;
-
-	len = min(data_len, flip_len);
-	len = min(len, (N_TTY_BUF_SIZE - 1) - tp->read_cnt);
-	ld = tty_ldisc_ref(tp);
-
-	/*
-	 * If we were unable to get a reference to the ld,
-	 * don't flush our buffer, and act like the ld doesn't
-	 * have any space to put the data right now.
-	 */
-	if (!ld) {
-		len = 0;
-	} else {
-		/*
-		 * If ld doesn't have a pointer to a receive_buf function,
-		 * flush the data, then act like the ld doesn't have any
-		 * space to put the data right now.
-		 */
-		if (!ld->receive_buf) {
-				ch->ch_r_head = ch->ch_r_tail;
-				len = 0;
-		}
-	}
-
-	if (len <= 0) {
+	if (data_len <= 0) {
 		spin_unlock_irqrestore(&ch->ch_lock, lock_flags);
 		jsm_printk(READ, INFO, &ch->ch_bd->pci_dev, "jsm_input 1\n");
-		if (ld)
-			tty_ldisc_deref(ld);
 		return;
 	}
 
-	len = tty_buffer_request_room(tp, len);
+	len = tty_buffer_request_room(tp, data_len);
 	n = len;
 
 	/*
@@ -647,7 +613,7 @@ void jsm_input(struct jsm_channel *ch)
 				else if (*(ch->ch_equeue +tail +i) & UART_LSR_FE)
 					tty_insert_flip_char(tp, *(ch->ch_rqueue +tail +i), TTY_FRAME);
 				else
-				tty_insert_flip_char(tp, *(ch->ch_rqueue +tail +i), TTY_NORMAL);
+					tty_insert_flip_char(tp, *(ch->ch_rqueue +tail +i), TTY_NORMAL);
 			}
 		} else {
 			tty_insert_flip_string(tp, ch->ch_rqueue + tail, s) ;
@@ -665,9 +631,6 @@ void jsm_input(struct jsm_channel *ch)
 
 	/* Tell the tty layer its okay to "eat" the data now */
 	tty_flip_buffer_push(tp);
-
-	if (ld)
-		tty_ldisc_deref(ld);
 
 	jsm_printk(IOCTL, INFO, &ch->ch_bd->pci_dev, "finish\n");
 }

@@ -53,14 +53,15 @@ void saa7146_res_free(struct saa7146_fh *fh, unsigned int bits)
 void saa7146_dma_free(struct saa7146_dev *dev,struct videobuf_queue *q,
 						struct saa7146_buf *buf)
 {
+	struct videobuf_dmabuf *dma=videobuf_to_dma(&buf->vb);
 	DEB_EE(("dev:%p, buf:%p\n",dev,buf));
 
 	BUG_ON(in_interrupt());
 
 	videobuf_waiton(&buf->vb,0,0);
-	videobuf_dma_unmap(q, &buf->vb.dma);
-	videobuf_dma_free(&buf->vb.dma);
-	buf->vb.state = STATE_NEEDS_INIT;
+	videobuf_dma_unmap(q, dma);
+	videobuf_dma_free(dma);
+	buf->vb.state = VIDEOBUF_NEEDS_INIT;
 }
 
 
@@ -82,7 +83,7 @@ int saa7146_buffer_queue(struct saa7146_dev *dev,
 		buf->activate(dev,buf,NULL);
 	} else {
 		list_add_tail(&buf->vb.queue,&q->queue);
-		buf->vb.state = STATE_QUEUED;
+		buf->vb.state = VIDEOBUF_QUEUED;
 		DEB_D(("adding buffer %p to queue. (active buffer present)\n", buf));
 	}
 	return 0;
@@ -173,7 +174,7 @@ void saa7146_buffer_timeout(unsigned long data)
 	spin_lock_irqsave(&dev->slock,flags);
 	if (q->curr) {
 		DEB_D(("timeout on %p\n", q->curr));
-		saa7146_buffer_finish(dev,q,STATE_ERROR);
+		saa7146_buffer_finish(dev,q,VIDEOBUF_ERROR);
 	}
 
 	/* we don't restart the transfer here like other drivers do. when
@@ -271,7 +272,7 @@ static int fops_open(struct inode *inode, struct file *file)
 
 	result = 0;
 out:
-	if( fh != 0 && result != 0 ) {
+	if (fh && result != 0) {
 		kfree(fh);
 		file->private_data = NULL;
 	}
@@ -365,7 +366,7 @@ static unsigned int fops_poll(struct file *file, struct poll_table_struct *wait)
 	}
 
 	poll_wait(file, &buf->done, wait);
-	if (buf->state == STATE_DONE || buf->state == STATE_ERROR) {
+	if (buf->state == VIDEOBUF_DONE || buf->state == VIDEOBUF_ERROR) {
 		DEB_D(("poll succeeded!\n"));
 		return POLLIN|POLLRDNORM;
 	}
@@ -537,6 +538,7 @@ int saa7146_register_device(struct video_device **vid, struct saa7146_dev* dev,
 	// fixme: -1 should be an insmod parameter *for the extension* (like "video_nr");
 	if (video_register_device(vfd, type, -1) < 0) {
 		ERR(("cannot register v4l2 device. skipping.\n"));
+		video_device_release(vfd);
 		return -1;
 	}
 

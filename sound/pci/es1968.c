@@ -94,7 +94,6 @@
  *	places.
  */
 
-#include <sound/driver.h>
 #include <asm/io.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
@@ -618,6 +617,18 @@ static int snd_es1968_ac97_wait(struct es1968 *chip)
 	return 1; /* timeout */
 }
 
+static int snd_es1968_ac97_wait_poll(struct es1968 *chip)
+{
+	int timeout = 100000;
+
+	while (timeout-- > 0) {
+		if (!(inb(chip->io_port + ESM_AC97_INDEX) & 1))
+			return 0;
+	}
+	snd_printd("es1968: ac97 timeout\n");
+	return 1; /* timeout */
+}
+
 static void snd_es1968_ac97_write(struct snd_ac97 *ac97, unsigned short reg, unsigned short val)
 {
 	struct es1968 *chip = ac97->private_data;
@@ -646,7 +657,7 @@ static unsigned short snd_es1968_ac97_read(struct snd_ac97 *ac97, unsigned short
 	outb(reg | 0x80, chip->io_port + ESM_AC97_INDEX);
 	/*msleep(1);*/
 
-	if (! snd_es1968_ac97_wait(chip)) {
+	if (!snd_es1968_ac97_wait_poll(chip)) {
 		data = inw(chip->io_port + ESM_AC97_DATA);
 		/*msleep(1);*/
 	}
@@ -843,10 +854,9 @@ static void snd_es1968_bob_dec(struct es1968 *chip)
 		snd_es1968_bob_stop(chip);
 	else if (chip->bob_freq > ESM_BOB_FREQ) {
 		/* check reduction of timer frequency */
-		struct list_head *p;
 		int max_freq = ESM_BOB_FREQ;
-		list_for_each(p, &chip->substream_list) {
-			struct esschan *es = list_entry(p, struct esschan, list);
+		struct esschan *es;
+		list_for_each_entry(es, &chip->substream_list, list) {
 			if (max_freq < es->bob_freq)
 				max_freq = es->bob_freq;
 		}
@@ -1316,12 +1326,11 @@ static struct snd_pcm_hardware snd_es1968_capture = {
 
 static int calc_available_memory_size(struct es1968 *chip)
 {
-	struct list_head *p;
 	int max_size = 0;
-	
+	struct esm_memory *buf;
+
 	mutex_lock(&chip->memory_mutex);
-	list_for_each(p, &chip->buf_list) {
-		struct esm_memory *buf = list_entry(p, struct esm_memory, list);
+	list_for_each_entry(buf, &chip->buf_list, list) {
 		if (buf->empty && buf->buf.bytes > max_size)
 			max_size = buf->buf.bytes;
 	}
@@ -1335,12 +1344,10 @@ static int calc_available_memory_size(struct es1968 *chip)
 static struct esm_memory *snd_es1968_new_memory(struct es1968 *chip, int size)
 {
 	struct esm_memory *buf;
-	struct list_head *p;
-	
+
 	size = ALIGN(size, ESM_MEM_ALIGN);
 	mutex_lock(&chip->memory_mutex);
-	list_for_each(p, &chip->buf_list) {
-		buf = list_entry(p, struct esm_memory, list);
+	list_for_each_entry(buf, &chip->buf_list, list) {
 		if (buf->empty && buf->buf.bytes >= size)
 			goto __found;
 	}
@@ -1820,6 +1827,22 @@ snd_es1968_pcm(struct es1968 *chip, int device)
 
 	return 0;
 }
+/*
+ * suppress jitter on some maestros when playing stereo
+ */
+static void snd_es1968_suppress_jitter(struct es1968 *chip, struct esschan *es)
+{
+	unsigned int cp1;
+	unsigned int cp2;
+	unsigned int diff;
+
+	cp1 = __apu_get_register(chip, 0, 5);
+	cp2 = __apu_get_register(chip, 1, 5);
+	diff = (cp1 > cp2 ? cp1 - cp2 : cp2 - cp1);
+
+	if (diff > 1)
+		__maestro_write(chip, IDR0_DATA_PORT, cp1);
+}
 
 /*
  * update pointer
@@ -1938,12 +1961,14 @@ static irqreturn_t snd_es1968_interrupt(int irq, void *dev_id)
 	}
 
 	if (event & ESM_SOUND_IRQ) {
-		struct list_head *p;
+		struct esschan *es;
 		spin_lock(&chip->substream_lock);
-		list_for_each(p, &chip->substream_list) {
-			struct esschan *es = list_entry(p, struct esschan, list);
-			if (es->running)
+		list_for_each_entry(es, &chip->substream_list, list) {
+			if (es->running) {
 				snd_es1968_update_pcm(chip, es);
+				if (es->fmt & ESS_FMT_STEREO)
+					snd_es1968_suppress_jitter(chip, es);
+			}
 		}
 		spin_unlock(&chip->substream_lock);
 		if (chip->in_measurement) {
@@ -1966,7 +1991,7 @@ snd_es1968_mixer(struct es1968 *chip)
 {
 	struct snd_ac97_bus *pbus;
 	struct snd_ac97_template ac97;
-	struct snd_ctl_elem_id id;
+	struct snd_ctl_elem_id elem_id;
 	int err;
 	static struct snd_ac97_bus_ops ops = {
 		.write = snd_es1968_ac97_write,
@@ -1983,14 +2008,14 @@ snd_es1968_mixer(struct es1968 *chip)
 		return err;
 
 	/* attach master switch / volumes for h/w volume control */
-	memset(&id, 0, sizeof(id));
-	id.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
-	strcpy(id.name, "Master Playback Switch");
-	chip->master_switch = snd_ctl_find_id(chip->card, &id);
-	memset(&id, 0, sizeof(id));
-	id.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
-	strcpy(id.name, "Master Playback Volume");
-	chip->master_volume = snd_ctl_find_id(chip->card, &id);
+	memset(&elem_id, 0, sizeof(elem_id));
+	elem_id.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
+	strcpy(elem_id.name, "Master Playback Switch");
+	chip->master_switch = snd_ctl_find_id(chip->card, &elem_id);
+	memset(&elem_id, 0, sizeof(elem_id));
+	elem_id.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
+	strcpy(elem_id.name, "Master Playback Volume");
+	chip->master_volume = snd_ctl_find_id(chip->card, &elem_id);
 
 	return 0;
 }
@@ -2345,7 +2370,7 @@ static int es1968_resume(struct pci_dev *pci)
 {
 	struct snd_card *card = pci_get_drvdata(pci);
 	struct es1968 *chip = card->private_data;
-	struct list_head *p;
+	struct esschan *es;
 
 	if (! chip->do_pm)
 		return 0;
@@ -2374,8 +2399,7 @@ static int es1968_resume(struct pci_dev *pci)
 	/* restore ac97 state */
 	snd_ac97_resume(chip->ac97);
 
-	list_for_each(p, &chip->substream_list) {
-		struct esschan *es = list_entry(p, struct esschan, list);
+	list_for_each_entry(es, &chip->substream_list, list) {
 		switch (es->mode) {
 		case ESM_MODE_PLAY:
 			snd_es1968_playback_setup(chip, es, es->substream->runtime);
@@ -2451,7 +2475,8 @@ static inline void snd_es1968_free_gameport(struct es1968 *chip) { }
 static int snd_es1968_free(struct es1968 *chip)
 {
 	if (chip->io_port) {
-		synchronize_irq(chip->irq);
+		if (chip->irq >= 0)
+			synchronize_irq(chip->irq);
 		outw(1, chip->io_port + 0x04); /* clear WP interrupts */
 		outw(0, chip->io_port + ESM_PORT_HOST_IRQ); /* disable IRQ */
 	}

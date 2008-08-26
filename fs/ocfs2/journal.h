@@ -134,6 +134,10 @@ static inline void ocfs2_inode_set_new(struct ocfs2_super *osb,
 
 /* Exported only for the journal struct init code in super.c. Do not call. */
 void ocfs2_complete_recovery(struct work_struct *work);
+void ocfs2_wait_for_recovery(struct ocfs2_super *osb);
+
+int ocfs2_recovery_init(struct ocfs2_super *osb);
+void ocfs2_recovery_exit(struct ocfs2_super *osb);
 
 /*
  *  Journal Control:
@@ -278,9 +282,18 @@ int                  ocfs2_journal_dirty_data(handle_t *handle,
 /* simple file updates like chmod, etc. */
 #define OCFS2_INODE_UPDATE_CREDITS 1
 
+/* group extend. inode update and last group update. */
+#define OCFS2_GROUP_EXTEND_CREDITS	(OCFS2_INODE_UPDATE_CREDITS + 1)
+
+/* group add. inode update and the new group update. */
+#define OCFS2_GROUP_ADD_CREDITS	(OCFS2_INODE_UPDATE_CREDITS + 1)
+
 /* get one bit out of a suballocator: dinode + group descriptor +
  * prev. group desc. if we relink. */
 #define OCFS2_SUBALLOC_ALLOC (3)
+
+#define OCFS2_INLINE_TO_EXTENTS_CREDITS (OCFS2_SUBALLOC_ALLOC		\
+					 + OCFS2_INODE_UPDATE_CREDITS)
 
 /* dinode + group descriptor update. We don't relink on free yet. */
 #define OCFS2_SUBALLOC_FREE  (2)

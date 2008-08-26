@@ -85,6 +85,13 @@ endchoice
 config IP_FIB_HASH
 	def_bool ASK_IP_FIB_HASH || !IP_ADVANCED_ROUTER
 
+config IP_FIB_TRIE_STATS
+	bool "FIB TRIE statistics"
+	depends on IP_FIB_TRIE
+	---help---
+	  Keep track of statistics on structure of FIB TRIE table.
+	  Useful for testing and measuring TRIE performance.
+
 config IP_MULTIPLE_TABLES
 	bool "IP: policy routing"
 	depends on IP_ADVANCED_ROUTER
@@ -153,7 +160,7 @@ config IP_PNP_DHCP
 
 	  If unsure, say Y. Note that if you want to use DHCP, a DHCP server
 	  must be operating on your network.  Read
-	  <file:Documentation/nfsroot.txt> for details.
+	  <file:Documentation/filesystems/nfsroot.txt> for details.
 
 config IP_PNP_BOOTP
 	bool "IP: BOOTP support"
@@ -168,7 +175,7 @@ config IP_PNP_BOOTP
 	  does BOOTP itself, providing all necessary information on the kernel
 	  command line, you can say N here. If unsure, say Y. Note that if you
 	  want to use BOOTP, a BOOTP server must be operating on your network.
-	  Read <file:Documentation/nfsroot.txt> for details.
+	  Read <file:Documentation/filesystems/nfsroot.txt> for details.
 
 config IP_PNP_RARP
 	bool "IP: RARP support"
@@ -180,8 +187,8 @@ config IP_PNP_RARP
 	  discovered automatically at boot time using the RARP protocol (an
 	  older protocol which is being obsoleted by BOOTP and DHCP), say Y
 	  here. Note that if you want to use RARP, a RARP server must be
-	  operating on your network. Read <file:Documentation/nfsroot.txt> for
-	  details.
+	  operating on your network. Read
+	  <file:Documentation/filesystems/nfsroot.txt> for details.
 
 # not yet ready..
 #   bool '    IP: ARP support' CONFIG_IP_PNP_ARP		
@@ -336,6 +343,7 @@ config INET_ESP
 	tristate "IP: ESP transformation"
 	select XFRM
 	select CRYPTO
+	select CRYPTO_AUTHENC
 	select CRYPTO_HMAC
 	select CRYPTO_MD5
 	select CRYPTO_CBC
@@ -348,10 +356,8 @@ config INET_ESP
 
 config INET_IPCOMP
 	tristate "IP: IPComp transformation"
-	select XFRM
 	select INET_XFRM_TUNNEL
-	select CRYPTO
-	select CRYPTO_DEFLATE
+	select XFRM_IPCOMP
 	---help---
 	  Support for IP Payload Compression Protocol (IPComp) (RFC3173),
 	  typically needed for IPsec.
@@ -391,6 +397,14 @@ config INET_XFRM_MODE_BEET
 	select XFRM
 	---help---
 	  Support for IPsec BEET mode.
+
+	  If unsure, say Y.
+
+config INET_LRO
+	tristate "Large Receive Offload (ipv4/tcp)"
+
+	---help---
+	  Support for Large Receive Offload (ipv4/tcp).
 
 	  If unsure, say Y.
 
@@ -552,7 +566,7 @@ config TCP_CONG_ILLINOIS
 	depends on EXPERIMENTAL
 	default n
 	---help---
-	TCP-Illinois is a sender-side modificatio of TCP Reno for
+	TCP-Illinois is a sender-side modification of TCP Reno for
 	high speed long delay links. It uses round-trip-time to
 	adjust the alpha and beta parameters to achieve a higher average
 	throughput and maintain fairness.

@@ -29,7 +29,7 @@
  *
  * Maximum number of loop devices when compiled-in now selectable by passing
  * max_loop=<1-255> to the kernel on boot.
- * Erik I. Bolsø, <eriki@himolde.no>, Oct 31, 1999
+ * Erik I. BolsÃ¸, <eriki@himolde.no>, Oct 31, 1999
  *
  * Completely rewrite request handling to be make_request_fn style and
  * non blocking, pushing work to a helper thread. Lots of fixes from
@@ -81,6 +81,9 @@
 
 static LIST_HEAD(loop_devices);
 static DEFINE_MUTEX(loop_devices_mutex);
+
+static int max_part;
+static int part_shift;
 
 /*
  * Transfer functions
@@ -204,14 +207,13 @@ lo_do_transfer(struct loop_device *lo, int cmd,
  * do_lo_send_aops - helper for writing data to a loop device
  *
  * This is the fast version for backing filesystems which implement the address
- * space operations prepare_write and commit_write.
+ * space operations write_begin and write_end.
  */
 static int do_lo_send_aops(struct loop_device *lo, struct bio_vec *bvec,
-		int bsize, loff_t pos, struct page *page)
+		int bsize, loff_t pos, struct page *unused)
 {
 	struct file *file = lo->lo_backing_file; /* kudos to NFsckingS */
 	struct address_space *mapping = file->f_mapping;
-	const struct address_space_operations *aops = mapping->a_ops;
 	pgoff_t index;
 	unsigned offset, bv_offs;
 	int len, ret;
@@ -223,63 +225,45 @@ static int do_lo_send_aops(struct loop_device *lo, struct bio_vec *bvec,
 	len = bvec->bv_len;
 	while (len > 0) {
 		sector_t IV;
-		unsigned size;
+		unsigned size, copied;
 		int transfer_result;
+		struct page *page;
+		void *fsdata;
 
 		IV = ((sector_t)index << (PAGE_CACHE_SHIFT - 9))+(offset >> 9);
 		size = PAGE_CACHE_SIZE - offset;
 		if (size > len)
 			size = len;
-		page = grab_cache_page(mapping, index);
-		if (unlikely(!page))
+
+		ret = pagecache_write_begin(file, mapping, pos, size, 0,
+							&page, &fsdata);
+		if (ret)
 			goto fail;
-		ret = aops->prepare_write(file, page, offset,
-					  offset + size);
-		if (unlikely(ret)) {
-			if (ret == AOP_TRUNCATED_PAGE) {
-				page_cache_release(page);
-				continue;
-			}
-			goto unlock;
-		}
+
 		transfer_result = lo_do_transfer(lo, WRITE, page, offset,
 				bvec->bv_page, bv_offs, size, IV);
-		if (unlikely(transfer_result)) {
-			/*
-			 * The transfer failed, but we still write the data to
-			 * keep prepare/commit calls balanced.
-			 */
-			printk(KERN_ERR "loop: transfer error block %llu\n",
-			       (unsigned long long)index);
-			zero_user_page(page, offset, size, KM_USER0);
-		}
-		flush_dcache_page(page);
-		ret = aops->commit_write(file, page, offset,
-					 offset + size);
-		if (unlikely(ret)) {
-			if (ret == AOP_TRUNCATED_PAGE) {
-				page_cache_release(page);
-				continue;
-			}
-			goto unlock;
-		}
+		copied = size;
 		if (unlikely(transfer_result))
-			goto unlock;
-		bv_offs += size;
-		len -= size;
+			copied = 0;
+
+		ret = pagecache_write_end(file, mapping, pos, size, copied,
+							page, fsdata);
+		if (ret < 0 || ret != copied)
+			goto fail;
+
+		if (unlikely(transfer_result))
+			goto fail;
+
+		bv_offs += copied;
+		len -= copied;
 		offset = 0;
 		index++;
-		pos += size;
-		unlock_page(page);
-		page_cache_release(page);
+		pos += copied;
 	}
 	ret = 0;
 out:
 	mutex_unlock(&mapping->host->i_mutex);
 	return ret;
-unlock:
-	unlock_page(page);
-	page_cache_release(page);
 fail:
 	ret = -1;
 	goto out;
@@ -313,7 +297,7 @@ static int __do_lo_send_write(struct file *file,
  * do_lo_send_direct_write - helper for writing data to a loop device
  *
  * This is the fast, non-transforming version for backing filesystems which do
- * not implement the address space operations prepare_write and commit_write.
+ * not implement the address space operations write_begin and write_end.
  * It uses the write file operation which should be present on all writeable
  * filesystems.
  */
@@ -332,7 +316,7 @@ static int do_lo_send_direct_write(struct loop_device *lo,
  * do_lo_send_write - helper for writing data to a loop device
  *
  * This is the slow, transforming version for filesystems which do not
- * implement the address space operations prepare_write and commit_write.  It
+ * implement the address space operations write_begin and write_end.  It
  * uses the write file operation which should be present on all writeable
  * filesystems.
  *
@@ -551,7 +535,7 @@ static int loop_make_request(struct request_queue *q, struct bio *old_bio)
 
 out:
 	spin_unlock_irq(&lo->lo_lock);
-	bio_io_error(old_bio, old_bio->bi_size);
+	bio_io_error(old_bio);
 	return 0;
 }
 
@@ -562,7 +546,7 @@ static void loop_unplug(struct request_queue *q)
 {
 	struct loop_device *lo = q->queuedata;
 
-	clear_bit(QUEUE_FLAG_PLUGGED, &q->queue_flags);
+	queue_flag_clear_unlocked(QUEUE_FLAG_PLUGGED, q);
 	blk_run_address_space(lo->lo_backing_file->f_mapping);
 }
 
@@ -580,7 +564,7 @@ static inline void loop_handle_bio(struct loop_device *lo, struct bio *bio)
 		bio_put(bio);
 	} else {
 		int ret = do_bio_filebacked(lo, bio);
-		bio_endio(bio, bio->bi_size, ret);
+		bio_endio(bio, ret);
 	}
 }
 
@@ -629,7 +613,7 @@ static int loop_thread(void *data)
 static int loop_switch(struct loop_device *lo, struct file *file)
 {
 	struct switch_request w;
-	struct bio *bio = bio_alloc(GFP_KERNEL, 1);
+	struct bio *bio = bio_alloc(GFP_KERNEL, 0);
 	if (!bio)
 		return -ENOMEM;
 	init_completion(&w.wait);
@@ -711,6 +695,8 @@ static int loop_change_fd(struct loop_device *lo, struct file *lo_file,
 		goto out_putf;
 
 	fput(old_file);
+	if (max_part > 0)
+		ioctl_by_bdev(bdev, BLKRRPART, 0);
 	return 0;
 
  out_putf:
@@ -780,7 +766,7 @@ static int loop_set_fd(struct loop_device *lo, struct file *lo_file,
 		 */
 		if (!file->f_op->splice_read)
 			goto out_putf;
-		if (aops->prepare_write && aops->commit_write)
+		if (aops->prepare_write || aops->write_begin)
 			lo_flags |= LO_FLAGS_USE_AOPS;
 		if (!(lo_flags & LO_FLAGS_USE_AOPS) && !file->f_op->write)
 			lo_flags |= LO_FLAGS_READ_ONLY;
@@ -838,6 +824,8 @@ static int loop_set_fd(struct loop_device *lo, struct file *lo_file,
 	}
 	lo->lo_state = Lo_bound;
 	wake_up_process(lo->lo_thread);
+	if (max_part > 0)
+		ioctl_by_bdev(bdev, BLKRRPART, 0);
 	return 0;
 
 out_clr:
@@ -938,6 +926,8 @@ static int loop_clr_fd(struct loop_device *lo, struct block_device *bdev)
 	fput(filp);
 	/* This is safe: open() is still holding a reference. */
 	module_put(THIS_MODULE);
+	if (max_part > 0)
+		ioctl_by_bdev(bdev, BLKRRPART, 0);
 	return 0;
 }
 
@@ -991,6 +981,10 @@ loop_set_status(struct loop_device *lo, const struct loop_info64 *info)
 		xfer = &none_funcs;
 	lo->transfer = xfer->transfer;
 	lo->ioctl = xfer->ioctl;
+
+	if ((lo->lo_flags & LO_FLAGS_AUTOCLEAR) !=
+	     (info->lo_flags & LO_FLAGS_AUTOCLEAR))
+		lo->lo_flags ^= LO_FLAGS_AUTOCLEAR;
 
 	lo->lo_encrypt_key_size = info->lo_encrypt_key_size;
 	lo->lo_init[0] = info->lo_init[0];
@@ -1304,7 +1298,6 @@ static long lo_compat_ioctl(struct file *file, unsigned int cmd, unsigned long a
 	struct loop_device *lo = inode->i_bdev->bd_disk->private_data;
 	int err;
 
-	lock_kernel();
 	switch(cmd) {
 	case LOOP_SET_STATUS:
 		mutex_lock(&lo->lo_ctl_mutex);
@@ -1330,7 +1323,6 @@ static long lo_compat_ioctl(struct file *file, unsigned int cmd, unsigned long a
 		err = -ENOIOCTLCMD;
 		break;
 	}
-	unlock_kernel();
 	return err;
 }
 #endif
@@ -1352,6 +1344,10 @@ static int lo_release(struct inode *inode, struct file *file)
 
 	mutex_lock(&lo->lo_ctl_mutex);
 	--lo->lo_refcnt;
+
+	if ((lo->lo_flags & LO_FLAGS_AUTOCLEAR) && !lo->lo_refcnt)
+		loop_clr_fd(lo, inode->i_bdev);
+
 	mutex_unlock(&lo->lo_ctl_mutex);
 
 	return 0;
@@ -1373,6 +1369,8 @@ static struct block_device_operations lo_fops = {
 static int max_loop;
 module_param(max_loop, int, 0);
 MODULE_PARM_DESC(max_loop, "Maximum number of loop devices");
+module_param(max_part, int, 0);
+MODULE_PARM_DESC(max_part, "Maximum number of partitions per loop device");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_BLOCKDEV_MAJOR(LOOP_MAJOR);
 
@@ -1425,7 +1423,7 @@ static struct loop_device *loop_alloc(int i)
 	if (!lo->lo_queue)
 		goto out_free_dev;
 
-	disk = lo->lo_disk = alloc_disk(1);
+	disk = lo->lo_disk = alloc_disk(1 << part_shift);
 	if (!disk)
 		goto out_free_queue;
 
@@ -1435,7 +1433,7 @@ static struct loop_device *loop_alloc(int i)
 	init_waitqueue_head(&lo->lo_event);
 	spin_lock_init(&lo->lo_lock);
 	disk->major		= LOOP_MAJOR;
-	disk->first_minor	= i;
+	disk->first_minor	= i << part_shift;
 	disk->fops		= &lo_fops;
 	disk->private_data	= lo;
 	disk->queue		= lo->lo_queue;
@@ -1515,7 +1513,12 @@ static int __init loop_init(void)
 	 *     themselves and have kernel automatically instantiate actual
 	 *     device on-demand.
 	 */
-	if (max_loop > 1UL << MINORBITS)
+
+	part_shift = 0;
+	if (max_part > 0)
+		part_shift = fls(max_part);
+
+	if (max_loop > 1UL << (MINORBITS - part_shift))
 		return -EINVAL;
 
 	if (max_loop) {
@@ -1523,7 +1526,7 @@ static int __init loop_init(void)
 		range = max_loop;
 	} else {
 		nr = 8;
-		range = 1UL << MINORBITS;
+		range = 1UL << (MINORBITS - part_shift);
 	}
 
 	if (register_blkdev(LOOP_MAJOR, "loop"))
@@ -1562,7 +1565,7 @@ static void __exit loop_exit(void)
 	unsigned long range;
 	struct loop_device *lo, *next;
 
-	range = max_loop ? max_loop :  1UL << MINORBITS;
+	range = max_loop ? max_loop :  1UL << (MINORBITS - part_shift);
 
 	list_for_each_entry_safe(lo, next, &loop_devices, lo_list)
 		loop_del_one(lo);

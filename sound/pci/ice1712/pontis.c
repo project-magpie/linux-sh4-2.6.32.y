@@ -21,7 +21,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <asm/io.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
@@ -216,14 +215,7 @@ static int wm_adc_vol_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_val
 /*
  * ADC input mux mixer control
  */
-static int wm_adc_mux_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define wm_adc_mux_info		snd_ctl_boolean_mono_info
 
 static int wm_adc_mux_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -254,20 +246,13 @@ static int wm_adc_mux_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_val
 		wm_put(ice, WM_ADC_MUX, nval);
 	}
 	mutex_unlock(&ice->gpio_mutex);
-	return 0;
+	return change;
 }
 
 /*
  * Analog bypass (In -> Out)
  */
-static int wm_bypass_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define wm_bypass_info		snd_ctl_boolean_mono_info
 
 static int wm_bypass_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -302,14 +287,7 @@ static int wm_bypass_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_valu
 /*
  * Left/Right swap
  */
-static int wm_chswap_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define wm_chswap_info		snd_ctl_boolean_mono_info
 
 static int wm_chswap_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -472,7 +450,7 @@ static int cs_source_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_valu
 		change = 1;
 	}
 	mutex_unlock(&ice->gpio_mutex);
-	return 0;
+	return change;
 }
 
 

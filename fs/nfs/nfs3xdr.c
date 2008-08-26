@@ -346,6 +346,7 @@ nfs3_xdr_readargs(struct rpc_rqst *req, __be32 *p, struct nfs_readargs *args)
 	replen = (RPC_REPHDRSIZE + auth->au_rslack + NFS3_readres_sz) << 2;
 	xdr_inline_pages(&req->rq_rcv_buf, replen,
 			 args->pages, args->pgbase, count);
+	req->rq_rcv_buf.flags |= XDRBUF_READ;
 	return 0;
 }
 
@@ -367,6 +368,7 @@ nfs3_xdr_writeargs(struct rpc_rqst *req, __be32 *p, struct nfs_writeargs *args)
 
 	/* Copy the page array */
 	xdr_encode_pages(sndbuf, args->pages, args->pgbase, count);
+	sndbuf->flags |= XDRBUF_WRITE;
 	return 0;
 }
 
@@ -504,16 +506,16 @@ nfs3_xdr_readdirres(struct rpc_rqst *req, __be32 *p, struct nfs3_readdirres *res
 	struct xdr_buf *rcvbuf = &req->rq_rcv_buf;
 	struct kvec *iov = rcvbuf->head;
 	struct page **page;
-	int hdrlen, recvd;
-	int status, nr;
-	unsigned int len, pglen;
+	size_t hdrlen;
+	u32 len, recvd, pglen;
+	int status, nr = 0;
 	__be32 *entry, *end, *kaddr;
 
 	status = ntohl(*p++);
 	/* Decode post_op_attrs */
 	p = xdr_decode_post_op_attr(p, res->dir_attr);
 	if (status)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 	/* Decode verifier cookie */
 	if (res->verf) {
 		res->verf[0] = *p++;
@@ -524,8 +526,8 @@ nfs3_xdr_readdirres(struct rpc_rqst *req, __be32 *p, struct nfs3_readdirres *res
 
 	hdrlen = (u8 *) p - (u8 *) iov->iov_base;
 	if (iov->iov_len < hdrlen) {
-		printk(KERN_WARNING "NFS: READDIR reply header overflowed:"
-				"length %d > %Zu\n", hdrlen, iov->iov_len);
+		dprintk("NFS: READDIR reply header overflowed:"
+				"length %Zu > %Zu\n", hdrlen, iov->iov_len);
 		return -errno_NFSERR_IO;
 	} else if (iov->iov_len != hdrlen) {
 		dprintk("NFS: READDIR header is short. iovec will be shifted.\n");
@@ -540,14 +542,19 @@ nfs3_xdr_readdirres(struct rpc_rqst *req, __be32 *p, struct nfs3_readdirres *res
 	kaddr = p = kmap_atomic(*page, KM_USER0);
 	end = (__be32 *)((char *)p + pglen);
 	entry = p;
-	for (nr = 0; *p++; nr++) {
+
+	/* Make sure the packet actually has a value_follows and EOF entry */
+	if ((entry + 1) > end)
+		goto short_pkt;
+
+	for (; *p++; nr++) {
 		if (p + 3 > end)
 			goto short_pkt;
 		p += 2;				/* inode # */
 		len = ntohl(*p++);		/* string length */
 		p += XDR_QUADLEN(len) + 2;	/* name + cookie */
 		if (len > NFS3_MAXNAMLEN) {
-			printk(KERN_WARNING "NFS: giant filename in readdir (len %x)!\n",
+			dprintk("NFS: giant filename in readdir (len 0x%x)!\n",
 						len);
 			goto err_unmap;
 		}
@@ -567,8 +574,8 @@ nfs3_xdr_readdirres(struct rpc_rqst *req, __be32 *p, struct nfs3_readdirres *res
 					goto short_pkt;
 				len = ntohl(*p++);
 				if (len > NFS3_FHSIZE) {
-					printk(KERN_WARNING "NFS: giant filehandle in "
-						"readdir (len %x)!\n", len);
+					dprintk("NFS: giant filehandle in "
+						"readdir (len 0x%x)!\n", len);
 					goto err_unmap;
 				}
 				p += XDR_QUADLEN(len);
@@ -579,18 +586,32 @@ nfs3_xdr_readdirres(struct rpc_rqst *req, __be32 *p, struct nfs3_readdirres *res
 			goto short_pkt;
 		entry = p;
 	}
-	if (!nr && (entry[0] != 0 || entry[1] == 0))
-		goto short_pkt;
+
+	/*
+	 * Apparently some server sends responses that are a valid size, but
+	 * contain no entries, and have value_follows==0 and EOF==0. For
+	 * those, just set the EOF marker.
+	 */
+	if (!nr && entry[1] == 0) {
+		dprintk("NFS: readdir reply truncated!\n");
+		entry[1] = 1;
+	}
  out:
 	kunmap_atomic(kaddr, KM_USER0);
 	return nr;
  short_pkt:
+	/*
+	 * When we get a short packet there are 2 possibilities. We can
+	 * return an error, or fix up the response to look like a valid
+	 * response and return what we have so far. If there are no
+	 * entries and the packet was short, then return -EIO. If there
+	 * are valid entries in the response, return them and pretend that
+	 * the call was successful, but incomplete. The caller can retry the
+	 * readdir starting at the last cookie.
+	 */
 	entry[0] = entry[1] = 0;
-	/* truncate listing ? */
-	if (!nr) {
-		printk(KERN_NOTICE "NFS: readdir reply truncated!\n");
-		entry[1] = 1;
-	}
+	if (!nr)
+		nr = -errno_NFSERR_IO;
 	goto out;
 err_unmap:
 	nr = -errno_NFSERR_IO;
@@ -730,7 +751,7 @@ nfs3_xdr_attrstat(struct rpc_rqst *req, __be32 *p, struct nfs_fattr *fattr)
 	int	status;
 
 	if ((status = ntohl(*p++)))
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 	xdr_decode_fattr(p, fattr);
 	return 0;
 }
@@ -745,7 +766,7 @@ nfs3_xdr_wccstat(struct rpc_rqst *req, __be32 *p, struct nfs_fattr *fattr)
 	int	status;
 
 	if ((status = ntohl(*p++)))
-		status = -nfs_stat_to_errno(status);
+		status = nfs_stat_to_errno(status);
 	xdr_decode_wcc_data(p, fattr);
 	return status;
 }
@@ -765,7 +786,7 @@ nfs3_xdr_lookupres(struct rpc_rqst *req, __be32 *p, struct nfs3_diropres *res)
 	int	status;
 
 	if ((status = ntohl(*p++))) {
-		status = -nfs_stat_to_errno(status);
+		status = nfs_stat_to_errno(status);
 	} else {
 		if (!(p = xdr_decode_fhandle(p, res->fh)))
 			return -errno_NFSERR_IO;
@@ -785,7 +806,7 @@ nfs3_xdr_accessres(struct rpc_rqst *req, __be32 *p, struct nfs3_accessres *res)
 
 	p = xdr_decode_post_op_attr(p, res->fattr);
 	if (status)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 	res->access = ntohl(*p++);
 	return 0;
 }
@@ -813,7 +834,8 @@ nfs3_xdr_readlinkres(struct rpc_rqst *req, __be32 *p, struct nfs_fattr *fattr)
 {
 	struct xdr_buf *rcvbuf = &req->rq_rcv_buf;
 	struct kvec *iov = rcvbuf->head;
-	int hdrlen, len, recvd;
+	size_t hdrlen;
+	u32 len, recvd;
 	char	*kaddr;
 	int	status;
 
@@ -821,27 +843,28 @@ nfs3_xdr_readlinkres(struct rpc_rqst *req, __be32 *p, struct nfs_fattr *fattr)
 	p = xdr_decode_post_op_attr(p, fattr);
 
 	if (status != 0)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 
 	/* Convert length of symlink */
 	len = ntohl(*p++);
-	if (len >= rcvbuf->page_len || len <= 0) {
-		dprintk(KERN_WARNING "nfs: server returned giant symlink!\n");
+	if (len >= rcvbuf->page_len) {
+		dprintk("nfs: server returned giant symlink!\n");
 		return -ENAMETOOLONG;
 	}
 
 	hdrlen = (u8 *) p - (u8 *) iov->iov_base;
 	if (iov->iov_len < hdrlen) {
-		printk(KERN_WARNING "NFS: READLINK reply header overflowed:"
-				"length %d > %Zu\n", hdrlen, iov->iov_len);
+		dprintk("NFS: READLINK reply header overflowed:"
+				"length %Zu > %Zu\n", hdrlen, iov->iov_len);
 		return -errno_NFSERR_IO;
 	} else if (iov->iov_len != hdrlen) {
-		dprintk("NFS: READLINK header is short. iovec will be shifted.\n");
+		dprintk("NFS: READLINK header is short. "
+			"iovec will be shifted.\n");
 		xdr_shift_buf(rcvbuf, iov->iov_len - hdrlen);
 	}
 	recvd = req->rq_rcv_buf.len - hdrlen;
 	if (recvd < len) {
-		printk(KERN_WARNING "NFS: server cheating in readlink reply: "
+		dprintk("NFS: server cheating in readlink reply: "
 				"count %u > recvd %u\n", len, recvd);
 		return -EIO;
 	}
@@ -860,15 +883,17 @@ static int
 nfs3_xdr_readres(struct rpc_rqst *req, __be32 *p, struct nfs_readres *res)
 {
 	struct kvec *iov = req->rq_rcv_buf.head;
-	int	status, count, ocount, recvd, hdrlen;
+	size_t hdrlen;
+	u32 count, ocount, recvd;
+	int status;
 
 	status = ntohl(*p++);
 	p = xdr_decode_post_op_attr(p, res->fattr);
 
 	if (status != 0)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 
-	/* Decode reply could and EOF flag. NFSv3 is somewhat redundant
+	/* Decode reply count and EOF flag. NFSv3 is somewhat redundant
 	 * in that it puts the count both in the res struct and in the
 	 * opaque data count. */
 	count    = ntohl(*p++);
@@ -876,14 +901,14 @@ nfs3_xdr_readres(struct rpc_rqst *req, __be32 *p, struct nfs_readres *res)
 	ocount   = ntohl(*p++);
 
 	if (ocount != count) {
-		printk(KERN_WARNING "NFS: READ count doesn't match RPC opaque count.\n");
+		dprintk("NFS: READ count doesn't match RPC opaque count.\n");
 		return -errno_NFSERR_IO;
 	}
 
 	hdrlen = (u8 *) p - (u8 *) iov->iov_base;
 	if (iov->iov_len < hdrlen) {
-		printk(KERN_WARNING "NFS: READ reply header overflowed:"
-				"length %d > %Zu\n", hdrlen, iov->iov_len);
+		dprintk("NFS: READ reply header overflowed:"
+				"length %Zu > %Zu\n", hdrlen, iov->iov_len);
        		return -errno_NFSERR_IO;
 	} else if (iov->iov_len != hdrlen) {
 		dprintk("NFS: READ header is short. iovec will be shifted.\n");
@@ -892,8 +917,8 @@ nfs3_xdr_readres(struct rpc_rqst *req, __be32 *p, struct nfs_readres *res)
 
 	recvd = req->rq_rcv_buf.len - hdrlen;
 	if (count > recvd) {
-		printk(KERN_WARNING "NFS: server cheating in read reply: "
-			"count %d > recvd %d\n", count, recvd);
+		dprintk("NFS: server cheating in read reply: "
+			"count %u > recvd %u\n", count, recvd);
 		count = recvd;
 		res->eof = 0;
 	}
@@ -916,7 +941,7 @@ nfs3_xdr_writeres(struct rpc_rqst *req, __be32 *p, struct nfs_writeres *res)
 	p = xdr_decode_wcc_data(p, res->fattr);
 
 	if (status != 0)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 
 	res->count = ntohl(*p++);
 	res->verf->committed = (enum nfs3_stable_how)ntohl(*p++);
@@ -947,7 +972,7 @@ nfs3_xdr_createres(struct rpc_rqst *req, __be32 *p, struct nfs3_diropres *res)
 			res->fattr->valid = 0;
 		}
 	} else {
-		status = -nfs_stat_to_errno(status);
+		status = nfs_stat_to_errno(status);
 	}
 	p = xdr_decode_wcc_data(p, res->dir_attr);
 	return status;
@@ -962,7 +987,7 @@ nfs3_xdr_renameres(struct rpc_rqst *req, __be32 *p, struct nfs3_renameres *res)
 	int	status;
 
 	if ((status = ntohl(*p++)) != 0)
-		status = -nfs_stat_to_errno(status);
+		status = nfs_stat_to_errno(status);
 	p = xdr_decode_wcc_data(p, res->fromattr);
 	p = xdr_decode_wcc_data(p, res->toattr);
 	return status;
@@ -977,7 +1002,7 @@ nfs3_xdr_linkres(struct rpc_rqst *req, __be32 *p, struct nfs3_linkres *res)
 	int	status;
 
 	if ((status = ntohl(*p++)) != 0)
-		status = -nfs_stat_to_errno(status);
+		status = nfs_stat_to_errno(status);
 	p = xdr_decode_post_op_attr(p, res->fattr);
 	p = xdr_decode_wcc_data(p, res->dir_attr);
 	return status;
@@ -995,7 +1020,7 @@ nfs3_xdr_fsstatres(struct rpc_rqst *req, __be32 *p, struct nfs_fsstat *res)
 
 	p = xdr_decode_post_op_attr(p, res->fattr);
 	if (status != 0)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 
 	p = xdr_decode_hyper(p, &res->tbytes);
 	p = xdr_decode_hyper(p, &res->fbytes);
@@ -1020,7 +1045,7 @@ nfs3_xdr_fsinfores(struct rpc_rqst *req, __be32 *p, struct nfs_fsinfo *res)
 
 	p = xdr_decode_post_op_attr(p, res->fattr);
 	if (status != 0)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 
 	res->rtmax  = ntohl(*p++);
 	res->rtpref = ntohl(*p++);
@@ -1048,7 +1073,7 @@ nfs3_xdr_pathconfres(struct rpc_rqst *req, __be32 *p, struct nfs_pathconf *res)
 
 	p = xdr_decode_post_op_attr(p, res->fattr);
 	if (status != 0)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 	res->max_link = ntohl(*p++);
 	res->max_namelen = ntohl(*p++);
 
@@ -1067,7 +1092,7 @@ nfs3_xdr_commitres(struct rpc_rqst *req, __be32 *p, struct nfs_writeres *res)
 	status = ntohl(*p++);
 	p = xdr_decode_wcc_data(p, res->fattr);
 	if (status != 0)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 
 	res->verf->verifier[0] = *p++;
 	res->verf->verifier[1] = *p++;
@@ -1089,7 +1114,7 @@ nfs3_xdr_getaclres(struct rpc_rqst *req, __be32 *p,
 	int err, base;
 
 	if (status != 0)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 	p = xdr_decode_post_op_attr(p, res->fattr);
 	res->mask = ntohl(*p++);
 	if (res->mask & ~(NFS_ACL|NFS_ACLCNT|NFS_DFACL|NFS_DFACLCNT))
@@ -1116,7 +1141,7 @@ nfs3_xdr_setaclres(struct rpc_rqst *req, __be32 *p, struct nfs_fattr *fattr)
 	int status = ntohl(*p++);
 
 	if (status)
-		return -nfs_stat_to_errno(status);
+		return nfs_stat_to_errno(status);
 	xdr_decode_post_op_attr(p, fattr);
 	return 0;
 }

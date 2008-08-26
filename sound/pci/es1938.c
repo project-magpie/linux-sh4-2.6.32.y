@@ -1,7 +1,7 @@
 /*
  *  Driver for ESS Solo-1 (ES1938, ES1946, ES1969) soundcard
  *  Copyright (c) by Jaromir Koutek <miri@punknet.cz>,
- *                   Jaroslav Kysela <perex@suse.cz>,
+ *                   Jaroslav Kysela <perex@perex.cz>,
  *                   Thomas Sailer <sailer@ife.ee.ethz.ch>,
  *                   Abramo Bagnara <abramo@alsa-project.org>,
  *                   Markus Gruber <gruber@eikon.tum.de>
@@ -47,7 +47,6 @@
 */
 
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/pci.h>
@@ -227,6 +226,7 @@ struct es1938 {
 	unsigned int dma2_start;
 	unsigned int dma1_shift;
 	unsigned int dma2_shift;
+	unsigned int last_capture_dmaaddr;
 	unsigned int active;
 
 	spinlock_t reg_lock;
@@ -529,6 +529,7 @@ static void snd_es1938_capture_setdma(struct es1938 *chip)
 	outb(1, SLDM_REG(chip, DMAMASK));
 	outb(0x14, SLDM_REG(chip, DMAMODE));
 	outl(chip->dma1_start, SLDM_REG(chip, DMAADDR));
+	chip->last_capture_dmaaddr = chip->dma1_start;
 	outw(chip->dma1_size - 1, SLDM_REG(chip, DMACOUNT));
 	/* 3. Unmask DMA */
 	outb(0, SLDM_REG(chip, DMAMASK));
@@ -770,19 +771,40 @@ static int snd_es1938_playback_prepare(struct snd_pcm_substream *substream)
 	return -EINVAL;
 }
 
+/* during the incrementing of dma counters the DMA register reads sometimes
+   returns garbage. To ensure a valid hw pointer, the following checks which
+   should be very unlikely to fail are used:
+   - is the current DMA address in the valid DMA range ?
+   - is the sum of DMA address and DMA counter pointing to the last DMA byte ?
+   One can argue this could differ by one byte depending on which register is
+   updated first, so the implementation below allows for that.
+*/
 static snd_pcm_uframes_t snd_es1938_capture_pointer(struct snd_pcm_substream *substream)
 {
 	struct es1938 *chip = snd_pcm_substream_chip(substream);
 	size_t ptr;
+#if 0
 	size_t old, new;
-#if 1
 	/* This stuff is *needed*, don't ask why - AB */
 	old = inw(SLDM_REG(chip, DMACOUNT));
 	while ((new = inw(SLDM_REG(chip, DMACOUNT))) != old)
 		old = new;
 	ptr = chip->dma1_size - 1 - new;
 #else
-	ptr = inl(SLDM_REG(chip, DMAADDR)) - chip->dma1_start;
+	size_t count;
+	unsigned int diff;
+
+	ptr = inl(SLDM_REG(chip, DMAADDR));
+	count = inw(SLDM_REG(chip, DMACOUNT));
+	diff = chip->dma1_start + chip->dma1_size - ptr - count;
+
+	if (diff > 3 || ptr < chip->dma1_start
+	      || ptr >= chip->dma1_start+chip->dma1_size)
+	  ptr = chip->last_capture_dmaaddr;            /* bad, use last saved */
+	else
+	  chip->last_capture_dmaaddr = ptr;            /* good, remember it */
+
+	ptr -= chip->dma1_start;
 #endif
 	return ptr >> chip->dma1_shift;
 }
@@ -1066,15 +1088,7 @@ static int snd_es1938_put_mux(struct snd_kcontrol *kcontrol,
 	return snd_es1938_mixer_bits(chip, 0x1c, 0x07, val) != val;
 }
 
-static int snd_es1938_info_spatializer_enable(struct snd_kcontrol *kcontrol,
-					      struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_es1938_info_spatializer_enable	snd_ctl_boolean_mono_info
 
 static int snd_es1938_get_spatializer_enable(struct snd_kcontrol *kcontrol,
 					     struct snd_ctl_elem_value *ucontrol)
@@ -1120,15 +1134,7 @@ static int snd_es1938_get_hw_volume(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int snd_es1938_info_hw_switch(struct snd_kcontrol *kcontrol,
-				     struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 2;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_es1938_info_hw_switch		snd_ctl_boolean_stereo_info
 
 static int snd_es1938_get_hw_switch(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
@@ -1482,7 +1488,6 @@ static int es1938_suspend(struct pci_dev *pci, pm_message_t state)
 
 	outb(0x00, SLIO_REG(chip, IRQCONTROL)); /* disable irqs */
 	if (chip->irq >= 0) {
-		synchronize_irq(chip->irq);
 		free_irq(chip->irq, chip);
 		chip->irq = -1;
 	}
@@ -1572,10 +1577,8 @@ static int snd_es1938_free(struct es1938 *chip)
 
 	snd_es1938_free_gameport(chip);
 
-	if (chip->irq >= 0) {
-		synchronize_irq(chip->irq);
+	if (chip->irq >= 0)
 		free_irq(chip->irq, chip);
-	}
 	pci_release_regions(chip->pci);
 	pci_disable_device(chip->pci);
 	kfree(chip);

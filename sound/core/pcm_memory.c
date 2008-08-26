@@ -1,6 +1,6 @@
 /*
  *  Digital Audio (PCM) abstract layer
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -19,7 +19,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <asm/io.h>
 #include <linux/time.h>
 #include <linux/init.h>

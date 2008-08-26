@@ -20,7 +20,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -148,7 +147,7 @@ MODULE_SUPPORTED_DEVICE("{{RME,Hammerfall},"
 #define RME9652_start_bit	   (1<<0)	/* start record/play */
                                                 /* bits 1-3 encode buffersize/latency */
 #define RME9652_Master		   (1<<4)	/* Clock Mode Master=1,Slave/Auto=0 */
-#define RME9652_IE		   (1<<5)	/* Interupt Enable */
+#define RME9652_IE		   (1<<5)	/* Interrupt Enable */
 #define RME9652_freq		   (1<<6)       /* samplerate 0=44.1/88.2, 1=48/96 kHz */
 #define RME9652_freq1		   (1<<7)       /* if 0, 32kHz, else always 1 */
 #define RME9652_DS                 (1<<8)	/* Doule Speed 0=44.1/48, 1=88.2/96 Khz */
@@ -1067,14 +1066,7 @@ static int rme9652_set_spdif_output(struct snd_rme9652 *rme9652, int out)
 	return 0;
 }
 
-static int snd_rme9652_info_spdif_out(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_rme9652_info_spdif_out	snd_ctl_boolean_mono_info
 
 static int snd_rme9652_get_spdif_out(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -1338,14 +1330,7 @@ static int snd_rme9652_put_thru(struct snd_kcontrol *kcontrol, struct snd_ctl_el
   .put = snd_rme9652_put_passthru, \
   .get = snd_rme9652_get_passthru }
 
-static int snd_rme9652_info_passthru(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_rme9652_info_passthru	snd_ctl_boolean_mono_info
 
 static int snd_rme9652_get_passthru(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -1445,14 +1430,7 @@ static int snd_rme9652_get_adat_sync(struct snd_kcontrol *kcontrol, struct snd_c
   .info = snd_rme9652_info_tc_valid, \
   .get = snd_rme9652_get_tc_valid }
 
-static int snd_rme9652_info_tc_valid(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_rme9652_info_tc_valid	snd_ctl_boolean_mono_info
 
 static int snd_rme9652_get_tc_valid(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -1847,7 +1825,7 @@ static void snd_rme9652_set_defaults(struct snd_rme9652 *rme9652)
 
 	/* ASSUMPTION: rme9652->lock is either held, or
 	   there is no need to hold it (e.g. during module
-	   initalization).
+	   initialization).
 	 */
 
 	/* set defaults:

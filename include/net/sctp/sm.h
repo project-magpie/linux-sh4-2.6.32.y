@@ -1,20 +1,20 @@
-/* SCTP kernel reference Implementation
+/* SCTP kernel implementation
  * (C) Copyright IBM Corp. 2001, 2004
  * Copyright (c) 1999-2000 Cisco, Inc.
  * Copyright (c) 1999-2001 Motorola, Inc.
  * Copyright (c) 2001 Intel Corp.
  *
- * This file is part of the SCTP kernel reference Implementation
+ * This file is part of the SCTP kernel implementation
  *
  * These are definitions needed by the state machine.
  *
- * The SCTP reference implementation is free software;
+ * This SCTP implementation is free software;
  * you can redistribute it and/or modify it under the terms of
  * the GNU General Public License as published by
  * the Free Software Foundation; either version 2, or (at your option)
  * any later version.
  *
- * The SCTP reference implementation is distributed in the hope that it
+ * This SCTP implementation is distributed in the hope that it
  * will be useful, but WITHOUT ANY WARRANTY; without even the implied
  *                 ************************
  * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -143,6 +143,7 @@ sctp_state_fn_t sctp_sf_do_asconf_ack;
 sctp_state_fn_t sctp_sf_do_9_2_reshutack;
 sctp_state_fn_t sctp_sf_eat_fwd_tsn;
 sctp_state_fn_t sctp_sf_eat_fwd_tsn_fast;
+sctp_state_fn_t sctp_sf_eat_auth;
 
 /* Prototypes for primitive event state functions.  */
 sctp_state_fn_t sctp_sf_do_prm_asoc;
@@ -256,6 +257,7 @@ int sctp_process_asconf_ack(struct sctp_association *asoc,
 struct sctp_chunk *sctp_make_fwdtsn(const struct sctp_association *asoc,
 				    __u32 new_cum_tsn, size_t nstreams,
 				    struct sctp_fwdtsn_skip *skiplist);
+struct sctp_chunk *sctp_make_auth(const struct sctp_association *asoc);
 
 void sctp_chunk_assign_tsn(struct sctp_chunk *);
 void sctp_chunk_assign_ssn(struct sctp_chunk *);
@@ -381,14 +383,6 @@ enum {
 static inline int ADDIP_SERIAL_gte(__u16 s, __u16 t)
 {
 	return (((s) == (t)) || (((t) - (s)) & ADDIP_SERIAL_SIGN_BIT));
-}
-
-
-/* Run sctp_add_cmd() generating a BUG() if there is a failure.  */
-static inline void sctp_add_cmd_sf(sctp_cmd_seq_t *seq, sctp_verb_t verb, sctp_arg_t obj)
-{
-	if (unlikely(!sctp_add_cmd(seq, verb, obj)))
-		BUG();
 }
 
 /* Check VTAG of the packet matches the sender's own tag. */

@@ -1,7 +1,7 @@
 /*
  *   fs/cifs/misc.c
  *
- *   Copyright (C) International Business Machines  Corp., 2002,2007
+ *   Copyright (C) International Business Machines  Corp., 2002,2008
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
  *   This library is free software; you can redistribute it and/or modify
@@ -73,7 +73,7 @@ sesInfoAlloc(void)
 {
 	struct cifsSesInfo *ret_buf;
 
-	ret_buf = kzalloc(sizeof (struct cifsSesInfo), GFP_KERNEL);
+	ret_buf = kzalloc(sizeof(struct cifsSesInfo), GFP_KERNEL);
 	if (ret_buf) {
 		write_lock(&GlobalSMBSeslock);
 		atomic_inc(&sesInfoAllocCount);
@@ -109,7 +109,7 @@ struct cifsTconInfo *
 tconInfoAlloc(void)
 {
 	struct cifsTconInfo *ret_buf;
-	ret_buf = kzalloc(sizeof (struct cifsTconInfo), GFP_KERNEL);
+	ret_buf = kzalloc(sizeof(struct cifsTconInfo), GFP_KERNEL);
 	if (ret_buf) {
 		write_lock(&GlobalSMBSeslock);
 		atomic_inc(&tconInfoAllocCount);
@@ -169,7 +169,6 @@ cifs_buf_get(void)
 void
 cifs_buf_release(void *buf_to_free)
 {
-
 	if (buf_to_free == NULL) {
 		/* cFYI(1, ("Null buffer passed to cifs_buf_release"));*/
 		return;
@@ -299,7 +298,7 @@ header_assemble(struct smb_hdr *buffer, char smb_command /* command */ ,
 	memset(temp, 0, 256); /* bigger than MAX_CIFS_HDR_SIZE */
 
 	buffer->smb_buf_length =
-	    (2 * word_count) + sizeof (struct smb_hdr) -
+	    (2 * word_count) + sizeof(struct smb_hdr) -
 	    4 /*  RFC 1001 length field does not count */  +
 	    2 /* for bcc field itself */ ;
 	/* Note that this is the only network field that has to be converted
@@ -321,9 +320,9 @@ header_assemble(struct smb_hdr *buffer, char smb_command /* command */ ,
 		if (treeCon->ses) {
 			if (treeCon->ses->capabilities & CAP_UNICODE)
 				buffer->Flags2 |= SMBFLG2_UNICODE;
-			if (treeCon->ses->capabilities & CAP_STATUS32) {
+			if (treeCon->ses->capabilities & CAP_STATUS32)
 				buffer->Flags2 |= SMBFLG2_ERR_STATUS;
-			}
+
 			/* Uid is not converted */
 			buffer->Uid = treeCon->ses->Suid;
 			buffer->Mid = GetNextMid(treeCon->ses->server);
@@ -423,8 +422,8 @@ checkSMB(struct smb_hdr *smb, __u16 mid, unsigned int length)
 	__u32 clc_len;  /* calculated length */
 	cFYI(0, ("checkSMB Length: 0x%x, smb_buf_length: 0x%x", length, len));
 
-	if (length < 2 + sizeof (struct smb_hdr)) {
-		if ((length >= sizeof (struct smb_hdr) - 1)
+	if (length < 2 + sizeof(struct smb_hdr)) {
+		if ((length >= sizeof(struct smb_hdr) - 1)
 			    && (smb->Status.CifsError != 0)) {
 			smb->WordCount = 0;
 			/* some error cases do not return wct and bcc */
@@ -497,7 +496,8 @@ checkSMB(struct smb_hdr *smb, __u16 mid, unsigned int length)
 	}
 	return 0;
 }
-int
+
+bool
 is_valid_oplock_break(struct smb_hdr *buf, struct TCP_Server_Info *srv)
 {
 	struct smb_com_lock_req *pSMB = (struct smb_com_lock_req *)buf;
@@ -519,21 +519,20 @@ is_valid_oplock_break(struct smb_hdr *buf, struct TCP_Server_Info *srv)
 			pnotify = (struct file_notify_information *)
 				((char *)&pSMBr->hdr.Protocol + data_offset);
 			cFYI(1, ("dnotify on %s Action: 0x%x",
-				 pnotify->FileName,
-				pnotify->Action));  /* BB removeme BB */
+				 pnotify->FileName, pnotify->Action));
 			/*   cifs_dump_mem("Rcvd notify Data: ",buf,
 				sizeof(struct smb_hdr)+60); */
-			return TRUE;
+			return true;
 		}
 		if (pSMBr->hdr.Status.CifsError) {
 			cFYI(1, ("notify err 0x%d",
 				pSMBr->hdr.Status.CifsError));
-			return TRUE;
+			return true;
 		}
-		return FALSE;
+		return false;
 	}
 	if (pSMB->hdr.Command != SMB_COM_LOCKING_ANDX)
-		return FALSE;
+		return false;
 	if (pSMB->hdr.Flags & SMBFLG_RESPONSE) {
 		/* no sense logging error on invalid handle on oplock
 		   break - harmless race between close request and oplock
@@ -542,21 +541,21 @@ is_valid_oplock_break(struct smb_hdr *buf, struct TCP_Server_Info *srv)
 		if ((NT_STATUS_INVALID_HANDLE) ==
 		   le32_to_cpu(pSMB->hdr.Status.CifsError)) {
 			cFYI(1, ("invalid handle on oplock break"));
-			return TRUE;
+			return true;
 		} else if (ERRbadfid ==
 		   le16_to_cpu(pSMB->hdr.Status.DosError.Error)) {
-			return TRUE;
+			return true;
 		} else {
-			return FALSE; /* on valid oplock brk we get "request" */
+			return false; /* on valid oplock brk we get "request" */
 		}
 	}
 	if (pSMB->hdr.WordCount != 8)
-		return FALSE;
+		return false;
 
 	cFYI(1, ("oplock type 0x%d level 0x%d",
 		 pSMB->LockType, pSMB->OplockLevel));
 	if (!(pSMB->LockType & LOCKING_ANDX_OPLOCK_RELEASE))
-		return FALSE;
+		return false;
 
 	/* look up tcon based on tid & uid */
 	read_lock(&GlobalSMBSeslock);
@@ -574,11 +573,11 @@ is_valid_oplock_break(struct smb_hdr *buf, struct TCP_Server_Info *srv)
 					    ("file id match, oplock break"));
 					pCifsInode =
 						CIFS_I(netfile->pInode);
-					pCifsInode->clientCanCacheAll = FALSE;
+					pCifsInode->clientCanCacheAll = false;
 					if (pSMB->OplockLevel == 0)
 						pCifsInode->clientCanCacheRead
-							= FALSE;
-					pCifsInode->oplockPending = TRUE;
+							= false;
+					pCifsInode->oplockPending = true;
 					AllocOplockQEntry(netfile->pInode,
 							  netfile->netfid,
 							  tcon);
@@ -586,17 +585,17 @@ is_valid_oplock_break(struct smb_hdr *buf, struct TCP_Server_Info *srv)
 					    ("about to wake up oplock thread"));
 					if (oplockThread)
 					    wake_up_process(oplockThread);
-					return TRUE;
+					return true;
 				}
 			}
 			read_unlock(&GlobalSMBSeslock);
 			cFYI(1, ("No matching file for oplock break"));
-			return TRUE;
+			return true;
 		}
 	}
 	read_unlock(&GlobalSMBSeslock);
 	cFYI(1, ("Can not process oplock break for non-existent connection"));
-	return TRUE;
+	return true;
 }
 
 void
@@ -611,7 +610,8 @@ dump_smb(struct smb_hdr *smb_buf, int smb_buf_length)
 
 	buffer = (unsigned char *) smb_buf;
 	for (i = 0, j = 0; i < smb_buf_length; i++, j++) {
-		if (i % 8 == 0) {	/* have reached the beginning of line */
+		if (i % 8 == 0) {
+			/* have reached the beginning of line */
 			printk(KERN_DEBUG "| ");
 			j = 0;
 		}
@@ -622,7 +622,8 @@ dump_smb(struct smb_hdr *smb_buf, int smb_buf_length)
 		else
 			debug_line[1 + (2 * j)] = '_';
 
-		if (i % 8 == 7) { /* reached end of line, time to print ascii */
+		if (i % 8 == 7) {
+			/* reached end of line, time to print ascii */
 			debug_line[16] = 0;
 			printk(" | %s\n", debug_line);
 		}
@@ -632,7 +633,7 @@ dump_smb(struct smb_hdr *smb_buf, int smb_buf_length)
 		debug_line[2 * j] = ' ';
 		debug_line[1 + (2 * j)] = ' ';
 	}
-	printk( " | %s\n", debug_line);
+	printk(" | %s\n", debug_line);
 	return;
 }
 

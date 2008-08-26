@@ -52,7 +52,7 @@ const struct raid6_calls * const raid6_algos[] = {
 	&raid6_intx16,
 	&raid6_intx32,
 #endif
-#if defined(__i386__)
+#if defined(__i386__) && !defined(__arch_um__)
 	&raid6_mmxx1,
 	&raid6_mmxx2,
 	&raid6_sse1x1,
@@ -60,7 +60,7 @@ const struct raid6_calls * const raid6_algos[] = {
 	&raid6_sse2x1,
 	&raid6_sse2x2,
 #endif
-#if defined(__x86_64__)
+#if defined(__x86_64__) && !defined(__arch_um__)
 	&raid6_sse2x1,
 	&raid6_sse2x2,
 	&raid6_sse2x4,
@@ -121,7 +121,8 @@ int __init raid6_select_algo(void)
 			j0 = jiffies;
 			while ( (j1 = jiffies) == j0 )
 				cpu_relax();
-			while ( (jiffies-j1) < (1 << RAID6_TIME_JIFFIES_LG2) ) {
+			while (time_before(jiffies,
+					    j1 + (1<<RAID6_TIME_JIFFIES_LG2))) {
 				(*algo)->gen_syndrome(disks, PAGE_SIZE, dptrs);
 				perf++;
 			}

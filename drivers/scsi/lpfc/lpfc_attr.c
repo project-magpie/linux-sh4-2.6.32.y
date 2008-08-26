@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2004-2007 Emulex.  All rights reserved.           *
+ * Copyright (C) 2004-2008 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
  * www.emulex.com                                                  *
  * Portions Copyright (C) 2004-2005 Christoph Hellwig              *
@@ -45,6 +45,10 @@
 #define LPFC_MIN_DEVLOSS_TMO 1
 #define LPFC_MAX_DEVLOSS_TMO 255
 
+#define LPFC_MAX_LINK_SPEED 8
+#define LPFC_LINK_SPEED_BITMAP 0x00000117
+#define LPFC_LINK_SPEED_STRING "0, 1, 2, 4, 8"
+
 static void
 lpfc_jedec_to_ascii(int incr, char hdw[])
 {
@@ -62,23 +66,26 @@ lpfc_jedec_to_ascii(int incr, char hdw[])
 }
 
 static ssize_t
-lpfc_drvr_version_show(struct class_device *cdev, char *buf)
+lpfc_drvr_version_show(struct device *dev, struct device_attribute *attr,
+		       char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, LPFC_MODULE_DESC "\n");
 }
 
 static ssize_t
-lpfc_info_show(struct class_device *cdev, char *buf)
+lpfc_info_show(struct device *dev, struct device_attribute *attr,
+	       char *buf)
 {
-	struct Scsi_Host *host = class_to_shost(cdev);
+	struct Scsi_Host *host = class_to_shost(dev);
 
 	return snprintf(buf, PAGE_SIZE, "%s\n",lpfc_info(host));
 }
 
 static ssize_t
-lpfc_serialnum_show(struct class_device *cdev, char *buf)
+lpfc_serialnum_show(struct device *dev, struct device_attribute *attr,
+		    char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -86,9 +93,20 @@ lpfc_serialnum_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_modeldesc_show(struct class_device *cdev, char *buf)
+lpfc_temp_sensor_show(struct device *dev, struct device_attribute *attr,
+		      char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host *shost = class_to_shost(dev);
+	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
+	struct lpfc_hba   *phba = vport->phba;
+	return snprintf(buf, PAGE_SIZE, "%d\n",phba->temp_sensor_support);
+}
+
+static ssize_t
+lpfc_modeldesc_show(struct device *dev, struct device_attribute *attr,
+		    char *buf)
+{
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -96,9 +114,10 @@ lpfc_modeldesc_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_modelname_show(struct class_device *cdev, char *buf)
+lpfc_modelname_show(struct device *dev, struct device_attribute *attr,
+		    char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -106,9 +125,10 @@ lpfc_modelname_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_programtype_show(struct class_device *cdev, char *buf)
+lpfc_programtype_show(struct device *dev, struct device_attribute *attr,
+		      char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -116,9 +136,10 @@ lpfc_programtype_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_vportnum_show(struct class_device *cdev, char *buf)
+lpfc_vportnum_show(struct device *dev, struct device_attribute *attr,
+		   char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -126,9 +147,10 @@ lpfc_vportnum_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_fwrev_show(struct class_device *cdev, char *buf)
+lpfc_fwrev_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	char fwrev[32];
@@ -138,10 +160,10 @@ lpfc_fwrev_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_hdw_show(struct class_device *cdev, char *buf)
+lpfc_hdw_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	char hdw[9];
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	lpfc_vpd_t *vp = &phba->vpd;
@@ -150,18 +172,20 @@ lpfc_hdw_show(struct class_device *cdev, char *buf)
 	return snprintf(buf, PAGE_SIZE, "%s\n", hdw);
 }
 static ssize_t
-lpfc_option_rom_version_show(struct class_device *cdev, char *buf)
+lpfc_option_rom_version_show(struct device *dev, struct device_attribute *attr,
+			     char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
 	return snprintf(buf, PAGE_SIZE, "%s\n", phba->OptionROMVersion);
 }
 static ssize_t
-lpfc_state_show(struct class_device *cdev, char *buf)
+lpfc_link_state_show(struct device *dev, struct device_attribute *attr,
+		     char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	int  len = 0;
@@ -178,12 +202,9 @@ lpfc_state_show(struct class_device *cdev, char *buf)
 	case LPFC_LINK_UP:
 	case LPFC_CLEAR_LA:
 	case LPFC_HBA_READY:
-		len += snprintf(buf + len, PAGE_SIZE-len, "Link Up - \n");
+		len += snprintf(buf + len, PAGE_SIZE-len, "Link Up - ");
 
 		switch (vport->port_state) {
-			len += snprintf(buf + len, PAGE_SIZE-len,
-					"initializing\n");
-			break;
 		case LPFC_LOCAL_CFG_LINK:
 			len += snprintf(buf + len, PAGE_SIZE-len,
 					"Configuring Link\n");
@@ -233,9 +254,10 @@ lpfc_state_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_num_discovered_ports_show(struct class_device *cdev, char *buf)
+lpfc_num_discovered_ports_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 
 	return snprintf(buf, PAGE_SIZE, "%d\n",
@@ -252,8 +274,7 @@ lpfc_issue_lip(struct Scsi_Host *shost)
 	int mbxstatus = MBXERR_ERROR;
 
 	if ((vport->fc_flag & FC_OFFLINE_MODE) ||
-	    (phba->sli.sli_flag & LPFC_BLOCK_MGMT_IO) ||
-	    (vport->port_state != LPFC_VPORT_READY))
+	    (phba->sli.sli_flag & LPFC_BLOCK_MGMT_IO))
 		return -EPERM;
 
 	pmboxq = mempool_alloc(phba->mbox_mem_pool,GFP_KERNEL);
@@ -305,12 +326,14 @@ lpfc_do_offline(struct lpfc_hba *phba, uint32_t type)
 
 	psli = &phba->sli;
 
+	/* Wait a little for things to settle down, but not
+	 * long enough for dev loss timeout to expire.
+	 */
 	for (i = 0; i < psli->num_rings; i++) {
 		pring = &psli->ring[i];
-		/* The linkdown event takes 30 seconds to timeout. */
 		while (pring->txcmplq_cnt) {
 			msleep(10);
-			if (cnt++ > 3000) {
+			if (cnt++ > 500) {  /* 5 secs */
 				lpfc_printf_log(phba,
 					KERN_WARNING, LOG_INIT,
 					"0466 Outstanding IO when "
@@ -336,6 +359,9 @@ lpfc_selective_reset(struct lpfc_hba *phba)
 	struct completion online_compl;
 	int status = 0;
 
+	if (!phba->cfg_enable_hba_reset)
+		return -EIO;
+
 	status = lpfc_do_offline(phba, LPFC_EVT_OFFLINE);
 
 	if (status != 0)
@@ -353,9 +379,10 @@ lpfc_selective_reset(struct lpfc_hba *phba)
 }
 
 static ssize_t
-lpfc_issue_reset(struct class_device *cdev, const char *buf, size_t count)
+lpfc_issue_reset(struct device *dev, struct device_attribute *attr,
+		 const char *buf, size_t count)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -371,9 +398,10 @@ lpfc_issue_reset(struct class_device *cdev, const char *buf, size_t count)
 }
 
 static ssize_t
-lpfc_nport_evt_cnt_show(struct class_device *cdev, char *buf)
+lpfc_nport_evt_cnt_show(struct device *dev, struct device_attribute *attr,
+			char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -381,9 +409,10 @@ lpfc_nport_evt_cnt_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_board_mode_show(struct class_device *cdev, char *buf)
+lpfc_board_mode_show(struct device *dev, struct device_attribute *attr,
+		     char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	char  * state;
@@ -401,14 +430,17 @@ lpfc_board_mode_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_board_mode_store(struct class_device *cdev, const char *buf, size_t count)
+lpfc_board_mode_store(struct device *dev, struct device_attribute *attr,
+		      const char *buf, size_t count)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	struct completion online_compl;
 	int status=0;
 
+	if (!phba->cfg_enable_hba_reset)
+		return -EACCES;
 	init_completion(&online_compl);
 
 	if(strncmp(buf, "online", sizeof("online") - 1) == 0) {
@@ -493,9 +525,10 @@ lpfc_get_hba_info(struct lpfc_hba *phba,
 }
 
 static ssize_t
-lpfc_max_rpi_show(struct class_device *cdev, char *buf)
+lpfc_max_rpi_show(struct device *dev, struct device_attribute *attr,
+		  char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	uint32_t cnt;
@@ -506,9 +539,10 @@ lpfc_max_rpi_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_used_rpi_show(struct class_device *cdev, char *buf)
+lpfc_used_rpi_show(struct device *dev, struct device_attribute *attr,
+		   char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	uint32_t cnt, acnt;
@@ -519,9 +553,10 @@ lpfc_used_rpi_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_max_xri_show(struct class_device *cdev, char *buf)
+lpfc_max_xri_show(struct device *dev, struct device_attribute *attr,
+		  char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	uint32_t cnt;
@@ -532,9 +567,10 @@ lpfc_max_xri_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_used_xri_show(struct class_device *cdev, char *buf)
+lpfc_used_xri_show(struct device *dev, struct device_attribute *attr,
+		   char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	uint32_t cnt, acnt;
@@ -545,9 +581,10 @@ lpfc_used_xri_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_max_vpi_show(struct class_device *cdev, char *buf)
+lpfc_max_vpi_show(struct device *dev, struct device_attribute *attr,
+		  char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	uint32_t cnt;
@@ -558,9 +595,10 @@ lpfc_max_vpi_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_used_vpi_show(struct class_device *cdev, char *buf)
+lpfc_used_vpi_show(struct device *dev, struct device_attribute *attr,
+		   char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	uint32_t cnt, acnt;
@@ -571,9 +609,10 @@ lpfc_used_vpi_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_npiv_info_show(struct class_device *cdev, char *buf)
+lpfc_npiv_info_show(struct device *dev, struct device_attribute *attr,
+		    char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -585,9 +624,10 @@ lpfc_npiv_info_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_poll_show(struct class_device *cdev, char *buf)
+lpfc_poll_show(struct device *dev, struct device_attribute *attr,
+	       char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -595,10 +635,10 @@ lpfc_poll_show(struct class_device *cdev, char *buf)
 }
 
 static ssize_t
-lpfc_poll_store(struct class_device *cdev, const char *buf,
-		size_t count)
+lpfc_poll_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	uint32_t creg_val;
@@ -654,9 +694,10 @@ lpfc_poll_store(struct class_device *cdev, const char *buf,
 
 #define lpfc_param_show(attr)	\
 static ssize_t \
-lpfc_##attr##_show(struct class_device *cdev, char *buf) \
+lpfc_##attr##_show(struct device *dev, struct device_attribute *attr, \
+		   char *buf) \
 { \
-	struct Scsi_Host  *shost = class_to_shost(cdev);\
+	struct Scsi_Host  *shost = class_to_shost(dev);\
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;\
 	struct lpfc_hba   *phba = vport->phba;\
 	int val = 0;\
@@ -667,9 +708,10 @@ lpfc_##attr##_show(struct class_device *cdev, char *buf) \
 
 #define lpfc_param_hex_show(attr)	\
 static ssize_t \
-lpfc_##attr##_show(struct class_device *cdev, char *buf) \
+lpfc_##attr##_show(struct device *dev, struct device_attribute *attr, \
+		   char *buf) \
 { \
-	struct Scsi_Host  *shost = class_to_shost(cdev);\
+	struct Scsi_Host  *shost = class_to_shost(dev);\
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;\
 	struct lpfc_hba   *phba = vport->phba;\
 	int val = 0;\
@@ -709,9 +751,10 @@ lpfc_##attr##_set(struct lpfc_hba *phba, int val) \
 
 #define lpfc_param_store(attr)	\
 static ssize_t \
-lpfc_##attr##_store(struct class_device *cdev, const char *buf, size_t count) \
+lpfc_##attr##_store(struct device *dev, struct device_attribute *attr, \
+		    const char *buf, size_t count) \
 { \
-	struct Scsi_Host  *shost = class_to_shost(cdev);\
+	struct Scsi_Host  *shost = class_to_shost(dev);\
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;\
 	struct lpfc_hba   *phba = vport->phba;\
 	int val=0;\
@@ -727,9 +770,10 @@ lpfc_##attr##_store(struct class_device *cdev, const char *buf, size_t count) \
 
 #define lpfc_vport_param_show(attr)	\
 static ssize_t \
-lpfc_##attr##_show(struct class_device *cdev, char *buf) \
+lpfc_##attr##_show(struct device *dev, struct device_attribute *attr, \
+		   char *buf) \
 { \
-	struct Scsi_Host  *shost = class_to_shost(cdev);\
+	struct Scsi_Host  *shost = class_to_shost(dev);\
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;\
 	int val = 0;\
 	val = vport->cfg_##attr;\
@@ -738,9 +782,10 @@ lpfc_##attr##_show(struct class_device *cdev, char *buf) \
 
 #define lpfc_vport_param_hex_show(attr)	\
 static ssize_t \
-lpfc_##attr##_show(struct class_device *cdev, char *buf) \
+lpfc_##attr##_show(struct device *dev, struct device_attribute *attr, \
+		   char *buf) \
 { \
-	struct Scsi_Host  *shost = class_to_shost(cdev);\
+	struct Scsi_Host  *shost = class_to_shost(dev);\
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;\
 	int val = 0;\
 	val = vport->cfg_##attr;\
@@ -778,9 +823,10 @@ lpfc_##attr##_set(struct lpfc_vport *vport, int val) \
 
 #define lpfc_vport_param_store(attr)	\
 static ssize_t \
-lpfc_##attr##_store(struct class_device *cdev, const char *buf, size_t count) \
+lpfc_##attr##_store(struct device *dev, struct device_attribute *attr, \
+		    const char *buf, size_t count) \
 { \
-	struct Scsi_Host  *shost = class_to_shost(cdev);\
+	struct Scsi_Host  *shost = class_to_shost(dev);\
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;\
 	int val=0;\
 	if (!isdigit(buf[0]))\
@@ -806,7 +852,7 @@ module_param(lpfc_##name, int, 0);\
 MODULE_PARM_DESC(lpfc_##name, desc);\
 lpfc_param_show(name)\
 lpfc_param_init(name, defval, minval, maxval)\
-static CLASS_DEVICE_ATTR(lpfc_##name, S_IRUGO , lpfc_##name##_show, NULL)
+static DEVICE_ATTR(lpfc_##name, S_IRUGO , lpfc_##name##_show, NULL)
 
 #define LPFC_ATTR_RW(name, defval, minval, maxval, desc) \
 static int lpfc_##name = defval;\
@@ -816,8 +862,8 @@ lpfc_param_show(name)\
 lpfc_param_init(name, defval, minval, maxval)\
 lpfc_param_set(name, defval, minval, maxval)\
 lpfc_param_store(name)\
-static CLASS_DEVICE_ATTR(lpfc_##name, S_IRUGO | S_IWUSR,\
-			 lpfc_##name##_show, lpfc_##name##_store)
+static DEVICE_ATTR(lpfc_##name, S_IRUGO | S_IWUSR,\
+		   lpfc_##name##_show, lpfc_##name##_store)
 
 #define LPFC_ATTR_HEX_R(name, defval, minval, maxval, desc) \
 static int lpfc_##name = defval;\
@@ -825,7 +871,7 @@ module_param(lpfc_##name, int, 0);\
 MODULE_PARM_DESC(lpfc_##name, desc);\
 lpfc_param_hex_show(name)\
 lpfc_param_init(name, defval, minval, maxval)\
-static CLASS_DEVICE_ATTR(lpfc_##name, S_IRUGO , lpfc_##name##_show, NULL)
+static DEVICE_ATTR(lpfc_##name, S_IRUGO , lpfc_##name##_show, NULL)
 
 #define LPFC_ATTR_HEX_RW(name, defval, minval, maxval, desc) \
 static int lpfc_##name = defval;\
@@ -835,8 +881,8 @@ lpfc_param_hex_show(name)\
 lpfc_param_init(name, defval, minval, maxval)\
 lpfc_param_set(name, defval, minval, maxval)\
 lpfc_param_store(name)\
-static CLASS_DEVICE_ATTR(lpfc_##name, S_IRUGO | S_IWUSR,\
-			 lpfc_##name##_show, lpfc_##name##_store)
+static DEVICE_ATTR(lpfc_##name, S_IRUGO | S_IWUSR,\
+		   lpfc_##name##_show, lpfc_##name##_store)
 
 #define LPFC_VPORT_ATTR(name, defval, minval, maxval, desc) \
 static int lpfc_##name = defval;\
@@ -850,7 +896,7 @@ module_param(lpfc_##name, int, 0);\
 MODULE_PARM_DESC(lpfc_##name, desc);\
 lpfc_vport_param_show(name)\
 lpfc_vport_param_init(name, defval, minval, maxval)\
-static CLASS_DEVICE_ATTR(lpfc_##name, S_IRUGO , lpfc_##name##_show, NULL)
+static DEVICE_ATTR(lpfc_##name, S_IRUGO , lpfc_##name##_show, NULL)
 
 #define LPFC_VPORT_ATTR_RW(name, defval, minval, maxval, desc) \
 static int lpfc_##name = defval;\
@@ -860,8 +906,8 @@ lpfc_vport_param_show(name)\
 lpfc_vport_param_init(name, defval, minval, maxval)\
 lpfc_vport_param_set(name, defval, minval, maxval)\
 lpfc_vport_param_store(name)\
-static CLASS_DEVICE_ATTR(lpfc_##name, S_IRUGO | S_IWUSR,\
-			 lpfc_##name##_show, lpfc_##name##_store)
+static DEVICE_ATTR(lpfc_##name, S_IRUGO | S_IWUSR,\
+		   lpfc_##name##_show, lpfc_##name##_store)
 
 #define LPFC_VPORT_ATTR_HEX_R(name, defval, minval, maxval, desc) \
 static int lpfc_##name = defval;\
@@ -869,7 +915,7 @@ module_param(lpfc_##name, int, 0);\
 MODULE_PARM_DESC(lpfc_##name, desc);\
 lpfc_vport_param_hex_show(name)\
 lpfc_vport_param_init(name, defval, minval, maxval)\
-static CLASS_DEVICE_ATTR(lpfc_##name, S_IRUGO , lpfc_##name##_show, NULL)
+static DEVICE_ATTR(lpfc_##name, S_IRUGO , lpfc_##name##_show, NULL)
 
 #define LPFC_VPORT_ATTR_HEX_RW(name, defval, minval, maxval, desc) \
 static int lpfc_##name = defval;\
@@ -879,44 +925,44 @@ lpfc_vport_param_hex_show(name)\
 lpfc_vport_param_init(name, defval, minval, maxval)\
 lpfc_vport_param_set(name, defval, minval, maxval)\
 lpfc_vport_param_store(name)\
-static CLASS_DEVICE_ATTR(lpfc_##name, S_IRUGO | S_IWUSR,\
-			 lpfc_##name##_show, lpfc_##name##_store)
+static DEVICE_ATTR(lpfc_##name, S_IRUGO | S_IWUSR,\
+		   lpfc_##name##_show, lpfc_##name##_store)
 
-static CLASS_DEVICE_ATTR(info, S_IRUGO, lpfc_info_show, NULL);
-static CLASS_DEVICE_ATTR(serialnum, S_IRUGO, lpfc_serialnum_show, NULL);
-static CLASS_DEVICE_ATTR(modeldesc, S_IRUGO, lpfc_modeldesc_show, NULL);
-static CLASS_DEVICE_ATTR(modelname, S_IRUGO, lpfc_modelname_show, NULL);
-static CLASS_DEVICE_ATTR(programtype, S_IRUGO, lpfc_programtype_show, NULL);
-static CLASS_DEVICE_ATTR(portnum, S_IRUGO, lpfc_vportnum_show, NULL);
-static CLASS_DEVICE_ATTR(fwrev, S_IRUGO, lpfc_fwrev_show, NULL);
-static CLASS_DEVICE_ATTR(hdw, S_IRUGO, lpfc_hdw_show, NULL);
-static CLASS_DEVICE_ATTR(state, S_IRUGO, lpfc_state_show, NULL);
-static CLASS_DEVICE_ATTR(option_rom_version, S_IRUGO,
-					lpfc_option_rom_version_show, NULL);
-static CLASS_DEVICE_ATTR(num_discovered_ports, S_IRUGO,
-					lpfc_num_discovered_ports_show, NULL);
-static CLASS_DEVICE_ATTR(nport_evt_cnt, S_IRUGO, lpfc_nport_evt_cnt_show, NULL);
-static CLASS_DEVICE_ATTR(lpfc_drvr_version, S_IRUGO, lpfc_drvr_version_show,
-			 NULL);
-static CLASS_DEVICE_ATTR(board_mode, S_IRUGO | S_IWUSR,
-			 lpfc_board_mode_show, lpfc_board_mode_store);
-static CLASS_DEVICE_ATTR(issue_reset, S_IWUSR, NULL, lpfc_issue_reset);
-static CLASS_DEVICE_ATTR(max_vpi, S_IRUGO, lpfc_max_vpi_show, NULL);
-static CLASS_DEVICE_ATTR(used_vpi, S_IRUGO, lpfc_used_vpi_show, NULL);
-static CLASS_DEVICE_ATTR(max_rpi, S_IRUGO, lpfc_max_rpi_show, NULL);
-static CLASS_DEVICE_ATTR(used_rpi, S_IRUGO, lpfc_used_rpi_show, NULL);
-static CLASS_DEVICE_ATTR(max_xri, S_IRUGO, lpfc_max_xri_show, NULL);
-static CLASS_DEVICE_ATTR(used_xri, S_IRUGO, lpfc_used_xri_show, NULL);
-static CLASS_DEVICE_ATTR(npiv_info, S_IRUGO, lpfc_npiv_info_show, NULL);
+static DEVICE_ATTR(info, S_IRUGO, lpfc_info_show, NULL);
+static DEVICE_ATTR(serialnum, S_IRUGO, lpfc_serialnum_show, NULL);
+static DEVICE_ATTR(modeldesc, S_IRUGO, lpfc_modeldesc_show, NULL);
+static DEVICE_ATTR(modelname, S_IRUGO, lpfc_modelname_show, NULL);
+static DEVICE_ATTR(programtype, S_IRUGO, lpfc_programtype_show, NULL);
+static DEVICE_ATTR(portnum, S_IRUGO, lpfc_vportnum_show, NULL);
+static DEVICE_ATTR(fwrev, S_IRUGO, lpfc_fwrev_show, NULL);
+static DEVICE_ATTR(hdw, S_IRUGO, lpfc_hdw_show, NULL);
+static DEVICE_ATTR(link_state, S_IRUGO, lpfc_link_state_show, NULL);
+static DEVICE_ATTR(option_rom_version, S_IRUGO,
+		   lpfc_option_rom_version_show, NULL);
+static DEVICE_ATTR(num_discovered_ports, S_IRUGO,
+		   lpfc_num_discovered_ports_show, NULL);
+static DEVICE_ATTR(nport_evt_cnt, S_IRUGO, lpfc_nport_evt_cnt_show, NULL);
+static DEVICE_ATTR(lpfc_drvr_version, S_IRUGO, lpfc_drvr_version_show, NULL);
+static DEVICE_ATTR(board_mode, S_IRUGO | S_IWUSR,
+		   lpfc_board_mode_show, lpfc_board_mode_store);
+static DEVICE_ATTR(issue_reset, S_IWUSR, NULL, lpfc_issue_reset);
+static DEVICE_ATTR(max_vpi, S_IRUGO, lpfc_max_vpi_show, NULL);
+static DEVICE_ATTR(used_vpi, S_IRUGO, lpfc_used_vpi_show, NULL);
+static DEVICE_ATTR(max_rpi, S_IRUGO, lpfc_max_rpi_show, NULL);
+static DEVICE_ATTR(used_rpi, S_IRUGO, lpfc_used_rpi_show, NULL);
+static DEVICE_ATTR(max_xri, S_IRUGO, lpfc_max_xri_show, NULL);
+static DEVICE_ATTR(used_xri, S_IRUGO, lpfc_used_xri_show, NULL);
+static DEVICE_ATTR(npiv_info, S_IRUGO, lpfc_npiv_info_show, NULL);
+static DEVICE_ATTR(lpfc_temp_sensor, S_IRUGO, lpfc_temp_sensor_show, NULL);
 
 
 static char *lpfc_soft_wwn_key = "C99G71SL8032A";
 
 static ssize_t
-lpfc_soft_wwn_enable_store(struct class_device *cdev, const char *buf,
-				size_t count)
+lpfc_soft_wwn_enable_store(struct device *dev, struct device_attribute *attr,
+			   const char *buf, size_t count)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	unsigned int cnt = count;
@@ -945,13 +991,14 @@ lpfc_soft_wwn_enable_store(struct class_device *cdev, const char *buf,
 	phba->soft_wwn_enable = 1;
 	return count;
 }
-static CLASS_DEVICE_ATTR(lpfc_soft_wwn_enable, S_IWUSR, NULL,
-				lpfc_soft_wwn_enable_store);
+static DEVICE_ATTR(lpfc_soft_wwn_enable, S_IWUSR, NULL,
+		   lpfc_soft_wwn_enable_store);
 
 static ssize_t
-lpfc_soft_wwpn_show(struct class_device *cdev, char *buf)
+lpfc_soft_wwpn_show(struct device *dev, struct device_attribute *attr,
+		    char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -961,9 +1008,10 @@ lpfc_soft_wwpn_show(struct class_device *cdev, char *buf)
 
 
 static ssize_t
-lpfc_soft_wwpn_store(struct class_device *cdev, const char *buf, size_t count)
+lpfc_soft_wwpn_store(struct device *dev, struct device_attribute *attr,
+		     const char *buf, size_t count)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	struct completion online_compl;
@@ -971,6 +1019,14 @@ lpfc_soft_wwpn_store(struct class_device *cdev, const char *buf, size_t count)
 	unsigned int i, j, cnt=count;
 	u8 wwpn[8];
 
+	if (!phba->cfg_enable_hba_reset)
+		return -EACCES;
+	spin_lock_irq(&phba->hbalock);
+	if (phba->over_temp_state == HBA_OVER_TEMP) {
+		spin_unlock_irq(&phba->hbalock);
+		return -EACCES;
+	}
+	spin_unlock_irq(&phba->hbalock);
 	/* count may include a LF at end of string */
 	if (buf[cnt-1] == '\n')
 		cnt--;
@@ -1021,13 +1077,14 @@ lpfc_soft_wwpn_store(struct class_device *cdev, const char *buf, size_t count)
 				"reinit adapter - %d\n", stat2);
 	return (stat1 || stat2) ? -EIO : count;
 }
-static CLASS_DEVICE_ATTR(lpfc_soft_wwpn, S_IRUGO | S_IWUSR,\
-			 lpfc_soft_wwpn_show, lpfc_soft_wwpn_store);
+static DEVICE_ATTR(lpfc_soft_wwpn, S_IRUGO | S_IWUSR,\
+		   lpfc_soft_wwpn_show, lpfc_soft_wwpn_store);
 
 static ssize_t
-lpfc_soft_wwnn_show(struct class_device *cdev, char *buf)
+lpfc_soft_wwnn_show(struct device *dev, struct device_attribute *attr,
+		    char *buf)
 {
-	struct Scsi_Host *shost = class_to_shost(cdev);
+	struct Scsi_Host *shost = class_to_shost(dev);
 	struct lpfc_hba *phba = ((struct lpfc_vport *)shost->hostdata)->phba;
 	return snprintf(buf, PAGE_SIZE, "0x%llx\n",
 			(unsigned long long)phba->cfg_soft_wwnn);
@@ -1035,9 +1092,10 @@ lpfc_soft_wwnn_show(struct class_device *cdev, char *buf)
 
 
 static ssize_t
-lpfc_soft_wwnn_store(struct class_device *cdev, const char *buf, size_t count)
+lpfc_soft_wwnn_store(struct device *dev, struct device_attribute *attr,
+		     const char *buf, size_t count)
 {
-	struct Scsi_Host *shost = class_to_shost(cdev);
+	struct Scsi_Host *shost = class_to_shost(dev);
 	struct lpfc_hba *phba = ((struct lpfc_vport *)shost->hostdata)->phba;
 	unsigned int i, j, cnt=count;
 	u8 wwnn[8];
@@ -1081,8 +1139,8 @@ lpfc_soft_wwnn_store(struct class_device *cdev, const char *buf, size_t count)
 
 	return count;
 }
-static CLASS_DEVICE_ATTR(lpfc_soft_wwnn, S_IRUGO | S_IWUSR,\
-			 lpfc_soft_wwnn_show, lpfc_soft_wwnn_store);
+static DEVICE_ATTR(lpfc_soft_wwnn, S_IRUGO | S_IWUSR,\
+		   lpfc_soft_wwnn_show, lpfc_soft_wwnn_store);
 
 
 static int lpfc_poll = 0;
@@ -1092,8 +1150,8 @@ MODULE_PARM_DESC(lpfc_poll, "FCP ring polling mode control:"
 		 " 1 - poll with interrupts enabled"
 		 " 3 - poll and disable FCP ring interrupts");
 
-static CLASS_DEVICE_ATTR(lpfc_poll, S_IRUGO | S_IWUSR,
-			 lpfc_poll_show, lpfc_poll_store);
+static DEVICE_ATTR(lpfc_poll, S_IRUGO | S_IWUSR,
+		   lpfc_poll_show, lpfc_poll_store);
 
 int  lpfc_sli_mode = 0;
 module_param(lpfc_sli_mode, int, 0);
@@ -1102,7 +1160,13 @@ MODULE_PARM_DESC(lpfc_sli_mode, "SLI mode selector:"
 		 " 2 - select SLI-2 even on SLI-3 capable HBAs,"
 		 " 3 - select SLI-3");
 
-LPFC_ATTR_R(enable_npiv, 0, 0, 1, "Enable NPIV functionality");
+int lpfc_enable_npiv = 0;
+module_param(lpfc_enable_npiv, int, 0);
+MODULE_PARM_DESC(lpfc_enable_npiv, "Enable NPIV functionality");
+lpfc_param_show(enable_npiv);
+lpfc_param_init(enable_npiv, 0, 0, 1);
+static DEVICE_ATTR(lpfc_enable_npiv, S_IRUGO,
+			 lpfc_enable_npiv_show, NULL);
 
 /*
 # lpfc_nodev_tmo: If set, it will hold all I/O errors on devices that disappear
@@ -1115,9 +1179,10 @@ MODULE_PARM_DESC(lpfc_nodev_tmo,
 		 "Seconds driver will hold I/O waiting "
 		 "for a device to come back");
 static ssize_t
-lpfc_nodev_tmo_show(struct class_device *cdev, char *buf)
+lpfc_nodev_tmo_show(struct device *dev, struct device_attribute *attr,
+		    char *buf)
 {
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	int val = 0;
 	val = vport->cfg_devloss_tmo;
@@ -1159,7 +1224,7 @@ lpfc_update_rport_devloss_tmo(struct lpfc_vport *vport)
 	shost = lpfc_shost_from_vport(vport);
 	spin_lock_irq(shost->host_lock);
 	list_for_each_entry(ndlp, &vport->fc_nodes, nlp_listp)
-		if (ndlp->rport)
+		if (NLP_CHK_NODE_ACT(ndlp) && ndlp->rport)
 			ndlp->rport->dev_loss_tmo = vport->cfg_devloss_tmo;
 	spin_unlock_irq(shost->host_lock);
 }
@@ -1189,8 +1254,8 @@ lpfc_nodev_tmo_set(struct lpfc_vport *vport, int val)
 
 lpfc_vport_param_store(nodev_tmo)
 
-static CLASS_DEVICE_ATTR(lpfc_nodev_tmo, S_IRUGO | S_IWUSR,
-			 lpfc_nodev_tmo_show, lpfc_nodev_tmo_store);
+static DEVICE_ATTR(lpfc_nodev_tmo, S_IRUGO | S_IWUSR,
+		   lpfc_nodev_tmo_show, lpfc_nodev_tmo_store);
 
 /*
 # lpfc_devloss_tmo: If set, it will hold all I/O errors on devices that
@@ -1223,8 +1288,8 @@ lpfc_devloss_tmo_set(struct lpfc_vport *vport, int val)
 }
 
 lpfc_vport_param_store(devloss_tmo)
-static CLASS_DEVICE_ATTR(lpfc_devloss_tmo, S_IRUGO | S_IWUSR,
-	lpfc_devloss_tmo_show, lpfc_devloss_tmo_store);
+static DEVICE_ATTR(lpfc_devloss_tmo, S_IRUGO | S_IWUSR,
+		   lpfc_devloss_tmo_show, lpfc_devloss_tmo_store);
 
 /*
 # lpfc_log_verbose: Only turn this flag on if you are willing to risk being
@@ -1246,6 +1311,13 @@ static CLASS_DEVICE_ATTR(lpfc_devloss_tmo, S_IRUGO | S_IWUSR,
 */
 LPFC_VPORT_ATTR_HEX_RW(log_verbose, 0x0, 0x0, 0xffff,
 		       "Verbose logging bit-mask");
+
+/*
+# lpfc_enable_da_id: This turns on the DA_ID CT command that deregisters
+# objects that have been registered with the nameserver after login.
+*/
+LPFC_VPORT_ATTR_R(enable_da_id, 0, 0, 1,
+		  "Deregister nameserver objects before LOGO");
 
 /*
 # lun_queue_depth:  This parameter is used to limit the number of outstanding
@@ -1335,8 +1407,8 @@ lpfc_restrict_login_set(struct lpfc_vport *vport, int val)
 	return 0;
 }
 lpfc_vport_param_store(restrict_login);
-static CLASS_DEVICE_ATTR(lpfc_restrict_login, S_IRUGO | S_IWUSR,
-			 lpfc_restrict_login_show, lpfc_restrict_login_store);
+static DEVICE_ATTR(lpfc_restrict_login, S_IRUGO | S_IWUSR,
+		   lpfc_restrict_login_show, lpfc_restrict_login_store);
 
 /*
 # Some disk devices have a "select ID" or "select Target" capability.
@@ -1369,7 +1441,33 @@ LPFC_VPORT_ATTR_R(scan_down, 1, 0, 1,
 # Set loop mode if you want to run as an NL_Port. Value range is [0,0x6].
 # Default value is 0.
 */
-LPFC_ATTR_RW(topology, 0, 0, 6, "Select Fibre Channel topology");
+static int
+lpfc_topology_set(struct lpfc_hba *phba, int val)
+{
+	int err;
+	uint32_t prev_val;
+	if (val >= 0 && val <= 6) {
+		prev_val = phba->cfg_topology;
+		phba->cfg_topology = val;
+		err = lpfc_issue_lip(lpfc_shost_from_vport(phba->pport));
+		if (err)
+			phba->cfg_topology = prev_val;
+		return err;
+	}
+	lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+		"%d:0467 lpfc_topology attribute cannot be set to %d, "
+		"allowed range is [0, 6]\n",
+		phba->brd_no, val);
+	return -EINVAL;
+}
+static int lpfc_topology = 0;
+module_param(lpfc_topology, int, 0);
+MODULE_PARM_DESC(lpfc_topology, "Select Fibre Channel topology");
+lpfc_param_show(topology)
+lpfc_param_init(topology, 0, 0, 6)
+lpfc_param_store(topology)
+static DEVICE_ATTR(lpfc_topology, S_IRUGO | S_IWUSR,
+		lpfc_topology_show, lpfc_topology_store);
 
 /*
 # lpfc_link_speed: Link speed selection for initializing the Fibre Channel
@@ -1381,7 +1479,59 @@ LPFC_ATTR_RW(topology, 0, 0, 6, "Select Fibre Channel topology");
 #       8  = 8 Gigabaud
 # Value range is [0,8]. Default value is 0.
 */
-LPFC_ATTR_R(link_speed, 0, 0, 8, "Select link speed");
+static int
+lpfc_link_speed_set(struct lpfc_hba *phba, int val)
+{
+	int err;
+	uint32_t prev_val;
+
+	if (((val == LINK_SPEED_1G) && !(phba->lmt & LMT_1Gb)) ||
+		((val == LINK_SPEED_2G) && !(phba->lmt & LMT_2Gb)) ||
+		((val == LINK_SPEED_4G) && !(phba->lmt & LMT_4Gb)) ||
+		((val == LINK_SPEED_8G) && !(phba->lmt & LMT_8Gb)) ||
+		((val == LINK_SPEED_10G) && !(phba->lmt & LMT_10Gb)))
+		return -EINVAL;
+
+	if ((val >= 0 && val <= LPFC_MAX_LINK_SPEED)
+		&& (LPFC_LINK_SPEED_BITMAP & (1 << val))) {
+		prev_val = phba->cfg_link_speed;
+		phba->cfg_link_speed = val;
+		err = lpfc_issue_lip(lpfc_shost_from_vport(phba->pport));
+		if (err)
+			phba->cfg_link_speed = prev_val;
+		return err;
+	}
+
+	lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+		"%d:0469 lpfc_link_speed attribute cannot be set to %d, "
+		"allowed range is [0, 8]\n",
+		phba->brd_no, val);
+	return -EINVAL;
+}
+
+static int lpfc_link_speed = 0;
+module_param(lpfc_link_speed, int, 0);
+MODULE_PARM_DESC(lpfc_link_speed, "Select link speed");
+lpfc_param_show(link_speed)
+static int
+lpfc_link_speed_init(struct lpfc_hba *phba, int val)
+{
+	if ((val >= 0 && val <= LPFC_MAX_LINK_SPEED)
+		&& (LPFC_LINK_SPEED_BITMAP & (1 << val))) {
+		phba->cfg_link_speed = val;
+		return 0;
+	}
+	lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+			"0454 lpfc_link_speed attribute cannot "
+			"be set to %d, allowed values are "
+			"["LPFC_LINK_SPEED_STRING"]\n", val);
+	phba->cfg_link_speed = 0;
+	return -EINVAL;
+}
+
+lpfc_param_store(link_speed)
+static DEVICE_ATTR(lpfc_link_speed, S_IRUGO | S_IWUSR,
+		lpfc_link_speed_show, lpfc_link_speed_store);
 
 /*
 # lpfc_fcp_class:  Determines FC class to use for the FCP protocol.
@@ -1475,83 +1625,112 @@ LPFC_ATTR_RW(poll_tmo, 10, 1, 255,
 #		support this feature
 #       0  = MSI disabled (default)
 #       1  = MSI enabled
-# Value range is [0,1]. Default value is 0.
+#	2  = MSI-X enabled
+# Value range is [0,2]. Default value is 0.
 */
-LPFC_ATTR_R(use_msi, 0, 0, 1, "Use Message Signaled Interrupts, if possible");
+LPFC_ATTR_R(use_msi, 0, 0, 2, "Use Message Signaled Interrupts (1) or "
+	    "MSI-X (2), if possible");
 
+/*
+# lpfc_enable_hba_reset: Allow or prevent HBA resets to the hardware.
+#       0  = HBA resets disabled
+#       1  = HBA resets enabled (default)
+# Value range is [0,1]. Default value is 1.
+*/
+LPFC_ATTR_R(enable_hba_reset, 1, 0, 1, "Enable HBA resets from the driver.");
 
+/*
+# lpfc_enable_hba_heartbeat: Enable HBA heartbeat timer..
+#       0  = HBA Heartbeat disabled
+#       1  = HBA Heartbeat enabled (default)
+# Value range is [0,1]. Default value is 1.
+*/
+LPFC_ATTR_R(enable_hba_heartbeat, 1, 0, 1, "Enable HBA Heartbeat.");
 
-struct class_device_attribute *lpfc_hba_attrs[] = {
-	&class_device_attr_info,
-	&class_device_attr_serialnum,
-	&class_device_attr_modeldesc,
-	&class_device_attr_modelname,
-	&class_device_attr_programtype,
-	&class_device_attr_portnum,
-	&class_device_attr_fwrev,
-	&class_device_attr_hdw,
-	&class_device_attr_option_rom_version,
-	&class_device_attr_state,
-	&class_device_attr_num_discovered_ports,
-	&class_device_attr_lpfc_drvr_version,
-	&class_device_attr_lpfc_log_verbose,
-	&class_device_attr_lpfc_lun_queue_depth,
-	&class_device_attr_lpfc_hba_queue_depth,
-	&class_device_attr_lpfc_peer_port_login,
-	&class_device_attr_lpfc_nodev_tmo,
-	&class_device_attr_lpfc_devloss_tmo,
-	&class_device_attr_lpfc_fcp_class,
-	&class_device_attr_lpfc_use_adisc,
-	&class_device_attr_lpfc_ack0,
-	&class_device_attr_lpfc_topology,
-	&class_device_attr_lpfc_scan_down,
-	&class_device_attr_lpfc_link_speed,
-	&class_device_attr_lpfc_cr_delay,
-	&class_device_attr_lpfc_cr_count,
-	&class_device_attr_lpfc_multi_ring_support,
-	&class_device_attr_lpfc_multi_ring_rctl,
-	&class_device_attr_lpfc_multi_ring_type,
-	&class_device_attr_lpfc_fdmi_on,
-	&class_device_attr_lpfc_max_luns,
-	&class_device_attr_lpfc_enable_npiv,
-	&class_device_attr_nport_evt_cnt,
-	&class_device_attr_board_mode,
-	&class_device_attr_max_vpi,
-	&class_device_attr_used_vpi,
-	&class_device_attr_max_rpi,
-	&class_device_attr_used_rpi,
-	&class_device_attr_max_xri,
-	&class_device_attr_used_xri,
-	&class_device_attr_npiv_info,
-	&class_device_attr_issue_reset,
-	&class_device_attr_lpfc_poll,
-	&class_device_attr_lpfc_poll_tmo,
-	&class_device_attr_lpfc_use_msi,
-	&class_device_attr_lpfc_soft_wwnn,
-	&class_device_attr_lpfc_soft_wwpn,
-	&class_device_attr_lpfc_soft_wwn_enable,
+/*
+ * lpfc_sg_seg_cnt: Initial Maximum DMA Segment Count
+ * This value can be set to values between 64 and 256. The default value is
+ * 64, but may be increased to allow for larger Max I/O sizes. The scsi layer
+ * will be allowed to request I/Os of sizes up to (MAX_SEG_COUNT * SEG_SIZE).
+ */
+LPFC_ATTR_R(sg_seg_cnt, LPFC_DEFAULT_SG_SEG_CNT, LPFC_DEFAULT_SG_SEG_CNT,
+	    LPFC_MAX_SG_SEG_CNT, "Max Scatter Gather Segment Count");
+
+struct device_attribute *lpfc_hba_attrs[] = {
+	&dev_attr_info,
+	&dev_attr_serialnum,
+	&dev_attr_modeldesc,
+	&dev_attr_modelname,
+	&dev_attr_programtype,
+	&dev_attr_portnum,
+	&dev_attr_fwrev,
+	&dev_attr_hdw,
+	&dev_attr_option_rom_version,
+	&dev_attr_link_state,
+	&dev_attr_num_discovered_ports,
+	&dev_attr_lpfc_drvr_version,
+	&dev_attr_lpfc_temp_sensor,
+	&dev_attr_lpfc_log_verbose,
+	&dev_attr_lpfc_lun_queue_depth,
+	&dev_attr_lpfc_hba_queue_depth,
+	&dev_attr_lpfc_peer_port_login,
+	&dev_attr_lpfc_nodev_tmo,
+	&dev_attr_lpfc_devloss_tmo,
+	&dev_attr_lpfc_fcp_class,
+	&dev_attr_lpfc_use_adisc,
+	&dev_attr_lpfc_ack0,
+	&dev_attr_lpfc_topology,
+	&dev_attr_lpfc_scan_down,
+	&dev_attr_lpfc_link_speed,
+	&dev_attr_lpfc_cr_delay,
+	&dev_attr_lpfc_cr_count,
+	&dev_attr_lpfc_multi_ring_support,
+	&dev_attr_lpfc_multi_ring_rctl,
+	&dev_attr_lpfc_multi_ring_type,
+	&dev_attr_lpfc_fdmi_on,
+	&dev_attr_lpfc_max_luns,
+	&dev_attr_lpfc_enable_npiv,
+	&dev_attr_nport_evt_cnt,
+	&dev_attr_board_mode,
+	&dev_attr_max_vpi,
+	&dev_attr_used_vpi,
+	&dev_attr_max_rpi,
+	&dev_attr_used_rpi,
+	&dev_attr_max_xri,
+	&dev_attr_used_xri,
+	&dev_attr_npiv_info,
+	&dev_attr_issue_reset,
+	&dev_attr_lpfc_poll,
+	&dev_attr_lpfc_poll_tmo,
+	&dev_attr_lpfc_use_msi,
+	&dev_attr_lpfc_soft_wwnn,
+	&dev_attr_lpfc_soft_wwpn,
+	&dev_attr_lpfc_soft_wwn_enable,
+	&dev_attr_lpfc_enable_hba_reset,
+	&dev_attr_lpfc_enable_hba_heartbeat,
+	&dev_attr_lpfc_sg_seg_cnt,
 	NULL,
 };
 
-struct class_device_attribute *lpfc_vport_attrs[] = {
-	&class_device_attr_info,
-	&class_device_attr_state,
-	&class_device_attr_num_discovered_ports,
-	&class_device_attr_lpfc_drvr_version,
-
-	&class_device_attr_lpfc_log_verbose,
-	&class_device_attr_lpfc_lun_queue_depth,
-	&class_device_attr_lpfc_nodev_tmo,
-	&class_device_attr_lpfc_devloss_tmo,
-	&class_device_attr_lpfc_hba_queue_depth,
-	&class_device_attr_lpfc_peer_port_login,
-	&class_device_attr_lpfc_restrict_login,
-	&class_device_attr_lpfc_fcp_class,
-	&class_device_attr_lpfc_use_adisc,
-	&class_device_attr_lpfc_fdmi_on,
-	&class_device_attr_lpfc_max_luns,
-	&class_device_attr_nport_evt_cnt,
-	&class_device_attr_npiv_info,
+struct device_attribute *lpfc_vport_attrs[] = {
+	&dev_attr_info,
+	&dev_attr_link_state,
+	&dev_attr_num_discovered_ports,
+	&dev_attr_lpfc_drvr_version,
+	&dev_attr_lpfc_log_verbose,
+	&dev_attr_lpfc_lun_queue_depth,
+	&dev_attr_lpfc_nodev_tmo,
+	&dev_attr_lpfc_devloss_tmo,
+	&dev_attr_lpfc_hba_queue_depth,
+	&dev_attr_lpfc_peer_port_login,
+	&dev_attr_lpfc_restrict_login,
+	&dev_attr_lpfc_fcp_class,
+	&dev_attr_lpfc_use_adisc,
+	&dev_attr_lpfc_fdmi_on,
+	&dev_attr_lpfc_max_luns,
+	&dev_attr_nport_evt_cnt,
+	&dev_attr_npiv_info,
+	&dev_attr_lpfc_enable_da_id,
 	NULL,
 };
 
@@ -1560,9 +1739,8 @@ sysfs_ctlreg_write(struct kobject *kobj, struct bin_attribute *bin_attr,
 		   char *buf, loff_t off, size_t count)
 {
 	size_t buf_off;
-	struct class_device *cdev = container_of(kobj, struct class_device,
-						 kobj);
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct device *dev = container_of(kobj, struct device, kobj);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -1594,9 +1772,8 @@ sysfs_ctlreg_read(struct kobject *kobj, struct bin_attribute *bin_attr,
 {
 	size_t buf_off;
 	uint32_t * tmp_ptr;
-	struct class_device *cdev = container_of(kobj, struct class_device,
-						 kobj);
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct device *dev = container_of(kobj, struct device, kobj);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 
@@ -1651,9 +1828,8 @@ static ssize_t
 sysfs_mbox_write(struct kobject *kobj, struct bin_attribute *bin_attr,
 		 char *buf, loff_t off, size_t count)
 {
-	struct class_device *cdev = container_of(kobj, struct class_device,
-						 kobj);
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct device *dev = container_of(kobj, struct device, kobj);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	struct lpfcMboxq  *mbox = NULL;
@@ -1706,9 +1882,8 @@ static ssize_t
 sysfs_mbox_read(struct kobject *kobj, struct bin_attribute *bin_attr,
 		char *buf, loff_t off, size_t count)
 {
-	struct class_device *cdev = container_of(kobj, struct class_device,
-						 kobj);
-	struct Scsi_Host  *shost = class_to_shost(cdev);
+	struct device *dev = container_of(kobj, struct device, kobj);
+	struct Scsi_Host  *shost = class_to_shost(dev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba   *phba = vport->phba;
 	int rc;
@@ -1727,13 +1902,18 @@ sysfs_mbox_read(struct kobject *kobj, struct bin_attribute *bin_attr,
 
 	spin_lock_irq(&phba->hbalock);
 
+	if (phba->over_temp_state == HBA_OVER_TEMP) {
+		sysfs_mbox_idle(phba);
+		spin_unlock_irq(&phba->hbalock);
+		return  -EACCES;
+	}
+
 	if (off == 0 &&
 	    phba->sysfs_mbox.state  == SMBOX_WRITING &&
 	    phba->sysfs_mbox.offset >= 2 * sizeof(uint32_t)) {
 
 		switch (phba->sysfs_mbox.mbox->mb.mbxCommand) {
 			/* Offline only */
-		case MBX_WRITE_NV:
 		case MBX_INIT_LINK:
 		case MBX_DOWN_LINK:
 		case MBX_CONFIG_LINK:
@@ -1744,9 +1924,7 @@ sysfs_mbox_read(struct kobject *kobj, struct bin_attribute *bin_attr,
 		case MBX_DUMP_CONTEXT:
 		case MBX_RUN_DIAGS:
 		case MBX_RESTART:
-		case MBX_FLASH_WR_ULA:
 		case MBX_SET_MASK:
-		case MBX_SET_SLIM:
 		case MBX_SET_DEBUG:
 			if (!(vport->fc_flag & FC_OFFLINE_MODE)) {
 				printk(KERN_WARNING "mbox_read:Command 0x%x "
@@ -1756,6 +1934,8 @@ sysfs_mbox_read(struct kobject *kobj, struct bin_attribute *bin_attr,
 				spin_unlock_irq(&phba->hbalock);
 				return -EPERM;
 			}
+		case MBX_WRITE_NV:
+		case MBX_WRITE_VPARMS:
 		case MBX_LOAD_SM:
 		case MBX_READ_NV:
 		case MBX_READ_CONFIG:
@@ -1772,6 +1952,8 @@ sysfs_mbox_read(struct kobject *kobj, struct bin_attribute *bin_attr,
 		case MBX_LOAD_EXP_ROM:
 		case MBX_BEACON:
 		case MBX_DEL_LD_ENTRY:
+		case MBX_SET_VARIABLE:
+		case MBX_WRITE_WWN:
 			break;
 		case MBX_READ_SPARM64:
 		case MBX_READ_LA:
@@ -1793,8 +1975,26 @@ sysfs_mbox_read(struct kobject *kobj, struct bin_attribute *bin_attr,
 			return -EPERM;
 		}
 
+		/* If HBA encountered an error attention, allow only DUMP
+		 * or RESTART mailbox commands until the HBA is restarted.
+		 */
+		if ((phba->pport->stopped) &&
+			(phba->sysfs_mbox.mbox->mb.mbxCommand !=
+				MBX_DUMP_MEMORY &&
+			 phba->sysfs_mbox.mbox->mb.mbxCommand !=
+				MBX_RESTART &&
+			 phba->sysfs_mbox.mbox->mb.mbxCommand !=
+				MBX_WRITE_VPARMS)) {
+			sysfs_mbox_idle(phba);
+			spin_unlock_irq(&phba->hbalock);
+			return -EPERM;
+		}
+
 		phba->sysfs_mbox.mbox->vport = vport;
 
+		/* Don't allow mailbox commands to be sent when blocked
+		 * or when in the middle of discovery
+		 */
 		if (phba->sli.sli_flag & LPFC_BLOCK_MGMT_IO) {
 			sysfs_mbox_idle(phba);
 			spin_unlock_irq(&phba->hbalock);
@@ -1865,19 +2065,19 @@ lpfc_alloc_sysfs_attr(struct lpfc_vport *vport)
 	struct Scsi_Host *shost = lpfc_shost_from_vport(vport);
 	int error;
 
-	error = sysfs_create_bin_file(&shost->shost_classdev.kobj,
+	error = sysfs_create_bin_file(&shost->shost_dev.kobj,
 				      &sysfs_ctlreg_attr);
 	if (error)
 		goto out;
 
-	error = sysfs_create_bin_file(&shost->shost_classdev.kobj,
+	error = sysfs_create_bin_file(&shost->shost_dev.kobj,
 				      &sysfs_mbox_attr);
 	if (error)
 		goto out_remove_ctlreg_attr;
 
 	return 0;
 out_remove_ctlreg_attr:
-	sysfs_remove_bin_file(&shost->shost_classdev.kobj, &sysfs_ctlreg_attr);
+	sysfs_remove_bin_file(&shost->shost_dev.kobj, &sysfs_ctlreg_attr);
 out:
 	return error;
 }
@@ -1887,8 +2087,8 @@ lpfc_free_sysfs_attr(struct lpfc_vport *vport)
 {
 	struct Scsi_Host *shost = lpfc_shost_from_vport(vport);
 
-	sysfs_remove_bin_file(&shost->shost_classdev.kobj, &sysfs_mbox_attr);
-	sysfs_remove_bin_file(&shost->shost_classdev.kobj, &sysfs_ctlreg_attr);
+	sysfs_remove_bin_file(&shost->shost_dev.kobj, &sysfs_mbox_attr);
+	sysfs_remove_bin_file(&shost->shost_dev.kobj, &sysfs_ctlreg_attr);
 }
 
 
@@ -1993,7 +2193,8 @@ lpfc_get_host_speed(struct Scsi_Host *shost)
 				fc_host_speed(shost) = FC_PORTSPEED_UNKNOWN;
 			break;
 		}
-	}
+	} else
+		fc_host_speed(shost) = FC_PORTSPEED_UNKNOWN;
 
 	spin_unlock_irq(shost->host_lock);
 }
@@ -2013,7 +2214,7 @@ lpfc_get_host_fabric_name (struct Scsi_Host *shost)
 		node_name = wwn_to_u64(phba->fc_fabparam.nodeName.u.wwn);
 	else
 		/* fabric is local port if there is no F/FL_Port */
-		node_name = wwn_to_u64(vport->fc_nodename.u.wwn);
+		node_name = 0;
 
 	spin_unlock_irq(shost->host_lock);
 
@@ -2220,7 +2421,8 @@ lpfc_get_node_by_target(struct scsi_target *starget)
 	spin_lock_irq(shost->host_lock);
 	/* Search for this, mapped, target ID */
 	list_for_each_entry(ndlp, &vport->fc_nodes, nlp_listp) {
-		if (ndlp->nlp_state == NLP_STE_MAPPED_NODE &&
+		if (NLP_CHK_NODE_ACT(ndlp) &&
+		    ndlp->nlp_state == NLP_STE_MAPPED_NODE &&
 		    starget->id == ndlp->nlp_sid) {
 			spin_unlock_irq(shost->host_lock);
 			return ndlp;
@@ -2268,9 +2470,11 @@ lpfc_set_rport_loss_tmo(struct fc_rport *rport, uint32_t timeout)
 
 #define lpfc_rport_show_function(field, format_string, sz, cast)	\
 static ssize_t								\
-lpfc_show_rport_##field (struct class_device *cdev, char *buf)		\
+lpfc_show_rport_##field (struct device *dev,				\
+			 struct device_attribute *attr,			\
+			 char *buf)					\
 {									\
-	struct fc_rport *rport = transport_class_to_rport(cdev);	\
+	struct fc_rport *rport = transport_class_to_rport(dev);		\
 	struct lpfc_rport_data *rdata = rport->hostdata;		\
 	return snprintf(buf, sz, format_string,				\
 		(rdata->target) ? cast rdata->target->field : 0);	\
@@ -2337,8 +2541,6 @@ struct fc_function_template lpfc_transport_functions = {
 	.dev_loss_tmo_callbk = lpfc_dev_loss_tmo_callbk,
 	.terminate_rport_io = lpfc_terminate_rport_io,
 
-	.vport_create = lpfc_vport_create,
-	.vport_delete = lpfc_vport_delete,
 	.dd_fcvport_size = sizeof(struct lpfc_vport *),
 };
 
@@ -2414,21 +2616,23 @@ lpfc_get_cfgparam(struct lpfc_hba *phba)
 	lpfc_poll_tmo_init(phba, lpfc_poll_tmo);
 	lpfc_enable_npiv_init(phba, lpfc_enable_npiv);
 	lpfc_use_msi_init(phba, lpfc_use_msi);
+	lpfc_enable_hba_reset_init(phba, lpfc_enable_hba_reset);
+	lpfc_enable_hba_heartbeat_init(phba, lpfc_enable_hba_heartbeat);
 	phba->cfg_poll = lpfc_poll;
 	phba->cfg_soft_wwnn = 0L;
 	phba->cfg_soft_wwpn = 0L;
-	/*
-	 * The total number of segments is the configuration value plus 2
-	 * since the IOCB need a command and response bde.
-	 */
-	phba->cfg_sg_seg_cnt = LPFC_SG_SEG_CNT + 2;
+	lpfc_sg_seg_cnt_init(phba, lpfc_sg_seg_cnt);
+	/* Also reinitialize the host templates with new values. */
+	lpfc_vport_template.sg_tablesize = phba->cfg_sg_seg_cnt;
+	lpfc_template.sg_tablesize = phba->cfg_sg_seg_cnt;
 	/*
 	 * Since the sg_tablesize is module parameter, the sg_dma_buf_size
-	 * used to create the sg_dma_buf_pool must be dynamically calculated
+	 * used to create the sg_dma_buf_pool must be dynamically calculated.
+	 * 2 segments are added since the IOCB needs a command and response bde.
 	 */
 	phba->cfg_sg_dma_buf_size = sizeof(struct fcp_cmnd) +
 			sizeof(struct fcp_rsp) +
-			(phba->cfg_sg_seg_cnt * sizeof(struct ulp_bde64));
+			((phba->cfg_sg_seg_cnt + 2) * sizeof(struct ulp_bde64));
 	lpfc_hba_queue_depth_init(phba, lpfc_hba_queue_depth);
 	return;
 }
@@ -2448,5 +2652,6 @@ lpfc_get_vport_cfgparam(struct lpfc_vport *vport)
 	lpfc_discovery_threads_init(vport, lpfc_discovery_threads);
 	lpfc_max_luns_init(vport, lpfc_max_luns);
 	lpfc_scan_down_init(vport, lpfc_scan_down);
+	lpfc_enable_da_id_init(vport, lpfc_enable_da_id);
 	return;
 }

@@ -4,7 +4,7 @@
  * Renesas Solutions Highlander Support.
  *
  * Copyright (C) 2002 Atom Create Engineering Co., Ltd.
- * Copyright (C) 2005 - 2007 Paul Mundt
+ * Copyright (C) 2005 - 2008 Paul Mundt
  *
  * This contains support for the R7780RP-1, R7780MP, and R7785RP
  * Highlander modules.
@@ -15,12 +15,16 @@
  */
 #include <linux/init.h>
 #include <linux/platform_device.h>
-#include <linux/pata_platform.h>
+#include <linux/ata_platform.h>
+#include <linux/types.h>
+#include <linux/i2c.h>
+#include <net/ax88796.h>
 #include <asm/machvec.h>
 #include <asm/r7780rp.h>
 #include <asm/clock.h>
 #include <asm/heartbeat.h>
 #include <asm/io.h>
+#include <asm/io_trapped.h>
 
 static struct resource r8a66597_usb_host_resources[] = {
 	[0] = {
@@ -136,17 +140,106 @@ static struct platform_device heartbeat_device = {
 	.resource	= heartbeat_resources,
 };
 
+static struct ax_plat_data ax88796_platdata = {
+	.flags          = AXFLG_HAS_93CX6,
+	.wordlength     = 2,
+	.dcr_val        = 0x1,
+	.rcr_val        = 0x40,
+};
+
+static struct resource ax88796_resources[] = {
+	{
+#ifdef CONFIG_SH_R7780RP
+		.start  = 0xa5800400,
+		.end    = 0xa5800400 + (0x20 * 0x2) - 1,
+#else
+		.start  = 0xa4100400,
+		.end    = 0xa4100400 + (0x20 * 0x2) - 1,
+#endif
+		.flags  = IORESOURCE_MEM,
+	},
+	{
+		.start  = IRQ_AX88796,
+		.end    = IRQ_AX88796,
+		.flags  = IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device ax88796_device = {
+	.name           = "ax88796",
+	.id             = 0,
+
+	.dev    = {
+		.platform_data = &ax88796_platdata,
+	},
+
+	.num_resources  = ARRAY_SIZE(ax88796_resources),
+	.resource       = ax88796_resources,
+};
+
+static struct resource smbus_resources[] = {
+	[0] = {
+		.start	= PA_SMCR,
+		.end	= PA_SMCR + 0x100 - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= IRQ_SMBUS,
+		.end	= IRQ_SMBUS,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device smbus_device = {
+	.name		= "i2c-highlander",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(smbus_resources),
+	.resource	= smbus_resources,
+};
+
+static struct i2c_board_info __initdata highlander_i2c_devices[] = {
+	{
+		I2C_BOARD_INFO("r2025sd", 0x32),
+	},
+};
+
 static struct platform_device *r7780rp_devices[] __initdata = {
 	&r8a66597_usb_host_device,
 	&m66592_usb_peripheral_device,
-	&cf_ide_device,
 	&heartbeat_device,
+	&smbus_device,
+#ifndef CONFIG_SH_R7780RP
+	&ax88796_device,
+#endif
+};
+
+/*
+ * The CF is connected using a 16-bit bus where 8-bit operations are
+ * unsupported. The linux ata driver is however using 8-bit operations, so
+ * insert a trapped io filter to convert 8-bit operations into 16-bit.
+ */
+static struct trapped_io cf_trapped_io = {
+	.resource		= cf_ide_resources,
+	.num_resources		= 2,
+	.minimum_bus_width	= 16,
 };
 
 static int __init r7780rp_devices_setup(void)
 {
-	return platform_add_devices(r7780rp_devices,
+	int ret = 0;
+
+#ifndef CONFIG_SH_R7780RP
+	if (register_trapped_io(&cf_trapped_io) == 0)
+		ret |= platform_device_register(&cf_ide_device);
+#endif
+
+	ret |= platform_add_devices(r7780rp_devices,
 				    ARRAY_SIZE(r7780rp_devices));
+
+	ret |= i2c_register_board_info(0, highlander_i2c_devices,
+				       ARRAY_SIZE(highlander_i2c_devices));
+
+	return ret;
 }
 device_initcall(r7780rp_devices_setup);
 
@@ -223,7 +316,7 @@ static void __init highlander_setup(char **cmdline_p)
 
 static unsigned char irl2irq[HL_NR_IRL];
 
-int highlander_irq_demux(int irq)
+static int highlander_irq_demux(int irq)
 {
 	if (irq >= HL_NR_IRL || !irl2irq[irq])
 		return irq;
@@ -231,27 +324,9 @@ int highlander_irq_demux(int irq)
 	return irl2irq[irq];
 }
 
-void __init highlander_init_irq(void)
+static void __init highlander_init_irq(void)
 {
-	unsigned char *ucp = NULL;
-
-	do {
-#ifdef CONFIG_SH_R7780MP
-		ucp = highlander_init_irq_r7780mp();
-		if (ucp)
-			break;
-#endif
-#ifdef CONFIG_SH_R7785RP
-		ucp = highlander_init_irq_r7785rp();
-		if (ucp)
-			break;
-#endif
-#ifdef CONFIG_SH_R7780RP
-		highlander_init_irq_r7780rp();
-		ucp = irl2irq;
-		break;
-#endif
-	} while (0);
+	unsigned char *ucp = highlander_plat_irq_setup();
 
 	if (ucp) {
 		plat_irq_setup_pins(IRQ_MODE_IRL3210);

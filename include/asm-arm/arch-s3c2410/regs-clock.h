@@ -137,7 +137,9 @@ s3c2410_get_pll(unsigned int pllval, unsigned int baseclk)
 
 #define S3C2412_CLKDIVN_PDIVN		(1<<2)
 #define S3C2412_CLKDIVN_HDIVN_MASK	(3<<0)
-#define S3C2421_CLKDIVN_ARMDIVN		(1<<3)
+#define S3C2412_CLKDIVN_ARMDIVN		(1<<3)
+#define S3C2412_CLKDIVN_DVSEN		(1<<4)
+#define S3C2412_CLKDIVN_HALFHCLK	(1<<5)
 #define S3C2412_CLKDIVN_USB48DIV	(1<<6)
 #define S3C2412_CLKDIVN_UARTDIV_MASK	(15<<8)
 #define S3C2412_CLKDIVN_UARTDIV_SHIFT	(8)
@@ -187,6 +189,8 @@ s3c2410_get_pll(unsigned int pllval, unsigned int baseclk)
 #define S3C2412_CLKSRC_I2SCLK_MPLL		(1<<9)
 #define S3C2412_CLKSRC_USBCLK_HCLK		(1<<10)
 #define S3C2412_CLKSRC_CAMCLK_HCLK		(1<<11)
+#define S3C2412_CLKSRC_UREFCLK_EXTCLK	(1<<12)
+#define S3C2412_CLKSRC_EREFCLK_EXTCLK	(1<<14)
 
 #endif /* CONFIG_CPU_S3C2412 | CONFIG_CPU_S3C2413 */
 

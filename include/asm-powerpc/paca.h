@@ -21,7 +21,18 @@
 #include	<asm/mmu.h>
 
 register struct paca_struct *local_paca asm("r13");
+
+#if defined(CONFIG_DEBUG_PREEMPT) && defined(CONFIG_SMP)
+extern unsigned int debug_smp_processor_id(void); /* from linux/smp.h */
+/*
+ * Add standard checks that preemption cannot occur when using get_paca():
+ * otherwise the paca_struct it points to may be the wrong one just after.
+ */
+#define get_paca()	((void) debug_smp_processor_id(), local_paca)
+#else
 #define get_paca()	local_paca
+#endif
+
 #define get_lppaca()	(get_paca()->lppaca_ptr)
 #define get_slb_shadow()	(get_paca()->slb_shadow_ptr)
 
@@ -31,10 +42,7 @@ struct task_struct;
  * Defines the layout of the paca.
  *
  * This structure is not directly accessed by firmware or the service
- * processor except for the first two pointers that point to the
- * lppaca area and the ItLpRegSave area for this CPU.  The lppaca
- * object is currently contained within the PACA but it doesn't need
- * to be.
+ * processor.
  */
 struct paca_struct {
 	/*
@@ -44,14 +52,7 @@ struct paca_struct {
 	 * avoid cacheline bouncing.
 	 */
 
-	/*
-	 * MAGIC: These first two pointers can't be moved - they're
-	 * accessed by the firmware
-	 */
 	struct lppaca *lppaca_ptr;	/* Pointer to LpPaca for PLIC */
-#ifdef CONFIG_PPC_ISERIES
-	void *reg_save_ptr; /* Pointer to LpRegSave for PLIC */
-#endif /* CONFIG_PPC_ISERIES */
 
 	/*
 	 * MAGIC: the spinlock functions in arch/powerpc/lib/locks.c 
@@ -103,11 +104,11 @@ struct paca_struct {
 	u64 user_time;			/* accumulated usermode TB ticks */
 	u64 system_time;		/* accumulated system TB ticks */
 	u64 startpurr;			/* PURR/TB value snapshot */
+	u64 startspurr;			/* SPURR value snapshot */
 };
 
 extern struct paca_struct paca[];
-
-void setup_boot_paca(void);
+extern void initialise_pacas(void);
 
 #endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_PACA_H */

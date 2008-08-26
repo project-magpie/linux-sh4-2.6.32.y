@@ -51,34 +51,37 @@ struct machdep_calls {
 #ifdef CONFIG_PPC64
 	void            (*hpte_invalidate)(unsigned long slot,
 					   unsigned long va,
-					   int psize,
+					   int psize, int ssize,
 					   int local);
 	long		(*hpte_updatepp)(unsigned long slot, 
 					 unsigned long newpp, 
 					 unsigned long va,
-					 int pize,
+					 int psize, int ssize,
 					 int local);
 	void            (*hpte_updateboltedpp)(unsigned long newpp, 
 					       unsigned long ea,
-					       int psize);
+					       int psize, int ssize);
 	long		(*hpte_insert)(unsigned long hpte_group,
 				       unsigned long va,
 				       unsigned long prpn,
 				       unsigned long rflags,
 				       unsigned long vflags,
-				       int psize);
+				       int psize, int ssize);
 	long		(*hpte_remove)(unsigned long hpte_group);
+	void            (*hpte_removebolted)(unsigned long ea,
+					     int psize, int ssize);
 	void		(*flush_hash_range)(unsigned long number, int local);
 
 	/* special for kexec, to be called in real mode, linar mapping is
 	 * destroyed as well */
 	void		(*hpte_clear_all)(void);
 
-	void		(*tce_build)(struct iommu_table * tbl,
+	int		(*tce_build)(struct iommu_table *tbl,
 				     long index,
 				     long npages,
 				     unsigned long uaddr,
-				     enum dma_data_direction direction);
+				     enum dma_data_direction direction,
+				     struct dma_attrs *attrs);
 	void		(*tce_free)(struct iommu_table *tbl,
 				    long index,
 				    long npages);
@@ -99,7 +102,7 @@ struct machdep_calls {
 #endif /* CONFIG_PPC64 */
 
 	int		(*probe)(void);
-	void		(*setup_arch)(void);
+	void		(*setup_arch)(void); /* Optional, may be NULL */
 	void		(*init_early)(void);
 	/* Optional, may be NULL. */
 	void		(*show_cpuinfo)(struct seq_file *m);
@@ -196,14 +199,18 @@ struct machdep_calls {
 	   May be NULL. */
 	void		(*init)(void);
 
-	void		(*setup_io_mappings)(void);
-
-	void		(*early_serial_map)(void);
 	void		(*kgdb_map_scc)(void);
 
 	/*
 	 * optional PCI "hooks"
 	 */
+	/* Called in indirect_* to avoid touching devices */
+	int (*pci_exclude_device)(struct pci_controller *, unsigned char, unsigned char);
+
+	/* Called at then very end of pcibios_init() */
+	void (*pcibios_after_init)(void);
+
+#endif /* CONFIG_PPC32 */
 
 	/* Called after PPC generic resource fixup to perform
 	   machine specific fixups */
@@ -212,18 +219,9 @@ struct machdep_calls {
 	/* Called for each PCI bus in the system when it's probed */
 	void (*pcibios_fixup_bus)(struct pci_bus *);
 
-	/* Called when pci_enable_device() is called (initial=0) or
-	 * when a device with no assigned resource is found (initial=1).
-	 * Returns 0 to allow assignment/enabling of the device. */
-	int  (*pcibios_enable_device_hook)(struct pci_dev *, int initial);
-
-	/* Called in indirect_* to avoid touching devices */
-	int (*pci_exclude_device)(struct pci_controller *, unsigned char, unsigned char);
-
-	/* Called at then very end of pcibios_init() */
-	void (*pcibios_after_init)(void);
-
-#endif /* CONFIG_PPC32 */
+	/* Called when pci_enable_device() is called. Returns 0 to
+	 * allow assignment/enabling of the device. */
+	int  (*pcibios_enable_device_hook)(struct pci_dev *);
 
 	/* Called to shutdown machine specific hardware not already controlled
 	 * by other drivers.
@@ -253,8 +251,19 @@ struct machdep_calls {
 	 */
 	void (*machine_kexec)(struct kimage *image);
 #endif /* CONFIG_KEXEC */
+
+#ifdef CONFIG_SUSPEND
+	/* These are called to disable and enable, respectively, IRQs when
+	 * entering a suspend state.  If NULL, then the generic versions
+	 * will be called.  The generic versions disable/enable the
+	 * decrementer along with interrupts.
+	 */
+	void (*suspend_disable_irqs)(void);
+	void (*suspend_enable_irqs)(void);
+#endif
 };
 
+extern void e500_idle(void);
 extern void power4_idle(void);
 extern void power4_cpu_offline_powersave(void);
 extern void ppc6xx_idle(void);
@@ -325,6 +334,32 @@ static inline void log_error(char *buf, unsigned int err_type, int fatal)
 	if (ppc_md.log_error)
 		ppc_md.log_error(buf, err_type, fatal);
 }
+
+#define __define_machine_initcall(mach,level,fn,id) \
+	static int __init __machine_initcall_##mach##_##fn(void) { \
+		if (machine_is(mach)) return fn(); \
+		return 0; \
+	} \
+	__define_initcall(level,__machine_initcall_##mach##_##fn,id);
+
+#define machine_core_initcall(mach,fn)		__define_machine_initcall(mach,"1",fn,1)
+#define machine_core_initcall_sync(mach,fn)	__define_machine_initcall(mach,"1s",fn,1s)
+#define machine_postcore_initcall(mach,fn)	__define_machine_initcall(mach,"2",fn,2)
+#define machine_postcore_initcall_sync(mach,fn)	__define_machine_initcall(mach,"2s",fn,2s)
+#define machine_arch_initcall(mach,fn)		__define_machine_initcall(mach,"3",fn,3)
+#define machine_arch_initcall_sync(mach,fn)	__define_machine_initcall(mach,"3s",fn,3s)
+#define machine_subsys_initcall(mach,fn)	__define_machine_initcall(mach,"4",fn,4)
+#define machine_subsys_initcall_sync(mach,fn)	__define_machine_initcall(mach,"4s",fn,4s)
+#define machine_fs_initcall(mach,fn)		__define_machine_initcall(mach,"5",fn,5)
+#define machine_fs_initcall_sync(mach,fn)	__define_machine_initcall(mach,"5s",fn,5s)
+#define machine_rootfs_initcall(mach,fn)	__define_machine_initcall(mach,"rootfs",fn,rootfs)
+#define machine_device_initcall(mach,fn)	__define_machine_initcall(mach,"6",fn,6)
+#define machine_device_initcall_sync(mach,fn)	__define_machine_initcall(mach,"6s",fn,6s)
+#define machine_late_initcall(mach,fn)		__define_machine_initcall(mach,"7",fn,7)
+#define machine_late_initcall_sync(mach,fn)	__define_machine_initcall(mach,"7s",fn,7s)
+
+void generic_suspend_disable_irqs(void);
+void generic_suspend_enable_irqs(void);
 
 #endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_MACHDEP_H */

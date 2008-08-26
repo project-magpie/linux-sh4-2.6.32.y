@@ -1,7 +1,4 @@
-/* $Id: fpu.c,v 1.4 2004/01/13 05:52:11 kkojima Exp $
- *
- * linux/arch/sh/kernel/fpu.c
- *
+/*
  * Save/restore floating point context for signal handlers.
  *
  * This file is subject to the terms and conditions of the GNU General Public
@@ -13,13 +10,13 @@
  *
  * FIXME! These routines have not been tested for big endian case.
  */
-
 #include <linux/sched.h>
 #include <linux/signal.h>
+#include <linux/io.h>
+#include <asm/cpu/fpu.h>
 #include <asm/processor.h>
 #include <asm/system.h>
-#include <asm/io.h>
-#include "sh4_fpu.h"
+#include <asm/fpu.h>
 
 /* The PR (precision) bit in the FP Status Register must be clear when
  * an frchg instruction is executed, otherwise the instruction is undefined.
@@ -40,6 +37,7 @@ extern unsigned long long float64_sub(unsigned long long a,
 				      unsigned long long b);
 extern unsigned long int float32_sub(unsigned long int a, unsigned long int b);
 extern unsigned long int float64_to_float32(unsigned long long a);
+
 static unsigned int fpu_exception_flags;
 
 /*
@@ -149,7 +147,7 @@ static void restore_fpu(struct task_struct *tsk)
 /*
  * Load the FPU with signalling NANS.  This bit pattern we're using
  * has the property that no matter wether considered as single or as
- * double precision represents signaling NANS.  
+ * double precision represents signaling NANS.
  */
 
 static void fpu_init(void)
@@ -193,7 +191,7 @@ static void fpu_init(void)
 			"frchg\n\t"
 			"lds	%2, fpscr\n\t"
 			:	/* no output */
-		      	:"r" (0), "r"(FPSCR_RCHG), "r"(FPSCR_INIT));
+			:"r" (0), "r"(FPSCR_RCHG), "r"(FPSCR_INIT));
 	disable_fpu();
 }
 
@@ -265,11 +263,13 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		else
 			nextpc = regs->pc + 4 + ((char)(insn & 0xff) << 1);
 		finsn = *(unsigned short *)(regs->pc + 2);
-	} else if (nib[0] == 0x4 && nib[3] == 0xb && (nib[2] == 0x0 || nib[2] == 0x2)) {
+	} else if (nib[0] == 0x4 && nib[3] == 0xb &&
+		   (nib[2] == 0x0 || nib[2] == 0x2)) {
 		/* jmp & jsr */
 		nextpc = regs->regs[nib[1]];
 		finsn = *(unsigned short *)(regs->pc + 2);
-	} else if (nib[0] == 0x0 && nib[3] == 0x3 && (nib[2] == 0x0 || nib[2] == 0x2)) {
+	} else if (nib[0] == 0x0 && nib[3] == 0x3 &&
+		   (nib[2] == 0x0 || nib[2] == 0x2)) {
 		/* braf & bsrf */
 		nextpc = regs->pc + 4 + regs->regs[nib[1]];
 		finsn = *(unsigned short *)(regs->pc + 2);
@@ -286,11 +286,11 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		/* fcnvsd */
 		struct task_struct *tsk = current;
 
-		if ((tsk->thread.fpu.hard.fpscr & FPSCR_CAUSE_ERROR)) {
+		if ((tsk->thread.fpu.hard.fpscr & FPSCR_CAUSE_ERROR))
 			/* FPU error */
 			denormal_to_double(&tsk->thread.fpu.hard,
 					   (finsn >> 8) & 0xf);
-		} else
+		else
 			return 0;
 
 		regs->pc = nextpc;
@@ -377,7 +377,6 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 
 		regs->pc = nextpc;
 		return 1;
-
 	} else if ((finsn & 0xf003) == 0xf003) {
 		/* fdiv */
 		struct task_struct *tsk = current;
@@ -418,7 +417,6 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 
 		regs->pc = nextpc;
 		return 1;
-
 	} else if ((finsn & 0xf0bd) == 0xf0bd) {
 		/* fcnvds - double to single precision convert */
 		struct task_struct *tsk = current;
@@ -442,8 +440,9 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 
 		regs->pc = nextpc;
 		return 1;
-	} else
-		return 0;
+	}
+
+	return 0;
 }
 
 void float_raise(unsigned int flags)
@@ -458,12 +457,10 @@ int float_rounding_mode(void)
 	return roundingMode;
 }
 
-asmlinkage void
-do_fpu_error(unsigned long r4, unsigned long r5, unsigned long r6,
-	     unsigned long r7, struct pt_regs __regs)
+BUILD_TRAP_HANDLER(fpu_error)
 {
-	struct pt_regs *regs = RELOC_HIDE(&__regs, 0);
 	struct task_struct *tsk = current;
+	TRAP_HANDLER_DECL;
 
 	save_fpu(tsk, regs);
 	fpu_exception_flags = 0;
@@ -471,7 +468,8 @@ do_fpu_error(unsigned long r4, unsigned long r5, unsigned long r6,
 		tsk->thread.fpu.hard.fpscr &=
 		    ~(FPSCR_CAUSE_MASK | FPSCR_FLAG_MASK);
 		tsk->thread.fpu.hard.fpscr |= fpu_exception_flags;
-		/* Set the FPSCR flag as well as cause bits - simply replicate the cause */
+		/* Set the FPSCR flag as well as cause bits - simply
+		 * replicate the cause */
 		tsk->thread.fpu.hard.fpscr |= (fpu_exception_flags >> 10);
 		grab_fpu(regs);
 		restore_fpu(tsk);
@@ -485,12 +483,10 @@ do_fpu_error(unsigned long r4, unsigned long r5, unsigned long r6,
 	force_sig(SIGFPE, tsk);
 }
 
-asmlinkage void
-do_fpu_state_restore(unsigned long r4, unsigned long r5, unsigned long r6,
-		     unsigned long r7, struct pt_regs __regs)
+BUILD_TRAP_HANDLER(fpu_state_restore)
 {
-	struct pt_regs *regs = RELOC_HIDE(&__regs, 0);
 	struct task_struct *tsk = current;
+	TRAP_HANDLER_DECL;
 
 	grab_fpu(regs);
 	if (!user_mode(regs)) {

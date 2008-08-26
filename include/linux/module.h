@@ -15,6 +15,7 @@
 #include <linux/stringify.h>
 #include <linux/kobject.h>
 #include <linux/moduleparam.h>
+#include <linux/marker.h>
 #include <asm/local.h>
 
 #include <asm/module.h>
@@ -22,7 +23,7 @@
 /* Not Yet Implemented */
 #define MODULE_SUPPORTED_DEVICE(name)
 
-/* v850 toolchain uses a `_' prefix for all user symbols */
+/* some toolchains uses a `_' prefix for all user symbols */
 #ifndef MODULE_SYMBOL_PREFIX
 #define MODULE_SYMBOL_PREFIX ""
 #endif
@@ -177,7 +178,7 @@ void *__symbol_get_gpl(const char *symbol);
 #define __CRC_SYMBOL(sym, sec)					\
 	extern void *__crc_##sym __attribute__((weak));		\
 	static const unsigned long __kcrctab_##sym		\
-	__attribute_used__					\
+	__used							\
 	__attribute__((section("__kcrctab" sec), unused))	\
 	= (unsigned long) &__crc_##sym;
 #else
@@ -189,10 +190,10 @@ void *__symbol_get_gpl(const char *symbol);
 	extern typeof(sym) sym;					\
 	__CRC_SYMBOL(sym, sec)					\
 	static const char __kstrtab_##sym[]			\
-	__attribute__((section("__ksymtab_strings")))		\
+	__attribute__((section("__ksymtab_strings"), aligned(1))) \
 	= MODULE_SYMBOL_PREFIX #sym;                    	\
 	static const struct kernel_symbol __ksymtab_##sym	\
-	__attribute_used__					\
+	__used							\
 	__attribute__((section("__ksymtab" sec), unused))	\
 	= { (unsigned long)&sym, __kstrtab_##sym }
 
@@ -228,23 +229,6 @@ enum module_state
 	MODULE_STATE_GOING,
 };
 
-/* Similar stuff for section attributes. */
-struct module_sect_attr
-{
-	struct module_attribute mattr;
-	char *name;
-	unsigned long address;
-};
-
-struct module_sect_attrs
-{
-	struct attribute_group grp;
-	int nsections;
-	struct module_sect_attr attrs[0];
-};
-
-struct module_param_attrs;
-
 struct module
 {
 	enum module_state state;
@@ -265,27 +249,30 @@ struct module
 
 	/* Exported symbols */
 	const struct kernel_symbol *syms;
-	unsigned int num_syms;
 	const unsigned long *crcs;
+	unsigned int num_syms;
 
 	/* GPL-only exported symbols. */
-	const struct kernel_symbol *gpl_syms;
 	unsigned int num_gpl_syms;
+	const struct kernel_symbol *gpl_syms;
 	const unsigned long *gpl_crcs;
 
+#ifdef CONFIG_UNUSED_SYMBOLS
 	/* unused exported symbols. */
 	const struct kernel_symbol *unused_syms;
-	unsigned int num_unused_syms;
 	const unsigned long *unused_crcs;
+	unsigned int num_unused_syms;
+
 	/* GPL-only, unused exported symbols. */
-	const struct kernel_symbol *unused_gpl_syms;
 	unsigned int num_unused_gpl_syms;
+	const struct kernel_symbol *unused_gpl_syms;
 	const unsigned long *unused_gpl_crcs;
+#endif
 
 	/* symbols that will be GPL-only in the near future. */
 	const struct kernel_symbol *gpl_future_syms;
-	unsigned int num_gpl_future_syms;
 	const unsigned long *gpl_future_crcs;
+	unsigned int num_gpl_future_syms;
 
 	/* Exception table */
 	unsigned int num_exentries;
@@ -301,10 +288,10 @@ struct module
 	void *module_core;
 
 	/* Here are the sizes of the init and core sections */
-	unsigned long init_size, core_size;
+	unsigned int init_size, core_size;
 
 	/* The size of the executable code in each section.  */
-	unsigned long init_text_size, core_text_size;
+	unsigned int init_text_size, core_text_size;
 
 	/* The handle returned from unwind_add_table. */
 	void *unwind_info;
@@ -312,40 +299,26 @@ struct module
 	/* Arch-specific module values */
 	struct mod_arch_specific arch;
 
-	/* Am I unsafe to unload? */
-	int unsafe;
-
 	unsigned int taints;	/* same bits as kernel:tainted */
 
 #ifdef CONFIG_GENERIC_BUG
 	/* Support for BUG */
+	unsigned num_bugs;
 	struct list_head bug_list;
 	struct bug_entry *bug_table;
-	unsigned num_bugs;
-#endif
-
-#ifdef CONFIG_MODULE_UNLOAD
-	/* Reference counts */
-	struct module_ref ref[NR_CPUS];
-
-	/* What modules depend on me? */
-	struct list_head modules_which_use_me;
-
-	/* Who is waiting for us to be unloaded */
-	struct task_struct *waiter;
-
-	/* Destruction function. */
-	void (*exit)(void);
 #endif
 
 #ifdef CONFIG_KALLSYMS
 	/* We keep the symbol and string tables for kallsyms. */
 	Elf_Sym *symtab;
-	unsigned long num_symtab;
+	unsigned int num_symtab;
 	char *strtab;
 
 	/* Section attributes */
 	struct module_sect_attrs *sect_attrs;
+
+	/* Notes attributes */
+	struct module_notes_attrs *notes_attrs;
 #endif
 
 	/* Per-cpu data. */
@@ -354,6 +327,25 @@ struct module
 	/* The command line arguments (may be mangled).  People like
 	   keeping pointers to this stuff */
 	char *args;
+#ifdef CONFIG_MARKERS
+	struct marker *markers;
+	unsigned int num_markers;
+#endif
+
+#ifdef CONFIG_MODULE_UNLOAD
+	/* What modules depend on me? */
+	struct list_head modules_which_use_me;
+
+	/* Who is waiting for us to be unloaded */
+	struct task_struct *waiter;
+
+	/* Destruction function. */
+	void (*exit)(void);
+
+	/* Reference counts */
+	struct module_ref ref[NR_CPUS];
+#endif
+
 };
 #ifndef MODULE_ARCH_INIT
 #define MODULE_ARCH_INIT {}
@@ -441,21 +433,14 @@ static inline void __module_get(struct module *module)
 	__mod ? __mod->name : "kernel";		\
 })
 
-#define __unsafe(mod)							     \
-do {									     \
-	if (mod && !(mod)->unsafe) {					     \
-		printk(KERN_WARNING					     \
-		       "Module %s cannot be unloaded due to unsafe usage in" \
-		       " %s:%u\n", (mod)->name, __FILE__, __LINE__);	     \
-		(mod)->unsafe = 1;					     \
-	}								     \
-} while(0)
-
-/* For kallsyms to ask for address resolution.  NULL means not found. */
+/* For kallsyms to ask for address resolution.  namebuf should be at
+ * least KSYM_NAME_LEN long: a pointer to namebuf is returned if
+ * found, otherwise NULL. */
 const char *module_address_lookup(unsigned long addr,
-				  unsigned long *symbolsize,
-				  unsigned long *offset,
-				  char **modname);
+			    unsigned long *symbolsize,
+			    unsigned long *offset,
+			    char **modname,
+			    char *namebuf);
 int lookup_module_symbol_name(unsigned long addr, char *symname);
 int lookup_module_symbol_attrs(unsigned long addr, unsigned long *size, unsigned long *offset, char *modname, char *name);
 
@@ -466,6 +451,8 @@ int register_module_notifier(struct notifier_block * nb);
 int unregister_module_notifier(struct notifier_block * nb);
 
 extern void print_modules(void);
+
+extern void module_update_markers(void);
 
 #else /* !CONFIG_MODULES... */
 #define EXPORT_SYMBOL(sym)
@@ -518,13 +505,12 @@ static inline void module_put(struct module *module)
 
 #define module_name(mod) "kernel"
 
-#define __unsafe(mod)
-
 /* For kallsyms to ask for address resolution.  NULL means not found. */
 static inline const char *module_address_lookup(unsigned long addr,
-						unsigned long *symbolsize,
-						unsigned long *offset,
-						char **modname)
+					  unsigned long *symbolsize,
+					  unsigned long *offset,
+					  char **modname,
+					  char *namebuf)
 {
 	return NULL;
 }
@@ -568,13 +554,19 @@ static inline void print_modules(void)
 {
 }
 
+static inline void module_update_markers(void)
+{
+}
+
 #endif /* CONFIG_MODULES */
 
 struct device_driver;
 #ifdef CONFIG_SYSFS
 struct module;
 
-extern struct kset module_subsys;
+extern struct kset *module_kset;
+extern struct kobj_type module_ktype;
+extern int module_sysfs_initialized;
 
 int mod_sysfs_init(struct module *mod);
 int mod_sysfs_setup(struct module *mod,
@@ -606,21 +598,6 @@ static inline void module_remove_modinfo_attrs(struct module *mod)
 { }
 
 #endif /* CONFIG_SYSFS */
-
-#if defined(CONFIG_SYSFS) && defined(CONFIG_MODULES)
-
-void module_add_driver(struct module *mod, struct device_driver *drv);
-void module_remove_driver(struct device_driver *drv);
-
-#else /* not both CONFIG_SYSFS && CONFIG_MODULES */
-
-static inline void module_add_driver(struct module *mod, struct device_driver *drv)
-{ }
-
-static inline void module_remove_driver(struct device_driver *drv)
-{ }
-
-#endif
 
 #define symbol_request(x) try_then_request_module(symbol_get(x), "symbol:" #x)
 

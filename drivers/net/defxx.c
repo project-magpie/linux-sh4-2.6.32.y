@@ -539,7 +539,6 @@ static int __devinit dfx_register(struct device *bdev)
 		goto err_out;
 	}
 
-	SET_MODULE_OWNER(dev);
 	SET_NETDEV_DEV(dev, bdev);
 
 	bp = netdev_priv(dev);
@@ -806,7 +805,7 @@ static void __devinit dfx_bus_init(struct net_device *dev)
  *   Interrupts are disabled at the adapter bus-specific logic.
  */
 
-static void __devinit dfx_bus_uninit(struct net_device *dev)
+static void __devexit dfx_bus_uninit(struct net_device *dev)
 {
 	DFX_board_t *bp = netdev_priv(dev);
 	struct device *bdev = bp->bus_dev;
@@ -972,7 +971,8 @@ static int __devinit dfx_driver_init(struct net_device *dev,
 	int alloc_size;			/* total buffer size needed */
 	char *top_v, *curr_v;		/* virtual addrs into memory block */
 	dma_addr_t top_p, curr_p;	/* physical addrs into memory block */
-	u32 data, le32;			/* host data register value */
+	u32 data;			/* host data register value */
+	__le32 le32;
 	char *board_name = NULL;
 
 	DBG_printk("In dfx_driver_init...\n");

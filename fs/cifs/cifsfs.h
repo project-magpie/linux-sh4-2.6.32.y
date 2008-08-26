@@ -1,7 +1,7 @@
 /*
  *   fs/cifs/cifsfs.h
  *
- *   Copyright (c) International Business Machines  Corp., 2002, 2005
+ *   Copyright (c) International Business Machines  Corp., 2002, 2007
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
  *   This library is free software; you can redistribute it and/or modify
@@ -24,14 +24,7 @@
 
 #define ROOT_I 2
 
-#ifndef FALSE
-#define FALSE 0
-#endif
-
-#ifndef TRUE
-#define TRUE 1
-#endif
-
+extern struct file_system_type cifs_fs_type;
 extern const struct address_space_operations cifs_addr_ops;
 extern const struct address_space_operations cifs_addr_ops_smallbuf;
 
@@ -43,6 +36,7 @@ extern void cifs_read_inode(struct inode *);
 
 /* Functions related to inodes */
 extern const struct inode_operations cifs_dir_inode_ops;
+extern struct inode *cifs_iget(struct super_block *, unsigned long);
 extern int cifs_create(struct inode *, struct dentry *, int,
 		       struct nameidata *);
 extern struct dentry *cifs_lookup(struct inode *, struct dentry *,
@@ -60,6 +54,8 @@ extern int cifs_setattr(struct dentry *, struct iattr *);
 
 extern const struct inode_operations cifs_file_inode_ops;
 extern const struct inode_operations cifs_symlink_inode_ops;
+extern struct inode_operations cifs_dfs_referral_inode_operations;
+
 
 /* Functions related to files and directories */
 extern const struct file_operations cifs_file_ops;
@@ -99,7 +95,11 @@ extern int 	cifs_setxattr(struct dentry *, const char *, const void *,
 			size_t, int);
 extern ssize_t	cifs_getxattr(struct dentry *, const char *, void *, size_t);
 extern ssize_t	cifs_listxattr(struct dentry *, char *, size_t);
-extern int cifs_ioctl (struct inode *inode, struct file *filep,
-		       unsigned int command, unsigned long arg);
-#define CIFS_VERSION   "1.50"
+extern long cifs_ioctl(struct file *filep, unsigned int cmd, unsigned long arg);
+
+#ifdef CONFIG_CIFS_EXPERIMENTAL
+extern const struct export_operations cifs_export_ops;
+#endif /* EXPERIMENTAL */
+
+#define CIFS_VERSION   "1.53"
 #endif				/* _CIFSFS_H */

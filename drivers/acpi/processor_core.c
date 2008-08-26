@@ -44,6 +44,7 @@
 #include <linux/seq_file.h>
 #include <linux/dmi.h>
 #include <linux/moduleparam.h>
+#include <linux/cpuidle.h>
 
 #include <asm/io.h>
 #include <asm/system.h>
@@ -85,7 +86,6 @@ static int acpi_processor_info_open_fs(struct inode *inode, struct file *file);
 static void acpi_processor_notify(acpi_handle handle, u32 event, void *data);
 static acpi_status acpi_processor_hotadd_init(acpi_handle handle, int *p_cpu);
 static int acpi_processor_handle_eject(struct acpi_processor *pr);
-extern int acpi_processor_tstate_has_changed(struct acpi_processor *pr);
 
 
 static const struct acpi_device_id processor_device_ids[] = {
@@ -111,14 +111,38 @@ static struct acpi_driver acpi_processor_driver = {
 #define UNINSTALL_NOTIFY_HANDLER	2
 
 static const struct file_operations acpi_processor_info_fops = {
+	.owner = THIS_MODULE,
 	.open = acpi_processor_info_open_fs,
 	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = single_release,
 };
 
-struct acpi_processor *processors[NR_CPUS];
+DEFINE_PER_CPU(struct acpi_processor *, processors);
 struct acpi_processor_errata errata __read_mostly;
+static int set_no_mwait(const struct dmi_system_id *id)
+{
+	printk(KERN_NOTICE PREFIX "%s detected - "
+		"disable mwait for CPU C-stetes\n", id->ident);
+	idle_nomwait = 1;
+	return 0;
+}
+
+static struct dmi_system_id __cpuinitdata processor_idle_dmi_table[] = {
+	{
+	set_no_mwait, "IFL91 board", {
+	DMI_MATCH(DMI_BIOS_VENDOR, "COMPAL"),
+	DMI_MATCH(DMI_SYS_VENDOR, "ZEPTO"),
+	DMI_MATCH(DMI_PRODUCT_VERSION, "3215W"),
+	DMI_MATCH(DMI_BOARD_NAME, "IFL91") }, NULL},
+	{
+	set_no_mwait, "Extensa 5220", {
+	DMI_MATCH(DMI_BIOS_VENDOR, "Phoenix Technologies LTD"),
+	DMI_MATCH(DMI_SYS_VENDOR, "ACER"),
+	DMI_MATCH(DMI_PRODUCT_VERSION, "0100"),
+	DMI_MATCH(DMI_BOARD_NAME, "Columbia") }, NULL},
+	{},
+};
 
 /* --------------------------------------------------------------------------
                                 Errata Handling
@@ -264,7 +288,20 @@ static int acpi_processor_set_pdc(struct acpi_processor *pr)
 
 	if (!pdc_in)
 		return status;
+	if (idle_nomwait) {
+		/*
+		 * If mwait is disabled for CPU C-states, the C2C3_FFH access
+		 * mode will be disabled in the parameter of _PDC object.
+		 * Of course C1_FFH access mode will also be disabled.
+		 */
+		union acpi_object *obj;
+		u32 *buffer = NULL;
 
+		obj = pdc_in->pointer;
+		buffer = (u32 *)(obj->buffer.pointer);
+		buffer[2] &= ~(ACPI_PDC_C_C2C3_FFH | ACPI_PDC_C_C1_FFH);
+
+	}
 	status = acpi_evaluate_object(pr->handle, "_PDC", pdc_in, NULL);
 
 	if (ACPI_FAILURE(status))
@@ -325,40 +362,30 @@ static int acpi_processor_add_fs(struct acpi_device *device)
 	acpi_device_dir(device)->owner = THIS_MODULE;
 
 	/* 'info' [R] */
-	entry = create_proc_entry(ACPI_PROCESSOR_FILE_INFO,
-				  S_IRUGO, acpi_device_dir(device));
+	entry = proc_create_data(ACPI_PROCESSOR_FILE_INFO,
+				 S_IRUGO, acpi_device_dir(device),
+				 &acpi_processor_info_fops,
+				 acpi_driver_data(device));
 	if (!entry)
 		return -EIO;
-	else {
-		entry->proc_fops = &acpi_processor_info_fops;
-		entry->data = acpi_driver_data(device);
-		entry->owner = THIS_MODULE;
-	}
 
 	/* 'throttling' [R/W] */
-	entry = create_proc_entry(ACPI_PROCESSOR_FILE_THROTTLING,
-				  S_IFREG | S_IRUGO | S_IWUSR,
-				  acpi_device_dir(device));
+	entry = proc_create_data(ACPI_PROCESSOR_FILE_THROTTLING,
+				 S_IFREG | S_IRUGO | S_IWUSR,
+				 acpi_device_dir(device),
+				 &acpi_processor_throttling_fops,
+				 acpi_driver_data(device));
 	if (!entry)
 		return -EIO;
-	else {
-		entry->proc_fops = &acpi_processor_throttling_fops;
-		entry->data = acpi_driver_data(device);
-		entry->owner = THIS_MODULE;
-	}
 
 	/* 'limit' [R/W] */
-	entry = create_proc_entry(ACPI_PROCESSOR_FILE_LIMIT,
-				  S_IFREG | S_IRUGO | S_IWUSR,
-				  acpi_device_dir(device));
+	entry = proc_create_data(ACPI_PROCESSOR_FILE_LIMIT,
+				 S_IFREG | S_IRUGO | S_IWUSR,
+				 acpi_device_dir(device),
+				 &acpi_processor_limit_fops,
+				 acpi_driver_data(device));
 	if (!entry)
 		return -EIO;
-	else {
-		entry->proc_fops = &acpi_processor_limit_fops;
-		entry->data = acpi_driver_data(device);
-		entry->owner = THIS_MODULE;
-	}
-
 	return 0;
 }
 
@@ -420,12 +447,6 @@ static int map_lsapic_id(struct acpi_subtable_header *entry,
 	}
 	return 0;
 }
-
-#ifdef CONFIG_IA64
-#define arch_cpu_to_apicid 	ia64_cpu_to_sapicid
-#else
-#define arch_cpu_to_apicid 	x86_cpu_to_apicid
-#endif
 
 static int map_madt_entry(u32 acpi_id)
 {
@@ -499,8 +520,8 @@ static int get_cpu_id(acpi_handle handle, u32 acpi_id)
 	if (apic_id == -1)
 		return apic_id;
 
-	for (i = 0; i < NR_CPUS; ++i) {
-		if (arch_cpu_to_apicid[i] == apic_id)
+	for_each_possible_cpu(i) {
+		if (cpu_physical_id(i) == apic_id)
 			return i;
 	}
 	return -1;
@@ -617,23 +638,26 @@ static int acpi_processor_get_info(struct acpi_processor *pr, unsigned has_uid)
 		request_region(pr->throttling.address, 6, "ACPI CPU throttle");
 	}
 
-#ifdef CONFIG_CPU_FREQ
-	acpi_processor_ppc_has_changed(pr);
-#endif
-	acpi_processor_get_throttling_info(pr);
-	acpi_processor_get_limit_info(pr);
+	/*
+	 * If ACPI describes a slot number for this CPU, we can use it
+	 * ensure we get the right value in the "physical id" field
+	 * of /proc/cpuinfo
+	 */
+	status = acpi_evaluate_object(pr->handle, "_SUN", NULL, &buffer);
+	if (ACPI_SUCCESS(status))
+		arch_fix_phys_package_id(pr->id, object.integer.value);
 
 	return 0;
 }
 
-static void *processor_device_array[NR_CPUS];
+static DEFINE_PER_CPU(void *, processor_device_array);
 
 static int __cpuinit acpi_processor_start(struct acpi_device *device)
 {
 	int result = 0;
 	acpi_status status = AE_OK;
 	struct acpi_processor *pr;
-
+	struct sys_device *sysdev;
 
 	pr = acpi_driver_data(device);
 
@@ -643,26 +667,30 @@ static int __cpuinit acpi_processor_start(struct acpi_device *device)
 		return 0;
 	}
 
-	BUG_ON((pr->id >= NR_CPUS) || (pr->id < 0));
+	BUG_ON((pr->id >= nr_cpu_ids) || (pr->id < 0));
 
 	/*
 	 * Buggy BIOS check
 	 * ACPI id of processors can be reported wrongly by the BIOS.
 	 * Don't trust it blindly
 	 */
-	if (processor_device_array[pr->id] != NULL &&
-	    processor_device_array[pr->id] != device) {
-		printk(KERN_WARNING "BIOS reported wrong ACPI id"
+	if (per_cpu(processor_device_array, pr->id) != NULL &&
+	    per_cpu(processor_device_array, pr->id) != device) {
+		printk(KERN_WARNING "BIOS reported wrong ACPI id "
 			"for the processor\n");
 		return -ENODEV;
 	}
-	processor_device_array[pr->id] = device;
+	per_cpu(processor_device_array, pr->id) = device;
 
-	processors[pr->id] = pr;
+	per_cpu(processors, pr->id) = pr;
 
 	result = acpi_processor_add_fs(device);
 	if (result)
 		goto end;
+
+	sysdev = get_cpu_sysdev(pr->id);
+	if (sysfs_create_link(&device->dev.kobj, &sysdev->kobj, "sysdev"))
+		return -EFAULT;
 
 	status = acpi_install_notify_handler(pr->handle, ACPI_DEVICE_NOTIFY,
 					     acpi_processor_notify, pr);
@@ -670,8 +698,35 @@ static int __cpuinit acpi_processor_start(struct acpi_device *device)
 	/* _PDC call should be done before doing anything else (if reqd.). */
 	arch_acpi_processor_init_pdc(pr);
 	acpi_processor_set_pdc(pr);
+#ifdef CONFIG_CPU_FREQ
+	acpi_processor_ppc_has_changed(pr);
+#endif
+	acpi_processor_get_throttling_info(pr);
+	acpi_processor_get_limit_info(pr);
+
 
 	acpi_processor_power_init(pr, device);
+
+	pr->cdev = thermal_cooling_device_register("Processor", device,
+						&processor_cooling_ops);
+	if (IS_ERR(pr->cdev)) {
+		result = PTR_ERR(pr->cdev);
+		goto end;
+	}
+
+	dev_info(&device->dev, "registered as cooling_device%d\n",
+		 pr->cdev->id);
+
+	result = sysfs_create_link(&device->dev.kobj,
+				   &pr->cdev->device.kobj,
+				   "thermal_cooling");
+	if (result)
+		printk(KERN_ERR PREFIX "Create sysfs link\n");
+	result = sysfs_create_link(&pr->cdev->device.kobj,
+				   &device->dev.kobj,
+				   "device");
+	if (result)
+		printk(KERN_ERR PREFIX "Create sysfs link\n");
 
 	if (pr->flags.throttling) {
 		printk(KERN_INFO PREFIX "%s [%s] (supports",
@@ -689,7 +744,7 @@ static void acpi_processor_notify(acpi_handle handle, u32 event, void *data)
 {
 	struct acpi_processor *pr = data;
 	struct acpi_device *device = NULL;
-
+	int saved;
 
 	if (!pr)
 		return;
@@ -699,7 +754,10 @@ static void acpi_processor_notify(acpi_handle handle, u32 event, void *data)
 
 	switch (event) {
 	case ACPI_PROCESSOR_NOTIFY_PERFORMANCE:
+		saved = pr->performance_platform_limit;
 		acpi_processor_ppc_has_changed(pr);
+		if (saved == pr->performance_platform_limit)
+			break;
 		acpi_bus_generate_proc_event(device, event,
 					pr->performance_platform_limit);
 		acpi_bus_generate_netlink_event(device->pnp.device_class,
@@ -730,7 +788,7 @@ static int acpi_cpu_soft_notify(struct notifier_block *nfb,
 		unsigned long action, void *hcpu)
 {
 	unsigned int cpu = (unsigned long)hcpu;
-	struct acpi_processor *pr = processors[cpu];
+	struct acpi_processor *pr = per_cpu(processors, cpu);
 
 	if (action == CPU_ONLINE && pr) {
 		acpi_processor_ppc_has_changed(pr);
@@ -776,7 +834,7 @@ static int acpi_processor_remove(struct acpi_device *device, int type)
 
 	pr = acpi_driver_data(device);
 
-	if (pr->id >= NR_CPUS) {
+	if (pr->id >= nr_cpu_ids) {
 		kfree(pr);
 		return 0;
 	}
@@ -791,10 +849,19 @@ static int acpi_processor_remove(struct acpi_device *device, int type)
 	status = acpi_remove_notify_handler(pr->handle, ACPI_DEVICE_NOTIFY,
 					    acpi_processor_notify);
 
+	sysfs_remove_link(&device->dev.kobj, "sysdev");
+
 	acpi_processor_remove_fs(device);
 
-	processors[pr->id] = NULL;
+	if (pr->cdev) {
+		sysfs_remove_link(&device->dev.kobj, "thermal_cooling");
+		sysfs_remove_link(&pr->cdev->device.kobj, "device");
+		thermal_cooling_device_unregister(pr->cdev);
+		pr->cdev = NULL;
+	}
 
+	per_cpu(processors, pr->id) = NULL;
+	per_cpu(processor_device_array, pr->id) = NULL;
 	kfree(pr);
 
 	return 0;
@@ -805,8 +872,6 @@ static int acpi_processor_remove(struct acpi_device *device, int type)
  * 	Acpi processor hotplug support 				       	    *
  ****************************************************************************/
 
-static int is_processor_present(acpi_handle handle);
-
 static int is_processor_present(acpi_handle handle)
 {
 	acpi_status status;
@@ -814,11 +879,20 @@ static int is_processor_present(acpi_handle handle)
 
 
 	status = acpi_evaluate_integer(handle, "_STA", NULL, &sta);
-	if (ACPI_FAILURE(status) || !(sta & ACPI_STA_DEVICE_PRESENT)) {
-		ACPI_EXCEPTION((AE_INFO, status, "Processor Device is not present"));
-		return 0;
-	}
-	return 1;
+
+	if (ACPI_SUCCESS(status) && (sta & ACPI_STA_DEVICE_PRESENT))
+		return 1;
+
+	/*
+	 * _STA is mandatory for a processor that supports hot plug
+	 */
+	if (status == AE_NOT_FOUND)
+		ACPI_DEBUG_PRINT((ACPI_DB_INFO,
+				"Processor does not support hot plug\n"));
+	else
+		ACPI_EXCEPTION((AE_INFO, status,
+				"Processor Device is not present"));
+	return 0;
 }
 
 static
@@ -847,14 +921,14 @@ int acpi_processor_device_add(acpi_handle handle, struct acpi_device **device)
 	if (!pr)
 		return -ENODEV;
 
-	if ((pr->id >= 0) && (pr->id < NR_CPUS)) {
+	if ((pr->id >= 0) && (pr->id < nr_cpu_ids)) {
 		kobject_uevent(&(*device)->dev.kobj, KOBJ_ONLINE);
 	}
 	return 0;
 }
 
-static void
-acpi_processor_hotplug_notify(acpi_handle handle, u32 event, void *data)
+static void __ref acpi_processor_hotplug_notify(acpi_handle handle,
+						u32 event, void *data)
 {
 	struct acpi_processor *pr;
 	struct acpi_device *device = NULL;
@@ -864,9 +938,10 @@ acpi_processor_hotplug_notify(acpi_handle handle, u32 event, void *data)
 	switch (event) {
 	case ACPI_NOTIFY_BUS_CHECK:
 	case ACPI_NOTIFY_DEVICE_CHECK:
-		printk("Processor driver received %s event\n",
+		ACPI_DEBUG_PRINT((ACPI_DB_INFO,
+		"Processor driver received %s event\n",
 		       (event == ACPI_NOTIFY_BUS_CHECK) ?
-		       "ACPI_NOTIFY_BUS_CHECK" : "ACPI_NOTIFY_DEVICE_CHECK");
+		       "ACPI_NOTIFY_BUS_CHECK" : "ACPI_NOTIFY_DEVICE_CHECK"));
 
 		if (!is_processor_present(handle))
 			break;
@@ -885,13 +960,13 @@ acpi_processor_hotplug_notify(acpi_handle handle, u32 event, void *data)
 			break;
 		}
 
-		if (pr->id >= 0 && (pr->id < NR_CPUS)) {
+		if (pr->id >= 0 && (pr->id < nr_cpu_ids)) {
 			kobject_uevent(&device->dev.kobj, KOBJ_OFFLINE);
 			break;
 		}
 
 		result = acpi_processor_start(device);
-		if ((!result) && ((pr->id >= 0) && (pr->id < NR_CPUS))) {
+		if ((!result) && ((pr->id >= 0) && (pr->id < nr_cpu_ids))) {
 			kobject_uevent(&device->dev.kobj, KOBJ_ONLINE);
 		} else {
 			printk(KERN_ERR PREFIX "Device [%s] failed to start\n",
@@ -914,7 +989,7 @@ acpi_processor_hotplug_notify(acpi_handle handle, u32 event, void *data)
 			return;
 		}
 
-		if ((pr->id < NR_CPUS) && (cpu_present(pr->id)))
+		if ((pr->id < nr_cpu_ids) && (cpu_present(pr->id)))
 			kobject_uevent(&device->dev.kobj, KOBJ_OFFLINE);
 		break;
 	default:
@@ -980,9 +1055,9 @@ static acpi_status acpi_processor_hotadd_init(acpi_handle handle, int *p_cpu)
 
 static int acpi_processor_handle_eject(struct acpi_processor *pr)
 {
-	if (cpu_online(pr->id)) {
-		return (-EINVAL);
-	}
+	if (cpu_online(pr->id))
+		cpu_down(pr->id);
+
 	arch_unregister_cpu(pr->id);
 	acpi_unmap_lsapic(pr->id);
 	return (0);
@@ -1034,8 +1109,6 @@ static int __init acpi_processor_init(void)
 {
 	int result = 0;
 
-
-	memset(&processors, 0, sizeof(processors));
 	memset(&errata, 0, sizeof(errata));
 
 #ifdef CONFIG_SMP
@@ -1049,11 +1122,18 @@ static int __init acpi_processor_init(void)
 		return -ENOMEM;
 	acpi_processor_dir->owner = THIS_MODULE;
 
+	/*
+	 * Check whether the system is DMI table. If yes, OSPM
+	 * should not use mwait for CPU-states.
+	 */
+	dmi_check_system(processor_idle_dmi_table);
+	result = cpuidle_register_driver(&acpi_idle_driver);
+	if (result < 0)
+		goto out_proc;
+
 	result = acpi_bus_register_driver(&acpi_processor_driver);
-	if (result < 0) {
-		remove_proc_entry(ACPI_PROCESSOR_CLASS, acpi_root_dir);
-		return result;
-	}
+	if (result < 0)
+		goto out_cpuidle;
 
 	acpi_processor_install_hotplug_notify();
 
@@ -1061,12 +1141,21 @@ static int __init acpi_processor_init(void)
 
 	acpi_processor_ppc_init();
 
+	acpi_processor_throttling_init();
+
 	return 0;
+
+out_cpuidle:
+	cpuidle_unregister_driver(&acpi_idle_driver);
+
+out_proc:
+	remove_proc_entry(ACPI_PROCESSOR_CLASS, acpi_root_dir);
+
+	return result;
 }
 
 static void __exit acpi_processor_exit(void)
 {
-
 	acpi_processor_ppc_exit();
 
 	acpi_thermal_cpufreq_exit();
@@ -1074,6 +1163,8 @@ static void __exit acpi_processor_exit(void)
 	acpi_processor_uninstall_hotplug_notify();
 
 	acpi_bus_unregister_driver(&acpi_processor_driver);
+
+	cpuidle_unregister_driver(&acpi_idle_driver);
 
 	remove_proc_entry(ACPI_PROCESSOR_CLASS, acpi_root_dir);
 

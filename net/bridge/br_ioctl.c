@@ -5,8 +5,6 @@
  *	Authors:
  *	Lennert Buytenhek		<buytenh@gnu.org>
  *
- *	$Id: br_ioctl.c,v 1.4 2000/11/08 05:16:40 davem Exp $
- *
  *	This program is free software; you can redistribute it and/or
  *	modify it under the terms of the GNU General Public License
  *	as published by the Free Software Foundation; either version
@@ -18,6 +16,7 @@
 #include <linux/if_bridge.h>
 #include <linux/netdevice.h>
 #include <linux/times.h>
+#include <net/net_namespace.h>
 #include <asm/uaccess.h>
 #include "br_private.h"
 
@@ -27,7 +26,7 @@ static int get_bridge_ifindices(int *indices, int num)
 	struct net_device *dev;
 	int i = 0;
 
-	for_each_netdev(dev) {
+	for_each_netdev(&init_net, dev) {
 		if (i >= num)
 			break;
 		if (dev->priv_flags & IFF_EBRIDGE)
@@ -90,7 +89,7 @@ static int add_del_if(struct net_bridge *br, int ifindex, int isadd)
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
 
-	dev = dev_get_by_index(ifindex);
+	dev = dev_get_by_index(&init_net, ifindex);
 	if (dev == NULL)
 		return -EINVAL;
 
@@ -364,7 +363,7 @@ static int old_deviceless(void __user *uarg)
 	return -EOPNOTSUPP;
 }
 
-int br_ioctl_deviceless_stub(unsigned int cmd, void __user *uarg)
+int br_ioctl_deviceless_stub(struct net *net, unsigned int cmd, void __user *uarg)
 {
 	switch (cmd) {
 	case SIOCGIFBR:

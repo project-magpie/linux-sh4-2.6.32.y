@@ -55,7 +55,7 @@
 static unsigned char ras_log_buf[RTAS_ERROR_LOG_MAX];
 static DEFINE_SPINLOCK(ras_log_buf_lock);
 
-char mce_data_buf[RTAS_ERROR_LOG_MAX];
+static char mce_data_buf[RTAS_ERROR_LOG_MAX];
 
 static int ras_get_sensor_state_token;
 static int ras_check_exception_token;
@@ -66,8 +66,6 @@ static int ras_check_exception_token;
 
 static irqreturn_t ras_epow_interrupt(int irq, void *dev_id);
 static irqreturn_t ras_error_interrupt(int irq, void *dev_id);
-
-/* #define DEBUG */
 
 
 static void request_ras_irqs(struct device_node *np,
@@ -237,7 +235,7 @@ static irqreturn_t ras_error_interrupt(int irq, void *dev_id)
 		printk(KERN_EMERG "Error: Fatal hardware error <0x%lx 0x%x>\n",
 		       *((unsigned long *)&ras_log_buf), status);
 
-#ifndef DEBUG
+#ifndef DEBUG_RTAS_POWER_OFF
 		/* Don't actually power off when debugging so we can test
 		 * without actually failing while injecting errors.
 		 * Error data will not be logged to syslog.
@@ -332,7 +330,7 @@ static int recover_mce(struct pt_regs *regs, struct rtas_error_log * err)
 		   err->disposition == RTAS_DISP_NOT_RECOVERED &&
 		   err->target == RTAS_TARGET_MEMORY &&
 		   err->type == RTAS_TYPE_ECC_UNCORR &&
-		   !(current->pid == 0 || is_init(current))) {
+		   !(current->pid == 0 || is_global_init(current))) {
 		/* Kill off a user process with an ECC error */
 		printk(KERN_ERR "MCE: uncorrectable ecc error for pid %d\n",
 		       current->pid);

@@ -100,7 +100,9 @@ static const struct file_operations maestro_fops = {
 	.open           = video_exclusive_open,
 	.release        = video_exclusive_release,
 	.ioctl		= video_ioctl2,
+#ifdef CONFIG_COMPAT
 	.compat_ioctl	= v4l_compat_ioctl32,
+#endif
 	.llseek         = no_llseek,
 };
 
@@ -423,7 +425,7 @@ static int __devinit maestro_probe(struct pci_dev *pdev,
 errunr:
 	video_unregister_device(maestro_radio_inst);
 errfr1:
-	kfree(maestro_radio_inst);
+	video_device_release(maestro_radio_inst);
 errfr:
 	kfree(radio_unit);
 err:

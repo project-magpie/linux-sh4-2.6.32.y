@@ -1,7 +1,7 @@
 /*
  *  linux/fs/binfmt_script.c
  *
- *  Copyright (C) 1996  Martin von Löwis
+ *  Copyright (C) 1996  Martin von LÃ¶wis
  *  original #!-checking implemented by tytso.
  */
 
@@ -29,7 +29,7 @@ static int load_script(struct linux_binprm *bprm,struct pt_regs *regs)
 	 * Sorta complicated, but hopefully it will work.  -TYT
 	 */
 
-	bprm->sh_bang++;
+	bprm->sh_bang = 1;
 	allow_write_access(bprm->file);
 	fput(bprm->file);
 	bprm->file = NULL;

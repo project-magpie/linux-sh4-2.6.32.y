@@ -88,22 +88,28 @@
 #define RTC_PREN			0xFFC00314	/* RTC Prescaler Enable Register (alternate macro) */
 
 /* UART Controller (0xFFC00400 - 0xFFC004FF) */
-#define UART_THR             		 0xFFC00400	/* Transmit Holding register */
-#define UART_RBR             		 0xFFC00400	/* Receive Buffer register */
-#define UART_DLL              		 0xFFC00400	/* Divisor Latch (Low-Byte) */
-#define UART_IER              		 0xFFC00404	/* Interrupt Enable Register */
-#define UART_DLH              		 0xFFC00404	/* Divisor Latch (High-Byte) */
-#define UART_IIR              		 0xFFC00408	/* Interrupt Identification Register */
-#define UART_LCR              		 0xFFC0040C	/* Line Control Register */
-#define UART_MCR			 0xFFC00410	/* Modem Control Register */
-#define UART_LSR              		 0xFFC00414	/* Line Status Register */
+
+/*
+ * Because include/linux/serial_reg.h have defined UART_*,
+ * So we define blackfin uart regs to BFIN_UART_*.
+ */
+#define BFIN_UART_THR			0xFFC00400	/* Transmit Holding register */
+#define BFIN_UART_RBR			0xFFC00400	/* Receive Buffer register */
+#define BFIN_UART_DLL			0xFFC00400	/* Divisor Latch (Low-Byte) */
+#define BFIN_UART_IER			0xFFC00404	/* Interrupt Enable Register */
+#define BFIN_UART_DLH			0xFFC00404	/* Divisor Latch (High-Byte) */
+#define BFIN_UART_IIR			0xFFC00408	/* Interrupt Identification Register */
+#define BFIN_UART_LCR			0xFFC0040C	/* Line Control Register */
+#define BFIN_UART_MCR			0xFFC00410	/* Modem Control Register */
+#define BFIN_UART_LSR			0xFFC00414	/* Line Status Register */
 #if 0
-#define UART_MSR            		 0xFFC00418   /* Modem Status Register (UNUSED in ADSP-BF532) */
+#define BFIN_UART_MSR			0xFFC00418	/* Modem Status Register (UNUSED in ADSP-BF532) */
 #endif
-#define UART_SCR              		 0xFFC0041C	/* SCR Scratch Register */
-#define UART_GCTL      	      		 0xFFC00424	/* Global Control Register */
+#define BFIN_UART_SCR			0xFFC0041C	/* SCR Scratch Register */
+#define BFIN_UART_GCTL			0xFFC00424	/* Global Control Register */
 
 /* SPI Controller (0xFFC00500 - 0xFFC005FF) */
+#define SPI0_REGBASE          		0xFFC00500
 #define SPI_CTL               		0xFFC00500	/* SPI Control Register */
 #define SPI_FLG               		0xFFC00504	/* SPI Flag register */
 #define SPI_STAT              		0xFFC00508	/* SPI Status register */
@@ -462,6 +468,8 @@
 #define	VLEV_110		0x00B0	/* 		VLEV = 1.10 V (-5% - +10% Accuracy)	*/
 #define	VLEV_115		0x00C0	/* 		VLEV = 1.15 V (-5% - +10% Accuracy)	*/
 #define	VLEV_120		0x00D0	/* 		VLEV = 1.20 V (-5% - +10% Accuracy)	*/
+#define	VLEV_125		0x00E0	/*              VLEV = 1.25 V (-5% - +10% Accuracy)     */
+#define	VLEV_130		0x00F0	/*              VLEV = 1.30 V (-5% - +10% Accuracy)     */
 
 #define	WAKE			0x0100	/* Enable RTC/Reset Wakeup From Hibernate	*/
 #define	SCKELOW			0x8000	/* Do Not Drive SCKE High During Reset After Hibernate */
@@ -928,7 +936,7 @@
 #define GM                     0x00000008	/* When RDBR full, get more (=1) data or discard (=0) incoming Data */
 #define PSSE                   0x00000010	/* Enable (=1) Slave-Select input for Master. */
 #define EMISO                  0x00000020	/* Enable (=1) MISO pin as an output. */
-#define SPI_LEN                0x00000100	/* Word length (0 => 8 bits, 1 => 16 bits) */
+#define SIZE                   0x00000100	/* Word length (0 => 8 bits, 1 => 16 bits) */
 #define LSBF                   0x00000200	/* Data format (0 => MSB sent/received first 1 => LSB sent/received first) */
 #define CPHA                   0x00000400	/* Clock phase (0 => SPICLK starts toggling in middle of xfer, 1 => SPICLK toggles at the beginning of xfer. */
 #define CPOL                   0x00000800	/* Clock polarity (0 => active-high, 1 => active-low) */

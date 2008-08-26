@@ -129,23 +129,25 @@ static struct v4l2_input inputs[4] = {
 
 static int ves1820_writereg(struct saa7146_dev *dev, u8 addr, u8 reg, u8 data)
 {
+	struct av7110 *av7110 = dev->ext_priv;
 	u8 buf[] = { 0x00, reg, data };
 	struct i2c_msg msg = { .addr = addr, .flags = 0, .buf = buf, .len = 3 };
 
 	dprintk(4, "dev: %p\n", dev);
 
-	if (1 != saa7146_i2c_transfer(dev, &msg, 1, 1))
+	if (1 != i2c_transfer(&av7110->i2c_adap, &msg, 1))
 		return -1;
 	return 0;
 }
 
 static int tuner_write(struct saa7146_dev *dev, u8 addr, u8 data [4])
 {
+	struct av7110 *av7110 = dev->ext_priv;
 	struct i2c_msg msg = { .addr = addr, .flags = 0, .buf = data, .len = 4 };
 
 	dprintk(4, "dev: %p\n", dev);
 
-	if (1 != saa7146_i2c_transfer(dev, &msg, 1, 1))
+	if (1 != i2c_transfer(&av7110->i2c_adap, &msg, 1))
 		return -1;
 	return 0;
 }
@@ -571,7 +573,7 @@ static int av7110_vbi_reset(struct inode *inode, struct file *file)
 	struct saa7146_dev *dev = fh->dev;
 	struct av7110 *av7110 = (struct av7110*) dev->ext_priv;
 
-	dprintk(2, "%s\n", __FUNCTION__);
+	dprintk(2, "%s\n", __func__);
 	av7110->wssMode = 0;
 	av7110->wssData = 0;
 	if (FW_VERSION(av7110->arm_app) < 0x2623)
@@ -588,7 +590,7 @@ static ssize_t av7110_vbi_write(struct file *file, const char __user *data, size
 	struct v4l2_sliced_vbi_data d;
 	int rc;
 
-	dprintk(2, "%s\n", __FUNCTION__);
+	dprintk(2, "%s\n", __func__);
 	if (FW_VERSION(av7110->arm_app) < 0x2623 || !av7110->wssMode || count != sizeof d)
 		return -EINVAL;
 	if (copy_from_user(&d, data, count))
@@ -874,11 +876,11 @@ static int std_callback(struct saa7146_dev* dev, struct saa7146_standard *std)
 	struct av7110 *av7110 = (struct av7110*) dev->ext_priv;
 
 	if (std->id & V4L2_STD_PAL) {
-		av7110->vidmode = VIDEO_MODE_PAL;
+		av7110->vidmode = AV7110_VIDEO_MODE_PAL;
 		av7110_set_vidmode(av7110, av7110->vidmode);
 	}
 	else if (std->id & V4L2_STD_NTSC) {
-		av7110->vidmode = VIDEO_MODE_NTSC;
+		av7110->vidmode = AV7110_VIDEO_MODE_NTSC;
 		av7110_set_vidmode(av7110, av7110->vidmode);
 	}
 	else

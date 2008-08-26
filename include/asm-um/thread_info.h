@@ -1,5 +1,5 @@
-/* 
- * Copyright (C) 2002 Jeff Dike (jdike@karaya.com)
+/*
+ * Copyright (C) 2002 - 2007 Jeff Dike (jdike@{addtoit,linux.intel}.com)
  * Licensed under the GPL
  */
 
@@ -8,8 +8,9 @@
 
 #ifndef __ASSEMBLY__
 
-#include <asm/processor.h>
 #include <asm/types.h>
+#include <asm/page.h>
+#include <asm/uaccess.h>
 
 struct thread_info {
 	struct task_struct	*task;		/* main task structure */
@@ -52,21 +53,7 @@ static inline struct thread_info *current_thread_info(void)
 	return ti;
 }
 
-#ifdef CONFIG_DEBUG_STACK_USAGE
-
-#define alloc_thread_info(tsk) \
-	((struct thread_info *) __get_free_pages(GFP_KERNEL | __GFP_ZERO, \
-						 CONFIG_KERNEL_STACK_ORDER))
-#else
-
-/* thread information allocation */
-#define alloc_thread_info(tsk) \
-	((struct thread_info *) __get_free_pages(GFP_KERNEL, \
-						 CONFIG_KERNEL_STACK_ORDER))
-#endif
-
-#define free_thread_info(ti) \
-	free_pages((unsigned long)(ti),CONFIG_KERNEL_STACK_ORDER)
+#define THREAD_SIZE_ORDER CONFIG_KERNEL_STACK_ORDER
 
 #endif
 
@@ -75,8 +62,8 @@ static inline struct thread_info *current_thread_info(void)
 #define TIF_SYSCALL_TRACE	0	/* syscall trace active */
 #define TIF_SIGPENDING		1	/* signal pending */
 #define TIF_NEED_RESCHED	2	/* rescheduling necessary */
-#define TIF_POLLING_NRFLAG      3       /* true if poll_idle() is polling 
-					 * TIF_NEED_RESCHED 
+#define TIF_POLLING_NRFLAG      3       /* true if poll_idle() is polling
+					 * TIF_NEED_RESCHED
 					 */
 #define TIF_RESTART_BLOCK 	4
 #define TIF_MEMDIE	 	5

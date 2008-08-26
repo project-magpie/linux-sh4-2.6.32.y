@@ -19,12 +19,11 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/init.h>
+#include <net/net_namespace.h>
 #include <net/llc.h>
 
 LIST_HEAD(llc_sap_list);
 DEFINE_RWLOCK(llc_sap_list_lock);
-
-unsigned char llc_station_mac_sa[ETH_ALEN];
 
 /**
  *	llc_sap_alloc - allocates and initializes sap.
@@ -36,8 +35,8 @@ static struct llc_sap *llc_sap_alloc(void)
 	struct llc_sap *sap = kzalloc(sizeof(*sap), GFP_ATOMIC);
 
 	if (sap) {
+		/* sap->laddr.mac - leave as a null, it's filled by bind */
 		sap->state = LLC_SAP_STATE_ACTIVE;
-		memcpy(sap->laddr.mac, llc_station_mac_sa, ETH_ALEN);
 		rwlock_init(&sap->sk_list.lock);
 		atomic_set(&sap->refcnt, 1);
 	}
@@ -162,14 +161,10 @@ static int __init llc_init(void)
 {
 	struct net_device *dev;
 
-	dev = first_net_device();
+	dev = first_net_device(&init_net);
 	if (dev != NULL)
 		dev = next_net_device(dev);
 
-	if (dev != NULL)
-		memcpy(llc_station_mac_sa, dev->dev_addr, ETH_ALEN);
-	else
-		memset(llc_station_mac_sa, 0, ETH_ALEN);
 	dev_add_pack(&llc_packet_type);
 	dev_add_pack(&llc_tr_packet_type);
 	return 0;
@@ -184,7 +179,6 @@ static void __exit llc_exit(void)
 module_init(llc_init);
 module_exit(llc_exit);
 
-EXPORT_SYMBOL(llc_station_mac_sa);
 EXPORT_SYMBOL(llc_sap_list);
 EXPORT_SYMBOL(llc_sap_list_lock);
 EXPORT_SYMBOL(llc_sap_find);

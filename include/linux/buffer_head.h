@@ -144,7 +144,7 @@ BUFFER_FNS(Unwritten, unwritten)
  * Declarations
  */
 
-void FASTCALL(mark_buffer_dirty(struct buffer_head *bh));
+void mark_buffer_dirty(struct buffer_head *bh);
 void init_buffer(struct buffer_head *, bh_end_io_t *, void *);
 void set_bh_page(struct buffer_head *bh,
 		struct page *page, unsigned long offset);
@@ -185,13 +185,15 @@ struct buffer_head *__bread(struct block_device *, sector_t block, unsigned size
 void invalidate_bh_lrus(void);
 struct buffer_head *alloc_buffer_head(gfp_t gfp_flags);
 void free_buffer_head(struct buffer_head * bh);
-void FASTCALL(unlock_buffer(struct buffer_head *bh));
-void FASTCALL(__lock_buffer(struct buffer_head *bh));
+void unlock_buffer(struct buffer_head *bh);
+void __lock_buffer(struct buffer_head *bh);
 void ll_rw_block(int, int, struct buffer_head * bh[]);
 int sync_dirty_buffer(struct buffer_head *bh);
 int submit_bh(int, struct buffer_head *);
 void write_boundary_block(struct block_device *bdev,
 			sector_t bblock, unsigned blocksize);
+int bh_uptodate_or_lock(struct buffer_head *bh);
+int bh_submit_read(struct buffer_head *bh);
 
 extern int buffer_heads_over_limit;
 
@@ -203,22 +205,35 @@ void block_invalidatepage(struct page *page, unsigned long offset);
 int block_write_full_page(struct page *page, get_block_t *get_block,
 				struct writeback_control *wbc);
 int block_read_full_page(struct page*, get_block_t*);
+int block_write_begin(struct file *, struct address_space *,
+				loff_t, unsigned, unsigned,
+				struct page **, void **, get_block_t*);
+int block_write_end(struct file *, struct address_space *,
+				loff_t, unsigned, unsigned,
+				struct page *, void *);
+int generic_write_end(struct file *, struct address_space *,
+				loff_t, unsigned, unsigned,
+				struct page *, void *);
+void page_zero_new_buffers(struct page *page, unsigned from, unsigned to);
 int block_prepare_write(struct page*, unsigned, unsigned, get_block_t*);
-int cont_prepare_write(struct page*, unsigned, unsigned, get_block_t*,
-				loff_t *);
-int generic_cont_expand(struct inode *inode, loff_t size);
+int cont_write_begin(struct file *, struct address_space *, loff_t,
+			unsigned, unsigned, struct page **, void **,
+			get_block_t *, loff_t *);
 int generic_cont_expand_simple(struct inode *inode, loff_t size);
 int block_commit_write(struct page *page, unsigned from, unsigned to);
 int block_page_mkwrite(struct vm_area_struct *vma, struct page *page,
 				get_block_t get_block);
 void block_sync_page(struct page *);
 sector_t generic_block_bmap(struct address_space *, sector_t, get_block_t *);
-int generic_commit_write(struct file *, struct page *, unsigned, unsigned);
 int block_truncate_page(struct address_space *, loff_t, get_block_t *);
 int file_fsync(struct file *, struct dentry *, int);
-int nobh_prepare_write(struct page*, unsigned, unsigned, get_block_t*);
-int nobh_commit_write(struct file *, struct page *, unsigned, unsigned);
-int nobh_truncate_page(struct address_space *, loff_t);
+int nobh_write_begin(struct file *, struct address_space *,
+				loff_t, unsigned, unsigned,
+				struct page **, void **, get_block_t*);
+int nobh_write_end(struct file *, struct address_space *,
+				loff_t, unsigned, unsigned,
+				struct page *, void *);
+int nobh_truncate_page(struct address_space *, loff_t, get_block_t *);
 int nobh_writepage(struct page *page, get_block_t *get_block,
                         struct writeback_control *wbc);
 

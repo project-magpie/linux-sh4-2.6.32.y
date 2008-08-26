@@ -1,4 +1,7 @@
-/* zd_mac.h
+/* ZD1211 USB-WLAN driver for Linux
+ *
+ * Copyright (C) 2005-2007 Ulrich Kunitz <kune@deine-taler.de>
+ * Copyright (C) 2006-2007 Daniel Drake <dsd@gentoo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,14 +21,11 @@
 #ifndef _ZD_MAC_H
 #define _ZD_MAC_H
 
-#include <linux/wireless.h>
 #include <linux/kernel.h>
-#include <linux/workqueue.h>
-#include <net/ieee80211.h>
-#include <net/ieee80211softmac.h>
+#include <net/mac80211.h>
 
 #include "zd_chip.h"
-#include "zd_netdev.h"
+#include "zd_ieee80211.h"
 
 struct zd_ctrlset {
 	u8     modulation;
@@ -40,28 +40,51 @@ struct zd_ctrlset {
 
 #define ZD_CS_RESERVED_SIZE	25
 
-/* zd_crtlset field modulation */
-#define ZD_CS_RATE_MASK		0x0f
-#define ZD_CS_TYPE_MASK		0x10
-#define ZD_CS_RATE(modulation) ((modulation) & ZD_CS_RATE_MASK)
-#define ZD_CS_TYPE(modulation) ((modulation) & ZD_CS_TYPE_MASK)
-
-#define ZD_CS_CCK		0x00
-#define ZD_CS_OFDM		0x10
-
-/* These are referred to as zd_rates */
-#define ZD_CCK_RATE_1M	0x00
-#define ZD_CCK_RATE_2M	0x01
-#define ZD_CCK_RATE_5_5M	0x02
-#define ZD_CCK_RATE_11M	0x03
-/* The rates for OFDM are encoded as in the PLCP header. Use ZD_OFDM_RATE_*.
+/* The field modulation of struct zd_ctrlset controls the bit rate, the use
+ * of short or long preambles in 802.11b (CCK mode) or the use of 802.11a or
+ * 802.11g in OFDM mode.
+ *
+ * The term zd-rate is used for the combination of the modulation type flag
+ * and the "pure" rate value.
  */
+#define ZD_PURE_RATE_MASK       0x0f
+#define ZD_MODULATION_TYPE_MASK 0x10
+#define ZD_RATE_MASK            (ZD_PURE_RATE_MASK|ZD_MODULATION_TYPE_MASK)
+#define ZD_PURE_RATE(modulation) ((modulation) & ZD_PURE_RATE_MASK)
+#define ZD_MODULATION_TYPE(modulation) ((modulation) & ZD_MODULATION_TYPE_MASK)
+#define ZD_RATE(modulation) ((modulation) & ZD_RATE_MASK)
 
-/* bit 5 is preamble (when in CCK mode), or a/g selection (when in OFDM mode) */
-#define ZD_CS_CCK_PREA_LONG	0x00
-#define ZD_CS_CCK_PREA_SHORT	0x20
-#define ZD_CS_OFDM_MODE_11G	0x00
-#define ZD_CS_OFDM_MODE_11A	0x20
+/* The two possible modulation types. Notify that 802.11b doesn't use the CCK
+ * codeing for the 1 and 2 MBit/s rate. We stay with the term here to remain
+ * consistent with uses the term at other places.
+ */
+#define ZD_CCK                  0x00
+#define ZD_OFDM                 0x10
+
+/* The ZD1211 firmware uses proprietary encodings of the 802.11b (CCK) rates.
+ * For OFDM the PLCP rate encodings are used. We combine these "pure" rates
+ * with the modulation type flag and call the resulting values zd-rates.
+ */
+#define ZD_CCK_RATE_1M          (ZD_CCK|0x00)
+#define ZD_CCK_RATE_2M          (ZD_CCK|0x01)
+#define ZD_CCK_RATE_5_5M        (ZD_CCK|0x02)
+#define ZD_CCK_RATE_11M         (ZD_CCK|0x03)
+#define ZD_OFDM_RATE_6M         (ZD_OFDM|ZD_OFDM_PLCP_RATE_6M)
+#define ZD_OFDM_RATE_9M         (ZD_OFDM|ZD_OFDM_PLCP_RATE_9M)
+#define ZD_OFDM_RATE_12M        (ZD_OFDM|ZD_OFDM_PLCP_RATE_12M)
+#define ZD_OFDM_RATE_18M        (ZD_OFDM|ZD_OFDM_PLCP_RATE_18M)
+#define ZD_OFDM_RATE_24M        (ZD_OFDM|ZD_OFDM_PLCP_RATE_24M)
+#define ZD_OFDM_RATE_36M        (ZD_OFDM|ZD_OFDM_PLCP_RATE_36M)
+#define ZD_OFDM_RATE_48M        (ZD_OFDM|ZD_OFDM_PLCP_RATE_48M)
+#define ZD_OFDM_RATE_54M        (ZD_OFDM|ZD_OFDM_PLCP_RATE_54M)
+
+/* The bit 5 of the zd_ctrlset modulation field controls the preamble in CCK
+ * mode or the 802.11a/802.11g selection in OFDM mode.
+ */
+#define ZD_CCK_PREA_LONG        0x00
+#define ZD_CCK_PREA_SHORT       0x20
+#define ZD_OFDM_MODE_11G        0x00
+#define ZD_OFDM_MODE_11A        0x20
 
 /* zd_ctrlset control field */
 #define ZD_CS_NEED_RANDOM_BACKOFF	0x01
@@ -118,58 +141,55 @@ struct rx_status {
 #define ZD_RX_CRC16_ERROR		0x40
 #define ZD_RX_ERROR			0x80
 
+enum mac_flags {
+	MAC_FIXED_CHANNEL = 0x01,
+};
+
 struct housekeeping {
 	struct delayed_work link_led_work;
 };
 
 #define ZD_MAC_STATS_BUFFER_SIZE 16
 
+#define ZD_MAC_MAX_ACK_WAITERS 10
+
 struct zd_mac {
 	struct zd_chip chip;
 	spinlock_t lock;
-	struct net_device *netdev;
-
-	/* Unlocked reading possible */
-	struct iw_statistics iw_stats;
-
+	spinlock_t intr_lock;
+	struct ieee80211_hw *hw;
 	struct housekeeping housekeeping;
 	struct work_struct set_multicast_hash_work;
+	struct work_struct set_rts_cts_work;
+	struct work_struct set_rx_filter_work;
+	struct work_struct process_intr;
 	struct zd_mc_hash multicast_hash;
-	struct delayed_work set_rts_cts_work;
-	struct delayed_work set_basic_rates_work;
-
-	struct tasklet_struct rx_tasklet;
-	struct sk_buff_head rx_queue;
-
-	unsigned int stats_count;
-	u8 qual_buffer[ZD_MAC_STATS_BUFFER_SIZE];
-	u8 rssi_buffer[ZD_MAC_STATS_BUFFER_SIZE];
+	u8 intr_buffer[USB_MAX_EP_INT_BUFFER];
 	u8 regdomain;
 	u8 default_regdomain;
-	u8 requested_channel;
-
-	/* A bitpattern of cr_rates */
-	u16 basic_rates;
-
-	/* A zd_rate */
-	u8 rts_rate;
+	int type;
+	int associated;
+	struct sk_buff_head ack_wait_queue;
+	struct ieee80211_channel channels[14];
+	struct ieee80211_rate rates[12];
+	struct ieee80211_supported_band band;
 
 	/* Short preamble (used for RTS/CTS) */
 	unsigned int short_preamble:1;
 
 	/* flags to indicate update in progress */
 	unsigned int updating_rts_rate:1;
-	unsigned int updating_basic_rates:1;
+
+	/* whether to pass frames with CRC errors to stack */
+	unsigned int pass_failed_fcs:1;
+
+	/* whether to pass control frames to stack */
+	unsigned int pass_ctrl:1;
 };
 
-static inline struct ieee80211_device *zd_mac_to_ieee80211(struct zd_mac *mac)
+static inline struct zd_mac *zd_hw_mac(struct ieee80211_hw *hw)
 {
-	return zd_netdev_ieee80211(mac->netdev);
-}
-
-static inline struct zd_mac *zd_netdev_mac(struct net_device *netdev)
-{
-	return ieee80211softmac_priv(netdev);
+	return hw->priv;
 }
 
 static inline struct zd_mac *zd_chip_to_mac(struct zd_chip *chip)
@@ -182,35 +202,22 @@ static inline struct zd_mac *zd_usb_to_mac(struct zd_usb *usb)
 	return zd_chip_to_mac(zd_usb_to_chip(usb));
 }
 
+static inline u8 *zd_mac_get_perm_addr(struct zd_mac *mac)
+{
+	return mac->hw->wiphy->perm_addr;
+}
+
 #define zd_mac_dev(mac) (zd_chip_dev(&(mac)->chip))
 
-int zd_mac_init(struct zd_mac *mac,
-                struct net_device *netdev,
-		struct usb_interface *intf);
+struct ieee80211_hw *zd_mac_alloc_hw(struct usb_interface *intf);
 void zd_mac_clear(struct zd_mac *mac);
 
-int zd_mac_preinit_hw(struct zd_mac *mac);
-int zd_mac_init_hw(struct zd_mac *mac);
+int zd_mac_preinit_hw(struct ieee80211_hw *hw);
+int zd_mac_init_hw(struct ieee80211_hw *hw);
 
-int zd_mac_open(struct net_device *netdev);
-int zd_mac_stop(struct net_device *netdev);
-int zd_mac_set_mac_address(struct net_device *dev, void *p);
-void zd_mac_set_multicast_list(struct net_device *netdev);
-
-int zd_mac_rx_irq(struct zd_mac *mac, const u8 *buffer, unsigned int length);
-
-int zd_mac_set_regdomain(struct zd_mac *zd_mac, u8 regdomain);
-u8 zd_mac_get_regdomain(struct zd_mac *zd_mac);
-
-int zd_mac_request_channel(struct zd_mac *mac, u8 channel);
-u8 zd_mac_get_channel(struct zd_mac *mac);
-
-int zd_mac_set_mode(struct zd_mac *mac, u32 mode);
-int zd_mac_get_mode(struct zd_mac *mac, u32 *mode);
-
-int zd_mac_get_range(struct zd_mac *mac, struct iw_range *range);
-
-struct iw_statistics *zd_mac_get_wireless_stats(struct net_device *ndev);
+int zd_mac_rx(struct ieee80211_hw *hw, const u8 *buffer, unsigned int length);
+void zd_mac_tx_failed(struct ieee80211_hw *hw);
+void zd_mac_tx_to_dev(struct sk_buff *skb, int error);
 
 #ifdef DEBUG
 void zd_dump_rx_status(const struct rx_status *status);

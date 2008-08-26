@@ -1,4 +1,5 @@
 #include <asm-generic/vmlinux.lds.h>
+#include <asm/page.h>
 
 OUTPUT_FORMAT(ELF_FORMAT)
 OUTPUT_ARCH(ELF_ARCH)
@@ -18,22 +19,15 @@ SECTIONS
 
   . = START + SIZEOF_HEADERS;
 
-#ifdef MODE_TT
-  .remap_data : { UNMAP_PATH (.data .bss) }
-  .remap : { UNMAP_PATH (.text) }
-
-  . = ALIGN(4096);		/* Init code and data */
-#endif
-
   _text = .;
   _stext = .;
   __init_begin = .;
   .init.text : {
 	_sinittext = .;
-	*(.init.text)
+	INIT_TEXT
 	_einittext = .;
   }
-  . = ALIGN(4096);
+  . = ALIGN(PAGE_SIZE);
 
   .text      :
   {
@@ -46,7 +40,7 @@ SECTIONS
     *(.gnu.linkonce.t*)
   }
 
-  . = ALIGN(4096);
+  . = ALIGN(PAGE_SIZE);
   .syscall_stub : {
 	__syscall_stub_start = .;
 	*(.__syscall_stub*)
@@ -55,7 +49,7 @@ SECTIONS
 
   #include "asm/common.lds.S"
 
-  init.data : { *(init.data) }
+  init.data : { INIT_DATA }
   .data    :
   {
     . = ALIGN(KERNEL_STACK_SIZE);		/* init_task */
@@ -86,7 +80,7 @@ SECTIONS
   .sdata     : { *(.sdata) }
   _edata  =  .;
   PROVIDE (edata = .);
-  . = ALIGN(0x1000);
+  . = ALIGN(PAGE_SIZE);
   .sbss      :
   {
    __bss_start = .;

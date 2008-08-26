@@ -39,40 +39,57 @@
 #define VIO_IRQ_DISABLE		0UL
 #define VIO_IRQ_ENABLE		1UL
 
+/*
+ * VIO CMO minimum entitlement for all devices and spare entitlement
+ */
+#define VIO_CMO_MIN_ENT 1562624
+
 struct iommu_table;
 
-/*
- * The vio_dev structure is used to describe virtual I/O devices.
+/**
+ * vio_dev - This structure is used to describe virtual I/O devices.
+ *
+ * @desired: set from return of driver's get_desired_dma() function
+ * @entitled: bytes of IO data that has been reserved for this device.
+ * @allocated: bytes of IO data currently in use by the device.
+ * @allocs_failed: number of DMA failures due to insufficient entitlement.
  */
 struct vio_dev {
 	const char *name;
 	const char *type;
 	uint32_t unit_address;
 	unsigned int irq;
+	struct {
+		size_t desired;
+		size_t entitled;
+		size_t allocated;
+		atomic_t allocs_failed;
+	} cmo;
 	struct device dev;
 };
 
 struct vio_driver {
-	struct list_head node;
 	const struct vio_device_id *id_table;
 	int (*probe)(struct vio_dev *dev, const struct vio_device_id *id);
 	int (*remove)(struct vio_dev *dev);
-	void (*shutdown)(struct vio_dev *dev);
-	unsigned long driver_data;
+	/* A driver must have a get_desired_dma() function to
+	 * be loaded in a CMO environment if it uses DMA.
+	 */
+	unsigned long (*get_desired_dma)(struct vio_dev *dev);
 	struct device_driver driver;
 };
 
-extern struct dma_mapping_ops vio_dma_ops;
-extern struct bus_type vio_bus_type;
-
 extern int vio_register_driver(struct vio_driver *drv);
 extern void vio_unregister_driver(struct vio_driver *drv);
+
+extern int vio_cmo_entitlement_update(size_t);
+extern void vio_cmo_set_dev_desired(struct vio_dev *viodev, size_t desired);
 
 extern void __devinit vio_unregister_device(struct vio_dev *dev);
 
 struct device_node;
 
-extern struct vio_dev * __devinit vio_register_device_node(
+extern struct vio_dev *vio_register_device_node(
 		struct device_node *node_vdev);
 extern const void *vio_get_attribute(struct vio_dev *vdev, char *which,
 		int *length);

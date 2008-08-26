@@ -247,7 +247,7 @@ static int have_wifi;
 static int have_bluetooth;
 static int have_leds;
 
-static int __init dmi_matched(struct dmi_system_id *dmi)
+static int __init dmi_matched(const struct dmi_system_id *dmi)
 {
 	const struct key_entry *key;
 
@@ -998,12 +998,12 @@ static void wistron_wifi_led_set(struct led_classdev *led_cdev,
 }
 
 static struct led_classdev wistron_mail_led = {
-	.name			= "mail:green",
+	.name			= "wistron:green:mail",
 	.brightness_set		= wistron_mail_led_set,
 };
 
 static struct led_classdev wistron_wifi_led = {
-	.name			= "wifi:red",
+	.name			= "wistron:red:wifi",
 	.brightness_set		= wistron_wifi_led_set,
 };
 
@@ -1186,7 +1186,7 @@ static int wistron_setkeycode(struct input_dev *dev, int scancode, int keycode)
 
 static int __devinit setup_input_dev(void)
 {
-	const struct key_entry *key;
+	struct key_entry *key;
 	struct input_dev *input_dev;
 	int error;
 
@@ -1217,6 +1217,23 @@ static int __devinit setup_input_dev(void)
 			case KE_SW:
 				set_bit(EV_SW, input_dev->evbit);
 				set_bit(key->sw.code, input_dev->swbit);
+				break;
+
+			/* if wifi or bluetooth are not available, create normal keys */
+			case KE_WIFI:
+				if (!have_wifi) {
+					key->type = KE_KEY;
+					key->keycode = KEY_WLAN;
+					key--;
+				}
+				break;
+
+			case KE_BLUETOOTH:
+				if (!have_bluetooth) {
+					key->type = KE_KEY;
+					key->keycode = KEY_BLUETOOTH;
+					key--;
+				}
 				break;
 
 			default:

@@ -30,7 +30,19 @@ struct elf_siginfo
 	int	si_errno;			/* errno */
 };
 
-#define jiffies_to_timeval(a,b) do { (b)->tv_usec = 0; (b)->tv_sec = (a)/HZ; }while(0)
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+/*
+ * Hacks are here since types between compat_timeval (= pair of s32) and
+ * ia64-native timeval (= pair of s64) are not compatible, at least a file
+ * arch/ia64/ia32/../../../fs/binfmt_elf.c will get warnings from compiler on
+ * use of cputime_to_timeval(), which usually an alias of jiffies_to_timeval().
+ */
+#define cputime_to_timeval(a,b) \
+	do { (b)->tv_usec = 0; (b)->tv_sec = (a)/NSEC_PER_SEC; } while(0)
+#else
+#define jiffies_to_timeval(a,b) \
+	do { (b)->tv_usec = 0; (b)->tv_sec = (a)/HZ; } while(0)
+#endif
 
 struct elf_prstatus
 {
@@ -117,6 +129,7 @@ elf_core_copy_task_fpregs(struct task_struct *tsk, struct pt_regs *regs, elf_fpr
 }
 
 #define ELF_CORE_COPY_XFPREGS 1
+#define ELF_CORE_XFPREG_TYPE NT_PRXFPREG
 static inline int
 elf_core_copy_task_xfpregs(struct task_struct *tsk, elf_fpxregset_t *xfpu)
 {

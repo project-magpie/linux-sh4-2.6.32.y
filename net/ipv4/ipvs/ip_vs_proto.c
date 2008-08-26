@@ -1,8 +1,6 @@
 /*
  * ip_vs_proto.c: transport protocol load balancing support for IPVS
  *
- * Version:     $Id: ip_vs_proto.c,v 1.2 2003/04/18 09:03:16 wensong Exp $
- *
  * Authors:     Wensong Zhang <wensong@linuxvirtualserver.org>
  *              Julian Anastasov <ja@ssi.bg>
  *
@@ -45,7 +43,7 @@ static struct ip_vs_protocol *ip_vs_proto_table[IP_VS_PROTO_TAB_SIZE];
 /*
  *	register an ipvs protocol
  */
-static int register_ip_vs_protocol(struct ip_vs_protocol *pp)
+static int __used register_ip_vs_protocol(struct ip_vs_protocol *pp)
 {
 	unsigned hash = IP_VS_PROTO_HASH(pp->protocol);
 
@@ -148,7 +146,7 @@ const char * ip_vs_state_name(__u16 proto, int state)
 	struct ip_vs_protocol *pp = ip_vs_proto_get(proto);
 
 	if (pp == NULL || pp->state_name == NULL)
-		return "ERR!";
+		return (IPPROTO_IP == proto) ? "NONE" : "ERR!";
 	return pp->state_name(state);
 }
 
@@ -165,7 +163,7 @@ ip_vs_tcpudp_debug_packet(struct ip_vs_protocol *pp,
 	ih = skb_header_pointer(skb, offset, sizeof(_iph), &_iph);
 	if (ih == NULL)
 		sprintf(buf, "%s TRUNCATED", pp->name);
-	else if (ih->frag_off & __constant_htons(IP_OFFSET))
+	else if (ih->frag_off & htons(IP_OFFSET))
 		sprintf(buf, "%s %u.%u.%u.%u->%u.%u.%u.%u frag",
 			pp->name, NIPQUAD(ih->saddr),
 			NIPQUAD(ih->daddr));

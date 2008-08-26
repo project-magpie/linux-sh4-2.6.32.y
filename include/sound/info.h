@@ -3,7 +3,7 @@
 
 /*
  *  Header file for info interface
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -100,8 +100,10 @@ int snd_info_minor_unregister(void);
 extern struct snd_info_entry *snd_seq_root;
 #ifdef CONFIG_SND_OSSEMUL
 extern struct snd_info_entry *snd_oss_root;
+void snd_card_info_read_oss(struct snd_info_buffer *buffer);
 #else
 #define snd_oss_root NULL
+static inline void snd_card_info_read_oss(struct snd_info_buffer *buffer) {}
 #endif
 
 int snd_iprintf(struct snd_info_buffer * buffer, char *fmt,...) __attribute__ ((format (printf, 2, 3)));

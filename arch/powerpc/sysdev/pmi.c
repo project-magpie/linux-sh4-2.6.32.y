@@ -28,9 +28,9 @@
 #include <linux/completion.h>
 #include <linux/spinlock.h>
 #include <linux/workqueue.h>
+#include <linux/of_device.h>
+#include <linux/of_platform.h>
 
-#include <asm/of_device.h>
-#include <asm/of_platform.h>
 #include <asm/io.h>
 #include <asm/pmi.h>
 #include <asm/prom.h>
@@ -205,10 +205,12 @@ static int pmi_of_remove(struct of_device *dev)
 }
 
 static struct of_platform_driver pmi_of_platform_driver = {
-	.name		= "pmi",
 	.match_table	= pmi_match,
 	.probe		= pmi_of_probe,
-	.remove		= pmi_of_remove
+	.remove		= pmi_of_remove,
+	.driver		= {
+		.name	= "pmi",
+	},
 };
 
 static int __init pmi_module_init(void)

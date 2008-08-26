@@ -23,9 +23,12 @@
 #include <linux/kexec.h>
 #include <linux/module.h>
 #include <linux/smp.h>
+#include <linux/err.h>
+#include <linux/debugfs.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/page.h>
+#include <asm/elf.h>
 #include <asm/sections.h>
 #include <asm/irq.h>
 #include <asm/setup.h>
@@ -50,6 +53,7 @@ EXPORT_SYMBOL(cpu_data);
  * sh_mv= on the command line, prior to .machvec.init teardown.
  */
 struct sh_machine_vector sh_mv = { .mv_name = "generic", };
+EXPORT_SYMBOL(sh_mv);
 
 #ifdef CONFIG_VT
 struct screen_info screen_info;
@@ -57,54 +61,41 @@ struct screen_info screen_info;
 
 extern int root_mountflags;
 
-/*
- * This is set up by the setup-routine at boot-time
- */
-#define PARAM	((unsigned char *)empty_zero_page)
-
-#define MOUNT_ROOT_RDONLY (*(unsigned long *) (PARAM+0x000))
-#define RAMDISK_FLAGS (*(unsigned long *) (PARAM+0x004))
-#define ORIG_ROOT_DEV (*(unsigned long *) (PARAM+0x008))
-#define LOADER_TYPE (*(unsigned long *) (PARAM+0x00c))
-#define INITRD_START (*(unsigned long *) (PARAM+0x010))
-#define INITRD_SIZE (*(unsigned long *) (PARAM+0x014))
-/* ... */
-#define COMMAND_LINE ((char *) (PARAM+0x100))
-
 #define RAMDISK_IMAGE_START_MASK	0x07FF
 #define RAMDISK_PROMPT_FLAG		0x8000
 #define RAMDISK_LOAD_FLAG		0x4000
 
 static char __initdata command_line[COMMAND_LINE_SIZE] = { 0, };
 
-static struct resource ram_resource = {
-	.name	= "System RAM",
-	.flags	= IORESOURCE_BUSY | IORESOURCE_MEM,
-};
 static struct resource code_resource = {
-	.name	= "Kernel code",
-	.flags	= IORESOURCE_BUSY | IORESOURCE_MEM,
+	.name = "Kernel code",
+	.flags = IORESOURCE_BUSY | IORESOURCE_MEM,
 };
+
 static struct resource data_resource = {
-	.name	= "Kernel data",
+	.name = "Kernel data",
+	.flags = IORESOURCE_BUSY | IORESOURCE_MEM,
+};
+
+static struct resource bss_resource = {
+	.name	= "Kernel bss",
 	.flags	= IORESOURCE_BUSY | IORESOURCE_MEM,
 };
 
 unsigned long memory_start;
 EXPORT_SYMBOL(memory_start);
-
-unsigned long memory_end;
+unsigned long memory_end = 0;
 EXPORT_SYMBOL(memory_end);
+
+static struct resource mem_resources[MAX_NUMNODES];
+
+int l1i_cache_shape, l1d_cache_shape, l2_cache_shape;
 
 static int __init early_parse_mem(char *p)
 {
 	unsigned long size;
 
-#ifdef CONFIG_32BIT
-	memory_start = (unsigned long)PAGE_OFFSET;
-#else
-	memory_start = (unsigned long)PAGE_OFFSET+__MEMORY_START;
-#endif
+	memory_start = (unsigned long)__va(__MEMORY_START);
 	size = memparse(p, &p);
 
 	if (size > __MEMORY_SIZE) {
@@ -147,6 +138,79 @@ static void __init register_bootmem_low_pages(void)
 	free_bootmem(PFN_PHYS(curr_pfn), PFN_PHYS(pages));
 }
 
+#ifdef CONFIG_KEXEC
+static void __init reserve_crashkernel(void)
+{
+	unsigned long long free_mem;
+	unsigned long long crash_size, crash_base;
+	int ret;
+
+	free_mem = ((unsigned long long)max_low_pfn - min_low_pfn) << PAGE_SHIFT;
+
+	ret = parse_crashkernel(boot_command_line, free_mem,
+			&crash_size, &crash_base);
+	if (ret == 0 && crash_size) {
+		if (crash_base <= 0) {
+			printk(KERN_INFO "crashkernel reservation failed - "
+					"you have to specify a base address\n");
+			return;
+		}
+
+		if (reserve_bootmem(crash_base, crash_size,
+					BOOTMEM_EXCLUSIVE) < 0) {
+			printk(KERN_INFO "crashkernel reservation failed - "
+					"memory is in use\n");
+			return;
+		}
+
+		printk(KERN_INFO "Reserving %ldMB of memory at %ldMB "
+				"for crashkernel (System RAM: %ldMB)\n",
+				(unsigned long)(crash_size >> 20),
+				(unsigned long)(crash_base >> 20),
+				(unsigned long)(free_mem >> 20));
+		crashk_res.start = crash_base;
+		crashk_res.end   = crash_base + crash_size - 1;
+	}
+}
+#else
+static inline void __init reserve_crashkernel(void)
+{}
+#endif
+
+void __init __add_active_range(unsigned int nid, unsigned long start_pfn,
+						unsigned long end_pfn)
+{
+	struct resource *res = &mem_resources[nid];
+
+	WARN_ON(res->name); /* max one active range per node for now */
+
+	res->name = "System RAM";
+	res->start = start_pfn << PAGE_SHIFT;
+	res->end = (end_pfn << PAGE_SHIFT) - 1;
+	res->flags = IORESOURCE_MEM | IORESOURCE_BUSY;
+	if (request_resource(&iomem_resource, res)) {
+		pr_err("unable to request memory_resource 0x%lx 0x%lx\n",
+		       start_pfn, end_pfn);
+		return;
+	}
+
+	/*
+	 *  We don't know which RAM region contains kernel data,
+	 *  so we try it repeatedly and let the resource manager
+	 *  test it.
+	 */
+	request_resource(res, &code_resource);
+	request_resource(res, &data_resource);
+	request_resource(res, &bss_resource);
+
+#ifdef CONFIG_KEXEC
+	if (crashk_res.start != crashk_res.end)
+		request_resource(res, &crashk_res);
+#endif
+
+	add_active_range(nid, start_pfn, end_pfn);
+}
+
 void __init setup_bootmem_allocator(unsigned long free_pfn)
 {
 	unsigned long bootmap_size;
@@ -159,7 +223,7 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 	bootmap_size = init_bootmem_node(NODE_DATA(0), free_pfn,
 					 min_low_pfn, max_low_pfn);
 
-	add_active_range(0, min_low_pfn, max_low_pfn);
+	__add_active_range(0, min_low_pfn, max_low_pfn);
 	register_bootmem_low_pages();
 
 	node_set_online(0);
@@ -173,17 +237,21 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 	 */
 	reserve_bootmem(__MEMORY_START + CONFIG_ZERO_PAGE_OFFSET,
 			(PFN_PHYS(free_pfn) + bootmap_size + PAGE_SIZE - 1) -
-			(__MEMORY_START + CONFIG_ZERO_PAGE_OFFSET));
+			(__MEMORY_START + CONFIG_ZERO_PAGE_OFFSET),
+			BOOTMEM_DEFAULT);
 
 	/*
 	 * reserve physical page 0 - it's a special BIOS page on many boxes,
 	 * enabling clean reboots, SMP operation, laptop functions.
 	 */
-	reserve_bootmem(__MEMORY_START, CONFIG_ZERO_PAGE_OFFSET);
+	reserve_bootmem(__MEMORY_START, CONFIG_ZERO_PAGE_OFFSET,
+			BOOTMEM_DEFAULT);
 
 	sparse_memory_present_with_active_regions(0);
 
 #ifdef CONFIG_BLK_DEV_INITRD
+	ROOT_DEV = Root_RAM0;
+
 	if (LOADER_TYPE && INITRD_START) {
 		/* INITRD_START is the offset from the start of RAM */
 
@@ -191,8 +259,9 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 		initrd_start_phys += __MEMORY_START;
 
 		if (initrd_start_phys + INITRD_SIZE <= PFN_PHYS(max_low_pfn)) {
-			reserve_bootmem(initrd_start_phys, INITRD_SIZE);
-			initrd_start = __va(initrd_start_phys);
+			reserve_bootmem(initrd_start_phys, INITRD_SIZE,
+					BOOTMEM_DEFAULT);
+			initrd_start = (unsigned long)__va(initrd_start_phys);
 			initrd_end = initrd_start + INITRD_SIZE;
 		} else {
 			printk("initrd extends beyond end of memory "
@@ -203,11 +272,8 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 		}
 	}
 #endif
-#ifdef CONFIG_KEXEC
-	if (crashk_res.start != crashk_res.end)
-		reserve_bootmem(crashk_res.start,
-			crashk_res.end - crashk_res.start + 1);
-#endif
+
+	reserve_crashkernel();
 }
 
 #ifndef CONFIG_NEED_MULTIPLE_NODES
@@ -226,26 +292,22 @@ static void __init setup_memory(void)
 extern void __init setup_memory(void);
 #endif
 
-static int __init request_standard_resources(void)
-{
-	ram_resource.start = __pa(memory_start);
-	ram_resource.end = __pa(memory_end)-1;
-	code_resource.start = virt_to_phys(_text);
-	code_resource.end = virt_to_phys(_etext)-1;
-	data_resource.start = virt_to_phys(_etext);
-	data_resource.end = virt_to_phys(_edata)-1;
-
-	request_resource(&iomem_resource, &ram_resource);
-	request_resource(&ram_resource, &code_resource);
-	request_resource(&ram_resource, &data_resource);
-	return 0;
-}
-
 void __init setup_arch(char **cmdline_p)
 {
 	enable_mmu();
 
 	ROOT_DEV = old_decode_dev(ORIG_ROOT_DEV);
+
+	printk(KERN_NOTICE "Boot params:\n"
+			   "... MOUNT_ROOT_RDONLY - %08lx\n"
+			   "... RAMDISK_FLAGS     - %08lx\n"
+			   "... ORIG_ROOT_DEV     - %08lx\n"
+			   "... LOADER_TYPE       - %08lx\n"
+			   "... INITRD_START      - %08lx\n"
+			   "... INITRD_SIZE       - %08lx\n",
+			   MOUNT_ROOT_RDONLY, RAMDISK_FLAGS,
+			   ORIG_ROOT_DEV, LOADER_TYPE,
+			   INITRD_START, INITRD_SIZE);
 
 #ifdef CONFIG_BLK_DEV_RAM
 	rd_image_start = RAMDISK_FLAGS & RAMDISK_IMAGE_START_MASK;
@@ -260,12 +322,16 @@ void __init setup_arch(char **cmdline_p)
 	init_mm.end_data = (unsigned long) _edata;
 	init_mm.brk = (unsigned long) _end;
 
-#ifdef CONFIG_32BIT
-	memory_start = (unsigned long)PAGE_OFFSET;
-#else
-	memory_start = (unsigned long)PAGE_OFFSET+__MEMORY_START;
-#endif
-	memory_end = memory_start + __MEMORY_SIZE;
+	code_resource.start = virt_to_phys(_text);
+	code_resource.end = virt_to_phys(_etext)-1;
+	data_resource.start = virt_to_phys(_etext);
+	data_resource.end = virt_to_phys(_edata)-1;
+	bss_resource.start = virt_to_phys(__bss_start);
+	bss_resource.end = virt_to_phys(_ebss)-1;
+
+	memory_start = (unsigned long)__va(__MEMORY_START);
+	if (!memory_end)
+		memory_end = memory_start + __MEMORY_SIZE;
 
 #ifdef CONFIG_CMDLINE_BOOL
 	strlcpy(command_line, CONFIG_CMDLINE, sizeof(command_line));
@@ -278,8 +344,6 @@ void __init setup_arch(char **cmdline_p)
 	*cmdline_p = command_line;
 
 	parse_early_param();
-
-	request_standard_resources();
 
 	sh_mv_setup();
 
@@ -316,31 +380,36 @@ void __init setup_arch(char **cmdline_p)
 }
 
 static const char *cpu_name[] = {
+	[CPU_SH7203]	= "SH7203",	[CPU_SH7263]	= "SH7263",
 	[CPU_SH7206]	= "SH7206",	[CPU_SH7619]	= "SH7619",
 	[CPU_SH7705]	= "SH7705",	[CPU_SH7706]	= "SH7706",
 	[CPU_SH7707]	= "SH7707",	[CPU_SH7708]	= "SH7708",
 	[CPU_SH7709]	= "SH7709",	[CPU_SH7710]	= "SH7710",
 	[CPU_SH7712]	= "SH7712",	[CPU_SH7720]	= "SH7720",
-	[CPU_SH7729]	= "SH7729",	[CPU_SH7750]	= "SH7750",
-	[CPU_SH7750S]	= "SH7750S",	[CPU_SH7750R]	= "SH7750R",
-	[CPU_SH7751]	= "SH7751",	[CPU_SH7751R]	= "SH7751R",
-	[CPU_SH7760]	= "SH7760",
-	[CPU_ST40RA]	= "ST40RA",	[CPU_ST40GX1]	= "ST40GX1",
-	[CPU_STB7100]	= "STb7100",	[CPU_STX7105]	= "STx7105",
-	[CPU_STB7109]	= "STb7109",
-	[CPU_STX7111]	= "STx7111",	[CPU_STX7141]	= "STx7141",
-	[CPU_STX7200]	= "STx7200",
+	[CPU_SH7721]	= "SH7721",	[CPU_SH7729]	= "SH7729",
+	[CPU_SH7750]	= "SH7750",	[CPU_SH7750S]	= "SH7750S",
+	[CPU_SH7750R]	= "SH7750R",	[CPU_SH7751]	= "SH7751",
+	[CPU_SH7751R]	= "SH7751R",	[CPU_SH7760]	= "SH7760",
 	[CPU_SH4_202]	= "SH4-202",	[CPU_SH4_501]	= "SH4-501",
-	[CPU_SH7770]	= "SH7770",	[CPU_SH7780]	= "SH7780",
-	[CPU_SH7781]	= "SH7781",	[CPU_SH7343]	= "SH7343",
-	[CPU_SH7785]	= "SH7785",	[CPU_SH7722]	= "SH7722",
-	[CPU_SHX3]	= "SH-X3",	[CPU_SH_NONE]	= "Unknown"
+	[CPU_ST40RA]	= "ST40RA",	[CPU_ST40GX1]	= "ST40GX1",
+	[CPU_STI5528]	= "STi5528",	[CPU_STM8000]	= "STm8000",
+	[CPU_STB7100]	= "STb7100",	[CPU_STX7105]	= "STx7105",
+	[CPU_STB7109]	= "STb7109",	[CPU_STX7111]	= "STx7111",
+	[CPU_STX7141]	= "STx7141",	[CPU_STX7200]	= "STx7200",
+	[CPU_SH7763]	= "SH7763",	[CPU_SH7770]	= "SH7770",
+	[CPU_SH7780]	= "SH7780",	[CPU_SH7781]	= "SH7781",
+	[CPU_SH7343]	= "SH7343",	[CPU_SH7785]	= "SH7785",
+	[CPU_SH7722]	= "SH7722",	[CPU_SHX3]	= "SH-X3",
+	[CPU_SH5_101]	= "SH5-101",	[CPU_SH5_103]	= "SH5-103",
+	[CPU_MXG]	= "MX-G",	[CPU_SH7723]	= "SH7723",
+	[CPU_SH7366]	= "SH7366",	[CPU_SH_NONE]	= "Unknown"
 };
 
 const char *get_cpu_subtype(struct sh_cpuinfo *c)
 {
 	return cpu_name[c->type];
 }
+EXPORT_SYMBOL(get_cpu_subtype);
 
 #ifdef CONFIG_PROC_FS
 /* Symbolic CPU flags, keep in sync with asm/cpu-features.h */
@@ -443,10 +512,22 @@ static void *c_next(struct seq_file *m, void *v, loff_t *pos)
 static void c_stop(struct seq_file *m, void *v)
 {
 }
-struct seq_operations cpuinfo_op = {
+const struct seq_operations cpuinfo_op = {
 	.start	= c_start,
 	.next	= c_next,
 	.stop	= c_stop,
 	.show	= show_cpuinfo,
 };
 #endif /* CONFIG_PROC_FS */
+
+struct dentry *sh_debugfs_root;
+
+static int __init sh_debugfs_init(void)
+{
+	sh_debugfs_root = debugfs_create_dir("sh", NULL);
+	if (IS_ERR(sh_debugfs_root))
+		return PTR_ERR(sh_debugfs_root);
+
+	return 0;
+}
+arch_initcall(sh_debugfs_init);

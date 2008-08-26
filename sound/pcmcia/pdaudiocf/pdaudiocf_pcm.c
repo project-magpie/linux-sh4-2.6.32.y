@@ -3,7 +3,7 @@
  *
  * PCM part
  *
- * Copyright (c) 2003 by Jaroslav Kysela <perex@suse.cz>
+ * Copyright (c) 2003 by Jaroslav Kysela <perex@perex.cz>
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -20,7 +20,6 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
-#include <sound/driver.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/delay.h>

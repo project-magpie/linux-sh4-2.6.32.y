@@ -3,7 +3,7 @@
 
 /*
  *  Routines for Asahi Kasei AK4114
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>,
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>,
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -182,6 +182,7 @@ struct ak4114 {
 	unsigned char rcs0;
 	unsigned char rcs1;
 	struct delayed_work work;
+	unsigned int check_flags;
 	void *change_callback_private;
 	void (*change_callback)(struct ak4114 *ak4114, unsigned char c0, unsigned char c1);
 };

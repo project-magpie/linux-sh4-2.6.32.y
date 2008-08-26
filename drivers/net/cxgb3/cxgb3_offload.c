@@ -57,7 +57,7 @@ static DEFINE_RWLOCK(adapter_list_lock);
 static LIST_HEAD(adapter_list);
 
 static const unsigned int MAX_ATIDS = 64 * 1024;
-static const unsigned int ATID_BASE = 0x100000;
+static const unsigned int ATID_BASE = 0x10000;
 
 static inline int offload_activated(struct t3cdev *tdev)
 {
@@ -207,6 +207,17 @@ static int cxgb_ulp_iscsi_ctl(struct adapter *adapter, unsigned int req,
 		break;
 	case ULP_ISCSI_SET_PARAMS:
 		t3_write_reg(adapter, A_ULPRX_ISCSI_TAGMASK, uiip->tagmask);
+		/* set MaxRxData and MaxCoalesceSize to 16224 */
+		t3_write_reg(adapter, A_TP_PARA_REG2, 0x3f603f60);
+		/* program the ddp page sizes */
+		{
+			int i;
+			unsigned int val = 0;
+			for (i = 0; i < 4; i++)
+				val |= (uiip->pgsz_factor[i] & 0xF) << (8 * i);
+			if (val)
+				t3_write_reg(adapter, A_ULPRX_ISCSI_PSZ, val);
+		}
 		break;
 	default:
 		ret = -EOPNOTSUPP;
@@ -222,32 +233,32 @@ static int cxgb_rdma_ctl(struct adapter *adapter, unsigned int req, void *data)
 	int ret = 0;
 
 	switch (req) {
-	case RDMA_GET_PARAMS:{
-		struct rdma_info *req = data;
+	case RDMA_GET_PARAMS: {
+		struct rdma_info *rdma = data;
 		struct pci_dev *pdev = adapter->pdev;
 
-		req->udbell_physbase = pci_resource_start(pdev, 2);
-		req->udbell_len = pci_resource_len(pdev, 2);
-		req->tpt_base =
+		rdma->udbell_physbase = pci_resource_start(pdev, 2);
+		rdma->udbell_len = pci_resource_len(pdev, 2);
+		rdma->tpt_base =
 			t3_read_reg(adapter, A_ULPTX_TPT_LLIMIT);
-		req->tpt_top = t3_read_reg(adapter, A_ULPTX_TPT_ULIMIT);
-		req->pbl_base =
+		rdma->tpt_top = t3_read_reg(adapter, A_ULPTX_TPT_ULIMIT);
+		rdma->pbl_base =
 			t3_read_reg(adapter, A_ULPTX_PBL_LLIMIT);
-		req->pbl_top = t3_read_reg(adapter, A_ULPTX_PBL_ULIMIT);
-		req->rqt_base = t3_read_reg(adapter, A_ULPRX_RQ_LLIMIT);
-		req->rqt_top = t3_read_reg(adapter, A_ULPRX_RQ_ULIMIT);
-		req->kdb_addr = adapter->regs + A_SG_KDOORBELL;
-		req->pdev = pdev;
+		rdma->pbl_top = t3_read_reg(adapter, A_ULPTX_PBL_ULIMIT);
+		rdma->rqt_base = t3_read_reg(adapter, A_ULPRX_RQ_LLIMIT);
+		rdma->rqt_top = t3_read_reg(adapter, A_ULPRX_RQ_ULIMIT);
+		rdma->kdb_addr = adapter->regs + A_SG_KDOORBELL;
+		rdma->pdev = pdev;
 		break;
 	}
 	case RDMA_CQ_OP:{
 		unsigned long flags;
-		struct rdma_cq_op *req = data;
+		struct rdma_cq_op *rdma = data;
 
 		/* may be called in any context */
 		spin_lock_irqsave(&adapter->sge.reg_lock, flags);
-		ret = t3_sge_cqcntxt_op(adapter, req->id, req->op,
-					req->credits);
+		ret = t3_sge_cqcntxt_op(adapter, rdma->id, rdma->op,
+					rdma->credits);
 		spin_unlock_irqrestore(&adapter->sge.reg_lock, flags);
 		break;
 	}
@@ -274,15 +285,15 @@ static int cxgb_rdma_ctl(struct adapter *adapter, unsigned int req, void *data)
 		break;
 	}
 	case RDMA_CQ_SETUP:{
-		struct rdma_cq_setup *req = data;
+		struct rdma_cq_setup *rdma = data;
 
 		spin_lock_irq(&adapter->sge.reg_lock);
 		ret =
-			t3_sge_init_cqcntxt(adapter, req->id,
-					req->base_addr, req->size,
+			t3_sge_init_cqcntxt(adapter, rdma->id,
+					rdma->base_addr, rdma->size,
 					ASYNC_NOTIF_RSPQ,
-					req->ovfl_mode, req->credits,
-					req->credit_thres);
+					rdma->ovfl_mode, rdma->credits,
+					rdma->credit_thres);
 		spin_unlock_irq(&adapter->sge.reg_lock);
 		break;
 	}
@@ -292,15 +303,21 @@ static int cxgb_rdma_ctl(struct adapter *adapter, unsigned int req, void *data)
 		spin_unlock_irq(&adapter->sge.reg_lock);
 		break;
 	case RDMA_CTRL_QP_SETUP:{
-		struct rdma_ctrlqp_setup *req = data;
+		struct rdma_ctrlqp_setup *rdma = data;
 
 		spin_lock_irq(&adapter->sge.reg_lock);
 		ret = t3_sge_init_ecntxt(adapter, FW_RI_SGEEC_START, 0,
 						SGE_CNTXT_RDMA,
 						ASYNC_NOTIF_RSPQ,
-						req->base_addr, req->size,
+						rdma->base_addr, rdma->size,
 						FW_RI_TID_START, 1, 0);
 		spin_unlock_irq(&adapter->sge.reg_lock);
+		break;
+	}
+	case RDMA_GET_MIB: {
+		spin_lock(&adapter->stats_lock);
+		t3_tp_get_mib_stats(adapter, (struct tp_mib_stats *)data);
+		spin_unlock(&adapter->stats_lock);
 		break;
 	}
 	default:
@@ -317,6 +334,8 @@ static int cxgb_offload_ctl(struct t3cdev *tdev, unsigned int req, void *data)
 	struct iff_mac *iffmacp;
 	struct ddp_params *ddpp;
 	struct adap_ports *ports;
+	struct ofld_page_info *rx_page_info;
+	struct tp_params *tp = &adapter->params.tp;
 	int i;
 
 	switch (req) {
@@ -379,9 +398,15 @@ static int cxgb_offload_ctl(struct t3cdev *tdev, unsigned int req, void *data)
 	case RDMA_CQ_DISABLE:
 	case RDMA_CTRL_QP_SETUP:
 	case RDMA_GET_MEM:
+	case RDMA_GET_MIB:
 		if (!offload_running(adapter))
 			return -EAGAIN;
 		return cxgb_rdma_ctl(adapter, req, data);
+	case GET_RX_PAGE_INFO:
+		rx_page_info = data;
+		rx_page_info->page_size = tp->rx_pg_size;
+		rx_page_info->num = tp->rx_num_pgs;
+		break;
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -396,8 +421,6 @@ static int cxgb_offload_ctl(struct t3cdev *tdev, unsigned int req, void *data)
 static int rx_offload_blackhole(struct t3cdev *dev, struct sk_buff **skbs,
 				int n)
 {
-	CH_ERR(tdev2adap(dev), "%d unexpected offload packets, first data %u\n",
-	       n, ntohl(*(__be32 *)skbs[0]->data));
 	while (n--)
 		dev_kfree_skb_any(skbs[n]);
 	return 0;
@@ -481,7 +504,7 @@ static void t3_process_tid_release_list(struct work_struct *work)
 					   tid_release_task);
 	struct sk_buff *skb;
 	struct t3cdev *tdev = td->dev;
-	
+
 
 	spin_lock_bh(&td->tid_release_lock);
 	while (td->tid_release_list) {
@@ -627,6 +650,18 @@ static int do_l2t_write_rpl(struct t3cdev *dev, struct sk_buff *skb)
 	return CPL_RET_BUF_DONE;
 }
 
+static int do_rte_write_rpl(struct t3cdev *dev, struct sk_buff *skb)
+{
+	struct cpl_rte_write_rpl *rpl = cplhdr(skb);
+
+	if (rpl->status != CPL_ERR_NONE)
+		printk(KERN_ERR
+		       "Unexpected RTE_WRITE_RPL status %u for entry %u\n",
+		       rpl->status, GET_TID(rpl));
+
+	return CPL_RET_BUF_DONE;
+}
+
 static int do_act_open_rpl(struct t3cdev *dev, struct sk_buff *skb)
 {
 	struct cpl_act_open_rpl *rpl = cplhdr(skb);
@@ -687,10 +722,19 @@ static int do_cr(struct t3cdev *dev, struct sk_buff *skb)
 {
 	struct cpl_pass_accept_req *req = cplhdr(skb);
 	unsigned int stid = G_PASS_OPEN_TID(ntohl(req->tos_tid));
+	struct tid_info *t = &(T3C_DATA(dev))->tid_maps;
 	struct t3c_tid_entry *t3c_tid;
+	unsigned int tid = GET_TID(req);
 
-	t3c_tid = lookup_stid(&(T3C_DATA(dev))->tid_maps, stid);
-	if (t3c_tid->ctx && t3c_tid->client->handlers &&
+	if (unlikely(tid >= t->ntids)) {
+		printk("%s: passive open TID %u too large\n",
+		       dev->name, tid);
+		t3_fatal_err(tdev2adap(dev));
+		return CPL_RET_BUF_DONE;
+	}
+
+	t3c_tid = lookup_stid(t, stid);
+	if (t3c_tid && t3c_tid->ctx && t3c_tid->client->handlers &&
 	    t3c_tid->client->handlers[CPL_PASS_ACCEPT_REQ]) {
 		return t3c_tid->client->handlers[CPL_PASS_ACCEPT_REQ]
 		    (dev, skb, t3c_tid->ctx);
@@ -772,16 +816,25 @@ static int do_act_establish(struct t3cdev *dev, struct sk_buff *skb)
 {
 	struct cpl_act_establish *req = cplhdr(skb);
 	unsigned int atid = G_PASS_OPEN_TID(ntohl(req->tos_tid));
+	struct tid_info *t = &(T3C_DATA(dev))->tid_maps;
 	struct t3c_tid_entry *t3c_tid;
+	unsigned int tid = GET_TID(req);
 
-	t3c_tid = lookup_atid(&(T3C_DATA(dev))->tid_maps, atid);
+	if (unlikely(tid >= t->ntids)) {
+		printk("%s: active establish TID %u too large\n",
+		       dev->name, tid);
+		t3_fatal_err(tdev2adap(dev));
+		return CPL_RET_BUF_DONE;
+	}
+
+	t3c_tid = lookup_atid(t, atid);
 	if (t3c_tid && t3c_tid->ctx && t3c_tid->client->handlers &&
 	    t3c_tid->client->handlers[CPL_ACT_ESTABLISH]) {
 		return t3c_tid->client->handlers[CPL_ACT_ESTABLISH]
 		    (dev, skb, t3c_tid->ctx);
 	} else {
 		printk(KERN_ERR "%s: received clientless CPL command 0x%x\n",
-		       dev->name, CPL_PASS_ACCEPT_REQ);
+		       dev->name, CPL_ACT_ESTABLISH);
 		return CPL_RET_BUF_DONE | CPL_RET_BAD_MSG;
 	}
 }
@@ -798,10 +851,26 @@ static int do_trace(struct t3cdev *dev, struct sk_buff *skb)
 	return 0;
 }
 
+/*
+ * That skb would better have come from process_responses() where we abuse
+ * ->priority and ->csum to carry our data.  NB: if we get to per-arch
+ * ->csum, the things might get really interesting here.
+ */
+
+static inline u32 get_hwtid(struct sk_buff *skb)
+{
+	return ntohl((__force __be32)skb->priority) >> 8 & 0xfffff;
+}
+
+static inline u32 get_opcode(struct sk_buff *skb)
+{
+	return G_OPCODE(ntohl((__force __be32)skb->csum));
+}
+
 static int do_term(struct t3cdev *dev, struct sk_buff *skb)
 {
-	unsigned int hwtid = ntohl(skb->priority) >> 8 & 0xfffff;
-	unsigned int opcode = G_OPCODE(ntohl(skb->csum));
+	unsigned int hwtid = get_hwtid(skb);
+	unsigned int opcode = get_opcode(skb);
 	struct t3c_tid_entry *t3c_tid;
 
 	t3c_tid = lookup_tid(&(T3C_DATA(dev))->tid_maps, hwtid);
@@ -879,7 +948,7 @@ int process_rx(struct t3cdev *dev, struct sk_buff **skbs, int n)
 {
 	while (n--) {
 		struct sk_buff *skb = *skbs++;
-		unsigned int opcode = G_OPCODE(ntohl(skb->csum));
+		unsigned int opcode = get_opcode(skb);
 		int ret = cpl_handlers[opcode] (dev, skb);
 
 #if VALIDATE_TID
@@ -979,7 +1048,7 @@ void cxgb_redirect(struct dst_entry *old, struct dst_entry *new)
 	if (!is_offloading(olddev))
 		return;
 	if (!is_offloading(newdev)) {
-		printk(KERN_WARNING "%s: Redirect to non-offload"
+		printk(KERN_WARNING "%s: Redirect to non-offload "
 		       "device ignored.\n", __FUNCTION__);
 		return;
 	}
@@ -1035,9 +1104,7 @@ void *cxgb_alloc_mem(unsigned long size)
  */
 void cxgb_free_mem(void *addr)
 {
-	unsigned long p = (unsigned long)addr;
-
-	if (p >= VMALLOC_START && p < VMALLOC_END)
+	if (is_vmalloc_addr(addr))
 		vfree(addr);
 	else
 		kfree(addr);
@@ -1199,6 +1266,25 @@ static inline void unregister_tdev(struct t3cdev *tdev)
 	mutex_unlock(&cxgb3_db_lock);
 }
 
+static inline int adap2type(struct adapter *adapter)
+{
+	int type = 0;
+
+	switch (adapter->params.rev) {
+	case T3_REV_A:
+		type = T3A;
+		break;
+	case T3_REV_B:
+	case T3_REV_B2:
+		type = T3B;
+		break;
+	case T3_REV_C:
+		type = T3C;
+		break;
+	}
+	return type;
+}
+
 void __devinit cxgb3_adapter_ofld(struct adapter *adapter)
 {
 	struct t3cdev *tdev = &adapter->tdev;
@@ -1208,7 +1294,7 @@ void __devinit cxgb3_adapter_ofld(struct adapter *adapter)
 	cxgb3_set_dummy_ops(tdev);
 	tdev->send = t3_offload_tx;
 	tdev->ctl = cxgb_offload_ctl;
-	tdev->type = adapter->params.rev == 0 ? T3A : T3B;
+	tdev->type = adap2type(adapter);
 
 	register_tdev(tdev);
 }
@@ -1232,6 +1318,7 @@ void __init cxgb3_offload_init(void)
 
 	t3_register_cpl_handler(CPL_SMT_WRITE_RPL, do_smt_write_rpl);
 	t3_register_cpl_handler(CPL_L2T_WRITE_RPL, do_l2t_write_rpl);
+	t3_register_cpl_handler(CPL_RTE_WRITE_RPL, do_rte_write_rpl);
 	t3_register_cpl_handler(CPL_PASS_OPEN_RPL, do_stid_rpl);
 	t3_register_cpl_handler(CPL_CLOSE_LISTSRV_RPL, do_stid_rpl);
 	t3_register_cpl_handler(CPL_PASS_ACCEPT_REQ, do_cr);

@@ -6,7 +6,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2007, R. Byron Moore
+ * Copyright (C) 2000 - 2008, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -329,8 +329,8 @@ acpi_ex_do_concatenate(union acpi_operand_object *operand0,
 
 		/* Result of two Strings is a String */
 
-		return_desc = acpi_ut_create_string_object((acpi_size)
-							   (operand0->string.
+		return_desc = acpi_ut_create_string_object(((acpi_size)
+							    operand0->string.
 							    length +
 							    local_operand1->
 							    string.length));
@@ -352,8 +352,8 @@ acpi_ex_do_concatenate(union acpi_operand_object *operand0,
 
 		/* Result of two Buffers is a Buffer */
 
-		return_desc = acpi_ut_create_buffer_object((acpi_size)
-							   (operand0->buffer.
+		return_desc = acpi_ut_create_buffer_object(((acpi_size)
+							    operand0->buffer.
 							    length +
 							    local_operand1->
 							    buffer.length));

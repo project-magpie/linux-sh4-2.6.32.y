@@ -56,15 +56,15 @@ static void kbtab_irq(struct urb *urb)
 	case -ENOENT:
 	case -ESHUTDOWN:
 		/* this urb is terminated, clean up */
-		dbg("%s - urb shutting down with status: %d", __FUNCTION__, urb->status);
+		dbg("%s - urb shutting down with status: %d", __func__, urb->status);
 		return;
 	default:
-		dbg("%s - nonzero urb status received: %d", __FUNCTION__, urb->status);
+		dbg("%s - nonzero urb status received: %d", __func__, urb->status);
 		goto exit;
 	}
 
-	kbtab->x = le16_to_cpu(get_unaligned((__le16 *) &data[1]));
-	kbtab->y = le16_to_cpu(get_unaligned((__le16 *) &data[3]));
+	kbtab->x = get_unaligned_le16(&data[1]);
+	kbtab->y = get_unaligned_le16(&data[3]);
 
 	kbtab->pressure = (data[5]);
 
@@ -88,7 +88,7 @@ static void kbtab_irq(struct urb *urb)
 	retval = usb_submit_urb (urb, GFP_ATOMIC);
 	if (retval)
 		err ("%s - usb_submit_urb failed with result %d",
-		     __FUNCTION__, retval);
+		     __func__, retval);
 }
 
 static struct usb_device_id kbtab_ids[] = {
@@ -153,10 +153,13 @@ static int kbtab_probe(struct usb_interface *intf, const struct usb_device_id *i
 	input_dev->open = kbtab_open;
 	input_dev->close = kbtab_close;
 
-	input_dev->evbit[0] |= BIT(EV_KEY) | BIT(EV_ABS) | BIT(EV_MSC);
-	input_dev->keybit[LONG(BTN_LEFT)] |= BIT(BTN_LEFT) | BIT(BTN_RIGHT) | BIT(BTN_MIDDLE);
-	input_dev->keybit[LONG(BTN_DIGI)] |= BIT(BTN_TOOL_PEN) | BIT(BTN_TOUCH);
-	input_dev->mscbit[0] |= BIT(MSC_SERIAL);
+	input_dev->evbit[0] |= BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS) |
+		BIT_MASK(EV_MSC);
+	input_dev->keybit[BIT_WORD(BTN_LEFT)] |= BIT_MASK(BTN_LEFT) |
+		BIT_MASK(BTN_RIGHT) | BIT_MASK(BTN_MIDDLE);
+	input_dev->keybit[BIT_WORD(BTN_DIGI)] |= BIT_MASK(BTN_TOOL_PEN) |
+		BIT_MASK(BTN_TOUCH);
+	input_dev->mscbit[0] |= BIT_MASK(MSC_SERIAL);
 	input_set_abs_params(input_dev, ABS_X, 0, 0x2000, 4, 0);
 	input_set_abs_params(input_dev, ABS_Y, 0, 0x1750, 4, 0);
 	input_set_abs_params(input_dev, ABS_PRESSURE, 0, 0xff, 0, 0);

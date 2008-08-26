@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2004-2007 Emulex.  All rights reserved.           *
+ * Copyright (C) 2004-2008 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
  * www.emulex.com                                                  *
  * Portions Copyright (C) 2004-2005 Christoph Hellwig              *
@@ -23,15 +23,17 @@
 
 struct lpfc_sli2_slim;
 
-#define LPFC_MAX_TARGET		256	/* max number of targets supported */
+#define LPFC_MAX_TARGET		4096	/* max number of targets supported */
 #define LPFC_MAX_DISC_THREADS	64	/* max outstanding discovery els
 					   requests */
 #define LPFC_MAX_NS_RETRY	3	/* Number of retry attempts to contact
 					   the NameServer  before giving up. */
 #define LPFC_CMD_PER_LUN	3	/* max outstanding cmds per lun */
-#define LPFC_SG_SEG_CNT		64	/* sg element count per scsi cmnd */
+#define LPFC_DEFAULT_SG_SEG_CNT	64	/* sg element count per scsi cmnd */
+#define LPFC_MAX_SG_SEG_CNT	256	/* sg element count per scsi cmnd */
 #define LPFC_IOCB_LIST_CNT	2250	/* list of IOCBs for fast-path usage. */
 #define LPFC_Q_RAMP_UP_INTERVAL 120     /* lun q_depth ramp up interval */
+#define LPFC_VNAME_LEN		100	/* vport symbolic name length */
 
 /*
  * Following time intervals are used of adjusting SCSI device
@@ -58,6 +60,9 @@ struct lpfc_sli2_slim;
 
 #define MAX_HBAEVT	32
 
+/* lpfc wait event data ready flag */
+#define LPFC_DATA_READY		(1<<0)
+
 enum lpfc_polling_flags {
 	ENABLE_FCP_RING_POLLING = 0x1,
 	DISABLE_FCP_RING_INT    = 0x2
@@ -68,6 +73,7 @@ struct lpfc_dmabuf {
 	struct list_head list;
 	void *virt;		/* virtual address ptr */
 	dma_addr_t phys;	/* mapped address */
+	uint32_t   buffer_tag;	/* used for tagged queue ring */
 };
 
 struct lpfc_dma_pool {
@@ -266,15 +272,20 @@ struct lpfc_vport {
 #define FC_NLP_MORE             0x40	 /* More node to process in node tbl */
 #define FC_OFFLINE_MODE         0x80	 /* Interface is offline for diag */
 #define FC_FABRIC               0x100	 /* We are fabric attached */
-#define FC_ESTABLISH_LINK       0x200	 /* Reestablish Link */
 #define FC_RSCN_DISCOVERY       0x400	 /* Auth all devices after RSCN */
 #define FC_SCSI_SCAN_TMO        0x4000	 /* scsi scan timer running */
 #define FC_ABORT_DISCOVERY      0x8000	 /* we want to abort discovery */
 #define FC_NDISC_ACTIVE         0x10000	 /* NPort discovery active */
 #define FC_BYPASSED_MODE        0x20000	 /* NPort is in bypassed mode */
-#define FC_RFF_NOT_SUPPORTED    0x40000	 /* RFF_ID was rejected by switch */
 #define FC_VPORT_NEEDS_REG_VPI	0x80000  /* Needs to have its vpi registered */
 #define FC_RSCN_DEFERRED	0x100000 /* A deferred RSCN being processed */
+
+	uint32_t ct_flags;
+#define FC_CT_RFF_ID		0x1	 /* RFF_ID accepted by switch */
+#define FC_CT_RNN_ID		0x2	 /* RNN_ID accepted by switch */
+#define FC_CT_RSNN_NN		0x4	 /* RSNN_NN accepted by switch */
+#define FC_CT_RSPN_ID		0x8	 /* RSPN_ID accepted by switch */
+#define FC_CT_RFT_ID		0x10	 /* RFT_ID accepted by switch */
 
 	struct list_head fc_nodes;
 
@@ -299,6 +310,7 @@ struct lpfc_vport {
 
 	uint32_t fc_nlp_cnt;	/* outstanding NODELIST requests */
 	uint32_t fc_rscn_id_cnt;	/* count of RSCNs payloads in list */
+	uint32_t fc_rscn_flush;		/* flag use of fc_rscn_id_list */
 	struct lpfc_dmabuf *fc_rscn_id_list[FC_MAX_HOLD_RSCN];
 	struct lpfc_name fc_nodename;	/* fc nodename */
 	struct lpfc_name fc_portname;	/* fc portname */
@@ -317,7 +329,7 @@ struct lpfc_vport {
 
 #define WORKER_MBOX_TMO                0x100	/* hba: MBOX timeout */
 #define WORKER_HB_TMO                  0x200	/* hba: Heart beat timeout */
-#define WORKER_FABRIC_BLOCK_TMO        0x400	/* hba: fabric block timout */
+#define WORKER_FABRIC_BLOCK_TMO        0x400	/* hba: fabric block timeout */
 #define WORKER_RAMP_DOWN_QUEUE         0x800	/* hba: Decrease Q depth */
 #define WORKER_RAMP_UP_QUEUE           0x1000	/* hba: Increase Q depth */
 
@@ -344,6 +356,7 @@ struct lpfc_vport {
 	uint32_t cfg_discovery_threads;
 	uint32_t cfg_log_verbose;
 	uint32_t cfg_max_luns;
+	uint32_t cfg_enable_da_id;
 
 	uint32_t dev_loss_tmo_changed;
 
@@ -360,6 +373,7 @@ struct lpfc_vport {
 
 struct hbq_s {
 	uint16_t entry_count;	  /* Current number of HBQ slots */
+	uint16_t buffer_count;	  /* Current number of buffers posted */
 	uint32_t next_hbqPutIdx;  /* Index to next HBQ slot to use */
 	uint32_t hbqPutIdx;	  /* HBQ slot to use */
 	uint32_t local_hbqGetIdx; /* Local copy of Get index from Port */
@@ -376,6 +390,18 @@ struct hbq_s {
 /* this matches the position in the lpfc_hbq_defs array */
 #define LPFC_ELS_HBQ	0
 #define LPFC_EXTRA_HBQ	1
+
+enum hba_temp_state {
+	HBA_NORMAL_TEMP,
+	HBA_OVER_TEMP
+};
+
+enum intr_type_t {
+	NONE = 0,
+	INTx,
+	MSI,
+	MSIX,
+};
 
 struct lpfc_hba {
 	struct lpfc_sli sli;
@@ -394,7 +420,7 @@ struct lpfc_hba {
 					/* This flag is set while issuing */
 					/* INIT_LINK mailbox command */
 #define LS_NPIV_FAB_SUPPORTED 0x2	/* Fabric supports NPIV */
-#define LS_IGNORE_ERATT       0x3	/* intr handler should ignore ERATT */
+#define LS_IGNORE_ERATT       0x4	/* intr handler should ignore ERATT */
 
 	struct lpfc_sli2_slim *slim2p;
 	struct lpfc_dmabuf hbqslimp;
@@ -403,15 +429,10 @@ struct lpfc_hba {
 
 	uint16_t pci_cfg_value;
 
-	uint8_t work_found;
-#define LPFC_MAX_WORKER_ITERATION  4
-
 	uint8_t fc_linkspeed;	/* Link speed after last READ_LA */
 
 	uint32_t fc_eventTag;	/* event tag for link attention */
 
-
-	struct timer_list fc_estabtmo;	/* link establishment timer */
 	/* These fields used to be binfo */
 	uint32_t fc_pref_DID;	/* preferred D_ID */
 	uint8_t  fc_pref_ALPA;	/* preferred AL_PA */
@@ -457,7 +478,8 @@ struct lpfc_hba {
 	uint64_t cfg_soft_wwnn;
 	uint64_t cfg_soft_wwpn;
 	uint32_t cfg_hba_queue_depth;
-
+	uint32_t cfg_enable_hba_reset;
+	uint32_t cfg_enable_hba_heartbeat;
 
 	lpfc_vpd_t vpd;		/* vital product data */
 
@@ -468,9 +490,12 @@ struct lpfc_hba {
 	uint32_t              work_hs;      /* HS stored in case of ERRAT */
 	uint32_t              work_status[2]; /* Extra status from SLIM */
 
-	wait_queue_head_t    *work_wait;
+	wait_queue_head_t    work_waitq;
 	struct task_struct   *worker_thread;
+	long data_flags;
 
+	uint32_t hbq_in_use;		/* HBQs in use flag */
+	struct list_head hbqbuf_in_list;  /* in-fly hbq buffer list */
 	uint32_t hbq_count;	        /* Count of configured HBQs */
 	struct hbq_s hbqs[LPFC_MAX_HBQS]; /* local copy of hbq indicies  */
 
@@ -539,13 +564,13 @@ struct lpfc_hba {
 	mempool_t *nlp_mem_pool;
 
 	struct fc_host_statistics link_stats;
-	uint8_t using_msi;
+	enum intr_type_t intr_type;
+	struct msix_entry msix_entries[1];
 
 	struct list_head port_list;
 	struct lpfc_vport *pport;	/* physical lpfc_vport pointer */
 	uint16_t max_vpi;		/* Maximum virtual nports */
-#define LPFC_MAX_VPI 100		/* Max number of VPI supported */
-#define LPFC_MAX_VPORTS (LPFC_MAX_VPI+1)/* Max number of VPorts supported */
+#define LPFC_MAX_VPI 0xFFFF		/* Max number of VPI supported */
 	unsigned long *vpi_bmask;	/* vpi allocation table */
 
 	/* Data structure used by fabric iocb scheduler */
@@ -563,16 +588,32 @@ struct lpfc_hba {
 	struct dentry *hba_debugfs_root;
 	atomic_t debugfs_vport_count;
 	struct dentry *debug_hbqinfo;
-	struct dentry *debug_dumpslim;
+	struct dentry *debug_dumpHostSlim;
+	struct dentry *debug_dumpHBASlim;
 	struct dentry *debug_slow_ring_trc;
 	struct lpfc_debugfs_trc *slow_ring_trc;
 	atomic_t slow_ring_trc_cnt;
 #endif
 
+	/* Used for deferred freeing of ELS data buffers */
+	struct list_head elsbuf;
+	int elsbuf_cnt;
+	int elsbuf_prev_cnt;
+
+	uint8_t temp_sensor_support;
 	/* Fields used for heart beat. */
 	unsigned long last_completion_time;
 	struct timer_list hb_tmofunc;
 	uint8_t hb_outstanding;
+	/* ndlp reference management */
+	spinlock_t ndlp_lock;
+	/*
+	 * Following bit will be set for all buffer tags which are not
+	 * associated with any HBQ.
+	 */
+#define QUE_BUFTAG_BIT  (1<<31)
+	uint32_t buffer_tag_count;
+	enum hba_temp_state over_temp_state;
 };
 
 static inline struct Scsi_Host *
@@ -598,5 +639,26 @@ lpfc_is_link_up(struct lpfc_hba *phba)
 		phba->link_state == LPFC_HBA_READY;
 }
 
-#define FC_REG_DUMP_EVENT	0x10	/* Register for Dump events */
+static inline void
+lpfc_worker_wake_up(struct lpfc_hba *phba)
+{
+	/* Set the lpfc data pending flag */
+	set_bit(LPFC_DATA_READY, &phba->data_flags);
 
+	/* Wake up worker thread */
+	wake_up(&phba->work_waitq);
+	return;
+}
+
+#define FC_REG_DUMP_EVENT		0x10	/* Register for Dump events */
+#define FC_REG_TEMPERATURE_EVENT	0x20    /* Register for temperature
+						   event */
+
+struct temp_event {
+	uint32_t event_type;
+	uint32_t event_code;
+	uint32_t data;
+};
+#define LPFC_CRIT_TEMP		0x1
+#define LPFC_THRESHOLD_TEMP	0x2
+#define LPFC_NORMAL_TEMP	0x3

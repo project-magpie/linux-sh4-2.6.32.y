@@ -44,7 +44,6 @@ static const struct usb_device_id sn9c102_id_table[] = {
 	{ SN9C102_USB_DEVICE(0x0c45, 0x6005, BRIDGE_SN9C102), },
 	{ SN9C102_USB_DEVICE(0x0c45, 0x6007, BRIDGE_SN9C102), },
 	{ SN9C102_USB_DEVICE(0x0c45, 0x6009, BRIDGE_SN9C102), },
-	{ SN9C102_USB_DEVICE(0x0c45, 0x6011, BRIDGE_SN9C102), },
 	{ SN9C102_USB_DEVICE(0x0c45, 0x600d, BRIDGE_SN9C102), },
 	{ SN9C102_USB_DEVICE(0x0c45, 0x6019, BRIDGE_SN9C102), },
 	{ SN9C102_USB_DEVICE(0x0c45, 0x6024, BRIDGE_SN9C102), },
@@ -57,7 +56,6 @@ static const struct usb_device_id sn9c102_id_table[] = {
 	{ SN9C102_USB_DEVICE(0x0c45, 0x602d, BRIDGE_SN9C102), },
 	{ SN9C102_USB_DEVICE(0x0c45, 0x602e, BRIDGE_SN9C102), },
 	{ SN9C102_USB_DEVICE(0x0c45, 0x6030, BRIDGE_SN9C102), },
-	{ SN9C102_USB_DEVICE(0x0c45, 0x603f, BRIDGE_SN9C102), },
 	/* SN9C103 */
 	{ SN9C102_USB_DEVICE(0x0c45, 0x6080, BRIDGE_SN9C103), },
 	{ SN9C102_USB_DEVICE(0x0c45, 0x6082, BRIDGE_SN9C103), },
@@ -126,6 +124,7 @@ extern int sn9c102_probe_hv7131d(struct sn9c102_device* cam);
 extern int sn9c102_probe_hv7131r(struct sn9c102_device* cam);
 extern int sn9c102_probe_mi0343(struct sn9c102_device* cam);
 extern int sn9c102_probe_mi0360(struct sn9c102_device* cam);
+extern int sn9c102_probe_mt9v111(struct sn9c102_device *cam);
 extern int sn9c102_probe_ov7630(struct sn9c102_device* cam);
 extern int sn9c102_probe_ov7660(struct sn9c102_device* cam);
 extern int sn9c102_probe_pas106b(struct sn9c102_device* cam);
@@ -144,6 +143,7 @@ static int (*sn9c102_sensor_table[])(struct sn9c102_device*) = {
 	&sn9c102_probe_hv7131r, /* strong detection based on SENSOR ids */
 	&sn9c102_probe_mi0343, /* strong detection based on SENSOR ids */
 	&sn9c102_probe_mi0360, /* strong detection based on SENSOR ids */
+	&sn9c102_probe_mt9v111, /* strong detection based on SENSOR ids */
 	&sn9c102_probe_pas106b, /* strong detection based on SENSOR ids */
 	&sn9c102_probe_pas202bcb, /* strong detection based on SENSOR ids */
 	&sn9c102_probe_ov7630, /* strong detection based on SENSOR ids */

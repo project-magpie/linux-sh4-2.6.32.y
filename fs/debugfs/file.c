@@ -9,7 +9,7 @@
  *	2 as published by the Free Software Foundation.
  *
  *  debugfs is for people to use instead of /proc or /sys.
- *  See Documentation/DocBook/kernel-api for more details.
+ *  See Documentation/DocBook/filesystems for more details.
  *
  */
 
@@ -56,13 +56,15 @@ const struct inode_operations debugfs_link_operations = {
 	.follow_link    = debugfs_follow_link,
 };
 
-static void debugfs_u8_set(void *data, u64 val)
+static int debugfs_u8_set(void *data, u64 val)
 {
 	*(u8 *)data = val;
+	return 0;
 }
-static u64 debugfs_u8_get(void *data)
+static int debugfs_u8_get(void *data, u64 *val)
 {
-	return *(u8 *)data;
+	*val = *(u8 *)data;
+	return 0;
 }
 DEFINE_SIMPLE_ATTRIBUTE(fops_u8, debugfs_u8_get, debugfs_u8_set, "%llu\n");
 
@@ -97,13 +99,15 @@ struct dentry *debugfs_create_u8(const char *name, mode_t mode,
 }
 EXPORT_SYMBOL_GPL(debugfs_create_u8);
 
-static void debugfs_u16_set(void *data, u64 val)
+static int debugfs_u16_set(void *data, u64 val)
 {
 	*(u16 *)data = val;
+	return 0;
 }
-static u64 debugfs_u16_get(void *data)
+static int debugfs_u16_get(void *data, u64 *val)
 {
-	return *(u16 *)data;
+	*val = *(u16 *)data;
+	return 0;
 }
 DEFINE_SIMPLE_ATTRIBUTE(fops_u16, debugfs_u16_get, debugfs_u16_set, "%llu\n");
 
@@ -138,13 +142,15 @@ struct dentry *debugfs_create_u16(const char *name, mode_t mode,
 }
 EXPORT_SYMBOL_GPL(debugfs_create_u16);
 
-static void debugfs_u32_set(void *data, u64 val)
+static int debugfs_u32_set(void *data, u64 val)
 {
 	*(u32 *)data = val;
+	return 0;
 }
-static u64 debugfs_u32_get(void *data)
+static int debugfs_u32_get(void *data, u64 *val)
 {
-	return *(u32 *)data;
+	*val = *(u32 *)data;
+	return 0;
 }
 DEFINE_SIMPLE_ATTRIBUTE(fops_u32, debugfs_u32_get, debugfs_u32_set, "%llu\n");
 
@@ -179,14 +185,16 @@ struct dentry *debugfs_create_u32(const char *name, mode_t mode,
 }
 EXPORT_SYMBOL_GPL(debugfs_create_u32);
 
-static void debugfs_u64_set(void *data, u64 val)
+static int debugfs_u64_set(void *data, u64 val)
 {
 	*(u64 *)data = val;
+	return 0;
 }
 
-static u64 debugfs_u64_get(void *data)
+static int debugfs_u64_get(void *data, u64 *val)
 {
-	return *(u64 *)data;
+	*val = *(u64 *)data;
+	return 0;
 }
 DEFINE_SIMPLE_ATTRIBUTE(fops_u64, debugfs_u64_get, debugfs_u64_set, "%llu\n");
 
@@ -220,6 +228,71 @@ struct dentry *debugfs_create_u64(const char *name, mode_t mode,
 	return debugfs_create_file(name, mode, parent, value, &fops_u64);
 }
 EXPORT_SYMBOL_GPL(debugfs_create_u64);
+
+DEFINE_SIMPLE_ATTRIBUTE(fops_x8, debugfs_u8_get, debugfs_u8_set, "0x%02llx\n");
+
+DEFINE_SIMPLE_ATTRIBUTE(fops_x16, debugfs_u16_get, debugfs_u16_set, "0x%04llx\n");
+
+DEFINE_SIMPLE_ATTRIBUTE(fops_x32, debugfs_u32_get, debugfs_u32_set, "0x%08llx\n");
+
+/*
+ * debugfs_create_x{8,16,32} - create a debugfs file that is used to read and write an unsigned {8,16,32}-bit value
+ *
+ * These functions are exactly the same as the above functions (but use a hex
+ * output for the decimal challenged). For details look at the above unsigned
+ * decimal functions.
+ */
+
+/**
+ * debugfs_create_x8 - create a debugfs file that is used to read and write an unsigned 8-bit value
+ * @name: a pointer to a string containing the name of the file to create.
+ * @mode: the permission that the file should have
+ * @parent: a pointer to the parent dentry for this file.  This should be a
+ *          directory dentry if set.  If this parameter is %NULL, then the
+ *          file will be created in the root of the debugfs filesystem.
+ * @value: a pointer to the variable that the file should read to and write
+ *         from.
+ */
+struct dentry *debugfs_create_x8(const char *name, mode_t mode,
+				 struct dentry *parent, u8 *value)
+{
+	return debugfs_create_file(name, mode, parent, value, &fops_x8);
+}
+EXPORT_SYMBOL_GPL(debugfs_create_x8);
+
+/**
+ * debugfs_create_x16 - create a debugfs file that is used to read and write an unsigned 16-bit value
+ * @name: a pointer to a string containing the name of the file to create.
+ * @mode: the permission that the file should have
+ * @parent: a pointer to the parent dentry for this file.  This should be a
+ *          directory dentry if set.  If this parameter is %NULL, then the
+ *          file will be created in the root of the debugfs filesystem.
+ * @value: a pointer to the variable that the file should read to and write
+ *         from.
+ */
+struct dentry *debugfs_create_x16(const char *name, mode_t mode,
+				 struct dentry *parent, u16 *value)
+{
+	return debugfs_create_file(name, mode, parent, value, &fops_x16);
+}
+EXPORT_SYMBOL_GPL(debugfs_create_x16);
+
+/**
+ * debugfs_create_x32 - create a debugfs file that is used to read and write an unsigned 32-bit value
+ * @name: a pointer to a string containing the name of the file to create.
+ * @mode: the permission that the file should have
+ * @parent: a pointer to the parent dentry for this file.  This should be a
+ *          directory dentry if set.  If this parameter is %NULL, then the
+ *          file will be created in the root of the debugfs filesystem.
+ * @value: a pointer to the variable that the file should read to and write
+ *         from.
+ */
+struct dentry *debugfs_create_x32(const char *name, mode_t mode,
+				 struct dentry *parent, u32 *value)
+{
+	return debugfs_create_file(name, mode, parent, value, &fops_x32);
+}
+EXPORT_SYMBOL_GPL(debugfs_create_x32);
 
 static ssize_t read_file_bool(struct file *file, char __user *user_buf,
 			      size_t count, loff_t *ppos)

@@ -4,40 +4,45 @@
 
 PHONY += oldconfig xconfig gconfig menuconfig config silentoldconfig update-po-config
 
+Kconfig := arch/$(SRCARCH)/Kconfig
+
 xconfig: $(obj)/qconf
-	$< arch/$(ARCH)/Kconfig
+	$< $(Kconfig)
 
 gconfig: $(obj)/gconf
-	$< arch/$(ARCH)/Kconfig
+	$< $(Kconfig)
 
 menuconfig: $(obj)/mconf
-	$< arch/$(ARCH)/Kconfig
+	$< $(Kconfig)
 
 config: $(obj)/conf
-	$< arch/$(ARCH)/Kconfig
+	$< $(Kconfig)
 
 oldconfig: $(obj)/conf
-	$< -o arch/$(ARCH)/Kconfig
+	$< -o $(Kconfig)
 
 silentoldconfig: $(obj)/conf
-	$< -s arch/$(ARCH)/Kconfig
+	$< -s $(Kconfig)
 
-# Create new linux.po file
+# Create new linux.pot file
 # Adjust charset to UTF-8 in .po file to accept UTF-8 in Kconfig files
 # The symlink is used to repair a deficiency in arch/um
-update-po-config: $(obj)/kxgettext
-	xgettext --default-domain=linux                  \
+update-po-config: $(obj)/kxgettext $(obj)/gconf.glade.h
+	$(Q)echo "  GEN config"
+	$(Q)xgettext --default-domain=linux              \
 	    --add-comments --keyword=_ --keyword=N_      \
 	    --from-code=UTF-8                            \
 	    --files-from=scripts/kconfig/POTFILES.in     \
 	    --output $(obj)/config.pot
 	$(Q)sed -i s/CHARSET/UTF-8/ $(obj)/config.pot
 	$(Q)ln -fs Kconfig.i386 arch/um/Kconfig.arch
-	(for i in `ls arch/`;                            \
-	do                                               \
-	    $(obj)/kxgettext arch/$$i/Kconfig;           \
-	done ) >> $(obj)/config.pot
-	msguniq --sort-by-file --to-code=UTF-8 $(obj)/config.pot \
+	$(Q)(for i in `ls arch/*/Kconfig`;               \
+	    do                                           \
+		echo "  GEN $$i";                        \
+		$(obj)/kxgettext $$i                     \
+		     >> $(obj)/config.pot;               \
+	    done )
+	$(Q)msguniq --sort-by-file --to-code=UTF-8 $(obj)/config.pot \
 	    --output $(obj)/linux.pot
 	$(Q)rm -f arch/um/Kconfig.arch
 	$(Q)rm -f $(obj)/config.pot
@@ -45,27 +50,27 @@ update-po-config: $(obj)/kxgettext
 PHONY += randconfig allyesconfig allnoconfig allmodconfig defconfig
 
 randconfig: $(obj)/conf
-	$< -r arch/$(ARCH)/Kconfig
+	$< -r $(Kconfig)
 
 allyesconfig: $(obj)/conf
-	$< -y arch/$(ARCH)/Kconfig
+	$< -y $(Kconfig)
 
 allnoconfig: $(obj)/conf
-	$< -n arch/$(ARCH)/Kconfig
+	$< -n $(Kconfig)
 
 allmodconfig: $(obj)/conf
-	$< -m arch/$(ARCH)/Kconfig
+	$< -m $(Kconfig)
 
 defconfig: $(obj)/conf
 ifeq ($(KBUILD_DEFCONFIG),)
-	$< -d arch/$(ARCH)/Kconfig
+	$< -d $(Kconfig)
 else
-	@echo *** Default configuration is based on '$(KBUILD_DEFCONFIG)'
-	$(Q)$< -D arch/$(ARCH)/configs/$(KBUILD_DEFCONFIG) arch/$(ARCH)/Kconfig
+	@echo "*** Default configuration is based on '$(KBUILD_DEFCONFIG)'"
+	$(Q)$< -D arch/$(SRCARCH)/configs/$(KBUILD_DEFCONFIG) $(Kconfig)
 endif
 
 %_defconfig: $(obj)/conf
-	$(Q)$< -D arch/$(ARCH)/configs/$@ arch/$(ARCH)/Kconfig
+	$(Q)$< -D arch/$(SRCARCH)/configs/$@ $(Kconfig)
 
 # Help text used by make help
 help:
@@ -84,18 +89,12 @@ help:
 # lxdialog stuff
 check-lxdialog  := $(srctree)/$(src)/lxdialog/check-lxdialog.sh
 
-# Use reursively expanded variables so we do not call gcc unless
+# Use recursively expanded variables so we do not call gcc unless
 # we really need to do so. (Do not call gcc as part of make mrproper)
 HOST_EXTRACFLAGS = $(shell $(CONFIG_SHELL) $(check-lxdialog) -ccflags)
 HOST_LOADLIBES   = $(shell $(CONFIG_SHELL) $(check-lxdialog) -ldflags $(HOSTCC))
 
 HOST_EXTRACFLAGS += -DLOCALE
-
-PHONY += $(obj)/dochecklxdialog
-$(obj)/dochecklxdialog:
-	$(Q)$(CONFIG_SHELL) $(check-lxdialog) -check $(HOSTCC) $(HOST_LOADLIBES)
-
-always := dochecklxdialog
 
 
 # ===========================================================================
@@ -140,17 +139,20 @@ gconf-objs	:= gconf.o kconfig_load.o zconf.tab.o
 endif
 
 clean-files	:= lkc_defs.h qconf.moc .tmp_qtcheck \
-		   .tmp_gtkcheck zconf.tab.c lex.zconf.c zconf.hash.c
+		   .tmp_gtkcheck zconf.tab.c lex.zconf.c zconf.hash.c gconf.glade.h
 clean-files     += mconf qconf gconf
+clean-files     += config.pot linux.pot
 
-# Needed for systems without gettext
-KBUILD_HAVE_NLS := $(shell \
-     if echo "\#include <libintl.h>" | $(HOSTCC) $(HOSTCFLAGS) -E - > /dev/null 2>&1 ; \
-     then echo yes ; \
-     else echo no ; fi)
-ifeq ($(KBUILD_HAVE_NLS),no)
-HOSTCFLAGS	+= -DKBUILD_NO_NLS
-endif
+# Check that we have the required ncurses stuff installed for lxdialog (menuconfig)
+PHONY += $(obj)/dochecklxdialog
+$(addprefix $(obj)/,$(lxdialog)): $(obj)/dochecklxdialog
+$(obj)/dochecklxdialog:
+	$(Q)$(CONFIG_SHELL) $(check-lxdialog) -check $(HOSTCC) $(HOST_EXTRACFLAGS) $(HOST_LOADLIBES)
+
+always := dochecklxdialog
+
+# Add environment specific flags
+HOST_EXTRACFLAGS += $(shell $(CONFIG_SHELL) $(srctree)/$(src)/check.sh $(HOSTCC) $(HOSTCFLAGS))
 
 # generated files seem to need this to find local include files
 HOSTCFLAGS_lex.zconf.o	:= -I$(src)
@@ -252,6 +254,9 @@ $(obj)/%.moc: $(src)/%.h
 $(obj)/lkc_defs.h: $(src)/lkc_proto.h
 	sed < $< > $@ 's/P(\([^,]*\),.*/#define \1 (\*\1_p)/'
 
+# Extract gconf menu items for I18N support
+$(obj)/gconf.glade.h: $(obj)/gconf.glade
+	intltool-extract --type=gettext/glade $(obj)/gconf.glade
 
 ###
 # The following requires flex/bison/gperf

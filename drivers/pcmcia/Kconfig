@@ -2,9 +2,7 @@
 # PCCARD (PCMCIA/CardBus) bus subsystem configuration
 #
 
-menu "PCCARD (PCMCIA/CardBus) support"
-
-config PCCARD
+menuconfig PCCARD
 	tristate "PCCard (PCMCIA/CardBus) support"
 	depends on HOTPLUG
 	---help---
@@ -221,6 +219,8 @@ config PCMCIA_SA1111
 config PCMCIA_PXA2XX
 	tristate "PXA2xx support"
 	depends on ARM && ARCH_PXA && PCMCIA
+	depends on (ARCH_LUBBOCK || MACH_MAINSTONE || PXA_SHARPSL \
+		    || MACH_ARMCORE || ARCH_PXA_PALM)
 	help
 	  Say Y here to include support for the PXA2xx PCMCIA controller
 
@@ -264,12 +264,26 @@ config OMAP_CF
 	  Say Y here to support the CompactFlash controller on OMAP.
 	  Note that this doesn't support "True IDE" mode.
 
+config BFIN_CFPCMCIA
+	tristate "Blackfin CompactFlash PCMCIA Driver"
+	depends on PCMCIA && BLACKFIN
+	help
+	  Say Y here to support the CompactFlash PCMCIA driver for Blackfin.
+
+
 config AT91_CF
 	tristate "AT91 CompactFlash Controller"
 	depends on PCMCIA && ARCH_AT91RM9200
 	help
 	  Say Y here to support the CompactFlash controller on AT91 chips.
 	  Or choose M to compile the driver as a module named "at91_cf".
+
+config ELECTRA_CF
+	tristate "Electra CompactFlash Controller"
+	depends on PCMCIA && PPC_PASEMI
+	help
+	  Say Y here to support the CompactFlash controller on the
+	  PA Semi Electra eval board.
 
 config PCCARD_NONSTATIC
 	tristate
@@ -278,5 +292,3 @@ config PCCARD_IODYN
 	bool
 
 endif	# PCCARD
-
-endmenu

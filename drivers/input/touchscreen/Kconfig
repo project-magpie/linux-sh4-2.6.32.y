@@ -103,6 +103,18 @@ config TOUCHSCREEN_MTOUCH
 	  To compile this driver as a module, choose M here: the
 	  module will be called mtouch.
 
+config TOUCHSCREEN_INEXIO
+	tristate "iNexio serial touchscreens"
+	select SERIO
+	help
+	  Say Y here if you have an iNexio serial touchscreen connected to
+	  your system.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called inexio.
+
 config TOUCHSCREEN_MK712
 	tristate "ICS MicroClock MK712 touchscreen"
 	help
@@ -115,16 +127,36 @@ config TOUCHSCREEN_MK712
 	  module will be called mk712.
 
 config TOUCHSCREEN_HP600
-	tristate "HP Jornada 680/690 touchscreen"
+	tristate "HP Jornada 6xx touchscreen"
 	depends on SH_HP6XX && SH_ADC
 	help
-	  Say Y here if you have a HP Jornada 680 or 690 and want to
+	  Say Y here if you have a HP Jornada 620/660/680/690 and want to
           support the built-in touchscreen.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called hp680_ts_input.
+
+config TOUCHSCREEN_HP7XX
+	tristate "HP Jornada 7xx touchscreen"
+	depends on SA1100_JORNADA720_SSP
+	help
+	  Say Y here if you have a HP Jornada 710/720/728 and want
+	  to support the built-in touchscreen.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called jornada720_ts.
+
+config TOUCHSCREEN_HTCPEN
+	tristate "HTC Shift X9500 touchscreen"
+	depends on ISA
+	help
+	  Say Y here if you have an HTC Shift UMPC also known as HTC X9500
+	  Clio / Shangrila and want to support the built-in touchscreen.
 
 	  If unsure, say N.
 
 	  To compile this driver as a module, choose M here: the
-	  module will be called hp680_ts_input.
+	  module will be called htcpen.
 
 config TOUCHSCREEN_PENMOUNT
 	tristate "Penmount serial touchscreen"
@@ -137,6 +169,17 @@ config TOUCHSCREEN_PENMOUNT
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called penmount.
+
+config TOUCHSCREEN_MIGOR
+	tristate "Renesas MIGO-R touchscreen"
+	depends on SH_MIGOR && I2C
+	help
+	  Say Y here to enable MIGO-R touchscreen support.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called migor_ts.
 
 config TOUCHSCREEN_TOUCHRIGHT
 	tristate "Touchright serial touchscreen"
@@ -177,6 +220,59 @@ config TOUCHSCREEN_UCB1400
 	  To compile this driver as a module, choose M here: the
 	  module will be called ucb1400_ts.
 
+config TOUCHSCREEN_WM97XX
+	tristate "Support for WM97xx AC97 touchscreen controllers"
+	depends on AC97_BUS
+	help
+	  Say Y here if you have a Wolfson Microelectronics WM97xx
+	  touchscreen connected to your system. Note that this option
+	  only enables core driver, you will also need to select
+	  support for appropriate chip below.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called wm97xx-ts.
+
+config TOUCHSCREEN_WM9705
+	bool "WM9705 Touchscreen interface support"
+	depends on TOUCHSCREEN_WM97XX
+	help
+	  Say Y here if you have a Wolfson Microelectronics WM9705
+	  touchscreen controller connected to your system.
+
+	  If unsure, say N.
+
+config TOUCHSCREEN_WM9712
+	bool "WM9712 Touchscreen interface support"
+	depends on TOUCHSCREEN_WM97XX
+	help
+	  Say Y here if you have a Wolfson Microelectronics WM9712
+	  touchscreen controller connected to your system.
+
+	  If unsure, say N.
+
+config TOUCHSCREEN_WM9713
+	bool "WM9713 Touchscreen interface support"
+	depends on TOUCHSCREEN_WM97XX
+	help
+	  Say Y here if you have a Wolfson Microelectronics WM9713 touchscreen
+	  controller connected to your system.
+
+	  If unsure, say N.
+
+config TOUCHSCREEN_WM97XX_MAINSTONE
+	tristate "WM97xx Mainstone accelerated touch"
+	depends on TOUCHSCREEN_WM97XX && ARCH_PXA
+	help
+	  Say Y here for support for streaming mode with WM97xx touchscreens
+	  on Mainstone systems.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mainstone-wm97xx.
+
 config TOUCHSCREEN_USB_COMPOSITE
 	tristate "USB Touchscreen Driver"
 	depends on USB_ARCH_HAS_HCD
@@ -191,6 +287,8 @@ config TOUCHSCREEN_USB_COMPOSITE
 	  - Gunze AHL61
 	  - DMC TSC-10/25
 	  - IRTOUCHSYSTEMS/UNITOP
+	  - IdealTEK URTC1000
+	  - GoTop Super_Q2/GogoPen/PenPower tablets
 
 	  Have a look at <http://linux.chapter7.ch/touchkit/> for
 	  a usage description and the required user-space stuff.
@@ -237,5 +335,31 @@ config TOUCHSCREEN_USB_IRTOUCH
 	default y
 	bool "IRTOUCHSYSTEMS/UNITOP device support" if EMBEDDED
 	depends on TOUCHSCREEN_USB_COMPOSITE
+
+config TOUCHSCREEN_USB_IDEALTEK
+	default y
+	bool "IdealTEK URTC1000 device support" if EMBEDDED
+	depends on TOUCHSCREEN_USB_COMPOSITE
+
+config TOUCHSCREEN_USB_GENERAL_TOUCH
+	default y
+	bool "GeneralTouch Touchscreen device support" if EMBEDDED
+	depends on TOUCHSCREEN_USB_COMPOSITE
+
+config TOUCHSCREEN_USB_GOTOP
+	default y
+	bool "GoTop Super_Q2/GogoPen/PenPower tablet device support" if EMBEDDED
+	depends on TOUCHSCREEN_USB_COMPOSITE
+
+config TOUCHSCREEN_TOUCHIT213
+	tristate "Sahara TouchIT-213 touchscreen"
+	select SERIO
+	help
+	  Say Y here if you have a Sahara TouchIT-213 Tablet PC.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called touchit213.
 
 endif

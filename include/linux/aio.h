@@ -7,7 +7,6 @@
 #include <linux/uio.h>
 
 #include <asm/atomic.h>
-#include <linux/uio.h>
 
 #define AIO_MAXSEGS		4
 #define AIO_KIOGRP_NR_ATOMIC	8
@@ -105,7 +104,6 @@ struct kiocb {
 	wait_queue_t		ki_wait;
 	loff_t			ki_pos;
 
-	atomic_t		ki_bio_count;	/* num bio used for this iocb */
 	void			*private;
 	/* State that we remember to be able to restart/retry  */
 	unsigned short		ki_opcode;
@@ -206,43 +204,12 @@ struct kioctx {
 /* prototypes */
 extern unsigned aio_max_size;
 
-extern ssize_t FASTCALL(wait_on_sync_kiocb(struct kiocb *iocb));
-extern int FASTCALL(aio_put_req(struct kiocb *iocb));
-extern void FASTCALL(kick_iocb(struct kiocb *iocb));
-extern int FASTCALL(aio_complete(struct kiocb *iocb, long res, long res2));
-extern void FASTCALL(__put_ioctx(struct kioctx *ctx));
+extern ssize_t wait_on_sync_kiocb(struct kiocb *iocb);
+extern int aio_put_req(struct kiocb *iocb);
+extern void kick_iocb(struct kiocb *iocb);
+extern int aio_complete(struct kiocb *iocb, long res, long res2);
 struct mm_struct;
-extern void FASTCALL(exit_aio(struct mm_struct *mm));
-extern struct kioctx *lookup_ioctx(unsigned long ctx_id);
-extern int FASTCALL(io_submit_one(struct kioctx *ctx,
-			struct iocb __user *user_iocb, struct iocb *iocb));
-
-/* semi private, but used by the 32bit emulations: */
-struct kioctx *lookup_ioctx(unsigned long ctx_id);
-int FASTCALL(io_submit_one(struct kioctx *ctx, struct iocb __user *user_iocb,
-				  struct iocb *iocb));
-
-#define get_ioctx(kioctx) do {						\
-	BUG_ON(atomic_read(&(kioctx)->users) <= 0);			\
-	atomic_inc(&(kioctx)->users);					\
-} while (0)
-#define put_ioctx(kioctx) do {						\
-	BUG_ON(atomic_read(&(kioctx)->users) <= 0);			\
-	if (unlikely(atomic_dec_and_test(&(kioctx)->users))) 		\
-		__put_ioctx(kioctx);					\
-} while (0)
-
-#define in_aio() (unlikely(!is_sync_wait(current->io_wait)))
-
-/* may be used for debugging */
-#define warn_if_async()							\
-do {									\
-	if (in_aio()) {							\
-		printk(KERN_ERR "%s(%s:%d) called in async context!\n",	\
-			__FUNCTION__, __FILE__, __LINE__);		\
-		dump_stack();						\
-	}								\
-} while (0)
+extern void exit_aio(struct mm_struct *mm);
 
 #define io_wait_to_kiocb(wait) container_of(wait, struct kiocb, ki_wait)
 

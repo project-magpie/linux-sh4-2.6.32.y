@@ -38,11 +38,11 @@ struct nf_conntrack_expect
 	/* Usage count. */
 	atomic_t use;
 
-	/* Unique ID */
-	unsigned int id;
-
 	/* Flags */
 	unsigned int flags;
+
+	/* Expectation class */
+	unsigned int class;
 
 #ifdef CONFIG_NF_NAT_NEEDED
 	__be32 saved_ip;
@@ -52,9 +52,20 @@ struct nf_conntrack_expect
 	/* Direction relative to the master connection. */
 	enum ip_conntrack_dir dir;
 #endif
+
+	struct rcu_head rcu;
 };
 
-#define NF_CT_EXPECT_PERMANENT 0x1
+struct nf_conntrack_expect_policy
+{
+	unsigned int	max_expected;
+	unsigned int	timeout;
+};
+
+#define NF_CT_EXPECT_CLASS_DEFAULT	0
+
+#define NF_CT_EXPECT_PERMANENT	0x1
+#define NF_CT_EXPECT_INACTIVE	0x2
 
 int nf_conntrack_expect_init(void);
 void nf_conntrack_expect_fini(void);
@@ -75,10 +86,10 @@ void nf_ct_unexpect_related(struct nf_conntrack_expect *exp);
 /* Allocate space for an expectation: this is mandatory before calling
    nf_ct_expect_related.  You will have to call put afterwards. */
 struct nf_conntrack_expect *nf_ct_expect_alloc(struct nf_conn *me);
-void nf_ct_expect_init(struct nf_conntrack_expect *, int,
-		       union nf_conntrack_address *,
-		       union nf_conntrack_address *,
-		       u_int8_t, __be16 *, __be16 *);
+void nf_ct_expect_init(struct nf_conntrack_expect *, unsigned int, int,
+		       const union nf_inet_addr *,
+		       const union nf_inet_addr *,
+		       u_int8_t, const __be16 *, const __be16 *);
 void nf_ct_expect_put(struct nf_conntrack_expect *exp);
 int nf_ct_expect_related(struct nf_conntrack_expect *expect);
 

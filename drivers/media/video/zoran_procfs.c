@@ -48,14 +48,7 @@
 #include "videocodec.h"
 #include "zoran.h"
 #include "zoran_procfs.h"
-
-extern int *zr_debug;
-
-#define dprintk(num, format, args...) \
-	do { \
-		if (*zr_debug >= num) \
-			printk(format, ##args); \
-	} while (0)
+#include "zoran_card.h"
 
 #ifdef CONFIG_PROC_FS
 struct procfs_params_zr36067 {
@@ -187,6 +180,7 @@ static ssize_t zoran_write(struct file *file, const char __user *buffer,
 }
 
 static const struct file_operations zoran_operations = {
+	.owner		= THIS_MODULE,
 	.open		= zoran_open,
 	.read		= seq_read,
 	.write		= zoran_write,
@@ -202,10 +196,8 @@ zoran_proc_init (struct zoran *zr)
 	char name[8];
 
 	snprintf(name, 7, "zoran%d", zr->id);
-	if ((zr->zoran_proc = create_proc_entry(name, 0, NULL))) {
-		zr->zoran_proc->data = zr;
-		zr->zoran_proc->owner = THIS_MODULE;
-		zr->zoran_proc->proc_fops = &zoran_operations;
+	zr->zoran_proc = proc_create_data(name, 0, NULL, &zoran_operations, zr);
+	if (zr->zoran_proc != NULL) {
 		dprintk(2,
 			KERN_INFO
 			"%s: procfs entry /proc/%s allocated. data=%p\n",

@@ -1,20 +1,20 @@
-/* SCTP kernel reference Implementation
+/* SCTP kernel implementation
  * (C) Copyright IBM Corp. 2001, 2003
  * Copyright (c) Cisco 1999,2000
  * Copyright (c) Motorola 1999,2000,2001
  * Copyright (c) La Monte H.P. Yarroll 2001
  *
- * This file is part of the SCTP kernel reference implementation.
+ * This file is part of the SCTP kernel implementation.
  *
  * A collection class to handle the storage of transport addresses.
  *
- * The SCTP reference implementation is free software;
+ * This SCTP implementation is free software;
  * you can redistribute it and/or modify it under the terms of
  * the GNU General Public License as published by
  * the Free Software Foundation; either version 2, or (at your option)
  * any later version.
  *
- * The SCTP reference implementation is distributed in the hope that it
+ * This SCTP implementation is distributed in the hope that it
  * will be useful, but WITHOUT ANY WARRANTY; without even the implied
  *                 ************************
  * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -67,15 +67,13 @@ int sctp_bind_addr_copy(struct sctp_bind_addr *dest,
 			int flags)
 {
 	struct sctp_sockaddr_entry *addr;
-	struct list_head *pos;
 	int error = 0;
 
 	/* All addresses share the same port.  */
 	dest->port = src->port;
 
 	/* Extract the addresses which are relevant for this scope.  */
-	list_for_each(pos, &src->address_list) {
-		addr = list_entry(pos, struct sctp_sockaddr_entry, list);
+	list_for_each_entry(addr, &src->address_list, list) {
 		error = sctp_copy_one_addr(dest, &addr->a, scope,
 					   gfp, flags);
 		if (error < 0)
@@ -87,9 +85,7 @@ int sctp_bind_addr_copy(struct sctp_bind_addr *dest,
 	 * the assumption that we must be sitting behind a NAT.
 	 */
 	if (list_empty(&dest->address_list) && (SCTP_SCOPE_GLOBAL == scope)) {
-		list_for_each(pos, &src->address_list) {
-			addr = list_entry(pos, struct sctp_sockaddr_entry,
-					  list);
+		list_for_each_entry(addr, &src->address_list, list) {
 			error = sctp_copy_one_addr(dest, &addr->a,
 						   SCTP_SCOPE_LINK, gfp,
 						   flags);
@@ -101,6 +97,30 @@ int sctp_bind_addr_copy(struct sctp_bind_addr *dest,
 out:
 	if (error)
 		sctp_bind_addr_clean(dest);
+
+	return error;
+}
+
+/* Exactly duplicate the address lists.  This is necessary when doing
+ * peer-offs and accepts.  We don't want to put all the current system
+ * addresses into the endpoint.  That's useless.  But we do want duplicat
+ * the list of bound addresses that the older endpoint used.
+ */
+int sctp_bind_addr_dup(struct sctp_bind_addr *dest,
+			const struct sctp_bind_addr *src,
+			gfp_t gfp)
+{
+	struct sctp_sockaddr_entry *addr;
+	int error = 0;
+
+	/* All addresses share the same port.  */
+	dest->port = src->port;
+
+	list_for_each_entry(addr, &src->address_list, list) {
+		error = sctp_add_bind_addr(dest, &addr->a, 1, gfp);
+		if (error < 0)
+			break;
+	}
 
 	return error;
 }
@@ -145,7 +165,7 @@ void sctp_bind_addr_free(struct sctp_bind_addr *bp)
 
 /* Add an address to the bind address list in the SCTP_bind_addr structure. */
 int sctp_add_bind_addr(struct sctp_bind_addr *bp, union sctp_addr *new,
-		       __u8 use_as_src, gfp_t gfp)
+		       __u8 addr_state, gfp_t gfp)
 {
 	struct sctp_sockaddr_entry *addr;
 
@@ -162,7 +182,7 @@ int sctp_add_bind_addr(struct sctp_bind_addr *bp, union sctp_addr *new,
 	if (!addr->a.v4.sin_port)
 		addr->a.v4.sin_port = htons(bp->port);
 
-	addr->use_as_src = use_as_src;
+	addr->state = addr_state;
 	addr->valid = 1;
 
 	INIT_LIST_HEAD(&addr->list);
@@ -180,11 +200,10 @@ int sctp_add_bind_addr(struct sctp_bind_addr *bp, union sctp_addr *new,
 /* Delete an address from the bind address list in the SCTP_bind_addr
  * structure.
  */
-int sctp_del_bind_addr(struct sctp_bind_addr *bp, union sctp_addr *del_addr,
-			void fastcall (*rcu_call)(struct rcu_head *head,
-					 void (*func)(struct rcu_head *head)))
+int sctp_del_bind_addr(struct sctp_bind_addr *bp, union sctp_addr *del_addr)
 {
 	struct sctp_sockaddr_entry *addr, *temp;
+	int found = 0;
 
 	/* We hold the socket lock when calling this function,
 	 * and that acts as a writer synchronizing lock.
@@ -192,21 +211,17 @@ int sctp_del_bind_addr(struct sctp_bind_addr *bp, union sctp_addr *del_addr,
 	list_for_each_entry_safe(addr, temp, &bp->address_list, list) {
 		if (sctp_cmp_addr_exact(&addr->a, del_addr)) {
 			/* Found the exact match. */
+			found = 1;
 			addr->valid = 0;
 			list_del_rcu(&addr->list);
 			break;
 		}
 	}
 
-	/* Call the rcu callback provided in the args.  This function is
-	 * called by both BH packet processing and user side socket option
-	 * processing, but it works on different lists in those 2 contexts.
-	 * Each context provides it's own callback, whether call_rcu_bh()
-	 * or call_rcu(), to make sure that we wait for an appropriate time.
-	 */
-	if (addr && !addr->valid) {
-		rcu_call(&addr->rcu, sctp_local_addr_free);
+	if (found) {
+		call_rcu(&addr->rcu, sctp_local_addr_free);
 		SCTP_DBG_OBJCNT_DEC(addr);
+		return 0;
 	}
 
 	return -EINVAL;
@@ -252,8 +267,7 @@ union sctp_params sctp_bind_addrs_to_raw(const struct sctp_bind_addr *bp,
 
 	addrparms = retval;
 
-	list_for_each(pos, &bp->address_list) {
-		addr = list_entry(pos, struct sctp_sockaddr_entry, list);
+	list_for_each_entry(addr, &bp->address_list, list) {
 		af = sctp_get_af_specific(addr->a.v4.sin_family);
 		len = af->to_addr_param(&addr->a, &rawaddr);
 		memcpy(addrparms.v, &rawaddr, len);
@@ -293,7 +307,7 @@ int sctp_raw_to_bind_addrs(struct sctp_bind_addr *bp, __u8 *raw_addr_list,
 		}
 
 		af->from_addr_param(&addr, rawaddr, htons(port), 0);
-		retval = sctp_add_bind_addr(bp, &addr, 1, gfp);
+		retval = sctp_add_bind_addr(bp, &addr, SCTP_ADDR_SRC, gfp);
 		if (retval) {
 			/* Can't finish building the list, clean up. */
 			sctp_bind_addr_clean(bp);
@@ -332,6 +346,69 @@ int sctp_bind_addr_match(struct sctp_bind_addr *bp,
 	rcu_read_unlock();
 
 	return match;
+}
+
+/* Does the address 'addr' conflict with any addresses in
+ * the bp.
+ */
+int sctp_bind_addr_conflict(struct sctp_bind_addr *bp,
+			    const union sctp_addr *addr,
+			    struct sctp_sock *bp_sp,
+			    struct sctp_sock *addr_sp)
+{
+	struct sctp_sockaddr_entry *laddr;
+	int conflict = 0;
+	struct sctp_sock *sp;
+
+	/* Pick the IPv6 socket as the basis of comparison
+	 * since it's usually a superset of the IPv4.
+	 * If there is no IPv6 socket, then default to bind_addr.
+	 */
+	if (sctp_opt2sk(bp_sp)->sk_family == AF_INET6)
+		sp = bp_sp;
+	else if (sctp_opt2sk(addr_sp)->sk_family == AF_INET6)
+		sp = addr_sp;
+	else
+		sp = bp_sp;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(laddr, &bp->address_list, list) {
+		if (!laddr->valid)
+			continue;
+
+		conflict = sp->pf->cmp_addr(&laddr->a, addr, sp);
+		if (conflict)
+			break;
+	}
+	rcu_read_unlock();
+
+	return conflict;
+}
+
+/* Get the state of the entry in the bind_addr_list */
+int sctp_bind_addr_state(const struct sctp_bind_addr *bp,
+			 const union sctp_addr *addr)
+{
+	struct sctp_sockaddr_entry *laddr;
+	struct sctp_af *af;
+	int state = -1;
+
+	af = sctp_get_af_specific(addr->sa.sa_family);
+	if (unlikely(!af))
+		return state;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(laddr, &bp->address_list, list) {
+		if (!laddr->valid)
+			continue;
+		if (af->cmp_addr(&laddr->a, addr)) {
+			state = laddr->state;
+			break;
+		}
+	}
+	rcu_read_unlock();
+
+	return state;
 }
 
 /* Find the first address in the bind address list that is not present in
@@ -392,7 +469,8 @@ static int sctp_copy_one_addr(struct sctp_bind_addr *dest,
 		    (((AF_INET6 == addr->sa.sa_family) &&
 		      (flags & SCTP_ADDR6_ALLOWED) &&
 		      (flags & SCTP_ADDR6_PEERSUPP))))
-			error = sctp_add_bind_addr(dest, addr, 1, gfp);
+			error = sctp_add_bind_addr(dest, addr, SCTP_ADDR_SRC,
+						    gfp);
 	}
 
 	return error;

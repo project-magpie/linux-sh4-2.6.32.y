@@ -24,12 +24,13 @@
 #include <linux/bitops.h>
 #include <linux/skbuff.h>
 #include <linux/inet.h>
+#include <net/net_namespace.h>
 
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter_ipv4/ipt_recent.h>
 
 MODULE_AUTHOR("Patrick McHardy <kaber@trash.net>");
-MODULE_DESCRIPTION("IP tables recently seen matching module");
+MODULE_DESCRIPTION("Xtables: \"recently-seen\" host matching for IPv4");
 MODULE_LICENSE("GPL");
 
 static unsigned int ip_list_tot = 100;
@@ -169,10 +170,10 @@ static void recent_table_flush(struct recent_table *t)
 }
 
 static bool
-ipt_recent_match(const struct sk_buff *skb,
-		 const struct net_device *in, const struct net_device *out,
-		 const struct xt_match *match, const void *matchinfo,
-		 int offset, unsigned int protoff, bool *hotdrop)
+recent_mt(const struct sk_buff *skb, const struct net_device *in,
+          const struct net_device *out, const struct xt_match *match,
+          const void *matchinfo, int offset, unsigned int protoff,
+          bool *hotdrop)
 {
 	const struct ipt_recent_info *info = matchinfo;
 	struct recent_table *t;
@@ -211,11 +212,11 @@ ipt_recent_match(const struct sk_buff *skb,
 		recent_entry_remove(t, e);
 		ret = !ret;
 	} else if (info->check_set & (IPT_RECENT_CHECK | IPT_RECENT_UPDATE)) {
-		unsigned long t = jiffies - info->seconds * HZ;
+		unsigned long time = jiffies - info->seconds * HZ;
 		unsigned int i, hits = 0;
 
 		for (i = 0; i < e->nstamps; i++) {
-			if (info->seconds && time_after(t, e->stamps[i]))
+			if (info->seconds && time_after(time, e->stamps[i]))
 				continue;
 			if (++hits >= info->hit_count) {
 				ret = !ret;
@@ -235,9 +236,9 @@ out:
 }
 
 static bool
-ipt_recent_checkentry(const char *tablename, const void *ip,
-		      const struct xt_match *match, void *matchinfo,
-		      unsigned int hook_mask)
+recent_mt_check(const char *tablename, const void *ip,
+                const struct xt_match *match, void *matchinfo,
+                unsigned int hook_mask)
 {
 	const struct ipt_recent_info *info = matchinfo;
 	struct recent_table *t;
@@ -250,6 +251,8 @@ ipt_recent_checkentry(const char *tablename, const void *ip,
 		return false;
 	if ((info->check_set & (IPT_RECENT_SET | IPT_RECENT_REMOVE)) &&
 	    (info->seconds || info->hit_count))
+		return false;
+	if (info->hit_count > ip_pkt_list_tot)
 		return false;
 	if (info->name[0] == '\0' ||
 	    strnlen(info->name, IPT_RECENT_NAME_LEN) == IPT_RECENT_NAME_LEN)
@@ -273,12 +276,11 @@ ipt_recent_checkentry(const char *tablename, const void *ip,
 	for (i = 0; i < ip_list_hash_size; i++)
 		INIT_LIST_HEAD(&t->iphash[i]);
 #ifdef CONFIG_PROC_FS
-	t->proc = create_proc_entry(t->name, ip_list_perms, proc_dir);
+	t->proc = proc_create(t->name, ip_list_perms, proc_dir, &recent_fops);
 	if (t->proc == NULL) {
 		kfree(t);
 		goto out;
 	}
-	t->proc->proc_fops = &recent_fops;
 	t->proc->uid       = ip_list_uid;
 	t->proc->gid       = ip_list_gid;
 	t->proc->data      = t;
@@ -292,8 +294,7 @@ out:
 	return ret;
 }
 
-static void
-ipt_recent_destroy(const struct xt_match *match, void *matchinfo)
+static void recent_mt_destroy(const struct xt_match *match, void *matchinfo)
 {
 	const struct ipt_recent_info *info = matchinfo;
 	struct recent_table *t;
@@ -320,6 +321,7 @@ struct recent_iter_state {
 };
 
 static void *recent_seq_start(struct seq_file *seq, loff_t *pos)
+	__acquires(recent_lock)
 {
 	struct recent_iter_state *st = seq->private;
 	const struct recent_table *t = st->table;
@@ -338,7 +340,7 @@ static void *recent_seq_start(struct seq_file *seq, loff_t *pos)
 static void *recent_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
 	struct recent_iter_state *st = seq->private;
-	struct recent_table *t = st->table;
+	const struct recent_table *t = st->table;
 	struct recent_entry *e = v;
 	struct list_head *head = e->list.next;
 
@@ -352,13 +354,14 @@ static void *recent_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 }
 
 static void recent_seq_stop(struct seq_file *s, void *v)
+	__releases(recent_lock)
 {
 	spin_unlock_bh(&recent_lock);
 }
 
 static int recent_seq_show(struct seq_file *seq, void *v)
 {
-	struct recent_entry *e = v;
+	const struct recent_entry *e = v;
 	unsigned int i;
 
 	i = (e->index - 1) % ip_pkt_list_tot;
@@ -380,31 +383,20 @@ static const struct seq_operations recent_seq_ops = {
 static int recent_seq_open(struct inode *inode, struct file *file)
 {
 	struct proc_dir_entry *pde = PDE(inode);
-	struct seq_file *seq;
 	struct recent_iter_state *st;
-	int ret;
 
-	st = kzalloc(sizeof(*st), GFP_KERNEL);
+	st = __seq_open_private(file, &recent_seq_ops, sizeof(*st));
 	if (st == NULL)
 		return -ENOMEM;
 
-	ret = seq_open(file, &recent_seq_ops);
-	if (ret) {
-		kfree(st);
-		goto out;
-	}
-
 	st->table    = pde->data;
-	seq          = file->private_data;
-	seq->private = st;
-out:
-	return ret;
+	return 0;
 }
 
 static ssize_t recent_proc_write(struct file *file, const char __user *input,
 				 size_t size, loff_t *loff)
 {
-	struct proc_dir_entry *pde = PDE(file->f_path.dentry->d_inode);
+	const struct proc_dir_entry *pde = PDE(file->f_path.dentry->d_inode);
 	struct recent_table *t = pde->data;
 	struct recent_entry *e;
 	char buf[sizeof("+255.255.255.255")], *c = buf;
@@ -465,17 +457,17 @@ static const struct file_operations recent_fops = {
 };
 #endif /* CONFIG_PROC_FS */
 
-static struct xt_match recent_match __read_mostly = {
+static struct xt_match recent_mt_reg __read_mostly = {
 	.name		= "recent",
 	.family		= AF_INET,
-	.match		= ipt_recent_match,
+	.match		= recent_mt,
 	.matchsize	= sizeof(struct ipt_recent_info),
-	.checkentry	= ipt_recent_checkentry,
-	.destroy	= ipt_recent_destroy,
+	.checkentry	= recent_mt_check,
+	.destroy	= recent_mt_destroy,
 	.me		= THIS_MODULE,
 };
 
-static int __init ipt_recent_init(void)
+static int __init recent_mt_init(void)
 {
 	int err;
 
@@ -483,27 +475,27 @@ static int __init ipt_recent_init(void)
 		return -EINVAL;
 	ip_list_hash_size = 1 << fls(ip_list_tot);
 
-	err = xt_register_match(&recent_match);
+	err = xt_register_match(&recent_mt_reg);
 #ifdef CONFIG_PROC_FS
 	if (err)
 		return err;
-	proc_dir = proc_mkdir("ipt_recent", proc_net);
+	proc_dir = proc_mkdir("ipt_recent", init_net.proc_net);
 	if (proc_dir == NULL) {
-		xt_unregister_match(&recent_match);
+		xt_unregister_match(&recent_mt_reg);
 		err = -ENOMEM;
 	}
 #endif
 	return err;
 }
 
-static void __exit ipt_recent_exit(void)
+static void __exit recent_mt_exit(void)
 {
 	BUG_ON(!list_empty(&tables));
-	xt_unregister_match(&recent_match);
+	xt_unregister_match(&recent_mt_reg);
 #ifdef CONFIG_PROC_FS
-	remove_proc_entry("ipt_recent", proc_net);
+	remove_proc_entry("ipt_recent", init_net.proc_net);
 #endif
 }
 
-module_init(ipt_recent_init);
-module_exit(ipt_recent_exit);
+module_init(recent_mt_init);
+module_exit(recent_mt_exit);

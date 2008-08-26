@@ -26,11 +26,14 @@
 #include <asm/mmu_context.h>
 #include <asm/asm-offsets.h>
 #include <asm/pal.h>
+#include <asm/paravirt.h>
 #include <asm/pgtable.h>
 #include <asm/processor.h>
 #include <asm/ptrace.h>
 #include <asm/system.h>
 #include <asm/mca_asm.h>
+#include <linux/init.h>
+#include <linux/linkage.h>
 
 #ifdef CONFIG_HOTPLUG_CPU
 #define SAL_PSR_BITS_TO_SET				\
@@ -366,6 +369,44 @@ start_ap:
 (isBP)	movl r2=ia64_boot_param
 	;;
 (isBP)	st8 [r2]=r28		// save the address of the boot param area passed by the bootloader
+
+#ifdef CONFIG_PARAVIRT
+
+	movl r14=hypervisor_setup_hooks
+	movl r15=hypervisor_type
+	mov r16=num_hypervisor_hooks
+	;;
+	ld8 r2=[r15]
+	;;
+	cmp.ltu p7,p0=r2,r16	// array size check
+	shladd r8=r2,3,r14
+	;;
+(p7)	ld8 r9=[r8]
+	;;
+(p7)	mov b1=r9
+(p7)	cmp.ne.unc p7,p0=r9,r0	// no actual branch to NULL
+	;;
+(p7)	br.call.sptk.many rp=b1
+
+	__INITDATA
+
+default_setup_hook = 0		// Currently nothing needs to be done.
+
+	.weak xen_setup_hook
+
+	.global hypervisor_type
+hypervisor_type:
+	data8		PARAVIRT_HYPERVISOR_TYPE_DEFAULT
+
+	// must have the same order with PARAVIRT_HYPERVISOR_TYPE_xxx
+
+hypervisor_setup_hooks:
+	data8		default_setup_hook
+	data8		xen_setup_hook
+num_hypervisor_hooks = (. - hypervisor_setup_hooks) / 8
+	.previous
+
+#endif
 
 #ifdef CONFIG_SMP
 (isAP)	br.call.sptk.many rp=start_secondary
@@ -1002,6 +1043,26 @@ GLOBAL_ENTRY(sched_clock)
 	br.ret.sptk.many rp
 END(sched_clock)
 
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+GLOBAL_ENTRY(cycle_to_cputime)
+	alloc r16=ar.pfs,1,0,0,0
+	addl r8=THIS_CPU(cpu_info) + IA64_CPUINFO_NSEC_PER_CYC_OFFSET,r0
+	;;
+	ldf8 f8=[r8]
+	;;
+	setf.sig f9=r32
+	;;
+	xmpy.lu f10=f9,f8	// calculate low 64 bits of 128-bit product	(4 cyc)
+	xmpy.hu f11=f9,f8	// calculate high 64 bits of 128-bit product
+	;;
+	getf.sig r8=f10		//						(5 cyc)
+	getf.sig r9=f11
+	;;
+	shrp r8=r9,r8,IA64_NSEC_PER_CYC_SHIFT
+	br.ret.sptk.many rp
+END(cycle_to_cputime)
+#endif /* CONFIG_VIRT_CPU_ACCOUNTING */
+
 GLOBAL_ENTRY(start_kernel_thread)
 	.prologue
 	.save rp, r0				// this is the end of the call-chain
@@ -1176,6 +1237,7 @@ tlb_purge_done:
 	RESTORE_REG(cr.dcr, r25, r17);;
 	RESTORE_REG(cr.iva, r25, r17);;
 	RESTORE_REG(cr.pta, r25, r17);;
+	srlz.d;;	// required not to violate RAW dependency
 	RESTORE_REG(cr.itv, r25, r17);;
 	RESTORE_REG(cr.pmv, r25, r17);;
 	RESTORE_REG(cr.cmcv, r25, r17);;

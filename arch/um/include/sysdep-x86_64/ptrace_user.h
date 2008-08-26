@@ -12,6 +12,7 @@
 #include <linux/ptrace.h>
 #include <asm/ptrace.h>
 #undef __FRAME_OFFSETS
+#include "user_constants.h"
 
 #define PT_INDEX(off) ((off) / sizeof(unsigned long))
 
@@ -47,7 +48,8 @@
 #define PT_ORIG_RAX_OFFSET (ORIG_RAX)
 #define PT_ORIG_RAX(regs) ((regs)[PT_INDEX(ORIG_RAX)])
 
-/* x86_64 FC3 doesn't define this in /usr/include/linux/ptrace.h even though
+/*
+ * x86_64 FC3 doesn't define this in /usr/include/linux/ptrace.h even though
  * it's defined in the kernel's include/linux/ptrace.h. Additionally, use the
  * 2.4 name and value for 2.4 host compatibility.
  */
@@ -55,7 +57,8 @@
 #define PTRACE_OLDSETOPTIONS 21
 #endif
 
-/* These are before the system call, so the system call number is RAX
+/*
+ * These are before the system call, so the system call number is RAX
  * rather than ORIG_RAX, and arg4 is R10 rather than RCX
  */
 #define REGS_SYSCALL_NR PT_INDEX(RAX)
@@ -69,15 +72,6 @@
 #define REGS_IP_INDEX PT_INDEX(RIP)
 #define REGS_SP_INDEX PT_INDEX(RSP)
 
-#endif
+#define FP_SIZE (HOST_FP_SIZE)
 
-/*
- * Overrides for Emacs so that we follow Linus's tabbing style.
- * Emacs will notice this stuff at the end of the file and automatically
- * adjust the settings for this buffer only.  This must remain at the end
- * of the file.
- * ---------------------------------------------------------------------------
- * Local variables:
- * c-file-style: "linux"
- * End:
- */
+#endif

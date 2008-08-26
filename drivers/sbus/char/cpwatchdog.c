@@ -154,7 +154,7 @@ struct wd_device {
 };
 
 static struct wd_device wd_dev = { 
-		0, SPIN_LOCK_UNLOCKED, 0, 0, 0, 0,
+		0, __SPIN_LOCK_UNLOCKED(wd_dev.lock), 0, 0, 0, 0,
 };
 
 static struct timer_list wd_timer;
@@ -279,6 +279,7 @@ static inline int wd_opt_timeout(void)
 
 static int wd_open(struct inode *inode, struct file *f)
 {
+	lock_kernel();
 	switch(iminor(inode))
 	{
 		case WD0_MINOR:
@@ -291,6 +292,7 @@ static int wd_open(struct inode *inode, struct file *f)
 			f->private_data = &wd_dev.watchdog[WD2_ID];
 			break;
 		default:
+			unlock_kernel();
 			return(-ENODEV);
 	}
 
@@ -304,11 +306,13 @@ static int wd_open(struct inode *inode, struct file *f)
 						(void *)wd_dev.regs)) {
 			printk("%s: Cannot register IRQ %d\n", 
 				WD_OBPNAME, wd_dev.irq);
+			unlock_kernel();
 			return(-EBUSY);
 		}
 		wd_dev.initialized = 1;
 	}
 
+	unlock_kernel();
 	return(nonseekable_open(inode, f));
 }
 
@@ -637,7 +641,7 @@ static int wd_inittimer(int whichdog)
 			break;
 		default:
 			printk("%s: %s: invalid watchdog id: %i\n",
-				WD_OBPNAME, __FUNCTION__, whichdog);
+				WD_OBPNAME, __func__, whichdog);
 			return(1);
 	}
 	if(0 != misc_register(whichmisc))

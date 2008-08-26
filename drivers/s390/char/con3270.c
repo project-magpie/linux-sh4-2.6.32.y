@@ -22,6 +22,7 @@
 #include <asm/ebcdic.h>
 
 #include "raw3270.h"
+#include "tty3270.h"
 #include "ctrlchar.h"
 
 #define CON3270_OUTPUT_BUFFER_SIZE 1024
@@ -410,15 +411,15 @@ static int
 con3270_irq(struct con3270 *cp, struct raw3270_request *rq, struct irb *irb)
 {
 	/* Handle ATTN. Schedule tasklet to read aid. */
-	if (irb->scsw.dstat & DEV_STAT_ATTENTION)
+	if (irb->scsw.cmd.dstat & DEV_STAT_ATTENTION)
 		con3270_issue_read(cp);
 
 	if (rq) {
-		if (irb->scsw.dstat & DEV_STAT_UNIT_CHECK)
+		if (irb->scsw.cmd.dstat & DEV_STAT_UNIT_CHECK)
 			rq->rc = -EIO;
 		else
 			/* Normal end. Copy residual count. */
-			rq->rescnt = irb->scsw.count;
+			rq->rescnt = irb->scsw.cmd.count;
 	}
 	return RAW3270_IO_DONE;
 }
@@ -506,8 +507,6 @@ con3270_write(struct console *co, const char *str, unsigned int count)
 		con3270_set_timer(cp, HZ/10);
 	spin_unlock_irqrestore(&cp->view.lock,flags);
 }
-
-extern struct tty_driver *tty3270_driver;
 
 static struct tty_driver *
 con3270_device(struct console *c, int *index)

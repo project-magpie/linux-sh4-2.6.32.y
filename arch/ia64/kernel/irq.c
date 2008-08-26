@@ -61,9 +61,11 @@ int show_interrupts(struct seq_file *p, void *v)
 	unsigned long flags;
 
 	if (i == 0) {
-		seq_printf(p, "           ");
+		char cpuname[16];
+		seq_printf(p, "     ");
 		for_each_online_cpu(j) {
-			seq_printf(p, "CPU%d       ",j);
+			snprintf(cpuname, 10, "CPU%d", j);
+			seq_printf(p, "%10s ", cpuname);
 		}
 		seq_putc(p, '\n');
 	}
@@ -181,10 +183,10 @@ void fixup_irqs(void)
 {
 	unsigned int irq;
 	extern void ia64_process_pending_intr(void);
-	extern void ia64_disable_timer(void);
 	extern volatile int time_keeper_id;
 
-	ia64_disable_timer();
+	/* Mask ITV to disable timer */
+	ia64_set_itv(1 << 16);
 
 	/*
 	 * Find a new timesync master

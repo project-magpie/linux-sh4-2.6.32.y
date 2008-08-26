@@ -1,5 +1,4 @@
 /* This version ported to the Linux-MTD system by dwmw2@infradead.org
- * $Id: ftl.c,v 1.59 2005/11/29 14:48:31 gleixner Exp $
  *
  * Fixes: Arnaldo Carvalho de Melo <acme@conectiva.com.br>
  * - fixes some leaks on failure in build_maps and ftl_notify_add, cleanups
@@ -130,13 +129,7 @@ typedef struct partition_t {
     u_int16_t		DataUnits;
     u_int32_t		BlocksPerUnit;
     erase_unit_header_t	header;
-#if 0
-    region_info_t	region;
-    memory_handle_t	handle;
-#endif
 } partition_t;
-
-void ftl_freepart(partition_t *part);
 
 /* Partition state flags */
 #define FTL_FORMATTED	0x01
@@ -1014,7 +1007,7 @@ static int ftl_writesect(struct mtd_blktrans_dev *dev,
 
 /*====================================================================*/
 
-void ftl_freepart(partition_t *part)
+static void ftl_freepart(partition_t *part)
 {
 	vfree(part->VirtualBlockMap);
 	part->VirtualBlockMap = NULL;
@@ -1069,7 +1062,7 @@ static void ftl_remove_dev(struct mtd_blktrans_dev *dev)
 	kfree(dev);
 }
 
-struct mtd_blktrans_ops ftl_tr = {
+static struct mtd_blktrans_ops ftl_tr = {
 	.name		= "ftl",
 	.major		= FTL_MAJOR,
 	.part_bits	= PART_BITS,
@@ -1084,8 +1077,6 @@ struct mtd_blktrans_ops ftl_tr = {
 
 static int init_ftl(void)
 {
-	DEBUG(0, "$Id: ftl.c,v 1.59 2005/11/29 14:48:31 gleixner Exp $\n");
-
 	return register_mtd_blktrans(&ftl_tr);
 }
 

@@ -16,6 +16,8 @@
 #include <linux/mm.h>
 #include <linux/swap.h>
 #include <linux/profile.h>
+#include <linux/delay.h>
+
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 #include <asm/irq_regs.h>
@@ -23,7 +25,6 @@
 #include <asm/ptrace.h>
 #include <asm/atomic.h>
 
-#include <asm/delay.h>
 #include <asm/irq.h>
 #include <asm/page.h>
 #include <asm/pgalloc.h>
@@ -33,13 +34,9 @@
 
 #include "irq.h"
 
-#define IRQ_RESCHEDULE		13
-#define IRQ_STOP_CPU		14
 #define IRQ_CROSS_CALL		15
 
 extern ctxd_t *srmmu_ctx_table_phys;
-
-extern void calibrate_delay(void);
 
 extern volatile unsigned long cpu_callin_map[NR_CPUS];
 extern unsigned char boot_cpu_id;
@@ -233,48 +230,6 @@ void smp4m_irq_rotate(int cpu)
 		set_irq_udt(next);
 }
 
-/* Cross calls, in order to work efficiently and atomically do all
- * the message passing work themselves, only stopcpu and reschedule
- * messages come through here.
- */
-void smp4m_message_pass(int target, int msg, unsigned long data, int wait)
-{
-	static unsigned long smp_cpu_in_msg[NR_CPUS];
-	cpumask_t mask;
-	int me = smp_processor_id();
-	int irq, i;
-
-	if(msg == MSG_RESCHEDULE) {
-		irq = IRQ_RESCHEDULE;
-
-		if(smp_cpu_in_msg[me])
-			return;
-	} else if(msg == MSG_STOP_CPU) {
-		irq = IRQ_STOP_CPU;
-	} else {
-		goto barf;
-	}
-
-	smp_cpu_in_msg[me]++;
-	if(target == MSG_ALL_BUT_SELF || target == MSG_ALL) {
-		mask = cpu_online_map;
-		if(target == MSG_ALL_BUT_SELF)
-			cpu_clear(me, mask);
-		for(i = 0; i < 4; i++) {
-			if (cpu_isset(i, mask))
-				set_cpu_int(i, irq);
-		}
-	} else {
-		set_cpu_int(target, irq);
-	}
-	smp_cpu_in_msg[me]--;
-
-	return;
-barf:
-	printk("Yeeee, trying to send SMP msg(%d) on cpu %d\n", msg, me);
-	panic("Bogon SMP message pass.");
-}
-
 static struct smp_funcall {
 	smpfunc_t func;
 	unsigned long arg1;
@@ -289,8 +244,9 @@ static struct smp_funcall {
 static DEFINE_SPINLOCK(cross_call_lock);
 
 /* Cross calls must be serialized, at least currently. */
-void smp4m_cross_call(smpfunc_t func, unsigned long arg1, unsigned long arg2,
-		    unsigned long arg3, unsigned long arg4, unsigned long arg5)
+static void smp4m_cross_call(smpfunc_t func, unsigned long arg1,
+			     unsigned long arg2, unsigned long arg3,
+			     unsigned long arg4, unsigned long arg5)
 {
 		register int ncpus = SUN4M_NCPUS;
 		unsigned long flags;
@@ -389,7 +345,7 @@ static void __init smp_setup_percpu_timer(void)
 		enable_pil_irq(14);
 }
 
-void __init smp4m_blackbox_id(unsigned *addr)
+static void __init smp4m_blackbox_id(unsigned *addr)
 {
 	int rd = *addr & 0x3e000000;
 	int rs1 = rd >> 11;
@@ -399,7 +355,7 @@ void __init smp4m_blackbox_id(unsigned *addr)
 	addr[2] = 0x80082003 | rd | rs1;	/* and reg, 3, reg */
 }
 
-void __init smp4m_blackbox_current(unsigned *addr)
+static void __init smp4m_blackbox_current(unsigned *addr)
 {
 	int rd = *addr & 0x3e000000;
 	int rs1 = rd >> 11;
@@ -414,6 +370,5 @@ void __init sun4m_init_smp(void)
 	BTFIXUPSET_BLACKBOX(hard_smp_processor_id, smp4m_blackbox_id);
 	BTFIXUPSET_BLACKBOX(load_current, smp4m_blackbox_current);
 	BTFIXUPSET_CALL(smp_cross_call, smp4m_cross_call, BTFIXUPCALL_NORM);
-	BTFIXUPSET_CALL(smp_message_pass, smp4m_message_pass, BTFIXUPCALL_NORM);
 	BTFIXUPSET_CALL(__hard_smp_processor_id, __smp4m_processor_id, BTFIXUPCALL_NORM);
 }

@@ -28,30 +28,32 @@
  */
 
 #include <linux/linkage.h>
+#include <linux/init.h>
 #include <asm/blackfin.h>
 #include <asm/trace.h>
-#if CONFIG_BFIN_KERNEL_CLOCK
+#ifdef CONFIG_BFIN_KERNEL_CLOCK
+#include <asm/mach-common/clocks.h>
 #include <asm/mach/mem_init.h>
 #endif
 
-.global __rambase
-.global __ramstart
-.global __ramend
 .extern ___bss_stop
 .extern ___bss_start
 .extern _bf53x_relocate_l1_mem
 
 #define INITIAL_STACK   0xFFB01000
 
-.text
+__INIT
 
 ENTRY(__start)
-ENTRY(__stext)
 	/* R0: argument of command line string, passed from uboot, save it */
 	R7 = R0;
-	/* Set the SYSCFG register */
-	R0 = 0x36;
-	SYSCFG = R0;   /*Enable Cycle Counter and Nesting Of Interrupts(3rd Bit)*/
+	/* Enable Cycle Counter and Nesting Of Interrupts */
+#ifdef CONFIG_BFIN_SCRATCH_REG_CYCLES
+	R0 = SYSCFG_SNEN;
+#else
+	R0 = SYSCFG_SNEN | SYSCFG_CCEN;
+#endif
+	SYSCFG = R0;
 	R0 = 0;
 
 	/* Clear Out All the data and pointer  Registers*/
@@ -92,13 +94,13 @@ ENTRY(__stext)
 	M2 = r0;
 	M3 = r0;
 
-	trace_buffer_start(p0,r0);
+	trace_buffer_init(p0,r0);
 	P0 = R1;
 	R0 = R1;
 
 	/* Turn off the icache */
-	p0.l = (IMEM_CONTROL & 0xFFFF);
-	p0.h = (IMEM_CONTROL >> 16);
+	p0.l = LO(IMEM_CONTROL);
+	p0.h = HI(IMEM_CONTROL);
 	R1 = [p0];
 	R0 = ~ENICPLB;
 	R0 = R0 & R1;
@@ -106,8 +108,8 @@ ENTRY(__stext)
 	SSYNC;
 
 	/* Turn off the dcache */
-	p0.l = (DMEM_CONTROL & 0xFFFF);
-	p0.h = (DMEM_CONTROL >> 16);
+	p0.l = LO(DMEM_CONTROL);
+	p0.h = HI(DMEM_CONTROL);
 	R1 = [p0];
 	R0 = ~ENDCPLB;
 	R0 = R0 & R1;
@@ -120,9 +122,15 @@ ENTRY(__stext)
 	FP = SP;
 	USP = SP;
 
+#ifdef CONFIG_EARLY_PRINTK
+	SP += -12;
+	call _init_early_exception_vectors;
+	SP += 12;
+#endif
+
 	/* Put The Code for PLL Programming and SDRAM Programming in L1 ISRAM */
 	call _bf53x_relocate_l1_mem;
-#if CONFIG_BFIN_KERNEL_CLOCK
+#ifdef CONFIG_BFIN_KERNEL_CLOCK
 	call _start_dma_code;
 #endif
 	/* Code for initializing Async memory banks */
@@ -145,6 +153,27 @@ ENTRY(__stext)
 	p2.l = lo(EBIU_AMGCTL);
 	r0 = AMGCTLVAL;
 	w[p2] = r0;
+	ssync;
+
+	p2.h = hi(EBIU_MBSCTL);
+	p2.l = lo(EBIU_MBSCTL);
+	r0.h = hi(CONFIG_EBIU_MBSCTLVAL);
+	r0.l = lo(CONFIG_EBIU_MBSCTLVAL);
+	[p2] = r0;
+	ssync;
+
+	p2.h = hi(EBIU_MODE);
+	p2.l = lo(EBIU_MODE);
+	r0.h = hi(CONFIG_EBIU_MODEVAL);
+	r0.l = lo(CONFIG_EBIU_MODEVAL);
+	[p2] = r0;
+	ssync;
+
+	p2.h = hi(EBIU_FCTL);
+	p2.l = lo(EBIU_FCTL);
+	r0.h = hi(CONFIG_EBIU_FCTLVAL);
+	r0.l = lo(CONFIG_EBIU_FCTLVAL);
+	[p2] = r0;
 	ssync;
 
 	/* This section keeps the processor in supervisor mode
@@ -172,7 +201,7 @@ ENTRY(__stext)
 	p0.l = .LWAIT_HERE;
 	p0.h = .LWAIT_HERE;
 	reti = p0;
-#if defined (ANOMALY_05000281)
+#if ANOMALY_05000281
 	nop;
 	nop;
 	nop;
@@ -181,6 +210,7 @@ ENTRY(__stext)
 
 .LWAIT_HERE:
 	jump .LWAIT_HERE;
+ENDPROC(__start)
 
 ENTRY(_real_start)
 	[ -- sp ] = reti;
@@ -253,9 +283,12 @@ ENTRY(_real_start)
 	call _start_kernel;
 .L_exit:
 	jump.s	.L_exit;
+ENDPROC(_real_start)
+
+__FINIT
 
 .section .l1.text
-#if CONFIG_BFIN_KERNEL_CLOCK
+#ifdef CONFIG_BFIN_KERNEL_CLOCK
 ENTRY(_start_dma_code)
 
 	/* Enable PHY CLK buffer output */
@@ -266,8 +299,8 @@ ENTRY(_start_dma_code)
 	w[p0] = r0.l;
 	ssync;
 
-	p0.h = hi(SIC_IWR);
-	p0.l = lo(SIC_IWR);
+	p0.h = hi(SIC_IWR0);
+	p0.l = lo(SIC_IWR0);
 	r0.l = 0x1;
 	r0.h = 0x0;
 	[p0] = r0;
@@ -292,12 +325,25 @@ ENTRY(_start_dma_code)
 	w[p0] = r0.l;
 	ssync;
 
+#if defined(CONFIG_BF54x)
+	P2.H = hi(EBIU_RSTCTL);
+	P2.L = lo(EBIU_RSTCTL);
+	R0 = [P2];
+	BITSET (R0, 3);
+#else
 	P2.H = hi(EBIU_SDGCTL);
 	P2.L = lo(EBIU_SDGCTL);
 	R0 = [P2];
 	BITSET (R0, 24);
+#endif
 	[P2] = R0;
 	SSYNC;
+#if defined(CONFIG_BF54x)
+.LSRR_MODE:
+	R0 = [P2];
+	CC = BITTST(R0, 4);
+	if !CC JUMP .LSRR_MODE;
+#endif
 
 	r0 = CONFIG_VCO_MULT & 63;       /* Load the VCO multiplier         */
 	r0 = r0 << 9;                    /* Shift it over,                  */
@@ -329,14 +375,47 @@ ENTRY(_start_dma_code)
 	w[p0] = r0.l;
 	ssync;
 
+#if defined(CONFIG_BF54x)
+	P2.H = hi(EBIU_RSTCTL);
+	P2.L = lo(EBIU_RSTCTL);
+	R0 = [P2];
+	CC = BITTST(R0, 0);
+	if CC jump .Lskipddrrst;
+	BITSET (R0, 0);
+.Lskipddrrst:
+	BITCLR (R0, 3);
+	[P2] = R0;
+	SSYNC;
+
+	p0.l = lo(EBIU_DDRCTL0);
+	p0.h = hi(EBIU_DDRCTL0);
+	r0.l = lo(mem_DDRCTL0);
+	r0.h = hi(mem_DDRCTL0);
+	[p0] = r0;
+	ssync;
+
+	p0.l = lo(EBIU_DDRCTL1);
+	p0.h = hi(EBIU_DDRCTL1);
+	r0.l = lo(mem_DDRCTL1);
+	r0.h = hi(mem_DDRCTL1);
+	[p0] = r0;
+	ssync;
+
+	p0.l = lo(EBIU_DDRCTL2);
+	p0.h = hi(EBIU_DDRCTL2);
+	r0.l = lo(mem_DDRCTL2);
+	r0.h = hi(mem_DDRCTL2);
+	[p0] = r0;
+	ssync;
+#else
 	p0.l = lo(EBIU_SDRRC);
 	p0.h = hi(EBIU_SDRRC);
 	r0 = mem_SDRRC;
 	w[p0] = r0.l;
 	ssync;
 
-	p0.l = (EBIU_SDBCTL & 0xFFFF);
-	p0.h = (EBIU_SDBCTL >> 16);     /* SDRAM Memory Bank Control Register */
+	p0.l = LO(EBIU_SDBCTL);
+	p0.h = HI(EBIU_SDBCTL);     /* SDRAM Memory Bank Control Register */
 	r0 = mem_SDBCTL;
 	w[p0] = r0.l;
 	ssync;
@@ -362,151 +441,15 @@ ENTRY(_start_dma_code)
 	R1 = R1 | R0;
 	[P2] = R1;
 	SSYNC;
+#endif
 
-	p0.h = hi(SIC_IWR);
-	p0.l = lo(SIC_IWR);
+	p0.h = hi(SIC_IWR0);
+	p0.l = lo(SIC_IWR0);
 	r0.l = lo(IWR_ENABLE_ALL);
 	r0.h = hi(IWR_ENABLE_ALL);
 	[p0] = r0;
 	SSYNC;
 
 	RTS;
+ENDPROC(_start_dma_code)
 #endif /* CONFIG_BFIN_KERNEL_CLOCK */
-
-ENTRY(_bfin_reset)
-	/* No more interrupts to be handled*/
-	CLI R6;
-	SSYNC;
-
-#if defined(CONFIG_MTD_M25P80)
-/*
- * The following code fix the SPI flash reboot issue,
- * /CS signal of the chip which is using PF10 return to GPIO mode
- */
-	p0.h = hi(PORTF_FER);
-	p0.l = lo(PORTF_FER);
-	r0.l = 0x0000;
-	w[p0] = r0.l;
-	SSYNC;
-
-/* /CS return to high */
-	p0.h = hi(PORTFIO);
-	p0.l = lo(PORTFIO);
-	r0.l = 0xFFFF;
-	w[p0] = r0.l;
-	SSYNC;
-
-/* Delay some time, This is necessary */
-	r1.h = 0;
-	r1.l = 0x400;
-	p1   = r1;
-	lsetup (_delay_lab1,_delay_lab1_end ) lc1 = p1;
-_delay_lab1:
-	r0.h = 0;
-	r0.l = 0x8000;
-	p0   = r0;
-	lsetup (_delay_lab0,_delay_lab0_end ) lc0 = p0;
-_delay_lab0:
-	nop;
-_delay_lab0_end:
-	nop;
-_delay_lab1_end:
-	nop;
-#endif
-
-	/* Clear the bits 13-15 in SWRST if they werent cleared */
-	p0.h = hi(SWRST);
-	p0.l = lo(SWRST);
-	csync;
-	r0.l = w[p0];
-
-	/* Clear the IMASK register */
-	p0.h = hi(IMASK);
-	p0.l = lo(IMASK);
-	r0 = 0x0;
-	[p0] = r0;
-
-	/* Clear the ILAT register */
-	p0.h = hi(ILAT);
-	p0.l = lo(ILAT);
-	r0 = [p0];
-	[p0] = r0;
-	SSYNC;
-
-	/* Disable the WDOG TIMER */
-	p0.h = hi(WDOG_CTL);
-	p0.l = lo(WDOG_CTL);
-	r0.l = 0xAD6;
-	w[p0] = r0.l;
-	SSYNC;
-
-	/* Clear the sticky bit incase it is already set */
-	p0.h = hi(WDOG_CTL);
-	p0.l = lo(WDOG_CTL);
-	r0.l = 0x8AD6;
-	w[p0] = r0.l;
-	SSYNC;
-
-	/* Program the count value */
-	R0.l = 0x100;
-	R0.h = 0x0;
-	P0.h = hi(WDOG_CNT);
-	P0.l = lo(WDOG_CNT);
-	[P0] = R0;
-	SSYNC;
-
-	/* Program WDOG_STAT if necessary */
-	P0.h = hi(WDOG_CTL);
-	P0.l = lo(WDOG_CTL);
-	R0 = W[P0](Z);
-	CC = BITTST(R0,1);
-	if !CC JUMP .LWRITESTAT;
-	CC = BITTST(R0,2);
-	if !CC JUMP .LWRITESTAT;
-	JUMP .LSKIP_WRITE;
-
-.LWRITESTAT:
-	/* When watch dog timer is enabled,
-	 * a write to STAT will load the contents of CNT to STAT
-	 */
-	R0 = 0x0000(z);
-	P0.h = hi(WDOG_STAT);
-	P0.l = lo(WDOG_STAT)
-	[P0] = R0;
-	SSYNC;
-
-.LSKIP_WRITE:
-	/* Enable the reset event */
-	P0.h = hi(WDOG_CTL);
-	P0.l = lo(WDOG_CTL);
-	R0 = W[P0](Z);
-	BITCLR(R0,1);
-	BITCLR(R0,2);
-	W[P0] = R0.L;
-	SSYNC;
-	NOP;
-
-	/* Enable the wdog counter */
-	R0 = W[P0](Z);
-	BITCLR(R0,4);
-	W[P0] = R0.L;
-	SSYNC;
-
-	IDLE;
-
-	RTS;
-
-.data
-
-/*
- * Set up the usable of RAM stuff. Size of RAM is determined then
- * an initial stack set up at the end.
- */
-
-.align 4
-__rambase:
-.long   0
-__ramstart:
-.long   0
-__ramend:
-.long   0

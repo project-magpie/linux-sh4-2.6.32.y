@@ -10,12 +10,12 @@
  *		Added basic ioctl() support
  *	Deepak Saxena (06/07/1999):
  *		Added software download ioctl (still testing)
- *	Auvo Häkkinen (09/10/1999):
+ *	Auvo HÃ¤kkinen (09/10/1999):
  *		Changes to i2o_cfg_reply(), ioctl_parms()
  *		Added ioct_validate()
- *	Taneli Vähäkangas (09/30/1999):
+ *	Taneli VÃ¤hÃ¤kangas (09/30/1999):
  *		Fixed ioctl_swdl()
- *	Taneli Vähäkangas (10/04/1999):
+ *	Taneli VÃ¤hÃ¤kangas (10/04/1999):
  *		Changed ioctl_swdl(), implemented ioctl_swul() and ioctl_swdel()
  *	Deepak Saxena (11/18/1999):
  *		Added event managmenet support
@@ -1061,6 +1061,7 @@ static int cfg_open(struct inode *inode, struct file *file)
 	if (!tmp)
 		return -ENOMEM;
 
+	lock_kernel();
 	file->private_data = (void *)(i2o_cfg_info_id++);
 	tmp->fp = file;
 	tmp->fasync = NULL;
@@ -1074,6 +1075,7 @@ static int cfg_open(struct inode *inode, struct file *file)
 	spin_lock_irqsave(&i2o_config_lock, flags);
 	open_files = tmp;
 	spin_unlock_irqrestore(&i2o_config_lock, flags);
+	unlock_kernel();
 
 	return 0;
 }
@@ -1082,15 +1084,17 @@ static int cfg_fasync(int fd, struct file *fp, int on)
 {
 	ulong id = (ulong) fp->private_data;
 	struct i2o_cfg_info *p;
+	int ret = -EBADF;
 
+	lock_kernel();
 	for (p = open_files; p; p = p->next)
 		if (p->q_id == id)
 			break;
 
-	if (!p)
-		return -EBADF;
-
-	return fasync_helper(fd, fp, on, &p->fasync);
+	if (p)
+		ret = fasync_helper(fd, fp, on, &p->fasync);
+	unlock_kernel();
+	return ret;
 }
 
 static int cfg_release(struct inode *inode, struct file *file)

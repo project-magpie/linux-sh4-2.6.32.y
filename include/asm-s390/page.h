@@ -9,27 +9,44 @@
 #ifndef _S390_PAGE_H
 #define _S390_PAGE_H
 
+#include <linux/const.h>
 #include <asm/types.h>
 
 /* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT      12
-#define PAGE_SIZE       (1UL << PAGE_SHIFT)
+#define PAGE_SIZE	(_AC(1,UL) << PAGE_SHIFT)
 #define PAGE_MASK       (~(PAGE_SIZE-1))
 #define PAGE_DEFAULT_ACC	0
 #define PAGE_DEFAULT_KEY	(PAGE_DEFAULT_ACC << 4)
 
-#ifdef __KERNEL__
+#define HPAGE_SHIFT	20
+#define HPAGE_SIZE	(1UL << HPAGE_SHIFT)
+#define HPAGE_MASK	(~(HPAGE_SIZE - 1))
+#define HUGETLB_PAGE_ORDER	(HPAGE_SHIFT - PAGE_SHIFT)
+
+#define ARCH_HAS_SETCLEAR_HUGE_PTE
+#define ARCH_HAS_HUGE_PTE_TYPE
+#define ARCH_HAS_PREPARE_HUGEPAGE
+#define ARCH_HAS_HUGEPAGE_CLEAR_FLUSH
+
 #include <asm/setup.h>
 #ifndef __ASSEMBLY__
 
 static inline void clear_page(void *page)
 {
-	register unsigned long reg1 asm ("1") = 0;
-	register void *reg2 asm ("2") = page;
-	register unsigned long reg3 asm ("3") = 4096;
-	asm volatile(
-		"	mvcl	2,0"
-		: "+d" (reg2), "+d" (reg3) : "d" (reg1) : "memory", "cc");
+	if (MACHINE_HAS_PFMF) {
+		asm volatile(
+			"	.insn	rre,0xb9af0000,%0,%1"
+			: : "d" (0x10000), "a" (page) : "memory", "cc");
+	} else {
+		register unsigned long reg1 asm ("1") = 0;
+		register void *reg2 asm ("2") = page;
+		register unsigned long reg3 asm ("3") = 4096;
+		asm volatile(
+			"	mvcl	2,0"
+			: "+d" (reg2), "+d" (reg3) : "d" (reg1)
+			: "memory", "cc");
+	}
 }
 
 static inline void copy_page(void *to, void *from)
@@ -74,36 +91,16 @@ static inline void copy_page(void *to, void *from)
 
 typedef struct { unsigned long pgprot; } pgprot_t;
 typedef struct { unsigned long pte; } pte_t;
-
-#define pte_val(x)      ((x).pte)
-#define pgprot_val(x)   ((x).pgprot)
-
-#ifndef __s390x__
-
 typedef struct { unsigned long pmd; } pmd_t;
-typedef struct {
-        unsigned long pgd0;
-        unsigned long pgd1;
-        unsigned long pgd2;
-        unsigned long pgd3;
-        } pgd_t;
-
-#define pmd_val(x)      ((x).pmd)
-#define pgd_val(x)      ((x).pgd0)
-
-#else /* __s390x__ */
-
-typedef struct { 
-        unsigned long pmd0;
-        unsigned long pmd1; 
-        } pmd_t;
+typedef struct { unsigned long pud; } pud_t;
 typedef struct { unsigned long pgd; } pgd_t;
+typedef pte_t *pgtable_t;
 
-#define pmd_val(x)      ((x).pmd0)
-#define pmd_val1(x)     ((x).pmd1)
+#define pgprot_val(x)	((x).pgprot)
+#define pte_val(x)	((x).pte)
+#define pmd_val(x)	((x).pmd)
+#define pud_val(x)	((x).pud)
 #define pgd_val(x)      ((x).pgd)
-
-#endif /* __s390x__ */
 
 #define __pte(x)        ((pte_t) { (x) } )
 #define __pmd(x)        ((pmd_t) { (x) } )
@@ -128,30 +125,18 @@ page_get_storage_key(unsigned long addr)
 	return skey;
 }
 
-extern unsigned long max_pfn;
+#ifdef CONFIG_PAGE_STATES
 
-static inline int pfn_valid(unsigned long pfn)
-{
-	unsigned long dummy;
-	int ccode;
+struct page;
+void arch_free_page(struct page *page, int order);
+void arch_alloc_page(struct page *page, int order);
 
-	if (pfn >= max_pfn)
-		return 0;
+#define HAVE_ARCH_FREE_PAGE
+#define HAVE_ARCH_ALLOC_PAGE
 
-	asm volatile(
-		"	lra	%0,0(%2)\n"
-		"	ipm	%1\n"
-		"	srl	%1,28\n"
-		: "=d" (dummy), "=d" (ccode)
-		: "a" (pfn << PAGE_SHIFT)
-		: "cc");
-	return !ccode;
-}
+#endif
 
 #endif /* !__ASSEMBLY__ */
-
-/* to align the pointer to the (next) page boundary */
-#define PAGE_ALIGN(addr)        (((addr)+PAGE_SIZE-1)&PAGE_MASK)
 
 #define __PAGE_OFFSET           0x0UL
 #define PAGE_OFFSET             0x0UL
@@ -161,12 +146,10 @@ static inline int pfn_valid(unsigned long pfn)
 #define page_to_phys(page)	(page_to_pfn(page) << PAGE_SHIFT)
 #define virt_addr_valid(kaddr)	pfn_valid(__pa(kaddr) >> PAGE_SHIFT)
 
-#define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
+#define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | \
 				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
 #include <asm-generic/memory_model.h>
 #include <asm-generic/page.h>
-
-#endif /* __KERNEL__ */
 
 #endif /* _S390_PAGE_H */

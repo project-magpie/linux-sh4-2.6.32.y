@@ -27,6 +27,7 @@
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
 #include <linux/skbuff.h>
+#include <net/net_namespace.h>
 #include <net/sock.h>
 #include <asm/uaccess.h>
 #include <asm/system.h>
@@ -72,6 +73,20 @@ static const struct proto_ops nr_proto_ops;
  * separate class since they always nest.
  */
 static struct lock_class_key nr_netdev_xmit_lock_key;
+static struct lock_class_key nr_netdev_addr_lock_key;
+
+static void nr_set_lockdep_one(struct net_device *dev,
+			       struct netdev_queue *txq,
+			       void *_unused)
+{
+	lockdep_set_class(&txq->_xmit_lock, &nr_netdev_xmit_lock_key);
+}
+
+static void nr_set_lockdep_key(struct net_device *dev)
+{
+	lockdep_set_class(&dev->addr_list_lock, &nr_netdev_addr_lock_key);
+	netdev_for_each_tx_queue(dev, nr_set_lockdep_one, NULL);
+}
 
 /*
  *	Socket removal during an interrupt is now safe.
@@ -104,6 +119,9 @@ static void nr_kill_by_device(struct net_device *dev)
 static int nr_device_event(struct notifier_block *this, unsigned long event, void *ptr)
 {
 	struct net_device *dev = (struct net_device *)ptr;
+
+	if (!net_eq(dev_net(dev), &init_net))
+		return NOTIFY_DONE;
 
 	if (event != NETDEV_DOWN)
 		return NOTIFY_DONE;
@@ -408,15 +426,19 @@ static struct proto nr_proto = {
 	.obj_size = sizeof(struct nr_sock),
 };
 
-static int nr_create(struct socket *sock, int protocol)
+static int nr_create(struct net *net, struct socket *sock, int protocol)
 {
 	struct sock *sk;
 	struct nr_sock *nr;
 
+	if (net != &init_net)
+		return -EAFNOSUPPORT;
+
 	if (sock->type != SOCK_SEQPACKET || protocol != 0)
 		return -ESOCKTNOSUPPORT;
 
-	if ((sk = sk_alloc(PF_NETROM, GFP_ATOMIC, &nr_proto, 1)) == NULL)
+	sk = sk_alloc(net, PF_NETROM, GFP_ATOMIC, &nr_proto);
+	if (sk  == NULL)
 		return -ENOMEM;
 
 	nr = nr_sk(sk);
@@ -458,7 +480,8 @@ static struct sock *nr_make_new(struct sock *osk)
 	if (osk->sk_type != SOCK_SEQPACKET)
 		return NULL;
 
-	if ((sk = sk_alloc(PF_NETROM, GFP_ATOMIC, osk->sk_prot, 1)) == NULL)
+	sk = sk_alloc(sock_net(osk), PF_NETROM, GFP_ATOMIC, osk->sk_prot);
+	if (sk == NULL)
 		return NULL;
 
 	nr = nr_sk(sk);
@@ -466,13 +489,11 @@ static struct sock *nr_make_new(struct sock *osk)
 	sock_init_data(NULL, sk);
 
 	sk->sk_type     = osk->sk_type;
-	sk->sk_socket   = osk->sk_socket;
 	sk->sk_priority = osk->sk_priority;
 	sk->sk_protocol = osk->sk_protocol;
 	sk->sk_rcvbuf   = osk->sk_rcvbuf;
 	sk->sk_sndbuf   = osk->sk_sndbuf;
 	sk->sk_state    = TCP_ESTABLISHED;
-	sk->sk_sleep    = osk->sk_sleep;
 	sock_copy_flags(sk, osk);
 
 	skb_queue_head_init(&nr->ack_queue);
@@ -529,11 +550,9 @@ static int nr_release(struct socket *sock)
 		sk->sk_state_change(sk);
 		sock_orphan(sk);
 		sock_set_flag(sk, SOCK_DESTROY);
-		sk->sk_socket   = NULL;
 		break;
 
 	default:
-		sk->sk_socket = NULL;
 		break;
 	}
 
@@ -801,13 +820,11 @@ static int nr_accept(struct socket *sock, struct socket *newsock, int flags)
 		goto out_release;
 
 	newsk = skb->sk;
-	newsk->sk_socket = newsock;
-	newsk->sk_sleep = &newsock->wait;
+	sock_graft(newsk, newsock);
 
 	/* Now attach up the new socket */
 	kfree_skb(skb);
 	sk_acceptq_removed(sk);
-	newsock->sk = newsk;
 
 out_release:
 	release_sock(sk);
@@ -1427,7 +1444,7 @@ static int __init nr_proto_init(void)
 			free_netdev(dev);
 			goto fail;
 		}
-		lockdep_set_class(&dev->_xmit_lock, &nr_netdev_xmit_lock_key);
+		nr_set_lockdep_key(dev);
 		dev_nr[i] = dev;
 	}
 
@@ -1447,9 +1464,9 @@ static int __init nr_proto_init(void)
 
 	nr_loopback_init();
 
-	proc_net_fops_create("nr", S_IRUGO, &nr_info_fops);
-	proc_net_fops_create("nr_neigh", S_IRUGO, &nr_neigh_fops);
-	proc_net_fops_create("nr_nodes", S_IRUGO, &nr_nodes_fops);
+	proc_net_fops_create(&init_net, "nr", S_IRUGO, &nr_info_fops);
+	proc_net_fops_create(&init_net, "nr_neigh", S_IRUGO, &nr_neigh_fops);
+	proc_net_fops_create(&init_net, "nr_nodes", S_IRUGO, &nr_nodes_fops);
 out:
 	return rc;
 fail:
@@ -1477,9 +1494,9 @@ static void __exit nr_exit(void)
 {
 	int i;
 
-	proc_net_remove("nr");
-	proc_net_remove("nr_neigh");
-	proc_net_remove("nr_nodes");
+	proc_net_remove(&init_net, "nr");
+	proc_net_remove(&init_net, "nr_neigh");
+	proc_net_remove(&init_net, "nr_nodes");
 	nr_loopback_clear();
 
 	nr_rt_free();

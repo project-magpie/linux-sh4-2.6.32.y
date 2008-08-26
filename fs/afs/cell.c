@@ -20,7 +20,7 @@
 DECLARE_RWSEM(afs_proc_cells_sem);
 LIST_HEAD(afs_proc_cells);
 
-static struct list_head afs_cells = LIST_HEAD_INIT(afs_cells);
+static LIST_HEAD(afs_cells);
 static DEFINE_RWLOCK(afs_cells_lock);
 static DECLARE_RWSEM(afs_cells_sem); /* add/remove serialisation */
 static DECLARE_WAIT_QUEUE_HEAD(afs_cells_freeable_wq);
@@ -33,6 +33,7 @@ static struct afs_cell *afs_cell_root;
 static struct afs_cell *afs_cell_alloc(const char *name, char *vllist)
 {
 	struct afs_cell *cell;
+	struct key *key;
 	size_t namelen;
 	char keyname[4 + AFS_MAXCELLNAME + 1], *cp, *dp, *next;
 	int ret;
@@ -89,20 +90,14 @@ static struct afs_cell *afs_cell_alloc(const char *name, char *vllist)
 	do {
 		*dp++ = toupper(*cp);
 	} while (*cp++);
-	cell->anonymous_key = key_alloc(&key_type_rxrpc, keyname, 0, 0, current,
-					KEY_POS_SEARCH, KEY_ALLOC_NOT_IN_QUOTA);
-	if (IS_ERR(cell->anonymous_key)) {
-		_debug("no key");
-		ret = PTR_ERR(cell->anonymous_key);
-		goto error;
-	}
 
-	ret = key_instantiate_and_link(cell->anonymous_key, NULL, 0,
-				       NULL, NULL);
-	if (ret < 0) {
-		_debug("instantiate failed");
+	key = rxrpc_get_null_key(keyname);
+	if (IS_ERR(key)) {
+		_debug("no key");
+		ret = PTR_ERR(key);
 		goto error;
 	}
+	cell->anonymous_key = key;
 
 	_debug("anon key %p{%x}",
 	       cell->anonymous_key, key_serial(cell->anonymous_key));
@@ -132,13 +127,20 @@ struct afs_cell *afs_cell_create(const char *name, char *vllist)
 
 	_enter("%s,%s", name, vllist);
 
+	down_write(&afs_cells_sem);
+	read_lock(&afs_cells_lock);
+	list_for_each_entry(cell, &afs_cells, link) {
+		if (strcasecmp(cell->name, name) == 0)
+			goto duplicate_name;
+	}
+	read_unlock(&afs_cells_lock);
+
 	cell = afs_cell_alloc(name, vllist);
 	if (IS_ERR(cell)) {
 		_leave(" = %ld", PTR_ERR(cell));
+		up_write(&afs_cells_sem);
 		return cell;
 	}
-
-	down_write(&afs_cells_sem);
 
 	/* add a proc directory for this cell */
 	ret = afs_proc_cell_setup(cell);
@@ -172,6 +174,11 @@ error:
 	kfree(cell);
 	_leave(" = %d", ret);
 	return ERR_PTR(ret);
+
+duplicate_name:
+	read_unlock(&afs_cells_lock);
+	up_write(&afs_cells_sem);
+	return ERR_PTR(-EEXIST);
 }
 
 /*
@@ -265,6 +272,7 @@ struct afs_cell *afs_cell_lookup(const char *name, unsigned namesz)
 	return cell;
 }
 
+#if 0
 /*
  * try and get a cell record
  */
@@ -280,6 +288,7 @@ struct afs_cell *afs_get_cell_maybe(struct afs_cell *cell)
 	write_unlock(&afs_cells_lock);
 	return cell;
 }
+#endif  /*  0  */
 
 /*
  * destroy a cell record

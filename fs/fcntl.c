@@ -9,21 +9,22 @@
 #include <linux/mm.h>
 #include <linux/fs.h>
 #include <linux/file.h>
+#include <linux/fdtable.h>
 #include <linux/capability.h>
 #include <linux/dnotify.h>
-#include <linux/smp_lock.h>
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/security.h>
 #include <linux/ptrace.h>
 #include <linux/signal.h>
 #include <linux/rcupdate.h>
+#include <linux/pid_namespace.h>
 
 #include <asm/poll.h>
 #include <asm/siginfo.h>
 #include <asm/uaccess.h>
 
-void fastcall set_close_on_exec(unsigned int fd, int flag)
+void set_close_on_exec(unsigned int fd, int flag)
 {
 	struct files_struct *files = current->files;
 	struct fdtable *fdt;
@@ -54,18 +55,15 @@ static int get_close_on_exec(unsigned int fd)
  * file_lock held for write.
  */
 
-static int locate_fd(struct files_struct *files, 
-			    struct file *file, unsigned int orig_start)
+static int locate_fd(unsigned int orig_start, int cloexec)
 {
+	struct files_struct *files = current->files;
 	unsigned int newfd;
 	unsigned int start;
 	int error;
 	struct fdtable *fdt;
 
-	error = -EINVAL;
-	if (orig_start >= current->signal->rlim[RLIMIT_NOFILE].rlim_cur)
-		goto out;
-
+	spin_lock(&files->file_lock);
 repeat:
 	fdt = files_fdtable(files);
 	/*
@@ -80,10 +78,6 @@ repeat:
 	if (start < fdt->max_fds)
 		newfd = find_next_zero_bit(fdt->open_fds->fds_bits,
 					   fdt->max_fds, start);
-	
-	error = -EMFILE;
-	if (newfd >= current->signal->rlim[RLIMIT_NOFILE].rlim_cur)
-		goto out;
 
 	error = expand_files(files, newfd);
 	if (error < 0)
@@ -96,64 +90,56 @@ repeat:
 	if (error)
 		goto repeat;
 
-	/*
-	 * We reacquired files_lock, so we are safe as long as
-	 * we reacquire the fdtable pointer and use it while holding
-	 * the lock, no one can free it during that time.
-	 */
 	if (start <= files->next_fd)
 		files->next_fd = newfd + 1;
 
+	FD_SET(newfd, fdt->open_fds);
+	if (cloexec)
+		FD_SET(newfd, fdt->close_on_exec);
+	else
+		FD_CLR(newfd, fdt->close_on_exec);
 	error = newfd;
-	
+
 out:
+	spin_unlock(&files->file_lock);
 	return error;
 }
 
-static int dupfd(struct file *file, unsigned int start)
+static int dupfd(struct file *file, unsigned int start, int cloexec)
 {
-	struct files_struct * files = current->files;
-	struct fdtable *fdt;
-	int fd;
-
-	spin_lock(&files->file_lock);
-	fd = locate_fd(files, file, start);
-	if (fd >= 0) {
-		/* locate_fd() may have expanded fdtable, load the ptr */
-		fdt = files_fdtable(files);
-		FD_SET(fd, fdt->open_fds);
-		FD_CLR(fd, fdt->close_on_exec);
-		spin_unlock(&files->file_lock);
+	int fd = locate_fd(start, cloexec);
+	if (fd >= 0)
 		fd_install(fd, file);
-	} else {
-		spin_unlock(&files->file_lock);
+	else
 		fput(file);
-	}
 
 	return fd;
 }
 
-asmlinkage long sys_dup2(unsigned int oldfd, unsigned int newfd)
+asmlinkage long sys_dup3(unsigned int oldfd, unsigned int newfd, int flags)
 {
 	int err = -EBADF;
 	struct file * file, *tofree;
 	struct files_struct * files = current->files;
 	struct fdtable *fdt;
 
+	if ((flags & ~O_CLOEXEC) != 0)
+		return -EINVAL;
+
+	if (unlikely(oldfd == newfd))
+		return -EINVAL;
+
 	spin_lock(&files->file_lock);
 	if (!(file = fcheck(oldfd)))
-		goto out_unlock;
-	err = newfd;
-	if (newfd == oldfd)
-		goto out_unlock;
-	err = -EBADF;
-	if (newfd >= current->signal->rlim[RLIMIT_NOFILE].rlim_cur)
 		goto out_unlock;
 	get_file(file);			/* We are now finished with oldfd */
 
 	err = expand_files(files, newfd);
-	if (err < 0)
+	if (unlikely(err < 0)) {
+		if (err == -EMFILE)
+			err = -EBADF;
 		goto out_fput;
+	}
 
 	/* To avoid races with open() and dup(), we will mark the fd as
 	 * in-use in the open-file bitmap throughout the entire dup2()
@@ -171,7 +157,10 @@ asmlinkage long sys_dup2(unsigned int oldfd, unsigned int newfd)
 
 	rcu_assign_pointer(fdt->fd[newfd], file);
 	FD_SET(newfd, fdt->open_fds);
-	FD_CLR(newfd, fdt->close_on_exec);
+	if (flags & O_CLOEXEC)
+		FD_SET(newfd, fdt->close_on_exec);
+	else
+		FD_CLR(newfd, fdt->close_on_exec);
 	spin_unlock(&files->file_lock);
 
 	if (tofree)
@@ -189,13 +178,26 @@ out_fput:
 	goto out;
 }
 
+asmlinkage long sys_dup2(unsigned int oldfd, unsigned int newfd)
+{
+	if (unlikely(newfd == oldfd)) { /* corner case */
+		struct files_struct *files = current->files;
+		rcu_read_lock();
+		if (!fcheck_files(files, oldfd))
+			oldfd = -EBADF;
+		rcu_read_unlock();
+		return oldfd;
+	}
+	return sys_dup3(oldfd, newfd, 0);
+}
+
 asmlinkage long sys_dup(unsigned int fildes)
 {
 	int ret = -EBADF;
 	struct file * file = fget(fildes);
 
 	if (file)
-		ret = dupfd(file, 0);
+		ret = dupfd(file, 0, 0);
 	return ret;
 }
 
@@ -234,7 +236,6 @@ static int setfl(int fd, struct file * filp, unsigned long arg)
 	if (error)
 		return error;
 
-	lock_kernel();
 	if ((arg ^ filp->f_flags) & FASYNC) {
 		if (filp->f_op && filp->f_op->fasync) {
 			error = filp->f_op->fasync(fd, filp, (arg & FASYNC) != 0);
@@ -245,7 +246,6 @@ static int setfl(int fd, struct file * filp, unsigned long arg)
 
 	filp->f_flags = (arg & SETFL_MASK) | (filp->f_flags & ~SETFL_MASK);
  out:
-	unlock_kernel();
 	return error;
 }
 
@@ -289,7 +289,7 @@ int f_setown(struct file *filp, unsigned long arg, int force)
 		who = -who;
 	}
 	rcu_read_lock();
-	pid = find_pid(who);
+	pid = find_vpid(who);
 	result = __f_setown(filp, pid, type, force);
 	rcu_read_unlock();
 	return result;
@@ -305,7 +305,7 @@ pid_t f_getown(struct file *filp)
 {
 	pid_t pid;
 	read_lock(&filp->f_owner.lock);
-	pid = pid_nr(filp->f_owner.pid);
+	pid = pid_vnr(filp->f_owner.pid);
 	if (filp->f_owner.pid_type == PIDTYPE_PGID)
 		pid = -pid;
 	read_unlock(&filp->f_owner.lock);
@@ -319,8 +319,11 @@ static long do_fcntl(int fd, unsigned int cmd, unsigned long arg,
 
 	switch (cmd) {
 	case F_DUPFD:
+	case F_DUPFD_CLOEXEC:
+		if (arg >= current->signal->rlim[RLIMIT_NOFILE].rlim_cur)
+			break;
 		get_file(filp);
-		err = dupfd(filp, arg);
+		err = dupfd(filp, arg, cmd == F_DUPFD_CLOEXEC);
 		break;
 	case F_GETFD:
 		err = get_close_on_exec(fd) ? FD_CLOEXEC : 0;

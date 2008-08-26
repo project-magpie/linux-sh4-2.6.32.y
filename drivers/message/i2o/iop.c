@@ -15,8 +15,8 @@
  *
  *	Fixes/additions:
  *		Philipp Rumpf
- *		Juha Siev‰nen <Juha.Sievanen@cs.Helsinki.FI>
- *		Auvo H‰kkinen <Auvo.Hakkinen@cs.Helsinki.FI>
+ *		Juha Siev√§nen <Juha.Sievanen@cs.Helsinki.FI>
+ *		Auvo H√§kkinen <Auvo.Hakkinen@cs.Helsinki.FI>
  *		Deepak Saxena <deepak@plexity.net>
  *		Boji T Kannanthanam <boji.t.kannanthanam@intel.com>
  *		Alan Cox <alan@redhat.com>:
@@ -916,7 +916,7 @@ static int i2o_parse_hrt(struct i2o_controller *c)
  *	status block. The status block could then be accessed through
  *	c->status_block.
  *
- *	Returns 0 on sucess or negative error code on failure.
+ *	Returns 0 on success or negative error code on failure.
  */
 int i2o_status_get(struct i2o_controller *c)
 {

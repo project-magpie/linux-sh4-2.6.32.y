@@ -18,6 +18,7 @@
 #include <linux/mm.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/kthread.h>
 
 #include <linux/sunrpc/types.h>
 #include <linux/sunrpc/xdr.h>
@@ -291,16 +292,14 @@ svc_pool_map_put(void)
 
 
 /*
- * Set the current thread's cpus_allowed mask so that it
+ * Set the given thread's cpus_allowed mask so that it
  * will only run on cpus in the given pool.
- *
- * Returns 1 and fills in oldmask iff a cpumask was applied.
  */
-static inline int
-svc_pool_map_set_cpumask(unsigned int pidx, cpumask_t *oldmask)
+static inline void
+svc_pool_map_set_cpumask(struct task_struct *task, unsigned int pidx)
 {
 	struct svc_pool_map *m = &svc_pool_map;
-	unsigned int node; /* or cpu */
+	unsigned int node = m->pool_to[pidx];
 
 	/*
 	 * The caller checks for sv_nrpools > 1, which
@@ -308,20 +307,19 @@ svc_pool_map_set_cpumask(unsigned int pidx, cpumask_t *oldmask)
 	 */
 	BUG_ON(m->count == 0);
 
-	switch (m->mode)
-	{
-	default:
-		return 0;
+	switch (m->mode) {
 	case SVC_POOL_PERCPU:
-		node = m->pool_to[pidx];
-		*oldmask = current->cpus_allowed;
-		set_cpus_allowed(current, cpumask_of_cpu(node));
-		return 1;
+	{
+		cpumask_of_cpu_ptr(cpumask, node);
+		set_cpus_allowed_ptr(task, cpumask);
+		break;
+	}
 	case SVC_POOL_PERNODE:
-		node = m->pool_to[pidx];
-		*oldmask = current->cpus_allowed;
-		set_cpus_allowed(current, node_to_cpumask(node));
-		return 1;
+	{
+		node_to_cpumask_ptr(nodecpumask, node);
+		set_cpus_allowed_ptr(task, nodecpumask);
+		break;
+	}
 	}
 }
 
@@ -363,7 +361,7 @@ __svc_create(struct svc_program *prog, unsigned int bufsize, int npools,
 	   void (*shutdown)(struct svc_serv *serv))
 {
 	struct svc_serv	*serv;
-	int vers;
+	unsigned int vers;
 	unsigned int xdrsize;
 	unsigned int i;
 
@@ -432,11 +430,12 @@ svc_create(struct svc_program *prog, unsigned int bufsize,
 {
 	return __svc_create(prog, bufsize, /*npools*/1, shutdown);
 }
+EXPORT_SYMBOL(svc_create);
 
 struct svc_serv *
 svc_create_pooled(struct svc_program *prog, unsigned int bufsize,
 		void (*shutdown)(struct svc_serv *serv),
-		  svc_thread_fn func, int sig, struct module *mod)
+		  svc_thread_fn func, struct module *mod)
 {
 	struct svc_serv *serv;
 	unsigned int npools = svc_pool_map_get();
@@ -445,22 +444,20 @@ svc_create_pooled(struct svc_program *prog, unsigned int bufsize,
 
 	if (serv != NULL) {
 		serv->sv_function = func;
-		serv->sv_kill_signal = sig;
 		serv->sv_module = mod;
 	}
 
 	return serv;
 }
+EXPORT_SYMBOL(svc_create_pooled);
 
 /*
- * Destroy an RPC service.  Should be called with the BKL held
+ * Destroy an RPC service. Should be called with appropriate locking to
+ * protect the sv_nrthreads, sv_permsocks and sv_tempsocks.
  */
 void
 svc_destroy(struct svc_serv *serv)
 {
-	struct svc_sock	*svsk;
-	struct svc_sock *tmp;
-
 	dprintk("svc: svc_destroy(%s, %d)\n",
 				serv->sv_program->pg_name,
 				serv->sv_nrthreads);
@@ -475,14 +472,12 @@ svc_destroy(struct svc_serv *serv)
 
 	del_timer_sync(&serv->sv_temptimer);
 
-	list_for_each_entry_safe(svsk, tmp, &serv->sv_tempsocks, sk_list)
-		svc_force_close_socket(svsk);
+	svc_close_all(&serv->sv_tempsocks);
 
 	if (serv->sv_shutdown)
 		serv->sv_shutdown(serv);
 
-	list_for_each_entry_safe(svsk, tmp, &serv->sv_permsocks, sk_list)
-		svc_force_close_socket(svsk);
+	svc_close_all(&serv->sv_permsocks);
 
 	BUG_ON(!list_empty(&serv->sv_permsocks));
 	BUG_ON(!list_empty(&serv->sv_tempsocks));
@@ -497,6 +492,7 @@ svc_destroy(struct svc_serv *serv)
 	kfree(serv->sv_pools);
 	kfree(serv);
 }
+EXPORT_SYMBOL(svc_destroy);
 
 /*
  * Allocate an RPC server's buffer space.
@@ -505,8 +501,7 @@ svc_destroy(struct svc_serv *serv)
 static int
 svc_init_buffer(struct svc_rqst *rqstp, unsigned int size)
 {
-	int pages;
-	int arghi;
+	unsigned int pages, arghi;
 
 	pages = size / PAGE_SIZE + 1; /* extra page as we hold both request and reply.
 				       * We assume one is at most one page
@@ -520,7 +515,7 @@ svc_init_buffer(struct svc_rqst *rqstp, unsigned int size)
 		rqstp->rq_pages[arghi++] = p;
 		pages--;
 	}
-	return ! pages;
+	return pages == 0;
 }
 
 /*
@@ -529,36 +524,23 @@ svc_init_buffer(struct svc_rqst *rqstp, unsigned int size)
 static void
 svc_release_buffer(struct svc_rqst *rqstp)
 {
-	int i;
-	for (i=0; i<ARRAY_SIZE(rqstp->rq_pages); i++)
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(rqstp->rq_pages); i++)
 		if (rqstp->rq_pages[i])
 			put_page(rqstp->rq_pages[i]);
 }
 
-/*
- * Create a thread in the given pool.  Caller must hold BKL.
- * On a NUMA or SMP machine, with a multi-pool serv, the thread
- * will be restricted to run on the cpus belonging to the pool.
- */
-static int
-__svc_create_thread(svc_thread_fn func, struct svc_serv *serv,
-		    struct svc_pool *pool)
+struct svc_rqst *
+svc_prepare_thread(struct svc_serv *serv, struct svc_pool *pool)
 {
 	struct svc_rqst	*rqstp;
-	int		error = -ENOMEM;
-	int		have_oldmask = 0;
-	cpumask_t	oldmask;
 
 	rqstp = kzalloc(sizeof(*rqstp), GFP_KERNEL);
 	if (!rqstp)
-		goto out;
+		goto out_enomem;
 
 	init_waitqueue_head(&rqstp->rq_wait);
-
-	if (!(rqstp->rq_argp = kmalloc(serv->sv_xdrsize, GFP_KERNEL))
-	 || !(rqstp->rq_resp = kmalloc(serv->sv_xdrsize, GFP_KERNEL))
-	 || !svc_init_buffer(rqstp, serv->sv_max_mesg))
-		goto out_thread;
 
 	serv->sv_nrthreads++;
 	spin_lock_bh(&pool->sp_lock);
@@ -568,34 +550,24 @@ __svc_create_thread(svc_thread_fn func, struct svc_serv *serv,
 	rqstp->rq_server = serv;
 	rqstp->rq_pool = pool;
 
-	if (serv->sv_nrpools > 1)
-		have_oldmask = svc_pool_map_set_cpumask(pool->sp_id, &oldmask);
-
-	error = kernel_thread((int (*)(void *)) func, rqstp, 0);
-
-	if (have_oldmask)
-		set_cpus_allowed(current, oldmask);
-
-	if (error < 0)
+	rqstp->rq_argp = kmalloc(serv->sv_xdrsize, GFP_KERNEL);
+	if (!rqstp->rq_argp)
 		goto out_thread;
-	svc_sock_update_bufs(serv);
-	error = 0;
-out:
-	return error;
 
+	rqstp->rq_resp = kmalloc(serv->sv_xdrsize, GFP_KERNEL);
+	if (!rqstp->rq_resp)
+		goto out_thread;
+
+	if (!svc_init_buffer(rqstp, serv->sv_max_mesg))
+		goto out_thread;
+
+	return rqstp;
 out_thread:
 	svc_exit_thread(rqstp);
-	goto out;
+out_enomem:
+	return ERR_PTR(-ENOMEM);
 }
-
-/*
- * Create a thread in the default pool.  Caller must hold BKL.
- */
-int
-svc_create_thread(svc_thread_fn func, struct svc_serv *serv)
-{
-	return __svc_create_thread(func, serv, &serv->sv_pools[0]);
-}
+EXPORT_SYMBOL(svc_prepare_thread);
 
 /*
  * Choose a pool in which to create a new thread, for svc_set_num_threads
@@ -654,7 +626,7 @@ found_pool:
  * of threads the given number.  If `pool' is non-NULL, applies
  * only to threads in that pool, otherwise round-robins between
  * all pools.  Must be called with a svc_get() reference and
- * the BKL held.
+ * the BKL or another lock to protect access to svc_serv fields.
  *
  * Destroying threads relies on the service threads filling in
  * rqstp->rq_task, which only the nfs ones do.  Assumes the serv
@@ -666,7 +638,9 @@ found_pool:
 int
 svc_set_num_threads(struct svc_serv *serv, struct svc_pool *pool, int nrservs)
 {
-	struct task_struct *victim;
+	struct svc_rqst	*rqstp;
+	struct task_struct *task;
+	struct svc_pool *chosen_pool;
 	int error = 0;
 	unsigned int state = serv->sv_nrthreads-1;
 
@@ -682,26 +656,44 @@ svc_set_num_threads(struct svc_serv *serv, struct svc_pool *pool, int nrservs)
 	/* create new threads */
 	while (nrservs > 0) {
 		nrservs--;
-		__module_get(serv->sv_module);
-		error = __svc_create_thread(serv->sv_function, serv,
-					    choose_pool(serv, pool, &state));
-		if (error < 0) {
-			module_put(serv->sv_module);
+		chosen_pool = choose_pool(serv, pool, &state);
+
+		rqstp = svc_prepare_thread(serv, chosen_pool);
+		if (IS_ERR(rqstp)) {
+			error = PTR_ERR(rqstp);
 			break;
 		}
+
+		__module_get(serv->sv_module);
+		task = kthread_create(serv->sv_function, rqstp, serv->sv_name);
+		if (IS_ERR(task)) {
+			error = PTR_ERR(task);
+			module_put(serv->sv_module);
+			svc_exit_thread(rqstp);
+			break;
+		}
+
+		rqstp->rq_task = task;
+		if (serv->sv_nrpools > 1)
+			svc_pool_map_set_cpumask(task, chosen_pool->sp_id);
+
+		svc_sock_update_bufs(serv);
+		wake_up_process(task);
 	}
 	/* destroy old threads */
 	while (nrservs < 0 &&
-	       (victim = choose_victim(serv, pool, &state)) != NULL) {
-		send_sig(serv->sv_kill_signal, victim, 1);
+	       (task = choose_victim(serv, pool, &state)) != NULL) {
+		send_sig(SIGINT, task, 1);
 		nrservs++;
 	}
 
 	return error;
 }
+EXPORT_SYMBOL(svc_set_num_threads);
 
 /*
- * Called from a server thread as it's exiting.  Caller must hold BKL.
+ * Called from a server thread as it's exiting. Caller must hold the BKL or
+ * the "service mutex", whichever is appropriate for the service.
  */
 void
 svc_exit_thread(struct svc_rqst *rqstp)
@@ -725,6 +717,7 @@ svc_exit_thread(struct svc_rqst *rqstp)
 	if (serv)
 		svc_destroy(serv);
 }
+EXPORT_SYMBOL(svc_exit_thread);
 
 /*
  * Register an RPC service with the local portmapper.
@@ -736,7 +729,8 @@ svc_register(struct svc_serv *serv, int proto, unsigned short port)
 {
 	struct svc_program	*progp;
 	unsigned long		flags;
-	int			i, error = 0, dummy;
+	unsigned int		i;
+	int			error = 0, dummy;
 
 	if (!port)
 		clear_thread_flag(TIF_SIGPENDING);
@@ -774,6 +768,30 @@ svc_register(struct svc_serv *serv, int proto, unsigned short port)
 	}
 
 	return error;
+}
+
+/*
+ * Printk the given error with the address of the client that caused it.
+ */
+static int
+__attribute__ ((format (printf, 2, 3)))
+svc_printk(struct svc_rqst *rqstp, const char *fmt, ...)
+{
+	va_list args;
+	int 	r;
+	char 	buf[RPC_MAX_ADDRBUFLEN];
+
+	if (!net_ratelimit())
+		return 0;
+
+	printk(KERN_WARNING "svc: %s: ",
+		svc_print_addr(rqstp, buf, sizeof(buf)));
+
+	va_start(args, fmt);
+	r = vprintk(fmt, args);
+	va_end(args);
+
+	return r;
 }
 
 /*
@@ -815,9 +833,9 @@ svc_process(struct svc_rqst *rqstp)
 	rqstp->rq_res.tail[0].iov_len = 0;
 	/* Will be turned off only in gss privacy case: */
 	rqstp->rq_splice_ok = 1;
-	/* tcp needs a space for the record length... */
-	if (rqstp->rq_prot == IPPROTO_TCP)
-		svc_putnl(resv, 0);
+
+	/* Setup reply header */
+	rqstp->rq_xprt->xpt_ops->xpo_prep_reply_hdr(rqstp);
 
 	rqstp->rq_xid = svc_getu32(argv);
 	svc_putu32(resv, rqstp->rq_xid);
@@ -863,8 +881,7 @@ svc_process(struct svc_rqst *rqstp)
 	case SVC_OK:
 		break;
 	case SVC_GARBAGE:
-		rpc_stat = rpc_garbage_args;
-		goto err_bad;
+		goto err_garbage;
 	case SVC_SYSERR:
 		rpc_stat = rpc_system_err;
 		goto err_bad;
@@ -963,14 +980,13 @@ svc_process(struct svc_rqst *rqstp)
 	return 0;
 
 err_short_len:
-	if (net_ratelimit())
-		printk("svc: short len %Zd, dropping request\n", argv->iov_len);
+	svc_printk(rqstp, "short len %Zd, dropping request\n",
+			argv->iov_len);
 
 	goto dropit;			/* drop request */
 
 err_bad_dir:
-	if (net_ratelimit())
-		printk("svc: bad direction %d, dropping request\n", dir);
+	svc_printk(rqstp, "bad direction %d, dropping request\n", dir);
 
 	serv->sv_stats->rpcbadfmt++;
 	goto dropit;			/* drop request */
@@ -1000,8 +1016,7 @@ err_bad_prog:
 	goto sendit;
 
 err_bad_vers:
-	if (net_ratelimit())
-		printk("svc: unknown version (%d for prog %d, %s)\n",
+	svc_printk(rqstp, "unknown version (%d for prog %d, %s)\n",
 		       vers, prog, progp->pg_name);
 
 	serv->sv_stats->rpcbadfmt++;
@@ -1011,16 +1026,14 @@ err_bad_vers:
 	goto sendit;
 
 err_bad_proc:
-	if (net_ratelimit())
-		printk("svc: unknown procedure (%d)\n", proc);
+	svc_printk(rqstp, "unknown procedure (%d)\n", proc);
 
 	serv->sv_stats->rpcbadfmt++;
 	svc_putnl(resv, RPC_PROC_UNAVAIL);
 	goto sendit;
 
 err_garbage:
-	if (net_ratelimit())
-		printk("svc: failed to decode args\n");
+	svc_printk(rqstp, "failed to decode args\n");
 
 	rpc_stat = rpc_garbage_args;
 err_bad:
@@ -1028,16 +1041,15 @@ err_bad:
 	svc_putnl(resv, ntohl(rpc_stat));
 	goto sendit;
 }
+EXPORT_SYMBOL(svc_process);
 
 /*
  * Return (transport-specific) limit on the rpc payload.
  */
 u32 svc_max_payload(const struct svc_rqst *rqstp)
 {
-	int max = RPCSVC_MAXPAYLOAD_TCP;
+	u32 max = rqstp->rq_xprt->xpt_class->xcl_max_payload;
 
-	if (rqstp->rq_sock->sk_sock->type == SOCK_DGRAM)
-		max = RPCSVC_MAXPAYLOAD_UDP;
 	if (rqstp->rq_server->sv_max_payload < max)
 		max = rqstp->rq_server->sv_max_payload;
 	return max;

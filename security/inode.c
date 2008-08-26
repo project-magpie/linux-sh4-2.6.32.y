@@ -315,31 +315,22 @@ void securityfs_remove(struct dentry *dentry)
 }
 EXPORT_SYMBOL_GPL(securityfs_remove);
 
-static decl_subsys(security, NULL, NULL);
+static struct kobject *security_kobj;
 
 static int __init securityfs_init(void)
 {
 	int retval;
 
-	kobj_set_kset_s(&security_subsys, kernel_subsys);
-	retval = subsystem_register(&security_subsys);
-	if (retval)
-		return retval;
+	security_kobj = kobject_create_and_add("security", kernel_kobj);
+	if (!security_kobj)
+		return -EINVAL;
 
 	retval = register_filesystem(&fs_type);
 	if (retval)
-		subsystem_unregister(&security_subsys);
+		kobject_put(security_kobj);
 	return retval;
 }
 
-static void __exit securityfs_exit(void)
-{
-	simple_release_fs(&mount, &mount_count);
-	unregister_filesystem(&fs_type);
-	subsystem_unregister(&security_subsys);
-}
-
 core_initcall(securityfs_init);
-module_exit(securityfs_exit);
 MODULE_LICENSE("GPL");
 

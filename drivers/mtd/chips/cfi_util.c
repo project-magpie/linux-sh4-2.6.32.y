@@ -6,9 +6,6 @@
  * Copyright (C) 2003 STMicroelectronics Limited
  *
  * This code is covered by the GPL.
- *
- * $Id: cfi_util.c,v 1.10 2005/11/07 11:14:23 gleixner Exp $
- *
  */
 
 #include <linux/module.h>
@@ -65,7 +62,7 @@ __xipram cfi_read_pri(struct map_info *map, __u16 adr, __u16 size, const char* n
 
 #ifdef CONFIG_MTD_XIP
 	(void) map_read(map, base);
-	asm volatile (".rep 8; nop; .endr");
+	xip_iprefetch();
 	local_irq_enable();
 #endif
 

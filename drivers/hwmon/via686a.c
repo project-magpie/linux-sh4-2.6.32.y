@@ -3,7 +3,7 @@
 		for hardware monitoring
 
     Copyright (c) 1998 - 2002  Frodo Looijaard <frodol@dds.nl>,
-			Kyösti Mälkki <kmalkki@cc.hut.fi>,
+			KyÃ¶sti MÃ¤lkki <kmalkki@cc.hut.fi>,
 			Mark Studebaker <mdsxyz123@yahoo.com>,
 			and Bob Dougherty <bobd@stanford.edu>
     (Some conversion-factor data were contributed by Jonathan Teh Soon Yew
@@ -294,7 +294,7 @@ static inline long TEMP_FROM_REG10(u16 val)
 struct via686a_data {
 	unsigned short addr;
 	const char *name;
-	struct class_device *class_dev;
+	struct device *hwmon_dev;
 	struct mutex update_lock;
 	char valid;		/* !=0 if following fields are valid */
 	unsigned long last_updated;	/* In jiffies */
@@ -533,6 +533,24 @@ static ssize_t show_alarms(struct device *dev, struct device_attribute *attr, ch
 }
 static DEVICE_ATTR(alarms, S_IRUGO, show_alarms, NULL);
 
+static ssize_t show_alarm(struct device *dev, struct device_attribute *attr,
+			  char *buf)
+{
+	int bitnr = to_sensor_dev_attr(attr)->index;
+	struct via686a_data *data = via686a_update_device(dev);
+	return sprintf(buf, "%u\n", (data->alarms >> bitnr) & 1);
+}
+static SENSOR_DEVICE_ATTR(in0_alarm, S_IRUGO, show_alarm, NULL, 0);
+static SENSOR_DEVICE_ATTR(in1_alarm, S_IRUGO, show_alarm, NULL, 1);
+static SENSOR_DEVICE_ATTR(in2_alarm, S_IRUGO, show_alarm, NULL, 2);
+static SENSOR_DEVICE_ATTR(in3_alarm, S_IRUGO, show_alarm, NULL, 3);
+static SENSOR_DEVICE_ATTR(in4_alarm, S_IRUGO, show_alarm, NULL, 8);
+static SENSOR_DEVICE_ATTR(temp1_alarm, S_IRUGO, show_alarm, NULL, 4);
+static SENSOR_DEVICE_ATTR(temp2_alarm, S_IRUGO, show_alarm, NULL, 11);
+static SENSOR_DEVICE_ATTR(temp3_alarm, S_IRUGO, show_alarm, NULL, 15);
+static SENSOR_DEVICE_ATTR(fan1_alarm, S_IRUGO, show_alarm, NULL, 6);
+static SENSOR_DEVICE_ATTR(fan2_alarm, S_IRUGO, show_alarm, NULL, 7);
+
 static ssize_t show_name(struct device *dev, struct device_attribute
 			 *devattr, char *buf)
 {
@@ -557,6 +575,11 @@ static struct attribute *via686a_attributes[] = {
 	&sensor_dev_attr_in2_max.dev_attr.attr,
 	&sensor_dev_attr_in3_max.dev_attr.attr,
 	&sensor_dev_attr_in4_max.dev_attr.attr,
+	&sensor_dev_attr_in0_alarm.dev_attr.attr,
+	&sensor_dev_attr_in1_alarm.dev_attr.attr,
+	&sensor_dev_attr_in2_alarm.dev_attr.attr,
+	&sensor_dev_attr_in3_alarm.dev_attr.attr,
+	&sensor_dev_attr_in4_alarm.dev_attr.attr,
 
 	&sensor_dev_attr_temp1_input.dev_attr.attr,
 	&sensor_dev_attr_temp2_input.dev_attr.attr,
@@ -567,6 +590,9 @@ static struct attribute *via686a_attributes[] = {
 	&sensor_dev_attr_temp1_max_hyst.dev_attr.attr,
 	&sensor_dev_attr_temp2_max_hyst.dev_attr.attr,
 	&sensor_dev_attr_temp3_max_hyst.dev_attr.attr,
+	&sensor_dev_attr_temp1_alarm.dev_attr.attr,
+	&sensor_dev_attr_temp2_alarm.dev_attr.attr,
+	&sensor_dev_attr_temp3_alarm.dev_attr.attr,
 
 	&sensor_dev_attr_fan1_input.dev_attr.attr,
 	&sensor_dev_attr_fan2_input.dev_attr.attr,
@@ -574,6 +600,8 @@ static struct attribute *via686a_attributes[] = {
 	&sensor_dev_attr_fan2_min.dev_attr.attr,
 	&sensor_dev_attr_fan1_div.dev_attr.attr,
 	&sensor_dev_attr_fan2_div.dev_attr.attr,
+	&sensor_dev_attr_fan1_alarm.dev_attr.attr,
+	&sensor_dev_attr_fan2_alarm.dev_attr.attr,
 
 	&dev_attr_alarms.attr,
 	&dev_attr_name.attr,
@@ -627,9 +655,9 @@ static int __devinit via686a_probe(struct platform_device *pdev)
 	if ((err = sysfs_create_group(&pdev->dev.kobj, &via686a_group)))
 		goto exit_free;
 
-	data->class_dev = hwmon_device_register(&pdev->dev);
-	if (IS_ERR(data->class_dev)) {
-		err = PTR_ERR(data->class_dev);
+	data->hwmon_dev = hwmon_device_register(&pdev->dev);
+	if (IS_ERR(data->hwmon_dev)) {
+		err = PTR_ERR(data->hwmon_dev);
 		goto exit_remove_files;
 	}
 
@@ -648,7 +676,7 @@ static int __devexit via686a_remove(struct platform_device *pdev)
 {
 	struct via686a_data *data = platform_get_drvdata(pdev);
 
-	hwmon_device_unregister(data->class_dev);
+	hwmon_device_unregister(data->hwmon_dev);
 	sysfs_remove_group(&pdev->dev.kobj, &via686a_group);
 
 	release_region(data->addr, VIA686A_EXTENT);
@@ -866,7 +894,7 @@ static void __exit sm_via686a_exit(void)
 	}
 }
 
-MODULE_AUTHOR("Kyösti Mälkki <kmalkki@cc.hut.fi>, "
+MODULE_AUTHOR("KyÃ¶sti MÃ¤lkki <kmalkki@cc.hut.fi>, "
 	      "Mark Studebaker <mdsxyz123@yahoo.com> "
 	      "and Bob Dougherty <bobd@stanford.edu>");
 MODULE_DESCRIPTION("VIA 686A Sensor device");

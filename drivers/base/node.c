@@ -12,30 +12,47 @@
 #include <linux/topology.h>
 #include <linux/nodemask.h>
 #include <linux/cpu.h>
+#include <linux/device.h>
 
 static struct sysdev_class node_class = {
-	set_kset_name("node"),
+	.name = "node",
 };
 
 
-static ssize_t node_read_cpumap(struct sys_device * dev, char * buf)
+static ssize_t node_read_cpumap(struct sys_device *dev, int type, char *buf)
 {
 	struct node *node_dev = to_node(dev);
-	cpumask_t mask = node_to_cpumask(node_dev->sysdev.id);
+	node_to_cpumask_ptr(mask, node_dev->sysdev.id);
 	int len;
 
-	/* 2004/06/03: buf currently PAGE_SIZE, need > 1 char per 4 bits. */
-	BUILD_BUG_ON(MAX_NUMNODES/4 > PAGE_SIZE/2);
+	/* 2008/04/07: buf currently PAGE_SIZE, need 9 chars per 32 bits. */
+	BUILD_BUG_ON((NR_CPUS/32 * 9) > (PAGE_SIZE-1));
 
-	len = cpumask_scnprintf(buf, PAGE_SIZE-1, mask);
-	len += sprintf(buf + len, "\n");
+	len = type?
+		cpulist_scnprintf(buf, PAGE_SIZE-2, *mask):
+		cpumask_scnprintf(buf, PAGE_SIZE-2, *mask);
+ 	buf[len++] = '\n';
+ 	buf[len] = '\0';
 	return len;
 }
 
-static SYSDEV_ATTR(cpumap, S_IRUGO, node_read_cpumap, NULL);
+static inline ssize_t node_read_cpumask(struct sys_device *dev,
+				struct sysdev_attribute *attr, char *buf)
+{
+	return node_read_cpumap(dev, 0, buf);
+}
+static inline ssize_t node_read_cpulist(struct sys_device *dev,
+				struct sysdev_attribute *attr, char *buf)
+{
+	return node_read_cpumap(dev, 1, buf);
+}
+
+static SYSDEV_ATTR(cpumap,  S_IRUGO, node_read_cpumask, NULL);
+static SYSDEV_ATTR(cpulist, S_IRUGO, node_read_cpulist, NULL);
 
 #define K(x) ((x) << (PAGE_SHIFT - 10))
-static ssize_t node_read_meminfo(struct sys_device * dev, char * buf)
+static ssize_t node_read_meminfo(struct sys_device * dev,
+			struct sysdev_attribute *attr, char * buf)
 {
 	int n;
 	int nid = dev->id;
@@ -63,14 +80,15 @@ static ssize_t node_read_meminfo(struct sys_device * dev, char * buf)
 		       "Node %d PageTables:   %8lu kB\n"
 		       "Node %d NFS_Unstable: %8lu kB\n"
 		       "Node %d Bounce:       %8lu kB\n"
+		       "Node %d WritebackTmp: %8lu kB\n"
 		       "Node %d Slab:         %8lu kB\n"
 		       "Node %d SReclaimable: %8lu kB\n"
 		       "Node %d SUnreclaim:   %8lu kB\n",
 		       nid, K(i.totalram),
 		       nid, K(i.freeram),
 		       nid, K(i.totalram - i.freeram),
-		       nid, node_page_state(nid, NR_ACTIVE),
-		       nid, node_page_state(nid, NR_INACTIVE),
+		       nid, K(node_page_state(nid, NR_ACTIVE)),
+		       nid, K(node_page_state(nid, NR_INACTIVE)),
 #ifdef CONFIG_HIGHMEM
 		       nid, K(i.totalhigh),
 		       nid, K(i.freehigh),
@@ -85,6 +103,7 @@ static ssize_t node_read_meminfo(struct sys_device * dev, char * buf)
 		       nid, K(node_page_state(nid, NR_PAGETABLE)),
 		       nid, K(node_page_state(nid, NR_UNSTABLE_NFS)),
 		       nid, K(node_page_state(nid, NR_BOUNCE)),
+		       nid, K(node_page_state(nid, NR_WRITEBACK_TEMP)),
 		       nid, K(node_page_state(nid, NR_SLAB_RECLAIMABLE) +
 				node_page_state(nid, NR_SLAB_UNRECLAIMABLE)),
 		       nid, K(node_page_state(nid, NR_SLAB_RECLAIMABLE)),
@@ -96,7 +115,8 @@ static ssize_t node_read_meminfo(struct sys_device * dev, char * buf)
 #undef K
 static SYSDEV_ATTR(meminfo, S_IRUGO, node_read_meminfo, NULL);
 
-static ssize_t node_read_numastat(struct sys_device * dev, char * buf)
+static ssize_t node_read_numastat(struct sys_device * dev,
+				struct sysdev_attribute *attr, char * buf)
 {
 	return sprintf(buf,
 		       "numa_hit %lu\n"
@@ -114,7 +134,8 @@ static ssize_t node_read_numastat(struct sys_device * dev, char * buf)
 }
 static SYSDEV_ATTR(numastat, S_IRUGO, node_read_numastat, NULL);
 
-static ssize_t node_read_distance(struct sys_device * dev, char * buf)
+static ssize_t node_read_distance(struct sys_device * dev,
+			struct sysdev_attribute *attr, char * buf)
 {
 	int nid = dev->id;
 	int len = 0;
@@ -148,6 +169,7 @@ int register_node(struct node *node, int num, struct node *parent)
 
 	if (!error){
 		sysdev_create_file(&node->sysdev, &attr_cpumap);
+		sysdev_create_file(&node->sysdev, &attr_cpulist);
 		sysdev_create_file(&node->sysdev, &attr_meminfo);
 		sysdev_create_file(&node->sysdev, &attr_numastat);
 		sysdev_create_file(&node->sysdev, &attr_distance);
@@ -165,6 +187,7 @@ int register_node(struct node *node, int num, struct node *parent)
 void unregister_node(struct node *node)
 {
 	sysdev_remove_file(&node->sysdev, &attr_cpumap);
+	sysdev_remove_file(&node->sysdev, &attr_cpulist);
 	sysdev_remove_file(&node->sysdev, &attr_meminfo);
 	sysdev_remove_file(&node->sysdev, &attr_numastat);
 	sysdev_remove_file(&node->sysdev, &attr_distance);
@@ -232,8 +255,96 @@ void unregister_one_node(int nid)
 	unregister_node(&node_devices[nid]);
 }
 
+/*
+ * node states attributes
+ */
+
+static ssize_t print_nodes_state(enum node_states state, char *buf)
+{
+	int n;
+
+	n = nodelist_scnprintf(buf, PAGE_SIZE, node_states[state]);
+	if (n > 0 && PAGE_SIZE > n + 1) {
+		*(buf + n++) = '\n';
+		*(buf + n++) = '\0';
+	}
+	return n;
+}
+
+static ssize_t print_nodes_possible(struct sysdev_class *class, char *buf)
+{
+	return print_nodes_state(N_POSSIBLE, buf);
+}
+
+static ssize_t print_nodes_online(struct sysdev_class *class, char *buf)
+{
+	return print_nodes_state(N_ONLINE, buf);
+}
+
+static ssize_t print_nodes_has_normal_memory(struct sysdev_class *class,
+						char *buf)
+{
+	return print_nodes_state(N_NORMAL_MEMORY, buf);
+}
+
+static ssize_t print_nodes_has_cpu(struct sysdev_class *class, char *buf)
+{
+	return print_nodes_state(N_CPU, buf);
+}
+
+static SYSDEV_CLASS_ATTR(possible, 0444, print_nodes_possible, NULL);
+static SYSDEV_CLASS_ATTR(online, 0444, print_nodes_online, NULL);
+static SYSDEV_CLASS_ATTR(has_normal_memory, 0444, print_nodes_has_normal_memory,
+									NULL);
+static SYSDEV_CLASS_ATTR(has_cpu, 0444, print_nodes_has_cpu, NULL);
+
+#ifdef CONFIG_HIGHMEM
+static ssize_t print_nodes_has_high_memory(struct sysdev_class *class,
+						 char *buf)
+{
+	return print_nodes_state(N_HIGH_MEMORY, buf);
+}
+
+static SYSDEV_CLASS_ATTR(has_high_memory, 0444, print_nodes_has_high_memory,
+									 NULL);
+#endif
+
+struct sysdev_class_attribute *node_state_attr[] = {
+	&attr_possible,
+	&attr_online,
+	&attr_has_normal_memory,
+#ifdef CONFIG_HIGHMEM
+	&attr_has_high_memory,
+#endif
+	&attr_has_cpu,
+};
+
+static int node_states_init(void)
+{
+	int i;
+	int err = 0;
+
+	for (i = 0;  i < NR_NODE_STATES; i++) {
+		int ret;
+		ret = sysdev_class_create_file(&node_class, node_state_attr[i]);
+		if (!err)
+			err = ret;
+	}
+	return err;
+}
+
 static int __init register_node_type(void)
 {
-	return sysdev_class_register(&node_class);
+	int ret;
+
+	ret = sysdev_class_register(&node_class);
+	if (!ret)
+		ret = node_states_init();
+
+	/*
+	 * Note:  we're not going to unregister the node class if we fail
+	 * to register the node state class attribute files.
+	 */
+	return ret;
 }
 postcore_initcall(register_node_type);

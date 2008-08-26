@@ -53,12 +53,14 @@
 #define BT_DBG(D...)
 #endif
 
-#define VERSION "0.5"
+#define VERSION "0.6"
+
+static int disable_esco = 0;
 
 static const struct proto_ops sco_sock_ops;
 
 static struct bt_sock_list sco_sk_list = {
-	.lock = RW_LOCK_UNLOCKED
+	.lock = __RW_LOCK_UNLOCKED(sco_sk_list.lock)
 };
 
 static void __sco_chan_add(struct sco_conn *conn, struct sock *sk, struct sock *parent);
@@ -95,13 +97,6 @@ static void sco_sock_clear_timer(struct sock *sk)
 {
 	BT_DBG("sock %p state %d", sk, sk->sk_state);
 	sk_stop_timer(sk, &sk->sk_timer);
-}
-
-static void sco_sock_init_timer(struct sock *sk)
-{
-	init_timer(&sk->sk_timer);
-	sk->sk_timer.function = sco_sock_timeout;
-	sk->sk_timer.data = (unsigned long)sk;
 }
 
 /* ---- SCO connections ---- */
@@ -189,7 +184,7 @@ static int sco_connect(struct sock *sk)
 	struct sco_conn *conn;
 	struct hci_conn *hcon;
 	struct hci_dev  *hdev;
-	int err = 0;
+	int err, type;
 
 	BT_DBG("%s -> %s", batostr(src), batostr(dst));
 
@@ -200,7 +195,12 @@ static int sco_connect(struct sock *sk)
 
 	err = -ENOMEM;
 
-	hcon = hci_connect(hdev, SCO_LINK, dst);
+	if (lmp_esco_capable(hdev) && !disable_esco)
+		type = ESCO_LINK;
+	else
+		type = SCO_LINK;
+
+	hcon = hci_connect(hdev, type, dst);
 	if (!hcon)
 		goto done;
 
@@ -224,6 +224,7 @@ static int sco_connect(struct sock *sk)
 		sk->sk_state = BT_CONNECT;
 		sco_sock_set_timer(sk, sk->sk_sndtimeo);
 	}
+
 done:
 	hci_dev_unlock_bh(hdev);
 	hci_dev_put(hdev);
@@ -414,11 +415,11 @@ static struct proto sco_proto = {
 	.obj_size	= sizeof(struct sco_pinfo)
 };
 
-static struct sock *sco_sock_alloc(struct socket *sock, int proto, gfp_t prio)
+static struct sock *sco_sock_alloc(struct net *net, struct socket *sock, int proto, gfp_t prio)
 {
 	struct sock *sk;
 
-	sk = sk_alloc(PF_BLUETOOTH, prio, &sco_proto, 1);
+	sk = sk_alloc(net, PF_BLUETOOTH, prio, &sco_proto);
 	if (!sk)
 		return NULL;
 
@@ -433,13 +434,13 @@ static struct sock *sco_sock_alloc(struct socket *sock, int proto, gfp_t prio)
 	sk->sk_protocol = proto;
 	sk->sk_state    = BT_OPEN;
 
-	sco_sock_init_timer(sk);
+	setup_timer(&sk->sk_timer, sco_sock_timeout, (unsigned long)sk);
 
 	bt_sock_link(&sco_sk_list, sk);
 	return sk;
 }
 
-static int sco_sock_create(struct socket *sock, int protocol)
+static int sco_sock_create(struct net *net, struct socket *sock, int protocol)
 {
 	struct sock *sk;
 
@@ -452,7 +453,7 @@ static int sco_sock_create(struct socket *sock, int protocol)
 
 	sock->ops = &sco_sock_ops;
 
-	sk = sco_sock_alloc(sock, protocol, GFP_ATOMIC);
+	sk = sco_sock_alloc(net, sock, protocol, GFP_ATOMIC);
 	if (!sk)
 		return -ENOMEM;
 
@@ -807,7 +808,7 @@ static void sco_conn_ready(struct sco_conn *conn)
 
 		bh_lock_sock(parent);
 
-		sk = sco_sock_alloc(NULL, BTPROTO_SCO, GFP_ATOMIC);
+		sk = sco_sock_alloc(sock_net(parent), NULL, BTPROTO_SCO, GFP_ATOMIC);
 		if (!sk) {
 			bh_unlock_sock(parent);
 			goto done;
@@ -846,7 +847,7 @@ static int sco_connect_cfm(struct hci_conn *hcon, __u8 status)
 {
 	BT_DBG("hcon %p bdaddr %s status %d", hcon, batostr(&hcon->dst), status);
 
-	if (hcon->type != SCO_LINK)
+	if (hcon->type != SCO_LINK && hcon->type != ESCO_LINK)
 		return 0;
 
 	if (!status) {
@@ -865,10 +866,11 @@ static int sco_disconn_ind(struct hci_conn *hcon, __u8 reason)
 {
 	BT_DBG("hcon %p reason %d", hcon, reason);
 
-	if (hcon->type != SCO_LINK)
+	if (hcon->type != SCO_LINK && hcon->type != ESCO_LINK)
 		return 0;
 
 	sco_conn_del(hcon, bt_err(reason));
+
 	return 0;
 }
 
@@ -924,7 +926,7 @@ static const struct proto_ops sco_sock_ops = {
 	.sendmsg	= sco_sock_sendmsg,
 	.recvmsg	= bt_sock_recvmsg,
 	.poll		= bt_sock_poll,
-	.ioctl		= sock_no_ioctl,
+	.ioctl		= bt_sock_ioctl,
 	.mmap		= sock_no_mmap,
 	.socketpair	= sock_no_socketpair,
 	.shutdown	= sock_no_shutdown,
@@ -996,6 +998,9 @@ static void __exit sco_exit(void)
 
 module_init(sco_init);
 module_exit(sco_exit);
+
+module_param(disable_esco, bool, 0644);
+MODULE_PARM_DESC(disable_esco, "Disable eSCO connection creation");
 
 MODULE_AUTHOR("Maxim Krasnyansky <maxk@qualcomm.com>, Marcel Holtmann <marcel@holtmann.org>");
 MODULE_DESCRIPTION("Bluetooth SCO ver " VERSION);

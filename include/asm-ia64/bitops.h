@@ -9,6 +9,10 @@
  * O(1) scheduler patch
  */
 
+#ifndef _LINUX_BITOPS_H
+#error only <linux/bitops.h> can be included directly
+#endif
+
 #include <linux/compiler.h>
 #include <linux/types.h>
 #include <asm/intrinsics.h>
@@ -94,19 +98,64 @@ clear_bit (int nr, volatile void *addr)
 }
 
 /**
+ * clear_bit_unlock - Clears a bit in memory with release
+ * @nr: Bit to clear
+ * @addr: Address to start counting from
+ *
+ * clear_bit_unlock() is atomic and may not be reordered.  It does
+ * contain a memory barrier suitable for unlock type operations.
+ */
+static __inline__ void
+clear_bit_unlock (int nr, volatile void *addr)
+{
+	__u32 mask, old, new;
+	volatile __u32 *m;
+	CMPXCHG_BUGCHECK_DECL
+
+	m = (volatile __u32 *) addr + (nr >> 5);
+	mask = ~(1 << (nr & 31));
+	do {
+		CMPXCHG_BUGCHECK(m);
+		old = *m;
+		new = old & mask;
+	} while (cmpxchg_rel(m, old, new) != old);
+}
+
+/**
+ * __clear_bit_unlock - Non-atomically clears a bit in memory with release
+ * @nr: Bit to clear
+ * @addr: Address to start counting from
+ *
+ * Similarly to clear_bit_unlock, the implementation uses a store
+ * with release semantics. See also __raw_spin_unlock().
+ */
+static __inline__ void
+__clear_bit_unlock(int nr, void *addr)
+{
+	__u32 * const m = (__u32 *) addr + (nr >> 5);
+	__u32 const new = *m & ~(1 << (nr & 31));
+
+	ia64_st4_rel_nta(m, new);
+}
+
+/**
  * __clear_bit - Clears a bit in memory (non-atomic version)
+ * @nr: the bit to clear
+ * @addr: the address to start counting from
+ *
+ * Unlike clear_bit(), this function is non-atomic and may be reordered.
+ * If it's called on the same region of memory simultaneously, the effect
+ * may be that only one operation succeeds.
  */
 static __inline__ void
 __clear_bit (int nr, volatile void *addr)
 {
-	volatile __u32 *p = (__u32 *) addr + (nr >> 5);
-	__u32 m = 1 << (nr & 31);
-	*p &= ~m;
+	*((__u32 *) addr + (nr >> 5)) &= ~(1 << (nr & 31));
 }
 
 /**
  * change_bit - Toggle a bit in memory
- * @nr: Bit to clear
+ * @nr: Bit to toggle
  * @addr: Address to start counting from
  *
  * change_bit() is atomic and may not be reordered.
@@ -131,7 +180,7 @@ change_bit (int nr, volatile void *addr)
 
 /**
  * __change_bit - Toggle a bit in memory
- * @nr: the bit to set
+ * @nr: the bit to toggle
  * @addr: the address to start counting from
  *
  * Unlike change_bit(), this function is non-atomic and may be reordered.
@@ -150,7 +199,7 @@ __change_bit (int nr, volatile void *addr)
  * @addr: Address to count from
  *
  * This operation is atomic and cannot be reordered.  
- * It also implies a memory barrier.
+ * It also implies the acquisition side of the memory barrier.
  */
 static __inline__ int
 test_and_set_bit (int nr, volatile void *addr)
@@ -168,6 +217,15 @@ test_and_set_bit (int nr, volatile void *addr)
 	} while (cmpxchg_acq(m, old, new) != old);
 	return (old & bit) != 0;
 }
+
+/**
+ * test_and_set_bit_lock - Set a bit and return its old value for lock
+ * @nr: Bit to set
+ * @addr: Address to count from
+ *
+ * This is the same as test_and_set_bit on ia64
+ */
+#define test_and_set_bit_lock test_and_set_bit
 
 /**
  * __test_and_set_bit - Set a bit and return its old value
@@ -191,11 +249,11 @@ __test_and_set_bit (int nr, volatile void *addr)
 
 /**
  * test_and_clear_bit - Clear a bit and return its old value
- * @nr: Bit to set
+ * @nr: Bit to clear
  * @addr: Address to count from
  *
  * This operation is atomic and cannot be reordered.  
- * It also implies a memory barrier.
+ * It also implies the acquisition side of the memory barrier.
  */
 static __inline__ int
 test_and_clear_bit (int nr, volatile void *addr)
@@ -216,7 +274,7 @@ test_and_clear_bit (int nr, volatile void *addr)
 
 /**
  * __test_and_clear_bit - Clear a bit and return its old value
- * @nr: Bit to set
+ * @nr: Bit to clear
  * @addr: Address to count from
  *
  * This operation is non-atomic and can be reordered.  
@@ -236,11 +294,11 @@ __test_and_clear_bit(int nr, volatile void * addr)
 
 /**
  * test_and_change_bit - Change a bit and return its old value
- * @nr: Bit to set
+ * @nr: Bit to change
  * @addr: Address to count from
  *
  * This operation is atomic and cannot be reordered.  
- * It also implies a memory barrier.
+ * It also implies the acquisition side of the memory barrier.
  */
 static __inline__ int
 test_and_change_bit (int nr, volatile void *addr)
@@ -259,8 +317,12 @@ test_and_change_bit (int nr, volatile void *addr)
 	return (old & bit) != 0;
 }
 
-/*
- * WARNING: non atomic version.
+/**
+ * __test_and_change_bit - Change a bit and return its old value
+ * @nr: Bit to change
+ * @addr: Address to count from
+ *
+ * This operation is non-atomic and can be reordered.
  */
 static __inline__ int
 __test_and_change_bit (int nr, void *addr)
@@ -343,6 +405,22 @@ fls (int t)
 	x |= x >> 8;
 	x |= x >> 16;
 	return ia64_popcnt(x);
+}
+
+/*
+ * Find the last (most significant) bit set.  Undefined for x==0.
+ * Bits are numbered from 0..63 (e.g., __fls(9) == 3).
+ */
+static inline unsigned long
+__fls (unsigned long x)
+{
+	x |= x >> 1;
+	x |= x >> 2;
+	x |= x >> 4;
+	x |= x >> 8;
+	x |= x >> 16;
+	x |= x >> 32;
+	return ia64_popcnt(x) - 1;
 }
 
 #include <asm-generic/bitops/fls64.h>

@@ -26,10 +26,12 @@
 #include <linux/input.h>
 #include <linux/wait.h>
 #include <linux/vmalloc.h>
+#include <linux/sched.h>
 
 #include <linux/hid.h>
 #include <linux/hiddev.h>
 #include <linux/hid-debug.h>
+#include <linux/hidraw.h>
 
 /*
  * Version Information
@@ -42,8 +44,8 @@
 
 #ifdef CONFIG_HID_DEBUG
 int hid_debug = 0;
-module_param_named(debug, hid_debug, bool, 0600);
-MODULE_PARM_DESC(debug, "Turn HID debugging mode on and off");
+module_param_named(debug, hid_debug, int, 0600);
+MODULE_PARM_DESC(debug, "HID debugging (0=off, 1=probing info, 2=continuous data dumping)");
 EXPORT_SYMBOL_GPL(hid_debug);
 #endif
 
@@ -95,7 +97,7 @@ static struct hid_field *hid_register_field(struct hid_report *report, unsigned 
 	field->index = report->maxfield++;
 	report->field[field->index] = field;
 	field->usage = (struct hid_usage *)(field + 1);
-	field->value = (unsigned *)(field->usage + usages);
+	field->value = (s32 *)(field->usage + usages);
 	field->report = report;
 
 	return field;
@@ -604,7 +606,7 @@ static u8 *fetch_item(__u8 *start, __u8 *end, struct hid_item *item)
 		case 2:
 			if ((end - start) < 2)
 				return NULL;
-			item->data.u16 = le16_to_cpu(get_unaligned((__le16*)start));
+			item->data.u16 = get_unaligned_le16(start);
 			start = (__u8 *)((__le16 *)start + 1);
 			return start;
 
@@ -612,7 +614,7 @@ static u8 *fetch_item(__u8 *start, __u8 *end, struct hid_item *item)
 			item->size++;
 			if ((end - start) < 4)
 				return NULL;
-			item->data.u32 = le32_to_cpu(get_unaligned((__le32*)start));
+			item->data.u32 = get_unaligned_le32(start);
 			start = (__u8 *)((__le32 *)start + 1);
 			return start;
 	}
@@ -757,11 +759,13 @@ static __inline__ __u32 extract(__u8 *report, unsigned offset, unsigned n)
 {
 	u64 x;
 
-	WARN_ON(n > 32);
+	if (n > 32)
+		printk(KERN_WARNING "HID: extract() called with n (%d) > 32! (%s)\n",
+				n, current->comm);
 
 	report += offset >> 3;  /* adjust byte index */
 	offset &= 7;            /* now only need bit offset into one byte */
-	x = le64_to_cpu(get_unaligned((__le64 *) report));
+	x = get_unaligned_le64(report);
 	x = (x >> offset) & ((1ULL << n) - 1);  /* extract bit field */
 	return (u32) x;
 }
@@ -776,21 +780,26 @@ static __inline__ __u32 extract(__u8 *report, unsigned offset, unsigned n)
  */
 static __inline__ void implement(__u8 *report, unsigned offset, unsigned n, __u32 value)
 {
-	__le64 x;
+	u64 x;
 	u64 m = (1ULL << n) - 1;
 
-	WARN_ON(n > 32);
+	if (n > 32)
+		printk(KERN_WARNING "HID: implement() called with n (%d) > 32! (%s)\n",
+				n, current->comm);
 
+	if (value > m)
+		printk(KERN_WARNING "HID: implement() called with too large value %d! (%s)\n",
+				value, current->comm);
 	WARN_ON(value > m);
 	value &= m;
 
 	report += offset >> 3;
 	offset &= 7;
 
-	x = get_unaligned((__le64 *)report);
-	x &= cpu_to_le64(~(m << offset));
-	x |= cpu_to_le64(((u64) value) << offset);
-	put_unaligned(x, (__le64 *) report);
+	x = get_unaligned_le64(report);
+	x &= ~(m << offset);
+	x |= ((u64)value) << offset;
+	put_unaligned_le64(x, report);
 }
 
 /*
@@ -821,7 +830,8 @@ static void hid_process_event(struct hid_device *hid, struct hid_field *field, s
  * reporting to the layer).
  */
 
-void hid_input_field(struct hid_device *hid, struct hid_field *field, __u8 *data, int interrupt)
+static void hid_input_field(struct hid_device *hid, struct hid_field *field,
+			    __u8 *data, int interrupt)
 {
 	unsigned n;
 	unsigned count = field->report_count;
@@ -867,7 +877,6 @@ void hid_input_field(struct hid_device *hid, struct hid_field *field, __u8 *data
 exit:
 	kfree(value);
 }
-EXPORT_SYMBOL_GPL(hid_input_field);
 
 /*
  * Output the field into the report.
@@ -959,7 +968,7 @@ int hid_input_report(struct hid_device *hid, int type, u8 *data, int size, int i
 		size--;
 	}
 
-	/* dump the report descriptor */
+	/* dump the report */
 	dbg_hid("report %d (size %u) = ", n, size);
 	for (i = 0; i < size; i++)
 		dbg_hid_line(" %02x", data[i]);
@@ -979,6 +988,13 @@ int hid_input_report(struct hid_device *hid, int type, u8 *data, int size, int i
 
 	if ((hid->claimed & HID_CLAIMED_HIDDEV) && hid->hiddev_report_event)
 		hid->hiddev_report_event(hid, report);
+	if (hid->claimed & HID_CLAIMED_HIDRAW) {
+		/* numbered reports need to be passed with the report num */
+		if (report_enum->numbered)
+			hidraw_report_event(hid, data - 1, size + 1);
+		else
+			hidraw_report_event(hid, data, size);
+	}
 
 	for (n = 0; n < report->maxfield; n++)
 		hid_input_field(hid, report->field[n], data, interrupt);
@@ -989,6 +1005,19 @@ int hid_input_report(struct hid_device *hid, int type, u8 *data, int size, int i
 	return 0;
 }
 EXPORT_SYMBOL_GPL(hid_input_report);
+
+static int __init hid_init(void)
+{
+	return hidraw_init();
+}
+
+static void __exit hid_exit(void)
+{
+	hidraw_exit();
+}
+
+module_init(hid_init);
+module_exit(hid_exit);
 
 MODULE_LICENSE(DRIVER_LICENSE);
 

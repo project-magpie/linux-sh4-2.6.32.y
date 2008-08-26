@@ -25,7 +25,6 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/pci.h>
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <sound/control.h>
 #include <sound/initval.h>
@@ -43,7 +42,6 @@ static struct snd_pcm_hardware snd_cs5535audio_playback =
 		 		SNDRV_PCM_INFO_BLOCK_TRANSFER |
 		 		SNDRV_PCM_INFO_MMAP_VALID |
 		 		SNDRV_PCM_INFO_PAUSE |
-				SNDRV_PCM_INFO_SYNC_START |
 				SNDRV_PCM_INFO_RESUME
 				),
 	.formats =		(
@@ -71,8 +69,7 @@ static struct snd_pcm_hardware snd_cs5535audio_capture =
 				SNDRV_PCM_INFO_MMAP |
 				SNDRV_PCM_INFO_INTERLEAVED |
 		 		SNDRV_PCM_INFO_BLOCK_TRANSFER |
-		 		SNDRV_PCM_INFO_MMAP_VALID |
-				SNDRV_PCM_INFO_SYNC_START
+		 		SNDRV_PCM_INFO_MMAP_VALID
 				),
 	.formats =		(
 				SNDRV_PCM_FMTBIT_S16_LE
@@ -100,9 +97,10 @@ static int snd_cs5535audio_playback_open(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
 	runtime->hw = snd_cs5535audio_playback;
+	runtime->hw.rates = cs5535au->ac97->rates[AC97_RATES_FRONT_DAC];
+	snd_pcm_limit_hw_rates(runtime);
 	cs5535au->playback_substream = substream;
 	runtime->private_data = &(cs5535au->dmas[CS5535AUDIO_DMA_PLAYBACK]);
-	snd_pcm_set_sync(substream);
 	if ((err = snd_pcm_hw_constraint_integer(runtime,
 				SNDRV_PCM_HW_PARAM_PERIODS)) < 0)
 		return err;
@@ -164,6 +162,7 @@ static int cs5535audio_build_dma_packets(struct cs5535audio *cs5535au,
 	jmpprd_addr = cpu_to_le32(lastdesc->addr +
 				  (sizeof(struct cs5535audio_dma_desc)*periods));
 
+	dma->substream = substream;
 	dma->period_bytes = period_bytes;
 	dma->periods = periods;
 	spin_lock_irq(&cs5535au->reg_lock);
@@ -241,6 +240,7 @@ static void cs5535audio_clear_dma_packets(struct cs5535audio *cs5535au,
 {
 	snd_dma_free_pages(&dma->desc_buf);
 	dma->desc_buf.area = NULL;
+	dma->substream = NULL;
 }
 
 static int snd_cs5535audio_hw_params(struct snd_pcm_substream *substream,
@@ -298,14 +298,12 @@ static int snd_cs5535audio_trigger(struct snd_pcm_substream *substream, int cmd)
 		break;
 	case SNDRV_PCM_TRIGGER_RESUME:
 		dma->ops->enable_dma(cs5535au);
-		dma->suspended = 0;
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 		dma->ops->disable_dma(cs5535au);
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 		dma->ops->disable_dma(cs5535au);
-		dma->suspended = 1;
 		break;
 	default:
 		snd_printk(KERN_ERR "unhandled trigger\n");
@@ -346,9 +344,10 @@ static int snd_cs5535audio_capture_open(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
 	runtime->hw = snd_cs5535audio_capture;
+	runtime->hw.rates = cs5535au->ac97->rates[AC97_RATES_ADC];
+	snd_pcm_limit_hw_rates(runtime);
 	cs5535au->capture_substream = substream;
 	runtime->private_data = &(cs5535au->dmas[CS5535AUDIO_DMA_CAPTURE]);
-	snd_pcm_set_sync(substream);
 	if ((err = snd_pcm_hw_constraint_integer(runtime,
 					 SNDRV_PCM_HW_PARAM_PERIODS)) < 0)
 		return err;

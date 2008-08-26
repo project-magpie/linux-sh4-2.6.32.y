@@ -1024,7 +1024,7 @@ static int irda_usb_is_receiving(struct irda_usb_cb *self)
  *   Upload firmware code to SigmaTel 421X IRDA-USB dongle
  */
 static int stir421x_fw_upload(struct irda_usb_cb *self,
-			     unsigned char *patch,
+			     const unsigned char *patch,
 			     const unsigned int patch_len)
 {
         int ret = -ENOMEM;
@@ -1073,11 +1073,11 @@ static int stir421x_fw_upload(struct irda_usb_cb *self,
   */
 static int stir421x_patch_device(struct irda_usb_cb *self)
 {
-        unsigned int i;
-        int ret;
-        char stir421x_fw_name[11];
-        const struct firmware *fw;
-        unsigned char *fw_version_ptr; /* pointer to version string */
+	unsigned int i;
+	int ret;
+	char stir421x_fw_name[11];
+	const struct firmware *fw;
+	const unsigned char *fw_version_ptr; /* pointer to version string */
 	unsigned long fw_version = 0;
 
         /*
@@ -1120,7 +1120,7 @@ static int stir421x_patch_device(struct irda_usb_cb *self)
                 }
         }
 
-        if (self->usbdev->descriptor.bcdDevice == fw_version) {
+        if (self->usbdev->descriptor.bcdDevice == cpu_to_le16(fw_version)) {
                 /*
 		 * If we're here, we've found a correct patch
                  * The actual image starts after the "STMP" keyword
@@ -1168,6 +1168,7 @@ static int stir421x_patch_device(struct irda_usb_cb *self)
 static int irda_usb_net_open(struct net_device *netdev)
 {
 	struct irda_usb_cb *self;
+	unsigned long flags;
 	char	hwname[16];
 	int i;
 	
@@ -1177,13 +1178,16 @@ static int irda_usb_net_open(struct net_device *netdev)
 	self = (struct irda_usb_cb *) netdev->priv;
 	IRDA_ASSERT(self != NULL, return -1;);
 
+	spin_lock_irqsave(&self->lock, flags);
 	/* Can only open the device if it's there */
 	if(!self->present) {
+		spin_unlock_irqrestore(&self->lock, flags);
 		IRDA_WARNING("%s(), device not present!\n", __FUNCTION__);
 		return -1;
 	}
 
 	if(self->needspatch) {
+		spin_unlock_irqrestore(&self->lock, flags);
 		IRDA_WARNING("%s(), device needs patch\n", __FUNCTION__) ;
 		return -EIO ;
 	}
@@ -1198,6 +1202,7 @@ static int irda_usb_net_open(struct net_device *netdev)
 	/* To do *before* submitting Rx urbs and starting net Tx queue
 	 * Jean II */
 	self->netopen = 1;
+	spin_unlock_irqrestore(&self->lock, flags);
 
 	/* 
 	 * Now that everything should be initialized properly,
@@ -1635,7 +1640,6 @@ static int irda_usb_probe(struct usb_interface *intf,
 	if (!net) 
 		goto err_out;
 
-	SET_MODULE_OWNER(net);
 	SET_NETDEV_DEV(net, &intf->dev);
 	self = net->priv;
 	self->netdev = net;

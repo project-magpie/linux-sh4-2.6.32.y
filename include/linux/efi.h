@@ -18,6 +18,7 @@
 #include <linux/proc_fs.h>
 #include <linux/rtc.h>
 #include <linux/ioport.h>
+#include <linux/pfn.h>
 
 #include <asm/page.h>
 #include <asm/system.h>
@@ -286,7 +287,6 @@ efi_guid_unparse(efi_guid_t *guid, char *out)
 extern void efi_init (void);
 extern void *efi_get_pal_addr (void);
 extern void efi_map_pal_code (void);
-extern void efi_map_memmap(void);
 extern void efi_memmap_walk (efi_freemem_callback_t callback, void *arg);
 extern void efi_gettimeofday (struct timespec *ts);
 extern void efi_enter_virtual_mode (void);	/* switch EFI to virtual mode, if possible */
@@ -294,14 +294,11 @@ extern u64 efi_get_iobase (void);
 extern u32 efi_mem_type (unsigned long phys_addr);
 extern u64 efi_mem_attributes (unsigned long phys_addr);
 extern u64 efi_mem_attribute (unsigned long phys_addr, unsigned long size);
-extern int efi_mem_attribute_range (unsigned long phys_addr, unsigned long size,
-				    u64 attr);
 extern int __init efi_uart_console_only (void);
 extern void efi_initialize_iomem_resources(struct resource *code_resource,
-					struct resource *data_resource);
+		struct resource *data_resource, struct resource *bss_resource);
 extern unsigned long efi_get_time(void);
 extern int efi_set_rtc_mmss(unsigned long nowtime);
-extern int is_available_memory(efi_memory_desc_t * md);
 extern struct efi_memory_map memmap;
 
 /**
@@ -393,5 +390,11 @@ struct efi_generic_dev_path {
 	u8 sub_type;
 	u16 length;
 } __attribute ((packed));
+
+static inline void memrange_efi_to_native(u64 *addr, u64 *npages)
+{
+	*npages = PFN_UP(*addr + (*npages<<EFI_PAGE_SHIFT)) - PFN_DOWN(*addr);
+	*addr &= PAGE_MASK;
+}
 
 #endif /* _LINUX_EFI_H */

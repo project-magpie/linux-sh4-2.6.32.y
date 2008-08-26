@@ -18,3 +18,4 @@ profdrvr-$(CONFIG_CPU_SUBTYPE_STB7100)  += op_model_sh7109.o
 
 oprofile-y				:= $(DRIVER_OBJS) $(profdrvr-y)
 
+EXTRA_CFLAGS += -Werror

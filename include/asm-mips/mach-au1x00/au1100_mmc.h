@@ -38,12 +38,15 @@
 #ifndef __ASM_AU1100_MMC_H
 #define __ASM_AU1100_MMC_H
 
+#include <linux/leds.h>
 
-#define NUM_AU1100_MMC_CONTROLLERS	2
-
-
-#define AU1100_SD_IRQ	2
-
+struct au1xmmc_platform_data {
+	int(*cd_setup)(void *mmc_host, int on);
+	int(*card_inserted)(void *mmc_host);
+	int(*card_readonly)(void *mmc_host);
+	void(*set_power)(void *mmc_host, int state);
+	struct led_classdev *led;
+};
 
 #define SD0_BASE	0xB0600000
 #define SD1_BASE	0xB0680000

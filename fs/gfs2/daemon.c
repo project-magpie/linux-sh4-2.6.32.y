@@ -35,30 +35,6 @@
    The kthread functions used to start these daemons block and flush signals. */
 
 /**
- * gfs2_scand - Look for cached glocks and inodes to toss from memory
- * @sdp: Pointer to GFS2 superblock
- *
- * One of these daemons runs, finding candidates to add to sd_reclaim_list.
- * See gfs2_glockd()
- */
-
-int gfs2_scand(void *data)
-{
-	struct gfs2_sbd *sdp = data;
-	unsigned long t;
-
-	while (!kthread_should_stop()) {
-		gfs2_scand_internal(sdp);
-		t = gfs2_tune_get(sdp, gt_scand_secs) * HZ;
-		if (freezing(current))
-			refrigerator();
-		schedule_timeout_interruptible(t);
-	}
-
-	return 0;
-}
-
-/**
  * gfs2_glockd - Reclaim unused glock structures
  * @sdp: Pointer to GFS2 superblock
  *
@@ -98,56 +74,6 @@ int gfs2_recoverd(void *data)
 	while (!kthread_should_stop()) {
 		gfs2_check_journals(sdp);
 		t = gfs2_tune_get(sdp,  gt_recoverd_secs) * HZ;
-		if (freezing(current))
-			refrigerator();
-		schedule_timeout_interruptible(t);
-	}
-
-	return 0;
-}
-
-/**
- * gfs2_logd - Update log tail as Active Items get flushed to in-place blocks
- * @sdp: Pointer to GFS2 superblock
- *
- * Also, periodically check to make sure that we're using the most recent
- * journal index.
- */
-
-int gfs2_logd(void *data)
-{
-	struct gfs2_sbd *sdp = data;
-	struct gfs2_holder ji_gh;
-	unsigned long t;
-	int need_flush;
-
-	while (!kthread_should_stop()) {
-		/* Advance the log tail */
-
-		t = sdp->sd_log_flush_time +
-		    gfs2_tune_get(sdp, gt_log_flush_secs) * HZ;
-
-		gfs2_ail1_empty(sdp, DIO_ALL);
-		gfs2_log_lock(sdp);
-		need_flush = sdp->sd_log_num_buf > gfs2_tune_get(sdp, gt_incore_log_blocks);
-		gfs2_log_unlock(sdp);
-		if (need_flush || time_after_eq(jiffies, t)) {
-			gfs2_log_flush(sdp, NULL);
-			sdp->sd_log_flush_time = jiffies;
-		}
-
-		/* Check for latest journal index */
-
-		t = sdp->sd_jindex_refresh_time +
-		    gfs2_tune_get(sdp, gt_jindex_refresh_secs) * HZ;
-
-		if (time_after_eq(jiffies, t)) {
-			if (!gfs2_jindex_hold(sdp, &ji_gh))
-				gfs2_glock_dq_uninit(&ji_gh);
-			sdp->sd_jindex_refresh_time = jiffies;
-		}
-
-		t = gfs2_tune_get(sdp, gt_logd_secs) * HZ;
 		if (freezing(current))
 			refrigerator();
 		schedule_timeout_interruptible(t);

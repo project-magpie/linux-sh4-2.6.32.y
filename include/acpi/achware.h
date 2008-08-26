@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2007, R. Byron Moore
+ * Copyright (C) 2000 - 2008, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -71,9 +71,9 @@ u32 acpi_hw_get_mode(void);
 struct acpi_bit_register_info *acpi_hw_get_bit_register_info(u32 register_id);
 
 acpi_status
-acpi_hw_register_read(u8 use_lock, u32 register_id, u32 * return_value);
+acpi_hw_register_read(u32 register_id, u32 * return_value);
 
-acpi_status acpi_hw_register_write(u8 use_lock, u32 register_id, u32 value);
+acpi_status acpi_hw_register_write(u32 register_id, u32 value);
 
 acpi_status
 acpi_hw_low_level_read(u32 width,
@@ -87,6 +87,8 @@ acpi_status acpi_hw_clear_acpi_status(void);
 /*
  * hwgpe - GPE support
  */
+acpi_status acpi_hw_low_disable_gpe(struct acpi_gpe_event_info *gpe_event_info);
+
 acpi_status
 acpi_hw_write_gpe_enable_reg(struct acpi_gpe_event_info *gpe_event_info);
 
@@ -100,11 +102,9 @@ acpi_status
 acpi_hw_clear_gpe_block(struct acpi_gpe_xrupt_info *gpe_xrupt_info,
 			struct acpi_gpe_block_info *gpe_block);
 
-#ifdef	ACPI_FUTURE_USAGE
 acpi_status
 acpi_hw_get_gpe_status(struct acpi_gpe_event_info *gpe_event_info,
 		       acpi_event_status * event_status);
-#endif				/* ACPI_FUTURE_USAGE */
 
 acpi_status acpi_hw_disable_all_gpes(void);
 

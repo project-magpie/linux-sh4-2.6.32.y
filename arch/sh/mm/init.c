@@ -23,61 +23,10 @@
 
 DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
 pgd_t swapper_pg_dir[PTRS_PER_PGD];
-
-void (*copy_page)(void *from, void *to);
-void (*clear_page)(void *to);
-
-extern char _start_uncached, _end_uncached;
-
-/* Offset of the uncached section from its cached alias.  Default
- * value only valid in 29 bit mode, in 32bit mode will be overridden
- * in pmb_init.
- */
-unsigned long cached_to_uncached = 0x20000000;
-
-void show_mem(void)
-{
-	int total = 0, reserved = 0, free = 0;
-	int shared = 0, cached = 0, slab = 0;
-	pg_data_t *pgdat;
-
-	printk("Mem-info:\n");
-	show_free_areas();
-
-	for_each_online_pgdat(pgdat) {
-		unsigned long flags, i;
-
-		pgdat_resize_lock(pgdat, &flags);
-		for (i = 0; i < pgdat->node_spanned_pages; i++) {
-			struct page *page = pgdat_page_nr(pgdat, i);
-			total++;
-			if (PageReserved(page))
-				reserved++;
-			else if (PageSwapCache(page))
-				cached++;
-			else if (PageSlab(page))
-				slab++;
-			else if (!page_count(page))
-				free++;
-			else
-				shared += page_count(page) - 1;
-		}
-		pgdat_resize_unlock(pgdat, &flags);
-	}
-
-	printk("Free swap:       %6ldkB\n", nr_swap_pages<<(PAGE_SHIFT-10));
-	printk("%d pages of RAM\n", total);
-	printk("%d free pages\n", free);
-	printk("%d reserved pages\n", reserved);
-	printk("%d slab pages\n", slab);
-	printk("%d pages shared\n", shared);
-	printk("%d pages swap cached\n", cached);
-	printk(KERN_INFO "Total of %ld pages in page table cache\n",
-	       quicklist_total_size());
-}
+unsigned long cached_to_uncached = -1;  /* Catch usage before initialised */
 
 #ifdef CONFIG_MMU
-void set_pte_phys(unsigned long addr, unsigned long phys, pgprot_t prot)
+static void set_pte_phys(unsigned long addr, unsigned long phys, pgprot_t prot)
 {
 	pgd_t *pgd;
 	pud_t *pud;
@@ -110,7 +59,6 @@ void set_pte_phys(unsigned long addr, unsigned long phys, pgprot_t prot)
 
 	set_pte(pte, pfn_pte(phys >> PAGE_SHIFT, prot));
 
-	if (cached_to_uncached)
 	flush_tlb_one(get_asid(), addr);
 }
 
@@ -156,9 +104,9 @@ void __init page_table_range_init(unsigned long start, unsigned long end,
 	pgd = pgd_base + pgd_idx;
 
 	for ( ; (pgd_idx < PTRS_PER_PGD) && (vaddr != end); pgd++, pgd_idx++) {
-		if (pgd_none(*pgd)) BUG();
+		BUG_ON(pgd_none(*pgd));
 		pud = pud_offset(pgd, 0);
-		if (pud_none(*pud)) BUG();
+		BUG_ON(pud_none(*pud));
 		pmd = pmd_offset(pud, 0);
 
 		if (!pmd_present(*pmd)) {
@@ -169,7 +117,6 @@ void __init page_table_range_init(unsigned long start, unsigned long end,
 		vaddr += PMD_SIZE;
 	}
 }
-
 #endif	/* CONFIG_MMU */
 
 /*
@@ -200,7 +147,7 @@ void __init paging_init(void)
 		pg_data_t *pgdat = NODE_DATA(nid);
 		unsigned long low, start_pfn;
 
-		start_pfn = pgdat->bdata->node_boot_start >> PAGE_SHIFT;
+		start_pfn = pgdat->bdata->node_min_pfn;
 		low = pgdat->bdata->node_low_pfn;
 
 		if (max_zone_pfns[ZONE_NORMAL] < low)
@@ -212,10 +159,23 @@ void __init paging_init(void)
 
 	free_area_init_nodes(max_zone_pfns);
 
-	set_fixmap_nocache(FIX_UNCACHED_CODE, __pa(&_start_uncached));
+#ifdef CONFIG_SUPERH32
+	/* Set up the uncached fixmap */
+	set_fixmap_nocache(FIX_UNCACHED, __pa(&__uncached_start));
+
+#ifdef CONFIG_29BIT
+	/*
+	 * Handle trivial transitions between cached and uncached
+	 * segments, making use of the 1:1 mapping relationship in
+	 * 512MB lowmem.
+	 */
+	cached_to_uncached = P2SEG - P1SEG;
+#endif
+#endif
 }
 
 static struct kcore_list kcore_mem, kcore_vmalloc;
+int after_bootmem = 0;
 
 void __init mem_init(void)
 {
@@ -248,17 +208,7 @@ void __init mem_init(void)
 	memset(empty_zero_page, 0, PAGE_SIZE);
 	__flush_wback_region(empty_zero_page, PAGE_SIZE);
 
-	/*
-	 * Setup wrappers for copy/clear_page(), these will get overridden
-	 * later in the boot process if a better method is available.
-	 */
-#ifdef CONFIG_MMU
-	copy_page = copy_page_slow;
-	clear_page = clear_page_slow;
-#else
-	copy_page = copy_page_nommu;
-	clear_page = clear_page_nommu;
-#endif
+	after_bootmem = 1;
 
 	codesize =  (unsigned long) &_etext - (unsigned long) &_text;
 	datasize =  (unsigned long) &_edata - (unsigned long) &_etext;
@@ -313,15 +263,6 @@ void free_initrd_mem(unsigned long start, unsigned long end)
 #endif
 
 #ifdef CONFIG_MEMORY_HOTPLUG
-void online_page(struct page *page)
-{
-	ClearPageReserved(page);
-	init_page_count(page);
-	__free_page(page);
-	totalram_pages++;
-	num_physpages++;
-}
-
 int arch_add_memory(int nid, u64 start, u64 size)
 {
 	pg_data_t *pgdat;
@@ -334,17 +275,11 @@ int arch_add_memory(int nid, u64 start, u64 size)
 	/* We only have ZONE_NORMAL, so this is easy.. */
 	ret = __add_pages(pgdat->node_zones + ZONE_NORMAL, start_pfn, nr_pages);
 	if (unlikely(ret))
-		printk("%s: Failed, __add_pages() == %d\n", __FUNCTION__, ret);
+		printk("%s: Failed, __add_pages() == %d\n", __func__, ret);
 
 	return ret;
 }
 EXPORT_SYMBOL_GPL(arch_add_memory);
-
-int remove_memory(u64 start, u64 size)
-{
-	return -EINVAL;
-}
-EXPORT_SYMBOL_GPL(remove_memory);
 
 #ifdef CONFIG_NUMA
 int memory_add_physaddr_to_nid(u64 addr)

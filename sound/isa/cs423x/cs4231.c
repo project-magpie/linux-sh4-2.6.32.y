@@ -1,6 +1,6 @@
 /*
  *  Generic driver for CS4231 chips
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *  Originally the CS4232/CS4232A driver, modified for use on CS4231 by
  *  Tugrul Galatali <galatalt@stuy.edu>
  *
@@ -20,7 +20,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/err.h>
 #include <linux/isa.h>
@@ -36,7 +35,7 @@
 #define DEV_NAME "cs4231"
 
 MODULE_DESCRIPTION(CRD_NAME);
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Crystal Semiconductors,CS4231}}");
 

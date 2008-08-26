@@ -69,7 +69,6 @@
  */
 
 
-#include <sound/driver.h>
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -256,19 +255,6 @@ static inline unsigned int snd_rme32_pcm_byteptr(struct rme32 * rme32)
 {
 	return (readl(rme32->iobase + RME32_IO_GET_POS)
 		& RME32_RCR_AUDIO_ADDR_MASK);
-}
-
-static int snd_rme32_ratecode(int rate)
-{
-	switch (rate) {
-	case 32000: return SNDRV_PCM_RATE_32000;
-	case 44100: return SNDRV_PCM_RATE_44100;
-	case 48000: return SNDRV_PCM_RATE_48000;
-	case 64000: return SNDRV_PCM_RATE_64000;
-	case 88200: return SNDRV_PCM_RATE_88200;
-	case 96000: return SNDRV_PCM_RATE_96000;
-	}
-	return 0;
 }
 
 /* silence callback for halfduplex mode */
@@ -887,7 +873,7 @@ static int snd_rme32_playback_spdif_open(struct snd_pcm_substream *substream)
 	if ((rme32->rcreg & RME32_RCR_KMODE) &&
 	    (rate = snd_rme32_capture_getrate(rme32, &dummy)) > 0) {
 		/* AutoSync */
-		runtime->hw.rates = snd_rme32_ratecode(rate);
+		runtime->hw.rates = snd_pcm_rate_to_rate_bit(rate);
 		runtime->hw.rate_min = rate;
 		runtime->hw.rate_max = rate;
 	}       
@@ -929,7 +915,7 @@ static int snd_rme32_capture_spdif_open(struct snd_pcm_substream *substream)
 		if (isadat) {
 			return -EIO;
 		}
-		runtime->hw.rates = snd_rme32_ratecode(rate);
+		runtime->hw.rates = snd_pcm_rate_to_rate_bit(rate);
 		runtime->hw.rate_min = rate;
 		runtime->hw.rate_max = rate;
 	}
@@ -965,7 +951,7 @@ snd_rme32_playback_adat_open(struct snd_pcm_substream *substream)
 	if ((rme32->rcreg & RME32_RCR_KMODE) &&
 	    (rate = snd_rme32_capture_getrate(rme32, &dummy)) > 0) {
                 /* AutoSync */
-                runtime->hw.rates = snd_rme32_ratecode(rate);
+                runtime->hw.rates = snd_pcm_rate_to_rate_bit(rate);
                 runtime->hw.rate_min = rate;
                 runtime->hw.rate_max = rate;
 	}        
@@ -989,7 +975,7 @@ snd_rme32_capture_adat_open(struct snd_pcm_substream *substream)
 		if (!isadat) {
 			return -EIO;
 		}
-                runtime->hw.rates = snd_rme32_ratecode(rate);
+                runtime->hw.rates = snd_pcm_rate_to_rate_bit(rate);
                 runtime->hw.rate_min = rate;
                 runtime->hw.rate_max = rate;
         }
@@ -1364,7 +1350,8 @@ static int __devinit snd_rme32_create(struct rme32 * rme32)
 		return err;
 	rme32->port = pci_resource_start(rme32->pci, 0);
 
-	if ((rme32->iobase = ioremap_nocache(rme32->port, RME32_IO_SIZE)) == 0) {
+	rme32->iobase = ioremap_nocache(rme32->port, RME32_IO_SIZE);
+	if (!rme32->iobase) {
 		snd_printk(KERN_ERR "unable to remap memory region 0x%lx-0x%lx\n",
 			   rme32->port, rme32->port + RME32_IO_SIZE - 1);
 		return -ENOMEM;
@@ -1582,16 +1569,8 @@ static void __devinit snd_rme32_proc_init(struct rme32 * rme32)
  * control interface
  */
 
-static int
-snd_rme32_info_loopback_control(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_rme32_info_loopback_control		snd_ctl_boolean_mono_info
+
 static int
 snd_rme32_get_loopback_control(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)

@@ -333,7 +333,6 @@
 
 #include <linux/module.h>
 
-#include <linux/version.h>
 #include <linux/types.h>
 #include <linux/string.h>
 #include <linux/errno.h>
@@ -365,10 +364,6 @@
 
 #if defined(CONFIG_IA64_GENERIC) || defined(CONFIG_IA64_SGI_SN2)
 #include <asm/sn/io.h>
-#endif
-
-#if LINUX_VERSION_CODE < 0x020600
-#error "Kernels older than 2.6.0 are no longer supported"
 #endif
 
 
@@ -528,7 +523,7 @@ __setup("qla1280=", qla1280_setup);
 #define	CMD_CDBLEN(Cmnd)	Cmnd->cmd_len
 #define	CMD_CDBP(Cmnd)		Cmnd->cmnd
 #define	CMD_SNSP(Cmnd)		Cmnd->sense_buffer
-#define	CMD_SNSLEN(Cmnd)	sizeof(Cmnd->sense_buffer)
+#define	CMD_SNSLEN(Cmnd)	SCSI_SENSE_BUFFERSIZE
 #define	CMD_RESULT(Cmnd)	Cmnd->result
 #define	CMD_HANDLE(Cmnd)	Cmnd->host_scribble
 #define CMD_REQUEST(Cmnd)	Cmnd->request->cmd
@@ -1310,14 +1305,7 @@ qla1280_done(struct scsi_qla_host *ha)
 		}
 
 		/* Release memory used for this I/O */
-		if (cmd->use_sg) {
-			pci_unmap_sg(ha->pdev, cmd->request_buffer,
-					cmd->use_sg, cmd->sc_data_direction);
-		} else if (cmd->request_bufflen) {
-			pci_unmap_single(ha->pdev, sp->saved_dma_handle,
-					cmd->request_bufflen,
-					cmd->sc_data_direction);
-		}
+		scsi_dma_unmap(cmd);
 
 		/* Call the mid-level driver interrupt handler */
 		CMD_HANDLE(sp->cmd) = (unsigned char *)INVALID_HANDLE;
@@ -1406,14 +1394,14 @@ qla1280_return_status(struct response * sts, struct scsi_cmnd *cp)
 		break;
 
 	case CS_DATA_UNDERRUN:
-		if ((cp->request_bufflen - residual_length) <
+		if ((scsi_bufflen(cp) - residual_length) <
 		    cp->underflow) {
 			printk(KERN_WARNING
 			       "scsi: Underflow detected - retrying "
 			       "command.\n");
 			host_status = DID_ERROR;
 		} else {
-			cp->resid = residual_length;
+			scsi_set_resid(cp, residual_length);
 			host_status = DID_OK;
 		}
 		break;
@@ -1707,7 +1695,7 @@ qla1280_load_firmware_dma(struct scsi_qla_host *ha)
 	risc_code_size = *ql1280_board_tbl[ha->devnum].fwlen;
 
 	dprintk(1, "%s: DMA RISC code (%i) words\n",
-			__FUNCTION__, risc_code_size);
+			__func__, risc_code_size);
 
 	num = 0;
 	while (risc_code_size > 0) {
@@ -1733,7 +1721,7 @@ qla1280_load_firmware_dma(struct scsi_qla_host *ha)
 		mb[7] = pci_dma_hi32(ha->request_dma) & 0xffff;
 		mb[6] = pci_dma_hi32(ha->request_dma) >> 16;
 		dprintk(2, "%s: op=%d  0x%p = 0x%4x,0x%4x,0x%4x,0x%4x\n",
-				__FUNCTION__, mb[0],
+				__func__, mb[0],
 				(void *)(long)ha->request_dma,
 				mb[6], mb[7], mb[2], mb[3]);
 		err = qla1280_mailbox_command(ha, BIT_4 | BIT_3 | BIT_2 |
@@ -1765,10 +1753,10 @@ qla1280_load_firmware_dma(struct scsi_qla_host *ha)
 			if (tbuf[i] != sp[i] && warn++ < 10) {
 				printk(KERN_ERR "%s: FW compare error @ "
 						"byte(0x%x) loop#=%x\n",
-						__FUNCTION__, i, num);
+						__func__, i, num);
 				printk(KERN_ERR "%s: FWbyte=%x  "
 						"FWfromChip=%x\n",
-						__FUNCTION__, sp[i], tbuf[i]);
+						__func__, sp[i], tbuf[i]);
 				/*break; */
 			}
 		}
@@ -1793,7 +1781,7 @@ qla1280_start_firmware(struct scsi_qla_host *ha)
 	int err;
 
 	dprintk(1, "%s: Verifying checksum of loaded RISC code.\n",
-			__FUNCTION__);
+			__func__);
 
 	/* Verify checksum of loaded RISC code. */
 	mb[0] = MBC_VERIFY_CHECKSUM;
@@ -1806,7 +1794,7 @@ qla1280_start_firmware(struct scsi_qla_host *ha)
 	}
 
 	/* Start firmware execution. */
-	dprintk(1, "%s: start firmware running.\n", __FUNCTION__);
+	dprintk(1, "%s: start firmware running.\n", __func__);
 	mb[0] = MBC_EXECUTE_FIRMWARE;
 	mb[1] = *ql1280_board_tbl[ha->devnum].fwstart;
 	err = qla1280_mailbox_command(ha, BIT_1 | BIT_0, &mb[0]);
@@ -2019,7 +2007,7 @@ qla1280_set_defaults(struct scsi_qla_host *ha)
 		nv->bus[bus].config_2.req_ack_active_negation = 1;
 		nv->bus[bus].config_2.data_line_active_negation = 1;
 		nv->bus[bus].selection_timeout = 250;
-		nv->bus[bus].max_queue_depth = 256;
+		nv->bus[bus].max_queue_depth = 32;
 
 		if (IS_ISP1040(ha)) {
 			nv->bus[bus].bus_reset_delay = 3;
@@ -2063,7 +2051,7 @@ qla1280_config_target(struct scsi_qla_host *ha, int bus, int target)
 	status = qla1280_mailbox_command(ha, 0x0f, mb);
 
 	/* Save Tag queuing enable flag. */
-	flag = (BIT_0 << target) & mb[0];
+	flag = (BIT_0 << target);
 	if (nv->bus[bus].target[target].parameter.tag_queuing)
 		ha->bus_settings[bus].qtag_enables |= flag;
 
@@ -2775,33 +2763,28 @@ qla1280_64bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 	struct device_reg __iomem *reg = ha->iobase;
 	struct scsi_cmnd *cmd = sp->cmd;
 	cmd_a64_entry_t *pkt;
-	struct scatterlist *sg = NULL;
 	__le32 *dword_ptr;
 	dma_addr_t dma_handle;
 	int status = 0;
 	int cnt;
 	int req_cnt;
-	u16 seg_cnt;
+	int seg_cnt;
 	u8 dir;
 
 	ENTER("qla1280_64bit_start_scsi:");
 
 	/* Calculate number of entries and segments required. */
 	req_cnt = 1;
-	if (cmd->use_sg) {
-		sg = (struct scatterlist *) cmd->request_buffer;
-		seg_cnt = pci_map_sg(ha->pdev, sg, cmd->use_sg,
-				     cmd->sc_data_direction);
-
+	seg_cnt = scsi_dma_map(cmd);
+	if (seg_cnt > 0) {
 		if (seg_cnt > 2) {
 			req_cnt += (seg_cnt - 2) / 5;
 			if ((seg_cnt - 2) % 5)
 				req_cnt++;
 		}
-	} else if (cmd->request_bufflen) {	/* If data transfer. */
-		seg_cnt = 1;
-	} else {
-		seg_cnt = 0;
+	} else if (seg_cnt < 0) {
+		status = 1;
+		goto out;
 	}
 
 	if ((req_cnt + 2) >= ha->req_q_cnt) {
@@ -2828,7 +2811,7 @@ qla1280_64bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 
 	/* Check for room in outstanding command list. */
 	for (cnt = 0; cnt < MAX_OUTSTANDING_COMMANDS &&
-		     ha->outstanding_cmds[cnt] != 0; cnt++);
+		     ha->outstanding_cmds[cnt] != NULL; cnt++);
 
 	if (cnt >= MAX_OUTSTANDING_COMMANDS) {
 		status = 1;
@@ -2875,7 +2858,7 @@ qla1280_64bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 
 	/* Load SCSI command packet. */
 	pkt->cdb_len = cpu_to_le16(CMD_CDBLEN(cmd));
-	memcpy(pkt->scsi_cdb, &(CMD_CDBP(cmd)), CMD_CDBLEN(cmd));
+	memcpy(pkt->scsi_cdb, CMD_CDBP(cmd), CMD_CDBLEN(cmd));
 	/* dprintk(1, "Build packet for command[0]=0x%x\n",pkt->scsi_cdb[0]); */
 
 	/* Set transfer direction. */
@@ -2889,118 +2872,104 @@ qla1280_64bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 	 * Load data segments.
 	 */
 	if (seg_cnt) {	/* If data transfer. */
+		struct scatterlist *sg, *s;
+		int remseg = seg_cnt;
+
+		sg = scsi_sglist(cmd);
+
 		/* Setup packet address segment pointer. */
 		dword_ptr = (u32 *)&pkt->dseg_0_address;
 
-		if (cmd->use_sg) {	/* If scatter gather */
-			/* Load command entry data segments. */
-			for (cnt = 0; cnt < 2 && seg_cnt; cnt++, seg_cnt--) {
-				dma_handle = sg_dma_address(sg);
+		/* Load command entry data segments. */
+		for_each_sg(sg, s, seg_cnt, cnt) {
+			if (cnt == 2)
+				break;
+
+			dma_handle = sg_dma_address(s);
+#if defined(CONFIG_IA64_GENERIC) || defined(CONFIG_IA64_SGI_SN2)
+			if (ha->flags.use_pci_vchannel)
+				sn_pci_set_vchan(ha->pdev,
+						 (unsigned long *)&dma_handle,
+						 SCSI_BUS_32(cmd));
+#endif
+			*dword_ptr++ =
+				cpu_to_le32(pci_dma_lo32(dma_handle));
+			*dword_ptr++ =
+				cpu_to_le32(pci_dma_hi32(dma_handle));
+			*dword_ptr++ = cpu_to_le32(sg_dma_len(s));
+			dprintk(3, "S/G Segment phys_addr=%x %x, len=0x%x\n",
+				cpu_to_le32(pci_dma_hi32(dma_handle)),
+				cpu_to_le32(pci_dma_lo32(dma_handle)),
+				cpu_to_le32(sg_dma_len(sg_next(s))));
+			remseg--;
+		}
+		dprintk(5, "qla1280_64bit_start_scsi: Scatter/gather "
+			"command packet data - b %i, t %i, l %i \n",
+			SCSI_BUS_32(cmd), SCSI_TCN_32(cmd),
+			SCSI_LUN_32(cmd));
+		qla1280_dump_buffer(5, (char *)pkt,
+				    REQUEST_ENTRY_SIZE);
+
+		/*
+		 * Build continuation packets.
+		 */
+		dprintk(3, "S/G Building Continuation...seg_cnt=0x%x "
+			"remains\n", seg_cnt);
+
+		while (remseg > 0) {
+			/* Update sg start */
+			sg = s;
+			/* Adjust ring index. */
+			ha->req_ring_index++;
+			if (ha->req_ring_index == REQUEST_ENTRY_CNT) {
+				ha->req_ring_index = 0;
+				ha->request_ring_ptr =
+					ha->request_ring;
+			} else
+				ha->request_ring_ptr++;
+
+			pkt = (cmd_a64_entry_t *)ha->request_ring_ptr;
+
+			/* Zero out packet. */
+			memset(pkt, 0, REQUEST_ENTRY_SIZE);
+
+			/* Load packet defaults. */
+			((struct cont_a64_entry *) pkt)->entry_type =
+				CONTINUE_A64_TYPE;
+			((struct cont_a64_entry *) pkt)->entry_count = 1;
+			((struct cont_a64_entry *) pkt)->sys_define =
+				(uint8_t)ha->req_ring_index;
+			/* Setup packet address segment pointer. */
+			dword_ptr =
+				(u32 *)&((struct cont_a64_entry *) pkt)->dseg_0_address;
+
+			/* Load continuation entry data segments. */
+			for_each_sg(sg, s, remseg, cnt) {
+				if (cnt == 5)
+					break;
+				dma_handle = sg_dma_address(s);
 #if defined(CONFIG_IA64_GENERIC) || defined(CONFIG_IA64_SGI_SN2)
 				if (ha->flags.use_pci_vchannel)
 					sn_pci_set_vchan(ha->pdev,
-							(unsigned long *)&dma_handle,
+							 (unsigned long *)&dma_handle,
 							 SCSI_BUS_32(cmd));
 #endif
 				*dword_ptr++ =
 					cpu_to_le32(pci_dma_lo32(dma_handle));
 				*dword_ptr++ =
 					cpu_to_le32(pci_dma_hi32(dma_handle));
-				*dword_ptr++ = cpu_to_le32(sg_dma_len(sg));
-				sg++;
-				dprintk(3, "S/G Segment phys_addr=%x %x, len=0x%x\n",
+				*dword_ptr++ =
+					cpu_to_le32(sg_dma_len(s));
+				dprintk(3, "S/G Segment Cont. phys_addr=%x %x, len=0x%x\n",
 					cpu_to_le32(pci_dma_hi32(dma_handle)),
 					cpu_to_le32(pci_dma_lo32(dma_handle)),
-					cpu_to_le32(sg_dma_len(sg)));
+					cpu_to_le32(sg_dma_len(s)));
 			}
-			dprintk(5, "qla1280_64bit_start_scsi: Scatter/gather "
-				"command packet data - b %i, t %i, l %i \n",
-				SCSI_BUS_32(cmd), SCSI_TCN_32(cmd),
-				SCSI_LUN_32(cmd));
-			qla1280_dump_buffer(5, (char *)pkt,
-					    REQUEST_ENTRY_SIZE);
-
-			/*
-			 * Build continuation packets.
-			 */
-			dprintk(3, "S/G Building Continuation...seg_cnt=0x%x "
-				"remains\n", seg_cnt);
-
-			while (seg_cnt > 0) {
-				/* Adjust ring index. */
-				ha->req_ring_index++;
-				if (ha->req_ring_index == REQUEST_ENTRY_CNT) {
-					ha->req_ring_index = 0;
-					ha->request_ring_ptr =
-						ha->request_ring;
-				} else
-						ha->request_ring_ptr++;
-
-				pkt = (cmd_a64_entry_t *)ha->request_ring_ptr;
-
-				/* Zero out packet. */
-				memset(pkt, 0, REQUEST_ENTRY_SIZE);
-
-				/* Load packet defaults. */
-				((struct cont_a64_entry *) pkt)->entry_type =
-					CONTINUE_A64_TYPE;
-				((struct cont_a64_entry *) pkt)->entry_count = 1;
-				((struct cont_a64_entry *) pkt)->sys_define =
-					(uint8_t)ha->req_ring_index;
-				/* Setup packet address segment pointer. */
-				dword_ptr =
-					(u32 *)&((struct cont_a64_entry *) pkt)->dseg_0_address;
-
-				/* Load continuation entry data segments. */
-				for (cnt = 0; cnt < 5 && seg_cnt;
-				     cnt++, seg_cnt--) {
-					dma_handle = sg_dma_address(sg);
-#if defined(CONFIG_IA64_GENERIC) || defined(CONFIG_IA64_SGI_SN2)
-				if (ha->flags.use_pci_vchannel)
-					sn_pci_set_vchan(ha->pdev, 
-							(unsigned long *)&dma_handle,
-							 SCSI_BUS_32(cmd));
-#endif
-					*dword_ptr++ =
-						cpu_to_le32(pci_dma_lo32(dma_handle));
-					*dword_ptr++ =
-						cpu_to_le32(pci_dma_hi32(dma_handle));
-					*dword_ptr++ =
-						cpu_to_le32(sg_dma_len(sg));
-					dprintk(3, "S/G Segment Cont. phys_addr=%x %x, len=0x%x\n",
-						cpu_to_le32(pci_dma_hi32(dma_handle)),
-						cpu_to_le32(pci_dma_lo32(dma_handle)),
-						cpu_to_le32(sg_dma_len(sg)));
-					sg++;
-				}
-				dprintk(5, "qla1280_64bit_start_scsi: "
-					"continuation packet data - b %i, t "
-					"%i, l %i \n", SCSI_BUS_32(cmd),
-					SCSI_TCN_32(cmd), SCSI_LUN_32(cmd));
-				qla1280_dump_buffer(5, (char *)pkt,
-						    REQUEST_ENTRY_SIZE);
-			}
-		} else {	/* No scatter gather data transfer */
-			dma_handle = pci_map_single(ha->pdev,
-					cmd->request_buffer,
-					cmd->request_bufflen,
-					cmd->sc_data_direction);
-
-			sp->saved_dma_handle = dma_handle;
-#if defined(CONFIG_IA64_GENERIC) || defined(CONFIG_IA64_SGI_SN2)
-			if (ha->flags.use_pci_vchannel)
-				sn_pci_set_vchan(ha->pdev, 
-						(unsigned long *)&dma_handle,
-						 SCSI_BUS_32(cmd));
-#endif
-			*dword_ptr++ = cpu_to_le32(pci_dma_lo32(dma_handle));
-			*dword_ptr++ = cpu_to_le32(pci_dma_hi32(dma_handle));
-			*dword_ptr = cpu_to_le32(cmd->request_bufflen);
-
-			dprintk(5, "qla1280_64bit_start_scsi: No scatter/"
-				"gather command packet data - b %i, t %i, "
-				"l %i \n", SCSI_BUS_32(cmd), SCSI_TCN_32(cmd),
-				SCSI_LUN_32(cmd));
+			remseg -= cnt;
+			dprintk(5, "qla1280_64bit_start_scsi: "
+				"continuation packet data - b %i, t "
+				"%i, l %i \n", SCSI_BUS_32(cmd),
+				SCSI_TCN_32(cmd), SCSI_LUN_32(cmd));
 			qla1280_dump_buffer(5, (char *)pkt,
 					    REQUEST_ENTRY_SIZE);
 		}
@@ -3062,13 +3031,11 @@ qla1280_32bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 	struct device_reg __iomem *reg = ha->iobase;
 	struct scsi_cmnd *cmd = sp->cmd;
 	struct cmd_entry *pkt;
-	struct scatterlist *sg = NULL;
 	__le32 *dword_ptr;
 	int status = 0;
 	int cnt;
 	int req_cnt;
-	uint16_t seg_cnt;
-	dma_addr_t dma_handle;
+	int seg_cnt;
 	u8 dir;
 
 	ENTER("qla1280_32bit_start_scsi");
@@ -3078,17 +3045,8 @@ qla1280_32bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 
 	/* Calculate number of entries and segments required. */
 	req_cnt = 1;
-	if (cmd->use_sg) {
-		/*
-		 * We must build an SG list in adapter format, as the kernel's
-		 * SG list cannot be used directly because of data field size
-		 * (__alpha__) differences and the kernel SG list uses virtual
-		 * addresses where we need physical addresses.
-		 */
-		sg = (struct scatterlist *) cmd->request_buffer;
-		seg_cnt = pci_map_sg(ha->pdev, sg, cmd->use_sg,
-				     cmd->sc_data_direction);
-
+	seg_cnt = scsi_dma_map(cmd);
+	if (seg_cnt) {
 		/*
 		 * if greater than four sg entries then we need to allocate
 		 * continuation entries
@@ -3100,14 +3058,9 @@ qla1280_32bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 		}
 		dprintk(3, "S/G Transfer cmd=%p seg_cnt=0x%x, req_cnt=%x\n",
 			cmd, seg_cnt, req_cnt);
-	} else if (cmd->request_bufflen) {	/* If data transfer. */
-		dprintk(3, "No S/G transfer t=%x cmd=%p len=%x CDB=%x\n",
-			SCSI_TCN_32(cmd), cmd, cmd->request_bufflen,
-			cmd->cmnd[0]);
-		seg_cnt = 1;
-	} else {
-		/* dprintk(1, "No data transfer \n"); */
-		seg_cnt = 0;
+	} else if (seg_cnt < 0) {
+		status = 1;
+		goto out;
 	}
 
 	if ((req_cnt + 2) >= ha->req_q_cnt) {
@@ -3174,7 +3127,7 @@ qla1280_32bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 
 	/* Load SCSI command packet. */
 	pkt->cdb_len = cpu_to_le16(CMD_CDBLEN(cmd));
-	memcpy(pkt->scsi_cdb, &(CMD_CDBP(cmd)), CMD_CDBLEN(cmd));
+	memcpy(pkt->scsi_cdb, CMD_CDBP(cmd), CMD_CDBLEN(cmd));
 
 	/*dprintk(1, "Build packet for command[0]=0x%x\n",pkt->scsi_cdb[0]); */
 	/* Set transfer direction. */
@@ -3188,86 +3141,84 @@ qla1280_32bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 	 * Load data segments.
 	 */
 	if (seg_cnt) {
+		struct scatterlist *sg, *s;
+		int remseg = seg_cnt;
+
+		sg = scsi_sglist(cmd);
+
 		/* Setup packet address segment pointer. */
 		dword_ptr = &pkt->dseg_0_address;
 
-		if (cmd->use_sg) {	/* If scatter gather */
-			dprintk(3, "Building S/G data segments..\n");
-			qla1280_dump_buffer(1, (char *)sg, 4 * 16);
+		dprintk(3, "Building S/G data segments..\n");
+		qla1280_dump_buffer(1, (char *)sg, 4 * 16);
 
-			/* Load command entry data segments. */
-			for (cnt = 0; cnt < 4 && seg_cnt; cnt++, seg_cnt--) {
+		/* Load command entry data segments. */
+		for_each_sg(sg, s, seg_cnt, cnt) {
+			if (cnt == 4)
+				break;
+			*dword_ptr++ =
+				cpu_to_le32(pci_dma_lo32(sg_dma_address(s)));
+			*dword_ptr++ = cpu_to_le32(sg_dma_len(s));
+			dprintk(3, "S/G Segment phys_addr=0x%lx, len=0x%x\n",
+				(pci_dma_lo32(sg_dma_address(s))),
+				(sg_dma_len(s)));
+			remseg--;
+		}
+		/*
+		 * Build continuation packets.
+		 */
+		dprintk(3, "S/G Building Continuation"
+			"...seg_cnt=0x%x remains\n", seg_cnt);
+		while (remseg > 0) {
+			/* Continue from end point */
+			sg = s;
+			/* Adjust ring index. */
+			ha->req_ring_index++;
+			if (ha->req_ring_index == REQUEST_ENTRY_CNT) {
+				ha->req_ring_index = 0;
+				ha->request_ring_ptr =
+					ha->request_ring;
+			} else
+				ha->request_ring_ptr++;
+
+			pkt = (struct cmd_entry *)ha->request_ring_ptr;
+
+			/* Zero out packet. */
+			memset(pkt, 0, REQUEST_ENTRY_SIZE);
+
+			/* Load packet defaults. */
+			((struct cont_entry *) pkt)->
+				entry_type = CONTINUE_TYPE;
+			((struct cont_entry *) pkt)->entry_count = 1;
+
+			((struct cont_entry *) pkt)->sys_define =
+				(uint8_t) ha->req_ring_index;
+
+			/* Setup packet address segment pointer. */
+			dword_ptr =
+				&((struct cont_entry *) pkt)->dseg_0_address;
+
+			/* Load continuation entry data segments. */
+			for_each_sg(sg, s, remseg, cnt) {
+				if (cnt == 7)
+					break;
 				*dword_ptr++ =
-					cpu_to_le32(pci_dma_lo32(sg_dma_address(sg)));
+					cpu_to_le32(pci_dma_lo32(sg_dma_address(s)));
 				*dword_ptr++ =
-					cpu_to_le32(sg_dma_len(sg));
-				dprintk(3, "S/G Segment phys_addr=0x%lx, len=0x%x\n",
-					(pci_dma_lo32(sg_dma_address(sg))),
-					(sg_dma_len(sg)));
-				sg++;
+					cpu_to_le32(sg_dma_len(s));
+				dprintk(1,
+					"S/G Segment Cont. phys_addr=0x%x, "
+					"len=0x%x\n",
+					cpu_to_le32(pci_dma_lo32(sg_dma_address(s))),
+					cpu_to_le32(sg_dma_len(s)));
 			}
-			/*
-			 * Build continuation packets.
-			 */
-			dprintk(3, "S/G Building Continuation"
-				"...seg_cnt=0x%x remains\n", seg_cnt);
-			while (seg_cnt > 0) {
-				/* Adjust ring index. */
-				ha->req_ring_index++;
-				if (ha->req_ring_index == REQUEST_ENTRY_CNT) {
-					ha->req_ring_index = 0;
-					ha->request_ring_ptr =
-						ha->request_ring;
-				} else
-					ha->request_ring_ptr++;
-
-				pkt = (struct cmd_entry *)ha->request_ring_ptr;
-
-				/* Zero out packet. */
-				memset(pkt, 0, REQUEST_ENTRY_SIZE);
-
-				/* Load packet defaults. */
-				((struct cont_entry *) pkt)->
-					entry_type = CONTINUE_TYPE;
-				((struct cont_entry *) pkt)->entry_count = 1;
-
-				((struct cont_entry *) pkt)->sys_define =
-					(uint8_t) ha->req_ring_index;
-
-				/* Setup packet address segment pointer. */
-				dword_ptr =
-					&((struct cont_entry *) pkt)->dseg_0_address;
-
-				/* Load continuation entry data segments. */
-				for (cnt = 0; cnt < 7 && seg_cnt;
-				     cnt++, seg_cnt--) {
-					*dword_ptr++ =
-						cpu_to_le32(pci_dma_lo32(sg_dma_address(sg)));
-					*dword_ptr++ =
-						cpu_to_le32(sg_dma_len(sg));
-					dprintk(1,
-						"S/G Segment Cont. phys_addr=0x%x, "
-						"len=0x%x\n",
-						cpu_to_le32(pci_dma_lo32(sg_dma_address(sg))),
-						cpu_to_le32(sg_dma_len(sg)));
-					sg++;
-				}
-				dprintk(5, "qla1280_32bit_start_scsi: "
-					"continuation packet data - "
-					"scsi(%i:%i:%i)\n", SCSI_BUS_32(cmd),
-					SCSI_TCN_32(cmd), SCSI_LUN_32(cmd));
-				qla1280_dump_buffer(5, (char *)pkt,
-						    REQUEST_ENTRY_SIZE);
-			}
-		} else {	/* No S/G data transfer */
-			dma_handle = pci_map_single(ha->pdev,
-					cmd->request_buffer,
-					cmd->request_bufflen,
-					cmd->sc_data_direction);
-			sp->saved_dma_handle = dma_handle;
-
-			*dword_ptr++ = cpu_to_le32(pci_dma_lo32(dma_handle));
-			*dword_ptr = cpu_to_le32(cmd->request_bufflen);
+			remseg -= cnt;
+			dprintk(5, "qla1280_32bit_start_scsi: "
+				"continuation packet data - "
+				"scsi(%i:%i:%i)\n", SCSI_BUS_32(cmd),
+				SCSI_TCN_32(cmd), SCSI_LUN_32(cmd));
+			qla1280_dump_buffer(5, (char *)pkt,
+					    REQUEST_ENTRY_SIZE);
 		}
 	} else {	/* No data transfer at all */
 		dprintk(5, "qla1280_32bit_start_scsi: No data, command "
@@ -3759,7 +3710,7 @@ qla1280_status_entry(struct scsi_qla_host *ha, struct response *pkt,
 			} else
 				sense_sz = 0;
 			memset(cmd->sense_buffer + sense_sz, 0,
-			       sizeof(cmd->sense_buffer) - sense_sz);
+			       SCSI_SENSE_BUFFERSIZE - sense_sz);
 
 			dprintk(2, "qla1280_status_entry: Check "
 				"condition Sense data, b %i, t %i, "
@@ -4075,9 +4026,9 @@ __qla1280_print_scsi_cmd(struct scsi_cmnd *cmd)
 	for (i = 0; i < cmd->cmd_len; i++) {
 		printk("0x%02x ", cmd->cmnd[i]);
 	}
-	printk("  seg_cnt =%d\n", cmd->use_sg);
+	printk("  seg_cnt =%d\n", scsi_sg_count(cmd));
 	printk("  request buffer=0x%p, request buffer len=0x%x\n",
-	       cmd->request_buffer, cmd->request_bufflen);
+	       scsi_sglist(cmd), scsi_bufflen(cmd));
 	/* if (cmd->use_sg)
 	   {
 	   sg = (struct scatterlist *) cmd->request_buffer;
@@ -4086,7 +4037,7 @@ __qla1280_print_scsi_cmd(struct scsi_cmnd *cmd)
 	   } */
 	printk("  tag=%d, transfersize=0x%x \n",
 	       cmd->tag, cmd->transfersize);
-	printk("  Pid=%li, SP=0x%p\n", cmd->pid, CMD_SP(cmd));
+	printk("  Pid=%li, SP=0x%p\n", cmd->serial_number, CMD_SP(cmd));
 	printk(" underflow size = 0x%x, direction=0x%x\n",
 	       cmd->underflow, cmd->sc_data_direction);
 }
@@ -4298,7 +4249,7 @@ qla1280_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 			printk(KERN_WARNING "scsi(%li): Unable to set a "
 			       "suitable DMA mask - aborting\n", ha->host_no);
 			error = -ENODEV;
-			goto error_free_irq;
+			goto error_put_host;
 		}
 	} else
 		dprintk(2, "scsi(%li): 64 Bit PCI Addressing Enabled\n",
@@ -4308,7 +4259,7 @@ qla1280_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		printk(KERN_WARNING "scsi(%li): Unable to set a "
 		       "suitable DMA mask - aborting\n", ha->host_no);
 		error = -ENODEV;
-		goto error_free_irq;
+		goto error_put_host;
 	}
 #endif
 

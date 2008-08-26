@@ -10,9 +10,54 @@
 #include <linux/platform_device.h>
 #include <linux/init.h>
 #include <linux/serial.h>
+#include <linux/serial_sci.h>
 #include <linux/mm.h>
 #include <asm/mmzone.h>
-#include <asm/sci.h>
+
+static struct resource usbf_resources[] = {
+	[0] = {
+		.name	= "m66592_udc",
+		.start	= 0x04480000,
+		.end	= 0x044800FF,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= 65,
+		.end	= 65,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device usbf_device = {
+	.name		= "m66592_udc",
+	.id		= -1,
+	.dev = {
+		.dma_mask		= NULL,
+		.coherent_dma_mask	= 0xffffffff,
+	},
+	.num_resources	= ARRAY_SIZE(usbf_resources),
+	.resource	= usbf_resources,
+};
+
+static struct resource iic_resources[] = {
+	[0] = {
+		.name	= "IIC",
+		.start  = 0x04470000,
+		.end    = 0x04470017,
+		.flags  = IORESOURCE_MEM,
+	},
+	[1] = {
+		.start  = 96,
+		.end    = 99,
+		.flags  = IORESOURCE_IRQ,
+       },
+};
+
+static struct platform_device iic_device = {
+	.name           = "i2c-sh_mobile",
+	.num_resources  = ARRAY_SIZE(iic_resources),
+	.resource       = iic_resources,
+};
 
 static struct plat_sci_port sci_platform_data[] = {
 	{
@@ -47,6 +92,8 @@ static struct platform_device sci_device = {
 };
 
 static struct platform_device *sh7722_devices[] __initdata = {
+	&usbf_device,
+	&iic_device,
 	&sci_device,
 };
 
@@ -130,14 +177,6 @@ static struct intc_group groups[] __initdata = {
 	INTC_GROUP(SDHI, SDHI0, SDHI1, SDHI2, SDHI3),
 };
 
-static struct intc_prio priorities[] __initdata = {
-	INTC_PRIO(SCIF0, 3),
-	INTC_PRIO(SCIF1, 3),
-	INTC_PRIO(SCIF2, 3),
-	INTC_PRIO(TMU0, 2),
-	INTC_PRIO(TMU1, 2),
-};
-
 static struct intc_mask_reg mask_registers[] __initdata = {
 	{ 0xa4080080, 0xa40800c0, 8, /* IMR0 / IMCR0 */
 	  { } },
@@ -190,7 +229,7 @@ static struct intc_sense_reg sense_registers[] __initdata = {
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
-static DECLARE_INTC_DESC(intc_desc, "sh7722", vectors, groups, priorities,
+static DECLARE_INTC_DESC(intc_desc, "sh7722", vectors, groups,
 			 mask_registers, prio_registers, sense_registers);
 
 void __init plat_irq_setup(void)

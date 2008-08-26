@@ -37,12 +37,12 @@ static inline void ide_init_hwif_ports(hw_regs_t *hw, unsigned long data_port,
 
 	memset(hw, 0, sizeof(*hw));
 
-	for (i = IDE_DATA_OFFSET; i <= IDE_STATUS_OFFSET; i++) {
-		hw->io_ports[i] = reg;
+	for (i = 0; i <= 7; i++) {
+		hw->io_ports_array[i] = reg;
 		reg += regincr;
 	}
 
-	hw->io_ports[IDE_CONTROL_OFFSET] = ctrl_port;
+	hw->io_ports.ctl_addr = ctrl_port;
 
 	if (irq)
 		*irq = 0;
@@ -61,7 +61,7 @@ ide_init_default_hwifs(void)
 
         /* Enable GPIO as interrupt line */
         GPDR &= ~LART_GPIO_IDE;
-	set_irq_type(LART_IRQ_IDE, IRQT_RISING);
+	set_irq_type(LART_IRQ_IDE, IRQ_TYPE_EDGE_RISING);
 
         /* set PCMCIA interface timing */
         MECR = 0x00060006;

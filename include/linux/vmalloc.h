@@ -31,6 +31,7 @@ struct vm_struct {
 	struct page		**pages;
 	unsigned int		nr_pages;
 	unsigned long		phys_addr;
+	void			*caller;
 };
 
 /*
@@ -45,11 +46,11 @@ extern void *vmalloc_32_user(unsigned long size);
 extern void *__vmalloc(unsigned long size, gfp_t gfp_mask, pgprot_t prot);
 extern void *__vmalloc_area(struct vm_struct *area, gfp_t gfp_mask,
 				pgprot_t prot);
-extern void vfree(void *addr);
+extern void vfree(const void *addr);
 
 extern void *vmap(struct page **pages, unsigned int count,
 			unsigned long flags, pgprot_t prot);
-extern void vunmap(void *addr);
+extern void vunmap(const void *addr);
 
 extern int remap_vmalloc_range(struct vm_area_struct *vma, void *addr,
 							unsigned long pgoff);
@@ -66,12 +67,14 @@ static inline size_t get_vm_area_size(const struct vm_struct *area)
 }
 
 extern struct vm_struct *get_vm_area(unsigned long size, unsigned long flags);
+extern struct vm_struct *get_vm_area_caller(unsigned long size,
+					unsigned long flags, void *caller);
 extern struct vm_struct *__get_vm_area(unsigned long size, unsigned long flags,
 					unsigned long start, unsigned long end);
 extern struct vm_struct *get_vm_area_node(unsigned long size,
 					  unsigned long flags, int node,
 					  gfp_t gfp_mask);
-extern struct vm_struct *remove_vm_area(void *addr);
+extern struct vm_struct *remove_vm_area(const void *addr);
 
 extern int map_vm_area(struct vm_struct *area, pgprot_t prot,
 			struct page ***pages);
@@ -86,5 +89,7 @@ extern void free_vm_area(struct vm_struct *area);
  */
 extern rwlock_t vmlist_lock;
 extern struct vm_struct *vmlist;
+
+extern const struct seq_operations vmalloc_op;
 
 #endif /* _LINUX_VMALLOC_H */

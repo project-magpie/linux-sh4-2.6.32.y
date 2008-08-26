@@ -84,9 +84,8 @@ struct svc_export {
 	struct cache_head	h;
 	struct auth_domain *	ex_client;
 	int			ex_flags;
-	struct vfsmount *	ex_mnt;
-	struct dentry *		ex_dentry;
-	char *			ex_path;
+	struct path		ex_path;
+	char			*ex_pathname;
 	uid_t			ex_anon_uid;
 	gid_t			ex_anon_gid;
 	int			ex_fsid;
@@ -107,8 +106,7 @@ struct svc_expkey {
 	int			ek_fsidtype;
 	u32			ek_fsid[6];
 
-	struct vfsmount *	ek_mnt;
-	struct dentry *		ek_dentry;
+	struct path		ek_path;
 };
 
 #define EX_SECURE(exp)		(!((exp)->ex_flags & NFSEXP_INSECURE_PORT))
@@ -122,22 +120,14 @@ __be32 check_nfsd_access(struct svc_export *exp, struct svc_rqst *rqstp);
 /*
  * Function declarations
  */
-void			nfsd_export_init(void);
+int			nfsd_export_init(void);
 void			nfsd_export_shutdown(void);
 void			nfsd_export_flush(void);
 void			exp_readlock(void);
 void			exp_readunlock(void);
-struct svc_export *	exp_get_by_name(struct auth_domain *clp,
-					struct vfsmount *mnt,
-					struct dentry *dentry,
-					struct cache_req *reqp);
 struct svc_export *	rqst_exp_get_by_name(struct svc_rqst *,
 					     struct vfsmount *,
 					     struct dentry *);
-struct svc_export *	exp_parent(struct auth_domain *clp,
-				   struct vfsmount *mnt,
-				   struct dentry *dentry,
-				   struct cache_req *reqp);
 struct svc_export *	rqst_exp_parent(struct svc_rqst *,
 					struct vfsmount *mnt,
 					struct dentry *dentry);
@@ -157,9 +147,6 @@ static inline void exp_get(struct svc_export *exp)
 {
 	cache_get(&exp->h);
 }
-extern struct svc_export *
-exp_find(struct auth_domain *clp, int fsid_type, u32 *fsidv,
-	 struct cache_req *reqp);
 struct svc_export * rqst_exp_find(struct svc_rqst *, int, u32 *);
 
 #endif /* __KERNEL__ */

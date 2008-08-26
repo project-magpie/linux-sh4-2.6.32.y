@@ -14,6 +14,7 @@ Following translations are available on the WWW:
 	- this file.
 ABI/
 	- info on kernel <-> userspace ABI and relative interface stability.
+
 BUG-HUNTING
 	- brute force method of doing binary search of patches to find bug.
 Changes
@@ -22,8 +23,8 @@ CodingStyle
 	- how the boss likes the C code in the kernel to look.
 DMA-API.txt
 	- DMA API, pci_ API & extensions for non-consistent memory machines.
-DMA-mapping.txt
-	- info for PCI drivers using DMA portably across all platforms.
+DMA-ISA-LPC.txt
+	- How to do DMA with ISA (and LPC) devices.
 DocBook/
 	- directory with DocBook templates etc. for kernel documentation.
 HOWTO
@@ -40,8 +41,6 @@ ManagementStyle
 	- how to (attempt to) manage kernel hackers.
 MSI-HOWTO.txt
 	- the Message Signaled Interrupts (MSI) Driver Guide HOWTO and FAQ.
-PCIEBUS-HOWTO.txt
-	- a guide describing the PCI Express Port Bus driver.
 RCU/
 	- directory with info on RCU (read-copy update).
 README.DAC960
@@ -50,6 +49,8 @@ README.cycladesZ
 	- info on Cyclades-Z firmware loading.
 SAK.txt
 	- info on Secure Attention Keys.
+SM501.txt
+	- Silicon Motion SM501 multimedia companion chip
 SecurityBugs
 	- procedure for reporting security bugs found in the kernel.
 SubmitChecklist
@@ -62,6 +63,8 @@ VGA-softcursor.txt
 	- how to change your VGA cursor from a blinking underscore.
 accounting/
 	- documentation on accounting and taskstats.
+acpi/
+	- info on ACPI-specific hooks in the kernel.
 aoe/
 	- description of AoE (ATA over Ethernet) along with config examples.
 applying-patches.txt
@@ -102,6 +105,8 @@ cpu-hotplug.txt
 	- document describing CPU hotplug support in the Linux kernel.
 cpu-load.txt
 	- document describing how CPU load statistics are collected.
+cpuidle/
+	- info on CPU_IDLE, CPU idle state management subsystem.
 cpusets.txt
 	- documents the cpusets feature; assign CPUs and Mem to a set of tasks.
 cputopology.txt
@@ -122,18 +127,16 @@ devices.txt
 	- plain ASCII listing of all the nodes in /dev/ with major minor #'s.
 digiepca.txt
 	- info on Digi Intl. {PC,PCI,EISA}Xx and Xem series cards.
-dnotify.txt
-	- info about directory notification in Linux.
 dontdiff
 	- file containing a list of files that should never be diff'ed.
 driver-model/
 	- directory with info about Linux driver model.
-drivers/
-	- directory with driver documentation (currently only EDAC).
 dvb/
 	- info on Linux Digital Video Broadcast (DVB) subsystem.
 early-userspace/
 	- info about initramfs, klibc, and userspace early during boot.
+edac.txt
+	- information on EDAC - Error Detection And Correction
 eisa.txt
 	- info on EISA bus support.
 exception.txt
@@ -145,12 +148,12 @@ fb/
 feature-removal-schedule.txt
 	- list of files and features that are going to be removed.
 filesystems/
-	- directory with info on the various filesystems that Linux supports.
+	- info on the vfs and the various filesystems that Linux supports.
 firmware_class/
 	- request_firmware() hotplug interface info.
 floppy.txt
 	- notes and driver options for the floppy disk driver.
-fujitsu/
+frv/
 	- Fujitsu FR-V Linux documentation.
 gpio.txt
 	- overview of GPIO (General Purpose Input/Output) access conventions.
@@ -160,10 +163,8 @@ highuid.txt
 	- notes on the change from 16 bit to 32 bit user/group IDs.
 hpet.txt
 	- High Precision Event Timer Driver for Linux.
-hrtimer/
-	- info on the timer_stats debugging facility for timer (ab)use.
-hrtimers/
-	- info on the hrtimers subsystem for high-resolution kernel timers.
+timers/
+	- info on the timer related topics
 hw_random.txt
 	- info on Linux support for random number generator in i8xx chipsets.
 hwmon/
@@ -176,8 +177,6 @@ i386/
 	- directory with info about Linux on Intel 32 bit architecture.
 ia64/
 	- directory with info about Linux on Intel 64 bit architecture.
-ide.txt
-	- important info for users of ATA devices (IDE/EIDE disks and CD-ROMS).
 infiniband/
 	- directory with documents concerning Linux InfiniBand support.
 initrd.txt
@@ -220,8 +219,8 @@ kprobes.txt
 	- documents the kernel probes debugging feature.
 kref.txt
 	- docs on adding reference counters (krefs) to kernel objects.
-laptop-mode.txt
-	- how to conserve battery power using laptop-mode.
+laptops/
+	- directory with laptop related info and laptop driver documentation.
 ldm.txt
 	- a brief description of LDM (Windows Dynamic Disks).
 leds-class.txt
@@ -230,8 +229,6 @@ local_ops.txt
 	- semantics and behavior of local atomic operations.
 lockdep-design.txt
 	- documentation on the runtime locking correctness validator.
-locks.txt
-	- info on file locking implementations, flock() vs. fcntl(), etc.
 logo.gif
 	- full colour GIF image of Linux logo (penguin - Tux).
 logo.txt
@@ -240,14 +237,14 @@ m68k/
 	- directory with info about Linux on Motorola 68k architecture.
 magic-number.txt
 	- list of magic numbers used to mark/protect kernel data structures.
-mandatory.txt
-	- info on the Linux implementation of Sys V mandatory file locking.
 mca.txt
 	- info on supporting Micro Channel Architecture (e.g. PS/2) systems.
 md.txt
 	- info on boot arguments for the multiple devices driver.
 memory-barriers.txt
 	- info on Linux kernel memory barriers.
+memory-hotplug.txt
+	- Hotpluggable memory support, how to use and current status.
 memory.txt
 	- info on typical Linux memory problems.
 mips/
@@ -260,14 +257,14 @@ mtrr.txt
 	- how to use PPro Memory Type Range Registers to increase performance.
 mutex-design.txt
 	- info on the generic mutex subsystem.
+namespaces/
+	- directory with various information about namespaces
 nbd.txt
 	- info on a TCP implementation of a network block device.
 netlabel/
 	- directory with information on the NetLabel subsystem.
 networking/
 	- directory with info on various aspects of networking with Linux.
-nfsroot.txt
-	- short guide on setting up a diskless box with NFS root filesystem.
 nmi_watchdog.txt
 	- info on NMI watchdog for SMP systems.
 nommu-mmap.txt
@@ -284,18 +281,10 @@ parport.txt
 	- how to use the parallel-port driver.
 parport-lowlevel.txt
 	- description and usage of the low level parallel port functions.
-pci-error-recovery.txt
-	- info on PCI error recovery.
-pci.txt
-	- info on the PCI subsystem for device driver authors.
-pcieaer-howto.txt
-	- the PCI Express Advanced Error Reporting Driver Guide HOWTO.
 pcmcia/
 	- info on the Linux PCMCIA driver.
 pi-futex.txt
 	- documentation on lightweight PI-futexes.
-pm.txt
-	- info on Linux power management support.
 pnp.txt
 	- Linux Plug and Play documentation.
 power/
@@ -318,8 +307,6 @@ robust-futexes.txt
 	- a description of what robust futexes are.
 rocket.txt
 	- info on the Comtrol RocketPort multiport serial driver.
-rpc-cache.txt
-	- introduction to the caching mechanisms in the sunrpc layer.
 rt-mutex-design.txt
 	- description of the RealTime mutex implementation design.
 rt-mutex.txt
@@ -328,16 +315,8 @@ rtc.txt
 	- notes on how to use the Real Time Clock (aka CMOS clock) driver.
 s390/
 	- directory with info on using Linux on the IBM S390.
-sched-arch.txt
-	- CPU Scheduler implementation hints for architecture specific code.
-sched-coding.txt
-	- reference for various scheduler-related methods in the O(1) scheduler.
-sched-design.txt
-	- goals, design and implementation of the Linux O(1) scheduler.
-sched-domains.txt
-	- information on scheduling domains.
-sched-stats.txt
-	- information on schedstats (Linux Scheduler Statistics).
+scheduler/
+	- directory with info on the scheduler.
 scsi/
 	- directory with info on Linux scsi support.
 serial/
@@ -350,16 +329,6 @@ sgi-visws.txt
 	- short blurb on the SGI Visual Workstations.
 sh/
 	- directory with info on porting Linux to a new architecture.
-sharedsubtree.txt
-	- a description of shared subtrees for namespaces.
-smart-config.txt
-	- description of the Smart Config makefile feature.
-smp.txt
-	- a few notes on symmetric multi-processing.
-sony-laptop.txt
-	- Sony Notebook Control Driver (SNC) Readme.
-sonypi.txt
-	- info on Linux Sony Programmable I/O Device support.
 sound/
 	- directory with info on sound card support.
 sparc/
@@ -380,6 +349,8 @@ stallion.txt
 	- info on using the Stallion multiport serial driver.
 svga.txt
 	- short guide on selecting video modes at boot via VGA BIOS.
+sysfs-rules.txt
+	- How not to use sysfs.
 sx.txt
 	- info on the Specialix SX/SI multiport serial driver.
 sysctl/
@@ -388,12 +359,8 @@ sysrq.txt
 	- info on the magic SysRq key.
 telephony/
 	- directory with info on telephony (e.g. voice over IP) support.
-thinkpad-acpi.txt
-	- information on the (IBM and Lenovo) ThinkPad ACPI Extras driver.
 time_interpolators.txt
 	- info on time interpolators.
-tipar.txt
-	- information about Parallel link cable for Texas Instruments handhelds.
 tty.txt
 	- guide to the locking policies of the tty layer.
 uml/
@@ -410,6 +377,8 @@ video4linux/
 	- directory with info regarding video/TV/radio cards and linux.
 vm/
 	- directory with info on the Linux vm code.
+volatile-considered-harmful.txt
+	- Why the "volatile" type class should not be used
 voyager.txt
 	- guide to running Linux on the Voyager architecture.
 w1/
@@ -418,7 +387,5 @@ watchdog/
 	- how to auto-reboot Linux if it has "fallen and can't get up". ;-)
 x86_64/
 	- directory with info on Linux support for AMD x86-64 (Hammer) machines.
-xterm-linux.xpm
-	- XPM image of penguin logo (see logo.txt) sitting on an xterm.
 zorro.txt
 	- info on writing drivers for Zorro bus devices found on Amigas.

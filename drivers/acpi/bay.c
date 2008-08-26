@@ -46,6 +46,12 @@ MODULE_LICENSE("GPL");
 	printk(KERN_DEBUG PREFIX "%s: %s\n", prefix, s); }
 static void bay_notify(acpi_handle handle, u32 event, void *data);
 
+static const struct acpi_device_id bay_device_ids[] = {
+	{"LNXIOBAY", 0},
+	{"", 0},
+};
+MODULE_DEVICE_TABLE(acpi, bay_device_ids);
+
 struct bay {
 	acpi_handle handle;
 	char *name;
@@ -128,7 +134,7 @@ static ssize_t show_present(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", bay_present(bay));
 
 }
-DEVICE_ATTR(present, S_IRUGO, show_present, NULL);
+static DEVICE_ATTR(present, S_IRUGO, show_present, NULL);
 
 /*
  * write_eject - write method for "eject" file in sysfs
@@ -144,7 +150,7 @@ static ssize_t write_eject(struct device *dev, struct device_attribute *attr,
 	eject_device(bay->handle);
 	return count;
 }
-DEVICE_ATTR(eject, S_IWUSR, NULL, write_eject);
+static DEVICE_ATTR(eject, S_IWUSR, NULL, write_eject);
 
 /**
  * is_ata - see if a device is an ata device
@@ -195,6 +201,7 @@ static int is_ejectable_bay(acpi_handle handle)
 	return 0;
 }
 
+#if 0
 /**
  * eject_removable_drive - try to eject this drive
  * @dev : the device structure of the drive
@@ -219,6 +226,7 @@ int eject_removable_drive(struct device *dev)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(eject_removable_drive);
+#endif  /*  0  */
 
 static int acpi_bay_add_fs(struct bay *bay)
 {
@@ -293,16 +301,20 @@ static int bay_add(acpi_handle handle, int id)
 	 */
 	pdev->dev.uevent_suppress = 0;
 
-	if (acpi_bay_add_fs(new_bay)) {
-		platform_device_unregister(new_bay->pdev);
-		goto bay_add_err;
-	}
-
 	/* register for events on this device */
 	status = acpi_install_notify_handler(handle, ACPI_SYSTEM_NOTIFY,
 			bay_notify, new_bay);
 	if (ACPI_FAILURE(status)) {
-		printk(KERN_ERR PREFIX "Error installing bay notify handler\n");
+		printk(KERN_INFO PREFIX "Error installing bay notify handler\n");
+		platform_device_unregister(new_bay->pdev);
+		goto bay_add_err;
+	}
+
+	if (acpi_bay_add_fs(new_bay)) {
+		acpi_remove_notify_handler(handle, ACPI_SYSTEM_NOTIFY,
+					   bay_notify);
+		platform_device_unregister(new_bay->pdev);
+		goto bay_add_err;
 	}
 
 	/* if we are on a dock station, we should register for dock
@@ -364,6 +376,9 @@ static int __init bay_init(void)
 	int bays = 0;
 
 	INIT_LIST_HEAD(&drive_bays);
+
+	if (acpi_disabled)
+		return -ENODEV;
 
 	/* look for dockable drive bays */
 	acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,

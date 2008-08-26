@@ -1,7 +1,7 @@
 /*
  *  binfmt_misc.c
  *
- *  Copyright (C) 1997 Richard Günther
+ *  Copyright (C) 1997 Richard GÃ¼nther
  *
  *  binfmt_misc detects binaries via a magic or filename extension and invokes
  *  a specified wrapper. This should obsolete binfmt_java, binfmt_em86 and
@@ -27,6 +27,7 @@
 #include <linux/namei.h>
 #include <linux/mount.h>
 #include <linux/syscalls.h>
+#include <linux/fs.h>
 
 #include <asm/uaccess.h>
 
@@ -110,11 +111,16 @@ static int load_misc_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 	char *iname_addr = iname;
 	int retval;
 	int fd_binary = -1;
-	struct files_struct *files = NULL;
 
 	retval = -ENOEXEC;
 	if (!enabled)
 		goto _ret;
+
+	retval = -ENOEXEC;
+	if (bprm->misc_bang)
+		goto _ret;
+
+	bprm->misc_bang = 1;
 
 	/* to keep locking time low, we copy the interpreter string */
 	read_lock(&entries_lock);
@@ -133,21 +139,13 @@ static int load_misc_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 
 	if (fmt->flags & MISC_FMT_OPEN_BINARY) {
 
-		files = current->files;
-		retval = unshare_files();
-		if (retval < 0)
-			goto _ret;
-		if (files == current->files) {
-			put_files_struct(files);
-			files = NULL;
-		}
 		/* if the binary should be opened on behalf of the
 		 * interpreter than keep it open and assign descriptor
 		 * to it */
  		fd_binary = get_unused_fd();
  		if (fd_binary < 0) {
  			retval = fd_binary;
- 			goto _unshare;
+ 			goto _ret;
  		}
  		fd_install(fd_binary, bprm->file);
 
@@ -205,10 +203,6 @@ static int load_misc_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 	if (retval < 0)
 		goto _error;
 
-	if (files) {
-		put_files_struct(files);
-		files = NULL;
-	}
 _ret:
 	return retval;
 _error:
@@ -216,9 +210,6 @@ _error:
 		sys_close(fd_binary);
 	bprm->interp_flags = 0;
 	bprm->interp_data = 0;
-_unshare:
-	if (files)
-		reset_files_struct(current, files);
 	goto _ret;
 }
 
@@ -545,31 +536,16 @@ static ssize_t
 bm_entry_read(struct file * file, char __user * buf, size_t nbytes, loff_t *ppos)
 {
 	Node *e = file->f_path.dentry->d_inode->i_private;
-	loff_t pos = *ppos;
 	ssize_t res;
 	char *page;
-	int len;
 
 	if (!(page = (char*) __get_free_page(GFP_KERNEL)))
 		return -ENOMEM;
 
 	entry_status(e, page);
-	len = strlen(page);
 
-	res = -EINVAL;
-	if (pos < 0)
-		goto out;
-	res = 0;
-	if (pos >= len)
-		goto out;
-	if (len < pos + nbytes)
-		nbytes = len - pos;
-	res = -EFAULT;
-	if (copy_to_user(buf, page + pos, nbytes))
-		goto out;
-	*ppos = pos + nbytes;
-	res = nbytes;
-out:
+	res = simple_read_from_buffer(buf, nbytes, ppos, page, strlen(page));
+
 	free_page((unsigned long) page);
 	return res;
 }

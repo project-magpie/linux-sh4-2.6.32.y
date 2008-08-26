@@ -1,6 +1,6 @@
 /*
  *  Driver for generic ESS AudioDrive ESx688 soundcards
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -19,7 +19,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/err.h>
 #include <linux/isa.h>
@@ -39,7 +38,7 @@
 #define DEV_NAME "es1688"
 
 MODULE_DESCRIPTION(CRD_NAME);
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{ESS,ES688 PnP AudioDrive,pnp:ESS0100},"
 	        "{ESS,ES1688 PnP AudioDrive,pnp:ESS0102},"

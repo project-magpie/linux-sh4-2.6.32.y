@@ -1,6 +1,4 @@
 /*
- *  $Id: nfsroot.c,v 1.45 1998/03/07 10:44:46 mj Exp $
- *
  *  Copyright (C) 1995, 1996  Gero Kuhlmann <gero@gkminix.han.de>
  *
  *  Allow an NFS filesystem to be mounted as root. The way this works is:
@@ -43,7 +41,7 @@
  *				from being used (thanks to Leo Spiekman)
  *	Andy Walker	:	Allow to specify the NFS server in nfs_root
  *				without giving a path name
- *	Swen Thümmler	:	Allow to specify the NFS options in nfs_root
+ *	Swen ThÃ¼mmler	:	Allow to specify the NFS options in nfs_root
  *				without giving a path name. Fix BOOTP request
  *				for domainname (domainname is NIS domain, not
  *				DNS domain!). Skip dummy devices for BOOTP.
@@ -76,6 +74,7 @@
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/sunrpc/clnt.h>
+#include <linux/sunrpc/xprtsock.h>
 #include <linux/nfs.h>
 #include <linux/nfs_fs.h>
 #include <linux/nfs_mount.h>
@@ -128,7 +127,7 @@ enum {
 	Opt_err
 };
 
-static match_table_t __initdata tokens = {
+static match_table_t __initconst tokens = {
 	{Opt_port, "port=%u"},
 	{Opt_rsize, "rsize=%u"},
 	{Opt_wsize, "wsize=%u"},
@@ -227,10 +226,7 @@ static int __init root_nfs_parse(char *name, char *buf)
 				nfs_data.flags &= ~NFS_MOUNT_SOFT;
 				break;
 			case Opt_intr:
-				nfs_data.flags |= NFS_MOUNT_INTR;
-				break;
 			case Opt_nointr:
-				nfs_data.flags &= ~NFS_MOUNT_INTR;
 				break;
 			case Opt_posix:
 				nfs_data.flags |= NFS_MOUNT_POSIX;
@@ -299,10 +295,10 @@ static int __init root_nfs_name(char *name)
 	nfs_data.flags    = NFS_MOUNT_NONLM;	/* No lockd in nfs root yet */
 	nfs_data.rsize    = NFS_DEF_FILE_IO_SIZE;
 	nfs_data.wsize    = NFS_DEF_FILE_IO_SIZE;
-	nfs_data.acregmin = 3;
-	nfs_data.acregmax = 60;
-	nfs_data.acdirmin = 30;
-	nfs_data.acdirmax = 60;
+	nfs_data.acregmin = NFS_DEF_ACREGMIN;
+	nfs_data.acregmax = NFS_DEF_ACREGMAX;
+	nfs_data.acdirmin = NFS_DEF_ACDIRMIN;
+	nfs_data.acdirmax = NFS_DEF_ACDIRMAX;
 	strcpy(buf, NFS_ROOT);
 
 	/* Process options received from the remote server */
@@ -491,7 +487,7 @@ static int __init root_nfs_get_handle(void)
 	struct sockaddr_in sin;
 	int status;
 	int protocol = (nfs_data.flags & NFS_MOUNT_TCP) ?
-					IPPROTO_TCP : IPPROTO_UDP;
+					XPRT_TRANSPORT_TCP : XPRT_TRANSPORT_UDP;
 	int version = (nfs_data.flags & NFS_MOUNT_VER3) ?
 					NFS_MNT3_VERSION : NFS_MNT_VERSION;
 

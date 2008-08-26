@@ -1,12 +1,5 @@
-/* $Id: types.h,v 1.13 2001/12/21 01:22:59 davem Exp $ */
 #ifndef _SPARC_TYPES_H
 #define _SPARC_TYPES_H
-
-/*
- * _xx is ok: it doesn't pollute the POSIX namespace. Use these in the
- * header files exported to user space.
- */
-
 /*
  * This file is never included by application software unless
  * explicitly requested (e.g., via linux/types.h) in which case the
@@ -15,21 +8,39 @@
  * need to be careful to avoid a name clashes.
  */
 
+#if defined(__sparc__) && defined(__arch64__)
+
+/*** SPARC 64 bit ***/
+#include <asm-generic/int-l64.h>
+
 #ifndef __ASSEMBLY__
 
 typedef unsigned short umode_t;
 
-typedef __signed__ char __s8;
-typedef unsigned char __u8;
+#endif /* __ASSEMBLY__ */
 
-typedef __signed__ short __s16;
-typedef unsigned short __u16;
+#ifdef __KERNEL__
 
-typedef __signed__ int __s32;
-typedef unsigned int __u32;
+#define BITS_PER_LONG 64
 
-typedef __signed__ long long __s64;
-typedef unsigned long long __u64;
+#ifndef __ASSEMBLY__
+
+/* Dma addresses come in generic and 64-bit flavours.  */
+
+typedef u32 dma_addr_t;
+typedef u64 dma64_addr_t;
+
+#endif /* __ASSEMBLY__ */
+
+#endif /* __KERNEL__ */
+#else
+
+/*** SPARC 32 bit ***/
+#include <asm-generic/int-ll64.h>
+
+#ifndef __ASSEMBLY__
+
+typedef unsigned short umode_t;
 
 #endif /* __ASSEMBLY__ */
 
@@ -39,23 +50,13 @@ typedef unsigned long long __u64;
 
 #ifndef __ASSEMBLY__
 
-typedef __signed__ char s8;
-typedef unsigned char u8;
-
-typedef __signed__ short s16;
-typedef unsigned short u16;
-
-typedef __signed__ int s32;
-typedef unsigned int u32;
-
-typedef __signed__ long long s64;
-typedef unsigned long long u64;
-
 typedef u32 dma_addr_t;
 typedef u32 dma64_addr_t;
 
 #endif /* __ASSEMBLY__ */
 
 #endif /* __KERNEL__ */
+
+#endif /* defined(__sparc__) && defined(__arch64__) */
 
 #endif /* defined(_SPARC_TYPES_H) */

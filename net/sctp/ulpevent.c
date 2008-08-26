@@ -1,4 +1,4 @@
-/* SCTP kernel reference Implementation
+/* SCTP kernel implementation
  * (C) Copyright IBM Corp. 2001, 2004
  * Copyright (c) 1999-2000 Cisco, Inc.
  * Copyright (c) 1999-2001 Motorola, Inc.
@@ -8,13 +8,14 @@
  *
  * These functions manipulate an sctp event.   The struct ulpevent is used
  * to carry notifications and data to the ULP (sockets).
- * The SCTP reference implementation is free software;
+ *
+ * This SCTP implementation is free software;
  * you can redistribute it and/or modify it under the terms of
  * the GNU General Public License as published by
  * the Free Software Foundation; either version 2, or (at your option)
  * any later version.
  *
- * The SCTP reference implementation is distributed in the hope that it
+ * This SCTP implementation is distributed in the hope that it
  * will be useful, but WITHOUT ANY WARRANTY; without even the implied
  *                 ************************
  * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -205,7 +206,7 @@ struct sctp_ulpevent  *sctp_ulpevent_make_assoc_change(
 	 * This field is the total length of the notification data, including
 	 * the notification header.
 	 */
-	sac->sac_length = sizeof(struct sctp_assoc_change);
+	sac->sac_length = skb->len;
 
 	/* Socket Extensions for SCTP
 	 * 5.3.1.1 SCTP_ASSOC_CHANGE
@@ -685,11 +686,34 @@ struct sctp_ulpevent *sctp_ulpevent_make_rcvmsg(struct sctp_association *asoc,
 	struct sctp_ulpevent *event = NULL;
 	struct sk_buff *skb;
 	size_t padding, len;
+	int rx_count;
+
+	/*
+	 * check to see if we need to make space for this
+	 * new skb, expand the rcvbuffer if needed, or drop
+	 * the frame
+	 */
+	if (asoc->ep->rcvbuf_policy)
+		rx_count = atomic_read(&asoc->rmem_alloc);
+	else
+		rx_count = atomic_read(&asoc->base.sk->sk_rmem_alloc);
+
+	if (rx_count >= asoc->base.sk->sk_rcvbuf) {
+
+		if ((asoc->base.sk->sk_userlocks & SOCK_RCVBUF_LOCK) ||
+		    (!sk_rmem_schedule(asoc->base.sk, chunk->skb->truesize)))
+			goto fail;
+	}
 
 	/* Clone the original skb, sharing the data.  */
 	skb = skb_clone(chunk->skb, gfp);
 	if (!skb)
 		goto fail;
+
+	/* Now that all memory allocations for this chunk succeeded, we
+	 * can mark it as received so the tsn_map is updated correctly.
+	 */
+	sctp_tsnmap_mark(&asoc->peer.tsn_map, ntohl(chunk->subh.data_hdr->tsn));
 
 	/* First calculate the padding, so we don't inadvertently
 	 * pass up the wrong length to the user.
@@ -795,6 +819,43 @@ fail:
 	return NULL;
 }
 
+struct sctp_ulpevent *sctp_ulpevent_make_authkey(
+	const struct sctp_association *asoc, __u16 key_id,
+	__u32 indication, gfp_t gfp)
+{
+	struct sctp_ulpevent *event;
+	struct sctp_authkey_event *ak;
+	struct sk_buff *skb;
+
+	event = sctp_ulpevent_new(sizeof(struct sctp_authkey_event),
+				  MSG_NOTIFICATION, gfp);
+	if (!event)
+		goto fail;
+
+	skb = sctp_event2skb(event);
+	ak = (struct sctp_authkey_event *)
+		skb_put(skb, sizeof(struct sctp_authkey_event));
+
+	ak->auth_type = SCTP_AUTHENTICATION_INDICATION;
+	ak->auth_flags = 0;
+	ak->auth_length = sizeof(struct sctp_authkey_event);
+
+	ak->auth_keynumber = key_id;
+	ak->auth_altkeynumber = 0;
+	ak->auth_indication = indication;
+
+	/*
+	 * The association id field, holds the identifier for the association.
+	 */
+	sctp_ulpevent_set_owner(event, asoc);
+	ak->auth_assoc_id = sctp_assoc2id(asoc);
+
+	return event;
+fail:
+	return NULL;
+}
+
+
 /* Return the notification type, assuming this is a notification
  * event.
  */
@@ -803,7 +864,7 @@ __u16 sctp_ulpevent_get_notification_type(const struct sctp_ulpevent *event)
 	union sctp_notification *notification;
 	struct sk_buff *skb;
 
-	skb = sctp_event2skb((struct sctp_ulpevent *)event);
+	skb = sctp_event2skb(event);
 	notification = (union sctp_notification *) skb->data;
 	return notification->sn_header.sn_type;
 }

@@ -41,6 +41,9 @@ static struct proto iucv_proto = {
 	.obj_size	= sizeof(struct iucv_sock),
 };
 
+static void iucv_sock_kill(struct sock *sk);
+static void iucv_sock_close(struct sock *sk);
+
 /* Call Back functions */
 static void iucv_callback_rx(struct iucv_path *, struct iucv_message *);
 static void iucv_callback_txdone(struct iucv_path *, struct iucv_message *);
@@ -50,7 +53,7 @@ static int iucv_callback_connreq(struct iucv_path *, u8 ipvmid[8],
 static void iucv_callback_connrej(struct iucv_path *, u8 ipuser[16]);
 
 static struct iucv_sock_list iucv_sk_list = {
-	.lock = RW_LOCK_UNLOCKED,
+	.lock = __RW_LOCK_UNLOCKED(iucv_sk_list.lock),
 	.autobind_name = ATOMIC_INIT(0)
 };
 
@@ -89,13 +92,6 @@ static void iucv_sock_timeout(unsigned long arg)
 static void iucv_sock_clear_timer(struct sock *sk)
 {
 	sk_stop_timer(sk, &sk->sk_timer);
-}
-
-static void iucv_sock_init_timer(struct sock *sk)
-{
-	init_timer(&sk->sk_timer);
-	sk->sk_timer.function = iucv_sock_timeout;
-	sk->sk_timer.data = (unsigned long)sk;
 }
 
 static struct sock *__iucv_get_sock_by_name(char *nm)
@@ -213,7 +209,7 @@ static struct sock *iucv_sock_alloc(struct socket *sock, int proto, gfp_t prio)
 {
 	struct sock *sk;
 
-	sk = sk_alloc(PF_IUCV, prio, &iucv_proto, 1);
+	sk = sk_alloc(&init_net, PF_IUCV, prio, &iucv_proto);
 	if (!sk)
 		return NULL;
 
@@ -221,6 +217,8 @@ static struct sock *iucv_sock_alloc(struct socket *sock, int proto, gfp_t prio)
 	INIT_LIST_HEAD(&iucv_sk(sk)->accept_q);
 	spin_lock_init(&iucv_sk(sk)->accept_q_lock);
 	skb_queue_head_init(&iucv_sk(sk)->send_skb_q);
+	INIT_LIST_HEAD(&iucv_sk(sk)->message_q.list);
+	spin_lock_init(&iucv_sk(sk)->message_q.lock);
 	skb_queue_head_init(&iucv_sk(sk)->backlog_skb_q);
 	iucv_sk(sk)->send_tag = 0;
 
@@ -233,14 +231,14 @@ static struct sock *iucv_sock_alloc(struct socket *sock, int proto, gfp_t prio)
 	sk->sk_protocol = proto;
 	sk->sk_state	= IUCV_OPEN;
 
-	iucv_sock_init_timer(sk);
+	setup_timer(&sk->sk_timer, iucv_sock_timeout, (unsigned long)sk);
 
 	iucv_sock_link(&iucv_sk_list, sk);
 	return sk;
 }
 
 /* Create an IUCV socket */
-static int iucv_sock_create(struct socket *sock, int protocol)
+static int iucv_sock_create(struct net *net, struct socket *sock, int protocol)
 {
 	struct sock *sk;
 
@@ -484,6 +482,10 @@ static int iucv_sock_connect(struct socket *sock, struct sockaddr *addr,
 	/* Create path. */
 	iucv->path = iucv_path_alloc(IUCV_QUEUELEN_DEFAULT,
 				     IPRMDATA, GFP_KERNEL);
+	if (!iucv->path) {
+		err = -ENOMEM;
+		goto done;
+	}
 	err = iucv_path_connect(iucv->path, &af_iucv_handler,
 				sa->siucv_user_id, NULL, user_data, sk);
 	if (err) {
@@ -642,6 +644,7 @@ static int iucv_sock_sendmsg(struct kiocb *iocb, struct socket *sock,
 		}
 
 		txmsg.class = 0;
+		memcpy(&txmsg.class, skb->data, skb->len >= 4 ? 4 : skb->len);
 		txmsg.tag = iucv->send_tag++;
 		memcpy(skb->cb, &txmsg.tag, 4);
 		skb_queue_tail(&iucv->send_skb_q, skb);
@@ -670,6 +673,90 @@ out:
 	return err;
 }
 
+static int iucv_fragment_skb(struct sock *sk, struct sk_buff *skb, int len)
+{
+	int dataleft, size, copied = 0;
+	struct sk_buff *nskb;
+
+	dataleft = len;
+	while (dataleft) {
+		if (dataleft >= sk->sk_rcvbuf / 4)
+			size = sk->sk_rcvbuf / 4;
+		else
+			size = dataleft;
+
+		nskb = alloc_skb(size, GFP_ATOMIC | GFP_DMA);
+		if (!nskb)
+			return -ENOMEM;
+
+		memcpy(nskb->data, skb->data + copied, size);
+		copied += size;
+		dataleft -= size;
+
+		skb_reset_transport_header(nskb);
+		skb_reset_network_header(nskb);
+		nskb->len = size;
+
+		skb_queue_tail(&iucv_sk(sk)->backlog_skb_q, nskb);
+	}
+
+	return 0;
+}
+
+static void iucv_process_message(struct sock *sk, struct sk_buff *skb,
+				 struct iucv_path *path,
+				 struct iucv_message *msg)
+{
+	int rc;
+
+	if (msg->flags & IPRMDATA) {
+		skb->data = NULL;
+		skb->len = 0;
+	} else {
+		rc = iucv_message_receive(path, msg, 0, skb->data,
+					  msg->length, NULL);
+		if (rc) {
+			kfree_skb(skb);
+			return;
+		}
+		if (skb->truesize >= sk->sk_rcvbuf / 4) {
+			rc = iucv_fragment_skb(sk, skb, msg->length);
+			kfree_skb(skb);
+			skb = NULL;
+			if (rc) {
+				iucv_path_sever(path, NULL);
+				return;
+			}
+			skb = skb_dequeue(&iucv_sk(sk)->backlog_skb_q);
+		} else {
+			skb_reset_transport_header(skb);
+			skb_reset_network_header(skb);
+			skb->len = msg->length;
+		}
+	}
+
+	if (sock_queue_rcv_skb(sk, skb))
+		skb_queue_head(&iucv_sk(sk)->backlog_skb_q, skb);
+}
+
+static void iucv_process_message_q(struct sock *sk)
+{
+	struct iucv_sock *iucv = iucv_sk(sk);
+	struct sk_buff *skb;
+	struct sock_msg_q *p, *n;
+
+	list_for_each_entry_safe(p, n, &iucv->message_q.list, list) {
+		skb = alloc_skb(p->msg.length, GFP_ATOMIC | GFP_DMA);
+		if (!skb)
+			break;
+		iucv_process_message(sk, skb, p->path, &p->msg);
+		list_del(&p->list);
+		kfree(p);
+		if (!skb_queue_empty(&iucv->backlog_skb_q))
+			break;
+	}
+}
+
 static int iucv_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 			     struct msghdr *msg, size_t len, int flags)
 {
@@ -681,8 +768,9 @@ static int iucv_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 	int err = 0;
 
 	if ((sk->sk_state == IUCV_DISCONN || sk->sk_state == IUCV_SEVERED) &&
-		skb_queue_empty(&iucv->backlog_skb_q) &&
-		skb_queue_empty(&sk->sk_receive_queue))
+	    skb_queue_empty(&iucv->backlog_skb_q) &&
+	    skb_queue_empty(&sk->sk_receive_queue) &&
+	    list_empty(&iucv->message_q.list))
 		return 0;
 
 	if (flags & (MSG_OOB))
@@ -721,16 +809,23 @@ static int iucv_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 		kfree_skb(skb);
 
 		/* Queue backlog skbs */
-		rskb = skb_dequeue(&iucv_sk(sk)->backlog_skb_q);
+		rskb = skb_dequeue(&iucv->backlog_skb_q);
 		while (rskb) {
 			if (sock_queue_rcv_skb(sk, rskb)) {
-				skb_queue_head(&iucv_sk(sk)->backlog_skb_q,
+				skb_queue_head(&iucv->backlog_skb_q,
 						rskb);
 				break;
 			} else {
-				rskb = skb_dequeue(&iucv_sk(sk)->backlog_skb_q);
+				rskb = skb_dequeue(&iucv->backlog_skb_q);
 			}
 		}
+		if (skb_queue_empty(&iucv->backlog_skb_q)) {
+			spin_lock_bh(&iucv->message_q.lock);
+			if (!list_empty(&iucv->message_q.list))
+				iucv_process_message_q(sk);
+			spin_unlock_bh(&iucv->message_q.lock);
+		}
+
 	} else
 		skb_queue_head(&sk->sk_receive_queue, skb);
 
@@ -972,123 +1067,76 @@ static void iucv_callback_connack(struct iucv_path *path, u8 ipuser[16])
 	sk->sk_state_change(sk);
 }
 
-static int iucv_fragment_skb(struct sock *sk, struct sk_buff *skb, int len,
-			     struct sk_buff_head *fragmented_skb_q)
-{
-	int dataleft, size, copied = 0;
-	struct sk_buff *nskb;
-
-	dataleft = len;
-	while (dataleft) {
-		if (dataleft >= sk->sk_rcvbuf / 4)
-			size = sk->sk_rcvbuf / 4;
-		else
-			size = dataleft;
-
-		nskb = alloc_skb(size, GFP_ATOMIC | GFP_DMA);
-		if (!nskb)
-			return -ENOMEM;
-
-		memcpy(nskb->data, skb->data + copied, size);
-		copied += size;
-		dataleft -= size;
-
-		skb_reset_transport_header(nskb);
-		skb_reset_network_header(nskb);
-		nskb->len = size;
-
-		skb_queue_tail(fragmented_skb_q, nskb);
-	}
-
-	return 0;
-}
-
 static void iucv_callback_rx(struct iucv_path *path, struct iucv_message *msg)
 {
 	struct sock *sk = path->private;
 	struct iucv_sock *iucv = iucv_sk(sk);
-	struct sk_buff *skb, *fskb;
-	struct sk_buff_head fragmented_skb_q;
-	int rc;
-
-	skb_queue_head_init(&fragmented_skb_q);
+	struct sk_buff *skb;
+	struct sock_msg_q *save_msg;
+	int len;
 
 	if (sk->sk_shutdown & RCV_SHUTDOWN)
 		return;
 
+	if (!list_empty(&iucv->message_q.list) ||
+	    !skb_queue_empty(&iucv->backlog_skb_q))
+		goto save_message;
+
+	len = atomic_read(&sk->sk_rmem_alloc);
+	len += msg->length + sizeof(struct sk_buff);
+	if (len > sk->sk_rcvbuf)
+		goto save_message;
+
 	skb = alloc_skb(msg->length, GFP_ATOMIC | GFP_DMA);
-	if (!skb) {
-		iucv_path_sever(path, NULL);
+	if (!skb)
+		goto save_message;
+
+	spin_lock(&iucv->message_q.lock);
+	iucv_process_message(sk, skb, path, msg);
+	spin_unlock(&iucv->message_q.lock);
+
+	return;
+
+save_message:
+	save_msg = kzalloc(sizeof(struct sock_msg_q), GFP_ATOMIC | GFP_DMA);
+	if (!save_msg)
 		return;
-	}
+	save_msg->path = path;
+	save_msg->msg = *msg;
 
-	if (msg->flags & IPRMDATA) {
-		skb->data = NULL;
-		skb->len = 0;
-	} else {
-		rc = iucv_message_receive(path, msg, 0, skb->data,
-					  msg->length, NULL);
-		if (rc) {
-			kfree_skb(skb);
-			return;
-		}
-		if (skb->truesize >= sk->sk_rcvbuf / 4) {
-			rc = iucv_fragment_skb(sk, skb, msg->length,
-					       &fragmented_skb_q);
-			kfree_skb(skb);
-			skb = NULL;
-			if (rc) {
-				iucv_path_sever(path, NULL);
-				return;
-			}
-		} else {
-			skb_reset_transport_header(skb);
-			skb_reset_network_header(skb);
-			skb->len = msg->length;
-		}
-	}
-	/* Queue the fragmented skb */
-	fskb = skb_dequeue(&fragmented_skb_q);
-	while (fskb) {
-		if (!skb_queue_empty(&iucv->backlog_skb_q))
-			skb_queue_tail(&iucv->backlog_skb_q, fskb);
-		else if (sock_queue_rcv_skb(sk, fskb))
-			skb_queue_tail(&iucv_sk(sk)->backlog_skb_q, fskb);
-		fskb = skb_dequeue(&fragmented_skb_q);
-	}
-
-	/* Queue the original skb if it exists (was not fragmented) */
-	if (skb) {
-		if (!skb_queue_empty(&iucv->backlog_skb_q))
-			skb_queue_tail(&iucv_sk(sk)->backlog_skb_q, skb);
-		else if (sock_queue_rcv_skb(sk, skb))
-			skb_queue_tail(&iucv_sk(sk)->backlog_skb_q, skb);
-	}
-
+	spin_lock(&iucv->message_q.lock);
+	list_add_tail(&save_msg->list, &iucv->message_q.list);
+	spin_unlock(&iucv->message_q.lock);
 }
 
 static void iucv_callback_txdone(struct iucv_path *path,
 				 struct iucv_message *msg)
 {
 	struct sock *sk = path->private;
-	struct sk_buff *this;
+	struct sk_buff *this = NULL;
 	struct sk_buff_head *list = &iucv_sk(sk)->send_skb_q;
 	struct sk_buff *list_skb = list->next;
 	unsigned long flags;
 
-	if (list_skb) {
+	if (!skb_queue_empty(list)) {
 		spin_lock_irqsave(&list->lock, flags);
 
-		do {
-			this = list_skb;
+		while (list_skb != (struct sk_buff *)list) {
+			if (!memcmp(&msg->tag, list_skb->cb, 4)) {
+				this = list_skb;
+				break;
+			}
 			list_skb = list_skb->next;
-		} while (memcmp(&msg->tag, this->cb, 4) && list_skb);
+		}
+		if (this)
+			__skb_unlink(this, list);
 
 		spin_unlock_irqrestore(&list->lock, flags);
 
-		skb_unlink(this, &iucv_sk(sk)->send_skb_q);
-		kfree_skb(this);
+		if (this)
+			kfree_skb(this);
 	}
+	BUG_ON(!this);
 
 	if (sk->sk_state == IUCV_CLOSING) {
 		if (skb_queue_empty(&iucv_sk(sk)->send_skb_q)) {
@@ -1148,7 +1196,7 @@ static int __init afiucv_init(void)
 	}
 	cpcmd("QUERY USERID", iucv_userid, sizeof(iucv_userid), &err);
 	if (unlikely(err)) {
-		printk(KERN_ERR "AF_IUCV needs the VM userid\n");
+		WARN_ON(err);
 		err = -EPROTONOSUPPORT;
 		goto out;
 	}
@@ -1162,7 +1210,6 @@ static int __init afiucv_init(void)
 	err = sock_register(&iucv_sock_family_ops);
 	if (err)
 		goto out_proto;
-	printk(KERN_INFO "AF_IUCV lowlevel driver initialized\n");
 	return 0;
 
 out_proto:
@@ -1178,8 +1225,6 @@ static void __exit afiucv_exit(void)
 	sock_unregister(PF_IUCV);
 	proto_unregister(&iucv_proto);
 	iucv_unregister(&af_iucv_handler, 0);
-
-	printk(KERN_INFO "AF_IUCV lowlevel driver unloaded\n");
 }
 
 module_init(afiucv_init);

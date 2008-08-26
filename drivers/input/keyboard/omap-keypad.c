@@ -4,7 +4,7 @@
  * OMAP Keypad Driver
  *
  * Copyright (C) 2003 Nokia Corporation
- * Written by Timo Ter‰s <ext-timo.teras@nokia.com>
+ * Written by Timo Ter√§s <ext-timo.teras@nokia.com>
  *
  * Added support for H2 & H3 Keypad
  * Copyright (C) 2004 Texas Instruments
@@ -233,7 +233,7 @@ static void omap_kp_tasklet(unsigned long data)
 			omap_writew(0, OMAP_MPUIO_BASE + OMAP_MPUIO_KBD_MASKIT);
 			kp_cur_group = -1;
 		}
- 	}
+	}
 }
 
 static ssize_t omap_kp_enable_show(struct device *dev,
@@ -318,7 +318,7 @@ static int __init omap_kp_probe(struct platform_device *pdev)
 	keymap = pdata->keymap;
 
 	if (pdata->rep)
-		set_bit(EV_REP, input_dev->evbit);
+		__set_bit(EV_REP, input_dev->evbit);
 
 	if (pdata->delay)
 		omap_kp->delay = pdata->delay;
@@ -352,6 +352,9 @@ static int __init omap_kp_probe(struct platform_device *pdev)
 			}
 			omap_set_gpio_direction(row_gpios[row_idx], 1);
 		}
+	} else {
+		col_idx = 0;
+		row_idx = 0;
 	}
 
 	setup_timer(&omap_kp->timer, omap_kp_timer, (unsigned long)omap_kp);
@@ -365,9 +368,9 @@ static int __init omap_kp_probe(struct platform_device *pdev)
 		goto err2;
 
 	/* setup input device */
-	set_bit(EV_KEY, input_dev->evbit);
+	__set_bit(EV_KEY, input_dev->evbit);
 	for (i = 0; keymap[i] != 0; i++)
-		set_bit(keymap[i] & KEY_MAX, input_dev->keybit);
+		__set_bit(keymap[i] & KEY_MAX, input_dev->keybit);
 	input_dev->name = "omap-keypad";
 	input_dev->phys = "omap-keypad/input0";
 	input_dev->dev.parent = &pdev->dev;
@@ -376,10 +379,6 @@ static int __init omap_kp_probe(struct platform_device *pdev)
 	input_dev->id.vendor = 0x0001;
 	input_dev->id.product = 0x0001;
 	input_dev->id.version = 0x0100;
-
-	input_dev->keycode = keymap;
-	input_dev->keycodesize = sizeof(unsigned int);
-	input_dev->keycodemax = pdata->keymapsize;
 
 	ret = input_register_device(omap_kp->input);
 	if (ret < 0) {
@@ -403,15 +402,15 @@ static int __init omap_kp_probe(struct platform_device *pdev)
 	} else {
 		for (irq_idx = 0; irq_idx < omap_kp->rows; irq_idx++) {
 			if (request_irq(OMAP_GPIO_IRQ(row_gpios[irq_idx]),
-				       	omap_kp_interrupt,
+					omap_kp_interrupt,
 					IRQF_TRIGGER_FALLING,
-				       	"omap-keypad", omap_kp) < 0)
+					"omap-keypad", omap_kp) < 0)
 				goto err5;
 		}
 	}
 	return 0;
 err5:
-	for (i = irq_idx-1; i >=0; i--)
+	for (i = irq_idx - 1; i >=0; i--)
 		free_irq(row_gpios[i], 0);
 err4:
 	input_unregister_device(omap_kp->input);
@@ -419,10 +418,10 @@ err4:
 err3:
 	device_remove_file(&pdev->dev, &dev_attr_enable);
 err2:
-	for (i = row_idx-1; i >=0; i--)
+	for (i = row_idx - 1; i >=0; i--)
 		omap_free_gpio(row_gpios[i]);
 err1:
-	for (i = col_idx-1; i >=0; i--)
+	for (i = col_idx - 1; i >=0; i--)
 		omap_free_gpio(col_gpios[i]);
 
 	kfree(omap_kp);
@@ -440,9 +439,9 @@ static int omap_kp_remove(struct platform_device *pdev)
 	if (cpu_is_omap24xx()) {
 		int i;
 		for (i = 0; i < omap_kp->cols; i++)
-	    		omap_free_gpio(col_gpios[i]);
+			omap_free_gpio(col_gpios[i]);
 		for (i = 0; i < omap_kp->rows; i++) {
-	    		omap_free_gpio(row_gpios[i]);
+			omap_free_gpio(row_gpios[i]);
 			free_irq(OMAP_GPIO_IRQ(row_gpios[i]), 0);
 		}
 	} else {
@@ -468,6 +467,7 @@ static struct platform_driver omap_kp_driver = {
 	.resume		= omap_kp_resume,
 	.driver		= {
 		.name	= "omap-keypad",
+		.owner	= THIS_MODULE,
 	},
 };
 
@@ -485,6 +485,7 @@ static void __exit omap_kp_exit(void)
 module_init(omap_kp_init);
 module_exit(omap_kp_exit);
 
-MODULE_AUTHOR("Timo Ter‰s");
+MODULE_AUTHOR("Timo Ter√§s");
 MODULE_DESCRIPTION("OMAP Keypad Driver");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:omap-keypad");

@@ -1,7 +1,5 @@
 /* Driver for SanDisk SDDR-55 SmartMedia reader
  *
- * $Id:$
- *
  * SDDR55 driver v0.1:
  *
  * First release
@@ -167,7 +165,8 @@ static int sddr55_read_data(struct us_data *us,
 	unsigned long address;
 
 	unsigned short pages;
-	unsigned int len, index, offset;
+	unsigned int len, offset;
+	struct scatterlist *sg;
 
 	// Since we only read in one block at a time, we have to create
 	// a bounce buffer and move the data a piece at a time between the
@@ -178,7 +177,8 @@ static int sddr55_read_data(struct us_data *us,
 	buffer = kmalloc(len, GFP_NOIO);
 	if (buffer == NULL)
 		return USB_STOR_TRANSPORT_ERROR; /* out of memory */
-	index = offset = 0;
+	offset = 0;
+	sg = NULL;
 
 	while (sectors>0) {
 
@@ -255,7 +255,7 @@ static int sddr55_read_data(struct us_data *us,
 
 		// Store the data in the transfer buffer
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
-				&index, &offset, TO_XFER_BUF);
+				&sg, &offset, TO_XFER_BUF);
 
 		page = 0;
 		lba++;
@@ -287,7 +287,8 @@ static int sddr55_write_data(struct us_data *us,
 
 	unsigned short pages;
 	int i;
-	unsigned int len, index, offset;
+	unsigned int len, offset;
+	struct scatterlist *sg;
 
 	/* check if we are allowed to write */
 	if (info->read_only || info->force_read_only) {
@@ -304,7 +305,8 @@ static int sddr55_write_data(struct us_data *us,
 	buffer = kmalloc(len, GFP_NOIO);
 	if (buffer == NULL)
 		return USB_STOR_TRANSPORT_ERROR;
-	index = offset = 0;
+	offset = 0;
+	sg = NULL;
 
 	while (sectors > 0) {
 
@@ -322,7 +324,7 @@ static int sddr55_write_data(struct us_data *us,
 
 		// Get the data from the transfer buffer
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
-				&index, &offset, FROM_XFER_BUF);
+				&sg, &offset, FROM_XFER_BUF);
 
 		US_DEBUGP("Write %02X pages, to PBA %04X"
 			" (LBA %04X) page %02X\n",
@@ -518,8 +520,8 @@ int sddr55_reset(struct us_data *us) {
 
 static unsigned long sddr55_get_capacity(struct us_data *us) {
 
-	unsigned char manufacturerID;
-	unsigned char deviceID;
+	unsigned char uninitialized_var(manufacturerID);
+	unsigned char uninitialized_var(deviceID);
 	int result;
 	struct sddr55_card_info *info = (struct sddr55_card_info *)us->extra;
 

@@ -38,6 +38,10 @@
 #include <linux/mutex.h>
 #include <asm/io.h>
 
+static unsigned short force_id;
+module_param(force_id, ushort, 0);
+MODULE_PARM_DESC(force_id, "Override the detected device ID");
+
 static struct platform_device *pdev;
 
 #define DRVNAME "smsc47b397"
@@ -94,7 +98,7 @@ static u8 smsc47b397_reg_temp[] = {0x25, 0x26, 0x27, 0x80};
 struct smsc47b397_data {
 	unsigned short addr;
 	const char *name;
-	struct class_device *class_dev;
+	struct device *hwmon_dev;
 	struct mutex lock;
 
 	struct mutex update_lock;
@@ -222,7 +226,7 @@ static int __devexit smsc47b397_remove(struct platform_device *pdev)
 	struct smsc47b397_data *data = platform_get_drvdata(pdev);
 	struct resource *res;
 
-	hwmon_device_unregister(data->class_dev);
+	hwmon_device_unregister(data->hwmon_dev);
 	sysfs_remove_group(&pdev->dev.kobj, &smsc47b397_group);
 	res = platform_get_resource(pdev, IORESOURCE_IO, 0);
 	release_region(res->start, SMSC_EXTENT);
@@ -272,9 +276,9 @@ static int __devinit smsc47b397_probe(struct platform_device *pdev)
 	if ((err = sysfs_create_group(&dev->kobj, &smsc47b397_group)))
 		goto error_free;
 
-	data->class_dev = hwmon_device_register(dev);
-	if (IS_ERR(data->class_dev)) {
-		err = PTR_ERR(data->class_dev);
+	data->hwmon_dev = hwmon_device_register(dev);
+	if (IS_ERR(data->hwmon_dev)) {
+		err = PTR_ERR(data->hwmon_dev);
 		goto error_remove;
 	}
 
@@ -331,11 +335,23 @@ exit:
 static int __init smsc47b397_find(unsigned short *addr)
 {
 	u8 id, rev;
+	char *name;
 
 	superio_enter();
-	id = superio_inb(SUPERIO_REG_DEVID);
+	id = force_id ? force_id : superio_inb(SUPERIO_REG_DEVID);
 
-	if ((id != 0x6f) && (id != 0x81) && (id != 0x85)) {
+	switch(id) {
+	case 0x81:
+		name = "SCH5307-NS";
+		break;
+	case 0x6f:
+		name = "LPC47B397-NC";
+		break;
+	case 0x85:
+	case 0x8c:
+		name = "SCH5317";
+		break;
+	default:
 		superio_exit();
 		return -ENODEV;
 	}
@@ -348,8 +364,7 @@ static int __init smsc47b397_find(unsigned short *addr)
 
 	printk(KERN_INFO DRVNAME ": found SMSC %s "
 		"(base address 0x%04x, revision %u)\n",
-		id == 0x81 ? "SCH5307-NS" : id == 0x85 ? "SCH5317" :
-	       "LPC47B397-NC", *addr, rev);
+		name, *addr, rev);
 
 	superio_exit();
 	return 0;

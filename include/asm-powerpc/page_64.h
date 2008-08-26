@@ -1,6 +1,5 @@
 #ifndef _ASM_POWERPC_PAGE_64_H
 #define _ASM_POWERPC_PAGE_64_H
-#ifdef __KERNEL__
 
 /*
  * Copyright (C) 2001 PPC64 Team, IBM Corp
@@ -26,11 +25,17 @@
  */
 #define PAGE_FACTOR		(PAGE_SHIFT - HW_PAGE_SHIFT)
 
-/* Segment size */
+/* Segment size; normal 256M segments */
 #define SID_SHIFT		28
-#define SID_MASK		0xfffffffffUL
+#define SID_MASK		ASM_CONST(0xfffffffff)
 #define ESID_MASK		0xfffffffff0000000UL
 #define GET_ESID(x)		(((x) >> SID_SHIFT) & SID_MASK)
+
+/* 1T segments */
+#define SID_SHIFT_1T		40
+#define SID_MASK_1T		0xffffffUL
+#define ESID_MASK_1T		0xffffff0000000000UL
+#define GET_ESID_1T(x)		(((x) >> SID_SHIFT_1T) & SID_MASK_1T)
 
 #ifndef __ASSEMBLY__
 #include <asm/cache.h>
@@ -85,6 +90,7 @@ extern unsigned int HPAGE_SHIFT;
 #define HPAGE_SIZE		((1UL) << HPAGE_SHIFT)
 #define HPAGE_MASK		(~(HPAGE_SIZE - 1))
 #define HUGETLB_PAGE_ORDER	(HPAGE_SHIFT - PAGE_SHIFT)
+#define HUGE_MAX_HSTATE		3
 
 #endif /* __ASSEMBLY__ */
 
@@ -121,21 +127,27 @@ extern unsigned int get_slice_psize(struct mm_struct *mm,
 
 extern void slice_init_context(struct mm_struct *mm, unsigned int psize);
 extern void slice_set_user_psize(struct mm_struct *mm, unsigned int psize);
+extern void slice_set_range_psize(struct mm_struct *mm, unsigned long start,
+				  unsigned long len, unsigned int psize);
 
-#define ARCH_HAS_HUGEPAGE_ONLY_RANGE
-extern int is_hugepage_only_range(struct mm_struct *m,
-				  unsigned long addr,
-				  unsigned long len);
+#define slice_mm_new_context(mm)	((mm)->context.id == 0)
 
 #endif /* __ASSEMBLY__ */
 #else
 #define slice_init()
+#define get_slice_psize(mm, addr)	((mm)->context.user_psize)
+#define slice_set_user_psize(mm, psize)		\
+do {						\
+	(mm)->context.user_psize = (psize);	\
+	(mm)->context.sllp = SLB_VSID_USER | mmu_psize_defs[(psize)].sllp; \
+} while (0)
+#define slice_set_range_psize(mm, start, len, psize)	\
+	slice_set_user_psize((mm), (psize))
+#define slice_mm_new_context(mm)	1
 #endif /* CONFIG_PPC_MM_SLICES */
 
 #ifdef CONFIG_HUGETLB_PAGE
 
-#define ARCH_HAS_HUGETLB_FREE_PGD_RANGE
-#define ARCH_HAS_SETCLEAR_HUGE_PTE
 #define HAVE_ARCH_HUGETLB_UNMAPPED_AREA
 
 #endif /* !CONFIG_HUGETLB_PAGE */
@@ -170,5 +182,4 @@ extern int is_hugepage_only_range(struct mm_struct *m,
 
 #include <asm-generic/page.h>
 
-#endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_PAGE_64_H */

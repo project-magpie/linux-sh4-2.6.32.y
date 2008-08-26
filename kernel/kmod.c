@@ -27,6 +27,7 @@
 #include <linux/mnt_namespace.h>
 #include <linux/completion.h>
 #include <linux/file.h>
+#include <linux/fdtable.h>
 #include <linux/workqueue.h>
 #include <linux/security.h>
 #include <linux/mount.h>
@@ -41,7 +42,7 @@ extern int max_threads;
 
 static struct workqueue_struct *khelper_wq;
 
-#ifdef CONFIG_KMOD
+#ifdef CONFIG_MODULES
 
 /*
 	modprobe_path is set via /proc/sys.
@@ -165,7 +166,7 @@ static int ____call_usermodehelper(void *data)
 	}
 
 	/* We can run anywhere, unlike our parent keventd(). */
-	set_cpus_allowed(current, CPU_MASK_ALL);
+	set_cpus_allowed_ptr(current, CPU_MASK_ALL_PTR);
 
 	/*
 	 * Our parent is keventd, which runs with elevated scheduling priority.
@@ -173,10 +174,7 @@ static int ____call_usermodehelper(void *data)
 	 */
 	set_user_nice(current, 0);
 
-	retval = -EPERM;
-	if (current->fs->root)
-		retval = kernel_execve(sub_info->path,
-				sub_info->argv, sub_info->envp);
+	retval = kernel_execve(sub_info->path, sub_info->argv, sub_info->envp);
 
 	/* Exec failed? */
 	sub_info->retval = retval;
@@ -354,16 +352,17 @@ static inline void register_pm_notifier_callback(void) {}
  * @path: path to usermode executable
  * @argv: arg vector for process
  * @envp: environment for process
+ * @gfp_mask: gfp mask for memory allocation
  *
  * Returns either %NULL on allocation failure, or a subprocess_info
  * structure.  This should be passed to call_usermodehelper_exec to
  * exec the process and free the structure.
  */
-struct subprocess_info *call_usermodehelper_setup(char *path,
-						  char **argv, char **envp)
+struct subprocess_info *call_usermodehelper_setup(char *path, char **argv,
+						  char **envp, gfp_t gfp_mask)
 {
 	struct subprocess_info *sub_info;
-	sub_info = kzalloc(sizeof(struct subprocess_info),  GFP_ATOMIC);
+	sub_info = kzalloc(sizeof(struct subprocess_info), gfp_mask);
 	if (!sub_info)
 		goto out;
 
@@ -419,12 +418,12 @@ int call_usermodehelper_stdinpipe(struct subprocess_info *sub_info,
 {
 	struct file *f;
 
-	f = create_write_pipe();
+	f = create_write_pipe(0);
 	if (IS_ERR(f))
 		return PTR_ERR(f);
 	*filp = f;
 
-	f = create_read_pipe(f);
+	f = create_read_pipe(f, 0);
 	if (IS_ERR(f)) {
 		free_write_pipe(*filp);
 		return PTR_ERR(f);
@@ -451,13 +450,11 @@ int call_usermodehelper_exec(struct subprocess_info *sub_info,
 			     enum umh_wait wait)
 {
 	DECLARE_COMPLETION_ONSTACK(done);
-	int retval;
+	int retval = 0;
 
 	helper_lock();
-	if (sub_info->path[0] == '\0') {
-		retval = 0;
+	if (sub_info->path[0] == '\0')
 		goto out;
-	}
 
 	if (!khelper_wq || usermodehelper_disabled) {
 		retval = -EBUSY;
@@ -468,13 +465,14 @@ int call_usermodehelper_exec(struct subprocess_info *sub_info,
 	sub_info->wait = wait;
 
 	queue_work(khelper_wq, &sub_info->work);
-	if (wait == UMH_NO_WAIT) /* task has freed sub_info */
-		return 0;
+	if (wait == UMH_NO_WAIT)	/* task has freed sub_info */
+		goto unlock;
 	wait_for_completion(&done);
 	retval = sub_info->retval;
 
-  out:
+out:
 	call_usermodehelper_freeinfo(sub_info);
+unlock:
 	helper_unlock();
 	return retval;
 }
@@ -497,7 +495,7 @@ int call_usermodehelper_pipe(char *path, char **argv, char **envp,
 	struct subprocess_info *sub_info;
 	int ret;
 
-	sub_info = call_usermodehelper_setup(path, argv, envp);
+	sub_info = call_usermodehelper_setup(path, argv, envp, GFP_KERNEL);
 	if (sub_info == NULL)
 		return -ENOMEM;
 

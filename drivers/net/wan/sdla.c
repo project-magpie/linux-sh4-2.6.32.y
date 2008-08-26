@@ -867,7 +867,7 @@ static void sdla_receive(struct net_device *dev)
 	spin_unlock_irqrestore(&sdla_lock, flags);
 }
 
-static irqreturn_t sdla_isr(int irq, void *dev_id)
+static irqreturn_t sdla_isr(int dummy, void *dev_id)
 {
 	struct net_device     *dev;
 	struct frad_local *flp;
@@ -879,7 +879,8 @@ static irqreturn_t sdla_isr(int irq, void *dev_id)
 
 	if (!flp->initialized)
 	{
-		printk(KERN_WARNING "%s: irq %d for uninitialized device.\n", dev->name, irq);
+		printk(KERN_WARNING "%s: irq %d for uninitialized device.\n",
+		       dev->name, dev->irq);
 		return IRQ_NONE;
 	}
 
@@ -1342,11 +1343,11 @@ static int sdla_set_config(struct net_device *dev, struct ifmap *map)
 	if (flp->initialized)
 		return(-EINVAL);
 
-	for(i=0;i < sizeof(valid_port) / sizeof (int) ; i++)
+	for(i=0; i < ARRAY_SIZE(valid_port); i++)
 		if (valid_port[i] == map->base_addr)
 			break;   
 
-	if (i == sizeof(valid_port) / sizeof(int))
+	if (i == ARRAY_SIZE(valid_port))
 		return(-EINVAL);
 
 	if (!request_region(map->base_addr, SDLA_IO_EXTENTS, dev->name)){
@@ -1487,12 +1488,12 @@ got_type:
 		}
 	}
 
-	for(i=0;i < sizeof(valid_mem) / sizeof (int) ; i++)
+	for(i=0; i < ARRAY_SIZE(valid_mem); i++)
 		if (valid_mem[i] == map->mem_start)
 			break;   
 
 	err = -EINVAL;
-	if (i == sizeof(valid_mem) / sizeof(int))
+	if (i == ARRAY_SIZE(valid_mem))
 		goto fail2;
 
 	if (flp->type == SDLA_S502A && (map->mem_start & 0xF000) >> 12 == 0x0E)
@@ -1603,7 +1604,6 @@ static void setup_sdla(struct net_device *dev)
 
 	netdev_boot_setup_check(dev);
 
-	SET_MODULE_OWNER(dev);
 	dev->flags		= 0;
 	dev->type		= 0xFFFF;
 	dev->hard_header_len	= 0;

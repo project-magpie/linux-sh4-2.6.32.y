@@ -29,8 +29,6 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
- *
- * $Id: mad_rmpp.c 1921 2005-03-02 22:58:44Z sean.hefty $
  */
 
 #include "mad_priv.h"
@@ -684,7 +682,7 @@ static void process_rmpp_ack(struct ib_mad_agent_private *agent,
 
 	if (seg_num > mad_send_wr->last_ack) {
 		adjust_last_ack(mad_send_wr, seg_num);
-		mad_send_wr->retries = mad_send_wr->send_buf.retries;
+		mad_send_wr->retries_left = mad_send_wr->max_retries;
 	}
 	mad_send_wr->newwin = newwin;
 	if (mad_send_wr->last_ack == mad_send_wr->send_buf.seg_count) {

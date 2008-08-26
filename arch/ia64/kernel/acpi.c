@@ -69,6 +69,20 @@ unsigned int acpi_cpei_phys_cpuid;
 
 unsigned long acpi_wakeup_address = 0;
 
+#ifdef CONFIG_IA64_GENERIC
+static unsigned long __init acpi_find_rsdp(void)
+{
+	unsigned long rsdp_phys = 0;
+
+	if (efi.acpi20 != EFI_INVALID_TABLE_ADDR)
+		rsdp_phys = efi.acpi20;
+	else if (efi.acpi != EFI_INVALID_TABLE_ADDR)
+		printk(KERN_WARNING PREFIX
+		       "v1.0/r0.71 tables no longer supported\n");
+	return rsdp_phys;
+}
+#endif
+
 const char __init *
 acpi_get_sysname(void)
 {
@@ -103,7 +117,10 @@ acpi_get_sysname(void)
 	if (!strcmp(hdr->oem_id, "HP")) {
 		return "hpzx1";
 	} else if (!strcmp(hdr->oem_id, "SGI")) {
-		return "sn2";
+		if (!strcmp(hdr->oem_table_id + 4, "UV"))
+			return "uv";
+		else
+			return "sn2";
 	}
 
 	return "dig";
@@ -116,6 +133,8 @@ acpi_get_sysname(void)
 	return "hpzx1_swiotlb";
 # elif defined (CONFIG_IA64_SGI_SN2)
 	return "sn2";
+# elif defined (CONFIG_IA64_SGI_UV)
+	return "uv";
 # elif defined (CONFIG_IA64_DIG)
 	return "dig";
 # else
@@ -152,7 +171,7 @@ int acpi_request_vector(u32 int_type)
 	return vector;
 }
 
-char *__acpi_map_table(unsigned long phys_addr, unsigned long size)
+char *__init __acpi_map_table(unsigned long phys_addr, unsigned long size)
 {
 	return __va(phys_addr);
 }
@@ -409,6 +428,7 @@ static u32 __devinitdata pxm_flag[PXM_FLAG_LEN];
 #define pxm_bit_set(bit)	(set_bit(bit,(void *)pxm_flag))
 #define pxm_bit_test(bit)	(test_bit(bit,(void *)pxm_flag))
 static struct acpi_table_slit __initdata *slit_table;
+cpumask_t early_cpu_possible_map = CPU_MASK_NONE;
 
 static int get_processor_proximity_domain(struct acpi_srat_cpu_affinity *pa)
 {
@@ -445,7 +465,6 @@ void __init acpi_numa_slit_init(struct acpi_table_slit *slit)
 		printk(KERN_ERR
 		       "ACPI 2.0 SLIT: size mismatch: %d expected, %d actual\n",
 		       len, slit->header.length);
-		memset(numa_slit, 10, sizeof(numa_slit));
 		return;
 	}
 	slit_table = slit;
@@ -468,6 +487,7 @@ acpi_numa_processor_affinity_init(struct acpi_srat_cpu_affinity *pa)
 	    (pa->apic_id << 8) | (pa->local_sapic_eid);
 	/* nid should be overridden as logical node id later */
 	node_cpuid[srat_num_cpus].nid = pxm;
+	cpu_set(srat_num_cpus, early_cpu_possible_map);
 	srat_num_cpus++;
 }
 
@@ -545,7 +565,7 @@ void __init acpi_numa_arch_fixup(void)
 	}
 
 	/* set logical node id in cpu structure */
-	for (i = 0; i < srat_num_cpus; i++)
+	for_each_possible_early_cpu(i)
 		node_cpuid[i].nid = pxm_to_node(node_cpuid[i].nid);
 
 	printk(KERN_INFO "Number of logical nodes in system = %d\n",
@@ -553,8 +573,14 @@ void __init acpi_numa_arch_fixup(void)
 	printk(KERN_INFO "Number of memory chunks in system = %d\n",
 	       num_node_memblks);
 
-	if (!slit_table)
+	if (!slit_table) {
+		for (i = 0; i < MAX_NUMNODES; i++)
+			for (j = 0; j < MAX_NUMNODES; j++)
+				node_distance(i, j) = i == j ? LOCAL_DISTANCE :
+							REMOTE_DISTANCE;
 		return;
+	}
+
 	memset(numa_slit, -1, sizeof(numa_slit));
 	for (i = 0; i < slit_table->locality_count; i++) {
 		if (!pxm_bit_test(i))
@@ -601,17 +627,16 @@ int acpi_register_gsi(u32 gsi, int triggering, int polarity)
 				     IOSAPIC_LEVEL);
 }
 
-EXPORT_SYMBOL(acpi_register_gsi);
-
 void acpi_unregister_gsi(u32 gsi)
 {
 	if (acpi_irq_model == ACPI_IRQ_MODEL_PLATFORM)
 		return;
 
+	if (has_8259 && gsi < 16)
+		return;
+
 	iosapic_unregister_intr(gsi);
 }
-
-EXPORT_SYMBOL(acpi_unregister_gsi);
 
 static int __init acpi_parse_fadt(struct acpi_table_header *table)
 {
@@ -629,18 +654,6 @@ static int __init acpi_parse_fadt(struct acpi_table_header *table)
 
 	acpi_register_gsi(fadt->sci_interrupt, ACPI_LEVEL_SENSITIVE, ACPI_ACTIVE_LOW);
 	return 0;
-}
-
-unsigned long __init acpi_find_rsdp(void)
-{
-	unsigned long rsdp_phys = 0;
-
-	if (efi.acpi20 != EFI_INVALID_TABLE_ADDR)
-		rsdp_phys = efi.acpi20;
-	else if (efi.acpi != EFI_INVALID_TABLE_ADDR)
-		printk(KERN_WARNING PREFIX
-		       "v1.0/r0.71 tables no longer supported\n");
-	return rsdp_phys;
 }
 
 int __init acpi_boot_init(void)
@@ -678,9 +691,11 @@ int __init acpi_boot_init(void)
 	/* I/O APIC */
 
 	if (acpi_table_parse_madt
-	    (ACPI_MADT_TYPE_IO_SAPIC, acpi_parse_iosapic, NR_IOSAPICS) < 1)
-		printk(KERN_ERR PREFIX
-		       "Error parsing MADT - no IOSAPIC entries\n");
+	    (ACPI_MADT_TYPE_IO_SAPIC, acpi_parse_iosapic, NR_IOSAPICS) < 1) {
+		if (!ia64_platform_is("sn2"))
+			printk(KERN_ERR PREFIX
+			       "Error parsing MADT - no IOSAPIC entries\n");
+	}
 
 	/* System-Level Interrupt Routing */
 
@@ -759,7 +774,7 @@ int acpi_gsi_to_irq(u32 gsi, unsigned int *irq)
  */
 #ifdef CONFIG_ACPI_HOTPLUG_CPU
 static
-int acpi_map_cpu2node(acpi_handle handle, int cpu, long physid)
+int acpi_map_cpu2node(acpi_handle handle, int cpu, int physid)
 {
 #ifdef CONFIG_ACPI_NUMA
 	int pxm_id;
@@ -839,8 +854,7 @@ int acpi_map_lsapic(acpi_handle handle, int *pcpu)
 	union acpi_object *obj;
 	struct acpi_madt_local_sapic *lsapic;
 	cpumask_t tmp_map;
-	long physid;
-	int cpu;
+	int cpu, physid;
 
 	if (ACPI_FAILURE(acpi_evaluate_object(handle, "_MAT", NULL, &buffer)))
 		return -EINVAL;
@@ -858,7 +872,7 @@ int acpi_map_lsapic(acpi_handle handle, int *pcpu)
 	lsapic = (struct acpi_madt_local_sapic *)obj->buffer.pointer;
 
 	if ((lsapic->header.type != ACPI_MADT_TYPE_LOCAL_SAPIC) ||
-	    (!lsapic->lapic_flags & ACPI_MADT_ENABLED)) {
+	    (!(lsapic->lapic_flags & ACPI_MADT_ENABLED))) {
 		kfree(buffer.pointer);
 		return -EINVAL;
 	}
@@ -964,7 +978,7 @@ acpi_map_iosapics (void)
 fs_initcall(acpi_map_iosapics);
 #endif				/* CONFIG_ACPI_NUMA */
 
-int acpi_register_ioapic(acpi_handle handle, u64 phys_addr, u32 gsi_base)
+int __ref acpi_register_ioapic(acpi_handle handle, u64 phys_addr, u32 gsi_base)
 {
 	int err;
 

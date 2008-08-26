@@ -141,7 +141,6 @@ static void __init hplance_init(struct net_device *dev, struct dio_dev *d)
         dev->poll_controller = lance_poll;
 #endif
         dev->hard_start_xmit = &lance_start_xmit;
-        dev->get_stats = &lance_get_stats;
         dev->set_multicast_list = &lance_set_multicast;
         dev->dma = 0;
 
@@ -221,12 +220,12 @@ static int hplance_close(struct net_device *dev)
         return 0;
 }
 
-int __init hplance_init_module(void)
+static int __init hplance_init_module(void)
 {
 	return dio_register_driver(&hplance_driver);
 }
 
-void __exit hplance_cleanup_module(void)
+static void __exit hplance_cleanup_module(void)
 {
         dio_unregister_driver(&hplance_driver);
 }

@@ -8,6 +8,7 @@
  *
  */
 
+#include <linux/netfilter.h>
 #include <linux/netfilter_bridge/ebtables.h>
 #include <linux/netfilter_bridge/ebt_nat.h>
 #include <linux/module.h>
@@ -15,34 +16,27 @@
 #include <linux/if_arp.h>
 #include <net/arp.h>
 
-static int ebt_target_snat(struct sk_buff **pskb, unsigned int hooknr,
+static int ebt_target_snat(struct sk_buff *skb, unsigned int hooknr,
    const struct net_device *in, const struct net_device *out,
    const void *data, unsigned int datalen)
 {
-	struct ebt_nat_info *info = (struct ebt_nat_info *) data;
+	const struct ebt_nat_info *info = data;
 
-	if (skb_shared(*pskb) || skb_cloned(*pskb)) {
-		struct sk_buff *nskb;
+	if (!skb_make_writable(skb, 0))
+		return EBT_DROP;
 
-		nskb = skb_copy(*pskb, GFP_ATOMIC);
-		if (!nskb)
-			return NF_DROP;
-		if ((*pskb)->sk)
-			skb_set_owner_w(nskb, (*pskb)->sk);
-		kfree_skb(*pskb);
-		*pskb = nskb;
-	}
-	memcpy(eth_hdr(*pskb)->h_source, info->mac, ETH_ALEN);
+	memcpy(eth_hdr(skb)->h_source, info->mac, ETH_ALEN);
 	if (!(info->target & NAT_ARP_BIT) &&
-	    eth_hdr(*pskb)->h_proto == htons(ETH_P_ARP)) {
-		struct arphdr _ah, *ap;
+	    eth_hdr(skb)->h_proto == htons(ETH_P_ARP)) {
+		const struct arphdr *ap;
+		struct arphdr _ah;
 
-		ap = skb_header_pointer(*pskb, 0, sizeof(_ah), &_ah);
+		ap = skb_header_pointer(skb, 0, sizeof(_ah), &_ah);
 		if (ap == NULL)
 			return EBT_DROP;
 		if (ap->ar_hln != ETH_ALEN)
 			goto out;
-		if (skb_store_bits(*pskb, sizeof(_ah), info->mac,ETH_ALEN))
+		if (skb_store_bits(skb, sizeof(_ah), info->mac,ETH_ALEN))
 			return EBT_DROP;
 	}
 out:
@@ -52,7 +46,7 @@ out:
 static int ebt_target_snat_check(const char *tablename, unsigned int hookmask,
    const struct ebt_entry *e, void *data, unsigned int datalen)
 {
-	struct ebt_nat_info *info = (struct ebt_nat_info *) data;
+	const struct ebt_nat_info *info = data;
 	int tmp;
 
 	if (datalen != EBT_ALIGN(sizeof(struct ebt_nat_info)))
@@ -74,8 +68,7 @@ static int ebt_target_snat_check(const char *tablename, unsigned int hookmask,
 	return 0;
 }
 
-static struct ebt_target snat =
-{
+static struct ebt_target snat __read_mostly = {
 	.name		= EBT_SNAT_TARGET,
 	.target		= ebt_target_snat,
 	.check		= ebt_target_snat_check,
@@ -94,4 +87,5 @@ static void __exit ebt_snat_fini(void)
 
 module_init(ebt_snat_init);
 module_exit(ebt_snat_fini);
+MODULE_DESCRIPTION("Ebtables: Source MAC address translation");
 MODULE_LICENSE("GPL");

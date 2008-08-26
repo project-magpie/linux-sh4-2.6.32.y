@@ -1,5 +1,5 @@
 /*
- *  linux/drivers/ide/legacy/q40ide.c -- Q40 I/O port IDE Driver
+ *  Q40 I/O port IDE Driver
  *
  *     (c) Richard Zidlicky
  *
@@ -36,23 +36,6 @@ static const unsigned long pcide_bases[Q40IDE_NUM_HWIFS] = {
     PCIDE_BASE6 */
 };
 
-
-    /*
-     *  Offsets from one of the above bases
-     */
-
-/* used to do addr translation here but it is easier to do in setup ports */
-/*#define IDE_OFF_B(x)	((unsigned long)Q40_ISA_IO_B((IDE_##x##_OFFSET)))*/
-
-#define IDE_OFF_B(x)	((unsigned long)((IDE_##x##_OFFSET)))
-#define IDE_OFF_W(x)	((unsigned long)((IDE_##x##_OFFSET)))
-
-static const int pcide_offsets[IDE_NR_PORTS] = {
-    IDE_OFF_W(DATA), IDE_OFF_B(ERROR), IDE_OFF_B(NSECTOR), IDE_OFF_B(SECTOR),
-    IDE_OFF_B(LCYL), IDE_OFF_B(HCYL), 6 /*IDE_OFF_B(CURRENT)*/, IDE_OFF_B(STATUS),
-    518/*IDE_OFF(CMD)*/
-};
-
 static int q40ide_default_irq(unsigned long base)
 {
            switch (base) {
@@ -66,43 +49,77 @@ static int q40ide_default_irq(unsigned long base)
 
 
 /*
- * This is very similar to ide_setup_ports except that addresses
- * are pretranslated for q40 ISA access
+ * Addresses are pretranslated for Q40 ISA access.
  */
-void q40_ide_setup_ports ( hw_regs_t *hw,
-			unsigned long base, int *offsets,
-			unsigned long ctrl, unsigned long intr,
+static void q40_ide_setup_ports(hw_regs_t *hw, unsigned long base,
 			ide_ack_intr_t *ack_intr,
-/*
- *			ide_io_ops_t *iops,
- */
 			int irq)
 {
-	int i;
-
 	memset(hw, 0, sizeof(hw_regs_t));
-	for (i = 0; i < IDE_NR_PORTS; i++) {
-		/* BIG FAT WARNING: 
-		   assumption: only DATA port is ever used in 16 bit mode */
-		if ( i==0 )
-			hw->io_ports[i] = Q40_ISA_IO_W(base + offsets[i]);
-		else
-			hw->io_ports[i] = Q40_ISA_IO_B(base + offsets[i]);
-	}
-	
+	/* BIG FAT WARNING: 
+	   assumption: only DATA port is ever used in 16 bit mode */
+	hw->io_ports.data_addr = Q40_ISA_IO_W(base);
+	hw->io_ports.error_addr = Q40_ISA_IO_B(base + 1);
+	hw->io_ports.nsect_addr = Q40_ISA_IO_B(base + 2);
+	hw->io_ports.lbal_addr = Q40_ISA_IO_B(base + 3);
+	hw->io_ports.lbam_addr = Q40_ISA_IO_B(base + 4);
+	hw->io_ports.lbah_addr = Q40_ISA_IO_B(base + 5);
+	hw->io_ports.device_addr = Q40_ISA_IO_B(base + 6);
+	hw->io_ports.status_addr = Q40_ISA_IO_B(base + 7);
+	hw->io_ports.ctl_addr = Q40_ISA_IO_B(base + 0x206);
+
 	hw->irq = irq;
-	hw->dma = NO_DMA;
 	hw->ack_intr = ack_intr;
-/*
- *	hw->iops = iops;
- */
+
+	hw->chipset = ide_generic;
 }
 
+static void q40ide_input_data(ide_drive_t *drive, struct request *rq,
+			      void *buf, unsigned int len)
+{
+	unsigned long data_addr = drive->hwif->io_ports.data_addr;
 
+	if (drive->media == ide_disk && rq && rq->cmd_type == REQ_TYPE_FS)
+		return insw(data_addr, buf, (len + 1) / 2);
+
+	insw_swapw(data_addr, buf, (len + 1) / 2);
+}
+
+static void q40ide_output_data(ide_drive_t *drive, struct request *rq,
+			       void *buf, unsigned int len)
+{
+	unsigned long data_addr = drive->hwif->io_ports.data_addr;
+
+	if (drive->media == ide_disk && rq && rq->cmd_type == REQ_TYPE_FS)
+		return outsw(data_addr, buf, (len + 1) / 2);
+
+	outsw_swapw(data_addr, buf, (len + 1) / 2);
+}
+
+/* Q40 has a byte-swapped IDE interface */
+static const struct ide_tp_ops q40ide_tp_ops = {
+	.exec_command		= ide_exec_command,
+	.read_status		= ide_read_status,
+	.read_altstatus		= ide_read_altstatus,
+	.read_sff_dma_status	= ide_read_sff_dma_status,
+
+	.set_irq		= ide_set_irq,
+
+	.tf_load		= ide_tf_load,
+	.tf_read		= ide_tf_read,
+
+	.input_data		= q40ide_input_data,
+	.output_data		= q40ide_output_data,
+};
+
+static const struct ide_port_info q40ide_port_info = {
+	.tp_ops			= &q40ide_tp_ops,
+	.host_flags		= IDE_HFLAG_NO_DMA,
+};
 
 /* 
  * the static array is needed to have the name reported in /proc/ioports,
- * hwif->name unfortunately isn´t available yet
+ * hwif->name unfortunately isn't available yet
  */
 static const char *q40_ide_names[Q40IDE_NUM_HWIFS]={
 	"ide0", "ide1"
@@ -112,20 +129,19 @@ static const char *q40_ide_names[Q40IDE_NUM_HWIFS]={
  *  Probe for Q40 IDE interfaces
  */
 
-void q40ide_init(void)
+static int __init q40ide_init(void)
 {
     int i;
-    ide_hwif_t *hwif;
-    int index;
-    const char *name;
+    hw_regs_t hw[Q40IDE_NUM_HWIFS], *hws[] = { NULL, NULL, NULL, NULL };
 
     if (!MACH_IS_Q40)
-      return ;
+      return -ENODEV;
+
+    printk(KERN_INFO "ide: Q40 IDE controller\n");
 
     for (i = 0; i < Q40IDE_NUM_HWIFS; i++) {
-	hw_regs_t hw;
+	const char *name = q40_ide_names[i];
 
-	name = q40_ide_names[i];
 	if (!request_region(pcide_bases[i], 8, name)) {
 		printk("could not reserve ports %lx-%lx for %s\n",
 		       pcide_bases[i],pcide_bases[i]+8,name);
@@ -137,15 +153,15 @@ void q40ide_init(void)
 		release_region(pcide_bases[i], 8);
 		continue;
 	}
-	q40_ide_setup_ports(&hw,(unsigned long) pcide_bases[i], (int *)pcide_offsets, 
-			pcide_bases[i]+0x206, 
-			0, NULL,
-//			m68kide_iops,
+	q40_ide_setup_ports(&hw[i], pcide_bases[i], NULL,
 			q40ide_default_irq(pcide_bases[i]));
-	index = ide_register_hw(&hw, 1, &hwif);
-	// **FIXME**
-	if (index != -1)
-		hwif->mmio = 1;
+
+	hws[i] = &hw[i];
     }
+
+    return ide_host_add(&q40ide_port_info, hws, NULL);
 }
 
+module_init(q40ide_init);
+
+MODULE_LICENSE("GPL");

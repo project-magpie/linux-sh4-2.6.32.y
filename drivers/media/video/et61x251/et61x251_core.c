@@ -22,7 +22,6 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/param.h>
-#include <linux/moduleparam.h>
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/device.h>
@@ -35,7 +34,7 @@
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
 #include <linux/page-flags.h>
-#include <linux/byteorder/generic.h>
+#include <asm/byteorder.h>
 #include <asm/page.h>
 #include <asm/uaccess.h>
 
@@ -228,7 +227,7 @@ int et61x251_write_reg(struct et61x251_device* cam, u8 value, u16 index)
 }
 
 
-int et61x251_read_reg(struct et61x251_device* cam, u16 index)
+static int et61x251_read_reg(struct et61x251_device* cam, u16 index)
 {
 	struct usb_device* udev = cam->usbdev;
 	u8* buff = cam->control_buffer;
@@ -266,73 +265,6 @@ et61x251_i2c_wait(struct et61x251_device* cam,
 	}
 
 	return -EBUSY;
-}
-
-
-int
-et61x251_i2c_try_read(struct et61x251_device* cam,
-		      const struct et61x251_sensor* sensor, u8 address)
-{
-	struct usb_device* udev = cam->usbdev;
-	u8* data = cam->control_buffer;
-	int err = 0, res;
-
-	data[0] = address;
-	data[1] = cam->sensor.i2c_slave_id;
-	data[2] = cam->sensor.rsta | 0x10;
-	data[3] = !(et61x251_read_reg(cam, 0x8b) & 0x02);
-	res = usb_control_msg(udev, usb_sndctrlpipe(udev, 0), 0x00, 0x41,
-			      0, 0x88, data, 4, ET61X251_CTRL_TIMEOUT);
-	if (res < 0)
-		err += res;
-
-	err += et61x251_i2c_wait(cam, sensor);
-
-	res = usb_control_msg(udev, usb_rcvctrlpipe(udev, 0), 0x00, 0xc1,
-			      0, 0x80, data, 8, ET61X251_CTRL_TIMEOUT);
-	if (res < 0)
-		err += res;
-
-	if (err)
-		DBG(3, "I2C read failed for %s image sensor", sensor->name);
-
-	PDBGG("I2C read: address 0x%02X, value: 0x%02X", address, data[0]);
-
-	return err ? -1 : (int)data[0];
-}
-
-
-int
-et61x251_i2c_try_write(struct et61x251_device* cam,
-		       const struct et61x251_sensor* sensor, u8 address,
-		       u8 value)
-{
-	struct usb_device* udev = cam->usbdev;
-	u8* data = cam->control_buffer;
-	int err = 0, res;
-
-	data[0] = address;
-	data[1] = cam->sensor.i2c_slave_id;
-	data[2] = cam->sensor.rsta | 0x12;
-	res = usb_control_msg(udev, usb_sndctrlpipe(udev, 0), 0x00, 0x41,
-			      0, 0x88, data, 3, ET61X251_CTRL_TIMEOUT);
-	if (res < 0)
-		err += res;
-
-	data[0] = value;
-	res = usb_control_msg(udev, usb_sndctrlpipe(udev, 0), 0x00, 0x41,
-			      0, 0x80, data, 1, ET61X251_CTRL_TIMEOUT);
-	if (res < 0)
-		err += res;
-
-	err += et61x251_i2c_wait(cam, sensor);
-
-	if (err)
-		DBG(3, "I2C write failed for %s image sensor", sensor->name);
-
-	PDBGG("I2C write: address 0x%02X, value: 0x%02X", address, value);
-
-	return err ? -1 : 0;
 }
 
 
@@ -387,17 +319,6 @@ et61x251_i2c_raw_write(struct et61x251_device* cam, u8 n, u8 data1, u8 data2,
 
 }
 
-
-int et61x251_i2c_read(struct et61x251_device* cam, u8 address)
-{
-	return et61x251_i2c_try_read(cam, &cam->sensor, address);
-}
-
-
-int et61x251_i2c_write(struct et61x251_device* cam, u8 address, u8 value)
-{
-	return et61x251_i2c_try_write(cam, &cam->sensor, address, value);
-}
 
 /*****************************************************************************/
 
@@ -676,6 +597,83 @@ static int et61x251_stream_interrupt(struct et61x251_device* cam)
 /*****************************************************************************/
 
 #ifdef CONFIG_VIDEO_ADV_DEBUG
+
+static int et61x251_i2c_try_read(struct et61x251_device* cam,
+				 const struct et61x251_sensor* sensor,
+				 u8 address)
+{
+	struct usb_device* udev = cam->usbdev;
+	u8* data = cam->control_buffer;
+	int err = 0, res;
+
+	data[0] = address;
+	data[1] = cam->sensor.i2c_slave_id;
+	data[2] = cam->sensor.rsta | 0x10;
+	data[3] = !(et61x251_read_reg(cam, 0x8b) & 0x02);
+	res = usb_control_msg(udev, usb_sndctrlpipe(udev, 0), 0x00, 0x41,
+			      0, 0x88, data, 4, ET61X251_CTRL_TIMEOUT);
+	if (res < 0)
+		err += res;
+
+	err += et61x251_i2c_wait(cam, sensor);
+
+	res = usb_control_msg(udev, usb_rcvctrlpipe(udev, 0), 0x00, 0xc1,
+			      0, 0x80, data, 8, ET61X251_CTRL_TIMEOUT);
+	if (res < 0)
+		err += res;
+
+	if (err)
+		DBG(3, "I2C read failed for %s image sensor", sensor->name);
+
+	PDBGG("I2C read: address 0x%02X, value: 0x%02X", address, data[0]);
+
+	return err ? -1 : (int)data[0];
+}
+
+
+static int et61x251_i2c_try_write(struct et61x251_device* cam,
+				  const struct et61x251_sensor* sensor,
+				  u8 address, u8 value)
+{
+	struct usb_device* udev = cam->usbdev;
+	u8* data = cam->control_buffer;
+	int err = 0, res;
+
+	data[0] = address;
+	data[1] = cam->sensor.i2c_slave_id;
+	data[2] = cam->sensor.rsta | 0x12;
+	res = usb_control_msg(udev, usb_sndctrlpipe(udev, 0), 0x00, 0x41,
+			      0, 0x88, data, 3, ET61X251_CTRL_TIMEOUT);
+	if (res < 0)
+		err += res;
+
+	data[0] = value;
+	res = usb_control_msg(udev, usb_sndctrlpipe(udev, 0), 0x00, 0x41,
+			      0, 0x80, data, 1, ET61X251_CTRL_TIMEOUT);
+	if (res < 0)
+		err += res;
+
+	err += et61x251_i2c_wait(cam, sensor);
+
+	if (err)
+		DBG(3, "I2C write failed for %s image sensor", sensor->name);
+
+	PDBGG("I2C write: address 0x%02X, value: 0x%02X", address, value);
+
+	return err ? -1 : 0;
+}
+
+static int et61x251_i2c_read(struct et61x251_device* cam, u8 address)
+{
+	return et61x251_i2c_try_read(cam, &cam->sensor, address);
+}
+
+static int et61x251_i2c_write(struct et61x251_device* cam,
+			      u8 address, u8 value)
+{
+	return et61x251_i2c_try_write(cam, &cam->sensor, address, value);
+}
+
 static u8 et61x251_strtou8(const char* buff, size_t len, ssize_t* count)
 {
 	char str[5];
@@ -707,7 +705,8 @@ static u8 et61x251_strtou8(const char* buff, size_t len, ssize_t* count)
    NOTE 2: buffers are PAGE_SIZE long
 */
 
-static ssize_t et61x251_show_reg(struct class_device* cd, char* buf)
+static ssize_t et61x251_show_reg(struct device* cd,
+				 struct device_attribute *attr, char* buf)
 {
 	struct et61x251_device* cam;
 	ssize_t count;
@@ -730,7 +729,8 @@ static ssize_t et61x251_show_reg(struct class_device* cd, char* buf)
 
 
 static ssize_t
-et61x251_store_reg(struct class_device* cd, const char* buf, size_t len)
+et61x251_store_reg(struct device* cd,
+		   struct device_attribute *attr, const char* buf, size_t len)
 {
 	struct et61x251_device* cam;
 	u8 index;
@@ -762,7 +762,8 @@ et61x251_store_reg(struct class_device* cd, const char* buf, size_t len)
 }
 
 
-static ssize_t et61x251_show_val(struct class_device* cd, char* buf)
+static ssize_t et61x251_show_val(struct device* cd,
+				 struct device_attribute *attr, char* buf)
 {
 	struct et61x251_device* cam;
 	ssize_t count;
@@ -793,7 +794,8 @@ static ssize_t et61x251_show_val(struct class_device* cd, char* buf)
 
 
 static ssize_t
-et61x251_store_val(struct class_device* cd, const char* buf, size_t len)
+et61x251_store_val(struct device* cd, struct device_attribute *attr,
+		   const char* buf, size_t len)
 {
 	struct et61x251_device* cam;
 	u8 value;
@@ -831,7 +833,8 @@ et61x251_store_val(struct class_device* cd, const char* buf, size_t len)
 }
 
 
-static ssize_t et61x251_show_i2c_reg(struct class_device* cd, char* buf)
+static ssize_t et61x251_show_i2c_reg(struct device* cd,
+				     struct device_attribute *attr, char* buf)
 {
 	struct et61x251_device* cam;
 	ssize_t count;
@@ -856,7 +859,8 @@ static ssize_t et61x251_show_i2c_reg(struct class_device* cd, char* buf)
 
 
 static ssize_t
-et61x251_store_i2c_reg(struct class_device* cd, const char* buf, size_t len)
+et61x251_store_i2c_reg(struct device* cd, struct device_attribute *attr,
+		       const char* buf, size_t len)
 {
 	struct et61x251_device* cam;
 	u8 index;
@@ -888,7 +892,8 @@ et61x251_store_i2c_reg(struct class_device* cd, const char* buf, size_t len)
 }
 
 
-static ssize_t et61x251_show_i2c_val(struct class_device* cd, char* buf)
+static ssize_t et61x251_show_i2c_val(struct device* cd,
+				     struct device_attribute *attr, char* buf)
 {
 	struct et61x251_device* cam;
 	ssize_t count;
@@ -924,7 +929,8 @@ static ssize_t et61x251_show_i2c_val(struct class_device* cd, char* buf)
 
 
 static ssize_t
-et61x251_store_i2c_val(struct class_device* cd, const char* buf, size_t len)
+et61x251_store_i2c_val(struct device* cd, struct device_attribute *attr,
+		       const char* buf, size_t len)
 {
 	struct et61x251_device* cam;
 	u8 value;
@@ -967,42 +973,40 @@ et61x251_store_i2c_val(struct class_device* cd, const char* buf, size_t len)
 }
 
 
-static CLASS_DEVICE_ATTR(reg, S_IRUGO | S_IWUSR,
-			 et61x251_show_reg, et61x251_store_reg);
-static CLASS_DEVICE_ATTR(val, S_IRUGO | S_IWUSR,
-			 et61x251_show_val, et61x251_store_val);
-static CLASS_DEVICE_ATTR(i2c_reg, S_IRUGO | S_IWUSR,
-			 et61x251_show_i2c_reg, et61x251_store_i2c_reg);
-static CLASS_DEVICE_ATTR(i2c_val, S_IRUGO | S_IWUSR,
-			 et61x251_show_i2c_val, et61x251_store_i2c_val);
+static DEVICE_ATTR(reg, S_IRUGO | S_IWUSR,
+		   et61x251_show_reg, et61x251_store_reg);
+static DEVICE_ATTR(val, S_IRUGO | S_IWUSR,
+		   et61x251_show_val, et61x251_store_val);
+static DEVICE_ATTR(i2c_reg, S_IRUGO | S_IWUSR,
+		   et61x251_show_i2c_reg, et61x251_store_i2c_reg);
+static DEVICE_ATTR(i2c_val, S_IRUGO | S_IWUSR,
+		   et61x251_show_i2c_val, et61x251_store_i2c_val);
 
 
 static int et61x251_create_sysfs(struct et61x251_device* cam)
 {
-	struct class_device *classdev = &(cam->v4ldev->class_dev);
+	struct device *classdev = &(cam->v4ldev->class_dev);
 	int err = 0;
 
-	if ((err = class_device_create_file(classdev, &class_device_attr_reg)))
+	if ((err = device_create_file(classdev, &dev_attr_reg)))
 		goto err_out;
-	if ((err = class_device_create_file(classdev, &class_device_attr_val)))
+	if ((err = device_create_file(classdev, &dev_attr_val)))
 		goto err_reg;
 
 	if (cam->sensor.sysfs_ops) {
-		if ((err = class_device_create_file(classdev,
-						  &class_device_attr_i2c_reg)))
+		if ((err = device_create_file(classdev, &dev_attr_i2c_reg)))
 			goto err_val;
-		if ((err = class_device_create_file(classdev,
-						  &class_device_attr_i2c_val)))
+		if ((err = device_create_file(classdev, &dev_attr_i2c_val)))
 			goto err_i2c_reg;
 	}
 
 err_i2c_reg:
 	if (cam->sensor.sysfs_ops)
-		class_device_remove_file(classdev, &class_device_attr_i2c_reg);
+		device_remove_file(classdev, &dev_attr_i2c_reg);
 err_val:
-	class_device_remove_file(classdev, &class_device_attr_val);
+	device_remove_file(classdev, &dev_attr_val);
 err_reg:
-	class_device_remove_file(classdev, &class_device_attr_reg);
+	device_remove_file(classdev, &dev_attr_reg);
 err_out:
 	return err;
 }
@@ -2519,7 +2523,9 @@ static const struct file_operations et61x251_fops = {
 	.open =    et61x251_open,
 	.release = et61x251_release,
 	.ioctl =   et61x251_ioctl,
+#ifdef CONFIG_COMPAT
 	.compat_ioctl = v4l_compat_ioctl32,
+#endif
 	.read =    et61x251_read,
 	.poll =    et61x251_poll,
 	.mmap =    et61x251_mmap,
@@ -2534,7 +2540,7 @@ et61x251_usb_probe(struct usb_interface* intf, const struct usb_device_id* id)
 {
 	struct usb_device *udev = interface_to_usbdev(intf);
 	struct et61x251_device* cam;
-	static unsigned int dev_nr = 0;
+	static unsigned int dev_nr;
 	unsigned int i;
 	int err = 0;
 
@@ -2580,7 +2586,6 @@ et61x251_usb_probe(struct usb_interface* intf, const struct usb_device_id* id)
 	strcpy(cam->v4ldev->name, "ET61X[12]51 PC Camera");
 	cam->v4ldev->owner = THIS_MODULE;
 	cam->v4ldev->type = VID_TYPE_CAPTURE | VID_TYPE_SCALES;
-	cam->v4ldev->hardware = 0;
 	cam->v4ldev->fops = &et61x251_fops;
 	cam->v4ldev->minor = video_nr[dev_nr];
 	cam->v4ldev->release = video_device_release;

@@ -63,6 +63,8 @@
 #define AUDIT_ADD_RULE		1011	/* Add syscall filtering rule */
 #define AUDIT_DEL_RULE		1012	/* Delete syscall filtering rule */
 #define AUDIT_LIST_RULES	1013	/* List syscall filtering rules */
+#define AUDIT_TRIM		1014	/* Trim junk from watched tree */
+#define AUDIT_MAKE_EQUIV	1015	/* Append to watched tree */
 #define AUDIT_TTY_GET		1016	/* Get TTY auditing status */
 #define AUDIT_TTY_SET		1017	/* Set TTY auditing status */
 
@@ -96,6 +98,7 @@
 #define AUDIT_FD_PAIR		1317    /* audit record for pipe/socketpair */
 #define AUDIT_OBJ_PID		1318	/* ptrace target */
 #define AUDIT_TTY		1319	/* Input on an administrative TTY */
+#define AUDIT_EOE		1320	/* End of multi-record event */
 
 #define AUDIT_AVC		1400	/* SE Linux avc denial or grant */
 #define AUDIT_SELINUX_ERR	1401	/* Internal SE Linux Errors */
@@ -108,10 +111,13 @@
 #define AUDIT_MAC_CIPSOV4_DEL	1408	/* NetLabel: del CIPSOv4 DOI entry */
 #define AUDIT_MAC_MAP_ADD	1409	/* NetLabel: add LSM domain mapping */
 #define AUDIT_MAC_MAP_DEL	1410	/* NetLabel: del LSM domain mapping */
-#define AUDIT_MAC_IPSEC_ADDSA	1411	/* Add a XFRM state */
-#define AUDIT_MAC_IPSEC_DELSA	1412	/* Delete a XFRM state */
-#define AUDIT_MAC_IPSEC_ADDSPD	1413	/* Add a XFRM policy */
-#define AUDIT_MAC_IPSEC_DELSPD	1414	/* Delete a XFRM policy */
+#define AUDIT_MAC_IPSEC_ADDSA	1411	/* Not used */
+#define AUDIT_MAC_IPSEC_DELSA	1412	/* Not used  */
+#define AUDIT_MAC_IPSEC_ADDSPD	1413	/* Not used */
+#define AUDIT_MAC_IPSEC_DELSPD	1414	/* Not used */
+#define AUDIT_MAC_IPSEC_EVENT	1415	/* Audit an IPSec event */
+#define AUDIT_MAC_UNLBL_STCADD	1416	/* NetLabel: add a static label */
+#define AUDIT_MAC_UNLBL_STCDEL	1417	/* NetLabel: del a static label */
 
 #define AUDIT_FIRST_KERN_ANOM_MSG   1700
 #define AUDIT_LAST_KERN_ANOM_MSG    1799
@@ -140,7 +146,7 @@
 /* Rule structure sizes -- if these change, different AUDIT_ADD and
  * AUDIT_LIST commands must be implemented. */
 #define AUDIT_MAX_FIELDS   64
-#define AUDIT_MAX_KEY_LEN  32
+#define AUDIT_MAX_KEY_LEN  256
 #define AUDIT_BITMASK_SIZE 64
 #define AUDIT_WORD(nr) ((__u32)((nr)/32))
 #define AUDIT_BIT(nr)  (1 << ((nr) - AUDIT_WORD(nr)*32))
@@ -202,6 +208,8 @@
 #define AUDIT_SUCCESS   104	/* exit >= 0; value ignored */
 #define AUDIT_WATCH	105
 #define AUDIT_PERM	106
+#define AUDIT_DIR	107
+#define AUDIT_FILETYPE	108
 
 #define AUDIT_ARG0      200
 #define AUDIT_ARG1      (AUDIT_ARG0+1)
@@ -278,7 +286,6 @@
 #define AUDIT_ARCH_SHEL64	(EM_SH|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)
 #define AUDIT_ARCH_SPARC	(EM_SPARC)
 #define AUDIT_ARCH_SPARC64	(EM_SPARCV9|__AUDIT_ARCH_64BIT)
-#define AUDIT_ARCH_V850		(EM_V850|__AUDIT_ARCH_LE)
 #define AUDIT_ARCH_X86_64	(EM_X86_64|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)
 
 #define AUDIT_PERM_EXEC		1
@@ -346,6 +353,33 @@ struct netlink_skb_parms;
 struct linux_binprm;
 struct mq_attr;
 struct mqstat;
+struct audit_watch;
+struct audit_tree;
+
+struct audit_krule {
+	int			vers_ops;
+	u32			flags;
+	u32			listnr;
+	u32			action;
+	u32			mask[AUDIT_BITMASK_SIZE];
+	u32			buflen; /* for data alloc on list rules */
+	u32			field_count;
+	char			*filterkey; /* ties events to rules */
+	struct audit_field	*fields;
+	struct audit_field	*arch_f; /* quick access to arch field */
+	struct audit_field	*inode_f; /* quick access to an inode field */
+	struct audit_watch	*watch;	/* associated watch */
+	struct audit_tree	*tree;	/* associated watched tree */
+	struct list_head	rlist;	/* entry in audit_{watch,tree}.rules list */
+};
+
+struct audit_field {
+	u32				type;
+	u32				val;
+	u32				op;
+	char				*lsm_str;
+	void				*lsm_rule;
+};
 
 #define AUDITSC_INVALID 0
 #define AUDITSC_SUCCESS 1
@@ -365,8 +399,8 @@ extern void audit_syscall_entry(int arch,
 extern void audit_syscall_exit(int failed, long return_code);
 extern void __audit_getname(const char *name);
 extern void audit_putname(const char *name);
-extern void __audit_inode(const char *name, const struct inode *inode);
-extern void __audit_inode_child(const char *dname, const struct inode *inode,
+extern void __audit_inode(const char *name, const struct dentry *dentry);
+extern void __audit_inode_child(const char *dname, const struct dentry *dentry,
 				const struct inode *parent);
 extern void __audit_ptrace(struct task_struct *t);
 
@@ -380,15 +414,15 @@ static inline void audit_getname(const char *name)
 	if (unlikely(!audit_dummy_context()))
 		__audit_getname(name);
 }
-static inline void audit_inode(const char *name, const struct inode *inode) {
+static inline void audit_inode(const char *name, const struct dentry *dentry) {
 	if (unlikely(!audit_dummy_context()))
-		__audit_inode(name, inode);
+		__audit_inode(name, dentry);
 }
 static inline void audit_inode_child(const char *dname, 
-				     const struct inode *inode,
+				     const struct dentry *dentry,
 				     const struct inode *parent) {
 	if (unlikely(!audit_dummy_context()))
-		__audit_inode_child(dname, inode, parent);
+		__audit_inode_child(dname, dentry, parent);
 }
 void audit_core_dumps(long signr);
 
@@ -403,7 +437,8 @@ extern unsigned int audit_serial(void);
 extern void auditsc_get_stamp(struct audit_context *ctx,
 			      struct timespec *t, unsigned int *serial);
 extern int  audit_set_loginuid(struct task_struct *task, uid_t loginuid);
-extern uid_t audit_get_loginuid(struct audit_context *ctx);
+#define audit_get_loginuid(t) ((t)->loginuid)
+#define audit_get_sessionid(t) ((t)->sessionid)
 extern void audit_log_task_context(struct audit_buffer *ab);
 extern int __audit_ipc_obj(struct kern_ipc_perm *ipcp);
 extern int __audit_ipc_set_perm(unsigned long qbytes, uid_t uid, gid_t gid, mode_t mode);
@@ -476,13 +511,14 @@ extern int audit_signals;
 #define audit_dummy_context() 1
 #define audit_getname(n) do { ; } while (0)
 #define audit_putname(n) do { ; } while (0)
-#define __audit_inode(n,i) do { ; } while (0)
+#define __audit_inode(n,d) do { ; } while (0)
 #define __audit_inode_child(d,i,p) do { ; } while (0)
-#define audit_inode(n,i) do { ; } while (0)
+#define audit_inode(n,d) do { ; } while (0)
 #define audit_inode_child(d,i,p) do { ; } while (0)
 #define audit_core_dumps(i) do { ; } while (0)
 #define auditsc_get_stamp(c,t,s) do { BUG(); } while (0)
-#define audit_get_loginuid(c) ({ -1; })
+#define audit_get_loginuid(t) (-1)
+#define audit_get_sessionid(t) (-1)
 #define audit_log_task_context(b) do { ; } while (0)
 #define audit_ipc_obj(i) ({ 0; })
 #define audit_ipc_set_perm(q,u,g,m) ({ 0; })
@@ -513,24 +549,32 @@ extern void		    audit_log_format(struct audit_buffer *ab,
 					     const char *fmt, ...)
 			    __attribute__((format(printf,2,3)));
 extern void		    audit_log_end(struct audit_buffer *ab);
-extern void		    audit_log_hex(struct audit_buffer *ab,
+extern int		    audit_string_contains_control(const char *string,
+							  size_t len);
+extern void		    audit_log_n_hex(struct audit_buffer *ab,
 					  const unsigned char *buf,
 					  size_t len);
-extern const char *	    audit_log_untrustedstring(struct audit_buffer *ab,
+extern void		    audit_log_n_string(struct audit_buffer *ab,
+					       const char *buf,
+					       size_t n);
+#define audit_log_string(a,b) audit_log_n_string(a, b, strlen(b));
+extern void		    audit_log_n_untrustedstring(struct audit_buffer *ab,
+							const char *string,
+							size_t n);
+extern void		    audit_log_untrustedstring(struct audit_buffer *ab,
 						      const char *string);
-extern const char *	    audit_log_n_untrustedstring(struct audit_buffer *ab,
-							size_t n,
-							const char *string);
 extern void		    audit_log_d_path(struct audit_buffer *ab,
 					     const char *prefix,
-					     struct dentry *dentry,
-					     struct vfsmount *vfsmnt);
+					     struct path *path);
 extern void		    audit_log_lost(const char *message);
+extern int		    audit_update_lsm_rules(void);
+
 				/* Private API (for audit.c only) */
-extern int audit_filter_user(struct netlink_skb_parms *cb, int type);
+extern int audit_filter_user(struct netlink_skb_parms *cb);
 extern int audit_filter_type(int type);
 extern int  audit_receive_filter(int type, int pid, int uid, int seq,
-			 void *data, size_t datasz, uid_t loginuid, u32 sid);
+				void *data, size_t datasz, uid_t loginuid,
+				u32 sessionid, u32 sid);
 extern int audit_enabled;
 #else
 #define audit_log(c,g,t,f,...) do { ; } while (0)
@@ -538,10 +582,12 @@ extern int audit_enabled;
 #define audit_log_vformat(b,f,a) do { ; } while (0)
 #define audit_log_format(b,f,...) do { ; } while (0)
 #define audit_log_end(b) do { ; } while (0)
-#define audit_log_hex(a,b,l) do { ; } while (0)
-#define audit_log_untrustedstring(a,s) do { ; } while (0)
+#define audit_log_n_hex(a,b,l) do { ; } while (0)
+#define audit_log_n_string(a,c,l) do { ; } while (0)
+#define audit_log_string(a,c) do { ; } while (0)
 #define audit_log_n_untrustedstring(a,n,s) do { ; } while (0)
-#define audit_log_d_path(b,p,d,v) do { ; } while (0)
+#define audit_log_untrustedstring(a,s) do { ; } while (0)
+#define audit_log_d_path(b, p, d) do { ; } while (0)
 #define audit_enabled 0
 #endif
 #endif

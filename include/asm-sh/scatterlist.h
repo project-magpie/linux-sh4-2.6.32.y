@@ -4,13 +4,16 @@
 #include <asm/types.h>
 
 struct scatterlist {
-    struct page * page; /* Location for highmem page, if any */
+#ifdef CONFIG_DEBUG_SG
+    unsigned long sg_magic;
+#endif
+    unsigned long page_link;
     unsigned int offset;/* for highmem, page offset */
     dma_addr_t dma_address;
     unsigned int length;
 };
 
-#define ISA_DMA_THRESHOLD (0x1fffffff)
+#define ISA_DMA_THRESHOLD	PHYS_ADDR_MASK
 
 /* These macros should be used after a pci_map_sg call has been done
  * to get bus addresses of each of the SG entries and their lengths.

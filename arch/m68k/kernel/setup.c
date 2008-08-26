@@ -26,6 +26,7 @@
 
 #include <asm/bootinfo.h>
 #include <asm/setup.h>
+#include <asm/fpu.h>
 #include <asm/irq.h>
 #include <asm/io.h>
 #include <asm/machdep.h>
@@ -40,12 +41,18 @@
 #include <asm/dvma.h>
 #endif
 
+#if !FPSTATESIZE || !NR_IRQS
+#warning No CPU/platform type selected, your kernel will not work!
+#warning Are you building an allnoconfig kernel?
+#endif
+
 unsigned long m68k_machtype;
-unsigned long m68k_cputype;
 EXPORT_SYMBOL(m68k_machtype);
+unsigned long m68k_cputype;
 EXPORT_SYMBOL(m68k_cputype);
 unsigned long m68k_fputype;
 unsigned long m68k_mmutype;
+EXPORT_SYMBOL(m68k_mmutype);
 #ifdef CONFIG_VME
 unsigned long vme_brdtype;
 EXPORT_SYMBOL(vme_brdtype);
@@ -115,6 +122,7 @@ extern int bvme6000_parse_bootinfo(const struct bi_record *);
 extern int mvme16x_parse_bootinfo(const struct bi_record *);
 extern int mvme147_parse_bootinfo(const struct bi_record *);
 extern int hp300_parse_bootinfo(const struct bi_record *);
+extern int apollo_parse_bootinfo(const struct bi_record *);
 
 extern void config_amiga(void);
 extern void config_atari(void);
@@ -182,6 +190,8 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 				unknown = mvme147_parse_bootinfo(record);
 			else if (MACH_IS_HP300)
 				unknown = hp300_parse_bootinfo(record);
+			else if (MACH_IS_APOLLO)
+				unknown = apollo_parse_bootinfo(record);
 			else
 				unknown = 1;
 		}
@@ -323,7 +333,8 @@ void __init setup_arch(char **cmdline_p)
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (m68k_ramdisk.size) {
 		reserve_bootmem_node(__virt_to_node(phys_to_virt(m68k_ramdisk.addr)),
-				     m68k_ramdisk.addr, m68k_ramdisk.size);
+				     m68k_ramdisk.addr, m68k_ramdisk.size,
+				     BOOTMEM_DEFAULT);
 		initrd_start = (unsigned long)phys_to_virt(m68k_ramdisk.addr);
 		initrd_end = initrd_start + m68k_ramdisk.size;
 		printk("initrd: %08lx - %08lx\n", initrd_start, initrd_end);
@@ -344,19 +355,19 @@ void __init setup_arch(char **cmdline_p)
 
 /* set ISA defs early as possible */
 #if defined(CONFIG_ISA) && defined(MULTI_ISA)
-#if defined(CONFIG_Q40)
 	if (MACH_IS_Q40) {
-		isa_type = Q40_ISA;
+		isa_type = ISA_TYPE_Q40;
 		isa_sex = 0;
 	}
-#elif defined(CONFIG_GG2)
+#ifdef CONFIG_GG2
 	if (MACH_IS_AMIGA && AMIGAHW_PRESENT(GG2_ISA)) {
-		isa_type = GG2_ISA;
+		isa_type = ISA_TYPE_GG2;
 		isa_sex = 0;
 	}
-#elif defined(CONFIG_AMIGA_PCMCIA)
+#endif
+#ifdef CONFIG_AMIGA_PCMCIA
 	if (MACH_IS_AMIGA && AMIGAHW_PRESENT(PCMCIA)) {
-		isa_type = AG_ISA;
+		isa_type = ISA_TYPE_AG;
 		isa_sex = 1;
 	}
 #endif
@@ -449,7 +460,7 @@ static void *c_next(struct seq_file *m, void *v, loff_t *pos)
 static void c_stop(struct seq_file *m, void *v)
 {
 }
-struct seq_operations cpuinfo_op = {
+const struct seq_operations cpuinfo_op = {
 	.start	= c_start,
 	.next	= c_next,
 	.stop	= c_stop,

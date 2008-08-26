@@ -56,6 +56,7 @@ struct cisco_state {
 	cisco_proto settings;
 
 	struct timer_list timer;
+	spinlock_t lock;
 	unsigned long last_poll;
 	int up;
 	int request_sent;
@@ -74,7 +75,7 @@ static inline struct cisco_state * state(hdlc_device *hdlc)
 
 
 static int cisco_hard_header(struct sk_buff *skb, struct net_device *dev,
-			     u16 type, void *daddr, void *saddr,
+			     u16 type, const void *daddr, const void *saddr,
 			     unsigned int len)
 {
 	struct hdlc_header *data;
@@ -158,6 +159,7 @@ static int cisco_rx(struct sk_buff *skb)
 {
 	struct net_device *dev = skb->dev;
 	hdlc_device *hdlc = dev_to_hdlc(dev);
+	struct cisco_state *st = state(hdlc);
 	struct hdlc_header *data = (struct hdlc_header*)skb->data;
 	struct cisco_packet *cisco_data;
 	struct in_device *in_dev;
@@ -220,11 +222,12 @@ static int cisco_rx(struct sk_buff *skb)
 			goto rx_error;
 
 		case CISCO_KEEPALIVE_REQ:
-			state(hdlc)->rxseq = ntohl(cisco_data->par1);
-			if (state(hdlc)->request_sent &&
-			    ntohl(cisco_data->par2) == state(hdlc)->txseq) {
-				state(hdlc)->last_poll = jiffies;
-				if (!state(hdlc)->up) {
+			spin_lock(&st->lock);
+			st->rxseq = ntohl(cisco_data->par1);
+			if (st->request_sent &&
+			    ntohl(cisco_data->par2) == st->txseq) {
+				st->last_poll = jiffies;
+				if (!st->up) {
 					u32 sec, min, hrs, days;
 					sec = ntohl(cisco_data->time) / 1000;
 					min = sec / 60; sec -= min * 60;
@@ -232,12 +235,12 @@ static int cisco_rx(struct sk_buff *skb)
 					days = hrs / 24; hrs -= days * 24;
 					printk(KERN_INFO "%s: Link up (peer "
 					       "uptime %ud%uh%um%us)\n",
-					       dev->name, days, hrs,
-					       min, sec);
+					       dev->name, days, hrs, min, sec);
 					netif_dormant_off(dev);
-					state(hdlc)->up = 1;
+					st->up = 1;
 				}
 			}
+			spin_unlock(&st->lock);
 
 			dev_kfree_skb_any(skb);
 			return NET_RX_SUCCESS;
@@ -249,8 +252,8 @@ static int cisco_rx(struct sk_buff *skb)
 	dev_kfree_skb_any(skb);
 	return NET_RX_DROP;
 
- rx_error:
-	dev_to_desc(dev)->stats.rx_errors++; /* Mark error */
+rx_error:
+	dev->stats.rx_errors++; /* Mark error */
 	dev_kfree_skb_any(skb);
 	return NET_RX_DROP;
 }
@@ -261,24 +264,25 @@ static void cisco_timer(unsigned long arg)
 {
 	struct net_device *dev = (struct net_device *)arg;
 	hdlc_device *hdlc = dev_to_hdlc(dev);
+	struct cisco_state *st = state(hdlc);
 
-	if (state(hdlc)->up &&
-	    time_after(jiffies, state(hdlc)->last_poll +
-		       state(hdlc)->settings.timeout * HZ)) {
-		state(hdlc)->up = 0;
+	spin_lock(&st->lock);
+	if (st->up &&
+	    time_after(jiffies, st->last_poll + st->settings.timeout * HZ)) {
+		st->up = 0;
 		printk(KERN_INFO "%s: Link down\n", dev->name);
 		netif_dormant_on(dev);
 	}
 
-	cisco_keepalive_send(dev, CISCO_KEEPALIVE_REQ,
-			     htonl(++state(hdlc)->txseq),
-			     htonl(state(hdlc)->rxseq));
-	state(hdlc)->request_sent = 1;
-	state(hdlc)->timer.expires = jiffies +
-		state(hdlc)->settings.interval * HZ;
-	state(hdlc)->timer.function = cisco_timer;
-	state(hdlc)->timer.data = arg;
-	add_timer(&state(hdlc)->timer);
+	cisco_keepalive_send(dev, CISCO_KEEPALIVE_REQ, htonl(++st->txseq),
+			     htonl(st->rxseq));
+	st->request_sent = 1;
+	spin_unlock(&st->lock);
+
+	st->timer.expires = jiffies + st->settings.interval * HZ;
+	st->timer.function = cisco_timer;
+	st->timer.data = arg;
+	add_timer(&st->timer);
 }
 
 
@@ -286,15 +290,20 @@ static void cisco_timer(unsigned long arg)
 static void cisco_start(struct net_device *dev)
 {
 	hdlc_device *hdlc = dev_to_hdlc(dev);
-	state(hdlc)->up = 0;
-	state(hdlc)->request_sent = 0;
-	state(hdlc)->txseq = state(hdlc)->rxseq = 0;
+	struct cisco_state *st = state(hdlc);
+	unsigned long flags;
 
-	init_timer(&state(hdlc)->timer);
-	state(hdlc)->timer.expires = jiffies + HZ; /*First poll after 1s*/
-	state(hdlc)->timer.function = cisco_timer;
-	state(hdlc)->timer.data = (unsigned long)dev;
-	add_timer(&state(hdlc)->timer);
+	spin_lock_irqsave(&st->lock, flags);
+	st->up = 0;
+	st->request_sent = 0;
+	st->txseq = st->rxseq = 0;
+	spin_unlock_irqrestore(&st->lock, flags);
+
+	init_timer(&st->timer);
+	st->timer.expires = jiffies + HZ; /* First poll after 1 s */
+	st->timer.function = cisco_timer;
+	st->timer.data = (unsigned long)dev;
+	add_timer(&st->timer);
 }
 
 
@@ -302,12 +311,17 @@ static void cisco_start(struct net_device *dev)
 static void cisco_stop(struct net_device *dev)
 {
 	hdlc_device *hdlc = dev_to_hdlc(dev);
-	del_timer_sync(&state(hdlc)->timer);
-	netif_dormant_on(dev);
-	state(hdlc)->up = 0;
-	state(hdlc)->request_sent = 0;
-}
+	struct cisco_state *st = state(hdlc);
+	unsigned long flags;
 
+	del_timer_sync(&st->timer);
+
+	spin_lock_irqsave(&st->lock, flags);
+	netif_dormant_on(dev);
+	st->up = 0;
+	st->request_sent = 0;
+	spin_unlock_irqrestore(&st->lock, flags);
+}
 
 
 static struct hdlc_proto proto = {
@@ -315,9 +329,13 @@ static struct hdlc_proto proto = {
 	.stop		= cisco_stop,
 	.type_trans	= cisco_type_trans,
 	.ioctl		= cisco_ioctl,
+	.netif_rx	= cisco_rx,
 	.module		= THIS_MODULE,
 };
- 
+
+static const struct header_ops cisco_header_ops = {
+	.create = cisco_hard_header,
+};
  
 static int cisco_ioctl(struct net_device *dev, struct ifreq *ifr)
 {
@@ -358,14 +376,15 @@ static int cisco_ioctl(struct net_device *dev, struct ifreq *ifr)
 		if (result)
 			return result;
 
-		result = attach_hdlc_protocol(dev, &proto, cisco_rx,
+		result = attach_hdlc_protocol(dev, &proto,
 					      sizeof(struct cisco_state));
 		if (result)
 			return result;
 
 		memcpy(&state(hdlc)->settings, &new_settings, size);
+		spin_lock_init(&state(hdlc)->lock);
 		dev->hard_start_xmit = hdlc->xmit;
-		dev->hard_header = cisco_hard_header;
+		dev->header_ops = &cisco_header_ops;
 		dev->type = ARPHRD_CISCO;
 		netif_dormant_on(dev);
 		return 0;

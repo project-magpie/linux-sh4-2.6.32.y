@@ -39,6 +39,8 @@ int dvb_usb_af9005_dump_eeprom = 0;
 module_param_named(dump_eeprom, dvb_usb_af9005_dump_eeprom, int, 0);
 MODULE_PARM_DESC(dump_eeprom, "dump contents of the eeprom.");
 
+DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
+
 /* remote control decoder */
 int (*rc_decode) (struct dvb_usb_device * d, u8 * data, int len, u32 * event,
 		  int *state);
@@ -1020,12 +1022,14 @@ static struct dvb_usb_device_properties af9005_properties;
 static int af9005_usb_probe(struct usb_interface *intf,
 			    const struct usb_device_id *id)
 {
-	return dvb_usb_device_init(intf, &af9005_properties, THIS_MODULE, NULL);
+	return dvb_usb_device_init(intf, &af9005_properties,
+				   THIS_MODULE, NULL, adapter_nr);
 }
 
 static struct usb_device_id af9005_usb_table[] = {
 	{USB_DEVICE(USB_VID_AFATECH, USB_PID_AFATECH_AF9005)},
 	{USB_DEVICE(USB_VID_TERRATEC, USB_PID_TERRATEC_CINERGY_T_USB_XE)},
+	{USB_DEVICE(USB_VID_ANSONIC, USB_PID_ANSONIC_DVBT_USB)},
 	{0},
 };
 
@@ -1075,7 +1079,7 @@ static struct dvb_usb_device_properties af9005_properties = {
 	.rc_key_map_size = 0,
 	.rc_query = af9005_rc_query,
 
-	.num_device_descs = 2,
+	.num_device_descs = 3,
 	.devices = {
 		    {.name = "Afatech DVB-T USB1.1 stick",
 		     .cold_ids = {&af9005_usb_table[0], NULL},
@@ -1083,6 +1087,10 @@ static struct dvb_usb_device_properties af9005_properties = {
 		     },
 		    {.name = "TerraTec Cinergy T USB XE",
 		     .cold_ids = {&af9005_usb_table[1], NULL},
+		     .warm_ids = {NULL},
+		     },
+		    {.name = "Ansonic DVB-T USB1.1 stick",
+		     .cold_ids = {&af9005_usb_table[2], NULL},
 		     .warm_ids = {NULL},
 		     },
 		    {NULL},

@@ -130,12 +130,6 @@ static struct intc_group groups[] = {
 	INTC_GROUP(PIO, PIO0, PIO1, PIO2),
 };
 
-static struct intc_prio priorities[] = {
-	INTC_PRIO(SCIF1, 3),
-	INTC_PRIO(SCIF2, 3),
-	INTC_PRIO(DMAC, 7),
-};
-
 static struct intc_prio_reg prio_registers[] = {
 	{ 0xffd00004, 0, 16, 4, /* IPRA */     { TMU0, TMU1, TMU2,   RTC } },
 	{ 0xffd00008, 0, 16, 4, /* IPRB */     {  WDT,    0, SCIF1,    0 } },
@@ -155,7 +149,7 @@ static struct intc_mask_reg mask_registers[] = {
 };
 
 static DECLARE_INTC_DESC(intc_desc, "st40ra", vectors, groups,
-			 priorities, mask_registers, prio_registers, NULL);
+			 mask_registers, prio_registers, NULL);
 
 static struct intc_vect vectors_irlm[] = {
 	INTC_VECT(IRL0, 0x240), INTC_VECT(IRL1, 0x2a0),
@@ -163,7 +157,7 @@ static struct intc_vect vectors_irlm[] = {
 };
 
 static DECLARE_INTC_DESC(intc_desc_irlm, "st40ra_irlm", vectors_irlm, NULL,
-			 priorities, NULL, prio_registers, NULL);
+			 NULL, prio_registers, NULL);
 
 void __init plat_irq_setup(void)
 {

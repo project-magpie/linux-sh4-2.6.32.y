@@ -45,10 +45,6 @@
 #include <asm/macints.h>
 #endif
 
-#ifndef MAX_HWIFS
-#define MAX_HWIFS	4	/* same as the other archs */
-#endif
-
 /*
  * Get rid of defs from io.h - ide has its private and conflicting versions
  * Since so far no single m68k platform uses ISA/PCI I/O space for IDE, we
@@ -137,7 +133,7 @@ ide_get_lock(irq_handler_t handler, void *data)
 #endif /* CONFIG_BLK_DEV_FALCON_IDE */
 
 #define IDE_ARCH_ACK_INTR
-#define ide_ack_intr(hwif)	((hwif)->hw.ack_intr ? (hwif)->hw.ack_intr(hwif) : 1)
+#define ide_ack_intr(hwif)	((hwif)->ack_intr ? (hwif)->ack_intr(hwif) : 1)
 
 #endif /* __KERNEL__ */
 #endif /* _M68K_IDE_H */

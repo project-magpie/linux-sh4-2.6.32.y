@@ -42,6 +42,7 @@
 /*
  * Size of kernel stack for each process. This must be a power of 2...
  */
+#define THREAD_SIZE_ORDER	1
 #define THREAD_SIZE		8192	/* 2 pages */
 
 #ifndef __ASSEMBLY__
@@ -81,14 +82,11 @@ struct thread_info {
 #define init_thread_info	(init_thread_union.thread_info)
 #define init_stack		(init_thread_union.stack)
 
-/* How to get the thread information struct from C */
-
-static inline struct thread_info *current_thread_info(void)
-    __attribute__ ((__const__));
-
-/* Given a task stack pointer, you can find it's task structure
- * just by masking it to the 8K boundary.
+/* Given a task stack pointer, you can find its corresponding
+ * thread_info structure just by masking it to the THREAD_SIZE
+ * boundary (currently 8K as you can see above).
  */
+__attribute_const__
 static inline struct thread_info *current_thread_info(void)
 {
 	struct thread_info *ti;
@@ -97,10 +95,6 @@ static inline struct thread_info *current_thread_info(void)
 	return (struct thread_info *)((long)ti & ~((long)THREAD_SIZE-1));
 }
 
-/* thread information allocation */
-#define alloc_thread_info(tsk) ((struct thread_info *) \
-				__get_free_pages(GFP_KERNEL, 1))
-#define free_thread_info(ti)	free_pages((unsigned long) (ti), 1)
 #endif				/* __ASSEMBLY__ */
 
 /*

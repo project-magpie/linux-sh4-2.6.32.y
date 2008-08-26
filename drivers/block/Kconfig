@@ -44,16 +44,6 @@ config MAC_FLOPPY
 	  If you have a SWIM-3 (Super Woz Integrated Machine 3; from Apple)
 	  floppy controller, say Y here. Most commonly found in PowerMacs.
 
-config BLK_DEV_PS2
-	tristate "PS/2 ESDI hard disk support"
-	depends on MCA && MCA_LEGACY && BROKEN
-	help
-	  Say Y here if you have a PS/2 machine with a MCA bus and an ESDI
-	  hard disk.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called ps2esdi.
-
 config AMIGA_Z2RAM
 	tristate "Amiga Zorro II ramdisk support"
 	depends on ZORRO
@@ -104,6 +94,17 @@ config PARIDE
 	  to at least one protocol driver (e.g. "ATEN EH-100 protocol",
 	  "MicroSolutions backpack protocol", "DataStor Commuter protocol"
 	  etc.).
+
+config GDROM
+	tristate "SEGA Dreamcast GD-ROM drive"
+	depends on SH_DREAMCAST
+	help
+	  A standard SEGA Dreamcast comes with a modified CD ROM drive called a
+	  "GD-ROM" by SEGA to signify it is capable of reading special disks
+	  with up to 1 GB of data. This drive will also read standard CD ROM
+	  disks. Select this option to access any disks in your GD ROM drive.
+	  Most users will want to say "Y" here.
+	  You can also build this as a module which will be called gdrom.ko
 
 source "drivers/block/paride/Kconfig"
 
@@ -203,23 +204,6 @@ config BLK_DEV_UBD_SYNC
 config BLK_DEV_COW_COMMON
 	bool
 	default BLK_DEV_UBD
-
-config MMAPPER
-	tristate "Example IO memory driver (BROKEN)"
-	depends on UML && BROKEN
-	---help---
-          The User-Mode Linux port can provide support for IO Memory
-          emulation with this option.  This allows a host file to be
-          specified as an I/O region on the kernel command line. That file
-          will be mapped into UML's kernel address space where a driver can
-          locate it and do whatever it wants with the memory, including
-          providing an interface to it for UML processes to use.
-
-          For more information, see
-          <http://user-mode-linux.sourceforge.net/iomem.html>.
-
-          If you'd like to be able to provide a simulated IO port space for
-          User-Mode Linux processes, say Y.  If unsure, say N.
 
 config BLK_DEV_LOOP
 	tristate "Loopback device support"
@@ -328,7 +312,7 @@ config BLK_DEV_UB
 	  If unsure, say N.
 
 config BLK_DEV_RAM
-	tristate "RAM disk support"
+	tristate "RAM block device support"
 	---help---
 	  Saying Y here will allow you to use a portion of your RAM memory as
 	  a block device, so that you can make file systems on it, read and
@@ -351,7 +335,7 @@ config BLK_DEV_RAM_COUNT
 	default "16"
 	depends on BLK_DEV_RAM
 	help
-	  The default value is 16 RAM disks. Change this if you know what
+	  The default value is 16 RAM disks. Change this if you know what you
 	  are doing. If you boot from a filesystem that needs to be extracted
 	  in memory, you will need at least one RAM disk (e.g. root on cramfs).
 
@@ -361,18 +345,17 @@ config BLK_DEV_RAM_SIZE
 	default "4096"
 	help
 	  The default value is 4096 kilobytes. Only change this if you know
-	  what are you doing. If you are using IBM S/390, then set this to
-	  8192.
+	  what you are doing.
 
-config BLK_DEV_RAM_BLOCKSIZE
-	int "Default RAM disk block size (bytes)"
+config BLK_DEV_XIP
+	bool "Support XIP filesystems on RAM block device"
 	depends on BLK_DEV_RAM
-	default "1024"
+	default n
 	help
-	  The default value is 1024 bytes.  PAGE_SIZE is a much more
-	  efficient choice however.  The default is kept to ensure initrd
-	  setups function - apparently needed by the rd_load_image routine
-	  that supposes the filesystem in the image uses a 1024 blocksize.
+	  Support XIP filesystems (such as ext2 with XIP support on) on
+	  top of block ram device. This will slightly enlarge the kernel, and
+	  will prevent RAM block device backing store memory from being
+	  allocated from highmem (only a problem for highmem systems).
 
 config CDROM_PKTCDVD
 	tristate "Packet writing on CD/DVD media"
@@ -442,5 +425,24 @@ config XEN_BLKDEV_FRONTEND
 	  This driver implements the front-end of the Xen virtual
 	  block device driver.  It communicates with a back-end driver
 	  in another domain which drives the actual block device.
+
+config VIRTIO_BLK
+	tristate "Virtio block driver (EXPERIMENTAL)"
+	depends on EXPERIMENTAL && VIRTIO
+	---help---
+	  This is the virtual block driver for virtio.  It can be used with
+          lguest or QEMU based VMMs (like KVM or Xen).  Say Y or M.
+
+config BLK_DEV_HD
+	bool "Very old hard disk (MFM/RLL/IDE) driver"
+	depends on HAVE_IDE
+	depends on !ARM || ARCH_RPC || ARCH_SHARK || BROKEN
+	help
+	  This is a very old hard disk driver that lacks the enhanced
+	  functionality of the newer ones.
+
+	  It is required for systems with ancient MFM/RLL/ESDI drives.
+
+	  If unsure, say N.
 
 endif # BLK_DEV

@@ -1,6 +1,4 @@
 /*
- * $Id: gf2k.c,v 1.19 2002/01/22 20:27:43 vojtech Exp $
- *
  *  Copyright (c) 1998-2001 Vojtech Pavlik
  */
 
@@ -315,7 +313,7 @@ static int gf2k_connect(struct gameport *gameport, struct gameport_driver *drv)
 	input_dev->open = gf2k_open;
 	input_dev->close = gf2k_close;
 
-	input_dev->evbit[0] = BIT(EV_KEY) | BIT(EV_ABS);
+	input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
 
 	for (i = 0; i < gf2k_axes[gf2k->id]; i++)
 		set_bit(gf2k_abs[i], input_dev->absbit);

@@ -38,6 +38,7 @@
  */
 #define __IO_PREFIX	generic
 #include <asm/io_generic.h>
+#include <asm/io_trapped.h>
 
 #define maybebadio(port) \
   printk(KERN_ERR "bad PC-like io %s:%u for port 0x%lx at 0x%08x\n", \
@@ -195,6 +196,8 @@ __BUILD_MEMORY_STRING(w, u16)
 
 #define mmiowb()	wmb()	/* synco on SH-4A, otherwise a nop */
 
+#define IO_SPACE_LIMIT 0xffffffff
+
 /*
  * This function provides a method for the generic case where a board-specific
  * ioport_map simply needs to return the port + some arbitrary port base.
@@ -208,6 +211,8 @@ static inline void __set_io_port_base(unsigned long pbase)
 
 	generic_io_base = pbase;
 }
+
+#define __ioport_map(p, n) sh_mv.mv_ioport_map((p), (n))
 
 /* We really want to try and get these to memcpy etc */
 extern void memcpy_fromio(void *, volatile void __iomem *, unsigned long);
@@ -241,6 +246,12 @@ static inline unsigned int ctrl_inl(unsigned long addr)
 	return *(volatile unsigned long*)addr;
 }
 
+static inline unsigned long long ctrl_inq(unsigned long addr)
+{
+	CTRL_ADDR_CHECK(addr);
+	return *(volatile unsigned long long*)addr;
+}
+
 static inline void ctrl_outb(unsigned char b, unsigned long addr)
 {
 	CTRL_ADDR_CHECK(addr);
@@ -259,49 +270,48 @@ static inline void ctrl_outl(unsigned int b, unsigned long addr)
         *(volatile unsigned long*)addr = b;
 }
 
+static inline void ctrl_outq(unsigned long long b, unsigned long addr)
+{
+	CTRL_ADDR_CHECK(addr);
+	*(volatile unsigned long long*)addr = b;
+}
+
 static inline void ctrl_delay(void)
 {
+#ifdef P2SEG
 	ctrl_inw(P2SEG);
+#endif
 }
 
-#define IO_SPACE_LIMIT 0xffffffff
+/* Quad-word real-mode I/O, don't ask.. */
+unsigned long long peek_real_address_q(unsigned long long addr);
+unsigned long long poke_real_address_q(unsigned long long addr,
+				       unsigned long long val);
 
-#ifdef CONFIG_MMU
-/*
- * Change virtual addresses to physical addresses and vv.
- * These are trivial on the 1:1 Linux/SuperH mapping
- */
-static inline unsigned long virt_to_phys(volatile void *address)
-{
-	return __pa(address);
-}
-
-static inline void *phys_to_virt(unsigned long address)
-{
-	return __va(address);
-}
-#else
-#define phys_to_virt(address)	((void *)(address))
+#if !defined(CONFIG_MMU)
 #define virt_to_phys(address)	((unsigned long)(address))
+#define phys_to_virt(address)	((void *)(address))
+#else
+#define virt_to_phys(address)	(__pa(address))
+#define phys_to_virt(address)	(__va(address))
 #endif
 
 /*
- * readX/writeX() are used to access memory mapped devices. On some
- * architectures the memory mapped IO stuff needs to be accessed
- * differently. On the x86 architecture, we just read/write the
- * memory location directly.
+ * On 32-bit SH, we traditionally have the whole physical address space
+ * mapped at all times (as MIPS does), so "ioremap()" and "iounmap()" do
+ * not need to do anything but place the address in the proper segment.
+ * This is true for P1 and P2 addresses, as well as some P3 ones.
+ * However, most of the P3 addresses and newer cores using extended
+ * addressing need to map through page tables, so the ioremap()
+ * implementation becomes a bit more complicated.
  *
- * On SH, we traditionally have the whole physical address space mapped
- * at all times (as MIPS does), so "ioremap()" and "iounmap()" do not
- * need to do anything but place the address in the proper segment. This
- * is true for P1 and P2 addresses, as well as some P3 ones. However,
- * most of the P3 addresses and newer cores using extended addressing
- * need to map through page tables, so the ioremap() implementation
- * becomes a bit more complicated. See arch/sh/mm/ioremap.c for
- * additional notes on this.
+ * See arch/sh/mm/ioremap.c for additional notes on this.
  *
  * We cheat a bit and always return uncachable areas until we've fixed
  * the drivers to handle caching properly.
+ *
+ * On the SH-5 the concept of segmentation in the 1:1 PXSEG sense simply
+ * doesn't exist, so everything must go through page tables.
  */
 #ifdef CONFIG_MMU
 void __iomem *__ioremap_mode(unsigned long offset, unsigned long size,
@@ -309,22 +319,44 @@ void __iomem *__ioremap_mode(unsigned long offset, unsigned long size,
 void __iomem *__ioremap_prot(unsigned long offset, unsigned long size,
 			     pgprot_t prot);
 void __iounmap(void __iomem *addr);
+
+/* arch/sh/mm/ioremap_64.c */
+unsigned long onchip_remap(unsigned long addr, unsigned long size,
+			   const char *name);
+extern void onchip_unmap(unsigned long vaddr);
 #else
-#define __iounmap(addr)			do { } while (0)
 static inline void __iomem *
 __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 {
+#ifdef CONFIG_SUPERH32
 	unsigned long last_addr = offset + size - 1;
+#endif
+	void __iomem *ret;
 
+	ret = __ioremap_trapped(offset, size);
+	if (ret)
+		return ret;
+
+#ifdef CONFIG_SUPERH32
+	/*
+	 * For P1 and P2 space this is trivial, as everything is already
+	 * mapped. Uncached access for P1 addresses are done through P2.
+	 * In the P3 case or for addresses outside of the 29-bit space,
+	 * mapping must be done by the PMB or by using page tables.
+	 */
 	if (likely(PXSEG(offset) < P3SEG && PXSEG(last_addr) < P3SEG)) {
 		if (unlikely(flags & _PAGE_CACHABLE))
 			return (void __iomem *)P1SEGADDR(offset);
 
 		return (void __iomem *)P2SEGADDR(offset);
 	}
+#endif
 
 	return ((void __iomem *)(offset));
 }
+#define __iounmap(addr)			do { } while (0)
+#define onchip_remap(addr, size, name)	(addr)
+#define onchip_unmap(addr)		do { } while (0)
 #endif /* CONFIG_MMU */
 
 #define ioremap(offset, size)				\
@@ -337,31 +369,6 @@ __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 	__ioremap_prot((offset), (size), (prot))
 #define iounmap(addr)					\
 	__iounmap((addr))
-
-/*
- * The caches on some architectures aren't dma-coherent and have need to
- * handle this in software.  There are three types of operations that
- * can be applied to dma buffers.
- *
- *  - dma_cache_wback_inv(start, size) makes caches and RAM coherent by
- *    writing the content of the caches back to memory, if necessary.
- *    The function also invalidates the affected part of the caches as
- *    necessary before DMA transfers from outside to memory.
- *  - dma_cache_inv(start, size) invalidates the affected parts of the
- *    caches.  Dirty lines of the caches may be written back or simply
- *    be discarded.  This operation is necessary before dma operations
- *    to the memory.
- *  - dma_cache_wback(start, size) writes back any dirty lines but does
- *    not invalidate the cache.  This can be used before DMA reads from
- *    memory,
- */
-
-#define dma_cache_wback_inv(_start,_size) \
-    __flush_purge_region(_start,_size)
-#define dma_cache_inv(_start,_size) \
-    __flush_invalidate_region(_start,_size)
-#define dma_cache_wback(_start,_size) \
-    __flush_wback_region(_start,_size)
 
 /*
  * Convert a physical pointer to a virtual kernel pointer for /dev/mem

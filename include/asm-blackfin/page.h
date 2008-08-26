@@ -11,8 +11,6 @@
 #endif
 #define PAGE_MASK	(~(PAGE_SIZE-1))
 
-#ifdef __KERNEL__
-
 #include <asm/setup.h>
 
 #ifndef __ASSEMBLY__
@@ -41,6 +39,7 @@ typedef struct {
 typedef struct {
 	unsigned long pgprot;
 } pgprot_t;
+typedef struct page *pgtable_t;
 
 #define pte_val(x)	((x).pte)
 #define pmd_val(x)	((&x)->pmd[0])
@@ -51,9 +50,6 @@ typedef struct {
 #define __pmd(x)	((pmd_t) { (x) } )
 #define __pgd(x)	((pgd_t) { (x) } )
 #define __pgprot(x)	((pgprot_t) { (x) } )
-
-/* to align the pointer to the (next) page boundary */
-#define PAGE_ALIGN(addr)	(((addr)+PAGE_SIZE-1)&PAGE_MASK)
 
 extern unsigned long memory_start;
 extern unsigned long memory_end;
@@ -88,6 +84,5 @@ extern unsigned long memory_end;
 #include <asm-generic/page.h>
 
 #endif				/* __ASSEMBLY__ */
-#endif				/* __KERNEL__ */
 
 #endif				/* _BLACKFIN_PAGE_H */

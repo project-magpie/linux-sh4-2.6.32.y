@@ -65,6 +65,9 @@ struct property *of_find_property(const struct device_node *np,
 {
 	struct property *pp;
 
+	if (!np)
+		return NULL;
+
 	read_lock(&devtree_lock);
 	for (pp = np->properties; pp != 0; pp = pp->next) {
 		if (of_prop_cmp(pp->name, name) == 0) {
@@ -117,6 +120,32 @@ int of_device_is_compatible(const struct device_node *device,
 EXPORT_SYMBOL(of_device_is_compatible);
 
 /**
+ *  of_device_is_available - check if a device is available for use
+ *
+ *  @device: Node to check for availability
+ *
+ *  Returns 1 if the status property is absent or set to "okay" or "ok",
+ *  0 otherwise
+ */
+int of_device_is_available(const struct device_node *device)
+{
+	const char *status;
+	int statlen;
+
+	status = of_get_property(device, "status", &statlen);
+	if (status == NULL)
+		return 1;
+
+	if (statlen > 0) {
+		if (!strcmp(status, "okay") || !strcmp(status, "ok"))
+			return 1;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(of_device_is_available);
+
+/**
  *	of_get_parent - Get a node's parent if any
  *	@node:	Node to get parent
  *
@@ -136,6 +165,31 @@ struct device_node *of_get_parent(const struct device_node *node)
 	return np;
 }
 EXPORT_SYMBOL(of_get_parent);
+
+/**
+ *	of_get_next_parent - Iterate to a node's parent
+ *	@node:	Node to get parent of
+ *
+ * 	This is like of_get_parent() except that it drops the
+ * 	refcount on the passed node, making it suitable for iterating
+ * 	through a node's parents.
+ *
+ *	Returns a node pointer with refcount incremented, use
+ *	of_node_put() on it when done.
+ */
+struct device_node *of_get_next_parent(struct device_node *node)
+{
+	struct device_node *parent;
+
+	if (!node)
+		return NULL;
+
+	read_lock(&devtree_lock);
+	parent = of_node_get(node->parent);
+	of_node_put(node);
+	read_unlock(&devtree_lock);
+	return parent;
+}
 
 /**
  *	of_get_next_child - Iterate a node childs
@@ -273,3 +327,61 @@ struct device_node *of_find_compatible_node(struct device_node *from,
 	return np;
 }
 EXPORT_SYMBOL(of_find_compatible_node);
+
+/**
+ * of_match_node - Tell if an device_node has a matching of_match structure
+ *	@matches:	array of of device match structures to search in
+ *	@node:		the of device structure to match against
+ *
+ *	Low level utility function used by device matching.
+ */
+const struct of_device_id *of_match_node(const struct of_device_id *matches,
+					 const struct device_node *node)
+{
+	while (matches->name[0] || matches->type[0] || matches->compatible[0]) {
+		int match = 1;
+		if (matches->name[0])
+			match &= node->name
+				&& !strcmp(matches->name, node->name);
+		if (matches->type[0])
+			match &= node->type
+				&& !strcmp(matches->type, node->type);
+		if (matches->compatible[0])
+			match &= of_device_is_compatible(node,
+						matches->compatible);
+		if (match)
+			return matches;
+		matches++;
+	}
+	return NULL;
+}
+EXPORT_SYMBOL(of_match_node);
+
+/**
+ *	of_find_matching_node - Find a node based on an of_device_id match
+ *				table.
+ *	@from:		The node to start searching from or NULL, the node
+ *			you pass will not be searched, only the next one
+ *			will; typically, you pass what the previous call
+ *			returned. of_node_put() will be called on it
+ *	@matches:	array of of device match structures to search in
+ *
+ *	Returns a node pointer with refcount incremented, use
+ *	of_node_put() on it when done.
+ */
+struct device_node *of_find_matching_node(struct device_node *from,
+					  const struct of_device_id *matches)
+{
+	struct device_node *np;
+
+	read_lock(&devtree_lock);
+	np = from ? from->allnext : allnodes;
+	for (; np; np = np->allnext) {
+		if (of_match_node(matches, np) && of_node_get(np))
+			break;
+	}
+	of_node_put(from);
+	read_unlock(&devtree_lock);
+	return np;
+}
+EXPORT_SYMBOL(of_find_matching_node);

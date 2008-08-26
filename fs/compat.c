@@ -24,6 +24,7 @@
 #include <linux/fcntl.h>
 #include <linux/namei.h>
 #include <linux/file.h>
+#include <linux/fdtable.h>
 #include <linux/vfs.h>
 #include <linux/ioctl.h>
 #include <linux/init.h>
@@ -196,8 +197,8 @@ static int put_compat_statfs(struct compat_statfs __user *ubuf, struct kstatfs *
 {
 	
 	if (sizeof ubuf->f_blocks == 4) {
-		if ((kbuf->f_blocks | kbuf->f_bfree | kbuf->f_bavail) &
-		    0xffffffff00000000ULL)
+		if ((kbuf->f_blocks | kbuf->f_bfree | kbuf->f_bavail |
+		     kbuf->f_bsize | kbuf->f_frsize) & 0xffffffff00000000ULL)
 			return -EOVERFLOW;
 		/* f_files and f_ffree may be -1; it's okay
 		 * to stuff that into 32 bits */
@@ -233,18 +234,18 @@ static int put_compat_statfs(struct compat_statfs __user *ubuf, struct kstatfs *
  * The following statfs calls are copies of code from fs/open.c and
  * should be checked against those from time to time
  */
-asmlinkage long compat_sys_statfs(const char __user *path, struct compat_statfs __user *buf)
+asmlinkage long compat_sys_statfs(const char __user *pathname, struct compat_statfs __user *buf)
 {
-	struct nameidata nd;
+	struct path path;
 	int error;
 
-	error = user_path_walk(path, &nd);
+	error = user_path(pathname, &path);
 	if (!error) {
 		struct kstatfs tmp;
-		error = vfs_statfs(nd.dentry, &tmp);
+		error = vfs_statfs(path.dentry, &tmp);
 		if (!error)
 			error = put_compat_statfs(buf, &tmp);
-		path_release(&nd);
+		path_put(&path);
 	}
 	return error;
 }
@@ -270,8 +271,8 @@ out:
 static int put_compat_statfs64(struct compat_statfs64 __user *ubuf, struct kstatfs *kbuf)
 {
 	if (sizeof ubuf->f_blocks == 4) {
-		if ((kbuf->f_blocks | kbuf->f_bfree | kbuf->f_bavail) &
-		    0xffffffff00000000ULL)
+		if ((kbuf->f_blocks | kbuf->f_bfree | kbuf->f_bavail |
+		     kbuf->f_bsize | kbuf->f_frsize) & 0xffffffff00000000ULL)
 			return -EOVERFLOW;
 		/* f_files and f_ffree may be -1; it's okay
 		 * to stuff that into 32 bits */
@@ -298,21 +299,21 @@ static int put_compat_statfs64(struct compat_statfs64 __user *ubuf, struct kstat
 	return 0;
 }
 
-asmlinkage long compat_sys_statfs64(const char __user *path, compat_size_t sz, struct compat_statfs64 __user *buf)
+asmlinkage long compat_sys_statfs64(const char __user *pathname, compat_size_t sz, struct compat_statfs64 __user *buf)
 {
-	struct nameidata nd;
+	struct path path;
 	int error;
 
 	if (sz != sizeof(*buf))
 		return -EINVAL;
 
-	error = user_path_walk(path, &nd);
+	error = user_path(pathname, &path);
 	if (!error) {
 		struct kstatfs tmp;
-		error = vfs_statfs(nd.dentry, &tmp);
+		error = vfs_statfs(path.dentry, &tmp);
 		if (!error)
 			error = put_compat_statfs64(buf, &tmp);
-		path_release(&nd);
+		path_put(&path);
 	}
 	return error;
 }
@@ -701,9 +702,6 @@ static int do_nfs4_super_data_conv(void *raw_data)
 		real->rsize = raw->rsize;
 		real->flags = raw->flags;
 		real->version = raw->version;
-	}
-	else {
-		return -EINVAL;
 	}
 
 	return 0;
@@ -1104,10 +1102,6 @@ static ssize_t compat_do_readv_writev(int type, struct file *file,
 	if (ret < 0)
 		goto out;
 
-	ret = security_file_permission(file, type == READ ? MAY_READ:MAY_WRITE);
-	if (ret)
-		goto out;
-
 	fnv = NULL;
 	if (type == READ) {
 		fn = file->f_op->read;
@@ -1411,7 +1405,7 @@ int compat_do_execve(char * filename,
 		/* execve success */
 		security_bprm_free(bprm);
 		acct_update_integrals(current);
-		kfree(bprm);
+		free_bprm(bprm);
 		return retval;
 	}
 
@@ -1430,7 +1424,7 @@ out_file:
 	}
 
 out_kfree:
-	kfree(bprm);
+	free_bprm(bprm);
 
 out_ret:
 	return retval;
@@ -1641,7 +1635,7 @@ sticky:
 	return ret;
 }
 
-#ifdef TIF_RESTORE_SIGMASK
+#ifdef HAVE_SET_RESTORE_SIGMASK
 asmlinkage long compat_sys_pselect7(int n, compat_ulong_t __user *inp,
 	compat_ulong_t __user *outp, compat_ulong_t __user *exp,
 	struct compat_timespec __user *tsp, compat_sigset_t __user *sigmask,
@@ -1727,7 +1721,7 @@ sticky:
 		if (sigmask) {
 			memcpy(&current->saved_sigmask, &sigsaved,
 					sizeof(sigsaved));
-			set_thread_flag(TIF_RESTORE_SIGMASK);
+			set_restore_sigmask();
 		}
 	} else if (sigmask)
 		sigprocmask(SIG_SETMASK, &sigsaved, NULL);
@@ -1798,7 +1792,7 @@ asmlinkage long compat_sys_ppoll(struct pollfd __user *ufds,
 		if (sigmask) {
 			memcpy(&current->saved_sigmask, &sigsaved,
 				sizeof(sigsaved));
-			set_thread_flag(TIF_RESTORE_SIGMASK);
+			set_restore_sigmask();
 		}
 		ret = -ERESTARTNOHAND;
 	} else if (sigmask)
@@ -1832,7 +1826,7 @@ sticky:
 
 	return ret;
 }
-#endif /* TIF_RESTORE_SIGMASK */
+#endif /* HAVE_SET_RESTORE_SIGMASK */
 
 #if defined(CONFIG_NFSD) || defined(CONFIG_NFSD_MODULE)
 /* Stuff for NFS server syscalls... */
@@ -2087,52 +2081,7 @@ long asmlinkage compat_sys_nfsservctl(int cmd, void *notused, void *notused2)
 
 #ifdef CONFIG_EPOLL
 
-#ifdef CONFIG_HAS_COMPAT_EPOLL_EVENT
-asmlinkage long compat_sys_epoll_ctl(int epfd, int op, int fd,
-			struct compat_epoll_event __user *event)
-{
-	long err = 0;
-	struct compat_epoll_event user;
-	struct epoll_event __user *kernel = NULL;
-
-	if (event) {
-		if (copy_from_user(&user, event, sizeof(user)))
-			return -EFAULT;
-		kernel = compat_alloc_user_space(sizeof(struct epoll_event));
-		err |= __put_user(user.events, &kernel->events);
-		err |= __put_user(user.data, &kernel->data);
-	}
-
-	return err ? err : sys_epoll_ctl(epfd, op, fd, kernel);
-}
-
-
-asmlinkage long compat_sys_epoll_wait(int epfd,
-			struct compat_epoll_event __user *events,
-			int maxevents, int timeout)
-{
-	long i, ret, err = 0;
-	struct epoll_event __user *kbuf;
-	struct epoll_event ev;
-
-	if ((maxevents <= 0) ||
-			(maxevents > (INT_MAX / sizeof(struct epoll_event))))
-		return -EINVAL;
-	kbuf = compat_alloc_user_space(sizeof(struct epoll_event) * maxevents);
-	ret = sys_epoll_wait(epfd, kbuf, maxevents, timeout);
-	for (i = 0; i < ret; i++) {
-		err |= __get_user(ev.events, &kbuf[i].events);
-		err |= __get_user(ev.data, &kbuf[i].data);
-		err |= __put_user(ev.events, &events->events);
-		err |= __put_user_unaligned(ev.data, &events->data);
-		events++;
-	}
-
-	return err ? -EFAULT: ret;
-}
-#endif	/* CONFIG_HAS_COMPAT_EPOLL_EVENT */
-
-#ifdef TIF_RESTORE_SIGMASK
+#ifdef HAVE_SET_RESTORE_SIGMASK
 asmlinkage long compat_sys_epoll_pwait(int epfd,
 			struct compat_epoll_event __user *events,
 			int maxevents, int timeout,
@@ -2157,11 +2106,7 @@ asmlinkage long compat_sys_epoll_pwait(int epfd,
 		sigprocmask(SIG_SETMASK, &ksigmask, &sigsaved);
 	}
 
-#ifdef CONFIG_HAS_COMPAT_EPOLL_EVENT
-	err = compat_sys_epoll_wait(epfd, events, maxevents, timeout);
-#else
 	err = sys_epoll_wait(epfd, events, maxevents, timeout);
-#endif
 
 	/*
 	 * If we changed the signal mask, we need to restore the original one.
@@ -2173,22 +2118,22 @@ asmlinkage long compat_sys_epoll_pwait(int epfd,
 		if (err == -EINTR) {
 			memcpy(&current->saved_sigmask, &sigsaved,
 			       sizeof(sigsaved));
-			set_thread_flag(TIF_RESTORE_SIGMASK);
+			set_restore_sigmask();
 		} else
 			sigprocmask(SIG_SETMASK, &sigsaved, NULL);
 	}
 
 	return err;
 }
-#endif /* TIF_RESTORE_SIGMASK */
+#endif /* HAVE_SET_RESTORE_SIGMASK */
 
 #endif /* CONFIG_EPOLL */
 
 #ifdef CONFIG_SIGNALFD
 
-asmlinkage long compat_sys_signalfd(int ufd,
-				    const compat_sigset_t __user *sigmask,
-				    compat_size_t sigsetsize)
+asmlinkage long compat_sys_signalfd4(int ufd,
+				     const compat_sigset_t __user *sigmask,
+				     compat_size_t sigsetsize, int flags)
 {
 	compat_sigset_t ss32;
 	sigset_t tmp;
@@ -2203,26 +2148,54 @@ asmlinkage long compat_sys_signalfd(int ufd,
 	if (copy_to_user(ksigmask, &tmp, sizeof(sigset_t)))
 		return -EFAULT;
 
-	return sys_signalfd(ufd, ksigmask, sizeof(sigset_t));
+	return sys_signalfd4(ufd, ksigmask, sizeof(sigset_t), flags);
 }
 
+asmlinkage long compat_sys_signalfd(int ufd,
+				    const compat_sigset_t __user *sigmask,
+				    compat_size_t sigsetsize)
+{
+	return compat_sys_signalfd4(ufd, sigmask, sigsetsize, 0);
+}
 #endif /* CONFIG_SIGNALFD */
 
 #ifdef CONFIG_TIMERFD
 
-asmlinkage long compat_sys_timerfd(int ufd, int clockid, int flags,
-				   const struct compat_itimerspec __user *utmr)
+asmlinkage long compat_sys_timerfd_settime(int ufd, int flags,
+				   const struct compat_itimerspec __user *utmr,
+				   struct compat_itimerspec __user *otmr)
 {
+	int error;
 	struct itimerspec t;
 	struct itimerspec __user *ut;
 
 	if (get_compat_itimerspec(&t, utmr))
 		return -EFAULT;
-	ut = compat_alloc_user_space(sizeof(*ut));
-	if (copy_to_user(ut, &t, sizeof(t)))
+	ut = compat_alloc_user_space(2 * sizeof(struct itimerspec));
+	if (copy_to_user(&ut[0], &t, sizeof(t)))
 		return -EFAULT;
+	error = sys_timerfd_settime(ufd, flags, &ut[0], &ut[1]);
+	if (!error && otmr)
+		error = (copy_from_user(&t, &ut[1], sizeof(struct itimerspec)) ||
+			 put_compat_itimerspec(otmr, &t)) ? -EFAULT: 0;
 
-	return sys_timerfd(ufd, clockid, flags, ut);
+	return error;
+}
+
+asmlinkage long compat_sys_timerfd_gettime(int ufd,
+				   struct compat_itimerspec __user *otmr)
+{
+	int error;
+	struct itimerspec t;
+	struct itimerspec __user *ut;
+
+	ut = compat_alloc_user_space(sizeof(struct itimerspec));
+	error = sys_timerfd_gettime(ufd, ut);
+	if (!error)
+		error = (copy_from_user(&t, ut, sizeof(struct itimerspec)) ||
+			 put_compat_itimerspec(otmr, &t)) ? -EFAULT: 0;
+
+	return error;
 }
 
 #endif /* CONFIG_TIMERFD */

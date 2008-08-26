@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *  Routines for control of 16-bit SoundBlaster cards and clones
  *  Note: This is very ugly hardware which uses one 8-bit DMA channel and
  *        second 16-bit DMA channel. Unfortunately 8-bit DMA channel can't
@@ -33,7 +33,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <asm/io.h>
 #include <asm/dma.h>
 #include <linux/init.h>
@@ -45,7 +44,7 @@
 #include <sound/control.h>
 #include <sound/info.h>
 
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("Routines for control of 16-bit SoundBlaster cards and clones");
 MODULE_LICENSE("GPL");
 

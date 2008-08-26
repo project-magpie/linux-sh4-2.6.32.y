@@ -163,6 +163,7 @@ add_reserved_region(resource_size_t start, resource_size_t end,
 	new->start = start;
 	new->end = end;
 	new->name = name;
+	new->sibling = next;
 	new->flags = IORESOURCE_MEM;
 
 	*pprev = new;
@@ -248,7 +249,7 @@ static int __init early_parse_fbmem(char *p)
 
 	fbmem_size = memparse(p, &p);
 	if (*p == '@') {
-		fbmem_start = memparse(p, &p);
+		fbmem_start = memparse(p + 1, &p);
 		ret = add_reserved_region(fbmem_start,
 					  fbmem_start + fbmem_size - 1,
 					  "Framebuffer");
@@ -273,6 +274,8 @@ static int __init early_parse_fbmem(char *p)
 			printk(KERN_WARNING
 			       "Failed to allocate framebuffer memory\n");
 			fbmem_size = 0;
+		} else {
+			memset(__va(fbmem_start), 0, fbmem_size);
 		}
 	}
 
@@ -489,7 +492,8 @@ static void __init setup_bootmem(void)
 		/* Reserve space for the bootmem bitmap... */
 		reserve_bootmem_node(NODE_DATA(node),
 				     PFN_PHYS(bootmap_pfn),
-				     bootmap_size);
+				     bootmap_size,
+				     BOOTMEM_DEFAULT);
 
 		/* ...and any other reserved regions. */
 		for (res = reserved; res; res = res->sibling) {
@@ -505,7 +509,8 @@ static void __init setup_bootmem(void)
 			    && res->end < PFN_PHYS(max_pfn))
 				reserve_bootmem_node(
 					NODE_DATA(node), res->start,
-					res->end - res->start + 1);
+					res->end - res->start + 1,
+					BOOTMEM_DEFAULT);
 		}
 
 		node_set_online(node);

@@ -8,10 +8,11 @@
 
 DOCBOOKS := wanbook.xml z8530book.xml mcabook.xml videobook.xml \
 	    kernel-hacking.xml kernel-locking.xml deviceiobook.xml \
-	    procfs-guide.xml writing_usb_driver.xml \
-	    kernel-api.xml filesystems.xml lsm.xml usb.xml \
+	    procfs-guide.xml writing_usb_driver.xml networking.xml \
+	    kernel-api.xml filesystems.xml lsm.xml usb.xml kgdb.xml \
 	    gadget.xml libata.xml mtdnand.xml librs.xml rapidio.xml \
-	    genericirq.xml
+	    genericirq.xml s390-drivers.xml uio-howto.xml scsi.xml \
+	    mac80211.xml debugobjects.xml
 
 ###
 # The build process is as follows (targets):
@@ -165,7 +166,7 @@ quiet_cmd_db2man = MAN     $@
 	@touch $@
 
 ###
-# Rules to generate postscripts and PNG imgages from .fig format files
+# Rules to generate postscripts and PNG images from .fig format files
 quiet_cmd_fig2eps = FIG2EPS $@
       cmd_fig2eps = fig2dev -Leps $< $@
 
@@ -186,8 +187,11 @@ quiet_cmd_fig2png = FIG2PNG $@
 
 ###
 # Rule to convert a .c file to inline XML documentation
+       gen_xml = :
+ quiet_gen_xml = echo '  GEN     $@'
+silent_gen_xml = :
 %.xml: %.c
-	@echo '  GEN     $@'
+	@$($(quiet)gen_xml)
 	@(                            \
 	   echo "<programlisting>";   \
 	   expand --tabs=8 < $< |     \

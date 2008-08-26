@@ -1,4 +1,3 @@
-/* $Id: vaddrs.h,v 1.27 2001/07/04 00:18:18 davem Exp $ */
 #ifndef _SPARC_VADDRS_H
 #define _SPARC_VADDRS_H
 
@@ -34,11 +33,6 @@
 #define SUN4M_IOBASE_VADDR	0xfd000000 /* Base for mapping pages */
 #define IOBASE_VADDR		0xfe000000
 #define IOBASE_END		0xfe600000
-
-#define VMALLOC_START		0xfe600000
-
-/* XXX Alter this when I get around to fixing sun4c - Anton */
-#define VMALLOC_END		0xffc00000
 
 /*
  * On the sun4/4c we need a place

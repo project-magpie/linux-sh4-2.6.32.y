@@ -84,13 +84,14 @@
  *   nla_next(nla)-----------------------------'
  *
  * Data Structures:
- *   struct nlattr			netlink attribtue header
+ *   struct nlattr			netlink attribute header
  *
  * Attribute Construction:
  *   nla_reserve(skb, type, len)	reserve room for an attribute
  *   nla_reserve_nohdr(skb, len)	reserve room for an attribute w/o hdr
  *   nla_put(skb, type, len, data)	add attribute to skb
  *   nla_put_nohdr(skb, len, data)	add attribute w/o hdr
+ *   nla_append(skb, len, data)		append data to skb
  *
  * Attribute Construction for Basic Types:
  *   nla_put_u8(skb, type, value)	add u8 attribute to skb
@@ -217,12 +218,13 @@ struct nla_policy {
  */
 struct nl_info {
 	struct nlmsghdr		*nlh;
+	struct net		*nl_net;
 	u32			pid;
 };
 
-extern void		netlink_run_queue(struct sock *sk, unsigned int *qlen,
-					  int (*cb)(struct sk_buff *,
-						    struct nlmsghdr *));
+extern int		netlink_rcv_skb(struct sk_buff *skb,
+					int (*cb)(struct sk_buff *,
+						  struct nlmsghdr *));
 extern int		nlmsg_notify(struct sock *sk, struct sk_buff *skb,
 				     u32 pid, unsigned int group, int report,
 				     gfp_t flags);
@@ -253,6 +255,8 @@ extern int		nla_put(struct sk_buff *skb, int attrtype,
 				int attrlen, const void *data);
 extern int		nla_put_nohdr(struct sk_buff *skb, int attrlen,
 				      const void *data);
+extern int		nla_append(struct sk_buff *skb, int attrlen,
+				   const void *data);
 
 /**************************************************************************
  * Netlink Messages
@@ -552,14 +556,12 @@ static inline void *nlmsg_get_pos(struct sk_buff *skb)
  * @skb: socket buffer the message is stored in
  * @mark: mark to trim to
  *
- * Trims the message to the provided mark. Returns -1.
+ * Trims the message to the provided mark.
  */
-static inline int nlmsg_trim(struct sk_buff *skb, const void *mark)
+static inline void nlmsg_trim(struct sk_buff *skb, const void *mark)
 {
 	if (mark)
 		skb_trim(skb, (unsigned char *) mark - skb->data);
-
-	return -1;
 }
 
 /**
@@ -568,11 +570,11 @@ static inline int nlmsg_trim(struct sk_buff *skb, const void *mark)
  * @nlh: netlink message header
  *
  * Removes the complete netlink message including all
- * attributes from the socket buffer again. Returns -1.
+ * attributes from the socket buffer again.
  */
-static inline int nlmsg_cancel(struct sk_buff *skb, struct nlmsghdr *nlh)
+static inline void nlmsg_cancel(struct sk_buff *skb, struct nlmsghdr *nlh)
 {
-	return nlmsg_trim(skb, nlh);
+	nlmsg_trim(skb, nlh);
 }
 
 /**
@@ -667,6 +669,15 @@ static inline int nla_padlen(int payload)
 }
 
 /**
+ * nla_type - attribute type
+ * @nla: netlink attribute
+ */
+static inline int nla_type(const struct nlattr *nla)
+{
+	return nla->nla_type & NLA_TYPE_MASK;
+}
+
+/**
  * nla_data - head of payload
  * @nla: netlink attribute
  */
@@ -697,7 +708,7 @@ static inline int nla_ok(const struct nlattr *nla, int remaining)
 }
 
 /**
- * nla_next - next netlink attribte in attribute stream
+ * nla_next - next netlink attribute in attribute stream
  * @nla: netlink attribute
  * @remaining: number of bytes remaining in attribute stream
  *
@@ -759,12 +770,13 @@ static inline int __nla_parse_nested_compat(struct nlattr *tb[], int maxtype,
 					    const struct nla_policy *policy,
 					    int len)
 {
-	if (nla_len(nla) < len)
-		return -1;
-	if (nla_len(nla) >= NLA_ALIGN(len) + sizeof(struct nlattr))
-		return nla_parse_nested(tb, maxtype,
-					nla_data(nla) + NLA_ALIGN(len),
-					policy);
+	int nested_len = nla_len(nla) - NLA_ALIGN(len);
+
+	if (nested_len < 0)
+		return -EINVAL;
+	if (nested_len >= nla_attr_size(0))
+		return nla_parse(tb, maxtype, nla_data(nla) + NLA_ALIGN(len),
+				 nested_len, policy);
 	memset(tb, 0, sizeof(struct nlattr *) * (maxtype + 1));
 	return 0;
 }
@@ -773,7 +785,7 @@ static inline int __nla_parse_nested_compat(struct nlattr *tb[], int maxtype,
 ({	data = nla_len(nla) >= len ? nla_data(nla) : NULL; \
 	__nla_parse_nested_compat(tb, maxtype, nla, policy, len); })
 /**
- * nla_put_u8 - Add a u16 netlink attribute to a socket buffer
+ * nla_put_u8 - Add a u8 netlink attribute to a socket buffer
  * @skb: socket buffer to add attribute to
  * @attrtype: attribute type
  * @value: numeric value
@@ -853,7 +865,7 @@ static inline int nla_put_msecs(struct sk_buff *skb, int attrtype,
 
 #define NLA_PUT(skb, attrtype, attrlen, data) \
 	do { \
-		if (nla_put(skb, attrtype, attrlen, data) < 0) \
+		if (unlikely(nla_put(skb, attrtype, attrlen, data) < 0)) \
 			goto nla_put_failure; \
 	} while(0)
 
@@ -872,6 +884,9 @@ static inline int nla_put_msecs(struct sk_buff *skb, int attrtype,
 #define NLA_PUT_LE16(skb, attrtype, value) \
 	NLA_PUT_TYPE(skb, __le16, attrtype, value)
 
+#define NLA_PUT_BE16(skb, attrtype, value) \
+	NLA_PUT_TYPE(skb, __be16, attrtype, value)
+
 #define NLA_PUT_U32(skb, attrtype, value) \
 	NLA_PUT_TYPE(skb, u32, attrtype, value)
 
@@ -880,6 +895,9 @@ static inline int nla_put_msecs(struct sk_buff *skb, int attrtype,
 
 #define NLA_PUT_U64(skb, attrtype, value) \
 	NLA_PUT_TYPE(skb, u64, attrtype, value)
+
+#define NLA_PUT_BE64(skb, attrtype, value) \
+	NLA_PUT_TYPE(skb, __be64, attrtype, value)
 
 #define NLA_PUT_STRING(skb, attrtype, value) \
 	NLA_PUT(skb, attrtype, strlen(value) + 1, value)
@@ -915,6 +933,15 @@ static inline __be32 nla_get_be32(struct nlattr *nla)
 static inline u16 nla_get_u16(struct nlattr *nla)
 {
 	return *(u16 *) nla_data(nla);
+}
+
+/**
+ * nla_get_be16 - return payload of __be16 attribute
+ * @nla: __be16 netlink attribute
+ */
+static inline __be16 nla_get_be16(struct nlattr *nla)
+{
+	return *(__be16 *) nla_data(nla);
 }
 
 /**
@@ -989,7 +1016,7 @@ static inline struct nlattr *nla_nest_start(struct sk_buff *skb, int attrtype)
 
 /**
  * nla_nest_end - Finalize nesting of attributes
- * @skb: socket buffer the attribtues are stored in
+ * @skb: socket buffer the attributes are stored in
  * @start: container attribute
  *
  * Corrects the container attribute header to include the all
@@ -1032,7 +1059,7 @@ static inline struct nlattr *nla_nest_compat_start(struct sk_buff *skb,
 
 /**
  * nla_nest_compat_end - Finalize nesting of compat attributes
- * @skb: socket buffer the attribtues are stored in
+ * @skb: socket buffer the attributes are stored in
  * @start: container attribute
  *
  * Corrects the container attribute header to include the all
@@ -1054,11 +1081,11 @@ static inline int nla_nest_compat_end(struct sk_buff *skb, struct nlattr *start)
  * @start: container attribute
  *
  * Removes the container attribute and including all nested
- * attributes. Returns -1.
+ * attributes. Returns -EMSGSIZE
  */
-static inline int nla_nest_cancel(struct sk_buff *skb, struct nlattr *start)
+static inline void nla_nest_cancel(struct sk_buff *skb, struct nlattr *start)
 {
-	return nlmsg_trim(skb, start);
+	nlmsg_trim(skb, start);
 }
 
 /**

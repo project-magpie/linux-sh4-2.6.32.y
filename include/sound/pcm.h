@@ -3,7 +3,7 @@
 
 /*
  *  Digital Audio (PCM) abstract layer
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *                   Abramo Bagnara <abramo@alsa-project.org>
  *
  *
@@ -279,7 +279,6 @@ struct snd_pcm_runtime {
 	snd_pcm_uframes_t period_size;	/* period size */
 	unsigned int periods;		/* periods */
 	snd_pcm_uframes_t buffer_size;	/* buffer size */
-	unsigned int tick_time;		/* tick time */
 	snd_pcm_uframes_t min_align;	/* Min alignment for the format */
 	size_t byte_align;
 	unsigned int frame_bits;
@@ -291,8 +290,6 @@ struct snd_pcm_runtime {
 	/* -- SW params -- */
 	int tstamp_mode;		/* mmap timestamp is updated */
   	unsigned int period_step;
-	unsigned int sleep_min;		/* min ticks to sleep */
-	snd_pcm_uframes_t xfer_align;	/* xfer size need to be a multiple */
 	snd_pcm_uframes_t start_threshold;
 	snd_pcm_uframes_t stop_threshold;
 	snd_pcm_uframes_t silence_threshold; /* Silence filling happens when
@@ -306,12 +303,11 @@ struct snd_pcm_runtime {
 	union snd_pcm_sync_id sync;	/* hardware synchronization ID */
 
 	/* -- mmap -- */
-	volatile struct snd_pcm_mmap_status *status;
-	volatile struct snd_pcm_mmap_control *control;
+	struct snd_pcm_mmap_status *status;
+	struct snd_pcm_mmap_control *control;
 
 	/* -- locking / scheduling -- */
 	wait_queue_head_t sleep;
-	struct timer_list tick_timer;
 	struct fasync_struct *fasync;
 
 	/* -- private section -- */
@@ -328,6 +324,7 @@ struct snd_pcm_runtime {
 
 	/* -- timer -- */
 	unsigned int timer_resolution;	/* timer resolution */
+	int tstamp_type;		/* timestamp type */
 
 	/* -- DMA -- */           
 	unsigned char *dma_area;	/* DMA area */
@@ -796,13 +793,13 @@ static inline struct snd_interval *hw_param_interval(struct snd_pcm_hw_params *p
 static inline const struct snd_mask *hw_param_mask_c(const struct snd_pcm_hw_params *params,
 					     snd_pcm_hw_param_t var)
 {
-	return (const struct snd_mask *)hw_param_mask((struct snd_pcm_hw_params*) params, var);
+	return &params->masks[var - SNDRV_PCM_HW_PARAM_FIRST_MASK];
 }
 
 static inline const struct snd_interval *hw_param_interval_c(const struct snd_pcm_hw_params *params,
 						     snd_pcm_hw_param_t var)
 {
-	return (const struct snd_interval *)hw_param_interval((struct snd_pcm_hw_params*) params, var);
+	return &params->intervals[var - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL];
 }
 
 #define params_access(p) snd_mask_min(hw_param_mask((p), SNDRV_PCM_HW_PARAM_ACCESS))
@@ -815,7 +812,6 @@ static inline const struct snd_interval *hw_param_interval_c(const struct snd_pc
 #define params_periods(p) hw_param_interval((p), SNDRV_PCM_HW_PARAM_PERIODS)->min
 #define params_buffer_size(p) hw_param_interval((p), SNDRV_PCM_HW_PARAM_BUFFER_SIZE)->min
 #define params_buffer_bytes(p) hw_param_interval((p), SNDRV_PCM_HW_PARAM_BUFFER_BYTES)->min
-#define params_tick_time(p) hw_param_interval((p), SNDRV_PCM_HW_PARAM_TICK_TIME)->min
 
 
 int snd_interval_refine(struct snd_interval *i, const struct snd_interval *v);
@@ -913,9 +909,6 @@ int snd_pcm_capture_xrun_check(struct snd_pcm_substream *substream);
 int snd_pcm_playback_xrun_asap(struct snd_pcm_substream *substream);
 int snd_pcm_capture_xrun_asap(struct snd_pcm_substream *substream);
 void snd_pcm_playback_silence(struct snd_pcm_substream *substream, snd_pcm_uframes_t new_hw_ptr);
-void snd_pcm_tick_prepare(struct snd_pcm_substream *substream);
-void snd_pcm_tick_set(struct snd_pcm_substream *substream, unsigned long ticks);
-void snd_pcm_tick_elapsed(struct snd_pcm_substream *substream);
 void snd_pcm_period_elapsed(struct snd_pcm_substream *substream);
 snd_pcm_sframes_t snd_pcm_lib_write(struct snd_pcm_substream *substream,
 				    const void __user *buf,
@@ -927,7 +920,10 @@ snd_pcm_sframes_t snd_pcm_lib_writev(struct snd_pcm_substream *substream,
 snd_pcm_sframes_t snd_pcm_lib_readv(struct snd_pcm_substream *substream,
 				    void __user **bufs, snd_pcm_uframes_t frames);
 
+extern const struct snd_pcm_hw_constraint_list snd_pcm_known_rates;
+
 int snd_pcm_limit_hw_rates(struct snd_pcm_runtime *runtime);
+unsigned int snd_pcm_rate_to_rate_bit(unsigned int rate);
 
 static inline void snd_pcm_set_runtime_buffer(struct snd_pcm_substream *substream,
 					      struct snd_dma_buffer *bufp)
@@ -953,6 +949,15 @@ static inline void snd_pcm_set_runtime_buffer(struct snd_pcm_substream *substrea
 void snd_pcm_timer_resolution_change(struct snd_pcm_substream *substream);
 void snd_pcm_timer_init(struct snd_pcm_substream *substream);
 void snd_pcm_timer_done(struct snd_pcm_substream *substream);
+
+static inline void snd_pcm_gettime(struct snd_pcm_runtime *runtime,
+				   struct timespec *tv)
+{
+	if (runtime->tstamp_type == SNDRV_PCM_TSTAMP_TYPE_MONOTONIC)
+		do_posix_clock_monotonic_gettime(tv);
+	else
+		getnstimeofday(tv);
+}
 
 /*
  *  Memory

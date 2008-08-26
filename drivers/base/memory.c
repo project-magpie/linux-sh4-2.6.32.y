@@ -20,13 +20,14 @@
 #include <linux/kobject.h>
 #include <linux/memory_hotplug.h>
 #include <linux/mm.h>
+#include <linux/mutex.h>
 #include <asm/atomic.h>
 #include <asm/uaccess.h>
 
 #define MEMORY_CLASS_NAME	"memory"
 
 static struct sysdev_class memory_sysdev_class = {
-	set_kset_name(MEMORY_CLASS_NAME),
+	.name = MEMORY_CLASS_NAME,
 };
 
 static const char *memory_uevent_name(struct kset *kset, struct kobject *kobj)
@@ -34,8 +35,7 @@ static const char *memory_uevent_name(struct kset *kset, struct kobject *kobj)
 	return MEMORY_CLASS_NAME;
 }
 
-static int memory_uevent(struct kset *kset, struct kobject *kobj, char **envp,
-			int num_envp, char *buffer, int buffer_size)
+static int memory_uevent(struct kset *kset, struct kobject *obj, struct kobj_uevent_env *env)
 {
 	int retval = 0;
 
@@ -53,17 +53,19 @@ int register_memory_notifier(struct notifier_block *nb)
 {
         return blocking_notifier_chain_register(&memory_chain, nb);
 }
+EXPORT_SYMBOL(register_memory_notifier);
 
 void unregister_memory_notifier(struct notifier_block *nb)
 {
         blocking_notifier_chain_unregister(&memory_chain, nb);
 }
+EXPORT_SYMBOL(unregister_memory_notifier);
 
 /*
  * register_memory - Setup a sysfs device for a memory block
  */
-int register_memory(struct memory_block *memory, struct mem_section *section,
-		struct node *root)
+static
+int register_memory(struct memory_block *memory, struct mem_section *section)
 {
 	int error;
 
@@ -71,26 +73,18 @@ int register_memory(struct memory_block *memory, struct mem_section *section,
 	memory->sysdev.id = __section_nr(section);
 
 	error = sysdev_register(&memory->sysdev);
-
-	if (root && !error)
-		error = sysfs_create_link(&root->sysdev.kobj,
-					  &memory->sysdev.kobj,
-					  kobject_name(&memory->sysdev.kobj));
-
 	return error;
 }
 
 static void
-unregister_memory(struct memory_block *memory, struct mem_section *section,
-		struct node *root)
+unregister_memory(struct memory_block *memory, struct mem_section *section)
 {
 	BUG_ON(memory->sysdev.cls != &memory_sysdev_class);
 	BUG_ON(memory->sysdev.id != __section_nr(section));
 
+	/* drop the ref. we got in remove_memory_block() */
+	kobject_put(&memory->sysdev.kobj);
 	sysdev_unregister(&memory->sysdev);
-	if (root)
-		sysfs_remove_link(&root->sysdev.kobj,
-				  kobject_name(&memory->sysdev.kobj));
 }
 
 /*
@@ -98,7 +92,8 @@ unregister_memory(struct memory_block *memory, struct mem_section *section,
  * uses.
  */
 
-static ssize_t show_mem_phys_index(struct sys_device *dev, char *buf)
+static ssize_t show_mem_phys_index(struct sys_device *dev,
+			struct sysdev_attribute *attr, char *buf)
 {
 	struct memory_block *mem =
 		container_of(dev, struct memory_block, sysdev);
@@ -106,9 +101,25 @@ static ssize_t show_mem_phys_index(struct sys_device *dev, char *buf)
 }
 
 /*
+ * Show whether the section of memory is likely to be hot-removable
+ */
+static ssize_t show_mem_removable(struct sys_device *dev, char *buf)
+{
+	unsigned long start_pfn;
+	int ret;
+	struct memory_block *mem =
+		container_of(dev, struct memory_block, sysdev);
+
+	start_pfn = section_nr_to_pfn(mem->phys_index);
+	ret = is_mem_section_removable(start_pfn, PAGES_PER_SECTION);
+	return sprintf(buf, "%d\n", ret);
+}
+
+/*
  * online, offline, going offline, etc.
  */
-static ssize_t show_mem_state(struct sys_device *dev, char *buf)
+static ssize_t show_mem_state(struct sys_device *dev,
+			struct sysdev_attribute *attr, char *buf)
 {
 	struct memory_block *mem =
 		container_of(dev, struct memory_block, sysdev);
@@ -138,7 +149,7 @@ static ssize_t show_mem_state(struct sys_device *dev, char *buf)
 	return len;
 }
 
-static inline int memory_notify(unsigned long val, void *v)
+int memory_notify(unsigned long val, void *v)
 {
 	return blocking_notifier_call_chain(&memory_chain, val, v);
 }
@@ -184,7 +195,6 @@ memory_block_action(struct memory_block *mem, unsigned long action)
 			break;
 		case MEM_OFFLINE:
 			mem->state = MEM_GOING_OFFLINE;
-			memory_notify(MEM_GOING_OFFLINE, NULL);
 			start_paddr = page_to_pfn(first_page) << PAGE_SHIFT;
 			ret = remove_memory(start_paddr,
 					    PAGES_PER_SECTION << PAGE_SHIFT);
@@ -192,19 +202,12 @@ memory_block_action(struct memory_block *mem, unsigned long action)
 				mem->state = old_state;
 				break;
 			}
-			memory_notify(MEM_MAPPING_INVALID, NULL);
 			break;
 		default:
-			printk(KERN_WARNING "%s(%p, %ld) unknown action: %ld\n",
-					__FUNCTION__, mem, action, action);
-			WARN_ON(1);
+			WARN(1, KERN_WARNING "%s(%p, %ld) unknown action: %ld\n",
+					__func__, mem, action, action);
 			ret = -EINVAL;
 	}
-	/*
-	 * For now, only notify on successful memory operations
-	 */
-	if (!ret)
-		memory_notify(action, NULL);
 
 	return ret;
 }
@@ -213,7 +216,7 @@ static int memory_block_change_state(struct memory_block *mem,
 		unsigned long to_state, unsigned long from_state_req)
 {
 	int ret = 0;
-	down(&mem->state_sem);
+	mutex_lock(&mem->state_mutex);
 
 	if (mem->state != from_state_req) {
 		ret = -EINVAL;
@@ -225,12 +228,13 @@ static int memory_block_change_state(struct memory_block *mem,
 		mem->state = to_state;
 
 out:
-	up(&mem->state_sem);
+	mutex_unlock(&mem->state_mutex);
 	return ret;
 }
 
 static ssize_t
-store_mem_state(struct sys_device *dev, const char *buf, size_t count)
+store_mem_state(struct sys_device *dev,
+		struct sysdev_attribute *attr, const char *buf, size_t count)
 {
 	struct memory_block *mem;
 	unsigned int phys_section_nr;
@@ -239,7 +243,7 @@ store_mem_state(struct sys_device *dev, const char *buf, size_t count)
 	mem = container_of(dev, struct memory_block, sysdev);
 	phys_section_nr = mem->phys_index;
 
-	if (!valid_section_nr(phys_section_nr))
+	if (!present_section_nr(phys_section_nr))
 		goto out;
 
 	if (!strncmp(buf, "online", min((int)count, 6)))
@@ -261,7 +265,8 @@ out:
  * s.t. if I offline all of these sections I can then
  * remove the physical device?
  */
-static ssize_t show_phys_device(struct sys_device *dev, char *buf)
+static ssize_t show_phys_device(struct sys_device *dev,
+				struct sysdev_attribute *attr, char *buf)
 {
 	struct memory_block *mem =
 		container_of(dev, struct memory_block, sysdev);
@@ -271,6 +276,7 @@ static ssize_t show_phys_device(struct sys_device *dev, char *buf)
 static SYSDEV_ATTR(phys_index, 0444, show_mem_phys_index, NULL);
 static SYSDEV_ATTR(state, 0644, show_mem_state, store_mem_state);
 static SYSDEV_ATTR(phys_device, 0444, show_phys_device, NULL);
+static SYSDEV_ATTR(removable, 0444, show_mem_removable, NULL);
 
 #define mem_create_simple_file(mem, attr_name)	\
 	sysdev_create_file(&mem->sysdev, &attr_##attr_name)
@@ -349,16 +355,18 @@ static int add_memory_block(unsigned long node_id, struct mem_section *section,
 
 	mem->phys_index = __section_nr(section);
 	mem->state = state;
-	init_MUTEX(&mem->state_sem);
+	mutex_init(&mem->state_mutex);
 	mem->phys_device = phys_device;
 
-	ret = register_memory(mem, section, NULL);
+	ret = register_memory(mem, section);
 	if (!ret)
 		ret = mem_create_simple_file(mem, phys_index);
 	if (!ret)
 		ret = mem_create_simple_file(mem, state);
 	if (!ret)
 		ret = mem_create_simple_file(mem, phys_device);
+	if (!ret)
+		ret = mem_create_simple_file(mem, removable);
 
 	return ret;
 }
@@ -403,7 +411,8 @@ int remove_memory_block(unsigned long node_id, struct mem_section *section,
 	mem_remove_simple_file(mem, phys_index);
 	mem_remove_simple_file(mem, state);
 	mem_remove_simple_file(mem, phys_device);
-	unregister_memory(mem, section, NULL);
+	mem_remove_simple_file(mem, removable);
+	unregister_memory(mem, section);
 
 	return 0;
 }
@@ -419,7 +428,7 @@ int register_new_memory(struct mem_section *section)
 
 int unregister_memory_section(struct mem_section *section)
 {
-	if (!valid_section(section))
+	if (!present_section(section))
 		return -EINVAL;
 
 	return remove_memory_block(0, section, 0);
@@ -444,7 +453,7 @@ int __init memory_dev_init(void)
 	 * during boot and have been initialized
 	 */
 	for (i = 0; i < NR_MEM_SECTIONS; i++) {
-		if (!valid_section_nr(i))
+		if (!present_section_nr(i))
 			continue;
 		err = add_memory_block(0, __nr_to_section(i), MEM_ONLINE, 0);
 		if (!ret)
@@ -459,6 +468,6 @@ int __init memory_dev_init(void)
 		ret = err;
 out:
 	if (ret)
-		printk(KERN_ERR "%s() failed: %d\n", __FUNCTION__, ret);
+		printk(KERN_ERR "%s() failed: %d\n", __func__, ret);
 	return ret;
 }

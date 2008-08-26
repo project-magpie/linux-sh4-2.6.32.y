@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2004, 2005 Topspin Communications.  All rights reserved.
  * Copyright (c) 2005 Sun Microsystems, Inc. All rights reserved.
- * Copyright (c) 2005 Mellanox Technologies. All rights reserved.
+ * Copyright (c) 2005, 2006, 2007, 2008 Mellanox Technologies. All rights reserved.
  * Copyright (c) 2006, 2007 Cisco Systems, Inc. All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -61,7 +61,7 @@ MODULE_PARM_DESC(debug_level, "Enable debug tracing if > 0");
 
 #ifdef CONFIG_PCI_MSI
 
-static int msi_x;
+static int msi_x = 1;
 module_param(msi_x, int, 0444);
 MODULE_PARM_DESC(msi_x, "attempt to use MSI-X if nonzero");
 
@@ -71,12 +71,12 @@ MODULE_PARM_DESC(msi_x, "attempt to use MSI-X if nonzero");
 
 #endif /* CONFIG_PCI_MSI */
 
-static const char mlx4_version[] __devinitdata =
+static char mlx4_version[] __devinitdata =
 	DRV_NAME ": Mellanox ConnectX core driver v"
 	DRV_VERSION " (" DRV_RELDATE ")\n";
 
 static struct mlx4_profile default_profile = {
-	.num_qp		= 1 << 16,
+	.num_qp		= 1 << 17,
 	.num_srq	= 1 << 16,
 	.rdmarc_per_qp	= 1 << 4,
 	.num_cq		= 1 << 16,
@@ -85,7 +85,7 @@ static struct mlx4_profile default_profile = {
 	.num_mtt	= 1 << 20,
 };
 
-static int __devinit mlx4_dev_cap(struct mlx4_dev *dev, struct mlx4_dev_cap *dev_cap)
+static int mlx4_dev_cap(struct mlx4_dev *dev, struct mlx4_dev_cap *dev_cap)
 {
 	int err;
 	int i;
@@ -149,7 +149,8 @@ static int __devinit mlx4_dev_cap(struct mlx4_dev *dev, struct mlx4_dev_cap *dev
 	dev->caps.max_cqes	     = dev_cap->max_cq_sz - 1;
 	dev->caps.reserved_cqs	     = dev_cap->reserved_cqs;
 	dev->caps.reserved_eqs	     = dev_cap->reserved_eqs;
-	dev->caps.reserved_mtts	     = dev_cap->reserved_mtts;
+	dev->caps.reserved_mtts	     = DIV_ROUND_UP(dev_cap->reserved_mtts,
+						    MLX4_MTT_ENTRY_PER_SEG);
 	dev->caps.reserved_mrws	     = dev_cap->reserved_mrws;
 	dev->caps.reserved_uars	     = dev_cap->reserved_uars;
 	dev->caps.reserved_pds	     = dev_cap->reserved_pds;
@@ -157,18 +158,21 @@ static int __devinit mlx4_dev_cap(struct mlx4_dev *dev, struct mlx4_dev_cap *dev
 	dev->caps.max_msg_sz         = dev_cap->max_msg_sz;
 	dev->caps.page_size_cap	     = ~(u32) (dev_cap->min_page_sz - 1);
 	dev->caps.flags		     = dev_cap->flags;
+	dev->caps.bmme_flags	     = dev_cap->bmme_flags;
+	dev->caps.reserved_lkey	     = dev_cap->reserved_lkey;
 	dev->caps.stat_rate_support  = dev_cap->stat_rate_support;
+	dev->caps.max_gso_sz	     = dev_cap->max_gso_sz;
 
 	return 0;
 }
 
-static int __devinit mlx4_load_fw(struct mlx4_dev *dev)
+static int mlx4_load_fw(struct mlx4_dev *dev)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	int err;
 
 	priv->fw.fw_icm = mlx4_alloc_icm(dev, priv->fw.fw_pages,
-					 GFP_HIGHUSER | __GFP_NOWARN);
+					 GFP_HIGHUSER | __GFP_NOWARN, 0);
 	if (!priv->fw.fw_icm) {
 		mlx4_err(dev, "Couldn't allocate FW area, aborting.\n");
 		return -ENOMEM;
@@ -192,12 +196,12 @@ err_unmap_fa:
 	mlx4_UNMAP_FA(dev);
 
 err_free:
-	mlx4_free_icm(dev, priv->fw.fw_icm);
+	mlx4_free_icm(dev, priv->fw.fw_icm, 0);
 	return err;
 }
 
-static int __devinit mlx4_init_cmpt_table(struct mlx4_dev *dev, u64 cmpt_base,
-					  int cmpt_entry_sz)
+static int mlx4_init_cmpt_table(struct mlx4_dev *dev, u64 cmpt_base,
+				int cmpt_entry_sz)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	int err;
@@ -207,7 +211,7 @@ static int __devinit mlx4_init_cmpt_table(struct mlx4_dev *dev, u64 cmpt_base,
 				  ((u64) (MLX4_CMPT_TYPE_QP *
 					  cmpt_entry_sz) << MLX4_CMPT_SHIFT),
 				  cmpt_entry_sz, dev->caps.num_qps,
-				  dev->caps.reserved_qps, 0);
+				  dev->caps.reserved_qps, 0, 0);
 	if (err)
 		goto err;
 
@@ -216,7 +220,7 @@ static int __devinit mlx4_init_cmpt_table(struct mlx4_dev *dev, u64 cmpt_base,
 				  ((u64) (MLX4_CMPT_TYPE_SRQ *
 					  cmpt_entry_sz) << MLX4_CMPT_SHIFT),
 				  cmpt_entry_sz, dev->caps.num_srqs,
-				  dev->caps.reserved_srqs, 0);
+				  dev->caps.reserved_srqs, 0, 0);
 	if (err)
 		goto err_qp;
 
@@ -225,7 +229,7 @@ static int __devinit mlx4_init_cmpt_table(struct mlx4_dev *dev, u64 cmpt_base,
 				  ((u64) (MLX4_CMPT_TYPE_CQ *
 					  cmpt_entry_sz) << MLX4_CMPT_SHIFT),
 				  cmpt_entry_sz, dev->caps.num_cqs,
-				  dev->caps.reserved_cqs, 0);
+				  dev->caps.reserved_cqs, 0, 0);
 	if (err)
 		goto err_srq;
 
@@ -236,7 +240,7 @@ static int __devinit mlx4_init_cmpt_table(struct mlx4_dev *dev, u64 cmpt_base,
 				  cmpt_entry_sz,
 				  roundup_pow_of_two(MLX4_NUM_EQ +
 						     dev->caps.reserved_eqs),
-				  MLX4_NUM_EQ + dev->caps.reserved_eqs, 0);
+				  MLX4_NUM_EQ + dev->caps.reserved_eqs, 0, 0);
 	if (err)
 		goto err_cq;
 
@@ -255,10 +259,8 @@ err:
 	return err;
 }
 
-static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
-				   struct mlx4_dev_cap *dev_cap,
-				   struct mlx4_init_hca_param *init_hca,
-				   u64 icm_size)
+static int mlx4_init_icm(struct mlx4_dev *dev, struct mlx4_dev_cap *dev_cap,
+			 struct mlx4_init_hca_param *init_hca, u64 icm_size)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	u64 aux_pages;
@@ -275,7 +277,7 @@ static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
 		 (unsigned long long) aux_pages << 2);
 
 	priv->fw.aux_icm = mlx4_alloc_icm(dev, aux_pages,
-					  GFP_HIGHUSER | __GFP_NOWARN);
+					  GFP_HIGHUSER | __GFP_NOWARN, 0);
 	if (!priv->fw.aux_icm) {
 		mlx4_err(dev, "Couldn't allocate aux memory, aborting.\n");
 		return -ENOMEM;
@@ -299,11 +301,22 @@ static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
 		goto err_unmap_cmpt;
 	}
 
+	/*
+	 * Reserved MTT entries must be aligned up to a cacheline
+	 * boundary, since the FW will write to them, while the driver
+	 * writes to all other MTT entries. (The variable
+	 * dev->caps.mtt_entry_sz below is really the MTT segment
+	 * size, not the raw entry size)
+	 */
+	dev->caps.reserved_mtts =
+		ALIGN(dev->caps.reserved_mtts * dev->caps.mtt_entry_sz,
+		      dma_get_cache_alignment()) / dev->caps.mtt_entry_sz;
+
 	err = mlx4_init_icm_table(dev, &priv->mr_table.mtt_table,
 				  init_hca->mtt_base,
 				  dev->caps.mtt_entry_sz,
 				  dev->caps.num_mtt_segs,
-				  dev->caps.reserved_mtts, 1);
+				  dev->caps.reserved_mtts, 1, 0);
 	if (err) {
 		mlx4_err(dev, "Failed to map MTT context memory, aborting.\n");
 		goto err_unmap_eq;
@@ -313,7 +326,7 @@ static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
 				  init_hca->dmpt_base,
 				  dev_cap->dmpt_entry_sz,
 				  dev->caps.num_mpts,
-				  dev->caps.reserved_mrws, 1);
+				  dev->caps.reserved_mrws, 1, 1);
 	if (err) {
 		mlx4_err(dev, "Failed to map dMPT context memory, aborting.\n");
 		goto err_unmap_mtt;
@@ -323,7 +336,7 @@ static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
 				  init_hca->qpc_base,
 				  dev_cap->qpc_entry_sz,
 				  dev->caps.num_qps,
-				  dev->caps.reserved_qps, 0);
+				  dev->caps.reserved_qps, 0, 0);
 	if (err) {
 		mlx4_err(dev, "Failed to map QP context memory, aborting.\n");
 		goto err_unmap_dmpt;
@@ -333,7 +346,7 @@ static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
 				  init_hca->auxc_base,
 				  dev_cap->aux_entry_sz,
 				  dev->caps.num_qps,
-				  dev->caps.reserved_qps, 0);
+				  dev->caps.reserved_qps, 0, 0);
 	if (err) {
 		mlx4_err(dev, "Failed to map AUXC context memory, aborting.\n");
 		goto err_unmap_qp;
@@ -343,7 +356,7 @@ static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
 				  init_hca->altc_base,
 				  dev_cap->altc_entry_sz,
 				  dev->caps.num_qps,
-				  dev->caps.reserved_qps, 0);
+				  dev->caps.reserved_qps, 0, 0);
 	if (err) {
 		mlx4_err(dev, "Failed to map ALTC context memory, aborting.\n");
 		goto err_unmap_auxc;
@@ -353,7 +366,7 @@ static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
 				  init_hca->rdmarc_base,
 				  dev_cap->rdmarc_entry_sz << priv->qp_table.rdmarc_shift,
 				  dev->caps.num_qps,
-				  dev->caps.reserved_qps, 0);
+				  dev->caps.reserved_qps, 0, 0);
 	if (err) {
 		mlx4_err(dev, "Failed to map RDMARC context memory, aborting\n");
 		goto err_unmap_altc;
@@ -363,7 +376,7 @@ static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
 				  init_hca->cqc_base,
 				  dev_cap->cqc_entry_sz,
 				  dev->caps.num_cqs,
-				  dev->caps.reserved_cqs, 0);
+				  dev->caps.reserved_cqs, 0, 0);
 	if (err) {
 		mlx4_err(dev, "Failed to map CQ context memory, aborting.\n");
 		goto err_unmap_rdmarc;
@@ -373,7 +386,7 @@ static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
 				  init_hca->srqc_base,
 				  dev_cap->srq_entry_sz,
 				  dev->caps.num_srqs,
-				  dev->caps.reserved_srqs, 0);
+				  dev->caps.reserved_srqs, 0, 0);
 	if (err) {
 		mlx4_err(dev, "Failed to map SRQ context memory, aborting.\n");
 		goto err_unmap_cq;
@@ -388,7 +401,7 @@ static int __devinit mlx4_init_icm(struct mlx4_dev *dev,
 				  init_hca->mc_base, MLX4_MGM_ENTRY_SIZE,
 				  dev->caps.num_mgms + dev->caps.num_amgms,
 				  dev->caps.num_mgms + dev->caps.num_amgms,
-				  0);
+				  0, 0);
 	if (err) {
 		mlx4_err(dev, "Failed to map MCG context memory, aborting.\n");
 		goto err_unmap_srq;
@@ -433,7 +446,7 @@ err_unmap_aux:
 	mlx4_UNMAP_ICM_AUX(dev);
 
 err_free_aux:
-	mlx4_free_icm(dev, priv->fw.aux_icm);
+	mlx4_free_icm(dev, priv->fw.aux_icm, 0);
 
 	return err;
 }
@@ -458,7 +471,7 @@ static void mlx4_free_icms(struct mlx4_dev *dev)
 	mlx4_unmap_eq_icm(dev);
 
 	mlx4_UNMAP_ICM_AUX(dev);
-	mlx4_free_icm(dev, priv->fw.aux_icm);
+	mlx4_free_icm(dev, priv->fw.aux_icm, 0);
 }
 
 static void mlx4_close_hca(struct mlx4_dev *dev)
@@ -466,14 +479,15 @@ static void mlx4_close_hca(struct mlx4_dev *dev)
 	mlx4_CLOSE_HCA(dev, 0);
 	mlx4_free_icms(dev);
 	mlx4_UNMAP_FA(dev);
-	mlx4_free_icm(dev, mlx4_priv(dev)->fw.fw_icm);
+	mlx4_free_icm(dev, mlx4_priv(dev)->fw.fw_icm, 0);
 }
 
-static int __devinit mlx4_init_hca(struct mlx4_dev *dev)
+static int mlx4_init_hca(struct mlx4_dev *dev)
 {
 	struct mlx4_priv	  *priv = mlx4_priv(dev);
 	struct mlx4_adapter	   adapter;
 	struct mlx4_dev_cap	   dev_cap;
+	struct mlx4_mod_stat_cfg   mlx4_cfg;
 	struct mlx4_profile	   profile;
 	struct mlx4_init_hca_param init_hca;
 	u64 icm_size;
@@ -490,6 +504,12 @@ static int __devinit mlx4_init_hca(struct mlx4_dev *dev)
 		mlx4_err(dev, "Failed to start FW, aborting.\n");
 		return err;
 	}
+
+	mlx4_cfg.log_pg_sz_m = 1;
+	mlx4_cfg.log_pg_sz = 0;
+	err = mlx4_MOD_STAT_CFG(dev, &mlx4_cfg);
+	if (err)
+		mlx4_warn(dev, "Failed to override log_pg_sz parameter\n");
 
 	err = mlx4_dev_cap(dev, &dev_cap);
 	if (err) {
@@ -524,8 +544,7 @@ static int __devinit mlx4_init_hca(struct mlx4_dev *dev)
 	}
 
 	priv->eq_table.inta_pin = adapter.inta_pin;
-	priv->rev_id		= adapter.revision_id;
-	memcpy(priv->board_id, adapter.board_id, sizeof priv->board_id);
+	memcpy(dev->board_id, adapter.board_id, sizeof dev->board_id);
 
 	return 0;
 
@@ -537,12 +556,12 @@ err_free_icm:
 
 err_stop_fw:
 	mlx4_UNMAP_FA(dev);
-	mlx4_free_icm(dev, priv->fw.fw_icm);
+	mlx4_free_icm(dev, priv->fw.fw_icm, 0);
 
 	return err;
 }
 
-static int __devinit mlx4_setup_hca(struct mlx4_dev *dev)
+static int mlx4_setup_hca(struct mlx4_dev *dev)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	int err;
@@ -599,13 +618,17 @@ static int __devinit mlx4_setup_hca(struct mlx4_dev *dev)
 
 	err = mlx4_NOP(dev);
 	if (err) {
-		mlx4_err(dev, "NOP command failed to generate interrupt "
-			 "(IRQ %d), aborting.\n",
-			 priv->eq_table.eq[MLX4_EQ_ASYNC].irq);
-		if (dev->flags & MLX4_FLAG_MSI_X)
-			mlx4_err(dev, "Try again with MSI-X disabled.\n");
-		else
+		if (dev->flags & MLX4_FLAG_MSI_X) {
+			mlx4_warn(dev, "NOP command failed to generate MSI-X "
+				  "interrupt IRQ %d).\n",
+				  priv->eq_table.eq[MLX4_EQ_ASYNC].irq);
+			mlx4_warn(dev, "Trying again without MSI-X.\n");
+		} else {
+			mlx4_err(dev, "NOP command failed to generate interrupt "
+				 "(IRQ %d), aborting.\n",
+				 priv->eq_table.eq[MLX4_EQ_ASYNC].irq);
 			mlx4_err(dev, "BIOS or ACPI interrupt routing problem?\n");
+		}
 
 		goto err_cmd_poll;
 	}
@@ -674,7 +697,7 @@ err_uar_table_free:
 	return err;
 }
 
-static void __devinit mlx4_enable_msi_x(struct mlx4_dev *dev)
+static void mlx4_enable_msi_x(struct mlx4_dev *dev)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	struct msix_entry entries[MLX4_NUM_EQ];
@@ -705,18 +728,11 @@ no_msi:
 		priv->eq_table.eq[i].irq = dev->pdev->irq;
 }
 
-static int __devinit mlx4_init_one(struct pci_dev *pdev,
-				   const struct pci_device_id *id)
+static int __mlx4_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 {
-	static int mlx4_version_printed;
 	struct mlx4_priv *priv;
 	struct mlx4_dev *dev;
 	int err;
-
-	if (!mlx4_version_printed) {
-		printk(KERN_INFO "%s", mlx4_version);
-		++mlx4_version_printed;
-	}
 
 	printk(KERN_INFO PFX "Initializing %s\n",
 	       pci_name(pdev));
@@ -729,8 +745,7 @@ static int __devinit mlx4_init_one(struct pci_dev *pdev,
 	}
 
 	/*
-	 * Check for BARs.  We expect 0: 1MB, 2: 8MB, 4: DDR (may not
-	 * be present)
+	 * Check for BARs.  We expect 0: 1MB
 	 */
 	if (!(pci_resource_flags(pdev, 0) & IORESOURCE_MEM) ||
 	    pci_resource_len(pdev, 0) != 1 << 20) {
@@ -792,6 +807,9 @@ static int __devinit mlx4_init_one(struct pci_dev *pdev,
 	INIT_LIST_HEAD(&priv->ctx_list);
 	spin_lock_init(&priv->ctx_lock);
 
+	INIT_LIST_HEAD(&priv->pgdir_list);
+	mutex_init(&priv->pgdir_mutex);
+
 	/*
 	 * Now reset the HCA before we touch the PCI capabilities or
 	 * attempt a firmware command, since a boot ROM may have left
@@ -803,8 +821,6 @@ static int __devinit mlx4_init_one(struct pci_dev *pdev,
 		goto err_free_dev;
 	}
 
-	mlx4_enable_msi_x(dev);
-
 	if (mlx4_cmd_init(dev)) {
 		mlx4_err(dev, "Failed to init command interface, aborting.\n");
 		goto err_free_dev;
@@ -814,7 +830,15 @@ static int __devinit mlx4_init_one(struct pci_dev *pdev,
 	if (err)
 		goto err_cmd;
 
+	mlx4_enable_msi_x(dev);
+
 	err = mlx4_setup_hca(dev);
+	if (err == -EBUSY && (dev->flags & MLX4_FLAG_MSI_X)) {
+		dev->flags &= ~MLX4_FLAG_MSI_X;
+		pci_disable_msix(pdev);
+		err = mlx4_setup_hca(dev);
+	}
+
 	if (err)
 		goto err_close;
 
@@ -838,15 +862,15 @@ err_cleanup:
 	mlx4_cleanup_uar_table(dev);
 
 err_close:
+	if (dev->flags & MLX4_FLAG_MSI_X)
+		pci_disable_msix(pdev);
+
 	mlx4_close_hca(dev);
 
 err_cmd:
 	mlx4_cmd_cleanup(dev);
 
 err_free_dev:
-	if (dev->flags & MLX4_FLAG_MSI_X)
-		pci_disable_msix(pdev);
-
 	kfree(priv);
 
 err_release_bar2:
@@ -861,7 +885,20 @@ err_disable_pdev:
 	return err;
 }
 
-static void __devexit mlx4_remove_one(struct pci_dev *pdev)
+static int __devinit mlx4_init_one(struct pci_dev *pdev,
+				   const struct pci_device_id *id)
+{
+	static int mlx4_version_printed;
+
+	if (!mlx4_version_printed) {
+		printk(KERN_INFO "%s", mlx4_version);
+		++mlx4_version_printed;
+	}
+
+	return __mlx4_init_one(pdev, id);
+}
+
+static void mlx4_remove_one(struct pci_dev *pdev)
 {
 	struct mlx4_dev  *dev  = pci_get_drvdata(pdev);
 	struct mlx4_priv *priv = mlx4_priv(dev);
@@ -902,7 +939,7 @@ static void __devexit mlx4_remove_one(struct pci_dev *pdev)
 int mlx4_restart_one(struct pci_dev *pdev)
 {
 	mlx4_remove_one(pdev);
-	return mlx4_init_one(pdev, NULL);
+	return __mlx4_init_one(pdev, NULL);
 }
 
 static struct pci_device_id mlx4_pci_table[] = {

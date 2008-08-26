@@ -23,6 +23,7 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/mm.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/bootmem.h>
@@ -171,7 +172,7 @@ static int check_fbmem_region(int region_idx, struct omapfb_mem_region *rg,
  * Called from map_io. We need to call to this early enough so that we
  * can reserve the fixed SDRAM regions before VM could get hold of them.
  */
-void omapfb_reserve_sdram(void)
+void __init omapfb_reserve_sdram(void)
 {
 	struct bootmem_data	*bdata;
 	unsigned long		sdram_start, sdram_size;
@@ -182,7 +183,7 @@ void omapfb_reserve_sdram(void)
 		return;
 
 	bdata = NODE_DATA(0)->bdata;
-	sdram_start = bdata->node_boot_start;
+	sdram_start = bdata->node_min_pfn << PAGE_SHIFT;
 	sdram_size = (bdata->node_low_pfn << PAGE_SHIFT) - sdram_start;
 	reserved = 0;
 	for (i = 0; ; i++) {
@@ -207,7 +208,7 @@ void omapfb_reserve_sdram(void)
 			return;
 		}
 		if (rg.paddr)
-			reserve_bootmem(rg.paddr, rg.size);
+			reserve_bootmem(rg.paddr, rg.size, BOOTMEM_DEFAULT);
 		reserved += rg.size;
 		omapfb_config.mem_desc.region[i] = rg;
 		configured_regions++;
@@ -340,5 +341,3 @@ unsigned long omapfb_reserve_sram(unsigned long sram_pstart,
 
 
 #endif
-
-

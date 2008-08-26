@@ -151,7 +151,7 @@ static int wait_uwire_csr_flag(u16 mask, u16 val, int might_not_catch)
 		if (time_after(jiffies, max_jiffies)) {
 			printk(KERN_ERR "%s: timeout. reg=%#06x "
 					"mask=%#06x val=%#06x\n",
-			       __FUNCTION__, w, mask, val);
+			       __func__, w, mask, val);
 			return -1;
 		}
 		c++;
@@ -437,7 +437,7 @@ static int uwire_setup_transfer(struct spi_device *spi, struct spi_transfer *t)
 	}
 	omap_uwire_configure_mode(spi->chip_select, flags);
 	pr_debug("%s: uwire flags %02x, armxor %lu KHz, SCK %lu KHz\n",
-			__FUNCTION__, flags,
+			__func__, flags,
 			clk_get_rate(uwire->ck) / 1000,
 			rate / 1000);
 	status = 0;
@@ -481,7 +481,7 @@ static void uwire_off(struct uwire_spi *uwire)
 	spi_master_put(uwire->bitbang.master);
 }
 
-static int uwire_probe(struct platform_device *pdev)
+static int __init uwire_probe(struct platform_device *pdev)
 {
 	struct spi_master	*master;
 	struct uwire_spi	*uwire;
@@ -525,7 +525,7 @@ static int uwire_probe(struct platform_device *pdev)
 	return status;
 }
 
-static int uwire_remove(struct platform_device *pdev)
+static int __exit uwire_remove(struct platform_device *pdev)
 {
 	struct uwire_spi	*uwire = dev_get_drvdata(&pdev->dev);
 	int			status;
@@ -537,14 +537,15 @@ static int uwire_remove(struct platform_device *pdev)
 	return status;
 }
 
+/* work with hotplug and coldplug */
+MODULE_ALIAS("platform:omap_uwire");
+
 static struct platform_driver uwire_driver = {
 	.driver = {
 		.name		= "omap_uwire",
-		.bus		= &platform_bus_type,
 		.owner		= THIS_MODULE,
 	},
-	.probe		= uwire_probe,
-	.remove		= uwire_remove,
+	.remove		= __exit_p(uwire_remove),
 	// suspend ... unuse ck
 	// resume ... use ck
 };
@@ -566,7 +567,7 @@ static int __init omap_uwire_init(void)
 		omap_writel(val | 0x00AAA000, OMAP730_IO_CONF_9);
 	}
 
-	return platform_driver_register(&uwire_driver);
+	return platform_driver_probe(&uwire_driver, uwire_probe);
 }
 
 static void __exit omap_uwire_exit(void)

@@ -15,7 +15,7 @@
 #include "matroxfb_misc.h"
 #include "matroxfb_DAC1064.h"
 #include <linux/matroxfb.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 /* **************************************************** */
 
@@ -420,7 +420,7 @@ static int matroxfb_dh_ioctl(struct fb_info *info,
 #define m2info (container_of(info, struct matroxfb_dh_fb_info, fbcon))
 	MINFO_FROM(m2info->primary_dev);
 
-	DBG(__FUNCTION__)
+	DBG(__func__)
 
 	switch (cmd) {
 		case FBIOGET_VBLANK:

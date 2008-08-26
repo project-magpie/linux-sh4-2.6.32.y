@@ -137,14 +137,14 @@ static int ati_remote2_open(struct input_dev *idev)
 	r = usb_submit_urb(ar2->urb[0], GFP_KERNEL);
 	if (r) {
 		dev_err(&ar2->intf[0]->dev,
-			"%s: usb_submit_urb() = %d\n", __FUNCTION__, r);
+			"%s: usb_submit_urb() = %d\n", __func__, r);
 		return r;
 	}
 	r = usb_submit_urb(ar2->urb[1], GFP_KERNEL);
 	if (r) {
 		usb_kill_urb(ar2->urb[0]);
 		dev_err(&ar2->intf[1]->dev,
-			"%s: usb_submit_urb() = %d\n", __FUNCTION__, r);
+			"%s: usb_submit_urb() = %d\n", __func__, r);
 		return r;
 	}
 
@@ -294,17 +294,17 @@ static void ati_remote2_complete_mouse(struct urb *urb)
 	case -ECONNRESET:
 	case -ESHUTDOWN:
 		dev_dbg(&ar2->intf[0]->dev,
-			"%s(): urb status = %d\n", __FUNCTION__, urb->status);
+			"%s(): urb status = %d\n", __func__, urb->status);
 		return;
 	default:
 		dev_err(&ar2->intf[0]->dev,
-			"%s(): urb status = %d\n", __FUNCTION__, urb->status);
+			"%s(): urb status = %d\n", __func__, urb->status);
 	}
 
 	r = usb_submit_urb(urb, GFP_ATOMIC);
 	if (r)
 		dev_err(&ar2->intf[0]->dev,
-			"%s(): usb_submit_urb() = %d\n", __FUNCTION__, r);
+			"%s(): usb_submit_urb() = %d\n", __func__, r);
 }
 
 static void ati_remote2_complete_key(struct urb *urb)
@@ -321,17 +321,17 @@ static void ati_remote2_complete_key(struct urb *urb)
 	case -ECONNRESET:
 	case -ESHUTDOWN:
 		dev_dbg(&ar2->intf[1]->dev,
-			"%s(): urb status = %d\n", __FUNCTION__, urb->status);
+			"%s(): urb status = %d\n", __func__, urb->status);
 		return;
 	default:
 		dev_err(&ar2->intf[1]->dev,
-			"%s(): urb status = %d\n", __FUNCTION__, urb->status);
+			"%s(): urb status = %d\n", __func__, urb->status);
 	}
 
 	r = usb_submit_urb(urb, GFP_ATOMIC);
 	if (r)
 		dev_err(&ar2->intf[1]->dev,
-			"%s(): usb_submit_urb() = %d\n", __FUNCTION__, r);
+			"%s(): usb_submit_urb() = %d\n", __func__, r);
 }
 
 static int ati_remote2_input_init(struct ati_remote2 *ar2)
@@ -346,9 +346,10 @@ static int ati_remote2_input_init(struct ati_remote2 *ar2)
 	ar2->idev = idev;
 	input_set_drvdata(idev, ar2);
 
-	idev->evbit[0] = BIT(EV_KEY) | BIT(EV_REP) | BIT(EV_REL);
-	idev->keybit[LONG(BTN_MOUSE)] = BIT(BTN_LEFT) | BIT(BTN_RIGHT);
-	idev->relbit[0] = BIT(REL_X) | BIT(REL_Y);
+	idev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_REP) | BIT_MASK(EV_REL);
+	idev->keybit[BIT_WORD(BTN_MOUSE)] = BIT_MASK(BTN_LEFT) |
+		BIT_MASK(BTN_RIGHT);
+	idev->relbit[0] = BIT_MASK(REL_X) | BIT_MASK(REL_Y);
 	for (i = 0; ati_remote2_key_table[i].key_code != KEY_RESERVED; i++)
 		set_bit(ati_remote2_key_table[i].key_code, idev->keybit);
 
@@ -437,7 +438,7 @@ static int ati_remote2_setup(struct ati_remote2 *ar2)
 			    channel, 0x0, NULL, 0, USB_CTRL_SET_TIMEOUT);
 	if (r) {
 		dev_err(&ar2->udev->dev, "%s - failed to set channel due to error: %d\n",
-			__FUNCTION__, r);
+			__func__, r);
 		return r;
 	}
 

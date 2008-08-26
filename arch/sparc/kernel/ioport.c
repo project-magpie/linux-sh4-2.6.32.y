@@ -1,4 +1,4 @@
-/* $Id: ioport.c,v 1.45 2001/10/30 04:54:21 davem Exp $
+/*
  * ioport.c:  Simple io mapping allocator.
  *
  * Copyright (C) 1995 David S. Miller (davem@caip.rutgers.edu)
@@ -35,6 +35,7 @@
 #include <linux/slab.h>
 #include <linux/pci.h>		/* struct pci_dev */
 #include <linux/proc_fs.h>
+#include <linux/scatterlist.h>
 
 #include <asm/io.h>
 #include <asm/vaddrs.h>
@@ -48,12 +49,15 @@
 
 #define mmu_inval_dma_area(p, l)	/* Anton pulled it out for 2.4.0-xx */
 
-struct resource *_sparc_find_resource(struct resource *r, unsigned long);
+static struct resource *_sparc_find_resource(struct resource *r,
+					     unsigned long);
 
 static void __iomem *_sparc_ioremap(struct resource *res, u32 bus, u32 pa, int sz);
 static void __iomem *_sparc_alloc_io(unsigned int busno, unsigned long phys,
     unsigned long size, char *name);
 static void _sparc_free_io(struct resource *res);
+
+static void register_proc_sparc_ioport(void);
 
 /* This points to the next to use virtual memory for DVMA mappings */
 static struct resource _sparc_dvma = {
@@ -304,7 +308,7 @@ void *sbus_alloc_consistent(struct sbus_dev *sdev, long len, u32 *dma_addrp)
 	struct resource *res;
 	int order;
 
-	/* XXX why are some lenghts signed, others unsigned? */
+	/* XXX why are some lengths signed, others unsigned? */
 	if (len <= 0) {
 		return NULL;
 	}
@@ -392,7 +396,7 @@ void sbus_free_consistent(struct sbus_dev *sdev, long n, void *p, u32 ba)
  */
 dma_addr_t sbus_map_single(struct sbus_dev *sdev, void *va, size_t len, int direction)
 {
-	/* XXX why are some lenghts signed, others unsigned? */
+	/* XXX why are some lengths signed, others unsigned? */
 	if (len <= 0) {
 		return 0;
 	}
@@ -538,8 +542,6 @@ void __init sbus_setup_arch_props(struct sbus_bus *sbus, struct device_node *dp)
 
 int __init sbus_arch_preinit(void)
 {
-	extern void register_proc_sparc_ioport(void);
-
 	register_proc_sparc_ioport();
 
 #ifdef CONFIG_SUN4
@@ -717,19 +719,18 @@ void pci_unmap_page(struct pci_dev *hwdev,
  * Device ownership issues as mentioned above for pci_map_single are
  * the same here.
  */
-int pci_map_sg(struct pci_dev *hwdev, struct scatterlist *sg, int nents,
+int pci_map_sg(struct pci_dev *hwdev, struct scatterlist *sgl, int nents,
     int direction)
 {
+	struct scatterlist *sg;
 	int n;
 
 	BUG_ON(direction == PCI_DMA_NONE);
 	/* IIep is write-through, not flushing. */
-	for (n = 0; n < nents; n++) {
-		BUG_ON(page_address(sg->page) == NULL);
-		sg->dvma_address =
-			virt_to_phys(page_address(sg->page)) + sg->offset;
+	for_each_sg(sgl, sg, nents, n) {
+		BUG_ON(page_address(sg_page(sg)) == NULL);
+		sg->dvma_address = virt_to_phys(sg_virt(sg));
 		sg->dvma_length = sg->length;
-		sg++;
 	}
 	return nents;
 }
@@ -738,19 +739,19 @@ int pci_map_sg(struct pci_dev *hwdev, struct scatterlist *sg, int nents,
  * Again, cpu read rules concerning calls here are the same as for
  * pci_unmap_single() above.
  */
-void pci_unmap_sg(struct pci_dev *hwdev, struct scatterlist *sg, int nents,
+void pci_unmap_sg(struct pci_dev *hwdev, struct scatterlist *sgl, int nents,
     int direction)
 {
+	struct scatterlist *sg;
 	int n;
 
 	BUG_ON(direction == PCI_DMA_NONE);
 	if (direction != PCI_DMA_TODEVICE) {
-		for (n = 0; n < nents; n++) {
-			BUG_ON(page_address(sg->page) == NULL);
+		for_each_sg(sgl, sg, nents, n) {
+			BUG_ON(page_address(sg_page(sg)) == NULL);
 			mmu_inval_dma_area(
-			    (unsigned long) page_address(sg->page),
+			    (unsigned long) page_address(sg_page(sg)),
 			    (sg->length + PAGE_SIZE-1) & PAGE_MASK);
-			sg++;
 		}
 	}
 }
@@ -789,34 +790,34 @@ void pci_dma_sync_single_for_device(struct pci_dev *hwdev, dma_addr_t ba, size_t
  * The same as pci_dma_sync_single_* but for a scatter-gather list,
  * same rules and usage.
  */
-void pci_dma_sync_sg_for_cpu(struct pci_dev *hwdev, struct scatterlist *sg, int nents, int direction)
+void pci_dma_sync_sg_for_cpu(struct pci_dev *hwdev, struct scatterlist *sgl, int nents, int direction)
 {
+	struct scatterlist *sg;
 	int n;
 
 	BUG_ON(direction == PCI_DMA_NONE);
 	if (direction != PCI_DMA_TODEVICE) {
-		for (n = 0; n < nents; n++) {
-			BUG_ON(page_address(sg->page) == NULL);
+		for_each_sg(sgl, sg, nents, n) {
+			BUG_ON(page_address(sg_page(sg)) == NULL);
 			mmu_inval_dma_area(
-			    (unsigned long) page_address(sg->page),
+			    (unsigned long) page_address(sg_page(sg)),
 			    (sg->length + PAGE_SIZE-1) & PAGE_MASK);
-			sg++;
 		}
 	}
 }
 
-void pci_dma_sync_sg_for_device(struct pci_dev *hwdev, struct scatterlist *sg, int nents, int direction)
+void pci_dma_sync_sg_for_device(struct pci_dev *hwdev, struct scatterlist *sgl, int nents, int direction)
 {
+	struct scatterlist *sg;
 	int n;
 
 	BUG_ON(direction == PCI_DMA_NONE);
 	if (direction != PCI_DMA_TODEVICE) {
-		for (n = 0; n < nents; n++) {
-			BUG_ON(page_address(sg->page) == NULL);
+		for_each_sg(sgl, sg, nents, n) {
+			BUG_ON(page_address(sg_page(sg)) == NULL);
 			mmu_inval_dma_area(
-			    (unsigned long) page_address(sg->page),
+			    (unsigned long) page_address(sg_page(sg)),
 			    (sg->length + PAGE_SIZE-1) & PAGE_MASK);
-			sg++;
 		}
 	}
 }
@@ -853,8 +854,8 @@ _sparc_io_get_info(char *buf, char **start, off_t fpos, int length, int *eof,
  * XXX Too slow. Can have 8192 DVMA pages on sun4m in the worst case.
  * This probably warrants some sort of hashing.
  */
-struct resource *
-_sparc_find_resource(struct resource *root, unsigned long hit)
+static struct resource *_sparc_find_resource(struct resource *root,
+					     unsigned long hit)
 {
         struct resource *tmp;
 
@@ -865,7 +866,7 @@ _sparc_find_resource(struct resource *root, unsigned long hit)
 	return NULL;
 }
 
-void register_proc_sparc_ioport(void)
+static void register_proc_sparc_ioport(void)
 {
 #ifdef CONFIG_PROC_FS
 	create_proc_read_entry("io_map",0,NULL,_sparc_io_get_info,&sparc_iomap);

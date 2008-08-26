@@ -142,23 +142,23 @@ static int ixp4xx_set_irq_type(unsigned int irq, unsigned int type)
 		return -EINVAL;
 
 	switch (type){
-	case IRQT_BOTHEDGE:
+	case IRQ_TYPE_EDGE_BOTH:
 		int_style = IXP4XX_GPIO_STYLE_TRANSITIONAL;
 		irq_type = IXP4XX_IRQ_EDGE;
 		break;
-	case IRQT_RISING:
+	case IRQ_TYPE_EDGE_RISING:
 		int_style = IXP4XX_GPIO_STYLE_RISING_EDGE;
 		irq_type = IXP4XX_IRQ_EDGE;
 		break;
-	case IRQT_FALLING:
+	case IRQ_TYPE_EDGE_FALLING:
 		int_style = IXP4XX_GPIO_STYLE_FALLING_EDGE;
 		irq_type = IXP4XX_IRQ_EDGE;
 		break;
-	case IRQT_HIGH:
+	case IRQ_TYPE_LEVEL_HIGH:
 		int_style = IXP4XX_GPIO_STYLE_ACTIVE_HIGH;
 		irq_type = IXP4XX_IRQ_LEVEL;
 		break;
-	case IRQT_LOW:
+	case IRQ_TYPE_LEVEL_LOW:
 		int_style = IXP4XX_GPIO_STYLE_ACTIVE_LOW;
 		irq_type = IXP4XX_IRQ_LEVEL;
 		break;
@@ -326,11 +326,11 @@ static struct resource ixp4xx_udc_resources[] = {
 };
 
 /*
- * USB device controller. The IXP4xx uses the same controller as PXA2XX,
+ * USB device controller. The IXP4xx uses the same controller as PXA25X,
  * so we just use the same device.
  */
 static struct platform_device ixp4xx_udc_device = {
-	.name           = "pxa2xx-udc",
+	.name           = "pxa25x-udc",
 	.id             = -1,
 	.num_resources  = 2,
 	.resource       = ixp4xx_udc_resources,
@@ -442,7 +442,8 @@ static int ixp4xx_set_next_event(unsigned long evt,
 static void ixp4xx_set_mode(enum clock_event_mode mode,
 			    struct clock_event_device *evt)
 {
-	unsigned long opts, osrt = *IXP4XX_OSRT1 & ~IXP4XX_OST_RELOAD_MASK;
+	unsigned long opts = *IXP4XX_OSRT1 & IXP4XX_OST_RELOAD_MASK;
+	unsigned long osrt = *IXP4XX_OSRT1 & ~IXP4XX_OST_RELOAD_MASK;
 
 	switch (mode) {
 	case CLOCK_EVT_MODE_PERIODIC:
@@ -455,11 +456,14 @@ static void ixp4xx_set_mode(enum clock_event_mode mode,
 		opts = IXP4XX_OST_ENABLE | IXP4XX_OST_ONE_SHOT;
 		break;
 	case CLOCK_EVT_MODE_SHUTDOWN:
+		opts &= ~IXP4XX_OST_ENABLE;
+		break;
+	case CLOCK_EVT_MODE_RESUME:
+		opts |= IXP4XX_OST_ENABLE;
+		break;
 	case CLOCK_EVT_MODE_UNUSED:
 	default:
 		osrt = opts = 0;
-		break;
-	case CLOCK_EVT_MODE_RESUME:
 		break;
 	}
 

@@ -12,6 +12,7 @@
 #ifndef _LINUX_ETHTOOL_H
 #define _LINUX_ETHTOOL_H
 
+#include <linux/types.h>
 
 /* This should work for both 32 and 64 bit userland. */
 struct ethtool_cmd {
@@ -39,7 +40,8 @@ struct ethtool_drvinfo {
 	char	bus_info[ETHTOOL_BUSINFO_LEN];	/* Bus info for this IF. */
 				/* For PCI devices, use pci_name(pci_dev). */
 	char	reserved1[32];
-	char	reserved2[16];
+	char	reserved2[12];
+	__u32	n_priv_flags;	/* number of flags valid in ETHTOOL_GPFLAGS */
 	__u32	n_stats;	/* number of u64's from ETHTOOL_GSTATS */
 	__u32	testinfo_len;
 	__u32	eedump_len;	/* Size of data from ETHTOOL_GEEPROM (bytes) */
@@ -219,6 +221,7 @@ struct ethtool_pauseparam {
 enum ethtool_stringset {
 	ETH_SS_TEST		= 0,
 	ETH_SS_STATS,
+	ETH_SS_PRIV_FLAGS,
 };
 
 /* for passing string sets for data tagging */
@@ -256,6 +259,25 @@ struct ethtool_perm_addr {
 	__u8	data[0];
 };
 
+/* boolean flags controlling per-interface behavior characteristics.
+ * When reading, the flag indicates whether or not a certain behavior
+ * is enabled/present.  When writing, the flag indicates whether
+ * or not the driver should turn on (set) or off (clear) a behavior.
+ *
+ * Some behaviors may read-only (unconditionally absent or present).
+ * If such is the case, return EINVAL in the set-flags operation if the
+ * flag differs from the read-only value.
+ */
+enum ethtool_flags {
+	ETH_FLAG_LRO		= (1 << 15),	/* LRO is enabled */
+};
+
+struct ethtool_rxnfc {
+	__u32		cmd;
+	__u32		flow_type;
+	__u64		data;
+};
+
 #ifdef __KERNEL__
 
 struct net_device;
@@ -272,6 +294,8 @@ u32 ethtool_op_get_tso(struct net_device *dev);
 int ethtool_op_set_tso(struct net_device *dev, u32 data);
 u32 ethtool_op_get_ufo(struct net_device *dev);
 int ethtool_op_set_ufo(struct net_device *dev, u32 data);
+u32 ethtool_op_get_flags(struct net_device *dev);
+int ethtool_op_set_flags(struct net_device *dev, u32 data);
 
 /**
  * &ethtool_ops - Alter and report network device settings
@@ -292,7 +316,7 @@ int ethtool_op_set_ufo(struct net_device *dev, u32 data);
  * get_ringparam: Report ring sizes
  * set_ringparam: Set ring sizes
  * get_pauseparam: Report pause parameters
- * set_pauseparam: Set pause paramters
+ * set_pauseparam: Set pause parameters
  * get_rx_csum: Report whether receive checksums are turned on or off
  * set_rx_csum: Turn receive checksum on or off
  * get_tx_csum: Report whether transmit checksums are turned on or off
@@ -307,6 +331,8 @@ int ethtool_op_set_ufo(struct net_device *dev, u32 data);
  * get_strings: Return a set of strings that describe the requested objects 
  * phys_id: Identify the device
  * get_stats: Return statistics about the device
+ * get_flags: get 32-bit flags bitmap
+ * set_flags: set 32-bit flags bitmap
  * 
  * Description:
  *
@@ -359,16 +385,25 @@ struct ethtool_ops {
 	int	(*set_sg)(struct net_device *, u32);
 	u32	(*get_tso)(struct net_device *);
 	int	(*set_tso)(struct net_device *, u32);
-	int	(*self_test_count)(struct net_device *);
 	void	(*self_test)(struct net_device *, struct ethtool_test *, u64 *);
 	void	(*get_strings)(struct net_device *, u32 stringset, u8 *);
 	int	(*phys_id)(struct net_device *, u32);
-	int	(*get_stats_count)(struct net_device *);
 	void	(*get_ethtool_stats)(struct net_device *, struct ethtool_stats *, u64 *);
 	int	(*begin)(struct net_device *);
 	void	(*complete)(struct net_device *);
 	u32     (*get_ufo)(struct net_device *);
 	int     (*set_ufo)(struct net_device *, u32);
+	u32     (*get_flags)(struct net_device *);
+	int     (*set_flags)(struct net_device *, u32);
+	u32     (*get_priv_flags)(struct net_device *);
+	int     (*set_priv_flags)(struct net_device *, u32);
+	int	(*get_sset_count)(struct net_device *, int);
+
+	/* the following hooks are obsolete */
+	int	(*self_test_count)(struct net_device *);/* use get_sset_count */
+	int	(*get_stats_count)(struct net_device *);/* use get_sset_count */
+	int	(*get_rxhash)(struct net_device *, struct ethtool_rxnfc *);
+	int	(*set_rxhash)(struct net_device *, struct ethtool_rxnfc *);
 };
 #endif /* __KERNEL__ */
 
@@ -410,6 +445,13 @@ struct ethtool_ops {
 #define ETHTOOL_SUFO		0x00000022 /* Set UFO enable (ethtool_value) */
 #define ETHTOOL_GGSO		0x00000023 /* Get GSO enable (ethtool_value) */
 #define ETHTOOL_SGSO		0x00000024 /* Set GSO enable (ethtool_value) */
+#define ETHTOOL_GFLAGS		0x00000025 /* Get flags bitmap(ethtool_value) */
+#define ETHTOOL_SFLAGS		0x00000026 /* Set flags bitmap(ethtool_value) */
+#define ETHTOOL_GPFLAGS		0x00000027 /* Get driver-private flags bitmap */
+#define ETHTOOL_SPFLAGS		0x00000028 /* Set driver-private flags bitmap */
+
+#define	ETHTOOL_GRXFH		0x00000029 /* Get RX flow hash configuration */
+#define	ETHTOOL_SRXFH		0x0000002a /* Set RX flow hash configuration */
 
 /* compatibility with older code */
 #define SPARC_ETH_GSET		ETHTOOL_GSET
@@ -496,5 +538,27 @@ struct ethtool_ops {
 #define WAKE_ARP		(1 << 4)
 #define WAKE_MAGIC		(1 << 5)
 #define WAKE_MAGICSECURE	(1 << 6) /* only meaningful if WAKE_MAGIC */
+
+/* L3-L4 network traffic flow types */
+#define	TCP_V4_FLOW	0x01
+#define	UDP_V4_FLOW	0x02
+#define	SCTP_V4_FLOW	0x03
+#define	AH_ESP_V4_FLOW	0x04
+#define	TCP_V6_FLOW	0x05
+#define	UDP_V6_FLOW	0x06
+#define	SCTP_V6_FLOW	0x07
+#define	AH_ESP_V6_FLOW	0x08
+
+/* L3-L4 network traffic flow hash options */
+#define	RXH_DEV_PORT	(1 << 0)
+#define	RXH_L2DA	(1 << 1)
+#define	RXH_VLAN	(1 << 2)
+#define	RXH_L3_PROTO	(1 << 3)
+#define	RXH_IP_SRC	(1 << 4)
+#define	RXH_IP_DST	(1 << 5)
+#define	RXH_L4_B_0_1	(1 << 6) /* src port in case of TCP/UDP/SCTP */
+#define	RXH_L4_B_2_3	(1 << 7) /* dst port in case of TCP/UDP/SCTP */
+#define	RXH_DISCARD	(1 << 31)
+
 
 #endif /* _LINUX_ETHTOOL_H */

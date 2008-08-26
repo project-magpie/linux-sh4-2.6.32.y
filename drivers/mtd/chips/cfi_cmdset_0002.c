@@ -16,9 +16,6 @@
  * Occasionally maintained by Thayne Harbaugh tharbaugh at lnxi dot com
  *
  * This code is GPL
- *
- * $Id: cfi_cmdset_0002.c,v 1.122 2005/11/07 11:14:22 gleixner Exp $
- *
  */
 
 #include <linux/module.h>
@@ -185,6 +182,10 @@ static void fixup_convert_atmel_pri(struct mtd_info *mtd, void *param)
 		extp->TopBottom = 2;
 	else
 		extp->TopBottom = 3;
+
+	/* burst write mode not supported */
+	cfi->cfiq->BufWriteTimeoutTyp = 0;
+	cfi->cfiq->BufWriteTimeoutMax = 0;
 }
 
 static void fixup_use_secsi(struct mtd_info *mtd, void *param)
@@ -213,10 +214,33 @@ static void fixup_use_atmel_lock(struct mtd_info *mtd, void *param)
 {
 	mtd->lock = cfi_atmel_lock;
 	mtd->unlock = cfi_atmel_unlock;
-	mtd->flags |= MTD_STUPID_LOCK;
+	mtd->flags |= MTD_POWERUP_LOCK;
+}
+
+static void fixup_s29gl064n_sectors(struct mtd_info *mtd, void *param)
+{
+	struct map_info *map = mtd->priv;
+	struct cfi_private *cfi = map->fldrv_priv;
+
+	if ((cfi->cfiq->EraseRegionInfo[0] & 0xffff) == 0x003f) {
+		cfi->cfiq->EraseRegionInfo[0] |= 0x0040;
+		pr_warning("%s: Bad S29GL064N CFI data, adjust from 64 to 128 sectors\n", mtd->name);
+	}
+}
+
+static void fixup_s29gl032n_sectors(struct mtd_info *mtd, void *param)
+{
+	struct map_info *map = mtd->priv;
+	struct cfi_private *cfi = map->fldrv_priv;
+
+	if ((cfi->cfiq->EraseRegionInfo[1] & 0xffff) == 0x007e) {
+		cfi->cfiq->EraseRegionInfo[1] &= ~0x0040;
+		pr_warning("%s: Bad S29GL032N CFI data, adjust from 127 to 63 sectors\n", mtd->name);
+	}
 }
 
 static struct cfi_fixup cfi_fixup_table[] = {
+	{ CFI_MFR_ATMEL, CFI_ID_ANY, fixup_convert_atmel_pri, NULL },
 #ifdef AMD_BOOTLOC_BUG
 	{ CFI_MFR_AMD, CFI_ID_ANY, fixup_amd_bootblock, NULL },
 #endif
@@ -226,10 +250,13 @@ static struct cfi_fixup cfi_fixup_table[] = {
 	{ CFI_MFR_AMD, 0x0056, fixup_use_secsi, NULL, },
 	{ CFI_MFR_AMD, 0x005C, fixup_use_secsi, NULL, },
 	{ CFI_MFR_AMD, 0x005F, fixup_use_secsi, NULL, },
+	{ CFI_MFR_AMD, 0x0c01, fixup_s29gl064n_sectors, NULL, },
+	{ CFI_MFR_AMD, 0x1301, fixup_s29gl064n_sectors, NULL, },
+	{ CFI_MFR_AMD, 0x1a00, fixup_s29gl032n_sectors, NULL, },
+	{ CFI_MFR_AMD, 0x1a01, fixup_s29gl032n_sectors, NULL, },
 #if !FORCE_WORD_WRITE
 	{ CFI_MFR_ANY, CFI_ID_ANY, fixup_use_write_buffers, NULL, },
 #endif
-	{ CFI_MFR_ATMEL, CFI_ID_ANY, fixup_convert_atmel_pri, NULL },
 	{ 0, 0, NULL, NULL }
 };
 static struct cfi_fixup jedec_fixup_table[] = {
@@ -338,10 +365,12 @@ struct mtd_info *cfi_cmdset_0002(struct map_info *map, int primary)
 		/* Modify the unlock address if we are in compatibility mode */
 		if (	/* x16 in x8 mode */
 			((cfi->device_type == CFI_DEVICETYPE_X8) &&
-				(cfi->cfiq->InterfaceDesc == 2)) ||
+				(cfi->cfiq->InterfaceDesc ==
+					CFI_INTERFACE_X8_BY_X16_ASYNC)) ||
 			/* x32 in x16 mode */
 			((cfi->device_type == CFI_DEVICETYPE_X16) &&
-				(cfi->cfiq->InterfaceDesc == 4)))
+				(cfi->cfiq->InterfaceDesc ==
+					CFI_INTERFACE_X16_BY_X32_ASYNC)))
 		{
 			cfi->addr_unlock1 = 0xaaa;
 			cfi->addr_unlock2 = 0x555;
@@ -717,10 +746,10 @@ static void __xipram xip_udelay(struct map_info *map, struct flchip *chip,
 			chip->erase_suspended = 1;
 			map_write(map, CMD(0xf0), adr);
 			(void) map_read(map, adr);
-			asm volatile (".rep 8; nop; .endr");
+			xip_iprefetch();
 			local_irq_enable();
 			spin_unlock(chip->mutex);
-			asm volatile (".rep 8; nop; .endr");
+			xip_iprefetch();
 			cond_resched();
 
 			/*
@@ -1609,7 +1638,7 @@ static int __xipram do_erase_oneblock(struct map_info *map, struct flchip *chip,
 }
 
 
-int cfi_amdstd_erase_varsize(struct mtd_info *mtd, struct erase_info *instr)
+static int cfi_amdstd_erase_varsize(struct mtd_info *mtd, struct erase_info *instr)
 {
 	unsigned long ofs, len;
 	int ret;
@@ -1757,6 +1786,7 @@ static void cfi_amdstd_sync (struct mtd_info *mtd)
 
 		default:
 			/* Not an idle state */
+			set_current_state(TASK_UNINTERRUPTIBLE);
 			add_wait_queue(&chip->wq, &wait);
 
 			spin_unlock(chip->mutex);

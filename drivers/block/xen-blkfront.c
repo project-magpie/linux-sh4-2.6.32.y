@@ -37,6 +37,8 @@
 
 #include <linux/interrupt.h>
 #include <linux/blkdev.h>
+#include <linux/hdreg.h>
+#include <linux/cdrom.h>
 #include <linux/module.h>
 
 #include <xen/xenbus.h>
@@ -46,6 +48,7 @@
 
 #include <xen/interface/grant_table.h>
 #include <xen/interface/io/blkif.h>
+#include <xen/interface/io/protocols.h>
 
 #include <asm/xen/hypervisor.h>
 
@@ -73,7 +76,6 @@ static struct block_device_operations xlvbd_block_fops;
 struct blkfront_info
 {
 	struct xenbus_device *xbdev;
-	dev_t dev;
 	struct gendisk *gd;
 	int vdevice;
 	blkif_vdev_t handle;
@@ -87,6 +89,7 @@ struct blkfront_info
 	struct blk_shadow shadow[BLK_RING_SIZE];
 	unsigned long shadow_free;
 	int feature_barrier;
+	int is_ready;
 
 	/**
 	 * The number of people holding this device open.  We won't allow a
@@ -135,6 +138,56 @@ static void blkif_restart_queue_callback(void *arg)
 	schedule_work(&info->work);
 }
 
+static int blkif_getgeo(struct block_device *bd, struct hd_geometry *hg)
+{
+	/* We don't have real geometry info, but let's at least return
+	   values consistent with the size of the device */
+	sector_t nsect = get_capacity(bd->bd_disk);
+	sector_t cylinders = nsect;
+
+	hg->heads = 0xff;
+	hg->sectors = 0x3f;
+	sector_div(cylinders, hg->heads * hg->sectors);
+	hg->cylinders = cylinders;
+	if ((sector_t)(hg->cylinders + 1) * hg->heads * hg->sectors < nsect)
+		hg->cylinders = 0xffff;
+	return 0;
+}
+
+int blkif_ioctl(struct inode *inode, struct file *filep,
+		unsigned command, unsigned long argument)
+{
+	struct blkfront_info *info =
+		inode->i_bdev->bd_disk->private_data;
+	int i;
+
+	dev_dbg(&info->xbdev->dev, "command: 0x%x, argument: 0x%lx\n",
+		command, (long)argument);
+
+	switch (command) {
+	case CDROMMULTISESSION:
+		dev_dbg(&info->xbdev->dev, "FIXME: support multisession CDs later\n");
+		for (i = 0; i < sizeof(struct cdrom_multisession); i++)
+			if (put_user(0, (char __user *)(argument + i)))
+				return -EFAULT;
+		return 0;
+
+	case CDROM_GET_CAPABILITY: {
+		struct gendisk *gd = info->gd;
+		if (gd->flags & GENHD_FL_CD)
+			return 0;
+		return -EINVAL;
+	}
+
+	default:
+		/*printk(KERN_ALERT "ioctl %08x not supported by Xen blkdev\n",
+		  command);*/
+		return -EINVAL; /* same return as native Linux */
+	}
+
+	return 0;
+}
+
 /*
  * blkif_queue_request
  *
@@ -150,9 +203,8 @@ static int blkif_queue_request(struct request *req)
 	struct blkfront_info *info = req->rq_disk->private_data;
 	unsigned long buffer_mfn;
 	struct blkif_request *ring_req;
-	struct bio *bio;
+	struct req_iterator iter;
 	struct bio_vec *bvec;
-	int idx;
 	unsigned long id;
 	unsigned int fsect, lsect;
 	int ref;
@@ -186,34 +238,31 @@ static int blkif_queue_request(struct request *req)
 		ring_req->operation = BLKIF_OP_WRITE_BARRIER;
 
 	ring_req->nr_segments = 0;
-	rq_for_each_bio (bio, req) {
-		bio_for_each_segment (bvec, bio, idx) {
-			BUG_ON(ring_req->nr_segments
-			       == BLKIF_MAX_SEGMENTS_PER_REQUEST);
-			buffer_mfn = pfn_to_mfn(page_to_pfn(bvec->bv_page));
-			fsect = bvec->bv_offset >> 9;
-			lsect = fsect + (bvec->bv_len >> 9) - 1;
-			/* install a grant reference. */
-			ref = gnttab_claim_grant_reference(&gref_head);
-			BUG_ON(ref == -ENOSPC);
+	rq_for_each_segment(bvec, req, iter) {
+		BUG_ON(ring_req->nr_segments == BLKIF_MAX_SEGMENTS_PER_REQUEST);
+		buffer_mfn = pfn_to_mfn(page_to_pfn(bvec->bv_page));
+		fsect = bvec->bv_offset >> 9;
+		lsect = fsect + (bvec->bv_len >> 9) - 1;
+		/* install a grant reference. */
+		ref = gnttab_claim_grant_reference(&gref_head);
+		BUG_ON(ref == -ENOSPC);
 
-			gnttab_grant_foreign_access_ref(
+		gnttab_grant_foreign_access_ref(
 				ref,
 				info->xbdev->otherend_id,
 				buffer_mfn,
 				rq_data_dir(req) );
 
-			info->shadow[id].frame[ring_req->nr_segments] =
+		info->shadow[id].frame[ring_req->nr_segments] =
 				mfn_to_pfn(buffer_mfn);
 
-			ring_req->seg[ring_req->nr_segments] =
+		ring_req->seg[ring_req->nr_segments] =
 				(struct blkif_request_segment) {
 					.gref       = ref,
 					.first_sect = fsect,
 					.last_sect  = lsect };
 
-			ring_req->nr_segments++;
-		}
+		ring_req->nr_segments++;
 	}
 
 	info->ring.req_prod_pvt++;
@@ -309,6 +358,9 @@ static int xlvbd_init_blk_queue(struct gendisk *gd, u16 sector_size)
 
 	/* Make sure buffer addresses are sector-aligned. */
 	blk_queue_dma_alignment(rq, 511);
+
+	/* Make sure we don't use bounce buffers. */
+	blk_queue_bounce_limit(rq, BLK_BOUNCE_ANY);
 
 	gd->queue = rq;
 
@@ -456,7 +508,7 @@ static irqreturn_t blkif_interrupt(int irq, void *dev_id)
 	RING_IDX i, rp;
 	unsigned long flags;
 	struct blkfront_info *info = (struct blkfront_info *)dev_id;
-	int uptodate;
+	int error;
 
 	spin_lock_irqsave(&blkif_io_lock, flags);
 
@@ -481,13 +533,13 @@ static irqreturn_t blkif_interrupt(int irq, void *dev_id)
 
 		add_id_to_freelist(info, id);
 
-		uptodate = (bret->status == BLKIF_RSP_OKAY);
+		error = (bret->status == BLKIF_RSP_OKAY) ? 0 : -EIO;
 		switch (bret->operation) {
 		case BLKIF_OP_WRITE_BARRIER:
 			if (unlikely(bret->status == BLKIF_RSP_EOPNOTSUPP)) {
 				printk(KERN_WARNING "blkfront: %s: write barrier op failed\n",
 				       info->gd->disk_name);
-				uptodate = -EOPNOTSUPP;
+				error = -EOPNOTSUPP;
 				info->feature_barrier = 0;
 				xlvbd_barrier(info);
 			}
@@ -498,10 +550,8 @@ static irqreturn_t blkif_interrupt(int irq, void *dev_id)
 				dev_dbg(&info->xbdev->dev, "Bad return from blkdev data "
 					"request: %x\n", bret->status);
 
-			ret = end_that_request_first(req, uptodate,
-				req->hard_nr_sectors);
+			ret = __blk_end_request(req, error, blk_rq_bytes(req));
 			BUG_ON(ret);
-			end_that_request_last(req, uptodate);
 			break;
 		default:
 			BUG();
@@ -534,7 +584,7 @@ static int setup_blkring(struct xenbus_device *dev,
 
 	info->ring_ref = GRANT_INVALID_REF;
 
-	sring = (struct blkif_sring *)__get_free_page(GFP_KERNEL);
+	sring = (struct blkif_sring *)__get_free_page(GFP_NOIO | __GFP_HIGH);
 	if (!sring) {
 		xenbus_dev_fatal(dev, -ENOMEM, "allocating shared ring");
 		return -ENOMEM;
@@ -601,6 +651,12 @@ again:
 			    "event-channel", "%u", info->evtchn);
 	if (err) {
 		message = "writing event-channel";
+		goto abort_transaction;
+	}
+	err = xenbus_printf(xbt, dev->nodename, "protocol", "%s",
+			    XEN_IO_PROTO_ABI_NATIVE);
+	if (err) {
+		message = "writing protocol";
 		goto abort_transaction;
 	}
 
@@ -685,7 +741,8 @@ static int blkif_recover(struct blkfront_info *info)
 	int j;
 
 	/* Stage 1: Make a safe copy of the shadow state. */
-	copy = kmalloc(sizeof(info->shadow), GFP_KERNEL);
+	copy = kmalloc(sizeof(info->shadow),
+		       GFP_NOIO | __GFP_REPEAT | __GFP_HIGH);
 	if (!copy)
 		return -ENOMEM;
 	memcpy(copy, info->shadow, sizeof(info->shadow));
@@ -822,6 +879,8 @@ static void blkfront_connect(struct blkfront_info *info)
 	spin_unlock_irq(&blkif_io_lock);
 
 	add_disk(info->gd);
+
+	info->is_ready = 1;
 }
 
 /**
@@ -885,7 +944,7 @@ static void backend_changed(struct xenbus_device *dev,
 		break;
 
 	case XenbusStateClosing:
-		bd = bdget(info->dev);
+		bd = bdget_disk(info->gd, 0);
 		if (bd == NULL)
 			xenbus_dev_fatal(dev, -ENODEV, "bdget failed");
 
@@ -914,6 +973,13 @@ static int blkfront_remove(struct xenbus_device *dev)
 	return 0;
 }
 
+static int blkfront_is_ready(struct xenbus_device *dev)
+{
+	struct blkfront_info *info = dev->dev.driver_data;
+
+	return info->is_ready;
+}
+
 static int blkif_open(struct inode *inode, struct file *filep)
 {
 	struct blkfront_info *info = inode->i_bdev->bd_disk->private_data;
@@ -932,7 +998,7 @@ static int blkif_release(struct inode *inode, struct file *filep)
 		struct xenbus_device *dev = info->xbdev;
 		enum xenbus_state state = xenbus_read_driver_state(dev->otherend);
 
-		if (state == XenbusStateClosing)
+		if (state == XenbusStateClosing && info->is_ready)
 			blkfront_closing(dev);
 	}
 	return 0;
@@ -943,6 +1009,8 @@ static struct block_device_operations xlvbd_block_fops =
 	.owner = THIS_MODULE,
 	.open = blkif_open,
 	.release = blkif_release,
+	.getgeo = blkif_getgeo,
+	.ioctl = blkif_ioctl,
 };
 
 
@@ -959,6 +1027,7 @@ static struct xenbus_driver blkfront = {
 	.remove = blkfront_remove,
 	.resume = blkfront_resume,
 	.otherend_changed = backend_changed,
+	.is_ready = blkfront_is_ready,
 };
 
 static int __init xlblk_init(void)
@@ -977,7 +1046,7 @@ static int __init xlblk_init(void)
 module_init(xlblk_init);
 
 
-static void xlblk_exit(void)
+static void __exit xlblk_exit(void)
 {
 	return xenbus_unregister_driver(&blkfront);
 }
@@ -986,3 +1055,5 @@ module_exit(xlblk_exit);
 MODULE_DESCRIPTION("Xen virtual block device frontend");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_BLOCKDEV_MAJOR(XENVBD_MAJOR);
+MODULE_ALIAS("xen:vbd");
+MODULE_ALIAS("xenblk");

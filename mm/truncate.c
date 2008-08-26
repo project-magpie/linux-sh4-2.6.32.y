@@ -8,6 +8,7 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/backing-dev.h>
 #include <linux/mm.h>
 #include <linux/swap.h>
 #include <linux/module.h>
@@ -20,7 +21,7 @@
 
 
 /**
- * do_invalidatepage - invalidate part of all of a page
+ * do_invalidatepage - invalidate part or all of a page
  * @page: the page which is affected
  * @offset: the index of the truncation point
  *
@@ -47,7 +48,7 @@ void do_invalidatepage(struct page *page, unsigned long offset)
 
 static inline void truncate_partial_page(struct page *page, unsigned partial)
 {
-	zero_user_page(page, partial, PAGE_CACHE_SIZE - partial, KM_USER0);
+	zero_user_segment(page, partial, PAGE_CACHE_SIZE);
 	if (PagePrivate(page))
 		do_invalidatepage(page, partial);
 }
@@ -72,6 +73,8 @@ void cancel_dirty_page(struct page *page, unsigned int account_size)
 		struct address_space *mapping = page->mapping;
 		if (mapping && mapping_cap_account_dirty(mapping)) {
 			dec_zone_page_state(page, NR_FILE_DIRTY);
+			dec_bdi_stat(mapping->backing_dev_info,
+					BDI_RECLAIMABLE);
 			if (account_size)
 				task_io_account_cancelled_write(account_size);
 		}
@@ -81,7 +84,7 @@ EXPORT_SYMBOL(cancel_dirty_page);
 
 /*
  * If truncate cannot remove the fs-private metadata from the page, the page
- * becomes anonymous.  It will be left on the LRU and may even be mapped into
+ * becomes orphaned.  It will be left on the LRU and may even be mapped into
  * user pagetables if we're racing with filemap_fault().
  *
  * We need to bale out if page->mapping is no longer equal to the original
@@ -95,10 +98,10 @@ truncate_complete_page(struct address_space *mapping, struct page *page)
 	if (page->mapping != mapping)
 		return;
 
-	cancel_dirty_page(page, PAGE_CACHE_SIZE);
-
 	if (PagePrivate(page))
 		do_invalidatepage(page, 0);
+
+	cancel_dirty_page(page, PAGE_CACHE_SIZE);
 
 	remove_from_page_cache(page);
 	ClearPageUptodate(page);
@@ -131,8 +134,7 @@ invalidate_complete_page(struct address_space *mapping, struct page *page)
 }
 
 /**
- * truncate_inode_pages - truncate range of pages specified by start and
- * end byte offsets
+ * truncate_inode_pages - truncate range of pages specified by start & end byte offsets
  * @mapping: mapping to truncate
  * @lstart: offset from which to truncate
  * @lend: offset to which to truncate
@@ -347,18 +349,18 @@ invalidate_complete_page2(struct address_space *mapping, struct page *page)
 	if (PagePrivate(page) && !try_to_release_page(page, GFP_KERNEL))
 		return 0;
 
-	write_lock_irq(&mapping->tree_lock);
+	spin_lock_irq(&mapping->tree_lock);
 	if (PageDirty(page))
 		goto failed;
 
 	BUG_ON(PagePrivate(page));
 	__remove_from_page_cache(page);
-	write_unlock_irq(&mapping->tree_lock);
+	spin_unlock_irq(&mapping->tree_lock);
 	ClearPageUptodate(page);
 	page_cache_release(page);	/* pagecache ref */
 	return 1;
 failed:
-	write_unlock_irq(&mapping->tree_lock);
+	spin_unlock_irq(&mapping->tree_lock);
 	return 0;
 }
 
@@ -389,6 +391,7 @@ int invalidate_inode_pages2_range(struct address_space *mapping,
 	pgoff_t next;
 	int i;
 	int ret = 0;
+	int ret2 = 0;
 	int did_range_unmap = 0;
 	int wrapped = 0;
 
@@ -436,9 +439,13 @@ int invalidate_inode_pages2_range(struct address_space *mapping,
 				}
 			}
 			BUG_ON(page_mapped(page));
-			ret = do_launder_page(mapping, page);
-			if (ret == 0 && !invalidate_complete_page2(mapping, page))
-				ret = -EIO;
+			ret2 = do_launder_page(mapping, page);
+			if (ret2 == 0) {
+				if (!invalidate_complete_page2(mapping, page))
+					ret2 = -EIO;
+			}
+			if (ret2 < 0)
+				ret = ret2;
 			unlock_page(page);
 		}
 		pagevec_release(&pvec);

@@ -1,6 +1,4 @@
 /*
- *  linux/drivers/ide/legacy/dtc2278.c		Version 0.02	Feb 10, 1996
- *
  *  Copyright (C) 1996  Linus Torvalds & author (see below)
  */
 
@@ -17,6 +15,8 @@
 #include <linux/init.h>
 
 #include <asm/io.h>
+
+#define DRV_NAME "dtc2278"
 
 /*
  * Changing this #undef to #define may solve start up problems in some systems.
@@ -67,41 +67,47 @@ static void sub22 (char b, char c)
 	}
 }
 
-static void tune_dtc2278 (ide_drive_t *drive, u8 pio)
+static DEFINE_SPINLOCK(dtc2278_lock);
+
+static void dtc2278_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
 	unsigned long flags;
 
-	pio = ide_get_best_pio_mode(drive, pio, 4);
-
 	if (pio >= 3) {
-		spin_lock_irqsave(&ide_lock, flags);
+		spin_lock_irqsave(&dtc2278_lock, flags);
 		/*
 		 * This enables PIO mode4 (3?) on the first interface
 		 */
 		sub22(1,0xc3);
 		sub22(0,0xa0);
-		spin_unlock_irqrestore(&ide_lock, flags);
+		spin_unlock_irqrestore(&dtc2278_lock, flags);
 	} else {
 		/* we don't know how to set it back again.. */
+		/* Actually we do - there is a data sheet available for the
+		   Winbond but does anyone actually care */
 	}
-
-	/*
-	 * 32bit I/O has to be enabled for *both* drives at the same time.
-	 */
-	drive->io_32bit = 1;
-	HWIF(drive)->drives[!drive->select.b.unit].io_32bit = 1;
 }
+
+static const struct ide_port_ops dtc2278_port_ops = {
+	.set_pio_mode		= dtc2278_set_pio_mode,
+};
+
+static const struct ide_port_info dtc2278_port_info __initdata = {
+	.name			= DRV_NAME,
+	.chipset		= ide_dtc2278,
+	.port_ops		= &dtc2278_port_ops,
+	.host_flags		= IDE_HFLAG_SERIALIZE |
+				  IDE_HFLAG_NO_UNMASK_IRQS |
+				  IDE_HFLAG_IO_32BIT |
+				  /* disallow ->io_32bit changes */
+				  IDE_HFLAG_NO_IO_32BIT |
+				  IDE_HFLAG_NO_DMA,
+	.pio_mask		= ATA_PIO4,
+};
 
 static int __init dtc2278_probe(void)
 {
 	unsigned long flags;
-	ide_hwif_t *hwif, *mate;
-
-	hwif = &ide_hwifs[0];
-	mate = &ide_hwifs[1];
-
-	if (hwif->chipset != ide_unknown || mate->chipset != ide_unknown)
-		return 1;
 
 	local_irq_save(flags);
 	/*
@@ -121,37 +127,15 @@ static int __init dtc2278_probe(void)
 #endif
 	local_irq_restore(flags);
 
-	hwif->serialized = 1;
-	hwif->chipset = ide_dtc2278;
-	hwif->pio_mask = ATA_PIO4;
-	hwif->tuneproc = &tune_dtc2278;
-	hwif->drives[0].no_unmask = 1;
-	hwif->drives[1].no_unmask = 1;
-	hwif->mate = mate;
-
-	mate->serialized = 1;
-	mate->chipset = ide_dtc2278;
-	mate->drives[0].no_unmask = 1;
-	mate->drives[1].no_unmask = 1;
-	mate->mate = hwif;
-	mate->channel = 1;
-
-	probe_hwif_init(hwif);
-	probe_hwif_init(mate);
-
-	ide_proc_register_port(hwif);
-	ide_proc_register_port(mate);
-
-	return 0;
+	return ide_legacy_device_add(&dtc2278_port_info, 0);
 }
 
-int probe_dtc2278 = 0;
+static int probe_dtc2278;
 
 module_param_named(probe, probe_dtc2278, bool, 0);
 MODULE_PARM_DESC(probe, "probe for DTC2278xx chipsets");
 
-/* Can be called directly from ide.c. */
-int __init dtc2278_init(void)
+static int __init dtc2278_init(void)
 {
 	if (probe_dtc2278 == 0)
 		return -ENODEV;
@@ -163,9 +147,7 @@ int __init dtc2278_init(void)
 	return 0;
 }
 
-#ifdef MODULE
 module_init(dtc2278_init);
-#endif
 
 MODULE_AUTHOR("See Local File");
 MODULE_DESCRIPTION("support of DTC-2278 VLB IDE chipsets");

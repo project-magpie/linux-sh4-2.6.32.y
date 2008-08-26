@@ -1,6 +1,6 @@
 #
 # Makefile for ALSA
-# Copyright (c) 2001 by Jaroslav Kysela <perex@suse.cz>
+# Copyright (c) 2001 by Jaroslav Kysela <perex@perex.cz>
 #
 
 snd-sb-common-objs := sb_common.o sb_mixer.o
@@ -34,5 +34,3 @@ ifeq ($(CONFIG_SND_SB16_CSP),y)
   obj-$(CONFIG_SND_SBAWE) += snd-sb16-csp.o
 endif
 obj-$(call sequencer,$(CONFIG_SND_SBAWE)) += snd-emu8000-synth.o
-
-obj-m := $(sort $(obj-m))

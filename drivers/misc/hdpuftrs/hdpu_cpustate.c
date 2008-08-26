@@ -17,18 +17,44 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/spinlock.h>
+#include <linux/smp_lock.h>
 #include <linux/miscdevice.h>
 #include <linux/proc_fs.h>
+#include <linux/hdpu_features.h>
 #include <linux/platform_device.h>
 #include <asm/uaccess.h>
-#include <linux/hdpu_features.h>
+#include <linux/seq_file.h>
+#include <asm/io.h>
 
 #define SKY_CPUSTATE_VERSION		"1.1"
 
 static int hdpu_cpustate_probe(struct platform_device *pdev);
 static int hdpu_cpustate_remove(struct platform_device *pdev);
 
-struct cpustate_t cpustate;
+static unsigned char cpustate_get_state(void);
+static int cpustate_proc_open(struct inode *inode, struct file *file);
+static int cpustate_proc_read(struct seq_file *seq, void *offset);
+
+static struct cpustate_t cpustate;
+
+static const struct file_operations proc_cpustate = {
+	.open = cpustate_proc_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+	.owner = THIS_MODULE,
+};
+
+static int cpustate_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, cpustate_proc_read, NULL);
+}
+
+static int cpustate_proc_read(struct seq_file *seq, void *offset)
+{
+	seq_printf(seq, "CPU State: %04x\n", cpustate_get_state());
+	return 0;
+}
 
 static int cpustate_get_ref(int excl)
 {
@@ -66,13 +92,13 @@ static int cpustate_free_ref(void)
 	return 0;
 }
 
-unsigned char cpustate_get_state(void)
+static unsigned char cpustate_get_state(void)
 {
 
 	return cpustate.cached_val;
 }
 
-void cpustate_set_state(unsigned char new_state)
+static void cpustate_set_state(unsigned char new_state)
 {
 	unsigned int state = (new_state << 21);
 
@@ -126,7 +152,13 @@ static ssize_t cpustate_write(struct file *file, const char *buf,
 
 static int cpustate_open(struct inode *inode, struct file *file)
 {
-	return cpustate_get_ref((file->f_flags & O_EXCL));
+	int ret;
+
+	lock_kernel();
+	ret = cpustate_get_ref((file->f_flags & O_EXCL));
+	unlock_kernel();
+
+	return ret;
 }
 
 static int cpustate_release(struct inode *inode, struct file *file)
@@ -134,34 +166,12 @@ static int cpustate_release(struct inode *inode, struct file *file)
 	return cpustate_free_ref();
 }
 
-/*
- *	Info exported via "/proc/sky_cpustate".
- */
-static int cpustate_read_proc(char *page, char **start, off_t off,
-			      int count, int *eof, void *data)
-{
-	char *p = page;
-	int len = 0;
-
-	p += sprintf(p, "CPU State: %04x\n", cpustate_get_state());
-	len = p - page;
-
-	if (len <= off + count)
-		*eof = 1;
-	*start = page + off;
-	len -= off;
-	if (len > count)
-		len = count;
-	if (len < 0)
-		len = 0;
-	return len;
-}
-
 static struct platform_driver hdpu_cpustate_driver = {
 	.probe = hdpu_cpustate_probe,
 	.remove = hdpu_cpustate_remove,
 	.driver = {
 		.name = HDPU_CPUSTATE_NAME,
+		.owner = THIS_MODULE,
 	},
 };
 
@@ -169,22 +179,18 @@ static struct platform_driver hdpu_cpustate_driver = {
  *	The various file operations we support.
  */
 static const struct file_operations cpustate_fops = {
-      owner:THIS_MODULE,
-      open:cpustate_open,
-      release:cpustate_release,
-      read:cpustate_read,
-      write:cpustate_write,
-      fasync:NULL,
-      poll:NULL,
-      ioctl:NULL,
-      llseek:no_llseek,
-
+      .owner	= THIS_MODULE,
+      .open	= cpustate_open,
+      .release	= cpustate_release,
+      .read	= cpustate_read,
+      .write	= cpustate_write,
+      .llseek	= no_llseek,
 };
 
 static struct miscdevice cpustate_dev = {
-	MISC_DYNAMIC_MINOR,
-	"sky_cpustate",
-	&cpustate_fops
+	.minor	= MISC_DYNAMIC_MINOR,
+	.name	= "sky_cpustate",
+	.fops	= &cpustate_fops,
 };
 
 static int hdpu_cpustate_probe(struct platform_device *pdev)
@@ -194,23 +200,28 @@ static int hdpu_cpustate_probe(struct platform_device *pdev)
 	int ret;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!res) {
+		printk(KERN_ERR "sky_cpustate: "
+		       "Invalid memory resource.\n");
+		return -EINVAL;
+	}
 	cpustate.set_addr = (unsigned long *)res->start;
 	cpustate.clr_addr = (unsigned long *)res->end - 1;
 
 	ret = misc_register(&cpustate_dev);
 	if (ret) {
-		printk(KERN_WARNING "sky_cpustate: Unable to register misc "
-					"device.\n");
+		printk(KERN_WARNING "sky_cpustate: "
+		       "Unable to register misc device.\n");
 		cpustate.set_addr = NULL;
 		cpustate.clr_addr = NULL;
 		return ret;
 	}
 
-	proc_de = create_proc_read_entry("sky_cpustate", 0, 0,
-					cpustate_read_proc, NULL);
-	if (proc_de == NULL)
-		printk(KERN_WARNING "sky_cpustate: Unable to create proc "
-					"dir entry\n");
+	proc_de = proc_create("sky_cpustate", 0666, NULL, &proc_cpustate);
+	if (!proc_de) {
+		printk(KERN_WARNING "sky_cpustate: "
+		       "Unable to create proc entry\n");
+	}
 
 	printk(KERN_INFO "Sky CPU State Driver v" SKY_CPUSTATE_VERSION "\n");
 	return 0;
@@ -218,21 +229,18 @@ static int hdpu_cpustate_probe(struct platform_device *pdev)
 
 static int hdpu_cpustate_remove(struct platform_device *pdev)
 {
-
 	cpustate.set_addr = NULL;
 	cpustate.clr_addr = NULL;
 
 	remove_proc_entry("sky_cpustate", NULL);
 	misc_deregister(&cpustate_dev);
-	return 0;
 
+	return 0;
 }
 
 static int __init cpustate_init(void)
 {
-	int rc;
-	rc = platform_driver_register(&hdpu_cpustate_driver);
-	return rc;
+	return platform_driver_register(&hdpu_cpustate_driver);
 }
 
 static void __exit cpustate_exit(void)
@@ -245,3 +253,4 @@ module_exit(cpustate_exit);
 
 MODULE_AUTHOR("Brian Waite");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:" HDPU_CPUSTATE_NAME);

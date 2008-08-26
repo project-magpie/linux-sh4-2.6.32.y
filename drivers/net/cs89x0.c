@@ -172,30 +172,30 @@ static char version[] __initdata =
    them to system IRQ numbers. This mapping is card specific and is set to
    the configuration of the Cirrus Eval board for this chip. */
 #ifdef CONFIG_ARCH_CLPS7500
-static unsigned int netcard_portlist[] __initdata =
+static unsigned int netcard_portlist[] __used __initdata =
    { 0x80090303, 0x300, 0x320, 0x340, 0x360, 0x200, 0x220, 0x240, 0x260, 0x280, 0x2a0, 0x2c0, 0x2e0, 0};
 static unsigned int cs8900_irq_map[] = {12,0,0,0};
 #elif defined(CONFIG_SH_HICOSH4)
-static unsigned int netcard_portlist[] __initdata =
+static unsigned int netcard_portlist[] __used __initdata =
    { 0x0300, 0};
 static unsigned int cs8900_irq_map[] = {1,0,0,0};
 #elif defined(CONFIG_MACH_IXDP2351)
-static unsigned int netcard_portlist[] __initdata = {IXDP2351_VIRT_CS8900_BASE, 0};
+static unsigned int netcard_portlist[] __used __initdata = {IXDP2351_VIRT_CS8900_BASE, 0};
 static unsigned int cs8900_irq_map[] = {IRQ_IXDP2351_CS8900, 0, 0, 0};
 #include <asm/irq.h>
 #elif defined(CONFIG_ARCH_IXDP2X01)
 #include <asm/irq.h>
-static unsigned int netcard_portlist[] __initdata = {IXDP2X01_CS8900_VIRT_BASE, 0};
+static unsigned int netcard_portlist[] __used __initdata = {IXDP2X01_CS8900_VIRT_BASE, 0};
 static unsigned int cs8900_irq_map[] = {IRQ_IXDP2X01_CS8900, 0, 0, 0};
 #elif defined(CONFIG_ARCH_PNX010X)
 #include <asm/irq.h>
 #include <asm/arch/gpio.h>
 #define CIRRUS_DEFAULT_BASE	IO_ADDRESS(EXT_STATIC2_s0_BASE + 0x200000)	/* = Physical address 0x48200000 */
 #define CIRRUS_DEFAULT_IRQ	VH_INTC_INT_NUM_CASCADED_INTERRUPT_1 /* Event inputs bank 1 - ID 35/bit 3 */
-static unsigned int netcard_portlist[] __initdata = {CIRRUS_DEFAULT_BASE, 0};
+static unsigned int netcard_portlist[] __used __initdata = {CIRRUS_DEFAULT_BASE, 0};
 static unsigned int cs8900_irq_map[] = {CIRRUS_DEFAULT_IRQ, 0, 0, 0};
 #else
-static unsigned int netcard_portlist[] __initdata =
+static unsigned int netcard_portlist[] __used __initdata =
    { 0x300, 0x320, 0x340, 0x360, 0x200, 0x220, 0x240, 0x260, 0x280, 0x2a0, 0x2c0, 0x2e0, 0};
 static unsigned int cs8900_irq_map[] = {10,11,12,5};
 #endif
@@ -516,8 +516,8 @@ cs89x0_probe1(struct net_device *dev, int ioaddr, int modular)
 	unsigned rev_type = 0;
 	int eeprom_buff[CHKSUM_LEN];
 	int retval;
+	DECLARE_MAC_BUF(mac);
 
-	SET_MODULE_OWNER(dev);
 	/* Initialize the device structure. */
 	if (!modular) {
 		memset(lp, 0, sizeof(*lp));
@@ -806,7 +806,7 @@ cs89x0_probe1(struct net_device *dev, int ioaddr, int modular)
 		        i = cs8900_irq_map[0];
 #else
 			/* Translate the IRQ using the IRQ mapping table. */
-			if (i >= sizeof(cs8900_irq_map)/sizeof(cs8900_irq_map[0]))
+			if (i >= ARRAY_SIZE(cs8900_irq_map))
 				printk("\ncs89x0: invalid ISA interrupt number %d\n", i);
 			else
 				i = cs8900_irq_map[i];
@@ -841,11 +841,7 @@ cs89x0_probe1(struct net_device *dev, int ioaddr, int modular)
 	}
 
 	/* print the ethernet address. */
-	printk(", MAC");
-	for (i = 0; i < ETH_ALEN; i++)
-	{
-		printk("%c%02x", i ? ':' : ' ', dev->dev_addr[i]);
-	}
+	printk(", MAC %s", print_mac(mac, dev->dev_addr));
 
 	dev->open		= net_open;
 	dev->stop		= net_close;
@@ -1247,11 +1243,11 @@ write_irq(struct net_device *dev, int chip_type, int irq)
 
 	if (chip_type == CS8900) {
 		/* Search the mapping table for the corresponding IRQ pin. */
-		for (i = 0; i != sizeof(cs8900_irq_map)/sizeof(cs8900_irq_map[0]); i++)
+		for (i = 0; i != ARRAY_SIZE(cs8900_irq_map); i++)
 			if (cs8900_irq_map[i] == irq)
 				break;
 		/* Not found */
-		if (i == sizeof(cs8900_irq_map)/sizeof(cs8900_irq_map[0]))
+		if (i == ARRAY_SIZE(cs8900_irq_map))
 			i = 3;
 		writereg(dev, PP_CS8900_ISAINT, i);
 	} else {
@@ -1398,7 +1394,11 @@ net_open(struct net_device *dev)
 #endif
         if (!result) {
                 printk(KERN_ERR "%s: EEPROM is configured for unavailable media\n", dev->name);
-        release_irq:
+release_dma:
+#if ALLOW_DMA
+		free_dma(dev->dma);
+#endif
+release_irq:
 #if ALLOW_DMA
 		release_dma_buff(lp);
 #endif
@@ -1446,12 +1446,12 @@ net_open(struct net_device *dev)
 			if ((result = detect_bnc(dev)) != DETECTED_NONE)
 				break;
 		printk(KERN_ERR "%s: no media detected\n", dev->name);
-                goto release_irq;
+		goto release_dma;
 	}
 	switch(result) {
 	case DETECTED_NONE:
 		printk(KERN_ERR "%s: no network cable attached to configured media\n", dev->name);
-                goto release_irq;
+		goto release_dma;
 	case DETECTED_RJ45H:
 		printk(KERN_INFO "%s: using half-duplex 10Base-T (RJ-45)\n", dev->name);
 		break;
@@ -1807,17 +1807,15 @@ static int set_mac_address(struct net_device *dev, void *p)
 	int i;
 	struct sockaddr *addr = p;
 
-
 	if (netif_running(dev))
 		return -EBUSY;
 
 	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
 
 	if (net_debug) {
-		printk("%s: Setting MAC address to ", dev->name);
-		for (i = 0; i < dev->addr_len; i++)
-			printk(" %2.2x", dev->dev_addr[i]);
-		printk(".\n");
+		DECLARE_MAC_BUF(mac);
+		printk("%s: Setting MAC address to %s.\n",
+		       dev->name, print_mac(mac, dev->dev_addr));
 	}
 	/* set the Ethernet address */
 	for (i=0; i < ETH_ALEN/2; i++)

@@ -118,28 +118,28 @@ static dispatch_init_table_t __initdata dispatch_init_table[] = {
 { EXCCAUSE_STORE_CACHE_ATTRIBUTE,	0,	   do_page_fault },
 { EXCCAUSE_LOAD_CACHE_ATTRIBUTE,	0,	   do_page_fault },
 /* XCCHAL_EXCCAUSE_FLOATING_POINT unhandled */
-#if (XCHAL_CP_MASK & 1)
+#if XTENSA_HAVE_COPROCESSOR(0)
 COPROCESSOR(0),
 #endif
-#if (XCHAL_CP_MASK & 2)
+#if XTENSA_HAVE_COPROCESSOR(1)
 COPROCESSOR(1),
 #endif
-#if (XCHAL_CP_MASK & 4)
+#if XTENSA_HAVE_COPROCESSOR(2)
 COPROCESSOR(2),
 #endif
-#if (XCHAL_CP_MASK & 8)
+#if XTENSA_HAVE_COPROCESSOR(3)
 COPROCESSOR(3),
 #endif
-#if (XCHAL_CP_MASK & 16)
+#if XTENSA_HAVE_COPROCESSOR(4)
 COPROCESSOR(4),
 #endif
-#if (XCHAL_CP_MASK & 32)
+#if XTENSA_HAVE_COPROCESSOR(5)
 COPROCESSOR(5),
 #endif
-#if (XCHAL_CP_MASK & 64)
+#if XTENSA_HAVE_COPROCESSOR(6)
 COPROCESSOR(6),
 #endif
-#if (XCHAL_CP_MASK & 128)
+#if XTENSA_HAVE_COPROCESSOR(7)
 COPROCESSOR(7),
 #endif
 { EXCCAUSE_MAPPED_DEBUG,		0,		do_debug },
@@ -176,7 +176,7 @@ void do_unhandled(struct pt_regs *regs, unsigned long exccause)
 	printk("Caught unhandled exception in '%s' "
 	       "(pid = %d, pc = %#010lx) - should not happen\n"
 	       "\tEXCCAUSE is %ld\n",
-	       current->comm, current->pid, regs->pc, exccause);
+	       current->comm, task_pid_nr(current), regs->pc, exccause);
 	force_sig(SIGILL, current);
 }
 
@@ -228,7 +228,7 @@ do_illegal_instruction(struct pt_regs *regs)
 	/* If in user mode, send SIGILL signal to current process. */
 
 	printk("Illegal Instruction in '%s' (pid = %d, pc = %#010lx)\n",
-	    current->comm, current->pid, regs->pc);
+	    current->comm, task_pid_nr(current), regs->pc);
 	force_sig(SIGILL, current);
 }
 
@@ -254,7 +254,7 @@ do_unaligned_user (struct pt_regs *regs)
 	current->thread.error_code = -3;
 	printk("Unaligned memory access to %08lx in '%s' "
 	       "(pid = %d, pc = %#010lx)\n",
-	       regs->excvaddr, current->comm, current->pid, regs->pc);
+	       regs->excvaddr, current->comm, task_pid_nr(current), regs->pc);
 	info.si_signo = SIGBUS;
 	info.si_errno = 0;
 	info.si_code = BUS_ADRALN;
@@ -349,9 +349,7 @@ void show_regs(struct pt_regs * regs)
 
 	wmask = regs->wmask & ~1;
 
-	for (i = 0; i < 32; i++) {
-		if (wmask & (1 << (i / 4)))
-			break;
+	for (i = 0; i < 16; i++) {
 		if ((i % 8) == 0)
 			printk ("\n" KERN_INFO "a%02d: ", i);
 		printk("%08lx ", regs->areg[i]);

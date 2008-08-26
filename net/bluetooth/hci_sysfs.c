@@ -12,6 +12,8 @@
 #undef  BT_DBG
 #define BT_DBG(D...)
 #endif
+static struct workqueue_struct *btaddconn;
+static struct workqueue_struct *btdelconn;
 
 static inline char *typetostr(int type)
 {
@@ -41,12 +43,43 @@ static ssize_t show_type(struct device *dev, struct device_attribute *attr, char
 	return sprintf(buf, "%s\n", typetostr(hdev->type));
 }
 
+static ssize_t show_name(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct hci_dev *hdev = dev_get_drvdata(dev);
+	char name[249];
+	int i;
+
+	for (i = 0; i < 248; i++)
+		name[i] = hdev->dev_name[i];
+
+	name[248] = '\0';
+	return sprintf(buf, "%s\n", name);
+}
+
+static ssize_t show_class(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct hci_dev *hdev = dev_get_drvdata(dev);
+	return sprintf(buf, "0x%.2x%.2x%.2x\n",
+			hdev->dev_class[2], hdev->dev_class[1], hdev->dev_class[0]);
+}
+
 static ssize_t show_address(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct hci_dev *hdev = dev_get_drvdata(dev);
 	bdaddr_t bdaddr;
 	baswap(&bdaddr, &hdev->bdaddr);
 	return sprintf(buf, "%s\n", batostr(&bdaddr));
+}
+
+static ssize_t show_features(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct hci_dev *hdev = dev_get_drvdata(dev);
+
+	return sprintf(buf, "0x%02x%02x%02x%02x%02x%02x%02x%02x\n",
+				hdev->features[0], hdev->features[1],
+				hdev->features[2], hdev->features[3],
+				hdev->features[4], hdev->features[5],
+				hdev->features[6], hdev->features[7]);
 }
 
 static ssize_t show_manufacturer(struct device *dev, struct device_attribute *attr, char *buf)
@@ -80,11 +113,13 @@ static ssize_t show_inquiry_cache(struct device *dev, struct device_attribute *a
 		struct inquiry_data *data = &e->data;
 		bdaddr_t bdaddr;
 		baswap(&bdaddr, &data->bdaddr);
-		n += sprintf(buf + n, "%s %d %d %d 0x%.2x%.2x%.2x 0x%.4x %d %u\n",
+		n += sprintf(buf + n, "%s %d %d %d 0x%.2x%.2x%.2x 0x%.4x %d %d %u\n",
 				batostr(&bdaddr),
-				data->pscan_rep_mode, data->pscan_period_mode, data->pscan_mode,
-				data->dev_class[2], data->dev_class[1], data->dev_class[0],
-				__le16_to_cpu(data->clock_offset), data->rssi, e->timestamp);
+				data->pscan_rep_mode, data->pscan_period_mode,
+				data->pscan_mode, data->dev_class[2],
+				data->dev_class[1], data->dev_class[0],
+				__le16_to_cpu(data->clock_offset),
+				data->rssi, data->ssp_mode, e->timestamp);
 	}
 
 	hci_dev_unlock_bh(hdev);
@@ -170,7 +205,10 @@ static ssize_t store_sniff_min_interval(struct device *dev, struct device_attrib
 }
 
 static DEVICE_ATTR(type, S_IRUGO, show_type, NULL);
+static DEVICE_ATTR(name, S_IRUGO, show_name, NULL);
+static DEVICE_ATTR(class, S_IRUGO, show_class, NULL);
 static DEVICE_ATTR(address, S_IRUGO, show_address, NULL);
+static DEVICE_ATTR(features, S_IRUGO, show_features, NULL);
 static DEVICE_ATTR(manufacturer, S_IRUGO, show_manufacturer, NULL);
 static DEVICE_ATTR(hci_version, S_IRUGO, show_hci_version, NULL);
 static DEVICE_ATTR(hci_revision, S_IRUGO, show_hci_revision, NULL);
@@ -185,7 +223,10 @@ static DEVICE_ATTR(sniff_min_interval, S_IRUGO | S_IWUSR,
 
 static struct device_attribute *bt_attrs[] = {
 	&dev_attr_type,
+	&dev_attr_name,
+	&dev_attr_class,
 	&dev_attr_address,
+	&dev_attr_features,
 	&dev_attr_manufacturer,
 	&dev_attr_hci_version,
 	&dev_attr_hci_revision,
@@ -210,15 +251,28 @@ static ssize_t show_conn_address(struct device *dev, struct device_attribute *at
 	return sprintf(buf, "%s\n", batostr(&bdaddr));
 }
 
+static ssize_t show_conn_features(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct hci_conn *conn = dev_get_drvdata(dev);
+
+	return sprintf(buf, "0x%02x%02x%02x%02x%02x%02x%02x%02x\n",
+				conn->features[0], conn->features[1],
+				conn->features[2], conn->features[3],
+				conn->features[4], conn->features[5],
+				conn->features[6], conn->features[7]);
+}
+
 #define CONN_ATTR(_name,_mode,_show,_store) \
 struct device_attribute conn_attr_##_name = __ATTR(_name,_mode,_show,_store)
 
 static CONN_ATTR(type, S_IRUGO, show_conn_type, NULL);
 static CONN_ATTR(address, S_IRUGO, show_conn_address, NULL);
+static CONN_ATTR(features, S_IRUGO, show_conn_features, NULL);
 
 static struct device_attribute *conn_attrs[] = {
 	&conn_attr_type,
 	&conn_attr_address,
+	&conn_attr_features,
 	NULL
 };
 
@@ -242,6 +296,8 @@ static void add_conn(struct work_struct *work)
 	struct hci_conn *conn = container_of(work, struct hci_conn, work);
 	int i;
 
+	flush_workqueue(btdelconn);
+
 	if (device_add(&conn->dev) < 0) {
 		BT_ERR("Failed to register connection device");
 		return;
@@ -255,7 +311,6 @@ static void add_conn(struct work_struct *work)
 void hci_conn_add_sysfs(struct hci_conn *conn)
 {
 	struct hci_dev *hdev = conn->hdev;
-	bdaddr_t *ba = &conn->dst;
 
 	BT_DBG("conn %p", conn);
 
@@ -264,11 +319,8 @@ void hci_conn_add_sysfs(struct hci_conn *conn)
 
 	conn->dev.release = bt_release;
 
-	snprintf(conn->dev.bus_id, BUS_ID_SIZE,
-			"%s%2.2X%2.2X%2.2X%2.2X%2.2X%2.2X",
-			conn->type == ACL_LINK ? "acl" : "sco",
-			ba->b[5], ba->b[4], ba->b[3],
-			ba->b[2], ba->b[1], ba->b[0]);
+	snprintf(conn->dev.bus_id, BUS_ID_SIZE, "%s:%d",
+					hdev->name, conn->handle);
 
 	dev_set_drvdata(&conn->dev, conn);
 
@@ -276,13 +328,37 @@ void hci_conn_add_sysfs(struct hci_conn *conn)
 
 	INIT_WORK(&conn->work, add_conn);
 
-	schedule_work(&conn->work);
+	queue_work(btaddconn, &conn->work);
+}
+
+/*
+ * The rfcomm tty device will possibly retain even when conn
+ * is down, and sysfs doesn't support move zombie device,
+ * so we should move the device before conn device is destroyed.
+ */
+static int __match_tty(struct device *dev, void *data)
+{
+	return !strncmp(dev->bus_id, "rfcomm", 6);
 }
 
 static void del_conn(struct work_struct *work)
 {
 	struct hci_conn *conn = container_of(work, struct hci_conn, work);
+	struct hci_dev *hdev = conn->hdev;
+
+	while (1) {
+		struct device *dev;
+
+		dev = device_find_child(&conn->dev, NULL, __match_tty);
+		if (!dev)
+			break;
+		device_move(dev, NULL);
+		put_device(dev);
+	}
+
 	device_del(&conn->dev);
+	put_device(&conn->dev);
+	hci_dev_put(hdev);
 }
 
 void hci_conn_del_sysfs(struct hci_conn *conn)
@@ -294,7 +370,7 @@ void hci_conn_del_sysfs(struct hci_conn *conn)
 
 	INIT_WORK(&conn->work, del_conn);
 
-	schedule_work(&conn->work);
+	queue_work(btdelconn, &conn->work);
 }
 
 int hci_register_sysfs(struct hci_dev *hdev)
@@ -322,19 +398,12 @@ int hci_register_sysfs(struct hci_dev *hdev)
 		if (device_create_file(dev, bt_attrs[i]) < 0)
 			BT_ERR("Failed to create device attribute");
 
-	if (sysfs_create_link(&bt_class->subsys.kobj,
-				&dev->kobj, kobject_name(&dev->kobj)) < 0)
-		BT_ERR("Failed to create class symlink");
-
 	return 0;
 }
 
 void hci_unregister_sysfs(struct hci_dev *hdev)
 {
 	BT_DBG("%p name %s type %d", hdev, hdev->name, hdev->type);
-
-	sysfs_remove_link(&bt_class->subsys.kobj,
-					kobject_name(&hdev->dev.kobj));
 
 	device_del(&hdev->dev);
 }
@@ -343,28 +412,54 @@ int __init bt_sysfs_init(void)
 {
 	int err;
 
+	btaddconn = create_singlethread_workqueue("btaddconn");
+	if (!btaddconn) {
+		err = -ENOMEM;
+		goto out;
+	}
+
+	btdelconn = create_singlethread_workqueue("btdelconn");
+	if (!btdelconn) {
+		err = -ENOMEM;
+		goto out_del;
+	}
+
 	bt_platform = platform_device_register_simple("bluetooth", -1, NULL, 0);
-	if (IS_ERR(bt_platform))
-		return PTR_ERR(bt_platform);
+	if (IS_ERR(bt_platform)) {
+		err = PTR_ERR(bt_platform);
+		goto out_platform;
+	}
 
 	err = bus_register(&bt_bus);
-	if (err < 0) {
-		platform_device_unregister(bt_platform);
-		return err;
-	}
+	if (err < 0)
+		goto out_bus;
 
 	bt_class = class_create(THIS_MODULE, "bluetooth");
 	if (IS_ERR(bt_class)) {
-		bus_unregister(&bt_bus);
-		platform_device_unregister(bt_platform);
-		return PTR_ERR(bt_class);
+		err = PTR_ERR(bt_class);
+		goto out_class;
 	}
 
 	return 0;
+
+out_class:
+	bus_unregister(&bt_bus);
+out_bus:
+	platform_device_unregister(bt_platform);
+out_platform:
+	destroy_workqueue(btdelconn);
+out_del:
+	destroy_workqueue(btaddconn);
+out:
+	return err;
 }
 
 void bt_sysfs_cleanup(void)
 {
+	destroy_workqueue(btaddconn);
+
+	destroy_workqueue(btdelconn);
+
 	class_destroy(bt_class);
 
 	bus_unregister(&bt_bus);

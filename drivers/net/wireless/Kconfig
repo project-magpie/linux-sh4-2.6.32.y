@@ -63,17 +63,12 @@ config WAVELAN
 	  a Radio LAN (wireless Ethernet-like Local Area Network) using the
 	  radio frequencies 900 MHz and 2.4 GHz.
 
-	  This driver support the ISA version of the WaveLAN card.  A separate
-	  driver for the PCMCIA (PC-card) hardware is available in David
-	  Hinds' pcmcia-cs package (see the file <file:Documentation/Changes>
-	  for location).
-
 	  If you want to use an ISA WaveLAN card under Linux, say Y and read
 	  the Ethernet-HOWTO, available from
 	  <http://www.tldp.org/docs.html#howto>. Some more specific
 	  information is contained in
 	  <file:Documentation/networking/wavelan.txt> and in the source code
-	  <file:drivers/net/wavelan.p.h>.
+	  <file:drivers/net/wireless/wavelan.p.h>.
 
 	  You will also need the wireless tools package available from
 	  <http://www.hpl.hp.com/personal/Jean_Tourrilhes/Linux/Tools.html>.
@@ -151,12 +146,15 @@ config IPW2100
           configure your card:
 
           <http://www.hpl.hp.com/personal/Jean_Tourrilhes/Linux/Tools.html>.
+
+          It is recommended that you compile this driver as a module (M)
+          rather than built-in (Y). This driver requires firmware at device
+          initialization time, and when built-in this typically happens
+          before the filesystem is accessible (hence firmware will be
+          unavailable and initialization will fail). If you do choose to build
+          this driver into your kernel image, you can avoid this problem by
+          including the firmware and a firmware loader in an initramfs.
  
-          If you want to compile the driver as a module ( = code which can be
-          inserted in and removed from the running kernel whenever you want),
-          say M here and read <file:Documentation/kbuild/modules.txt>.
-          The module will be called ipw2100.ko.
-	
 config IPW2100_MONITOR
         bool "Enable promiscuous mode"
         depends on IPW2100
@@ -206,11 +204,14 @@ config IPW2200
           configure your card:
 
           <http://www.hpl.hp.com/personal/Jean_Tourrilhes/Linux/Tools.html>.
- 
-          If you want to compile the driver as a module ( = code which can be
-          inserted in and removed from the running kernel whenever you want),
-          say M here and read <file:Documentation/kbuild/modules.txt>.
-          The module will be called ipw2200.ko.
+
+          It is recommended that you compile this driver as a module (M)
+          rather than built-in (Y). This driver requires firmware at device
+          initialization time, and when built-in this typically happens
+          before the filesystem is accessible (hence firmware will be
+          unavailable and initialization will fail). If you do choose to build
+          this driver into your kernel image, you can avoid this problem by
+          including the firmware and a firmware loader in an initramfs.
 
 config IPW2200_MONITOR
         bool "Enable promiscuous mode"
@@ -269,7 +270,7 @@ config IPW2200_DEBUG
 config LIBERTAS
 	tristate "Marvell 8xxx Libertas WLAN driver support"
 	depends on WLAN_80211
-	select IEEE80211
+	select WIRELESS_EXT
 	select FW_LOADER
 	---help---
 	  A library for Marvell Libertas 8xxx devices.
@@ -279,6 +280,19 @@ config LIBERTAS_USB
 	depends on LIBERTAS && USB
 	---help---
 	  A driver for Marvell Libertas 8388 USB devices.
+
+config LIBERTAS_CS
+	tristate "Marvell Libertas 8385 CompactFlash 802.11b/g cards"
+	depends on LIBERTAS && PCMCIA
+	select FW_LOADER
+	---help---
+	  A driver for Marvell Libertas 8385 CompactFlash devices.
+
+config LIBERTAS_SDIO
+	tristate "Marvell Libertas 8385 and 8686 SDIO 802.11b/g cards"
+	depends on LIBERTAS && MMC
+	---help---
+	  A driver for Marvell Libertas 8385 and 8686 SDIO devices.
 
 config LIBERTAS_DEBUG
 	bool "Enable full debugging output in the Libertas module."
@@ -317,7 +331,7 @@ config HERMES
 	  Cabletron/EnteraSys Roamabout, ELSA AirLancer, MELCO Buffalo, Avaya,
 	  IBM High Rate Wireless, Farralon Syyline, Samsung MagicLAN, Netgear
 	  MA401, LinkSys WPC-11, D-Link DWL-650, 3Com AirConnect, Intel
-	  PRO/Wireless, and Symbol Spectrum24 High Rate amongst others.
+	  IPW2011, and Symbol Spectrum24 High Rate amongst others.
 
 	  This option includes the guts of the driver, but in order to
 	  actually use a card you will also need to enable support for PCMCIA
@@ -379,30 +393,6 @@ config PCI_HERMES
 	  common.  Some of the built-in wireless adaptors in laptops are of
 	  this variety.
 
-config ATMEL
-      tristate "Atmel at76c50x chipset  802.11b support"
-      depends on (PCI || PCMCIA) && WLAN_80211
-      select WIRELESS_EXT
-      select FW_LOADER
-      select CRC32
-       ---help---
-        A driver 802.11b wireless cards based on the Atmel fast-vnet
-        chips. This driver supports standard Linux wireless extensions. 
- 
-        Many  cards based on this chipset do not have flash memory
-        and need their firmware loaded at start-up. If yours is 
-        one of these, you will need to provide a firmware image
-        to be loaded into the card by the driver. The Atmel
-        firmware package can be downloaded from
-        <http://www.thekelleys.org.uk/atmel>
-
-config PCI_ATMEL
-      tristate "Atmel at76c506 PCI cards"
-      depends on ATMEL && PCI
-       ---help---
-        Enable support for PCI and mini-PCI cards containing the
-        Atmel at76c506 chip.
-
 config PCMCIA_HERMES
 	tristate "Hermes PCMCIA card support"
 	depends on PCMCIA && HERMES
@@ -414,12 +404,7 @@ config PCMCIA_HERMES
 	  such as the Linksys, D-Link and Farallon Skyline.  It should also
 	  work on Symbol cards such as the 3Com AirConnect and Ericsson WLAN.
 
-	  To use your PC-cards, you will need supporting software from David
-	  Hinds' pcmcia-cs package (see the file <file:Documentation/Changes>
-	  for location).  You also want to check out the PCMCIA-HOWTO,
-	  available from <http://www.tldp.org/docs.html#howto>.
-
-	  You will also very likely also need the Wireless Tools in order to
+	  You will very likely need the Wireless Tools in order to
 	  configure your card and that /etc/pcmcia/wireless.opts works:
 	  <http://www.hpl.hp.com/personal/Jean_Tourrilhes/Linux/Tools.html>.
 
@@ -436,6 +421,40 @@ config PCMCIA_SPECTRUM
 	  This driver requires firmware download on startup.  Utilities
 	  for downloading Symbol firmware are available at
 	  <http://sourceforge.net/projects/orinoco/>
+
+config ATMEL
+      tristate "Atmel at76c50x chipset  802.11b support"
+      depends on (PCI || PCMCIA) && WLAN_80211
+      select WIRELESS_EXT
+      select FW_LOADER
+      select CRC32
+       ---help---
+        A driver 802.11b wireless cards based on the Atmel fast-vnet
+        chips. This driver supports standard Linux wireless extensions.
+
+        Many  cards based on this chipset do not have flash memory
+        and need their firmware loaded at start-up. If yours is
+        one of these, you will need to provide a firmware image
+        to be loaded into the card by the driver. The Atmel
+        firmware package can be downloaded from
+        <http://www.thekelleys.org.uk/atmel>
+
+config PCI_ATMEL
+      tristate "Atmel at76c506 PCI cards"
+      depends on ATMEL && PCI
+       ---help---
+        Enable support for PCI and mini-PCI cards containing the
+        Atmel at76c506 chip.
+
+config PCMCIA_ATMEL
+	tristate "Atmel at76c502/at76c504 PCMCIA cards"
+	depends on ATMEL && PCMCIA
+	select WIRELESS_EXT
+	select FW_LOADER
+	select CRC32
+	---help---
+	  Enable support for PCMCIA cards containing the
+	  Atmel at76c502 and at76c504 chips.
 
 config AIRO_CS
 	tristate "Cisco/Aironet 34X/35X/4500/4800 PCMCIA cards"
@@ -456,21 +475,6 @@ config AIRO_CS
 	  This driver support both the standard Linux Wireless Extensions
 	  and Cisco proprietary API, so both the Linux Wireless Tools and the
 	  Cisco Linux utilities can be used to configure the card.
-
-	  To use your PC-cards, you will need supporting software from David
-	  Hinds' pcmcia-cs package (see the file <file:Documentation/Changes>
-	  for location).  You also want to check out the PCMCIA-HOWTO,
-	  available from <http://www.tldp.org/docs.html#howto>.
-
-config PCMCIA_ATMEL
-	tristate "Atmel at76c502/at76c504 PCMCIA cards"
-	depends on ATMEL && PCMCIA
-	select WIRELESS_EXT
-	select FW_LOADER
-	select CRC32
-	---help---
-	  Enable support for PCMCIA cards containing the
-	  Atmel at76c502 and at76c504 chips.
 
 config PCMCIA_WL3501
       tristate "Planet WL3501 PCMCIA cards"
@@ -546,21 +550,156 @@ config USB_ZD1201
 	  To compile this driver as a module, choose M here: the
 	  module will be called zd1201.
 
-config RTL8187
-	tristate "Realtek 8187 USB support"
-	depends on MAC80211 && USB && WLAN_80211 && EXPERIMENTAL
+config USB_NET_RNDIS_WLAN
+	tristate "Wireless RNDIS USB support"
+	depends on USB && WLAN_80211 && EXPERIMENTAL
+	select USB_USBNET
+	select USB_NET_CDCETHER
+	select USB_NET_RNDIS_HOST
+	select WIRELESS_EXT
+	---help---
+	  This is a driver for wireless RNDIS devices.
+	  These are USB based adapters found in devices such as:
+
+	  Buffalo WLI-U2-KG125S
+	  U.S. Robotics USR5421
+	  Belkin F5D7051
+	  Linksys WUSB54GSv2
+	  Linksys WUSB54GSC
+	  Asus WL169gE
+	  Eminent EM4045
+	  BT Voyager 1055
+	  Linksys WUSB54GSv1
+	  U.S. Robotics USR5420
+	  BUFFALO WLI-USB-G54
+
+	  All of these devices are based on Broadcom 4320 chip which is the
+	  only wireless RNDIS chip known to date.
+
+	  If you choose to build a module, it'll be called rndis_wlan.
+
+config RTL8180
+	tristate "Realtek 8180/8185 PCI support"
+	depends on MAC80211 && PCI && WLAN_80211 && EXPERIMENTAL
 	select EEPROM_93CX6
 	---help---
-	  This is a driver for RTL8187 based cards.
-	  These are USB based chips found in cards such as:
+	  This is a driver for RTL8180 and RTL8185 based cards.
+	  These are PCI based chips found in cards such as:
 
-	  Netgear WG111v2
+	  (RTL8185 802.11g)
+	  A-Link WL54PC
+
+	  (RTL8180 802.11b)
+	  Belkin F5D6020 v3
+	  Belkin F5D6020 v3
+	  Dlink DWL-610
+	  Dlink DWL-510
+	  Netgear MA521
+	  Level-One WPC-0101
+	  Acer Aspire 1357 LMi
+	  VCTnet PC-11B1
+	  Ovislink AirLive WL-1120PCM
+	  Mentor WL-PCI
+	  Linksys WPC11 v4
+	  TrendNET TEW-288PI
+	  D-Link DWL-520 Rev D
+	  Repotec RP-WP7126
+	  TP-Link TL-WN250/251
+	  Zonet ZEW1000
+	  Longshine LCS-8031-R
+	  HomeLine HLW-PCC200
+	  GigaFast WF721-AEX
+	  Planet WL-3553
+	  Encore ENLWI-PCI1-NT
+	  TrendNET TEW-266PC
+	  Gigabyte GN-WLMR101
+	  Siemens-fujitsu Amilo D1840W
+	  Edimax EW-7126
+	  PheeNet WL-11PCIR
+	  Tonze PC-2100T
+	  Planet WL-8303
+	  Dlink DWL-650 v M1
+	  Edimax EW-7106
+	  Q-Tec 770WC
+	  Topcom Skyr@cer 4011b
+	  Roper FreeLan 802.11b (edition 2004)
+	  Wistron Neweb Corp CB-200B
+	  Pentagram HorNET
+	  QTec 775WC
+	  TwinMOS Booming B Series
+	  Micronet SP906BB
+	  Sweex LC700010
+	  Surecom EP-9428
+	  Safecom SWLCR-1100
 
 	  Thanks to Realtek for their support!
 
+config RTL8187
+	tristate "Realtek 8187 and 8187B USB support"
+	depends on MAC80211 && USB && WLAN_80211 && EXPERIMENTAL
+	select EEPROM_93CX6
+	---help---
+	  This is a driver for RTL8187 and RTL8187B based cards.
+	  These are USB based chips found in devices such as:
+
+	  Netgear WG111v2
+	  Level 1 WNC-0301USB
+	  Micronet SP907GK V5
+	  Encore ENUWI-G2
+	  Trendnet TEW-424UB
+	  ASUS P5B Deluxe
+	  Toshiba Satellite Pro series of laptops
+
+	  Thanks to Realtek for their support!
+
+config ADM8211
+	tristate "ADMtek ADM8211 support"
+	depends on MAC80211 && PCI && WLAN_80211 && EXPERIMENTAL
+	select CRC32
+	select EEPROM_93CX6
+	---help---
+	  This driver is for ADM8211A, ADM8211B, and ADM8211C based cards.
+	  These are PCI/mini-PCI/Cardbus 802.11b chips found in cards such as:
+
+	  Xterasys Cardbus XN-2411b
+	  Blitz NetWave Point PC
+	  TrendNet 221pc
+	  Belkin F5D6001
+	  SMC 2635W
+	  Linksys WPC11 v1
+	  Fiberline FL-WL-200X
+	  3com Office Connect (3CRSHPW796)
+	  Corega WLPCIB-11
+	  SMC 2602W V2 EU
+	  D-Link DWL-520 Revision C
+
+	  However, some of these cards have been replaced with other chips
+	  like the RTL8180L (Xterasys Cardbus XN-2411b, Belkin F5D6001) or
+	  the Ralink RT2400 (SMC2635W) without a model number change.
+
+	  Thanks to Infineon-ADMtek for their support of this driver.
+
+config MAC80211_HWSIM
+	tristate "Simulated radio testing tool for mac80211"
+	depends on MAC80211 && WLAN_80211
+	---help---
+	  This driver is a developer testing tool that can be used to test
+	  IEEE 802.11 networking stack (mac80211) functionality. This is not
+	  needed for normal wireless LAN usage and is only for testing. See
+	  Documentation/networking/mac80211_hwsim for more information on how
+	  to use this tool.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called mac80211_hwsim.  If unsure, say N.
+
+source "drivers/net/wireless/p54/Kconfig"
+source "drivers/net/wireless/ath5k/Kconfig"
+source "drivers/net/wireless/iwlwifi/Kconfig"
 source "drivers/net/wireless/hostap/Kconfig"
-source "drivers/net/wireless/bcm43xx/Kconfig"
+source "drivers/net/wireless/b43/Kconfig"
+source "drivers/net/wireless/b43legacy/Kconfig"
 source "drivers/net/wireless/zd1211rw/Kconfig"
+source "drivers/net/wireless/rt2x00/Kconfig"
 source "drivers/net/wireless/rt73/Kconfig"
 
 endmenu

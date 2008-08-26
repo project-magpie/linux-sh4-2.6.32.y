@@ -62,7 +62,8 @@ struct nfs_fattr {
 #define NFS_ATTR_FATTR		0x0002		/* post-op attributes */
 #define NFS_ATTR_FATTR_V3	0x0004		/* NFSv3 attributes */
 #define NFS_ATTR_FATTR_V4	0x0008		/* NFSv4 change attribute */
-#define NFS_ATTR_FATTR_V4_REFERRAL	0x0010		/* NFSv4 referral */
+#define NFS_ATTR_WCC_V4		0x0010		/* pre-op change attribute */
+#define NFS_ATTR_FATTR_V4_REFERRAL	0x0020		/* NFSv4 referral */
 
 /*
  * Info on the file system
@@ -139,6 +140,7 @@ struct nfs_openres {
 	__u32                   rflags;
 	struct nfs_fattr *      f_attr;
 	struct nfs_fattr *      dir_attr;
+	struct nfs_seqid *	seqid;
 	const struct nfs_server *server;
 	int			delegation_type;
 	nfs4_stateid		delegation;
@@ -158,6 +160,7 @@ struct nfs_open_confirmargs {
 
 struct nfs_open_confirmres {
 	nfs4_stateid            stateid;
+	struct nfs_seqid *	seqid;
 };
 
 /*
@@ -174,6 +177,7 @@ struct nfs_closeargs {
 struct nfs_closeres {
 	nfs4_stateid            stateid;
 	struct nfs_fattr *	fattr;
+	struct nfs_seqid *	seqid;
 	const struct nfs_server *server;
 };
 /*
@@ -198,7 +202,9 @@ struct nfs_lock_args {
 };
 
 struct nfs_lock_res {
-	nfs4_stateid			stateid;
+	nfs4_stateid		stateid;
+	struct nfs_seqid *	lock_seqid;
+	struct nfs_seqid *	open_seqid;
 };
 
 struct nfs_locku_args {
@@ -209,7 +215,8 @@ struct nfs_locku_args {
 };
 
 struct nfs_locku_res {
-	nfs4_stateid			stateid;
+	nfs4_stateid		stateid;
+	struct nfs_seqid *	seqid;
 };
 
 struct nfs_lockt_args {
@@ -538,10 +545,13 @@ typedef u64 clientid4;
 
 struct nfs4_accessargs {
 	const struct nfs_fh *		fh;
+	const u32 *			bitmask;
 	u32				access;
 };
 
 struct nfs4_accessres {
+	const struct nfs_server *	server;
+	struct nfs_fattr *		fattr;
 	u32				supported;
 	u32				access;
 };
@@ -662,16 +672,17 @@ struct nfs4_rename_res {
 	struct nfs_fattr *		new_fattr;
 };
 
+#define NFS4_SETCLIENTID_NAMELEN	(56)
 struct nfs4_setclientid {
-	const nfs4_verifier *		sc_verifier;      /* request */
+	const nfs4_verifier *		sc_verifier;
 	unsigned int			sc_name_len;
-	char				sc_name[48];	  /* request */
-	u32				sc_prog;          /* request */
+	char				sc_name[NFS4_SETCLIENTID_NAMELEN];
+	u32				sc_prog;
 	unsigned int			sc_netid_len;
-	char				sc_netid[4];	  /* request */
+	char				sc_netid[RPCBIND_MAXNETIDLEN];
 	unsigned int			sc_uaddr_len;
-	char				sc_uaddr[24];     /* request */
-	u32				sc_cb_ident;      /* request */
+	char				sc_uaddr[RPCBIND_MAXUADDRLEN];
+	u32				sc_cb_ident;
 };
 
 struct nfs4_statfs_arg {
@@ -769,7 +780,7 @@ struct nfs_access_entry;
  * RPC procedure vector for NFSv2/NFSv3 demuxing
  */
 struct nfs_rpc_ops {
-	int	version;		/* Protocol version */
+	u32	version;		/* Protocol version */
 	struct dentry_operations *dentry_ops;
 	const struct inode_operations *dir_inode_ops;
 	const struct inode_operations *file_inode_ops;
@@ -812,15 +823,14 @@ struct nfs_rpc_ops {
 			     struct nfs_pathconf *);
 	int	(*set_capabilities)(struct nfs_server *, struct nfs_fh *);
 	__be32 *(*decode_dirent)(__be32 *, struct nfs_entry *, int plus);
-	void	(*read_setup)   (struct nfs_read_data *);
+	void	(*read_setup)   (struct nfs_read_data *, struct rpc_message *);
 	int	(*read_done)  (struct rpc_task *, struct nfs_read_data *);
-	void	(*write_setup)  (struct nfs_write_data *, int how);
+	void	(*write_setup)  (struct nfs_write_data *, struct rpc_message *);
 	int	(*write_done)  (struct rpc_task *, struct nfs_write_data *);
-	void	(*commit_setup) (struct nfs_write_data *, int how);
+	void	(*commit_setup) (struct nfs_write_data *, struct rpc_message *);
 	int	(*commit_done) (struct rpc_task *, struct nfs_write_data *);
-	int	(*file_open)   (struct inode *, struct file *);
-	int	(*file_release) (struct inode *, struct file *);
 	int	(*lock)(struct file *, int, struct file_lock *);
+	int	(*lock_check_bounds)(const struct file_lock *);
 	void	(*clear_acl_cache)(struct inode *);
 };
 

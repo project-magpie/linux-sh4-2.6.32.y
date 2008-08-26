@@ -38,25 +38,24 @@
    #include<linux/videodev.h> */
 
 /* I/O commands, error codes */
-#include<asm/io.h>
+#include <asm/io.h>
 //#include<errno.h>
 
 /* headerfile of this module */
-#include"zr36050.h"
+#include "zr36050.h"
 
 /* codec io API */
-#include"videocodec.h"
+#include "videocodec.h"
 
 /* it doesn't make sense to have more than 20 or so,
   just to prevent some unwanted loops */
 #define MAX_CODECS 20
 
 /* amount of chips attached via this driver */
-static int zr36050_codecs = 0;
+static int zr36050_codecs;
 
 /* debugging is available via module parameter */
-
-static int debug = 0;
+static int debug;
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "Debug level (0-4)");
 
@@ -161,7 +160,7 @@ zr36050_wait_end (struct zr36050 *ptr)
 		udelay(1);
 		if (i++ > 200000) {	// 200ms, there is for sure something wrong!!!
 			dprintk(1,
-				"%s: timout at wait_end (last status: 0x%02x)\n",
+				"%s: timeout at wait_end (last status: 0x%02x)\n",
 				ptr->name, ptr->status1);
 			break;
 		}

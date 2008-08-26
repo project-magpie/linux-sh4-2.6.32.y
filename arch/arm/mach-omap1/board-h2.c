@@ -20,32 +20,33 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/delay.h>
+#include <linux/i2c.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/input.h>
-#include <linux/workqueue.h>
+#include <linux/i2c/tps65010.h>
 
 #include <asm/hardware.h>
+#include <asm/gpio.h>
+
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
 #include <asm/mach/map.h>
 
-#include <asm/arch/gpio.h>
+#include <asm/arch/gpio-switch.h>
 #include <asm/arch/mux.h>
 #include <asm/arch/tc.h>
+#include <asm/arch/nand.h>
 #include <asm/arch/irda.h>
 #include <asm/arch/usb.h>
 #include <asm/arch/keypad.h>
 #include <asm/arch/common.h>
 #include <asm/arch/mcbsp.h>
 #include <asm/arch/omap-alsa.h>
-
-extern int omap_gpio_init(void);
 
 static int h2_keymap[] = {
 	KEY(0, 0, KEY_LEFT),
@@ -139,6 +140,63 @@ static struct platform_device h2_nor_device = {
 	.resource	= &h2_nor_resource,
 };
 
+static struct mtd_partition h2_nand_partitions[] = {
+#if 0
+	/* REVISIT:  enable these partitions if you make NAND BOOT
+	 * work on your H2 (rev C or newer); published versions of
+	 * x-load only support P2 and H3.
+	 */
+	{
+		.name		= "xloader",
+		.offset		= 0,
+		.size		= 64 * 1024,
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
+	},
+	{
+		.name		= "bootloader",
+		.offset		= MTDPART_OFS_APPEND,
+		.size		= 256 * 1024,
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
+	},
+	{
+		.name		= "params",
+		.offset		= MTDPART_OFS_APPEND,
+		.size		= 192 * 1024,
+	},
+	{
+		.name		= "kernel",
+		.offset		= MTDPART_OFS_APPEND,
+		.size		= 2 * SZ_1M,
+	},
+#endif
+	{
+		.name		= "filesystem",
+		.size		= MTDPART_SIZ_FULL,
+		.offset		= MTDPART_OFS_APPEND,
+	},
+};
+
+/* dip switches control NAND chip access:  8 bit, 16 bit, or neither */
+static struct omap_nand_platform_data h2_nand_data = {
+	.options	= NAND_SAMSUNG_LP_OPTIONS,
+	.parts		= h2_nand_partitions,
+	.nr_parts	= ARRAY_SIZE(h2_nand_partitions),
+};
+
+static struct resource h2_nand_resource = {
+	.flags		= IORESOURCE_MEM,
+};
+
+static struct platform_device h2_nand_device = {
+	.name		= "omapnand",
+	.id		= 0,
+	.dev		= {
+		.platform_data	= &h2_nand_data,
+	},
+	.num_resources	= 1,
+	.resource	= &h2_nand_resource,
+};
+
 static struct resource h2_smc91x_resources[] = {
 	[0] = {
 		.start	= OMAP1610_ETHR_START,		/* Physical */
@@ -148,7 +206,7 @@ static struct resource h2_smc91x_resources[] = {
 	[1] = {
 		.start	= OMAP_GPIO_IRQ(0),
 		.end	= OMAP_GPIO_IRQ(0),
-		.flags	= IORESOURCE_IRQ,
+		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_LOWEDGE,
 	},
 };
 
@@ -218,11 +276,15 @@ static struct resource h2_irda_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 };
+
+static u64 irda_dmamask = 0xffffffff;
+
 static struct platform_device h2_irda_device = {
 	.name		= "omapirda",
 	.id		= 0,
 	.dev		= {
 		.platform_data	= &h2_irda_data,
+		.dma_mask	= &irda_dmamask,
 	},
 	.num_resources	= ARRAY_SIZE(h2_irda_resources),
 	.resource	= h2_irda_resources,
@@ -246,18 +308,18 @@ static struct omap_mcbsp_reg_cfg mcbsp_regs = {
 	.srgr2 = GSYNC | CLKSP | FSGM | FPER(31),
 
 	.pcr0  = CLKXM | CLKRM | FSXP | FSRP | CLKXP | CLKRP,
-	//.pcr0 = CLKXP | CLKRP,        /* mcbsp: slave */
+	/*.pcr0 = CLKXP | CLKRP,*/        /* mcbsp: slave */
 };
 
 static struct omap_alsa_codec_config alsa_config = {
 	.name                   = "H2 TSC2101",
 	.mcbsp_regs_alsa        = &mcbsp_regs,
-	.codec_configure_dev    = NULL, // tsc2101_configure,
-	.codec_set_samplerate   = NULL, // tsc2101_set_samplerate,
-	.codec_clock_setup      = NULL, // tsc2101_clock_setup,
-	.codec_clock_on         = NULL, // tsc2101_clock_on,
-	.codec_clock_off        = NULL, // tsc2101_clock_off,
-	.get_default_samplerate = NULL, // tsc2101_get_default_samplerate,
+	.codec_configure_dev    = NULL, /* tsc2101_configure, */
+	.codec_set_samplerate   = NULL, /* tsc2101_set_samplerate, */
+	.codec_clock_setup      = NULL, /* tsc2101_clock_setup, */
+	.codec_clock_on         = NULL, /* tsc2101_clock_on, */
+	.codec_clock_off        = NULL, /* tsc2101_clock_off, */
+	.get_default_samplerate = NULL, /* tsc2101_get_default_samplerate, */
 };
 
 static struct platform_device h2_mcbsp1_device = {
@@ -270,6 +332,7 @@ static struct platform_device h2_mcbsp1_device = {
 
 static struct platform_device *h2_devices[] __initdata = {
 	&h2_nor_device,
+	&h2_nand_device,
 	&h2_smc91x_device,
 	&h2_irda_device,
 	&h2_kp_device,
@@ -285,6 +348,16 @@ static void __init h2_init_smc91x(void)
 	}
 }
 
+static struct i2c_board_info __initdata h2_i2c_board_info[] = {
+	{
+		I2C_BOARD_INFO("tps65010", 0x48),
+		.irq            = OMAP_GPIO_IRQ(58),
+	}, {
+		I2C_BOARD_INFO("isp1301_omap", 0x2d),
+		.irq		= OMAP_GPIO_IRQ(2),
+	},
+};
+
 static void __init h2_init_irq(void)
 {
 	omap1_init_common_hw();
@@ -298,25 +371,24 @@ static struct omap_usb_config h2_usb_config __initdata = {
 	.otg		= 2,
 
 #ifdef	CONFIG_USB_GADGET_OMAP
-	.hmc_mode	= 19,	// 0:host(off) 1:dev|otg 2:disabled
-	// .hmc_mode	= 21,	// 0:host(off) 1:dev(loopback) 2:host(loopback)
+	.hmc_mode	= 19,	/* 0:host(off) 1:dev|otg 2:disabled */
+	/* .hmc_mode	= 21,*/	/* 0:host(off) 1:dev(loopback) 2:host(loopback) */
 #elif	defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 	/* needs OTG cable, or NONSTANDARD (B-to-MiniB) */
-	.hmc_mode	= 20,	// 1:dev|otg(off) 1:host 2:disabled
+	.hmc_mode	= 20,	/* 1:dev|otg(off) 1:host 2:disabled */
 #endif
 
 	.pins[1]	= 3,
 };
 
 static struct omap_mmc_config h2_mmc_config __initdata = {
-	.mmc [0] = {
-		.enabled 	= 1,
+	.mmc[0] = {
+		.enabled	= 1,
 		.wire4		= 1,
-		.wp_pin		= OMAP_MPUIO(3),
-		.power_pin	= -1,	/* tps65010 gpio3 */
-		.switch_pin	= OMAP_MPUIO(1),
 	},
 };
+
+extern struct omap_mmc_platform_data h2_mmc_data;
 
 static struct omap_uart_config h2_uart_config __initdata = {
 	.enabled_uarts = ((1 << 0) | (1 << 1) | (1 << 2)),
@@ -327,11 +399,18 @@ static struct omap_lcd_config h2_lcd_config __initdata = {
 };
 
 static struct omap_board_config_kernel h2_config[] __initdata = {
-	{ OMAP_TAG_USB,           &h2_usb_config },
-	{ OMAP_TAG_MMC,           &h2_mmc_config },
+	{ OMAP_TAG_USB,		&h2_usb_config },
+	{ OMAP_TAG_MMC,		&h2_mmc_config },
 	{ OMAP_TAG_UART,	&h2_uart_config },
 	{ OMAP_TAG_LCD,		&h2_lcd_config },
 };
+
+#define H2_NAND_RB_GPIO_PIN	62
+
+static int h2_nand_dev_ready(struct omap_nand_platform_data *data)
+{
+	return omap_get_gpio_datain(H2_NAND_RB_GPIO_PIN);
+}
 
 static void __init h2_init(void)
 {
@@ -347,11 +426,16 @@ static void __init h2_init(void)
 	h2_nor_resource.end = h2_nor_resource.start = omap_cs3_phys();
 	h2_nor_resource.end += SZ_32M - 1;
 
+	h2_nand_resource.end = h2_nand_resource.start = OMAP_CS2B_PHYS;
+	h2_nand_resource.end += SZ_4K - 1;
+	if (!(omap_request_gpio(H2_NAND_RB_GPIO_PIN)))
+		h2_nand_data.dev_ready = h2_nand_dev_ready;
+
 	omap_cfg_reg(L3_1610_FLASH_CS2B_OE);
 	omap_cfg_reg(M8_1610_FLASH_CS2B_WE);
 
 	/* MMC:  card detect and WP */
-	// omap_cfg_reg(U19_ARMIO1);		/* CD */
+	/* omap_cfg_reg(U19_ARMIO1); */		/* CD */
 	omap_cfg_reg(BALLOUT_V8_ARMIO3);	/* WP */
 
 	/* Irda */
@@ -367,6 +451,9 @@ static void __init h2_init(void)
 	omap_board_config = h2_config;
 	omap_board_config_size = ARRAY_SIZE(h2_config);
 	omap_serial_init();
+	omap_register_i2c_bus(1, 100, h2_i2c_board_info,
+			      ARRAY_SIZE(h2_i2c_board_info));
+	h2_mmc_init();
 }
 
 static void __init h2_map_io(void)

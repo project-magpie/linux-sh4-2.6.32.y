@@ -36,6 +36,7 @@
 #include <linux/kexec.h>
 #include <linux/irq.h>
 #include <linux/hrtimer.h>
+#include <linux/oom.h>
 
 #include <asm/ptrace.h>
 #include <asm/irq_regs.h>
@@ -107,12 +108,12 @@ static void sysrq_handle_unraw(int key, struct tty_struct *tty)
 	struct kbd_struct *kbd = &kbd_table[fg_console];
 
 	if (kbd)
-		kbd->kbdmode = VC_XLATE;
+		kbd->kbdmode = default_utf8 ? VC_UNICODE : VC_XLATE;
 }
 static struct sysrq_key_op sysrq_unraw_op = {
 	.handler	= sysrq_handle_unraw,
 	.help_msg	= "unRaw",
-	.action_msg	= "Keyboard mode set to XLATE",
+	.action_msg	= "Keyboard mode set to system default",
 	.enable_mask	= SYSRQ_ENABLE_KEYBOARD,
 };
 #else
@@ -195,6 +196,48 @@ static struct sysrq_key_op sysrq_showlocks_op = {
 #define sysrq_showlocks_op (*(struct sysrq_key_op *)0)
 #endif
 
+#ifdef CONFIG_SMP
+static DEFINE_SPINLOCK(show_lock);
+
+static void showacpu(void *dummy)
+{
+	unsigned long flags;
+
+	/* Idle CPUs have no interesting backtrace. */
+	if (idle_cpu(smp_processor_id()))
+		return;
+
+	spin_lock_irqsave(&show_lock, flags);
+	printk(KERN_INFO "CPU%d:\n", smp_processor_id());
+	show_stack(NULL, NULL);
+	spin_unlock_irqrestore(&show_lock, flags);
+}
+
+static void sysrq_showregs_othercpus(struct work_struct *dummy)
+{
+	smp_call_function(showacpu, NULL, 0);
+}
+
+static DECLARE_WORK(sysrq_showallcpus, sysrq_showregs_othercpus);
+
+static void sysrq_handle_showallcpus(int key, struct tty_struct *tty)
+{
+	struct pt_regs *regs = get_irq_regs();
+	if (regs) {
+		printk(KERN_INFO "CPU%d:\n", smp_processor_id());
+		show_regs(regs);
+	}
+	schedule_work(&sysrq_showallcpus);
+}
+
+static struct sysrq_key_op sysrq_showallcpus_op = {
+	.handler	= sysrq_handle_showallcpus,
+	.help_msg	= "aLlcpus",
+	.action_msg	= "Show backtrace of all active CPUs",
+	.enable_mask	= SYSRQ_ENABLE_DUMP,
+};
+#endif
+
 static void sysrq_handle_showregs(int key, struct tty_struct *tty)
 {
 	struct pt_regs *regs = get_irq_regs();
@@ -250,7 +293,7 @@ static void send_sig_all(int sig)
 	struct task_struct *p;
 
 	for_each_process(p) {
-		if (p->mm && !is_init(p))
+		if (p->mm && !is_global_init(p))
 			/* Not swapper, init nor kernel thread */
 			force_sig(sig, p);
 	}
@@ -270,8 +313,7 @@ static struct sysrq_key_op sysrq_term_op = {
 
 static void moom_callback(struct work_struct *ignored)
 {
-	out_of_memory(&NODE_DATA(0)->node_zonelists[ZONE_NORMAL],
-			GFP_KERNEL, 0);
+	out_of_memory(node_zonelist(0, GFP_KERNEL), GFP_KERNEL, 0);
 }
 
 static DECLARE_WORK(moom_work, moom_callback);
@@ -340,7 +382,11 @@ static struct sysrq_key_op *sysrq_key_table[36] = {
 	&sysrq_kill_op,			/* i */
 	NULL,				/* j */
 	&sysrq_SAK_op,			/* k */
+#ifdef CONFIG_SMP
+	&sysrq_showallcpus_op,		/* l */
+#else
 	NULL,				/* l */
+#endif
 	&sysrq_showmem_op,		/* m */
 	&sysrq_unrt_op,			/* n */
 	/* o: This will often be registered as 'Off' at init time */
@@ -356,6 +402,7 @@ static struct sysrq_key_op *sysrq_key_table[36] = {
 	&sysrq_showstate_blocked_op,	/* w */
 	/* x: May be registered on ppc/powerpc for xmon */
 	NULL,				/* x */
+	/* y: May be registered on sparc64 for global register dump */
 	NULL,				/* y */
 	NULL				/* z */
 };

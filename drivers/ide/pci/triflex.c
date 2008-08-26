@@ -1,6 +1,4 @@
 /*
- * triflex.c
- * 
  * IDE Chipset driver for the Compaq TriFlex IDE controller.
  * 
  * Known to work with the Compaq Workstation 5x00 series.
@@ -30,25 +28,21 @@
 #include <linux/types.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/delay.h>
-#include <linux/timer.h>
-#include <linux/mm.h>
-#include <linux/ioport.h>
-#include <linux/blkdev.h>
 #include <linux/hdreg.h>
 #include <linux/pci.h>
 #include <linux/ide.h>
 #include <linux/init.h>
 
-static int triflex_tune_chipset(ide_drive_t *drive, u8 xferspeed)
+#define DRV_NAME "triflex"
+
+static void triflex_set_mode(ide_drive_t *drive, const u8 speed)
 {
 	ide_hwif_t *hwif = HWIF(drive);
-	struct pci_dev *dev = hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(hwif->dev);
 	u8 channel_offset = hwif->channel ? 0x74 : 0x70;
 	u16 timing = 0;
 	u32 triflex_timings = 0;
 	u8 unit = (drive->select.b.unit & 0x01);
-	u8 speed = ide_rate_filter(drive, xferspeed);
 	
 	pci_read_config_dword(dev, channel_offset, &triflex_timings);
 	
@@ -82,71 +76,41 @@ static int triflex_tune_chipset(ide_drive_t *drive, u8 xferspeed)
 		case XFER_PIO_0:
 			timing = 0x0808;
 			break;
-		default:
-			return -1;
 	}
 
 	triflex_timings &= ~(0xFFFF << (16 * unit));
 	triflex_timings |= (timing << (16 * unit));
 	
 	pci_write_config_dword(dev, channel_offset, triflex_timings);
-	
-	return (ide_config_drive_speed(drive, speed));
 }
 
-static void triflex_tune_drive(ide_drive_t *drive, u8 pio)
+static void triflex_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
-	int use_pio = ide_get_best_pio_mode(drive, pio, 4);
-	(void) triflex_tune_chipset(drive, (XFER_PIO_0 + use_pio));
+	triflex_set_mode(drive, XFER_PIO_0 + pio);
 }
 
-static int triflex_config_drive_xfer_rate(ide_drive_t *drive)
-{
-	if (ide_tune_dma(drive))
-		return 0;
+static const struct ide_port_ops triflex_port_ops = {
+	.set_pio_mode		= triflex_set_pio_mode,
+	.set_dma_mode		= triflex_set_mode,
+};
 
-	triflex_tune_drive(drive, 255);
-
-	return -1;
-}
-
-static void __devinit init_hwif_triflex(ide_hwif_t *hwif)
-{
-	hwif->tuneproc = &triflex_tune_drive;
-	hwif->speedproc = &triflex_tune_chipset;
-
-	if (hwif->dma_base == 0)
-		return;
-
-	hwif->atapi_dma  = 1;
-	hwif->mwdma_mask = 0x07;
-	hwif->swdma_mask = 0x07;
-	hwif->ide_dma_check = &triflex_config_drive_xfer_rate;
-	
-	if (!noautodma)
-		hwif->autodma = 1;
-	hwif->drives[0].autodma = hwif->autodma;
-	hwif->drives[1].autodma = hwif->autodma;
-}
-
-static ide_pci_device_t triflex_device __devinitdata = {
-	.name		= "TRIFLEX",
-	.init_hwif	= init_hwif_triflex,
-	.autodma	= AUTODMA,
+static const struct ide_port_info triflex_device __devinitdata = {
+	.name		= DRV_NAME,
 	.enablebits	= {{0x80, 0x01, 0x01}, {0x80, 0x02, 0x02}},
-	.bootable	= ON_BOARD,
+	.port_ops	= &triflex_port_ops,
 	.pio_mask	= ATA_PIO4,
+	.swdma_mask	= ATA_SWDMA2,
+	.mwdma_mask	= ATA_MWDMA2,
 };
 
 static int __devinit triflex_init_one(struct pci_dev *dev, 
 		const struct pci_device_id *id)
 {
-	return ide_setup_pci_device(dev, &triflex_device);
+	return ide_pci_init_one(dev, &triflex_device, NULL);
 }
 
-static struct pci_device_id triflex_pci_tbl[] = {
-	{ PCI_VENDOR_ID_COMPAQ, PCI_DEVICE_ID_COMPAQ_TRIFLEX_IDE,
-	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 },
+static const struct pci_device_id triflex_pci_tbl[] = {
+	{ PCI_VDEVICE(COMPAQ, PCI_DEVICE_ID_COMPAQ_TRIFLEX_IDE), 0 },
 	{ 0, },
 };
 MODULE_DEVICE_TABLE(pci, triflex_pci_tbl);
@@ -155,6 +119,7 @@ static struct pci_driver driver = {
 	.name		= "TRIFLEX_IDE",
 	.id_table	= triflex_pci_tbl,
 	.probe		= triflex_init_one,
+	.remove		= ide_pci_remove,
 };
 
 static int __init triflex_ide_init(void)
@@ -162,7 +127,13 @@ static int __init triflex_ide_init(void)
 	return ide_pci_register_driver(&driver);
 }
 
+static void __exit triflex_ide_exit(void)
+{
+	pci_unregister_driver(&driver);
+}
+
 module_init(triflex_ide_init);
+module_exit(triflex_ide_exit);
 
 MODULE_AUTHOR("Torben Mathiasen");
 MODULE_DESCRIPTION("PCI driver module for Compaq Triflex IDE");

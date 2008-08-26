@@ -16,7 +16,7 @@ int corgi_ssp_max1111_get(unsigned long data);
  */
 
 struct corgits_machinfo {
-	unsigned long (*get_hsync_len)(void);
+	unsigned long (*get_hsync_invperiod)(void);
 	void (*put_hsync)(void);
 	void (*wait_hsync)(void);
 };
@@ -25,12 +25,6 @@ struct corgits_machinfo {
 /*
  * SharpSL Backlight
  */
-struct corgibl_machinfo {
-	int max_intensity;
-	int default_intensity;
-	int limit_mask;
-	void (*set_bl_intensity)(int intensity);
-};
 extern void corgibl_limit_intensity(int limit);
 
 

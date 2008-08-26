@@ -31,6 +31,7 @@
  */
 
 #include <linux/completion.h>
+#include <linux/file.h>
 #include <linux/mutex.h>
 #include <linux/poll.h>
 #include <linux/idr.h>
@@ -613,7 +614,7 @@ static ssize_t ucma_query_route(struct ucma_file *file,
 	if (!ctx->cm_id->device)
 		goto out;
 
-	resp.node_guid = ctx->cm_id->device->node_guid;
+	resp.node_guid = (__force __u64) ctx->cm_id->device->node_guid;
 	resp.port_num = ctx->cm_id->port_num;
 	switch (rdma_node_get_transport(ctx->cm_id->device->node_type)) {
 	case RDMA_TRANSPORT_IB:
@@ -792,6 +793,78 @@ out:
 	return ret;
 }
 
+static int ucma_set_option_id(struct ucma_context *ctx, int optname,
+			      void *optval, size_t optlen)
+{
+	int ret = 0;
+
+	switch (optname) {
+	case RDMA_OPTION_ID_TOS:
+		if (optlen != sizeof(u8)) {
+			ret = -EINVAL;
+			break;
+		}
+		rdma_set_service_type(ctx->cm_id, *((u8 *) optval));
+		break;
+	default:
+		ret = -ENOSYS;
+	}
+
+	return ret;
+}
+
+static int ucma_set_option_level(struct ucma_context *ctx, int level,
+				 int optname, void *optval, size_t optlen)
+{
+	int ret;
+
+	switch (level) {
+	case RDMA_OPTION_ID:
+		ret = ucma_set_option_id(ctx, optname, optval, optlen);
+		break;
+	default:
+		ret = -ENOSYS;
+	}
+
+	return ret;
+}
+
+static ssize_t ucma_set_option(struct ucma_file *file, const char __user *inbuf,
+			       int in_len, int out_len)
+{
+	struct rdma_ucm_set_option cmd;
+	struct ucma_context *ctx;
+	void *optval;
+	int ret;
+
+	if (copy_from_user(&cmd, inbuf, sizeof(cmd)))
+		return -EFAULT;
+
+	ctx = ucma_get_ctx(file, cmd.id);
+	if (IS_ERR(ctx))
+		return PTR_ERR(ctx);
+
+	optval = kmalloc(cmd.optlen, GFP_KERNEL);
+	if (!optval) {
+		ret = -ENOMEM;
+		goto out1;
+	}
+
+	if (copy_from_user(optval, (void __user *) (unsigned long) cmd.optval,
+			   cmd.optlen)) {
+		ret = -EFAULT;
+		goto out2;
+	}
+
+	ret = ucma_set_option_level(ctx, cmd.level, cmd.optname, optval,
+				    cmd.optlen);
+out2:
+	kfree(optval);
+out1:
+	ucma_put_ctx(ctx);
+	return ret;
+}
+
 static ssize_t ucma_notify(struct ucma_file *file, const char __user *inbuf,
 			   int in_len, int out_len)
 {
@@ -919,6 +992,96 @@ out:
 	return ret;
 }
 
+static void ucma_lock_files(struct ucma_file *file1, struct ucma_file *file2)
+{
+	/* Acquire mutex's based on pointer comparison to prevent deadlock. */
+	if (file1 < file2) {
+		mutex_lock(&file1->mut);
+		mutex_lock(&file2->mut);
+	} else {
+		mutex_lock(&file2->mut);
+		mutex_lock(&file1->mut);
+	}
+}
+
+static void ucma_unlock_files(struct ucma_file *file1, struct ucma_file *file2)
+{
+	if (file1 < file2) {
+		mutex_unlock(&file2->mut);
+		mutex_unlock(&file1->mut);
+	} else {
+		mutex_unlock(&file1->mut);
+		mutex_unlock(&file2->mut);
+	}
+}
+
+static void ucma_move_events(struct ucma_context *ctx, struct ucma_file *file)
+{
+	struct ucma_event *uevent, *tmp;
+
+	list_for_each_entry_safe(uevent, tmp, &ctx->file->event_list, list)
+		if (uevent->ctx == ctx)
+			list_move_tail(&uevent->list, &file->event_list);
+}
+
+static ssize_t ucma_migrate_id(struct ucma_file *new_file,
+			       const char __user *inbuf,
+			       int in_len, int out_len)
+{
+	struct rdma_ucm_migrate_id cmd;
+	struct rdma_ucm_migrate_resp resp;
+	struct ucma_context *ctx;
+	struct file *filp;
+	struct ucma_file *cur_file;
+	int ret = 0;
+
+	if (copy_from_user(&cmd, inbuf, sizeof(cmd)))
+		return -EFAULT;
+
+	/* Get current fd to protect against it being closed */
+	filp = fget(cmd.fd);
+	if (!filp)
+		return -ENOENT;
+
+	/* Validate current fd and prevent destruction of id. */
+	ctx = ucma_get_ctx(filp->private_data, cmd.id);
+	if (IS_ERR(ctx)) {
+		ret = PTR_ERR(ctx);
+		goto file_put;
+	}
+
+	cur_file = ctx->file;
+	if (cur_file == new_file) {
+		resp.events_reported = ctx->events_reported;
+		goto response;
+	}
+
+	/*
+	 * Migrate events between fd's, maintaining order, and avoiding new
+	 * events being added before existing events.
+	 */
+	ucma_lock_files(cur_file, new_file);
+	mutex_lock(&mut);
+
+	list_move_tail(&ctx->list, &new_file->ctx_list);
+	ucma_move_events(ctx, new_file);
+	ctx->file = new_file;
+	resp.events_reported = ctx->events_reported;
+
+	mutex_unlock(&mut);
+	ucma_unlock_files(cur_file, new_file);
+
+response:
+	if (copy_to_user((void __user *)(unsigned long)cmd.response,
+			 &resp, sizeof(resp)))
+		ret = -EFAULT;
+
+	ucma_put_ctx(ctx);
+file_put:
+	fput(filp);
+	return ret;
+}
+
 static ssize_t (*ucma_cmd_table[])(struct ucma_file *file,
 				   const char __user *inbuf,
 				   int in_len, int out_len) = {
@@ -936,10 +1099,11 @@ static ssize_t (*ucma_cmd_table[])(struct ucma_file *file,
 	[RDMA_USER_CM_CMD_INIT_QP_ATTR]	= ucma_init_qp_attr,
 	[RDMA_USER_CM_CMD_GET_EVENT]	= ucma_get_event,
 	[RDMA_USER_CM_CMD_GET_OPTION]	= NULL,
-	[RDMA_USER_CM_CMD_SET_OPTION]	= NULL,
+	[RDMA_USER_CM_CMD_SET_OPTION]	= ucma_set_option,
 	[RDMA_USER_CM_CMD_NOTIFY]	= ucma_notify,
 	[RDMA_USER_CM_CMD_JOIN_MCAST]	= ucma_join_multicast,
 	[RDMA_USER_CM_CMD_LEAVE_MCAST]	= ucma_leave_multicast,
+	[RDMA_USER_CM_CMD_MIGRATE_ID]	= ucma_migrate_id
 };
 
 static ssize_t ucma_write(struct file *filp, const char __user *buf,
@@ -984,6 +1148,14 @@ static unsigned int ucma_poll(struct file *filp, struct poll_table_struct *wait)
 	return mask;
 }
 
+/*
+ * ucma_open() does not need the BKL:
+ *
+ *  - no global state is referred to;
+ *  - there is no ioctl method to race against;
+ *  - no further module initialization is required for open to work
+ *    after the device is registered.
+ */
 static int ucma_open(struct inode *inode, struct file *filp)
 {
 	struct ucma_file *file;

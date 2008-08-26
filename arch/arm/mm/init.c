@@ -48,8 +48,6 @@ void show_mem(void)
 
 	printk("Mem-info:\n");
 	show_free_areas();
-	printk("Free swap:       %6ldkB\n", nr_swap_pages<<(PAGE_SHIFT-10));
-
 	for_each_online_node(node) {
 		pg_data_t *n = NODE_DATA(node);
 		struct page *map = n->node_mem_map - n->node_start_pfn;
@@ -239,7 +237,7 @@ bootmem_init_node(int node, int initrd_node, struct meminfo *mi)
 	 * Reserve the bootmem bitmap for this node.
 	 */
 	reserve_bootmem_node(pgdat, boot_pfn << PAGE_SHIFT,
-			     boot_pages << PAGE_SHIFT);
+			     boot_pages << PAGE_SHIFT, BOOTMEM_DEFAULT);
 
 #ifdef CONFIG_BLK_DEV_INITRD
 	/*
@@ -247,7 +245,7 @@ bootmem_init_node(int node, int initrd_node, struct meminfo *mi)
 	 */
 	if (node == initrd_node) {
 		reserve_bootmem_node(pgdat, phys_initrd_start,
-				     phys_initrd_size);
+				     phys_initrd_size, BOOTMEM_DEFAULT);
 		initrd_start = __phys_to_virt(phys_initrd_start);
 		initrd_end = initrd_start + phys_initrd_size;
 	}
@@ -286,7 +284,7 @@ bootmem_init_node(int node, int initrd_node, struct meminfo *mi)
 	 */
 	arch_adjust_zones(node, zone_size, zhole_size);
 
-	free_area_init_node(node, pgdat, zone_size, start_pfn, zhole_size);
+	free_area_init_node(node, zone_size, start_pfn, zhole_size);
 
 	return end_pfn;
 }

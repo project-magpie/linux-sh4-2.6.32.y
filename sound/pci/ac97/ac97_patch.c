@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *  Universal interface for Audio Codec '97
  *
  *  For more details look to AC '97 component specification revision 2.2
@@ -114,10 +114,9 @@ static int ac97_surround_jack_mode_put(struct snd_kcontrol *kcontrol, struct snd
 
 static int ac97_channel_mode_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
 {
-	static const char *texts[] = { "2ch", "4ch", "6ch" };
-	if (kcontrol->private_value)
-		return ac97_enum_text_info(kcontrol, uinfo, texts, 2); /* 4ch only */
-	return ac97_enum_text_info(kcontrol, uinfo, texts, 3);
+	static const char *texts[] = { "2ch", "4ch", "6ch", "8ch" };
+	return ac97_enum_text_info(kcontrol, uinfo, texts,
+		kcontrol->private_value);
 }
 
 static int ac97_channel_mode_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
@@ -132,6 +131,9 @@ static int ac97_channel_mode_put(struct snd_kcontrol *kcontrol, struct snd_ctl_e
 {
 	struct snd_ac97 *ac97 = snd_kcontrol_chip(kcontrol);
 	unsigned char mode = ucontrol->value.enumerated.item[0];
+
+	if (mode >= kcontrol->private_value)
+		return -EINVAL;
 
 	if (mode != ac97->channel_mode) {
 		ac97->channel_mode = mode;
@@ -150,6 +152,7 @@ static int ac97_channel_mode_put(struct snd_kcontrol *kcontrol, struct snd_ctl_e
 		.get = ac97_surround_jack_mode_get, \
 		.put = ac97_surround_jack_mode_put, \
 	}
+/* 6ch */
 #define AC97_CHANNEL_MODE_CTL \
 	{ \
 		.iface	= SNDRV_CTL_ELEM_IFACE_MIXER, \
@@ -157,7 +160,9 @@ static int ac97_channel_mode_put(struct snd_kcontrol *kcontrol, struct snd_ctl_e
 		.info = ac97_channel_mode_info, \
 		.get = ac97_channel_mode_get, \
 		.put = ac97_channel_mode_put, \
+		.private_value = 3, \
 	}
+/* 4ch */
 #define AC97_CHANNEL_MODE_4CH_CTL \
 	{ \
 		.iface	= SNDRV_CTL_ELEM_IFACE_MIXER, \
@@ -165,7 +170,17 @@ static int ac97_channel_mode_put(struct snd_kcontrol *kcontrol, struct snd_ctl_e
 		.info = ac97_channel_mode_info, \
 		.get = ac97_channel_mode_get, \
 		.put = ac97_channel_mode_put, \
-		.private_value = 1, \
+		.private_value = 2, \
+	}
+/* 8ch */
+#define AC97_CHANNEL_MODE_8CH_CTL \
+	{ \
+		.iface  = SNDRV_CTL_ELEM_IFACE_MIXER, \
+		.name   = "Channel Mode", \
+		.info = ac97_channel_mode_info, \
+		.get = ac97_channel_mode_get, \
+		.put = ac97_channel_mode_put, \
+		.private_value = 4, \
 	}
 
 static inline int is_surround_on(struct snd_ac97 *ac97)
@@ -202,11 +217,19 @@ static inline int is_shared_micin(struct snd_ac97 *ac97)
 	return !ac97->indep_surround && !is_clfe_on(ac97);
 }
 
+static inline int alc850_is_aux_back_surround(struct snd_ac97 *ac97)
+{
+	return is_surround_on(ac97);
+}
 
 /* The following snd_ac97_ymf753_... items added by David Shust (dshust@shustring.com) */
+/* Modified for YMF743 by Keita Maehara <maehara@debian.org> */
 
-/* It is possible to indicate to the Yamaha YMF753 the type of speakers being used. */
-static int snd_ac97_ymf753_info_speaker(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
+/* It is possible to indicate to the Yamaha YMF7x3 the type of
+   speakers being used. */
+
+static int snd_ac97_ymf7x3_info_speaker(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_info *uinfo)
 {
 	static char *texts[3] = {
 		"Standard", "Small", "Smaller"
@@ -221,12 +244,13 @@ static int snd_ac97_ymf753_info_speaker(struct snd_kcontrol *kcontrol, struct sn
 	return 0;
 }
 
-static int snd_ac97_ymf753_get_speaker(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+static int snd_ac97_ymf7x3_get_speaker(struct snd_kcontrol *kcontrol,
+				       struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_ac97 *ac97 = snd_kcontrol_chip(kcontrol);
 	unsigned short val;
 
-	val = ac97->regs[AC97_YMF753_3D_MODE_SEL];
+	val = ac97->regs[AC97_YMF7X3_3D_MODE_SEL];
 	val = (val >> 10) & 3;
 	if (val > 0)    /* 0 = invalid */
 		val--;
@@ -234,7 +258,8 @@ static int snd_ac97_ymf753_get_speaker(struct snd_kcontrol *kcontrol, struct snd
 	return 0;
 }
 
-static int snd_ac97_ymf753_put_speaker(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+static int snd_ac97_ymf7x3_put_speaker(struct snd_kcontrol *kcontrol,
+				       struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_ac97 *ac97 = snd_kcontrol_chip(kcontrol);
 	unsigned short val;
@@ -242,20 +267,22 @@ static int snd_ac97_ymf753_put_speaker(struct snd_kcontrol *kcontrol, struct snd
 	if (ucontrol->value.enumerated.item[0] > 2)
 		return -EINVAL;
 	val = (ucontrol->value.enumerated.item[0] + 1) << 10;
-	return snd_ac97_update(ac97, AC97_YMF753_3D_MODE_SEL, val);
+	return snd_ac97_update(ac97, AC97_YMF7X3_3D_MODE_SEL, val);
 }
 
-static const struct snd_kcontrol_new snd_ac97_ymf753_controls_speaker =
+static const struct snd_kcontrol_new snd_ac97_ymf7x3_controls_speaker =
 {
 	.iface  = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name   = "3D Control - Speaker",
-	.info   = snd_ac97_ymf753_info_speaker,
-	.get    = snd_ac97_ymf753_get_speaker,
-	.put    = snd_ac97_ymf753_put_speaker,
+	.info   = snd_ac97_ymf7x3_info_speaker,
+	.get    = snd_ac97_ymf7x3_get_speaker,
+	.put    = snd_ac97_ymf7x3_put_speaker,
 };
 
-/* It is possible to indicate to the Yamaha YMF753 the source to direct to the S/PDIF output. */
-static int snd_ac97_ymf753_spdif_source_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
+/* It is possible to indicate to the Yamaha YMF7x3 the source to
+   direct to the S/PDIF output. */
+static int snd_ac97_ymf7x3_spdif_source_info(struct snd_kcontrol *kcontrol,
+					     struct snd_ctl_elem_info *uinfo)
 {
 	static char *texts[2] = { "AC-Link", "A/D Converter" };
 
@@ -268,17 +295,19 @@ static int snd_ac97_ymf753_spdif_source_info(struct snd_kcontrol *kcontrol, stru
 	return 0;
 }
 
-static int snd_ac97_ymf753_spdif_source_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+static int snd_ac97_ymf7x3_spdif_source_get(struct snd_kcontrol *kcontrol,
+					    struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_ac97 *ac97 = snd_kcontrol_chip(kcontrol);
 	unsigned short val;
 
-	val = ac97->regs[AC97_YMF753_DIT_CTRL2];
+	val = ac97->regs[AC97_YMF7X3_DIT_CTRL];
 	ucontrol->value.enumerated.item[0] = (val >> 1) & 1;
 	return 0;
 }
 
-static int snd_ac97_ymf753_spdif_source_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+static int snd_ac97_ymf7x3_spdif_source_put(struct snd_kcontrol *kcontrol,
+					    struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_ac97 *ac97 = snd_kcontrol_chip(kcontrol);
 	unsigned short val;
@@ -286,7 +315,75 @@ static int snd_ac97_ymf753_spdif_source_put(struct snd_kcontrol *kcontrol, struc
 	if (ucontrol->value.enumerated.item[0] > 1)
 		return -EINVAL;
 	val = ucontrol->value.enumerated.item[0] << 1;
-	return snd_ac97_update_bits(ac97, AC97_YMF753_DIT_CTRL2, 0x0002, val);
+	return snd_ac97_update_bits(ac97, AC97_YMF7X3_DIT_CTRL, 0x0002, val);
+}
+
+static int patch_yamaha_ymf7x3_3d(struct snd_ac97 *ac97)
+{
+	struct snd_kcontrol *kctl;
+	int err;
+
+	kctl = snd_ac97_cnew(&snd_ac97_controls_3d[0], ac97);
+	err = snd_ctl_add(ac97->bus->card, kctl);
+	if (err < 0)
+		return err;
+	strcpy(kctl->id.name, "3D Control - Wide");
+	kctl->private_value = AC97_SINGLE_VALUE(AC97_3D_CONTROL, 9, 7, 0);
+	snd_ac97_write_cache(ac97, AC97_3D_CONTROL, 0x0000);
+	err = snd_ctl_add(ac97->bus->card,
+			  snd_ac97_cnew(&snd_ac97_ymf7x3_controls_speaker,
+					ac97));
+	if (err < 0)
+		return err;
+	snd_ac97_write_cache(ac97, AC97_YMF7X3_3D_MODE_SEL, 0x0c00);
+	return 0;
+}
+
+static const struct snd_kcontrol_new snd_ac97_yamaha_ymf743_controls_spdif[3] =
+{
+	AC97_SINGLE(SNDRV_CTL_NAME_IEC958("", PLAYBACK, SWITCH),
+		    AC97_YMF7X3_DIT_CTRL, 0, 1, 0),
+	{
+		.iface	= SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name	= SNDRV_CTL_NAME_IEC958("", PLAYBACK, NONE) "Source",
+		.info	= snd_ac97_ymf7x3_spdif_source_info,
+		.get	= snd_ac97_ymf7x3_spdif_source_get,
+		.put	= snd_ac97_ymf7x3_spdif_source_put,
+	},
+	AC97_SINGLE(SNDRV_CTL_NAME_IEC958("", NONE, NONE) "Mute",
+		    AC97_YMF7X3_DIT_CTRL, 2, 1, 1)
+};
+
+static int patch_yamaha_ymf743_build_spdif(struct snd_ac97 *ac97)
+{
+	int err;
+
+	err = patch_build_controls(ac97, &snd_ac97_controls_spdif[0], 3);
+	if (err < 0)
+		return err;
+	err = patch_build_controls(ac97,
+				   snd_ac97_yamaha_ymf743_controls_spdif, 3);
+	if (err < 0)
+		return err;
+	/* set default PCM S/PDIF params */
+	/* PCM audio,no copyright,no preemphasis,PCM coder,original */
+	snd_ac97_write_cache(ac97, AC97_YMF7X3_DIT_CTRL, 0xa201);
+	return 0;
+}
+
+static struct snd_ac97_build_ops patch_yamaha_ymf743_ops = {
+	.build_spdif	= patch_yamaha_ymf743_build_spdif,
+	.build_3d	= patch_yamaha_ymf7x3_3d,
+};
+
+static int patch_yamaha_ymf743(struct snd_ac97 *ac97)
+{
+	ac97->build_ops = &patch_yamaha_ymf743_ops;
+	ac97->caps |= AC97_BC_BASS_TREBLE;
+	ac97->caps |= 0x04 << 10; /* Yamaha 3D enhancement */
+	ac97->rates[AC97_RATES_SPDIF] = SNDRV_PCM_RATE_48000; /* 48k only */
+	ac97->ext_id |= AC97_EI_SPDIF; /* force the detection of spdif */
+	return 0;
 }
 
 /* The AC'97 spec states that the S/PDIF signal is to be output at pin 48.
@@ -311,7 +408,7 @@ static int snd_ac97_ymf753_spdif_output_pin_get(struct snd_kcontrol *kcontrol, s
 	struct snd_ac97 *ac97 = snd_kcontrol_chip(kcontrol);
 	unsigned short val;
 
-	val = ac97->regs[AC97_YMF753_DIT_CTRL2];
+	val = ac97->regs[AC97_YMF7X3_DIT_CTRL];
 	ucontrol->value.enumerated.item[0] = (val & 0x0008) ? 2 : (val & 0x0020) ? 1 : 0;
 	return 0;
 }
@@ -325,7 +422,7 @@ static int snd_ac97_ymf753_spdif_output_pin_put(struct snd_kcontrol *kcontrol, s
 		return -EINVAL;
 	val = (ucontrol->value.enumerated.item[0] == 2) ? 0x0008 :
 	      (ucontrol->value.enumerated.item[0] == 1) ? 0x0020 : 0;
-	return snd_ac97_update_bits(ac97, AC97_YMF753_DIT_CTRL2, 0x0028, val);
+	return snd_ac97_update_bits(ac97, AC97_YMF7X3_DIT_CTRL, 0x0028, val);
 	/* The following can be used to direct S/PDIF output to pin 47 (EAPD).
 	   snd_ac97_write_cache(ac97, 0x62, snd_ac97_read(ac97, 0x62) | 0x0008); */
 }
@@ -334,9 +431,9 @@ static const struct snd_kcontrol_new snd_ac97_ymf753_controls_spdif[3] = {
 	{
 		.iface	= SNDRV_CTL_ELEM_IFACE_MIXER,
 		.name	= SNDRV_CTL_NAME_IEC958("",PLAYBACK,NONE) "Source",
-		.info	= snd_ac97_ymf753_spdif_source_info,
-		.get	= snd_ac97_ymf753_spdif_source_get,
-		.put	= snd_ac97_ymf753_spdif_source_put,
+		.info	= snd_ac97_ymf7x3_spdif_source_info,
+		.get	= snd_ac97_ymf7x3_spdif_source_get,
+		.put	= snd_ac97_ymf7x3_spdif_source_put,
 	},
 	{
 		.iface	= SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -345,24 +442,9 @@ static const struct snd_kcontrol_new snd_ac97_ymf753_controls_spdif[3] = {
 		.get	= snd_ac97_ymf753_spdif_output_pin_get,
 		.put	= snd_ac97_ymf753_spdif_output_pin_put,
 	},
-	AC97_SINGLE(SNDRV_CTL_NAME_IEC958("",NONE,NONE) "Mute", AC97_YMF753_DIT_CTRL2, 2, 1, 1)
+	AC97_SINGLE(SNDRV_CTL_NAME_IEC958("", NONE, NONE) "Mute",
+		    AC97_YMF7X3_DIT_CTRL, 2, 1, 1)
 };
-
-static int patch_yamaha_ymf753_3d(struct snd_ac97 * ac97)
-{
-	struct snd_kcontrol *kctl;
-	int err;
-
-	if ((err = snd_ctl_add(ac97->bus->card, kctl = snd_ac97_cnew(&snd_ac97_controls_3d[0], ac97))) < 0)
-		return err;
-	strcpy(kctl->id.name, "3D Control - Wide");
-	kctl->private_value = AC97_SINGLE_VALUE(AC97_3D_CONTROL, 9, 7, 0);
-	snd_ac97_write_cache(ac97, AC97_3D_CONTROL, 0x0000);
-	if ((err = snd_ctl_add(ac97->bus->card, snd_ac97_cnew(&snd_ac97_ymf753_controls_speaker, ac97))) < 0)
-		return err;
-	snd_ac97_write_cache(ac97, AC97_YMF753_3D_MODE_SEL, 0x0c00);
-	return 0;
-}
 
 static int patch_yamaha_ymf753_post_spdif(struct snd_ac97 * ac97)
 {
@@ -374,7 +456,7 @@ static int patch_yamaha_ymf753_post_spdif(struct snd_ac97 * ac97)
 }
 
 static struct snd_ac97_build_ops patch_yamaha_ymf753_ops = {
-	.build_3d	= patch_yamaha_ymf753_3d,
+	.build_3d	= patch_yamaha_ymf7x3_3d,
 	.build_post_spdif = patch_yamaha_ymf753_post_spdif
 };
 
@@ -587,6 +669,7 @@ AC97_SINGLE("Mic 1 Volume", AC97_MIC, 8, 31, 1),
 AC97_SINGLE("Mic 2 Volume", AC97_MIC, 0, 31, 1),
 AC97_SINGLE("Mic 20dB Boost Switch", AC97_MIC, 7, 1, 0),
 
+AC97_SINGLE("Master Left Inv Switch", AC97_MASTER, 6, 1, 0),
 AC97_SINGLE("Master ZC Switch", AC97_MASTER, 7, 1, 0),
 AC97_SINGLE("Headphone ZC Switch", AC97_HEADPHONE, 7, 1, 0),
 AC97_SINGLE("Mono ZC Switch", AC97_MASTER_MONO, 7, 1, 0),
@@ -1880,14 +1963,7 @@ static int patch_ad1981b(struct snd_ac97 *ac97)
 	return 0;
 }
 
-static int snd_ac97_ad1888_lohpsel_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_ac97_ad1888_lohpsel_info	snd_ctl_boolean_mono_info
 
 static int snd_ac97_ad1888_lohpsel_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -1896,6 +1972,9 @@ static int snd_ac97_ad1888_lohpsel_get(struct snd_kcontrol *kcontrol, struct snd
 
 	val = ac97->regs[AC97_AD_MISC];
 	ucontrol->value.integer.value[0] = !(val & AC97_AD198X_LOSEL);
+	if (ac97->spec.ad18xx.lo_as_master)
+		ucontrol->value.integer.value[0] =
+			!ucontrol->value.integer.value[0];
 	return 0;
 }
 
@@ -1904,8 +1983,10 @@ static int snd_ac97_ad1888_lohpsel_put(struct snd_kcontrol *kcontrol, struct snd
 	struct snd_ac97 *ac97 = snd_kcontrol_chip(kcontrol);
 	unsigned short val;
 
-	val = !ucontrol->value.integer.value[0]
-		? (AC97_AD198X_LOSEL | AC97_AD198X_HPSEL) : 0;
+	val = !ucontrol->value.integer.value[0];
+	if (ac97->spec.ad18xx.lo_as_master)
+		val = !val;
+	val = val ? (AC97_AD198X_LOSEL | AC97_AD198X_HPSEL) : 0;
 	return snd_ac97_update_bits(ac97, AC97_AD_MISC,
 				    AC97_AD198X_LOSEL | AC97_AD198X_HPSEL, val);
 }
@@ -1956,7 +2037,7 @@ static void ad1888_update_jacks(struct snd_ac97 *ac97)
 {
 	unsigned short val = 0;
 	/* clear LODIS if shared jack is to be used for Surround out */
-	if (is_shared_linein(ac97))
+	if (!ac97->spec.ad18xx.lo_as_master && is_shared_linein(ac97))
 		val |= (1 << 12);
 	/* clear CLDIS if shared jack is to be used for C/LFE out */
 	if (is_shared_micin(ac97))
@@ -1992,9 +2073,13 @@ static const struct snd_kcontrol_new snd_ac97_ad1888_controls[] = {
 
 static int patch_ad1888_specific(struct snd_ac97 *ac97)
 {
-	/* rename 0x04 as "Master" and 0x02 as "Master Surround" */
-	snd_ac97_rename_vol_ctl(ac97, "Master Playback", "Master Surround Playback");
-	snd_ac97_rename_vol_ctl(ac97, "Headphone Playback", "Master Playback");
+	if (!ac97->spec.ad18xx.lo_as_master) {
+		/* rename 0x04 as "Master" and 0x02 as "Master Surround" */
+		snd_ac97_rename_vol_ctl(ac97, "Master Playback",
+					"Master Surround Playback");
+		snd_ac97_rename_vol_ctl(ac97, "Headphone Playback",
+					"Master Playback");
+	}
 	return patch_build_controls(ac97, snd_ac97_ad1888_controls, ARRAY_SIZE(snd_ac97_ad1888_controls));
 }
 
@@ -2013,16 +2098,27 @@ static int patch_ad1888(struct snd_ac97 * ac97)
 	
 	patch_ad1881(ac97);
 	ac97->build_ops = &patch_ad1888_build_ops;
-	/* Switch FRONT/SURROUND LINE-OUT/HP-OUT default connection */
-	/* it seems that most vendors connect line-out connector to headphone out of AC'97 */
+
+	/*
+	 * LO can be used as a real line-out on some devices,
+	 * and we need to revert the front/surround mixer switches
+	 */
+	if (ac97->subsystem_vendor == 0x1043 &&
+	    ac97->subsystem_device == 0x1193) /* ASUS A9T laptop */
+		ac97->spec.ad18xx.lo_as_master = 1;
+
+	misc = snd_ac97_read(ac97, AC97_AD_MISC);
 	/* AD-compatible mode */
 	/* Stereo mutes enabled */
-	misc = snd_ac97_read(ac97, AC97_AD_MISC);
-	snd_ac97_write_cache(ac97, AC97_AD_MISC, misc |
-			     AC97_AD198X_LOSEL |
-			     AC97_AD198X_HPSEL |
-			     AC97_AD198X_MSPLT |
-			     AC97_AD198X_AC97NC);
+	misc |= AC97_AD198X_MSPLT | AC97_AD198X_AC97NC;
+	if (!ac97->spec.ad18xx.lo_as_master)
+		/* Switch FRONT/SURROUND LINE-OUT/HP-OUT default connection */
+		/* it seems that most vendors connect line-out connector to
+		 * headphone out of AC'97
+		 */
+		misc |= AC97_AD198X_LOSEL | AC97_AD198X_HPSEL;
+
+	snd_ac97_write_cache(ac97, AC97_AD_MISC, misc);
 	ac97->flags |= AC97_STEREO_MUTES;
 	return 0;
 }
@@ -2086,8 +2182,7 @@ static int snd_ac97_ad1985_vrefout_put(struct snd_kcontrol *kcontrol,
 	struct snd_ac97 *ac97 = snd_kcontrol_chip(kcontrol);
 	unsigned short val;
 
-	if (ucontrol->value.enumerated.item[0] > 3
-	    || ucontrol->value.enumerated.item[0] < 0)
+	if (ucontrol->value.enumerated.item[0] > 3)
 		return -EINVAL;
 	val = ctrl2reg[ucontrol->value.enumerated.item[0]]
 	      << AC97_AD198X_VREF_SHIFT;
@@ -2186,15 +2281,7 @@ static int patch_ad1985(struct snd_ac97 * ac97)
 	return 0;
 }
 
-static int snd_ac97_ad1986_bool_info(struct snd_kcontrol *kcontrol,
-				     struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_ac97_ad1986_bool_info	snd_ctl_boolean_mono_info
 
 static int snd_ac97_ad1986_lososel_get(struct snd_kcontrol *kcontrol,
 				       struct snd_ctl_elem_value *ucontrol)
@@ -2761,10 +2848,12 @@ static int patch_alc655(struct snd_ac97 * ac97)
 
 #define AC97_ALC850_JACK_SELECT	0x76
 #define AC97_ALC850_MISC1	0x7a
+#define AC97_ALC850_MULTICH    0x6a
 
 static void alc850_update_jacks(struct snd_ac97 *ac97)
 {
 	int shared;
+	int aux_is_back_surround;
 	
 	/* shared Line-In / Surround Out */
 	shared = is_shared_surrout(ac97);
@@ -2782,13 +2871,18 @@ static void alc850_update_jacks(struct snd_ac97 *ac97)
 	/* MIC-IN = 1, CENTER-LFE = 5 */
 	snd_ac97_update_bits(ac97, AC97_ALC850_JACK_SELECT, 7 << 4,
 			     shared ? (5<<4) : (1<<4));
+
+	aux_is_back_surround = alc850_is_aux_back_surround(ac97);
+	/* Aux is Back Surround */
+	snd_ac97_update_bits(ac97, AC97_ALC850_MULTICH, 1 << 10,
+				 aux_is_back_surround ? (1<<10) : (0<<10));
 }
 
 static const struct snd_kcontrol_new snd_ac97_controls_alc850[] = {
 	AC97_PAGE_SINGLE("Duplicate Front", AC97_ALC650_MULTICH, 0, 1, 0, 0),
 	AC97_SINGLE("Mic Front Input Switch", AC97_ALC850_JACK_SELECT, 15, 1, 1),
 	AC97_SURROUND_JACK_MODE_CTL,
-	AC97_CHANNEL_MODE_CTL,
+	AC97_CHANNEL_MODE_8CH_CTL,
 };
 
 static int patch_alc850_specific(struct snd_ac97 *ac97)
@@ -2814,6 +2908,7 @@ static int patch_alc850(struct snd_ac97 *ac97)
 	ac97->build_ops = &patch_alc850_ops;
 
 	ac97->spec.dev_flags = 0; /* for IEC958 playback route - ALC655 compatible */
+	ac97->flags |= AC97_HAS_8CH;
 
 	/* assume only page 0 for writing cache */
 	snd_ac97_update_bits(ac97, AC97_INT_PAGING, AC97_PAGE_MASK, AC97_PAGE_VENDOR);
@@ -2823,6 +2918,7 @@ static int patch_alc850(struct snd_ac97 *ac97)
 	   spdif-in monitor off, spdif-in PCM off
 	   center on mic off, surround on line-in off
 	   duplicate front off
+	   NB default bit 10=0 = Aux is Capture, not Back Surround
 	*/
 	snd_ac97_write_cache(ac97, AC97_ALC650_MULTICH, 1<<15);
 	/* SURR_OUT: on, Surr 1kOhm: on, Surr Amp: off, Front 1kOhm: off
@@ -3257,8 +3353,66 @@ AC97_SINGLE("Downmix LFE and Center to Front", 0x5a, 12, 1, 0),
 AC97_SINGLE("Downmix Surround to Front", 0x5a, 11, 1, 0),
 };
 
+static const char *slave_vols_vt1616[] = {
+	"Front Playback Volume",
+	"Surround Playback Volume",
+	"Center Playback Volume",
+	"LFE Playback Volume",
+	NULL
+};
+
+static const char *slave_sws_vt1616[] = {
+	"Front Playback Switch",
+	"Surround Playback Switch",
+	"Center Playback Switch",
+	"LFE Playback Switch",
+	NULL
+};
+
+/* find a mixer control element with the given name */
+static struct snd_kcontrol *snd_ac97_find_mixer_ctl(struct snd_ac97 *ac97,
+						    const char *name)
+{
+	struct snd_ctl_elem_id id;
+	memset(&id, 0, sizeof(id));
+	id.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
+	strcpy(id.name, name);
+	return snd_ctl_find_id(ac97->bus->card, &id);
+}
+
+/* create a virtual master control and add slaves */
+static int snd_ac97_add_vmaster(struct snd_ac97 *ac97, char *name,
+				const unsigned int *tlv, const char **slaves)
+{
+	struct snd_kcontrol *kctl;
+	const char **s;
+	int err;
+
+	kctl = snd_ctl_make_virtual_master(name, tlv);
+	if (!kctl)
+		return -ENOMEM;
+	err = snd_ctl_add(ac97->bus->card, kctl);
+	if (err < 0)
+		return err;
+
+	for (s = slaves; *s; s++) {
+		struct snd_kcontrol *sctl;
+
+		sctl = snd_ac97_find_mixer_ctl(ac97, *s);
+		if (!sctl) {
+			snd_printdd("Cannot find slave %s, skipped\n", *s);
+			continue;
+		}
+		err = snd_ctl_add_slave(kctl, sctl);
+		if (err < 0)
+			return err;
+	}
+	return 0;
+}
+
 static int patch_vt1616_specific(struct snd_ac97 * ac97)
 {
+	struct snd_kcontrol *kctl;
 	int err;
 
 	if (snd_ac97_try_bit(ac97, 0x5a, 9))
@@ -3266,6 +3420,24 @@ static int patch_vt1616_specific(struct snd_ac97 * ac97)
 			return err;
 	if ((err = patch_build_controls(ac97, &snd_ac97_controls_vt1616[1], ARRAY_SIZE(snd_ac97_controls_vt1616) - 1)) < 0)
 		return err;
+
+	/* There is already a misnamed master switch.  Rename it.  */
+	kctl = snd_ac97_find_mixer_ctl(ac97, "Master Playback Volume");
+	if (!kctl)
+		return -EINVAL;
+
+	snd_ac97_rename_vol_ctl(ac97, "Master Playback", "Front Playback");
+
+	err = snd_ac97_add_vmaster(ac97, "Master Playback Volume",
+				   kctl->tlv.p, slave_vols_vt1616);
+	if (err < 0)
+		return err;
+
+	err = snd_ac97_add_vmaster(ac97, "Master Playback Switch",
+				   NULL, slave_sws_vt1616);
+	if (err < 0)
+		return err;
+
 	return 0;
 }
 
@@ -3371,6 +3543,7 @@ static const struct snd_kcontrol_new snd_ac97_controls_vt1617a[] = {
 int patch_vt1617a(struct snd_ac97 * ac97)
 {
 	int err = 0;
+	int val;
 
 	/* we choose to not fail out at this point, but we tell the
 	   caller when we return */
@@ -3381,7 +3554,13 @@ int patch_vt1617a(struct snd_ac97 * ac97)
 	/* bring analog power consumption to normal by turning off the
 	 * headphone amplifier, like WinXP driver for EPIA SP
 	 */
-	snd_ac97_write_cache(ac97, 0x5c, 0x20);
+	/* We need to check the bit before writing it.
+	 * On some (many?) hardwares, setting bit actually clears it!
+	 */
+	val = snd_ac97_read(ac97, 0x5c);
+	if (!(val & 0x20))
+		snd_ac97_write_cache(ac97, 0x5c, 0x20);
+
 	ac97->ext_id |= AC97_EI_SPDIF;	/* force the detection of spdif */
 	ac97->rates[AC97_RATES_SPDIF] = SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000;
 	ac97->build_ops = &patch_vt1616_ops;
@@ -3531,7 +3710,7 @@ static int patch_ucb1400(struct snd_ac97 * ac97)
 {
 	ac97->build_ops = &patch_ucb1400_ops;
 	/* enable headphone driver and smart low power mode by default */
-	snd_ac97_write(ac97, 0x6a, 0x0050);
-	snd_ac97_write(ac97, 0x6c, 0x0030);
+	snd_ac97_write_cache(ac97, 0x6a, 0x0050);
+	snd_ac97_write_cache(ac97, 0x6c, 0x0030);
 	return 0;
 }

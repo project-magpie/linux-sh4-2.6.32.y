@@ -25,7 +25,6 @@
 #include <linux/notifier.h>
 #include <linux/rwsem.h>
 #include <linux/slab.h>
-#include <asm/kmap_types.h>
 
 /* Crypto notification events. */
 enum {
@@ -49,29 +48,6 @@ struct crypto_larval {
 extern struct list_head crypto_alg_list;
 extern struct rw_semaphore crypto_alg_sem;
 extern struct blocking_notifier_head crypto_chain;
-
-extern enum km_type crypto_km_types[];
-
-static inline enum km_type crypto_kmap_type(int out)
-{
-	return crypto_km_types[(in_softirq() ? 2 : 0) + out];
-}
-
-static inline void *crypto_kmap(struct page *page, int out)
-{
-	return kmap_atomic(page, crypto_kmap_type(out));
-}
-
-static inline void crypto_kunmap(void *vaddr, int out)
-{
-	kunmap_atomic(vaddr, crypto_kmap_type(out));
-}
-
-static inline void crypto_yield(u32 flags)
-{
-	if (flags & CRYPTO_TFM_REQ_MAY_SLEEP)
-		cond_resched();
-}
 
 #ifdef CONFIG_PROC_FS
 void __init crypto_init_proc(void);
@@ -110,6 +86,7 @@ struct crypto_alg *__crypto_alg_lookup(const char *name, u32 type, u32 mask);
 struct crypto_alg *crypto_alg_mod_lookup(const char *name, u32 type, u32 mask);
 
 int crypto_init_digest_ops(struct crypto_tfm *tfm);
+int crypto_init_digest_ops_async(struct crypto_tfm *tfm);
 int crypto_init_cipher_ops(struct crypto_tfm *tfm);
 int crypto_init_compress_ops(struct crypto_tfm *tfm);
 
@@ -117,6 +94,8 @@ void crypto_exit_digest_ops(struct crypto_tfm *tfm);
 void crypto_exit_cipher_ops(struct crypto_tfm *tfm);
 void crypto_exit_compress_ops(struct crypto_tfm *tfm);
 
+void crypto_larval_kill(struct crypto_alg *alg);
+struct crypto_alg *crypto_larval_lookup(const char *name, u32 type, u32 mask);
 void crypto_larval_error(const char *name, u32 type, u32 mask);
 
 void crypto_shoot_alg(struct crypto_alg *alg);

@@ -50,7 +50,6 @@
 #include <linux/init.h>
 #include <linux/linkage.h>
 #include <linux/kernel.h>
-#include <linux/pnpbios.h>
 #include <linux/device.h>
 #include <linux/pnp.h>
 #include <linux/mm.h>
@@ -69,6 +68,7 @@
 #include <asm/system.h>
 #include <asm/byteorder.h>
 
+#include "../base.h"
 #include "pnpbios.h"
 
 /*
@@ -105,8 +105,6 @@ static int pnp_dock_event(int dock, struct pnp_docking_station_info *info)
 	char *argv[3], **envp, *buf, *scratch;
 	int i = 0, value;
 
-	if (!current->fs->root)
-		return -EAGAIN;
 	if (!(envp = kcalloc(20, sizeof(char *), GFP_KERNEL)))
 		return -ENOMEM;
 	if (!(buf = kzalloc(256, GFP_KERNEL))) {
@@ -205,8 +203,7 @@ static int pnp_dock_thread(void *unused)
 
 #endif				/* CONFIG_HOTPLUG */
 
-static int pnpbios_get_resources(struct pnp_dev *dev,
-				 struct pnp_resource_table *res)
+static int pnpbios_get_resources(struct pnp_dev *dev)
 {
 	u8 nodenum = dev->number;
 	struct pnp_bios_node *node;
@@ -214,6 +211,7 @@ static int pnpbios_get_resources(struct pnp_dev *dev,
 	if (!pnpbios_is_dynamic(dev))
 		return -EPERM;
 
+	dev_dbg(&dev->dev, "get resources\n");
 	node = kzalloc(node_info.max_node_size, GFP_KERNEL);
 	if (!node)
 		return -1;
@@ -221,14 +219,13 @@ static int pnpbios_get_resources(struct pnp_dev *dev,
 		kfree(node);
 		return -ENODEV;
 	}
-	pnpbios_read_resources_from_node(res, node);
+	pnpbios_read_resources_from_node(dev, node);
 	dev->active = pnp_is_active(dev);
 	kfree(node);
 	return 0;
 }
 
-static int pnpbios_set_resources(struct pnp_dev *dev,
-				 struct pnp_resource_table *res)
+static int pnpbios_set_resources(struct pnp_dev *dev)
 {
 	u8 nodenum = dev->number;
 	struct pnp_bios_node *node;
@@ -237,6 +234,7 @@ static int pnpbios_set_resources(struct pnp_dev *dev,
 	if (!pnpbios_is_dynamic(dev))
 		return -EPERM;
 
+	dev_dbg(&dev->dev, "set resources\n");
 	node = kzalloc(node_info.max_node_size, GFP_KERNEL);
 	if (!node)
 		return -1;
@@ -244,7 +242,7 @@ static int pnpbios_set_resources(struct pnp_dev *dev,
 		kfree(node);
 		return -ENODEV;
 	}
-	if (pnpbios_write_resources_to_node(res, node) < 0) {
+	if (pnpbios_write_resources_to_node(dev, node) < 0) {
 		kfree(node);
 		return -1;
 	}
@@ -315,28 +313,24 @@ struct pnp_protocol pnpbios_protocol = {
 	.disable = pnpbios_disable_resources,
 };
 
-static int insert_device(struct pnp_dev *dev, struct pnp_bios_node *node)
+static int __init insert_device(struct pnp_bios_node *node)
 {
 	struct list_head *pos;
-	struct pnp_dev *pnp_dev;
-	struct pnp_id *dev_id;
+	struct pnp_dev *dev;
 	char id[8];
 
 	/* check if the device is already added */
-	dev->number = node->handle;
 	list_for_each(pos, &pnpbios_protocol.devices) {
-		pnp_dev = list_entry(pos, struct pnp_dev, protocol_list);
-		if (dev->number == pnp_dev->number)
+		dev = list_entry(pos, struct pnp_dev, protocol_list);
+		if (dev->number == node->handle)
 			return -1;
 	}
 
-	/* set the initial values for the PnP device */
-	dev_id = kzalloc(sizeof(struct pnp_id), GFP_KERNEL);
-	if (!dev_id)
+	pnp_eisa_id_to_string(node->eisa_id & PNP_EISA_ID_MASK, id);
+	dev = pnp_alloc_dev(&pnpbios_protocol, node->handle, id);
+	if (!dev)
 		return -1;
-	pnpid32_to_pnpid(node->eisa_id, id);
-	memcpy(dev_id->id, id, 7);
-	pnp_add_id(dev_id, dev);
+
 	pnpbios_parse_data_stream(dev, node);
 	dev->active = pnp_is_active(dev);
 	dev->flags = node->flags;
@@ -349,11 +343,10 @@ static int insert_device(struct pnp_dev *dev, struct pnp_bios_node *node)
 		dev->capabilities |= PNP_WRITE;
 	if (dev->flags & PNPBIOS_REMOVABLE)
 		dev->capabilities |= PNP_REMOVABLE;
-	dev->protocol = &pnpbios_protocol;
 
 	/* clear out the damaged flags */
 	if (!dev->active)
-		pnp_init_resource_table(&dev->res);
+		pnp_init_resources(dev);
 
 	pnp_add_device(dev);
 	pnpbios_interface_attach_device(node);
@@ -367,7 +360,6 @@ static void __init build_devlist(void)
 	unsigned int nodes_got = 0;
 	unsigned int devs = 0;
 	struct pnp_bios_node *node;
-	struct pnp_dev *dev;
 
 	node = kzalloc(node_info.max_node_size, GFP_KERNEL);
 	if (!node)
@@ -388,12 +380,7 @@ static void __init build_devlist(void)
 				break;
 		}
 		nodes_got++;
-		dev = kzalloc(sizeof(struct pnp_dev), GFP_KERNEL);
-		if (!dev)
-			break;
-		if (insert_device(dev, node) < 0)
-			kfree(dev);
-		else
+		if (insert_device(node) == 0)
 			devs++;
 		if (nodenum <= thisnodenum) {
 			printk(KERN_ERR
@@ -500,7 +487,7 @@ static int __init pnpbios_probe_system(void)
 	return 0;
 }
 
-static int __init exploding_pnp_bios(struct dmi_system_id *d)
+static int __init exploding_pnp_bios(const struct dmi_system_id *d)
 {
 	printk(KERN_WARNING "%s detected. Disabling PnPBIOS\n", d->ident);
 	return 0;

@@ -37,8 +37,8 @@ DEFINE_PER_CPU(struct ppc64_tlb_batch, ppc64_tlb_batch);
  * include/asm-powerpc/tlb.h file -- tgall
  */
 DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
-DEFINE_PER_CPU(struct pte_freelist_batch *, pte_freelist_cur);
-unsigned long pte_freelist_forced_free;
+static DEFINE_PER_CPU(struct pte_freelist_batch *, pte_freelist_cur);
+static unsigned long pte_freelist_forced_free;
 
 struct pte_freelist_batch
 {
@@ -47,19 +47,14 @@ struct pte_freelist_batch
 	pgtable_free_t	tables[0];
 };
 
-DEFINE_PER_CPU(struct pte_freelist_batch *, pte_freelist_cur);
-unsigned long pte_freelist_forced_free;
-
 #define PTE_FREELIST_SIZE \
 	((PAGE_SIZE - sizeof(struct pte_freelist_batch)) \
 	  / sizeof(pgtable_free_t))
 
-#ifdef CONFIG_SMP
 static void pte_free_smp_sync(void *arg)
 {
 	/* Do nothing, just ensure we sync with all CPUs */
 }
-#endif
 
 /* This is only called when we are critically out of memory
  * (and fail to get a page in pte_free_tlb).
@@ -68,7 +63,7 @@ static void pgtable_free_now(pgtable_free_t pgf)
 {
 	pte_freelist_forced_free++;
 
-	smp_call_function(pte_free_smp_sync, NULL, 0, 1);
+	smp_call_function(pte_free_smp_sync, NULL, 1);
 
 	pgtable_free(pgf);
 }
@@ -132,6 +127,7 @@ void hpte_need_flush(struct mm_struct *mm, unsigned long addr,
 	struct ppc64_tlb_batch *batch = &__get_cpu_var(ppc64_tlb_batch);
 	unsigned long vsid, vaddr;
 	unsigned int psize;
+	int ssize;
 	real_pte_t rpte;
 	int i;
 
@@ -151,7 +147,7 @@ void hpte_need_flush(struct mm_struct *mm, unsigned long addr,
 	 */
 	if (huge) {
 #ifdef CONFIG_HUGETLB_PAGE
-		psize = mmu_huge_psize;
+		psize = get_slice_psize(mm, addr);;
 #else
 		BUG();
 		psize = pte_pagesize_index(mm, addr, pte); /* shutup gcc */
@@ -161,11 +157,14 @@ void hpte_need_flush(struct mm_struct *mm, unsigned long addr,
 
 	/* Build full vaddr */
 	if (!is_kernel_addr(addr)) {
-		vsid = get_vsid(mm->context.id, addr);
+		ssize = user_segment_size(addr);
+		vsid = get_vsid(mm->context.id, addr, ssize);
 		WARN_ON(vsid == 0);
-	} else
-		vsid = get_kernel_vsid(addr);
-	vaddr = (vsid << 28 ) | (addr & 0x0fffffff);
+	} else {
+		vsid = get_kernel_vsid(addr, mmu_kernel_ssize);
+		ssize = mmu_kernel_ssize;
+	}
+	vaddr = hpt_va(addr, vsid, ssize);
 	rpte = __real_pte(__pte(pte), ptep);
 
 	/*
@@ -175,7 +174,7 @@ void hpte_need_flush(struct mm_struct *mm, unsigned long addr,
 	 * and decide to use local invalidates instead...
 	 */
 	if (!batch->active) {
-		flush_hash_page(vaddr, rpte, psize, 0);
+		flush_hash_page(vaddr, rpte, psize, ssize, 0);
 		return;
 	}
 
@@ -189,13 +188,15 @@ void hpte_need_flush(struct mm_struct *mm, unsigned long addr,
 	 * We also need to ensure only one page size is present in a given
 	 * batch
 	 */
-	if (i != 0 && (mm != batch->mm || batch->psize != psize)) {
+	if (i != 0 && (mm != batch->mm || batch->psize != psize ||
+		       batch->ssize != ssize)) {
 		__flush_tlb_pending(batch);
 		i = 0;
 	}
 	if (i == 0) {
 		batch->mm = mm;
 		batch->psize = psize;
+		batch->ssize = ssize;
 	}
 	batch->pte[i] = rpte;
 	batch->vaddr[i] = vaddr;
@@ -222,7 +223,7 @@ void __flush_tlb_pending(struct ppc64_tlb_batch *batch)
 		local = 1;
 	if (i == 1)
 		flush_hash_page(batch->vaddr[0], batch->pte[0],
-				batch->psize, local);
+				batch->psize, batch->ssize, local);
 	else
 		flush_hash_range(i, local);
 	batch->index = 0;

@@ -1,34 +1,11 @@
 /*
- * File:	drivers/net/bfin_mac.c
- * Based on:
- * Maintainer:
- * 		Bryan Wu <bryan.wu@analog.com>
+ * Blackfin On-Chip MAC Driver
  *
- * Original author:
- * 		Luke Yang <luke.yang@analog.com>
+ * Copyright 2004-2007 Analog Devices Inc.
  *
- * Created:
- * Description:
+ * Enter bugs at http://blackfin.uclinux.org/
  *
- * Modified:
- *		Copyright 2004-2006 Analog Devices Inc.
- *
- * Bugs:	Enter bugs at http://blackfin.uclinux.org/
- *
- * This program is free software ;  you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation ;  either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY ;  without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program ;  see the file COPYING.
- * If not, write to the Free Software Foundation,
- * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ * Licensed under the GPL-2 or later.
  */
 
 #include <linux/init.h>
@@ -45,17 +22,13 @@
 #include <linux/crc32.h>
 #include <linux/device.h>
 #include <linux/spinlock.h>
-#include <linux/ethtool.h>
 #include <linux/mii.h>
-
+#include <linux/phy.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
+#include <linux/ethtool.h>
 #include <linux/skbuff.h>
-
 #include <linux/platform_device.h>
-#include <linux/netdevice.h>
-#include <linux/etherdevice.h>
-#include <linux/skbuff.h>
 
 #include <asm/dma.h>
 #include <linux/dma-mapping.h>
@@ -69,11 +42,12 @@
 #define DRV_NAME	"bfin_mac"
 #define DRV_VERSION	"1.1"
 #define DRV_AUTHOR	"Bryan Wu, Luke Yang"
-#define DRV_DESC	"Blackfin BF53[67] on-chip Ethernet MAC driver"
+#define DRV_DESC	"Blackfin on-chip Ethernet MAC driver"
 
 MODULE_AUTHOR(DRV_AUTHOR);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION(DRV_DESC);
+MODULE_ALIAS("platform:bfin_mac");
 
 #if defined(CONFIG_BFIN_MAC_USE_L1)
 # define bfin_mac_alloc(dma_handle, size)  l1_data_sram_zalloc(size)
@@ -98,6 +72,15 @@ static struct net_dma_desc_rx *current_rx_ptr;
 static struct net_dma_desc_tx *current_tx_ptr;
 static struct net_dma_desc_tx *tx_desc;
 static struct net_dma_desc_rx *rx_desc;
+
+#if defined(CONFIG_BFIN_MAC_RMII)
+static u16 pin_req[] = P_RMII0;
+#else
+static u16 pin_req[] = P_MII0;
+#endif
+
+static void bfin_mac_disable(void);
+static void bfin_mac_enable(void);
 
 static void desc_list_free(void)
 {
@@ -266,35 +249,17 @@ init_error:
 
 /*---PHY CONTROL AND CONFIGURATION-----------------------------------------*/
 
-/* Set FER regs to MUX in Ethernet pins */
-static int setup_pin_mux(int action)
-{
-#if defined(CONFIG_BFIN_MAC_RMII)
-	u16 pin_req[] = P_RMII0;
-#else
-	u16 pin_req[] = P_MII0;
-#endif
-
-	if (action) {
-		if (peripheral_request_list(pin_req, DRV_NAME)) {
-			printk(KERN_ERR DRV_NAME
-			": Requesting Peripherals failed\n");
-			return -EFAULT;
-		}
-	} else
-		peripheral_free_list(pin_req);
-
-	return 0;
-}
-
+/*
+ * MII operations
+ */
 /* Wait until the previous MDC/MDIO transaction has completed */
-static void poll_mdc_done(void)
+static void mdio_poll(void)
 {
 	int timeout_cnt = MAX_TIMEOUT_CNT;
 
 	/* poll the STABUSY bit */
 	while ((bfin_read_EMAC_STAADD()) & STABUSY) {
-		mdelay(10);
+		udelay(1);
 		if (timeout_cnt-- < 0) {
 			printk(KERN_ERR DRV_NAME
 			": wait MDC/MDIO transaction to complete timeout\n");
@@ -304,154 +269,251 @@ static void poll_mdc_done(void)
 }
 
 /* Read an off-chip register in a PHY through the MDC/MDIO port */
-static u16 read_phy_reg(u16 PHYAddr, u16 RegAddr)
+static int mdiobus_read(struct mii_bus *bus, int phy_addr, int regnum)
 {
-	poll_mdc_done();
-	/* read mode */
-	bfin_write_EMAC_STAADD(SET_PHYAD(PHYAddr) |
-				SET_REGAD(RegAddr) |
-				STABUSY);
-	poll_mdc_done();
+	mdio_poll();
 
-	return (u16) bfin_read_EMAC_STADAT();
+	/* read mode */
+	bfin_write_EMAC_STAADD(SET_PHYAD((u16) phy_addr) |
+				SET_REGAD((u16) regnum) |
+				STABUSY);
+
+	mdio_poll();
+
+	return (int) bfin_read_EMAC_STADAT();
 }
 
 /* Write an off-chip register in a PHY through the MDC/MDIO port */
-static void raw_write_phy_reg(u16 PHYAddr, u16 RegAddr, u32 Data)
+static int mdiobus_write(struct mii_bus *bus, int phy_addr, int regnum,
+			 u16 value)
 {
-	bfin_write_EMAC_STADAT(Data);
+	mdio_poll();
+
+	bfin_write_EMAC_STADAT((u32) value);
 
 	/* write mode */
-	bfin_write_EMAC_STAADD(SET_PHYAD(PHYAddr) |
-				SET_REGAD(RegAddr) |
+	bfin_write_EMAC_STAADD(SET_PHYAD((u16) phy_addr) |
+				SET_REGAD((u16) regnum) |
 				STAOP |
 				STABUSY);
 
-	poll_mdc_done();
+	mdio_poll();
+
+	return 0;
 }
 
-static void write_phy_reg(u16 PHYAddr, u16 RegAddr, u32 Data)
+static int mdiobus_reset(struct mii_bus *bus)
 {
-	poll_mdc_done();
-	raw_write_phy_reg(PHYAddr, RegAddr, Data);
+	return 0;
 }
 
-/* set up the phy */
-static void bf537mac_setphy(struct net_device *dev)
+static void bfin_mac_adjust_link(struct net_device *dev)
 {
-	u16 phydat;
-	struct bf537mac_local *lp = netdev_priv(dev);
+	struct bfin_mac_local *lp = netdev_priv(dev);
+	struct phy_device *phydev = lp->phydev;
+	unsigned long flags;
+	int new_state = 0;
 
-	/* Program PHY registers */
-	pr_debug("start setting up phy\n");
+	spin_lock_irqsave(&lp->lock, flags);
+	if (phydev->link) {
+		/* Now we make sure that we can be in full duplex mode.
+		 * If not, we operate in half-duplex mode. */
+		if (phydev->duplex != lp->old_duplex) {
+			u32 opmode = bfin_read_EMAC_OPMODE();
+			new_state = 1;
 
-	/* issue a reset */
-	raw_write_phy_reg(lp->PhyAddr, PHYREG_MODECTL, 0x8000);
+			if (phydev->duplex)
+				opmode |= FDMODE;
+			else
+				opmode &= ~(FDMODE);
 
-	/* wait half a second */
-	msleep(500);
+			bfin_write_EMAC_OPMODE(opmode);
+			lp->old_duplex = phydev->duplex;
+		}
 
-	phydat = read_phy_reg(lp->PhyAddr, PHYREG_MODECTL);
+		if (phydev->speed != lp->old_speed) {
+#if defined(CONFIG_BFIN_MAC_RMII)
+			u32 opmode = bfin_read_EMAC_OPMODE();
+			switch (phydev->speed) {
+			case 10:
+				opmode |= RMII_10;
+				break;
+			case 100:
+				opmode &= ~(RMII_10);
+				break;
+			default:
+				printk(KERN_WARNING
+					"%s: Ack!  Speed (%d) is not 10/100!\n",
+					DRV_NAME, phydev->speed);
+				break;
+			}
+			bfin_write_EMAC_OPMODE(opmode);
+#endif
 
-	/* advertise flow control supported */
-	phydat = read_phy_reg(lp->PhyAddr, PHYREG_ANAR);
-	phydat |= (1 << 10);
-	write_phy_reg(lp->PhyAddr, PHYREG_ANAR, phydat);
+			new_state = 1;
+			lp->old_speed = phydev->speed;
+		}
 
-	phydat = 0;
-	if (lp->Negotiate)
-		phydat |= 0x1000;	/* enable auto negotiation */
-	else {
-		if (lp->FullDuplex)
-			phydat |= (1 << 8);	/* full duplex */
-		else
-			phydat &= (~(1 << 8));	/* half duplex */
-
-		if (!lp->Port10)
-			phydat |= (1 << 13);	/* 100 Mbps */
-		else
-			phydat &= (~(1 << 13));	/* 10 Mbps */
+		if (!lp->old_link) {
+			new_state = 1;
+			lp->old_link = 1;
+		}
+	} else if (lp->old_link) {
+		new_state = 1;
+		lp->old_link = 0;
+		lp->old_speed = 0;
+		lp->old_duplex = -1;
 	}
 
-	if (lp->Loopback)
-		phydat |= (1 << 14);	/* enable TX->RX loopback */
-
-	write_phy_reg(lp->PhyAddr, PHYREG_MODECTL, phydat);
-	msleep(500);
-
-	phydat = read_phy_reg(lp->PhyAddr, PHYREG_MODECTL);
-	/* check for SMSC PHY */
-	if ((read_phy_reg(lp->PhyAddr, PHYREG_PHYID1) == 0x7) &&
-	((read_phy_reg(lp->PhyAddr, PHYREG_PHYID2) & 0xfff0) == 0xC0A0)) {
-		/*
-		 * we have SMSC PHY so reqest interrupt
-		 * on link down condition
-		 */
-
-		/* enable interrupts */
-		write_phy_reg(lp->PhyAddr, 30, 0x0ff);
+	if (new_state) {
+		u32 opmode = bfin_read_EMAC_OPMODE();
+		phy_print_status(phydev);
+		pr_debug("EMAC_OPMODE = 0x%08x\n", opmode);
 	}
+
+	spin_unlock_irqrestore(&lp->lock, flags);
 }
+
+/* MDC  = 2.5 MHz */
+#define MDC_CLK 2500000
+
+static int mii_probe(struct net_device *dev)
+{
+	struct bfin_mac_local *lp = netdev_priv(dev);
+	struct phy_device *phydev = NULL;
+	unsigned short sysctl;
+	int i;
+	u32 sclk, mdc_div;
+
+	/* Enable PHY output early */
+	if (!(bfin_read_VR_CTL() & PHYCLKOE))
+		bfin_write_VR_CTL(bfin_read_VR_CTL() | PHYCLKOE);
+
+	sclk = get_sclk();
+	mdc_div = ((sclk / MDC_CLK) / 2) - 1;
+
+	sysctl = bfin_read_EMAC_SYSCTL();
+	sysctl = (sysctl & ~MDCDIV) | SET_MDCDIV(mdc_div);
+	bfin_write_EMAC_SYSCTL(sysctl);
+
+	/* search for connect PHY device */
+	for (i = 0; i < PHY_MAX_ADDR; i++) {
+		struct phy_device *const tmp_phydev = lp->mii_bus.phy_map[i];
+
+		if (!tmp_phydev)
+			continue; /* no PHY here... */
+
+		phydev = tmp_phydev;
+		break; /* found it */
+	}
+
+	/* now we are supposed to have a proper phydev, to attach to... */
+	if (!phydev) {
+		printk(KERN_INFO "%s: Don't found any phy device at all\n",
+			dev->name);
+		return -ENODEV;
+	}
+
+#if defined(CONFIG_BFIN_MAC_RMII)
+	phydev = phy_connect(dev, phydev->dev.bus_id, &bfin_mac_adjust_link, 0,
+			PHY_INTERFACE_MODE_RMII);
+#else
+	phydev = phy_connect(dev, phydev->dev.bus_id, &bfin_mac_adjust_link, 0,
+			PHY_INTERFACE_MODE_MII);
+#endif
+
+	if (IS_ERR(phydev)) {
+		printk(KERN_ERR "%s: Could not attach to PHY\n", dev->name);
+		return PTR_ERR(phydev);
+	}
+
+	/* mask with MAC supported features */
+	phydev->supported &= (SUPPORTED_10baseT_Half
+			      | SUPPORTED_10baseT_Full
+			      | SUPPORTED_100baseT_Half
+			      | SUPPORTED_100baseT_Full
+			      | SUPPORTED_Autoneg
+			      | SUPPORTED_Pause | SUPPORTED_Asym_Pause
+			      | SUPPORTED_MII
+			      | SUPPORTED_TP);
+
+	phydev->advertising = phydev->supported;
+
+	lp->old_link = 0;
+	lp->old_speed = 0;
+	lp->old_duplex = -1;
+	lp->phydev = phydev;
+
+	printk(KERN_INFO "%s: attached PHY driver [%s] "
+	       "(mii_bus:phy_addr=%s, irq=%d, mdc_clk=%dHz(mdc_div=%d)"
+	       "@sclk=%dMHz)\n",
+	       DRV_NAME, phydev->drv->name, phydev->dev.bus_id, phydev->irq,
+	       MDC_CLK, mdc_div, sclk/1000000);
+
+	return 0;
+}
+
+/*
+ * Ethtool support
+ */
+
+static int
+bfin_mac_ethtool_getsettings(struct net_device *dev, struct ethtool_cmd *cmd)
+{
+	struct bfin_mac_local *lp = netdev_priv(dev);
+
+	if (lp->phydev)
+		return phy_ethtool_gset(lp->phydev, cmd);
+
+	return -EINVAL;
+}
+
+static int
+bfin_mac_ethtool_setsettings(struct net_device *dev, struct ethtool_cmd *cmd)
+{
+	struct bfin_mac_local *lp = netdev_priv(dev);
+
+	if (!capable(CAP_NET_ADMIN))
+		return -EPERM;
+
+	if (lp->phydev)
+		return phy_ethtool_sset(lp->phydev, cmd);
+
+	return -EINVAL;
+}
+
+static void bfin_mac_ethtool_getdrvinfo(struct net_device *dev,
+					struct ethtool_drvinfo *info)
+{
+	strcpy(info->driver, DRV_NAME);
+	strcpy(info->version, DRV_VERSION);
+	strcpy(info->fw_version, "N/A");
+	strcpy(info->bus_info, dev->dev.bus_id);
+}
+
+static struct ethtool_ops bfin_mac_ethtool_ops = {
+	.get_settings = bfin_mac_ethtool_getsettings,
+	.set_settings = bfin_mac_ethtool_setsettings,
+	.get_link = ethtool_op_get_link,
+	.get_drvinfo = bfin_mac_ethtool_getdrvinfo,
+};
 
 /**************************************************************************/
 void setup_system_regs(struct net_device *dev)
 {
-	int phyaddr;
-	unsigned short sysctl, phydat;
-	u32 opmode;
-	struct bf537mac_local *lp = netdev_priv(dev);
-	int count = 0;
+	unsigned short sysctl;
 
-	phyaddr = lp->PhyAddr;
-
-	/* Enable PHY output */
-	if (!(bfin_read_VR_CTL() & PHYCLKOE))
-		bfin_write_VR_CTL(bfin_read_VR_CTL() | PHYCLKOE);
-
-	/* MDC  = 2.5 MHz */
-	sysctl = SET_MDCDIV(24);
-	/* Odd word alignment for Receive Frame DMA word */
-	/* Configure checksum support and rcve frame word alignment */
+	/*
+	 * Odd word alignment for Receive Frame DMA word
+	 * Configure checksum support and rcve frame word alignment
+	 */
+	sysctl = bfin_read_EMAC_SYSCTL();
 #if defined(BFIN_MAC_CSUM_OFFLOAD)
 	sysctl |= RXDWA | RXCKS;
 #else
 	sysctl |= RXDWA;
 #endif
 	bfin_write_EMAC_SYSCTL(sysctl);
-	/* auto negotiation on  */
-	/* full duplex          */
-	/* 100 Mbps             */
-	phydat = PHY_ANEG_EN | PHY_DUPLEX | PHY_SPD_SET;
-	write_phy_reg(phyaddr, PHYREG_MODECTL, phydat);
-
-	/* test if full duplex supported */
-	do {
-		msleep(100);
-		phydat = read_phy_reg(phyaddr, PHYREG_MODESTAT);
-		if (count > 30) {
-			printk(KERN_NOTICE DRV_NAME ": Link is down\n");
-			printk(KERN_NOTICE DRV_NAME
-				 "please check your network connection\n");
-			break;
-		}
-		count++;
-	} while (!(phydat & 0x0004));
-
-	phydat = read_phy_reg(phyaddr, PHYREG_ANLPAR);
-
-	if ((phydat & 0x0100) || (phydat & 0x0040)) {
-		opmode = FDMODE;
-	} else {
-		opmode = 0;
-		printk(KERN_INFO DRV_NAME
-			": Network is set to half duplex\n");
-	}
-
-#if defined(CONFIG_BFIN_MAC_RMII)
-	opmode |= RMII; /* For Now only 100MBit are supported */
-#endif
-
-	bfin_write_EMAC_OPMODE(opmode);
 
 	bfin_write_EMAC_MMC_CTL(RSTC | CROLL);
 
@@ -468,7 +530,7 @@ void setup_system_regs(struct net_device *dev)
 	bfin_write_DMA1_Y_MODIFY(0);
 }
 
-void setup_mac_addr(u8 * mac_addr)
+static void setup_mac_addr(u8 *mac_addr)
 {
 	u32 addr_low = le32_to_cpu(*(__le32 *) & mac_addr[0]);
 	u16 addr_hi = le16_to_cpu(*(__le16 *) & mac_addr[4]);
@@ -476,6 +538,16 @@ void setup_mac_addr(u8 * mac_addr)
 	/* this depends on a little-endian machine */
 	bfin_write_EMAC_ADDRLO(addr_low);
 	bfin_write_EMAC_ADDRHI(addr_hi);
+}
+
+static int bfin_mac_set_mac_address(struct net_device *dev, void *p)
+{
+	struct sockaddr *addr = p;
+	if (netif_running(dev))
+		return -EBUSY;
+	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
+	setup_mac_addr(dev->dev_addr);
+	return 0;
 }
 
 static void adjust_tx_list(void)
@@ -494,7 +566,7 @@ static void adjust_tx_list(void)
 	 */
 	if (current_tx_ptr->next->next == tx_list_head) {
 		while (tx_list_head->status.status_word == 0) {
-			mdelay(10);
+			mdelay(1);
 			if (tx_list_head->status.status_word != 0
 			    || !(bfin_read_DMA2_IRQ_STATUS() & 0x08)) {
 				goto adjust_head;
@@ -530,10 +602,9 @@ adjust_head:
 
 }
 
-static int bf537mac_hard_start_xmit(struct sk_buff *skb,
+static int bfin_mac_hard_start_xmit(struct sk_buff *skb,
 				struct net_device *dev)
 {
-	struct bf537mac_local *lp = netdev_priv(dev);
 	unsigned int data;
 
 	current_tx_ptr->skb = skb;
@@ -584,15 +655,14 @@ out:
 	adjust_tx_list();
 	current_tx_ptr = current_tx_ptr->next;
 	dev->trans_start = jiffies;
-	lp->stats.tx_packets++;
-	lp->stats.tx_bytes += (skb->len);
+	dev->stats.tx_packets++;
+	dev->stats.tx_bytes += (skb->len);
 	return 0;
 }
 
-static void bf537mac_rx(struct net_device *dev)
+static void bfin_mac_rx(struct net_device *dev)
 {
 	struct sk_buff *skb, *new_skb;
-	struct bf537mac_local *lp = netdev_priv(dev);
 	unsigned short len;
 
 	/* allocate a new skb for next time receive */
@@ -601,13 +671,19 @@ static void bf537mac_rx(struct net_device *dev)
 	if (!new_skb) {
 		printk(KERN_NOTICE DRV_NAME
 		       ": rx: low on mem - packet dropped\n");
-		lp->stats.rx_dropped++;
+		dev->stats.rx_dropped++;
 		goto out;
 	}
 	/* reserve 2 bytes for RXDWA padding */
 	skb_reserve(new_skb, 2);
 	current_rx_ptr->skb = new_skb;
 	current_rx_ptr->desc_a.start_addr = (unsigned long)new_skb->data - 2;
+
+	/* Invidate the data cache of skb->data range when it is write back
+	 * cache. It will prevent overwritting the new data from DMA
+	 */
+	blackfin_dcache_invalidate_range((unsigned long)new_skb->head,
+					 (unsigned long)new_skb->end);
 
 	len = (unsigned short)((current_rx_ptr->status.status_word) & RX_FRLEN);
 	skb_put(skb, len);
@@ -619,12 +695,12 @@ static void bf537mac_rx(struct net_device *dev)
 	skb->protocol = eth_type_trans(skb, dev);
 #if defined(BFIN_MAC_CSUM_OFFLOAD)
 	skb->csum = current_rx_ptr->status.ip_payload_csum;
-	skb->ip_summed = CHECKSUM_PARTIAL;
+	skb->ip_summed = CHECKSUM_COMPLETE;
 #endif
 
 	netif_rx(skb);
-	lp->stats.rx_packets++;
-	lp->stats.rx_bytes += len;
+	dev->stats.rx_packets++;
+	dev->stats.rx_bytes += len;
 	current_rx_ptr->status.status_word = 0x00000000;
 	current_rx_ptr = current_rx_ptr->next;
 
@@ -633,7 +709,7 @@ out:
 }
 
 /* interrupt routine to handle rx and error signal */
-static irqreturn_t bf537mac_interrupt(int irq, void *dev_id)
+static irqreturn_t bfin_mac_interrupt(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
 	int number = 0;
@@ -653,21 +729,21 @@ get_one_packet:
 	}
 
 real_rx:
-	bf537mac_rx(dev);
+	bfin_mac_rx(dev);
 	number++;
 	goto get_one_packet;
 }
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
-static void bf537mac_poll(struct net_device *dev)
+static void bfin_mac_poll(struct net_device *dev)
 {
 	disable_irq(IRQ_MAC_RX);
-	bf537mac_interrupt(IRQ_MAC_RX, dev);
+	bfin_mac_interrupt(IRQ_MAC_RX, dev);
 	enable_irq(IRQ_MAC_RX);
 }
 #endif				/* CONFIG_NET_POLL_CONTROLLER */
 
-static void bf537mac_reset(void)
+static void bfin_mac_disable(void)
 {
 	unsigned int opmode;
 
@@ -681,18 +757,18 @@ static void bf537mac_reset(void)
 /*
  * Enable Interrupts, Receive, and Transmit
  */
-static int bf537mac_enable(struct net_device *dev)
+static void bfin_mac_enable(void)
 {
 	u32 opmode;
 
-	pr_debug("%s: %s\n", dev->name, __FUNCTION__);
+	pr_debug("%s: %s\n", DRV_NAME, __FUNCTION__);
 
 	/* Set RX DMA */
 	bfin_write_DMA1_NEXT_DESC_PTR(&(rx_list_head->desc_a));
 	bfin_write_DMA1_CONFIG(rx_list_head->desc_a.config);
 
 	/* Wait MII done */
-	poll_mdc_done();
+	mdio_poll();
 
 	/* We enable only RX here */
 	/* ASTP   : Enable Automatic Pad Stripping
@@ -710,45 +786,62 @@ static int bf537mac_enable(struct net_device *dev)
 
 #if defined(CONFIG_BFIN_MAC_RMII)
 	opmode |= RMII; /* For Now only 100MBit are supported */
-#ifdef CONFIG_BF_REV_0_2
+#if (defined(CONFIG_BF537) || defined(CONFIG_BF536)) && CONFIG_BF_REV_0_2
 	opmode |= TE;
 #endif
 #endif
 	/* Turn on the EMAC rx */
 	bfin_write_EMAC_OPMODE(opmode);
-
-	return 0;
 }
 
 /* Our watchdog timed out. Called by the networking layer */
-static void bf537mac_timeout(struct net_device *dev)
+static void bfin_mac_timeout(struct net_device *dev)
 {
 	pr_debug("%s: %s\n", dev->name, __FUNCTION__);
 
-	bf537mac_reset();
+	bfin_mac_disable();
 
 	/* reset tx queue */
 	tx_list_tail = tx_list_head->next;
 
-	bf537mac_enable(dev);
+	bfin_mac_enable();
 
 	/* We can accept TX packets again */
 	dev->trans_start = jiffies;
 	netif_wake_queue(dev);
 }
 
-/*
- * Get the current statistics.
- * This may be called with the card open or closed.
- */
-static struct net_device_stats *bf537mac_query_statistics(struct net_device
-							  *dev)
+static void bfin_mac_multicast_hash(struct net_device *dev)
 {
-	struct bf537mac_local *lp = netdev_priv(dev);
+	u32 emac_hashhi, emac_hashlo;
+	struct dev_mc_list *dmi = dev->mc_list;
+	char *addrs;
+	int i;
+	u32 crc;
 
-	pr_debug("%s: %s\n", dev->name, __FUNCTION__);
+	emac_hashhi = emac_hashlo = 0;
 
-	return &lp->stats;
+	for (i = 0; i < dev->mc_count; i++) {
+		addrs = dmi->dmi_addr;
+		dmi = dmi->next;
+
+		/* skip non-multicast addresses */
+		if (!(*addrs & 1))
+			continue;
+
+		crc = ether_crc(ETH_ALEN, addrs);
+		crc >>= 26;
+
+		if (crc & 0x20)
+			emac_hashhi |= 1 << (crc & 0x1f);
+		else
+			emac_hashlo |= 1 << (crc & 0x1f);
+	}
+
+	bfin_write_EMAC_HASHHI(emac_hashhi);
+	bfin_write_EMAC_HASHLO(emac_hashlo);
+
+	return;
 }
 
 /*
@@ -757,7 +850,7 @@ static struct net_device_stats *bf537mac_query_statistics(struct net_device
  * promiscuous mode (for TCPDUMP and cousins) or accept
  * a select set of multicast packets
  */
-static void bf537mac_set_multicast_list(struct net_device *dev)
+static void bfin_mac_set_multicast_list(struct net_device *dev)
 {
 	u32 sysctl;
 
@@ -766,11 +859,17 @@ static void bf537mac_set_multicast_list(struct net_device *dev)
 		sysctl = bfin_read_EMAC_OPMODE();
 		sysctl |= RAF;
 		bfin_write_EMAC_OPMODE(sysctl);
-	} else if (dev->flags & IFF_ALLMULTI || dev->mc_count) {
+	} else if (dev->flags & IFF_ALLMULTI) {
 		/* accept all multicast */
 		sysctl = bfin_read_EMAC_OPMODE();
 		sysctl |= PAM;
 		bfin_write_EMAC_OPMODE(sysctl);
+	} else if (dev->mc_count) {
+		/* set up multicast hash table */
+		sysctl = bfin_read_EMAC_OPMODE();
+		sysctl |= HM;
+		bfin_write_EMAC_OPMODE(sysctl);
+		bfin_mac_multicast_hash(dev);
 	} else {
 		/* clear promisc or multicast mode */
 		sysctl = bfin_read_EMAC_OPMODE();
@@ -782,7 +881,7 @@ static void bf537mac_set_multicast_list(struct net_device *dev)
 /*
  * this puts the device in an inactive state
  */
-static void bf537mac_shutdown(struct net_device *dev)
+static void bfin_mac_shutdown(struct net_device *dev)
 {
 	/* Turn off the EMAC */
 	bfin_write_EMAC_OPMODE(0x00000000);
@@ -796,8 +895,9 @@ static void bf537mac_shutdown(struct net_device *dev)
  *
  * Set up everything, reset the card, etc..
  */
-static int bf537mac_open(struct net_device *dev)
+static int bfin_mac_open(struct net_device *dev)
 {
+	struct bfin_mac_local *lp = netdev_priv(dev);
 	int retval;
 	pr_debug("%s: %s\n", dev->name, __FUNCTION__);
 
@@ -817,11 +917,11 @@ static int bf537mac_open(struct net_device *dev)
 	if (retval)
 		return retval;
 
-	bf537mac_setphy(dev);
+	phy_start(lp->phydev);
+	phy_write(lp->phydev, MII_BMCR, BMCR_RESET);
 	setup_system_regs(dev);
-	bf537mac_reset();
-	bf537mac_enable(dev);
-
+	bfin_mac_disable();
+	bfin_mac_enable();
 	pr_debug("hardware init finished\n");
 	netif_start_queue(dev);
 	netif_carrier_on(dev);
@@ -835,15 +935,19 @@ static int bf537mac_open(struct net_device *dev)
  * and not talk to the outside world.   Caused by
  * an 'ifconfig ethX down'
  */
-static int bf537mac_close(struct net_device *dev)
+static int bfin_mac_close(struct net_device *dev)
 {
+	struct bfin_mac_local *lp = netdev_priv(dev);
 	pr_debug("%s: %s\n", dev->name, __FUNCTION__);
 
 	netif_stop_queue(dev);
 	netif_carrier_off(dev);
 
+	phy_stop(lp->phydev);
+	phy_write(lp->phydev, MII_BMCR, BMCR_PDOWN);
+
 	/* clear everything */
-	bf537mac_shutdown(dev);
+	bfin_mac_shutdown(dev);
 
 	/* free the rx/tx buffers */
 	desc_list_free();
@@ -851,121 +955,140 @@ static int bf537mac_close(struct net_device *dev)
 	return 0;
 }
 
-static int __init bf537mac_probe(struct net_device *dev)
+static int __init bfin_mac_probe(struct platform_device *pdev)
 {
-	struct bf537mac_local *lp = netdev_priv(dev);
-	int retval;
+	struct net_device *ndev;
+	struct bfin_mac_local *lp;
+	int rc, i;
+
+	ndev = alloc_etherdev(sizeof(struct bfin_mac_local));
+	if (!ndev) {
+		dev_err(&pdev->dev, "Cannot allocate net device!\n");
+		return -ENOMEM;
+	}
+
+	SET_NETDEV_DEV(ndev, &pdev->dev);
+	platform_set_drvdata(pdev, ndev);
+	lp = netdev_priv(ndev);
 
 	/* Grab the MAC address in the MAC */
-	*(__le32 *) (&(dev->dev_addr[0])) = cpu_to_le32(bfin_read_EMAC_ADDRLO());
-	*(__le16 *) (&(dev->dev_addr[4])) = cpu_to_le16((u16) bfin_read_EMAC_ADDRHI());
+	*(__le32 *) (&(ndev->dev_addr[0])) = cpu_to_le32(bfin_read_EMAC_ADDRLO());
+	*(__le16 *) (&(ndev->dev_addr[4])) = cpu_to_le16((u16) bfin_read_EMAC_ADDRHI());
 
 	/* probe mac */
 	/*todo: how to proble? which is revision_register */
 	bfin_write_EMAC_ADDRLO(0x12345678);
 	if (bfin_read_EMAC_ADDRLO() != 0x12345678) {
-		pr_debug("can't detect bf537 mac!\n");
-		retval = -ENODEV;
-		goto err_out;
+		dev_err(&pdev->dev, "Cannot detect Blackfin on-chip ethernet MAC controller!\n");
+		rc = -ENODEV;
+		goto out_err_probe_mac;
 	}
 
 	/* set the GPIO pins to Ethernet mode */
-	retval = setup_pin_mux(1);
-
-	if (retval)
-		return retval;
-
-	/*Is it valid? (Did bootloader initialize it?) */
-	if (!is_valid_ether_addr(dev->dev_addr)) {
-		/* Grab the MAC from the board somehow - this is done in the
-		   arch/blackfin/mach-bf537/boards/eth_mac.c */
-		get_bf537_ether_addr(dev->dev_addr);
+	rc = peripheral_request_list(pin_req, DRV_NAME);
+	if (rc) {
+		dev_err(&pdev->dev, "Requesting peripherals failed!\n");
+		rc = -EFAULT;
+		goto out_err_setup_pin_mux;
 	}
+
+	/*
+	 * Is it valid? (Did bootloader initialize it?)
+	 * Grab the MAC from the board somehow
+	 * this is done in the arch/blackfin/mach-bfxxx/boards/eth_mac.c
+	 */
+	if (!is_valid_ether_addr(ndev->dev_addr))
+		bfin_get_ether_addr(ndev->dev_addr);
 
 	/* If still not valid, get a random one */
-	if (!is_valid_ether_addr(dev->dev_addr)) {
-		random_ether_addr(dev->dev_addr);
+	if (!is_valid_ether_addr(ndev->dev_addr))
+		random_ether_addr(ndev->dev_addr);
+
+	setup_mac_addr(ndev->dev_addr);
+
+	/* MDIO bus initial */
+	lp->mii_bus.priv = ndev;
+	lp->mii_bus.read = mdiobus_read;
+	lp->mii_bus.write = mdiobus_write;
+	lp->mii_bus.reset = mdiobus_reset;
+	lp->mii_bus.name = "bfin_mac_mdio";
+	snprintf(lp->mii_bus.id, MII_BUS_ID_SIZE, "0");
+	lp->mii_bus.irq = kmalloc(sizeof(int)*PHY_MAX_ADDR, GFP_KERNEL);
+	for (i = 0; i < PHY_MAX_ADDR; ++i)
+		lp->mii_bus.irq[i] = PHY_POLL;
+
+	rc = mdiobus_register(&lp->mii_bus);
+	if (rc) {
+		dev_err(&pdev->dev, "Cannot register MDIO bus!\n");
+		goto out_err_mdiobus_register;
 	}
 
-	setup_mac_addr(dev->dev_addr);
+	rc = mii_probe(ndev);
+	if (rc) {
+		dev_err(&pdev->dev, "MII Probe failed!\n");
+		goto out_err_mii_probe;
+	}
 
 	/* Fill in the fields of the device structure with ethernet values. */
-	ether_setup(dev);
+	ether_setup(ndev);
 
-	dev->open = bf537mac_open;
-	dev->stop = bf537mac_close;
-	dev->hard_start_xmit = bf537mac_hard_start_xmit;
-	dev->tx_timeout = bf537mac_timeout;
-	dev->get_stats = bf537mac_query_statistics;
-	dev->set_multicast_list = bf537mac_set_multicast_list;
+	ndev->open = bfin_mac_open;
+	ndev->stop = bfin_mac_close;
+	ndev->hard_start_xmit = bfin_mac_hard_start_xmit;
+	ndev->set_mac_address = bfin_mac_set_mac_address;
+	ndev->tx_timeout = bfin_mac_timeout;
+	ndev->set_multicast_list = bfin_mac_set_multicast_list;
 #ifdef CONFIG_NET_POLL_CONTROLLER
-	dev->poll_controller = bf537mac_poll;
+	ndev->poll_controller = bfin_mac_poll;
 #endif
+	ndev->ethtool_ops = &bfin_mac_ethtool_ops;
 
-	/* fill in some of the fields */
-	lp->version = 1;
-	lp->PhyAddr = 0x01;
-	lp->CLKIN = 25;
-	lp->FullDuplex = 0;
-	lp->Negotiate = 1;
-	lp->FlowControl = 0;
 	spin_lock_init(&lp->lock);
 
 	/* now, enable interrupts */
 	/* register irq handler */
-	if (request_irq
-	    (IRQ_MAC_RX, bf537mac_interrupt, IRQF_DISABLED | IRQF_SHARED,
-	     "BFIN537_MAC_RX", dev)) {
-		printk(KERN_WARNING DRV_NAME
-		       ": Unable to attach BlackFin MAC RX interrupt\n");
-		return -EBUSY;
+	rc = request_irq(IRQ_MAC_RX, bfin_mac_interrupt,
+			IRQF_DISABLED | IRQF_SHARED, "EMAC_RX", ndev);
+	if (rc) {
+		dev_err(&pdev->dev, "Cannot request Blackfin MAC RX IRQ!\n");
+		rc = -EBUSY;
+		goto out_err_request_irq;
 	}
 
-	/* Enable PHY output early */
-	if (!(bfin_read_VR_CTL() & PHYCLKOE))
-		bfin_write_VR_CTL(bfin_read_VR_CTL() | PHYCLKOE);
-
-	retval = register_netdev(dev);
-	if (retval == 0) {
-		/* now, print out the card info, in a short format.. */
-		printk(KERN_INFO "%s: Version %s, %s\n",
-			 DRV_NAME, DRV_VERSION, DRV_DESC);
+	rc = register_netdev(ndev);
+	if (rc) {
+		dev_err(&pdev->dev, "Cannot register net device!\n");
+		goto out_err_reg_ndev;
 	}
 
-err_out:
-	return retval;
-}
-
-static int bfin_mac_probe(struct platform_device *pdev)
-{
-	struct net_device *ndev;
-
-	ndev = alloc_etherdev(sizeof(struct bf537mac_local));
-	if (!ndev) {
-		printk(KERN_WARNING DRV_NAME ": could not allocate device\n");
-		return -ENOMEM;
-	}
-
-	SET_MODULE_OWNER(ndev);
-	SET_NETDEV_DEV(ndev, &pdev->dev);
-
-	platform_set_drvdata(pdev, ndev);
-
-	if (bf537mac_probe(ndev) != 0) {
-		platform_set_drvdata(pdev, NULL);
-		free_netdev(ndev);
-		printk(KERN_WARNING DRV_NAME ": not found\n");
-		return -ENODEV;
-	}
+	/* now, print out the card info, in a short format.. */
+	dev_info(&pdev->dev, "%s, Version %s\n", DRV_DESC, DRV_VERSION);
 
 	return 0;
+
+out_err_reg_ndev:
+	free_irq(IRQ_MAC_RX, ndev);
+out_err_request_irq:
+out_err_mii_probe:
+	mdiobus_unregister(&lp->mii_bus);
+out_err_mdiobus_register:
+	peripheral_free_list(pin_req);
+out_err_setup_pin_mux:
+out_err_probe_mac:
+	platform_set_drvdata(pdev, NULL);
+	free_netdev(ndev);
+
+	return rc;
 }
 
 static int bfin_mac_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
+	struct bfin_mac_local *lp = netdev_priv(ndev);
 
 	platform_set_drvdata(pdev, NULL);
+
+	mdiobus_unregister(&lp->mii_bus);
 
 	unregister_netdev(ndev);
 
@@ -973,20 +1096,35 @@ static int bfin_mac_remove(struct platform_device *pdev)
 
 	free_netdev(ndev);
 
-	setup_pin_mux(0);
+	peripheral_free_list(pin_req);
 
 	return 0;
 }
 
-static int bfin_mac_suspend(struct platform_device *pdev, pm_message_t state)
+#ifdef CONFIG_PM
+static int bfin_mac_suspend(struct platform_device *pdev, pm_message_t mesg)
 {
+	struct net_device *net_dev = platform_get_drvdata(pdev);
+
+	if (netif_running(net_dev))
+		bfin_mac_close(net_dev);
+
 	return 0;
 }
 
 static int bfin_mac_resume(struct platform_device *pdev)
 {
+	struct net_device *net_dev = platform_get_drvdata(pdev);
+
+	if (netif_running(net_dev))
+		bfin_mac_open(net_dev);
+
 	return 0;
 }
+#else
+#define bfin_mac_suspend NULL
+#define bfin_mac_resume NULL
+#endif	/* CONFIG_PM */
 
 static struct platform_driver bfin_mac_driver = {
 	.probe = bfin_mac_probe,
@@ -994,8 +1132,9 @@ static struct platform_driver bfin_mac_driver = {
 	.resume = bfin_mac_resume,
 	.suspend = bfin_mac_suspend,
 	.driver = {
-		   .name = DRV_NAME,
-		   },
+		.name = DRV_NAME,
+		.owner	= THIS_MODULE,
+	},
 };
 
 static int __init bfin_mac_init(void)
@@ -1011,3 +1150,4 @@ static void __exit bfin_mac_cleanup(void)
 }
 
 module_exit(bfin_mac_cleanup);
+

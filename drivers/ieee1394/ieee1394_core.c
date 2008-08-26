@@ -242,7 +242,7 @@ int hpsb_bus_reset(struct hpsb_host *host)
 {
 	if (host->in_bus_reset) {
 		HPSB_NOTICE("%s called while bus reset already in progress",
-			    __FUNCTION__);
+			    __func__);
 		return 1;
 	}
 
@@ -373,6 +373,8 @@ static void build_speed_map(struct hpsb_host *host, int nodecount)
 			if (sid->port2 == SELFID_PORT_CHILD) cldcnt[n]++;
 
 			speedcap[n] = sid->speed;
+			if (speedcap[n] > host->csr.lnk_spd)
+				speedcap[n] = host->csr.lnk_spd;
 			n--;
 		}
 	}
@@ -488,7 +490,7 @@ void hpsb_selfid_complete(struct hpsb_host *host, int phyid, int isroot)
 	highlevel_host_reset(host);
 }
 
-static spinlock_t pending_packets_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(pending_packets_lock);
 
 /**
  * hpsb_packet_sent - notify core of sending a packet

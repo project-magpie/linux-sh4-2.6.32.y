@@ -25,6 +25,7 @@
 #include <linux/capability.h>
 #include <linux/syscalls.h>
 #include <linux/security.h>
+#include <linux/pid_namespace.h>
 
 static int set_task_ioprio(struct task_struct *task, int ioprio)
 {
@@ -40,18 +41,28 @@ static int set_task_ioprio(struct task_struct *task, int ioprio)
 		return err;
 
 	task_lock(task);
+	do {
+		ioc = task->io_context;
+		/* see wmb() in current_io_context() */
+		smp_read_barrier_depends();
+		if (ioc)
+			break;
 
-	task->ioprio = ioprio;
+		ioc = alloc_io_context(GFP_ATOMIC, -1);
+		if (!ioc) {
+			err = -ENOMEM;
+			break;
+		}
+		task->io_context = ioc;
+	} while (1);
 
-	ioc = task->io_context;
-	/* see wmb() in current_io_context() */
-	smp_read_barrier_depends();
-
-	if (ioc)
+	if (!err) {
+		ioc->ioprio = ioprio;
 		ioc->ioprio_changed = 1;
+	}
 
 	task_unlock(task);
-	return 0;
+	return err;
 }
 
 asmlinkage long sys_ioprio_set(int which, int who, int ioprio)
@@ -74,8 +85,10 @@ asmlinkage long sys_ioprio_set(int which, int who, int ioprio)
 
 			break;
 		case IOPRIO_CLASS_IDLE:
-			if (!capable(CAP_SYS_ADMIN))
-				return -EPERM;
+			break;
+		case IOPRIO_CLASS_NONE:
+			if (data)
+				return -EINVAL;
 			break;
 		default:
 			return -EINVAL;
@@ -93,7 +106,7 @@ asmlinkage long sys_ioprio_set(int which, int who, int ioprio)
 			if (!who)
 				p = current;
 			else
-				p = find_task_by_pid(who);
+				p = find_task_by_vpid(who);
 			if (p)
 				ret = set_task_ioprio(p, ioprio);
 			break;
@@ -101,7 +114,7 @@ asmlinkage long sys_ioprio_set(int which, int who, int ioprio)
 			if (!who)
 				pgrp = task_pgrp(current);
 			else
-				pgrp = find_pid(who);
+				pgrp = find_vpid(who);
 			do_each_pid_task(pgrp, PIDTYPE_PGID, p) {
 				ret = set_task_ioprio(p, ioprio);
 				if (ret)
@@ -143,7 +156,9 @@ static int get_task_ioprio(struct task_struct *p)
 	ret = security_task_getioprio(p);
 	if (ret)
 		goto out;
-	ret = p->ioprio;
+	ret = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_NONE, IOPRIO_NORM);
+	if (p->io_context)
+		ret = p->io_context->ioprio;
 out:
 	return ret;
 }
@@ -180,7 +195,7 @@ asmlinkage long sys_ioprio_get(int which, int who)
 			if (!who)
 				p = current;
 			else
-				p = find_task_by_pid(who);
+				p = find_task_by_vpid(who);
 			if (p)
 				ret = get_task_ioprio(p);
 			break;
@@ -188,7 +203,7 @@ asmlinkage long sys_ioprio_get(int which, int who)
 			if (!who)
 				pgrp = task_pgrp(current);
 			else
-				pgrp = find_pid(who);
+				pgrp = find_vpid(who);
 			do_each_pid_task(pgrp, PIDTYPE_PGID, p) {
 				tmpio = get_task_ioprio(p);
 				if (tmpio < 0)

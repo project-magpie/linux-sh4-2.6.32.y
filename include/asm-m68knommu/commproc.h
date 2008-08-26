@@ -519,25 +519,6 @@ typedef struct scc_enet {
 #define SICR_ENET_CLKRT	((uint)0x00002c00)
 #endif
 
-#ifdef CONFIG_RPXCLASSIC
-/* Bits in parallel I/O port registers that have to be set/cleared
- * to configure the pins for SCC1 use.
- */
-#define PA_ENET_RXD	((ushort)0x0001)
-#define PA_ENET_TXD	((ushort)0x0002)
-#define PA_ENET_TCLK	((ushort)0x0200)
-#define PA_ENET_RCLK	((ushort)0x0800)
-#define PB_ENET_TENA	((uint)0x00001000)
-#define PC_ENET_CLSN	((ushort)0x0010)
-#define PC_ENET_RENA	((ushort)0x0020)
-
-/* Control bits in the SICR to route TCLK (CLK2) and RCLK (CLK4) to
- * SCC1.  Also, make sure GR1 (bit 24) and SC1 (bit 25) are zero.
- */
-#define SICR_ENET_MASK	((uint)0x000000ff)
-#define SICR_ENET_CLKRT	((uint)0x0000003d)
-#endif
-
 /* SCC Event register as used by Ethernet.
 */
 #define SCCE_ENET_GRA	((ushort)0x0080)	/* Graceful stop complete */
@@ -715,7 +696,7 @@ extern void cpm_install_handler(int vec, void (*handler)(void *), void *dev_id);
 #define	CICR_SCC_SCC3		((uint)0x00200000)	/* SCC3 @ SCCc */
 #define	CICR_SCB_SCC2		((uint)0x00040000)	/* SCC2 @ SCCb */
 #define	CICR_SCA_SCC1		((uint)0x00000000)	/* SCC1 @ SCCa */
-#define CICR_IRL_MASK		((uint)0x0000e000)	/* Core interrrupt */
+#define CICR_IRL_MASK		((uint)0x0000e000)	/* Core interrupt */
 #define CICR_HP_MASK		((uint)0x00001f00)	/* Hi-pri int. */
 #define CICR_IEN		((uint)0x00000080)	/* Int. enable */
 #define CICR_SPS		((uint)0x00000001)	/* SCC Spread */

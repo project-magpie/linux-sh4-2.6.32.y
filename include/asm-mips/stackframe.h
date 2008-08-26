@@ -6,6 +6,7 @@
  * Copyright (C) 1994, 95, 96, 99, 2001 Ralf Baechle
  * Copyright (C) 1994, 1995, 1996 Paul M. Antoine.
  * Copyright (C) 1999 Silicon Graphics, Inc.
+ * Copyright (C) 2007  Maciej W. Rozycki
  */
 #ifndef _ASM_STACKFRAME_H
 #define _ASM_STACKFRAME_H
@@ -91,14 +92,14 @@
 #else
 		MFC0	k0, CP0_CONTEXT
 #endif
-#if defined(CONFIG_BUILD_ELF64) || (defined(CONFIG_64BIT) && __GNUC__ < 4)
+#if defined(CONFIG_32BIT) || defined(KBUILD_64BIT_SYM32)
+		lui	k1, %hi(kernelsp)
+#else
 		lui	k1, %highest(kernelsp)
 		daddiu	k1, %higher(kernelsp)
 		dsll	k1, 16
 		daddiu	k1, %hi(kernelsp)
 		dsll	k1, 16
-#else
-		lui	k1, %hi(kernelsp)
 #endif
 		LONG_SRL	k0, PTEBASE_SHIFT
 		LONG_ADDU	k1, k0
@@ -116,14 +117,14 @@
 		.endm
 #else
 		.macro	get_saved_sp	/* Uniprocessor variation */
-#if defined(CONFIG_BUILD_ELF64) || (defined(CONFIG_64BIT) && __GNUC__ < 4)
+#if defined(CONFIG_32BIT) || defined(KBUILD_64BIT_SYM32)
+		lui	k1, %hi(kernelsp)
+#else
 		lui	k1, %highest(kernelsp)
 		daddiu	k1, %higher(kernelsp)
 		dsll	k1, k1, 16
 		daddiu	k1, %hi(kernelsp)
 		dsll	k1, k1, 16
-#else
-		lui	k1, %hi(kernelsp)
 #endif
 		LONG_L	k1, %lo(kernelsp)(k1)
 		.endm
@@ -145,8 +146,16 @@
 		.set	reorder
 		/* Called from user mode, new stack. */
 		get_saved_sp
+#ifndef CONFIG_CPU_DADDI_WORKAROUNDS
 8:		move	k0, sp
 		PTR_SUBU sp, k1, PT_SIZE
+#else
+		.set	at=k0
+8:		PTR_SUBU k1, PT_SIZE
+		.set	noat
+		move	k0, sp
+		move	sp, k1
+#endif
 		LONG_S	k0, PT_R29(sp)
 		LONG_S	$3, PT_R3(sp)
 		/*
@@ -393,11 +402,11 @@
 		 * and disable interrupts only for the
 		 * current TC, using the TCStatus register.
 		 */
-		mfc0	t0,CP0_TCSTATUS
+		mfc0	t0, CP0_TCSTATUS
 		/* Fortunately CU 0 is in the same place in both registers */
 		/* Set TCU0, TMX, TKSU (for later inversion) and IXMT */
 		li	t1, ST0_CU0 | 0x08001c00
-		or	t0,t1
+		or	t0, t1
 		/* Clear TKSU, leave IXMT */
 		xori	t0, 0x00001800
 		mtc0	t0, CP0_TCSTATUS
@@ -429,11 +438,11 @@
 		 * current TC, using the TCStatus register.
 		 */
 		_ehb
-		mfc0	t0,CP0_TCSTATUS
+		mfc0	t0, CP0_TCSTATUS
 		/* Fortunately CU 0 is in the same place in both registers */
 		/* Set TCU0, TKSU (for later inversion) and IXMT */
 		li	t1, ST0_CU0 | 0x08001c00
-		or	t0,t1
+		or	t0, t1
 		/* Clear TKSU *and* IXMT */
 		xori	t0, 0x00001c00
 		mtc0	t0, CP0_TCSTATUS

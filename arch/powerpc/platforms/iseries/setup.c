@@ -26,6 +26,8 @@
 #include <linux/major.h>
 #include <linux/root_dev.h>
 #include <linux/kernel.h>
+#include <linux/hrtimer.h>
+#include <linux/tick.h>
 
 #include <asm/processor.h>
 #include <asm/machdep.h>
@@ -41,7 +43,6 @@
 #include <asm/time.h>
 #include <asm/paca.h>
 #include <asm/cache.h>
-#include <asm/sections.h>
 #include <asm/abs_addr.h>
 #include <asm/iseries/hv_lp_config.h>
 #include <asm/iseries/hv_call_event.h>
@@ -62,6 +63,7 @@
 #include "main_store.h"
 #include "call_sm.h"
 #include "call_hpt.h"
+#include "pci.h"
 
 #ifdef DEBUG
 #define DBG(fmt...) udbg_printf(fmt)
@@ -73,11 +75,6 @@
 static unsigned long build_iSeries_Memory_Map(void);
 static void iseries_shared_idle(void);
 static void iseries_dedicated_idle(void);
-#ifdef CONFIG_PCI
-extern void iSeries_pci_final_fixup(void);
-#else
-static void iSeries_pci_final_fixup(void) { }
-#endif
 
 
 struct MemoryBlock {
@@ -111,13 +108,13 @@ static unsigned long iSeries_process_Condor_mainstore_vpd(
 	 * correctly.
 	 */
 	mb_array[0].logicalStart = 0;
-	mb_array[0].logicalEnd = 0x100000000;
+	mb_array[0].logicalEnd = 0x100000000UL;
 	mb_array[0].absStart = 0;
-	mb_array[0].absEnd = 0x100000000;
+	mb_array[0].absEnd = 0x100000000UL;
 
 	if (holeSize) {
 		numMemoryBlocks = 2;
-		holeStart = holeStart & 0x000fffffffffffff;
+		holeStart = holeStart & 0x000fffffffffffffUL;
 		holeStart = addr_to_chunk(holeStart);
 		holeFirstChunk = holeStart;
 		holeSize = addr_to_chunk(holeSize);
@@ -127,9 +124,9 @@ static unsigned long iSeries_process_Condor_mainstore_vpd(
 		mb_array[0].logicalEnd = holeFirstChunk;
 		mb_array[0].absEnd = holeFirstChunk;
 		mb_array[1].logicalStart = holeFirstChunk;
-		mb_array[1].logicalEnd = 0x100000000 - holeSizeChunks;
+		mb_array[1].logicalEnd = 0x100000000UL - holeSizeChunks;
 		mb_array[1].absStart = holeFirstChunk + holeSizeChunks;
-		mb_array[1].absEnd = 0x100000000;
+		mb_array[1].absEnd = 0x100000000UL;
 	}
 	return numMemoryBlocks;
 }
@@ -233,9 +230,9 @@ static unsigned long iSeries_process_Regatta_mainstore_vpd(
 				mb_array[i].logicalEnd,
 				mb_array[i].absStart, mb_array[i].absEnd);
 		mb_array[i].absStart = addr_to_chunk(mb_array[i].absStart &
-				0x000fffffffffffff);
+				0x000fffffffffffffUL);
 		mb_array[i].absEnd = addr_to_chunk(mb_array[i].absEnd &
-				0x000fffffffffffff);
+				0x000fffffffffffffUL);
 		mb_array[i].logicalStart =
 			addr_to_chunk(mb_array[i].logicalStart);
 		mb_array[i].logicalEnd = addr_to_chunk(mb_array[i].logicalEnd);
@@ -319,7 +316,7 @@ struct mschunks_map mschunks_map = {
 };
 EXPORT_SYMBOL(mschunks_map);
 
-void mschunks_alloc(unsigned long num_chunks)
+static void mschunks_alloc(unsigned long num_chunks)
 {
 	klimit = _ALIGN(klimit, sizeof(u32));
 	mschunks_map.mapping = (u32 *)klimit;
@@ -498,6 +495,8 @@ static void __init iSeries_setup_arch(void)
 			itVpdAreas.xSlicMaxLogicalProcs);
 	printk("Max physical processors = %d\n",
 			itVpdAreas.xSlicMaxPhysicalProcs);
+
+	iSeries_pcibios_init();
 }
 
 static void iSeries_show_cpuinfo(struct seq_file *m)
@@ -562,6 +561,7 @@ static void yield_shared_processor(void)
 static void iseries_shared_idle(void)
 {
 	while (1) {
+		tick_nohz_stop_sched_tick(1);
 		while (!need_resched() && !hvlpevent_is_pending()) {
 			local_irq_disable();
 			ppc64_runlatch_off();
@@ -575,6 +575,7 @@ static void iseries_shared_idle(void)
 		}
 
 		ppc64_runlatch_on();
+		tick_nohz_restart_sched_tick();
 
 		if (hvlpevent_is_pending())
 			process_iSeries_events();
@@ -590,6 +591,7 @@ static void iseries_dedicated_idle(void)
 	set_thread_flag(TIF_POLLING_NRFLAG);
 
 	while (1) {
+		tick_nohz_stop_sched_tick(1);
 		if (!need_resched()) {
 			while (!need_resched()) {
 				ppc64_runlatch_off();
@@ -606,15 +608,12 @@ static void iseries_dedicated_idle(void)
 		}
 
 		ppc64_runlatch_on();
+		tick_nohz_restart_sched_tick();
 		preempt_enable_no_resched();
 		schedule();
 		preempt_disable();
 	}
 }
-
-#ifndef CONFIG_PCI
-void __init iSeries_init_IRQ(void) { }
-#endif
 
 static void __iomem *iseries_ioremap(phys_addr_t address, unsigned long size,
 				     unsigned long flags)
@@ -640,24 +639,25 @@ static int __init iseries_probe(void)
 }
 
 define_machine(iseries) {
-	.name		= "iSeries",
-	.setup_arch	= iSeries_setup_arch,
-	.show_cpuinfo	= iSeries_show_cpuinfo,
-	.init_IRQ	= iSeries_init_IRQ,
-	.get_irq	= iSeries_get_irq,
-	.init_early	= iSeries_init_early,
-	.pcibios_fixup	= iSeries_pci_final_fixup,
-	.restart	= mf_reboot,
-	.power_off	= mf_power_off,
-	.halt		= mf_power_off,
-	.get_boot_time	= iSeries_get_boot_time,
-	.set_rtc_time	= iSeries_set_rtc_time,
-	.get_rtc_time	= iSeries_get_rtc_time,
-	.calibrate_decr	= generic_calibrate_decr,
-	.progress	= iSeries_progress,
-	.probe		= iseries_probe,
-	.ioremap	= iseries_ioremap,
-	.iounmap	= iseries_iounmap,
+	.name			= "iSeries",
+	.setup_arch		= iSeries_setup_arch,
+	.show_cpuinfo		= iSeries_show_cpuinfo,
+	.init_IRQ		= iSeries_init_IRQ,
+	.get_irq		= iSeries_get_irq,
+	.init_early		= iSeries_init_early,
+	.pcibios_fixup		= iSeries_pci_final_fixup,
+	.pcibios_fixup_resources= iSeries_pcibios_fixup_resources,
+	.restart		= mf_reboot,
+	.power_off		= mf_power_off,
+	.halt			= mf_power_off,
+	.get_boot_time		= iSeries_get_boot_time,
+	.set_rtc_time		= iSeries_set_rtc_time,
+	.get_rtc_time		= iSeries_get_rtc_time,
+	.calibrate_decr		= generic_calibrate_decr,
+	.progress		= iSeries_progress,
+	.probe			= iseries_probe,
+	.ioremap		= iseries_ioremap,
+	.iounmap		= iseries_iounmap,
 	/* XXX Implement enable_pmcs for iSeries */
 };
 

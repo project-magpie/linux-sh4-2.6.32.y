@@ -77,8 +77,12 @@
 
 #define SPNEGO_OID_LEN 7
 #define NTLMSSP_OID_LEN  10
+#define KRB5_OID_LEN  7
+#define MSKRB5_OID_LEN  7
 static unsigned long SPNEGO_OID[7] = { 1, 3, 6, 1, 5, 5, 2 };
 static unsigned long NTLMSSP_OID[10] = { 1, 3, 6, 1, 4, 1, 311, 2, 2, 10 };
+static unsigned long KRB5_OID[7] = { 1, 2, 840, 113554, 1, 2, 2 };
+static unsigned long MSKRB5_OID[7] = { 1, 2, 840, 48018, 1, 2, 2 };
 
 /*
  * ASN.1 context.
@@ -182,6 +186,11 @@ asn1_length_decode(struct asn1_ctx *ctx, unsigned int *def, unsigned int *len)
 			}
 		}
 	}
+
+	/* don't trust len bigger than ctx buffer */
+	if (*len > ctx->end - ctx->pointer)
+		return 0;
+
 	return 1;
 }
 
@@ -197,6 +206,10 @@ asn1_header_decode(struct asn1_ctx *ctx,
 		return 0;
 
 	if (!asn1_length_decode(ctx, &def, &len))
+		return 0;
+
+	/* primitive shall be definite, indefinite shall be constructed */
+	if (*con == ASN1_PRI && !def)
 		return 0;
 
 	if (def)
@@ -385,10 +398,14 @@ asn1_oid_decode(struct asn1_ctx *ctx,
 	unsigned long *optr;
 
 	size = eoc - ctx->pointer + 1;
-	*oid = kmalloc(size * sizeof (unsigned long), GFP_ATOMIC);
-	if (*oid == NULL) {
+
+	/* first subid actually encodes first two subids */
+	if (size < 2 || size > UINT_MAX/sizeof(unsigned long))
 		return 0;
-	}
+
+	*oid = kmalloc(size * sizeof(unsigned long), GFP_ATOMIC);
+	if (*oid == NULL)
+		return 0;
 
 	optr = *oid;
 
@@ -457,7 +474,8 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 	unsigned char *sequence_end;
 	unsigned long *oid = NULL;
 	unsigned int cls, con, tag, oidlen, rc;
-	int use_ntlmssp = FALSE;
+	bool use_ntlmssp = false;
+	bool use_kerberos = false;
 
 	*secType = NTLM; /* BB eventually make Kerberos or NLTMSSP the default*/
 
@@ -476,7 +494,7 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 		/*      remember to free obj->oid */
 		rc = asn1_header_decode(&ctx, &end, &cls, &con, &tag);
 		if (rc) {
-			if ((tag == ASN1_OJI) && (cls == ASN1_PRI)) {
+			if ((tag == ASN1_OJI) && (con == ASN1_PRI)) {
 				rc = asn1_oid_decode(&ctx, end, &oid, &oidlen);
 				if (rc) {
 					rc = compare_oid(oid, oidlen,
@@ -546,18 +564,28 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 				return 0;
 			}
 			if ((tag == ASN1_OJI) && (con == ASN1_PRI)) {
-				rc = asn1_oid_decode(&ctx, end, &oid, &oidlen);
-				if (rc) {
+				if (asn1_oid_decode(&ctx, end, &oid, &oidlen)) {
+
 					cFYI(1,
 					  ("OID len = %d oid = 0x%lx 0x%lx "
 					   "0x%lx 0x%lx",
 					   oidlen, *oid, *(oid + 1),
 					   *(oid + 2), *(oid + 3)));
-					rc = compare_oid(oid, oidlen,
-						 NTLMSSP_OID, NTLMSSP_OID_LEN);
+
+					if (compare_oid(oid, oidlen,
+							MSKRB5_OID,
+							MSKRB5_OID_LEN))
+						use_kerberos = true;
+					else if (compare_oid(oid, oidlen,
+							     KRB5_OID,
+							     KRB5_OID_LEN))
+						use_kerberos = true;
+					else if (compare_oid(oid, oidlen,
+							     NTLMSSP_OID,
+							     NTLMSSP_OID_LEN))
+						use_ntlmssp = true;
+
 					kfree(oid);
-					if (rc)
-						use_ntlmssp = TRUE;
 				}
 			} else {
 				cFYI(1, ("Should be an oid what is going on?"));
@@ -581,9 +609,8 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 			return 0;
 		} else if ((cls != ASN1_UNI) || (con != ASN1_CON)
 			   || (tag != ASN1_SEQ)) {
-			cFYI(1,
-			     ("Exit 6 cls = %d con = %d tag = %d end = %p (%d)",
-			      cls, con, tag, end, *end));
+			cFYI(1, ("cls = %d con = %d tag = %d end = %p (%d)",
+				cls, con, tag, end, *end));
 		}
 
 		if (asn1_header_decode(&ctx, &end, &cls, &con, &tag) == 0) {
@@ -611,12 +638,10 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 			 ctx.pointer));	/* is this UTF-8 or ASCII? */
 	}
 
-	/* if (use_kerberos)
-	   *secType = Kerberos
-	   else */
-	if (use_ntlmssp) {
+	if (use_kerberos)
+		*secType = Kerberos;
+	else if (use_ntlmssp)
 		*secType = NTLMSSP;
-	}
 
 	return 1;
 }

@@ -6,7 +6,7 @@
  ******************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2007, R. Byron Moore
+ * Copyright (C) 2000 - 2008, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -182,7 +182,6 @@ acpi_evaluate_object(acpi_handle handle,
 	}
 
 	info->pathname = pathname;
-	info->parameter_type = ACPI_PARAM_ARGS;
 
 	/* Convert and validate the device handle */
 
@@ -442,7 +441,8 @@ acpi_ns_get_device_callback(acpi_handle obj_handle,
 	u32 flags;
 	struct acpica_device_id hid;
 	struct acpi_compatible_id_list *cid;
-	acpi_native_uint i;
+	u32 i;
+	int found;
 
 	status = acpi_ut_acquire_mutex(ACPI_MTX_NAMESPACE);
 	if (ACPI_FAILURE(status)) {
@@ -466,10 +466,13 @@ acpi_ns_get_device_callback(acpi_handle obj_handle,
 		return (AE_CTRL_DEPTH);
 	}
 
-	if (!(flags & ACPI_STA_DEVICE_PRESENT)) {
-
-		/* Don't examine children of the device if not present */
-
+	if (!(flags & ACPI_STA_DEVICE_PRESENT) &&
+	    !(flags & ACPI_STA_DEVICE_FUNCTIONING)) {
+		/*
+		 * Don't examine the children of the device only when the
+		 * device is neither present nor functional. See ACPI spec,
+		 * description of _STA for more information.
+		 */
 		return (AE_CTRL_DEPTH);
 	}
 
@@ -496,16 +499,19 @@ acpi_ns_get_device_callback(acpi_handle obj_handle,
 
 			/* Walk the CID list */
 
+			found = 0;
 			for (i = 0; i < cid->count; i++) {
 				if (ACPI_STRNCMP(cid->id[i].value, info->hid,
 						 sizeof(struct
-							acpi_compatible_id)) !=
+							acpi_compatible_id)) ==
 				    0) {
-					ACPI_FREE(cid);
-					return (AE_OK);
+					found = 1;
+					break;
 				}
 			}
 			ACPI_FREE(cid);
+			if (!found)
+				return (AE_OK);
 		}
 	}
 
@@ -535,7 +541,7 @@ acpi_ns_get_device_callback(acpi_handle obj_handle,
  *              value is returned to the caller.
  *
  *              This is a wrapper for walk_namespace, but the callback performs
- *              additional filtering. Please see acpi_get_device_callback.
+ *              additional filtering. Please see acpi_ns_get_device_callback.
  *
  ******************************************************************************/
 

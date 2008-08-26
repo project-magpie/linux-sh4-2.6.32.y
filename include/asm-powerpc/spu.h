@@ -98,12 +98,13 @@
 #define MFC_PRIV_ATTN_EVENT                 0x00000800
 #define MFC_MULTI_SRC_EVENT                 0x00001000
 
-/* Flags indicating progress during context switch. */
+/* Flag indicating progress during context switch. */
 #define SPU_CONTEXT_SWITCH_PENDING	0UL
-#define SPU_CONTEXT_SWITCH_ACTIVE	1UL
+#define SPU_CONTEXT_FAULT_PENDING	1UL
 
 struct spu_context;
 struct spu_runqueue;
+struct spu_lscsa;
 struct device_node;
 
 enum spu_utilization_state {
@@ -128,9 +129,10 @@ struct spu {
 	unsigned int irqs[3];
 	u32 node;
 	u64 flags;
-	u64 dar;
-	u64 dsisr;
 	u64 class_0_pending;
+	u64 class_0_dar;
+	u64 class_1_dar;
+	u64 class_1_dsisr;
 	size_t ls_size;
 	unsigned int slb_replace;
 	struct mm_struct *mm;
@@ -143,9 +145,8 @@ struct spu {
 
 	void (* wbox_callback)(struct spu *spu);
 	void (* ibox_callback)(struct spu *spu);
-	void (* stop_callback)(struct spu *spu);
+	void (* stop_callback)(struct spu *spu, int irq);
 	void (* mfc_callback)(struct spu *spu);
-	void (* dma_callback)(struct spu *spu, int type);
 
 	char irq_c0[8];
 	char irq_c1[8];
@@ -190,15 +191,17 @@ struct cbe_spu_info {
 	struct list_head spus;
 	int n_spus;
 	int nr_active;
+	atomic_t busy_spus;
 	atomic_t reserved_spus;
 };
 
 extern struct cbe_spu_info cbe_spu_info[];
 
 void spu_init_channels(struct spu *spu);
-int spu_irq_class_0_bottom(struct spu *spu);
-int spu_irq_class_1_bottom(struct spu *spu);
 void spu_irq_setaffinity(struct spu *spu, int cpu);
+
+void spu_setup_kernel_slbs(struct spu *spu, struct spu_lscsa *lscsa,
+		void *code, int code_size);
 
 #ifdef CONFIG_KEXEC
 void crash_register_spus(struct list_head *list);
@@ -210,6 +213,7 @@ static inline void crash_register_spus(struct list_head *list)
 
 extern void spu_invalidate_slbs(struct spu *spu);
 extern void spu_associate_mm(struct spu *spu, struct mm_struct *mm);
+int spu_64k_pages_available(void);
 
 /* Calls from the memory management to the SPU */
 struct mm_struct;
@@ -238,19 +242,15 @@ extern long spu_sys_callback(struct spu_syscall_block *s);
 
 /* syscalls implemented in spufs */
 struct file;
-extern struct spufs_calls {
-	asmlinkage long (*create_thread)(const char __user *name,
+struct spufs_calls {
+	long (*create_thread)(const char __user *name,
 					unsigned int flags, mode_t mode,
 					struct file *neighbor);
-	asmlinkage long (*spu_run)(struct file *filp, __u32 __user *unpc,
+	long (*spu_run)(struct file *filp, __u32 __user *unpc,
 						__u32 __user *ustatus);
-	struct module *owner;
-} spufs_calls;
-
-/* coredump calls implemented in spufs */
-struct spu_coredump_calls {
-	asmlinkage int (*arch_notes_size)(void);
-	asmlinkage void (*arch_write_notes)(struct file *file);
+	int (*coredump_extra_notes_size)(void);
+	int (*coredump_extra_notes_write)(struct file *file, loff_t *foffset);
+	void (*notify_spus_active)(void);
 	struct module *owner;
 };
 
@@ -274,21 +274,8 @@ struct spu_coredump_calls {
 #define SPU_CREATE_FLAG_ALL		0x003f /* mask of all valid flags */
 
 
-#ifdef CONFIG_SPU_FS_MODULE
 int register_spu_syscalls(struct spufs_calls *calls);
 void unregister_spu_syscalls(struct spufs_calls *calls);
-#else
-static inline int register_spu_syscalls(struct spufs_calls *calls)
-{
-	return 0;
-}
-static inline void unregister_spu_syscalls(struct spufs_calls *calls)
-{
-}
-#endif /* MODULE */
-
-int register_arch_coredump_calls(struct spu_coredump_calls *calls);
-void unregister_arch_coredump_calls(struct spu_coredump_calls *calls);
 
 int spu_add_sysdev_attr(struct sysdev_attribute *attr);
 void spu_remove_sysdev_attr(struct sysdev_attribute *attr);
@@ -296,6 +283,8 @@ void spu_remove_sysdev_attr(struct sysdev_attribute *attr);
 int spu_add_sysdev_attr_group(struct attribute_group *attrs);
 void spu_remove_sysdev_attr_group(struct attribute_group *attrs);
 
+int spu_handle_mm_fault(struct mm_struct *mm, unsigned long ea,
+		unsigned long dsisr, unsigned *flt);
 
 /*
  * Notifier blocks:
@@ -316,8 +305,11 @@ struct notifier_block;
 int spu_switch_event_register(struct notifier_block * n);
 int spu_switch_event_unregister(struct notifier_block * n);
 
+extern void notify_spus_active(void);
+extern void do_notify_spus_active(void);
+
 /*
- * This defines the Local Store, Problem Area and Privlege Area of an SPU.
+ * This defines the Local Store, Problem Area and Privilege Area of an SPU.
  */
 
 union mfc_tag_size_class_cmd {
@@ -538,8 +530,24 @@ struct spu_priv1 {
 #define CLASS2_ENABLE_SPU_STOP_INTR			0x2L
 #define CLASS2_ENABLE_SPU_HALT_INTR			0x4L
 #define CLASS2_ENABLE_SPU_DMA_TAG_GROUP_COMPLETE_INTR	0x8L
+#define CLASS2_ENABLE_MAILBOX_THRESHOLD_INTR		0x10L
 	u8  pad_0x118_0x140[0x28];				/* 0x118 */
 	u64 int_stat_RW[3];					/* 0x140 */
+#define CLASS0_DMA_ALIGNMENT_INTR			0x1L
+#define CLASS0_INVALID_DMA_COMMAND_INTR			0x2L
+#define CLASS0_SPU_ERROR_INTR				0x4L
+#define CLASS0_INTR_MASK				0x7L
+#define CLASS1_SEGMENT_FAULT_INTR			0x1L
+#define CLASS1_STORAGE_FAULT_INTR			0x2L
+#define CLASS1_LS_COMPARE_SUSPEND_ON_GET_INTR		0x4L
+#define CLASS1_LS_COMPARE_SUSPEND_ON_PUT_INTR		0x8L
+#define CLASS1_INTR_MASK				0xfL
+#define CLASS2_MAILBOX_INTR				0x1L
+#define CLASS2_SPU_STOP_INTR				0x2L
+#define CLASS2_SPU_HALT_INTR				0x4L
+#define CLASS2_SPU_DMA_TAG_GROUP_COMPLETE_INTR		0x8L
+#define CLASS2_MAILBOX_THRESHOLD_INTR			0x10L
+#define CLASS2_INTR_MASK				0x1fL
 	u8  pad_0x158_0x180[0x28];				/* 0x158 */
 	u64 int_route_RW;					/* 0x180 */
 

@@ -20,6 +20,7 @@
 #include <linux/init.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
+#include <net/net_namespace.h>
 #include <net/sock.h>
 #include <net/x25.h>
 
@@ -40,6 +41,7 @@ found:
 }
 
 static void *x25_seq_route_start(struct seq_file *seq, loff_t *pos)
+	__acquires(x25_route_list_lock)
 {
 	loff_t l = *pos;
 
@@ -69,6 +71,7 @@ out:
 }
 
 static void x25_seq_route_stop(struct seq_file *seq, void *v)
+	__releases(x25_route_list_lock)
 {
 	read_unlock_bh(&x25_route_list_lock);
 }
@@ -104,6 +107,7 @@ found:
 }
 
 static void *x25_seq_socket_start(struct seq_file *seq, loff_t *pos)
+	__acquires(x25_list_lock)
 {
 	loff_t l = *pos;
 
@@ -126,6 +130,7 @@ out:
 }
 
 static void x25_seq_socket_stop(struct seq_file *seq, void *v)
+	__releases(x25_list_lock)
 {
 	read_unlock_bh(&x25_list_lock);
 }
@@ -182,6 +187,7 @@ found:
 }
 
 static void *x25_seq_forward_start(struct seq_file *seq, loff_t *pos)
+	__acquires(x25_forward_list_lock)
 {
 	loff_t l = *pos;
 
@@ -212,6 +218,7 @@ out:
 }
 
 static void x25_seq_forward_stop(struct seq_file *seq, void *v)
+	__releases(x25_forward_list_lock)
 {
 	read_unlock_bh(&x25_forward_list_lock);
 }
@@ -286,7 +293,7 @@ static const struct file_operations x25_seq_route_fops = {
 	.release	= seq_release,
 };
 
-static struct file_operations x25_seq_forward_fops = {
+static const struct file_operations x25_seq_forward_fops = {
 	.owner		= THIS_MODULE,
 	.open		= x25_seq_forward_open,
 	.read		= seq_read,
@@ -301,24 +308,22 @@ int __init x25_proc_init(void)
 	struct proc_dir_entry *p;
 	int rc = -ENOMEM;
 
-	x25_proc_dir = proc_mkdir("x25", proc_net);
+	x25_proc_dir = proc_mkdir("x25", init_net.proc_net);
 	if (!x25_proc_dir)
 		goto out;
 
-	p = create_proc_entry("route", S_IRUGO, x25_proc_dir);
+	p = proc_create("route", S_IRUGO, x25_proc_dir, &x25_seq_route_fops);
 	if (!p)
 		goto out_route;
-	p->proc_fops = &x25_seq_route_fops;
 
-	p = create_proc_entry("socket", S_IRUGO, x25_proc_dir);
+	p = proc_create("socket", S_IRUGO, x25_proc_dir, &x25_seq_socket_fops);
 	if (!p)
 		goto out_socket;
-	p->proc_fops = &x25_seq_socket_fops;
 
-	p = create_proc_entry("forward", S_IRUGO, x25_proc_dir);
+	p = proc_create("forward", S_IRUGO, x25_proc_dir,
+			&x25_seq_forward_fops);
 	if (!p)
 		goto out_forward;
-	p->proc_fops = &x25_seq_forward_fops;
 	rc = 0;
 
 out:
@@ -328,7 +333,7 @@ out_forward:
 out_socket:
 	remove_proc_entry("route", x25_proc_dir);
 out_route:
-	remove_proc_entry("x25", proc_net);
+	remove_proc_entry("x25", init_net.proc_net);
 	goto out;
 }
 
@@ -337,7 +342,7 @@ void __exit x25_proc_exit(void)
 	remove_proc_entry("forward", x25_proc_dir);
 	remove_proc_entry("route", x25_proc_dir);
 	remove_proc_entry("socket", x25_proc_dir);
-	remove_proc_entry("x25", proc_net);
+	remove_proc_entry("x25", init_net.proc_net);
 }
 
 #else /* CONFIG_PROC_FS */

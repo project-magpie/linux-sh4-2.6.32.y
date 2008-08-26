@@ -1,7 +1,7 @@
 /*
  *   ALSA driver for ICEnsemble ICE1712 (Envy24)
  *
- *	Copyright (c) 2000 Jaroslav Kysela <perex@suse.cz>
+ *	Copyright (c) 2000 Jaroslav Kysela <perex@perex.cz>
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -47,7 +47,6 @@
  */
 
 
-#include <sound/driver.h>
 #include <asm/io.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
@@ -73,7 +72,7 @@
 #include "ews.h"
 #include "hoontech.h"
 
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("ICEnsemble ICE1712 (Envy24)");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{"
@@ -256,14 +255,7 @@ static unsigned short snd_ice1712_pro_ac97_read(struct snd_ac97 *ac97,
 /*
  * consumer ac97 digital mix
  */
-static int snd_ice1712_digmix_route_ac97_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_ice1712_digmix_route_ac97_info	snd_ctl_boolean_mono_info
 
 static int snd_ice1712_digmix_route_ac97_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -1300,23 +1292,19 @@ static void snd_ice1712_update_volume(struct snd_ice1712 *ice, int index)
 	outw(val, ICEMT(ice, MONITOR_VOLUME));
 }
 
-static int snd_ice1712_pro_mixer_switch_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 2;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_ice1712_pro_mixer_switch_info	snd_ctl_boolean_stereo_info
 
 static int snd_ice1712_pro_mixer_switch_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_ice1712 *ice = snd_kcontrol_chip(kcontrol);
-	int index = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id) + kcontrol->private_value;
+	int priv_idx = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id) +
+		kcontrol->private_value;
 	
 	spin_lock_irq(&ice->reg_lock);
-	ucontrol->value.integer.value[0] = !((ice->pro_volumes[index] >> 15) & 1);
-	ucontrol->value.integer.value[1] = !((ice->pro_volumes[index] >> 31) & 1);
+	ucontrol->value.integer.value[0] =
+		!((ice->pro_volumes[priv_idx] >> 15) & 1);
+	ucontrol->value.integer.value[1] =
+		!((ice->pro_volumes[priv_idx] >> 31) & 1);
 	spin_unlock_irq(&ice->reg_lock);
 	return 0;
 }
@@ -1324,16 +1312,17 @@ static int snd_ice1712_pro_mixer_switch_get(struct snd_kcontrol *kcontrol, struc
 static int snd_ice1712_pro_mixer_switch_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_ice1712 *ice = snd_kcontrol_chip(kcontrol);
-	int index = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id) + kcontrol->private_value;
+	int priv_idx = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id) +
+		kcontrol->private_value;
 	unsigned int nval, change;
 
 	nval = (ucontrol->value.integer.value[0] ? 0 : 0x00008000) |
 	       (ucontrol->value.integer.value[1] ? 0 : 0x80000000);
 	spin_lock_irq(&ice->reg_lock);
-	nval |= ice->pro_volumes[index] & ~0x80008000;
-	change = nval != ice->pro_volumes[index];
-	ice->pro_volumes[index] = nval;
-	snd_ice1712_update_volume(ice, index);
+	nval |= ice->pro_volumes[priv_idx] & ~0x80008000;
+	change = nval != ice->pro_volumes[priv_idx];
+	ice->pro_volumes[priv_idx] = nval;
+	snd_ice1712_update_volume(ice, priv_idx);
 	spin_unlock_irq(&ice->reg_lock);
 	return change;
 }
@@ -1350,11 +1339,14 @@ static int snd_ice1712_pro_mixer_volume_info(struct snd_kcontrol *kcontrol, stru
 static int snd_ice1712_pro_mixer_volume_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_ice1712 *ice = snd_kcontrol_chip(kcontrol);
-	int index = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id) + kcontrol->private_value;
+	int priv_idx = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id) +
+		kcontrol->private_value;
 	
 	spin_lock_irq(&ice->reg_lock);
-	ucontrol->value.integer.value[0] = (ice->pro_volumes[index] >> 0) & 127;
-	ucontrol->value.integer.value[1] = (ice->pro_volumes[index] >> 16) & 127;
+	ucontrol->value.integer.value[0] =
+		(ice->pro_volumes[priv_idx] >> 0) & 127;
+	ucontrol->value.integer.value[1] =
+		(ice->pro_volumes[priv_idx] >> 16) & 127;
 	spin_unlock_irq(&ice->reg_lock);
 	return 0;
 }
@@ -1362,16 +1354,17 @@ static int snd_ice1712_pro_mixer_volume_get(struct snd_kcontrol *kcontrol, struc
 static int snd_ice1712_pro_mixer_volume_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_ice1712 *ice = snd_kcontrol_chip(kcontrol);
-	int index = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id) + kcontrol->private_value;
+	int priv_idx = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id) +
+		kcontrol->private_value;
 	unsigned int nval, change;
 
 	nval = (ucontrol->value.integer.value[0] & 127) |
 	       ((ucontrol->value.integer.value[1] & 127) << 16);
 	spin_lock_irq(&ice->reg_lock);
-	nval |= ice->pro_volumes[index] & ~0x007f007f;
-	change = nval != ice->pro_volumes[index];
-	ice->pro_volumes[index] = nval;
-	snd_ice1712_update_volume(ice, index);
+	nval |= ice->pro_volumes[priv_idx] & ~0x007f007f;
+	change = nval != ice->pro_volumes[priv_idx];
+	ice->pro_volumes[priv_idx] = nval;
+	snd_ice1712_update_volume(ice, priv_idx);
 	spin_unlock_irq(&ice->reg_lock);
 	return change;
 }
@@ -1759,16 +1752,6 @@ static struct snd_kcontrol_new snd_ice1712_spdif_stream __devinitdata =
 	.put =		snd_ice1712_spdif_stream_put
 };
 
-int snd_ice1712_gpio_info(struct snd_kcontrol *kcontrol,
-			  struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
-
 int snd_ice1712_gpio_get(struct snd_kcontrol *kcontrol,
 			 struct snd_ctl_elem_value *ucontrol)
 {
@@ -1968,15 +1951,7 @@ static struct snd_kcontrol_new snd_ice1712_pro_internal_clock_default __devinitd
 	.put = snd_ice1712_pro_internal_clock_default_put
 };
 
-static int snd_ice1712_pro_rate_locking_info(struct snd_kcontrol *kcontrol,
-					     struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_ice1712_pro_rate_locking_info	snd_ctl_boolean_mono_info
 
 static int snd_ice1712_pro_rate_locking_get(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
@@ -2007,15 +1982,7 @@ static struct snd_kcontrol_new snd_ice1712_pro_rate_locking __devinitdata = {
 	.put = snd_ice1712_pro_rate_locking_put
 };
 
-static int snd_ice1712_pro_rate_reset_info(struct snd_kcontrol *kcontrol,
-					   struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_ice1712_pro_rate_reset_info		snd_ctl_boolean_mono_info
 
 static int snd_ice1712_pro_rate_reset_get(struct snd_kcontrol *kcontrol,
 					  struct snd_ctl_elem_value *ucontrol)
@@ -2523,14 +2490,14 @@ static int snd_ice1712_free(struct snd_ice1712 *ice)
 	outb(0xff, ICEREG(ice, IRQMASK));
 	/* --- */
       __hw_end:
-	if (ice->irq >= 0) {
-		synchronize_irq(ice->irq);
+	if (ice->irq >= 0)
 		free_irq(ice->irq, ice);
-	}
+
 	if (ice->port)
 		pci_release_regions(ice->pci);
 	snd_ice1712_akm4xxx_free(ice);
 	pci_disable_device(ice->pci);
+	kfree(ice->spec);
 	kfree(ice);
 	return 0;
 }

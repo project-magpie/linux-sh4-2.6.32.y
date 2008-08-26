@@ -319,7 +319,7 @@ static struct vortex_chip_info {
 	{"3c920B-EMB-WNM (ATI Radeon 9100 IGP)",
 	 PCI_USES_MASTER, IS_TORNADO|HAS_MII|HAS_HWCKSM, 128, },
 	{"3c980 Cyclone",
-	 PCI_USES_MASTER, IS_CYCLONE|HAS_HWCKSM, 128, },
+	 PCI_USES_MASTER, IS_CYCLONE|HAS_HWCKSM|EXTRA_PREAMBLE, 128, },
 
 	{"3c980C Python-T",
 	 PCI_USES_MASTER, IS_CYCLONE|HAS_NWAY|HAS_HWCKSM, 128, },
@@ -538,10 +538,10 @@ enum MasterCtrl {
 #define LAST_FRAG 	0x80000000			/* Last Addr/Len pair in descriptor. */
 #define DN_COMPLETE	0x00010000			/* This packet has been downloaded */
 struct boom_rx_desc {
-	u32 next;					/* Last entry points to 0.   */
-	s32 status;
-	u32 addr;					/* Up to 63 addr/len pairs possible. */
-	s32 length;					/* Set LAST_FRAG to indicate last pair. */
+	__le32 next;					/* Last entry points to 0.   */
+	__le32 status;
+	__le32 addr;					/* Up to 63 addr/len pairs possible. */
+	__le32 length;					/* Set LAST_FRAG to indicate last pair. */
 };
 /* Values for the Rx status entry. */
 enum rx_desc_status {
@@ -558,16 +558,16 @@ enum rx_desc_status {
 #endif
 
 struct boom_tx_desc {
-	u32 next;					/* Last entry points to 0.   */
-	s32 status;					/* bits 0:12 length, others see below.  */
+	__le32 next;					/* Last entry points to 0.   */
+	__le32 status;					/* bits 0:12 length, others see below.  */
 #if DO_ZEROCOPY
 	struct {
-		u32 addr;
-		s32 length;
+		__le32 addr;
+		__le32 length;
 	} frag[1+MAX_SKB_FRAGS];
 #else
-		u32 addr;
-		s32 length;
+		__le32 addr;
+		__le32 length;
 #endif
 };
 
@@ -600,7 +600,6 @@ struct vortex_private {
 	struct sk_buff* tx_skbuff[TX_RING_SIZE];
 	unsigned int cur_rx, cur_tx;		/* The next free ring entry */
 	unsigned int dirty_rx, dirty_tx;	/* The ring entries to be free()ed. */
-	struct net_device_stats stats;		/* Generic stats */
 	struct vortex_extra_stats xstats;	/* NIC-specific extra stats */
 	struct sk_buff *tx_skb;				/* Packet being eaten by bus master ctrl.  */
 	dma_addr_t tx_skb_dma;				/* Allocated DMA address for bus master ctrl DMA.   */
@@ -705,7 +704,7 @@ static struct {
 
 static int vortex_probe1(struct device *gendev, void __iomem *ioaddr, int irq,
 				   int chip_idx, int card_idx);
-static void vortex_up(struct net_device *dev);
+static int vortex_up(struct net_device *dev);
 static void vortex_down(struct net_device *dev, int final);
 static int vortex_open(struct net_device *dev);
 static void mdio_sync(void __iomem *ioaddr, int bits);
@@ -841,8 +840,11 @@ static int vortex_resume(struct pci_dev *pdev)
 			return -EBUSY;
 		}
 		if (netif_running(dev)) {
-			vortex_up(dev);
-			netif_device_attach(dev);
+			err = vortex_up(dev);
+			if (err)
+				return err;
+			else
+				netif_device_attach(dev);
 		}
 	}
 	return 0;
@@ -1008,9 +1010,10 @@ static int __devinit vortex_probe1(struct device *gendev,
 	static int printed_version;
 	int retval, print_info;
 	struct vortex_chip_info * const vci = &vortex_info_tbl[chip_idx];
-	char *print_name = "3c59x";
+	const char *print_name = "3c59x";
 	struct pci_dev *pdev = NULL;
 	struct eisa_device *edev = NULL;
+	DECLARE_MAC_BUF(mac);
 
 	if (!printed_version) {
 		printk (version);
@@ -1033,7 +1036,6 @@ static int __devinit vortex_probe1(struct device *gendev,
 		printk (KERN_ERR PFX "unable to allocate etherdev, aborting\n");
 		goto out;
 	}
-	SET_MODULE_OWNER(dev);
 	SET_NETDEV_DEV(dev, gendev);
 	vp = netdev_priv(dev);
 
@@ -1128,7 +1130,7 @@ static int __devinit vortex_probe1(struct device *gendev,
 					   + sizeof(struct boom_tx_desc) * TX_RING_SIZE,
 					   &vp->rx_ring_dma);
 	retval = -ENOMEM;
-	if (vp->rx_ring == 0)
+	if (!vp->rx_ring)
 		goto free_region;
 
 	vp->tx_ring = (struct boom_tx_desc *)(vp->rx_ring + RX_RING_SIZE);
@@ -1201,12 +1203,10 @@ static int __devinit vortex_probe1(struct device *gendev,
 	if ((checksum != 0x00) && !(vci->drv_flags & IS_TORNADO))
 		printk(" ***INVALID CHECKSUM %4.4x*** ", checksum);
 	for (i = 0; i < 3; i++)
-		((u16 *)dev->dev_addr)[i] = htons(eeprom[i + 10]);
+		((__be16 *)dev->dev_addr)[i] = htons(eeprom[i + 10]);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
-	if (print_info) {
-		for (i = 0; i < 6; i++)
-			printk("%c%2.2x", i ? ':' : ' ', dev->dev_addr[i]);
-	}
+	if (print_info)
+		printk(" %s", print_mac(mac, dev->dev_addr));
 	/* Unfortunately an all zero eeprom passes the checksum and this
 	   gets found in the wild in failure cases. Crypto is hard 8) */
 	if (!is_valid_ether_addr(dev->dev_addr)) {
@@ -1484,19 +1484,24 @@ static void vortex_check_media(struct net_device *dev, unsigned int init)
 	}
 }
 
-static void
+static int
 vortex_up(struct net_device *dev)
 {
 	struct vortex_private *vp = netdev_priv(dev);
 	void __iomem *ioaddr = vp->ioaddr;
 	unsigned int config;
-	int i, mii_reg1, mii_reg5;
+	int i, mii_reg1, mii_reg5, err = 0;
 
 	if (VORTEX_PCI(vp)) {
 		pci_set_power_state(VORTEX_PCI(vp), PCI_D0);	/* Go active */
 		if (vp->pm_state_valid)
 			pci_restore_state(VORTEX_PCI(vp));
-		pci_enable_device(VORTEX_PCI(vp));
+		err = pci_enable_device(VORTEX_PCI(vp));
+		if (err) {
+			printk(KERN_WARNING "%s: Could not enable device \n",
+				dev->name);
+			goto err_out;
+		}
 	}
 
 	/* Before initializing select the active media port. */
@@ -1661,6 +1666,8 @@ vortex_up(struct net_device *dev)
 	if (vp->cb_fn_base)			/* The PCMCIA people are idiots.  */
 		iowrite32(0x8000, vp->cb_fn_base + 4);
 	netif_start_queue (dev);
+err_out:
+	return err;
 }
 
 static int
@@ -1674,7 +1681,7 @@ vortex_open(struct net_device *dev)
 	if ((retval = request_irq(dev->irq, vp->full_bus_master_rx ?
 				&boomerang_interrupt : &vortex_interrupt, IRQF_SHARED, dev->name, dev))) {
 		printk(KERN_ERR "%s: Could not reserve IRQ %d\n", dev->name, dev->irq);
-		goto out;
+		goto err;
 	}
 
 	if (vp->full_bus_master_rx) { /* Boomerang bus master. */
@@ -1703,20 +1710,22 @@ vortex_open(struct net_device *dev)
 				}
 			}
 			retval = -ENOMEM;
-			goto out_free_irq;
+			goto err_free_irq;
 		}
 		/* Wrap the ring. */
 		vp->rx_ring[i-1].next = cpu_to_le32(vp->rx_ring_dma);
 	}
 
-	vortex_up(dev);
-	return 0;
+	retval = vortex_up(dev);
+	if (!retval)
+		goto out;
 
-out_free_irq:
+err_free_irq:
 	free_irq(dev->irq, dev);
-out:
+err:
 	if (vortex_debug > 1)
 		printk(KERN_ERR "%s: vortex_open() fails: returning %d\n", dev->name, retval);
+out:
 	return retval;
 }
 
@@ -1759,9 +1768,10 @@ vortex_timer(unsigned long data)
 	case XCVR_MII: case XCVR_NWAY:
 		{
 			ok = 1;
-			spin_lock_bh(&vp->lock);
+			/* Interrupts are already disabled */
+			spin_lock(&vp->lock);
 			vortex_check_media(dev, 0);
-			spin_unlock_bh(&vp->lock);
+			spin_unlock(&vp->lock);
 		}
 		break;
 	  default:					/* Other media types handled by Tx timeouts. */
@@ -1865,7 +1875,7 @@ static void vortex_tx_timeout(struct net_device *dev)
 
 	issue_and_wait(dev, TxReset);
 
-	vp->stats.tx_errors++;
+	dev->stats.tx_errors++;
 	if (vp->full_bus_master_tx) {
 		printk(KERN_DEBUG "%s: Resetting the Tx ring pointer.\n", dev->name);
 		if (vp->cur_tx - vp->dirty_tx > 0  &&  ioread32(ioaddr + DownListPtr) == 0)
@@ -1877,7 +1887,7 @@ static void vortex_tx_timeout(struct net_device *dev)
 			iowrite8(PKT_BUF_SZ>>8, ioaddr + TxFreeThreshold);
 		iowrite16(DownUnstall, ioaddr + EL3_CMD);
 	} else {
-		vp->stats.tx_dropped++;
+		dev->stats.tx_dropped++;
 		netif_wake_queue(dev);
 	}
 
@@ -1918,8 +1928,8 @@ vortex_error(struct net_device *dev, int status)
 			}
 			dump_tx_ring(dev);
 		}
-		if (tx_status & 0x14)  vp->stats.tx_fifo_errors++;
-		if (tx_status & 0x38)  vp->stats.tx_aborted_errors++;
+		if (tx_status & 0x14)  dev->stats.tx_fifo_errors++;
+		if (tx_status & 0x38)  dev->stats.tx_aborted_errors++;
 		if (tx_status & 0x08)  vp->xstats.tx_max_collisions++;
 		iowrite8(0, ioaddr + TxStatus);
 		if (tx_status & 0x30) {			/* txJabber or txUnderrun */
@@ -2041,8 +2051,8 @@ vortex_start_xmit(struct sk_buff *skb, struct net_device *dev)
 				if (vortex_debug > 2)
 				  printk(KERN_DEBUG "%s: Tx error, status %2.2x.\n",
 						 dev->name, tx_status);
-				if (tx_status & 0x04) vp->stats.tx_fifo_errors++;
-				if (tx_status & 0x38) vp->stats.tx_aborted_errors++;
+				if (tx_status & 0x04) dev->stats.tx_fifo_errors++;
+				if (tx_status & 0x38) dev->stats.tx_aborted_errors++;
 				if (tx_status & 0x30) {
 					issue_and_wait(dev, TxReset);
 				}
@@ -2340,7 +2350,7 @@ boomerang_interrupt(int irq, void *dev_id)
 				} else {
 					printk(KERN_DEBUG "boomerang_interrupt: no skb!\n");
 				}
-				/* vp->stats.tx_packets++;  Counted below. */
+				/* dev->stats.tx_packets++;  Counted below. */
 				dirty_tx++;
 			}
 			vp->dirty_tx = dirty_tx;
@@ -2399,12 +2409,12 @@ static int vortex_rx(struct net_device *dev)
 			unsigned char rx_error = ioread8(ioaddr + RxErrors);
 			if (vortex_debug > 2)
 				printk(KERN_DEBUG " Rx error: status %2.2x.\n", rx_error);
-			vp->stats.rx_errors++;
-			if (rx_error & 0x01)  vp->stats.rx_over_errors++;
-			if (rx_error & 0x02)  vp->stats.rx_length_errors++;
-			if (rx_error & 0x04)  vp->stats.rx_frame_errors++;
-			if (rx_error & 0x08)  vp->stats.rx_crc_errors++;
-			if (rx_error & 0x10)  vp->stats.rx_length_errors++;
+			dev->stats.rx_errors++;
+			if (rx_error & 0x01)  dev->stats.rx_over_errors++;
+			if (rx_error & 0x02)  dev->stats.rx_length_errors++;
+			if (rx_error & 0x04)  dev->stats.rx_frame_errors++;
+			if (rx_error & 0x08)  dev->stats.rx_crc_errors++;
+			if (rx_error & 0x10)  dev->stats.rx_length_errors++;
 		} else {
 			/* The packet length: up to 4.5K!. */
 			int pkt_len = rx_status & 0x1fff;
@@ -2436,7 +2446,7 @@ static int vortex_rx(struct net_device *dev)
 				skb->protocol = eth_type_trans(skb, dev);
 				netif_rx(skb);
 				dev->last_rx = jiffies;
-				vp->stats.rx_packets++;
+				dev->stats.rx_packets++;
 				/* Wait a limited time to go to next packet. */
 				for (i = 200; i >= 0; i--)
 					if ( ! (ioread16(ioaddr + EL3_STATUS) & CmdInProgress))
@@ -2445,7 +2455,7 @@ static int vortex_rx(struct net_device *dev)
 			} else if (vortex_debug > 0)
 				printk(KERN_NOTICE "%s: No memory to allocate a sk_buff of "
 					   "size %d.\n", dev->name, pkt_len);
-			vp->stats.rx_dropped++;
+			dev->stats.rx_dropped++;
 		}
 		issue_and_wait(dev, RxDiscard);
 	}
@@ -2472,12 +2482,12 @@ boomerang_rx(struct net_device *dev)
 			unsigned char rx_error = rx_status >> 16;
 			if (vortex_debug > 2)
 				printk(KERN_DEBUG " Rx error: status %2.2x.\n", rx_error);
-			vp->stats.rx_errors++;
-			if (rx_error & 0x01)  vp->stats.rx_over_errors++;
-			if (rx_error & 0x02)  vp->stats.rx_length_errors++;
-			if (rx_error & 0x04)  vp->stats.rx_frame_errors++;
-			if (rx_error & 0x08)  vp->stats.rx_crc_errors++;
-			if (rx_error & 0x10)  vp->stats.rx_length_errors++;
+			dev->stats.rx_errors++;
+			if (rx_error & 0x01)  dev->stats.rx_over_errors++;
+			if (rx_error & 0x02)  dev->stats.rx_length_errors++;
+			if (rx_error & 0x04)  dev->stats.rx_frame_errors++;
+			if (rx_error & 0x08)  dev->stats.rx_crc_errors++;
+			if (rx_error & 0x10)  dev->stats.rx_length_errors++;
 		} else {
 			/* The packet length: up to 4.5K!. */
 			int pkt_len = rx_status & 0x1fff;
@@ -2490,7 +2500,7 @@ boomerang_rx(struct net_device *dev)
 
 			/* Check if the packet is long enough to just accept without
 			   copying to a properly sized skbuff. */
-			if (pkt_len < rx_copybreak && (skb = dev_alloc_skb(pkt_len + 2)) != 0) {
+			if (pkt_len < rx_copybreak && (skb = dev_alloc_skb(pkt_len + 2)) != NULL) {
 				skb_reserve(skb, 2);	/* Align IP on 16 byte boundaries */
 				pci_dma_sync_single_for_cpu(VORTEX_PCI(vp), dma, PKT_BUF_SZ, PCI_DMA_FROMDEVICE);
 				/* 'skb_put()' points to the start of sk_buff data area. */
@@ -2519,7 +2529,7 @@ boomerang_rx(struct net_device *dev)
 			}
 			netif_rx(skb);
 			dev->last_rx = jiffies;
-			vp->stats.rx_packets++;
+			dev->stats.rx_packets++;
 		}
 		entry = (++vp->cur_rx) % RX_RING_SIZE;
 	}
@@ -2581,7 +2591,7 @@ vortex_down(struct net_device *dev, int final_down)
 	del_timer_sync(&vp->rx_oom_timer);
 	del_timer_sync(&vp->timer);
 
-	/* Turn off statistics ASAP.  We update vp->stats below. */
+	/* Turn off statistics ASAP.  We update dev->stats below. */
 	iowrite16(StatsDisable, ioaddr + EL3_CMD);
 
 	/* Disable the receiver and transmitter. */
@@ -2718,7 +2728,7 @@ static struct net_device_stats *vortex_get_stats(struct net_device *dev)
 		update_stats(ioaddr, dev);
 		spin_unlock_irqrestore (&vp->lock, flags);
 	}
-	return &vp->stats;
+	return &dev->stats;
 }
 
 /*  Update statistics.
@@ -2738,18 +2748,18 @@ static void update_stats(void __iomem *ioaddr, struct net_device *dev)
 	/* Unlike the 3c5x9 we need not turn off stats updates while reading. */
 	/* Switch to the stats window, and read everything. */
 	EL3WINDOW(6);
-	vp->stats.tx_carrier_errors		+= ioread8(ioaddr + 0);
-	vp->stats.tx_heartbeat_errors		+= ioread8(ioaddr + 1);
-	vp->stats.tx_window_errors		+= ioread8(ioaddr + 4);
-	vp->stats.rx_fifo_errors		+= ioread8(ioaddr + 5);
-	vp->stats.tx_packets			+= ioread8(ioaddr + 6);
-	vp->stats.tx_packets			+= (ioread8(ioaddr + 9)&0x30) << 4;
+	dev->stats.tx_carrier_errors		+= ioread8(ioaddr + 0);
+	dev->stats.tx_heartbeat_errors		+= ioread8(ioaddr + 1);
+	dev->stats.tx_window_errors		+= ioread8(ioaddr + 4);
+	dev->stats.rx_fifo_errors		+= ioread8(ioaddr + 5);
+	dev->stats.tx_packets			+= ioread8(ioaddr + 6);
+	dev->stats.tx_packets			+= (ioread8(ioaddr + 9)&0x30) << 4;
 	/* Rx packets	*/			ioread8(ioaddr + 7);   /* Must read to clear */
 	/* Don't bother with register 9, an extension of registers 6&7.
 	   If we do use the 6&7 values the atomic update assumption above
 	   is invalid. */
-	vp->stats.rx_bytes 			+= ioread16(ioaddr + 10);
-	vp->stats.tx_bytes 			+= ioread16(ioaddr + 12);
+	dev->stats.rx_bytes 			+= ioread16(ioaddr + 10);
+	dev->stats.tx_bytes 			+= ioread16(ioaddr + 12);
 	/* Extra stats for get_ethtool_stats() */
 	vp->xstats.tx_multiple_collisions	+= ioread8(ioaddr + 2);
 	vp->xstats.tx_single_collisions         += ioread8(ioaddr + 3);
@@ -2757,14 +2767,14 @@ static void update_stats(void __iomem *ioaddr, struct net_device *dev)
 	EL3WINDOW(4);
 	vp->xstats.rx_bad_ssd			+= ioread8(ioaddr + 12);
 
-	vp->stats.collisions = vp->xstats.tx_multiple_collisions
+	dev->stats.collisions = vp->xstats.tx_multiple_collisions
 		+ vp->xstats.tx_single_collisions
 		+ vp->xstats.tx_max_collisions;
 
 	{
 		u8 up = ioread8(ioaddr + 13);
-		vp->stats.rx_bytes += (up & 0x0f) << 16;
-		vp->stats.tx_bytes += (up & 0xf0) << 12;
+		dev->stats.rx_bytes += (up & 0x0f) << 16;
+		dev->stats.tx_bytes += (up & 0xf0) << 12;
 	}
 
 	EL3WINDOW(old_window >> 13);
@@ -2823,9 +2833,14 @@ static void vortex_set_msglevel(struct net_device *dev, u32 dbg)
 	vortex_debug = dbg;
 }
 
-static int vortex_get_stats_count(struct net_device *dev)
+static int vortex_get_sset_count(struct net_device *dev, int sset)
 {
-	return VORTEX_NUM_STATS;
+	switch (sset) {
+	case ETH_SS_STATS:
+		return VORTEX_NUM_STATS;
+	default:
+		return -EOPNOTSUPP;
+	}
 }
 
 static void vortex_get_ethtool_stats(struct net_device *dev,
@@ -2882,7 +2897,7 @@ static const struct ethtool_ops vortex_ethtool_ops = {
 	.get_msglevel           = vortex_get_msglevel,
 	.set_msglevel           = vortex_set_msglevel,
 	.get_ethtool_stats      = vortex_get_ethtool_stats,
-	.get_stats_count        = vortex_get_stats_count,
+	.get_sset_count		= vortex_get_sset_count,
 	.get_settings           = vortex_get_settings,
 	.set_settings           = vortex_set_settings,
 	.get_link               = ethtool_op_get_link,
@@ -2899,7 +2914,7 @@ static int vortex_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 	struct vortex_private *vp = netdev_priv(dev);
 	void __iomem *ioaddr = vp->ioaddr;
 	unsigned long flags;
-	int state = 0;
+	pci_power_t state = 0;
 
 	if(VORTEX_PCI(vp))
 		state = VORTEX_PCI(vp)->current_state;
@@ -3103,7 +3118,13 @@ static void acpi_set_WOL(struct net_device *dev)
 		iowrite16(SetRxFilter|RxStation|RxMulticast|RxBroadcast, ioaddr + EL3_CMD);
 		iowrite16(RxEnable, ioaddr + EL3_CMD);
 
-		pci_enable_wake(VORTEX_PCI(vp), 0, 1);
+		if (pci_enable_wake(VORTEX_PCI(vp), PCI_D3hot, 1)) {
+			printk(KERN_INFO "%s: WOL not supported.\n",
+					pci_name(VORTEX_PCI(vp)));
+
+			vp->enable_wol = 0;
+			return;
+		}
 
 		/* Change the power state to D3; RxEnable doesn't take effect. */
 		pci_set_power_state(VORTEX_PCI(vp), PCI_D3hot);

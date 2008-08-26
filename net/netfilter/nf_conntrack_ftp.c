@@ -43,7 +43,7 @@ module_param_array(ports, ushort, &ports_c, 0400);
 static int loose;
 module_param(loose, bool, 0600);
 
-unsigned int (*nf_nat_ftp_hook)(struct sk_buff **pskb,
+unsigned int (*nf_nat_ftp_hook)(struct sk_buff *skb,
 				enum ip_conntrack_info ctinfo,
 				enum nf_ct_ftp_type type,
 				unsigned int matchoff,
@@ -344,21 +344,22 @@ static void update_nl_seq(u32 nl_seq, struct nf_ct_ftp_master *info, int dir,
 	}
 }
 
-static int help(struct sk_buff **pskb,
+static int help(struct sk_buff *skb,
 		unsigned int protoff,
 		struct nf_conn *ct,
 		enum ip_conntrack_info ctinfo)
 {
 	unsigned int dataoff, datalen;
-	struct tcphdr _tcph, *th;
-	char *fb_ptr;
+	const struct tcphdr *th;
+	struct tcphdr _tcph;
+	const char *fb_ptr;
 	int ret;
 	u32 seq;
 	int dir = CTINFO2DIR(ctinfo);
 	unsigned int matchlen, matchoff;
 	struct nf_ct_ftp_master *ct_ftp_info = &nfct_help(ct)->help.ct_ftp_info;
 	struct nf_conntrack_expect *exp;
-	union nf_conntrack_address *daddr;
+	union nf_inet_addr *daddr;
 	struct nf_conntrack_man cmd = {};
 	unsigned int i;
 	int found = 0, ends_in_nl;
@@ -371,21 +372,21 @@ static int help(struct sk_buff **pskb,
 		return NF_ACCEPT;
 	}
 
-	th = skb_header_pointer(*pskb, protoff, sizeof(_tcph), &_tcph);
+	th = skb_header_pointer(skb, protoff, sizeof(_tcph), &_tcph);
 	if (th == NULL)
 		return NF_ACCEPT;
 
 	dataoff = protoff + th->doff * 4;
 	/* No data? */
-	if (dataoff >= (*pskb)->len) {
+	if (dataoff >= skb->len) {
 		pr_debug("ftp: dataoff(%u) >= skblen(%u)\n", dataoff,
-			 (*pskb)->len);
+			 skb->len);
 		return NF_ACCEPT;
 	}
-	datalen = (*pskb)->len - dataoff;
+	datalen = skb->len - dataoff;
 
 	spin_lock_bh(&nf_ftp_lock);
-	fb_ptr = skb_header_pointer(*pskb, dataoff, datalen, ftp_buffer);
+	fb_ptr = skb_header_pointer(skb, dataoff, datalen, ftp_buffer);
 	BUG_ON(fb_ptr == NULL);
 
 	ends_in_nl = (fb_ptr[datalen - 1] == '\n');
@@ -405,7 +406,7 @@ static int help(struct sk_buff **pskb,
 
 	/* Initialize IP/IPv6 addr to expected address (it's not mentioned
 	   in EPSV responses) */
-	cmd.l3num = ct->tuplehash[dir].tuple.src.l3num;
+	cmd.l3num = nf_ct_l3num(ct);
 	memcpy(cmd.u3.all, &ct->tuplehash[dir].tuple.src.u3.all,
 	       sizeof(cmd.u3.all));
 
@@ -452,7 +453,7 @@ static int help(struct sk_buff **pskb,
 	daddr = &ct->tuplehash[!dir].tuple.dst.u3;
 
 	/* Update the ftp info */
-	if ((cmd.l3num == ct->tuplehash[dir].tuple.src.l3num) &&
+	if ((cmd.l3num == nf_ct_l3num(ct)) &&
 	    memcmp(&cmd.u3.all, &ct->tuplehash[dir].tuple.src.u3.all,
 		     sizeof(cmd.u3.all))) {
 		/* Enrico Scholz's passive FTP to partially RNAT'd ftp
@@ -483,7 +484,7 @@ static int help(struct sk_buff **pskb,
 		daddr = &cmd.u3;
 	}
 
-	nf_ct_expect_init(exp, cmd.l3num,
+	nf_ct_expect_init(exp, NF_CT_EXPECT_CLASS_DEFAULT, cmd.l3num,
 			  &ct->tuplehash[!dir].tuple.src.u3, daddr,
 			  IPPROTO_TCP, NULL, &cmd.u.tcp.port);
 
@@ -491,7 +492,7 @@ static int help(struct sk_buff **pskb,
 	 * (possibly changed) expectation itself. */
 	nf_nat_ftp = rcu_dereference(nf_nat_ftp_hook);
 	if (nf_nat_ftp && ct->status & IPS_NAT_MASK)
-		ret = nf_nat_ftp(pskb, ctinfo, search[dir][i].ftptype,
+		ret = nf_nat_ftp(skb, ctinfo, search[dir][i].ftptype,
 				 matchoff, matchlen, exp);
 	else {
 		/* Can't expect this?  Best to drop packet now. */
@@ -508,7 +509,7 @@ out_update_nl:
 	/* Now if this ends in \n, update ftp info.  Seq may have been
 	 * adjusted by NAT code. */
 	if (ends_in_nl)
-		update_nl_seq(seq, ct_ftp_info, dir, *pskb);
+		update_nl_seq(seq, ct_ftp_info, dir, skb);
  out:
 	spin_unlock_bh(&nf_ftp_lock);
 	return ret;
@@ -516,6 +517,11 @@ out_update_nl:
 
 static struct nf_conntrack_helper ftp[MAX_PORTS][2] __read_mostly;
 static char ftp_names[MAX_PORTS][2][sizeof("ftp-65535")] __read_mostly;
+
+static const struct nf_conntrack_expect_policy ftp_exp_policy = {
+	.max_expected	= 1,
+	.timeout	= 5 * 60,
+};
 
 /* don't make this __exit, since it's called from __init ! */
 static void nf_conntrack_ftp_fini(void)
@@ -556,8 +562,7 @@ static int __init nf_conntrack_ftp_init(void)
 		for (j = 0; j < 2; j++) {
 			ftp[i][j].tuple.src.u.tcp.port = htons(ports[i]);
 			ftp[i][j].tuple.dst.protonum = IPPROTO_TCP;
-			ftp[i][j].max_expected = 1;
-			ftp[i][j].timeout = 5 * 60;	/* 5 Minutes */
+			ftp[i][j].expect_policy = &ftp_exp_policy;
 			ftp[i][j].me = THIS_MODULE;
 			ftp[i][j].help = help;
 			tmpname = &ftp_names[i][j][0];

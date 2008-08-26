@@ -48,20 +48,6 @@
 #define CPUID_TCM	2
 #define CPUID_TLBTYPE	3
 
-#ifdef CONFIG_CPU_CP15
-#define read_cpuid(reg)							\
-	({								\
-		unsigned int __val;					\
-		asm("mrc	p15, 0, %0, c0, c0, " __stringify(reg)	\
-		    : "=r" (__val)					\
-		    :							\
-		    : "cc");						\
-		__val;							\
-	})
-#else
-#define read_cpuid(reg) (processor_id)
-#endif
-
 /*
  * This is used to ensure the compiler did actually allocate the register we
  * asked it for some inline assembly sequences.  Apparently we can't trust
@@ -75,7 +61,35 @@
 #ifndef __ASSEMBLY__
 
 #include <linux/linkage.h>
+#include <linux/stringify.h>
 #include <linux/irqflags.h>
+
+#ifdef CONFIG_CPU_CP15
+#define read_cpuid(reg)							\
+	({								\
+		unsigned int __val;					\
+		asm("mrc	p15, 0, %0, c0, c0, " __stringify(reg)	\
+		    : "=r" (__val)					\
+		    :							\
+		    : "cc");						\
+		__val;							\
+	})
+#else
+extern unsigned int processor_id;
+#define read_cpuid(reg) (processor_id)
+#endif
+
+/*
+ * The CPU ID never changes at run time, so we might as well tell the
+ * compiler that it's constant.  Use this function to read the CPU ID
+ * rather than directly reading processor_id or read_cpuid() directly.
+ */
+static inline unsigned int read_cpuid_id(void) __attribute_const__;
+
+static inline unsigned int read_cpuid_id(void)
+{
+	return read_cpuid(CPUID_ID);
+}
 
 #define __exception	__attribute__((section(".exception.text")))
 
@@ -349,6 +363,21 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr, int size
 
 extern void disable_hlt(void);
 extern void enable_hlt(void);
+
+#include <asm-generic/cmpxchg-local.h>
+
+/*
+ * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
+ * them available.
+ */
+#define cmpxchg_local(ptr, o, n)				  	       \
+	((__typeof__(*(ptr)))__cmpxchg_local_generic((ptr), (unsigned long)(o),\
+			(unsigned long)(n), sizeof(*(ptr))))
+#define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
+
+#ifndef CONFIG_SMP
+#include <asm-generic/cmpxchg.h>
+#endif
 
 #endif /* __ASSEMBLY__ */
 

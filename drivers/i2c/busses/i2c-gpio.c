@@ -140,6 +140,7 @@ static int __init i2c_gpio_probe(struct platform_device *pdev)
 	adap->owner = THIS_MODULE;
 	snprintf(adap->name, sizeof(adap->name), "i2c-gpio%d", pdev->id);
 	adap->algo_data = bit_data;
+	adap->class = I2C_CLASS_HWMON | I2C_CLASS_SPD;
 	adap->dev.parent = &pdev->dev;
 
 	/*
@@ -219,3 +220,4 @@ module_exit(i2c_gpio_exit);
 MODULE_AUTHOR("Haavard Skinnemoen <hskinnemoen@atmel.com>");
 MODULE_DESCRIPTION("Platform-independent bitbanging I2C driver");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:i2c-gpio");

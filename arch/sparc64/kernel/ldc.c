@@ -1,6 +1,6 @@
 /* ldc.c: Logical Domain Channel link-layer protocol driver.
  *
- * Copyright (C) 2007 David S. Miller <davem@davemloft.net>
+ * Copyright (C) 2007, 2008 David S. Miller <davem@davemloft.net>
  */
 
 #include <linux/kernel.h>
@@ -23,8 +23,8 @@
 
 #define DRV_MODULE_NAME		"ldc"
 #define PFX DRV_MODULE_NAME	": "
-#define DRV_MODULE_VERSION	"1.0"
-#define DRV_MODULE_RELDATE	"June 25, 2007"
+#define DRV_MODULE_VERSION	"1.1"
+#define DRV_MODULE_RELDATE	"July 22, 2008"
 
 static char version[] __devinitdata =
 	DRV_MODULE_NAME ".c:v" DRV_MODULE_VERSION " (" DRV_MODULE_RELDATE ")\n";
@@ -1235,13 +1235,9 @@ int ldc_bind(struct ldc_channel *lp, const char *name)
 	unsigned long hv_err, flags;
 	int err = -EINVAL;
 
-	spin_lock_irqsave(&lp->lock, flags);
-
-	if (!name)
-		goto out_err;
-
-	if (lp->state != LDC_STATE_INIT)
-		goto out_err;
+	if (!name ||
+	    (lp->state != LDC_STATE_INIT))
+		return -EINVAL;
 
 	snprintf(lp->rx_irq_name, LDC_IRQ_NAME_MAX, "%s RX", name);
 	snprintf(lp->tx_irq_name, LDC_IRQ_NAME_MAX, "%s TX", name);
@@ -1250,25 +1246,32 @@ int ldc_bind(struct ldc_channel *lp, const char *name)
 			  IRQF_SAMPLE_RANDOM | IRQF_SHARED,
 			  lp->rx_irq_name, lp);
 	if (err)
-		goto out_err;
+		return err;
 
 	err = request_irq(lp->cfg.tx_irq, ldc_tx,
 			  IRQF_SAMPLE_RANDOM | IRQF_SHARED,
 			  lp->tx_irq_name, lp);
-	if (err)
-		goto out_free_rx_irq;
+	if (err) {
+		free_irq(lp->cfg.rx_irq, lp);
+		return err;
+	}
 
+
+	spin_lock_irqsave(&lp->lock, flags);
+
+	enable_irq(lp->cfg.rx_irq);
+	enable_irq(lp->cfg.tx_irq);
 
 	lp->flags |= LDC_FLAG_REGISTERED_IRQS;
 
 	err = -ENODEV;
 	hv_err = sun4v_ldc_tx_qconf(lp->id, 0, 0);
 	if (hv_err)
-		goto out_free_tx_irq;
+		goto out_free_irqs;
 
 	hv_err = sun4v_ldc_tx_qconf(lp->id, lp->tx_ra, lp->tx_num_entries);
 	if (hv_err)
-		goto out_free_tx_irq;
+		goto out_free_irqs;
 
 	hv_err = sun4v_ldc_rx_qconf(lp->id, 0, 0);
 	if (hv_err)
@@ -1304,14 +1307,11 @@ out_unmap_rx:
 out_unmap_tx:
 	sun4v_ldc_tx_qconf(lp->id, 0, 0);
 
-out_free_tx_irq:
+out_free_irqs:
 	lp->flags &= ~LDC_FLAG_REGISTERED_IRQS;
 	free_irq(lp->cfg.tx_irq, lp);
-
-out_free_rx_irq:
 	free_irq(lp->cfg.rx_irq, lp);
 
-out_err:
 	spin_unlock_irqrestore(&lp->lock, flags);
 
 	return err;
@@ -2057,7 +2057,7 @@ static void fill_cookies(struct cookie_state *sp, unsigned long pa,
 
 static int sg_count_one(struct scatterlist *sg)
 {
-	unsigned long base = page_to_pfn(sg->page) << PAGE_SHIFT;
+	unsigned long base = page_to_pfn(sg_page(sg)) << PAGE_SHIFT;
 	long len = sg->length;
 
 	if ((sg->offset | len) & (8UL - 1))
@@ -2121,7 +2121,7 @@ int ldc_map_sg(struct ldc_channel *lp,
 	state.nc = 0;
 
 	for (i = 0; i < num_sg; i++)
-		fill_cookies(&state, page_to_pfn(sg[i].page) << PAGE_SHIFT,
+		fill_cookies(&state, page_to_pfn(sg_page(&sg[i])) << PAGE_SHIFT,
 			     sg[i].offset, sg[i].length);
 
 	return state.nc;
@@ -2338,6 +2338,7 @@ static int __init ldc_init(void)
 	unsigned long major, minor;
 	struct mdesc_handle *hp;
 	const u64 *v;
+	int err;
 	u64 mp;
 
 	hp = mdesc_grab();
@@ -2345,29 +2346,33 @@ static int __init ldc_init(void)
 		return -ENODEV;
 
 	mp = mdesc_node_by_name(hp, MDESC_NODE_NULL, "platform");
+	err = -ENODEV;
 	if (mp == MDESC_NODE_NULL)
-		return -ENODEV;
+		goto out;
 
 	v = mdesc_get_property(hp, mp, "domaining-enabled", NULL);
 	if (!v)
-		return -ENODEV;
+		goto out;
 
 	major = 1;
 	minor = 0;
 	if (sun4v_hvapi_register(HV_GRP_LDOM, major, &minor)) {
 		printk(KERN_INFO PFX "Could not register LDOM hvapi.\n");
-		return -ENODEV;
+		goto out;
 	}
 
 	printk(KERN_INFO "%s", version);
 
 	if (!*v) {
 		printk(KERN_INFO PFX "Domaining disabled.\n");
-		return -ENODEV;
+		goto out;
 	}
 	ldom_domaining_enabled = 1;
+	err = 0;
 
-	return 0;
+out:
+	mdesc_release(hp);
+	return err;
 }
 
 core_initcall(ldc_init);

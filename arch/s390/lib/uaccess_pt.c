@@ -15,6 +15,27 @@
 #include <asm/futex.h>
 #include "uaccess.h"
 
+static inline pte_t *follow_table(struct mm_struct *mm, unsigned long addr)
+{
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
+
+	pgd = pgd_offset(mm, addr);
+	if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
+		return NULL;
+
+	pud = pud_offset(pgd, addr);
+	if (pud_none(*pud) || unlikely(pud_bad(*pud)))
+		return NULL;
+
+	pmd = pmd_offset(pud, addr);
+	if (pmd_none(*pmd) || unlikely(pmd_bad(*pmd)))
+		return NULL;
+
+	return pte_offset_map(pmd, addr);
+}
+
 static int __handle_fault(struct mm_struct *mm, unsigned long address,
 			  int write_access)
 {
@@ -64,7 +85,7 @@ out:
 
 out_of_memory:
 	up_read(&mm->mmap_sem);
-	if (is_init(current)) {
+	if (is_global_init(current)) {
 		yield();
 		down_read(&mm->mmap_sem);
 		goto survive;
@@ -85,8 +106,6 @@ static size_t __user_copy_pt(unsigned long uaddr, void *kptr,
 {
 	struct mm_struct *mm = current->mm;
 	unsigned long offset, pfn, done, size;
-	pgd_t *pgd;
-	pmd_t *pmd;
 	pte_t *pte;
 	void *from, *to;
 
@@ -94,15 +113,7 @@ static size_t __user_copy_pt(unsigned long uaddr, void *kptr,
 retry:
 	spin_lock(&mm->page_table_lock);
 	do {
-		pgd = pgd_offset(mm, uaddr);
-		if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
-			goto fault;
-
-		pmd = pmd_offset(pgd, uaddr);
-		if (pmd_none(*pmd) || unlikely(pmd_bad(*pmd)))
-			goto fault;
-
-		pte = pte_offset_map(pmd, uaddr);
+		pte = follow_table(mm, uaddr);
 		if (!pte || !pte_present(*pte) ||
 		    (write_user && !pte_write(*pte)))
 			goto fault;
@@ -142,22 +153,12 @@ static unsigned long __dat_user_addr(unsigned long uaddr)
 {
 	struct mm_struct *mm = current->mm;
 	unsigned long pfn, ret;
-	pgd_t *pgd;
-	pmd_t *pmd;
 	pte_t *pte;
 	int rc;
 
 	ret = 0;
 retry:
-	pgd = pgd_offset(mm, uaddr);
-	if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
-		goto fault;
-
-	pmd = pmd_offset(pgd, uaddr);
-	if (pmd_none(*pmd) || unlikely(pmd_bad(*pmd)))
-		goto fault;
-
-	pte = pte_offset_map(pmd, uaddr);
+	pte = follow_table(mm, uaddr);
 	if (!pte || !pte_present(*pte))
 		goto fault;
 
@@ -229,8 +230,6 @@ static size_t strnlen_user_pt(size_t count, const char __user *src)
 	unsigned long uaddr = (unsigned long) src;
 	struct mm_struct *mm = current->mm;
 	unsigned long offset, pfn, done, len;
-	pgd_t *pgd;
-	pmd_t *pmd;
 	pte_t *pte;
 	size_t len_str;
 
@@ -240,15 +239,7 @@ static size_t strnlen_user_pt(size_t count, const char __user *src)
 retry:
 	spin_lock(&mm->page_table_lock);
 	do {
-		pgd = pgd_offset(mm, uaddr);
-		if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
-			goto fault;
-
-		pmd = pmd_offset(pgd, uaddr);
-		if (pmd_none(*pmd) || unlikely(pmd_bad(*pmd)))
-			goto fault;
-
-		pte = pte_offset_map(pmd, uaddr);
+		pte = follow_table(mm, uaddr);
 		if (!pte || !pte_present(*pte))
 			goto fault;
 
@@ -308,48 +299,25 @@ static size_t copy_in_user_pt(size_t n, void __user *to,
 		      uaddr, done, size;
 	unsigned long uaddr_from = (unsigned long) from;
 	unsigned long uaddr_to = (unsigned long) to;
-	pgd_t *pgd_from, *pgd_to;
-	pmd_t *pmd_from, *pmd_to;
 	pte_t *pte_from, *pte_to;
 	int write_user;
 
+	if (segment_eq(get_fs(), KERNEL_DS)) {
+		memcpy((void __force *) to, (void __force *) from, n);
+		return 0;
+	}
 	done = 0;
 retry:
 	spin_lock(&mm->page_table_lock);
 	do {
-		pgd_from = pgd_offset(mm, uaddr_from);
-		if (pgd_none(*pgd_from) || unlikely(pgd_bad(*pgd_from))) {
-			uaddr = uaddr_from;
-			write_user = 0;
-			goto fault;
-		}
-		pgd_to = pgd_offset(mm, uaddr_to);
-		if (pgd_none(*pgd_to) || unlikely(pgd_bad(*pgd_to))) {
-			uaddr = uaddr_to;
-			write_user = 1;
-			goto fault;
-		}
-
-		pmd_from = pmd_offset(pgd_from, uaddr_from);
-		if (pmd_none(*pmd_from) || unlikely(pmd_bad(*pmd_from))) {
-			uaddr = uaddr_from;
-			write_user = 0;
-			goto fault;
-		}
-		pmd_to = pmd_offset(pgd_to, uaddr_to);
-		if (pmd_none(*pmd_to) || unlikely(pmd_bad(*pmd_to))) {
-			uaddr = uaddr_to;
-			write_user = 1;
-			goto fault;
-		}
-
-		pte_from = pte_offset_map(pmd_from, uaddr_from);
+		pte_from = follow_table(mm, uaddr_from);
 		if (!pte_from || !pte_present(*pte_from)) {
 			uaddr = uaddr_from;
 			write_user = 0;
 			goto fault;
 		}
-		pte_to = pte_offset_map(pmd_to, uaddr_to);
+
+		pte_to = follow_table(mm, uaddr_to);
 		if (!pte_to || !pte_present(*pte_to) || !pte_write(*pte_to)) {
 			uaddr = uaddr_to;
 			write_user = 1;
@@ -397,18 +365,10 @@ fault:
 		     : "0" (-EFAULT), "d" (oparg), "a" (uaddr),		\
 		       "m" (*uaddr) : "cc" );
 
-int futex_atomic_op_pt(int op, int __user *uaddr, int oparg, int *old)
+static int __futex_atomic_op_pt(int op, int __user *uaddr, int oparg, int *old)
 {
 	int oldval = 0, newval, ret;
 
-	spin_lock(&current->mm->page_table_lock);
-	uaddr = (int __user *) __dat_user_addr((unsigned long) uaddr);
-	if (!uaddr) {
-		spin_unlock(&current->mm->page_table_lock);
-		return -EFAULT;
-	}
-	get_page(virt_to_page(uaddr));
-	spin_unlock(&current->mm->page_table_lock);
 	switch (op) {
 	case FUTEX_OP_SET:
 		__futex_atomic_op("lr %2,%5\n",
@@ -433,15 +393,17 @@ int futex_atomic_op_pt(int op, int __user *uaddr, int oparg, int *old)
 	default:
 		ret = -ENOSYS;
 	}
-	put_page(virt_to_page(uaddr));
-	*old = oldval;
+	if (ret == 0)
+		*old = oldval;
 	return ret;
 }
 
-int futex_atomic_cmpxchg_pt(int __user *uaddr, int oldval, int newval)
+int futex_atomic_op_pt(int op, int __user *uaddr, int oparg, int *old)
 {
 	int ret;
 
+	if (segment_eq(get_fs(), KERNEL_DS))
+		return __futex_atomic_op_pt(op, uaddr, oparg, old);
 	spin_lock(&current->mm->page_table_lock);
 	uaddr = (int __user *) __dat_user_addr((unsigned long) uaddr);
 	if (!uaddr) {
@@ -450,13 +412,40 @@ int futex_atomic_cmpxchg_pt(int __user *uaddr, int oldval, int newval)
 	}
 	get_page(virt_to_page(uaddr));
 	spin_unlock(&current->mm->page_table_lock);
-	asm volatile("   cs   %1,%4,0(%5)\n"
-		     "0: lr   %0,%1\n"
-		     "1:\n"
-		     EX_TABLE(0b,1b)
+	ret = __futex_atomic_op_pt(op, uaddr, oparg, old);
+	put_page(virt_to_page(uaddr));
+	return ret;
+}
+
+static int __futex_atomic_cmpxchg_pt(int __user *uaddr, int oldval, int newval)
+{
+	int ret;
+
+	asm volatile("0: cs   %1,%4,0(%5)\n"
+		     "1: lr   %0,%1\n"
+		     "2:\n"
+		     EX_TABLE(0b,2b) EX_TABLE(1b,2b)
 		     : "=d" (ret), "+d" (oldval), "=m" (*uaddr)
 		     : "0" (-EFAULT), "d" (newval), "a" (uaddr), "m" (*uaddr)
 		     : "cc", "memory" );
+	return ret;
+}
+
+int futex_atomic_cmpxchg_pt(int __user *uaddr, int oldval, int newval)
+{
+	int ret;
+
+	if (segment_eq(get_fs(), KERNEL_DS))
+		return __futex_atomic_cmpxchg_pt(uaddr, oldval, newval);
+	spin_lock(&current->mm->page_table_lock);
+	uaddr = (int __user *) __dat_user_addr((unsigned long) uaddr);
+	if (!uaddr) {
+		spin_unlock(&current->mm->page_table_lock);
+		return -EFAULT;
+	}
+	get_page(virt_to_page(uaddr));
+	spin_unlock(&current->mm->page_table_lock);
+	ret = __futex_atomic_cmpxchg_pt(uaddr, oldval, newval);
 	put_page(virt_to_page(uaddr));
 	return ret;
 }

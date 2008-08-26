@@ -15,7 +15,7 @@
 #include <linux/init.h>
 
 #include <linux/usb/ch9.h>
-#include <linux/usb_gadget.h>
+#include <linux/usb/gadget.h>
 
 #include <asm/unaligned.h>
 
@@ -74,7 +74,7 @@ static int utf8_to_utf16le(const char *s, __le16 *cp, unsigned len)
 				goto fail;
 		} else
 			uchar = c;
-		put_unaligned (cpu_to_le16 (uchar), cp++);
+		put_unaligned_le16(uchar, cp++);
 		count++;
 		len--;
 	}

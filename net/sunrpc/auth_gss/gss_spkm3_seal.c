@@ -107,10 +107,10 @@ spkm3_make_token(struct spkm3_ctx *ctx,
 		tokenlen = 10 + ctxelen + 1 + md5elen + 1;
 
 		/* Create token header using generic routines */
-		token->len = g_token_size(&ctx->mech_used, tokenlen);
+		token->len = g_token_size(&ctx->mech_used, tokenlen + 2);
 
 		ptr = token->data;
-		g_make_token_header(&ctx->mech_used, tokenlen, &ptr);
+		g_make_token_header(&ctx->mech_used, tokenlen + 2, &ptr);
 
 		spkm3_make_mic_token(&ptr, tokenlen, &mic_hdr, &md5cksum, md5elen, md5zbit);
 	} else if (toktype == SPKM_WRAP_TOK) { /* Not Supported */
@@ -173,7 +173,7 @@ make_spkm3_checksum(s32 cksumtype, struct xdr_netobj *key, char *header,
 	if (err)
 		goto out;
 
-	sg_set_buf(sg, header, hdrlen);
+	sg_init_one(sg, header, hdrlen);
 	crypto_hash_update(&desc, sg, sg->length);
 
 	xdr_process_buf(body, body_offset, body->len - body_offset,

@@ -34,6 +34,7 @@ obj-$(CONFIG_LAPB)		+= lapb/
 obj-$(CONFIG_NETROM)		+= netrom/
 obj-$(CONFIG_ROSE)		+= rose/
 obj-$(CONFIG_AX25)		+= ax25/
+obj-$(CONFIG_CAN)		+= can/
 obj-$(CONFIG_IRDA)		+= irda/
 obj-$(CONFIG_BT)		+= bluetooth/
 obj-$(CONFIG_SUNRPC)		+= sunrpc/
@@ -41,7 +42,9 @@ obj-$(CONFIG_AF_RXRPC)		+= rxrpc/
 obj-$(CONFIG_ATM)		+= atm/
 obj-$(CONFIG_DECNET)		+= decnet/
 obj-$(CONFIG_ECONET)		+= econet/
-obj-$(CONFIG_VLAN_8021Q)	+= 8021q/
+ifneq ($(CONFIG_VLAN_8021Q),)
+obj-y				+= 8021q/
+endif
 obj-$(CONFIG_IP_DCCP)		+= dccp/
 obj-$(CONFIG_IP_SCTP)		+= sctp/
 obj-y				+= wireless/

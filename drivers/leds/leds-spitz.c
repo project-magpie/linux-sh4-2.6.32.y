@@ -21,7 +21,8 @@
 #include <asm/arch/pxa-regs.h>
 #include <asm/arch/spitz.h>
 
-static void spitzled_amber_set(struct led_classdev *led_cdev, enum led_brightness value)
+static void spitzled_amber_set(struct led_classdev *led_cdev,
+			       enum led_brightness value)
 {
 	if (value)
 		set_scoop_gpio(&spitzscoop_device.dev, SPITZ_SCP_LED_ORANGE);
@@ -29,7 +30,8 @@ static void spitzled_amber_set(struct led_classdev *led_cdev, enum led_brightnes
 		reset_scoop_gpio(&spitzscoop_device.dev, SPITZ_SCP_LED_ORANGE);
 }
 
-static void spitzled_green_set(struct led_classdev *led_cdev, enum led_brightness value)
+static void spitzled_green_set(struct led_classdev *led_cdev,
+			       enum led_brightness value)
 {
 	if (value)
 		set_scoop_gpio(&spitzscoop_device.dev, SPITZ_SCP_LED_GREEN);
@@ -38,13 +40,13 @@ static void spitzled_green_set(struct led_classdev *led_cdev, enum led_brightnes
 }
 
 static struct led_classdev spitz_amber_led = {
-	.name			= "spitz:amber",
+	.name			= "spitz:amber:charge",
 	.default_trigger	= "sharpsl-charge",
 	.brightness_set		= spitzled_amber_set,
 };
 
 static struct led_classdev spitz_green_led = {
-	.name			= "spitz:green",
+	.name			= "spitz:green:hddactivity",
 	.default_trigger	= "ide-disk",
 	.brightness_set		= spitzled_green_set,
 };
@@ -53,7 +55,8 @@ static struct led_classdev spitz_green_led = {
 static int spitzled_suspend(struct platform_device *dev, pm_message_t state)
 {
 #ifdef CONFIG_LEDS_TRIGGERS
-	if (spitz_amber_led.trigger && strcmp(spitz_amber_led.trigger->name, "sharpsl-charge"))
+	if (spitz_amber_led.trigger &&
+	    strcmp(spitz_amber_led.trigger->name, "sharpsl-charge"))
 #endif
 		led_classdev_suspend(&spitz_amber_led);
 	led_classdev_suspend(&spitz_green_led);
@@ -72,8 +75,10 @@ static int spitzled_probe(struct platform_device *pdev)
 {
 	int ret;
 
-	if (machine_is_akita())
+	if (machine_is_akita()) {
+		spitz_green_led.name = "spitz:green:mail";
 		spitz_green_led.default_trigger = "nand-disk";
+	}
 
 	ret = led_classdev_register(&pdev->dev, &spitz_amber_led);
 	if (ret < 0)
@@ -103,6 +108,7 @@ static struct platform_driver spitzled_driver = {
 #endif
 	.driver		= {
 		.name		= "spitz-led",
+		.owner		= THIS_MODULE,
 	},
 };
 
@@ -113,7 +119,7 @@ static int __init spitzled_init(void)
 
 static void __exit spitzled_exit(void)
 {
- 	platform_driver_unregister(&spitzled_driver);
+	platform_driver_unregister(&spitzled_driver);
 }
 
 module_init(spitzled_init);
@@ -122,3 +128,4 @@ module_exit(spitzled_exit);
 MODULE_AUTHOR("Richard Purdie <rpurdie@openedhand.com>");
 MODULE_DESCRIPTION("Spitz LED driver");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:spitz-led");

@@ -14,14 +14,11 @@
 #include <linux/pci.h>
 #include <linux/init.h>
 #include <linux/agp_backend.h>
+#include <linux/log2.h>
 
 #include <asm/acpi-ext.h>
 
 #include "agp.h"
-
-#ifndef log2
-#define log2(x)		ffz(~(x))
-#endif
 
 #define HP_ZX1_IOC_OFFSET	0x1000  /* ACPI reports SBA, we want IOC */
 
@@ -257,7 +254,7 @@ hp_zx1_configure (void)
 		readl(hp->ioc_regs+HP_ZX1_IMASK);
 		writel(hp->iova_base|1, hp->ioc_regs+HP_ZX1_IBASE);
 		readl(hp->ioc_regs+HP_ZX1_IBASE);
-		writel(hp->iova_base|log2(HP_ZX1_IOVA_SIZE), hp->ioc_regs+HP_ZX1_PCOM);
+		writel(hp->iova_base|ilog2(HP_ZX1_IOVA_SIZE), hp->ioc_regs+HP_ZX1_PCOM);
 		readl(hp->ioc_regs+HP_ZX1_PCOM);
 	}
 
@@ -285,7 +282,7 @@ hp_zx1_tlbflush (struct agp_memory *mem)
 {
 	struct _hp_private *hp = &hp_private;
 
-	writeq(hp->gart_base | log2(hp->gart_size), hp->ioc_regs+HP_ZX1_PCOM);
+	writeq(hp->gart_base | ilog2(hp->gart_size), hp->ioc_regs+HP_ZX1_PCOM);
 	readq(hp->ioc_regs+HP_ZX1_PCOM);
 }
 
@@ -356,9 +353,9 @@ hp_zx1_insert_memory (struct agp_memory *mem, off_t pg_start, int type)
 		j++;
 	}
 
-	if (mem->is_flushed == FALSE) {
+	if (!mem->is_flushed) {
 		global_cache_flush();
-		mem->is_flushed = TRUE;
+		mem->is_flushed = true;
 	}
 
 	for (i = 0, j = io_pg_start; i < mem->page_count; i++) {
@@ -440,7 +437,7 @@ const struct agp_bridge_driver hp_zx1_driver = {
 	.agp_alloc_page		= agp_generic_alloc_page,
 	.agp_destroy_page	= agp_generic_destroy_page,
 	.agp_type_to_mask_type  = agp_generic_type_to_mask_type,
-	.cant_use_aperture	= 1,
+	.cant_use_aperture	= true,
 };
 
 static int __init

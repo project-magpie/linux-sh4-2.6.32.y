@@ -90,7 +90,6 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/usb/input.h>
 #include <linux/wait.h>
 #include <linux/jiffies.h>
@@ -331,7 +330,7 @@ static int ati_remote_open(struct input_dev *inputdev)
 	ati_remote->irq_urb->dev = ati_remote->udev;
 	if (usb_submit_urb(ati_remote->irq_urb, GFP_KERNEL)) {
 		dev_err(&ati_remote->interface->dev,
-			"%s: usb_submit_urb failed!\n", __FUNCTION__);
+			"%s: usb_submit_urb failed!\n", __func__);
 		return -EIO;
 	}
 
@@ -357,7 +356,7 @@ static void ati_remote_irq_out(struct urb *urb)
 
 	if (urb->status) {
 		dev_dbg(&ati_remote->interface->dev, "%s: status %d\n",
-			__FUNCTION__, urb->status);
+			__func__, urb->status);
 		return;
 	}
 
@@ -602,17 +601,17 @@ static void ati_remote_irq_in(struct urb *urb)
 	case -ENOENT:
 	case -ESHUTDOWN:
 		dev_dbg(&ati_remote->interface->dev, "%s: urb error status, unlink? \n",
-			__FUNCTION__);
+			__func__);
 		return;
 	default:		/* error */
 		dev_dbg(&ati_remote->interface->dev, "%s: Nonzero urb status %d\n",
-			__FUNCTION__, urb->status);
+			__func__, urb->status);
 	}
 
 	retval = usb_submit_urb(urb, GFP_ATOMIC);
 	if (retval)
 		dev_err(&ati_remote->interface->dev, "%s: usb_submit_urb()=%d\n",
-			__FUNCTION__, retval);
+			__func__, retval);
 }
 
 /*
@@ -662,10 +661,10 @@ static void ati_remote_input_init(struct ati_remote *ati_remote)
 	struct input_dev *idev = ati_remote->idev;
 	int i;
 
-	idev->evbit[0] = BIT(EV_KEY) | BIT(EV_REL);
-	idev->keybit[LONG(BTN_MOUSE)] = ( BIT(BTN_LEFT) | BIT(BTN_RIGHT) |
-					  BIT(BTN_SIDE) | BIT(BTN_EXTRA) );
-	idev->relbit[0] = BIT(REL_X) | BIT(REL_Y);
+	idev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_REL);
+	idev->keybit[BIT_WORD(BTN_MOUSE)] = BIT_MASK(BTN_LEFT) |
+		BIT_MASK(BTN_RIGHT) | BIT_MASK(BTN_SIDE) | BIT_MASK(BTN_EXTRA);
+	idev->relbit[0] = BIT_MASK(REL_X) | BIT_MASK(REL_Y);
 	for (i = 0; ati_remote_tbl[i].kind != KIND_END; i++)
 		if (ati_remote_tbl[i].type == EV_KEY)
 			set_bit(ati_remote_tbl[i].code, idev->keybit);
@@ -735,7 +734,7 @@ static int ati_remote_probe(struct usb_interface *interface, const struct usb_de
 	int err = -ENOMEM;
 
 	if (iface_host->desc.bNumEndpoints != 2) {
-		err("%s: Unexpected desc.bNumEndpoints\n", __FUNCTION__);
+		err("%s: Unexpected desc.bNumEndpoints\n", __func__);
 		return -ENODEV;
 	}
 
@@ -743,11 +742,11 @@ static int ati_remote_probe(struct usb_interface *interface, const struct usb_de
 	endpoint_out = &iface_host->endpoint[1].desc;
 
 	if (!usb_endpoint_is_int_in(endpoint_in)) {
-		err("%s: Unexpected endpoint_in\n", __FUNCTION__);
+		err("%s: Unexpected endpoint_in\n", __func__);
 		return -ENODEV;
 	}
 	if (le16_to_cpu(endpoint_in->wMaxPacketSize) == 0) {
-		err("%s: endpoint_in message size==0? \n", __FUNCTION__);
+		err("%s: endpoint_in message size==0? \n", __func__);
 		return -ENODEV;
 	}
 
@@ -815,7 +814,7 @@ static void ati_remote_disconnect(struct usb_interface *interface)
 	ati_remote = usb_get_intfdata(interface);
 	usb_set_intfdata(interface, NULL);
 	if (!ati_remote) {
-		warn("%s - null device?\n", __FUNCTION__);
+		warn("%s - null device?\n", __func__);
 		return;
 	}
 

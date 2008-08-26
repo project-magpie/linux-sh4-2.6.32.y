@@ -13,7 +13,7 @@
 /*
  * TODO:
  * - remove "mark pages reserved-hacks" from memory allocation code
- *   and implement nopage()
+ *   and implement fault()
  * - check decimation, calculating and reporting image size when
  *   using decimation
  * - implement read(), user mode buffers and overlay (?)
@@ -28,7 +28,6 @@
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
-#include <linux/moduleparam.h>
 #include <linux/time.h>
 #include <linux/version.h>
 
@@ -334,7 +333,7 @@ struct vino_settings {
  *
  * Use non-zero value to enable conversion.
  */
-static int vino_pixel_conversion = 0;
+static int vino_pixel_conversion;
 
 module_param_named(pixelconv, vino_pixel_conversion, int, 0);
 
@@ -2590,11 +2589,7 @@ static int vino_acquire_input(struct vino_channel_settings *vcs)
 	/* First try D1 and then SAA7191 */
 	if (vino_drvdata->camera.driver
 	    && (vino_drvdata->camera.owner == VINO_NO_CHANNEL)) {
-		if (i2c_use_client(vino_drvdata->camera.driver)) {
-			ret = -ENODEV;
-			goto out;
-		}
-
+		i2c_use_client(vino_drvdata->camera.driver);
 		vino_drvdata->camera.owner = vcs->channel;
 		vcs->input = VINO_INPUT_D1;
 		vcs->data_norm = VINO_DATA_NORM_D1;
@@ -2603,11 +2598,7 @@ static int vino_acquire_input(struct vino_channel_settings *vcs)
 		int input, data_norm;
 		int saa7191_input;
 
-		if (i2c_use_client(vino_drvdata->decoder.driver)) {
-			ret = -ENODEV;
-			goto out;
-		}
-
+		i2c_use_client(vino_drvdata->decoder.driver);
 		input = VINO_INPUT_COMPOSITE;
 
 		saa7191_input = vino_get_saa7191_input(input);
@@ -2689,10 +2680,7 @@ static int vino_set_input(struct vino_channel_settings *vcs, int input)
 		}
 
 		if (vino_drvdata->decoder.owner == VINO_NO_CHANNEL) {
-			if (i2c_use_client(vino_drvdata->decoder.driver)) {
-				ret = -ENODEV;
-				goto out;
-			}
+			i2c_use_client(vino_drvdata->decoder.driver);
 			vino_drvdata->decoder.owner = vcs->channel;
 		}
 
@@ -2760,10 +2748,7 @@ static int vino_set_input(struct vino_channel_settings *vcs, int input)
 		}
 
 		if (vino_drvdata->camera.owner == VINO_NO_CHANNEL) {
-			if (i2c_use_client(vino_drvdata->camera.driver)) {
-				ret = -ENODEV;
-				goto out;
-			}
+			i2c_use_client(vino_drvdata->camera.driver);
 			vino_drvdata->camera.owner = vcs->channel;
 		}
 
@@ -4385,8 +4370,8 @@ static int vino_ioctl(struct inode *inode, struct file *file,
 
 /* Initialization and cleanup */
 
-// __initdata
-static int vino_init_stage = 0;
+/* __initdata */
+static int vino_init_stage;
 
 static const struct file_operations vino_fops = {
 	.owner		= THIS_MODULE,
@@ -4400,8 +4385,8 @@ static const struct file_operations vino_fops = {
 
 static struct video_device v4l_device_template = {
 	.name		= "NOT SET",
-	//.type		= VID_TYPE_CAPTURE | VID_TYPE_SUBCAPTURE |
-	//	VID_TYPE_CLIPPING | VID_TYPE_SCALES, VID_TYPE_OVERLAY
+	/*.type		= VID_TYPE_CAPTURE | VID_TYPE_SUBCAPTURE | */
+	/*	VID_TYPE_CLIPPING | VID_TYPE_SCALES, VID_TYPE_OVERLAY */
 	.fops		= &vino_fops,
 	.minor		= -1,
 };

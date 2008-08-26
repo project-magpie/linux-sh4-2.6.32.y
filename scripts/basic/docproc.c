@@ -10,8 +10,10 @@
  *	documentation-frontend
  *		Scans the template file and call kernel-doc for
  *		all occurrences of ![EIF]file
- *		Beforehand each referenced file are scanned for
- *		any exported sympols "EXPORT_SYMBOL()" statements.
+ *		Beforehand each referenced file is scanned for
+ *		any symbols that are exported via these macros:
+ *			EXPORT_SYMBOL(), EXPORT_SYMBOL_GPL(), &
+ *			EXPORT_SYMBOL_GPL_FUTURE()
  *		This is used to create proper -function and
  *		-nofunction arguments in calls to kernel-doc.
  *		Usage: docproc doc file.tmpl
@@ -28,6 +30,7 @@
  *		!Ifilename
  *		!Dfilename
  *		!Ffilename
+ *		!Pfilename
  *
  */
 
@@ -55,6 +58,7 @@ FILEONLY *symbolsonly;
 typedef void FILELINE(char * file, char * line);
 FILELINE * singlefunctions;
 FILELINE * entity_system;
+FILELINE * docsection;
 
 #define MAXLINESZ     2048
 #define MAXFILES      250
@@ -63,6 +67,9 @@ FILELINE * entity_system;
 #define DOCBOOK       "-docbook"
 #define FUNCTION      "-function"
 #define NOFUNCTION    "-nofunction"
+#define NODOCSECTIONS "-no-doc-sections"
+
+char *srctree;
 
 void usage (void)
 {
@@ -70,10 +77,11 @@ void usage (void)
 	fprintf(stderr, "Input is read from file.tmpl. Output is sent to stdout\n");
 	fprintf(stderr, "doc: frontend when generating kernel documentation\n");
 	fprintf(stderr, "depend: generate list of files referenced within file\n");
+	fprintf(stderr, "Environment variable SRCTREE: absolute path to kernel source tree.\n");
 }
 
 /*
- * Execute kernel-doc with parameters givin in svec
+ * Execute kernel-doc with parameters given in svec
  */
 void exec_kernel_doc(char **svec)
 {
@@ -82,13 +90,13 @@ void exec_kernel_doc(char **svec)
 	char real_filename[PATH_MAX + 1];
 	/* Make sure output generated so far are flushed */
 	fflush(stdout);
-	switch(pid=fork()) {
+	switch (pid=fork()) {
 		case -1:
 			perror("fork");
 			exit(1);
 		case  0:
 			memset(real_filename, 0, sizeof(real_filename));
-			strncat(real_filename, getenv("SRCTREE"), PATH_MAX);
+			strncat(real_filename, srctree, PATH_MAX);
 			strncat(real_filename, KERNELDOCPATH KERNELDOC,
 					PATH_MAX - strlen(real_filename));
 			execvp(real_filename, svec);
@@ -133,6 +141,7 @@ struct symfile * add_new_file(char * filename)
 	symfilelist[symfilecnt++].filename = strdup(filename);
 	return &symfilelist[symfilecnt - 1];
 }
+
 /* Check if file already are present in the list */
 struct symfile * filename_exist(char * filename)
 {
@@ -156,8 +165,8 @@ void noaction2(char * file, char * line)   { file = file; line = line; }
 void printline(char * line)               { printf("%s", line); }
 
 /*
- * Find all symbols exported with EXPORT_SYMBOL and EXPORT_SYMBOL_GPL
- * in filename.
+ * Find all symbols in filename that are exported with EXPORT_SYMBOL &
+ * EXPORT_SYMBOL_GPL (& EXPORT_SYMBOL_GPL_FUTURE implicitly).
  * All symbols located are stored in symfilelist.
  */
 void find_export_symbols(char * filename)
@@ -168,7 +177,7 @@ void find_export_symbols(char * filename)
 	if (filename_exist(filename) == NULL) {
 		char real_filename[PATH_MAX + 1];
 		memset(real_filename, 0, sizeof(real_filename));
-		strncat(real_filename, getenv("SRCTREE"), PATH_MAX);
+		strncat(real_filename, srctree, PATH_MAX);
 		strncat(real_filename, filename,
 				PATH_MAX - strlen(real_filename));
 		sym = add_new_file(filename);
@@ -179,15 +188,15 @@ void find_export_symbols(char * filename)
 			perror(real_filename);
 			exit(1);
 		}
-		while(fgets(line, MAXLINESZ, fp)) {
+		while (fgets(line, MAXLINESZ, fp)) {
 			char *p;
 			char *e;
-			if (((p = strstr(line, "EXPORT_SYMBOL_GPL")) != 0) ||
-                            ((p = strstr(line, "EXPORT_SYMBOL")) != 0)) {
+			if (((p = strstr(line, "EXPORT_SYMBOL_GPL")) != NULL) ||
+                            ((p = strstr(line, "EXPORT_SYMBOL")) != NULL)) {
 				/* Skip EXPORT_SYMBOL{_GPL} */
 				while (isalnum(*p) || *p == '_')
 					p++;
-				/* Remove paranteses and additional ws */
+				/* Remove parentheses & additional whitespace */
 				while (isspace(*p))
 					p++;
 				if (*p != '(')
@@ -211,7 +220,7 @@ void find_export_symbols(char * filename)
  * Document all external or internal functions in a file.
  * Call kernel-doc with following parameters:
  * kernel-doc -docbook -nofunction function_name1 filename
- * function names are obtained from all the src files
+ * Function names are obtained from all the src files
  * by find_export_symbols.
  * intfunc uses -nofunction
  * extfunc uses -function
@@ -225,13 +234,14 @@ void docfunctions(char * filename, char * type)
 
 	for (i=0; i <= symfilecnt; i++)
 		symcnt += symfilelist[i].symbolcnt;
-	vec = malloc((2 + 2 * symcnt + 2) * sizeof(char*));
+	vec = malloc((2 + 2 * symcnt + 3) * sizeof(char *));
 	if (vec == NULL) {
 		perror("docproc: ");
 		exit(1);
 	}
 	vec[idx++] = KERNELDOC;
 	vec[idx++] = DOCBOOK;
+	vec[idx++] = NODOCSECTIONS;
 	for (i=0; i < symfilecnt; i++) {
 		struct symfile * sym = &symfilelist[i];
 		for (j=0; j < sym->symbolcnt; j++) {
@@ -262,7 +272,7 @@ void singfunc(char * filename, char * line)
 	vec[idx++] = KERNELDOC;
 	vec[idx++] = DOCBOOK;
 
-        /* Split line up in individual parameters preceeded by FUNCTION */
+        /* Split line up in individual parameters preceded by FUNCTION */
         for (i=0; line[i]; i++) {
                 if (isspace(line[i])) {
                         line[i] = '\0';
@@ -281,18 +291,42 @@ void singfunc(char * filename, char * line)
 }
 
 /*
+ * Insert specific documentation section from a file.
+ * Call kernel-doc with the following parameters:
+ * kernel-doc -docbook -function "doc section" filename
+ */
+void docsect(char *filename, char *line)
+{
+	char *vec[6]; /* kerneldoc -docbook -function "section" file NULL */
+	char *s;
+
+	for (s = line; *s; s++)
+		if (*s == '\n')
+			*s = '\0';
+
+	vec[0] = KERNELDOC;
+	vec[1] = DOCBOOK;
+	vec[2] = FUNCTION;
+	vec[3] = line;
+	vec[4] = filename;
+	vec[5] = NULL;
+	exec_kernel_doc(vec);
+}
+
+/*
  * Parse file, calling action specific functions for:
  * 1) Lines containing !E
  * 2) Lines containing !I
  * 3) Lines containing !D
  * 4) Lines containing !F
- * 5) Default lines - lines not matching the above
+ * 5) Lines containing !P
+ * 6) Default lines - lines not matching the above
  */
 void parse_file(FILE *infile)
 {
 	char line[MAXLINESZ];
 	char * s;
-	while(fgets(line, MAXLINESZ, infile)) {
+	while (fgets(line, MAXLINESZ, infile)) {
 		if (line[0] == '!') {
 			s = line + 2;
 			switch (line[1]) {
@@ -320,6 +354,15 @@ void parse_file(FILE *infile)
 						s++;
 					singlefunctions(line +2, s);
 					break;
+				case 'P':
+					/* filename */
+					while (*s && !isspace(*s)) s++;
+					*s++ = '\0';
+					/* DOC: section name */
+					while (isspace(*s))
+						s++;
+					docsection(line + 2, s);
+					break;
 				default:
 					defaultline(line);
 			}
@@ -335,6 +378,10 @@ void parse_file(FILE *infile)
 int main(int argc, char *argv[])
 {
 	FILE * infile;
+
+	srctree = getenv("SRCTREE");
+	if (!srctree)
+		srctree = getcwd(NULL, 0);
 	if (argc != 3) {
 		usage();
 		exit(1);
@@ -351,9 +398,9 @@ int main(int argc, char *argv[])
 	{
 		/* Need to do this in two passes.
 		 * First pass is used to collect all symbols exported
-		 * in the various files.
+		 * in the various files;
 		 * Second pass generate the documentation.
-		 * This is required because function are declared
+		 * This is required because some functions are declared
 		 * and exported in different files :-((
 		 */
 		/* Collect symbols */
@@ -362,6 +409,7 @@ int main(int argc, char *argv[])
 		externalfunctions = find_export_symbols;
 		symbolsonly       = find_export_symbols;
 		singlefunctions   = noaction2;
+		docsection        = noaction2;
 		parse_file(infile);
 
 		/* Rewind to start from beginning of file again */
@@ -371,6 +419,7 @@ int main(int argc, char *argv[])
 		externalfunctions = extfunc;
 		symbolsonly       = printline;
 		singlefunctions   = singfunc;
+		docsection        = docsect;
 
 		parse_file(infile);
 	}
@@ -384,6 +433,7 @@ int main(int argc, char *argv[])
 		externalfunctions = adddep;
 		symbolsonly       = adddep;
 		singlefunctions   = adddep2;
+		docsection        = adddep2;
 		parse_file(infile);
 		printf("\n");
 	}
@@ -396,4 +446,3 @@ int main(int argc, char *argv[])
 	fflush(stdout);
 	return exitstatus;
 }
-

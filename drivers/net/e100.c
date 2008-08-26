@@ -94,7 +94,7 @@
  * 	enabled.  82557 pads with 7Eh, while the later controllers pad
  * 	with 00h.
  *
- *	IV.  Recieve
+ *	IV.  Receive
  *
  *	The Receive Frame Area (RFA) comprises a ring of Receive Frame
  *	Descriptors (RFD) + data buffer, thus forming the simplified mode
@@ -106,6 +106,13 @@
  *	the RFD, the RFD must be dma_sync'ed to maintain a consistent
  *	view from software and hardware.
  *
+ *	In order to keep updates to the RFD link field from colliding with
+ *	hardware writes to mark packets complete, we use the feature that
+ *	hardware will not write to a size 0 descriptor and mark the previous
+ *	packet as end-of-list (EL).   After updating the link, we remove EL
+ *	and only then restore the size such that hardware may use the
+ *	previous-to-end RFD.
+ *
  *	Under typical operation, the  receive unit (RU) is start once,
  *	and the controller happily fills RFDs as frames arrive.  If
  *	replacement RFDs cannot be allocated, or the RU goes non-active,
@@ -113,7 +120,7 @@
  *	and Rx indication and re-allocation happen in the same context,
  *	therefore no locking is required.  A software-generated interrupt
  *	is generated from the watchdog to recover from a failed allocation
- *	senario where all Rx resources have been indicated and none re-
+ *	scenario where all Rx resources have been indicated and none re-
  *	placed.
  *
  *	V.   Miscellaneous
@@ -281,6 +288,7 @@ struct csr {
 };
 
 enum scb_status {
+	rus_no_res       = 0x08,
 	rus_ready        = 0x10,
 	rus_mask         = 0x3C,
 };
@@ -393,12 +401,12 @@ enum cb_command {
 };
 
 struct rfd {
-	u16 status;
-	u16 command;
-	u32 link;
-	u32 rbd;
-	u16 actual_size;
-	u16 size;
+	__le16 status;
+	__le16 command;
+	__le32 link;
+	__le32 rbd;
+	__le16 actual_size;
+	__le16 size;
 };
 
 struct rx {
@@ -453,19 +461,19 @@ struct config {
 
 #define E100_MAX_MULTICAST_ADDRS	64
 struct multi {
-	u16 count;
+	__le16 count;
 	u8 addr[E100_MAX_MULTICAST_ADDRS * ETH_ALEN + 2/*pad*/];
 };
 
 /* Important: keep total struct u32-aligned */
 #define UCODE_SIZE			134
 struct cb {
-	u16 status;
-	u16 command;
-	u32 link;
+	__le16 status;
+	__le16 command;
+	__le32 link;
 	union {
 		u8 iaaddr[ETH_ALEN];
-		u32 ucode[UCODE_SIZE];
+		__le32 ucode[UCODE_SIZE];
 		struct config config;
 		struct multi multi;
 		struct {
@@ -474,12 +482,12 @@ struct cb {
 			u8 threshold;
 			u8 tbd_count;
 			struct {
-				u32 buf_addr;
-				u16 size;
+				__le32 buf_addr;
+				__le16 size;
 				u16 eol;
 			} tbd;
 		} tcb;
-		u32 dump_buffer_addr;
+		__le32 dump_buffer_addr;
 	} u;
 	struct cb *next, *prev;
 	dma_addr_t dma_addr;
@@ -491,15 +499,15 @@ enum loopback {
 };
 
 struct stats {
-	u32 tx_good_frames, tx_max_collisions, tx_late_collisions,
+	__le32 tx_good_frames, tx_max_collisions, tx_late_collisions,
 		tx_underruns, tx_lost_crs, tx_deferred, tx_single_collisions,
 		tx_multiple_collisions, tx_total_collisions;
-	u32 rx_good_frames, rx_crc_errors, rx_alignment_errors,
+	__le32 rx_good_frames, rx_crc_errors, rx_alignment_errors,
 		rx_resource_errors, rx_overrun_errors, rx_cdt_errors,
 		rx_short_frame_errors;
-	u32 fc_xmt_pause, fc_rcv_pause, fc_rcv_unsupported;
-	u16 xmt_tco_frames, rcv_tco_frames;
-	u32 complete;
+	__le32 fc_xmt_pause, fc_rcv_pause, fc_rcv_unsupported;
+	__le16 xmt_tco_frames, rcv_tco_frames;
+	__le32 complete;
 };
 
 struct mem {
@@ -539,11 +547,12 @@ struct nic {
 	struct csr __iomem *csr;
 	enum scb_cmd_lo cuc_cmd;
 	unsigned int cbs_avail;
+	struct napi_struct napi;
 	struct cb *cbs;
 	struct cb *cb_to_use;
 	struct cb *cb_to_send;
 	struct cb *cb_to_clean;
-	u16 tx_command;
+	__le16 tx_command;
 	/* End: frequently used values: keep adjacent for cache effect */
 
 	enum {
@@ -557,7 +566,6 @@ struct nic {
 	enum mac mac;
 	enum phy phy;
 	struct params params;
-	struct net_device_stats net_stats;
 	struct timer_list watchdog;
 	struct timer_list blink_timer;
 	struct mii_if_info mii;
@@ -585,7 +593,7 @@ struct nic {
 
 	u16 leds;
 	u16 eeprom_wc;
-	u16 eeprom[256];
+	__le16 eeprom[256];
 	spinlock_t mdio_lock;
 };
 
@@ -663,7 +671,7 @@ static int e100_self_test(struct nic *nic)
 	return 0;
 }
 
-static void e100_eeprom_write(struct nic *nic, u16 addr_len, u16 addr, u16 data)
+static void e100_eeprom_write(struct nic *nic, u16 addr_len, u16 addr, __le16 data)
 {
 	u32 cmd_addr_data[3];
 	u8 ctrl;
@@ -672,7 +680,7 @@ static void e100_eeprom_write(struct nic *nic, u16 addr_len, u16 addr, u16 data)
 	/* Three cmds: write/erase enable, write data, write/erase disable */
 	cmd_addr_data[0] = op_ewen << (addr_len - 2);
 	cmd_addr_data[1] = (((op_write << addr_len) | addr) << 16) |
-		cpu_to_le16(data);
+		le16_to_cpu(data);
 	cmd_addr_data[2] = op_ewds << (addr_len - 2);
 
 	/* Bit-bang cmds to write word to eeprom */
@@ -701,7 +709,7 @@ static void e100_eeprom_write(struct nic *nic, u16 addr_len, u16 addr, u16 data)
 };
 
 /* General technique stolen from the eepro100 driver - very clever */
-static u16 e100_eeprom_read(struct nic *nic, u16 *addr_len, u16 addr)
+static __le16 e100_eeprom_read(struct nic *nic, u16 *addr_len, u16 addr)
 {
 	u32 cmd_addr_data;
 	u16 data = 0;
@@ -738,7 +746,7 @@ static u16 e100_eeprom_read(struct nic *nic, u16 *addr_len, u16 addr)
 	iowrite8(0, &nic->csr->eeprom_ctrl_lo);
 	e100_write_flush(nic); udelay(4);
 
-	return le16_to_cpu(data);
+	return cpu_to_le16(data);
 };
 
 /* Load entire EEPROM image into driver cache and validate checksum */
@@ -753,13 +761,12 @@ static int e100_eeprom_load(struct nic *nic)
 	for(addr = 0; addr < nic->eeprom_wc; addr++) {
 		nic->eeprom[addr] = e100_eeprom_read(nic, &addr_len, addr);
 		if(addr < nic->eeprom_wc - 1)
-			checksum += cpu_to_le16(nic->eeprom[addr]);
+			checksum += le16_to_cpu(nic->eeprom[addr]);
 	}
 
 	/* The checksum, stored in the last word, is calculated such that
 	 * the sum of words should be 0xBABA */
-	checksum = le16_to_cpu(0xBABA - checksum);
-	if(checksum != nic->eeprom[nic->eeprom_wc - 1]) {
+	if (cpu_to_le16(0xBABA - checksum) != nic->eeprom[nic->eeprom_wc - 1]) {
 		DPRINTK(PROBE, ERR, "EEPROM corrupted\n");
 		if (!eeprom_bad_csum_allow)
 			return -EAGAIN;
@@ -786,8 +793,8 @@ static int e100_eeprom_save(struct nic *nic, u16 start, u16 count)
 	/* The checksum, stored in the last word, is calculated such that
 	 * the sum of words should be 0xBABA */
 	for(addr = 0; addr < nic->eeprom_wc - 1; addr++)
-		checksum += cpu_to_le16(nic->eeprom[addr]);
-	nic->eeprom[nic->eeprom_wc - 1] = le16_to_cpu(0xBABA - checksum);
+		checksum += le16_to_cpu(nic->eeprom[addr]);
+	nic->eeprom[nic->eeprom_wc - 1] = cpu_to_le16(0xBABA - checksum);
 	e100_eeprom_write(nic, addr_len, nic->eeprom_wc - 1,
 		nic->eeprom[nic->eeprom_wc - 1]);
 
@@ -947,13 +954,13 @@ static void e100_get_defaults(struct nic *nic)
 	/* Quadwords to DMA into FIFO before starting frame transmit */
 	nic->tx_threshold = 0xE0;
 
-	/* no interrupt for every tx completion, delay = 256us if not 557*/
+	/* no interrupt for every tx completion, delay = 256us if not 557 */
 	nic->tx_command = cpu_to_le16(cb_tx | cb_tx_sf |
 		((nic->mac >= mac_82558_D101_A4) ? cb_cid : cb_i));
 
 	/* Template for a freshly allocated RFD */
-	nic->blank_rfd.command = cpu_to_le16(cb_el);
-	nic->blank_rfd.rbd = 0xFFFFFFFF;
+	nic->blank_rfd.command = 0;
+	nic->blank_rfd.rbd = cpu_to_le32(0xFFFFFFFF);
 	nic->blank_rfd.size = cpu_to_le16(VLAN_ETH_FRAME_LEN);
 
 	/* MII setup */
@@ -1324,7 +1331,7 @@ static inline int e100_exec_cb_wait(struct nic *nic, struct sk_buff *skb,
 		if (!--counter) break;
 	}
 
-	/* ack any interupts, something could have been set */
+	/* ack any interrupts, something could have been set */
 	iowrite8(~0, &nic->csr->scb.stat_ack);
 
 	/* if the command failed, or is not OK, notify and return */
@@ -1482,17 +1489,18 @@ static void e100_set_multicast_list(struct net_device *netdev)
 
 static void e100_update_stats(struct nic *nic)
 {
-	struct net_device_stats *ns = &nic->net_stats;
+	struct net_device *dev = nic->netdev;
+	struct net_device_stats *ns = &dev->stats;
 	struct stats *s = &nic->mem->stats;
-	u32 *complete = (nic->mac < mac_82558_D101_A4) ? &s->fc_xmt_pause :
-		(nic->mac < mac_82559_D101M) ? (u32 *)&s->xmt_tco_frames :
+	__le32 *complete = (nic->mac < mac_82558_D101_A4) ? &s->fc_xmt_pause :
+		(nic->mac < mac_82559_D101M) ? (__le32 *)&s->xmt_tco_frames :
 		&s->complete;
 
 	/* Device's stats reporting may take several microseconds to
-	 * complete, so where always waiting for results of the
+	 * complete, so we're always waiting for results of the
 	 * previous command. */
 
-	if(*complete == le32_to_cpu(cuc_dump_reset_complete)) {
+	if(*complete == cpu_to_le32(cuc_dump_reset_complete)) {
 		*complete = 0;
 		nic->tx_frames = le32_to_cpu(s->tx_good_frames);
 		nic->tx_collisions = le32_to_cpu(s->tx_total_collisions);
@@ -1604,7 +1612,8 @@ static void e100_watchdog(unsigned long data)
 	else
 		nic->flags &= ~ich_10h_workaround;
 
-	mod_timer(&nic->watchdog, jiffies + E100_WATCHDOG_PERIOD);
+	mod_timer(&nic->watchdog,
+		  round_jiffies(jiffies + E100_WATCHDOG_PERIOD));
 }
 
 static void e100_xmit_prepare(struct nic *nic, struct cb *cb,
@@ -1659,6 +1668,7 @@ static int e100_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 
 static int e100_tx_clean(struct nic *nic)
 {
+	struct net_device *dev = nic->netdev;
 	struct cb *cb;
 	int tx_cleaned = 0;
 
@@ -1673,8 +1683,8 @@ static int e100_tx_clean(struct nic *nic)
 		        cb->status);
 
 		if(likely(cb->skb != NULL)) {
-			nic->net_stats.tx_packets++;
-			nic->net_stats.tx_bytes += cb->skb->len;
+			dev->stats.tx_packets++;
+			dev->stats.tx_bytes += cb->skb->len;
 
 			pci_unmap_single(nic->pdev,
 				le32_to_cpu(cb->u.tcb.tbd.buf_addr),
@@ -1780,7 +1790,7 @@ static int e100_rx_alloc_skb(struct nic *nic, struct rx *rx)
 	rx->dma_addr = pci_map_single(nic->pdev, rx->skb->data,
 		RFD_BUF_LEN, PCI_DMA_BIDIRECTIONAL);
 
-	if(pci_dma_mapping_error(rx->dma_addr)) {
+	if (pci_dma_mapping_error(nic->pdev, rx->dma_addr)) {
 		dev_kfree_skb_any(rx->skb);
 		rx->skb = NULL;
 		rx->dma_addr = 0;
@@ -1788,13 +1798,11 @@ static int e100_rx_alloc_skb(struct nic *nic, struct rx *rx)
 	}
 
 	/* Link the RFD to end of RFA by linking previous RFD to
-	 * this one, and clearing EL bit of previous.  */
-	if(rx->prev->skb) {
+	 * this one.  We are safe to touch the previous RFD because
+	 * it is protected by the before last buffer's el bit being set */
+	if (rx->prev->skb) {
 		struct rfd *prev_rfd = (struct rfd *)rx->prev->skb->data;
-		put_unaligned(cpu_to_le32(rx->dma_addr),
-			(u32 *)&prev_rfd->link);
-		wmb();
-		prev_rfd->command &= ~cpu_to_le16(cb_el);
+		put_unaligned_le32(rx->dma_addr, &prev_rfd->link);
 		pci_dma_sync_single_for_device(nic->pdev, rx->prev->dma_addr,
 			sizeof(struct rfd), PCI_DMA_TODEVICE);
 	}
@@ -1805,6 +1813,7 @@ static int e100_rx_alloc_skb(struct nic *nic, struct rx *rx)
 static int e100_rx_indicate(struct nic *nic, struct rx *rx,
 	unsigned int *work_done, unsigned int work_to_do)
 {
+	struct net_device *dev = nic->netdev;
 	struct sk_buff *skb = rx->skb;
 	struct rfd *rfd = (struct rfd *)skb->data;
 	u16 rfd_status, actual_size;
@@ -1820,8 +1829,19 @@ static int e100_rx_indicate(struct nic *nic, struct rx *rx,
 	DPRINTK(RX_STATUS, DEBUG, "status=0x%04X\n", rfd_status);
 
 	/* If data isn't ready, nothing to indicate */
-	if(unlikely(!(rfd_status & cb_complete)))
+	if (unlikely(!(rfd_status & cb_complete))) {
+		/* If the next buffer has the el bit, but we think the receiver
+		 * is still running, check to see if it really stopped while
+		 * we had interrupts off.
+		 * This allows for a fast restart without re-enabling
+		 * interrupts */
+		if ((le16_to_cpu(rfd->command) & cb_el) &&
+		    (RU_RUNNING == nic->ru_running))
+
+			if (readb(&nic->csr->scb.status) & rus_no_res)
+				nic->ru_running = RU_SUSPENDED;
 		return -ENODATA;
+	}
 
 	/* Get actual data size */
 	actual_size = le16_to_cpu(rfd->actual_size) & 0x3FFF;
@@ -1832,9 +1852,18 @@ static int e100_rx_indicate(struct nic *nic, struct rx *rx,
 	pci_unmap_single(nic->pdev, rx->dma_addr,
 		RFD_BUF_LEN, PCI_DMA_FROMDEVICE);
 
-	/* this allows for a fast restart without re-enabling interrupts */
-	if(le16_to_cpu(rfd->command) & cb_el)
+	/* If this buffer has the el bit, but we think the receiver
+	 * is still running, check to see if it really stopped while
+	 * we had interrupts off.
+	 * This allows for a fast restart without re-enabling interrupts.
+	 * This can happen when the RU sees the size change but also sees
+	 * the el bit set. */
+	if ((le16_to_cpu(rfd->command) & cb_el) &&
+	    (RU_RUNNING == nic->ru_running)) {
+
+	    if (readb(&nic->csr->scb.status) & rus_no_res)
 		nic->ru_running = RU_SUSPENDED;
+	}
 
 	/* Pull off the RFD and put the actual data (minus eth hdr) */
 	skb_reserve(skb, sizeof(struct rfd));
@@ -1849,8 +1878,8 @@ static int e100_rx_indicate(struct nic *nic, struct rx *rx,
 		nic->rx_over_length_errors++;
 		dev_kfree_skb_any(skb);
 	} else {
-		nic->net_stats.rx_packets++;
-		nic->net_stats.rx_bytes += actual_size;
+		dev->stats.rx_packets++;
+		dev->stats.rx_bytes += actual_size;
 		nic->netdev->last_rx = jiffies;
 		netif_receive_skb(skb);
 		if(work_done)
@@ -1866,31 +1895,30 @@ static void e100_rx_clean(struct nic *nic, unsigned int *work_done,
 	unsigned int work_to_do)
 {
 	struct rx *rx;
-	int restart_required = 0;
-	struct rx *rx_to_start = NULL;
-
-	/* are we already rnr? then pay attention!!! this ensures that
-	 * the state machine progression never allows a start with a
-	 * partially cleaned list, avoiding a race between hardware
-	 * and rx_to_clean when in NAPI mode */
-	if(RU_SUSPENDED == nic->ru_running)
-		restart_required = 1;
+	int restart_required = 0, err = 0;
+	struct rx *old_before_last_rx, *new_before_last_rx;
+	struct rfd *old_before_last_rfd, *new_before_last_rfd;
 
 	/* Indicate newly arrived packets */
 	for(rx = nic->rx_to_clean; rx->skb; rx = nic->rx_to_clean = rx->next) {
-		int err = e100_rx_indicate(nic, rx, work_done, work_to_do);
-		if(-EAGAIN == err) {
-			/* hit quota so have more work to do, restart once
-			 * cleanup is complete */
-			restart_required = 0;
+		err = e100_rx_indicate(nic, rx, work_done, work_to_do);
+		/* Hit quota or no more to clean */
+		if (-EAGAIN == err || -ENODATA == err)
 			break;
-		} else if(-ENODATA == err)
-			break; /* No more to clean */
 	}
 
-	/* save our starting point as the place we'll restart the receiver */
-	if(restart_required)
-		rx_to_start = nic->rx_to_clean;
+
+	/* On EAGAIN, hit quota so have more work to do, restart once
+	 * cleanup is complete.
+	 * Else, are we already rnr? then pay attention!!! this ensures that
+	 * the state machine progression never allows a start with a
+	 * partially cleaned list, avoiding a race between hardware
+	 * and rx_to_clean when in NAPI mode */
+	if (-EAGAIN != err && RU_SUSPENDED == nic->ru_running)
+		restart_required = 1;
+
+	old_before_last_rx = nic->rx_to_use->prev->prev;
+	old_before_last_rfd = (struct rfd *)old_before_last_rx->skb->data;
 
 	/* Alloc new skbs to refill list */
 	for(rx = nic->rx_to_use; !rx->skb; rx = nic->rx_to_use = rx->next) {
@@ -1898,10 +1926,42 @@ static void e100_rx_clean(struct nic *nic, unsigned int *work_done,
 			break; /* Better luck next time (see watchdog) */
 	}
 
+	new_before_last_rx = nic->rx_to_use->prev->prev;
+	if (new_before_last_rx != old_before_last_rx) {
+		/* Set the el-bit on the buffer that is before the last buffer.
+		 * This lets us update the next pointer on the last buffer
+		 * without worrying about hardware touching it.
+		 * We set the size to 0 to prevent hardware from touching this
+		 * buffer.
+		 * When the hardware hits the before last buffer with el-bit
+		 * and size of 0, it will RNR interrupt, the RUS will go into
+		 * the No Resources state.  It will not complete nor write to
+		 * this buffer. */
+		new_before_last_rfd =
+			(struct rfd *)new_before_last_rx->skb->data;
+		new_before_last_rfd->size = 0;
+		new_before_last_rfd->command |= cpu_to_le16(cb_el);
+		pci_dma_sync_single_for_device(nic->pdev,
+			new_before_last_rx->dma_addr, sizeof(struct rfd),
+			PCI_DMA_TODEVICE);
+
+		/* Now that we have a new stopping point, we can clear the old
+		 * stopping point.  We must sync twice to get the proper
+		 * ordering on the hardware side of things. */
+		old_before_last_rfd->command &= ~cpu_to_le16(cb_el);
+		pci_dma_sync_single_for_device(nic->pdev,
+			old_before_last_rx->dma_addr, sizeof(struct rfd),
+			PCI_DMA_TODEVICE);
+		old_before_last_rfd->size = cpu_to_le16(VLAN_ETH_FRAME_LEN);
+		pci_dma_sync_single_for_device(nic->pdev,
+			old_before_last_rx->dma_addr, sizeof(struct rfd),
+			PCI_DMA_TODEVICE);
+	}
+
 	if(restart_required) {
 		// ack the rnr?
-		writeb(stat_ack_rnr, &nic->csr->scb.stat_ack);
-		e100_start_receiver(nic, rx_to_start);
+		iowrite8(stat_ack_rnr, &nic->csr->scb.stat_ack);
+		e100_start_receiver(nic, nic->rx_to_clean);
 		if(work_done)
 			(*work_done)++;
 	}
@@ -1933,6 +1993,7 @@ static int e100_rx_alloc_list(struct nic *nic)
 {
 	struct rx *rx;
 	unsigned int i, count = nic->params.rfds.count;
+	struct rfd *before_last;
 
 	nic->rx_to_use = nic->rx_to_clean = NULL;
 	nic->ru_running = RU_UNINITIALIZED;
@@ -1948,6 +2009,19 @@ static int e100_rx_alloc_list(struct nic *nic)
 			return -ENOMEM;
 		}
 	}
+	/* Set the el-bit on the buffer that is before the last buffer.
+	 * This lets us update the next pointer on the last buffer without
+	 * worrying about hardware touching it.
+	 * We set the size to 0 to prevent hardware from touching this buffer.
+	 * When the hardware hits the before last buffer with el-bit and size
+	 * of 0, it will RNR interrupt, the RU will go into the No Resources
+	 * state.  It will not complete nor write to this buffer. */
+	rx = nic->rxs->prev->prev;
+	before_last = (struct rfd *)rx->skb->data;
+	before_last->command |= cpu_to_le16(cb_el);
+	before_last->size = 0;
+	pci_dma_sync_single_for_device(nic->pdev, rx->dma_addr,
+		sizeof(struct rfd), PCI_DMA_TODEVICE);
 
 	nic->rx_to_use = nic->rx_to_clean = nic->rxs;
 	nic->ru_running = RU_SUSPENDED;
@@ -1974,35 +2048,30 @@ static irqreturn_t e100_intr(int irq, void *dev_id)
 	if(stat_ack & stat_ack_rnr)
 		nic->ru_running = RU_SUSPENDED;
 
-	if(likely(netif_rx_schedule_prep(netdev))) {
+	if(likely(netif_rx_schedule_prep(netdev, &nic->napi))) {
 		e100_disable_irq(nic);
-		__netif_rx_schedule(netdev);
+		__netif_rx_schedule(netdev, &nic->napi);
 	}
 
 	return IRQ_HANDLED;
 }
 
-static int e100_poll(struct net_device *netdev, int *budget)
+static int e100_poll(struct napi_struct *napi, int budget)
 {
-	struct nic *nic = netdev_priv(netdev);
-	unsigned int work_to_do = min(netdev->quota, *budget);
+	struct nic *nic = container_of(napi, struct nic, napi);
+	struct net_device *netdev = nic->netdev;
 	unsigned int work_done = 0;
-	int tx_cleaned;
 
-	e100_rx_clean(nic, &work_done, work_to_do);
-	tx_cleaned = e100_tx_clean(nic);
+	e100_rx_clean(nic, &work_done, budget);
+	e100_tx_clean(nic);
 
-	/* If no Rx and Tx cleanup work was done, exit polling mode. */
-	if((!tx_cleaned && (work_done == 0)) || !netif_running(netdev)) {
-		netif_rx_complete(netdev);
+	/* If budget not fully consumed, exit the polling mode */
+	if (work_done < budget) {
+		netif_rx_complete(netdev, napi);
 		e100_enable_irq(nic);
-		return 0;
 	}
 
-	*budget -= work_done;
-	netdev->quota -= work_done;
-
-	return 1;
+	return work_done;
 }
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
@@ -2016,12 +2085,6 @@ static void e100_netpoll(struct net_device *netdev)
 	e100_enable_irq(nic);
 }
 #endif
-
-static struct net_device_stats *e100_get_stats(struct net_device *netdev)
-{
-	struct nic *nic = netdev_priv(netdev);
-	return &nic->net_stats;
-}
 
 static int e100_set_mac_address(struct net_device *netdev, void *p)
 {
@@ -2071,7 +2134,7 @@ static int e100_up(struct nic *nic)
 		nic->netdev->name, nic->netdev)))
 		goto err_no_irq;
 	netif_wake_queue(nic->netdev);
-	netif_poll_enable(nic->netdev);
+	napi_enable(&nic->napi);
 	/* enable ints _after_ enabling poll, preventing a race between
 	 * disable ints+schedule */
 	e100_enable_irq(nic);
@@ -2089,7 +2152,7 @@ err_rx_clean_list:
 static void e100_down(struct nic *nic)
 {
 	/* wait here for poll to complete */
-	netif_poll_disable(nic->netdev);
+	napi_disable(&nic->napi);
 	netif_stop_queue(nic->netdev);
 	e100_hw_reset(nic);
 	free_irq(nic->pdev->irq, nic->netdev);
@@ -2220,13 +2283,11 @@ static void e100_get_drvinfo(struct net_device *netdev,
 	strcpy(info->bus_info, pci_name(nic->pdev));
 }
 
+#define E100_PHY_REGS 0x1C
 static int e100_get_regs_len(struct net_device *netdev)
 {
 	struct nic *nic = netdev_priv(netdev);
-#define E100_PHY_REGS		0x1C
-#define E100_REGS_LEN		1 + E100_PHY_REGS + \
-	sizeof(nic->mem->dump_buf) / sizeof(u32)
-	return E100_REGS_LEN * sizeof(u32);
+	return 1 + E100_PHY_REGS + sizeof(nic->mem->dump_buf);
 }
 
 static void e100_get_regs(struct net_device *netdev,
@@ -2378,12 +2439,7 @@ static const char e100_gstrings_test[][ETH_GSTRING_LEN] = {
 	"Mac loopback     (offline)",
 	"Phy loopback     (offline)",
 };
-#define E100_TEST_LEN	sizeof(e100_gstrings_test) / ETH_GSTRING_LEN
-
-static int e100_diag_test_count(struct net_device *netdev)
-{
-	return E100_TEST_LEN;
-}
+#define E100_TEST_LEN	ARRAY_SIZE(e100_gstrings_test)
 
 static void e100_diag_test(struct net_device *netdev,
 	struct ethtool_test *test, u64 *data)
@@ -2445,11 +2501,18 @@ static const char e100_gstrings_stats[][ETH_GSTRING_LEN] = {
 	"rx_flow_control_unsupported", "tx_tco_packets", "rx_tco_packets",
 };
 #define E100_NET_STATS_LEN	21
-#define E100_STATS_LEN	sizeof(e100_gstrings_stats) / ETH_GSTRING_LEN
+#define E100_STATS_LEN	ARRAY_SIZE(e100_gstrings_stats)
 
-static int e100_get_stats_count(struct net_device *netdev)
+static int e100_get_sset_count(struct net_device *netdev, int sset)
 {
-	return E100_STATS_LEN;
+	switch (sset) {
+	case ETH_SS_TEST:
+		return E100_TEST_LEN;
+	case ETH_SS_STATS:
+		return E100_STATS_LEN;
+	default:
+		return -EOPNOTSUPP;
+	}
 }
 
 static void e100_get_ethtool_stats(struct net_device *netdev,
@@ -2459,7 +2522,7 @@ static void e100_get_ethtool_stats(struct net_device *netdev,
 	int i;
 
 	for(i = 0; i < E100_NET_STATS_LEN; i++)
-		data[i] = ((unsigned long *)&nic->net_stats)[i];
+		data[i] = ((unsigned long *)&netdev->stats)[i];
 
 	data[i++] = nic->tx_deferred;
 	data[i++] = nic->tx_single_collisions;
@@ -2500,12 +2563,11 @@ static const struct ethtool_ops e100_ethtool_ops = {
 	.set_eeprom		= e100_set_eeprom,
 	.get_ringparam		= e100_get_ringparam,
 	.set_ringparam		= e100_set_ringparam,
-	.self_test_count	= e100_diag_test_count,
 	.self_test		= e100_diag_test,
 	.get_strings		= e100_get_strings,
 	.phys_id		= e100_phys_id,
-	.get_stats_count	= e100_get_stats_count,
 	.get_ethtool_stats	= e100_get_ethtool_stats,
+	.get_sset_count		= e100_get_sset_count,
 };
 
 static int e100_do_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
@@ -2554,6 +2616,7 @@ static int __devinit e100_probe(struct pci_dev *pdev,
 	struct net_device *netdev;
 	struct nic *nic;
 	int err;
+	DECLARE_MAC_BUF(mac);
 
 	if(!(netdev = alloc_etherdev(sizeof(struct nic)))) {
 		if(((1 << debug) - 1) & NETIF_MSG_PROBE)
@@ -2564,7 +2627,6 @@ static int __devinit e100_probe(struct pci_dev *pdev,
 	netdev->open = e100_open;
 	netdev->stop = e100_close;
 	netdev->hard_start_xmit = e100_xmit_frame;
-	netdev->get_stats = e100_get_stats;
 	netdev->set_multicast_list = e100_set_multicast_list;
 	netdev->set_mac_address = e100_set_mac_address;
 	netdev->change_mtu = e100_change_mtu;
@@ -2572,14 +2634,13 @@ static int __devinit e100_probe(struct pci_dev *pdev,
 	SET_ETHTOOL_OPS(netdev, &e100_ethtool_ops);
 	netdev->tx_timeout = e100_tx_timeout;
 	netdev->watchdog_timeo = E100_WATCHDOG_PERIOD;
-	netdev->poll = e100_poll;
-	netdev->weight = E100_NAPI_WEIGHT;
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	netdev->poll_controller = e100_netpoll;
 #endif
 	strncpy(netdev->name, pci_name(pdev), sizeof(netdev->name) - 1);
 
 	nic = netdev_priv(netdev);
+	netif_napi_add(netdev, &nic->napi, e100_poll, E100_NAPI_WEIGHT);
 	nic->netdev = netdev;
 	nic->pdev = pdev;
 	nic->msg_enable = (1 << debug) - 1;
@@ -2607,7 +2668,6 @@ static int __devinit e100_probe(struct pci_dev *pdev,
 		goto err_out_free_res;
 	}
 
-	SET_MODULE_OWNER(netdev);
 	SET_NETDEV_DEV(netdev, &pdev->dev);
 
 	if (use_io)
@@ -2688,11 +2748,9 @@ static int __devinit e100_probe(struct pci_dev *pdev,
 		goto err_out_free;
 	}
 
-	DPRINTK(PROBE, INFO, "addr 0x%llx, irq %d, "
-		"MAC addr %02X:%02X:%02X:%02X:%02X:%02X\n",
-		(unsigned long long)pci_resource_start(pdev, use_io ? 1 : 0), pdev->irq,
-		netdev->dev_addr[0], netdev->dev_addr[1], netdev->dev_addr[2],
-		netdev->dev_addr[3], netdev->dev_addr[4], netdev->dev_addr[5]);
+	DPRINTK(PROBE, INFO, "addr 0x%llx, irq %d, MAC addr %s\n",
+		(unsigned long long)pci_resource_start(pdev, use_io ? 1 : 0),
+		pdev->irq, print_mac(mac, netdev->dev_addr));
 
 	return 0;
 
@@ -2718,7 +2776,7 @@ static void __devexit e100_remove(struct pci_dev *pdev)
 		struct nic *nic = netdev_priv(netdev);
 		unregister_netdev(netdev);
 		e100_free(nic);
-		iounmap(nic->csr);
+		pci_iounmap(pdev, nic->csr);
 		free_netdev(netdev);
 		pci_release_regions(pdev);
 		pci_disable_device(pdev);
@@ -2726,16 +2784,13 @@ static void __devexit e100_remove(struct pci_dev *pdev)
 	}
 }
 
-#ifdef CONFIG_PM
 static int e100_suspend(struct pci_dev *pdev, pm_message_t state)
 {
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct nic *nic = netdev_priv(netdev);
 
 	if (netif_running(netdev))
-		netif_poll_disable(nic->netdev);
-	del_timer_sync(&nic->watchdog);
-	netif_carrier_off(nic->netdev);
+		e100_down(nic);
 	netif_device_detach(netdev);
 
 	pci_save_state(pdev);
@@ -2749,12 +2804,12 @@ static int e100_suspend(struct pci_dev *pdev, pm_message_t state)
 	}
 
 	pci_disable_device(pdev);
-	free_irq(pdev->irq, netdev);
 	pci_set_power_state(pdev, PCI_D3hot);
 
 	return 0;
 }
 
+#ifdef CONFIG_PM
 static int e100_resume(struct pci_dev *pdev)
 {
 	struct net_device *netdev = pci_get_drvdata(pdev);
@@ -2775,41 +2830,25 @@ static int e100_resume(struct pci_dev *pdev)
 
 static void e100_shutdown(struct pci_dev *pdev)
 {
-	struct net_device *netdev = pci_get_drvdata(pdev);
-	struct nic *nic = netdev_priv(netdev);
-
-	if (netif_running(netdev))
-		netif_poll_disable(nic->netdev);
-	del_timer_sync(&nic->watchdog);
-	netif_carrier_off(nic->netdev);
-
-	if ((nic->flags & wol_magic) | e100_asf(nic)) {
-		pci_enable_wake(pdev, PCI_D3hot, 1);
-		pci_enable_wake(pdev, PCI_D3cold, 1);
-	} else {
-		pci_enable_wake(pdev, PCI_D3hot, 0);
-		pci_enable_wake(pdev, PCI_D3cold, 0);
-	}
-
-	pci_disable_device(pdev);
-	pci_set_power_state(pdev, PCI_D3hot);
+	e100_suspend(pdev, PMSG_SUSPEND);
 }
 
 /* ------------------ PCI Error Recovery infrastructure  -------------- */
 /**
  * e100_io_error_detected - called when PCI error is detected.
  * @pdev: Pointer to PCI device
- * @state: The current pci conneection state
+ * @state: The current pci connection state
  */
 static pci_ers_result_t e100_io_error_detected(struct pci_dev *pdev, pci_channel_state_t state)
 {
 	struct net_device *netdev = pci_get_drvdata(pdev);
+	struct nic *nic = netdev_priv(netdev);
 
-	/* Similar to calling e100_down(), but avoids adpater I/O. */
+	/* Similar to calling e100_down(), but avoids adapter I/O. */
 	netdev->stop(netdev);
 
-	/* Detach; put netif into state similar to hotplug unplug. */
-	netif_poll_enable(netdev);
+	/* Detach; put netif into a state similar to hotplug unplug. */
+	napi_enable(&nic->napi);
 	netif_device_detach(netdev);
 	pci_disable_device(pdev);
 

@@ -36,14 +36,15 @@
 #define CN_VAL_CIFS                     0x1
 #define CN_W1_IDX			0x3	/* w1 communication */
 #define CN_W1_VAL			0x1
+#define CN_IDX_V86D			0x4
+#define CN_VAL_V86D_UVESAFB		0x1
 
-
-#define CN_NETLINK_USERS		4
+#define CN_NETLINK_USERS		5
 
 /*
  * Maximum connector's message size.
  */
-#define CONNECTOR_MAX_MSG_SIZE 	1024
+#define CONNECTOR_MAX_MSG_SIZE		16384
 
 /*
  * idx and val are unique identifiers which 
@@ -111,7 +112,6 @@ struct cn_queue_dev {
 	struct list_head queue_list;
 	spinlock_t queue_lock;
 
-	int netlink_groups;
 	struct sock *nls;
 };
 
@@ -132,15 +132,13 @@ struct cn_callback_data {
 
 struct cn_callback_entry {
 	struct list_head callback_entry;
-	struct cn_callback *cb;
 	struct work_struct work;
 	struct cn_queue_dev *pdev;
 
 	struct cn_callback_id id;
 	struct cn_callback_data data;
 
-	int seq, group;
-	struct sock *nls;
+	u32 seq, group;
 };
 
 struct cn_ctl_entry {
@@ -153,7 +151,7 @@ struct cn_dev {
 
 	u32 seq, groups;
 	struct sock *nls;
-	void (*input) (struct sock * sk, int len);
+	void (*input) (struct sk_buff *skb);
 
 	struct cn_queue_dev *cbdev;
 };
@@ -171,8 +169,6 @@ void cn_queue_free_dev(struct cn_queue_dev *dev);
 int cn_cb_equal(struct cb_id *, struct cb_id *);
 
 void cn_queue_wrapper(struct work_struct *work);
-
-extern int cn_already_initialized;
 
 #endif				/* __KERNEL__ */
 #endif				/* __CONNECTOR_H */

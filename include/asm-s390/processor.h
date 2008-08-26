@@ -59,26 +59,36 @@ extern void s390_adjust_jiffies(void);
 extern void print_cpu_info(struct cpuinfo_S390 *);
 extern int get_cpu_capability(unsigned int *);
 
-/* Lazy FPU handling on uni-processor */
-extern struct task_struct *last_task_used_math;
-
 /*
  * User space process size: 2GB for 31 bit, 4TB for 64 bit.
  */
 #ifndef __s390x__
 
-# define TASK_SIZE		(0x80000000UL)
-# define TASK_UNMAPPED_BASE	(TASK_SIZE / 2)
-# define DEFAULT_TASK_SIZE	(0x80000000UL)
+#define TASK_SIZE		(1UL << 31)
+#define TASK_UNMAPPED_BASE	(1UL << 30)
 
 #else /* __s390x__ */
 
-# define TASK_SIZE		(test_thread_flag(TIF_31BIT) ? \
-					(0x80000000UL) : (0x40000000000UL))
-# define TASK_UNMAPPED_BASE	(TASK_SIZE / 2)
-# define DEFAULT_TASK_SIZE	(0x40000000000UL)
+#define TASK_SIZE_OF(tsk)	(test_tsk_thread_flag(tsk,TIF_31BIT) ? \
+					(1UL << 31) : (1UL << 53))
+#define TASK_UNMAPPED_BASE	(test_thread_flag(TIF_31BIT) ? \
+					(1UL << 30) : (1UL << 41))
+#define TASK_SIZE		TASK_SIZE_OF(current)
 
 #endif /* __s390x__ */
+
+#ifdef __KERNEL__
+
+#ifndef __s390x__
+#define STACK_TOP		(1UL << 31)
+#define STACK_TOP_MAX		(1UL << 31)
+#else /* __s390x__ */
+#define STACK_TOP		(1UL << (test_thread_flag(TIF_31BIT) ? 31:42))
+#define STACK_TOP_MAX		(1UL << 42)
+#endif /* __s390x__ */
+
+
+#endif
 
 #define HAVE_ARCH_PICK_MMAP_LAYOUT
 
@@ -93,10 +103,8 @@ struct thread_struct {
 	s390_fp_regs fp_regs;
 	unsigned int  acrs[NUM_ACRS];
         unsigned long ksp;              /* kernel stack pointer             */
-        unsigned long user_seg;         /* HSTD                             */
 	mm_segment_t mm_segment;
         unsigned long prot_addr;        /* address of protection-excep.     */
-        unsigned int error_code;        /* error-code of last prog-excep.   */
         unsigned int trap_no;
         per_struct per_info;
 	/* Used to give failing instruction back to user for ieee exceptions */
@@ -128,56 +136,32 @@ struct stack_frame {
 
 #define ARCH_MIN_TASKALIGN	8
 
-#ifndef __s390x__
-# define __SWAPPER_PG_DIR __pa(&swapper_pg_dir[0]) + _SEGMENT_TABLE
-#else /* __s390x__ */
-# define __SWAPPER_PG_DIR __pa(&swapper_pg_dir[0]) + _REGION_TABLE
-#endif /* __s390x__ */
-
-#define INIT_THREAD {{0,{{0},{0},{0},{0},{0},{0},{0},{0},{0},{0},	       \
-			    {0},{0},{0},{0},{0},{0}}},			       \
-		     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},	       \
-		     sizeof(init_stack) + (unsigned long) &init_stack,	       \
-		     __SWAPPER_PG_DIR,					       \
-		     {0},						       \
-		     0,0,0,						       \
-		     (per_struct) {{{{0,}}},0,0,0,0,{{0,}}},		       \
-		     0, 0						       \
-} 
+#define INIT_THREAD {							\
+	.ksp = sizeof(init_stack) + (unsigned long) &init_stack,	\
+}
 
 /*
  * Do necessary setup to start up a new thread.
  */
-#ifndef __s390x__
-
-#define start_thread(regs, new_psw, new_stackp) do {            \
+#define start_thread(regs, new_psw, new_stackp) do {		\
 	set_fs(USER_DS);					\
 	regs->psw.mask	= psw_user_bits;			\
-        regs->psw.addr  = new_psw | PSW_ADDR_AMODE;             \
-        regs->gprs[15]  = new_stackp ;                          \
+	regs->psw.addr	= new_psw | PSW_ADDR_AMODE;		\
+	regs->gprs[15]	= new_stackp;				\
 } while (0)
 
-#else /* __s390x__ */
-
-#define start_thread(regs, new_psw, new_stackp) do {            \
-	set_fs(USER_DS);					\
-	regs->psw.mask	= psw_user_bits;			\
-        regs->psw.addr  = new_psw;                              \
-        regs->gprs[15]  = new_stackp;                           \
-} while (0)
-
-#define start_thread31(regs, new_psw, new_stackp) do {          \
+#define start_thread31(regs, new_psw, new_stackp) do {		\
 	set_fs(USER_DS);					\
 	regs->psw.mask	= psw_user32_bits;			\
-        regs->psw.addr  = new_psw;                              \
-        regs->gprs[15]  = new_stackp;                           \
+	regs->psw.addr	= new_psw | PSW_ADDR_AMODE;		\
+	regs->gprs[15]	= new_stackp;				\
+	crst_table_downgrade(current->mm, 1UL << 31);		\
 } while (0)
-
-#endif /* __s390x__ */
 
 /* Forward declaration, a strange C thing */
 struct task_struct;
 struct mm_struct;
+struct seq_file;
 
 /* Free all resources held by a thread. */
 extern void release_thread(struct task_struct *);
@@ -194,11 +178,9 @@ extern unsigned long thread_saved_pc(struct task_struct *t);
 /*
  * Print register of task into buffer. Used in fs/proc/array.c.
  */
-extern char *task_show_regs(struct task_struct *task, char *buffer);
+extern void task_show_regs(struct seq_file *m, struct task_struct *task);
 
-extern void show_registers(struct pt_regs *regs);
 extern void show_code(struct pt_regs *regs);
-extern void show_trace(struct task_struct *task, unsigned long *sp);
 
 unsigned long get_wchan(struct task_struct *p);
 #define task_pt_regs(tsk) ((struct pt_regs *) \
@@ -353,16 +335,6 @@ extern void s390_base_ext_handler(void);
 extern void (*s390_base_mcck_handler_fn)(void);
 extern void (*s390_base_pgm_handler_fn)(void);
 extern void (*s390_base_ext_handler_fn)(void);
-
-/*
- * CPU idle notifier chain.
- */
-#define S390_CPU_IDLE		0
-#define S390_CPU_NOT_IDLE	1
-
-struct notifier_block;
-int register_idle_notifier(struct notifier_block *nb);
-int unregister_idle_notifier(struct notifier_block *nb);
 
 #define ARCH_LOW_ADDRESS_LIMIT	0x7fffffffUL
 

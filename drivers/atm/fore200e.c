@@ -36,6 +36,7 @@
 #include <linux/atm_suni.h>
 #include <linux/dma-mapping.h>
 #include <linux/delay.h>
+#include <linux/firmware.h>
 #include <asm/io.h>
 #include <asm/string.h>
 #include <asm/page.h>
@@ -45,7 +46,7 @@
 #include <asm/uaccess.h>
 #include <asm/atomic.h>
 
-#ifdef CONFIG_ATM_FORE200E_SBA
+#ifdef CONFIG_SBUS
 #include <asm/idprom.h>
 #include <asm/sbus.h>
 #include <asm/openprom.h>
@@ -95,8 +96,8 @@
 #if 1
 #define ASSERT(expr)     if (!(expr)) { \
 			     printk(FORE200E "assertion failed! %s[%d]: %s\n", \
-				    __FUNCTION__, __LINE__, #expr); \
-			     panic(FORE200E "%s", __FUNCTION__); \
+				    __func__, __LINE__, #expr); \
+			     panic(FORE200E "%s", __func__); \
 			 }
 #else
 #define ASSERT(expr)     do {} while (0)
@@ -382,9 +383,6 @@ fore200e_shutdown(struct fore200e* fore200e)
     case FORE200E_STATE_START_FW:
 	/* nothing to do for that state */
 
-    case FORE200E_STATE_LOAD_FW:
-	/* nothing to do for that state */
-
     case FORE200E_STATE_RESET:
 	/* nothing to do for that state */
 
@@ -405,7 +403,7 @@ fore200e_shutdown(struct fore200e* fore200e)
 }
 
 
-#ifdef CONFIG_ATM_FORE200E_PCA
+#ifdef CONFIG_PCI
 
 static u32 fore200e_pca_read(volatile u32 __iomem *addr)
 {
@@ -658,10 +656,10 @@ fore200e_pca_proc_read(struct fore200e* fore200e, char *page)
 		   pci_dev->bus->number, PCI_SLOT(pci_dev->devfn), PCI_FUNC(pci_dev->devfn));
 }
 
-#endif /* CONFIG_ATM_FORE200E_PCA */
+#endif /* CONFIG_PCI */
 
 
-#ifdef CONFIG_ATM_FORE200E_SBA
+#ifdef CONFIG_SBUS
 
 static u32
 fore200e_sba_read(volatile u32 __iomem *addr)
@@ -907,7 +905,7 @@ fore200e_sba_proc_read(struct fore200e* fore200e, char *page)
 
     return sprintf(page, "   SBUS slot/device:\t\t%d/'%s'\n", sbus_dev->slot, sbus_dev->prom_name);
 }
-#endif /* CONFIG_ATM_FORE200E_SBA */
+#endif /* CONFIG_SBUS */
 
 
 static void
@@ -1988,19 +1986,19 @@ fore200e_fetch_stats(struct fore200e* fore200e, struct sonet_stats __user *arg)
     if (fore200e_getstats(fore200e) < 0)
 	return -EIO;
 
-    tmp.section_bip = cpu_to_be32(fore200e->stats->oc3.section_bip8_errors);
-    tmp.line_bip    = cpu_to_be32(fore200e->stats->oc3.line_bip24_errors);
-    tmp.path_bip    = cpu_to_be32(fore200e->stats->oc3.path_bip8_errors);
-    tmp.line_febe   = cpu_to_be32(fore200e->stats->oc3.line_febe_errors);
-    tmp.path_febe   = cpu_to_be32(fore200e->stats->oc3.path_febe_errors);
-    tmp.corr_hcs    = cpu_to_be32(fore200e->stats->oc3.corr_hcs_errors);
-    tmp.uncorr_hcs  = cpu_to_be32(fore200e->stats->oc3.ucorr_hcs_errors);
-    tmp.tx_cells    = cpu_to_be32(fore200e->stats->aal0.cells_transmitted)  +
-	              cpu_to_be32(fore200e->stats->aal34.cells_transmitted) +
-	              cpu_to_be32(fore200e->stats->aal5.cells_transmitted);
-    tmp.rx_cells    = cpu_to_be32(fore200e->stats->aal0.cells_received)     +
-	              cpu_to_be32(fore200e->stats->aal34.cells_received)    +
-	              cpu_to_be32(fore200e->stats->aal5.cells_received);
+    tmp.section_bip = be32_to_cpu(fore200e->stats->oc3.section_bip8_errors);
+    tmp.line_bip    = be32_to_cpu(fore200e->stats->oc3.line_bip24_errors);
+    tmp.path_bip    = be32_to_cpu(fore200e->stats->oc3.path_bip8_errors);
+    tmp.line_febe   = be32_to_cpu(fore200e->stats->oc3.line_febe_errors);
+    tmp.path_febe   = be32_to_cpu(fore200e->stats->oc3.path_febe_errors);
+    tmp.corr_hcs    = be32_to_cpu(fore200e->stats->oc3.corr_hcs_errors);
+    tmp.uncorr_hcs  = be32_to_cpu(fore200e->stats->oc3.ucorr_hcs_errors);
+    tmp.tx_cells    = be32_to_cpu(fore200e->stats->aal0.cells_transmitted)  +
+	              be32_to_cpu(fore200e->stats->aal34.cells_transmitted) +
+	              be32_to_cpu(fore200e->stats->aal5.cells_transmitted);
+    tmp.rx_cells    = be32_to_cpu(fore200e->stats->aal0.cells_received)     +
+	              be32_to_cpu(fore200e->stats->aal34.cells_received)    +
+	              be32_to_cpu(fore200e->stats->aal5.cells_received);
 
     if (arg)
 	return copy_to_user(arg, &tmp, sizeof(struct sonet_stats)) ? -EFAULT : 0;	
@@ -2552,13 +2550,54 @@ fore200e_monitor_puts(struct fore200e* fore200e, char* str)
     while (fore200e_monitor_getc(fore200e) >= 0);
 }
 
+#ifdef __LITTLE_ENDIAN
+#define FW_EXT ".bin"
+#else
+#define FW_EXT "_ecd.bin2"
+#endif
 
 static int __devinit
-fore200e_start_fw(struct fore200e* fore200e)
+fore200e_load_and_start_fw(struct fore200e* fore200e)
 {
-    int               ok;
-    char              cmd[ 48 ];
-    struct fw_header* fw_header = (struct fw_header*) fore200e->bus->fw_data;
+    const struct firmware *firmware;
+    struct device *device;
+    struct fw_header *fw_header;
+    const __le32 *fw_data;
+    u32 fw_size;
+    u32 __iomem *load_addr;
+    char buf[48];
+    int err = -ENODEV;
+
+    if (strcmp(fore200e->bus->model_name, "PCA-200E") == 0)
+	device = &((struct pci_dev *) fore200e->bus_dev)->dev;
+#ifdef CONFIG_SBUS
+    else if (strcmp(fore200e->bus->model_name, "SBA-200E") == 0)
+	device = &((struct sbus_dev *) fore200e->bus_dev)->ofdev.dev;
+#endif
+    else
+	return err;
+
+    sprintf(buf, "%s%s", fore200e->bus->proc_name, FW_EXT);
+    if (request_firmware(&firmware, buf, device) == 1) {
+	printk(FORE200E "missing %s firmware image\n", fore200e->bus->model_name);
+	return err;
+    }
+
+    fw_data = (__le32 *) firmware->data;
+    fw_size = firmware->size / sizeof(u32);
+    fw_header = (struct fw_header *) firmware->data;
+    load_addr = fore200e->virt_base + le32_to_cpu(fw_header->load_offset);
+
+    DPRINTK(2, "device %s firmware being loaded at 0x%p (%d words)\n",
+	    fore200e->name, load_addr, fw_size);
+
+    if (le32_to_cpu(fw_header->magic) != FW_HEADER_MAGIC) {
+	printk(FORE200E "corrupted %s firmware image\n", fore200e->bus->model_name);
+	goto release;
+    }
+
+    for (; fw_size--; fw_data++, load_addr++)
+	fore200e->bus->write(le32_to_cpu(*fw_data), load_addr);
 
     DPRINTK(2, "device %s firmware being started\n", fore200e->name);
 
@@ -2567,46 +2606,22 @@ fore200e_start_fw(struct fore200e* fore200e)
     fore200e_spin(100);
 #endif
 
-    sprintf(cmd, "\rgo %x\r", le32_to_cpu(fw_header->start_offset));
+    sprintf(buf, "\rgo %x\r", le32_to_cpu(fw_header->start_offset));
+    fore200e_monitor_puts(fore200e, buf);
 
-    fore200e_monitor_puts(fore200e, cmd);
-
-    ok = fore200e_io_poll(fore200e, &fore200e->cp_monitor->bstat, BSTAT_CP_RUNNING, 1000);
-    if (ok == 0) {
+    if (fore200e_io_poll(fore200e, &fore200e->cp_monitor->bstat, BSTAT_CP_RUNNING, 1000) == 0) {
 	printk(FORE200E "device %s firmware didn't start\n", fore200e->name);
-	return -ENODEV;
+	goto release;
     }
 
     printk(FORE200E "device %s firmware started\n", fore200e->name);
 
     fore200e->state = FORE200E_STATE_START_FW;
-    return 0;
-}
+    err = 0;
 
-
-static int __devinit
-fore200e_load_fw(struct fore200e* fore200e)
-{
-    u32* fw_data = (u32*) fore200e->bus->fw_data;
-    u32  fw_size = (u32) *fore200e->bus->fw_size / sizeof(u32);
-
-    struct fw_header* fw_header = (struct fw_header*) fw_data;
-
-    u32 __iomem *load_addr = fore200e->virt_base + le32_to_cpu(fw_header->load_offset);
-
-    DPRINTK(2, "device %s firmware being loaded at 0x%p (%d words)\n", 
-	    fore200e->name, load_addr, fw_size);
-
-    if (le32_to_cpu(fw_header->magic) != FW_HEADER_MAGIC) {
-	printk(FORE200E "corrupted %s firmware image\n", fore200e->bus->model_name);
-	return -ENODEV;
-    }
-
-    for (; fw_size--; fw_data++, load_addr++)
-	fore200e->bus->write(le32_to_cpu(*fw_data), load_addr);
-
-    fore200e->state = FORE200E_STATE_LOAD_FW;
-    return 0;
+release:
+    release_firmware(firmware);
+    return err;
 }
 
 
@@ -2652,10 +2667,7 @@ fore200e_init(struct fore200e* fore200e)
     if (fore200e_reset(fore200e, 1) < 0)
 	return -ENODEV;
 
-    if (fore200e_load_fw(fore200e) < 0)
-	return -ENODEV;
-
-    if (fore200e_start_fw(fore200e) < 0)
+    if (fore200e_load_and_start_fw(fore200e) < 0)
 	return -ENODEV;
 
     if (fore200e_initialize(fore200e) < 0)
@@ -2689,7 +2701,7 @@ fore200e_init(struct fore200e* fore200e)
     return 0;
 }
 
-
+#ifdef CONFIG_PCI
 static int __devinit
 fore200e_pca_detect(struct pci_dev *pci_dev, const struct pci_device_id *pci_ent)
 {
@@ -2756,7 +2768,6 @@ static void __devexit fore200e_pca_remove_one(struct pci_dev *pci_dev)
 }
 
 
-#ifdef CONFIG_ATM_FORE200E_PCA
 static struct pci_device_id fore200e_pca_tbl[] = {
     { PCI_VENDOR_ID_FORE, PCI_DEVICE_ID_FORE_PCA200E, PCI_ANY_ID, PCI_ANY_ID,
       0, 0, (unsigned long) &fore200e_bus[0] },
@@ -2805,7 +2816,7 @@ fore200e_module_init(void)
 	}
     }
 
-#ifdef CONFIG_ATM_FORE200E_PCA
+#ifdef CONFIG_PCI
     if (!pci_register_driver(&fore200e_pca_driver))
 	return 0;
 #endif
@@ -2822,7 +2833,7 @@ fore200e_module_cleanup(void)
 {
     struct fore200e *fore200e, *next;
 
-#ifdef CONFIG_ATM_FORE200E_PCA
+#ifdef CONFIG_PCI
     pci_unregister_driver(&fore200e_pca_driver);
 #endif
 
@@ -2966,8 +2977,8 @@ fore200e_proc_read(struct atm_dev *dev, loff_t* pos, char* page)
 		       "  4b5b:\n"
 		       "     crc_header_errors:\t\t%10u\n"
 		       "     framing_errors:\t\t%10u\n",
-		       cpu_to_be32(fore200e->stats->phy.crc_header_errors),
-		       cpu_to_be32(fore200e->stats->phy.framing_errors));
+		       be32_to_cpu(fore200e->stats->phy.crc_header_errors),
+		       be32_to_cpu(fore200e->stats->phy.framing_errors));
     
     if (!left--)
 	return sprintf(page, "\n"
@@ -2979,13 +2990,13 @@ fore200e_proc_read(struct atm_dev *dev, loff_t* pos, char* page)
 		       "     path_febe_errors:\t\t%10u\n"
 		       "     corr_hcs_errors:\t\t%10u\n"
 		       "     ucorr_hcs_errors:\t\t%10u\n",
-		       cpu_to_be32(fore200e->stats->oc3.section_bip8_errors),
-		       cpu_to_be32(fore200e->stats->oc3.path_bip8_errors),
-		       cpu_to_be32(fore200e->stats->oc3.line_bip24_errors),
-		       cpu_to_be32(fore200e->stats->oc3.line_febe_errors),
-		       cpu_to_be32(fore200e->stats->oc3.path_febe_errors),
-		       cpu_to_be32(fore200e->stats->oc3.corr_hcs_errors),
-		       cpu_to_be32(fore200e->stats->oc3.ucorr_hcs_errors));
+		       be32_to_cpu(fore200e->stats->oc3.section_bip8_errors),
+		       be32_to_cpu(fore200e->stats->oc3.path_bip8_errors),
+		       be32_to_cpu(fore200e->stats->oc3.line_bip24_errors),
+		       be32_to_cpu(fore200e->stats->oc3.line_febe_errors),
+		       be32_to_cpu(fore200e->stats->oc3.path_febe_errors),
+		       be32_to_cpu(fore200e->stats->oc3.corr_hcs_errors),
+		       be32_to_cpu(fore200e->stats->oc3.ucorr_hcs_errors));
 
     if (!left--)
 	return sprintf(page,"\n"
@@ -2996,12 +3007,12 @@ fore200e_proc_read(struct atm_dev *dev, loff_t* pos, char* page)
 		       "     vpi no conn:\t\t%10u\n"
 		       "     vci out of range:\t\t%10u\n"
 		       "     vci no conn:\t\t%10u\n",
-		       cpu_to_be32(fore200e->stats->atm.cells_transmitted),
-		       cpu_to_be32(fore200e->stats->atm.cells_received),
-		       cpu_to_be32(fore200e->stats->atm.vpi_bad_range),
-		       cpu_to_be32(fore200e->stats->atm.vpi_no_conn),
-		       cpu_to_be32(fore200e->stats->atm.vci_bad_range),
-		       cpu_to_be32(fore200e->stats->atm.vci_no_conn));
+		       be32_to_cpu(fore200e->stats->atm.cells_transmitted),
+		       be32_to_cpu(fore200e->stats->atm.cells_received),
+		       be32_to_cpu(fore200e->stats->atm.vpi_bad_range),
+		       be32_to_cpu(fore200e->stats->atm.vpi_no_conn),
+		       be32_to_cpu(fore200e->stats->atm.vci_bad_range),
+		       be32_to_cpu(fore200e->stats->atm.vci_no_conn));
     
     if (!left--)
 	return sprintf(page,"\n"
@@ -3009,9 +3020,9 @@ fore200e_proc_read(struct atm_dev *dev, loff_t* pos, char* page)
 		       "     TX:\t\t\t%10u\n"
 		       "     RX:\t\t\t%10u\n"
 		       "     dropped:\t\t\t%10u\n",
-		       cpu_to_be32(fore200e->stats->aal0.cells_transmitted),
-		       cpu_to_be32(fore200e->stats->aal0.cells_received),
-		       cpu_to_be32(fore200e->stats->aal0.cells_dropped));
+		       be32_to_cpu(fore200e->stats->aal0.cells_transmitted),
+		       be32_to_cpu(fore200e->stats->aal0.cells_received),
+		       be32_to_cpu(fore200e->stats->aal0.cells_dropped));
     
     if (!left--)
 	return sprintf(page,"\n"
@@ -3027,15 +3038,15 @@ fore200e_proc_read(struct atm_dev *dev, loff_t* pos, char* page)
 		       "       RX:\t\t\t%10u\n"
 		       "       dropped:\t\t\t%10u\n"
 		       "       protocol errors:\t\t%10u\n",
-		       cpu_to_be32(fore200e->stats->aal34.cells_transmitted),
-		       cpu_to_be32(fore200e->stats->aal34.cells_received),
-		       cpu_to_be32(fore200e->stats->aal34.cells_dropped),
-		       cpu_to_be32(fore200e->stats->aal34.cells_crc_errors),
-		       cpu_to_be32(fore200e->stats->aal34.cells_protocol_errors),
-		       cpu_to_be32(fore200e->stats->aal34.cspdus_transmitted),
-		       cpu_to_be32(fore200e->stats->aal34.cspdus_received),
-		       cpu_to_be32(fore200e->stats->aal34.cspdus_dropped),
-		       cpu_to_be32(fore200e->stats->aal34.cspdus_protocol_errors));
+		       be32_to_cpu(fore200e->stats->aal34.cells_transmitted),
+		       be32_to_cpu(fore200e->stats->aal34.cells_received),
+		       be32_to_cpu(fore200e->stats->aal34.cells_dropped),
+		       be32_to_cpu(fore200e->stats->aal34.cells_crc_errors),
+		       be32_to_cpu(fore200e->stats->aal34.cells_protocol_errors),
+		       be32_to_cpu(fore200e->stats->aal34.cspdus_transmitted),
+		       be32_to_cpu(fore200e->stats->aal34.cspdus_received),
+		       be32_to_cpu(fore200e->stats->aal34.cspdus_dropped),
+		       be32_to_cpu(fore200e->stats->aal34.cspdus_protocol_errors));
     
     if (!left--)
 	return sprintf(page,"\n"
@@ -3051,15 +3062,15 @@ fore200e_proc_read(struct atm_dev *dev, loff_t* pos, char* page)
 		       "       dropped:\t\t\t%10u\n"
 		       "       CRC errors:\t\t%10u\n"
 		       "       protocol errors:\t\t%10u\n",
-		       cpu_to_be32(fore200e->stats->aal5.cells_transmitted),
-		       cpu_to_be32(fore200e->stats->aal5.cells_received),
-		       cpu_to_be32(fore200e->stats->aal5.cells_dropped),
-		       cpu_to_be32(fore200e->stats->aal5.congestion_experienced),
-		       cpu_to_be32(fore200e->stats->aal5.cspdus_transmitted),
-		       cpu_to_be32(fore200e->stats->aal5.cspdus_received),
-		       cpu_to_be32(fore200e->stats->aal5.cspdus_dropped),
-		       cpu_to_be32(fore200e->stats->aal5.cspdus_crc_errors),
-		       cpu_to_be32(fore200e->stats->aal5.cspdus_protocol_errors));
+		       be32_to_cpu(fore200e->stats->aal5.cells_transmitted),
+		       be32_to_cpu(fore200e->stats->aal5.cells_received),
+		       be32_to_cpu(fore200e->stats->aal5.cells_dropped),
+		       be32_to_cpu(fore200e->stats->aal5.congestion_experienced),
+		       be32_to_cpu(fore200e->stats->aal5.cspdus_transmitted),
+		       be32_to_cpu(fore200e->stats->aal5.cspdus_received),
+		       be32_to_cpu(fore200e->stats->aal5.cspdus_dropped),
+		       be32_to_cpu(fore200e->stats->aal5.cspdus_crc_errors),
+		       be32_to_cpu(fore200e->stats->aal5.cspdus_protocol_errors));
     
     if (!left--)
 	return sprintf(page,"\n"
@@ -3070,11 +3081,11 @@ fore200e_proc_read(struct atm_dev *dev, loff_t* pos, char* page)
 		       "     large b2:\t\t\t%10u\n"
 		       "     RX PDUs:\t\t\t%10u\n"
 		       "     TX PDUs:\t\t\t%10lu\n",
-		       cpu_to_be32(fore200e->stats->aux.small_b1_failed),
-		       cpu_to_be32(fore200e->stats->aux.large_b1_failed),
-		       cpu_to_be32(fore200e->stats->aux.small_b2_failed),
-		       cpu_to_be32(fore200e->stats->aux.large_b2_failed),
-		       cpu_to_be32(fore200e->stats->aux.rpd_alloc_failed),
+		       be32_to_cpu(fore200e->stats->aux.small_b1_failed),
+		       be32_to_cpu(fore200e->stats->aux.large_b1_failed),
+		       be32_to_cpu(fore200e->stats->aux.small_b2_failed),
+		       be32_to_cpu(fore200e->stats->aux.large_b2_failed),
+		       be32_to_cpu(fore200e->stats->aux.rpd_alloc_failed),
 		       fore200e->tx_sat);
     
     if (!left--)
@@ -3141,19 +3152,9 @@ static const struct atmdev_ops fore200e_ops =
 };
 
 
-#ifdef CONFIG_ATM_FORE200E_PCA
-extern const unsigned char _fore200e_pca_fw_data[];
-extern const unsigned int  _fore200e_pca_fw_size;
-#endif
-#ifdef CONFIG_ATM_FORE200E_SBA
-extern const unsigned char _fore200e_sba_fw_data[];
-extern const unsigned int  _fore200e_sba_fw_size;
-#endif
-
 static const struct fore200e_bus fore200e_bus[] = {
-#ifdef CONFIG_ATM_FORE200E_PCA
+#ifdef CONFIG_PCI
     { "PCA-200E", "pca200e", 32, 4, 32, 
-      _fore200e_pca_fw_data, &_fore200e_pca_fw_size,
       fore200e_pca_read,
       fore200e_pca_write,
       fore200e_pca_dma_map,
@@ -3174,9 +3175,8 @@ static const struct fore200e_bus fore200e_bus[] = {
       fore200e_pca_proc_read,
     },
 #endif
-#ifdef CONFIG_ATM_FORE200E_SBA
+#ifdef CONFIG_SBUS
     { "SBA-200E", "sba200e", 32, 64, 32,
-      _fore200e_sba_fw_data, &_fore200e_sba_fw_size,
       fore200e_sba_read,
       fore200e_sba_write,
       fore200e_sba_dma_map,
@@ -3200,6 +3200,14 @@ static const struct fore200e_bus fore200e_bus[] = {
     {}
 };
 
-#ifdef MODULE_LICENSE
 MODULE_LICENSE("GPL");
+#ifdef CONFIG_PCI
+#ifdef __LITTLE_ENDIAN__
+MODULE_FIRMWARE("pca200e.bin");
+#else
+MODULE_FIRMWARE("pca200e_ecd.bin2");
+#endif
+#endif /* CONFIG_PCI */
+#ifdef CONFIG_SBUS
+MODULE_FIRMWARE("sba200e_ecd.bin2");
 #endif

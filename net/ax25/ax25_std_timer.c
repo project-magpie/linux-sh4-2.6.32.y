@@ -32,18 +32,16 @@
 
 void ax25_std_heartbeat_expiry(ax25_cb *ax25)
 {
-	struct sock *sk=ax25->sk;
+	struct sock *sk = ax25->sk;
 
 	if (sk)
 		bh_lock_sock(sk);
 
 	switch (ax25->state) {
 	case AX25_STATE_0:
-		/* Magic here: If we listen() and a new link dies before it
-		   is accepted() it isn't 'dead' so doesn't get removed. */
-		if (!sk || sock_flag(sk, SOCK_DESTROY) ||
-		    (sk->sk_state == TCP_LISTEN &&
-		     sock_flag(sk, SOCK_DEAD))) {
+		if (!sk ||
+		    sock_flag(sk, SOCK_DESTROY) ||
+		    sock_flag(sk, SOCK_DEAD)) {
 			if (sk) {
 				sock_hold(sk);
 				ax25_destroy_socket(ax25);
@@ -62,7 +60,7 @@ void ax25_std_heartbeat_expiry(ax25_cb *ax25)
 		 */
 		if (sk != NULL) {
 			if (atomic_read(&sk->sk_rmem_alloc) <
-			    (sk->sk_rcvbuf / 2) &&
+			    (sk->sk_rcvbuf >> 1) &&
 			    (ax25->condition & AX25_COND_OWN_RX_BUSY)) {
 				ax25->condition &= ~AX25_COND_OWN_RX_BUSY;
 				ax25->condition &= ~AX25_COND_ACK_PENDING;

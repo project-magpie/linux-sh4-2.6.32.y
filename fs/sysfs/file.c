@@ -1,53 +1,44 @@
 /*
- * file.c - operations for regular (text) files.
+ * fs/sysfs/file.c - sysfs regular (text) file implementation
+ *
+ * Copyright (c) 2001-3 Patrick Mochel
+ * Copyright (c) 2007 SUSE Linux Products GmbH
+ * Copyright (c) 2007 Tejun Heo <teheo@suse.de>
+ *
+ * This file is released under the GPLv2.
+ *
+ * Please see Documentation/filesystems/sysfs.txt for more information.
  */
 
 #include <linux/module.h>
-#include <linux/fsnotify.h>
 #include <linux/kobject.h>
+#include <linux/kallsyms.h>
+#include <linux/slab.h>
+#include <linux/fsnotify.h>
 #include <linux/namei.h>
 #include <linux/poll.h>
 #include <linux/list.h>
+#include <linux/mutex.h>
 #include <asm/uaccess.h>
-#include <asm/semaphore.h>
 
 #include "sysfs.h"
 
-#define to_sattr(a) container_of(a,struct subsys_attribute, attr)
-
 /*
- * Subsystem file operations.
- * These operations allow subsystems to have files that can be 
- * read/written. 
+ * There's one sysfs_buffer for each open file and one
+ * sysfs_open_dirent for each sysfs_dirent with one or more open
+ * files.
+ *
+ * filp->private_data points to sysfs_buffer and
+ * sysfs_dirent->s_attr.open points to sysfs_open_dirent.  s_attr.open
+ * is protected by sysfs_open_dirent_lock.
  */
-static ssize_t 
-subsys_attr_show(struct kobject * kobj, struct attribute * attr, char * page)
-{
-	struct kset *kset = to_kset(kobj);
-	struct subsys_attribute * sattr = to_sattr(attr);
-	ssize_t ret = -EIO;
+static DEFINE_SPINLOCK(sysfs_open_dirent_lock);
 
-	if (sattr->show)
-		ret = sattr->show(kset, page);
-	return ret;
-}
-
-static ssize_t 
-subsys_attr_store(struct kobject * kobj, struct attribute * attr, 
-		  const char * page, size_t count)
-{
-	struct kset *kset = to_kset(kobj);
-	struct subsys_attribute * sattr = to_sattr(attr);
-	ssize_t ret = -EIO;
-
-	if (sattr->store)
-		ret = sattr->store(kset, page, count);
-	return ret;
-}
-
-static struct sysfs_ops subsys_sysfs_ops = {
-	.show	= subsys_attr_show,
-	.store	= subsys_attr_store,
+struct sysfs_open_dirent {
+	atomic_t		refcnt;
+	atomic_t		event;
+	wait_queue_head_t	poll;
+	struct list_head	buffers; /* goes through sysfs_buffer.list */
 };
 
 struct sysfs_buffer {
@@ -55,9 +46,10 @@ struct sysfs_buffer {
 	loff_t			pos;
 	char			* page;
 	struct sysfs_ops	* ops;
-	struct semaphore	sem;
+	struct mutex		mutex;
 	int			needs_read_fill;
 	int			event;
+	struct list_head	list;
 };
 
 /**
@@ -74,7 +66,7 @@ struct sysfs_buffer {
 static int fill_read_buffer(struct dentry * dentry, struct sysfs_buffer * buffer)
 {
 	struct sysfs_dirent *attr_sd = dentry->d_fsdata;
-	struct kobject *kobj = attr_sd->s_parent->s_elem.dir.kobj;
+	struct kobject *kobj = attr_sd->s_parent->s_dir.kobj;
 	struct sysfs_ops * ops = buffer->ops;
 	int ret = 0;
 	ssize_t count;
@@ -88,12 +80,21 @@ static int fill_read_buffer(struct dentry * dentry, struct sysfs_buffer * buffer
 	if (!sysfs_get_active_two(attr_sd))
 		return -ENODEV;
 
-	buffer->event = atomic_read(&attr_sd->s_event);
-	count = ops->show(kobj, attr_sd->s_elem.attr.attr, buffer->page);
+	buffer->event = atomic_read(&attr_sd->s_attr.open->event);
+	count = ops->show(kobj, attr_sd->s_attr.attr, buffer->page);
 
 	sysfs_put_active_two(attr_sd);
 
-	BUG_ON(count > (ssize_t)PAGE_SIZE);
+	/*
+	 * The code works fine with PAGE_SIZE return but it's likely to
+	 * indicate truncated result or overflow in normal use cases.
+	 */
+	if (count >= (ssize_t)PAGE_SIZE) {
+		print_symbol("fill_read_buffer: %s returned bad count\n",
+			(unsigned long)ops->show);
+		/* Try to struggle along */
+		count = PAGE_SIZE - 1;
+	}
 	if (count >= 0) {
 		buffer->needs_read_fill = 0;
 		buffer->count = count;
@@ -128,18 +129,18 @@ sysfs_read_file(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 	struct sysfs_buffer * buffer = file->private_data;
 	ssize_t retval = 0;
 
-	down(&buffer->sem);
-	if (buffer->needs_read_fill) {
+	mutex_lock(&buffer->mutex);
+	if (buffer->needs_read_fill || *ppos == 0) {
 		retval = fill_read_buffer(file->f_path.dentry,buffer);
 		if (retval)
 			goto out;
 	}
 	pr_debug("%s: count = %zd, ppos = %lld, buf = %s\n",
-		 __FUNCTION__, count, *ppos, buffer->page);
+		 __func__, count, *ppos, buffer->page);
 	retval = simple_read_from_buffer(buf, count, ppos, buffer->page,
 					 buffer->count);
 out:
-	up(&buffer->sem);
+	mutex_unlock(&buffer->mutex);
 	return retval;
 }
 
@@ -189,7 +190,7 @@ static int
 flush_write_buffer(struct dentry * dentry, struct sysfs_buffer * buffer, size_t count)
 {
 	struct sysfs_dirent *attr_sd = dentry->d_fsdata;
-	struct kobject *kobj = attr_sd->s_parent->s_elem.dir.kobj;
+	struct kobject *kobj = attr_sd->s_parent->s_dir.kobj;
 	struct sysfs_ops * ops = buffer->ops;
 	int rc;
 
@@ -197,7 +198,7 @@ flush_write_buffer(struct dentry * dentry, struct sysfs_buffer * buffer, size_t 
 	if (!sysfs_get_active_two(attr_sd))
 		return -ENODEV;
 
-	rc = ops->store(kobj, attr_sd->s_elem.attr.attr, buffer->page, count);
+	rc = ops->store(kobj, attr_sd->s_attr.attr, buffer->page, count);
 
 	sysfs_put_active_two(attr_sd);
 
@@ -228,45 +229,118 @@ sysfs_write_file(struct file *file, const char __user *buf, size_t count, loff_t
 	struct sysfs_buffer * buffer = file->private_data;
 	ssize_t len;
 
-	down(&buffer->sem);
+	mutex_lock(&buffer->mutex);
 	len = fill_write_buffer(buffer, buf, count);
 	if (len > 0)
 		len = flush_write_buffer(file->f_path.dentry, buffer, len);
 	if (len > 0)
 		*ppos += len;
-	up(&buffer->sem);
+	mutex_unlock(&buffer->mutex);
 	return len;
+}
+
+/**
+ *	sysfs_get_open_dirent - get or create sysfs_open_dirent
+ *	@sd: target sysfs_dirent
+ *	@buffer: sysfs_buffer for this instance of open
+ *
+ *	If @sd->s_attr.open exists, increment its reference count;
+ *	otherwise, create one.  @buffer is chained to the buffers
+ *	list.
+ *
+ *	LOCKING:
+ *	Kernel thread context (may sleep).
+ *
+ *	RETURNS:
+ *	0 on success, -errno on failure.
+ */
+static int sysfs_get_open_dirent(struct sysfs_dirent *sd,
+				 struct sysfs_buffer *buffer)
+{
+	struct sysfs_open_dirent *od, *new_od = NULL;
+
+ retry:
+	spin_lock(&sysfs_open_dirent_lock);
+
+	if (!sd->s_attr.open && new_od) {
+		sd->s_attr.open = new_od;
+		new_od = NULL;
+	}
+
+	od = sd->s_attr.open;
+	if (od) {
+		atomic_inc(&od->refcnt);
+		list_add_tail(&buffer->list, &od->buffers);
+	}
+
+	spin_unlock(&sysfs_open_dirent_lock);
+
+	if (od) {
+		kfree(new_od);
+		return 0;
+	}
+
+	/* not there, initialize a new one and retry */
+	new_od = kmalloc(sizeof(*new_od), GFP_KERNEL);
+	if (!new_od)
+		return -ENOMEM;
+
+	atomic_set(&new_od->refcnt, 0);
+	atomic_set(&new_od->event, 1);
+	init_waitqueue_head(&new_od->poll);
+	INIT_LIST_HEAD(&new_od->buffers);
+	goto retry;
+}
+
+/**
+ *	sysfs_put_open_dirent - put sysfs_open_dirent
+ *	@sd: target sysfs_dirent
+ *	@buffer: associated sysfs_buffer
+ *
+ *	Put @sd->s_attr.open and unlink @buffer from the buffers list.
+ *	If reference count reaches zero, disassociate and free it.
+ *
+ *	LOCKING:
+ *	None.
+ */
+static void sysfs_put_open_dirent(struct sysfs_dirent *sd,
+				  struct sysfs_buffer *buffer)
+{
+	struct sysfs_open_dirent *od = sd->s_attr.open;
+
+	spin_lock(&sysfs_open_dirent_lock);
+
+	list_del(&buffer->list);
+	if (atomic_dec_and_test(&od->refcnt))
+		sd->s_attr.open = NULL;
+	else
+		od = NULL;
+
+	spin_unlock(&sysfs_open_dirent_lock);
+
+	kfree(od);
 }
 
 static int sysfs_open_file(struct inode *inode, struct file *file)
 {
 	struct sysfs_dirent *attr_sd = file->f_path.dentry->d_fsdata;
-	struct kobject *kobj = attr_sd->s_parent->s_elem.dir.kobj;
-	struct sysfs_buffer * buffer;
-	struct sysfs_ops * ops = NULL;
-	int error;
+	struct kobject *kobj = attr_sd->s_parent->s_dir.kobj;
+	struct sysfs_buffer *buffer;
+	struct sysfs_ops *ops;
+	int error = -EACCES;
 
 	/* need attr_sd for attr and ops, its parent for kobj */
 	if (!sysfs_get_active_two(attr_sd))
 		return -ENODEV;
 
-	/* if the kobject has no ktype, then we assume that it is a subsystem
-	 * itself, and use ops for it.
-	 */
-	if (kobj->kset && kobj->kset->ktype)
-		ops = kobj->kset->ktype->sysfs_ops;
-	else if (kobj->ktype)
+	/* every kobject with an attribute needs a ktype assigned */
+	if (kobj->ktype && kobj->ktype->sysfs_ops)
 		ops = kobj->ktype->sysfs_ops;
-	else
-		ops = &subsys_sysfs_ops;
-
-	error = -EACCES;
-
-	/* No sysfs operations, either from having no subsystem,
-	 * or the subsystem have no operations.
-	 */
-	if (!ops)
+	else {
+		WARN(1, KERN_ERR "missing sysfs attribute operations for "
+		       "kobject: %s\n", kobject_name(kobj));
 		goto err_out;
+	}
 
 	/* File needs write support.
 	 * The inode's perms must say it's ok, 
@@ -294,33 +368,38 @@ static int sysfs_open_file(struct inode *inode, struct file *file)
 	if (!buffer)
 		goto err_out;
 
-	init_MUTEX(&buffer->sem);
+	mutex_init(&buffer->mutex);
 	buffer->needs_read_fill = 1;
 	buffer->ops = ops;
 	file->private_data = buffer;
 
-	/* open succeeded, put active references and pin attr_sd */
+	/* make sure we have open dirent struct */
+	error = sysfs_get_open_dirent(attr_sd, buffer);
+	if (error)
+		goto err_free;
+
+	/* open succeeded, put active references */
 	sysfs_put_active_two(attr_sd);
-	sysfs_get(attr_sd);
 	return 0;
 
+ err_free:
+	kfree(buffer);
  err_out:
 	sysfs_put_active_two(attr_sd);
 	return error;
 }
 
-static int sysfs_release(struct inode * inode, struct file * filp)
+static int sysfs_release(struct inode *inode, struct file *filp)
 {
-	struct sysfs_dirent *attr_sd = filp->f_path.dentry->d_fsdata;
+	struct sysfs_dirent *sd = filp->f_path.dentry->d_fsdata;
 	struct sysfs_buffer *buffer = filp->private_data;
 
-	sysfs_put(attr_sd);
+	sysfs_put_open_dirent(sd, buffer);
 
-	if (buffer) {
-		if (buffer->page)
-			free_page((unsigned long)buffer->page);
-		kfree(buffer);
-	}
+	if (buffer->page)
+		free_page((unsigned long)buffer->page);
+	kfree(buffer);
+
 	return 0;
 }
 
@@ -331,28 +410,27 @@ static int sysfs_release(struct inode * inode, struct file * filp)
  * return POLLERR|POLLPRI, and select will return the fd whether
  * it is waiting for read, write, or exceptions.
  * Once poll/select indicates that the value has changed, you
- * need to close and re-open the file, as simply seeking and reading
- * again will not get new data, or reset the state of 'poll'.
+ * need to close and re-open the file, or seek to 0 and read again.
  * Reminder: this only works for attributes which actively support
  * it, and it is not possible to test an attribute from userspace
- * to see if it supports poll (Nether 'poll' or 'select' return
+ * to see if it supports poll (Neither 'poll' nor 'select' return
  * an appropriate error code).  When in doubt, set a suitable timeout value.
  */
 static unsigned int sysfs_poll(struct file *filp, poll_table *wait)
 {
 	struct sysfs_buffer * buffer = filp->private_data;
 	struct sysfs_dirent *attr_sd = filp->f_path.dentry->d_fsdata;
-	struct kobject *kobj = attr_sd->s_parent->s_elem.dir.kobj;
+	struct sysfs_open_dirent *od = attr_sd->s_attr.open;
 
 	/* need parent for the kobj, grab both */
 	if (!sysfs_get_active_two(attr_sd))
 		goto trigger;
 
-	poll_wait(filp, &kobj->poll, wait);
+	poll_wait(filp, &od->poll, wait);
 
 	sysfs_put_active_two(attr_sd);
 
-	if (buffer->event != atomic_read(&attr_sd->s_event))
+	if (buffer->event != atomic_read(&od->event))
 		goto trigger;
 
 	return 0;
@@ -373,8 +451,17 @@ void sysfs_notify(struct kobject *k, char *dir, char *attr)
 	if (sd && attr)
 		sd = sysfs_find_dirent(sd, attr);
 	if (sd) {
-		atomic_inc(&sd->s_event);
-		wake_up_interruptible(&k->poll);
+		struct sysfs_open_dirent *od;
+
+		spin_lock(&sysfs_open_dirent_lock);
+
+		od = sd->s_attr.open;
+		if (od) {
+			atomic_inc(&od->event);
+			wake_up_interruptible(&od->poll);
+		}
+
+		spin_unlock(&sysfs_open_dirent_lock);
 	}
 
 	mutex_unlock(&sysfs_mutex);
@@ -390,39 +477,41 @@ const struct file_operations sysfs_file_operations = {
 	.poll		= sysfs_poll,
 };
 
-
-int sysfs_add_file(struct sysfs_dirent *dir_sd, const struct attribute *attr,
-		   int type)
+int sysfs_add_file_mode(struct sysfs_dirent *dir_sd,
+			const struct attribute *attr, int type, mode_t amode)
 {
-	umode_t mode = (attr->mode & S_IALLUGO) | S_IFREG;
+	umode_t mode = (amode & S_IALLUGO) | S_IFREG;
 	struct sysfs_addrm_cxt acxt;
 	struct sysfs_dirent *sd;
+	int rc;
 
 	sd = sysfs_new_dirent(attr->name, mode, type);
 	if (!sd)
 		return -ENOMEM;
-	sd->s_elem.attr.attr = (void *)attr;
+	sd->s_attr.attr = (void *)attr;
 
 	sysfs_addrm_start(&acxt, dir_sd);
+	rc = sysfs_add_one(&acxt, sd);
+	sysfs_addrm_finish(&acxt);
 
-	if (!sysfs_find_dirent(dir_sd, attr->name)) {
-		sysfs_add_one(&acxt, sd);
-		sysfs_link_sibling(sd);
-	}
-
-	if (!sysfs_addrm_finish(&acxt)) {
+	if (rc)
 		sysfs_put(sd);
-		return -EEXIST;
-	}
 
-	return 0;
+	return rc;
+}
+
+
+int sysfs_add_file(struct sysfs_dirent *dir_sd, const struct attribute *attr,
+		   int type)
+{
+	return sysfs_add_file_mode(dir_sd, attr, type, attr->mode);
 }
 
 
 /**
  *	sysfs_create_file - create an attribute file for an object.
  *	@kobj:	object we're creating for. 
- *	@attr:	atrribute descriptor.
+ *	@attr:	attribute descriptor.
  */
 
 int sysfs_create_file(struct kobject * kobj, const struct attribute * attr)
@@ -446,7 +535,11 @@ int sysfs_add_file_to_group(struct kobject *kobj,
 	struct sysfs_dirent *dir_sd;
 	int error;
 
-	dir_sd = sysfs_get_dirent(kobj->sd, group);
+	if (group)
+		dir_sd = sysfs_get_dirent(kobj->sd, group);
+	else
+		dir_sd = sysfs_get(kobj->sd);
+
 	if (!dir_sd)
 		return -ENOENT;
 
@@ -456,42 +549,6 @@ int sysfs_add_file_to_group(struct kobject *kobj,
 	return error;
 }
 EXPORT_SYMBOL_GPL(sysfs_add_file_to_group);
-
-
-/**
- * sysfs_update_file - update the modified timestamp on an object attribute.
- * @kobj: object we're acting for.
- * @attr: attribute descriptor.
- */
-int sysfs_update_file(struct kobject * kobj, const struct attribute * attr)
-{
-	struct sysfs_dirent *victim_sd = NULL;
-	struct dentry *victim = NULL;
-	int rc;
-
-	rc = -ENOENT;
-	victim_sd = sysfs_get_dirent(kobj->sd, attr->name);
-	if (!victim_sd)
-		goto out;
-
-	victim = sysfs_get_dentry(victim_sd);
-	if (IS_ERR(victim)) {
-		rc = PTR_ERR(victim);
-		victim = NULL;
-		goto out;
-	}
-
-	mutex_lock(&victim->d_inode->i_mutex);
-	victim->d_inode->i_mtime = CURRENT_TIME;
-	fsnotify_modify(victim);
-	mutex_unlock(&victim->d_inode->i_mutex);
-	rc = 0;
- out:
-	dput(victim);
-	sysfs_put(victim_sd);
-	return rc;
-}
-
 
 /**
  * sysfs_chmod_file - update the modified mode value on an object attribute.
@@ -513,7 +570,9 @@ int sysfs_chmod_file(struct kobject *kobj, struct attribute *attr, mode_t mode)
 	if (!victim_sd)
 		goto out;
 
+	mutex_lock(&sysfs_rename_mutex);
 	victim = sysfs_get_dentry(victim_sd);
+	mutex_unlock(&sysfs_rename_mutex);
 	if (IS_ERR(victim)) {
 		rc = PTR_ERR(victim);
 		victim = NULL;
@@ -521,10 +580,21 @@ int sysfs_chmod_file(struct kobject *kobj, struct attribute *attr, mode_t mode)
 	}
 
 	inode = victim->d_inode;
+
 	mutex_lock(&inode->i_mutex);
+
 	newattrs.ia_mode = (mode & S_IALLUGO) | (inode->i_mode & ~S_IALLUGO);
 	newattrs.ia_valid = ATTR_MODE | ATTR_CTIME;
-	rc = notify_change(victim, &newattrs);
+	newattrs.ia_ctime = current_fs_time(inode->i_sb);
+	rc = sysfs_setattr(victim, &newattrs);
+
+	if (rc == 0) {
+		fsnotify_change(victim, newattrs.ia_valid);
+		mutex_lock(&sysfs_mutex);
+		victim_sd->s_mode = newattrs.ia_mode;
+		mutex_unlock(&sysfs_mutex);
+	}
+
 	mutex_unlock(&inode->i_mutex);
  out:
 	dput(victim);
@@ -559,7 +629,10 @@ void sysfs_remove_file_from_group(struct kobject *kobj,
 {
 	struct sysfs_dirent *dir_sd;
 
-	dir_sd = sysfs_get_dirent(kobj->sd, group);
+	if (group)
+		dir_sd = sysfs_get_dirent(kobj->sd, group);
+	else
+		dir_sd = sysfs_get(kobj->sd);
 	if (dir_sd) {
 		sysfs_hash_and_remove(dir_sd, attr->name);
 		sysfs_put(dir_sd);
@@ -632,4 +705,3 @@ EXPORT_SYMBOL_GPL(sysfs_schedule_callback);
 
 EXPORT_SYMBOL_GPL(sysfs_create_file);
 EXPORT_SYMBOL_GPL(sysfs_remove_file);
-EXPORT_SYMBOL_GPL(sysfs_update_file);

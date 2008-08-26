@@ -28,13 +28,6 @@
 #include <linux/spi/ads7846.h>
 #include <asm/irq.h>
 
-#ifdef	CONFIG_ARM
-#include <asm/mach-types.h>
-#ifdef	CONFIG_ARCH_OMAP
-#include <asm/arch/gpio.h>
-#endif
-#endif
-
 
 /*
  * This code has been heavily tested on a Nokia 770, and lightly
@@ -83,10 +76,11 @@ struct ads7846 {
 
 #if defined(CONFIG_HWMON) || defined(CONFIG_HWMON_MODULE)
 	struct attribute_group	*attr_group;
-	struct class_device	*hwmon;
+	struct device		*hwmon;
 #endif
 
 	u16			model;
+	u16			vref_mv;
 	u16			vref_delay_usecs;
 	u16			x_plate_ohms;
 	u16			pressure_max;
@@ -116,6 +110,7 @@ struct ads7846 {
 // FIXME remove "irq_disabled"
 	unsigned		irq_disabled:1;	/* P: lock */
 	unsigned		disabled:1;
+	unsigned		is_suspended:1;
 
 	int			(*filter)(void *data, int data_idx, int *val);
 	void			*filter_data;
@@ -183,9 +178,6 @@ struct ads7846 {
  * The range is GND..vREF. The ads7843 and ads7835 must use external vREF;
  * ads7846 lets that pin be unconnected, to use internal vREF.
  */
-static unsigned vREF_mV;
-module_param(vREF_mV, uint, 0);
-MODULE_PARM_DESC(vREF_mV, "external vREF voltage, in milliVolts");
 
 struct ser_req {
 	u8			ref_on;
@@ -203,7 +195,7 @@ static void ads7846_disable(struct ads7846 *ts);
 static int device_suspended(struct device *dev)
 {
 	struct ads7846 *ts = dev_get_drvdata(dev);
-	return dev->power.power_state.event != PM_EVENT_ON || ts->disabled;
+	return ts->is_suspended || ts->disabled;
 }
 
 static int ads7846_read12_ser(struct device *dev, unsigned command)
@@ -212,7 +204,6 @@ static int ads7846_read12_ser(struct device *dev, unsigned command)
 	struct ads7846		*ts = dev_get_drvdata(dev);
 	struct ser_req		*req = kzalloc(sizeof *req, GFP_KERNEL);
 	int			status;
-	int			sample;
 	int			use_internal;
 
 	if (!req)
@@ -267,16 +258,15 @@ static int ads7846_read12_ser(struct device *dev, unsigned command)
 	ts->irq_disabled = 0;
 	enable_irq(spi->irq);
 
-	if (req->msg.status)
-		status = req->msg.status;
-
-	/* on-wire is a must-ignore bit, a BE12 value, then padding */
-	sample = be16_to_cpu(req->sample);
-	sample = sample >> 3;
-	sample &= 0x0fff;
+	if (status == 0) {
+		/* on-wire is a must-ignore bit, a BE12 value, then padding */
+		status = be16_to_cpu(req->sample);
+		status = status >> 3;
+		status &= 0x0fff;
+	}
 
 	kfree(req);
-	return status ? status : sample;
+	return status;
 }
 
 #if defined(CONFIG_HWMON) || defined(CONFIG_HWMON_MODULE)
@@ -317,7 +307,7 @@ static inline unsigned vaux_adjust(struct ads7846 *ts, ssize_t v)
 	unsigned retval = v;
 
 	/* external resistors may scale vAUX into 0..vREF */
-	retval *= vREF_mV;
+	retval *= ts->vref_mv;
 	retval = retval >> 12;
 	return retval;
 }
@@ -369,20 +359,20 @@ static struct attribute_group ads7845_attr_group = {
 
 static int ads784x_hwmon_register(struct spi_device *spi, struct ads7846 *ts)
 {
-	struct class_device *hwmon;
+	struct device *hwmon;
 	int err;
 
 	/* hwmon sensors need a reference voltage */
 	switch (ts->model) {
 	case 7846:
-		if (!vREF_mV) {
+		if (!ts->vref_mv) {
 			dev_dbg(&spi->dev, "assuming 2.5V internal vREF\n");
-			vREF_mV = 2500;
+			ts->vref_mv = 2500;
 		}
 		break;
 	case 7845:
 	case 7843:
-		if (!vREF_mV) {
+		if (!ts->vref_mv) {
 			dev_warn(&spi->dev,
 				"external vREF for ADS%d not specified\n",
 				ts->model);
@@ -795,7 +785,7 @@ static int ads7846_suspend(struct spi_device *spi, pm_message_t message)
 
 	spin_lock_irq(&ts->lock);
 
-	spi->dev.power.power_state = message;
+	ts->is_suspended = 1;
 	ads7846_disable(ts);
 
 	spin_unlock_irq(&ts->lock);
@@ -810,7 +800,7 @@ static int ads7846_resume(struct spi_device *spi)
 
 	spin_lock_irq(&ts->lock);
 
-	spi->dev.power.power_state = PMSG_ON;
+	ts->is_suspended = 0;
 	ads7846_enable(ts);
 
 	spin_unlock_irq(&ts->lock);
@@ -872,10 +862,10 @@ static int __devinit ads7846_probe(struct spi_device *spi)
 	}
 
 	dev_set_drvdata(&spi->dev, ts);
-	spi->dev.power.power_state = PMSG_ON;
 
 	ts->spi = spi;
 	ts->input = input_dev;
+	ts->vref_mv = pdata->vref_mv;
 
 	hrtimer_init(&ts->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	ts->timer.function = ads7846_timer;
@@ -917,8 +907,8 @@ static int __devinit ads7846_probe(struct spi_device *spi)
 	input_dev->phys = ts->phys;
 	input_dev->dev.parent = &spi->dev;
 
-	input_dev->evbit[0] = BIT(EV_KEY) | BIT(EV_ABS);
-	input_dev->keybit[LONG(BTN_TOUCH)] = BIT(BTN_TOUCH);
+	input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
+	input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
 	input_set_abs_params(input_dev, ABS_X,
 			pdata->x_min ? : 0,
 			pdata->x_max ? : MAX_12BIT,
@@ -1175,31 +1165,6 @@ static struct spi_driver ads7846_driver = {
 
 static int __init ads7846_init(void)
 {
-	/* grr, board-specific init should stay out of drivers!! */
-
-#ifdef	CONFIG_ARCH_OMAP
-	if (machine_is_omap_osk()) {
-		/* GPIO4 = PENIRQ; GPIO6 = BUSY */
-		omap_request_gpio(4);
-		omap_set_gpio_direction(4, 1);
-		omap_request_gpio(6);
-		omap_set_gpio_direction(6, 1);
-	}
-	// also TI 1510 Innovator, bitbanging through FPGA
-	// also Nokia 770
-	// also Palm Tungsten T2
-#endif
-
-	// PXA:
-	// also Dell Axim X50
-	// also HP iPaq H191x/H192x/H415x/H435x
-	// also Intel Lubbock (additional to UCB1400; as temperature sensor)
-	// also Sharp Zaurus C7xx, C8xx (corgi/sheperd/husky)
-
-	// Atmel at91sam9261-EK uses ads7843
-
-	// also various AMD Au1x00 devel boards
-
 	return spi_register_driver(&ads7846_driver);
 }
 module_init(ads7846_init);
@@ -1207,14 +1172,6 @@ module_init(ads7846_init);
 static void __exit ads7846_exit(void)
 {
 	spi_unregister_driver(&ads7846_driver);
-
-#ifdef	CONFIG_ARCH_OMAP
-	if (machine_is_omap_osk()) {
-		omap_free_gpio(4);
-		omap_free_gpio(6);
-	}
-#endif
-
 }
 module_exit(ads7846_exit);
 

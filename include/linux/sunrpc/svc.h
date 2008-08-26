@@ -22,7 +22,7 @@
 /*
  * This is the RPC server thread function prototype
  */
-typedef void		(*svc_thread_fn)(struct svc_rqst *);
+typedef int		(*svc_thread_fn)(void *);
 
 /*
  *
@@ -80,7 +80,6 @@ struct svc_serv {
 	struct module *		sv_module;	/* optional module to count when
 						 * adding threads */
 	svc_thread_fn		sv_function;	/* main function for threads */
-	int			sv_kill_signal;	/* signal to kill threads */
 };
 
 /*
@@ -204,7 +203,7 @@ union svc_addr_u {
 struct svc_rqst {
 	struct list_head	rq_list;	/* idle list */
 	struct list_head	rq_all;		/* all threads list */
-	struct svc_sock *	rq_sock;	/* socket */
+	struct svc_xprt *	rq_xprt;	/* transport ptr */
 	struct sockaddr_storage	rq_addr;	/* peer address */
 	size_t			rq_addrlen;
 
@@ -214,9 +213,10 @@ struct svc_rqst {
 	struct auth_ops *	rq_authop;	/* authentication flavour */
 	u32			rq_flavor;	/* pseudoflavor */
 	struct svc_cred		rq_cred;	/* auth info */
-	struct sk_buff *	rq_skbuff;	/* fast recv inet buffer */
+	void *			rq_xprt_ctxt;	/* transport specific context ptr */
 	struct svc_deferred_req*rq_deferred;	/* deferred request we are replaying */
 
+	size_t			rq_xprt_hlen;	/* xprt header len */
 	struct xdr_buf		rq_arg;
 	struct xdr_buf		rq_res;
 	struct page *		rq_pages[RPCSVC_MAXPAGES];
@@ -317,11 +317,12 @@ static inline void svc_free_res_pages(struct svc_rqst *rqstp)
 
 struct svc_deferred_req {
 	u32			prot;	/* protocol (UDP or TCP) */
-	struct svc_sock		*svsk;
+	struct svc_xprt		*xprt;
 	struct sockaddr_storage	addr;	/* where reply must go */
 	size_t			addrlen;
 	union svc_addr_u	daddr;	/* where reply must come from */
 	struct cache_deferred_req handle;
+	size_t			xprt_hlen;
 	int			argslen;
 	__be32			args[0];
 };
@@ -382,11 +383,12 @@ struct svc_procedure {
  */
 struct svc_serv *  svc_create(struct svc_program *, unsigned int,
 			      void (*shutdown)(struct svc_serv*));
-int		   svc_create_thread(svc_thread_fn, struct svc_serv *);
+struct svc_rqst *svc_prepare_thread(struct svc_serv *serv,
+					struct svc_pool *pool);
 void		   svc_exit_thread(struct svc_rqst *);
 struct svc_serv *  svc_create_pooled(struct svc_program *, unsigned int,
-			void (*shutdown)(struct svc_serv*),
-			svc_thread_fn, int sig, struct module *);
+			void (*shutdown)(struct svc_serv*), svc_thread_fn,
+			struct module *);
 int		   svc_set_num_threads(struct svc_serv *, struct svc_pool *, int);
 void		   svc_destroy(struct svc_serv *);
 int		   svc_process(struct svc_rqst *);
@@ -405,16 +407,13 @@ char *		   svc_print_addr(struct svc_rqst *, char *, size_t);
  * for all cases without actually generating the checksum, so we just use a
  * static value.
  */
-static inline void
-svc_reserve_auth(struct svc_rqst *rqstp, int space)
+static inline void svc_reserve_auth(struct svc_rqst *rqstp, int space)
 {
-	int			added_space = 0;
+	int added_space = 0;
 
-	switch(rqstp->rq_authop->flavour) {
-		case RPC_AUTH_GSS:
-			added_space = RPC_MAX_AUTH_SIZE;
-	}
-	return svc_reserve(rqstp, space + added_space);
+	if (rqstp->rq_authop->flavour)
+		added_space = RPC_MAX_AUTH_SIZE;
+	svc_reserve(rqstp, space + added_space);
 }
 
 #endif /* SUNRPC_SVC_H */

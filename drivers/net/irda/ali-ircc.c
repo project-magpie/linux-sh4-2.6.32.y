@@ -60,6 +60,7 @@ static struct platform_driver ali_ircc_driver = {
 	.resume		= ali_ircc_resume,
 	.driver		= {
 		.name	= ALI_IRCC_DRIVER_NAME,
+		.owner	= THIS_MODULE,
 	},
 };
 
@@ -359,10 +360,6 @@ static int ali_ircc_open(int i, chipio_t *info)
 	/* Reset Tx queue info */
 	self->tx_fifo.len = self->tx_fifo.ptr = self->tx_fifo.free = 0;
 	self->tx_fifo.tail = self->tx_buff.head;
-
-	
-	/* Keep track of module usage */
-	SET_MODULE_OWNER(dev);
 
 	/* Override the network functions we need to use */
 	dev->hard_start_xmit = ali_ircc_sir_hard_xmit;
@@ -2260,6 +2257,7 @@ static void FIR2SIR(int iobase)
 MODULE_AUTHOR("Benjamin Kong <benjamin_kong@ali.com.tw>");
 MODULE_DESCRIPTION("ALi FIR Controller Driver");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:" ALI_IRCC_DRIVER_NAME);
 
 
 module_param_array(io, int, NULL, 0);

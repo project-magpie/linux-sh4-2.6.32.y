@@ -43,6 +43,8 @@
 #include "xfs_itable.h"
 #include "xfs_error.h"
 #include "xfs_dfrag.h"
+#include "xfs_vnodeops.h"
+#include "xfs_ioctl32.h"
 
 #define  _NATIVE_IOC(cmd, type) \
 	  _IOC(_IOC_DIR(cmd), _IOC_TYPE(cmd), _IOC_NR(cmd), sizeof(type))
@@ -290,6 +292,9 @@ xfs_ioc_bulkstat_compat(
 	if ((count = bulkreq.icount) <= 0)
 		return -XFS_ERROR(EINVAL);
 
+	if (bulkreq.ubuffer == NULL)
+		return -XFS_ERROR(EINVAL);
+
 	if (cmd == XFS_IOC_FSINUMBERS)
 		error = xfs_inumbers(mp, &inlast, &count,
 				bulkreq.ubuffer, xfs_inumbers_fmt_compat);
@@ -370,15 +375,11 @@ xfs_compat_ioctl(
 	unsigned long	arg)
 {
 	struct inode	*inode = file->f_path.dentry->d_inode;
-	bhv_vnode_t	*vp = vn_from_inode(inode);
 	int		error;
 
 	switch (cmd) {
 	case XFS_IOC_DIOINFO:
 	case XFS_IOC_FSGEOMETRY:
-	case XFS_IOC_GETVERSION:
-	case XFS_IOC_GETXFLAGS:
-	case XFS_IOC_SETXFLAGS:
 	case XFS_IOC_FSGETXATTR:
 	case XFS_IOC_FSSETXATTR:
 	case XFS_IOC_FSGETXATTRA:
@@ -404,6 +405,11 @@ xfs_compat_ioctl(
 	case XFS_IOC_ERROR_CLEARALL:
 		break;
 
+	case XFS_IOC32_GETXFLAGS:
+	case XFS_IOC32_SETXFLAGS:
+	case XFS_IOC32_GETVERSION:
+		cmd = _NATIVE_IOC(cmd, long);
+		break;
 #ifdef BROKEN_X86_ALIGNMENT
 	/* xfs_flock_t has wrong u32 vs u64 alignment */
 	case XFS_IOC_ALLOCSP_32:
@@ -443,7 +449,7 @@ xfs_compat_ioctl(
 	case XFS_IOC_FSBULKSTAT_SINGLE_32:
 	case XFS_IOC_FSINUMBERS_32:
 		cmd = _NATIVE_IOC(cmd, struct xfs_fsop_bulkreq);
-		return xfs_ioc_bulkstat_compat(XFS_BHVTOI(VNHEAD(vp))->i_mount,
+		return xfs_ioc_bulkstat_compat(XFS_I(inode)->i_mount,
 				cmd, (void __user*)arg);
 	case XFS_IOC_FD_TO_HANDLE_32:
 	case XFS_IOC_PATH_TO_HANDLE_32:
@@ -457,8 +463,8 @@ xfs_compat_ioctl(
 		return -ENOIOCTLCMD;
 	}
 
-	error = bhv_vop_ioctl(vp, inode, file, mode, cmd, (void __user *)arg);
-	VMODIFY(vp);
+	error = xfs_ioctl(XFS_I(inode), file, mode, cmd, (void __user *)arg);
+	xfs_iflags_set(XFS_I(inode), XFS_IMODIFIED);
 
 	return error;
 }

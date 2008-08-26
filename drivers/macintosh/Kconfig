@@ -172,6 +172,7 @@ config INPUT_ADBHID
 
 config MAC_EMUMOUSEBTN
 	bool "Support for mouse button 2+3 emulation"
+	select INPUT
 	help
 	  This provides generic support for emulating the 2nd and 3rd mouse
 	  button with keypresses.  If you say Y here, the emulation is still
@@ -232,6 +233,14 @@ config WINDFARM_PM112
 	  This driver provides thermal control for the PowerMac11,2
 	  which are the recent dual and quad G5 machines using the
 	  970MP dual-core processor.
+
+config WINDFARM_PM121
+	tristate "Support for thermal management on PowerMac12,1"
+	depends on WINDFARM && I2C && PMAC_SMU
+	select I2C_POWERMAC
+	help
+	  This driver provides thermal control for the PowerMac12,1
+	  which is the iMac G5 (iSight).
 
 config ANSLCD
 	tristate "Support for ANS LCD display"

@@ -23,20 +23,20 @@
 #include <linux/seq_file.h>
 #include <linux/root_dev.h>
 #include <linux/initrd.h>
+#include <linux/of_platform.h>
+#include <linux/of_device.h>
 
-#include <asm/of_device.h>
-#include <asm/of_platform.h>
 #include <asm/system.h>
 #include <asm/atomic.h>
 #include <asm/time.h>
 #include <asm/io.h>
 #include <asm/machdep.h>
 #include <asm/ipic.h>
-#include <asm/bootinfo.h>
 #include <asm/irq.h>
 #include <asm/prom.h>
 #include <asm/udbg.h>
 #include <sysdev/fsl_soc.h>
+#include <sysdev/fsl_pci.h>
 #include <asm/qe.h>
 #include <asm/qe_ic.h>
 
@@ -74,9 +74,8 @@ static void __init mpc832x_sys_setup_arch(void)
 	}
 
 #ifdef CONFIG_PCI
-	for (np = NULL; (np = of_find_node_by_type(np, "pci")) != NULL;)
+	for_each_compatible_node(np, "pci", "fsl,mpc8349-pci")
 		mpc83xx_add_bridge(np);
-	ppc_md.pci_exclude_device = mpc83xx_exclude_device;
 #endif
 
 #ifdef CONFIG_QUICC_ENGINE
@@ -92,10 +91,11 @@ static void __init mpc832x_sys_setup_arch(void)
 
 	if ((np = of_find_compatible_node(NULL, "network", "ucc_geth"))
 			!= NULL){
-		/* Reset the Ethernet PHY */
-		bcsr_regs[9] &= ~0x20;
+		/* Reset the Ethernet PHYs */
+#define BCSR8_FETH_RST 0x50
+		bcsr_regs[8] &= ~BCSR8_FETH_RST;
 		udelay(1000);
-		bcsr_regs[9] |= 0x20;
+		bcsr_regs[8] |= BCSR8_FETH_RST;
 		iounmap(bcsr_regs);
 		of_node_put(np);
 	}
@@ -106,20 +106,18 @@ static struct of_device_id mpc832x_ids[] = {
 	{ .type = "soc", },
 	{ .compatible = "soc", },
 	{ .type = "qe", },
+	{ .compatible = "fsl,qe", },
 	{},
 };
 
 static int __init mpc832x_declare_of_platform_devices(void)
 {
-	if (!machine_is(mpc832x_mds))
-		return 0;
-
 	/* Publish the QE devices */
 	of_platform_bus_probe(NULL, mpc832x_ids, NULL);
 
 	return 0;
 }
-device_initcall(mpc832x_declare_of_platform_devices);
+machine_device_initcall(mpc832x_mds, mpc832x_declare_of_platform_devices);
 
 static void __init mpc832x_sys_init_IRQ(void)
 {
@@ -138,38 +136,16 @@ static void __init mpc832x_sys_init_IRQ(void)
 	of_node_put(np);
 
 #ifdef CONFIG_QUICC_ENGINE
-	np = of_find_node_by_type(NULL, "qeic");
-	if (!np)
-		return;
-
-	qe_ic_init(np, 0);
+	np = of_find_compatible_node(NULL, NULL, "fsl,qe-ic");
+	if (!np) {
+		np = of_find_node_by_type(NULL, "qeic");
+		if (!np)
+			return;
+	}
+	qe_ic_init(np, 0, qe_ic_cascade_low_ipic, qe_ic_cascade_high_ipic);
 	of_node_put(np);
 #endif				/* CONFIG_QUICC_ENGINE */
 }
-
-#if defined(CONFIG_I2C_MPC) && defined(CONFIG_SENSORS_DS1374)
-extern ulong ds1374_get_rtc_time(void);
-extern int ds1374_set_rtc_time(ulong);
-
-static int __init mpc832x_rtc_hookup(void)
-{
-	struct timespec tv;
-
-	if (!machine_is(mpc832x_mds))
-		return 0;
-
-	ppc_md.get_rtc_time = ds1374_get_rtc_time;
-	ppc_md.set_rtc_time = ds1374_set_rtc_time;
-
-	tv.tv_nsec = 0;
-	tv.tv_sec = (ppc_md.get_rtc_time) ();
-	do_settimeofday(&tv);
-
-	return 0;
-}
-
-late_initcall(mpc832x_rtc_hookup);
-#endif
 
 /*
  * Called very early, MMU is off, device-tree isn't unflattened

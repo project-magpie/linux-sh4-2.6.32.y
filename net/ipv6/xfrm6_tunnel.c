@@ -140,12 +140,26 @@ __be32 xfrm6_tunnel_spi_lookup(xfrm_address_t *saddr)
 
 EXPORT_SYMBOL(xfrm6_tunnel_spi_lookup);
 
+static int __xfrm6_tunnel_spi_check(u32 spi)
+{
+	struct xfrm6_tunnel_spi *x6spi;
+	int index = xfrm6_tunnel_spi_hash_byspi(spi);
+	struct hlist_node *pos;
+
+	hlist_for_each_entry(x6spi, pos,
+			     &xfrm6_tunnel_spi_byspi[index],
+			     list_byspi) {
+		if (x6spi->spi == spi)
+			return -1;
+	}
+	return index;
+}
+
 static u32 __xfrm6_tunnel_alloc_spi(xfrm_address_t *saddr)
 {
 	u32 spi;
 	struct xfrm6_tunnel_spi *x6spi;
-	struct hlist_node *pos;
-	unsigned index;
+	int index;
 
 	if (xfrm6_tunnel_spi < XFRM6_TUNNEL_SPI_MIN ||
 	    xfrm6_tunnel_spi >= XFRM6_TUNNEL_SPI_MAX)
@@ -154,32 +168,19 @@ static u32 __xfrm6_tunnel_alloc_spi(xfrm_address_t *saddr)
 		xfrm6_tunnel_spi++;
 
 	for (spi = xfrm6_tunnel_spi; spi <= XFRM6_TUNNEL_SPI_MAX; spi++) {
-		index = xfrm6_tunnel_spi_hash_byspi(spi);
-		hlist_for_each_entry(x6spi, pos,
-				     &xfrm6_tunnel_spi_byspi[index],
-				     list_byspi) {
-			if (x6spi->spi == spi)
-				goto try_next_1;
-		}
-		xfrm6_tunnel_spi = spi;
-		goto alloc_spi;
-try_next_1:;
+		index = __xfrm6_tunnel_spi_check(spi);
+		if (index >= 0)
+			goto alloc_spi;
 	}
 	for (spi = XFRM6_TUNNEL_SPI_MIN; spi < xfrm6_tunnel_spi; spi++) {
-		index = xfrm6_tunnel_spi_hash_byspi(spi);
-		hlist_for_each_entry(x6spi, pos,
-				     &xfrm6_tunnel_spi_byspi[index],
-				     list_byspi) {
-			if (x6spi->spi == spi)
-				goto try_next_2;
-		}
-		xfrm6_tunnel_spi = spi;
-		goto alloc_spi;
-try_next_2:;
+		index = __xfrm6_tunnel_spi_check(spi);
+		if (index >= 0)
+			goto alloc_spi;
 	}
 	spi = 0;
 	goto out;
 alloc_spi:
+	xfrm6_tunnel_spi = spi;
 	x6spi = kmem_cache_alloc(xfrm6_tunnel_spi_kmem, GFP_ATOMIC);
 	if (!x6spi)
 		goto out;
@@ -242,17 +243,13 @@ EXPORT_SYMBOL(xfrm6_tunnel_free_spi);
 
 static int xfrm6_tunnel_output(struct xfrm_state *x, struct sk_buff *skb)
 {
-	struct ipv6hdr *top_iph;
-
-	top_iph = (struct ipv6hdr *)skb->data;
-	top_iph->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
-
+	skb_push(skb, -skb_network_offset(skb));
 	return 0;
 }
 
 static int xfrm6_tunnel_input(struct xfrm_state *x, struct sk_buff *skb)
 {
-	return 0;
+	return skb_network_header(skb)[IP6CB(skb)->nhoff];
 }
 
 static int xfrm6_tunnel_rcv(struct sk_buff *skb)
@@ -261,7 +258,7 @@ static int xfrm6_tunnel_rcv(struct sk_buff *skb)
 	__be32 spi;
 
 	spi = xfrm6_tunnel_spi_lookup((xfrm_address_t *)&iph->saddr);
-	return xfrm6_rcv_spi(skb, spi) > 0 ? : 0;
+	return xfrm6_rcv_spi(skb, IPPROTO_IPV6, spi) > 0 ? : 0;
 }
 
 static int xfrm6_tunnel_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
@@ -323,7 +320,7 @@ static void xfrm6_tunnel_destroy(struct xfrm_state *x)
 	xfrm6_tunnel_free_spi((xfrm_address_t *)&x->props.saddr);
 }
 
-static struct xfrm_type xfrm6_tunnel_type = {
+static const struct xfrm_type xfrm6_tunnel_type = {
 	.description	= "IP6IP6",
 	.owner          = THIS_MODULE,
 	.proto		= IPPROTO_IPV6,

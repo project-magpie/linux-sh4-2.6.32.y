@@ -78,8 +78,8 @@ static int hvc_beat_put_chars(uint32_t vtermno, const char *buf, int cnt)
 	for (rest = cnt; rest > 0; rest -= nlen) {
 		nlen = (rest > 16) ? 16 : rest;
 		memcpy(kb, buf, nlen);
-		beat_put_term_char(vtermno, rest, kb[0], kb[1]);
-		rest -= nlen;
+		beat_put_term_char(vtermno, nlen, kb[0], kb[1]);
+		buf += nlen;
 	}
 	return cnt;
 }
@@ -97,7 +97,7 @@ static int hvc_beat_config(char *p)
 	return 0;
 }
 
-static int hvc_beat_console_init(void)
+static int __init hvc_beat_console_init(void)
 {
 	if (hvc_beat_useit && machine_is_compatible("Beat")) {
 		hvc_instantiate(0, 0, &hvc_beat_get_put_ops);
@@ -106,7 +106,7 @@ static int hvc_beat_console_init(void)
 }
 
 /* temp */
-static int hvc_beat_init(void)
+static int __init hvc_beat_init(void)
 {
 	struct hvc_struct *hp;
 

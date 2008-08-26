@@ -1,7 +1,7 @@
 /*
  *  card-als4000.c - driver for Avance Logic ALS4000 based soundcards.
  *  Copyright (C) 2000 by Bart Hartgers <bart@etpmod.phys.tue.nl>,
- *			  Jaroslav Kysela <perex@suse.cz>
+ *			  Jaroslav Kysela <perex@perex.cz>
  *  Copyright (C) 2002 by Andreas Mohr <hw7oshyuv3001@sneakemail.com>
  *
  *  Framework borrowed from Massimo Piccioni's card-als100.c.
@@ -63,7 +63,6 @@
  * - power management? (card can do voice wakeup according to datasheet!!)
  */
 
-#include <sound/driver.h>
 #include <asm/io.h>
 #include <linux/init.h>
 #include <linux/pci.h>

@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2007, R. Byron Moore
+ * Copyright (C) 2000 - 2008, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -61,30 +61,6 @@
 
 #define ACPI_ARRAY_LENGTH(x)            (sizeof(x) / sizeof((x)[0]))
 
-#ifdef ACPI_NO_INTEGER64_SUPPORT
-/*
- * acpi_integer is 32-bits, no 64-bit support on this platform
- */
-#define ACPI_LODWORD(l)                 ((u32)(l))
-#define ACPI_HIDWORD(l)                 ((u32)(0))
-
-#else
-
-/*
- * Full 64-bit address/integer on both 32-bit and 64-bit platforms
- */
-#define ACPI_LODWORD(l)                 ((u32)(u64)(l))
-#define ACPI_HIDWORD(l)                 ((u32)(((*(struct uint64_struct *)(void *)(&l))).hi))
-#endif
-
-/*
- * printf() format helpers
- */
-
-/* Split 64-bit integer into two 32-bit values. Use with %8.8_x%8.8_x */
-
-#define ACPI_FORMAT_UINT64(i)           ACPI_HIDWORD(i),ACPI_LODWORD(i)
-
 /*
  * Extract data using a pointer.  Any more than a byte and we
  * get into potential aligment issues -- see the STORE macros below.
@@ -104,12 +80,12 @@
  */
 #define ACPI_CAST_PTR(t, p)             ((t *) (acpi_uintptr_t) (p))
 #define ACPI_CAST_INDIRECT_PTR(t, p)    ((t **) (acpi_uintptr_t) (p))
-#define ACPI_ADD_PTR(t,a,b)             ACPI_CAST_PTR (t, (ACPI_CAST_PTR (u8,(a)) + (acpi_native_uint)(b)))
-#define ACPI_PTR_DIFF(a,b)              (acpi_native_uint) (ACPI_CAST_PTR (u8,(a)) - ACPI_CAST_PTR (u8,(b)))
+#define ACPI_ADD_PTR(t, a, b)		ACPI_CAST_PTR (t, (ACPI_CAST_PTR (u8,(a)) + (acpi_size)(b)))
+#define ACPI_PTR_DIFF(a, b)		(acpi_size) (ACPI_CAST_PTR (u8,(a)) - ACPI_CAST_PTR (u8,(b)))
 
 /* Pointer/Integer type conversions */
 
-#define ACPI_TO_POINTER(i)              ACPI_ADD_PTR (void,(void *) NULL,(acpi_native_uint) i)
+#define ACPI_TO_POINTER(i)		ACPI_ADD_PTR (void, (void *) NULL, (acpi_size) i)
 #define ACPI_TO_INTEGER(p)              ACPI_PTR_DIFF (p,(void *) NULL)
 #define ACPI_OFFSET(d,f)                (acpi_size) ACPI_PTR_DIFF (&(((d *)0)->f),(void *) NULL)
 #define ACPI_PHYSADDR_TO_PTR(i)         ACPI_TO_POINTER(i)
@@ -119,6 +95,31 @@
 #define ACPI_COMPARE_NAME(a,b)          (*ACPI_CAST_PTR (u32,(a)) == *ACPI_CAST_PTR (u32,(b)))
 #else
 #define ACPI_COMPARE_NAME(a,b)          (!ACPI_STRNCMP (ACPI_CAST_PTR (char,(a)), ACPI_CAST_PTR (char,(b)), ACPI_NAME_SIZE))
+#endif
+
+/*
+ * Full 64-bit integer must be available on both 32-bit and 64-bit platforms
+ */
+struct acpi_integer_overlay {
+	u32 lo_dword;
+	u32 hi_dword;
+};
+
+#define ACPI_LODWORD(integer)           (ACPI_CAST_PTR (struct acpi_integer_overlay, &integer)->lo_dword)
+#define ACPI_HIDWORD(integer)           (ACPI_CAST_PTR (struct acpi_integer_overlay, &integer)->hi_dword)
+
+/*
+ * printf() format helpers
+ */
+
+/* Split 64-bit integer into two 32-bit values. Use with %8.8_x%8.8_x */
+
+#define ACPI_FORMAT_UINT64(i)           ACPI_HIDWORD(i),ACPI_LODWORD(i)
+
+#if ACPI_MACHINE_WIDTH == 64
+#define ACPI_FORMAT_NATIVE_UINT(i)      ACPI_FORMAT_UINT64(i)
+#else
+#define ACPI_FORMAT_NATIVE_UINT(i)      0, (i)
 #endif
 
 /*
@@ -137,29 +138,29 @@
 
 /* These macros reverse the bytes during the move, converting little-endian to big endian */
 
-	 /* Big Endian      <==        Little Endian */
-	 /*  Hi...Lo                     Lo...Hi     */
+			  /* Big Endian      <==        Little Endian */
+			  /*  Hi...Lo                     Lo...Hi     */
 /* 16-bit source, 16/32/64 destination */
 
 #define ACPI_MOVE_16_TO_16(d,s)         {((  u8 *)(void *)(d))[0] = ((u8 *)(void *)(s))[1];\
-			  ((  u8 *)(void *)(d))[1] = ((u8 *)(void *)(s))[0];}
+					   ((  u8 *)(void *)(d))[1] = ((u8 *)(void *)(s))[0];}
 
 #define ACPI_MOVE_16_TO_32(d,s)         {(*(u32 *)(void *)(d))=0;\
-					  ((u8 *)(void *)(d))[2] = ((u8 *)(void *)(s))[1];\
-					  ((u8 *)(void *)(d))[3] = ((u8 *)(void *)(s))[0];}
+							   ((u8 *)(void *)(d))[2] = ((u8 *)(void *)(s))[1];\
+							   ((u8 *)(void *)(d))[3] = ((u8 *)(void *)(s))[0];}
 
 #define ACPI_MOVE_16_TO_64(d,s)         {(*(u64 *)(void *)(d))=0;\
-							   ((u8 *)(void *)(d))[6] = ((u8 *)(void *)(s))[1];\
-							   ((u8 *)(void *)(d))[7] = ((u8 *)(void *)(s))[0];}
+									 ((u8 *)(void *)(d))[6] = ((u8 *)(void *)(s))[1];\
+									 ((u8 *)(void *)(d))[7] = ((u8 *)(void *)(s))[0];}
 
 /* 32-bit source, 16/32/64 destination */
 
 #define ACPI_MOVE_32_TO_16(d,s)         ACPI_MOVE_16_TO_16(d,s)	/* Truncate to 16 */
 
 #define ACPI_MOVE_32_TO_32(d,s)         {((  u8 *)(void *)(d))[0] = ((u8 *)(void *)(s))[3];\
-									  ((  u8 *)(void *)(d))[1] = ((u8 *)(void *)(s))[2];\
-									  ((  u8 *)(void *)(d))[2] = ((u8 *)(void *)(s))[1];\
-									  ((  u8 *)(void *)(d))[3] = ((u8 *)(void *)(s))[0];}
+										 ((  u8 *)(void *)(d))[1] = ((u8 *)(void *)(s))[2];\
+										 ((  u8 *)(void *)(d))[2] = ((u8 *)(void *)(s))[1];\
+										 ((  u8 *)(void *)(d))[3] = ((u8 *)(void *)(s))[0];}
 
 #define ACPI_MOVE_32_TO_64(d,s)         {(*(u64 *)(void *)(d))=0;\
 										   ((u8 *)(void *)(d))[4] = ((u8 *)(void *)(s))[3];\
@@ -295,22 +296,22 @@
 /*
  * Rounding macros (Power of two boundaries only)
  */
-#define ACPI_ROUND_DOWN(value,boundary)     (((acpi_native_uint)(value)) & \
-												(~(((acpi_native_uint) boundary)-1)))
+#define ACPI_ROUND_DOWN(value, boundary)     (((acpi_size)(value)) & \
+						(~(((acpi_size) boundary)-1)))
 
-#define ACPI_ROUND_UP(value,boundary)       ((((acpi_native_uint)(value)) + \
-												(((acpi_native_uint) boundary)-1)) & \
-												(~(((acpi_native_uint) boundary)-1)))
+#define ACPI_ROUND_UP(value, boundary)	     ((((acpi_size)(value)) + \
+						(((acpi_size) boundary)-1)) & \
+						(~(((acpi_size) boundary)-1)))
 
-/* Note: sizeof(acpi_native_uint) evaluates to either 2, 4, or 8 */
+/* Note: sizeof(acpi_size) evaluates to either 4 or 8 (32- vs 64-bit mode) */
 
 #define ACPI_ROUND_DOWN_TO_32BIT(a)         ACPI_ROUND_DOWN(a,4)
 #define ACPI_ROUND_DOWN_TO_64BIT(a)         ACPI_ROUND_DOWN(a,8)
-#define ACPI_ROUND_DOWN_TO_NATIVE_WORD(a)   ACPI_ROUND_DOWN(a,sizeof(acpi_native_uint))
+#define ACPI_ROUND_DOWN_TO_NATIVE_WORD(a)   ACPI_ROUND_DOWN(a,sizeof(acpi_size))
 
 #define ACPI_ROUND_UP_TO_32BIT(a)           ACPI_ROUND_UP(a,4)
 #define ACPI_ROUND_UP_TO_64BIT(a)           ACPI_ROUND_UP(a,8)
-#define ACPI_ROUND_UP_TO_NATIVE_WORD(a)     ACPI_ROUND_UP(a,sizeof(acpi_native_uint))
+#define ACPI_ROUND_UP_TO_NATIVE_WORD(a)     ACPI_ROUND_UP(a,sizeof(acpi_size))
 
 #define ACPI_ROUND_BITS_UP_TO_BYTES(a)      ACPI_DIV_8((a) + 7)
 #define ACPI_ROUND_BITS_DOWN_TO_BYTES(a)    ACPI_DIV_8((a))
@@ -321,7 +322,7 @@
 
 #define ACPI_ROUND_UP_TO(value,boundary)    (((value) + ((boundary)-1)) / (boundary))
 
-#define ACPI_IS_MISALIGNED(value)           (((acpi_native_uint)value) & (sizeof(acpi_native_uint)-1))
+#define ACPI_IS_MISALIGNED(value)	    (((acpi_size)value) & (sizeof(acpi_size)-1))
 
 /*
  * Bitmask creation
@@ -413,7 +414,7 @@
  * error messages. The __FILE__ macro is not very useful for this, because it
  * often includes the entire pathname to the module
  */
-#define ACPI_MODULE_NAME(name)          static char ACPI_UNUSED_VAR *_acpi_module_name = name;
+#define ACPI_MODULE_NAME(name)		static const char ACPI_UNUSED_VAR _acpi_module_name[] = name;
 #else
 #define ACPI_MODULE_NAME(name)
 #endif
@@ -466,19 +467,17 @@
 /*
  * If ACPI_GET_FUNCTION_NAME was not defined in the compiler-dependent header,
  * define it now. This is the case where there the compiler does not support
- * a __FUNCTION__ macro or equivalent. We save the function name on the
- * local stack.
+ * a __FUNCTION__ macro or equivalent.
  */
 #ifndef ACPI_GET_FUNCTION_NAME
 #define ACPI_GET_FUNCTION_NAME          _acpi_function_name
 /*
  * The Name parameter should be the procedure name as a quoted string.
- * This is declared as a local string ("MyFunctionName") so that it can
- * be also used by the function exit macros below.
+ * The function name is also used by the function exit macros below.
  * Note: (const char) is used to be compatible with the debug interfaces
  * and macros such as __FUNCTION__.
  */
-#define ACPI_FUNCTION_NAME(name)        const char *_acpi_function_name = #name;
+#define ACPI_FUNCTION_NAME(name)	static const char _acpi_function_name[] = #name;
 
 #else
 /* Compiler supports __FUNCTION__ (or equivalent) -- Ignore this macro */
@@ -486,7 +485,7 @@
 #define ACPI_FUNCTION_NAME(name)
 #endif
 
-#ifdef DEBUG_FUNC_TRACE
+#ifdef CONFIG_ACPI_DEBUG_FUNC_TRACE
 
 #define ACPI_FUNCTION_TRACE(a)          ACPI_FUNCTION_NAME(a) \
 			  acpi_ut_trace(ACPI_DEBUG_PARAMETERS)
@@ -565,7 +564,7 @@
 
 #endif				/* ACPI_SIMPLE_RETURN_MACROS */
 
-#else /* !DEBUG_FUNC_TRACE */
+#else /* !CONFIG_ACPI_DEBUG_FUNC_TRACE */
 
 #define ACPI_FUNCTION_TRACE(a)
 #define ACPI_FUNCTION_TRACE_PTR(a,b)
@@ -584,7 +583,7 @@
 #define return_UINT32(s)                return(s)
 #define return_PTR(s)                   return(s)
 
-#endif /* DEBUG_FUNC_TRACE */
+#endif /* CONFIG_ACPI_DEBUG_FUNC_TRACE */
 
 /* Conditional execution */
 
@@ -598,7 +597,7 @@
 /* Stack and buffer dumping */
 
 #define ACPI_DUMP_STACK_ENTRY(a)        acpi_ex_dump_operand((a),0)
-#define ACPI_DUMP_OPERANDS(a,b,c,d,e)   acpi_ex_dump_operands(a,b,c,d,e,_acpi_module_name,__LINE__)
+#define ACPI_DUMP_OPERANDS(a,b,c)	acpi_ex_dump_operands(a,b,c)
 
 #define ACPI_DUMP_ENTRY(a,b)            acpi_ns_dump_entry (a,b)
 #define ACPI_DUMP_PATHNAME(a,b,c,d)     acpi_ns_dump_pathname(a,b,c,d)
@@ -634,7 +633,7 @@
 #define ACPI_FUNCTION_VALUE_EXIT(s)	do { } while(0)
 #define ACPI_FUNCTION_ENTRY()		do { } while(0)
 #define ACPI_DUMP_STACK_ENTRY(a)	do { } while(0)
-#define ACPI_DUMP_OPERANDS(a,b,c,d,e)	do { } while(0)
+#define ACPI_DUMP_OPERANDS(a,b,c)      do { } while(0)
 #define ACPI_DUMP_ENTRY(a,b)		do { } while(0)
 #define ACPI_DUMP_TABLES(a,b)		do { } while(0)
 #define ACPI_DUMP_PATHNAME(a,b,c,d)	do { } while(0)

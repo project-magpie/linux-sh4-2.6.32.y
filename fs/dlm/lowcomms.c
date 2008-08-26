@@ -50,6 +50,7 @@
 #include <linux/pagemap.h>
 #include <linux/idr.h>
 #include <linux/file.h>
+#include <linux/mutex.h>
 #include <linux/sctp.h>
 #include <net/sctp/user.h>
 
@@ -138,7 +139,7 @@ static struct workqueue_struct *recv_workqueue;
 static struct workqueue_struct *send_workqueue;
 
 static DEFINE_IDR(connections_idr);
-static DECLARE_MUTEX(connections_lock);
+static DEFINE_MUTEX(connections_lock);
 static int max_nodeid;
 static struct kmem_cache *con_cache;
 
@@ -205,9 +206,9 @@ static struct connection *nodeid2con(int nodeid, gfp_t allocation)
 {
 	struct connection *con;
 
-	down(&connections_lock);
+	mutex_lock(&connections_lock);
 	con = __nodeid2con(nodeid, allocation);
-	up(&connections_lock);
+	mutex_unlock(&connections_lock);
 
 	return con;
 }
@@ -218,15 +219,15 @@ static struct connection *assoc2con(int assoc_id)
 	int i;
 	struct connection *con;
 
-	down(&connections_lock);
+	mutex_lock(&connections_lock);
 	for (i=0; i<=max_nodeid; i++) {
 		con = __nodeid2con(i, 0);
 		if (con && con->sctp_assoc == assoc_id) {
-			up(&connections_lock);
+			mutex_unlock(&connections_lock);
 			return con;
 		}
 	}
-	up(&connections_lock);
+	mutex_unlock(&connections_lock);
 	return NULL;
 }
 
@@ -334,18 +335,8 @@ static void close_connection(struct connection *con, bool and_other)
 		con->rx_page = NULL;
 	}
 
-	/* If we are an 'othercon' then NULL the pointer to us
-	   from the parent and tidy ourself up */
-	if (test_bit(CF_IS_OTHERCON, &con->flags)) {
-		struct connection *parent = __nodeid2con(con->nodeid, 0);
-		parent->othercon = NULL;
-		kmem_cache_free(con_cache, con);
-	}
-	else {
-		/* Parent connections get reused */
-		con->retries = 0;
-		mutex_unlock(&con->sock_mutex);
-	}
+	con->retries = 0;
+	mutex_unlock(&con->sock_mutex);
 }
 
 /* We only send shutdown messages to nodes that are not part of the cluster */
@@ -391,7 +382,7 @@ static void sctp_init_failed(void)
 	int i;
 	struct connection *con;
 
-	down(&connections_lock);
+	mutex_lock(&connections_lock);
 	for (i=1; i<=max_nodeid; i++) {
 		con = __nodeid2con(i, 0);
 		if (!con)
@@ -403,7 +394,7 @@ static void sctp_init_failed(void)
 			}
 		}
 	}
-	up(&connections_lock);
+	mutex_unlock(&connections_lock);
 }
 
 /* Something happened to an association */
@@ -731,6 +722,8 @@ static int tcp_accept_from_sock(struct connection *con)
 			INIT_WORK(&othercon->swork, process_send_sockets);
 			INIT_WORK(&othercon->rwork, process_recv_sockets);
 			set_bit(CF_IS_OTHERCON, &othercon->flags);
+		}
+		if (!othercon->sock) {
 			newcon->othercon = othercon;
 			othercon->sock = newsock;
 			newsock->sk->sk_user_data = othercon;
@@ -872,7 +865,7 @@ static void sctp_init_assoc(struct connection *con)
 static void tcp_connect_to_sock(struct connection *con)
 {
 	int result = -EHOSTUNREACH;
-	struct sockaddr_storage saddr;
+	struct sockaddr_storage saddr, src_addr;
 	int addr_len;
 	struct socket *sock;
 
@@ -906,6 +899,17 @@ static void tcp_connect_to_sock(struct connection *con)
 	con->connect_action = tcp_connect_to_sock;
 	add_sock(sock, con);
 
+	/* Bind to our cluster-known address connecting to avoid
+	   routing problems */
+	memcpy(&src_addr, dlm_local_addr[0], sizeof(src_addr));
+	make_sockaddr(&src_addr, 0, &addr_len);
+	result = sock->ops->bind(sock, (struct sockaddr *) &src_addr,
+				 addr_len);
+	if (result < 0) {
+		log_print("could not bind for connect: %d", result);
+		/* This *may* not indicate a critical error */
+	}
+
 	make_sockaddr(&saddr, dlm_config.ci_tcp_port, &addr_len);
 
 	log_print("connecting to %d", con->nodeid);
@@ -927,7 +931,7 @@ out_err:
 	 * errors we try again until the max number of retries is reached.
 	 */
 	if (result != -EHOSTUNREACH && result != -ENETUNREACH &&
-	    result != -ENETDOWN && result != EINVAL
+	    result != -ENETDOWN && result != -EINVAL
 	    && result != -EPROTONOSUPPORT) {
 		lowcomms_connect_sock(con);
 		result = 0;
@@ -1070,7 +1074,7 @@ static int sctp_listen_for_all(void)
 	subscribe.sctp_shutdown_event = 1;
 	subscribe.sctp_partial_delivery_event = 1;
 
-	result = kernel_setsockopt(sock, SOL_SOCKET, SO_RCVBUF,
+	result = kernel_setsockopt(sock, SOL_SOCKET, SO_RCVBUFFORCE,
 				 (char *)&bufsize, sizeof(bufsize));
 	if (result)
 		log_print("Error increasing buffer space on socket %d", result);
@@ -1272,14 +1276,15 @@ static void send_to_sock(struct connection *con)
 		if (len) {
 			ret = sendpage(con->sock, e->page, offset, len,
 				       msg_flags);
-			if (ret == -EAGAIN || ret == 0)
+			if (ret == -EAGAIN || ret == 0) {
+				cond_resched();
 				goto out;
+			}
 			if (ret <= 0)
 				goto send_error;
-		} else {
+		}
 			/* Don't starve people filling buffers */
 			cond_resched();
-		}
 
 		spin_lock(&con->writequeue_lock);
 		e->offset += ret;
@@ -1413,7 +1418,7 @@ void dlm_lowcomms_stop(void)
 	/* Set all the flags to prevent any
 	   socket activity.
 	*/
-	down(&connections_lock);
+	mutex_lock(&connections_lock);
 	for (i = 0; i <= max_nodeid; i++) {
 		con = __nodeid2con(i, 0);
 		if (con) {
@@ -1422,22 +1427,24 @@ void dlm_lowcomms_stop(void)
 				con->sock->sk->sk_user_data = NULL;
 		}
 	}
-	up(&connections_lock);
+	mutex_unlock(&connections_lock);
 
 	work_stop();
 
-	down(&connections_lock);
+	mutex_lock(&connections_lock);
 	clean_writequeues();
 
 	for (i = 0; i <= max_nodeid; i++) {
 		con = __nodeid2con(i, 0);
 		if (con) {
 			close_connection(con, true);
+			if (con->othercon)
+				kmem_cache_free(con_cache, con->othercon);
 			kmem_cache_free(con_cache, con);
 		}
 	}
 	max_nodeid = 0;
-	up(&connections_lock);
+	mutex_unlock(&connections_lock);
 	kmem_cache_destroy(con_cache);
 	idr_init(&connections_idr);
 }
@@ -1460,10 +1467,6 @@ int dlm_lowcomms_start(void)
 				      NULL);
 	if (!con_cache)
 		goto out;
-
-	/* Set some sysctl minima */
-	if (sysctl_rmem_max < NEEDED_RMEM)
-		sysctl_rmem_max = NEEDED_RMEM;
 
 	/* Start listening */
 	if (dlm_config.ci_protocol == 0)

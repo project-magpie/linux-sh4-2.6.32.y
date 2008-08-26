@@ -1,6 +1,4 @@
 /*
- * linux/drivers/ide/pci/cs5530.c		Version 0.74	Jul 28 2007
- *
  * Copyright (C) 2000			Andre Hedrick <andre@linux-ide.org>
  * Copyright (C) 2000			Mark Lord <mlord@pobox.com>
  * Copyright (C) 2007			Bartlomiej Zolnierkiewicz
@@ -17,34 +15,14 @@
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
-#include <linux/delay.h>
-#include <linux/timer.h>
-#include <linux/mm.h>
-#include <linux/ioport.h>
-#include <linux/blkdev.h>
 #include <linux/hdreg.h>
-#include <linux/interrupt.h>
 #include <linux/pci.h>
 #include <linux/init.h>
 #include <linux/ide.h>
-#include <asm/io.h>
-#include <asm/irq.h>
 
-/**
- *	cs5530_xfer_set_mode	-	set a new transfer mode at the drive
- *	@drive: drive to tune
- *	@mode: new mode
- *
- *	Logging wrapper to the IDE driver speed configuration. This can
- *	probably go away now.
- */
- 
-static int cs5530_set_xfer_mode (ide_drive_t *drive, u8 mode)
-{
-	printk(KERN_DEBUG "%s: cs5530_set_xfer_mode(%s)\n",
-		drive->name, ide_xfer_verbose(mode));
-	return (ide_config_drive_speed(drive, mode));
-}
+#include <asm/io.h>
+
+#define DRV_NAME "cs5530"
 
 /*
  * Here are the standard PIO mode 0-4 timings for each "format".
@@ -62,30 +40,23 @@ static unsigned int cs5530_pio_timings[2][5] = {
 #define CS5530_BAD_PIO(timings) (((timings)&~0x80000000)==0x0000e132)
 #define CS5530_BASEREG(hwif)	(((hwif)->dma_base & ~0xf) + ((hwif)->channel ? 0x30 : 0x20))
 
-static void cs5530_tunepio(ide_drive_t *drive, u8 pio)
+/**
+ *	cs5530_set_pio_mode	-	set host controller for PIO mode
+ *	@drive: drive
+ *	@pio: PIO mode number
+ *
+ *	Handles setting of PIO mode for the chipset.
+ *
+ *	The init_hwif_cs5530() routine guarantees that all drives
+ *	will have valid default PIO timings set up before we get here.
+ */
+
+static void cs5530_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
 	unsigned long basereg = CS5530_BASEREG(drive->hwif);
 	unsigned int format = (inl(basereg + 4) >> 31) & 1;
 
 	outl(cs5530_pio_timings[format][pio], basereg + ((drive->dn & 1)<<3));
-}
-
-/**
- *	cs5530_tuneproc		-	select/set PIO modes
- *
- *	cs5530_tuneproc() handles selection/setting of PIO modes
- *	for both the chipset and drive.
- *
- *	The ide_init_cs5530() routine guarantees that all drives
- *	will have valid default PIO timings set up before we get here.
- */
-
-static void cs5530_tuneproc (ide_drive_t *drive, u8 pio)	/* pio=255 means "autotune" */
-{
-	pio = ide_get_best_pio_mode(drive, pio, 4);
-
-	if (cs5530_set_xfer_mode(drive, XFER_PIO_0 + pio) == 0)
-		cs5530_tunepio(drive, pio);
 }
 
 /**
@@ -127,38 +98,11 @@ out:
 	return mask;
 }
 
-/**
- *	cs5530_config_dma	-	set DMA/UDMA mode
- *	@drive: drive to tune
- *
- *	cs5530_config_dma() handles setting of DMA/UDMA mode
- *	for both the chipset and drive.
- */
-
-static int cs5530_config_dma(ide_drive_t *drive)
-{
-	if (ide_tune_dma(drive))
-		return 0;
-
-	return 1;
-}
-
-static int cs5530_tune_chipset(ide_drive_t *drive, u8 mode)
+static void cs5530_set_dma_mode(ide_drive_t *drive, const u8 mode)
 {
 	unsigned long basereg;
 	unsigned int reg, timings = 0;
 
-	mode = ide_rate_filter(drive, mode);
-
-	/*
-	 * Tell the drive to switch to the new mode; abort on failure.
-	 */
-	if (cs5530_set_xfer_mode(drive, mode))
-		return 1;	/* failure */
-
-	/*
-	 * Now tune the chipset to match the drive:
-	 */
 	switch (mode) {
 		case XFER_UDMA_0:	timings = 0x00921250; break;
 		case XFER_UDMA_1:	timings = 0x00911140; break;
@@ -166,16 +110,6 @@ static int cs5530_tune_chipset(ide_drive_t *drive, u8 mode)
 		case XFER_MW_DMA_0:	timings = 0x00077771; break;
 		case XFER_MW_DMA_1:	timings = 0x00012121; break;
 		case XFER_MW_DMA_2:	timings = 0x00002020; break;
-		case XFER_PIO_4:
-		case XFER_PIO_3:
-		case XFER_PIO_2:
-		case XFER_PIO_1:
-		case XFER_PIO_0:
-			cs5530_tunepio(drive, mode - XFER_PIO_0);
-			return 0;
-		default:
-			BUG();
-			break;
 	}
 	basereg = CS5530_BASEREG(drive->hwif);
 	reg = inl(basereg + 4);			/* get drive0 config register */
@@ -190,22 +124,18 @@ static int cs5530_tune_chipset(ide_drive_t *drive, u8 mode)
 		outl(reg, basereg + 4);		/* write drive0 config register */
 		outl(timings, basereg + 12);	/* write drive1 config register */
 	}
-
-	return 0;	/* success */
 }
 
 /**
  *	init_chipset_5530	-	set up 5530 bridge
  *	@dev: PCI device
- *	@name: device name
  *
  *	Initialize the cs5530 bridge for reliable IDE DMA operation.
  */
 
-static unsigned int __devinit init_chipset_cs5530 (struct pci_dev *dev, const char *name)
+static unsigned int __devinit init_chipset_cs5530(struct pci_dev *dev)
 {
 	struct pci_dev *master_0 = NULL, *cs5530_0 = NULL;
-	unsigned long flags;
 
 	if (pci_resource_start(dev, 4) == 0)
 		return -EFAULT;
@@ -222,16 +152,13 @@ static unsigned int __devinit init_chipset_cs5530 (struct pci_dev *dev, const ch
 		}
 	}
 	if (!master_0) {
-		printk(KERN_ERR "%s: unable to locate PCI MASTER function\n", name);
+		printk(KERN_ERR DRV_NAME ": unable to locate PCI MASTER function\n");
 		goto out;
 	}
 	if (!cs5530_0) {
-		printk(KERN_ERR "%s: unable to locate CS5530 LEGACY function\n", name);
+		printk(KERN_ERR DRV_NAME ": unable to locate CS5530 LEGACY function\n");
 		goto out;
 	}
-
-	spin_lock_irqsave(&ide_lock, flags);
-		/* all CPUs (there should only be one CPU with this chipset) */
 
 	/*
 	 * Enable BusMaster and MemoryWriteAndInvalidate for the cs5530:
@@ -283,8 +210,6 @@ static unsigned int __devinit init_chipset_cs5530 (struct pci_dev *dev, const ch
 	pci_write_config_byte(master_0, 0x42, 0x00);
 	pci_write_config_byte(master_0, 0x43, 0xc1);
 
-	spin_unlock_irqrestore(&ide_lock, flags);
-
 out:
 	pci_dev_put(master_0);
 	pci_dev_put(cs5530_0);
@@ -303,62 +228,40 @@ static void __devinit init_hwif_cs5530 (ide_hwif_t *hwif)
 {
 	unsigned long basereg;
 	u32 d0_timings;
-	hwif->autodma = 0;
-
-	if (hwif->mate)
-		hwif->serialized = hwif->mate->serialized = 1;
-
-	hwif->tuneproc = &cs5530_tuneproc;
-	hwif->speedproc = &cs5530_tune_chipset;
 
 	basereg = CS5530_BASEREG(hwif);
 	d0_timings = inl(basereg + 0);
-	if (CS5530_BAD_PIO(d0_timings)) {
-		/* PIO timings not initialized? */
+	if (CS5530_BAD_PIO(d0_timings))
 		outl(cs5530_pio_timings[(d0_timings >> 31) & 1][0], basereg + 0);
-		if (!hwif->drives[0].autotune)
-			hwif->drives[0].autotune = 1;
-			/* needs autotuning later */
-	}
-	if (CS5530_BAD_PIO(inl(basereg + 8))) {
-		/* PIO timings not initialized? */
+	if (CS5530_BAD_PIO(inl(basereg + 8)))
 		outl(cs5530_pio_timings[(d0_timings >> 31) & 1][0], basereg + 8);
-		if (!hwif->drives[1].autotune)
-			hwif->drives[1].autotune = 1;
-			/* needs autotuning later */
-	}
-
-	if (hwif->dma_base == 0)
-		return;
-
-	hwif->atapi_dma = 1;
-	hwif->ultra_mask = 0x07;
-	hwif->mwdma_mask = 0x07;
-
-	hwif->udma_filter = cs5530_udma_filter;
-	hwif->ide_dma_check = &cs5530_config_dma;
-	if (!noautodma)
-		hwif->autodma = 1;
-	hwif->drives[0].autodma = hwif->autodma;
-	hwif->drives[1].autodma = hwif->autodma;
 }
 
-static ide_pci_device_t cs5530_chipset __devinitdata = {
-	.name		= "CS5530",
+static const struct ide_port_ops cs5530_port_ops = {
+	.set_pio_mode		= cs5530_set_pio_mode,
+	.set_dma_mode		= cs5530_set_dma_mode,
+	.udma_filter		= cs5530_udma_filter,
+};
+
+static const struct ide_port_info cs5530_chipset __devinitdata = {
+	.name		= DRV_NAME,
 	.init_chipset	= init_chipset_cs5530,
 	.init_hwif	= init_hwif_cs5530,
-	.autodma	= AUTODMA,
-	.bootable	= ON_BOARD,
+	.port_ops	= &cs5530_port_ops,
+	.host_flags	= IDE_HFLAG_SERIALIZE |
+			  IDE_HFLAG_POST_SET_MODE,
 	.pio_mask	= ATA_PIO4,
+	.mwdma_mask	= ATA_MWDMA2,
+	.udma_mask	= ATA_UDMA2,
 };
 
 static int __devinit cs5530_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
-	return ide_setup_pci_device(dev, &cs5530_chipset);
+	return ide_pci_init_one(dev, &cs5530_chipset, NULL);
 }
 
-static struct pci_device_id cs5530_pci_tbl[] = {
-	{ PCI_VENDOR_ID_CYRIX, PCI_DEVICE_ID_CYRIX_5530_IDE, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
+static const struct pci_device_id cs5530_pci_tbl[] = {
+	{ PCI_VDEVICE(CYRIX, PCI_DEVICE_ID_CYRIX_5530_IDE), 0 },
 	{ 0, },
 };
 MODULE_DEVICE_TABLE(pci, cs5530_pci_tbl);
@@ -367,6 +270,7 @@ static struct pci_driver driver = {
 	.name		= "CS5530 IDE",
 	.id_table	= cs5530_pci_tbl,
 	.probe		= cs5530_init_one,
+	.remove		= ide_pci_remove,
 };
 
 static int __init cs5530_ide_init(void)
@@ -374,7 +278,13 @@ static int __init cs5530_ide_init(void)
 	return ide_pci_register_driver(&driver);
 }
 
+static void __exit cs5530_ide_exit(void)
+{
+	pci_unregister_driver(&driver);
+}
+
 module_init(cs5530_ide_init);
+module_exit(cs5530_ide_exit);
 
 MODULE_AUTHOR("Mark Lord");
 MODULE_DESCRIPTION("PCI driver module for Cyrix/NS 5530 IDE");

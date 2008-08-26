@@ -325,7 +325,7 @@ static void m32r_sio_enable_ms(struct uart_port *port)
 
 static void receive_chars(struct uart_sio_port *up, int *status)
 {
-	struct tty_struct *tty = up->port.info->tty;
+	struct tty_struct *tty = up->port.info->port.tty;
 	unsigned char ch;
 	unsigned char flag;
 	int max_count = 256;
@@ -421,7 +421,7 @@ static void transmit_chars(struct uart_sio_port *up)
 		up->port.icount.tx++;
 		if (uart_circ_empty(xmit))
 			break;
-		while (!serial_in(up, UART_LSR) & UART_LSR_THRE);
+		while (!(serial_in(up, UART_LSR) & UART_LSR_THRE));
 
 	} while (--count > 0);
 
@@ -539,7 +539,7 @@ static void serial_do_unlink(struct irq_info *i, struct uart_sio_port *up)
 static int serial_link_irq_chain(struct uart_sio_port *up)
 {
 	struct irq_info *i = irq_lists + up->port.irq;
-	int ret, irq_flags = up->port.flags & UPF_SHARE_IRQ ? IRQF_SHARED : 0;
+	int ret, irq_flags = 0;
 
 	spin_lock_irq(&i->lock);
 
@@ -1160,7 +1160,7 @@ static int __init m32r_sio_init(void)
 {
 	int ret, i;
 
-	printk(KERN_INFO "Serial: M32R SIO driver $Revision: 1.11 $ ");
+	printk(KERN_INFO "Serial: M32R SIO driver\n");
 
 	for (i = 0; i < NR_IRQS; i++)
 		spin_lock_init(&irq_lists[i].lock);
@@ -1189,4 +1189,4 @@ EXPORT_SYMBOL(m32r_sio_suspend_port);
 EXPORT_SYMBOL(m32r_sio_resume_port);
 
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Generic M32R SIO serial driver $Revision: 1.11 $");
+MODULE_DESCRIPTION("Generic M32R SIO serial driver");

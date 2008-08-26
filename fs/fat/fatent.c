@@ -450,7 +450,8 @@ int fat_alloc_clusters(struct inode *inode, int *cluster, int nr_cluster)
 	BUG_ON(nr_cluster > (MAX_BUF_PER_PAGE / 2));	/* fixed limit */
 
 	lock_fat(sbi);
-	if (sbi->free_clusters != -1 && sbi->free_clusters < nr_cluster) {
+	if (sbi->free_clusters != -1 && sbi->free_clus_valid &&
+	    sbi->free_clusters < nr_cluster) {
 		unlock_fat(sbi);
 		return -ENOSPC;
 	}
@@ -504,6 +505,7 @@ int fat_alloc_clusters(struct inode *inode, int *cluster, int nr_cluster)
 
 	/* Couldn't allocate the free entries */
 	sbi->free_clusters = 0;
+	sbi->free_clus_valid = 1;
 	sb->s_dirt = 1;
 	err = -ENOSPC;
 
@@ -544,7 +546,7 @@ int fat_free_clusters(struct inode *inode, int cluster)
 			goto error;
 		} else if (cluster == FAT_ENT_FREE) {
 			fat_fs_panic(sb, "%s: deleting FAT entry beyond EOF",
-				     __FUNCTION__);
+				     __func__);
 			err = -EIO;
 			goto error;
 		}
@@ -583,28 +585,54 @@ error:
 		brelse(bhs[i]);
 	unlock_fat(sbi);
 
-	fat_clusters_flush(sb);
-
 	return err;
 }
 
 EXPORT_SYMBOL_GPL(fat_free_clusters);
+
+/* 128kb is the whole sectors for FAT12 and FAT16 */
+#define FAT_READA_SIZE		(128 * 1024)
+
+static void fat_ent_reada(struct super_block *sb, struct fat_entry *fatent,
+			  unsigned long reada_blocks)
+{
+	struct fatent_operations *ops = MSDOS_SB(sb)->fatent_ops;
+	sector_t blocknr;
+	int i, offset;
+
+	ops->ent_blocknr(sb, fatent->entry, &offset, &blocknr);
+
+	for (i = 0; i < reada_blocks; i++)
+		sb_breadahead(sb, blocknr + i);
+}
 
 int fat_count_free_clusters(struct super_block *sb)
 {
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 	struct fatent_operations *ops = sbi->fatent_ops;
 	struct fat_entry fatent;
+	unsigned long reada_blocks, reada_mask, cur_block;
 	int err = 0, free;
 
 	lock_fat(sbi);
-	if (sbi->free_clusters != -1)
+	if (sbi->free_clusters != -1 && sbi->free_clus_valid)
 		goto out;
+
+	reada_blocks = FAT_READA_SIZE >> sb->s_blocksize_bits;
+	reada_mask = reada_blocks - 1;
+	cur_block = 0;
 
 	free = 0;
 	fatent_init(&fatent);
 	fatent_set_entry(&fatent, FAT_START_ENT);
 	while (fatent.entry < sbi->max_cluster) {
+		/* readahead of fat blocks */
+		if ((cur_block & reada_mask) == 0) {
+			unsigned long rest = sbi->fat_length - cur_block;
+			fat_ent_reada(sb, &fatent, min(reada_blocks, rest));
+		}
+		cur_block++;
+
 		err = fat_ent_read_block(sb, &fatent);
 		if (err)
 			goto out;
@@ -615,6 +643,7 @@ int fat_count_free_clusters(struct super_block *sb)
 		} while (fat_ent_next(sbi, &fatent));
 	}
 	sbi->free_clusters = free;
+	sbi->free_clus_valid = 1;
 	sb->s_dirt = 1;
 	fatent_brelse(&fatent);
 out:

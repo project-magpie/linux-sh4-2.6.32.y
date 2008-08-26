@@ -1,4 +1,4 @@
-/* $Id: sparc_ksyms.c,v 1.107 2001/07/17 16:17:33 anton Exp $
+/*
  * arch/sparc/kernel/ksyms.c: Sparc specific ksyms support.
  *
  * Copyright (C) 1996 David S. Miller (davem@caip.rutgers.edu)
@@ -36,12 +36,10 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/idprom.h>
-#include <asm/svr4.h>
 #include <asm/head.h>
 #include <asm/smp.h>
 #include <asm/mostek.h>
 #include <asm/ptrace.h>
-#include <asm/user.h>
 #include <asm/uaccess.h>
 #include <asm/checksum.h>
 #ifdef CONFIG_SBUS
@@ -51,7 +49,6 @@
 #ifdef CONFIG_PCI
 #include <asm/ebus.h>
 #endif
-#include <asm/a.out.h>
 #include <asm/io-unit.h>
 #include <asm/bug.h>
 
@@ -63,8 +60,6 @@ struct poll {
 	short revents;
 };
 
-extern int svr4_getcontext (svr4_ucontext_t *, struct pt_regs *);
-extern int svr4_setcontext (svr4_ucontext_t *, struct pt_regs *);
 extern void (*__copy_1page)(void *, const void *);
 extern void __memmove(void *, const void *, __kernel_size_t);
 extern void (*bzero_1page)(void *);
@@ -108,11 +103,6 @@ EXPORT_SYMBOL(___rw_read_try);
 EXPORT_SYMBOL(___rw_read_exit);
 EXPORT_SYMBOL(___rw_write_enter);
 #endif
-/* semaphores */
-EXPORT_SYMBOL(__up);
-EXPORT_SYMBOL(__down);
-EXPORT_SYMBOL(__down_trylock);
-EXPORT_SYMBOL(__down_interruptible);
 
 EXPORT_SYMBOL(sparc_valid_addr_bitmap);
 EXPORT_SYMBOL(phys_base);
@@ -210,12 +200,6 @@ EXPORT_SYMBOL(kmap_atomic);
 EXPORT_SYMBOL(kunmap_atomic);
 #endif
 
-/* Solaris/SunOS binary compatibility */
-EXPORT_SYMBOL(svr4_setcontext);
-EXPORT_SYMBOL(svr4_getcontext);
-
-EXPORT_SYMBOL(dump_thread);
-
 /* prom symbols */
 EXPORT_SYMBOL(idprom);
 EXPORT_SYMBOL(prom_root_node);
@@ -298,3 +282,5 @@ EXPORT_SYMBOL(do_BUG);
 
 /* Sun Power Management Idle Handler */
 EXPORT_SYMBOL(pm_idle);
+
+EXPORT_SYMBOL(empty_zero_page);

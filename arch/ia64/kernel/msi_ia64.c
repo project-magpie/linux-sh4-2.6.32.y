@@ -57,7 +57,7 @@ static void ia64_set_msi_irq_affinity(unsigned int irq, cpumask_t cpu_mask)
 	if (!cpu_online(cpu))
 		return;
 
-	if (reassign_irq_vector(irq, cpu))
+	if (irq_prepare_move(irq, cpu))
 		return;
 
 	read_msi_msg(irq, &msg);
@@ -109,7 +109,7 @@ int ia64_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *desc)
 	write_msi_msg(irq, &msg);
 	set_irq_chip_and_handler(irq, &ia64_msi_chip, handle_edge_irq);
 
-	return irq;
+	return 0;
 }
 
 void ia64_teardown_msi_irq(unsigned int irq)
@@ -119,6 +119,7 @@ void ia64_teardown_msi_irq(unsigned int irq)
 
 static void ia64_ack_msi_irq(unsigned int irq)
 {
+	irq_complete_move(irq);
 	move_native_irq(irq);
 	ia64_eoi();
 }

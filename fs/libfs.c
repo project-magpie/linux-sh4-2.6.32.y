@@ -8,6 +8,7 @@
 #include <linux/mount.h>
 #include <linux/vfs.h>
 #include <linux/mutex.h>
+#include <linux/exportfs.h>
 
 #include <asm/uaccess.h>
 
@@ -340,19 +341,36 @@ int simple_prepare_write(struct file *file, struct page *page,
 			unsigned from, unsigned to)
 {
 	if (!PageUptodate(page)) {
-		if (to - from != PAGE_CACHE_SIZE) {
-			void *kaddr = kmap_atomic(page, KM_USER0);
-			memset(kaddr, 0, from);
-			memset(kaddr + to, 0, PAGE_CACHE_SIZE - to);
-			flush_dcache_page(page);
-			kunmap_atomic(kaddr, KM_USER0);
-		}
+		if (to - from != PAGE_CACHE_SIZE)
+			zero_user_segments(page,
+				0, from,
+				to, PAGE_CACHE_SIZE);
 	}
 	return 0;
 }
 
-int simple_commit_write(struct file *file, struct page *page,
-			unsigned from, unsigned to)
+int simple_write_begin(struct file *file, struct address_space *mapping,
+			loff_t pos, unsigned len, unsigned flags,
+			struct page **pagep, void **fsdata)
+{
+	struct page *page;
+	pgoff_t index;
+	unsigned from;
+
+	index = pos >> PAGE_CACHE_SHIFT;
+	from = pos & (PAGE_CACHE_SIZE - 1);
+
+	page = __grab_cache_page(mapping, index);
+	if (!page)
+		return -ENOMEM;
+
+	*pagep = page;
+
+	return simple_prepare_write(file, page, from, from+len);
+}
+
+static int simple_commit_write(struct file *file, struct page *page,
+			       unsigned from, unsigned to)
 {
 	struct inode *inode = page->mapping->host;
 	loff_t pos = ((loff_t)page->index << PAGE_CACHE_SHIFT) + to;
@@ -367,6 +385,28 @@ int simple_commit_write(struct file *file, struct page *page,
 		i_size_write(inode, pos);
 	set_page_dirty(page);
 	return 0;
+}
+
+int simple_write_end(struct file *file, struct address_space *mapping,
+			loff_t pos, unsigned len, unsigned copied,
+			struct page *page, void *fsdata)
+{
+	unsigned from = pos & (PAGE_CACHE_SIZE - 1);
+
+	/* zero the stale part of the page if we did a short copy */
+	if (copied < len) {
+		void *kaddr = kmap_atomic(page, KM_USER0);
+		memset(kaddr + from + copied, 0, len - copied);
+		flush_dcache_page(page);
+		kunmap_atomic(kaddr, KM_USER0);
+	}
+
+	simple_commit_write(file, page, from, from+copied);
+
+	unlock_page(page);
+	page_cache_release(page);
+
+	return copied;
 }
 
 /*
@@ -472,6 +512,20 @@ void simple_release_fs(struct vfsmount **mount, int *count)
 	mntput(mnt);
 }
 
+/**
+ * simple_read_from_buffer - copy data from the buffer to user space
+ * @to: the user space buffer to read to
+ * @count: the maximum number of bytes to read
+ * @ppos: the current position in the buffer
+ * @from: the buffer to read from
+ * @available: the size of the buffer
+ *
+ * The simple_read_from_buffer() function reads up to @count bytes from the
+ * buffer @from at offset @ppos into the user space address starting at @to.
+ *
+ * On success, the number of bytes read is returned and the offset @ppos is
+ * advanced by this number, or negative value is returned on error.
+ **/
 ssize_t simple_read_from_buffer(void __user *to, size_t count, loff_t *ppos,
 				const void *from, size_t available)
 {
@@ -485,6 +539,37 @@ ssize_t simple_read_from_buffer(void __user *to, size_t count, loff_t *ppos,
 	if (copy_to_user(to, from + pos, count))
 		return -EFAULT;
 	*ppos = pos + count;
+	return count;
+}
+
+/**
+ * memory_read_from_buffer - copy data from the buffer
+ * @to: the kernel space buffer to read to
+ * @count: the maximum number of bytes to read
+ * @ppos: the current position in the buffer
+ * @from: the buffer to read from
+ * @available: the size of the buffer
+ *
+ * The memory_read_from_buffer() function reads up to @count bytes from the
+ * buffer @from at offset @ppos into the kernel space address starting at @to.
+ *
+ * On success, the number of bytes read is returned and the offset @ppos is
+ * advanced by this number, or negative value is returned on error.
+ **/
+ssize_t memory_read_from_buffer(void *to, size_t count, loff_t *ppos,
+				const void *from, size_t available)
+{
+	loff_t pos = *ppos;
+
+	if (pos < 0)
+		return -EINVAL;
+	if (pos >= available)
+		return 0;
+	if (count > available - pos)
+		count = available - pos;
+	memcpy(to, from + pos, count);
+	*ppos = pos + count;
+
 	return count;
 }
 
@@ -543,8 +628,8 @@ int simple_transaction_release(struct inode *inode, struct file *file)
 /* Simple attribute files */
 
 struct simple_attr {
-	u64 (*get)(void *);
-	void (*set)(void *, u64);
+	int (*get)(void *, u64 *);
+	int (*set)(void *, u64);
 	char get_buf[24];	/* enough to store a u64 and "\n\0" */
 	char set_buf[24];
 	void *data;
@@ -555,7 +640,7 @@ struct simple_attr {
 /* simple_attr_open is called by an actual attribute open file operation
  * to set the attribute specific access operations. */
 int simple_attr_open(struct inode *inode, struct file *file,
-		     u64 (*get)(void *), void (*set)(void *, u64),
+		     int (*get)(void *, u64 *), int (*set)(void *, u64),
 		     const char *fmt)
 {
 	struct simple_attr *attr;
@@ -575,7 +660,7 @@ int simple_attr_open(struct inode *inode, struct file *file,
 	return nonseekable_open(inode, file);
 }
 
-int simple_attr_close(struct inode *inode, struct file *file)
+int simple_attr_release(struct inode *inode, struct file *file)
 {
 	kfree(file->private_data);
 	return 0;
@@ -594,15 +679,24 @@ ssize_t simple_attr_read(struct file *file, char __user *buf,
 	if (!attr->get)
 		return -EACCES;
 
-	mutex_lock(&attr->mutex);
-	if (*ppos) /* continued read */
+	ret = mutex_lock_interruptible(&attr->mutex);
+	if (ret)
+		return ret;
+
+	if (*ppos) {		/* continued read */
 		size = strlen(attr->get_buf);
-	else	  /* first read */
+	} else {		/* first read */
+		u64 val;
+		ret = attr->get(attr->data, &val);
+		if (ret)
+			goto out;
+
 		size = scnprintf(attr->get_buf, sizeof(attr->get_buf),
-				 attr->fmt,
-				 (unsigned long long)attr->get(attr->data));
+				 attr->fmt, (unsigned long long)val);
+	}
 
 	ret = simple_read_from_buffer(buf, len, ppos, attr->get_buf, size);
+out:
 	mutex_unlock(&attr->mutex);
 	return ret;
 }
@@ -617,11 +711,13 @@ ssize_t simple_attr_write(struct file *file, const char __user *buf,
 	ssize_t ret;
 
 	attr = file->private_data;
-
 	if (!attr->set)
 		return -EACCES;
 
-	mutex_lock(&attr->mutex);
+	ret = mutex_lock_interruptible(&attr->mutex);
+	if (ret)
+		return ret;
+
 	ret = -EFAULT;
 	size = min(sizeof(attr->set_buf) - 1, len);
 	if (copy_from_user(attr->set_buf, buf, size))
@@ -636,13 +732,101 @@ out:
 	return ret;
 }
 
+/*
+ * This is what d_alloc_anon should have been.  Once the exportfs
+ * argument transition has been finished I will update d_alloc_anon
+ * to this prototype and this wrapper will go away.   --hch
+ */
+static struct dentry *exportfs_d_alloc(struct inode *inode)
+{
+	struct dentry *dentry;
+
+	if (!inode)
+		return NULL;
+	if (IS_ERR(inode))
+		return ERR_PTR(PTR_ERR(inode));
+
+	dentry = d_alloc_anon(inode);
+	if (!dentry) {
+		iput(inode);
+		dentry = ERR_PTR(-ENOMEM);
+	}
+	return dentry;
+}
+
+/**
+ * generic_fh_to_dentry - generic helper for the fh_to_dentry export operation
+ * @sb:		filesystem to do the file handle conversion on
+ * @fid:	file handle to convert
+ * @fh_len:	length of the file handle in bytes
+ * @fh_type:	type of file handle
+ * @get_inode:	filesystem callback to retrieve inode
+ *
+ * This function decodes @fid as long as it has one of the well-known
+ * Linux filehandle types and calls @get_inode on it to retrieve the
+ * inode for the object specified in the file handle.
+ */
+struct dentry *generic_fh_to_dentry(struct super_block *sb, struct fid *fid,
+		int fh_len, int fh_type, struct inode *(*get_inode)
+			(struct super_block *sb, u64 ino, u32 gen))
+{
+	struct inode *inode = NULL;
+
+	if (fh_len < 2)
+		return NULL;
+
+	switch (fh_type) {
+	case FILEID_INO32_GEN:
+	case FILEID_INO32_GEN_PARENT:
+		inode = get_inode(sb, fid->i32.ino, fid->i32.gen);
+		break;
+	}
+
+	return exportfs_d_alloc(inode);
+}
+EXPORT_SYMBOL_GPL(generic_fh_to_dentry);
+
+/**
+ * generic_fh_to_dentry - generic helper for the fh_to_parent export operation
+ * @sb:		filesystem to do the file handle conversion on
+ * @fid:	file handle to convert
+ * @fh_len:	length of the file handle in bytes
+ * @fh_type:	type of file handle
+ * @get_inode:	filesystem callback to retrieve inode
+ *
+ * This function decodes @fid as long as it has one of the well-known
+ * Linux filehandle types and calls @get_inode on it to retrieve the
+ * inode for the _parent_ object specified in the file handle if it
+ * is specified in the file handle, or NULL otherwise.
+ */
+struct dentry *generic_fh_to_parent(struct super_block *sb, struct fid *fid,
+		int fh_len, int fh_type, struct inode *(*get_inode)
+			(struct super_block *sb, u64 ino, u32 gen))
+{
+	struct inode *inode = NULL;
+
+	if (fh_len <= 2)
+		return NULL;
+
+	switch (fh_type) {
+	case FILEID_INO32_GEN_PARENT:
+		inode = get_inode(sb, fid->i32.parent_ino,
+				  (fh_len > 3 ? fid->i32.parent_gen : 0));
+		break;
+	}
+
+	return exportfs_d_alloc(inode);
+}
+EXPORT_SYMBOL_GPL(generic_fh_to_parent);
+
 EXPORT_SYMBOL(dcache_dir_close);
 EXPORT_SYMBOL(dcache_dir_lseek);
 EXPORT_SYMBOL(dcache_dir_open);
 EXPORT_SYMBOL(dcache_readdir);
 EXPORT_SYMBOL(generic_read_dir);
 EXPORT_SYMBOL(get_sb_pseudo);
-EXPORT_SYMBOL(simple_commit_write);
+EXPORT_SYMBOL(simple_write_begin);
+EXPORT_SYMBOL(simple_write_end);
 EXPORT_SYMBOL(simple_dir_inode_operations);
 EXPORT_SYMBOL(simple_dir_operations);
 EXPORT_SYMBOL(simple_empty);
@@ -661,10 +845,11 @@ EXPORT_SYMBOL(simple_statfs);
 EXPORT_SYMBOL(simple_sync_file);
 EXPORT_SYMBOL(simple_unlink);
 EXPORT_SYMBOL(simple_read_from_buffer);
+EXPORT_SYMBOL(memory_read_from_buffer);
 EXPORT_SYMBOL(simple_transaction_get);
 EXPORT_SYMBOL(simple_transaction_read);
 EXPORT_SYMBOL(simple_transaction_release);
 EXPORT_SYMBOL_GPL(simple_attr_open);
-EXPORT_SYMBOL_GPL(simple_attr_close);
+EXPORT_SYMBOL_GPL(simple_attr_release);
 EXPORT_SYMBOL_GPL(simple_attr_read);
 EXPORT_SYMBOL_GPL(simple_attr_write);

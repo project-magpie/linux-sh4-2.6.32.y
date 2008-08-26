@@ -19,7 +19,7 @@
 #include <linux/phy.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
-#include <linux/pata_platform.h>
+#include <linux/ata_platform.h>
 #include <linux/stm/fdma-plat.h>
 #include <linux/stm/fdma-reqs.h>
 #include <linux/mtd/nand.h>
@@ -1324,9 +1324,6 @@ static struct intc_group groups[] = {
 	INTC_GROUP(TMU2, TMU2_TUNI, TMU2_TICPI),
 };
 
-static struct intc_prio priorities[] = {
-};
-
 static struct intc_prio_reg prio_registers[] = {
 					   /*   15-12, 11-8,  7-4,   3-0 */
 	{ 0xffd00004, 0, 16, 4, /* IPRA */     { TMU0, TMU1, TMU2,       } },
@@ -1336,7 +1333,7 @@ static struct intc_prio_reg prio_registers[] = {
 };
 
 static DECLARE_INTC_DESC(intc_desc, "stx7111", vectors, groups,
-			 priorities, NULL, prio_registers, NULL);
+			 NULL, prio_registers, NULL);
 
 void __init plat_irq_setup(void)
 {

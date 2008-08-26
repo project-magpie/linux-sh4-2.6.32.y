@@ -180,12 +180,12 @@ int parse_args(const char *name,
 #define STANDARD_PARAM_DEF(name, type, format, tmptype, strtolfn)      	\
 	int param_set_##name(const char *val, struct kernel_param *kp)	\
 	{								\
-		char *endp;						\
 		tmptype l;						\
+		int ret;						\
 									\
 		if (!val) return -EINVAL;				\
-		l = strtolfn(val, &endp, 0);				\
-		if (endp == val || ((type)l != l))			\
+		ret = strtolfn(val, 0, &l);				\
+		if (ret == -EINVAL || ((type)l != l))			\
 			return -EINVAL;					\
 		*((type *)kp->arg) = l;					\
 		return 0;						\
@@ -195,13 +195,13 @@ int parse_args(const char *name,
 		return sprintf(buffer, format, *((type *)kp->arg));	\
 	}
 
-STANDARD_PARAM_DEF(byte, unsigned char, "%c", unsigned long, simple_strtoul);
-STANDARD_PARAM_DEF(short, short, "%hi", long, simple_strtol);
-STANDARD_PARAM_DEF(ushort, unsigned short, "%hu", unsigned long, simple_strtoul);
-STANDARD_PARAM_DEF(int, int, "%i", long, simple_strtol);
-STANDARD_PARAM_DEF(uint, unsigned int, "%u", unsigned long, simple_strtoul);
-STANDARD_PARAM_DEF(long, long, "%li", long, simple_strtol);
-STANDARD_PARAM_DEF(ulong, unsigned long, "%lu", unsigned long, simple_strtoul);
+STANDARD_PARAM_DEF(byte, unsigned char, "%c", unsigned long, strict_strtoul);
+STANDARD_PARAM_DEF(short, short, "%hi", long, strict_strtol);
+STANDARD_PARAM_DEF(ushort, unsigned short, "%hu", unsigned long, strict_strtoul);
+STANDARD_PARAM_DEF(int, int, "%i", long, strict_strtol);
+STANDARD_PARAM_DEF(uint, unsigned int, "%u", unsigned long, strict_strtoul);
+STANDARD_PARAM_DEF(long, long, "%li", long, strict_strtol);
+STANDARD_PARAM_DEF(ulong, unsigned long, "%lu", unsigned long, strict_strtoul);
 
 int param_set_charp(const char *val, struct kernel_param *kp)
 {
@@ -252,8 +252,9 @@ int param_get_bool(char *buffer, struct kernel_param *kp)
 int param_set_invbool(const char *val, struct kernel_param *kp)
 {
 	int boolval, ret;
-	struct kernel_param dummy = { .arg = &boolval };
+	struct kernel_param dummy;
 
+	dummy.arg = &boolval;
 	ret = param_set_bool(val, &dummy);
 	if (ret == 0)
 		*(int *)kp->arg = !boolval;
@@ -262,11 +263,7 @@ int param_set_invbool(const char *val, struct kernel_param *kp)
 
 int param_get_invbool(char *buffer, struct kernel_param *kp)
 {
-	int val;
-	struct kernel_param dummy = { .arg = &val };
-
-	val = !*(int *)kp->arg;
-	return param_get_bool(buffer, &dummy);
+	return sprintf(buffer, "%c", (*(int *)kp->arg) ? 'N' : 'Y');
 }
 
 /* We break the rule and mangle the string. */
@@ -275,7 +272,7 @@ static int param_array(const char *name,
 		       unsigned int min, unsigned int max,
 		       void *elem, int elemsize,
 		       int (*set)(const char *, struct kernel_param *kp),
-		       int *num)
+		       unsigned int *num)
 {
 	int ret;
 	struct kernel_param kp;
@@ -325,7 +322,7 @@ static int param_array(const char *name,
 
 int param_array_set(const char *val, struct kernel_param *kp)
 {
-	struct kparam_array *arr = kp->arg;
+	const struct kparam_array *arr = kp->arr;
 	unsigned int temp_num;
 
 	return param_array(kp->name, val, 1, arr->max, arr->elem,
@@ -335,7 +332,7 @@ int param_array_set(const char *val, struct kernel_param *kp)
 int param_array_get(char *buffer, struct kernel_param *kp)
 {
 	int i, off, ret;
-	struct kparam_array *arr = kp->arg;
+	const struct kparam_array *arr = kp->arr;
 	struct kernel_param p;
 
 	p = *kp;
@@ -354,7 +351,7 @@ int param_array_get(char *buffer, struct kernel_param *kp)
 
 int param_set_copystring(const char *val, struct kernel_param *kp)
 {
-	struct kparam_string *kps = kp->arg;
+	const struct kparam_string *kps = kp->str;
 
 	if (!val) {
 		printk(KERN_ERR "%s: missing param set value\n", kp->name);
@@ -371,15 +368,13 @@ int param_set_copystring(const char *val, struct kernel_param *kp)
 
 int param_get_string(char *buffer, struct kernel_param *kp)
 {
-	struct kparam_string *kps = kp->arg;
+	const struct kparam_string *kps = kp->str;
 	return strlcpy(buffer, kps->string, kps->maxlen);
 }
 
 /* sysfs output in /sys/modules/XYZ/parameters/ */
 
 extern struct kernel_param __start___param[], __stop___param[];
-
-#define MAX_KBUILD_MODNAME KOBJ_NAME_LEN
 
 struct param_attribute
 {
@@ -475,7 +470,7 @@ param_sysfs_setup(struct module_kobject *mk,
 			sizeof(mp->grp.attrs[0]));
 	size[1] = (valid_attrs + 1) * sizeof(mp->grp.attrs[0]);
 
-	mp = kmalloc(size[0] + size[1], GFP_KERNEL);
+	mp = kzalloc(size[0] + size[1], GFP_KERNEL);
 	if (!mp)
 		return ERR_PTR(-ENOMEM);
 
@@ -563,11 +558,10 @@ static void __init kernel_param_sysfs_setup(const char *name,
 	BUG_ON(!mk);
 
 	mk->mod = THIS_MODULE;
-	kobj_set_kset_s(mk, module_subsys);
-	kobject_set_name(&mk->kobj, name);
-	kobject_init(&mk->kobj);
-	ret = kobject_add(&mk->kobj);
+	mk->kobj.kset = module_kset;
+	ret = kobject_init_and_add(&mk->kobj, &module_ktype, NULL, "%s", name);
 	if (ret) {
+		kobject_put(&mk->kobj);
 		printk(KERN_ERR "Module '%s' failed to be added to sysfs, "
 		      "error number %d\n", name, ret);
 		printk(KERN_ERR	"The system will be unstable now.\n");
@@ -591,17 +585,20 @@ static void __init param_sysfs_builtin(void)
 {
 	struct kernel_param *kp, *kp_begin = NULL;
 	unsigned int i, name_len, count = 0;
-	char modname[MAX_KBUILD_MODNAME + 1] = "";
+	char modname[MODULE_NAME_LEN + 1] = "";
 
 	for (i=0; i < __stop___param - __start___param; i++) {
 		char *dot;
+		size_t max_name_len;
 
 		kp = &__start___param[i];
+		max_name_len =
+			min_t(size_t, MODULE_NAME_LEN, strlen(kp->name));
 
-		/* We do not handle args without periods. */
-		dot = memchr(kp->name, '.', MAX_KBUILD_MODNAME);
+		dot = memchr(kp->name, '.', max_name_len);
 		if (!dot) {
-			DEBUGP("couldn't find period in %s\n", kp->name);
+			DEBUGP("couldn't find period in first %d characters "
+			       "of %s\n", MODULE_NAME_LEN, kp->name);
 			continue;
 		}
 		name_len = dot - kp->name;
@@ -679,8 +676,6 @@ static struct sysfs_ops module_sysfs_ops = {
 	.store = module_attr_store,
 };
 
-static struct kobj_type module_ktype;
-
 static int uevent_filter(struct kset *kset, struct kobject *kobj)
 {
 	struct kobj_type *ktype = get_ktype(kobj);
@@ -694,10 +689,10 @@ static struct kset_uevent_ops module_uevent_ops = {
 	.filter = uevent_filter,
 };
 
-decl_subsys(module, &module_ktype, &module_uevent_ops);
+struct kset *module_kset;
 int module_sysfs_initialized;
 
-static struct kobj_type module_ktype = {
+struct kobj_type module_ktype = {
 	.sysfs_ops =	&module_sysfs_ops,
 };
 
@@ -706,13 +701,11 @@ static struct kobj_type module_ktype = {
  */
 static int __init param_sysfs_init(void)
 {
-	int ret;
-
-	ret = subsystem_register(&module_subsys);
-	if (ret < 0) {
-		printk(KERN_WARNING "%s (%d): subsystem_register error: %d\n",
-			__FILE__, __LINE__, ret);
-		return ret;
+	module_kset = kset_create_and_add("module", &module_uevent_ops, NULL);
+	if (!module_kset) {
+		printk(KERN_WARNING "%s (%d): error creating kset\n",
+			__FILE__, __LINE__);
+		return -ENOMEM;
 	}
 	module_sysfs_initialized = 1;
 
@@ -722,14 +715,7 @@ static int __init param_sysfs_init(void)
 }
 subsys_initcall(param_sysfs_init);
 
-#else
-#if 0
-static struct sysfs_ops module_sysfs_ops = {
-	.show = NULL,
-	.store = NULL,
-};
-#endif
-#endif
+#endif /* CONFIG_SYSFS */
 
 EXPORT_SYMBOL(param_set_byte);
 EXPORT_SYMBOL(param_get_byte);

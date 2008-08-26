@@ -33,8 +33,7 @@
 #include <linux/mii.h>
 #include <linux/usb.h>
 #include <linux/crc32.h>
-
-#include "usbnet.h"
+#include <linux/usb/usbnet.h>
 
 #define DRIVER_VERSION "14-Jun-2006"
 static const char driver_name [] = "asix";
@@ -172,45 +171,76 @@ struct asix_data {
 };
 
 struct ax88172_int_data {
-	u16 res1;
+	__le16 res1;
 	u8 link;
-	u16 res2;
+	__le16 res2;
 	u8 status;
-	u16 res3;
+	__le16 res3;
 } __attribute__ ((packed));
 
 static int asix_read_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
 			    u16 size, void *data)
 {
+	void *buf;
+	int err = -ENOMEM;
+
 	devdbg(dev,"asix_read_cmd() cmd=0x%02x value=0x%04x index=0x%04x size=%d",
 		cmd, value, index, size);
-	return usb_control_msg(
+
+	buf = kmalloc(size, GFP_KERNEL);
+	if (!buf)
+		goto out;
+
+	err = usb_control_msg(
 		dev->udev,
 		usb_rcvctrlpipe(dev->udev, 0),
 		cmd,
 		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		value,
 		index,
-		data,
+		buf,
 		size,
 		USB_CTRL_GET_TIMEOUT);
+	if (err == size)
+		memcpy(data, buf, size);
+	else if (err >= 0)
+		err = -EINVAL;
+	kfree(buf);
+
+out:
+	return err;
 }
 
 static int asix_write_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
 			     u16 size, void *data)
 {
+	void *buf = NULL;
+	int err = -ENOMEM;
+
 	devdbg(dev,"asix_write_cmd() cmd=0x%02x value=0x%04x index=0x%04x size=%d",
 		cmd, value, index, size);
-	return usb_control_msg(
+
+	if (data) {
+		buf = kmalloc(size, GFP_KERNEL);
+		if (!buf)
+			goto out;
+		memcpy(buf, data, size);
+	}
+
+	err = usb_control_msg(
 		dev->udev,
 		usb_sndctrlpipe(dev->udev, 0),
 		cmd,
 		USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		value,
 		index,
-		data,
+		buf,
 		size,
 		USB_CTRL_SET_TIMEOUT);
+	kfree(buf);
+
+out:
+	return err;
 }
 
 static void asix_async_cmd_callback(struct urb *urb)
@@ -402,25 +432,19 @@ static inline int asix_set_hw_mii(struct usbnet *dev)
 
 static inline int asix_get_phy_addr(struct usbnet *dev)
 {
-	int ret = 0;
-	void *buf;
+	u8 buf[2];
+	int ret = asix_read_cmd(dev, AX_CMD_READ_PHY_ID, 0, 0, 2, buf);
 
 	devdbg(dev, "asix_get_phy_addr()");
 
-	buf = kmalloc(2, GFP_KERNEL);
-	if (!buf)
-		goto out1;
-
-	if ((ret = asix_read_cmd(dev, AX_CMD_READ_PHY_ID,
-				    0, 0, 2, buf)) < 2) {
+	if (ret < 0) {
 		deverr(dev, "Error reading PHYID register: %02x", ret);
-		goto out2;
+		goto out;
 	}
-	devdbg(dev, "asix_get_phy_addr() returning 0x%04x", *((u16 *)buf));
-	ret = *((u8 *)buf + 1);
-out2:
-	kfree(buf);
-out1:
+	devdbg(dev, "asix_get_phy_addr() returning 0x%04x", *((__le16 *)buf));
+	ret = buf[1];
+
+out:
 	return ret;
 }
 
@@ -437,22 +461,15 @@ static int asix_sw_reset(struct usbnet *dev, u8 flags)
 
 static u16 asix_read_rx_ctl(struct usbnet *dev)
 {
-	u16 ret = 0;
-	void *buf;
+	__le16 v;
+	int ret = asix_read_cmd(dev, AX_CMD_READ_RX_CTL, 0, 0, 2, &v);
 
-	buf = kmalloc(2, GFP_KERNEL);
-	if (!buf)
-		goto out1;
-
-	if ((ret = asix_read_cmd(dev, AX_CMD_READ_RX_CTL,
-				    0, 0, 2, buf)) < 2) {
+	if (ret < 0) {
 		deverr(dev, "Error reading RX_CTL register: %02x", ret);
-		goto out2;
+		goto out;
 	}
-	ret = le16_to_cpu(*((u16 *)buf));
-out2:
-	kfree(buf);
-out1:
+	ret = le16_to_cpu(v);
+out:
 	return ret;
 }
 
@@ -471,22 +488,15 @@ static int asix_write_rx_ctl(struct usbnet *dev, u16 mode)
 
 static u16 asix_read_medium_status(struct usbnet *dev)
 {
-	u16 ret = 0;
-	void *buf;
+	__le16 v;
+	int ret = asix_read_cmd(dev, AX_CMD_READ_MEDIUM_STATUS, 0, 0, 2, &v);
 
-	buf = kmalloc(2, GFP_KERNEL);
-	if (!buf)
-		goto out1;
-
-	if ((ret = asix_read_cmd(dev, AX_CMD_READ_MEDIUM_STATUS,
-				    0, 0, 2, buf)) < 2) {
+	if (ret < 0) {
 		deverr(dev, "Error reading Medium Status register: %02x", ret);
-		goto out2;
+		goto out;
 	}
-	ret = le16_to_cpu(*((u16 *)buf));
-out2:
-	kfree(buf);
-out1:
+	ret = le16_to_cpu(v);
+out:
 	return ret;
 }
 
@@ -578,7 +588,7 @@ static int asix_mdio_read(struct net_device *netdev, int phy_id, int loc)
 	asix_set_hw_mii(dev);
 	mutex_unlock(&dev->phy_mutex);
 
-	devdbg(dev, "asix_mdio_read() phy_id=0x%02x, loc=0x%02x, returns=0x%04x", phy_id, loc, le16_to_cpu(res & 0xffff));
+	devdbg(dev, "asix_mdio_read() phy_id=0x%02x, loc=0x%02x, returns=0x%04x", phy_id, loc, le16_to_cpu(res));
 
 	kfree(buf);
 	return le16_to_cpu(res & 0xffff);
@@ -678,7 +688,7 @@ static int asix_get_eeprom(struct net_device *net,
 			      struct ethtool_eeprom *eeprom, u8 *data)
 {
 	struct usbnet *dev = netdev_priv(net);
-	u16 *ebuf = (u16 *)data;
+	__le16 *ebuf = (__le16 *)data;
 	int i;
 
 	/* Crude hack to ensure that we don't overwrite memory
@@ -807,7 +817,7 @@ static int ax88172_link_reset(struct usbnet *dev)
 static int ax88172_bind(struct usbnet *dev, struct usb_interface *intf)
 {
 	int ret = 0;
-	void *buf;
+	u8 buf[ETH_ALEN];
 	int i;
 	unsigned long gpio_bits = dev->driver_info->data;
 	struct asix_data *data = (struct asix_data *)&dev->data;
@@ -816,30 +826,23 @@ static int ax88172_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	usbnet_get_endpoints(dev,intf);
 
-	buf = kmalloc(ETH_ALEN, GFP_KERNEL);
-	if(!buf) {
-		ret = -ENOMEM;
-		goto out1;
-	}
-
 	/* Toggle the GPIOs in a manufacturer/model specific way */
 	for (i = 2; i >= 0; i--) {
 		if ((ret = asix_write_cmd(dev, AX_CMD_WRITE_GPIOS,
 					(gpio_bits >> (i * 8)) & 0xff, 0, 0,
-					buf)) < 0)
-			goto out2;
+					NULL)) < 0)
+			goto out;
 		msleep(5);
 	}
 
 	if ((ret = asix_write_rx_ctl(dev, 0x80)) < 0)
-		goto out2;
+		goto out;
 
 	/* Get the MAC address */
-	memset(buf, 0, ETH_ALEN);
 	if ((ret = asix_read_cmd(dev, AX88172_CMD_READ_NODE_ID,
-				0, 0, 6, buf)) < 0) {
+				0, 0, ETH_ALEN, buf)) < 0) {
 		dbg("read AX_CMD_READ_NODE_ID failed: %d", ret);
-		goto out2;
+		goto out;
 	}
 	memcpy(dev->net->dev_addr, buf, ETH_ALEN);
 
@@ -861,9 +864,8 @@ static int ax88172_bind(struct usbnet *dev, struct usb_interface *intf)
 	mii_nway_restart(&dev->mii);
 
 	return 0;
-out2:
-	kfree(buf);
-out1:
+
+out:
 	return ret;
 }
 
@@ -906,66 +908,58 @@ static int ax88772_link_reset(struct usbnet *dev)
 static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 {
 	int ret, embd_phy;
-	void *buf;
 	u16 rx_ctl;
 	struct asix_data *data = (struct asix_data *)&dev->data;
+	u8 buf[ETH_ALEN];
 	u32 phyid;
 
 	data->eeprom_len = AX88772_EEPROM_LEN;
 
 	usbnet_get_endpoints(dev,intf);
 
-	buf = kmalloc(6, GFP_KERNEL);
-	if(!buf) {
-		dbg ("Cannot allocate memory for buffer");
-		ret = -ENOMEM;
-		goto out1;
-	}
-
 	if ((ret = asix_write_gpio(dev,
 			AX_GPIO_RSE | AX_GPIO_GPO_2 | AX_GPIO_GPO2EN, 5)) < 0)
-		goto out2;
+		goto out;
 
 	/* 0x10 is the phy id of the embedded 10/100 ethernet phy */
 	embd_phy = ((asix_get_phy_addr(dev) & 0x1f) == 0x10 ? 1 : 0);
 	if ((ret = asix_write_cmd(dev, AX_CMD_SW_PHY_SELECT,
-				embd_phy, 0, 0, buf)) < 0) {
+				embd_phy, 0, 0, NULL)) < 0) {
 		dbg("Select PHY #1 failed: %d", ret);
-		goto out2;
+		goto out;
 	}
 
 	if ((ret = asix_sw_reset(dev, AX_SWRESET_IPPD | AX_SWRESET_PRL)) < 0)
-		goto out2;
+		goto out;
 
 	msleep(150);
 	if ((ret = asix_sw_reset(dev, AX_SWRESET_CLEAR)) < 0)
-		goto out2;
+		goto out;
 
 	msleep(150);
 	if (embd_phy) {
 		if ((ret = asix_sw_reset(dev, AX_SWRESET_IPRL)) < 0)
-			goto out2;
+			goto out;
 	}
 	else {
 		if ((ret = asix_sw_reset(dev, AX_SWRESET_PRTE)) < 0)
-			goto out2;
+			goto out;
 	}
 
 	msleep(150);
 	rx_ctl = asix_read_rx_ctl(dev);
 	dbg("RX_CTL is 0x%04x after software reset", rx_ctl);
 	if ((ret = asix_write_rx_ctl(dev, 0x0000)) < 0)
-		goto out2;
+		goto out;
 
 	rx_ctl = asix_read_rx_ctl(dev);
 	dbg("RX_CTL is 0x%04x setting to 0x0000", rx_ctl);
 
 	/* Get the MAC address */
-	memset(buf, 0, ETH_ALEN);
 	if ((ret = asix_read_cmd(dev, AX_CMD_READ_NODE_ID,
 				0, 0, ETH_ALEN, buf)) < 0) {
 		dbg("Failed to read MAC address: %d", ret);
-		goto out2;
+		goto out;
 	}
 	memcpy(dev->net->dev_addr, buf, ETH_ALEN);
 
@@ -982,12 +976,12 @@ static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 	dbg("PHYID=0x%08x", phyid);
 
 	if ((ret = asix_sw_reset(dev, AX_SWRESET_PRL)) < 0)
-		goto out2;
+		goto out;
 
 	msleep(150);
 
 	if ((ret = asix_sw_reset(dev, AX_SWRESET_IPRL | AX_SWRESET_PRL)) < 0)
-		goto out2;
+		goto out;
 
 	msleep(150);
 
@@ -1000,18 +994,18 @@ static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 	mii_nway_restart(&dev->mii);
 
 	if ((ret = asix_write_medium_mode(dev, AX88772_MEDIUM_DEFAULT)) < 0)
-		goto out2;
+		goto out;
 
 	if ((ret = asix_write_cmd(dev, AX_CMD_WRITE_IPG0,
 				AX88772_IPG0_DEFAULT | AX88772_IPG1_DEFAULT,
-				AX88772_IPG2_DEFAULT, 0, buf)) < 0) {
+				AX88772_IPG2_DEFAULT, 0, NULL)) < 0) {
 		dbg("Write IPG,IPG1,IPG2 failed: %d", ret);
-		goto out2;
+		goto out;
 	}
 
 	/* Set RX_CTL to default values with 2k buffer, and enable cactus */
 	if ((ret = asix_write_rx_ctl(dev, AX_DEFAULT_RX_CTL)) < 0)
-		goto out2;
+		goto out;
 
 	rx_ctl = asix_read_rx_ctl(dev);
 	dbg("RX_CTL is 0x%04x after all initializations", rx_ctl);
@@ -1019,20 +1013,15 @@ static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 	rx_ctl = asix_read_medium_status(dev);
 	dbg("Medium Status is 0x%04x after all initializations", rx_ctl);
 
-	kfree(buf);
-
 	/* Asix framing packs multiple eth frames into a 2K usb bulk transfer */
 	if (dev->driver_info->flags & FLAG_FRAMING_AX) {
 		/* hard_mtu  is still the default - the device does not support
 		   jumbo eth frames */
 		dev->rx_urb_size = 2048;
 	}
-
 	return 0;
 
-out2:
-	kfree(buf);
-out1:
+out:
 	return ret;
 }
 
@@ -1201,23 +1190,16 @@ static int ax88178_bind(struct usbnet *dev, struct usb_interface *intf)
 {
 	struct asix_data *data = (struct asix_data *)&dev->data;
 	int ret;
-	void *buf;
-	u16 eeprom;
+	u8 buf[ETH_ALEN];
+	__le16 eeprom;
+	u8 status;
 	int gpio0 = 0;
 	u32 phyid;
 
 	usbnet_get_endpoints(dev,intf);
 
-	buf = kmalloc(6, GFP_KERNEL);
-	if(!buf) {
-		dbg ("Cannot allocate memory for buffer");
-		ret = -ENOMEM;
-		goto out1;
-	}
-
-	eeprom = 0;
-	asix_read_cmd(dev, AX_CMD_READ_GPIOS, 0, 0, 1, &eeprom);
-	dbg("GPIO Status: 0x%04x", eeprom);
+	asix_read_cmd(dev, AX_CMD_READ_GPIOS, 0, 0, 1, &status);
+	dbg("GPIO Status: 0x%04x", status);
 
 	asix_write_cmd(dev, AX_CMD_WRITE_ENABLE, 0, 0, 0, NULL);
 	asix_read_cmd(dev, AX_CMD_READ_EEPROM, 0x0017, 0, 2, &eeprom);
@@ -1225,19 +1207,19 @@ static int ax88178_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	dbg("EEPROM index 0x17 is 0x%04x", eeprom);
 
-	if (eeprom == 0xffff) {
+	if (eeprom == cpu_to_le16(0xffff)) {
 		data->phymode = PHY_MODE_MARVELL;
 		data->ledmode = 0;
 		gpio0 = 1;
 	} else {
-		data->phymode = eeprom & 7;
-		data->ledmode = eeprom >> 8;
-		gpio0 = (eeprom & 0x80) ? 0 : 1;
+		data->phymode = le16_to_cpu(eeprom) & 7;
+		data->ledmode = le16_to_cpu(eeprom) >> 8;
+		gpio0 = (le16_to_cpu(eeprom) & 0x80) ? 0 : 1;
 	}
 	dbg("GPIO0: %d, PhyMode: %d", gpio0, data->phymode);
 
 	asix_write_gpio(dev, AX_GPIO_RSE | AX_GPIO_GPO_1 | AX_GPIO_GPO1EN, 40);
-	if ((eeprom >> 8) != 1) {
+	if ((le16_to_cpu(eeprom) >> 8) != 1) {
 		asix_write_gpio(dev, 0x003c, 30);
 		asix_write_gpio(dev, 0x001c, 300);
 		asix_write_gpio(dev, 0x003c, 30);
@@ -1256,11 +1238,10 @@ static int ax88178_bind(struct usbnet *dev, struct usb_interface *intf)
 	asix_write_rx_ctl(dev, 0);
 
 	/* Get the MAC address */
-	memset(buf, 0, ETH_ALEN);
 	if ((ret = asix_read_cmd(dev, AX_CMD_READ_NODE_ID,
 				0, 0, ETH_ALEN, buf)) < 0) {
 		dbg("Failed to read MAC address: %d", ret);
-		goto out2;
+		goto out;
 	}
 	memcpy(dev->net->dev_addr, buf, ETH_ALEN);
 
@@ -1295,12 +1276,10 @@ static int ax88178_bind(struct usbnet *dev, struct usb_interface *intf)
 	mii_nway_restart(&dev->mii);
 
 	if ((ret = asix_write_medium_mode(dev, AX88178_MEDIUM_DEFAULT)) < 0)
-		goto out2;
+		goto out;
 
 	if ((ret = asix_write_rx_ctl(dev, AX_DEFAULT_RX_CTL)) < 0)
-		goto out2;
-
-	kfree(buf);
+		goto out;
 
 	/* Asix framing packs multiple eth frames into a 2K usb bulk transfer */
 	if (dev->driver_info->flags & FLAG_FRAMING_AX) {
@@ -1308,12 +1287,9 @@ static int ax88178_bind(struct usbnet *dev, struct usb_interface *intf)
 		   jumbo eth frames */
 		dev->rx_urb_size = 2048;
 	}
-
 	return 0;
 
-out2:
-	kfree(buf);
-out1:
+out:
 	return ret;
 }
 
@@ -1413,6 +1389,10 @@ static const struct usb_device_id	products [] = {
 	USB_DEVICE (0x0411, 0x003d),
 	.driver_info =  (unsigned long) &ax8817x_info,
 }, {
+	// Buffalo LUA-U2-GT 10/100/1000
+	USB_DEVICE (0x0411, 0x006e),
+	.driver_info =  (unsigned long) &ax88178_info,
+}, {
 	// Sitecom LN-029 "USB 2.0 10/100 Ethernet adapter"
 	USB_DEVICE (0x6189, 0x182d),
 	.driver_info =  (unsigned long) &ax8817x_info,
@@ -1468,6 +1448,10 @@ static const struct usb_device_id	products [] = {
 	// Belkin F5D5055
 	USB_DEVICE(0x050d, 0x5055),
 	.driver_info = (unsigned long) &ax88178_info,
+}, {
+	// Apple USB Ethernet Adapter
+	USB_DEVICE(0x05ac, 0x1402),
+	.driver_info = (unsigned long) &ax88772_info,
 },
 	{ },		// END
 };
@@ -1480,6 +1464,7 @@ static struct usb_driver asix_driver = {
 	.suspend =	usbnet_suspend,
 	.resume =	usbnet_resume,
 	.disconnect =	usbnet_disconnect,
+	.supports_autosuspend = 1,
 };
 
 static int __init asix_init(void)

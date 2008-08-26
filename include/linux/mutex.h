@@ -29,7 +29,8 @@
  * - task may not exit with mutex held
  * - memory areas where held locks reside must not be freed
  * - held mutexes must not be reinitialized
- * - mutexes may not be used in irq contexts
+ * - mutexes may not be used in hardware or software interrupt
+ *   contexts such as tasklets and timers
  *
  * These semantics are fully enforced when DEBUG_MUTEXES is
  * enabled. Furthermore, besides enforcing the above rules, the mutex
@@ -111,7 +112,7 @@ extern void __mutex_init(struct mutex *lock, const char *name,
  *
  * Returns 1 if the mutex is locked, 0 if unlocked.
  */
-static inline int fastcall mutex_is_locked(struct mutex *lock)
+static inline int mutex_is_locked(struct mutex *lock)
 {
 	return atomic_read(&lock->count) != 1;
 }
@@ -120,23 +121,31 @@ static inline int fastcall mutex_is_locked(struct mutex *lock)
  * See kernel/mutex.c for detailed documentation of these APIs.
  * Also see Documentation/mutex-design.txt.
  */
-extern void fastcall mutex_lock(struct mutex *lock);
-extern int __must_check fastcall mutex_lock_interruptible(struct mutex *lock);
-
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 extern void mutex_lock_nested(struct mutex *lock, unsigned int subclass);
 extern int __must_check mutex_lock_interruptible_nested(struct mutex *lock,
 					unsigned int subclass);
+extern int __must_check mutex_lock_killable_nested(struct mutex *lock,
+					unsigned int subclass);
+
+#define mutex_lock(lock) mutex_lock_nested(lock, 0)
+#define mutex_lock_interruptible(lock) mutex_lock_interruptible_nested(lock, 0)
+#define mutex_lock_killable(lock) mutex_lock_killable_nested(lock, 0)
 #else
+extern void mutex_lock(struct mutex *lock);
+extern int __must_check mutex_lock_interruptible(struct mutex *lock);
+extern int __must_check mutex_lock_killable(struct mutex *lock);
+
 # define mutex_lock_nested(lock, subclass) mutex_lock(lock)
 # define mutex_lock_interruptible_nested(lock, subclass) mutex_lock_interruptible(lock)
+# define mutex_lock_killable_nested(lock, subclass) mutex_lock_killable(lock)
 #endif
 
 /*
  * NOTE: mutex_trylock() follows the spin_trylock() convention,
  *       not the down_trylock() convention!
  */
-extern int fastcall mutex_trylock(struct mutex *lock);
-extern void fastcall mutex_unlock(struct mutex *lock);
+extern int mutex_trylock(struct mutex *lock);
+extern void mutex_unlock(struct mutex *lock);
 
 #endif

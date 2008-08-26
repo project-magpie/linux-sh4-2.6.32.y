@@ -33,6 +33,8 @@
 #include <linux/serial.h>
 #include <linux/serial_8250.h>
 #include <linux/debugfs.h>
+#include <linux/percpu.h>
+#include <linux/lmb.h>
 #include <asm/io.h>
 #include <asm/prom.h>
 #include <asm/processor.h>
@@ -55,8 +57,8 @@
 #include <asm/cache.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
-#include <asm/lmb.h>
 #include <asm/xmon.h>
+#include <asm/cputhreads.h>
 
 #include "setup.h"
 
@@ -75,6 +77,8 @@ struct machdep_calls *machine_id;
 EXPORT_SYMBOL(machine_id);
 
 unsigned long klimit = (unsigned long) _end;
+
+char cmd_line[COMMAND_LINE_SIZE];
 
 /*
  * This still seems to be needed... -- paulus
@@ -163,6 +167,8 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	unsigned short min;
 
 	if (cpu_id == NR_CPUS) {
+		struct device_node *root;
+		const char *model = NULL;
 #if defined(CONFIG_SMP) && defined(CONFIG_PPC32)
 		unsigned long bogosum = 0;
 		int i;
@@ -174,6 +180,13 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		seq_printf(m, "timebase\t: %lu\n", ppc_tb_freq);
 		if (ppc_md.name)
 			seq_printf(m, "platform\t: %s\n", ppc_md.name);
+		root = of_find_node_by_path("/");
+		if (root)
+			model = of_get_property(root, "model", NULL);
+		if (model)
+			seq_printf(m, "model\t\t: %s\n", model);
+		of_node_put(root);
+
 		if (ppc_md.show_cpuinfo != NULL)
 			ppc_md.show_cpuinfo(m);
 
@@ -325,6 +338,31 @@ void __init check_for_initrd(void)
 
 #ifdef CONFIG_SMP
 
+int threads_per_core, threads_shift;
+cpumask_t threads_core_mask;
+
+static void __init cpu_init_thread_core_maps(int tpc)
+{
+	int i;
+
+	threads_per_core = tpc;
+	threads_core_mask = CPU_MASK_NONE;
+
+	/* This implementation only supports power of 2 number of threads
+	 * for simplicity and performance
+	 */
+	threads_shift = ilog2(tpc);
+	BUG_ON(tpc != (1 << threads_shift));
+
+	for (i = 0; i < tpc; i++)
+		cpu_set(i, threads_core_mask);
+
+	printk(KERN_INFO "CPU maps initialized for %d thread%s per core\n",
+	       tpc, tpc > 1 ? "s" : "");
+	printk(KERN_DEBUG " (thread shift is %d)\n", threads_shift);
+}
+
+
 /**
  * setup_cpu_maps - initialize the following cpu maps:
  *                  cpu_possible_map
@@ -348,27 +386,43 @@ void __init smp_setup_cpu_maps(void)
 {
 	struct device_node *dn = NULL;
 	int cpu = 0;
+	int nthreads = 1;
+
+	DBG("smp_setup_cpu_maps()\n");
 
 	while ((dn = of_find_node_by_type(dn, "cpu")) && cpu < NR_CPUS) {
 		const int *intserv;
-		int j, len = sizeof(u32), nthreads = 1;
+		int j, len;
+
+		DBG("  * %s...\n", dn->full_name);
 
 		intserv = of_get_property(dn, "ibm,ppc-interrupt-server#s",
 				&len);
-		if (intserv)
+		if (intserv) {
 			nthreads = len / sizeof(int);
-		else {
+			DBG("    ibm,ppc-interrupt-server#s -> %d threads\n",
+			    nthreads);
+		} else {
+			DBG("    no ibm,ppc-interrupt-server#s -> 1 thread\n");
 			intserv = of_get_property(dn, "reg", NULL);
 			if (!intserv)
 				intserv = &cpu;	/* assume logical == phys */
 		}
 
 		for (j = 0; j < nthreads && cpu < NR_CPUS; j++) {
+			DBG("    thread %d -> cpu %d (hard id %d)\n",
+			    j, cpu, intserv[j]);
 			cpu_set(cpu, cpu_present_map);
 			set_hard_smp_processor_id(cpu, intserv[j]);
 			cpu_set(cpu, cpu_possible_map);
 			cpu++;
 		}
+	}
+
+	/* If no SMT supported, nthreads is forced to 1 */
+	if (!cpu_has_feature(CPU_FTR_SMT)) {
+		DBG("  SMT disabled ! nthreads forced to 1\n");
+		nthreads = 1;
 	}
 
 #ifdef CONFIG_PPC64
@@ -393,7 +447,7 @@ void __init smp_setup_cpu_maps(void)
 
 		/* Double maxcpus for processors which have SMT capability */
 		if (cpu_has_feature(CPU_FTR_SMT))
-			maxcpus *= 2;
+			maxcpus *= nthreads;
 
 		if (maxcpus > NR_CPUS) {
 			printk(KERN_WARNING
@@ -410,21 +464,43 @@ void __init smp_setup_cpu_maps(void)
 	out:
 		of_node_put(dn);
 	}
+	vdso_data->processorCount = num_present_cpus();
+#endif /* CONFIG_PPC64 */
 
-	/*
-	 * Do the sibling map; assume only two threads per processor.
+        /* Initialize CPU <=> thread mapping/
+	 *
+	 * WARNING: We assume that the number of threads is the same for
+	 * every CPU in the system. If that is not the case, then some code
+	 * here will have to be reworked
 	 */
+	cpu_init_thread_core_maps(nthreads);
+}
+
+/*
+ * Being that cpu_sibling_map is now a per_cpu array, then it cannot
+ * be initialized until the per_cpu areas have been created.  This
+ * function is now called from setup_per_cpu_areas().
+ */
+void __init smp_setup_cpu_sibling_map(void)
+{
+#ifdef CONFIG_PPC64
+	int i, cpu, base;
+
 	for_each_possible_cpu(cpu) {
-		cpu_set(cpu, cpu_sibling_map[cpu]);
-		if (cpu_has_feature(CPU_FTR_SMT))
-			cpu_set(cpu ^ 0x1, cpu_sibling_map[cpu]);
+		DBG("Sibling map for CPU %d:", cpu);
+		base = cpu_first_thread_in_core(cpu);
+		for (i = 0; i < threads_per_core; i++) {
+			cpu_set(base + i, per_cpu(cpu_sibling_map, cpu));
+			DBG(" %d", base + i);
+		}
+		DBG("\n");
 	}
 
-	vdso_data->processorCount = num_present_cpus();
 #endif /* CONFIG_PPC64 */
 }
 #endif /* CONFIG_SMP */
 
+#ifdef CONFIG_PCSPKR_PLATFORM
 static __init int add_pcspkr(void)
 {
 	struct device_node *np;
@@ -447,6 +523,7 @@ static __init int add_pcspkr(void)
 	return ret;
 }
 device_initcall(add_pcspkr);
+#endif	/* CONFIG_PCSPKR_PLATFORM */
 
 void probe_machine(void)
 {

@@ -1,8 +1,6 @@
 /*
  *		INETPEER - A storage for permanent information about peers
  *
- *  Version:	$Id: inetpeer.h,v 1.2 2002/01/12 07:54:56 davem Exp $
- *
  *  Authors:	Andrey V. Savochkin <saw@msu.ru>
  */
 
@@ -22,7 +20,7 @@ struct inet_peer
 	__be32			v4daddr;	/* peer's address */
 	__u16			avl_height;
 	__u16			ip_id_count;	/* IP ID for the next packet */
-	struct inet_peer	*unused_next, **unused_prevp;
+	struct list_head	unused;
 	__u32			dtime;		/* the time of last use of not
 						 * referenced entries */
 	atomic_t		refcnt;

@@ -1,21 +1,21 @@
-/* SCTP kernel reference Implementation
+/* SCTP kernel implementation
  * (C) Copyright IBM Corp. 2001, 2004
  * Copyright (c) 1999-2000 Cisco, Inc.
  * Copyright (c) 1999-2001 Motorola, Inc.
  * Copyright (c) 2001 Intel Corp.
  * Copyright (c) 2001 Nokia, Inc.
  *
- * This file is part of the SCTP kernel reference Implementation
+ * This file is part of the SCTP kernel implementation
  *
  * These are the state tables for the SCTP state machine.
  *
- * The SCTP reference implementation is free software;
+ * This SCTP implementation is free software;
  * you can redistribute it and/or modify it under the terms of
  * the GNU General Public License as published by
  * the Free Software Foundation; either version 2, or (at your option)
  * any later version.
  *
- * The SCTP reference implementation is distributed in the hope that it
+ * This SCTP implementation is distributed in the hope that it
  * will be useful, but WITHOUT ANY WARRANTY; without even the implied
  *                 ************************
  * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -457,11 +457,11 @@ static const sctp_sm_table_entry_t chunk_event_table[SCTP_NUM_BASE_CHUNK_TYPES][
 	/* SCTP_STATE_ESTABLISHED */ \
 	TYPE_SCTP_FUNC(sctp_sf_do_asconf), \
 	/* SCTP_STATE_SHUTDOWN_PENDING */ \
-	TYPE_SCTP_FUNC(sctp_sf_discard_chunk), \
+	TYPE_SCTP_FUNC(sctp_sf_do_asconf), \
 	/* SCTP_STATE_SHUTDOWN_SENT */ \
-	TYPE_SCTP_FUNC(sctp_sf_discard_chunk), \
+	TYPE_SCTP_FUNC(sctp_sf_do_asconf), \
 	/* SCTP_STATE_SHUTDOWN_RECEIVED */ \
-	TYPE_SCTP_FUNC(sctp_sf_discard_chunk), \
+	TYPE_SCTP_FUNC(sctp_sf_do_asconf), \
 	/* SCTP_STATE_SHUTDOWN_ACK_SENT */ \
 	TYPE_SCTP_FUNC(sctp_sf_discard_chunk), \
 } /* TYPE_SCTP_ASCONF */
@@ -478,11 +478,11 @@ static const sctp_sm_table_entry_t chunk_event_table[SCTP_NUM_BASE_CHUNK_TYPES][
 	/* SCTP_STATE_ESTABLISHED */ \
 	TYPE_SCTP_FUNC(sctp_sf_do_asconf_ack), \
 	/* SCTP_STATE_SHUTDOWN_PENDING */ \
-	TYPE_SCTP_FUNC(sctp_sf_discard_chunk), \
+	TYPE_SCTP_FUNC(sctp_sf_do_asconf_ack), \
 	/* SCTP_STATE_SHUTDOWN_SENT */ \
-	TYPE_SCTP_FUNC(sctp_sf_discard_chunk), \
+	TYPE_SCTP_FUNC(sctp_sf_do_asconf_ack), \
 	/* SCTP_STATE_SHUTDOWN_RECEIVED */ \
-	TYPE_SCTP_FUNC(sctp_sf_discard_chunk), \
+	TYPE_SCTP_FUNC(sctp_sf_do_asconf_ack), \
 	/* SCTP_STATE_SHUTDOWN_ACK_SENT */ \
 	TYPE_SCTP_FUNC(sctp_sf_discard_chunk), \
 } /* TYPE_SCTP_ASCONF_ACK */
@@ -522,6 +522,34 @@ static const sctp_sm_table_entry_t addip_chunk_event_table[SCTP_NUM_ADDIP_CHUNK_
 static const sctp_sm_table_entry_t prsctp_chunk_event_table[SCTP_NUM_PRSCTP_CHUNK_TYPES][SCTP_STATE_NUM_STATES] = {
 	TYPE_SCTP_FWD_TSN,
 }; /*state_fn_t prsctp_chunk_event_table[][] */
+
+#define TYPE_SCTP_AUTH { \
+	/* SCTP_STATE_EMPTY */ \
+	TYPE_SCTP_FUNC(sctp_sf_ootb), \
+	/* SCTP_STATE_CLOSED */ \
+	TYPE_SCTP_FUNC(sctp_sf_ootb), \
+	/* SCTP_STATE_COOKIE_WAIT */ \
+	TYPE_SCTP_FUNC(sctp_sf_discard_chunk), \
+	/* SCTP_STATE_COOKIE_ECHOED */ \
+	TYPE_SCTP_FUNC(sctp_sf_eat_auth), \
+	/* SCTP_STATE_ESTABLISHED */ \
+	TYPE_SCTP_FUNC(sctp_sf_eat_auth), \
+	/* SCTP_STATE_SHUTDOWN_PENDING */ \
+	TYPE_SCTP_FUNC(sctp_sf_eat_auth), \
+	/* SCTP_STATE_SHUTDOWN_SENT */ \
+	TYPE_SCTP_FUNC(sctp_sf_eat_auth), \
+	/* SCTP_STATE_SHUTDOWN_RECEIVED */ \
+	TYPE_SCTP_FUNC(sctp_sf_eat_auth), \
+	/* SCTP_STATE_SHUTDOWN_ACK_SENT */ \
+	TYPE_SCTP_FUNC(sctp_sf_eat_auth), \
+} /* TYPE_SCTP_AUTH */
+
+/* The primary index for this table is the chunk type.
+ * The secondary index for this table is the state.
+ */
+static const sctp_sm_table_entry_t auth_chunk_event_table[SCTP_NUM_AUTH_CHUNK_TYPES][SCTP_STATE_NUM_STATES] = {
+	TYPE_SCTP_AUTH,
+}; /*state_fn_t auth_chunk_event_table[][] */
 
 static const sctp_sm_table_entry_t
 chunk_event_table_unknown[SCTP_STATE_NUM_STATES] = {
@@ -663,11 +691,11 @@ chunk_event_table_unknown[SCTP_STATE_NUM_STATES] = {
 	/* SCTP_STATE_ESTABLISHED */ \
 	TYPE_SCTP_FUNC(sctp_sf_do_prm_asconf), \
 	/* SCTP_STATE_SHUTDOWN_PENDING */ \
-	TYPE_SCTP_FUNC(sctp_sf_error_shutdown), \
+	TYPE_SCTP_FUNC(sctp_sf_do_prm_asconf), \
 	/* SCTP_STATE_SHUTDOWN_SENT */ \
-	TYPE_SCTP_FUNC(sctp_sf_error_shutdown), \
+	TYPE_SCTP_FUNC(sctp_sf_do_prm_asconf), \
 	/* SCTP_STATE_SHUTDOWN_RECEIVED */ \
-	TYPE_SCTP_FUNC(sctp_sf_error_shutdown), \
+	TYPE_SCTP_FUNC(sctp_sf_do_prm_asconf), \
 	/* SCTP_STATE_SHUTDOWN_ACK_SENT */ \
 	TYPE_SCTP_FUNC(sctp_sf_error_shutdown), \
 } /* TYPE_SCTP_PRIMITIVE_REQUESTHEARTBEAT */
@@ -974,6 +1002,11 @@ static const sctp_sm_table_entry_t *sctp_chunk_event_lookup(sctp_cid_t cid,
 
 		if (cid == SCTP_CID_ASCONF_ACK)
 			return &addip_chunk_event_table[1][state];
+	}
+
+	if (sctp_auth_enable) {
+		if (cid == SCTP_CID_AUTH)
+			return &auth_chunk_event_table[0][state];
 	}
 
 	return &chunk_event_table_unknown[state];

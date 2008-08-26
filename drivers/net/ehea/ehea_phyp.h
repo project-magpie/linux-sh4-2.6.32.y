@@ -93,7 +93,7 @@ static inline void hcp_epas_ctor(struct h_epas *epas, u64 paddr_kernel,
 static inline void hcp_epas_dtor(struct h_epas *epas)
 {
 	if (epas->kernel.addr)
-		iounmap((void __iomem*)((u64)epas->kernel.addr & PAGE_MASK));
+		iounmap((void __iomem *)((u64)epas->kernel.addr & PAGE_MASK));
 
 	epas->user.addr = 0;
 	epas->kernel.addr = 0;
@@ -126,6 +126,7 @@ struct hcp_modify_qp_cb0 {
 #define H_QP_CR_STATE_RDY2RCV	    0x0000030000000000ULL /*  Ready to recv */
 #define H_QP_CR_STATE_RDY2SND	    0x0000050000000000ULL /*  Ready to send */
 #define H_QP_CR_STATE_ERROR	    0x0000800000000000ULL /*  Error */
+#define H_QP_CR_RES_STATE 	    0x0000007F00000000ULL /* Resultant state */
 
 struct hcp_modify_qp_cb1 {
 	u32 qpn;		/* 00 */
@@ -387,23 +388,23 @@ u64 ehea_h_modify_ehea_qp(const u64 adapter_handle,
 			  const u64 qp_handle,
 			  const u64 sel_mask,
 			  void *cb_addr,
-			  u64 * inv_attr_id,
-			  u64 * proc_mask, u16 * out_swr, u16 * out_rwr);
+			  u64 *inv_attr_id,
+			  u64 *proc_mask, u16 *out_swr, u16 *out_rwr);
 
 u64 ehea_h_alloc_resource_eq(const u64 adapter_handle,
-			     struct ehea_eq_attr *eq_attr, u64 * eq_handle);
+			     struct ehea_eq_attr *eq_attr, u64 *eq_handle);
 
 u64 ehea_h_alloc_resource_cq(const u64 adapter_handle,
 			     struct ehea_cq_attr *cq_attr,
-			     u64 * cq_handle, struct h_epas *epas);
+			     u64 *cq_handle, struct h_epas *epas);
 
 u64 ehea_h_alloc_resource_qp(const u64 adapter_handle,
 			     struct ehea_qp_init_attr *init_attr,
 			     const u32 pd,
-			     u64 * qp_handle, struct h_epas *h_epas);
+			     u64 *qp_handle, struct h_epas *h_epas);
 
-#define H_REG_RPAGE_PAGE_SIZE          EHEA_BMASK_IBM(48,55)
-#define H_REG_RPAGE_QT                 EHEA_BMASK_IBM(62,63)
+#define H_REG_RPAGE_PAGE_SIZE          EHEA_BMASK_IBM(48, 55)
+#define H_REG_RPAGE_QT                 EHEA_BMASK_IBM(62, 63)
 
 u64 ehea_h_register_rpage(const u64 adapter_handle,
 			  const u8 pagesize,
@@ -425,7 +426,7 @@ u64 ehea_h_free_resource(const u64 adapter_handle, const u64 res_handle,
 
 u64 ehea_h_alloc_resource_mr(const u64 adapter_handle, const u64 vaddr,
 			     const u64 length, const u32 access_ctrl,
-			     const u32 pd, u64 * mr_handle, u32 * lkey);
+			     const u32 pd, u64 *mr_handle, u32 *lkey);
 
 u64 ehea_h_register_rpage_mr(const u64 adapter_handle, const u64 mr_handle,
 			     const u8 pagesize, const u8 queue_type,
@@ -438,8 +439,8 @@ u64 ehea_h_register_smr(const u64 adapter_handle, const u64 orig_mr_handle,
 u64 ehea_h_query_ehea(const u64 adapter_handle, void *cb_addr);
 
 /* output param R5 */
-#define H_MEHEAPORT_CAT		EHEA_BMASK_IBM(40,47)
-#define H_MEHEAPORT_PN		EHEA_BMASK_IBM(48,63)
+#define H_MEHEAPORT_CAT		EHEA_BMASK_IBM(40, 47)
+#define H_MEHEAPORT_PN		EHEA_BMASK_IBM(48, 63)
 
 u64 ehea_h_query_ehea_port(const u64 adapter_handle, const u16 port_num,
 			   const u8 cb_cat, const u64 select_mask,

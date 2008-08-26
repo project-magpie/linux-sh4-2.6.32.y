@@ -1,5 +1,6 @@
 /* module that allows mangling of the arp payload */
 #include <linux/module.h>
+#include <linux/netfilter.h>
 #include <linux/netfilter_arp/arpt_mangle.h>
 #include <net/sock.h>
 
@@ -8,57 +9,48 @@ MODULE_AUTHOR("Bart De Schuymer <bdschuym@pandora.be>");
 MODULE_DESCRIPTION("arptables arp payload mangle target");
 
 static unsigned int
-target(struct sk_buff **pskb,
+target(struct sk_buff *skb,
        const struct net_device *in, const struct net_device *out,
        unsigned int hooknum, const struct xt_target *target,
        const void *targinfo)
 {
 	const struct arpt_mangle *mangle = targinfo;
-	struct arphdr *arp;
+	const struct arphdr *arp;
 	unsigned char *arpptr;
 	int pln, hln;
 
-	if (skb_shared(*pskb) || skb_cloned(*pskb)) {
-		struct sk_buff *nskb;
+	if (!skb_make_writable(skb, skb->len))
+		return NF_DROP;
 
-		nskb = skb_copy(*pskb, GFP_ATOMIC);
-		if (!nskb)
-			return NF_DROP;
-		if ((*pskb)->sk)
-			skb_set_owner_w(nskb, (*pskb)->sk);
-		kfree_skb(*pskb);
-		*pskb = nskb;
-	}
-
-	arp = arp_hdr(*pskb);
-	arpptr = skb_network_header(*pskb) + sizeof(*arp);
+	arp = arp_hdr(skb);
+	arpptr = skb_network_header(skb) + sizeof(*arp);
 	pln = arp->ar_pln;
 	hln = arp->ar_hln;
 	/* We assume that pln and hln were checked in the match */
 	if (mangle->flags & ARPT_MANGLE_SDEV) {
 		if (ARPT_DEV_ADDR_LEN_MAX < hln ||
-		   (arpptr + hln > skb_tail_pointer(*pskb)))
+		   (arpptr + hln > skb_tail_pointer(skb)))
 			return NF_DROP;
 		memcpy(arpptr, mangle->src_devaddr, hln);
 	}
 	arpptr += hln;
 	if (mangle->flags & ARPT_MANGLE_SIP) {
 		if (ARPT_MANGLE_ADDR_LEN_MAX < pln ||
-		   (arpptr + pln > skb_tail_pointer(*pskb)))
+		   (arpptr + pln > skb_tail_pointer(skb)))
 			return NF_DROP;
 		memcpy(arpptr, &mangle->u_s.src_ip, pln);
 	}
 	arpptr += pln;
 	if (mangle->flags & ARPT_MANGLE_TDEV) {
 		if (ARPT_DEV_ADDR_LEN_MAX < hln ||
-		   (arpptr + hln > skb_tail_pointer(*pskb)))
+		   (arpptr + hln > skb_tail_pointer(skb)))
 			return NF_DROP;
 		memcpy(arpptr, mangle->tgt_devaddr, hln);
 	}
 	arpptr += hln;
 	if (mangle->flags & ARPT_MANGLE_TIP) {
 		if (ARPT_MANGLE_ADDR_LEN_MAX < pln ||
-		   (arpptr + pln > skb_tail_pointer(*pskb)))
+		   (arpptr + pln > skb_tail_pointer(skb)))
 			return NF_DROP;
 		memcpy(arpptr, &mangle->u_t.tgt_ip, pln);
 	}
@@ -81,8 +73,9 @@ checkentry(const char *tablename, const void *e, const struct xt_target *target,
 	return true;
 }
 
-static struct arpt_target arpt_mangle_reg __read_mostly = {
+static struct xt_target arpt_mangle_reg __read_mostly = {
 	.name		= "mangle",
+	.family		= NF_ARP,
 	.target		= target,
 	.targetsize	= sizeof(struct arpt_mangle),
 	.checkentry	= checkentry,
@@ -91,15 +84,12 @@ static struct arpt_target arpt_mangle_reg __read_mostly = {
 
 static int __init arpt_mangle_init(void)
 {
-	if (arpt_register_target(&arpt_mangle_reg))
-		return -EINVAL;
-
-	return 0;
+	return xt_register_target(&arpt_mangle_reg);
 }
 
 static void __exit arpt_mangle_fini(void)
 {
-	arpt_unregister_target(&arpt_mangle_reg);
+	xt_unregister_target(&arpt_mangle_reg);
 }
 
 module_init(arpt_mangle_init);

@@ -11,10 +11,10 @@
 
 #ifndef _NF_CONNTRACK_L3PROTO_H
 #define _NF_CONNTRACK_L3PROTO_H
+#include <linux/netlink.h>
+#include <net/netlink.h>
 #include <linux/seq_file.h>
 #include <net/netfilter/nf_conntrack.h>
-
-struct nfattr;
 
 struct nf_conntrack_l3proto
 {
@@ -28,33 +28,19 @@ struct nf_conntrack_l3proto
 	 * Try to fill in the third arg: nhoff is offset of l3 proto
          * hdr.  Return true if possible.
 	 */
-	int (*pkt_to_tuple)(const struct sk_buff *skb, unsigned int nhoff,
-			    struct nf_conntrack_tuple *tuple);
+	bool (*pkt_to_tuple)(const struct sk_buff *skb, unsigned int nhoff,
+			     struct nf_conntrack_tuple *tuple);
 
 	/*
 	 * Invert the per-proto part of the tuple: ie. turn xmit into reply.
 	 * Some packets can't be inverted: return 0 in that case.
 	 */
-	int (*invert_tuple)(struct nf_conntrack_tuple *inverse,
-			    const struct nf_conntrack_tuple *orig);
+	bool (*invert_tuple)(struct nf_conntrack_tuple *inverse,
+			     const struct nf_conntrack_tuple *orig);
 
 	/* Print out the per-protocol part of the tuple. */
 	int (*print_tuple)(struct seq_file *s,
 			   const struct nf_conntrack_tuple *);
-
-	/* Print out the private part of the conntrack. */
-	int (*print_conntrack)(struct seq_file *s, const struct nf_conn *);
-
-	/* Returns verdict for packet, or -1 for invalid. */
-	int (*packet)(struct nf_conn *conntrack,
-		      const struct sk_buff *skb,
-		      enum ip_conntrack_info ctinfo);
-
-	/*
-	 * Called when a new connection for this protocol found;
-	 * returns TRUE if it's OK.  If so, packet() called next.
-	 */
-	int (*new)(struct nf_conn *conntrack, const struct sk_buff *skb);
 
 	/*
 	 * Called before tracking. 
@@ -64,15 +50,16 @@ struct nf_conntrack_l3proto
 	int (*get_l4proto)(const struct sk_buff *skb, unsigned int nhoff,
 			   unsigned int *dataoff, u_int8_t *protonum);
 
-	int (*tuple_to_nfattr)(struct sk_buff *skb,
+	int (*tuple_to_nlattr)(struct sk_buff *skb,
 			       const struct nf_conntrack_tuple *t);
 
-	int (*nfattr_to_tuple)(struct nfattr *tb[],
+	int (*nlattr_to_tuple)(struct nlattr *tb[],
 			       struct nf_conntrack_tuple *t);
+	const struct nla_policy *nla_policy;
 
 #ifdef CONFIG_SYSCTL
 	struct ctl_table_header	*ctl_table_header;
-	struct ctl_table	*ctl_table_path;
+	struct ctl_path		*ctl_table_path;
 	struct ctl_table	*ctl_table;
 #endif /* CONFIG_SYSCTL */
 

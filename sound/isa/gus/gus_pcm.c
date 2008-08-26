@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *  Routines for control of GF1 chip (PCM things)
  *
  *  InterWave chips supports interleaved DMA, but this feature isn't used in
@@ -25,7 +25,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <asm/dma.h>
 #include <linux/slab.h>
 #include <sound/core.h>

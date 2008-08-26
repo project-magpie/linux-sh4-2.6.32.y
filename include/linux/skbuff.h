@@ -41,8 +41,7 @@
 #define SKB_DATA_ALIGN(X)	(((X) + (SMP_CACHE_BYTES - 1)) & \
 				 ~(SMP_CACHE_BYTES - 1))
 #define SKB_WITH_OVERHEAD(X)	\
-	(((X) - sizeof(struct skb_shared_info)) & \
-	 ~(SMP_CACHE_BYTES - 1))
+	((X) - SKB_DATA_ALIGN(sizeof(struct skb_shared_info)))
 #define SKB_MAX_ORDER(X, ORDER) \
 	SKB_WITH_OVERHEAD((PAGE_SIZE << (ORDER)) - (X))
 #define SKB_MAX_HEAD(X)		(SKB_MAX_ORDER((X), 0))
@@ -96,6 +95,7 @@
 
 struct net_device;
 struct scatterlist;
+struct pipe_inode_info;
 
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 struct nf_conntrack {
@@ -108,9 +108,6 @@ struct nf_bridge_info {
 	atomic_t use;
 	struct net_device *physindev;
 	struct net_device *physoutdev;
-#if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-	struct net_device *netoutdev;
-#endif
 	unsigned int mask;
 	unsigned long data[32 / sizeof(unsigned long)];
 };
@@ -235,6 +232,8 @@ typedef unsigned char *sk_buff_data_t;
  *	@mark: Generic packet mark
  *	@nfct: Associated connection, if any
  *	@ipvs_property: skbuff is owned by ipvs
+ *	@peeked: this packet has been seen already, so stats have been
+ *		done for it, don't do them again
  *	@nf_trace: netfilter packet trace flag
  *	@nfctinfo: Relationship of this skb to the connection
  *	@nfct_reasm: netfilter conntrack re-assembly pointer
@@ -243,9 +242,11 @@ typedef unsigned char *sk_buff_data_t;
  *	@queue_mapping: Queue mapping for multiqueue devices
  *	@tc_index: Traffic control index
  *	@tc_verd: traffic control verdict
+ *	@ndisc_nodetype: router type (from link layer)
  *	@dma_cookie: a cookie to one of several possible DMA operations
  *		done by skb DMA functions
  *	@secmark: security marking
+ *	@vlan_tci: vlan tag control information
  */
 
 struct sk_buff {
@@ -257,7 +258,10 @@ struct sk_buff {
 	ktime_t			tstamp;
 	struct net_device	*dev;
 
-	struct  dst_entry	*dst;
+	union {
+		struct  dst_entry	*dst;
+		struct  rtable		*rtable;
+	};
 	struct	sec_path	*sp;
 
 	/*
@@ -288,6 +292,7 @@ struct sk_buff {
 	__u8			pkt_type:3,
 				fclone:2,
 				ipvs_property:1,
+				peeked:1,
 				nf_trace:1;
 	__be16			protocol;
 
@@ -302,14 +307,16 @@ struct sk_buff {
 
 	int			iif;
 	__u16			queue_mapping;
-
 #ifdef CONFIG_NET_SCHED
 	__u16			tc_index;	/* traffic control index */
 #ifdef CONFIG_NET_CLS_ACT
 	__u16			tc_verd;	/* traffic control verdict */
 #endif
 #endif
-	/* 2 byte hole */
+#ifdef CONFIG_IPV6_NDISC_NODETYPE
+	__u8			ndisc_nodetype:2;
+#endif
+	/* 14 bit hole */
 
 #ifdef CONFIG_NET_DMA
 	dma_cookie_t		dma_cookie;
@@ -319,6 +326,8 @@ struct sk_buff {
 #endif
 
 	__u32			mark;
+
+	__u16			vlan_tci;
 
 	sk_buff_data_t		transport_header;
 	sk_buff_data_t		network_header;
@@ -356,7 +365,7 @@ static inline struct sk_buff *alloc_skb_fclone(unsigned int size,
 	return __alloc_skb(size, priority, 1, -1);
 }
 
-extern void	       kfree_skbmem(struct sk_buff *skb);
+extern struct sk_buff *skb_morph(struct sk_buff *dst, struct sk_buff *src);
 extern struct sk_buff *skb_clone(struct sk_buff *skb,
 				 gfp_t priority);
 extern struct sk_buff *skb_copy(const struct sk_buff *skb,
@@ -386,7 +395,9 @@ extern void	      skb_truesize_bug(struct sk_buff *skb);
 
 static inline void skb_truesize_check(struct sk_buff *skb)
 {
-	if (unlikely((int)skb->truesize < sizeof(struct sk_buff) + skb->len))
+	int len = sizeof(struct sk_buff) + skb->len;
+
+	if (unlikely((int)skb->truesize < len))
 		skb_truesize_bug(skb);
 }
 
@@ -654,11 +665,21 @@ static inline void skb_queue_head_init_class(struct sk_buff_head *list,
 }
 
 /*
- *	Insert an sk_buff at the start of a list.
+ *	Insert an sk_buff on a list.
  *
  *	The "__skb_xxxx()" functions are the non-atomic ones that
  *	can only be called with interrupts disabled.
  */
+extern void        skb_insert(struct sk_buff *old, struct sk_buff *newsk, struct sk_buff_head *list);
+static inline void __skb_insert(struct sk_buff *newsk,
+				struct sk_buff *prev, struct sk_buff *next,
+				struct sk_buff_head *list)
+{
+	newsk->next = next;
+	newsk->prev = prev;
+	next->prev  = prev->next = newsk;
+	list->qlen++;
+}
 
 /**
  *	__skb_queue_after - queue a buffer at the list head
@@ -675,13 +696,17 @@ static inline void __skb_queue_after(struct sk_buff_head *list,
 				     struct sk_buff *prev,
 				     struct sk_buff *newsk)
 {
-	struct sk_buff *next;
-	list->qlen++;
+	__skb_insert(newsk, prev, prev->next, list);
+}
 
-	next = prev->next;
-	newsk->next = next;
-	newsk->prev = prev;
-	next->prev  = prev->next = newsk;
+extern void skb_append(struct sk_buff *old, struct sk_buff *newsk,
+		       struct sk_buff_head *list);
+
+static inline void __skb_queue_before(struct sk_buff_head *list,
+				      struct sk_buff *next,
+				      struct sk_buff *newsk)
+{
+	__skb_insert(newsk, next->prev, next, list);
 }
 
 /**
@@ -715,66 +740,7 @@ extern void skb_queue_tail(struct sk_buff_head *list, struct sk_buff *newsk);
 static inline void __skb_queue_tail(struct sk_buff_head *list,
 				   struct sk_buff *newsk)
 {
-	struct sk_buff *prev, *next;
-
-	list->qlen++;
-	next = (struct sk_buff *)list;
-	prev = next->prev;
-	newsk->next = next;
-	newsk->prev = prev;
-	next->prev  = prev->next = newsk;
-}
-
-
-/**
- *	__skb_dequeue - remove from the head of the queue
- *	@list: list to dequeue from
- *
- *	Remove the head of the list. This function does not take any locks
- *	so must be used with appropriate locks held only. The head item is
- *	returned or %NULL if the list is empty.
- */
-extern struct sk_buff *skb_dequeue(struct sk_buff_head *list);
-static inline struct sk_buff *__skb_dequeue(struct sk_buff_head *list)
-{
-	struct sk_buff *next, *prev, *result;
-
-	prev = (struct sk_buff *) list;
-	next = prev->next;
-	result = NULL;
-	if (next != prev) {
-		result	     = next;
-		next	     = next->next;
-		list->qlen--;
-		next->prev   = prev;
-		prev->next   = next;
-		result->next = result->prev = NULL;
-	}
-	return result;
-}
-
-
-/*
- *	Insert a packet on a list.
- */
-extern void        skb_insert(struct sk_buff *old, struct sk_buff *newsk, struct sk_buff_head *list);
-static inline void __skb_insert(struct sk_buff *newsk,
-				struct sk_buff *prev, struct sk_buff *next,
-				struct sk_buff_head *list)
-{
-	newsk->next = next;
-	newsk->prev = prev;
-	next->prev  = prev->next = newsk;
-	list->qlen++;
-}
-
-/*
- *	Place a packet after a given packet in a list.
- */
-extern void	   skb_append(struct sk_buff *old, struct sk_buff *newsk, struct sk_buff_head *list);
-static inline void __skb_append(struct sk_buff *old, struct sk_buff *newsk, struct sk_buff_head *list)
-{
-	__skb_insert(newsk, old, old->next, list);
+	__skb_queue_before(list, (struct sk_buff *)list, newsk);
 }
 
 /*
@@ -794,8 +760,22 @@ static inline void __skb_unlink(struct sk_buff *skb, struct sk_buff_head *list)
 	prev->next = next;
 }
 
-
-/* XXX: more streamlined implementation */
+/**
+ *	__skb_dequeue - remove from the head of the queue
+ *	@list: list to dequeue from
+ *
+ *	Remove the head of the list. This function does not take any locks
+ *	so must be used with appropriate locks held only. The head item is
+ *	returned or %NULL if the list is empty.
+ */
+extern struct sk_buff *skb_dequeue(struct sk_buff_head *list);
+static inline struct sk_buff *__skb_dequeue(struct sk_buff_head *list)
+{
+	struct sk_buff *skb = skb_peek(list);
+	if (skb)
+		__skb_unlink(skb, list);
+	return skb;
+}
 
 /**
  *	__skb_dequeue_tail - remove from the tail of the queue
@@ -886,6 +866,7 @@ static inline void skb_set_tail_pointer(struct sk_buff *skb, const int offset)
 /*
  *	Add data to an sk_buff
  */
+extern unsigned char *skb_put(struct sk_buff *skb, unsigned int len);
 static inline unsigned char *__skb_put(struct sk_buff *skb, unsigned int len)
 {
 	unsigned char *tmp = skb_tail_pointer(skb);
@@ -895,26 +876,7 @@ static inline unsigned char *__skb_put(struct sk_buff *skb, unsigned int len)
 	return tmp;
 }
 
-/**
- *	skb_put - add data to a buffer
- *	@skb: buffer to use
- *	@len: amount of data to add
- *
- *	This function extends the used data area of the buffer. If this would
- *	exceed the total buffer size the kernel will panic. A pointer to the
- *	first byte of the extra data is returned.
- */
-static inline unsigned char *skb_put(struct sk_buff *skb, unsigned int len)
-{
-	unsigned char *tmp = skb_tail_pointer(skb);
-	SKB_LINEAR_ASSERT(skb);
-	skb->tail += len;
-	skb->len  += len;
-	if (unlikely(skb->tail > skb->end))
-		skb_over_panic(skb, len, current_text_addr());
-	return tmp;
-}
-
+extern unsigned char *skb_push(struct sk_buff *skb, unsigned int len);
 static inline unsigned char *__skb_push(struct sk_buff *skb, unsigned int len)
 {
 	skb->data -= len;
@@ -922,44 +884,12 @@ static inline unsigned char *__skb_push(struct sk_buff *skb, unsigned int len)
 	return skb->data;
 }
 
-/**
- *	skb_push - add data to the start of a buffer
- *	@skb: buffer to use
- *	@len: amount of data to add
- *
- *	This function extends the used data area of the buffer at the buffer
- *	start. If this would exceed the total buffer headroom the kernel will
- *	panic. A pointer to the first byte of the extra data is returned.
- */
-static inline unsigned char *skb_push(struct sk_buff *skb, unsigned int len)
-{
-	skb->data -= len;
-	skb->len  += len;
-	if (unlikely(skb->data<skb->head))
-		skb_under_panic(skb, len, current_text_addr());
-	return skb->data;
-}
-
+extern unsigned char *skb_pull(struct sk_buff *skb, unsigned int len);
 static inline unsigned char *__skb_pull(struct sk_buff *skb, unsigned int len)
 {
 	skb->len -= len;
 	BUG_ON(skb->len < skb->data_len);
 	return skb->data += len;
-}
-
-/**
- *	skb_pull - remove data from the start of a buffer
- *	@skb: buffer to use
- *	@len: amount of data to remove
- *
- *	This function removes data from the start of a buffer, returning
- *	the memory to the headroom. A pointer to the next data in the buffer
- *	is returned. Once the data has been pulled future pushes will overwrite
- *	the old data.
- */
-static inline unsigned char *skb_pull(struct sk_buff *skb, unsigned int len)
-{
-	return unlikely(len > skb->len) ? NULL : __skb_pull(skb, len);
 }
 
 extern unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta);
@@ -993,7 +923,7 @@ static inline int pskb_may_pull(struct sk_buff *skb, unsigned int len)
  *
  *	Return the number of bytes of free space at the head of an &sk_buff.
  */
-static inline int skb_headroom(const struct sk_buff *skb)
+static inline unsigned int skb_headroom(const struct sk_buff *skb)
 {
 	return skb->data - skb->head;
 }
@@ -1202,21 +1132,7 @@ static inline void __skb_trim(struct sk_buff *skb, unsigned int len)
 	skb_set_tail_pointer(skb, len);
 }
 
-/**
- *	skb_trim - remove end from a buffer
- *	@skb: buffer to alter
- *	@len: new length
- *
- *	Cut the length of a buffer down by removing data from the tail. If
- *	the buffer is already under the length specified it is not modified.
- *	The skb must be linear.
- */
-static inline void skb_trim(struct sk_buff *skb, unsigned int len)
-{
-	if (skb->len > len)
-		__skb_trim(skb, len);
-}
-
+extern void skb_trim(struct sk_buff *skb, unsigned int len);
 
 static inline int __pskb_trim(struct sk_buff *skb, unsigned int len)
 {
@@ -1299,22 +1215,7 @@ static inline struct sk_buff *__dev_alloc_skb(unsigned int length,
 	return skb;
 }
 
-/**
- *	dev_alloc_skb - allocate an skbuff for receiving
- *	@length: length to allocate
- *
- *	Allocate a new &sk_buff and assign it a usage count of one. The
- *	buffer has unspecified headroom built in. Users should allocate
- *	the headroom they think they need without accounting for the
- *	built in space. The built in space is used for optimisations.
- *
- *	%NULL is returned if there is no free memory. Although this function
- *	allocates memory it can be called from an interrupt.
- */
-static inline struct sk_buff *dev_alloc_skb(unsigned int length)
-{
-	return __dev_alloc_skb(length, GFP_ATOMIC);
-}
+extern struct sk_buff *dev_alloc_skb(unsigned int length);
 
 extern struct sk_buff *__netdev_alloc_skb(struct net_device *dev,
 		unsigned int length, gfp_t gfp_mask);
@@ -1346,7 +1247,7 @@ static inline struct sk_buff *netdev_alloc_skb(struct net_device *dev,
  *	Returns true if modifying the header part of the cloned buffer
  *	does not requires the data to be copied.
  */
-static inline int skb_clone_writable(struct sk_buff *skb, int len)
+static inline int skb_clone_writable(struct sk_buff *skb, unsigned int len)
 {
 	return !skb_header_cloned(skb) &&
 	       skb_headroom(skb) + len <= skb->hdr_len;
@@ -1535,6 +1436,8 @@ static inline int pskb_trim_rcsum(struct sk_buff *skb, unsigned int len)
 		     skb = skb->prev)
 
 
+extern struct sk_buff *__skb_recv_datagram(struct sock *sk, unsigned flags,
+					   int *peeked, int *err);
 extern struct sk_buff *skb_recv_datagram(struct sock *sk, unsigned flags,
 					 int noblock, int *err);
 extern unsigned int    datagram_poll(struct file *file, struct socket *sock,
@@ -1546,7 +1449,7 @@ extern int	       skb_copy_and_csum_datagram_iovec(struct sk_buff *skb,
 							int hlen,
 							struct iovec *iov);
 extern void	       skb_free_datagram(struct sock *sk, struct sk_buff *skb);
-extern void	       skb_kill_datagram(struct sock *sk, struct sk_buff *skb,
+extern int	       skb_kill_datagram(struct sock *sk, struct sk_buff *skb,
 					 unsigned int flags);
 extern __wsum	       skb_checksum(const struct sk_buff *skb, int offset,
 				    int len, __wsum csum);
@@ -1557,6 +1460,11 @@ extern int	       skb_store_bits(struct sk_buff *skb, int offset,
 extern __wsum	       skb_copy_and_csum_bits(const struct sk_buff *skb,
 					      int offset, u8 *to, int len,
 					      __wsum csum);
+extern int             skb_splice_bits(struct sk_buff *skb,
+						unsigned int offset,
+						struct pipe_inode_info *pipe,
+						unsigned int len,
+						unsigned int flags);
 extern void	       skb_copy_and_csum_dev(const struct sk_buff *skb, u8 *to);
 extern void	       skb_split(struct sk_buff *skb,
 				 struct sk_buff *skb1, const u32 len);
@@ -1764,21 +1672,41 @@ static inline void skb_init_secmark(struct sk_buff *skb)
 
 static inline void skb_set_queue_mapping(struct sk_buff *skb, u16 queue_mapping)
 {
-#ifdef CONFIG_NETDEVICES_MULTIQUEUE
 	skb->queue_mapping = queue_mapping;
-#endif
+}
+
+static inline u16 skb_get_queue_mapping(struct sk_buff *skb)
+{
+	return skb->queue_mapping;
 }
 
 static inline void skb_copy_queue_mapping(struct sk_buff *to, const struct sk_buff *from)
 {
-#ifdef CONFIG_NETDEVICES_MULTIQUEUE
 	to->queue_mapping = from->queue_mapping;
-#endif
 }
 
 static inline int skb_is_gso(const struct sk_buff *skb)
 {
 	return skb_shinfo(skb)->gso_size;
+}
+
+static inline int skb_is_gso_v6(const struct sk_buff *skb)
+{
+	return skb_shinfo(skb)->gso_type & SKB_GSO_TCPV6;
+}
+
+extern void __skb_warn_lro_forwarding(const struct sk_buff *skb);
+
+static inline bool skb_warn_if_lro(const struct sk_buff *skb)
+{
+	/* LRO sets gso_size but not gso_type, whereas if GSO is really
+	 * wanted then gso_type will be set. */
+	struct skb_shared_info *shinfo = skb_shinfo(skb);
+	if (shinfo->gso_size != 0 && unlikely(shinfo->gso_type == 0)) {
+		__skb_warn_lro_forwarding(skb);
+		return true;
+	}
+	return false;
 }
 
 static inline void skb_forward_csum(struct sk_buff *skb)
@@ -1788,5 +1716,6 @@ static inline void skb_forward_csum(struct sk_buff *skb)
 		skb->ip_summed = CHECKSUM_NONE;
 }
 
+bool skb_partial_csum_set(struct sk_buff *skb, u16 start, u16 off);
 #endif	/* __KERNEL__ */
 #endif	/* _LINUX_SKBUFF_H */

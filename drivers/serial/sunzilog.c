@@ -63,10 +63,6 @@
 	readb(&((__channel)->control))
 #endif
 
-static int num_sunzilog;
-#define NUM_SUNZILOG	num_sunzilog
-#define NUM_CHANNELS	(NUM_SUNZILOG * 2)
-
 #define ZS_CLOCK		4915200 /* Zilog input clock rate. */
 #define ZS_CLOCK_DIVISOR	16      /* Divisor this driver uses. */
 
@@ -333,8 +329,8 @@ sunzilog_receive_chars(struct uart_sunzilog_port *up,
 
 	tty = NULL;
 	if (up->port.info != NULL &&		/* Unopened serial console */
-	    up->port.info->tty != NULL)		/* Keyboard || mouse */
-		tty = up->port.info->tty;
+	    up->port.info->port.tty != NULL)	/* Keyboard || mouse */
+		tty = up->port.info->port.tty;
 
 	for (;;) {
 
@@ -1019,6 +1015,7 @@ static struct uart_ops sunzilog_pops = {
 	.verify_port	=	sunzilog_verify_port,
 };
 
+static int uart_chip_count;
 static struct uart_sunzilog_port *sunzilog_port_table;
 static struct zilog_layout __iomem **sunzilog_chip_regs;
 
@@ -1026,23 +1023,24 @@ static struct uart_sunzilog_port *sunzilog_irq_chain;
 
 static struct uart_driver sunzilog_reg = {
 	.owner		=	THIS_MODULE,
-	.driver_name	=	"ttyS",
+	.driver_name	=	"sunzilog",
 	.dev_name	=	"ttyS",
 	.major		=	TTY_MAJOR,
 };
 
-static int __init sunzilog_alloc_tables(void)
+static int __init sunzilog_alloc_tables(int num_sunzilog)
 {
 	struct uart_sunzilog_port *up;
 	unsigned long size;
+	int num_channels = num_sunzilog * 2;
 	int i;
 
-	size = NUM_CHANNELS * sizeof(struct uart_sunzilog_port);
+	size = num_channels * sizeof(struct uart_sunzilog_port);
 	sunzilog_port_table = kzalloc(size, GFP_KERNEL);
 	if (!sunzilog_port_table)
 		return -ENOMEM;
 
-	for (i = 0; i < NUM_CHANNELS; i++) {
+	for (i = 0; i < num_channels; i++) {
 		up = &sunzilog_port_table[i];
 
 		spin_lock_init(&up->port.lock);
@@ -1050,13 +1048,13 @@ static int __init sunzilog_alloc_tables(void)
 		if (i == 0)
 			sunzilog_irq_chain = up;
 
-		if (i < NUM_CHANNELS - 1)
+		if (i < num_channels - 1)
 			up->next = up + 1;
 		else
 			up->next = NULL;
 	}
 
-	size = NUM_SUNZILOG * sizeof(struct zilog_layout __iomem *);
+	size = num_sunzilog * sizeof(struct zilog_layout __iomem *);
 	sunzilog_chip_regs = kzalloc(size, GFP_KERNEL);
 	if (!sunzilog_chip_regs) {
 		kfree(sunzilog_port_table);
@@ -1233,7 +1231,7 @@ static inline struct console *SUNZILOG_CONSOLE(void)
 #define SUNZILOG_CONSOLE()	(NULL)
 #endif
 
-static void __devinit sunzilog_init_kbdms(struct uart_sunzilog_port *up, int channel)
+static void __devinit sunzilog_init_kbdms(struct uart_sunzilog_port *up)
 {
 	int baud, brg;
 
@@ -1307,7 +1305,7 @@ static void __devinit sunzilog_init_hw(struct uart_sunzilog_port *up)
 		up->curregs[R7] = 0x7E; /* SDLC Flag    */
 		up->curregs[R9] = NV;
 		up->curregs[R7p] = 0x00;
-		sunzilog_init_kbdms(up, up->port.line);
+		sunzilog_init_kbdms(up);
 		/* Only enable interrupts if an ISR handler available */
 		if (up->flags & SUNZILOG_FLAG_ISR_HANDLER)
 			up->curregs[R9] |= MIE;
@@ -1353,15 +1351,21 @@ static int zilog_irq = -1;
 
 static int __devinit zs_probe(struct of_device *op, const struct of_device_id *match)
 {
-	static int inst;
+	static int kbm_inst, uart_inst;
+	int inst;
 	struct uart_sunzilog_port *up;
 	struct zilog_layout __iomem *rp;
-	int keyboard_mouse;
+	int keyboard_mouse = 0;
 	int err;
 
-	keyboard_mouse = 0;
 	if (of_find_property(op->node, "keyboard", NULL))
 		keyboard_mouse = 1;
+
+	/* uarts must come before keyboards/mice */
+	if (keyboard_mouse)
+		inst = uart_chip_count + kbm_inst;
+	else
+		inst = uart_inst;
 
 	sunzilog_chip_regs[inst] = of_ioremap(&op->resource[0], 0,
 					      sizeof(struct zilog_layout),
@@ -1430,6 +1434,7 @@ static int __devinit zs_probe(struct of_device *op, const struct of_device_id *m
 				   rp, sizeof(struct zilog_layout));
 			return err;
 		}
+		uart_inst++;
 	} else {
 		printk(KERN_INFO "%s: Keyboard at MMIO 0x%llx (irq = %d) "
 		       "is a %s\n",
@@ -1441,11 +1446,10 @@ static int __devinit zs_probe(struct of_device *op, const struct of_device_id *m
 		       op->dev.bus_id,
 		       (unsigned long long) up[1].port.mapbase,
 		       op->irqs[0], sunzilog_type(&up[1].port));
+		kbm_inst++;
 	}
 
 	dev_set_drvdata(&op->dev, &up[0]);
-
-	inst++;
 
 	return 0;
 }
@@ -1494,36 +1498,27 @@ static struct of_platform_driver zs_driver = {
 static int __init sunzilog_init(void)
 {
 	struct device_node *dp;
-	int err, uart_count;
-	int num_keybms;
+	int err;
+	int num_keybms = 0;
+	int num_sunzilog = 0;
 
-	NUM_SUNZILOG = 0;
-	num_keybms = 0;
 	for_each_node_by_name(dp, "zs") {
-		NUM_SUNZILOG++;
+		num_sunzilog++;
 		if (of_find_property(dp, "keyboard", NULL))
 			num_keybms++;
 	}
 
-	uart_count = 0;
-	if (NUM_SUNZILOG) {
-		int uart_count;
-
-		err = sunzilog_alloc_tables();
+	if (num_sunzilog) {
+		err = sunzilog_alloc_tables(num_sunzilog);
 		if (err)
 			goto out;
 
-		uart_count = (NUM_SUNZILOG * 2) - (2 * num_keybms);
+		uart_chip_count = num_sunzilog - num_keybms;
 
-		sunzilog_reg.nr = uart_count;
-		sunzilog_reg.minor = sunserial_current_minor;
-		err = uart_register_driver(&sunzilog_reg);
+		err = sunserial_register_minors(&sunzilog_reg,
+						uart_chip_count * 2);
 		if (err)
 			goto out_free_tables;
-
-		sunzilog_reg.tty_driver->name_base = sunzilog_reg.minor - 64;
-
-		sunserial_current_minor += uart_count;
 	}
 
 	err = of_register_driver(&zs_driver, &of_bus_type);
@@ -1557,8 +1552,8 @@ out_unregister_driver:
 	of_unregister_driver(&zs_driver);
 
 out_unregister_uart:
-	if (NUM_SUNZILOG) {
-		uart_unregister_driver(&sunzilog_reg);
+	if (num_sunzilog) {
+		sunserial_unregister_minors(&sunzilog_reg, num_sunzilog);
 		sunzilog_reg.cons = NULL;
 	}
 
@@ -1590,8 +1585,8 @@ static void __exit sunzilog_exit(void)
 		zilog_irq = -1;
 	}
 
-	if (NUM_SUNZILOG) {
-		uart_unregister_driver(&sunzilog_reg);
+	if (sunzilog_reg.nr) {
+		sunserial_unregister_minors(&sunzilog_reg, sunzilog_reg.nr);
 		sunzilog_free_tables();
 	}
 }

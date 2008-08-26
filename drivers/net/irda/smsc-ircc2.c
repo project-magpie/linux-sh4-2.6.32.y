@@ -1,5 +1,4 @@
 /*********************************************************************
- * $Id: smsc-ircc2.c,v 1.19.2.5 2002/10/27 11:34:26 dip Exp $
  *
  * Description:   Driver for the SMC Infrared Communications Controller
  * Status:        Experimental.
@@ -81,7 +80,7 @@ MODULE_LICENSE("GPL");
 
 static int smsc_nopnp = 1;
 module_param_named(nopnp, smsc_nopnp, bool, 0);
-MODULE_PARM_DESC(nopnp, "Do not use PNP to detect controller settings");
+MODULE_PARM_DESC(nopnp, "Do not use PNP to detect controller settings, defaults to true");
 
 #define DMA_INVAL 255
 static int ircc_dma = DMA_INVAL;
@@ -376,6 +375,7 @@ MODULE_DEVICE_TABLE(pnp, smsc_ircc_pnp_table);
 
 static int pnp_driver_registered;
 
+#ifdef CONFIG_PNP
 static int __init smsc_ircc_pnp_probe(struct pnp_dev *dev,
 				      const struct pnp_device_id *dev_id)
 {
@@ -402,7 +402,9 @@ static struct pnp_driver smsc_ircc_pnp_driver = {
 	.id_table	= smsc_ircc_pnp_table,
 	.probe		= smsc_ircc_pnp_probe,
 };
-
+#else /* CONFIG_PNP */
+static struct pnp_driver smsc_ircc_pnp_driver;
+#endif
 
 /*******************************************************************************
  *
@@ -518,8 +520,6 @@ static int __init smsc_ircc_open(unsigned int fir_base, unsigned int sir_base, u
 		IRDA_WARNING("%s() can't allocate net device\n", __FUNCTION__);
 		goto err_out1;
 	}
-
-	SET_MODULE_OWNER(dev);
 
 	dev->hard_start_xmit = smsc_ircc_hard_xmit_sir;
 #if SMSC_IRCC2_C_NET_TIMEOUT
@@ -1507,21 +1507,12 @@ static void smsc_ircc_sir_receive(struct smsc_ircc_cb *self)
  *    An interrupt from the chip has arrived. Time to do some work
  *
  */
-static irqreturn_t smsc_ircc_interrupt(int irq, void *dev_id)
+static irqreturn_t smsc_ircc_interrupt(int dummy, void *dev_id)
 {
-	struct net_device *dev = (struct net_device *) dev_id;
-	struct smsc_ircc_cb *self;
+	struct net_device *dev = dev_id;
+	struct smsc_ircc_cb *self = netdev_priv(dev);
 	int iobase, iir, lcra, lsr;
 	irqreturn_t ret = IRQ_NONE;
-
-	if (dev == NULL) {
-		printk(KERN_WARNING "%s: irq %d for unknown device.\n",
-		       driver_name, irq);
-		goto irq_ret;
-	}
-
-	self = netdev_priv(dev);
-	IRDA_ASSERT(self != NULL, return IRQ_NONE;);
 
 	/* Serialise the interrupt handler in various CPUs, stop Tx path */
 	spin_lock(&self->lock);
@@ -1567,7 +1558,7 @@ static irqreturn_t smsc_ircc_interrupt(int irq, void *dev_id)
 
  irq_ret_unlock:
 	spin_unlock(&self->lock);
- irq_ret:
+
 	return ret;
 }
 

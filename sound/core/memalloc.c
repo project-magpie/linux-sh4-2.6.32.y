@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *                   Takashi Iwai <tiwai@suse.de>
  * 
  *  Generic memory allocators
@@ -38,7 +38,7 @@
 #endif
 
 
-MODULE_AUTHOR("Takashi Iwai <tiwai@suse.de>, Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Takashi Iwai <tiwai@suse.de>, Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("Memory allocator for ALSA system.");
 MODULE_LICENSE("GPL");
 
@@ -78,68 +78,6 @@ struct snd_mem_list {
 #else
 #define snd_assert(expr, args...) /**/
 #endif
-
-/*
- *  Hacks
- */
-
-#if defined(__i386__)
-/*
- * A hack to allocate large buffers via dma_alloc_coherent()
- *
- * since dma_alloc_coherent always tries GFP_DMA when the requested
- * pci memory region is below 32bit, it happens quite often that even
- * 2 order of pages cannot be allocated.
- *
- * so in the following, we allocate at first without dma_mask, so that
- * allocation will be done without GFP_DMA.  if the area doesn't match
- * with the requested region, then realloate with the original dma_mask
- * again.
- *
- * Really, we want to move this type of thing into dma_alloc_coherent()
- * so dma_mask doesn't have to be messed with.
- */
-
-static void *snd_dma_hack_alloc_coherent(struct device *dev, size_t size,
-					 dma_addr_t *dma_handle,
-					 gfp_t flags)
-{
-	void *ret;
-	u64 dma_mask, coherent_dma_mask;
-
-	if (dev == NULL || !dev->dma_mask)
-		return dma_alloc_coherent(dev, size, dma_handle, flags);
-	dma_mask = *dev->dma_mask;
-	coherent_dma_mask = dev->coherent_dma_mask;
-	*dev->dma_mask = 0xffffffff; 	/* do without masking */
-	dev->coherent_dma_mask = 0xffffffff; 	/* do without masking */
-	ret = dma_alloc_coherent(dev, size, dma_handle, flags);
-	*dev->dma_mask = dma_mask;	/* restore */
-	dev->coherent_dma_mask = coherent_dma_mask;	/* restore */
-	if (ret) {
-		/* obtained address is out of range? */
-		if (((unsigned long)*dma_handle + size - 1) & ~dma_mask) {
-			/* reallocate with the proper mask */
-			dma_free_coherent(dev, size, ret, *dma_handle);
-			ret = dma_alloc_coherent(dev, size, dma_handle, flags);
-		}
-	} else {
-		/* wish to success now with the proper mask... */
-		if (dma_mask != 0xffffffffUL) {
-			/* allocation with GFP_ATOMIC to avoid the long stall */
-			flags &= ~GFP_KERNEL;
-			flags |= GFP_ATOMIC;
-			ret = dma_alloc_coherent(dev, size, dma_handle, flags);
-		}
-	}
-	return ret;
-}
-
-/* redefine dma_alloc_coherent for some architectures */
-#undef dma_alloc_coherent
-#define dma_alloc_coherent snd_dma_hack_alloc_coherent
-
-#endif /* arch */
 
 /*
  *
@@ -206,6 +144,7 @@ void snd_free_pages(void *ptr, size_t size)
  *
  */
 
+#ifdef CONFIG_HAS_DMA
 /* allocate the coherent DMA pages */
 static void *snd_malloc_dev_pages(struct device *dev, size_t size, dma_addr_t *dma)
 {
@@ -239,6 +178,7 @@ static void snd_free_dev_pages(struct device *dev, size_t size, void *ptr,
 	dec_snd_pages(pg);
 	dma_free_coherent(dev, PAGE_SIZE << pg, ptr, dma);
 }
+#endif /* CONFIG_HAS_DMA */
 
 #ifdef CONFIG_SBUS
 
@@ -312,12 +252,14 @@ int snd_dma_alloc_pages(int type, struct device *device, size_t size,
 		dmab->area = snd_malloc_sbus_pages(device, size, &dmab->addr);
 		break;
 #endif
+#ifdef CONFIG_HAS_DMA
 	case SNDRV_DMA_TYPE_DEV:
 		dmab->area = snd_malloc_dev_pages(device, size, &dmab->addr);
 		break;
 	case SNDRV_DMA_TYPE_DEV_SG:
 		snd_malloc_sgbuf_pages(device, size, dmab, NULL);
 		break;
+#endif
 	default:
 		printk(KERN_ERR "snd-malloc: invalid device type %d\n", type);
 		dmab->area = NULL;
@@ -383,12 +325,14 @@ void snd_dma_free_pages(struct snd_dma_buffer *dmab)
 		snd_free_sbus_pages(dmab->dev.dev, dmab->bytes, dmab->area, dmab->addr);
 		break;
 #endif
+#ifdef CONFIG_HAS_DMA
 	case SNDRV_DMA_TYPE_DEV:
 		snd_free_dev_pages(dmab->dev.dev, dmab->bytes, dmab->area, dmab->addr);
 		break;
 	case SNDRV_DMA_TYPE_DEV_SG:
 		snd_free_sgbuf_pages(dmab);
 		break;
+#endif
 	default:
 		printk(KERN_ERR "snd-malloc: invalid device type %d\n", dmab->dev.type);
 	}
@@ -562,6 +506,7 @@ static ssize_t snd_mem_proc_write(struct file *file, const char __user * buffer,
 				if (pci_set_dma_mask(pci, mask) < 0 ||
 				    pci_set_consistent_dma_mask(pci, mask) < 0) {
 					printk(KERN_ERR "snd-page-alloc: cannot set DMA mask %lx for pci %04x:%04x\n", mask, vendor, device);
+					pci_dev_put(pci);
 					return count;
 				}
 			}
@@ -622,9 +567,8 @@ static const struct file_operations snd_mem_proc_fops = {
 static int __init snd_mem_init(void)
 {
 #ifdef CONFIG_PROC_FS
-	snd_mem_proc = create_proc_entry(SND_MEM_PROC_FILE, 0644, NULL);
-	if (snd_mem_proc)
-		snd_mem_proc->proc_fops = &snd_mem_proc_fops;
+	snd_mem_proc = proc_create(SND_MEM_PROC_FILE, 0644, NULL,
+				   &snd_mem_proc_fops);
 #endif
 	return 0;
 }

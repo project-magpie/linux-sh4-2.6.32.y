@@ -33,6 +33,8 @@
 #include <linux/serial_8250.h>
 #include <linux/bootmem.h>
 #include <linux/pci.h>
+#include <linux/lockdep.h>
+#include <linux/lmb.h>
 #include <asm/io.h>
 #include <asm/kdump.h>
 #include <asm/prom.h>
@@ -55,7 +57,6 @@
 #include <asm/cache.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
-#include <asm/lmb.h>
 #include <asm/firmware.h>
 #include <asm/xmon.h>
 #include <asm/udbg.h>
@@ -169,11 +170,21 @@ void __init setup_paca(int cpu)
 
 void __init early_setup(unsigned long dt_ptr)
 {
+	/* -------- printk is _NOT_ safe to use here ! ------- */
+
+	/* Fill in any unititialised pacas */
+	initialise_pacas();
+
 	/* Identify CPU type */
 	identify_cpu(0, mfspr(SPRN_PVR));
 
 	/* Assume we're on cpu 0 for now. Don't write to the paca yet! */
 	setup_paca(0);
+
+	/* Initialize lockdep early or else spinlocks will blow */
+	lockdep_init();
+
+	/* -------- printk is now safe to use ------- */
 
 	/* Enable early debugging if any specified (see udbg.h) */
 	udbg_early_init();
@@ -181,9 +192,9 @@ void __init early_setup(unsigned long dt_ptr)
  	DBG(" -> early_setup(), dt_ptr: 0x%lx\n", dt_ptr);
 
 	/*
-	 * Do early initializations using the flattened device
-	 * tree, like retreiving the physical memory map or
-	 * calculating/retreiving the hash table size
+	 * Do early initialization using the flattened device
+	 * tree, such as retrieving the physical memory map or
+	 * calculating/retrieving the hash table size.
 	 */
 	early_init_devtree(__va(dt_ptr));
 
@@ -291,23 +302,16 @@ static void __init initialize_cache_info(void)
 		if ( num_cpus == 1 ) {
 			const u32 *sizep, *lsizep;
 			u32 size, lsize;
-			const char *dc, *ic;
-
-			/* Then read cache informations */
-			if (machine_is(powermac)) {
-				dc = "d-cache-block-size";
-				ic = "i-cache-block-size";
-			} else {
-				dc = "d-cache-line-size";
-				ic = "i-cache-line-size";
-			}
 
 			size = 0;
 			lsize = cur_cpu_spec->dcache_bsize;
 			sizep = of_get_property(np, "d-cache-size", NULL);
 			if (sizep != NULL)
 				size = *sizep;
-			lsizep = of_get_property(np, dc, NULL);
+			lsizep = of_get_property(np, "d-cache-block-size", NULL);
+			/* fallback if block size missing */
+			if (lsizep == NULL)
+				lsizep = of_get_property(np, "d-cache-line-size", NULL);
 			if (lsizep != NULL)
 				lsize = *lsizep;
 			if (sizep == 0 || lsizep == 0)
@@ -324,7 +328,9 @@ static void __init initialize_cache_info(void)
 			sizep = of_get_property(np, "i-cache-size", NULL);
 			if (sizep != NULL)
 				size = *sizep;
-			lsizep = of_get_property(np, ic, NULL);
+			lsizep = of_get_property(np, "i-cache-block-size", NULL);
+			if (lsizep == NULL)
+				lsizep = of_get_property(np, "i-cache-line-size", NULL);
 			if (lsizep != NULL)
 				lsize = *lsizep;
 			if (sizep == 0 || lsizep == 0)
@@ -357,6 +363,8 @@ void __init setup_system(void)
 			  &__start___ftr_fixup, &__stop___ftr_fixup);
 	do_feature_fixups(powerpc_firmware_features,
 			  &__start___fw_ftr_fixup, &__stop___fw_ftr_fixup);
+	do_lwsync_fixups(cur_cpu_spec->cpu_features,
+			 &__start___lwsync_fixup, &__stop___lwsync_fixup);
 
 	/*
 	 * Unflatten the device-tree passed by prom_init or kexec
@@ -426,14 +434,17 @@ void __init setup_system(void)
 	printk("-----------------------------------------------------\n");
 	printk("ppc64_pft_size                = 0x%lx\n", ppc64_pft_size);
 	printk("physicalMemorySize            = 0x%lx\n", lmb_phys_mem_size());
-	printk("ppc64_caches.dcache_line_size = 0x%x\n",
-	       ppc64_caches.dline_size);
-	printk("ppc64_caches.icache_line_size = 0x%x\n",
-	       ppc64_caches.iline_size);
-	printk("htab_address                  = 0x%p\n", htab_address);
+	if (ppc64_caches.dline_size != 0x80)
+		printk("ppc64_caches.dcache_line_size = 0x%x\n",
+		       ppc64_caches.dline_size);
+	if (ppc64_caches.iline_size != 0x80)
+		printk("ppc64_caches.icache_line_size = 0x%x\n",
+		       ppc64_caches.iline_size);
+	if (htab_address)
+		printk("htab_address                  = 0x%p\n", htab_address);
 	printk("htab_hash_mask                = 0x%lx\n", htab_hash_mask);
 #if PHYSICAL_START > 0
-	printk("physical_start                = 0x%x\n", PHYSICAL_START);
+	printk("physical_start                = 0x%lx\n", PHYSICAL_START);
 #endif
 	printk("-----------------------------------------------------\n");
 
@@ -482,9 +493,12 @@ static void __init emergency_stack_init(void)
 	 */
 	limit = min(0x10000000UL, lmb.rmo_size);
 
-	for_each_possible_cpu(i)
-		paca[i].emergency_sp =
-		__va(lmb_alloc_base(HW_PAGE_SIZE, 128, limit)) + HW_PAGE_SIZE;
+	for_each_possible_cpu(i) {
+		unsigned long sp;
+		sp  = lmb_alloc_base(THREAD_SIZE, THREAD_SIZE, limit);
+		sp += THREAD_SIZE;
+		paca[i].emergency_sp = __va(sp);
+	}
 }
 
 /*
@@ -512,7 +526,7 @@ void __init setup_arch(char **cmdline_p)
 	if (ppc_md.panic)
 		setup_panic();
 
-	init_mm.start_code = PAGE_OFFSET;
+	init_mm.start_code = (unsigned long)_stext;
 	init_mm.end_code = (unsigned long) _etext;
 	init_mm.end_data = (unsigned long) _edata;
 	init_mm.brk = klimit;
@@ -530,7 +544,8 @@ void __init setup_arch(char **cmdline_p)
 	conswitchp = &dummy_con;
 #endif
 
-	ppc_md.setup_arch();
+	if (ppc_md.setup_arch)
+		ppc_md.setup_arch();
 
 	paging_init();
 	ppc64_boot_msg(0x15, "Setup Done");
@@ -596,6 +611,9 @@ void __init setup_per_cpu_areas(void)
 		paca[i].data_offset = ptr - __per_cpu_start;
 		memcpy(ptr, __per_cpu_start, __per_cpu_end - __per_cpu_start);
 	}
+
+	/* Now that per_cpu is setup, initialize cpu_sibling_map */
+	smp_setup_cpu_sibling_map();
 }
 #endif
 

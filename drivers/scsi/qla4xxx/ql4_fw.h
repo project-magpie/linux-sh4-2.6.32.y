@@ -216,6 +216,7 @@ union external_hw_config_reg {
 #define MBOX_CMD_ABOUT_FW			0x0009
 #define MBOX_CMD_PING				0x000B
 #define MBOX_CMD_LUN_RESET			0x0016
+#define MBOX_CMD_TARGET_WARM_RESET		0x0017
 #define MBOX_CMD_GET_MANAGEMENT_DATA		0x001E
 #define MBOX_CMD_GET_FW_STATUS			0x001F
 #define MBOX_CMD_SET_ISNS_SERVICE		0x0021
@@ -671,13 +672,14 @@ struct continuation_t1_entry {
 #define ET_CONTINUE	ET_CONT_T1
 
 /* Marker entry structure*/
-struct marker_entry {
+struct qla4_marker_entry {
 	struct qla4_header hdr;	/* 00-03 */
 
 	uint32_t system_defined; /* 04-07 */
 	uint16_t target;	/* 08-09 */
 	uint16_t modifier;	/* 0A-0B */
-#define MM_LUN_RESET	     0
+#define MM_LUN_RESET		0
+#define MM_TGT_WARM_RESET	1
 
 	uint16_t flags;		/* 0C-0D */
 	uint16_t reserved1;	/* 0E-0F */

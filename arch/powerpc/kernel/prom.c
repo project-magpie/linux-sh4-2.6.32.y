@@ -31,10 +31,10 @@
 #include <linux/kexec.h>
 #include <linux/debugfs.h>
 #include <linux/irq.h>
+#include <linux/lmb.h>
 
 #include <asm/prom.h>
 #include <asm/rtas.h>
-#include <asm/lmb.h>
 #include <asm/page.h>
 #include <asm/processor.h>
 #include <asm/irq.h>
@@ -51,8 +51,9 @@
 #include <asm/machdep.h>
 #include <asm/pSeries_reconfig.h>
 #include <asm/pci-bridge.h>
+#include <asm/phyp_dump.h>
 #include <asm/kexec.h>
-#include <asm/system.h>
+#include <mm/mmu_decl.h>
 
 #ifdef DEBUG
 #define DBG(fmt...) printk(KERN_ERR fmt)
@@ -431,11 +432,13 @@ static int __init early_parse_mem(char *p)
 }
 early_param("mem", early_parse_mem);
 
-/*
- * The device tree may be allocated below our memory limit, or inside the
- * crash kernel region for kdump. If so, move it out now.
+/**
+ * move_device_tree - move tree to an unused area, if needed.
+ *
+ * The device tree may be allocated beyond our memory limit, or inside the
+ * crash kernel region for kdump. If so, move it out of the way.
  */
-static void move_device_tree(void)
+static void __init move_device_tree(void)
 {
 	unsigned long start, size;
 	void *p;
@@ -530,10 +533,7 @@ static struct ibm_pa_feature {
 	{CPU_FTR_CTRL, 0,		0, 3, 0},
 	{CPU_FTR_NOEXECUTE, 0,		0, 6, 0},
 	{CPU_FTR_NODSISRALIGN, 0,	1, 1, 1},
-#if 0
-	/* put this back once we know how to test if firmware does 64k IO */
 	{CPU_FTR_CI_LARGE_PAGE, 0,	1, 2, 0},
-#endif
 	{CPU_FTR_REAL_LE, PPC_FEATURE_TRUE_LE, 5, 0, 0},
 };
 
@@ -585,6 +585,20 @@ static void __init check_cpu_pa_features(unsigned long node)
 		      ibm_pa_features, ARRAY_SIZE(ibm_pa_features));
 }
 
+#ifdef CONFIG_PPC64
+static void __init check_cpu_slb_size(unsigned long node)
+{
+	u32 *slb_size_ptr;
+
+	slb_size_ptr = of_get_flat_dt_prop(node, "ibm,slb-size", NULL);
+	if (slb_size_ptr != NULL) {
+		mmu_slb_size = *slb_size_ptr;
+	}
+}
+#else
+#define check_cpu_slb_size(node) do { } while(0)
+#endif
+
 static struct feature_property {
 	const char *name;
 	u32 min_value;
@@ -595,12 +609,39 @@ static struct feature_property {
 	{"altivec", 0, CPU_FTR_ALTIVEC, PPC_FEATURE_HAS_ALTIVEC},
 	{"ibm,vmx", 1, CPU_FTR_ALTIVEC, PPC_FEATURE_HAS_ALTIVEC},
 #endif /* CONFIG_ALTIVEC */
+#ifdef CONFIG_VSX
+	/* Yes, this _really_ is ibm,vmx == 2 to enable VSX */
+	{"ibm,vmx", 2, CPU_FTR_VSX, PPC_FEATURE_HAS_VSX},
+#endif /* CONFIG_VSX */
 #ifdef CONFIG_PPC64
 	{"ibm,dfp", 1, 0, PPC_FEATURE_HAS_DFP},
 	{"ibm,purr", 1, CPU_FTR_PURR, 0},
 	{"ibm,spurr", 1, CPU_FTR_SPURR, 0},
 #endif /* CONFIG_PPC64 */
 };
+
+#if defined(CONFIG_44x) && defined(CONFIG_PPC_FPU)
+static inline void identical_pvr_fixup(unsigned long node)
+{
+	unsigned int pvr;
+	char *model = of_get_flat_dt_prop(node, "model", NULL);
+
+	/*
+	 * Since 440GR(x)/440EP(x) processors have the same pvr,
+	 * we check the node path and set bit 28 in the cur_cpu_spec
+	 * pvr for EP(x) processor version. This bit is always 0 in
+	 * the "real" pvr. Then we call identify_cpu again with
+	 * the new logical pvr to enable FPU support.
+	 */
+	if (model && strstr(model, "440EP")) {
+		pvr = cur_cpu_spec->pvr_value | 0x8;
+		identify_cpu(0, pvr);
+		DBG("Using logical pvr %x for %s\n", pvr, model);
+	}
+}
+#else
+#define identical_pvr_fixup(node) do { } while(0)
+#endif
 
 static void __init check_cpu_feature_properties(unsigned long node)
 {
@@ -699,10 +740,13 @@ static int __init early_init_dt_scan_cpus(unsigned long node,
 		prop = of_get_flat_dt_prop(node, "cpu-version", NULL);
 		if (prop && (*prop & 0xff000000) == 0x0f000000)
 			identify_cpu(0, *prop);
+
+		identical_pvr_fixup(node);
 	}
 
 	check_cpu_feature_properties(node);
 	check_cpu_pa_features(node);
+	check_cpu_slb_size(node);
 
 #ifdef CONFIG_PPC_PSERIES
 	if (nthreads > 1)
@@ -780,13 +824,13 @@ static int __init early_init_dt_scan_chosen(unsigned long node,
 #endif
 
 #ifdef CONFIG_KEXEC
-       lprop = (u64*)of_get_flat_dt_prop(node, "linux,crashkernel-base", NULL);
-       if (lprop)
-               crashk_res.start = *lprop;
+	lprop = (u64*)of_get_flat_dt_prop(node, "linux,crashkernel-base", NULL);
+	if (lprop)
+		crashk_res.start = *lprop;
 
-       lprop = (u64*)of_get_flat_dt_prop(node, "linux,crashkernel-size", NULL);
-       if (lprop)
-               crashk_res.end = crashk_res.start + *lprop - 1;
+	lprop = (u64*)of_get_flat_dt_prop(node, "linux,crashkernel-size", NULL);
+	if (lprop)
+		crashk_res.end = crashk_res.start + *lprop - 1;
 #endif
 
 	early_init_dt_check_for_initrd(node);
@@ -827,12 +871,12 @@ static int __init early_init_dt_scan_root(unsigned long node,
 	return 1;
 }
 
-static unsigned long __init dt_mem_next_cell(int s, cell_t **cellp)
+static u64 __init dt_mem_next_cell(int s, cell_t **cellp)
 {
 	cell_t *p = *cellp;
 
 	*cellp = p + s;
-	return of_read_ulong(p, s);
+	return of_read_number(p, s);
 }
 
 #ifdef CONFIG_PPC_PSERIES
@@ -845,8 +889,8 @@ static unsigned long __init dt_mem_next_cell(int s, cell_t **cellp)
 static int __init early_init_dt_scan_drconf_memory(unsigned long node)
 {
 	cell_t *dm, *ls;
-	unsigned long l, n;
-	unsigned long base, size, lmb_size, flags;
+	unsigned long l, n, flags;
+	u64 base, size, lmb_size;
 
 	ls = (cell_t *)of_get_flat_dt_prop(node, "ibm,lmb-size", &l);
 	if (ls == NULL || l < dt_root_size_cells * sizeof(cell_t))
@@ -921,14 +965,15 @@ static int __init early_init_dt_scan_memory(unsigned long node,
 	    uname, l, reg[0], reg[1], reg[2], reg[3]);
 
 	while ((endp - reg) >= (dt_root_addr_cells + dt_root_size_cells)) {
-		unsigned long base, size;
+		u64 base, size;
 
 		base = dt_mem_next_cell(dt_root_addr_cells, &reg);
 		size = dt_mem_next_cell(dt_root_size_cells, &reg);
 
 		if (size == 0)
 			continue;
-		DBG(" - %lx ,  %lx\n", base, size);
+		DBG(" - %llx ,  %llx\n", (unsigned long long)base,
+		    (unsigned long long)size);
 #ifdef CONFIG_PPC64
 		if (iommu_is_off) {
 			if (base >= 0x80000000ul)
@@ -938,7 +983,10 @@ static int __init early_init_dt_scan_memory(unsigned long node,
 		}
 #endif
 		lmb_add(base, size);
+
+		memstart_addr = min((u64)memstart_addr, base);
 	}
+
 	return 0;
 }
 
@@ -1001,6 +1049,87 @@ static void __init early_reserve_mem(void)
 #endif
 }
 
+#ifdef CONFIG_PHYP_DUMP
+/**
+ * phyp_dump_calculate_reserve_size() - reserve variable boot area 5% or arg
+ *
+ * Function to find the largest size we need to reserve
+ * during early boot process.
+ *
+ * It either looks for boot param and returns that OR
+ * returns larger of 256 or 5% rounded down to multiples of 256MB.
+ *
+ */
+static inline unsigned long phyp_dump_calculate_reserve_size(void)
+{
+	unsigned long tmp;
+
+	if (phyp_dump_info->reserve_bootvar)
+		return phyp_dump_info->reserve_bootvar;
+
+	/* divide by 20 to get 5% of value */
+	tmp = lmb_end_of_DRAM();
+	do_div(tmp, 20);
+
+	/* round it down in multiples of 256 */
+	tmp = tmp & ~0x0FFFFFFFUL;
+
+	return (tmp > PHYP_DUMP_RMR_END ? tmp : PHYP_DUMP_RMR_END);
+}
+
+/**
+ * phyp_dump_reserve_mem() - reserve all not-yet-dumped mmemory
+ *
+ * This routine may reserve memory regions in the kernel only
+ * if the system is supported and a dump was taken in last
+ * boot instance or if the hardware is supported and the
+ * scratch area needs to be setup. In other instances it returns
+ * without reserving anything. The memory in case of dump being
+ * active is freed when the dump is collected (by userland tools).
+ */
+static void __init phyp_dump_reserve_mem(void)
+{
+	unsigned long base, size;
+	unsigned long variable_reserve_size;
+
+	if (!phyp_dump_info->phyp_dump_configured) {
+		printk(KERN_ERR "Phyp-dump not supported on this hardware\n");
+		return;
+	}
+
+	if (!phyp_dump_info->phyp_dump_at_boot) {
+		printk(KERN_INFO "Phyp-dump disabled at boot time\n");
+		return;
+	}
+
+	variable_reserve_size = phyp_dump_calculate_reserve_size();
+
+	if (phyp_dump_info->phyp_dump_is_active) {
+		/* Reserve *everything* above RMR.Area freed by userland tools*/
+		base = variable_reserve_size;
+		size = lmb_end_of_DRAM() - base;
+
+		/* XXX crashed_ram_end is wrong, since it may be beyond
+		 * the memory_limit, it will need to be adjusted. */
+		lmb_reserve(base, size);
+
+		phyp_dump_info->init_reserve_start = base;
+		phyp_dump_info->init_reserve_size = size;
+	} else {
+		size = phyp_dump_info->cpu_state_size +
+			phyp_dump_info->hpte_region_size +
+			variable_reserve_size;
+		base = lmb_end_of_DRAM() - size;
+		lmb_reserve(base, size);
+		phyp_dump_info->init_reserve_start = base;
+		phyp_dump_info->init_reserve_size = size;
+	}
+}
+#else
+static inline void __init phyp_dump_reserve_mem(void) {}
+#endif /* CONFIG_PHYP_DUMP  && CONFIG_PPC_RTAS */
+
+
 void __init early_init_devtree(void *params)
 {
 	DBG(" -> early_init_devtree(%p)\n", params);
@@ -1011,6 +1140,11 @@ void __init early_init_devtree(void *params)
 #ifdef CONFIG_PPC_RTAS
 	/* Some machines might need RTAS info for debugging, grab it now. */
 	of_scan_flat_dt(early_init_dt_scan_rtas, NULL);
+#endif
+
+#ifdef CONFIG_PHYP_DUMP
+	/* scan tree to see if dump occured during last boot */
+	of_scan_flat_dt(early_init_dt_scan_phyp_dump, NULL);
 #endif
 
 	/* Retrieve various informations from the /chosen node of the
@@ -1033,6 +1167,7 @@ void __init early_init_devtree(void *params)
 	reserve_kdump_trampoline();
 	reserve_crashkernel();
 	early_reserve_mem();
+	phyp_dump_reserve_mem();
 
 	lmb_enforce_memory_limit(memory_limit);
 	lmb_analyze();
@@ -1205,12 +1340,14 @@ EXPORT_SYMBOL(of_node_put);
  */
 void of_attach_node(struct device_node *np)
 {
-	write_lock(&devtree_lock);
+	unsigned long flags;
+
+	write_lock_irqsave(&devtree_lock, flags);
 	np->sibling = np->parent->child;
 	np->allnext = allnodes;
 	np->parent->child = np;
 	allnodes = np;
-	write_unlock(&devtree_lock);
+	write_unlock_irqrestore(&devtree_lock, flags);
 }
 
 /*
@@ -1221,8 +1358,9 @@ void of_attach_node(struct device_node *np)
 void of_detach_node(struct device_node *np)
 {
 	struct device_node *parent;
+	unsigned long flags;
 
-	write_lock(&devtree_lock);
+	write_lock_irqsave(&devtree_lock, flags);
 
 	parent = np->parent;
 	if (!parent)
@@ -1253,7 +1391,7 @@ void of_detach_node(struct device_node *np)
 	of_node_set_flag(np, OF_DETACHED);
 
 out_unlock:
-	write_unlock(&devtree_lock);
+	write_unlock_irqrestore(&devtree_lock, flags);
 }
 
 #ifdef CONFIG_PPC_PSERIES
@@ -1334,20 +1472,21 @@ __initcall(prom_reconfig_setup);
 int prom_add_property(struct device_node* np, struct property* prop)
 {
 	struct property **next;
+	unsigned long flags;
 
 	prop->next = NULL;	
-	write_lock(&devtree_lock);
+	write_lock_irqsave(&devtree_lock, flags);
 	next = &np->properties;
 	while (*next) {
 		if (strcmp(prop->name, (*next)->name) == 0) {
 			/* duplicate ! don't insert it */
-			write_unlock(&devtree_lock);
+			write_unlock_irqrestore(&devtree_lock, flags);
 			return -1;
 		}
 		next = &(*next)->next;
 	}
 	*next = prop;
-	write_unlock(&devtree_lock);
+	write_unlock_irqrestore(&devtree_lock, flags);
 
 #ifdef CONFIG_PROC_DEVICETREE
 	/* try to add to proc as well if it was initialized */
@@ -1367,9 +1506,10 @@ int prom_add_property(struct device_node* np, struct property* prop)
 int prom_remove_property(struct device_node *np, struct property *prop)
 {
 	struct property **next;
+	unsigned long flags;
 	int found = 0;
 
-	write_lock(&devtree_lock);
+	write_lock_irqsave(&devtree_lock, flags);
 	next = &np->properties;
 	while (*next) {
 		if (*next == prop) {
@@ -1382,7 +1522,7 @@ int prom_remove_property(struct device_node *np, struct property *prop)
 		}
 		next = &(*next)->next;
 	}
-	write_unlock(&devtree_lock);
+	write_unlock_irqrestore(&devtree_lock, flags);
 
 	if (!found)
 		return -ENODEV;
@@ -1408,9 +1548,10 @@ int prom_update_property(struct device_node *np,
 			 struct property *oldprop)
 {
 	struct property **next;
+	unsigned long flags;
 	int found = 0;
 
-	write_lock(&devtree_lock);
+	write_lock_irqsave(&devtree_lock, flags);
 	next = &np->properties;
 	while (*next) {
 		if (*next == oldprop) {
@@ -1424,7 +1565,7 @@ int prom_update_property(struct device_node *np,
 		}
 		next = &(*next)->next;
 	}
-	write_unlock(&devtree_lock);
+	write_unlock_irqrestore(&devtree_lock, flags);
 
 	if (!found)
 		return -ENODEV;

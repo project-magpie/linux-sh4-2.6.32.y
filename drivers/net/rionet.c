@@ -53,7 +53,6 @@ struct rionet_private {
 	struct rio_mport *mport;
 	struct sk_buff *rx_skb[RIONET_RX_RING_SIZE];
 	struct sk_buff *tx_skb[RIONET_TX_RING_SIZE];
-	struct net_device_stats stats;
 	int rx_slot;
 	int tx_slot;
 	int tx_cnt;
@@ -78,7 +77,7 @@ static int rionet_capable = 1;
  * could be made into a hash table to save memory depending
  * on system trade-offs.
  */
-static struct rio_dev *rionet_active[RIO_MAX_ROUTE_ENTRIES];
+static struct rio_dev **rionet_active;
 
 #define is_rionet_capable(pef, src_ops, dst_ops)		\
 			((pef & RIO_PEF_INB_MBOX) &&		\
@@ -90,12 +89,6 @@ static struct rio_dev *rionet_active[RIO_MAX_ROUTE_ENTRIES];
 
 #define RIONET_MAC_MATCH(x)	(*(u32 *)x == 0x00010001)
 #define RIONET_GET_DESTID(x)	(*(u16 *)(x + 4))
-
-static struct net_device_stats *rionet_stats(struct net_device *ndev)
-{
-	struct rionet_private *rnet = ndev->priv;
-	return &rnet->stats;
-}
 
 static int rionet_rx_clean(struct net_device *ndev)
 {
@@ -120,15 +113,15 @@ static int rionet_rx_clean(struct net_device *ndev)
 		error = netif_rx(rnet->rx_skb[i]);
 
 		if (error == NET_RX_DROP) {
-			rnet->stats.rx_dropped++;
+			ndev->stats.rx_dropped++;
 		} else if (error == NET_RX_BAD) {
 			if (netif_msg_rx_err(rnet))
 				printk(KERN_WARNING "%s: bad rx packet\n",
 				       DRV_NAME);
-			rnet->stats.rx_errors++;
+			ndev->stats.rx_errors++;
 		} else {
-			rnet->stats.rx_packets++;
-			rnet->stats.rx_bytes += RIO_MAX_MSG_SIZE;
+			ndev->stats.rx_packets++;
+			ndev->stats.rx_bytes += RIO_MAX_MSG_SIZE;
 		}
 
 	} while ((i = (i + 1) % RIONET_RX_RING_SIZE) != rnet->rx_slot);
@@ -163,8 +156,8 @@ static int rionet_queue_tx_msg(struct sk_buff *skb, struct net_device *ndev,
 	rio_add_outb_message(rnet->mport, rdev, 0, skb->data, skb->len);
 	rnet->tx_skb[rnet->tx_slot] = skb;
 
-	rnet->stats.tx_packets++;
-	rnet->stats.tx_bytes += skb->len;
+	ndev->stats.tx_packets++;
+	ndev->stats.tx_bytes += skb->len;
 
 	if (++rnet->tx_cnt == RIONET_TX_RING_SIZE)
 		netif_stop_queue(ndev);
@@ -202,7 +195,8 @@ static int rionet_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	}
 
 	if (eth->h_dest[0] & 0x01) {
-		for (i = 0; i < RIO_MAX_ROUTE_ENTRIES; i++)
+		for (i = 0; i < RIO_MAX_ROUTE_ENTRIES(rnet->mport->sys_size);
+				i++)
 			if (rionet_active[i])
 				rionet_queue_tx_msg(skb, ndev,
 						    rionet_active[i]);
@@ -392,6 +386,8 @@ static void rionet_remove(struct rio_dev *rdev)
 	struct net_device *ndev = NULL;
 	struct rionet_peer *peer, *tmp;
 
+	free_pages((unsigned long)rionet_active, rdev->net->hport->sys_size ?
+					__ilog2(sizeof(void *)) + 4 : 0);
 	unregister_netdev(ndev);
 	kfree(ndev);
 
@@ -439,6 +435,7 @@ static int rionet_setup_netdev(struct rio_mport *mport)
 	struct net_device *ndev = NULL;
 	struct rionet_private *rnet;
 	u16 device_id;
+	DECLARE_MAC_BUF(mac);
 
 	/* Allocate our net_device structure */
 	ndev = alloc_etherdev(sizeof(struct rionet_private));
@@ -448,6 +445,15 @@ static int rionet_setup_netdev(struct rio_mport *mport)
 		rc = -ENOMEM;
 		goto out;
 	}
+
+	rionet_active = (struct rio_dev **)__get_free_pages(GFP_KERNEL,
+			mport->sys_size ? __ilog2(sizeof(void *)) + 4 : 0);
+	if (!rionet_active) {
+		rc = -ENOMEM;
+		goto out;
+	}
+	memset((void *)rionet_active, 0, sizeof(void *) *
+				RIO_MAX_ROUTE_ENTRIES(mport->sys_size));
 
 	/* Set up private area */
 	rnet = (struct rionet_private *)ndev->priv;
@@ -466,12 +472,9 @@ static int rionet_setup_netdev(struct rio_mport *mport)
 	ndev->open = &rionet_open;
 	ndev->hard_start_xmit = &rionet_start_xmit;
 	ndev->stop = &rionet_close;
-	ndev->get_stats = &rionet_stats;
 	ndev->mtu = RIO_MAX_MSG_SIZE - 14;
 	ndev->features = NETIF_F_LLTX;
 	SET_ETHTOOL_OPS(ndev, &rionet_ethtool_ops);
-
-	SET_MODULE_OWNER(ndev);
 
 	spin_lock_init(&rnet->lock);
 	spin_lock_init(&rnet->tx_lock);
@@ -482,13 +485,12 @@ static int rionet_setup_netdev(struct rio_mport *mport)
 	if (rc != 0)
 		goto out;
 
-	printk("%s: %s %s Version %s, MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
+	printk("%s: %s %s Version %s, MAC %s\n",
 	       ndev->name,
 	       DRV_NAME,
 	       DRV_DESC,
 	       DRV_VERSION,
-	       ndev->dev_addr[0], ndev->dev_addr[1], ndev->dev_addr[2],
-	       ndev->dev_addr[3], ndev->dev_addr[4], ndev->dev_addr[5]);
+	       print_mac(mac, ndev->dev_addr));
 
       out:
 	return rc;

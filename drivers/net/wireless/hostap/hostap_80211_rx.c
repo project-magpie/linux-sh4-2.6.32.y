@@ -19,6 +19,7 @@ void hostap_dump_rx_80211(const char *name, struct sk_buff *skb,
 {
 	struct ieee80211_hdr_4addr *hdr;
 	u16 fc;
+	DECLARE_MAC_BUF(mac);
 
 	hdr = (struct ieee80211_hdr_4addr *) skb->data;
 
@@ -44,10 +45,11 @@ void hostap_dump_rx_80211(const char *name, struct sk_buff *skb,
 	printk(" dur=0x%04x seq=0x%04x\n", le16_to_cpu(hdr->duration_id),
 	       le16_to_cpu(hdr->seq_ctl));
 
-	printk(KERN_DEBUG "   A1=" MACSTR " A2=" MACSTR " A3=" MACSTR,
-	       MAC2STR(hdr->addr1), MAC2STR(hdr->addr2), MAC2STR(hdr->addr3));
+	printk(KERN_DEBUG "   A1=%s", print_mac(mac, hdr->addr1));
+	printk(" A2=%s", print_mac(mac, hdr->addr2));
+	printk(" A3=%s", print_mac(mac, hdr->addr3));
 	if (skb->len >= 30)
-		printk(" A4=" MACSTR, MAC2STR(hdr->addr4));
+		printk(" A4=%s", print_mac(mac, hdr->addr4));
 	printk("\n");
 }
 
@@ -62,7 +64,7 @@ int prism2_rx_80211(struct net_device *dev, struct sk_buff *skb,
 	int hdrlen, phdrlen, head_need, tail_need;
 	u16 fc;
 	int prism_header, ret;
-	struct ieee80211_hdr_4addr *hdr;
+	struct ieee80211_hdr_4addr *fhdr;
 
 	iface = netdev_priv(dev);
 	local = iface->local;
@@ -76,13 +78,16 @@ int prism2_rx_80211(struct net_device *dev, struct sk_buff *skb,
 			prism_header = 2;
 			phdrlen = sizeof(struct linux_wlan_ng_cap_hdr);
 		}
+	} else if (dev->type == ARPHRD_IEEE80211_RADIOTAP) {
+		prism_header = 3;
+		phdrlen = sizeof(struct hostap_radiotap_rx);
 	} else {
 		prism_header = 0;
 		phdrlen = 0;
 	}
 
-	hdr = (struct ieee80211_hdr_4addr *) skb->data;
-	fc = le16_to_cpu(hdr->frame_ctl);
+	fhdr = (struct ieee80211_hdr_4addr *) skb->data;
+	fc = le16_to_cpu(fhdr->frame_ctl);
 
 	if (type == PRISM2_RX_MGMT && (fc & IEEE80211_FCTL_VERS)) {
 		printk(KERN_DEBUG "%s: dropped management frame with header "
@@ -163,6 +168,24 @@ hdr->f.status = s; hdr->f.len = l; hdr->f.data = d
 		hdr->ssi_noise  = htonl(rx_stats->noise);
 		hdr->preamble   = htonl(0); /* unknown */
 		hdr->encoding   = htonl(1); /* cck */
+	} else if (prism_header == 3) {
+		struct hostap_radiotap_rx *hdr;
+		hdr = (struct hostap_radiotap_rx *)skb_push(skb, phdrlen);
+		memset(hdr, 0, phdrlen);
+		hdr->hdr.it_len = cpu_to_le16(phdrlen);
+		hdr->hdr.it_present =
+			cpu_to_le32((1 << IEEE80211_RADIOTAP_TSFT) |
+				    (1 << IEEE80211_RADIOTAP_CHANNEL) |
+				    (1 << IEEE80211_RADIOTAP_RATE) |
+				    (1 << IEEE80211_RADIOTAP_DBM_ANTSIGNAL) |
+				    (1 << IEEE80211_RADIOTAP_DBM_ANTNOISE));
+		hdr->tsft = cpu_to_le64(rx_stats->mac_time);
+		hdr->chan_freq = cpu_to_le16(freq_list[local->channel - 1]);
+		hdr->chan_flags = cpu_to_le16(IEEE80211_CHAN_CCK |
+						 IEEE80211_CHAN_2GHZ);
+		hdr->rate = rx_stats->rate / 5;
+		hdr->dbm_antsignal = rx_stats->signal;
+		hdr->dbm_antnoise = rx_stats->noise;
 	}
 
 	ret = skb->len - phdrlen;
@@ -534,6 +557,7 @@ static int
 hostap_rx_frame_wds(local_info_t *local, struct ieee80211_hdr_4addr *hdr,
 		    u16 fc, struct net_device **wds)
 {
+	DECLARE_MAC_BUF(mac);
 	/* FIX: is this really supposed to accept WDS frames only in Master
 	 * mode? What about Repeater or Managed with WDS frames? */
 	if ((fc & (IEEE80211_FCTL_TODS | IEEE80211_FCTL_FROMDS)) !=
@@ -548,11 +572,11 @@ hostap_rx_frame_wds(local_info_t *local, struct ieee80211_hdr_4addr *hdr,
 	     hdr->addr1[2] != 0xff || hdr->addr1[3] != 0xff ||
 	     hdr->addr1[4] != 0xff || hdr->addr1[5] != 0xff)) {
 		/* RA (or BSSID) is not ours - drop */
-		PDEBUG(DEBUG_EXTRA, "%s: received WDS frame with "
-		       "not own or broadcast %s=" MACSTR "\n",
+		PDEBUG(DEBUG_EXTRA2, "%s: received WDS frame with "
+		       "not own or broadcast %s=%s\n",
 		       local->dev->name,
 		       fc & IEEE80211_FCTL_FROMDS ? "RA" : "BSSID",
-		       MAC2STR(hdr->addr1));
+		       print_mac(mac, hdr->addr1));
 		return -1;
 	}
 
@@ -565,8 +589,8 @@ hostap_rx_frame_wds(local_info_t *local, struct ieee80211_hdr_4addr *hdr,
 		/* require that WDS link has been registered with TA or the
 		 * frame is from current AP when using 'AP client mode' */
 		PDEBUG(DEBUG_EXTRA, "%s: received WDS[4 addr] frame "
-		       "from unknown TA=" MACSTR "\n",
-		       local->dev->name, MAC2STR(hdr->addr2));
+		       "from unknown TA=%s\n",
+		       local->dev->name, print_mac(mac, hdr->addr2));
 		if (local->ap && local->ap->autom_ap_wds)
 			hostap_wds_link_oper(local, hdr->addr2, WDS_ADD);
 		return -1;
@@ -643,8 +667,10 @@ hostap_rx_frame_decrypt(local_info_t *local, struct sk_buff *skb,
 	    strcmp(crypt->ops->name, "TKIP") == 0) {
 		if (net_ratelimit()) {
 			printk(KERN_DEBUG "%s: TKIP countermeasures: dropped "
-			       "received packet from " MACSTR "\n",
-			       local->dev->name, MAC2STR(hdr->addr2));
+			       "received packet from " MAC_FMT "\n",
+			       local->dev->name,
+			       hdr->addr2[0], hdr->addr2[1], hdr->addr2[2],
+			       hdr->addr2[3], hdr->addr2[4], hdr->addr2[5]);
 		}
 		return -1;
 	}
@@ -653,9 +679,12 @@ hostap_rx_frame_decrypt(local_info_t *local, struct sk_buff *skb,
 	res = crypt->ops->decrypt_mpdu(skb, hdrlen, crypt->priv);
 	atomic_dec(&crypt->refcnt);
 	if (res < 0) {
-		printk(KERN_DEBUG "%s: decryption failed (SA=" MACSTR
+		printk(KERN_DEBUG "%s: decryption failed (SA=" MAC_FMT
 		       ") res=%d\n",
-		       local->dev->name, MAC2STR(hdr->addr2), res);
+		       local->dev->name,
+		       hdr->addr2[0], hdr->addr2[1], hdr->addr2[2],
+		       hdr->addr2[3], hdr->addr2[4], hdr->addr2[5],
+		       res);
 		local->comm_tallies.rx_discards_wep_undecryptable++;
 		return -1;
 	}
@@ -671,6 +700,7 @@ hostap_rx_frame_decrypt_msdu(local_info_t *local, struct sk_buff *skb,
 {
 	struct ieee80211_hdr_4addr *hdr;
 	int res, hdrlen;
+	DECLARE_MAC_BUF(mac);
 
 	if (crypt == NULL || crypt->ops->decrypt_msdu == NULL)
 		return 0;
@@ -683,8 +713,8 @@ hostap_rx_frame_decrypt_msdu(local_info_t *local, struct sk_buff *skb,
 	atomic_dec(&crypt->refcnt);
 	if (res < 0) {
 		printk(KERN_DEBUG "%s: MSDU decryption/MIC verification failed"
-		       " (SA=" MACSTR " keyidx=%d)\n",
-		       local->dev->name, MAC2STR(hdr->addr2), keyidx);
+		       " (SA=%s keyidx=%d)\n",
+		       local->dev->name, print_mac(mac, hdr->addr2), keyidx);
 		return -1;
 	}
 
@@ -792,8 +822,10 @@ void hostap_80211_rx(struct net_device *dev, struct sk_buff *skb,
 			 * frames silently instead of filling system log with
 			 * these reports. */
 			printk(KERN_DEBUG "%s: WEP decryption failed (not set)"
-			       " (SA=" MACSTR ")\n",
-			       local->dev->name, MAC2STR(hdr->addr2));
+			       " (SA=" MAC_FMT ")\n",
+			       local->dev->name,
+			       hdr->addr2[0], hdr->addr2[1], hdr->addr2[2],
+			       hdr->addr2[3], hdr->addr2[4], hdr->addr2[5]);
 #endif
 			local->comm_tallies.rx_discards_wep_undecryptable++;
 			goto rx_dropped;
@@ -807,8 +839,9 @@ void hostap_80211_rx(struct net_device *dev, struct sk_buff *skb,
 		    (keyidx = hostap_rx_frame_decrypt(local, skb, crypt)) < 0)
 		{
 			printk(KERN_DEBUG "%s: failed to decrypt mgmt::auth "
-			       "from " MACSTR "\n", dev->name,
-			       MAC2STR(hdr->addr2));
+			       "from " MAC_FMT "\n", dev->name,
+			       hdr->addr2[0], hdr->addr2[1], hdr->addr2[2],
+			       hdr->addr2[3], hdr->addr2[4], hdr->addr2[5]);
 			/* TODO: could inform hostapd about this so that it
 			 * could send auth failure report */
 			goto rx_dropped;
@@ -976,8 +1009,10 @@ void hostap_80211_rx(struct net_device *dev, struct sk_buff *skb,
 			       "unencrypted EAPOL frame\n", local->dev->name);
 		} else {
 			printk(KERN_DEBUG "%s: encryption configured, but RX "
-			       "frame not encrypted (SA=" MACSTR ")\n",
-			       local->dev->name, MAC2STR(hdr->addr2));
+			       "frame not encrypted (SA=" MAC_FMT ")\n",
+			       local->dev->name,
+			       hdr->addr2[0], hdr->addr2[1], hdr->addr2[2],
+			       hdr->addr2[3], hdr->addr2[4], hdr->addr2[5]);
 			goto rx_dropped;
 		}
 	}
@@ -986,8 +1021,10 @@ void hostap_80211_rx(struct net_device *dev, struct sk_buff *skb,
 	    !hostap_is_eapol_frame(local, skb)) {
 		if (net_ratelimit()) {
 			printk(KERN_DEBUG "%s: dropped unencrypted RX data "
-			       "frame from " MACSTR " (drop_unencrypted=1)\n",
-			       dev->name, MAC2STR(hdr->addr2));
+			       "frame from " MAC_FMT " (drop_unencrypted=1)\n",
+			       dev->name,
+			       hdr->addr2[0], hdr->addr2[1], hdr->addr2[2],
+			       hdr->addr2[3], hdr->addr2[4], hdr->addr2[5]);
 		}
 		goto rx_dropped;
 	}
@@ -1032,7 +1069,7 @@ void hostap_80211_rx(struct net_device *dev, struct sk_buff *skb,
 		memcpy(skb_push(skb, ETH_ALEN), src, ETH_ALEN);
 		memcpy(skb_push(skb, ETH_ALEN), dst, ETH_ALEN);
 	} else {
-		u16 len;
+		__be16 len;
 		/* Leave Ethernet header part of hdr and full payload */
 		skb_pull(skb, hdrlen);
 		len = htons(skb->len);

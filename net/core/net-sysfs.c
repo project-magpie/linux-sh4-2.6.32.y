@@ -18,6 +18,9 @@
 #include <linux/wireless.h>
 #include <net/iw_handler.h>
 
+#include "net-sysfs.h"
+
+#ifdef CONFIG_SYSFS
 static const char fmt_hex[] = "%#x\n";
 static const char fmt_long_hex[] = "%#lx\n";
 static const char fmt_dec[] = "%d\n";
@@ -84,6 +87,7 @@ static ssize_t netdev_store(struct device *dev, struct device_attribute *attr,
 	return ret;
 }
 
+NETDEVICE_SHOW(dev_id, fmt_hex);
 NETDEVICE_SHOW(addr_len, fmt_dec);
 NETDEVICE_SHOW(iflink, fmt_dec);
 NETDEVICE_SHOW(ifindex, fmt_dec);
@@ -92,17 +96,6 @@ NETDEVICE_SHOW(type, fmt_dec);
 NETDEVICE_SHOW(link_mode, fmt_dec);
 
 /* use same locking rules as GIFHWADDR ioctl's */
-static ssize_t format_addr(char *buf, const unsigned char *addr, int len)
-{
-	int i;
-	char *cp = buf;
-
-	for (i = 0; i < len; i++)
-		cp += sprintf(cp, "%02x%c", addr[i],
-			      i == (len - 1) ? '\n' : ':');
-	return cp - buf;
-}
-
 static ssize_t show_address(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
@@ -111,7 +104,7 @@ static ssize_t show_address(struct device *dev, struct device_attribute *attr,
 
 	read_lock(&dev_base_lock);
 	if (dev_isalive(net))
-	    ret = format_addr(buf, net->dev_addr, net->addr_len);
+		ret = sysfs_format_mac(buf, net->dev_addr, net->addr_len);
 	read_unlock(&dev_base_lock);
 	return ret;
 }
@@ -121,7 +114,7 @@ static ssize_t show_broadcast(struct device *dev,
 {
 	struct net_device *net = to_net_dev(dev);
 	if (dev_isalive(net))
-		return format_addr(buf, net->broadcast, net->addr_len);
+		return sysfs_format_mac(buf, net->broadcast, net->addr_len);
 	return -EINVAL;
 }
 
@@ -216,22 +209,9 @@ static ssize_t store_tx_queue_len(struct device *dev,
 	return netdev_store(dev, attr, buf, len, change_tx_queue_len);
 }
 
-NETDEVICE_SHOW(weight, fmt_dec);
-
-static int change_weight(struct net_device *net, unsigned long new_weight)
-{
-	net->weight = new_weight;
-	return 0;
-}
-
-static ssize_t store_weight(struct device *dev, struct device_attribute *attr,
-			    const char *buf, size_t len)
-{
-	return netdev_store(dev, attr, buf, len, change_weight);
-}
-
 static struct device_attribute net_class_attributes[] = {
 	__ATTR(addr_len, S_IRUGO, show_addr_len, NULL),
+	__ATTR(dev_id, S_IRUGO, show_dev_id, NULL),
 	__ATTR(iflink, S_IRUGO, show_iflink, NULL),
 	__ATTR(ifindex, S_IRUGO, show_ifindex, NULL),
 	__ATTR(features, S_IRUGO, show_features, NULL),
@@ -246,7 +226,6 @@ static struct device_attribute net_class_attributes[] = {
 	__ATTR(flags, S_IRUGO | S_IWUSR, show_flags, store_flags),
 	__ATTR(tx_queue_len, S_IRUGO | S_IWUSR, show_tx_queue_len,
 	       store_tx_queue_len),
-	__ATTR(weight, S_IRUGO | S_IWUSR, show_weight, store_weight),
 	{}
 };
 
@@ -259,16 +238,15 @@ static ssize_t netstat_show(const struct device *d,
 	struct net_device_stats *stats;
 	ssize_t ret = -EINVAL;
 
-	if (offset > sizeof(struct net_device_stats) ||
-	    offset % sizeof(unsigned long) != 0)
-		WARN_ON(1);
+	WARN_ON(offset > sizeof(struct net_device_stats) ||
+			offset % sizeof(unsigned long) != 0);
 
 	read_lock(&dev_base_lock);
-	if (dev_isalive(dev) && dev->get_stats &&
-	    (stats = (*dev->get_stats)(dev)))
+	if (dev_isalive(dev)) {
+		stats = dev->get_stats(dev);
 		ret = sprintf(buf, fmt_ulong,
 			      *(unsigned long *)(((u8 *) stats) + offset));
-
+	}
 	read_unlock(&dev_base_lock);
 	return ret;
 }
@@ -340,7 +318,7 @@ static struct attribute_group netstat_group = {
 	.attrs  = netstat_attrs,
 };
 
-#ifdef CONFIG_WIRELESS_EXT
+#ifdef CONFIG_WIRELESS_EXT_SYSFS
 /* helper function that does all the locking etc for wireless stats */
 static ssize_t wireless_show(struct device *d, char *buf,
 			     ssize_t (*format)(const struct iw_statistics *,
@@ -407,29 +385,25 @@ static struct attribute_group wireless_group = {
 };
 #endif
 
+#endif /* CONFIG_SYSFS */
+
 #ifdef CONFIG_HOTPLUG
-static int netdev_uevent(struct device *d, char **envp,
-			 int num_envp, char *buf, int size)
+static int netdev_uevent(struct device *d, struct kobj_uevent_env *env)
 {
 	struct net_device *dev = to_net_dev(d);
-	int retval, len = 0, i = 0;
+	int retval;
 
 	/* pass interface to uevent. */
-	retval = add_uevent_var(envp, num_envp, &i,
-				buf, size, &len,
-				"INTERFACE=%s", dev->name);
+	retval = add_uevent_var(env, "INTERFACE=%s", dev->name);
 	if (retval)
 		goto exit;
 
 	/* pass ifindex to uevent.
 	 * ifindex is useful as it won't change (interface name may change)
 	 * and is what RtNetlink uses natively. */
-	retval = add_uevent_var(envp, num_envp, &i,
-				buf, size, &len,
-				"IFINDEX=%d", dev->ifindex);
+	retval = add_uevent_var(env, "IFINDEX=%d", dev->ifindex);
 
 exit:
-	envp[i] = NULL;
 	return retval;
 }
 #endif
@@ -450,7 +424,9 @@ static void netdev_release(struct device *d)
 static struct class net_class = {
 	.name = "net",
 	.dev_release = netdev_release,
+#ifdef CONFIG_SYSFS
 	.dev_attrs = net_class_attributes,
+#endif /* CONFIG_SYSFS */
 #ifdef CONFIG_HOTPLUG
 	.dev_uevent = netdev_uevent,
 #endif
@@ -459,7 +435,7 @@ static struct class net_class = {
 /* Delete sysfs entries but hold kobject reference until after all
  * netdev references are gone.
  */
-void netdev_unregister_sysfs(struct net_device * net)
+void netdev_unregister_kobject(struct net_device * net)
 {
 	struct device *dev = &(net->dev);
 
@@ -468,12 +444,11 @@ void netdev_unregister_sysfs(struct net_device * net)
 }
 
 /* Create sysfs entries for network device. */
-int netdev_register_sysfs(struct net_device *net)
+int netdev_register_kobject(struct net_device *net)
 {
 	struct device *dev = &(net->dev);
 	struct attribute_group **groups = net->sysfs_groups;
 
-	device_initialize(dev);
 	dev->class = &net_class;
 	dev->platform_data = net;
 	dev->groups = groups;
@@ -481,18 +456,38 @@ int netdev_register_sysfs(struct net_device *net)
 	BUILD_BUG_ON(BUS_ID_SIZE < IFNAMSIZ);
 	strlcpy(dev->bus_id, net->name, BUS_ID_SIZE);
 
-	if (net->get_stats)
-		*groups++ = &netstat_group;
+#ifdef CONFIG_SYSFS
+	*groups++ = &netstat_group;
 
-#ifdef CONFIG_WIRELESS_EXT
+#ifdef CONFIG_WIRELESS_EXT_SYSFS
 	if (net->wireless_handlers && net->wireless_handlers->get_wireless_stats)
 		*groups++ = &wireless_group;
 #endif
+#endif /* CONFIG_SYSFS */
 
 	return device_add(dev);
 }
 
-int netdev_sysfs_init(void)
+int netdev_class_create_file(struct class_attribute *class_attr)
+{
+	return class_create_file(&net_class, class_attr);
+}
+
+void netdev_class_remove_file(struct class_attribute *class_attr)
+{
+	class_remove_file(&net_class, class_attr);
+}
+
+EXPORT_SYMBOL(netdev_class_create_file);
+EXPORT_SYMBOL(netdev_class_remove_file);
+
+void netdev_initialize_kobject(struct net_device *net)
+{
+	struct device *device = &(net->dev);
+	device_initialize(device);
+}
+
+int netdev_kobject_init(void)
 {
 	return class_register(&net_class);
 }

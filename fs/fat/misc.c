@@ -55,9 +55,8 @@ void fat_clusters_flush(struct super_block *sb)
 	fsinfo = (struct fat_boot_fsinfo *)bh->b_data;
 	/* Sanity check */
 	if (!IS_FSINFO(fsinfo)) {
-		printk(KERN_ERR "FAT: Did not find valid FSINFO signature.\n"
-		       "     Found signature1 0x%08x signature2 0x%08x"
-		       " (sector = %lu)\n",
+		printk(KERN_ERR "FAT: Invalid FSINFO signature: "
+		       "0x%08x, 0x%08x (sector = %lu)\n",
 		       le32_to_cpu(fsinfo->signature1),
 		       le32_to_cpu(fsinfo->signature2),
 		       sbi->fsinfo_sector);
@@ -143,7 +142,7 @@ static int day_n[] = {
 };
 
 /* Convert a MS-DOS time/date pair to a UNIX date (seconds since 1 1 70). */
-int date_dos2unix(unsigned short time, unsigned short date)
+int date_dos2unix(unsigned short time, unsigned short date, int tz_utc)
 {
 	int month, year, secs;
 
@@ -157,16 +156,18 @@ int date_dos2unix(unsigned short time, unsigned short date)
 	    ((date & 31)-1+day_n[month]+(year/4)+year*365-((year & 3) == 0 &&
 	    month < 2 ? 1 : 0)+3653);
 			/* days since 1.1.70 plus 80's leap day */
-	secs += sys_tz.tz_minuteswest*60;
+	if (!tz_utc)
+		secs += sys_tz.tz_minuteswest*60;
 	return secs;
 }
 
 /* Convert linear UNIX date to a MS-DOS time/date pair. */
-void fat_date_unix2dos(int unix_date, __le16 *time, __le16 *date)
+void fat_date_unix2dos(int unix_date, __le16 *time, __le16 *date, int tz_utc)
 {
 	int day, year, nl_day, month;
 
-	unix_date -= sys_tz.tz_minuteswest*60;
+	if (!tz_utc)
+		unix_date -= sys_tz.tz_minuteswest*60;
 
 	/* Jan 1 GMT 00:00:00 1980. But what about another time zone? */
 	if (unix_date < 315532800)

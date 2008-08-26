@@ -41,20 +41,18 @@
 #include <linux/delay.h>
 #include <linux/console.h>
 #include <linux/platform_device.h>
-
-#ifdef CONFIG_CPU_FREQ
+#include <linux/serial_sci.h>
 #include <linux/notifier.h>
 #include <linux/cpufreq.h>
-#endif
-
-#if defined(CONFIG_SUPERH) && !defined(CONFIG_SUPERH64)
+#include <linux/clk.h>
 #include <linux/ctype.h>
+
+#ifdef CONFIG_SUPERH
 #include <asm/clock.h>
 #include <asm/sh_bios.h>
 #include <asm/kgdb.h>
 #endif
 
-#include <asm/sci.h>
 #include "sh-sci.h"
 
 struct sci_port {
@@ -80,7 +78,7 @@ struct sci_port {
 	struct timer_list	break_timer;
 	int			break_flag;
 
-#if defined(CONFIG_SUPERH) && !defined(CONFIG_SUPERH64)
+#ifdef CONFIG_SUPERH
 	/* Port clock */
 	struct clk		*clk;
 #endif
@@ -186,15 +184,15 @@ static void put_string(struct sci_port *sci_port, const char *buffer, int count)
 			int h, l;
 
 			c = *p++;
-			h = highhex(c);
-			l = lowhex(c);
+			h = hex_asc_hi(c);
+			l = hex_asc_lo(c);
 			put_char(port, h);
 			put_char(port, l);
 			checksum += h + l;
 		}
 		put_char(port, '#');
-		put_char(port, highhex(checksum));
-		put_char(port, lowhex(checksum));
+		put_char(port, hex_asc_hi(checksum));
+		put_char(port, hex_asc_lo(checksum));
 	    } while  (get_char(port) != '+');
 	} else
 #endif /* CONFIG_SH_STANDARD_BIOS || CONFIG_SH_KGDB */
@@ -302,7 +300,7 @@ static void sci_init_pins_scif(struct uart_port* port, unsigned int cflag)
 	}
 	sci_out(port, SCFCR, fcr_val);
 }
-#elif defined(CONFIG_CPU_SUBTYPE_SH7720)
+#elif defined(CONFIG_CPU_SUBTYPE_SH7720) || defined(CONFIG_CPU_SUBTYPE_SH7721)
 static void sci_init_pins_scif(struct uart_port *port, unsigned int cflag)
 {
 	unsigned int fcr_val = 0;
@@ -333,7 +331,6 @@ static void sci_init_pins_scif(struct uart_port *port, unsigned int cflag)
 	}
 	sci_out(port, SCFCR, fcr_val);
 }
-
 #elif defined(CONFIG_CPU_SH3)
 /* For SH7705, SH7706, SH7707, SH7709, SH7709A, SH7729 */
 static void sci_init_pins_scif(struct uart_port *port, unsigned int cflag)
@@ -366,23 +363,27 @@ static void sci_init_pins_scif(struct uart_port *port, unsigned int cflag)
 static void sci_init_pins_scif(struct uart_port *port, unsigned int cflag)
 {
 	unsigned int fcr_val = 0;
+	unsigned short data;
 
-	if (cflag & CRTSCTS) {
-		fcr_val |= SCFCR_MCE;
+	if (port->mapbase == 0xffe00000) {
+		data = ctrl_inw(PSCR);
+		data &= ~0x03cf;
+		if (cflag & CRTSCTS)
+			fcr_val |= SCFCR_MCE;
+		else
+			data |= 0x0340;
 
-		ctrl_outw(0x0000, PORT_PSCR);
-	} else {
-		unsigned short data;
-
-		data = ctrl_inw(PORT_PSCR);
-		data &= 0x033f;
-		data |= 0x0400;
-		ctrl_outw(data, PORT_PSCR);
-
-		ctrl_outw(ctrl_inw(SCSPTR0) & 0x17, SCSPTR0);
+		ctrl_outw(data, PSCR);
 	}
+	/* SCIF1 and SCIF2 should be setup by board code */
 
 	sci_out(port, SCFCR, fcr_val);
+}
+#elif defined(CONFIG_CPU_SUBTYPE_SH7723)
+static void sci_init_pins_scif(struct uart_port *port, unsigned int cflag)
+{
+	/* Nothing to do here.. */
+	sci_out(port, SCFCR, 0);
 }
 #else
 /* For SH7750 */
@@ -393,9 +394,10 @@ static void sci_init_pins_scif(struct uart_port *port, unsigned int cflag)
 	if (cflag & CRTSCTS) {
 		fcr_val |= SCFCR_MCE;
 	} else {
-#ifdef CONFIG_CPU_SUBTYPE_SH7343
+#if defined(CONFIG_CPU_SUBTYPE_SH7343) || defined(CONFIG_CPU_SUBTYPE_SH7366)
 		/* Nothing */
-#elif defined(CONFIG_CPU_SUBTYPE_SH7780) || \
+#elif defined(CONFIG_CPU_SUBTYPE_SH7763) || \
+      defined(CONFIG_CPU_SUBTYPE_SH7780) || \
       defined(CONFIG_CPU_SUBTYPE_SH7785) || \
       defined(CONFIG_CPU_SUBTYPE_SHX3)
 		ctrl_outw(0x0080, SCSPTR0); /* Set RTS = 1 */
@@ -412,12 +414,28 @@ static void sci_init_pins_scif(struct uart_port *port, unsigned int cflag)
     defined(CONFIG_CPU_SUBTYPE_SH7785)
 static inline int scif_txroom(struct uart_port *port)
 {
-	return SCIF_TXROOM_MAX - (sci_in(port, SCTFDR) & 0x7f);
+	return SCIF_TXROOM_MAX - (sci_in(port, SCTFDR) & 0xff);
 }
 
 static inline int scif_rxroom(struct uart_port *port)
 {
-	return sci_in(port, SCRFDR) & 0x7f;
+	return sci_in(port, SCRFDR) & 0xff;
+}
+#elif defined(CONFIG_CPU_SUBTYPE_SH7763)
+static inline int scif_txroom(struct uart_port *port)
+{
+	if((port->mapbase == 0xffe00000) || (port->mapbase == 0xffe08000)) /* SCIF0/1*/
+		return SCIF_TXROOM_MAX - (sci_in(port, SCTFDR) & 0xff);
+	else /* SCIF2 */
+		return SCIF2_TXROOM_MAX - (sci_in(port, SCFDR) >> 8);
+}
+
+static inline int scif_rxroom(struct uart_port *port)
+{
+	if((port->mapbase == 0xffe00000) || (port->mapbase == 0xffe08000)) /* SCIF0/1*/
+		return sci_in(port, SCRFDR) & 0xff;
+	else /* SCIF2 */
+		return sci_in(port, SCFDR) & SCIF2_RFDC_MASK;
 }
 #else
 static inline int scif_txroom(struct uart_port *port)
@@ -518,7 +536,7 @@ static void sci_transmit_chars(struct uart_port *port)
 static inline void sci_receive_chars(struct uart_port *port)
 {
 	struct sci_port *sci_port = (struct sci_port *)port;
-	struct tty_struct *tty = port->info->tty;
+	struct tty_struct *tty = port->info->port.tty;
 	int i, count, copied = 0;
 	unsigned short status;
 	unsigned char flag;
@@ -639,7 +657,7 @@ static inline int sci_handle_errors(struct uart_port *port)
 {
 	int copied = 0;
 	unsigned short status = sci_in(port, SCxSR);
-	struct tty_struct *tty = port->info->tty;
+	struct tty_struct *tty = port->info->port.tty;
 
 	if (status & SCxSR_ORER(port)) {
 		/* overrun error */
@@ -689,7 +707,7 @@ static inline int sci_handle_breaks(struct uart_port *port)
 {
 	int copied = 0;
 	unsigned short status = sci_in(port, SCxSR);
-	struct tty_struct *tty = port->info->tty;
+	struct tty_struct *tty = port->info->port.tty;
 	struct sci_port *s = &sci_ports[port->line];
 
 	if (uart_handle_break(port))
@@ -759,7 +777,7 @@ static irqreturn_t sci_er_interrupt(int irq, void *ptr)
 	} else {
 #if defined(SCIF_ORER)
 		if((sci_in(port, SCLSR) & SCIF_ORER) != 0) {
-			struct tty_struct *tty = port->info->tty;
+			struct tty_struct *tty = port->info->port.tty;
 
 			sci_out(port, SCLSR, 0);
 			tty_insert_flip_char(tty, 0, TTY_OVERRUN);
@@ -848,7 +866,7 @@ static int sci_notifier(struct notifier_block *self,
 
 		printk(KERN_INFO "%s: got a postchange notification "
 		       "for cpu %d (old %d, new %d)\n",
-		       __FUNCTION__, freqs->cpu, freqs->old, freqs->new);
+		       __func__, freqs->cpu, freqs->old, freqs->new);
 	}
 
 	return NOTIFY_OK;
@@ -1550,3 +1568,4 @@ module_init(sci_init);
 module_exit(sci_exit);
 
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:sh-sci");

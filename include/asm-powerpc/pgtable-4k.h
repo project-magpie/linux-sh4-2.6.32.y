@@ -10,10 +10,12 @@
 #define PUD_INDEX_SIZE  7
 #define PGD_INDEX_SIZE  9
 
+#ifndef __ASSEMBLY__
 #define PTE_TABLE_SIZE	(sizeof(pte_t) << PTE_INDEX_SIZE)
 #define PMD_TABLE_SIZE	(sizeof(pmd_t) << PMD_INDEX_SIZE)
 #define PUD_TABLE_SIZE	(sizeof(pud_t) << PUD_INDEX_SIZE)
 #define PGD_TABLE_SIZE	(sizeof(pgd_t) << PGD_INDEX_SIZE)
+#endif	/* __ASSEMBLY__ */
 
 #define PTRS_PER_PTE	(1 << PTE_INDEX_SIZE)
 #define PTRS_PER_PMD	(1 << PMD_INDEX_SIZE)
@@ -39,6 +41,7 @@
 #define PGDIR_MASK	(~(PGDIR_SIZE-1))
 
 /* PTE bits */
+#define _PAGE_HASHPTE	0x0400 /* software: pte has an associated HPTE */
 #define _PAGE_SECONDARY 0x8000 /* software: HPTE is in secondary group */
 #define _PAGE_GROUP_IX  0x7000 /* software: HPTE index within group */
 #define _PAGE_F_SECOND  _PAGE_SECONDARY
@@ -47,6 +50,9 @@
 /* PTE flags to conserve for HPTE identification */
 #define _PAGE_HPTEFLAGS (_PAGE_BUSY | _PAGE_HASHPTE | \
 			 _PAGE_SECONDARY | _PAGE_GROUP_IX)
+
+/* There is no 4K PFN hack on 4K pages */
+#define _PAGE_4K_PFN	0
 
 /* PAGE_MASK gives the right answer below, but only by accident */
 /* It should be preserving the high 48 bits and then specifically */

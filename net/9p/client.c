@@ -3,6 +3,7 @@
  *
  * 9P Client
  *
+ *  Copyright (C) 2008 by Eric Van Hensbergen <ericvh@gmail.com>
  *  Copyright (C) 2007 by Latchesar Ionkov <lucho@ionkov.net>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -25,21 +26,117 @@
 #include <linux/module.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
+#include <linux/poll.h>
 #include <linux/idr.h>
 #include <linux/mutex.h>
 #include <linux/sched.h>
 #include <linux/uaccess.h>
 #include <net/9p/9p.h>
+#include <linux/parser.h>
 #include <net/9p/transport.h>
-#include <net/9p/conn.h>
 #include <net/9p/client.h>
 
 static struct p9_fid *p9_fid_create(struct p9_client *clnt);
 static void p9_fid_destroy(struct p9_fid *fid);
 static struct p9_stat *p9_clone_stat(struct p9_stat *st, int dotu);
 
-struct p9_client *p9_client_create(struct p9_transport *trans, int msize,
-								   int dotu)
+/*
+  * Client Option Parsing (code inspired by NFS code)
+  *  - a little lazy - parse all client options
+  */
+
+enum {
+	Opt_msize,
+	Opt_trans,
+	Opt_legacy,
+	Opt_err,
+};
+
+static match_table_t tokens = {
+	{Opt_msize, "msize=%u"},
+	{Opt_legacy, "noextend"},
+	{Opt_trans, "trans=%s"},
+	{Opt_err, NULL},
+};
+
+/**
+ * v9fs_parse_options - parse mount options into session structure
+ * @options: options string passed from mount
+ * @v9ses: existing v9fs session information
+ *
+ * Return 0 upon success, -ERRNO upon failure
+ */
+
+static int parse_opts(char *opts, struct p9_client *clnt)
+{
+	char *options;
+	char *p;
+	substring_t args[MAX_OPT_ARGS];
+	int option;
+	int ret = 0;
+
+	clnt->trans_mod = v9fs_default_trans();
+	clnt->dotu = 1;
+	clnt->msize = 8192;
+
+	if (!opts)
+		return 0;
+
+	options = kstrdup(opts, GFP_KERNEL);
+	if (!options) {
+		P9_DPRINTK(P9_DEBUG_ERROR,
+				"failed to allocate copy of option string\n");
+		return -ENOMEM;
+	}
+
+	while ((p = strsep(&options, ",")) != NULL) {
+		int token;
+		if (!*p)
+			continue;
+		token = match_token(p, tokens, args);
+		if (token < Opt_trans) {
+			int r = match_int(&args[0], &option);
+			if (r < 0) {
+				P9_DPRINTK(P9_DEBUG_ERROR,
+					"integer field, but no integer?\n");
+				ret = r;
+				continue;
+			}
+		}
+		switch (token) {
+		case Opt_msize:
+			clnt->msize = option;
+			break;
+		case Opt_trans:
+			clnt->trans_mod = v9fs_match_trans(&args[0]);
+			break;
+		case Opt_legacy:
+			clnt->dotu = 0;
+			break;
+		default:
+			continue;
+		}
+	}
+	kfree(options);
+	return ret;
+}
+
+
+/**
+ * p9_client_rpc - sends 9P request and waits until a response is available.
+ *      The function can be interrupted.
+ * @c: client data
+ * @tc: request to be sent
+ * @rc: pointer where a pointer to the response is stored
+ */
+int
+p9_client_rpc(struct p9_client *c, struct p9_fcall *tc,
+	struct p9_fcall **rc)
+{
+	return c->trans->rpc(c->trans, tc, rc);
+}
+
+struct p9_client *p9_client_create(const char *dev_name, char *options)
 {
 	int err, n;
 	struct p9_client *clnt;
@@ -53,26 +150,41 @@ struct p9_client *p9_client_create(struct p9_transport *trans, int msize,
 	if (!clnt)
 		return ERR_PTR(-ENOMEM);
 
-	P9_DPRINTK(P9_DEBUG_9P, "clnt %p trans %p msize %d dotu %d\n",
-		clnt, trans, msize, dotu);
+	clnt->trans = NULL;
 	spin_lock_init(&clnt->lock);
-	clnt->trans = trans;
-	clnt->msize = msize;
-	clnt->dotu = dotu;
 	INIT_LIST_HEAD(&clnt->fidlist);
 	clnt->fidpool = p9_idpool_create();
-	if (!clnt->fidpool) {
+	if (IS_ERR(clnt->fidpool)) {
 		err = PTR_ERR(clnt->fidpool);
 		clnt->fidpool = NULL;
 		goto error;
 	}
 
-	clnt->conn = p9_conn_create(clnt->trans, clnt->msize, &clnt->dotu);
-	if (IS_ERR(clnt->conn)) {
-		err = PTR_ERR(clnt->conn);
-		clnt->conn = NULL;
+	err = parse_opts(options, clnt);
+	if (err < 0)
+		goto error;
+
+	if (clnt->trans_mod == NULL) {
+		err = -EPROTONOSUPPORT;
+		P9_DPRINTK(P9_DEBUG_ERROR,
+				"No transport defined or default transport\n");
 		goto error;
 	}
+
+	P9_DPRINTK(P9_DEBUG_9P, "clnt %p trans %p msize %d dotu %d\n",
+		clnt, clnt->trans_mod, clnt->msize, clnt->dotu);
+
+
+	clnt->trans = clnt->trans_mod->create(dev_name, options, clnt->msize,
+								clnt->dotu);
+	if (IS_ERR(clnt->trans)) {
+		err = PTR_ERR(clnt->trans);
+		clnt->trans = NULL;
+		goto error;
+	}
+
+	if ((clnt->msize+P9_IOHDRSZ) > clnt->trans_mod->maxsize)
+		clnt->msize = clnt->trans_mod->maxsize-P9_IOHDRSZ;
 
 	tc = p9_create_tversion(clnt->msize, clnt->dotu?"9P2000.u":"9P2000");
 	if (IS_ERR(tc)) {
@@ -81,7 +193,7 @@ struct p9_client *p9_client_create(struct p9_transport *trans, int msize,
 		goto error;
 	}
 
-	err = p9_conn_rpc(clnt->conn, tc, &rc);
+	err = p9_client_rpc(clnt, tc, &rc);
 	if (err)
 		goto error;
 
@@ -116,10 +228,6 @@ void p9_client_destroy(struct p9_client *clnt)
 	struct p9_fid *fid, *fidptr;
 
 	P9_DPRINTK(P9_DEBUG_9P, "clnt %p\n", clnt);
-	if (clnt->conn) {
-		p9_conn_destroy(clnt->conn);
-		clnt->conn = NULL;
-	}
 
 	if (clnt->trans) {
 		clnt->trans->close(clnt->trans);
@@ -141,12 +249,11 @@ void p9_client_disconnect(struct p9_client *clnt)
 {
 	P9_DPRINTK(P9_DEBUG_9P, "clnt %p\n", clnt);
 	clnt->trans->status = Disconnected;
-	p9_conn_cancel(clnt->conn, -EIO);
 }
 EXPORT_SYMBOL(p9_client_disconnect);
 
 struct p9_fid *p9_client_attach(struct p9_client *clnt, struct p9_fid *afid,
-	char *uname, char *aname)
+	char *uname, u32 n_uname, char *aname)
 {
 	int err;
 	struct p9_fcall *tc, *rc;
@@ -165,14 +272,15 @@ struct p9_fid *p9_client_attach(struct p9_client *clnt, struct p9_fid *afid,
 		goto error;
 	}
 
-	tc = p9_create_tattach(fid->fid, afid?afid->fid:P9_NOFID, uname, aname);
+	tc = p9_create_tattach(fid->fid, afid?afid->fid:P9_NOFID, uname, aname,
+		n_uname, clnt->dotu);
 	if (IS_ERR(tc)) {
 		err = PTR_ERR(tc);
 		tc = NULL;
 		goto error;
 	}
 
-	err = p9_conn_rpc(clnt->conn, tc, &rc);
+	err = p9_client_rpc(clnt, tc, &rc);
 	if (err)
 		goto error;
 
@@ -190,7 +298,8 @@ error:
 }
 EXPORT_SYMBOL(p9_client_attach);
 
-struct p9_fid *p9_client_auth(struct p9_client *clnt, char *uname, char *aname)
+struct p9_fid *p9_client_auth(struct p9_client *clnt, char *uname,
+	u32 n_uname, char *aname)
 {
 	int err;
 	struct p9_fcall *tc, *rc;
@@ -209,14 +318,14 @@ struct p9_fid *p9_client_auth(struct p9_client *clnt, char *uname, char *aname)
 		goto error;
 	}
 
-	tc = p9_create_tauth(fid->fid, uname, aname);
+	tc = p9_create_tauth(fid->fid, uname, aname, n_uname, clnt->dotu);
 	if (IS_ERR(tc)) {
 		err = PTR_ERR(tc);
 		tc = NULL;
 		goto error;
 	}
 
-	err = p9_conn_rpc(clnt->conn, tc, &rc);
+	err = p9_client_rpc(clnt, tc, &rc);
 	if (err)
 		goto error;
 
@@ -267,7 +376,7 @@ struct p9_fid *p9_client_walk(struct p9_fid *oldfid, int nwname, char **wnames,
 		goto error;
 	}
 
-	err = p9_conn_rpc(clnt->conn, tc, &rc);
+	err = p9_client_rpc(clnt, tc, &rc);
 	if (err) {
 		if (rc && rc->id == P9_RWALK)
 			goto clunk_fid;
@@ -302,7 +411,7 @@ clunk_fid:
 		goto error;
 	}
 
-	p9_conn_rpc(clnt->conn, tc, &rc);
+	p9_client_rpc(clnt, tc, &rc);
 
 error:
 	kfree(tc);
@@ -336,7 +445,7 @@ int p9_client_open(struct p9_fid *fid, int mode)
 		goto done;
 	}
 
-	err = p9_conn_rpc(clnt->conn, tc, &rc);
+	err = p9_client_rpc(clnt, tc, &rc);
 	if (err)
 		goto done;
 
@@ -375,7 +484,7 @@ int p9_client_fcreate(struct p9_fid *fid, char *name, u32 perm, int mode,
 		goto done;
 	}
 
-	err = p9_conn_rpc(clnt->conn, tc, &rc);
+	err = p9_client_rpc(clnt, tc, &rc);
 	if (err)
 		goto done;
 
@@ -408,7 +517,7 @@ int p9_client_clunk(struct p9_fid *fid)
 		goto done;
 	}
 
-	err = p9_conn_rpc(clnt->conn, tc, &rc);
+	err = p9_client_rpc(clnt, tc, &rc);
 	if (err)
 		goto done;
 
@@ -440,7 +549,7 @@ int p9_client_remove(struct p9_fid *fid)
 		goto done;
 	}
 
-	err = p9_conn_rpc(clnt->conn, tc, &rc);
+	err = p9_client_rpc(clnt, tc, &rc);
 	if (err)
 		goto done;
 
@@ -482,7 +591,7 @@ int p9_client_read(struct p9_fid *fid, char *data, u64 offset, u32 count)
 			goto error;
 		}
 
-		err = p9_conn_rpc(clnt->conn, tc, &rc);
+		err = p9_client_rpc(clnt, tc, &rc);
 		if (err)
 			goto error;
 
@@ -539,7 +648,7 @@ int p9_client_write(struct p9_fid *fid, char *data, u64 offset, u32 count)
 			goto error;
 		}
 
-		err = p9_conn_rpc(clnt->conn, tc, &rc);
+		err = p9_client_rpc(clnt, tc, &rc);
 		if (err)
 			goto error;
 
@@ -593,7 +702,7 @@ p9_client_uread(struct p9_fid *fid, char __user *data, u64 offset, u32 count)
 			goto error;
 		}
 
-		err = p9_conn_rpc(clnt->conn, tc, &rc);
+		err = p9_client_rpc(clnt, tc, &rc);
 		if (err)
 			goto error;
 
@@ -657,7 +766,7 @@ p9_client_uwrite(struct p9_fid *fid, const char __user *data, u64 offset,
 			goto error;
 		}
 
-		err = p9_conn_rpc(clnt->conn, tc, &rc);
+		err = p9_client_rpc(clnt, tc, &rc);
 		if (err)
 			goto error;
 
@@ -728,7 +837,7 @@ struct p9_stat *p9_client_stat(struct p9_fid *fid)
 		goto error;
 	}
 
-	err = p9_conn_rpc(clnt->conn, tc, &rc);
+	err = p9_client_rpc(clnt, tc, &rc);
 	if (err)
 		goto error;
 
@@ -770,7 +879,7 @@ int p9_client_wstat(struct p9_fid *fid, struct p9_wstat *wst)
 		goto done;
 	}
 
-	err = p9_conn_rpc(clnt->conn, tc, &rc);
+	err = p9_client_rpc(clnt, tc, &rc);
 
 done:
 	kfree(tc);
@@ -827,7 +936,7 @@ struct p9_stat *p9_client_dirread(struct p9_fid *fid, u64 offset)
 				goto error;
 			}
 
-			err = p9_conn_rpc(clnt->conn, tc, &rc);
+			err = p9_client_rpc(clnt, tc, &rc);
 			if (err)
 				goto error;
 
@@ -898,16 +1007,21 @@ static struct p9_stat *p9_clone_stat(struct p9_stat *st, int dotu)
 	memmove(ret, st, sizeof(struct p9_stat));
 	p = ((char *) ret) + sizeof(struct p9_stat);
 	memmove(p, st->name.str, st->name.len);
+	ret->name.str = p;
 	p += st->name.len;
 	memmove(p, st->uid.str, st->uid.len);
+	ret->uid.str = p;
 	p += st->uid.len;
 	memmove(p, st->gid.str, st->gid.len);
+	ret->gid.str = p;
 	p += st->gid.len;
 	memmove(p, st->muid.str, st->muid.len);
+	ret->muid.str = p;
 	p += st->muid.len;
 
 	if (dotu) {
 		memmove(p, st->extension.str, st->extension.len);
+		ret->extension.str = p;
 		p += st->extension.len;
 	}
 

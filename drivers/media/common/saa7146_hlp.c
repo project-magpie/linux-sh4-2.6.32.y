@@ -312,7 +312,7 @@ static int sort_and_eliminate(u32* values, int* count)
 		return -EINVAL;
 	}
 
-	/* bubble sort the first ´count´ items of the array ´values´ */
+	/* bubble sort the first @count items of the array @values */
 	for( top = *count; top > 0; top--) {
 		for( low = 0, high = 1; high < top; low++, high++) {
 			if( values[low] > values[high] ) {
@@ -338,7 +338,7 @@ static void calculate_clipping_registers_rect(struct saa7146_dev *dev, struct sa
 	struct saa7146_video_dma *vdma2, u32* clip_format, u32* arbtr_ctrl, enum v4l2_field field)
 {
 	struct saa7146_vv *vv = dev->vv_data;
-	u32 *clipping = vv->d_clipping.cpu_addr;
+	__le32 *clipping = vv->d_clipping.cpu_addr;
 
 	int width = fh->ov.win.w.width;
 	int height =  fh->ov.win.w.height;

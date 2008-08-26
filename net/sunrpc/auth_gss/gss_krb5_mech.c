@@ -70,7 +70,7 @@ simple_get_netobj(const void *p, const void *end, struct xdr_netobj *res)
 	q = (const void *)((const char *)p + len);
 	if (unlikely(q > end || q < p))
 		return ERR_PTR(-EFAULT);
-	res->data = kmemdup(p, len, GFP_KERNEL);
+	res->data = kmemdup(p, len, GFP_NOFS);
 	if (unlikely(res->data == NULL))
 		return ERR_PTR(-ENOMEM);
 	res->len = len;
@@ -131,7 +131,7 @@ gss_import_sec_context_kerberos(const void *p,
 	struct	krb5_ctx *ctx;
 	int tmp;
 
-	if (!(ctx = kzalloc(sizeof(*ctx), GFP_KERNEL)))
+	if (!(ctx = kzalloc(sizeof(*ctx), GFP_NOFS)))
 		goto out_err;
 
 	p = simple_get_bytes(p, end, &ctx->initiate, sizeof(ctx->initiate));
@@ -147,13 +147,17 @@ gss_import_sec_context_kerberos(const void *p,
 	p = simple_get_bytes(p, end, &tmp, sizeof(tmp));
 	if (IS_ERR(p))
 		goto out_err_free_ctx;
-	if (tmp != SGN_ALG_DES_MAC_MD5)
+	if (tmp != SGN_ALG_DES_MAC_MD5) {
+		p = ERR_PTR(-ENOSYS);
 		goto out_err_free_ctx;
+	}
 	p = simple_get_bytes(p, end, &tmp, sizeof(tmp));
 	if (IS_ERR(p))
 		goto out_err_free_ctx;
-	if (tmp != SEAL_ALG_DES)
+	if (tmp != SEAL_ALG_DES) {
+		p = ERR_PTR(-ENOSYS);
 		goto out_err_free_ctx;
+	}
 	p = simple_get_bytes(p, end, &ctx->endtime, sizeof(ctx->endtime));
 	if (IS_ERR(p))
 		goto out_err_free_ctx;

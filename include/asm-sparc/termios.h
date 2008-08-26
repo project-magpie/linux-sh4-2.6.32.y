@@ -1,4 +1,3 @@
-/* $Id: termios.h,v 1.32 2001/06/01 08:12:11 davem Exp $ */
 #ifndef _SPARC_TERMIOS_H
 #define _SPARC_TERMIOS_H
 
@@ -33,11 +32,6 @@ struct ltchars {
 };
 #endif /* __KERNEL__ */
 
-struct sunos_ttysize {
-	int st_lines;   /* Lines on the terminal */
-	int st_columns; /* Columns on the terminal */
-};
-
 struct winsize {
 	unsigned short ws_row;
 	unsigned short ws_col;
@@ -59,7 +53,6 @@ struct winsize {
 #define _VMIN	4
 #define _VTIME	5
 
-
 /*	intr=^C		quit=^\		erase=del	kill=^U
 	eof=^D		eol=\0		eol2=\0		sxtc=\0
 	start=^Q	stop=^S		susp=^Z		dsusp=^Y
@@ -74,16 +67,17 @@ struct winsize {
 #define user_termio_to_kernel_termios(termios, termio) \
 ({ \
 	unsigned short tmp; \
-	get_user(tmp, &(termio)->c_iflag); \
+	int err; \
+	err = get_user(tmp, &(termio)->c_iflag); \
 	(termios)->c_iflag = (0xffff0000 & ((termios)->c_iflag)) | tmp; \
-	get_user(tmp, &(termio)->c_oflag); \
+	err |= get_user(tmp, &(termio)->c_oflag); \
 	(termios)->c_oflag = (0xffff0000 & ((termios)->c_oflag)) | tmp; \
-	get_user(tmp, &(termio)->c_cflag); \
+	err |= get_user(tmp, &(termio)->c_cflag); \
 	(termios)->c_cflag = (0xffff0000 & ((termios)->c_cflag)) | tmp; \
-	get_user(tmp, &(termio)->c_lflag); \
+	err |= get_user(tmp, &(termio)->c_lflag); \
 	(termios)->c_lflag = (0xffff0000 & ((termios)->c_lflag)) | tmp; \
-	copy_from_user((termios)->c_cc, (termio)->c_cc, NCC); \
-	0; \
+	err |= copy_from_user((termios)->c_cc, (termio)->c_cc, NCC); \
+	err; \
 })
 
 /*
@@ -93,53 +87,98 @@ struct winsize {
  */
 #define kernel_termios_to_user_termio(termio, termios) \
 ({ \
-	put_user((termios)->c_iflag, &(termio)->c_iflag); \
-	put_user((termios)->c_oflag, &(termio)->c_oflag); \
-	put_user((termios)->c_cflag, &(termio)->c_cflag); \
-	put_user((termios)->c_lflag, &(termio)->c_lflag); \
-	put_user((termios)->c_line,  &(termio)->c_line); \
-	copy_to_user((termio)->c_cc, (termios)->c_cc, NCC); \
+	int err; \
+	err  = put_user((termios)->c_iflag, &(termio)->c_iflag); \
+	err |= put_user((termios)->c_oflag, &(termio)->c_oflag); \
+	err |= put_user((termios)->c_cflag, &(termio)->c_cflag); \
+	err |= put_user((termios)->c_lflag, &(termio)->c_lflag); \
+	err |= put_user((termios)->c_line,  &(termio)->c_line); \
+	err |= copy_to_user((termio)->c_cc, (termios)->c_cc, NCC); \
 	if (!((termios)->c_lflag & ICANON)) { \
-		put_user((termios)->c_cc[VMIN], &(termio)->c_cc[_VMIN]); \
-		put_user((termios)->c_cc[VTIME], &(termio)->c_cc[_VTIME]); \
+		err |= put_user((termios)->c_cc[VMIN], &(termio)->c_cc[_VMIN]); \
+		err |= put_user((termios)->c_cc[VTIME], &(termio)->c_cc[_VTIME]); \
 	} \
-	0; \
+	err; \
 })
 
 #define user_termios_to_kernel_termios(k, u) \
 ({ \
-	get_user((k)->c_iflag, &(u)->c_iflag); \
-	get_user((k)->c_oflag, &(u)->c_oflag); \
-	get_user((k)->c_cflag, &(u)->c_cflag); \
-	get_user((k)->c_lflag, &(u)->c_lflag); \
-	get_user((k)->c_line,  &(u)->c_line); \
-	copy_from_user((k)->c_cc, (u)->c_cc, NCCS); \
-	if((k)->c_lflag & ICANON) { \
-		get_user((k)->c_cc[VEOF], &(u)->c_cc[VEOF]); \
-		get_user((k)->c_cc[VEOL], &(u)->c_cc[VEOL]); \
+	int err; \
+	err  = get_user((k)->c_iflag, &(u)->c_iflag); \
+	err |= get_user((k)->c_oflag, &(u)->c_oflag); \
+	err |= get_user((k)->c_cflag, &(u)->c_cflag); \
+	err |= get_user((k)->c_lflag, &(u)->c_lflag); \
+	err |= get_user((k)->c_line,  &(u)->c_line); \
+	err |= copy_from_user((k)->c_cc, (u)->c_cc, NCCS); \
+	if ((k)->c_lflag & ICANON) { \
+		err |= get_user((k)->c_cc[VEOF], &(u)->c_cc[VEOF]); \
+		err |= get_user((k)->c_cc[VEOL], &(u)->c_cc[VEOL]); \
 	} else { \
-		get_user((k)->c_cc[VMIN],  &(u)->c_cc[_VMIN]); \
-		get_user((k)->c_cc[VTIME], &(u)->c_cc[_VTIME]); \
+		err |= get_user((k)->c_cc[VMIN],  &(u)->c_cc[_VMIN]); \
+		err |= get_user((k)->c_cc[VTIME], &(u)->c_cc[_VTIME]); \
 	} \
-	0; \
+	err |= get_user((k)->c_ispeed,  &(u)->c_ispeed); \
+	err |= get_user((k)->c_ospeed,  &(u)->c_ospeed); \
+	err; \
 })
 
 #define kernel_termios_to_user_termios(u, k) \
 ({ \
-	put_user((k)->c_iflag, &(u)->c_iflag); \
-	put_user((k)->c_oflag, &(u)->c_oflag); \
-	put_user((k)->c_cflag, &(u)->c_cflag); \
-	put_user((k)->c_lflag, &(u)->c_lflag); \
-	put_user((k)->c_line, &(u)->c_line); \
-	copy_to_user((u)->c_cc, (k)->c_cc, NCCS); \
-	if(!((k)->c_lflag & ICANON)) { \
-		put_user((k)->c_cc[VMIN],  &(u)->c_cc[_VMIN]); \
-		put_user((k)->c_cc[VTIME], &(u)->c_cc[_VTIME]); \
+	int err; \
+	err  = put_user((k)->c_iflag, &(u)->c_iflag); \
+	err |= put_user((k)->c_oflag, &(u)->c_oflag); \
+	err |= put_user((k)->c_cflag, &(u)->c_cflag); \
+	err |= put_user((k)->c_lflag, &(u)->c_lflag); \
+	err |= put_user((k)->c_line, &(u)->c_line); \
+	err |= copy_to_user((u)->c_cc, (k)->c_cc, NCCS); \
+	if (!((k)->c_lflag & ICANON)) { \
+		err |= put_user((k)->c_cc[VMIN],  &(u)->c_cc[_VMIN]); \
+		err |= put_user((k)->c_cc[VTIME], &(u)->c_cc[_VTIME]); \
 	} else { \
-		put_user((k)->c_cc[VEOF], &(u)->c_cc[VEOF]); \
-		put_user((k)->c_cc[VEOL], &(u)->c_cc[VEOL]); \
+		err |= put_user((k)->c_cc[VEOF], &(u)->c_cc[VEOF]); \
+		err |= put_user((k)->c_cc[VEOL], &(u)->c_cc[VEOL]); \
 	} \
-	0; \
+	err |= put_user((k)->c_ispeed, &(u)->c_ispeed); \
+	err |= put_user((k)->c_ospeed, &(u)->c_ospeed); \
+	err; \
+})
+
+#define user_termios_to_kernel_termios_1(k, u) \
+({ \
+	int err; \
+	err  = get_user((k)->c_iflag, &(u)->c_iflag); \
+	err |= get_user((k)->c_oflag, &(u)->c_oflag); \
+	err |= get_user((k)->c_cflag, &(u)->c_cflag); \
+	err |= get_user((k)->c_lflag, &(u)->c_lflag); \
+	err |= get_user((k)->c_line,  &(u)->c_line); \
+	err |= copy_from_user((k)->c_cc, (u)->c_cc, NCCS); \
+	if ((k)->c_lflag & ICANON) { \
+		err |= get_user((k)->c_cc[VEOF], &(u)->c_cc[VEOF]); \
+		err |= get_user((k)->c_cc[VEOL], &(u)->c_cc[VEOL]); \
+	} else { \
+		err |= get_user((k)->c_cc[VMIN],  &(u)->c_cc[_VMIN]); \
+		err |= get_user((k)->c_cc[VTIME], &(u)->c_cc[_VTIME]); \
+	} \
+	err; \
+})
+
+#define kernel_termios_to_user_termios_1(u, k) \
+({ \
+	int err; \
+	err  = put_user((k)->c_iflag, &(u)->c_iflag); \
+	err |= put_user((k)->c_oflag, &(u)->c_oflag); \
+	err |= put_user((k)->c_cflag, &(u)->c_cflag); \
+	err |= put_user((k)->c_lflag, &(u)->c_lflag); \
+	err |= put_user((k)->c_line, &(u)->c_line); \
+	err |= copy_to_user((u)->c_cc, (k)->c_cc, NCCS); \
+	if (!((k)->c_lflag & ICANON)) { \
+		err |= put_user((k)->c_cc[VMIN],  &(u)->c_cc[_VMIN]); \
+		err |= put_user((k)->c_cc[VTIME], &(u)->c_cc[_VTIME]); \
+	} else { \
+		err |= put_user((k)->c_cc[VEOF], &(u)->c_cc[VEOF]); \
+		err |= put_user((k)->c_cc[VEOL], &(u)->c_cc[VEOL]); \
+	} \
+	err; \
 })
 
 #endif	/* __KERNEL__ */

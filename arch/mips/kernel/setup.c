@@ -8,7 +8,7 @@
  * Copyright (C) 1994, 95, 96, 97, 98, 99, 2000, 01, 02, 03  Ralf Baechle
  * Copyright (C) 1996 Stoned Elipot
  * Copyright (C) 1999 Silicon Graphics, Inc.
- * Copyright (C) 2000 2001, 2002  Maciej W. Rozycki
+ * Copyright (C) 2000, 2001, 2002, 2007  Maciej W. Rozycki
  */
 #include <linux/init.h>
 #include <linux/ioport.h>
@@ -24,10 +24,12 @@
 
 #include <asm/addrspace.h>
 #include <asm/bootinfo.h>
+#include <asm/bugs.h>
 #include <asm/cache.h>
 #include <asm/cpu.h>
 #include <asm/sections.h>
 #include <asm/setup.h>
+#include <asm/smp-ops.h>
 #include <asm/system.h>
 
 struct cpuinfo_mips cpu_data[NR_CPUS] __read_mostly;
@@ -51,10 +53,8 @@ EXPORT_SYMBOL(PCI_DMA_BUS_IS_PHYS);
  * These are initialized so they are in the .data section
  */
 unsigned long mips_machtype __read_mostly = MACH_UNKNOWN;
-unsigned long mips_machgroup __read_mostly = MACH_GROUP_UNKNOWN;
 
 EXPORT_SYMBOL(mips_machtype);
-EXPORT_SYMBOL(mips_machgroup);
 
 struct boot_mem_map boot_mem_map;
 
@@ -67,13 +67,6 @@ static char command_line[CL_SIZE];
  */
 const unsigned long mips_io_port_base __read_mostly = -1;
 EXPORT_SYMBOL(mips_io_port_base);
-
-/*
- * isa_slot_offset is the address where E(ISA) busaddress 0 is mapped
- * for the processor.
- */
-unsigned long isa_slot_offset;
-EXPORT_SYMBOL(isa_slot_offset);
 
 static struct resource code_resource = { .name = "Kernel code", };
 static struct resource data_resource = { .name = "Kernel data", };
@@ -232,7 +225,7 @@ static void __init finalize_initrd(void)
 		goto disable;
 	}
 
-	reserve_bootmem(__pa(initrd_start), size);
+	reserve_bootmem(__pa(initrd_start), size, BOOTMEM_DEFAULT);
 	initrd_below_start_ok = 1;
 
 	printk(KERN_INFO "Initial ramdisk at: 0x%lx (%lu bytes)\n",
@@ -331,6 +324,7 @@ static void __init bootmem_init(void)
 	/*
 	 * Determine low and high memory ranges
 	 */
+	max_pfn = max_low_pfn;
 	if (max_low_pfn > PFN_DOWN(HIGHMEM_START)) {
 #ifdef CONFIG_HIGHMEM
 		highstart_pfn = PFN_DOWN(HIGHMEM_START);
@@ -344,6 +338,34 @@ static void __init bootmem_init(void)
 	 */
 	bootmap_size = init_bootmem_node(NODE_DATA(0), mapstart,
 					 min_low_pfn, max_low_pfn);
+
+
+	for (i = 0; i < boot_mem_map.nr_map; i++) {
+		unsigned long start, end;
+
+		start = PFN_UP(boot_mem_map.map[i].addr);
+		end = PFN_DOWN(boot_mem_map.map[i].addr
+				+ boot_mem_map.map[i].size);
+
+		if (start <= min_low_pfn)
+			start = min_low_pfn;
+		if (start >= end)
+			continue;
+
+#ifndef CONFIG_HIGHMEM
+		if (end > max_low_pfn)
+			end = max_low_pfn;
+
+		/*
+		 * ... finally, is the area going away?
+		 */
+		if (end <= start)
+			continue;
+#endif
+
+		add_active_range(0, start, end);
+	}
+
 	/*
 	 * Register fully available low RAM pages with the bootmem allocator.
 	 */
@@ -385,7 +407,7 @@ static void __init bootmem_init(void)
 	/*
 	 * Reserve the bootmap memory.
 	 */
-	reserve_bootmem(PFN_PHYS(mapstart), bootmap_size);
+	reserve_bootmem(PFN_PHYS(mapstart), bootmap_size, BOOTMEM_DEFAULT);
 
 	/*
 	 * Reserve initrd memory if needed.
@@ -396,13 +418,13 @@ static void __init bootmem_init(void)
 #endif	/* CONFIG_SGI_IP27 */
 
 /*
- * arch_mem_init - initialize memory managment subsystem
+ * arch_mem_init - initialize memory management subsystem
  *
  *  o plat_mem_setup() detects the memory configuration and will record detected
  *    memory areas using add_memory_region.
  *
  * At this stage the memory configuration of the system is known to the
- * kernel but generic memory managment system is still entirely uninitialized.
+ * kernel but generic memory management system is still entirely uninitialized.
  *
  *  o bootmem_init()
  *  o sparse_init()
@@ -528,13 +550,10 @@ void __init setup_arch(char **cmdline_p)
 	prom_init();
 
 #ifdef CONFIG_EARLY_PRINTK
-	{
-		extern void setup_early_printk(void);
-
-		setup_early_printk();
-	}
+	setup_early_printk();
 #endif
 	cpu_report();
+	check_bugs_early();
 
 #if defined(CONFIG_VT)
 #if defined(CONFIG_VGA_CONSOLE)
@@ -547,9 +566,7 @@ void __init setup_arch(char **cmdline_p)
 	arch_mem_init(cmdline_p);
 
 	resource_init();
-#ifdef CONFIG_SMP
 	plat_smp_setup();
-#endif
 }
 
 static int __init fpu_disable(char *s)

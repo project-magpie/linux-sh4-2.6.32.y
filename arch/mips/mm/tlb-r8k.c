@@ -56,7 +56,7 @@ void local_flush_tlb_mm(struct mm_struct *mm)
 	int cpu = smp_processor_id();
 
 	if (cpu_context(cpu, mm) != 0)
-		drop_mmu_context(mm,cpu);
+		drop_mmu_context(mm, cpu);
 }
 
 void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
@@ -214,14 +214,14 @@ void __update_tlb(struct vm_area_struct * vma, unsigned long address, pte_t pte)
 	local_irq_restore(flags);
 }
 
-static void __init probe_tlb(unsigned long config)
+static void __cpuinit probe_tlb(unsigned long config)
 {
 	struct cpuinfo_mips *c = &current_cpu_data;
 
 	c->tlbsize = 3 * 128;		/* 3 sets each 128 entries */
 }
 
-void __init tlb_init(void)
+void __cpuinit tlb_init(void)
 {
 	unsigned int config = read_c0_config();
 	unsigned long status;

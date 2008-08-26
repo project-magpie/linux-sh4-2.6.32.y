@@ -9,6 +9,8 @@
 #include <asm/types.h>		/* For __uXX types */
 #include <linux/types.h>	/* For __beXX types in userland */
 
+#include <linux/sysctl.h>	/* For ctl_path */
+
 #define IP_VS_VERSION_CODE	0x010201
 #define NVERSION(version)			\
 	(version >> 16) & 0xFF,			\
@@ -328,40 +330,6 @@ extern int ip_vs_get_debug_level(void);
 #define FTPDATA  __constant_htons(20)
 
 /*
- *      IPVS sysctl variables under the /proc/sys/net/ipv4/vs/
- */
-#define NET_IPV4_VS              21
-
-enum {
-	NET_IPV4_VS_DEBUG_LEVEL=1,
-	NET_IPV4_VS_AMEMTHRESH=2,
-	NET_IPV4_VS_AMDROPRATE=3,
-	NET_IPV4_VS_DROP_ENTRY=4,
-	NET_IPV4_VS_DROP_PACKET=5,
-	NET_IPV4_VS_SECURE_TCP=6,
-	NET_IPV4_VS_TO_ES=7,
-	NET_IPV4_VS_TO_SS=8,
-	NET_IPV4_VS_TO_SR=9,
-	NET_IPV4_VS_TO_FW=10,
-	NET_IPV4_VS_TO_TW=11,
-	NET_IPV4_VS_TO_CL=12,
-	NET_IPV4_VS_TO_CW=13,
-	NET_IPV4_VS_TO_LA=14,
-	NET_IPV4_VS_TO_LI=15,
-	NET_IPV4_VS_TO_SA=16,
-	NET_IPV4_VS_TO_UDP=17,
-	NET_IPV4_VS_TO_ICMP=18,
-	NET_IPV4_VS_LBLC_EXPIRE=19,
-	NET_IPV4_VS_LBLCR_EXPIRE=20,
-	NET_IPV4_VS_CACHE_BYPASS=22,
-	NET_IPV4_VS_EXPIRE_NODEST_CONN=23,
-	NET_IPV4_VS_SYNC_THRESHOLD=24,
-	NET_IPV4_VS_NAT_ICMP_SEND=25,
-	NET_IPV4_VS_EXPIRE_QUIESCENT_TEMPLATE=26,
-	NET_IPV4_VS_LAST
-};
-
-/*
  *      TCP State Values
  */
 enum {
@@ -437,7 +405,8 @@ struct sk_buff;
 struct ip_vs_protocol {
 	struct ip_vs_protocol	*next;
 	char			*name;
-	__u16			protocol;
+	u16			protocol;
+	u16			num_states;
 	int			dont_defrag;
 	atomic_t		appcnt;		/* counter of proto app incs */
 	int			*timeout_table;	/* protocol timeout table */
@@ -464,10 +433,10 @@ struct ip_vs_protocol {
 			unsigned int proto_off,
 			int inverse);
 
-	int (*snat_handler)(struct sk_buff **pskb,
+	int (*snat_handler)(struct sk_buff *skb,
 			    struct ip_vs_protocol *pp, struct ip_vs_conn *cp);
 
-	int (*dnat_handler)(struct sk_buff **pskb,
+	int (*dnat_handler)(struct sk_buff *skb,
 			    struct ip_vs_protocol *pp, struct ip_vs_conn *cp);
 
 	int (*csum_check)(struct sk_buff *skb, struct ip_vs_protocol *pp);
@@ -520,6 +489,10 @@ struct ip_vs_conn {
 	spinlock_t              lock;           /* lock for state transition */
 	volatile __u16          flags;          /* status flags */
 	volatile __u16          state;          /* state info */
+	volatile __u16          old_state;      /* old state, to be used for
+						 * state transition triggerd
+						 * synchronization
+						 */
 
 	/* Control members */
 	struct ip_vs_conn       *control;       /* Master control connection */
@@ -654,11 +627,11 @@ struct ip_vs_app
 
 	/* output hook: return false if can't linearize. diff set for TCP.  */
 	int (*pkt_out)(struct ip_vs_app *, struct ip_vs_conn *,
-		       struct sk_buff **, int *diff);
+		       struct sk_buff *, int *diff);
 
 	/* input hook: return false if can't linearize. diff set for TCP. */
 	int (*pkt_in)(struct ip_vs_app *, struct ip_vs_conn *,
-		      struct sk_buff **, int *diff);
+		      struct sk_buff *, int *diff);
 
 	/* ip_vs_app initializer */
 	int (*init_conn)(struct ip_vs_app *, struct ip_vs_conn *);
@@ -706,7 +679,6 @@ extern const char *ip_vs_proto_name(unsigned proto);
 extern void ip_vs_init_hash_table(struct list_head *table, int rows);
 #define IP_VS_INIT_HASH_TABLE(t) ip_vs_init_hash_table(t, sizeof(t)/sizeof(t[0]))
 
-#define IP_VS_APP_TYPE_UNSPEC	0
 #define IP_VS_APP_TYPE_FTP	1
 
 /*
@@ -765,7 +737,6 @@ extern const char * ip_vs_state_name(__u16 proto, int state);
 
 extern void ip_vs_tcp_conn_listen(struct ip_vs_conn *cp);
 extern int ip_vs_check_template(struct ip_vs_conn *ct);
-extern void ip_vs_secure_tcp_set(int on);
 extern void ip_vs_random_dropentry(void);
 extern int ip_vs_conn_init(void);
 extern void ip_vs_conn_cleanup(void);
@@ -832,8 +803,8 @@ register_ip_vs_app_inc(struct ip_vs_app *app, __u16 proto, __u16 port);
 extern int ip_vs_app_inc_get(struct ip_vs_app *inc);
 extern void ip_vs_app_inc_put(struct ip_vs_app *inc);
 
-extern int ip_vs_app_pkt_out(struct ip_vs_conn *, struct sk_buff **pskb);
-extern int ip_vs_app_pkt_in(struct ip_vs_conn *, struct sk_buff **pskb);
+extern int ip_vs_app_pkt_out(struct ip_vs_conn *, struct sk_buff *skb);
+extern int ip_vs_app_pkt_in(struct ip_vs_conn *, struct sk_buff *skb);
 extern int ip_vs_skb_replace(struct sk_buff *skb, gfp_t pri,
 			     char *o_buf, int o_len, char *n_buf, int n_len);
 extern int ip_vs_app_init(void);
@@ -886,6 +857,7 @@ extern int sysctl_ip_vs_expire_quiescent_template;
 extern int sysctl_ip_vs_sync_threshold[2];
 extern int sysctl_ip_vs_nat_icmp_send;
 extern struct ip_vs_stats ip_vs_stats;
+extern struct ctl_path net_vs_ctl_path[];
 
 extern struct ip_vs_service *
 ip_vs_service_get(__u32 fwmark, __u16 protocol, __be32 vaddr, __be16 vport);
@@ -901,6 +873,10 @@ extern int ip_vs_use_count_inc(void);
 extern void ip_vs_use_count_dec(void);
 extern int ip_vs_control_init(void);
 extern void ip_vs_control_cleanup(void);
+extern struct ip_vs_dest *
+ip_vs_find_dest(__be32 daddr, __be16 dport,
+		 __be32 vaddr, __be16 vport, __u16 protocol);
+extern struct ip_vs_dest *ip_vs_try_bind_dest(struct ip_vs_conn *cp);
 
 
 /*
@@ -984,7 +960,6 @@ static inline char ip_vs_fwd_tag(struct ip_vs_conn *cp)
 	return fwd;
 }
 
-extern int ip_vs_make_skb_writable(struct sk_buff **pskb, int len);
 extern void ip_vs_nat_icmp(struct sk_buff *skb, struct ip_vs_protocol *pp,
 		struct ip_vs_conn *cp, int dir);
 

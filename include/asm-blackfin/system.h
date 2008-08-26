@@ -36,6 +36,7 @@
 
 #include <linux/linkage.h>
 #include <linux/compiler.h>
+#include <asm/mach/anomaly.h>
 
 /*
  * Interrupt configuring macros.
@@ -43,53 +44,60 @@
 
 extern unsigned long irq_flags;
 
-#define local_irq_enable() do {		\
-	__asm__ __volatile__ (		\
-		"sti %0;"		\
-		::"d"(irq_flags));	\
-} while (0)
+#define local_irq_enable() \
+	__asm__ __volatile__( \
+		"sti %0;" \
+		: \
+		: "d" (irq_flags) \
+	)
 
-#define local_irq_disable() do {	\
-	int _tmp_dummy;			\
-	__asm__ __volatile__ (		\
-		"cli %0;"		\
-		:"=d" (_tmp_dummy):);	\
-} while (0)
+#define local_irq_disable() \
+	do { \
+		int __tmp_dummy; \
+		__asm__ __volatile__( \
+			"cli %0;" \
+			: "=d" (__tmp_dummy) \
+		); \
+	} while (0)
 
-#if defined(ANOMALY_05000244) && defined (CONFIG_BLKFIN_CACHE)
-#define idle_with_irq_disabled() do {   \
-        __asm__ __volatile__ (          \
-                "nop; nop;\n"           \
-                ".align 8;\n"           \
-                "sti %0; idle;\n"       \
-                ::"d" (irq_flags));     \
-} while (0)
+#if ANOMALY_05000244 && defined(CONFIG_BFIN_ICACHE)
+# define NOP_PAD_ANOMALY_05000244 "nop; nop;"
 #else
-#define idle_with_irq_disabled() do {   \
-	__asm__ __volatile__ (          \
-		".align 8;\n"           \
-		"sti %0; idle;\n"       \
-		::"d" (irq_flags));     \
-} while (0)
+# define NOP_PAD_ANOMALY_05000244
 #endif
+
+#define idle_with_irq_disabled() \
+	__asm__ __volatile__( \
+		NOP_PAD_ANOMALY_05000244 \
+		".align 8;" \
+		"sti %0;" \
+		"idle;" \
+		: \
+		: "d" (irq_flags) \
+	)
 
 #ifdef CONFIG_DEBUG_HWERR
-#define __save_and_cli(x) do {			\
-	__asm__ __volatile__ (		        \
-		"cli %0;\n\tsti %1;"		\
-		:"=&d"(x): "d" (0x3F));		\
-} while (0)
+# define __save_and_cli(x) \
+	__asm__ __volatile__( \
+		"cli %0;" \
+		"sti %1;" \
+		: "=&d" (x) \
+		: "d" (0x3F) \
+	)
 #else
-#define __save_and_cli(x) do {		\
-	__asm__ __volatile__ (          \
-		"cli %0;"		\
-		:"=&d"(x):);		\
-} while (0)
+# define __save_and_cli(x) \
+	__asm__ __volatile__( \
+		"cli %0;" \
+		: "=&d" (x) \
+	)
 #endif
 
-#define local_save_flags(x) asm volatile ("cli %0;"     \
-					  "sti %0;"     \
-				    	  :"=d"(x):);
+#define local_save_flags(x) \
+	__asm__ __volatile__( \
+		"cli %0;" \
+		"sti %0;" \
+		: "=d" (x) \
+	)
 
 #ifdef CONFIG_DEBUG_HWERR
 #define irqs_enabled_from_flags(x) (((x) & ~0x3f) != 0)
@@ -97,10 +105,11 @@ extern unsigned long irq_flags;
 #define irqs_enabled_from_flags(x) ((x) != 0x1f)
 #endif
 
-#define local_irq_restore(x) do {			\
-	if (irqs_enabled_from_flags(x))			\
-		local_irq_enable ();			\
-} while (0)
+#define local_irq_restore(x) \
+	do { \
+		if (irqs_enabled_from_flags(x)) \
+			local_irq_enable(); \
+	} while (0)
 
 /* For spinlocks etc */
 #define local_irq_save(x) __save_and_cli(x)
@@ -119,9 +128,7 @@ extern unsigned long irq_flags;
 #define mb()   asm volatile (""   : : :"memory")
 #define rmb()  asm volatile (""   : : :"memory")
 #define wmb()  asm volatile (""   : : :"memory")
-#define set_rmb(var, value)    do { (void) xchg(&var, value); } while (0)
-#define set_mb(var, value)     set_rmb(var, value)
-#define set_wmb(var, value)    do { var = value; wmb(); } while (0)
+#define set_mb(var, value) do { (void) xchg(&var, value); } while (0)
 
 #define read_barrier_depends() 		do { } while(0)
 
@@ -176,55 +183,20 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
 	return tmp;
 }
 
+#include <asm-generic/cmpxchg-local.h>
+
 /*
- * Atomic compare and exchange.  Compare OLD with MEM, if identical,
- * store NEW in MEM.  Return the initial value in MEM.  Success is
- * indicated by comparing RETURN with OLD.
+ * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
+ * them available.
  */
-static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
-				      unsigned long new, int size)
-{
-	unsigned long tmp = 0;
-	unsigned long flags = 0;
+#define cmpxchg_local(ptr, o, n)				  	       \
+	((__typeof__(*(ptr)))__cmpxchg_local_generic((ptr), (unsigned long)(o),\
+			(unsigned long)(n), sizeof(*(ptr))))
+#define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
 
-	local_irq_save(flags);
-
-	switch (size) {
-	case 1:
-		__asm__ __volatile__
-			("%0 = b%3 (z);\n\t"
-			 "CC = %1 == %0;\n\t"
-			 "IF !CC JUMP 1f;\n\t"
-			 "b%3 = %2;\n\t"
-			 "1:\n\t"
-			 : "=&d" (tmp) : "d" (old), "d" (new), "m" (*__xg(ptr)) : "memory");
-		break;
-	case 2:
-		__asm__ __volatile__
-			("%0 = w%3 (z);\n\t"
-			 "CC = %1 == %0;\n\t"
-			 "IF !CC JUMP 1f;\n\t"
-			 "w%3 = %2;\n\t"
-			 "1:\n\t"
-			 : "=&d" (tmp) : "d" (old), "d" (new), "m" (*__xg(ptr)) : "memory");
-		break;
-	case 4:
-		__asm__ __volatile__
-			("%0 = %3;\n\t"
-			 "CC = %1 == %0;\n\t"
-			 "IF !CC JUMP 1f;\n\t"
-			 "%3 = %2;\n\t"
-			 "1:\n\t"
-			 : "=&d" (tmp) : "d" (old), "d" (new), "m" (*__xg(ptr)) : "memory");
-		break;
-	}
-	local_irq_restore(flags);
-	return tmp;
-}
-
-#define cmpxchg(ptr,o,n)\
-        ((__typeof__(*(ptr)))__cmpxchg((ptr),(unsigned long)(o),\
-                                        (unsigned long)(n),sizeof(*(ptr))))
+#ifndef CONFIG_SMP
+#include <asm-generic/cmpxchg.h>
+#endif
 
 #define prepare_to_switch()     do { } while(0)
 

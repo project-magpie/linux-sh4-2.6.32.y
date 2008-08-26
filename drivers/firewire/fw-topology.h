@@ -20,11 +20,12 @@
 #define __fw_topology_h
 
 enum {
-	FW_NODE_CREATED =   0x00,
-	FW_NODE_UPDATED =   0x01,
-	FW_NODE_DESTROYED = 0x02,
-	FW_NODE_LINK_ON =   0x03,
-	FW_NODE_LINK_OFF =  0x04,
+	FW_NODE_CREATED,
+	FW_NODE_UPDATED,
+	FW_NODE_DESTROYED,
+	FW_NODE_LINK_ON,
+	FW_NODE_LINK_OFF,
+	FW_NODE_INITIATED_RESET,
 };
 
 struct fw_node {
@@ -49,12 +50,6 @@ struct fw_node {
 
 	struct fw_node *ports[0];
 };
-
-static inline struct fw_node *
-fw_node(struct list_head *l)
-{
-	return list_entry(l, struct fw_node, link);
-}
 
 static inline struct fw_node *
 fw_node_get(struct fw_node *node)

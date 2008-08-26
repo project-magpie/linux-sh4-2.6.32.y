@@ -18,6 +18,10 @@
 #include <asm/reg_booke.h>
 #endif /* CONFIG_BOOKE || CONFIG_40x */
 
+#ifdef CONFIG_FSL_EMB_PERFMON
+#include <asm/reg_fsl_emb.h>
+#endif
+
 #ifdef CONFIG_8xx
 #include <asm/reg_8xx.h>
 #endif /* CONFIG_8xx */
@@ -26,6 +30,7 @@
 #define MSR_ISF_LG	61              /* Interrupt 64b mode valid on 630 */
 #define MSR_HV_LG 	60              /* Hypervisor state */
 #define MSR_VEC_LG	25	        /* Enable AltiVec */
+#define MSR_VSX_LG	23		/* Enable VSX */
 #define MSR_POW_LG	18		/* Enable Power Management */
 #define MSR_WE_LG	18		/* Wait State Enable */
 #define MSR_TGPR_LG	17		/* TLB Update registers in use */
@@ -67,6 +72,7 @@
 #endif
 
 #define MSR_VEC		__MASK(MSR_VEC_LG)	/* Enable AltiVec */
+#define MSR_VSX		__MASK(MSR_VSX_LG)	/* Enable VSX */
 #define MSR_POW		__MASK(MSR_POW_LG)	/* Enable Power Management */
 #define MSR_WE		__MASK(MSR_WE_LG)	/* Wait State Enable */
 #define MSR_TGPR	__MASK(MSR_TGPR_LG)	/* TLB Update registers in use */
@@ -102,11 +108,7 @@
 #else /* 32-bit */
 /* Default MSR for kernel mode. */
 #ifndef MSR_KERNEL	/* reg_booke.h also defines this */
-#ifdef CONFIG_APUS_FAST_EXCEPT
-#define MSR_KERNEL	(MSR_ME|MSR_IP|MSR_RI|MSR_IR|MSR_DR)
-#else
 #define MSR_KERNEL	(MSR_ME|MSR_RI|MSR_IR|MSR_DR)
-#endif
 #endif
 
 #define MSR_USER	(MSR_KERNEL|MSR_PR|MSR_EE)
@@ -153,7 +155,12 @@
 #define   CTRL_RUNLATCH	0x1
 #define SPRN_DABR	0x3F5	/* Data Address Breakpoint Register */
 #define   DABR_TRANSLATION	(1UL << 2)
+#define SPRN_DABR2	0x13D	/* e300 */
+#define SPRN_DABRX	0x3F7	/* Data Address Breakpoint Register Extension */
+#define   DABRX_USER	(1UL << 0)
+#define   DABRX_KERNEL	(1UL << 1)
 #define SPRN_DAR	0x013	/* Data Address Register */
+#define SPRN_DBCR	0x136	/* e300 Data Breakpoint Control Reg */
 #define SPRN_DSISR	0x012	/* Data Storage Interrupt Status Register */
 #define   DSISR_NOHPTE		0x40000000	/* no translation found */
 #define   DSISR_PROTFAULT	0x08000000	/* protection fault */
@@ -237,7 +244,7 @@
 #define HID0_DAPUEN	(1<<8)		/* Debug APU enable */
 #define HID0_SGE	(1<<7)		/* Store Gathering Enable */
 #define HID0_SIED	(1<<7)		/* Serial Instr. Execution [Disable] */
-#define HID0_DFCA	(1<<6)		/* Data Cache Flush Assist */
+#define HID0_DCFA	(1<<6)		/* Data Cache Flush Assist */
 #define HID0_LRSTK	(1<<4)		/* Link register stack - 745x */
 #define HID0_BTIC	(1<<5)		/* Branch Target Instr Cache Enable */
 #define HID0_ABE	(1<<3)		/* Address Broadcast Enable */
@@ -259,6 +266,8 @@
 #define HID1_PS		(1<<16)		/* 750FX PLL selection */
 #define SPRN_HID2	0x3F8		/* Hardware Implementation Register 2 */
 #define SPRN_IABR	0x3F2	/* Instruction Address Breakpoint Register */
+#define SPRN_IABR2	0x3FA		/* 83xx */
+#define SPRN_IBCR	0x135		/* 83xx Insn Breakpoint Control Reg */
 #define SPRN_HID4	0x3F4		/* 970 HID4 */
 #define SPRN_HID5	0x3F6		/* 970 HID5 */
 #define SPRN_HID6	0x3F9	/* BE HID 6 */
@@ -518,21 +527,48 @@
 #define   PA6T_MMCR1_ES4	0x0000000000ff0000UL
 #define   PA6T_MMCR1_ES5	0x00000000ff000000UL
 
-#define SPRN_PA6T_SIAR  780
-#define SPRN_PA6T_UPMC0 771
-#define SPRN_PA6T_UPMC1 772
+#define SPRN_PA6T_UPMC0 771	/* User PerfMon Counter 0 */
+#define SPRN_PA6T_UPMC1 772	/* ... */
 #define SPRN_PA6T_UPMC2 773
 #define SPRN_PA6T_UPMC3 774
 #define SPRN_PA6T_UPMC4 775
 #define SPRN_PA6T_UPMC5 776
-#define SPRN_PA6T_UMMCR0 779
-#define SPRN_PA6T_UMMCR1 782
-#define SPRN_PA6T_PMC0  787
-#define SPRN_PA6T_PMC1  788
-#define SPRN_PA6T_PMC2  789
-#define SPRN_PA6T_PMC3  790
-#define SPRN_PA6T_PMC4  791
-#define SPRN_PA6T_PMC5  792
+#define SPRN_PA6T_UMMCR0 779	/* User Monitor Mode Control Register 0 */
+#define SPRN_PA6T_SIAR	780	/* Sampled Instruction Address */
+#define SPRN_PA6T_UMMCR1 782	/* User Monitor Mode Control Register 1 */
+#define SPRN_PA6T_SIER	785	/* Sampled Instruction Event Register */
+#define SPRN_PA6T_PMC0	787
+#define SPRN_PA6T_PMC1	788
+#define SPRN_PA6T_PMC2	789
+#define SPRN_PA6T_PMC3	790
+#define SPRN_PA6T_PMC4	791
+#define SPRN_PA6T_PMC5	792
+#define SPRN_PA6T_TSR0	793	/* Timestamp Register 0 */
+#define SPRN_PA6T_TSR1	794	/* Timestamp Register 1 */
+#define SPRN_PA6T_TSR2	799	/* Timestamp Register 2 */
+#define SPRN_PA6T_TSR3	784	/* Timestamp Register 3 */
+
+#define SPRN_PA6T_IER	981	/* Icache Error Register */
+#define SPRN_PA6T_DER	982	/* Dcache Error Register */
+#define SPRN_PA6T_BER	862	/* BIU Error Address Register */
+#define SPRN_PA6T_MER	849	/* MMU Error Register */
+
+#define SPRN_PA6T_IMA0	880	/* Instruction Match Array 0 */
+#define SPRN_PA6T_IMA1	881	/* ... */
+#define SPRN_PA6T_IMA2	882
+#define SPRN_PA6T_IMA3	883
+#define SPRN_PA6T_IMA4	884
+#define SPRN_PA6T_IMA5	885
+#define SPRN_PA6T_IMA6	886
+#define SPRN_PA6T_IMA7	887
+#define SPRN_PA6T_IMA8	888
+#define SPRN_PA6T_IMA9	889
+#define SPRN_PA6T_BTCR	978	/* Breakpoint and Tagging Control Register */
+#define SPRN_PA6T_IMAAT	979	/* Instruction Match Array Action Table */
+#define SPRN_PA6T_PCCR	1019	/* Power Counter Control Register */
+#define SPRN_BKMK	1020	/* Cell Bookmark Register */
+#define SPRN_PA6T_RPCCR	1021	/* Retire PC Trace Control Register */
+
 
 #else /* 32-bit */
 #define SPRN_MMCR0	952	/* Monitor Mode Control Register 0 */
@@ -669,12 +705,6 @@
 #define PV_BE		0x0070
 #define PV_PA6T		0x0090
 
-/*
- * Number of entries in the SLB. If this ever changes we should handle
- * it with a use a cpu feature fixup.
- */
-#define SLB_NUM_ENTRIES 64
-
 /* Macros for setting and retrieving special purpose registers */
 #ifndef __ASSEMBLY__
 #define mfmsr()		({unsigned long rval; \
@@ -708,6 +738,8 @@
 				"	.llong %1\n"			\
 				"	.llong 97b-98b\n"		\
 				"	.llong 99b-98b\n"		\
+				"	.llong 0\n"			\
+				"	.llong 0\n"			\
 				".previous"				\
 			: "=r" (rval) : "i" (CPU_FTR_CELL_TB_BUG)); rval;})
 #else

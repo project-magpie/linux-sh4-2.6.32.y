@@ -594,8 +594,9 @@ static int set_control(struct saa7146_fh *fh, struct v4l2_control *c)
 static int saa7146_pgtable_build(struct saa7146_dev *dev, struct saa7146_buf *buf)
 {
 	struct pci_dev *pci = dev->pci;
-	struct scatterlist *list = buf->vb.dma.sglist;
-	int length = buf->vb.dma.sglen;
+	struct videobuf_dmabuf *dma=videobuf_to_dma(&buf->vb);
+	struct scatterlist *list = dma->sglist;
+	int length = dma->sglen;
 	struct saa7146_format *sfmt = format_by_fourcc(dev,buf->fmt->pixelformat);
 
 	DEB_EE(("dev:%p, buf:%p, sg_len:%d\n",dev,buf,length));
@@ -604,8 +605,8 @@ static int saa7146_pgtable_build(struct saa7146_dev *dev, struct saa7146_buf *bu
 		struct saa7146_pgtable *pt1 = &buf->pt[0];
 		struct saa7146_pgtable *pt2 = &buf->pt[1];
 		struct saa7146_pgtable *pt3 = &buf->pt[2];
-		u32  *ptr1, *ptr2, *ptr3;
-		u32 fill;
+		__le32  *ptr1, *ptr2, *ptr3;
+		__le32 fill;
 
 		int size = buf->fmt->width*buf->fmt->height;
 		int i,p,m1,m2,m3,o1,o2;
@@ -655,7 +656,7 @@ static int saa7146_pgtable_build(struct saa7146_dev *dev, struct saa7146_buf *bu
 
 		/* if we have a user buffer, the first page may not be
 		   aligned to a page boundary. */
-		pt1->offset = buf->vb.dma.sglist->offset;
+		pt1->offset = list->offset;
 		pt2->offset = pt1->offset+o1;
 		pt3->offset = pt1->offset+o2;
 
@@ -1204,19 +1205,17 @@ int saa7146_video_do_ioctl(struct inode *inode, struct file *file, unsigned int 
 		DEB_D(("VIDIOCGMBUF \n"));
 
 		q = &fh->video_q;
-		mutex_lock(&q->lock);
 		err = videobuf_mmap_setup(q,gbuffers,gbufsize,
 					  V4L2_MEMORY_MMAP);
-		if (err < 0) {
-			mutex_unlock(&q->lock);
+		if (err < 0)
 			return err;
-		}
+
+		gbuffers = err;
 		memset(mbuf,0,sizeof(*mbuf));
 		mbuf->frames = gbuffers;
 		mbuf->size   = gbuffers * gbufsize;
 		for (i = 0; i < gbuffers; i++)
 			mbuf->offsets[i] = i * gbufsize;
-		mutex_unlock(&q->lock);
 		return 0;
 	}
 #endif
@@ -1236,7 +1235,7 @@ static int buffer_activate (struct saa7146_dev *dev,
 {
 	struct saa7146_vv *vv = dev->vv_data;
 
-	buf->vb.state = STATE_ACTIVE;
+	buf->vb.state = VIDEOBUF_ACTIVE;
 	saa7146_set_capture(dev,buf,next);
 
 	mod_timer(&vv->video_q.timeout, jiffies+BUFFER_TIMEOUT);
@@ -1282,7 +1281,7 @@ static int buffer_prepare(struct videobuf_queue *q,
 		saa7146_dma_free(dev,q,buf);
 	}
 
-	if (STATE_NEEDS_INIT == buf->vb.state) {
+	if (VIDEOBUF_NEEDS_INIT == buf->vb.state) {
 		struct saa7146_format *sfmt;
 
 		buf->vb.bytesperline  = fh->video_fmt.bytesperline;
@@ -1315,7 +1314,7 @@ static int buffer_prepare(struct videobuf_queue *q,
 		if (err)
 			goto oops;
 	}
-	buf->vb.state = STATE_PREPARED;
+	buf->vb.state = VIDEOBUF_PREPARED;
 	buf->activate = buffer_activate;
 
 	return 0;
@@ -1411,14 +1410,12 @@ static int video_open(struct saa7146_dev *dev, struct file *file)
 	sfmt = format_by_fourcc(dev,fh->video_fmt.pixelformat);
 	fh->video_fmt.sizeimage = (fh->video_fmt.width * fh->video_fmt.height * sfmt->depth)/8;
 
-	videobuf_queue_init(&fh->video_q, &video_qops,
-			    dev->pci, &dev->slock,
+	videobuf_queue_sg_init(&fh->video_q, &video_qops,
+			    &dev->pci->dev, &dev->slock,
 			    V4L2_BUF_TYPE_VIDEO_CAPTURE,
 			    V4L2_FIELD_INTERLACED,
 			    sizeof(struct saa7146_buf),
 			    file);
-
-	mutex_init(&fh->video_q.lock);
 
 	return 0;
 }
@@ -1437,10 +1434,7 @@ static void video_close(struct saa7146_dev *dev, struct file *file)
 		err = saa7146_stop_preview(fh);
 	}
 
-	// release all capture buffers
-	mutex_lock(&q->lock);
-	videobuf_read_stop(q);
-	mutex_unlock(&q->lock);
+	videobuf_stop(q);
 
 	/* hmm, why is this function declared void? */
 	/* return err */
@@ -1457,7 +1451,7 @@ static void video_irq_done(struct saa7146_dev *dev, unsigned long st)
 
 	/* only finish the buffer if we have one... */
 	if( NULL != q->curr ) {
-		saa7146_buffer_finish(dev,q,STATE_DONE);
+		saa7146_buffer_finish(dev,q,VIDEOBUF_DONE);
 	}
 	saa7146_buffer_next(dev,q,0);
 

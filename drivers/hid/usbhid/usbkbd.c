@@ -1,6 +1,4 @@
 /*
- * $Id: usbkbd.c,v 1.27 2001/12/27 10:37:41 vojtech Exp $
- *
  *  Copyright (c) 1999-2001 Vojtech Pavlik
  *
  *  USB HIDBP Keyboard support
@@ -45,7 +43,7 @@ MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE(DRIVER_LICENSE);
 
-static unsigned char usb_kbd_keycode[256] = {
+static const unsigned char usb_kbd_keycode[256] = {
 	  0,  0,  0,  0, 30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38,
 	 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44,  2,  3,
 	  4,  5,  6,  7,  8,  9, 10, 11, 28,  1, 14, 15, 57, 12, 13, 26,
@@ -274,8 +272,11 @@ static int usb_kbd_probe(struct usb_interface *iface,
 
 	input_set_drvdata(input_dev, kbd);
 
-	input_dev->evbit[0] = BIT(EV_KEY) | BIT(EV_LED) | BIT(EV_REP);
-	input_dev->ledbit[0] = BIT(LED_NUML) | BIT(LED_CAPSL) | BIT(LED_SCROLLL) | BIT(LED_COMPOSE) | BIT(LED_KANA);
+	input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_LED) |
+		BIT_MASK(EV_REP);
+	input_dev->ledbit[0] = BIT_MASK(LED_NUML) | BIT_MASK(LED_CAPSL) |
+		BIT_MASK(LED_SCROLLL) | BIT_MASK(LED_COMPOSE) |
+		BIT_MASK(LED_KANA);
 
 	for (i = 0; i < 255; i++)
 		set_bit(usb_kbd_keycode[i], input_dev->keybit);

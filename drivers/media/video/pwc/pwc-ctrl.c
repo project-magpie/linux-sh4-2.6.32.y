@@ -1255,7 +1255,6 @@ int pwc_get_cmos_sensor(struct pwc_device *pdev, int *sensor)
    exactly the same otherwise.
  */
 
-
 /* define local variable for arg */
 #define ARG_DEF(ARG_type, ARG_name)\
 	ARG_type *ARG_name = arg;
@@ -1267,7 +1266,6 @@ int pwc_get_cmos_sensor(struct pwc_device *pdev, int *sensor)
 #define ARGA(ARG_name) ARG_name
 /* copy local variable to arg */
 #define ARG_OUT(ARG_name) /* nothing */
-
 
 int pwc_ioctl(struct pwc_device *pdev, unsigned int cmd, void *arg)
 {
@@ -1648,7 +1646,7 @@ int pwc_ioctl(struct pwc_device *pdev, unsigned int cmd, void *arg)
 		ARG_OUT(cmd)
 		break;
 	}
-       /*
+	/*
 	case VIDIOCPWCGVIDTABLE:
 	{
 		ARG_DEF(struct pwc_table_init_buffer, table);

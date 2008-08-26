@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, 2007 QLogic Corporation. All rights reserved.
+ * Copyright (c) 2006, 2007, 2008 QLogic Corporation. All rights reserved.
  * Copyright (c) 2005, 2006 PathScale, Inc. All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -111,9 +111,9 @@ static int recv_subn_get_nodeinfo(struct ib_smp *smp,
 	nip->revision = cpu_to_be32((majrev << 16) | minrev);
 	nip->local_port_num = port;
 	vendor = dd->ipath_vendorid;
-	nip->vendor_id[0] = 0;
-	nip->vendor_id[1] = vendor >> 8;
-	nip->vendor_id[2] = vendor;
+	nip->vendor_id[0] = IPATH_SRC_OUI_1;
+	nip->vendor_id[1] = IPATH_SRC_OUI_2;
+	nip->vendor_id[2] = IPATH_SRC_OUI_3;
 
 	return reply(smp);
 }
@@ -146,6 +146,15 @@ static int recv_subn_get_guidinfo(struct ib_smp *smp,
 	return reply(smp);
 }
 
+static void set_link_width_enabled(struct ipath_devdata *dd, u32 w)
+{
+	(void) dd->ipath_f_set_ib_cfg(dd, IPATH_IB_CFG_LWID_ENB, w);
+}
+
+static void set_link_speed_enabled(struct ipath_devdata *dd, u32 s)
+{
+	(void) dd->ipath_f_set_ib_cfg(dd, IPATH_IB_CFG_SPD_ENB, s);
+}
 
 static int get_overrunthreshold(struct ipath_devdata *dd)
 {
@@ -226,6 +235,7 @@ static int recv_subn_get_portinfo(struct ib_smp *smp,
 				  struct ib_device *ibdev, u8 port)
 {
 	struct ipath_ibdev *dev;
+	struct ipath_devdata *dd;
 	struct ib_port_info *pip = (struct ib_port_info *)smp->data;
 	u16 lid;
 	u8 ibcstat;
@@ -239,34 +249,38 @@ static int recv_subn_get_portinfo(struct ib_smp *smp,
 	}
 
 	dev = to_idev(ibdev);
+	dd = dev->dd;
 
 	/* Clear all fields.  Only set the non-zero fields. */
 	memset(smp->data, 0, sizeof(smp->data));
 
 	/* Only return the mkey if the protection field allows it. */
 	if (smp->method == IB_MGMT_METHOD_SET || dev->mkey == smp->mkey ||
-	    (dev->mkeyprot_resv_lmc >> 6) == 0)
+	    dev->mkeyprot == 0)
 		pip->mkey = dev->mkey;
 	pip->gid_prefix = dev->gid_prefix;
-	lid = dev->dd->ipath_lid;
+	lid = dd->ipath_lid;
 	pip->lid = lid ? cpu_to_be16(lid) : IB_LID_PERMISSIVE;
 	pip->sm_lid = cpu_to_be16(dev->sm_lid);
 	pip->cap_mask = cpu_to_be32(dev->port_cap_flags);
 	/* pip->diag_code; */
 	pip->mkey_lease_period = cpu_to_be16(dev->mkey_lease_period);
 	pip->local_port_num = port;
-	pip->link_width_enabled = dev->link_width_enabled;
-	pip->link_width_supported = 3;	/* 1x or 4x */
-	pip->link_width_active = 2;	/* 4x */
-	pip->linkspeed_portstate = 0x10;	/* 2.5Gbps */
-	ibcstat = dev->dd->ipath_lastibcstat;
-	pip->linkspeed_portstate |= ((ibcstat >> 4) & 0x3) + 1;
+	pip->link_width_enabled = dd->ipath_link_width_enabled;
+	pip->link_width_supported = dd->ipath_link_width_supported;
+	pip->link_width_active = dd->ipath_link_width_active;
+	pip->linkspeed_portstate = dd->ipath_link_speed_supported << 4;
+	ibcstat = dd->ipath_lastibcstat;
+	/* map LinkState to IB portinfo values.  */
+	pip->linkspeed_portstate |= ipath_ib_linkstate(dd, ibcstat) + 1;
+
 	pip->portphysstate_linkdown =
-		(ipath_cvt_physportstate[ibcstat & 0xf] << 4) |
-		(get_linkdowndefaultstate(dev->dd) ? 1 : 2);
-	pip->mkeyprot_resv_lmc = dev->mkeyprot_resv_lmc;
-	pip->linkspeedactive_enabled = 0x11;	/* 2.5Gbps, 2.5Gbps */
-	switch (dev->dd->ipath_ibmtu) {
+		(ipath_cvt_physportstate[ibcstat & dd->ibcs_lts_mask] << 4) |
+		(get_linkdowndefaultstate(dd) ? 1 : 2);
+	pip->mkeyprot_resv_lmc = (dev->mkeyprot << 6) | dd->ipath_lmc;
+	pip->linkspeedactive_enabled = (dd->ipath_link_speed_active << 4) |
+		dd->ipath_link_speed_enabled;
+	switch (dd->ipath_ibmtu) {
 	case 4096:
 		mtu = IB_MTU_4096;
 		break;
@@ -292,19 +306,15 @@ static int recv_subn_get_portinfo(struct ib_smp *smp,
 	/* pip->vl_arb_high_cap; // only one VL */
 	/* pip->vl_arb_low_cap; // only one VL */
 	/* InitTypeReply = 0 */
-	/*
-	 * Note: the chips support a maximum MTU of 4096, but the driver
-	 * hasn't implemented this feature yet, so set the maximum value
-	 * to 2048.
-	 */
-	pip->inittypereply_mtucap = IB_MTU_2048;
-	// HCAs ignore VLStallCount and HOQLife
+	/* our mtu cap depends on whether 4K MTU enabled or not */
+	pip->inittypereply_mtucap = ipath_mtu4096 ? IB_MTU_4096 : IB_MTU_2048;
+	/* HCAs ignore VLStallCount and HOQLife */
 	/* pip->vlstallcnt_hoqlife; */
 	pip->operationalvl_pei_peo_fpi_fpo = 0x10;	/* OVLs = 1 */
 	pip->mkey_violations = cpu_to_be16(dev->mkey_violations);
 	/* P_KeyViolations are counted by hardware. */
 	pip->pkey_violations =
-		cpu_to_be16((ipath_get_cr_errpkey(dev->dd) -
+		cpu_to_be16((ipath_get_cr_errpkey(dd) -
 			     dev->z_pkey_violations) & 0xFFFF);
 	pip->qkey_violations = cpu_to_be16(dev->qkey_violations);
 	/* Only the hardware GUID is supported for now */
@@ -313,10 +323,17 @@ static int recv_subn_get_portinfo(struct ib_smp *smp,
 	/* 32.768 usec. response time (guessing) */
 	pip->resv_resptimevalue = 3;
 	pip->localphyerrors_overrunerrors =
-		(get_phyerrthreshold(dev->dd) << 4) |
-		get_overrunthreshold(dev->dd);
+		(get_phyerrthreshold(dd) << 4) |
+		get_overrunthreshold(dd);
 	/* pip->max_credit_hint; */
-	/* pip->link_roundtrip_latency[3]; */
+	if (dev->port_cap_flags & IB_PORT_LINK_LATENCY_SUP) {
+		u32 v;
+
+		v = dd->ipath_f_get_ib_cfg(dd, IPATH_IB_CFG_LINKLATENCY);
+		pip->link_roundtrip_latency[0] = v >> 16;
+		pip->link_roundtrip_latency[1] = v >> 8;
+		pip->link_roundtrip_latency[2] = v;
+	}
 
 	ret = reply(smp);
 
@@ -401,7 +418,7 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 	struct ib_port_info *pip = (struct ib_port_info *)smp->data;
 	struct ib_event event;
 	struct ipath_ibdev *dev;
-	u32 flags;
+	struct ipath_devdata *dd;
 	char clientrereg = 0;
 	u16 lid, smlid;
 	u8 lwe;
@@ -415,6 +432,7 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 		goto err;
 
 	dev = to_idev(ibdev);
+	dd = dev->dd;
 	event.device = ibdev;
 	event.element.port_num = port;
 
@@ -423,11 +441,12 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 	dev->mkey_lease_period = be16_to_cpu(pip->mkey_lease_period);
 
 	lid = be16_to_cpu(pip->lid);
-	if (lid != dev->dd->ipath_lid) {
+	if (dd->ipath_lid != lid ||
+	    dd->ipath_lmc != (pip->mkeyprot_resv_lmc & 7)) {
 		/* Must be a valid unicast LID address. */
 		if (lid == 0 || lid >= IPATH_MULTICAST_LID_BASE)
 			goto err;
-		ipath_set_lid(dev->dd, lid, pip->mkeyprot_resv_lmc & 7);
+		ipath_set_lid(dd, lid, pip->mkeyprot_resv_lmc & 7);
 		event.event = IB_EVENT_LID_CHANGE;
 		ib_dispatch_event(&event);
 	}
@@ -442,37 +461,43 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 		ib_dispatch_event(&event);
 	}
 
-	/* Only 4x supported but allow 1x or 4x to be set (see 14.2.6.6). */
+	/* Allow 1x or 4x to be set (see 14.2.6.6). */
 	lwe = pip->link_width_enabled;
-	if ((lwe >= 4 && lwe <= 8) || (lwe >= 0xC && lwe <= 0xFE))
-		goto err;
-	if (lwe == 0xFF)
-		dev->link_width_enabled = 3;	/* 1x or 4x */
-	else if (lwe)
-		dev->link_width_enabled = lwe;
+	if (lwe) {
+		if (lwe == 0xFF)
+			lwe = dd->ipath_link_width_supported;
+		else if (lwe >= 16 || (lwe & ~dd->ipath_link_width_supported))
+			goto err;
+		set_link_width_enabled(dd, lwe);
+	}
 
-	/* Only 2.5 Gbs supported. */
+	/* Allow 2.5 or 5.0 Gbs. */
 	lse = pip->linkspeedactive_enabled & 0xF;
-	if (lse >= 2 && lse <= 0xE)
-		goto err;
+	if (lse) {
+		if (lse == 15)
+			lse = dd->ipath_link_speed_supported;
+		else if (lse >= 8 || (lse & ~dd->ipath_link_speed_supported))
+			goto err;
+		set_link_speed_enabled(dd, lse);
+	}
 
 	/* Set link down default state. */
 	switch (pip->portphysstate_linkdown & 0xF) {
 	case 0: /* NOP */
 		break;
 	case 1: /* SLEEP */
-		if (set_linkdowndefaultstate(dev->dd, 1))
+		if (set_linkdowndefaultstate(dd, 1))
 			goto err;
 		break;
 	case 2: /* POLL */
-		if (set_linkdowndefaultstate(dev->dd, 0))
+		if (set_linkdowndefaultstate(dd, 0))
 			goto err;
 		break;
 	default:
 		goto err;
 	}
 
-	dev->mkeyprot_resv_lmc = pip->mkeyprot_resv_lmc;
+	dev->mkeyprot = pip->mkeyprot_resv_lmc >> 6;
 	dev->vl_high_limit = pip->vl_high_limit;
 
 	switch ((pip->neighbormtu_mastersmsl >> 4) & 0xF) {
@@ -489,13 +514,15 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 		mtu = 2048;
 		break;
 	case IB_MTU_4096:
+		if (!ipath_mtu4096)
+			goto err;
 		mtu = 4096;
 		break;
 	default:
 		/* XXX We have already partially updated our state! */
 		goto err;
 	}
-	ipath_set_mtu(dev->dd, mtu);
+	ipath_set_mtu(dd, mtu);
 
 	dev->sm_sl = pip->neighbormtu_mastersmsl & 0xF;
 
@@ -511,16 +538,16 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 	 * later.
 	 */
 	if (pip->pkey_violations == 0)
-		dev->z_pkey_violations = ipath_get_cr_errpkey(dev->dd);
+		dev->z_pkey_violations = ipath_get_cr_errpkey(dd);
 
 	if (pip->qkey_violations == 0)
 		dev->qkey_violations = 0;
 
 	ore = pip->localphyerrors_overrunerrors;
-	if (set_phyerrthreshold(dev->dd, (ore >> 4) & 0xF))
+	if (set_phyerrthreshold(dd, (ore >> 4) & 0xF))
 		goto err;
 
-	if (set_overrunthreshold(dev->dd, (ore & 0xF)))
+	if (set_overrunthreshold(dd, (ore & 0xF)))
 		goto err;
 
 	dev->subnet_timeout = pip->clientrereg_resv_subnetto & 0x1F;
@@ -538,7 +565,6 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 	 * is down or is being set to down.
 	 */
 	state = pip->linkspeed_portstate & 0xF;
-	flags = dev->dd->ipath_flags;
 	lstate = (pip->portphysstate_linkdown >> 4) & 0xF;
 	if (lstate && !(state == IB_PORT_DOWN || state == IB_PORT_NOP))
 		goto err;
@@ -554,10 +580,7 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 		/* FALLTHROUGH */
 	case IB_PORT_DOWN:
 		if (lstate == 0)
-			if (get_linkdowndefaultstate(dev->dd))
-				lstate = IPATH_IB_LINKDOWN_SLEEP;
-			else
-				lstate = IPATH_IB_LINKDOWN;
+			lstate = IPATH_IB_LINKDOWN_ONLY;
 		else if (lstate == 1)
 			lstate = IPATH_IB_LINKDOWN_SLEEP;
 		else if (lstate == 2)
@@ -566,27 +589,19 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 			lstate = IPATH_IB_LINKDOWN_DISABLE;
 		else
 			goto err;
-		ipath_set_linkstate(dev->dd, lstate);
-		if (flags & IPATH_LINKACTIVE) {
-			event.event = IB_EVENT_PORT_ERR;
-			ib_dispatch_event(&event);
+		ipath_set_linkstate(dd, lstate);
+		if (lstate == IPATH_IB_LINKDOWN_DISABLE) {
+			ret = IB_MAD_RESULT_SUCCESS | IB_MAD_RESULT_CONSUMED;
+			goto done;
 		}
+		ipath_wait_linkstate(dd, IPATH_LINKINIT | IPATH_LINKARMED |
+				IPATH_LINKACTIVE, 1000);
 		break;
 	case IB_PORT_ARMED:
-		if (!(flags & (IPATH_LINKINIT | IPATH_LINKACTIVE)))
-			break;
-		ipath_set_linkstate(dev->dd, IPATH_IB_LINKARM);
-		if (flags & IPATH_LINKACTIVE) {
-			event.event = IB_EVENT_PORT_ERR;
-			ib_dispatch_event(&event);
-		}
+		ipath_set_linkstate(dd, IPATH_IB_LINKARM);
 		break;
 	case IB_PORT_ACTIVE:
-		if (!(flags & IPATH_LINKARMED))
-			break;
-		ipath_set_linkstate(dev->dd, IPATH_IB_LINKACTIVE);
-		event.event = IB_EVENT_PORT_ACTIVE;
-		ib_dispatch_event(&event);
+		ipath_set_linkstate(dd, IPATH_IB_LINKACTIVE);
 		break;
 	default:
 		/* XXX We have already partially updated our state! */
@@ -947,6 +962,7 @@ static int recv_pma_get_portsamplescontrol(struct ib_perf *pmp,
 	struct ib_pma_portsamplescontrol *p =
 		(struct ib_pma_portsamplescontrol *)pmp->data;
 	struct ipath_ibdev *dev = to_idev(ibdev);
+	struct ipath_cregs const *crp = dev->dd->ipath_cregs;
 	unsigned long flags;
 	u8 port_select = p->port_select;
 
@@ -961,14 +977,21 @@ static int recv_pma_get_portsamplescontrol(struct ib_perf *pmp,
 	 * nsec.  0 == 4 nsec., 1 == 8 nsec., ..., 255 == 1020 nsec.  Sample
 	 * intervals are counted in ticks.  Since we use Linux timers, that
 	 * count in jiffies, we can't sample for less than 1000 ticks if HZ
-	 * == 1000 (4000 ticks if HZ is 250).
+	 * == 1000 (4000 ticks if HZ is 250).  link_speed_active returns 2 for
+	 * DDR, 1 for SDR, set the tick to 1 for DDR, 0 for SDR on chips that
+	 * have hardware support for delaying packets.
 	 */
-	/* XXX This is WRONG. */
-	p->tick = 250;		/* 1 usec. */
+	if (crp->cr_psstat)
+		p->tick = dev->dd->ipath_link_speed_active - 1;
+	else
+		p->tick = 250;		/* 1 usec. */
 	p->counter_width = 4;	/* 32 bit counters */
 	p->counter_mask0_9 = COUNTER_MASK0_9;
 	spin_lock_irqsave(&dev->pending_lock, flags);
-	p->sample_status = dev->pma_sample_status;
+	if (crp->cr_psstat)
+		p->sample_status = ipath_read_creg32(dev->dd, crp->cr_psstat);
+	else
+		p->sample_status = dev->pma_sample_status;
 	p->sample_start = cpu_to_be32(dev->pma_sample_start);
 	p->sample_interval = cpu_to_be32(dev->pma_sample_interval);
 	p->tag = cpu_to_be16(dev->pma_tag);
@@ -988,8 +1011,9 @@ static int recv_pma_set_portsamplescontrol(struct ib_perf *pmp,
 	struct ib_pma_portsamplescontrol *p =
 		(struct ib_pma_portsamplescontrol *)pmp->data;
 	struct ipath_ibdev *dev = to_idev(ibdev);
+	struct ipath_cregs const *crp = dev->dd->ipath_cregs;
 	unsigned long flags;
-	u32 start;
+	u8 status;
 	int ret;
 
 	if (pmp->attr_mod != 0 ||
@@ -999,59 +1023,67 @@ static int recv_pma_set_portsamplescontrol(struct ib_perf *pmp,
 		goto bail;
 	}
 
-	start = be32_to_cpu(p->sample_start);
-	if (start != 0) {
-		spin_lock_irqsave(&dev->pending_lock, flags);
-		if (dev->pma_sample_status == IB_PMA_SAMPLE_STATUS_DONE) {
-			dev->pma_sample_status =
-				IB_PMA_SAMPLE_STATUS_STARTED;
-			dev->pma_sample_start = start;
-			dev->pma_sample_interval =
-				be32_to_cpu(p->sample_interval);
-			dev->pma_tag = be16_to_cpu(p->tag);
-			if (p->counter_select[0])
-				dev->pma_counter_select[0] =
-					p->counter_select[0];
-			if (p->counter_select[1])
-				dev->pma_counter_select[1] =
-					p->counter_select[1];
-			if (p->counter_select[2])
-				dev->pma_counter_select[2] =
-					p->counter_select[2];
-			if (p->counter_select[3])
-				dev->pma_counter_select[3] =
-					p->counter_select[3];
-			if (p->counter_select[4])
-				dev->pma_counter_select[4] =
-					p->counter_select[4];
-		}
-		spin_unlock_irqrestore(&dev->pending_lock, flags);
+	spin_lock_irqsave(&dev->pending_lock, flags);
+	if (crp->cr_psstat)
+		status = ipath_read_creg32(dev->dd, crp->cr_psstat);
+	else
+		status = dev->pma_sample_status;
+	if (status == IB_PMA_SAMPLE_STATUS_DONE) {
+		dev->pma_sample_start = be32_to_cpu(p->sample_start);
+		dev->pma_sample_interval = be32_to_cpu(p->sample_interval);
+		dev->pma_tag = be16_to_cpu(p->tag);
+		dev->pma_counter_select[0] = p->counter_select[0];
+		dev->pma_counter_select[1] = p->counter_select[1];
+		dev->pma_counter_select[2] = p->counter_select[2];
+		dev->pma_counter_select[3] = p->counter_select[3];
+		dev->pma_counter_select[4] = p->counter_select[4];
+		if (crp->cr_psstat) {
+			ipath_write_creg(dev->dd, crp->cr_psinterval,
+					 dev->pma_sample_interval);
+			ipath_write_creg(dev->dd, crp->cr_psstart,
+					 dev->pma_sample_start);
+		} else
+			dev->pma_sample_status = IB_PMA_SAMPLE_STATUS_STARTED;
 	}
+	spin_unlock_irqrestore(&dev->pending_lock, flags);
+
 	ret = recv_pma_get_portsamplescontrol(pmp, ibdev, port);
 
 bail:
 	return ret;
 }
 
-static u64 get_counter(struct ipath_ibdev *dev, __be16 sel)
+static u64 get_counter(struct ipath_ibdev *dev,
+		       struct ipath_cregs const *crp,
+		       __be16 sel)
 {
 	u64 ret;
 
 	switch (sel) {
 	case IB_PMA_PORT_XMIT_DATA:
-		ret = dev->ipath_sword;
+		ret = (crp->cr_psxmitdatacount) ?
+			ipath_read_creg32(dev->dd, crp->cr_psxmitdatacount) :
+			dev->ipath_sword;
 		break;
 	case IB_PMA_PORT_RCV_DATA:
-		ret = dev->ipath_rword;
+		ret = (crp->cr_psrcvdatacount) ?
+			ipath_read_creg32(dev->dd, crp->cr_psrcvdatacount) :
+			dev->ipath_rword;
 		break;
 	case IB_PMA_PORT_XMIT_PKTS:
-		ret = dev->ipath_spkts;
+		ret = (crp->cr_psxmitpktscount) ?
+			ipath_read_creg32(dev->dd, crp->cr_psxmitpktscount) :
+			dev->ipath_spkts;
 		break;
 	case IB_PMA_PORT_RCV_PKTS:
-		ret = dev->ipath_rpkts;
+		ret = (crp->cr_psrcvpktscount) ?
+			ipath_read_creg32(dev->dd, crp->cr_psrcvpktscount) :
+			dev->ipath_rpkts;
 		break;
 	case IB_PMA_PORT_XMIT_WAIT:
-		ret = dev->ipath_xmit_wait;
+		ret = (crp->cr_psxmitwaitcount) ?
+			ipath_read_creg32(dev->dd, crp->cr_psxmitwaitcount) :
+			dev->ipath_xmit_wait;
 		break;
 	default:
 		ret = 0;
@@ -1066,14 +1098,21 @@ static int recv_pma_get_portsamplesresult(struct ib_perf *pmp,
 	struct ib_pma_portsamplesresult *p =
 		(struct ib_pma_portsamplesresult *)pmp->data;
 	struct ipath_ibdev *dev = to_idev(ibdev);
+	struct ipath_cregs const *crp = dev->dd->ipath_cregs;
+	u8 status;
 	int i;
 
 	memset(pmp->data, 0, sizeof(pmp->data));
 	p->tag = cpu_to_be16(dev->pma_tag);
-	p->sample_status = cpu_to_be16(dev->pma_sample_status);
+	if (crp->cr_psstat)
+		status = ipath_read_creg32(dev->dd, crp->cr_psstat);
+	else
+		status = dev->pma_sample_status;
+	p->sample_status = cpu_to_be16(status);
 	for (i = 0; i < ARRAY_SIZE(dev->pma_counter_select); i++)
-		p->counter[i] = cpu_to_be32(
-			get_counter(dev, dev->pma_counter_select[i]));
+		p->counter[i] = (status != IB_PMA_SAMPLE_STATUS_DONE) ? 0 :
+		    cpu_to_be32(
+			get_counter(dev, crp, dev->pma_counter_select[i]));
 
 	return reply((struct ib_smp *) pmp);
 }
@@ -1084,16 +1123,23 @@ static int recv_pma_get_portsamplesresult_ext(struct ib_perf *pmp,
 	struct ib_pma_portsamplesresult_ext *p =
 		(struct ib_pma_portsamplesresult_ext *)pmp->data;
 	struct ipath_ibdev *dev = to_idev(ibdev);
+	struct ipath_cregs const *crp = dev->dd->ipath_cregs;
+	u8 status;
 	int i;
 
 	memset(pmp->data, 0, sizeof(pmp->data));
 	p->tag = cpu_to_be16(dev->pma_tag);
-	p->sample_status = cpu_to_be16(dev->pma_sample_status);
+	if (crp->cr_psstat)
+		status = ipath_read_creg32(dev->dd, crp->cr_psstat);
+	else
+		status = dev->pma_sample_status;
+	p->sample_status = cpu_to_be16(status);
 	/* 64 bits */
 	p->extended_width = __constant_cpu_to_be32(0x80000000);
 	for (i = 0; i < ARRAY_SIZE(dev->pma_counter_select); i++)
-		p->counter[i] = cpu_to_be64(
-			get_counter(dev, dev->pma_counter_select[i]));
+		p->counter[i] = (status != IB_PMA_SAMPLE_STATUS_DONE) ? 0 :
+		    cpu_to_be64(
+			get_counter(dev, crp, dev->pma_counter_select[i]));
 
 	return reply((struct ib_smp *) pmp);
 }
@@ -1126,6 +1172,8 @@ static int recv_pma_get_portcounters(struct ib_perf *pmp,
 		dev->z_local_link_integrity_errors;
 	cntrs.excessive_buffer_overrun_errors -=
 		dev->z_excessive_buffer_overrun_errors;
+	cntrs.vl15_dropped -= dev->z_vl15_dropped;
+	cntrs.vl15_dropped += dev->n_vl15_dropped;
 
 	memset(pmp->data, 0, sizeof(pmp->data));
 
@@ -1169,10 +1217,10 @@ static int recv_pma_get_portcounters(struct ib_perf *pmp,
 		cntrs.excessive_buffer_overrun_errors = 0xFUL;
 	p->lli_ebor_errors = (cntrs.local_link_integrity_errors << 4) |
 		cntrs.excessive_buffer_overrun_errors;
-	if (dev->n_vl15_dropped > 0xFFFFUL)
+	if (cntrs.vl15_dropped > 0xFFFFUL)
 		p->vl15_dropped = __constant_cpu_to_be16(0xFFFF);
 	else
-		p->vl15_dropped = cpu_to_be16((u16)dev->n_vl15_dropped);
+		p->vl15_dropped = cpu_to_be16((u16)cntrs.vl15_dropped);
 	if (cntrs.port_xmit_data > 0xFFFFFFFFUL)
 		p->port_xmit_data = __constant_cpu_to_be32(0xFFFFFFFF);
 	else
@@ -1275,8 +1323,10 @@ static int recv_pma_set_portcounters(struct ib_perf *pmp,
 		dev->z_excessive_buffer_overrun_errors =
 			cntrs.excessive_buffer_overrun_errors;
 
-	if (p->counter_select & IB_PMA_SEL_PORT_VL15_DROPPED)
+	if (p->counter_select & IB_PMA_SEL_PORT_VL15_DROPPED) {
 		dev->n_vl15_dropped = 0;
+		dev->z_vl15_dropped = cntrs.vl15_dropped;
+	}
 
 	if (p->counter_select & IB_PMA_SEL_PORT_XMIT_DATA)
 		dev->z_port_xmit_data = cntrs.port_xmit_data;
@@ -1347,10 +1397,11 @@ static int process_subn(struct ib_device *ibdev, int mad_flags,
 	}
 
 	/* Is the mkey in the process of expiring? */
-	if (dev->mkey_lease_timeout && jiffies >= dev->mkey_lease_timeout) {
+	if (dev->mkey_lease_timeout &&
+	    time_after_eq(jiffies, dev->mkey_lease_timeout)) {
 		/* Clear timeout and mkey protection field. */
 		dev->mkey_lease_timeout = 0;
-		dev->mkeyprot_resv_lmc &= 0x3F;
+		dev->mkeyprot = 0;
 	}
 
 	/*
@@ -1361,7 +1412,7 @@ static int process_subn(struct ib_device *ibdev, int mad_flags,
 	    dev->mkey != smp->mkey &&
 	    (smp->method == IB_MGMT_METHOD_SET ||
 	     (smp->method == IB_MGMT_METHOD_GET &&
-	      (dev->mkeyprot_resv_lmc >> 7) != 0))) {
+	      dev->mkeyprot >= 2))) {
 		if (dev->mkey_violations != 0xFFFF)
 			++dev->mkey_violations;
 		if (dev->mkey_lease_timeout ||
@@ -1441,13 +1492,17 @@ static int process_subn(struct ib_device *ibdev, int mad_flags,
 			goto bail;
 		}
 
+	case IB_MGMT_METHOD_TRAP:
+	case IB_MGMT_METHOD_REPORT:
+	case IB_MGMT_METHOD_REPORT_RESP:
+	case IB_MGMT_METHOD_TRAP_REPRESS:
 	case IB_MGMT_METHOD_GET_RESP:
 		/*
 		 * The ib_mad module will call us to process responses
 		 * before checking for other consumers.
 		 * Just tell the caller to process it normally.
 		 */
-		ret = IB_MAD_RESULT_FAILURE;
+		ret = IB_MAD_RESULT_SUCCESS;
 		goto bail;
 	default:
 		smp->status |= IB_SMP_UNSUP_METHOD;
@@ -1529,7 +1584,7 @@ static int process_perf(struct ib_device *ibdev, u8 port_num,
 		 * before checking for other consumers.
 		 * Just tell the caller to process it normally.
 		 */
-		ret = IB_MAD_RESULT_FAILURE;
+		ret = IB_MAD_RESULT_SUCCESS;
 		goto bail;
 	default:
 		pmp->status |= IB_SMP_UNSUP_METHOD;

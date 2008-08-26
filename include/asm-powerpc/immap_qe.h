@@ -20,6 +20,7 @@
 #ifdef __KERNEL__
 
 #include <linux/kernel.h>
+#include <asm/io.h>
 
 #define QE_IMMAP_SIZE	(1024 * 1024)	/* 1MB from 1MB+IMMR */
 
@@ -86,8 +87,9 @@ struct cp_qe {
 	__be16	ceexe4;		/* QE external request 4 event register */
 	u8	res11[0x2];
 	__be16	ceexm4;		/* QE external request 4 mask register */
-	u8	res12[0x2];
-	u8	res13[0x280];
+	u8	res12[0x3A];
+	__be32	ceurnr;		/* QE microcode revision number register */
+	u8	res13[0x244];
 } __attribute__ ((packed));
 
 /* QE Multiplexer */
@@ -96,10 +98,7 @@ struct qe_mux {
 	__be32	cmxsi1cr_l;	/* CMX SI1 clock route low register */
 	__be32	cmxsi1cr_h;	/* CMX SI1 clock route high register */
 	__be32	cmxsi1syr;	/* CMX SI1 SYNC route register */
-	__be32	cmxucr1;	/* CMX UCC1, UCC3 clock route register */
-	__be32	cmxucr2;	/* CMX UCC5, UCC7 clock route register */
-	__be32	cmxucr3;	/* CMX UCC2, UCC4 clock route register */
-	__be32	cmxucr4;	/* CMX UCC6, UCC8 clock route register */
+	__be32	cmxucr[4];	/* CMX UCCx clock route registers */
 	__be32	cmxupcr;	/* CMX UPC clock route register */
 	u8	res0[0x1C];
 } __attribute__ ((packed));
@@ -260,7 +259,6 @@ struct ucc_slow {
 	__be16	utpt;
 	u8	res4[0x52];
 	u8	guemr;		/* UCC general extended mode register */
-	u8	res5[0x200 - 0x091];
 } __attribute__ ((packed));
 
 /* QE UCC Fast */
@@ -293,21 +291,13 @@ struct ucc_fast {
 	__be32	urtry;		/* UCC retry counter register */
 	u8	res8[0x4C];
 	u8	guemr;		/* UCC general extended mode register */
-	u8	res9[0x100 - 0x091];
-} __attribute__ ((packed));
-
-/* QE UCC */
-struct ucc_common {
-	u8	res1[0x90];
-	u8	guemr;
-	u8	res2[0x200 - 0x091];
 } __attribute__ ((packed));
 
 struct ucc {
 	union {
 		struct	ucc_slow slow;
 		struct	ucc_fast fast;
-		struct	ucc_common common;
+		u8	res[0x200];	/* UCC blocks are 512 bytes each */
 	};
 } __attribute__ ((packed));
 
@@ -404,9 +394,39 @@ struct dbg {
 	u8	res2[0x48];
 } __attribute__ ((packed));
 
-/* RISC Special Registers (Trap and Breakpoint) */
+/*
+ * RISC Special Registers (Trap and Breakpoint).  These are described in
+ * the QE Developer's Handbook.
+ */
 struct rsp {
-	u8	fixme[0x100];
+	__be32 tibcr[16];	/* Trap/instruction breakpoint control regs */
+	u8 res0[64];
+	__be32 ibcr0;
+	__be32 ibs0;
+	__be32 ibcnr0;
+	u8 res1[4];
+	__be32 ibcr1;
+	__be32 ibs1;
+	__be32 ibcnr1;
+	__be32 npcr;
+	__be32 dbcr;
+	__be32 dbar;
+	__be32 dbamr;
+	__be32 dbsr;
+	__be32 dbcnr;
+	u8 res2[12];
+	__be32 dbdr_h;
+	__be32 dbdr_l;
+	__be32 dbdmr_h;
+	__be32 dbdmr_l;
+	__be32 bsr;
+	__be32 bor;
+	__be32 bior;
+	u8 res3[4];
+	__be32 iatr[4];
+	__be32 eccr;		/* Exception control configuration register */
+	__be32 eicr;
+	u8 res4[0x100-0xf8];
 } __attribute__ ((packed));
 
 struct qe_immap {
@@ -435,11 +455,13 @@ struct qe_immap {
 	u8			res13[0x600];
 	struct upc		upc2;		/* MultiPHY UTOPIA POS Ctrlr 2*/
 	struct sdma		sdma;		/* SDMA */
-	struct dbg		dbg;		/* Debug Space */
-	struct rsp		rsp[0x2];	/* RISC Special Registers
+	struct dbg		dbg;		/* 0x104080 - 0x1040FF
+						   Debug Space */
+	struct rsp		rsp[0x2];	/* 0x104100 - 0x1042FF
+						   RISC Special Registers
 						   (Trap and Breakpoint) */
-	u8			res14[0x300];
-	u8			res15[0x3A00];
+	u8			res14[0x300];	/* 0x104300 - 0x1045FF */
+	u8			res15[0x3A00];	/* 0x104600 - 0x107FFF */
 	u8			res16[0x8000];	/* 0x108000 - 0x110000 */
 	u8			muram[0xC000];	/* 0x110000 - 0x11C000
 						   Multi-user RAM */
@@ -447,10 +469,10 @@ struct qe_immap {
 	u8			res18[0xC0000];	/* 0x140000 - 0x200000 */
 } __attribute__ ((packed));
 
-extern struct qe_immap *qe_immr;
+extern struct qe_immap __iomem *qe_immr;
 extern phys_addr_t get_qe_base(void);
 
-static inline unsigned long immrbar_virt_to_phys(volatile void * address)
+static inline unsigned long immrbar_virt_to_phys(void *address)
 {
 	if ( ((u32)address >= (u32)qe_immr) &&
 			((u32)address < ((u32)qe_immr + QE_IMMAP_SIZE)) )

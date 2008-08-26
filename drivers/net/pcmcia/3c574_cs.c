@@ -187,14 +187,16 @@ enum Window1 {
 enum Window3 {			/* Window 3: MAC/config bits. */
 	Wn3_Config=0, Wn3_MAC_Ctrl=6, Wn3_Options=8,
 };
-union wn3_config {
-	int i;
-	struct w3_config_fields {
-		unsigned int ram_size:3, ram_width:1, ram_speed:2, rom_size:2;
-		int pad8:8;
-		unsigned int ram_split:2, pad18:2, xcvr:3, pad21:1, autoselect:1;
-		int pad24:7;
-	} u;
+enum wn3_config {
+	Ram_size = 7,
+	Ram_width = 8,
+	Ram_speed = 0x30,
+	Rom_size = 0xc0,
+	Ram_split_shift = 16,
+	Ram_split = 3 << Ram_split_shift,
+	Xcvr_shift = 20,
+	Xcvr = 7 << Xcvr_shift,
+	Autoselect = 0x1000000,
 };
 
 enum Window4 {		/* Window 4: Xcvr/media bits. */
@@ -206,7 +208,6 @@ enum Window4 {		/* Window 4: Xcvr/media bits. */
 struct el3_private {
 	struct pcmcia_device	*p_dev;
 	dev_node_t node;
-	struct net_device_stats stats;
 	u16 advertising, partner;		/* NWay media advertisement */
 	unsigned char phys;			/* MII device address */
 	unsigned int autoselect:1, default_media:3;	/* Read from the EEPROM/Wn3_Config. */
@@ -228,10 +229,11 @@ static char mii_preamble_required = 0;
 static int tc574_config(struct pcmcia_device *link);
 static void tc574_release(struct pcmcia_device *link);
 
-static void mdio_sync(kio_addr_t ioaddr, int bits);
-static int mdio_read(kio_addr_t ioaddr, int phy_id, int location);
-static void mdio_write(kio_addr_t ioaddr, int phy_id, int location, int value);
-static unsigned short read_eeprom(kio_addr_t ioaddr, int index);
+static void mdio_sync(unsigned int ioaddr, int bits);
+static int mdio_read(unsigned int ioaddr, int phy_id, int location);
+static void mdio_write(unsigned int ioaddr, int phy_id, int location,
+		       int value);
+static unsigned short read_eeprom(unsigned int ioaddr, int index);
 static void tc574_wait_for_completion(struct net_device *dev, int cmd);
 
 static void tc574_reset(struct net_device *dev);
@@ -274,7 +276,7 @@ static int tc574_probe(struct pcmcia_device *link)
 	spin_lock_init(&lp->window_lock);
 	link->io.NumPorts1 = 32;
 	link->io.Attributes1 = IO_DATA_PATH_WIDTH_16;
-	link->irq.Attributes = IRQ_TYPE_EXCLUSIVE | IRQ_HANDLE_PRESENT;
+	link->irq.Attributes = IRQ_TYPE_DYNAMIC_SHARING|IRQ_HANDLE_PRESENT;
 	link->irq.IRQInfo1 = IRQ_LEVEL_ID;
 	link->irq.Handler = &el3_interrupt;
 	link->irq.Instance = dev;
@@ -337,14 +339,15 @@ static int tc574_config(struct pcmcia_device *link)
 	struct net_device *dev = link->priv;
 	struct el3_private *lp = netdev_priv(dev);
 	tuple_t tuple;
-	unsigned short buf[32];
+	__le16 buf[32];
 	int last_fn, last_ret, i, j;
-	kio_addr_t ioaddr;
-	u16 *phys_addr;
+	unsigned int ioaddr;
+	__be16 *phys_addr;
 	char *cardname;
-	union wn3_config config;
+	__u32 config;
+	DECLARE_MAC_BUF(mac);
 
-	phys_addr = (u16 *)dev->dev_addr;
+	phys_addr = (__be16 *)dev->dev_addr;
 
 	DEBUG(0, "3c574_config(0x%p)\n", link);
 
@@ -377,12 +380,12 @@ static int tc574_config(struct pcmcia_device *link)
 	if (pcmcia_get_first_tuple(link, &tuple) == CS_SUCCESS) {
 		pcmcia_get_tuple_data(link, &tuple);
 		for (i = 0; i < 3; i++)
-			phys_addr[i] = htons(buf[i]);
+			phys_addr[i] = htons(le16_to_cpu(buf[i]));
 	} else {
 		EL3WINDOW(0);
 		for (i = 0; i < 3; i++)
 			phys_addr[i] = htons(read_eeprom(ioaddr, i + 10));
-		if (phys_addr[0] == 0x6060) {
+		if (phys_addr[0] == htons(0x6060)) {
 			printk(KERN_NOTICE "3c574_cs: IO port conflict at 0x%03lx"
 				   "-0x%03lx\n", dev->base_addr, dev->base_addr+15);
 			goto failed;
@@ -400,9 +403,9 @@ static int tc574_config(struct pcmcia_device *link)
 		outw(0<<11, ioaddr + RunnerRdCtrl);
 		printk(KERN_INFO "  ASIC rev %d,", mcr>>3);
 		EL3WINDOW(3);
-		config.i = inl(ioaddr + Wn3_Config);
-		lp->default_media = config.u.xcvr;
-		lp->autoselect = config.u.autoselect;
+		config = inl(ioaddr + Wn3_Config);
+		lp->default_media = (config & Xcvr) >> Xcvr_shift;
+		lp->autoselect = config & Autoselect ? 1 : 0;
 	}
 
 	init_timer(&lp->media);
@@ -458,13 +461,14 @@ static int tc574_config(struct pcmcia_device *link)
 
 	strcpy(lp->node.dev_name, dev->name);
 
-	printk(KERN_INFO "%s: %s at io %#3lx, irq %d, hw_addr ",
-		   dev->name, cardname, dev->base_addr, dev->irq);
-	for (i = 0; i < 6; i++)
-		printk("%02X%s", dev->dev_addr[i], ((i<5) ? ":" : ".\n"));
+	printk(KERN_INFO "%s: %s at io %#3lx, irq %d, "
+	       "hw_addr %s.\n",
+	       dev->name, cardname, dev->base_addr, dev->irq,
+	       print_mac(mac, dev->dev_addr));
 	printk(" %dK FIFO split %s Rx:Tx, %sMII interface.\n",
-		   8 << config.u.ram_size, ram_split[config.u.ram_split],
-		   config.u.autoselect ? "autoselect " : "");
+		   8 << config & Ram_size,
+		   ram_split[(config & Ram_split) >> Ram_split_shift],
+		   config & Autoselect ? "autoselect " : "");
 
 	return 0;
 
@@ -511,7 +515,7 @@ static int tc574_resume(struct pcmcia_device *link)
 
 static void dump_status(struct net_device *dev)
 {
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 	EL3WINDOW(1);
 	printk(KERN_INFO "  irq status %04x, rx status %04x, tx status "
 		   "%02x, tx free %04x\n", inw(ioaddr+EL3_STATUS),
@@ -540,7 +544,7 @@ static void tc574_wait_for_completion(struct net_device *dev, int cmd)
 /* Read a word from the EEPROM using the regular EEPROM access register.
    Assume that we are in register window zero.
  */
-static unsigned short read_eeprom(kio_addr_t ioaddr, int index)
+static unsigned short read_eeprom(unsigned int ioaddr, int index)
 {
 	int timer;
 	outw(EEPROM_Read + index, ioaddr + Wn0EepromCmd);
@@ -568,9 +572,9 @@ static unsigned short read_eeprom(kio_addr_t ioaddr, int index)
 
 /* Generate the preamble required for initial synchronization and
    a few older transceivers. */
-static void mdio_sync(kio_addr_t ioaddr, int bits)
+static void mdio_sync(unsigned int ioaddr, int bits)
 {
-	kio_addr_t mdio_addr = ioaddr + Wn4_PhysicalMgmt;
+	unsigned int mdio_addr = ioaddr + Wn4_PhysicalMgmt;
 
 	/* Establish sync by sending at least 32 logic ones. */
 	while (-- bits >= 0) {
@@ -579,12 +583,12 @@ static void mdio_sync(kio_addr_t ioaddr, int bits)
 	}
 }
 
-static int mdio_read(kio_addr_t ioaddr, int phy_id, int location)
+static int mdio_read(unsigned int ioaddr, int phy_id, int location)
 {
 	int i;
 	int read_cmd = (0xf6 << 10) | (phy_id << 5) | location;
 	unsigned int retval = 0;
-	kio_addr_t mdio_addr = ioaddr + Wn4_PhysicalMgmt;
+	unsigned int mdio_addr = ioaddr + Wn4_PhysicalMgmt;
 
 	if (mii_preamble_required)
 		mdio_sync(ioaddr, 32);
@@ -604,10 +608,10 @@ static int mdio_read(kio_addr_t ioaddr, int phy_id, int location)
 	return (retval>>1) & 0xffff;
 }
 
-static void mdio_write(kio_addr_t ioaddr, int phy_id, int location, int value)
+static void mdio_write(unsigned int ioaddr, int phy_id, int location, int value)
 {
 	int write_cmd = 0x50020000 | (phy_id << 23) | (location << 18) | value;
-	kio_addr_t mdio_addr = ioaddr + Wn4_PhysicalMgmt;
+	unsigned int mdio_addr = ioaddr + Wn4_PhysicalMgmt;
 	int i;
 
 	if (mii_preamble_required)
@@ -633,7 +637,7 @@ static void tc574_reset(struct net_device *dev)
 {
 	struct el3_private *lp = netdev_priv(dev);
 	int i;
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 	unsigned long flags;
 
 	tc574_wait_for_completion(dev, TotalReset|0x10);
@@ -691,7 +695,7 @@ static void tc574_reset(struct net_device *dev)
 	mdio_write(ioaddr, lp->phys, 4, lp->advertising);
 	if (!auto_polarity) {
 		/* works for TDK 78Q2120 series MII's */
-		int i = mdio_read(ioaddr, lp->phys, 16) | 0x20;
+		i = mdio_read(ioaddr, lp->phys, 16) | 0x20;
 		mdio_write(ioaddr, lp->phys, 16, i);
 	}
 
@@ -736,12 +740,11 @@ static int el3_open(struct net_device *dev)
 
 static void el3_tx_timeout(struct net_device *dev)
 {
-	struct el3_private *lp = netdev_priv(dev);
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 	
 	printk(KERN_NOTICE "%s: Transmit timed out!\n", dev->name);
 	dump_status(dev);
-	lp->stats.tx_errors++;
+	dev->stats.tx_errors++;
 	dev->trans_start = jiffies;
 	/* Issue TX_RESET and TX_START commands. */
 	tc574_wait_for_completion(dev, TxReset);
@@ -751,8 +754,7 @@ static void el3_tx_timeout(struct net_device *dev)
 
 static void pop_tx_status(struct net_device *dev)
 {
-	struct el3_private *lp = netdev_priv(dev);
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 	int i;
     
 	/* Clear the Tx status stack. */
@@ -767,7 +769,7 @@ static void pop_tx_status(struct net_device *dev)
 			DEBUG(1, "%s: transmit error: status 0x%02x\n",
 				  dev->name, tx_status);
 			outw(TxEnable, ioaddr + EL3_CMD);
-			lp->stats.tx_aborted_errors++;
+			dev->stats.tx_aborted_errors++;
 		}
 		outb(0x00, ioaddr + TxStatus); /* Pop the status stack. */
 	}
@@ -775,7 +777,7 @@ static void pop_tx_status(struct net_device *dev)
 
 static int el3_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 	struct el3_private *lp = netdev_priv(dev);
 	unsigned long flags;
 
@@ -809,7 +811,7 @@ static irqreturn_t el3_interrupt(int irq, void *dev_id)
 {
 	struct net_device *dev = (struct net_device *) dev_id;
 	struct el3_private *lp = netdev_priv(dev);
-	kio_addr_t ioaddr;
+	unsigned int ioaddr;
 	unsigned status;
 	int work_budget = max_interrupt_work;
 	int handled = 0;
@@ -903,7 +905,7 @@ static void media_check(unsigned long arg)
 {
 	struct net_device *dev = (struct net_device *) arg;
 	struct el3_private *lp = netdev_priv(dev);
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 	unsigned long flags;
 	unsigned short /* cable, */ media, partner;
 
@@ -982,7 +984,7 @@ static struct net_device_stats *el3_get_stats(struct net_device *dev)
 		update_stats(dev);
 		spin_unlock_irqrestore(&lp->window_lock, flags);
 	}
-	return &lp->stats;
+	return &dev->stats;
 }
 
 /*  Update statistics.
@@ -991,8 +993,7 @@ static struct net_device_stats *el3_get_stats(struct net_device *dev)
  */
 static void update_stats(struct net_device *dev)
 {
-	struct el3_private *lp = netdev_priv(dev);
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 	u8 rx, tx, up;
 
 	DEBUG(2, "%s: updating the statistics.\n", dev->name);
@@ -1003,15 +1004,15 @@ static void update_stats(struct net_device *dev)
 	/* Unlike the 3c509 we need not turn off stats updates while reading. */
 	/* Switch to the stats window, and read everything. */
 	EL3WINDOW(6);
-	lp->stats.tx_carrier_errors 		+= inb(ioaddr + 0);
-	lp->stats.tx_heartbeat_errors		+= inb(ioaddr + 1);
+	dev->stats.tx_carrier_errors 		+= inb(ioaddr + 0);
+	dev->stats.tx_heartbeat_errors		+= inb(ioaddr + 1);
 	/* Multiple collisions. */	   	inb(ioaddr + 2);
-	lp->stats.collisions			+= inb(ioaddr + 3);
-	lp->stats.tx_window_errors		+= inb(ioaddr + 4);
-	lp->stats.rx_fifo_errors		+= inb(ioaddr + 5);
-	lp->stats.tx_packets			+= inb(ioaddr + 6);
+	dev->stats.collisions			+= inb(ioaddr + 3);
+	dev->stats.tx_window_errors		+= inb(ioaddr + 4);
+	dev->stats.rx_fifo_errors		+= inb(ioaddr + 5);
+	dev->stats.tx_packets			+= inb(ioaddr + 6);
 	up		 			 = inb(ioaddr + 9);
-	lp->stats.tx_packets			+= (up&0x30) << 4;
+	dev->stats.tx_packets			+= (up&0x30) << 4;
 	/* Rx packets   */			   inb(ioaddr + 7);
 	/* Tx deferrals */			   inb(ioaddr + 8);
 	rx		 			 = inw(ioaddr + 10);
@@ -1021,15 +1022,14 @@ static void update_stats(struct net_device *dev)
 	/* BadSSD */				   inb(ioaddr + 12);
 	up					 = inb(ioaddr + 13);
 
-	lp->stats.tx_bytes 			+= tx + ((up & 0xf0) << 12);
+	dev->stats.tx_bytes 			+= tx + ((up & 0xf0) << 12);
 
 	EL3WINDOW(1);
 }
 
 static int el3_rx(struct net_device *dev, int worklimit)
 {
-	struct el3_private *lp = netdev_priv(dev);
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 	short rx_status;
 	
 	DEBUG(3, "%s: in rx_packet(), status %4.4x, rx_status %4.4x.\n",
@@ -1038,14 +1038,14 @@ static int el3_rx(struct net_device *dev, int worklimit)
 		   (--worklimit >= 0)) {
 		if (rx_status & 0x4000) { /* Error, update stats. */
 			short error = rx_status & 0x3800;
-			lp->stats.rx_errors++;
+			dev->stats.rx_errors++;
 			switch (error) {
-			case 0x0000:	lp->stats.rx_over_errors++; break;
-			case 0x0800:	lp->stats.rx_length_errors++; break;
-			case 0x1000:	lp->stats.rx_frame_errors++; break;
-			case 0x1800:	lp->stats.rx_length_errors++; break;
-			case 0x2000:	lp->stats.rx_frame_errors++; break;
-			case 0x2800:	lp->stats.rx_crc_errors++; break;
+			case 0x0000:	dev->stats.rx_over_errors++; break;
+			case 0x0800:	dev->stats.rx_length_errors++; break;
+			case 0x1000:	dev->stats.rx_frame_errors++; break;
+			case 0x1800:	dev->stats.rx_length_errors++; break;
+			case 0x2000:	dev->stats.rx_frame_errors++; break;
+			case 0x2800:	dev->stats.rx_crc_errors++; break;
 			}
 		} else {
 			short pkt_len = rx_status & 0x7ff;
@@ -1062,12 +1062,12 @@ static int el3_rx(struct net_device *dev, int worklimit)
 				skb->protocol = eth_type_trans(skb, dev);
 				netif_rx(skb);
 				dev->last_rx = jiffies;
-				lp->stats.rx_packets++;
-				lp->stats.rx_bytes += pkt_len;
+				dev->stats.rx_packets++;
+				dev->stats.rx_bytes += pkt_len;
 			} else {
 				DEBUG(1, "%s: couldn't allocate a sk_buff of"
 					  " size %d.\n", dev->name, pkt_len);
-				lp->stats.rx_dropped++;
+				dev->stats.rx_dropped++;
 			}
 		}
 		tc574_wait_for_completion(dev, RxDiscard);
@@ -1090,7 +1090,7 @@ static const struct ethtool_ops netdev_ethtool_ops = {
 static int el3_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
 	struct el3_private *lp = netdev_priv(dev);
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 	u16 *data = (u16 *)&rq->ifr_ifru;
 	int phy = lp->phys & 0x1f;
 
@@ -1144,7 +1144,7 @@ static int el3_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 
 static void set_rx_mode(struct net_device *dev)
 {
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 
 	if (dev->flags & IFF_PROMISC)
 		outw(SetRxFilter | RxStation | RxMulticast | RxBroadcast | RxProm,
@@ -1157,7 +1157,7 @@ static void set_rx_mode(struct net_device *dev)
 
 static int el3_close(struct net_device *dev)
 {
-	kio_addr_t ioaddr = dev->base_addr;
+	unsigned int ioaddr = dev->base_addr;
 	struct el3_private *lp = netdev_priv(dev);
 	struct pcmcia_device *link = lp->p_dev;
 

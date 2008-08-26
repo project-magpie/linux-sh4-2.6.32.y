@@ -40,6 +40,7 @@ extern void smp_invalidate_interrupt(void);
 extern void smp_call_function_interrupt(void);
 extern void smp_ipi_timer_interrupt(void);
 extern void smp_flush_cache_all_interrupt(void);
+extern void smp_call_function_single_interrupt(void);
 
 /*
  * for Boot AP function
@@ -103,7 +104,7 @@ void	set_eit_vector_entries(void)
 	eit_vector[186] = (unsigned long)smp_call_function_interrupt;
 	eit_vector[187] = (unsigned long)smp_ipi_timer_interrupt;
 	eit_vector[188] = (unsigned long)smp_flush_cache_all_interrupt;
-	eit_vector[189] = 0;
+	eit_vector[189] = (unsigned long)smp_call_function_single_interrupt;
 	eit_vector[190] = 0;
 	eit_vector[191] = 0;
 #endif
@@ -196,7 +197,7 @@ static void show_registers(struct pt_regs *regs)
 		printk("SPI: %08lx\n", sp);
 	}
 	printk("Process %s (pid: %d, process nr: %d, stackpage=%08lx)",
-		current->comm, current->pid, 0xffff & i, 4096+(unsigned long)current);
+		current->comm, task_pid_nr(current), 0xffff & i, 4096+(unsigned long)current);
 
 	/*
 	 * When in-kernel, we also print out the stack and code at the

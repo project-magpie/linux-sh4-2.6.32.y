@@ -215,6 +215,12 @@ typedef struct
         unsigned long addr;
 } __attribute__ ((aligned(8))) psw_t;
 
+typedef struct
+{
+	__u32	mask;
+	__u32	addr;
+} __attribute__ ((aligned(8))) psw_compat_t;
+
 #ifndef __s390x__
 
 #define PSW_MASK_PER		0x40000000UL
@@ -291,6 +297,15 @@ typedef struct
 	unsigned int  acrs[NUM_ACRS];
 	unsigned long orig_gpr2;
 } s390_regs;
+
+typedef struct
+{
+	psw_compat_t	psw;
+	__u32		gprs[NUM_GPRS];
+	__u32		acrs[NUM_ACRS];
+	__u32		orig_gpr2;
+} s390_compat_regs;
+
 
 #ifdef __KERNEL__
 #include <asm/setup.h>
@@ -463,7 +478,15 @@ struct user_regs_struct
 };
 
 #ifdef __KERNEL__
-#define __ARCH_SYS_PTRACE	1
+/*
+ * These are defined as per linux/ptrace.h, which see.
+ */
+#define arch_has_single_step()	(1)
+struct task_struct;
+extern void user_enable_single_step(struct task_struct *);
+extern void user_disable_single_step(struct task_struct *);
+
+#define __ARCH_WANT_COMPAT_SYS_PTRACE
 
 #define user_mode(regs) (((regs)->psw.mask & PSW_MASK_PSTATE) != 0)
 #define instruction_pointer(regs) ((regs)->psw.addr & PSW_ADDR_INSN)

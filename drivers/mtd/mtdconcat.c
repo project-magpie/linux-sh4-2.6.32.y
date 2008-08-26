@@ -6,8 +6,6 @@
  * NAND support by Christian Gan <cgan@iders.ca>
  *
  * This code is GPL
- *
- * $Id: mtdconcat.c,v 1.11 2005/11/07 11:14:20 gleixner Exp $
  */
 
 #include <linux/kernel.h>
@@ -178,7 +176,7 @@ concat_writev(struct mtd_info *mtd, const struct kvec *vecs,
 
 	/* Check alignment */
 	if (mtd->writesize > 1) {
-		loff_t __to = to;
+		uint64_t __to = to;
 		if (do_div(__to, mtd->writesize) || (total_len % mtd->writesize))
 			return -EINVAL;
 	}
@@ -726,6 +724,7 @@ struct mtd_info *mtd_concat_create(struct mtd_info *subdev[],	/* subdevices to c
 	concat->mtd.size = subdev[0]->size;
 	concat->mtd.erasesize = subdev[0]->erasesize;
 	concat->mtd.writesize = subdev[0]->writesize;
+	concat->mtd.subpage_sft = subdev[0]->subpage_sft;
 	concat->mtd.oobsize = subdev[0]->oobsize;
 	concat->mtd.oobavail = subdev[0]->oobavail;
 	if (subdev[0]->writev)

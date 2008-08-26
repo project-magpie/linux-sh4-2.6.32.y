@@ -96,8 +96,8 @@ static irqreturn_t ei_irq_wrapper(int irq, void *dev_id);
 static void ei_watchdog(u_long arg);
 static void axnet_reset_8390(struct net_device *dev);
 
-static int mdio_read(kio_addr_t addr, int phy_id, int loc);
-static void mdio_write(kio_addr_t addr, int phy_id, int loc, int value);
+static int mdio_read(unsigned int addr, int phy_id, int loc);
+static void mdio_write(unsigned int addr, int phy_id, int loc, int value);
 
 static void get_8390_hdr(struct net_device *,
 			 struct e8390_pkt_hdr *, int);
@@ -158,7 +158,7 @@ static int axnet_probe(struct pcmcia_device *link)
     info = PRIV(dev);
     info->p_dev = link;
     link->priv = dev;
-    link->irq.Attributes = IRQ_TYPE_EXCLUSIVE;
+    link->irq.Attributes = IRQ_TYPE_DYNAMIC_SHARING;
     link->irq.IRQInfo1 = IRQ_LEVEL_ID;
     link->conf.Attributes = CONF_ENABLE_IRQ;
     link->conf.IntType = INT_MEMORY_AND_IO;
@@ -203,7 +203,7 @@ static void axnet_detach(struct pcmcia_device *link)
 static int get_prom(struct pcmcia_device *link)
 {
     struct net_device *dev = link->priv;
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
     int i, j;
 
     /* This is based on drivers/net/ne.c */
@@ -232,7 +232,7 @@ static int get_prom(struct pcmcia_device *link)
     axnet_reset_8390(dev);
     mdelay(10);
 
-    for (i = 0; i < sizeof(program_seq)/sizeof(program_seq[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(program_seq); i++)
 	outb_p(program_seq[i].value, ioaddr + program_seq[i].offset);
 
     for (i = 0; i < 6; i += 2) {
@@ -292,6 +292,7 @@ static int axnet_config(struct pcmcia_device *link)
     cisparse_t parse;
     int i, j, last_ret, last_fn;
     u_short buf[64];
+    DECLARE_MAC_BUF(mac);
 
     DEBUG(0, "axnet_config(0x%p)\n", link);
 
@@ -403,11 +404,11 @@ static int axnet_config(struct pcmcia_device *link)
 
     strcpy(info->node.dev_name, dev->name);
 
-    printk(KERN_INFO "%s: Asix AX88%d90: io %#3lx, irq %d, hw_addr ",
+    printk(KERN_INFO "%s: Asix AX88%d90: io %#3lx, irq %d, "
+	   "hw_addr %s\n",
 	   dev->name, ((info->flags & IS_AX88790) ? 7 : 1),
-	   dev->base_addr, dev->irq);
-    for (i = 0; i < 6; i++)
-	printk("%02X%s", dev->dev_addr[i], ((i<5) ? ":" : "\n"));
+	   dev->base_addr, dev->irq,
+	   print_mac(mac, dev->dev_addr));
     if (info->phy_id != -1) {
 	DEBUG(0, "  MII transceiver at index %d, status %x.\n", info->phy_id, j);
     } else {
@@ -472,7 +473,7 @@ static int axnet_resume(struct pcmcia_device *link)
 #define MDIO_MASK		0x0f
 #define MDIO_ENB_IN		0x02
 
-static void mdio_sync(kio_addr_t addr)
+static void mdio_sync(unsigned int addr)
 {
     int bits;
     for (bits = 0; bits < 32; bits++) {
@@ -481,7 +482,7 @@ static void mdio_sync(kio_addr_t addr)
     }
 }
 
-static int mdio_read(kio_addr_t addr, int phy_id, int loc)
+static int mdio_read(unsigned int addr, int phy_id, int loc)
 {
     u_int cmd = (0xf6<<10)|(phy_id<<5)|loc;
     int i, retval = 0;
@@ -500,7 +501,7 @@ static int mdio_read(kio_addr_t addr, int phy_id, int loc)
     return (retval>>1) & 0xffff;
 }
 
-static void mdio_write(kio_addr_t addr, int phy_id, int loc, int value)
+static void mdio_write(unsigned int addr, int phy_id, int loc, int value)
 {
     u_int cmd = (0x05<<28)|(phy_id<<23)|(loc<<18)|(1<<17)|value;
     int i;
@@ -524,12 +525,14 @@ static int axnet_open(struct net_device *dev)
     int ret;
     axnet_dev_t *info = PRIV(dev);
     struct pcmcia_device *link = info->p_dev;
+    unsigned int nic_base = dev->base_addr;
     
     DEBUG(2, "axnet_open('%s')\n", dev->name);
 
     if (!pcmcia_dev_present(link))
 	return -ENODEV;
 
+    outb_p(0xFF, nic_base + EN0_ISR); /* Clear bogus intr. */
     ret = request_irq(dev->irq, ei_irq_wrapper, IRQF_SHARED, "axnet_cs", dev);
     if (ret)
 	    return ret;
@@ -574,7 +577,7 @@ static int axnet_close(struct net_device *dev)
 
 static void axnet_reset_8390(struct net_device *dev)
 {
-    kio_addr_t nic_base = dev->base_addr;
+    unsigned int nic_base = dev->base_addr;
     int i;
 
     ei_status.txing = ei_status.dmaing = 0;
@@ -609,8 +612,8 @@ static void ei_watchdog(u_long arg)
 {
     struct net_device *dev = (struct net_device *)(arg);
     axnet_dev_t *info = PRIV(dev);
-    kio_addr_t nic_base = dev->base_addr;
-    kio_addr_t mii_addr = nic_base + AXNET_MII_EEP;
+    unsigned int nic_base = dev->base_addr;
+    unsigned int mii_addr = nic_base + AXNET_MII_EEP;
     u_short link;
 
     if (!netif_device_present(dev)) goto reschedule;
@@ -680,7 +683,7 @@ static int axnet_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
     axnet_dev_t *info = PRIV(dev);
     u16 *data = (u16 *)&rq->ifr_ifru;
-    kio_addr_t mii_addr = dev->base_addr + AXNET_MII_EEP;
+    unsigned int mii_addr = dev->base_addr + AXNET_MII_EEP;
     switch (cmd) {
     case SIOCGMIIPHY:
 	data[0] = info->phy_id;
@@ -702,7 +705,7 @@ static void get_8390_hdr(struct net_device *dev,
 			 struct e8390_pkt_hdr *hdr,
 			 int ring_page)
 {
-    kio_addr_t nic_base = dev->base_addr;
+    unsigned int nic_base = dev->base_addr;
 
     outb_p(0, nic_base + EN0_RSARLO);		/* On page boundary */
     outb_p(ring_page, nic_base + EN0_RSARHI);
@@ -720,7 +723,7 @@ static void get_8390_hdr(struct net_device *dev,
 static void block_input(struct net_device *dev, int count,
 			struct sk_buff *skb, int ring_offset)
 {
-    kio_addr_t nic_base = dev->base_addr;
+    unsigned int nic_base = dev->base_addr;
     int xfer_count = count;
     char *buf = skb->data;
 
@@ -743,7 +746,7 @@ static void block_input(struct net_device *dev, int count,
 static void block_output(struct net_device *dev, int count,
 			 const u_char *buf, const int start_page)
 {
-    kio_addr_t nic_base = dev->base_addr;
+    unsigned int nic_base = dev->base_addr;
 
 #ifdef PCMCIA_DEBUG
     if (ei_debug > 4)
@@ -771,6 +774,7 @@ static struct pcmcia_device_id axnet_ids[] = {
 	PCMCIA_DEVICE_MANF_CARD(0x0274, 0x1106),
 	PCMCIA_DEVICE_MANF_CARD(0x8a01, 0xc1ab),
 	PCMCIA_DEVICE_MANF_CARD(0x021b, 0x0202), 
+	PCMCIA_DEVICE_MANF_CARD(0xffff, 0x1090),
 	PCMCIA_DEVICE_PROD_ID12("AmbiCom,Inc.", "Fast Ethernet PC Card(AMB8110)", 0x49b020a7, 0x119cc9fc),
 	PCMCIA_DEVICE_PROD_ID124("Fast Ethernet", "16-bit PC Card", "AX88190", 0xb4be14e3, 0x9a12eb6a, 0xab9be5ef),
 	PCMCIA_DEVICE_PROD_ID12("ASIX", "AX88190", 0x0959823b, 0xab9be5ef),
@@ -989,7 +993,7 @@ static int ax_open(struct net_device *dev)
  *
  * Opposite of ax_open(). Only used when "ifconfig <devname> down" is done.
  */
-int ax_close(struct net_device *dev)
+static int ax_close(struct net_device *dev)
 {
 	unsigned long flags;
 
@@ -1012,14 +1016,14 @@ int ax_close(struct net_device *dev)
  * completed (or failed) - i.e. never posted a Tx related interrupt.
  */
 
-void ei_tx_timeout(struct net_device *dev)
+static void ei_tx_timeout(struct net_device *dev)
 {
 	long e8390_base = dev->base_addr;
 	struct ei_device *ei_local = (struct ei_device *) netdev_priv(dev);
 	int txsr, isr, tickssofar = jiffies - dev->trans_start;
 	unsigned long flags;
 
-	ei_local->stat.tx_errors++;
+	dev->stats.tx_errors++;
 
 	spin_lock_irqsave(&ei_local->page_lock, flags);
 	txsr = inb(e8390_base+EN0_TSR);
@@ -1030,7 +1034,7 @@ void ei_tx_timeout(struct net_device *dev)
 		dev->name, (txsr & ENTSR_ABT) ? "excess collisions." :
 		(isr) ? "lost interrupt?" : "cable problem?", txsr, isr, tickssofar);
 
-	if (!isr && !ei_local->stat.tx_packets) 
+	if (!isr && !dev->stats.tx_packets) 
 	{
 		/* The 8390 probably hasn't gotten on the cable yet. */
 		ei_local->interface_num ^= 1;   /* Try a different xcvr.  */
@@ -1038,15 +1042,13 @@ void ei_tx_timeout(struct net_device *dev)
 
 	/* Ugly but a reset can be slow, yet must be protected */
 		
-	disable_irq_nosync(dev->irq);
-	spin_lock(&ei_local->page_lock);
+	spin_lock_irqsave(&ei_local->page_lock, flags);
 		
 	/* Try to restart the card.  Perhaps the user has fixed something. */
 	ei_reset_8390(dev);
 	AX88190_init(dev, 1);
 		
-	spin_unlock(&ei_local->page_lock);
-	enable_irq(dev->irq);
+	spin_unlock_irqrestore(&ei_local->page_lock, flags);
 	netif_wake_queue(dev);
 }
     
@@ -1083,14 +1085,12 @@ static int ei_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	 *	Slow phase with lock held.
 	 */
 	 
-	disable_irq_nosync(dev->irq);
-	
-	spin_lock(&ei_local->page_lock);
+	spin_lock_irqsave(&ei_local->page_lock, flags);
 	
 	ei_local->irqlock = 1;
 
-	send_length = ETH_ZLEN < length ? length : ETH_ZLEN;
-	
+	send_length = max(length, ETH_ZLEN);
+
 	/*
 	 * We have two Tx slots available for use. Find the first free
 	 * slot, and then perform some sanity checks. With two Tx bufs,
@@ -1123,9 +1123,8 @@ static int ei_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		ei_local->irqlock = 0;
 		netif_stop_queue(dev);
 		outb_p(ENISR_ALL, e8390_base + EN0_IMR);
-		spin_unlock(&ei_local->page_lock);
-		enable_irq(dev->irq);
-		ei_local->stat.tx_errors++;
+		spin_unlock_irqrestore(&ei_local->page_lock, flags);
+		dev->stats.tx_errors++;
 		return 1;
 	}
 
@@ -1170,11 +1169,10 @@ static int ei_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	ei_local->irqlock = 0;
 	outb_p(ENISR_ALL, e8390_base + EN0_IMR);
 	
-	spin_unlock(&ei_local->page_lock);
-	enable_irq(dev->irq);
+	spin_unlock_irqrestore(&ei_local->page_lock, flags);
 
 	dev_kfree_skb (skb);
-	ei_local->stat.tx_bytes += send_length;
+	dev->stats.tx_bytes += send_length;
     
 	return 0;
 }
@@ -1266,13 +1264,13 @@ static irqreturn_t ax_interrupt(int irq, void *dev_id)
 
 		if (interrupts & ENISR_COUNTERS) 
 		{
-			ei_local->stat.rx_frame_errors += inb_p(e8390_base + EN0_COUNTER0);
-			ei_local->stat.rx_crc_errors   += inb_p(e8390_base + EN0_COUNTER1);
-			ei_local->stat.rx_missed_errors+= inb_p(e8390_base + EN0_COUNTER2);
+			dev->stats.rx_frame_errors += inb_p(e8390_base + EN0_COUNTER0);
+			dev->stats.rx_crc_errors   += inb_p(e8390_base + EN0_COUNTER1);
+			dev->stats.rx_missed_errors+= inb_p(e8390_base + EN0_COUNTER2);
 		}
 	}
     
-	if (interrupts && ei_debug) 
+	if (interrupts && ei_debug > 3) 
 	{
 		handled = 1;
 		if (nr_serviced >= MAX_SERVICE) 
@@ -1313,7 +1311,6 @@ static irqreturn_t ax_interrupt(int irq, void *dev_id)
 static void ei_tx_err(struct net_device *dev)
 {
 	long e8390_base = dev->base_addr;
-	struct ei_device *ei_local = (struct ei_device *) netdev_priv(dev);
 	unsigned char txsr = inb_p(e8390_base+EN0_TSR);
 	unsigned char tx_was_aborted = txsr & (ENTSR_ABT+ENTSR_FU);
 
@@ -1336,10 +1333,10 @@ static void ei_tx_err(struct net_device *dev)
 		ei_tx_intr(dev);
 	else 
 	{
-		ei_local->stat.tx_errors++;
-		if (txsr & ENTSR_CRS) ei_local->stat.tx_carrier_errors++;
-		if (txsr & ENTSR_CDH) ei_local->stat.tx_heartbeat_errors++;
-		if (txsr & ENTSR_OWC) ei_local->stat.tx_window_errors++;
+		dev->stats.tx_errors++;
+		if (txsr & ENTSR_CRS) dev->stats.tx_carrier_errors++;
+		if (txsr & ENTSR_CDH) dev->stats.tx_heartbeat_errors++;
+		if (txsr & ENTSR_OWC) dev->stats.tx_window_errors++;
 	}
 }
 
@@ -1401,25 +1398,25 @@ static void ei_tx_intr(struct net_device *dev)
 
 	/* Minimize Tx latency: update the statistics after we restart TXing. */
 	if (status & ENTSR_COL)
-		ei_local->stat.collisions++;
+		dev->stats.collisions++;
 	if (status & ENTSR_PTX)
-		ei_local->stat.tx_packets++;
+		dev->stats.tx_packets++;
 	else 
 	{
-		ei_local->stat.tx_errors++;
+		dev->stats.tx_errors++;
 		if (status & ENTSR_ABT) 
 		{
-			ei_local->stat.tx_aborted_errors++;
-			ei_local->stat.collisions += 16;
+			dev->stats.tx_aborted_errors++;
+			dev->stats.collisions += 16;
 		}
 		if (status & ENTSR_CRS) 
-			ei_local->stat.tx_carrier_errors++;
+			dev->stats.tx_carrier_errors++;
 		if (status & ENTSR_FU) 
-			ei_local->stat.tx_fifo_errors++;
+			dev->stats.tx_fifo_errors++;
 		if (status & ENTSR_CDH)
-			ei_local->stat.tx_heartbeat_errors++;
+			dev->stats.tx_heartbeat_errors++;
 		if (status & ENTSR_OWC)
-			ei_local->stat.tx_window_errors++;
+			dev->stats.tx_window_errors++;
 	}
 	netif_wake_queue(dev);
 }
@@ -1480,8 +1477,8 @@ static void ei_receive(struct net_device *dev)
 				printk(KERN_DEBUG "%s: bogus packet size: %d, status=%#2x nxpg=%#2x.\n",
 					   dev->name, rx_frame.count, rx_frame.status,
 					   rx_frame.next);
-			ei_local->stat.rx_errors++;
-			ei_local->stat.rx_length_errors++;
+			dev->stats.rx_errors++;
+			dev->stats.rx_length_errors++;
 		}
 		 else if ((pkt_stat & 0x0F) == ENRSR_RXOK) 
 		{
@@ -1493,7 +1490,7 @@ static void ei_receive(struct net_device *dev)
 				if (ei_debug > 1)
 					printk(KERN_DEBUG "%s: Couldn't allocate a sk_buff of size %d.\n",
 						   dev->name, pkt_len);
-				ei_local->stat.rx_dropped++;
+				dev->stats.rx_dropped++;
 				break;
 			}
 			else
@@ -1504,10 +1501,10 @@ static void ei_receive(struct net_device *dev)
 				skb->protocol=eth_type_trans(skb,dev);
 				netif_rx(skb);
 				dev->last_rx = jiffies;
-				ei_local->stat.rx_packets++;
-				ei_local->stat.rx_bytes += pkt_len;
+				dev->stats.rx_packets++;
+				dev->stats.rx_bytes += pkt_len;
 				if (pkt_stat & ENRSR_PHY)
-					ei_local->stat.multicast++;
+					dev->stats.multicast++;
 			}
 		} 
 		else 
@@ -1516,10 +1513,10 @@ static void ei_receive(struct net_device *dev)
 				printk(KERN_DEBUG "%s: bogus packet: status=%#2x nxpg=%#2x size=%d\n",
 					   dev->name, rx_frame.status, rx_frame.next,
 					   rx_frame.count);
-			ei_local->stat.rx_errors++;
+			dev->stats.rx_errors++;
 			/* NB: The NIC counts CRC, frame and missed errors. */
 			if (pkt_stat & ENRSR_FO)
-				ei_local->stat.rx_fifo_errors++;
+				dev->stats.rx_fifo_errors++;
 		}
 		next_frame = rx_frame.next;
 		
@@ -1554,7 +1551,6 @@ static void ei_rx_overrun(struct net_device *dev)
 	axnet_dev_t *info = PRIV(dev);
 	long e8390_base = dev->base_addr;
 	unsigned char was_txing, must_resend = 0;
-	struct ei_device *ei_local = (struct ei_device *) netdev_priv(dev);
     
 	/*
 	 * Record whether a Tx was in progress and then issue the
@@ -1565,7 +1561,7 @@ static void ei_rx_overrun(struct net_device *dev)
     
 	if (ei_debug > 1)
 		printk(KERN_DEBUG "%s: Receiver overrun.\n", dev->name);
-	ei_local->stat.rx_over_errors++;
+	dev->stats.rx_over_errors++;
     
 	/* 
 	 * Wait a full Tx time (1.2ms) + some guard time, NS says 1.6ms total.
@@ -1626,16 +1622,16 @@ static struct net_device_stats *get_stats(struct net_device *dev)
     
 	/* If the card is stopped, just return the present stats. */
 	if (!netif_running(dev))
-		return &ei_local->stat;
+		return &dev->stats;
 
 	spin_lock_irqsave(&ei_local->page_lock,flags);
 	/* Read the counter registers, assuming we are in page 0. */
-	ei_local->stat.rx_frame_errors += inb_p(ioaddr + EN0_COUNTER0);
-	ei_local->stat.rx_crc_errors   += inb_p(ioaddr + EN0_COUNTER1);
-	ei_local->stat.rx_missed_errors+= inb_p(ioaddr + EN0_COUNTER2);
+	dev->stats.rx_frame_errors += inb_p(ioaddr + EN0_COUNTER0);
+	dev->stats.rx_crc_errors   += inb_p(ioaddr + EN0_COUNTER1);
+	dev->stats.rx_missed_errors+= inb_p(ioaddr + EN0_COUNTER2);
 	spin_unlock_irqrestore(&ei_local->page_lock, flags);
     
-	return &ei_local->stat;
+	return &dev->stats;
 }
 
 /*
@@ -1728,9 +1724,6 @@ static void axdev_setup(struct net_device *dev)
 	if (ei_debug > 1)
 		printk(version_8390);
     
-	SET_MODULE_OWNER(dev);
-
-		
 	ei_local = (struct ei_device *)netdev_priv(dev);
 	spin_lock_init(&ei_local->page_lock);
     

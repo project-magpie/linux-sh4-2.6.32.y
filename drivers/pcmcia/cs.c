@@ -32,11 +32,9 @@
 #include <asm/system.h>
 #include <asm/irq.h>
 
-#define IN_CARD_SERVICES
 #include <pcmcia/cs_types.h>
 #include <pcmcia/ss.h>
 #include <pcmcia/cs.h>
-#include <pcmcia/bulkmem.h>
 #include <pcmcia/cistpl.h>
 #include <pcmcia/cisreg.h>
 #include <pcmcia/ds.h>
@@ -89,7 +87,7 @@ DECLARE_RWSEM(pcmcia_socket_list_rwsem);
 EXPORT_SYMBOL(pcmcia_socket_list_rwsem);
 
 
-/**
+/*
  * Low-level PCMCIA socket drivers need to register with the PCCard
  * core using pcmcia_register_socket.
  *
@@ -174,6 +172,7 @@ static int pccardd(void *__skt);
 
 /**
  * pcmcia_register_socket - add a new pcmcia socket device
+ * @socket: the &socket to register
  */
 int pcmcia_register_socket(struct pcmcia_socket *socket)
 {
@@ -237,7 +236,6 @@ int pcmcia_register_socket(struct pcmcia_socket *socket)
 
 	init_completion(&socket->socket_released);
 	init_completion(&socket->thread_done);
-	init_waitqueue_head(&socket->thread_wait);
 	mutex_init(&socket->skt_mutex);
 	spin_lock_init(&socket->thread_lock);
 
@@ -268,6 +266,7 @@ EXPORT_SYMBOL(pcmcia_register_socket);
 
 /**
  * pcmcia_unregister_socket - remove a pcmcia socket device
+ * @socket: the &socket to unregister
  */
 void pcmcia_unregister_socket(struct pcmcia_socket *socket)
 {
@@ -276,10 +275,9 @@ void pcmcia_unregister_socket(struct pcmcia_socket *socket)
 
 	cs_dbg(socket, 0, "pcmcia_unregister_socket(0x%p)\n", socket->ops);
 
-	if (socket->thread) {
-		wake_up(&socket->thread_wait);
+	if (socket->thread)
 		kthread_stop(socket->thread);
-	}
+
 	release_cis_mem(socket);
 
 	/* remove from our own list */
@@ -311,7 +309,7 @@ struct pcmcia_socket * pcmcia_get_socket_by_nr(unsigned int nr)
 }
 EXPORT_SYMBOL(pcmcia_get_socket_by_nr);
 
-/**
+/*
  * The central event handler.  Send_event() sends an event to the
  * 16-bit subsystem, which then calls the relevant device drivers.
  * Parse_events() interprets the event bits from
@@ -380,7 +378,7 @@ static int socket_reset(struct pcmcia_socket *skt)
 	return CS_GENERAL_FAILURE;
 }
 
-/**
+/*
  * socket_setup() and socket_shutdown() are called by the main event handler
  * when card insertion and removal events are received.
  * socket_setup() turns on socket power and resets the socket, in two stages.
@@ -633,7 +631,6 @@ static void socket_detect_change(struct pcmcia_socket *skt)
 static int pccardd(void *__skt)
 {
 	struct pcmcia_socket *skt = __skt;
-	DECLARE_WAITQUEUE(wait, current);
 	int ret;
 
 	skt->thread = current;
@@ -650,8 +647,10 @@ static int pccardd(void *__skt)
 		complete(&skt->thread_done);
 		return 0;
 	}
+	ret = pccard_sysfs_add_socket(&skt->dev);
+	if (ret)
+		dev_warn(&skt->dev, "err %d adding socket attributes\n", ret);
 
-	add_wait_queue(&skt->thread_wait, &wait);
 	complete(&skt->thread_done);
 
 	set_freezable();
@@ -689,9 +688,8 @@ static int pccardd(void *__skt)
 	/* make sure we are running before we exit */
 	set_current_state(TASK_RUNNING);
 
-	remove_wait_queue(&skt->thread_wait, &wait);
-
 	/* remove from the device core */
+	pccard_sysfs_remove_socket(&skt->dev);
 	device_unregister(&skt->dev);
 
 	return 0;
@@ -710,7 +708,7 @@ void pcmcia_parse_events(struct pcmcia_socket *s, u_int events)
 		s->thread_events |= events;
 		spin_unlock_irqrestore(&s->thread_lock, flags);
 
-		wake_up(&s->thread_wait);
+		wake_up_process(s->thread);
 	}
 } /* pcmcia_parse_events */
 EXPORT_SYMBOL(pcmcia_parse_events);
@@ -907,17 +905,13 @@ int pcmcia_insert_card(struct pcmcia_socket *skt)
 EXPORT_SYMBOL(pcmcia_insert_card);
 
 
-static int pcmcia_socket_uevent(struct device *dev, char **envp,
-			        int num_envp, char *buffer, int buffer_size)
+static int pcmcia_socket_uevent(struct device *dev,
+				struct kobj_uevent_env *env)
 {
 	struct pcmcia_socket *s = container_of(dev, struct pcmcia_socket, dev);
-	int i = 0, length = 0;
 
-	if (add_uevent_var(envp, num_envp, &i, buffer, buffer_size,
-			   &length, "SOCKET_NO=%u", s->sock))
+	if (add_uevent_var(env, "SOCKET_NO=%u", s->sock))
 		return -ENOMEM;
-
-	envp[i] = NULL;
 
 	return 0;
 }
@@ -942,20 +936,13 @@ EXPORT_SYMBOL(pcmcia_socket_class);
 
 static int __init init_pcmcia_cs(void)
 {
-	int ret;
-
 	init_completion(&pcmcia_unload);
-	ret = class_register(&pcmcia_socket_class);
-	if (ret)
-		return (ret);
-	return class_interface_register(&pccard_sysfs_interface);
+	return class_register(&pcmcia_socket_class);
 }
 
 static void __exit exit_pcmcia_cs(void)
 {
-	class_interface_unregister(&pccard_sysfs_interface);
 	class_unregister(&pcmcia_socket_class);
-
 	wait_for_completion(&pcmcia_unload);
 }
 

@@ -21,12 +21,13 @@
 #define ARCH_ID_AT91SAM9260	0x019803a0
 #define ARCH_ID_AT91SAM9261	0x019703a0
 #define ARCH_ID_AT91SAM9263	0x019607a0
+#define ARCH_ID_AT91SAM9G20	0x019905a0
+#define ARCH_ID_AT91SAM9RL64	0x019b03a0
+#define ARCH_ID_AT91CAP9	0x039A03A0
 
 #define ARCH_ID_AT91SAM9XE128	0x329973a0
 #define ARCH_ID_AT91SAM9XE256	0x329a93a0
 #define ARCH_ID_AT91SAM9XE512	0x329aa3a0
-
-#define ARCH_ID_AT91SAM9RL64	0x019b03a0
 
 #define ARCH_ID_AT91M40800	0x14080044
 #define ARCH_ID_AT91R40807	0x44080746
@@ -63,6 +64,12 @@ static inline unsigned long at91_arch_identify(void)
 #define cpu_is_at91sam9260()	(0)
 #endif
 
+#ifdef CONFIG_ARCH_AT91SAM9G20
+#define cpu_is_at91sam9g20()	(at91_cpu_identify() == ARCH_ID_AT91SAM9G20)
+#else
+#define cpu_is_at91sam9g20()	(0)
+#endif
+
 #ifdef CONFIG_ARCH_AT91SAM9261
 #define cpu_is_at91sam9261()	(at91_cpu_identify() == ARCH_ID_AT91SAM9261)
 #else
@@ -81,6 +88,11 @@ static inline unsigned long at91_arch_identify(void)
 #define cpu_is_at91sam9rl()	(0)
 #endif
 
+#ifdef CONFIG_ARCH_AT91CAP9
+#define cpu_is_at91cap9()	(at91_cpu_identify() == ARCH_ID_AT91CAP9)
+#else
+#define cpu_is_at91cap9()	(0)
+#endif
 
 /*
  * Since this is ARM, we will never run on any AVR32 CPU. But these

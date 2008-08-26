@@ -37,10 +37,8 @@
 static struct platform_device *pdev;
 
 /* Addresses to scan */
-static unsigned short normal_i2c[] = { 0x20, 0x21, 0x22, 0x23, 0x24,
-					0x25, 0x26, 0x27, 0x28, 0x29,
-					0x2a, 0x2b, 0x2c, 0x2d, 0x2e,
-					0x2f, I2C_CLIENT_END };
+static const unsigned short normal_i2c[] = { 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d,
+						0x2e, 0x2f, I2C_CLIENT_END };
 static unsigned short isa_address = 0x290;
 
 /* Insmod parameters */
@@ -131,7 +129,7 @@ static inline int TEMP_FROM_REG(s8 val)
    the driver field to differentiate between I2C and ISA chips. */
 struct lm78_data {
 	struct i2c_client client;
-	struct class_device *class_dev;
+	struct device *hwmon_dev;
 	struct mutex lock;
 	enum chips type;
 
@@ -170,7 +168,6 @@ static struct i2c_driver lm78_driver = {
 	.driver = {
 		.name	= "lm78",
 	},
-	.id		= I2C_DRIVERID_LM78,
 	.attach_adapter	= lm78_attach_adapter,
 	.detach_client	= lm78_detach_client,
 };
@@ -438,6 +435,25 @@ static ssize_t show_alarms(struct device *dev, struct device_attribute *da,
 }
 static DEVICE_ATTR(alarms, S_IRUGO, show_alarms, NULL);
 
+static ssize_t show_alarm(struct device *dev, struct device_attribute *da,
+			  char *buf)
+{
+	struct lm78_data *data = lm78_update_device(dev);
+	int nr = to_sensor_dev_attr(da)->index;
+	return sprintf(buf, "%u\n", (data->alarms >> nr) & 1);
+}
+static SENSOR_DEVICE_ATTR(in0_alarm, S_IRUGO, show_alarm, NULL, 0);
+static SENSOR_DEVICE_ATTR(in1_alarm, S_IRUGO, show_alarm, NULL, 1);
+static SENSOR_DEVICE_ATTR(in2_alarm, S_IRUGO, show_alarm, NULL, 2);
+static SENSOR_DEVICE_ATTR(in3_alarm, S_IRUGO, show_alarm, NULL, 3);
+static SENSOR_DEVICE_ATTR(in4_alarm, S_IRUGO, show_alarm, NULL, 8);
+static SENSOR_DEVICE_ATTR(in5_alarm, S_IRUGO, show_alarm, NULL, 9);
+static SENSOR_DEVICE_ATTR(in6_alarm, S_IRUGO, show_alarm, NULL, 10);
+static SENSOR_DEVICE_ATTR(fan1_alarm, S_IRUGO, show_alarm, NULL, 6);
+static SENSOR_DEVICE_ATTR(fan2_alarm, S_IRUGO, show_alarm, NULL, 7);
+static SENSOR_DEVICE_ATTR(fan3_alarm, S_IRUGO, show_alarm, NULL, 11);
+static SENSOR_DEVICE_ATTR(temp1_alarm, S_IRUGO, show_alarm, NULL, 4);
+
 /* This function is called when:
      * lm78_driver is inserted (when this module is loaded), for each
        available adapter
@@ -453,36 +469,47 @@ static struct attribute *lm78_attributes[] = {
 	&sensor_dev_attr_in0_input.dev_attr.attr,
 	&sensor_dev_attr_in0_min.dev_attr.attr,
 	&sensor_dev_attr_in0_max.dev_attr.attr,
+	&sensor_dev_attr_in0_alarm.dev_attr.attr,
 	&sensor_dev_attr_in1_input.dev_attr.attr,
 	&sensor_dev_attr_in1_min.dev_attr.attr,
 	&sensor_dev_attr_in1_max.dev_attr.attr,
+	&sensor_dev_attr_in1_alarm.dev_attr.attr,
 	&sensor_dev_attr_in2_input.dev_attr.attr,
 	&sensor_dev_attr_in2_min.dev_attr.attr,
 	&sensor_dev_attr_in2_max.dev_attr.attr,
+	&sensor_dev_attr_in2_alarm.dev_attr.attr,
 	&sensor_dev_attr_in3_input.dev_attr.attr,
 	&sensor_dev_attr_in3_min.dev_attr.attr,
 	&sensor_dev_attr_in3_max.dev_attr.attr,
+	&sensor_dev_attr_in3_alarm.dev_attr.attr,
 	&sensor_dev_attr_in4_input.dev_attr.attr,
 	&sensor_dev_attr_in4_min.dev_attr.attr,
 	&sensor_dev_attr_in4_max.dev_attr.attr,
+	&sensor_dev_attr_in4_alarm.dev_attr.attr,
 	&sensor_dev_attr_in5_input.dev_attr.attr,
 	&sensor_dev_attr_in5_min.dev_attr.attr,
 	&sensor_dev_attr_in5_max.dev_attr.attr,
+	&sensor_dev_attr_in5_alarm.dev_attr.attr,
 	&sensor_dev_attr_in6_input.dev_attr.attr,
 	&sensor_dev_attr_in6_min.dev_attr.attr,
 	&sensor_dev_attr_in6_max.dev_attr.attr,
+	&sensor_dev_attr_in6_alarm.dev_attr.attr,
 	&dev_attr_temp1_input.attr,
 	&dev_attr_temp1_max.attr,
 	&dev_attr_temp1_max_hyst.attr,
+	&sensor_dev_attr_temp1_alarm.dev_attr.attr,
 	&sensor_dev_attr_fan1_input.dev_attr.attr,
 	&sensor_dev_attr_fan1_min.dev_attr.attr,
 	&sensor_dev_attr_fan1_div.dev_attr.attr,
+	&sensor_dev_attr_fan1_alarm.dev_attr.attr,
 	&sensor_dev_attr_fan2_input.dev_attr.attr,
 	&sensor_dev_attr_fan2_min.dev_attr.attr,
 	&sensor_dev_attr_fan2_div.dev_attr.attr,
+	&sensor_dev_attr_fan2_alarm.dev_attr.attr,
 	&sensor_dev_attr_fan3_input.dev_attr.attr,
 	&sensor_dev_attr_fan3_min.dev_attr.attr,
 	&sensor_dev_attr_fan3_div.dev_attr.attr,
+	&sensor_dev_attr_fan3_alarm.dev_attr.attr,
 	&dev_attr_alarms.attr,
 	&dev_attr_cpu0_vid.attr,
 
@@ -585,9 +612,9 @@ static int lm78_detect(struct i2c_adapter *adapter, int address, int kind)
 	if ((err = sysfs_create_group(&new_client->dev.kobj, &lm78_group)))
 		goto ERROR3;
 
-	data->class_dev = hwmon_device_register(&new_client->dev);
-	if (IS_ERR(data->class_dev)) {
-		err = PTR_ERR(data->class_dev);
+	data->hwmon_dev = hwmon_device_register(&new_client->dev);
+	if (IS_ERR(data->hwmon_dev)) {
+		err = PTR_ERR(data->hwmon_dev);
 		goto ERROR4;
 	}
 
@@ -608,7 +635,7 @@ static int lm78_detach_client(struct i2c_client *client)
 	struct lm78_data *data = i2c_get_clientdata(client);
 	int err;
 
-	hwmon_device_unregister(data->class_dev);
+	hwmon_device_unregister(data->hwmon_dev);
 	sysfs_remove_group(&client->dev.kobj, &lm78_group);
 
 	if ((err = i2c_detach_client(client)))
@@ -659,9 +686,9 @@ static int __devinit lm78_isa_probe(struct platform_device *pdev)
 	 || (err = device_create_file(&pdev->dev, &dev_attr_name)))
 		goto exit_remove_files;
 
-	data->class_dev = hwmon_device_register(&pdev->dev);
-	if (IS_ERR(data->class_dev)) {
-		err = PTR_ERR(data->class_dev);
+	data->hwmon_dev = hwmon_device_register(&pdev->dev);
+	if (IS_ERR(data->hwmon_dev)) {
+		err = PTR_ERR(data->hwmon_dev);
 		goto exit_remove_files;
 	}
 
@@ -681,7 +708,7 @@ static int __devexit lm78_isa_remove(struct platform_device *pdev)
 {
 	struct lm78_data *data = platform_get_drvdata(pdev);
 
-	hwmon_device_unregister(data->class_dev);
+	hwmon_device_unregister(data->hwmon_dev);
 	sysfs_remove_group(&pdev->dev.kobj, &lm78_group);
 	device_remove_file(&pdev->dev, &dev_attr_name);
 	release_region(data->client.addr, LM78_EXTENT);

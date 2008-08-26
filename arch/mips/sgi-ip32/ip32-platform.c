@@ -13,21 +13,22 @@
 #include <asm/ip32/mace.h>
 #include <asm/ip32/ip32_ints.h>
 
-/*
- * .iobase isn't a constant (in the sense of C) so we fill it in at runtime.
- */
-#define MACE_PORT(int)							\
+#define MACEISA_SERIAL1_OFFS   offsetof(struct sgi_mace, isa.serial1)
+#define MACEISA_SERIAL2_OFFS   offsetof(struct sgi_mace, isa.serial2)
+
+#define MACE_PORT(offset,_irq)						\
 {									\
-	.irq		= int,						\
+	.mapbase	= MACE_BASE + offset,				\
+	.irq		= _irq,						\
 	.uartclk	= 1843200,					\
 	.iotype		= UPIO_MEM,					\
-	.flags		= UPF_SKIP_TEST,				\
+	.flags		= UPF_SKIP_TEST|UPF_IOREMAP,			\
 	.regshift	= 8,						\
 }
 
 static struct plat_serial8250_port uart8250_data[] = {
-	MACE_PORT(MACEISA_SERIAL1_IRQ),
-	MACE_PORT(MACEISA_SERIAL2_IRQ),
+	MACE_PORT(MACEISA_SERIAL1_OFFS, MACEISA_SERIAL1_IRQ),
+	MACE_PORT(MACEISA_SERIAL2_OFFS, MACEISA_SERIAL2_IRQ),
 	{ },
 };
 
@@ -41,9 +42,6 @@ static struct platform_device uart8250_device = {
 
 static int __init uart8250_init(void)
 {
-	uart8250_data[0].membase = (void __iomem *) &mace->isa.serial1;
-	uart8250_data[1].membase = (void __iomem *) &mace->isa.serial1;
-
 	return platform_device_register(&uart8250_device);
 }
 
@@ -66,6 +64,31 @@ static __init int meth_devinit(void)
 }
 
 device_initcall(meth_devinit);
+
+static __init int sgio2audio_devinit(void)
+{
+	struct platform_device *pd;
+	int ret;
+
+	pd = platform_device_alloc("sgio2audio", -1);
+	if (!pd)
+		return -ENOMEM;
+
+	ret = platform_device_add(pd);
+	if (ret)
+		platform_device_put(pd);
+
+	return ret;
+}
+
+device_initcall(sgio2audio_devinit);
+
+static __init int sgio2btns_devinit(void)
+{
+	return IS_ERR(platform_device_register_simple("sgibtns", -1, NULL, 0));
+}
+
+device_initcall(sgio2btns_devinit);
 
 MODULE_AUTHOR("Ralf Baechle <ralf@linux-mips.org>");
 MODULE_LICENSE("GPL");

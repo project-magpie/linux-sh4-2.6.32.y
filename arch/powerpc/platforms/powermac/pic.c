@@ -34,15 +34,9 @@
 #include <asm/time.h>
 #include <asm/pmac_feature.h>
 #include <asm/mpic.h>
+#include <asm/xmon.h>
 
 #include "pmac.h"
-
-/*
- * XXX this should be in xmon.h, but putting it there means xmon.h
- * has to include <linux/interrupt.h> (to get irqreturn_t), which
- * causes all sorts of problems.  -- paulus
- */
-extern irqreturn_t xmon_irq(int, void *);
 
 #ifdef CONFIG_PPC32
 struct pmac_irq_hw {
@@ -384,7 +378,7 @@ static void __init pmac_pic_probe_oldstyle(void)
 	/*
 	 * Allocate an irq host
 	 */
-	pmac_pic_host = irq_alloc_host(IRQ_HOST_MAP_LINEAR, max_irqs,
+	pmac_pic_host = irq_alloc_host(master, IRQ_HOST_MAP_LINEAR, max_irqs,
 				       &pmac_pic_host_ops,
 				       max_irqs);
 	BUG_ON(pmac_pic_host == NULL);
@@ -618,9 +612,9 @@ static int pmacpic_find_viaint(void)
 	if (np == NULL)
 		goto not_found;
 	viaint = irq_of_parse_and_map(np, 0);;
-#endif /* CONFIG_ADB_PMU */
 
 not_found:
+#endif /* CONFIG_ADB_PMU */
 	return viaint;
 }
 
@@ -663,7 +657,7 @@ static int pmacpic_resume(struct sys_device *sysdev)
 #endif /* CONFIG_PM && CONFIG_PPC32 */
 
 static struct sysdev_class pmacpic_sysclass = {
-	set_kset_name("pmac_pic"),
+	.name = "pmac_pic",
 };
 
 static struct sys_device device_pmacpic = {
@@ -690,6 +684,5 @@ static int __init init_pmacpic_sysfs(void)
 	sysdev_driver_register(&pmacpic_sysclass, &driver_pmacpic);
 	return 0;
 }
-
-subsys_initcall(init_pmacpic_sysfs);
+machine_subsys_initcall(powermac, init_pmacpic_sysfs);
 

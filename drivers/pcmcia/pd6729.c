@@ -58,7 +58,7 @@ MODULE_AUTHOR("Jun Komuro <komurojun-mbn@nifty.com>");
 
 static int irq_mode = 1; /* 0 = ISA interrupt, 1 = PCI interrupt */
 static int irq_list[16];
-static int irq_list_count = 0;
+static unsigned int irq_list_count = 0;
 
 module_param(irq_mode, int, 0444);
 module_param_array(irq_list, int, &irq_list_count, 0444);
@@ -778,7 +778,7 @@ static struct pci_device_id pd6729_pci_ids[] = {
 };
 MODULE_DEVICE_TABLE(pci, pd6729_pci_ids);
 
-static struct pci_driver pd6729_pci_drv = {
+static struct pci_driver pd6729_pci_driver = {
 	.name		= "pd6729",
 	.id_table	= pd6729_pci_ids,
 	.probe		= pd6729_pci_probe,
@@ -791,12 +791,12 @@ static struct pci_driver pd6729_pci_drv = {
 
 static int pd6729_module_init(void)
 {
-	return pci_register_driver(&pd6729_pci_drv);
+	return pci_register_driver(&pd6729_pci_driver);
 }
 
 static void pd6729_module_exit(void)
 {
-	pci_unregister_driver(&pd6729_pci_drv);
+	pci_unregister_driver(&pd6729_pci_driver);
 }
 
 module_init(pd6729_module_init);

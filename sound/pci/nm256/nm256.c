@@ -24,7 +24,6 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
   
-#include <sound/driver.h>
 #include <asm/io.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
@@ -842,7 +841,6 @@ static void snd_nm256_setup_stream(struct nm256 *chip, struct nm256_stream *s,
 	runtime->private_data = s;
 	s->substream = substream;
 
-	snd_pcm_set_sync(substream);
 	snd_pcm_hw_constraint_list(runtime, 0, SNDRV_PCM_HW_PARAM_RATE,
 				   &constraints_rates);
 }
@@ -1304,8 +1302,8 @@ snd_nm256_mixer(struct nm256 *chip)
 		.read = snd_nm256_ac97_read,
 	};
 
-	chip->ac97_regs = kcalloc(sizeof(short),
-				  ARRAY_SIZE(nm256_ac97_init_val), GFP_KERNEL);
+	chip->ac97_regs = kcalloc(ARRAY_SIZE(nm256_ac97_init_val),
+				  sizeof(short), GFP_KERNEL);
 	if (! chip->ac97_regs)
 		return -ENOMEM;
 
@@ -1441,7 +1439,7 @@ static int snd_nm256_free(struct nm256 *chip)
 		snd_nm256_capture_stop(chip);
 
 	if (chip->irq >= 0)
-		synchronize_irq(chip->irq);
+		free_irq(chip->irq, chip);
 
 	if (chip->cport)
 		iounmap(chip->cport);
@@ -1449,8 +1447,6 @@ static int snd_nm256_free(struct nm256 *chip)
 		iounmap(chip->buffer);
 	release_and_free_resource(chip->res_cport);
 	release_and_free_resource(chip->res_buffer);
-	if (chip->irq >= 0)
-		free_irq(chip->irq, chip);
 
 	pci_disable_device(chip->pci);
 	kfree(chip->ac97_regs);

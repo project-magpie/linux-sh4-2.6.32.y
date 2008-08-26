@@ -14,6 +14,8 @@
  * bitmap_scnlistprintf() and bitmap_parselist(), also in bitmap.c.
  * For details of node_remap(), see bitmap_bitremap in lib/bitmap.c.
  * For details of nodes_remap(), see bitmap_remap in lib/bitmap.c.
+ * For details of nodes_onto(), see bitmap_onto in lib/bitmap.c.
+ * For details of nodes_fold(), see bitmap_fold in lib/bitmap.c.
  *
  * The available nodemask operations are:
  *
@@ -55,7 +57,9 @@
  * int nodelist_scnprintf(buf, len, mask) Format nodemask as list for printing
  * int nodelist_parse(buf, map)		Parse ascii string as nodelist
  * int node_remap(oldbit, old, new)	newbit = map(old, new)(oldbit)
- * int nodes_remap(dst, src, old, new)	*dst = map(old, new)(dst)
+ * void nodes_remap(dst, src, old, new)	*dst = map(old, new)(src)
+ * void nodes_onto(dst, orig, relmap)	*dst = orig relative to relmap
+ * void nodes_fold(dst, orig, sz)	dst bits = orig bits mod sz
  *
  * for_each_node_mask(node, mask)	for-loop node over mask
  *
@@ -326,6 +330,22 @@ static inline void __nodes_remap(nodemask_t *dstp, const nodemask_t *srcp,
 	bitmap_remap(dstp->bits, srcp->bits, oldp->bits, newp->bits, nbits);
 }
 
+#define nodes_onto(dst, orig, relmap) \
+		__nodes_onto(&(dst), &(orig), &(relmap), MAX_NUMNODES)
+static inline void __nodes_onto(nodemask_t *dstp, const nodemask_t *origp,
+		const nodemask_t *relmapp, int nbits)
+{
+	bitmap_onto(dstp->bits, origp->bits, relmapp->bits, nbits);
+}
+
+#define nodes_fold(dst, orig, sz) \
+		__nodes_fold(&(dst), &(orig), sz, MAX_NUMNODES)
+static inline void __nodes_fold(nodemask_t *dstp, const nodemask_t *origp,
+		int sz, int nbits)
+{
+	bitmap_fold(dstp->bits, origp->bits, sz, nbits);
+}
+
 #if MAX_NUMNODES > 1
 #define for_each_node_mask(node, mask)			\
 	for ((node) = first_node(mask);			\
@@ -338,30 +358,87 @@ static inline void __nodes_remap(nodemask_t *dstp, const nodemask_t *srcp,
 #endif /* MAX_NUMNODES */
 
 /*
+ * Bitmasks that are kept for all the nodes.
+ */
+enum node_states {
+	N_POSSIBLE,		/* The node could become online at some point */
+	N_ONLINE,		/* The node is online */
+	N_NORMAL_MEMORY,	/* The node has regular memory */
+#ifdef CONFIG_HIGHMEM
+	N_HIGH_MEMORY,		/* The node has regular or high memory */
+#else
+	N_HIGH_MEMORY = N_NORMAL_MEMORY,
+#endif
+	N_CPU,		/* The node has one or more cpus */
+	NR_NODE_STATES
+};
+
+/*
  * The following particular system nodemasks and operations
  * on them manage all possible and online nodes.
  */
 
-extern nodemask_t node_online_map;
-extern nodemask_t node_possible_map;
+extern nodemask_t node_states[NR_NODE_STATES];
 
 #if MAX_NUMNODES > 1
-#define num_online_nodes()	nodes_weight(node_online_map)
-#define num_possible_nodes()	nodes_weight(node_possible_map)
-#define node_online(node)	node_isset((node), node_online_map)
-#define node_possible(node)	node_isset((node), node_possible_map)
-#define first_online_node	first_node(node_online_map)
-#define next_online_node(nid)	next_node((nid), node_online_map)
+static inline int node_state(int node, enum node_states state)
+{
+	return node_isset(node, node_states[state]);
+}
+
+static inline void node_set_state(int node, enum node_states state)
+{
+	__node_set(node, &node_states[state]);
+}
+
+static inline void node_clear_state(int node, enum node_states state)
+{
+	__node_clear(node, &node_states[state]);
+}
+
+static inline int num_node_state(enum node_states state)
+{
+	return nodes_weight(node_states[state]);
+}
+
+#define for_each_node_state(__node, __state) \
+	for_each_node_mask((__node), node_states[__state])
+
+#define first_online_node	first_node(node_states[N_ONLINE])
+#define next_online_node(nid)	next_node((nid), node_states[N_ONLINE])
+
 extern int nr_node_ids;
 #else
-#define num_online_nodes()	1
-#define num_possible_nodes()	1
-#define node_online(node)	((node) == 0)
-#define node_possible(node)	((node) == 0)
+
+static inline int node_state(int node, enum node_states state)
+{
+	return node == 0;
+}
+
+static inline void node_set_state(int node, enum node_states state)
+{
+}
+
+static inline void node_clear_state(int node, enum node_states state)
+{
+}
+
+static inline int num_node_state(enum node_states state)
+{
+	return 1;
+}
+
+#define for_each_node_state(node, __state) \
+	for ( (node) = 0; (node) == 0; (node) = 1)
+
 #define first_online_node	0
 #define next_online_node(nid)	(MAX_NUMNODES)
 #define nr_node_ids		1
+
 #endif
+
+#define node_online_map 	node_states[N_ONLINE]
+#define node_possible_map 	node_states[N_POSSIBLE]
 
 #define any_online_node(mask)			\
 ({						\
@@ -372,10 +449,15 @@ extern int nr_node_ids;
 	node;					\
 })
 
-#define node_set_online(node)	   set_bit((node), node_online_map.bits)
-#define node_set_offline(node)	   clear_bit((node), node_online_map.bits)
+#define num_online_nodes()	num_node_state(N_ONLINE)
+#define num_possible_nodes()	num_node_state(N_POSSIBLE)
+#define node_online(node)	node_state((node), N_ONLINE)
+#define node_possible(node)	node_state((node), N_POSSIBLE)
 
-#define for_each_node(node)	   for_each_node_mask((node), node_possible_map)
-#define for_each_online_node(node) for_each_node_mask((node), node_online_map)
+#define node_set_online(node)	   node_set_state((node), N_ONLINE)
+#define node_set_offline(node)	   node_clear_state((node), N_ONLINE)
+
+#define for_each_node(node)	   for_each_node_state(node, N_POSSIBLE)
+#define for_each_online_node(node) for_each_node_state(node, N_ONLINE)
 
 #endif /* __LINUX_NODEMASK_H */

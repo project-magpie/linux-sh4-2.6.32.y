@@ -24,8 +24,9 @@
 #define MV64X60_VAL_LEN_MAX		11
 #define MV64X60_PCICFG_CPCI_HOTSWAP	0x68
 
-static ssize_t mv64x60_hs_reg_read(struct kobject *kobj, char *buf, loff_t off,
-				   size_t count)
+static ssize_t mv64x60_hs_reg_read(struct kobject *kobj,
+				   struct bin_attribute *attr, char *buf,
+				   loff_t off, size_t count)
 {
 	struct pci_dev *phb;
 	u32 v;
@@ -44,8 +45,9 @@ static ssize_t mv64x60_hs_reg_read(struct kobject *kobj, char *buf, loff_t off,
 	return sprintf(buf, "0x%08x\n", v);
 }
 
-static ssize_t mv64x60_hs_reg_write(struct kobject *kobj, char *buf, loff_t off,
-				    size_t count)
+static ssize_t mv64x60_hs_reg_write(struct kobject *kobj,
+				    struct bin_attribute *attr, char *buf,
+				    loff_t off, size_t count)
 {
 	struct pci_dev *phb;
 	u32 v;
@@ -84,14 +86,14 @@ static int __init mv64x60_sysfs_init(void)
 	struct platform_device *pdev;
 	const unsigned int *prop;
 
-	np = of_find_compatible_node(NULL, NULL, "marvell,mv64x60");
+	np = of_find_compatible_node(NULL, NULL, "marvell,mv64360");
 	if (!np)
 		return 0;
 
 	prop = of_get_property(np, "hs_reg_valid", NULL);
 	of_node_put(np);
 
-	pdev = platform_device_register_simple("marvell,mv64x60", 0, NULL, 0);
+	pdev = platform_device_register_simple("marvell,mv64360", 0, NULL, 0);
 	if (IS_ERR(pdev))
 		return PTR_ERR(pdev);
 
@@ -162,8 +164,8 @@ static int __init mv64x60_add_bridge(struct device_node *dev)
 
 void __init mv64x60_pci_init(void)
 {
-	struct device_node *np = NULL;
+	struct device_node *np;
 
-	while ((np = of_find_compatible_node(np, "pci", "marvell,mv64x60-pci")))
+	for_each_compatible_node(np, "pci", "marvell,mv64360-pci")
 		mv64x60_add_bridge(np);
 }

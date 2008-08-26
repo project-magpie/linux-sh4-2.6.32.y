@@ -66,8 +66,8 @@
 #include <linux/poll.h>
 #include <linux/major.h>
 #include <linux/ppdev.h>
-#include <linux/device.h>
-#include <asm/uaccess.h>
+#include <linux/smp_lock.h>
+#include <linux/uaccess.h>
 
 #define PP_VERSION "ppdev: user-space parallel port driver"
 #define CHRDEV "ppdev"
@@ -268,9 +268,9 @@ static ssize_t pp_write (struct file * file, const char __user * buf,
 	return bytes_written;
 }
 
-static void pp_irq (int irq, void * private)
+static void pp_irq (void *private)
 {
-	struct pp_struct * pp = (struct pp_struct *) private;
+	struct pp_struct *pp = private;
 
 	if (pp->irqresponse) {
 		parport_write_control (pp->pdev->port, pp->irqctl);
@@ -328,10 +328,9 @@ static enum ieee1284_phase init_phase (int mode)
 	return IEEE1284_PH_FWD_IDLE;
 }
 
-static int pp_ioctl(struct inode *inode, struct file *file,
-		    unsigned int cmd, unsigned long arg)
+static int pp_do_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	unsigned int minor = iminor(inode);
+	unsigned int minor = iminor(file->f_path.dentry->d_inode);
 	struct pp_struct *pp = file->private_data;
 	struct parport * port;
 	void __user *argp = (void __user *)arg;
@@ -634,11 +633,21 @@ static int pp_ioctl(struct inode *inode, struct file *file,
 	return 0;
 }
 
+static long pp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	long ret;
+	lock_kernel();
+	ret = pp_do_ioctl(file, cmd, arg);
+	unlock_kernel();
+	return ret;
+}
+
 static int pp_open (struct inode * inode, struct file * file)
 {
 	unsigned int minor = iminor(inode);
 	struct pp_struct *pp;
 
+	cycle_kernel_lock();
 	if (minor >= PARPORT_MAX)
 		return -ENXIO;
 
@@ -744,15 +753,16 @@ static const struct file_operations pp_fops = {
 	.read		= pp_read,
 	.write		= pp_write,
 	.poll		= pp_poll,
-	.ioctl		= pp_ioctl,
+	.unlocked_ioctl	= pp_ioctl,
 	.open		= pp_open,
 	.release	= pp_release,
 };
 
 static void pp_attach(struct parport *port)
 {
-	device_create(ppdev_class, port->dev, MKDEV(PP_MAJOR, port->number),
-			"parport%d", port->number);
+	device_create_drvdata(ppdev_class, port->dev,
+			      MKDEV(PP_MAJOR, port->number),
+			      NULL, "parport%d", port->number);
 }
 
 static void pp_detach(struct parport *port)

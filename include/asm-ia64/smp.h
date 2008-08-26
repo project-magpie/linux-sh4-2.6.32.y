@@ -14,8 +14,9 @@
 #include <linux/threads.h>
 #include <linux/kernel.h>
 #include <linux/cpumask.h>
+#include <linux/bitops.h>
+#include <linux/irqreturn.h>
 
-#include <asm/bitops.h>
 #include <asm/io.h>
 #include <asm/param.h>
 #include <asm/processor.h>
@@ -58,9 +59,8 @@ extern char no_int_routing __devinitdata;
 
 extern cpumask_t cpu_online_map;
 extern cpumask_t cpu_core_map[NR_CPUS];
-extern cpumask_t cpu_sibling_map[NR_CPUS];
+DECLARE_PER_CPU(cpumask_t, cpu_sibling_map);
 extern int smp_num_siblings;
-extern int smp_num_cpucores;
 extern void __iomem *ipi_base_addr;
 extern unsigned char smp_int_redirect;
 
@@ -121,11 +121,13 @@ extern void __init smp_build_cpu_map(void);
 extern void __init init_smp_config (void);
 extern void smp_do_timer (struct pt_regs *regs);
 
+extern irqreturn_t handle_IPI(int irq, void *dev_id);
 extern void smp_send_reschedule (int cpu);
-extern void lock_ipi_calllock(void);
-extern void unlock_ipi_calllock(void);
 extern void identify_siblings (struct cpuinfo_ia64 *);
 extern int is_multithreading_enabled(void);
+
+extern void arch_send_call_function_single_ipi(int cpu);
+extern void arch_send_call_function_ipi(cpumask_t mask);
 
 #else /* CONFIG_SMP */
 

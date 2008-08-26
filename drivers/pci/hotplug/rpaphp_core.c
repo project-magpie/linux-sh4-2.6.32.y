@@ -54,10 +54,12 @@ module_param(debug, bool, 0644);
 
 /**
  * set_attention_status - set attention LED
+ * @hotplug_slot: target &hotplug_slot
+ * @value: LED control value
+ *
  * echo 0 > attention -- set LED OFF
  * echo 1 > attention -- set LED ON
  * echo 2 > attention -- set LED ID(identify, light is blinking)
- *
  */
 static int set_attention_status(struct hotplug_slot *hotplug_slot, u8 value)
 {
@@ -99,6 +101,8 @@ static int get_power_status(struct hotplug_slot *hotplug_slot, u8 * value)
 
 /**
  * get_attention_status - get attention LED status
+ * @hotplug_slot: slot to get status
+ * @value: pointer to store status
  */
 static int get_attention_status(struct hotplug_slot *hotplug_slot, u8 * value)
 {
@@ -254,6 +258,11 @@ static int is_php_type(char *drc_type)
 
 /**
  * is_php_dn() - return 1 if this is a hotpluggable pci slot, else 0
+ * @dn: target &device_node
+ * @indexes: passed to get_children_props()
+ * @names: passed to get_children_props()
+ * @types: returned from get_children_props()
+ * @power_domains:
  *
  * This routine will return true only if the device node is
  * a hotpluggable slot. This routine will return false
@@ -279,7 +288,7 @@ static int is_php_dn(struct device_node *dn, const int **indexes,
 
 /**
  * rpaphp_add_slot -- declare a hotplug slot to the hotplug subsystem.
- * @dn device node of slot
+ * @dn: device node of slot
  *
  * This subroutine will register a hotplugable slot with the
  * PCI hotplug infrastructure. This routine is typicaly called
@@ -291,7 +300,7 @@ static int is_php_dn(struct device_node *dn, const int **indexes,
  * routine will just return without doing anything, since embedded
  * slots cannot be hotplugged.
  *
- * To remove a slot, it suffices to call rpaphp_deregister_slot()
+ * To remove a slot, it suffices to call rpaphp_deregister_slot().
  */
 int rpaphp_add_slot(struct device_node *dn)
 {
@@ -308,7 +317,7 @@ int rpaphp_add_slot(struct device_node *dn)
 	if (!is_php_dn(dn, &indexes, &names, &types, &power_domains))
 		return 0;
 
-	dbg("Entry %s: dn->full_name=%s\n", __FUNCTION__, dn->full_name);
+	dbg("Entry %s: dn->full_name=%s\n", __func__, dn->full_name);
 
 	/* register PCI devices */
 	name = (char *) &names[1];
@@ -334,7 +343,7 @@ int rpaphp_add_slot(struct device_node *dn)
 		name += strlen(name) + 1;
 		type += strlen(type) + 1;
 	}
-	dbg("%s - Exit: rc[%d]\n", __FUNCTION__, retval);
+	dbg("%s - Exit: rc[%d]\n", __func__, retval);
 
 	/* XXX FIXME: reports a failure only if last entry in loop failed */
 	return retval;
@@ -395,7 +404,7 @@ static int enable_slot(struct hotplug_slot *hotplug_slot)
 	} else if (state == EMPTY) {
 		slot->state = EMPTY;
 	} else {
-		err("%s: slot[%s] is in invalid state\n", __FUNCTION__, slot->name);
+		err("%s: slot[%s] is in invalid state\n", __func__, slot->name);
 		slot->state = NOT_VALID;
 		return -EINVAL;
 	}

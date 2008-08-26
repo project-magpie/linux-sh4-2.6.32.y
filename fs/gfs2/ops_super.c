@@ -1,6 +1,6 @@
 /*
  * Copyright (C) Sistina Software, Inc.  1997-2003 All rights reserved.
- * Copyright (C) 2004-2006 Red Hat, Inc.  All rights reserved.
+ * Copyright (C) 2004-2008 Red Hat, Inc.  All rights reserved.
  *
  * This copyrighted material is made available to anyone wishing to use,
  * modify, copy, or redistribute it subject to the terms and conditions
@@ -25,7 +25,6 @@
 #include "incore.h"
 #include "glock.h"
 #include "inode.h"
-#include "lm.h"
 #include "log.h"
 #include "mount.h"
 #include "ops_super.h"
@@ -53,7 +52,7 @@ static int gfs2_write_inode(struct inode *inode, int sync)
 	struct gfs2_inode *ip = GFS2_I(inode);
 
 	/* Check this is a "normal" inode */
-	if (inode->i_private) {
+	if (test_bit(GIF_USER, &ip->i_flags)) {
 		if (current->flags & PF_MEMALLOC)
 			return 0;
 		if (sync)
@@ -92,7 +91,6 @@ static void gfs2_put_super(struct super_block *sb)
 	kthread_stop(sdp->sd_recoverd_process);
 	while (sdp->sd_glockd_num--)
 		kthread_stop(sdp->sd_glockd_process[sdp->sd_glockd_num]);
-	kthread_stop(sdp->sd_scand_process);
 
 	if (!(sb->s_flags & MS_RDONLY)) {
 		error = gfs2_make_fs_ro(sdp);
@@ -128,7 +126,7 @@ static void gfs2_put_super(struct super_block *sb)
 	gfs2_clear_rgrpd(sdp);
 	gfs2_jindex_free(sdp);
 	/*  Take apart glock structures and buffer lists  */
-	gfs2_gl_hash_clear(sdp, WAIT);
+	gfs2_gl_hash_clear(sdp);
 	/*  Unmount the locking protocol  */
 	gfs2_lm_unmount(sdp);
 
@@ -157,7 +155,7 @@ static void gfs2_write_super(struct super_block *sb)
 static int gfs2_sync_fs(struct super_block *sb, int wait)
 {
 	sb->s_dirt = 0;
-	if (wait)
+	if (wait && sb->s_fs_info)
 		gfs2_log_flush(sb->s_fs_info, NULL);
 	return 0;
 }
@@ -299,8 +297,9 @@ static int gfs2_remount_fs(struct super_block *sb, int *flags, char *data)
  */
 static void gfs2_drop_inode(struct inode *inode)
 {
-	if (inode->i_private && inode->i_nlink) {
-		struct gfs2_inode *ip = GFS2_I(inode);
+	struct gfs2_inode *ip = GFS2_I(inode);
+
+	if (test_bit(GIF_USER, &ip->i_flags) && inode->i_nlink) {
 		struct gfs2_glock *gl = ip->i_iopen_gh.gh_gl;
 		if (gl && test_bit(GLF_DEMOTE, &gl->gl_flags))
 			clear_nlink(inode);
@@ -316,12 +315,13 @@ static void gfs2_drop_inode(struct inode *inode)
 
 static void gfs2_clear_inode(struct inode *inode)
 {
+	struct gfs2_inode *ip = GFS2_I(inode);
+
 	/* This tells us its a "real" inode and not one which only
 	 * serves to contain an address space (see rgrp.c, meta_io.c)
 	 * which therefore doesn't have its own glocks.
 	 */
-	if (inode->i_private) {
-		struct gfs2_inode *ip = GFS2_I(inode);
+	if (test_bit(GIF_USER, &ip->i_flags)) {
 		ip->i_gl->gl_object = NULL;
 		gfs2_glock_schedule_for_reclaim(ip->i_gl);
 		gfs2_glock_put(ip->i_gl);
@@ -421,7 +421,7 @@ static void gfs2_delete_inode(struct inode *inode)
 	struct gfs2_holder gh;
 	int error;
 
-	if (!inode->i_private)
+	if (!test_bit(GIF_USER, &ip->i_flags))
 		goto out;
 
 	error = gfs2_glock_nq_init(ip->i_gl, LM_ST_EXCLUSIVE, 0, &gh);
@@ -456,12 +456,15 @@ static void gfs2_delete_inode(struct inode *inode)
 	}
 
 	error = gfs2_dinode_dealloc(ip);
-	/*
-	 * Must do this before unlock to avoid trying to write back
-	 * potentially dirty data now that inode no longer exists
-	 * on disk.
-	 */
+	if (error)
+		goto out_unlock;
+
+	error = gfs2_trans_begin(sdp, 0, sdp->sd_jdesc->jd_blocks);
+	if (error)
+		goto out_unlock;
+	/* Needs to be done before glock release & also in a transaction */
 	truncate_inode_pages(&inode->i_data, 0);
+	gfs2_trans_end(sdp);
 
 out_unlock:
 	gfs2_glock_dq(&ip->i_iopen_gh);
@@ -485,7 +488,6 @@ static struct inode *gfs2_alloc_inode(struct super_block *sb)
 	if (ip) {
 		ip->i_flags = 0;
 		ip->i_gl = NULL;
-		ip->i_last_pfault = jiffies;
 	}
 	return &ip->i_inode;
 }

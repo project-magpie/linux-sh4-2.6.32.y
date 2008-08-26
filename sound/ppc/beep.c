@@ -18,7 +18,6 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
-#include <sound/driver.h>
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <linux/init.h>
@@ -195,10 +194,13 @@ static int snd_pmac_put_beep(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_pmac *chip = snd_kcontrol_chip(kcontrol);
-	int oval;
+	unsigned int oval, nval;
 	snd_assert(chip->beep, return -ENXIO);
 	oval = chip->beep->volume;
-	chip->beep->volume = ucontrol->value.integer.value[0];
+	nval = ucontrol->value.integer.value[0];
+	if (nval > 100)
+		return -EINVAL;
+	chip->beep->volume = nval;
 	return oval != chip->beep->volume;
 }
 
@@ -236,8 +238,8 @@ int __init snd_pmac_attach_beep(struct snd_pmac *chip)
 	input_dev->id.product = 0x0001;
 	input_dev->id.version = 0x0100;
 
-	input_dev->evbit[0] = BIT(EV_SND);
-	input_dev->sndbit[0] = BIT(SND_BELL) | BIT(SND_TONE);
+	input_dev->evbit[0] = BIT_MASK(EV_SND);
+	input_dev->sndbit[0] = BIT_MASK(SND_BELL) | BIT_MASK(SND_TONE);
 	input_dev->event = snd_pmac_beep_event;
 	input_dev->dev.parent = &chip->pdev->dev;
 	input_set_drvdata(input_dev, chip);

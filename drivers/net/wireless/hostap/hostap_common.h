@@ -4,12 +4,6 @@
 #include <linux/types.h>
 #include <linux/if_ether.h>
 
-#define BIT(x) (1 << (x))
-
-#define MAC2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
-#define MACSTR "%02x:%02x:%02x:%02x:%02x:%02x"
-
-
 /* IEEE 802.11 defines */
 
 /* Information Element IDs */
@@ -194,10 +188,10 @@
 
 struct hfa384x_comp_ident
 {
-	u16 id;
-	u16 variant;
-	u16 major;
-	u16 minor;
+	__le16 id;
+	__le16 variant;
+	__le16 major;
+	__le16 minor;
 } __attribute__ ((packed));
 
 #define HFA384X_COMP_ID_PRI 0x15
@@ -206,33 +200,33 @@ struct hfa384x_comp_ident
 
 struct hfa384x_sup_range
 {
-	u16 role;
-	u16 id;
-	u16 variant;
-	u16 bottom;
-	u16 top;
+	__le16 role;
+	__le16 id;
+	__le16 variant;
+	__le16 bottom;
+	__le16 top;
 } __attribute__ ((packed));
 
 
 struct hfa384x_build_id
 {
-	u16 pri_seq;
-	u16 sec_seq;
+	__le16 pri_seq;
+	__le16 sec_seq;
 } __attribute__ ((packed));
 
 /* FD01 - Download Buffer */
 struct hfa384x_rid_download_buffer
 {
-	u16 page;
-	u16 offset;
-	u16 length;
+	__le16 page;
+	__le16 offset;
+	__le16 length;
 } __attribute__ ((packed));
 
 /* BSS connection quality (RID FD43 range, RID FD51 dBm-normalized) */
 struct hfa384x_comms_quality {
-	u16 comm_qual; /* 0 .. 92 */
-	u16 signal_level; /* 27 .. 154 */
-	u16 noise_level; /* 27 .. 154 */
+	__le16 comm_qual; /* 0 .. 92 */
+	__le16 signal_level; /* 27 .. 154 */
+	__le16 noise_level; /* 27 .. 154 */
 } __attribute__ ((packed));
 
 

@@ -96,12 +96,6 @@ void flush_tsb_user(struct mmu_gather *mp)
 #elif defined(CONFIG_SPARC64_PAGE_SIZE_64KB)
 #define HV_PGSZ_IDX_BASE	HV_PGSZ_IDX_64K
 #define HV_PGSZ_MASK_BASE	HV_PGSZ_MASK_64K
-#elif defined(CONFIG_SPARC64_PAGE_SIZE_512KB)
-#define HV_PGSZ_IDX_BASE	HV_PGSZ_IDX_512K
-#define HV_PGSZ_MASK_BASE	HV_PGSZ_MASK_512K
-#elif defined(CONFIG_SPARC64_PAGE_SIZE_4MB)
-#define HV_PGSZ_IDX_BASE	HV_PGSZ_IDX_4MB
-#define HV_PGSZ_MASK_BASE	HV_PGSZ_MASK_4MB
 #else
 #error Broken base page size setting...
 #endif
@@ -182,7 +176,9 @@ static void setup_tsb_params(struct mm_struct *mm, unsigned long tsb_idx, unsign
 		break;
 
 	default:
-		BUG();
+		printk(KERN_ERR "TSB[%s:%d]: Impossible TSB size %lu, killing process.\n",
+		       current->comm, current->pid, tsb_bytes);
+		do_exit(SIGSEGV);
 	};
 	tte |= pte_sz_bits(page_sz);
 
@@ -319,7 +315,8 @@ retry_tsb_alloc:
 	if (new_size > (PAGE_SIZE * 2))
 		gfp_flags = __GFP_NOWARN | __GFP_NORETRY;
 
-	new_tsb = kmem_cache_alloc(tsb_caches[new_cache_index], gfp_flags);
+	new_tsb = kmem_cache_alloc_node(tsb_caches[new_cache_index],
+					gfp_flags, numa_node_id());
 	if (unlikely(!new_tsb)) {
 		/* Not being able to fork due to a high-order TSB
 		 * allocation failure is very bad behavior.  Just back

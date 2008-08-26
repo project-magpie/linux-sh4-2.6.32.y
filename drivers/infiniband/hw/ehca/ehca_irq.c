@@ -62,6 +62,7 @@
 #define NEQE_PORT_NUMBER       EHCA_BMASK_IBM( 8, 15)
 #define NEQE_PORT_AVAILABILITY EHCA_BMASK_IBM(16, 16)
 #define NEQE_DISRUPTIVE        EHCA_BMASK_IBM(16, 16)
+#define NEQE_SPECIFIC_EVENT    EHCA_BMASK_IBM(16, 23)
 
 #define ERROR_DATA_LENGTH      EHCA_BMASK_IBM(52, 63)
 #define ERROR_DATA_TYPE        EHCA_BMASK_IBM( 0,  7)
@@ -69,9 +70,6 @@
 static void queue_comp_task(struct ehca_cq *__cq);
 
 static struct ehca_comp_pool *pool;
-#ifdef CONFIG_HOTPLUG_CPU
-static struct notifier_block comp_pool_callback_nb;
-#endif
 
 static inline void comp_event_callback(struct ehca_cq *cq)
 {
@@ -180,6 +178,10 @@ static void dispatch_qp_event(struct ehca_shca *shca, struct ehca_qp *qp,
 {
 	struct ib_event event;
 
+	/* PATH_MIG without the QP ever having been armed is false alarm */
+	if (event_type == IB_EVENT_PATH_MIG && !qp->mig_armed)
+		return;
+
 	event.device = &shca->ib_device;
 	event.event = event_type;
 
@@ -206,6 +208,8 @@ static void qp_event_callback(struct ehca_shca *shca, u64 eqe,
 
 	read_lock(&ehca_qp_idr_lock);
 	qp = idr_find(&ehca_qp_idr, token);
+	if (qp)
+		atomic_inc(&qp->nr_events);
 	read_unlock(&ehca_qp_idr_lock);
 
 	if (!qp)
@@ -225,6 +229,8 @@ static void qp_event_callback(struct ehca_shca *shca, u64 eqe,
 	if (fatal && qp->ext_type == EQPT_SRQBASE)
 		dispatch_qp_event(shca, qp, IB_EVENT_QP_LAST_WQE_REACHED);
 
+	if (atomic_dec_and_test(&qp->nr_events))
+		wake_up(&qp->wait_completion);
 	return;
 }
 
@@ -294,8 +300,8 @@ static void parse_identifier(struct ehca_shca *shca, u64 eqe)
 	case 0x11: /* unaffiliated access error */
 		ehca_err(&shca->ib_device, "Unaffiliated access error.");
 		break;
-	case 0x12: /* path migrating error */
-		ehca_err(&shca->ib_device, "Path migration error.");
+	case 0x12: /* path migrating */
+		ehca_err(&shca->ib_device, "Path migrating.");
 		break;
 	case 0x13: /* interface trace stopped */
 		ehca_err(&shca->ib_device, "Interface trace stopped.");
@@ -357,17 +363,34 @@ static void parse_ec(struct ehca_shca *shca, u64 eqe)
 {
 	u8 ec   = EHCA_BMASK_GET(NEQE_EVENT_CODE, eqe);
 	u8 port = EHCA_BMASK_GET(NEQE_PORT_NUMBER, eqe);
+	u8 spec_event;
+	struct ehca_sport *sport = &shca->sport[port - 1];
+	unsigned long flags;
 
 	switch (ec) {
 	case 0x30: /* port availability change */
 		if (EHCA_BMASK_GET(NEQE_PORT_AVAILABILITY, eqe)) {
-			shca->sport[port - 1].port_state = IB_PORT_ACTIVE;
+			int suppress_event;
+			/* replay modify_qp for sqps */
+			spin_lock_irqsave(&sport->mod_sqp_lock, flags);
+			suppress_event = !sport->ibqp_sqp[IB_QPT_GSI];
+			if (sport->ibqp_sqp[IB_QPT_SMI])
+				ehca_recover_sqp(sport->ibqp_sqp[IB_QPT_SMI]);
+			if (!suppress_event)
+				ehca_recover_sqp(sport->ibqp_sqp[IB_QPT_GSI]);
+			spin_unlock_irqrestore(&sport->mod_sqp_lock, flags);
+
+			/* AQP1 was destroyed, ignore this event */
+			if (suppress_event)
+				break;
+
+			sport->port_state = IB_PORT_ACTIVE;
 			dispatch_port_event(shca, port, IB_EVENT_PORT_ACTIVE,
 					    "is active");
 			ehca_query_sma_attr(shca, port,
-					    &shca->sport[port - 1].saved_attr);
+					    &sport->saved_attr);
 		} else {
-			shca->sport[port - 1].port_state = IB_PORT_DOWN;
+			sport->port_state = IB_PORT_DOWN;
 			dispatch_port_event(shca, port, IB_EVENT_PORT_ERR,
 					    "is inactive");
 		}
@@ -381,13 +404,15 @@ static void parse_ec(struct ehca_shca *shca, u64 eqe)
 			ehca_warn(&shca->ib_device, "disruptive port "
 				  "%d configuration change", port);
 
-			shca->sport[port - 1].port_state = IB_PORT_DOWN;
+			sport->port_state = IB_PORT_DOWN;
 			dispatch_port_event(shca, port, IB_EVENT_PORT_ERR,
 					    "is inactive");
 
-			shca->sport[port - 1].port_state = IB_PORT_ACTIVE;
+			sport->port_state = IB_PORT_ACTIVE;
 			dispatch_port_event(shca, port, IB_EVENT_PORT_ACTIVE,
 					    "is active");
+			ehca_query_sma_attr(shca, port,
+					    &sport->saved_attr);
 		} else
 			notify_port_conf_change(shca, port);
 		break;
@@ -396,6 +421,16 @@ static void parse_ec(struct ehca_shca *shca, u64 eqe)
 		break;
 	case 0x33:  /* trace stopped */
 		ehca_err(&shca->ib_device, "Traced stopped.");
+		break;
+	case 0x34: /* util async event */
+		spec_event = EHCA_BMASK_GET(NEQE_SPECIFIC_EVENT, eqe);
+		if (spec_event == 0x80) /* client reregister required */
+			dispatch_port_event(shca, port,
+					    IB_EVENT_CLIENT_REREGISTER,
+					    "client reregister req.");
+		else
+			ehca_warn(&shca->ib_device, "Unknown util async "
+				  "event %x on port %x", spec_event, port);
 		break;
 	default:
 		ehca_err(&shca->ib_device, "Unknown event code: %x on %s.",
@@ -500,7 +535,7 @@ void ehca_process_eq(struct ehca_shca *shca, int is_irq)
 {
 	struct ehca_eq *eq = &shca->eq;
 	struct ehca_eqe_cache_entry *eqe_cache = eq->eqe_cache;
-	u64 eqe_value;
+	u64 eqe_value, ret;
 	unsigned long flags;
 	int eqe_cnt, i;
 	int eq_empty = 0;
@@ -552,8 +587,13 @@ void ehca_process_eq(struct ehca_shca *shca, int is_irq)
 			ehca_dbg(&shca->ib_device,
 				 "No eqe found for irq event");
 		goto unlock_irq_spinlock;
-	} else if (!is_irq)
+	} else if (!is_irq) {
+		ret = hipz_h_eoi(eq->ist);
+		if (ret != H_SUCCESS)
+			ehca_err(&shca->ib_device,
+				 "bad return code EOI -rc = %ld\n", ret);
 		ehca_dbg(&shca->ib_device, "deadman found %x eqe", eqe_cnt);
+	}
 	if (unlikely(eqe_cnt == EHCA_EQE_CACHE_SIZE))
 		ehca_dbg(&shca->ib_device, "too many eqes for one irq event");
 	/* enable irq for new packets */
@@ -606,12 +646,12 @@ static inline int find_next_online_cpu(struct ehca_comp_pool *pool)
 	unsigned long flags;
 
 	WARN_ON_ONCE(!in_interrupt());
-	if (ehca_debug_level)
+	if (ehca_debug_level >= 3)
 		ehca_dmp(&cpu_online_map, sizeof(cpumask_t), "");
 
 	spin_lock_irqsave(&pool->last_cpu_lock, flags);
-	cpu = next_cpu(pool->last_cpu, cpu_online_map);
-	if (cpu == NR_CPUS)
+	cpu = next_cpu_nr(pool->last_cpu, cpu_online_map);
+	if (cpu >= nr_cpu_ids)
 		cpu = first_cpu(cpu_online_map);
 	pool->last_cpu = cpu;
 	spin_unlock_irqrestore(&pool->last_cpu_lock, flags);
@@ -760,9 +800,7 @@ static void destroy_comp_task(struct ehca_comp_pool *pool,
 		kthread_stop(task);
 }
 
-#ifdef CONFIG_HOTPLUG_CPU
-static void take_over_work(struct ehca_comp_pool *pool,
-			   int cpu)
+static void __cpuinit take_over_work(struct ehca_comp_pool *pool, int cpu)
 {
 	struct ehca_cpu_comp_task *cct = per_cpu_ptr(pool->cpu_comp_tasks, cpu);
 	LIST_HEAD(list);
@@ -785,9 +823,9 @@ static void take_over_work(struct ehca_comp_pool *pool,
 
 }
 
-static int comp_pool_callback(struct notifier_block *nfb,
-			      unsigned long action,
-			      void *hcpu)
+static int __cpuinit comp_pool_callback(struct notifier_block *nfb,
+					unsigned long action,
+					void *hcpu)
 {
 	unsigned int cpu = (unsigned long)hcpu;
 	struct ehca_cpu_comp_task *cct;
@@ -833,7 +871,11 @@ static int comp_pool_callback(struct notifier_block *nfb,
 
 	return NOTIFY_OK;
 }
-#endif
+
+static struct notifier_block comp_pool_callback_nb __cpuinitdata = {
+	.notifier_call	= comp_pool_callback,
+	.priority	= 0,
+};
 
 int ehca_create_comp_pool(void)
 {
@@ -864,11 +906,7 @@ int ehca_create_comp_pool(void)
 		}
 	}
 
-#ifdef CONFIG_HOTPLUG_CPU
-	comp_pool_callback_nb.notifier_call = comp_pool_callback;
-	comp_pool_callback_nb.priority = 0;
-	register_cpu_notifier(&comp_pool_callback_nb);
-#endif
+	register_hotcpu_notifier(&comp_pool_callback_nb);
 
 	printk(KERN_INFO "eHCA scaling code enabled\n");
 
@@ -882,9 +920,7 @@ void ehca_destroy_comp_pool(void)
 	if (!ehca_scaling_code)
 		return;
 
-#ifdef CONFIG_HOTPLUG_CPU
-	unregister_cpu_notifier(&comp_pool_callback_nb);
-#endif
+	unregister_hotcpu_notifier(&comp_pool_callback_nb);
 
 	for (i = 0; i < NR_CPUS; i++) {
 		if (cpu_online(i))

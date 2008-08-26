@@ -14,6 +14,8 @@
 #include <asm/mach-types.h>
 #include <asm/irq.h>
 
+#define DRV_NAME "ide_arm"
+
 #ifdef CONFIG_ARCH_CLPS7500
 # include <asm/arch/hardware.h>
 #
@@ -24,12 +26,32 @@
 # define IDE_ARM_IRQ	IRQ_HARDDISK
 #endif
 
-void __init ide_arm_init(void)
+static int __init ide_arm_init(void)
 {
-	hw_regs_t hw;
+	unsigned long base = IDE_ARM_IO, ctl = IDE_ARM_IO + 0x206;
+	hw_regs_t hw, *hws[] = { &hw, NULL, NULL, NULL };
+
+	if (!request_region(base, 8, DRV_NAME)) {
+		printk(KERN_ERR "%s: I/O resource 0x%lX-0x%lX not free.\n",
+				DRV_NAME, base, base + 7);
+		return -EBUSY;
+	}
+
+	if (!request_region(ctl, 1, DRV_NAME)) {
+		printk(KERN_ERR "%s: I/O resource 0x%lX not free.\n",
+				DRV_NAME, ctl);
+		release_region(base, 8);
+		return -EBUSY;
+	}
 
 	memset(&hw, 0, sizeof(hw));
-	ide_std_init_ports(&hw, IDE_ARM_IO, IDE_ARM_IO + 0x206);
+	ide_std_init_ports(&hw, base, ctl);
 	hw.irq = IDE_ARM_IRQ;
-	ide_register_hw(&hw, 1, NULL);
+	hw.chipset = ide_generic;
+
+	return ide_host_add(NULL, hws, NULL);
 }
+
+module_init(ide_arm_init);
+
+MODULE_LICENSE("GPL");

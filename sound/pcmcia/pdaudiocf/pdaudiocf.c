@@ -1,7 +1,7 @@
 /*
  * Driver for Sound Core PDAudioCF soundcard
  *
- * Copyright (c) 2003 by Jaroslav Kysela <perex@suse.cz>
+ * Copyright (c) 2003 by Jaroslav Kysela <perex@perex.cz>
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -18,7 +18,6 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <linux/slab.h>
 #include <linux/moduleparam.h>
@@ -33,7 +32,7 @@
 
 #define CARD_NAME	"PDAudio-CF"
 
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("Sound Core " CARD_NAME);
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Sound Core," CARD_NAME "}}");
@@ -128,6 +127,8 @@ static int snd_pdacf_probe(struct pcmcia_device *link)
 		snd_card_free(card);
 		return -ENODEV;
 	}
+
+	snd_card_set_dev(card, &handle_to_dev(link));
 
 	pdacf->index = i;
 	card_list[i] = card;

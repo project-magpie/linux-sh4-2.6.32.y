@@ -1,5 +1,6 @@
 /* Copyright (C) 2004 Mips Technologies, Inc */
 
+#include <linux/clockchips.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/cpumask.h>
@@ -15,7 +16,6 @@
 #include <asm/hazards.h>
 #include <asm/irq.h>
 #include <asm/mmu_context.h>
-#include <asm/smp.h>
 #include <asm/mipsregs.h>
 #include <asm/cacheflush.h>
 #include <asm/time.h>
@@ -62,10 +62,10 @@ asiduse smtc_live_asid[MAX_SMTC_TLBS][MAX_SMTC_ASIDS];
  * Clock interrupt "latch" buffers, per "CPU"
  */
 
-unsigned int ipi_timer_latch[NR_CPUS];
+static atomic_t ipi_timer_latch[NR_CPUS];
 
 /*
- * Number of InterProcessor Interupt (IPI) message buffers to allocate
+ * Number of InterProcessor Interrupt (IPI) message buffers to allocate
  */
 
 #define IPIBUF_PER_CPU 4
@@ -87,10 +87,18 @@ unsigned int smtc_status = 0;
 
 /* Boot command line configuration overrides */
 
+static int vpe0limit;
 static int ipibuffers = 0;
 static int nostlb = 0;
 static int asidmask = 0;
 unsigned long smtc_asid_mask = 0xff;
+
+static int __init vpe0tcs(char *str)
+{
+	get_option(&str, &vpe0limit);
+
+	return 1;
+}
 
 static int __init ipibufs(char *str)
 {
@@ -124,6 +132,7 @@ static int __init asidmask_set(char *str)
 	return 1;
 }
 
+__setup("vpe0tcs=", vpe0tcs);
 __setup("ipibufs=", ipibufs);
 __setup("nostlb", stlb_disable);
 __setup("asidmask=", asidmask_set);
@@ -165,21 +174,13 @@ static int clock_hang_reported[NR_CPUS];
 
 #endif /* CONFIG_SMTC_IDLE_HOOK_DEBUG */
 
-/* Initialize shared TLB - the should probably migrate to smtc_setup_cpus() */
-
-void __init sanitize_tlb_entries(void)
-{
-	printk("Deprecated sanitize_tlb_entries() invoked\n");
-}
-
-
 /*
  * Configure shared TLB - VPC configuration bit must be set by caller
  */
 
 static void smtc_configure_tlb(void)
 {
-	int i,tlbsiz,vpes;
+	int i, tlbsiz, vpes;
 	unsigned long mvpconf0;
 	unsigned long config1val;
 
@@ -296,8 +297,10 @@ int __init mipsmt_build_cpu_map(int start_cpu_slot)
 		__cpu_number_map[i] = i;
 		__cpu_logical_map[i] = i;
 	}
+#ifdef CONFIG_MIPS_MT_FPAFF
 	/* Initialize map of CPUs with FPUs */
 	cpus_clear(mt_fpu_cpumask);
+#endif
 
 	/* One of those TC's is the one booting, and not a secondary... */
 	printk("%i available secondary CPU TC(s)\n", i - 1);
@@ -328,7 +331,8 @@ static void smtc_tc_setup(int vpe, int tc, int cpu)
 	/* In general, all TCs should have the same cpu_data indications */
 	memcpy(&cpu_data[cpu], &cpu_data[0], sizeof(struct cpuinfo_mips));
 	/* For 34Kf, start with TC/CPU 0 as sole owner of single FPU context */
-	if (cpu_data[0].cputype == CPU_34K)
+	if (cpu_data[0].cputype == CPU_34K ||
+	    cpu_data[0].cputype == CPU_1004K)
 		cpu_data[cpu].options &= ~MIPS_CPU_FPU;
 	cpu_data[cpu].vpe_id = vpe;
 	cpu_data[cpu].tc_id = tc;
@@ -337,7 +341,7 @@ static void smtc_tc_setup(int vpe, int tc, int cpu)
 
 void mipsmt_prepare_cpus(void)
 {
-	int i, vpe, tc, ntc, nvpe, tcpervpe, slop, cpu;
+	int i, vpe, tc, ntc, nvpe, tcpervpe[NR_CPUS], slop, cpu;
 	unsigned long flags;
 	unsigned long val;
 	int nipi;
@@ -359,7 +363,7 @@ void mipsmt_prepare_cpus(void)
 		IPIQ[i].head = IPIQ[i].tail = NULL;
 		spin_lock_init(&IPIQ[i].lock);
 		IPIQ[i].depth = 0;
-		ipi_timer_latch[i] = 0;
+		atomic_set(&ipi_timer_latch[i], 0);
 	}
 
 	/* cpu_data index starts at zero */
@@ -369,7 +373,7 @@ void mipsmt_prepare_cpus(void)
 	cpu++;
 
 	/* Report on boot-time options */
-	mips_mt_set_cpuoptions ();
+	mips_mt_set_cpuoptions();
 	if (vpelimit > 0)
 		printk("Limit of %d VPEs set\n", vpelimit);
 	if (tclimit > 0)
@@ -398,8 +402,39 @@ void mipsmt_prepare_cpus(void)
 		ntc = NR_CPUS;
 	if (tclimit > 0 && ntc > tclimit)
 		ntc = tclimit;
-	tcpervpe = ntc / nvpe;
-	slop = ntc % nvpe;	/* Residual TCs, < NVPE */
+	slop = ntc % nvpe;
+	for (i = 0; i < nvpe; i++) {
+		tcpervpe[i] = ntc / nvpe;
+		if (slop) {
+			if((slop - i) > 0) tcpervpe[i]++;
+		}
+	}
+	/* Handle command line override for VPE0 */
+	if (vpe0limit > ntc) vpe0limit = ntc;
+	if (vpe0limit > 0) {
+		int slopslop;
+		if (vpe0limit < tcpervpe[0]) {
+		    /* Reducing TC count - distribute to others */
+		    slop = tcpervpe[0] - vpe0limit;
+		    slopslop = slop % (nvpe - 1);
+		    tcpervpe[0] = vpe0limit;
+		    for (i = 1; i < nvpe; i++) {
+			tcpervpe[i] += slop / (nvpe - 1);
+			if(slopslop && ((slopslop - (i - 1) > 0)))
+				tcpervpe[i]++;
+		    }
+		} else if (vpe0limit > tcpervpe[0]) {
+		    /* Increasing TC count - steal from others */
+		    slop = vpe0limit - tcpervpe[0];
+		    slopslop = slop % (nvpe - 1);
+		    tcpervpe[0] = vpe0limit;
+		    for (i = 1; i < nvpe; i++) {
+			tcpervpe[i] -= slop / (nvpe - 1);
+			if(slopslop && ((slopslop - (i - 1) > 0)))
+				tcpervpe[i]--;
+		    }
+		}
+	}
 
 	/* Set up shared TLB */
 	smtc_configure_tlb();
@@ -413,27 +448,18 @@ void mipsmt_prepare_cpus(void)
 		if (vpe != 0)
 			printk(", ");
 		printk("VPE %d: TC", vpe);
-		for (i = 0; i < tcpervpe; i++) {
+		for (i = 0; i < tcpervpe[vpe]; i++) {
 			/*
 			 * TC 0 is bound to VPE 0 at reset,
 			 * and is presumably executing this
 			 * code.  Leave it alone!
 			 */
 			if (tc != 0) {
-				smtc_tc_setup(vpe,tc, cpu);
+				smtc_tc_setup(vpe, tc, cpu);
 				cpu++;
 			}
 			printk(" %d", tc);
 			tc++;
-		}
-		if (slop) {
-			if (tc != 0) {
-				smtc_tc_setup(vpe,tc, cpu);
-				cpu++;
-			}
-			printk(" %d", tc);
-			tc++;
-			slop--;
 		}
 		if (vpe != 0) {
 			/*
@@ -482,10 +508,12 @@ void mipsmt_prepare_cpus(void)
 
 	/* Set up coprocessor affinity CPU mask(s) */
 
+#ifdef CONFIG_MIPS_MT_FPAFF
 	for (tc = 0; tc < ntc; tc++) {
 		if (cpu_data[tc].options & MIPS_CPU_FPU)
 			cpu_set(tc, mt_fpu_cpumask);
 	}
+#endif
 
 	/* set up ipi interrupts... */
 
@@ -567,7 +595,7 @@ void smtc_init_secondary(void)
 	if (((read_c0_tcbind() & TCBIND_CURTC) != 0) &&
 	    ((read_c0_tcbind() & TCBIND_CURVPE)
 	    != cpu_data[smp_processor_id() - 1].vpe_id)){
-		write_c0_compare (read_c0_count() + mips_hpt_frequency/HZ);
+		write_c0_compare(read_c0_count() + mips_hpt_frequency/HZ);
 	}
 
 	local_irq_enable();
@@ -605,6 +633,60 @@ int setup_irq_smtc(unsigned int irq, struct irqaction * new,
 
 	return setup_irq(irq, new);
 }
+
+#ifdef CONFIG_MIPS_MT_SMTC_IRQAFF
+/*
+ * Support for IRQ affinity to TCs
+ */
+
+void smtc_set_irq_affinity(unsigned int irq, cpumask_t affinity)
+{
+	/*
+	 * If a "fast path" cache of quickly decodable affinity state
+	 * is maintained, this is where it gets done, on a call up
+	 * from the platform affinity code.
+	 */
+}
+
+void smtc_forward_irq(unsigned int irq)
+{
+	int target;
+
+	/*
+	 * OK wise guy, now figure out how to get the IRQ
+	 * to be serviced on an authorized "CPU".
+	 *
+	 * Ideally, to handle the situation where an IRQ has multiple
+	 * eligible CPUS, we would maintain state per IRQ that would
+	 * allow a fair distribution of service requests.  Since the
+	 * expected use model is any-or-only-one, for simplicity
+	 * and efficiency, we just pick the easiest one to find.
+	 */
+
+	target = first_cpu(irq_desc[irq].affinity);
+
+	/*
+	 * We depend on the platform code to have correctly processed
+	 * IRQ affinity change requests to ensure that the IRQ affinity
+	 * mask has been purged of bits corresponding to nonexistent and
+	 * offline "CPUs", and to TCs bound to VPEs other than the VPE
+	 * connected to the physical interrupt input for the interrupt
+	 * in question.  Otherwise we have a nasty problem with interrupt
+	 * mask management.  This is best handled in non-performance-critical
+	 * platform IRQ affinity setting code,  to minimize interrupt-time
+	 * checks.
+	 */
+
+	/* If no one is eligible, service locally */
+	if (target >= NR_CPUS) {
+		do_IRQ_no_affinity(irq);
+		return;
+	}
+
+	smtc_send_ipi(target, IRQ_AFFINITY_IPI, irq);
+}
+
+#endif /* CONFIG_MIPS_MT_SMTC_IRQAFF */
 
 /*
  * IPI model for SMTC is tricky, because interrupts aren't TC-specific.
@@ -648,7 +730,7 @@ static void smtc_ipi_qdump(void)
  * be done with the atomic.h primitives). And since this is
  * MIPS MT, we can assume that we have LL/SC.
  */
-static __inline__ int atomic_postincrement(unsigned int *pv)
+static inline int atomic_postincrement(atomic_t *v)
 {
 	unsigned long result;
 
@@ -659,9 +741,9 @@ static __inline__ int atomic_postincrement(unsigned int *pv)
 	"	addu	%1, %0, 1				\n"
 	"	sc	%1, %2					\n"
 	"	beqz	%1, 1b					\n"
-	"	sync						\n"
-	: "=&r" (result), "=&r" (temp), "=m" (*pv)
-	: "m" (*pv)
+	__WEAK_LLSC_MB
+	: "=&r" (result), "=&r" (temp), "=m" (v->counter)
+	: "m" (v->counter)
 	: "memory");
 
 	return result;
@@ -689,7 +771,9 @@ void smtc_send_ipi(int cpu, int type, unsigned int action)
 	pipi->arg = (void *)action;
 	pipi->dest = cpu;
 	if (cpu_data[cpu].vpe_id != cpu_data[smp_processor_id()].vpe_id) {
-		/* If not on same VPE, enqueue and send cross-VPE interupt */
+		if (type == SMTC_CLOCK_TICK)
+			atomic_inc(&ipi_timer_latch[cpu]);
+		/* If not on same VPE, enqueue and send cross-VPE interrupt */
 		smtc_ipi_nq(&IPIQ[cpu], pipi);
 		LOCK_CORE_PRA();
 		settc(cpu_data[cpu].tc_id);
@@ -730,6 +814,8 @@ void smtc_send_ipi(int cpu, int type, unsigned int action)
 			}
 			smtc_ipi_nq(&IPIQ[cpu], pipi);
 		} else {
+			if (type == SMTC_CLOCK_TICK)
+				atomic_inc(&ipi_timer_latch[cpu]);
 			post_direct_ipi(cpu, pipi);
 			write_tc_c0_tchalt(0);
 			UNLOCK_CORE_PRA();
@@ -747,6 +833,7 @@ static void post_direct_ipi(int cpu, struct smtc_ipi *pipi)
 	unsigned long tcrestart;
 	extern u32 kernelsp[NR_CPUS];
 	extern void __smtc_ipi_vector(void);
+//printk("%s: on %d for %d\n", __func__, smp_processor_id(), cpu);
 
 	/* Extract Status, EPC from halted TC */
 	tcstatus = read_tc_c0_tcstatus();
@@ -790,32 +877,37 @@ static void ipi_resched_interrupt(void)
 	/* Return from interrupt should be enough to cause scheduler check */
 }
 
-
 static void ipi_call_interrupt(void)
 {
 	/* Invoke generic function invocation code in smp.c */
 	smp_call_function_interrupt();
 }
 
+DECLARE_PER_CPU(struct clock_event_device, smtc_dummy_clockevent_device);
+
 void ipi_decode(struct smtc_ipi *pipi)
 {
+	unsigned int cpu = smp_processor_id();
+	struct clock_event_device *cd;
 	void *arg_copy = pipi->arg;
 	int type_copy = pipi->type;
-	int dest_copy = pipi->dest;
+	int ticks;
 
 	smtc_ipi_nq(&freeIPIq, pipi);
 	switch (type_copy) {
 	case SMTC_CLOCK_TICK:
 		irq_enter();
-		kstat_this_cpu.irqs[MIPS_CPU_IRQ_BASE + cp0_compare_irq]++;
-		/* Invoke Clock "Interrupt" */
-		ipi_timer_latch[dest_copy] = 0;
-#ifdef CONFIG_SMTC_IDLE_HOOK_DEBUG
-		clock_hang_reported[dest_copy] = 0;
-#endif /* CONFIG_SMTC_IDLE_HOOK_DEBUG */
-		local_timer_interrupt(0, NULL);
+		kstat_this_cpu.irqs[MIPS_CPU_IRQ_BASE + 1]++;
+		cd = &per_cpu(smtc_dummy_clockevent_device, cpu);
+		ticks = atomic_read(&ipi_timer_latch[cpu]);
+		atomic_sub(ticks, &ipi_timer_latch[cpu]);
+		while (ticks) {
+			cd->event_handler(cd);
+			ticks--;
+		}
 		irq_exit();
 		break;
+
 	case LINUX_SMP_IPI:
 		switch ((int)arg_copy) {
 		case SMP_RESCHEDULE_YOURSELF:
@@ -830,6 +922,15 @@ void ipi_decode(struct smtc_ipi *pipi)
 			break;
 		}
 		break;
+#ifdef CONFIG_MIPS_MT_SMTC_IRQAFF
+	case IRQ_AFFINITY_IPI:
+		/*
+		 * Accept a "forwarded" interrupt that was initially
+		 * taken by a TC who doesn't have affinity for the IRQ.
+		 */
+		do_IRQ_no_affinity((int)arg_copy);
+		break;
+#endif /* CONFIG_MIPS_MT_SMTC_IRQAFF */
 	default:
 		printk("Impossible SMTC IPI Type 0x%x\n", type_copy);
 		break;
@@ -854,25 +955,6 @@ void deferred_smtc_ipi(void)
 			ipi_decode(pipi);
 			local_irq_restore(flags);
 		}
-	}
-}
-
-/*
- * Send clock tick to all TCs except the one executing the funtion
- */
-
-void smtc_timer_broadcast(void)
-{
-	int cpu;
-	int myTC = cpu_data[smp_processor_id()].tc_id;
-	int myVPE = cpu_data[smp_processor_id()].vpe_id;
-
-	smtc_cpu_stats[smp_processor_id()].timerints++;
-
-	for_each_online_cpu(cpu) {
-		if (cpu_data[cpu].vpe_id == myVPE &&
-		    cpu_data[cpu].tc_id != myTC)
-			smtc_send_ipi(cpu, SMTC_CLOCK_TICK, 0);
 	}
 }
 
@@ -973,7 +1055,7 @@ static void setup_cross_vpe_interrupts(unsigned int nvpe)
 		return;
 
 	if (!cpu_has_vint)
-		panic("SMTC Kernel requires Vectored Interupt support");
+		panic("SMTC Kernel requires Vectored Interrupt support");
 
 	set_vi_handler(MIPS_CPU_IPI_IRQ, ipi_irq_dispatch);
 
@@ -1117,11 +1199,11 @@ void smtc_idle_loop_hook(void)
 	for (tc = 0; tc < NR_CPUS; tc++) {
 		/* Don't check ourself - we'll dequeue IPIs just below */
 		if ((tc != smp_processor_id()) &&
-		    ipi_timer_latch[tc] > timerq_limit) {
+		    atomic_read(&ipi_timer_latch[tc]) > timerq_limit) {
 		    if (clock_hang_reported[tc] == 0) {
 			pdb_msg += sprintf(pdb_msg,
 				"TC %d looks hung with timer latch at %d\n",
-				tc, ipi_timer_latch[tc]);
+				tc, atomic_read(&ipi_timer_latch[tc]));
 			clock_hang_reported[tc]++;
 			}
 		}
@@ -1162,7 +1244,7 @@ void smtc_soft_dump(void)
 	smtc_ipi_qdump();
 	printk("Timer IPI Backlogs:\n");
 	for (i=0; i < NR_CPUS; i++) {
-		printk("%d: %d\n", i, ipi_timer_latch[i]);
+		printk("%d: %d\n", i, atomic_read(&ipi_timer_latch[i]));
 	}
 	printk("%d Recoveries of \"stolen\" FPU\n",
 	       atomic_read(&smtc_fpu_recoveries));
@@ -1204,7 +1286,7 @@ void smtc_get_new_mmu_context(struct mm_struct *mm, unsigned long cpu)
 			if (cpu_has_vtag_icache)
 				flush_icache_all();
 			/* Traverse all online CPUs (hack requires contigous range) */
-			for (i = 0; i < num_online_cpus(); i++) {
+			for_each_online_cpu(i) {
 				/*
 				 * We don't need to worry about our own CPU, nor those of
 				 * CPUs who don't share our TLB.
@@ -1233,7 +1315,7 @@ void smtc_get_new_mmu_context(struct mm_struct *mm, unsigned long cpu)
 	/*
 	 * SMTC shares the TLB within VPEs and possibly across all VPEs.
 	 */
-	for (i = 0; i < num_online_cpus(); i++) {
+	for_each_online_cpu(i) {
 		if ((smtc_status & SMTC_TLB_SHARED) ||
 		    (cpu_data[i].vpe_id == cpu_data[cpu].vpe_id))
 			cpu_context(i, mm) = asid_cache(i) = asid;

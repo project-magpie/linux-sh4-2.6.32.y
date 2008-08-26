@@ -19,6 +19,10 @@
 
 #ifdef __KERNEL__
 
+#ifndef _LINUX_BITOPS_H
+#error only <linux/bitops.h> can be included directly
+#endif
+
 #include <linux/compiler.h>
 #include <asm/system.h>
 
@@ -273,9 +277,16 @@ static inline int constant_fls(int x)
  * the clz instruction for much better code efficiency.
  */
 
-#define fls(x) \
+#define __fls(x) \
 	( __builtin_constant_p(x) ? constant_fls(x) : \
 	  ({ int __r; asm("clz\t%0, %1" : "=r"(__r) : "r"(x) : "cc"); 32-__r; }) )
+
+/* Implement fls() in C so that 64-bit args are suitably truncated */
+static inline int fls(int x)
+{
+	return __fls(x);
+}
+
 #define ffs(x) ({ unsigned long __t = (x); fls(__t & -__t); })
 #define __ffs(x) (ffs(x) - 1)
 #define ffz(x) __ffs( ~(x) )
@@ -286,6 +297,7 @@ static inline int constant_fls(int x)
 
 #include <asm-generic/bitops/sched.h>
 #include <asm-generic/bitops/hweight.h>
+#include <asm-generic/bitops/lock.h>
 
 /*
  * Ext2 is defined to use little-endian byte ordering.
@@ -305,6 +317,8 @@ static inline int constant_fls(int x)
 		_find_first_zero_bit_le(p,sz)
 #define ext2_find_next_zero_bit(p,sz,off)	\
 		_find_next_zero_bit_le(p,sz,off)
+#define ext2_find_next_bit(p, sz, off) \
+		_find_next_bit_le(p, sz, off)
 
 /*
  * Minix is defined to use little-endian byte ordering.

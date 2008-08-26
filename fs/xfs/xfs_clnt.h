@@ -86,10 +86,9 @@ struct xfs_mount_args {
 #define XFSMNT_NOUUID		0x01000000	/* Ignore fs uuid */
 #define XFSMNT_DMAPI		0x02000000	/* enable dmapi/xdsm */
 #define XFSMNT_BARRIER		0x04000000	/* use write barriers */
-#define XFSMNT_IDELETE		0x08000000	/* inode cluster delete */
+#define XFSMNT_IKEEP		0x08000000	/* inode cluster delete */
 #define XFSMNT_SWALLOC		0x10000000	/* turn on stripe width
 						 * allocation */
-#define XFSMNT_IHASHSIZE	0x20000000	/* inode hash table size */
 #define XFSMNT_DIRSYNC		0x40000000	/* sync creat,link,unlink,rename
 						 * symlink,mkdir,rmdir,mknod */
 #define XFSMNT_FLAGS2		0x80000000	/* more flags set in flags2 */

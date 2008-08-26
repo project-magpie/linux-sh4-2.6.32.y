@@ -6,6 +6,8 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/acpi.h>
+#include <linux/signal.h>
+#include <linux/kthread.h>
 
 #include <acpi/acpi_drivers.h>
 #include <acpi/acinterp.h>	/* for acpi_ex_eisa_id_to_string() */
@@ -39,27 +41,33 @@ static int create_modalias(struct acpi_device *acpi_dev, char *modalias,
 			   int size)
 {
 	int len;
+	int count;
 
-	if (!acpi_dev->flags.hardware_id)
+	if (!acpi_dev->flags.hardware_id && !acpi_dev->flags.compatible_ids)
 		return -ENODEV;
 
-	len = snprintf(modalias, size, "acpi:%s:",
-		       acpi_dev->pnp.hardware_id);
-	if (len < 0 || len >= size)
-		return -EINVAL;
+	len = snprintf(modalias, size, "acpi:");
 	size -= len;
+
+	if (acpi_dev->flags.hardware_id) {
+		count = snprintf(&modalias[len], size, "%s:",
+				 acpi_dev->pnp.hardware_id);
+		if (count < 0 || count >= size)
+			return -EINVAL;
+		len += count;
+		size -= count;
+	}
 
 	if (acpi_dev->flags.compatible_ids) {
 		struct acpi_compatible_id_list *cid_list;
 		int i;
-		int count;
 
 		cid_list = acpi_dev->pnp.cid_list;
 		for (i = 0; i < cid_list->count; i++) {
 			count = snprintf(&modalias[len], size, "%s:",
 					 cid_list->id[i].value);
 			if (count < 0 || count >= size) {
-				printk(KERN_ERR "acpi: %s cid[%i] exceeds event buffer size",
+				printk(KERN_ERR PREFIX "%s cid[%i] exceeds event buffer size",
 				       acpi_dev->pnp.device_name, i);
 				break;
 			}
@@ -86,17 +94,37 @@ acpi_device_modalias_show(struct device *dev, struct device_attribute *attr, cha
 }
 static DEVICE_ATTR(modalias, 0444, acpi_device_modalias_show, NULL);
 
-static int acpi_eject_operation(acpi_handle handle, int lockable)
+static int acpi_bus_hot_remove_device(void *context)
 {
+	struct acpi_device *device;
+	acpi_handle handle = context;
 	struct acpi_object_list arg_list;
 	union acpi_object arg;
 	acpi_status status = AE_OK;
 
-	/*
-	 * TBD: evaluate _PS3?
-	 */
+	if (acpi_bus_get_device(handle, &device))
+		return 0;
 
-	if (lockable) {
+	if (!device)
+		return 0;
+
+	ACPI_DEBUG_PRINT((ACPI_DB_INFO,
+		"Hot-removing device %s...\n", device->dev.bus_id));
+
+
+	if (acpi_bus_trim(device, 1)) {
+		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
+				"Removing device failed\n"));
+		return -1;
+	}
+
+	/* power off device */
+	status = acpi_evaluate_object(handle, "_PS3", NULL, NULL);
+	if (ACPI_FAILURE(status) && status != AE_NOT_FOUND)
+		ACPI_DEBUG_PRINT((ACPI_DB_WARN,
+				"Power-off device failed\n"));
+
+	if (device->flags.lockable) {
 		arg_list.count = 1;
 		arg_list.pointer = &arg;
 		arg.type = ACPI_TYPE_INTEGER;
@@ -112,26 +140,22 @@ static int acpi_eject_operation(acpi_handle handle, int lockable)
 	/*
 	 * TBD: _EJD support.
 	 */
-
 	status = acpi_evaluate_object(handle, "_EJ0", &arg_list, NULL);
-	if (ACPI_FAILURE(status)) {
-		return (-ENODEV);
-	}
+	if (ACPI_FAILURE(status))
+		return -ENODEV;
 
-	return (0);
+	return 0;
 }
 
 static ssize_t
 acpi_eject_store(struct device *d, struct device_attribute *attr,
 		const char *buf, size_t count)
 {
-	int result;
 	int ret = count;
-	int islockable;
 	acpi_status status;
-	acpi_handle handle;
 	acpi_object_type type = 0;
 	struct acpi_device *acpi_device = to_acpi_device(d);
+	struct task_struct *task;
 
 	if ((!count) || (buf[0] != '1')) {
 		return -EINVAL;
@@ -148,18 +172,12 @@ acpi_eject_store(struct device *d, struct device_attribute *attr,
 		goto err;
 	}
 
-	islockable = acpi_device->flags.lockable;
-	handle = acpi_device->handle;
-
-	result = acpi_bus_trim(acpi_device, 1);
-
-	if (!result)
-		result = acpi_eject_operation(handle, islockable);
-
-	if (result) {
-		ret = -EBUSY;
-	}
-      err:
+	/* remove the device in another thread to fix the deadlock issue */
+	task = kthread_run(acpi_bus_hot_remove_device,
+				acpi_device->handle, "acpi_hot_remove_device");
+	if (IS_ERR(task))
+		ret = PTR_ERR(task);
+err:
 	return ret;
 }
 
@@ -319,16 +337,18 @@ static int acpi_bus_match(struct device *dev, struct device_driver *drv)
 	return !acpi_match_device_ids(acpi_dev, acpi_drv->ids);
 }
 
-static int acpi_device_uevent(struct device *dev, char **envp, int num_envp,
-			      char *buffer, int buffer_size)
+static int acpi_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
 	struct acpi_device *acpi_dev = to_acpi_device(dev);
+	int len;
 
-	strcpy(buffer, "MODALIAS=");
-	if (create_modalias(acpi_dev, buffer + 9, buffer_size - 9) > 0) {
-		envp[0] = buffer;
-		envp[1] = NULL;
-	}
+	if (add_uevent_var(env, "MODALIAS="))
+		return -ENOMEM;
+	len = create_modalias(acpi_dev, &env->buf[env->buflen - 1],
+			      sizeof(env->buf) - env->buflen);
+	if (len >= (sizeof(env->buf) - env->buflen))
+		return -ENOMEM;
+	env->buflen += len;
 	return 0;
 }
 
@@ -451,7 +471,7 @@ static int acpi_device_register(struct acpi_device *device,
 	device->dev.release = &acpi_device_release;
 	result = device_add(&device->dev);
 	if(result) {
-		printk("Error adding device %s", device->dev.bus_id);
+		dev_err(&device->dev, "Error adding device\n");
 		goto end;
 	}
 
@@ -607,7 +627,8 @@ acpi_bus_get_ejd(acpi_handle handle, acpi_handle *ejd)
 	status = acpi_evaluate_object(handle, "_EJD", NULL, &buffer);
 	if (ACPI_SUCCESS(status)) {
 		obj = buffer.pointer;
-		status = acpi_get_handle(NULL, obj->string.pointer, ejd);
+		status = acpi_get_handle(ACPI_ROOT_OBJECT, obj->string.pointer,
+					 ejd);
 		kfree(buffer.pointer);
 	}
 	return status;
@@ -668,9 +689,8 @@ acpi_bus_extract_wakeup_device_power_package(struct acpi_device *device,
 	device->wakeup.resources.count = package->package.count - 2;
 	for (i = 0; i < device->wakeup.resources.count; i++) {
 		element = &(package->package.elements[i + 2]);
-		if (element->type != ACPI_TYPE_ANY) {
+		if (element->type != ACPI_TYPE_LOCAL_REFERENCE)
 			return AE_BAD_DATA;
-		}
 
 		device->wakeup.resources.handles[i] = element->reference.handle;
 	}
@@ -683,6 +703,7 @@ static int acpi_bus_get_wakeup_device_flags(struct acpi_device *device)
 	acpi_status status = 0;
 	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
 	union acpi_object *package = NULL;
+	int psw_error;
 
 	struct acpi_device_id button_device_ids[] = {
 		{"PNP0C0D", 0},
@@ -690,7 +711,6 @@ static int acpi_bus_get_wakeup_device_flags(struct acpi_device *device)
 		{"PNP0C0E", 0},
 		{"", 0},
 	};
-
 
 	/* _PRW */
 	status = acpi_evaluate_object(device->handle, "_PRW", NULL, &buffer);
@@ -709,6 +729,17 @@ static int acpi_bus_get_wakeup_device_flags(struct acpi_device *device)
 	kfree(buffer.pointer);
 
 	device->wakeup.flags.valid = 1;
+	/* Call _PSW/_DSW object to disable its ability to wake the sleeping
+	 * system for the ACPI device with the _PRW object.
+	 * The _PSW object is depreciated in ACPI 3.0 and is replaced by _DSW.
+	 * So it is necessary to call _DSW object first. Only when it is not
+	 * present will the _PSW object used.
+	 */
+	psw_error = acpi_device_sleep_wake(device, 0, 0, 0);
+	if (psw_error)
+		ACPI_DEBUG_PRINT((ACPI_DB_INFO,
+				"error in _DSW or _PSW evaluation\n"));
+
 	/* Power button, Lid switch always enable wakeup */
 	if (!acpi_match_device_ids(device, button_device_ids))
 		device->wakeup.flags.run_wake = 1;
@@ -828,7 +859,7 @@ static int acpi_bus_get_flags(struct acpi_device *device)
 	if (ACPI_SUCCESS(status))
 		device->flags.wake_capable = 1;
 
-	/* TBD: Peformance management */
+	/* TBD: Performance management */
 
 	return 0;
 }
@@ -873,10 +904,7 @@ static void acpi_device_get_busid(struct acpi_device *device,
 static int
 acpi_video_bus_match(struct acpi_device *device)
 {
-	acpi_handle h_dummy1;
-	acpi_handle h_dummy2;
-	acpi_handle h_dummy3;
-
+	acpi_handle h_dummy;
 
 	if (!device)
 		return -EINVAL;
@@ -886,18 +914,18 @@ acpi_video_bus_match(struct acpi_device *device)
 	 */
 
 	/* Does this device able to support video switching ? */
-	if (ACPI_SUCCESS(acpi_get_handle(device->handle, "_DOD", &h_dummy1)) &&
-	    ACPI_SUCCESS(acpi_get_handle(device->handle, "_DOS", &h_dummy2)))
+	if (ACPI_SUCCESS(acpi_get_handle(device->handle, "_DOD", &h_dummy)) &&
+	    ACPI_SUCCESS(acpi_get_handle(device->handle, "_DOS", &h_dummy)))
 		return 0;
 
 	/* Does this device able to retrieve a video ROM ? */
-	if (ACPI_SUCCESS(acpi_get_handle(device->handle, "_ROM", &h_dummy1)))
+	if (ACPI_SUCCESS(acpi_get_handle(device->handle, "_ROM", &h_dummy)))
 		return 0;
 
 	/* Does this device able to configure which video head to be POSTed ? */
-	if (ACPI_SUCCESS(acpi_get_handle(device->handle, "_VPO", &h_dummy1)) &&
-	    ACPI_SUCCESS(acpi_get_handle(device->handle, "_GPD", &h_dummy2)) &&
-	    ACPI_SUCCESS(acpi_get_handle(device->handle, "_SPD", &h_dummy3)))
+	if (ACPI_SUCCESS(acpi_get_handle(device->handle, "_VPO", &h_dummy)) &&
+	    ACPI_SUCCESS(acpi_get_handle(device->handle, "_GPD", &h_dummy)) &&
+	    ACPI_SUCCESS(acpi_get_handle(device->handle, "_SPD", &h_dummy)))
 		return 0;
 
 	return -ENODEV;
@@ -939,6 +967,15 @@ static int acpi_bay_match(struct acpi_device *device){
 	return -ENODEV;
 }
 
+/*
+ * acpi_dock_match - see if a device has a _DCK method
+ */
+static int acpi_dock_match(struct acpi_device *device)
+{
+	acpi_handle tmp;
+	return acpi_get_handle(device->handle, "_DCK", &tmp);
+}
+
 static void acpi_device_set_id(struct acpi_device *device,
 			       struct acpi_device *parent, acpi_handle handle,
 			       int type)
@@ -948,13 +985,14 @@ static void acpi_device_set_id(struct acpi_device *device,
 	char *hid = NULL;
 	char *uid = NULL;
 	struct acpi_compatible_id_list *cid_list = NULL;
+	const char *cid_add = NULL;
 	acpi_status status;
 
 	switch (type) {
 	case ACPI_BUS_TYPE_DEVICE:
 		status = acpi_get_object_info(handle, &buffer);
 		if (ACPI_FAILURE(status)) {
-			printk("%s: Error reading device info\n", __FUNCTION__);
+			printk(KERN_ERR PREFIX "%s: Error reading device info\n", __func__);
 			return;
 		}
 
@@ -970,15 +1008,18 @@ static void acpi_device_set_id(struct acpi_device *device,
 			device->flags.bus_address = 1;
 		}
 
-		if(!(info->valid & (ACPI_VALID_HID | ACPI_VALID_CID))){
-			status = acpi_video_bus_match(device);
-			if(ACPI_SUCCESS(status))
-				hid = ACPI_VIDEO_HID;
+		/* If we have a video/bay/dock device, add our selfdefined
+		   HID to the CID list. Like that the video/bay/dock drivers
+		   will get autoloaded and the device might still match
+		   against another driver.
+		*/
+		if (ACPI_SUCCESS(acpi_video_bus_match(device)))
+			cid_add = ACPI_VIDEO_HID;
+		else if (ACPI_SUCCESS(acpi_bay_match(device)))
+			cid_add = ACPI_BAY_HID;
+		else if (ACPI_SUCCESS(acpi_dock_match(device)))
+			cid_add = ACPI_DOCK_HID;
 
-			status = acpi_bay_match(device);
-			if (ACPI_SUCCESS(status))
-				hid = ACPI_BAY_HID;
-		}
 		break;
 	case ACPI_BUS_TYPE_POWER:
 		hid = ACPI_POWER_HID;
@@ -1019,12 +1060,45 @@ static void acpi_device_set_id(struct acpi_device *device,
 		strcpy(device->pnp.unique_id, uid);
 		device->flags.unique_id = 1;
 	}
-	if (cid_list) {
-		device->pnp.cid_list = kmalloc(cid_list->size, GFP_KERNEL);
-		if (device->pnp.cid_list)
-			memcpy(device->pnp.cid_list, cid_list, cid_list->size);
-		else
-			printk(KERN_ERR "Memory allocation error\n");
+	if (cid_list || cid_add) {
+		struct  acpi_compatible_id_list *list;
+		int size = 0;
+		int count = 0;
+
+		if (cid_list) {
+			size = cid_list->size;
+		} else if (cid_add) {
+			size = sizeof(struct acpi_compatible_id_list);
+			cid_list = ACPI_ALLOCATE_ZEROED((acpi_size) size);
+			if (!cid_list) {
+				printk(KERN_ERR "Memory allocation error\n");
+				kfree(buffer.pointer);
+				return;
+			} else {
+				cid_list->count = 0;
+				cid_list->size = size;
+			}
+		}
+		if (cid_add)
+			size += sizeof(struct acpi_compatible_id);
+		list = kmalloc(size, GFP_KERNEL);
+
+		if (list) {
+			if (cid_list) {
+				memcpy(list, cid_list, cid_list->size);
+				count = cid_list->count;
+			}
+			if (cid_add) {
+				strncpy(list->id[count].value, cid_add,
+					ACPI_MAX_CID_LENGTH);
+				count++;
+				device->flags.compatible_ids = 1;
+			}
+			list->size = size;
+			list->count = count;
+			device->pnp.cid_list = list;
+		} else
+			printk(KERN_ERR PREFIX "Memory allocation error\n");
 	}
 
 	kfree(buffer.pointer);
@@ -1048,7 +1122,7 @@ static int acpi_device_set_context(struct acpi_device *device, int type)
 					  acpi_bus_data_handler, device);
 
 		if (ACPI_FAILURE(status)) {
-			printk("Error attaching device data\n");
+			printk(KERN_ERR PREFIX "Error attaching device data\n");
 			result = -ENODEV;
 		}
 	}
@@ -1076,6 +1150,20 @@ static int acpi_bus_remove(struct acpi_device *dev, int rmdevice)
 	acpi_device_unregister(dev, ACPI_BUS_REMOVAL_EJECT);
 
 	return 0;
+}
+
+static int
+acpi_is_child_device(struct acpi_device *device,
+			int (*matcher)(struct acpi_device *))
+{
+	int result = -ENODEV;
+
+	do {
+		if (ACPI_SUCCESS(matcher(device)))
+			return AE_OK;
+	} while ((device = device->parent));
+
+	return result;
 }
 
 static int
@@ -1129,9 +1217,19 @@ acpi_add_single_object(struct acpi_device **child,
 	case ACPI_BUS_TYPE_PROCESSOR:
 	case ACPI_BUS_TYPE_DEVICE:
 		result = acpi_bus_get_status(device);
-		if (ACPI_FAILURE(result) || !device->status.present) {
-			result = -ENOENT;
+		if (ACPI_FAILURE(result)) {
+			result = -ENODEV;
 			goto end;
+		}
+		if (!device->status.present) {
+			/* Bay and dock should be handled even if absent */
+			if (!ACPI_SUCCESS(
+			     acpi_is_child_device(device, acpi_bay_match)) &&
+			    !ACPI_SUCCESS(
+			     acpi_is_child_device(device, acpi_dock_match))) {
+					result = -ENODEV;
+					goto end;
+			}
 		}
 		break;
 	default:
@@ -1447,6 +1545,8 @@ static int acpi_bus_scan_fixed(struct acpi_device *root)
 	return result;
 }
 
+int __init acpi_boot_ec_enable(void);
+
 static int __init acpi_scan_init(void)
 {
 	int result;
@@ -1478,6 +1578,10 @@ static int __init acpi_scan_init(void)
 	 * Enumerate devices in the ACPI namespace.
 	 */
 	result = acpi_bus_scan_fixed(acpi_root);
+
+	/* EC region might be needed at bus_scan, so enable it now */
+	acpi_boot_ec_enable();
+
 	if (!result)
 		result = acpi_bus_scan(acpi_root, &ops);
 

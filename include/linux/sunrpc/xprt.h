@@ -19,23 +19,9 @@
 
 #ifdef __KERNEL__
 
-extern unsigned int xprt_udp_slot_table_entries;
-extern unsigned int xprt_tcp_slot_table_entries;
-
 #define RPC_MIN_SLOT_TABLE	(2U)
 #define RPC_DEF_SLOT_TABLE	(16U)
 #define RPC_MAX_SLOT_TABLE	(128U)
-
-/*
- * Parameters for choosing a free port
- */
-extern unsigned int xprt_min_resvport;
-extern unsigned int xprt_max_resvport;
-
-#define RPC_MIN_RESVPORT	(1U)
-#define RPC_MAX_RESVPORT	(65535U)
-#define RPC_DEF_MIN_RESVPORT	(665U)
-#define RPC_DEF_MAX_RESVPORT	(1023U)
 
 /*
  * This describes a timeout strategy
@@ -53,6 +39,10 @@ enum rpc_display_format_t {
 	RPC_DISPLAY_PORT,
 	RPC_DISPLAY_PROTO,
 	RPC_DISPLAY_ALL,
+	RPC_DISPLAY_HEX_ADDR,
+	RPC_DISPLAY_HEX_PORT,
+	RPC_DISPLAY_UNIVERSAL_ADDR,
+	RPC_DISPLAY_NETID,
 	RPC_DISPLAY_MAX,
 };
 
@@ -96,6 +86,10 @@ struct rpc_rqst {
 	unsigned long		rq_majortimeo;	/* major timeout alarm */
 	unsigned long		rq_timeout;	/* Current timeout value */
 	unsigned int		rq_retries;	/* # of retries */
+	unsigned int		rq_connect_cookie;
+						/* A cookie used to track the
+						   state of the transport
+						   connection */
 	
 	/*
 	 * Partial send handling
@@ -130,7 +124,7 @@ struct rpc_xprt {
 	struct kref		kref;		/* Reference count */
 	struct rpc_xprt_ops *	ops;		/* transport methods */
 
-	struct rpc_timeout	timeout;	/* timeout parms */
+	const struct rpc_timeout *timeout;	/* timeout parms */
 	struct sockaddr_storage	addr;		/* server address */
 	size_t			addrlen;	/* size of server address */
 	int			prot;		/* IP protocol */
@@ -162,6 +156,9 @@ struct rpc_xprt {
 	unsigned long		connect_timeout,
 				bind_timeout,
 				reestablish_timeout;
+	unsigned int		connect_cookie;	/* A cookie that gets bumped
+						   every time the transport
+						   is reconnected */
 
 	/*
 	 * Disconnection of idle transports
@@ -193,26 +190,28 @@ struct rpc_xprt {
 					bklog_u;	/* backlog queue utilization */
 	} stat;
 
-	char *			address_strings[RPC_DISPLAY_MAX];
+	const char		*address_strings[RPC_DISPLAY_MAX];
 };
 
-struct rpc_xprtsock_create {
-	int			proto;		/* IPPROTO_UDP or IPPROTO_TCP */
+struct xprt_create {
+	int			ident;		/* XPRT_TRANSPORT identifier */
 	struct sockaddr *	srcaddr;	/* optional local address */
 	struct sockaddr *	dstaddr;	/* remote peer address */
 	size_t			addrlen;
-	struct rpc_timeout *	timeout;	/* optional timeout parameters */
 };
 
-/*
- * Transport operations used by ULPs
- */
-void			xprt_set_timeout(struct rpc_timeout *to, unsigned int retr, unsigned long incr);
+struct xprt_class {
+	struct list_head	list;
+	int			ident;		/* XPRT_TRANSPORT identifier */
+	struct rpc_xprt *	(*setup)(struct xprt_create *);
+	struct module		*owner;
+	char			name[32];
+};
 
 /*
  * Generic internal transport functions
  */
-struct rpc_xprt *	xprt_create_transport(struct rpc_xprtsock_create *args);
+struct rpc_xprt		*xprt_create_transport(struct xprt_create *args);
 void			xprt_connect(struct rpc_task *task);
 void			xprt_reserve(struct rpc_task *task);
 int			xprt_reserve_xprt(struct rpc_task *task);
@@ -235,25 +234,21 @@ static inline __be32 *xprt_skip_transport_header(struct rpc_xprt *xprt, __be32 *
 /*
  * Transport switch helper functions
  */
+int			xprt_register_transport(struct xprt_class *type);
+int			xprt_unregister_transport(struct xprt_class *type);
 void			xprt_set_retrans_timeout_def(struct rpc_task *task);
 void			xprt_set_retrans_timeout_rtt(struct rpc_task *task);
 void			xprt_wake_pending_tasks(struct rpc_xprt *xprt, int status);
-void			xprt_wait_for_buffer_space(struct rpc_task *task);
+void			xprt_wait_for_buffer_space(struct rpc_task *task, rpc_action action);
 void			xprt_write_space(struct rpc_xprt *xprt);
 void			xprt_update_rtt(struct rpc_task *task);
 void			xprt_adjust_cwnd(struct rpc_task *task, int result);
 struct rpc_rqst *	xprt_lookup_rqst(struct rpc_xprt *xprt, __be32 xid);
 void			xprt_complete_rqst(struct rpc_task *task, int copied);
 void			xprt_release_rqst_cong(struct rpc_task *task);
-void			xprt_disconnect(struct rpc_xprt *xprt);
-
-/*
- * Socket transport setup operations
- */
-struct rpc_xprt *	xs_setup_udp(struct rpc_xprtsock_create *args);
-struct rpc_xprt *	xs_setup_tcp(struct rpc_xprtsock_create *args);
-int			init_socket_xprt(void);
-void			cleanup_socket_xprt(void);
+void			xprt_disconnect_done(struct rpc_xprt *xprt);
+void			xprt_force_disconnect(struct rpc_xprt *xprt);
+void			xprt_conditional_disconnect(struct rpc_xprt *xprt, unsigned int cookie);
 
 /*
  * Reserved bit positions in xprt->state
@@ -264,6 +259,7 @@ void			cleanup_socket_xprt(void);
 #define XPRT_CLOSE_WAIT		(3)
 #define XPRT_BOUND		(4)
 #define XPRT_BINDING		(5)
+#define XPRT_CLOSING		(6)
 
 static inline void xprt_set_connected(struct rpc_xprt *xprt)
 {

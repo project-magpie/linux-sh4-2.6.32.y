@@ -24,12 +24,14 @@
 #include <linux/platform_device.h>
 #include <linux/leds.h>
 #include <linux/apm-emulation.h>
+#include <linux/suspend.h>
 
 #include <asm/hardware.h>
 #include <asm/mach-types.h>
 #include <asm/irq.h>
 #include <asm/arch/pm.h>
 #include <asm/arch/pxa-regs.h>
+#include <asm/arch/pxa2xx-regs.h>
 #include <asm/arch/sharpsl.h>
 #include <asm/hardware/sharpsl_pm.h>
 
@@ -156,6 +158,7 @@ static void sharpsl_battery_thread(struct work_struct *private_)
 	dev_dbg(sharpsl_pm.dev, "Battery: voltage: %d, status: %d, percentage: %d, time: %ld\n", voltage,
 			sharpsl_pm.battstat.mainbat_status, sharpsl_pm.battstat.mainbat_percent, jiffies);
 
+#ifdef CONFIG_BACKLIGHT_CORGI
 	/* If battery is low. limit backlight intensity to save power. */
 	if ((sharpsl_pm.battstat.ac_status != APM_AC_ONLINE)
 			&& ((sharpsl_pm.battstat.mainbat_status == APM_BATTERY_STATUS_LOW) ||
@@ -168,6 +171,7 @@ static void sharpsl_battery_thread(struct work_struct *private_)
 		sharpsl_pm.machinfo->backlight_limit(0);
 		sharpsl_pm.flags &= ~SHARPSL_BL_LIMIT;
 	}
+#endif
 
 	/* Suspend if critical battery level */
 	if ((sharpsl_pm.battstat.ac_status != APM_AC_ONLINE)
@@ -765,9 +769,9 @@ static void sharpsl_apm_get_power_status(struct apm_power_info *info)
 	info->battery_life = sharpsl_pm.battstat.mainbat_percent;
 }
 
-static struct pm_ops sharpsl_pm_ops = {
+static struct platform_suspend_ops sharpsl_pm_ops = {
 	.enter		= corgi_pxa_pm_enter,
-	.valid		= pm_valid_only_mem,
+	.valid		= suspend_valid_only_mem,
 };
 
 static int __init sharpsl_pm_probe(struct platform_device *pdev)
@@ -799,7 +803,7 @@ static int __init sharpsl_pm_probe(struct platform_device *pdev)
 
 	apm_get_power_status = sharpsl_apm_get_power_status;
 
-	pm_set_ops(&sharpsl_pm_ops);
+	suspend_set_ops(&sharpsl_pm_ops);
 
 	mod_timer(&sharpsl_pm.ac_timer, jiffies + msecs_to_jiffies(250));
 
@@ -808,7 +812,7 @@ static int __init sharpsl_pm_probe(struct platform_device *pdev)
 
 static int sharpsl_pm_remove(struct platform_device *pdev)
 {
-	pm_set_ops(NULL);
+	suspend_set_ops(NULL);
 
 	device_remove_file(&pdev->dev, &dev_attr_battery_percentage);
 	device_remove_file(&pdev->dev, &dev_attr_battery_voltage);

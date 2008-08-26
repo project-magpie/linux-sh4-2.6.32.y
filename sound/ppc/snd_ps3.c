@@ -22,7 +22,6 @@
 #include <linux/slab.h>
 #include <linux/io.h>
 #include <linux/interrupt.h>
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <sound/initval.h>
 #include <sound/pcm.h>
@@ -33,7 +32,6 @@
 #include <linux/dmapool.h>
 #include <linux/dma-mapping.h>
 #include <asm/firmware.h>
-#include <linux/io.h>
 #include <asm/dma.h>
 #include <asm/lv1call.h>
 #include <asm/ps3.h>
@@ -139,7 +137,7 @@ static inline void update_mask_reg(unsigned int reg, u32 mask, u32 or_val)
 /*
  * ALSA defs
  */
-const static struct snd_pcm_hardware snd_ps3_pcm_hw = {
+static const struct snd_pcm_hardware snd_ps3_pcm_hw = {
 	.info = (SNDRV_PCM_INFO_MMAP |
 		 SNDRV_PCM_INFO_NONINTERLEAVED |
 		 SNDRV_PCM_INFO_MMAP_VALID),
@@ -955,6 +953,7 @@ static int __init snd_ps3_driver_probe(struct ps3_system_bus_device *dev)
 	snd_ps3_init_avsetting(&the_card);
 
 	/* register the card */
+	snd_card_set_dev(the_card.card, &dev->core);
 	ret = snd_card_register(the_card.card);
 	if (ret < 0)
 		goto clean_dma_map;

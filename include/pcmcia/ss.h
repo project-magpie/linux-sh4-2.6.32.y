@@ -21,7 +21,6 @@
 
 #include <pcmcia/cs_types.h>
 #include <pcmcia/cs.h>
-#include <pcmcia/bulkmem.h>
 #ifdef CONFIG_CARDBUS
 #include <linux/pci.h>
 #endif
@@ -92,7 +91,7 @@ typedef struct pccard_io_map {
     u_char	map;
     u_char	flags;
     u_short	speed;
-    kio_addr_t	start, stop;
+    u_int	start, stop;
 } pccard_io_map;
 
 typedef struct pccard_mem_map {
@@ -136,8 +135,14 @@ struct pccard_resource_ops {
 	struct resource* (*find_mem)	(unsigned long base, unsigned long num,
 					 unsigned long align, int low,
 					 struct pcmcia_socket *s);
-	int	(*adjust_resource)	(struct pcmcia_socket *s,
-					 adjust_t *adj);
+	int	(*add_io)		(struct pcmcia_socket *s,
+					 unsigned int action,
+					 unsigned long r_start,
+					 unsigned long r_end);
+	int	(*add_mem)		(struct pcmcia_socket *s,
+					 unsigned int action,
+					 unsigned long r_start,
+					 unsigned long r_end);
 	int	(*init)			(struct pcmcia_socket *s);
 	void	(*exit)			(struct pcmcia_socket *s);
 };
@@ -155,7 +160,7 @@ extern struct pccard_resource_ops pccard_iodyn_ops;
 struct pcmcia_socket;
 
 typedef struct io_window_t {
-	kio_addr_t		InUse, Config;
+	u_int			InUse, Config;
 	struct resource		*res;
 } io_window_t;
 
@@ -208,7 +213,7 @@ struct pcmcia_socket {
 	u_int				features;
 	u_int				irq_mask;
 	u_int				map_size;
-	kio_addr_t			io_offset;
+	u_int				io_offset;
 	u_char				pci_irq;
 	struct pci_dev *		cb_dev;
 
@@ -245,7 +250,6 @@ struct pcmcia_socket {
 
 	struct task_struct		*thread;
 	struct completion		thread_done;
-	wait_queue_head_t		thread_wait;
 	spinlock_t			thread_lock;	/* protects thread_events */
 	unsigned int			thread_events;
 

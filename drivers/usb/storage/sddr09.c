@@ -1,6 +1,5 @@
 /* Driver for SanDisk SDDR-09 SmartMedia reader
  *
- * $Id: sddr09.c,v 1.24 2002/04/22 03:39:43 mdharm Exp $
  *   (c) 2000, 2001 Robert Baruch (autophile@starband.net)
  *   (c) 2002 Andries Brouwer (aeb@cwi.nl)
  * Developed with the assistance of:
@@ -705,7 +704,8 @@ sddr09_read_data(struct us_data *us,
 	unsigned char *buffer;
 	unsigned int lba, maxlba, pba;
 	unsigned int page, pages;
-	unsigned int len, index, offset;
+	unsigned int len, offset;
+	struct scatterlist *sg;
 	int result;
 
 	// Figure out the initial LBA and page
@@ -730,7 +730,8 @@ sddr09_read_data(struct us_data *us,
 	// contiguous LBA's. Another exercise left to the student.
 
 	result = 0;
-	index = offset = 0;
+	offset = 0;
+	sg = NULL;
 
 	while (sectors > 0) {
 
@@ -777,7 +778,7 @@ sddr09_read_data(struct us_data *us,
 
 		// Store the data in the transfer buffer
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
-				&index, &offset, TO_XFER_BUF);
+				&sg, &offset, TO_XFER_BUF);
 
 		page = 0;
 		lba++;
@@ -931,7 +932,8 @@ sddr09_write_data(struct us_data *us,
 	unsigned int pagelen, blocklen;
 	unsigned char *blockbuffer;
 	unsigned char *buffer;
-	unsigned int len, index, offset;
+	unsigned int len, offset;
+	struct scatterlist *sg;
 	int result;
 
 	// Figure out the initial LBA and page
@@ -968,7 +970,8 @@ sddr09_write_data(struct us_data *us,
 	}
 
 	result = 0;
-	index = offset = 0;
+	offset = 0;
+	sg = NULL;
 
 	while (sectors > 0) {
 
@@ -987,7 +990,7 @@ sddr09_write_data(struct us_data *us,
 
 		// Get the data from the transfer buffer
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
-				&index, &offset, FROM_XFER_BUF);
+				&sg, &offset, FROM_XFER_BUF);
 
 		result = sddr09_write_lba(us, lba, page, pages,
 				buffer, blockbuffer);
@@ -1619,7 +1622,7 @@ int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 		return USB_STOR_TRANSPORT_ERROR;
 	}
 
-	if (srb->request_bufflen == 0)
+	if (scsi_bufflen(srb) == 0)
 		return USB_STOR_TRANSPORT_GOOD;
 
 	if (srb->sc_data_direction == DMA_TO_DEVICE ||
@@ -1630,12 +1633,9 @@ int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 		US_DEBUGP("SDDR09: %s %d bytes\n",
 			  (srb->sc_data_direction == DMA_TO_DEVICE) ?
 			  "sending" : "receiving",
-			  srb->request_bufflen);
+			  scsi_bufflen(srb));
 
-		result = usb_stor_bulk_transfer_sg(us, pipe,
-					srb->request_buffer,
-					srb->request_bufflen,
-					srb->use_sg, &srb->resid);
+		result = usb_stor_bulk_srb(us, pipe, srb);
 
 		return (result == USB_STOR_XFER_GOOD ?
 			USB_STOR_TRANSPORT_GOOD : USB_STOR_TRANSPORT_ERROR);

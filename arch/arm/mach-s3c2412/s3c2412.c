@@ -78,6 +78,11 @@ void __init s3c2412_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 	s3c_device_lcd.name  = "s3c2412-lcd";
 	s3c_device_nand.name = "s3c2412-nand";
 
+	/* alter IRQ of SDI controller */
+
+	s3c_device_sdi.resource[1].start = IRQ_S3C2412_SDI;
+	s3c_device_sdi.resource[1].end   = IRQ_S3C2412_SDI;
+
 	/* spi channel related changes, s3c2412/13 specific */
 	s3c_device_spi0.name = "s3c2412-spi";
 	s3c_device_spi0.resource[0].end = S3C24XX_PA_SPI + 0x24;
@@ -163,12 +168,14 @@ void __init s3c2412_init_clocks(int xtal)
 
 	fclk = s3c2410_get_pll(__raw_readl(S3C2410_MPLLCON), xtal*2);
 
+	clk_mpll.rate = fclk;
+
 	tmp = __raw_readl(S3C2410_CLKDIVN);
 
 	/* work out clock scalings */
 
 	hclk = fclk / ((tmp & S3C2412_CLKDIVN_HDIVN_MASK) + 1);
-	hclk /= ((tmp & S3C2421_CLKDIVN_ARMDIVN) ? 2 : 1);
+	hclk /= ((tmp & S3C2412_CLKDIVN_ARMDIVN) ? 2 : 1);
 	pclk = hclk / ((tmp & S3C2412_CLKDIVN_PDIVN) ? 2 : 1);
 
 	/* print brieft summary of clocks, etc */
@@ -191,7 +198,7 @@ void __init s3c2412_init_clocks(int xtal)
 */
 
 struct sysdev_class s3c2412_sysclass = {
-	set_kset_name("s3c2412-core"),
+	.name = "s3c2412-core",
 };
 
 static int __init s3c2412_core_init(void)

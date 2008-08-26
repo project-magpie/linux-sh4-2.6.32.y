@@ -26,7 +26,14 @@ struct debugfs_blob_wrapper {
 	unsigned long size;
 };
 
+extern struct dentry *arch_debugfs_dir;
+
 #if defined(CONFIG_DEBUG_FS)
+
+/* declared over in file.c */
+extern const struct file_operations debugfs_file_operations;
+extern const struct inode_operations debugfs_link_operations;
+
 struct dentry *debugfs_create_file(const char *name, mode_t mode,
 				   struct dentry *parent, void *data,
 				   const struct file_operations *fops);
@@ -37,6 +44,7 @@ struct dentry *debugfs_create_symlink(const char *name, struct dentry *parent,
 				      const char *dest);
 
 void debugfs_remove(struct dentry *dentry);
+void debugfs_remove_recursive(struct dentry *dentry);
 
 struct dentry *debugfs_rename(struct dentry *old_dir, struct dentry *old_dentry,
                 struct dentry *new_dir, const char *new_name);
@@ -49,6 +57,12 @@ struct dentry *debugfs_create_u32(const char *name, mode_t mode,
 				  struct dentry *parent, u32 *value);
 struct dentry *debugfs_create_u64(const char *name, mode_t mode,
 				  struct dentry *parent, u64 *value);
+struct dentry *debugfs_create_x8(const char *name, mode_t mode,
+				 struct dentry *parent, u8 *value);
+struct dentry *debugfs_create_x16(const char *name, mode_t mode,
+				  struct dentry *parent, u16 *value);
+struct dentry *debugfs_create_x32(const char *name, mode_t mode,
+				  struct dentry *parent, u32 *value);
 struct dentry *debugfs_create_bool(const char *name, mode_t mode,
 				  struct dentry *parent, u32 *value);
 
@@ -88,6 +102,9 @@ static inline struct dentry *debugfs_create_symlink(const char *name,
 static inline void debugfs_remove(struct dentry *dentry)
 { }
 
+static inline void debugfs_remove_recursive(struct dentry *dentry)
+{ }
+
 static inline struct dentry *debugfs_rename(struct dentry *old_dir, struct dentry *old_dentry,
                 struct dentry *new_dir, char *new_name)
 {
@@ -118,6 +135,27 @@ static inline struct dentry *debugfs_create_u32(const char *name, mode_t mode,
 static inline struct dentry *debugfs_create_u64(const char *name, mode_t mode,
 						struct dentry *parent,
 						u64 *value)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+static inline struct dentry *debugfs_create_x8(const char *name, mode_t mode,
+					       struct dentry *parent,
+					       u8 *value)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+static inline struct dentry *debugfs_create_x16(const char *name, mode_t mode,
+						struct dentry *parent,
+						u16 *value)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+static inline struct dentry *debugfs_create_x32(const char *name, mode_t mode,
+						struct dentry *parent,
+						u32 *value)
 {
 	return ERR_PTR(-ENODEV);
 }

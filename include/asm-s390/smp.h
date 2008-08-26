@@ -19,6 +19,7 @@
 #include <asm/lowcore.h>
 #include <asm/sigp.h>
 #include <asm/ptrace.h>
+#include <asm/system.h>
 
 /*
   s390 specific smp.c headers
@@ -34,8 +35,6 @@ typedef struct
 extern void machine_restart_smp(char *);
 extern void machine_halt_smp(void);
 extern void machine_power_off_smp(void);
-
-extern void smp_setup_cpu_possible_map(void);
 
 #define NO_PROC_ID		0xFF		/* No processor magic marker */
 
@@ -55,10 +54,7 @@ extern void smp_setup_cpu_possible_map(void);
 
 static inline __u16 hard_smp_processor_id(void)
 {
-        __u16 cpu_address;
- 
-	asm volatile("stap %0" : "=m" (cpu_address));
-        return cpu_address;
+	return stap();
 }
 
 /*
@@ -92,6 +88,11 @@ extern void __cpu_die (unsigned int cpu);
 extern void cpu_die (void) __attribute__ ((noreturn));
 extern int __cpu_up (unsigned int cpu);
 
+extern struct mutex smp_cpu_state_mutex;
+extern int smp_cpu_polarization[];
+
+extern int smp_call_function_mask(cpumask_t mask, void (*func)(void *),
+	void *info, int wait);
 #endif
 
 #ifndef CONFIG_SMP
@@ -103,7 +104,12 @@ static inline void smp_send_stop(void)
 
 #define hard_smp_processor_id()		0
 #define smp_cpu_not_running(cpu)	1
-#define smp_setup_cpu_possible_map()	do { } while (0)
+#endif
+
+#ifdef CONFIG_HOTPLUG_CPU
+extern int smp_rescan_cpus(void);
+#else
+static inline int smp_rescan_cpus(void) { return 0; }
 #endif
 
 extern union save_area *zfcpdump_save_areas[NR_CPUS + 1];

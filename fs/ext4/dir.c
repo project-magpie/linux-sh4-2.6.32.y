@@ -23,10 +23,10 @@
 
 #include <linux/fs.h>
 #include <linux/jbd2.h>
-#include <linux/ext4_fs.h>
 #include <linux/buffer_head.h>
 #include <linux/slab.h>
 #include <linux/rbtree.h>
+#include "ext4.h"
 
 static unsigned char ext4_filetype_table[] = {
 	DT_UNKNOWN, DT_REG, DT_DIR, DT_CHR, DT_BLK, DT_FIFO, DT_SOCK, DT_LNK
@@ -42,14 +42,12 @@ const struct file_operations ext4_dir_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= generic_read_dir,
 	.readdir	= ext4_readdir,		/* we take BKL. needed?*/
-	.ioctl		= ext4_ioctl,		/* BKL held */
+	.unlocked_ioctl = ext4_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl	= ext4_compat_ioctl,
 #endif
-	.fsync		= ext4_sync_file,	/* BKL held */
-#ifdef CONFIG_EXT4_INDEX
+	.fsync		= ext4_sync_file,
 	.release	= ext4_release_dir,
-#endif
 };
 
 
@@ -69,7 +67,7 @@ int ext4_check_dir_entry (const char * function, struct inode * dir,
 			  unsigned long offset)
 {
 	const char * error_msg = NULL;
-	const int rlen = le16_to_cpu(de->rec_len);
+	const int rlen = ext4_rec_len_from_disk(de->rec_len);
 
 	if (rlen < EXT4_DIR_REC_LEN(1))
 		error_msg = "rec_len is smaller than minimal";
@@ -107,7 +105,6 @@ static int ext4_readdir(struct file * filp,
 
 	sb = inode->i_sb;
 
-#ifdef CONFIG_EXT4_INDEX
 	if (EXT4_HAS_COMPAT_FEATURE(inode->i_sb,
 				    EXT4_FEATURE_COMPAT_DIR_INDEX) &&
 	    ((EXT4_I(inode)->i_flags & EXT4_INDEX_FL) ||
@@ -123,17 +120,17 @@ static int ext4_readdir(struct file * filp,
 		 */
 		EXT4_I(filp->f_path.dentry->d_inode)->i_flags &= ~EXT4_INDEX_FL;
 	}
-#endif
 	stored = 0;
 	offset = filp->f_pos & (sb->s_blocksize - 1);
 
 	while (!error && !stored && filp->f_pos < inode->i_size) {
-		unsigned long blk = filp->f_pos >> EXT4_BLOCK_SIZE_BITS(sb);
+		ext4_lblk_t blk = filp->f_pos >> EXT4_BLOCK_SIZE_BITS(sb);
 		struct buffer_head map_bh;
 		struct buffer_head *bh = NULL;
 
 		map_bh.b_state = 0;
-		err = ext4_get_blocks_wrap(NULL, inode, blk, 1, &map_bh, 0, 0);
+		err = ext4_get_blocks_wrap(NULL, inode, blk, 1, &map_bh,
+						0, 0, 0);
 		if (err > 0) {
 			pgoff_t index = map_bh.b_blocknr >>
 					(PAGE_CACHE_SHIFT - inode->i_blkbits);
@@ -142,7 +139,7 @@ static int ext4_readdir(struct file * filp,
 					sb->s_bdev->bd_inode->i_mapping,
 					&filp->f_ra, filp,
 					index, 1);
-			filp->f_ra.prev_index = index;
+			filp->f_ra.prev_pos = (loff_t)index << PAGE_CACHE_SHIFT;
 			bh = ext4_bread(NULL, inode, blk, 0, &err);
 		}
 
@@ -176,10 +173,10 @@ revalidate:
 				 * least that it is non-zero.  A
 				 * failure will be detected in the
 				 * dirent test below. */
-				if (le16_to_cpu(de->rec_len) <
-						EXT4_DIR_REC_LEN(1))
+				if (ext4_rec_len_from_disk(de->rec_len)
+						< EXT4_DIR_REC_LEN(1))
 					break;
-				i += le16_to_cpu(de->rec_len);
+				i += ext4_rec_len_from_disk(de->rec_len);
 			}
 			offset = i;
 			filp->f_pos = (filp->f_pos & ~(sb->s_blocksize - 1))
@@ -201,7 +198,7 @@ revalidate:
 				ret = stored;
 				goto out;
 			}
-			offset += le16_to_cpu(de->rec_len);
+			offset += ext4_rec_len_from_disk(de->rec_len);
 			if (le32_to_cpu(de->inode)) {
 				/* We might block in the next section
 				 * if the data destination is
@@ -210,7 +207,7 @@ revalidate:
 				 * not the directory has been modified
 				 * during the copy operation.
 				 */
-				unsigned long version = filp->f_version;
+				u64 version = filp->f_version;
 
 				error = filldir(dirent, de->name,
 						de->name_len,
@@ -223,7 +220,7 @@ revalidate:
 					goto revalidate;
 				stored ++;
 			}
-			filp->f_pos += le16_to_cpu(de->rec_len);
+			filp->f_pos += ext4_rec_len_from_disk(de->rec_len);
 		}
 		offset = 0;
 		brelse (bh);
@@ -232,7 +229,6 @@ out:
 	return ret;
 }
 
-#ifdef CONFIG_EXT4_INDEX
 /*
  * These functions convert from the major/minor hash to an f_pos
  * value.
@@ -277,7 +273,7 @@ static void free_rb_tree_fname(struct rb_root *root)
 
 	while (n) {
 		/* Do the node's children first */
-		if ((n)->rb_left) {
+		if (n->rb_left) {
 			n = n->rb_left;
 			continue;
 		}
@@ -306,24 +302,18 @@ static void free_rb_tree_fname(struct rb_root *root)
 			parent->rb_right = NULL;
 		n = parent;
 	}
-	root->rb_node = NULL;
 }
 
 
-static struct dir_private_info *create_dir_info(loff_t pos)
+static struct dir_private_info *ext4_htree_create_dir_info(loff_t pos)
 {
 	struct dir_private_info *p;
 
-	p = kmalloc(sizeof(struct dir_private_info), GFP_KERNEL);
+	p = kzalloc(sizeof(struct dir_private_info), GFP_KERNEL);
 	if (!p)
 		return NULL;
-	p->root.rb_node = NULL;
-	p->curr_node = NULL;
-	p->extra_fname = NULL;
-	p->last_pos = 0;
 	p->curr_hash = pos2maj_hash(pos);
 	p->curr_minor_hash = pos2min_hash(pos);
-	p->next_hash = 0;
 	return p;
 }
 
@@ -438,7 +428,7 @@ static int ext4_dx_readdir(struct file * filp,
 	int	ret;
 
 	if (!info) {
-		info = create_dir_info(filp->f_pos);
+		info = ext4_htree_create_dir_info(filp->f_pos);
 		if (!info)
 			return -ENOMEM;
 		filp->private_data = info;
@@ -518,5 +508,3 @@ static int ext4_release_dir (struct inode * inode, struct file * filp)
 
 	return 0;
 }
-
-#endif

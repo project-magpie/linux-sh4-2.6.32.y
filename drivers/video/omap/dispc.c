@@ -20,6 +20,7 @@
  */
 #include <linux/kernel.h>
 #include <linux/dma-mapping.h>
+#include <linux/mm.h>
 #include <linux/vmalloc.h>
 #include <linux/clk.h>
 #include <linux/io.h>
@@ -880,19 +881,19 @@ static irqreturn_t omap_dispc_irq_handler(int irq, void *dev)
 static int get_dss_clocks(void)
 {
 	if (IS_ERR((dispc.dss_ick = clk_get(dispc.fbdev->dev, "dss_ick")))) {
-		dev_err(dispc.fbdev->dev, "can't get dss_ick");
+		dev_err(dispc.fbdev->dev, "can't get dss_ick\n");
 		return PTR_ERR(dispc.dss_ick);
 	}
 
 	if (IS_ERR((dispc.dss1_fck = clk_get(dispc.fbdev->dev, "dss1_fck")))) {
-		dev_err(dispc.fbdev->dev, "can't get dss1_fck");
+		dev_err(dispc.fbdev->dev, "can't get dss1_fck\n");
 		clk_put(dispc.dss_ick);
 		return PTR_ERR(dispc.dss1_fck);
 	}
 
 	if (IS_ERR((dispc.dss_54m_fck =
 				clk_get(dispc.fbdev->dev, "dss_54m_fck")))) {
-		dev_err(dispc.fbdev->dev, "can't get dss_54m_fck");
+		dev_err(dispc.fbdev->dev, "can't get dss_54m_fck\n");
 		clk_put(dispc.dss_ick);
 		clk_put(dispc.dss1_fck);
 		return PTR_ERR(dispc.dss_54m_fck);

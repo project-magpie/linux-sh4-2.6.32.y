@@ -48,6 +48,7 @@
 
 #ifndef __ASSEMBLY__
 #include <linux/kernel.h>
+#define AT_VECTOR_SIZE_ARCH 4 /* entries in ARCH_DLINFO */
 
 /*
  * This is the logout header that should be common to all platforms
@@ -183,7 +184,7 @@ enum amask_enum {
    __amask; })
 
 #define __CALL_PAL_R0(NAME, TYPE)				\
-static inline TYPE NAME(void)					\
+extern inline TYPE NAME(void)					\
 {								\
 	register TYPE __r0 __asm__("$0");			\
 	__asm__ __volatile__(					\
@@ -195,7 +196,7 @@ static inline TYPE NAME(void)					\
 }
 
 #define __CALL_PAL_W1(NAME, TYPE0)				\
-static inline void NAME(TYPE0 arg0)				\
+extern inline void NAME(TYPE0 arg0)				\
 {								\
 	register TYPE0 __r16 __asm__("$16") = arg0;		\
 	__asm__ __volatile__(					\
@@ -206,7 +207,7 @@ static inline void NAME(TYPE0 arg0)				\
 }
 
 #define __CALL_PAL_W2(NAME, TYPE0, TYPE1)			\
-static inline void NAME(TYPE0 arg0, TYPE1 arg1)			\
+extern inline void NAME(TYPE0 arg0, TYPE1 arg1)			\
 {								\
 	register TYPE0 __r16 __asm__("$16") = arg0;		\
 	register TYPE1 __r17 __asm__("$17") = arg1;		\
@@ -218,7 +219,7 @@ static inline void NAME(TYPE0 arg0, TYPE1 arg1)			\
 }
 
 #define __CALL_PAL_RW1(NAME, RTYPE, TYPE0)			\
-static inline RTYPE NAME(TYPE0 arg0)				\
+extern inline RTYPE NAME(TYPE0 arg0)				\
 {								\
 	register RTYPE __r0 __asm__("$0");			\
 	register TYPE0 __r16 __asm__("$16") = arg0;		\
@@ -231,7 +232,7 @@ static inline RTYPE NAME(TYPE0 arg0)				\
 }
 
 #define __CALL_PAL_RW2(NAME, RTYPE, TYPE0, TYPE1)		\
-static inline RTYPE NAME(TYPE0 arg0, TYPE1 arg1)		\
+extern inline RTYPE NAME(TYPE0 arg0, TYPE1 arg1)		\
 {								\
 	register RTYPE __r0 __asm__("$0");			\
 	register TYPE0 __r16 __asm__("$16") = arg0;		\
@@ -680,12 +681,17 @@ __cmpxchg(volatile void *ptr, unsigned long old, unsigned long new, int size)
 	return old;
 }
 
-#define cmpxchg(ptr,o,n)						 \
+#define cmpxchg(ptr, o, n)						 \
   ({									 \
      __typeof__(*(ptr)) _o_ = (o);					 \
      __typeof__(*(ptr)) _n_ = (n);					 \
      (__typeof__(*(ptr))) __cmpxchg((ptr), (unsigned long)_o_,		 \
 				    (unsigned long)_n_, sizeof(*(ptr))); \
+  })
+#define cmpxchg64(ptr, o, n)						 \
+  ({									 \
+	BUILD_BUG_ON(sizeof(*(ptr)) != 8);				 \
+	cmpxchg((ptr), (o), (n));					 \
   })
 
 static inline unsigned long
@@ -802,13 +808,19 @@ __cmpxchg_local(volatile void *ptr, unsigned long old, unsigned long new,
 	return old;
 }
 
-#define cmpxchg_local(ptr,o,n)						 \
+#define cmpxchg_local(ptr, o, n)					 \
   ({									 \
      __typeof__(*(ptr)) _o_ = (o);					 \
      __typeof__(*(ptr)) _n_ = (n);					 \
      (__typeof__(*(ptr))) __cmpxchg_local((ptr), (unsigned long)_o_,	 \
 				    (unsigned long)_n_, sizeof(*(ptr))); \
   })
+#define cmpxchg64_local(ptr, o, n)					 \
+  ({									 \
+	BUILD_BUG_ON(sizeof(*(ptr)) != 8);				 \
+	cmpxchg_local((ptr), (o), (n));					 \
+  })
+
 
 #endif /* __ASSEMBLY__ */
 

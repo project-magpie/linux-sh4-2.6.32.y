@@ -2,7 +2,7 @@
    BNEP implementation for Linux Bluetooth stack (BlueZ).
    Copyright (C) 2001-2002 Inventel Systemes
    Written 2001-2002 by
-	Clément Moreau <clement.moreau@inventel.fr>
+	ClÃ©ment Moreau <clement.moreau@inventel.fr>
 	David Libault  <david.libault@inventel.fr>
 
    Copyright (C) 2002 Maxim Krasnyansky <maxk@qualcomm.com>
@@ -24,10 +24,6 @@
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS
    SOFTWARE IS DISCLAIMED.
 */
-
-/*
- * $Id: core.c,v 1.20 2002/08/04 21:23:58 maxk Exp $
- */
 
 #include <linux/module.h>
 
@@ -135,7 +131,7 @@ static int bnep_ctrl_set_netfilter(struct bnep_session *s, __be16 *data, int len
 	if (len < 2)
 		return -EILSEQ;
 
-	n = ntohs(get_unaligned(data));
+	n = get_unaligned_be16(data);
 	data++; len -= 2;
 
 	if (len < n)
@@ -150,8 +146,8 @@ static int bnep_ctrl_set_netfilter(struct bnep_session *s, __be16 *data, int len
 		int i;
 
 		for (i = 0; i < n; i++) {
-			f[i].start = ntohs(get_unaligned(data++));
-			f[i].end   = ntohs(get_unaligned(data++));
+			f[i].start = get_unaligned_be16(data++);
+			f[i].end   = get_unaligned_be16(data++);
 
 			BT_DBG("proto filter start %d end %d",
 				f[i].start, f[i].end);
@@ -180,7 +176,7 @@ static int bnep_ctrl_set_mcfilter(struct bnep_session *s, u8 *data, int len)
 	if (len < 2)
 		return -EILSEQ;
 
-	n = ntohs(get_unaligned((__be16 *) data));
+	n = get_unaligned_be16(data);
 	data += 2; len -= 2;
 
 	if (len < n)
@@ -506,6 +502,11 @@ static int bnep_session(void *arg)
 
 	/* Delete network device */
 	unregister_netdev(dev);
+
+	/* Wakeup user-space polling for socket errors */
+	s->sock->sk->sk_err = EUNATCH;
+
+	wake_up_interruptible(s->sock->sk->sk_sleep);
 
 	/* Release the socket */
 	fput(s->sock->file);

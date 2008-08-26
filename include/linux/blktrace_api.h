@@ -55,6 +55,7 @@ enum blktrace_act {
 enum blktrace_notify {
 	__BLK_TN_PROCESS = 0,		/* establish pid/name mapping */
 	__BLK_TN_TIMESTAMP,		/* include system clock */
+	__BLK_TN_MESSAGE,		/* Character string message */
 };
 
 
@@ -79,6 +80,7 @@ enum blktrace_notify {
 
 #define BLK_TN_PROCESS		(__BLK_TN_PROCESS | BLK_TC_ACT(BLK_TC_NOTIFY))
 #define BLK_TN_TIMESTAMP	(__BLK_TN_TIMESTAMP | BLK_TC_ACT(BLK_TC_NOTIFY))
+#define BLK_TN_MESSAGE		(__BLK_TN_MESSAGE | BLK_TC_ACT(BLK_TC_NOTIFY))
 
 #define BLK_IO_TRACE_MAGIC	0x65617400
 #define BLK_IO_TRACE_VERSION	0x07
@@ -119,6 +121,7 @@ struct blk_trace {
 	int trace_state;
 	struct rchan *rchan;
 	unsigned long *sequence;
+	unsigned char *msg_data;
 	u16 act_mask;
 	u64 start_lba;
 	u64 end_lba;
@@ -126,6 +129,7 @@ struct blk_trace {
 	u32 dev;
 	struct dentry *dir;
 	struct dentry *dropped_file;
+	struct dentry *msg_file;
 	atomic_t dropped;
 };
 
@@ -142,10 +146,35 @@ struct blk_user_trace_setup {
 	u32 pid;
 };
 
+#ifdef __KERNEL__
 #if defined(CONFIG_BLK_DEV_IO_TRACE)
 extern int blk_trace_ioctl(struct block_device *, unsigned, char __user *);
 extern void blk_trace_shutdown(struct request_queue *);
 extern void __blk_add_trace(struct blk_trace *, sector_t, int, int, u32, int, int, void *);
+extern int do_blk_trace_setup(struct request_queue *q,
+	char *name, dev_t dev, struct blk_user_trace_setup *buts);
+extern void __trace_note_message(struct blk_trace *, const char *fmt, ...);
+
+/**
+ * blk_add_trace_msg - Add a (simple) message to the blktrace stream
+ * @q:		queue the io is for
+ * @fmt:	format to print message in
+ * args...	Variable argument list for format
+ *
+ * Description:
+ *     Records a (simple) message onto the blktrace stream.
+ *
+ *     NOTE: BLK_TN_MAX_MSG characters are output at most.
+ *     NOTE: Can not use 'static inline' due to presence of var args...
+ *
+ **/
+#define blk_add_trace_msg(q, fmt, ...)					\
+	do {								\
+		struct blk_trace *bt = (q)->blk_trace;			\
+		if (unlikely(bt))					\
+			__trace_note_message(bt, fmt, ##__VA_ARGS__);	\
+	} while (0)
+#define BLK_TN_MAX_MSG		128
 
 /**
  * blk_add_trace_rq - Add a trace for a request oriented action
@@ -278,6 +307,11 @@ static inline void blk_add_trace_remap(struct request_queue *q, struct bio *bio,
 	__blk_add_trace(bt, from, bio->bi_size, bio->bi_rw, BLK_TA_REMAP, !bio_flagged(bio, BIO_UPTODATE), sizeof(r), &r);
 }
 
+extern int blk_trace_setup(struct request_queue *q, char *name, dev_t dev,
+			   char __user *arg);
+extern int blk_trace_startstop(struct request_queue *q, int start);
+extern int blk_trace_remove(struct request_queue *q);
+
 #else /* !CONFIG_BLK_DEV_IO_TRACE */
 #define blk_trace_ioctl(bdev, cmd, arg)		(-ENOTTY)
 #define blk_trace_shutdown(q)			do { } while (0)
@@ -286,6 +320,12 @@ static inline void blk_add_trace_remap(struct request_queue *q, struct bio *bio,
 #define blk_add_trace_generic(q, rq, rw, what)	do { } while (0)
 #define blk_add_trace_pdu_int(q, what, bio, pdu)	do { } while (0)
 #define blk_add_trace_remap(q, bio, dev, f, t)	do {} while (0)
-#endif /* CONFIG_BLK_DEV_IO_TRACE */
+#define do_blk_trace_setup(q, name, dev, buts)	(-ENOTTY)
+#define blk_trace_setup(q, name, dev, arg)	(-ENOTTY)
+#define blk_trace_startstop(q, start)		(-ENOTTY)
+#define blk_trace_remove(q)			(-ENOTTY)
+#define blk_add_trace_msg(q, fmt, ...)		do { } while (0)
 
+#endif /* CONFIG_BLK_DEV_IO_TRACE */
+#endif /* __KERNEL__ */
 #endif

@@ -105,7 +105,7 @@ struct it821x_dev
 
 /*
  *	We allow users to force the card into non raid mode without
- *	flashing the alternative BIOS. This is also neccessary right now
+ *	flashing the alternative BIOS. This is also necessary right now
  *	for embedded platforms that cannot run a PC BIOS but are using this
  *	device.
  */
@@ -383,7 +383,7 @@ static void it821x_passthru_bmdma_stop(struct ata_queued_cmd *qc)
  *	@ap: ATA port
  *	@device: Device number (not pointer)
  *
- *	Device selection hook. If neccessary perform clock switching
+ *	Device selection hook. If necessary perform clock switching
  */
 
 static void it821x_passthru_dev_select(struct ata_port *ap,
@@ -391,15 +391,15 @@ static void it821x_passthru_dev_select(struct ata_port *ap,
 {
 	struct it821x_dev *itdev = ap->private_data;
 	if (itdev && device != itdev->last_device) {
-		struct ata_device *adev = &ap->device[device];
+		struct ata_device *adev = &ap->link.device[device];
 		it821x_program(ap, adev, itdev->pio[adev->devno]);
 		itdev->last_device = device;
 	}
-	ata_std_dev_select(ap, device);
+	ata_sff_dev_select(ap, device);
 }
 
 /**
- *	it821x_smart_qc_issue_prot	-	wrap qc issue prot
+ *	it821x_smart_qc_issue		-	wrap qc issue prot
  *	@qc: command
  *
  *	Wrap the command issue sequence for the IT821x. We need to
@@ -407,7 +407,7 @@ static void it821x_passthru_dev_select(struct ata_port *ap,
  *	usual happenings kick off
  */
 
-static unsigned int it821x_smart_qc_issue_prot(struct ata_queued_cmd *qc)
+static unsigned int it821x_smart_qc_issue(struct ata_queued_cmd *qc)
 {
 	switch(qc->tf.command)
 	{
@@ -427,14 +427,14 @@ static unsigned int it821x_smart_qc_issue_prot(struct ata_queued_cmd *qc)
 		case ATA_CMD_ID_ATA:
 		/* Arguably should just no-op this one */
 		case ATA_CMD_SET_FEATURES:
-			return ata_qc_issue_prot(qc);
+			return ata_sff_qc_issue(qc);
 	}
 	printk(KERN_DEBUG "it821x: can't process command 0x%02X\n", qc->tf.command);
-	return AC_ERR_INVALID;
+	return AC_ERR_DEV;
 }
 
 /**
- *	it821x_passthru_qc_issue_prot	-	wrap qc issue prot
+ *	it821x_passthru_qc_issue	-	wrap qc issue prot
  *	@qc: command
  *
  *	Wrap the command issue sequence for the IT821x. We need to
@@ -442,15 +442,15 @@ static unsigned int it821x_smart_qc_issue_prot(struct ata_queued_cmd *qc)
  *	usual happenings kick off
  */
 
-static unsigned int it821x_passthru_qc_issue_prot(struct ata_queued_cmd *qc)
+static unsigned int it821x_passthru_qc_issue(struct ata_queued_cmd *qc)
 {
 	it821x_passthru_dev_select(qc->ap, qc->dev->devno);
-	return ata_qc_issue_prot(qc);
+	return ata_sff_qc_issue(qc);
 }
 
 /**
  *	it821x_smart_set_mode	-	mode setting
- *	@ap: interface to set up
+ *	@link: interface to set up
  *	@unused: device that failed (error only)
  *
  *	Use a non standard set_mode function. We don't want to be tuned.
@@ -459,12 +459,11 @@ static unsigned int it821x_passthru_qc_issue_prot(struct ata_queued_cmd *qc)
  *	and respect them.
  */
 
-static int it821x_smart_set_mode(struct ata_port *ap, struct ata_device **unused)
+static int it821x_smart_set_mode(struct ata_link *link, struct ata_device **unused)
 {
-	int i;
+	struct ata_device *dev;
 
-	for (i = 0; i < ATA_MAX_DEVICES; i++) {
-		struct ata_device *dev = &ap->device[i];
+	ata_link_for_each_dev(dev, link) {
 		if (ata_dev_enabled(dev)) {
 			/* We don't really care */
 			dev->pio_mode = XFER_PIO_0;
@@ -517,6 +516,37 @@ static void it821x_dev_config(struct ata_device *adev)
 			printk("(%dK stripe)", adev->id[146]);
 		printk(".\n");
 	}
+	/* This is a controller firmware triggered funny, don't
+	   report the drive faulty! */
+	adev->horkage &= ~ATA_HORKAGE_DIAGNOSTIC;
+}
+
+/**
+ *	it821x_ident_hack	-	Hack identify data up
+ *	@ap: Port
+ *
+ *	Walk the devices on this firmware driven port and slightly
+ *	mash the identify data to stop us and common tools trying to
+ *	use features not firmware supported. The firmware itself does
+ *	some masking (eg SMART) but not enough.
+ *
+ *	This is a bit of an abuse of the cable method, but it is the
+ *	only method called at the right time. We could modify the libata
+ *	core specifically for ident hacking but while we have one offender
+ *	it seems better to keep the fallout localised.
+ */
+
+static int it821x_ident_hack(struct ata_port *ap)
+{
+	struct ata_device *adev;
+	ata_link_for_each_dev(adev, &ap->link) {
+		if (ata_dev_enabled(adev)) {
+			adev->id[84] &= ~(1 << 6);	/* No FUA */
+			adev->id[85] &= ~(1 << 10);	/* No HPA */
+			adev->id[76] = 0;		/* No NCQ/AN etc */
+		}
+	}
+	return ata_cable_unknown(ap);
 }
 
 
@@ -534,7 +564,7 @@ static int it821x_check_atapi_dma(struct ata_queued_cmd *qc)
 	struct it821x_dev *itdev = ap->private_data;
 
 	/* Only use dma for transfers to/from the media. */
-	if (qc->nbytes < 2048)
+	if (ata_qc_raw_nbytes(qc) < 2048)
 		return -EOPNOTSUPP;
 
 	/* No ATAPI DMA in smart mode */
@@ -564,7 +594,7 @@ static int it821x_port_start(struct ata_port *ap)
 	struct it821x_dev *itdev;
 	u8 conf;
 
-	int ret = ata_port_start(ap);
+	int ret = ata_sff_port_start(ap);
 	if (ret < 0)
 		return ret;
 
@@ -602,93 +632,34 @@ static int it821x_port_start(struct ata_port *ap)
 }
 
 static struct scsi_host_template it821x_sht = {
-	.module			= THIS_MODULE,
-	.name			= DRV_NAME,
-	.ioctl			= ata_scsi_ioctl,
-	.queuecommand		= ata_scsi_queuecmd,
-	.can_queue		= ATA_DEF_QUEUE,
-	.this_id		= ATA_SHT_THIS_ID,
-	.sg_tablesize		= LIBATA_MAX_PRD,
-	.cmd_per_lun		= ATA_SHT_CMD_PER_LUN,
-	.emulated		= ATA_SHT_EMULATED,
-	.use_clustering		= ATA_SHT_USE_CLUSTERING,
-	.proc_name		= DRV_NAME,
-	.dma_boundary		= ATA_DMA_BOUNDARY,
-	.slave_configure	= ata_scsi_slave_config,
-	.slave_destroy		= ata_scsi_slave_destroy,
-	.bios_param		= ata_std_bios_param,
+	ATA_BMDMA_SHT(DRV_NAME),
 };
 
 static struct ata_port_operations it821x_smart_port_ops = {
-	.set_mode	= it821x_smart_set_mode,
-	.port_disable	= ata_port_disable,
-	.tf_load	= ata_tf_load,
-	.tf_read	= ata_tf_read,
-	.mode_filter	= ata_pci_default_filter,
+	.inherits	= &ata_bmdma_port_ops,
 
-	.check_status 	= ata_check_status,
 	.check_atapi_dma= it821x_check_atapi_dma,
-	.exec_command	= ata_exec_command,
-	.dev_select 	= ata_std_dev_select,
+	.qc_issue	= it821x_smart_qc_issue,
+
+	.cable_detect	= it821x_ident_hack,
+	.set_mode	= it821x_smart_set_mode,
 	.dev_config	= it821x_dev_config,
-
-	.freeze		= ata_bmdma_freeze,
-	.thaw		= ata_bmdma_thaw,
-	.error_handler	= ata_bmdma_error_handler,
-	.post_internal_cmd = ata_bmdma_post_internal_cmd,
-	.cable_detect	= ata_cable_unknown,
-
-	.bmdma_setup 	= ata_bmdma_setup,
-	.bmdma_start 	= ata_bmdma_start,
-	.bmdma_stop	= ata_bmdma_stop,
-	.bmdma_status 	= ata_bmdma_status,
-
-	.qc_prep 	= ata_qc_prep,
-	.qc_issue	= it821x_smart_qc_issue_prot,
-
-	.data_xfer	= ata_data_xfer,
-
-	.irq_handler	= ata_interrupt,
-	.irq_clear	= ata_bmdma_irq_clear,
-	.irq_on		= ata_irq_on,
-	.irq_ack	= ata_irq_ack,
 
 	.port_start	= it821x_port_start,
 };
 
 static struct ata_port_operations it821x_passthru_port_ops = {
-	.port_disable	= ata_port_disable,
-	.set_piomode	= it821x_passthru_set_piomode,
-	.set_dmamode	= it821x_passthru_set_dmamode,
-	.mode_filter	= ata_pci_default_filter,
+	.inherits	= &ata_bmdma_port_ops,
 
-	.tf_load	= ata_tf_load,
-	.tf_read	= ata_tf_read,
-	.check_status 	= ata_check_status,
-	.exec_command	= ata_exec_command,
 	.check_atapi_dma= it821x_check_atapi_dma,
-	.dev_select 	= it821x_passthru_dev_select,
-
-	.freeze		= ata_bmdma_freeze,
-	.thaw		= ata_bmdma_thaw,
-	.error_handler	= ata_bmdma_error_handler,
-	.post_internal_cmd = ata_bmdma_post_internal_cmd,
-	.cable_detect	= ata_cable_unknown,
-
-	.bmdma_setup 	= ata_bmdma_setup,
+	.sff_dev_select	= it821x_passthru_dev_select,
 	.bmdma_start 	= it821x_passthru_bmdma_start,
 	.bmdma_stop	= it821x_passthru_bmdma_stop,
-	.bmdma_status 	= ata_bmdma_status,
+	.qc_issue	= it821x_passthru_qc_issue,
 
-	.qc_prep 	= ata_qc_prep,
-	.qc_issue	= it821x_passthru_qc_issue_prot,
-
-	.data_xfer	= ata_data_xfer,
-
-	.irq_clear	= ata_bmdma_irq_clear,
-	.irq_handler	= ata_interrupt,
-	.irq_on		= ata_irq_on,
-	.irq_ack	= ata_irq_ack,
+	.cable_detect	= ata_cable_unknown,
+	.set_piomode	= it821x_passthru_set_piomode,
+	.set_dmamode	= it821x_passthru_set_dmamode,
 
 	.port_start	= it821x_port_start,
 };
@@ -716,14 +687,12 @@ static int it821x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	u8 conf;
 
 	static const struct ata_port_info info_smart = {
-		.sht = &it821x_sht,
 		.flags = ATA_FLAG_SLAVE_POSS,
 		.pio_mask = 0x1f,
 		.mwdma_mask = 0x07,
 		.port_ops = &it821x_smart_port_ops
 	};
 	static const struct ata_port_info info_passthru = {
-		.sht = &it821x_sht,
 		.flags = ATA_FLAG_SLAVE_POSS,
 		.pio_mask = 0x1f,
 		.mwdma_mask = 0x07,
@@ -733,6 +702,11 @@ static int it821x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	const struct ata_port_info *ppi[] = { NULL, NULL };
 	static char *mode[2] = { "pass through", "smart" };
+	int rc;
+
+	rc = pcim_enable_device(pdev);
+	if (rc)
+		return rc;
 
 	/* Force the card into bypass mode if so requested */
 	if (it8212_noraid) {
@@ -748,16 +722,23 @@ static int it821x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	else
 		ppi[0] = &info_smart;
 
-	return ata_pci_init_one(pdev, ppi);
+	return ata_pci_sff_init_one(pdev, ppi, &it821x_sht, NULL);
 }
 
 #ifdef CONFIG_PM
 static int it821x_reinit_one(struct pci_dev *pdev)
 {
+	struct ata_host *host = dev_get_drvdata(&pdev->dev);
+	int rc;
+
+	rc = ata_pci_device_do_resume(pdev);
+	if (rc)
+		return rc;
 	/* Resume - turn raid back off if need be */
 	if (it8212_noraid)
 		it821x_disable_raid(pdev);
-	return ata_pci_device_resume(pdev);
+	ata_host_resume(host);
+	return rc;
 }
 #endif
 

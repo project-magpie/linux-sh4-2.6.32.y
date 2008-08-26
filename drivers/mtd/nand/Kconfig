@@ -1,5 +1,4 @@
 # drivers/mtd/nand/Kconfig
-# $Id: Kconfig,v 1.35 2005/11/07 11:14:30 gleixner Exp $
 
 menuconfig MTD_NAND
 	tristate "NAND Device Support"
@@ -91,6 +90,25 @@ config MTD_NAND_AU1550
 	  This enables the driver for the NAND flash controller on the
 	  AMD/Alchemy 1550 SOC.
 
+config MTD_NAND_BF5XX
+	tristate "Blackfin on-chip NAND Flash Controller driver"
+	depends on (BF54x || BF52x) && MTD_NAND
+	help
+	  This enables the Blackfin on-chip NAND flash controller
+
+	  No board specific support is done by this driver, each board
+	  must advertise a platform_device for the driver to attach.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called bf5xx-nand.
+
+config MTD_NAND_BF5XX_HWECC
+	bool "BF5XX NAND Hardware ECC"
+	depends on MTD_NAND_BF5XX
+	help
+	  Enable the use of the BF5XX's internal ECC generator when
+	  using NAND.
+
 config MTD_NAND_RTC_FROM4
 	tristate "Renesas Flash ROM 4-slot interface board (FROM_BOARD4)"
 	depends on SH_SOLUTION_ENGINE
@@ -134,10 +152,10 @@ config MTD_NAND_S3C2410_HWECC
 
 config MTD_NAND_NDFC
 	tristate "NDFC NanD Flash Controller"
-	depends on 44x
+	depends on 4xx && !PPC_MERGE
 	select MTD_NAND_ECC_SMC
 	help
-	 NDFC Nand Flash Controllers are integrated in EP44x SoCs
+	 NDFC Nand Flash Controllers are integrated in IBM/AMCC's 4xx SoCs
 
 config MTD_NAND_S3C2410_CLKSTOP
 	bool "S3C2410 NAND IDLE clock stop"
@@ -237,7 +255,7 @@ config MTD_NAND_CAFE
 	select REED_SOLOMON
 	select REED_SOLOMON_DEC16
 	help
-	  Use NAND flash attached to the CAFÉ chip designed for the $100
+	  Use NAND flash attached to the CAFÉ chip designed for the OLPC
 	  laptop.
 
 config MTD_NAND_CS553X
@@ -253,17 +271,72 @@ config MTD_NAND_CS553X
 
 	  If you say "m", the module will be called "cs553x_nand.ko".
 
-config MTD_NAND_AT91
-	bool "Support for NAND Flash / SmartMedia on AT91"
-	depends on ARCH_AT91
+config MTD_NAND_ATMEL
+	tristate "Support for NAND Flash / SmartMedia on AT91 and AVR32"
+	depends on ARCH_AT91 || AVR32
 	help
 	  Enables support for NAND Flash / Smart Media Card interface
-	  on Atmel AT91 processors.
+	  on Atmel AT91 and AVR32 processors.
+choice
+	prompt "ECC management for NAND Flash / SmartMedia on AT91 / AVR32"
+	depends on MTD_NAND_ATMEL
+
+config MTD_NAND_ATMEL_ECC_HW
+	bool "Hardware ECC"
+	depends on ARCH_AT91SAM9263 || ARCH_AT91SAM9260 || AVR32
+	help
+	  Use hardware ECC instead of software ECC when the chip
+	  supports it.
+
+	  The hardware ECC controller is capable of single bit error
+	  correction and 2-bit random detection per page.
+
+	  NB : hardware and software ECC schemes are incompatible.
+	  If you switch from one to another, you'll have to erase your
+	  mtd partition.
+
+	  If unsure, say Y
+
+config MTD_NAND_ATMEL_ECC_SOFT
+	bool "Software ECC"
+	help
+	  Use software ECC.
+
+	  NB : hardware and software ECC schemes are incompatible.
+	  If you switch from one to another, you'll have to erase your
+	  mtd partition.
+
+config MTD_NAND_ATMEL_ECC_NONE
+	bool "No ECC (testing only, DANGEROUS)"
+	depends on DEBUG_KERNEL
+	help
+	  No ECC will be used.
+	  It's not a good idea and it should be reserved for testing
+	  purpose only.
+
+	  If unsure, say N
+
+	  endchoice
+
+endchoice
+
+config MTD_NAND_PXA3xx
+	bool "Support for NAND flash devices on PXA3xx"
+	depends on MTD_NAND && PXA3xx
+	help
+	  This enables the driver for the NAND flash device found on
+	  PXA3xx processors
 
 config MTD_NAND_CM_X270
 	tristate "Support for NAND Flash on CM-X270 modules"
 	depends on MTD_NAND && MACH_ARMCORE
 
+config MTD_NAND_PASEMI
+	tristate "NAND support for PA Semi PWRficient"
+	depends on MTD_NAND && PPC_PASEMI
+	help
+	  Enables support for NAND Flash interface on PA Semi PWRficient
+	  based boards
 
 config MTD_NAND_NANDSIM
 	tristate "Support for NAND Flash Simulator"
@@ -280,5 +353,37 @@ config MTD_NAND_PLATFORM
 	  devices. You will need to provide platform-specific functions
 	  via platform_data.
 
+config MTD_ALAUDA
+	tristate "MTD driver for Olympus MAUSB-10 and Fujifilm DPC-R1"
+	depends on MTD_NAND && USB
+	help
+	  These two (and possibly other) Alauda-based cardreaders for
+	  SmartMedia and xD allow raw flash access.
+
+config MTD_NAND_ORION
+	tristate "NAND Flash support for Marvell Orion SoC"
+	depends on PLAT_ORION && MTD_NAND
+	help
+	  This enables the NAND flash controller on Orion machines.
+
+	  No board specific support is done by this driver, each board
+	  must advertise a platform_device for the driver to attach.
+
+config MTD_NAND_FSL_ELBC
+	tristate "NAND support for Freescale eLBC controllers"
+	depends on MTD_NAND && PPC_OF
+	help
+	  Various Freescale chips, including the 8313, include a NAND Flash
+	  Controller Module with built-in hardware ECC capabilities.
+	  Enabling this option will enable you to use this to control
+	  external NAND devices.
+
+config MTD_NAND_FSL_UPM
+	tristate "Support for NAND on Freescale UPM"
+	depends on MTD_NAND && OF_GPIO && (PPC_83xx || PPC_85xx)
+	select FSL_LBC
+	help
+	  Enables support for NAND Flash chips wired onto Freescale PowerPC
+	  processor localbus with User-Programmable Machine support.
 
 endif # MTD_NAND

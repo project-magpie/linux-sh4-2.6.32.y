@@ -38,6 +38,10 @@
 
 #ifdef __KERNEL__
 
+#ifndef _LINUX_BITOPS_H
+#error only <linux/bitops.h> can be included directly
+#endif
+
 #include <linux/compiler.h>
 #include <asm/asm-compat.h>
 #include <asm/synch.h>
@@ -86,6 +90,24 @@ static __inline__ void clear_bit(int nr, volatile unsigned long *addr)
 	: "cc" );
 }
 
+static __inline__ void clear_bit_unlock(int nr, volatile unsigned long *addr)
+{
+	unsigned long old;
+	unsigned long mask = BITOP_MASK(nr);
+	unsigned long *p = ((unsigned long *)addr) + BITOP_WORD(nr);
+
+	__asm__ __volatile__(
+	LWSYNC_ON_SMP
+"1:"	PPC_LLARX "%0,0,%3	# clear_bit_unlock\n"
+	"andc	%0,%0,%2\n"
+	PPC405_ERR77(0,%3)
+	PPC_STLCX "%0,0,%3\n"
+	"bne-	1b"
+	: "=&r" (old), "+m" (*p)
+	: "r" (mask), "r" (p)
+	: "cc", "memory");
+}
+
 static __inline__ void change_bit(int nr, volatile unsigned long *addr)
 {
 	unsigned long old;
@@ -113,6 +135,27 @@ static __inline__ int test_and_set_bit(unsigned long nr,
 	__asm__ __volatile__(
 	LWSYNC_ON_SMP
 "1:"	PPC_LLARX "%0,0,%3		# test_and_set_bit\n"
+	"or	%1,%0,%2 \n"
+	PPC405_ERR77(0,%3)
+	PPC_STLCX "%1,0,%3 \n"
+	"bne-	1b"
+	ISYNC_ON_SMP
+	: "=&r" (old), "=&r" (t)
+	: "r" (mask), "r" (p)
+	: "cc", "memory");
+
+	return (old & mask) != 0;
+}
+
+static __inline__ int test_and_set_bit_lock(unsigned long nr,
+				       volatile unsigned long *addr)
+{
+	unsigned long old, t;
+	unsigned long mask = BITOP_MASK(nr);
+	unsigned long *p = ((unsigned long *)addr) + BITOP_WORD(nr);
+
+	__asm__ __volatile__(
+"1:"	PPC_LLARX "%0,0,%3		# test_and_set_bit_lock\n"
 	"or	%1,%0,%2 \n"
 	PPC405_ERR77(0,%3)
 	PPC_STLCX "%1,0,%3 \n"
@@ -184,6 +227,12 @@ static __inline__ void set_bits(unsigned long mask, unsigned long *addr)
 }
 
 #include <asm-generic/bitops/non-atomic.h>
+
+static __inline__ void __clear_bit_unlock(int nr, volatile unsigned long *addr)
+{
+	__asm__ __volatile__(LWSYNC_ON_SMP "" ::: "memory");
+	__clear_bit(nr, addr);
+}
 
 /*
  * Return the zero-based bit position (LE, not IBM bit numbering) of
@@ -263,24 +312,31 @@ static __inline__ int fls(unsigned int x)
 	asm ("cntlzw %0,%1" : "=r" (lz) : "r" (x));
 	return 32 - lz;
 }
+
+static __inline__ unsigned long __fls(unsigned long x)
+{
+	return __ilog2(x);
+}
+
+/*
+ * 64-bit can do this using one cntlzd (count leading zeroes doubleword)
+ * instruction; for 32-bit we use the generic version, which does two
+ * 32-bit fls calls.
+ */
+#ifdef __powerpc64__
+static __inline__ int fls64(__u64 x)
+{
+	int lz;
+
+	asm ("cntlzd %0,%1" : "=r" (lz) : "r" (x));
+	return 64 - lz;
+}
+#else
 #include <asm-generic/bitops/fls64.h>
+#endif /* __powerpc64__ */
 
 #include <asm-generic/bitops/hweight.h>
-
-#define find_first_zero_bit(addr, size) find_next_zero_bit((addr), (size), 0)
-unsigned long find_next_zero_bit(const unsigned long *addr,
-				 unsigned long size, unsigned long offset);
-/**
- * find_first_bit - find the first set bit in a memory region
- * @addr: The address to start the search at
- * @size: The maximum size to search
- *
- * Returns the bit-number of the first set bit, not the number of the byte
- * containing a bit.
- */
-#define find_first_bit(addr, size) find_next_bit((addr), (size), 0)
-unsigned long find_next_bit(const unsigned long *addr,
-			    unsigned long size, unsigned long offset);
+#include <asm-generic/bitops/find.h>
 
 /* Little-endian versions */
 
@@ -310,6 +366,8 @@ static __inline__ int test_le_bit(unsigned long nr,
 unsigned long generic_find_next_zero_le_bit(const unsigned long *addr,
 				    unsigned long size, unsigned long offset);
 
+unsigned long generic_find_next_le_bit(const unsigned long *addr,
+				    unsigned long size, unsigned long offset);
 /* Bitmap functions for the ext2 filesystem */
 
 #define ext2_set_bit(nr,addr) \
@@ -329,6 +387,8 @@ unsigned long generic_find_next_zero_le_bit(const unsigned long *addr,
 #define ext2_find_next_zero_bit(addr, size, off) \
 	generic_find_next_zero_le_bit((unsigned long*)addr, size, off)
 
+#define ext2_find_next_bit(addr, size, off) \
+	generic_find_next_le_bit((unsigned long *)addr, size, off)
 /* Bitmap functions for the minix filesystem.  */
 
 #define minix_test_and_set_bit(nr,addr) \

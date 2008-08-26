@@ -32,6 +32,7 @@
 #include <asm/mach/map.h>
 
 #include <asm/arch/pxa-regs.h>
+#include <asm/arch/pxa2xx-gpio.h>
 #include <asm/arch/idp.h>
 #include <asm/arch/pxafb.h>
 #include <asm/arch/bitfield.h>
@@ -54,7 +55,7 @@ static struct resource smc91x_resources[] = {
 	[1] = {
 		.start	= IRQ_GPIO(4),
 		.end	= IRQ_GPIO(4),
-		.flags	= IORESOURCE_IRQ,
+		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHEDGE,
 	}
 };
 

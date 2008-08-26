@@ -1,7 +1,7 @@
-/* $Id: idprom.h,v 1.6 1996/08/04 10:35:07 ecd Exp $
+/*
  * idprom.h: Macros and defines for idprom routines
  *
- * Copyright (C) 1995 David S. Miller (davem@caip.rutgers.edu)
+ * Copyright (C) 1995,1996 David S. Miller (davem@caip.rutgers.edu)
  */
 
 #ifndef _SPARC_IDPROM_H

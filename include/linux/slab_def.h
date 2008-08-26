@@ -41,7 +41,7 @@ static inline void *kmalloc(size_t size, gfp_t flags)
 			goto found; \
 		else \
 			i++;
-#include "kmalloc_sizes.h"
+#include <linux/kmalloc_sizes.h>
 #undef CACHE
 		{
 			extern void __you_cannot_kmalloc_that_much(void);
@@ -75,7 +75,7 @@ static inline void *kmalloc_node(size_t size, gfp_t flags, int node)
 			goto found; \
 		else \
 			i++;
-#include "kmalloc_sizes.h"
+#include <linux/kmalloc_sizes.h>
 #undef CACHE
 		{
 			extern void __you_cannot_kmalloc_that_much(void);
@@ -94,8 +94,5 @@ found:
 }
 
 #endif	/* CONFIG_NUMA */
-
-extern const struct seq_operations slabinfo_op;
-ssize_t slabinfo_write(struct file *, const char __user *, size_t, loff_t *);
 
 #endif	/* _LINUX_SLAB_DEF_H */

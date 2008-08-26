@@ -29,7 +29,7 @@
 
 #define ZCRYPT_VERSION 2
 #define ZCRYPT_RELEASE 1
-#define ZCRYPT_VARIANT 0
+#define ZCRYPT_VARIANT 1
 
 #include <linux/ioctl.h>
 #include <linux/compiler.h>
@@ -91,7 +91,7 @@ struct ica_rsa_modexpo_crt {
  *	    VUD block
  *	    key block
  */
-struct ica_CPRBX {
+struct CPRBX {
 	unsigned short	cprb_len;	/* CPRB length	      220	 */
 	unsigned char	cprb_ver_id;	/* CPRB version id.   0x02	 */
 	unsigned char	pad_000[3];	/* Alignment pad bytes		 */
@@ -117,7 +117,7 @@ struct ica_CPRBX {
 	unsigned char	padx004[16 - sizeof (char *)];
 	unsigned char *	req_extb;	/* request extension block 'addr'*/
 	unsigned char	padx005[16 - sizeof (char *)];
-	unsigned char *	rpl_extb;	/* reply extension block 'addres'*/
+	unsigned char *	rpl_extb;	/* reply extension block 'address'*/
 	unsigned short	ccp_rtcode;	/* server return code		 */
 	unsigned short	ccp_rscode;	/* server reason code		 */
 	unsigned int	mac_data_len;	/* Mac Data Length		 */
@@ -130,7 +130,7 @@ struct ica_CPRBX {
 	unsigned char	cntrl_domain[4];/* Control domain		 */
 	unsigned char	S390enf_mask[4];/* S/390 enforcement mask	 */
 	unsigned char	pad_004[36];	/* reserved			 */
-};
+} __attribute__((packed));
 
 /**
  * xcRB

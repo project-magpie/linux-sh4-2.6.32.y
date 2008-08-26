@@ -1,7 +1,5 @@
 /* Driver for Datafab USB Compact Flash reader
  *
- * $Id: datafab.c,v 1.7 2002/02/25 00:40:13 mdharm Exp $
- *
  * datafab driver v0.1:
  *
  * First release
@@ -98,7 +96,8 @@ static int datafab_read_data(struct us_data *us,
 	unsigned char  thistime;
 	unsigned int totallen, alloclen;
 	int len, result;
-	unsigned int sg_idx = 0, sg_offset = 0;
+	unsigned int sg_offset = 0;
+	struct scatterlist *sg = NULL;
 
 	// we're working in LBA mode.  according to the ATA spec, 
 	// we can support up to 28-bit addressing.  I don't know if Datafab
@@ -155,7 +154,7 @@ static int datafab_read_data(struct us_data *us,
 
 		// Store the data in the transfer buffer
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
-				 &sg_idx, &sg_offset, TO_XFER_BUF);
+				 &sg, &sg_offset, TO_XFER_BUF);
 
 		sector += thistime;
 		totallen -= len;
@@ -181,7 +180,8 @@ static int datafab_write_data(struct us_data *us,
 	unsigned char thistime;
 	unsigned int totallen, alloclen;
 	int len, result;
-	unsigned int sg_idx = 0, sg_offset = 0;
+	unsigned int sg_offset = 0;
+	struct scatterlist *sg = NULL;
 
 	// we're working in LBA mode.  according to the ATA spec, 
 	// we can support up to 28-bit addressing.  I don't know if Datafab
@@ -217,7 +217,7 @@ static int datafab_write_data(struct us_data *us,
 
 		// Get the data from the transfer buffer
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
-				&sg_idx, &sg_offset, FROM_XFER_BUF);
+				&sg, &sg_offset, FROM_XFER_BUF);
 
 		command[0] = 0;
 		command[1] = thistime;

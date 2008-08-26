@@ -31,7 +31,6 @@
 #include <linux/wait.h>
 #include <asm/uaccess.h>
 
-
 #include <media/rds.h>
 
 /* Addresses to scan */
@@ -44,10 +43,10 @@ static unsigned short normal_i2c[] = {
 I2C_CLIENT_INSMOD;
 
 /* insmod options */
-static unsigned int debug = 0;
-static unsigned int xtal = 0;
-static unsigned int rbds = 0;
-static unsigned int plvl = 0;
+static unsigned int debug;
+static unsigned int xtal;
+static unsigned int rbds;
+static unsigned int plvl;
 static unsigned int bufblocks = 100;
 
 module_param(debug, int, 0644);
@@ -406,6 +405,7 @@ static int saa6588_attach(struct i2c_adapter *adap, int addr, int kind)
 		kfree(s);
 		return -ENOMEM;
 	}
+	spin_lock_init(&s->lock);
 	s->client = client_template;
 	s->block_count = 0;
 	s->wr_index = 0;

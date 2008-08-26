@@ -19,16 +19,17 @@
 #include <linux/inetdevice.h>
 #include <linux/proc_fs.h>
 #include <linux/mutex.h>
+#include <net/net_namespace.h>
 #include <net/sock.h>
 
 #include "nf_internals.h"
 
 static DEFINE_MUTEX(afinfo_mutex);
 
-struct nf_afinfo *nf_afinfo[NPROTO] __read_mostly;
+const struct nf_afinfo *nf_afinfo[NPROTO] __read_mostly;
 EXPORT_SYMBOL(nf_afinfo);
 
-int nf_register_afinfo(struct nf_afinfo *afinfo)
+int nf_register_afinfo(const struct nf_afinfo *afinfo)
 {
 	int err;
 
@@ -41,7 +42,7 @@ int nf_register_afinfo(struct nf_afinfo *afinfo)
 }
 EXPORT_SYMBOL_GPL(nf_register_afinfo);
 
-void nf_unregister_afinfo(struct nf_afinfo *afinfo)
+void nf_unregister_afinfo(const struct nf_afinfo *afinfo)
 {
 	mutex_lock(&afinfo_mutex);
 	rcu_assign_pointer(nf_afinfo[afinfo->family], NULL);
@@ -50,28 +51,23 @@ void nf_unregister_afinfo(struct nf_afinfo *afinfo)
 }
 EXPORT_SYMBOL_GPL(nf_unregister_afinfo);
 
-/* In this code, we can be waiting indefinitely for userspace to
- * service a packet if a hook returns NF_QUEUE.  We could keep a count
- * of skbuffs queued for userspace, and not deregister a hook unless
- * this is zero, but that sucks.  Now, we simply check when the
- * packets come back: if the hook is gone, the packet is discarded. */
 struct list_head nf_hooks[NPROTO][NF_MAX_HOOKS] __read_mostly;
 EXPORT_SYMBOL(nf_hooks);
 static DEFINE_MUTEX(nf_hook_mutex);
 
 int nf_register_hook(struct nf_hook_ops *reg)
 {
-	struct list_head *i;
+	struct nf_hook_ops *elem;
 	int err;
 
 	err = mutex_lock_interruptible(&nf_hook_mutex);
 	if (err < 0)
 		return err;
-	list_for_each(i, &nf_hooks[reg->pf][reg->hooknum]) {
-		if (reg->priority < ((struct nf_hook_ops *)i)->priority)
+	list_for_each_entry(elem, &nf_hooks[reg->pf][reg->hooknum], list) {
+		if (reg->priority < elem->priority)
 			break;
 	}
-	list_add_rcu(&reg->list, i->prev);
+	list_add_rcu(&reg->list, elem->list.prev);
 	mutex_unlock(&nf_hook_mutex);
 	return 0;
 }
@@ -116,7 +112,7 @@ void nf_unregister_hooks(struct nf_hook_ops *reg, unsigned int n)
 EXPORT_SYMBOL(nf_unregister_hooks);
 
 unsigned int nf_iterate(struct list_head *head,
-			struct sk_buff **skb,
+			struct sk_buff *skb,
 			int hook,
 			const struct net_device *indev,
 			const struct net_device *outdev,
@@ -159,7 +155,7 @@ unsigned int nf_iterate(struct list_head *head,
 
 /* Returns 1 if okfn() needs to be executed by the caller,
  * -EPERM for NF_DROP, 0 otherwise. */
-int nf_hook_slow(int pf, unsigned int hook, struct sk_buff **pskb,
+int nf_hook_slow(int pf, unsigned int hook, struct sk_buff *skb,
 		 struct net_device *indev,
 		 struct net_device *outdev,
 		 int (*okfn)(struct sk_buff *),
@@ -169,22 +165,29 @@ int nf_hook_slow(int pf, unsigned int hook, struct sk_buff **pskb,
 	unsigned int verdict;
 	int ret = 0;
 
+#ifdef CONFIG_NET_NS
+	struct net *net;
+
+	net = indev == NULL ? dev_net(outdev) : dev_net(indev);
+	if (net != &init_net)
+		return 1;
+#endif
+
 	/* We may already have this, but read-locks nest anyway */
 	rcu_read_lock();
 
 	elem = &nf_hooks[pf][hook];
 next_hook:
-	verdict = nf_iterate(&nf_hooks[pf][hook], pskb, hook, indev,
+	verdict = nf_iterate(&nf_hooks[pf][hook], skb, hook, indev,
 			     outdev, &elem, okfn, hook_thresh);
 	if (verdict == NF_ACCEPT || verdict == NF_STOP) {
 		ret = 1;
 		goto unlock;
 	} else if (verdict == NF_DROP) {
-		kfree_skb(*pskb);
+		kfree_skb(skb);
 		ret = -EPERM;
-	} else if ((verdict & NF_VERDICT_MASK)  == NF_QUEUE) {
-		NFDEBUG("nf_hook: Verdict = QUEUE.\n");
-		if (!nf_queue(*pskb, elem, pf, hook, indev, outdev, okfn,
+	} else if ((verdict & NF_VERDICT_MASK) == NF_QUEUE) {
+		if (!nf_queue(skb, elem, pf, hook, indev, outdev, okfn,
 			      verdict >> NF_VERDICT_BITS))
 			goto next_hook;
 	}
@@ -195,52 +198,26 @@ unlock:
 EXPORT_SYMBOL(nf_hook_slow);
 
 
-int skb_make_writable(struct sk_buff **pskb, unsigned int writable_len)
+int skb_make_writable(struct sk_buff *skb, unsigned int writable_len)
 {
-	struct sk_buff *nskb;
-
-	if (writable_len > (*pskb)->len)
+	if (writable_len > skb->len)
 		return 0;
 
 	/* Not exclusive use of packet?  Must copy. */
-	if (skb_cloned(*pskb) && !skb_clone_writable(*pskb, writable_len))
-		goto copy_skb;
-	if (skb_shared(*pskb))
-		goto copy_skb;
+	if (!skb_cloned(skb)) {
+		if (writable_len <= skb_headlen(skb))
+			return 1;
+	} else if (skb_clone_writable(skb, writable_len))
+		return 1;
 
-	return pskb_may_pull(*pskb, writable_len);
+	if (writable_len <= skb_headlen(skb))
+		writable_len = 0;
+	else
+		writable_len -= skb_headlen(skb);
 
-copy_skb:
-	nskb = skb_copy(*pskb, GFP_ATOMIC);
-	if (!nskb)
-		return 0;
-	BUG_ON(skb_is_nonlinear(nskb));
-
-	/* Rest of kernel will get very unhappy if we pass it a
-	   suddenly-orphaned skbuff */
-	if ((*pskb)->sk)
-		skb_set_owner_w(nskb, (*pskb)->sk);
-	kfree_skb(*pskb);
-	*pskb = nskb;
-	return 1;
+	return !!__pskb_pull_tail(skb, writable_len);
 }
 EXPORT_SYMBOL(skb_make_writable);
-
-void nf_proto_csum_replace4(__sum16 *sum, struct sk_buff *skb,
-			    __be32 from, __be32 to, int pseudohdr)
-{
-	__be32 diff[] = { ~from, to };
-	if (skb->ip_summed != CHECKSUM_PARTIAL) {
-		*sum = csum_fold(csum_partial(diff, sizeof(diff),
-				~csum_unfold(*sum)));
-		if (skb->ip_summed == CHECKSUM_COMPLETE && pseudohdr)
-			skb->csum = ~csum_partial(diff, sizeof(diff),
-						~skb->csum);
-	} else if (pseudohdr)
-		*sum = ~csum_fold(csum_partial(diff, sizeof(diff),
-				csum_unfold(*sum)));
-}
-EXPORT_SYMBOL(nf_proto_csum_replace4);
 
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 /* This does not belong here, but locally generated errors need it if connection
@@ -293,7 +270,7 @@ void __init netfilter_init(void)
 	}
 
 #ifdef CONFIG_PROC_FS
-	proc_net_netfilter = proc_mkdir("netfilter", proc_net);
+	proc_net_netfilter = proc_mkdir("netfilter", init_net.proc_net);
 	if (!proc_net_netfilter)
 		panic("cannot create netfilter proc entry");
 #endif
@@ -303,3 +280,12 @@ void __init netfilter_init(void)
 	if (netfilter_log_init() < 0)
 		panic("cannot initialize nf_log");
 }
+
+#ifdef CONFIG_SYSCTL
+struct ctl_path nf_net_netfilter_sysctl_path[] = {
+	{ .procname = "net", .ctl_name = CTL_NET, },
+	{ .procname = "netfilter", .ctl_name = NET_NETFILTER, },
+	{ }
+};
+EXPORT_SYMBOL_GPL(nf_net_netfilter_sysctl_path);
+#endif /* CONFIG_SYSCTL */

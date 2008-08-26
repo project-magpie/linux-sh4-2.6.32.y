@@ -6,7 +6,7 @@
 
 extern int nf_nat_rule_init(void) __init;
 extern void nf_nat_rule_cleanup(void);
-extern int nf_nat_rule_find(struct sk_buff **pskb,
+extern int nf_nat_rule_find(struct sk_buff *skb,
 			    unsigned int hooknum,
 			    const struct net_device *in,
 			    const struct net_device *out,
@@ -14,7 +14,4 @@ extern int nf_nat_rule_find(struct sk_buff **pskb,
 
 extern unsigned int
 alloc_null_binding(struct nf_conn *ct, unsigned int hooknum);
-
-extern unsigned int
-alloc_null_binding_confirmed(struct nf_conn *ct, unsigned int hooknum);
 #endif /* _NF_NAT_RULE_H */

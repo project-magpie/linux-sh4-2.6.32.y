@@ -94,6 +94,11 @@
 #define AT91_GPBR	(0xfffffd60 - AT91_BASE_SYS)
 #define AT91_RTC	(0xfffffe00 - AT91_BASE_SYS)
 
+#define AT91_USART0	AT91SAM9RL_BASE_US0
+#define AT91_USART1	AT91SAM9RL_BASE_US1
+#define AT91_USART2	AT91SAM9RL_BASE_US2
+#define AT91_USART3	AT91SAM9RL_BASE_US3
+
 
 /*
  * Internal Memory.
@@ -105,6 +110,6 @@
 #define AT91SAM9RL_ROM_SIZE	(2 * SZ_16K)	/* Internal ROM size (32Kb) */
 
 #define AT91SAM9RL_LCDC_BASE	0x00500000	/* LCD Controller */
-#define AT91SAM9RL_UDPHS_BASE	0x00600000	/* USB Device HS controller */
+#define AT91SAM9RL_UDPHS_FIFO	0x00600000	/* USB Device HS controller */
 
 #endif

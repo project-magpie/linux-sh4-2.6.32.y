@@ -36,7 +36,7 @@ static int dcssblk_open(struct inode *inode, struct file *filp);
 static int dcssblk_release(struct inode *inode, struct file *filp);
 static int dcssblk_make_request(struct request_queue *q, struct bio *bio);
 static int dcssblk_direct_access(struct block_device *bdev, sector_t secnum,
-				 unsigned long *data);
+				 void **kaddr, unsigned long *pfn);
 
 static char dcssblk_segments[DCSSBLK_PARM_LEN] = "\0";
 
@@ -82,7 +82,7 @@ struct dcssblk_dev_info {
 	struct request_queue *dcssblk_queue;
 };
 
-static struct list_head dcssblk_devices = LIST_HEAD_INIT(dcssblk_devices);
+static LIST_HEAD(dcssblk_devices);
 static struct rw_semaphore dcssblk_devices_sem;
 
 /*
@@ -142,55 +142,10 @@ dcssblk_get_device_by_name(char *name)
 	return NULL;
 }
 
-/*
- * print appropriate error message for segment_load()/segment_type()
- * return code
- */
-static void
-dcssblk_segment_warn(int rc, char* seg_name)
+static void dcssblk_unregister_callback(struct device *dev)
 {
-	switch (rc) {
-	case -ENOENT:
-		PRINT_WARN("cannot load/query segment %s, does not exist\n",
-			   seg_name);
-		break;
-	case -ENOSYS:
-		PRINT_WARN("cannot load/query segment %s, not running on VM\n",
-			   seg_name);
-		break;
-	case -EIO:
-		PRINT_WARN("cannot load/query segment %s, hardware error\n",
-			   seg_name);
-		break;
-	case -ENOTSUPP:
-		PRINT_WARN("cannot load/query segment %s, is a multi-part "
-			   "segment\n", seg_name);
-		break;
-	case -ENOSPC:
-		PRINT_WARN("cannot load/query segment %s, overlaps with "
-			   "storage\n", seg_name);
-		break;
-	case -EBUSY:
-		PRINT_WARN("cannot load/query segment %s, overlaps with "
-			   "already loaded dcss\n", seg_name);
-		break;
-	case -EPERM:
-		PRINT_WARN("cannot load/query segment %s, already loaded in "
-			   "incompatible mode\n", seg_name);
-		break;
-	case -ENOMEM:
-		PRINT_WARN("cannot load/query segment %s, out of memory\n",
-			   seg_name);
-		break;
-	case -ERANGE:
-		PRINT_WARN("cannot load/query segment %s, exceeds kernel "
-			   "mapping range\n", seg_name);
-		break;
-	default:
-		PRINT_WARN("cannot load/query segment %s, return value %i\n",
-			   seg_name, rc);
-		break;
-	}
+	device_unregister(dev);
+	put_device(dev);
 }
 
 /*
@@ -212,10 +167,8 @@ dcssblk_shared_store(struct device *dev, struct device_attribute *attr, const ch
 	struct dcssblk_dev_info *dev_info;
 	int rc;
 
-	if ((count > 1) && (inbuf[1] != '\n') && (inbuf[1] != '\0')) {
-		PRINT_WARN("Invalid value, must be 0 or 1\n");
+	if ((count > 1) && (inbuf[1] != '\n') && (inbuf[1] != '\0'))
 		return -EINVAL;
-	}
 	down_write(&dcssblk_devices_sem);
 	dev_info = container_of(dev, struct dcssblk_dev_info, dev);
 	if (atomic_read(&dev_info->use_count)) {
@@ -260,7 +213,6 @@ dcssblk_shared_store(struct device *dev, struct device_attribute *attr, const ch
 			set_disk_ro(dev_info->gd, 0);
 		}
 	} else {
-		PRINT_WARN("Invalid value, must be 0 or 1\n");
 		rc = -EINVAL;
 		goto out;
 	}
@@ -276,8 +228,7 @@ removeseg:
 	blk_cleanup_queue(dev_info->dcssblk_queue);
 	dev_info->gd->queue = NULL;
 	put_disk(dev_info->gd);
-	device_unregister(dev);
-	put_device(dev);
+	rc = device_schedule_callback(dev, dcssblk_unregister_callback);
 out:
 	up_write(&dcssblk_devices_sem);
 	return rc;
@@ -304,10 +255,8 @@ dcssblk_save_store(struct device *dev, struct device_attribute *attr, const char
 {
 	struct dcssblk_dev_info *dev_info;
 
-	if ((count > 1) && (inbuf[1] != '\n') && (inbuf[1] != '\0')) {
-		PRINT_WARN("Invalid value, must be 0 or 1\n");
+	if ((count > 1) && (inbuf[1] != '\n') && (inbuf[1] != '\0'))
 		return -EINVAL;
-	}
 	dev_info = container_of(dev, struct dcssblk_dev_info, dev);
 
 	down_write(&dcssblk_devices_sem);
@@ -335,7 +284,6 @@ dcssblk_save_store(struct device *dev, struct device_attribute *attr, const char
 		}
 	} else {
 		up_write(&dcssblk_devices_sem);
-		PRINT_WARN("Invalid value, must be 0 or 1\n");
 		return -EINVAL;
 	}
 	up_write(&dcssblk_devices_sem);
@@ -410,13 +358,15 @@ dcssblk_add_store(struct device *dev, struct device_attribute *attr, const char 
 	dev_info->gd->queue = dev_info->dcssblk_queue;
 	dev_info->gd->private_data = dev_info;
 	dev_info->gd->driverfs_dev = &dev_info->dev;
+	blk_queue_make_request(dev_info->dcssblk_queue, dcssblk_make_request);
+	blk_queue_hardsect_size(dev_info->dcssblk_queue, 4096);
 	/*
 	 * load the segment
 	 */
 	rc = segment_load(local_buf, SEGMENT_SHARED,
 				&dev_info->start, &dev_info->end);
 	if (rc < 0) {
-		dcssblk_segment_warn(rc, dev_info->segment_name);
+		segment_warning(rc, dev_info->segment_name);
 		goto dealloc_gendisk;
 	}
 	seg_byte_size = (dev_info->end - dev_info->start + 1);
@@ -469,9 +419,6 @@ dcssblk_add_store(struct device *dev, struct device_attribute *attr, const char 
 
 	add_disk(dev_info->gd);
 
-	blk_queue_make_request(dev_info->dcssblk_queue, dcssblk_make_request);
-	blk_queue_hardsect_size(dev_info->dcssblk_queue, 4096);
-
 	switch (dev_info->segment_type) {
 		case SEG_TYPE_SR:
 		case SEG_TYPE_ER:
@@ -488,7 +435,6 @@ dcssblk_add_store(struct device *dev, struct device_attribute *attr, const char 
 	goto out;
 
 unregister_dev:
-	PRINT_ERR("device_create_file() failed!\n");
 	list_del(&dev_info->lh);
 	blk_cleanup_queue(dev_info->dcssblk_queue);
 	dev_info->gd->queue = NULL;
@@ -662,7 +608,7 @@ dcssblk_make_request(struct request_queue *q, struct bio *bio)
 		page_addr = (unsigned long)
 			page_address(bvec->bv_page) + bvec->bv_offset;
 		source_addr = dev_info->start + (index<<12) + bytes_done;
-		if (unlikely(page_addr & 4095) != 0 || (bvec->bv_len & 4095) != 0)
+		if (unlikely((page_addr & 4095) != 0) || (bvec->bv_len & 4095) != 0)
 			// More paranoia.
 			goto fail;
 		if (bio_data_dir(bio) == READ) {
@@ -674,16 +620,16 @@ dcssblk_make_request(struct request_queue *q, struct bio *bio)
 		}
 		bytes_done += bvec->bv_len;
 	}
-	bio_endio(bio, bytes_done, 0);
+	bio_endio(bio, 0);
 	return 0;
 fail:
-	bio_io_error(bio, bio->bi_size);
+	bio_io_error(bio);
 	return 0;
 }
 
 static int
 dcssblk_direct_access (struct block_device *bdev, sector_t secnum,
-			unsigned long *data)
+			void **kaddr, unsigned long *pfn)
 {
 	struct dcssblk_dev_info *dev_info;
 	unsigned long pgoff;
@@ -696,7 +642,9 @@ dcssblk_direct_access (struct block_device *bdev, sector_t secnum,
 	pgoff = secnum / (PAGE_SIZE / 512);
 	if ((pgoff+1)*PAGE_SIZE-1 > dev_info->end - dev_info->start)
 		return -ERANGE;
-	*data = (unsigned long) (dev_info->start+pgoff*PAGE_SIZE);
+	*kaddr = (void *) (dev_info->start+pgoff*PAGE_SIZE);
+	*pfn = virt_to_phys(*kaddr) >> PAGE_SHIFT;
+
 	return 0;
 }
 
@@ -747,10 +695,8 @@ dcssblk_check_params(void)
 static void __exit
 dcssblk_exit(void)
 {
-	PRINT_DEBUG("DCSSBLOCK EXIT...\n");
 	s390_root_dev_unregister(dcssblk_root_dev);
 	unregister_blkdev(dcssblk_major, DCSSBLK_NAME);
-	PRINT_DEBUG("...finished!\n");
 }
 
 static int __init
@@ -758,27 +704,21 @@ dcssblk_init(void)
 {
 	int rc;
 
-	PRINT_DEBUG("DCSSBLOCK INIT...\n");
 	dcssblk_root_dev = s390_root_dev_register("dcssblk");
-	if (IS_ERR(dcssblk_root_dev)) {
-		PRINT_ERR("device_register() failed!\n");
+	if (IS_ERR(dcssblk_root_dev))
 		return PTR_ERR(dcssblk_root_dev);
-	}
 	rc = device_create_file(dcssblk_root_dev, &dev_attr_add);
 	if (rc) {
-		PRINT_ERR("device_create_file(add) failed!\n");
 		s390_root_dev_unregister(dcssblk_root_dev);
 		return rc;
 	}
 	rc = device_create_file(dcssblk_root_dev, &dev_attr_remove);
 	if (rc) {
-		PRINT_ERR("device_create_file(remove) failed!\n");
 		s390_root_dev_unregister(dcssblk_root_dev);
 		return rc;
 	}
 	rc = register_blkdev(0, DCSSBLK_NAME);
 	if (rc < 0) {
-		PRINT_ERR("Can't get dynamic major!\n");
 		s390_root_dev_unregister(dcssblk_root_dev);
 		return rc;
 	}
@@ -787,7 +727,6 @@ dcssblk_init(void)
 
 	dcssblk_check_params();
 
-	PRINT_DEBUG("...finished!\n");
 	return 0;
 }
 

@@ -51,6 +51,9 @@
 #include <linux/root_dev.h>
 #include <linux/bitops.h>
 #include <linux/suspend.h>
+#include <linux/of_device.h>
+#include <linux/of_platform.h>
+#include <linux/lmb.h>
 
 #include <asm/reg.h>
 #include <asm/sections.h>
@@ -68,13 +71,10 @@
 #include <asm/btext.h>
 #include <asm/pmac_feature.h>
 #include <asm/time.h>
-#include <asm/of_device.h>
-#include <asm/of_platform.h>
 #include <asm/mmu_context.h>
 #include <asm/iommu.h>
 #include <asm/smu.h>
 #include <asm/pmc.h>
-#include <asm/lmb.h>
 #include <asm/udbg.h>
 
 #include "pmac.h"
@@ -94,11 +94,8 @@ extern struct machdep_calls pmac_md;
 #define DEFAULT_ROOT_DEVICE Root_SDA1	/* sda1 - slightly silly choice */
 
 #ifdef CONFIG_PPC64
-#include <asm/udbg.h>
 int sccdbg;
 #endif
-
-extern void zs_kgdb_hook(int tty_num);
 
 sys_ctrler_t sys_ctrler = SYS_CTRLER_UNKNOWN;
 EXPORT_SYMBOL(sys_ctrler);
@@ -330,15 +327,12 @@ static void __init pmac_setup_arch(void)
 	l2cr_init();
 #endif /* CONFIG_PPC32 */
 
-#ifdef CONFIG_KGDB
-	zs_kgdb_hook(0);
-#endif
-
 	find_via_cuda();
 	find_via_pmu();
 	smu_init();
 
-#if defined(CONFIG_NVRAM) || defined(CONFIG_PPC64)
+#if defined(CONFIG_NVRAM) || defined(CONFIG_NVRAM_MODULE) || \
+    defined(CONFIG_PPC64)
 	pmac_nvram_init();
 #endif
 
@@ -387,89 +381,33 @@ static void __init pmac_setup_arch(void)
 #endif /* CONFIG_ADB */
 }
 
-char *bootpath;
-char *bootdevice;
-void *boot_host;
-int boot_target;
-int boot_part;
-static dev_t boot_dev;
-
 #ifdef CONFIG_SCSI
 void note_scsi_host(struct device_node *node, void *host)
 {
-	int l;
-	char *p;
-
-	l = strlen(node->full_name);
-	if (bootpath != NULL && bootdevice != NULL
-	    && strncmp(node->full_name, bootdevice, l) == 0
-	    && (bootdevice[l] == '/' || bootdevice[l] == 0)) {
-		boot_host = host;
-		/*
-		 * There's a bug in OF 1.0.5.  (Why am I not surprised.)
-		 * If you pass a path like scsi/sd@1:0 to canon, it returns
-		 * something like /bandit@F2000000/gc@10/53c94@10000/sd@0,0
-		 * That is, the scsi target number doesn't get preserved.
-		 * So we pick the target number out of bootpath and use that.
-		 */
-		p = strstr(bootpath, "/sd@");
-		if (p != NULL) {
-			p += 4;
-			boot_target = simple_strtoul(p, NULL, 10);
-			p = strchr(p, ':');
-			if (p != NULL)
-				boot_part = simple_strtoul(p + 1, NULL, 10);
-		}
-	}
 }
 EXPORT_SYMBOL(note_scsi_host);
 #endif
-
-#if defined(CONFIG_BLK_DEV_IDE) && defined(CONFIG_BLK_DEV_IDE_PMAC)
-static dev_t __init find_ide_boot(void)
-{
-	char *p;
-	int n;
-	dev_t __init pmac_find_ide_boot(char *bootdevice, int n);
-
-	if (bootdevice == NULL)
-		return 0;
-	p = strrchr(bootdevice, '/');
-	if (p == NULL)
-		return 0;
-	n = p - bootdevice;
-
-	return pmac_find_ide_boot(bootdevice, n);
-}
-#endif /* CONFIG_BLK_DEV_IDE && CONFIG_BLK_DEV_IDE_PMAC */
-
-static void __init find_boot_device(void)
-{
-#if defined(CONFIG_BLK_DEV_IDE) && defined(CONFIG_BLK_DEV_IDE_PMAC)
-	boot_dev = find_ide_boot();
-#endif
-}
 
 static int initializing = 1;
 
 static int pmac_late_init(void)
 {
-	if (!machine_is(powermac))
-		return -ENODEV;
-
 	initializing = 0;
 	/* this is udbg (which is __init) and we can later use it during
 	 * cpu hotplug (in smp_core99_kick_cpu) */
 	ppc_md.progress = NULL;
 	return 0;
 }
+machine_late_initcall(powermac, pmac_late_init);
 
-late_initcall(pmac_late_init);
-
-/* can't be __init - can be called whenever a disk is first accessed */
-void note_bootable_part(dev_t dev, int part, int goodness)
+/*
+ * This is __init_refok because we check for "initializing" before
+ * touching any of the __init sensitive things and "initializing"
+ * will be false after __init time. This can't be __init because it
+ * can be called whenever a disk is first accessed.
+ */
+void __init_refok note_bootable_part(dev_t dev, int part, int goodness)
 {
-	static int found_boot = 0;
 	char *p;
 
 	if (!initializing)
@@ -481,15 +419,8 @@ void note_bootable_part(dev_t dev, int part, int goodness)
 	if (p != NULL && (p == boot_command_line || p[-1] == ' '))
 		return;
 
-	if (!found_boot) {
-		find_boot_device();
-		found_boot = 1;
-	}
-	if (!boot_dev || dev == boot_dev) {
-		ROOT_DEV = dev + part;
-		boot_dev = 0;
-		current_root_goodness = goodness;
-	}
+	ROOT_DEV = dev + part;
+	current_root_goodness = goodness;
 }
 
 #ifdef CONFIG_ADB_CUDA
@@ -594,9 +525,6 @@ static int __init pmac_declare_of_platform_devices(void)
 	if (machine_is(chrp))
 		return -1;
 
-	if (!machine_is(powermac))
-		return 0;
-
 	np = of_find_node_by_name(NULL, "valkyrie");
 	if (np)
 		of_platform_device_create(np, "valkyrie", NULL);
@@ -611,8 +539,7 @@ static int __init pmac_declare_of_platform_devices(void)
 
 	return 0;
 }
-
-device_initcall(pmac_declare_of_platform_devices);
+machine_device_initcall(powermac, pmac_declare_of_platform_devices);
 
 /*
  * Called very early, MMU is off, device-tree isn't unflattened
@@ -642,14 +569,6 @@ static int __init pmac_probe(void)
 	ISA_DMA_THRESHOLD = ~0L;
 	DMA_MODE_READ = 1;
 	DMA_MODE_WRITE = 2;
-
-#if defined(CONFIG_BLK_DEV_IDE) || defined(CONFIG_BLK_DEV_IDE_MODULE)
-#ifdef CONFIG_BLK_DEV_IDE_PMAC
-        ppc_ide_md.ide_init_hwif	= pmac_ide_init_hwif_ports;
-        ppc_ide_md.default_io_base	= pmac_ide_get_base;
-#endif /* CONFIG_BLK_DEV_IDE_PMAC */
-#endif /* defined(CONFIG_BLK_DEV_IDE) || defined(CONFIG_BLK_DEV_IDE_MODULE) */
-
 #endif /* CONFIG_PPC32 */
 
 #ifdef CONFIG_PMAC_SMU
@@ -672,9 +591,11 @@ static int pmac_pci_probe_mode(struct pci_bus *bus)
 
 	/* We need to use normal PCI probing for the AGP bus,
 	 * since the device for the AGP bridge isn't in the tree.
+	 * Same for the PCIe host on U4 and the HT host bridge.
 	 */
 	if (bus->self == NULL && (of_device_is_compatible(node, "u3-agp") ||
-				  of_device_is_compatible(node, "u4-pcie")))
+				  of_device_is_compatible(node, "u4-pcie") ||
+				  of_device_is_compatible(node, "u3-ht")))
 		return PCI_PROBE_NORMAL;
 	return PCI_PROBE_DEVTREE;
 }

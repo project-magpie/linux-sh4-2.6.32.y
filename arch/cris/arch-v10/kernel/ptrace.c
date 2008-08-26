@@ -65,6 +65,7 @@ void
 ptrace_disable(struct task_struct *child)
 {
        /* Todo - pending singlesteps? */
+       clear_tsk_thread_flag(child, TIF_SYSCALL_TRACE);
 }
 
 /* 
@@ -175,10 +176,6 @@ long arch_ptrace(struct task_struct *child, long request, long addr, long data)
 			child->exit_code = data;
 			wake_up_process(child);
 			ret = 0;
-			break;
-
-		case PTRACE_DETACH:
-			ret = ptrace_detach(child, data);
 			break;
 
 		/* Get all GP registers from the child. */

@@ -27,7 +27,10 @@
 
 #include <linux/fs.h>
 #include <linux/namei.h>
-#include <linux/ufs_fs.h>
+
+#include "ufs_fs.h"
+#include "ufs.h"
+
 
 static void *ufs_follow_link(struct dentry *dentry, struct nameidata *nd)
 {

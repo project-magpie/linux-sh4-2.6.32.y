@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *     and (c) 1999 Steve Ratcliffe <steve@parabola.demon.co.uk>
  *  Copyright (C) 1999-2000 Takashi Iwai <tiwai@suse.de>
  *
@@ -20,7 +20,6 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
-#include <sound/driver.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
 #include <linux/slab.h>

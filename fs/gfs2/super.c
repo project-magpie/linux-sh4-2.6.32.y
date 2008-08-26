@@ -1,6 +1,6 @@
 /*
  * Copyright (C) Sistina Software, Inc.  1997-2003 All rights reserved.
- * Copyright (C) 2004-2006 Red Hat, Inc.  All rights reserved.
+ * Copyright (C) 2004-2007 Red Hat, Inc.  All rights reserved.
  *
  * This copyrighted material is made available to anyone wishing to use,
  * modify, copy, or redistribute it subject to the terms and conditions
@@ -51,14 +51,9 @@ void gfs2_tune_init(struct gfs2_tune *gt)
 {
 	spin_lock_init(&gt->gt_spin);
 
-	gt->gt_ilimit = 100;
-	gt->gt_ilimit_tries = 3;
-	gt->gt_ilimit_min = 1;
 	gt->gt_demote_secs = 300;
 	gt->gt_incore_log_blocks = 1024;
 	gt->gt_log_flush_secs = 60;
-	gt->gt_jindex_refresh_secs = 60;
-	gt->gt_scand_secs = 15;
 	gt->gt_recoverd_secs = 60;
 	gt->gt_logd_secs = 1;
 	gt->gt_quotad_secs = 5;
@@ -70,12 +65,9 @@ void gfs2_tune_init(struct gfs2_tune *gt)
 	gt->gt_quota_quantum = 60;
 	gt->gt_atime_quantum = 3600;
 	gt->gt_new_files_jdata = 0;
-	gt->gt_new_files_directio = 0;
 	gt->gt_max_readahead = 1 << 18;
-	gt->gt_lockdump_size = 131072;
 	gt->gt_stall_secs = 600;
 	gt->gt_complain_secs = 10;
-	gt->gt_reclaim_limit = 5000;
 	gt->gt_statfs_quantum = 30;
 	gt->gt_statfs_slow = 0;
 }
@@ -160,18 +152,15 @@ int gfs2_check_sb(struct gfs2_sbd *sdp, struct gfs2_sb_host *sb, int silent)
 }
 
 
-static int end_bio_io_page(struct bio *bio, unsigned int bytes_done, int error)
+static void end_bio_io_page(struct bio *bio, int error)
 {
 	struct page *page = bio->bi_private;
-	if (bio->bi_size)
-		return 1;
 
 	if (!error)
 		SetPageUptodate(page);
 	else
 		printk(KERN_WARNING "gfs2: error %d reading superblock\n", error);
 	unlock_page(page);
-	return 0;
 }
 
 static void gfs2_sb_in(struct gfs2_sb_host *sb, const void *buf)
@@ -220,7 +209,7 @@ int gfs2_read_super(struct gfs2_sbd *sdp, sector_t sector)
 	struct page *page;
 	struct bio *bio;
 
-	page = alloc_page(GFP_KERNEL);
+	page = alloc_page(GFP_NOFS);
 	if (unlikely(!page))
 		return -ENOBUFS;
 
@@ -228,7 +217,7 @@ int gfs2_read_super(struct gfs2_sbd *sdp, sector_t sector)
 	ClearPageDirty(page);
 	lock_page(page);
 
-	bio = bio_alloc(GFP_KERNEL, 1);
+	bio = bio_alloc(GFP_NOFS, 1);
 	if (unlikely(!bio)) {
 		__free_page(page);
 		return -ENOBUFS;
@@ -326,6 +315,7 @@ int gfs2_read_sb(struct gfs2_sbd *sdp, struct gfs2_glock *gl, int silent)
 		sdp->sd_heightsize[x] = space;
 	}
 	sdp->sd_max_height = x;
+	sdp->sd_heightsize[x] = ~0;
 	gfs2_assert(sdp, sdp->sd_max_height <= GFS2_MAX_META_HEIGHT);
 
 	sdp->sd_jheightsize[0] = sdp->sd_sb.sb_bsize -
@@ -344,6 +334,7 @@ int gfs2_read_sb(struct gfs2_sbd *sdp, struct gfs2_glock *gl, int silent)
 		sdp->sd_jheightsize[x] = space;
 	}
 	sdp->sd_max_jheight = x;
+	sdp->sd_jheightsize[x] = ~0;
 	gfs2_assert(sdp, sdp->sd_max_jheight <= GFS2_MAX_META_HEIGHT);
 
 	return 0;
@@ -397,7 +388,8 @@ int gfs2_jindex_hold(struct gfs2_sbd *sdp, struct gfs2_holder *ji_gh)
 		if (!jd)
 			break;
 
-		jd->jd_inode = gfs2_lookupi(sdp->sd_jindex, &name, 1, NULL);
+		INIT_LIST_HEAD(&jd->extent_list);
+		jd->jd_inode = gfs2_lookupi(sdp->sd_jindex, &name, 1);
 		if (!jd->jd_inode || IS_ERR(jd->jd_inode)) {
 			if (!jd->jd_inode)
 				error = -ENOENT;
@@ -426,8 +418,9 @@ int gfs2_jindex_hold(struct gfs2_sbd *sdp, struct gfs2_holder *ji_gh)
 
 void gfs2_jindex_free(struct gfs2_sbd *sdp)
 {
-	struct list_head list;
+	struct list_head list, *head;
 	struct gfs2_jdesc *jd;
+	struct gfs2_journal_extent *jext;
 
 	spin_lock(&sdp->sd_jindex_spin);
 	list_add(&list, &sdp->sd_jindex_list);
@@ -437,6 +430,14 @@ void gfs2_jindex_free(struct gfs2_sbd *sdp)
 
 	while (!list_empty(&list)) {
 		jd = list_entry(list.next, struct gfs2_jdesc, jd_list);
+		head = &jd->extent_list;
+		while (!list_empty(head)) {
+			jext = list_entry(head->next,
+					  struct gfs2_journal_extent,
+					  extent_list);
+			list_del(&jext->extent_list);
+			kfree(jext);
+		}
 		list_del(&jd->jd_list);
 		iput(jd->jd_inode);
 		kfree(jd);
@@ -547,7 +548,6 @@ int gfs2_make_fs_rw(struct gfs2_sbd *sdp)
 	if (error)
 		return error;
 
-	gfs2_meta_cache_flush(ip);
 	j_gl->gl_ops->go_inval(j_gl, DIO_METADATA);
 
 	error = gfs2_find_jhead(sdp->sd_jdesc, &head);
@@ -690,9 +690,7 @@ void gfs2_statfs_change(struct gfs2_sbd *sdp, s64 total, s64 free,
 	if (error)
 		return;
 
-	mutex_lock(&sdp->sd_statfs_mutex);
 	gfs2_trans_add_bh(l_ip->i_gl, l_bh, 1);
-	mutex_unlock(&sdp->sd_statfs_mutex);
 
 	spin_lock(&sdp->sd_statfs_spin);
 	l_sc->sc_total += total;
@@ -740,9 +738,7 @@ int gfs2_statfs_sync(struct gfs2_sbd *sdp)
 	if (error)
 		goto out_bh2;
 
-	mutex_lock(&sdp->sd_statfs_mutex);
 	gfs2_trans_add_bh(l_ip->i_gl, l_bh, 1);
-	mutex_unlock(&sdp->sd_statfs_mutex);
 
 	spin_lock(&sdp->sd_statfs_spin);
 	m_sc->sc_total += l_sc->sc_total;
@@ -944,8 +940,7 @@ static int gfs2_lock_fs_check_clean(struct gfs2_sbd *sdp,
 	}
 
 	error = gfs2_glock_nq_init(sdp->sd_trans_gl, LM_ST_DEFERRED,
-			       LM_FLAG_PRIORITY | GL_NOCACHE,
-			       t_gh);
+				   GL_NOCACHE, t_gh);
 
 	list_for_each_entry(jd, &sdp->sd_jindex_list, jd_list) {
 		error = gfs2_jdesc_check(jd);

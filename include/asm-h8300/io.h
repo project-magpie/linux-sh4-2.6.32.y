@@ -264,12 +264,6 @@ static inline void *ioremap_fullcache(unsigned long physaddr, unsigned long size
 
 extern void iounmap(void *addr);
 
-/* Nothing to do */
-
-#define dma_cache_inv(_start,_size)		do { } while (0)
-#define dma_cache_wback(_start,_size)		do { } while (0)
-#define dma_cache_wback_inv(_start,_size)	do { } while (0)
-
 /* H8/300 internal I/O functions */
 static __inline__ unsigned char ctrl_inb(unsigned long addr)
 {
@@ -308,8 +302,6 @@ static __inline__ void ctrl_outl(unsigned long b, unsigned long addr)
 /*
  * Macros used for converting between virtual and physical mappings.
  */
-#define mm_ptov(vaddr)		((void *) (vaddr))
-#define mm_vtop(vaddr)		((unsigned long) (vaddr))
 #define phys_to_virt(vaddr)	((void *) (vaddr))
 #define virt_to_phys(vaddr)	((unsigned long) (vaddr))
 

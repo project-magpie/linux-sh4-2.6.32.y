@@ -221,7 +221,7 @@ static int efficeon_create_gatt_table(struct agp_bridge_data *bridge)
 		SetPageReserved(virt_to_page((char *)page));
 
 		for (offset = 0; offset < PAGE_SIZE; offset += clflush_chunk)
-			asm volatile("clflush %0" : : "m" (*(char *)(page+offset)));
+			clflush((char *)page+offset);
 
 		efficeon_private.l1_table[index] = page;
 
@@ -249,9 +249,9 @@ static int efficeon_insert_memory(struct agp_memory * mem, off_t pg_start, int t
 	if (type != 0 || mem->type != 0)
 		return -EINVAL;
 
-	if (mem->is_flushed == FALSE) {
+	if (!mem->is_flushed) {
 		global_cache_flush();
-		mem->is_flushed = TRUE;
+		mem->is_flushed = true;
 	}
 
 	last_page = NULL;
@@ -268,15 +268,16 @@ static int efficeon_insert_memory(struct agp_memory * mem, off_t pg_start, int t
 		*page = insert;
 
 		/* clflush is slow, so don't clflush until we have to */
-		if ( last_page &&
-		     ((unsigned long)page^(unsigned long)last_page) & clflush_mask )
-		    asm volatile("clflush %0" : : "m" (*last_page));
+		if (last_page &&
+		    (((unsigned long)page^(unsigned long)last_page) &
+		     clflush_mask))
+			clflush(last_page);
 
 		last_page = page;
 	}
 
 	if ( last_page )
-		asm volatile("clflush %0" : : "m" (*last_page));
+		clflush(last_page);
 
 	agp_bridge->driver->tlb_flush(mem);
 	return 0;
@@ -328,7 +329,7 @@ static const struct agp_bridge_driver efficeon_driver = {
 	.free_gatt_table	= efficeon_free_gatt_table,
 	.insert_memory		= efficeon_insert_memory,
 	.remove_memory		= efficeon_remove_memory,
-	.cant_use_aperture	= 0,	// 1 might be faster?
+	.cant_use_aperture	= false,	// true might be faster?
 
 	// Generic
 	.alloc_by_type		= agp_generic_alloc_by_type,

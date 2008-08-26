@@ -1,6 +1,5 @@
 #ifndef _LINUX_OF_DEVICE_H
 #define _LINUX_OF_DEVICE_H
-#ifdef __KERNEL__
 
 #include <linux/device.h>
 #include <linux/of.h>
@@ -10,8 +9,6 @@
 
 #define	to_of_device(d) container_of(d, struct of_device, dev)
 
-extern const struct of_device_id *of_match_node(
-	const struct of_device_id *matches, const struct device_node *node);
 extern const struct of_device_id *of_match_device(
 	const struct of_device_id *matches, const struct of_device *dev);
 
@@ -22,5 +19,12 @@ extern int of_device_register(struct of_device *ofdev);
 extern void of_device_unregister(struct of_device *ofdev);
 extern void of_release_dev(struct device *dev);
 
-#endif /* __KERNEL__ */
+static inline void of_device_free(struct of_device *dev)
+{
+	of_release_dev(&dev->dev);
+}
+
+extern ssize_t of_device_get_modalias(struct of_device *ofdev,
+					char *str, ssize_t len);
+
 #endif /* _LINUX_OF_DEVICE_H */

@@ -118,12 +118,13 @@
 	    Supplemental interrupt 0		IVG7	    69
 	    supplemental interrupt 1		IVG7	    70
 
-            Software Interrupt 1		IVG14       71
-            Software Interrupt 2		IVG15       72 *
-						(lowest priority)
+            Softirq		    		IVG14
+            System Call    --
+                 (lowest priority)  		IVG15
+
  **********************************************************************/
 
-#define SYS_IRQS		72
+#define SYS_IRQS		71
 #define NR_PERI_INTS		64
 
 /*
@@ -237,9 +238,7 @@
 #define IRQ_RESERVED_2		(IVG_BASE + 61)	/* Reserved interrupt       */
 #define IRQ_SUPPLE_0		(IVG_BASE + 62)	/* Supplemental interrupt 0 */
 #define IRQ_SUPPLE_1		(IVG_BASE + 63)	/* supplemental interrupt 1 */
-#define	IRQ_SW_INT1		71	/* Software Interrupt 1     */
-#define	IRQ_SW_INT2		72	/* Software Interrupt 2     */
-						/* reserved for SYSCALL */
+
 #define IRQ_PF0			73
 #define IRQ_PF1			74
 #define IRQ_PF2			75
@@ -289,11 +288,9 @@
 #define IRQ_PF46		119
 #define IRQ_PF47		120
 
-#ifdef CONFIG_IRQCHIP_DEMUX_GPIO
+#define GPIO_IRQ_BASE		IRQ_PF0
+
 #define NR_IRQS			(IRQ_PF47 + 1)
-#else
-#define NR_IRQS			SYS_IRQS
-#endif
 
 #define IVG7			7
 #define IVG8			8

@@ -5,6 +5,7 @@
 #define _ASM_POWERPC_SYSTEM_H
 
 #include <linux/kernel.h>
+#include <linux/irqflags.h>
 
 #include <asm/hw_irq.h>
 
@@ -29,21 +30,29 @@
  *
  * For wmb(), we use sync since wmb is used in drivers to order
  * stores to system memory with respect to writes to the device.
- * However, smp_wmb() can be a lighter-weight eieio barrier on
- * SMP since it is only used to order updates to system memory.
+ * However, smp_wmb() can be a lighter-weight lwsync or eieio barrier
+ * on SMP since it is only used to order updates to system memory.
  */
 #define mb()   __asm__ __volatile__ ("sync" : : : "memory")
-#define rmb()  __asm__ __volatile__ (__stringify(LWSYNC) : : : "memory")
+#define rmb()  __asm__ __volatile__ ("sync" : : : "memory")
 #define wmb()  __asm__ __volatile__ ("sync" : : : "memory")
 #define read_barrier_depends()  do { } while(0)
 
 #define set_mb(var, value)	do { var = value; mb(); } while (0)
 
 #ifdef __KERNEL__
+#define AT_VECTOR_SIZE_ARCH 6 /* entries in ARCH_DLINFO */
 #ifdef CONFIG_SMP
+
+#ifdef __SUBARCH_HAS_LWSYNC
+#    define SMPWMB      lwsync
+#else
+#    define SMPWMB      eieio
+#endif
+
 #define smp_mb()	mb()
 #define smp_rmb()	rmb()
-#define smp_wmb()	eieio()
+#define smp_wmb()	__asm__ __volatile__ (__stringify(SMPWMB) : : :"memory")
 #define smp_read_barrier_depends()	read_barrier_depends()
 #else
 #define smp_mb()	barrier()
@@ -64,7 +73,7 @@
 struct task_struct;
 struct pt_regs;
 
-#ifdef CONFIG_DEBUGGER
+#if defined(CONFIG_DEBUGGER) || defined(CONFIG_KEXEC)
 
 extern int (*__debugger)(struct pt_regs *regs);
 extern int (*__debugger_ipi)(struct pt_regs *regs);
@@ -101,6 +110,8 @@ static inline int debugger_fault_handler(struct pt_regs *regs) { return 0; }
 #endif
 
 extern int set_dabr(unsigned long dabr);
+extern void do_dabr(struct pt_regs *regs, unsigned long address,
+		    unsigned long error_code);
 extern void print_backtrace(unsigned long *);
 extern void show_regs(struct pt_regs * regs);
 extern void flush_instruction_cache(void);
@@ -130,6 +141,8 @@ extern void enable_kernel_altivec(void);
 extern void giveup_altivec(struct task_struct *);
 extern void load_up_altivec(struct task_struct *);
 extern int emulate_altivec(struct pt_regs *);
+extern void __giveup_vsx(struct task_struct *);
+extern void giveup_vsx(struct task_struct *);
 extern void enable_kernel_spe(void);
 extern void giveup_spe(struct task_struct *);
 extern void load_up_spe(struct task_struct *);
@@ -153,6 +166,14 @@ static inline void flush_altivec_to_thread(struct task_struct *t)
 }
 #endif
 
+#ifdef CONFIG_VSX
+extern void flush_vsx_to_thread(struct task_struct *);
+#else
+static inline void flush_vsx_to_thread(struct task_struct *t)
+{
+}
+#endif
+
 #ifdef CONFIG_SPE
 extern void flush_spe_to_thread(struct task_struct *);
 #else
@@ -168,6 +189,8 @@ extern int do_page_fault(struct pt_regs *, unsigned long, unsigned long);
 extern void bad_page_fault(struct pt_regs *, unsigned long, int);
 extern int die(const char *, struct pt_regs *, long);
 extern void _exception(int, struct pt_regs *, int, unsigned long);
+extern void _nmask_and_or_msr(unsigned long nmask, unsigned long or_val);
+
 #ifdef CONFIG_BOOKE_WDT
 extern u32 booke_wdt_enabled;
 extern u32 booke_wdt_period;
@@ -186,8 +209,12 @@ extern struct task_struct *_switch(struct thread_struct *prev,
 
 extern unsigned int rtas_data;
 extern int mem_init_done;	/* set on boot once kmalloc can be called */
+extern int init_bootmem_done;	/* set on !NUMA once bootmem is available */
 extern unsigned long memory_limit;
 extern unsigned long klimit;
+
+extern void *alloc_maybe_bootmem(size_t size, gfp_t mask);
+extern void *zalloc_maybe_bootmem(size_t size, gfp_t mask);
 
 extern int powersave_nap;	/* set if nap mode can be used in idle loop */
 
@@ -197,7 +224,7 @@ extern int powersave_nap;	/* set if nap mode can be used in idle loop */
  * Changes the memory location '*ptr' to be val and returns
  * the previous value stored there.
  */
-static __inline__ unsigned long
+static __always_inline unsigned long
 __xchg_u32(volatile void *p, unsigned long val)
 {
 	unsigned long prev;
@@ -222,7 +249,7 @@ __xchg_u32(volatile void *p, unsigned long val)
  * Changes the memory location '*ptr' to be val and returns
  * the previous value stored there.
  */
-static __inline__ unsigned long
+static __always_inline unsigned long
 __xchg_u32_local(volatile void *p, unsigned long val)
 {
 	unsigned long prev;
@@ -240,7 +267,7 @@ __xchg_u32_local(volatile void *p, unsigned long val)
 }
 
 #ifdef CONFIG_PPC64
-static __inline__ unsigned long
+static __always_inline unsigned long
 __xchg_u64(volatile void *p, unsigned long val)
 {
 	unsigned long prev;
@@ -259,7 +286,7 @@ __xchg_u64(volatile void *p, unsigned long val)
 	return prev;
 }
 
-static __inline__ unsigned long
+static __always_inline unsigned long
 __xchg_u64_local(volatile void *p, unsigned long val)
 {
 	unsigned long prev;
@@ -283,7 +310,7 @@ __xchg_u64_local(volatile void *p, unsigned long val)
  */
 extern void __xchg_called_with_bad_pointer(void);
 
-static __inline__ unsigned long
+static __always_inline unsigned long
 __xchg(volatile void *ptr, unsigned long x, unsigned int size)
 {
 	switch (size) {
@@ -298,7 +325,7 @@ __xchg(volatile void *ptr, unsigned long x, unsigned int size)
 	return x;
 }
 
-static __inline__ unsigned long
+static __always_inline unsigned long
 __xchg_local(volatile void *ptr, unsigned long x, unsigned int size)
 {
 	switch (size) {
@@ -331,7 +358,7 @@ __xchg_local(volatile void *ptr, unsigned long x, unsigned int size)
  */
 #define __HAVE_ARCH_CMPXCHG	1
 
-static __inline__ unsigned long
+static __always_inline unsigned long
 __cmpxchg_u32(volatile unsigned int *p, unsigned long old, unsigned long new)
 {
 	unsigned int prev;
@@ -354,7 +381,7 @@ __cmpxchg_u32(volatile unsigned int *p, unsigned long old, unsigned long new)
 	return prev;
 }
 
-static __inline__ unsigned long
+static __always_inline unsigned long
 __cmpxchg_u32_local(volatile unsigned int *p, unsigned long old,
 			unsigned long new)
 {
@@ -377,7 +404,7 @@ __cmpxchg_u32_local(volatile unsigned int *p, unsigned long old,
 }
 
 #ifdef CONFIG_PPC64
-static __inline__ unsigned long
+static __always_inline unsigned long
 __cmpxchg_u64(volatile unsigned long *p, unsigned long old, unsigned long new)
 {
 	unsigned long prev;
@@ -399,7 +426,7 @@ __cmpxchg_u64(volatile unsigned long *p, unsigned long old, unsigned long new)
 	return prev;
 }
 
-static __inline__ unsigned long
+static __always_inline unsigned long
 __cmpxchg_u64_local(volatile unsigned long *p, unsigned long old,
 			unsigned long new)
 {
@@ -425,7 +452,7 @@ __cmpxchg_u64_local(volatile unsigned long *p, unsigned long old,
    if something tries to do an invalid cmpxchg().  */
 extern void __cmpxchg_called_with_bad_pointer(void);
 
-static __inline__ unsigned long
+static __always_inline unsigned long
 __cmpxchg(volatile void *ptr, unsigned long old, unsigned long new,
 	  unsigned int size)
 {
@@ -441,7 +468,7 @@ __cmpxchg(volatile void *ptr, unsigned long old, unsigned long new,
 	return old;
 }
 
-static __inline__ unsigned long
+static __always_inline unsigned long
 __cmpxchg_local(volatile void *ptr, unsigned long old, unsigned long new,
 	  unsigned int size)
 {
@@ -457,7 +484,7 @@ __cmpxchg_local(volatile void *ptr, unsigned long old, unsigned long new,
 	return old;
 }
 
-#define cmpxchg(ptr,o,n)						 \
+#define cmpxchg(ptr, o, n)						 \
   ({									 \
      __typeof__(*(ptr)) _o_ = (o);					 \
      __typeof__(*(ptr)) _n_ = (n);					 \
@@ -466,7 +493,7 @@ __cmpxchg_local(volatile void *ptr, unsigned long old, unsigned long new,
   })
 
 
-#define cmpxchg_local(ptr,o,n)						 \
+#define cmpxchg_local(ptr, o, n)					 \
   ({									 \
      __typeof__(*(ptr)) _o_ = (o);					 \
      __typeof__(*(ptr)) _n_ = (n);					 \
@@ -486,6 +513,20 @@ __cmpxchg_local(volatile void *ptr, unsigned long old, unsigned long new,
  */
 #define NET_IP_ALIGN	0
 #define NET_SKB_PAD	L1_CACHE_BYTES
+
+#define cmpxchg64(ptr, o, n)						\
+  ({									\
+	BUILD_BUG_ON(sizeof(*(ptr)) != 8);				\
+	cmpxchg((ptr), (o), (n));					\
+  })
+#define cmpxchg64_local(ptr, o, n)					\
+  ({									\
+	BUILD_BUG_ON(sizeof(*(ptr)) != 8);				\
+	cmpxchg_local((ptr), (o), (n));					\
+  })
+#else
+#include <asm-generic/cmpxchg-local.h>
+#define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
 #endif
 
 #define arch_align_stack(x) (x)
@@ -496,54 +537,6 @@ extern unsigned long add_reloc_offset(unsigned long);
 extern void reloc_got2(unsigned long);
 
 #define PTRRELOC(x)	((typeof(x)) add_reloc_offset((unsigned long)(x)))
-
-static inline void create_instruction(unsigned long addr, unsigned int instr)
-{
-	unsigned int *p;
-	p  = (unsigned int *)addr;
-	*p = instr;
-	asm ("dcbst 0, %0; sync; icbi 0,%0; sync; isync" : : "r" (p));
-}
-
-/* Flags for create_branch:
- * "b"   == create_branch(addr, target, 0);
- * "ba"  == create_branch(addr, target, BRANCH_ABSOLUTE);
- * "bl"  == create_branch(addr, target, BRANCH_SET_LINK);
- * "bla" == create_branch(addr, target, BRANCH_ABSOLUTE | BRANCH_SET_LINK);
- */
-#define BRANCH_SET_LINK	0x1
-#define BRANCH_ABSOLUTE	0x2
-
-static inline void create_branch(unsigned long addr,
-		unsigned long target, int flags)
-{
-	unsigned int instruction;
-
-	if (! (flags & BRANCH_ABSOLUTE))
-		target = target - addr;
-
-	/* Mask out the flags and target, so they don't step on each other. */
-	instruction = 0x48000000 | (flags & 0x3) | (target & 0x03FFFFFC);
-
-	create_instruction(addr, instruction);
-}
-
-static inline void create_function_call(unsigned long addr, void * func)
-{
-	unsigned long func_addr;
-
-#ifdef CONFIG_PPC64
-	/*
-	 * On PPC64 the function pointer actually points to the function's
-	 * descriptor. The first entry in the descriptor is the address
-	 * of the function text.
-	 */
-	func_addr = *(unsigned long *)func;
-#else
-	func_addr = (unsigned long)func;
-#endif
-	create_branch(addr, func_addr, BRANCH_SET_LINK);
-}
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING
 extern void account_system_vtime(struct task_struct *);

@@ -30,7 +30,6 @@
 
 #include <linux/errno.h>
 #include <linux/fs.h>
-#include <linux/ufs_fs.h>
 #include <linux/time.h>
 #include <linux/stat.h>
 #include <linux/string.h>
@@ -38,6 +37,8 @@
 #include <linux/smp_lock.h>
 #include <linux/buffer_head.h>
 
+#include "ufs_fs.h"
+#include "ufs.h"
 #include "swab.h"
 #include "util.h"
 
@@ -558,24 +559,39 @@ static int ufs_writepage(struct page *page, struct writeback_control *wbc)
 {
 	return block_write_full_page(page,ufs_getfrag_block,wbc);
 }
+
 static int ufs_readpage(struct file *file, struct page *page)
 {
 	return block_read_full_page(page,ufs_getfrag_block);
 }
-static int ufs_prepare_write(struct file *file, struct page *page, unsigned from, unsigned to)
+
+int __ufs_write_begin(struct file *file, struct address_space *mapping,
+			loff_t pos, unsigned len, unsigned flags,
+			struct page **pagep, void **fsdata)
 {
-	return block_prepare_write(page,from,to,ufs_getfrag_block);
+	return block_write_begin(file, mapping, pos, len, flags, pagep, fsdata,
+				ufs_getfrag_block);
 }
+
+static int ufs_write_begin(struct file *file, struct address_space *mapping,
+			loff_t pos, unsigned len, unsigned flags,
+			struct page **pagep, void **fsdata)
+{
+	*pagep = NULL;
+	return __ufs_write_begin(file, mapping, pos, len, flags, pagep, fsdata);
+}
+
 static sector_t ufs_bmap(struct address_space *mapping, sector_t block)
 {
 	return generic_block_bmap(mapping,block,ufs_getfrag_block);
 }
+
 const struct address_space_operations ufs_aops = {
 	.readpage = ufs_readpage,
 	.writepage = ufs_writepage,
 	.sync_page = block_sync_page,
-	.prepare_write = ufs_prepare_write,
-	.commit_write = generic_commit_write,
+	.write_begin = ufs_write_begin,
+	.write_end = generic_write_end,
 	.bmap = ufs_bmap
 };
 
@@ -698,25 +714,29 @@ static int ufs2_read_inode(struct inode *inode, struct ufs2_inode *ufs2_inode)
 	return 0;
 }
 
-void ufs_read_inode(struct inode * inode)
+struct inode *ufs_iget(struct super_block *sb, unsigned long ino)
 {
-	struct ufs_inode_info *ufsi = UFS_I(inode);
-	struct super_block * sb;
-	struct ufs_sb_private_info * uspi;
+	struct ufs_inode_info *ufsi;
+	struct ufs_sb_private_info *uspi = UFS_SB(sb)->s_uspi;
 	struct buffer_head * bh;
+	struct inode *inode;
 	int err;
 
-	UFSD("ENTER, ino %lu\n", inode->i_ino);
+	UFSD("ENTER, ino %lu\n", ino);
 
-	sb = inode->i_sb;
-	uspi = UFS_SB(sb)->s_uspi;
-
-	if (inode->i_ino < UFS_ROOTINO ||
-	    inode->i_ino > (uspi->s_ncg * uspi->s_ipg)) {
+	if (ino < UFS_ROOTINO || ino > (uspi->s_ncg * uspi->s_ipg)) {
 		ufs_warning(sb, "ufs_read_inode", "bad inode number (%lu)\n",
-			    inode->i_ino);
-		goto bad_inode;
+			    ino);
+		return ERR_PTR(-EIO);
 	}
+
+	inode = iget_locked(sb, ino);
+	if (!inode)
+		return ERR_PTR(-ENOMEM);
+	if (!(inode->i_state & I_NEW))
+		return inode;
+
+	ufsi = UFS_I(inode);
 
 	bh = sb_bread(sb, uspi->s_sbbase + ufs_inotofsba(inode->i_ino));
 	if (!bh) {
@@ -749,10 +769,12 @@ void ufs_read_inode(struct inode * inode)
 	brelse(bh);
 
 	UFSD("EXIT\n");
-	return;
+	unlock_new_inode(inode);
+	return inode;
 
 bad_inode:
-	make_bad_inode(inode);
+	iget_failed(inode);
+	return ERR_PTR(-EIO);
 }
 
 static void ufs1_update_inode(struct inode *inode, struct ufs_inode *ufs_inode)
@@ -907,7 +929,7 @@ void ufs_delete_inode (struct inode * inode)
 	old_i_size = inode->i_size;
 	inode->i_size = 0;
 	if (inode->i_blocks && ufs_truncate(inode, old_i_size))
-		ufs_warning(inode->i_sb, __FUNCTION__, "ufs_truncate failed\n");
+		ufs_warning(inode->i_sb, __func__, "ufs_truncate failed\n");
 	ufs_free_inode (inode);
 	unlock_kernel();
 	return;

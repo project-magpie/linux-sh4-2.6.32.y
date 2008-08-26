@@ -415,27 +415,21 @@ int br_sysfs_addbr(struct net_device *dev)
 	err = sysfs_create_group(brobj, &bridge_group);
 	if (err) {
 		pr_info("%s: can't create group %s/%s\n",
-			__FUNCTION__, dev->name, bridge_group.name);
+			__func__, dev->name, bridge_group.name);
 		goto out1;
 	}
 
 	err = sysfs_create_bin_file(brobj, &bridge_forward);
 	if (err) {
 		pr_info("%s: can't create attribute file %s/%s\n",
-			__FUNCTION__, dev->name, bridge_forward.attr.name);
+			__func__, dev->name, bridge_forward.attr.name);
 		goto out2;
 	}
 
-
-	kobject_set_name(&br->ifobj, SYSFS_BRIDGE_PORT_SUBDIR);
-	br->ifobj.ktype = NULL;
-	br->ifobj.kset = NULL;
-	br->ifobj.parent = brobj;
-
-	err = kobject_register(&br->ifobj);
-	if (err) {
+	br->ifobj = kobject_create_and_add(SYSFS_BRIDGE_PORT_SUBDIR, brobj);
+	if (!br->ifobj) {
 		pr_info("%s: can't add kobject (directory) %s/%s\n",
-			__FUNCTION__, dev->name, br->ifobj.name);
+			__func__, dev->name, SYSFS_BRIDGE_PORT_SUBDIR);
 		goto out3;
 	}
 	return 0;
@@ -453,7 +447,7 @@ void br_sysfs_delbr(struct net_device *dev)
 	struct kobject *kobj = &dev->dev.kobj;
 	struct net_bridge *br = netdev_priv(dev);
 
-	kobject_unregister(&br->ifobj);
+	kobject_put(br->ifobj);
 	sysfs_remove_bin_file(kobj, &bridge_forward);
 	sysfs_remove_group(kobj, &bridge_group);
 }

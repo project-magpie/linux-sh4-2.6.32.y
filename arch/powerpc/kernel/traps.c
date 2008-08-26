@@ -54,7 +54,7 @@
 #endif
 #include <asm/kexec.h>
 
-#ifdef CONFIG_DEBUGGER
+#if defined(CONFIG_DEBUGGER) || defined(CONFIG_KEXEC)
 int (*__debugger)(struct pt_regs *regs);
 int (*__debugger_ipi)(struct pt_regs *regs);
 int (*__debugger_bpt)(struct pt_regs *regs);
@@ -172,11 +172,21 @@ int die(const char *str, struct pt_regs *regs, long err)
 void _exception(int signr, struct pt_regs *regs, int code, unsigned long addr)
 {
 	siginfo_t info;
+	const char fmt32[] = KERN_INFO "%s[%d]: unhandled signal %d " \
+			"at %08lx nip %08lx lr %08lx code %x\n";
+	const char fmt64[] = KERN_INFO "%s[%d]: unhandled signal %d " \
+			"at %016lx nip %016lx lr %016lx code %x\n";
 
 	if (!user_mode(regs)) {
 		if (die("Exception in kernel mode", regs, signr))
 			return;
-	}
+	} else if (show_unhandled_signals &&
+		    unhandled_signal(current, signr) &&
+		    printk_ratelimit()) {
+			printk(regs->msr & MSR_SF ? fmt64 : fmt32,
+				current->comm, current->pid, signr,
+				addr, regs->nip, regs->link, code);
+		}
 
 	memset(&info, 0, sizeof(info));
 	info.si_signo = signr;
@@ -191,7 +201,7 @@ void _exception(int signr, struct pt_regs *regs, int code, unsigned long addr)
 	 * generate the same exception over and over again and we get
 	 * nowhere.  Better to kill it and let the kernel panic.
 	 */
-	if (is_init(current)) {
+	if (is_global_init(current)) {
 		__sighandler_t handler;
 
 		spin_lock_irq(&current->sighand->siglock);
@@ -324,55 +334,25 @@ static inline int check_io_access(struct pt_regs *regs)
 #define clear_single_step(regs)	((regs)->msr &= ~MSR_SE)
 #endif
 
-/*
- * This is "fall-back" implementation for configurations
- * which don't provide platform-specific machine check info
- */
-void __attribute__ ((weak))
-platform_machine_check(struct pt_regs *regs)
+#if defined(CONFIG_4xx)
+int machine_check_4xx(struct pt_regs *regs)
 {
-}
-
-void machine_check_exception(struct pt_regs *regs)
-{
-	int recover = 0;
 	unsigned long reason = get_mc_reason(regs);
 
-	/* See if any machine dependent calls */
-	if (ppc_md.machine_check_exception)
-		recover = ppc_md.machine_check_exception(regs);
-
-	if (recover)
-		return;
-
-	if (user_mode(regs)) {
-		regs->msr |= MSR_RI;
-		_exception(SIGBUS, regs, BUS_ADRERR, regs->nip);
-		return;
-	}
-
-#if defined(CONFIG_8xx) && defined(CONFIG_PCI)
-	/* the qspan pci read routines can cause machine checks -- Cort */
-	bad_page_fault(regs, regs->dar, SIGBUS);
-	return;
-#endif
-
-	if (debugger_fault_handler(regs)) {
-		regs->msr |= MSR_RI;
-		return;
-	}
-
-	if (check_io_access(regs))
-		return;
-
-#if defined(CONFIG_4xx) && !defined(CONFIG_440A)
 	if (reason & ESR_IMCP) {
 		printk("Instruction");
 		mtspr(SPRN_ESR, reason & ~ESR_IMCP);
 	} else
 		printk("Data");
 	printk(" machine check in kernel mode.\n");
-#elif defined(CONFIG_440A)
+
+	return 0;
+}
+
+int machine_check_440A(struct pt_regs *regs)
+{
+	unsigned long reason = get_mc_reason(regs);
+
 	printk("Machine check in kernel mode.\n");
 	if (reason & ESR_IMCP){
 		printk("Instruction Synchronous Machine Check exception\n");
@@ -402,7 +382,13 @@ void machine_check_exception(struct pt_regs *regs)
 		/* Clear MCSR */
 		mtspr(SPRN_MCSR, mcsr);
 	}
-#elif defined (CONFIG_E500)
+	return 0;
+}
+#elif defined(CONFIG_E500)
+int machine_check_e500(struct pt_regs *regs)
+{
+	unsigned long reason = get_mc_reason(regs);
+
 	printk("Machine check in kernel mode.\n");
 	printk("Caused by (from MCSR=%lx): ", reason);
 
@@ -430,7 +416,14 @@ void machine_check_exception(struct pt_regs *regs)
 		printk("Bus - Instruction Parity Error\n");
 	if (reason & MCSR_BUS_RPERR)
 		printk("Bus - Read Parity Error\n");
-#elif defined (CONFIG_E200)
+
+	return 0;
+}
+#elif defined(CONFIG_E200)
+int machine_check_e200(struct pt_regs *regs)
+{
+	unsigned long reason = get_mc_reason(regs);
+
 	printk("Machine check in kernel mode.\n");
 	printk("Caused by (from MCSR=%lx): ", reason);
 
@@ -448,7 +441,14 @@ void machine_check_exception(struct pt_regs *regs)
 		printk("Bus - Read Bus Error on data load\n");
 	if (reason & MCSR_BUS_WRERR)
 		printk("Bus - Write Bus Error on buffered store or cache line push\n");
-#else /* !CONFIG_4xx && !CONFIG_E500 && !CONFIG_E200 */
+
+	return 0;
+}
+#else
+int machine_check_generic(struct pt_regs *regs)
+{
+	unsigned long reason = get_mc_reason(regs);
+
 	printk("Machine check in kernel mode.\n");
 	printk("Caused by (from SRR1=%lx): ", reason);
 	switch (reason & 0x601F0000) {
@@ -478,13 +478,52 @@ void machine_check_exception(struct pt_regs *regs)
 	default:
 		printk("Unknown values in msr\n");
 	}
-#endif /* CONFIG_4xx */
+	return 0;
+}
+#endif /* everything else */
 
-	/*
-	 * Optional platform-provided routine to print out
-	 * additional info, e.g. bus error registers.
+void machine_check_exception(struct pt_regs *regs)
+{
+	int recover = 0;
+
+	/* See if any machine dependent calls. In theory, we would want
+	 * to call the CPU first, and call the ppc_md. one if the CPU
+	 * one returns a positive number. However there is existing code
+	 * that assumes the board gets a first chance, so let's keep it
+	 * that way for now and fix things later. --BenH.
 	 */
-	platform_machine_check(regs);
+	if (ppc_md.machine_check_exception)
+		recover = ppc_md.machine_check_exception(regs);
+	else if (cur_cpu_spec->machine_check)
+		recover = cur_cpu_spec->machine_check(regs);
+
+	if (recover > 0)
+		return;
+
+	if (user_mode(regs)) {
+		regs->msr |= MSR_RI;
+		_exception(SIGBUS, regs, BUS_ADRERR, regs->nip);
+		return;
+	}
+
+#if defined(CONFIG_8xx) && defined(CONFIG_PCI)
+	/* the qspan pci read routines can cause machine checks -- Cort
+	 *
+	 * yuck !!! that totally needs to go away ! There are better ways
+	 * to deal with that than having a wart in the mcheck handler.
+	 * -- BenH
+	 */
+	bad_page_fault(regs, regs->dar, SIGBUS);
+	return;
+#endif
+
+	if (debugger_fault_handler(regs)) {
+		regs->msr |= MSR_RI;
+		return;
+	}
+
+	if (check_io_access(regs))
+		return;
 
 	if (debugger_fault_handler(regs))
 		return;
@@ -619,6 +658,9 @@ static void parse_fpe(struct pt_regs *regs)
 #define INST_POPCNTB		0x7c0000f4
 #define INST_POPCNTB_MASK	0xfc0007fe
 
+#define INST_ISEL		0x7c00001e
+#define INST_ISEL_MASK		0xfc00003e
+
 static int emulate_string_inst(struct pt_regs *regs, u32 instword)
 {
 	u8 rT = (instword >> 21) & 0x1f;
@@ -704,6 +746,23 @@ static int emulate_popcntb_inst(struct pt_regs *regs, u32 instword)
 	return 0;
 }
 
+static int emulate_isel(struct pt_regs *regs, u32 instword)
+{
+	u8 rT = (instword >> 21) & 0x1f;
+	u8 rA = (instword >> 16) & 0x1f;
+	u8 rB = (instword >> 11) & 0x1f;
+	u8 BC = (instword >> 6) & 0x1f;
+	u8 bit;
+	unsigned long tmp;
+
+	tmp = (rA == 0) ? 0 : regs->gpr[rA];
+	bit = (regs->ccr >> (31 - BC)) & 0x1;
+
+	regs->gpr[rT] = bit ? tmp : regs->gpr[rB];
+
+	return 0;
+}
+
 static int emulate_instruction(struct pt_regs *regs)
 {
 	u32 instword;
@@ -744,6 +803,11 @@ static int emulate_instruction(struct pt_regs *regs)
 	/* Emulate the popcntb (Population Count Bytes) instruction. */
 	if ((instword & INST_POPCNTB_MASK) == INST_POPCNTB) {
 		return emulate_popcntb_inst(regs, instword);
+	}
+
+	/* Emulate isel (Integer Select) instruction */
+	if ((instword & INST_ISEL_MASK) == INST_ISEL) {
+		return emulate_isel(regs, instword);
 	}
 
 	return -EINVAL;
@@ -878,7 +942,7 @@ void nonrecoverable_exception(struct pt_regs *regs)
 void trace_syscall(struct pt_regs *regs)
 {
 	printk("Task: %p(%d), PC: %08lX/%08lX, Syscall: %3ld, Result: %s%ld    %s\n",
-	       current, current->pid, regs->nip, regs->link, regs->gpr[0],
+	       current, task_pid_nr(current), regs->nip, regs->link, regs->gpr[0],
 	       regs->ccr&0x10000000?"Error=":"", regs->gpr[3], print_tainted());
 }
 
@@ -903,6 +967,20 @@ void altivec_unavailable_exception(struct pt_regs *regs)
 	die("Unrecoverable VMX/Altivec Unavailable Exception", regs, SIGABRT);
 }
 
+void vsx_unavailable_exception(struct pt_regs *regs)
+{
+	if (user_mode(regs)) {
+		/* A user program has executed an vsx instruction,
+		   but this kernel doesn't support vsx. */
+		_exception(SIGILL, regs, ILL_ILLOPC, regs->nip);
+		return;
+	}
+
+	printk(KERN_EMERG "Unrecoverable VSX Unavailable Exception "
+			"%lx at %lx\n", regs->trap, regs->nip);
+	die("Unrecoverable VSX Unavailable Exception", regs, SIGABRT);
+}
+
 void performance_monitor_exception(struct pt_regs *regs)
 {
 	perf_irq(regs);
@@ -913,7 +991,9 @@ void SoftwareEmulation(struct pt_regs *regs)
 {
 	extern int do_mathemu(struct pt_regs *);
 	extern int Soft_emulate_8xx(struct pt_regs *);
+#if defined(CONFIG_MATH_EMULATION) || defined(CONFIG_8XX_MINIMAL_FPEMU)
 	int errcode;
+#endif
 
 	CHECK_FULL_REGS(regs);
 
@@ -943,7 +1023,7 @@ void SoftwareEmulation(struct pt_regs *regs)
 		return;
 	}
 
-#else
+#elif defined(CONFIG_8XX_MINIMAL_FPEMU)
 	errcode = Soft_emulate_8xx(regs);
 	switch (errcode) {
 	case 0:
@@ -956,27 +1036,53 @@ void SoftwareEmulation(struct pt_regs *regs)
 		_exception(SIGSEGV, regs, SEGV_MAPERR, regs->nip);
 		return;
 	}
+#else
+	_exception(SIGILL, regs, ILL_ILLOPC, regs->nip);
 #endif
 }
 #endif /* CONFIG_8xx */
 
 #if defined(CONFIG_40x) || defined(CONFIG_BOOKE)
 
-void DebugException(struct pt_regs *regs, unsigned long debug_status)
+void __kprobes DebugException(struct pt_regs *regs, unsigned long debug_status)
 {
 	if (debug_status & DBSR_IC) {	/* instruction completion */
 		regs->msr &= ~MSR_DE;
+
+		/* Disable instruction completion */
+		mtspr(SPRN_DBCR0, mfspr(SPRN_DBCR0) & ~DBCR0_IC);
+		/* Clear the instruction completion event */
+		mtspr(SPRN_DBSR, DBSR_IC);
+
+		if (notify_die(DIE_SSTEP, "single_step", regs, 5,
+			       5, SIGTRAP) == NOTIFY_STOP) {
+			return;
+		}
+
+		if (debugger_sstep(regs))
+			return;
+
 		if (user_mode(regs)) {
 			current->thread.dbcr0 &= ~DBCR0_IC;
-		} else {
-			/* Disable instruction completion */
-			mtspr(SPRN_DBCR0, mfspr(SPRN_DBCR0) & ~DBCR0_IC);
-			/* Clear the instruction completion event */
-			mtspr(SPRN_DBSR, DBSR_IC);
-			if (debugger_sstep(regs))
-				return;
 		}
-		_exception(SIGTRAP, regs, TRAP_TRACE, 0);
+
+		_exception(SIGTRAP, regs, TRAP_TRACE, regs->nip);
+	} else if (debug_status & (DBSR_DAC1R | DBSR_DAC1W)) {
+		regs->msr &= ~MSR_DE;
+
+		if (user_mode(regs)) {
+			current->thread.dbcr0 &= ~(DBSR_DAC1R | DBSR_DAC1W |
+								DBCR0_IDM);
+		} else {
+			/* Disable DAC interupts */
+			mtspr(SPRN_DBCR0, mfspr(SPRN_DBCR0) & ~(DBSR_DAC1R |
+						DBSR_DAC1W | DBCR0_IDM));
+
+			/* Clear the DAC event */
+			mtspr(SPRN_DBSR, (DBSR_DAC1R | DBSR_DAC1W));
+		}
+		/* Setup and send the trap to the handler */
+		do_dabr(regs, mfspr(SPRN_DAC1), debug_status);
 	}
 }
 #endif /* CONFIG_4xx || CONFIG_BOOKE */
@@ -1022,6 +1128,21 @@ void altivec_assist_exception(struct pt_regs *regs)
 	}
 }
 #endif /* CONFIG_ALTIVEC */
+
+#ifdef CONFIG_VSX
+void vsx_assist_exception(struct pt_regs *regs)
+{
+	if (!user_mode(regs)) {
+		printk(KERN_EMERG "VSX assist exception in kernel mode"
+		       " at %lx\n", regs->nip);
+		die("Kernel VSX assist exception", regs, SIGILL);
+	}
+
+	flush_vsx_to_thread(current);
+	printk(KERN_INFO "VSX assist not supported at %lx\n", regs->nip);
+	_exception(SIGILL, regs, ILL_ILLOPC, regs->nip);
+}
+#endif /* CONFIG_VSX */
 
 #ifdef CONFIG_FSL_BOOKE
 void CacheLockingException(struct pt_regs *regs, unsigned long address,

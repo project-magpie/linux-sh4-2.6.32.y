@@ -87,8 +87,8 @@ static int map_io_page(unsigned long ea, unsigned long pa, int flags)
 		 * entry in the hardware page table.
 		 *
 		 */
-		if (htab_bolt_mapping(ea, (unsigned long)ea + PAGE_SIZE,
-				      pa, flags, mmu_io_psize)) {
+		if (htab_bolt_mapping(ea, ea + PAGE_SIZE, pa, flags,
+				      mmu_io_psize, mmu_kernel_ssize)) {
 			printk(KERN_ERR "Failed to do bolted mapping IO "
 			       "memory at %016lx !\n", pa);
 			return -ENOMEM;
@@ -107,8 +107,17 @@ void __iomem * __ioremap_at(phys_addr_t pa, void *ea, unsigned long size,
 {
 	unsigned long i;
 
+	/* Make sure we have the base flags */
 	if ((flags & _PAGE_PRESENT) == 0)
 		flags |= pgprot_val(PAGE_KERNEL);
+
+	/* Non-cacheable page cannot be coherent */
+	if (flags & _PAGE_NO_CACHE)
+		flags &= ~_PAGE_COHERENT;
+
+	/* We don't support the 4K PFN hack with ioremap */
+	if (flags & _PAGE_4K_PFN)
+		return NULL;
 
 	WARN_ON(pa & ~PAGE_MASK);
 	WARN_ON(((unsigned long)ea) & ~PAGE_MASK);
@@ -190,6 +199,13 @@ void __iomem * ioremap(phys_addr_t addr, unsigned long size)
 void __iomem * ioremap_flags(phys_addr_t addr, unsigned long size,
 			     unsigned long flags)
 {
+	/* writeable implies dirty for kernel addresses */
+	if (flags & _PAGE_RW)
+		flags |= _PAGE_DIRTY;
+
+	/* we don't want to let _PAGE_USER and _PAGE_EXEC leak out */
+	flags &= ~(_PAGE_USER | _PAGE_EXEC);
+
 	if (ppc_md.ioremap)
 		return ppc_md.ioremap(addr, size, flags);
 	return __ioremap(addr, size, flags);
@@ -228,5 +244,7 @@ void iounmap(volatile void __iomem *token)
 EXPORT_SYMBOL(ioremap);
 EXPORT_SYMBOL(ioremap_flags);
 EXPORT_SYMBOL(__ioremap);
+EXPORT_SYMBOL(__ioremap_at);
 EXPORT_SYMBOL(iounmap);
 EXPORT_SYMBOL(__iounmap);
+EXPORT_SYMBOL(__iounmap_at);

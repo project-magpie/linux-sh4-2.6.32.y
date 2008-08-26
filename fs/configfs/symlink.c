@@ -77,12 +77,15 @@ static int create_link(struct config_item *parent_item,
 	sl = kmalloc(sizeof(struct configfs_symlink), GFP_KERNEL);
 	if (sl) {
 		sl->sl_target = config_item_get(item);
-		/* FIXME: needs a lock, I'd bet */
+		spin_lock(&configfs_dirent_lock);
 		list_add(&sl->sl_list, &target_sd->s_links);
+		spin_unlock(&configfs_dirent_lock);
 		ret = configfs_create_link(sl, parent_item->ci_dentry,
 					   dentry);
 		if (ret) {
+			spin_lock(&configfs_dirent_lock);
 			list_del_init(&sl->sl_list);
+			spin_unlock(&configfs_dirent_lock);
 			config_item_put(item);
 			kfree(sl);
 		}
@@ -99,11 +102,11 @@ static int get_target(const char *symname, struct nameidata *nd,
 
 	ret = path_lookup(symname, LOOKUP_FOLLOW|LOOKUP_DIRECTORY, nd);
 	if (!ret) {
-		if (nd->dentry->d_sb == configfs_sb) {
-			*target = configfs_get_config_item(nd->dentry);
+		if (nd->path.dentry->d_sb == configfs_sb) {
+			*target = configfs_get_config_item(nd->path.dentry);
 			if (!*target) {
 				ret = -ENOENT;
-				path_release(nd);
+				path_put(&nd->path);
 			}
 		} else
 			ret = -EPERM;
@@ -137,11 +140,15 @@ int configfs_symlink(struct inode *dir, struct dentry *dentry, const char *symna
 		goto out_put;
 
 	ret = type->ct_item_ops->allow_link(parent_item, target_item);
-	if (!ret)
+	if (!ret) {
 		ret = create_link(parent_item, target_item, dentry);
+		if (ret && type->ct_item_ops->drop_link)
+			type->ct_item_ops->drop_link(parent_item,
+						     target_item);
+	}
 
 	config_item_put(target_item);
-	path_release(&nd);
+	path_put(&nd.path);
 
 out_put:
 	config_item_put(parent_item);
@@ -169,7 +176,9 @@ int configfs_unlink(struct inode *dir, struct dentry *dentry)
 	parent_item = configfs_get_config_item(dentry->d_parent);
 	type = parent_item->ci_type;
 
+	spin_lock(&configfs_dirent_lock);
 	list_del_init(&sd->s_sibling);
+	spin_unlock(&configfs_dirent_lock);
 	configfs_drop_dentry(sd, dentry->d_parent);
 	dput(dentry);
 	configfs_put(sd);
@@ -184,8 +193,9 @@ int configfs_unlink(struct inode *dir, struct dentry *dentry)
 		type->ct_item_ops->drop_link(parent_item,
 					       sl->sl_target);
 
-	/* FIXME: Needs lock */
+	spin_lock(&configfs_dirent_lock);
 	list_del_init(&sl->sl_list);
+	spin_unlock(&configfs_dirent_lock);
 
 	/* Put reference from create_link() */
 	config_item_put(sl->sl_target);
@@ -210,13 +220,13 @@ static int configfs_get_target_path(struct config_item * item, struct config_ite
 	if (size > PATH_MAX)
 		return -ENAMETOOLONG;
 
-	pr_debug("%s: depth = %d, size = %d\n", __FUNCTION__, depth, size);
+	pr_debug("%s: depth = %d, size = %d\n", __func__, depth, size);
 
 	for (s = path; depth--; s += 3)
 		strcpy(s,"../");
 
 	fill_item_path(target, path, size);
-	pr_debug("%s: path = '%s'\n", __FUNCTION__, path);
+	pr_debug("%s: path = '%s'\n", __func__, path);
 
 	return 0;
 }

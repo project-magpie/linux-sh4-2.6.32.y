@@ -15,7 +15,6 @@
  */
 
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/init.h>
 #include <linux/completion.h>
 #include <linux/delay.h>
@@ -27,7 +26,6 @@
 #include <linux/kthread.h>
 #include <linux/freezer.h>
 
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <sound/ac97_codec.h>
 
@@ -130,8 +128,7 @@ static unsigned int ucb1400_adc_read(struct ucb1400 *ucb, u16 adc_channel)
 		if (val & UCB_ADC_DAT_VALID)
 			break;
 		/* yield to other processes */
-		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(1);
+		schedule_timeout_uninterruptible(1);
 	}
 
 	return UCB_ADC_DAT_VALUE(val);
@@ -334,10 +331,9 @@ static int ucb1400_ts_thread(void *_ucb)
 			timeout = msecs_to_jiffies(10);
 		}
 
-		wait_event_interruptible_timeout(ucb->ts_wait,
+		wait_event_freezable_timeout(ucb->ts_wait,
 			ucb->irq_pending || ucb->ts_restart || kthread_should_stop(),
 			timeout);
-		try_to_freeze();
 	}
 
 	/* Send the "pen off" if we are stopping with the pen still active */
@@ -431,10 +427,6 @@ static int ucb1400_detect_irq(struct ucb1400 *ucb)
 	unsigned long mask, timeout;
 
 	mask = probe_irq_on();
-	if (!mask) {
-		probe_irq_off(mask);
-		return -EBUSY;
-	}
 
 	/* Enable the ADC interrupt. */
 	ucb1400_reg_write(ucb, UCB_IE_RIS, UCB_IE_ADC);
@@ -519,7 +511,7 @@ static int ucb1400_ts_probe(struct device *dev)
 	idev->id.product	= id;
 	idev->open		= ucb1400_ts_open;
 	idev->close		= ucb1400_ts_close;
-	idev->evbit[0]		= BIT(EV_ABS);
+	idev->evbit[0]		= BIT_MASK(EV_ABS);
 
 	ucb1400_adc_enable(ucb);
 	x_res = ucb1400_ts_read_xres(ucb);

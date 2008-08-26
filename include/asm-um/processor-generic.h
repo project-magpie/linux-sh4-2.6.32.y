@@ -1,5 +1,5 @@
 /* 
- * Copyright (C) 2000, 2001, 2002 Jeff Dike (jdike@karaya.com)
+ * Copyright (C) 2000 - 2007 Jeff Dike (jdike@{addtoit,linux.intel}.com)
  * Licensed under the GPL
  */
 
@@ -11,44 +11,31 @@ struct pt_regs;
 struct task_struct;
 
 #include "asm/ptrace.h"
-#include "choose-mode.h"
 #include "registers.h"
 #include "sysdep/archsetjmp.h"
 
 struct mm_struct;
 
 struct thread_struct {
-	/* This flag is set to 1 before calling do_fork (and analyzed in
+	struct task_struct *saved_task;
+	/*
+	 * This flag is set to 1 before calling do_fork (and analyzed in
 	 * copy_thread) to mark that we are begin called from userspace (fork /
 	 * vfork / clone), and reset to 0 after. It is left to 0 when called
-	 * from kernelspace (i.e. kernel_thread() or fork_idle(), as of 2.6.11). */
-	struct task_struct *saved_task;
+	 * from kernelspace (i.e. kernel_thread() or fork_idle(),
+	 * as of 2.6.11).
+	 */
 	int forking;
-	int nsyscalls;
 	struct pt_regs regs;
 	int singlestep_syscall;
 	void *fault_addr;
-	void *fault_catcher;
+	jmp_buf *fault_catcher;
 	struct task_struct *prev_sched;
 	unsigned long temp_stack;
-	void *exec_buf;
+	jmp_buf *exec_buf;
 	struct arch_thread arch;
-	union {
-#ifdef CONFIG_MODE_TT
-		struct {
-			int extern_pid;
-			int tracing;
-			int switch_pipe[2];
-			int vm_seq;
-		} tt;
-#endif
-#ifdef CONFIG_MODE_SKAS
-		struct {
-			jmp_buf switch_buf;
-			int mm_count;
-		} skas;
-#endif
-	} mode;
+	jmp_buf switch_buf;
+	int mm_count;
 	struct {
 		int op;
 		union {
@@ -70,8 +57,7 @@ struct thread_struct {
 #define INIT_THREAD \
 { \
 	.forking		= 0, \
-	.nsyscalls		= 0, \
-        .regs		   	= EMPTY_REGS, \
+	.regs		   	= EMPTY_REGS,	\
 	.fault_addr		= NULL, \
 	.prev_sched		= NULL, \
 	.temp_stack		= 0, \
@@ -80,13 +66,12 @@ struct thread_struct {
 	.request		= { 0 } \
 }
 
-typedef struct {
-	unsigned long seg;
-} mm_segment_t;
-
 extern struct task_struct *alloc_task_struct(void);
 
-extern void release_thread(struct task_struct *);
+static inline void release_thread(struct task_struct *task)
+{
+}
+
 extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 
 static inline void prepare_to_copy(struct task_struct *tsk)
@@ -108,7 +93,16 @@ static inline void mm_copy_segments(struct mm_struct *from_mm,
  */
 extern unsigned long task_size;
 
-#define TASK_SIZE	(task_size)
+#define TASK_SIZE (task_size)
+
+#undef STACK_TOP
+#undef STACK_TOP_MAX
+
+extern unsigned long stacksizelim;
+
+#define STACK_ROOM	(stacksizelim)
+#define STACK_TOP	(TASK_SIZE - 2 * PAGE_SIZE)
+#define STACK_TOP_MAX	STACK_TOP
 
 /* This decides where the kernel will search for a free chunk of vm
  * space during mmap's.
@@ -136,12 +130,7 @@ extern struct cpuinfo_um cpu_data[];
 #endif
 
 
-#ifdef CONFIG_MODE_SKAS
-#define KSTK_REG(tsk, reg) \
-	get_thread_reg(reg, &tsk->thread.mode.skas.switch_buf)
-#else
-#define KSTK_REG(tsk, reg) (0xbadbabe)
-#endif
-#define get_wchan(p) (0)
+#define KSTK_REG(tsk, reg) get_thread_reg(reg, &tsk->thread.switch_buf)
+extern unsigned long get_wchan(struct task_struct *p);
 
 #endif

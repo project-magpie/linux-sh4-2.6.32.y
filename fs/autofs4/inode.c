@@ -24,8 +24,10 @@
 
 static void ino_lnkfree(struct autofs_info *ino)
 {
-	kfree(ino->u.symlink);
-	ino->u.symlink = NULL;
+	if (ino->u.symlink) {
+		kfree(ino->u.symlink);
+		ino->u.symlink = NULL;
+	}
 }
 
 struct autofs_info *autofs4_init_ino(struct autofs_info *ino,
@@ -41,16 +43,18 @@ struct autofs_info *autofs4_init_ino(struct autofs_info *ino,
 	if (ino == NULL)
 		return NULL;
 
-	ino->flags = 0;
+	if (!reinit) {
+		ino->flags = 0;
+		ino->inode = NULL;
+		ino->dentry = NULL;
+		ino->size = 0;
+		INIT_LIST_HEAD(&ino->active);
+		INIT_LIST_HEAD(&ino->expiring);
+		atomic_set(&ino->count, 0);
+	}
+
 	ino->mode = mode;
-	ino->inode = NULL;
-	ino->dentry = NULL;
-	ino->size = 0;
-
-	INIT_LIST_HEAD(&ino->rehash);
-
 	ino->last_used = jiffies;
-	atomic_set(&ino->count, 0);
 
 	ino->sbi = sbi;
 
@@ -159,8 +163,8 @@ void autofs4_kill_sb(struct super_block *sb)
 	if (!sbi)
 		goto out_kill_sb;
 
-	if (!sbi->catatonic)
-		autofs4_catatonic_mode(sbi); /* Free wait queues, close pipe */
+	/* Free wait queues, close pipe */
+	autofs4_catatonic_mode(sbi);
 
 	/* Clean up and release dangling references */
 	autofs4_force_release(sbi);
@@ -176,11 +180,16 @@ out_kill_sb:
 static int autofs4_show_options(struct seq_file *m, struct vfsmount *mnt)
 {
 	struct autofs_sb_info *sbi = autofs4_sbi(mnt->mnt_sb);
+	struct inode *root_inode = mnt->mnt_sb->s_root->d_inode;
 
 	if (!sbi)
 		return 0;
 
 	seq_printf(m, ",fd=%d", sbi->pipefd);
+	if (root_inode->i_uid != 0)
+		seq_printf(m, ",uid=%u", root_inode->i_uid);
+	if (root_inode->i_gid != 0)
+		seq_printf(m, ",gid=%u", root_inode->i_gid);
 	seq_printf(m, ",pgrp=%d", sbi->oz_pgrp);
 	seq_printf(m, ",timeout=%lu", sbi->exp_timeout/HZ);
 	seq_printf(m, ",minproto=%d", sbi->min_proto);
@@ -226,7 +235,7 @@ static int parse_options(char *options, int *pipefd, uid_t *uid, gid_t *gid,
 
 	*uid = current->uid;
 	*gid = current->gid;
-	*pgrp = process_group(current);
+	*pgrp = task_pgrp_nr(current);
 
 	*minproto = AUTOFS_MIN_PROTO_VERSION;
 	*maxproto = AUTOFS_MAX_PROTO_VERSION;
@@ -312,12 +321,10 @@ int autofs4_fill_super(struct super_block *s, void *data, int silent)
 	struct autofs_sb_info *sbi;
 	struct autofs_info *ino;
 
-	sbi = kmalloc(sizeof(*sbi), GFP_KERNEL);
+	sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
 	if (!sbi)
 		goto fail_unlock;
 	DPRINTK("starting up, sbi = %p",sbi);
-
-	memset(sbi, 0, sizeof(*sbi));
 
 	s->s_fs_info = sbi;
 	sbi->magic = AUTOFS_SBI_MAGIC;
@@ -325,7 +332,7 @@ int autofs4_fill_super(struct super_block *s, void *data, int silent)
 	sbi->pipe = NULL;
 	sbi->catatonic = 1;
 	sbi->exp_timeout = 0;
-	sbi->oz_pgrp = process_group(current);
+	sbi->oz_pgrp = task_pgrp_nr(current);
 	sbi->sb = s;
 	sbi->version = 0;
 	sbi->sub_version = 0;
@@ -335,8 +342,9 @@ int autofs4_fill_super(struct super_block *s, void *data, int silent)
 	mutex_init(&sbi->wq_mutex);
 	spin_lock_init(&sbi->fs_lock);
 	sbi->queues = NULL;
-	spin_lock_init(&sbi->rehash_lock);
-	INIT_LIST_HEAD(&sbi->rehash_list);
+	spin_lock_init(&sbi->lookup_lock);
+	INIT_LIST_HEAD(&sbi->active_list);
+	INIT_LIST_HEAD(&sbi->expiring_list);
 	s->s_blocksize = 1024;
 	s->s_blocksize_bits = 10;
 	s->s_magic = AUTOFS_SUPER_MAGIC;

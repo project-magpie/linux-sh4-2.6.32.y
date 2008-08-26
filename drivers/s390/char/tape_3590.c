@@ -623,21 +623,19 @@ tape_3590_bread(struct tape_device *device, struct request *req)
 {
 	struct tape_request *request;
 	struct ccw1 *ccw;
-	int count = 0, start_block, i;
+	int count = 0, start_block;
 	unsigned off;
 	char *dst;
 	struct bio_vec *bv;
-	struct bio *bio;
+	struct req_iterator iter;
 
 	DBF_EVENT(6, "xBREDid:");
 	start_block = req->sector >> TAPEBLOCK_HSEC_S2B;
 	DBF_EVENT(6, "start_block = %i\n", start_block);
 
-	rq_for_each_bio(bio, req) {
-		bio_for_each_segment(bv, bio, i) {
-			count += bv->bv_len >> (TAPEBLOCK_HSEC_S2B + 9);
-		}
-	}
+	rq_for_each_segment(bv, req, iter)
+		count += bv->bv_len >> (TAPEBLOCK_HSEC_S2B + 9);
+
 	request = tape_alloc_request(2 + count + 1, 4);
 	if (IS_ERR(request))
 		return request;
@@ -653,21 +651,18 @@ tape_3590_bread(struct tape_device *device, struct request *req)
 	 */
 	ccw = tape_ccw_cc(ccw, NOP, 0, NULL);
 
-	rq_for_each_bio(bio, req) {
-		bio_for_each_segment(bv, bio, i) {
-			dst = page_address(bv->bv_page) + bv->bv_offset;
-			for (off = 0; off < bv->bv_len;
-			     off += TAPEBLOCK_HSEC_SIZE) {
-				ccw->flags = CCW_FLAG_CC;
-				ccw->cmd_code = READ_FORWARD;
-				ccw->count = TAPEBLOCK_HSEC_SIZE;
-				set_normalized_cda(ccw, (void *) __pa(dst));
-				ccw++;
-				dst += TAPEBLOCK_HSEC_SIZE;
-			}
-			if (off > bv->bv_len)
-				BUG();
+	rq_for_each_segment(bv, req, iter) {
+		dst = page_address(bv->bv_page) + bv->bv_offset;
+		for (off = 0; off < bv->bv_len; off += TAPEBLOCK_HSEC_SIZE) {
+			ccw->flags = CCW_FLAG_CC;
+			ccw->cmd_code = READ_FORWARD;
+			ccw->count = TAPEBLOCK_HSEC_SIZE;
+			set_normalized_cda(ccw, (void *) __pa(dst));
+			ccw++;
+			dst += TAPEBLOCK_HSEC_SIZE;
 		}
+		if (off > bv->bv_len)
+			BUG();
 	}
 	ccw = tape_ccw_end(ccw, NOP, 0, NULL);
 	DBF_EVENT(6, "xBREDccwg\n");
@@ -713,16 +708,22 @@ static void tape_3590_med_state_set(struct tape_device *device,
 
 	c_info = &TAPE_3590_CRYPT_INFO(device);
 
-	if (sense->masst == MSENSE_UNASSOCIATED) {
+	DBF_EVENT(6, "medium state: %x:%x\n", sense->macst, sense->masst);
+	switch (sense->macst) {
+	case 0x04:
+	case 0x05:
+	case 0x06:
 		tape_med_state_set(device, MS_UNLOADED);
 		TAPE_3590_CRYPT_INFO(device).medium_status = 0;
 		return;
-	}
-	if (sense->masst != MSENSE_ASSOCIATED_MOUNT) {
-		PRINT_ERR("Unknown medium state: %x\n", sense->masst);
+	case 0x08:
+	case 0x09:
+		tape_med_state_set(device, MS_LOADED);
+		break;
+	default:
+		tape_med_state_set(device, MS_UNKNOWN);
 		return;
 	}
-	tape_med_state_set(device, MS_LOADED);
 	c_info->medium_status |= TAPE390_MEDIUM_LOADED_MASK;
 	if (sense->flags & MSENSE_CRYPT_MASK) {
 		PRINT_INFO("Medium is encrypted (%04x)\n", sense->flags);
@@ -836,19 +837,21 @@ tape_3590_erp_retry(struct tape_device *device, struct tape_request *request,
 static int
 tape_3590_unsolicited_irq(struct tape_device *device, struct irb *irb)
 {
-	if (irb->scsw.dstat == DEV_STAT_CHN_END)
+	if (irb->scsw.cmd.dstat == DEV_STAT_CHN_END)
 		/* Probably result of halt ssch */
 		return TAPE_IO_PENDING;
-	else if (irb->scsw.dstat == 0x85)
-		/* Device Ready -> check medium state */
-		tape_3590_schedule_work(device, TO_MSEN);
-	else if (irb->scsw.dstat & DEV_STAT_ATTENTION)
+	else if (irb->scsw.cmd.dstat == 0x85)
+		/* Device Ready */
+		DBF_EVENT(3, "unsol.irq! tape ready: %08x\n", device->cdev_id);
+	else if (irb->scsw.cmd.dstat & DEV_STAT_ATTENTION) {
 		tape_3590_schedule_work(device, TO_READ_ATTMSG);
-	else {
+	} else {
 		DBF_EVENT(3, "unsol.irq! dev end: %08x\n", device->cdev_id);
 		PRINT_WARN("Unsolicited IRQ (Device End) caught.\n");
 		tape_dump_sense(device, NULL, irb);
 	}
+	/* check medium state */
+	tape_3590_schedule_work(device, TO_MSEN);
 	return TAPE_IO_SUCCESS;
 }
 
@@ -1492,7 +1495,7 @@ tape_3590_unit_check(struct tape_device *device, struct tape_request *request,
 			   device->cdev->dev.bus_id);
 		return tape_3590_erp_basic(device, request, irb, -EPERM);
 	case 0x8013:
-		PRINT_WARN("(%s): Another host has priviliged access to the "
+		PRINT_WARN("(%s): Another host has privileged access to the "
 			   "tape device\n", device->cdev->dev.bus_id);
 		PRINT_WARN("(%s): To solve the problem unload the current "
 			   "cartridge!\n", device->cdev->dev.bus_id);
@@ -1512,18 +1515,19 @@ tape_3590_irq(struct tape_device *device, struct tape_request *request,
 	if (request == NULL)
 		return tape_3590_unsolicited_irq(device, irb);
 
-	if ((irb->scsw.dstat & DEV_STAT_UNIT_EXCEP) &&
-	    (irb->scsw.dstat & DEV_STAT_DEV_END) && (request->op == TO_WRI)) {
+	if ((irb->scsw.cmd.dstat & DEV_STAT_UNIT_EXCEP) &&
+	    (irb->scsw.cmd.dstat & DEV_STAT_DEV_END) &&
+	    (request->op == TO_WRI)) {
 		/* Write at end of volume */
 		DBF_EVENT(2, "End of volume\n");
 		return tape_3590_erp_failed(device, request, irb, -ENOSPC);
 	}
 
-	if (irb->scsw.dstat & DEV_STAT_UNIT_CHECK)
+	if (irb->scsw.cmd.dstat & DEV_STAT_UNIT_CHECK)
 		return tape_3590_unit_check(device, request, irb);
 
-	if (irb->scsw.dstat & DEV_STAT_DEV_END) {
-		if (irb->scsw.dstat == DEV_STAT_UNIT_EXCEP) {
+	if (irb->scsw.cmd.dstat & DEV_STAT_DEV_END) {
+		if (irb->scsw.cmd.dstat == DEV_STAT_UNIT_EXCEP) {
 			if (request->op == TO_FSB || request->op == TO_BSB)
 				request->rescnt++;
 			else
@@ -1533,12 +1537,12 @@ tape_3590_irq(struct tape_device *device, struct tape_request *request,
 		return tape_3590_done(device, request);
 	}
 
-	if (irb->scsw.dstat & DEV_STAT_CHN_END) {
+	if (irb->scsw.cmd.dstat & DEV_STAT_CHN_END) {
 		DBF_EVENT(2, "cannel end\n");
 		return TAPE_IO_PENDING;
 	}
 
-	if (irb->scsw.dstat & DEV_STAT_ATTENTION) {
+	if (irb->scsw.cmd.dstat & DEV_STAT_ATTENTION) {
 		DBF_EVENT(2, "Unit Attention when busy..\n");
 		return TAPE_IO_PENDING;
 	}
@@ -1595,7 +1599,7 @@ tape_3590_setup_device(struct tape_device *device)
 	rc = tape_3590_read_dev_chars(device, rdc_data);
 	if (rc) {
 		DBF_LH(3, "Read device characteristics failed!\n");
-		goto fail_kmalloc;
+		goto fail_rdc_data;
 	}
 	rc = tape_std_assign(device);
 	if (rc)

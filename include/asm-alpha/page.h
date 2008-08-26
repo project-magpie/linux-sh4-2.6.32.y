@@ -1,13 +1,12 @@
 #ifndef _ALPHA_PAGE_H
 #define _ALPHA_PAGE_H
 
-#ifdef __KERNEL__
-
+#include <linux/const.h>
 #include <asm/pal.h>
 
 /* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT	13
-#define PAGE_SIZE	(1UL << PAGE_SHIFT)
+#define PAGE_SIZE	(_AC(1,UL) << PAGE_SHIFT)
 #define PAGE_MASK	(~(PAGE_SIZE-1))
 
 #ifndef __ASSEMBLY__
@@ -63,6 +62,8 @@ typedef unsigned long pgprot_t;
 
 #endif /* STRICT_MM_TYPECHECKS */
 
+typedef struct page *pgtable_t;
+
 #ifdef USE_48_BIT_KSEG
 #define PAGE_OFFSET		0xffff800000000000UL
 #else
@@ -79,9 +80,6 @@ typedef unsigned long pgprot_t;
 
 #endif /* !__ASSEMBLY__ */
 
-/* to align the pointer to the (next) page boundary */
-#define PAGE_ALIGN(addr)	(((addr)+PAGE_SIZE-1)&PAGE_MASK)
-
 #define __pa(x)			((unsigned long) (x) - PAGE_OFFSET)
 #define __va(x)			((void *)((unsigned long) (x) + PAGE_OFFSET))
 #ifndef CONFIG_DISCONTIGMEM
@@ -97,5 +95,4 @@ typedef unsigned long pgprot_t;
 #include <asm-generic/memory_model.h>
 #include <asm-generic/page.h>
 
-#endif /* __KERNEL__ */
 #endif /* _ALPHA_PAGE_H */

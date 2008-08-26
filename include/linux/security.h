@@ -34,27 +34,40 @@
 #include <linux/xfrm.h>
 #include <net/flow.h>
 
+/* Maximum number of letters for an LSM name string */
+#define SECURITY_NAME_MAX	10
+
 struct ctl_table;
+struct audit_krule;
 
 /*
  * These functions are in security/capability.c and are used
  * as the default capabilities functions
  */
-extern int cap_capable (struct task_struct *tsk, int cap);
-extern int cap_settime (struct timespec *ts, struct timezone *tz);
-extern int cap_ptrace (struct task_struct *parent, struct task_struct *child);
-extern int cap_capget (struct task_struct *target, kernel_cap_t *effective, kernel_cap_t *inheritable, kernel_cap_t *permitted);
-extern int cap_capset_check (struct task_struct *target, kernel_cap_t *effective, kernel_cap_t *inheritable, kernel_cap_t *permitted);
-extern void cap_capset_set (struct task_struct *target, kernel_cap_t *effective, kernel_cap_t *inheritable, kernel_cap_t *permitted);
-extern int cap_bprm_set_security (struct linux_binprm *bprm);
-extern void cap_bprm_apply_creds (struct linux_binprm *bprm, int unsafe);
+extern int cap_capable(struct task_struct *tsk, int cap);
+extern int cap_settime(struct timespec *ts, struct timezone *tz);
+extern int cap_ptrace(struct task_struct *parent, struct task_struct *child,
+		      unsigned int mode);
+extern int cap_capget(struct task_struct *target, kernel_cap_t *effective, kernel_cap_t *inheritable, kernel_cap_t *permitted);
+extern int cap_capset_check(struct task_struct *target, kernel_cap_t *effective, kernel_cap_t *inheritable, kernel_cap_t *permitted);
+extern void cap_capset_set(struct task_struct *target, kernel_cap_t *effective, kernel_cap_t *inheritable, kernel_cap_t *permitted);
+extern int cap_bprm_set_security(struct linux_binprm *bprm);
+extern void cap_bprm_apply_creds(struct linux_binprm *bprm, int unsafe);
 extern int cap_bprm_secureexec(struct linux_binprm *bprm);
-extern int cap_inode_setxattr(struct dentry *dentry, char *name, void *value, size_t size, int flags);
-extern int cap_inode_removexattr(struct dentry *dentry, char *name);
-extern int cap_task_post_setuid (uid_t old_ruid, uid_t old_euid, uid_t old_suid, int flags);
-extern void cap_task_reparent_to_init (struct task_struct *p);
-extern int cap_syslog (int type);
-extern int cap_vm_enough_memory (struct mm_struct *mm, long pages);
+extern int cap_inode_setxattr(struct dentry *dentry, const char *name,
+			      const void *value, size_t size, int flags);
+extern int cap_inode_removexattr(struct dentry *dentry, const char *name);
+extern int cap_inode_need_killpriv(struct dentry *dentry);
+extern int cap_inode_killpriv(struct dentry *dentry);
+extern int cap_task_post_setuid(uid_t old_ruid, uid_t old_euid, uid_t old_suid, int flags);
+extern void cap_task_reparent_to_init(struct task_struct *p);
+extern int cap_task_prctl(int option, unsigned long arg2, unsigned long arg3,
+			  unsigned long arg4, unsigned long arg5, long *rc_p);
+extern int cap_task_setscheduler(struct task_struct *p, int policy, struct sched_param *lp);
+extern int cap_task_setioprio(struct task_struct *p, int ioprio);
+extern int cap_task_setnice(struct task_struct *p, int nice);
+extern int cap_syslog(int type);
+extern int cap_vm_enough_memory(struct mm_struct *mm, long pages);
 
 struct msghdr;
 struct sk_buff;
@@ -67,6 +80,7 @@ struct xfrm_selector;
 struct xfrm_policy;
 struct xfrm_state;
 struct xfrm_user_sec_ctx;
+struct seq_file;
 
 extern int cap_netlink_send(struct sock *sk, struct sk_buff *skb);
 extern int cap_netlink_recv(struct sk_buff *skb, int cap);
@@ -88,9 +102,7 @@ extern unsigned long mmap_min_addr;
 #define LSM_SETID_FS	8
 
 /* forward declares to avoid warnings */
-struct nfsctl_arg;
 struct sched_param;
-struct swap_info_struct;
 struct request_sock;
 
 /* bprm_apply_creds unsafe reasons */
@@ -100,8 +112,40 @@ struct request_sock;
 
 #ifdef CONFIG_SECURITY
 
+struct security_mnt_opts {
+	char **mnt_opts;
+	int *mnt_opts_flags;
+	int num_mnt_opts;
+};
+
+static inline void security_init_mnt_opts(struct security_mnt_opts *opts)
+{
+	opts->mnt_opts = NULL;
+	opts->mnt_opts_flags = NULL;
+	opts->num_mnt_opts = 0;
+}
+
+static inline void security_free_mnt_opts(struct security_mnt_opts *opts)
+{
+	int i;
+	if (opts->mnt_opts)
+		for (i = 0; i < opts->num_mnt_opts; i++)
+			kfree(opts->mnt_opts[i]);
+	kfree(opts->mnt_opts);
+	opts->mnt_opts = NULL;
+	kfree(opts->mnt_opts_flags);
+	opts->mnt_opts_flags = NULL;
+	opts->num_mnt_opts = 0;
+}
+
 /**
  * struct security_operations - main security structure
+ *
+ * Security module identifier.
+ *
+ * @name:
+ *	A string that acts as a unique identifeir for the LSM with max number
+ *	of characters = SECURITY_NAME_MAX.
  *
  * Security hooks for program execution operations.
  *
@@ -147,21 +191,21 @@ struct request_sock;
  *	@bprm contains the linux_binprm structure.
  *	Return 0 if the hook is successful and permission is granted.
  * @bprm_check_security:
- * 	This hook mediates the point when a search for a binary handler	will
- * 	begin.  It allows a check the @bprm->security value which is set in
- * 	the preceding set_security call.  The primary difference from
- * 	set_security is that the argv list and envp list are reliably
- * 	available in @bprm.  This hook may be called multiple times
- * 	during a single execve; and in each pass set_security is called
- * 	first.
- * 	@bprm contains the linux_binprm structure.
+ *	This hook mediates the point when a search for a binary handler	will
+ *	begin.  It allows a check the @bprm->security value which is set in
+ *	the preceding set_security call.  The primary difference from
+ *	set_security is that the argv list and envp list are reliably
+ *	available in @bprm.  This hook may be called multiple times
+ *	during a single execve; and in each pass set_security is called
+ *	first.
+ *	@bprm contains the linux_binprm structure.
  *	Return 0 if the hook is successful and permission is granted.
  * @bprm_secureexec:
- *      Return a boolean value (0 or 1) indicating whether a "secure exec" 
- *      is required.  The flag is passed in the auxiliary table
- *      on the initial stack to the ELF interpreter to indicate whether libc 
- *      should enable secure mode.
- *      @bprm contains the linux_binprm structure.
+ *	Return a boolean value (0 or 1) indicating whether a "secure exec"
+ *	is required.  The flag is passed in the auxiliary table
+ *	on the initial stack to the ELF interpreter to indicate whether libc
+ *	should enable secure mode.
+ *	@bprm contains the linux_binprm structure.
  *
  * Security hooks for filesystem operations.
  *
@@ -178,7 +222,7 @@ struct request_sock;
  *	Check permission before obtaining filesystem statistics for the @mnt
  *	mountpoint.
  *	@dentry is a handle on the superblock for the filesystem.
- *	Return 0 if permission is granted.  
+ *	Return 0 if permission is granted.
  * @sb_mount:
  *	Check permission before an object specified by @dev_name is mounted on
  *	the mount point named by @nd.  For an ordinary mount, @dev_name
@@ -187,7 +231,7 @@ struct request_sock;
  *	loopback/bind mount (@flags & MS_BIND), @dev_name identifies the
  *	pathname of the object being mounted.
  *	@dev_name contains the name for object being mounted.
- *	@nd contains the nameidata structure for mount point object.
+ *	@path contains the path for mount point object.
  *	@type contains the filesystem type.
  *	@flags contains the mount flags.
  *	@data contains the filesystem-specific data.
@@ -206,7 +250,7 @@ struct request_sock;
  *	Check permission before the device with superblock @mnt->sb is mounted
  *	on the mount point named by @nd.
  *	@mnt contains the vfsmount for device being mounted.
- *	@nd contains the nameidata object for the mount point.
+ *	@path contains the path for the mount point.
  *	Return 0 if permission is granted.
  * @sb_umount:
  *	Check permission before the @mnt file system is unmounted.
@@ -230,24 +274,33 @@ struct request_sock;
  *	@mnt contains the mounted file system.
  *	@flags contains the new filesystem flags.
  *	@data contains the filesystem-specific data.
- * @sb_post_mountroot:
- *	Update the security module's state when the root filesystem is mounted.
- *	This hook is only called if the mount was successful.
  * @sb_post_addmount:
  *	Update the security module's state when a filesystem is mounted.
  *	This hook is called any time a mount is successfully grafetd to
  *	the tree.
  *	@mnt contains the mounted filesystem.
- *	@mountpoint_nd contains the nameidata structure for the mount point.
+ *	@mountpoint contains the path for the mount point.
  * @sb_pivotroot:
  *	Check permission before pivoting the root filesystem.
- *	@old_nd contains the nameidata structure for the new location of the current root (put_old).
- *      @new_nd contains the nameidata structure for the new root (new_root).
+ *	@old_path contains the path for the new location of the current root (put_old).
+ *	@new_path contains the path for the new root (new_root).
  *	Return 0 if permission is granted.
  * @sb_post_pivotroot:
  *	Update module state after a successful pivot.
- *	@old_nd contains the nameidata structure for the old root.
- *      @new_nd contains the nameidata structure for the new root.
+ *	@old_path contains the path for the old root.
+ *	@new_path contains the path for the new root.
+ * @sb_set_mnt_opts:
+ *	Set the security relevant mount options used for a superblock
+ *	@sb the superblock to set security mount options for
+ *	@opts binary data structure containing all lsm mount data
+ * @sb_clone_mnt_opts:
+ *	Copy all security options from a given superblock to another
+ *	@oldsb old superblock which contain information to clone
+ *	@newsb new superblock which needs filled in
+ * @sb_parse_opts_str:
+ *	Parse a string of security data filling in the opts structure
+ *	@options string containing all mount options known by the LSM
+ *	@opts binary data structure usable by the LSM
  *
  * Security hooks for inode operations.
  *
@@ -260,9 +313,9 @@ struct request_sock;
  * @inode_free_security:
  *	@inode contains the inode structure.
  *	Deallocate the inode security structure and set @inode->i_security to
- *	NULL. 
+ *	NULL.
  * @inode_init_security:
- * 	Obtain the security attribute name suffix and value to set on a newly
+ *	Obtain the security attribute name suffix and value to set on a newly
  *	created inode and set up the incore security field for the new inode.
  *	This hook is called by the fs code as part of the inode creation
  *	transaction and provides for atomic labeling of the inode, unlike
@@ -293,7 +346,7 @@ struct request_sock;
  *	@new_dentry contains the dentry structure for the new link.
  *	Return 0 if permission is granted.
  * @inode_unlink:
- *	Check the permission to remove a hard link to a file. 
+ *	Check the permission to remove a hard link to a file.
  *	@dir contains the inode structure of parent directory of the file.
  *	@dentry contains the dentry structure for file to be unlinked.
  *	Return 0 if permission is granted.
@@ -305,7 +358,7 @@ struct request_sock;
  *	Return 0 if permission is granted.
  * @inode_mkdir:
  *	Check permissions to create a new directory in the existing directory
- *	associated with inode strcture @dir. 
+ *	associated with inode strcture @dir.
  *	@dir containst the inode structure of parent of the directory to be created.
  *	@dentry contains the dentry structure of new directory.
  *	@mode contains the mode of new directory.
@@ -350,7 +403,7 @@ struct request_sock;
  *	called when the actual read/write operations are performed.
  *	@inode contains the inode structure to check.
  *	@mask contains the permission mask.
- *     @nd contains the nameidata (may be NULL).
+ *	@nd contains the nameidata (may be NULL).
  *	Return 0 if permission is granted.
  * @inode_setattr:
  *	Check permission before setting file attributes.  Note that the kernel
@@ -372,39 +425,36 @@ struct request_sock;
  *	can use this hook to release any persistent label associated with the
  *	inode.
  * @inode_setxattr:
- * 	Check permission before setting the extended attributes
- * 	@value identified by @name for @dentry.
- * 	Return 0 if permission is granted.
+ *	Check permission before setting the extended attributes
+ *	@value identified by @name for @dentry.
+ *	Return 0 if permission is granted.
  * @inode_post_setxattr:
- * 	Update inode security field after successful setxattr operation.
- * 	@value identified by @name for @dentry.
+ *	Update inode security field after successful setxattr operation.
+ *	@value identified by @name for @dentry.
  * @inode_getxattr:
- * 	Check permission before obtaining the extended attributes
- * 	identified by @name for @dentry.
- * 	Return 0 if permission is granted.
+ *	Check permission before obtaining the extended attributes
+ *	identified by @name for @dentry.
+ *	Return 0 if permission is granted.
  * @inode_listxattr:
- * 	Check permission before obtaining the list of extended attribute 
- * 	names for @dentry.
- * 	Return 0 if permission is granted.
+ *	Check permission before obtaining the list of extended attribute
+ *	names for @dentry.
+ *	Return 0 if permission is granted.
  * @inode_removexattr:
- * 	Check permission before removing the extended attribute
- * 	identified by @name for @dentry.
- * 	Return 0 if permission is granted.
+ *	Check permission before removing the extended attribute
+ *	identified by @name for @dentry.
+ *	Return 0 if permission is granted.
  * @inode_getsecurity:
- *	Copy the extended attribute representation of the security label 
- *	associated with @name for @inode into @buffer.  @buffer may be
- *	NULL to request the size of the buffer required.  @size indicates
- *	the size of @buffer in bytes.  Note that @name is the remainder
- *	of the attribute name after the security. prefix has been removed.
- *	@err is the return value from the preceding fs getxattr call,
- *	and can be used by the security module to determine whether it
- *	should try and canonicalize the attribute value.
- *	Return number of bytes used/required on success.
+ *	Retrieve a copy of the extended attribute representation of the
+ *	security label associated with @name for @inode via @buffer.  Note that
+ *	@name is the remainder of the attribute name after the security prefix
+ *	has been removed. @alloc is used to specify of the call should return a
+ *	value via the buffer or just the value length Return size of buffer on
+ *	success.
  * @inode_setsecurity:
  *	Set the security label associated with @name for @inode from the
  *	extended attribute value @value.  @size indicates the size of the
  *	@value in bytes.  @flags may be XATTR_CREATE, XATTR_REPLACE, or 0.
- *	Note that @name is the remainder of the attribute name after the 
+ *	Note that @name is the remainder of the attribute name after the
  *	security. prefix has been removed.
  *	Return 0 on success.
  * @inode_listsecurity:
@@ -413,6 +463,23 @@ struct request_sock;
  *	is specified by @buffer_size.  @buffer may be NULL to request
  *	the size of the buffer required.
  *	Returns number of bytes used/required on success.
+ * @inode_need_killpriv:
+ *	Called when an inode has been changed.
+ *	@dentry is the dentry being changed.
+ *	Return <0 on error to abort the inode change operation.
+ *	Return 0 if inode_killpriv does not need to be called.
+ *	Return >0 if inode_killpriv does need to be called.
+ * @inode_killpriv:
+ *	The setuid bit is being removed.  Remove similar security labels.
+ *	Called with the dentry->d_inode->i_mutex held.
+ *	@dentry is the dentry being changed.
+ *	Return 0 on success.  If error is returned, then the operation
+ *	causing setuid bit removal is failed.
+ * @inode_getsecid:
+ *	Get the secid associated with the node.
+ *	@inode contains a pointer to the inode.
+ *	@secid contains a pointer to the location where result will be saved.
+ *	In case of failure, @secid will be set to zero.
  *
  * Security hooks for file operations
  *
@@ -494,7 +561,7 @@ struct request_sock;
  *	struct file, so the file structure (and associated security information)
  *	can always be obtained:
  *		container_of(fown, struct file, f_owner)
- * 	@tsk contains the structure of task receiving signal.
+ *	@tsk contains the structure of task receiving signal.
  *	@fown contains the file owner information.
  *	@sig is the signal that will be sent.  When 0, kernel sends SIGIO.
  *	Return 0 if permission is granted.
@@ -503,6 +570,13 @@ struct request_sock;
  *	to receive an open file descriptor via socket IPC.
  *	@file contains the file structure being received.
  *	Return 0 if permission is granted.
+ *
+ * Security hook for dentry
+ *
+ * @dentry_open
+ *	Save open-time permission checking state for later use upon
+ *	file_permission, and recheck access if anything has changed
+ *	since inode_permission.
  *
  * Security hooks for task operations.
  *
@@ -574,6 +648,8 @@ struct request_sock;
  * @task_getsecid:
  *	Retrieve the security identifier of the process @p.
  *	@p contains the task_struct for the process and place is into @secid.
+ *	In case of failure, @secid will be set to zero.
+ *
  * @task_setgroups:
  *	Check permission before setting the supplementary group set of the
  *	current process.
@@ -641,14 +717,16 @@ struct request_sock;
  *	@arg3 contains a argument.
  *	@arg4 contains a argument.
  *	@arg5 contains a argument.
- *	Return 0 if permission is granted.
+ *      @rc_p contains a pointer to communicate back the forced return code
+ *	Return 0 if permission is granted, and non-zero if the security module
+ *      has taken responsibility (setting *rc_p) for the prctl call.
  * @task_reparent_to_init:
- * 	Set the security attributes in @p->security for a kernel thread that
- * 	is being reparented to the init task.
+ *	Set the security attributes in @p->security for a kernel thread that
+ *	is being reparented to the init task.
  *	@p contains the task_struct for the kernel thread.
  * @task_to_inode:
- * 	Set the security attributes for an inode based on an associated task's
- * 	security attributes, e.g. for /proc/pid inodes.
+ *	Set the security attributes for an inode based on an associated task's
+ *	security attributes, e.g. for /proc/pid inodes.
  *	@p contains the task_struct for the task.
  *	@inode contains the inode structure for the inode.
  *
@@ -658,7 +736,7 @@ struct request_sock;
  *	Save security information for a netlink message so that permission
  *	checking can be performed when the message is processed.  The security
  *	information can be saved using the eff_cap field of the
- *      netlink_skb_parms structure.  Also may be used to provide fine
+ *	netlink_skb_parms structure.  Also may be used to provide fine
  *	grained control over message transmission.
  *	@sk associated sock of task sending the message.,
  *	@skb contains the sk_buff structure for the netlink message.
@@ -726,14 +804,14 @@ struct request_sock;
  *	@sock contains the socket structure.
  *	@address contains the address to bind to.
  *	@addrlen contains the length of address.
- *	Return 0 if permission is granted.  
+ *	Return 0 if permission is granted.
  * @socket_connect:
  *	Check permission before socket protocol layer connect operation
  *	attempts to connect socket @sock to a remote address, @address.
  *	@sock contains the socket structure.
  *	@address contains the address of remote endpoint.
  *	@addrlen contains the length of address.
- *	Return 0 if permission is granted.  
+ *	Return 0 if permission is granted.
  * @socket_listen:
  *	Check permission before socket protocol layer listen operation.
  *	@sock contains the socket structure.
@@ -763,7 +841,7 @@ struct request_sock;
  *	@msg contains the message structure.
  *	@size contains the size of message structure.
  *	@flags contains the operational flags.
- *	Return 0 if permission is granted.  
+ *	Return 0 if permission is granted.
  * @socket_getsockname:
  *	Check permission before the local address (name) of the socket object
  *	@sock is retrieved.
@@ -787,7 +865,7 @@ struct request_sock;
  *	@sock contains the socket structure.
  *	@level contains the protocol level to set options for.
  *	@optname contains the name of the option to set.
- *	Return 0 if permission is granted.  
+ *	Return 0 if permission is granted.
  * @socket_shutdown:
  *	Checks permission before all or part of a connection on the socket
  *	@sock is shut down.
@@ -800,9 +878,11 @@ struct request_sock;
  *	incoming sk_buff @skb has been associated with a particular socket, @sk.
  *	@sk contains the sock (not socket) associated with the incoming sk_buff.
  *	@skb contains the incoming network data.
- * @socket_getpeersec:
+ * @socket_getpeersec_stream:
  *	This hook allows the security module to provide peer socket security
- *	state to userspace via getsockopt SO_GETPEERSEC.
+ *	state for unix or connected tcp sockets to userspace via getsockopt
+ *	SO_GETPEERSEC.  For tcp sockets this can be meaningful if the
+ *	socket is associated with an ipsec SA.
  *	@sock is the local socket.
  *	@optval userspace memory where the security state is to be copied.
  *	@optlen userspace int where the module should copy the actual length
@@ -811,9 +891,20 @@ struct request_sock;
  *	by the caller.
  *	Return 0 if all is well, otherwise, typical getsockopt return
  *	values.
+ * @socket_getpeersec_dgram:
+ *	This hook allows the security module to provide peer socket security
+ *	state for udp sockets on a per-packet basis to userspace via
+ *	getsockopt SO_GETPEERSEC.  The application must first have indicated
+ *	the IP_PASSSEC option via getsockopt.  It can then retrieve the
+ *	security state returned by this hook for a packet via the SCM_SECURITY
+ *	ancillary message type.
+ *	@skb is the skbuff for the packet being queried
+ *	@secdata is a pointer to a buffer in which to copy the security data
+ *	@seclen is the maximum length for @secdata
+ *	Return 0 on success, error on failure.
  * @sk_alloc_security:
- *      Allocate and attach a security structure to the sk->sk_security field,
- *      which is used to copy security attributes between local stream sockets.
+ *	Allocate and attach a security structure to the sk->sk_security field,
+ *	which is used to copy security attributes between local stream sockets.
  * @sk_free_security:
  *	Deallocate security structure.
  * @sk_clone_security:
@@ -828,31 +919,31 @@ struct request_sock;
  * @inet_csk_clone:
  *	Sets the new child socket's sid to the openreq sid.
  * @inet_conn_established:
- *     Sets the connection's peersid to the secmark on skb.
+ *	Sets the connection's peersid to the secmark on skb.
  * @req_classify_flow:
  *	Sets the flow's sid to the openreq sid.
  *
  * Security hooks for XFRM operations.
  *
  * @xfrm_policy_alloc_security:
- *	@xp contains the xfrm_policy being added to Security Policy Database
- *	used by the XFRM system.
+ *	@ctxp is a pointer to the xfrm_sec_ctx being added to Security Policy
+ *	Database used by the XFRM system.
  *	@sec_ctx contains the security context information being provided by
  *	the user-level policy update program (e.g., setkey).
  *	Allocate a security structure to the xp->security field; the security
  *	field is initialized to NULL when the xfrm_policy is allocated.
  *	Return 0 if operation was successful (memory to allocate, legal context)
  * @xfrm_policy_clone_security:
- *	@old contains an existing xfrm_policy in the SPD.
- *	@new contains a new xfrm_policy being cloned from old.
- *	Allocate a security structure to the new->security field
- *	that contains the information from the old->security field.
+ *	@old_ctx contains an existing xfrm_sec_ctx.
+ *	@new_ctxp contains a new xfrm_sec_ctx being cloned from old.
+ *	Allocate a security structure in new_ctxp that contains the
+ *	information from the old_ctx structure.
  *	Return 0 if operation was successful (memory to allocate).
  * @xfrm_policy_free_security:
- *	@xp contains the xfrm_policy
+ *	@ctx contains the xfrm_sec_ctx
  *	Deallocate xp->security.
  * @xfrm_policy_delete_security:
- *	@xp contains the xfrm_policy.
+ *	@ctx contains the xfrm_sec_ctx.
  *	Authorize deletion of xp->security.
  * @xfrm_state_alloc_security:
  *	@x contains the xfrm_state being added to the Security Association
@@ -872,7 +963,7 @@ struct request_sock;
  *	@x contains the xfrm_state.
  *	Authorize deletion of x->security.
  * @xfrm_policy_lookup:
- *	@xp contains the xfrm_policy for which the access control is being
+ *	@ctx contains the xfrm_sec_ctx for which the access control is being
  *	checked.
  *	@fl_secid contains the flow security label that is used to authorize
  *	access to the policy xp.
@@ -907,13 +998,24 @@ struct request_sock;
  *	No return value.
  * @key_permission:
  *	See whether a specific operational right is granted to a process on a
- *      key.
+ *	key.
  *	@key_ref refers to the key (key pointer + possession attribute bit).
  *	@context points to the process to provide the context against which to
- *       evaluate the security data on the key.
+ *	evaluate the security data on the key.
  *	@perm describes the combination of permissions required of this key.
  *	Return 1 if permission granted, 0 if permission denied and -ve it the
- *      normal permissions model should be effected.
+ *	normal permissions model should be effected.
+ * @key_getsecurity:
+ *	Get a textual representation of the security context attached to a key
+ *	for the purposes of honouring KEYCTL_GETSECURITY.  This function
+ *	allocates the storage for the NUL-terminated string and the caller
+ *	should free it.
+ *	@key points to the key to be queried.
+ *	@_buffer points to a pointer that should be set to point to the
+ *	 resulting string (if no label or an error occurs).
+ *	Return the length of the string (including terminating NUL) or -ve if
+ *      an error.
+ *	May also return 0 (and a NULL buffer pointer) if there is no label.
  *
  * Security hooks affecting all System V IPC operations.
  *
@@ -922,6 +1024,11 @@ struct request_sock;
  *	@ipcp contains the kernel IPC permission structure
  *	@flag contains the desired (requested) permission set
  *	Return 0 if permission is granted.
+ * @ipc_getsecid:
+ *	Get the secid associated with the ipc object.
+ *	@ipcp contains the kernel IPC permission structure.
+ *	@secid contains a pointer to the location where result will be saved.
+ *	In case of failure, @secid will be set to zero.
  *
  * Security hooks for individual messages held in System V IPC message queues
  * @msg_msg_alloc_security:
@@ -959,7 +1066,7 @@ struct request_sock;
  *	The @msq may be NULL, e.g. for IPC_INFO or MSG_INFO.
  *	@msq contains the message queue to act upon.  May be NULL.
  *	@cmd contains the operation to be performed.
- *	Return 0 if permission is granted.  
+ *	Return 0 if permission is granted.
  * @msg_queue_msgsnd:
  *	Check permission before a message, @msg, is enqueued on the message
  *	queue, @msq.
@@ -969,8 +1076,8 @@ struct request_sock;
  *	Return 0 if permission is granted.
  * @msg_queue_msgrcv:
  *	Check permission before a message, @msg, is removed from the message
- *	queue, @msq.  The @target task structure contains a pointer to the 
- *	process that will be receiving the message (not equal to the current 
+ *	queue, @msq.  The @target task structure contains a pointer to the
+ *	process that will be receiving the message (not equal to the current
  *	process when inline receives are being performed).
  *	@msq contains the message queue to retrieve message from.
  *	@msg contains the message destination.
@@ -1035,15 +1142,15 @@ struct request_sock;
  *	Return 0 if permission is granted.
  * @sem_semctl:
  *	Check permission when a semaphore operation specified by @cmd is to be
- *	performed on the semaphore @sma.  The @sma may be NULL, e.g. for 
+ *	performed on the semaphore @sma.  The @sma may be NULL, e.g. for
  *	IPC_INFO or SEM_INFO.
  *	@sma contains the semaphore structure.  May be NULL.
  *	@cmd contains the operation to be performed.
  *	Return 0 if permission is granted.
  * @sem_semop
  *	Check permissions before performing operations on members of the
- *	semaphore set @sma.  If the @alter flag is nonzero, the semaphore set 
- *      may be modified.
+ *	semaphore set @sma.  If the @alter flag is nonzero, the semaphore set
+ *	may be modified.
  *	@sma contains the semaphore structure.
  *	@sops contains the operations to perform.
  *	@nsops contains the number of operations to perform.
@@ -1059,6 +1166,7 @@ struct request_sock;
  *	attributes would be changed by the execve.
  *	@parent contains the task_struct structure for parent process.
  *	@child contains the task_struct structure for child process.
+ *	@mode contains the PTRACE_MODE flags indicating the form of access.
  *	Return 0 if permission is granted.
  * @capget:
  *	Get the @effective, @inheritable, and @permitted capability sets for
@@ -1114,7 +1222,7 @@ struct request_sock;
  * @syslog:
  *	Check permission before accessing the kernel message ring or changing
  *	logging to the console.
- *	See the syslog(2) manual page for an explanation of the @type values.  
+ *	See the syslog(2) manual page for an explanation of the @type values.
  *	@type contains the type of action.
  *	Return 0 if permission is granted.
  * @settime:
@@ -1126,1026 +1234,503 @@ struct request_sock;
  * @vm_enough_memory:
  *	Check permissions for allocating a new virtual mapping.
  *	@mm contains the mm struct it is being added to.
- *      @pages contains the number of pages.
+ *	@pages contains the number of pages.
  *	Return 0 if permission is granted.
  *
- * @register_security:
- * 	allow module stacking.
- * 	@name contains the name of the security module being stacked.
- * 	@ops contains a pointer to the struct security_operations of the module to stack.
- * @unregister_security:
- *	remove a stacked module.
- *	@name contains the name of the security module being unstacked.
- *	@ops contains a pointer to the struct security_operations of the module to unstack.
- * 
  * @secid_to_secctx:
  *	Convert secid to security context.
  *	@secid contains the security ID.
  *	@secdata contains the pointer that stores the converted security context.
+ * @secctx_to_secid:
+ *	Convert security context to secid.
+ *	@secid contains the pointer to the generated security ID.
+ *	@secdata contains the security context.
  *
  * @release_secctx:
  *	Release the security context.
  *	@secdata contains the security context.
  *	@seclen contains the length of the security context.
  *
+ * Security hooks for Audit
+ *
+ * @audit_rule_init:
+ *	Allocate and initialize an LSM audit rule structure.
+ *	@field contains the required Audit action. Fields flags are defined in include/linux/audit.h
+ *	@op contains the operator the rule uses.
+ *	@rulestr contains the context where the rule will be applied to.
+ *	@lsmrule contains a pointer to receive the result.
+ *	Return 0 if @lsmrule has been successfully set,
+ *	-EINVAL in case of an invalid rule.
+ *
+ * @audit_rule_known:
+ *	Specifies whether given @rule contains any fields related to current LSM.
+ *	@rule contains the audit rule of interest.
+ *	Return 1 in case of relation found, 0 otherwise.
+ *
+ * @audit_rule_match:
+ *	Determine if given @secid matches a rule previously approved
+ *	by @audit_rule_known.
+ *	@secid contains the security id in question.
+ *	@field contains the field which relates to current LSM.
+ *	@op contains the operator that will be used for matching.
+ *	@rule points to the audit rule that will be checked against.
+ *	@actx points to the audit context associated with the check.
+ *	Return 1 if secid matches the rule, 0 if it does not, -ERRNO on failure.
+ *
+ * @audit_rule_free:
+ *	Deallocate the LSM audit rule structure previously allocated by
+ *	audit_rule_init.
+ *	@rule contains the allocated rule
+ *
  * This is the main security structure.
  */
 struct security_operations {
-	int (*ptrace) (struct task_struct * parent, struct task_struct * child);
-	int (*capget) (struct task_struct * target,
-		       kernel_cap_t * effective,
-		       kernel_cap_t * inheritable, kernel_cap_t * permitted);
-	int (*capset_check) (struct task_struct * target,
-			     kernel_cap_t * effective,
-			     kernel_cap_t * inheritable,
-			     kernel_cap_t * permitted);
-	void (*capset_set) (struct task_struct * target,
-			    kernel_cap_t * effective,
-			    kernel_cap_t * inheritable,
-			    kernel_cap_t * permitted);
-	int (*capable) (struct task_struct * tsk, int cap);
-	int (*acct) (struct file * file);
-	int (*sysctl) (struct ctl_table * table, int op);
-	int (*quotactl) (int cmds, int type, int id, struct super_block * sb);
-	int (*quota_on) (struct dentry * dentry);
+	char name[SECURITY_NAME_MAX + 1];
+
+	int (*ptrace) (struct task_struct *parent, struct task_struct *child,
+		       unsigned int mode);
+	int (*capget) (struct task_struct *target,
+		       kernel_cap_t *effective,
+		       kernel_cap_t *inheritable, kernel_cap_t *permitted);
+	int (*capset_check) (struct task_struct *target,
+			     kernel_cap_t *effective,
+			     kernel_cap_t *inheritable,
+			     kernel_cap_t *permitted);
+	void (*capset_set) (struct task_struct *target,
+			    kernel_cap_t *effective,
+			    kernel_cap_t *inheritable,
+			    kernel_cap_t *permitted);
+	int (*capable) (struct task_struct *tsk, int cap);
+	int (*acct) (struct file *file);
+	int (*sysctl) (struct ctl_table *table, int op);
+	int (*quotactl) (int cmds, int type, int id, struct super_block *sb);
+	int (*quota_on) (struct dentry *dentry);
 	int (*syslog) (int type);
 	int (*settime) (struct timespec *ts, struct timezone *tz);
 	int (*vm_enough_memory) (struct mm_struct *mm, long pages);
 
-	int (*bprm_alloc_security) (struct linux_binprm * bprm);
-	void (*bprm_free_security) (struct linux_binprm * bprm);
-	void (*bprm_apply_creds) (struct linux_binprm * bprm, int unsafe);
-	void (*bprm_post_apply_creds) (struct linux_binprm * bprm);
-	int (*bprm_set_security) (struct linux_binprm * bprm);
-	int (*bprm_check_security) (struct linux_binprm * bprm);
-	int (*bprm_secureexec) (struct linux_binprm * bprm);
+	int (*bprm_alloc_security) (struct linux_binprm *bprm);
+	void (*bprm_free_security) (struct linux_binprm *bprm);
+	void (*bprm_apply_creds) (struct linux_binprm *bprm, int unsafe);
+	void (*bprm_post_apply_creds) (struct linux_binprm *bprm);
+	int (*bprm_set_security) (struct linux_binprm *bprm);
+	int (*bprm_check_security) (struct linux_binprm *bprm);
+	int (*bprm_secureexec) (struct linux_binprm *bprm);
 
-	int (*sb_alloc_security) (struct super_block * sb);
-	void (*sb_free_security) (struct super_block * sb);
-	int (*sb_copy_data)(struct file_system_type *type,
-			    void *orig, void *copy);
+	int (*sb_alloc_security) (struct super_block *sb);
+	void (*sb_free_security) (struct super_block *sb);
+	int (*sb_copy_data) (char *orig, char *copy);
 	int (*sb_kern_mount) (struct super_block *sb, void *data);
+	int (*sb_show_options) (struct seq_file *m, struct super_block *sb);
 	int (*sb_statfs) (struct dentry *dentry);
-	int (*sb_mount) (char *dev_name, struct nameidata * nd,
+	int (*sb_mount) (char *dev_name, struct path *path,
 			 char *type, unsigned long flags, void *data);
-	int (*sb_check_sb) (struct vfsmount * mnt, struct nameidata * nd);
-	int (*sb_umount) (struct vfsmount * mnt, int flags);
-	void (*sb_umount_close) (struct vfsmount * mnt);
-	void (*sb_umount_busy) (struct vfsmount * mnt);
-	void (*sb_post_remount) (struct vfsmount * mnt,
+	int (*sb_check_sb) (struct vfsmount *mnt, struct path *path);
+	int (*sb_umount) (struct vfsmount *mnt, int flags);
+	void (*sb_umount_close) (struct vfsmount *mnt);
+	void (*sb_umount_busy) (struct vfsmount *mnt);
+	void (*sb_post_remount) (struct vfsmount *mnt,
 				 unsigned long flags, void *data);
-	void (*sb_post_mountroot) (void);
-	void (*sb_post_addmount) (struct vfsmount * mnt,
-				  struct nameidata * mountpoint_nd);
-	int (*sb_pivotroot) (struct nameidata * old_nd,
-			     struct nameidata * new_nd);
-	void (*sb_post_pivotroot) (struct nameidata * old_nd,
-				   struct nameidata * new_nd);
+	void (*sb_post_addmount) (struct vfsmount *mnt,
+				  struct path *mountpoint);
+	int (*sb_pivotroot) (struct path *old_path,
+			     struct path *new_path);
+	void (*sb_post_pivotroot) (struct path *old_path,
+				   struct path *new_path);
+	int (*sb_set_mnt_opts) (struct super_block *sb,
+				struct security_mnt_opts *opts);
+	void (*sb_clone_mnt_opts) (const struct super_block *oldsb,
+				   struct super_block *newsb);
+	int (*sb_parse_opts_str) (char *options, struct security_mnt_opts *opts);
 
-	int (*inode_alloc_security) (struct inode *inode);	
+	int (*inode_alloc_security) (struct inode *inode);
 	void (*inode_free_security) (struct inode *inode);
 	int (*inode_init_security) (struct inode *inode, struct inode *dir,
 				    char **name, void **value, size_t *len);
 	int (*inode_create) (struct inode *dir,
-	                     struct dentry *dentry, int mode);
+			     struct dentry *dentry, int mode);
 	int (*inode_link) (struct dentry *old_dentry,
-	                   struct inode *dir, struct dentry *new_dentry);
+			   struct inode *dir, struct dentry *new_dentry);
 	int (*inode_unlink) (struct inode *dir, struct dentry *dentry);
 	int (*inode_symlink) (struct inode *dir,
-	                      struct dentry *dentry, const char *old_name);
+			      struct dentry *dentry, const char *old_name);
 	int (*inode_mkdir) (struct inode *dir, struct dentry *dentry, int mode);
 	int (*inode_rmdir) (struct inode *dir, struct dentry *dentry);
 	int (*inode_mknod) (struct inode *dir, struct dentry *dentry,
-	                    int mode, dev_t dev);
+			    int mode, dev_t dev);
 	int (*inode_rename) (struct inode *old_dir, struct dentry *old_dentry,
-	                     struct inode *new_dir, struct dentry *new_dentry);
+			     struct inode *new_dir, struct dentry *new_dentry);
 	int (*inode_readlink) (struct dentry *dentry);
 	int (*inode_follow_link) (struct dentry *dentry, struct nameidata *nd);
-	int (*inode_permission) (struct inode *inode, int mask, struct nameidata *nd);
+	int (*inode_permission) (struct inode *inode, int mask);
 	int (*inode_setattr)	(struct dentry *dentry, struct iattr *attr);
 	int (*inode_getattr) (struct vfsmount *mnt, struct dentry *dentry);
-        void (*inode_delete) (struct inode *inode);
-	int (*inode_setxattr) (struct dentry *dentry, char *name, void *value,
-			       size_t size, int flags);
-	void (*inode_post_setxattr) (struct dentry *dentry, char *name, void *value,
-				     size_t size, int flags);
-	int (*inode_getxattr) (struct dentry *dentry, char *name);
+	void (*inode_delete) (struct inode *inode);
+	int (*inode_setxattr) (struct dentry *dentry, const char *name,
+			       const void *value, size_t size, int flags);
+	void (*inode_post_setxattr) (struct dentry *dentry, const char *name,
+				     const void *value, size_t size, int flags);
+	int (*inode_getxattr) (struct dentry *dentry, const char *name);
 	int (*inode_listxattr) (struct dentry *dentry);
-	int (*inode_removexattr) (struct dentry *dentry, char *name);
-	const char *(*inode_xattr_getsuffix) (void);
-  	int (*inode_getsecurity)(const struct inode *inode, const char *name, void *buffer, size_t size, int err);
-  	int (*inode_setsecurity)(struct inode *inode, const char *name, const void *value, size_t size, int flags);
-  	int (*inode_listsecurity)(struct inode *inode, char *buffer, size_t buffer_size);
+	int (*inode_removexattr) (struct dentry *dentry, const char *name);
+	int (*inode_need_killpriv) (struct dentry *dentry);
+	int (*inode_killpriv) (struct dentry *dentry);
+	int (*inode_getsecurity) (const struct inode *inode, const char *name, void **buffer, bool alloc);
+	int (*inode_setsecurity) (struct inode *inode, const char *name, const void *value, size_t size, int flags);
+	int (*inode_listsecurity) (struct inode *inode, char *buffer, size_t buffer_size);
+	void (*inode_getsecid) (const struct inode *inode, u32 *secid);
 
-	int (*file_permission) (struct file * file, int mask);
-	int (*file_alloc_security) (struct file * file);
-	void (*file_free_security) (struct file * file);
-	int (*file_ioctl) (struct file * file, unsigned int cmd,
+	int (*file_permission) (struct file *file, int mask);
+	int (*file_alloc_security) (struct file *file);
+	void (*file_free_security) (struct file *file);
+	int (*file_ioctl) (struct file *file, unsigned int cmd,
 			   unsigned long arg);
-	int (*file_mmap) (struct file * file,
+	int (*file_mmap) (struct file *file,
 			  unsigned long reqprot, unsigned long prot,
 			  unsigned long flags, unsigned long addr,
 			  unsigned long addr_only);
-	int (*file_mprotect) (struct vm_area_struct * vma,
+	int (*file_mprotect) (struct vm_area_struct *vma,
 			      unsigned long reqprot,
 			      unsigned long prot);
-	int (*file_lock) (struct file * file, unsigned int cmd);
-	int (*file_fcntl) (struct file * file, unsigned int cmd,
+	int (*file_lock) (struct file *file, unsigned int cmd);
+	int (*file_fcntl) (struct file *file, unsigned int cmd,
 			   unsigned long arg);
-	int (*file_set_fowner) (struct file * file);
-	int (*file_send_sigiotask) (struct task_struct * tsk,
-				    struct fown_struct * fown, int sig);
-	int (*file_receive) (struct file * file);
+	int (*file_set_fowner) (struct file *file);
+	int (*file_send_sigiotask) (struct task_struct *tsk,
+				    struct fown_struct *fown, int sig);
+	int (*file_receive) (struct file *file);
+	int (*dentry_open) (struct file *file);
 
 	int (*task_create) (unsigned long clone_flags);
-	int (*task_alloc_security) (struct task_struct * p);
-	void (*task_free_security) (struct task_struct * p);
+	int (*task_alloc_security) (struct task_struct *p);
+	void (*task_free_security) (struct task_struct *p);
 	int (*task_setuid) (uid_t id0, uid_t id1, uid_t id2, int flags);
 	int (*task_post_setuid) (uid_t old_ruid /* or fsuid */ ,
 				 uid_t old_euid, uid_t old_suid, int flags);
 	int (*task_setgid) (gid_t id0, gid_t id1, gid_t id2, int flags);
-	int (*task_setpgid) (struct task_struct * p, pid_t pgid);
-	int (*task_getpgid) (struct task_struct * p);
-	int (*task_getsid) (struct task_struct * p);
-	void (*task_getsecid) (struct task_struct * p, u32 * secid);
+	int (*task_setpgid) (struct task_struct *p, pid_t pgid);
+	int (*task_getpgid) (struct task_struct *p);
+	int (*task_getsid) (struct task_struct *p);
+	void (*task_getsecid) (struct task_struct *p, u32 *secid);
 	int (*task_setgroups) (struct group_info *group_info);
-	int (*task_setnice) (struct task_struct * p, int nice);
-	int (*task_setioprio) (struct task_struct * p, int ioprio);
-	int (*task_getioprio) (struct task_struct * p);
-	int (*task_setrlimit) (unsigned int resource, struct rlimit * new_rlim);
-	int (*task_setscheduler) (struct task_struct * p, int policy,
-				  struct sched_param * lp);
-	int (*task_getscheduler) (struct task_struct * p);
-	int (*task_movememory) (struct task_struct * p);
-	int (*task_kill) (struct task_struct * p,
-			  struct siginfo * info, int sig, u32 secid);
-	int (*task_wait) (struct task_struct * p);
+	int (*task_setnice) (struct task_struct *p, int nice);
+	int (*task_setioprio) (struct task_struct *p, int ioprio);
+	int (*task_getioprio) (struct task_struct *p);
+	int (*task_setrlimit) (unsigned int resource, struct rlimit *new_rlim);
+	int (*task_setscheduler) (struct task_struct *p, int policy,
+				  struct sched_param *lp);
+	int (*task_getscheduler) (struct task_struct *p);
+	int (*task_movememory) (struct task_struct *p);
+	int (*task_kill) (struct task_struct *p,
+			  struct siginfo *info, int sig, u32 secid);
+	int (*task_wait) (struct task_struct *p);
 	int (*task_prctl) (int option, unsigned long arg2,
 			   unsigned long arg3, unsigned long arg4,
-			   unsigned long arg5);
-	void (*task_reparent_to_init) (struct task_struct * p);
-	void (*task_to_inode)(struct task_struct *p, struct inode *inode);
+			   unsigned long arg5, long *rc_p);
+	void (*task_reparent_to_init) (struct task_struct *p);
+	void (*task_to_inode) (struct task_struct *p, struct inode *inode);
 
-	int (*ipc_permission) (struct kern_ipc_perm * ipcp, short flag);
+	int (*ipc_permission) (struct kern_ipc_perm *ipcp, short flag);
+	void (*ipc_getsecid) (struct kern_ipc_perm *ipcp, u32 *secid);
 
-	int (*msg_msg_alloc_security) (struct msg_msg * msg);
-	void (*msg_msg_free_security) (struct msg_msg * msg);
+	int (*msg_msg_alloc_security) (struct msg_msg *msg);
+	void (*msg_msg_free_security) (struct msg_msg *msg);
 
-	int (*msg_queue_alloc_security) (struct msg_queue * msq);
-	void (*msg_queue_free_security) (struct msg_queue * msq);
-	int (*msg_queue_associate) (struct msg_queue * msq, int msqflg);
-	int (*msg_queue_msgctl) (struct msg_queue * msq, int cmd);
-	int (*msg_queue_msgsnd) (struct msg_queue * msq,
-				 struct msg_msg * msg, int msqflg);
-	int (*msg_queue_msgrcv) (struct msg_queue * msq,
-				 struct msg_msg * msg,
-				 struct task_struct * target,
+	int (*msg_queue_alloc_security) (struct msg_queue *msq);
+	void (*msg_queue_free_security) (struct msg_queue *msq);
+	int (*msg_queue_associate) (struct msg_queue *msq, int msqflg);
+	int (*msg_queue_msgctl) (struct msg_queue *msq, int cmd);
+	int (*msg_queue_msgsnd) (struct msg_queue *msq,
+				 struct msg_msg *msg, int msqflg);
+	int (*msg_queue_msgrcv) (struct msg_queue *msq,
+				 struct msg_msg *msg,
+				 struct task_struct *target,
 				 long type, int mode);
 
-	int (*shm_alloc_security) (struct shmid_kernel * shp);
-	void (*shm_free_security) (struct shmid_kernel * shp);
-	int (*shm_associate) (struct shmid_kernel * shp, int shmflg);
-	int (*shm_shmctl) (struct shmid_kernel * shp, int cmd);
-	int (*shm_shmat) (struct shmid_kernel * shp, 
+	int (*shm_alloc_security) (struct shmid_kernel *shp);
+	void (*shm_free_security) (struct shmid_kernel *shp);
+	int (*shm_associate) (struct shmid_kernel *shp, int shmflg);
+	int (*shm_shmctl) (struct shmid_kernel *shp, int cmd);
+	int (*shm_shmat) (struct shmid_kernel *shp,
 			  char __user *shmaddr, int shmflg);
 
-	int (*sem_alloc_security) (struct sem_array * sma);
-	void (*sem_free_security) (struct sem_array * sma);
-	int (*sem_associate) (struct sem_array * sma, int semflg);
-	int (*sem_semctl) (struct sem_array * sma, int cmd);
-	int (*sem_semop) (struct sem_array * sma, 
-			  struct sembuf * sops, unsigned nsops, int alter);
+	int (*sem_alloc_security) (struct sem_array *sma);
+	void (*sem_free_security) (struct sem_array *sma);
+	int (*sem_associate) (struct sem_array *sma, int semflg);
+	int (*sem_semctl) (struct sem_array *sma, int cmd);
+	int (*sem_semop) (struct sem_array *sma,
+			  struct sembuf *sops, unsigned nsops, int alter);
 
-	int (*netlink_send) (struct sock * sk, struct sk_buff * skb);
-	int (*netlink_recv) (struct sk_buff * skb, int cap);
-
-	/* allow module stacking */
-	int (*register_security) (const char *name,
-	                          struct security_operations *ops);
-	int (*unregister_security) (const char *name,
-	                            struct security_operations *ops);
+	int (*netlink_send) (struct sock *sk, struct sk_buff *skb);
+	int (*netlink_recv) (struct sk_buff *skb, int cap);
 
 	void (*d_instantiate) (struct dentry *dentry, struct inode *inode);
 
- 	int (*getprocattr)(struct task_struct *p, char *name, char **value);
- 	int (*setprocattr)(struct task_struct *p, char *name, void *value, size_t size);
-	int (*secid_to_secctx)(u32 secid, char **secdata, u32 *seclen);
-	void (*release_secctx)(char *secdata, u32 seclen);
+	int (*getprocattr) (struct task_struct *p, char *name, char **value);
+	int (*setprocattr) (struct task_struct *p, char *name, void *value, size_t size);
+	int (*secid_to_secctx) (u32 secid, char **secdata, u32 *seclen);
+	int (*secctx_to_secid) (const char *secdata, u32 seclen, u32 *secid);
+	void (*release_secctx) (char *secdata, u32 seclen);
 
 #ifdef CONFIG_SECURITY_NETWORK
-	int (*unix_stream_connect) (struct socket * sock,
-				    struct socket * other, struct sock * newsk);
-	int (*unix_may_send) (struct socket * sock, struct socket * other);
+	int (*unix_stream_connect) (struct socket *sock,
+				    struct socket *other, struct sock *newsk);
+	int (*unix_may_send) (struct socket *sock, struct socket *other);
 
 	int (*socket_create) (int family, int type, int protocol, int kern);
-	int (*socket_post_create) (struct socket * sock, int family,
+	int (*socket_post_create) (struct socket *sock, int family,
 				   int type, int protocol, int kern);
-	int (*socket_bind) (struct socket * sock,
-			    struct sockaddr * address, int addrlen);
-	int (*socket_connect) (struct socket * sock,
-			       struct sockaddr * address, int addrlen);
-	int (*socket_listen) (struct socket * sock, int backlog);
-	int (*socket_accept) (struct socket * sock, struct socket * newsock);
-	void (*socket_post_accept) (struct socket * sock,
-				    struct socket * newsock);
-	int (*socket_sendmsg) (struct socket * sock,
-			       struct msghdr * msg, int size);
-	int (*socket_recvmsg) (struct socket * sock,
-			       struct msghdr * msg, int size, int flags);
-	int (*socket_getsockname) (struct socket * sock);
-	int (*socket_getpeername) (struct socket * sock);
-	int (*socket_getsockopt) (struct socket * sock, int level, int optname);
-	int (*socket_setsockopt) (struct socket * sock, int level, int optname);
-	int (*socket_shutdown) (struct socket * sock, int how);
-	int (*socket_sock_rcv_skb) (struct sock * sk, struct sk_buff * skb);
+	int (*socket_bind) (struct socket *sock,
+			    struct sockaddr *address, int addrlen);
+	int (*socket_connect) (struct socket *sock,
+			       struct sockaddr *address, int addrlen);
+	int (*socket_listen) (struct socket *sock, int backlog);
+	int (*socket_accept) (struct socket *sock, struct socket *newsock);
+	void (*socket_post_accept) (struct socket *sock,
+				    struct socket *newsock);
+	int (*socket_sendmsg) (struct socket *sock,
+			       struct msghdr *msg, int size);
+	int (*socket_recvmsg) (struct socket *sock,
+			       struct msghdr *msg, int size, int flags);
+	int (*socket_getsockname) (struct socket *sock);
+	int (*socket_getpeername) (struct socket *sock);
+	int (*socket_getsockopt) (struct socket *sock, int level, int optname);
+	int (*socket_setsockopt) (struct socket *sock, int level, int optname);
+	int (*socket_shutdown) (struct socket *sock, int how);
+	int (*socket_sock_rcv_skb) (struct sock *sk, struct sk_buff *skb);
 	int (*socket_getpeersec_stream) (struct socket *sock, char __user *optval, int __user *optlen, unsigned len);
 	int (*socket_getpeersec_dgram) (struct socket *sock, struct sk_buff *skb, u32 *secid);
 	int (*sk_alloc_security) (struct sock *sk, int family, gfp_t priority);
 	void (*sk_free_security) (struct sock *sk);
 	void (*sk_clone_security) (const struct sock *sk, struct sock *newsk);
 	void (*sk_getsecid) (struct sock *sk, u32 *secid);
-	void (*sock_graft)(struct sock* sk, struct socket *parent);
-	int (*inet_conn_request)(struct sock *sk, struct sk_buff *skb,
-					struct request_sock *req);
-	void (*inet_csk_clone)(struct sock *newsk, const struct request_sock *req);
-	void (*inet_conn_established)(struct sock *sk, struct sk_buff *skb);
-	void (*req_classify_flow)(const struct request_sock *req, struct flowi *fl);
+	void (*sock_graft) (struct sock *sk, struct socket *parent);
+	int (*inet_conn_request) (struct sock *sk, struct sk_buff *skb,
+				  struct request_sock *req);
+	void (*inet_csk_clone) (struct sock *newsk, const struct request_sock *req);
+	void (*inet_conn_established) (struct sock *sk, struct sk_buff *skb);
+	void (*req_classify_flow) (const struct request_sock *req, struct flowi *fl);
 #endif	/* CONFIG_SECURITY_NETWORK */
 
 #ifdef CONFIG_SECURITY_NETWORK_XFRM
-	int (*xfrm_policy_alloc_security) (struct xfrm_policy *xp,
+	int (*xfrm_policy_alloc_security) (struct xfrm_sec_ctx **ctxp,
 			struct xfrm_user_sec_ctx *sec_ctx);
-	int (*xfrm_policy_clone_security) (struct xfrm_policy *old, struct xfrm_policy *new);
-	void (*xfrm_policy_free_security) (struct xfrm_policy *xp);
-	int (*xfrm_policy_delete_security) (struct xfrm_policy *xp);
+	int (*xfrm_policy_clone_security) (struct xfrm_sec_ctx *old_ctx, struct xfrm_sec_ctx **new_ctx);
+	void (*xfrm_policy_free_security) (struct xfrm_sec_ctx *ctx);
+	int (*xfrm_policy_delete_security) (struct xfrm_sec_ctx *ctx);
 	int (*xfrm_state_alloc_security) (struct xfrm_state *x,
 		struct xfrm_user_sec_ctx *sec_ctx,
 		u32 secid);
 	void (*xfrm_state_free_security) (struct xfrm_state *x);
 	int (*xfrm_state_delete_security) (struct xfrm_state *x);
-	int (*xfrm_policy_lookup)(struct xfrm_policy *xp, u32 fl_secid, u8 dir);
-	int (*xfrm_state_pol_flow_match)(struct xfrm_state *x,
-			struct xfrm_policy *xp, struct flowi *fl);
-	int (*xfrm_decode_session)(struct sk_buff *skb, u32 *secid, int ckall);
+	int (*xfrm_policy_lookup) (struct xfrm_sec_ctx *ctx, u32 fl_secid, u8 dir);
+	int (*xfrm_state_pol_flow_match) (struct xfrm_state *x,
+					  struct xfrm_policy *xp,
+					  struct flowi *fl);
+	int (*xfrm_decode_session) (struct sk_buff *skb, u32 *secid, int ckall);
 #endif	/* CONFIG_SECURITY_NETWORK_XFRM */
 
 	/* key management security hooks */
 #ifdef CONFIG_KEYS
-	int (*key_alloc)(struct key *key, struct task_struct *tsk, unsigned long flags);
-	void (*key_free)(struct key *key);
-	int (*key_permission)(key_ref_t key_ref,
-			      struct task_struct *context,
-			      key_perm_t perm);
-
+	int (*key_alloc) (struct key *key, struct task_struct *tsk, unsigned long flags);
+	void (*key_free) (struct key *key);
+	int (*key_permission) (key_ref_t key_ref,
+			       struct task_struct *context,
+			       key_perm_t perm);
+	int (*key_getsecurity)(struct key *key, char **_buffer);
 #endif	/* CONFIG_KEYS */
 
+#ifdef CONFIG_AUDIT
+	int (*audit_rule_init) (u32 field, u32 op, char *rulestr, void **lsmrule);
+	int (*audit_rule_known) (struct audit_krule *krule);
+	int (*audit_rule_match) (u32 secid, u32 field, u32 op, void *lsmrule,
+				 struct audit_context *actx);
+	void (*audit_rule_free) (void *lsmrule);
+#endif /* CONFIG_AUDIT */
 };
 
-/* global variables */
-extern struct security_operations *security_ops;
-
-/* inline stuff */
-static inline int security_ptrace (struct task_struct * parent, struct task_struct * child)
-{
-	return security_ops->ptrace (parent, child);
-}
-
-static inline int security_capget (struct task_struct *target,
-				   kernel_cap_t *effective,
-				   kernel_cap_t *inheritable,
-				   kernel_cap_t *permitted)
-{
-	return security_ops->capget (target, effective, inheritable, permitted);
-}
-
-static inline int security_capset_check (struct task_struct *target,
-					 kernel_cap_t *effective,
-					 kernel_cap_t *inheritable,
-					 kernel_cap_t *permitted)
-{
-	return security_ops->capset_check (target, effective, inheritable, permitted);
-}
-
-static inline void security_capset_set (struct task_struct *target,
-					kernel_cap_t *effective,
-					kernel_cap_t *inheritable,
-					kernel_cap_t *permitted)
-{
-	security_ops->capset_set (target, effective, inheritable, permitted);
-}
-
-static inline int security_capable(struct task_struct *tsk, int cap)
-{
-	return security_ops->capable(tsk, cap);
-}
-
-static inline int security_acct (struct file *file)
-{
-	return security_ops->acct (file);
-}
-
-static inline int security_sysctl(struct ctl_table *table, int op)
-{
-	return security_ops->sysctl(table, op);
-}
-
-static inline int security_quotactl (int cmds, int type, int id,
-				     struct super_block *sb)
-{
-	return security_ops->quotactl (cmds, type, id, sb);
-}
-
-static inline int security_quota_on (struct dentry * dentry)
-{
-	return security_ops->quota_on (dentry);
-}
-
-static inline int security_syslog(int type)
-{
-	return security_ops->syslog(type);
-}
-
-static inline int security_settime(struct timespec *ts, struct timezone *tz)
-{
-	return security_ops->settime(ts, tz);
-}
-
-static inline int security_vm_enough_memory(long pages)
-{
-	return security_ops->vm_enough_memory(current->mm, pages);
-}
-
-static inline int security_vm_enough_memory_mm(struct mm_struct *mm, long pages)
-{
-	return security_ops->vm_enough_memory(mm, pages);
-}
-
-static inline int security_bprm_alloc (struct linux_binprm *bprm)
-{
-	return security_ops->bprm_alloc_security (bprm);
-}
-static inline void security_bprm_free (struct linux_binprm *bprm)
-{
-	security_ops->bprm_free_security (bprm);
-}
-static inline void security_bprm_apply_creds (struct linux_binprm *bprm, int unsafe)
-{
-	security_ops->bprm_apply_creds (bprm, unsafe);
-}
-static inline void security_bprm_post_apply_creds (struct linux_binprm *bprm)
-{
-	security_ops->bprm_post_apply_creds (bprm);
-}
-static inline int security_bprm_set (struct linux_binprm *bprm)
-{
-	return security_ops->bprm_set_security (bprm);
-}
-
-static inline int security_bprm_check (struct linux_binprm *bprm)
-{
-	return security_ops->bprm_check_security (bprm);
-}
-
-static inline int security_bprm_secureexec (struct linux_binprm *bprm)
-{
-	return security_ops->bprm_secureexec (bprm);
-}
-
-static inline int security_sb_alloc (struct super_block *sb)
-{
-	return security_ops->sb_alloc_security (sb);
-}
-
-static inline void security_sb_free (struct super_block *sb)
-{
-	security_ops->sb_free_security (sb);
-}
-
-static inline int security_sb_copy_data (struct file_system_type *type,
-					 void *orig, void *copy)
-{
-	return security_ops->sb_copy_data (type, orig, copy);
-}
-
-static inline int security_sb_kern_mount (struct super_block *sb, void *data)
-{
-	return security_ops->sb_kern_mount (sb, data);
-}
-
-static inline int security_sb_statfs (struct dentry *dentry)
-{
-	return security_ops->sb_statfs (dentry);
-}
-
-static inline int security_sb_mount (char *dev_name, struct nameidata *nd,
-				    char *type, unsigned long flags,
-				    void *data)
-{
-	return security_ops->sb_mount (dev_name, nd, type, flags, data);
-}
-
-static inline int security_sb_check_sb (struct vfsmount *mnt,
-					struct nameidata *nd)
-{
-	return security_ops->sb_check_sb (mnt, nd);
-}
-
-static inline int security_sb_umount (struct vfsmount *mnt, int flags)
-{
-	return security_ops->sb_umount (mnt, flags);
-}
-
-static inline void security_sb_umount_close (struct vfsmount *mnt)
-{
-	security_ops->sb_umount_close (mnt);
-}
-
-static inline void security_sb_umount_busy (struct vfsmount *mnt)
-{
-	security_ops->sb_umount_busy (mnt);
-}
-
-static inline void security_sb_post_remount (struct vfsmount *mnt,
-					     unsigned long flags, void *data)
-{
-	security_ops->sb_post_remount (mnt, flags, data);
-}
-
-static inline void security_sb_post_mountroot (void)
-{
-	security_ops->sb_post_mountroot ();
-}
-
-static inline void security_sb_post_addmount (struct vfsmount *mnt,
-					      struct nameidata *mountpoint_nd)
-{
-	security_ops->sb_post_addmount (mnt, mountpoint_nd);
-}
-
-static inline int security_sb_pivotroot (struct nameidata *old_nd,
-					 struct nameidata *new_nd)
-{
-	return security_ops->sb_pivotroot (old_nd, new_nd);
-}
-
-static inline void security_sb_post_pivotroot (struct nameidata *old_nd,
-					       struct nameidata *new_nd)
-{
-	security_ops->sb_post_pivotroot (old_nd, new_nd);
-}
-
-static inline int security_inode_alloc (struct inode *inode)
-{
-	inode->i_security = NULL;
-	return security_ops->inode_alloc_security (inode);
-}
-
-static inline void security_inode_free (struct inode *inode)
-{
-	security_ops->inode_free_security (inode);
-}
-
-static inline int security_inode_init_security (struct inode *inode,
-						struct inode *dir,
-						char **name,
-						void **value,
-						size_t *len)
-{
-	if (unlikely (IS_PRIVATE (inode)))
-		return -EOPNOTSUPP;
-	return security_ops->inode_init_security (inode, dir, name, value, len);
-}
-	
-static inline int security_inode_create (struct inode *dir,
-					 struct dentry *dentry,
-					 int mode)
-{
-	if (unlikely (IS_PRIVATE (dir)))
-		return 0;
-	return security_ops->inode_create (dir, dentry, mode);
-}
-
-static inline int security_inode_link (struct dentry *old_dentry,
-				       struct inode *dir,
-				       struct dentry *new_dentry)
-{
-	if (unlikely (IS_PRIVATE (old_dentry->d_inode)))
-		return 0;
-	return security_ops->inode_link (old_dentry, dir, new_dentry);
-}
-
-static inline int security_inode_unlink (struct inode *dir,
-					 struct dentry *dentry)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return 0;
-	return security_ops->inode_unlink (dir, dentry);
-}
-
-static inline int security_inode_symlink (struct inode *dir,
-					  struct dentry *dentry,
-					  const char *old_name)
-{
-	if (unlikely (IS_PRIVATE (dir)))
-		return 0;
-	return security_ops->inode_symlink (dir, dentry, old_name);
-}
-
-static inline int security_inode_mkdir (struct inode *dir,
-					struct dentry *dentry,
-					int mode)
-{
-	if (unlikely (IS_PRIVATE (dir)))
-		return 0;
-	return security_ops->inode_mkdir (dir, dentry, mode);
-}
-
-static inline int security_inode_rmdir (struct inode *dir,
-					struct dentry *dentry)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return 0;
-	return security_ops->inode_rmdir (dir, dentry);
-}
-
-static inline int security_inode_mknod (struct inode *dir,
-					struct dentry *dentry,
-					int mode, dev_t dev)
-{
-	if (unlikely (IS_PRIVATE (dir)))
-		return 0;
-	return security_ops->inode_mknod (dir, dentry, mode, dev);
-}
-
-static inline int security_inode_rename (struct inode *old_dir,
-					 struct dentry *old_dentry,
-					 struct inode *new_dir,
-					 struct dentry *new_dentry)
-{
-        if (unlikely (IS_PRIVATE (old_dentry->d_inode) ||
-            (new_dentry->d_inode && IS_PRIVATE (new_dentry->d_inode))))
-		return 0;
-	return security_ops->inode_rename (old_dir, old_dentry,
-					   new_dir, new_dentry);
-}
-
-static inline int security_inode_readlink (struct dentry *dentry)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return 0;
-	return security_ops->inode_readlink (dentry);
-}
-
-static inline int security_inode_follow_link (struct dentry *dentry,
-					      struct nameidata *nd)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return 0;
-	return security_ops->inode_follow_link (dentry, nd);
-}
-
-static inline int security_inode_permission (struct inode *inode, int mask,
-					     struct nameidata *nd)
-{
-	if (unlikely (IS_PRIVATE (inode)))
-		return 0;
-	return security_ops->inode_permission (inode, mask, nd);
-}
-
-static inline int security_inode_setattr (struct dentry *dentry,
-					  struct iattr *attr)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return 0;
-	return security_ops->inode_setattr (dentry, attr);
-}
-
-static inline int security_inode_getattr (struct vfsmount *mnt,
-					  struct dentry *dentry)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return 0;
-	return security_ops->inode_getattr (mnt, dentry);
-}
-
-static inline void security_inode_delete (struct inode *inode)
-{
-	if (unlikely (IS_PRIVATE (inode)))
-		return;
-	security_ops->inode_delete (inode);
-}
-
-static inline int security_inode_setxattr (struct dentry *dentry, char *name,
-					   void *value, size_t size, int flags)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return 0;
-	return security_ops->inode_setxattr (dentry, name, value, size, flags);
-}
-
-static inline void security_inode_post_setxattr (struct dentry *dentry, char *name,
-						void *value, size_t size, int flags)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return;
-	security_ops->inode_post_setxattr (dentry, name, value, size, flags);
-}
-
-static inline int security_inode_getxattr (struct dentry *dentry, char *name)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return 0;
-	return security_ops->inode_getxattr (dentry, name);
-}
-
-static inline int security_inode_listxattr (struct dentry *dentry)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return 0;
-	return security_ops->inode_listxattr (dentry);
-}
-
-static inline int security_inode_removexattr (struct dentry *dentry, char *name)
-{
-	if (unlikely (IS_PRIVATE (dentry->d_inode)))
-		return 0;
-	return security_ops->inode_removexattr (dentry, name);
-}
-
-static inline const char *security_inode_xattr_getsuffix(void)
-{
-	return security_ops->inode_xattr_getsuffix();
-}
-
-static inline int security_inode_getsecurity(const struct inode *inode, const char *name, void *buffer, size_t size, int err)
-{
-	if (unlikely (IS_PRIVATE (inode)))
-		return 0;
-	return security_ops->inode_getsecurity(inode, name, buffer, size, err);
-}
-
-static inline int security_inode_setsecurity(struct inode *inode, const char *name, const void *value, size_t size, int flags)
-{
-	if (unlikely (IS_PRIVATE (inode)))
-		return 0;
-	return security_ops->inode_setsecurity(inode, name, value, size, flags);
-}
-
-static inline int security_inode_listsecurity(struct inode *inode, char *buffer, size_t buffer_size)
-{
-	if (unlikely (IS_PRIVATE (inode)))
-		return 0;
-	return security_ops->inode_listsecurity(inode, buffer, buffer_size);
-}
-
-static inline int security_file_permission (struct file *file, int mask)
-{
-	return security_ops->file_permission (file, mask);
-}
-
-static inline int security_file_alloc (struct file *file)
-{
-	return security_ops->file_alloc_security (file);
-}
-
-static inline void security_file_free (struct file *file)
-{
-	security_ops->file_free_security (file);
-}
-
-static inline int security_file_ioctl (struct file *file, unsigned int cmd,
-				       unsigned long arg)
-{
-	return security_ops->file_ioctl (file, cmd, arg);
-}
-
-static inline int security_file_mmap (struct file *file, unsigned long reqprot,
-				      unsigned long prot,
-				      unsigned long flags,
-				      unsigned long addr,
-				      unsigned long addr_only)
-{
-	return security_ops->file_mmap (file, reqprot, prot, flags, addr,
-					addr_only);
-}
-
-static inline int security_file_mprotect (struct vm_area_struct *vma,
-					  unsigned long reqprot,
-					  unsigned long prot)
-{
-	return security_ops->file_mprotect (vma, reqprot, prot);
-}
-
-static inline int security_file_lock (struct file *file, unsigned int cmd)
-{
-	return security_ops->file_lock (file, cmd);
-}
-
-static inline int security_file_fcntl (struct file *file, unsigned int cmd,
-				       unsigned long arg)
-{
-	return security_ops->file_fcntl (file, cmd, arg);
-}
-
-static inline int security_file_set_fowner (struct file *file)
-{
-	return security_ops->file_set_fowner (file);
-}
-
-static inline int security_file_send_sigiotask (struct task_struct *tsk,
-						struct fown_struct *fown,
-						int sig)
-{
-	return security_ops->file_send_sigiotask (tsk, fown, sig);
-}
-
-static inline int security_file_receive (struct file *file)
-{
-	return security_ops->file_receive (file);
-}
-
-static inline int security_task_create (unsigned long clone_flags)
-{
-	return security_ops->task_create (clone_flags);
-}
-
-static inline int security_task_alloc (struct task_struct *p)
-{
-	return security_ops->task_alloc_security (p);
-}
-
-static inline void security_task_free (struct task_struct *p)
-{
-	security_ops->task_free_security (p);
-}
-
-static inline int security_task_setuid (uid_t id0, uid_t id1, uid_t id2,
-					int flags)
-{
-	return security_ops->task_setuid (id0, id1, id2, flags);
-}
-
-static inline int security_task_post_setuid (uid_t old_ruid, uid_t old_euid,
-					     uid_t old_suid, int flags)
-{
-	return security_ops->task_post_setuid (old_ruid, old_euid, old_suid, flags);
-}
-
-static inline int security_task_setgid (gid_t id0, gid_t id1, gid_t id2,
-					int flags)
-{
-	return security_ops->task_setgid (id0, id1, id2, flags);
-}
-
-static inline int security_task_setpgid (struct task_struct *p, pid_t pgid)
-{
-	return security_ops->task_setpgid (p, pgid);
-}
-
-static inline int security_task_getpgid (struct task_struct *p)
-{
-	return security_ops->task_getpgid (p);
-}
-
-static inline int security_task_getsid (struct task_struct *p)
-{
-	return security_ops->task_getsid (p);
-}
-
-static inline void security_task_getsecid (struct task_struct *p, u32 *secid)
-{
-	security_ops->task_getsecid (p, secid);
-}
-
-static inline int security_task_setgroups (struct group_info *group_info)
-{
-	return security_ops->task_setgroups (group_info);
-}
-
-static inline int security_task_setnice (struct task_struct *p, int nice)
-{
-	return security_ops->task_setnice (p, nice);
-}
-
-static inline int security_task_setioprio (struct task_struct *p, int ioprio)
-{
-	return security_ops->task_setioprio (p, ioprio);
-}
-
-static inline int security_task_getioprio (struct task_struct *p)
-{
-	return security_ops->task_getioprio (p);
-}
-
-static inline int security_task_setrlimit (unsigned int resource,
-					   struct rlimit *new_rlim)
-{
-	return security_ops->task_setrlimit (resource, new_rlim);
-}
-
-static inline int security_task_setscheduler (struct task_struct *p,
-					      int policy,
-					      struct sched_param *lp)
-{
-	return security_ops->task_setscheduler (p, policy, lp);
-}
-
-static inline int security_task_getscheduler (struct task_struct *p)
-{
-	return security_ops->task_getscheduler (p);
-}
-
-static inline int security_task_movememory (struct task_struct *p)
-{
-	return security_ops->task_movememory (p);
-}
-
-static inline int security_task_kill (struct task_struct *p,
-				      struct siginfo *info, int sig,
-				      u32 secid)
-{
-	return security_ops->task_kill (p, info, sig, secid);
-}
-
-static inline int security_task_wait (struct task_struct *p)
-{
-	return security_ops->task_wait (p);
-}
-
-static inline int security_task_prctl (int option, unsigned long arg2,
-				       unsigned long arg3,
-				       unsigned long arg4,
-				       unsigned long arg5)
-{
-	return security_ops->task_prctl (option, arg2, arg3, arg4, arg5);
-}
-
-static inline void security_task_reparent_to_init (struct task_struct *p)
-{
-	security_ops->task_reparent_to_init (p);
-}
-
-static inline void security_task_to_inode(struct task_struct *p, struct inode *inode)
-{
-	security_ops->task_to_inode(p, inode);
-}
-
-static inline int security_ipc_permission (struct kern_ipc_perm *ipcp,
-					   short flag)
-{
-	return security_ops->ipc_permission (ipcp, flag);
-}
-
-static inline int security_msg_msg_alloc (struct msg_msg * msg)
-{
-	return security_ops->msg_msg_alloc_security (msg);
-}
-
-static inline void security_msg_msg_free (struct msg_msg * msg)
-{
-	security_ops->msg_msg_free_security(msg);
-}
-
-static inline int security_msg_queue_alloc (struct msg_queue *msq)
-{
-	return security_ops->msg_queue_alloc_security (msq);
-}
-
-static inline void security_msg_queue_free (struct msg_queue *msq)
-{
-	security_ops->msg_queue_free_security (msq);
-}
-
-static inline int security_msg_queue_associate (struct msg_queue * msq, 
-						int msqflg)
-{
-	return security_ops->msg_queue_associate (msq, msqflg);
-}
-
-static inline int security_msg_queue_msgctl (struct msg_queue * msq, int cmd)
-{
-	return security_ops->msg_queue_msgctl (msq, cmd);
-}
-
-static inline int security_msg_queue_msgsnd (struct msg_queue * msq,
-					     struct msg_msg * msg, int msqflg)
-{
-	return security_ops->msg_queue_msgsnd (msq, msg, msqflg);
-}
-
-static inline int security_msg_queue_msgrcv (struct msg_queue * msq,
-					     struct msg_msg * msg,
-					     struct task_struct * target,
-					     long type, int mode)
-{
-	return security_ops->msg_queue_msgrcv (msq, msg, target, type, mode);
-}
-
-static inline int security_shm_alloc (struct shmid_kernel *shp)
-{
-	return security_ops->shm_alloc_security (shp);
-}
-
-static inline void security_shm_free (struct shmid_kernel *shp)
-{
-	security_ops->shm_free_security (shp);
-}
-
-static inline int security_shm_associate (struct shmid_kernel * shp, 
-					  int shmflg)
-{
-	return security_ops->shm_associate(shp, shmflg);
-}
-
-static inline int security_shm_shmctl (struct shmid_kernel * shp, int cmd)
-{
-	return security_ops->shm_shmctl (shp, cmd);
-}
-
-static inline int security_shm_shmat (struct shmid_kernel * shp, 
-				      char __user *shmaddr, int shmflg)
-{
-	return security_ops->shm_shmat(shp, shmaddr, shmflg);
-}
-
-static inline int security_sem_alloc (struct sem_array *sma)
-{
-	return security_ops->sem_alloc_security (sma);
-}
-
-static inline void security_sem_free (struct sem_array *sma)
-{
-	security_ops->sem_free_security (sma);
-}
-
-static inline int security_sem_associate (struct sem_array * sma, int semflg)
-{
-	return security_ops->sem_associate (sma, semflg);
-}
-
-static inline int security_sem_semctl (struct sem_array * sma, int cmd)
-{
-	return security_ops->sem_semctl(sma, cmd);
-}
-
-static inline int security_sem_semop (struct sem_array * sma, 
-				      struct sembuf * sops, unsigned nsops, 
-				      int alter)
-{
-	return security_ops->sem_semop(sma, sops, nsops, alter);
-}
-
-static inline void security_d_instantiate (struct dentry *dentry, struct inode *inode)
-{
-	if (unlikely (inode && IS_PRIVATE (inode)))
-		return;
-	security_ops->d_instantiate (dentry, inode);
-}
-
-static inline int security_getprocattr(struct task_struct *p, char *name, char **value)
-{
-	return security_ops->getprocattr(p, name, value);
-}
-
-static inline int security_setprocattr(struct task_struct *p, char *name, void *value, size_t size)
-{
-	return security_ops->setprocattr(p, name, value, size);
-}
-
-static inline int security_netlink_send(struct sock *sk, struct sk_buff * skb)
-{
-	return security_ops->netlink_send(sk, skb);
-}
-
-static inline int security_netlink_recv(struct sk_buff * skb, int cap)
-{
-	return security_ops->netlink_recv(skb, cap);
-}
-
-static inline int security_secid_to_secctx(u32 secid, char **secdata, u32 *seclen)
-{
-	return security_ops->secid_to_secctx(secid, secdata, seclen);
-}
-
-static inline void security_release_secctx(char *secdata, u32 seclen)
-{
-	return security_ops->release_secctx(secdata, seclen);
-}
-
 /* prototypes */
-extern int security_init	(void);
-extern int register_security	(struct security_operations *ops);
-extern int unregister_security	(struct security_operations *ops);
-extern int mod_reg_security	(const char *name, struct security_operations *ops);
-extern int mod_unreg_security	(const char *name, struct security_operations *ops);
+extern int security_init(void);
+extern int security_module_enable(struct security_operations *ops);
+extern int register_security(struct security_operations *ops);
 extern struct dentry *securityfs_create_file(const char *name, mode_t mode,
 					     struct dentry *parent, void *data,
 					     const struct file_operations *fops);
 extern struct dentry *securityfs_create_dir(const char *name, struct dentry *parent);
 extern void securityfs_remove(struct dentry *dentry);
 
+/* Security operations */
+int security_ptrace(struct task_struct *parent, struct task_struct *child,
+		    unsigned int mode);
+int security_capget(struct task_struct *target,
+		    kernel_cap_t *effective,
+		    kernel_cap_t *inheritable,
+		    kernel_cap_t *permitted);
+int security_capset_check(struct task_struct *target,
+			  kernel_cap_t *effective,
+			  kernel_cap_t *inheritable,
+			  kernel_cap_t *permitted);
+void security_capset_set(struct task_struct *target,
+			 kernel_cap_t *effective,
+			 kernel_cap_t *inheritable,
+			 kernel_cap_t *permitted);
+int security_capable(struct task_struct *tsk, int cap);
+int security_acct(struct file *file);
+int security_sysctl(struct ctl_table *table, int op);
+int security_quotactl(int cmds, int type, int id, struct super_block *sb);
+int security_quota_on(struct dentry *dentry);
+int security_syslog(int type);
+int security_settime(struct timespec *ts, struct timezone *tz);
+int security_vm_enough_memory(long pages);
+int security_vm_enough_memory_mm(struct mm_struct *mm, long pages);
+int security_bprm_alloc(struct linux_binprm *bprm);
+void security_bprm_free(struct linux_binprm *bprm);
+void security_bprm_apply_creds(struct linux_binprm *bprm, int unsafe);
+void security_bprm_post_apply_creds(struct linux_binprm *bprm);
+int security_bprm_set(struct linux_binprm *bprm);
+int security_bprm_check(struct linux_binprm *bprm);
+int security_bprm_secureexec(struct linux_binprm *bprm);
+int security_sb_alloc(struct super_block *sb);
+void security_sb_free(struct super_block *sb);
+int security_sb_copy_data(char *orig, char *copy);
+int security_sb_kern_mount(struct super_block *sb, void *data);
+int security_sb_show_options(struct seq_file *m, struct super_block *sb);
+int security_sb_statfs(struct dentry *dentry);
+int security_sb_mount(char *dev_name, struct path *path,
+		      char *type, unsigned long flags, void *data);
+int security_sb_check_sb(struct vfsmount *mnt, struct path *path);
+int security_sb_umount(struct vfsmount *mnt, int flags);
+void security_sb_umount_close(struct vfsmount *mnt);
+void security_sb_umount_busy(struct vfsmount *mnt);
+void security_sb_post_remount(struct vfsmount *mnt, unsigned long flags, void *data);
+void security_sb_post_addmount(struct vfsmount *mnt, struct path *mountpoint);
+int security_sb_pivotroot(struct path *old_path, struct path *new_path);
+void security_sb_post_pivotroot(struct path *old_path, struct path *new_path);
+int security_sb_set_mnt_opts(struct super_block *sb, struct security_mnt_opts *opts);
+void security_sb_clone_mnt_opts(const struct super_block *oldsb,
+				struct super_block *newsb);
+int security_sb_parse_opts_str(char *options, struct security_mnt_opts *opts);
+
+int security_inode_alloc(struct inode *inode);
+void security_inode_free(struct inode *inode);
+int security_inode_init_security(struct inode *inode, struct inode *dir,
+				  char **name, void **value, size_t *len);
+int security_inode_create(struct inode *dir, struct dentry *dentry, int mode);
+int security_inode_link(struct dentry *old_dentry, struct inode *dir,
+			 struct dentry *new_dentry);
+int security_inode_unlink(struct inode *dir, struct dentry *dentry);
+int security_inode_symlink(struct inode *dir, struct dentry *dentry,
+			   const char *old_name);
+int security_inode_mkdir(struct inode *dir, struct dentry *dentry, int mode);
+int security_inode_rmdir(struct inode *dir, struct dentry *dentry);
+int security_inode_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t dev);
+int security_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
+			  struct inode *new_dir, struct dentry *new_dentry);
+int security_inode_readlink(struct dentry *dentry);
+int security_inode_follow_link(struct dentry *dentry, struct nameidata *nd);
+int security_inode_permission(struct inode *inode, int mask);
+int security_inode_setattr(struct dentry *dentry, struct iattr *attr);
+int security_inode_getattr(struct vfsmount *mnt, struct dentry *dentry);
+void security_inode_delete(struct inode *inode);
+int security_inode_setxattr(struct dentry *dentry, const char *name,
+			    const void *value, size_t size, int flags);
+void security_inode_post_setxattr(struct dentry *dentry, const char *name,
+				  const void *value, size_t size, int flags);
+int security_inode_getxattr(struct dentry *dentry, const char *name);
+int security_inode_listxattr(struct dentry *dentry);
+int security_inode_removexattr(struct dentry *dentry, const char *name);
+int security_inode_need_killpriv(struct dentry *dentry);
+int security_inode_killpriv(struct dentry *dentry);
+int security_inode_getsecurity(const struct inode *inode, const char *name, void **buffer, bool alloc);
+int security_inode_setsecurity(struct inode *inode, const char *name, const void *value, size_t size, int flags);
+int security_inode_listsecurity(struct inode *inode, char *buffer, size_t buffer_size);
+void security_inode_getsecid(const struct inode *inode, u32 *secid);
+int security_file_permission(struct file *file, int mask);
+int security_file_alloc(struct file *file);
+void security_file_free(struct file *file);
+int security_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+int security_file_mmap(struct file *file, unsigned long reqprot,
+			unsigned long prot, unsigned long flags,
+			unsigned long addr, unsigned long addr_only);
+int security_file_mprotect(struct vm_area_struct *vma, unsigned long reqprot,
+			   unsigned long prot);
+int security_file_lock(struct file *file, unsigned int cmd);
+int security_file_fcntl(struct file *file, unsigned int cmd, unsigned long arg);
+int security_file_set_fowner(struct file *file);
+int security_file_send_sigiotask(struct task_struct *tsk,
+				 struct fown_struct *fown, int sig);
+int security_file_receive(struct file *file);
+int security_dentry_open(struct file *file);
+int security_task_create(unsigned long clone_flags);
+int security_task_alloc(struct task_struct *p);
+void security_task_free(struct task_struct *p);
+int security_task_setuid(uid_t id0, uid_t id1, uid_t id2, int flags);
+int security_task_post_setuid(uid_t old_ruid, uid_t old_euid,
+			      uid_t old_suid, int flags);
+int security_task_setgid(gid_t id0, gid_t id1, gid_t id2, int flags);
+int security_task_setpgid(struct task_struct *p, pid_t pgid);
+int security_task_getpgid(struct task_struct *p);
+int security_task_getsid(struct task_struct *p);
+void security_task_getsecid(struct task_struct *p, u32 *secid);
+int security_task_setgroups(struct group_info *group_info);
+int security_task_setnice(struct task_struct *p, int nice);
+int security_task_setioprio(struct task_struct *p, int ioprio);
+int security_task_getioprio(struct task_struct *p);
+int security_task_setrlimit(unsigned int resource, struct rlimit *new_rlim);
+int security_task_setscheduler(struct task_struct *p,
+				int policy, struct sched_param *lp);
+int security_task_getscheduler(struct task_struct *p);
+int security_task_movememory(struct task_struct *p);
+int security_task_kill(struct task_struct *p, struct siginfo *info,
+			int sig, u32 secid);
+int security_task_wait(struct task_struct *p);
+int security_task_prctl(int option, unsigned long arg2, unsigned long arg3,
+			 unsigned long arg4, unsigned long arg5, long *rc_p);
+void security_task_reparent_to_init(struct task_struct *p);
+void security_task_to_inode(struct task_struct *p, struct inode *inode);
+int security_ipc_permission(struct kern_ipc_perm *ipcp, short flag);
+void security_ipc_getsecid(struct kern_ipc_perm *ipcp, u32 *secid);
+int security_msg_msg_alloc(struct msg_msg *msg);
+void security_msg_msg_free(struct msg_msg *msg);
+int security_msg_queue_alloc(struct msg_queue *msq);
+void security_msg_queue_free(struct msg_queue *msq);
+int security_msg_queue_associate(struct msg_queue *msq, int msqflg);
+int security_msg_queue_msgctl(struct msg_queue *msq, int cmd);
+int security_msg_queue_msgsnd(struct msg_queue *msq,
+			      struct msg_msg *msg, int msqflg);
+int security_msg_queue_msgrcv(struct msg_queue *msq, struct msg_msg *msg,
+			      struct task_struct *target, long type, int mode);
+int security_shm_alloc(struct shmid_kernel *shp);
+void security_shm_free(struct shmid_kernel *shp);
+int security_shm_associate(struct shmid_kernel *shp, int shmflg);
+int security_shm_shmctl(struct shmid_kernel *shp, int cmd);
+int security_shm_shmat(struct shmid_kernel *shp, char __user *shmaddr, int shmflg);
+int security_sem_alloc(struct sem_array *sma);
+void security_sem_free(struct sem_array *sma);
+int security_sem_associate(struct sem_array *sma, int semflg);
+int security_sem_semctl(struct sem_array *sma, int cmd);
+int security_sem_semop(struct sem_array *sma, struct sembuf *sops,
+			unsigned nsops, int alter);
+void security_d_instantiate(struct dentry *dentry, struct inode *inode);
+int security_getprocattr(struct task_struct *p, char *name, char **value);
+int security_setprocattr(struct task_struct *p, char *name, void *value, size_t size);
+int security_netlink_send(struct sock *sk, struct sk_buff *skb);
+int security_netlink_recv(struct sk_buff *skb, int cap);
+int security_secid_to_secctx(u32 secid, char **secdata, u32 *seclen);
+int security_secctx_to_secid(const char *secdata, u32 seclen, u32 *secid);
+void security_release_secctx(char *secdata, u32 seclen);
 
 #else /* CONFIG_SECURITY */
+struct security_mnt_opts {
+};
+
+static inline void security_init_mnt_opts(struct security_mnt_opts *opts)
+{
+}
+
+static inline void security_free_mnt_opts(struct security_mnt_opts *opts)
+{
+}
 
 /*
  * This is the default capabilities functionality.  Most of these functions
@@ -2157,33 +1742,35 @@ static inline int security_init(void)
 	return 0;
 }
 
-static inline int security_ptrace (struct task_struct *parent, struct task_struct * child)
+static inline int security_ptrace(struct task_struct *parent,
+				  struct task_struct *child,
+				  unsigned int mode)
 {
-	return cap_ptrace (parent, child);
+	return cap_ptrace(parent, child, mode);
 }
 
-static inline int security_capget (struct task_struct *target,
+static inline int security_capget(struct task_struct *target,
 				   kernel_cap_t *effective,
 				   kernel_cap_t *inheritable,
 				   kernel_cap_t *permitted)
 {
-	return cap_capget (target, effective, inheritable, permitted);
+	return cap_capget(target, effective, inheritable, permitted);
 }
 
-static inline int security_capset_check (struct task_struct *target,
+static inline int security_capset_check(struct task_struct *target,
 					 kernel_cap_t *effective,
 					 kernel_cap_t *inheritable,
 					 kernel_cap_t *permitted)
 {
-	return cap_capset_check (target, effective, inheritable, permitted);
+	return cap_capset_check(target, effective, inheritable, permitted);
 }
 
-static inline void security_capset_set (struct task_struct *target,
+static inline void security_capset_set(struct task_struct *target,
 					kernel_cap_t *effective,
 					kernel_cap_t *inheritable,
 					kernel_cap_t *permitted)
 {
-	cap_capset_set (target, effective, inheritable, permitted);
+	cap_capset_set(target, effective, inheritable, permitted);
 }
 
 static inline int security_capable(struct task_struct *tsk, int cap)
@@ -2191,7 +1778,7 @@ static inline int security_capable(struct task_struct *tsk, int cap)
 	return cap_capable(tsk, cap);
 }
 
-static inline int security_acct (struct file *file)
+static inline int security_acct(struct file *file)
 {
 	return 0;
 }
@@ -2201,13 +1788,13 @@ static inline int security_sysctl(struct ctl_table *table, int op)
 	return 0;
 }
 
-static inline int security_quotactl (int cmds, int type, int id,
-				     struct super_block * sb)
+static inline int security_quotactl(int cmds, int type, int id,
+				     struct super_block *sb)
 {
 	return 0;
 }
 
-static inline int security_quota_on (struct dentry * dentry)
+static inline int security_quota_on(struct dentry *dentry)
 {
 	return 0;
 }
@@ -2232,117 +1819,134 @@ static inline int security_vm_enough_memory_mm(struct mm_struct *mm, long pages)
 	return cap_vm_enough_memory(mm, pages);
 }
 
-static inline int security_bprm_alloc (struct linux_binprm *bprm)
+static inline int security_bprm_alloc(struct linux_binprm *bprm)
 {
 	return 0;
 }
 
-static inline void security_bprm_free (struct linux_binprm *bprm)
+static inline void security_bprm_free(struct linux_binprm *bprm)
 { }
 
-static inline void security_bprm_apply_creds (struct linux_binprm *bprm, int unsafe)
-{ 
-	cap_bprm_apply_creds (bprm, unsafe);
+static inline void security_bprm_apply_creds(struct linux_binprm *bprm, int unsafe)
+{
+	cap_bprm_apply_creds(bprm, unsafe);
 }
 
-static inline void security_bprm_post_apply_creds (struct linux_binprm *bprm)
+static inline void security_bprm_post_apply_creds(struct linux_binprm *bprm)
 {
 	return;
 }
 
-static inline int security_bprm_set (struct linux_binprm *bprm)
+static inline int security_bprm_set(struct linux_binprm *bprm)
 {
-	return cap_bprm_set_security (bprm);
+	return cap_bprm_set_security(bprm);
 }
 
-static inline int security_bprm_check (struct linux_binprm *bprm)
+static inline int security_bprm_check(struct linux_binprm *bprm)
 {
 	return 0;
 }
 
-static inline int security_bprm_secureexec (struct linux_binprm *bprm)
+static inline int security_bprm_secureexec(struct linux_binprm *bprm)
 {
 	return cap_bprm_secureexec(bprm);
 }
 
-static inline int security_sb_alloc (struct super_block *sb)
+static inline int security_sb_alloc(struct super_block *sb)
 {
 	return 0;
 }
 
-static inline void security_sb_free (struct super_block *sb)
+static inline void security_sb_free(struct super_block *sb)
 { }
 
-static inline int security_sb_copy_data (struct file_system_type *type,
-					 void *orig, void *copy)
+static inline int security_sb_copy_data(char *orig, char *copy)
 {
 	return 0;
 }
 
-static inline int security_sb_kern_mount (struct super_block *sb, void *data)
+static inline int security_sb_kern_mount(struct super_block *sb, void *data)
 {
 	return 0;
 }
 
-static inline int security_sb_statfs (struct dentry *dentry)
+static inline int security_sb_show_options(struct seq_file *m,
+					   struct super_block *sb)
 {
 	return 0;
 }
 
-static inline int security_sb_mount (char *dev_name, struct nameidata *nd,
+static inline int security_sb_statfs(struct dentry *dentry)
+{
+	return 0;
+}
+
+static inline int security_sb_mount(char *dev_name, struct path *path,
 				    char *type, unsigned long flags,
 				    void *data)
 {
 	return 0;
 }
 
-static inline int security_sb_check_sb (struct vfsmount *mnt,
-					struct nameidata *nd)
+static inline int security_sb_check_sb(struct vfsmount *mnt,
+				       struct path *path)
 {
 	return 0;
 }
 
-static inline int security_sb_umount (struct vfsmount *mnt, int flags)
+static inline int security_sb_umount(struct vfsmount *mnt, int flags)
 {
 	return 0;
 }
 
-static inline void security_sb_umount_close (struct vfsmount *mnt)
+static inline void security_sb_umount_close(struct vfsmount *mnt)
 { }
 
-static inline void security_sb_umount_busy (struct vfsmount *mnt)
+static inline void security_sb_umount_busy(struct vfsmount *mnt)
 { }
 
-static inline void security_sb_post_remount (struct vfsmount *mnt,
+static inline void security_sb_post_remount(struct vfsmount *mnt,
 					     unsigned long flags, void *data)
 { }
 
-static inline void security_sb_post_mountroot (void)
+static inline void security_sb_post_addmount(struct vfsmount *mnt,
+					     struct path *mountpoint)
 { }
 
-static inline void security_sb_post_addmount (struct vfsmount *mnt,
-					      struct nameidata *mountpoint_nd)
-{ }
-
-static inline int security_sb_pivotroot (struct nameidata *old_nd,
-					 struct nameidata *new_nd)
+static inline int security_sb_pivotroot(struct path *old_path,
+					struct path *new_path)
 {
 	return 0;
 }
 
-static inline void security_sb_post_pivotroot (struct nameidata *old_nd,
-					       struct nameidata *new_nd)
+static inline void security_sb_post_pivotroot(struct path *old_path,
+					      struct path *new_path)
 { }
 
-static inline int security_inode_alloc (struct inode *inode)
+static inline int security_sb_set_mnt_opts(struct super_block *sb,
+					   struct security_mnt_opts *opts)
 {
 	return 0;
 }
 
-static inline void security_inode_free (struct inode *inode)
+static inline void security_sb_clone_mnt_opts(const struct super_block *oldsb,
+					      struct super_block *newsb)
 { }
 
-static inline int security_inode_init_security (struct inode *inode,
+static inline int security_sb_parse_opts_str(char *options, struct security_mnt_opts *opts)
+{
+	return 0;
+}
+
+static inline int security_inode_alloc(struct inode *inode)
+{
+	return 0;
+}
+
+static inline void security_inode_free(struct inode *inode)
+{ }
+
+static inline int security_inode_init_security(struct inode *inode,
 						struct inode *dir,
 						char **name,
 						void **value,
@@ -2350,55 +1954,55 @@ static inline int security_inode_init_security (struct inode *inode,
 {
 	return -EOPNOTSUPP;
 }
-	
-static inline int security_inode_create (struct inode *dir,
+
+static inline int security_inode_create(struct inode *dir,
 					 struct dentry *dentry,
 					 int mode)
 {
 	return 0;
 }
 
-static inline int security_inode_link (struct dentry *old_dentry,
+static inline int security_inode_link(struct dentry *old_dentry,
 				       struct inode *dir,
 				       struct dentry *new_dentry)
 {
 	return 0;
 }
 
-static inline int security_inode_unlink (struct inode *dir,
+static inline int security_inode_unlink(struct inode *dir,
 					 struct dentry *dentry)
 {
 	return 0;
 }
 
-static inline int security_inode_symlink (struct inode *dir,
+static inline int security_inode_symlink(struct inode *dir,
 					  struct dentry *dentry,
 					  const char *old_name)
 {
 	return 0;
 }
 
-static inline int security_inode_mkdir (struct inode *dir,
+static inline int security_inode_mkdir(struct inode *dir,
 					struct dentry *dentry,
 					int mode)
 {
 	return 0;
 }
 
-static inline int security_inode_rmdir (struct inode *dir,
+static inline int security_inode_rmdir(struct inode *dir,
 					struct dentry *dentry)
 {
 	return 0;
 }
 
-static inline int security_inode_mknod (struct inode *dir,
+static inline int security_inode_mknod(struct inode *dir,
 					struct dentry *dentry,
 					int mode, dev_t dev)
 {
 	return 0;
 }
 
-static inline int security_inode_rename (struct inode *old_dir,
+static inline int security_inode_rename(struct inode *old_dir,
 					 struct dentry *old_dentry,
 					 struct inode *new_dir,
 					 struct dentry *new_dentry)
@@ -2406,69 +2010,75 @@ static inline int security_inode_rename (struct inode *old_dir,
 	return 0;
 }
 
-static inline int security_inode_readlink (struct dentry *dentry)
+static inline int security_inode_readlink(struct dentry *dentry)
 {
 	return 0;
 }
 
-static inline int security_inode_follow_link (struct dentry *dentry,
+static inline int security_inode_follow_link(struct dentry *dentry,
 					      struct nameidata *nd)
 {
 	return 0;
 }
 
-static inline int security_inode_permission (struct inode *inode, int mask,
-					     struct nameidata *nd)
+static inline int security_inode_permission(struct inode *inode, int mask)
 {
 	return 0;
 }
 
-static inline int security_inode_setattr (struct dentry *dentry,
+static inline int security_inode_setattr(struct dentry *dentry,
 					  struct iattr *attr)
 {
 	return 0;
 }
 
-static inline int security_inode_getattr (struct vfsmount *mnt,
+static inline int security_inode_getattr(struct vfsmount *mnt,
 					  struct dentry *dentry)
 {
 	return 0;
 }
 
-static inline void security_inode_delete (struct inode *inode)
+static inline void security_inode_delete(struct inode *inode)
 { }
 
-static inline int security_inode_setxattr (struct dentry *dentry, char *name,
-					   void *value, size_t size, int flags)
+static inline int security_inode_setxattr(struct dentry *dentry,
+		const char *name, const void *value, size_t size, int flags)
 {
 	return cap_inode_setxattr(dentry, name, value, size, flags);
 }
 
-static inline void security_inode_post_setxattr (struct dentry *dentry, char *name,
-						 void *value, size_t size, int flags)
+static inline void security_inode_post_setxattr(struct dentry *dentry,
+		const char *name, const void *value, size_t size, int flags)
 { }
 
-static inline int security_inode_getxattr (struct dentry *dentry, char *name)
+static inline int security_inode_getxattr(struct dentry *dentry,
+			const char *name)
 {
 	return 0;
 }
 
-static inline int security_inode_listxattr (struct dentry *dentry)
+static inline int security_inode_listxattr(struct dentry *dentry)
 {
 	return 0;
 }
 
-static inline int security_inode_removexattr (struct dentry *dentry, char *name)
+static inline int security_inode_removexattr(struct dentry *dentry,
+			const char *name)
 {
 	return cap_inode_removexattr(dentry, name);
 }
 
-static inline const char *security_inode_xattr_getsuffix (void)
+static inline int security_inode_need_killpriv(struct dentry *dentry)
 {
-	return NULL ;
+	return cap_inode_need_killpriv(dentry);
 }
 
-static inline int security_inode_getsecurity(const struct inode *inode, const char *name, void *buffer, size_t size, int err)
+static inline int security_inode_killpriv(struct dentry *dentry)
+{
+	return cap_inode_killpriv(dentry);
+}
+
+static inline int security_inode_getsecurity(const struct inode *inode, const char *name, void **buffer, bool alloc)
 {
 	return -EOPNOTSUPP;
 }
@@ -2483,287 +2093,304 @@ static inline int security_inode_listsecurity(struct inode *inode, char *buffer,
 	return 0;
 }
 
-static inline int security_file_permission (struct file *file, int mask)
+static inline void security_inode_getsecid(const struct inode *inode, u32 *secid)
+{
+	*secid = 0;
+}
+
+static inline int security_file_permission(struct file *file, int mask)
 {
 	return 0;
 }
 
-static inline int security_file_alloc (struct file *file)
+static inline int security_file_alloc(struct file *file)
 {
 	return 0;
 }
 
-static inline void security_file_free (struct file *file)
+static inline void security_file_free(struct file *file)
 { }
 
-static inline int security_file_ioctl (struct file *file, unsigned int cmd,
-				       unsigned long arg)
+static inline int security_file_ioctl(struct file *file, unsigned int cmd,
+				      unsigned long arg)
 {
 	return 0;
 }
 
-static inline int security_file_mmap (struct file *file, unsigned long reqprot,
-				      unsigned long prot,
-				      unsigned long flags,
-				      unsigned long addr,
-				      unsigned long addr_only)
+static inline int security_file_mmap(struct file *file, unsigned long reqprot,
+				     unsigned long prot,
+				     unsigned long flags,
+				     unsigned long addr,
+				     unsigned long addr_only)
 {
 	return 0;
 }
 
-static inline int security_file_mprotect (struct vm_area_struct *vma,
-					  unsigned long reqprot,
-					  unsigned long prot)
+static inline int security_file_mprotect(struct vm_area_struct *vma,
+					 unsigned long reqprot,
+					 unsigned long prot)
 {
 	return 0;
 }
 
-static inline int security_file_lock (struct file *file, unsigned int cmd)
+static inline int security_file_lock(struct file *file, unsigned int cmd)
 {
 	return 0;
 }
 
-static inline int security_file_fcntl (struct file *file, unsigned int cmd,
-				       unsigned long arg)
+static inline int security_file_fcntl(struct file *file, unsigned int cmd,
+				      unsigned long arg)
 {
 	return 0;
 }
 
-static inline int security_file_set_fowner (struct file *file)
+static inline int security_file_set_fowner(struct file *file)
 {
 	return 0;
 }
 
-static inline int security_file_send_sigiotask (struct task_struct *tsk,
-						struct fown_struct *fown,
-						int sig)
+static inline int security_file_send_sigiotask(struct task_struct *tsk,
+					       struct fown_struct *fown,
+					       int sig)
 {
 	return 0;
 }
 
-static inline int security_file_receive (struct file *file)
+static inline int security_file_receive(struct file *file)
 {
 	return 0;
 }
 
-static inline int security_task_create (unsigned long clone_flags)
+static inline int security_dentry_open(struct file *file)
 {
 	return 0;
 }
 
-static inline int security_task_alloc (struct task_struct *p)
+static inline int security_task_create(unsigned long clone_flags)
 {
 	return 0;
 }
 
-static inline void security_task_free (struct task_struct *p)
+static inline int security_task_alloc(struct task_struct *p)
+{
+	return 0;
+}
+
+static inline void security_task_free(struct task_struct *p)
 { }
 
-static inline int security_task_setuid (uid_t id0, uid_t id1, uid_t id2,
-					int flags)
+static inline int security_task_setuid(uid_t id0, uid_t id1, uid_t id2,
+				       int flags)
 {
 	return 0;
 }
 
-static inline int security_task_post_setuid (uid_t old_ruid, uid_t old_euid,
-					     uid_t old_suid, int flags)
+static inline int security_task_post_setuid(uid_t old_ruid, uid_t old_euid,
+					    uid_t old_suid, int flags)
 {
-	return cap_task_post_setuid (old_ruid, old_euid, old_suid, flags);
+	return cap_task_post_setuid(old_ruid, old_euid, old_suid, flags);
 }
 
-static inline int security_task_setgid (gid_t id0, gid_t id1, gid_t id2,
-					int flags)
+static inline int security_task_setgid(gid_t id0, gid_t id1, gid_t id2,
+				       int flags)
 {
 	return 0;
 }
 
-static inline int security_task_setpgid (struct task_struct *p, pid_t pgid)
+static inline int security_task_setpgid(struct task_struct *p, pid_t pgid)
 {
 	return 0;
 }
 
-static inline int security_task_getpgid (struct task_struct *p)
+static inline int security_task_getpgid(struct task_struct *p)
 {
 	return 0;
 }
 
-static inline int security_task_getsid (struct task_struct *p)
+static inline int security_task_getsid(struct task_struct *p)
 {
 	return 0;
 }
 
-static inline void security_task_getsecid (struct task_struct *p, u32 *secid)
-{ }
+static inline void security_task_getsecid(struct task_struct *p, u32 *secid)
+{
+	*secid = 0;
+}
 
-static inline int security_task_setgroups (struct group_info *group_info)
+static inline int security_task_setgroups(struct group_info *group_info)
 {
 	return 0;
 }
 
-static inline int security_task_setnice (struct task_struct *p, int nice)
+static inline int security_task_setnice(struct task_struct *p, int nice)
+{
+	return cap_task_setnice(p, nice);
+}
+
+static inline int security_task_setioprio(struct task_struct *p, int ioprio)
+{
+	return cap_task_setioprio(p, ioprio);
+}
+
+static inline int security_task_getioprio(struct task_struct *p)
 {
 	return 0;
 }
 
-static inline int security_task_setioprio (struct task_struct *p, int ioprio)
+static inline int security_task_setrlimit(unsigned int resource,
+					  struct rlimit *new_rlim)
 {
 	return 0;
 }
 
-static inline int security_task_getioprio (struct task_struct *p)
+static inline int security_task_setscheduler(struct task_struct *p,
+					     int policy,
+					     struct sched_param *lp)
+{
+	return cap_task_setscheduler(p, policy, lp);
+}
+
+static inline int security_task_getscheduler(struct task_struct *p)
 {
 	return 0;
 }
 
-static inline int security_task_setrlimit (unsigned int resource,
-					   struct rlimit *new_rlim)
+static inline int security_task_movememory(struct task_struct *p)
 {
 	return 0;
 }
 
-static inline int security_task_setscheduler (struct task_struct *p,
-					      int policy,
-					      struct sched_param *lp)
+static inline int security_task_kill(struct task_struct *p,
+				     struct siginfo *info, int sig,
+				     u32 secid)
 {
 	return 0;
 }
 
-static inline int security_task_getscheduler (struct task_struct *p)
+static inline int security_task_wait(struct task_struct *p)
 {
 	return 0;
 }
 
-static inline int security_task_movememory (struct task_struct *p)
+static inline int security_task_prctl(int option, unsigned long arg2,
+				      unsigned long arg3,
+				      unsigned long arg4,
+				      unsigned long arg5, long *rc_p)
 {
-	return 0;
+	return cap_task_prctl(option, arg2, arg3, arg3, arg5, rc_p);
 }
 
-static inline int security_task_kill (struct task_struct *p,
-				      struct siginfo *info, int sig,
-				      u32 secid)
+static inline void security_task_reparent_to_init(struct task_struct *p)
 {
-	return 0;
-}
-
-static inline int security_task_wait (struct task_struct *p)
-{
-	return 0;
-}
-
-static inline int security_task_prctl (int option, unsigned long arg2,
-				       unsigned long arg3,
-				       unsigned long arg4,
-				       unsigned long arg5)
-{
-	return 0;
-}
-
-static inline void security_task_reparent_to_init (struct task_struct *p)
-{
-	cap_task_reparent_to_init (p);
+	cap_task_reparent_to_init(p);
 }
 
 static inline void security_task_to_inode(struct task_struct *p, struct inode *inode)
 { }
 
-static inline int security_ipc_permission (struct kern_ipc_perm *ipcp,
-					   short flag)
+static inline int security_ipc_permission(struct kern_ipc_perm *ipcp,
+					  short flag)
 {
 	return 0;
 }
 
-static inline int security_msg_msg_alloc (struct msg_msg * msg)
+static inline void security_ipc_getsecid(struct kern_ipc_perm *ipcp, u32 *secid)
+{
+	*secid = 0;
+}
+
+static inline int security_msg_msg_alloc(struct msg_msg *msg)
 {
 	return 0;
 }
 
-static inline void security_msg_msg_free (struct msg_msg * msg)
+static inline void security_msg_msg_free(struct msg_msg *msg)
 { }
 
-static inline int security_msg_queue_alloc (struct msg_queue *msq)
+static inline int security_msg_queue_alloc(struct msg_queue *msq)
 {
 	return 0;
 }
 
-static inline void security_msg_queue_free (struct msg_queue *msq)
+static inline void security_msg_queue_free(struct msg_queue *msq)
 { }
 
-static inline int security_msg_queue_associate (struct msg_queue * msq, 
-						int msqflg)
+static inline int security_msg_queue_associate(struct msg_queue *msq,
+					       int msqflg)
 {
 	return 0;
 }
 
-static inline int security_msg_queue_msgctl (struct msg_queue * msq, int cmd)
+static inline int security_msg_queue_msgctl(struct msg_queue *msq, int cmd)
 {
 	return 0;
 }
 
-static inline int security_msg_queue_msgsnd (struct msg_queue * msq,
-					     struct msg_msg * msg, int msqflg)
+static inline int security_msg_queue_msgsnd(struct msg_queue *msq,
+					    struct msg_msg *msg, int msqflg)
 {
 	return 0;
 }
 
-static inline int security_msg_queue_msgrcv (struct msg_queue * msq,
-					     struct msg_msg * msg,
-					     struct task_struct * target,
-					     long type, int mode)
+static inline int security_msg_queue_msgrcv(struct msg_queue *msq,
+					    struct msg_msg *msg,
+					    struct task_struct *target,
+					    long type, int mode)
 {
 	return 0;
 }
 
-static inline int security_shm_alloc (struct shmid_kernel *shp)
+static inline int security_shm_alloc(struct shmid_kernel *shp)
 {
 	return 0;
 }
 
-static inline void security_shm_free (struct shmid_kernel *shp)
+static inline void security_shm_free(struct shmid_kernel *shp)
 { }
 
-static inline int security_shm_associate (struct shmid_kernel * shp, 
-					  int shmflg)
+static inline int security_shm_associate(struct shmid_kernel *shp,
+					 int shmflg)
 {
 	return 0;
 }
 
-static inline int security_shm_shmctl (struct shmid_kernel * shp, int cmd)
+static inline int security_shm_shmctl(struct shmid_kernel *shp, int cmd)
 {
 	return 0;
 }
 
-static inline int security_shm_shmat (struct shmid_kernel * shp, 
-				      char __user *shmaddr, int shmflg)
+static inline int security_shm_shmat(struct shmid_kernel *shp,
+				     char __user *shmaddr, int shmflg)
 {
 	return 0;
 }
 
-static inline int security_sem_alloc (struct sem_array *sma)
+static inline int security_sem_alloc(struct sem_array *sma)
 {
 	return 0;
 }
 
-static inline void security_sem_free (struct sem_array *sma)
+static inline void security_sem_free(struct sem_array *sma)
 { }
 
-static inline int security_sem_associate (struct sem_array * sma, int semflg)
+static inline int security_sem_associate(struct sem_array *sma, int semflg)
 {
 	return 0;
 }
 
-static inline int security_sem_semctl (struct sem_array * sma, int cmd)
+static inline int security_sem_semctl(struct sem_array *sma, int cmd)
 {
 	return 0;
 }
 
-static inline int security_sem_semop (struct sem_array * sma, 
-				      struct sembuf * sops, unsigned nsops, 
-				      int alter)
+static inline int security_sem_semop(struct sem_array *sma,
+				     struct sembuf *sops, unsigned nsops,
+				     int alter)
 {
 	return 0;
 }
 
-static inline void security_d_instantiate (struct dentry *dentry, struct inode *inode)
+static inline void security_d_instantiate(struct dentry *dentry, struct inode *inode)
 { }
 
 static inline int security_getprocattr(struct task_struct *p, char *name, char **value)
@@ -2776,14 +2403,14 @@ static inline int security_setprocattr(struct task_struct *p, char *name, void *
 	return -EINVAL;
 }
 
-static inline int security_netlink_send (struct sock *sk, struct sk_buff *skb)
+static inline int security_netlink_send(struct sock *sk, struct sk_buff *skb)
 {
-	return cap_netlink_send (sk, skb);
+	return cap_netlink_send(sk, skb);
 }
 
-static inline int security_netlink_recv (struct sk_buff *skb, int cap)
+static inline int security_netlink_recv(struct sk_buff *skb, int cap)
 {
-	return cap_netlink_recv (skb, cap);
+	return cap_netlink_recv(skb, cap);
 }
 
 static inline struct dentry *securityfs_create_dir(const char *name,
@@ -2796,7 +2423,7 @@ static inline struct dentry *securityfs_create_file(const char *name,
 						mode_t mode,
 						struct dentry *parent,
 						void *data,
-						struct file_operations *fops)
+						const struct file_operations *fops)
 {
 	return ERR_PTR(-ENODEV);
 }
@@ -2810,197 +2437,77 @@ static inline int security_secid_to_secctx(u32 secid, char **secdata, u32 *secle
 	return -EOPNOTSUPP;
 }
 
+static inline int security_secctx_to_secid(const char *secdata,
+					   u32 seclen,
+					   u32 *secid)
+{
+	return -EOPNOTSUPP;
+}
+
 static inline void security_release_secctx(char *secdata, u32 seclen)
 {
 }
 #endif	/* CONFIG_SECURITY */
 
 #ifdef CONFIG_SECURITY_NETWORK
-static inline int security_unix_stream_connect(struct socket * sock,
-					       struct socket * other, 
-					       struct sock * newsk)
-{
-	return security_ops->unix_stream_connect(sock, other, newsk);
-}
 
+int security_unix_stream_connect(struct socket *sock, struct socket *other,
+				 struct sock *newsk);
+int security_unix_may_send(struct socket *sock,  struct socket *other);
+int security_socket_create(int family, int type, int protocol, int kern);
+int security_socket_post_create(struct socket *sock, int family,
+				int type, int protocol, int kern);
+int security_socket_bind(struct socket *sock, struct sockaddr *address, int addrlen);
+int security_socket_connect(struct socket *sock, struct sockaddr *address, int addrlen);
+int security_socket_listen(struct socket *sock, int backlog);
+int security_socket_accept(struct socket *sock, struct socket *newsock);
+void security_socket_post_accept(struct socket *sock, struct socket *newsock);
+int security_socket_sendmsg(struct socket *sock, struct msghdr *msg, int size);
+int security_socket_recvmsg(struct socket *sock, struct msghdr *msg,
+			    int size, int flags);
+int security_socket_getsockname(struct socket *sock);
+int security_socket_getpeername(struct socket *sock);
+int security_socket_getsockopt(struct socket *sock, int level, int optname);
+int security_socket_setsockopt(struct socket *sock, int level, int optname);
+int security_socket_shutdown(struct socket *sock, int how);
+int security_sock_rcv_skb(struct sock *sk, struct sk_buff *skb);
+int security_socket_getpeersec_stream(struct socket *sock, char __user *optval,
+				      int __user *optlen, unsigned len);
+int security_socket_getpeersec_dgram(struct socket *sock, struct sk_buff *skb, u32 *secid);
+int security_sk_alloc(struct sock *sk, int family, gfp_t priority);
+void security_sk_free(struct sock *sk);
+void security_sk_clone(const struct sock *sk, struct sock *newsk);
+void security_sk_classify_flow(struct sock *sk, struct flowi *fl);
+void security_req_classify_flow(const struct request_sock *req, struct flowi *fl);
+void security_sock_graft(struct sock*sk, struct socket *parent);
+int security_inet_conn_request(struct sock *sk,
+			struct sk_buff *skb, struct request_sock *req);
+void security_inet_csk_clone(struct sock *newsk,
+			const struct request_sock *req);
+void security_inet_conn_established(struct sock *sk,
+			struct sk_buff *skb);
 
-static inline int security_unix_may_send(struct socket * sock, 
-					 struct socket * other)
-{
-	return security_ops->unix_may_send(sock, other);
-}
-
-static inline int security_socket_create (int family, int type,
-					  int protocol, int kern)
-{
-	return security_ops->socket_create(family, type, protocol, kern);
-}
-
-static inline int security_socket_post_create(struct socket * sock,
-					      int family,
-					      int type,
-					      int protocol, int kern)
-{
-	return security_ops->socket_post_create(sock, family, type,
-						protocol, kern);
-}
-
-static inline int security_socket_bind(struct socket * sock, 
-				       struct sockaddr * address, 
-				       int addrlen)
-{
-	return security_ops->socket_bind(sock, address, addrlen);
-}
-
-static inline int security_socket_connect(struct socket * sock, 
-					  struct sockaddr * address, 
-					  int addrlen)
-{
-	return security_ops->socket_connect(sock, address, addrlen);
-}
-
-static inline int security_socket_listen(struct socket * sock, int backlog)
-{
-	return security_ops->socket_listen(sock, backlog);
-}
-
-static inline int security_socket_accept(struct socket * sock, 
-					 struct socket * newsock)
-{
-	return security_ops->socket_accept(sock, newsock);
-}
-
-static inline void security_socket_post_accept(struct socket * sock, 
-					       struct socket * newsock)
-{
-	security_ops->socket_post_accept(sock, newsock);
-}
-
-static inline int security_socket_sendmsg(struct socket * sock, 
-					  struct msghdr * msg, int size)
-{
-	return security_ops->socket_sendmsg(sock, msg, size);
-}
-
-static inline int security_socket_recvmsg(struct socket * sock, 
-					  struct msghdr * msg, int size, 
-					  int flags)
-{
-	return security_ops->socket_recvmsg(sock, msg, size, flags);
-}
-
-static inline int security_socket_getsockname(struct socket * sock)
-{
-	return security_ops->socket_getsockname(sock);
-}
-
-static inline int security_socket_getpeername(struct socket * sock)
-{
-	return security_ops->socket_getpeername(sock);
-}
-
-static inline int security_socket_getsockopt(struct socket * sock, 
-					     int level, int optname)
-{
-	return security_ops->socket_getsockopt(sock, level, optname);
-}
-
-static inline int security_socket_setsockopt(struct socket * sock, 
-					     int level, int optname)
-{
-	return security_ops->socket_setsockopt(sock, level, optname);
-}
-
-static inline int security_socket_shutdown(struct socket * sock, int how)
-{
-	return security_ops->socket_shutdown(sock, how);
-}
-
-static inline int security_sock_rcv_skb (struct sock * sk, 
-					 struct sk_buff * skb)
-{
-	return security_ops->socket_sock_rcv_skb (sk, skb);
-}
-
-static inline int security_socket_getpeersec_stream(struct socket *sock, char __user *optval,
-						    int __user *optlen, unsigned len)
-{
-	return security_ops->socket_getpeersec_stream(sock, optval, optlen, len);
-}
-
-static inline int security_socket_getpeersec_dgram(struct socket *sock, struct sk_buff *skb, u32 *secid)
-{
-	return security_ops->socket_getpeersec_dgram(sock, skb, secid);
-}
-
-static inline int security_sk_alloc(struct sock *sk, int family, gfp_t priority)
-{
-	return security_ops->sk_alloc_security(sk, family, priority);
-}
-
-static inline void security_sk_free(struct sock *sk)
-{
-	return security_ops->sk_free_security(sk);
-}
-
-static inline void security_sk_clone(const struct sock *sk, struct sock *newsk)
-{
-	return security_ops->sk_clone_security(sk, newsk);
-}
-
-static inline void security_sk_classify_flow(struct sock *sk, struct flowi *fl)
-{
-	security_ops->sk_getsecid(sk, &fl->secid);
-}
-
-static inline void security_req_classify_flow(const struct request_sock *req, struct flowi *fl)
-{
-	security_ops->req_classify_flow(req, fl);
-}
-
-static inline void security_sock_graft(struct sock* sk, struct socket *parent)
-{
-	security_ops->sock_graft(sk, parent);
-}
-
-static inline int security_inet_conn_request(struct sock *sk,
-			struct sk_buff *skb, struct request_sock *req)
-{
-	return security_ops->inet_conn_request(sk, skb, req);
-}
-
-static inline void security_inet_csk_clone(struct sock *newsk,
-			const struct request_sock *req)
-{
-	security_ops->inet_csk_clone(newsk, req);
-}
-
-static inline void security_inet_conn_established(struct sock *sk,
-			struct sk_buff *skb)
-{
-	security_ops->inet_conn_established(sk, skb);
-}
 #else	/* CONFIG_SECURITY_NETWORK */
-static inline int security_unix_stream_connect(struct socket * sock,
-					       struct socket * other,
-					       struct sock * newsk)
+static inline int security_unix_stream_connect(struct socket *sock,
+					       struct socket *other,
+					       struct sock *newsk)
 {
 	return 0;
 }
 
-static inline int security_unix_may_send(struct socket * sock, 
-					 struct socket * other)
+static inline int security_unix_may_send(struct socket *sock,
+					 struct socket *other)
 {
 	return 0;
 }
 
-static inline int security_socket_create (int family, int type,
-					  int protocol, int kern)
+static inline int security_socket_create(int family, int type,
+					 int protocol, int kern)
 {
 	return 0;
 }
 
-static inline int security_socket_post_create(struct socket * sock,
+static inline int security_socket_post_create(struct socket *sock,
 					      int family,
 					      int type,
 					      int protocol, int kern)
@@ -3008,77 +2515,77 @@ static inline int security_socket_post_create(struct socket * sock,
 	return 0;
 }
 
-static inline int security_socket_bind(struct socket * sock, 
-				       struct sockaddr * address, 
+static inline int security_socket_bind(struct socket *sock,
+				       struct sockaddr *address,
 				       int addrlen)
 {
 	return 0;
 }
 
-static inline int security_socket_connect(struct socket * sock, 
-					  struct sockaddr * address, 
+static inline int security_socket_connect(struct socket *sock,
+					  struct sockaddr *address,
 					  int addrlen)
 {
 	return 0;
 }
 
-static inline int security_socket_listen(struct socket * sock, int backlog)
+static inline int security_socket_listen(struct socket *sock, int backlog)
 {
 	return 0;
 }
 
-static inline int security_socket_accept(struct socket * sock, 
-					 struct socket * newsock)
+static inline int security_socket_accept(struct socket *sock,
+					 struct socket *newsock)
 {
 	return 0;
 }
 
-static inline void security_socket_post_accept(struct socket * sock, 
-					       struct socket * newsock)
+static inline void security_socket_post_accept(struct socket *sock,
+					       struct socket *newsock)
 {
 }
 
-static inline int security_socket_sendmsg(struct socket * sock, 
-					  struct msghdr * msg, int size)
+static inline int security_socket_sendmsg(struct socket *sock,
+					  struct msghdr *msg, int size)
 {
 	return 0;
 }
 
-static inline int security_socket_recvmsg(struct socket * sock, 
-					  struct msghdr * msg, int size, 
+static inline int security_socket_recvmsg(struct socket *sock,
+					  struct msghdr *msg, int size,
 					  int flags)
 {
 	return 0;
 }
 
-static inline int security_socket_getsockname(struct socket * sock)
+static inline int security_socket_getsockname(struct socket *sock)
 {
 	return 0;
 }
 
-static inline int security_socket_getpeername(struct socket * sock)
+static inline int security_socket_getpeername(struct socket *sock)
 {
 	return 0;
 }
 
-static inline int security_socket_getsockopt(struct socket * sock, 
+static inline int security_socket_getsockopt(struct socket *sock,
 					     int level, int optname)
 {
 	return 0;
 }
 
-static inline int security_socket_setsockopt(struct socket * sock, 
+static inline int security_socket_setsockopt(struct socket *sock,
 					     int level, int optname)
 {
 	return 0;
 }
 
-static inline int security_socket_shutdown(struct socket * sock, int how)
+static inline int security_socket_shutdown(struct socket *sock, int how)
 {
 	return 0;
 }
-static inline int security_sock_rcv_skb (struct sock * sk, 
-					 struct sk_buff * skb)
+static inline int security_sock_rcv_skb(struct sock *sk,
+					struct sk_buff *skb)
 {
 	return 0;
 }
@@ -3115,7 +2622,7 @@ static inline void security_req_classify_flow(const struct request_sock *req, st
 {
 }
 
-static inline void security_sock_graft(struct sock* sk, struct socket *parent)
+static inline void security_sock_graft(struct sock *sk, struct socket *parent)
 {
 }
 
@@ -3137,92 +2644,39 @@ static inline void security_inet_conn_established(struct sock *sk,
 #endif	/* CONFIG_SECURITY_NETWORK */
 
 #ifdef CONFIG_SECURITY_NETWORK_XFRM
-static inline int security_xfrm_policy_alloc(struct xfrm_policy *xp, struct xfrm_user_sec_ctx *sec_ctx)
-{
-	return security_ops->xfrm_policy_alloc_security(xp, sec_ctx);
-}
 
-static inline int security_xfrm_policy_clone(struct xfrm_policy *old, struct xfrm_policy *new)
-{
-	return security_ops->xfrm_policy_clone_security(old, new);
-}
+int security_xfrm_policy_alloc(struct xfrm_sec_ctx **ctxp, struct xfrm_user_sec_ctx *sec_ctx);
+int security_xfrm_policy_clone(struct xfrm_sec_ctx *old_ctx, struct xfrm_sec_ctx **new_ctxp);
+void security_xfrm_policy_free(struct xfrm_sec_ctx *ctx);
+int security_xfrm_policy_delete(struct xfrm_sec_ctx *ctx);
+int security_xfrm_state_alloc(struct xfrm_state *x, struct xfrm_user_sec_ctx *sec_ctx);
+int security_xfrm_state_alloc_acquire(struct xfrm_state *x,
+				      struct xfrm_sec_ctx *polsec, u32 secid);
+int security_xfrm_state_delete(struct xfrm_state *x);
+void security_xfrm_state_free(struct xfrm_state *x);
+int security_xfrm_policy_lookup(struct xfrm_sec_ctx *ctx, u32 fl_secid, u8 dir);
+int security_xfrm_state_pol_flow_match(struct xfrm_state *x,
+				       struct xfrm_policy *xp, struct flowi *fl);
+int security_xfrm_decode_session(struct sk_buff *skb, u32 *secid);
+void security_skb_classify_flow(struct sk_buff *skb, struct flowi *fl);
 
-static inline void security_xfrm_policy_free(struct xfrm_policy *xp)
-{
-	security_ops->xfrm_policy_free_security(xp);
-}
-
-static inline int security_xfrm_policy_delete(struct xfrm_policy *xp)
-{
-	return security_ops->xfrm_policy_delete_security(xp);
-}
-
-static inline int security_xfrm_state_alloc(struct xfrm_state *x,
-			struct xfrm_user_sec_ctx *sec_ctx)
-{
-	return security_ops->xfrm_state_alloc_security(x, sec_ctx, 0);
-}
-
-static inline int security_xfrm_state_alloc_acquire(struct xfrm_state *x,
-				struct xfrm_sec_ctx *polsec, u32 secid)
-{
-	if (!polsec)
-		return 0;
-	/*
-	 * We want the context to be taken from secid which is usually
-	 * from the sock.
-	 */
-	return security_ops->xfrm_state_alloc_security(x, NULL, secid);
-}
-
-static inline int security_xfrm_state_delete(struct xfrm_state *x)
-{
-	return security_ops->xfrm_state_delete_security(x);
-}
-
-static inline void security_xfrm_state_free(struct xfrm_state *x)
-{
-	security_ops->xfrm_state_free_security(x);
-}
-
-static inline int security_xfrm_policy_lookup(struct xfrm_policy *xp, u32 fl_secid, u8 dir)
-{
-	return security_ops->xfrm_policy_lookup(xp, fl_secid, dir);
-}
-
-static inline int security_xfrm_state_pol_flow_match(struct xfrm_state *x,
-			struct xfrm_policy *xp, struct flowi *fl)
-{
-	return security_ops->xfrm_state_pol_flow_match(x, xp, fl);
-}
-
-static inline int security_xfrm_decode_session(struct sk_buff *skb, u32 *secid)
-{
-	return security_ops->xfrm_decode_session(skb, secid, 1);
-}
-
-static inline void security_skb_classify_flow(struct sk_buff *skb, struct flowi *fl)
-{
-	int rc = security_ops->xfrm_decode_session(skb, &fl->secid, 0);
-
-	BUG_ON(rc);
-}
 #else	/* CONFIG_SECURITY_NETWORK_XFRM */
-static inline int security_xfrm_policy_alloc(struct xfrm_policy *xp, struct xfrm_user_sec_ctx *sec_ctx)
+
+static inline int security_xfrm_policy_alloc(struct xfrm_sec_ctx **ctxp, struct xfrm_user_sec_ctx *sec_ctx)
 {
 	return 0;
 }
 
-static inline int security_xfrm_policy_clone(struct xfrm_policy *old, struct xfrm_policy *new)
+static inline int security_xfrm_policy_clone(struct xfrm_sec_ctx *old, struct xfrm_sec_ctx **new_ctxp)
 {
 	return 0;
 }
 
-static inline void security_xfrm_policy_free(struct xfrm_policy *xp)
+static inline void security_xfrm_policy_free(struct xfrm_sec_ctx *ctx)
 {
 }
 
-static inline int security_xfrm_policy_delete(struct xfrm_policy *xp)
+static inline int security_xfrm_policy_delete(struct xfrm_sec_ctx *ctx)
 {
 	return 0;
 }
@@ -3248,7 +2702,7 @@ static inline int security_xfrm_state_delete(struct xfrm_state *x)
 	return 0;
 }
 
-static inline int security_xfrm_policy_lookup(struct xfrm_policy *xp, u32 fl_secid, u8 dir)
+static inline int security_xfrm_policy_lookup(struct xfrm_sec_ctx *ctx, u32 fl_secid, u8 dir)
 {
 	return 0;
 }
@@ -3272,24 +2726,12 @@ static inline void security_skb_classify_flow(struct sk_buff *skb, struct flowi 
 
 #ifdef CONFIG_KEYS
 #ifdef CONFIG_SECURITY
-static inline int security_key_alloc(struct key *key,
-				     struct task_struct *tsk,
-				     unsigned long flags)
-{
-	return security_ops->key_alloc(key, tsk, flags);
-}
 
-static inline void security_key_free(struct key *key)
-{
-	security_ops->key_free(key);
-}
-
-static inline int security_key_permission(key_ref_t key_ref,
-					  struct task_struct *context,
-					  key_perm_t perm)
-{
-	return security_ops->key_permission(key_ref, context, perm);
-}
+int security_key_alloc(struct key *key, struct task_struct *tsk, unsigned long flags);
+void security_key_free(struct key *key);
+int security_key_permission(key_ref_t key_ref,
+			    struct task_struct *context, key_perm_t perm);
+int security_key_getsecurity(struct key *key, char **_buffer);
 
 #else
 
@@ -3311,8 +2753,47 @@ static inline int security_key_permission(key_ref_t key_ref,
 	return 0;
 }
 
+static inline int security_key_getsecurity(struct key *key, char **_buffer)
+{
+	*_buffer = NULL;
+	return 0;
+}
+
 #endif
 #endif /* CONFIG_KEYS */
+
+#ifdef CONFIG_AUDIT
+#ifdef CONFIG_SECURITY
+int security_audit_rule_init(u32 field, u32 op, char *rulestr, void **lsmrule);
+int security_audit_rule_known(struct audit_krule *krule);
+int security_audit_rule_match(u32 secid, u32 field, u32 op, void *lsmrule,
+			      struct audit_context *actx);
+void security_audit_rule_free(void *lsmrule);
+
+#else
+
+static inline int security_audit_rule_init(u32 field, u32 op, char *rulestr,
+					   void **lsmrule)
+{
+	return 0;
+}
+
+static inline int security_audit_rule_known(struct audit_krule *krule)
+{
+	return 0;
+}
+
+static inline int security_audit_rule_match(u32 secid, u32 field, u32 op,
+				   void *lsmrule, struct audit_context *actx)
+{
+	return 0;
+}
+
+static inline void security_audit_rule_free(void *lsmrule)
+{ }
+
+#endif /* CONFIG_SECURITY */
+#endif /* CONFIG_AUDIT */
 
 #endif /* ! __LINUX_SECURITY_H */
 

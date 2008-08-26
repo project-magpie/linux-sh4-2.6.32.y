@@ -82,15 +82,16 @@ register struct thread_info *__current_thread_info asm("gr15");
 
 #define current_thread_info() ({ __current_thread_info; })
 
+#define __HAVE_ARCH_THREAD_INFO_ALLOCATOR
+
 /* thread information allocation */
 #ifdef CONFIG_DEBUG_STACK_USAGE
 #define alloc_thread_info(tsk)					\
 	({							\
 		struct thread_info *ret;			\
 								\
-		ret = kmalloc(THREAD_SIZE, GFP_KERNEL);		\
-		if (ret)					\
-			memset(ret, 0, THREAD_SIZE);		\
+		ret = kzalloc(THREAD_SIZE, GFP_KERNEL);		\
+								\
 		ret;						\
 	})
 #else

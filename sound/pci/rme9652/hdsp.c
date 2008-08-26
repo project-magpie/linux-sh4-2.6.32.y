@@ -21,7 +21,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
@@ -104,8 +103,6 @@ MODULE_FIRMWARE("digiface_firmware_rev11.bin");
 #define HDSP_statusRegister    0
 #define HDSP_timecode        128
 #define HDSP_status2Register 192
-#define HDSP_midiDataOut0    352
-#define HDSP_midiDataOut1    356
 #define HDSP_midiDataIn0     360
 #define HDSP_midiDataIn1     364
 #define HDSP_midiStatusOut0  384
@@ -321,6 +318,10 @@ MODULE_FIRMWARE("digiface_firmware_rev11.bin");
 #define HDSP_midi1IRQPending    (1<<31)
 
 #define HDSP_spdifFrequencyMask    (HDSP_spdifFrequency0|HDSP_spdifFrequency1|HDSP_spdifFrequency2)
+#define HDSP_spdifFrequencyMask_9632 (HDSP_spdifFrequency0|\
+				      HDSP_spdifFrequency1|\
+				      HDSP_spdifFrequency2|\
+				      HDSP_spdifFrequency3)
 
 #define HDSP_spdifFrequency32KHz   (HDSP_spdifFrequency0)
 #define HDSP_spdifFrequency44_1KHz (HDSP_spdifFrequency1)
@@ -331,7 +332,9 @@ MODULE_FIRMWARE("digiface_firmware_rev11.bin");
 #define HDSP_spdifFrequency96KHz   (HDSP_spdifFrequency2|HDSP_spdifFrequency1)
 
 /* This is for H9632 cards */
-#define HDSP_spdifFrequency128KHz   HDSP_spdifFrequencyMask
+#define HDSP_spdifFrequency128KHz   (HDSP_spdifFrequency0|\
+				     HDSP_spdifFrequency1|\
+				     HDSP_spdifFrequency2)
 #define HDSP_spdifFrequency176_4KHz HDSP_spdifFrequency3
 #define HDSP_spdifFrequency192KHz   (HDSP_spdifFrequency3|HDSP_spdifFrequency0)
 
@@ -606,28 +609,34 @@ static void snd_hdsp_9652_enable_mixer (struct hdsp *hdsp);
 
 static int hdsp_playback_to_output_key (struct hdsp *hdsp, int in, int out)
 {
-	switch (hdsp->firmware_rev) {
-	case 0xa:
-		return (64 * out) + (32 + (in));
-	case 0x96:
-	case 0x97:
-	case 0x98:
-		return (32 * out) + (16 + (in));
+	switch (hdsp->io_type) {
+	case Multiface:
+	case Digiface:
 	default:
+		if (hdsp->firmware_rev == 0xa)
+			return (64 * out) + (32 + (in));
+		else
+			return (52 * out) + (26 + (in));
+	case H9632:
+		return (32 * out) + (16 + (in));
+	case H9652:
 		return (52 * out) + (26 + (in));
 	}
 }
 
 static int hdsp_input_to_output_key (struct hdsp *hdsp, int in, int out)
 {
-	switch (hdsp->firmware_rev) {
-	case 0xa:
-		return (64 * out) + in;
-	case 0x96:
-	case 0x97:
-	case 0x98:
-		return (32 * out) + in;
+	switch (hdsp->io_type) {
+	case Multiface:
+	case Digiface:
 	default:
+		if (hdsp->firmware_rev == 0xa)
+			return (64 * out) + in;
+		else
+			return (52 * out) + in;
+	case H9632:
+		return (32 * out) + in;
+	case H9652:
 		return (52 * out) + in;
 	}
 }
@@ -742,7 +751,7 @@ static int hdsp_get_iobox_version (struct hdsp *hdsp)
 
 
 #ifdef HDSP_FW_LOADER
-static int __devinit hdsp_request_fw_loader(struct hdsp *hdsp);
+static int hdsp_request_fw_loader(struct hdsp *hdsp);
 #endif
 
 static int hdsp_check_for_firmware (struct hdsp *hdsp, int load_on_demand)
@@ -882,27 +891,14 @@ static int snd_hdsp_use_is_exclusive(struct hdsp *hdsp)
 	return ret;
 }
 
-static int hdsp_external_sample_rate (struct hdsp *hdsp)
-{
-	unsigned int status2 = hdsp_read(hdsp, HDSP_status2Register);
-	unsigned int rate_bits = status2 & HDSP_systemFrequencyMask;
-
-	switch (rate_bits) {
-	case HDSP_systemFrequency32:   return 32000;
-	case HDSP_systemFrequency44_1: return 44100;
-	case HDSP_systemFrequency48:   return 48000;
-	case HDSP_systemFrequency64:   return 64000;
-	case HDSP_systemFrequency88_2: return 88200;
-	case HDSP_systemFrequency96:   return 96000;
-	default:
-		return 0;
-	}
-}
-
 static int hdsp_spdif_sample_rate(struct hdsp *hdsp)
 {
 	unsigned int status = hdsp_read(hdsp, HDSP_statusRegister);
 	unsigned int rate_bits = (status & HDSP_spdifFrequencyMask);
+
+	/* For the 9632, the mask is different */
+	if (hdsp->io_type == H9632)
+		 rate_bits = (status & HDSP_spdifFrequencyMask_9632);
 
 	if (status & HDSP_SPDIFErrorFlag)
 		return 0;
@@ -928,6 +924,31 @@ static int hdsp_spdif_sample_rate(struct hdsp *hdsp)
 	}
 	snd_printk ("Hammerfall-DSP: unknown spdif frequency status; bits = 0x%x, status = 0x%x\n", rate_bits, status);
 	return 0;
+}
+
+static int hdsp_external_sample_rate(struct hdsp *hdsp)
+{
+	unsigned int status2 = hdsp_read(hdsp, HDSP_status2Register);
+	unsigned int rate_bits = status2 & HDSP_systemFrequencyMask;
+
+	/* For the 9632 card, there seems to be no bit for indicating external
+	 * sample rate greater than 96kHz. The card reports the corresponding
+	 * single speed. So the best means seems to get spdif rate when
+	 * autosync reference is spdif */
+	if (hdsp->io_type == H9632 &&
+	    hdsp_autosync_ref(hdsp) == HDSP_AUTOSYNC_FROM_SPDIF)
+		 return hdsp_spdif_sample_rate(hdsp);
+
+	switch (rate_bits) {
+	case HDSP_systemFrequency32:   return 32000;
+	case HDSP_systemFrequency44_1: return 44100;
+	case HDSP_systemFrequency48:   return 48000;
+	case HDSP_systemFrequency64:   return 64000;
+	case HDSP_systemFrequency88_2: return 88200;
+	case HDSP_systemFrequency96:   return 96000;
+	default:
+		return 0;
+	}
 }
 
 static void hdsp_compute_period_size(struct hdsp *hdsp)
@@ -1623,14 +1644,7 @@ static int hdsp_set_spdif_output(struct hdsp *hdsp, int out)
 	return 0;
 }
 
-static int snd_hdsp_info_spdif_bits(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_hdsp_info_spdif_bits	snd_ctl_boolean_mono_info
 
 static int snd_hdsp_get_spdif_out(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -2111,14 +2125,7 @@ static int snd_hdsp_put_clock_source(struct snd_kcontrol *kcontrol, struct snd_c
 	return change;
 }
 
-static int snd_hdsp_info_clock_source_lock(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_hdsp_info_clock_source_lock		snd_ctl_boolean_mono_info
 
 static int snd_hdsp_get_clock_source_lock(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -2135,7 +2142,7 @@ static int snd_hdsp_put_clock_source_lock(struct snd_kcontrol *kcontrol, struct 
 
 	change = (int)ucontrol->value.integer.value[0] != hdsp->clock_source_locked;
 	if (change)
-		hdsp->clock_source_locked = ucontrol->value.integer.value[0];
+		hdsp->clock_source_locked = !!ucontrol->value.integer.value[0];
 	return change;
 }
 
@@ -2420,14 +2427,7 @@ static int hdsp_set_xlr_breakout_cable(struct hdsp *hdsp, int mode)
 	return 0;
 }
 
-static int snd_hdsp_info_xlr_breakout_cable(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_hdsp_info_xlr_breakout_cable	snd_ctl_boolean_mono_info
 
 static int snd_hdsp_get_xlr_breakout_cable(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -2483,14 +2483,7 @@ static int hdsp_set_aeb(struct hdsp *hdsp, int mode)
 	return 0;
 }
 
-static int snd_hdsp_info_aeb(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_hdsp_info_aeb		snd_ctl_boolean_mono_info
 
 static int snd_hdsp_get_aeb(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -2729,14 +2722,7 @@ static int hdsp_set_line_output(struct hdsp *hdsp, int out)
 	return 0;
 }
 
-static int snd_hdsp_info_line_out(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_hdsp_info_line_out		snd_ctl_boolean_mono_info
 
 static int snd_hdsp_get_line_out(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -2782,14 +2768,7 @@ static int hdsp_set_precise_pointer(struct hdsp *hdsp, int precise)
 	return 0;
 }
 
-static int snd_hdsp_info_precise_pointer(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_hdsp_info_precise_pointer		snd_ctl_boolean_mono_info
 
 static int snd_hdsp_get_precise_pointer(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -2835,14 +2814,7 @@ static int hdsp_set_use_midi_tasklet(struct hdsp *hdsp, int use_tasklet)
 	return 0;
 }
 
-static int snd_hdsp_info_use_midi_tasklet(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_hdsp_info_use_midi_tasklet		snd_ctl_boolean_mono_info
 
 static int snd_hdsp_get_use_midi_tasklet(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
@@ -3107,6 +3079,9 @@ static int hdsp_dds_offset(struct hdsp *hdsp)
 	u32 r;
 	unsigned int dds_value = hdsp->dds_value;
 	int system_sample_rate = hdsp->system_sample_rate;
+
+	if (!dds_value)
+		return 0;
 
 	n = DDS_NUMERATOR;
 	/*
@@ -3604,7 +3579,7 @@ snd_hdsp_proc_read(struct snd_info_entry *entry, struct snd_info_buffer *buffer)
 
 }
 
-static void __devinit snd_hdsp_proc_init(struct hdsp *hdsp)
+static void snd_hdsp_proc_init(struct hdsp *hdsp)
 {
 	struct snd_info_entry *entry;
 
@@ -3652,7 +3627,7 @@ static int snd_hdsp_set_defaults(struct hdsp *hdsp)
 
 	/* ASSUMPTION: hdsp->lock is either held, or
 	   there is no need to hold it (e.g. during module
-	   initalization).
+	   initialization).
 	 */
 
 	/* set defaults:
@@ -4731,8 +4706,7 @@ static struct snd_pcm_ops snd_hdsp_capture_ops = {
 	.copy =		snd_hdsp_capture_copy,
 };
 
-static int __devinit snd_hdsp_create_hwdep(struct snd_card *card,
-					   struct hdsp *hdsp)
+static int snd_hdsp_create_hwdep(struct snd_card *card, struct hdsp *hdsp)
 {
 	struct snd_hwdep *hw;
 	int err;
@@ -4900,7 +4874,7 @@ static int snd_hdsp_create_alsa_devices(struct snd_card *card, struct hdsp *hdsp
 
 #ifdef HDSP_FW_LOADER
 /* load firmware via hotplug fw loader */
-static int __devinit hdsp_request_fw_loader(struct hdsp *hdsp)
+static int hdsp_request_fw_loader(struct hdsp *hdsp)
 {
 	const char *fwfile;
 	const struct firmware *fw;

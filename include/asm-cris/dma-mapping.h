@@ -120,7 +120,7 @@ dma_sync_sg_for_device(struct device *dev, struct scatterlist *sg, int nelems,
 }
 
 static inline int
-dma_mapping_error(dma_addr_t dma_addr)
+dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
 {
 	return 0;
 }
@@ -164,16 +164,5 @@ dma_cache_sync(struct device *dev, void *vaddr, size_t size,
 {
 }
 
-#define ARCH_HAS_DMA_DECLARE_COHERENT_MEMORY
-extern int
-dma_declare_coherent_memory(struct device *dev, dma_addr_t bus_addr,
-			    dma_addr_t device_addr, size_t size, int flags);
-
-extern void
-dma_release_declared_memory(struct device *dev);
-
-extern void *
-dma_mark_declared_memory_occupied(struct device *dev,
-				  dma_addr_t device_addr, size_t size);
 
 #endif

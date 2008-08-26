@@ -27,6 +27,7 @@
  * option) any later version.
  */
 #include <linux/ds1286.h>
+#include <linux/smp_lock.h>
 #include <linux/types.h>
 #include <linux/errno.h>
 #include <linux/miscdevice.h>
@@ -39,6 +40,7 @@
 #include <linux/spinlock.h>
 #include <linux/bcd.h>
 #include <linux/proc_fs.h>
+#include <linux/jiffies.h>
 
 #include <asm/uaccess.h>
 #include <asm/system.h>
@@ -251,6 +253,7 @@ static int ds1286_ioctl(struct inode *inode, struct file *file,
 
 static int ds1286_open(struct inode *inode, struct file *file)
 {
+	lock_kernel();
 	spin_lock_irq(&ds1286_lock);
 
 	if (ds1286_status & RTC_IS_OPEN)
@@ -259,10 +262,12 @@ static int ds1286_open(struct inode *inode, struct file *file)
 	ds1286_status |= RTC_IS_OPEN;
 
 	spin_unlock_irq(&ds1286_lock);
+	unlock_kernel();
 	return 0;
 
 out_busy:
 	spin_lock_irq(&ds1286_lock);
+	unlock_kernel();
 	return -EBUSY;
 }
 
@@ -451,7 +456,7 @@ static void ds1286_get_time(struct rtc_time *rtc_tm)
 	 */
 
 	if (ds1286_is_updating() != 0)
-		while (jiffies - uip_watchdog < 2*HZ/100)
+		while (time_before(jiffies, uip_watchdog + 2*HZ/100))
 			barrier();
 
 	/*

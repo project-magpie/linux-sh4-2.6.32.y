@@ -37,7 +37,6 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/init.h>
-#include <linux/moduleparam.h>
 
 #include "cpia2.h"
 #include "cpia2dev.h"
@@ -86,10 +85,6 @@ MODULE_SUPPORTED_DEVICE("video");
 MODULE_LICENSE("GPL");
 
 #define ABOUT "V4L-Driver for Vision CPiA2 based cameras"
-
-#ifndef VID_HARDWARE_CPIA2
-#error "VID_HARDWARE_CPIA2 should have been defined in linux/videodev.h"
-#endif
 
 struct control_menu_info {
 	int value;
@@ -1932,7 +1927,9 @@ static const struct file_operations fops_template = {
 	.poll		= cpia2_v4l_poll,
 	.ioctl		= cpia2_ioctl,
 	.llseek		= no_llseek,
+#ifdef CONFIG_COMPAT
 	.compat_ioctl	= v4l_compat_ioctl32,
+#endif
 	.mmap		= cpia2_mmap,
 };
 
@@ -1943,7 +1940,6 @@ static struct video_device cpia2_template = {
 	.type=		VID_TYPE_CAPTURE,
 	.type2 = 	V4L2_CAP_VIDEO_CAPTURE |
 			V4L2_CAP_STREAMING,
-	.hardware=	VID_HARDWARE_CPIA2,
 	.minor=		-1,
 	.fops=		&fops_template,
 	.release=	video_device_release,

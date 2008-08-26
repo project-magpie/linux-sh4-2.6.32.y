@@ -40,13 +40,15 @@
 
 #define DBG_I2C		1<<0
 
-static int i2c_debug = 0;
+static int i2c_debug;
 
 module_param (i2c_debug, int, 0644);			// debug_i2c_usb mode of the device driver
 MODULE_PARM_DESC(i2c_debug, "enable debug messages [i2c]");
 
-#define PDEBUG(level, fmt, args...) \
-		if (i2c_debug & (level)) info("[%s:%d] " fmt, __PRETTY_FUNCTION__, __LINE__ , ## args)
+#define PDEBUG(level, fmt, args...) { \
+		if (i2c_debug & (level)) \
+			info("[%s:%d] " fmt, __func__, __LINE__ , ## args); \
+	}
 
 static int usbvision_i2c_write(struct usb_usbvision *usbvision, unsigned char addr, char *buf,
 			    short len);
@@ -134,8 +136,6 @@ static inline int usb_find_address(struct i2c_adapter *i2c_adap,
 		addr = (msg->addr << 1);
 		if (flags & I2C_M_RD)
 			addr |= 1;
-		if (flags & I2C_M_REV_DIR_ADDR)
-			addr ^= 1;
 
 		add[0] = addr;
 		if (flags & I2C_M_RD)
@@ -185,23 +185,16 @@ usbvision_i2c_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg msgs[], int num)
 	return num;
 }
 
-static int algo_control(struct i2c_adapter *adapter, unsigned int cmd, unsigned long arg)
-{
-	return 0;
-}
-
 static u32 functionality(struct i2c_adapter *adap)
 {
-	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_10BIT_ADDR | I2C_FUNC_PROTOCOL_MANGLING;
+	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_10BIT_ADDR;
 }
-
 
 /* -----exported algorithm data: -------------------------------------	*/
 
 static struct i2c_algorithm usbvision_algo = {
 	.master_xfer   = usbvision_i2c_xfer,
 	.smbus_xfer    = NULL,
-	.algo_control  = algo_control,
 	.functionality = functionality,
 };
 
@@ -520,11 +513,7 @@ static struct i2c_adapter i2c_adap_template = {
 	.id                = I2C_HW_B_BT848, /* FIXME */
 	.client_register   = attach_inform,
 	.client_unregister = detach_inform,
-#ifdef I2C_ADAP_CLASS_TV_ANALOG
-	.class             = I2C_ADAP_CLASS_TV_ANALOG,
-#else
 	.class		   = I2C_CLASS_TV_ANALOG,
-#endif
 };
 
 static struct i2c_client i2c_client_template = {

@@ -16,6 +16,8 @@
 #define _ASM_POWERPC_QE_H
 #ifdef __KERNEL__
 
+#include <linux/spinlock.h>
+#include <asm/cpm.h>
 #include <asm/immap_qe.h>
 
 #define QE_NUM_OF_SNUM	28
@@ -28,27 +30,163 @@
 #define MEM_PART_SECONDARY	1
 #define MEM_PART_MURAM		2
 
+/* Clocks and BRGs */
+enum qe_clock {
+	QE_CLK_NONE = 0,
+	QE_BRG1,		/* Baud Rate Generator 1 */
+	QE_BRG2,		/* Baud Rate Generator 2 */
+	QE_BRG3,		/* Baud Rate Generator 3 */
+	QE_BRG4,		/* Baud Rate Generator 4 */
+	QE_BRG5,		/* Baud Rate Generator 5 */
+	QE_BRG6,		/* Baud Rate Generator 6 */
+	QE_BRG7,		/* Baud Rate Generator 7 */
+	QE_BRG8,		/* Baud Rate Generator 8 */
+	QE_BRG9,		/* Baud Rate Generator 9 */
+	QE_BRG10,		/* Baud Rate Generator 10 */
+	QE_BRG11,		/* Baud Rate Generator 11 */
+	QE_BRG12,		/* Baud Rate Generator 12 */
+	QE_BRG13,		/* Baud Rate Generator 13 */
+	QE_BRG14,		/* Baud Rate Generator 14 */
+	QE_BRG15,		/* Baud Rate Generator 15 */
+	QE_BRG16,		/* Baud Rate Generator 16 */
+	QE_CLK1,		/* Clock 1 */
+	QE_CLK2,		/* Clock 2 */
+	QE_CLK3,		/* Clock 3 */
+	QE_CLK4,		/* Clock 4 */
+	QE_CLK5,		/* Clock 5 */
+	QE_CLK6,		/* Clock 6 */
+	QE_CLK7,		/* Clock 7 */
+	QE_CLK8,		/* Clock 8 */
+	QE_CLK9,		/* Clock 9 */
+	QE_CLK10,		/* Clock 10 */
+	QE_CLK11,		/* Clock 11 */
+	QE_CLK12,		/* Clock 12 */
+	QE_CLK13,		/* Clock 13 */
+	QE_CLK14,		/* Clock 14 */
+	QE_CLK15,		/* Clock 15 */
+	QE_CLK16,		/* Clock 16 */
+	QE_CLK17,		/* Clock 17 */
+	QE_CLK18,		/* Clock 18 */
+	QE_CLK19,		/* Clock 19 */
+	QE_CLK20,		/* Clock 20 */
+	QE_CLK21,		/* Clock 21 */
+	QE_CLK22,		/* Clock 22 */
+	QE_CLK23,		/* Clock 23 */
+	QE_CLK24,		/* Clock 24 */
+	QE_CLK_DUMMY
+};
+
+static inline bool qe_clock_is_brg(enum qe_clock clk)
+{
+	return clk >= QE_BRG1 && clk <= QE_BRG16;
+}
+
+extern spinlock_t cmxgcr_lock;
+
 /* Export QE common operations */
-extern void qe_reset(void);
+extern void __init qe_reset(void);
+
+/* QE PIO */
+#define QE_PIO_PINS 32
+
+struct qe_pio_regs {
+	__be32	cpodr;		/* Open drain register */
+	__be32	cpdata;		/* Data register */
+	__be32	cpdir1;		/* Direction register */
+	__be32	cpdir2;		/* Direction register */
+	__be32	cppar1;		/* Pin assignment register */
+	__be32	cppar2;		/* Pin assignment register */
+#ifdef CONFIG_PPC_85xx
+	u8	pad[8];
+#endif
+};
+
 extern int par_io_init(struct device_node *np);
 extern int par_io_of_config(struct device_node *np);
+#define QE_PIO_DIR_IN	2
+#define QE_PIO_DIR_OUT	1
+extern void __par_io_config_pin(struct qe_pio_regs __iomem *par_io, u8 pin,
+				int dir, int open_drain, int assignment,
+				int has_irq);
+extern int par_io_config_pin(u8 port, u8 pin, int dir, int open_drain,
+			     int assignment, int has_irq);
+extern int par_io_data_set(u8 port, u8 pin, u8 val);
 
 /* QE internal API */
 int qe_issue_cmd(u32 cmd, u32 device, u8 mcn_protocol, u32 cmd_input);
-void qe_setbrg(u32 brg, u32 rate);
+enum qe_clock qe_clock_source(const char *source);
+unsigned int qe_get_brg_clk(void);
+int qe_setbrg(enum qe_clock brg, unsigned int rate, unsigned int multiplier);
 int qe_get_snum(void);
 void qe_put_snum(u8 snum);
-unsigned long qe_muram_alloc(int size, int align);
-int qe_muram_free(unsigned long offset);
-unsigned long qe_muram_alloc_fixed(unsigned long offset, int size);
-void qe_muram_dump(void);
-void *qe_muram_addr(unsigned long offset);
+/* we actually use cpm_muram implementation, define this for convenience */
+#define qe_muram_init cpm_muram_init
+#define qe_muram_alloc cpm_muram_alloc
+#define qe_muram_alloc_fixed cpm_muram_alloc_fixed
+#define qe_muram_free cpm_muram_free
+#define qe_muram_addr cpm_muram_addr
+#define qe_muram_offset cpm_muram_offset
+
+/* Structure that defines QE firmware binary files.
+ *
+ * See Documentation/powerpc/qe-firmware.txt for a description of these
+ * fields.
+ */
+struct qe_firmware {
+	struct qe_header {
+		__be32 length;  /* Length of the entire structure, in bytes */
+		u8 magic[3];    /* Set to { 'Q', 'E', 'F' } */
+		u8 version;     /* Version of this layout. First ver is '1' */
+	} header;
+	u8 id[62];      /* Null-terminated identifier string */
+	u8 split;	/* 0 = shared I-RAM, 1 = split I-RAM */
+	u8 count;       /* Number of microcode[] structures */
+	struct {
+		__be16 model;   	/* The SOC model  */
+		u8 major;       	/* The SOC revision major */
+		u8 minor;       	/* The SOC revision minor */
+	} __attribute__ ((packed)) soc;
+	u8 padding[4];			/* Reserved, for alignment */
+	__be64 extended_modes;		/* Extended modes */
+	__be32 vtraps[8];		/* Virtual trap addresses */
+	u8 reserved[4];			/* Reserved, for future expansion */
+	struct qe_microcode {
+		u8 id[32];      	/* Null-terminated identifier */
+		__be32 traps[16];       /* Trap addresses, 0 == ignore */
+		__be32 eccr;    	/* The value for the ECCR register */
+		__be32 iram_offset;     /* Offset into I-RAM for the code */
+		__be32 count;   	/* Number of 32-bit words of the code */
+		__be32 code_offset;     /* Offset of the actual microcode */
+		u8 major;       	/* The microcode version major */
+		u8 minor;       	/* The microcode version minor */
+		u8 revision;		/* The microcode version revision */
+		u8 padding;		/* Reserved, for alignment */
+		u8 reserved[4];		/* Reserved, for future expansion */
+	} __attribute__ ((packed)) microcode[1];
+	/* All microcode binaries should be located here */
+	/* CRC32 should be located here, after the microcode binaries */
+} __attribute__ ((packed));
+
+struct qe_firmware_info {
+	char id[64];		/* Firmware name */
+	u32 vtraps[8];		/* Virtual trap addresses */
+	u64 extended_modes;	/* Extended modes */
+};
+
+/* Upload a firmware to the QE */
+int qe_upload_firmware(const struct qe_firmware *firmware);
+
+/* Obtain information on the uploaded firmware */
+struct qe_firmware_info *qe_get_firmware_info(void);
+
+/* QE USB */
+int qe_usb_clock_set(enum qe_clock clk, int rate);
 
 /* Buffer descriptors */
 struct qe_bd {
-	u16 status;
-	u16 length;
-	u32 buf;
+	__be16 status;
+	__be16 length;
+	__be32 buf;
 } __attribute__ ((packed));
 
 #define BD_STATUS_MASK	0xffff0000
@@ -112,52 +250,6 @@ enum comm_dir {
 	COMM_DIR_RX_AND_TX = 3
 };
 
-/* Clocks and BRGs */
-enum qe_clock {
-	QE_CLK_NONE = 0,
-	QE_BRG1,		/* Baud Rate Generator 1 */
-	QE_BRG2,		/* Baud Rate Generator 2 */
-	QE_BRG3,		/* Baud Rate Generator 3 */
-	QE_BRG4,		/* Baud Rate Generator 4 */
-	QE_BRG5,		/* Baud Rate Generator 5 */
-	QE_BRG6,		/* Baud Rate Generator 6 */
-	QE_BRG7,		/* Baud Rate Generator 7 */
-	QE_BRG8,		/* Baud Rate Generator 8 */
-	QE_BRG9,		/* Baud Rate Generator 9 */
-	QE_BRG10,		/* Baud Rate Generator 10 */
-	QE_BRG11,		/* Baud Rate Generator 11 */
-	QE_BRG12,		/* Baud Rate Generator 12 */
-	QE_BRG13,		/* Baud Rate Generator 13 */
-	QE_BRG14,		/* Baud Rate Generator 14 */
-	QE_BRG15,		/* Baud Rate Generator 15 */
-	QE_BRG16,		/* Baud Rate Generator 16 */
-	QE_CLK1,		/* Clock 1 */
-	QE_CLK2,		/* Clock 2 */
-	QE_CLK3,		/* Clock 3 */
-	QE_CLK4,		/* Clock 4 */
-	QE_CLK5,		/* Clock 5 */
-	QE_CLK6,		/* Clock 6 */
-	QE_CLK7,		/* Clock 7 */
-	QE_CLK8,		/* Clock 8 */
-	QE_CLK9,		/* Clock 9 */
-	QE_CLK10,		/* Clock 10 */
-	QE_CLK11,		/* Clock 11 */
-	QE_CLK12,		/* Clock 12 */
-	QE_CLK13,		/* Clock 13 */
-	QE_CLK14,		/* Clock 14 */
-	QE_CLK15,		/* Clock 15 */
-	QE_CLK16,		/* Clock 16 */
-	QE_CLK17,		/* Clock 17 */
-	QE_CLK18,		/* Clock 18 */
-	QE_CLK19,		/* Clock 19 */
-	QE_CLK20,		/* Clock 20 */
-	QE_CLK21,		/* Clock 21 */
-	QE_CLK22,		/* Clock 22 */
-	QE_CLK23,		/* Clock 23 */
-	QE_CLK24,		/* Clock 24 */
-	QE_CLK_DUMMY,
-};
-
 /* QE CMXUCR Registers.
  * There are two UCCs represented in each of the four CMXUCR registers.
  * These values are for the UCC in the LSBs
@@ -174,6 +266,16 @@ enum qe_clock {
 #define QE_CMXGCR_MII_ENET_MNG		0x00007000
 #define QE_CMXGCR_MII_ENET_MNG_SHIFT	12
 #define QE_CMXGCR_USBCS			0x0000000f
+#define QE_CMXGCR_USBCS_CLK3		0x1
+#define QE_CMXGCR_USBCS_CLK5		0x2
+#define QE_CMXGCR_USBCS_CLK7		0x3
+#define QE_CMXGCR_USBCS_CLK9		0x4
+#define QE_CMXGCR_USBCS_CLK13		0x5
+#define QE_CMXGCR_USBCS_CLK17		0x6
+#define QE_CMXGCR_USBCS_CLK19		0x7
+#define QE_CMXGCR_USBCS_CLK21		0x8
+#define QE_CMXGCR_USBCS_BRG9		0x9
+#define QE_CMXGCR_USBCS_BRG10		0xa
 
 /* QE CECR Commands.
 */
@@ -203,7 +305,7 @@ enum qe_clock {
 #define QE_HPAC_START_TX		0x0000060b
 #define QE_HPAC_START_RX		0x0000070b
 #define QE_USB_STOP_TX			0x0000000a
-#define QE_USB_RESTART_TX		0x0000000b
+#define QE_USB_RESTART_TX		0x0000000c
 #define QE_QMC_STOP_TX			0x0000000c
 #define QE_QMC_STOP_RX			0x0000000d
 #define QE_SS7_SU_FIL_RESET		0x0000000e
@@ -266,14 +368,11 @@ enum qe_clock {
 /* QE CECR Protocol - For non-MCC, specifies mode for QE CECR command */
 #define QE_CR_PROTOCOL_UNSPECIFIED	0x00	/* For all other protocols */
 #define QE_CR_PROTOCOL_HDLC_TRANSPARENT	0x00
+#define QE_CR_PROTOCOL_QMC		0x02
+#define QE_CR_PROTOCOL_UART		0x04
 #define QE_CR_PROTOCOL_ATM_POS		0x0A
 #define QE_CR_PROTOCOL_ETHERNET		0x0C
 #define QE_CR_PROTOCOL_L2_SWITCH	0x0D
-
-/* BMR byte order */
-#define QE_BMR_BYTE_ORDER_BO_PPC	0x08	/* powerpc little endian */
-#define QE_BMR_BYTE_ORDER_BO_MOT	0x10	/* motorola big endian */
-#define QE_BMR_BYTE_ORDER_BO_MAX	0x18
 
 /* BRG configuration register */
 #define QE_BRGC_ENABLE		0x00010000
@@ -314,6 +413,15 @@ enum qe_clock {
 
 #define QE_SDEBCR_BA_MASK	0x01FFFFFF
 
+/* Communication Processor */
+#define QE_CP_CERCR_MEE		0x8000	/* Multi-user RAM ECC enable */
+#define QE_CP_CERCR_IEE		0x4000	/* Instruction RAM ECC enable */
+#define QE_CP_CERCR_CIR		0x0800	/* Common instruction RAM */
+
+/* I-RAM */
+#define QE_IRAM_IADD_AIE	0x80000000	/* Auto Increment Enable */
+#define QE_IRAM_IADD_BADDR	0x00080000	/* Base Address */
+
 /* UPC */
 #define UPGCR_PROTOCOL	0x80000000	/* protocol ul2 or pl2 */
 #define UPGCR_TMS	0x40000000	/* Transmit master/slave mode */
@@ -321,41 +429,41 @@ enum qe_clock {
 #define UPGCR_ADDR	0x10000000	/* Master MPHY Addr multiplexing */
 #define UPGCR_DIAG	0x01000000	/* Diagnostic mode */
 
-/* UCC */
+/* UCC GUEMR register */
 #define UCC_GUEMR_MODE_MASK_RX	0x02
-#define UCC_GUEMR_MODE_MASK_TX	0x01
 #define UCC_GUEMR_MODE_FAST_RX	0x02
-#define UCC_GUEMR_MODE_FAST_TX	0x01
 #define UCC_GUEMR_MODE_SLOW_RX	0x00
+#define UCC_GUEMR_MODE_MASK_TX	0x01
+#define UCC_GUEMR_MODE_FAST_TX	0x01
 #define UCC_GUEMR_MODE_SLOW_TX	0x00
+#define UCC_GUEMR_MODE_MASK (UCC_GUEMR_MODE_MASK_RX | UCC_GUEMR_MODE_MASK_TX)
 #define UCC_GUEMR_SET_RESERVED3	0x10	/* Bit 3 in the guemr is reserved but
 					   must be set 1 */
 
 /* structure representing UCC SLOW parameter RAM */
 struct ucc_slow_pram {
-	u16 rbase;		/* RX BD base address */
-	u16 tbase;		/* TX BD base address */
-	u8 rfcr;		/* Rx function code */
-	u8 tfcr;		/* Tx function code */
-	u16 mrblr;		/* Rx buffer length */
-	u32 rstate;		/* Rx internal state */
-	u32 rptr;		/* Rx internal data pointer */
-	u16 rbptr;		/* rb BD Pointer */
-	u16 rcount;		/* Rx internal byte count */
-	u32 rtemp;		/* Rx temp */
-	u32 tstate;		/* Tx internal state */
-	u32 tptr;		/* Tx internal data pointer */
-	u16 tbptr;		/* Tx BD pointer */
-	u16 tcount;		/* Tx byte count */
-	u32 ttemp;		/* Tx temp */
-	u32 rcrc;		/* temp receive CRC */
-	u32 tcrc;		/* temp transmit CRC */
+	__be16 rbase;		/* RX BD base address */
+	__be16 tbase;		/* TX BD base address */
+	u8 rbmr;		/* RX bus mode register (same as CPM's RFCR) */
+	u8 tbmr;		/* TX bus mode register (same as CPM's TFCR) */
+	__be16 mrblr;		/* Rx buffer length */
+	__be32 rstate;		/* Rx internal state */
+	__be32 rptr;		/* Rx internal data pointer */
+	__be16 rbptr;		/* rb BD Pointer */
+	__be16 rcount;		/* Rx internal byte count */
+	__be32 rtemp;		/* Rx temp */
+	__be32 tstate;		/* Tx internal state */
+	__be32 tptr;		/* Tx internal data pointer */
+	__be16 tbptr;		/* Tx BD pointer */
+	__be16 tcount;		/* Tx byte count */
+	__be32 ttemp;		/* Tx temp */
+	__be32 rcrc;		/* temp receive CRC */
+	__be32 tcrc;		/* temp transmit CRC */
 } __attribute__ ((packed));
 
 /* General UCC SLOW Mode Register (GUMRH & GUMRL) */
-#define UCC_SLOW_GUMR_H_CRC16		0x00004000
-#define UCC_SLOW_GUMR_H_CRC16CCITT	0x00000000
-#define UCC_SLOW_GUMR_H_CRC32CCITT	0x00008000
+#define UCC_SLOW_GUMR_H_SAM_QMC		0x00000000
+#define UCC_SLOW_GUMR_H_SAM_SATM	0x00008000
 #define UCC_SLOW_GUMR_H_REVD		0x00002000
 #define UCC_SLOW_GUMR_H_TRX		0x00001000
 #define UCC_SLOW_GUMR_H_TTX		0x00000800
@@ -375,9 +483,33 @@ struct ucc_slow_pram {
 #define UCC_SLOW_GUMR_L_TCI		0x10000000
 #define UCC_SLOW_GUMR_L_RINV		0x02000000
 #define UCC_SLOW_GUMR_L_TINV		0x01000000
-#define UCC_SLOW_GUMR_L_TEND		0x00020000
+#define UCC_SLOW_GUMR_L_TEND		0x00040000
+#define UCC_SLOW_GUMR_L_TDCR_MASK	0x00030000
+#define UCC_SLOW_GUMR_L_TDCR_32	        0x00030000
+#define UCC_SLOW_GUMR_L_TDCR_16	        0x00020000
+#define UCC_SLOW_GUMR_L_TDCR_8	        0x00010000
+#define UCC_SLOW_GUMR_L_TDCR_1	        0x00000000
+#define UCC_SLOW_GUMR_L_RDCR_MASK	0x0000c000
+#define UCC_SLOW_GUMR_L_RDCR_32		0x0000c000
+#define UCC_SLOW_GUMR_L_RDCR_16	        0x00008000
+#define UCC_SLOW_GUMR_L_RDCR_8	        0x00004000
+#define UCC_SLOW_GUMR_L_RDCR_1		0x00000000
+#define UCC_SLOW_GUMR_L_RENC_NRZI	0x00000800
+#define UCC_SLOW_GUMR_L_RENC_NRZ	0x00000000
+#define UCC_SLOW_GUMR_L_TENC_NRZI	0x00000100
+#define UCC_SLOW_GUMR_L_TENC_NRZ	0x00000000
+#define UCC_SLOW_GUMR_L_DIAG_MASK	0x000000c0
+#define UCC_SLOW_GUMR_L_DIAG_LE	        0x000000c0
+#define UCC_SLOW_GUMR_L_DIAG_ECHO	0x00000080
+#define UCC_SLOW_GUMR_L_DIAG_LOOP	0x00000040
+#define UCC_SLOW_GUMR_L_DIAG_NORM	0x00000000
 #define UCC_SLOW_GUMR_L_ENR		0x00000020
 #define UCC_SLOW_GUMR_L_ENT		0x00000010
+#define UCC_SLOW_GUMR_L_MODE_MASK	0x0000000F
+#define UCC_SLOW_GUMR_L_MODE_BISYNC	0x00000008
+#define UCC_SLOW_GUMR_L_MODE_AHDLC	0x00000006
+#define UCC_SLOW_GUMR_L_MODE_UART	0x00000004
+#define UCC_SLOW_GUMR_L_MODE_QMC	0x00000002
 
 /* General UCC FAST Mode Register */
 #define UCC_FAST_GUMR_TCI	0x20000000
@@ -394,52 +526,110 @@ struct ucc_slow_pram {
 #define UCC_FAST_GUMR_ENR	0x00000020
 #define UCC_FAST_GUMR_ENT	0x00000010
 
-/* Slow UCC Event Register (UCCE) */
-#define UCC_SLOW_UCCE_GLR	0x1000
-#define UCC_SLOW_UCCE_GLT	0x0800
-#define UCC_SLOW_UCCE_DCC	0x0400
-#define UCC_SLOW_UCCE_FLG	0x0200
-#define UCC_SLOW_UCCE_AB	0x0200
-#define UCC_SLOW_UCCE_IDLE	0x0100
-#define UCC_SLOW_UCCE_GRA	0x0080
-#define UCC_SLOW_UCCE_TXE	0x0010
-#define UCC_SLOW_UCCE_RXF	0x0008
-#define UCC_SLOW_UCCE_CCR	0x0008
-#define UCC_SLOW_UCCE_RCH	0x0008
-#define UCC_SLOW_UCCE_BSY	0x0004
-#define UCC_SLOW_UCCE_TXB	0x0002
-#define UCC_SLOW_UCCE_TX	0x0002
-#define UCC_SLOW_UCCE_RX	0x0001
-#define UCC_SLOW_UCCE_GOV	0x0001
-#define UCC_SLOW_UCCE_GUN	0x0002
-#define UCC_SLOW_UCCE_GINT	0x0004
-#define UCC_SLOW_UCCE_IQOV	0x0008
+/* UART Slow UCC Event Register (UCCE) */
+#define UCC_UART_UCCE_AB	0x0200
+#define UCC_UART_UCCE_IDLE	0x0100
+#define UCC_UART_UCCE_GRA	0x0080
+#define UCC_UART_UCCE_BRKE	0x0040
+#define UCC_UART_UCCE_BRKS	0x0020
+#define UCC_UART_UCCE_CCR	0x0008
+#define UCC_UART_UCCE_BSY	0x0004
+#define UCC_UART_UCCE_TX	0x0002
+#define UCC_UART_UCCE_RX	0x0001
 
-#define UCC_SLOW_UCCE_HDLC_SET	(UCC_SLOW_UCCE_TXE | UCC_SLOW_UCCE_BSY | \
-		UCC_SLOW_UCCE_GRA | UCC_SLOW_UCCE_TXB | UCC_SLOW_UCCE_RXF | \
-		UCC_SLOW_UCCE_DCC | UCC_SLOW_UCCE_GLT | UCC_SLOW_UCCE_GLR)
-#define UCC_SLOW_UCCE_ENET_SET	(UCC_SLOW_UCCE_TXE | UCC_SLOW_UCCE_BSY | \
-		UCC_SLOW_UCCE_GRA | UCC_SLOW_UCCE_TXB | UCC_SLOW_UCCE_RXF)
-#define UCC_SLOW_UCCE_TRANS_SET	(UCC_SLOW_UCCE_TXE | UCC_SLOW_UCCE_BSY | \
-		UCC_SLOW_UCCE_GRA | UCC_SLOW_UCCE_TX | UCC_SLOW_UCCE_RX | \
-		UCC_SLOW_UCCE_DCC | UCC_SLOW_UCCE_GLT | UCC_SLOW_UCCE_GLR)
-#define UCC_SLOW_UCCE_UART_SET	(UCC_SLOW_UCCE_BSY | UCC_SLOW_UCCE_GRA | \
-		UCC_SLOW_UCCE_TXB | UCC_SLOW_UCCE_TX | UCC_SLOW_UCCE_RX | \
-		UCC_SLOW_UCCE_GLT | UCC_SLOW_UCCE_GLR)
-#define UCC_SLOW_UCCE_QMC_SET	(UCC_SLOW_UCCE_IQOV | UCC_SLOW_UCCE_GINT | \
-		UCC_SLOW_UCCE_GUN | UCC_SLOW_UCCE_GOV)
+/* HDLC Slow UCC Event Register (UCCE) */
+#define UCC_HDLC_UCCE_GLR	0x1000
+#define UCC_HDLC_UCCE_GLT	0x0800
+#define UCC_HDLC_UCCE_IDLE	0x0100
+#define UCC_HDLC_UCCE_BRKE	0x0040
+#define UCC_HDLC_UCCE_BRKS	0x0020
+#define UCC_HDLC_UCCE_TXE	0x0010
+#define UCC_HDLC_UCCE_RXF	0x0008
+#define UCC_HDLC_UCCE_BSY	0x0004
+#define UCC_HDLC_UCCE_TXB	0x0002
+#define UCC_HDLC_UCCE_RXB	0x0001
 
-#define UCC_SLOW_UCCE_OTHER	(UCC_SLOW_UCCE_TXE | UCC_SLOW_UCCE_BSY | \
-		UCC_SLOW_UCCE_GRA | UCC_SLOW_UCCE_DCC | UCC_SLOW_UCCE_GLT | \
-		UCC_SLOW_UCCE_GLR)
+/* BISYNC Slow UCC Event Register (UCCE) */
+#define UCC_BISYNC_UCCE_GRA	0x0080
+#define UCC_BISYNC_UCCE_TXE	0x0010
+#define UCC_BISYNC_UCCE_RCH	0x0008
+#define UCC_BISYNC_UCCE_BSY	0x0004
+#define UCC_BISYNC_UCCE_TXB	0x0002
+#define UCC_BISYNC_UCCE_RXB	0x0001
 
-#define UCC_SLOW_INTR_TX	UCC_SLOW_UCCE_TXB
-#define UCC_SLOW_INTR_RX	(UCC_SLOW_UCCE_RXF | UCC_SLOW_UCCE_RX)
-#define UCC_SLOW_INTR		(UCC_SLOW_INTR_TX | UCC_SLOW_INTR_RX)
+/* Gigabit Ethernet Fast UCC Event Register (UCCE) */
+#define UCC_GETH_UCCE_MPD       0x80000000
+#define UCC_GETH_UCCE_SCAR      0x40000000
+#define UCC_GETH_UCCE_GRA       0x20000000
+#define UCC_GETH_UCCE_CBPR      0x10000000
+#define UCC_GETH_UCCE_BSY       0x08000000
+#define UCC_GETH_UCCE_RXC       0x04000000
+#define UCC_GETH_UCCE_TXC       0x02000000
+#define UCC_GETH_UCCE_TXE       0x01000000
+#define UCC_GETH_UCCE_TXB7      0x00800000
+#define UCC_GETH_UCCE_TXB6      0x00400000
+#define UCC_GETH_UCCE_TXB5      0x00200000
+#define UCC_GETH_UCCE_TXB4      0x00100000
+#define UCC_GETH_UCCE_TXB3      0x00080000
+#define UCC_GETH_UCCE_TXB2      0x00040000
+#define UCC_GETH_UCCE_TXB1      0x00020000
+#define UCC_GETH_UCCE_TXB0      0x00010000
+#define UCC_GETH_UCCE_RXB7      0x00008000
+#define UCC_GETH_UCCE_RXB6      0x00004000
+#define UCC_GETH_UCCE_RXB5      0x00002000
+#define UCC_GETH_UCCE_RXB4      0x00001000
+#define UCC_GETH_UCCE_RXB3      0x00000800
+#define UCC_GETH_UCCE_RXB2      0x00000400
+#define UCC_GETH_UCCE_RXB1      0x00000200
+#define UCC_GETH_UCCE_RXB0      0x00000100
+#define UCC_GETH_UCCE_RXF7      0x00000080
+#define UCC_GETH_UCCE_RXF6      0x00000040
+#define UCC_GETH_UCCE_RXF5      0x00000020
+#define UCC_GETH_UCCE_RXF4      0x00000010
+#define UCC_GETH_UCCE_RXF3      0x00000008
+#define UCC_GETH_UCCE_RXF2      0x00000004
+#define UCC_GETH_UCCE_RXF1      0x00000002
+#define UCC_GETH_UCCE_RXF0      0x00000001
+
+/* UPSMR, when used as a UART */
+#define UCC_UART_UPSMR_FLC		0x8000
+#define UCC_UART_UPSMR_SL		0x4000
+#define UCC_UART_UPSMR_CL_MASK		0x3000
+#define UCC_UART_UPSMR_CL_8		0x3000
+#define UCC_UART_UPSMR_CL_7		0x2000
+#define UCC_UART_UPSMR_CL_6		0x1000
+#define UCC_UART_UPSMR_CL_5		0x0000
+#define UCC_UART_UPSMR_UM_MASK		0x0c00
+#define UCC_UART_UPSMR_UM_NORMAL	0x0000
+#define UCC_UART_UPSMR_UM_MAN_MULTI	0x0400
+#define UCC_UART_UPSMR_UM_AUTO_MULTI	0x0c00
+#define UCC_UART_UPSMR_FRZ		0x0200
+#define UCC_UART_UPSMR_RZS		0x0100
+#define UCC_UART_UPSMR_SYN		0x0080
+#define UCC_UART_UPSMR_DRT		0x0040
+#define UCC_UART_UPSMR_PEN		0x0010
+#define UCC_UART_UPSMR_RPM_MASK		0x000c
+#define UCC_UART_UPSMR_RPM_ODD		0x0000
+#define UCC_UART_UPSMR_RPM_LOW		0x0004
+#define UCC_UART_UPSMR_RPM_EVEN		0x0008
+#define UCC_UART_UPSMR_RPM_HIGH		0x000C
+#define UCC_UART_UPSMR_TPM_MASK		0x0003
+#define UCC_UART_UPSMR_TPM_ODD		0x0000
+#define UCC_UART_UPSMR_TPM_LOW		0x0001
+#define UCC_UART_UPSMR_TPM_EVEN		0x0002
+#define UCC_UART_UPSMR_TPM_HIGH		0x0003
 
 /* UCC Transmit On Demand Register (UTODR) */
 #define UCC_SLOW_TOD	0x8000
 #define UCC_FAST_TOD	0x8000
+
+/* UCC Bus Mode Register masks */
+/* Not to be confused with the Bundle Mode Register */
+#define UCC_BMR_GBL		0x20
+#define UCC_BMR_BO_BE		0x10
+#define UCC_BMR_CETM		0x04
+#define UCC_BMR_DTB		0x02
+#define UCC_BMR_BDB		0x01
 
 /* Function code masks */
 #define FC_GBL				0x20

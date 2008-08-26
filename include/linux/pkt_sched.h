@@ -77,11 +77,33 @@ struct tc_ratespec
 {
 	unsigned char	cell_log;
 	unsigned char	__reserved;
-	unsigned short	feature;
-	short		addend;
+	unsigned short	overhead;
+	short		cell_align;
 	unsigned short	mpu;
 	__u32		rate;
 };
+
+#define TC_RTAB_SIZE	1024
+
+struct tc_sizespec {
+	unsigned char	cell_log;
+	unsigned char	size_log;
+	short		cell_align;
+	int		overhead;
+	unsigned int	linklayer;
+	unsigned int	mpu;
+	unsigned int	mtu;
+	unsigned int	tsize;
+};
+
+enum {
+	TCA_STAB_UNSPEC,
+	TCA_STAB_BASE,
+	TCA_STAB_DATA,
+	__TCA_STAB_MAX
+};
+
+#define TCA_STAB_MAX (__TCA_STAB_MAX - 1)
 
 /* FIFO section */
 
@@ -100,15 +122,6 @@ struct tc_prio_qopt
 	int	bands;			/* Number of bands */
 	__u8	priomap[TC_PRIO_MAX+1];	/* Map: logical priority -> PRIO band */
 };
-
-enum
-{
-	TCA_PRIO_UNSPEC,
-	TCA_PRIO_MQ,
-	__TCA_PRIO_MAX
-};
-
-#define TCA_PRIO_MAX    (__TCA_PRIO_MAX - 1)
 
 /* TBF section */
 
@@ -146,6 +159,11 @@ struct tc_sfq_qopt
 	__u32		limit;		/* Maximal packets in queue */
 	unsigned	divisor;	/* Hash divisor  */
 	unsigned	flows;		/* Maximal number of flows  */
+};
+
+struct tc_sfq_xstats
+{
+	__s32		allot;
 };
 
 /*

@@ -22,7 +22,6 @@
 #include <linux/ptrace.h>
 #include <linux/slab.h>
 #include <linux/user.h>
-#include <linux/a.out.h>
 #include <linux/utsname.h>
 #include <linux/time.h>
 #include <linux/timex.h>
@@ -76,6 +75,7 @@ osf_set_program_attributes(unsigned long text_start, unsigned long text_len,
 	lock_kernel();
 	mm = current->mm;
 	mm->end_code = bss_start + bss_len;
+	mm->start_brk = bss_start + bss_len;
 	mm->brk = bss_start + bss_len;
 #if 0
 	printk("set_program_attributes(%lx %lx %lx %lx)\n",
@@ -253,15 +253,15 @@ do_osf_statfs(struct dentry * dentry, struct osf_statfs __user *buffer,
 }
 
 asmlinkage int
-osf_statfs(char __user *path, struct osf_statfs __user *buffer, unsigned long bufsiz)
+osf_statfs(char __user *pathname, struct osf_statfs __user *buffer, unsigned long bufsiz)
 {
-	struct nameidata nd;
+	struct path path;
 	int retval;
 
-	retval = user_path_walk(path, &nd);
+	retval = user_path(pathname, &path);
 	if (!retval) {
-		retval = do_osf_statfs(nd.dentry, buffer, bufsiz);
-		path_release(&nd);
+		retval = do_osf_statfs(path.dentry, buffer, bufsiz);
+		path_put(&path);
 	}
 	return retval;
 }
@@ -430,7 +430,7 @@ sys_getpagesize(void)
 asmlinkage unsigned long
 sys_getdtablesize(void)
 {
-	return NR_OPEN;
+	return sysctl_nr_open;
 }
 
 /*
@@ -715,7 +715,7 @@ osf_setsysinfo(unsigned long op, void __user *buffer, unsigned long nbytes,
 		/* 
 		 * Alpha Architecture Handbook 4.7.7.3:
 		 * To be fully IEEE compiant, we must track the current IEEE
-		 * exception state in software, because spurrious bits can be
+		 * exception state in software, because spurious bits can be
 		 * set in the trap shadow of a software-complete insn.
 		 */
 
@@ -981,27 +981,18 @@ asmlinkage int
 osf_select(int n, fd_set __user *inp, fd_set __user *outp, fd_set __user *exp,
 	   struct timeval32 __user *tvp)
 {
-	fd_set_bits fds;
-	char *bits;
-	size_t size;
-	long timeout;
-	int ret = -EINVAL;
-	struct fdtable *fdt;
-	int max_fds;
-
-	timeout = MAX_SCHEDULE_TIMEOUT;
+	s64 timeout = MAX_SCHEDULE_TIMEOUT;
 	if (tvp) {
 		time_t sec, usec;
 
 		if (!access_ok(VERIFY_READ, tvp, sizeof(*tvp))
 		    || __get_user(sec, &tvp->tv_sec)
 		    || __get_user(usec, &tvp->tv_usec)) {
-		    	ret = -EFAULT;
-			goto out_nofds;
+		    	return -EFAULT;
 		}
 
 		if (sec < 0 || usec < 0)
-			goto out_nofds;
+			return -EINVAL;
 
 		if ((unsigned long) sec < MAX_SELECT_SECONDS) {
 			timeout = (usec + 1000000/HZ - 1) / (1000000/HZ);
@@ -1009,60 +1000,8 @@ osf_select(int n, fd_set __user *inp, fd_set __user *outp, fd_set __user *exp,
 		}
 	}
 
-	rcu_read_lock();
-	fdt = files_fdtable(current->files);
-	max_fds = fdt->max_fds;
-	rcu_read_unlock();
-	if (n < 0 || n > max_fds)
-		goto out_nofds;
-
-	/*
-	 * We need 6 bitmaps (in/out/ex for both incoming and outgoing),
-	 * since we used fdset we need to allocate memory in units of
-	 * long-words. 
-	 */
-	ret = -ENOMEM;
-	size = FDS_BYTES(n);
-	bits = kmalloc(6 * size, GFP_KERNEL);
-	if (!bits)
-		goto out_nofds;
-	fds.in      = (unsigned long *)  bits;
-	fds.out     = (unsigned long *) (bits +   size);
-	fds.ex      = (unsigned long *) (bits + 2*size);
-	fds.res_in  = (unsigned long *) (bits + 3*size);
-	fds.res_out = (unsigned long *) (bits + 4*size);
-	fds.res_ex  = (unsigned long *) (bits + 5*size);
-
-	if ((ret = get_fd_set(n, inp->fds_bits, fds.in)) ||
-	    (ret = get_fd_set(n, outp->fds_bits, fds.out)) ||
-	    (ret = get_fd_set(n, exp->fds_bits, fds.ex)))
-		goto out;
-	zero_fd_set(n, fds.res_in);
-	zero_fd_set(n, fds.res_out);
-	zero_fd_set(n, fds.res_ex);
-
-	ret = do_select(n, &fds, &timeout);
-
 	/* OSF does not copy back the remaining time.  */
-
-	if (ret < 0)
-		goto out;
-	if (!ret) {
-		ret = -ERESTARTNOHAND;
-		if (signal_pending(current))
-			goto out;
-		ret = 0;
-	}
-
-	if (set_fd_set(n, inp->fds_bits, fds.res_in) ||
-	    set_fd_set(n, outp->fds_bits, fds.res_out) ||
-	    set_fd_set(n, exp->fds_bits, fds.res_ex))
-		ret = -EFAULT;
-
- out:
-	kfree(bits);
- out_nofds:
-	return ret;
+	return core_sys_select(n, inp, outp, exp, &timeout);
 }
 
 struct rusage32 {

@@ -68,7 +68,7 @@ static struct cached_info *get_cached_info(struct spu *the_spu, int spu_num)
 	if (spu_num >= num_spu_nodes) {
 		printk(KERN_ERR "SPU_PROF: "
 		       "%s, line %d: Invalid index %d into spu info cache\n",
-		       __FUNCTION__, __LINE__, spu_num);
+		       __func__, __LINE__, spu_num);
 		ret_info = NULL;
 		goto out;
 	}
@@ -115,7 +115,7 @@ prepare_cached_spu_info(struct spu *spu, unsigned long objectId)
 	if (!info) {
 		printk(KERN_ERR "SPU_PROF: "
 		       "%s, line %d: create vma_map failed\n",
-		       __FUNCTION__, __LINE__);
+		       __func__, __LINE__);
 		retval = -ENOMEM;
 		goto err_alloc;
 	}
@@ -123,7 +123,7 @@ prepare_cached_spu_info(struct spu *spu, unsigned long objectId)
 	if (!new_map) {
 		printk(KERN_ERR "SPU_PROF: "
 		       "%s, line %d: create vma_map failed\n",
-		       __FUNCTION__, __LINE__);
+		       __func__, __LINE__);
 		retval = -ENOMEM;
 		goto err_alloc;
 	}
@@ -171,7 +171,7 @@ static int release_cached_info(int spu_index)
 			printk(KERN_ERR "SPU_PROF: "
 				"%s, line %d: "
 				"Invalid index %d into spu info cache\n",
-				__FUNCTION__, __LINE__, spu_index);
+				__func__, __LINE__, spu_index);
 			goto out;
 		}
 		end = spu_index + 1;
@@ -198,14 +198,13 @@ out:
  * dcookie user still being registered (namely, the reader
  * of the event buffer).
  */
-static inline unsigned long fast_get_dcookie(struct dentry *dentry,
-					     struct vfsmount *vfsmnt)
+static inline unsigned long fast_get_dcookie(struct path *path)
 {
 	unsigned long cookie;
 
-	if (dentry->d_cookie)
-		return (unsigned long)dentry;
-	get_dcookie(dentry, vfsmnt, &cookie);
+	if (path->dentry->d_cookie)
+		return (unsigned long)path->dentry;
+	get_dcookie(path, &cookie);
 	return cookie;
 }
 
@@ -240,8 +239,7 @@ get_exec_dcookie_and_offset(struct spu *spu, unsigned int *offsetp,
 			continue;
 		if (!(vma->vm_flags & VM_EXECUTABLE))
 			continue;
-		app_cookie = fast_get_dcookie(vma->vm_file->f_dentry,
-					  vma->vm_file->f_vfsmnt);
+		app_cookie = fast_get_dcookie(&vma->vm_file->f_path);
 		pr_debug("got dcookie for %s\n",
 			 vma->vm_file->f_dentry->d_name.name);
 		app = vma->vm_file;
@@ -262,8 +260,7 @@ get_exec_dcookie_and_offset(struct spu *spu, unsigned int *offsetp,
 		break;
 	}
 
-	*spu_bin_dcookie = fast_get_dcookie(vma->vm_file->f_dentry,
-						 vma->vm_file->f_vfsmnt);
+	*spu_bin_dcookie = fast_get_dcookie(&vma->vm_file->f_path);
 	pr_debug("got dcookie for %s\n", vma->vm_file->f_dentry->d_name.name);
 
 	up_read(&mm->mmap_sem);
@@ -276,7 +273,7 @@ fail_no_image_cookie:
 
 	printk(KERN_ERR "SPU_PROF: "
 		"%s, line %d: Cannot find dcookie for SPU binary\n",
-		__FUNCTION__, __LINE__);
+		__func__, __LINE__);
 	goto out;
 }
 
@@ -470,7 +467,7 @@ int spu_sync_stop(void)
 	if (ret) {
 		printk(KERN_ERR "SPU_PROF: "
 			"%s, line %d: spu_switch_event_unregister returned %d\n",
-			__FUNCTION__, __LINE__, ret);
+			__func__, __LINE__, ret);
 		goto out;
 	}
 

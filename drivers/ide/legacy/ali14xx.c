@@ -1,6 +1,4 @@
 /*
- *  linux/drivers/ide/legacy/ali14xx.c		Version 0.03	Feb 09, 1996
- *
  *  Copyright (C) 1996  Linus Torvalds & author (see below)
  */
 
@@ -51,14 +49,17 @@
 
 #include <asm/io.h>
 
+#define DRV_NAME "ali14xx"
+
 /* port addresses for auto-detection */
 #define ALI_NUM_PORTS 4
-static int ports[ALI_NUM_PORTS] __initdata = {0x074, 0x0f4, 0x034, 0x0e4};
+static const int ports[ALI_NUM_PORTS] __initdata =
+	{ 0x074, 0x0f4, 0x034, 0x0e4 };
 
 /* register initialization data */
 typedef struct { u8 reg, data; } RegInitializer;
 
-static RegInitializer initData[] __initdata = {
+static const RegInitializer initData[] __initdata = {
 	{0x01, 0x0f}, {0x02, 0x00}, {0x03, 0x00}, {0x04, 0x00},
 	{0x05, 0x00}, {0x06, 0x00}, {0x07, 0x2b}, {0x0a, 0x0f},
 	{0x25, 0x00}, {0x26, 0x00}, {0x27, 0x00}, {0x28, 0x00},
@@ -67,8 +68,6 @@ static RegInitializer initData[] __initdata = {
 	{0x31, 0x00}, {0x32, 0x00}, {0x33, 0x00}, {0x34, 0xff},
 	{0x35, 0x03}, {0x00, 0x00}
 };
-
-#define ALI_MAX_PIO 4
 
 /* timing parameter registers for each drive */
 static struct { u8 reg1, reg2, reg3, reg4; } regTab[4] = {
@@ -89,7 +88,7 @@ static u8 regOff;	/* output to base port to close registers */
 /*
  * Read a controller register.
  */
-static inline u8 inReg (u8 reg)
+static inline u8 inReg(u8 reg)
 {
 	outb_p(reg, regPort);
 	return inb(dataPort);
@@ -98,30 +97,31 @@ static inline u8 inReg (u8 reg)
 /*
  * Write a controller register.
  */
-static void outReg (u8 data, u8 reg)
+static void outReg(u8 data, u8 reg)
 {
 	outb_p(reg, regPort);
 	outb_p(data, dataPort);
 }
+
+static DEFINE_SPINLOCK(ali14xx_lock);
 
 /*
  * Set PIO mode for the specified drive.
  * This function computes timing parameters
  * and sets controller registers accordingly.
  */
-static void ali14xx_tune_drive (ide_drive_t *drive, u8 pio)
+static void ali14xx_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
 	int driveNum;
 	int time1, time2;
 	u8 param1, param2, param3, param4;
 	unsigned long flags;
-	int bus_speed = system_bus_clock();
-
-	pio = ide_get_best_pio_mode(drive, pio, ALI_MAX_PIO);
+	int bus_speed = ide_vlb_clk ? ide_vlb_clk : 50;
+	struct ide_timing *t = ide_timing_find_mode(XFER_PIO_0 + pio);
 
 	/* calculate timing, according to PIO mode */
 	time1 = ide_pio_cycle_time(drive, pio);
-	time2 = ide_pio_timings[pio].active_time;
+	time2 = t->active;
 	param3 = param1 = (time2 * bus_speed + 999) / 1000;
 	param4 = param2 = (time1 * bus_speed + 999) / 1000 - param1;
 	if (pio < 3) {
@@ -133,20 +133,20 @@ static void ali14xx_tune_drive (ide_drive_t *drive, u8 pio)
 
 	/* stuff timing parameters into controller registers */
 	driveNum = (HWIF(drive)->index << 1) + drive->select.b.unit;
-	spin_lock_irqsave(&ide_lock, flags);
+	spin_lock_irqsave(&ali14xx_lock, flags);
 	outb_p(regOn, basePort);
 	outReg(param1, regTab[driveNum].reg1);
 	outReg(param2, regTab[driveNum].reg2);
 	outReg(param3, regTab[driveNum].reg3);
 	outReg(param4, regTab[driveNum].reg4);
 	outb_p(regOff, basePort);
-	spin_unlock_irqrestore(&ide_lock, flags);
+	spin_unlock_irqrestore(&ali14xx_lock, flags);
 }
 
 /*
  * Auto-detect the IDE controller port.
  */
-static int __init findPort (void)
+static int __init findPort(void)
 {
 	int i;
 	u8 t;
@@ -178,8 +178,9 @@ static int __init findPort (void)
 /*
  * Initialize controller registers with default values.
  */
-static int __init initRegisters (void) {
-	RegInitializer *p;
+static int __init initRegisters(void)
+{
+	const RegInitializer *p;
 	u8 t;
 	unsigned long flags;
 
@@ -194,10 +195,20 @@ static int __init initRegisters (void) {
 	return t;
 }
 
+static const struct ide_port_ops ali14xx_port_ops = {
+	.set_pio_mode		= ali14xx_set_pio_mode,
+};
+
+static const struct ide_port_info ali14xx_port_info = {
+	.name			= DRV_NAME,
+	.chipset		= ide_ali14xx,
+	.port_ops		= &ali14xx_port_ops,
+	.host_flags		= IDE_HFLAG_NO_DMA,
+	.pio_mask		= ATA_PIO4,
+};
+
 static int __init ali14xx_probe(void)
 {
-	ide_hwif_t *hwif, *mate;
-
 	printk(KERN_DEBUG "ali14xx: base=0x%03x, regOn=0x%02x.\n",
 			  basePort, regOn);
 
@@ -207,36 +218,15 @@ static int __init ali14xx_probe(void)
 		return 1;
 	}
 
-	hwif = &ide_hwifs[0];
-	mate = &ide_hwifs[1];
-
-	hwif->chipset = ide_ali14xx;
-	hwif->pio_mask = ATA_PIO4;
-	hwif->tuneproc = &ali14xx_tune_drive;
-	hwif->mate = mate;
-
-	mate->chipset = ide_ali14xx;
-	mate->pio_mask = ATA_PIO4;
-	mate->tuneproc = &ali14xx_tune_drive;
-	mate->mate = hwif;
-	mate->channel = 1;
-
-	probe_hwif_init(hwif);
-	probe_hwif_init(mate);
-
-	ide_proc_register_port(hwif);
-	ide_proc_register_port(mate);
-
-	return 0;
+	return ide_legacy_device_add(&ali14xx_port_info, 0);
 }
 
-int probe_ali14xx = 0;
+static int probe_ali14xx;
 
 module_param_named(probe, probe_ali14xx, bool, 0);
 MODULE_PARM_DESC(probe, "probe for ALI M14xx chipsets");
 
-/* Can be called directly from ide.c. */
-int __init ali14xx_init(void)
+static int __init ali14xx_init(void)
 {
 	if (probe_ali14xx == 0)
 		goto out;
@@ -252,9 +242,7 @@ out:
 	return -ENODEV;
 }
 
-#ifdef MODULE
 module_init(ali14xx_init);
-#endif
 
 MODULE_AUTHOR("see local file");
 MODULE_DESCRIPTION("support of ALI 14XX IDE chipsets");

@@ -28,8 +28,6 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
- *
- * $Id: ipoib_vlan.c 1349 2004-12-16 21:09:43Z roland $
  */
 
 #include <linux/module.h>
@@ -89,6 +87,10 @@ int ipoib_vlan_add(struct net_device *pdev, unsigned short pkey)
 		goto err;
 	}
 
+	priv->max_ib_mtu = ppriv->max_ib_mtu;
+	/* MTU will be reset when mcast join happens */
+	priv->dev->mtu   = IPOIB_UD_MTU(priv->max_ib_mtu);
+	priv->mcast_mtu  = priv->admin_mtu = priv->dev->mtu;
 	set_bit(IPOIB_FLAG_SUBINTERFACE, &priv->flags);
 
 	priv->pkey = pkey;
@@ -118,6 +120,8 @@ int ipoib_vlan_add(struct net_device *pdev, unsigned short pkey)
 	if (ipoib_cm_add_mode_attr(priv->dev))
 		goto sysfs_failed;
 	if (ipoib_add_pkey_attr(priv->dev))
+		goto sysfs_failed;
+	if (ipoib_add_umcast_attr(priv->dev))
 		goto sysfs_failed;
 
 	if (device_create_file(&priv->dev->dev, &dev_attr_parent))

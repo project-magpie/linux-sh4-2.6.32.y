@@ -72,24 +72,14 @@ struct netfront_info {
 	struct list_head list;
 	struct net_device *netdev;
 
-	struct net_device_stats stats;
-
-	struct xen_netif_tx_front_ring tx;
-	struct xen_netif_rx_front_ring rx;
-
-	spinlock_t   tx_lock;
-	spinlock_t   rx_lock;
+	struct napi_struct napi;
 
 	unsigned int evtchn;
+	struct xenbus_device *xbdev;
 
-	/* Receive-ring batched refills. */
-#define RX_MIN_TARGET 8
-#define RX_DFL_MIN_TARGET 64
-#define RX_MAX_TARGET min_t(int, NET_RX_RING_SIZE, 256)
-	unsigned rx_min_target, rx_max_target, rx_target;
-	struct sk_buff_head rx_batch;
-
-	struct timer_list rx_refill_timer;
+	spinlock_t   tx_lock;
+	struct xen_netif_tx_front_ring tx;
+	int tx_ring_ref;
 
 	/*
 	 * {tx,rx}_skbs store outstanding skbuffs. Free tx_skb entries
@@ -102,19 +92,28 @@ struct netfront_info {
 	 */
 	union skb_entry {
 		struct sk_buff *skb;
-		unsigned link;
+		unsigned long link;
 	} tx_skbs[NET_TX_RING_SIZE];
 	grant_ref_t gref_tx_head;
 	grant_ref_t grant_tx_ref[NET_TX_RING_SIZE];
 	unsigned tx_skb_freelist;
 
+	spinlock_t   rx_lock ____cacheline_aligned_in_smp;
+	struct xen_netif_rx_front_ring rx;
+	int rx_ring_ref;
+
+	/* Receive-ring batched refills. */
+#define RX_MIN_TARGET 8
+#define RX_DFL_MIN_TARGET 64
+#define RX_MAX_TARGET min_t(int, NET_RX_RING_SIZE, 256)
+	unsigned rx_min_target, rx_max_target, rx_target;
+	struct sk_buff_head rx_batch;
+
+	struct timer_list rx_refill_timer;
+
 	struct sk_buff *rx_skbs[NET_RX_RING_SIZE];
 	grant_ref_t gref_rx_head;
 	grant_ref_t grant_rx_ref[NET_RX_RING_SIZE];
-
-	struct xenbus_device *xbdev;
-	int tx_ring_ref;
-	int rx_ring_ref;
 
 	unsigned long rx_pfn_array[NET_RX_RING_SIZE];
 	struct multicall_entry rx_mcl[NET_RX_RING_SIZE+1];
@@ -126,6 +125,17 @@ struct netfront_rx_info {
 	struct xen_netif_extra_info extras[XEN_NETIF_EXTRA_TYPE_MAX - 1];
 };
 
+static void skb_entry_set_link(union skb_entry *list, unsigned short id)
+{
+	list->link = id;
+}
+
+static int skb_entry_is_link(const union skb_entry *list)
+{
+	BUILD_BUG_ON(sizeof(list->skb) != sizeof(list->link));
+	return ((unsigned long)list->skb < PAGE_OFFSET);
+}
+
 /*
  * Access macros for acquiring freeing slots in tx_skbs[].
  */
@@ -133,7 +143,7 @@ struct netfront_rx_info {
 static void add_id_to_freelist(unsigned *head, union skb_entry *list,
 			       unsigned short id)
 {
-	list[id].link = *head;
+	skb_entry_set_link(&list[id], *head);
 	*head = id;
 }
 
@@ -185,7 +195,8 @@ static int xennet_can_sg(struct net_device *dev)
 static void rx_refill_timeout(unsigned long data)
 {
 	struct net_device *dev = (struct net_device *)data;
-	netif_rx_schedule(dev);
+	struct netfront_info *np = netdev_priv(dev);
+	netif_rx_schedule(dev, &np->napi);
 }
 
 static int netfront_tx_slot_available(struct netfront_info *np)
@@ -212,11 +223,9 @@ static void xennet_alloc_rx_buffers(struct net_device *dev)
 	struct page *page;
 	int i, batch_target, notify;
 	RING_IDX req_prod = np->rx.req_prod_pvt;
-	struct xen_memory_reservation reservation;
 	grant_ref_t ref;
 	unsigned long pfn;
 	void *vaddr;
-	int nr_flips;
 	struct xen_netif_rx_request *req;
 
 	if (unlikely(!netif_carrier_ok(dev)))
@@ -266,7 +275,7 @@ no_skb:
 		np->rx_target = np->rx_max_target;
 
  refill:
-	for (nr_flips = i = 0; ; i++) {
+	for (i = 0; ; i++) {
 		skb = __skb_dequeue(&np->rx_batch);
 		if (skb == NULL)
 			break;
@@ -295,38 +304,7 @@ no_skb:
 		req->gref = ref;
 	}
 
-	if (nr_flips != 0) {
-		reservation.extent_start = np->rx_pfn_array;
-		reservation.nr_extents   = nr_flips;
-		reservation.extent_order = 0;
-		reservation.address_bits = 0;
-		reservation.domid        = DOMID_SELF;
-
-		if (!xen_feature(XENFEAT_auto_translated_physmap)) {
-			/* After all PTEs have been zapped, flush the TLB. */
-			np->rx_mcl[i-1].args[MULTI_UVMFLAGS_INDEX] =
-				UVMF_TLB_FLUSH|UVMF_ALL;
-
-			/* Give away a batch of pages. */
-			np->rx_mcl[i].op = __HYPERVISOR_memory_op;
-			np->rx_mcl[i].args[0] = XENMEM_decrease_reservation;
-			np->rx_mcl[i].args[1] = (unsigned long)&reservation;
-
-			/* Zap PTEs and give away pages in one big
-			 * multicall. */
-			(void)HYPERVISOR_multicall(np->rx_mcl, i+1);
-
-			/* Check return status of HYPERVISOR_memory_op(). */
-			if (unlikely(np->rx_mcl[i].result != i))
-				panic("Unable to reduce memory reservation\n");
-		} else {
-			if (HYPERVISOR_memory_op(XENMEM_decrease_reservation,
-						 &reservation) != i)
-				panic("Unable to reduce memory reservation\n");
-		}
-	} else {
-		wmb();		/* barrier so backend seens requests */
-	}
+	wmb();		/* barrier so backend seens requests */
 
 	/* Above is a suitable barrier to ensure backend will see requests. */
 	np->rx.req_prod_pvt = req_prod + i;
@@ -340,14 +318,14 @@ static int xennet_open(struct net_device *dev)
 {
 	struct netfront_info *np = netdev_priv(dev);
 
-	memset(&np->stats, 0, sizeof(np->stats));
+	napi_enable(&np->napi);
 
 	spin_lock_bh(&np->rx_lock);
 	if (netif_carrier_ok(dev)) {
 		xennet_alloc_rx_buffers(dev);
 		np->rx.sring->rsp_event = np->rx.rsp_cons + 1;
 		if (RING_HAS_UNCONSUMED_RESPONSES(&np->rx))
-			netif_rx_schedule(dev);
+			netif_rx_schedule(dev, &np->napi);
 	}
 	spin_unlock_bh(&np->rx_lock);
 
@@ -566,8 +544,8 @@ static int xennet_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (notify)
 		notify_remote_via_irq(np->netdev->irq);
 
-	np->stats.tx_bytes += skb->len;
-	np->stats.tx_packets++;
+	dev->stats.tx_bytes += skb->len;
+	dev->stats.tx_packets++;
 
 	/* Note: It is not safe to access skb after xennet_tx_buf_gc()! */
 	xennet_tx_buf_gc(dev);
@@ -580,7 +558,7 @@ static int xennet_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return 0;
 
  drop:
-	np->stats.tx_dropped++;
+	dev->stats.tx_dropped++;
 	dev_kfree_skb(skb);
 	return 0;
 }
@@ -589,13 +567,8 @@ static int xennet_close(struct net_device *dev)
 {
 	struct netfront_info *np = netdev_priv(dev);
 	netif_stop_queue(np->netdev);
+	napi_disable(&np->napi);
 	return 0;
-}
-
-static struct net_device_stats *xennet_get_stats(struct net_device *dev)
-{
-	struct netfront_info *np = netdev_priv(dev);
-	return &np->stats;
 }
 
 static void xennet_move_rx_slot(struct netfront_info *np, struct sk_buff *skb,
@@ -832,9 +805,8 @@ out:
 }
 
 static int handle_incoming_queue(struct net_device *dev,
-				  struct sk_buff_head *rxq)
+				 struct sk_buff_head *rxq)
 {
-	struct netfront_info *np = netdev_priv(dev);
 	int packets_dropped = 0;
 	struct sk_buff *skb;
 
@@ -856,13 +828,13 @@ static int handle_incoming_queue(struct net_device *dev,
 			if (skb_checksum_setup(skb)) {
 				kfree_skb(skb);
 				packets_dropped++;
-				np->stats.rx_errors++;
+				dev->stats.rx_errors++;
 				continue;
 			}
 		}
 
-		np->stats.rx_packets++;
-		np->stats.rx_bytes += skb->len;
+		dev->stats.rx_packets++;
+		dev->stats.rx_bytes += skb->len;
 
 		/* Pass it up. */
 		netif_receive_skb(skb);
@@ -872,15 +844,16 @@ static int handle_incoming_queue(struct net_device *dev,
 	return packets_dropped;
 }
 
-static int xennet_poll(struct net_device *dev, int *pbudget)
+static int xennet_poll(struct napi_struct *napi, int budget)
 {
-	struct netfront_info *np = netdev_priv(dev);
+	struct netfront_info *np = container_of(napi, struct netfront_info, napi);
+	struct net_device *dev = np->netdev;
 	struct sk_buff *skb;
 	struct netfront_rx_info rinfo;
 	struct xen_netif_rx_response *rx = &rinfo.rx;
 	struct xen_netif_extra_info *extras = rinfo.extras;
 	RING_IDX i, rp;
-	int work_done, budget, more_to_do = 1;
+	int work_done;
 	struct sk_buff_head rxq;
 	struct sk_buff_head errq;
 	struct sk_buff_head tmpq;
@@ -890,18 +863,10 @@ static int xennet_poll(struct net_device *dev, int *pbudget)
 
 	spin_lock(&np->rx_lock);
 
-	if (unlikely(!netif_carrier_ok(dev))) {
-		spin_unlock(&np->rx_lock);
-		return 0;
-	}
-
 	skb_queue_head_init(&rxq);
 	skb_queue_head_init(&errq);
 	skb_queue_head_init(&tmpq);
 
-	budget = *pbudget;
-	if (budget > dev->quota)
-		budget = dev->quota;
 	rp = np->rx.sring->rsp_prod;
 	rmb(); /* Ensure we see queued responses up to 'rp'. */
 
@@ -917,7 +882,7 @@ static int xennet_poll(struct net_device *dev, int *pbudget)
 err:
 			while ((skb = __skb_dequeue(&tmpq)))
 				__skb_queue_tail(&errq, skb);
-			np->stats.rx_errors++;
+			dev->stats.rx_errors++;
 			i = np->rx.rsp_cons;
 			continue;
 		}
@@ -992,8 +957,7 @@ err:
 		work_done++;
 	}
 
-	while ((skb = __skb_dequeue(&errq)))
-		kfree_skb(skb);
+	__skb_queue_purge(&errq);
 
 	work_done -= handle_incoming_queue(dev, &rxq);
 
@@ -1006,22 +970,21 @@ err:
 
 	xennet_alloc_rx_buffers(dev);
 
-	*pbudget   -= work_done;
-	dev->quota -= work_done;
-
 	if (work_done < budget) {
+		int more_to_do = 0;
+
 		local_irq_save(flags);
 
 		RING_FINAL_CHECK_FOR_RESPONSES(&np->rx, more_to_do);
 		if (!more_to_do)
-			__netif_rx_complete(dev);
+			__netif_rx_complete(dev, napi);
 
 		local_irq_restore(flags);
 	}
 
 	spin_unlock(&np->rx_lock);
 
-	return more_to_do;
+	return work_done;
 }
 
 static int xennet_change_mtu(struct net_device *dev, int mtu)
@@ -1041,7 +1004,7 @@ static void xennet_release_tx_bufs(struct netfront_info *np)
 
 	for (i = 0; i < NET_TX_RING_SIZE; i++) {
 		/* Skip over entries which are actually freelist references */
-		if ((unsigned long)np->tx_skbs[i].skb < PAGE_OFFSET)
+		if (skb_entry_is_link(&np->tx_skbs[i]))
 			continue;
 
 		skb = np->tx_skbs[i].skb;
@@ -1120,14 +1083,13 @@ static void xennet_release_rx_bufs(struct netfront_info *np)
 		if (!xen_feature(XENFEAT_auto_translated_physmap)) {
 			/* Do all the remapping work and M2P updates. */
 			MULTI_mmu_update(mcl, np->rx_mmu, mmu - np->rx_mmu,
-					 0, DOMID_SELF);
+					 NULL, DOMID_SELF);
 			mcl++;
 			HYPERVISOR_multicall(np->rx_mcl, mcl - np->rx_mcl);
 		}
 	}
 
-	while ((skb = __skb_dequeue(&free_list)) != NULL)
-		dev_kfree_skb(skb);
+	__skb_queue_purge(&free_list);
 
 	spin_unlock_bh(&np->rx_lock);
 }
@@ -1172,7 +1134,7 @@ static struct net_device * __devinit xennet_create_dev(struct xenbus_device *dev
 	/* Initialise tx_skbs as a free chain containing every entry. */
 	np->tx_skb_freelist = 0;
 	for (i = 0; i < NET_TX_RING_SIZE; i++) {
-		np->tx_skbs[i].link = i+1;
+		skb_entry_set_link(&np->tx_skbs[i], i+1);
 		np->grant_tx_ref[i] = GRANT_INVALID_REF;
 	}
 
@@ -1200,15 +1162,12 @@ static struct net_device * __devinit xennet_create_dev(struct xenbus_device *dev
 	netdev->open            = xennet_open;
 	netdev->hard_start_xmit = xennet_start_xmit;
 	netdev->stop            = xennet_close;
-	netdev->get_stats       = xennet_get_stats;
-	netdev->poll            = xennet_poll;
+	netif_napi_add(netdev, &np->napi, xennet_poll, 64);
 	netdev->uninit          = xennet_uninit;
 	netdev->change_mtu	= xennet_change_mtu;
-	netdev->weight          = 64;
 	netdev->features        = NETIF_F_IP_CSUM;
 
 	SET_ETHTOOL_OPS(netdev, &xennet_ethtool_ops);
-	SET_MODULE_OWNER(netdev);
 	SET_NETDEV_DEV(netdev, &dev->dev);
 
 	np->netdev = netdev;
@@ -1349,7 +1308,7 @@ static irqreturn_t xennet_interrupt(int irq, void *dev_id)
 		xennet_tx_buf_gc(dev);
 		/* Under tx_lock: protects access to rx shared-ring indexes. */
 		if (RING_HAS_UNCONSUMED_RESPONSES(&np->rx))
-			netif_rx_schedule(dev);
+			netif_rx_schedule(dev, &np->napi);
 	}
 
 	spin_unlock_irqrestore(&np->tx_lock, flags);
@@ -1376,7 +1335,7 @@ static int setup_netfront(struct xenbus_device *dev, struct netfront_info *info)
 		goto fail;
 	}
 
-	txs = (struct xen_netif_tx_sring *)get_zeroed_page(GFP_KERNEL);
+	txs = (struct xen_netif_tx_sring *)get_zeroed_page(GFP_NOIO | __GFP_HIGH);
 	if (!txs) {
 		err = -ENOMEM;
 		xenbus_dev_fatal(dev, err, "allocating tx ring page");
@@ -1392,7 +1351,7 @@ static int setup_netfront(struct xenbus_device *dev, struct netfront_info *info)
 	}
 
 	info->tx_ring_ref = err;
-	rxs = (struct xen_netif_rx_sring *)get_zeroed_page(GFP_KERNEL);
+	rxs = (struct xen_netif_rx_sring *)get_zeroed_page(GFP_NOIO | __GFP_HIGH);
 	if (!rxs) {
 		err = -ENOMEM;
 		xenbus_dev_fatal(dev, err, "allocating rx ring page");
@@ -1571,7 +1530,7 @@ static int xennet_connect(struct net_device *dev)
 
 	if (!feature_rx_copy) {
 		dev_info(&dev->dev,
-			 "backend does not support copying recieve path");
+			 "backend does not support copying receive path\n");
 		return -ENODEV;
 	}
 
@@ -1661,11 +1620,8 @@ static void backend_changed(struct xenbus_device *dev,
 
 static struct ethtool_ops xennet_ethtool_ops =
 {
-	.get_tx_csum = ethtool_op_get_tx_csum,
 	.set_tx_csum = ethtool_op_set_tx_csum,
-	.get_sg = ethtool_op_get_sg,
 	.set_sg = xennet_set_sg,
-	.get_tso = ethtool_op_get_tso,
 	.set_tso = xennet_set_tso,
 	.get_link = ethtool_op_get_link,
 };
@@ -1856,9 +1812,11 @@ static void __exit netif_exit(void)
 	if (is_initial_xendomain())
 		return;
 
-	return xenbus_unregister_driver(&netfront);
+	xenbus_unregister_driver(&netfront);
 }
 module_exit(netif_exit);
 
 MODULE_DESCRIPTION("Xen virtual network device frontend");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("xen:vif");
+MODULE_ALIAS("xennet");

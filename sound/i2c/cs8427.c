@@ -1,7 +1,7 @@
 /*
  *  Routines for control of the CS8427 via i2c bus
  *  IEC958 (S/PDIF) receiver & transmitter by Cirrus Logic
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,10 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/init.h>
+#include <asm/unaligned.h>
 #include <sound/core.h>
 #include <sound/control.h>
 #include <sound/pcm.h>
@@ -32,7 +32,7 @@
 
 static void snd_cs8427_reset(struct snd_i2c_device *cs8427);
 
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("IEC958 (S/PDIF) receiver & transmitter by Cirrus Logic");
 MODULE_LICENSE("GPL");
 
@@ -229,6 +229,12 @@ int snd_cs8427_create(struct snd_i2c_bus *bus,
 	snd_i2c_lock(bus);
 	err = snd_cs8427_reg_read(device, CS8427_REG_ID_AND_VER);
 	if (err != CS8427_VER8427A) {
+		/* give second chance */
+		snd_printk(KERN_WARNING "invalid CS8427 signature 0x%x: "
+			   "let me try again...\n", err);
+		err = snd_cs8427_reg_read(device, CS8427_REG_ID_AND_VER);
+	}
+	if (err != CS8427_VER8427A) {
 		snd_i2c_unlock(bus);
 		snd_printk(KERN_ERR "unable to find CS8427 signature "
 			   "(expected 0x%x, read 0x%x),\n",
@@ -259,10 +265,7 @@ int snd_cs8427_create(struct snd_i2c_bus *bus,
 		goto __fail;
 	}
 	/* write default channel status bytes */
-	buf[0] = ((unsigned char)(SNDRV_PCM_DEFAULT_CON_SPDIF >> 0));
-	buf[1] = ((unsigned char)(SNDRV_PCM_DEFAULT_CON_SPDIF >> 8));
-	buf[2] = ((unsigned char)(SNDRV_PCM_DEFAULT_CON_SPDIF >> 16));
-	buf[3] = ((unsigned char)(SNDRV_PCM_DEFAULT_CON_SPDIF >> 24));
+	put_unaligned_le32(SNDRV_PCM_DEFAULT_CON_SPDIF, buf);
 	memset(buf + 4, 0, 24 - 4);
 	if (snd_cs8427_send_corudata(device, 0, buf, 24) < 0)
 		goto __fail;

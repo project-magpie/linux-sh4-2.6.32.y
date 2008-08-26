@@ -184,6 +184,7 @@ int spi_bitbang_setup(struct spi_device *spi)
 	struct spi_bitbang_cs	*cs = spi->controller_state;
 	struct spi_bitbang	*bitbang;
 	int			retval;
+	unsigned long		flags;
 
 	bitbang = spi_master_get_devdata(spi->master);
 
@@ -213,7 +214,7 @@ int spi_bitbang_setup(struct spi_device *spi)
 		return retval;
 
 	dev_dbg(&spi->dev, "%s, mode %d, %u bits/w, %u nsec/bit\n",
-			__FUNCTION__, spi->mode & (SPI_CPOL | SPI_CPHA),
+			__func__, spi->mode & (SPI_CPOL | SPI_CPHA),
 			spi->bits_per_word, 2 * cs->nsecs);
 
 	/* NOTE we _need_ to call chipselect() early, ideally with adapter
@@ -222,12 +223,12 @@ int spi_bitbang_setup(struct spi_device *spi)
 	 */
 
 	/* deselect chip (low or high) */
-	spin_lock(&bitbang->lock);
+	spin_lock_irqsave(&bitbang->lock, flags);
 	if (!bitbang->busy) {
 		bitbang->chipselect(spi, BITBANG_CS_INACTIVE);
 		ndelay(cs->nsecs);
 	}
-	spin_unlock(&bitbang->lock);
+	spin_unlock_irqrestore(&bitbang->lock, flags);
 
 	return 0;
 }
@@ -343,12 +344,14 @@ static void bitbang_work(struct work_struct *work)
 					t->rx_dma = t->tx_dma = 0;
 				status = bitbang->txrx_bufs(spi, t);
 			}
+			if (status > 0)
+				m->actual_length += status;
 			if (status != t->len) {
-				if (status > 0)
-					status = -EMSGSIZE;
+				/* always report some kind of error */
+				if (status >= 0)
+					status = -EREMOTEIO;
 				break;
 			}
-			m->actual_length += status;
 			status = 0;
 
 			/* protocol tweaks before next transfer */
@@ -472,7 +475,7 @@ int spi_bitbang_start(struct spi_bitbang *bitbang)
 	/* this task is the only thing to touch the SPI bits */
 	bitbang->busy = 0;
 	bitbang->workqueue = create_singlethread_workqueue(
-			bitbang->master->cdev.dev->bus_id);
+			bitbang->master->dev.parent->bus_id);
 	if (bitbang->workqueue == NULL) {
 		status = -EBUSY;
 		goto err1;

@@ -2,7 +2,7 @@
 # Makefile for the PCI bus specific drivers.
 #
 
-obj-y		+= access.o bus.o probe.o remove.o pci.o quirks.o \
+obj-y		+= access.o bus.o probe.o remove.o pci.o quirks.o slot.o \
 			pci-driver.o search.o pci-sysfs.o rom.o setup-res.o
 obj-$(CONFIG_PROC_FS) += proc.o
 
@@ -13,12 +13,18 @@ obj-$(CONFIG_HOTPLUG) += hotplug.o
 
 # Build the PCI Hotplug drivers if we were asked to
 obj-$(CONFIG_HOTPLUG_PCI) += hotplug/
+ifdef CONFIG_HOTPLUG_PCI
+obj-y += hotplug-pci.o
+endif
 
 # Build the PCI MSI interrupt support
 obj-$(CONFIG_PCI_MSI) += msi.o
 
 # Build the Hypertransport interrupt support
 obj-$(CONFIG_HT_IRQ) += htirq.o
+
+# Build Intel IOMMU support
+obj-$(CONFIG_DMAR) += dmar.o iova.o intel-iommu.o
 
 #
 # Some architectures use the generic PCI setup functions
@@ -29,9 +35,10 @@ obj-$(CONFIG_ARM) += setup-bus.o setup-irq.o
 obj-$(CONFIG_PARISC) += setup-bus.o
 obj-$(CONFIG_SUPERH) += setup-bus.o setup-irq.o
 obj-$(CONFIG_PPC32) += setup-irq.o
-obj-$(CONFIG_PPC64) += setup-bus.o
+obj-$(CONFIG_PPC) += setup-bus.o
 obj-$(CONFIG_MIPS) += setup-bus.o setup-irq.o
 obj-$(CONFIG_X86_VISWS) += setup-irq.o
+obj-$(CONFIG_MN10300) += setup-bus.o
 
 #
 # ACPI Related PCI FW Functions

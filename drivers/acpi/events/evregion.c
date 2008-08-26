@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2007, R. Byron Moore
+ * Copyright (C) 2000 - 2008, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -81,7 +81,7 @@ acpi_ev_install_handler(acpi_handle obj_handle,
 acpi_status acpi_ev_install_region_handlers(void)
 {
 	acpi_status status;
-	acpi_native_uint i;
+	u32 i;
 
 	ACPI_FUNCTION_TRACE(ev_install_region_handlers);
 
@@ -151,7 +151,7 @@ acpi_status acpi_ev_install_region_handlers(void)
 acpi_status acpi_ev_initialize_op_regions(void)
 {
 	acpi_status status;
-	acpi_native_uint i;
+	u32 i;
 
 	ACPI_FUNCTION_TRACE(ev_initialize_op_regions);
 
@@ -219,7 +219,6 @@ acpi_ev_execute_reg_method(union acpi_operand_object *region_obj, u32 function)
 	info->prefix_node = region_obj2->extra.method_REG;
 	info->pathname = NULL;
 	info->parameters = args;
-	info->parameter_type = ACPI_PARAM_ARGS;
 	info->flags = ACPI_IGNORE_RETURN_VALUE;
 
 	/*
@@ -344,7 +343,7 @@ acpi_ev_address_space_dispatch(union acpi_operand_object *region_obj,
 		 * setup will potentially execute control methods
 		 * (e.g., _REG method for this region)
 		 */
-		acpi_ex_relinquish_interpreter();
+		acpi_ex_exit_interpreter();
 
 		status = region_setup(region_obj, ACPI_REGION_ACTIVATE,
 				      handler_desc->address_space.context,
@@ -352,7 +351,7 @@ acpi_ev_address_space_dispatch(union acpi_operand_object *region_obj,
 
 		/* Re-enter the interpreter */
 
-		acpi_ex_reacquire_interpreter();
+		acpi_ex_enter_interpreter();
 
 		/* Check for failure of the Region Setup */
 
@@ -394,7 +393,7 @@ acpi_ev_address_space_dispatch(union acpi_operand_object *region_obj,
 	ACPI_DEBUG_PRINT((ACPI_DB_OPREGION,
 			  "Handler %p (@%p) Address %8.8X%8.8X [%s]\n",
 			  &region_obj->region.handler->address_space, handler,
-			  ACPI_FORMAT_UINT64(address),
+			  ACPI_FORMAT_NATIVE_UINT(address),
 			  acpi_ut_get_region_name(region_obj->region.
 						  space_id)));
 
@@ -405,7 +404,7 @@ acpi_ev_address_space_dispatch(union acpi_operand_object *region_obj,
 		 * exit the interpreter because the handler *might* block -- we don't
 		 * know what it will do, so we can't hold the lock on the intepreter.
 		 */
-		acpi_ex_relinquish_interpreter();
+		acpi_ex_exit_interpreter();
 	}
 
 	/* Call the handler */
@@ -426,7 +425,7 @@ acpi_ev_address_space_dispatch(union acpi_operand_object *region_obj,
 		 * We just returned from a non-default handler, we must re-enter the
 		 * interpreter
 		 */
-		acpi_ex_reacquire_interpreter();
+		acpi_ex_enter_interpreter();
 	}
 
 	return_ACPI_STATUS(status);

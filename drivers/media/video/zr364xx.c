@@ -62,8 +62,8 @@
 
 
 /* Module parameters */
-static int debug = 0;
-static int mode = 0;
+static int debug;
+static int mode;
 
 
 /* Module parameters interface */
@@ -93,6 +93,8 @@ static struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x06d6, 0x0034), .driver_info = METHOD0 },
 	{USB_DEVICE(0x0a17, 0x0062), .driver_info = METHOD2 },
 	{USB_DEVICE(0x06d6, 0x003b), .driver_info = METHOD0 },
+	{USB_DEVICE(0x0a17, 0x004e), .driver_info = METHOD2 },
+	{USB_DEVICE(0x041e, 0x405d), .driver_info = METHOD2 },
 	{}			/* Terminating entry */
 };
 
@@ -388,7 +390,7 @@ static int read_frame(struct zr364xx_camera *cam, int framenum)
 }
 
 
-static ssize_t zr364xx_read(struct file *file, char *buf, size_t cnt,
+static ssize_t zr364xx_read(struct file *file, char __user *buf, size_t cnt,
 			    loff_t * ppos)
 {
 	unsigned long count = cnt;
@@ -519,7 +521,7 @@ static int zr364xx_vidioc_g_ctrl(struct file *file, void *priv,
 	return 0;
 }
 
-static int zr364xx_vidioc_enum_fmt_cap(struct file *file,
+static int zr364xx_vidioc_enum_fmt_vid_cap(struct file *file,
 				       void *priv, struct v4l2_fmtdesc *f)
 {
 	if (f->index > 0)
@@ -535,7 +537,7 @@ static int zr364xx_vidioc_enum_fmt_cap(struct file *file,
 	return 0;
 }
 
-static int zr364xx_vidioc_try_fmt_cap(struct file *file, void *priv,
+static int zr364xx_vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 				      struct v4l2_format *f)
 {
 	struct video_device *vdev = video_devdata(file);
@@ -562,7 +564,7 @@ static int zr364xx_vidioc_try_fmt_cap(struct file *file, void *priv,
 	return 0;
 }
 
-static int zr364xx_vidioc_g_fmt_cap(struct file *file, void *priv,
+static int zr364xx_vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 				    struct v4l2_format *f)
 {
 	struct video_device *vdev = video_devdata(file);
@@ -587,7 +589,7 @@ static int zr364xx_vidioc_g_fmt_cap(struct file *file, void *priv,
 	return 0;
 }
 
-static int zr364xx_vidioc_s_fmt_cap(struct file *file, void *priv,
+static int zr364xx_vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 				    struct v4l2_format *f)
 {
 	struct video_device *vdev = video_devdata(file);
@@ -749,7 +751,7 @@ static int zr364xx_mmap(struct file *file, struct vm_area_struct *vma)
 }
 
 
-static struct file_operations zr364xx_fops = {
+static const struct file_operations zr364xx_fops = {
 	.owner = THIS_MODULE,
 	.open = zr364xx_open,
 	.release = zr364xx_release,
@@ -768,10 +770,10 @@ static struct video_device zr364xx_template = {
 	.minor = -1,
 
 	.vidioc_querycap	= zr364xx_vidioc_querycap,
-	.vidioc_enum_fmt_cap	= zr364xx_vidioc_enum_fmt_cap,
-	.vidioc_try_fmt_cap	= zr364xx_vidioc_try_fmt_cap,
-	.vidioc_s_fmt_cap	= zr364xx_vidioc_s_fmt_cap,
-	.vidioc_g_fmt_cap	= zr364xx_vidioc_g_fmt_cap,
+	.vidioc_enum_fmt_vid_cap = zr364xx_vidioc_enum_fmt_vid_cap,
+	.vidioc_try_fmt_vid_cap	= zr364xx_vidioc_try_fmt_vid_cap,
+	.vidioc_s_fmt_vid_cap	= zr364xx_vidioc_s_fmt_vid_cap,
+	.vidioc_g_fmt_vid_cap	= zr364xx_vidioc_g_fmt_vid_cap,
 	.vidioc_enum_input	= zr364xx_vidioc_enum_input,
 	.vidioc_g_input		= zr364xx_vidioc_g_input,
 	.vidioc_s_input		= zr364xx_vidioc_s_input,

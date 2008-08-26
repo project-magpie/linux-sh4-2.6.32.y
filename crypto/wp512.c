@@ -23,7 +23,6 @@
 #include <linux/module.h>
 #include <linux/mm.h>
 #include <asm/byteorder.h>
-#include <asm/scatterlist.h>
 #include <linux/crypto.h>
 #include <linux/types.h>
 
@@ -1147,7 +1146,7 @@ static struct crypto_alg wp256 = {
 	.dia_final  	=	wp256_final } }
 };
 
-static int __init init(void)
+static int __init wp512_mod_init(void)
 {
 	int ret = 0;
 
@@ -1173,7 +1172,7 @@ out:
 	return ret;
 }
 
-static void __exit fini(void)
+static void __exit wp512_mod_fini(void)
 {
 	crypto_unregister_alg(&wp512);
 	crypto_unregister_alg(&wp384);
@@ -1183,8 +1182,8 @@ static void __exit fini(void)
 MODULE_ALIAS("wp384");
 MODULE_ALIAS("wp256");
 
-module_init(init);
-module_exit(fini);
+module_init(wp512_mod_init);
+module_exit(wp512_mod_fini);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Whirlpool Message Digest Algorithm");

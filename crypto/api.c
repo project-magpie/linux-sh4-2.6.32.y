@@ -6,7 +6,7 @@
  * Copyright (c) 2005 Herbert Xu <herbert@gondor.apana.org.au>
  *
  * Portions derived from Cryptoapi, by Alexander Kjeldaas <astor@fast.no>
- * and Nettle, by Niels Möller.
+ * and Nettle, by Niels MÃ¶ller.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -137,7 +137,7 @@ static struct crypto_alg *crypto_larval_alloc(const char *name, u32 type,
 	return alg;
 }
 
-static void crypto_larval_kill(struct crypto_alg *alg)
+void crypto_larval_kill(struct crypto_alg *alg)
 {
 	struct crypto_larval *larval = (void *)alg;
 
@@ -147,6 +147,7 @@ static void crypto_larval_kill(struct crypto_alg *alg)
 	complete_all(&larval->completion);
 	crypto_alg_put(alg);
 }
+EXPORT_SYMBOL_GPL(crypto_larval_kill);
 
 static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg)
 {
@@ -176,11 +177,9 @@ static struct crypto_alg *crypto_alg_lookup(const char *name, u32 type,
 	return alg;
 }
 
-struct crypto_alg *crypto_alg_mod_lookup(const char *name, u32 type, u32 mask)
+struct crypto_alg *crypto_larval_lookup(const char *name, u32 type, u32 mask)
 {
 	struct crypto_alg *alg;
-	struct crypto_alg *larval;
-	int ok;
 
 	if (!name)
 		return ERR_PTR(-ENOENT);
@@ -193,7 +192,17 @@ struct crypto_alg *crypto_alg_mod_lookup(const char *name, u32 type, u32 mask)
 	if (alg)
 		return crypto_is_larval(alg) ? crypto_larval_wait(alg) : alg;
 
-	larval = crypto_larval_alloc(name, type, mask);
+	return crypto_larval_alloc(name, type, mask);
+}
+EXPORT_SYMBOL_GPL(crypto_larval_lookup);
+
+struct crypto_alg *crypto_alg_mod_lookup(const char *name, u32 type, u32 mask)
+{
+	struct crypto_alg *alg;
+	struct crypto_alg *larval;
+	int ok;
+
+	larval = crypto_larval_lookup(name, type, mask);
 	if (IS_ERR(larval) || !crypto_is_larval(larval))
 		return larval;
 
@@ -226,8 +235,12 @@ static int crypto_init_ops(struct crypto_tfm *tfm, u32 type, u32 mask)
 		return crypto_init_cipher_ops(tfm);
 		
 	case CRYPTO_ALG_TYPE_DIGEST:
-		return crypto_init_digest_ops(tfm);
-		
+		if ((mask & CRYPTO_ALG_TYPE_HASH_MASK) !=
+		    CRYPTO_ALG_TYPE_HASH_MASK)
+			return crypto_init_digest_ops_async(tfm);
+		else
+			return crypto_init_digest_ops(tfm);
+
 	case CRYPTO_ALG_TYPE_COMPRESS:
 		return crypto_init_compress_ops(tfm);
 	
@@ -436,3 +449,6 @@ int crypto_has_alg(const char *name, u32 type, u32 mask)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(crypto_has_alg);
+
+MODULE_DESCRIPTION("Cryptographic core API");
+MODULE_LICENSE("GPL");

@@ -25,28 +25,38 @@
 
 static void *l_next(struct seq_file *m, void *v, loff_t *pos)
 {
-	struct lock_class *class = v;
+	struct lock_class *class;
 
 	(*pos)++;
 
-	if (class->lock_entry.next != &all_lock_classes)
-		class = list_entry(class->lock_entry.next, struct lock_class,
-				  lock_entry);
-	else
-		class = NULL;
-	m->private = class;
+	if (v == SEQ_START_TOKEN)
+		class = m->private;
+	else {
+		class = v;
+
+		if (class->lock_entry.next != &all_lock_classes)
+			class = list_entry(class->lock_entry.next,
+					   struct lock_class, lock_entry);
+		else
+			class = NULL;
+	}
 
 	return class;
 }
 
 static void *l_start(struct seq_file *m, loff_t *pos)
 {
-	struct lock_class *class = m->private;
+	struct lock_class *class;
+	loff_t i = 0;
 
-	if (&class->lock_entry == all_lock_classes.next)
-		seq_printf(m, "all lock classes:\n");
+	if (*pos == 0)
+		return SEQ_START_TOKEN;
 
-	return class;
+	list_for_each_entry(class, &all_lock_classes, lock_entry) {
+		if (++i == *pos)
+		return class;
+	}
+	return NULL;
 }
 
 static void l_stop(struct seq_file *m, void *v)
@@ -101,9 +111,14 @@ static void print_name(struct seq_file *m, struct lock_class *class)
 static int l_show(struct seq_file *m, void *v)
 {
 	unsigned long nr_forward_deps, nr_backward_deps;
-	struct lock_class *class = m->private;
+	struct lock_class *class = v;
 	struct lock_list *entry;
 	char c1, c2, c3, c4;
+
+	if (v == SEQ_START_TOKEN) {
+		seq_printf(m, "all lock classes:\n");
+		return 0;
+	}
 
 	seq_printf(m, "%p", class->key);
 #ifdef CONFIG_DEBUG_LOCKDEP
@@ -124,7 +139,7 @@ static int l_show(struct seq_file *m, void *v)
 
 	list_for_each_entry(entry, &class->locks_after, entry) {
 		if (entry->distance == 1) {
-			seq_printf(m, " -> [%p] ", entry->class);
+			seq_printf(m, " -> [%p] ", entry->class->key);
 			print_name(m, entry->class);
 			seq_puts(m, "\n");
 		}
@@ -162,6 +177,95 @@ static const struct file_operations proc_lockdep_operations = {
 	.llseek		= seq_lseek,
 	.release	= seq_release,
 };
+
+#ifdef CONFIG_PROVE_LOCKING
+static void *lc_next(struct seq_file *m, void *v, loff_t *pos)
+{
+	struct lock_chain *chain;
+
+	(*pos)++;
+
+	if (v == SEQ_START_TOKEN)
+		chain = m->private;
+	else {
+		chain = v;
+
+		if (*pos < nr_lock_chains)
+			chain = lock_chains + *pos;
+		else
+			chain = NULL;
+	}
+
+	return chain;
+}
+
+static void *lc_start(struct seq_file *m, loff_t *pos)
+{
+	if (*pos == 0)
+		return SEQ_START_TOKEN;
+
+	if (*pos < nr_lock_chains)
+		return lock_chains + *pos;
+
+	return NULL;
+}
+
+static void lc_stop(struct seq_file *m, void *v)
+{
+}
+
+static int lc_show(struct seq_file *m, void *v)
+{
+	struct lock_chain *chain = v;
+	struct lock_class *class;
+	int i;
+
+	if (v == SEQ_START_TOKEN) {
+		seq_printf(m, "all lock chains:\n");
+		return 0;
+	}
+
+	seq_printf(m, "irq_context: %d\n", chain->irq_context);
+
+	for (i = 0; i < chain->depth; i++) {
+		class = lock_chain_get_class(chain, i);
+		seq_printf(m, "[%p] ", class->key);
+		print_name(m, class);
+		seq_puts(m, "\n");
+	}
+	seq_puts(m, "\n");
+
+	return 0;
+}
+
+static const struct seq_operations lockdep_chains_ops = {
+	.start	= lc_start,
+	.next	= lc_next,
+	.stop	= lc_stop,
+	.show	= lc_show,
+};
+
+static int lockdep_chains_open(struct inode *inode, struct file *file)
+{
+	int res = seq_open(file, &lockdep_chains_ops);
+	if (!res) {
+		struct seq_file *m = file->private_data;
+
+		if (nr_lock_chains)
+			m->private = lock_chains;
+		else
+			m->private = NULL;
+	}
+	return res;
+}
+
+static const struct file_operations proc_lockdep_chains_operations = {
+	.open		= lockdep_chains_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+#endif /* CONFIG_PROVE_LOCKING */
 
 static void lockdep_stats_debug_show(struct seq_file *m)
 {
@@ -279,6 +383,8 @@ static int lockdep_stats_show(struct seq_file *m, void *v)
 #ifdef CONFIG_PROVE_LOCKING
 	seq_printf(m, " dependency chains:             %11lu [max: %lu]\n",
 			nr_lock_chains, MAX_LOCKDEP_CHAINS);
+	seq_printf(m, " dependency chain hlocks:       %11d [max: %lu]\n",
+			nr_chain_hlocks, MAX_LOCKDEP_CHAIN_HLOCKS);
 #endif
 
 #ifdef CONFIG_TRACE_IRQFLAGS
@@ -523,10 +629,11 @@ static void *ls_start(struct seq_file *m, loff_t *pos)
 {
 	struct lock_stat_seq *data = m->private;
 
-	if (data->iter == data->stats)
-		seq_header(m);
+	if (*pos == 0)
+		return SEQ_START_TOKEN;
 
-	if (data->iter == data->iter_end)
+	data->iter = data->stats + *pos;
+	if (data->iter >= data->iter_end)
 		data->iter = NULL;
 
 	return data->iter;
@@ -538,8 +645,13 @@ static void *ls_next(struct seq_file *m, void *v, loff_t *pos)
 
 	(*pos)++;
 
-	data->iter = v;
-	data->iter++;
+	if (v == SEQ_START_TOKEN)
+		data->iter = data->stats;
+	else {
+		data->iter = v;
+		data->iter++;
+	}
+
 	if (data->iter == data->iter_end)
 		data->iter = NULL;
 
@@ -552,9 +664,11 @@ static void ls_stop(struct seq_file *m, void *v)
 
 static int ls_show(struct seq_file *m, void *v)
 {
-	struct lock_stat_seq *data = m->private;
+	if (v == SEQ_START_TOKEN)
+		seq_header(m);
+	else
+		seq_stats(m, v);
 
-	seq_stats(m, data->iter);
 	return 0;
 }
 
@@ -637,20 +751,16 @@ static const struct file_operations proc_lock_stat_operations = {
 
 static int __init lockdep_proc_init(void)
 {
-	struct proc_dir_entry *entry;
-
-	entry = create_proc_entry("lockdep", S_IRUSR, NULL);
-	if (entry)
-		entry->proc_fops = &proc_lockdep_operations;
-
-	entry = create_proc_entry("lockdep_stats", S_IRUSR, NULL);
-	if (entry)
-		entry->proc_fops = &proc_lockdep_stats_operations;
+	proc_create("lockdep", S_IRUSR, NULL, &proc_lockdep_operations);
+#ifdef CONFIG_PROVE_LOCKING
+	proc_create("lockdep_chains", S_IRUSR, NULL,
+		    &proc_lockdep_chains_operations);
+#endif
+	proc_create("lockdep_stats", S_IRUSR, NULL,
+		    &proc_lockdep_stats_operations);
 
 #ifdef CONFIG_LOCK_STAT
-	entry = create_proc_entry("lock_stat", S_IRUSR, NULL);
-	if (entry)
-		entry->proc_fops = &proc_lock_stat_operations;
+	proc_create("lock_stat", S_IRUSR, NULL, &proc_lock_stat_operations);
 #endif
 
 	return 0;

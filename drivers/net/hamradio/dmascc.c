@@ -21,6 +21,7 @@
 
 
 #include <linux/module.h>
+#include <linux/bitops.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/if_arp.h>
@@ -35,7 +36,6 @@
 #include <linux/sockios.h>
 #include <linux/workqueue.h>
 #include <asm/atomic.h>
-#include <asm/bitops.h>
 #include <asm/dma.h>
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -262,8 +262,8 @@ static void tm_isr(struct scc_priv *priv);
 
 static int io[MAX_NUM_DEVS] __initdata = { 0, };
 
-/* Beware! hw[] is also used in cleanup_module(). */
-static struct scc_hardware hw[NUM_TYPES] __initdata_or_module = HARDWARE;
+/* Beware! hw[] is also used in dmascc_exit(). */
+static struct scc_hardware hw[NUM_TYPES] = HARDWARE;
 
 
 /* Global variables */
@@ -581,8 +581,7 @@ static int __init setup_adapter(int card_base, int type, int n)
 		dev->do_ioctl = scc_ioctl;
 		dev->hard_start_xmit = scc_send_packet;
 		dev->get_stats = scc_get_stats;
-		dev->hard_header = ax25_hard_header;
-		dev->rebuild_header = ax25_rebuild_header;
+		dev->header_ops = &ax25_header_ops;
 		dev->set_mac_address = scc_set_mac_address;
 	}
 	if (register_netdev(info->dev[0])) {
@@ -1078,21 +1077,16 @@ static inline void rx_off(struct scc_priv *priv)
 
 static void start_timer(struct scc_priv *priv, int t, int r15)
 {
-	unsigned long flags;
-
 	outb(priv->tmr_mode, priv->tmr_ctrl);
 	if (t == 0) {
 		tm_isr(priv);
 	} else if (t > 0) {
-		save_flags(flags);
-		cli();
 		outb(t & 0xFF, priv->tmr_cnt);
 		outb((t >> 8) & 0xFF, priv->tmr_cnt);
 		if (priv->type != TYPE_TWIN) {
 			write_scc(priv, R15, r15 | CTSIE);
 			priv->rr0 |= CTS;
 		}
-		restore_flags(flags);
 	}
 }
 

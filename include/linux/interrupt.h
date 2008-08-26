@@ -55,28 +55,6 @@
 #define IRQF_NOBALANCING	0x00000800
 #define IRQF_IRQPOLL		0x00001000
 
-/*
- * Migration helpers. Scheduled for removal in 9/2007
- * Do not use for new code !
- */
-static inline
-unsigned long __deprecated deprecated_irq_flag(unsigned long flag)
-{
-	return flag;
-}
-
-#define SA_INTERRUPT		deprecated_irq_flag(IRQF_DISABLED)
-#define SA_SAMPLE_RANDOM	deprecated_irq_flag(IRQF_SAMPLE_RANDOM)
-#define SA_SHIRQ		deprecated_irq_flag(IRQF_SHARED)
-#define SA_PROBEIRQ		deprecated_irq_flag(IRQF_PROBE_SHARED)
-#define SA_PERCPU		deprecated_irq_flag(IRQF_PERCPU)
-
-#define SA_TRIGGER_LOW		deprecated_irq_flag(IRQF_TRIGGER_LOW)
-#define SA_TRIGGER_HIGH		deprecated_irq_flag(IRQF_TRIGGER_HIGH)
-#define SA_TRIGGER_FALLING	deprecated_irq_flag(IRQF_TRIGGER_FALLING)
-#define SA_TRIGGER_RISING	deprecated_irq_flag(IRQF_TRIGGER_RISING)
-#define SA_TRIGGER_MASK		deprecated_irq_flag(IRQF_TRIGGER_MASK)
-
 typedef irqreturn_t (*irq_handler_t)(int, void *);
 
 struct irqaction {
@@ -123,6 +101,30 @@ extern void devm_free_irq(struct device *dev, unsigned int irq, void *dev_id);
 extern void disable_irq_nosync(unsigned int irq);
 extern void disable_irq(unsigned int irq);
 extern void enable_irq(unsigned int irq);
+
+#if defined(CONFIG_SMP) && defined(CONFIG_GENERIC_HARDIRQS)
+
+extern cpumask_t irq_default_affinity;
+
+extern int irq_set_affinity(unsigned int irq, cpumask_t cpumask);
+extern int irq_can_set_affinity(unsigned int irq);
+extern int irq_select_affinity(unsigned int irq);
+
+#else /* CONFIG_SMP */
+
+static inline int irq_set_affinity(unsigned int irq, cpumask_t cpumask)
+{
+	return -EINVAL;
+}
+
+static inline int irq_can_set_affinity(unsigned int irq)
+{
+	return 0;
+}
+
+static inline int irq_select_affinity(unsigned int irq)  { return 0; }
+
+#endif /* CONFIG_SMP && CONFIG_GENERIC_HARDIRQS */
 
 #ifdef CONFIG_GENERIC_HARDIRQS
 /*
@@ -205,6 +207,15 @@ static inline int disable_irq_wake(unsigned int irq)
 						enable_irq(irq)
 # endif
 
+static inline int enable_irq_wake(unsigned int irq)
+{
+	return 0;
+}
+
+static inline int disable_irq_wake(unsigned int irq)
+{
+	return 0;
+}
 #endif /* CONFIG_GENERIC_HARDIRQS */
 
 #ifndef __ARCH_SET_SOFTIRQ_PENDING
@@ -269,6 +280,7 @@ enum
 #ifdef CONFIG_HIGH_RES_TIMERS
 	HRTIMER_SOFTIRQ,
 #endif
+	RCU_SOFTIRQ, 	/* Preferable RCU should always be the last softirq */
 };
 
 /* softirq mask and active fields moved to irq_cpustat_t in
@@ -278,15 +290,15 @@ enum
 struct softirq_action
 {
 	void	(*action)(struct softirq_action *);
-	void	*data;
 };
 
 asmlinkage void do_softirq(void);
-extern void open_softirq(int nr, void (*action)(struct softirq_action*), void *data);
+asmlinkage void __do_softirq(void);
+extern void open_softirq(int nr, void (*action)(struct softirq_action *));
 extern void softirq_init(void);
 #define __raise_softirq_irqoff(nr) do { or_softirq_pending(1UL << (nr)); } while (0)
-extern void FASTCALL(raise_softirq_irqoff(unsigned int nr));
-extern void FASTCALL(raise_softirq(unsigned int nr));
+extern void raise_softirq_irqoff(unsigned int nr);
+extern void raise_softirq(unsigned int nr);
 
 
 /* Tasklets --- multithreaded analogue of BHs.
@@ -353,7 +365,7 @@ static inline void tasklet_unlock_wait(struct tasklet_struct *t)
 #define tasklet_unlock(t) do { } while (0)
 #endif
 
-extern void FASTCALL(__tasklet_schedule(struct tasklet_struct *t));
+extern void __tasklet_schedule(struct tasklet_struct *t);
 
 static inline void tasklet_schedule(struct tasklet_struct *t)
 {
@@ -361,7 +373,7 @@ static inline void tasklet_schedule(struct tasklet_struct *t)
 		__tasklet_schedule(t);
 }
 
-extern void FASTCALL(__tasklet_hi_schedule(struct tasklet_struct *t));
+extern void __tasklet_hi_schedule(struct tasklet_struct *t);
 
 static inline void tasklet_hi_schedule(struct tasklet_struct *t)
 {
@@ -455,5 +467,7 @@ static inline void init_irq_proc(void)
 {
 }
 #endif
+
+int show_interrupts(struct seq_file *p, void *v);
 
 #endif

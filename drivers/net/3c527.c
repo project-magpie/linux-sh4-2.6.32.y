@@ -103,8 +103,8 @@ DRV_NAME ".c:v" DRV_VERSION " " DRV_RELDATE " Richard Procter <rnp@paradise.net.
 #include <linux/ethtool.h>
 #include <linux/completion.h>
 #include <linux/bitops.h>
+#include <linux/semaphore.h>
 
-#include <asm/semaphore.h>
 #include <asm/uaccess.h>
 #include <asm/system.h>
 #include <asm/io.h>
@@ -158,7 +158,6 @@ struct mc32_local
 	int slot;
 
 	u32 base;
-	struct net_device_stats net_stats;
 	volatile struct mc32_mailbox *rx_box;
 	volatile struct mc32_mailbox *tx_box;
 	volatile struct mc32_mailbox *exec_box;
@@ -257,8 +256,6 @@ struct net_device *__init mc32_probe(int unit)
 	if (unit >= 0)
 		sprintf(dev->name, "eth%d", unit);
 
-	SET_MODULE_OWNER(dev);
-
 	/* Do not check any supplied i/o locations.
 	   POS registers usually don't fail :) */
 
@@ -338,6 +335,7 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 		"82586 initialisation failure",
 		"Adapter list configuration error"
 	};
+	DECLARE_MAC_BUF(mac);
 
 	/* Time to play MCA games */
 
@@ -398,16 +396,16 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	 *	Go PROM browsing
 	 */
 
-	printk("%s: Address ", dev->name);
-
 	/* Retrieve and print the ethernet address. */
 	for (i = 0; i < 6; i++)
 	{
 		mca_write_pos(slot, 6, i+12);
 		mca_write_pos(slot, 7, 0);
 
-		printk(" %2.2x", dev->dev_addr[i] = mca_read_pos(slot,3));
+		dev->dev_addr[i] = mca_read_pos(slot,3);
 	}
+
+	printk("%s: Address %s", dev->name, print_mac(mac, dev->dev_addr));
 
 	mca_write_pos(slot, 6, 0);
 	mca_write_pos(slot, 7, 0);
@@ -1094,24 +1092,24 @@ static void mc32_update_stats(struct net_device *dev)
 
 	u32 rx_errors=0;
 
-	rx_errors+=lp->net_stats.rx_crc_errors   +=st->rx_crc_errors;
+	rx_errors+=dev->stats.rx_crc_errors   +=st->rx_crc_errors;
 	                                           st->rx_crc_errors=0;
-	rx_errors+=lp->net_stats.rx_fifo_errors  +=st->rx_overrun_errors;
+	rx_errors+=dev->stats.rx_fifo_errors  +=st->rx_overrun_errors;
 	                                           st->rx_overrun_errors=0;
-	rx_errors+=lp->net_stats.rx_frame_errors +=st->rx_alignment_errors;
+	rx_errors+=dev->stats.rx_frame_errors +=st->rx_alignment_errors;
  	                                           st->rx_alignment_errors=0;
-	rx_errors+=lp->net_stats.rx_length_errors+=st->rx_tooshort_errors;
+	rx_errors+=dev->stats.rx_length_errors+=st->rx_tooshort_errors;
 	                                           st->rx_tooshort_errors=0;
-	rx_errors+=lp->net_stats.rx_missed_errors+=st->rx_outofresource_errors;
+	rx_errors+=dev->stats.rx_missed_errors+=st->rx_outofresource_errors;
 	                                           st->rx_outofresource_errors=0;
-        lp->net_stats.rx_errors=rx_errors;
+        dev->stats.rx_errors=rx_errors;
 
 	/* Number of packets which saw one collision */
-	lp->net_stats.collisions+=st->dataC[10];
+	dev->stats.collisions+=st->dataC[10];
 	st->dataC[10]=0;
 
 	/* Number of packets which saw 2--15 collisions */
-	lp->net_stats.collisions+=st->dataC[11];
+	dev->stats.collisions+=st->dataC[11];
 	st->dataC[11]=0;
 }
 
@@ -1179,7 +1177,7 @@ static void mc32_rx_ring(struct net_device *dev)
 				skb=dev_alloc_skb(length+2);
 
 				if(skb==NULL) {
-					lp->net_stats.rx_dropped++;
+					dev->stats.rx_dropped++;
 					goto dropped;
 				}
 
@@ -1190,8 +1188,8 @@ static void mc32_rx_ring(struct net_device *dev)
 
 			skb->protocol=eth_type_trans(skb,dev);
 			dev->last_rx = jiffies;
- 			lp->net_stats.rx_packets++;
- 			lp->net_stats.rx_bytes += length;
+ 			dev->stats.rx_packets++;
+ 			dev->stats.rx_bytes += length;
 			netif_rx(skb);
 		}
 
@@ -1254,34 +1252,34 @@ static void mc32_tx_ring(struct net_device *dev)
 			/* Not COMPLETED */
 			break;
 		}
-		lp->net_stats.tx_packets++;
+		dev->stats.tx_packets++;
 		if(!(np->status & (1<<6))) /* Not COMPLETED_OK */
 		{
-			lp->net_stats.tx_errors++;
+			dev->stats.tx_errors++;
 
 			switch(np->status&0x0F)
 			{
 				case 1:
-					lp->net_stats.tx_aborted_errors++;
+					dev->stats.tx_aborted_errors++;
 					break; /* Max collisions */
 				case 2:
-					lp->net_stats.tx_fifo_errors++;
+					dev->stats.tx_fifo_errors++;
 					break;
 				case 3:
-					lp->net_stats.tx_carrier_errors++;
+					dev->stats.tx_carrier_errors++;
 					break;
 				case 4:
-					lp->net_stats.tx_window_errors++;
+					dev->stats.tx_window_errors++;
 					break;  /* CTS Lost */
 				case 5:
-					lp->net_stats.tx_aborted_errors++;
+					dev->stats.tx_aborted_errors++;
 					break; /* Transmit timeout */
 			}
 		}
 		/* Packets are sent in order - this is
 		    basically a FIFO queue of buffers matching
 		    the card ring */
-		lp->net_stats.tx_bytes+=lp->tx_ring[t].skb->len;
+		dev->stats.tx_bytes+=lp->tx_ring[t].skb->len;
 		dev_kfree_skb_irq(lp->tx_ring[t].skb);
 		lp->tx_ring[t].skb=NULL;
 		atomic_inc(&lp->tx_count);
@@ -1368,7 +1366,7 @@ static irqreturn_t mc32_interrupt(int irq, void *dev_id)
 			case 6:
 				/* Out of RX buffers stat */
 				/* Must restart rx */
-				lp->net_stats.rx_dropped++;
+				dev->stats.rx_dropped++;
 				mc32_rx_ring(dev);
 				mc32_start_transceiver(dev);
 				break;
@@ -1490,10 +1488,8 @@ static int mc32_close(struct net_device *dev)
 
 static struct net_device_stats *mc32_get_stats(struct net_device *dev)
 {
-	struct mc32_local *lp = netdev_priv(dev);
-
 	mc32_update_stats(dev);
-	return &lp->net_stats;
+	return &dev->stats;
 }
 
 

@@ -26,8 +26,8 @@
 #include <linux/in6.h>
 #include <linux/proc_fs.h>
 #include <linux/init.h>
+#include <net/net_namespace.h>
 #include <net/xfrm.h>
-#include <linux/audit.h>
 
 #include <net/sock.h>
 
@@ -48,11 +48,43 @@ struct pfkey_sock {
 	struct sock	sk;
 	int		registered;
 	int		promisc;
+
+	struct {
+		uint8_t		msg_version;
+		uint32_t	msg_pid;
+		int		(*dump)(struct pfkey_sock *sk);
+		void		(*done)(struct pfkey_sock *sk);
+		union {
+			struct xfrm_policy_walk	policy;
+			struct xfrm_state_walk	state;
+		} u;
+	} dump;
 };
 
 static inline struct pfkey_sock *pfkey_sk(struct sock *sk)
 {
 	return (struct pfkey_sock *)sk;
+}
+
+static int pfkey_can_dump(struct sock *sk)
+{
+	if (3 * atomic_read(&sk->sk_rmem_alloc) <= 2 * sk->sk_rcvbuf)
+		return 1;
+	return 0;
+}
+
+static int pfkey_do_dump(struct pfkey_sock *pfk)
+{
+	int rc;
+
+	rc = pfk->dump.dump(pfk);
+	if (rc == -ENOBUFS)
+		return 0;
+
+	pfk->dump.done(pfk);
+	pfk->dump.dump = NULL;
+	pfk->dump.done = NULL;
+	return rc;
 }
 
 static void pfkey_sock_destruct(struct sock *sk)
@@ -64,8 +96,8 @@ static void pfkey_sock_destruct(struct sock *sk)
 		return;
 	}
 
-	BUG_TRAP(!atomic_read(&sk->sk_rmem_alloc));
-	BUG_TRAP(!atomic_read(&sk->sk_wmem_alloc));
+	WARN_ON(atomic_read(&sk->sk_rmem_alloc));
+	WARN_ON(atomic_read(&sk->sk_wmem_alloc));
 
 	atomic_dec(&pfkey_socks_nr);
 }
@@ -136,10 +168,13 @@ static struct proto key_proto = {
 	.obj_size = sizeof(struct pfkey_sock),
 };
 
-static int pfkey_create(struct socket *sock, int protocol)
+static int pfkey_create(struct net *net, struct socket *sock, int protocol)
 {
 	struct sock *sk;
 	int err;
+
+	if (net != &init_net)
+		return -EAFNOSUPPORT;
 
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
@@ -149,7 +184,7 @@ static int pfkey_create(struct socket *sock, int protocol)
 		return -EPROTONOSUPPORT;
 
 	err = -ENOMEM;
-	sk = sk_alloc(PF_KEY, GFP_KERNEL, &key_proto, 1);
+	sk = sk_alloc(net, PF_KEY, GFP_KERNEL, &key_proto);
 	if (sk == NULL)
 		goto out;
 
@@ -352,16 +387,14 @@ static int verify_address_len(void *p)
 
 	switch (addr->sa_family) {
 	case AF_INET:
-		len  = sizeof(*sp) + sizeof(*sin) + (sizeof(uint64_t) - 1);
-		len /= sizeof(uint64_t);
+		len = DIV_ROUND_UP(sizeof(*sp) + sizeof(*sin), sizeof(uint64_t));
 		if (sp->sadb_address_len != len ||
 		    sp->sadb_address_prefixlen > 32)
 			return -EINVAL;
 		break;
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 	case AF_INET6:
-		len  = sizeof(*sp) + sizeof(*sin6) + (sizeof(uint64_t) - 1);
-		len /= sizeof(uint64_t);
+		len = DIV_ROUND_UP(sizeof(*sp) + sizeof(*sin6), sizeof(uint64_t));
 		if (sp->sadb_address_len != len ||
 		    sp->sadb_address_prefixlen > 128)
 			return -EINVAL;
@@ -386,22 +419,17 @@ static int verify_address_len(void *p)
 
 static inline int pfkey_sec_ctx_len(struct sadb_x_sec_ctx *sec_ctx)
 {
-	int len = 0;
-
-	len += sizeof(struct sadb_x_sec_ctx);
-	len += sec_ctx->sadb_x_ctx_len;
-	len += sizeof(uint64_t) - 1;
-	len /= sizeof(uint64_t);
-
-	return len;
+	return DIV_ROUND_UP(sizeof(struct sadb_x_sec_ctx) +
+			    sec_ctx->sadb_x_ctx_len,
+			    sizeof(uint64_t));
 }
 
 static inline int verify_sec_ctx_len(void *p)
 {
 	struct sadb_x_sec_ctx *sec_ctx = (struct sadb_x_sec_ctx *)p;
-	int len;
+	int len = sec_ctx->sadb_x_ctx_len;
 
-	if (sec_ctx->sadb_x_ctx_len > PAGE_SIZE)
+	if (len > PAGE_SIZE)
 		return -EINVAL;
 
 	len = pfkey_sec_ctx_len(sec_ctx);
@@ -551,25 +579,43 @@ static uint8_t pfkey_proto_from_xfrm(uint8_t proto)
 	return (proto ? proto : IPSEC_PROTO_ANY);
 }
 
-static int pfkey_sadb_addr2xfrm_addr(struct sadb_address *addr,
-				     xfrm_address_t *xaddr)
+static inline int pfkey_sockaddr_len(sa_family_t family)
 {
-	switch (((struct sockaddr*)(addr + 1))->sa_family) {
+	switch (family) {
+	case AF_INET:
+		return sizeof(struct sockaddr_in);
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	case AF_INET6:
+		return sizeof(struct sockaddr_in6);
+#endif
+	}
+	return 0;
+}
+
+static
+int pfkey_sockaddr_extract(const struct sockaddr *sa, xfrm_address_t *xaddr)
+{
+	switch (sa->sa_family) {
 	case AF_INET:
 		xaddr->a4 =
-			((struct sockaddr_in *)(addr + 1))->sin_addr.s_addr;
+			((struct sockaddr_in *)sa)->sin_addr.s_addr;
 		return AF_INET;
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 	case AF_INET6:
 		memcpy(xaddr->a6,
-		       &((struct sockaddr_in6 *)(addr + 1))->sin6_addr,
+		       &((struct sockaddr_in6 *)sa)->sin6_addr,
 		       sizeof(struct in6_addr));
 		return AF_INET6;
 #endif
-	default:
-		return 0;
 	}
-	/* NOTREACHED */
+	return 0;
+}
+
+static
+int pfkey_sadb_addr2xfrm_addr(struct sadb_address *addr, xfrm_address_t *xaddr)
+{
+	return pfkey_sockaddr_extract((struct sockaddr *)(addr + 1),
+				      xaddr);
 }
 
 static struct  xfrm_state *pfkey_xfrm_state_lookup(struct sadb_msg *hdr, void **ext_hdrs)
@@ -614,20 +660,11 @@ static struct  xfrm_state *pfkey_xfrm_state_lookup(struct sadb_msg *hdr, void **
 }
 
 #define PFKEY_ALIGN8(a) (1 + (((a) - 1) | (8 - 1)))
+
 static int
 pfkey_sockaddr_size(sa_family_t family)
 {
-	switch (family) {
-	case AF_INET:
-		return PFKEY_ALIGN8(sizeof(struct sockaddr_in));
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	case AF_INET6:
-		return PFKEY_ALIGN8(sizeof(struct sockaddr_in6));
-#endif
-	default:
-		return 0;
-	}
-	/* NOTREACHED */
+	return PFKEY_ALIGN8(pfkey_sockaddr_len(family));
 }
 
 static inline int pfkey_mode_from_xfrm(int mode)
@@ -659,7 +696,38 @@ static inline int pfkey_mode_to_xfrm(int mode)
 	}
 }
 
-static struct sk_buff * pfkey_xfrm_state2msg(struct xfrm_state *x, int add_keys, int hsc)
+static unsigned int pfkey_sockaddr_fill(xfrm_address_t *xaddr, __be16 port,
+				       struct sockaddr *sa,
+				       unsigned short family)
+{
+	switch (family) {
+	case AF_INET:
+	    {
+		struct sockaddr_in *sin = (struct sockaddr_in *)sa;
+		sin->sin_family = AF_INET;
+		sin->sin_port = port;
+		sin->sin_addr.s_addr = xaddr->a4;
+		memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
+		return 32;
+	    }
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	case AF_INET6:
+	    {
+		struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)sa;
+		sin6->sin6_family = AF_INET6;
+		sin6->sin6_port = port;
+		sin6->sin6_flowinfo = 0;
+		ipv6_addr_copy(&sin6->sin6_addr, (struct in6_addr *)xaddr->a6);
+		sin6->sin6_scope_id = 0;
+		return 128;
+	    }
+#endif
+	}
+	return 0;
+}
+
+static struct sk_buff *__pfkey_xfrm_state2msg(struct xfrm_state *x,
+					      int add_keys, int hsc)
 {
 	struct sk_buff *skb;
 	struct sadb_msg *hdr;
@@ -668,13 +736,9 @@ static struct sk_buff * pfkey_xfrm_state2msg(struct xfrm_state *x, int add_keys,
 	struct sadb_address *addr;
 	struct sadb_key *key;
 	struct sadb_x_sa2 *sa2;
-	struct sockaddr_in *sin;
 	struct sadb_x_sec_ctx *sec_ctx;
 	struct xfrm_sec_ctx *xfrm_ctx;
 	int ctx_size = 0;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	struct sockaddr_in6 *sin6;
-#endif
 	int size;
 	int auth_key_size = 0;
 	int encrypt_key_size = 0;
@@ -703,14 +767,7 @@ static struct sk_buff * pfkey_xfrm_state2msg(struct xfrm_state *x, int add_keys,
 	}
 
 	/* identity & sensitivity */
-
-	if ((x->props.family == AF_INET &&
-	     x->sel.saddr.a4 != x->props.saddr.a4)
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	    || (x->props.family == AF_INET6 &&
-		memcmp (x->sel.saddr.a6, x->props.saddr.a6, sizeof (struct in6_addr)))
-#endif
-		)
+	if (xfrm_addr_cmp(&x->sel.saddr, &x->props.saddr, x->props.family))
 		size += sizeof(struct sadb_address) + sockaddr_size;
 
 	if (add_keys) {
@@ -832,29 +889,12 @@ static struct sk_buff * pfkey_xfrm_state2msg(struct xfrm_state *x, int add_keys,
 	   protocol's number." - RFC2367 */
 	addr->sadb_address_proto = 0;
 	addr->sadb_address_reserved = 0;
-	if (x->props.family == AF_INET) {
-		addr->sadb_address_prefixlen = 32;
 
-		sin = (struct sockaddr_in *) (addr + 1);
-		sin->sin_family = AF_INET;
-		sin->sin_addr.s_addr = x->props.saddr.a4;
-		sin->sin_port = 0;
-		memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-	}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	else if (x->props.family == AF_INET6) {
-		addr->sadb_address_prefixlen = 128;
-
-		sin6 = (struct sockaddr_in6 *) (addr + 1);
-		sin6->sin6_family = AF_INET6;
-		sin6->sin6_port = 0;
-		sin6->sin6_flowinfo = 0;
-		memcpy(&sin6->sin6_addr, x->props.saddr.a6,
-		       sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
-	}
-#endif
-	else
+	addr->sadb_address_prefixlen =
+		pfkey_sockaddr_fill(&x->props.saddr, 0,
+				    (struct sockaddr *) (addr + 1),
+				    x->props.family);
+	if (!addr->sadb_address_prefixlen)
 		BUG();
 
 	/* dst address */
@@ -865,70 +905,32 @@ static struct sk_buff * pfkey_xfrm_state2msg(struct xfrm_state *x, int add_keys,
 			sizeof(uint64_t);
 	addr->sadb_address_exttype = SADB_EXT_ADDRESS_DST;
 	addr->sadb_address_proto = 0;
-	addr->sadb_address_prefixlen = 32; /* XXX */
 	addr->sadb_address_reserved = 0;
-	if (x->props.family == AF_INET) {
-		sin = (struct sockaddr_in *) (addr + 1);
-		sin->sin_family = AF_INET;
-		sin->sin_addr.s_addr = x->id.daddr.a4;
-		sin->sin_port = 0;
-		memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
 
-		if (x->sel.saddr.a4 != x->props.saddr.a4) {
-			addr = (struct sadb_address*) skb_put(skb,
-				sizeof(struct sadb_address)+sockaddr_size);
-			addr->sadb_address_len =
-				(sizeof(struct sadb_address)+sockaddr_size)/
-				sizeof(uint64_t);
-			addr->sadb_address_exttype = SADB_EXT_ADDRESS_PROXY;
-			addr->sadb_address_proto =
-				pfkey_proto_from_xfrm(x->sel.proto);
-			addr->sadb_address_prefixlen = x->sel.prefixlen_s;
-			addr->sadb_address_reserved = 0;
-
-			sin = (struct sockaddr_in *) (addr + 1);
-			sin->sin_family = AF_INET;
-			sin->sin_addr.s_addr = x->sel.saddr.a4;
-			sin->sin_port = x->sel.sport;
-			memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-		}
-	}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	else if (x->props.family == AF_INET6) {
-		addr->sadb_address_prefixlen = 128;
-
-		sin6 = (struct sockaddr_in6 *) (addr + 1);
-		sin6->sin6_family = AF_INET6;
-		sin6->sin6_port = 0;
-		sin6->sin6_flowinfo = 0;
-		memcpy(&sin6->sin6_addr, x->id.daddr.a6, sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
-
-		if (memcmp (x->sel.saddr.a6, x->props.saddr.a6,
-			    sizeof(struct in6_addr))) {
-			addr = (struct sadb_address *) skb_put(skb,
-				sizeof(struct sadb_address)+sockaddr_size);
-			addr->sadb_address_len =
-				(sizeof(struct sadb_address)+sockaddr_size)/
-				sizeof(uint64_t);
-			addr->sadb_address_exttype = SADB_EXT_ADDRESS_PROXY;
-			addr->sadb_address_proto =
-				pfkey_proto_from_xfrm(x->sel.proto);
-			addr->sadb_address_prefixlen = x->sel.prefixlen_s;
-			addr->sadb_address_reserved = 0;
-
-			sin6 = (struct sockaddr_in6 *) (addr + 1);
-			sin6->sin6_family = AF_INET6;
-			sin6->sin6_port = x->sel.sport;
-			sin6->sin6_flowinfo = 0;
-			memcpy(&sin6->sin6_addr, x->sel.saddr.a6,
-			       sizeof(struct in6_addr));
-			sin6->sin6_scope_id = 0;
-		}
-	}
-#endif
-	else
+	addr->sadb_address_prefixlen =
+		pfkey_sockaddr_fill(&x->id.daddr, 0,
+				    (struct sockaddr *) (addr + 1),
+				    x->props.family);
+	if (!addr->sadb_address_prefixlen)
 		BUG();
+
+	if (xfrm_addr_cmp(&x->sel.saddr, &x->props.saddr,
+			  x->props.family)) {
+		addr = (struct sadb_address*) skb_put(skb,
+			sizeof(struct sadb_address)+sockaddr_size);
+		addr->sadb_address_len =
+			(sizeof(struct sadb_address)+sockaddr_size)/
+			sizeof(uint64_t);
+		addr->sadb_address_exttype = SADB_EXT_ADDRESS_PROXY;
+		addr->sadb_address_proto =
+			pfkey_proto_from_xfrm(x->sel.proto);
+		addr->sadb_address_prefixlen = x->sel.prefixlen_s;
+		addr->sadb_address_reserved = 0;
+
+		pfkey_sockaddr_fill(&x->sel.saddr, x->sel.sport,
+				    (struct sockaddr *) (addr + 1),
+				    x->props.family);
+	}
 
 	/* auth key */
 	if (add_keys && auth_key_size) {
@@ -1011,6 +1013,22 @@ static struct sk_buff * pfkey_xfrm_state2msg(struct xfrm_state *x, int add_keys,
 	}
 
 	return skb;
+}
+
+
+static inline struct sk_buff *pfkey_xfrm_state2msg(struct xfrm_state *x)
+{
+	struct sk_buff *skb;
+
+	skb = __pfkey_xfrm_state2msg(x, 1, 3);
+
+	return skb;
+}
+
+static inline struct sk_buff *pfkey_xfrm_state2msg_expire(struct xfrm_state *x,
+							  int hsc)
+{
+	return __pfkey_xfrm_state2msg(x, 0, hsc);
 }
 
 static struct xfrm_state * pfkey_msg2xfrm_state(struct sadb_msg *hdr,
@@ -1257,8 +1275,11 @@ static int pfkey_getspi(struct sock *sk, struct sk_buff *skb, struct sadb_msg *h
 	struct sadb_x_sa2 *sa2;
 	struct sadb_address *saddr, *daddr;
 	struct sadb_msg *out_hdr;
+	struct sadb_spirange *range;
 	struct xfrm_state *x = NULL;
 	int mode;
+	int err;
+	u32 min_spi, max_spi;
 	u32 reqid;
 	u8 proto;
 	unsigned short family;
@@ -1313,25 +1334,17 @@ static int pfkey_getspi(struct sock *sk, struct sk_buff *skb, struct sadb_msg *h
 	if (x == NULL)
 		return -ENOENT;
 
-	resp_skb = ERR_PTR(-ENOENT);
+	min_spi = 0x100;
+	max_spi = 0x0fffffff;
 
-	spin_lock_bh(&x->lock);
-	if (x->km.state != XFRM_STATE_DEAD) {
-		struct sadb_spirange *range = ext_hdrs[SADB_EXT_SPIRANGE-1];
-		u32 min_spi, max_spi;
-
-		if (range != NULL) {
-			min_spi = range->sadb_spirange_min;
-			max_spi = range->sadb_spirange_max;
-		} else {
-			min_spi = 0x100;
-			max_spi = 0x0fffffff;
-		}
-		xfrm_alloc_spi(x, htonl(min_spi), htonl(max_spi));
-		if (x->id.spi)
-			resp_skb = pfkey_xfrm_state2msg(x, 0, 3);
+	range = ext_hdrs[SADB_EXT_SPIRANGE-1];
+	if (range) {
+		min_spi = range->sadb_spirange_min;
+		max_spi = range->sadb_spirange_max;
 	}
-	spin_unlock_bh(&x->lock);
+
+	err = xfrm_alloc_spi(x, min_spi, max_spi);
+	resp_skb = err ? ERR_PTR(err) : pfkey_xfrm_state2msg(x);
 
 	if (IS_ERR(resp_skb)) {
 		xfrm_state_put(x);
@@ -1421,12 +1434,8 @@ static int key_notify_sa(struct xfrm_state *x, struct km_event *c)
 {
 	struct sk_buff *skb;
 	struct sadb_msg *hdr;
-	int hsc = 3;
 
-	if (c->event == XFRM_MSG_DELSA)
-		hsc = 0;
-
-	skb = pfkey_xfrm_state2msg(x, 0, hsc);
+	skb = pfkey_xfrm_state2msg(x);
 
 	if (IS_ERR(skb))
 		return PTR_ERR(skb);
@@ -1461,8 +1470,9 @@ static int pfkey_add(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr,
 	else
 		err = xfrm_state_update(x);
 
-	xfrm_audit_log(audit_get_loginuid(current->audit_context), 0,
-		       AUDIT_MAC_IPSEC_ADDSA, err ? 0 : 1, NULL, x);
+	xfrm_audit_state_add(x, err ? 0 : 1,
+			     audit_get_loginuid(current),
+			     audit_get_sessionid(current), 0);
 
 	if (err < 0) {
 		x->km.state = XFRM_STATE_DEAD;
@@ -1515,8 +1525,9 @@ static int pfkey_delete(struct sock *sk, struct sk_buff *skb, struct sadb_msg *h
 	c.event = XFRM_MSG_DELSA;
 	km_state_notify(x, &c);
 out:
-	xfrm_audit_log(audit_get_loginuid(current->audit_context), 0,
-		       AUDIT_MAC_IPSEC_DELSA, err ? 0 : 1, NULL, x);
+	xfrm_audit_state_delete(x, err ? 0 : 1,
+				audit_get_loginuid(current),
+				audit_get_sessionid(current), 0);
 	xfrm_state_put(x);
 
 	return err;
@@ -1538,7 +1549,7 @@ static int pfkey_get(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr,
 	if (x == NULL)
 		return -ESRCH;
 
-	out_skb = pfkey_xfrm_state2msg(x, 1, 3);
+	out_skb = pfkey_xfrm_state2msg(x);
 	proto = x->id.proto;
 	xfrm_state_put(x);
 	if (IS_ERR(out_skb))
@@ -1546,7 +1557,7 @@ static int pfkey_get(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr,
 
 	out_hdr = (struct sadb_msg *) out_skb->data;
 	out_hdr->sadb_msg_version = hdr->sadb_msg_version;
-	out_hdr->sadb_msg_type = SADB_DUMP;
+	out_hdr->sadb_msg_type = SADB_GET;
 	out_hdr->sadb_msg_satype = pfkey_proto2satype(proto);
 	out_hdr->sadb_msg_errno = 0;
 	out_hdr->sadb_msg_reserved = 0;
@@ -1691,7 +1702,8 @@ static int pfkey_flush(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hd
 	if (proto == 0)
 		return -EINVAL;
 
-	audit_info.loginuid = audit_get_loginuid(current->audit_context);
+	audit_info.loginuid = audit_get_loginuid(current);
+	audit_info.sessionid = audit_get_sessionid(current);
 	audit_info.secid = 0;
 	err = xfrm_state_flush(proto, &audit_info);
 	if (err)
@@ -1705,45 +1717,60 @@ static int pfkey_flush(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hd
 	return 0;
 }
 
-struct pfkey_dump_data
-{
-	struct sk_buff *skb;
-	struct sadb_msg *hdr;
-	struct sock *sk;
-};
-
 static int dump_sa(struct xfrm_state *x, int count, void *ptr)
 {
-	struct pfkey_dump_data *data = ptr;
+	struct pfkey_sock *pfk = ptr;
 	struct sk_buff *out_skb;
 	struct sadb_msg *out_hdr;
 
-	out_skb = pfkey_xfrm_state2msg(x, 1, 3);
+	if (!pfkey_can_dump(&pfk->sk))
+		return -ENOBUFS;
+
+	out_skb = pfkey_xfrm_state2msg(x);
 	if (IS_ERR(out_skb))
 		return PTR_ERR(out_skb);
 
 	out_hdr = (struct sadb_msg *) out_skb->data;
-	out_hdr->sadb_msg_version = data->hdr->sadb_msg_version;
+	out_hdr->sadb_msg_version = pfk->dump.msg_version;
 	out_hdr->sadb_msg_type = SADB_DUMP;
 	out_hdr->sadb_msg_satype = pfkey_proto2satype(x->id.proto);
 	out_hdr->sadb_msg_errno = 0;
 	out_hdr->sadb_msg_reserved = 0;
 	out_hdr->sadb_msg_seq = count;
-	out_hdr->sadb_msg_pid = data->hdr->sadb_msg_pid;
-	pfkey_broadcast(out_skb, GFP_ATOMIC, BROADCAST_ONE, data->sk);
+	out_hdr->sadb_msg_pid = pfk->dump.msg_pid;
+	pfkey_broadcast(out_skb, GFP_ATOMIC, BROADCAST_ONE, &pfk->sk);
 	return 0;
+}
+
+static int pfkey_dump_sa(struct pfkey_sock *pfk)
+{
+	return xfrm_state_walk(&pfk->dump.u.state, dump_sa, (void *) pfk);
+}
+
+static void pfkey_dump_sa_done(struct pfkey_sock *pfk)
+{
+	xfrm_state_walk_done(&pfk->dump.u.state);
 }
 
 static int pfkey_dump(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr, void **ext_hdrs)
 {
 	u8 proto;
-	struct pfkey_dump_data data = { .skb = skb, .hdr = hdr, .sk = sk };
+	struct pfkey_sock *pfk = pfkey_sk(sk);
+
+	if (pfk->dump.dump != NULL)
+		return -EBUSY;
 
 	proto = pfkey_satype2proto(hdr->sadb_msg_satype);
 	if (proto == 0)
 		return -EINVAL;
 
-	return xfrm_state_walk(proto, dump_sa, &data);
+	pfk->dump.msg_version = hdr->sadb_msg_version;
+	pfk->dump.msg_pid = hdr->sadb_msg_pid;
+	pfk->dump.dump = pfkey_dump_sa;
+	pfk->dump.done = pfkey_dump_sa_done;
+	xfrm_state_walk_init(&pfk->dump.u.state, proto);
+
+	return pfkey_do_dump(pfk);
 }
 
 static int pfkey_promisc(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr, void **ext_hdrs)
@@ -1776,7 +1803,9 @@ static int check_reqid(struct xfrm_policy *xp, int dir, int count, void *ptr)
 
 static u32 gen_reqid(void)
 {
+	struct xfrm_policy_walk walk;
 	u32 start;
+	int rc;
 	static u32 reqid = IPSEC_MANUAL_REQID_MAX;
 
 	start = reqid;
@@ -1784,8 +1813,10 @@ static u32 gen_reqid(void)
 		++reqid;
 		if (reqid == 0)
 			reqid = IPSEC_MANUAL_REQID_MAX+1;
-		if (xfrm_policy_walk(XFRM_POLICY_TYPE_MAIN, check_reqid,
-				     (void*)&reqid) != -EEXIST)
+		xfrm_policy_walk_init(&walk, XFRM_POLICY_TYPE_MAIN);
+		rc = xfrm_policy_walk(&walk, check_reqid, (void*)&reqid);
+		xfrm_policy_walk_done(&walk);
+		if (rc != -EEXIST)
 			return reqid;
 	} while (reqid != start);
 	return 0;
@@ -1795,10 +1826,6 @@ static int
 parse_ipsecrequest(struct xfrm_policy *xp, struct sadb_x_ipsecrequest *rq)
 {
 	struct xfrm_tmpl *t = xp->xfrm_vec + xp->xfrm_nr;
-	struct sockaddr_in *sin;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	struct sockaddr_in6 *sin6;
-#endif
 	int mode;
 
 	if (xp->xfrm_nr >= XFRM_MAX_DEPTH)
@@ -1823,36 +1850,24 @@ parse_ipsecrequest(struct xfrm_policy *xp, struct sadb_x_ipsecrequest *rq)
 
 	/* addresses present only in tunnel mode */
 	if (t->mode == XFRM_MODE_TUNNEL) {
-		struct sockaddr *sa;
-		sa = (struct sockaddr *)(rq+1);
-		switch(sa->sa_family) {
-		case AF_INET:
-			sin = (struct sockaddr_in*)sa;
-			t->saddr.a4 = sin->sin_addr.s_addr;
-			sin++;
-			if (sin->sin_family != AF_INET)
-				return -EINVAL;
-			t->id.daddr.a4 = sin->sin_addr.s_addr;
-			break;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-		case AF_INET6:
-			sin6 = (struct sockaddr_in6*)sa;
-			memcpy(t->saddr.a6, &sin6->sin6_addr, sizeof(struct in6_addr));
-			sin6++;
-			if (sin6->sin6_family != AF_INET6)
-				return -EINVAL;
-			memcpy(t->id.daddr.a6, &sin6->sin6_addr, sizeof(struct in6_addr));
-			break;
-#endif
-		default:
+		u8 *sa = (u8 *) (rq + 1);
+		int family, socklen;
+
+		family = pfkey_sockaddr_extract((struct sockaddr *)sa,
+						&t->saddr);
+		if (!family)
 			return -EINVAL;
-		}
-		t->encap_family = sa->sa_family;
+
+		socklen = pfkey_sockaddr_len(family);
+		if (pfkey_sockaddr_extract((struct sockaddr *)(sa + socklen),
+					   &t->id.daddr) != family)
+			return -EINVAL;
+		t->encap_family = family;
 	} else
 		t->encap_family = xp->family;
 
 	/* No way to set this via kame pfkey */
-	t->aalgos = t->ealgos = t->calgos = ~0;
+	t->allalgs = 1;
 	xp->xfrm_nr++;
 	return 0;
 }
@@ -1894,9 +1909,7 @@ static int pfkey_xfrm_policy2msg_size(struct xfrm_policy *xp)
 
 	for (i=0; i<xp->xfrm_nr; i++) {
 		t = xp->xfrm_vec + i;
-		socklen += (t->encap_family == AF_INET ?
-			    sizeof(struct sockaddr_in) :
-			    sizeof(struct sockaddr_in6));
+		socklen += pfkey_sockaddr_len(t->encap_family);
 	}
 
 	return sizeof(struct sadb_msg) +
@@ -1929,18 +1942,12 @@ static int pfkey_xfrm_policy2msg(struct sk_buff *skb, struct xfrm_policy *xp, in
 	struct sadb_address *addr;
 	struct sadb_lifetime *lifetime;
 	struct sadb_x_policy *pol;
-	struct sockaddr_in   *sin;
 	struct sadb_x_sec_ctx *sec_ctx;
 	struct xfrm_sec_ctx *xfrm_ctx;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	struct sockaddr_in6  *sin6;
-#endif
 	int i;
 	int size;
 	int sockaddr_size = pfkey_sockaddr_size(xp->family);
-	int socklen = (xp->family == AF_INET ?
-		       sizeof(struct sockaddr_in) :
-		       sizeof(struct sockaddr_in6));
+	int socklen = pfkey_sockaddr_len(xp->family);
 
 	size = pfkey_xfrm_policy2msg_size(xp);
 
@@ -1958,26 +1965,10 @@ static int pfkey_xfrm_policy2msg(struct sk_buff *skb, struct xfrm_policy *xp, in
 	addr->sadb_address_proto = pfkey_proto_from_xfrm(xp->selector.proto);
 	addr->sadb_address_prefixlen = xp->selector.prefixlen_s;
 	addr->sadb_address_reserved = 0;
-	/* src address */
-	if (xp->family == AF_INET) {
-		sin = (struct sockaddr_in *) (addr + 1);
-		sin->sin_family = AF_INET;
-		sin->sin_addr.s_addr = xp->selector.saddr.a4;
-		sin->sin_port = xp->selector.sport;
-		memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-	}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	else if (xp->family == AF_INET6) {
-		sin6 = (struct sockaddr_in6 *) (addr + 1);
-		sin6->sin6_family = AF_INET6;
-		sin6->sin6_port = xp->selector.sport;
-		sin6->sin6_flowinfo = 0;
-		memcpy(&sin6->sin6_addr, xp->selector.saddr.a6,
-		       sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
-	}
-#endif
-	else
+	if (!pfkey_sockaddr_fill(&xp->selector.saddr,
+				 xp->selector.sport,
+				 (struct sockaddr *) (addr + 1),
+				 xp->family))
 		BUG();
 
 	/* dst address */
@@ -1990,26 +1981,10 @@ static int pfkey_xfrm_policy2msg(struct sk_buff *skb, struct xfrm_policy *xp, in
 	addr->sadb_address_proto = pfkey_proto_from_xfrm(xp->selector.proto);
 	addr->sadb_address_prefixlen = xp->selector.prefixlen_d;
 	addr->sadb_address_reserved = 0;
-	if (xp->family == AF_INET) {
-		sin = (struct sockaddr_in *) (addr + 1);
-		sin->sin_family = AF_INET;
-		sin->sin_addr.s_addr = xp->selector.daddr.a4;
-		sin->sin_port = xp->selector.dport;
-		memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-	}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	else if (xp->family == AF_INET6) {
-		sin6 = (struct sockaddr_in6 *) (addr + 1);
-		sin6->sin6_family = AF_INET6;
-		sin6->sin6_port = xp->selector.dport;
-		sin6->sin6_flowinfo = 0;
-		memcpy(&sin6->sin6_addr, xp->selector.daddr.a6,
-		       sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
-	}
-#endif
-	else
-		BUG();
+
+	pfkey_sockaddr_fill(&xp->selector.daddr, xp->selector.dport,
+			    (struct sockaddr *) (addr + 1),
+			    xp->family);
 
 	/* hard time */
 	lifetime = (struct sadb_lifetime *)  skb_put(skb,
@@ -2063,12 +2038,13 @@ static int pfkey_xfrm_policy2msg(struct sk_buff *skb, struct xfrm_policy *xp, in
 		int mode;
 
 		req_size = sizeof(struct sadb_x_ipsecrequest);
-		if (t->mode == XFRM_MODE_TUNNEL)
-			req_size += ((t->encap_family == AF_INET ?
-				     sizeof(struct sockaddr_in) :
-				     sizeof(struct sockaddr_in6)) * 2);
-		else
+		if (t->mode == XFRM_MODE_TUNNEL) {
+			socklen = pfkey_sockaddr_len(t->encap_family);
+			req_size += socklen * 2;
+		} else {
 			size -= 2*socklen;
+			socklen = 0;
+		}
 		rq = (void*)skb_put(skb, req_size);
 		pol->sadb_x_policy_len += req_size/8;
 		memset(rq, 0, sizeof(*rq));
@@ -2083,42 +2059,15 @@ static int pfkey_xfrm_policy2msg(struct sk_buff *skb, struct xfrm_policy *xp, in
 		if (t->optional)
 			rq->sadb_x_ipsecrequest_level = IPSEC_LEVEL_USE;
 		rq->sadb_x_ipsecrequest_reqid = t->reqid;
-		if (t->mode == XFRM_MODE_TUNNEL) {
-			switch (t->encap_family) {
-			case AF_INET:
-				sin = (void*)(rq+1);
-				sin->sin_family = AF_INET;
-				sin->sin_addr.s_addr = t->saddr.a4;
-				sin->sin_port = 0;
-				memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-				sin++;
-				sin->sin_family = AF_INET;
-				sin->sin_addr.s_addr = t->id.daddr.a4;
-				sin->sin_port = 0;
-				memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-				break;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-			case AF_INET6:
-				sin6 = (void*)(rq+1);
-				sin6->sin6_family = AF_INET6;
-				sin6->sin6_port = 0;
-				sin6->sin6_flowinfo = 0;
-				memcpy(&sin6->sin6_addr, t->saddr.a6,
-				       sizeof(struct in6_addr));
-				sin6->sin6_scope_id = 0;
 
-				sin6++;
-				sin6->sin6_family = AF_INET6;
-				sin6->sin6_port = 0;
-				sin6->sin6_flowinfo = 0;
-				memcpy(&sin6->sin6_addr, t->id.daddr.a6,
-				       sizeof(struct in6_addr));
-				sin6->sin6_scope_id = 0;
-				break;
-#endif
-			default:
-				break;
-			}
+		if (t->mode == XFRM_MODE_TUNNEL) {
+			u8 *sa = (void *)(rq + 1);
+			pfkey_sockaddr_fill(&t->saddr, 0,
+					    (struct sockaddr *)sa,
+					    t->encap_family);
+			pfkey_sockaddr_fill(&t->id.daddr, 0,
+					    (struct sockaddr *) (sa + socklen),
+					    t->encap_family);
 		}
 	}
 
@@ -2237,7 +2186,7 @@ static int pfkey_spdadd(struct sock *sk, struct sk_buff *skb, struct sadb_msg *h
 			goto out;
 		}
 
-		err = security_xfrm_policy_alloc(xp, uctx);
+		err = security_xfrm_policy_alloc(&xp->security, uctx);
 		kfree(uctx);
 
 		if (err)
@@ -2268,8 +2217,9 @@ static int pfkey_spdadd(struct sock *sk, struct sk_buff *skb, struct sadb_msg *h
 	err = xfrm_policy_insert(pol->sadb_x_policy_dir-1, xp,
 				 hdr->sadb_msg_type != SADB_X_SPDUPDATE);
 
-	xfrm_audit_log(audit_get_loginuid(current->audit_context), 0,
-		       AUDIT_MAC_IPSEC_ADDSPD, err ? 0 : 1, xp, NULL);
+	xfrm_audit_policy_add(xp, err ? 0 : 1,
+			      audit_get_loginuid(current),
+			      audit_get_sessionid(current), 0);
 
 	if (err)
 		goto out;
@@ -2287,8 +2237,8 @@ static int pfkey_spdadd(struct sock *sk, struct sk_buff *skb, struct sadb_msg *h
 	return 0;
 
 out:
-	security_xfrm_policy_free(xp);
-	kfree(xp);
+	xp->dead = 1;
+	xfrm_policy_destroy(xp);
 	return err;
 }
 
@@ -2297,10 +2247,11 @@ static int pfkey_spddelete(struct sock *sk, struct sk_buff *skb, struct sadb_msg
 	int err;
 	struct sadb_address *sa;
 	struct sadb_x_policy *pol;
-	struct xfrm_policy *xp, tmp;
+	struct xfrm_policy *xp;
 	struct xfrm_selector sel;
 	struct km_event c;
 	struct sadb_x_sec_ctx *sec_ctx;
+	struct xfrm_sec_ctx *pol_ctx = NULL;
 
 	if (!present_and_same_family(ext_hdrs[SADB_EXT_ADDRESS_SRC-1],
 				     ext_hdrs[SADB_EXT_ADDRESS_DST-1]) ||
@@ -2330,30 +2281,28 @@ static int pfkey_spddelete(struct sock *sk, struct sk_buff *skb, struct sadb_msg
 		sel.dport_mask = htons(0xffff);
 
 	sec_ctx = (struct sadb_x_sec_ctx *) ext_hdrs[SADB_X_EXT_SEC_CTX-1];
-	memset(&tmp, 0, sizeof(struct xfrm_policy));
-
 	if (sec_ctx != NULL) {
 		struct xfrm_user_sec_ctx *uctx = pfkey_sadb2xfrm_user_sec_ctx(sec_ctx);
 
 		if (!uctx)
 			return -ENOMEM;
 
-		err = security_xfrm_policy_alloc(&tmp, uctx);
+		err = security_xfrm_policy_alloc(&pol_ctx, uctx);
 		kfree(uctx);
-
 		if (err)
 			return err;
 	}
 
-	xp = xfrm_policy_bysel_ctx(XFRM_POLICY_TYPE_MAIN, pol->sadb_x_policy_dir-1,
-				   &sel, tmp.security, 1, &err);
-	security_xfrm_policy_free(&tmp);
-
+	xp = xfrm_policy_bysel_ctx(XFRM_POLICY_TYPE_MAIN,
+				   pol->sadb_x_policy_dir - 1, &sel, pol_ctx,
+				   1, &err);
+	security_xfrm_policy_free(pol_ctx);
 	if (xp == NULL)
 		return -ENOENT;
 
-	xfrm_audit_log(audit_get_loginuid(current->audit_context), 0,
-		       AUDIT_MAC_IPSEC_DELSPD, err ? 0 : 1, xp, NULL);
+	xfrm_audit_policy_delete(xp, err ? 0 : 1,
+				 audit_get_loginuid(current),
+				 audit_get_sessionid(current), 0);
 
 	if (err)
 		goto out;
@@ -2401,61 +2350,31 @@ out:
 #ifdef CONFIG_NET_KEY_MIGRATE
 static int pfkey_sockaddr_pair_size(sa_family_t family)
 {
-	switch (family) {
-	case AF_INET:
-		return PFKEY_ALIGN8(sizeof(struct sockaddr_in) * 2);
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	case AF_INET6:
-		return PFKEY_ALIGN8(sizeof(struct sockaddr_in6) * 2);
-#endif
-	default:
-		return 0;
-	}
-	/* NOTREACHED */
+	return PFKEY_ALIGN8(pfkey_sockaddr_len(family) * 2);
 }
 
 static int parse_sockaddr_pair(struct sadb_x_ipsecrequest *rq,
 			       xfrm_address_t *saddr, xfrm_address_t *daddr,
 			       u16 *family)
 {
-	struct sockaddr *sa = (struct sockaddr *)(rq + 1);
+	u8 *sa = (u8 *) (rq + 1);
+	int af, socklen;
+
 	if (rq->sadb_x_ipsecrequest_len <
-	    pfkey_sockaddr_pair_size(sa->sa_family))
+	    pfkey_sockaddr_pair_size(((struct sockaddr *)sa)->sa_family))
 		return -EINVAL;
 
-	switch (sa->sa_family) {
-	case AF_INET:
-		{
-			struct sockaddr_in *sin;
-			sin = (struct sockaddr_in *)sa;
-			if ((sin+1)->sin_family != AF_INET)
-				return -EINVAL;
-			memcpy(&saddr->a4, &sin->sin_addr, sizeof(saddr->a4));
-			sin++;
-			memcpy(&daddr->a4, &sin->sin_addr, sizeof(daddr->a4));
-			*family = AF_INET;
-			break;
-		}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	case AF_INET6:
-		{
-			struct sockaddr_in6 *sin6;
-			sin6 = (struct sockaddr_in6 *)sa;
-			if ((sin6+1)->sin6_family != AF_INET6)
-				return -EINVAL;
-			memcpy(&saddr->a6, &sin6->sin6_addr,
-			       sizeof(saddr->a6));
-			sin6++;
-			memcpy(&daddr->a6, &sin6->sin6_addr,
-			       sizeof(daddr->a6));
-			*family = AF_INET6;
-			break;
-		}
-#endif
-	default:
+	af = pfkey_sockaddr_extract((struct sockaddr *) sa,
+				    saddr);
+	if (!af)
 		return -EINVAL;
-	}
 
+	socklen = pfkey_sockaddr_len(af);
+	if (pfkey_sockaddr_extract((struct sockaddr *) (sa + socklen),
+				   daddr) != af)
+		return -EINVAL;
+
+	*family = af;
 	return 0;
 }
 
@@ -2613,8 +2532,9 @@ static int pfkey_spdget(struct sock *sk, struct sk_buff *skb, struct sadb_msg *h
 		return -ENOENT;
 
 	if (delete) {
-		xfrm_audit_log(audit_get_loginuid(current->audit_context), 0,
-			       AUDIT_MAC_IPSEC_DELSPD, err ? 0 : 1, xp, NULL);
+		xfrm_audit_policy_delete(xp, err ? 0 : 1,
+				audit_get_loginuid(current),
+				audit_get_sessionid(current), 0);
 
 		if (err)
 			goto out;
@@ -2634,10 +2554,13 @@ out:
 
 static int dump_sp(struct xfrm_policy *xp, int dir, int count, void *ptr)
 {
-	struct pfkey_dump_data *data = ptr;
+	struct pfkey_sock *pfk = ptr;
 	struct sk_buff *out_skb;
 	struct sadb_msg *out_hdr;
 	int err;
+
+	if (!pfkey_can_dump(&pfk->sk))
+		return -ENOBUFS;
 
 	out_skb = pfkey_xfrm_policy2msg_prep(xp);
 	if (IS_ERR(out_skb))
@@ -2648,21 +2571,40 @@ static int dump_sp(struct xfrm_policy *xp, int dir, int count, void *ptr)
 		return err;
 
 	out_hdr = (struct sadb_msg *) out_skb->data;
-	out_hdr->sadb_msg_version = data->hdr->sadb_msg_version;
+	out_hdr->sadb_msg_version = pfk->dump.msg_version;
 	out_hdr->sadb_msg_type = SADB_X_SPDDUMP;
 	out_hdr->sadb_msg_satype = SADB_SATYPE_UNSPEC;
 	out_hdr->sadb_msg_errno = 0;
 	out_hdr->sadb_msg_seq = count;
-	out_hdr->sadb_msg_pid = data->hdr->sadb_msg_pid;
-	pfkey_broadcast(out_skb, GFP_ATOMIC, BROADCAST_ONE, data->sk);
+	out_hdr->sadb_msg_pid = pfk->dump.msg_pid;
+	pfkey_broadcast(out_skb, GFP_ATOMIC, BROADCAST_ONE, &pfk->sk);
 	return 0;
+}
+
+static int pfkey_dump_sp(struct pfkey_sock *pfk)
+{
+	return xfrm_policy_walk(&pfk->dump.u.policy, dump_sp, (void *) pfk);
+}
+
+static void pfkey_dump_sp_done(struct pfkey_sock *pfk)
+{
+	xfrm_policy_walk_done(&pfk->dump.u.policy);
 }
 
 static int pfkey_spddump(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr, void **ext_hdrs)
 {
-	struct pfkey_dump_data data = { .skb = skb, .hdr = hdr, .sk = sk };
+	struct pfkey_sock *pfk = pfkey_sk(sk);
 
-	return xfrm_policy_walk(XFRM_POLICY_TYPE_MAIN, dump_sp, &data);
+	if (pfk->dump.dump != NULL)
+		return -EBUSY;
+
+	pfk->dump.msg_version = hdr->sadb_msg_version;
+	pfk->dump.msg_pid = hdr->sadb_msg_pid;
+	pfk->dump.dump = pfkey_dump_sp;
+	pfk->dump.done = pfkey_dump_sp_done;
+	xfrm_policy_walk_init(&pfk->dump.u.policy, XFRM_POLICY_TYPE_MAIN);
+
+	return pfkey_do_dump(pfk);
 }
 
 static int key_notify_policy_flush(struct km_event *c)
@@ -2691,7 +2633,8 @@ static int pfkey_spdflush(struct sock *sk, struct sk_buff *skb, struct sadb_msg 
 	struct xfrm_audit audit_info;
 	int err;
 
-	audit_info.loginuid = audit_get_loginuid(current->audit_context);
+	audit_info.loginuid = audit_get_loginuid(current);
+	audit_info.sessionid = audit_get_sessionid(current);
 	audit_info.secid = 0;
 	err = xfrm_policy_flush(XFRM_POLICY_TYPE_MAIN, &audit_info);
 	if (err)
@@ -2780,12 +2723,22 @@ static struct sadb_msg *pfkey_get_base_msg(struct sk_buff *skb, int *errp)
 
 static inline int aalg_tmpl_set(struct xfrm_tmpl *t, struct xfrm_algo_desc *d)
 {
-	return t->aalgos & (1 << d->desc.sadb_alg_id);
+	unsigned int id = d->desc.sadb_alg_id;
+
+	if (id >= sizeof(t->aalgos) * 8)
+		return 0;
+
+	return (t->aalgos >> id) & 1;
 }
 
 static inline int ealg_tmpl_set(struct xfrm_tmpl *t, struct xfrm_algo_desc *d)
 {
-	return t->ealgos & (1 << d->desc.sadb_alg_id);
+	unsigned int id = d->desc.sadb_alg_id;
+
+	if (id >= sizeof(t->ealgos) * 8)
+		return 0;
+
+	return (t->ealgos >> id) & 1;
 }
 
 static int count_ah_combs(struct xfrm_tmpl *t)
@@ -2919,7 +2872,7 @@ static int key_notify_sa_expire(struct xfrm_state *x, struct km_event *c)
 	else
 		hsc = 1;
 
-	out_skb = pfkey_xfrm_state2msg(x, 0, hsc);
+	out_skb = pfkey_xfrm_state2msg_expire(x, hsc);
 	if (IS_ERR(out_skb))
 		return PTR_ERR(out_skb);
 
@@ -2938,6 +2891,9 @@ static int key_notify_sa_expire(struct xfrm_state *x, struct km_event *c)
 
 static int pfkey_send_notify(struct xfrm_state *x, struct km_event *c)
 {
+	if (atomic_read(&pfkey_socks_nr) == 0)
+		return 0;
+
 	switch (c->event) {
 	case XFRM_MSG_EXPIRE:
 		return key_notify_sa_expire(x, c);
@@ -2999,10 +2955,6 @@ static int pfkey_send_acquire(struct xfrm_state *x, struct xfrm_tmpl *t, struct 
 	struct sadb_msg *hdr;
 	struct sadb_address *addr;
 	struct sadb_x_policy *pol;
-	struct sockaddr_in *sin;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	struct sockaddr_in6 *sin6;
-#endif
 	int sockaddr_size;
 	int size;
 	struct sadb_x_sec_ctx *sec_ctx;
@@ -3051,29 +3003,11 @@ static int pfkey_send_acquire(struct xfrm_state *x, struct xfrm_tmpl *t, struct 
 	addr->sadb_address_exttype = SADB_EXT_ADDRESS_SRC;
 	addr->sadb_address_proto = 0;
 	addr->sadb_address_reserved = 0;
-	if (x->props.family == AF_INET) {
-		addr->sadb_address_prefixlen = 32;
-
-		sin = (struct sockaddr_in *) (addr + 1);
-		sin->sin_family = AF_INET;
-		sin->sin_addr.s_addr = x->props.saddr.a4;
-		sin->sin_port = 0;
-		memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-	}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	else if (x->props.family == AF_INET6) {
-		addr->sadb_address_prefixlen = 128;
-
-		sin6 = (struct sockaddr_in6 *) (addr + 1);
-		sin6->sin6_family = AF_INET6;
-		sin6->sin6_port = 0;
-		sin6->sin6_flowinfo = 0;
-		memcpy(&sin6->sin6_addr,
-		       x->props.saddr.a6, sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
-	}
-#endif
-	else
+	addr->sadb_address_prefixlen =
+		pfkey_sockaddr_fill(&x->props.saddr, 0,
+				    (struct sockaddr *) (addr + 1),
+				    x->props.family);
+	if (!addr->sadb_address_prefixlen)
 		BUG();
 
 	/* dst address */
@@ -3085,29 +3019,11 @@ static int pfkey_send_acquire(struct xfrm_state *x, struct xfrm_tmpl *t, struct 
 	addr->sadb_address_exttype = SADB_EXT_ADDRESS_DST;
 	addr->sadb_address_proto = 0;
 	addr->sadb_address_reserved = 0;
-	if (x->props.family == AF_INET) {
-		addr->sadb_address_prefixlen = 32;
-
-		sin = (struct sockaddr_in *) (addr + 1);
-		sin->sin_family = AF_INET;
-		sin->sin_addr.s_addr = x->id.daddr.a4;
-		sin->sin_port = 0;
-		memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-	}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	else if (x->props.family == AF_INET6) {
-		addr->sadb_address_prefixlen = 128;
-
-		sin6 = (struct sockaddr_in6 *) (addr + 1);
-		sin6->sin6_family = AF_INET6;
-		sin6->sin6_port = 0;
-		sin6->sin6_flowinfo = 0;
-		memcpy(&sin6->sin6_addr,
-		       x->id.daddr.a6, sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
-	}
-#endif
-	else
+	addr->sadb_address_prefixlen =
+		pfkey_sockaddr_fill(&x->id.daddr, 0,
+				    (struct sockaddr *) (addr + 1),
+				    x->props.family);
+	if (!addr->sadb_address_prefixlen)
 		BUG();
 
 	pol = (struct sadb_x_policy *)  skb_put(skb, sizeof(struct sadb_x_policy));
@@ -3211,7 +3127,7 @@ static struct xfrm_policy *pfkey_compile_policy(struct sock *sk, int opt,
 		if ((*dir = verify_sec_ctx_len(p)))
 			goto out;
 		uctx = pfkey_sadb2xfrm_user_sec_ctx(sec_ctx);
-		*dir = security_xfrm_policy_alloc(xp, uctx);
+		*dir = security_xfrm_policy_alloc(&xp->security, uctx);
 		kfree(uctx);
 
 		if (*dir)
@@ -3222,8 +3138,7 @@ static struct xfrm_policy *pfkey_compile_policy(struct sock *sk, int opt,
 	return xp;
 
 out:
-	security_xfrm_policy_free(xp);
-	kfree(xp);
+	xfrm_policy_destroy(xp);
 	return NULL;
 }
 
@@ -3234,10 +3149,6 @@ static int pfkey_send_new_mapping(struct xfrm_state *x, xfrm_address_t *ipaddr, 
 	struct sadb_sa *sa;
 	struct sadb_address *addr;
 	struct sadb_x_nat_t_port *n_port;
-	struct sockaddr_in *sin;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	struct sockaddr_in6 *sin6;
-#endif
 	int sockaddr_size;
 	int size;
 	__u8 satype = (x->id.proto == IPPROTO_ESP ? SADB_SATYPE_ESP : 0);
@@ -3301,29 +3212,11 @@ static int pfkey_send_new_mapping(struct xfrm_state *x, xfrm_address_t *ipaddr, 
 	addr->sadb_address_exttype = SADB_EXT_ADDRESS_SRC;
 	addr->sadb_address_proto = 0;
 	addr->sadb_address_reserved = 0;
-	if (x->props.family == AF_INET) {
-		addr->sadb_address_prefixlen = 32;
-
-		sin = (struct sockaddr_in *) (addr + 1);
-		sin->sin_family = AF_INET;
-		sin->sin_addr.s_addr = x->props.saddr.a4;
-		sin->sin_port = 0;
-		memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-	}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	else if (x->props.family == AF_INET6) {
-		addr->sadb_address_prefixlen = 128;
-
-		sin6 = (struct sockaddr_in6 *) (addr + 1);
-		sin6->sin6_family = AF_INET6;
-		sin6->sin6_port = 0;
-		sin6->sin6_flowinfo = 0;
-		memcpy(&sin6->sin6_addr,
-		       x->props.saddr.a6, sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
-	}
-#endif
-	else
+	addr->sadb_address_prefixlen =
+		pfkey_sockaddr_fill(&x->props.saddr, 0,
+				    (struct sockaddr *) (addr + 1),
+				    x->props.family);
+	if (!addr->sadb_address_prefixlen)
 		BUG();
 
 	/* NAT_T_SPORT (old port) */
@@ -3342,28 +3235,11 @@ static int pfkey_send_new_mapping(struct xfrm_state *x, xfrm_address_t *ipaddr, 
 	addr->sadb_address_exttype = SADB_EXT_ADDRESS_DST;
 	addr->sadb_address_proto = 0;
 	addr->sadb_address_reserved = 0;
-	if (x->props.family == AF_INET) {
-		addr->sadb_address_prefixlen = 32;
-
-		sin = (struct sockaddr_in *) (addr + 1);
-		sin->sin_family = AF_INET;
-		sin->sin_addr.s_addr = ipaddr->a4;
-		sin->sin_port = 0;
-		memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-	}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	else if (x->props.family == AF_INET6) {
-		addr->sadb_address_prefixlen = 128;
-
-		sin6 = (struct sockaddr_in6 *) (addr + 1);
-		sin6->sin6_family = AF_INET6;
-		sin6->sin6_port = 0;
-		sin6->sin6_flowinfo = 0;
-		memcpy(&sin6->sin6_addr, &ipaddr->a6, sizeof(struct in6_addr));
-		sin6->sin6_scope_id = 0;
-	}
-#endif
-	else
+	addr->sadb_address_prefixlen =
+		pfkey_sockaddr_fill(ipaddr, 0,
+				    (struct sockaddr *) (addr + 1),
+				    x->props.family);
+	if (!addr->sadb_address_prefixlen)
 		BUG();
 
 	/* NAT_T_DPORT (new port) */
@@ -3381,10 +3257,6 @@ static int set_sadb_address(struct sk_buff *skb, int sasize, int type,
 			    struct xfrm_selector *sel)
 {
 	struct sadb_address *addr;
-	struct sockaddr_in *sin;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	struct sockaddr_in6 *sin6;
-#endif
 	addr = (struct sadb_address *)skb_put(skb, sizeof(struct sadb_address) + sasize);
 	addr->sadb_address_len = (sizeof(struct sadb_address) + sasize)/8;
 	addr->sadb_address_exttype = type;
@@ -3393,50 +3265,16 @@ static int set_sadb_address(struct sk_buff *skb, int sasize, int type,
 
 	switch (type) {
 	case SADB_EXT_ADDRESS_SRC:
-		if (sel->family == AF_INET) {
-			addr->sadb_address_prefixlen = sel->prefixlen_s;
-			sin = (struct sockaddr_in *)(addr + 1);
-			sin->sin_family = AF_INET;
-			memcpy(&sin->sin_addr.s_addr, &sel->saddr,
-			       sizeof(sin->sin_addr.s_addr));
-			sin->sin_port = 0;
-			memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-		}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-		else if (sel->family == AF_INET6) {
-			addr->sadb_address_prefixlen = sel->prefixlen_s;
-			sin6 = (struct sockaddr_in6 *)(addr + 1);
-			sin6->sin6_family = AF_INET6;
-			sin6->sin6_port = 0;
-			sin6->sin6_flowinfo = 0;
-			sin6->sin6_scope_id = 0;
-			memcpy(&sin6->sin6_addr.s6_addr, &sel->saddr,
-			       sizeof(sin6->sin6_addr.s6_addr));
-		}
-#endif
+		addr->sadb_address_prefixlen = sel->prefixlen_s;
+		pfkey_sockaddr_fill(&sel->saddr, 0,
+				    (struct sockaddr *)(addr + 1),
+				    sel->family);
 		break;
 	case SADB_EXT_ADDRESS_DST:
-		if (sel->family == AF_INET) {
-			addr->sadb_address_prefixlen = sel->prefixlen_d;
-			sin = (struct sockaddr_in *)(addr + 1);
-			sin->sin_family = AF_INET;
-			memcpy(&sin->sin_addr.s_addr, &sel->daddr,
-			       sizeof(sin->sin_addr.s_addr));
-			sin->sin_port = 0;
-			memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-		}
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-		else if (sel->family == AF_INET6) {
-			addr->sadb_address_prefixlen = sel->prefixlen_d;
-			sin6 = (struct sockaddr_in6 *)(addr + 1);
-			sin6->sin6_family = AF_INET6;
-			sin6->sin6_port = 0;
-			sin6->sin6_flowinfo = 0;
-			sin6->sin6_scope_id = 0;
-			memcpy(&sin6->sin6_addr.s6_addr, &sel->daddr,
-			       sizeof(sin6->sin6_addr.s6_addr));
-		}
-#endif
+		addr->sadb_address_prefixlen = sel->prefixlen_d;
+		pfkey_sockaddr_fill(&sel->daddr, 0,
+				    (struct sockaddr *)(addr + 1),
+				    sel->family);
 		break;
 	default:
 		return -EINVAL;
@@ -3451,10 +3289,8 @@ static int set_ipsecrequest(struct sk_buff *skb,
 			    xfrm_address_t *src, xfrm_address_t *dst)
 {
 	struct sadb_x_ipsecrequest *rq;
-	struct sockaddr_in *sin;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	struct sockaddr_in6 *sin6;
-#endif
+	u8 *sa;
+	int socklen = pfkey_sockaddr_len(family);
 	int size_req;
 
 	size_req = sizeof(struct sadb_x_ipsecrequest) +
@@ -3468,38 +3304,10 @@ static int set_ipsecrequest(struct sk_buff *skb,
 	rq->sadb_x_ipsecrequest_level = level;
 	rq->sadb_x_ipsecrequest_reqid = reqid;
 
-	switch (family) {
-	case AF_INET:
-		sin = (struct sockaddr_in *)(rq + 1);
-		sin->sin_family = AF_INET;
-		memcpy(&sin->sin_addr.s_addr, src,
-		       sizeof(sin->sin_addr.s_addr));
-		sin++;
-		sin->sin_family = AF_INET;
-		memcpy(&sin->sin_addr.s_addr, dst,
-		       sizeof(sin->sin_addr.s_addr));
-		break;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	case AF_INET6:
-		sin6 = (struct sockaddr_in6 *)(rq + 1);
-		sin6->sin6_family = AF_INET6;
-		sin6->sin6_port = 0;
-		sin6->sin6_flowinfo = 0;
-		sin6->sin6_scope_id = 0;
-		memcpy(&sin6->sin6_addr.s6_addr, src,
-		       sizeof(sin6->sin6_addr.s6_addr));
-		sin6++;
-		sin6->sin6_family = AF_INET6;
-		sin6->sin6_port = 0;
-		sin6->sin6_flowinfo = 0;
-		sin6->sin6_scope_id = 0;
-		memcpy(&sin6->sin6_addr.s6_addr, dst,
-		       sizeof(sin6->sin6_addr.s6_addr));
-		break;
-#endif
-	default:
+	sa = (u8 *) (rq + 1);
+	if (!pfkey_sockaddr_fill(src, 0, (struct sockaddr *)sa, family) ||
+	    !pfkey_sockaddr_fill(dst, 0, (struct sockaddr *)(sa + socklen), family))
 		return -EINVAL;
-	}
 
 	return 0;
 }
@@ -3579,27 +3387,29 @@ static int pfkey_send_migrate(struct xfrm_selector *sel, u8 dir, u8 type,
 		/* old ipsecrequest */
 		int mode = pfkey_mode_from_xfrm(mp->mode);
 		if (mode < 0)
-			return -EINVAL;
+			goto err;
 		if (set_ipsecrequest(skb, mp->proto, mode,
 				     (mp->reqid ?  IPSEC_LEVEL_UNIQUE : IPSEC_LEVEL_REQUIRE),
 				     mp->reqid, mp->old_family,
-				     &mp->old_saddr, &mp->old_daddr) < 0) {
-			return -EINVAL;
-		}
+				     &mp->old_saddr, &mp->old_daddr) < 0)
+			goto err;
 
 		/* new ipsecrequest */
 		if (set_ipsecrequest(skb, mp->proto, mode,
 				     (mp->reqid ? IPSEC_LEVEL_UNIQUE : IPSEC_LEVEL_REQUIRE),
 				     mp->reqid, mp->new_family,
-				     &mp->new_saddr, &mp->new_daddr) < 0) {
-			return -EINVAL;
-		}
+				     &mp->new_saddr, &mp->new_daddr) < 0)
+			goto err;
 	}
 
 	/* broadcast migrate message to sockets */
 	pfkey_broadcast(skb, GFP_ATOMIC, BROADCAST_ALL, NULL);
 
 	return 0;
+
+err:
+	kfree_skb(skb);
+	return -EINVAL;
 }
 #else
 static int pfkey_send_migrate(struct xfrm_selector *sel, u8 dir, u8 type,
@@ -3656,6 +3466,7 @@ static int pfkey_recvmsg(struct kiocb *kiocb,
 			 int flags)
 {
 	struct sock *sk = sock->sk;
+	struct pfkey_sock *pfk = pfkey_sk(sk);
 	struct sk_buff *skb;
 	int copied, err;
 
@@ -3682,6 +3493,10 @@ static int pfkey_recvmsg(struct kiocb *kiocb,
 	sock_recv_timestamp(msg, sk, skb);
 
 	err = (flags & MSG_TRUNC) ? skb->len : copied;
+
+	if (pfk->dump.dump != NULL &&
+	    3 * atomic_read(&sk->sk_rmem_alloc) <= sk->sk_rcvbuf)
+		pfkey_do_dump(pfk);
 
 out_free:
 	skb_free_datagram(sk, skb);
@@ -3720,21 +3535,15 @@ static struct net_proto_family pfkey_family_ops = {
 };
 
 #ifdef CONFIG_PROC_FS
-static int pfkey_read_proc(char *buffer, char **start, off_t offset,
-			   int length, int *eof, void *data)
+static int pfkey_seq_show(struct seq_file *f, void *v)
 {
-	off_t pos = 0;
-	off_t begin = 0;
-	int len = 0;
 	struct sock *s;
-	struct hlist_node *node;
 
-	len += sprintf(buffer,"sk       RefCnt Rmem   Wmem   User   Inode\n");
-
-	read_lock(&pfkey_table_lock);
-
-	sk_for_each(s, node, &pfkey_table) {
-		len += sprintf(buffer+len,"%p %-6d %-6u %-6u %-6u %-6lu",
+	s = (struct sock *)v;
+	if (v == SEQ_START_TOKEN)
+		seq_printf(f ,"sk       RefCnt Rmem   Wmem   User   Inode\n");
+	else
+		seq_printf(f ,"%p %-6d %-6u %-6u %-6u %-6lu\n",
 			       s,
 			       atomic_read(&s->sk_refcnt),
 			       atomic_read(&s->sk_rmem_alloc),
@@ -3742,31 +3551,81 @@ static int pfkey_read_proc(char *buffer, char **start, off_t offset,
 			       sock_i_uid(s),
 			       sock_i_ino(s)
 			       );
+	return 0;
+}
 
-		buffer[len++] = '\n';
+static void *pfkey_seq_start(struct seq_file *f, loff_t *ppos)
+{
+	struct sock *s;
+	struct hlist_node *node;
+	loff_t pos = *ppos;
 
-		pos = begin + len;
-		if (pos < offset) {
-			len = 0;
-			begin = pos;
-		}
-		if(pos > offset + length)
-			goto done;
-	}
-	*eof = 1;
+	read_lock(&pfkey_table_lock);
+	if (pos == 0)
+		return SEQ_START_TOKEN;
 
-done:
+	sk_for_each(s, node, &pfkey_table)
+		if (pos-- == 1)
+			return s;
+
+	return NULL;
+}
+
+static void *pfkey_seq_next(struct seq_file *f, void *v, loff_t *ppos)
+{
+	++*ppos;
+	return (v == SEQ_START_TOKEN) ?
+		sk_head(&pfkey_table) :
+			sk_next((struct sock *)v);
+}
+
+static void pfkey_seq_stop(struct seq_file *f, void *v)
+{
 	read_unlock(&pfkey_table_lock);
+}
 
-	*start = buffer + (offset - begin);
-	len -= (offset - begin);
+static struct seq_operations pfkey_seq_ops = {
+	.start	= pfkey_seq_start,
+	.next	= pfkey_seq_next,
+	.stop	= pfkey_seq_stop,
+	.show	= pfkey_seq_show,
+};
 
-	if (len > length)
-		len = length;
-	if (len < 0)
-		len = 0;
+static int pfkey_seq_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &pfkey_seq_ops);
+}
 
-	return len;
+static struct file_operations pfkey_proc_ops = {
+	.open	 = pfkey_seq_open,
+	.read	 = seq_read,
+	.llseek	 = seq_lseek,
+	.release = seq_release,
+};
+
+static int pfkey_init_proc(void)
+{
+	struct proc_dir_entry *e;
+
+	e = proc_net_fops_create(&init_net, "pfkey", 0, &pfkey_proc_ops);
+	if (e == NULL)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static void pfkey_exit_proc(void)
+{
+	proc_net_remove(&init_net, "pfkey");
+}
+#else
+static inline int pfkey_init_proc(void)
+{
+	return 0;
+}
+
+static inline void pfkey_exit_proc(void)
+{
 }
 #endif
 
@@ -3784,7 +3643,7 @@ static struct xfrm_mgr pfkeyv2_mgr =
 static void __exit ipsec_pfkey_exit(void)
 {
 	xfrm_unregister_km(&pfkeyv2_mgr);
-	remove_proc_entry("net/pfkey", NULL);
+	pfkey_exit_proc();
 	sock_unregister(PF_KEY);
 	proto_unregister(&key_proto);
 }
@@ -3799,21 +3658,17 @@ static int __init ipsec_pfkey_init(void)
 	err = sock_register(&pfkey_family_ops);
 	if (err != 0)
 		goto out_unregister_key_proto;
-#ifdef CONFIG_PROC_FS
-	err = -ENOMEM;
-	if (create_proc_read_entry("net/pfkey", 0, NULL, pfkey_read_proc, NULL) == NULL)
+	err = pfkey_init_proc();
+	if (err != 0)
 		goto out_sock_unregister;
-#endif
 	err = xfrm_register_km(&pfkeyv2_mgr);
 	if (err != 0)
 		goto out_remove_proc_entry;
 out:
 	return err;
 out_remove_proc_entry:
-#ifdef CONFIG_PROC_FS
-	remove_proc_entry("net/pfkey", NULL);
+	pfkey_exit_proc();
 out_sock_unregister:
-#endif
 	sock_unregister(PF_KEY);
 out_unregister_key_proto:
 	proto_unregister(&key_proto);

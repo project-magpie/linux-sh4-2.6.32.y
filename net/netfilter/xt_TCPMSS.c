@@ -13,7 +13,10 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/tcp.h>
+#include <net/dst.h>
+#include <net/flow.h>
 #include <net/ipv6.h>
+#include <net/route.h>
 #include <net/tcp.h>
 
 #include <linux/netfilter_ipv4/ip_tables.h>
@@ -24,7 +27,7 @@
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Marc Boucher <marc@mbsi.ca>");
-MODULE_DESCRIPTION("x_tables TCP MSS modification module");
+MODULE_DESCRIPTION("Xtables: TCP Maximum Segment Size (MSS) adjustment");
 MODULE_ALIAS("ipt_TCPMSS");
 MODULE_ALIAS("ip6t_TCPMSS");
 
@@ -39,8 +42,9 @@ optlen(const u_int8_t *opt, unsigned int offset)
 }
 
 static int
-tcpmss_mangle_packet(struct sk_buff **pskb,
+tcpmss_mangle_packet(struct sk_buff *skb,
 		     const struct xt_tcpmss_info *info,
+		     unsigned int in_mtu,
 		     unsigned int tcphoff,
 		     unsigned int minlen)
 {
@@ -50,11 +54,11 @@ tcpmss_mangle_packet(struct sk_buff **pskb,
 	u16 newmss;
 	u8 *opt;
 
-	if (!skb_make_writable(pskb, (*pskb)->len))
+	if (!skb_make_writable(skb, skb->len))
 		return -1;
 
-	tcplen = (*pskb)->len - tcphoff;
-	tcph = (struct tcphdr *)(skb_network_header(*pskb) + tcphoff);
+	tcplen = skb->len - tcphoff;
+	tcph = (struct tcphdr *)(skb_network_header(skb) + tcphoff);
 
 	/* Since it passed flags test in tcp match, we know it is is
 	   not a fragment, and has data >= tcp header length.  SYN
@@ -64,19 +68,25 @@ tcpmss_mangle_packet(struct sk_buff **pskb,
 	if (tcplen != tcph->doff*4) {
 		if (net_ratelimit())
 			printk(KERN_ERR "xt_TCPMSS: bad length (%u bytes)\n",
-			       (*pskb)->len);
+			       skb->len);
 		return -1;
 	}
 
 	if (info->mss == XT_TCPMSS_CLAMP_PMTU) {
-		if (dst_mtu((*pskb)->dst) <= minlen) {
+		if (dst_mtu(skb->dst) <= minlen) {
 			if (net_ratelimit())
 				printk(KERN_ERR "xt_TCPMSS: "
 				       "unknown or invalid path-MTU (%u)\n",
-				       dst_mtu((*pskb)->dst));
+				       dst_mtu(skb->dst));
 			return -1;
 		}
-		newmss = dst_mtu((*pskb)->dst) - minlen;
+		if (in_mtu <= minlen) {
+			if (net_ratelimit())
+				printk(KERN_ERR "xt_TCPMSS: unknown or "
+				       "invalid path-MTU (%u)\n", in_mtu);
+			return -1;
+		}
+		newmss = min(dst_mtu(skb->dst), in_mtu) - minlen;
 	} else
 		newmss = info->mss;
 
@@ -88,15 +98,19 @@ tcpmss_mangle_packet(struct sk_buff **pskb,
 
 			oldmss = (opt[i+2] << 8) | opt[i+3];
 
-			if (info->mss == XT_TCPMSS_CLAMP_PMTU &&
-			    oldmss <= newmss)
+			/* Never increase MSS, even when setting it, as
+			 * doing so results in problems for hosts that rely
+			 * on MSS being set correctly.
+			 */
+			if (oldmss <= newmss)
 				return 0;
 
 			opt[i+2] = (newmss & 0xff00) >> 8;
 			opt[i+3] = newmss & 0x00ff;
 
-			nf_proto_csum_replace2(&tcph->check, *pskb,
-					       htons(oldmss), htons(newmss), 0);
+			inet_proto_csum_replace2(&tcph->check, skb,
+						 htons(oldmss), htons(newmss),
+						 0);
 			return 0;
 		}
 	}
@@ -104,59 +118,80 @@ tcpmss_mangle_packet(struct sk_buff **pskb,
 	/*
 	 * MSS Option not found ?! add it..
 	 */
-	if (skb_tailroom((*pskb)) < TCPOLEN_MSS) {
-		struct sk_buff *newskb;
-
-		newskb = skb_copy_expand(*pskb, skb_headroom(*pskb),
-					 TCPOLEN_MSS, GFP_ATOMIC);
-		if (!newskb)
+	if (skb_tailroom(skb) < TCPOLEN_MSS) {
+		if (pskb_expand_head(skb, 0,
+				     TCPOLEN_MSS - skb_tailroom(skb),
+				     GFP_ATOMIC))
 			return -1;
-		kfree_skb(*pskb);
-		*pskb = newskb;
-		tcph = (struct tcphdr *)(skb_network_header(*pskb) + tcphoff);
+		tcph = (struct tcphdr *)(skb_network_header(skb) + tcphoff);
 	}
 
-	skb_put((*pskb), TCPOLEN_MSS);
+	skb_put(skb, TCPOLEN_MSS);
 
 	opt = (u_int8_t *)tcph + sizeof(struct tcphdr);
 	memmove(opt + TCPOLEN_MSS, opt, tcplen - sizeof(struct tcphdr));
 
-	nf_proto_csum_replace2(&tcph->check, *pskb,
-			       htons(tcplen), htons(tcplen + TCPOLEN_MSS), 1);
+	inet_proto_csum_replace2(&tcph->check, skb,
+				 htons(tcplen), htons(tcplen + TCPOLEN_MSS), 1);
 	opt[0] = TCPOPT_MSS;
 	opt[1] = TCPOLEN_MSS;
 	opt[2] = (newmss & 0xff00) >> 8;
 	opt[3] = newmss & 0x00ff;
 
-	nf_proto_csum_replace4(&tcph->check, *pskb, 0, *((__be32 *)opt), 0);
+	inet_proto_csum_replace4(&tcph->check, skb, 0, *((__be32 *)opt), 0);
 
 	oldval = ((__be16 *)tcph)[6];
 	tcph->doff += TCPOLEN_MSS/4;
-	nf_proto_csum_replace2(&tcph->check, *pskb,
-				oldval, ((__be16 *)tcph)[6], 0);
+	inet_proto_csum_replace2(&tcph->check, skb,
+				 oldval, ((__be16 *)tcph)[6], 0);
 	return TCPOLEN_MSS;
 }
 
-static unsigned int
-xt_tcpmss_target4(struct sk_buff **pskb,
-		  const struct net_device *in,
-		  const struct net_device *out,
-		  unsigned int hooknum,
-		  const struct xt_target *target,
-		  const void *targinfo)
+static u_int32_t tcpmss_reverse_mtu(const struct sk_buff *skb,
+				    unsigned int family)
 {
-	struct iphdr *iph = ip_hdr(*pskb);
+	struct flowi fl = {};
+	const struct nf_afinfo *ai;
+	struct rtable *rt = NULL;
+	u_int32_t mtu     = ~0U;
+
+	if (family == PF_INET)
+		fl.fl4_dst = ip_hdr(skb)->saddr;
+	else
+		fl.fl6_dst = ipv6_hdr(skb)->saddr;
+
+	rcu_read_lock();
+	ai = nf_get_afinfo(family);
+	if (ai != NULL)
+		ai->route((struct dst_entry **)&rt, &fl);
+	rcu_read_unlock();
+
+	if (rt != NULL) {
+		mtu = dst_mtu(&rt->u.dst);
+		dst_release(&rt->u.dst);
+	}
+	return mtu;
+}
+
+static unsigned int
+tcpmss_tg4(struct sk_buff *skb, const struct net_device *in,
+           const struct net_device *out, unsigned int hooknum,
+           const struct xt_target *target, const void *targinfo)
+{
+	struct iphdr *iph = ip_hdr(skb);
 	__be16 newlen;
 	int ret;
 
-	ret = tcpmss_mangle_packet(pskb, targinfo, iph->ihl * 4,
+	ret = tcpmss_mangle_packet(skb, targinfo,
+				   tcpmss_reverse_mtu(skb, PF_INET),
+				   iph->ihl * 4,
 				   sizeof(*iph) + sizeof(struct tcphdr));
 	if (ret < 0)
 		return NF_DROP;
 	if (ret > 0) {
-		iph = ip_hdr(*pskb);
+		iph = ip_hdr(skb);
 		newlen = htons(ntohs(iph->tot_len) + ret);
-		nf_csum_replace2(&iph->check, iph->tot_len, newlen);
+		csum_replace2(&iph->check, iph->tot_len, newlen);
 		iph->tot_len = newlen;
 	}
 	return XT_CONTINUE;
@@ -164,30 +199,27 @@ xt_tcpmss_target4(struct sk_buff **pskb,
 
 #if defined(CONFIG_IP6_NF_IPTABLES) || defined(CONFIG_IP6_NF_IPTABLES_MODULE)
 static unsigned int
-xt_tcpmss_target6(struct sk_buff **pskb,
-		  const struct net_device *in,
-		  const struct net_device *out,
-		  unsigned int hooknum,
-		  const struct xt_target *target,
-		  const void *targinfo)
+tcpmss_tg6(struct sk_buff *skb, const struct net_device *in,
+           const struct net_device *out, unsigned int hooknum,
+           const struct xt_target *target, const void *targinfo)
 {
-	struct ipv6hdr *ipv6h = ipv6_hdr(*pskb);
+	struct ipv6hdr *ipv6h = ipv6_hdr(skb);
 	u8 nexthdr;
 	int tcphoff;
 	int ret;
 
 	nexthdr = ipv6h->nexthdr;
-	tcphoff = ipv6_skip_exthdr(*pskb, sizeof(*ipv6h), &nexthdr);
-	if (tcphoff < 0) {
-		WARN_ON(1);
+	tcphoff = ipv6_skip_exthdr(skb, sizeof(*ipv6h), &nexthdr);
+	if (tcphoff < 0)
 		return NF_DROP;
-	}
-	ret = tcpmss_mangle_packet(pskb, targinfo, tcphoff,
+	ret = tcpmss_mangle_packet(skb, targinfo,
+				   tcpmss_reverse_mtu(skb, PF_INET6),
+				   tcphoff,
 				   sizeof(*ipv6h) + sizeof(struct tcphdr));
 	if (ret < 0)
 		return NF_DROP;
 	if (ret > 0) {
-		ipv6h = ipv6_hdr(*pskb);
+		ipv6h = ipv6_hdr(skb);
 		ipv6h->payload_len = htons(ntohs(ipv6h->payload_len) + ret);
 	}
 	return XT_CONTINUE;
@@ -210,19 +242,17 @@ static inline bool find_syn_match(const struct xt_entry_match *m)
 }
 
 static bool
-xt_tcpmss_checkentry4(const char *tablename,
-		      const void *entry,
-		      const struct xt_target *target,
-		      void *targinfo,
-		      unsigned int hook_mask)
+tcpmss_tg4_check(const char *tablename, const void *entry,
+                 const struct xt_target *target, void *targinfo,
+                 unsigned int hook_mask)
 {
 	const struct xt_tcpmss_info *info = targinfo;
 	const struct ipt_entry *e = entry;
 
 	if (info->mss == XT_TCPMSS_CLAMP_PMTU &&
-	    (hook_mask & ~((1 << NF_IP_FORWARD) |
-			   (1 << NF_IP_LOCAL_OUT) |
-			   (1 << NF_IP_POST_ROUTING))) != 0) {
+	    (hook_mask & ~((1 << NF_INET_FORWARD) |
+			   (1 << NF_INET_LOCAL_OUT) |
+			   (1 << NF_INET_POST_ROUTING))) != 0) {
 		printk("xt_TCPMSS: path-MTU clamping only supported in "
 		       "FORWARD, OUTPUT and POSTROUTING hooks\n");
 		return false;
@@ -235,19 +265,17 @@ xt_tcpmss_checkentry4(const char *tablename,
 
 #if defined(CONFIG_IP6_NF_IPTABLES) || defined(CONFIG_IP6_NF_IPTABLES_MODULE)
 static bool
-xt_tcpmss_checkentry6(const char *tablename,
-		      const void *entry,
-		      const struct xt_target *target,
-		      void *targinfo,
-		      unsigned int hook_mask)
+tcpmss_tg6_check(const char *tablename, const void *entry,
+                 const struct xt_target *target, void *targinfo,
+                 unsigned int hook_mask)
 {
 	const struct xt_tcpmss_info *info = targinfo;
 	const struct ip6t_entry *e = entry;
 
 	if (info->mss == XT_TCPMSS_CLAMP_PMTU &&
-	    (hook_mask & ~((1 << NF_IP6_FORWARD) |
-			   (1 << NF_IP6_LOCAL_OUT) |
-			   (1 << NF_IP6_POST_ROUTING))) != 0) {
+	    (hook_mask & ~((1 << NF_INET_FORWARD) |
+			   (1 << NF_INET_LOCAL_OUT) |
+			   (1 << NF_INET_POST_ROUTING))) != 0) {
 		printk("xt_TCPMSS: path-MTU clamping only supported in "
 		       "FORWARD, OUTPUT and POSTROUTING hooks\n");
 		return false;
@@ -259,12 +287,12 @@ xt_tcpmss_checkentry6(const char *tablename,
 }
 #endif
 
-static struct xt_target xt_tcpmss_reg[] __read_mostly = {
+static struct xt_target tcpmss_tg_reg[] __read_mostly = {
 	{
 		.family		= AF_INET,
 		.name		= "TCPMSS",
-		.checkentry	= xt_tcpmss_checkentry4,
-		.target		= xt_tcpmss_target4,
+		.checkentry	= tcpmss_tg4_check,
+		.target		= tcpmss_tg4,
 		.targetsize	= sizeof(struct xt_tcpmss_info),
 		.proto		= IPPROTO_TCP,
 		.me		= THIS_MODULE,
@@ -273,8 +301,8 @@ static struct xt_target xt_tcpmss_reg[] __read_mostly = {
 	{
 		.family		= AF_INET6,
 		.name		= "TCPMSS",
-		.checkentry	= xt_tcpmss_checkentry6,
-		.target		= xt_tcpmss_target6,
+		.checkentry	= tcpmss_tg6_check,
+		.target		= tcpmss_tg6,
 		.targetsize	= sizeof(struct xt_tcpmss_info),
 		.proto		= IPPROTO_TCP,
 		.me		= THIS_MODULE,
@@ -282,15 +310,15 @@ static struct xt_target xt_tcpmss_reg[] __read_mostly = {
 #endif
 };
 
-static int __init xt_tcpmss_init(void)
+static int __init tcpmss_tg_init(void)
 {
-	return xt_register_targets(xt_tcpmss_reg, ARRAY_SIZE(xt_tcpmss_reg));
+	return xt_register_targets(tcpmss_tg_reg, ARRAY_SIZE(tcpmss_tg_reg));
 }
 
-static void __exit xt_tcpmss_fini(void)
+static void __exit tcpmss_tg_exit(void)
 {
-	xt_unregister_targets(xt_tcpmss_reg, ARRAY_SIZE(xt_tcpmss_reg));
+	xt_unregister_targets(tcpmss_tg_reg, ARRAY_SIZE(tcpmss_tg_reg));
 }
 
-module_init(xt_tcpmss_init);
-module_exit(xt_tcpmss_fini);
+module_init(tcpmss_tg_init);
+module_exit(tcpmss_tg_exit);

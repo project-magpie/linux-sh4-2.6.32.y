@@ -7,7 +7,7 @@
  *
  * Copyright (C) 2005 Narayanan R S <nars@kadamba.org>
  *
- * Copyright (C) 2001-2002 Alcôve <www.alcove.com>
+ * Copyright (C) 2001-2002 AlcÃ´ve <www.alcove.com>
  *
  * Copyright (C) 2001 Michael Ashley <m.ashley@unsw.edu.au>
  *
@@ -49,6 +49,7 @@
 #include <linux/err.h>
 #include <linux/kfifo.h>
 #include <linux/platform_device.h>
+#include <linux/smp_lock.h>
 
 #include <asm/uaccess.h>
 #include <asm/io.h>
@@ -506,7 +507,7 @@ static struct sonypi_device {
 	while (--n && (command)) \
 		udelay(1); \
 	if (!n && (verbose || !quiet)) \
-		printk(KERN_WARNING "sonypi command failed at %s : %s (line %d)\n", __FILE__, __FUNCTION__, __LINE__); \
+		printk(KERN_WARNING "sonypi command failed at %s : %s (line %d)\n", __FILE__, __func__, __LINE__); \
 }
 
 #ifdef CONFIG_ACPI
@@ -906,12 +907,14 @@ static int sonypi_misc_release(struct inode *inode, struct file *file)
 
 static int sonypi_misc_open(struct inode *inode, struct file *file)
 {
+	lock_kernel();
 	mutex_lock(&sonypi_device.lock);
 	/* Flush input queue on first open */
 	if (!sonypi_device.open_count)
 		kfifo_reset(sonypi_device.fifo);
 	sonypi_device.open_count++;
 	mutex_unlock(&sonypi_device.lock);
+	unlock_kernel();
 	return 0;
 }
 
@@ -1147,7 +1150,7 @@ static int sonypi_acpi_remove(struct acpi_device *device, int type)
 	return 0;
 }
 
-const static struct acpi_device_id sonypi_device_ids[] = {
+static const struct acpi_device_id sonypi_device_ids[] = {
 	{"SNY6001", 0},
 	{"", 0},
 };
@@ -1163,7 +1166,7 @@ static struct acpi_driver sonypi_acpi_driver = {
 };
 #endif
 
-static int __devinit sonypi_create_input_devices(void)
+static int __devinit sonypi_create_input_devices(struct platform_device *pdev)
 {
 	struct input_dev *jog_dev;
 	struct input_dev *key_dev;
@@ -1177,10 +1180,11 @@ static int __devinit sonypi_create_input_devices(void)
 	jog_dev->name = "Sony Vaio Jogdial";
 	jog_dev->id.bustype = BUS_ISA;
 	jog_dev->id.vendor = PCI_VENDOR_ID_SONY;
+	jog_dev->dev.parent = &pdev->dev;
 
-	jog_dev->evbit[0] = BIT(EV_KEY) | BIT(EV_REL);
-	jog_dev->keybit[LONG(BTN_MOUSE)] = BIT(BTN_MIDDLE);
-	jog_dev->relbit[0] = BIT(REL_WHEEL);
+	jog_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_REL);
+	jog_dev->keybit[BIT_WORD(BTN_MOUSE)] = BIT_MASK(BTN_MIDDLE);
+	jog_dev->relbit[0] = BIT_MASK(REL_WHEEL);
 
 	sonypi_device.input_key_dev = key_dev = input_allocate_device();
 	if (!key_dev) {
@@ -1191,9 +1195,10 @@ static int __devinit sonypi_create_input_devices(void)
 	key_dev->name = "Sony Vaio Keys";
 	key_dev->id.bustype = BUS_ISA;
 	key_dev->id.vendor = PCI_VENDOR_ID_SONY;
+	key_dev->dev.parent = &pdev->dev;
 
 	/* Initialize the Input Drivers: special keys */
-	key_dev->evbit[0] = BIT(EV_KEY);
+	key_dev->evbit[0] = BIT_MASK(EV_KEY);
 	for (i = 0; sonypi_inputkeys[i].sonypiev; i++)
 		if (sonypi_inputkeys[i].inputev)
 			set_bit(sonypi_inputkeys[i].inputev, key_dev->keybit);
@@ -1385,7 +1390,7 @@ static int __devinit sonypi_probe(struct platform_device *dev)
 
 	if (useinput) {
 
-		error = sonypi_create_input_devices();
+		error = sonypi_create_input_devices(dev);
 		if (error) {
 			printk(KERN_ERR
 				"sonypi: failed to create input devices\n");
@@ -1432,7 +1437,7 @@ static int __devexit sonypi_remove(struct platform_device *dev)
 {
 	sonypi_disable();
 
-	synchronize_sched();  /* Allow sonypi interrupt to complete. */
+	synchronize_irq(sonypi_device.irq);
 	flush_scheduled_work();
 
 	if (useinput) {

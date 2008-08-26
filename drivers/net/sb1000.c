@@ -76,7 +76,6 @@ struct sb1000_private {
 	unsigned char rx_session_id[NPIDS];
 	unsigned char rx_frame_id[NPIDS];
 	unsigned char rx_pkt_type[NPIDS];
-	struct net_device_stats stats;
 };
 
 /* prototypes for Linux interface */
@@ -85,36 +84,35 @@ static int sb1000_open(struct net_device *dev);
 static int sb1000_dev_ioctl (struct net_device *dev, struct ifreq *ifr, int cmd);
 static int sb1000_start_xmit(struct sk_buff *skb, struct net_device *dev);
 static irqreturn_t sb1000_interrupt(int irq, void *dev_id);
-static struct net_device_stats *sb1000_stats(struct net_device *dev);
 static int sb1000_close(struct net_device *dev);
 
 
 /* SB1000 hardware routines to be used during open/configuration phases */
-static inline int card_wait_for_busy_clear(const int ioaddr[],
+static int card_wait_for_busy_clear(const int ioaddr[],
 	const char* name);
-static inline int card_wait_for_ready(const int ioaddr[], const char* name,
+static int card_wait_for_ready(const int ioaddr[], const char* name,
 	unsigned char in[]);
 static int card_send_command(const int ioaddr[], const char* name,
 	const unsigned char out[], unsigned char in[]);
 
 /* SB1000 hardware routines to be used during frame rx interrupt */
-static inline int sb1000_wait_for_ready(const int ioaddr[], const char* name);
-static inline int sb1000_wait_for_ready_clear(const int ioaddr[],
+static int sb1000_wait_for_ready(const int ioaddr[], const char* name);
+static int sb1000_wait_for_ready_clear(const int ioaddr[],
 	const char* name);
-static inline void sb1000_send_command(const int ioaddr[], const char* name,
+static void sb1000_send_command(const int ioaddr[], const char* name,
 	const unsigned char out[]);
-static inline void sb1000_read_status(const int ioaddr[], unsigned char in[]);
-static inline void sb1000_issue_read_command(const int ioaddr[],
+static void sb1000_read_status(const int ioaddr[], unsigned char in[]);
+static void sb1000_issue_read_command(const int ioaddr[],
 	const char* name);
 
 /* SB1000 commands for open/configuration */
-static inline int sb1000_reset(const int ioaddr[], const char* name);
-static inline int sb1000_check_CRC(const int ioaddr[], const char* name);
+static int sb1000_reset(const int ioaddr[], const char* name);
+static int sb1000_check_CRC(const int ioaddr[], const char* name);
 static inline int sb1000_start_get_set_command(const int ioaddr[],
 	const char* name);
-static inline int sb1000_end_get_set_command(const int ioaddr[],
+static int sb1000_end_get_set_command(const int ioaddr[],
 	const char* name);
-static inline int sb1000_activate(const int ioaddr[], const char* name);
+static int sb1000_activate(const int ioaddr[], const char* name);
 static int sb1000_get_firmware_version(const int ioaddr[],
 	const char* name, unsigned char version[], int do_end);
 static int sb1000_get_frequency(const int ioaddr[], const char* name,
@@ -127,8 +125,8 @@ static int sb1000_set_PIDs(const int ioaddr[], const char* name,
 	const short PID[]);
 
 /* SB1000 commands for frame rx interrupt */
-static inline int sb1000_rx(struct net_device *dev);
-static inline void sb1000_error_dpc(struct net_device *dev);
+static int sb1000_rx(struct net_device *dev);
+static void sb1000_error_dpc(struct net_device *dev);
 
 static const struct pnp_device_id sb1000_pnp_ids[] = {
 	{ "GIC1000", 0 },
@@ -189,7 +187,6 @@ sb1000_probe_one(struct pnp_dev *pdev, const struct pnp_device_id *id)
 	 */
 	dev->flags = IFF_POINTOPOINT|IFF_NOARP;
 
-	SET_MODULE_OWNER(dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
 	if (sb1000_debug > 0)
@@ -200,7 +197,6 @@ sb1000_probe_one(struct pnp_dev *pdev, const struct pnp_device_id *id)
 	dev->do_ioctl		= sb1000_dev_ioctl;
 	dev->hard_start_xmit	= sb1000_start_xmit;
 	dev->stop		= sb1000_close;
-	dev->get_stats		= sb1000_stats;
 
 	/* hardware address is 0:0:serial_number */
 	dev->dev_addr[2]	= serial_number >> 24 & 0xff;
@@ -254,7 +250,7 @@ static struct pnp_driver sb1000_driver = {
 static const int TimeOutJiffies = (875 * HZ) / 100;
 
 /* Card Wait For Busy Clear (cannot be used during an interrupt) */
-static inline int
+static int
 card_wait_for_busy_clear(const int ioaddr[], const char* name)
 {
 	unsigned char a;
@@ -278,7 +274,7 @@ card_wait_for_busy_clear(const int ioaddr[], const char* name)
 }
 
 /* Card Wait For Ready (cannot be used during an interrupt) */
-static inline int
+static int
 card_wait_for_ready(const int ioaddr[], const char* name, unsigned char in[])
 {
 	unsigned char a;
@@ -358,7 +354,7 @@ card_send_command(const int ioaddr[], const char* name,
 static const int Sb1000TimeOutJiffies = 7 * HZ;
 
 /* Card Wait For Ready (to be used during frame rx) */
-static inline int
+static int
 sb1000_wait_for_ready(const int ioaddr[], const char* name)
 {
 	unsigned long timeout;
@@ -384,7 +380,7 @@ sb1000_wait_for_ready(const int ioaddr[], const char* name)
 }
 
 /* Card Wait For Ready Clear (to be used during frame rx) */
-static inline int
+static int
 sb1000_wait_for_ready_clear(const int ioaddr[], const char* name)
 {
 	unsigned long timeout;
@@ -409,7 +405,7 @@ sb1000_wait_for_ready_clear(const int ioaddr[], const char* name)
 }
 
 /* Card Send Command (to be used during frame rx) */
-static inline void
+static void
 sb1000_send_command(const int ioaddr[], const char* name,
 	const unsigned char out[])
 {
@@ -426,7 +422,7 @@ sb1000_send_command(const int ioaddr[], const char* name,
 }
 
 /* Card Read Status (to be used during frame rx) */
-static inline void
+static void
 sb1000_read_status(const int ioaddr[], unsigned char in[])
 {
 	in[1] = inb(ioaddr[0] + 1);
@@ -438,10 +434,10 @@ sb1000_read_status(const int ioaddr[], unsigned char in[])
 }
 
 /* Issue Read Command (to be used during frame rx) */
-static inline void
+static void
 sb1000_issue_read_command(const int ioaddr[], const char* name)
 {
-	const unsigned char Command0[6] = {0x20, 0x00, 0x00, 0x01, 0x00, 0x00};
+	static const unsigned char Command0[6] = {0x20, 0x00, 0x00, 0x01, 0x00, 0x00};
 
 	sb1000_wait_for_ready_clear(ioaddr, name);
 	outb(0xa0, ioaddr[0] + 6);
@@ -454,12 +450,13 @@ sb1000_issue_read_command(const int ioaddr[], const char* name)
  * SB1000 commands for open/configuration
  */
 /* reset SB1000 card */
-static inline int
+static int
 sb1000_reset(const int ioaddr[], const char* name)
 {
+	static const unsigned char Command0[6] = {0x80, 0x16, 0x00, 0x00, 0x00, 0x00};
+
 	unsigned char st[7];
 	int port, status;
-	const unsigned char Command0[6] = {0x80, 0x16, 0x00, 0x00, 0x00, 0x00};
 
 	port = ioaddr[1] + 6;
 	outb(0x4, port);
@@ -483,12 +480,13 @@ sb1000_reset(const int ioaddr[], const char* name)
 }
 
 /* check SB1000 firmware CRC */
-static inline int
+static int
 sb1000_check_CRC(const int ioaddr[], const char* name)
 {
+	static const unsigned char Command0[6] = {0x80, 0x1f, 0x00, 0x00, 0x00, 0x00};
+
 	unsigned char st[7];
 	int crc, status;
-	const unsigned char Command0[6] = {0x80, 0x1f, 0x00, 0x00, 0x00, 0x00};
 
 	/* check CRC */
 	if ((status = card_send_command(ioaddr, name, Command0, st)))
@@ -502,32 +500,35 @@ sb1000_check_CRC(const int ioaddr[], const char* name)
 static inline int
 sb1000_start_get_set_command(const int ioaddr[], const char* name)
 {
+	static const unsigned char Command0[6] = {0x80, 0x1b, 0x00, 0x00, 0x00, 0x00};
+
 	unsigned char st[7];
-	const unsigned char Command0[6] = {0x80, 0x1b, 0x00, 0x00, 0x00, 0x00};
 
 	return card_send_command(ioaddr, name, Command0, st);
 }
 
-static inline int
+static int
 sb1000_end_get_set_command(const int ioaddr[], const char* name)
 {
+	static const unsigned char Command0[6] = {0x80, 0x1b, 0x02, 0x00, 0x00, 0x00};
+	static const unsigned char Command1[6] = {0x20, 0x00, 0x00, 0x00, 0x00, 0x00};
+
 	unsigned char st[7];
 	int status;
-	const unsigned char Command0[6] = {0x80, 0x1b, 0x02, 0x00, 0x00, 0x00};
-	const unsigned char Command1[6] = {0x20, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 	if ((status = card_send_command(ioaddr, name, Command0, st)))
 		return status;
 	return card_send_command(ioaddr, name, Command1, st);
 }
 
-static inline int
+static int
 sb1000_activate(const int ioaddr[], const char* name)
 {
+	static const unsigned char Command0[6] = {0x80, 0x11, 0x00, 0x00, 0x00, 0x00};
+	static const unsigned char Command1[6] = {0x80, 0x16, 0x00, 0x00, 0x00, 0x00};
+
 	unsigned char st[7];
 	int status;
-	const unsigned char Command0[6] = {0x80, 0x11, 0x00, 0x00, 0x00, 0x00};
-	const unsigned char Command1[6] = {0x80, 0x16, 0x00, 0x00, 0x00, 0x00};
 
 	ssleep(1);
 	if ((status = card_send_command(ioaddr, name, Command0, st)))
@@ -548,9 +549,10 @@ static int
 sb1000_get_firmware_version(const int ioaddr[], const char* name,
 	unsigned char version[], int do_end)
 {
+	static const unsigned char Command0[6] = {0x80, 0x23, 0x00, 0x00, 0x00, 0x00};
+
 	unsigned char st[7];
 	int status;
-	const unsigned char Command0[6] = {0x80, 0x23, 0x00, 0x00, 0x00, 0x00};
 
 	if ((status = sb1000_start_get_set_command(ioaddr, name)))
 		return status;
@@ -570,9 +572,10 @@ sb1000_get_firmware_version(const int ioaddr[], const char* name,
 static int
 sb1000_get_frequency(const int ioaddr[], const char* name, int* frequency)
 {
+	static const unsigned char Command0[6] = {0x80, 0x44, 0x00, 0x00, 0x00, 0x00};
+
 	unsigned char st[7];
 	int status;
-	const unsigned char Command0[6] = {0x80, 0x44, 0x00, 0x00, 0x00, 0x00};
 
 	udelay(1000);
 	if ((status = sb1000_start_get_set_command(ioaddr, name)))
@@ -617,12 +620,13 @@ sb1000_set_frequency(const int ioaddr[], const char* name, int frequency)
 static int
 sb1000_get_PIDs(const int ioaddr[], const char* name, short PID[])
 {
+	static const unsigned char Command0[6] = {0x80, 0x40, 0x00, 0x00, 0x00, 0x00};
+	static const unsigned char Command1[6] = {0x80, 0x41, 0x00, 0x00, 0x00, 0x00};
+	static const unsigned char Command2[6] = {0x80, 0x42, 0x00, 0x00, 0x00, 0x00};
+	static const unsigned char Command3[6] = {0x80, 0x43, 0x00, 0x00, 0x00, 0x00};
+
 	unsigned char st[7];
 	int status;
-	const unsigned char Command0[6] = {0x80, 0x40, 0x00, 0x00, 0x00, 0x00};
-	const unsigned char Command1[6] = {0x80, 0x41, 0x00, 0x00, 0x00, 0x00};
-	const unsigned char Command2[6] = {0x80, 0x42, 0x00, 0x00, 0x00, 0x00};
-	const unsigned char Command3[6] = {0x80, 0x43, 0x00, 0x00, 0x00, 0x00};
 
 	udelay(1000);
 	if ((status = sb1000_start_get_set_command(ioaddr, name)))
@@ -651,6 +655,8 @@ sb1000_get_PIDs(const int ioaddr[], const char* name, short PID[])
 static int
 sb1000_set_PIDs(const int ioaddr[], const char* name, const short PID[])
 {
+	static const unsigned char Command4[6] = {0x80, 0x2e, 0x00, 0x00, 0x00, 0x00};
+
 	unsigned char st[7];
 	short p;
 	int status;
@@ -658,7 +664,6 @@ sb1000_set_PIDs(const int ioaddr[], const char* name, const short PID[])
 	unsigned char Command1[6] = {0x80, 0x32, 0x00, 0x00, 0x00, 0x00};
 	unsigned char Command2[6] = {0x80, 0x33, 0x00, 0x00, 0x00, 0x00};
 	unsigned char Command3[6] = {0x80, 0x34, 0x00, 0x00, 0x00, 0x00};
-	const unsigned char Command4[6] = {0x80, 0x2e, 0x00, 0x00, 0x00, 0x00};
 
 	udelay(1000);
 	if ((status = sb1000_start_get_set_command(ioaddr, name)))
@@ -698,7 +703,7 @@ sb1000_set_PIDs(const int ioaddr[], const char* name, const short PID[])
 }
 
 
-static inline void
+static void
 sb1000_print_status_buffer(const char* name, unsigned char st[],
 	unsigned char buffer[], int size)
 {
@@ -729,7 +734,7 @@ sb1000_print_status_buffer(const char* name, unsigned char st[],
 /* receive a single frame and assemble datagram
  * (this is the heart of the interrupt routine)
  */
-static inline int
+static int
 sb1000_rx(struct net_device *dev)
 {
 
@@ -740,7 +745,7 @@ sb1000_rx(struct net_device *dev)
 	unsigned int skbsize;
 	struct sk_buff *skb;
 	struct sb1000_private *lp = netdev_priv(dev);
-	struct net_device_stats *stats = &lp->stats;
+	struct net_device_stats *stats = &dev->stats;
 
 	/* SB1000 frame constants */
 	const int FrameSize = FRAMESIZE;
@@ -892,14 +897,15 @@ dropped_frame:
 	return -1;
 }
 
-static inline void
+static void
 sb1000_error_dpc(struct net_device *dev)
 {
+	static const unsigned char Command0[6] = {0x80, 0x26, 0x00, 0x00, 0x00, 0x00};
+
 	char *name;
 	unsigned char st[5];
 	int ioaddr[2];
 	struct sb1000_private *lp = netdev_priv(dev);
-	const unsigned char Command0[6] = {0x80, 0x26, 0x00, 0x00, 0x00, 0x00};
 	const int ErrorDpcCounterInitialize = 200;
 
 	ioaddr[0] = dev->base_addr;
@@ -1003,11 +1009,11 @@ static int sb1000_dev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 	switch (cmd) {
 	case SIOCGCMSTATS:		/* get statistics */
-		stats[0] = lp->stats.rx_bytes;
+		stats[0] = dev->stats.rx_bytes;
 		stats[1] = lp->rx_frames;
-		stats[2] = lp->stats.rx_packets;
-		stats[3] = lp->stats.rx_errors;
-		stats[4] = lp->stats.rx_dropped;
+		stats[2] = dev->stats.rx_packets;
+		stats[3] = dev->stats.rx_errors;
+		stats[4] = dev->stats.rx_dropped;
 		if(copy_to_user(ifr->ifr_data, stats, sizeof(stats)))
 			return -EFAULT;
 		status = 0;
@@ -1081,14 +1087,15 @@ sb1000_start_xmit(struct sk_buff *skb, struct net_device *dev)
 /* SB1000 interrupt handler. */
 static irqreturn_t sb1000_interrupt(int irq, void *dev_id)
 {
+	static const unsigned char Command0[6] = {0x80, 0x2c, 0x00, 0x00, 0x00, 0x00};
+	static const unsigned char Command1[6] = {0x80, 0x2e, 0x00, 0x00, 0x00, 0x00};
+
 	char *name;
 	unsigned char st;
 	int ioaddr[2];
 	struct net_device *dev = dev_id;
 	struct sb1000_private *lp = netdev_priv(dev);
 
-	const unsigned char Command0[6] = {0x80, 0x2c, 0x00, 0x00, 0x00, 0x00};
-	const unsigned char Command1[6] = {0x80, 0x2e, 0x00, 0x00, 0x00, 0x00};
 	const int MaxRxErrorCount = 6;
 
 	ioaddr[0] = dev->base_addr;
@@ -1131,12 +1138,6 @@ static irqreturn_t sb1000_interrupt(int irq, void *dev_id)
 	}
 
 	return IRQ_HANDLED;
-}
-
-static struct net_device_stats *sb1000_stats(struct net_device *dev)
-{
-	struct sb1000_private *lp = netdev_priv(dev);
-	return &lp->stats;
 }
 
 static int sb1000_close(struct net_device *dev)

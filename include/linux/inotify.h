@@ -7,6 +7,8 @@
 #ifndef _LINUX_INOTIFY_H
 #define _LINUX_INOTIFY_H
 
+/* For O_CLOEXEC and O_NONBLOCK */
+#include <linux/fcntl.h>
 #include <linux/types.h>
 
 /*
@@ -62,6 +64,10 @@ struct inotify_event {
 			 IN_CLOSE_NOWRITE | IN_OPEN | IN_MOVED_FROM | \
 			 IN_MOVED_TO | IN_DELETE | IN_CREATE | IN_DELETE_SELF | \
 			 IN_MOVE_SELF)
+
+/* Flags for sys_inotify_init1.  */
+#define IN_CLOEXEC O_CLOEXEC
+#define IN_NONBLOCK O_NONBLOCK
 
 #ifdef __KERNEL__
 
@@ -120,6 +126,8 @@ extern __s32 inotify_find_update_watch(struct inotify_handle *, struct inode *,
 				       u32);
 extern __s32 inotify_add_watch(struct inotify_handle *, struct inotify_watch *,
 			       struct inode *, __u32);
+extern __s32 inotify_clone_watch(struct inotify_watch *, struct inotify_watch *);
+extern void inotify_evict_watch(struct inotify_watch *);
 extern int inotify_rm_watch(struct inotify_handle *, struct inotify_watch *);
 extern int inotify_rm_wd(struct inotify_handle *, __u32);
 extern void inotify_remove_watch_locked(struct inotify_handle *,

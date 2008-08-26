@@ -85,7 +85,7 @@
 #define IRQ_EINT23     S3C2410_IRQ(51)
 
 
-#define IRQ_EINT(x)    S3C2410_IRQ((x >= 4) ? (IRQ_EINT4 + (x) - 4) : (S3C2410_IRQ(0) + (x)))
+#define IRQ_EINT(x)    (((x) >= 4) ? (IRQ_EINT4 + (x) - 4) : (IRQ_EINT0 + (x)))
 
 #define IRQ_LCD_FIFO   S3C2410_IRQ(52)
 #define IRQ_LCD_FRAME  S3C2410_IRQ(53)
@@ -111,6 +111,13 @@
 
 #define IRQ_TC			S3C2410_IRQSUB(9)
 #define IRQ_ADC			S3C2410_IRQSUB(10)
+
+/* extra irqs for s3c2412 */
+
+#define IRQ_S3C2412_CFSDI	S3C2410_IRQ(21)
+
+#define IRQ_S3C2412_SDI		S3C2410_IRQSUB(13)
+#define IRQ_S3C2412_CF		S3C2410_IRQSUB(14)
 
 /* extra irqs for s3c2440 */
 
@@ -152,5 +159,8 @@
 #else
 #define NR_IRQS (IRQ_S3C2440_AC97+1)
 #endif
+
+/* Our FIQs are routable from IRQ_EINT0 to IRQ_ADCPARENT */
+#define FIQ_START		IRQ_EINT0
 
 #endif /* __ASM_ARCH_IRQ_H */

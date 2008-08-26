@@ -2,7 +2,7 @@
  *  linux/fs/binfmt_em86.c
  *
  *  Based on linux/fs/binfmt_script.c
- *  Copyright (C) 1996  Martin von Löwis
+ *  Copyright (C) 1996  Martin von LÃ¶wis
  *  original #!-checking implemented by tytso.
  *
  *  em86 changes Copyright (C) 1997  Jim Paradis
@@ -43,7 +43,7 @@ static int load_em86(struct linux_binprm *bprm,struct pt_regs *regs)
 			return -ENOEXEC;
 	}
 
-	bprm->sh_bang++;	/* Well, the bang-shell is implicit... */
+	bprm->sh_bang = 1;	/* Well, the bang-shell is implicit... */
 	allow_write_access(bprm->file);
 	fput(bprm->file);
 	bprm->file = NULL;

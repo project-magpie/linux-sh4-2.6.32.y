@@ -12,8 +12,6 @@
 #ifndef __ASM_RTC_H__
 #define __ASM_RTC_H__
 
-#ifdef __KERNEL__
-
 #include <linux/mc146818rtc.h>
 #include <linux/rtc.h>
 #include <linux/bcd.h>
@@ -35,10 +33,11 @@
 static inline unsigned char rtc_is_updating(void)
 {
 	unsigned char uip;
+	unsigned long flags;
 
-	spin_lock_irq(&rtc_lock);
+	spin_lock_irqsave(&rtc_lock, flags);
 	uip = (CMOS_READ(RTC_FREQ_SELECT) & RTC_UIP);
-	spin_unlock_irq(&rtc_lock);
+	spin_unlock_irqrestore(&rtc_lock, flags);
 	return uip;
 }
 
@@ -46,6 +45,8 @@ static inline unsigned int get_rtc_time(struct rtc_time *time)
 {
 	unsigned long uip_watchdog = jiffies;
 	unsigned char ctrl;
+	unsigned long flags;
+
 #ifdef CONFIG_MACH_DECSTATION
 	unsigned int real_year;
 #endif
@@ -72,7 +73,7 @@ static inline unsigned int get_rtc_time(struct rtc_time *time)
 	 * RTC has RTC_DAY_OF_WEEK, we ignore it, as it is only updated
 	 * by the RTC when initially set to a non-zero value.
 	 */
-	spin_lock_irq(&rtc_lock);
+	spin_lock_irqsave(&rtc_lock, flags);
 	time->tm_sec = CMOS_READ(RTC_SECONDS);
 	time->tm_min = CMOS_READ(RTC_MINUTES);
 	time->tm_hour = CMOS_READ(RTC_HOURS);
@@ -83,7 +84,7 @@ static inline unsigned int get_rtc_time(struct rtc_time *time)
 	real_year = CMOS_READ(RTC_DEC_YEAR);
 #endif
 	ctrl = CMOS_READ(RTC_CONTROL);
-	spin_unlock_irq(&rtc_lock);
+	spin_unlock_irqrestore(&rtc_lock, flags);
 
 	if (!(ctrl & RTC_DM_BINARY) || RTC_ALWAYS_BCD)
 	{
@@ -210,5 +211,4 @@ static inline int set_rtc_pll(struct rtc_pll_info *pll)
 	return -EINVAL;
 }
 
-#endif /* __KERNEL__ */
 #endif /* __ASM_RTC_H__ */

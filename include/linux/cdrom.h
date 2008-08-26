@@ -2,7 +2,7 @@
  * -- <linux/cdrom.h>
  * General header file for linux CD-ROM drivers 
  * Copyright (C) 1992         David Giller, rafetmad@oxy.edu
- *               1994, 1995   Eberhard Moenkeberg, emoenke@gwdg.de
+ *               1994, 1995   Eberhard Mönkeberg, emoenke@gwdg.de
  *               1996         David van Leeuwen, david@tm.tno.nl
  *               1997, 1998   Erik Andersen, andersee@debian.org
  *               1998-2002    Jens Axboe, axboe@suse.de
@@ -76,7 +76,7 @@
                                            (struct cdrom_multisession) */
 #define CDROM_GET_MCN		0x5311 /* Obtain the "Universal Product Code" 
                                            if available (struct cdrom_mcn) */
-#define CDROM_GET_UPC		CDROM_GET_MCN  /* This one is depricated, 
+#define CDROM_GET_UPC		CDROM_GET_MCN  /* This one is deprecated, 
                                           but here anyway for compatibility */
 #define CDROMRESET		0x5312 /* hard-reset the drive */
 #define CDROMVOLREAD		0x5313 /* Get the drive's volume setting 
@@ -451,6 +451,7 @@ struct cdrom_generic_command
 #define GPCMD_PREVENT_ALLOW_MEDIUM_REMOVAL  0x1e
 #define GPCMD_READ_10			    0x28
 #define GPCMD_READ_12			    0xa8
+#define GPCMD_READ_BUFFER		    0x3c
 #define GPCMD_READ_BUFFER_CAPACITY	    0x5c
 #define GPCMD_READ_CDVD_CAPACITY	    0x25
 #define GPCMD_READ_CD			    0xbe
@@ -480,7 +481,9 @@ struct cdrom_generic_command
 #define GPCMD_TEST_UNIT_READY		    0x00
 #define GPCMD_VERIFY_10			    0x2f
 #define GPCMD_WRITE_10			    0x2a
+#define GPCMD_WRITE_12			    0xaa
 #define GPCMD_WRITE_AND_VERIFY_10	    0x2e
+#define GPCMD_WRITE_BUFFER		    0x3b
 /* This is listed as optional in ATAPI 2.6, but is (curiously) 
  * missing from Mt. Fuji, Table 57.  It _is_ mentioned in Mt. Fuji
  * Table 377 as an MMC command for SCSi devices though...  Most ATAPI
@@ -506,7 +509,7 @@ struct cdrom_generic_command
 #define GPMODE_TO_PROTECT_PAGE		0x1d
 #define GPMODE_CAPABILITIES_PAGE	0x2a
 #define GPMODE_ALL_PAGES		0x3f
-/* Not in Mt. Fuji, but in ATAPI 2.6 -- depricated now in favor
+/* Not in Mt. Fuji, but in ATAPI 2.6 -- deprecated now in favor
  * of MODE_SENSE_POWER_PAGE */
 #define GPMODE_CDROM_PAGE		0x0d
 
@@ -907,6 +910,7 @@ struct mode_page_header {
 #ifdef __KERNEL__
 #include <linux/fs.h>		/* not really needed, later.. */
 #include <linux/device.h>
+#include <linux/list.h>
 
 struct packet_command
 {
@@ -931,7 +935,7 @@ struct packet_command
 /* Uniform cdrom data structures for cdrom.c */
 struct cdrom_device_info {
 	struct cdrom_device_ops  *ops;  /* link to device_ops */
-	struct cdrom_device_info *next; /* next device_info for this major */
+	struct list_head list;		/* linked list of all device_info */
 	struct gendisk *disk;		/* matching block layer disk */
 	void *handle;		        /* driver-dependent data */
 /* specifications */
@@ -991,7 +995,7 @@ extern int cdrom_ioctl(struct file *file, struct cdrom_device_info *cdi,
 extern int cdrom_media_changed(struct cdrom_device_info *);
 
 extern int register_cdrom(struct cdrom_device_info *cdi);
-extern int unregister_cdrom(struct cdrom_device_info *cdi);
+extern void unregister_cdrom(struct cdrom_device_info *cdi);
 
 typedef struct {
     int data;
@@ -1188,6 +1192,20 @@ struct media_event_desc {
 
 extern int cdrom_get_media_event(struct cdrom_device_info *cdi, struct media_event_desc *med);
 
+static inline void lba_to_msf(int lba, u8 *m, u8 *s, u8 *f)
+{
+	lba += CD_MSF_OFFSET;
+	lba &= 0xffffff;  /* negative lbas use only 24 bits */
+	*m = lba / (CD_SECS * CD_FRAMES);
+	lba %= (CD_SECS * CD_FRAMES);
+	*s = lba / CD_FRAMES;
+	*f = lba % CD_FRAMES;
+}
+
+static inline int msf_to_lba(u8 m, u8 s, u8 f)
+{
+	return (((m * CD_SECS) + s) * CD_FRAMES + f) - CD_MSF_OFFSET;
+}
 #endif  /* End of kernel only stuff */ 
 
 #endif  /* _LINUX_CDROM_H */

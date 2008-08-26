@@ -5,7 +5,7 @@
  ******************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2007, R. Byron Moore
+ * Copyright (C) 2000 - 2008, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -137,6 +137,10 @@ char *acpi_ns_get_external_pathname(struct acpi_namespace_node *node)
 	/* Calculate required buffer size based on depth below root */
 
 	size = acpi_ns_get_pathname_length(node);
+	if (!size) {
+		ACPI_ERROR((AE_INFO, "Invalid node failure"));
+		return_PTR(NULL);
+	}
 
 	/* Allocate a buffer to be returned to caller */
 
@@ -180,6 +184,12 @@ acpi_size acpi_ns_get_pathname_length(struct acpi_namespace_node *node)
 	next_node = node;
 
 	while (next_node && (next_node != acpi_gbl_root_node)) {
+		if (ACPI_GET_DESCRIPTOR_TYPE(next_node) != ACPI_DESC_TYPE_NAMED) {
+			ACPI_ERROR((AE_INFO,
+				    "Invalid NS Node (%p) while traversing path",
+				    next_node));
+			return 0;
+		}
 		size += ACPI_PATH_SEGMENT_LENGTH;
 		next_node = acpi_ns_get_parent_node(next_node);
 	}
@@ -223,6 +233,10 @@ acpi_ns_handle_to_pathname(acpi_handle target_handle,
 	/* Determine size required for the caller buffer */
 
 	required_size = acpi_ns_get_pathname_length(node);
+	if (!required_size) {
+		ACPI_ERROR((AE_INFO, "Invalid node failure"));
+		return_ACPI_STATUS(AE_ERROR);
+	}
 
 	/* Validate/Allocate/Clear caller buffer */
 

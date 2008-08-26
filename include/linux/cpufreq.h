@@ -4,9 +4,6 @@
  *  Copyright (C) 2001 Russell King
  *            (C) 2002 - 2003 Dominik Brodowski <linux@brodo.de>
  *            
- *
- * $Id: cpufreq.h,v 1.36 2003/01/20 17:31:48 db Exp $
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -32,12 +29,24 @@
  *                     CPUFREQ NOTIFIER INTERFACE                    *
  *********************************************************************/
 
-int cpufreq_register_notifier(struct notifier_block *nb, unsigned int list);
-int cpufreq_unregister_notifier(struct notifier_block *nb, unsigned int list);
-
 #define CPUFREQ_TRANSITION_NOTIFIER	(0)
 #define CPUFREQ_POLICY_NOTIFIER		(1)
 
+#ifdef CONFIG_CPU_FREQ
+int cpufreq_register_notifier(struct notifier_block *nb, unsigned int list);
+int cpufreq_unregister_notifier(struct notifier_block *nb, unsigned int list);
+#else		/* CONFIG_CPU_FREQ */
+static inline int cpufreq_register_notifier(struct notifier_block *nb,
+						unsigned int list)
+{
+	return 0;
+}
+static inline int cpufreq_unregister_notifier(struct notifier_block *nb,
+						unsigned int list)
+{
+	return 0;
+}
+#endif		/* CONFIG_CPU_FREQ */
 
 /* if (cpufreq_driver->target) exists, the ->governor decides what frequency
  * within the limits is used. If (cpufreq_driver->setpolicy> exists, these
@@ -71,7 +80,8 @@ struct cpufreq_real_policy {
 };
 
 struct cpufreq_policy {
-	cpumask_t		cpus;	/* affected CPUs */
+	cpumask_t		cpus;	/* CPUs requiring sw coordination */
+	cpumask_t		related_cpus; /* CPUs with any coordination */
 	unsigned int		shared_type; /* ANY or ALL affected CPUs
 						should set cpufreq */
 	unsigned int		cpu;    /* cpu nr of registered CPU */
@@ -155,6 +165,13 @@ struct cpufreq_governor {
 	char	name[CPUFREQ_NAME_LEN];
 	int 	(*governor)	(struct cpufreq_policy *policy,
 				 unsigned int event);
+	ssize_t	(*show_setspeed)	(struct cpufreq_policy *policy,
+					 char *buf);
+	int 	(*store_setspeed)	(struct cpufreq_policy *policy,
+					 unsigned int freq);
+	unsigned int max_transition_latency; /* HW must be able to switch to
+			next freq faster than this value in nano secs or we
+			will fallback to performance governor */
 	struct list_head	governor_list;
 	struct module		*owner;
 };
@@ -279,12 +296,27 @@ static inline unsigned int cpufreq_quick_get(unsigned int cpu)
  *********************************************************************/
 
 
-#ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE
+/*
+  Performance governor is fallback governor if any other gov failed to
+  auto load due latency restrictions
+*/
+#ifdef CONFIG_CPU_FREQ_GOV_PERFORMANCE
 extern struct cpufreq_governor cpufreq_gov_performance;
-#define CPUFREQ_DEFAULT_GOVERNOR	&cpufreq_gov_performance
+#endif
+#ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_performance)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE)
+extern struct cpufreq_governor cpufreq_gov_powersave;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_powersave)
 #elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_USERSPACE)
 extern struct cpufreq_governor cpufreq_gov_userspace;
-#define CPUFREQ_DEFAULT_GOVERNOR	&cpufreq_gov_userspace
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_userspace)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMAND)
+extern struct cpufreq_governor cpufreq_gov_ondemand;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_ondemand)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_CONSERVATIVE)
+extern struct cpufreq_governor cpufreq_gov_conservative;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_conservative)
 #endif
 
 

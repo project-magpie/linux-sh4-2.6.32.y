@@ -28,26 +28,9 @@
 #include <linux/utsname.h>
 #include <linux/personality.h>
 #include <linux/unistd.h>
-
+#include <linux/ipc.h>
 #include <asm/uaccess.h>
-#include <asm/ipc.h>
-
-/*
- * sys_pipe() is the normal C calling standard for creating
- * a pipe. It's not the way Unix traditionally does this, though.
- */
-asmlinkage long sys_pipe(unsigned long __user *fildes)
-{
-	int fd[2];
-	int error;
-
-	error = do_pipe(fd);
-	if (!error) {
-		if (copy_to_user(fildes, fd, 2*sizeof(int)))
-			error = -EFAULT;
-	}
-	return error;
-}
+#include "entry.h"
 
 /* common code for old and new mmaps */
 static inline long do_mmap2(

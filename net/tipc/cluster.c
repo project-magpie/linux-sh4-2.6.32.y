@@ -142,7 +142,7 @@ void tipc_cltr_attach_node(struct cluster *c_ptr, struct node *n_ptr)
 		max_n_num = tipc_highest_allowed_slave;
 	assert(n_num > 0);
 	assert(n_num <= max_n_num);
-	assert(c_ptr->nodes[n_num] == 0);
+	assert(c_ptr->nodes[n_num] == NULL);
 	c_ptr->nodes[n_num] = n_ptr;
 	if (n_num > c_ptr->highest_node)
 		c_ptr->highest_node = n_num;
@@ -238,7 +238,7 @@ static struct sk_buff *tipc_cltr_prepare_routing_msg(u32 data_size, u32 dest)
 	if (buf) {
 		msg = buf_msg(buf);
 		memset((char *)msg, 0, size);
-		msg_init(msg, ROUTE_DISTRIBUTOR, 0, TIPC_OK, INT_H_SIZE, dest);
+		msg_init(msg, ROUTE_DISTRIBUTOR, 0, INT_H_SIZE, dest);
 	}
 	return buf;
 }
@@ -571,6 +571,6 @@ exit:
 int tipc_cltr_init(void)
 {
 	tipc_highest_allowed_slave = LOWEST_SLAVE + tipc_max_slaves;
-	return tipc_cltr_create(tipc_own_addr) ? TIPC_OK : -ENOMEM;
+	return tipc_cltr_create(tipc_own_addr) ? 0 : -ENOMEM;
 }
 

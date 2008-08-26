@@ -331,9 +331,10 @@ static void serio_handle_event(void)
 }
 
 /*
- * Remove all events that have been submitted for a given serio port.
+ * Remove all events that have been submitted for a given
+ * object, be it serio port or driver.
  */
-static void serio_remove_pending_events(struct serio *serio)
+static void serio_remove_pending_events(void *object)
 {
 	struct list_head *node, *next;
 	struct serio_event *event;
@@ -343,7 +344,7 @@ static void serio_remove_pending_events(struct serio *serio)
 
 	list_for_each_safe(node, next, &serio_event_list) {
 		event = list_entry(node, struct serio_event, node);
-		if (event->object == serio) {
+		if (event->object == object) {
 			list_del_init(node);
 			serio_free_event(event);
 		}
@@ -387,9 +388,8 @@ static int serio_thread(void *nothing)
 	set_freezable();
 	do {
 		serio_handle_event();
-		wait_event_interruptible(serio_wait,
+		wait_event_freezable(serio_wait,
 			kthread_should_stop() || !list_empty(&serio_event_list));
-		try_to_freeze();
 	} while (!kthread_should_stop());
 
 	printk(KERN_DEBUG "serio: kseriod exiting\n");
@@ -838,7 +838,9 @@ void serio_unregister_driver(struct serio_driver *drv)
 	struct serio *serio;
 
 	mutex_lock(&serio_mutex);
+
 	drv->manual_bind = 1;	/* so serio_find_driver ignores it */
+	serio_remove_pending_events(drv);
 
 start_over:
 	list_for_each_entry(serio, &serio_list, node) {
@@ -876,18 +878,14 @@ static int serio_bus_match(struct device *dev, struct device_driver *drv)
 
 #define SERIO_ADD_UEVENT_VAR(fmt, val...)				\
 	do {								\
-		int err = add_uevent_var(envp, num_envp, &i,	\
-					buffer, buffer_size, &len,	\
-					fmt, val);			\
+		int err = add_uevent_var(env, fmt, val);		\
 		if (err)						\
 			return err;					\
 	} while (0)
 
-static int serio_uevent(struct device *dev, char **envp, int num_envp, char *buffer, int buffer_size)
+static int serio_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
 	struct serio *serio;
-	int i = 0;
-	int len = 0;
 
 	if (!dev)
 		return -ENODEV;
@@ -900,7 +898,6 @@ static int serio_uevent(struct device *dev, char **envp, int num_envp, char *buf
 	SERIO_ADD_UEVENT_VAR("SERIO_EXTRA=%02x", serio->id.extra);
 	SERIO_ADD_UEVENT_VAR("MODALIAS=serio:ty%02Xpr%02Xid%02Xex%02X",
 				serio->id.type, serio->id.proto, serio->id.id, serio->id.extra);
-	envp[i] = NULL;
 
 	return 0;
 }
@@ -908,7 +905,7 @@ static int serio_uevent(struct device *dev, char **envp, int num_envp, char *buf
 
 #else
 
-static int serio_uevent(struct device *dev, char **envp, int num_envp, char *buffer, int buffer_size)
+static int serio_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
 	return -ENODEV;
 }

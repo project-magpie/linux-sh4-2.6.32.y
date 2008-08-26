@@ -50,7 +50,7 @@ struct ob_mac_iocb_req {
 #define OB_3032MAC_IOCB_REQ_UC	0x01
 	u8 reserved0;
 
-	__le32 transaction_id;
+	u32 transaction_id;	/* opaque for hardware */
 	__le16 data_len;
 	u8 ip_hdr_off;
 	u8 ip_hdr_len;
@@ -86,7 +86,7 @@ struct ob_mac_iocb_rsp {
 #define OB_MAC_IOCB_RSP_I   0x01
 
 	__le16 reserved0;
-	__le32 transaction_id;
+	u32 transaction_id;	/* opaque for hardware */
 	__le32 reserved1;
 	__le32 reserved2;
 };
@@ -556,7 +556,7 @@ enum {
 	IP_ADDR_INDEX_REG_FUNC_3_SEC = 0x0007,
 	IP_ADDR_INDEX_REG_6 = 0x0008,
 	IP_ADDR_INDEX_REG_OFFSET_MASK = 0x0030,
-	IP_ADDR_INDEX_REG_E = 0x0040, 
+	IP_ADDR_INDEX_REG_E = 0x0040,
 };
 enum {
 	QL3032_PORT_CONTROL_DS = 0x0001,
@@ -953,8 +953,8 @@ struct eeprom_bios_cfg {
  */
 struct eeprom_function_cfg {
 	u8 reserved[30];
-	u8 macAddress[6];
-	u8 macAddressSecondary[6];
+	u16 macAddress[3];
+	u16 macAddressSecondary[3];
 
 	u16 subsysVendorId;
 	u16 subsysDeviceId;
@@ -965,8 +965,7 @@ struct eeprom_function_cfg {
  */
 struct eeprom_data {
 	u8 asicId[4];
-	u8 version;
-	u8 numPorts;
+	u16 version_and_numPorts; /* together to avoid endianness crap */
 	u16 boardId;
 
 #define EEPROM_BOARDID_STR_SIZE   16
@@ -1056,31 +1055,31 @@ struct eeprom_data {
  */
 struct lrg_buf_q_entry {
 
-	u32 addr0_lower;
+	__le32 addr0_lower;
 #define IAL_LAST_ENTRY 0x00000001
 #define IAL_CONT_ENTRY 0x00000002
 #define IAL_FLAG_MASK  0x00000003
-	u32 addr0_upper;
-	u32 addr1_lower;
-	u32 addr1_upper;
-	u32 addr2_lower;
-	u32 addr2_upper;
-	u32 addr3_lower;
-	u32 addr3_upper;
-	u32 addr4_lower;
-	u32 addr4_upper;
-	u32 addr5_lower;
-	u32 addr5_upper;
-	u32 addr6_lower;
-	u32 addr6_upper;
-	u32 addr7_lower;
-	u32 addr7_upper;
+	__le32 addr0_upper;
+	__le32 addr1_lower;
+	__le32 addr1_upper;
+	__le32 addr2_lower;
+	__le32 addr2_upper;
+	__le32 addr3_lower;
+	__le32 addr3_upper;
+	__le32 addr4_lower;
+	__le32 addr4_upper;
+	__le32 addr5_lower;
+	__le32 addr5_upper;
+	__le32 addr6_lower;
+	__le32 addr6_upper;
+	__le32 addr7_lower;
+	__le32 addr7_upper;
 
 };
 
 struct bufq_addr_element {
-	u32 addr_low;
-	u32 addr_high;
+	__le32 addr_low;
+	__le32 addr_high;
 };
 
 #define QL_NO_RESET			0
@@ -1112,13 +1111,13 @@ struct ql_rcv_buf_cb {
  * OAL has 5 entries:
  * 1 thru 4 point to frags
  * fifth points to next oal.
- */ 
+ */
 #define MAX_OAL_CNT ((MAX_SKB_FRAGS-1)/4 + 1)
 
 struct oal_entry {
-	u32 dma_lo;
-	u32 dma_hi;
-	u32 len;
+	__le32 dma_lo;
+	__le32 dma_hi;
+	__le32 len;
 #define OAL_LAST_ENTRY   0x80000000	/* Last valid buffer in list. */
 #define OAL_CONT_ENTRY   0x40000000	/* points to an OAL. (continuation) */
 };
@@ -1137,7 +1136,7 @@ struct ql_tx_buf_cb {
 	struct ob_mac_iocb_req *queue_entry ;
 	int seg_count;
 	struct oal *oal;
-	struct map_list map[MAX_SKB_FRAGS+1]; 
+	struct map_list map[MAX_SKB_FRAGS+1];
 };
 
 /* definitions for type field */
@@ -1174,6 +1173,8 @@ struct ql3_adapter {
 	/* PCI Configuration information for this device */
 	struct pci_dev *pdev;
 	struct net_device *ndev;	/* Parent NET device */
+
+	struct napi_struct napi;
 
 	/* Hardware information */
 	u8 chip_rev_id;
@@ -1221,7 +1222,7 @@ struct ql3_adapter {
 	struct net_rsp_iocb *rsp_current;
 	u16 rsp_consumer_index;
 	u16 reserved_06;
-	volatile u32 *prsp_producer_index;
+	volatile __le32 *prsp_producer_index;
 	u32 rsp_producer_index_phy_addr_high;
 	u32 rsp_producer_index_phy_addr_low;
 
@@ -1281,10 +1282,10 @@ struct ql3_adapter {
 	u32 update_ob_opcode;	/* Opcode to use for updating NCB */
 	u32 mb_bit_mask;	/* MA Bits mask to use on transmission */
 	u32 numPorts;
-	struct net_device_stats stats;
 	struct workqueue_struct *workqueue;
 	struct delayed_work reset_work;
 	struct delayed_work tx_timeout_work;
+	struct delayed_work link_state_work;
 	u32 max_frame_size;
 	u32 device_id;
 	u16 phyType;

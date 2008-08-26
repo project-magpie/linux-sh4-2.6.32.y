@@ -22,7 +22,6 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/param.h>
-#include <linux/moduleparam.h>
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/device.h>
@@ -35,7 +34,7 @@
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
 #include <linux/page-flags.h>
-#include <linux/byteorder/generic.h>
+#include <asm/byteorder.h>
 #include <asm/page.h>
 #include <asm/uaccess.h>
 
@@ -48,7 +47,7 @@
 #define SN9C102_MODULE_AUTHOR   "(C) 2004-2007 Luca Risolia"
 #define SN9C102_AUTHOR_EMAIL    "<luca.risolia@studio.unibo.it>"
 #define SN9C102_MODULE_LICENSE  "GPL"
-#define SN9C102_MODULE_VERSION  "1:1.47"
+#define SN9C102_MODULE_VERSION  "1:1.47pre49"
 #define SN9C102_MODULE_VERSION_CODE  KERNEL_VERSION(1, 1, 47)
 
 /*****************************************************************************/
@@ -465,9 +464,9 @@ sn9c102_i2c_try_read(struct sn9c102_device* cam,
 }
 
 
-int
-sn9c102_i2c_try_write(struct sn9c102_device* cam,
-		      const struct sn9c102_sensor* sensor, u8 address, u8 value)
+static int sn9c102_i2c_try_write(struct sn9c102_device* cam,
+				 const struct sn9c102_sensor* sensor,
+				 u8 address, u8 value)
 {
 	return sn9c102_i2c_try_raw_write(cam, sensor, 3,
 					 sensor->i2c_slave_id, address,
@@ -529,7 +528,7 @@ sn9c102_find_sof_header(struct sn9c102_device* cam, void* mem, size_t len)
 
 		/* Search for the SOF marker (fixed part) in the header */
 		for (j = 0, b=cam->sof.bytesread; j+b < sizeof(marker); j++) {
-			if (unlikely(i+j) == len)
+			if (unlikely(i+j == len))
 				return NULL;
 			if (*(m+i+j) == marker[cam->sof.bytesread]) {
 				cam->sof.header[cam->sof.bytesread] = *(m+i+j);
@@ -1030,7 +1029,8 @@ static u16 sn9c102_strtou16(const char* buff, size_t len, ssize_t* count)
    NOTE 2: buffers are PAGE_SIZE long
 */
 
-static ssize_t sn9c102_show_reg(struct class_device* cd, char* buf)
+static ssize_t sn9c102_show_reg(struct device* cd,
+				struct device_attribute *attr, char* buf)
 {
 	struct sn9c102_device* cam;
 	ssize_t count;
@@ -1054,7 +1054,8 @@ static ssize_t sn9c102_show_reg(struct class_device* cd, char* buf)
 
 
 static ssize_t
-sn9c102_store_reg(struct class_device* cd, const char* buf, size_t len)
+sn9c102_store_reg(struct device* cd, struct device_attribute *attr,
+		  const char* buf, size_t len)
 {
 	struct sn9c102_device* cam;
 	u16 index;
@@ -1087,7 +1088,8 @@ sn9c102_store_reg(struct class_device* cd, const char* buf, size_t len)
 }
 
 
-static ssize_t sn9c102_show_val(struct class_device* cd, char* buf)
+static ssize_t sn9c102_show_val(struct device* cd,
+				struct device_attribute *attr, char* buf)
 {
 	struct sn9c102_device* cam;
 	ssize_t count;
@@ -1119,7 +1121,8 @@ static ssize_t sn9c102_show_val(struct class_device* cd, char* buf)
 
 
 static ssize_t
-sn9c102_store_val(struct class_device* cd, const char* buf, size_t len)
+sn9c102_store_val(struct device* cd, struct device_attribute *attr,
+		  const char* buf, size_t len)
 {
 	struct sn9c102_device* cam;
 	u16 value;
@@ -1158,7 +1161,8 @@ sn9c102_store_val(struct class_device* cd, const char* buf, size_t len)
 }
 
 
-static ssize_t sn9c102_show_i2c_reg(struct class_device* cd, char* buf)
+static ssize_t sn9c102_show_i2c_reg(struct device* cd,
+				    struct device_attribute *attr, char* buf)
 {
 	struct sn9c102_device* cam;
 	ssize_t count;
@@ -1184,7 +1188,8 @@ static ssize_t sn9c102_show_i2c_reg(struct class_device* cd, char* buf)
 
 
 static ssize_t
-sn9c102_store_i2c_reg(struct class_device* cd, const char* buf, size_t len)
+sn9c102_store_i2c_reg(struct device* cd, struct device_attribute *attr,
+		      const char* buf, size_t len)
 {
 	struct sn9c102_device* cam;
 	u16 index;
@@ -1217,7 +1222,8 @@ sn9c102_store_i2c_reg(struct class_device* cd, const char* buf, size_t len)
 }
 
 
-static ssize_t sn9c102_show_i2c_val(struct class_device* cd, char* buf)
+static ssize_t sn9c102_show_i2c_val(struct device* cd,
+				    struct device_attribute *attr, char* buf)
 {
 	struct sn9c102_device* cam;
 	ssize_t count;
@@ -1254,7 +1260,8 @@ static ssize_t sn9c102_show_i2c_val(struct class_device* cd, char* buf)
 
 
 static ssize_t
-sn9c102_store_i2c_val(struct class_device* cd, const char* buf, size_t len)
+sn9c102_store_i2c_val(struct device* cd, struct device_attribute *attr,
+		      const char* buf, size_t len)
 {
 	struct sn9c102_device* cam;
 	u16 value;
@@ -1299,7 +1306,8 @@ sn9c102_store_i2c_val(struct class_device* cd, const char* buf, size_t len)
 
 
 static ssize_t
-sn9c102_store_green(struct class_device* cd, const char* buf, size_t len)
+sn9c102_store_green(struct device* cd, struct device_attribute *attr,
+		    const char* buf, size_t len)
 {
 	struct sn9c102_device* cam;
 	enum sn9c102_bridge bridge;
@@ -1330,16 +1338,16 @@ sn9c102_store_green(struct class_device* cd, const char* buf, size_t len)
 	case BRIDGE_SN9C102:
 		if (value > 0x0f)
 			return -EINVAL;
-		if ((res = sn9c102_store_reg(cd, "0x11", 4)) >= 0)
-			res = sn9c102_store_val(cd, buf, len);
+		if ((res = sn9c102_store_reg(cd, attr, "0x11", 4)) >= 0)
+			res = sn9c102_store_val(cd, attr, buf, len);
 		break;
 	case BRIDGE_SN9C103:
 	case BRIDGE_SN9C105:
 	case BRIDGE_SN9C120:
 		if (value > 0x7f)
 			return -EINVAL;
-		if ((res = sn9c102_store_reg(cd, "0x07", 4)) >= 0)
-			res = sn9c102_store_val(cd, buf, len);
+		if ((res = sn9c102_store_reg(cd, attr, "0x07", 4)) >= 0)
+			res = sn9c102_store_val(cd, attr, buf, len);
 		break;
 	}
 
@@ -1348,7 +1356,8 @@ sn9c102_store_green(struct class_device* cd, const char* buf, size_t len)
 
 
 static ssize_t
-sn9c102_store_blue(struct class_device* cd, const char* buf, size_t len)
+sn9c102_store_blue(struct device* cd, struct device_attribute *attr,
+		   const char* buf, size_t len)
 {
 	ssize_t res = 0;
 	u16 value;
@@ -1358,15 +1367,16 @@ sn9c102_store_blue(struct class_device* cd, const char* buf, size_t len)
 	if (!count || value > 0x7f)
 		return -EINVAL;
 
-	if ((res = sn9c102_store_reg(cd, "0x06", 4)) >= 0)
-		res = sn9c102_store_val(cd, buf, len);
+	if ((res = sn9c102_store_reg(cd, attr, "0x06", 4)) >= 0)
+		res = sn9c102_store_val(cd, attr, buf, len);
 
 	return res;
 }
 
 
 static ssize_t
-sn9c102_store_red(struct class_device* cd, const char* buf, size_t len)
+sn9c102_store_red(struct device* cd, struct device_attribute *attr,
+		  const char* buf, size_t len)
 {
 	ssize_t res = 0;
 	u16 value;
@@ -1376,14 +1386,16 @@ sn9c102_store_red(struct class_device* cd, const char* buf, size_t len)
 	if (!count || value > 0x7f)
 		return -EINVAL;
 
-	if ((res = sn9c102_store_reg(cd, "0x05", 4)) >= 0)
-		res = sn9c102_store_val(cd, buf, len);
+	if ((res = sn9c102_store_reg(cd, attr, "0x05", 4)) >= 0)
+		res = sn9c102_store_val(cd, attr, buf, len);
 
 	return res;
 }
 
 
-static ssize_t sn9c102_show_frame_header(struct class_device* cd, char* buf)
+static ssize_t sn9c102_show_frame_header(struct device* cd,
+					 struct device_attribute *attr,
+					 char* buf)
 {
 	struct sn9c102_device* cam;
 	ssize_t count;
@@ -1402,72 +1414,63 @@ static ssize_t sn9c102_show_frame_header(struct class_device* cd, char* buf)
 }
 
 
-static CLASS_DEVICE_ATTR(reg, S_IRUGO | S_IWUSR,
-			 sn9c102_show_reg, sn9c102_store_reg);
-static CLASS_DEVICE_ATTR(val, S_IRUGO | S_IWUSR,
-			 sn9c102_show_val, sn9c102_store_val);
-static CLASS_DEVICE_ATTR(i2c_reg, S_IRUGO | S_IWUSR,
-			 sn9c102_show_i2c_reg, sn9c102_store_i2c_reg);
-static CLASS_DEVICE_ATTR(i2c_val, S_IRUGO | S_IWUSR,
-			 sn9c102_show_i2c_val, sn9c102_store_i2c_val);
-static CLASS_DEVICE_ATTR(green, S_IWUGO, NULL, sn9c102_store_green);
-static CLASS_DEVICE_ATTR(blue, S_IWUGO, NULL, sn9c102_store_blue);
-static CLASS_DEVICE_ATTR(red, S_IWUGO, NULL, sn9c102_store_red);
-static CLASS_DEVICE_ATTR(frame_header, S_IRUGO,
-			 sn9c102_show_frame_header, NULL);
+static DEVICE_ATTR(reg, S_IRUGO | S_IWUSR, sn9c102_show_reg, sn9c102_store_reg);
+static DEVICE_ATTR(val, S_IRUGO | S_IWUSR, sn9c102_show_val, sn9c102_store_val);
+static DEVICE_ATTR(i2c_reg, S_IRUGO | S_IWUSR,
+		   sn9c102_show_i2c_reg, sn9c102_store_i2c_reg);
+static DEVICE_ATTR(i2c_val, S_IRUGO | S_IWUSR,
+		   sn9c102_show_i2c_val, sn9c102_store_i2c_val);
+static DEVICE_ATTR(green, S_IWUGO, NULL, sn9c102_store_green);
+static DEVICE_ATTR(blue, S_IWUGO, NULL, sn9c102_store_blue);
+static DEVICE_ATTR(red, S_IWUGO, NULL, sn9c102_store_red);
+static DEVICE_ATTR(frame_header, S_IRUGO, sn9c102_show_frame_header, NULL);
 
 
 static int sn9c102_create_sysfs(struct sn9c102_device* cam)
 {
-	struct class_device *classdev = &(cam->v4ldev->class_dev);
+	struct device *classdev = &(cam->v4ldev->class_dev);
 	int err = 0;
 
-	if ((err = class_device_create_file(classdev, &class_device_attr_reg)))
+	if ((err = device_create_file(classdev, &dev_attr_reg)))
 		goto err_out;
-	if ((err = class_device_create_file(classdev, &class_device_attr_val)))
+	if ((err = device_create_file(classdev, &dev_attr_val)))
 		goto err_reg;
-	if ((err = class_device_create_file(classdev,
-					    &class_device_attr_frame_header)))
+	if ((err = device_create_file(classdev, &dev_attr_frame_header)))
 		goto err_val;
 
 	if (cam->sensor.sysfs_ops) {
-		if ((err = class_device_create_file(classdev,
-						  &class_device_attr_i2c_reg)))
+		if ((err = device_create_file(classdev, &dev_attr_i2c_reg)))
 			goto err_frame_header;
-		if ((err = class_device_create_file(classdev,
-						  &class_device_attr_i2c_val)))
+		if ((err = device_create_file(classdev, &dev_attr_i2c_val)))
 			goto err_i2c_reg;
 	}
 
 	if (cam->bridge == BRIDGE_SN9C101 || cam->bridge == BRIDGE_SN9C102) {
-		if ((err = class_device_create_file(classdev,
-						    &class_device_attr_green)))
+		if ((err = device_create_file(classdev, &dev_attr_green)))
 			goto err_i2c_val;
 	} else {
-		if ((err = class_device_create_file(classdev,
-						    &class_device_attr_blue)))
+		if ((err = device_create_file(classdev, &dev_attr_blue)))
 			goto err_i2c_val;
-		if ((err = class_device_create_file(classdev,
-						    &class_device_attr_red)))
+		if ((err = device_create_file(classdev, &dev_attr_red)))
 			goto err_blue;
 	}
 
 	return 0;
 
 err_blue:
-	class_device_remove_file(classdev, &class_device_attr_blue);
+	device_remove_file(classdev, &dev_attr_blue);
 err_i2c_val:
 	if (cam->sensor.sysfs_ops)
-		class_device_remove_file(classdev, &class_device_attr_i2c_val);
+		device_remove_file(classdev, &dev_attr_i2c_val);
 err_i2c_reg:
 	if (cam->sensor.sysfs_ops)
-		class_device_remove_file(classdev, &class_device_attr_i2c_reg);
+		device_remove_file(classdev, &dev_attr_i2c_reg);
 err_frame_header:
-	class_device_remove_file(classdev, &class_device_attr_frame_header);
+	device_remove_file(classdev, &dev_attr_frame_header);
 err_val:
-	class_device_remove_file(classdev, &class_device_attr_val);
+	device_remove_file(classdev, &dev_attr_val);
 err_reg:
-	class_device_remove_file(classdev, &class_device_attr_reg);
+	device_remove_file(classdev, &dev_attr_reg);
 err_out:
 	return err;
 }
@@ -3221,7 +3224,9 @@ static const struct file_operations sn9c102_fops = {
 	.open = sn9c102_open,
 	.release = sn9c102_release,
 	.ioctl = sn9c102_ioctl,
+#ifdef CONFIG_COMPAT
 	.compat_ioctl = v4l_compat_ioctl32,
+#endif
 	.read = sn9c102_read,
 	.poll = sn9c102_poll,
 	.mmap = sn9c102_mmap,
@@ -3236,7 +3241,7 @@ sn9c102_usb_probe(struct usb_interface* intf, const struct usb_device_id* id)
 {
 	struct usb_device *udev = interface_to_usbdev(intf);
 	struct sn9c102_device* cam;
-	static unsigned int dev_nr = 0;
+	static unsigned int dev_nr;
 	unsigned int i;
 	int err = 0, r;
 
@@ -3316,11 +3321,9 @@ sn9c102_usb_probe(struct usb_interface* intf, const struct usb_device_id* id)
 	strcpy(cam->v4ldev->name, "SN9C1xx PC Camera");
 	cam->v4ldev->owner = THIS_MODULE;
 	cam->v4ldev->type = VID_TYPE_CAPTURE | VID_TYPE_SCALES;
-	cam->v4ldev->hardware = 0;
 	cam->v4ldev->fops = &sn9c102_fops;
 	cam->v4ldev->minor = video_nr[dev_nr];
 	cam->v4ldev->release = video_device_release;
-	video_set_drvdata(cam->v4ldev, cam);
 
 	init_completion(&cam->probe);
 
@@ -3338,6 +3341,7 @@ sn9c102_usb_probe(struct usb_interface* intf, const struct usb_device_id* id)
 
 	DBG(2, "V4L2 device registered as /dev/video%d", cam->v4ldev->minor);
 
+	video_set_drvdata(cam->v4ldev, cam);
 	cam->module_param.force_munmap = force_munmap[dev_nr];
 	cam->module_param.frame_timeout = frame_timeout[dev_nr];
 

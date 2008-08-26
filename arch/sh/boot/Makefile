@@ -37,11 +37,11 @@ $(obj)/compressed/vmlinux: FORCE
 	$(Q)$(MAKE) $(build)=$(obj)/compressed $@
 
 ifeq ($(CONFIG_32BIT),y)
-KERNEL_LOAD	:= $(shell /bin/bash -c 'printf "0x%8x" \
+KERNEL_LOAD	:= $(shell /bin/bash -c 'printf "0x%08x" \
 		     $$[$(CONFIG_PAGE_OFFSET)  + \
 			$(CONFIG_ZERO_PAGE_OFFSET)]')
 else
-KERNEL_LOAD	:= $(shell /bin/bash -c 'printf "0x%8x" \
+KERNEL_LOAD	:= $(shell /bin/bash -c 'printf "0x%08x" \
 		     $$[$(CONFIG_PAGE_OFFSET)  + \
 			$(CONFIG_MEMORY_START) + \
 			$(CONFIG_ZERO_PAGE_OFFSET)]')
@@ -73,5 +73,5 @@ OBJCOPYFLAGS_uImage.srec := -I binary -O srec
 $(obj)/uImage.srec: $(obj)/uImage
 	$(call if_changed,objcopy)
 
-clean-files	+= uImage uImage.srec vmlinux.srec
-clean-files	+= vmlinux.bin vmlinux.bin.gz
+clean-files	+= uImage uImage.srec vmlinux.srec \
+		   vmlinux.bin vmlinux.bin.gz

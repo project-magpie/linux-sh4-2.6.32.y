@@ -1,7 +1,6 @@
 #ifndef __ASM_MEMORY_MODEL_H
 #define __ASM_MEMORY_MODEL_H
 
-#ifdef __KERNEL__
 #ifndef __ASSEMBLY__
 
 #if defined(CONFIG_FLATMEM)
@@ -46,6 +45,12 @@
 	 __pgdat->node_start_pfn;					\
 })
 
+#elif defined(CONFIG_SPARSEMEM_VMEMMAP)
+
+/* memmap is virtually contigious.  */
+#define __pfn_to_page(pfn)	(vmemmap + (pfn))
+#define __page_to_pfn(page)	((page) - vmemmap)
+
 #elif defined(CONFIG_SPARSEMEM)
 /*
  * Note: section's mem_map is encorded to reflect its start_pfn.
@@ -75,6 +80,5 @@ extern unsigned long page_to_pfn(struct page *page);
 #endif /* CONFIG_OUT_OF_LINE_PFN_TO_PAGE */
 
 #endif /* __ASSEMBLY__ */
-#endif /* __KERNEL__ */
 
 #endif

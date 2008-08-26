@@ -82,6 +82,8 @@ enum
 	__ICMP_MIB_MAX
 };
 
+#define __ICMPMSG_MIB_MAX 512	/* Out+In for all 8-bit ICMP types */
+
 /* icmp6 mib definitions */
 /*
  * RFC 2466:  ICMPv6-MIB
@@ -91,34 +93,11 @@ enum
 	ICMP6_MIB_NUM = 0,
 	ICMP6_MIB_INMSGS,			/* InMsgs */
 	ICMP6_MIB_INERRORS,			/* InErrors */
-	ICMP6_MIB_INDESTUNREACHS,		/* InDestUnreachs */
-	ICMP6_MIB_INPKTTOOBIGS,			/* InPktTooBigs */
-	ICMP6_MIB_INTIMEEXCDS,			/* InTimeExcds */
-	ICMP6_MIB_INPARMPROBLEMS,		/* InParmProblems */
-	ICMP6_MIB_INECHOS,			/* InEchos */
-	ICMP6_MIB_INECHOREPLIES,		/* InEchoReplies */
-	ICMP6_MIB_INGROUPMEMBQUERIES,		/* InGroupMembQueries */
-	ICMP6_MIB_INGROUPMEMBRESPONSES,		/* InGroupMembResponses */
-	ICMP6_MIB_INGROUPMEMBREDUCTIONS,	/* InGroupMembReductions */
-	ICMP6_MIB_INROUTERSOLICITS,		/* InRouterSolicits */
-	ICMP6_MIB_INROUTERADVERTISEMENTS,	/* InRouterAdvertisements */
-	ICMP6_MIB_INNEIGHBORSOLICITS,		/* InNeighborSolicits */
-	ICMP6_MIB_INNEIGHBORADVERTISEMENTS,	/* InNeighborAdvertisements */
-	ICMP6_MIB_INREDIRECTS,			/* InRedirects */
 	ICMP6_MIB_OUTMSGS,			/* OutMsgs */
-	ICMP6_MIB_OUTDESTUNREACHS,		/* OutDestUnreachs */
-	ICMP6_MIB_OUTPKTTOOBIGS,		/* OutPktTooBigs */
-	ICMP6_MIB_OUTTIMEEXCDS,			/* OutTimeExcds */
-	ICMP6_MIB_OUTPARMPROBLEMS,		/* OutParmProblems */
-	ICMP6_MIB_OUTECHOREPLIES,		/* OutEchoReplies */
-	ICMP6_MIB_OUTROUTERSOLICITS,		/* OutRouterSolicits */
-	ICMP6_MIB_OUTNEIGHBORSOLICITS,		/* OutNeighborSolicits */
-	ICMP6_MIB_OUTNEIGHBORADVERTISEMENTS,	/* OutNeighborAdvertisements */
-	ICMP6_MIB_OUTREDIRECTS,			/* OutRedirects */
-	ICMP6_MIB_OUTGROUPMEMBRESPONSES,	/* OutGroupMembResponses */
-	ICMP6_MIB_OUTGROUPMEMBREDUCTIONS,	/* OutGroupMembReductions */
 	__ICMP6_MIB_MAX
 };
+
+#define __ICMP6MSG_MIB_MAX 512 /* Out+In for all 8-bit ICMPv6 types */
 
 /* tcp mib definitions */
 /*
@@ -231,7 +210,43 @@ enum
 	LINUX_MIB_TCPABORTONLINGER,		/* TCPAbortOnLinger */
 	LINUX_MIB_TCPABORTFAILED,		/* TCPAbortFailed */
 	LINUX_MIB_TCPMEMORYPRESSURES,		/* TCPMemoryPressures */
+	LINUX_MIB_TCPSACKDISCARD,		/* TCPSACKDiscard */
+	LINUX_MIB_TCPDSACKIGNOREDOLD,		/* TCPSACKIgnoredOld */
+	LINUX_MIB_TCPDSACKIGNOREDNOUNDO,	/* TCPSACKIgnoredNoUndo */
+	LINUX_MIB_TCPSPURIOUSRTOS,		/* TCPSpuriousRTOs */
 	__LINUX_MIB_MAX
+};
+
+/* linux Xfrm mib definitions */
+enum
+{
+	LINUX_MIB_XFRMNUM = 0,
+	LINUX_MIB_XFRMINERROR,			/* XfrmInError */
+	LINUX_MIB_XFRMINBUFFERERROR,		/* XfrmInBufferError */
+	LINUX_MIB_XFRMINHDRERROR,		/* XfrmInHdrError */
+	LINUX_MIB_XFRMINNOSTATES,		/* XfrmInNoStates */
+	LINUX_MIB_XFRMINSTATEPROTOERROR,	/* XfrmInStateProtoError */
+	LINUX_MIB_XFRMINSTATEMODEERROR,		/* XfrmInStateModeError */
+	LINUX_MIB_XFRMINSTATESEQERROR,		/* XfrmInStateSeqError */
+	LINUX_MIB_XFRMINSTATEEXPIRED,		/* XfrmInStateExpired */
+	LINUX_MIB_XFRMINSTATEMISMATCH,		/* XfrmInStateMismatch */
+	LINUX_MIB_XFRMINSTATEINVALID,		/* XfrmInStateInvalid */
+	LINUX_MIB_XFRMINTMPLMISMATCH,		/* XfrmInTmplMismatch */
+	LINUX_MIB_XFRMINNOPOLS,			/* XfrmInNoPols */
+	LINUX_MIB_XFRMINPOLBLOCK,		/* XfrmInPolBlock */
+	LINUX_MIB_XFRMINPOLERROR,		/* XfrmInPolError */
+	LINUX_MIB_XFRMOUTERROR,			/* XfrmOutError */
+	LINUX_MIB_XFRMOUTBUNDLEGENERROR,	/* XfrmOutBundleGenError */
+	LINUX_MIB_XFRMOUTBUNDLECHECKERROR,	/* XfrmOutBundleCheckError */
+	LINUX_MIB_XFRMOUTNOSTATES,		/* XfrmOutNoStates */
+	LINUX_MIB_XFRMOUTSTATEPROTOERROR,	/* XfrmOutStateProtoError */
+	LINUX_MIB_XFRMOUTSTATEMODEERROR,	/* XfrmOutStateModeError */
+	LINUX_MIB_XFRMOUTSTATESEQERROR,		/* XfrmOutStateSeqError */
+	LINUX_MIB_XFRMOUTSTATEEXPIRED,		/* XfrmOutStateExpired */
+	LINUX_MIB_XFRMOUTPOLBLOCK,		/* XfrmOutPolBlock */
+	LINUX_MIB_XFRMOUTPOLDEAD,		/* XfrmOutPolDead */
+	LINUX_MIB_XFRMOUTPOLERROR,		/* XfrmOutPolError */
+	__LINUX_MIB_XFRMMAX
 };
 
 #endif	/* _LINUX_SNMP_H */

@@ -23,6 +23,7 @@
 #include "xfs_inum.h"
 #include "xfs_trans.h"
 #include "xfs_sb.h"
+#include "xfs_ag.h"
 #include "xfs_dmapi.h"
 #include "xfs_mount.h"
 #include "xfs_buf_item.h"
@@ -377,7 +378,6 @@ xfs_buf_item_unpin(
 	xfs_mount_t	*mp;
 	xfs_buf_t	*bp;
 	int		freed;
-	SPLDECL(s);
 
 	bp = bip->bli_buf;
 	ASSERT(bp != NULL);
@@ -408,8 +408,8 @@ xfs_buf_item_unpin(
 			XFS_BUF_SET_FSPRIVATE(bp, NULL);
 			XFS_BUF_CLR_IODONE_FUNC(bp);
 		} else {
-			AIL_LOCK(mp,s);
-			xfs_trans_delete_ail(mp, (xfs_log_item_t *)bip, s);
+			spin_lock(&mp->m_ail_lock);
+			xfs_trans_delete_ail(mp, (xfs_log_item_t *)bip);
 			xfs_buf_item_relse(bp);
 			ASSERT(XFS_BUF_FSPRIVATE(bp, void *) == NULL);
 		}
@@ -645,7 +645,12 @@ xfs_buf_item_push(
 	bp = bip->bli_buf;
 
 	if (XFS_BUF_ISDELAYWRITE(bp)) {
-		xfs_bawrite(bip->bli_item.li_mountp, bp);
+		int	error;
+		error = xfs_bawrite(bip->bli_item.li_mountp, bp);
+		if (error)
+			xfs_fs_cmn_err(CE_WARN, bip->bli_item.li_mountp,
+			"xfs_buf_item_push: pushbuf error %d on bip %p, bp %p",
+					error, bip, bp);
 	} else {
 		xfs_buf_relse(bp);
 	}
@@ -1112,7 +1117,6 @@ xfs_buf_iodone(
 	xfs_buf_log_item_t	*bip)
 {
 	struct xfs_mount	*mp;
-	SPLDECL(s);
 
 	ASSERT(bip->bli_buf == bp);
 
@@ -1127,11 +1131,11 @@ xfs_buf_iodone(
 	 *
 	 * Either way, AIL is useless if we're forcing a shutdown.
 	 */
-	AIL_LOCK(mp,s);
+	spin_lock(&mp->m_ail_lock);
 	/*
 	 * xfs_trans_delete_ail() drops the AIL lock.
 	 */
-	xfs_trans_delete_ail(mp, (xfs_log_item_t *)bip, s);
+	xfs_trans_delete_ail(mp, (xfs_log_item_t *)bip);
 
 #ifdef XFS_TRANS_DEBUG
 	kmem_free(bip->bli_orig, XFS_BUF_COUNT(bp));

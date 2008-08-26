@@ -2,7 +2,7 @@
  * Copyright (c) 2004, 2005 Topspin Communications.  All rights reserved.
  * Copyright (c) 2005 Sun Microsystems, Inc. All rights reserved.
  * Copyright (c) 2005, 2006, 2007 Cisco Systems.  All rights reserved.
- * Copyright (c) 2005 Mellanox Technologies. All rights reserved.
+ * Copyright (c) 2005, 2006, 2007, 2008 Mellanox Technologies. All rights reserved.
  * Copyright (c) 2004 Voltaire, Inc. All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -42,6 +42,7 @@
 #include <linux/timer.h>
 
 #include <linux/mlx4/device.h>
+#include <linux/mlx4/driver.h>
 #include <linux/mlx4/doorbell.h>
 
 #define DRV_NAME	"mlx4_core"
@@ -56,11 +57,7 @@ enum {
 };
 
 enum {
-	MLX4_BOARD_ID_LEN	= 64
-};
-
-enum {
-	MLX4_MGM_ENTRY_SIZE	=  0x40,
+	MLX4_MGM_ENTRY_SIZE	=  0x100,
 	MLX4_QP_PER_MGM		= 4 * (MLX4_MGM_ENTRY_SIZE / 16 - 2),
 	MLX4_MTT_ENTRY_PER_SEG	= 8
 };
@@ -121,6 +118,7 @@ struct mlx4_bitmap {
 
 struct mlx4_buddy {
 	unsigned long	      **bits;
+	unsigned int	       *num_free;
 	int			max_order;
 	spinlock_t		lock;
 };
@@ -133,6 +131,7 @@ struct mlx4_icm_table {
 	int			num_obj;
 	int			obj_size;
 	int			lowmem;
+	int			coherent;
 	struct mutex		mutex;
 	struct mlx4_icm	      **icm;
 };
@@ -259,6 +258,9 @@ struct mlx4_priv {
 	struct list_head	ctx_list;
 	spinlock_t		ctx_lock;
 
+	struct list_head        pgdir_list;
+	struct mutex            pgdir_mutex;
+
 	struct mlx4_fw		fw;
 	struct mlx4_cmd		cmd;
 
@@ -277,9 +279,6 @@ struct mlx4_priv {
 
 	struct mlx4_uar		driver_uar;
 	void __iomem	       *kar;
-
-	u32			rev_id;
-	char			board_id[MLX4_BOARD_ID_LEN];
 };
 
 static inline struct mlx4_priv *mlx4_priv(struct mlx4_dev *dev)
@@ -319,8 +318,7 @@ void mlx4_catas_cleanup(void);
 int mlx4_restart_one(struct pci_dev *pdev);
 int mlx4_register_device(struct mlx4_dev *dev);
 void mlx4_unregister_device(struct mlx4_dev *dev);
-void mlx4_dispatch_event(struct mlx4_dev *dev, enum mlx4_event type,
-			 int subtype, int port);
+void mlx4_dispatch_event(struct mlx4_dev *dev, enum mlx4_dev_event type, int port);
 
 struct mlx4_dev_cap;
 struct mlx4_init_hca_param;

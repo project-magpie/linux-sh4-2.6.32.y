@@ -1,7 +1,6 @@
-/* $Id: time.c,v 1.60 2002/01/23 14:33:55 davem Exp $
- * linux/arch/sparc/kernel/time.c
+/* linux/arch/sparc/kernel/time.c
  *
- * Copyright (C) 1995 David S. Miller (davem@caip.rutgers.edu)
+ * Copyright (C) 1995 David S. Miller (davem@davemloft.net)
  * Copyright (C) 1996 Thomas K. Dyas (tdyas@eden.rutgers.edu)
  *
  * Chris Davis (cdavis@cois.on.ca) 03/27/1998
@@ -47,7 +46,7 @@
 #include "irq.h"
 
 DEFINE_SPINLOCK(rtc_lock);
-enum sparc_clock_type sp_clock_typ;
+static enum sparc_clock_type sp_clock_typ;
 DEFINE_SPINLOCK(mostek_lock);
 void __iomem *mstk48t02_regs = NULL;
 static struct mostek48t08 __iomem *mstk48t08_regs = NULL;
@@ -106,7 +105,7 @@ __volatile__ unsigned int *master_l10_limit;
 
 #define TICK_SIZE (tick_nsec / 1000)
 
-irqreturn_t timer_interrupt(int irq, void *dev_id)
+static irqreturn_t timer_interrupt(int dummy, void *dev_id)
 {
 	/* last time the cmos clock got updated */
 	static long last_rtc_update;
@@ -129,10 +128,6 @@ irqreturn_t timer_interrupt(int irq, void *dev_id)
 	clear_clock_irq();
 
 	do_timer(1);
-#ifndef CONFIG_SMP
-	update_process_times(user_mode(get_irq_regs()));
-#endif
-
 
 	/* Determine when to update the Mostek clock. */
 	if (ntp_synced() &&
@@ -146,6 +141,9 @@ irqreturn_t timer_interrupt(int irq, void *dev_id)
 	}
 	write_sequnlock(&xtime_lock);
 
+#ifndef CONFIG_SMP
+	update_process_times(user_mode(get_irq_regs()));
+#endif
 	return IRQ_HANDLED;
 }
 
@@ -210,7 +208,7 @@ static void __devinit kick_start_clock(void)
 }
 
 /* Return nonzero if the clock chip battery is low. */
-static __inline__ int has_low_battery(void)
+static inline int has_low_battery(void)
 {
 	struct mostek48t02 *regs = (struct mostek48t02 *)mstk48t02_regs;
 	unsigned char data1, data2;
@@ -252,7 +250,7 @@ static void __devinit mostek_set_system_time(void)
 }
 
 /* Probe for the real time clock chip on Sun4 */
-static __inline__ void sun4_clock_probe(void)
+static inline void sun4_clock_probe(void)
 {
 #ifdef CONFIG_SUN4
 	int temp;
@@ -347,9 +345,11 @@ static struct of_device_id clock_match[] = {
 };
 
 static struct of_platform_driver clock_driver = {
-	.name		= "clock",
 	.match_table	= clock_match,
 	.probe		= clock_probe,
+	.driver		= {
+		.name	= "clock",
+	},
 };
 
 
@@ -366,7 +366,7 @@ static int __init clock_init(void)
 fs_initcall(clock_init);
 #endif /* !CONFIG_SUN4 */
 
-void __init sbus_time_init(void)
+static void __init sbus_time_init(void)
 {
 
 	BTFIXUPSET_CALL(bus_do_settimeofday, sbus_do_settimeofday, BTFIXUPCALL_NORM);
@@ -435,7 +435,14 @@ void __init time_init(void)
 
 static inline unsigned long do_gettimeoffset(void)
 {
-	return (*master_l10_counter >> 10) & 0x1fffff;
+	unsigned long val = *master_l10_counter;
+	unsigned long usec = (val >> 10) & 0x1fffff;
+
+	/* Limit hit?  */
+	if (val & 0x80000000)
+		usec += 1000000 / HZ;
+
+	return usec;
 }
 
 /* Ok, my cute asm atomicity trick doesn't work anymore.

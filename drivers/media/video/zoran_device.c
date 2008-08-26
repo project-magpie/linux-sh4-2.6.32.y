@@ -31,7 +31,6 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/vmalloc.h>
-#include <linux/byteorder/generic.h>
 
 #include <linux/interrupt.h>
 #include <linux/proc_fs.h>
@@ -47,11 +46,13 @@
 #include <linux/delay.h>
 #include <linux/wait.h>
 
+#include <asm/byteorder.h>
 #include <asm/io.h>
 
 #include "videocodec.h"
 #include "zoran.h"
 #include "zoran_device.h"
+#include "zoran_card.h"
 
 #define IRQ_MASK ( ZR36057_ISR_GIRQ0 | \
 		   ZR36057_ISR_GIRQ1 | \
@@ -59,15 +60,8 @@
 
 extern const struct zoran_format zoran_formats[];
 
-extern int *zr_debug;
-
-#define dprintk(num, format, args...) \
-	do { \
-		if (*zr_debug >= num) \
-			printk(format, ##args); \
-	} while (0)
-
-static int lml33dpath = 0;	/* 1 will use digital path in capture
+static int lml33dpath;		/* default = 0
+				 * 1 will use digital path in capture
 				 * mode instead of analog. It can be
 				 * used for picture adjustments using
 				 * tool like xawtv while watching image
@@ -76,7 +70,7 @@ static int lml33dpath = 0;	/* 1 will use digital path in capture
 				 * load on Bt819 input, there will be
 				 * some image imperfections */
 
-module_param(lml33dpath, bool, 0);
+module_param(lml33dpath, bool, 0644);
 MODULE_PARM_DESC(lml33dpath,
 		 "Use digital path capture mode (on LML33 cards)");
 
@@ -174,7 +168,7 @@ post_office_read (struct zoran *zr,
 static void
 dump_guests (struct zoran *zr)
 {
-	if (*zr_debug > 2) {
+	if (zr36067_debug > 2) {
 		int i, guest[8];
 
 		for (i = 1; i < 8; i++) {	// Don't read jpeg codec here
@@ -257,7 +251,7 @@ void
 jpeg_codec_sleep (struct zoran *zr,
 		  int           sleep)
 {
-	GPIO(zr, zr->card.gpio[GPIO_JPEG_SLEEP], !sleep);
+	GPIO(zr, zr->card.gpio[ZR_GPIO_JPEG_SLEEP], !sleep);
 	if (!sleep) {
 		dprintk(3,
 			KERN_DEBUG
@@ -284,9 +278,9 @@ jpeg_codec_reset (struct zoran *zr)
 				  0);
 		udelay(2);
 	} else {
-		GPIO(zr, zr->card.gpio[GPIO_JPEG_RESET], 0);
+		GPIO(zr, zr->card.gpio[ZR_GPIO_JPEG_RESET], 0);
 		udelay(2);
-		GPIO(zr, zr->card.gpio[GPIO_JPEG_RESET], 1);
+		GPIO(zr, zr->card.gpio[ZR_GPIO_JPEG_RESET], 1);
 		udelay(2);
 	}
 
@@ -695,7 +689,7 @@ static inline void
 set_frame (struct zoran *zr,
 	   int           val)
 {
-	GPIO(zr, zr->card.gpio[GPIO_JPEG_FRAME], val);
+	GPIO(zr, zr->card.gpio[ZR_GPIO_JPEG_FRAME], val);
 }
 
 static void
@@ -711,8 +705,8 @@ set_videobus_dir (struct zoran *zr,
 			GPIO(zr, 5, 1);
 		break;
 	default:
-		GPIO(zr, zr->card.gpio[GPIO_VID_DIR],
-		     zr->card.gpio_pol[GPIO_VID_DIR] ? !val : val);
+		GPIO(zr, zr->card.gpio[ZR_GPIO_VID_DIR],
+		     zr->card.gpio_pol[ZR_GPIO_VID_DIR] ? !val : val);
 		break;
 	}
 }
@@ -934,11 +928,6 @@ count_reset_interrupt (struct zoran *zr)
 	return isr;
 }
 
-/* hack */
-extern void zr36016_write (struct videocodec *codec,
-			   u16                reg,
-			   u32                val);
-
 void
 jpeg_start (struct zoran *zr)
 {
@@ -994,7 +983,7 @@ void
 zr36057_enable_jpg (struct zoran          *zr,
 		    enum zoran_codec_mode  mode)
 {
-	static int zero = 0;
+	static int zero;
 	static int one = 1;
 	struct vfe_settings cap;
 	int field_size =
@@ -1271,7 +1260,7 @@ error_handler (struct zoran *zr,
 		zr->num_errors++;
 
 		/* Report error */
-		if (*zr_debug > 1 && zr->num_errors <= 8) {
+		if (zr36067_debug > 1 && zr->num_errors <= 8) {
 			long frame;
 			frame =
 			    zr->jpg_pend[zr->jpg_dma_tail & BUZ_MASK_FRAME];
@@ -1331,7 +1320,7 @@ error_handler (struct zoran *zr,
 			if (i) {
 				/* Rotate stat_comm entries to make current entry first */
 				int j;
-				u32 bus_addr[BUZ_NUM_STAT_COM];
+				__le32 bus_addr[BUZ_NUM_STAT_COM];
 
 				/* Here we are copying the stat_com array, which
 				 * is already in little endian format, so
@@ -1531,7 +1520,7 @@ zoran_irq (int             irq,
 
 			if (zr->codec_mode == BUZ_MODE_MOTION_DECOMPRESS ||
 			    zr->codec_mode == BUZ_MODE_MOTION_COMPRESS) {
-				if (*zr_debug > 1 &&
+				if (zr36067_debug > 1 &&
 				    (!zr->frame_num || zr->JPEG_error)) {
 					printk(KERN_INFO
 					       "%s: first frame ready: state=0x%08x odd_even=%d field_per_buff=%d delay=%d\n",
@@ -1568,7 +1557,7 @@ zoran_irq (int             irq,
 						    zr->JPEG_missed;
 				}
 
-				if (*zr_debug > 2 && zr->frame_num < 6) {
+				if (zr36067_debug > 2 && zr->frame_num < 6) {
 					int i;
 					printk("%s: seq=%ld stat_com:",
 					       ZR_DEVNAME(zr), zr->jpg_seq_num);
@@ -1733,7 +1722,7 @@ decoder_command (struct zoran *zr,
 		return -EIO;
 
 	if (zr->card.type == LML33 &&
-	    (cmd == DECODER_SET_NORM || DECODER_SET_INPUT)) {
+	    (cmd == DECODER_SET_NORM || cmd == DECODER_SET_INPUT)) {
 		int res;
 
 		// Bt819 needs to reset its FIFO buffer using #FRST pin and

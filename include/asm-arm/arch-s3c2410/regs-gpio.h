@@ -529,11 +529,13 @@
 #define S3C2410_GPD14_INP	(0x00 << 28)
 #define S3C2410_GPD14_OUTP	(0x01 << 28)
 #define S3C2410_GPD14_VD22	(0x02 << 28)
+#define S3C2410_GPD14_nSS1	(0x03 << 28)
 
 #define S3C2410_GPD15           S3C2410_GPIONO(S3C2410_GPIO_BANKD, 15)
 #define S3C2410_GPD15_INP	(0x00 << 30)
 #define S3C2410_GPD15_OUTP	(0x01 << 30)
 #define S3C2410_GPD15_VD23	(0x02 << 30)
+#define S3C2410_GPD15_nSS0	(0x03 << 30)
 
 #define S3C2410_GPD_PUPDIS(x)  (1<<(x))
 
@@ -801,12 +803,14 @@
 #define S3C2410_GPG2_INP      (0x00 << 4)
 #define S3C2410_GPG2_OUTP     (0x01 << 4)
 #define S3C2410_GPG2_EINT10   (0x02 << 4)
+#define S3C2410_GPG2_nSS0     (0x03 << 4)
 #define S3C2400_GPG2_CDCLK    (0x02 << 4)
 
 #define S3C2410_GPG3          S3C2410_GPIONO(S3C2410_GPIO_BANKG, 3)
 #define S3C2410_GPG3_INP      (0x00 << 6)
 #define S3C2410_GPG3_OUTP     (0x01 << 6)
 #define S3C2410_GPG3_EINT11   (0x02 << 6)
+#define S3C2410_GPG3_nSS1     (0x03 << 6)
 #define S3C2400_GPG3_I2SSDO   (0x02 << 6)
 #define S3C2400_GPG3_I2SSDI   (0x03 << 6)
 
@@ -1133,17 +1137,27 @@
 #define S3C2412_GPBSLPCON	S3C2410_GPIOREG(0x1C)
 #define S3C2412_GPCSLPCON	S3C2410_GPIOREG(0x2C)
 #define S3C2412_GPDSLPCON	S3C2410_GPIOREG(0x3C)
-#define S3C2412_GPESLPCON	S3C2410_GPIOREG(0x4C)
 #define S3C2412_GPFSLPCON	S3C2410_GPIOREG(0x5C)
 #define S3C2412_GPGSLPCON	S3C2410_GPIOREG(0x6C)
 #define S3C2412_GPHSLPCON	S3C2410_GPIOREG(0x7C)
 
 /* definitions for each pin bit */
+#define S3C2412_GPIO_SLPCON_LOW	 ( 0x00 )
+#define S3C2412_GPIO_SLPCON_HIGH ( 0x01 )
+#define S3C2412_GPIO_SLPCON_IN   ( 0x02 )
+#define S3C2412_GPIO_SLPCON_PULL ( 0x03 )
+
 #define S3C2412_SLPCON_LOW(x)	( 0x00 << ((x) * 2))
-#define S3C2412_SLPCON_HI(x)	( 0x01 << ((x) * 2))
+#define S3C2412_SLPCON_HIGH(x)	( 0x01 << ((x) * 2))
 #define S3C2412_SLPCON_IN(x)	( 0x02 << ((x) * 2))
-#define S3C2412_SLPCON_PDWN(x)	( 0x03 << ((x) * 2))
+#define S3C2412_SLPCON_PULL(x)	( 0x03 << ((x) * 2))
+#define S3C2412_SLPCON_EINT(x)	( 0x02 << ((x) * 2))  /* only IRQ pins */
 #define S3C2412_SLPCON_MASK(x)	( 0x03 << ((x) * 2))
+
+#define S3C2412_SLPCON_ALL_LOW	(0x0)
+#define S3C2412_SLPCON_ALL_HIGH	(0x11111111 | 0x44444444)
+#define S3C2412_SLPCON_ALL_IN  	(0x22222222 | 0x88888888)
+#define S3C2412_SLPCON_ALL_PULL	(0x33333333)
 
 #endif	/* __ASM_ARCH_REGS_GPIO_H */
 

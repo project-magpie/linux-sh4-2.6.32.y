@@ -23,7 +23,6 @@
 #include <linux/init.h>
 #include <linux/list.h>
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
@@ -33,7 +32,7 @@
 
 /* ------------------------------------------------------------------ */
 
-static unsigned int ts_debug  = 0;
+static unsigned int ts_debug;
 module_param(ts_debug, int, 0644);
 MODULE_PARM_DESC(ts_debug,"enable debug messages [ts]");
 
@@ -48,7 +47,7 @@ static int buffer_activate(struct saa7134_dev *dev,
 {
 
 	dprintk("buffer_activate [%p]",buf);
-	buf->vb.state = STATE_ACTIVE;
+	buf->vb.state = VIDEOBUF_ACTIVE;
 	buf->top_seen = 0;
 
 	if (NULL == next)
@@ -92,7 +91,9 @@ static int buffer_prepare(struct videobuf_queue *q, struct videobuf_buffer *vb,
 		saa7134_dma_free(q,buf);
 	}
 
-	if (STATE_NEEDS_INIT == buf->vb.state) {
+	if (VIDEOBUF_NEEDS_INIT == buf->vb.state) {
+		struct videobuf_dmabuf *dma=videobuf_to_dma(&buf->vb);
+
 		buf->vb.width  = llength;
 		buf->vb.height = lines;
 		buf->vb.size   = size;
@@ -102,8 +103,8 @@ static int buffer_prepare(struct videobuf_queue *q, struct videobuf_buffer *vb,
 		if (err)
 			goto oops;
 		err = saa7134_pgtable_build(dev->pci,buf->pt,
-					    buf->vb.dma.sglist,
-					    buf->vb.dma.sglen,
+					    dma->sglist,
+					    dma->sglen,
 					    saa7134_buffer_startpage(buf));
 		if (err)
 			goto oops;
@@ -120,7 +121,7 @@ static int buffer_prepare(struct videobuf_queue *q, struct videobuf_buffer *vb,
 	saa_writel(SAA7134_RS_PITCH(5),TS_PACKET_SIZE);
 	saa_writel(SAA7134_RS_CONTROL(5),control);
 
-	buf->vb.state = STATE_PREPARED;
+	buf->vb.state = VIDEOBUF_PREPARED;
 	buf->activate = buffer_activate;
 	buf->vb.field = field;
 	return 0;
@@ -176,6 +177,22 @@ static unsigned int ts_nr_packets = 64;
 module_param(ts_nr_packets, int, 0444);
 MODULE_PARM_DESC(ts_nr_packets,"size of a ts buffers (in ts packets)");
 
+int saa7134_ts_init_hw(struct saa7134_dev *dev)
+{
+	/* deactivate TS softreset */
+	saa_writeb(SAA7134_TS_SERIAL1, 0x00);
+	/* TSSOP high active, TSVAL high active, TSLOCK ignored */
+	saa_writeb(SAA7134_TS_PARALLEL, 0xec);
+	saa_writeb(SAA7134_TS_PARALLEL_SERIAL, (TS_PACKET_SIZE-1));
+	saa_writeb(SAA7134_TS_DMA0, ((dev->ts.nr_packets-1)&0xff));
+	saa_writeb(SAA7134_TS_DMA1, (((dev->ts.nr_packets-1)>>8)&0xff));
+	/* TSNOPIT=0, TSCOLAP=0 */
+	saa_writeb(SAA7134_TS_DMA2,
+		((((dev->ts.nr_packets-1)>>16)&0x3f) | 0x00));
+
+	return 0;
+}
+
 int saa7134_ts_init1(struct saa7134_dev *dev)
 {
 	/* sanitycheck insmod options */
@@ -199,12 +216,7 @@ int saa7134_ts_init1(struct saa7134_dev *dev)
 	saa7134_pgtable_alloc(dev->pci,&dev->ts.pt_ts);
 
 	/* init TS hw */
-	saa_writeb(SAA7134_TS_SERIAL1, 0x00);  /* deactivate TS softreset */
-	saa_writeb(SAA7134_TS_PARALLEL, 0xec); /* TSSOP high active, TSVAL high active, TSLOCK ignored */
-	saa_writeb(SAA7134_TS_PARALLEL_SERIAL, (TS_PACKET_SIZE-1));
-	saa_writeb(SAA7134_TS_DMA0, ((dev->ts.nr_packets-1)&0xff));
-	saa_writeb(SAA7134_TS_DMA1, (((dev->ts.nr_packets-1)>>8)&0xff));
-	saa_writeb(SAA7134_TS_DMA2, ((((dev->ts.nr_packets-1)>>16)&0x3f) | 0x00)); /* TSNOPIT=0, TSCOLAP=0 */
+	saa7134_ts_init_hw(dev);
 
 	return 0;
 }
@@ -230,7 +242,7 @@ void saa7134_irq_ts_done(struct saa7134_dev *dev, unsigned long status)
 			if ((status & 0x100000) != 0x100000)
 				goto done;
 		}
-		saa7134_buffer_finish(dev,&dev->ts_q,STATE_DONE);
+		saa7134_buffer_finish(dev,&dev->ts_q,VIDEOBUF_DONE);
 	}
 	saa7134_buffer_next(dev,&dev->ts_q);
 

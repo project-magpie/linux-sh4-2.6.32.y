@@ -1,7 +1,6 @@
-/* $Id: central.c,v 1.15 2001/12/19 00:29:51 davem Exp $
- * central.c: Central FHC driver for Sunfire/Starfire/Wildfire.
+/* central.c: Central FHC driver for Sunfire/Starfire/Wildfire.
  *
- * Copyright (C) 1997, 1999 David S. Miller (davem@redhat.com)
+ * Copyright (C) 1997, 1999 David S. Miller (davem@davemloft.net)
  */
 
 #include <linux/kernel.h>
@@ -17,8 +16,8 @@
 #include <asm/fhc.h>
 #include <asm/starfire.h>
 
-struct linux_central *central_bus = NULL;
-struct linux_fhc *fhc_list = NULL;
+static struct linux_central *central_bus = NULL;
+static struct linux_fhc *fhc_list = NULL;
 
 #define IS_CENTRAL_FHC(__fhc)	((__fhc) == central_bus->child)
 
@@ -80,9 +79,9 @@ static void adjust_regs(struct linux_prom_registers *regp, int nregs,
 }
 
 /* Apply probed fhc ranges to registers passed, if no ranges return. */
-void apply_fhc_ranges(struct linux_fhc *fhc,
-		      struct linux_prom_registers *regs,
-		      int nregs)
+static void apply_fhc_ranges(struct linux_fhc *fhc,
+			     struct linux_prom_registers *regs,
+			     int nregs)
 {
 	if (fhc->num_fhc_ranges)
 		adjust_regs(regs, nregs, fhc->fhc_ranges,
@@ -90,8 +89,8 @@ void apply_fhc_ranges(struct linux_fhc *fhc,
 }
 
 /* Apply probed central ranges to registers passed, if no ranges return. */
-void apply_central_ranges(struct linux_central *central,
-			  struct linux_prom_registers *regs, int nregs)
+static void apply_central_ranges(struct linux_central *central,
+				 struct linux_prom_registers *regs, int nregs)
 {
 	if (central->num_central_ranges)
 		adjust_regs(regs, nregs, central->central_ranges,
@@ -385,7 +384,7 @@ void __init central_probe(void)
 	init_all_fhc_hw();
 }
 
-static __inline__ void fhc_ledblink(struct linux_fhc *fhc, int on)
+static inline void fhc_ledblink(struct linux_fhc *fhc, int on)
 {
 	u32 tmp;
 
@@ -402,7 +401,7 @@ static __inline__ void fhc_ledblink(struct linux_fhc *fhc, int on)
 	upa_readl(fhc->fhc_regs.pregs + FHC_PREGS_CTRL);
 }
 
-static __inline__ void central_ledblink(struct linux_central *central, int on)
+static inline void central_ledblink(struct linux_central *central, int on)
 {
 	u8 tmp;
 

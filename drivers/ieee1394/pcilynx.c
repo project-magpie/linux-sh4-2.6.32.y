@@ -121,16 +121,6 @@ static int bit_getsda(void *data)
 	return reg_read((struct ti_lynx *) data, SERIAL_EEPROM_CONTROL) & 0x00000010;
 }
 
-static int bit_reg(struct i2c_client *client)
-{
-	return 0;
-}
-
-static int bit_unreg(struct i2c_client *client)
-{
-	return 0;
-}
-
 static struct i2c_algo_bit_data bit_data = {
 	.setsda			= bit_setsda,
 	.setscl			= bit_setscl,
@@ -139,14 +129,6 @@ static struct i2c_algo_bit_data bit_data = {
 	.udelay			= 5,
 	.timeout		= 100,
 };
-
-static struct i2c_adapter bit_ops = {
-	.id 			= 0xAA, //FIXME: probably we should get an id in i2c-id.h
-	.client_register	= bit_reg,
-	.client_unregister	= bit_unreg,
-	.name			= "PCILynx I2C",
-};
-
 
 
 /*
@@ -244,7 +226,7 @@ static int get_phy_reg(struct ti_lynx *lynx, int addr)
         if (addr > 15) {
                 PRINT(KERN_ERR, lynx->id,
                       "%s: PHY register address %d out of range",
-		      __FUNCTION__, addr);
+		      __func__, addr);
                 return -1;
         }
 
@@ -256,7 +238,7 @@ static int get_phy_reg(struct ti_lynx *lynx, int addr)
 
                 if (i > 10000) {
                         PRINT(KERN_ERR, lynx->id, "%s: runaway loop, aborting",
-			      __FUNCTION__);
+			      __func__);
                         retval = -1;
                         break;
                 }
@@ -279,13 +261,13 @@ static int set_phy_reg(struct ti_lynx *lynx, int addr, int val)
 
         if (addr > 15) {
                 PRINT(KERN_ERR, lynx->id,
-                      "%s: PHY register address %d out of range", __FUNCTION__, addr);
+		      "%s: PHY register address %d out of range", __func__, addr);
                 return -1;
         }
 
         if (val > 0xff) {
                 PRINT(KERN_ERR, lynx->id,
-                      "%s: PHY register value %d out of range", __FUNCTION__, val);
+		      "%s: PHY register value %d out of range", __func__, val);
                 return -1;
         }
 
@@ -305,7 +287,7 @@ static int sel_phy_reg_page(struct ti_lynx *lynx, int page)
 
         if (page > 7) {
                 PRINT(KERN_ERR, lynx->id,
-                      "%s: PHY page %d out of range", __FUNCTION__, page);
+		      "%s: PHY page %d out of range", __func__, page);
                 return -1;
         }
 
@@ -327,7 +309,7 @@ static int sel_phy_reg_port(struct ti_lynx *lynx, int port)
 
         if (port > 15) {
                 PRINT(KERN_ERR, lynx->id,
-                      "%s: PHY port %d out of range", __FUNCTION__, port);
+		      "%s: PHY port %d out of range", __func__, port);
                 return -1;
         }
 
@@ -756,8 +738,7 @@ static int lynx_devctl(struct hpsb_host *host, enum devctl_cmd cmd, int arg)
                 spin_lock_irqsave(&lynx->async.queue_lock, flags);
 
                 reg_write(lynx, DMA_CHAN_CTRL(CHANNEL_ASYNC_SEND), 0);
-		list_splice(&lynx->async.queue, &packet_list);
-		INIT_LIST_HEAD(&lynx->async.queue);
+		list_splice_init(&lynx->async.queue, &packet_list);
 
                 if (list_empty(&lynx->async.pcl_queue)) {
                         spin_unlock_irqrestore(&lynx->async.queue_lock, flags);
@@ -765,7 +746,6 @@ static int lynx_devctl(struct hpsb_host *host, enum devctl_cmd cmd, int arg)
                 } else {
                         struct ti_pcl pcl;
                         u32 ack;
-                        struct hpsb_packet *packet;
 
                         PRINT(KERN_INFO, lynx->id, "cancelling async packet, that was already in PCL");
 
@@ -1436,9 +1416,11 @@ static int __devinit add_card(struct pci_dev *dev,
         	struct i2c_algo_bit_data i2c_adapter_data;
 
         	error = -ENOMEM;
-		i2c_ad = kmemdup(&bit_ops, sizeof(*i2c_ad), GFP_KERNEL);
+		i2c_ad = kzalloc(sizeof(*i2c_ad), GFP_KERNEL);
         	if (!i2c_ad) FAIL("failed to allocate I2C adapter memory");
 
+		i2c_ad->id = I2C_HW_B_PCILYNX;
+		strlcpy(i2c_ad->name, "PCILynx I2C", sizeof(i2c_ad->name));
                 i2c_adapter_data = bit_data;
                 i2c_ad->algo_data = &i2c_adapter_data;
                 i2c_adapter_data.data = lynx;
@@ -1465,13 +1447,11 @@ static int __devinit add_card(struct pci_dev *dev,
                                                   { 0x50, I2C_M_RD, 20, (unsigned char*) lynx->bus_info_block }
                                                 };
 
-                        /* we use i2c_transfer, because i2c_smbus_read_block_data does not work properly and we
-                           do it more efficiently in one transaction rather then using several reads */
+			/* we use i2c_transfer because we have no i2c_client
+			   at hand */
                         if (i2c_transfer(i2c_ad, msg, 2) < 0) {
                                 PRINT(KERN_ERR, lynx->id, "unable to read bus info block from i2c");
                         } else {
-                                int i;
-
                                 PRINT(KERN_INFO, lynx->id, "got bus info block from serial eeprom");
 				/* FIXME: probably we shoud rewrite the max_rec, max_ROM(1394a),
 				 * generation(1394a) and link_spd(1394a) field and recalculate

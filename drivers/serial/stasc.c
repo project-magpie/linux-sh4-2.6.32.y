@@ -682,7 +682,7 @@ static void asc_transmit_chars(struct uart_port *port)
 static inline void asc_receive_chars(struct uart_port *port)
 {
 	int count;
-	struct tty_struct *tty = port->info->tty;
+	struct tty_struct *tty = port->info->port.tty;
 	int copied=0;
 	unsigned long status;
 	unsigned long c = 0;

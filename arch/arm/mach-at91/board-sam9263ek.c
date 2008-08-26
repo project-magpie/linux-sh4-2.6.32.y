@@ -27,6 +27,8 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/ads7846.h>
 #include <linux/fb.h>
+#include <linux/gpio_keys.h>
+#include <linux/input.h>
 
 #include <video/atmel_lcdc.h>
 
@@ -41,29 +43,24 @@
 
 #include <asm/arch/board.h>
 #include <asm/arch/gpio.h>
-#include <asm/arch/at91sam926x_mc.h>
+#include <asm/arch/at91sam9_smc.h>
 
 #include "generic.h"
 
-
-/*
- * Serial port configuration.
- *    0 .. 2 = USART0 .. USART2
- *    3      = DBGU
- */
-static struct at91_uart_config __initdata ek_uart_config = {
-	.console_tty	= 0,				/* ttyS0 */
-	.nr_tty		= 2,
-	.tty_map	= { 3, 0, -1, -1, }		/* ttyS0, ..., ttyS3 */
-};
 
 static void __init ek_map_io(void)
 {
 	/* Initialize processor: 16.367 MHz crystal */
 	at91sam9263_initialize(16367660);
 
-	/* Setup the serial ports and console */
-	at91_init_serial(&ek_uart_config);
+	/* DGBU on ttyS0. (Rx & Tx only) */
+	at91_register_uart(0, 0, 0);
+
+	/* USART0 on ttyS1. (Rx, Tx, RTS, CTS) */
+	at91_register_uart(AT91SAM9263_ID_US0, 1, ATMEL_UART_CTS | ATMEL_UART_RTS);
+
+	/* set serial console to ttyS0 (ie, DBGU) */
+	at91_set_serial_console(0);
 }
 
 static void __init ek_init_irq(void)
@@ -163,6 +160,7 @@ static struct at91_mmc_data __initdata ek_mmc_data = {
  * MACB Ethernet device
  */
 static struct at91_eth_data __initdata ek_macb_data = {
+	.phy_irq_pin	= AT91_PIN_PE31,
 	.is_rmii	= 1,
 };
 
@@ -189,7 +187,7 @@ static struct mtd_partition * __init nand_partitions(int size, int *num_partitio
 	return ek_nand_partition;
 }
 
-static struct at91_nand_data __initdata ek_nand_data = {
+static struct atmel_nand_data __initdata ek_nand_data = {
 	.ale		= 21,
 	.cle		= 22,
 //	.det_pin	= ... not connected
@@ -242,14 +240,12 @@ static struct fb_monspecs at91fb_default_monspecs = {
 
 static void at91_lcdc_power_control(int on)
 {
-	if (on)
-		at91_set_gpio_value(AT91_PIN_PD12, 0);	/* power up */
-	else
-		at91_set_gpio_value(AT91_PIN_PD12, 1);	/* power down */
+	at91_set_gpio_value(AT91_PIN_PA30, on);
 }
 
 /* Driver datas */
 static struct atmel_lcdfb_info __initdata ek_lcdc_data = {
+	.lcdcon_is_backlight		= true,
 	.default_bpp			= 16,
 	.default_dmacon			= ATMEL_LCDC_DMAEN,
 	.default_lcdcon2		= AT91SAM9263_DEFAULT_LCDCON2,
@@ -264,10 +260,83 @@ static struct atmel_lcdfb_info __initdata ek_lcdc_data;
 
 
 /*
+ * GPIO Buttons
+ */
+#if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
+static struct gpio_keys_button ek_buttons[] = {
+	{	/* BP1, "leftclic" */
+		.code		= BTN_LEFT,
+		.gpio		= AT91_PIN_PC5,
+		.active_low	= 1,
+		.desc		= "left_click",
+		.wakeup		= 1,
+	},
+	{	/* BP2, "rightclic" */
+		.code		= BTN_RIGHT,
+		.gpio		= AT91_PIN_PC4,
+		.active_low	= 1,
+		.desc		= "right_click",
+		.wakeup		= 1,
+	},
+};
+
+static struct gpio_keys_platform_data ek_button_data = {
+	.buttons	= ek_buttons,
+	.nbuttons	= ARRAY_SIZE(ek_buttons),
+};
+
+static struct platform_device ek_button_device = {
+	.name		= "gpio-keys",
+	.id		= -1,
+	.num_resources	= 0,
+	.dev		= {
+		.platform_data	= &ek_button_data,
+	}
+};
+
+static void __init ek_add_device_buttons(void)
+{
+	at91_set_GPIO_periph(AT91_PIN_PC5, 0);	/* left button */
+	at91_set_deglitch(AT91_PIN_PC5, 1);
+	at91_set_GPIO_periph(AT91_PIN_PC4, 0);	/* right button */
+	at91_set_deglitch(AT91_PIN_PC4, 1);
+
+	platform_device_register(&ek_button_device);
+}
+#else
+static void __init ek_add_device_buttons(void) {}
+#endif
+
+
+/*
  * AC97
  */
 static struct atmel_ac97_data ek_ac97_data = {
 	.reset_pin	= AT91_PIN_PA13,
+};
+
+
+/*
+ * LEDs ... these could all be PWM-driven, for variable brightness
+ */
+static struct gpio_led ek_leds[] = {
+	{	/* "left" led, green, userled1, pwm1 */
+		.name			= "ds1",
+		.gpio			= AT91_PIN_PB8,
+		.active_low		= 1,
+		.default_trigger	= "mmc0",
+	},
+	{	/* "right" led, green, userled2, pwm2 */
+		.name			= "ds2",
+		.gpio			= AT91_PIN_PC29,
+		.active_low		= 1,
+		.default_trigger	= "nand-disk",
+	},
+	{	/* "power" led, yellow, pwm0 */
+		.name			= "ds3",
+		.gpio			= AT91_PIN_PB7,
+		.default_trigger	= "heartbeat",
+	}
 };
 
 
@@ -291,11 +360,15 @@ static void __init ek_board_init(void)
 	/* NAND */
 	at91_add_device_nand(&ek_nand_data);
 	/* I2C */
-	at91_add_device_i2c();
+	at91_add_device_i2c(NULL, 0);
 	/* LCD Controller */
 	at91_add_device_lcdc(&ek_lcdc_data);
+	/* Push Buttons */
+	ek_add_device_buttons();
 	/* AC97 */
 	at91_add_device_ac97(&ek_ac97_data);
+	/* LEDs */
+	at91_gpio_leds(ek_leds, ARRAY_SIZE(ek_leds));
 }
 
 MACHINE_START(AT91SAM9263EK, "Atmel AT91SAM9263-EK")

@@ -104,9 +104,7 @@ static int close_rio(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int
-ioctl_rio(struct inode *inode, struct file *file, unsigned int cmd,
-	  unsigned long arg)
+static long ioctl_rio(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct RioCommand rio_cmd;
 	struct rio_usb_data *rio = &rio_instance;
@@ -116,12 +114,10 @@ ioctl_rio(struct inode *inode, struct file *file, unsigned int cmd,
 	int retries;
 	int retval=0;
 
+	lock_kernel();
 	mutex_lock(&(rio->lock));
         /* Sanity check to make sure rio is connected, powered, etc */
-        if ( rio == NULL ||
-             rio->present == 0 ||
-             rio->rio_dev == NULL )
-	{
+        if (rio->present == 0 || rio->rio_dev == NULL) {
 		retval = -ENODEV;
 		goto err_out;
 	}
@@ -257,6 +253,7 @@ ioctl_rio(struct inode *inode, struct file *file, unsigned int cmd,
 
 err_out:
 	mutex_unlock(&(rio->lock));
+	unlock_kernel();
 	return retval;
 }
 
@@ -280,10 +277,7 @@ write_rio(struct file *file, const char __user *buffer,
 	if (intr)
 		return -EINTR;
         /* Sanity check to make sure rio is connected, powered, etc */
-        if ( rio == NULL ||
-             rio->present == 0 ||
-             rio->rio_dev == NULL )
-	{
+        if (rio->present == 0 || rio->rio_dev == NULL) {
 		mutex_unlock(&(rio->lock));
 		return -ENODEV;
 	}
@@ -369,10 +363,7 @@ read_rio(struct file *file, char __user *buffer, size_t count, loff_t * ppos)
 	if (intr)
 		return -EINTR;
 	/* Sanity check to make sure rio is connected, powered, etc */
-        if ( rio == NULL ||
-             rio->present == 0 ||
-             rio->rio_dev == NULL )
-	{
+        if (rio->present == 0 || rio->rio_dev == NULL) {
 		mutex_unlock(&(rio->lock));
 		return -ENODEV;
 	}
@@ -442,7 +433,7 @@ file_operations usb_rio_fops = {
 	.owner =	THIS_MODULE,
 	.read =		read_rio,
 	.write =	write_rio,
-	.ioctl =	ioctl_rio,
+	.unlocked_ioctl = ioctl_rio,
 	.open =		open_rio,
 	.release =	close_rio,
 };

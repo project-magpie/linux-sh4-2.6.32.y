@@ -335,7 +335,7 @@ static capidrv_plci *new_plci(capidrv_contr * card, int chan)
 
 	plcip = kzalloc(sizeof(capidrv_plci), GFP_ATOMIC);
 
-	if (plcip == 0)
+	if (plcip == NULL)
 		return NULL;
 
 	plcip->state = ST_PLCI_NONE;
@@ -404,7 +404,7 @@ static inline capidrv_ncci *new_ncci(capidrv_contr * card,
 
 	nccip = kzalloc(sizeof(capidrv_ncci), GFP_ATOMIC);
 
-	if (nccip == 0)
+	if (nccip == NULL)
 		return NULL;
 
 	nccip->ncci = ncci;
@@ -426,7 +426,7 @@ static inline capidrv_ncci *find_ncci(capidrv_contr * card, u32 ncci)
 	capidrv_plci *plcip;
 	capidrv_ncci *p;
 
-	if ((plcip = find_plci_by_ncci(card, ncci)) == 0)
+	if ((plcip = find_plci_by_ncci(card, ncci)) == NULL)
 		return NULL;
 
 	for (p = plcip->ncci_list; p; p = p->next)
@@ -441,7 +441,7 @@ static inline capidrv_ncci *find_ncci_by_msgid(capidrv_contr * card,
 	capidrv_plci *plcip;
 	capidrv_ncci *p;
 
-	if ((plcip = find_plci_by_ncci(card, ncci)) == 0)
+	if ((plcip = find_plci_by_ncci(card, ncci)) == NULL)
 		return NULL;
 
 	for (p = plcip->ncci_list; p; p = p->next)
@@ -506,9 +506,14 @@ static void send_message(capidrv_contr * card, _cmsg * cmsg)
 {
 	struct sk_buff *skb;
 	size_t len;
+
 	capi_cmsg2message(cmsg, cmsg->buf);
 	len = CAPIMSG_LEN(cmsg->buf);
 	skb = alloc_skb(len, GFP_ATOMIC);
+	if (!skb) {
+		printk(KERN_ERR "capidrv::send_message: can't allocate mem\n");
+		return;
+	}
 	memcpy(skb_put(skb, len), cmsg->buf, len);
 	if (capi20_put_message(&global.ap, skb) != CAPI_NOERROR)
 		kfree_skb(skb);
@@ -750,7 +755,7 @@ static inline int new_bchan(capidrv_contr * card)
 {
 	int i;
 	for (i = 0; i < card->nbchan; i++) {
-		if (card->bchans[i].plcip == 0) {
+		if (card->bchans[i].plcip == NULL) {
 			card->bchans[i].disconnecting = 0;
 			return i;
 		}
@@ -872,7 +877,7 @@ static void handle_incoming_call(capidrv_contr * card, _cmsg * cmsg)
 		return;
 	}
 	bchan = &card->bchans[chan];
-	if ((plcip = new_plci(card, chan)) == 0) {
+	if ((plcip = new_plci(card, chan)) == NULL) {
 		printk(KERN_ERR "capidrv-%d: incoming call: no memory, sorry.\n", card->contrnr);
 		return;
 	}
@@ -1383,12 +1388,12 @@ static void capidrv_recv_message(struct capi20_appl *ap, struct sk_buff *skb)
 		_cdebbuf *cdb = capi_cmsg2str(&s_cmsg);
 
 		if (cdb) {
-			printk(KERN_DEBUG "%s: applid=%d %s\n", __FUNCTION__,
+			printk(KERN_DEBUG "%s: applid=%d %s\n", __func__,
 				ap->applid, cdb->buf);
 			cdebbuf_free(cdb);
 		} else
 			printk(KERN_DEBUG "%s: applid=%d %s not traced\n",
-				__FUNCTION__, ap->applid,
+				__func__, ap->applid,
 				capi_cmd2str(s_cmsg.Command, s_cmsg.Subcommand));
 	}
 	if (s_cmsg.Command == CAPI_DATA_B3
@@ -1656,7 +1661,7 @@ static int capidrv_command(isdn_ctrl * c, capidrv_contr * card)
 					      NULL,	/* Useruserdata */
 					      NULL	/* Facilitydataarray */
 			    );
-			if ((plcip = new_plci(card, (c->arg % card->nbchan))) == 0) {
+			if ((plcip = new_plci(card, (c->arg % card->nbchan))) == NULL) {
 				cmd.command = ISDN_STAT_DHUP;
 				cmd.driver = card->myid;
 				cmd.arg = (c->arg % card->nbchan);
@@ -1838,6 +1843,7 @@ static int if_sendbuf(int id, int channel, int doack, struct sk_buff *skb)
 	int msglen;
 	u16 errcode;
 	u16 datahandle;
+	u32 data;
 
 	if (!card) {
 		printk(KERN_ERR "capidrv: if_sendbuf called with invalid driverId %d!\n",
@@ -1855,9 +1861,26 @@ static int if_sendbuf(int id, int channel, int doack, struct sk_buff *skb)
 		return 0;
 	}
 	datahandle = nccip->datahandle;
+
+	/*
+	 * Here we copy pointer skb->data into the 32-bit 'Data' field.
+	 * The 'Data' field is not used in practice in linux kernel
+	 * (neither in 32 or 64 bit), but should have some value,
+	 * since a CAPI message trace will display it.
+	 *
+	 * The correct value in the 32 bit case is the address of the
+	 * data, in 64 bit it makes no sense, we use 0 there.
+	 */
+
+#ifdef CONFIG_64BIT
+	data = 0;
+#else
+	data = (unsigned long) skb->data;
+#endif
+
 	capi_fill_DATA_B3_REQ(&sendcmsg, global.ap.applid, card->msgid++,
 			      nccip->ncci,	/* adr */
-			      (u32) skb->data,	/* Data */
+			      data,		/* Data */
 			      skb->len,		/* DataLength */
 			      datahandle,	/* DataHandle */
 			      0	/* Flags */
@@ -1943,7 +1966,7 @@ static void enable_dchannel_trace(capidrv_contr *card)
 			card->name, errcode);
 	   return;
 	}
-	if (strstr(manufacturer, "AVM") == 0) {
+	if (strstr(manufacturer, "AVM") == NULL) {
 	   printk(KERN_ERR "%s: not from AVM, no d-channel trace possible (%s)\n",
 			card->name, manufacturer);
 	   return;
@@ -2118,7 +2141,10 @@ static int capidrv_delcontr(u16 contr)
 		printk(KERN_ERR "capidrv: delcontr: no contr %u\n", contr);
 		return -1;
 	}
-	#warning FIXME: maybe a race condition the card should be removed here from global list /kkeil
+
+	/* FIXME: maybe a race condition the card should be removed
+	 * here from global list /kkeil
+	 */
 	spin_unlock_irqrestore(&global_lock, flags);
 
 	del_timer(&card->listentimer);
@@ -2265,10 +2291,10 @@ static int __init capidrv_init(void)
 	u32 ncontr, contr;
 	u16 errcode;
 
-	if ((p = strchr(revision, ':')) != 0 && p[1]) {
+	if ((p = strchr(revision, ':')) != NULL && p[1]) {
 		strncpy(rev, p + 2, sizeof(rev));
 		rev[sizeof(rev)-1] = 0;
-		if ((p = strchr(rev, '$')) != 0 && p > rev)
+		if ((p = strchr(rev, '$')) != NULL && p > rev)
 		   *(p-1) = 0;
 	} else
 		strcpy(rev, "1.0");
@@ -2306,13 +2332,14 @@ static int __init capidrv_init(void)
 
 static void __exit capidrv_exit(void)
 {
-	char rev[10];
+	char rev[32];
 	char *p;
 
-	if ((p = strchr(revision, ':')) != 0) {
-		strcpy(rev, p + 1);
-		p = strchr(rev, '$');
-		*p = 0;
+	if ((p = strchr(revision, ':')) != NULL) {
+		strncpy(rev, p + 1, sizeof(rev));
+		rev[sizeof(rev)-1] = 0;
+		if ((p = strchr(rev, '$')) != NULL)
+			*p = 0;
 	} else {
 		strcpy(rev, " ??? ");
 	}

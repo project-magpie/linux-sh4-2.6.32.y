@@ -31,6 +31,7 @@
 #include <linux/list.h>
 #include <linux/inotify.h>
 #include <linux/syscalls.h>
+#include <linux/magic.h>
 
 #include <asm/ioctls.h>
 
@@ -40,9 +41,9 @@ static struct kmem_cache *event_cachep __read_mostly;
 static struct vfsmount *inotify_mnt __read_mostly;
 
 /* these are configurable via /proc/sys/fs/inotify/ */
-int inotify_max_user_instances __read_mostly;
-int inotify_max_user_watches __read_mostly;
-int inotify_max_queued_events __read_mostly;
+static int inotify_max_user_instances __read_mostly;
+static int inotify_max_user_watches __read_mostly;
+static int inotify_max_queued_events __read_mostly;
 
 /*
  * Lock ordering:
@@ -78,6 +79,7 @@ struct inotify_device {
 	atomic_t		count;		/* reference count */
 	struct user_struct	*user;		/* user who opened this dev */
 	struct inotify_handle	*ih;		/* inotify handle */
+	struct fasync_struct    *fa;            /* async notification */
 	unsigned int		queue_size;	/* size of the queue (bytes) */
 	unsigned int		event_count;	/* number of pending events */
 	unsigned int		max_events;	/* maximum number of events */
@@ -247,6 +249,19 @@ inotify_dev_get_event(struct inotify_device *dev)
 }
 
 /*
+ * inotify_dev_get_last_event - return the last event in the given dev's queue
+ *
+ * Caller must hold dev->ev_mutex.
+ */
+static inline struct inotify_kernel_event *
+inotify_dev_get_last_event(struct inotify_device *dev)
+{
+	if (list_empty(&dev->events))
+		return NULL;
+	return list_entry(dev->events.prev, struct inotify_kernel_event, list);
+}
+
+/*
  * inotify_dev_queue_event - event handler registered with core inotify, adds
  * a new event to the given device
  *
@@ -268,11 +283,11 @@ static void inotify_dev_queue_event(struct inotify_watch *w, u32 wd, u32 mask,
 	/* we can safely put the watch as we don't reference it while
 	 * generating the event
 	 */
-	if (mask & IN_IGNORED || mask & IN_ONESHOT)
+	if (mask & IN_IGNORED || w->mask & IN_ONESHOT)
 		put_inotify_watch(w); /* final put */
 
 	/* coalescing: drop this event if it is a dupe of the previous */
-	last = inotify_dev_get_event(dev);
+	last = inotify_dev_get_last_event(dev);
 	if (last && last->event.mask == mask && last->event.wd == wd &&
 			last->event.cookie == cookie) {
 		const char *lastname = last->name;
@@ -301,6 +316,7 @@ static void inotify_dev_queue_event(struct inotify_watch *w, u32 wd, u32 mask,
 	dev->queue_size += sizeof(struct inotify_event) + kevent->event.len;
 	list_add_tail(&kevent->list, &dev->events);
 	wake_up_interruptible(&dev->wq);
+	kill_fasync(&dev->fa, SIGIO, POLL_IN);
 
 out:
 	mutex_unlock(&dev->ev_mutex);
@@ -338,20 +354,20 @@ static void inotify_dev_event_dequeue(struct inotify_device *dev)
 }
 
 /*
- * find_inode - resolve a user-given path to a specific inode and return a nd
+ * find_inode - resolve a user-given path to a specific inode
  */
-static int find_inode(const char __user *dirname, struct nameidata *nd,
+static int find_inode(const char __user *dirname, struct path *path,
 		      unsigned flags)
 {
 	int error;
 
-	error = __user_walk(dirname, flags, nd);
+	error = user_path_at(AT_FDCWD, dirname, flags, path);
 	if (error)
 		return error;
 	/* you can only watch an inode if you have read permissions on it */
-	error = vfs_permission(nd, MAY_READ);
+	error = inode_permission(path->dentry->d_inode, MAY_READ);
 	if (error)
-		path_release(nd);
+		path_put(path);
 	return error;
 }
 
@@ -489,6 +505,13 @@ static ssize_t inotify_read(struct file *file, char __user *buf,
 	return ret;
 }
 
+static int inotify_fasync(int fd, struct file *file, int on)
+{
+	struct inotify_device *dev = file->private_data;
+
+	return fasync_helper(fd, file, on, &dev->fa) >= 0 ? 0 : -EIO;
+}
+
 static int inotify_release(struct inode *ignored, struct file *file)
 {
 	struct inotify_device *dev = file->private_data;
@@ -500,6 +523,9 @@ static int inotify_release(struct inode *ignored, struct file *file)
 	while (!list_empty(&dev->events))
 		inotify_dev_event_dequeue(dev);
 	mutex_unlock(&dev->ev_mutex);
+
+	if (file->f_flags & FASYNC)
+		inotify_fasync(-1, file, 0);
 
 	/* free this device: the put matching the get in inotify_init() */
 	put_inotify_dev(dev);
@@ -529,6 +555,7 @@ static long inotify_ioctl(struct file *file, unsigned int cmd,
 static const struct file_operations inotify_fops = {
 	.poll           = inotify_poll,
 	.read           = inotify_read,
+	.fasync         = inotify_fasync,
 	.release        = inotify_release,
 	.unlocked_ioctl = inotify_ioctl,
 	.compat_ioctl	= inotify_ioctl,
@@ -539,7 +566,7 @@ static const struct inotify_operations inotify_user_ops = {
 	.destroy_watch	= free_inotify_user_watch,
 };
 
-asmlinkage long sys_inotify_init(void)
+asmlinkage long sys_inotify_init1(int flags)
 {
 	struct inotify_device *dev;
 	struct inotify_handle *ih;
@@ -547,7 +574,14 @@ asmlinkage long sys_inotify_init(void)
 	struct file *filp;
 	int fd, ret;
 
-	fd = get_unused_fd();
+	/* Check the IN_* constants for consistency.  */
+	BUILD_BUG_ON(IN_CLOEXEC != O_CLOEXEC);
+	BUILD_BUG_ON(IN_NONBLOCK != O_NONBLOCK);
+
+	if (flags & ~(IN_CLOEXEC | IN_NONBLOCK))
+		return -EINVAL;
+
+	fd = get_unused_fd_flags(flags & O_CLOEXEC);
 	if (fd < 0)
 		return fd;
 
@@ -571,18 +605,19 @@ asmlinkage long sys_inotify_init(void)
 	}
 
 	ih = inotify_init(&inotify_user_ops);
-	if (unlikely(IS_ERR(ih))) {
+	if (IS_ERR(ih)) {
 		ret = PTR_ERR(ih);
 		goto out_free_dev;
 	}
 	dev->ih = ih;
+	dev->fa = NULL;
 
 	filp->f_op = &inotify_fops;
 	filp->f_path.mnt = mntget(inotify_mnt);
 	filp->f_path.dentry = dget(inotify_mnt->mnt_root);
 	filp->f_mapping = filp->f_path.dentry->d_inode->i_mapping;
 	filp->f_mode = FMODE_READ;
-	filp->f_flags = O_RDONLY;
+	filp->f_flags = O_RDONLY | (flags & O_NONBLOCK);
 	filp->private_data = dev;
 
 	INIT_LIST_HEAD(&dev->events);
@@ -610,11 +645,16 @@ out_put_fd:
 	return ret;
 }
 
-asmlinkage long sys_inotify_add_watch(int fd, const char __user *path, u32 mask)
+asmlinkage long sys_inotify_init(void)
+{
+	return sys_inotify_init1(0);
+}
+
+asmlinkage long sys_inotify_add_watch(int fd, const char __user *pathname, u32 mask)
 {
 	struct inode *inode;
 	struct inotify_device *dev;
-	struct nameidata nd;
+	struct path path;
 	struct file *filp;
 	int ret, fput_needed;
 	unsigned flags = 0;
@@ -634,12 +674,12 @@ asmlinkage long sys_inotify_add_watch(int fd, const char __user *path, u32 mask)
 	if (mask & IN_ONLYDIR)
 		flags |= LOOKUP_DIRECTORY;
 
-	ret = find_inode(path, &nd, flags);
+	ret = find_inode(pathname, &path, flags);
 	if (unlikely(ret))
 		goto fput_and_out;
 
-	/* inode held in place by reference to nd; dev by fget on fd */
-	inode = nd.dentry->d_inode;
+	/* inode held in place by reference to path; dev by fget on fd */
+	inode = path.dentry->d_inode;
 	dev = filp->private_data;
 
 	mutex_lock(&dev->up_mutex);
@@ -648,7 +688,7 @@ asmlinkage long sys_inotify_add_watch(int fd, const char __user *path, u32 mask)
 		ret = create_watch(dev, inode, mask);
 	mutex_unlock(&dev->up_mutex);
 
-	path_release(&nd);
+	path_put(&path);
 fput_and_out:
 	fput_light(filp, fput_needed);
 	return ret;
@@ -684,7 +724,8 @@ static int
 inotify_get_sb(struct file_system_type *fs_type, int flags,
 	       const char *dev_name, void *data, struct vfsmount *mnt)
 {
-	return get_sb_pseudo(fs_type, "inotify", NULL, 0xBAD1DEA, mnt);
+	return get_sb_pseudo(fs_type, "inotify", NULL,
+			INOTIFYFS_SUPER_MAGIC, mnt);
 }
 
 static struct file_system_type inotify_fs_type = {

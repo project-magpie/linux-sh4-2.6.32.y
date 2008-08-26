@@ -17,7 +17,6 @@
 #include <linux/fs.h>
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
-#include <linux/debugfs.h>
 
 /*
  * The maximum number of pages we support up to when doing ranged dcache
@@ -656,7 +655,7 @@ static void __flush_dcache_segment_1way(unsigned long start,
 	} while (a0 < a0e);
 }
 
-#ifdef CONFIG_SH_WRITETHROUGH
+#ifdef CONFIG_CACHE_WRITETHROUGH
 /* This method of cache flushing avoids the problems discussed
  * in the comment above if writethrough caches are enabled. */
 static void __flush_dcache_segment_2way(unsigned long start,

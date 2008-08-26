@@ -34,10 +34,20 @@
 #include <linux/list.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
+#include <linux/smp_lock.h>
 #include <asm/uaccess.h>
 
 static struct i2c_driver i2cdev_driver;
 
+/*
+ * An i2c_dev represents an i2c_adapter ... an I2C or SMBus master, not a
+ * slave (i2c_client) with which messages will be exchanged.  It's coupled
+ * with a character special file which is accessed by user mode drivers.
+ *
+ * The list of i2c_dev structures is parallel to the i2c_adapter lists
+ * maintained by the driver model, and is updated using notifications
+ * delivered to the i2cdev_driver.
+ */
 struct i2c_dev {
 	struct list_head list;
 	struct i2c_adapter *adap;
@@ -103,6 +113,25 @@ static ssize_t show_adapter_name(struct device *dev,
 }
 static DEVICE_ATTR(name, S_IRUGO, show_adapter_name, NULL);
 
+/* ------------------------------------------------------------------------- */
+
+/*
+ * After opening an instance of this character special file, a file
+ * descriptor starts out associated only with an i2c_adapter (and bus).
+ *
+ * Using the I2C_RDWR ioctl(), you can then *immediately* issue i2c_msg
+ * traffic to any devices on the bus used by that adapter.  That's because
+ * the i2c_msg vectors embed all the addressing information they need, and
+ * are submitted directly to an i2c_adapter.  However, SMBus-only adapters
+ * don't support that interface.
+ *
+ * To use read()/write() system calls on that file descriptor, or to use
+ * SMBus interfaces (and work with SMBus-only hosts!), you must first issue
+ * an I2C_SLAVE (or I2C_SLAVE_FORCE) ioctl.  That configures an anonymous
+ * (never registered) i2c_client so it holds the addressing information
+ * needed by those system calls and by this SMBus interface.
+ */
+
 static ssize_t i2cdev_read (struct file *file, char __user *buf, size_t count,
                             loff_t *offset)
 {
@@ -154,16 +183,193 @@ static ssize_t i2cdev_write (struct file *file, const char __user *buf, size_t c
 	return ret;
 }
 
-static int i2cdev_ioctl(struct inode *inode, struct file *file,
-		unsigned int cmd, unsigned long arg)
+static int i2cdev_check(struct device *dev, void *addrp)
 {
-	struct i2c_client *client = (struct i2c_client *)file->private_data;
+	struct i2c_client *client = i2c_verify_client(dev);
+
+	if (!client || client->addr != *(unsigned int *)addrp)
+		return 0;
+
+	return dev->driver ? -EBUSY : 0;
+}
+
+/* This address checking function differs from the one in i2c-core
+   in that it considers an address with a registered device, but no
+   driver bound to it, as NOT busy. */
+static int i2cdev_check_addr(struct i2c_adapter *adapter, unsigned int addr)
+{
+	return device_for_each_child(&adapter->dev, &addr, i2cdev_check);
+}
+
+static noinline int i2cdev_ioctl_rdrw(struct i2c_client *client,
+		unsigned long arg)
+{
 	struct i2c_rdwr_ioctl_data rdwr_arg;
-	struct i2c_smbus_ioctl_data data_arg;
-	union i2c_smbus_data temp;
 	struct i2c_msg *rdwr_pa;
 	u8 __user **data_ptrs;
-	int i,datasize,res;
+	int i, res;
+
+	if (copy_from_user(&rdwr_arg,
+			   (struct i2c_rdwr_ioctl_data __user *)arg,
+			   sizeof(rdwr_arg)))
+		return -EFAULT;
+
+	/* Put an arbitrary limit on the number of messages that can
+	 * be sent at once */
+	if (rdwr_arg.nmsgs > I2C_RDRW_IOCTL_MAX_MSGS)
+		return -EINVAL;
+
+	rdwr_pa = (struct i2c_msg *)
+		kmalloc(rdwr_arg.nmsgs * sizeof(struct i2c_msg),
+		GFP_KERNEL);
+	if (!rdwr_pa)
+		return -ENOMEM;
+
+	if (copy_from_user(rdwr_pa, rdwr_arg.msgs,
+			   rdwr_arg.nmsgs * sizeof(struct i2c_msg))) {
+		kfree(rdwr_pa);
+		return -EFAULT;
+	}
+
+	data_ptrs = kmalloc(rdwr_arg.nmsgs * sizeof(u8 __user *), GFP_KERNEL);
+	if (data_ptrs == NULL) {
+		kfree(rdwr_pa);
+		return -ENOMEM;
+	}
+
+	res = 0;
+	for (i = 0; i < rdwr_arg.nmsgs; i++) {
+		/* Limit the size of the message to a sane amount;
+		 * and don't let length change either. */
+		if ((rdwr_pa[i].len > 8192) ||
+		    (rdwr_pa[i].flags & I2C_M_RECV_LEN)) {
+			res = -EINVAL;
+			break;
+		}
+		data_ptrs[i] = (u8 __user *)rdwr_pa[i].buf;
+		rdwr_pa[i].buf = kmalloc(rdwr_pa[i].len, GFP_KERNEL);
+		if (rdwr_pa[i].buf == NULL) {
+			res = -ENOMEM;
+			break;
+		}
+		if (copy_from_user(rdwr_pa[i].buf, data_ptrs[i],
+				   rdwr_pa[i].len)) {
+				++i; /* Needs to be kfreed too */
+				res = -EFAULT;
+			break;
+		}
+	}
+	if (res < 0) {
+		int j;
+		for (j = 0; j < i; ++j)
+			kfree(rdwr_pa[j].buf);
+		kfree(data_ptrs);
+		kfree(rdwr_pa);
+		return res;
+	}
+
+	res = i2c_transfer(client->adapter, rdwr_pa, rdwr_arg.nmsgs);
+	while (i-- > 0) {
+		if (res >= 0 && (rdwr_pa[i].flags & I2C_M_RD)) {
+			if (copy_to_user(data_ptrs[i], rdwr_pa[i].buf,
+					 rdwr_pa[i].len))
+				res = -EFAULT;
+		}
+		kfree(rdwr_pa[i].buf);
+	}
+	kfree(data_ptrs);
+	kfree(rdwr_pa);
+	return res;
+}
+
+static noinline int i2cdev_ioctl_smbus(struct i2c_client *client,
+		unsigned long arg)
+{
+	struct i2c_smbus_ioctl_data data_arg;
+	union i2c_smbus_data temp;
+	int datasize, res;
+
+	if (copy_from_user(&data_arg,
+			   (struct i2c_smbus_ioctl_data __user *) arg,
+			   sizeof(struct i2c_smbus_ioctl_data)))
+		return -EFAULT;
+	if ((data_arg.size != I2C_SMBUS_BYTE) &&
+	    (data_arg.size != I2C_SMBUS_QUICK) &&
+	    (data_arg.size != I2C_SMBUS_BYTE_DATA) &&
+	    (data_arg.size != I2C_SMBUS_WORD_DATA) &&
+	    (data_arg.size != I2C_SMBUS_PROC_CALL) &&
+	    (data_arg.size != I2C_SMBUS_BLOCK_DATA) &&
+	    (data_arg.size != I2C_SMBUS_I2C_BLOCK_BROKEN) &&
+	    (data_arg.size != I2C_SMBUS_I2C_BLOCK_DATA) &&
+	    (data_arg.size != I2C_SMBUS_BLOCK_PROC_CALL)) {
+		dev_dbg(&client->adapter->dev,
+			"size out of range (%x) in ioctl I2C_SMBUS.\n",
+			data_arg.size);
+		return -EINVAL;
+	}
+	/* Note that I2C_SMBUS_READ and I2C_SMBUS_WRITE are 0 and 1,
+	   so the check is valid if size==I2C_SMBUS_QUICK too. */
+	if ((data_arg.read_write != I2C_SMBUS_READ) &&
+	    (data_arg.read_write != I2C_SMBUS_WRITE)) {
+		dev_dbg(&client->adapter->dev,
+			"read_write out of range (%x) in ioctl I2C_SMBUS.\n",
+			data_arg.read_write);
+		return -EINVAL;
+	}
+
+	/* Note that command values are always valid! */
+
+	if ((data_arg.size == I2C_SMBUS_QUICK) ||
+	    ((data_arg.size == I2C_SMBUS_BYTE) &&
+	    (data_arg.read_write == I2C_SMBUS_WRITE)))
+		/* These are special: we do not use data */
+		return i2c_smbus_xfer(client->adapter, client->addr,
+				      client->flags, data_arg.read_write,
+				      data_arg.command, data_arg.size, NULL);
+
+	if (data_arg.data == NULL) {
+		dev_dbg(&client->adapter->dev,
+			"data is NULL pointer in ioctl I2C_SMBUS.\n");
+		return -EINVAL;
+	}
+
+	if ((data_arg.size == I2C_SMBUS_BYTE_DATA) ||
+	    (data_arg.size == I2C_SMBUS_BYTE))
+		datasize = sizeof(data_arg.data->byte);
+	else if ((data_arg.size == I2C_SMBUS_WORD_DATA) ||
+		 (data_arg.size == I2C_SMBUS_PROC_CALL))
+		datasize = sizeof(data_arg.data->word);
+	else /* size == smbus block, i2c block, or block proc. call */
+		datasize = sizeof(data_arg.data->block);
+
+	if ((data_arg.size == I2C_SMBUS_PROC_CALL) ||
+	    (data_arg.size == I2C_SMBUS_BLOCK_PROC_CALL) ||
+	    (data_arg.size == I2C_SMBUS_I2C_BLOCK_DATA) ||
+	    (data_arg.read_write == I2C_SMBUS_WRITE)) {
+		if (copy_from_user(&temp, data_arg.data, datasize))
+			return -EFAULT;
+	}
+	if (data_arg.size == I2C_SMBUS_I2C_BLOCK_BROKEN) {
+		/* Convert old I2C block commands to the new
+		   convention. This preserves binary compatibility. */
+		data_arg.size = I2C_SMBUS_I2C_BLOCK_DATA;
+		if (data_arg.read_write == I2C_SMBUS_READ)
+			temp.block[0] = I2C_SMBUS_BLOCK_MAX;
+	}
+	res = i2c_smbus_xfer(client->adapter, client->addr, client->flags,
+	      data_arg.read_write, data_arg.command, data_arg.size, &temp);
+	if (!res && ((data_arg.size == I2C_SMBUS_PROC_CALL) ||
+		     (data_arg.size == I2C_SMBUS_BLOCK_PROC_CALL) ||
+		     (data_arg.read_write == I2C_SMBUS_READ))) {
+		if (copy_to_user(data_arg.data, &temp, datasize))
+			return -EFAULT;
+	}
+	return res;
+}
+
+static long i2cdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	struct i2c_client *client = (struct i2c_client *)file->private_data;
 	unsigned long funcs;
 
 	dev_dbg(&client->adapter->dev, "ioctl, cmd=0x%02x, arg=0x%02lx\n",
@@ -172,11 +378,22 @@ static int i2cdev_ioctl(struct inode *inode, struct file *file,
 	switch ( cmd ) {
 	case I2C_SLAVE:
 	case I2C_SLAVE_FORCE:
+		/* NOTE:  devices set up to work with "new style" drivers
+		 * can't use I2C_SLAVE, even when the device node is not
+		 * bound to a driver.  Only I2C_SLAVE_FORCE will work.
+		 *
+		 * Setting the PEC flag here won't affect kernel drivers,
+		 * which will be using the i2c_client node registered with
+		 * the driver model core.  Likewise, when that client has
+		 * the PEC flag already set, the i2c-dev driver won't see
+		 * (or use) this setting.
+		 */
 		if ((arg > 0x3ff) ||
 		    (((client->flags & I2C_M_TEN) == 0) && arg > 0x7f))
 			return -EINVAL;
-		if ((cmd == I2C_SLAVE) && i2c_check_addr(client->adapter,arg))
+		if (cmd == I2C_SLAVE && i2cdev_check_addr(client->adapter, arg))
 			return -EBUSY;
+		/* REVISIT: address could become busy later */
 		client->addr = arg;
 		return 0;
 	case I2C_TENBIT:
@@ -196,165 +413,24 @@ static int i2cdev_ioctl(struct inode *inode, struct file *file,
 		return put_user(funcs, (unsigned long __user *)arg);
 
 	case I2C_RDWR:
-		if (copy_from_user(&rdwr_arg,
-				   (struct i2c_rdwr_ioctl_data __user *)arg,
-				   sizeof(rdwr_arg)))
-			return -EFAULT;
-
-		/* Put an arbitrary limit on the number of messages that can
-		 * be sent at once */
-		if (rdwr_arg.nmsgs > I2C_RDRW_IOCTL_MAX_MSGS)
-			return -EINVAL;
-
-		rdwr_pa = (struct i2c_msg *)
-			kmalloc(rdwr_arg.nmsgs * sizeof(struct i2c_msg),
-			GFP_KERNEL);
-
-		if (rdwr_pa == NULL) return -ENOMEM;
-
-		if (copy_from_user(rdwr_pa, rdwr_arg.msgs,
-				   rdwr_arg.nmsgs * sizeof(struct i2c_msg))) {
-			kfree(rdwr_pa);
-			return -EFAULT;
-		}
-
-		data_ptrs = kmalloc(rdwr_arg.nmsgs * sizeof(u8 __user *), GFP_KERNEL);
-		if (data_ptrs == NULL) {
-			kfree(rdwr_pa);
-			return -ENOMEM;
-		}
-
-		res = 0;
-		for( i=0; i<rdwr_arg.nmsgs; i++ ) {
-			/* Limit the size of the message to a sane amount */
-			if (rdwr_pa[i].len > 8192) {
-				res = -EINVAL;
-				break;
-			}
-			data_ptrs[i] = (u8 __user *)rdwr_pa[i].buf;
-			rdwr_pa[i].buf = kmalloc(rdwr_pa[i].len, GFP_KERNEL);
-			if(rdwr_pa[i].buf == NULL) {
-				res = -ENOMEM;
-				break;
-			}
-			if(copy_from_user(rdwr_pa[i].buf,
-				data_ptrs[i],
-				rdwr_pa[i].len)) {
-					++i; /* Needs to be kfreed too */
-					res = -EFAULT;
-				break;
-			}
-		}
-		if (res < 0) {
-			int j;
-			for (j = 0; j < i; ++j)
-				kfree(rdwr_pa[j].buf);
-			kfree(data_ptrs);
-			kfree(rdwr_pa);
-			return res;
-		}
-
-		res = i2c_transfer(client->adapter,
-			rdwr_pa,
-			rdwr_arg.nmsgs);
-		while(i-- > 0) {
-			if( res>=0 && (rdwr_pa[i].flags & I2C_M_RD)) {
-				if(copy_to_user(
-					data_ptrs[i],
-					rdwr_pa[i].buf,
-					rdwr_pa[i].len)) {
-					res = -EFAULT;
-				}
-			}
-			kfree(rdwr_pa[i].buf);
-		}
-		kfree(data_ptrs);
-		kfree(rdwr_pa);
-		return res;
+		return i2cdev_ioctl_rdrw(client, arg);
 
 	case I2C_SMBUS:
-		if (copy_from_user(&data_arg,
-		                   (struct i2c_smbus_ioctl_data __user *) arg,
-		                   sizeof(struct i2c_smbus_ioctl_data)))
-			return -EFAULT;
-		if ((data_arg.size != I2C_SMBUS_BYTE) &&
-		    (data_arg.size != I2C_SMBUS_QUICK) &&
-		    (data_arg.size != I2C_SMBUS_BYTE_DATA) &&
-		    (data_arg.size != I2C_SMBUS_WORD_DATA) &&
-		    (data_arg.size != I2C_SMBUS_PROC_CALL) &&
-		    (data_arg.size != I2C_SMBUS_BLOCK_DATA) &&
-		    (data_arg.size != I2C_SMBUS_I2C_BLOCK_BROKEN) &&
-		    (data_arg.size != I2C_SMBUS_I2C_BLOCK_DATA) &&
-		    (data_arg.size != I2C_SMBUS_BLOCK_PROC_CALL)) {
-			dev_dbg(&client->adapter->dev,
-				"size out of range (%x) in ioctl I2C_SMBUS.\n",
-				data_arg.size);
-			return -EINVAL;
-		}
-		/* Note that I2C_SMBUS_READ and I2C_SMBUS_WRITE are 0 and 1,
-		   so the check is valid if size==I2C_SMBUS_QUICK too. */
-		if ((data_arg.read_write != I2C_SMBUS_READ) &&
-		    (data_arg.read_write != I2C_SMBUS_WRITE)) {
-			dev_dbg(&client->adapter->dev,
-				"read_write out of range (%x) in ioctl I2C_SMBUS.\n",
-				data_arg.read_write);
-			return -EINVAL;
-		}
+		return i2cdev_ioctl_smbus(client, arg);
 
-		/* Note that command values are always valid! */
-
-		if ((data_arg.size == I2C_SMBUS_QUICK) ||
-		    ((data_arg.size == I2C_SMBUS_BYTE) &&
-		    (data_arg.read_write == I2C_SMBUS_WRITE)))
-			/* These are special: we do not use data */
-			return i2c_smbus_xfer(client->adapter, client->addr,
-					      client->flags,
-					      data_arg.read_write,
-					      data_arg.command,
-					      data_arg.size, NULL);
-
-		if (data_arg.data == NULL) {
-			dev_dbg(&client->adapter->dev,
-				"data is NULL pointer in ioctl I2C_SMBUS.\n");
-			return -EINVAL;
-		}
-
-		if ((data_arg.size == I2C_SMBUS_BYTE_DATA) ||
-		    (data_arg.size == I2C_SMBUS_BYTE))
-			datasize = sizeof(data_arg.data->byte);
-		else if ((data_arg.size == I2C_SMBUS_WORD_DATA) ||
-		         (data_arg.size == I2C_SMBUS_PROC_CALL))
-			datasize = sizeof(data_arg.data->word);
-		else /* size == smbus block, i2c block, or block proc. call */
-			datasize = sizeof(data_arg.data->block);
-
-		if ((data_arg.size == I2C_SMBUS_PROC_CALL) ||
-		    (data_arg.size == I2C_SMBUS_BLOCK_PROC_CALL) ||
-		    (data_arg.size == I2C_SMBUS_I2C_BLOCK_DATA) ||
-		    (data_arg.read_write == I2C_SMBUS_WRITE)) {
-			if (copy_from_user(&temp, data_arg.data, datasize))
-				return -EFAULT;
-		}
-		if (data_arg.size == I2C_SMBUS_I2C_BLOCK_BROKEN) {
-			/* Convert old I2C block commands to the new
-			   convention. This preserves binary compatibility. */
-			data_arg.size = I2C_SMBUS_I2C_BLOCK_DATA;
-			if (data_arg.read_write == I2C_SMBUS_READ)
-				temp.block[0] = I2C_SMBUS_BLOCK_MAX;
-		}
-		res = i2c_smbus_xfer(client->adapter,client->addr,client->flags,
-		      data_arg.read_write,
-		      data_arg.command,data_arg.size,&temp);
-		if (! res && ((data_arg.size == I2C_SMBUS_PROC_CALL) ||
-		              (data_arg.size == I2C_SMBUS_BLOCK_PROC_CALL) ||
-			      (data_arg.read_write == I2C_SMBUS_READ))) {
-			if (copy_to_user(data_arg.data, &temp, datasize))
-				return -EFAULT;
-		}
-		return res;
-
+	case I2C_RETRIES:
+		client->adapter->retries = arg;
+		break;
+	case I2C_TIMEOUT:
+		client->adapter->timeout = arg;
+		break;
 	default:
-		return i2c_control(client,cmd,arg);
+		/* NOTE:  returning a fault code here could cause trouble
+		 * in buggy userspace code.  Some old kernel bugs returned
+		 * zero in this case, and userspace code might accidentally
+		 * have depended on that bug.
+		 */
+		return -ENOTTY;
 	}
 	return 0;
 }
@@ -365,28 +441,43 @@ static int i2cdev_open(struct inode *inode, struct file *file)
 	struct i2c_client *client;
 	struct i2c_adapter *adap;
 	struct i2c_dev *i2c_dev;
+	int ret = 0;
 
+	lock_kernel();
 	i2c_dev = i2c_dev_get_by_minor(minor);
-	if (!i2c_dev)
-		return -ENODEV;
+	if (!i2c_dev) {
+		ret = -ENODEV;
+		goto out;
+	}
 
 	adap = i2c_get_adapter(i2c_dev->adap->nr);
-	if (!adap)
-		return -ENODEV;
+	if (!adap) {
+		ret = -ENODEV;
+		goto out;
+	}
 
+	/* This creates an anonymous i2c_client, which may later be
+	 * pointed to some address using I2C_SLAVE or I2C_SLAVE_FORCE.
+	 *
+	 * This client is ** NEVER REGISTERED ** with the driver model
+	 * or I2C core code!!  It just holds private copies of addressing
+	 * information and maybe a PEC flag.
+	 */
 	client = kzalloc(sizeof(*client), GFP_KERNEL);
 	if (!client) {
 		i2c_put_adapter(adap);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto out;
 	}
 	snprintf(client->name, I2C_NAME_SIZE, "i2c-dev %d", adap->nr);
 	client->driver = &i2cdev_driver;
 
-	/* registered with adapter, passed as client to user */
 	client->adapter = adap;
 	file->private_data = client;
 
-	return 0;
+out:
+	unlock_kernel();
+	return ret;
 }
 
 static int i2cdev_release(struct inode *inode, struct file *file)
@@ -405,10 +496,18 @@ static const struct file_operations i2cdev_fops = {
 	.llseek		= no_llseek,
 	.read		= i2cdev_read,
 	.write		= i2cdev_write,
-	.ioctl		= i2cdev_ioctl,
+	.unlocked_ioctl	= i2cdev_ioctl,
 	.open		= i2cdev_open,
 	.release	= i2cdev_release,
 };
+
+/* ------------------------------------------------------------------------- */
+
+/*
+ * The legacy "i2cdev_driver" is used primarily to get notifications when
+ * I2C adapters are added or removed, so that each one gets an i2c_dev
+ * and is thus made available to userspace driver code.
+ */
 
 static struct class *i2c_dev_class;
 
@@ -422,9 +521,9 @@ static int i2cdev_attach_adapter(struct i2c_adapter *adap)
 		return PTR_ERR(i2c_dev);
 
 	/* register this i2c device with the driver core */
-	i2c_dev->dev = device_create(i2c_dev_class, &adap->dev,
-				     MKDEV(I2C_MAJOR, adap->nr),
-				     "i2c-%d", adap->nr);
+	i2c_dev->dev = device_create_drvdata(i2c_dev_class, &adap->dev,
+					     MKDEV(I2C_MAJOR, adap->nr),
+					     NULL, "i2c-%d", adap->nr);
 	if (IS_ERR(i2c_dev->dev)) {
 		res = PTR_ERR(i2c_dev->dev);
 		goto error;
@@ -459,20 +558,19 @@ static int i2cdev_detach_adapter(struct i2c_adapter *adap)
 	return 0;
 }
 
-static int i2cdev_detach_client(struct i2c_client *client)
-{
-	return 0;
-}
-
 static struct i2c_driver i2cdev_driver = {
 	.driver = {
 		.name	= "dev_driver",
 	},
-	.id		= I2C_DRIVERID_I2CDEV,
 	.attach_adapter	= i2cdev_attach_adapter,
 	.detach_adapter	= i2cdev_detach_adapter,
-	.detach_client	= i2cdev_detach_client,
 };
+
+/* ------------------------------------------------------------------------- */
+
+/*
+ * module load/unload record keeping
+ */
 
 static int __init i2c_dev_init(void)
 {

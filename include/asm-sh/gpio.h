@@ -21,7 +21,7 @@
 /* If using gpiolib, "sub-architectures" must define (only!) gpio_get_value(),
  * gpio_set_value() and gpio_cansleep(). See Documentation/gpio.txt for
  * details. */
-#if defined(CONFIG_HAVE_GPIO_LIB)
+#if defined(CONFIG_GPIOLIB)
 #include <asm-generic/gpio.h>
 #endif
 

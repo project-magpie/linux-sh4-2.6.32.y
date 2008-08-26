@@ -17,7 +17,7 @@
  *     published by the Free Software Foundation; either version 2 of
  *     the License, or (at your option) any later version.
  *
- *     Neither Dag Brattli nor University of Tromsø admit liability nor
+ *     Neither Dag Brattli nor University of TromsÃ¸ admit liability nor
  *     provide warranty for any of this software. This material is
  *     provided "AS-IS" and at no charge.
  *
@@ -29,13 +29,9 @@
 #include <linux/init.h>
 
 #include <net/irda/irda.h>		/* irda_debug */
+#include <net/irda/irlmp.h>
+#include <net/irda/timer.h>
 #include <net/irda/irias_object.h>
-
-#define NET_IRDA 412 /* Random number */
-enum { DISCOVERY=1, DEVNAME, DEBUG, FAST_POLL, DISCOVERY_SLOTS,
-       DISCOVERY_TIMEOUT, SLOT_TIMEOUT, MAX_BAUD_RATE, MIN_TX_TURN_TIME,
-       MAX_TX_DATA_SIZE, MAX_TX_WINDOW, MAX_NOREPLY_TIME, WARN_NOREPLY_TIME,
-       LAP_KEEPALIVE_TIME };
 
 extern int  sysctl_discovery;
 extern int  sysctl_discovery_slots;
@@ -50,6 +46,8 @@ extern int  sysctl_max_tx_window;
 extern int  sysctl_max_noreply_time;
 extern int  sysctl_warn_noreply_time;
 extern int  sysctl_lap_keepalive_time;
+
+extern struct irlmp_cb *irlmp;
 
 /* this is needed for the proc_dointvec_minmax - Jean II */
 static int max_discovery_slots = 16;		/* ??? */
@@ -91,18 +89,40 @@ static int do_devname(ctl_table *table, int write, struct file *filp,
 	return ret;
 }
 
+
+static int do_discovery(ctl_table *table, int write, struct file *filp,
+                    void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+       int ret;
+
+       ret = proc_dointvec(table, write, filp, buffer, lenp, ppos);
+       if (ret)
+	       return ret;
+
+       if (irlmp == NULL)
+	       return -ENODEV;
+
+       if (sysctl_discovery)
+	       irlmp_start_discovery_timer(irlmp, sysctl_discovery_timeout*HZ);
+       else
+	       del_timer_sync(&irlmp->discovery_timer);
+
+       return ret;
+}
+
 /* One file */
 static ctl_table irda_table[] = {
 	{
-		.ctl_name	= DISCOVERY,
+		.ctl_name	= NET_IRDA_DISCOVERY,
 		.procname	= "discovery",
 		.data		= &sysctl_discovery,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= &proc_dointvec
+		.proc_handler	= &do_discovery,
+		.strategy       = &sysctl_intvec
 	},
 	{
-		.ctl_name	= DEVNAME,
+		.ctl_name	= NET_IRDA_DEVNAME,
 		.procname	= "devname",
 		.data		= sysctl_devname,
 		.maxlen		= 65,
@@ -112,7 +132,7 @@ static ctl_table irda_table[] = {
 	},
 #ifdef CONFIG_IRDA_DEBUG
 	{
-		.ctl_name	= DEBUG,
+		.ctl_name	= NET_IRDA_DEBUG,
 		.procname	= "debug",
 		.data		= &irda_debug,
 		.maxlen		= sizeof(int),
@@ -122,7 +142,7 @@ static ctl_table irda_table[] = {
 #endif
 #ifdef CONFIG_IRDA_FAST_RR
 	{
-		.ctl_name	= FAST_POLL,
+		.ctl_name	= NET_IRDA_FAST_POLL,
 		.procname	= "fast_poll_increase",
 		.data		= &sysctl_fast_poll_increase,
 		.maxlen		= sizeof(int),
@@ -131,7 +151,7 @@ static ctl_table irda_table[] = {
 	},
 #endif
 	{
-		.ctl_name	= DISCOVERY_SLOTS,
+		.ctl_name	= NET_IRDA_DISCOVERY_SLOTS,
 		.procname	= "discovery_slots",
 		.data		= &sysctl_discovery_slots,
 		.maxlen		= sizeof(int),
@@ -142,7 +162,7 @@ static ctl_table irda_table[] = {
 		.extra2		= &max_discovery_slots
 	},
 	{
-		.ctl_name	= DISCOVERY_TIMEOUT,
+		.ctl_name	= NET_IRDA_DISCOVERY_TIMEOUT,
 		.procname	= "discovery_timeout",
 		.data		= &sysctl_discovery_timeout,
 		.maxlen		= sizeof(int),
@@ -150,7 +170,7 @@ static ctl_table irda_table[] = {
 		.proc_handler	= &proc_dointvec
 	},
 	{
-		.ctl_name	= SLOT_TIMEOUT,
+		.ctl_name	= NET_IRDA_SLOT_TIMEOUT,
 		.procname	= "slot_timeout",
 		.data		= &sysctl_slot_timeout,
 		.maxlen		= sizeof(int),
@@ -161,7 +181,7 @@ static ctl_table irda_table[] = {
 		.extra2		= &max_slot_timeout
 	},
 	{
-		.ctl_name	= MAX_BAUD_RATE,
+		.ctl_name	= NET_IRDA_MAX_BAUD_RATE,
 		.procname	= "max_baud_rate",
 		.data		= &sysctl_max_baud_rate,
 		.maxlen		= sizeof(int),
@@ -172,7 +192,7 @@ static ctl_table irda_table[] = {
 		.extra2		= &max_max_baud_rate
 	},
 	{
-		.ctl_name	= MIN_TX_TURN_TIME,
+		.ctl_name	= NET_IRDA_MIN_TX_TURN_TIME,
 		.procname	= "min_tx_turn_time",
 		.data		= &sysctl_min_tx_turn_time,
 		.maxlen		= sizeof(int),
@@ -183,7 +203,7 @@ static ctl_table irda_table[] = {
 		.extra2		= &max_min_tx_turn_time
 	},
 	{
-		.ctl_name	= MAX_TX_DATA_SIZE,
+		.ctl_name	= NET_IRDA_MAX_TX_DATA_SIZE,
 		.procname	= "max_tx_data_size",
 		.data		= &sysctl_max_tx_data_size,
 		.maxlen		= sizeof(int),
@@ -194,7 +214,7 @@ static ctl_table irda_table[] = {
 		.extra2		= &max_max_tx_data_size
 	},
 	{
-		.ctl_name	= MAX_TX_WINDOW,
+		.ctl_name	= NET_IRDA_MAX_TX_WINDOW,
 		.procname	= "max_tx_window",
 		.data		= &sysctl_max_tx_window,
 		.maxlen		= sizeof(int),
@@ -205,7 +225,7 @@ static ctl_table irda_table[] = {
 		.extra2		= &max_max_tx_window
 	},
 	{
-		.ctl_name	= MAX_NOREPLY_TIME,
+		.ctl_name	= NET_IRDA_MAX_NOREPLY_TIME,
 		.procname	= "max_noreply_time",
 		.data		= &sysctl_max_noreply_time,
 		.maxlen		= sizeof(int),
@@ -216,7 +236,7 @@ static ctl_table irda_table[] = {
 		.extra2		= &max_max_noreply_time
 	},
 	{
-		.ctl_name	= WARN_NOREPLY_TIME,
+		.ctl_name	= NET_IRDA_WARN_NOREPLY_TIME,
 		.procname	= "warn_noreply_time",
 		.data		= &sysctl_warn_noreply_time,
 		.maxlen		= sizeof(int),
@@ -227,7 +247,7 @@ static ctl_table irda_table[] = {
 		.extra2		= &max_warn_noreply_time
 	},
 	{
-		.ctl_name	= LAP_KEEPALIVE_TIME,
+		.ctl_name	= NET_IRDA_LAP_KEEPALIVE_TIME,
 		.procname	= "lap_keepalive_time",
 		.data		= &sysctl_lap_keepalive_time,
 		.maxlen		= sizeof(int),
@@ -240,28 +260,10 @@ static ctl_table irda_table[] = {
 	{ .ctl_name = 0 }
 };
 
-/* One directory */
-static ctl_table irda_net_table[] = {
-	{
-		.ctl_name	= NET_IRDA,
-		.procname	= "irda",
-		.maxlen		= 0,
-		.mode		= 0555,
-		.child		= irda_table
-	},
-	{ .ctl_name = 0 }
-};
-
-/* The parent directory */
-static ctl_table irda_root_table[] = {
-	{
-		.ctl_name	= CTL_NET,
-		.procname	= "net",
-		.maxlen		= 0,
-		.mode		= 0555,
-		.child		= irda_net_table
-	},
-	{ .ctl_name = 0 }
+static struct ctl_path irda_path[] = {
+	{ .procname = "net", .ctl_name = CTL_NET, },
+	{ .procname = "irda", .ctl_name = NET_IRDA, },
+	{ }
 };
 
 static struct ctl_table_header *irda_table_header;
@@ -274,7 +276,7 @@ static struct ctl_table_header *irda_table_header;
  */
 int __init irda_sysctl_register(void)
 {
-	irda_table_header = register_sysctl_table(irda_root_table);
+	irda_table_header = register_sysctl_paths(irda_path, irda_table);
 	if (!irda_table_header)
 		return -ENOMEM;
 

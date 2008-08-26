@@ -160,10 +160,10 @@ static const struct hc_driver ehci_ppc_soc_hc_driver = {
 	 */
 	.hub_status_data = ehci_hub_status_data,
 	.hub_control = ehci_hub_control,
-#ifdef	CONFIG_PM
-	.hub_suspend = ehci_hub_suspend,
-	.hub_resume = ehci_hub_resume,
-#endif
+	.bus_suspend = ehci_bus_suspend,
+	.bus_resume = ehci_bus_resume,
+	.relinquish_port = ehci_relinquish_port,
+	.port_handed_over = ehci_port_handed_over,
 };
 
 static int ehci_hcd_ppc_soc_drv_probe(struct platform_device *pdev)
@@ -176,6 +176,7 @@ static int ehci_hcd_ppc_soc_drv_probe(struct platform_device *pdev)
 	if (usb_disabled())
 		return -ENODEV;
 
+	/* FIXME we only want one one probe() not two */
 	ret = usb_ehci_ppc_soc_probe(&ehci_ppc_soc_hc_driver, &hcd, pdev);
 	return ret;
 }
@@ -184,17 +185,17 @@ static int ehci_hcd_ppc_soc_drv_remove(struct platform_device *pdev)
 {
 	struct usb_hcd *hcd = platform_get_drvdata(pdev);
 
+	/* FIXME we only want one one remove() not two */
 	usb_ehci_ppc_soc_remove(hcd, pdev);
 	return 0;
 }
 
-MODULE_ALIAS("ppc-soc-ehci");
+MODULE_ALIAS("platform:ppc-soc-ehci");
 static struct platform_driver ehci_ppc_soc_driver = {
 	.probe = ehci_hcd_ppc_soc_drv_probe,
 	.remove = ehci_hcd_ppc_soc_drv_remove,
 	.shutdown = usb_hcd_platform_shutdown,
 	.driver = {
 		.name = "ppc-soc-ehci",
-		.bus = &platform_bus_type
 	}
 };

@@ -58,7 +58,6 @@
 #include <linux/dmi.h>
 #include <linux/backlight.h>
 #include <linux/platform_device.h>
-#include <linux/autoconf.h>
 
 #define MSI_DRIVER_VERSION "0.5"
 
@@ -283,7 +282,7 @@ static struct platform_device *msipf_device;
 
 /* Initialization */
 
-static int dmi_check_cb(struct dmi_system_id *id)
+static int dmi_check_cb(const struct dmi_system_id *id)
 {
         printk("msi-laptop: Identified laptop model '%s'.\n", id->ident);
         return 0;

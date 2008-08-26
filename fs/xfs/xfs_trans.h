@@ -113,13 +113,8 @@ struct xfs_mount;
 struct xfs_trans;
 struct xfs_dquot_acct;
 
-typedef struct xfs_ail_entry {
-	struct xfs_log_item	*ail_forw;	/* AIL forw pointer */
-	struct xfs_log_item	*ail_back;	/* AIL back pointer */
-} xfs_ail_entry_t;
-
 typedef struct xfs_log_item {
-	xfs_ail_entry_t			li_ail;		/* AIL pointers */
+	struct list_head		li_ail;		/* AIL pointers */
 	xfs_lsn_t			li_lsn;		/* last on-disk lsn */
 	struct xfs_log_item_desc	*li_desc;	/* ptr to current desc*/
 	struct xfs_mount		*li_mountp;	/* ptr to fs mount */
@@ -341,7 +336,6 @@ typedef struct xfs_trans {
 	unsigned int		t_rtx_res;	/* # of rt extents resvd */
 	unsigned int		t_rtx_res_used;	/* # of resvd rt extents used */
 	xfs_log_ticket_t	t_ticket;	/* log mgr ticket */
-	sema_t			t_sema;		/* sema for commit completion */
 	xfs_lsn_t		t_lsn;		/* log seq num of start of
 						 * transaction. */
 	xfs_lsn_t		t_commit_lsn;	/* log seq num of end of
@@ -992,14 +986,17 @@ int		_xfs_trans_commit(xfs_trans_t *,
 				  int *);
 #define xfs_trans_commit(tp, flags)	_xfs_trans_commit(tp, flags, NULL)
 void		xfs_trans_cancel(xfs_trans_t *, int);
-void		xfs_trans_ail_init(struct xfs_mount *);
-xfs_lsn_t	xfs_trans_push_ail(struct xfs_mount *, xfs_lsn_t);
+int		xfs_trans_ail_init(struct xfs_mount *);
+void		xfs_trans_ail_destroy(struct xfs_mount *);
+void		xfs_trans_push_ail(struct xfs_mount *, xfs_lsn_t);
 xfs_lsn_t	xfs_trans_tail_ail(struct xfs_mount *);
 void		xfs_trans_unlocked_item(struct xfs_mount *,
 					xfs_log_item_t *);
 xfs_log_busy_slot_t *xfs_trans_add_busy(xfs_trans_t *tp,
 					xfs_agnumber_t ag,
 					xfs_extlen_t idx);
+
+extern kmem_zone_t	*xfs_trans_zone;
 
 #endif	/* __KERNEL__ */
 

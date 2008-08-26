@@ -46,7 +46,7 @@
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/usb.h>
-#include <linux/usb_gadget.h>
+#include <linux/usb/gadget.h>
 
 #include <asm/byteorder.h>
 #include <asm/io.h>
@@ -60,6 +60,8 @@
 
 #define DRIVER_DESC	"USB Host+Gadget Emulator"
 #define DRIVER_VERSION	"02 May 2005"
+
+#define POWER_BUDGET	500	/* in mA; use 8 for low-power port testing */
 
 static const char	driver_name [] = "dummy_hcd";
 static const char	driver_desc [] = "USB Host+Gadget Emulator";
@@ -363,16 +365,14 @@ dummy_enable (struct usb_ep *_ep, const struct usb_endpoint_descriptor *desc)
 		case USB_SPEED_HIGH:
 			if (max == 512)
 				break;
-			/* conserve return statements */
-		default:
-			switch (max) {
-			case 8: case 16: case 32: case 64:
+			goto done;
+		case USB_SPEED_FULL:
+			if (max == 8 || max == 16 || max == 32 || max == 64)
 				/* we'll fake any legal size */
 				break;
-			default:
-		case USB_SPEED_LOW:
-				goto done;
-			}
+			/* save a return statement */
+		default:
+			goto done;
 		}
 		break;
 	case USB_ENDPOINT_XFER_INT:
@@ -772,18 +772,17 @@ usb_gadget_register_driver (struct usb_gadget_driver *driver)
 	list_del_init (&dum->ep [0].ep.ep_list);
 	INIT_LIST_HEAD(&dum->fifo_req.queue);
 
+	driver->driver.bus = NULL;
 	dum->driver = driver;
 	dum->gadget.dev.driver = &driver->driver;
 	dev_dbg (udc_dev(dum), "binding gadget driver '%s'\n",
 			driver->driver.name);
-	if ((retval = driver->bind (&dum->gadget)) != 0)
-		goto err_bind_gadget;
-
-	driver->driver.bus = dum->gadget.dev.parent->bus;
-	if ((retval = driver_register (&driver->driver)) != 0)
-		goto err_register;
-	if ((retval = device_bind_driver (&dum->gadget.dev)) != 0)
-		goto err_bind_driver;
+	retval = driver->bind(&dum->gadget);
+	if (retval) {
+		dum->driver = NULL;
+		dum->gadget.dev.driver = NULL;
+		return retval;
+	}
 
 	/* khubd will enumerate this in a while */
 	spin_lock_irq (&dum->lock);
@@ -793,20 +792,6 @@ usb_gadget_register_driver (struct usb_gadget_driver *driver)
 
 	usb_hcd_poll_rh_status (dummy_to_hcd (dum));
 	return 0;
-
-err_bind_driver:
-	driver_unregister (&driver->driver);
-err_register:
-	if (driver->unbind)
-		driver->unbind (&dum->gadget);
-	spin_lock_irq (&dum->lock);
-	dum->pullup = 0;
-	set_link_state (dum);
-	spin_unlock_irq (&dum->lock);
-err_bind_gadget:
-	dum->driver = NULL;
-	dum->gadget.dev.driver = NULL;
-	return retval;
 }
 EXPORT_SYMBOL (usb_gadget_register_driver);
 
@@ -830,10 +815,8 @@ usb_gadget_unregister_driver (struct usb_gadget_driver *driver)
 	spin_unlock_irqrestore (&dum->lock, flags);
 
 	driver->unbind (&dum->gadget);
+	dum->gadget.dev.driver = NULL;
 	dum->driver = NULL;
-
-	device_release_driver (&dum->gadget.dev);
-	driver_unregister (&driver->driver);
 
 	spin_lock_irqsave (&dum->lock, flags);
 	dum->pullup = 0;
@@ -879,7 +862,7 @@ static int dummy_udc_probe (struct platform_device *pdev)
 	/* maybe claim OTG support, though we won't complete HNP */
 	dum->gadget.is_otg = (dummy_to_hcd(dum)->self.otg_port != 0);
 
-	strcpy (dum->gadget.dev.bus_id, "gadget");
+	dev_set_name(&dum->gadget.dev, "gadget");
 	dum->gadget.dev.parent = &pdev->dev;
 	dum->gadget.dev.release = dummy_gadget_release;
 	rc = device_register (&dum->gadget.dev);
@@ -909,13 +892,12 @@ static int dummy_udc_suspend (struct platform_device *pdev, pm_message_t state)
 {
 	struct dummy	*dum = platform_get_drvdata(pdev);
 
-	dev_dbg (&pdev->dev, "%s\n", __FUNCTION__);
+	dev_dbg (&pdev->dev, "%s\n", __func__);
 	spin_lock_irq (&dum->lock);
 	dum->udc_suspended = 1;
 	set_link_state (dum);
 	spin_unlock_irq (&dum->lock);
 
-	pdev->dev.power.power_state = state;
 	usb_hcd_poll_rh_status (dummy_to_hcd (dum));
 	return 0;
 }
@@ -924,13 +906,12 @@ static int dummy_udc_resume (struct platform_device *pdev)
 {
 	struct dummy	*dum = platform_get_drvdata(pdev);
 
-	dev_dbg (&pdev->dev, "%s\n", __FUNCTION__);
+	dev_dbg (&pdev->dev, "%s\n", __func__);
 	spin_lock_irq (&dum->lock);
 	dum->udc_suspended = 0;
 	set_link_state (dum);
 	spin_unlock_irq (&dum->lock);
 
-	pdev->dev.power.power_state = PMSG_ON;
 	usb_hcd_poll_rh_status (dummy_to_hcd (dum));
 	return 0;
 }
@@ -962,13 +943,13 @@ static struct platform_driver dummy_udc_driver = {
 
 static int dummy_urb_enqueue (
 	struct usb_hcd			*hcd,
-	struct usb_host_endpoint	*ep,
 	struct urb			*urb,
 	gfp_t				mem_flags
 ) {
 	struct dummy	*dum;
 	struct urbp	*urbp;
 	unsigned long	flags;
+	int		rc;
 
 	if (!urb->transfer_buffer && urb->transfer_buffer_length)
 		return -EINVAL;
@@ -980,6 +961,11 @@ static int dummy_urb_enqueue (
 
 	dum = hcd_to_dummy (hcd);
 	spin_lock_irqsave (&dum->lock, flags);
+	rc = usb_hcd_link_urb_to_ep(hcd, urb);
+	if (rc) {
+		kfree(urbp);
+		goto done;
+	}
 
 	if (!dum->udev) {
 		dum->udev = urb->dev;
@@ -996,36 +982,35 @@ static int dummy_urb_enqueue (
 	if (!timer_pending (&dum->timer))
 		mod_timer (&dum->timer, jiffies + 1);
 
-	spin_unlock_irqrestore (&dum->lock, flags);
-	return 0;
+ done:
+	spin_unlock_irqrestore(&dum->lock, flags);
+	return rc;
 }
 
-static int dummy_urb_dequeue (struct usb_hcd *hcd, struct urb *urb)
+static int dummy_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 {
 	struct dummy	*dum;
 	unsigned long	flags;
+	int		rc;
 
 	/* giveback happens automatically in timer callback,
 	 * so make sure the callback happens */
 	dum = hcd_to_dummy (hcd);
 	spin_lock_irqsave (&dum->lock, flags);
-	if (dum->rh_state != DUMMY_RH_RUNNING && !list_empty(&dum->urbp_list))
-		mod_timer (&dum->timer, jiffies);
-	spin_unlock_irqrestore (&dum->lock, flags);
-	return 0;
-}
 
-static void maybe_set_status (struct urb *urb, int status)
-{
-	spin_lock (&urb->lock);
-	if (urb->status == -EINPROGRESS)
-		urb->status = status;
-	spin_unlock (&urb->lock);
+	rc = usb_hcd_check_unlink_urb(hcd, urb, status);
+	if (!rc && dum->rh_state != DUMMY_RH_RUNNING &&
+			!list_empty(&dum->urbp_list))
+		mod_timer (&dum->timer, jiffies);
+
+	spin_unlock_irqrestore (&dum->lock, flags);
+	return rc;
 }
 
 /* transfer up to a frame's worth; caller must own lock */
 static int
-transfer (struct dummy *dum, struct urb *urb, struct dummy_ep *ep, int limit)
+transfer(struct dummy *dum, struct urb *urb, struct dummy_ep *ep, int limit,
+		int *status)
 {
 	struct dummy_request	*req;
 
@@ -1088,24 +1073,20 @@ top:
 		 *
 		 * partially filling a buffer optionally blocks queue advances
 		 * (so completion handlers can clean up the queue) but we don't
-		 * need to emulate such data-in-flight.  so we only show part
-		 * of the URB_SHORT_NOT_OK effect: completion status.
+		 * need to emulate such data-in-flight.
 		 */
 		if (is_short) {
 			if (host_len == dev_len) {
 				req->req.status = 0;
-				maybe_set_status (urb, 0);
+				*status = 0;
 			} else if (to_host) {
 				req->req.status = 0;
 				if (dev_len > host_len)
-					maybe_set_status (urb, -EOVERFLOW);
+					*status = -EOVERFLOW;
 				else
-					maybe_set_status (urb,
-						(urb->transfer_flags
-							& URB_SHORT_NOT_OK)
-						? -EREMOTEIO : 0);
+					*status = 0;
 			} else if (!to_host) {
-				maybe_set_status (urb, 0);
+				*status = 0;
 				if (host_len > dev_len)
 					req->req.status = -EOVERFLOW;
 				else
@@ -1119,9 +1100,8 @@ top:
 				req->req.status = 0;
 			if (urb->transfer_buffer_length == urb->actual_length
 					&& !(urb->transfer_flags
-						& URB_ZERO_PACKET)) {
-				maybe_set_status (urb, 0);
-			}
+						& URB_ZERO_PACKET))
+				*status = 0;
 		}
 
 		/* device side completion --> continuable */
@@ -1137,7 +1117,7 @@ top:
 		}
 
 		/* host side completion --> terminate */
-		if (urb->status != -EINPROGRESS)
+		if (*status != -EINPROGRESS)
 			break;
 
 		/* rescan to continue with any other queued i/o */
@@ -1248,12 +1228,12 @@ restart:
 		u8			address;
 		struct dummy_ep		*ep = NULL;
 		int			type;
+		int			status = -EINPROGRESS;
 
 		urb = urbp->urb;
-		if (urb->status != -EINPROGRESS) {
-			/* likely it was just unlinked */
+		if (urb->unlinked)
 			goto return_urb;
-		} else if (dum->rh_state != DUMMY_RH_RUNNING)
+		else if (dum->rh_state != DUMMY_RH_RUNNING)
 			continue;
 		type = usb_pipetype (urb->pipe);
 
@@ -1274,7 +1254,7 @@ restart:
 			dev_dbg (dummy_dev(dum),
 				"no ep configured for urb %p\n",
 				urb);
-			maybe_set_status (urb, -EPROTO);
+			status = -EPROTO;
 			goto return_urb;
 		}
 
@@ -1289,7 +1269,7 @@ restart:
 			/* NOTE: must not be iso! */
 			dev_dbg (dummy_dev(dum), "ep %s halted, urb %p\n",
 					ep->ep.name, urb);
-			maybe_set_status (urb, -EPIPE);
+			status = -EPIPE;
 			goto return_urb;
 		}
 		/* FIXME make sure both ends agree on maxpacket */
@@ -1307,7 +1287,7 @@ restart:
 			w_value = le16_to_cpu(setup.wValue);
 			if (le16_to_cpu(setup.wLength) !=
 					urb->transfer_buffer_length) {
-				maybe_set_status (urb, -EOVERFLOW);
+				status = -EOVERFLOW;
 				goto return_urb;
 			}
 
@@ -1337,7 +1317,7 @@ restart:
 				if (setup.bRequestType != Dev_Request)
 					break;
 				dum->address = w_value;
-				maybe_set_status (urb, 0);
+				status = 0;
 				dev_dbg (udc_dev(dum), "set_address = %d\n",
 						w_value);
 				value = 0;
@@ -1364,7 +1344,7 @@ restart:
 					if (value == 0) {
 						dum->devstatus |=
 							(1 << w_value);
-						maybe_set_status (urb, 0);
+						status = 0;
 					}
 
 				} else if (setup.bRequestType == Ep_Request) {
@@ -1376,7 +1356,7 @@ restart:
 					}
 					ep2->halted = 1;
 					value = 0;
-					maybe_set_status (urb, 0);
+					status = 0;
 				}
 				break;
 			case USB_REQ_CLEAR_FEATURE:
@@ -1386,7 +1366,7 @@ restart:
 						dum->devstatus &= ~(1 <<
 							USB_DEVICE_REMOTE_WAKEUP);
 						value = 0;
-						maybe_set_status (urb, 0);
+						status = 0;
 						break;
 					default:
 						value = -EOPNOTSUPP;
@@ -1401,7 +1381,7 @@ restart:
 					}
 					ep2->halted = 0;
 					value = 0;
-					maybe_set_status (urb, 0);
+					status = 0;
 				}
 				break;
 			case USB_REQ_GET_STATUS:
@@ -1438,7 +1418,7 @@ restart:
 					urb->actual_length = min (2,
 						urb->transfer_buffer_length);
 					value = 0;
-					maybe_set_status (urb, 0);
+					status = 0;
 				}
 				break;
 			}
@@ -1465,7 +1445,7 @@ restart:
 					dev_dbg (udc_dev(dum),
 						"setup --> %d\n",
 						value);
-				maybe_set_status (urb, -EPIPE);
+				status = -EPIPE;
 				urb->actual_length = 0;
 			}
 
@@ -1482,7 +1462,7 @@ restart:
 			 * report random errors, to debug drivers.
 			 */
 			limit = max (limit, periodic_bytes (dum, ep));
-			maybe_set_status (urb, -ENOSYS);
+			status = -ENOSYS;
 			break;
 
 		case PIPE_INTERRUPT:
@@ -1496,23 +1476,23 @@ restart:
 		default:
 		treat_control_like_bulk:
 			ep->last_io = jiffies;
-			total = transfer (dum, urb, ep, limit);
+			total = transfer(dum, urb, ep, limit, &status);
 			break;
 		}
 
 		/* incomplete transfer? */
-		if (urb->status == -EINPROGRESS)
+		if (status == -EINPROGRESS)
 			continue;
 
 return_urb:
-		urb->hcpriv = NULL;
 		list_del (&urbp->urbp_list);
 		kfree (urbp);
 		if (ep)
 			ep->already_seen = ep->setup_stage = 0;
 
+		usb_hcd_unlink_urb_from_ep(dummy_to_hcd(dum), urb);
 		spin_unlock (&dum->lock);
-		usb_hcd_giveback_urb (dummy_to_hcd(dum), urb);
+		usb_hcd_giveback_urb(dummy_to_hcd(dum), urb, status);
 		spin_lock (&dum->lock);
 
 		goto restart;
@@ -1575,8 +1555,7 @@ hub_descriptor (struct usb_hub_descriptor *desc)
 	memset (desc, 0, sizeof *desc);
 	desc->bDescriptorType = 0x29;
 	desc->bDescLength = 9;
-	desc->wHubCharacteristics = (__force __u16)
-			(__constant_cpu_to_le16 (0x0001));
+	desc->wHubCharacteristics = cpu_to_le16(0x0001);
 	desc->bNbrPorts = 1;
 	desc->bitmap [0] = 0xff;
 	desc->bitmap [1] = 0xff;
@@ -1727,7 +1706,7 @@ static int dummy_bus_suspend (struct usb_hcd *hcd)
 {
 	struct dummy *dum = hcd_to_dummy (hcd);
 
-	dev_dbg (&hcd->self.root_hub->dev, "%s\n", __FUNCTION__);
+	dev_dbg (&hcd->self.root_hub->dev, "%s\n", __func__);
 
 	spin_lock_irq (&dum->lock);
 	dum->rh_state = DUMMY_RH_SUSPENDED;
@@ -1742,7 +1721,7 @@ static int dummy_bus_resume (struct usb_hcd *hcd)
 	struct dummy *dum = hcd_to_dummy (hcd);
 	int rc = 0;
 
-	dev_dbg (&hcd->self.root_hub->dev, "%s\n", __FUNCTION__);
+	dev_dbg (&hcd->self.root_hub->dev, "%s\n", __func__);
 
 	spin_lock_irq (&dum->lock);
 	if (!test_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags)) {
@@ -1828,8 +1807,7 @@ static int dummy_start (struct usb_hcd *hcd)
 
 	INIT_LIST_HEAD (&dum->urbp_list);
 
-	/* only show a low-power port: just 8mA */
-	hcd->power_budget = 8;
+	hcd->power_budget = POWER_BUDGET;
 	hcd->state = HC_STATE_RUNNING;
 	hcd->uses_new_polling = 1;
 
@@ -1887,7 +1865,7 @@ static int dummy_hcd_probe(struct platform_device *pdev)
 
 	dev_info(&pdev->dev, "%s, driver " DRIVER_VERSION "\n", driver_desc);
 
-	hcd = usb_create_hcd(&dummy_hcd, &pdev->dev, pdev->dev.bus_id);
+	hcd = usb_create_hcd(&dummy_hcd, &pdev->dev, dev_name(&pdev->dev));
 	if (!hcd)
 		return -ENOMEM;
 	the_controller = hcd_to_dummy (hcd);
@@ -1917,7 +1895,7 @@ static int dummy_hcd_suspend (struct platform_device *pdev, pm_message_t state)
 	struct dummy		*dum;
 	int			rc = 0;
 
-	dev_dbg (&pdev->dev, "%s\n", __FUNCTION__);
+	dev_dbg (&pdev->dev, "%s\n", __func__);
 
 	hcd = platform_get_drvdata (pdev);
 	dum = hcd_to_dummy (hcd);
@@ -1933,7 +1911,7 @@ static int dummy_hcd_resume (struct platform_device *pdev)
 {
 	struct usb_hcd		*hcd;
 
-	dev_dbg (&pdev->dev, "%s\n", __FUNCTION__);
+	dev_dbg (&pdev->dev, "%s\n", __func__);
 
 	hcd = platform_get_drvdata (pdev);
 	set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
@@ -1954,69 +1932,57 @@ static struct platform_driver dummy_hcd_driver = {
 
 /*-------------------------------------------------------------------------*/
 
-/* These don't need to do anything because the pdev structures are
- * statically allocated. */
-static void
-dummy_udc_release (struct device *dev) {}
-
-static void
-dummy_hcd_release (struct device *dev) {}
-
-static struct platform_device		the_udc_pdev = {
-	.name		= (char *) gadget_name,
-	.id		= -1,
-	.dev		= {
-		.release	= dummy_udc_release,
-	},
-};
-
-static struct platform_device		the_hcd_pdev = {
-	.name		= (char *) driver_name,
-	.id		= -1,
-	.dev		= {
-		.release	= dummy_hcd_release,
-	},
-};
+static struct platform_device *the_udc_pdev;
+static struct platform_device *the_hcd_pdev;
 
 static int __init init (void)
 {
-	int	retval;
+	int	retval = -ENOMEM;
 
 	if (usb_disabled ())
 		return -ENODEV;
 
-	retval = platform_driver_register (&dummy_hcd_driver);
-	if (retval < 0)
+	the_hcd_pdev = platform_device_alloc(driver_name, -1);
+	if (!the_hcd_pdev)
 		return retval;
+	the_udc_pdev = platform_device_alloc(gadget_name, -1);
+	if (!the_udc_pdev)
+		goto err_alloc_udc;
 
-	retval = platform_driver_register (&dummy_udc_driver);
+	retval = platform_driver_register(&dummy_hcd_driver);
+	if (retval < 0)
+		goto err_register_hcd_driver;
+	retval = platform_driver_register(&dummy_udc_driver);
 	if (retval < 0)
 		goto err_register_udc_driver;
 
-	retval = platform_device_register (&the_hcd_pdev);
+	retval = platform_device_add(the_hcd_pdev);
 	if (retval < 0)
-		goto err_register_hcd;
-
-	retval = platform_device_register (&the_udc_pdev);
+		goto err_add_hcd;
+	retval = platform_device_add(the_udc_pdev);
 	if (retval < 0)
-		goto err_register_udc;
+		goto err_add_udc;
 	return retval;
 
-err_register_udc:
-	platform_device_unregister (&the_hcd_pdev);
-err_register_hcd:
-	platform_driver_unregister (&dummy_udc_driver);
+err_add_udc:
+	platform_device_del(the_hcd_pdev);
+err_add_hcd:
+	platform_driver_unregister(&dummy_udc_driver);
 err_register_udc_driver:
-	platform_driver_unregister (&dummy_hcd_driver);
+	platform_driver_unregister(&dummy_hcd_driver);
+err_register_hcd_driver:
+	platform_device_put(the_udc_pdev);
+err_alloc_udc:
+	platform_device_put(the_hcd_pdev);
 	return retval;
 }
 module_init (init);
 
 static void __exit cleanup (void)
 {
-	platform_device_unregister (&the_udc_pdev);
-	platform_device_unregister (&the_hcd_pdev);
-	platform_driver_unregister (&dummy_udc_driver);
-	platform_driver_unregister (&dummy_hcd_driver);
+	platform_device_unregister(the_udc_pdev);
+	platform_device_unregister(the_hcd_pdev);
+	platform_driver_unregister(&dummy_udc_driver);
+	platform_driver_unregister(&dummy_hcd_driver);
 }
 module_exit (cleanup);

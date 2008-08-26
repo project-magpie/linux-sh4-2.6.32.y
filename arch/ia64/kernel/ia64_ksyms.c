@@ -12,15 +12,12 @@ EXPORT_SYMBOL(memset);
 EXPORT_SYMBOL(memcpy);
 EXPORT_SYMBOL(strlen);
 
+#include<asm/pgtable.h>
+EXPORT_SYMBOL_GPL(empty_zero_page);
+
 #include <asm/checksum.h>
 EXPORT_SYMBOL(ip_fast_csum);		/* hand-coded assembly */
 EXPORT_SYMBOL(csum_ipv6_magic);
-
-#include <asm/semaphore.h>
-EXPORT_SYMBOL(__down);
-EXPORT_SYMBOL(__down_interruptible);
-EXPORT_SYMBOL(__down_trylock);
-EXPORT_SYMBOL(__up);
 
 #include <asm/page.h>
 EXPORT_SYMBOL(clear_page);
@@ -62,6 +59,9 @@ EXPORT_SYMBOL(__divdi3);
 EXPORT_SYMBOL(__udivdi3);
 EXPORT_SYMBOL(__moddi3);
 EXPORT_SYMBOL(__umoddi3);
+
+#include <asm/page.h>
+EXPORT_SYMBOL(copy_page);
 
 #if defined(CONFIG_MD_RAID456) || defined(CONFIG_MD_RAID456_MODULE)
 extern void xor_ia64_2(void);

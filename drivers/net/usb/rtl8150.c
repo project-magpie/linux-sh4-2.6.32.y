@@ -390,7 +390,7 @@ static int alloc_all_urbs(rtl8150_t * dev)
 		return 0;
 	}
 	dev->ctrl_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if (!dev->intr_urb) {
+	if (!dev->ctrl_urb) {
 		usb_free_urb(dev->rx_urb);
 		usb_free_urb(dev->tx_urb);
 		usb_free_urb(dev->intr_urb);
@@ -919,7 +919,6 @@ static int rtl8150_probe(struct usb_interface *intf,
 	}
 
 	dev = netdev_priv(netdev);
-	memset(dev, 0, sizeof(rtl8150_t));
 
 	dev->intr_buff = kmalloc(INTBUFSIZE, GFP_KERNEL);
 	if (!dev->intr_buff) {
@@ -939,7 +938,6 @@ static int rtl8150_probe(struct usb_interface *intf,
 	
 	dev->udev = udev;
 	dev->netdev = netdev;
-	SET_MODULE_OWNER(netdev);
 	netdev->open = rtl8150_open;
 	netdev->stop = rtl8150_close;
 	netdev->do_ioctl = rtl8150_ioctl;
@@ -949,7 +947,6 @@ static int rtl8150_probe(struct usb_interface *intf,
 	netdev->set_multicast_list = rtl8150_set_multicast;
 	netdev->set_mac_address = rtl8150_set_mac_address;
 	netdev->get_stats = rtl8150_netdev_stats;
-	netdev->mtu = RTL8150_MTU;
 	SET_ETHTOOL_OPS(netdev, &ops);
 	dev->intr_interval = 100;	/* 100ms */
 

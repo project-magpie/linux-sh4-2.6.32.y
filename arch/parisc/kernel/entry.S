@@ -40,16 +40,8 @@
 #include <linux/linkage.h>
 
 #ifdef CONFIG_64BIT
-#define CMPIB           cmpib,*
-#define CMPB            cmpb,*
-#define COND(x)		*x
-
 	.level 2.0w
 #else
-#define CMPIB           cmpib,
-#define CMPB            cmpb,
-#define COND(x)		x
-
 	.level 2.0
 #endif
 
@@ -98,7 +90,6 @@
 	 * The "get_stack" macros are responsible for determining the
 	 * kernel stack value.
 	 *
-	 * For Faults:
 	 *      If sr7 == 0
 	 *          Already using a kernel stack, so call the
 	 *          get_stack_use_r30 macro to push a pt_regs structure
@@ -109,26 +100,6 @@
 	 *          to the pt_regs structure contained within the
 	 *          task pointer pointed to by cr30. Set the stack
 	 *          pointer to point to the end of the task structure.
-	 *
-	 * For Interrupts:
-	 *      If sr7 == 0
-	 *          Already using a kernel stack, check to see if r30
-	 *          is already pointing to the per processor interrupt
-	 *          stack. If it is, call the get_stack_use_r30 macro
-	 *          to push a pt_regs structure on the stack, and store
-	 *          registers there. Otherwise, call get_stack_use_cr31
-	 *          to get a pointer to the base of the interrupt stack
-	 *          and push a pt_regs structure on that stack.
-	 *      else
-	 *          Need to set up a kernel stack, so call the
-	 *          get_stack_use_cr30 macro to set up a pointer
-	 *          to the pt_regs structure contained within the
-	 *          task pointer pointed to by cr30. Set the stack
-	 *          pointer to point to the end of the task structure.
-	 *          N.B: We don't use the interrupt stack for the
-	 *          first interrupt from userland, because signals/
-	 *          resched's are processed when returning to userland,
-	 *          and we can sleep in those cases.
 	 *
 	 * Note that we use shadowed registers for temps until
 	 * we can save %r26 and %r29. %r26 is used to preserve
@@ -652,7 +623,7 @@
 
 	.text
 
-	.align 4096
+	.align	PAGE_SIZE
 
 ENTRY(fault_vector_20)
 	/* First vector is invalid (0) */
@@ -904,7 +875,7 @@ ENDPROC(_switch_to)
 	 *
 	 */
 
-	.align 4096
+	.align	PAGE_SIZE
 
 ENTRY(syscall_exit_rfi)
 	mfctl   %cr30,%r16
@@ -978,9 +949,9 @@ intr_check_sig:
 	 * Only do signals if we are returning to user space
 	 */
 	LDREG	PT_IASQ0(%r16), %r20
-	CMPIB=,n 0,%r20,intr_restore /* backward */
+	cmpib,COND(=),n 0,%r20,intr_restore /* backward */
 	LDREG	PT_IASQ1(%r16), %r20
-	CMPIB=,n 0,%r20,intr_restore /* backward */
+	cmpib,COND(=),n 0,%r20,intr_restore /* backward */
 
 	copy	%r0, %r25			/* long in_syscall = 0 */
 #ifdef CONFIG_64BIT
@@ -1034,10 +1005,10 @@ intr_do_resched:
 	 * we jump back to intr_restore.
 	 */
 	LDREG	PT_IASQ0(%r16), %r20
-	CMPIB=	0, %r20, intr_do_preempt
+	cmpib,COND(=)	0, %r20, intr_do_preempt
 	nop
 	LDREG	PT_IASQ1(%r16), %r20
-	CMPIB=	0, %r20, intr_do_preempt
+	cmpib,COND(=)	0, %r20, intr_do_preempt
 	nop
 
 #ifdef CONFIG_64BIT
@@ -1066,7 +1037,7 @@ intr_do_preempt:
 	/* current_thread_info()->preempt_count */
 	mfctl	%cr30, %r1
 	LDREG	TI_PRE_COUNT(%r1), %r19
-	CMPIB<>	0, %r19, intr_restore	/* if preempt_count > 0 */
+	cmpib,COND(<>)	0, %r19, intr_restore	/* if preempt_count > 0 */
 	nop				/* prev insn branched backwards */
 
 	/* check if we interrupted a critical path */
@@ -1085,24 +1056,14 @@ intr_do_preempt:
 	 */
 
 intr_extint:
-	CMPIB=,n 0,%r16,1f
+	cmpib,COND(=),n 0,%r16,1f
+
 	get_stack_use_cr30
-	b,n 3f
+	b,n 2f
 
 1:
-#if 0  /* Interrupt Stack support not working yet! */
-	mfctl	%cr31,%r1
-	copy	%r30,%r17
-	/* FIXME! depi below has hardcoded idea of interrupt stack size (32k)*/
-	DEPI	0,31,15,%r17
-	CMPB=,n	%r1,%r17,2f
-	get_stack_use_cr31
-	b,n 3f
-#endif
-2:
 	get_stack_use_r30
-
-3:
+2:
 	save_specials	%r29
 	virt_map
 	save_general	%r29
@@ -1130,7 +1091,7 @@ ENDPROC(syscall_exit_rfi)
 
 ENTRY(intr_save)		/* for os_hpmc */
 	mfsp    %sr7,%r16
-	CMPIB=,n 0,%r16,1f
+	cmpib,COND(=),n 0,%r16,1f
 	get_stack_use_cr30
 	b	2f
 	copy    %r8,%r26
@@ -1152,7 +1113,7 @@ ENTRY(intr_save)		/* for os_hpmc */
 	 *           adjust isr/ior below.
 	 */
 
-	CMPIB=,n        6,%r26,skip_save_ior
+	cmpib,COND(=),n        6,%r26,skip_save_ior
 
 
 	mfctl           %cr20, %r16 /* isr */
@@ -1481,11 +1442,11 @@ nadtlb_emulate:
 	bb,>=,n         %r9,26,nadtlb_nullify  /* m bit not set, just nullify */
 	BL		get_register,%r25
 	extrw,u         %r9,15,5,%r8           /* Get index register # */
-	CMPIB=,n        -1,%r1,nadtlb_fault    /* have to use slow path */
+	cmpib,COND(=),n        -1,%r1,nadtlb_fault    /* have to use slow path */
 	copy            %r1,%r24
 	BL		get_register,%r25
 	extrw,u         %r9,10,5,%r8           /* Get base register # */
-	CMPIB=,n        -1,%r1,nadtlb_fault    /* have to use slow path */
+	cmpib,COND(=),n        -1,%r1,nadtlb_fault    /* have to use slow path */
 	BL		set_register,%r25
 	add,l           %r1,%r24,%r1           /* doesn't affect c/b bits */
 
@@ -1517,7 +1478,7 @@ nadtlb_probe_check:
 	cmpb,<>,n       %r16,%r17,nadtlb_fault /* Must be probe,[rw]*/
 	BL              get_register,%r25      /* Find the target register */
 	extrw,u         %r9,31,5,%r8           /* Get target register */
-	CMPIB=,n        -1,%r1,nadtlb_fault    /* have to use slow path */
+	cmpib,COND(=),n        -1,%r1,nadtlb_fault    /* have to use slow path */
 	BL		set_register,%r25
 	copy            %r0,%r1                /* Write zero to target register */
 	b nadtlb_nullify                       /* Nullify return insn */
@@ -1601,12 +1562,12 @@ dbit_trap_20w:
 	L3_ptep		ptp,pte,t0,va,dbit_fault
 
 #ifdef CONFIG_SMP
-	CMPIB=,n        0,spc,dbit_nolock_20w
+	cmpib,COND(=),n        0,spc,dbit_nolock_20w
 	load32		PA(pa_dbit_lock),t0
 
 dbit_spin_20w:
 	LDCW		0(t0),t1
-	cmpib,=         0,t1,dbit_spin_20w
+	cmpib,COND(=)         0,t1,dbit_spin_20w
 	nop
 
 dbit_nolock_20w:
@@ -1617,7 +1578,7 @@ dbit_nolock_20w:
 		
 	idtlbt          pte,prot
 #ifdef CONFIG_SMP
-	CMPIB=,n        0,spc,dbit_nounlock_20w
+	cmpib,COND(=),n        0,spc,dbit_nounlock_20w
 	ldi             1,t1
 	stw             t1,0(t0)
 
@@ -1637,7 +1598,7 @@ dbit_trap_11:
 	L2_ptep		ptp,pte,t0,va,dbit_fault
 
 #ifdef CONFIG_SMP
-	CMPIB=,n        0,spc,dbit_nolock_11
+	cmpib,COND(=),n        0,spc,dbit_nolock_11
 	load32		PA(pa_dbit_lock),t0
 
 dbit_spin_11:
@@ -1659,7 +1620,7 @@ dbit_nolock_11:
 
 	mtsp            t1, %sr1     /* Restore sr1 */
 #ifdef CONFIG_SMP
-	CMPIB=,n        0,spc,dbit_nounlock_11
+	cmpib,COND(=),n        0,spc,dbit_nounlock_11
 	ldi             1,t1
 	stw             t1,0(t0)
 
@@ -1677,7 +1638,7 @@ dbit_trap_20:
 	L2_ptep		ptp,pte,t0,va,dbit_fault
 
 #ifdef CONFIG_SMP
-	CMPIB=,n        0,spc,dbit_nolock_20
+	cmpib,COND(=),n        0,spc,dbit_nolock_20
 	load32		PA(pa_dbit_lock),t0
 
 dbit_spin_20:
@@ -1696,7 +1657,7 @@ dbit_nolock_20:
         idtlbt          pte,prot
 
 #ifdef CONFIG_SMP
-	CMPIB=,n        0,spc,dbit_nounlock_20
+	cmpib,COND(=),n        0,spc,dbit_nounlock_20
 	ldi             1,t1
 	stw             t1,0(t0)
 
@@ -2025,7 +1986,7 @@ ENTRY(syscall_exit)
 
 	/* We can't use "CMPIB<> PER_HPUX" since "im5" field is sign extended */
 	ldo	  -PER_HPUX(%r19), %r19
-	CMPIB<>,n 0,%r19,1f
+	cmpib,COND(<>),n 0,%r19,1f
 
 	/* Save other hpux returns if personality is PER_HPUX */
 	STREG     %r22,TASK_PT_GR22(%r1)

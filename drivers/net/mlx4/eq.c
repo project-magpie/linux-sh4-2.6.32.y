@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005 Mellanox Technologies. All rights reserved.
+ * Copyright (c) 2005, 2006, 2007, 2008 Mellanox Technologies. All rights reserved.
  * Copyright (c) 2005, 2006, 2007 Cisco Systems, Inc. All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -33,6 +33,7 @@
 
 #include <linux/init.h>
 #include <linux/interrupt.h>
+#include <linux/mm.h>
 #include <linux/dma-mapping.h>
 
 #include <linux/mlx4/cmd.h>
@@ -202,7 +203,10 @@ static int mlx4_eq_int(struct mlx4_dev *dev, struct mlx4_eq *eq)
 			break;
 
 		case MLX4_EVENT_TYPE_PORT_CHANGE:
-			mlx4_dispatch_event(dev, eqe->type, eqe->subtype,
+			mlx4_dispatch_event(dev,
+					    eqe->subtype == MLX4_PORT_CHANGE_SUBTYPE_ACTIVE ?
+					    MLX4_DEV_EVENT_PORT_UP :
+					    MLX4_DEV_EVENT_PORT_DOWN,
 					    be32_to_cpu(eqe->event.port_change.port) >> 28);
 			break;
 
@@ -300,8 +304,7 @@ static int mlx4_HW2SW_EQ(struct mlx4_dev *dev, struct mlx4_cmd_mailbox *mailbox,
 			    MLX4_CMD_TIME_CLASS_A);
 }
 
-static void __devinit __iomem *mlx4_get_eq_uar(struct mlx4_dev *dev,
-					       struct mlx4_eq *eq)
+static void __iomem *mlx4_get_eq_uar(struct mlx4_dev *dev, struct mlx4_eq *eq)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	int index;
@@ -323,8 +326,8 @@ static void __devinit __iomem *mlx4_get_eq_uar(struct mlx4_dev *dev,
 	return priv->eq_table.uar_map[index] + 0x800 + 8 * (eq->eqn % 4);
 }
 
-static int __devinit mlx4_create_eq(struct mlx4_dev *dev, int nent,
-				    u8 intr, struct mlx4_eq *eq)
+static int mlx4_create_eq(struct mlx4_dev *dev, int nent,
+			  u8 intr, struct mlx4_eq *eq)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	struct mlx4_cmd_mailbox *mailbox;
@@ -485,7 +488,7 @@ static void mlx4_free_irqs(struct mlx4_dev *dev)
 			free_irq(eq_table->eq[i].irq, eq_table->eq + i);
 }
 
-static int __devinit mlx4_map_clr_int(struct mlx4_dev *dev)
+static int mlx4_map_clr_int(struct mlx4_dev *dev)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
 
@@ -506,7 +509,7 @@ static void mlx4_unmap_clr_int(struct mlx4_dev *dev)
 	iounmap(priv->clr_base);
 }
 
-int __devinit mlx4_map_eq_icm(struct mlx4_dev *dev, u64 icm_virt)
+int mlx4_map_eq_icm(struct mlx4_dev *dev, u64 icm_virt)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	int ret;
@@ -523,7 +526,7 @@ int __devinit mlx4_map_eq_icm(struct mlx4_dev *dev, u64 icm_virt)
 		return -ENOMEM;
 	priv->eq_table.icm_dma  = pci_map_page(dev->pdev, priv->eq_table.icm_page, 0,
 					       PAGE_SIZE, PCI_DMA_BIDIRECTIONAL);
-	if (pci_dma_mapping_error(priv->eq_table.icm_dma)) {
+	if (pci_dma_mapping_error(dev->pdev, priv->eq_table.icm_dma)) {
 		__free_page(priv->eq_table.icm_page);
 		return -ENOMEM;
 	}
@@ -548,7 +551,7 @@ void mlx4_unmap_eq_icm(struct mlx4_dev *dev)
 	__free_page(priv->eq_table.icm_page);
 }
 
-int __devinit mlx4_init_eq_table(struct mlx4_dev *dev)
+int mlx4_init_eq_table(struct mlx4_dev *dev)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	int err;

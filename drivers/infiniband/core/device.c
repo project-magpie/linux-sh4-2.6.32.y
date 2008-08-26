@@ -29,8 +29,6 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
- *
- * $Id: device.c 1349 2004-12-16 21:09:43Z roland $
  */
 
 #include <linux/module.h>
@@ -120,12 +118,12 @@ static struct ib_device *__ib_device_get_by_name(const char *name)
 
 static int alloc_name(char *name)
 {
-	long *inuse;
+	unsigned long *inuse;
 	char buf[IB_DEVICE_NAME_MAX];
 	struct ib_device *device;
 	int i;
 
-	inuse = (long *) get_zeroed_page(GFP_KERNEL);
+	inuse = (unsigned long *) get_zeroed_page(GFP_KERNEL);
 	if (!inuse)
 		return -ENOMEM;
 

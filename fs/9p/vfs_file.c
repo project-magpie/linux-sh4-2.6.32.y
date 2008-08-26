@@ -59,7 +59,7 @@ int v9fs_file_open(struct inode *inode, struct file *file)
 
 	P9_DPRINTK(P9_DEBUG_VFS, "inode: %p file: %p \n", inode, file);
 	v9ses = v9fs_inode2v9ses(inode);
-	omode = v9fs_uflags2omode(file->f_flags);
+	omode = v9fs_uflags2omode(file->f_flags, v9fs_extended(v9ses));
 	fid = file->private_data;
 	if (!fid) {
 		fid = v9fs_fid_clone(file->f_path.dentry);
@@ -75,6 +75,8 @@ int v9fs_file_open(struct inode *inode, struct file *file)
 			inode->i_size = 0;
 			inode->i_blocks = 0;
 		}
+		if ((file->f_flags & O_APPEND) && (!v9fs_extended(v9ses)))
+			generic_file_llseek(file, 0, SEEK_END);
 	}
 
 	file->private_data = fid;
@@ -90,10 +92,11 @@ int v9fs_file_open(struct inode *inode, struct file *file)
 
 /**
  * v9fs_file_lock - lock a file (or directory)
- * @inode: inode to be opened
- * @file: file being opened
+ * @filp: file to be locked
+ * @cmd: lock command
+ * @fl: file lock structure
  *
- * XXX - this looks like a local only lock, we should extend into 9P
+ * Bugs: this looks like a local only lock, we should extend into 9P
  *       by using open exclusive
  */
 
@@ -105,7 +108,7 @@ static int v9fs_file_lock(struct file *filp, int cmd, struct file_lock *fl)
 	P9_DPRINTK(P9_DEBUG_VFS, "filp: %p lock: %p\n", filp, fl);
 
 	/* No mandatory locks */
-	if ((inode->i_mode & (S_ISGID | S_IXGRP)) == S_ISGID)
+	if (__mandatory_lock(inode))
 		return -ENOLCK;
 
 	if ((IS_SETLK(cmd) || IS_SETLKW(cmd)) && fl->fl_type != F_UNLCK) {
@@ -118,7 +121,7 @@ static int v9fs_file_lock(struct file *filp, int cmd, struct file_lock *fl)
 
 /**
  * v9fs_file_read - read from a file
- * @filep: file pointer to read
+ * @filp: file pointer to read
  * @data: data buffer to read data into
  * @count: size of buffer
  * @offset: offset at which to read data
@@ -142,7 +145,7 @@ v9fs_file_read(struct file *filp, char __user * data, size_t count,
 
 /**
  * v9fs_file_write - write to a file
- * @filep: file pointer to write
+ * @filp: file pointer to write
  * @data: data buffer to write data from
  * @count: size of buffer
  * @offset: offset at which to write data
@@ -162,15 +165,17 @@ v9fs_file_write(struct file *filp, const char __user * data,
 
 	fid = filp->private_data;
 	ret = p9_client_uwrite(fid, data, *offset, count);
-	if (ret > 0)
+	if (ret > 0) {
+		invalidate_inode_pages2_range(inode->i_mapping, *offset,
+								*offset+ret);
 		*offset += ret;
+	}
 
 	if (*offset > inode->i_size) {
 		inode->i_size = *offset;
 		inode->i_blocks = (inode->i_size + 512 - 1) >> 9;
 	}
 
-	invalidate_inode_pages2(inode->i_mapping);
 	return ret;
 }
 
@@ -182,7 +187,7 @@ static const struct file_operations v9fs_cached_file_operations = {
 	.open = v9fs_file_open,
 	.release = v9fs_dir_release,
 	.lock = v9fs_file_lock,
-	.mmap = generic_file_mmap,
+	.mmap = generic_file_readonly_mmap,
 };
 
 const struct file_operations v9fs_file_operations = {
@@ -192,5 +197,5 @@ const struct file_operations v9fs_file_operations = {
 	.open = v9fs_file_open,
 	.release = v9fs_dir_release,
 	.lock = v9fs_file_lock,
-	.mmap = generic_file_mmap,
+	.mmap = generic_file_readonly_mmap,
 };

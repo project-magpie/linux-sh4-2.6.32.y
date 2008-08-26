@@ -1,5 +1,5 @@
 /*
- *  linux/drivers/ide/legacy/buddha.c -- Amiga Buddha, Catweasel and X-Surf IDE Driver
+ *  Amiga Buddha, Catweasel and X-Surf IDE Driver
  *
  *	Copyright (C) 1997, 2001 by Geert Uytterhoeven and others
  *
@@ -37,6 +37,8 @@
 #define CATWEASEL_NUM_HWIFS	3
 #define XSURF_NUM_HWIFS         2
 
+#define MAX_NUM_HWIFS		3
+
     /*
      *  Bases of the IDE interfaces (relative to the board address)
      */
@@ -56,31 +58,11 @@ static u_int xsurf_bases[XSURF_NUM_HWIFS] __initdata = {
      XSURF_BASE1, XSURF_BASE2
 };
 
-
     /*
      *  Offsets from one of the above bases
      */
 
-#define BUDDHA_DATA	0x00
-#define BUDDHA_ERROR	0x06		/* see err-bits */
-#define BUDDHA_NSECTOR	0x0a		/* nr of sectors to read/write */
-#define BUDDHA_SECTOR	0x0e		/* starting sector */
-#define BUDDHA_LCYL	0x12		/* starting cylinder */
-#define BUDDHA_HCYL	0x16		/* high byte of starting cyl */
-#define BUDDHA_SELECT	0x1a		/* 101dhhhh , d=drive, hhhh=head */
-#define BUDDHA_STATUS	0x1e		/* see status-bits */
 #define BUDDHA_CONTROL	0x11a
-#define XSURF_CONTROL   -1              /* X-Surf has no CS1* (Control/AltStat) */
-
-static int buddha_offsets[IDE_NR_PORTS] __initdata = {
-    BUDDHA_DATA, BUDDHA_ERROR, BUDDHA_NSECTOR, BUDDHA_SECTOR, BUDDHA_LCYL,
-    BUDDHA_HCYL, BUDDHA_SELECT, BUDDHA_STATUS, BUDDHA_CONTROL, -1
-};
-
-static int xsurf_offsets[IDE_NR_PORTS] __initdata = {
-    BUDDHA_DATA, BUDDHA_ERROR, BUDDHA_NSECTOR, BUDDHA_SECTOR, BUDDHA_LCYL,
-    BUDDHA_HCYL, BUDDHA_SELECT, BUDDHA_STATUS, XSURF_CONTROL, -1
-};
 
     /*
      *  Other registers
@@ -112,6 +94,7 @@ typedef enum BuddhaType_Enum {
     BOARD_BUDDHA, BOARD_CATWEASEL, BOARD_XSURF
 } BuddhaType;
 
+static const char *buddha_board_name[] = { "Buddha", "Catweasel", "X-Surf" };
 
     /*
      *  Check and acknowledge the interrupt status
@@ -121,7 +104,7 @@ static int buddha_ack_intr(ide_hwif_t *hwif)
 {
     unsigned char ch;
 
-    ch = z_readb(hwif->io_ports[IDE_IRQ_OFFSET]);
+    ch = z_readb(hwif->io_ports.irq_addr);
     if (!(ch & 0x80))
 	    return 0;
     return 1;
@@ -131,31 +114,51 @@ static int xsurf_ack_intr(ide_hwif_t *hwif)
 {
     unsigned char ch;
 
-    ch = z_readb(hwif->io_ports[IDE_IRQ_OFFSET]);
+    ch = z_readb(hwif->io_ports.irq_addr);
     /* X-Surf needs a 0 written to IRQ register to ensure ISA bit A11 stays at 0 */
-    z_writeb(0, hwif->io_ports[IDE_IRQ_OFFSET]); 
+    z_writeb(0, hwif->io_ports.irq_addr);
     if (!(ch & 0x80))
 	    return 0;
     return 1;
+}
+
+static void __init buddha_setup_ports(hw_regs_t *hw, unsigned long base,
+				      unsigned long ctl, unsigned long irq_port,
+				      ide_ack_intr_t *ack_intr)
+{
+	int i;
+
+	memset(hw, 0, sizeof(*hw));
+
+	hw->io_ports.data_addr = base;
+
+	for (i = 1; i < 8; i++)
+		hw->io_ports_array[i] = base + 2 + i * 4;
+
+	hw->io_ports.ctl_addr = ctl;
+	hw->io_ports.irq_addr = irq_port;
+
+	hw->irq = IRQ_AMIGA_PORTS;
+	hw->ack_intr = ack_intr;
+
+	hw->chipset = ide_generic;
 }
 
     /*
      *  Probe for a Buddha or Catweasel IDE interface
      */
 
-void __init buddha_init(void)
+static int __init buddha_init(void)
 {
-	hw_regs_t hw;
-	ide_hwif_t *hwif;
-	int i, index;
-
 	struct zorro_dev *z = NULL;
 	u_long buddha_board = 0;
 	BuddhaType type;
-	int buddha_num_hwifs;
+	int buddha_num_hwifs, i;
 
 	while ((z = zorro_find_device(ZORRO_WILDCARD, z))) {
 		unsigned long board;
+		hw_regs_t hw[MAX_NUM_HWIFS], *hws[] = { NULL, NULL, NULL, NULL };
+
 		if (z->id == ZORRO_PROD_INDIVIDUAL_COMPUTERS_BUDDHA) {
 			buddha_num_hwifs = BUDDHA_NUM_HWIFS;
 			type=BOARD_BUDDHA;
@@ -195,41 +198,39 @@ fail_base2:
 		/* X-Surf doesn't have this.  IRQs are always on */
 		if (type != BOARD_XSURF)
 			z_writeb(0, buddha_board+BUDDHA_IRQ_MR);
-		
-		for(i=0;i<buddha_num_hwifs;i++) {
-			if(type != BOARD_XSURF) {
-				ide_setup_ports(&hw, (buddha_board+buddha_bases[i]),
-						buddha_offsets, 0,
-						(buddha_board+buddha_irqports[i]),
-						buddha_ack_intr,
-//						budda_iops,
-						IRQ_AMIGA_PORTS);
+
+		printk(KERN_INFO "ide: %s IDE controller\n",
+				 buddha_board_name[type]);
+
+		for (i = 0; i < buddha_num_hwifs; i++) {
+			unsigned long base, ctl, irq_port;
+			ide_ack_intr_t *ack_intr;
+
+			if (type != BOARD_XSURF) {
+				base = buddha_board + buddha_bases[i];
+				ctl = base + BUDDHA_CONTROL;
+				irq_port = buddha_board + buddha_irqports[i];
+				ack_intr = buddha_ack_intr;
 			} else {
-				ide_setup_ports(&hw, (buddha_board+xsurf_bases[i]),
-						xsurf_offsets, 0,
-						(buddha_board+xsurf_irqports[i]),
-						xsurf_ack_intr,
-//						xsurf_iops,
-						IRQ_AMIGA_PORTS);
-			}	
-			
-			index = ide_register_hw(&hw, 1, &hwif);
-			if (index != -1) {
-				hwif->mmio = 1;
-				printk("ide%d: ", index);
-				switch(type) {
-				case BOARD_BUDDHA:
-					printk("Buddha");
-					break;
-				case BOARD_CATWEASEL:
-					printk("Catweasel");
-					break;
-				case BOARD_XSURF:
-					printk("X-Surf");
-					break;
-				}
-				printk(" IDE interface\n");	    
-			}		      
+				base = buddha_board + xsurf_bases[i];
+				/* X-Surf has no CS1* (Control/AltStat) */
+				ctl = 0;
+				irq_port = buddha_board + xsurf_irqports[i];
+				ack_intr = xsurf_ack_intr;
+			}
+
+			buddha_setup_ports(&hw[i], base, ctl, irq_port,
+					   ack_intr);
+
+			hws[i] = &hw[i];
 		}
+
+		ide_host_add(NULL, hws, NULL);
 	}
+
+	return 0;
 }
+
+module_init(buddha_init);
+
+MODULE_LICENSE("GPL");

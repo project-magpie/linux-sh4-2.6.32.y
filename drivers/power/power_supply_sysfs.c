@@ -14,6 +14,8 @@
 #include <linux/ctype.h>
 #include <linux/power_supply.h>
 
+#include "power_supply.h"
+
 /*
  * This is because the name "current" breaks the device attr macro.
  * The "current" word resolves to "(get_current())" so instead of
@@ -46,10 +48,8 @@ static ssize_t power_supply_show_property(struct device *dev,
 		"Unspecified failure"
 	};
 	static char *technology_text[] = {
-		"Unknown", "NiMH", "Li-ion", "Li-poly", "LiFe", "NiCd"
-	};
-	static char *capacity_level_text[] = {
-		"Unknown", "Critical", "Low", "Normal", "High", "Full"
+		"Unknown", "NiMH", "Li-ion", "Li-poly", "LiFe", "NiCd",
+		"LiMn"
 	};
 	ssize_t ret;
 	struct power_supply *psy = dev_get_drvdata(dev);
@@ -71,9 +71,6 @@ static ssize_t power_supply_show_property(struct device *dev,
 		return sprintf(buf, "%s\n", health_text[value.intval]);
 	else if (off == POWER_SUPPLY_PROP_TECHNOLOGY)
 		return sprintf(buf, "%s\n", technology_text[value.intval]);
-	else if (off == POWER_SUPPLY_PROP_CAPACITY_LEVEL)
-		return sprintf(buf, "%s\n",
-			       capacity_level_text[value.intval]);
 	else if (off >= POWER_SUPPLY_PROP_MODEL_NAME)
 		return sprintf(buf, "%s\n", value.strval);
 
@@ -88,6 +85,8 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(present),
 	POWER_SUPPLY_ATTR(online),
 	POWER_SUPPLY_ATTR(technology),
+	POWER_SUPPLY_ATTR(voltage_max),
+	POWER_SUPPLY_ATTR(voltage_min),
 	POWER_SUPPLY_ATTR(voltage_max_design),
 	POWER_SUPPLY_ATTR(voltage_min_design),
 	POWER_SUPPLY_ATTR(voltage_now),
@@ -107,7 +106,6 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(energy_now),
 	POWER_SUPPLY_ATTR(energy_avg),
 	POWER_SUPPLY_ATTR(capacity),
-	POWER_SUPPLY_ATTR(capacity_level),
 	POWER_SUPPLY_ATTR(temp),
 	POWER_SUPPLY_ATTR(temp_ambient),
 	POWER_SUPPLY_ATTR(time_to_empty_now),
@@ -117,6 +115,7 @@ static struct device_attribute power_supply_attrs[] = {
 	/* Properties of type `const char *' */
 	POWER_SUPPLY_ATTR(model_name),
 	POWER_SUPPLY_ATTR(manufacturer),
+	POWER_SUPPLY_ATTR(serial_number),
 };
 
 static ssize_t power_supply_show_static_attrs(struct device *dev,
@@ -159,8 +158,7 @@ dynamics_failed:
 			   &power_supply_attrs[psy->properties[j]]);
 statics_failed:
 	while (i--)
-		device_remove_file(psy->dev,
-			   &power_supply_static_attrs[psy->properties[i]]);
+		device_remove_file(psy->dev, &power_supply_static_attrs[i]);
 succeed:
 	return rc;
 }
@@ -170,8 +168,7 @@ void power_supply_remove_attrs(struct power_supply *psy)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(power_supply_static_attrs); i++)
-		device_remove_file(psy->dev,
-			    &power_supply_static_attrs[i]);
+		device_remove_file(psy->dev, &power_supply_static_attrs[i]);
 
 	for (i = 0; i < psy->num_properties; i++)
 		device_remove_file(psy->dev,
@@ -195,25 +192,23 @@ static char *kstruprdup(const char *str, gfp_t gfp)
 	return ret;
 }
 
-int power_supply_uevent(struct device *dev, char **envp, int num_envp,
-			char *buffer, int buffer_size)
+int power_supply_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
 	struct power_supply *psy = dev_get_drvdata(dev);
-	int i = 0, length = 0, ret = 0, j;
+	int ret = 0, j;
 	char *prop_buf;
 	char *attrname;
 
 	dev_dbg(dev, "uevent\n");
 
-	if (!psy) {
+	if (!psy || !psy->dev) {
 		dev_dbg(dev, "No power supply yet\n");
 		return ret;
 	}
 
 	dev_dbg(dev, "POWER_SUPPLY_NAME=%s\n", psy->name);
 
-	ret = add_uevent_var(envp, num_envp, &i, buffer, buffer_size,
-			     &length, "POWER_SUPPLY_NAME=%s", psy->name);
+	ret = add_uevent_var(env, "POWER_SUPPLY_NAME=%s", psy->name);
 	if (ret)
 		return ret;
 
@@ -243,9 +238,7 @@ int power_supply_uevent(struct device *dev, char **envp, int num_envp,
 
 		dev_dbg(dev, "Static prop %s=%s\n", attrname, prop_buf);
 
-		ret = add_uevent_var(envp, num_envp, &i, buffer, buffer_size,
-				     &length, "POWER_SUPPLY_%s=%s",
-				     attrname, prop_buf);
+		ret = add_uevent_var(env, "POWER_SUPPLY_%s=%s", attrname, prop_buf);
 		kfree(attrname);
 		if (ret)
 			goto out;
@@ -282,14 +275,11 @@ int power_supply_uevent(struct device *dev, char **envp, int num_envp,
 
 		dev_dbg(dev, "prop %s=%s\n", attrname, prop_buf);
 
-		ret = add_uevent_var(envp, num_envp, &i, buffer, buffer_size,
-				     &length, "POWER_SUPPLY_%s=%s",
-				     attrname, prop_buf);
+		ret = add_uevent_var(env, "POWER_SUPPLY_%s=%s", attrname, prop_buf);
 		kfree(attrname);
 		if (ret)
 			goto out;
 	}
-	envp[i] = NULL;
 
 out:
 	free_page((unsigned long)prop_buf);

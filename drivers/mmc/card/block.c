@@ -2,7 +2,7 @@
  * Block driver for media (i.e., flash cards)
  *
  * Copyright 2002 Hewlett-Packard Company
- * Copyright 2005-2007 Pierre Ossman
+ * Copyright 2005-2008 Pierre Ossman
  *
  * Use consistent with the GNU GPL is permitted,
  * provided that this copyright notice is
@@ -44,6 +44,9 @@
  * max 8 partitions per card
  */
 #define MMC_SHIFT	3
+#define MMC_NUM_MINORS	(256 >> MMC_SHIFT)
+
+static DECLARE_BITMAP(dev_use, MMC_NUM_MINORS);
 
 /*
  * There is one mmc_blk_data per slot.
@@ -80,6 +83,9 @@ static void mmc_blk_put(struct mmc_blk_data *md)
 	mutex_lock(&open_lock);
 	md->usage--;
 	if (md->usage == 0) {
+		int devidx = md->disk->first_minor >> MMC_SHIFT;
+		__clear_bit(devidx, dev_use);
+
 		put_disk(md->disk);
 		kfree(md);
 	}
@@ -151,17 +157,19 @@ static u32 mmc_sd_num_wr_blocks(struct mmc_card *card)
 
 	cmd.opcode = MMC_APP_CMD;
 	cmd.arg = card->rca << 16;
-	cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
+	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
 
 	err = mmc_wait_for_cmd(card->host, &cmd, 0);
-	if ((err != MMC_ERR_NONE) || !(cmd.resp[0] & R1_APP_CMD))
+	if (err)
+		return (u32)-1;
+	if (!mmc_host_is_spi(card->host) && !(cmd.resp[0] & R1_APP_CMD))
 		return (u32)-1;
 
 	memset(&cmd, 0, sizeof(struct mmc_command));
 
 	cmd.opcode = SD_APP_SEND_NUM_WR_BLKS;
 	cmd.arg = 0;
-	cmd.flags = MMC_RSP_R1 | MMC_CMD_ADTC;
+	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
 
 	memset(&data, 0, sizeof(struct mmc_data));
 
@@ -192,7 +200,7 @@ static u32 mmc_sd_num_wr_blocks(struct mmc_card *card)
 
 	mmc_wait_for_req(card->host, &mrq);
 
-	if (cmd.error != MMC_ERR_NONE || data.error != MMC_ERR_NONE)
+	if (cmd.error || data.error)
 		return (u32)-1;
 
 	blocks = ntohl(blocks);
@@ -220,31 +228,22 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		brq.cmd.arg = req->sector;
 		if (!mmc_card_blockaddr(card))
 			brq.cmd.arg <<= 9;
-		brq.cmd.flags = MMC_RSP_R1 | MMC_CMD_ADTC;
+		brq.cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
 		brq.data.blksz = 1 << md->block_bits;
 		brq.stop.opcode = MMC_STOP_TRANSMISSION;
 		brq.stop.arg = 0;
-		brq.stop.flags = MMC_RSP_R1B | MMC_CMD_AC;
+		brq.stop.flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
 		brq.data.blocks = req->nr_sectors >> (md->block_bits - 9);
 		if (brq.data.blocks > card->host->max_blk_count)
 			brq.data.blocks = card->host->max_blk_count;
 
-		mmc_set_data_timeout(&brq.data, card, rq_data_dir(req) != READ);
-
-		/*
-		 * If the host doesn't support multiple block writes, force
-		 * block writes to single block. SD cards are excepted from
-		 * this rule as they support querying the number of
-		 * successfully written sectors.
-		 */
-		if (rq_data_dir(req) != READ &&
-		    !(card->host->caps & MMC_CAP_MULTIWRITE) &&
-		    !mmc_card_sd(card))
-			brq.data.blocks = 1;
-
 		if (brq.data.blocks > 1) {
-			brq.data.flags |= MMC_DATA_MULTI;
-			brq.mrq.stop = &brq.stop;
+			/* SPI multiblock writes terminate using a special
+			 * token, not a STOP_TRANSMISSION request.
+			 */
+			if (!mmc_host_is_spi(card->host)
+					|| rq_data_dir(req) == READ)
+				brq.mrq.stop = &brq.stop;
 			readcmd = MMC_READ_MULTIPLE_BLOCK;
 			writecmd = MMC_WRITE_MULTIPLE_BLOCK;
 		} else {
@@ -260,6 +259,8 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 			brq.cmd.opcode = writecmd;
 			brq.data.flags |= MMC_DATA_WRITE;
 		}
+
+		mmc_set_data_timeout(&brq.data, card);
 
 		brq.data.sg = mq->sg;
 		brq.data.sg_len = mmc_queue_map_sg(mq);
@@ -284,25 +285,27 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 
 		mmc_queue_bounce_post(mq);
 
+		/*
+		 * Check for errors here, but don't jump to cmd_err
+		 * until later as we need to wait for the card to leave
+		 * programming mode even when things go wrong.
+		 */
 		if (brq.cmd.error) {
 			printk(KERN_ERR "%s: error %d sending read/write command\n",
 			       req->rq_disk->disk_name, brq.cmd.error);
-			goto cmd_err;
 		}
 
 		if (brq.data.error) {
 			printk(KERN_ERR "%s: error %d transferring data\n",
 			       req->rq_disk->disk_name, brq.data.error);
-			goto cmd_err;
 		}
 
 		if (brq.stop.error) {
 			printk(KERN_ERR "%s: error %d sending stop command\n",
 			       req->rq_disk->disk_name, brq.stop.error);
-			goto cmd_err;
 		}
 
-		if (rq_data_dir(req) != READ) {
+		if (!mmc_host_is_spi(card->host) && rq_data_dir(req) != READ) {
 			do {
 				int err;
 
@@ -315,7 +318,13 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 					       req->rq_disk->disk_name, err);
 					goto cmd_err;
 				}
-			} while (!(cmd.resp[0] & R1_READY_FOR_DATA));
+				/*
+				 * Some cards mishandle the status bits,
+				 * so make sure to check both the busy
+				 * indication and the card state.
+				 */
+			} while (!(cmd.resp[0] & R1_READY_FOR_DATA) ||
+				(R1_CURRENT_STATE(cmd.resp[0]) == 7));
 
 #if 0
 			if (cmd.resp[0] & ~0x00000900)
@@ -326,19 +335,14 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 #endif
 		}
 
+		if (brq.cmd.error || brq.data.error || brq.stop.error)
+			goto cmd_err;
+
 		/*
 		 * A block was successfully transferred.
 		 */
 		spin_lock_irq(&md->lock);
-		ret = end_that_request_chunk(req, 1, brq.data.bytes_xfered);
-		if (!ret) {
-			/*
-			 * The whole request completed successfully.
-			 */
-			add_disk_randomness(req->rq_disk);
-			blkdev_dequeue_request(req);
-			end_that_request_last(req, 1);
-		}
+		ret = __blk_end_request(req, 0, brq.data.bytes_xfered);
 		spin_unlock_irq(&md->lock);
 	} while (ret);
 
@@ -352,51 +356,44 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
  	 * mark the known good sectors as ok.
  	 *
 	 * If the card is not SD, we can still ok written sectors
-	 * if the controller can do proper error reporting.
+	 * as reported by the controller (which might be less than
+	 * the real number of written sectors, but never more).
 	 *
 	 * For reads we just fail the entire chunk as that should
 	 * be safe in all cases.
 	 */
- 	if (rq_data_dir(req) != READ && mmc_card_sd(card)) {
-		u32 blocks;
-		unsigned int bytes;
+	if (rq_data_dir(req) != READ) {
+		if (mmc_card_sd(card)) {
+			u32 blocks;
+			unsigned int bytes;
 
-		blocks = mmc_sd_num_wr_blocks(card);
-		if (blocks != (u32)-1) {
-			if (card->csd.write_partial)
-				bytes = blocks << md->block_bits;
-			else
-				bytes = blocks << 9;
+			blocks = mmc_sd_num_wr_blocks(card);
+			if (blocks != (u32)-1) {
+				if (card->csd.write_partial)
+					bytes = blocks << md->block_bits;
+				else
+					bytes = blocks << 9;
+				spin_lock_irq(&md->lock);
+				ret = __blk_end_request(req, 0, bytes);
+				spin_unlock_irq(&md->lock);
+			}
+		} else {
 			spin_lock_irq(&md->lock);
-			ret = end_that_request_chunk(req, 1, bytes);
+			ret = __blk_end_request(req, 0, brq.data.bytes_xfered);
 			spin_unlock_irq(&md->lock);
 		}
-	} else if (rq_data_dir(req) != READ &&
-		   (card->host->caps & MMC_CAP_MULTIWRITE)) {
-		spin_lock_irq(&md->lock);
-		ret = end_that_request_chunk(req, 1, brq.data.bytes_xfered);
-		spin_unlock_irq(&md->lock);
 	}
 
 	mmc_release_host(card->host);
 
 	spin_lock_irq(&md->lock);
-	while (ret) {
-		ret = end_that_request_chunk(req, 0,
-				req->current_nr_sectors << 9);
-	}
-
-	add_disk_randomness(req->rq_disk);
-	blkdev_dequeue_request(req);
-	end_that_request_last(req, 0);
+	while (ret)
+		ret = __blk_end_request(req, -EIO, blk_rq_cur_bytes(req));
 	spin_unlock_irq(&md->lock);
 
 	return 0;
 }
 
-#define MMC_NUM_MINORS	(256 >> MMC_SHIFT)
-
-static unsigned long dev_use[MMC_NUM_MINORS/(8*sizeof(unsigned long))];
 
 static inline int mmc_blk_readonly(struct mmc_card *card)
 {
@@ -510,7 +507,7 @@ mmc_blk_set_blksize(struct mmc_blk_data *md, struct mmc_card *card)
 	mmc_claim_host(card->host);
 	cmd.opcode = MMC_SET_BLOCKLEN;
 	cmd.arg = 1 << md->block_bits;
-	cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
+	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
 	err = mmc_wait_for_cmd(card->host, &cmd, 5);
 	mmc_release_host(card->host);
 
@@ -562,16 +559,11 @@ static void mmc_blk_remove(struct mmc_card *card)
 	struct mmc_blk_data *md = mmc_get_drvdata(card);
 
 	if (md) {
-		int devidx;
-
 		/* Stop new requests from getting into the queue */
 		del_gendisk(md->disk);
 
 		/* Then flush out any already in there */
 		mmc_cleanup_queue(&md->queue);
-
-		devidx = md->disk->first_minor >> MMC_SHIFT;
-		__clear_bit(devidx, dev_use);
 
 		mmc_blk_put(md);
 	}

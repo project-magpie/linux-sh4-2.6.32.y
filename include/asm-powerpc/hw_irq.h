@@ -27,7 +27,7 @@ static inline unsigned long local_get_flags(void)
 	return flags;
 }
 
-static inline unsigned long local_irq_disable(void)
+static inline unsigned long raw_local_irq_disable(void)
 {
 	unsigned long flags, zero;
 
@@ -39,14 +39,15 @@ static inline unsigned long local_irq_disable(void)
 	return flags;
 }
 
-extern void local_irq_restore(unsigned long);
+extern void raw_local_irq_restore(unsigned long);
 extern void iseries_handle_interrupts(void);
 
-#define local_irq_enable()	local_irq_restore(1)
-#define local_save_flags(flags)	((flags) = local_get_flags())
-#define local_irq_save(flags)	((flags) = local_irq_disable())
+#define raw_local_irq_enable()		raw_local_irq_restore(1)
+#define raw_local_save_flags(flags)	((flags) = local_get_flags())
+#define raw_local_irq_save(flags)	((flags) = raw_local_irq_disable())
 
-#define irqs_disabled()		(local_get_flags() == 0)
+#define raw_irqs_disabled()		(local_get_flags() == 0)
+#define raw_irqs_disabled_flags(flags)	((flags) == 0)
 
 #define __hard_irq_enable()	__mtmsrd(mfmsr() | MSR_EE, 1)
 #define __hard_irq_disable()	__mtmsrd(mfmsr() & ~MSR_EE, 1)
@@ -57,6 +58,11 @@ extern void iseries_handle_interrupts(void);
 		get_paca()->soft_enabled = 0;	\
 		get_paca()->hard_enabled = 0;	\
 	} while(0)
+
+static inline int irqs_disabled_flags(unsigned long flags)
+{
+	return flags == 0;
+}
 
 #else
 
@@ -111,6 +117,11 @@ static inline void local_irq_save_ptr(unsigned long *flags)
 
 #define hard_irq_enable()	local_irq_enable()
 #define hard_irq_disable()	local_irq_disable()
+
+static inline int irqs_disabled_flags(unsigned long flags)
+{
+	return (flags & MSR_EE) == 0;
+}
 
 #endif /* CONFIG_PPC64 */
 

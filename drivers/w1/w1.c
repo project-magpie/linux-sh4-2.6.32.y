@@ -197,7 +197,7 @@ static struct w1_family w1_default_family = {
 	.fops = &w1_default_fops,
 };
 
-static int w1_uevent(struct device *dev, char **envp, int num_envp, char *buffer, int buffer_size);
+static int w1_uevent(struct device *dev, struct kobj_uevent_env *env);
 
 static struct bus_type w1_bus_type = {
 	.name = "w1",
@@ -396,13 +396,12 @@ static void w1_destroy_master_attributes(struct w1_master *master)
 }
 
 #ifdef CONFIG_HOTPLUG
-static int w1_uevent(struct device *dev, char **envp, int num_envp,
-			char *buffer, int buffer_size)
+static int w1_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
 	struct w1_master *md = NULL;
 	struct w1_slave *sl = NULL;
 	char *event_owner, *name;
-	int err, cur_index=0, cur_len=0;
+	int err;
 
 	if (dev->driver == &w1_master_driver) {
 		md = container_of(dev, struct w1_master, dev);
@@ -423,23 +422,19 @@ static int w1_uevent(struct device *dev, char **envp, int num_envp,
 	if (dev->driver != &w1_slave_driver || !sl)
 		return 0;
 
-	err = add_uevent_var(envp, num_envp, &cur_index, buffer, buffer_size,
-			&cur_len, "W1_FID=%02X", sl->reg_num.family);
+	err = add_uevent_var(env, "W1_FID=%02X", sl->reg_num.family);
 	if (err)
 		return err;
 
-	err = add_uevent_var(envp, num_envp, &cur_index, buffer, buffer_size,
-			&cur_len, "W1_SLAVE_ID=%024LX",
-			(unsigned long long)sl->reg_num.id);
-	envp[cur_index] = NULL;
+	err = add_uevent_var(env, "W1_SLAVE_ID=%024LX",
+			     (unsigned long long)sl->reg_num.id);
 	if (err)
 		return err;
 
 	return 0;
 };
 #else
-static int w1_uevent(struct device *dev, char **envp, int num_envp,
-			char *buffer, int buffer_size)
+static int w1_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
 	return 0;
 }
@@ -680,7 +675,6 @@ static void w1_slave_found(void *data, u64 rn)
 	struct w1_slave *sl;
 	struct list_head *ent;
 	struct w1_reg_num *tmp;
-	int family_found = 0;
 	struct w1_master *dev;
 	u64 rn_le = cpu_to_le64(rn);
 
@@ -702,9 +696,6 @@ static void w1_slave_found(void *data, u64 rn)
 		    sl->reg_num.id == tmp->id &&
 		    sl->reg_num.crc == tmp->crc) {
 			set_bit(W1_SLAVE_ACTIVE, (long *)&sl->flags);
-			break;
-		} else if (sl->reg_num.family == tmp->family) {
-			family_found = 1;
 			break;
 		}
 
@@ -874,11 +865,9 @@ void w1_search_process(struct w1_master *dev, u8 search_type)
 	w1_search_devices(dev, search_type, w1_slave_found);
 
 	list_for_each_entry_safe(sl, sln, &dev->slist, w1_slave_entry) {
-		if (!test_bit(W1_SLAVE_ACTIVE, (unsigned long *)&sl->flags) && !--sl->ttl) {
+		if (!test_bit(W1_SLAVE_ACTIVE, (unsigned long *)&sl->flags) && !--sl->ttl)
 			w1_slave_detach(sl);
-
-			dev->slave_count--;
-		} else if (test_bit(W1_SLAVE_ACTIVE, (unsigned long *)&sl->flags))
+		else if (test_bit(W1_SLAVE_ACTIVE, (unsigned long *)&sl->flags))
 			sl->ttl = dev->slave_ttl;
 	}
 

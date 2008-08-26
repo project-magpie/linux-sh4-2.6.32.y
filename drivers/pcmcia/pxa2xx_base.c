@@ -29,10 +29,10 @@
 #include <asm/irq.h>
 #include <asm/system.h>
 #include <asm/arch/pxa-regs.h>
+#include <asm/arch/pxa2xx-regs.h>
 
 #include <pcmcia/cs_types.h>
 #include <pcmcia/ss.h>
-#include <pcmcia/bulkmem.h>
 #include <pcmcia/cistpl.h>
 
 #include "cs_internal.h"
@@ -58,7 +58,7 @@ static inline u_int pxa2xx_mcxx_asst(u_int pcmcia_cycle_ns,
 				     u_int mem_clk_10khz)
 {
 	u_int code = pcmcia_cycle_ns * mem_clk_10khz;
-	return (code / 300000) + ((code % 300000) ? 1 : 0) - 1;
+	return (code / 300000) + ((code % 300000) ? 1 : 0) + 1;
 }
 
 static inline u_int pxa2xx_mcxx_setup(u_int pcmcia_cycle_ns,
@@ -238,6 +238,7 @@ static struct platform_driver pxa2xx_pcmcia_driver = {
 	.resume 	= pxa2xx_drv_pcmcia_resume,
 	.driver		= {
 		.name	= "pxa2xx-pcmcia",
+		.owner	= THIS_MODULE,
 	},
 };
 
@@ -257,3 +258,4 @@ module_exit(pxa2xx_pcmcia_exit);
 MODULE_AUTHOR("Stefan Eletzhofer <stefan.eletzhofer@inquant.de> and Ian Molton <spyro@f2s.com>");
 MODULE_DESCRIPTION("Linux PCMCIA Card Services: PXA2xx core socket driver");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:pxa2xx-pcmcia");

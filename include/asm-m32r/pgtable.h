@@ -21,9 +21,9 @@
 #ifndef __ASSEMBLY__
 
 #include <linux/threads.h>
+#include <linux/bitops.h>
 #include <asm/processor.h>
 #include <asm/addrspace.h>
-#include <asm/bitops.h>
 #include <asm/page.h>
 
 struct mm_struct;
@@ -214,6 +214,11 @@ static inline int pte_file(pte_t pte)
 	return pte_val(pte) & _PAGE_FILE;
 }
 
+static inline int pte_special(pte_t pte)
+{
+	return 0;
+}
+
 static inline pte_t pte_mkclean(pte_t pte)
 {
 	pte_val(pte) &= ~_PAGE_DIRTY;
@@ -247,6 +252,11 @@ static inline pte_t pte_mkyoung(pte_t pte)
 static inline pte_t pte_mkwrite(pte_t pte)
 {
 	pte_val(pte) |= _PAGE_WRITE;
+	return pte;
+}
+
+static inline pte_t pte_mkspecial(pte_t pte)
+{
 	return pte;
 }
 

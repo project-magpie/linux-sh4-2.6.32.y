@@ -8,10 +8,17 @@
 
 #define pcibios_scan_all_fns(a, b)	0
 
+#ifdef CONFIG_PCI_HOST_ITE8152
+/* ITE bridge requires setting latency timer to avoid early bus access
+   termination by PIC bus mater devices
+*/
+extern void pcibios_set_master(struct pci_dev *dev);
+#else
 static inline void pcibios_set_master(struct pci_dev *dev)
 {
 	/* No special bus mastering setup handling */
 }
+#endif
 
 static inline void pcibios_penalize_isa_irq(int irq, int active)
 {
@@ -69,6 +76,14 @@ pcibios_select_root(struct pci_dev *pdev, struct resource *res)
 		root = &iomem_resource;
 
 	return root;
+}
+
+/*
+ * Dummy implementation; always return 0.
+ */
+static inline int pci_get_legacy_ide_irq(struct pci_dev *dev, int channel)
+{
+	return 0;
 }
 
 #endif /* __KERNEL__ */

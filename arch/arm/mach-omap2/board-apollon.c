@@ -25,6 +25,9 @@
 #include <linux/irq.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
+#include <linux/leds.h>
+#include <linux/err.h>
+#include <linux/clk.h>
 
 #include <asm/hardware.h>
 #include <asm/mach-types.h>
@@ -32,11 +35,13 @@
 #include <asm/mach/flash.h>
 
 #include <asm/arch/gpio.h>
+#include <asm/arch/led.h>
 #include <asm/arch/mux.h>
 #include <asm/arch/usb.h>
 #include <asm/arch/board.h>
 #include <asm/arch/common.h>
-#include "prcm-regs.h"
+#include <asm/arch/gpmc.h>
+#include <asm/arch/control.h>
 
 /* LED & Switch macros */
 #define LED0_GPIO13		13
@@ -45,6 +50,9 @@
 #define SW_ENTER_GPIO16		16
 #define SW_UP_GPIO17		17
 #define SW_DOWN_GPIO58		58
+
+#define APOLLON_FLASH_CS	0
+#define APOLLON_ETH_CS		1
 
 static struct mtd_partition apollon_partitions[] = {
 	{
@@ -85,10 +93,10 @@ static struct flash_platform_data apollon_flash_data = {
 	.nr_parts	= ARRAY_SIZE(apollon_partitions),
 };
 
-static struct resource apollon_flash_resource = {
-	.start		= APOLLON_CS0_BASE,
-	.end		= APOLLON_CS0_BASE + SZ_128K,
-	.flags		= IORESOURCE_MEM,
+static struct resource apollon_flash_resource[] = {
+	[0] = {
+		.flags		= IORESOURCE_MEM,
+	},
 };
 
 static struct platform_device apollon_onenand_device = {
@@ -97,20 +105,30 @@ static struct platform_device apollon_onenand_device = {
 	.dev		= {
 		.platform_data	= &apollon_flash_data,
 	},
-	.num_resources	= ARRAY_SIZE(&apollon_flash_resource),
-	.resource	= &apollon_flash_resource,
+	.num_resources	= ARRAY_SIZE(apollon_flash_resource),
+	.resource	= apollon_flash_resource,
 };
+
+static void __init apollon_flash_init(void)
+{
+	unsigned long base;
+
+	if (gpmc_cs_request(APOLLON_FLASH_CS, SZ_128K, &base) < 0) {
+		printk(KERN_ERR "Cannot request OneNAND GPMC CS\n");
+		return;
+	}
+	apollon_flash_resource[0].start = base;
+	apollon_flash_resource[0].end   = base + SZ_128K - 1;
+}
 
 static struct resource apollon_smc91x_resources[] = {
 	[0] = {
-		.start	= APOLLON_ETHR_START,		/* Physical */
-		.end	= APOLLON_ETHR_START + 0xf,
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
 		.start	= OMAP_GPIO_IRQ(APOLLON_ETHR_GPIO_IRQ),
 		.end	= OMAP_GPIO_IRQ(APOLLON_ETHR_GPIO_IRQ),
-		.flags	= IORESOURCE_IRQ,
+		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHEDGE,
 	},
 };
 
@@ -126,31 +144,109 @@ static struct platform_device apollon_lcd_device = {
 	.id		= -1,
 };
 
+static struct omap_led_config apollon_led_config[] = {
+	{
+		.cdev	= {
+			.name	= "apollon:led0",
+		},
+		.gpio	= LED0_GPIO13,
+	},
+	{
+		.cdev	= {
+			.name	= "apollon:led1",
+		},
+		.gpio	= LED1_GPIO14,
+	},
+	{
+		.cdev	= {
+			.name	= "apollon:led2",
+		},
+		.gpio	= LED2_GPIO15,
+	},
+};
+
+static struct omap_led_platform_data apollon_led_data = {
+	.nr_leds	= ARRAY_SIZE(apollon_led_config),
+	.leds		= apollon_led_config,
+};
+
+static struct platform_device apollon_led_device = {
+	.name		= "omap-led",
+	.id		= -1,
+	.dev		= {
+		.platform_data	= &apollon_led_data,
+	},
+};
+
 static struct platform_device *apollon_devices[] __initdata = {
 	&apollon_onenand_device,
 	&apollon_smc91x_device,
 	&apollon_lcd_device,
+	&apollon_led_device,
 };
 
 static inline void __init apollon_init_smc91x(void)
 {
+	unsigned long base;
+
+	unsigned int rate;
+	struct clk *gpmc_fck;
+	int eth_cs;
+
+	gpmc_fck = clk_get(NULL, "gpmc_fck");	/* Always on ENABLE_ON_INIT */
+	if (IS_ERR(gpmc_fck)) {
+		WARN_ON(1);
+		return;
+	}
+
+	clk_enable(gpmc_fck);
+	rate = clk_get_rate(gpmc_fck);
+
+	eth_cs = APOLLON_ETH_CS;
+
 	/* Make sure CS1 timings are correct */
-	GPMC_CONFIG1_1 = 0x00011203;
-	GPMC_CONFIG2_1 = 0x001f1f01;
-	GPMC_CONFIG3_1 = 0x00080803;
-	GPMC_CONFIG4_1 = 0x1c091c09;
-	GPMC_CONFIG5_1 = 0x041f1f1f;
-	GPMC_CONFIG6_1 = 0x000004c4;
-	GPMC_CONFIG7_1 = 0x00000f40 | (APOLLON_CS1_BASE >> 24);
+	gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG1, 0x00011200);
+
+	if (rate >= 160000000) {
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG2, 0x001f1f01);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG3, 0x00080803);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG4, 0x1c0b1c0a);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG5, 0x041f1F1F);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG6, 0x000004C4);
+	} else if (rate >= 130000000) {
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG2, 0x001f1f00);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG3, 0x00080802);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG4, 0x1C091C09);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG5, 0x041f1F1F);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG6, 0x000004C4);
+	} else {/* rate = 100000000 */
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG2, 0x001f1f00);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG3, 0x00080802);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG4, 0x1C091C09);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG5, 0x031A1F1F);
+		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG6, 0x000003C2);
+	}
+
+	if (gpmc_cs_request(APOLLON_ETH_CS, SZ_16M, &base) < 0) {
+		printk(KERN_ERR "Failed to request GPMC CS for smc91x\n");
+		goto out;
+	}
+	apollon_smc91x_resources[0].start = base + 0x300;
+	apollon_smc91x_resources[0].end   = base + 0x30f;
 	udelay(100);
 
 	omap_cfg_reg(W4__24XX_GPIO74);
 	if (omap_request_gpio(APOLLON_ETHR_GPIO_IRQ) < 0) {
 		printk(KERN_ERR "Failed to request GPIO%d for smc91x IRQ\n",
 			APOLLON_ETHR_GPIO_IRQ);
-		return;
+		gpmc_cs_free(APOLLON_ETH_CS);
+		goto out;
 	}
 	omap_set_gpio_direction(APOLLON_ETHR_GPIO_IRQ, 1);
+
+out:
+	clk_disable(gpmc_fck);
+	clk_put(gpmc_fck);
 }
 
 static void __init omap_apollon_init_irq(void)
@@ -175,6 +271,13 @@ static struct omap_mmc_config apollon_mmc_config __initdata = {
 	},
 };
 
+static struct omap_usb_config apollon_usb_config __initdata = {
+	.register_dev	= 1,
+	.hmc_mode	= 0x14,	/* 0:dev 1:host1 2:disable */
+
+	.pins[0]	= 6,
+};
+
 static struct omap_lcd_config apollon_lcd_config __initdata = {
 	.ctrl_name	= "internal",
 };
@@ -182,6 +285,7 @@ static struct omap_lcd_config apollon_lcd_config __initdata = {
 static struct omap_board_config_kernel apollon_config[] = {
 	{ OMAP_TAG_UART,	&apollon_uart_config },
 	{ OMAP_TAG_MMC,		&apollon_mmc_config },
+	{ OMAP_TAG_USB,		&apollon_usb_config },
 	{ OMAP_TAG_LCD,		&apollon_lcd_config },
 };
 
@@ -233,33 +337,49 @@ static void __init apollon_sw_init(void)
 	omap_request_gpio(SW_DOWN_GPIO58);
 	omap_set_gpio_direction(SW_DOWN_GPIO58, 1);
 
-	set_irq_type(OMAP_GPIO_IRQ(SW_ENTER_GPIO16), IRQT_RISING);
+	set_irq_type(OMAP_GPIO_IRQ(SW_ENTER_GPIO16), IRQ_TYPE_EDGE_RISING);
 	if (request_irq(OMAP_GPIO_IRQ(SW_ENTER_GPIO16), &apollon_sw_interrupt,
 				IRQF_SHARED, "enter sw",
 				&apollon_sw_interrupt))
 		return;
-	set_irq_type(OMAP_GPIO_IRQ(SW_UP_GPIO17), IRQT_RISING);
+	set_irq_type(OMAP_GPIO_IRQ(SW_UP_GPIO17), IRQ_TYPE_EDGE_RISING);
 	if (request_irq(OMAP_GPIO_IRQ(SW_UP_GPIO17), &apollon_sw_interrupt,
 				IRQF_SHARED, "up sw",
 				&apollon_sw_interrupt))
 		return;
-	set_irq_type(OMAP_GPIO_IRQ(SW_DOWN_GPIO58), IRQT_RISING);
+	set_irq_type(OMAP_GPIO_IRQ(SW_DOWN_GPIO58), IRQ_TYPE_EDGE_RISING);
 	if (request_irq(OMAP_GPIO_IRQ(SW_DOWN_GPIO58), &apollon_sw_interrupt,
 				IRQF_SHARED, "down sw",
 				&apollon_sw_interrupt))
 		return;
 }
 
+static void __init apollon_usb_init(void)
+{
+	/* USB device */
+	/* DEVICE_SUSPEND */
+	omap_cfg_reg(P21_242X_GPIO12);
+	omap_request_gpio(12);
+	omap_set_gpio_direction(12, 0);		/* OUT */
+	omap_set_gpio_dataout(12, 0);
+}
+
 static void __init omap_apollon_init(void)
 {
+	u32 v;
+
 	apollon_led_init();
 	apollon_sw_init();
+	apollon_flash_init();
+	apollon_usb_init();
 
 	/* REVISIT: where's the correct place */
 	omap_cfg_reg(W19_24XX_SYS_NIRQ);
 
 	/* Use Interal loop-back in MMC/SDIO Module Input Clock selection */
-	CONTROL_DEVCONF |= (1 << 24);
+	v = omap_ctrl_readl(OMAP2_CONTROL_DEVCONF0);
+	v |= (1 << 24);
+	omap_ctrl_writel(v, OMAP2_CONTROL_DEVCONF0);
 
 	/*
  	 * Make sure the serial ports are muxed on at this point.
@@ -274,6 +394,7 @@ static void __init omap_apollon_init(void)
 
 static void __init omap_apollon_map_io(void)
 {
+	omap2_set_globals_242x();
 	omap2_map_common_io();
 }
 

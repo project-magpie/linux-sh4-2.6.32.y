@@ -7,9 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in the
  * jffs2 directory.
- *
- * $Id: jffs2.h,v 1.38 2005/09/26 11:37:23 havasi Exp $
- *
  */
 
 #ifndef __LINUX_JFFS2_H__
@@ -46,6 +43,7 @@
 #define JFFS2_COMPR_COPY	0x04
 #define JFFS2_COMPR_DYNRUBIN	0x05
 #define JFFS2_COMPR_ZLIB	0x06
+#define JFFS2_COMPR_LZO		0x07
 /* Compatibility flags. */
 #define JFFS2_COMPAT_MASK 0xc000      /* What do to if an unknown nodetype is found */
 #define JFFS2_NODE_ACCURATE 0x2000

@@ -13,6 +13,7 @@
 
 #include <linux/module.h>
 #include <linux/rtc.h>
+#include <linux/smp_lock.h>
 #include "rtc-core.h"
 
 static dev_t rtc_devt;
@@ -26,11 +27,11 @@ static int rtc_dev_open(struct inode *inode, struct file *file)
 					struct rtc_device, char_dev);
 	const struct rtc_class_ops *ops = rtc->ops;
 
-	/* We keep the lock as long as the device is in use
-	 * and return immediately if busy
-	 */
-	if (!(mutex_trylock(&rtc->char_lock)))
-		return -EBUSY;
+	lock_kernel();
+	if (test_and_set_bit_lock(RTC_DEV_BUSY, &rtc->flags)) {
+		err = -EBUSY;
+		goto out;
+	}
 
 	file->private_data = rtc;
 
@@ -40,11 +41,13 @@ static int rtc_dev_open(struct inode *inode, struct file *file)
 		rtc->irq_data = 0;
 		spin_unlock_irq(&rtc->irq_lock);
 
-		return 0;
+		goto out;
 	}
 
-	/* something has gone wrong, release the lock */
-	mutex_unlock(&rtc->char_lock);
+	/* something has gone wrong */
+	clear_bit_unlock(RTC_DEV_BUSY, &rtc->flags);
+out:
+	unlock_kernel();
 	return err;
 }
 
@@ -142,7 +145,7 @@ static int set_uie(struct rtc_device *rtc)
 static ssize_t
 rtc_dev_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 {
-	struct rtc_device *rtc = to_rtc_device(file->private_data);
+	struct rtc_device *rtc = file->private_data;
 
 	DECLARE_WAITQUEUE(wait, current);
 	unsigned long data;
@@ -196,7 +199,7 @@ rtc_dev_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 
 static unsigned int rtc_dev_poll(struct file *file, poll_table *wait)
 {
-	struct rtc_device *rtc = to_rtc_device(file->private_data);
+	struct rtc_device *rtc = file->private_data;
 	unsigned long data;
 
 	poll_wait(file, &rtc->irq_queue, wait);
@@ -206,7 +209,7 @@ static unsigned int rtc_dev_poll(struct file *file, poll_table *wait)
 	return (data != 0) ? (POLLIN | POLLRDNORM) : 0;
 }
 
-static int rtc_dev_ioctl(struct inode *inode, struct file *file,
+static long rtc_dev_ioctl(struct file *file,
 		unsigned int cmd, unsigned long arg)
 {
 	int err = 0;
@@ -216,6 +219,10 @@ static int rtc_dev_ioctl(struct inode *inode, struct file *file,
 	struct rtc_wkalrm alarm;
 	void __user *uarg = (void __user *) arg;
 
+	err = mutex_lock_interruptible(&rtc->ops_lock);
+	if (err)
+		return -EBUSY;
+
 	/* check that the calling task has appropriate permissions
 	 * for certain ioctls. doing this check here is useful
 	 * to avoid duplicate code in each driver.
@@ -224,54 +231,62 @@ static int rtc_dev_ioctl(struct inode *inode, struct file *file,
 	case RTC_EPOCH_SET:
 	case RTC_SET_TIME:
 		if (!capable(CAP_SYS_TIME))
-			return -EACCES;
+			err = -EACCES;
 		break;
 
 	case RTC_IRQP_SET:
 		if (arg > rtc->max_user_freq && !capable(CAP_SYS_RESOURCE))
-			return -EACCES;
+			err = -EACCES;
 		break;
 
 	case RTC_PIE_ON:
-		if (!capable(CAP_SYS_RESOURCE))
-			return -EACCES;
+		if (rtc->irq_freq > rtc->max_user_freq &&
+				!capable(CAP_SYS_RESOURCE))
+			err = -EACCES;
 		break;
 	}
 
-	/* avoid conflicting IRQ users */
-	if (cmd == RTC_PIE_ON || cmd == RTC_PIE_OFF || cmd == RTC_IRQP_SET) {
-		spin_lock_irq(&rtc->irq_task_lock);
-		if (rtc->irq_task)
-			err = -EBUSY;
-		spin_unlock_irq(&rtc->irq_task_lock);
-
-		if (err < 0)
-			return err;
-	}
+	if (err)
+		goto done;
 
 	/* try the driver's ioctl interface */
 	if (ops->ioctl) {
 		err = ops->ioctl(rtc->dev.parent, cmd, arg);
-		if (err != -ENOIOCTLCMD)
+		if (err != -ENOIOCTLCMD) {
+			mutex_unlock(&rtc->ops_lock);
 			return err;
+		}
 	}
 
 	/* if the driver does not provide the ioctl interface
 	 * or if that particular ioctl was not implemented
 	 * (-ENOIOCTLCMD), we will try to emulate here.
+	 *
+	 * Drivers *SHOULD NOT* provide ioctl implementations
+	 * for these requests.  Instead, provide methods to
+	 * support the following code, so that the RTC's main
+	 * features are accessible without using ioctls.
+	 *
+	 * RTC and alarm times will be in UTC, by preference,
+	 * but dual-booting with MS-Windows implies RTCs must
+	 * use the local wall clock time.
 	 */
 
 	switch (cmd) {
 	case RTC_ALM_READ:
+		mutex_unlock(&rtc->ops_lock);
+
 		err = rtc_read_alarm(rtc, &alarm);
 		if (err < 0)
 			return err;
 
 		if (copy_to_user(uarg, &alarm.time, sizeof(tm)))
-			return -EFAULT;
-		break;
+			err = -EFAULT;
+		return err;
 
 	case RTC_ALM_SET:
+		mutex_unlock(&rtc->ops_lock);
+
 		if (copy_from_user(&alarm.time, uarg, sizeof(tm)))
 			return -EFAULT;
 
@@ -319,37 +334,41 @@ static int rtc_dev_ioctl(struct inode *inode, struct file *file,
 			}
 		}
 
-		err = rtc_set_alarm(rtc, &alarm);
-		break;
+		return rtc_set_alarm(rtc, &alarm);
 
 	case RTC_RD_TIME:
+		mutex_unlock(&rtc->ops_lock);
+
 		err = rtc_read_time(rtc, &tm);
 		if (err < 0)
 			return err;
 
 		if (copy_to_user(uarg, &tm, sizeof(tm)))
-			return -EFAULT;
-		break;
+			err = -EFAULT;
+		return err;
 
 	case RTC_SET_TIME:
+		mutex_unlock(&rtc->ops_lock);
+
 		if (copy_from_user(&tm, uarg, sizeof(tm)))
 			return -EFAULT;
 
-		err = rtc_set_time(rtc, &tm);
+		return rtc_set_time(rtc, &tm);
+
+	case RTC_PIE_ON:
+		err = rtc_irq_set_state(rtc, NULL, 1);
 		break;
 
-	case RTC_IRQP_READ:
-		if (ops->irq_set_freq)
-			err = put_user(rtc->irq_freq, (unsigned long __user *)uarg);
-		else
-			err = -ENOTTY;
+	case RTC_PIE_OFF:
+		err = rtc_irq_set_state(rtc, NULL, 0);
 		break;
 
 	case RTC_IRQP_SET:
-		if (ops->irq_set_freq)
-			err = rtc_irq_set_freq(rtc, rtc->irq_task, arg);
-		else
-			err = -ENOTTY;
+		err = rtc_irq_set_freq(rtc, NULL, arg);
+		break;
+
+	case RTC_IRQP_READ:
+		err = put_user(rtc->irq_freq, (unsigned long __user *)uarg);
 		break;
 
 #if 0
@@ -372,40 +391,43 @@ static int rtc_dev_ioctl(struct inode *inode, struct file *file,
 		break;
 #endif
 	case RTC_WKALM_SET:
+		mutex_unlock(&rtc->ops_lock);
 		if (copy_from_user(&alarm, uarg, sizeof(alarm)))
 			return -EFAULT;
 
-		err = rtc_set_alarm(rtc, &alarm);
-		break;
+		return rtc_set_alarm(rtc, &alarm);
 
 	case RTC_WKALM_RD:
+		mutex_unlock(&rtc->ops_lock);
 		err = rtc_read_alarm(rtc, &alarm);
 		if (err < 0)
 			return err;
 
 		if (copy_to_user(uarg, &alarm, sizeof(alarm)))
-			return -EFAULT;
-		break;
+			err = -EFAULT;
+		return err;
 
 #ifdef CONFIG_RTC_INTF_DEV_UIE_EMUL
 	case RTC_UIE_OFF:
 		clear_uie(rtc);
-		return 0;
+		break;
 
 	case RTC_UIE_ON:
-		return set_uie(rtc);
+		err = set_uie(rtc);
 #endif
 	default:
 		err = -ENOTTY;
 		break;
 	}
 
+done:
+	mutex_unlock(&rtc->ops_lock);
 	return err;
 }
 
 static int rtc_dev_release(struct inode *inode, struct file *file)
 {
-	struct rtc_device *rtc = to_rtc_device(file->private_data);
+	struct rtc_device *rtc = file->private_data;
 
 #ifdef CONFIG_RTC_INTF_DEV_UIE_EMUL
 	clear_uie(rtc);
@@ -413,13 +435,13 @@ static int rtc_dev_release(struct inode *inode, struct file *file)
 	if (rtc->ops->release)
 		rtc->ops->release(rtc->dev.parent);
 
-	mutex_unlock(&rtc->char_lock);
+	clear_bit_unlock(RTC_DEV_BUSY, &rtc->flags);
 	return 0;
 }
 
 static int rtc_dev_fasync(int fd, struct file *file, int on)
 {
-	struct rtc_device *rtc = to_rtc_device(file->private_data);
+	struct rtc_device *rtc = file->private_data;
 	return fasync_helper(fd, file, on, &rtc->async_queue);
 }
 
@@ -428,7 +450,7 @@ static const struct file_operations rtc_dev_fops = {
 	.llseek		= no_llseek,
 	.read		= rtc_dev_read,
 	.poll		= rtc_dev_poll,
-	.ioctl		= rtc_dev_ioctl,
+	.unlocked_ioctl	= rtc_dev_ioctl,
 	.open		= rtc_dev_open,
 	.release	= rtc_dev_release,
 	.fasync		= rtc_dev_fasync,
@@ -448,9 +470,6 @@ void rtc_dev_prepare(struct rtc_device *rtc)
 
 	rtc->dev.devt = MKDEV(MAJOR(rtc_devt), rtc->id);
 
-	mutex_init(&rtc->char_lock);
-	spin_lock_init(&rtc->irq_lock);
-	init_waitqueue_head(&rtc->irq_queue);
 #ifdef CONFIG_RTC_INTF_DEV_UIE_EMUL
 	INIT_WORK(&rtc->uie_task, rtc_uie_task);
 	setup_timer(&rtc->uie_timer, rtc_uie_timer, (unsigned long)rtc);

@@ -117,6 +117,7 @@ Code	Seq#	Include File		Comments
 					<mailto:natalia@nikhefk.nikhef.nl>
 'c'	00-7F	linux/comstats.h	conflict!
 'c'	00-7F	linux/coda.h		conflict!
+'c'	80-9F	asm-s390/chsc.h
 'd'	00-FF	linux/char/drm/drm/h	conflict!
 'd'	00-DF	linux/video_decoder.h	conflict!
 'd'	F0-FF	linux/digi1.h
@@ -138,6 +139,7 @@ Code	Seq#	Include File		Comments
 'm'	00-1F	net/irda/irmod.h	conflict!
 'n'	00-7F	linux/ncp_fs.h
 'n'	E0-FF	video/matrox.h          matroxfb
+'o'	00-1F	fs/ocfs2/ocfs2_fs.h	OCFS2
 'p'	00-0F	linux/phantom.h		conflict! (OpenHaptics needs this)
 'p'	00-3F	linux/mc146818rtc.h	conflict!
 'p'	40-7F	linux/nvram.h
@@ -182,6 +184,8 @@ Code	Seq#	Include File		Comments
 0xAC	00-1F	linux/raw.h
 0xAD	00	Netfilter device	in development:
 					<mailto:rusty@rustcorp.com.au>	
+0xAE	all	linux/kvm.h		Kernel-based Virtual Machine
+					<mailto:kvm-devel@lists.sourceforge.net>
 0xB0	all	RATIO devices		in development:
 					<mailto:vgo@ratio.de>
 0xB1	00-1F	PPPoX			<mailto:mostrows@styx.uwaterloo.ca>

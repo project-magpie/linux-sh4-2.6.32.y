@@ -47,6 +47,7 @@
 #include <linux/wireless.h>
 #include <linux/etherdevice.h>
 #include <asm/uaccess.h>
+#include <net/net_namespace.h>
 #include <net/arp.h>
 
 #include <net/ieee80211.h>
@@ -180,9 +181,8 @@ struct net_device *alloc_ieee80211(int sizeof_priv)
 	ieee->ieee802_1x = 1;	/* Default to supporting 802.1x */
 
 	INIT_LIST_HEAD(&ieee->crypt_deinit_list);
-	init_timer(&ieee->crypt_deinit_timer);
-	ieee->crypt_deinit_timer.data = (unsigned long)ieee;
-	ieee->crypt_deinit_timer.function = ieee80211_crypt_deinit_handler;
+	setup_timer(&ieee->crypt_deinit_timer, ieee80211_crypt_deinit_handler,
+			(unsigned long)ieee);
 	ieee->crypt_quiesced = 0;
 
 	spin_lock_init(&ieee->lock);
@@ -264,7 +264,7 @@ static int __init ieee80211_init(void)
 	struct proc_dir_entry *e;
 
 	ieee80211_debug_level = debug;
-	ieee80211_proc = proc_mkdir(DRV_NAME, proc_net);
+	ieee80211_proc = proc_mkdir(DRV_NAME, init_net.proc_net);
 	if (ieee80211_proc == NULL) {
 		IEEE80211_ERROR("Unable to create " DRV_NAME
 				" proc directory\n");
@@ -273,7 +273,7 @@ static int __init ieee80211_init(void)
 	e = create_proc_entry("debug_level", S_IFREG | S_IRUGO | S_IWUSR,
 			      ieee80211_proc);
 	if (!e) {
-		remove_proc_entry(DRV_NAME, proc_net);
+		remove_proc_entry(DRV_NAME, init_net.proc_net);
 		ieee80211_proc = NULL;
 		return -EIO;
 	}
@@ -293,7 +293,7 @@ static void __exit ieee80211_exit(void)
 #ifdef CONFIG_IEEE80211_DEBUG
 	if (ieee80211_proc) {
 		remove_proc_entry("debug_level", ieee80211_proc);
-		remove_proc_entry(DRV_NAME, proc_net);
+		remove_proc_entry(DRV_NAME, init_net.proc_net);
 		ieee80211_proc = NULL;
 	}
 #endif				/* CONFIG_IEEE80211_DEBUG */

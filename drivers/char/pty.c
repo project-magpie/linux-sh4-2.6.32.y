@@ -111,7 +111,7 @@ static int pty_write(struct tty_struct * tty, const unsigned char *buf, int coun
 	c = to->receive_room;
 	if (c > count)
 		c = count;
-	to->ldisc.receive_buf(to, buf, NULL, c);
+	to->ldisc.ops->receive_buf(to, buf, NULL, c);
 	
 	return c;
 }
@@ -149,11 +149,11 @@ static int pty_chars_in_buffer(struct tty_struct *tty)
 	int count;
 
 	/* We should get the line discipline lock for "tty->link" */
-	if (!to || !to->ldisc.chars_in_buffer)
+	if (!to || !to->ldisc.ops->chars_in_buffer)
 		return 0;
 
 	/* The ldisc must report 0 if no characters available to be read */
-	count = to->ldisc.chars_in_buffer(to);
+	count = to->ldisc.ops->chars_in_buffer(to);
 
 	if (tty->driver->subtype == PTY_TYPE_SLAVE) return count;
 
@@ -181,16 +181,19 @@ static int pty_set_lock(struct tty_struct *tty, int __user * arg)
 static void pty_flush_buffer(struct tty_struct *tty)
 {
 	struct tty_struct *to = tty->link;
+	unsigned long flags;
 	
 	if (!to)
 		return;
 	
-	if (to->ldisc.flush_buffer)
-		to->ldisc.flush_buffer(to);
+	if (to->ldisc.ops->flush_buffer)
+		to->ldisc.ops->flush_buffer(to);
 	
 	if (to->packet) {
+		spin_lock_irqsave(&tty->ctrl_lock, flags);
 		tty->ctrl_status |= TIOCPKT_FLUSHWRITE;
 		wake_up_interruptible(&to->read_wait);
+		spin_unlock_irqrestore(&tty->ctrl_lock, flags);
 	}
 }
 
@@ -248,14 +251,31 @@ static int pty_bsd_ioctl(struct tty_struct *tty, struct file *file,
 	return -ENOIOCTLCMD;
 }
 
+static int legacy_count = CONFIG_LEGACY_PTY_COUNT;
+module_param(legacy_count, int, 0);
+
+static const struct tty_operations pty_ops_bsd = {
+	.open = pty_open,
+	.close = pty_close,
+	.write = pty_write,
+	.write_room = pty_write_room,
+	.flush_buffer = pty_flush_buffer,
+	.chars_in_buffer = pty_chars_in_buffer,
+	.unthrottle = pty_unthrottle,
+	.set_termios = pty_set_termios,
+	.ioctl = pty_bsd_ioctl,
+};
+
 static void __init legacy_pty_init(void)
 {
+	if (legacy_count <= 0)
+		return;
 
-	pty_driver = alloc_tty_driver(NR_PTYS);
+	pty_driver = alloc_tty_driver(legacy_count);
 	if (!pty_driver)
 		panic("Couldn't allocate pty driver");
 
-	pty_slave_driver = alloc_tty_driver(NR_PTYS);
+	pty_slave_driver = alloc_tty_driver(legacy_count);
 	if (!pty_slave_driver)
 		panic("Couldn't allocate pty slave driver");
 
@@ -276,7 +296,6 @@ static void __init legacy_pty_init(void)
 	pty_driver->flags = TTY_DRIVER_RESET_TERMIOS | TTY_DRIVER_REAL_RAW;
 	pty_driver->other = pty_slave_driver;
 	tty_set_operations(pty_driver, &pty_ops);
-	pty_driver->ioctl = pty_bsd_ioctl;
 
 	pty_slave_driver->owner = THIS_MODULE;
 	pty_slave_driver->driver_name = "pty_slave";
@@ -313,7 +332,7 @@ int pty_limit = NR_UNIX98_PTY_DEFAULT;
 static int pty_limit_min = 0;
 static int pty_limit_max = NR_UNIX98_PTY_MAX;
 
-ctl_table pty_table[] = {
+static struct ctl_table pty_table[] = {
 	{
 		.ctl_name	= PTY_MAX,
 		.procname	= "max",
@@ -335,6 +354,27 @@ ctl_table pty_table[] = {
 	}
 };
 
+static struct ctl_table pty_kern_table[] = {
+	{
+		.ctl_name	= KERN_PTY,
+		.procname	= "pty",
+		.mode		= 0555,
+		.child		= pty_table,
+	},
+	{}
+};
+
+static struct ctl_table pty_root_table[] = {
+	{
+		.ctl_name	= CTL_KERN,
+		.procname	= "kernel",
+		.mode		= 0555,
+		.child		= pty_kern_table,
+	},
+	{}
+};
+
+
 static int pty_unix98_ioctl(struct tty_struct *tty, struct file *file,
 			    unsigned int cmd, unsigned long arg)
 {
@@ -347,6 +387,19 @@ static int pty_unix98_ioctl(struct tty_struct *tty, struct file *file,
 
 	return -ENOIOCTLCMD;
 }
+
+static const struct tty_operations pty_unix98_ops = {
+	.open = pty_open,
+	.close = pty_close,
+	.write = pty_write,
+	.write_room = pty_write_room,
+	.flush_buffer = pty_flush_buffer,
+	.chars_in_buffer = pty_chars_in_buffer,
+	.unthrottle = pty_unthrottle,
+	.set_termios = pty_set_termios,
+	.ioctl = pty_unix98_ioctl
+};
+
 
 static void __init unix98_pty_init(void)
 {
@@ -374,8 +427,7 @@ static void __init unix98_pty_init(void)
 	ptm_driver->flags = TTY_DRIVER_RESET_TERMIOS | TTY_DRIVER_REAL_RAW |
 		TTY_DRIVER_DYNAMIC_DEV | TTY_DRIVER_DEVPTS_MEM;
 	ptm_driver->other = pts_driver;
-	tty_set_operations(ptm_driver, &pty_ops);
-	ptm_driver->ioctl = pty_unix98_ioctl;
+	tty_set_operations(ptm_driver, &pty_unix98_ops);
 
 	pts_driver->owner = THIS_MODULE;
 	pts_driver->driver_name = "pty_slave";
@@ -399,6 +451,7 @@ static void __init unix98_pty_init(void)
 		panic("Couldn't register Unix98 pts driver");
 
 	pty_table[1].data = &ptm_driver->refcount;
+	register_sysctl_table(pty_root_table);
 }
 #else
 static inline void unix98_pty_init(void) { }

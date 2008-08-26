@@ -64,6 +64,13 @@ enum {
 	/* Conexant MPEG encoder/decoders: reserved range 410-420 */
 	V4L2_IDENT_CX23415 = 415,
 	V4L2_IDENT_CX23416 = 416,
+	V4L2_IDENT_CX23418 = 418,
+
+	/* module vp27smpx: just ident 2700 */
+	V4L2_IDENT_VP27SMPX = 2700,
+
+	/* module cs5345: just ident 5345 */
+	V4L2_IDENT_CS5345 = 5345,
 
 	/* module wm8739: just ident 8739 */
 	V4L2_IDENT_WM8739 = 8739,
@@ -79,6 +86,9 @@ enum {
 
 	/* module upd64083: just ident 64083 */
 	V4L2_IDENT_UPD64083 = 64083,
+
+	/* module m52790: just ident 52790 */
+	V4L2_IDENT_M52790 = 52790,
 
 	/* module msp34xx: reserved range 34000-34999 */
 	V4L2_IDENT_MSP3400B = 34002,
@@ -144,6 +154,12 @@ enum {
 	V4L2_IDENT_MSP4428G = 44287,
 	V4L2_IDENT_MSP4448G = 44487,
 	V4L2_IDENT_MSP4458G = 44587,
+
+	/* Micron CMOS sensor chips: 45000-45099 */
+	V4L2_IDENT_MT9M001C12ST		= 45000,
+	V4L2_IDENT_MT9M001C12STM	= 45005,
+	V4L2_IDENT_MT9V022IX7ATC	= 45010, /* No way to detect "normal" I77ATx */
+	V4L2_IDENT_MT9V022IX7ATM	= 45015, /* and "lead free" IA7ATx chips */
 };
 
 #endif

@@ -168,20 +168,14 @@ static void set_dentry_child_flags(struct inode *inode, int watched)
 		struct dentry *child;
 
 		list_for_each_entry(child, &alias->d_subdirs, d_u.d_child) {
-			if (!child->d_inode) {
-				WARN_ON(child->d_flags & DCACHE_INOTIFY_PARENT_WATCHED);
+			if (!child->d_inode)
 				continue;
-			}
+
 			spin_lock(&child->d_lock);
-			if (watched) {
-				WARN_ON(child->d_flags &
-						DCACHE_INOTIFY_PARENT_WATCHED);
+			if (watched)
 				child->d_flags |= DCACHE_INOTIFY_PARENT_WATCHED;
-			} else {
-				WARN_ON(!(child->d_flags &
-					DCACHE_INOTIFY_PARENT_WATCHED));
-				child->d_flags&=~DCACHE_INOTIFY_PARENT_WATCHED;
-			}
+			else
+				child->d_flags &=~DCACHE_INOTIFY_PARENT_WATCHED;
 			spin_unlock(&child->d_lock);
 		}
 	}
@@ -253,7 +247,6 @@ void inotify_d_instantiate(struct dentry *entry, struct inode *inode)
 	if (!inode)
 		return;
 
-	WARN_ON(entry->d_flags & DCACHE_INOTIFY_PARENT_WATCHED);
 	spin_lock(&entry->d_lock);
 	parent = entry->d_parent;
 	if (parent->d_inode && inotify_inode_watched(parent->d_inode))
@@ -627,6 +620,7 @@ s32 inotify_add_watch(struct inotify_handle *ih, struct inotify_watch *watch,
 		      struct inode *inode, u32 mask)
 {
 	int ret = 0;
+	int newly_watched;
 
 	/* don't allow invalid bits: we don't want flags set */
 	mask &= IN_ALL_EVENTS | IN_ONESHOT;
@@ -653,18 +647,67 @@ s32 inotify_add_watch(struct inotify_handle *ih, struct inotify_watch *watch,
 	 */
 	watch->inode = igrab(inode);
 
-	if (!inotify_inode_watched(inode))
-		set_dentry_child_flags(inode, 1);
-
 	/* Add the watch to the handle's and the inode's list */
+	newly_watched = !inotify_inode_watched(inode);
 	list_add(&watch->h_list, &ih->watches);
 	list_add(&watch->i_list, &inode->inotify_watches);
+	/*
+	 * Set child flags _after_ adding the watch, so there is no race
+	 * windows where newly instantiated children could miss their parent's
+	 * watched flag.
+	 */
+	if (newly_watched)
+		set_dentry_child_flags(inode, 1);
+
 out:
 	mutex_unlock(&ih->mutex);
 	mutex_unlock(&inode->inotify_mutex);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(inotify_add_watch);
+
+/**
+ * inotify_clone_watch - put the watch next to existing one
+ * @old: already installed watch
+ * @new: new watch
+ *
+ * Caller must hold the inotify_mutex of inode we are dealing with;
+ * it is expected to remove the old watch before unlocking the inode.
+ */
+s32 inotify_clone_watch(struct inotify_watch *old, struct inotify_watch *new)
+{
+	struct inotify_handle *ih = old->ih;
+	int ret = 0;
+
+	new->mask = old->mask;
+	new->ih = ih;
+
+	mutex_lock(&ih->mutex);
+
+	/* Initialize a new watch */
+	ret = inotify_handle_get_wd(ih, new);
+	if (unlikely(ret))
+		goto out;
+	ret = new->wd;
+
+	get_inotify_handle(ih);
+
+	new->inode = igrab(old->inode);
+
+	list_add(&new->h_list, &ih->watches);
+	list_add(&new->i_list, &old->inode->inotify_watches);
+out:
+	mutex_unlock(&ih->mutex);
+	return ret;
+}
+
+void inotify_evict_watch(struct inotify_watch *watch)
+{
+	get_inotify_watch(watch);
+	mutex_lock(&watch->ih->mutex);
+	inotify_remove_watch_locked(watch->ih, watch);
+	mutex_unlock(&watch->ih->mutex);
+}
 
 /**
  * inotify_rm_wd - remove a watch from an inotify instance

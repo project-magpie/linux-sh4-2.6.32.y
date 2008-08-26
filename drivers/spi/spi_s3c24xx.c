@@ -125,10 +125,10 @@ static int s3c24xx_spi_setupxfer(struct spi_device *spi,
 	/* is clk = pclk / (2 * (pre+1)), or is it
 	 *    clk = (pclk * 2) / ( pre + 1) */
 
-	div = (div / 2) - 1;
+	div /= 2;
 
-	if (div < 0)
-		div = 1;
+	if (div > 0)
+		div -= 1;
 
 	if (div > 255)
 		div = 255;
@@ -169,7 +169,7 @@ static int s3c24xx_spi_setup(struct spi_device *spi)
 	}
 
 	dev_dbg(&spi->dev, "%s: mode %d, %u bpw, %d hz\n",
-		__FUNCTION__, spi->mode, spi->bits_per_word,
+		__func__, spi->mode, spi->bits_per_word,
 		spi->max_speed_hz);
 
 	return 0;
@@ -192,8 +192,11 @@ static int s3c24xx_spi_txrx(struct spi_device *spi, struct spi_transfer *t)
 	hw->len = t->len;
 	hw->count = 0;
 
+	init_completion(&hw->done);
+
 	/* send the first byte */
 	writeb(hw_txbyte(hw, 0), hw->regs + S3C2410_SPTDAT);
+
 	wait_for_completion(&hw->done);
 
 	return hw->count;
@@ -233,14 +236,13 @@ static irqreturn_t s3c24xx_spi_irq(int irq, void *dev)
 	return IRQ_HANDLED;
 }
 
-static int s3c24xx_spi_probe(struct platform_device *pdev)
+static int __init s3c24xx_spi_probe(struct platform_device *pdev)
 {
+	struct s3c2410_spi_info *pdata;
 	struct s3c24xx_spi *hw;
 	struct spi_master *master;
-	struct spi_board_info *bi;
 	struct resource *res;
 	int err = 0;
-	int i;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(struct s3c24xx_spi));
 	if (master == NULL) {
@@ -253,10 +255,10 @@ static int s3c24xx_spi_probe(struct platform_device *pdev)
 	memset(hw, 0, sizeof(struct s3c24xx_spi));
 
 	hw->master = spi_master_get(master);
-	hw->pdata = pdev->dev.platform_data;
+	hw->pdata = pdata = pdev->dev.platform_data;
 	hw->dev = &pdev->dev;
 
-	if (hw->pdata == NULL) {
+	if (pdata == NULL) {
 		dev_err(&pdev->dev, "No platform data supplied\n");
 		err = -ENOENT;
 		goto err_no_pdata;
@@ -264,6 +266,10 @@ static int s3c24xx_spi_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, hw);
 	init_completion(&hw->done);
+
+	/* setup the master state. */
+
+	master->num_chipselect = hw->pdata->num_cs;
 
 	/* setup the state for the bitbang driver */
 
@@ -332,13 +338,13 @@ static int s3c24xx_spi_probe(struct platform_device *pdev)
 
 	/* setup any gpio we can */
 
-	if (!hw->pdata->set_cs) {
+	if (!pdata->set_cs) {
 		hw->set_cs = s3c24xx_spi_gpiocs;
 
-		s3c2410_gpio_setpin(hw->pdata->pin_cs, 1);
-		s3c2410_gpio_cfgpin(hw->pdata->pin_cs, S3C2410_GPIO_OUTPUT);
+		s3c2410_gpio_setpin(pdata->pin_cs, 1);
+		s3c2410_gpio_cfgpin(pdata->pin_cs, S3C2410_GPIO_OUTPUT);
 	} else
-		hw->set_cs = hw->pdata->set_cs;
+		hw->set_cs = pdata->set_cs;
 
 	/* register our spi controller */
 
@@ -346,16 +352,6 @@ static int s3c24xx_spi_probe(struct platform_device *pdev)
 	if (err) {
 		dev_err(&pdev->dev, "Failed to register SPI master\n");
 		goto err_register;
-	}
-
-	/* register all the devices associated */
-
-	bi = &hw->pdata->board_info[0];
-	for (i = 0; i < hw->pdata->board_size; i++, bi++) {
-		dev_info(hw->dev, "registering %s\n", bi->modalias);
-
-		bi->controller_data = hw;
-		spi_new_device(master, bi);
 	}
 
 	return 0;
@@ -382,7 +378,7 @@ static int s3c24xx_spi_probe(struct platform_device *pdev)
 	return err;
 }
 
-static int s3c24xx_spi_remove(struct platform_device *dev)
+static int __exit s3c24xx_spi_remove(struct platform_device *dev)
 {
 	struct s3c24xx_spi *hw = platform_get_drvdata(dev);
 
@@ -427,10 +423,9 @@ static int s3c24xx_spi_resume(struct platform_device *pdev)
 #define s3c24xx_spi_resume  NULL
 #endif
 
-MODULE_ALIAS("s3c2410_spi");			/* for platform bus hotplug */
+MODULE_ALIAS("platform:s3c2410-spi");
 static struct platform_driver s3c24xx_spidrv = {
-	.probe		= s3c24xx_spi_probe,
-	.remove		= s3c24xx_spi_remove,
+	.remove		= __exit_p(s3c24xx_spi_remove),
 	.suspend	= s3c24xx_spi_suspend,
 	.resume		= s3c24xx_spi_resume,
 	.driver		= {
@@ -441,7 +436,7 @@ static struct platform_driver s3c24xx_spidrv = {
 
 static int __init s3c24xx_spi_init(void)
 {
-        return platform_driver_register(&s3c24xx_spidrv);
+        return platform_driver_probe(&s3c24xx_spidrv, s3c24xx_spi_probe);
 }
 
 static void __exit s3c24xx_spi_exit(void)

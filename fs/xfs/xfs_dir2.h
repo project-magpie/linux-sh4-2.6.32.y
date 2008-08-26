@@ -59,20 +59,7 @@ typedef	__uint32_t	xfs_dir2_db_t;
  */
 typedef	xfs_off_t	xfs_dir2_off_t;
 
-/*
- * For getdents, argument struct for put routines.
- */
-typedef int (*xfs_dir2_put_t)(struct xfs_dir2_put_args *pa);
-typedef struct xfs_dir2_put_args {
-	xfs_off_t	cook;		/* cookie of (next) entry */
-	xfs_intino_t	ino;		/* inode number */
-	xfs_dirent_t	*dbp;		/* buffer pointer */
-	char		*name;		/* directory entry name */
-	int		namelen;	/* length of name */
-	int		done;		/* output: set if value was stored */
-	xfs_dir2_put_t	put;		/* put function ptr (i/o) */
-	struct uio	*uio;		/* uio control structure */
-} xfs_dir2_put_args_t;
+extern struct xfs_name	xfs_name_dotdot;
 
 /*
  * Generic directory interface routines
@@ -83,23 +70,21 @@ extern int xfs_dir_isempty(struct xfs_inode *dp);
 extern int xfs_dir_init(struct xfs_trans *tp, struct xfs_inode *dp,
 				struct xfs_inode *pdp);
 extern int xfs_dir_createname(struct xfs_trans *tp, struct xfs_inode *dp,
-				char *name, int namelen, xfs_ino_t inum,
+				struct xfs_name *name, xfs_ino_t inum,
 				xfs_fsblock_t *first,
 				struct xfs_bmap_free *flist, xfs_extlen_t tot);
 extern int xfs_dir_lookup(struct xfs_trans *tp, struct xfs_inode *dp,
-				char *name, int namelen, xfs_ino_t *inum);
+				struct xfs_name *name, xfs_ino_t *inum);
 extern int xfs_dir_removename(struct xfs_trans *tp, struct xfs_inode *dp,
-				char *name, int namelen, xfs_ino_t ino,
+				struct xfs_name *name, xfs_ino_t ino,
 				xfs_fsblock_t *first,
 				struct xfs_bmap_free *flist, xfs_extlen_t tot);
-extern int xfs_dir_getdents(struct xfs_trans *tp, struct xfs_inode *dp,
-				uio_t *uio, int *eofp);
 extern int xfs_dir_replace(struct xfs_trans *tp, struct xfs_inode *dp,
-				char *name, int namelen, xfs_ino_t inum,
+				struct xfs_name *name, xfs_ino_t inum,
 				xfs_fsblock_t *first,
 				struct xfs_bmap_free *flist, xfs_extlen_t tot);
 extern int xfs_dir_canenter(struct xfs_trans *tp, struct xfs_inode *dp,
-				char *name, int namelen);
+				struct xfs_name *name, uint resblks);
 extern int xfs_dir_ino_validate(struct xfs_mount *mp, xfs_ino_t ino);
 
 /*

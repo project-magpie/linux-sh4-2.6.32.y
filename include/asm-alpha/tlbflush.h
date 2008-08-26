@@ -3,6 +3,7 @@
 
 #include <linux/mm.h>
 #include <asm/compiler.h>
+#include <asm/pgalloc.h>
 
 #ifndef __EXTERN_INLINE
 #define __EXTERN_INLINE extern inline
@@ -92,17 +93,6 @@ flush_tlb_other(struct mm_struct *mm)
 	if (*mmc) *mmc = 0;
 }
 
-/* Flush a specified range of user mapping page tables from TLB.
-   Although Alpha uses VPTE caches, this can be a nop, as Alpha does
-   not have finegrained tlb flushing, so it will flush VPTE stuff
-   during next flush_tlb_range.  */
-
-static inline void
-flush_tlb_pgtables(struct mm_struct *mm, unsigned long start,
-		   unsigned long end)
-{
-}
-
 #ifndef CONFIG_SMP
 /* Flush everything (kernel mapping may also have changed
    due to vmalloc/vfree).  */
@@ -152,6 +142,10 @@ extern void flush_tlb_range(struct vm_area_struct *, unsigned long,
 
 #endif /* CONFIG_SMP */
 
-#define flush_tlb_kernel_range(start, end) flush_tlb_all()
+static inline void flush_tlb_kernel_range(unsigned long start,
+					unsigned long end)
+{
+	flush_tlb_all();
+}
 
 #endif /* _ALPHA_TLBFLUSH_H */

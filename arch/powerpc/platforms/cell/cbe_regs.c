@@ -9,15 +9,14 @@
 #include <linux/percpu.h>
 #include <linux/types.h>
 #include <linux/module.h>
+#include <linux/of_device.h>
+#include <linux/of_platform.h>
 
 #include <asm/io.h>
 #include <asm/pgtable.h>
 #include <asm/prom.h>
 #include <asm/ptrace.h>
-#include <asm/of_device.h>
-#include <asm/of_platform.h>
-
-#include "cbe_regs.h"
+#include <asm/cell-regs.h>
 
 /*
  * Current implementation uses "cpu" nodes. We build our own mapping
@@ -257,6 +256,7 @@ void __init cbe_regs_init(void)
 			printk(KERN_ERR "cbe_regs: More BE chips than supported"
 			       "!\n");
 			cbe_regs_map_count--;
+			of_node_put(cpu);
 			return;
 		}
 		map->cpu_node = cpu;

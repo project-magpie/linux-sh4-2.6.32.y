@@ -19,12 +19,11 @@
 
 
 #define NLMDBG_FACILITY		NLMDBG_HOSTCACHE
-#define NLM_HOST_MAX		64
 #define NLM_HOST_NRHASH		32
 #define NLM_ADDRHASH(addr)	(ntohl(addr) & (NLM_HOST_NRHASH-1))
 #define NLM_HOST_REBIND		(60 * HZ)
-#define NLM_HOST_EXPIRE		((nrhosts > NLM_HOST_MAX)? 300 * HZ : 120 * HZ)
-#define NLM_HOST_COLLECT	((nrhosts > NLM_HOST_MAX)? 120 * HZ :  60 * HZ)
+#define NLM_HOST_EXPIRE		(300 * HZ)
+#define NLM_HOST_COLLECT	(120 * HZ)
 
 static struct hlist_head	nlm_hosts[NLM_HOST_NRHASH];
 static unsigned long		next_gc;
@@ -34,18 +33,20 @@ static DEFINE_MUTEX(nlm_host_mutex);
 
 static void			nlm_gc_hosts(void);
 static struct nsm_handle *	__nsm_find(const struct sockaddr_in *,
-					const char *, int, int);
+					const char *, unsigned int, int);
 static struct nsm_handle *	nsm_find(const struct sockaddr_in *sin,
 					 const char *hostname,
-					 int hostname_len);
+					 unsigned int hostname_len);
 
 /*
  * Common host lookup routine for server & client
  */
-static struct nlm_host *
-nlm_lookup_host(int server, const struct sockaddr_in *sin,
-		int proto, int version, const char *hostname,
-		int hostname_len, const struct sockaddr_in *ssin)
+static struct nlm_host *nlm_lookup_host(int server,
+					const struct sockaddr_in *sin,
+					int proto, u32 version,
+					const char *hostname,
+					unsigned int hostname_len,
+					const struct sockaddr_in *ssin)
 {
 	struct hlist_head *chain;
 	struct hlist_node *pos;
@@ -54,7 +55,7 @@ nlm_lookup_host(int server, const struct sockaddr_in *sin,
 	int		hash;
 
 	dprintk("lockd: nlm_lookup_host("NIPQUAD_FMT"->"NIPQUAD_FMT
-			", p=%d, v=%d, my role=%s, name=%.*s)\n",
+			", p=%d, v=%u, my role=%s, name=%.*s)\n",
 			NIPQUAD(ssin->sin_addr.s_addr),
 			NIPQUAD(sin->sin_addr.s_addr), proto, version,
 			server? "server" : "client",
@@ -141,9 +142,7 @@ nlm_lookup_host(int server, const struct sockaddr_in *sin,
 	INIT_LIST_HEAD(&host->h_granted);
 	INIT_LIST_HEAD(&host->h_reclaim);
 
-	if (++nrhosts > NLM_HOST_MAX)
-		next_gc = 0;
-
+	nrhosts++;
 out:
 	mutex_unlock(&nlm_host_mutex);
 	return host;
@@ -174,9 +173,10 @@ nlm_destroy_host(struct nlm_host *host)
 /*
  * Find an NLM server handle in the cache. If there is none, create it.
  */
-struct nlm_host *
-nlmclnt_lookup_host(const struct sockaddr_in *sin, int proto, int version,
-			const char *hostname, int hostname_len)
+struct nlm_host *nlmclnt_lookup_host(const struct sockaddr_in *sin,
+				     int proto, u32 version,
+				     const char *hostname,
+				     unsigned int hostname_len)
 {
 	struct sockaddr_in ssin = {0};
 
@@ -189,7 +189,7 @@ nlmclnt_lookup_host(const struct sockaddr_in *sin, int proto, int version,
  */
 struct nlm_host *
 nlmsvc_lookup_host(struct svc_rqst *rqstp,
-			const char *hostname, int hostname_len)
+			const char *hostname, unsigned int hostname_len)
 {
 	struct sockaddr_in ssin = {0};
 
@@ -242,9 +242,17 @@ nlm_bind_host(struct nlm_host *host)
 			.program	= &nlm_program,
 			.version	= host->h_version,
 			.authflavor	= RPC_AUTH_UNIX,
-			.flags		= (RPC_CLNT_CREATE_HARDRTRY |
+			.flags		= (RPC_CLNT_CREATE_NOPING |
 					   RPC_CLNT_CREATE_AUTOBIND),
 		};
+
+		/*
+		 * lockd retries server side blocks automatically so we want
+		 * those to be soft RPC calls. Client side calls need to be
+		 * hard RPC tasks.
+		 */
+		if (!host->h_server)
+			args.flags |= RPC_CLNT_CREATE_HARDRTRY;
 
 		clnt = rpc_create(&args);
 		if (!IS_ERR(clnt))
@@ -307,7 +315,8 @@ void nlm_release_host(struct nlm_host *host)
  * Release all resources held by that peer.
  */
 void nlm_host_rebooted(const struct sockaddr_in *sin,
-				const char *hostname, int hostname_len,
+				const char *hostname,
+				unsigned int hostname_len,
 				u32 new_state)
 {
 	struct hlist_head *chain;
@@ -377,8 +386,13 @@ nlm_shutdown_hosts(void)
 	/* First, make all hosts eligible for gc */
 	dprintk("lockd: nuking all hosts...\n");
 	for (chain = nlm_hosts; chain < nlm_hosts + NLM_HOST_NRHASH; ++chain) {
-		hlist_for_each_entry(host, pos, chain, h_hash)
+		hlist_for_each_entry(host, pos, chain, h_hash) {
 			host->h_expires = jiffies - 1;
+			if (host->h_rpcclnt) {
+				rpc_shutdown_client(host->h_rpcclnt);
+				host->h_rpcclnt = NULL;
+			}
+		}
 	}
 
 	/* Then, perform a garbage collection pass */
@@ -445,15 +459,15 @@ nlm_gc_hosts(void)
  * Manage NSM handles
  */
 static LIST_HEAD(nsm_handles);
-static DEFINE_MUTEX(nsm_mutex);
+static DEFINE_SPINLOCK(nsm_lock);
 
 static struct nsm_handle *
 __nsm_find(const struct sockaddr_in *sin,
-		const char *hostname, int hostname_len,
+		const char *hostname, unsigned int hostname_len,
 		int create)
 {
 	struct nsm_handle *nsm = NULL;
-	struct list_head *pos;
+	struct nsm_handle *pos;
 
 	if (!sin)
 		return NULL;
@@ -467,43 +481,49 @@ __nsm_find(const struct sockaddr_in *sin,
 		return NULL;
 	}
 
-	mutex_lock(&nsm_mutex);
-	list_for_each(pos, &nsm_handles) {
-		nsm = list_entry(pos, struct nsm_handle, sm_link);
+retry:
+	spin_lock(&nsm_lock);
+	list_for_each_entry(pos, &nsm_handles, sm_link) {
 
 		if (hostname && nsm_use_hostnames) {
-			if (strlen(nsm->sm_name) != hostname_len
-			 || memcmp(nsm->sm_name, hostname, hostname_len))
+			if (strlen(pos->sm_name) != hostname_len
+			 || memcmp(pos->sm_name, hostname, hostname_len))
 				continue;
-		} else if (!nlm_cmp_addr(&nsm->sm_addr, sin))
+		} else if (!nlm_cmp_addr(&pos->sm_addr, sin))
 			continue;
-		atomic_inc(&nsm->sm_count);
-		goto out;
+		atomic_inc(&pos->sm_count);
+		kfree(nsm);
+		nsm = pos;
+		goto found;
 	}
+	if (nsm) {
+		list_add(&nsm->sm_link, &nsm_handles);
+		goto found;
+	}
+	spin_unlock(&nsm_lock);
 
-	if (!create) {
-		nsm = NULL;
-		goto out;
-	}
+	if (!create)
+		return NULL;
 
 	nsm = kzalloc(sizeof(*nsm) + hostname_len + 1, GFP_KERNEL);
-	if (nsm != NULL) {
-		nsm->sm_addr = *sin;
-		nsm->sm_name = (char *) (nsm + 1);
-		memcpy(nsm->sm_name, hostname, hostname_len);
-		nsm->sm_name[hostname_len] = '\0';
-		atomic_set(&nsm->sm_count, 1);
+	if (nsm == NULL)
+		return NULL;
 
-		list_add(&nsm->sm_link, &nsm_handles);
-	}
+	nsm->sm_addr = *sin;
+	nsm->sm_name = (char *) (nsm + 1);
+	memcpy(nsm->sm_name, hostname, hostname_len);
+	nsm->sm_name[hostname_len] = '\0';
+	atomic_set(&nsm->sm_count, 1);
+	goto retry;
 
-out:
-	mutex_unlock(&nsm_mutex);
+found:
+	spin_unlock(&nsm_lock);
 	return nsm;
 }
 
 static struct nsm_handle *
-nsm_find(const struct sockaddr_in *sin, const char *hostname, int hostname_len)
+nsm_find(const struct sockaddr_in *sin, const char *hostname,
+	 unsigned int hostname_len)
 {
 	return __nsm_find(sin, hostname, hostname_len, 1);
 }
@@ -516,12 +536,9 @@ nsm_release(struct nsm_handle *nsm)
 {
 	if (!nsm)
 		return;
-	if (atomic_dec_and_test(&nsm->sm_count)) {
-		mutex_lock(&nsm_mutex);
-		if (atomic_read(&nsm->sm_count) == 0) {
-			list_del(&nsm->sm_link);
-			kfree(nsm);
-		}
-		mutex_unlock(&nsm_mutex);
+	if (atomic_dec_and_lock(&nsm->sm_count, &nsm_lock)) {
+		list_del(&nsm->sm_link);
+		spin_unlock(&nsm_lock);
+		kfree(nsm);
 	}
 }

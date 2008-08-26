@@ -26,6 +26,7 @@
 #include <linux/pcieport_if.h>
 
 #include "aerdrv.h"
+#include "../../pci.h"
 
 /*
  * Version Information
@@ -80,6 +81,13 @@ static struct pcie_port_service_driver aerdriver = {
 
 	.reset_link	= aer_root_reset,
 };
+
+static int pcie_aer_disable;
+
+void pci_no_aer(void)
+{
+	pcie_aer_disable = 1;	/* has priority over 'forceload' */
+}
 
 /**
  * aer_irq - Root Port's ISR
@@ -212,8 +220,7 @@ static int __devinit aer_probe (struct pcie_device *dev,
 
 	/* Alloc rpc data structure */
 	if (!(rpc = aer_alloc_rpc(dev))) {
-		printk(KERN_DEBUG "%s: Alloc rpc fails on PCIE device[%s]\n",
-			__FUNCTION__, device->bus_id);
+		dev_printk(KERN_DEBUG, device, "alloc rpc failed\n");
 		aer_remove(dev);
 		return -ENOMEM;
 	}
@@ -221,8 +228,7 @@ static int __devinit aer_probe (struct pcie_device *dev,
 	/* Request IRQ ISR */
 	if ((status = request_irq(dev->irq, aer_irq, IRQF_SHARED, "aerdrv",
 				dev))) {
-		printk(KERN_DEBUG "%s: Request ISR fails on PCIE device[%s]\n",
-			__FUNCTION__, device->bus_id);
+		dev_printk(KERN_DEBUG, device, "request IRQ failed\n");
 		aer_remove(dev);
 		return status;
 	}
@@ -266,7 +272,7 @@ static pci_ers_result_t aer_root_reset(struct pci_dev *dev)
 	 * to issue Configuration Requests to those devices.
 	 */
 	msleep(200);
-	printk(KERN_DEBUG "Complete link reset at Root[%s]\n", dev->dev.bus_id);
+	dev_printk(KERN_DEBUG, &dev->dev, "Root Port link has been reset\n");
 
 	/* Enable Root Port's interrupt in response to error messages */
 	pci_read_config_dword(dev, pos + PCI_ERR_ROOT_STATUS, &status);
@@ -327,6 +333,8 @@ static void aer_error_resume(struct pci_dev *dev)
  **/
 static int __init aer_service_init(void)
 {
+	if (pcie_aer_disable)
+		return -ENXIO;
 	return pcie_port_service_register(&aerdriver);
 }
 

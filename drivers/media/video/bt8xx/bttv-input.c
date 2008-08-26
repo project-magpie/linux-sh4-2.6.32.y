@@ -19,7 +19,6 @@
  */
 
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
@@ -70,6 +69,11 @@ static void ir_handle_key(struct bttv *btv)
 	    (ir->mask_keyup    &&  (0 == (gpio & ir->mask_keyup)))) {
 		ir_input_keydown(ir->dev,&ir->ir,data,data);
 	} else {
+		/* HACK: Probably, ir->mask_keydown is missing
+		   for this board */
+		if (btv->c.type == BTTV_BOARD_WINFAST2000)
+			ir_input_keydown(ir->dev, &ir->ir, data, data);
+
 		ir_input_nokey(ir->dev,&ir->ir);
 	}
 
@@ -272,6 +276,12 @@ int bttv_input_init(struct bttv *btv)
 		ir_codes         = ir_codes_apac_viewcomp;
 		ir->mask_keycode = 0x001F00;
 		ir->mask_keyup   = 0x004000;
+		ir->polling      = 50; /* ms */
+		break;
+	case BTTV_BOARD_KOZUMI_KTV_01C:
+		ir_codes         = ir_codes_pctv_sedna;
+		ir->mask_keycode = 0x001f00;
+		ir->mask_keyup   = 0x006000;
 		ir->polling      = 50; /* ms */
 		break;
 	}

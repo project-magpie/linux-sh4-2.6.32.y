@@ -1,6 +1,4 @@
 /*
- * $Id: iforce-main.c,v 1.19 2002/07/07 10:22:50 jdeneux Exp $
- *
  *  Copyright (c) 2000-2002 Vojtech Pavlik <vojtech@ucw.cz>
  *  Copyright (c) 2001-2002, 2007 Johann Deneux <johann.deneux@gmail.com>
  *
@@ -85,7 +83,7 @@ static struct iforce_device iforce_device[] = {
 
 static int iforce_playback(struct input_dev *dev, int effect_id, int value)
 {
-	struct iforce* iforce = dev->private;
+	struct iforce *iforce = input_get_drvdata(dev);
 	struct iforce_core_effect *core_effect = &iforce->core_effects[effect_id];
 
 	if (value > 0)
@@ -99,7 +97,7 @@ static int iforce_playback(struct input_dev *dev, int effect_id, int value)
 
 static void iforce_set_gain(struct input_dev *dev, u16 gain)
 {
-	struct iforce* iforce = dev->private;
+	struct iforce *iforce = input_get_drvdata(dev);
 	unsigned char data[3];
 
 	data[0] = gain >> 9;
@@ -108,7 +106,7 @@ static void iforce_set_gain(struct input_dev *dev, u16 gain)
 
 static void iforce_set_autocenter(struct input_dev *dev, u16 magnitude)
 {
-	struct iforce* iforce = dev->private;
+	struct iforce *iforce = input_get_drvdata(dev);
 	unsigned char data[3];
 
 	data[0] = 0x03;
@@ -126,7 +124,7 @@ static void iforce_set_autocenter(struct input_dev *dev, u16 magnitude)
  */
 static int iforce_upload_effect(struct input_dev *dev, struct ff_effect *effect, struct ff_effect *old)
 {
-	struct iforce* iforce = dev->private;
+	struct iforce *iforce = input_get_drvdata(dev);
 	struct iforce_core_effect *core_effect = &iforce->core_effects[effect->id];
 	int ret;
 
@@ -173,7 +171,7 @@ static int iforce_upload_effect(struct input_dev *dev, struct ff_effect *effect,
  */
 static int iforce_erase_effect(struct input_dev *dev, int effect_id)
 {
-	struct iforce *iforce = dev->private;
+	struct iforce *iforce = input_get_drvdata(dev);
 	struct iforce_core_effect *core_effect = &iforce->core_effects[effect_id];
 	int err = 0;
 
@@ -191,7 +189,7 @@ static int iforce_erase_effect(struct input_dev *dev, int effect_id)
 
 static int iforce_open(struct input_dev *dev)
 {
-	struct iforce *iforce = dev->private;
+	struct iforce *iforce = input_get_drvdata(dev);
 
 	switch (iforce->bus) {
 #ifdef CONFIG_JOYSTICK_IFORCE_USB
@@ -213,7 +211,7 @@ static int iforce_open(struct input_dev *dev)
 
 static void iforce_release(struct input_dev *dev)
 {
-	struct iforce *iforce = dev->private;
+	struct iforce *iforce = input_get_drvdata(dev);
 	int i;
 
 	if (test_bit(EV_FF, dev->evbit)) {
@@ -298,7 +296,8 @@ int iforce_init_device(struct iforce *iforce)
 #endif
 	}
 
-	input_dev->private = iforce;
+	input_set_drvdata(input_dev, iforce);
+
 	input_dev->name = "Unknown I-Force device";
 	input_dev->open = iforce_open;
 	input_dev->close = iforce_release;
@@ -389,7 +388,8 @@ int iforce_init_device(struct iforce *iforce)
  * Set input device bitfields and ranges.
  */
 
-	input_dev->evbit[0] = BIT(EV_KEY) | BIT(EV_ABS) | BIT(EV_FF_STATUS);
+	input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS) |
+		BIT_MASK(EV_FF_STATUS);
 
 	for (i = 0; iforce->type->btn[i] >= 0; i++)
 		set_bit(iforce->type->btn[i], input_dev->keybit);

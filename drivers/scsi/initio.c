@@ -665,7 +665,7 @@ static void initio_init(struct initio_host * host, u8 *bios_addr)
 		host->max_tags[i] = 0xFF;
 	}			/* for                          */
 	printk("i91u: PCI Base=0x%04X, IRQ=%d, BIOS=0x%04X0, SCSI ID=%d\n",
-	       host->addr, host->irq,
+	       host->addr, host->pci_dev->irq,
 	       host->bios_addr, host->scsi_id);
 	/* Reset SCSI Bus */
 	if (host->config & HCC_SCSI_RESET) {
@@ -823,7 +823,7 @@ static void initio_append_busy_scb(struct initio_host * host, struct scsi_ctrl_b
 {
 
 #if DEBUG_QUEUE
-	printk("append busy SCB %o; ", scbp);
+	printk("append busy SCB %p; ", scbp);
 #endif
 	if (scbp->tagmsg)
 		host->act_tags[scbp->target]++;
@@ -2581,8 +2581,8 @@ static void initio_build_scb(struct initio_host * host, struct scsi_ctrl_blk * c
 	/* Map the sense buffer into bus memory */
 	dma_addr = dma_map_single(&host->pci_dev->dev, cmnd->sense_buffer,
 				  SENSE_SIZE, DMA_FROM_DEVICE);
-	cblk->senseptr = cpu_to_le32((u32)dma_addr);
-	cblk->senselen = cpu_to_le32(SENSE_SIZE);
+	cblk->senseptr = (u32)dma_addr;
+	cblk->senselen = SENSE_SIZE;
 	cmnd->SCp.ptr = (char *)(unsigned long)dma_addr;
 	cblk->cdblen = cmnd->cmd_len;
 
@@ -2590,7 +2590,7 @@ static void initio_build_scb(struct initio_host * host, struct scsi_ctrl_blk * c
 	cblk->hastat = 0;
 	cblk->tastat = 0;
 	/* Command the command */
-	memcpy(&cblk->cdb[0], &cmnd->cmnd, cmnd->cmd_len);
+	memcpy(cblk->cdb, cmnd->cmnd, cmnd->cmd_len);
 
 	/* Set up tags */
 	if (cmnd->device->tagged_supported) {	/* Tag Support                  */
@@ -2606,16 +2606,19 @@ static void initio_build_scb(struct initio_host * host, struct scsi_ctrl_blk * c
 		dma_addr = dma_map_single(&host->pci_dev->dev, &cblk->sglist[0],
 					  sizeof(struct sg_entry) * TOTAL_SG_ENTRY,
 					  DMA_BIDIRECTIONAL);
-		cblk->bufptr = cpu_to_le32((u32)dma_addr);
+		cblk->bufptr = (u32)dma_addr;
 		cmnd->SCp.dma_handle = dma_addr;
 
+		cblk->sglen = nseg;
 
 		cblk->flags |= SCF_SG;	/* Turn on SG list flag       */
 		total_len = 0;
 		sg = &cblk->sglist[0];
 		scsi_for_each_sg(cmnd, sglist, cblk->sglen, i) {
 			sg->data = cpu_to_le32((u32)sg_dma_address(sglist));
-			total_len += sg->len = cpu_to_le32((u32)sg_dma_len(sglist));
+			sg->len = cpu_to_le32((u32)sg_dma_len(sglist));
+			total_len += sg_dma_len(sglist);
+			++sg;
 		}
 
 		cblk->buflen = (scsi_bufflen(cmnd) > total_len) ?
@@ -2866,6 +2869,8 @@ static int initio_probe_one(struct pci_dev *pdev,
 	}
 	host = (struct initio_host *)shost->hostdata;
 	memset(host, 0, sizeof(struct initio_host));
+	host->addr = pci_resource_start(pdev, 0);
+	host->bios_addr = bios_seg;
 
 	if (!request_region(host->addr, 256, "i91u")) {
 		printk(KERN_WARNING "initio: I/O port range 0x%x is busy.\n", host->addr);
@@ -2890,6 +2895,10 @@ static int initio_probe_one(struct pci_dev *pdev,
 		goto out_release_region;
 	}
 
+	host->pci_dev = pdev;
+
+	host->semaph = 1;
+	spin_lock_init(&host->semaph_lock);
 	host->num_scbs = num_scb;
 	host->scb = scb;
 	host->next_pending = scb;
@@ -2904,8 +2913,9 @@ static int initio_probe_one(struct pci_dev *pdev,
 	host->scb_end = tmp;
 	host->first_avail = scb;
 	host->last_avail = prev;
+	spin_lock_init(&host->avail_lock);
 
-	initio_init(host, phys_to_virt(bios_seg << 4));
+	initio_init(host, phys_to_virt(((u32)bios_seg << 4)));
 
 	host->jsstatus0 = 0;
 
@@ -2927,7 +2937,6 @@ static int initio_probe_one(struct pci_dev *pdev,
 	}
 
 	pci_set_drvdata(pdev, shost);
-	host->pci_dev = pdev;
 
 	error = scsi_add_host(shost, &pdev->dev);
 	if (error)

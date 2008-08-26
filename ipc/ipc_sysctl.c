@@ -14,8 +14,10 @@
 #include <linux/nsproxy.h>
 #include <linux/sysctl.h>
 #include <linux/uaccess.h>
+#include <linux/ipc_namespace.h>
+#include <linux/msg.h>
+#include "util.h"
 
-#ifdef CONFIG_IPC_NS
 static void *get_ipc(ctl_table *table)
 {
 	char *which = table->data;
@@ -23,9 +25,29 @@ static void *get_ipc(ctl_table *table)
 	which = (which - (char *)&init_ipc_ns) + (char *)ipc_ns;
 	return which;
 }
-#else
-#define get_ipc(T) ((T)->data)
-#endif
+
+/*
+ * Routine that is called when the file "auto_msgmni" has successfully been
+ * written.
+ * Two values are allowed:
+ * 0: unregister msgmni's callback routine from the ipc namespace notifier
+ *    chain. This means that msgmni won't be recomputed anymore upon memory
+ *    add/remove or ipc namespace creation/removal.
+ * 1: register back the callback routine.
+ */
+static void ipc_auto_callback(int val)
+{
+	if (!val)
+		unregister_ipcns_notifier(current->nsproxy->ipc_ns);
+	else {
+		/*
+		 * Re-enable automatic recomputing only if not already
+		 * enabled.
+		 */
+		recompute_msgmni(current->nsproxy->ipc_ns);
+		cond_register_ipcns_notifier(current->nsproxy->ipc_ns);
+	}
+}
 
 #ifdef CONFIG_PROC_FS
 static int proc_ipc_dointvec(ctl_table *table, int write, struct file *filp,
@@ -36,6 +58,29 @@ static int proc_ipc_dointvec(ctl_table *table, int write, struct file *filp,
 	ipc_table.data = get_ipc(table);
 
 	return proc_dointvec(&ipc_table, write, filp, buffer, lenp, ppos);
+}
+
+static int proc_ipc_callback_dointvec(ctl_table *table, int write,
+	struct file *filp, void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	struct ctl_table ipc_table;
+	size_t lenp_bef = *lenp;
+	int rc;
+
+	memcpy(&ipc_table, table, sizeof(ipc_table));
+	ipc_table.data = get_ipc(table);
+
+	rc = proc_dointvec(&ipc_table, write, filp, buffer, lenp, ppos);
+
+	if (write && !rc && lenp_bef == *lenp)
+		/*
+		 * Tunable has successfully been changed by hand. Disable its
+		 * automatic adjustment. This simply requires unregistering
+		 * the notifiers that trigger recalculation.
+		 */
+		unregister_ipcns_notifier(current->nsproxy->ipc_ns);
+
+	return rc;
 }
 
 static int proc_ipc_doulongvec_minmax(ctl_table *table, int write,
@@ -49,9 +94,39 @@ static int proc_ipc_doulongvec_minmax(ctl_table *table, int write,
 					lenp, ppos);
 }
 
+static int proc_ipcauto_dointvec_minmax(ctl_table *table, int write,
+	struct file *filp, void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	struct ctl_table ipc_table;
+	size_t lenp_bef = *lenp;
+	int oldval;
+	int rc;
+
+	memcpy(&ipc_table, table, sizeof(ipc_table));
+	ipc_table.data = get_ipc(table);
+	oldval = *((int *)(ipc_table.data));
+
+	rc = proc_dointvec_minmax(&ipc_table, write, filp, buffer, lenp, ppos);
+
+	if (write && !rc && lenp_bef == *lenp) {
+		int newval = *((int *)(ipc_table.data));
+		/*
+		 * The file "auto_msgmni" has correctly been set.
+		 * React by (un)registering the corresponding tunable, if the
+		 * value has changed.
+		 */
+		if (newval != oldval)
+			ipc_auto_callback(newval);
+	}
+
+	return rc;
+}
+
 #else
 #define proc_ipc_doulongvec_minmax NULL
 #define proc_ipc_dointvec	   NULL
+#define proc_ipc_callback_dointvec NULL
+#define proc_ipcauto_dointvec_minmax NULL
 #endif
 
 #ifdef CONFIG_SYSCTL_SYSCALL
@@ -93,9 +168,31 @@ static int sysctl_ipc_data(ctl_table *table, int __user *name, int nlen,
 	}
 	return 1;
 }
+
+static int sysctl_ipc_registered_data(ctl_table *table, int __user *name,
+		int nlen, void __user *oldval, size_t __user *oldlenp,
+		void __user *newval, size_t newlen)
+{
+	int rc;
+
+	rc = sysctl_ipc_data(table, name, nlen, oldval, oldlenp, newval,
+		newlen);
+
+	if (newval && newlen && rc > 0)
+		/*
+		 * Tunable has successfully been changed from userland
+		 */
+		unregister_ipcns_notifier(current->nsproxy->ipc_ns);
+
+	return rc;
+}
 #else
 #define sysctl_ipc_data NULL
+#define sysctl_ipc_registered_data NULL
 #endif
+
+static int zero;
+static int one = 1;
 
 static struct ctl_table ipc_kern_table[] = {
 	{
@@ -140,8 +237,8 @@ static struct ctl_table ipc_kern_table[] = {
 		.data		= &init_ipc_ns.msg_ctlmni,
 		.maxlen		= sizeof (init_ipc_ns.msg_ctlmni),
 		.mode		= 0644,
-		.proc_handler	= proc_ipc_dointvec,
-		.strategy	= sysctl_ipc_data,
+		.proc_handler	= proc_ipc_callback_dointvec,
+		.strategy	= sysctl_ipc_registered_data,
 	},
 	{
 		.ctl_name	= KERN_MSGMNB,
@@ -160,6 +257,16 @@ static struct ctl_table ipc_kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_ipc_dointvec,
 		.strategy	= sysctl_ipc_data,
+	},
+	{
+		.ctl_name	= CTL_UNNUMBERED,
+		.procname	= "auto_msgmni",
+		.data		= &init_ipc_ns.auto_msgmni,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_ipcauto_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &one,
 	},
 	{}
 };

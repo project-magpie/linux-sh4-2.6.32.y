@@ -273,12 +273,12 @@ INT_MODULE_PARM(lockup_hack,	0);  /* anti lockup hack */
 static unsigned maxrx_bytes = 22000;
 
 /* MII management prototypes */
-static void mii_idle(kio_addr_t ioaddr);
-static void mii_putbit(kio_addr_t ioaddr, unsigned data);
-static int  mii_getbit(kio_addr_t ioaddr);
-static void mii_wbits(kio_addr_t ioaddr, unsigned data, int len);
-static unsigned mii_rd(kio_addr_t ioaddr, u_char phyaddr, u_char phyreg);
-static void mii_wr(kio_addr_t ioaddr, u_char phyaddr, u_char phyreg,
+static void mii_idle(unsigned int ioaddr);
+static void mii_putbit(unsigned int ioaddr, unsigned data);
+static int  mii_getbit(unsigned int ioaddr);
+static void mii_wbits(unsigned int ioaddr, unsigned data, int len);
+static unsigned mii_rd(unsigned int ioaddr, u_char phyaddr, u_char phyreg);
+static void mii_wr(unsigned int ioaddr, u_char phyaddr, u_char phyreg,
 		   unsigned data, int len);
 
 /*
@@ -403,7 +403,7 @@ next_tuple(struct pcmcia_device *handle, tuple_t *tuple, cisparse_t *parse)
 static void
 PrintRegisters(struct net_device *dev)
 {
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
 
     if (pc_debug > 1) {
 	int i, page;
@@ -439,7 +439,7 @@ PrintRegisters(struct net_device *dev)
  * Turn around for read
  */
 static void
-mii_idle(kio_addr_t ioaddr)
+mii_idle(unsigned int ioaddr)
 {
     PutByte(XIRCREG2_GPR2, 0x04|0); /* drive MDCK low */
     udelay(1);
@@ -451,7 +451,7 @@ mii_idle(kio_addr_t ioaddr)
  * Write a bit to MDI/O
  */
 static void
-mii_putbit(kio_addr_t ioaddr, unsigned data)
+mii_putbit(unsigned int ioaddr, unsigned data)
 {
   #if 1
     if (data) {
@@ -484,7 +484,7 @@ mii_putbit(kio_addr_t ioaddr, unsigned data)
  * Get a bit from MDI/O
  */
 static int
-mii_getbit(kio_addr_t ioaddr)
+mii_getbit(unsigned int ioaddr)
 {
     unsigned d;
 
@@ -497,7 +497,7 @@ mii_getbit(kio_addr_t ioaddr)
 }
 
 static void
-mii_wbits(kio_addr_t ioaddr, unsigned data, int len)
+mii_wbits(unsigned int ioaddr, unsigned data, int len)
 {
     unsigned m = 1 << (len-1);
     for (; m; m >>= 1)
@@ -505,7 +505,7 @@ mii_wbits(kio_addr_t ioaddr, unsigned data, int len)
 }
 
 static unsigned
-mii_rd(kio_addr_t ioaddr,	u_char phyaddr, u_char phyreg)
+mii_rd(unsigned int ioaddr,	u_char phyaddr, u_char phyreg)
 {
     int i;
     unsigned data=0, m;
@@ -527,7 +527,8 @@ mii_rd(kio_addr_t ioaddr,	u_char phyaddr, u_char phyreg)
 }
 
 static void
-mii_wr(kio_addr_t ioaddr, u_char phyaddr, u_char phyreg, unsigned data, int len)
+mii_wr(unsigned int ioaddr, u_char phyaddr, u_char phyreg, unsigned data,
+       int len)
 {
     int i;
 
@@ -580,7 +581,6 @@ xirc2ps_probe(struct pcmcia_device *link)
     link->irq.Instance = dev;
 
     /* Fill in card specific entries */
-    SET_MODULE_OWNER(dev);
     dev->hard_start_xmit = &do_start_xmit;
     dev->set_config = &do_config;
     dev->get_stats = &do_get_stats;
@@ -727,11 +727,12 @@ xirc2ps_config(struct pcmcia_device * link)
     local_info_t *local = netdev_priv(dev);
     tuple_t tuple;
     cisparse_t parse;
-    kio_addr_t ioaddr;
+    unsigned int ioaddr;
     int err, i;
     u_char buf[64];
     cistpl_lan_node_id_t *node_id = (cistpl_lan_node_id_t*)parse.funce.data;
     cistpl_cftable_entry_t *cf = &parse.cftable_entry;
+    DECLARE_MAC_BUF(mac);
 
     local->dingo_ccr = NULL;
 
@@ -886,7 +887,7 @@ xirc2ps_config(struct pcmcia_device * link)
 	}
 	printk(KNOT_XIRC "no ports available\n");
     } else {
-	link->irq.Attributes |= IRQ_TYPE_EXCLUSIVE;
+	link->irq.Attributes |= IRQ_TYPE_DYNAMIC_SHARING;
 	link->io.NumPorts1 = 16;
 	for (ioaddr = 0x300; ioaddr < 0x400; ioaddr += 0x10) {
 	    link->io.BasePort1 = ioaddr;
@@ -1033,11 +1034,9 @@ xirc2ps_config(struct pcmcia_device * link)
     strcpy(local->node.dev_name, dev->name);
 
     /* give some infos about the hardware */
-    printk(KERN_INFO "%s: %s: port %#3lx, irq %d, hwaddr",
-	 dev->name, local->manf_str,(u_long)dev->base_addr, (int)dev->irq);
-    for (i = 0; i < 6; i++)
-	printk("%c%02X", i?':':' ', dev->dev_addr[i]);
-    printk("\n");
+    printk(KERN_INFO "%s: %s: port %#3lx, irq %d, hwaddr %s\n",
+	   dev->name, local->manf_str,(u_long)dev->base_addr, (int)dev->irq,
+	   print_mac(mac, dev->dev_addr));
 
     return 0;
 
@@ -1106,7 +1105,7 @@ xirc2ps_interrupt(int irq, void *dev_id)
 {
     struct net_device *dev = (struct net_device *)dev_id;
     local_info_t *lp = netdev_priv(dev);
-    kio_addr_t ioaddr;
+    unsigned int ioaddr;
     u_char saved_page;
     unsigned bytes_rcvd;
     unsigned int_status, eth_status, rx_status, tx_status;
@@ -1211,7 +1210,7 @@ xirc2ps_interrupt(int irq, void *dev_id)
 		    unsigned i;
 		    u_long *p = skb_put(skb, pktlen);
 		    register u_long a;
-		    kio_addr_t edpreg = ioaddr+XIRCREG_EDP-2;
+		    unsigned int edpreg = ioaddr+XIRCREG_EDP-2;
 		    for (i=0; i < len ; i += 4, p++) {
 			a = inl(edpreg);
 			__asm__("rorl $16,%0\n\t"
@@ -1348,7 +1347,7 @@ static int
 do_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
     local_info_t *lp = netdev_priv(dev);
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
     int okay;
     unsigned freespace;
     unsigned pktlen = skb->len;
@@ -1417,7 +1416,7 @@ do_get_stats(struct net_device *dev)
 static void
 set_addresses(struct net_device *dev)
 {
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
     local_info_t *lp = netdev_priv(dev);
     struct dev_mc_list *dmi = dev->mc_list;
     unsigned char *addr;
@@ -1461,23 +1460,26 @@ set_addresses(struct net_device *dev)
 static void
 set_multicast_list(struct net_device *dev)
 {
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
+    unsigned value;
 
     SelectPage(0x42);
+    value = GetByte(XIRCREG42_SWC1) & 0xC0;
+
     if (dev->flags & IFF_PROMISC) { /* snoop */
-	PutByte(XIRCREG42_SWC1, 0x06); /* set MPE and PME */
+	PutByte(XIRCREG42_SWC1, value | 0x06); /* set MPE and PME */
     } else if (dev->mc_count > 9 || (dev->flags & IFF_ALLMULTI)) {
-	PutByte(XIRCREG42_SWC1, 0x02); /* set MPE */
+	PutByte(XIRCREG42_SWC1, value | 0x02); /* set MPE */
     } else if (dev->mc_count) {
 	/* the chip can filter 9 addresses perfectly */
-	PutByte(XIRCREG42_SWC1, 0x01);
+	PutByte(XIRCREG42_SWC1, value | 0x01);
 	SelectPage(0x40);
 	PutByte(XIRCREG40_CMD0, Offline);
 	set_addresses(dev);
 	SelectPage(0x40);
 	PutByte(XIRCREG40_CMD0, EnableRecv | Online);
     } else { /* standard usage */
-	PutByte(XIRCREG42_SWC1, 0x00);
+	PutByte(XIRCREG42_SWC1, value | 0x00);
     }
     SelectPage(0);
 }
@@ -1545,7 +1547,7 @@ static int
 do_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
     local_info_t *local = netdev_priv(dev);
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
     u16 *data = (u16 *)&rq->ifr_ifru;
 
     DEBUG(1, "%s: ioctl(%-.6s, %#04x) %04x %04x %04x %04x\n",
@@ -1577,7 +1579,7 @@ static void
 hardreset(struct net_device *dev)
 {
     local_info_t *local = netdev_priv(dev);
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
 
     SelectPage(4);
     udelay(1);
@@ -1594,7 +1596,7 @@ static void
 do_reset(struct net_device *dev, int full)
 {
     local_info_t *local = netdev_priv(dev);
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
     unsigned value;
 
     DEBUG(0, "%s: do_reset(%p,%d)\n", dev? dev->name:"eth?", dev, full);
@@ -1723,6 +1725,7 @@ do_reset(struct net_device *dev, int full)
 
     /* enable receiver and put the mac online */
     if (full) {
+	set_multicast_list(dev);
 	SelectPage(0x40);
 	PutByte(XIRCREG40_CMD0, EnableRecv | Online);
     }
@@ -1755,7 +1758,7 @@ static int
 init_mii(struct net_device *dev)
 {
     local_info_t *local = netdev_priv(dev);
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
     unsigned control, status, linkpartner;
     int i;
 
@@ -1828,7 +1831,7 @@ static void
 do_powerdown(struct net_device *dev)
 {
 
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
 
     DEBUG(0, "do_powerdown(%p)\n", dev);
 
@@ -1840,7 +1843,7 @@ do_powerdown(struct net_device *dev)
 static int
 do_stop(struct net_device *dev)
 {
-    kio_addr_t ioaddr = dev->base_addr;
+    unsigned int ioaddr = dev->base_addr;
     local_info_t *lp = netdev_priv(dev);
     struct pcmcia_device *link = lp->p_dev;
 

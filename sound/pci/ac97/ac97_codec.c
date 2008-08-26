@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *  Universal interface for Audio Codec '97
  *
  *  For more details look to AC '97 component specification revision 2.2
@@ -22,7 +22,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -39,7 +38,7 @@
 
 #include "ac97_patch.c"
 
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("Universal interface for Audio Codec '97");
 MODULE_LICENSE("GPL");
 
@@ -49,9 +48,10 @@ module_param(enable_loopback, bool, 0444);
 MODULE_PARM_DESC(enable_loopback, "Enable AC97 ADC/DAC Loopback Control");
 
 #ifdef CONFIG_SND_AC97_POWER_SAVE
-static int power_save;
-module_param(power_save, bool, 0644);
-MODULE_PARM_DESC(power_save, "Enable AC97 power-saving control");
+static int power_save = CONFIG_SND_AC97_POWER_SAVE_DEFAULT;
+module_param(power_save, int, 0644);
+MODULE_PARM_DESC(power_save, "Automatic power-saving timeout "
+		 "(in second, 0 = disable).");
 #endif
 /*
 
@@ -161,6 +161,7 @@ static const struct ac97_codec_id snd_ac97_codec_ids[] = {
 { 0x50534304, 0xffffffff, "UCB1400",		patch_ucb1400,	NULL },
 { 0x53494c20, 0xffffffe0, "Si3036,8",		mpatch_si3036,	mpatch_si3036, AC97_MODEM_PATCH },
 { 0x54524102, 0xffffffff, "TR28022",		NULL,		NULL },
+{ 0x54524103, 0xffffffff, "TR28023",		NULL,		NULL },
 { 0x54524106, 0xffffffff, "TR28026",		NULL,		NULL },
 { 0x54524108, 0xffffffff, "TR28028",		patch_tritech_tr28028,	NULL }, // added by xin jin [07/09/99]
 { 0x54524123, 0xffffffff, "TR28602",		NULL,		NULL }, // only guess --jk [TR28023 = eMicro EM28023 (new CT1297)]
@@ -169,14 +170,14 @@ static const struct ac97_codec_id snd_ac97_codec_ids[] = {
 { 0x56494170, 0xffffffff, "VIA1617A",		patch_vt1617a,	NULL }, // modified VT1616 with S/PDIF
 { 0x56494182, 0xffffffff, "VIA1618",		NULL,		NULL },
 { 0x57454301, 0xffffffff, "W83971D",		NULL,		NULL },
-{ 0x574d4c00, 0xffffffff, "WM9701A",		NULL,		NULL },
+{ 0x574d4c00, 0xffffffff, "WM9701,WM9701A",	NULL,		NULL },
 { 0x574d4C03, 0xffffffff, "WM9703,WM9707,WM9708,WM9717", patch_wolfson03, NULL},
 { 0x574d4C04, 0xffffffff, "WM9704M,WM9704Q",	patch_wolfson04, NULL},
 { 0x574d4C05, 0xffffffff, "WM9705,WM9710",	patch_wolfson05, NULL},
 { 0x574d4C09, 0xffffffff, "WM9709",		NULL,		NULL},
 { 0x574d4C12, 0xffffffff, "WM9711,WM9712",	patch_wolfson11, NULL},
 { 0x574d4c13, 0xffffffff, "WM9713,WM9714",	patch_wolfson13, NULL, AC97_DEFAULT_POWER_OFF},
-{ 0x594d4800, 0xffffffff, "YMF743",		NULL,		NULL },
+{ 0x594d4800, 0xffffffff, "YMF743",		patch_yamaha_ymf743,	NULL },
 { 0x594d4802, 0xffffffff, "YMF752",		NULL,		NULL },
 { 0x594d4803, 0xffffffff, "YMF753",		patch_yamaha_ymf753,	NULL },
 { 0x83847600, 0xffffffff, "STAC9700,83,84",	patch_sigmatel_stac9700,	NULL },
@@ -779,6 +780,12 @@ static int snd_ac97_spdif_default_put(struct snd_kcontrol *kcontrol, struct snd_
 		change |= snd_ac97_update_bits_nolock(ac97, AC97_CXR_AUDIO_MISC, 
 						      AC97_CXR_SPDIF_MASK | AC97_CXR_COPYRGT,
 						      v);
+	} else if (ac97->id == AC97_ID_YMF743) {
+		change |= snd_ac97_update_bits_nolock(ac97,
+						      AC97_YMF7X3_DIT_CTRL,
+						      0xff38,
+						      ((val << 4) & 0xff00) |
+						      ((val << 2) & 0x0038));
 	} else {
 		unsigned short extst = snd_ac97_read_cache(ac97, AC97_EXTENDED_STATUS);
 		snd_ac97_update_bits_nolock(ac97, AC97_EXTENDED_STATUS, AC97_EA_SPDIF, 0); /* turn off */
@@ -1375,7 +1382,8 @@ static int snd_ac97_mixer_build(struct snd_ac97 * ac97)
 			for (idx = 0; idx < 2; idx++) {
 				if ((err = snd_ctl_add(card, kctl = snd_ac97_cnew(&snd_ac97_controls_tone[idx], ac97))) < 0)
 					return err;
-				if (ac97->id == AC97_ID_YMF753) {
+				if (ac97->id == AC97_ID_YMF743 ||
+				    ac97->id == AC97_ID_YMF753) {
 					kctl->private_value &= ~(0xff << 16);
 					kctl->private_value |= 7 << 16;
 				}
@@ -2036,11 +2044,12 @@ int snd_ac97_mixer(struct snd_ac97_bus *bus, struct snd_ac97_template *template,
 	else {
 		udelay(50);
 		if (ac97->scaps & AC97_SCAP_SKIP_AUDIO)
-			err = ac97_reset_wait(ac97, HZ/2, 1);
+			err = ac97_reset_wait(ac97, msecs_to_jiffies(500), 1);
 		else {
-			err = ac97_reset_wait(ac97, HZ/2, 0);
+			err = ac97_reset_wait(ac97, msecs_to_jiffies(500), 0);
 			if (err < 0)
-				err = ac97_reset_wait(ac97, HZ/2, 1);
+				err = ac97_reset_wait(ac97,
+						      msecs_to_jiffies(500), 1);
 		}
 		if (err < 0) {
 			snd_printk(KERN_WARNING "AC'97 %d does not respond - RESET\n", ac97->num);
@@ -2104,7 +2113,7 @@ int snd_ac97_mixer(struct snd_ac97_bus *bus, struct snd_ac97_template *template,
 		}
 		/* nothing should be in powerdown mode */
 		snd_ac97_write_cache(ac97, AC97_GENERAL_PURPOSE, 0);
-		end_time = jiffies + (HZ / 10);
+		end_time = jiffies + msecs_to_jiffies(100);
 		do {
 			if ((snd_ac97_read(ac97, AC97_POWERDOWN) & 0x0f) == 0x0f)
 				goto __ready_ok;
@@ -2136,7 +2145,7 @@ int snd_ac97_mixer(struct snd_ac97_bus *bus, struct snd_ac97_template *template,
 		udelay(100);
 		/* nothing should be in powerdown mode */
 		snd_ac97_write_cache(ac97, AC97_EXTENDED_MSTATUS, 0);
-		end_time = jiffies + (HZ / 10);
+		end_time = jiffies + msecs_to_jiffies(100);
 		do {
 			if ((snd_ac97_read(ac97, AC97_EXTENDED_MSTATUS) & tmp) == tmp)
 				goto __ready_ok;
@@ -2287,9 +2296,11 @@ static void snd_ac97_powerdown(struct snd_ac97 *ac97)
 	power |= AC97_PD_PR0 | AC97_PD_PR1;	/* ADC & DAC powerdown */
 	snd_ac97_write(ac97, AC97_POWERDOWN, power);
 	udelay(100);
-	power |= AC97_PD_PR2 | AC97_PD_PR3;	/* Analog Mixer powerdown */
+	power |= AC97_PD_PR2;	/* Analog Mixer powerdown (Vref on) */
 	snd_ac97_write(ac97, AC97_POWERDOWN, power);
 	if (ac97_is_power_save_mode(ac97)) {
+		power |= AC97_PD_PR3;	/* Analog Mixer powerdown */
+		snd_ac97_write(ac97, AC97_POWERDOWN, power);
 		udelay(100);
 		/* AC-link powerdown, internal Clk disable */
 		/* FIXME: this may cause click noises on some boards */
@@ -2354,7 +2365,8 @@ int snd_ac97_update_power(struct snd_ac97 *ac97, int reg, int powerup)
 		 * (for avoiding loud click noises for many (OSS) apps
 		 *  that open/close frequently)
 		 */
-		schedule_delayed_work(&ac97->power_work, HZ*2);
+		schedule_delayed_work(&ac97->power_work,
+				      msecs_to_jiffies(power_save * 1000));
 	else {
 		cancel_delayed_work(&ac97->power_work);
 		update_power_regs(ac97);
@@ -2436,7 +2448,7 @@ EXPORT_SYMBOL(snd_ac97_suspend);
 /*
  * restore ac97 status
  */
-void snd_ac97_restore_status(struct snd_ac97 *ac97)
+static void snd_ac97_restore_status(struct snd_ac97 *ac97)
 {
 	int i;
 
@@ -2457,7 +2469,7 @@ void snd_ac97_restore_status(struct snd_ac97 *ac97)
 /*
  * restore IEC958 status
  */
-void snd_ac97_restore_iec958(struct snd_ac97 *ac97)
+static void snd_ac97_restore_iec958(struct snd_ac97 *ac97)
 {
 	if (ac97->ext_id & AC97_EI_SPDIF) {
 		if (ac97->regs[AC97_EXTENDED_STATUS] & AC97_EA_SPDIF) {
@@ -2494,7 +2506,10 @@ void snd_ac97_resume(struct snd_ac97 *ac97)
 
 	snd_ac97_write(ac97, AC97_POWERDOWN, 0);
 	if (! (ac97->flags & AC97_DEFAULT_POWER_OFF)) {
-		snd_ac97_write(ac97, AC97_RESET, 0);
+		if (!(ac97->scaps & AC97_SCAP_SKIP_AUDIO))
+			snd_ac97_write(ac97, AC97_RESET, 0);
+		else if (!(ac97->scaps & AC97_SCAP_SKIP_MODEM))
+			snd_ac97_write(ac97, AC97_EXTENDED_MID, 0);
 		udelay(100);
 		snd_ac97_write(ac97, AC97_POWERDOWN, 0);
 	}

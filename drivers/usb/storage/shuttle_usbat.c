@@ -1,7 +1,5 @@
 /* Driver for SCM Microsystems (a.k.a. Shuttle) USB-ATAPI cable
  *
- * $Id: shuttle_usbat.c,v 1.17 2002/04/22 03:39:43 mdharm Exp $
- *
  * Current development and maintenance by:
  *   (c) 2000, 2001 Robert Baruch (autophile@starband.net)
  *   (c) 2004, 2005 Daniel Drake <dsd@gentoo.org>
@@ -130,7 +128,7 @@ static int usbat_write(struct us_data *us,
  * Convenience function to perform a bulk read
  */
 static int usbat_bulk_read(struct us_data *us,
-			   unsigned char *data,
+			   void* buf,
 			   unsigned int len,
 			   int use_sg)
 {
@@ -138,14 +136,14 @@ static int usbat_bulk_read(struct us_data *us,
 		return USB_STOR_XFER_GOOD;
 
 	US_DEBUGP("usbat_bulk_read: len = %d\n", len);
-	return usb_stor_bulk_transfer_sg(us, us->recv_bulk_pipe, data, len, use_sg, NULL);
+	return usb_stor_bulk_transfer_sg(us, us->recv_bulk_pipe, buf, len, use_sg, NULL);
 }
 
 /*
  * Convenience function to perform a bulk write
  */
 static int usbat_bulk_write(struct us_data *us,
-			    unsigned char *data,
+			    void* buf,
 			    unsigned int len,
 			    int use_sg)
 {
@@ -153,7 +151,7 @@ static int usbat_bulk_write(struct us_data *us,
 		return USB_STOR_XFER_GOOD;
 
 	US_DEBUGP("usbat_bulk_write:  len = %d\n", len);
-	return usb_stor_bulk_transfer_sg(us, us->send_bulk_pipe, data, len, use_sg, NULL);
+	return usb_stor_bulk_transfer_sg(us, us->send_bulk_pipe, buf, len, use_sg, NULL);
 }
 
 /*
@@ -189,9 +187,6 @@ static int usbat_check_status(struct us_data *us)
 {
 	unsigned char *reply = us->iobuf;
 	int rc;
-
-	if (!us)
-		return USB_STOR_TRANSPORT_ERROR;
 
 	rc = usbat_get_status(us, reply);
 	if (rc != USB_STOR_XFER_GOOD)
@@ -317,7 +312,7 @@ static int usbat_wait_not_busy(struct us_data *us, int minutes)
  * Read block data from the data register
  */
 static int usbat_read_block(struct us_data *us,
-			    unsigned char *content,
+			    void* buf,
 			    unsigned short len,
 			    int use_sg)
 {
@@ -340,7 +335,7 @@ static int usbat_read_block(struct us_data *us,
 	if (result != USB_STOR_XFER_GOOD)
 		return USB_STOR_TRANSPORT_ERROR;
 
-	result = usbat_bulk_read(us, content, len, use_sg);
+	result = usbat_bulk_read(us, buf, len, use_sg);
 	return (result == USB_STOR_XFER_GOOD ?
 			USB_STOR_TRANSPORT_GOOD : USB_STOR_TRANSPORT_ERROR);
 }
@@ -350,7 +345,7 @@ static int usbat_read_block(struct us_data *us,
  */
 static int usbat_write_block(struct us_data *us,
 			     unsigned char access,
-			     unsigned char *content,
+			     void* buf,
 			     unsigned short len,
 			     int minutes,
 			     int use_sg)
@@ -375,7 +370,7 @@ static int usbat_write_block(struct us_data *us,
 	if (result != USB_STOR_XFER_GOOD)
 		return USB_STOR_TRANSPORT_ERROR;
 
-	result = usbat_bulk_write(us, content, len, use_sg);
+	result = usbat_bulk_write(us, buf, len, use_sg);
 	if (result != USB_STOR_XFER_GOOD)
 		return USB_STOR_TRANSPORT_ERROR;
 
@@ -395,7 +390,7 @@ static int usbat_hp8200e_rw_block_test(struct us_data *us,
 				       unsigned char timeout,
 				       unsigned char qualifier,
 				       int direction,
-				       unsigned char *content,
+				       void *buf,
 				       unsigned short len,
 				       int use_sg,
 				       int minutes)
@@ -475,7 +470,7 @@ static int usbat_hp8200e_rw_block_test(struct us_data *us,
 		}
 
 		result = usb_stor_bulk_transfer_sg(us,
-			pipe, content, len, use_sg, NULL);
+			pipe, buf, len, use_sg, NULL);
 
 		/*
 		 * If we get a stall on the bulk download, we'll retry
@@ -609,7 +604,7 @@ static int usbat_multiple_write(struct us_data *us,
  * other related details) are defined beforehand with _set_shuttle_features().
  */
 static int usbat_read_blocks(struct us_data *us,
-			     unsigned char *buffer,
+			     void* buffer,
 			     int len,
 			     int use_sg)
 {
@@ -651,7 +646,7 @@ static int usbat_read_blocks(struct us_data *us,
  * other related details) are defined beforehand with _set_shuttle_features().
  */
 static int usbat_write_blocks(struct us_data *us,
-							  unsigned char *buffer,
+			      void* buffer,
 			      int len,
 			      int use_sg)
 {
@@ -996,7 +991,8 @@ static int usbat_flash_read_data(struct us_data *us,
 	unsigned char  thistime;
 	unsigned int totallen, alloclen;
 	int len, result;
-	unsigned int sg_idx = 0, sg_offset = 0;
+	unsigned int sg_offset = 0;
+	struct scatterlist *sg = NULL;
 
 	result = usbat_flash_check_media(us, info);
 	if (result != USB_STOR_TRANSPORT_GOOD)
@@ -1050,7 +1046,7 @@ static int usbat_flash_read_data(struct us_data *us,
 	
 		/* Store the data in the transfer buffer */
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
-					 &sg_idx, &sg_offset, TO_XFER_BUF);
+					 &sg, &sg_offset, TO_XFER_BUF);
 
 		sector += thistime;
 		totallen -= len;
@@ -1086,7 +1082,8 @@ static int usbat_flash_write_data(struct us_data *us,
 	unsigned char  thistime;
 	unsigned int totallen, alloclen;
 	int len, result;
-	unsigned int sg_idx = 0, sg_offset = 0;
+	unsigned int sg_offset = 0;
+	struct scatterlist *sg = NULL;
 
 	result = usbat_flash_check_media(us, info);
 	if (result != USB_STOR_TRANSPORT_GOOD)
@@ -1125,7 +1122,7 @@ static int usbat_flash_write_data(struct us_data *us,
 
 		/* Get the data from the transfer buffer */
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
-					 &sg_idx, &sg_offset, FROM_XFER_BUF);
+					 &sg, &sg_offset, FROM_XFER_BUF);
 
 		/* ATA command 0x30 (WRITE SECTORS) */
 		usbat_pack_ata_sector_cmd(command, thistime, sector, 0x30);
@@ -1165,21 +1162,21 @@ static int usbat_hp8200e_handle_read10(struct us_data *us,
 	unsigned char *buffer;
 	unsigned int len;
 	unsigned int sector;
-	unsigned int sg_segment = 0;
 	unsigned int sg_offset = 0;
+	struct scatterlist *sg = NULL;
 
 	US_DEBUGP("handle_read10: transfersize %d\n",
 		srb->transfersize);
 
-	if (srb->request_bufflen < 0x10000) {
+	if (scsi_bufflen(srb) < 0x10000) {
 
 		result = usbat_hp8200e_rw_block_test(us, USBAT_ATA, 
 			registers, data, 19,
 			USBAT_ATA_DATA, USBAT_ATA_STATUS, 0xFD,
 			(USBAT_QUAL_FCQ | USBAT_QUAL_ALQ),
 			DMA_FROM_DEVICE,
-			srb->request_buffer, 
-			srb->request_bufflen, srb->use_sg, 1);
+			scsi_sglist(srb),
+			scsi_bufflen(srb), scsi_sg_count(srb), 1);
 
 		return result;
 	}
@@ -1197,7 +1194,7 @@ static int usbat_hp8200e_handle_read10(struct us_data *us,
 		len <<= 16;
 		len |= data[7+7];
 		US_DEBUGP("handle_read10: GPCMD_READ_CD: len %d\n", len);
-		srb->transfersize = srb->request_bufflen/len;
+		srb->transfersize = scsi_bufflen(srb)/len;
 	}
 
 	if (!srb->transfersize)  {
@@ -1214,7 +1211,7 @@ static int usbat_hp8200e_handle_read10(struct us_data *us,
 
 	len = (65535/srb->transfersize) * srb->transfersize;
 	US_DEBUGP("Max read is %d bytes\n", len);
-	len = min(len, srb->request_bufflen);
+	len = min(len, scsi_bufflen(srb));
 	buffer = kmalloc(len, GFP_NOIO);
 	if (buffer == NULL) /* bloody hell! */
 		return USB_STOR_TRANSPORT_FAILED;
@@ -1223,13 +1220,10 @@ static int usbat_hp8200e_handle_read10(struct us_data *us,
 	sector |= short_pack(data[7+5], data[7+4]);
 	transferred = 0;
 
-	sg_segment = 0; /* for keeping track of where we are in */
-	sg_offset = 0;  /* the scatter/gather list */
+	while (transferred != scsi_bufflen(srb)) {
 
-	while (transferred != srb->request_bufflen) {
-
-		if (len > srb->request_bufflen - transferred)
-			len = srb->request_bufflen - transferred;
+		if (len > scsi_bufflen(srb) - transferred)
+			len = scsi_bufflen(srb) - transferred;
 
 		data[3] = len&0xFF; 	  /* (cylL) = expected length (L) */
 		data[4] = (len>>8)&0xFF;  /* (cylH) = expected length (H) */
@@ -1258,14 +1252,14 @@ static int usbat_hp8200e_handle_read10(struct us_data *us,
 
 		/* Store the data in the transfer buffer */
 		usb_stor_access_xfer_buf(buffer, len, srb,
-				 &sg_segment, &sg_offset, TO_XFER_BUF);
+				 &sg, &sg_offset, TO_XFER_BUF);
 
 		/* Update the amount transferred and the sector number */
 
 		transferred += len;
 		sector += len / srb->transfersize;
 
-	} /* while transferred != srb->request_bufflen */
+	} /* while transferred != scsi_bufflen(srb) */
 
 	kfree(buffer);
 	return result;
@@ -1433,9 +1427,8 @@ static int usbat_hp8200e_transport(struct scsi_cmnd *srb, struct us_data *us)
 	unsigned char data[32];
 	unsigned int len;
 	int i;
-	char string[64];
 
-	len = srb->request_bufflen;
+	len = scsi_bufflen(srb);
 
 	/* Send A0 (ATA PACKET COMMAND).
 	   Note: I guess we're never going to get any of the ATA
@@ -1476,8 +1469,8 @@ static int usbat_hp8200e_transport(struct scsi_cmnd *srb, struct us_data *us)
 			USBAT_ATA_DATA, USBAT_ATA_STATUS, 0xFD,
 			(USBAT_QUAL_FCQ | USBAT_QUAL_ALQ),
 			DMA_TO_DEVICE,
-			srb->request_buffer, 
-			len, srb->use_sg, 10);
+			scsi_sglist(srb),
+			len, scsi_sg_count(srb), 10);
 
 		if (result == USB_STOR_TRANSPORT_GOOD) {
 			transferred += len;
@@ -1544,23 +1537,8 @@ static int usbat_hp8200e_transport(struct scsi_cmnd *srb, struct us_data *us)
 			len = *status;
 
 
-		result = usbat_read_block(us, srb->request_buffer, len, srb->use_sg);
-
-		/* Debug-print the first 32 bytes of the transfer */
-
-		if (!srb->use_sg) {
-			string[0] = 0;
-			for (i=0; i<len && i<32; i++) {
-				sprintf(string+strlen(string), "%02X ",
-				  ((unsigned char *)srb->request_buffer)[i]);
-				if ((i%16)==15) {
-					US_DEBUGP("%s\n", string);
-					string[0] = 0;
-				}
-			}
-			if (string[0]!=0)
-				US_DEBUGP("%s\n", string);
-		}
+		result = usbat_read_block(us, scsi_sglist(srb), len,
+			                                   scsi_sg_count(srb));
 	}
 
 	return result;

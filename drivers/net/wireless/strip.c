@@ -107,6 +107,7 @@ static const char StripVersion[] = "1.3A-STUART.CHESHIRE";
 #include <linux/serialP.h>
 #include <linux/rcupdate.h>
 #include <net/arp.h>
+#include <net/net_namespace.h>
 
 #include <linux/ip.h>
 #include <linux/tcp.h>
@@ -767,41 +768,17 @@ static __u8 *UnStuffData(__u8 * src, __u8 * end, __u8 * dst,
 /* General routines for STRIP						*/
 
 /*
- * get_baud returns the current baud rate, as one of the constants defined in
- * termbits.h
- * If the user has issued a baud rate override using the 'setserial' command
- * and the logical current rate is set to 38.4, then the true baud rate
- * currently in effect (57.6 or 115.2) is returned.
- */
-static unsigned int get_baud(struct tty_struct *tty)
-{
-	if (!tty || !tty->termios)
-		return (0);
-	if ((tty->termios->c_cflag & CBAUD) == B38400 && tty->driver_data) {
-		struct async_struct *info =
-		    (struct async_struct *) tty->driver_data;
-		if ((info->flags & ASYNC_SPD_MASK) == ASYNC_SPD_HI)
-			return (B57600);
-		if ((info->flags & ASYNC_SPD_MASK) == ASYNC_SPD_VHI)
-			return (B115200);
-	}
-	return (tty->termios->c_cflag & CBAUD);
-}
-
-/*
  * set_baud sets the baud rate to the rate defined by baudcode
- * Note: The rate B38400 should be avoided, because the user may have
- * issued a 'setserial' speed override to map that to a different speed.
- * We could achieve a true rate of 38400 if we needed to by cancelling
- * any user speed override that is in place, but that might annoy the
- * user, so it is simplest to just avoid using 38400.
  */
-static void set_baud(struct tty_struct *tty, unsigned int baudcode)
+static void set_baud(struct tty_struct *tty, speed_t baudrate)
 {
-	struct ktermios old_termios = *(tty->termios);
-	tty->termios->c_cflag &= ~CBAUD;	/* Clear the old baud setting */
-	tty->termios->c_cflag |= baudcode;	/* Set the new baud setting */
-	tty->driver->set_termios(tty, &old_termios);
+	struct ktermios old_termios;
+
+	mutex_lock(&tty->termios_mutex);
+	old_termios =*(tty->termios);
+	tty_encode_baud_rate(tty, baudrate, baudrate);
+	tty->ops->set_termios(tty, &old_termios);
+	mutex_unlock(&tty->termios_mutex);
 }
 
 /*
@@ -961,12 +938,12 @@ static char *time_delta(char buffer[], long time)
 /* get Nth element of the linked list */
 static struct strip *strip_get_idx(loff_t pos) 
 {
-	struct list_head *l;
+	struct strip *str;
 	int i = 0;
 
-	list_for_each_rcu(l, &strip_list) {
+	list_for_each_entry_rcu(str, &strip_list, list) {
 		if (pos == i)
-			return list_entry(l, struct strip, list);
+			return str;
 		++i;
 	}
 	return NULL;
@@ -1216,7 +1193,7 @@ static void ResetRadio(struct strip *strip_info)
 	strip_info->watchdog_doreset = jiffies + 1 * HZ;
 
 	/* If the user has selected a baud rate above 38.4 see what magic we have to do */
-	if (strip_info->user_baud > B38400) {
+	if (strip_info->user_baud > 38400) {
 		/*
 		 * Subtle stuff: Pay attention :-)
 		 * If the serial port is currently at the user's selected (>38.4) rate,
@@ -1226,17 +1203,17 @@ static void ResetRadio(struct strip *strip_info)
 		 * issued the ATS304 command last time through, so this time we restore
 		 * the user's selected rate and issue the normal starmode reset string.
 		 */
-		if (strip_info->user_baud == get_baud(tty)) {
+		if (strip_info->user_baud == tty_get_baud_rate(tty)) {
 			static const char b0[] = "ate0q1s304=57600\r";
 			static const char b1[] = "ate0q1s304=115200\r";
 			static const StringDescriptor baudstring[2] =
 			    { {b0, sizeof(b0) - 1}
 			, {b1, sizeof(b1) - 1}
 			};
-			set_baud(tty, B19200);
-			if (strip_info->user_baud == B57600)
+			set_baud(tty, 19200);
+			if (strip_info->user_baud == 57600)
 				s = baudstring[0];
-			else if (strip_info->user_baud == B115200)
+			else if (strip_info->user_baud == 115200)
 				s = baudstring[1];
 			else
 				s = baudstring[1];	/* For now */
@@ -1244,7 +1221,7 @@ static void ResetRadio(struct strip *strip_info)
 			set_baud(tty, strip_info->user_baud);
 	}
 
-	tty->driver->write(tty, s.string, s.length);
+	tty->ops->write(tty, s.string, s.length);
 #ifdef EXT_COUNTERS
 	strip_info->tx_ebytes += s.length;
 #endif
@@ -1266,7 +1243,7 @@ static void strip_write_some_more(struct tty_struct *tty)
 
 	if (strip_info->tx_left > 0) {
 		int num_written =
-		    tty->driver->write(tty, strip_info->tx_head,
+		    tty->ops->write(tty, strip_info->tx_head,
 				      strip_info->tx_left);
 		strip_info->tx_left -= num_written;
 		strip_info->tx_head += num_written;
@@ -1630,8 +1607,8 @@ static void strip_IdleTask(unsigned long parameter)
  */
 
 static int strip_header(struct sk_buff *skb, struct net_device *dev,
-			unsigned short type, void *daddr, void *saddr,
-			unsigned len)
+			unsigned short type, const void *daddr,
+			const void *saddr, unsigned len)
 {
 	struct strip *strip_info = netdev_priv(dev);
 	STRIP_Header *header = (STRIP_Header *) skb_push(skb, sizeof(STRIP_Header));
@@ -1971,7 +1948,7 @@ static struct net_device *get_strip_dev(struct strip *strip_info)
 		      sizeof(zero_address))) {
 		struct net_device *dev;
 		read_lock_bh(&dev_base_lock);
-		for_each_netdev(dev) {
+		for_each_netdev(&init_net, dev) {
 			if (dev->type == strip_info->dev->type &&
 			    !memcmp(dev->dev_addr,
 				    &strip_info->true_dev_addr,
@@ -2456,7 +2433,7 @@ static int strip_open_low(struct net_device *dev)
 	strip_info->working = FALSE;
 	strip_info->firmware_level = NoStructure;
 	strip_info->next_command = CompatibilityCommand;
-	strip_info->user_baud = get_baud(strip_info->tty);
+	strip_info->user_baud = tty_get_baud_rate(strip_info->tty);
 
 	printk(KERN_INFO "%s: Initializing Radio.\n",
 	       strip_info->dev->name);
@@ -2496,6 +2473,11 @@ static int strip_close_low(struct net_device *dev)
 	return 0;
 }
 
+static const struct header_ops strip_header_ops = {
+	.create = strip_header,
+	.rebuild = strip_rebuild_header,
+};
+
 /*
  * This routine is called by DDI when the
  * (dynamically assigned) device is registered
@@ -2506,8 +2488,6 @@ static void strip_dev_setup(struct net_device *dev)
 	/*
 	 * Finish setting up the DEVICE info.
 	 */
-
-	SET_MODULE_OWNER(dev);
 
 	dev->trans_start = 0;
 	dev->last_rx = 0;
@@ -2532,8 +2512,8 @@ static void strip_dev_setup(struct net_device *dev)
 	dev->open = strip_open_low;
 	dev->stop = strip_close_low;
 	dev->hard_start_xmit = strip_xmit;
-	dev->hard_header = strip_header;
-	dev->rebuild_header = strip_rebuild_header;
+	dev->header_ops = &strip_header_ops;
+
 	dev->set_mac_address = strip_set_mac_address;
 	dev->get_stats = strip_get_stats;
 	dev->change_mtu = strip_change_mtu;
@@ -2571,7 +2551,7 @@ static struct strip *strip_alloc(void)
 		return NULL;	/* If no more memory, return */
 
 
-	strip_info = dev->priv;
+	strip_info = netdev_priv(dev);
 	strip_info->dev = dev;
 
 	strip_info->magic = STRIP_MAGIC;
@@ -2628,6 +2608,13 @@ static int strip_open(struct tty_struct *tty)
 		return -EEXIST;
 
 	/*
+	 * We need a write method.
+	 */
+
+	if (tty->ops->write == NULL || tty->ops->set_termios == NULL)
+		return -EOPNOTSUPP;
+
+	/*
 	 * OK.  Find a free STRIP channel to use.
 	 */
 	if ((strip_info = strip_alloc()) == NULL)
@@ -2648,8 +2635,7 @@ static int strip_open(struct tty_struct *tty)
 	tty->disc_data = strip_info;
 	tty->receive_room = 65536;
 
-	if (tty->driver->flush_buffer)
-		tty->driver->flush_buffer(tty);
+	tty_driver_flush_buffer(tty);
 
 	/*
 	 * Restore default settings
@@ -2731,16 +2717,8 @@ static int strip_ioctl(struct tty_struct *tty, struct file *file,
 			return -EFAULT;
 		return set_mac_address(strip_info, &addr);
 	}
-	/*
-	 * Allow stty to read, but not set, the serial port
-	 */
-
-	case TCGETS:
-	case TCGETA:
-		return n_tty_ioctl(tty, file, cmd, arg);
-		break;
 	default:
-		return -ENOIOCTLCMD;
+		return tty_mode_ioctl(tty, file, cmd, arg);
 		break;
 	}
 	return 0;
@@ -2750,7 +2728,7 @@ static int strip_ioctl(struct tty_struct *tty, struct file *file,
 /************************************************************************/
 /* Initialization							*/
 
-static struct tty_ldisc strip_ldisc = {
+static struct tty_ldisc_ops strip_ldisc = {
 	.magic = TTY_LDISC_MAGIC,
 	.name = "strip",
 	.owner = THIS_MODULE,
@@ -2787,7 +2765,7 @@ static int __init strip_init_driver(void)
 	/*
 	 * Register the status file with /proc
 	 */
-	proc_net_fops_create("strip", S_IFREG | S_IRUGO, &strip_seq_fops);
+	proc_net_fops_create(&init_net, "strip", S_IFREG | S_IRUGO, &strip_seq_fops);
 
 	return status;
 }
@@ -2809,7 +2787,7 @@ static void __exit strip_exit_driver(void)
 	}
 
 	/* Unregister with the /proc/net file here. */
-	proc_net_remove("strip");
+	proc_net_remove(&init_net, "strip");
 
 	if ((i = tty_unregister_ldisc(N_STRIP)))
 		printk(KERN_ERR "STRIP: can't unregister line discipline (err = %d)\n", i);

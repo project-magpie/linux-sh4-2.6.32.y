@@ -23,6 +23,7 @@
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/zorro.h>
+#include <linux/module.h>
 
 #include <asm/bootinfo.h>
 #include <asm/setup.h>
@@ -35,14 +36,24 @@
 #include <asm/machdep.h>
 #include <asm/io.h>
 
-unsigned long amiga_model;
+static unsigned long amiga_model;
+
 unsigned long amiga_eclock;
-unsigned long amiga_masterclock;
+EXPORT_SYMBOL(amiga_eclock);
+
 unsigned long amiga_colorclock;
+EXPORT_SYMBOL(amiga_colorclock);
+
 unsigned long amiga_chipset;
+EXPORT_SYMBOL(amiga_chipset);
+
 unsigned char amiga_vblank;
-unsigned char amiga_psfreq;
+EXPORT_SYMBOL(amiga_vblank);
+
+static unsigned char amiga_psfreq;
+
 struct amiga_hw_present amiga_hw_present;
+EXPORT_SYMBOL(amiga_hw_present);
 
 static char s_a500[] __initdata = "A500";
 static char s_a500p[] __initdata = "A500+";
@@ -80,8 +91,6 @@ static char *amiga_models[] __initdata = {
 static char amiga_model_name[13] = "Amiga ";
 
 static void amiga_sched_init(irq_handler_t handler);
-/* amiga specific irq functions */
-extern void amiga_init_IRQ(void);
 static void amiga_get_model(char *model);
 static int amiga_get_hardware_list(char *buffer);
 /* amiga specific timer functions */
@@ -95,8 +104,6 @@ static void amiga_reset(void);
 extern void amiga_init_sound(void);
 static void amiga_mem_console_write(struct console *co, const char *b,
 				    unsigned int count);
-void amiga_serial_console_write(struct console *co, const char *s,
-				unsigned int count);
 #ifdef CONFIG_HEARTBEAT
 static void amiga_heartbeat(int on);
 #endif
@@ -406,8 +413,7 @@ void __init config_amiga(void)
 	mach_heartbeat = amiga_heartbeat;
 #endif
 
-	/* Fill in the clock values (based on the 700 kHz E-Clock) */
-	amiga_masterclock = 40*amiga_eclock;	/* 28 MHz */
+	/* Fill in the clock value (based on the 700 kHz E-Clock) */
 	amiga_colorclock = 5*amiga_eclock;	/* 3.5 MHz */
 
 	/* clear all DMA bits */
@@ -805,8 +811,8 @@ static void amiga_serial_putc(char c)
 		;
 }
 
-void amiga_serial_console_write(struct console *co, const char *s,
-				unsigned int count)
+static void amiga_serial_console_write(struct console *co, const char *s,
+				       unsigned int count)
 {
 	while (count--) {
 		if (*s == '\n')
@@ -815,7 +821,7 @@ void amiga_serial_console_write(struct console *co, const char *s,
 	}
 }
 
-#ifdef CONFIG_SERIAL_CONSOLE
+#if 0
 void amiga_serial_puts(const char *s)
 {
 	amiga_serial_console_write(NULL, s, strlen(s));

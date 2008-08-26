@@ -10,9 +10,9 @@
  * 2 of the License, or (at your option) any later version.
  */
 
-#ifdef __KERNEL__
 #include <asm/asm-compat.h>
 #include <asm/kdump.h>
+#include <asm/types.h>
 
 /*
  * On PPC32 page size is 4K. For PPC64 we support either 4K or 64K software
@@ -43,8 +43,23 @@
  *
  * The kdump dump kernel is one example where KERNELBASE != PAGE_OFFSET.
  *
- * To get a physical address from a virtual one you subtract PAGE_OFFSET,
- * _not_ KERNELBASE.
+ * PAGE_OFFSET is the virtual address of the start of lowmem.
+ *
+ * PHYSICAL_START is the physical address of the start of the kernel.
+ *
+ * MEMORY_START is the physical address of the start of lowmem.
+ *
+ * KERNELBASE, PAGE_OFFSET, and PHYSICAL_START are all configurable on
+ * ppc32 and based on how they are set we determine MEMORY_START.
+ *
+ * For the linear mapping the following equation should be true:
+ * KERNELBASE - PAGE_OFFSET = PHYSICAL_START - MEMORY_START
+ *
+ * Also, KERNELBASE >= PAGE_OFFSET and PHYSICAL_START >= MEMORY_START
+ *
+ * There are two was to determine a physical address from a virtual one:
+ * va = pa + PAGE_OFFSET - MEMORY_START
+ * va = pa + KERNELBASE - PHYSICAL_START
  *
  * If you want to know something's offset from the start of the kernel you
  * should subtract KERNELBASE.
@@ -52,19 +67,33 @@
  * If you want to test if something's a kernel address, use is_kernel_addr().
  */
 
-#define PAGE_OFFSET     ASM_CONST(CONFIG_KERNEL_START)
-#define KERNELBASE      (PAGE_OFFSET + PHYSICAL_START)
+#define KERNELBASE      ASM_CONST(CONFIG_KERNEL_START)
+#define PAGE_OFFSET	ASM_CONST(CONFIG_PAGE_OFFSET)
+#define LOAD_OFFSET	ASM_CONST((CONFIG_KERNEL_START-CONFIG_PHYSICAL_START))
+
+#if defined(CONFIG_RELOCATABLE) && defined(CONFIG_FLATMEM)
+#ifndef __ASSEMBLY__
+extern phys_addr_t memstart_addr;
+extern phys_addr_t kernstart_addr;
+#endif
+#define PHYSICAL_START	kernstart_addr
+#define MEMORY_START	memstart_addr
+#else
+#define PHYSICAL_START	ASM_CONST(CONFIG_PHYSICAL_START)
+#define MEMORY_START	(PHYSICAL_START + PAGE_OFFSET - KERNELBASE)
+#endif
 
 #ifdef CONFIG_FLATMEM
-#define pfn_valid(pfn)		((pfn) < max_mapnr)
+#define ARCH_PFN_OFFSET		(MEMORY_START >> PAGE_SHIFT)
+#define pfn_valid(pfn)		((pfn) >= ARCH_PFN_OFFSET && (pfn) < (ARCH_PFN_OFFSET + max_mapnr))
 #endif
 
 #define virt_to_page(kaddr)	pfn_to_page(__pa(kaddr) >> PAGE_SHIFT)
 #define pfn_to_kaddr(pfn)	__va((pfn) << PAGE_SHIFT)
 #define virt_addr_valid(kaddr)	pfn_valid(__pa(kaddr) >> PAGE_SHIFT)
 
-#define __va(x) ((void *)((unsigned long)(x) + PAGE_OFFSET))
-#define __pa(x) ((unsigned long)(x) - PAGE_OFFSET)
+#define __va(x) ((void *)((unsigned long)(x) - PHYSICAL_START + KERNELBASE))
+#define __pa(x) ((unsigned long)(x) + PHYSICAL_START - KERNELBASE)
 
 /*
  * Unfortunately the PLT is in the BSS in the PPC32 ELF ABI,
@@ -89,9 +118,6 @@
 
 /* align addr on a size boundary - adjust address up if needed */
 #define _ALIGN(addr,size)     _ALIGN_UP(addr,size)
-
-/* to align the pointer to the (next) page boundary */
-#define PAGE_ALIGN(addr)	_ALIGN(addr, PAGE_SIZE)
 
 /*
  * Don't compare things with KERNELBASE or PAGE_OFFSET to test for
@@ -191,9 +217,9 @@ extern int page_is_ram(unsigned long pfn);
 
 struct vm_area_struct;
 
+typedef struct page *pgtable_t;
+
 #include <asm-generic/memory_model.h>
 #endif /* __ASSEMBLY__ */
-
-#endif /* __KERNEL__ */
 
 #endif /* _ASM_POWERPC_PAGE_H */

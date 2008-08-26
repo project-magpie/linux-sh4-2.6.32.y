@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *                   Abramo Bagnara <abramo@alsa-project.org>
  *                   Cirrus Logic, Inc.
  *  Routines for control of Cirrus Logic CS461x chips
@@ -8,7 +8,7 @@
  *    - Sometimes the SPDIF input DSP tasks get's unsynchronized
  *      and the SPDIF get somewhat "distorcionated", or/and left right channel
  *      are swapped. To get around this problem when it happens, mute and unmute 
- *      the SPDIF input mixer controll.
+ *      the SPDIF input mixer control.
  *    - On the Hercules Game Theater XP the amplifier are sometimes turned
  *      off on inadecuate moments which causes distorcions on sound.
  *
@@ -45,7 +45,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/delay.h>
 #include <linux/pci.h>
 #include <linux/pm.h>
@@ -1818,15 +1817,7 @@ static int snd_cs46xx_vol_iec958_put(struct snd_kcontrol *kcontrol, struct snd_c
 }
 #endif
 
-static int snd_mixer_boolean_info(struct snd_kcontrol *kcontrol, 
-				  struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define snd_mixer_boolean_info		snd_ctl_boolean_mono_info
 
 static int snd_cs46xx_iec958_get(struct snd_kcontrol *kcontrol, 
                                  struct snd_ctl_elem_value *ucontrol)
@@ -2092,71 +2083,6 @@ static int snd_cs46xx_spdif_stream_put(struct snd_kcontrol *kcontrol,
 #endif /* CONFIG_SND_CS46XX_NEW_DSP */
 
 
-#ifdef CONFIG_SND_CS46XX_DEBUG_GPIO
-static int snd_cs46xx_egpio_select_info(struct snd_kcontrol *kcontrol, 
-                                        struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 8;
-	return 0;
-}
-
-static int snd_cs46xx_egpio_select_get(struct snd_kcontrol *kcontrol, 
-                                       struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_cs46xx *chip = snd_kcontrol_chip(kcontrol);
-	ucontrol->value.integer.value[0] = chip->current_gpio;
-
-	return 0;
-}
-
-static int snd_cs46xx_egpio_select_put(struct snd_kcontrol *kcontrol, 
-                                       struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_cs46xx *chip = snd_kcontrol_chip(kcontrol);
-	int change = (chip->current_gpio != ucontrol->value.integer.value[0]);
-	chip->current_gpio = ucontrol->value.integer.value[0];
-
-	return change;
-}
-
-
-static int snd_cs46xx_egpio_get(struct snd_kcontrol *kcontrol, 
-                                       struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_cs46xx *chip = snd_kcontrol_chip(kcontrol);
-	int reg = kcontrol->private_value;
-
-	snd_printdd ("put: reg = %04x, gpio %02x\n",reg,chip->current_gpio);
-	ucontrol->value.integer.value[0] = 
-		(snd_cs46xx_peekBA0(chip, reg) & (1 << chip->current_gpio)) ? 1 : 0;
-  
-	return 0;
-}
-
-static int snd_cs46xx_egpio_put(struct snd_kcontrol *kcontrol, 
-                                       struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_cs46xx *chip = snd_kcontrol_chip(kcontrol);
-	int reg = kcontrol->private_value;
-	int val = snd_cs46xx_peekBA0(chip, reg);
-	int oldval = val;
-	snd_printdd ("put: reg = %04x, gpio %02x\n",reg,chip->current_gpio);
-
-	if (ucontrol->value.integer.value[0])
-		val |= (1 << chip->current_gpio);
-	else
-		val &= ~(1 << chip->current_gpio);
-
-	snd_cs46xx_pokeBA0(chip, reg,val);
-	snd_printdd ("put: val %08x oldval %08x\n",val,oldval);
-
-	return (oldval != val);
-}
-#endif /* CONFIG_SND_CS46XX_DEBUG_GPIO */
-
 static struct snd_kcontrol_new snd_cs46xx_controls[] __devinitdata = {
 {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -2248,40 +2174,6 @@ static struct snd_kcontrol_new snd_cs46xx_controls[] __devinitdata = {
 	.put =	 snd_cs46xx_spdif_stream_put
 },
 
-#endif
-#ifdef CONFIG_SND_CS46XX_DEBUG_GPIO
-{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.name = "EGPIO select",
-	.info = snd_cs46xx_egpio_select_info,
-	.get = snd_cs46xx_egpio_select_get,
-	.put = snd_cs46xx_egpio_select_put,
-	.private_value = 0,
-},
-{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.name = "EGPIO Input/Output",
-	.info = snd_mixer_boolean_info,
-	.get = snd_cs46xx_egpio_get,
-	.put = snd_cs46xx_egpio_put,
-	.private_value = BA0_EGPIODR,
-},
-{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.name = "EGPIO CMOS/Open drain",
-	.info = snd_mixer_boolean_info,
-	.get = snd_cs46xx_egpio_get,
-	.put = snd_cs46xx_egpio_put,
-	.private_value = BA0_EGPIOPTR,
-},
-{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.name = "EGPIO On/Off",
-	.info = snd_mixer_boolean_info,
-	.get = snd_cs46xx_egpio_get,
-	.put = snd_cs46xx_egpio_put,
-	.private_value = BA0_EGPIOSR,
-},
 #endif
 };
 
@@ -2880,6 +2772,9 @@ static int snd_cs46xx_free(struct snd_cs46xx *chip)
 	if (chip->irq >= 0)
 		free_irq(chip->irq, chip);
 
+	if (chip->active_ctrl)
+		chip->active_ctrl(chip, -chip->amplifier);
+
 	for (idx = 0; idx < 5; idx++) {
 		struct snd_cs46xx_region *region = &chip->region.idx[idx];
 		if (region->remap_addr)
@@ -2887,9 +2782,6 @@ static int snd_cs46xx_free(struct snd_cs46xx *chip)
 		release_and_free_resource(region->resource);
 	}
 
-	if (chip->active_ctrl)
-		chip->active_ctrl(chip, -chip->amplifier);
-	
 #ifdef CONFIG_SND_CS46XX_NEW_DSP
 	if (chip->dsp_spos_instance) {
 		cs46xx_dsp_spos_destroy(chip);

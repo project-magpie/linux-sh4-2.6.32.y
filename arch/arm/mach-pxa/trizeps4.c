@@ -41,6 +41,8 @@
 #include <asm/mach/flash.h>
 
 #include <asm/arch/pxa-regs.h>
+#include <asm/arch/pxa2xx-regs.h>
+#include <asm/arch/pxa2xx-gpio.h>
 #include <asm/arch/trizeps4.h>
 #include <asm/arch/audio.h>
 #include <asm/arch/pxafb.h>
@@ -120,7 +122,7 @@ static struct resource dm9000_resources[] = {
 	[2] = {
 		.start	= TRIZEPS4_ETH_IRQ,
 		.end	= TRIZEPS4_ETH_IRQ,
-		.flags	= (IORESOURCE_IRQ | IRQT_RISING),
+		.flags	= (IORESOURCE_IRQ | IRQ_TYPE_EDGE_RISING),
 	},
 };
 
@@ -174,19 +176,10 @@ static struct platform_device uart_devices = {
 	.resource	= NULL,
 };
 
-/********************************************************************************************
- * PXA270 ac97 sound codec
- ********************************************************************************************/
-static struct platform_device ac97_audio_device = {
-	.name		= "pxa2xx-ac97",
-	.id		= -1,
-};
-
 static struct platform_device * trizeps4_devices[] __initdata = {
 	&flash_device,
 	&uart_devices,
 	&dm9000_device,
-	&ac97_audio_device,
 };
 
 #ifdef CONFIG_MACH_TRIZEPS4_CONXS
@@ -217,7 +210,7 @@ void board_pcmcia_power(int power)
 		ConXS_BCR = trizeps_conxs_bcr;
 
 	}
-	pr_debug("%s: o%s 0x%x\n", __FUNCTION__, power ? "n": "ff", trizeps_conxs_bcr);
+	pr_debug("%s: o%s 0x%x\n", __func__, power ? "n": "ff", trizeps_conxs_bcr);
 }
 
 /* backlight power switching for LCD panel */
@@ -228,7 +221,7 @@ static void board_backlight_power(int on)
 	} else {
 		trizeps_conxs_bcr &= ~ConXS_BCR_L_DISP;
 	}
-	pr_debug("%s: o%s 0x%x\n", __FUNCTION__, on ? "n" : "ff", trizeps_conxs_bcr);
+	pr_debug("%s: o%s 0x%x\n", __func__, on ? "n" : "ff", trizeps_conxs_bcr);
 	ConXS_BCR = trizeps_conxs_bcr;
 }
 
@@ -238,10 +231,10 @@ static void board_mci_power(struct device *dev, unsigned int vdd)
 	struct pxamci_platform_data* p_d = dev->platform_data;
 
 	if (( 1 << vdd) & p_d->ocr_mask) {
-		pr_debug("%s: on\n", __FUNCTION__);
+		pr_debug("%s: on\n", __func__);
 		/* FIXME fill in values here */
 	} else {
-		pr_debug("%s: off\n", __FUNCTION__);
+		pr_debug("%s: off\n", __func__);
 		/* FIXME fill in values here */
 	}
 }
@@ -261,6 +254,7 @@ static void board_irda_mode(struct device *dev, int mode)
 		/* Fast mode */
 		trizeps_conxs_ircr |= ConXS_IRCR_MODE;
 	}
+	pxa2xx_transceiver_mode(dev, mode);
 	if (mode & IR_OFF) {
 		trizeps_conxs_ircr |= ConXS_IRCR_SD;
 	} else {
@@ -296,11 +290,10 @@ static int trizeps4_mci_init(struct device *dev, irq_handler_t mci_detect_int, v
 	err = request_irq(TRIZEPS4_MMC_IRQ, mci_detect_int,
 			  IRQF_DISABLED | IRQF_TRIGGER_RISING,
 			  "MMC card detect", data);
-	if (err) {
+	if (err)
 		printk(KERN_ERR "trizeps4_mci_init: MMC/SD: can't request MMC card detect IRQ\n");
-		return -1;
-	}
-	return 0;
+
+	return err;
 }
 
 static void trizeps4_mci_exit(struct device *dev, void *data)
@@ -438,6 +431,7 @@ static void __init trizeps4_init(void)
 	pxa_set_mci_info(&trizeps4_mci_platform_data);
 	pxa_set_ficp_info(&trizeps4_ficp_platform_data);
 	pxa_set_ohci_info(&trizeps4_ohci_platform_data);
+	pxa_set_ac97_info(NULL);
 }
 
 static void __init trizeps4_map_io(void)
@@ -487,6 +481,7 @@ static void __init trizeps4_map_io(void)
 	ConXS_BCR = trizeps_conxs_bcr;
 #endif
 
+#warning FIXME - accessing PM registers directly is deprecated
 	PWER  = 0x00000002;
 	PFER  = 0x00000000;
 	PRER  = 0x00000002;

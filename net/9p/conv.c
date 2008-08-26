@@ -128,11 +128,6 @@ static char *buf_put_stringn(struct cbuf *buf, const char *s, u16 slen)
 	return ret;
 }
 
-static inline void buf_put_string(struct cbuf *buf, const char *s)
-{
-	buf_put_stringn(buf, s, strlen(s));
-}
-
 static u8 buf_get_int8(struct cbuf *buf)
 {
 	u8 ret = 0;
@@ -202,7 +197,7 @@ static void buf_get_qid(struct cbuf *bufp, struct p9_qid *qid)
 
 /**
  * p9_size_wstat - calculate the size of a variable length stat struct
- * @stat: metadata (stat) structure
+ * @wstat: metadata (stat) structure
  * @dotu: non-zero if 9P2000.u
  *
  */
@@ -516,6 +511,12 @@ p9_create_common(struct cbuf *bufp, u32 size, u8 id)
 	return fc;
 }
 
+/**
+ * p9_set_tag - set the tag field of an &p9_fcall structure
+ * @fc: fcall structure to set tag within
+ * @tag: tag id to set
+ */
+
 void p9_set_tag(struct p9_fcall *fc, u16 tag)
 {
 	fc->tag = tag;
@@ -523,6 +524,12 @@ void p9_set_tag(struct p9_fcall *fc, u16 tag)
 }
 EXPORT_SYMBOL(p9_set_tag);
 
+/**
+ * p9_create_tversion - allocates and creates a T_VERSION request
+ * @msize: requested maximum data size
+ * @version: version string to negotiate
+ *
+ */
 struct p9_fcall *p9_create_tversion(u32 msize, char *version)
 {
 	int size;
@@ -547,7 +554,18 @@ error:
 }
 EXPORT_SYMBOL(p9_create_tversion);
 
-struct p9_fcall *p9_create_tauth(u32 afid, char *uname, char *aname)
+/**
+ * p9_create_tauth - allocates and creates a T_AUTH request
+ * @afid: handle to use for authentication protocol
+ * @uname: user name attempting to authenticate
+ * @aname: mount specifier for remote server
+ * @n_uname: numeric id for user attempting to authneticate
+ * @dotu: 9P2000.u extension flag
+ *
+ */
+
+struct p9_fcall *p9_create_tauth(u32 afid, char *uname, char *aname,
+	u32 n_uname, int dotu)
 {
 	int size;
 	struct p9_fcall *fc;
@@ -555,7 +573,16 @@ struct p9_fcall *p9_create_tauth(u32 afid, char *uname, char *aname)
 	struct cbuf *bufp = &buffer;
 
 	/* afid[4] uname[s] aname[s] */
-	size = 4 + 2 + strlen(uname) + 2 + strlen(aname);
+	size = 4 + 2 + 2;
+	if (uname)
+		size += strlen(uname);
+
+	if (aname)
+		size += strlen(aname);
+
+	if (dotu)
+		size += 4;	/* n_uname */
+
 	fc = p9_create_common(bufp, size, P9_TAUTH);
 	if (IS_ERR(fc))
 		goto error;
@@ -563,6 +590,8 @@ struct p9_fcall *p9_create_tauth(u32 afid, char *uname, char *aname)
 	p9_put_int32(bufp, afid, &fc->params.tauth.afid);
 	p9_put_str(bufp, uname, &fc->params.tauth.uname);
 	p9_put_str(bufp, aname, &fc->params.tauth.aname);
+	if (dotu)
+		p9_put_int32(bufp, n_uname, &fc->params.tauth.n_uname);
 
 	if (buf_check_overflow(bufp)) {
 		kfree(fc);
@@ -573,8 +602,21 @@ error:
 }
 EXPORT_SYMBOL(p9_create_tauth);
 
+/**
+ * p9_create_tattach - allocates and creates a T_ATTACH request
+ * @fid: handle to use for the new mount point
+ * @afid: handle to use for authentication protocol
+ * @uname: user name attempting to attach
+ * @aname: mount specifier for remote server
+ * @n_uname: numeric id for user attempting to attach
+ * @n_uname: numeric id for user attempting to attach
+ * @dotu: 9P2000.u extension flag
+ *
+ */
+
 struct p9_fcall *
-p9_create_tattach(u32 fid, u32 afid, char *uname, char *aname)
+p9_create_tattach(u32 fid, u32 afid, char *uname, char *aname,
+	u32 n_uname, int dotu)
 {
 	int size;
 	struct p9_fcall *fc;
@@ -582,7 +624,16 @@ p9_create_tattach(u32 fid, u32 afid, char *uname, char *aname)
 	struct cbuf *bufp = &buffer;
 
 	/* fid[4] afid[4] uname[s] aname[s] */
-	size = 4 + 4 + 2 + strlen(uname) + 2 + strlen(aname);
+	size = 4 + 4 + 2 + 2;
+	if (uname)
+		size += strlen(uname);
+
+	if (aname)
+		size += strlen(aname);
+
+	if (dotu)
+		size += 4;	/* n_uname */
+
 	fc = p9_create_common(bufp, size, P9_TATTACH);
 	if (IS_ERR(fc))
 		goto error;
@@ -591,11 +642,19 @@ p9_create_tattach(u32 fid, u32 afid, char *uname, char *aname)
 	p9_put_int32(bufp, afid, &fc->params.tattach.afid);
 	p9_put_str(bufp, uname, &fc->params.tattach.uname);
 	p9_put_str(bufp, aname, &fc->params.tattach.aname);
+	if (dotu)
+		p9_put_int32(bufp, n_uname, &fc->params.tattach.n_uname);
 
 error:
 	return fc;
 }
 EXPORT_SYMBOL(p9_create_tattach);
+
+/**
+ * p9_create_tflush - allocates and creates a T_FLUSH request
+ * @oldtag: tag id for the transaction we are attempting to cancel
+ *
+ */
 
 struct p9_fcall *p9_create_tflush(u16 oldtag)
 {
@@ -619,6 +678,15 @@ error:
 	return fc;
 }
 EXPORT_SYMBOL(p9_create_tflush);
+
+/**
+ * p9_create_twalk - allocates and creates a T_FLUSH request
+ * @fid: handle we are traversing from
+ * @newfid: a new handle for this transaction
+ * @nwname: number of path elements to traverse
+ * @wnames: array of path elements
+ *
+ */
 
 struct p9_fcall *p9_create_twalk(u32 fid, u32 newfid, u16 nwname,
 				     char **wnames)
@@ -658,6 +726,13 @@ error:
 }
 EXPORT_SYMBOL(p9_create_twalk);
 
+/**
+ * p9_create_topen - allocates and creates a T_OPEN request
+ * @fid: handle we are trying to open
+ * @mode: what mode we are trying to open the file in
+ *
+ */
+
 struct p9_fcall *p9_create_topen(u32 fid, u8 mode)
 {
 	int size;
@@ -681,6 +756,19 @@ error:
 	return fc;
 }
 EXPORT_SYMBOL(p9_create_topen);
+
+/**
+ * p9_create_tcreate - allocates and creates a T_CREATE request
+ * @fid: handle of directory we are trying to create in
+ * @name: name of the file we are trying to create
+ * @perm: permissions for the file we are trying to create
+ * @mode: what mode we are trying to open the file in
+ * @extension: 9p2000.u extension string (for special files)
+ * @dotu: 9p2000.u enabled flag
+ *
+ * Note: Plan 9 create semantics include opening the resulting file
+ * which is why mode is included.
+ */
 
 struct p9_fcall *p9_create_tcreate(u32 fid, char *name, u32 perm, u8 mode,
 	char *extension, int dotu)
@@ -717,6 +805,13 @@ error:
 }
 EXPORT_SYMBOL(p9_create_tcreate);
 
+/**
+ * p9_create_tread - allocates and creates a T_READ request
+ * @fid: handle of the file we are trying to read
+ * @offset: offset to start reading from
+ * @count: how many bytes to read
+ */
+
 struct p9_fcall *p9_create_tread(u32 fid, u64 offset, u32 count)
 {
 	int size;
@@ -741,6 +836,17 @@ error:
 	return fc;
 }
 EXPORT_SYMBOL(p9_create_tread);
+
+/**
+ * p9_create_twrite - allocates and creates a T_WRITE request from the kernel
+ * @fid: handle of the file we are trying to write
+ * @offset: offset to start writing at
+ * @count: how many bytes to write
+ * @data: data to write
+ *
+ * This function will create a requst with data buffers from the kernel
+ * such as the page cache.
+ */
 
 struct p9_fcall *p9_create_twrite(u32 fid, u64 offset, u32 count,
 				      const char *data)
@@ -775,6 +881,16 @@ error:
 }
 EXPORT_SYMBOL(p9_create_twrite);
 
+/**
+ * p9_create_twrite_u - allocates and creates a T_WRITE request from userspace
+ * @fid: handle of the file we are trying to write
+ * @offset: offset to start writing at
+ * @count: how many bytes to write
+ * @data: data to write
+ *
+ * This function will create a request with data buffers from userspace
+ */
+
 struct p9_fcall *p9_create_twrite_u(u32 fid, u64 offset, u32 count,
 				      const char __user *data)
 {
@@ -808,6 +924,14 @@ error:
 }
 EXPORT_SYMBOL(p9_create_twrite_u);
 
+/**
+ * p9_create_tclunk - allocate a request to forget about a file handle
+ * @fid: handle of the file we closing or forgetting about
+ *
+ * clunk is used both to close open files and to discard transient handles
+ * which may be created during meta-data operations and hierarchy traversal.
+ */
+
 struct p9_fcall *p9_create_tclunk(u32 fid)
 {
 	int size;
@@ -830,6 +954,12 @@ error:
 	return fc;
 }
 EXPORT_SYMBOL(p9_create_tclunk);
+
+/**
+ * p9_create_tremove - allocate and create a request to remove a file
+ * @fid: handle of the file or directory we are removing
+ *
+ */
 
 struct p9_fcall *p9_create_tremove(u32 fid)
 {
@@ -854,6 +984,12 @@ error:
 }
 EXPORT_SYMBOL(p9_create_tremove);
 
+/**
+ * p9_create_tstat - allocate and populate a request for attributes
+ * @fid: handle of the file or directory we are trying to get the attributes of
+ *
+ */
+
 struct p9_fcall *p9_create_tstat(u32 fid)
 {
 	int size;
@@ -876,6 +1012,14 @@ error:
 	return fc;
 }
 EXPORT_SYMBOL(p9_create_tstat);
+
+/**
+ * p9_create_tstat - allocate and populate a request to change attributes
+ * @fid: handle of the file or directory we are trying to change
+ * @wstat: &p9_stat structure with attributes we wish to set
+ * @dotu: 9p2000.u enabled flag
+ *
+ */
 
 struct p9_fcall *p9_create_twstat(u32 fid, struct p9_wstat *wstat,
 				      int dotu)
@@ -903,3 +1047,4 @@ error:
 	return fc;
 }
 EXPORT_SYMBOL(p9_create_twstat);
+

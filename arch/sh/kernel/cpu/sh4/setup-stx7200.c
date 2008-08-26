@@ -20,8 +20,7 @@
 #include <linux/phy.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
-#include <linux/pata_platform.h>
-#include <asm/sci.h>
+#include <linux/ata_platform.h>
 #include <asm/irq-ilc.h>
 #include <linux/stm/fdma-plat.h>
 #include <linux/stm/fdma-reqs.h>
@@ -1346,10 +1345,6 @@ static struct intc_group groups[] = {
 	INTC_GROUP(SCIF, SCIF_ERI, SCIF_RXI, SCIF_BRI, SCIF_TXI),
 };
 
-static struct intc_prio priorities[] = {
-	INTC_PRIO(SCIF, 3),
-};
-
 static struct intc_prio_reg prio_registers[] = {
 					/*  15-12, 11-8,  7-4,   3-0 */
 	{ 0xffd00004, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2,   RTC } },
@@ -1358,7 +1353,7 @@ static struct intc_prio_reg prio_registers[] = {
 };
 
 static DECLARE_INTC_DESC(intc_desc, "stx7200", vectors, groups,
-			 priorities, NULL, prio_registers, NULL);
+			 NULL, prio_registers, NULL);
 
 void __init plat_irq_setup(void)
 {

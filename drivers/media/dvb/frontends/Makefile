@@ -3,6 +3,7 @@
 #
 
 EXTRA_CFLAGS += -Idrivers/media/dvb/dvb-core/
+EXTRA_CFLAGS += -Idrivers/media/common/tuners/
 
 obj-$(CONFIG_DVB_PLL) += dvb-pll.o
 obj-$(CONFIG_DVB_STV0299) += stv0299.o
@@ -35,10 +36,14 @@ obj-$(CONFIG_DVB_S5H1420) += s5h1420.o
 obj-$(CONFIG_DVB_LGDT330X) += lgdt330x.o
 obj-$(CONFIG_DVB_CX24123) += cx24123.o
 obj-$(CONFIG_DVB_LNBP21) += lnbp21.o
+obj-$(CONFIG_DVB_ISL6405) += isl6405.o
 obj-$(CONFIG_DVB_ISL6421) += isl6421.o
 obj-$(CONFIG_DVB_TDA10086) += tda10086.o
 obj-$(CONFIG_DVB_TDA826X) += tda826x.o
-obj-$(CONFIG_DVB_TDA827X) += tda827x.o
-obj-$(CONFIG_DVB_TUNER_MT2060) += mt2060.o
-obj-$(CONFIG_DVB_TUNER_QT1010) += qt1010.o
+obj-$(CONFIG_DVB_TUNER_DIB0070) += dib0070.o
 obj-$(CONFIG_DVB_TUA6100) += tua6100.o
+obj-$(CONFIG_DVB_S5H1409) += s5h1409.o
+obj-$(CONFIG_DVB_TUNER_ITD1000) += itd1000.o
+obj-$(CONFIG_DVB_AU8522) += au8522.o
+obj-$(CONFIG_DVB_TDA10048) += tda10048.o
+obj-$(CONFIG_DVB_S5H1411) += s5h1411.o

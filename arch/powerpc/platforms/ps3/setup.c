@@ -95,6 +95,14 @@ static void ps3_power_off(void)
 	ps3_sys_manager_power_off(); /* never returns */
 }
 
+static void ps3_halt(void)
+{
+	DBG("%s:%d\n", __func__, __LINE__);
+
+	smp_send_stop();
+	ps3_sys_manager_halt(); /* never returns */
+}
+
 static void ps3_panic(char *str)
 {
 	DBG("%s:%d %s\n", __func__, __LINE__, str);
@@ -105,7 +113,8 @@ static void ps3_panic(char *str)
 	printk("   Please press POWER button.\n");
 	printk("\n");
 
-	while(1);
+	while(1)
+		lv1_pause(1);
 }
 
 #if defined(CONFIG_FB_PS3) || defined(CONFIG_FB_PS3_MODULE) || \
@@ -117,7 +126,7 @@ static void __init prealloc(struct ps3_prealloc *p)
 
 	p->address = __alloc_bootmem(p->size, p->align, __pa(MAX_DMA_ADDRESS));
 	if (!p->address) {
-		printk(KERN_ERR "%s: Cannot allocate %s\n", __FUNCTION__,
+		printk(KERN_ERR "%s: Cannot allocate %s\n", __func__,
 		       p->name);
 		return;
 	}
@@ -206,6 +215,7 @@ static void __init ps3_setup_arch(void)
 	prealloc_ps3flash_bounce_buffer();
 
 	ppc_md.power_save = ps3_power_save;
+	ps3_os_area_init();
 
 	DBG(" <- %s:%d\n", __func__, __LINE__);
 }
@@ -228,7 +238,7 @@ static int __init ps3_probe(void)
 
 	powerpc_firmware_features |= FW_FEATURE_PS3_POSSIBLE;
 
-	ps3_os_area_init();
+	ps3_os_area_save_params();
 	ps3_mm_init();
 	ps3_mm_vas_create(&htab_size);
 	ps3_hpte_init(htab_size);
@@ -265,6 +275,7 @@ define_machine(ps3) {
 	.progress			= ps3_progress,
 	.restart			= ps3_restart,
 	.power_off			= ps3_power_off,
+	.halt				= ps3_halt,
 #if defined(CONFIG_KEXEC)
 	.kexec_cpu_down			= ps3_kexec_cpu_down,
 	.machine_kexec			= default_machine_kexec,

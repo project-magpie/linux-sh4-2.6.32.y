@@ -345,7 +345,7 @@ static int serial_probe(struct pcmcia_device *link)
 
 	link->io.Attributes1 = IO_DATA_PATH_WIDTH_8;
 	link->io.NumPorts1 = 8;
-	link->irq.Attributes = IRQ_TYPE_EXCLUSIVE;
+	link->irq.Attributes = IRQ_TYPE_DYNAMIC_SHARING;
 	link->irq.IRQInfo1 = IRQ_LEVEL_ID;
 	link->conf.Attributes = CONF_ENABLE_IRQ;
 	if (do_sound) {
@@ -389,7 +389,7 @@ static void serial_detach(struct pcmcia_device *link)
 /*====================================================================*/
 
 static int setup_serial(struct pcmcia_device *handle, struct serial_info * info,
-			kio_addr_t iobase, int irq)
+			unsigned int iobase, int irq)
 {
 	struct uart_port port;
 	int line;
@@ -456,7 +456,7 @@ next_tuple(struct pcmcia_device *handle, tuple_t * tuple, cisparse_t * parse)
 
 static int simple_config(struct pcmcia_device *link)
 {
-	static const kio_addr_t base[5] = { 0x3f8, 0x2f8, 0x3e8, 0x2e8, 0x0 };
+	static const unsigned int base[5] = { 0x3f8, 0x2f8, 0x3e8, 0x2e8, 0x0 };
 	static const int size_table[2] = { 8, 16 };
 	struct serial_info *info = link->priv;
 	struct serial_cfg_mem *cfg_mem;
@@ -480,7 +480,7 @@ static int simple_config(struct pcmcia_device *link)
 	/* If the card is already configured, look up the port and irq */
 	i = pcmcia_get_configuration_info(link, &config);
 	if ((i == CS_SUCCESS) && (config.Attributes & CONF_VALID_CLIENT)) {
-		kio_addr_t port = 0;
+		unsigned int port = 0;
 		if ((config.BasePort2 != 0) && (config.NumPorts2 == 8)) {
 			port = config.BasePort2;
 			info->slave = 1;
@@ -911,6 +911,7 @@ static struct pcmcia_device_id serial_ids[] = {
 	PCMCIA_MFC_DEVICE_CIS_MANF_CARD(1, 0x0175, 0x0000, "DP83903.cis"),
 	PCMCIA_MFC_DEVICE_CIS_MANF_CARD(1, 0x0101, 0x0035, "3CXEM556.cis"),
 	PCMCIA_MFC_DEVICE_CIS_MANF_CARD(1, 0x0101, 0x003d, "3CXEM556.cis"),
+	PCMCIA_DEVICE_CIS_PROD_ID12("Sierra Wireless", "AC850", 0xd85f6206, 0x42a2c018, "SW_8xx_SER.cis"),  /* Sierra Wireless AC850 3G Network Adapter R1 */
 	PCMCIA_DEVICE_CIS_MANF_CARD(0x0192, 0x0710, "SW_7xx_SER.cis"),	/* Sierra Wireless AC710/AC750 GPRS Network Adapter R1 */
 	PCMCIA_DEVICE_CIS_MANF_CARD(0x0192, 0xa555, "SW_555_SER.cis"),  /* Sierra Aircard 555 CDMA 1xrtt Modem -- pre update */
 	PCMCIA_DEVICE_CIS_MANF_CARD(0x013f, 0xa555, "SW_555_SER.cis"),  /* Sierra Aircard 555 CDMA 1xrtt Modem -- post update */

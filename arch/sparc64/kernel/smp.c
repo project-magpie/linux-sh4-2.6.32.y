@@ -1,6 +1,6 @@
 /* smp.c: Sparc64 SMP support.
  *
- * Copyright (C) 1997, 2007 David S. Miller (davem@davemloft.net)
+ * Copyright (C) 1997, 2007, 2008 David S. Miller (davem@davemloft.net)
  */
 
 #include <linux/module.h>
@@ -20,7 +20,7 @@
 #include <linux/cache.h>
 #include <linux/jiffies.h>
 #include <linux/profile.h>
-#include <linux/bootmem.h>
+#include <linux/lmb.h>
 
 #include <asm/head.h>
 #include <asm/ptrace.h>
@@ -30,6 +30,7 @@
 #include <asm/cpudata.h>
 #include <asm/hvtramp.h>
 #include <asm/io.h>
+#include <asm/timer.h>
 
 #include <asm/irq.h>
 #include <asm/irq_regs.h>
@@ -37,7 +38,6 @@
 #include <asm/pgtable.h>
 #include <asm/oplib.h>
 #include <asm/uaccess.h>
-#include <asm/timer.h>
 #include <asm/starfire.h>
 #include <asm/tlb.h>
 #include <asm/sections.h>
@@ -46,20 +46,17 @@
 #include <asm/ldc.h>
 #include <asm/hypervisor.h>
 
-extern void calibrate_delay(void);
-
 int sparc64_multi_core __read_mostly;
 
 cpumask_t cpu_possible_map __read_mostly = CPU_MASK_NONE;
 cpumask_t cpu_online_map __read_mostly = CPU_MASK_NONE;
-cpumask_t cpu_sibling_map[NR_CPUS] __read_mostly =
-	{ [0 ... NR_CPUS-1] = CPU_MASK_NONE };
+DEFINE_PER_CPU(cpumask_t, cpu_sibling_map) = CPU_MASK_NONE;
 cpumask_t cpu_core_map[NR_CPUS] __read_mostly =
 	{ [0 ... NR_CPUS-1] = CPU_MASK_NONE };
 
 EXPORT_SYMBOL(cpu_possible_map);
 EXPORT_SYMBOL(cpu_online_map);
-EXPORT_SYMBOL(cpu_sibling_map);
+EXPORT_PER_CPU_SYMBOL(cpu_sibling_map);
 EXPORT_SYMBOL(cpu_core_map);
 
 static cpumask_t smp_commenced_mask;
@@ -89,7 +86,7 @@ extern void setup_sparc64_timer(void);
 
 static volatile unsigned long callin_flag = 0;
 
-void __devinit smp_callin(void)
+void __cpuinit smp_callin(void)
 {
 	int cpuid = hard_smp_processor_id();
 
@@ -237,8 +234,9 @@ void smp_synchronize_tick_client(void)
 		       t[i].rt, t[i].master, t[i].diff, t[i].lat);
 #endif
 
-	printk(KERN_INFO "CPU %d: synchronized TICK with master CPU (last diff %ld cycles,"
-	       "maxerr %lu cycles)\n", smp_processor_id(), delta, rt);
+	printk(KERN_INFO "CPU %d: synchronized TICK with master CPU "
+	       "(last diff %ld cycles, maxerr %lu cycles)\n",
+	       smp_processor_id(), delta, rt);
 }
 
 static void smp_start_sync_tick_client(int cpu);
@@ -286,14 +284,17 @@ static void ldom_startcpu_cpuid(unsigned int cpu, unsigned long thread_reg)
 {
 	extern unsigned long sparc64_ttable_tl0;
 	extern unsigned long kern_locked_tte_data;
-	extern int bigkernel;
 	struct hvtramp_descr *hdesc;
 	unsigned long trampoline_ra;
 	struct trap_per_cpu *tb;
 	u64 tte_vaddr, tte_data;
 	unsigned long hv_err;
+	int i;
 
-	hdesc = kzalloc(sizeof(*hdesc), GFP_KERNEL);
+	hdesc = kzalloc(sizeof(*hdesc) +
+			(sizeof(struct hvtramp_mapping) *
+			 num_kernel_image_mappings - 1),
+			GFP_KERNEL);
 	if (!hdesc) {
 		printk(KERN_ERR "ldom_startcpu_cpuid: Cannot allocate "
 		       "hvtramp_descr.\n");
@@ -301,7 +302,7 @@ static void ldom_startcpu_cpuid(unsigned int cpu, unsigned long thread_reg)
 	}
 
 	hdesc->cpu = cpu;
-	hdesc->num_mappings = (bigkernel ? 2 : 1);
+	hdesc->num_mappings = num_kernel_image_mappings;
 
 	tb = &trap_block[cpu];
 	tb->hdesc = hdesc;
@@ -314,13 +315,11 @@ static void ldom_startcpu_cpuid(unsigned int cpu, unsigned long thread_reg)
 	tte_vaddr = (unsigned long) KERNBASE;
 	tte_data = kern_locked_tte_data;
 
-	hdesc->maps[0].vaddr = tte_vaddr;
-	hdesc->maps[0].tte   = tte_data;
-	if (bigkernel) {
+	for (i = 0; i < hdesc->num_mappings; i++) {
+		hdesc->maps[i].vaddr = tte_vaddr;
+		hdesc->maps[i].tte   = tte_data;
 		tte_vaddr += 0x400000;
 		tte_data  += 0x400000;
-		hdesc->maps[1].vaddr = tte_vaddr;
-		hdesc->maps[1].tte   = tte_data;
 	}
 
 	trampoline_ra = kimage_addr_to_ra(hv_cpu_startup);
@@ -460,7 +459,7 @@ again:
 	}
 }
 
-static __inline__ void spitfire_xcall_deliver(u64 data0, u64 data1, u64 data2, cpumask_t mask)
+static inline void spitfire_xcall_deliver(u64 data0, u64 data1, u64 data2, cpumask_t mask)
 {
 	u64 pstate;
 	int i;
@@ -476,7 +475,7 @@ static __inline__ void spitfire_xcall_deliver(u64 data0, u64 data1, u64 data2, c
  */
 static void cheetah_xcall_deliver(u64 data0, u64 data1, u64 data2, cpumask_t mask)
 {
-	u64 pstate, ver;
+	u64 pstate, ver, busy_mask;
 	int nack_busy_id, is_jbus, need_more;
 
 	if (cpus_empty(mask))
@@ -508,14 +507,20 @@ retry:
 			       "i" (ASI_INTR_W));
 
 	nack_busy_id = 0;
+	busy_mask = 0;
 	{
 		int i;
 
 		for_each_cpu_mask(i, mask) {
 			u64 target = (i << 14) | 0x70;
 
-			if (!is_jbus)
+			if (is_jbus) {
+				busy_mask |= (0x1UL << (i * 2));
+			} else {
 				target |= (nack_busy_id << 24);
+				busy_mask |= (0x1UL <<
+					      (nack_busy_id * 2));
+			}
 			__asm__ __volatile__(
 				"stxa	%%g0, [%0] %1\n\t"
 				"membar	#Sync\n\t"
@@ -531,15 +536,16 @@ retry:
 
 	/* Now, poll for completion. */
 	{
-		u64 dispatch_stat;
+		u64 dispatch_stat, nack_mask;
 		long stuck;
 
 		stuck = 100000 * nack_busy_id;
+		nack_mask = busy_mask << 1;
 		do {
 			__asm__ __volatile__("ldxa	[%%g0] %1, %0"
 					     : "=r" (dispatch_stat)
 					     : "i" (ASI_INTR_DISPATCH_STAT));
-			if (dispatch_stat == 0UL) {
+			if (!(dispatch_stat & (busy_mask | nack_mask))) {
 				__asm__ __volatile__("wrpr %0, 0x0, %%pstate"
 						     : : "r" (pstate));
 				if (unlikely(need_more)) {
@@ -556,12 +562,12 @@ retry:
 			}
 			if (!--stuck)
 				break;
-		} while (dispatch_stat & 0x5555555555555555UL);
+		} while (dispatch_stat & busy_mask);
 
 		__asm__ __volatile__("wrpr %0, 0x0, %%pstate"
 				     : : "r" (pstate));
 
-		if ((dispatch_stat & ~(0x5555555555555555UL)) == 0) {
+		if (dispatch_stat & busy_mask) {
 			/* Busy bits will not clear, continue instead
 			 * of freezing up on this cpu.
 			 */
@@ -782,92 +788,36 @@ static void smp_start_sync_tick_client(int cpu)
 			      0, 0, 0, mask);
 }
 
+extern unsigned long xcall_call_function;
+
+void arch_send_call_function_ipi(cpumask_t mask)
+{
+	smp_cross_call_masked(&xcall_call_function, 0, 0, 0, mask);
+}
+
+extern unsigned long xcall_call_function_single;
+
+void arch_send_call_function_single_ipi(int cpu)
+{
+	cpumask_t mask = cpumask_of_cpu(cpu);
+
+	smp_cross_call_masked(&xcall_call_function_single, 0, 0, 0, mask);
+}
+
 /* Send cross call to all processors except self. */
 #define smp_cross_call(func, ctx, data1, data2) \
 	smp_cross_call_masked(func, ctx, data1, data2, cpu_online_map)
 
-struct call_data_struct {
-	void (*func) (void *info);
-	void *info;
-	atomic_t finished;
-	int wait;
-};
-
-static struct call_data_struct *call_data;
-
-extern unsigned long xcall_call_function;
-
-/**
- * smp_call_function(): Run a function on all other CPUs.
- * @func: The function to run. This must be fast and non-blocking.
- * @info: An arbitrary pointer to pass to the function.
- * @nonatomic: currently unused.
- * @wait: If true, wait (atomically) until function has completed on other CPUs.
- *
- * Returns 0 on success, else a negative status code. Does not return until
- * remote CPUs are nearly ready to execute <<func>> or are or have executed.
- *
- * You must not call this function with disabled interrupts or from a
- * hardware interrupt handler or from a bottom half handler.
- */
-static int smp_call_function_mask(void (*func)(void *info), void *info,
-				  int nonatomic, int wait, cpumask_t mask)
-{
-	struct call_data_struct data;
-	int cpus;
-
-	/* Can deadlock when called with interrupts disabled */
-	WARN_ON(irqs_disabled());
-
-	data.func = func;
-	data.info = info;
-	atomic_set(&data.finished, 0);
-	data.wait = wait;
-
-	spin_lock(&call_lock);
-
-	cpu_clear(smp_processor_id(), mask);
-	cpus = cpus_weight(mask);
-	if (!cpus)
-		goto out_unlock;
-
-	call_data = &data;
-	mb();
-
-	smp_cross_call_masked(&xcall_call_function, 0, 0, 0, mask);
-
-	/* Wait for response */
-	while (atomic_read(&data.finished) != cpus)
-		cpu_relax();
-
-out_unlock:
-	spin_unlock(&call_lock);
-
-	return 0;
-}
-
-int smp_call_function(void (*func)(void *info), void *info,
-		      int nonatomic, int wait)
-{
-	return smp_call_function_mask(func, info, nonatomic, wait,
-				      cpu_online_map);
-}
-
 void smp_call_function_client(int irq, struct pt_regs *regs)
 {
-	void (*func) (void *info) = call_data->func;
-	void *info = call_data->info;
-
 	clear_softint(1 << irq);
-	if (call_data->wait) {
-		/* let initiator proceed only after completion */
-		func(info);
-		atomic_inc(&call_data->finished);
-	} else {
-		/* let initiator proceed after getting data */
-		atomic_inc(&call_data->finished);
-		func(info);
-	}
+	generic_smp_call_function_interrupt();
+}
+
+void smp_call_function_single_client(int irq, struct pt_regs *regs)
+{
+	clear_softint(1 << irq);
+	generic_smp_call_function_single_interrupt();
 }
 
 static void tsb_sync(void *info)
@@ -887,15 +837,21 @@ static void tsb_sync(void *info)
 
 void smp_tsb_sync(struct mm_struct *mm)
 {
-	smp_call_function_mask(tsb_sync, mm, 0, 1, mm->cpu_vm_mask);
+	smp_call_function_mask(mm->cpu_vm_mask, tsb_sync, mm, 1);
 }
 
 extern unsigned long xcall_flush_tlb_mm;
 extern unsigned long xcall_flush_tlb_pending;
 extern unsigned long xcall_flush_tlb_kernel_range;
 extern unsigned long xcall_report_regs;
+#ifdef CONFIG_MAGIC_SYSRQ
+extern unsigned long xcall_fetch_glob_regs;
+#endif
 extern unsigned long xcall_receive_signal;
 extern unsigned long xcall_new_mmu_context_version;
+#ifdef CONFIG_KGDB
+extern unsigned long xcall_kgdb_capture;
+#endif
 
 #ifdef DCACHE_ALIASING_POSSIBLE
 extern unsigned long xcall_flush_dcache_page_cheetah;
@@ -907,7 +863,7 @@ extern atomic_t dcpage_flushes;
 extern atomic_t dcpage_flushes_xcall;
 #endif
 
-static __inline__ void __local_flush_dcache_page(struct page *page)
+static inline void __local_flush_dcache_page(struct page *page)
 {
 #ifdef DCACHE_ALIASING_POSSIBLE
 	__flush_dcache_page(page_address(page),
@@ -1059,10 +1015,24 @@ void smp_new_mmu_context_version(void)
 	smp_cross_call(&xcall_new_mmu_context_version, 0, 0, 0);
 }
 
+#ifdef CONFIG_KGDB
+void kgdb_roundup_cpus(unsigned long flags)
+{
+	smp_cross_call(&xcall_kgdb_capture, 0, 0, 0);
+}
+#endif
+
 void smp_report_regs(void)
 {
 	smp_cross_call(&xcall_report_regs, 0, 0, 0);
 }
+
+#ifdef CONFIG_MAGIC_SYSRQ
+void smp_fetch_global_regs(void)
+{
+	smp_cross_call(&xcall_fetch_glob_regs, 0, 0, 0);
+}
+#endif
 
 /* We know that the window frames of the user have been flushed
  * to the stack before we get here because all callers of us
@@ -1261,16 +1231,16 @@ void __devinit smp_fill_in_sib_core_maps(void)
 	for_each_present_cpu(i) {
 		unsigned int j;
 
-		cpus_clear(cpu_sibling_map[i]);
+		cpus_clear(per_cpu(cpu_sibling_map, i));
 		if (cpu_data(i).proc_id == -1) {
-			cpu_set(i, cpu_sibling_map[i]);
+			cpu_set(i, per_cpu(cpu_sibling_map, i));
 			continue;
 		}
 
 		for_each_present_cpu(j) {
 			if (cpu_data(i).proc_id ==
 			    cpu_data(j).proc_id)
-				cpu_set(j, cpu_sibling_map[i]);
+				cpu_set(j, per_cpu(cpu_sibling_map, i));
 		}
 	}
 }
@@ -1342,9 +1312,9 @@ int __cpu_disable(void)
 		cpu_clear(cpu, cpu_core_map[i]);
 	cpus_clear(cpu_core_map[cpu]);
 
-	for_each_cpu_mask(i, cpu_sibling_map[cpu])
-		cpu_clear(cpu, cpu_sibling_map[i]);
-	cpus_clear(cpu_sibling_map[cpu]);
+	for_each_cpu_mask(i, per_cpu(cpu_sibling_map, cpu))
+		cpu_clear(cpu, per_cpu(cpu_sibling_map, i));
+	cpus_clear(per_cpu(cpu_sibling_map, cpu));
 
 	c = &cpu_data(cpu);
 
@@ -1424,7 +1394,7 @@ EXPORT_SYMBOL(__per_cpu_shift);
 
 void __init real_setup_per_cpu_areas(void)
 {
-	unsigned long goal, size, i;
+	unsigned long paddr, goal, size, i;
 	char *ptr;
 
 	/* Copy section for each CPU (we discard the original) */
@@ -1434,8 +1404,13 @@ void __init real_setup_per_cpu_areas(void)
 	for (size = PAGE_SIZE; size < goal; size <<= 1UL)
 		__per_cpu_shift++;
 
-	ptr = alloc_bootmem_pages(size * NR_CPUS);
+	paddr = lmb_alloc(size * NR_CPUS, PAGE_SIZE);
+	if (!paddr) {
+		prom_printf("Cannot allocate per-cpu memory.\n");
+		prom_halt();
+	}
 
+	ptr = __va(paddr);
 	__per_cpu_base = ptr - __per_cpu_start;
 
 	for (i = 0; i < NR_CPUS; i++, ptr += size)

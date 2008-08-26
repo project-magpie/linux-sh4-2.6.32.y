@@ -54,11 +54,11 @@
 
 #define DPC_BOARD_CAN_DO_VBI(dev)   (dev->revision != 0)
 
-static int debug = 0;
+static int debug;
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "debug verbosity");
 
-static int dpc_num = 0;
+static int dpc_num;
 
 #define DPC_INPUTS	2
 static struct v4l2_input dpc_inputs[DPC_INPUTS] = {
@@ -87,12 +87,24 @@ struct dpc
 	int cur_input;	/* current input */
 };
 
+static int dpc_check_clients(struct device *dev, void *data)
+{
+	struct dpc* dpc = data;
+	struct i2c_client *client = i2c_verify_client(dev);
+
+	if( !client )
+		return 0;
+
+	if( I2C_SAA7111A == client->addr )
+		dpc->saa7111a = client;
+
+	return 0;
+}
+
 /* fixme: add vbi stuff here */
 static int dpc_probe(struct saa7146_dev* dev)
 {
 	struct dpc* dpc = NULL;
-	struct i2c_client *client;
-	struct list_head *item;
 
 	dpc = kzalloc(sizeof(struct dpc), GFP_KERNEL);
 	if( NULL == dpc ) {
@@ -116,14 +128,10 @@ static int dpc_probe(struct saa7146_dev* dev)
 	}
 
 	/* loop through all i2c-devices on the bus and look who is there */
-	list_for_each(item,&dpc->i2c_adapter.clients) {
-		client = list_entry(item, struct i2c_client, list);
-		if( I2C_SAA7111A == client->addr )
-			dpc->saa7111a = client;
-	}
+	device_for_each_child(&dpc->i2c_adapter.dev, dpc, dpc_check_clients);
 
 	/* check if all devices are present */
-	if( 0 == dpc->saa7111a ) {
+	if (!dpc->saa7111a) {
 		DEB_D(("dpc_v4l2.o: dpc_attach failed for this device.\n"));
 		i2c_del_adapter(&dpc->i2c_adapter);
 		kfree(dpc);

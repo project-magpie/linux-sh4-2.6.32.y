@@ -18,8 +18,6 @@
 #ifndef _I2O_H
 #define _I2O_H
 
-#ifdef __KERNEL__		/* This file to be included by kernel only */
-
 #include <linux/i2o-dev.h>
 
 /* How many different OSM's are we allowing */
@@ -32,9 +30,10 @@
 #include <linux/workqueue.h>	/* work_struct */
 #include <linux/mempool.h>
 #include <linux/mutex.h>
+#include <linux/scatterlist.h>
+#include <linux/semaphore.h>	/* Needed for MUTEX init macros */
 
 #include <asm/io.h>
-#include <asm/semaphore.h>	/* Needed for MUTEX init macros */
 
 /* message queue empty */
 #define I2O_QUEUE_EMPTY		0xffffffff
@@ -612,14 +611,9 @@ struct i2o_sys_tbl {
 extern struct list_head i2o_controllers;
 
 /* Message functions */
-static inline struct i2o_message *i2o_msg_get(struct i2o_controller *);
 extern struct i2o_message *i2o_msg_get_wait(struct i2o_controller *, int);
-static inline void i2o_msg_post(struct i2o_controller *, struct i2o_message *);
-static inline int i2o_msg_post_wait(struct i2o_controller *,
-				    struct i2o_message *, unsigned long);
 extern int i2o_msg_post_wait_mem(struct i2o_controller *, struct i2o_message *,
 				 unsigned long, struct i2o_dma *);
-static inline void i2o_flush_reply(struct i2o_controller *, u32);
 
 /* IOP functions */
 extern int i2o_status_get(struct i2o_controller *);
@@ -764,7 +758,7 @@ static inline dma_addr_t i2o_dma_map_single(struct i2o_controller *c, void *ptr,
 	}
 
 	dma_addr = dma_map_single(&c->pdev->dev, ptr, size, direction);
-	if (!dma_mapping_error(dma_addr)) {
+	if (!dma_mapping_error(&c->pdev->dev, dma_addr)) {
 #ifdef CONFIG_I2O_EXT_ADAPTEC_DMA64
 		if ((sizeof(dma_addr_t) > 4) && c->pae_support) {
 			*mptr++ = cpu_to_le32(0x7C020002);
@@ -837,7 +831,7 @@ static inline int i2o_dma_map_sg(struct i2o_controller *c,
 		if ((sizeof(dma_addr_t) > 4) && c->pae_support)
 			*mptr++ = cpu_to_le32(i2o_dma_high(sg_dma_address(sg)));
 #endif
-		sg++;
+		sg = sg_next(sg);
 	}
 	*sg_ptr = mptr;
 
@@ -1259,5 +1253,4 @@ extern void i2o_dump_message(struct i2o_message *);
 extern void i2o_dump_hrt(struct i2o_controller *c);
 extern void i2o_debug_state(struct i2o_controller *c);
 
-#endif				/* __KERNEL__ */
 #endif				/* _I2O_H */

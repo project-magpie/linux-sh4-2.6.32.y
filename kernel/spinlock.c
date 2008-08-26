@@ -65,8 +65,7 @@ EXPORT_SYMBOL(_write_trylock);
  * even on CONFIG_PREEMPT, because lockdep assumes that interrupts are
  * not re-enabled during lock-acquire (which the preempt-spin-ops do):
  */
-#if !defined(CONFIG_PREEMPT) || !defined(CONFIG_SMP) || \
-	defined(CONFIG_DEBUG_LOCK_ALLOC)
+#if !defined(CONFIG_GENERIC_LOCKBREAK) || defined(CONFIG_DEBUG_LOCK_ALLOC)
 
 void __lockfunc _read_lock(rwlock_t *lock)
 {
@@ -437,7 +436,7 @@ int __lockfunc _spin_trylock_bh(spinlock_t *lock)
 }
 EXPORT_SYMBOL(_spin_trylock_bh);
 
-int in_lock_functions(unsigned long addr)
+notrace int in_lock_functions(unsigned long addr)
 {
 	/* Linker adds these: start and end of __lockfunc functions */
 	extern char __lock_text_start[], __lock_text_end[];

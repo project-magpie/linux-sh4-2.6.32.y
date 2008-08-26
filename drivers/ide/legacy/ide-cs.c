@@ -2,8 +2,6 @@
 
     A driver for PCMCIA IDE/ATA disk cards
 
-    ide-cs.c 1.3 2002/10/26 05:45:31
-
     The contents of this file are subject to the Mozilla Public
     License Version 1.1 (the "License"); you may not use this file
     except in compliance with the License. You may obtain a copy of
@@ -28,7 +26,7 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
-    
+
 ======================================================================*/
 
 #include <linux/module.h>
@@ -53,6 +51,8 @@
 #include <pcmcia/cisreg.h>
 #include <pcmcia/ciscode.h>
 
+#define DRV_NAME "ide-cs"
+
 /*====================================================================*/
 
 /* Module parameters */
@@ -63,27 +63,20 @@ MODULE_LICENSE("Dual MPL/GPL");
 
 #define INT_MODULE_PARM(n, v) static int n = v; module_param(n, int, 0)
 
-#ifdef PCMCIA_DEBUG
-INT_MODULE_PARM(pc_debug, PCMCIA_DEBUG);
+#ifdef CONFIG_PCMCIA_DEBUG
+INT_MODULE_PARM(pc_debug, 0);
 #define DEBUG(n, args...) if (pc_debug>(n)) printk(KERN_DEBUG args)
-static char *version =
-"ide-cs.c 1.3 2002/10/26 05:45:31 (David Hinds)";
 #else
 #define DEBUG(n, args...)
 #endif
 
 /*====================================================================*/
 
-static const char ide_major[] = {
-    IDE0_MAJOR, IDE1_MAJOR, IDE2_MAJOR, IDE3_MAJOR,
-    IDE4_MAJOR, IDE5_MAJOR
-};
-
 typedef struct ide_info_t {
 	struct pcmcia_device	*p_dev;
+	struct ide_host		*host;
     int		ndev;
     dev_node_t	node;
-    int		hd;
 } ide_info_t;
 
 static void ide_release(struct pcmcia_device *);
@@ -138,22 +131,82 @@ static int ide_probe(struct pcmcia_device *link)
 
 static void ide_detach(struct pcmcia_device *link)
 {
+    ide_info_t *info = link->priv;
+    ide_hwif_t *hwif = info->host->ports[0];
+    unsigned long data_addr, ctl_addr;
+
     DEBUG(0, "ide_detach(0x%p)\n", link);
+
+    data_addr = hwif->io_ports.data_addr;
+    ctl_addr  = hwif->io_ports.ctl_addr;
 
     ide_release(link);
 
-    kfree(link->priv);
+    release_region(ctl_addr, 1);
+    release_region(data_addr, 8);
+
+    kfree(info);
 } /* ide_detach */
 
-static int idecs_register(unsigned long io, unsigned long ctl, unsigned long irq, struct pcmcia_device *handle)
+static const struct ide_port_ops idecs_port_ops = {
+	.quirkproc		= ide_undecoded_slave,
+};
+
+static const struct ide_port_info idecs_port_info = {
+	.port_ops		= &idecs_port_ops,
+	.host_flags		= IDE_HFLAG_NO_DMA,
+};
+
+static struct ide_host *idecs_register(unsigned long io, unsigned long ctl,
+				unsigned long irq, struct pcmcia_device *handle)
 {
-    hw_regs_t hw;
+    struct ide_host *host;
+    ide_hwif_t *hwif;
+    int i, rc;
+    hw_regs_t hw, *hws[] = { &hw, NULL, NULL, NULL };
+
+    if (!request_region(io, 8, DRV_NAME)) {
+	printk(KERN_ERR "%s: I/O resource 0x%lX-0x%lX not free.\n",
+			DRV_NAME, io, io + 7);
+	return NULL;
+    }
+
+    if (!request_region(ctl, 1, DRV_NAME)) {
+	printk(KERN_ERR "%s: I/O resource 0x%lX not free.\n",
+			DRV_NAME, ctl);
+	release_region(io, 8);
+	return NULL;
+    }
+
     memset(&hw, 0, sizeof(hw));
-    ide_init_hwif_ports(&hw, io, ctl, NULL);
+    ide_std_init_ports(&hw, io, ctl);
     hw.irq = irq;
     hw.chipset = ide_pci;
     hw.dev = &handle->dev;
-    return ide_register_hw_with_fixup(&hw, 0, NULL, ide_undecoded_slave);
+
+    rc = ide_host_add(&idecs_port_info, hws, &host);
+    if (rc)
+	goto out_release;
+
+    hwif = host->ports[0];
+
+    if (hwif->present)
+	return host;
+
+    /* retry registration in case device is still spinning up */
+    for (i = 0; i < 10; i++) {
+	msleep(100);
+	ide_port_scan(hwif);
+	if (hwif->present)
+	    return host;
+    }
+
+    return host;
+
+out_release:
+    release_region(ctl, 1);
+    release_region(io, 8);
+    return NULL;
 }
 
 /*======================================================================
@@ -178,8 +231,9 @@ static int ide_config(struct pcmcia_device *link)
 	cistpl_cftable_entry_t dflt;
     } *stk = NULL;
     cistpl_cftable_entry_t *cfg;
-    int i, pass, last_ret = 0, last_fn = 0, hd, is_kme = 0;
+    int pass, last_ret = 0, last_fn = 0, is_kme = 0;
     unsigned long io_base, ctl_base;
+    struct ide_host *host;
 
     DEBUG(0, "ide_config(0x%p)\n", link);
 
@@ -274,35 +328,21 @@ static int ide_config(struct pcmcia_device *link)
     if (is_kme)
 	outb(0x81, ctl_base+1);
 
-    /* retry registration in case device is still spinning up */
-    for (hd = -1, i = 0; i < 10; i++) {
-	hd = idecs_register(io_base, ctl_base, link->irq.AssignedIRQ, link);
-	if (hd >= 0) break;
-	if (link->io.NumPorts1 == 0x20) {
+     host = idecs_register(io_base, ctl_base, link->irq.AssignedIRQ, link);
+     if (host == NULL && link->io.NumPorts1 == 0x20) {
 	    outb(0x02, ctl_base + 0x10);
-	    hd = idecs_register(io_base + 0x10, ctl_base + 0x10,
-				link->irq.AssignedIRQ, link);
-	    if (hd >= 0) {
-		io_base += 0x10;
-		ctl_base += 0x10;
-		break;
-	    }
-	}
-	msleep(100);
+	    host = idecs_register(io_base + 0x10, ctl_base + 0x10,
+				  link->irq.AssignedIRQ, link);
     }
 
-    if (hd < 0) {
-	printk(KERN_NOTICE "ide-cs: ide_register() at 0x%3lx & 0x%3lx"
-	       ", irq %u failed\n", io_base, ctl_base,
-	       link->irq.AssignedIRQ);
+    if (host == NULL)
 	goto failed;
-    }
 
     info->ndev = 1;
-    sprintf(info->node.dev_name, "hd%c", 'a' + (hd * 2));
-    info->node.major = ide_major[hd];
+    sprintf(info->node.dev_name, "hd%c", 'a' + host->ports[0]->index * 2);
+    info->node.major = host->ports[0]->major;
     info->node.minor = 0;
-    info->hd = hd;
+    info->host = host;
     link->dev_node = &info->node;
     printk(KERN_INFO "ide-cs: %s: Vpp = %d.%d\n",
 	   info->node.dev_name, link->conf.Vpp / 10, link->conf.Vpp % 10);
@@ -327,20 +367,21 @@ failed:
     After a card is removed, ide_release() will unregister the net
     device, and release the PCMCIA configuration.  If the device is
     still open, this will be postponed until it is closed.
-    
+
 ======================================================================*/
 
-void ide_release(struct pcmcia_device *link)
+static void ide_release(struct pcmcia_device *link)
 {
     ide_info_t *info = link->priv;
-    
+    struct ide_host *host = info->host;
+
     DEBUG(0, "ide_release(0x%p)\n", link);
 
-    if (info->ndev) {
+    if (info->ndev)
 	/* FIXME: if this fails we need to queue the cleanup somehow
 	   -- need to investigate the required PCMCIA magic */
-	ide_unregister(info->hd);
-    }
+	ide_host_remove(host);
+
     info->ndev = 0;
 
     pcmcia_disable_device(link);
@@ -353,20 +394,22 @@ void ide_release(struct pcmcia_device *link)
     stuff to run after an event is received.  A CARD_REMOVAL event
     also sets some flags to discourage the ide drivers from
     talking to the ports.
-    
+
 ======================================================================*/
 
 static struct pcmcia_device_id ide_ids[] = {
 	PCMCIA_DEVICE_FUNC_ID(4),
+	PCMCIA_DEVICE_MANF_CARD(0x0000, 0x0000),	/* Corsair */
 	PCMCIA_DEVICE_MANF_CARD(0x0007, 0x0000),	/* Hitachi */
 	PCMCIA_DEVICE_MANF_CARD(0x000a, 0x0000),	/* I-O Data CFA */
 	PCMCIA_DEVICE_MANF_CARD(0x001c, 0x0001),	/* Mitsubishi CFA */
 	PCMCIA_DEVICE_MANF_CARD(0x0032, 0x0704),
 	PCMCIA_DEVICE_MANF_CARD(0x0045, 0x0401),	/* SanDisk CFA */
+	PCMCIA_DEVICE_MANF_CARD(0x004f, 0x0000),	/* Kingston */
 	PCMCIA_DEVICE_MANF_CARD(0x0098, 0x0000),	/* Toshiba */
 	PCMCIA_DEVICE_MANF_CARD(0x00a4, 0x002d),
 	PCMCIA_DEVICE_MANF_CARD(0x00ce, 0x0000),	/* Samsung */
- 	PCMCIA_DEVICE_MANF_CARD(0x0319, 0x0000),	/* Hitachi */
+	PCMCIA_DEVICE_MANF_CARD(0x0319, 0x0000),	/* Hitachi */
 	PCMCIA_DEVICE_MANF_CARD(0x2080, 0x0001),
 	PCMCIA_DEVICE_MANF_CARD(0x4e01, 0x0100),	/* Viking CFA */
 	PCMCIA_DEVICE_MANF_CARD(0x4e01, 0x0200),	/* Lexar, Viking CFA */
@@ -384,6 +427,7 @@ static struct pcmcia_device_id ide_ids[] = {
 	PCMCIA_DEVICE_PROD_ID12("FREECOM", "PCCARD-IDE", 0x5714cbf7, 0x48e0ab8e),
 	PCMCIA_DEVICE_PROD_ID12("HITACHI", "FLASH", 0xf4f43949, 0x9eb86aae),
 	PCMCIA_DEVICE_PROD_ID12("HITACHI", "microdrive", 0xf4f43949, 0xa6d76178),
+	PCMCIA_DEVICE_PROD_ID12("Hyperstone", "Model1", 0x3d5b9ef5, 0xca6ab420),
 	PCMCIA_DEVICE_PROD_ID12("IBM", "microdrive", 0xb569a6e5, 0xa6d76178),
 	PCMCIA_DEVICE_PROD_ID12("IBM", "IBM17JSSFP20", 0xb569a6e5, 0xf2508753),
 	PCMCIA_DEVICE_PROD_ID12("KINGSTON", "CF8GB", 0x2e6d1829, 0xacbe682e),
@@ -391,6 +435,7 @@ static struct pcmcia_device_id ide_ids[] = {
 	PCMCIA_DEVICE_PROD_ID12("IO DATA", "PCIDE", 0x547e66dc, 0x5c5ab149),
 	PCMCIA_DEVICE_PROD_ID12("IO DATA", "PCIDEII", 0x547e66dc, 0xb3662674),
 	PCMCIA_DEVICE_PROD_ID12("LOOKMEET", "CBIDE2      ", 0xe37be2b5, 0x8671043b),
+	PCMCIA_DEVICE_PROD_ID12("M-Systems", "CF300", 0x7ed2ad87, 0x7e9e78ee),
 	PCMCIA_DEVICE_PROD_ID12("M-Systems", "CF500", 0x7ed2ad87, 0x7a13045c),
 	PCMCIA_DEVICE_PROD_ID2("NinjaATA-", 0xebe0bd79),
 	PCMCIA_DEVICE_PROD_ID12("PCMCIA", "CD-ROM", 0x281f1c5d, 0x66536591),
@@ -401,6 +446,7 @@ static struct pcmcia_device_id ide_ids[] = {
 	PCMCIA_DEVICE_PROD_ID12("SMI VENDOR", "SMI PRODUCT", 0x30896c92, 0x703cc5f6),
 	PCMCIA_DEVICE_PROD_ID12("TOSHIBA", "MK2001MPL", 0xb4585a1a, 0x3489e003),
 	PCMCIA_DEVICE_PROD_ID1("TRANSCEND    512M   ", 0xd0909443),
+	PCMCIA_DEVICE_PROD_ID12("TRANSCEND", "TS1GCF45", 0x709b1bf1, 0xf68b6f32),
 	PCMCIA_DEVICE_PROD_ID12("TRANSCEND", "TS1GCF80", 0x709b1bf1, 0x2a54d4b1),
 	PCMCIA_DEVICE_PROD_ID12("TRANSCEND", "TS2GCF120", 0x709b1bf1, 0x969aa4f2),
 	PCMCIA_DEVICE_PROD_ID12("TRANSCEND", "TS4GCF120", 0x709b1bf1, 0xf54a91c8),

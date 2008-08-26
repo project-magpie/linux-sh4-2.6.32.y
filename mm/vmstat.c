@@ -13,6 +13,7 @@
 #include <linux/err.h>
 #include <linux/module.h>
 #include <linux/cpu.h>
+#include <linux/vmstat.h>
 #include <linux/sched.h>
 
 #ifdef CONFIG_VM_EVENT_COUNTERS
@@ -21,20 +22,13 @@ EXPORT_PER_CPU_SYMBOL(vm_event_states);
 
 static void sum_vm_events(unsigned long *ret, cpumask_t *cpumask)
 {
-	int cpu = 0;
+	int cpu;
 	int i;
 
 	memset(ret, 0, NR_VM_EVENT_ITEMS * sizeof(unsigned long));
 
-	cpu = first_cpu(*cpumask);
-	while (cpu < NR_CPUS) {
+	for_each_cpu_mask_nr(cpu, *cpumask) {
 		struct vm_event_state *this = &per_cpu(vm_event_states, cpu);
-
-		cpu = next_cpu(cpu, *cpumask);
-
-		if (cpu < NR_CPUS)
-			prefetch(&per_cpu(vm_event_states, cpu));
-
 
 		for (i = 0; i < NR_VM_EVENT_ITEMS; i++)
 			ret[i] += this->event[i];
@@ -48,7 +42,9 @@ static void sum_vm_events(unsigned long *ret, cpumask_t *cpumask)
 */
 void all_vm_events(unsigned long *ret)
 {
+	get_online_cpus();
 	sum_vm_events(ret, &cpu_online_map);
+	put_online_cpus();
 }
 EXPORT_SYMBOL_GPL(all_vm_events);
 
@@ -284,6 +280,10 @@ EXPORT_SYMBOL(dec_zone_page_state);
 /*
  * Update the zone counters for one cpu.
  *
+ * The cpu specified must be either the current cpu or a processor that
+ * is not online. If it is the current cpu then the execution thread must
+ * be pinned to the current cpu.
+ *
  * Note that refresh_cpu_vm_stats strives to only access
  * node local memory. The per cpu pagesets on remote zones are placed
  * in the memory local to the processor using that pageset. So the
@@ -299,7 +299,7 @@ void refresh_cpu_vm_stats(int cpu)
 {
 	struct zone *zone;
 	int i;
-	unsigned long flags;
+	int global_diff[NR_VM_ZONE_STAT_ITEMS] = { 0, };
 
 	for_each_zone(zone) {
 		struct per_cpu_pageset *p;
@@ -311,16 +311,21 @@ void refresh_cpu_vm_stats(int cpu)
 
 		for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
 			if (p->vm_stat_diff[i]) {
+				unsigned long flags;
+				int v;
+
 				local_irq_save(flags);
-				zone_page_state_add(p->vm_stat_diff[i],
-					zone, i);
+				v = p->vm_stat_diff[i];
 				p->vm_stat_diff[i] = 0;
+				local_irq_restore(flags);
+				atomic_long_add(v, &zone->vm_stat[i]);
+				global_diff[i] += v;
 #ifdef CONFIG_NUMA
 				/* 3 seconds idle till flush */
 				p->expire = 3;
 #endif
-				local_irq_restore(flags);
 			}
+		cond_resched();
 #ifdef CONFIG_NUMA
 		/*
 		 * Deal with draining the remote pageset of this
@@ -329,7 +334,7 @@ void refresh_cpu_vm_stats(int cpu)
 		 * Check if there are pages remaining in this pageset
 		 * if not then there is nothing to expire.
 		 */
-		if (!p->expire || (!p->pcp[0].count && !p->pcp[1].count))
+		if (!p->expire || !p->pcp.count)
 			continue;
 
 		/*
@@ -344,31 +349,15 @@ void refresh_cpu_vm_stats(int cpu)
 		if (p->expire)
 			continue;
 
-		if (p->pcp[0].count)
-			drain_zone_pages(zone, p->pcp + 0);
-
-		if (p->pcp[1].count)
-			drain_zone_pages(zone, p->pcp + 1);
+		if (p->pcp.count)
+			drain_zone_pages(zone, &p->pcp);
 #endif
 	}
-}
 
-static void __refresh_cpu_vm_stats(void *dummy)
-{
-	refresh_cpu_vm_stats(smp_processor_id());
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
+		if (global_diff[i])
+			atomic_long_add(global_diff[i], &vm_stat[i]);
 }
-
-/*
- * Consolidate all counters.
- *
- * Note that the result is less inaccurate but still inaccurate
- * if concurrent processes are allowed to run.
- */
-void refresh_vm_stats(void)
-{
-	on_each_cpu(__refresh_cpu_vm_stats, NULL, 0, 1);
-}
-EXPORT_SYMBOL(refresh_vm_stats);
 
 #endif
 
@@ -379,13 +368,13 @@ EXPORT_SYMBOL(refresh_vm_stats);
  *
  * Must be called with interrupts disabled.
  */
-void zone_statistics(struct zonelist *zonelist, struct zone *z)
+void zone_statistics(struct zone *preferred_zone, struct zone *z)
 {
-	if (z->zone_pgdat == zonelist->zones[0]->zone_pgdat) {
+	if (z->zone_pgdat == preferred_zone->zone_pgdat) {
 		__inc_zone_state(z, NUMA_HIT);
 	} else {
 		__inc_zone_state(z, NUMA_MISS);
-		__inc_zone_state(zonelist->zones[0], NUMA_FOREIGN);
+		__inc_zone_state(preferred_zone, NUMA_FOREIGN);
 	}
 	if (z->node == numa_node_id())
 		__inc_zone_state(z, NUMA_LOCAL);
@@ -397,6 +386,14 @@ void zone_statistics(struct zonelist *zonelist, struct zone *z)
 #ifdef CONFIG_PROC_FS
 
 #include <linux/seq_file.h>
+
+static char * const migratetype_names[MIGRATE_TYPES] = {
+	"Unmovable",
+	"Reclaimable",
+	"Movable",
+	"Reserve",
+	"Isolate",
+};
 
 static void *frag_start(struct seq_file *m, loff_t *pos)
 {
@@ -422,28 +419,148 @@ static void frag_stop(struct seq_file *m, void *arg)
 {
 }
 
-/*
- * This walks the free areas for each zone.
- */
-static int frag_show(struct seq_file *m, void *arg)
+/* Walk all the zones in a node and print using a callback */
+static void walk_zones_in_node(struct seq_file *m, pg_data_t *pgdat,
+		void (*print)(struct seq_file *m, pg_data_t *, struct zone *))
 {
-	pg_data_t *pgdat = (pg_data_t *)arg;
 	struct zone *zone;
 	struct zone *node_zones = pgdat->node_zones;
 	unsigned long flags;
-	int order;
 
 	for (zone = node_zones; zone - node_zones < MAX_NR_ZONES; ++zone) {
 		if (!populated_zone(zone))
 			continue;
 
 		spin_lock_irqsave(&zone->lock, flags);
-		seq_printf(m, "Node %d, zone %8s ", pgdat->node_id, zone->name);
-		for (order = 0; order < MAX_ORDER; ++order)
-			seq_printf(m, "%6lu ", zone->free_area[order].nr_free);
+		print(m, pgdat, zone);
 		spin_unlock_irqrestore(&zone->lock, flags);
+	}
+}
+
+static void frag_show_print(struct seq_file *m, pg_data_t *pgdat,
+						struct zone *zone)
+{
+	int order;
+
+	seq_printf(m, "Node %d, zone %8s ", pgdat->node_id, zone->name);
+	for (order = 0; order < MAX_ORDER; ++order)
+		seq_printf(m, "%6lu ", zone->free_area[order].nr_free);
+	seq_putc(m, '\n');
+}
+
+/*
+ * This walks the free areas for each zone.
+ */
+static int frag_show(struct seq_file *m, void *arg)
+{
+	pg_data_t *pgdat = (pg_data_t *)arg;
+	walk_zones_in_node(m, pgdat, frag_show_print);
+	return 0;
+}
+
+static void pagetypeinfo_showfree_print(struct seq_file *m,
+					pg_data_t *pgdat, struct zone *zone)
+{
+	int order, mtype;
+
+	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++) {
+		seq_printf(m, "Node %4d, zone %8s, type %12s ",
+					pgdat->node_id,
+					zone->name,
+					migratetype_names[mtype]);
+		for (order = 0; order < MAX_ORDER; ++order) {
+			unsigned long freecount = 0;
+			struct free_area *area;
+			struct list_head *curr;
+
+			area = &(zone->free_area[order]);
+
+			list_for_each(curr, &area->free_list[mtype])
+				freecount++;
+			seq_printf(m, "%6lu ", freecount);
+		}
 		seq_putc(m, '\n');
 	}
+}
+
+/* Print out the free pages at each order for each migatetype */
+static int pagetypeinfo_showfree(struct seq_file *m, void *arg)
+{
+	int order;
+	pg_data_t *pgdat = (pg_data_t *)arg;
+
+	/* Print header */
+	seq_printf(m, "%-43s ", "Free pages count per migrate type at order");
+	for (order = 0; order < MAX_ORDER; ++order)
+		seq_printf(m, "%6d ", order);
+	seq_putc(m, '\n');
+
+	walk_zones_in_node(m, pgdat, pagetypeinfo_showfree_print);
+
+	return 0;
+}
+
+static void pagetypeinfo_showblockcount_print(struct seq_file *m,
+					pg_data_t *pgdat, struct zone *zone)
+{
+	int mtype;
+	unsigned long pfn;
+	unsigned long start_pfn = zone->zone_start_pfn;
+	unsigned long end_pfn = start_pfn + zone->spanned_pages;
+	unsigned long count[MIGRATE_TYPES] = { 0, };
+
+	for (pfn = start_pfn; pfn < end_pfn; pfn += pageblock_nr_pages) {
+		struct page *page;
+
+		if (!pfn_valid(pfn))
+			continue;
+
+		page = pfn_to_page(pfn);
+		mtype = get_pageblock_migratetype(page);
+
+		count[mtype]++;
+	}
+
+	/* Print counts */
+	seq_printf(m, "Node %d, zone %8s ", pgdat->node_id, zone->name);
+	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++)
+		seq_printf(m, "%12lu ", count[mtype]);
+	seq_putc(m, '\n');
+}
+
+/* Print out the free pages at each order for each migratetype */
+static int pagetypeinfo_showblockcount(struct seq_file *m, void *arg)
+{
+	int mtype;
+	pg_data_t *pgdat = (pg_data_t *)arg;
+
+	seq_printf(m, "\n%-23s", "Number of blocks type ");
+	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++)
+		seq_printf(m, "%12s ", migratetype_names[mtype]);
+	seq_putc(m, '\n');
+	walk_zones_in_node(m, pgdat, pagetypeinfo_showblockcount_print);
+
+	return 0;
+}
+
+/*
+ * This prints out statistics in relation to grouping pages by mobility.
+ * It is expensive to collect so do not constantly read the file.
+ */
+static int pagetypeinfo_show(struct seq_file *m, void *arg)
+{
+	pg_data_t *pgdat = (pg_data_t *)arg;
+
+	/* check memoryless node */
+	if (!node_state(pgdat->node_id, N_HIGH_MEMORY))
+		return 0;
+
+	seq_printf(m, "Page block order: %d\n", pageblock_order);
+	seq_printf(m, "Pages per block:  %lu\n", pageblock_nr_pages);
+	seq_putc(m, '\n');
+	pagetypeinfo_showfree(m, pgdat);
+	pagetypeinfo_showblockcount(m, pgdat);
+
 	return 0;
 }
 
@@ -452,6 +569,13 @@ const struct seq_operations fragmentation_op = {
 	.next	= frag_next,
 	.stop	= frag_stop,
 	.show	= frag_show,
+};
+
+const struct seq_operations pagetypeinfo_op = {
+	.start	= frag_start,
+	.next	= frag_next,
+	.stop	= frag_stop,
+	.show	= pagetypeinfo_show,
 };
 
 #ifdef CONFIG_ZONE_DMA
@@ -491,6 +615,7 @@ static const char * const vmstat_text[] = {
 	"nr_unstable",
 	"nr_bounce",
 	"nr_vmscan_write",
+	"nr_writeback_temp",
 
 #ifdef CONFIG_NUMA
 	"numa_hit",
@@ -529,87 +654,82 @@ static const char * const vmstat_text[] = {
 	"allocstall",
 
 	"pgrotated",
+#ifdef CONFIG_HUGETLB_PAGE
+	"htlb_buddy_alloc_success",
+	"htlb_buddy_alloc_fail",
+#endif
 #endif
 };
+
+static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
+							struct zone *zone)
+{
+	int i;
+	seq_printf(m, "Node %d, zone %8s", pgdat->node_id, zone->name);
+	seq_printf(m,
+		   "\n  pages free     %lu"
+		   "\n        min      %lu"
+		   "\n        low      %lu"
+		   "\n        high     %lu"
+		   "\n        scanned  %lu (a: %lu i: %lu)"
+		   "\n        spanned  %lu"
+		   "\n        present  %lu",
+		   zone_page_state(zone, NR_FREE_PAGES),
+		   zone->pages_min,
+		   zone->pages_low,
+		   zone->pages_high,
+		   zone->pages_scanned,
+		   zone->nr_scan_active, zone->nr_scan_inactive,
+		   zone->spanned_pages,
+		   zone->present_pages);
+
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
+		seq_printf(m, "\n    %-12s %lu", vmstat_text[i],
+				zone_page_state(zone, i));
+
+	seq_printf(m,
+		   "\n        protection: (%lu",
+		   zone->lowmem_reserve[0]);
+	for (i = 1; i < ARRAY_SIZE(zone->lowmem_reserve); i++)
+		seq_printf(m, ", %lu", zone->lowmem_reserve[i]);
+	seq_printf(m,
+		   ")"
+		   "\n  pagesets");
+	for_each_online_cpu(i) {
+		struct per_cpu_pageset *pageset;
+
+		pageset = zone_pcp(zone, i);
+		seq_printf(m,
+			   "\n    cpu: %i"
+			   "\n              count: %i"
+			   "\n              high:  %i"
+			   "\n              batch: %i",
+			   i,
+			   pageset->pcp.count,
+			   pageset->pcp.high,
+			   pageset->pcp.batch);
+#ifdef CONFIG_SMP
+		seq_printf(m, "\n  vm stats threshold: %d",
+				pageset->stat_threshold);
+#endif
+	}
+	seq_printf(m,
+		   "\n  all_unreclaimable: %u"
+		   "\n  prev_priority:     %i"
+		   "\n  start_pfn:         %lu",
+			   zone_is_all_unreclaimable(zone),
+		   zone->prev_priority,
+		   zone->zone_start_pfn);
+	seq_putc(m, '\n');
+}
 
 /*
  * Output information about zones in @pgdat.
  */
 static int zoneinfo_show(struct seq_file *m, void *arg)
 {
-	pg_data_t *pgdat = arg;
-	struct zone *zone;
-	struct zone *node_zones = pgdat->node_zones;
-	unsigned long flags;
-
-	for (zone = node_zones; zone - node_zones < MAX_NR_ZONES; zone++) {
-		int i;
-
-		if (!populated_zone(zone))
-			continue;
-
-		spin_lock_irqsave(&zone->lock, flags);
-		seq_printf(m, "Node %d, zone %8s", pgdat->node_id, zone->name);
-		seq_printf(m,
-			   "\n  pages free     %lu"
-			   "\n        min      %lu"
-			   "\n        low      %lu"
-			   "\n        high     %lu"
-			   "\n        scanned  %lu (a: %lu i: %lu)"
-			   "\n        spanned  %lu"
-			   "\n        present  %lu",
-			   zone_page_state(zone, NR_FREE_PAGES),
-			   zone->pages_min,
-			   zone->pages_low,
-			   zone->pages_high,
-			   zone->pages_scanned,
-			   zone->nr_scan_active, zone->nr_scan_inactive,
-			   zone->spanned_pages,
-			   zone->present_pages);
-
-		for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
-			seq_printf(m, "\n    %-12s %lu", vmstat_text[i],
-					zone_page_state(zone, i));
-
-		seq_printf(m,
-			   "\n        protection: (%lu",
-			   zone->lowmem_reserve[0]);
-		for (i = 1; i < ARRAY_SIZE(zone->lowmem_reserve); i++)
-			seq_printf(m, ", %lu", zone->lowmem_reserve[i]);
-		seq_printf(m,
-			   ")"
-			   "\n  pagesets");
-		for_each_online_cpu(i) {
-			struct per_cpu_pageset *pageset;
-			int j;
-
-			pageset = zone_pcp(zone, i);
-			for (j = 0; j < ARRAY_SIZE(pageset->pcp); j++) {
-				seq_printf(m,
-					   "\n    cpu: %i pcp: %i"
-					   "\n              count: %i"
-					   "\n              high:  %i"
-					   "\n              batch: %i",
-					   i, j,
-					   pageset->pcp[j].count,
-					   pageset->pcp[j].high,
-					   pageset->pcp[j].batch);
-			}
-#ifdef CONFIG_SMP
-			seq_printf(m, "\n  vm stats threshold: %d",
-					pageset->stat_threshold);
-#endif
-		}
-		seq_printf(m,
-			   "\n  all_unreclaimable: %u"
-			   "\n  prev_priority:     %i"
-			   "\n  start_pfn:         %lu",
-			   zone->all_unreclaimable,
-			   zone->prev_priority,
-			   zone->zone_start_pfn);
-		spin_unlock_irqrestore(&zone->lock, flags);
-		seq_putc(m, '\n');
-	}
+	pg_data_t *pgdat = (pg_data_t *)arg;
+	walk_zones_in_node(m, pgdat, zoneinfo_show_print);
 	return 0;
 }
 
@@ -696,7 +816,7 @@ static void vmstat_update(struct work_struct *w)
 		sysctl_stat_interval);
 }
 
-static void __devinit start_cpu_timer(int cpu)
+static void __cpuinit start_cpu_timer(int cpu)
 {
 	struct delayed_work *vmstat_work = &per_cpu(vmstat_work, cpu);
 
@@ -741,7 +861,7 @@ static int __cpuinit vmstat_cpuup_callback(struct notifier_block *nfb,
 static struct notifier_block __cpuinitdata vmstat_notifier =
 	{ &vmstat_cpuup_callback, NULL, 0 };
 
-int __init setup_vmstat(void)
+static int __init setup_vmstat(void)
 {
 	int cpu;
 

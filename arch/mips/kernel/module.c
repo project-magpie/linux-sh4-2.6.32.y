@@ -22,6 +22,7 @@
 
 #include <linux/moduleloader.h>
 #include <linux/elf.h>
+#include <linux/mm.h>
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
 #include <linux/fs.h>
@@ -381,7 +382,7 @@ const struct exception_table_entry *search_module_dbetables(unsigned long addr)
 	return e;
 }
 
-/* Put in dbe list if neccessary. */
+/* Put in dbe list if necessary. */
 int module_finalize(const Elf_Ehdr *hdr,
 		    const Elf_Shdr *sechdrs,
 		    struct module *me)

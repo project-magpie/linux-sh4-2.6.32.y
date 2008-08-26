@@ -24,6 +24,8 @@
 #include <net/flow.h>
 #include <net/sock.h>
 #include <net/request_sock.h>
+#include <net/route.h>
+#include <net/netns/hash.h>
 
 /** struct ip_options - IP Options
  *
@@ -42,8 +44,7 @@ struct ip_options {
 	unsigned char	srr;
 	unsigned char	rr;
 	unsigned char	ts;
-	unsigned char	is_data:1,
-			is_strictroute:1,
+	unsigned char	is_strictroute:1,
 			srr_is_hit:1,
 			is_changed:1,
 			rr_needaddr:1,
@@ -136,7 +137,7 @@ struct inet_sock {
 		unsigned int		flags;
 		unsigned int		fragsize;
 		struct ip_options	*opt;
-		struct rtable		*rt;
+		struct dst_entry	*dst;
 		int			length; /* Total length of all frames */
 		__be32			addr;
 		struct flowi		fl;
@@ -171,12 +172,14 @@ extern int inet_sk_rebuild_header(struct sock *sk);
 extern u32 inet_ehash_secret;
 extern void build_ehash_secret(void);
 
-static inline unsigned int inet_ehashfn(const __be32 laddr, const __u16 lport,
+static inline unsigned int inet_ehashfn(struct net *net,
+					const __be32 laddr, const __u16 lport,
 					const __be32 faddr, const __be16 fport)
 {
-	return jhash_2words((__force __u32) laddr ^ (__force __u32) faddr,
+	return jhash_3words((__force __u32) laddr,
+			    (__force __u32) faddr,
 			    ((__u32) lport) << 16 | (__force __u32)fport,
-			    inet_ehash_secret);
+			    inet_ehash_secret + net_hash_mix(net));
 }
 
 static inline int inet_sk_ehashfn(const struct sock *sk)
@@ -186,8 +189,25 @@ static inline int inet_sk_ehashfn(const struct sock *sk)
 	const __u16 lport = inet->num;
 	const __be32 faddr = inet->daddr;
 	const __be16 fport = inet->dport;
+	struct net *net = sock_net(sk);
 
-	return inet_ehashfn(laddr, lport, faddr, fport);
+	return inet_ehashfn(net, laddr, lport, faddr, fport);
+}
+
+
+static inline int inet_iif(const struct sk_buff *skb)
+{
+	return skb->rtable->rt_iif;
+}
+
+static inline struct request_sock *inet_reqsk_alloc(struct request_sock_ops *ops)
+{
+	struct request_sock *req = reqsk_alloc(ops);
+
+	if (req != NULL)
+		inet_rsk(req)->opt = NULL;
+
+	return req;
 }
 
 #endif	/* _INET_SOCK_H */

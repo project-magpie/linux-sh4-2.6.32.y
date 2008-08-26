@@ -65,35 +65,19 @@ struct audit_watch {
 	struct list_head	rules;	/* associated rules */
 };
 
-struct audit_field {
-	u32				type;
-	u32				val;
-	u32				op;
-	char				*se_str;
-	struct selinux_audit_rule	*se_rule;
-};
-
-struct audit_krule {
-	int			vers_ops;
-	u32			flags;
-	u32			listnr;
-	u32			action;
-	u32			mask[AUDIT_BITMASK_SIZE];
-	u32			buflen; /* for data alloc on list rules */
-	u32			field_count;
-	char			*filterkey; /* ties events to rules */
-	struct audit_field	*fields;
-	struct audit_field	*arch_f; /* quick access to arch field */
-	struct audit_field	*inode_f; /* quick access to an inode field */
-	struct audit_watch	*watch;	/* associated watch */
-	struct list_head	rlist;	/* entry in audit_watch.rules list */
-};
+struct audit_tree;
+struct audit_chunk;
 
 struct audit_entry {
 	struct list_head	list;
 	struct rcu_head		rcu;
 	struct audit_krule	rule;
 };
+
+#ifdef CONFIG_AUDIT
+extern int audit_enabled;
+extern int audit_ever_enabled;
+#endif
 
 extern int audit_pid;
 
@@ -125,10 +109,46 @@ struct audit_netlink_list {
 int audit_send_list(void *);
 
 struct inotify_watch;
+/* Inotify handle */
+extern struct inotify_handle *audit_ih;
+
 extern void audit_free_parent(struct inotify_watch *);
 extern void audit_handle_ievent(struct inotify_watch *, u32, u32, u32,
 				const char *, struct inode *);
 extern int selinux_audit_rule_update(void);
+
+extern struct mutex audit_filter_mutex;
+extern void audit_free_rule_rcu(struct rcu_head *);
+extern struct list_head audit_filter_list[];
+
+#ifdef CONFIG_AUDIT_TREE
+extern struct audit_chunk *audit_tree_lookup(const struct inode *);
+extern void audit_put_chunk(struct audit_chunk *);
+extern int audit_tree_match(struct audit_chunk *, struct audit_tree *);
+extern int audit_make_tree(struct audit_krule *, char *, u32);
+extern int audit_add_tree_rule(struct audit_krule *);
+extern int audit_remove_tree_rule(struct audit_krule *);
+extern void audit_trim_trees(void);
+extern int audit_tag_tree(char *old, char *new);
+extern void audit_schedule_prune(void);
+extern void audit_prune_trees(void);
+extern const char *audit_tree_path(struct audit_tree *);
+extern void audit_put_tree(struct audit_tree *);
+#else
+#define audit_remove_tree_rule(rule) BUG()
+#define audit_add_tree_rule(rule) -EINVAL
+#define audit_make_tree(rule, str, op) -EINVAL
+#define audit_trim_trees() (void)0
+#define audit_put_tree(tree) (void)0
+#define audit_tag_tree(old, new) -EINVAL
+#define audit_tree_path(rule) ""	/* never called */
+#endif
+
+extern char *audit_unpack_string(void **, size_t *, size_t);
+
+extern pid_t audit_sig_pid;
+extern uid_t audit_sig_uid;
+extern u32 audit_sig_sid;
 
 #ifdef CONFIG_AUDITSYSCALL
 extern int __audit_signal_info(int sig, struct task_struct *t);

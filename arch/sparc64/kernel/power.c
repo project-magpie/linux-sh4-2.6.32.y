@@ -20,6 +20,7 @@
 #include <asm/of_device.h>
 #include <asm/io.h>
 #include <asm/sstate.h>
+#include <asm/reboot.h>
 
 #include <linux/unistd.h>
 
@@ -39,8 +40,6 @@ static irqreturn_t power_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-extern void machine_halt(void);
-extern void machine_alt_power_off(void);
 static void (*poweroff_method)(void) = machine_alt_power_off;
 
 void machine_power_off(void)
@@ -105,9 +104,11 @@ static struct of_device_id power_match[] = {
 };
 
 static struct of_platform_driver power_driver = {
-	.name		= "power",
 	.match_table	= power_match,
 	.probe		= power_probe,
+	.driver		= {
+		.name	= "power",
+	},
 };
 
 void __init power_init(void)

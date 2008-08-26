@@ -105,9 +105,13 @@ ENTRY(cpu_arm926_do_idle)
 	mrc	p15, 0, r1, c1, c0, 0		@ Read control register
 	mcr	p15, 0, r0, c7, c10, 4		@ Drain write buffer
 	bic	r2, r1, #1 << 12
+	mrs	r3, cpsr			@ Disable FIQs while Icache
+	orr	ip, r3, #PSR_F_BIT		@ is disabled
+	msr	cpsr_c, ip
 	mcr	p15, 0, r2, c1, c0, 0		@ Disable I cache
 	mcr	p15, 0, r0, c7, c0, 4		@ Wait for interrupt
 	mcr	p15, 0, r1, c1, c0, 0		@ Restore ICache enable
+	msr	cpsr_c, r3			@ Restore FIQ state
 	mov	pc, lr
 
 /*
@@ -291,7 +295,7 @@ ENTRY(arm926_dma_flush_range)
 #ifndef CONFIG_CPU_DCACHE_WRITETHROUGH
 	mcr	p15, 0, r0, c7, c14, 1		@ clean+invalidate D entry
 #else
-	mcr	p15, 0, r0, c7, c10, 1		@ clean D entry
+	mcr	p15, 0, r0, c7, c6, 1		@ invalidate D entry
 #endif
 	add	r0, r0, #CACHE_DLINESIZE
 	cmp	r0, r1
@@ -433,6 +437,7 @@ arm926_crval:
 	.type	arm926_processor_functions, #object
 arm926_processor_functions:
 	.word	v5tj_early_abort
+	.word	pabort_noifar
 	.word	cpu_arm926_proc_init
 	.word	cpu_arm926_proc_fin
 	.word	cpu_arm926_reset

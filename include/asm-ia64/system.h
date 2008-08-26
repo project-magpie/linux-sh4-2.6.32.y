@@ -26,11 +26,14 @@
  */
 #define KERNEL_START		 (GATE_ADDR+__IA64_UL_CONST(0x100000000))
 #define PERCPU_ADDR		(-PERCPU_PAGE_SIZE)
+#define LOAD_OFFSET		(KERNEL_START - KERNEL_TR_PAGE_SIZE)
 
 #ifndef __ASSEMBLY__
 
 #include <linux/kernel.h>
 #include <linux/types.h>
+
+#define AT_VECTOR_SIZE_ARCH 2 /* entries in ARCH_DLINFO */
 
 struct pci_vector_struct {
 	__u16 segment;	/* PCI Segment number */
@@ -120,10 +123,16 @@ extern struct ia64_boot_param {
  *   write a floating-point register right before reading the PSR
  *   and that writes to PSR.mfl
  */
+#ifdef CONFIG_PARAVIRT
+#define __local_save_flags()	ia64_get_psr_i()
+#else
+#define __local_save_flags()	ia64_getreg(_IA64_REG_PSR)
+#endif
+
 #define __local_irq_save(x)			\
 do {						\
 	ia64_stop();				\
-	(x) = ia64_getreg(_IA64_REG_PSR);	\
+	(x) = __local_save_flags();		\
 	ia64_stop();				\
 	ia64_rsm(IA64_PSR_I);			\
 } while (0)
@@ -144,23 +153,23 @@ do {						\
 
 # define local_irq_save(x)					\
 do {								\
-	unsigned long psr;					\
+	unsigned long __psr;					\
 								\
-	__local_irq_save(psr);					\
-	if (psr & IA64_PSR_I)					\
+	__local_irq_save(__psr);				\
+	if (__psr & IA64_PSR_I)					\
 		__save_ip();					\
-	(x) = psr;						\
+	(x) = __psr;						\
 } while (0)
 
-# define local_irq_disable()	do { unsigned long x; local_irq_save(x); } while (0)
+# define local_irq_disable()	do { unsigned long __x; local_irq_save(__x); } while (0)
 
 # define local_irq_restore(x)					\
 do {								\
-	unsigned long old_psr, psr = (x);			\
+	unsigned long __old_psr, __psr = (x);			\
 								\
-	local_save_flags(old_psr);				\
-	__local_irq_restore(psr);				\
-	if ((old_psr & IA64_PSR_I) && !(psr & IA64_PSR_I))	\
+	local_save_flags(__old_psr);				\
+	__local_irq_restore(__psr);				\
+	if ((__old_psr & IA64_PSR_I) && !(__psr & IA64_PSR_I))	\
 		__save_ip();					\
 } while (0)
 
@@ -171,7 +180,7 @@ do {								\
 #endif /* !CONFIG_IA64_DEBUG_IRQ */
 
 #define local_irq_enable()	({ ia64_stop(); ia64_ssm(IA64_PSR_I); ia64_srlz_d(); })
-#define local_save_flags(flags)	({ ia64_stop(); (flags) = ia64_getreg(_IA64_REG_PSR); })
+#define local_save_flags(flags)	({ ia64_stop(); (flags) = __local_save_flags(); })
 
 #define irqs_disabled()				\
 ({						\
@@ -208,6 +217,13 @@ struct task_struct;
 extern void ia64_save_extra (struct task_struct *task);
 extern void ia64_load_extra (struct task_struct *task);
 
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+extern void ia64_account_on_switch (struct task_struct *prev, struct task_struct *next);
+# define IA64_ACCOUNT_ON_SWITCH(p,n) ia64_account_on_switch(p,n)
+#else
+# define IA64_ACCOUNT_ON_SWITCH(p,n)
+#endif
+
 #ifdef CONFIG_PERFMON
   DECLARE_PER_CPU(unsigned long, pfm_syst_info);
 # define PERFMON_IS_SYSWIDE() (__get_cpu_var(pfm_syst_info) & 0x1)
@@ -220,6 +236,7 @@ extern void ia64_load_extra (struct task_struct *task);
 	 || IS_IA32_PROCESS(task_pt_regs(t)) || PERFMON_IS_SYSWIDE())
 
 #define __switch_to(prev,next,last) do {							 \
+	IA64_ACCOUNT_ON_SWITCH(prev, next);							 \
 	if (IA64_HAS_EXTRA_STATE(prev))								 \
 		ia64_save_extra(prev);								 \
 	if (IA64_HAS_EXTRA_STATE(next))								 \
@@ -263,6 +280,10 @@ void cpu_idle_wait(void);
 #define arch_align_stack(x) (x)
 
 void default_idle(void);
+
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+extern void account_system_vtime(struct task_struct *);
+#endif
 
 #endif /* __KERNEL__ */
 

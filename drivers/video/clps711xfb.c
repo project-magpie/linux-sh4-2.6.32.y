@@ -29,7 +29,7 @@
 
 #include <asm/hardware.h>
 #include <asm/mach-types.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include <asm/hardware/clps7111.h>
 #include <asm/arch/syspld.h>
@@ -381,7 +381,7 @@ int __init clps711xfb_init(void)
 
 	/* Register the /proc entries. */
 	clps7111fb_backlight_proc_entry = create_proc_entry("backlight", 0444,
-		&proc_root);
+		NULL);
 	if (clps7111fb_backlight_proc_entry == NULL) {
 		printk("Couldn't create the /proc entry for the backlight.\n");
 		return -EINVAL;

@@ -12,9 +12,9 @@
 #endif
 
 /*** Version/name ***/
-#define INTELFB_VERSION			"0.9.4"
+#define INTELFB_VERSION			"0.9.5"
 #define INTELFB_MODULE_NAME		"intelfb"
-#define SUPPORTED_CHIPSETS		"830M/845G/852GM/855GM/865G/915G/915GM/945G/945GM"
+#define SUPPORTED_CHIPSETS		"830M/845G/852GM/855GM/865G/915G/915GM/945G/945GM/965G/965GM"
 
 
 /*** Debug/feature defines ***/
@@ -58,6 +58,8 @@
 #define PCI_DEVICE_ID_INTEL_915GM	0x2592
 #define PCI_DEVICE_ID_INTEL_945G	0x2772
 #define PCI_DEVICE_ID_INTEL_945GM	0x27A2
+#define PCI_DEVICE_ID_INTEL_965G	0x29A2
+#define PCI_DEVICE_ID_INTEL_965GM	0x2A02
 
 /* Size of MMIO region */
 #define INTEL_REG_SIZE			0x80000
@@ -111,7 +113,7 @@
 
 #define FIXED_MODE(d) ((d)->fixed_mode)
 
-/*** Driver paramters ***/
+/*** Driver parameters ***/
 
 #define RINGBUFFER_SIZE		KB(64)
 #define HW_CURSOR_SIZE		KB(4)
@@ -158,6 +160,8 @@ enum intel_chips {
 	INTEL_915GM,
 	INTEL_945G,
 	INTEL_945GM,
+	INTEL_965G,
+	INTEL_965GM,
 };
 
 struct intelfb_hwstate {
@@ -231,8 +235,8 @@ struct intelfb_hwstate {
 struct intelfb_heap_data {
 	u32 physical;
 	u8 __iomem *virtual;
-	u32 offset;  // in GATT pages
-	u32 size;    // in bytes
+	u32 offset;		/* in GATT pages */
+	u32 size;		/* in bytes */
 };
 
 #ifdef CONFIG_FB_INTEL_I2C
@@ -270,9 +274,9 @@ struct intelfb_info {
 	struct intelfb_hwstate save_state;
 
 	/* agpgart structs */
-	struct agp_memory *gtt_fb_mem;     // use all stolen memory or vram
-	struct agp_memory *gtt_ring_mem;   // ring buffer
-	struct agp_memory *gtt_cursor_mem; // hw cursor
+	struct agp_memory *gtt_fb_mem;     /* use all stolen memory or vram */
+	struct agp_memory *gtt_ring_mem;   /* ring buffer */
+	struct agp_memory *gtt_cursor_mem; /* hw cursor */
 
 	/* use a gart reserved fb mem */
 	u8 fbmem_gart;
@@ -346,7 +350,7 @@ struct intelfb_info {
 
 	/* driver registered */
 	int registered;
-	
+
 	/* index into plls */
 	int pll_index;
 
@@ -355,7 +359,12 @@ struct intelfb_info {
 	struct intelfb_output_rec output[MAX_OUTPUTS];
 };
 
-#define IS_I9XX(dinfo) (((dinfo)->chipset == INTEL_915G)||(dinfo->chipset == INTEL_915GM)||((dinfo)->chipset == INTEL_945G)||(dinfo->chipset==INTEL_945GM))
+#define IS_I9XX(dinfo) (((dinfo)->chipset == INTEL_915G) ||	\
+			((dinfo)->chipset == INTEL_915GM) ||	\
+			((dinfo)->chipset == INTEL_945G) ||	\
+			((dinfo)->chipset == INTEL_945GM) ||	\
+			((dinfo)->chipset == INTEL_965G) ||	\
+			((dinfo)->chipset == INTEL_965GM))
 
 #ifndef FBIO_WAITFORVSYNC
 #define FBIO_WAITFORVSYNC	_IOW('F', 0x20, __u32)

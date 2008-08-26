@@ -15,6 +15,7 @@
 
 #include <linux/socket.h>
 #include <linux/irda.h>
+#include <net/net_namespace.h>
 #include <net/sock.h>
 #include <net/irda/irda.h>
 #include <net/irda/irlap.h>
@@ -30,7 +31,7 @@ static struct genl_family irda_nl_family = {
 	.maxattr = IRDA_NL_CMD_MAX,
 };
 
-static struct net_device * ifname_to_netdev(struct genl_info *info)
+static struct net_device * ifname_to_netdev(struct net *net, struct genl_info *info)
 {
 	char * ifname;
 
@@ -39,9 +40,9 @@ static struct net_device * ifname_to_netdev(struct genl_info *info)
 
 	ifname = nla_data(info->attrs[IRDA_NL_ATTR_IFNAME]);
 
-	IRDA_DEBUG(5, "%s(): Looking for %s\n", __FUNCTION__, ifname);
+	IRDA_DEBUG(5, "%s(): Looking for %s\n", __func__, ifname);
 
-	return dev_get_by_name(ifname);
+	return dev_get_by_name(net, ifname);
 }
 
 static int irda_nl_set_mode(struct sk_buff *skb, struct genl_info *info)
@@ -55,9 +56,9 @@ static int irda_nl_set_mode(struct sk_buff *skb, struct genl_info *info)
 
 	mode = nla_get_u32(info->attrs[IRDA_NL_ATTR_MODE]);
 
-	IRDA_DEBUG(5, "%s(): Switching to mode: %d\n", __FUNCTION__, mode);
+	IRDA_DEBUG(5, "%s(): Switching to mode: %d\n", __func__, mode);
 
-	dev = ifname_to_netdev(info);
+	dev = ifname_to_netdev(&init_net, info);
 	if (!dev)
 		return -ENODEV;
 
@@ -82,7 +83,7 @@ static int irda_nl_get_mode(struct sk_buff *skb, struct genl_info *info)
 	void *hdr;
 	int ret = -ENOBUFS;
 
-	dev = ifname_to_netdev(info);
+	dev = ifname_to_netdev(&init_net, info);
 	if (!dev)
 		return -ENODEV;
 
@@ -100,8 +101,8 @@ static int irda_nl_get_mode(struct sk_buff *skb, struct genl_info *info)
 
 	hdr = genlmsg_put(msg, info->snd_pid, info->snd_seq,
 			  &irda_nl_family, 0,  IRDA_NL_CMD_GET_MODE);
-	if (IS_ERR(hdr)) {
-		ret = PTR_ERR(hdr);
+	if (hdr == NULL) {
+		ret = -EMSGSIZE;
 		goto err_out;
 	}
 

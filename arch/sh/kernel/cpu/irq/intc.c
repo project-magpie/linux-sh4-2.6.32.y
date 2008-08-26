@@ -1,7 +1,7 @@
 /*
  * Shared interrupt handling code for IPR and INTC2 types of IRQs.
  *
- * Copyright (C) 2007 Magnus Damm
+ * Copyright (C) 2007, 2008 Magnus Damm
  *
  * Based on intc2.c and ipr.c
  *
@@ -62,6 +62,9 @@ struct intc_desc_int {
 #endif
 
 static unsigned int intc_prio_level[NR_IRQS]; /* for now */
+#ifdef CONFIG_CPU_SH3
+static unsigned long ack_handle[NR_IRQS];
+#endif
 
 static inline struct intc_desc_int *get_intc_desc(unsigned int irq)
 {
@@ -101,20 +104,29 @@ static void write_32(unsigned long addr, unsigned long h, unsigned long data)
 
 static void modify_8(unsigned long addr, unsigned long h, unsigned long data)
 {
+	unsigned long flags;
+	local_irq_save(flags);
 	ctrl_outb(set_field(ctrl_inb(addr), data, h), addr);
 	(void)ctrl_inb(addr);	/* Defeat write posting */
+	local_irq_restore(flags);
 }
 
 static void modify_16(unsigned long addr, unsigned long h, unsigned long data)
 {
+	unsigned long flags;
+	local_irq_save(flags);
 	ctrl_outw(set_field(ctrl_inw(addr), data, h), addr);
 	(void)ctrl_inw(addr);	/* Defeat write posting */
+	local_irq_restore(flags);
 }
 
 static void modify_32(unsigned long addr, unsigned long h, unsigned long data)
 {
+	unsigned long flags;
+	local_irq_save(flags);
 	ctrl_outl(set_field(ctrl_inl(addr), data, h), addr);
 	(void)ctrl_inl(addr);	/* Defeat write posting */
+	local_irq_restore(flags);
 }
 
 enum {	REG_FN_ERR = 0, REG_FN_WRITE_BASE = 1, REG_FN_MODIFY_BASE = 5 };
@@ -225,6 +237,25 @@ static void intc_disable(unsigned int irq)
 	}
 }
 
+#ifdef CONFIG_CPU_SH3
+static void intc_mask_ack(unsigned int irq)
+{
+	struct intc_desc_int *d = get_intc_desc(irq);
+	unsigned long handle = ack_handle[irq];
+	unsigned long addr;
+
+	intc_disable(irq);
+
+	/* read register and write zero only to the assocaited bit */
+
+	if (handle) {
+		addr = INTC_REG(d, _INTC_ADDR_D(handle), 0);
+		ctrl_inb(addr);
+		ctrl_outb(0x3f ^ set_field(0, 1, handle), addr);
+	}
+}
+#endif
+
 static struct intc_handle_int *intc_find_irq(struct intc_handle_int *hp,
 					     unsigned int nr_hp,
 					     unsigned int irq)
@@ -286,7 +317,12 @@ static unsigned char intc_irq_sense_table[IRQ_TYPE_SENSE_MASK + 1] = {
 	[IRQ_TYPE_EDGE_FALLING] = VALID(0),
 	[IRQ_TYPE_EDGE_RISING] = VALID(1),
 	[IRQ_TYPE_LEVEL_LOW] = VALID(2),
+	/* SH7706, SH7707 and SH7709 do not support high level triggered */
+#if !defined(CONFIG_CPU_SUBTYPE_SH7706) && \
+    !defined(CONFIG_CPU_SUBTYPE_SH7707) && \
+    !defined(CONFIG_CPU_SUBTYPE_SH7709)
 	[IRQ_TYPE_LEVEL_HIGH] = VALID(3),
+#endif
 };
 
 static int intc_set_sense(unsigned int irq, unsigned int type)
@@ -339,31 +375,6 @@ static intc_enum __init intc_grp_id(struct intc_desc *desc,
 	}
 
 	return 0;
-}
-
-static unsigned int __init intc_prio_value(struct intc_desc *desc,
-					   intc_enum enum_id, int do_grps)
-{
-	struct intc_prio *p = desc->priorities;
-	unsigned int i;
-
-	for (i = 0; p && enum_id && i < desc->nr_priorities; i++) {
-		p = desc->priorities + i;
-
-		if (p->enum_id != enum_id)
-			continue;
-
-		return p->priority;
-	}
-
-	if (do_grps)
-		return intc_prio_value(desc, intc_grp_id(desc, enum_id), 0);
-
-	/* default to the lowest priority possible if no priority is set
-	 * - this needs to be at least 2 for 5-bit priorities on 7780
-	 */
-
-	return 2;
 }
 
 static unsigned int __init intc_mask_data(struct intc_desc *desc,
@@ -461,6 +472,40 @@ static unsigned int __init intc_prio_data(struct intc_desc *desc,
 	return 0;
 }
 
+#ifdef CONFIG_CPU_SH3
+static unsigned int __init intc_ack_data(struct intc_desc *desc,
+					  struct intc_desc_int *d,
+					  intc_enum enum_id)
+{
+	struct intc_mask_reg *mr = desc->ack_regs;
+	unsigned int i, j, fn, mode;
+	unsigned long reg_e, reg_d;
+
+	for (i = 0; mr && enum_id && i < desc->nr_ack_regs; i++) {
+		mr = desc->ack_regs + i;
+
+		for (j = 0; j < ARRAY_SIZE(mr->enum_ids); j++) {
+			if (mr->enum_ids[j] != enum_id)
+				continue;
+
+			fn = REG_FN_MODIFY_BASE;
+			mode = MODE_ENABLE_REG;
+			reg_e = mr->set_reg;
+			reg_d = mr->set_reg;
+
+			fn += (mr->reg_width >> 3) - 1;
+			return _INTC_MK(fn, mode,
+					intc_get_reg(d, reg_e),
+					intc_get_reg(d, reg_d),
+					1,
+					(mr->reg_width - 1) - j);
+		}
+	}
+
+	return 0;
+}
+#endif
+
 static unsigned int __init intc_sense_data(struct intc_desc *desc,
 					   struct intc_desc_int *d,
 					   intc_enum enum_id)
@@ -524,8 +569,10 @@ static void __init intc_register_irq(struct intc_desc *desc,
 				      handle_level_irq, "level");
 	set_irq_chip_data(irq, (void *)data[primary]);
 
-	/* record the desired priority level */
-	intc_prio_level[irq] = intc_prio_value(desc, enum_id, 1);
+	/* set priority level
+	 * - this needs to be at least 2 for 5-bit priorities on 7780
+	 */
+	intc_prio_level[irq] = 2;
 
 	/* enable secondary masking method if present */
 	if (data[!primary])
@@ -559,6 +606,11 @@ static void __init intc_register_irq(struct intc_desc *desc,
 
 	/* irq should be disabled by default */
 	d->chip.mask(irq);
+
+#ifdef CONFIG_CPU_SH3
+	if (desc->ack_regs)
+		ack_handle[irq] = intc_ack_data(desc, d, enum_id);
+#endif
 }
 
 static unsigned int __init save_reg(struct intc_desc_int *d,
@@ -589,6 +641,9 @@ void __init register_intc_controller(struct intc_desc *desc)
 	d->nr_reg += desc->prio_regs ? desc->nr_prio_regs * 2 : 0;
 	d->nr_reg += desc->sense_regs ? desc->nr_sense_regs : 0;
 
+#ifdef CONFIG_CPU_SH3
+	d->nr_reg += desc->ack_regs ? desc->nr_ack_regs : 0;
+#endif
 	d->reg = alloc_bootmem(d->nr_reg * sizeof(*d->reg));
 #ifdef CONFIG_SMP
 	d->smp = alloc_bootmem(d->nr_reg * sizeof(*d->smp));
@@ -621,13 +676,22 @@ void __init register_intc_controller(struct intc_desc *desc)
 		}
 	}
 
-	BUG_ON(k > 256); /* _INTC_ADDR_E() and _INTC_ADDR_D() are 8 bits */
-
 	d->chip.name = desc->name;
 	d->chip.mask = intc_disable;
 	d->chip.unmask = intc_enable;
 	d->chip.mask_ack = intc_disable;
 	d->chip.set_type = intc_set_sense;
+
+#ifdef CONFIG_CPU_SH3
+	if (desc->ack_regs) {
+		for (i = 0; i < desc->nr_ack_regs; i++)
+			k += save_reg(d, k, desc->ack_regs[i].set_reg, 0);
+
+		d->chip.mask_ack = intc_mask_ack;
+	}
+#endif
+
+	BUG_ON(k > 256); /* _INTC_ADDR_E() and _INTC_ADDR_D() are 8 bits */
 
 	for (i = 0; i < desc->nr_vectors; i++) {
 		struct intc_vect *vect = desc->vectors + i;

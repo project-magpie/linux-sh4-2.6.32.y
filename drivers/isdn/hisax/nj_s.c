@@ -151,7 +151,7 @@ NETjet_S_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 static int __devinit njs_pci_probe(struct pci_dev *dev_netjet,
 				   struct IsdnCardState *cs)
 {
-	int cfg;
+	u32 cfg;
 
 	if (pci_enable_device(dev_netjet))
 		return(0);
@@ -235,8 +235,7 @@ static int __devinit njs_cs_init_rest(struct IsdnCard *card,
 		cs->subtyp ? "TJ320" : "TJ300", cs->hw.njet.base, cs->irq);
 	if (!request_region(cs->hw.njet.base, bytecnt, "netjet-s isdn")) {
 		printk(KERN_WARNING
-		       "HiSax: %s config port %#lx-%#lx already in use\n",
-		       CardType[card->typ],
+		       "HiSax: NETjet-S config port %#lx-%#lx already in use\n",
 		       cs->hw.njet.base,
 		       cs->hw.njet.base + bytecnt);
 		return (0);

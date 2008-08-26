@@ -27,8 +27,6 @@
 
 #include "ati_ids.h"
 
-static void radeon_reinitialize_M10(struct radeonfb_info *rinfo);
-
 /*
  * Workarounds for bugs in PC laptops:
  * - enable D2 sleep in some IBM Thinkpads
@@ -39,6 +37,8 @@ static void radeon_reinitialize_M10(struct radeonfb_info *rinfo);
  */
 
 #if defined(CONFIG_PM) && defined(CONFIG_X86)
+static void radeon_reinitialize_M10(struct radeonfb_info *rinfo);
+
 struct radeon_device_id {
         const char *ident;                     /* (arbitrary) Name */
         const unsigned short subsystem_vendor; /* Subsystem Vendor ID */
@@ -2561,7 +2561,7 @@ static void radeon_set_suspend(struct radeonfb_info *rinfo, int suspend)
 			pci_read_config_dword(rinfo->pdev, i * 4,
 					      &rinfo->cfg_save[i]);
 
-		/* Switch PCI power managment to D2. */
+		/* Switch PCI power management to D2. */
 		pci_disable_device(rinfo->pdev);
 		for (;;) {
 			pci_read_config_word(

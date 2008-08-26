@@ -16,7 +16,7 @@
 #include <asm/cache.h>
 #include <asm/io.h>
 
-int __init __uses_jump_to_uncached detect_cpu_and_cache_system(void)
+int __uses_jump_to_uncached detect_cpu_and_cache_system(void)
 {
 	unsigned long addr0, addr1, data0, data1, data2, data3;
 
@@ -84,6 +84,9 @@ int __init __uses_jump_to_uncached detect_cpu_and_cache_system(void)
 #if defined(CONFIG_CPU_SUBTYPE_SH7720)
 		boot_cpu_data.type = CPU_SH7720;
 #endif
+#if defined(CONFIG_CPU_SUBTYPE_SH7721)
+		boot_cpu_data.type = CPU_SH7721;
+#endif
 #if defined(CONFIG_CPU_SUBTYPE_SH7705)
 		boot_cpu_data.type = CPU_SH7705;
 
@@ -91,9 +94,9 @@ int __init __uses_jump_to_uncached detect_cpu_and_cache_system(void)
 		boot_cpu_data.dcache.way_incr	= (1 << 13);
 		boot_cpu_data.dcache.entry_mask	= 0x1ff0;
 		boot_cpu_data.dcache.sets	= 512;
-		ctrl_outl(CCR_CACHE_32KB, CCR3);
+		ctrl_outl(CCR_CACHE_32KB, CCR3_REG);
 #else
-		ctrl_outl(CCR_CACHE_16KB, CCR3);
+		ctrl_outl(CCR_CACHE_16KB, CCR3_REG);
 #endif
 #endif
 	}

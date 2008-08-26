@@ -138,6 +138,13 @@ static int onyx_snd_vol_put(struct snd_kcontrol *kcontrol,
 	struct onyx *onyx = snd_kcontrol_chip(kcontrol);
 	s8 l, r;
 
+	if (ucontrol->value.integer.value[0] < -128 + VOLUME_RANGE_SHIFT ||
+	    ucontrol->value.integer.value[0] > -1 + VOLUME_RANGE_SHIFT)
+		return -EINVAL;
+	if (ucontrol->value.integer.value[1] < -128 + VOLUME_RANGE_SHIFT ||
+	    ucontrol->value.integer.value[1] > -1 + VOLUME_RANGE_SHIFT)
+		return -EINVAL;
+
 	mutex_lock(&onyx->mutex);
 	onyx_read_register(onyx, ONYX_REG_DAC_ATTEN_LEFT, &l);
 	onyx_read_register(onyx, ONYX_REG_DAC_ATTEN_RIGHT, &r);
@@ -206,6 +213,9 @@ static int onyx_snd_inputgain_put(struct snd_kcontrol *kcontrol,
 	struct onyx *onyx = snd_kcontrol_chip(kcontrol);
 	u8 v, n;
 
+	if (ucontrol->value.integer.value[0] < 3 + INPUTGAIN_RANGE_SHIFT ||
+	    ucontrol->value.integer.value[0] > 28 + INPUTGAIN_RANGE_SHIFT)
+		return -EINVAL;
 	mutex_lock(&onyx->mutex);
 	onyx_read_register(onyx, ONYX_REG_ADC_CONTROL, &v);
 	n = v;
@@ -272,6 +282,8 @@ static void onyx_set_capture_source(struct onyx *onyx, int mic)
 static int onyx_snd_capture_source_put(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
+	if (ucontrol->value.enumerated.item[0] > 1)
+		return -EINVAL;
 	onyx_set_capture_source(snd_kcontrol_chip(kcontrol),
 				ucontrol->value.enumerated.item[0]);
 	return 1;
@@ -297,15 +309,7 @@ static struct snd_kcontrol_new capture_source_control = {
 	.put = onyx_snd_capture_source_put,
 };
 
-static int onyx_snd_mute_info(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 2;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define onyx_snd_mute_info	snd_ctl_boolean_stereo_info
 
 static int onyx_snd_mute_get(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
@@ -359,15 +363,7 @@ static struct snd_kcontrol_new mute_control = {
 };
 
 
-static int onyx_snd_single_bit_info(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
+#define onyx_snd_single_bit_info	snd_ctl_boolean_mono_info
 
 #define FLAG_POLARITY_INVERT	1
 #define FLAG_SPDIFLOCK		2

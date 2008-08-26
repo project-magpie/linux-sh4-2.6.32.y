@@ -139,9 +139,9 @@ int cifs_setxattr(struct dentry *direntry, const char *ea_name,
 	} else if (strncmp(ea_name, CIFS_XATTR_USER_PREFIX, 5) == 0) {
 		if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_NO_XATTR)
 			goto set_ea_exit;
-		if (strncmp(ea_name, CIFS_XATTR_DOS_ATTRIB, 14) == 0) {
+		if (strncmp(ea_name, CIFS_XATTR_DOS_ATTRIB, 14) == 0)
 			cFYI(1, ("attempt to set cifs inode metadata"));
-		}
+
 		ea_name += 5; /* skip past user. prefix */
 		rc = CIFSSMBSetEA(xid, pTcon, full_path, ea_name, ea_value,
 			(__u16)value_size, cifs_sb->local_nls,
@@ -261,21 +261,27 @@ ssize_t cifs_getxattr(struct dentry *direntry, const char *ea_name,
 				cifs_sb->local_nls,
 				cifs_sb->mnt_cifs_flags &
 					CIFS_MOUNT_MAP_SPECIAL_CHR);
-/*		else if(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_ACL) {
+#ifdef CONFIG_CIFS_EXPERIMENTAL
+		else if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_ACL) {
 			__u16 fid;
-			int oplock = FALSE;
-			rc = CIFSSMBOpen(xid, pTcon, full_path,
-					 FILE_OPEN, GENERIC_READ, 0, &fid,
-					 &oplock, NULL, cifs_sb->local_nls,
-					 cifs_sb->mnt_cifs_flags &
-					 CIFS_MOUNT_MAP_SPECIAL_CHR);
-			if(rc == 0) {
-				rc = CIFSSMBGetCIFSACL(xid, pTcon, fid,
-					ea_value, buf_size,
-					ACL_TYPE_ACCESS);
+			int oplock = 0;
+			struct cifs_ntsd *pacl = NULL;
+			__u32 buflen = 0;
+			if (experimEnabled)
+				rc = CIFSSMBOpen(xid, pTcon, full_path,
+					FILE_OPEN, GENERIC_READ, 0, &fid,
+					&oplock, NULL, cifs_sb->local_nls,
+					cifs_sb->mnt_cifs_flags &
+					CIFS_MOUNT_MAP_SPECIAL_CHR);
+			/* else rc is EOPNOTSUPP from above */
+
+			if (rc == 0) {
+				rc = CIFSSMBGetCIFSACL(xid, pTcon, fid, &pacl,
+						      &buflen);
 				CIFSSMBClose(xid, pTcon, fid);
 			}
-		} */  /* BB enable after fixing up return data */
+		}
+#endif /* EXPERIMENTAL */
 #else
 		cFYI(1, ("query POSIX ACL not supported yet"));
 #endif /* CONFIG_CIFS_POSIX */
@@ -297,11 +303,10 @@ ssize_t cifs_getxattr(struct dentry *direntry, const char *ea_name,
 	} else if (strncmp(ea_name,
 		  CIFS_XATTR_SECURITY_PREFIX, XATTR_SECURITY_PREFIX_LEN) == 0) {
 		cFYI(1, ("Security xattr namespace not supported yet"));
-	} else {
+	} else
 		cFYI(1,
 		    ("illegal xattr request %s (only user namespace supported)",
 			ea_name));
-	}
 
 	/* We could add an additional check for streams ie
 	    if proc/fs/cifs/streamstoxattr is set then

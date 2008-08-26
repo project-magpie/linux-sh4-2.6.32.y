@@ -193,10 +193,14 @@ typedef struct xfs_perag
 	xfs_agino_t	pagi_count;	/* number of allocated inodes */
 	int		pagb_count;	/* pagb slots in use */
 #ifdef __KERNEL__
-	lock_t		pagb_lock;	/* lock for pagb_list */
+	spinlock_t	pagb_lock;	/* lock for pagb_list */
 #endif
 	xfs_perag_busy_t *pagb_list;	/* unstable blocks */
 	atomic_t        pagf_fstrms;    /* # of filestreams active in this AG */
+
+	int		pag_ici_init;	/* incore inode cache initialised */
+	rwlock_t	pag_ici_lock;	/* incore inode lock */
+	struct radix_tree_root pag_ici_root;	/* incore inode cache root */
 } xfs_perag_t;
 
 #define	XFS_AG_MAXLEVELS(mp)		((mp)->m_ag_maxlevels)

@@ -9,56 +9,32 @@
  * the Free Software Foundation.
  */
 #include <linux/interrupt.h>
+#include <linux/kernel_stat.h>
+#include <asm/io.h>
 #include <asm/mach/irq.h>
 #include <asm/mach-types.h>
-#include <asm/arch-ns9xxx/regs-sys.h>
+#include <asm/arch-ns9xxx/regs-sys-common.h>
 #include <asm/arch-ns9xxx/irqs.h>
 #include <asm/arch-ns9xxx/board.h>
 
 #include "generic.h"
 
-static void ns9xxx_ack_irq_timer(unsigned int irq)
-{
-	u32 tc = SYS_TC(irq - IRQ_TIMER0);
-
-	/*
-	 * If the timer is programmed to halt on terminal count, the
-	 * timer must be disabled before clearing the interrupt.
-	 */
-	if (REGGET(tc, SYS_TCx, REN) == 0) {
-		REGSET(tc, SYS_TCx, TEN, DIS);
-		SYS_TC(irq - IRQ_TIMER0) = tc;
-	}
-
-	REGSET(tc, SYS_TCx, INTC, SET);
-	SYS_TC(irq - IRQ_TIMER0) = tc;
-
-	REGSET(tc, SYS_TCx, INTC, UNSET);
-	SYS_TC(irq - IRQ_TIMER0) = tc;
-}
-
-static void (*ns9xxx_ack_irq_functions[NR_IRQS])(unsigned int) = {
-	[IRQ_TIMER0] = ns9xxx_ack_irq_timer,
-	[IRQ_TIMER1] = ns9xxx_ack_irq_timer,
-	[IRQ_TIMER2] = ns9xxx_ack_irq_timer,
-	[IRQ_TIMER3] = ns9xxx_ack_irq_timer,
-};
+/* simple interrupt prio table: prio(x) < prio(y) <=> x < y */
+#define irq2prio(i) (i)
+#define prio2irq(p) (p)
 
 static void ns9xxx_mask_irq(unsigned int irq)
 {
 	/* XXX: better use cpp symbols */
-	SYS_IC(irq / 4) &= ~(1 << (7 + 8 * (3 - (irq & 3))));
+	int prio = irq2prio(irq);
+	u32 ic = __raw_readl(SYS_IC(prio / 4));
+	ic &= ~(1 << (7 + 8 * (3 - (prio & 3))));
+	__raw_writel(ic, SYS_IC(prio / 4));
 }
 
 static void ns9xxx_ack_irq(unsigned int irq)
 {
-	if (!ns9xxx_ack_irq_functions[irq]) {
-		printk(KERN_ERR "no ack function for irq %u\n", irq);
-		BUG();
-	}
-
-	ns9xxx_ack_irq_functions[irq](irq);
-	SYS_ISRADDR = 0;
+	__raw_writel(0, SYS_ISRADDR);
 }
 
 static void ns9xxx_maskack_irq(unsigned int irq)
@@ -70,7 +46,10 @@ static void ns9xxx_maskack_irq(unsigned int irq)
 static void ns9xxx_unmask_irq(unsigned int irq)
 {
 	/* XXX: better use cpp symbols */
-	SYS_IC(irq / 4) |= 1 << (7 + 8 * (3 - (irq & 3)));
+	int prio = irq2prio(irq);
+	u32 ic = __raw_readl(SYS_IC(prio / 4));
+	ic |= 1 << (7 + 8 * (3 - (prio & 3)));
+	__raw_writel(ic, SYS_IC(prio / 4));
 }
 
 static struct irq_chip ns9xxx_chip = {
@@ -80,24 +59,69 @@ static struct irq_chip ns9xxx_chip = {
 	.unmask		= ns9xxx_unmask_irq,
 };
 
+#if 0
+#define handle_irq handle_level_irq
+#else
+static void handle_prio_irq(unsigned int irq, struct irq_desc *desc)
+{
+	unsigned int cpu = smp_processor_id();
+	struct irqaction *action;
+	irqreturn_t action_ret;
+
+	spin_lock(&desc->lock);
+
+	BUG_ON(desc->status & IRQ_INPROGRESS);
+
+	desc->status &= ~(IRQ_REPLAY | IRQ_WAITING);
+	kstat_cpu(cpu).irqs[irq]++;
+
+	action = desc->action;
+	if (unlikely(!action || (desc->status & IRQ_DISABLED)))
+		goto out_mask;
+
+	desc->status |= IRQ_INPROGRESS;
+	spin_unlock(&desc->lock);
+
+	action_ret = handle_IRQ_event(irq, action);
+
+	/* XXX: There is no direct way to access noirqdebug, so check
+	 * unconditionally for spurious irqs...
+	 * Maybe this function should go to kernel/irq/chip.c? */
+	note_interrupt(irq, desc, action_ret);
+
+	spin_lock(&desc->lock);
+	desc->status &= ~IRQ_INPROGRESS;
+
+	if (desc->status & IRQ_DISABLED)
+out_mask:
+		desc->chip->mask(irq);
+
+	/* ack unconditionally to unmask lower prio irqs */
+	desc->chip->ack(irq);
+
+	spin_unlock(&desc->lock);
+}
+#define handle_irq handle_prio_irq
+#endif
+
 void __init ns9xxx_init_irq(void)
 {
 	int i;
 
 	/* disable all IRQs */
 	for (i = 0; i < 8; ++i)
-		SYS_IC(i) = (4 * i) << 24 | (4 * i + 1) << 16 |
-			(4 * i + 2) << 8 | (4 * i + 3);
+		__raw_writel(prio2irq(4 * i) << 24 |
+				prio2irq(4 * i + 1) << 16 |
+				prio2irq(4 * i + 2) << 8 |
+				prio2irq(4 * i + 3),
+				SYS_IC(i));
 
-	/* simple interrupt prio table:
-	 * prio(x) < prio(y) <=> x < y
-	 */
 	for (i = 0; i < 32; ++i)
-		SYS_IVA(i) = i;
+		__raw_writel(prio2irq(i), SYS_IVA(i));
 
-	for (i = IRQ_WATCHDOG; i <= IRQ_EXT3; ++i) {
+	for (i = 0; i <= 31; ++i) {
 		set_irq_chip(i, &ns9xxx_chip);
-		set_irq_handler(i, handle_level_irq);
+		set_irq_handler(i, handle_irq);
 		set_irq_flags(i, IRQF_VALID);
 	}
 }

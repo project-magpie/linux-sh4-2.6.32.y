@@ -25,14 +25,19 @@
 #include <linux/cpuset.h>
 #include <linux/module.h>
 #include <linux/notifier.h>
+#include <linux/memcontrol.h>
 
 int sysctl_panic_on_oom;
+int sysctl_oom_kill_allocating_task;
+int sysctl_oom_dump_tasks;
+static DEFINE_SPINLOCK(zone_scan_mutex);
 /* #define DEBUG */
 
 /**
  * badness - calculate a numeric value for how bad this task has been
  * @p: task struct of which task we should calculate
  * @uptime: current uptime in seconds
+ * @mem: target memory controller
  *
  * The formula used is relatively simple and documented inline in the
  * function. The main rationale is that we want to select a good task
@@ -123,8 +128,7 @@ unsigned long badness(struct task_struct *p, unsigned long uptime)
 	 * Superuser processes are usually more important, so we make it
 	 * less likely that we kill those.
 	 */
-	if (cap_t(p->cap_effective) & CAP_TO_MASK(CAP_SYS_ADMIN) ||
-				p->uid == 0 || p->euid == 0)
+	if (__capable(p, CAP_SYS_ADMIN) || __capable(p, CAP_SYS_RESOURCE))
 		points /= 4;
 
 	/*
@@ -133,7 +137,7 @@ unsigned long badness(struct task_struct *p, unsigned long uptime)
 	 * tend to only have this flag set on applications they think
 	 * of as important.
 	 */
-	if (cap_t(p->cap_effective) & CAP_TO_MASK(CAP_SYS_RAWIO))
+	if (__capable(p, CAP_SYS_RAWIO))
 		points /= 4;
 
 	/*
@@ -141,7 +145,7 @@ unsigned long badness(struct task_struct *p, unsigned long uptime)
 	 * because p may have allocated or otherwise mapped memory on
 	 * this node before. However it will be less likely.
 	 */
-	if (!cpuset_excl_nodes_overlap(p))
+	if (!cpuset_mems_allowed_intersects(current, p))
 		points /= 8;
 
 	/*
@@ -164,31 +168,20 @@ unsigned long badness(struct task_struct *p, unsigned long uptime)
 }
 
 /*
- * Types of limitations to the nodes from which allocations may occur
- */
-#define CONSTRAINT_NONE 1
-#define CONSTRAINT_MEMORY_POLICY 2
-#define CONSTRAINT_CPUSET 3
-
-/*
  * Determine the type of allocation constraint.
  */
-static inline int constrained_alloc(struct zonelist *zonelist, gfp_t gfp_mask)
+static inline enum oom_constraint constrained_alloc(struct zonelist *zonelist,
+						    gfp_t gfp_mask)
 {
 #ifdef CONFIG_NUMA
-	struct zone **z;
-	nodemask_t nodes;
-	int node;
+	struct zone *zone;
+	struct zoneref *z;
+	enum zone_type high_zoneidx = gfp_zone(gfp_mask);
+	nodemask_t nodes = node_states[N_HIGH_MEMORY];
 
-	nodes_clear(nodes);
-	/* node has memory ? */
-	for_each_online_node(node)
-		if (NODE_DATA(node)->node_present_pages)
-			node_set(node, nodes);
-
-	for (z = zonelist->zones; *z; z++)
-		if (cpuset_zone_allowed_softwall(*z, gfp_mask))
-			node_clear(zone_to_nid(*z), nodes);
+	for_each_zone_zonelist(zone, z, zonelist, high_zoneidx)
+		if (cpuset_zone_allowed_softwall(zone, gfp_mask))
+			node_clear(zone_to_nid(zone), nodes);
 		else
 			return CONSTRAINT_CPUSET;
 
@@ -205,7 +198,8 @@ static inline int constrained_alloc(struct zonelist *zonelist, gfp_t gfp_mask)
  *
  * (not docbooked, we don't want this one cluttering up the manual)
  */
-static struct task_struct *select_bad_process(unsigned long *ppoints)
+static struct task_struct *select_bad_process(unsigned long *ppoints,
+						struct mem_cgroup *mem)
 {
 	struct task_struct *g, *p;
 	struct task_struct *chosen = NULL;
@@ -223,7 +217,9 @@ static struct task_struct *select_bad_process(unsigned long *ppoints)
 		if (!p->mm)
 			continue;
 		/* skip the init task */
-		if (is_init(p))
+		if (is_global_init(p))
+			continue;
+		if (mem && !task_in_mem_cgroup(p, mem))
 			continue;
 
 		/*
@@ -270,13 +266,51 @@ static struct task_struct *select_bad_process(unsigned long *ppoints)
 }
 
 /**
+ * dump_tasks - dump current memory state of all system tasks
+ * @mem: target memory controller
+ *
+ * Dumps the current memory state of all system tasks, excluding kernel threads.
+ * State information includes task's pid, uid, tgid, vm size, rss, cpu, oom_adj
+ * score, and name.
+ *
+ * If the actual is non-NULL, only tasks that are a member of the mem_cgroup are
+ * shown.
+ *
+ * Call with tasklist_lock read-locked.
+ */
+static void dump_tasks(const struct mem_cgroup *mem)
+{
+	struct task_struct *g, *p;
+
+	printk(KERN_INFO "[ pid ]   uid  tgid total_vm      rss cpu oom_adj "
+	       "name\n");
+	do_each_thread(g, p) {
+		/*
+		 * total_vm and rss sizes do not exist for tasks with a
+		 * detached mm so there's no need to report them.
+		 */
+		if (!p->mm)
+			continue;
+		if (mem && !task_in_mem_cgroup(p, mem))
+			continue;
+
+		task_lock(p);
+		printk(KERN_INFO "[%5d] %5d %5d %8lu %8lu %3d     %3d %s\n",
+		       p->pid, p->uid, p->tgid, p->mm->total_vm,
+		       get_mm_rss(p->mm), (int)task_cpu(p), p->oomkilladj,
+		       p->comm);
+		task_unlock(p);
+	} while_each_thread(g, p);
+}
+
+/*
  * Send SIGKILL to the selected  process irrespective of  CAP_SYS_RAW_IO
  * flag though it's unlikely that  we select a process with CAP_SYS_RAW_IO
  * set.
  */
 static void __oom_kill_task(struct task_struct *p, int verbose)
 {
-	if (is_init(p)) {
+	if (is_global_init(p)) {
 		WARN_ON(1);
 		printk(KERN_WARNING "tried to kill init!\n");
 		return;
@@ -289,14 +323,15 @@ static void __oom_kill_task(struct task_struct *p, int verbose)
 	}
 
 	if (verbose)
-		printk(KERN_ERR "Killed process %d (%s)\n", p->pid, p->comm);
+		printk(KERN_ERR "Killed process %d (%s)\n",
+				task_pid_nr(p), p->comm);
 
 	/*
 	 * We give our sacrificial lamb high priority and access to
 	 * all the memory it needs. That way it should be able to
 	 * exit() and clear out its resources quickly...
 	 */
-	p->time_slice = HZ;
+	p->rt.time_slice = HZ;
 	set_tsk_thread_flag(p, TIF_MEMDIE);
 
 	force_sig(SIGKILL, p);
@@ -337,18 +372,28 @@ static int oom_kill_task(struct task_struct *p)
 	 * to memory reserves though, otherwise we might deplete all memory.
 	 */
 	do_each_thread(g, q) {
-		if (q->mm == mm && q->tgid != p->tgid)
+		if (q->mm == mm && !same_thread_group(q, p))
 			force_sig(SIGKILL, q);
 	} while_each_thread(g, q);
 
 	return 0;
 }
 
-static int oom_kill_process(struct task_struct *p, unsigned long points,
-		const char *message)
+static int oom_kill_process(struct task_struct *p, gfp_t gfp_mask, int order,
+			    unsigned long points, struct mem_cgroup *mem,
+			    const char *message)
 {
 	struct task_struct *c;
-	struct list_head *tsk;
+
+	if (printk_ratelimit()) {
+		printk(KERN_WARNING "%s invoked oom-killer: "
+			"gfp_mask=0x%x, order=%d, oomkilladj=%d\n",
+			current->comm, gfp_mask, order, current->oomkilladj);
+		dump_stack();
+		show_mem();
+		if (sysctl_oom_dump_tasks)
+			dump_tasks(mem);
+	}
 
 	/*
 	 * If the task is already exiting, don't alarm the sysadmin or kill
@@ -360,11 +405,10 @@ static int oom_kill_process(struct task_struct *p, unsigned long points,
 	}
 
 	printk(KERN_ERR "%s: kill process %d (%s) score %li or a child\n",
-					message, p->pid, p->comm, points);
+					message, task_pid_nr(p), p->comm, points);
 
 	/* Try to kill a child first */
-	list_for_each(tsk, &p->children) {
-		c = list_entry(tsk, struct task_struct, sibling);
+	list_for_each_entry(c, &p->children, sibling) {
 		if (c->mm == p->mm)
 			continue;
 		if (!oom_kill_task(c))
@@ -372,6 +416,31 @@ static int oom_kill_process(struct task_struct *p, unsigned long points,
 	}
 	return oom_kill_task(p);
 }
+
+#ifdef CONFIG_CGROUP_MEM_RES_CTLR
+void mem_cgroup_out_of_memory(struct mem_cgroup *mem, gfp_t gfp_mask)
+{
+	unsigned long points = 0;
+	struct task_struct *p;
+
+	cgroup_lock();
+	read_lock(&tasklist_lock);
+retry:
+	p = select_bad_process(&points, mem);
+	if (PTR_ERR(p) == -1UL)
+		goto out;
+
+	if (!p)
+		p = current;
+
+	if (oom_kill_process(p, gfp_mask, 0, points, mem,
+				"Memory cgroup out of memory"))
+		goto retry;
+out:
+	read_unlock(&tasklist_lock);
+	cgroup_unlock();
+}
+#endif
 
 static BLOCKING_NOTIFIER_HEAD(oom_notify_list);
 
@@ -387,8 +456,61 @@ int unregister_oom_notifier(struct notifier_block *nb)
 }
 EXPORT_SYMBOL_GPL(unregister_oom_notifier);
 
+/*
+ * Try to acquire the OOM killer lock for the zones in zonelist.  Returns zero
+ * if a parallel OOM killing is already taking place that includes a zone in
+ * the zonelist.  Otherwise, locks all zones in the zonelist and returns 1.
+ */
+int try_set_zone_oom(struct zonelist *zonelist, gfp_t gfp_mask)
+{
+	struct zoneref *z;
+	struct zone *zone;
+	int ret = 1;
+
+	spin_lock(&zone_scan_mutex);
+	for_each_zone_zonelist(zone, z, zonelist, gfp_zone(gfp_mask)) {
+		if (zone_is_oom_locked(zone)) {
+			ret = 0;
+			goto out;
+		}
+	}
+
+	for_each_zone_zonelist(zone, z, zonelist, gfp_zone(gfp_mask)) {
+		/*
+		 * Lock each zone in the zonelist under zone_scan_mutex so a
+		 * parallel invocation of try_set_zone_oom() doesn't succeed
+		 * when it shouldn't.
+		 */
+		zone_set_flag(zone, ZONE_OOM_LOCKED);
+	}
+
+out:
+	spin_unlock(&zone_scan_mutex);
+	return ret;
+}
+
+/*
+ * Clears the ZONE_OOM_LOCKED flag for all zones in the zonelist so that failed
+ * allocation attempts with zonelists containing them may now recall the OOM
+ * killer, if necessary.
+ */
+void clear_zonelist_oom(struct zonelist *zonelist, gfp_t gfp_mask)
+{
+	struct zoneref *z;
+	struct zone *zone;
+
+	spin_lock(&zone_scan_mutex);
+	for_each_zone_zonelist(zone, z, zonelist, gfp_zone(gfp_mask)) {
+		zone_clear_flag(zone, ZONE_OOM_LOCKED);
+	}
+	spin_unlock(&zone_scan_mutex);
+}
+
 /**
  * out_of_memory - kill the "best" process when we run out of memory
+ * @zonelist: zonelist pointer
+ * @gfp_mask: memory allocation flags
+ * @order: amount of memory being requested as a power of 2
  *
  * If we run out of memory, we have the choice between either
  * killing a random task (bad), letting the system crash (worse)
@@ -400,20 +522,12 @@ void out_of_memory(struct zonelist *zonelist, gfp_t gfp_mask, int order)
 	struct task_struct *p;
 	unsigned long points = 0;
 	unsigned long freed = 0;
-	int constraint;
+	enum oom_constraint constraint;
 
 	blocking_notifier_call_chain(&oom_notify_list, 0, &freed);
 	if (freed > 0)
 		/* Got some memory back in the last second. */
 		return;
-
-	if (printk_ratelimit()) {
-		printk(KERN_WARNING "%s invoked oom-killer: "
-			"gfp_mask=0x%x, order=%d, oomkilladj=%d\n",
-			current->comm, gfp_mask, order, current->oomkilladj);
-		dump_stack();
-		show_mem();
-	}
 
 	if (sysctl_panic_on_oom == 2)
 		panic("out of memory. Compulsory panic_on_oom is selected.\n");
@@ -423,29 +537,30 @@ void out_of_memory(struct zonelist *zonelist, gfp_t gfp_mask, int order)
 	 * NUMA) that may require different handling.
 	 */
 	constraint = constrained_alloc(zonelist, gfp_mask);
-	cpuset_lock();
 	read_lock(&tasklist_lock);
 
 	switch (constraint) {
 	case CONSTRAINT_MEMORY_POLICY:
-		oom_kill_process(current, points,
+		oom_kill_process(current, gfp_mask, order, points, NULL,
 				"No available memory (MPOL_BIND)");
-		break;
-
-	case CONSTRAINT_CPUSET:
-		oom_kill_process(current, points,
-				"No available memory in cpuset");
 		break;
 
 	case CONSTRAINT_NONE:
 		if (sysctl_panic_on_oom)
 			panic("out of memory. panic_on_oom is selected\n");
+		/* Fall-through */
+	case CONSTRAINT_CPUSET:
+		if (sysctl_oom_kill_allocating_task) {
+			oom_kill_process(current, gfp_mask, order, points, NULL,
+					"Out of memory (oom_kill_allocating_task)");
+			break;
+		}
 retry:
 		/*
 		 * Rambo mode: Shoot down a process and hope it solves whatever
 		 * issues we may have.
 		 */
-		p = select_bad_process(&points);
+		p = select_bad_process(&points, NULL);
 
 		if (PTR_ERR(p) == -1UL)
 			goto out;
@@ -453,11 +568,11 @@ retry:
 		/* Found nothing?!?! Either we hang forever, or we panic. */
 		if (!p) {
 			read_unlock(&tasklist_lock);
-			cpuset_unlock();
 			panic("Out of memory and no killable processes...\n");
 		}
 
-		if (oom_kill_process(p, points, "Out of memory"))
+		if (oom_kill_process(p, gfp_mask, order, points, NULL,
+				     "Out of memory"))
 			goto retry;
 
 		break;
@@ -465,7 +580,6 @@ retry:
 
 out:
 	read_unlock(&tasklist_lock);
-	cpuset_unlock();
 
 	/*
 	 * Give "p" a good chance of killing itself before we

@@ -52,7 +52,7 @@ extern char spider_net_driver_name[];
 
 #define SPIDER_NET_TX_TIMER			(HZ/5)
 #define SPIDER_NET_ANEG_TIMER			(HZ)
-#define SPIDER_NET_ANEG_TIMEOUT			2
+#define SPIDER_NET_ANEG_TIMEOUT			5
 
 #define SPIDER_NET_RX_CSUM_DEFAULT		1
 
@@ -159,9 +159,8 @@ extern char spider_net_driver_name[];
 
 /** interrupt mask registers */
 #define SPIDER_NET_INT0_MASK_VALUE	0x3f7fe2c7
-#define SPIDER_NET_INT1_MASK_VALUE	0xffff7ff7
-/* no MAC aborts -> auto retransmission */
-#define SPIDER_NET_INT2_MASK_VALUE	0xffef7ff1
+#define SPIDER_NET_INT1_MASK_VALUE	0x0000fff2
+#define SPIDER_NET_INT2_MASK_VALUE	0x000003f1
 
 /* we rely on flagged descriptor interrupts */
 #define SPIDER_NET_FRAMENUM_VALUE	0x00000000
@@ -466,6 +465,8 @@ struct spider_net_card {
 	struct pci_dev *pdev;
 	struct mii_phy phy;
 
+	struct napi_struct napi;
+
 	int medium;
 
 	void __iomem *regs;
@@ -485,7 +486,6 @@ struct spider_net_card {
 
 	/* for ethtool */
 	int msg_enable;
-	struct net_device_stats netdev_stats;
 	struct spider_net_extra_stats spider_stats;
 	struct spider_net_options options;
 

@@ -165,12 +165,6 @@ static inline void *ioremap_fullcache(unsigned long physaddr, unsigned long size
 
 extern void iounmap(void *addr);
 
-/* Nothing to do */
-
-#define dma_cache_inv(_start,_size)		do { } while (0)
-#define dma_cache_wback(_start,_size)		do { } while (0)
-#define dma_cache_wback_inv(_start,_size)	do { } while (0)
-
 /* Pages to physical address... */
 #define page_to_phys(page)      ((page - mem_map) << PAGE_SHIFT)
 #define page_to_bus(page)       ((page - mem_map) << PAGE_SHIFT)
@@ -178,8 +172,6 @@ extern void iounmap(void *addr);
 /*
  * Macros used for converting between virtual and physical mappings.
  */
-#define mm_ptov(vaddr)		((void *) (vaddr))
-#define mm_vtop(vaddr)		((unsigned long) (vaddr))
 #define phys_to_virt(vaddr)	((void *) (vaddr))
 #define virt_to_phys(vaddr)	((unsigned long) (vaddr))
 

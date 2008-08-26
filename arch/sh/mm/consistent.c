@@ -1,7 +1,9 @@
 /*
  * arch/sh/mm/consistent.c
  *
- * Copyright (C) 2004  Paul Mundt
+ * Copyright (C) 2004 - 2007  Paul Mundt
+ *
+ * Declared coherent memory functions based on arch/x86/kernel/pci-dma_32.c
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
@@ -204,16 +206,39 @@ static struct page *__consistent_unmap(void *vaddr, size_t size)
 
 #endif
 
-void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *handle)
+struct dma_coherent_mem {
+	void		*virt_base;
+	u32		device_base;
+	int		size;
+	int		flags;
+	unsigned long	*bitmap;
+};
+
+void *dma_alloc_coherent(struct device *dev, size_t size,
+			   dma_addr_t *dma_handle, gfp_t gfp)
 {
-	struct page *page, *end;
 	void *ret;
-	int order;
+	struct dma_coherent_mem *mem = dev ? dev->dma_mem : NULL;
+	int order = get_order(size);
+	struct page *page, *end;
 	unsigned long phys_addr;
 	void* kernel_addr;
 
+	if (mem) {
+		int page = bitmap_find_free_region(mem->bitmap, mem->size,
+						     order);
+		if (page >= 0) {
+			*dma_handle = mem->device_base + (page << PAGE_SHIFT);
+			ret = mem->virt_base + (page << PAGE_SHIFT);
+			memset(ret, 0, size);
+			return ret;
+		}
+		if (mem->flags & DMA_MEMORY_EXCLUSIVE)
+			return NULL;
+	}
+
 	/* ignore region specifiers */
-        gfp &= ~(__GFP_DMA | __GFP_HIGHMEM);
+	gfp &= ~(__GFP_DMA | __GFP_HIGHMEM);
 
 	size = PAGE_ALIGN(size);
 	order = get_order(size);
@@ -231,11 +256,11 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *handle)
 	}
 
 	memset(kernel_addr, 0, size);
-
 	/*
-	 * We must flush the cache before we pass it on to the device
+	 * Pages from the page allocator may have data present in
+	 * cache. So flush the cache before using uncached memory.
 	 */
-	dma_cache_wback_inv(kernel_addr, size);
+	dma_cache_sync(dev, kernel_addr, size, DMA_BIDIRECTIONAL);
 
 	/* Free the otherwise unused pages */
 	split_page(page, order);
@@ -244,14 +269,27 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *handle)
 		__free_page(page);
 	}
 
-	*handle = phys_addr;
+	*dma_handle = phys_addr;
 	return ret;
 }
+EXPORT_SYMBOL(dma_alloc_coherent);
 
-void consistent_free(void *vaddr, size_t size)
+void dma_free_coherent(struct device *dev, size_t size,
+			 void *vaddr, dma_addr_t dma_handle)
 {
+	struct dma_coherent_mem *mem = dev ? dev->dma_mem : NULL;
+	int order = get_order(size);
 	struct page *page;
 	int i;
+
+	if (mem && vaddr >= mem->virt_base && vaddr < (mem->virt_base + (mem->size << PAGE_SHIFT))) {
+		int page = (vaddr - mem->virt_base) >> PAGE_SHIFT;
+
+		bitmap_release_region(mem->bitmap, page, order);
+		return;
+	}
+
+	BUG_ON(mem && mem->flags & DMA_MEMORY_EXCLUSIVE);
 
 	size = PAGE_ALIGN(size);
 	page = __consistent_unmap(vaddr, size);
@@ -259,25 +297,100 @@ void consistent_free(void *vaddr, size_t size)
 		for (i = 0; i < (size>>PAGE_SHIFT); i++)
 			__free_page(page+i);
 }
+EXPORT_SYMBOL(dma_free_coherent);
 
-void consistent_sync(void *vaddr, size_t size, int direction)
+int dma_declare_coherent_memory(struct device *dev, dma_addr_t bus_addr,
+				dma_addr_t device_addr, size_t size, int flags)
+{
+	void __iomem *mem_base = NULL;
+	int pages = size >> PAGE_SHIFT;
+	int bitmap_size = BITS_TO_LONGS(pages) * sizeof(long);
+
+	if ((flags & (DMA_MEMORY_MAP | DMA_MEMORY_IO)) == 0)
+		goto out;
+	if (!size)
+		goto out;
+	if (dev->dma_mem)
+		goto out;
+
+	/* FIXME: this routine just ignores DMA_MEMORY_INCLUDES_CHILDREN */
+
+	mem_base = ioremap_nocache(bus_addr, size);
+	if (!mem_base)
+		goto out;
+
+	dev->dma_mem = kmalloc(sizeof(struct dma_coherent_mem), GFP_KERNEL);
+	if (!dev->dma_mem)
+		goto out;
+	dev->dma_mem->bitmap = kzalloc(bitmap_size, GFP_KERNEL);
+	if (!dev->dma_mem->bitmap)
+		goto free1_out;
+
+	dev->dma_mem->virt_base = mem_base;
+	dev->dma_mem->device_base = device_addr;
+	dev->dma_mem->size = pages;
+	dev->dma_mem->flags = flags;
+
+	if (flags & DMA_MEMORY_MAP)
+		return DMA_MEMORY_MAP;
+
+	return DMA_MEMORY_IO;
+
+ free1_out:
+	kfree(dev->dma_mem);
+ out:
+	if (mem_base)
+		iounmap(mem_base);
+	return 0;
+}
+EXPORT_SYMBOL(dma_declare_coherent_memory);
+
+void dma_release_declared_memory(struct device *dev)
+{
+	struct dma_coherent_mem *mem = dev->dma_mem;
+
+	if (!mem)
+		return;
+	dev->dma_mem = NULL;
+	iounmap(mem->virt_base);
+	kfree(mem->bitmap);
+	kfree(mem);
+}
+EXPORT_SYMBOL(dma_release_declared_memory);
+
+void *dma_mark_declared_memory_occupied(struct device *dev,
+					dma_addr_t device_addr, size_t size)
+{
+	struct dma_coherent_mem *mem = dev->dma_mem;
+	int pages = (size + (device_addr & ~PAGE_MASK) + PAGE_SIZE - 1) >> PAGE_SHIFT;
+	int pos, err;
+
+	if (!mem)
+		return ERR_PTR(-EINVAL);
+
+	pos = (device_addr - mem->device_base) >> PAGE_SHIFT;
+	err = bitmap_allocate_region(mem->bitmap, pos, get_order(pages));
+	if (err != 0)
+		return ERR_PTR(err);
+	return mem->virt_base + (pos << PAGE_SHIFT);
+}
+EXPORT_SYMBOL(dma_mark_declared_memory_occupied);
+
+void dma_cache_sync(struct device *dev, void *vaddr, size_t size,
+		    enum dma_data_direction direction)
 {
 	switch (direction) {
 	case DMA_FROM_DEVICE:		/* invalidate only */
-		dma_cache_inv(vaddr, size);
+		__flush_invalidate_region(vaddr, size);
 		break;
 	case DMA_TO_DEVICE:		/* writeback only */
-		dma_cache_wback(vaddr, size);
+		__flush_wback_region(vaddr, size);
 		break;
 	case DMA_BIDIRECTIONAL:		/* writeback and invalidate */
-		dma_cache_wback_inv(vaddr, size);
+		__flush_purge_region(vaddr, size);
 		break;
 	default:
 		BUG();
 	}
 }
-
-EXPORT_SYMBOL(consistent_alloc);
-EXPORT_SYMBOL(consistent_free);
-EXPORT_SYMBOL(consistent_sync);
-
+EXPORT_SYMBOL(dma_cache_sync);

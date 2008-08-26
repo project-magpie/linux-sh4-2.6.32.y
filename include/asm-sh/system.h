@@ -12,61 +12,9 @@
 #include <asm/types.h>
 #include <asm/ptrace.h>
 
-struct task_struct *__switch_to(struct task_struct *prev,
-				struct task_struct *next);
+#define AT_VECTOR_SIZE_ARCH 5 /* entries in ARCH_DLINFO */
 
-/*
- *	switch_to() should switch tasks to task nr n, first
- */
-
-#define switch_to(prev, next, last) do {				\
- struct task_struct *__last;						\
- register unsigned long *__ts1 __asm__ ("r1") = &prev->thread.sp;	\
- register unsigned long *__ts2 __asm__ ("r2") = &prev->thread.pc;	\
- register unsigned long *__ts4 __asm__ ("r4") = (unsigned long *)prev;	\
- register unsigned long *__ts5 __asm__ ("r5") = (unsigned long *)next;	\
- register unsigned long *__ts6 __asm__ ("r6") = &next->thread.sp;	\
- register unsigned long __ts7 __asm__ ("r7") = next->thread.pc;		\
- __asm__ __volatile__ (".balign 4\n\t" 					\
-		       "__switch_to_begin:\n\t"				\
-		       "stc.l	gbr, @-r15\n\t" 			\
-		       "sts.l	pr, @-r15\n\t" 				\
-		       "mov.l	r8, @-r15\n\t" 				\
-		       "mov.l	r9, @-r15\n\t" 				\
-		       "mov.l	r10, @-r15\n\t" 			\
-		       "mov.l	r11, @-r15\n\t" 			\
-		       "mov.l	r12, @-r15\n\t" 			\
-		       "mov.l	r13, @-r15\n\t" 			\
-		       "mov.l	r14, @-r15\n\t" 			\
-		       "mov.l	r15, @r1	! save SP\n\t"		\
-		       "mov.l	@r6, r15	! change to new stack\n\t" \
-		       "mova	1f, %0\n\t" 				\
-		       "mov.l	%0, @r2		! save PC\n\t" 		\
-		       "mov.l	2f, %0\n\t" 				\
-		       "jmp	@%0		! call __switch_to\n\t" \
-		       " lds	r7, pr		!  with return to new PC\n\t" \
-		       ".balign	4\n"					\
-		       "2:\n\t"						\
-		       ".long	__switch_to\n"				\
-		       "1:\n\t"						\
-		       "mov.l	@r15+, r14\n\t"				\
-		       "mov.l	@r15+, r13\n\t"				\
-		       "mov.l	@r15+, r12\n\t"				\
-		       "mov.l	@r15+, r11\n\t"				\
-		       "mov.l	@r15+, r10\n\t"				\
-		       "mov.l	@r15+, r9\n\t"				\
-		       "mov.l	@r15+, r8\n\t"				\
-		       "lds.l	@r15+, pr\n\t"				\
-		       "ldc.l	@r15+, gbr\n\t"				\
-		       "__switch_to_end:\n\t"				\
-		       : "=z" (__last)					\
-		       : "r" (__ts1), "r" (__ts2), "r" (__ts4), 	\
-			 "r" (__ts5), "r" (__ts6), "r" (__ts7) 		\
-		       : "r3", "t");					\
-	last = __last;							\
-} while (0)
-
-#ifdef CONFIG_CPU_SH4A
+#if defined(CONFIG_CPU_SH4A) || defined(CONFIG_CPU_SH5)
 #define __icbi()			\
 {					\
 	unsigned long __addr;		\
@@ -92,7 +40,7 @@ struct task_struct *__switch_to(struct task_struct *prev,
  * Historically we have only done this type of barrier for the MMUCR, but
  * it's also necessary for the CCR, so we make it generic here instead.
  */
-#ifdef CONFIG_CPU_SH4A
+#if defined(CONFIG_CPU_SH4A) || defined(CONFIG_CPU_SH5)
 #define mb()		__asm__ __volatile__ ("synco": : :"memory")
 #define rmb()		mb()
 #define wmb()		__asm__ __volatile__ ("synco": : :"memory")
@@ -120,109 +68,10 @@ struct task_struct *__switch_to(struct task_struct *prev,
 
 #define set_mb(var, value) do { (void)xchg(&var, value); } while (0)
 
-extern unsigned long cached_to_uncached;
-
-/*
- * Jump to uncached area.
- * When handling TLB or caches, we need to do it from an uncached area.
- */
-#define jump_to_uncached()			\
-do {						\
-	unsigned long __dummy;			\
-	__asm__ __volatile__(			\
-		"mova	1f, %0\n\t"		\
-		"add	%1, %0\n\t"		\
-		"jmp	@%0\n\t"		\
-		" nop\n\t" 			\
-		".balign 4\n"			\
-		"1:"				\
-		: "=&z" (__dummy)		\
-		: "r" (cached_to_uncached));	\
-} while (0)
-
-/*
- * Back to cached area.
- */
-#define back_to_cached()				\
-do {							\
-	unsigned long __dummy;				\
-	ctrl_barrier();					\
-	__asm__ __volatile__(				\
-		"mov.l	1f, %0\n\t"			\
-		"jmp	@%0\n\t"			\
-		" nop\n\t"				\
-		".balign 4\n"				\
-		"1:	.long 2f\n"			\
-		"2:"					\
-		: "=&r" (__dummy));			\
-} while (0)
-
-#define __uses_jump_to_uncached \
-	noinline __attribute__ ((__section__ (".uncached")))
-
-#if defined(CONFIG_SH_GRB)
-static inline unsigned long xchg_u32(volatile u32 * m, unsigned long val)
-{
-       unsigned long retval;
-       asm volatile(
-                "   .align 2              \n\t"
-                "   mova    1f,   r0      \n\t" // r0 = end point
-                "   nop                   \n\t"
-                "   mov    r15,   r1      \n\t" // r1 = saved sp
-                "   mov    #-4,   r15     \n\t" // LOGIN
-                "   mov.l  @%1,   %0      \n\t" // load  old value
-                "   mov.l   %2,   @%1     \n\t" // store new value
-                "1: mov     r1,   r15     \n\t" // LOGOUT
-                : "=&r" (retval),  // 0
-                  "+r"  (m)        // 1
-                : "r"   (val)      // 2
-                : "memory", "r0", "r1" );
-
-        return retval;
-}
-
-static inline unsigned long xchg_u8(volatile u8 * m, unsigned long
- val)
-{
-       unsigned long retval;
-
-        asm volatile(
-	       "   .align  2             \n\t"
-               "   mova    1f,   r0      \n\t" // r0 = end point
-	       "   mov    r15,   r1      \n\t" // r1 = saved sp
-               "   mov    #-6,   r15     \n\t" // LOGIN
-               "   mov.b  @%1,   %0      \n\t" // load  old value
-               "   extu.b  %0,   %0      \n\t" // extend as unsigned
-               "   mov.b   %2,   @%1     \n\t" // store new value
-               "1: mov     r1,   r15     \n\t" // LOGOUT
-                : "=&r" (retval), // 0
-                  "+r"  (m)       // 1
-                : "r"   (val)     // 2
-                : "memory" , "r0", "r1");
-        return retval ;
-}
+#ifdef CONFIG_GUSA_RB
+#include <asm/cmpxchg-grb.h>
 #else
-static inline unsigned long xchg_u32(volatile u32 *m, unsigned long val)
-{
-	unsigned long flags, retval;
-
-	local_irq_save(flags);
-	retval = *m;
-	*m = val;
-	local_irq_restore(flags);
-	return retval;
-}
-
-static inline unsigned long xchg_u8(volatile u8 *m, unsigned long val)
-{
-	unsigned long flags, retval;
-
-	local_irq_save(flags);
-	retval = *m;
-	*m = val & 0xff;
-	local_irq_restore(flags);
-	return retval;
-}
+#include <asm/cmpxchg-irq.h>
 #endif
 
 extern void __xchg_called_with_bad_pointer(void);
@@ -249,44 +98,6 @@ extern void __xchg_called_with_bad_pointer(void);
 
 #define xchg(ptr,x)	\
 	((__typeof__(*(ptr)))__xchg((ptr),(unsigned long)(x), sizeof(*(ptr))))
-
-#if defined(CONFIG_SH_GRB)
-static inline unsigned long __cmpxchg_u32(volatile u32 * m, unsigned long old,
-        unsigned long new)
-{
-       unsigned long retval;
-        asm volatile(
-               "   .align  2             \n\t"
-               "   mova    1f,   r0      \n\t" // r0 = end point
-               "   nop                   \n\t"
-               "   mov    r15,   r1      \n\t" // r1 = saved sp
-               "   mov    #-8,   r15     \n\t" // LOGIN
-               "   mov.l  @%1,   %0      \n\t" // load  old value
-               "   cmp/eq  %0,   %2      \n\t" //
-               "   bf            1f      \n\t" // if not equal
-               "   mov.l   %2,   @%1     \n\t" // store new value
-               "1: mov     r1,   r15     \n\t" // LOGOUT
-                : "=&r" (retval),  // 0
-                  "+r"  (m)        // 1
-                : "r"   (new)      // 2
-                : "memory" , "r0", "r1", "t");
-        return retval;
-}
-#else
-static inline unsigned long __cmpxchg_u32(volatile int * m, unsigned long old,
-	unsigned long new)
-{
-	__u32 retval;
-	unsigned long flags;
-
-	local_irq_save(flags);
-	retval = *m;
-	if (retval == old)
-		*m = new;
-	local_irq_restore(flags);       /* implies memory barrier  */
-	return retval;
-}
-#endif
 
 /* This function doesn't exist, so you'll get a linker error
  * if something tries to do an invalid cmpxchg(). */
@@ -327,9 +138,15 @@ static inline void *set_exception_table_evt(unsigned int evt, void *handler)
  */
 #ifdef CONFIG_CPU_SH2A
 extern unsigned int instruction_size(unsigned int insn);
-#else
+#elif defined(CONFIG_SUPERH32)
 #define instruction_size(insn)	(2)
+#else
+#define instruction_size(insn)	(4)
 #endif
+
+extern unsigned long cached_to_uncached;
+
+extern struct dentry *sh_debugfs_root;
 
 /* XXX
  * disable hlt during certain critical i/o operations
@@ -342,13 +159,40 @@ void default_idle(void);
 void per_cpu_trap_init(void);
 
 asmlinkage void break_point_trap(void);
-asmlinkage void debug_trap_handler(unsigned long r4, unsigned long r5,
-				   unsigned long r6, unsigned long r7,
-				   struct pt_regs __regs);
-asmlinkage void bug_trap_handler(unsigned long r4, unsigned long r5,
-				 unsigned long r6, unsigned long r7,
-				 struct pt_regs __regs);
+
+#ifdef CONFIG_SUPERH32
+#define BUILD_TRAP_HANDLER(name)					\
+asmlinkage void name##_trap_handler(unsigned long r4, unsigned long r5,	\
+				    unsigned long r6, unsigned long r7,	\
+				    struct pt_regs __regs)
+
+#define TRAP_HANDLER_DECL				\
+	struct pt_regs *regs = RELOC_HIDE(&__regs, 0);	\
+	unsigned int vec = regs->tra;			\
+	(void)vec;
+#else
+#define BUILD_TRAP_HANDLER(name)	\
+asmlinkage void name##_trap_handler(unsigned int vec, struct pt_regs *regs)
+#define TRAP_HANDLER_DECL
+#endif
+
+BUILD_TRAP_HANDLER(address_error);
+BUILD_TRAP_HANDLER(debug);
+BUILD_TRAP_HANDLER(bug);
+BUILD_TRAP_HANDLER(fpu_error);
+BUILD_TRAP_HANDLER(fpu_state_restore);
 
 #define arch_align_stack(x) (x)
+
+struct mem_access {
+	unsigned long (*from)(void *dst, const void *src, unsigned long cnt);
+	unsigned long (*to)(void *dst, const void *src, unsigned long cnt);
+};
+
+#ifdef CONFIG_SUPERH32
+# include "system_32.h"
+#else
+# include "system_64.h"
+#endif
 
 #endif

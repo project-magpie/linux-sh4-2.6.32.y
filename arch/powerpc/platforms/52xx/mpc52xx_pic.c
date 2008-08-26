@@ -18,19 +18,10 @@
 
 #undef DEBUG
 
-#include <linux/stddef.h>
-#include <linux/init.h>
-#include <linux/sched.h>
-#include <linux/signal.h>
-#include <linux/stddef.h>
-#include <linux/delay.h>
+#include <linux/interrupt.h>
 #include <linux/irq.h>
-#include <linux/hardirq.h>
-
+#include <linux/of.h>
 #include <asm/io.h>
-#include <asm/processor.h>
-#include <asm/system.h>
-#include <asm/irq.h>
 #include <asm/prom.h>
 #include <asm/mpc52xx.h>
 #include "mpc52xx_pic.h"
@@ -38,6 +29,18 @@
 /*
  *
 */
+
+/* MPC5200 device tree match tables */
+static struct of_device_id mpc52xx_pic_ids[] __initdata = {
+	{ .compatible = "fsl,mpc5200-pic", },
+	{ .compatible = "mpc5200-pic", },
+	{}
+};
+static struct of_device_id mpc52xx_sdma_ids[] __initdata = {
+	{ .compatible = "fsl,mpc5200-bestcomm", },
+	{ .compatible = "mpc5200-bestcomm", },
+	{}
+};
 
 static struct mpc52xx_intr __iomem *intr;
 static struct mpc52xx_sdma __iomem *sdma;
@@ -107,11 +110,48 @@ static void mpc52xx_extirq_ack(unsigned int virq)
 	io_be_setbit(&intr->ctrl, 27-l2irq);
 }
 
+static int mpc52xx_extirq_set_type(unsigned int virq, unsigned int flow_type)
+{
+	u32 ctrl_reg, type;
+	int irq;
+	int l2irq;
+
+	irq = irq_map[virq].hwirq;
+	l2irq = (irq & MPC52xx_IRQ_L2_MASK) >> MPC52xx_IRQ_L2_OFFSET;
+
+	pr_debug("%s: irq=%x. l2=%d flow_type=%d\n", __func__, irq, l2irq, flow_type);
+
+	switch (flow_type) {
+	case IRQF_TRIGGER_HIGH:
+		type = 0;
+		break;
+	case IRQF_TRIGGER_RISING:
+		type = 1;
+		break;
+	case IRQF_TRIGGER_FALLING:
+		type = 2;
+		break;
+	case IRQF_TRIGGER_LOW:
+		type = 3;
+		break;
+	default:
+		type = 0;
+	}
+
+	ctrl_reg = in_be32(&intr->ctrl);
+	ctrl_reg &= ~(0x3 << (22 - (l2irq * 2)));
+	ctrl_reg |= (type << (22 - (l2irq * 2)));
+	out_be32(&intr->ctrl, ctrl_reg);
+
+	return 0;
+}
+
 static struct irq_chip mpc52xx_extirq_irqchip = {
 	.typename = " MPC52xx IRQ[0-3] ",
 	.mask = mpc52xx_extirq_mask,
 	.unmask = mpc52xx_extirq_unmask,
 	.ack = mpc52xx_extirq_ack,
+	.set_type = mpc52xx_extirq_set_type,
 };
 
 /*
@@ -242,12 +282,6 @@ static struct irq_chip mpc52xx_sdma_irqchip = {
  * irq_host
 */
 
-static int mpc52xx_irqhost_match(struct irq_host *h, struct device_node *node)
-{
-	pr_debug("%s: node=%p\n", __func__, node);
-	return mpc52xx_irqhost->host_data == node;
-}
-
 static int mpc52xx_irqhost_xlate(struct irq_host *h, struct device_node *ct,
 				 u32 * intspec, unsigned int intsize,
 				 irq_hw_number_t * out_hwirq,
@@ -368,7 +402,6 @@ static int mpc52xx_irqhost_map(struct irq_host *h, unsigned int virq,
 }
 
 static struct irq_host_ops mpc52xx_irqhost_ops = {
-	.match = mpc52xx_irqhost_match,
 	.xlate = mpc52xx_irqhost_xlate,
 	.map = mpc52xx_irqhost_map,
 };
@@ -381,16 +414,18 @@ void __init mpc52xx_init_irq(void)
 {
 	u32 intr_ctrl;
 	struct device_node *picnode;
+	struct device_node *np;
 
 	/* Remap the necessary zones */
-	picnode = of_find_compatible_node(NULL, NULL, "mpc5200-pic");
-
-	intr = mpc52xx_find_and_map("mpc5200-pic");
+	picnode = of_find_matching_node(NULL, mpc52xx_pic_ids);
+	intr = of_iomap(picnode, 0);
 	if (!intr)
 		panic(__FILE__	": find_and_map failed on 'mpc5200-pic'. "
 				"Check node !");
 
-	sdma = mpc52xx_find_and_map("mpc5200-bestcomm");
+	np = of_find_matching_node(NULL, mpc52xx_sdma_ids);
+	sdma = of_iomap(np, 0);
+	of_node_put(np);
 	if (!sdma)
 		panic(__FILE__	": find_and_map failed on 'mpc5200-bestcomm'. "
 				"Check node !");
@@ -420,14 +455,13 @@ void __init mpc52xx_init_irq(void)
 	 * hw irq information provided by the ofw to linux virq
 	 */
 
-	mpc52xx_irqhost = irq_alloc_host(IRQ_HOST_MAP_LINEAR,
+	mpc52xx_irqhost = irq_alloc_host(picnode, IRQ_HOST_MAP_LINEAR,
 	                                 MPC52xx_IRQ_HIGHTESTHWIRQ,
 	                                 &mpc52xx_irqhost_ops, -1);
 
 	if (!mpc52xx_irqhost)
 		panic(__FILE__ ": Cannot allocate the IRQ host\n");
 
-	mpc52xx_irqhost->host_data = picnode;
 	printk(KERN_INFO "MPC52xx PIC is up and running!\n");
 }
 

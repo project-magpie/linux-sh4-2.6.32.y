@@ -60,18 +60,9 @@ static int ati_create_page_map(struct ati_page_map *page_map)
 	if (page_map->real == NULL)
 		return -ENOMEM;
 
-	SetPageReserved(virt_to_page(page_map->real));
+	set_memory_uc((unsigned long)page_map->real, 1);
 	err = map_page_into_agp(virt_to_page(page_map->real));
-	page_map->remapped = ioremap_nocache(virt_to_gart(page_map->real),
-					    PAGE_SIZE);
-	if (page_map->remapped == NULL || err) {
-		ClearPageReserved(virt_to_page(page_map->real));
-		free_page((unsigned long) page_map->real);
-		page_map->real = NULL;
-		return -ENOMEM;
-	}
-	/*CACHE_FLUSH();*/
-	global_cache_flush();
+	page_map->remapped = page_map->real;
 
 	for (i = 0; i < PAGE_SIZE / sizeof(unsigned long); i++) {
 		writel(agp_bridge->scratch_page, page_map->remapped+i);
@@ -85,8 +76,7 @@ static int ati_create_page_map(struct ati_page_map *page_map)
 static void ati_free_page_map(struct ati_page_map *page_map)
 {
 	unmap_page_from_agp(virt_to_page(page_map->real));
-	iounmap(page_map->remapped);
-	ClearPageReserved(virt_to_page(page_map->real));
+	set_memory_wb((unsigned long)page_map->real, 1);
 	free_page((unsigned long) page_map->real);
 }
 
@@ -297,10 +287,10 @@ static int ati_insert_memory(struct agp_memory * mem,
 		j++;
 	}
 
-	if (mem->is_flushed == FALSE) {
+	if (!mem->is_flushed) {
 		/*CACHE_FLUSH(); */
 		global_cache_flush();
-		mem->is_flushed = TRUE;
+		mem->is_flushed = true;
 	}
 
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
@@ -466,6 +456,10 @@ static struct agp_device_ids ati_agp_device_ids[] __devinitdata =
 	{
 		.device_id	= PCI_DEVICE_ID_ATI_RS300_200,
 		.chipset_name	= "IGP9100/M",
+	},
+	{
+		.device_id	= PCI_DEVICE_ID_ATI_RS350_133,
+		.chipset_name	= "IGP9000/M",
 	},
 	{
 		.device_id	= PCI_DEVICE_ID_ATI_RS350_200,

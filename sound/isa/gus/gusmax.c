@@ -1,6 +1,6 @@
 /*
  *  Driver for Gravis UltraSound MAX soundcard
- *  Copyright (c) by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -19,7 +19,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/err.h>
 #include <linux/isa.h>
@@ -34,7 +33,7 @@
 #define SNDRV_LEGACY_FIND_FREE_DMA
 #include <sound/initval.h>
 
-MODULE_AUTHOR("Jaroslav Kysela <perex@suse.cz>");
+MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("Gravis UltraSound MAX");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Gravis,UltraSound MAX}}");

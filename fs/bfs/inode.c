@@ -30,33 +30,38 @@ MODULE_LICENSE("GPL");
 #define dprintf(x...)
 #endif
 
-void dump_imap(const char *prefix, struct super_block * s);
+void dump_imap(const char *prefix, struct super_block *s);
 
-static void bfs_read_inode(struct inode * inode)
+struct inode *bfs_iget(struct super_block *sb, unsigned long ino)
 {
-	unsigned long ino = inode->i_ino;
-	struct bfs_inode * di;
-	struct buffer_head * bh;
+	struct bfs_inode *di;
+	struct inode *inode;
+	struct buffer_head *bh;
 	int block, off;
 
-	if (ino < BFS_ROOT_INO || ino > BFS_SB(inode->i_sb)->si_lasti) {
+	inode = iget_locked(sb, ino);
+	if (IS_ERR(inode))
+		return ERR_PTR(-ENOMEM);
+	if (!(inode->i_state & I_NEW))
+		return inode;
+
+	if ((ino < BFS_ROOT_INO) || (ino > BFS_SB(inode->i_sb)->si_lasti)) {
 		printf("Bad inode number %s:%08lx\n", inode->i_sb->s_id, ino);
-		make_bad_inode(inode);
-		return;
+		goto error;
 	}
 
-	block = (ino - BFS_ROOT_INO)/BFS_INODES_PER_BLOCK + 1;
+	block = (ino - BFS_ROOT_INO) / BFS_INODES_PER_BLOCK + 1;
 	bh = sb_bread(inode->i_sb, block);
 	if (!bh) {
-		printf("Unable to read inode %s:%08lx\n", inode->i_sb->s_id, ino);
-		make_bad_inode(inode);
-		return;
+		printf("Unable to read inode %s:%08lx\n", inode->i_sb->s_id,
+									ino);
+		goto error;
 	}
 
 	off = (ino - BFS_ROOT_INO) % BFS_INODES_PER_BLOCK;
 	di = (struct bfs_inode *)bh->b_data + off;
 
-	inode->i_mode = 0x0000FFFF &  le32_to_cpu(di->i_mode);
+	inode->i_mode = 0x0000FFFF & le32_to_cpu(di->i_mode);
 	if (le32_to_cpu(di->i_vtype) == BFS_VDIR) {
 		inode->i_mode |= S_IFDIR;
 		inode->i_op = &bfs_dir_inops;
@@ -70,48 +75,55 @@ static void bfs_read_inode(struct inode * inode)
 
 	BFS_I(inode)->i_sblock =  le32_to_cpu(di->i_sblock);
 	BFS_I(inode)->i_eblock =  le32_to_cpu(di->i_eblock);
+	BFS_I(inode)->i_dsk_ino = le16_to_cpu(di->i_ino);
 	inode->i_uid =  le32_to_cpu(di->i_uid);
 	inode->i_gid =  le32_to_cpu(di->i_gid);
 	inode->i_nlink =  le32_to_cpu(di->i_nlink);
 	inode->i_size = BFS_FILESIZE(di);
 	inode->i_blocks = BFS_FILEBLOCKS(di);
-        if (inode->i_size || inode->i_blocks) dprintf("Registered inode with %lld size, %ld blocks\n", inode->i_size, inode->i_blocks);
 	inode->i_atime.tv_sec =  le32_to_cpu(di->i_atime);
 	inode->i_mtime.tv_sec =  le32_to_cpu(di->i_mtime);
 	inode->i_ctime.tv_sec =  le32_to_cpu(di->i_ctime);
 	inode->i_atime.tv_nsec = 0;
 	inode->i_mtime.tv_nsec = 0;
 	inode->i_ctime.tv_nsec = 0;
-	BFS_I(inode)->i_dsk_ino = le16_to_cpu(di->i_ino); /* can be 0 so we store a copy */
 
 	brelse(bh);
+	unlock_new_inode(inode);
+	return inode;
+
+error:
+	iget_failed(inode);
+	return ERR_PTR(-EIO);
 }
 
-static int bfs_write_inode(struct inode * inode, int unused)
+static int bfs_write_inode(struct inode *inode, int unused)
 {
 	unsigned int ino = (u16)inode->i_ino;
         unsigned long i_sblock;
-	struct bfs_inode * di;
-	struct buffer_head * bh;
+	struct bfs_inode *di;
+	struct buffer_head *bh;
 	int block, off;
+	struct bfs_sb_info *info = BFS_SB(inode->i_sb);
 
         dprintf("ino=%08x\n", ino);
 
-	if (ino < BFS_ROOT_INO || ino > BFS_SB(inode->i_sb)->si_lasti) {
+	if ((ino < BFS_ROOT_INO) || (ino > BFS_SB(inode->i_sb)->si_lasti)) {
 		printf("Bad inode number %s:%08x\n", inode->i_sb->s_id, ino);
 		return -EIO;
 	}
 
-	lock_kernel();
-	block = (ino - BFS_ROOT_INO)/BFS_INODES_PER_BLOCK + 1;
+	mutex_lock(&info->bfs_lock);
+	block = (ino - BFS_ROOT_INO) / BFS_INODES_PER_BLOCK + 1;
 	bh = sb_bread(inode->i_sb, block);
 	if (!bh) {
-		printf("Unable to read inode %s:%08x\n", inode->i_sb->s_id, ino);
-		unlock_kernel();
+		printf("Unable to read inode %s:%08x\n",
+				inode->i_sb->s_id, ino);
+		mutex_unlock(&info->bfs_lock);
 		return -EIO;
 	}
 
-	off = (ino - BFS_ROOT_INO)%BFS_INODES_PER_BLOCK;
+	off = (ino - BFS_ROOT_INO) % BFS_INODES_PER_BLOCK;
 	di = (struct bfs_inode *)bh->b_data + off;
 
 	if (ino == BFS_ROOT_INO)
@@ -133,70 +145,76 @@ static int bfs_write_inode(struct inode * inode, int unused)
 	di->i_eoffset = cpu_to_le32(i_sblock * BFS_BSIZE + inode->i_size - 1);
 
 	mark_buffer_dirty(bh);
-        dprintf("Written ino=%d into %d:%d\n",le16_to_cpu(di->i_ino),block,off);
 	brelse(bh);
-	unlock_kernel();
+	mutex_unlock(&info->bfs_lock);
 	return 0;
 }
 
-static void bfs_delete_inode(struct inode * inode)
+static void bfs_delete_inode(struct inode *inode)
 {
 	unsigned long ino = inode->i_ino;
-	struct bfs_inode * di;
-	struct buffer_head * bh;
+	struct bfs_inode *di;
+	struct buffer_head *bh;
 	int block, off;
-	struct super_block * s = inode->i_sb;
-	struct bfs_sb_info * info = BFS_SB(s);
-	struct bfs_inode_info * bi = BFS_I(inode);
+	struct super_block *s = inode->i_sb;
+	struct bfs_sb_info *info = BFS_SB(s);
+	struct bfs_inode_info *bi = BFS_I(inode);
 
 	dprintf("ino=%08lx\n", ino);
 
 	truncate_inode_pages(&inode->i_data, 0);
 
-	if (ino < BFS_ROOT_INO || ino > info->si_lasti) {
+	if ((ino < BFS_ROOT_INO) || (ino > info->si_lasti)) {
 		printf("invalid ino=%08lx\n", ino);
 		return;
 	}
 	
 	inode->i_size = 0;
 	inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME_SEC;
-	lock_kernel();
+	mutex_lock(&info->bfs_lock);
 	mark_inode_dirty(inode);
-	block = (ino - BFS_ROOT_INO)/BFS_INODES_PER_BLOCK + 1;
+
+	block = (ino - BFS_ROOT_INO) / BFS_INODES_PER_BLOCK + 1;
 	bh = sb_bread(s, block);
 	if (!bh) {
-		printf("Unable to read inode %s:%08lx\n", inode->i_sb->s_id, ino);
-		unlock_kernel();
+		printf("Unable to read inode %s:%08lx\n",
+					inode->i_sb->s_id, ino);
+		mutex_unlock(&info->bfs_lock);
 		return;
 	}
-	off = (ino - BFS_ROOT_INO)%BFS_INODES_PER_BLOCK;
-	di = (struct bfs_inode *) bh->b_data + off;
+	off = (ino - BFS_ROOT_INO) % BFS_INODES_PER_BLOCK;
+	di = (struct bfs_inode *)bh->b_data + off;
+	memset((void *)di, 0, sizeof(struct bfs_inode));
+	mark_buffer_dirty(bh);
+	brelse(bh);
+
         if (bi->i_dsk_ino) {
-		info->si_freeb += 1 + bi->i_eblock - bi->i_sblock;
+		if (bi->i_sblock)
+			info->si_freeb += bi->i_eblock + 1 - bi->i_sblock;
 		info->si_freei++;
 		clear_bit(ino, info->si_imap);
 		dump_imap("delete_inode", s);
         }
-	di->i_ino = 0;
-	di->i_sblock = 0;
-	mark_buffer_dirty(bh);
-	brelse(bh);
 
-	/* if this was the last file, make the previous 
-	   block "last files last block" even if there is no real file there,
-	   saves us 1 gap */
-	if (info->si_lf_eblk == BFS_I(inode)->i_eblock) {
-		info->si_lf_eblk = BFS_I(inode)->i_sblock - 1;
+	/*
+	 * If this was the last file, make the previous block
+	 * "last block of the last file" even if there is no
+	 * real file there, saves us 1 gap.
+	 */
+	if (info->si_lf_eblk == bi->i_eblock) {
+		info->si_lf_eblk = bi->i_sblock - 1;
 		mark_buffer_dirty(info->si_sbh);
 	}
-	unlock_kernel();
+	mutex_unlock(&info->bfs_lock);
 	clear_inode(inode);
 }
 
 static void bfs_put_super(struct super_block *s)
 {
 	struct bfs_sb_info *info = BFS_SB(s);
+
 	brelse(info->si_sbh);
+	mutex_destroy(&info->bfs_lock);
 	kfree(info->si_imap);
 	kfree(info);
 	s->s_fs_info = NULL;
@@ -221,14 +239,16 @@ static int bfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 
 static void bfs_write_super(struct super_block *s)
 {
-	lock_kernel();
+	struct bfs_sb_info *info = BFS_SB(s);
+
+	mutex_lock(&info->bfs_lock);
 	if (!(s->s_flags & MS_RDONLY))
-		mark_buffer_dirty(BFS_SB(s)->si_sbh);
+		mark_buffer_dirty(info->si_sbh);
 	s->s_dirt = 0;
-	unlock_kernel();
+	mutex_unlock(&info->bfs_lock);
 }
 
-static struct kmem_cache * bfs_inode_cachep;
+static struct kmem_cache *bfs_inode_cachep;
 
 static struct inode *bfs_alloc_inode(struct super_block *sb)
 {
@@ -244,7 +264,7 @@ static void bfs_destroy_inode(struct inode *inode)
 	kmem_cache_free(bfs_inode_cachep, BFS_I(inode));
 }
 
-static void init_once(void * foo, struct kmem_cache * cachep, unsigned long flags)
+static void init_once(void *foo)
 {
 	struct bfs_inode_info *bi = foo;
 
@@ -271,7 +291,6 @@ static void destroy_inodecache(void)
 static const struct super_operations bfs_sops = {
 	.alloc_inode	= bfs_alloc_inode,
 	.destroy_inode	= bfs_destroy_inode,
-	.read_inode	= bfs_read_inode,
 	.write_inode	= bfs_write_inode,
 	.delete_inode	= bfs_delete_inode,
 	.put_super	= bfs_put_super,
@@ -279,7 +298,7 @@ static const struct super_operations bfs_sops = {
 	.statfs		= bfs_statfs,
 };
 
-void dump_imap(const char *prefix, struct super_block * s)
+void dump_imap(const char *prefix, struct super_block *s)
 {
 #ifdef DEBUG
 	int i;
@@ -287,25 +306,27 @@ void dump_imap(const char *prefix, struct super_block * s)
 
 	if (!tmpbuf)
 		return;
-	for (i=BFS_SB(s)->si_lasti; i>=0; i--) {
-		if (i > PAGE_SIZE-100) break;
+	for (i = BFS_SB(s)->si_lasti; i >= 0; i--) {
+		if (i > PAGE_SIZE - 100) break;
 		if (test_bit(i, BFS_SB(s)->si_imap))
 			strcat(tmpbuf, "1");
 		else
 			strcat(tmpbuf, "0");
 	}
-	printk(KERN_ERR "BFS-fs: %s: lasti=%08lx <%s>\n", prefix, BFS_SB(s)->si_lasti, tmpbuf);
+	printf("BFS-fs: %s: lasti=%08lx <%s>\n",
+				prefix, BFS_SB(s)->si_lasti, tmpbuf);
 	free_page((unsigned long)tmpbuf);
 #endif
 }
 
 static int bfs_fill_super(struct super_block *s, void *data, int silent)
 {
-	struct buffer_head * bh;
-	struct bfs_super_block * bfs_sb;
-	struct inode * inode;
+	struct buffer_head *bh;
+	struct bfs_super_block *bfs_sb;
+	struct inode *inode;
 	unsigned i, imap_len;
-	struct bfs_sb_info * info;
+	struct bfs_sb_info *info;
+	long ret = -EINVAL;
 
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
@@ -329,41 +350,42 @@ static int bfs_fill_super(struct super_block *s, void *data, int silent)
 
 	s->s_magic = BFS_MAGIC;
 	info->si_sbh = bh;
-	info->si_lasti = (le32_to_cpu(bfs_sb->s_start) - BFS_BSIZE)/sizeof(struct bfs_inode)
-			+ BFS_ROOT_INO - 1;
-
-	imap_len = info->si_lasti/8 + 1;
+	info->si_lasti = (le32_to_cpu(bfs_sb->s_start) - BFS_BSIZE) /
+					sizeof(struct bfs_inode)
+					+ BFS_ROOT_INO - 1;
+	imap_len = (info->si_lasti / 8) + 1;
 	info->si_imap = kzalloc(imap_len, GFP_KERNEL);
 	if (!info->si_imap)
 		goto out;
-	for (i=0; i<BFS_ROOT_INO; i++) 
+	for (i = 0; i < BFS_ROOT_INO; i++)
 		set_bit(i, info->si_imap);
 
 	s->s_op = &bfs_sops;
-	inode = iget(s, BFS_ROOT_INO);
-	if (!inode) {
+	inode = bfs_iget(s, BFS_ROOT_INO);
+	if (IS_ERR(inode)) {
+		ret = PTR_ERR(inode);
 		kfree(info->si_imap);
 		goto out;
 	}
 	s->s_root = d_alloc_root(inode);
 	if (!s->s_root) {
 		iput(inode);
+		ret = -ENOMEM;
 		kfree(info->si_imap);
 		goto out;
 	}
 
-	info->si_blocks = (le32_to_cpu(bfs_sb->s_end) + 1)>>BFS_BSIZE_BITS; /* for statfs(2) */
-	info->si_freeb = (le32_to_cpu(bfs_sb->s_end) + 1 -  le32_to_cpu(bfs_sb->s_start))>>BFS_BSIZE_BITS;
+	info->si_blocks = (le32_to_cpu(bfs_sb->s_end) + 1) >> BFS_BSIZE_BITS;
+	info->si_freeb = (le32_to_cpu(bfs_sb->s_end) + 1
+			- le32_to_cpu(bfs_sb->s_start)) >> BFS_BSIZE_BITS;
 	info->si_freei = 0;
 	info->si_lf_eblk = 0;
-	info->si_lf_sblk = 0;
-	info->si_lf_ioff = 0;
 	bh = NULL;
-	for (i=BFS_ROOT_INO; i<=info->si_lasti; i++) {
+	for (i = BFS_ROOT_INO; i <= info->si_lasti; i++) {
 		struct bfs_inode *di;
-		int block = (i - BFS_ROOT_INO)/BFS_INODES_PER_BLOCK + 1;
+		int block = (i - BFS_ROOT_INO) / BFS_INODES_PER_BLOCK + 1;
 		int off = (i - BFS_ROOT_INO) % BFS_INODES_PER_BLOCK;
-		unsigned long sblock, eblock;
+		unsigned long eblock;
 
 		if (!off) {
 			brelse(bh);
@@ -382,13 +404,9 @@ static int bfs_fill_super(struct super_block *s, void *data, int silent)
 		set_bit(i, info->si_imap);
 		info->si_freeb -= BFS_FILEBLOCKS(di);
 
-		sblock =  le32_to_cpu(di->i_sblock);
 		eblock =  le32_to_cpu(di->i_eblock);
-		if (eblock > info->si_lf_eblk) {
+		if (eblock > info->si_lf_eblk)
 			info->si_lf_eblk = eblock;
-			info->si_lf_sblk = sblock;
-			info->si_lf_ioff = BFS_INO2OFF(i);
-		}
 	}
 	brelse(bh);
 	if (!(s->s_flags & MS_RDONLY)) {
@@ -396,13 +414,14 @@ static int bfs_fill_super(struct super_block *s, void *data, int silent)
 		s->s_dirt = 1;
 	} 
 	dump_imap("read_super", s);
+	mutex_init(&info->bfs_lock);
 	return 0;
 
 out:
 	brelse(bh);
 	kfree(info);
 	s->s_fs_info = NULL;
-	return -EINVAL;
+	return ret;
 }
 
 static int bfs_get_sb(struct file_system_type *fs_type,

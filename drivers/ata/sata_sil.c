@@ -59,7 +59,7 @@ enum {
 	SIL_FLAG_MOD15WRITE	= (1 << 30),
 
 	SIL_DFL_PORT_FLAGS	= ATA_FLAG_SATA | ATA_FLAG_NO_LEGACY |
-				  ATA_FLAG_MMIO | ATA_FLAG_HRST_TO_RESUME,
+				  ATA_FLAG_MMIO,
 
 	/*
 	 * Controller IDs
@@ -110,14 +110,14 @@ enum {
 	SIL_QUIRK_UDMA5MAX	= (1 << 1),
 };
 
-static int sil_init_one (struct pci_dev *pdev, const struct pci_device_id *ent);
+static int sil_init_one(struct pci_dev *pdev, const struct pci_device_id *ent);
 #ifdef CONFIG_PM
 static int sil_pci_device_resume(struct pci_dev *pdev);
 #endif
 static void sil_dev_config(struct ata_device *dev);
 static int sil_scr_read(struct ata_port *ap, unsigned int sc_reg, u32 *val);
 static int sil_scr_write(struct ata_port *ap, unsigned int sc_reg, u32 val);
-static int sil_set_mode (struct ata_port *ap, struct ata_device **r_failed);
+static int sil_set_mode(struct ata_link *link, struct ata_device **r_failed);
 static void sil_freeze(struct ata_port *ap);
 static void sil_thaw(struct ata_port *ap);
 
@@ -137,7 +137,7 @@ static const struct pci_device_id sil_pci_tbl[] = {
 
 /* TODO firmware versions should be added - eric */
 static const struct sil_drivelist {
-	const char * product;
+	const char *product;
 	unsigned int quirk;
 } sil_blacklist [] = {
 	{ "ST320012AS",		SIL_QUIRK_MOD15WRITE },
@@ -167,49 +167,17 @@ static struct pci_driver sil_pci_driver = {
 };
 
 static struct scsi_host_template sil_sht = {
-	.module			= THIS_MODULE,
-	.name			= DRV_NAME,
-	.ioctl			= ata_scsi_ioctl,
-	.queuecommand		= ata_scsi_queuecmd,
-	.can_queue		= ATA_DEF_QUEUE,
-	.this_id		= ATA_SHT_THIS_ID,
-	.sg_tablesize		= LIBATA_MAX_PRD,
-	.cmd_per_lun		= ATA_SHT_CMD_PER_LUN,
-	.emulated		= ATA_SHT_EMULATED,
-	.use_clustering		= ATA_SHT_USE_CLUSTERING,
-	.proc_name		= DRV_NAME,
-	.dma_boundary		= ATA_DMA_BOUNDARY,
-	.slave_configure	= ata_scsi_slave_config,
-	.slave_destroy		= ata_scsi_slave_destroy,
-	.bios_param		= ata_std_bios_param,
+	ATA_BMDMA_SHT(DRV_NAME),
 };
 
-static const struct ata_port_operations sil_ops = {
-	.port_disable		= ata_port_disable,
+static struct ata_port_operations sil_ops = {
+	.inherits		= &ata_bmdma_port_ops,
 	.dev_config		= sil_dev_config,
-	.tf_load		= ata_tf_load,
-	.tf_read		= ata_tf_read,
-	.check_status		= ata_check_status,
-	.exec_command		= ata_exec_command,
-	.dev_select		= ata_std_dev_select,
 	.set_mode		= sil_set_mode,
-	.bmdma_setup            = ata_bmdma_setup,
-	.bmdma_start            = ata_bmdma_start,
-	.bmdma_stop		= ata_bmdma_stop,
-	.bmdma_status		= ata_bmdma_status,
-	.qc_prep		= ata_qc_prep,
-	.qc_issue		= ata_qc_issue_prot,
-	.data_xfer		= ata_data_xfer,
 	.freeze			= sil_freeze,
 	.thaw			= sil_thaw,
-	.error_handler		= ata_bmdma_error_handler,
-	.post_internal_cmd	= ata_bmdma_post_internal_cmd,
-	.irq_clear		= ata_bmdma_irq_clear,
-	.irq_on			= ata_irq_on,
-	.irq_ack		= ata_irq_ack,
 	.scr_read		= sil_scr_read,
 	.scr_write		= sil_scr_write,
-	.port_start		= ata_port_start,
 };
 
 static const struct ata_port_info sil_port_info[] = {
@@ -276,7 +244,7 @@ MODULE_LICENSE("GPL");
 MODULE_DEVICE_TABLE(pci, sil_pci_tbl);
 MODULE_VERSION(DRV_VERSION);
 
-static int slow_down = 0;
+static int slow_down;
 module_param(slow_down, int, 0444);
 MODULE_PARM_DESC(slow_down, "Sledgehammer used to work around random problems, by limiting commands to 15 sectors (0=off, 1=on)");
 
@@ -290,35 +258,33 @@ static unsigned char sil_get_device_cache_line(struct pci_dev *pdev)
 
 /**
  *	sil_set_mode		-	wrap set_mode functions
- *	@ap: port to set up
+ *	@link: link to set up
  *	@r_failed: returned device when we fail
  *
  *	Wrap the libata method for device setup as after the setup we need
  *	to inspect the results and do some configuration work
  */
 
-static int sil_set_mode (struct ata_port *ap, struct ata_device **r_failed)
+static int sil_set_mode(struct ata_link *link, struct ata_device **r_failed)
 {
-	struct ata_host *host = ap->host;
-	struct ata_device *dev;
-	void __iomem *mmio_base = host->iomap[SIL_MMIO_BAR];
+	struct ata_port *ap = link->ap;
+	void __iomem *mmio_base = ap->host->iomap[SIL_MMIO_BAR];
 	void __iomem *addr = mmio_base + sil_port[ap->port_no].xfer_mode;
-	u32 tmp, dev_mode[2];
-	unsigned int i;
+	struct ata_device *dev;
+	u32 tmp, dev_mode[2] = { };
 	int rc;
 
-	rc = ata_do_set_mode(ap, r_failed);
+	rc = ata_do_set_mode(link, r_failed);
 	if (rc)
 		return rc;
 
-	for (i = 0; i < 2; i++) {
-		dev = &ap->device[i];
+	ata_link_for_each_dev(dev, link) {
 		if (!ata_dev_enabled(dev))
-			dev_mode[i] = 0;	/* PIO0/1/2 */
+			dev_mode[dev->devno] = 0;	/* PIO0/1/2 */
 		else if (dev->flags & ATA_DFLAG_PIO)
-			dev_mode[i] = 1;	/* PIO3/4 */
+			dev_mode[dev->devno] = 1;	/* PIO3/4 */
 		else
-			dev_mode[i] = 3;	/* UDMA */
+			dev_mode[dev->devno] = 3;	/* UDMA */
 		/* value 2 indicates MDMA */
 	}
 
@@ -331,7 +297,8 @@ static int sil_set_mode (struct ata_port *ap, struct ata_device **r_failed)
 	return 0;
 }
 
-static inline void __iomem *sil_scr_addr(struct ata_port *ap, unsigned int sc_reg)
+static inline void __iomem *sil_scr_addr(struct ata_port *ap,
+					 unsigned int sc_reg)
 {
 	void __iomem *offset = ap->ioaddr.scr_addr;
 
@@ -374,8 +341,8 @@ static int sil_scr_write(struct ata_port *ap, unsigned int sc_reg, u32 val)
 
 static void sil_host_intr(struct ata_port *ap, u32 bmdma2)
 {
-	struct ata_eh_info *ehi = &ap->eh_info;
-	struct ata_queued_cmd *qc = ata_qc_from_tag(ap, ap->active_tag);
+	struct ata_eh_info *ehi = &ap->link.eh_info;
+	struct ata_queued_cmd *qc = ata_qc_from_tag(ap, ap->link.active_tag);
 	u8 status;
 
 	if (unlikely(bmdma2 & SIL_DMA_SATA_IRQ)) {
@@ -388,25 +355,21 @@ static void sil_host_intr(struct ata_port *ap, u32 bmdma2)
 		sil_scr_read(ap, SCR_ERROR, &serror);
 		sil_scr_write(ap, SCR_ERROR, serror);
 
-		/* Trigger hotplug and accumulate SError only if the
-		 * port isn't already frozen.  Otherwise, PHY events
-		 * during hardreset makes controllers with broken SIEN
-		 * repeat probing needlessly.
+		/* Sometimes spurious interrupts occur, double check
+		 * it's PHYRDY CHG.
 		 */
-		if (!(ap->pflags & ATA_PFLAG_FROZEN)) {
-			ata_ehi_hotplugged(&ap->eh_info);
-			ap->eh_info.serror |= serror;
+		if (serror & SERR_PHYRDY_CHG) {
+			ap->link.eh_info.serror |= serror;
+			goto freeze;
 		}
 
-		goto freeze;
+		if (!(bmdma2 & SIL_DMA_COMPLETE))
+			return;
 	}
 
-	if (unlikely(!qc))
-		goto freeze;
-
-	if (unlikely(qc->tf.flags & ATA_TFLAG_POLLING)) {
+	if (unlikely(!qc || (qc->tf.flags & ATA_TFLAG_POLLING))) {
 		/* this sometimes happens, just clear IRQ */
-		ata_chk_status(ap);
+		ap->ops->sff_check_status(ap);
 		return;
 	}
 
@@ -418,15 +381,14 @@ static void sil_host_intr(struct ata_port *ap, u32 bmdma2)
 		 */
 
 		/* Check the ATA_DFLAG_CDB_INTR flag is enough here.
-		 * The flag was turned on only for atapi devices.
-		 * No need to check is_atapi_taskfile(&qc->tf) again.
+		 * The flag was turned on only for atapi devices.  No
+		 * need to check ata_is_atapi(qc->tf.protocol) again.
 		 */
 		if (!(qc->dev->flags & ATA_DFLAG_CDB_INTR))
 			goto err_hsm;
 		break;
 	case HSM_ST_LAST:
-		if (qc->tf.protocol == ATA_PROT_DMA ||
-		    qc->tf.protocol == ATA_PROT_ATAPI_DMA) {
+		if (ata_is_dma(qc->tf.protocol)) {
 			/* clear DMA-Start bit */
 			ap->ops->bmdma_stop(qc);
 
@@ -443,18 +405,17 @@ static void sil_host_intr(struct ata_port *ap, u32 bmdma2)
 	}
 
 	/* check main status, clearing INTRQ */
-	status = ata_chk_status(ap);
+	status = ap->ops->sff_check_status(ap);
 	if (unlikely(status & ATA_BUSY))
 		goto err_hsm;
 
 	/* ack bmdma irq events */
-	ata_bmdma_irq_clear(ap);
+	ata_sff_irq_clear(ap);
 
 	/* kick HSM in the ass */
-	ata_hsm_move(ap, qc, status, 0);
+	ata_sff_hsm_move(ap, qc, status, 0);
 
-	if (unlikely(qc->err_mask) && (qc->tf.protocol == ATA_PROT_DMA ||
-				       qc->tf.protocol == ATA_PROT_ATAPI_DMA))
+	if (unlikely(qc->err_mask) && ata_is_dma(qc->tf.protocol))
 		ata_ehi_push_desc(ehi, "BMDMA2 stat 0x%x", bmdma2);
 
 	return;
@@ -519,8 +480,8 @@ static void sil_thaw(struct ata_port *ap)
 	u32 tmp;
 
 	/* clear IRQ */
-	ata_chk_status(ap);
-	ata_bmdma_irq_clear(ap);
+	ap->ops->sff_check_status(ap);
+	ata_sff_irq_clear(ap);
 
 	/* turn on SATA IRQ if supported */
 	if (!(ap->flags & SIL_FLAG_NO_SATA_IRQ))
@@ -562,8 +523,8 @@ static void sil_thaw(struct ata_port *ap)
  */
 static void sil_dev_config(struct ata_device *dev)
 {
-	struct ata_port *ap = dev->ap;
-	int print_info = ap->eh_context.i.flags & ATA_EHI_PRINTINFO;
+	struct ata_port *ap = dev->link->ap;
+	int print_info = ap->link.eh_context.i.flags & ATA_EHI_PRINTINFO;
 	unsigned int n, quirks = 0;
 	unsigned char model_num[ATA_ID_PROD_LEN + 1];
 
@@ -642,7 +603,7 @@ static void sil_init_controller(struct ata_host *host)
 	}
 }
 
-static int sil_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
+static int sil_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	static int printed_version;
 	int board_id = ent->driver_data;
@@ -686,14 +647,18 @@ static int sil_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 	mmio_base = host->iomap[SIL_MMIO_BAR];
 
 	for (i = 0; i < host->n_ports; i++) {
-		struct ata_ioports *ioaddr = &host->ports[i]->ioaddr;
+		struct ata_port *ap = host->ports[i];
+		struct ata_ioports *ioaddr = &ap->ioaddr;
 
 		ioaddr->cmd_addr = mmio_base + sil_port[i].tf;
 		ioaddr->altstatus_addr =
 		ioaddr->ctl_addr = mmio_base + sil_port[i].ctl;
 		ioaddr->bmdma_addr = mmio_base + sil_port[i].bmdma;
 		ioaddr->scr_addr = mmio_base + sil_port[i].scr;
-		ata_std_ports(ioaddr);
+		ata_sff_std_ports(ioaddr);
+
+		ata_port_pbar_desc(ap, SIL_MMIO_BAR, -1, "mmio");
+		ata_port_pbar_desc(ap, SIL_MMIO_BAR, sil_port[i].tf, "tf");
 	}
 
 	/* initialize and activate */

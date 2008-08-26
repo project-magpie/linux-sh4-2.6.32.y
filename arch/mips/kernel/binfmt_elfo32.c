@@ -56,6 +56,7 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 #include <linux/module.h>
 #include <linux/elfcore.h>
 #include <linux/compat.h>
+#include <linux/math64.h>
 
 #define elf_prstatus elf_prstatus32
 struct elf_prstatus32
@@ -100,17 +101,17 @@ static inline void
 jiffies_to_compat_timeval(unsigned long jiffies, struct compat_timeval *value)
 {
 	/*
-	 * Convert jiffies to nanoseconds and seperate with
+	 * Convert jiffies to nanoseconds and separate with
 	 * one divide.
 	 */
 	u64 nsec = (u64)jiffies * TICK_NSEC;
-	long rem;
-	value->tv_sec = div_long_long_rem(nsec, NSEC_PER_SEC, &rem);
+	u32 rem;
+	value->tv_sec = div_u64_rem(nsec, NSEC_PER_SEC, &rem);
 	value->tv_usec = rem / NSEC_PER_USEC;
 }
 
 #undef ELF_CORE_COPY_REGS
-#define ELF_CORE_COPY_REGS(_dest,_regs) elf32_core_copy_regs(_dest,_regs);
+#define ELF_CORE_COPY_REGS(_dest, _regs) elf32_core_copy_regs(_dest, _regs);
 
 void elf32_core_copy_regs(elf_gregset_t grp, struct pt_regs *regs)
 {

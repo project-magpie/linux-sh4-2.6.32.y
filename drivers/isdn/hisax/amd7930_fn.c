@@ -744,8 +744,7 @@ dbusy_timer_handler(struct IsdnCardState *cs)
 
 
 
-void __devinit
-Amd7930_init(struct IsdnCardState *cs)
+void Amd7930_init(struct IsdnCardState *cs)
 {
     WORD *ptr;
     BYTE cmd, cnt;
@@ -767,7 +766,7 @@ Amd7930_init(struct IsdnCardState *cs)
                 /* read */
                 if (*ptr++ >= 0x100) {
 			if (cmd < 8)
-                                /* setzt Register zurück */
+                                /* reset register */
                                 rByteAMD(cs, cmd);
 			else {
 				wByteAMD(cs, 0x00, cmd);

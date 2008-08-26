@@ -36,6 +36,7 @@
 #include <linux/net.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
+#include <linux/ethtool.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -47,7 +48,6 @@
 #include <linux/rtnetlink.h>
 #include <linux/timer.h>
 #include <linux/platform_device.h>
-#include <linux/etherdevice.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
@@ -78,6 +78,9 @@ static int tsi108_ether_remove(struct platform_device *pdev);
 struct tsi108_prv_data {
 	void  __iomem *regs;	/* Base of normal regs */
 	void  __iomem *phyregs;	/* Base of register bank used for PHY access */
+
+	struct net_device *dev;
+	struct napi_struct napi;
 
 	unsigned int phy;		/* Index of PHY for this interface */
 	unsigned int irq_num;
@@ -159,6 +162,7 @@ static struct platform_driver tsi_eth_driver = {
 	.remove = tsi108_ether_remove,
 	.driver	= {
 		.name = "tsi-ethernet",
+		.owner = THIS_MODULE,
 	},
 };
 
@@ -295,17 +299,10 @@ static void tsi108_check_phy(struct net_device *dev)
 	u32 speed;
 	unsigned long flags;
 
-	/* Do a dummy read, as for some reason the first read
-	 * after a link becomes up returns link down, even if
-	 * it's been a while since the link came up.
-	 */
-
 	spin_lock_irqsave(&phy_lock, flags);
 
 	if (!data->phy_ok)
 		goto out;
-
-	tsi108_read_mii(data, MII_BMSR);
 
 	duplex = mii_check_media(&data->mii_if, netif_msg_link(data), data->init_media);
 	data->init_media = 0;
@@ -343,22 +340,21 @@ static void tsi108_check_phy(struct net_device *dev)
 
 			TSI_WRITE(TSI108_MAC_CFG2, mac_cfg2_reg);
 			TSI_WRITE(TSI108_EC_PORTCTRL, portctrl_reg);
-
-			if (data->link_up == 0) {
-				/* The manual says it can take 3-4 usecs for the speed change
-				 * to take effect.
-				 */
-				udelay(5);
-
-				spin_lock(&data->txlock);
-				if (is_valid_ether_addr(dev->dev_addr) && data->txfree)
-					netif_wake_queue(dev);
-
-				data->link_up = 1;
-				spin_unlock(&data->txlock);
-			}
 		}
 
+		if (data->link_up == 0) {
+			/* The manual says it can take 3-4 usecs for the speed change
+			 * to take effect.
+			 */
+			udelay(5);
+
+			spin_lock(&data->txlock);
+			if (is_valid_ether_addr(dev->dev_addr) && data->txfree)
+				netif_wake_queue(dev);
+
+			data->link_up = 1;
+			spin_unlock(&data->txlock);
+		}
 	} else {
 		if (data->link_up == 1) {
 			netif_stop_queue(dev);
@@ -807,7 +803,8 @@ static int tsi108_refill_rx(struct net_device *dev, int budget)
 		int rx = data->rxhead;
 		struct sk_buff *skb;
 
-		data->rxskbs[rx] = skb = dev_alloc_skb(TSI108_RXBUF_SIZE + 2);
+		data->rxskbs[rx] = skb = netdev_alloc_skb(dev,
+							  TSI108_RXBUF_SIZE + 2);
 		if (!skb)
 			break;
 
@@ -837,13 +834,13 @@ static int tsi108_refill_rx(struct net_device *dev, int budget)
 	return done;
 }
 
-static int tsi108_poll(struct net_device *dev, int *budget)
+static int tsi108_poll(struct napi_struct *napi, int budget)
 {
-	struct tsi108_prv_data *data = netdev_priv(dev);
+	struct tsi108_prv_data *data = container_of(napi, struct tsi108_prv_data, napi);
+	struct net_device *dev = data->dev;
 	u32 estat = TSI_READ(TSI108_EC_RXESTAT);
 	u32 intstat = TSI_READ(TSI108_EC_INTSTAT);
-	int total_budget = min(*budget, dev->quota);
-	int num_received = 0, num_filled = 0, budget_used;
+	int num_received = 0, num_filled = 0;
 
 	intstat &= TSI108_INT_RXQUEUE0 | TSI108_INT_RXTHRESH |
 	    TSI108_INT_RXOVERRUN | TSI108_INT_RXERROR | TSI108_INT_RXWAIT;
@@ -852,7 +849,7 @@ static int tsi108_poll(struct net_device *dev, int *budget)
 	TSI_WRITE(TSI108_EC_INTSTAT, intstat);
 
 	if (data->rxpending || (estat & TSI108_EC_RXESTAT_Q0_DESCINT))
-		num_received = tsi108_complete_rx(dev, total_budget);
+		num_received = tsi108_complete_rx(dev, budget);
 
 	/* This should normally fill no more slots than the number of
 	 * packets received in tsi108_complete_rx().  The exception
@@ -867,7 +864,7 @@ static int tsi108_poll(struct net_device *dev, int *budget)
 	 */
 
 	if (data->rxfree < TSI108_RXRING_LEN)
-		num_filled = tsi108_refill_rx(dev, total_budget * 2);
+		num_filled = tsi108_refill_rx(dev, budget * 2);
 
 	if (intstat & TSI108_INT_RXERROR) {
 		u32 err = TSI_READ(TSI108_EC_RXERR);
@@ -890,14 +887,9 @@ static int tsi108_poll(struct net_device *dev, int *budget)
 		spin_unlock_irq(&data->misclock);
 	}
 
-	budget_used = max(num_received, num_filled / 2);
-
-	*budget -= budget_used;
-	dev->quota -= budget_used;
-
-	if (budget_used != total_budget) {
+	if (num_received < budget) {
 		data->rxpending = 0;
-		netif_rx_complete(dev);
+		netif_rx_complete(dev, napi);
 
 		TSI_WRITE(TSI108_EC_INTMASK,
 				     TSI_READ(TSI108_EC_INTMASK)
@@ -906,14 +898,11 @@ static int tsi108_poll(struct net_device *dev, int *budget)
 					 TSI108_INT_RXOVERRUN |
 					 TSI108_INT_RXERROR |
 					 TSI108_INT_RXWAIT));
-
-		/* IRQs are level-triggered, so no need to re-check */
-		return 0;
 	} else {
 		data->rxpending = 1;
 	}
 
-	return 1;
+	return num_received;
 }
 
 static void tsi108_rx_int(struct net_device *dev)
@@ -931,7 +920,7 @@ static void tsi108_rx_int(struct net_device *dev)
 	 * from tsi108_check_rxring().
 	 */
 
-	if (netif_rx_schedule_prep(dev)) {
+	if (netif_rx_schedule_prep(dev, &data->napi)) {
 		/* Mask, rather than ack, the receive interrupts.  The ack
 		 * will happen in tsi108_poll().
 		 */
@@ -942,7 +931,7 @@ static void tsi108_rx_int(struct net_device *dev)
 				     | TSI108_INT_RXTHRESH |
 				     TSI108_INT_RXOVERRUN | TSI108_INT_RXERROR |
 				     TSI108_INT_RXWAIT);
-		__netif_rx_schedule(dev);
+		__netif_rx_schedule(dev, &data->napi);
 	} else {
 		if (!netif_running(dev)) {
 			/* This can happen if an interrupt occurs while the
@@ -1280,12 +1269,11 @@ static void tsi108_init_phy(struct net_device *dev)
 	 * PHY_STAT register before the link up status bit is set.
 	 */
 
-	data->link_up = 1;
+	data->link_up = 0;
 
 	while (!((phyval = tsi108_read_mii(data, MII_BMSR)) &
 		 BMSR_LSTATUS)) {
 		if (i++ > (MII_READ_DELAY / 10)) {
-			data->link_up = 0;
 			break;
 		}
 		spin_unlock_irqrestore(&phy_lock, flags);
@@ -1293,6 +1281,7 @@ static void tsi108_init_phy(struct net_device *dev)
 		spin_lock_irqsave(&phy_lock, flags);
 	}
 
+	data->mii_if.supports_gmii = mii_check_gmii_support(&data->mii_if);
 	printk(KERN_DEBUG "PHY_STAT reg contains %08x\n", phyval);
 	data->phy_ok = 1;
 	data->init_media = 1;
@@ -1364,8 +1353,9 @@ static int tsi108_open(struct net_device *dev)
 	data->rxhead = 0;
 
 	for (i = 0; i < TSI108_RXRING_LEN; i++) {
-		struct sk_buff *skb = dev_alloc_skb(TSI108_RXBUF_SIZE + NET_IP_ALIGN);
+		struct sk_buff *skb;
 
+		skb = netdev_alloc_skb(dev, TSI108_RXBUF_SIZE + NET_IP_ALIGN);
 		if (!skb) {
 			/* Bah.  No memory for now, but maybe we'll get
 			 * some more later.
@@ -1401,6 +1391,8 @@ static int tsi108_open(struct net_device *dev)
 	TSI_WRITE(TSI108_EC_TXQ_PTRLOW, data->txdma);
 	tsi108_init_phy(dev);
 
+	napi_enable(&data->napi);
+
 	setup_timer(&data->timer, tsi108_timed_checker, (unsigned long)dev);
 	mod_timer(&data->timer, jiffies + 1);
 
@@ -1425,6 +1417,7 @@ static int tsi108_close(struct net_device *dev)
 	struct tsi108_prv_data *data = netdev_priv(dev);
 
 	netif_stop_queue(dev);
+	napi_disable(&data->napi);
 
 	del_timer_sync(&data->timer);
 
@@ -1444,7 +1437,6 @@ static int tsi108_close(struct net_device *dev)
 		dev_kfree_skb(skb);
 	}
 
-	synchronize_irq(data->irq_num);
 	free_irq(data->irq_num, dev);
 
 	/* Discard the RX ring. */
@@ -1530,11 +1522,45 @@ static void tsi108_init_mac(struct net_device *dev)
 	TSI_WRITE(TSI108_EC_INTMASK, ~0);
 }
 
+static int tsi108_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+{
+	struct tsi108_prv_data *data = netdev_priv(dev);
+	unsigned long flags;
+	int rc;
+
+	spin_lock_irqsave(&data->txlock, flags);
+	rc = mii_ethtool_gset(&data->mii_if, cmd);
+	spin_unlock_irqrestore(&data->txlock, flags);
+
+	return rc;
+}
+
+static int tsi108_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+{
+	struct tsi108_prv_data *data = netdev_priv(dev);
+	unsigned long flags;
+	int rc;
+
+	spin_lock_irqsave(&data->txlock, flags);
+	rc = mii_ethtool_sset(&data->mii_if, cmd);
+	spin_unlock_irqrestore(&data->txlock, flags);
+
+	return rc;
+}
+
 static int tsi108_do_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
 	struct tsi108_prv_data *data = netdev_priv(dev);
+	if (!netif_running(dev))
+		return -EINVAL;
 	return generic_mii_ioctl(&data->mii_if, if_mii(rq), cmd, NULL);
 }
+
+static const struct ethtool_ops tsi108_ethtool_ops = {
+	.get_link 	= ethtool_op_get_link,
+	.get_settings	= tsi108_get_settings,
+	.set_settings	= tsi108_set_settings,
+};
 
 static int
 tsi108_init_one(struct platform_device *pdev)
@@ -1543,6 +1569,7 @@ tsi108_init_one(struct platform_device *pdev)
 	struct tsi108_prv_data *data = NULL;
 	hw_info *einfo;
 	int err = 0;
+	DECLARE_MAC_BUF(mac);
 
 	einfo = pdev->dev.platform_data;
 
@@ -1562,6 +1589,7 @@ tsi108_init_one(struct platform_device *pdev)
 
 	printk("tsi108_eth%d: probe...\n", pdev->id);
 	data = netdev_priv(dev);
+	data->dev = dev;
 
 	pr_debug("tsi108_eth%d:regs:phyresgs:phy:irq_num=0x%x:0x%x:0x%x:0x%x\n",
 			pdev->id, einfo->regs, einfo->phyregs,
@@ -1585,7 +1613,6 @@ tsi108_init_one(struct platform_device *pdev)
 	data->mii_if.phy_id = einfo->phy;
 	data->mii_if.phy_id_mask = 0x1f;
 	data->mii_if.reg_num_mask = 0x1f;
-	data->mii_if.supports_gmii = mii_check_gmii_support(&data->mii_if);
 
 	data->phy = einfo->phy;
 	data->phy_type = einfo->phy_type;
@@ -1597,9 +1624,9 @@ tsi108_init_one(struct platform_device *pdev)
 	dev->set_mac_address = tsi108_set_mac;
 	dev->set_multicast_list = tsi108_set_rx_mode;
 	dev->get_stats = tsi108_get_stats;
-	dev->poll = tsi108_poll;
+	netif_napi_add(dev, &data->napi, tsi108_poll, 64);
 	dev->do_ioctl = tsi108_do_ioctl;
-	dev->weight = 64;  /* 64 is more suitable for GigE interface - klai */
+	dev->ethtool_ops = &tsi108_ethtool_ops;
 
 	/* Apparently, the Linux networking code won't use scatter-gather
 	 * if the hardware doesn't do checksums.  However, it's faster
@@ -1610,7 +1637,6 @@ tsi108_init_one(struct platform_device *pdev)
 	 */
 
 	dev->features = NETIF_F_HIGHDMA;
-	SET_MODULE_OWNER(dev);
 
 	spin_lock_init(&data->txlock);
 	spin_lock_init(&data->misclock);
@@ -1632,10 +1658,9 @@ tsi108_init_one(struct platform_device *pdev)
 		goto register_fail;
 	}
 
-	printk(KERN_INFO "%s: Tsi108 Gigabit Ethernet, MAC: "
-	       "%02x:%02x:%02x:%02x:%02x:%02x\n", dev->name,
-	       dev->dev_addr[0], dev->dev_addr[1], dev->dev_addr[2],
-	       dev->dev_addr[3], dev->dev_addr[4], dev->dev_addr[5]);
+	platform_set_drvdata(pdev, dev);
+	printk(KERN_INFO "%s: Tsi108 Gigabit Ethernet, MAC: %s\n",
+	       dev->name, print_mac(mac, dev->dev_addr));
 #ifdef DEBUG
 	data->msg_enable = DEBUG;
 	dump_eth_one(dev);
@@ -1706,3 +1731,4 @@ module_exit(tsi108_ether_exit);
 MODULE_AUTHOR("Tundra Semiconductor Corporation");
 MODULE_DESCRIPTION("Tsi108 Gigabit Ethernet driver");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:tsi-ethernet");

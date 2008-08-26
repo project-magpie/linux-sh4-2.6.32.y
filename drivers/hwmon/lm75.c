@@ -31,7 +31,7 @@
 
 
 /* Addresses to scan */
-static unsigned short normal_i2c[] = { 0x48, 0x49, 0x4a, 0x4b, 0x4c,
+static const unsigned short normal_i2c[] = { 0x48, 0x49, 0x4a, 0x4b, 0x4c,
 					0x4d, 0x4e, 0x4f, I2C_CLIENT_END };
 
 /* Insmod parameters */
@@ -50,7 +50,7 @@ static const u8 LM75_REG_TEMP[3] = {
 /* Each client has this additional data */
 struct lm75_data {
 	struct i2c_client	client;
-	struct class_device *class_dev;
+	struct device *hwmon_dev;
 	struct mutex		update_lock;
 	char			valid;		/* !=0 if following fields are valid */
 	unsigned long		last_updated;	/* In jiffies */
@@ -74,7 +74,6 @@ static struct i2c_driver lm75_driver = {
 	.driver = {
 		.name	= "lm75",
 	},
-	.id		= I2C_DRIVERID_LM75,
 	.attach_adapter	= lm75_attach_adapter,
 	.detach_client	= lm75_detach_client,
 };
@@ -95,7 +94,7 @@ static ssize_t set_temp(struct device *dev, struct device_attribute *da,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct lm75_data *data = i2c_get_clientdata(client);
 	int nr = attr->index;
-	unsigned long temp = simple_strtoul(buf, NULL, 10);
+	long temp = simple_strtol(buf, NULL, 10);
 
 	mutex_lock(&data->update_lock);
 	data->temp[nr] = LM75_TEMP_TO_REG(temp);
@@ -219,9 +218,9 @@ static int lm75_detect(struct i2c_adapter *adapter, int address, int kind)
 	if ((err = sysfs_create_group(&new_client->dev.kobj, &lm75_group)))
 		goto exit_detach;
 
-	data->class_dev = hwmon_device_register(&new_client->dev);
-	if (IS_ERR(data->class_dev)) {
-		err = PTR_ERR(data->class_dev);
+	data->hwmon_dev = hwmon_device_register(&new_client->dev);
+	if (IS_ERR(data->hwmon_dev)) {
+		err = PTR_ERR(data->hwmon_dev);
 		goto exit_remove;
 	}
 
@@ -240,7 +239,7 @@ exit:
 static int lm75_detach_client(struct i2c_client *client)
 {
 	struct lm75_data *data = i2c_get_clientdata(client);
-	hwmon_device_unregister(data->class_dev);
+	hwmon_device_unregister(data->hwmon_dev);
 	sysfs_remove_group(&client->dev.kobj, &lm75_group);
 	i2c_detach_client(client);
 	kfree(data);
@@ -249,18 +248,18 @@ static int lm75_detach_client(struct i2c_client *client)
 
 /* All registers are word-sized, except for the configuration register.
    LM75 uses a high-byte first convention, which is exactly opposite to
-   the usual practice. */
+   the SMBus standard. */
 static int lm75_read_value(struct i2c_client *client, u8 reg)
 {
+	int value;
+
 	if (reg == LM75_REG_CONF)
 		return i2c_smbus_read_byte_data(client, reg);
-	else
-		return swab16(i2c_smbus_read_word_data(client, reg));
+
+	value = i2c_smbus_read_word_data(client, reg);
+	return (value < 0) ? value : swab16(value);
 }
 
-/* All registers are word-sized, except for the configuration register.
-   LM75 uses a high-byte first convention, which is exactly opposite to
-   the usual practice. */
 static int lm75_write_value(struct i2c_client *client, u8 reg, u16 value)
 {
 	if (reg == LM75_REG_CONF)
@@ -291,9 +290,16 @@ static struct lm75_data *lm75_update_device(struct device *dev)
 		int i;
 		dev_dbg(&client->dev, "Starting lm75 update\n");
 
-		for (i = 0; i < ARRAY_SIZE(data->temp); i++)
-			data->temp[i] = lm75_read_value(client,
-							LM75_REG_TEMP[i]);
+		for (i = 0; i < ARRAY_SIZE(data->temp); i++) {
+			int status;
+
+			status = lm75_read_value(client, LM75_REG_TEMP[i]);
+			if (status < 0)
+				dev_dbg(&client->dev, "reg %d, err %d\n",
+						LM75_REG_TEMP[i], status);
+			else
+				data->temp[i] = status;
+		}
 		data->last_updated = jiffies;
 		data->valid = 1;
 	}

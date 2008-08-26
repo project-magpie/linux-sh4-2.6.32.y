@@ -124,8 +124,6 @@ MODULE_PARM_DESC (rx_copybreak, "de2104x Breakpoint at which Rx packets are copi
 /* Time in jiffies before concluding the transmitter is hung. */
 #define TX_TIMEOUT		(6*HZ)
 
-#define DE_UNALIGNED_16(a)	(u16)(get_unaligned((u16 *)(a)))
-
 /* This is a mysterious value that can be written to CSR11 in the 21040 (only)
    to support a pre-NWay full-duplex signaling mechanism using short frames.
    No one knows what it should be, but if left at its default value some
@@ -264,10 +262,10 @@ struct de_srom_info_leaf {
 } __attribute__((packed));
 
 struct de_desc {
-	u32			opts1;
-	u32			opts2;
-	u32			addr1;
-	u32			addr2;
+	__le32			opts1;
+	__le32			opts2;
+	__le32			addr1;
+	__le32			addr2;
 };
 
 struct media_info {
@@ -842,7 +840,7 @@ static inline int de_is_running (struct de_private *de)
 static void de_stop_rxtx (struct de_private *de)
 {
 	u32 macmode;
-	unsigned int work = 1000;
+	unsigned int i = 1300/100;
 
 	macmode = dr32(MacMode);
 	if (macmode & RxTx) {
@@ -850,10 +848,14 @@ static void de_stop_rxtx (struct de_private *de)
 		dr32(MacMode);
 	}
 
-	while (--work > 0) {
+	/* wait until in-flight frame completes.
+	 * Max time @ 10BT: 1500*8b/10Mbps == 1200us (+ 100us margin)
+	 * Typically expect this loop to end in < 50 us on 100BT.
+	 */
+	while (--i) {
 		if (!de_is_running(de))
 			return;
-		cpu_relax();
+		udelay(100);
 	}
 
 	printk(KERN_WARNING "%s: timeout expired stopping DMA\n", de->dev->name);
@@ -910,7 +912,8 @@ static void de_set_media (struct de_private *de)
 	unsigned media = de->media_type;
 	u32 macmode = dr32(MacMode);
 
-	BUG_ON(de_is_running(de));
+	if (de_is_running(de))
+		printk(KERN_WARNING "%s: chip is running while changing media!\n", de->dev->name);
 
 	if (de->de21040)
 		dw32(CSR11, FULL_DUPLEX_MAGIC);
@@ -1670,8 +1673,6 @@ static void de_get_regs(struct net_device *dev, struct ethtool_regs *regs,
 
 static const struct ethtool_ops de_ethtool_ops = {
 	.get_link		= ethtool_op_get_link,
-	.get_tx_csum		= ethtool_op_get_tx_csum,
-	.get_sg			= ethtool_op_get_sg,
 	.get_drvinfo		= de_get_drvinfo,
 	.get_regs_len		= de_get_regs_len,
 	.get_settings		= de_get_settings,
@@ -1773,8 +1774,8 @@ static void __devinit de21041_get_srom_info (struct de_private *de)
 
 	/* download entire eeprom */
 	for (i = 0; i < DE_EEPROM_WORDS; i++)
-		((u16 *)ee_data)[i] =
-			le16_to_cpu(tulip_read_eeprom(de->regs, i, ee_addr_size));
+		((__le16 *)ee_data)[i] =
+			cpu_to_le16(tulip_read_eeprom(de->regs, i, ee_addr_size));
 
 	/* DEC now has a specification but early board makers
 	   just put the address in the first EEPROM locations. */
@@ -1808,7 +1809,7 @@ static void __devinit de21041_get_srom_info (struct de_private *de)
 		goto bad_srom;
 
 	/* get default media type */
-	switch (DE_UNALIGNED_16(&il->default_media)) {
+	switch (get_unaligned(&il->default_media)) {
 	case 0x0001:  de->media_type = DE_MEDIA_BNC; break;
 	case 0x0002:  de->media_type = DE_MEDIA_AUI; break;
 	case 0x0204:  de->media_type = DE_MEDIA_TP_FD; break;
@@ -1872,9 +1873,9 @@ static void __devinit de21041_get_srom_info (struct de_private *de)
 		bufp += sizeof (ib->opts);
 
 		if (ib->opts & MediaCustomCSRs) {
-			de->media[idx].csr13 = DE_UNALIGNED_16(&ib->csr13);
-			de->media[idx].csr14 = DE_UNALIGNED_16(&ib->csr14);
-			de->media[idx].csr15 = DE_UNALIGNED_16(&ib->csr15);
+			de->media[idx].csr13 = get_unaligned(&ib->csr13);
+			de->media[idx].csr14 = get_unaligned(&ib->csr14);
+			de->media[idx].csr15 = get_unaligned(&ib->csr15);
 			bufp += sizeof(ib->csr13) + sizeof(ib->csr14) +
 				sizeof(ib->csr15);
 
@@ -1931,6 +1932,7 @@ static int __devinit de_init_one (struct pci_dev *pdev,
 	void __iomem *regs;
 	unsigned long pciaddr;
 	static int board_idx = -1;
+	DECLARE_MAC_BUF(mac);
 
 	board_idx++;
 
@@ -1944,7 +1946,6 @@ static int __devinit de_init_one (struct pci_dev *pdev,
 	if (!dev)
 		return -ENOMEM;
 
-	SET_MODULE_OWNER(dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 	dev->open = de_open;
 	dev->stop = de_close;
@@ -2045,15 +2046,11 @@ static int __devinit de_init_one (struct pci_dev *pdev,
 		goto err_out_iomap;
 
 	/* print info about board and interface just registered */
-	printk (KERN_INFO "%s: %s at 0x%lx, "
-		"%02x:%02x:%02x:%02x:%02x:%02x, "
-		"IRQ %d\n",
+	printk (KERN_INFO "%s: %s at 0x%lx, %s, IRQ %d\n",
 		dev->name,
 		de->de21040 ? "21040" : "21041",
 		dev->base_addr,
-		dev->dev_addr[0], dev->dev_addr[1],
-		dev->dev_addr[2], dev->dev_addr[3],
-		dev->dev_addr[4], dev->dev_addr[5],
+		print_mac(mac, dev->dev_addr),
 		dev->irq);
 
 	pci_set_drvdata(pdev, dev);

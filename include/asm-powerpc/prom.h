@@ -24,7 +24,7 @@
 #define OF_ROOT_NODE_ADDR_CELLS_DEFAULT	1
 #define OF_ROOT_NODE_SIZE_CELLS_DEFAULT	1
 
-#define of_compat_cmp(s1, s2, l)	strncasecmp((s1), (s2), (l))
+#define of_compat_cmp(s1, s2, l)	strcasecmp((s1), (s2))
 #define of_prop_cmp(s1, s2)		strcmp((s1), (s2))
 #define of_node_cmp(s1, s2)		strcasecmp((s1), (s2))
 
@@ -145,7 +145,6 @@ extern void of_detach_node(struct device_node *);
 extern void finish_device_tree(void);
 extern void unflatten_device_tree(void);
 extern void early_init_devtree(void *);
-#define device_is_compatible(d, c)	of_device_is_compatible((d), (c))
 extern int machine_is_compatible(const char *compat);
 extern void print_properties(struct device_node *node);
 extern int prom_n_intr_cells(struct device_node* np);
@@ -203,14 +202,26 @@ static inline unsigned long of_read_ulong(const u32 *cell, int size)
  */
 extern u64 of_translate_address(struct device_node *np, const u32 *addr);
 
+/* Translate a DMA address from device space to CPU space */
+extern u64 of_translate_dma_address(struct device_node *dev,
+				    const u32 *in_addr);
+
 /* Extract an address from a device, returns the region size and
  * the address space flags too. The PCI version uses a BAR number
  * instead of an absolute index
  */
 extern const u32 *of_get_address(struct device_node *dev, int index,
 			   u64 *size, unsigned int *flags);
+#ifdef CONFIG_PCI
 extern const u32 *of_get_pci_address(struct device_node *dev, int bar_no,
 			       u64 *size, unsigned int *flags);
+#else
+static inline const u32 *of_get_pci_address(struct device_node *dev,
+		int bar_no, u64 *size, unsigned int *flags)
+{
+	return NULL;
+}
+#endif /* CONFIG_PCI */
 
 /* Get an address as a resource. Note that if your address is
  * a PIO address, the conversion will fail if the physical address
@@ -220,8 +231,16 @@ extern const u32 *of_get_pci_address(struct device_node *dev, int bar_no,
  */
 extern int of_address_to_resource(struct device_node *dev, int index,
 				  struct resource *r);
+#ifdef CONFIG_PCI
 extern int of_pci_address_to_resource(struct device_node *dev, int bar,
 				      struct resource *r);
+#else
+static inline int of_pci_address_to_resource(struct device_node *dev, int bar,
+		struct resource *r)
+{
+	return -ENOSYS;
+}
+#endif /* CONFIG_PCI */
 
 /* Parse the ibm,dma-window property of an OF node into the busno, phys and
  * size parameters.

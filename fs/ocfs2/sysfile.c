@@ -100,30 +100,26 @@ static struct inode * _ocfs2_get_system_file_inode(struct ocfs2_super *osb,
 	char namebuf[40];
 	struct inode *inode = NULL;
 	u64 blkno;
-	struct buffer_head *dirent_bh = NULL;
-	struct ocfs2_dir_entry *de = NULL;
 	int status = 0;
 
 	ocfs2_sprintf_system_inode_name(namebuf,
 					sizeof(namebuf),
 					type, slot);
 
-	status = ocfs2_find_files_on_disk(namebuf, strlen(namebuf),
-					  &blkno, osb->sys_root_inode,
-					  &dirent_bh, &de);
+	status = ocfs2_lookup_ino_from_name(osb->sys_root_inode, namebuf,
+					    strlen(namebuf), &blkno);
 	if (status < 0) {
 		goto bail;
 	}
 
-	inode = ocfs2_iget(osb, blkno, OCFS2_FI_FLAG_SYSFILE);
+	inode = ocfs2_iget(osb, blkno, OCFS2_FI_FLAG_SYSFILE, type);
 	if (IS_ERR(inode)) {
 		mlog_errno(PTR_ERR(inode));
 		inode = NULL;
 		goto bail;
 	}
 bail:
-	if (dirent_bh)
-		brelse(dirent_bh);
+
 	return inode;
 }
 

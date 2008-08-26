@@ -1,9 +1,7 @@
 /* Transport & Protocol Driver for In-System Design, Inc. ISD200 ASIC
  *
- * $Id: isd200.c,v 1.16 2002/04/22 03:39:43 mdharm Exp $
- *
  * Current development and maintenance:
- *   (C) 2001-2002 Björn Stenberg (bjorn@haxx.se)
+ *   (C) 2001-2002 BjÃ¶rn Stenberg (bjorn@haxx.se)
  *
  * Developed with the assistance of:
  *   (C) 2002 Alan Stern <stern@rowland.org>
@@ -48,7 +46,7 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/hdreg.h>
-#include <linux/ide.h>
+#include <linux/scatterlist.h>
 
 #include <scsi/scsi.h>
 #include <scsi/scsi_cmnd.h>
@@ -108,6 +106,12 @@
 #define REG_DEVICE_HEAD		0x40
 #define REG_STATUS		0x80
 #define REG_COMMAND		0x80
+
+/* ATA registers offset definitions */
+#define ATA_REG_ERROR_OFFSET		1
+#define ATA_REG_LCYL_OFFSET		4
+#define ATA_REG_HCYL_OFFSET		5
+#define ATA_REG_STATUS_OFFSET		7
 
 /* ATA error definitions not in <linux/hdreg.h> */
 #define ATA_ERROR_MEDIA_CHANGE		0x20
@@ -286,7 +290,9 @@ struct isd200_info {
 
 	/* maximum number of LUNs supported */
 	unsigned char MaxLUNs;
+	unsigned char cmnd[BLK_MAX_CDB];
 	struct scsi_cmnd srb;
+	struct scatterlist sg;
 };
 
 
@@ -358,7 +364,7 @@ static void isd200_build_sense(struct us_data *us, struct scsi_cmnd *srb)
 {
 	struct isd200_info *info = (struct isd200_info *)us->extra;
 	struct sense_data *buf = (struct sense_data *) &srb->sense_buffer[0];
-	unsigned char error = info->ATARegs[IDE_ERROR_OFFSET];
+	unsigned char error = info->ATARegs[ATA_REG_ERROR_OFFSET];
 
 	if(error & ATA_ERROR_MEDIA_CHANGE) {
 		buf->ErrorCode = 0x70 | SENSE_ERRCODE_VALID;
@@ -398,6 +404,31 @@ static void isd200_build_sense(struct us_data *us, struct scsi_cmnd *srb)
  * Transport routines
  ***********************************************************************/
 
+/**************************************************************************
+ *  isd200_set_srb(), isd200_srb_set_bufflen()
+ *
+ * Two helpers to facilitate in initialization of scsi_cmnd structure
+ * Will need to change when struct scsi_cmnd changes
+ */
+static void isd200_set_srb(struct isd200_info *info,
+	enum dma_data_direction dir, void* buff, unsigned bufflen)
+{
+	struct scsi_cmnd *srb = &info->srb;
+
+	if (buff)
+		sg_init_one(&info->sg, buff, bufflen);
+
+	srb->sc_data_direction = dir;
+	srb->sdb.table.sgl = buff ? &info->sg : NULL;
+	srb->sdb.length = bufflen;
+	srb->sdb.table.nents = buff ? 1 : 0;
+}
+
+static void isd200_srb_set_bufflen(struct scsi_cmnd *srb, unsigned bufflen)
+{
+	srb->sdb.length = bufflen;
+}
+
 
 /**************************************************************************
  *  isd200_action
@@ -418,6 +449,7 @@ static int isd200_action( struct us_data *us, int action,
 
 	memset(&ata, 0, sizeof(ata));
 	memset(&srb_dev, 0, sizeof(srb_dev));
+	srb->cmnd = info->cmnd;
 	srb->device = &srb_dev;
 	++srb->serial_number;
 
@@ -432,9 +464,7 @@ static int isd200_action( struct us_data *us, int action,
 		ata.generic.RegisterSelect =
 		  REG_CYLINDER_LOW | REG_CYLINDER_HIGH |
 		  REG_STATUS | REG_ERROR;
-		srb->sc_data_direction = DMA_FROM_DEVICE;
-		srb->request_buffer = pointer;
-		srb->request_bufflen = value;
+		isd200_set_srb(info, DMA_FROM_DEVICE, pointer, value);
 		break;
 
 	case ACTION_ENUM:
@@ -444,7 +474,7 @@ static int isd200_action( struct us_data *us, int action,
 					   ACTION_SELECT_5;
 		ata.generic.RegisterSelect = REG_DEVICE_HEAD;
 		ata.write.DeviceHeadByte = value;
-		srb->sc_data_direction = DMA_NONE;
+		isd200_set_srb(info, DMA_NONE, NULL, 0);
 		break;
 
 	case ACTION_RESET:
@@ -453,7 +483,7 @@ static int isd200_action( struct us_data *us, int action,
 					   ACTION_SELECT_3|ACTION_SELECT_4;
 		ata.generic.RegisterSelect = REG_DEVICE_CONTROL;
 		ata.write.DeviceControlByte = ATA_DC_RESET_CONTROLLER;
-		srb->sc_data_direction = DMA_NONE;
+		isd200_set_srb(info, DMA_NONE, NULL, 0);
 		break;
 
 	case ACTION_REENABLE:
@@ -462,7 +492,7 @@ static int isd200_action( struct us_data *us, int action,
 					   ACTION_SELECT_3|ACTION_SELECT_4;
 		ata.generic.RegisterSelect = REG_DEVICE_CONTROL;
 		ata.write.DeviceControlByte = ATA_DC_REENABLE_CONTROLLER;
-		srb->sc_data_direction = DMA_NONE;
+		isd200_set_srb(info, DMA_NONE, NULL, 0);
 		break;
 
 	case ACTION_SOFT_RESET:
@@ -471,21 +501,20 @@ static int isd200_action( struct us_data *us, int action,
 		ata.generic.RegisterSelect = REG_DEVICE_HEAD | REG_COMMAND;
 		ata.write.DeviceHeadByte = info->DeviceHead;
 		ata.write.CommandByte = WIN_SRST;
-		srb->sc_data_direction = DMA_NONE;
+		isd200_set_srb(info, DMA_NONE, NULL, 0);
 		break;
 
 	case ACTION_IDENTIFY:
 		US_DEBUGP("   isd200_action(IDENTIFY)\n");
 		ata.generic.RegisterSelect = REG_COMMAND;
 		ata.write.CommandByte = WIN_IDENTIFY;
-		srb->sc_data_direction = DMA_FROM_DEVICE;
-		srb->request_buffer = (void *) info->id;
-		srb->request_bufflen = sizeof(struct hd_driveid);
+		isd200_set_srb(info, DMA_FROM_DEVICE, info->id,
+		                                sizeof(struct hd_driveid));
 		break;
 
 	default:
 		US_DEBUGP("Error: Undefined action %d\n",action);
-		break;
+		return ISD200_ERROR;
 	}
 
 	memcpy(srb->cmnd, &ata, sizeof(ata.generic));
@@ -525,8 +554,8 @@ static int isd200_read_regs( struct us_data *us )
 		retStatus = ISD200_ERROR;
 	} else {
 		memcpy(info->ATARegs, info->RegsBuf, sizeof(info->ATARegs));
-		US_DEBUGP("   Got ATA Register[IDE_ERROR_OFFSET] = 0x%x\n", 
-			  info->ATARegs[IDE_ERROR_OFFSET]);
+		US_DEBUGP("   Got ATA Register[ATA_REG_ERROR_OFFSET] = 0x%x\n",
+			  info->ATARegs[ATA_REG_ERROR_OFFSET]);
 	}
 
 	return retStatus;
@@ -555,7 +584,7 @@ static void isd200_invoke_transport( struct us_data *us,
 	/* if the command gets aborted by the higher layers, we need to
 	 * short-circuit all other processing
 	 */
-	if (test_bit(US_FLIDX_TIMED_OUT, &us->flags)) {
+	if (test_bit(US_FLIDX_TIMED_OUT, &us->dflags)) {
 		US_DEBUGP("-- command was aborted\n");
 		goto Handle_Abort;
 	}
@@ -590,7 +619,7 @@ static void isd200_invoke_transport( struct us_data *us,
 		return;
 	}
 
-	if ((srb->resid > 0) &&
+	if ((scsi_get_resid(srb) > 0) &&
 	    !((srb->cmnd[0] == REQUEST_SENSE) ||
 	      (srb->cmnd[0] == INQUIRY) ||
 	      (srb->cmnd[0] == MODE_SENSE) ||
@@ -602,7 +631,7 @@ static void isd200_invoke_transport( struct us_data *us,
 
 	if (need_auto_sense) {
 		result = isd200_read_regs(us);
-		if (test_bit(US_FLIDX_TIMED_OUT, &us->flags)) {
+		if (test_bit(US_FLIDX_TIMED_OUT, &us->dflags)) {
 			US_DEBUGP("-- auto-sense aborted\n");
 			goto Handle_Abort;
 		}
@@ -632,7 +661,7 @@ static void isd200_invoke_transport( struct us_data *us,
 	srb->result = DID_ABORT << 16;
 
 	/* permit the reset transfer to take place */
-	clear_bit(US_FLIDX_ABORTING, &us->flags);
+	clear_bit(US_FLIDX_ABORTING, &us->dflags);
 	/* Need reset here */
 }
 
@@ -868,7 +897,7 @@ static int isd200_try_enum(struct us_data *us, unsigned char master_slave,
 			break;
 
 		if (!detect) {
-			if (regs[IDE_STATUS_OFFSET] & BUSY_STAT ) {
+			if (regs[ATA_REG_STATUS_OFFSET] & BUSY_STAT) {
 				US_DEBUGP("   %s status is still BSY, try again...\n",mstr);
 			} else {
 				US_DEBUGP("   %s status !BSY, continue with next operation\n",mstr);
@@ -878,12 +907,12 @@ static int isd200_try_enum(struct us_data *us, unsigned char master_slave,
 		/* check for BUSY_STAT and */
 		/* WRERR_STAT (workaround ATA Zip drive) and */ 
 		/* ERR_STAT (workaround for Archos CD-ROM) */
-		else if (regs[IDE_STATUS_OFFSET] & 
+		else if (regs[ATA_REG_STATUS_OFFSET] &
 			 (BUSY_STAT | WRERR_STAT | ERR_STAT )) {
 			US_DEBUGP("   Status indicates it is not ready, try again...\n");
 		}
 		/* check for DRDY, ATA devices set DRDY after SRST */
-		else if (regs[IDE_STATUS_OFFSET] & READY_STAT) {
+		else if (regs[ATA_REG_STATUS_OFFSET] & READY_STAT) {
 			US_DEBUGP("   Identified ATA device\n");
 			info->DeviceFlags |= DF_ATA_DEVICE;
 			info->DeviceHead = master_slave;
@@ -892,8 +921,8 @@ static int isd200_try_enum(struct us_data *us, unsigned char master_slave,
 		/* check Cylinder High/Low to
 		   determine if it is an ATAPI device
 		*/
-		else if ((regs[IDE_HCYL_OFFSET] == 0xEB) &&
-			 (regs[IDE_LCYL_OFFSET] == 0x14)) {
+		else if (regs[ATA_REG_HCYL_OFFSET] == 0xEB &&
+			 regs[ATA_REG_LCYL_OFFSET] == 0x14) {
 			/* It seems that the RICOH 
 			   MP6200A CD/RW drive will 
 			   report itself okay as a
@@ -977,6 +1006,103 @@ static int isd200_manual_enum(struct us_data *us)
 	return(retStatus);
 }
 
+static void isd200_fix_driveid (struct hd_driveid *id)
+{
+#ifndef __LITTLE_ENDIAN
+# ifdef __BIG_ENDIAN
+	int i;
+	u16 *stringcast;
+
+	id->config         = __le16_to_cpu(id->config);
+	id->cyls           = __le16_to_cpu(id->cyls);
+	id->reserved2      = __le16_to_cpu(id->reserved2);
+	id->heads          = __le16_to_cpu(id->heads);
+	id->track_bytes    = __le16_to_cpu(id->track_bytes);
+	id->sector_bytes   = __le16_to_cpu(id->sector_bytes);
+	id->sectors        = __le16_to_cpu(id->sectors);
+	id->vendor0        = __le16_to_cpu(id->vendor0);
+	id->vendor1        = __le16_to_cpu(id->vendor1);
+	id->vendor2        = __le16_to_cpu(id->vendor2);
+	stringcast = (u16 *)&id->serial_no[0];
+	for (i = 0; i < (20/2); i++)
+		stringcast[i] = __le16_to_cpu(stringcast[i]);
+	id->buf_type       = __le16_to_cpu(id->buf_type);
+	id->buf_size       = __le16_to_cpu(id->buf_size);
+	id->ecc_bytes      = __le16_to_cpu(id->ecc_bytes);
+	stringcast = (u16 *)&id->fw_rev[0];
+	for (i = 0; i < (8/2); i++)
+		stringcast[i] = __le16_to_cpu(stringcast[i]);
+	stringcast = (u16 *)&id->model[0];
+	for (i = 0; i < (40/2); i++)
+		stringcast[i] = __le16_to_cpu(stringcast[i]);
+	id->dword_io       = __le16_to_cpu(id->dword_io);
+	id->reserved50     = __le16_to_cpu(id->reserved50);
+	id->field_valid    = __le16_to_cpu(id->field_valid);
+	id->cur_cyls       = __le16_to_cpu(id->cur_cyls);
+	id->cur_heads      = __le16_to_cpu(id->cur_heads);
+	id->cur_sectors    = __le16_to_cpu(id->cur_sectors);
+	id->cur_capacity0  = __le16_to_cpu(id->cur_capacity0);
+	id->cur_capacity1  = __le16_to_cpu(id->cur_capacity1);
+	id->lba_capacity   = __le32_to_cpu(id->lba_capacity);
+	id->dma_1word      = __le16_to_cpu(id->dma_1word);
+	id->dma_mword      = __le16_to_cpu(id->dma_mword);
+	id->eide_pio_modes = __le16_to_cpu(id->eide_pio_modes);
+	id->eide_dma_min   = __le16_to_cpu(id->eide_dma_min);
+	id->eide_dma_time  = __le16_to_cpu(id->eide_dma_time);
+	id->eide_pio       = __le16_to_cpu(id->eide_pio);
+	id->eide_pio_iordy = __le16_to_cpu(id->eide_pio_iordy);
+	for (i = 0; i < 2; ++i)
+		id->words69_70[i] = __le16_to_cpu(id->words69_70[i]);
+	for (i = 0; i < 4; ++i)
+		id->words71_74[i] = __le16_to_cpu(id->words71_74[i]);
+	id->queue_depth    = __le16_to_cpu(id->queue_depth);
+	for (i = 0; i < 4; ++i)
+		id->words76_79[i] = __le16_to_cpu(id->words76_79[i]);
+	id->major_rev_num  = __le16_to_cpu(id->major_rev_num);
+	id->minor_rev_num  = __le16_to_cpu(id->minor_rev_num);
+	id->command_set_1  = __le16_to_cpu(id->command_set_1);
+	id->command_set_2  = __le16_to_cpu(id->command_set_2);
+	id->cfsse          = __le16_to_cpu(id->cfsse);
+	id->cfs_enable_1   = __le16_to_cpu(id->cfs_enable_1);
+	id->cfs_enable_2   = __le16_to_cpu(id->cfs_enable_2);
+	id->csf_default    = __le16_to_cpu(id->csf_default);
+	id->dma_ultra      = __le16_to_cpu(id->dma_ultra);
+	id->trseuc         = __le16_to_cpu(id->trseuc);
+	id->trsEuc         = __le16_to_cpu(id->trsEuc);
+	id->CurAPMvalues   = __le16_to_cpu(id->CurAPMvalues);
+	id->mprc           = __le16_to_cpu(id->mprc);
+	id->hw_config      = __le16_to_cpu(id->hw_config);
+	id->acoustic       = __le16_to_cpu(id->acoustic);
+	id->msrqs          = __le16_to_cpu(id->msrqs);
+	id->sxfert         = __le16_to_cpu(id->sxfert);
+	id->sal            = __le16_to_cpu(id->sal);
+	id->spg            = __le32_to_cpu(id->spg);
+	id->lba_capacity_2 = __le64_to_cpu(id->lba_capacity_2);
+	for (i = 0; i < 22; i++)
+		id->words104_125[i]   = __le16_to_cpu(id->words104_125[i]);
+	id->last_lun       = __le16_to_cpu(id->last_lun);
+	id->word127        = __le16_to_cpu(id->word127);
+	id->dlf            = __le16_to_cpu(id->dlf);
+	id->csfo           = __le16_to_cpu(id->csfo);
+	for (i = 0; i < 26; i++)
+		id->words130_155[i] = __le16_to_cpu(id->words130_155[i]);
+	id->word156        = __le16_to_cpu(id->word156);
+	for (i = 0; i < 3; i++)
+		id->words157_159[i] = __le16_to_cpu(id->words157_159[i]);
+	id->cfa_power      = __le16_to_cpu(id->cfa_power);
+	for (i = 0; i < 14; i++)
+		id->words161_175[i] = __le16_to_cpu(id->words161_175[i]);
+	for (i = 0; i < 31; i++)
+		id->words176_205[i] = __le16_to_cpu(id->words176_205[i]);
+	for (i = 0; i < 48; i++)
+		id->words206_254[i] = __le16_to_cpu(id->words206_254[i]);
+	id->integrity_word  = __le16_to_cpu(id->integrity_word);
+# else
+#  error "Please fix <asm/byteorder.h>"
+# endif
+#endif
+}
+
 
 /**************************************************************************
  * isd200_get_inquiry_data
@@ -1018,7 +1144,7 @@ static int isd200_get_inquiry_data( struct us_data *us )
 				int i;
 				__be16 *src;
 				__u16 *dest;
-				ide_fix_driveid(id);
+				isd200_fix_driveid(id);
 
 				US_DEBUGP("   Identify Data Structure:\n");
 				US_DEBUGP("      config = 0x%x\n", id->config);
@@ -1104,6 +1230,7 @@ static int isd200_get_inquiry_data( struct us_data *us )
 	    
 			/* Free driver structure */	    
 			us->extra_destructor(info);
+			kfree(info);
 			us->extra = NULL;
 			us->extra_destructor = NULL;
 		}
@@ -1113,7 +1240,6 @@ static int isd200_get_inquiry_data( struct us_data *us )
 
 	return(retStatus);
 }
-
 
 /**************************************************************************
  * isd200_scsi_to_ata
@@ -1163,7 +1289,7 @@ static int isd200_scsi_to_ata(struct scsi_cmnd *srb, struct us_data *us,
 			ataCdb->generic.TransferBlockSize = 1;
 			ataCdb->generic.RegisterSelect = REG_COMMAND;
 			ataCdb->write.CommandByte = ATA_COMMAND_GET_MEDIA_STATUS;
-			srb->request_bufflen = 0;
+			isd200_srb_set_bufflen(srb, 0);
 		} else {
 			US_DEBUGP("   Media Status not supported, just report okay\n");
 			srb->result = SAM_STAT_GOOD;
@@ -1181,7 +1307,7 @@ static int isd200_scsi_to_ata(struct scsi_cmnd *srb, struct us_data *us,
 			ataCdb->generic.TransferBlockSize = 1;
 			ataCdb->generic.RegisterSelect = REG_COMMAND;
 			ataCdb->write.CommandByte = ATA_COMMAND_GET_MEDIA_STATUS;
-			srb->request_bufflen = 0;
+			isd200_srb_set_bufflen(srb, 0);
 		} else {
 			US_DEBUGP("   Media Status not supported, just report okay\n");
 			srb->result = SAM_STAT_GOOD;
@@ -1287,7 +1413,7 @@ static int isd200_scsi_to_ata(struct scsi_cmnd *srb, struct us_data *us,
 			ataCdb->generic.RegisterSelect = REG_COMMAND;
 			ataCdb->write.CommandByte = (srb->cmnd[4] & 0x1) ?
 				WIN_DOORLOCK : WIN_DOORUNLOCK;
-			srb->request_bufflen = 0;
+			isd200_srb_set_bufflen(srb, 0);
 		} else {
 			US_DEBUGP("   Not removeable media, just report okay\n");
 			srb->result = SAM_STAT_GOOD;
@@ -1313,7 +1439,7 @@ static int isd200_scsi_to_ata(struct scsi_cmnd *srb, struct us_data *us,
 			ataCdb->generic.TransferBlockSize = 1;
 			ataCdb->generic.RegisterSelect = REG_COMMAND;
 			ataCdb->write.CommandByte = ATA_COMMAND_GET_MEDIA_STATUS;
-			srb->request_bufflen = 0;
+			isd200_srb_set_bufflen(srb, 0);
 		} else {
 			US_DEBUGP("   Nothing to do, just report okay\n");
 			srb->result = SAM_STAT_GOOD;
@@ -1344,6 +1470,7 @@ static void isd200_free_info_ptrs(void *info_)
 	if (info) {
 		kfree(info->id);
 		kfree(info->RegsBuf);
+		kfree(info->srb.sense_buffer);
 	}
 }
 
@@ -1369,7 +1496,9 @@ static int isd200_init_info(struct us_data *us)
 				kzalloc(sizeof(struct hd_driveid), GFP_KERNEL);
 		info->RegsBuf = (unsigned char *)
 				kmalloc(sizeof(info->ATARegs), GFP_KERNEL);
-		if (!info->id || !info->RegsBuf) {
+		info->srb.sense_buffer =
+				kmalloc(SCSI_SENSE_BUFFERSIZE, GFP_KERNEL);
+		if (!info->id || !info->RegsBuf || !info->srb.sense_buffer) {
 			isd200_free_info_ptrs(info);
 			kfree(info);
 			retStatus = ISD200_ERROR;
@@ -1422,7 +1551,7 @@ int isd200_Initialization(struct us_data *us)
 
 void isd200_ata_command(struct scsi_cmnd *srb, struct us_data *us)
 {
-	int sendToTransport = 1;
+	int sendToTransport = 1, orig_bufflen;
 	union ata_cdb ataCdb;
 
 	/* Make sure driver was initialized */
@@ -1430,11 +1559,14 @@ void isd200_ata_command(struct scsi_cmnd *srb, struct us_data *us)
 	if (us->extra == NULL)
 		US_DEBUGP("ERROR Driver not initialized\n");
 
-	/* Convert command */
-	srb->resid = 0;
+	scsi_set_resid(srb, 0);
+	/* scsi_bufflen might change in protocol translation to ata */
+	orig_bufflen = scsi_bufflen(srb);
 	sendToTransport = isd200_scsi_to_ata(srb, us, &ataCdb);
 
 	/* send the command to the transport layer */
 	if (sendToTransport)
 		isd200_invoke_transport(us, srb, &ataCdb);
+
+	isd200_srb_set_bufflen(srb, orig_bufflen);
 }

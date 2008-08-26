@@ -51,7 +51,8 @@ struct isofs_sb_info {
 	unsigned char s_hide;
 	unsigned char s_showassoc;
 
-	mode_t s_mode;
+	mode_t s_fmode;
+	mode_t s_dmode;
 	gid_t s_gid;
 	uid_t s_uid;
 	struct nls_table *s_nls_iocharset; /* Native language support table */
@@ -77,29 +78,29 @@ static inline int isonum_712(char *p)
 }
 static inline unsigned int isonum_721(char *p)
 {
-	return le16_to_cpu(get_unaligned((__le16 *)p));
+	return get_unaligned_le16(p);
 }
 static inline unsigned int isonum_722(char *p)
 {
-	return be16_to_cpu(get_unaligned((__le16 *)p));
+	return get_unaligned_be16(p);
 }
 static inline unsigned int isonum_723(char *p)
 {
 	/* Ignore bigendian datum due to broken mastering programs */
-	return le16_to_cpu(get_unaligned((__le16 *)p));
+	return get_unaligned_le16(p);
 }
 static inline unsigned int isonum_731(char *p)
 {
-	return le32_to_cpu(get_unaligned((__le32 *)p));
+	return get_unaligned_le32(p);
 }
 static inline unsigned int isonum_732(char *p)
 {
-	return be32_to_cpu(get_unaligned((__le32 *)p));
+	return get_unaligned_be32(p);
 }
 static inline unsigned int isonum_733(char *p)
 {
 	/* Ignore bigendian datum due to broken mastering programs */
-	return le32_to_cpu(get_unaligned((__le32 *)p));
+	return get_unaligned_le32(p);
 }
 extern int iso_date(char *, int);
 
@@ -178,4 +179,4 @@ isofs_normalize_block_and_offset(struct iso_directory_record* de,
 extern const struct inode_operations isofs_dir_inode_operations;
 extern const struct file_operations isofs_dir_operations;
 extern const struct address_space_operations isofs_symlink_aops;
-extern struct export_operations isofs_export_ops;
+extern const struct export_operations isofs_export_ops;

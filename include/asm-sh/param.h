@@ -2,11 +2,7 @@
 #define __ASM_SH_PARAM_H
 
 #ifdef __KERNEL__
-# ifdef CONFIG_SH_FAST_HZ
-#  define HZ		1000
-# else
-#  define HZ		CONFIG_HZ
-# endif
+# define HZ		CONFIG_HZ
 # define USER_HZ	100		/* User interfaces are in "ticks" */
 # define CLOCKS_PER_SEC	(USER_HZ)	/* frequency at which times() counts */
 #endif

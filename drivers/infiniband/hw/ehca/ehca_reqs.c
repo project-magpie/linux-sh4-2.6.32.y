@@ -50,6 +50,9 @@
 #include "hcp_if.h"
 #include "hipz_fns.h"
 
+/* in RC traffic, insert an empty RDMA READ every this many packets */
+#define ACK_CIRC_THRESHOLD 2000000
+
 static inline int ehca_write_rwqe(struct ipz_queue *ipz_rqueue,
 				  struct ehca_wqe *wqe_p,
 				  struct ib_recv_wr *recv_wr)
@@ -78,10 +81,10 @@ static inline int ehca_write_rwqe(struct ipz_queue *ipz_rqueue,
 			recv_wr->sg_list[cnt_ds].length;
 	}
 
-	if (ehca_debug_level) {
+	if (ehca_debug_level >= 3) {
 		ehca_gen_dbg("RECEIVE WQE written into ipz_rqueue=%p",
 			     ipz_rqueue);
-		ehca_dmp( wqe_p, 16*(6 + wqe_p->nr_of_data_seg), "recv wqe");
+		ehca_dmp(wqe_p, 16*(6 + wqe_p->nr_of_data_seg), "recv wqe");
 	}
 
 	return 0;
@@ -135,7 +138,8 @@ static void trace_send_wr_ud(const struct ib_send_wr *send_wr)
 
 static inline int ehca_write_swqe(struct ehca_qp *qp,
 				  struct ehca_wqe *wqe_p,
-				  const struct ib_send_wr *send_wr)
+				  const struct ib_send_wr *send_wr,
+				  int hidden)
 {
 	u32 idx;
 	u64 dma_length;
@@ -176,13 +180,15 @@ static inline int ehca_write_swqe(struct ehca_qp *qp,
 
 	wqe_p->wr_flag = 0;
 
-	if (send_wr->send_flags & IB_SEND_SIGNALED)
+	if ((send_wr->send_flags & IB_SEND_SIGNALED ||
+	    qp->init_attr.sq_sig_type == IB_SIGNAL_ALL_WR)
+	    && !hidden)
 		wqe_p->wr_flag |= WQE_WRFLAG_REQ_SIGNAL_COM;
 
 	if (send_wr->opcode == IB_WR_SEND_WITH_IMM ||
 	    send_wr->opcode == IB_WR_RDMA_WRITE_WITH_IMM) {
 		/* this might not work as long as HW does not support it */
-		wqe_p->immediate_data = be32_to_cpu(send_wr->imm_data);
+		wqe_p->immediate_data = be32_to_cpu(send_wr->ex.imm_data);
 		wqe_p->wr_flag |= WQE_WRFLAG_IMM_DATA_PRESENT;
 	}
 
@@ -199,8 +205,12 @@ static inline int ehca_write_swqe(struct ehca_qp *qp,
 
 		wqe_p->destination_qp_number = send_wr->wr.ud.remote_qpn << 8;
 		wqe_p->local_ee_context_qkey = remote_qkey;
-		if (!send_wr->wr.ud.ah) {
+		if (unlikely(!send_wr->wr.ud.ah)) {
 			ehca_gen_err("wr.ud.ah is NULL. qp=%p", qp);
+			return -EINVAL;
+		}
+		if (unlikely(send_wr->wr.ud.remote_qpn == 0)) {
+			ehca_gen_err("dest QP# is 0. qp=%x", qp->real_qp_num);
 			return -EINVAL;
 		}
 		my_av = container_of(send_wr->wr.ud.ah, struct ehca_av, ib_ah);
@@ -255,6 +265,15 @@ static inline int ehca_write_swqe(struct ehca_qp *qp,
 		} /* eof idx */
 		wqe_p->u.nud.atomic_1st_op_dma_len = dma_length;
 
+		/* unsolicited ack circumvention */
+		if (send_wr->opcode == IB_WR_RDMA_READ) {
+			/* on RDMA read, switch on and reset counters */
+			qp->message_count = qp->packet_count = 0;
+			qp->unsol_ack_circ = 1;
+		} else
+			/* else estimate #packets */
+			qp->packet_count += (dma_length >> qp->mtu_shift) + 1;
+
 		break;
 
 	default:
@@ -262,7 +281,7 @@ static inline int ehca_write_swqe(struct ehca_qp *qp,
 		return -EINVAL;
 	}
 
-	if (ehca_debug_level) {
+	if (ehca_debug_level >= 3) {
 		ehca_gen_dbg("SEND WQE written into queue qp=%p ", qp);
 		ehca_dmp( wqe_p, 16*(6 + wqe_p->nr_of_data_seg), "send wqe");
 	}
@@ -355,61 +374,102 @@ static inline void map_ib_wc_status(u32 cqe_status,
 		*wc_status = IB_WC_SUCCESS;
 }
 
+static inline int post_one_send(struct ehca_qp *my_qp,
+			 struct ib_send_wr *cur_send_wr,
+			 struct ib_send_wr **bad_send_wr,
+			 int hidden)
+{
+	struct ehca_wqe *wqe_p;
+	int ret;
+	u64 start_offset = my_qp->ipz_squeue.current_q_offset;
+
+	/* get pointer next to free WQE */
+	wqe_p = ipz_qeit_get_inc(&my_qp->ipz_squeue);
+	if (unlikely(!wqe_p)) {
+		/* too many posted work requests: queue overflow */
+		if (bad_send_wr)
+			*bad_send_wr = cur_send_wr;
+		ehca_err(my_qp->ib_qp.device, "Too many posted WQEs "
+			 "qp_num=%x", my_qp->ib_qp.qp_num);
+		return -ENOMEM;
+	}
+	/* write a SEND WQE into the QUEUE */
+	ret = ehca_write_swqe(my_qp, wqe_p, cur_send_wr, hidden);
+	/*
+	 * if something failed,
+	 * reset the free entry pointer to the start value
+	 */
+	if (unlikely(ret)) {
+		my_qp->ipz_squeue.current_q_offset = start_offset;
+		if (bad_send_wr)
+			*bad_send_wr = cur_send_wr;
+		ehca_err(my_qp->ib_qp.device, "Could not write WQE "
+			 "qp_num=%x", my_qp->ib_qp.qp_num);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 int ehca_post_send(struct ib_qp *qp,
 		   struct ib_send_wr *send_wr,
 		   struct ib_send_wr **bad_send_wr)
 {
 	struct ehca_qp *my_qp = container_of(qp, struct ehca_qp, ib_qp);
 	struct ib_send_wr *cur_send_wr;
-	struct ehca_wqe *wqe_p;
 	int wqe_cnt = 0;
 	int ret = 0;
 	unsigned long flags;
 
+	/* Reject WR if QP is in RESET, INIT or RTR state */
+	if (unlikely(my_qp->state < IB_QPS_RTS)) {
+		ehca_err(qp->device, "Invalid QP state  qp_state=%d qpn=%x",
+			 my_qp->state, qp->qp_num);
+		return -EINVAL;
+	}
+
 	/* LOCK the QUEUE */
 	spin_lock_irqsave(&my_qp->spinlock_s, flags);
+
+	/* Send an empty extra RDMA read if:
+	 *  1) there has been an RDMA read on this connection before
+	 *  2) no RDMA read occurred for ACK_CIRC_THRESHOLD link packets
+	 *  3) we can be sure that any previous extra RDMA read has been
+	 *     processed so we don't overflow the SQ
+	 */
+	if (unlikely(my_qp->unsol_ack_circ &&
+		     my_qp->packet_count > ACK_CIRC_THRESHOLD &&
+		     my_qp->message_count > my_qp->init_attr.cap.max_send_wr)) {
+		/* insert an empty RDMA READ to fix up the remote QP state */
+		struct ib_send_wr circ_wr;
+		memset(&circ_wr, 0, sizeof(circ_wr));
+		circ_wr.opcode = IB_WR_RDMA_READ;
+		post_one_send(my_qp, &circ_wr, NULL, 1); /* ignore retcode */
+		wqe_cnt++;
+		ehca_dbg(qp->device, "posted circ wr  qp_num=%x", qp->qp_num);
+		my_qp->message_count = my_qp->packet_count = 0;
+	}
 
 	/* loop processes list of send reqs */
 	for (cur_send_wr = send_wr; cur_send_wr != NULL;
 	     cur_send_wr = cur_send_wr->next) {
-		u64 start_offset = my_qp->ipz_squeue.current_q_offset;
-		/* get pointer next to free WQE */
-		wqe_p = ipz_qeit_get_inc(&my_qp->ipz_squeue);
-		if (unlikely(!wqe_p)) {
-			/* too many posted work requests: queue overflow */
-			if (bad_send_wr)
-				*bad_send_wr = cur_send_wr;
-			if (wqe_cnt == 0) {
-				ret = -ENOMEM;
-				ehca_err(qp->device, "Too many posted WQEs "
-					 "qp_num=%x", qp->qp_num);
-			}
-			goto post_send_exit0;
-		}
-		/* write a SEND WQE into the QUEUE */
-		ret = ehca_write_swqe(my_qp, wqe_p, cur_send_wr);
-		/*
-		 * if something failed,
-		 * reset the free entry pointer to the start value
-		 */
+		ret = post_one_send(my_qp, cur_send_wr, bad_send_wr, 0);
 		if (unlikely(ret)) {
-			my_qp->ipz_squeue.current_q_offset = start_offset;
-			*bad_send_wr = cur_send_wr;
-			if (wqe_cnt == 0) {
-				ret = -EINVAL;
-				ehca_err(qp->device, "Could not write WQE "
-					 "qp_num=%x", qp->qp_num);
-			}
+			/* if one or more WQEs were successful, don't fail */
+			if (wqe_cnt)
+				ret = 0;
 			goto post_send_exit0;
 		}
 		wqe_cnt++;
-		ehca_dbg(qp->device, "ehca_qp=%p qp_num=%x wqe_cnt=%d",
-			 my_qp, qp->qp_num, wqe_cnt);
 	} /* eof for cur_send_wr */
 
 post_send_exit0:
 	iosync(); /* serialize GAL register access */
 	hipz_update_sqa(my_qp, wqe_cnt);
+	if (unlikely(ret || ehca_debug_level >= 2))
+		ehca_dbg(qp->device, "ehca_qp=%p qp_num=%x wqe_cnt=%d ret=%i",
+			 my_qp, qp->qp_num, wqe_cnt, ret);
+	my_qp->message_count += wqe_cnt;
 	spin_unlock_irqrestore(&my_qp->spinlock_s, flags);
 	return ret;
 }
@@ -468,13 +528,14 @@ static int internal_post_recv(struct ehca_qp *my_qp,
 			goto post_recv_exit0;
 		}
 		wqe_cnt++;
-		ehca_dbg(dev, "ehca_qp=%p qp_num=%x wqe_cnt=%d",
-			 my_qp, my_qp->real_qp_num, wqe_cnt);
 	} /* eof for cur_recv_wr */
 
 post_recv_exit0:
 	iosync(); /* serialize GAL register access */
 	hipz_update_rqa(my_qp, wqe_cnt);
+	if (unlikely(ret || ehca_debug_level >= 2))
+	    ehca_dbg(dev, "ehca_qp=%p qp_num=%x wqe_cnt=%d ret=%i",
+		     my_qp, my_qp->real_qp_num, wqe_cnt, ret);
 	spin_unlock_irqrestore(&my_qp->spinlock_r, flags);
 	return ret;
 }
@@ -483,8 +544,16 @@ int ehca_post_recv(struct ib_qp *qp,
 		   struct ib_recv_wr *recv_wr,
 		   struct ib_recv_wr **bad_recv_wr)
 {
-	return internal_post_recv(container_of(qp, struct ehca_qp, ib_qp),
-				  qp->device, recv_wr, bad_recv_wr);
+	struct ehca_qp *my_qp = container_of(qp, struct ehca_qp, ib_qp);
+
+	/* Reject WR if QP is in RESET state */
+	if (unlikely(my_qp->state == IB_QPS_RESET)) {
+		ehca_err(qp->device, "Invalid QP state  qp_state=%d qpn=%x",
+			 my_qp->state, qp->qp_num);
+		return -EINVAL;
+	}
+
+	return internal_post_recv(my_qp, qp->device, recv_wr, bad_recv_wr);
 }
 
 int ehca_post_srq_recv(struct ib_srq *srq,
@@ -518,16 +587,17 @@ static inline int ehca_poll_cq_one(struct ib_cq *cq, struct ib_wc *wc)
 	struct ehca_cq *my_cq = container_of(cq, struct ehca_cq, ib_cq);
 	struct ehca_cqe *cqe;
 	struct ehca_qp *my_qp;
-	int cqe_count = 0;
+	int cqe_count = 0, is_error;
 
 poll_cq_one_read_cqe:
 	cqe = (struct ehca_cqe *)
 		ipz_qeit_get_inc_valid(&my_cq->ipz_queue);
 	if (!cqe) {
 		ret = -EAGAIN;
-		ehca_dbg(cq->device, "Completion queue is empty ehca_cq=%p "
-			 "cq_num=%x ret=%x", my_cq, my_cq->cq_number, ret);
-		goto  poll_cq_one_exit0;
+		if (ehca_debug_level >= 3)
+			ehca_dbg(cq->device, "Completion queue is empty  "
+				 "my_cq=%p cq_num=%x", my_cq, my_cq->cq_number);
+		goto poll_cq_one_exit0;
 	}
 
 	/* prevents loads being reordered across this point */
@@ -557,7 +627,7 @@ poll_cq_one_read_cqe:
 			ehca_dbg(cq->device,
 				 "Got CQE with purged bit qp_num=%x src_qp=%x",
 				 cqe->local_qp_number, cqe->remote_qp_number);
-			if (ehca_debug_level)
+			if (ehca_debug_level >= 2)
 				ehca_dmp(cqe, 64, "qp_num=%x src_qp=%x",
 					 cqe->local_qp_number,
 					 cqe->remote_qp_number);
@@ -570,11 +640,13 @@ poll_cq_one_read_cqe:
 		}
 	}
 
-	/* tracing cqe */
-	if (unlikely(ehca_debug_level)) {
+	is_error = cqe->status & WC_STATUS_ERROR_BIT;
+
+	/* trace error CQEs if debug_level >= 1, trace all CQEs if >= 3 */
+	if (unlikely(ehca_debug_level >= 3 || (ehca_debug_level && is_error))) {
 		ehca_dbg(cq->device,
-			 "Received COMPLETION ehca_cq=%p cq_num=%x -----",
-			 my_cq, my_cq->cq_number);
+			 "Received %sCOMPLETION ehca_cq=%p cq_num=%x -----",
+			 is_error ? "ERROR " : "", my_cq, my_cq->cq_number);
 		ehca_dmp(cqe, 64, "ehca_cq=%p cq_num=%x",
 			 my_cq, my_cq->cq_number);
 		ehca_dbg(cq->device,
@@ -597,8 +669,9 @@ poll_cq_one_read_cqe:
 		/* update also queue adder to throw away this entry!!! */
 		goto poll_cq_one_exit0;
 	}
+
 	/* eval ib_wc_status */
-	if (unlikely(cqe->status & WC_STATUS_ERROR_BIT)) {
+	if (unlikely(is_error)) {
 		/* complete with errors */
 		map_ib_wc_status(cqe->status, &wc->status);
 		wc->vendor_err = wc->status;
@@ -616,16 +689,8 @@ poll_cq_one_read_cqe:
 	wc->dlid_path_bits = cqe->dlid;
 	wc->src_qp = cqe->remote_qp_number;
 	wc->wc_flags = cqe->w_completion_flags;
-	wc->imm_data = cpu_to_be32(cqe->immediate_data);
+	wc->ex.imm_data = cpu_to_be32(cqe->immediate_data);
 	wc->sl = cqe->service_level;
-
-	if (unlikely(wc->status != IB_WC_SUCCESS))
-		ehca_dbg(cq->device,
-			 "ehca_cq=%p cq_num=%x WARNING unsuccessful cqe "
-			 "OPType=%x status=%x qp_num=%x src_qp=%x wr_id=%lx "
-			 "cqe=%p", my_cq, my_cq->cq_number, cqe->optype,
-			 cqe->status, cqe->local_qp_number,
-			 cqe->remote_qp_number, cqe->work_request_id, cqe);
 
 poll_cq_one_exit0:
 	if (cqe_count > 0)

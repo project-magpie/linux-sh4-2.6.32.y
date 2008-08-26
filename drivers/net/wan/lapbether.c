@@ -58,7 +58,7 @@ struct lapbethdev {
 	struct net_device_stats stats;		/* some statistics */
 };
 
-static struct list_head lapbeth_devices = LIST_HEAD_INIT(lapbeth_devices);
+static LIST_HEAD(lapbeth_devices);
 
 /* ------------------------------------------------------------------------ */
 
@@ -90,6 +90,9 @@ static int lapbeth_rcv(struct sk_buff *skb, struct net_device *dev, struct packe
 {
 	int len, err;
 	struct lapbethdev *lapbeth;
+
+	if (dev_net(dev) != &init_net)
+		goto drop;
 
 	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL)
 		return NET_RX_DROP;
@@ -213,7 +216,7 @@ static void lapbeth_data_transmit(struct net_device *ndev, struct sk_buff *skb)
 
 	skb->dev = dev = lapbeth->ethdev;
 
-	dev->hard_header(skb, dev, ETH_P_DEC, bcast_addr, NULL, 0);
+	dev_hard_header(skb, dev, ETH_P_DEC, bcast_addr, NULL, 0);
 
 	dev_queue_xmit(skb);
 }
@@ -326,7 +329,6 @@ static void lapbeth_setup(struct net_device *dev)
 	dev->hard_header_len = 3;
 	dev->mtu             = 1000;
 	dev->addr_len        = 0;
-	SET_MODULE_OWNER(dev);
 }
 
 /*
@@ -391,6 +393,9 @@ static int lapbeth_device_event(struct notifier_block *this,
 	struct lapbethdev *lapbeth;
 	struct net_device *dev = ptr;
 
+	if (dev_net(dev) != &init_net)
+		return NOTIFY_DONE;
+
 	if (!dev_is_ethdev(dev))
 		return NOTIFY_DONE;
 
@@ -454,6 +459,7 @@ static void __exit lapbeth_cleanup_driver(void)
 	list_for_each_safe(entry, tmp, &lapbeth_devices) {
 		lapbeth = list_entry(entry, struct lapbethdev, node);
 
+		dev_put(lapbeth->ethdev);
 		unregister_netdevice(lapbeth->axdev);
 	}
 	rtnl_unlock();

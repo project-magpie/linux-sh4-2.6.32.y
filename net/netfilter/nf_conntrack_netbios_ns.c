@@ -42,17 +42,17 @@ static unsigned int timeout __read_mostly = 3;
 module_param(timeout, uint, 0400);
 MODULE_PARM_DESC(timeout, "timeout for master connection/replies in seconds");
 
-static int help(struct sk_buff **pskb, unsigned int protoff,
+static int help(struct sk_buff *skb, unsigned int protoff,
 		struct nf_conn *ct, enum ip_conntrack_info ctinfo)
 {
 	struct nf_conntrack_expect *exp;
-	struct iphdr *iph = ip_hdr(*pskb);
-	struct rtable *rt = (struct rtable *)(*pskb)->dst;
+	struct iphdr *iph = ip_hdr(skb);
+	struct rtable *rt = skb->rtable;
 	struct in_device *in_dev;
 	__be32 mask = 0;
 
 	/* we're only interested in locally generated packets */
-	if ((*pskb)->sk == NULL)
+	if (skb->sk == NULL)
 		goto out;
 	if (rt == NULL || !(rt->rt_flags & RTCF_BROADCAST))
 		goto out;
@@ -86,29 +86,34 @@ static int help(struct sk_buff **pskb, unsigned int protoff,
 
 	exp->expectfn             = NULL;
 	exp->flags                = NF_CT_EXPECT_PERMANENT;
+	exp->class		  = NF_CT_EXPECT_CLASS_DEFAULT;
 	exp->helper               = NULL;
 
 	nf_ct_expect_related(exp);
 	nf_ct_expect_put(exp);
 
-	nf_ct_refresh(ct, *pskb, timeout * HZ);
+	nf_ct_refresh(ct, skb, timeout * HZ);
 out:
 	return NF_ACCEPT;
 }
+
+static struct nf_conntrack_expect_policy exp_policy = {
+	.max_expected	= 1,
+};
 
 static struct nf_conntrack_helper helper __read_mostly = {
 	.name			= "netbios-ns",
 	.tuple.src.l3num	= AF_INET,
 	.tuple.src.u.udp.port	= __constant_htons(NMBD_PORT),
 	.tuple.dst.protonum	= IPPROTO_UDP,
-	.max_expected		= 1,
 	.me			= THIS_MODULE,
 	.help			= help,
+	.expect_policy		= &exp_policy,
 };
 
 static int __init nf_conntrack_netbios_ns_init(void)
 {
-	helper.timeout = timeout;
+	exp_policy.timeout = timeout;
 	return nf_conntrack_helper_register(&helper);
 }
 

@@ -12,7 +12,6 @@
 
 #include <linux/delay.h>
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/interrupt.h>
 #include <linux/ioport.h>
 #include <linux/init.h>
@@ -20,6 +19,7 @@
 #include <linux/err.h>
 #include <linux/rcupdate.h>
 #include <linux/platform_device.h>
+#include <linux/i8042.h>
 
 #include <asm/io.h>
 
@@ -62,6 +62,12 @@ MODULE_PARM_DESC(noloop, "Disable the AUX Loopback command while probing for the
 static unsigned int i8042_blink_frequency = 500;
 module_param_named(panicblink, i8042_blink_frequency, uint, 0600);
 MODULE_PARM_DESC(panicblink, "Frequency with which keyboard LEDs should blink when kernel panics");
+
+#ifdef CONFIG_X86
+static unsigned int i8042_dritek;
+module_param_named(dritek, i8042_dritek, bool, 0);
+MODULE_PARM_DESC(dritek, "Force enable the Dritek keyboard extension");
+#endif
 
 #ifdef CONFIG_PNP
 static int i8042_nopnp;
@@ -208,7 +214,7 @@ static int __i8042_command(unsigned char *param, int command)
 	return 0;
 }
 
-static int i8042_command(unsigned char *param, int command)
+int i8042_command(unsigned char *param, int command)
 {
 	unsigned long flags;
 	int retval;
@@ -219,6 +225,7 @@ static int i8042_command(unsigned char *param, int command)
 
 	return retval;
 }
+EXPORT_SYMBOL(i8042_command);
 
 /*
  * i8042_kbd_write() sends a byte out through the keyboard interface.
@@ -278,7 +285,14 @@ static void i8042_stop(struct serio *serio)
 	struct i8042_port *port = serio->port_data;
 
 	port->exists = 0;
-	synchronize_sched();
+
+	/*
+	 * We synchronize with both AUX and KBD IRQs because there is
+	 * a (very unlikely) chance that AUX IRQ is raised for KBD port
+	 * and vice versa.
+	 */
+	synchronize_irq(I8042_AUX_IRQ);
+	synchronize_irq(I8042_KBD_IRQ);
 	port->serio = NULL;
 }
 
@@ -385,6 +399,8 @@ static int i8042_enable_kbd_port(void)
 	i8042_ctr |= I8042_CTR_KBDINT;
 
 	if (i8042_command(&i8042_ctr, I8042_CMD_CTL_WCTR)) {
+		i8042_ctr &= ~I8042_CTR_KBDINT;
+		i8042_ctr |= I8042_CTR_KBDDIS;
 		printk(KERN_ERR "i8042.c: Failed to enable KBD port.\n");
 		return -EIO;
 	}
@@ -402,6 +418,8 @@ static int i8042_enable_aux_port(void)
 	i8042_ctr |= I8042_CTR_AUXINT;
 
 	if (i8042_command(&i8042_ctr, I8042_CMD_CTL_WCTR)) {
+		i8042_ctr &= ~I8042_CTR_AUXINT;
+		i8042_ctr |= I8042_CTR_AUXDIS;
 		printk(KERN_ERR "i8042.c: Failed to enable AUX port.\n");
 		return -EIO;
 	}
@@ -867,6 +885,20 @@ static long i8042_panic_blink(long count)
 
 #undef DELAY
 
+#ifdef CONFIG_X86
+static void i8042_dritek_enable(void)
+{
+	char param = 0x90;
+	int error;
+
+	error = i8042_command(&param, 0x1059);
+	if (error)
+		printk(KERN_WARNING
+			"Failed to enable DRITEK extension: %d\n",
+			error);
+}
+#endif
+
 #ifdef CONFIG_PM
 /*
  * Here we try to restore the original BIOS settings. We only want to
@@ -920,9 +952,19 @@ static int i8042_resume(struct platform_device *dev)
 	i8042_ctr |= I8042_CTR_AUXDIS | I8042_CTR_KBDDIS;
 	i8042_ctr &= ~(I8042_CTR_AUXINT | I8042_CTR_KBDINT);
 	if (i8042_command(&i8042_ctr, I8042_CMD_CTL_WCTR)) {
-		printk(KERN_ERR "i8042: Can't write CTR to resume\n");
-		return -EIO;
+		printk(KERN_WARNING "i8042: Can't write CTR to resume, retrying...\n");
+		msleep(50);
+		if (i8042_command(&i8042_ctr, I8042_CMD_CTL_WCTR)) {
+			printk(KERN_ERR "i8042: CTR write retry failed\n");
+			return -EIO;
+		}
 	}
+
+
+#ifdef CONFIG_X86
+	if (i8042_dritek)
+		i8042_dritek_enable();
+#endif
 
 	if (i8042_mux_present) {
 		if (i8042_set_mux_mode(1, NULL) || i8042_enable_mux_ports())
@@ -1142,6 +1184,11 @@ static int __devinit i8042_probe(struct platform_device *dev)
 	if (error)
 		return error;
 
+#ifdef CONFIG_X86
+	if (i8042_dritek)
+		i8042_dritek_enable();
+#endif
+
 	if (!i8042_noaux) {
 		error = i8042_setup_aux();
 		if (error && error != -ENODEV && error != -EBUSY)
@@ -1153,7 +1200,6 @@ static int __devinit i8042_probe(struct platform_device *dev)
 		if (error)
 			goto out_fail;
 	}
-
 /*
  * Ok, everything is ready, let's register all serio ports
  */

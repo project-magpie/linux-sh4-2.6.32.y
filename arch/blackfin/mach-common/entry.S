@@ -29,34 +29,29 @@
  * 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-/*
- * 25-Dec-2004 - LG Soft India
- * 	1. Fix in return_from_int, to make sure any pending
- *	system call in ILAT for this process to get
- *	executed, otherwise in case context switch happens,
- *	system call of first process (i.e in ILAT) will be
- *	carried forward to the switched process.
- *	2. Removed Constant references for the following
- *		a.  IPEND
- *		b.  EXCAUSE mask
- *		c.  PAGE Mask
- */
-
-/*
- * NOTE: This code handles signal-recognition, which happens every time
+/* NOTE: This code handles signal-recognition, which happens every time
  * after a timer-interrupt and after each system call.
  */
 
-
+#include <linux/init.h>
 #include <linux/linkage.h>
 #include <linux/unistd.h>
 #include <asm/blackfin.h>
 #include <asm/errno.h>
+#include <asm/fixed_code.h>
 #include <asm/thread_info.h>  /* TIF_NEED_RESCHED */
 #include <asm/asm-offsets.h>
 #include <asm/trace.h>
 
 #include <asm/mach-common/context.S>
+
+#if defined(CONFIG_BFIN_SCRATCH_REG_RETN)
+# define EX_SCRATCH_REG RETN
+#elif defined(CONFIG_BFIN_SCRATCH_REG_RETE)
+# define EX_SCRATCH_REG RETE
+#else
+# define EX_SCRATCH_REG CYCLES
+#endif
 
 #ifdef CONFIG_EXCPT_IRQ_SYSC_L1
 .section .l1.text
@@ -68,41 +63,83 @@
  * This one does not lower the level to IRQ5, and thus can be used to
  * patch up CPLB misses on the kernel stack.
  */
-ENTRY(_ex_dcplb)
-#if defined(ANOMALY_05000261)
+#if ANOMALY_05000261
+#define _ex_dviol _ex_workaround_261
+#define _ex_dmiss _ex_workaround_261
+#define _ex_dmult _ex_workaround_261
+
+ENTRY(_ex_workaround_261)
 	/*
 	 * Work around an anomaly: if we see a new DCPLB fault, return
 	 * without doing anything.  Then, if we get the same fault again,
 	 * handle it.
 	 */
+	P4 = R7;	/* Store EXCAUSE */
 	p5.l = _last_cplb_fault_retx;
 	p5.h = _last_cplb_fault_retx;
 	r7 = [p5];
 	r6 = retx;
 	[p5] = r6;
 	cc = r6 == r7;
-	if !cc jump _return_from_exception;
+	if !cc jump _bfin_return_from_exception;
 	/* fall through */
-#endif
-ENDPROC(_ex_dcplb)
+	R7 = P4;
+	R6 = 0x26;	/* Data CPLB Miss */
+	cc = R6 == R7;
+	if cc jump _ex_dcplb_miss (BP);
+	R6 = 0x23;	/* Data CPLB Miss */
+	cc = R6 == R7;
+	if cc jump _ex_dcplb_viol (BP);
+	/* Handle 0x23 Data CPLB Protection Violation
+	 * and Data CPLB Multiple Hits - Linux Trap Zero
+	 */
+	jump _ex_trap_c;
+ENDPROC(_ex_workaround_261)
 
-ENTRY(_ex_icplb)
+#else
+#ifdef CONFIG_MPU
+#define _ex_dviol _ex_dcplb_viol
+#else
+#define _ex_dviol _ex_trap_c
+#endif
+#define _ex_dmiss _ex_dcplb_miss
+#define _ex_dmult _ex_trap_c
+#endif
+
+
+ENTRY(_ex_dcplb_viol)
+ENTRY(_ex_dcplb_miss)
+ENTRY(_ex_icplb_miss)
 	(R7:6,P5:4) = [sp++];
 	ASTAT = [sp++];
 	SAVE_ALL_SYS
+#ifdef CONFIG_MPU
+	/* We must load R1 here, _before_ DEBUG_HWTRACE_SAVE, since that
+	 * will change the stack pointer.  */
+	R0 = SEQSTAT;
+	R1 = SP;
+#endif
+	DEBUG_HWTRACE_SAVE(p5, r7)
+#ifdef CONFIG_MPU
+	sp += -12;
+	call _cplb_hdr;
+	sp += 12;
+	CC = R0 == 0;
+	IF !CC JUMP _handle_bad_cplb;
+#else
 	call __cplb_hdr;
-	DEBUG_START_HWTRACE(p5, r7)
+#endif
+	DEBUG_HWTRACE_RESTORE(p5, r7)
 	RESTORE_ALL_SYS
-	SP = RETN;
+	SP = EX_SCRATCH_REG;
 	rtx;
-ENDPROC(_ex_icplb)
+ENDPROC(_ex_icplb_miss)
 
 ENTRY(_ex_syscall)
-	DEBUG_START_HWTRACE(p5, r7)
 	(R7:6,P5:4) = [sp++];
 	ASTAT = [sp++];
 	raise 15;		/* invoked by TRAP #0, for sys call */
-	sp = retn;
+	sp = EX_SCRATCH_REG;
 	rtx
 ENDPROC(_ex_syscall)
 
@@ -114,30 +151,92 @@ ENTRY(_ex_soft_bp)
 ENDPROC(_ex_soft_bp)
 
 ENTRY(_ex_single_step)
+	/* If we just returned from an interrupt, the single step event is
+	   for the RTI instruction.  */
 	r7 = retx;
 	r6 = reti;
 	cc = r7 == r6;
-	if cc jump _return_from_exception
+	if cc jump _bfin_return_from_exception;
+
+	/* Don't do single step in hardware exception handler */
+        p5.l = lo(IPEND);
+        p5.h = hi(IPEND);
+	r6 = [p5];
+	cc = bittst(r6, 5);
+	if cc jump _bfin_return_from_exception;
+
+#ifdef CONFIG_KGDB
+	/* skip single step if current interrupt priority is higher than
+	 * that of the first instruction, from which gdb starts single step */
+	r6 >>= 6;
+	r7 = 10;
+.Lfind_priority_start:
+	cc = bittst(r6, 0);
+	if cc jump .Lfind_priority_done;
+	r6 >>= 1;
+	r7 += -1;
+	cc = r7 == 0;
+	if cc jump .Lfind_priority_done;
+	jump.s .Lfind_priority_start;
+.Lfind_priority_done:
+	p4.l = _debugger_step;
+	p4.h = _debugger_step;
+	r6 = [p4];
+	cc = r6 == 0;
+	if cc jump .Ldo_single_step;
+	r6 += -1;
+	cc = r6 < r7;
+	if cc jump _bfin_return_from_exception;
+.Ldo_single_step:
+#endif
+
+	/* If we were in user mode, do the single step normally.  */
+	r6 = [p5];
+	r7 = 0xffe0 (z);
+	r7 = r7 & r6;
+	cc = r7 == 0;
+	if cc jump 1f;
+
+	/*
+	 * We were in an interrupt handler.  By convention, all of them save
+	 * SYSCFG with their first instruction, so by checking whether our
+	 * RETX points at the entry point, we can determine whether to allow
+	 * a single step, or whether to clear SYSCFG.
+	 *
+	 * First, find out the interrupt level and the event vector for it.
+	 */
+	p5.l = lo(EVT0);
+	p5.h = hi(EVT0);
+	p5 += -4;
+2:
+	r7 = rot r7 by -1;
+	p5 += 4;
+	if !cc jump 2b;
+
+	/* What we actually do is test for the _second_ instruction in the
+	 * IRQ handler.  That way, if there are insns following the restore
+	 * of SYSCFG after leaving the handler, we will not turn off SYSCFG
+	 * for them.  */
+
+	r7 = [p5];
+	r7 += 2;
+	r6 = RETX;
+	cc = R7 == R6;
+	if !cc jump _bfin_return_from_exception;
+
+1:
+	/* Single stepping only a single instruction, so clear the trace
+	 * bit here.  */
 	r7 = syscfg;
 	bitclr (r7, 0);
 	syscfg = R7;
 
-	p5.l = lo(IPEND);
-	p5.h = hi(IPEND);
-	r6 = [p5];
-	cc = bittst(r6, 5);
-	if !cc jump _ex_trap_c;
-	p4.l = lo(EVT5);
-	p4.h = hi(EVT5);
-	r6.h = _exception_to_level5;
-	r6.l = _exception_to_level5;
-	r7 = [p4];
-	cc = r6 == r7;
-	if !cc jump _ex_trap_c;
+	jump _ex_trap_c;
 
-_return_from_exception:
-	DEBUG_START_HWTRACE(p5, r7)
-#ifdef ANOMALY_05000257
+ENDPROC(_ex_single_step)
+
+ENTRY(_bfin_return_from_exception)
+#if ANOMALY_05000257
 	R7=LC0;
 	LC0=R7;
 	R7=LC1;
@@ -145,11 +244,12 @@ _return_from_exception:
 #endif
 	(R7:6,P5:4) = [sp++];
 	ASTAT = [sp++];
-	sp = retn;
+	sp = EX_SCRATCH_REG;
 	rtx;
-ENDPROC(_ex_soft_bp)
+ENDPROC(_bfin_return_from_exception)
 
 ENTRY(_handle_bad_cplb)
+	DEBUG_HWTRACE_RESTORE(p5, r7)
 	/* To get here, we just tried and failed to change a CPLB
 	 * so, handle things in trap_c (C code), by lowering to
 	 * IRQ5, just like we normally do. Since this is not a
@@ -158,12 +258,21 @@ ENTRY(_handle_bad_cplb)
 	 * need to make a CPLB exception look like a normal exception
 	 */
 
-	DEBUG_START_HWTRACE(p5, r7)
 	RESTORE_ALL_SYS
 	[--sp] = ASTAT;
-	[--sp] = (R7:6, P5:4);
+	[--sp] = (R7:6,P5:4);
+
+ENTRY(_ex_replaceable)
+	nop;
 
 ENTRY(_ex_trap_c)
+	/* Make sure we are not in a double fault */
+	p4.l = lo(IPEND);
+	p4.h = hi(IPEND);
+	r7 = [p4];
+	CC = BITTST (r7, 5);
+	if CC jump _double_fault;
+
 	/* Call C code (trap_c) to handle the exception, which most
 	 * likely involves sending a signal to the current process.
 	 * To avoid double faults, lower our priority to IRQ5 first.
@@ -175,48 +284,113 @@ ENTRY(_ex_trap_c)
 	[p4] = p5;
 	csync;
 
+	p4.l = lo(DCPLB_FAULT_ADDR);
+	p4.h = hi(DCPLB_FAULT_ADDR);
+	r7 = [p4];
+	p5.h = _saved_dcplb_fault_addr;
+	p5.l = _saved_dcplb_fault_addr;
+	[p5] = r7;
+
+	r7 = [p4 + (ICPLB_FAULT_ADDR - DCPLB_FAULT_ADDR)];
+	p5.h = _saved_icplb_fault_addr;
+	p5.l = _saved_icplb_fault_addr;
+	[p5] = r7;
+
+	p4.l = _excpt_saved_stuff;
+	p4.h = _excpt_saved_stuff;
+
+	r6 = retx;
+	[p4] = r6;
+
+	r6 = SYSCFG;
+	[p4 + 4] = r6;
+	BITCLR(r6, 0);
+	SYSCFG = r6;
+
 	/* Disable all interrupts, but make sure level 5 is enabled so
 	 * we can switch to that level.  Save the old mask.  */
 	cli r6;
-	p4.l = _excpt_saved_imask;
-	p4.h = _excpt_saved_imask;
-	[p4] = r6;
+	[p4 + 8] = r6;
+
+	p4.l = lo(SAFE_USER_INSTRUCTION);
+	p4.h = hi(SAFE_USER_INSTRUCTION);
+	retx = p4;
+
 	r6 = 0x3f;
 	sti r6;
 
-	/* Save the excause into a circular buffer, in case the instruction
-	 * which caused this excecptions causes others.
-	 */
-	P5.l = _in_ptr_excause;
-	P5.h = _in_ptr_excause;
-	R7 = [P5];
-	R7 += 4;
-	R6 = 0xF;
-	R7 = R7 & R6;
-	[P5] = R7;
-	R6.l = _excause_circ_buf;
-	R6.h = _excause_circ_buf;
-	R7 = R7 + R6;
-	p5 = R7;
-	R6 = SEQSTAT;
-	[P5] = R6;
-
-	DEBUG_START_HWTRACE(p5, r7)
 	(R7:6,P5:4) = [sp++];
 	ASTAT = [sp++];
-	SP = RETN;
+	SP = EX_SCRATCH_REG;
 	raise 5;
 	rtx;
 ENDPROC(_ex_trap_c)
 
+/* We just realized we got an exception, while we were processing a different
+ * exception. This is a unrecoverable event, so crash
+ */
+ENTRY(_double_fault)
+        /* Turn caches & protection off, to ensure we don't get any more
+         * double exceptions
+         */
+
+        P4.L = LO(IMEM_CONTROL);
+        P4.H = HI(IMEM_CONTROL);
+
+        R5 = [P4];              /* Control Register*/
+        BITCLR(R5,ENICPLB_P);
+        SSYNC;          /* SSYNC required before writing to IMEM_CONTROL. */
+        .align 8;
+        [P4] = R5;
+        SSYNC;
+
+        P4.L = LO(DMEM_CONTROL);
+        P4.H = HI(DMEM_CONTROL);
+        R5 = [P4];
+        BITCLR(R5,ENDCPLB_P);
+        SSYNC;          /* SSYNC required before writing to DMEM_CONTROL. */
+        .align 8;
+        [P4] = R5;
+        SSYNC;
+
+        /* Fix up the stack */
+        (R7:6,P5:4) = [sp++];
+        ASTAT = [sp++];
+        SP = EX_SCRATCH_REG;
+
+        /* We should be out of the exception stack, and back down into
+         * kernel or user space stack
+         */
+        SAVE_ALL_SYS
+
+	/* The dumping functions expect the return address in the RETI
+	 * slot.  */
+	r6 = retx;
+	[sp + PT_PC] = r6;
+
+        r0 = sp;        /* stack frame pt_regs pointer argument ==> r0 */
+        SP += -12;
+        call _double_fault_c;
+        SP += 12;
+.L_double_fault_panic:
+        JUMP .L_double_fault_panic
+
+ENDPROC(_double_fault)
+
 ENTRY(_exception_to_level5)
 	SAVE_ALL_SYS
 
+	p4.l = _excpt_saved_stuff;
+	p4.h = _excpt_saved_stuff;
+	r6 = [p4];
+	[sp + PT_PC] = r6;
+
+	r6 = [p4 + 4];
+	[sp + PT_SYSCFG] = r6;
+
 	/* Restore interrupt mask.  We haven't pushed RETI, so this
 	 * doesn't enable interrupts until we return from this handler.  */
-	p4.l = _excpt_saved_imask;
-	p4.h = _excpt_saved_imask;
-	r6 = [p4];
+	r6 = [p4 + 8];
 	sti r6;
 
 	/* Restore the hardware error vector.  */
@@ -233,41 +407,10 @@ ENTRY(_exception_to_level5)
 	r0 = [p2];              /* Read current IPEND */
 	[sp + PT_IPEND] = r0;   /* Store IPEND */
 
-	/* Pop the excause from the circular buffer and push it on the stack
-	 * (in the right place - if you change the location of SEQSTAT, you
-	 * must change this offset.
-	 */
-.L_excep_to_5_again:
-	P5.l = _out_ptr_excause;
-	P5.h = _out_ptr_excause;
-	R7 = [P5];
-	R7 += 4;
-	R6 = 0xF;
-	R7 = R7 & R6;
-	[P5] = R7;
-	R6.l = _excause_circ_buf;
-	R6.h = _excause_circ_buf;
-	R7 = R7 + R6;
-	P5 = R7;
-	R1 = [P5];
-	[SP + 8] = r1;
-
 	r0 = sp; 	/* stack frame pt_regs pointer argument ==> r0 */
 	SP += -12;
 	call _trap_c;
 	SP += 12;
-
-	/* See if anything else is in the exception buffer
-	 * if there is, process it
-	 */
-	P5.l = _out_ptr_excause;
-	P5.h = _out_ptr_excause;
-	P4.l = _in_ptr_excause;
-	P4.h = _in_ptr_excause;
-	R6 = [P5];
-	R7 = [P4];
-	CC = R6 == R7;
-	if ! CC JUMP .L_excep_to_5_again
 
 	call _ret_from_exception;
 	RESTORE_ALL_SYS
@@ -279,19 +422,18 @@ ENTRY(_trap) /* Exception: 4th entry into system event table(supervisor mode)*/
 	 * covered by a CPLB.  Switch to an exception stack; use RETN as a
 	 * scratch register (for want of a better option).
 	 */
-	retn = sp;
+	EX_SCRATCH_REG = sp;
 	sp.l = _exception_stack_top;
 	sp.h = _exception_stack_top;
 	/* Try to deal with syscalls quickly.  */
 	[--sp] = ASTAT;
-	[--sp] = (R7:6, P5:4);
-	DEBUG_STOP_HWTRACE(p5, r7)
+	[--sp] = (R7:6,P5:4);
 	r7 = SEQSTAT;		/* reason code is in bit 5:0 */
 	r6.l = lo(SEQSTAT_EXCAUSE);
 	r6.h = hi(SEQSTAT_EXCAUSE);
 	r7 = r7 & r6;
-	p5.h = _extable;
-	p5.l = _extable;
+	p5.h = _ex_table;
+	p5.l = _ex_table;
 	p4 = r7;
 	p5 = p5 + (p4 << 2);
 	p4 = [p5];
@@ -554,9 +696,7 @@ ENTRY(_ret_from_exception)
 	[sp + PT_IPEND] = r0;
 
 1:
-	r1 = 0x37(Z);
-	r2 = ~r1;
-	r2.h = 0;
+	r2 = LO(~0x37) (Z);
 	r0 = r2 & r0;
 	cc = r0 == 0;
 	if !cc jump 4f;	/* if not return to user mode, get out */
@@ -634,9 +774,9 @@ ENTRY(_return_from_int)
 	p1.h = _schedule_and_signal_from_int;
 	[p0] = p1;
 	csync;
-#if defined(ANOMALY_05000281)
-	r0.l = lo(CONFIG_BOOT_LOAD);
-	r0.h = hi(CONFIG_BOOT_LOAD);
+#if ANOMALY_05000281
+	r0.l = lo(SAFE_USER_INSTRUCTION);
+	r0.h = hi(SAFE_USER_INSTRUCTION);
 	reti = r0;
 #endif
 	r0 = 0x801f (z);
@@ -648,9 +788,9 @@ ENTRY(_return_from_int)
 ENDPROC(_return_from_int)
 
 ENTRY(_lower_to_irq14)
-#if defined(ANOMALY_05000281)
-	r0.l = lo(CONFIG_BOOT_LOAD);
-	r0.h = hi(CONFIG_BOOT_LOAD);
+#if ANOMALY_05000281
+	r0.l = lo(SAFE_USER_INSTRUCTION);
+	r0.h = hi(SAFE_USER_INSTRUCTION);
 	reti = r0;
 #endif
 	r0 = 0x401f;
@@ -717,19 +857,114 @@ _schedule_and_signal:
 	rti;
 ENDPROC(_lower_to_irq14)
 
-/* Make sure when we start, that the circular buffer is initialized properly
- * R0 and P0 are call clobbered, so we can use them here.
+/* We handle this 100% in exception space - to reduce overhead
+ * Only potiential problem is if the software buffer gets swapped out of the
+ * CPLB table - then double fault. - so we don't let this happen in other places
  */
-ENTRY(_init_exception_buff)
-	r0 = 0;
-	p0.h = _in_ptr_excause;
-	p0.l = _in_ptr_excause;
-	[p0] = r0;
-	p0.h = _out_ptr_excause;
-	p0.l = _out_ptr_excause;
-	[p0] = r0;
-	rts;
-ENDPROC(_init_exception_buff)
+#ifdef CONFIG_DEBUG_BFIN_HWTRACE_EXPAND
+ENTRY(_ex_trace_buff_full)
+	[--sp] = P3;
+	[--sp] = P2;
+	[--sp] = LC0;
+	[--sp] = LT0;
+	[--sp] = LB0;
+	P5.L = _trace_buff_offset;
+	P5.H = _trace_buff_offset;
+	P3 = [P5];              /* trace_buff_offset */
+	P5.L = lo(TBUFSTAT);
+	P5.H = hi(TBUFSTAT);
+	R7 = [P5];
+	R7 <<= 1;               /* double, since we need to read twice */
+	LC0 = R7;
+	R7 <<= 2;               /* need to shift over again,
+				 * to get the number of bytes */
+	P5.L = lo(TBUF);
+	P5.H = hi(TBUF);
+	R6 = ((1 << CONFIG_DEBUG_BFIN_HWTRACE_EXPAND_LEN)*1024) - 1;
+
+	P2 = R7;
+	P3 = P3 + P2;
+	R7 = P3;
+	R7 = R7 & R6;
+	P3 = R7;
+	P2.L = _trace_buff_offset;
+	P2.H = _trace_buff_offset;
+	[P2] = P3;
+
+	P2.L = _software_trace_buff;
+	P2.H = _software_trace_buff;
+
+	LSETUP (.Lstart, .Lend) LC0;
+.Lstart:
+	R7 = [P5];      /* read TBUF */
+	P4 = P3 + P2;
+	[P4] = R7;
+	P3 += -4;
+	R7 = P3;
+	R7 = R7 & R6;
+.Lend:
+	P3 = R7;
+
+	LB0 = [sp++];
+	LT0 = [sp++];
+	LC0 = [sp++];
+	P2 = [sp++];
+	P3 = [sp++];
+	jump _bfin_return_from_exception;
+ENDPROC(_ex_trace_buff_full)
+
+#if CONFIG_DEBUG_BFIN_HWTRACE_EXPAND_LEN == 4
+.data
+#else
+.section .l1.data.B
+#endif /* CONFIG_DEBUG_BFIN_HWTRACE_EXPAND_LEN */
+ENTRY(_trace_buff_offset)
+        .long 0;
+ALIGN
+ENTRY(_software_trace_buff)
+	.rept ((1 << CONFIG_DEBUG_BFIN_HWTRACE_EXPAND_LEN)*256);
+	.long 0
+	.endr
+#endif /* CONFIG_DEBUG_BFIN_HWTRACE_EXPAND */
+
+#if CONFIG_EARLY_PRINTK
+__INIT
+ENTRY(_early_trap)
+	SAVE_ALL_SYS
+	trace_buffer_stop(p0,r0);
+
+	/* Turn caches off, to ensure we don't get double exceptions */
+
+	P4.L = LO(IMEM_CONTROL);
+	P4.H = HI(IMEM_CONTROL);
+
+	R5 = [P4];              /* Control Register*/
+	BITCLR(R5,ENICPLB_P);
+	CLI R1;
+	SSYNC;          /* SSYNC required before writing to IMEM_CONTROL. */
+	.align 8;
+	[P4] = R5;
+	SSYNC;
+
+	P4.L = LO(DMEM_CONTROL);
+	P4.H = HI(DMEM_CONTROL);
+	R5 = [P4];
+	BITCLR(R5,ENDCPLB_P);
+	SSYNC;          /* SSYNC required before writing to DMEM_CONTROL. */
+	.align 8;
+	[P4] = R5;
+	SSYNC;
+	STI R1;
+
+	r0 = sp;        /* stack frame pt_regs pointer argument ==> r0 */
+	r1 = RETX;
+
+	SP += -12;
+	call _early_trap_c;
+	SP += 12;
+ENDPROC(_early_trap)
+__FINIT
+#endif /* CONFIG_EARLY_PRINTK */
 
 /*
  * Put these in the kernel data section - that should always be covered by
@@ -741,30 +976,34 @@ ENDPROC(_init_exception_buff)
 #else
 .data
 #endif
-ALIGN
-_extable:
+
+ENTRY(_ex_table)
 	/* entry for each EXCAUSE[5:0]
 	 * This table must be in sync with the table in ./kernel/traps.c
 	 * EXCPT instruction can provide 4 bits of EXCAUSE, allowing 16 to be user defined
 	 */
-	.long _ex_syscall;      /* 0x00 - User Defined - Linux Syscall */
+	.long _ex_syscall       /* 0x00 - User Defined - Linux Syscall */
 	.long _ex_soft_bp       /* 0x01 - User Defined - Software breakpoint */
-	.long _ex_trap_c        /* 0x02 - User Defined */
+	.long _ex_replaceable   /* 0x02 - User Defined */
 	.long _ex_trap_c        /* 0x03 - User Defined - userspace stack overflow */
-	.long _ex_trap_c        /* 0x04 - User Defined */
-	.long _ex_trap_c        /* 0x05 - User Defined */
-	.long _ex_trap_c        /* 0x06 - User Defined */
-	.long _ex_trap_c        /* 0x07 - User Defined */
-	.long _ex_trap_c        /* 0x08 - User Defined */
-	.long _ex_trap_c        /* 0x09 - User Defined */
-	.long _ex_trap_c        /* 0x0A - User Defined */
-	.long _ex_trap_c        /* 0x0B - User Defined */
-	.long _ex_trap_c        /* 0x0C - User Defined */
-	.long _ex_trap_c        /* 0x0D - User Defined */
-	.long _ex_trap_c        /* 0x0E - User Defined */
-	.long _ex_trap_c        /* 0x0F - User Defined */
+	.long _ex_trap_c        /* 0x04 - User Defined - dump trace buffer */
+	.long _ex_replaceable   /* 0x05 - User Defined */
+	.long _ex_replaceable   /* 0x06 - User Defined */
+	.long _ex_replaceable   /* 0x07 - User Defined */
+	.long _ex_replaceable   /* 0x08 - User Defined */
+	.long _ex_replaceable   /* 0x09 - User Defined */
+	.long _ex_replaceable   /* 0x0A - User Defined */
+	.long _ex_replaceable   /* 0x0B - User Defined */
+	.long _ex_replaceable   /* 0x0C - User Defined */
+	.long _ex_replaceable   /* 0x0D - User Defined */
+	.long _ex_replaceable   /* 0x0E - User Defined */
+	.long _ex_replaceable   /* 0x0F - User Defined */
 	.long _ex_single_step   /* 0x10 - HW Single step */
+#ifdef CONFIG_DEBUG_BFIN_HWTRACE_EXPAND
+	.long _ex_trace_buff_full /* 0x11 - Trace Buffer Full */
+#else
 	.long _ex_trap_c        /* 0x11 - Trace Buffer Full */
+#endif
 	.long _ex_trap_c        /* 0x12 - Reserved */
 	.long _ex_trap_c        /* 0x13 - Reserved */
 	.long _ex_trap_c        /* 0x14 - Reserved */
@@ -782,16 +1021,16 @@ _extable:
 	.long _ex_trap_c        /* 0x20 - Reserved */
 	.long _ex_trap_c        /* 0x21 - Undefined Instruction */
 	.long _ex_trap_c        /* 0x22 - Illegal Instruction Combination */
-	.long _ex_dcplb         /* 0x23 - Data CPLB Protection Violation */
+	.long _ex_dviol         /* 0x23 - Data CPLB Protection Violation */
 	.long _ex_trap_c        /* 0x24 - Data access misaligned */
 	.long _ex_trap_c        /* 0x25 - Unrecoverable Event */
-	.long _ex_dcplb         /* 0x26 - Data CPLB Miss */
-	.long _ex_trap_c        /* 0x27 - Data CPLB Multiple Hits - Linux Trap Zero */
+	.long _ex_dmiss         /* 0x26 - Data CPLB Miss */
+	.long _ex_dmult         /* 0x27 - Data CPLB Multiple Hits - Linux Trap Zero */
 	.long _ex_trap_c        /* 0x28 - Emulation Watchpoint */
 	.long _ex_trap_c        /* 0x29 - Instruction fetch access error (535 only) */
 	.long _ex_trap_c        /* 0x2A - Instruction fetch misaligned */
-	.long _ex_icplb         /* 0x2B - Instruction CPLB protection Violation */
-	.long _ex_icplb         /* 0x2C - Instruction CPLB miss */
+	.long _ex_trap_c        /* 0x2B - Instruction CPLB protection Violation */
+	.long _ex_icplb_miss    /* 0x2C - Instruction CPLB miss */
 	.long _ex_trap_c        /* 0x2D - Instruction CPLB Multiple Hits */
 	.long _ex_trap_c        /* 0x2E - Illegal use of Supervisor Resource */
 	.long _ex_trap_c        /* 0x2E - Illegal use of Supervisor Resource */
@@ -812,8 +1051,8 @@ _extable:
 	.long _ex_trap_c        /* 0x3D - Reserved */
 	.long _ex_trap_c        /* 0x3E - Reserved */
 	.long _ex_trap_c        /* 0x3F - Reserved */
+END(_ex_table)
 
-ALIGN
 ENTRY(_sys_call_table)
 	.long _sys_restart_syscall	/* 0 */
 	.long _sys_exit
@@ -1164,7 +1403,7 @@ ENTRY(_sys_call_table)
 	.long _sys_epoll_pwait
 	.long _sys_utimensat
 	.long _sys_signalfd
-	.long _sys_timerfd
+	.long _sys_timerfd_create
 	.long _sys_eventfd	/* 350 */
 	.long _sys_pread64
 	.long _sys_pwrite64
@@ -1172,10 +1411,21 @@ ENTRY(_sys_call_table)
 	.long _sys_set_robust_list
 	.long _sys_get_robust_list	/* 355 */
 	.long _sys_fallocate
+	.long _sys_semtimedop
+	.long _sys_timerfd_settime
+	.long _sys_timerfd_gettime
+
 	.rept NR_syscalls-(.-_sys_call_table)/4
 	.long _sys_ni_syscall
 	.endr
-_excpt_saved_imask:
+
+	/*
+	 * Used to save the real RETX, IMASK and SYSCFG when temporarily
+	 * storing safe values across the transition from exception to IRQ5.
+	 */
+_excpt_saved_stuff:
+	.long 0;
+	.long 0;
 	.long 0;
 
 _exception_stack:
@@ -1184,22 +1434,8 @@ _exception_stack:
 	.endr
 _exception_stack_top:
 
-#if defined(ANOMALY_05000261)
+#if ANOMALY_05000261
 /* Used by the assembly entry point to work around an anomaly.  */
 _last_cplb_fault_retx:
 	.long 0;
 #endif
-/*
- * Single instructions can have multiple faults, which need to be
- * handled by traps.c, in irq5. We store the exception cause to ensure
- * we don't miss a double fault condition
- */
-ENTRY(_in_ptr_excause)
-	.long 0;
-ENTRY(_out_ptr_excause)
-	.long 0;
-ALIGN
-ENTRY(_excause_circ_buf)
-	.rept 4
-	.long 0
-	.endr

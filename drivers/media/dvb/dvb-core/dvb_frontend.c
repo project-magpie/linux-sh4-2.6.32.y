@@ -32,7 +32,6 @@
 #include <linux/slab.h>
 #include <linux/poll.h>
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/list.h>
 #include <linux/freezer.h>
 #include <linux/jiffies.h>
@@ -43,7 +42,7 @@
 #include "dvbdev.h"
 
 static int dvb_frontend_debug;
-static int dvb_shutdown_timeout = 5;
+static int dvb_shutdown_timeout;
 static int dvb_force_auto_inversion;
 static int dvb_override_tune_delay;
 static int dvb_powerdown_on_sleep = 1;
@@ -136,9 +135,9 @@ static void dvb_frontend_add_event(struct dvb_frontend *fe, fe_status_t status)
 	struct dvb_frontend_event *e;
 	int wp;
 
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
-	if (down_interruptible (&events->sem))
+	if (mutex_lock_interruptible (&events->mtx))
 		return;
 
 	wp = (events->eventw + 1) % MAX_EVENT;
@@ -159,7 +158,7 @@ static void dvb_frontend_add_event(struct dvb_frontend *fe, fe_status_t status)
 
 	events->eventw = wp;
 
-	up (&events->sem);
+	mutex_unlock(&events->mtx);
 
 	e->status = status;
 
@@ -172,7 +171,7 @@ static int dvb_frontend_get_event(struct dvb_frontend *fe,
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 	struct dvb_fe_events *events = &fepriv->events;
 
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
 	if (events->overflow) {
 		events->overflow = 0;
@@ -197,7 +196,7 @@ static int dvb_frontend_get_event(struct dvb_frontend *fe,
 			return ret;
 	}
 
-	if (down_interruptible (&events->sem))
+	if (mutex_lock_interruptible (&events->mtx))
 		return -ERESTARTSYS;
 
 	memcpy (event, &events->events[events->eventr],
@@ -205,7 +204,7 @@ static int dvb_frontend_get_event(struct dvb_frontend *fe,
 
 	events->eventr = (events->eventr + 1) % MAX_EVENT;
 
-	up (&events->sem);
+	mutex_unlock(&events->mtx);
 
 	return 0;
 }
@@ -238,7 +237,7 @@ static void dvb_frontend_swzigzag_update_delay(struct dvb_frontend_private *fepr
 {
 	int q2;
 
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
 	if (locked)
 		(fepriv->quality) = (fepriv->quality * 220 + 36*256) / 256;
@@ -330,7 +329,7 @@ static int dvb_frontend_swzigzag_autotune(struct dvb_frontend *fe, int check_wra
 
 	dprintk("%s: drift:%i inversion:%i auto_step:%i "
 		"auto_sub_step:%i started_auto_step:%i\n",
-		__FUNCTION__, fepriv->lnb_drift, fepriv->inversion,
+		__func__, fepriv->lnb_drift, fepriv->inversion,
 		fepriv->auto_step, fepriv->auto_sub_step, fepriv->started_auto_step);
 
 	/* set the frontend itself */
@@ -512,7 +511,7 @@ static int dvb_frontend_thread(void *data)
 	fe_status_t s;
 	struct dvb_frontend_parameters *params;
 
-	dprintk("%s\n", __FUNCTION__);
+	dprintk("%s\n", __func__);
 
 	fepriv->check_wrapped = 0;
 	fepriv->quality = 0;
@@ -528,7 +527,8 @@ static int dvb_frontend_thread(void *data)
 		up(&fepriv->sem);	    /* is locked when we enter the thread... */
 restart:
 		timeout = wait_event_interruptible_timeout(fepriv->wait_queue,
-			dvb_frontend_should_wakeup(fe) || kthread_should_stop(),
+			dvb_frontend_should_wakeup(fe) || kthread_should_stop()
+				|| freezing(current),
 			fepriv->delay);
 
 		if (kthread_should_stop() || dvb_frontend_is_exiting(fe)) {
@@ -574,10 +574,9 @@ restart:
 			dvb_frontend_swzigzag(fe);
 	}
 
-	if (dvb_shutdown_timeout) {
-		if (dvb_powerdown_on_sleep)
-			if (fe->ops.set_voltage)
-				fe->ops.set_voltage(fe, SEC_VOLTAGE_OFF);
+	if (dvb_powerdown_on_sleep) {
+		if (fe->ops.set_voltage)
+			fe->ops.set_voltage(fe, SEC_VOLTAGE_OFF);
 		if (fe->ops.tuner_ops.sleep) {
 			fe->ops.tuner_ops.sleep(fe);
 			if (fe->ops.i2c_gate_ctrl)
@@ -598,7 +597,7 @@ static void dvb_frontend_stop(struct dvb_frontend *fe)
 {
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
 	fepriv->exit = 1;
 	mb();
@@ -666,7 +665,7 @@ static int dvb_frontend_start(struct dvb_frontend *fe)
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 	struct task_struct *fe_thread;
 
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
 	if (fepriv->thread) {
 		if (!fepriv->exit)
@@ -697,6 +696,65 @@ static int dvb_frontend_start(struct dvb_frontend *fe)
 	return 0;
 }
 
+static void dvb_frontend_get_frequeny_limits(struct dvb_frontend *fe,
+					u32 *freq_min, u32 *freq_max)
+{
+	*freq_min = max(fe->ops.info.frequency_min, fe->ops.tuner_ops.info.frequency_min);
+
+	if (fe->ops.info.frequency_max == 0)
+		*freq_max = fe->ops.tuner_ops.info.frequency_max;
+	else if (fe->ops.tuner_ops.info.frequency_max == 0)
+		*freq_max = fe->ops.info.frequency_max;
+	else
+		*freq_max = min(fe->ops.info.frequency_max, fe->ops.tuner_ops.info.frequency_max);
+
+	if (*freq_min == 0 || *freq_max == 0)
+		printk(KERN_WARNING "DVB: frontend %u frequency limits undefined - fix the driver\n",
+		       fe->dvb->num);
+}
+
+static int dvb_frontend_check_parameters(struct dvb_frontend *fe,
+				struct dvb_frontend_parameters *parms)
+{
+	u32 freq_min;
+	u32 freq_max;
+
+	/* range check: frequency */
+	dvb_frontend_get_frequeny_limits(fe, &freq_min, &freq_max);
+	if ((freq_min && parms->frequency < freq_min) ||
+	    (freq_max && parms->frequency > freq_max)) {
+		printk(KERN_WARNING "DVB: frontend %u frequency %u out of range (%u..%u)\n",
+		       fe->dvb->num, parms->frequency, freq_min, freq_max);
+		return -EINVAL;
+	}
+
+	/* range check: symbol rate */
+	if (fe->ops.info.type == FE_QPSK) {
+		if ((fe->ops.info.symbol_rate_min &&
+		     parms->u.qpsk.symbol_rate < fe->ops.info.symbol_rate_min) ||
+		    (fe->ops.info.symbol_rate_max &&
+		     parms->u.qpsk.symbol_rate > fe->ops.info.symbol_rate_max)) {
+			printk(KERN_WARNING "DVB: frontend %u symbol rate %u out of range (%u..%u)\n",
+			       fe->dvb->num, parms->u.qpsk.symbol_rate,
+			       fe->ops.info.symbol_rate_min, fe->ops.info.symbol_rate_max);
+			return -EINVAL;
+		}
+
+	} else if (fe->ops.info.type == FE_QAM) {
+		if ((fe->ops.info.symbol_rate_min &&
+		     parms->u.qam.symbol_rate < fe->ops.info.symbol_rate_min) ||
+		    (fe->ops.info.symbol_rate_max &&
+		     parms->u.qam.symbol_rate > fe->ops.info.symbol_rate_max)) {
+			printk(KERN_WARNING "DVB: frontend %u symbol rate %u out of range (%u..%u)\n",
+			       fe->dvb->num, parms->u.qam.symbol_rate,
+			       fe->ops.info.symbol_rate_min, fe->ops.info.symbol_rate_max);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 static int dvb_frontend_ioctl(struct inode *inode, struct file *file,
 			unsigned int cmd, void *parg)
 {
@@ -705,9 +763,9 @@ static int dvb_frontend_ioctl(struct inode *inode, struct file *file,
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 	int err = -EOPNOTSUPP;
 
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
-	if (!fe || fepriv->exit)
+	if (fepriv->exit)
 		return -ENODEV;
 
 	if ((file->f_flags & O_ACCMODE) == O_RDONLY &&
@@ -722,6 +780,7 @@ static int dvb_frontend_ioctl(struct inode *inode, struct file *file,
 	case FE_GET_INFO: {
 		struct dvb_frontend_info* info = parg;
 		memcpy(info, &fe->ops.info, sizeof(struct dvb_frontend_info));
+		dvb_frontend_get_frequeny_limits(fe, &info->frequency_min, &info->frequency_max);
 
 		/* Force the CAN_INVERSION_AUTO bit on. If the frontend doesn't
 		 * do it, it is done for it. */
@@ -836,7 +895,7 @@ static int dvb_frontend_ioctl(struct inode *inode, struct file *file,
 			int i;
 			u8 last = 1;
 			if (dvb_frontend_debug)
-				printk("%s switch command: 0x%04lx\n", __FUNCTION__, cmd);
+				printk("%s switch command: 0x%04lx\n", __func__, cmd);
 			do_gettimeofday(&nexttime);
 			if (dvb_frontend_debug)
 				memcpy(&tv[0], &nexttime, sizeof(struct timeval));
@@ -860,7 +919,7 @@ static int dvb_frontend_ioctl(struct inode *inode, struct file *file,
 			}
 			if (dvb_frontend_debug) {
 				printk("%s(%d): switch delay (should be 32k followed by all 8k\n",
-					__FUNCTION__, fe->dvb->num);
+					__func__, fe->dvb->num);
 				for (i = 1; i < 10; i++)
 					printk("%d: %d\n", i, timeval_usec_diff(tv[i-1] , tv[i]));
 			}
@@ -882,6 +941,11 @@ static int dvb_frontend_ioctl(struct inode *inode, struct file *file,
 
 	case FE_SET_FRONTEND: {
 		struct dvb_frontend_tune_settings fetunesettings;
+
+		if (dvb_frontend_check_parameters(fe, parg) < 0) {
+			err = -EINVAL;
+			break;
+		}
 
 		memcpy (&fepriv->parameters, parg,
 			sizeof (struct dvb_frontend_parameters));
@@ -973,7 +1037,7 @@ static unsigned int dvb_frontend_poll(struct file *file, struct poll_table_struc
 	struct dvb_frontend *fe = dvbdev->priv;
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
 	poll_wait (file, &fepriv->events.wait_queue, wait);
 
@@ -990,20 +1054,17 @@ static int dvb_frontend_open(struct inode *inode, struct file *file)
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 	int ret;
 
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
-	if ((ret = dvb_generic_open (inode, file)) < 0)
-		return ret;
-
-	if (fe->ops.ts_bus_ctrl) {
-		if ((ret = fe->ops.ts_bus_ctrl (fe, 1)) < 0) {
-			dvb_generic_release (inode, file);
+	if (dvbdev->users == -1 && fe->ops.ts_bus_ctrl) {
+		if ((ret = fe->ops.ts_bus_ctrl(fe, 1)) < 0)
 			return ret;
-		}
 	}
 
-	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
+	if ((ret = dvb_generic_open (inode, file)) < 0)
+		goto err1;
 
+	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
 		/* normal tune mode when opened R/W */
 		fepriv->tune_mode_flags &= ~FE_TUNE_MODE_ONESHOT;
 		fepriv->tone = -1;
@@ -1011,12 +1072,19 @@ static int dvb_frontend_open(struct inode *inode, struct file *file)
 
 		ret = dvb_frontend_start (fe);
 		if (ret)
-			dvb_generic_release (inode, file);
+			goto err2;
 
 		/*  empty event queue */
 		fepriv->events.eventr = fepriv->events.eventw = 0;
 	}
 
+	return ret;
+
+err2:
+	dvb_generic_release(inode, file);
+err1:
+	if (dvbdev->users == -1 && fe->ops.ts_bus_ctrl)
+		fe->ops.ts_bus_ctrl(fe, 0);
 	return ret;
 }
 
@@ -1027,21 +1095,23 @@ static int dvb_frontend_release(struct inode *inode, struct file *file)
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 	int ret;
 
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
 	if ((file->f_flags & O_ACCMODE) != O_RDONLY)
 		fepriv->release_jiffies = jiffies;
 
-	if (fe->ops.ts_bus_ctrl)
-		fe->ops.ts_bus_ctrl (fe, 0);
-
 	ret = dvb_generic_release (inode, file);
 
-	if (dvbdev->users==-1 && fepriv->exit==1) {
-		fops_put(file->f_op);
-		file->f_op = NULL;
-		wake_up(&dvbdev->wait_queue);
+	if (dvbdev->users == -1) {
+		if (fepriv->exit == 1) {
+			fops_put(file->f_op);
+			file->f_op = NULL;
+			wake_up(&dvbdev->wait_queue);
+		}
+		if (fe->ops.ts_bus_ctrl)
+			fe->ops.ts_bus_ctrl(fe, 0);
 	}
+
 	return ret;
 }
 
@@ -1065,7 +1135,7 @@ int dvb_register_frontend(struct dvb_adapter* dvb,
 		.kernel_ioctl = dvb_frontend_ioctl
 	};
 
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
 	if (mutex_lock_interruptible(&frontend_mutex))
 		return -ERESTARTSYS;
@@ -1080,7 +1150,7 @@ int dvb_register_frontend(struct dvb_adapter* dvb,
 	init_MUTEX (&fepriv->sem);
 	init_waitqueue_head (&fepriv->wait_queue);
 	init_waitqueue_head (&fepriv->events.wait_queue);
-	init_MUTEX (&fepriv->events.sem);
+	mutex_init(&fepriv->events.mtx);
 	fe->dvb = dvb;
 	fepriv->inversion = INVERSION_OFF;
 
@@ -1099,7 +1169,7 @@ EXPORT_SYMBOL(dvb_register_frontend);
 int dvb_unregister_frontend(struct dvb_frontend* fe)
 {
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
-	dprintk ("%s\n", __FUNCTION__);
+	dprintk ("%s\n", __func__);
 
 	mutex_lock(&frontend_mutex);
 	dvb_frontend_stop (fe);
@@ -1119,7 +1189,7 @@ int dvb_unregister_frontend(struct dvb_frontend* fe)
 }
 EXPORT_SYMBOL(dvb_unregister_frontend);
 
-#ifdef CONFIG_DVB_CORE_ATTACH
+#ifdef CONFIG_MEDIA_ATTACH
 void dvb_frontend_detach(struct dvb_frontend* fe)
 {
 	void *ptr;
@@ -1131,6 +1201,10 @@ void dvb_frontend_detach(struct dvb_frontend* fe)
 	if (fe->ops.tuner_ops.release) {
 		fe->ops.tuner_ops.release(fe);
 		symbol_put_addr(fe->ops.tuner_ops.release);
+	}
+	if (fe->ops.analog_ops.release) {
+		fe->ops.analog_ops.release(fe);
+		symbol_put_addr(fe->ops.analog_ops.release);
 	}
 	ptr = (void*)fe->ops.release;
 	if (ptr) {
@@ -1145,6 +1219,8 @@ void dvb_frontend_detach(struct dvb_frontend* fe)
 		fe->ops.release_sec(fe);
 	if (fe->ops.tuner_ops.release)
 		fe->ops.tuner_ops.release(fe);
+	if (fe->ops.analog_ops.release)
+		fe->ops.analog_ops.release(fe);
 	if (fe->ops.release)
 		fe->ops.release(fe);
 }

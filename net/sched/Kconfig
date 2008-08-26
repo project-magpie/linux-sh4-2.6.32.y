@@ -2,9 +2,7 @@
 # Traffic control configuration.
 # 
 
-menu "QoS and/or fair queueing"
-
-config NET_SCHED
+menuconfig NET_SCHED
 	bool "QoS and/or fair queueing"
 	select NET_SCH_FIFO
 	---help---
@@ -40,9 +38,6 @@ config NET_SCHED
 
 	  The available schedulers are listed in the following questions; you
 	  can say Y to as many as you like. If unsure, say N now.
-
-config NET_SCH_FIFO
-	bool
 
 if NET_SCHED
 
@@ -110,17 +105,6 @@ config NET_SCH_PRIO
 
 	  To compile this code as a module, choose M here: the
 	  module will be called sch_prio.
-
-config NET_SCH_RR
-	tristate "Multi Band Round Robin Queuing (RR)"
-	select NET_SCH_PRIO
-	---help---
-	  Say Y here if you want to use an n-band round robin packet
-	  scheduler.
-
-	  The module uses sch_prio for its framework and is aliased as
-	  sch_rr, so it will load sch_prio, although it is referred
-	  to using sch_rr.
 
 config NET_SCH_RED
 	tristate "Random Early Detection (RED)"
@@ -203,6 +187,7 @@ config NET_SCH_NETEM
 
 config NET_SCH_INGRESS
 	tristate "Ingress Qdisc"
+	depends on NET_CLS_ACT
 	---help---
 	  Say Y here if you want to use classifiers for incoming packets.
 	  If unsure, say Y.
@@ -310,6 +295,17 @@ config NET_CLS_RSVP6
 
 	  To compile this code as a module, choose M here: the
 	  module will be called cls_rsvp6.
+
+config NET_CLS_FLOW
+	tristate "Flow classifier"
+	select NET_CLS
+	---help---
+	  If you say Y here, you will be able to classify packets based on
+	  a configurable combination of packet keys. This is mostly useful
+	  in combination with SFQ.
+
+	  To compile this code as a module, choose M here: the
+	  module will be called cls_flow.
 
 config NET_EMATCH
 	bool "Extended Matches"
@@ -447,6 +443,16 @@ config NET_ACT_IPT
 	  To compile this code as a module, choose M here: the
 	  module will be called ipt.
 
+config NET_ACT_NAT
+        tristate "Stateless NAT"
+        depends on NET_CLS_ACT
+        ---help---
+	  Say Y here to do stateless NAT on IPv4 packets.  You should use
+	  netfilter for NAT unless you know what you are doing.
+
+	  To compile this code as a module, choose M here: the
+	  module will be called nat.
+
 config NET_ACT_PEDIT
         tristate "Packet Editing"
         depends on NET_CLS_ACT
@@ -470,15 +476,6 @@ config NET_ACT_SIMP
 	  To compile this code as a module, choose M here: the
 	  module will be called simple.
 
-config NET_CLS_POLICE
-	bool "Traffic Policing (obsolete)"
-	select NET_CLS_ACT
-	select NET_ACT_POLICE
-	---help---
-	  Say Y here if you want to do traffic policing, i.e. strict
-	  bandwidth limiting. This option is obsolete and just selects
-	  the option replacing it. It will be removed in the future.
-
 config NET_CLS_IND
 	bool "Incoming device classification"
 	depends on NET_CLS_U32 || NET_CLS_FW
@@ -489,4 +486,5 @@ config NET_CLS_IND
 
 endif # NET_SCHED
 
-endmenu
+config NET_SCH_FIFO
+	bool

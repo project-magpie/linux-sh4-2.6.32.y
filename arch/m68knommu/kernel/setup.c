@@ -22,6 +22,7 @@
 #include <linux/interrupt.h>
 #include <linux/fb.h>
 #include <linux/module.h>
+#include <linux/mm.h>
 #include <linux/console.h>
 #include <linux/errno.h>
 #include <linux/string.h>
@@ -43,11 +44,8 @@ EXPORT_SYMBOL(memory_end);
 char __initdata command_line[COMMAND_LINE_SIZE];
 
 /* machine dependent timer functions */
-void (*mach_sched_init)(irq_handler_t handler);
-void (*mach_tick)(void);
 void (*mach_gettod)(int*, int*, int*, int*, int*, int*);
 int (*mach_set_clock_mmss)(unsigned long);
-unsigned long (*mach_gettimeoffset)(void);
 
 /* machine dependent reboot functions */
 void (*mach_reset)(void);
@@ -66,9 +64,6 @@ void (*mach_power_off)(void);
 #endif
 #ifdef CONFIG_M68VZ328
 	#define CPU "MC68VZ328"
-#endif
-#ifdef CONFIG_M68332
-	#define CPU "MC68332"
 #endif
 #ifdef CONFIG_M68360
 	#define CPU "MC68360"
@@ -116,7 +111,7 @@ void (*mach_power_off)(void);
 extern int _stext, _etext, _sdata, _edata, _sbss, _ebss, _end;
 extern int _ramstart, _ramend;
 
-void setup_arch(char **cmdline_p)
+void __init setup_arch(char **cmdline_p)
 {
 	int bootmap_size;
 
@@ -151,26 +146,14 @@ void setup_arch(char **cmdline_p)
 #ifdef CONFIG_ELITE
 	printk(KERN_INFO "Modified for M5206eLITE by Rob Scott, rscott@mtrob.fdns.net\n");
 #endif
-#ifdef CONFIG_TELOS
-	printk(KERN_INFO "Modified for Omnia ToolVox by James D. Schettine, james@telos-systems.com\n");
-#endif
 #endif
 	printk(KERN_INFO "Flat model support (C) 1998,1999 Kenneth Albanowski, D. Jeff Dionne\n");
 
 #if defined( CONFIG_PILOT ) && defined( CONFIG_M68328 )
 	printk(KERN_INFO "TRG SuperPilot FLASH card support <info@trgnet.com>\n");
 #endif
-
 #if defined( CONFIG_PILOT ) && defined( CONFIG_M68EZ328 )
 	printk(KERN_INFO "PalmV support by Lineo Inc. <jeff@uclinux.com>\n");
-#endif
-
-#ifdef CONFIG_M68EZ328ADS
-	printk(KERN_INFO "M68EZ328ADS board support (C) 1999 Vladimir Gurevich <vgurevic@cisco.com>\n");
-#endif
-
-#ifdef CONFIG_ALMA_ANS
-	printk(KERN_INFO "Alma Electronics board support (C) 1999 Vladimir Gurevich <vgurevic@cisco.com>\n");
 #endif
 #if defined (CONFIG_M68360)
 	printk(KERN_INFO "QUICC port done by SED Systems <hamilton@sedsystems.ca>,\n");
@@ -180,7 +163,7 @@ void setup_arch(char **cmdline_p)
 	printk(KERN_INFO "DragonEngine II board support by Georges Menie\n");
 #endif
 #ifdef CONFIG_M5235EVB
-	printk(KERN_INFO "Motorola M5235EVB support (C)2005 Syn-tech Systems, Inc. (Jate Sujjavanich)");
+	printk(KERN_INFO "Motorola M5235EVB support (C)2005 Syn-tech Systems, Inc. (Jate Sujjavanich)\n");
 #endif
 
 #ifdef DEBUG
@@ -188,11 +171,9 @@ void setup_arch(char **cmdline_p)
 		"BSS=0x%06x-0x%06x\n", (int) &_stext, (int) &_etext,
 		(int) &_sdata, (int) &_edata,
 		(int) &_sbss, (int) &_ebss);
-	printk(KERN_DEBUG "KERNEL -> ROMFS=0x%06x-0x%06x MEM=0x%06x-0x%06x "
-		"STACK=0x%06x-0x%06x\n",
+	printk(KERN_DEBUG "MEMORY -> ROMFS=0x%06x-0x%06x MEM=0x%06x-0x%06x\n ",
 		(int) &_ebss, (int) memory_start,
-		(int) memory_start, (int) memory_end,
-		(int) memory_end, (int) _ramend);
+		(int) memory_start, (int) memory_end);
 #endif
 
 	/* Keep a copy of command line */
@@ -223,7 +204,7 @@ void setup_arch(char **cmdline_p)
 	 * the bootmem bitmap so we then reserve it after freeing it :-)
 	 */
 	free_bootmem(memory_start, memory_end - memory_start);
-	reserve_bootmem(memory_start, bootmap_size);
+	reserve_bootmem(memory_start, bootmap_size, BOOTMEM_DEFAULT);
 
 	/*
 	 * Get kmalloc into gear.
@@ -280,19 +261,10 @@ static void c_stop(struct seq_file *m, void *v)
 {
 }
 
-struct seq_operations cpuinfo_op = {
+const struct seq_operations cpuinfo_op = {
 	.start	= c_start,
 	.next	= c_next,
 	.stop	= c_stop,
 	.show	= show_cpuinfo,
 };
-
-void arch_gettod(int *year, int *mon, int *day, int *hour,
-		 int *min, int *sec)
-{
-	if (mach_gettod)
-		mach_gettod(year, mon, day, hour, min, sec);
-	else
-		*year = *mon = *day = *hour = *min = *sec = 0;
-}
 

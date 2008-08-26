@@ -36,6 +36,7 @@ typedef int (group_search_t)(struct inode *,
 struct ocfs2_alloc_context {
 	struct inode *ac_inode;    /* which bitmap are we allocating from? */
 	struct buffer_head *ac_bh; /* file entry bh */
+	u32    ac_alloc_slot;   /* which slot are we allocating from? */
 	u32    ac_bits_wanted;
 	u32    ac_bits_given;
 #define OCFS2_AC_USE_LOCAL 1
@@ -147,4 +148,12 @@ static inline int ocfs2_is_cluster_bitmap(struct inode *inode)
 int ocfs2_reserve_cluster_bitmap_bits(struct ocfs2_super *osb,
 				      struct ocfs2_alloc_context *ac);
 
+/* given a cluster offset, calculate which block group it belongs to
+ * and return that block offset. */
+u64 ocfs2_which_cluster_group(struct inode *inode, u32 cluster);
+
+/* somewhat more expensive than our other checks, so use sparingly. */
+int ocfs2_check_group_descriptor(struct super_block *sb,
+				 struct ocfs2_dinode *di,
+				 struct ocfs2_group_desc *gd);
 #endif /* _CHAINALLOC_H_ */

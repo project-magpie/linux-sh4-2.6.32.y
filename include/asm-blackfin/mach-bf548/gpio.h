@@ -210,7 +210,10 @@ struct gpio_port_t {
 	unsigned int port_mux;
 };
 
-int gpio_request(unsigned short gpio, const char *label);
-void peripheral_free(unsigned short per);
-int peripheral_request_list(unsigned short per[], const char *label);
-void peripheral_free_list(unsigned short per[]);
+struct gpio_port_s {
+	unsigned short fer;
+	unsigned short data;
+	unsigned short dir;
+	unsigned short inen;
+	unsigned int mux;
+};

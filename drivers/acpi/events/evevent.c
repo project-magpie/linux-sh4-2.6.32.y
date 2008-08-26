@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2007, R. Byron Moore
+ * Copyright (C) 2000 - 2008, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -188,7 +188,7 @@ acpi_status acpi_ev_install_xrupt_handlers(void)
 
 static acpi_status acpi_ev_fixed_event_initialize(void)
 {
-	acpi_native_uint i;
+	u32 i;
 	acpi_status status;
 
 	/*
@@ -231,7 +231,7 @@ u32 acpi_ev_fixed_event_detect(void)
 	u32 int_status = ACPI_INTERRUPT_NOT_HANDLED;
 	u32 fixed_status;
 	u32 fixed_enable;
-	acpi_native_uint i;
+	u32 i;
 
 	ACPI_FUNCTION_NAME(ev_fixed_event_detect);
 
@@ -239,10 +239,8 @@ u32 acpi_ev_fixed_event_detect(void)
 	 * Read the fixed feature status and enable registers, as all the cases
 	 * depend on their values.  Ignore errors here.
 	 */
-	(void)acpi_hw_register_read(ACPI_MTX_DO_NOT_LOCK,
-				    ACPI_REGISTER_PM1_STATUS, &fixed_status);
-	(void)acpi_hw_register_read(ACPI_MTX_DO_NOT_LOCK,
-				    ACPI_REGISTER_PM1_ENABLE, &fixed_enable);
+	(void)acpi_hw_register_read(ACPI_REGISTER_PM1_STATUS, &fixed_status);
+	(void)acpi_hw_register_read(ACPI_REGISTER_PM1_ENABLE, &fixed_enable);
 
 	ACPI_DEBUG_PRINT((ACPI_DB_INTERRUPTS,
 			  "Fixed Event Block: Enable %08X Status %08X\n",
@@ -261,8 +259,8 @@ u32 acpi_ev_fixed_event_detect(void)
 			enable_bit_mask)) {
 
 			/* Found an active (signalled) event */
-
-			int_status |= acpi_ev_fixed_event_dispatch((u32) i);
+			acpi_os_fixed_event_count(i);
+			int_status |= acpi_ev_fixed_event_dispatch(i);
 		}
 	}
 

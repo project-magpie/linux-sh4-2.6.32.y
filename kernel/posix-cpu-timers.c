@@ -4,8 +4,9 @@
 
 #include <linux/sched.h>
 #include <linux/posix-timers.h>
-#include <asm/uaccess.h>
 #include <linux/errno.h>
+#include <linux/math64.h>
+#include <asm/uaccess.h>
 
 static int check_clock(const clockid_t which_clock)
 {
@@ -20,9 +21,9 @@ static int check_clock(const clockid_t which_clock)
 		return 0;
 
 	read_lock(&tasklist_lock);
-	p = find_task_by_pid(pid);
-	if (!p || (CPUCLOCK_PERTHREAD(which_clock) ?
-		   p->tgid != current->tgid : p->tgid != pid)) {
+	p = find_task_by_vpid(pid);
+	if (!p || !(CPUCLOCK_PERTHREAD(which_clock) ?
+		   same_thread_group(p, current) : thread_group_leader(p))) {
 		error = -EINVAL;
 	}
 	read_unlock(&tasklist_lock);
@@ -47,12 +48,10 @@ static void sample_to_timespec(const clockid_t which_clock,
 			       union cpu_time_count cpu,
 			       struct timespec *tp)
 {
-	if (CPUCLOCK_WHICH(which_clock) == CPUCLOCK_SCHED) {
-		tp->tv_sec = div_long_long_rem(cpu.sched,
-					       NSEC_PER_SEC, &tp->tv_nsec);
-	} else {
+	if (CPUCLOCK_WHICH(which_clock) == CPUCLOCK_SCHED)
+		*tp = ns_to_timespec(cpu.sched);
+	else
 		cputime_to_timespec(cpu.cpu, tp);
-	}
 }
 
 static inline int cpu_time_before(const clockid_t which_clock,
@@ -305,16 +304,16 @@ int posix_cpu_clock_get(const clockid_t which_clock, struct timespec *tp)
 		 */
 		struct task_struct *p;
 		rcu_read_lock();
-		p = find_task_by_pid(pid);
+		p = find_task_by_vpid(pid);
 		if (p) {
 			if (CPUCLOCK_PERTHREAD(which_clock)) {
-				if (p->tgid == current->tgid) {
+				if (same_thread_group(p, current)) {
 					error = cpu_clock_sample(which_clock,
 								 p, &rtn);
 				}
 			} else {
 				read_lock(&tasklist_lock);
-				if (p->tgid == pid && p->signal) {
+				if (thread_group_leader(p) && p->signal) {
 					error =
 					    cpu_clock_sample_group(which_clock,
 							           p, &rtn);
@@ -354,16 +353,16 @@ int posix_cpu_timer_create(struct k_itimer *new_timer)
 		if (pid == 0) {
 			p = current;
 		} else {
-			p = find_task_by_pid(pid);
-			if (p && p->tgid != current->tgid)
+			p = find_task_by_vpid(pid);
+			if (p && !same_thread_group(p, current))
 				p = NULL;
 		}
 	} else {
 		if (pid == 0) {
 			p = current->group_leader;
 		} else {
-			p = find_task_by_pid(pid);
-			if (p && p->tgid != pid)
+			p = find_task_by_vpid(pid);
+			if (p && !thread_group_leader(p))
 				p = NULL;
 		}
 	}
@@ -967,6 +966,7 @@ static void check_thread_timers(struct task_struct *tsk,
 {
 	int maxfire;
 	struct list_head *timers = tsk->cpu_timers;
+	struct signal_struct *const sig = tsk->signal;
 
 	maxfire = 20;
 	tsk->it_prof_expires = cputime_zero;
@@ -1010,6 +1010,38 @@ static void check_thread_timers(struct task_struct *tsk,
 		}
 		t->firing = 1;
 		list_move_tail(&t->entry, firing);
+	}
+
+	/*
+	 * Check for the special case thread timers.
+	 */
+	if (sig->rlim[RLIMIT_RTTIME].rlim_cur != RLIM_INFINITY) {
+		unsigned long hard = sig->rlim[RLIMIT_RTTIME].rlim_max;
+		unsigned long *soft = &sig->rlim[RLIMIT_RTTIME].rlim_cur;
+
+		if (hard != RLIM_INFINITY &&
+		    tsk->rt.timeout > DIV_ROUND_UP(hard, USEC_PER_SEC/HZ)) {
+			/*
+			 * At the hard limit, we just die.
+			 * No need to calculate anything else now.
+			 */
+			__group_send_sig_info(SIGKILL, SEND_SIG_PRIV, tsk);
+			return;
+		}
+		if (tsk->rt.timeout > DIV_ROUND_UP(*soft, USEC_PER_SEC/HZ)) {
+			/*
+			 * At the soft limit, send a SIGXCPU every second.
+			 */
+			if (sig->rlim[RLIMIT_RTTIME].rlim_cur
+			    < sig->rlim[RLIMIT_RTTIME].rlim_max) {
+				sig->rlim[RLIMIT_RTTIME].rlim_cur +=
+								USEC_PER_SEC;
+			}
+			printk(KERN_INFO
+				"RT Watchdog Timeout: %s[%d]\n",
+				tsk->comm, task_pid_nr(tsk));
+			__group_send_sig_info(SIGXCPU, SEND_SIG_PRIV, tsk);
+		}
 	}
 }
 
@@ -1057,45 +1089,45 @@ static void check_process_timers(struct task_struct *tsk,
 	maxfire = 20;
 	prof_expires = cputime_zero;
 	while (!list_empty(timers)) {
-		struct cpu_timer_list *t = list_first_entry(timers,
+		struct cpu_timer_list *tl = list_first_entry(timers,
 						      struct cpu_timer_list,
 						      entry);
-		if (!--maxfire || cputime_lt(ptime, t->expires.cpu)) {
-			prof_expires = t->expires.cpu;
+		if (!--maxfire || cputime_lt(ptime, tl->expires.cpu)) {
+			prof_expires = tl->expires.cpu;
 			break;
 		}
-		t->firing = 1;
-		list_move_tail(&t->entry, firing);
+		tl->firing = 1;
+		list_move_tail(&tl->entry, firing);
 	}
 
 	++timers;
 	maxfire = 20;
 	virt_expires = cputime_zero;
 	while (!list_empty(timers)) {
-		struct cpu_timer_list *t = list_first_entry(timers,
+		struct cpu_timer_list *tl = list_first_entry(timers,
 						      struct cpu_timer_list,
 						      entry);
-		if (!--maxfire || cputime_lt(utime, t->expires.cpu)) {
-			virt_expires = t->expires.cpu;
+		if (!--maxfire || cputime_lt(utime, tl->expires.cpu)) {
+			virt_expires = tl->expires.cpu;
 			break;
 		}
-		t->firing = 1;
-		list_move_tail(&t->entry, firing);
+		tl->firing = 1;
+		list_move_tail(&tl->entry, firing);
 	}
 
 	++timers;
 	maxfire = 20;
 	sched_expires = 0;
 	while (!list_empty(timers)) {
-		struct cpu_timer_list *t = list_first_entry(timers,
+		struct cpu_timer_list *tl = list_first_entry(timers,
 						      struct cpu_timer_list,
 						      entry);
-		if (!--maxfire || sum_sched_runtime < t->expires.sched) {
-			sched_expires = t->expires.sched;
+		if (!--maxfire || sum_sched_runtime < tl->expires.sched) {
+			sched_expires = tl->expires.sched;
 			break;
 		}
-		t->firing = 1;
-		list_move_tail(&t->entry, firing);
+		tl->firing = 1;
+		list_move_tail(&tl->entry, firing);
 	}
 
 	/*

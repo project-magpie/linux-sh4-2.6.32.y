@@ -41,9 +41,6 @@
 #define __DQUOT_VERSION__	"dquot_6.5.1"
 #define __DQUOT_NUM_VERSION__	6*10000+5*100+1
 
-typedef __kernel_uid32_t qid_t; /* Type in which we store ids in memory */
-typedef __u64 qsize_t;          /* Type in which we store sizes */
-
 /* Size of blocks in which are counted size limits */
 #define QUOTABLOCK_BITS 10
 #define QUOTABLOCK_SIZE (1 << QUOTABLOCK_BITS)
@@ -128,14 +125,56 @@ struct if_dqinfo {
 	__u32 dqi_valid;
 };
 
+/*
+ * Definitions for quota netlink interface
+ */
+#define QUOTA_NL_NOWARN 0
+#define QUOTA_NL_IHARDWARN 1		/* Inode hardlimit reached */
+#define QUOTA_NL_ISOFTLONGWARN 2 	/* Inode grace time expired */
+#define QUOTA_NL_ISOFTWARN 3		/* Inode softlimit reached */
+#define QUOTA_NL_BHARDWARN 4		/* Block hardlimit reached */
+#define QUOTA_NL_BSOFTLONGWARN 5	/* Block grace time expired */
+#define QUOTA_NL_BSOFTWARN 6		/* Block softlimit reached */
+#define QUOTA_NL_IHARDBELOW 7		/* Usage got below inode hardlimit */
+#define QUOTA_NL_ISOFTBELOW 8		/* Usage got below inode softlimit */
+#define QUOTA_NL_BHARDBELOW 9		/* Usage got below block hardlimit */
+#define QUOTA_NL_BSOFTBELOW 10		/* Usage got below block softlimit */
+
+enum {
+	QUOTA_NL_C_UNSPEC,
+	QUOTA_NL_C_WARNING,
+	__QUOTA_NL_C_MAX,
+};
+#define QUOTA_NL_C_MAX (__QUOTA_NL_C_MAX - 1)
+
+enum {
+	QUOTA_NL_A_UNSPEC,
+	QUOTA_NL_A_QTYPE,
+	QUOTA_NL_A_EXCESS_ID,
+	QUOTA_NL_A_WARNING,
+	QUOTA_NL_A_DEV_MAJOR,
+	QUOTA_NL_A_DEV_MINOR,
+	QUOTA_NL_A_CAUSED_ID,
+	__QUOTA_NL_A_MAX,
+};
+#define QUOTA_NL_A_MAX (__QUOTA_NL_A_MAX - 1)
+
+
 #ifdef __KERNEL__
-#include <linux/spinlock.h>
-#include <linux/rwsem.h>
+#include <linux/list.h>
 #include <linux/mutex.h>
+#include <linux/rwsem.h>
+#include <linux/spinlock.h>
+#include <linux/wait.h>
 
 #include <linux/dqblk_xfs.h>
 #include <linux/dqblk_v1.h>
 #include <linux/dqblk_v2.h>
+
+#include <asm/atomic.h>
+
+typedef __kernel_uid32_t qid_t; /* Type in which we store ids in memory */
+typedef __u64 qsize_t;          /* Type in which we store sizes */
 
 extern spinlock_t dq_data_lock;
 
@@ -167,10 +206,14 @@ struct quota_format_type;
 
 struct mem_dqinfo {
 	struct quota_format_type *dqi_format;
+	int dqi_fmt_id;		/* Id of the dqi_format - used when turning
+				 * quotas on after remount RW */
 	struct list_head dqi_dirty_list;	/* List of dirty dquots */
 	unsigned long dqi_flags;
 	unsigned int dqi_bgrace;
 	unsigned int dqi_igrace;
+	qsize_t dqi_maxblimit;
+	qsize_t dqi_maxilimit;
 	union {
 		struct v1_mem_dqinfo v1_i;
 		struct v2_mem_dqinfo v2_i;
@@ -184,12 +227,10 @@ struct super_block;
 #define DQF_INFO_DIRTY (1 << DQF_INFO_DIRTY_B)	/* Is info dirty? */
 
 extern void mark_info_dirty(struct super_block *sb, int type);
-#define info_dirty(info) test_bit(DQF_INFO_DIRTY_B, &(info)->dqi_flags)
-#define info_any_dquot_dirty(info) (!list_empty(&(info)->dqi_dirty_list))
-#define info_any_dirty(info) (info_dirty(info) || info_any_dquot_dirty(info))
-
-#define sb_dqopt(sb) (&(sb)->s_dquot)
-#define sb_dqinfo(sb, type) (sb_dqopt(sb)->info+(type))
+static inline int info_dirty(struct mem_dqinfo *info)
+{
+	return test_bit(DQF_INFO_DIRTY_B, &info->dqi_flags);
+}
 
 struct dqstats {
 	int lookups;
@@ -261,8 +302,8 @@ struct dquot_operations {
 
 /* Operations handling requests from userspace */
 struct quotactl_ops {
-	int (*quota_on)(struct super_block *, int, int, char *);
-	int (*quota_off)(struct super_block *, int);
+	int (*quota_on)(struct super_block *, int, int, char *, int);
+	int (*quota_off)(struct super_block *, int, int);
 	int (*quota_sync)(struct super_block *, int);
 	int (*get_info)(struct super_block *, int, struct if_dqinfo *);
 	int (*set_info)(struct super_block *, int, struct if_dqinfo *);
@@ -283,6 +324,10 @@ struct quota_format_type {
 
 #define DQUOT_USR_ENABLED	0x01		/* User diskquotas enabled */
 #define DQUOT_GRP_ENABLED	0x02		/* Group diskquotas enabled */
+#define DQUOT_USR_SUSPENDED	0x04		/* User diskquotas are off, but
+						 * we have necessary info in
+						 * memory to turn them on */
+#define DQUOT_GRP_SUSPENDED	0x08		/* The same for group quotas */
 
 struct quota_info {
 	unsigned int flags;			/* Flags for diskquotas on this device */
@@ -293,17 +338,6 @@ struct quota_info {
 	struct mem_dqinfo info[MAXQUOTAS];	/* Information for each quota type */
 	struct quota_format_ops *ops[MAXQUOTAS];	/* Operations for each type */
 };
-
-/* Inline would be better but we need to dereference super_block which is not defined yet */
-int mark_dquot_dirty(struct dquot *dquot);
-
-#define dquot_dirty(dquot) test_bit(DQ_MOD_B, &(dquot)->dq_flags)
-
-#define sb_has_quota_enabled(sb, type) ((type)==USRQUOTA ? \
-	(sb_dqopt(sb)->flags & DQUOT_USR_ENABLED) : (sb_dqopt(sb)->flags & DQUOT_GRP_ENABLED))
-
-#define sb_any_quota_enabled(sb) (sb_has_quota_enabled(sb, USRQUOTA) | \
-				  sb_has_quota_enabled(sb, GRPQUOTA))
 
 int register_quota_format(struct quota_format_type *fmt);
 void unregister_quota_format(struct quota_format_type *fmt);

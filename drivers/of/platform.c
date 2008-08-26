@@ -12,9 +12,12 @@
  *
  */
 #include <linux/errno.h>
+#include <linux/module.h>
 #include <linux/device.h>
 #include <linux/of_device.h>
 #include <linux/of_platform.h>
+
+extern struct device_attribute of_platform_device_attrs[];
 
 static int of_platform_bus_match(struct device *dev, struct device_driver *drv)
 {
@@ -84,6 +87,15 @@ static int of_platform_device_resume(struct device * dev)
 	return error;
 }
 
+static void of_platform_device_shutdown(struct device *dev)
+{
+	struct of_device *of_dev = to_of_device(dev);
+	struct of_platform_driver *drv = to_of_platform_driver(dev->driver);
+
+	if (dev->driver && drv->shutdown)
+		drv->shutdown(of_dev);
+}
+
 int of_bus_type_init(struct bus_type *bus, const char *name)
 {
 	bus->name = name;
@@ -92,5 +104,27 @@ int of_bus_type_init(struct bus_type *bus, const char *name)
 	bus->remove = of_platform_device_remove;
 	bus->suspend = of_platform_device_suspend;
 	bus->resume = of_platform_device_resume;
+	bus->shutdown = of_platform_device_shutdown;
+	bus->dev_attrs = of_platform_device_attrs;
 	return bus_register(bus);
 }
+
+int of_register_driver(struct of_platform_driver *drv, struct bus_type *bus)
+{
+	/* initialize common driver fields */
+	if (!drv->driver.name)
+		drv->driver.name = drv->name;
+	if (!drv->driver.owner)
+		drv->driver.owner = drv->owner;
+	drv->driver.bus = bus;
+
+	/* register with core */
+	return driver_register(&drv->driver);
+}
+EXPORT_SYMBOL(of_register_driver);
+
+void of_unregister_driver(struct of_platform_driver *drv)
+{
+	driver_unregister(&drv->driver);
+}
+EXPORT_SYMBOL(of_unregister_driver);

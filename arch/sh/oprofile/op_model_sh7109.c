@@ -364,7 +364,7 @@ static int sh7109_start(void)
 {
         int ret;
 
-        ret = request_irq(SH7109_PWM_IRQ, sh7109_pwm_interrupt, SA_INTERRUPT,
+        ret = request_irq(SH7109_PWM_IRQ, sh7109_pwm_interrupt, IRQF_DISABLED,
                         "SH7109 PWM", (void *)&results);
 
         if (ret < 0) {

@@ -20,7 +20,6 @@
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
-#include <linux/a.out.h>
 #include <linux/errno.h>
 #include <linux/signal.h>
 #include <linux/string.h>
@@ -75,7 +74,7 @@ static int load_flat_shared_library(int id, struct lib_info *p);
 #endif
 
 static int load_flat_binary(struct linux_binprm *, struct pt_regs * regs);
-static int flat_core_dump(long signr, struct pt_regs * regs, struct file *file);
+static int flat_core_dump(long signr, struct pt_regs *regs, struct file *file, unsigned long limit);
 
 static struct linux_binfmt flat_format = {
 	.module		= THIS_MODULE,
@@ -90,7 +89,7 @@ static struct linux_binfmt flat_format = {
  * Currently only a stub-function.
  */
 
-static int flat_core_dump(long signr, struct pt_regs * regs, struct file *file)
+static int flat_core_dump(long signr, struct pt_regs *regs, struct file *file, unsigned long limit)
 {
 	printk("Process %s:%d received signr %d and should have core dumped\n",
 			current->comm, current->pid, (int) signr);
@@ -113,7 +112,7 @@ static unsigned long create_flat_tables(
 	char * p = (char*)pp;
 	int argc = bprm->argc;
 	int envc = bprm->envc;
-	char dummy;
+	char uninitialized_var(dummy);
 
 	sp = (unsigned long *) ((-(unsigned long)sizeof(char *))&(unsigned long) p);
 
@@ -290,7 +289,6 @@ out_free_buf:
 	kfree(buf);
 out_free:
 	kfree(strm.workspace);
-out:
 	return retval;
 }
 
@@ -445,12 +443,12 @@ static int load_flat_file(struct linux_binprm * bprm,
 
 	if (strncmp(hdr->magic, "bFLT", 4)) {
 		/*
+		 * Previously, here was a printk to tell people
+		 *   "BINFMT_FLAT: bad header magic".
+		 * But for the kernel which also use ELF FD-PIC format, this
+		 * error message is confusing.
 		 * because a lot of people do not manage to produce good
-		 * flat binaries,  we leave this printk to help them realise
-		 * the problem.  We only print the error if its not a script file
 		 */
-		if (strncmp(hdr->magic, "#!", 2))
-			printk("BINFMT_FLAT: bad header magic\n");
 		ret = -ENOEXEC;
 		goto err;
 	}
@@ -459,7 +457,9 @@ static int load_flat_file(struct linux_binprm * bprm,
 		printk("BINFMT_FLAT: Loading file: %s\n", bprm->filename);
 
 	if (rev != FLAT_VERSION && rev != OLD_FLAT_VERSION) {
-		printk("BINFMT_FLAT: bad flat file version 0x%x (supported 0x%x and 0x%x)\n", rev, FLAT_VERSION, OLD_FLAT_VERSION);
+		printk("BINFMT_FLAT: bad flat file version 0x%x (supported "
+			"0x%lx and 0x%lx)\n",
+			rev, FLAT_VERSION, OLD_FLAT_VERSION);
 		ret = -ENOEXEC;
 		goto err;
 	}
@@ -515,7 +515,8 @@ static int load_flat_file(struct linux_binprm * bprm,
 	/*
 	 * calculate the extra space we need to map in
 	 */
-	extra = max(bss_len + stack_len, relocs * sizeof(unsigned long));
+	extra = max_t(unsigned long, bss_len + stack_len,
+			relocs * sizeof(unsigned long));
 
 	/*
 	 * there are a couple of cases here,  the separate code/data
@@ -530,7 +531,8 @@ static int load_flat_file(struct linux_binprm * bprm,
 		DBG_FLT("BINFMT_FLAT: ROM mapping of file (we hope)\n");
 
 		down_write(&current->mm->mmap_sem);
-		textpos = do_mmap(bprm->file, 0, text_len, PROT_READ|PROT_EXEC, MAP_PRIVATE, 0);
+		textpos = do_mmap(bprm->file, 0, text_len, PROT_READ|PROT_EXEC,
+				  MAP_PRIVATE|MAP_EXECUTABLE, 0);
 		up_write(&current->mm->mmap_sem);
 		if (!textpos  || textpos >= (unsigned long) -4096) {
 			if (!textpos)
@@ -546,7 +548,7 @@ static int load_flat_file(struct linux_binprm * bprm,
 			PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE, 0);
 		/* Remap to use all availabe slack region space */
 		if (realdatastart && (realdatastart < (unsigned long)-4096)) {
-			reallen = ksize(realdatastart);
+			reallen = kobjsize((void *)realdatastart);
 			if (reallen > len) {
 				realdatastart = do_mremap(realdatastart, len,
 					reallen, MREMAP_FIXED, realdatastart);
@@ -598,7 +600,7 @@ static int load_flat_file(struct linux_binprm * bprm,
 			PROT_READ | PROT_EXEC | PROT_WRITE, MAP_PRIVATE, 0);
 		/* Remap to use all availabe slack region space */
 		if (textpos && (textpos < (unsigned long) -4096)) {
-			reallen = ksize(textpos);
+			reallen = kobjsize((void *)textpos);
 			if (reallen > len) {
 				textpos = do_mremap(textpos, len, reallen,
 					MREMAP_FIXED, textpos);
@@ -681,7 +683,7 @@ static int load_flat_file(struct linux_binprm * bprm,
 		 */
 		current->mm->start_brk = datapos + data_len + bss_len;
 		current->mm->brk = (current->mm->start_brk + 3) & ~3;
-		current->mm->context.end_brk = memp + ksize((void *) memp) - stack_len;
+		current->mm->context.end_brk = memp + kobjsize((void *) memp) - stack_len;
 	}
 
 	if (flags & FLAT_FLAG_KTRACE)
@@ -788,7 +790,7 @@ static int load_flat_file(struct linux_binprm * bprm,
 
 	/* zero the BSS,  BRK and stack areas */
 	memset((void*)(datapos + data_len), 0, bss_len + 
-			(memp + ksize((void *) memp) - stack_len -	/* end brk */
+			(memp + kobjsize((void *) memp) - stack_len -	/* end brk */
 			libinfo->lib_list[id].start_brk) +		/* start brk */
 			stack_len);
 
@@ -918,9 +920,6 @@ static int load_flat_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	
 	start_thread(regs, start_addr, current->mm->start_stack);
 
-	if (current->ptrace & PT_PTRACED)
-		send_sig(SIGTRAP, current, 0);
-
 	return 0;
 }
 
@@ -931,14 +930,8 @@ static int __init init_flat_binfmt(void)
 	return register_binfmt(&flat_format);
 }
 
-static void __exit exit_flat_binfmt(void)
-{
-	unregister_binfmt(&flat_format);
-}
-
 /****************************************************************************/
 
 core_initcall(init_flat_binfmt);
-module_exit(exit_flat_binfmt);
 
 /****************************************************************************/

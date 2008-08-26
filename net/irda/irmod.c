@@ -17,7 +17,7 @@
  *     published by the Free Software Foundation; either version 2 of
  *     the License, or (at your option) any later version.
  *
- *     Neither Dag Brattli nor University of Tromsø admit liability nor
+ *     Neither Dag Brattli nor University of TromsÃ¸ admit liability nor
  *     provide warranty for any of this software. This material is
  *     provided "AS-IS" and at no charge.
  *
@@ -90,7 +90,7 @@ static int __init irda_init(void)
 {
 	int ret = 0;
 
-	IRDA_DEBUG(0, "%s()\n", __FUNCTION__);
+	IRDA_DEBUG(0, "%s()\n", __func__);
 
 	/* Lower layer of the stack */
 	irlmp_init();

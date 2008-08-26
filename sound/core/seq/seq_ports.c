@@ -1,7 +1,7 @@
 /*
  *   ALSA sequencer Ports
  *   Copyright (c) 1998 by Frank van de Pol <fvdpol@coil.demon.nl>
- *                         Jaroslav Kysela <perex@suse.cz>
+ *                         Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,6 @@
  *
  */
 
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <linux/slab.h>
 #include "seq_system.h"

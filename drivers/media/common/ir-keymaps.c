@@ -20,7 +20,6 @@
 
  */
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 
 #include <linux/input.h>
 #include <media/ir-common.h>
@@ -212,6 +211,51 @@ IR_KEYTAB_TYPE ir_codes_pixelview[IR_KEYTAB_SIZE] = {
 };
 
 EXPORT_SYMBOL_GPL(ir_codes_pixelview);
+
+/*
+   Mauro Carvalho Chehab <mchehab@infradead.org>
+   present on PV MPEG 8000GT
+ */
+IR_KEYTAB_TYPE ir_codes_pixelview_new[IR_KEYTAB_SIZE] = {
+	[0x3c] = KEY_PAUSE,		/* Timeshift */
+	[0x12] = KEY_POWER,
+
+	[0x3d] = KEY_1,
+	[0x38] = KEY_2,
+	[0x18] = KEY_3,
+	[0x35] = KEY_4,
+	[0x39] = KEY_5,
+	[0x15] = KEY_6,
+	[0x36] = KEY_7,
+	[0x3a] = KEY_8,
+	[0x1e] = KEY_9,
+	[0x3e] = KEY_0,
+
+	[0x1c] = KEY_AGAIN,		/* LOOP	*/
+	[0x3f] = KEY_MEDIA,		/* Source */
+	[0x1f] = KEY_LAST,		/* +100 */
+	[0x1b] = KEY_MUTE,
+
+	[0x17] = KEY_CHANNELDOWN,
+	[0x16] = KEY_CHANNELUP,
+	[0x10] = KEY_VOLUMEUP,
+	[0x14] = KEY_VOLUMEDOWN,
+	[0x13] = KEY_ZOOM,
+
+	[0x19] = KEY_SHUFFLE,		/* SNAPSHOT */
+	[0x1a] = KEY_SEARCH,		/* scan */
+
+	[0x37] = KEY_REWIND,		/* << */
+	[0x32] = KEY_RECORD,		/* o (red) */
+	[0x33] = KEY_FORWARD,		/* >> */
+	[0x11] = KEY_STOP,		/* square */
+	[0x3b] = KEY_PLAY,		/* > */
+	[0x30] = KEY_PLAYPAUSE,		/* || */
+
+	[0x31] = KEY_TV,
+	[0x34] = KEY_RADIO,
+};
+EXPORT_SYMBOL_GPL(ir_codes_pixelview_new);
 
 IR_KEYTAB_TYPE ir_codes_nebula[IR_KEYTAB_SIZE] = {
 	[ 0x00 ] = KEY_0,
@@ -727,7 +771,11 @@ IR_KEYTAB_TYPE ir_codes_flyvideo[IR_KEYTAB_SIZE] = {
 	[ 0x12 ] = KEY_CHANNELUP,    // Channel +
 	[ 0x13 ] = KEY_CHANNELDOWN,  // Channel -
 	[ 0x06 ] = KEY_AGAIN,        // Recall
-	[ 0x10 ] = KEY_ENTER,      // Enter
+	[ 0x10 ] = KEY_ENTER,        // Enter
+
+	[ 0x19 ] = KEY_BACK,         // Rewind  ( <<< )
+	[ 0x1f ] = KEY_FORWARD,      // Forward ( >>> )
+	[ 0x0a ] = KEY_ANGLE,        // (no label, may be used as the PAUSE button)
 };
 
 EXPORT_SYMBOL_GPL(ir_codes_flyvideo);
@@ -1075,41 +1123,41 @@ EXPORT_SYMBOL_GPL(ir_codes_manli);
 /* Mike Baikov <mike@baikov.com> */
 IR_KEYTAB_TYPE ir_codes_gotview7135[IR_KEYTAB_SIZE] = {
 
-	[ 0x21 ] = KEY_POWER,
-	[ 0x69 ] = KEY_TV,
-	[ 0x33 ] = KEY_0,
-	[ 0x51 ] = KEY_1,
-	[ 0x31 ] = KEY_2,
-	[ 0x71 ] = KEY_3,
-	[ 0x3b ] = KEY_4,
-	[ 0x58 ] = KEY_5,
-	[ 0x41 ] = KEY_6,
-	[ 0x48 ] = KEY_7,
-	[ 0x30 ] = KEY_8,
-	[ 0x53 ] = KEY_9,
-	[ 0x73 ] = KEY_AGAIN, /* LOOP */
-	[ 0x0a ] = KEY_AUDIO,
-	[ 0x61 ] = KEY_PRINT, /* PREVIEW */
-	[ 0x7a ] = KEY_VIDEO,
-	[ 0x20 ] = KEY_CHANNELUP,
-	[ 0x40 ] = KEY_CHANNELDOWN,
-	[ 0x18 ] = KEY_VOLUMEDOWN,
-	[ 0x50 ] = KEY_VOLUMEUP,
-	[ 0x10 ] = KEY_MUTE,
-	[ 0x4a ] = KEY_SEARCH,
-	[ 0x7b ] = KEY_SHUFFLE, /* SNAPSHOT */
-	[ 0x22 ] = KEY_RECORD,
-	[ 0x62 ] = KEY_STOP,
-	[ 0x78 ] = KEY_PLAY,
-	[ 0x39 ] = KEY_REWIND,
-	[ 0x59 ] = KEY_PAUSE,
-	[ 0x19 ] = KEY_FORWARD,
-	[ 0x09 ] = KEY_ZOOM,
+	[ 0x11 ] = KEY_POWER,
+	[ 0x35 ] = KEY_TV,
+	[ 0x1b ] = KEY_0,
+	[ 0x29 ] = KEY_1,
+	[ 0x19 ] = KEY_2,
+	[ 0x39 ] = KEY_3,
+	[ 0x1f ] = KEY_4,
+	[ 0x2c ] = KEY_5,
+	[ 0x21 ] = KEY_6,
+	[ 0x24 ] = KEY_7,
+	[ 0x18 ] = KEY_8,
+	[ 0x2b ] = KEY_9,
+	[ 0x3b ] = KEY_AGAIN, /* LOOP */
+	[ 0x06 ] = KEY_AUDIO,
+	[ 0x31 ] = KEY_PRINT, /* PREVIEW */
+	[ 0x3e ] = KEY_VIDEO,
+	[ 0x10 ] = KEY_CHANNELUP,
+	[ 0x20 ] = KEY_CHANNELDOWN,
+	[ 0x0c ] = KEY_VOLUMEDOWN,
+	[ 0x28 ] = KEY_VOLUMEUP,
+	[ 0x08 ] = KEY_MUTE,
+	[ 0x26 ] = KEY_SEARCH, /*SCAN*/
+	[ 0x3f ] = KEY_SHUFFLE, /* SNAPSHOT */
+	[ 0x12 ] = KEY_RECORD,
+	[ 0x32 ] = KEY_STOP,
+	[ 0x3c ] = KEY_PLAY,
+	[ 0x1d ] = KEY_REWIND,
+	[ 0x2d ] = KEY_PAUSE,
+	[ 0x0d ] = KEY_FORWARD,
+	[ 0x05 ] = KEY_ZOOM,  /*FULL*/
 
-	[ 0x52 ] = KEY_F21, /* LIVE TIMESHIFT */
-	[ 0x1a ] = KEY_F22, /* MIN TIMESHIFT */
-	[ 0x3a ] = KEY_F23, /* TIMESHIFT */
-	[ 0x70 ] = KEY_F24, /* NORMAL TIMESHIFT */
+	[ 0x2a ] = KEY_F21, /* LIVE TIMESHIFT */
+	[ 0x0e ] = KEY_F22, /* MIN TIMESHIFT */
+	[ 0x1e ] = KEY_F23, /* TIMESHIFT */
+	[ 0x38 ] = KEY_F24, /* NORMAL TIMESHIFT */
 };
 
 EXPORT_SYMBOL_GPL(ir_codes_gotview7135);
@@ -1158,7 +1206,8 @@ EXPORT_SYMBOL_GPL(ir_codes_purpletv);
 
 /* Mapping for the 28 key remote control as seen at
    http://www.sednacomputer.com/photo/cardbus-tv.jpg
-   Pavel Mihaylov <bin@bash.info> */
+   Pavel Mihaylov <bin@bash.info>
+   Also for the remote bundled with Kozumi KTV-01C card */
 IR_KEYTAB_TYPE ir_codes_pctv_sedna[IR_KEYTAB_SIZE] = {
 	[ 0x00 ] = KEY_0,
 	[ 0x01 ] = KEY_1,
@@ -1189,6 +1238,11 @@ IR_KEYTAB_TYPE ir_codes_pctv_sedna[IR_KEYTAB_SIZE] = {
 	[ 0x1c ] = KEY_RADIO,          /* FM Radio */
 	[ 0x1d ] = KEY_RECORD,
 	[ 0x1e ] = KEY_PAUSE,
+	/* additional codes for Kozumi's remote */
+	[0x14] = KEY_INFO,        /* OSD */
+	[0x16] = KEY_OK,          /* OK */
+	[0x17] = KEY_DIGITS,      /* Plus */
+	[0x1f] = KEY_PLAY,        /* Play */
 };
 
 EXPORT_SYMBOL_GPL(ir_codes_pctv_sedna);
@@ -1332,7 +1386,12 @@ IR_KEYTAB_TYPE ir_codes_winfast[IR_KEYTAB_SIZE] = {
 	[ 0x35 ] = KEY_FASTFORWARD,
 	[ 0x36 ] = KEY_TV,
 	[ 0x37 ] = KEY_RADIO,         /* FM */
-	[ 0x38 ] = KEY_DVD
+	[ 0x38 ] = KEY_DVD,
+
+	[ 0x3e ] = KEY_F21,           /* MCE +VOL, on Y04G0033 */
+	[ 0x3a ] = KEY_F22,           /* MCE -VOL, on Y04G0033 */
+	[ 0x3b ] = KEY_F23,           /* MCE +CH,  on Y04G0033 */
+	[ 0x3f ] = KEY_F24            /* MCE -CH,  on Y04G0033 */
 };
 
 EXPORT_SYMBOL_GPL(ir_codes_winfast);
@@ -1783,3 +1842,400 @@ IR_KEYTAB_TYPE ir_codes_tt_1500[IR_KEYTAB_SIZE] = {
 };
 
 EXPORT_SYMBOL_GPL(ir_codes_tt_1500);
+
+/* DViCO FUSION HDTV MCE remote */
+IR_KEYTAB_TYPE ir_codes_fusionhdtv_mce[IR_KEYTAB_SIZE] = {
+
+	[ 0x0b ] = KEY_1,
+	[ 0x17 ] = KEY_2,
+	[ 0x1b ] = KEY_3,
+	[ 0x07 ] = KEY_4,
+	[ 0x50 ] = KEY_5,
+	[ 0x54 ] = KEY_6,
+	[ 0x48 ] = KEY_7,
+	[ 0x4c ] = KEY_8,
+	[ 0x58 ] = KEY_9,
+	[ 0x03 ] = KEY_0,
+
+	[ 0x5e ] = KEY_OK,
+	[ 0x51 ] = KEY_UP,
+	[ 0x53 ] = KEY_DOWN,
+	[ 0x5b ] = KEY_LEFT,
+	[ 0x5f ] = KEY_RIGHT,
+
+	[ 0x02 ] = KEY_TV,		/* Labeled DTV on remote */
+	[ 0x0e ] = KEY_MP3,
+	[ 0x1a ] = KEY_DVD,
+	[ 0x1e ] = KEY_FAVORITES,	/* Labeled CPF on remote */
+	[ 0x16 ] = KEY_SETUP,
+	[ 0x46 ] = KEY_POWER2,		/* TV On/Off button on remote */
+	[ 0x0a ] = KEY_EPG,		/* Labeled Guide on remote */
+
+	[ 0x49 ] = KEY_BACK,
+	[ 0x59 ] = KEY_INFO,		/* Labeled MORE on remote */
+	[ 0x4d ] = KEY_MENU,		/* Labeled DVDMENU on remote */
+	[ 0x55 ] = KEY_CYCLEWINDOWS,	/* Labeled ALT-TAB on remote */
+
+	[ 0x0f ] = KEY_PREVIOUSSONG,	/* Labeled |<< REPLAY on remote */
+	[ 0x12 ] = KEY_NEXTSONG,	/* Labeled >>| SKIP on remote */
+	[ 0x42 ] = KEY_ENTER, 		/* Labeled START with a green
+					 * MS windows logo on remote */
+
+	[ 0x15 ] = KEY_VOLUMEUP,
+	[ 0x05 ] = KEY_VOLUMEDOWN,
+	[ 0x11 ] = KEY_CHANNELUP,
+	[ 0x09 ] = KEY_CHANNELDOWN,
+
+	[ 0x52 ] = KEY_CAMERA,
+	[ 0x5a ] = KEY_TUNER,
+	[ 0x19 ] = KEY_OPEN,
+
+	[ 0x13 ] = KEY_MODE,		/* 4:3 16:9 select */
+	[ 0x1f ] = KEY_ZOOM,
+
+	[ 0x43 ] = KEY_REWIND,
+	[ 0x47 ] = KEY_PLAYPAUSE,
+	[ 0x4f ] = KEY_FASTFORWARD,
+	[ 0x57 ] = KEY_MUTE,
+	[ 0x0d ] = KEY_STOP,
+	[ 0x01 ] = KEY_RECORD,
+	[ 0x4e ] = KEY_POWER,
+};
+
+EXPORT_SYMBOL_GPL(ir_codes_fusionhdtv_mce);
+
+/* Pinnacle PCTV HD 800i mini remote */
+IR_KEYTAB_TYPE ir_codes_pinnacle_pctv_hd[IR_KEYTAB_SIZE] = {
+
+	[0x0f] = KEY_1,
+	[0x15] = KEY_2,
+	[0x10] = KEY_3,
+	[0x18] = KEY_4,
+	[0x1b] = KEY_5,
+	[0x1e] = KEY_6,
+	[0x11] = KEY_7,
+	[0x21] = KEY_8,
+	[0x12] = KEY_9,
+	[0x27] = KEY_0,
+
+	[0x24] = KEY_ZOOM,
+	[0x2a] = KEY_SUBTITLE,
+
+	[0x00] = KEY_MUTE,
+	[0x01] = KEY_ENTER,	/* Pinnacle Logo */
+	[0x39] = KEY_POWER,
+
+	[0x03] = KEY_VOLUMEUP,
+	[0x09] = KEY_VOLUMEDOWN,
+	[0x06] = KEY_CHANNELUP,
+	[0x0c] = KEY_CHANNELDOWN,
+
+	[0x2d] = KEY_REWIND,
+	[0x30] = KEY_PLAYPAUSE,
+	[0x33] = KEY_FASTFORWARD,
+	[0x3c] = KEY_STOP,
+	[0x36] = KEY_RECORD,
+	[0x3f] = KEY_EPG,	/* Labeled "?" */
+};
+EXPORT_SYMBOL_GPL(ir_codes_pinnacle_pctv_hd);
+
+/*
+ * Igor Kuznetsov <igk72@ya.ru>
+ * Andrey J. Melnikov <temnota@kmv.ru>
+ *
+ * Keytable is used by BeholdTV 60x series, M6 series at
+ * least, and probably other cards too.
+ * The "ascii-art picture" below (in comments, first row
+ * is the keycode in hex, and subsequent row(s) shows
+ * the button labels (several variants when appropriate)
+ * helps to descide which keycodes to assign to the buttons.
+ */
+IR_KEYTAB_TYPE ir_codes_behold[IR_KEYTAB_SIZE] = {
+
+	/*  0x1c            0x12  *
+	 *  TV/FM          POWER  *
+	 *                        */
+	[ 0x1c ] = KEY_TUNER,	/*XXX KEY_TV KEY_RADIO */
+	[ 0x12 ] = KEY_POWER,
+
+	/*  0x01    0x02    0x03  *
+	 *   1       2       3    *
+	 *                        *
+	 *  0x04    0x05    0x06  *
+	 *   4       5       6    *
+	 *                        *
+	 *  0x07    0x08    0x09  *
+	 *   7       8       9    *
+	 *                        */
+	[ 0x01 ] = KEY_1,
+	[ 0x02 ] = KEY_2,
+	[ 0x03 ] = KEY_3,
+	[ 0x04 ] = KEY_4,
+	[ 0x05 ] = KEY_5,
+	[ 0x06 ] = KEY_6,
+	[ 0x07 ] = KEY_7,
+	[ 0x08 ] = KEY_8,
+	[ 0x09 ] = KEY_9,
+
+	/*  0x0a    0x00    0x17  *
+	 * RECALL    0      MODE  *
+	 *                        */
+	[ 0x0a ] = KEY_AGAIN,
+	[ 0x00 ] = KEY_0,
+	[ 0x17 ] = KEY_MODE,
+
+	/*  0x14          0x10    *
+	 * ASPECT      FULLSCREEN *
+	 *                        */
+	[ 0x14 ] = KEY_SCREEN,
+	[ 0x10 ] = KEY_ZOOM,
+
+	/*          0x0b          *
+	 *           Up           *
+	 *                        *
+	 *  0x18    0x16    0x0c  *
+	 *  Left     Ok     Right *
+	 *                        *
+	 *         0x015          *
+	 *         Down           *
+	 *                        */
+	[ 0x0b ] = KEY_CHANNELUP,	/*XXX KEY_UP */
+	[ 0x18 ] = KEY_VOLUMEDOWN,	/*XXX KEY_LEFT */
+	[ 0x16 ] = KEY_OK,		/*XXX KEY_ENTER */
+	[ 0x0c ] = KEY_VOLUMEUP,	/*XXX KEY_RIGHT */
+	[ 0x15 ] = KEY_CHANNELDOWN,	/*XXX KEY_DOWN */
+
+	/*  0x11            0x0d  *
+	 *  MUTE            INFO  *
+	 *                        */
+	[ 0x11 ] = KEY_MUTE,
+	[ 0x0d ] = KEY_INFO,
+
+	/*  0x0f    0x1b    0x1a  *
+	 * RECORD PLAY/PAUSE STOP *
+	 *                        *
+	 *  0x0e    0x1f    0x1e  *
+	 *TELETEXT  AUDIO  SOURCE *
+	 *           RED   YELLOW *
+	 *                        */
+	[ 0x0f ] = KEY_RECORD,
+	[ 0x1b ] = KEY_PLAYPAUSE,
+	[ 0x1a ] = KEY_STOP,
+	[ 0x0e ] = KEY_TEXT,
+	[ 0x1f ] = KEY_RED,	/*XXX KEY_AUDIO */
+	[ 0x1e ] = KEY_YELLOW,	/*XXX KEY_SOURCE */
+
+	/*  0x1d   0x13     0x19  *
+	 * SLEEP  PREVIEW   DVB   *
+	 *         GREEN    BLUE  *
+	 *                        */
+	[ 0x1d ] = KEY_SLEEP,
+	[ 0x13 ] = KEY_GREEN,
+	[ 0x19 ] = KEY_BLUE,	/*XXX KEY_SAT */
+
+	/*  0x58           0x5c   *
+	 * FREEZE        SNAPSHOT *
+	 *                        */
+	[ 0x58 ] = KEY_SLOW,
+	[ 0x5c ] = KEY_SAVE,
+
+};
+
+EXPORT_SYMBOL_GPL(ir_codes_behold);
+
+/* Beholder Intl. Ltd. 2008
+ * Dmitry Belimov d.belimov@google.com
+ * Keytable is used by BeholdTV Columbus
+ * The "ascii-art picture" below (in comments, first row
+ * is the keycode in hex, and subsequent row(s) shows
+ * the button labels (several variants when appropriate)
+ * helps to descide which keycodes to assign to the buttons.
+ */
+IR_KEYTAB_TYPE ir_codes_behold_columbus[IR_KEYTAB_SIZE] = {
+
+	/*  0x13   0x11   0x1C   0x12  *
+	 *  Mute  Source  TV/FM  Power *
+	 *                             */
+
+	[0x13] = KEY_MUTE,
+	[0x11] = KEY_PROPS,
+	[0x1C] = KEY_TUNER,	/* KEY_TV/KEY_RADIO */
+	[0x12] = KEY_POWER,
+
+	/*  0x01    0x02    0x03  0x0D    *
+	 *   1       2       3   Stereo   *
+	 *                        	  *
+	 *  0x04    0x05    0x06  0x19    *
+	 *   4       5       6   Snapshot *
+	 *                        	  *
+	 *  0x07    0x08    0x09  0x10    *
+	 *   7       8       9    Zoom 	  *
+	 *                                */
+	[0x01] = KEY_1,
+	[0x02] = KEY_2,
+	[0x03] = KEY_3,
+	[0x0D] = KEY_SETUP,	  /* Setup key */
+	[0x04] = KEY_4,
+	[0x05] = KEY_5,
+	[0x06] = KEY_6,
+	[0x19] = KEY_BOOKMARKS, /* Snapshot key */
+	[0x07] = KEY_7,
+	[0x08] = KEY_8,
+	[0x09] = KEY_9,
+	[0x10] = KEY_ZOOM,
+
+	/*  0x0A    0x00    0x0B       0x0C   *
+	 * RECALL    0    ChannelUp  VolumeUp *
+	 *                                    */
+	[0x0A] = KEY_AGAIN,
+	[0x00] = KEY_0,
+	[0x0B] = KEY_CHANNELUP,
+	[0x0C] = KEY_VOLUMEUP,
+
+	/*   0x1B      0x1D      0x15        0x18     *
+	 * Timeshift  Record  ChannelDown  VolumeDown *
+	 *                                            */
+
+	[0x1B] = KEY_REWIND,
+	[0x1D] = KEY_RECORD,
+	[0x15] = KEY_CHANNELDOWN,
+	[0x18] = KEY_VOLUMEDOWN,
+
+	/*   0x0E   0x1E     0x0F     0x1A  *
+	 *   Stop   Pause  Previouse  Next  *
+	 *                                  */
+
+	[0x0E] = KEY_STOP,
+	[0x1E] = KEY_PAUSE,
+	[0x0F] = KEY_PREVIOUS,
+	[0x1A] = KEY_NEXT,
+
+};
+EXPORT_SYMBOL_GPL(ir_codes_behold_columbus);
+
+/*
+ * Remote control for the Genius TVGO A11MCE
+ * Adrian Pardini <pardo.bsso@gmail.com>
+ */
+IR_KEYTAB_TYPE ir_codes_genius_tvgo_a11mce[IR_KEYTAB_SIZE] = {
+	/* Keys 0 to 9 */
+	[0x48] = KEY_0,
+	[0x09] = KEY_1,
+	[0x1d] = KEY_2,
+	[0x1f] = KEY_3,
+	[0x19] = KEY_4,
+	[0x1b] = KEY_5,
+	[0x11] = KEY_6,
+	[0x17] = KEY_7,
+	[0x12] = KEY_8,
+	[0x16] = KEY_9,
+
+	[0x54] = KEY_RECORD,		/* recording */
+	[0x06] = KEY_MUTE,		/* mute */
+	[0x10] = KEY_POWER,
+	[0x40] = KEY_LAST,		/* recall */
+	[0x4c] = KEY_CHANNELUP,		/* channel / program + */
+	[0x00] = KEY_CHANNELDOWN,	/* channel / program - */
+	[0x0d] = KEY_VOLUMEUP,
+	[0x15] = KEY_VOLUMEDOWN,
+	[0x4d] = KEY_OK,		/* also labeled as Pause */
+	[0x1c] = KEY_ZOOM,		/* full screen and Stop*/
+	[0x02] = KEY_MODE,		/* AV Source or Rewind*/
+	[0x04] = KEY_LIST,		/* -/-- */
+	/* small arrows above numbers */
+	[0x1a] = KEY_NEXT,		/* also Fast Forward */
+	[0x0e] = KEY_PREVIOUS,	/* also Rewind */
+	/* these are in a rather non standard layout and have
+	an alternate name written */
+	[0x1e] = KEY_UP,		/* Video Setting */
+	[0x0a] = KEY_DOWN,		/* Video Default */
+	[0x05] = KEY_LEFT,		/* Snapshot */
+	[0x0c] = KEY_RIGHT,		/* Hide Panel */
+	/* Four buttons without label */
+	[0x49] = KEY_RED,
+	[0x0b] = KEY_GREEN,
+	[0x13] = KEY_YELLOW,
+	[0x50] = KEY_BLUE,
+};
+EXPORT_SYMBOL_GPL(ir_codes_genius_tvgo_a11mce);
+
+/*
+ * Remote control for Powercolor Real Angel 330
+ * Daniel Fraga <fragabr@gmail.com>
+ */
+IR_KEYTAB_TYPE ir_codes_powercolor_real_angel[IR_KEYTAB_SIZE] = {
+	[0x38] = KEY_SWITCHVIDEOMODE,	/* switch inputs */
+	[0x0c] = KEY_MEDIA,		/* Turn ON/OFF App */
+	[0x00] = KEY_0,
+	[0x01] = KEY_1,
+	[0x02] = KEY_2,
+	[0x03] = KEY_3,
+	[0x04] = KEY_4,
+	[0x05] = KEY_5,
+	[0x06] = KEY_6,
+	[0x07] = KEY_7,
+	[0x08] = KEY_8,
+	[0x09] = KEY_9,
+	[0x0a] = KEY_DIGITS,		/* single, double, tripple digit */
+	[0x29] = KEY_PREVIOUS,		/* previous channel */
+	[0x12] = KEY_BRIGHTNESSUP,
+	[0x13] = KEY_BRIGHTNESSDOWN,
+	[0x2b] = KEY_MODE,		/* stereo/mono */
+	[0x2c] = KEY_TEXT,		/* teletext */
+	[0x20] = KEY_UP,		/* channel up */
+	[0x21] = KEY_DOWN,		/* channel down */
+	[0x10] = KEY_RIGHT,		/* volume up */
+	[0x11] = KEY_LEFT,		/* volume down */
+	[0x0d] = KEY_MUTE,
+	[0x1f] = KEY_RECORD,
+	[0x17] = KEY_PLAY,
+	[0x16] = KEY_PAUSE,
+	[0x0b] = KEY_STOP,
+	[0x27] = KEY_FASTFORWARD,
+	[0x26] = KEY_REWIND,
+	[0x1e] = KEY_SEARCH,		/* autoscan */
+	[0x0e] = KEY_SHUFFLE,		/* snapshot */
+	[0x2d] = KEY_SETUP,
+	[0x0f] = KEY_SCREEN,		/* full screen */
+	[0x14] = KEY_RADIO,		/* FM radio */
+	[0x25] = KEY_POWER,		/* power */
+};
+EXPORT_SYMBOL_GPL(ir_codes_powercolor_real_angel);
+
+IR_KEYTAB_TYPE ir_codes_avermedia_a16d[IR_KEYTAB_SIZE] = {
+	[0x20] = KEY_LIST,
+	[0x00] = KEY_POWER,
+	[0x28] = KEY_1,
+	[0x18] = KEY_2,
+	[0x38] = KEY_3,
+	[0x24] = KEY_4,
+	[0x14] = KEY_5,
+	[0x34] = KEY_6,
+	[0x2c] = KEY_7,
+	[0x1c] = KEY_8,
+	[0x3c] = KEY_9,
+	[0x12] = KEY_SUBTITLE,
+	[0x22] = KEY_0,
+	[0x32] = KEY_REWIND,
+	[0x3a] = KEY_SHUFFLE,
+	[0x02] = KEY_PRINT,
+	[0x11] = KEY_CHANNELDOWN,
+	[0x31] = KEY_CHANNELUP,
+	[0x0c] = KEY_ZOOM,
+	[0x1e] = KEY_VOLUMEDOWN,
+	[0x3e] = KEY_VOLUMEUP,
+	[0x0a] = KEY_MUTE,
+	[0x04] = KEY_AUDIO,
+	[0x26] = KEY_RECORD,
+	[0x06] = KEY_PLAY,
+	[0x36] = KEY_STOP,
+	[0x16] = KEY_PAUSE,
+	[0x2e] = KEY_REWIND,
+	[0x0e] = KEY_FASTFORWARD,
+	[0x30] = KEY_TEXT,
+	[0x21] = KEY_GREEN,
+	[0x01] = KEY_BLUE,
+	[0x08] = KEY_EPG,
+	[0x2a] = KEY_MENU,
+};
+EXPORT_SYMBOL_GPL(ir_codes_avermedia_a16d);

@@ -12,12 +12,12 @@
 
 #include <linux/sched.h>
 #include <linux/thread_info.h>
+#include <linux/bitops.h>
 
 #include <asm/mipsregs.h>
 #include <asm/cpu.h>
 #include <asm/cpu-features.h>
 #include <asm/hazards.h>
-#include <asm/bitops.h>
 #include <asm/processor.h>
 #include <asm/current.h>
 
@@ -35,6 +35,8 @@ extern asmlinkage int (*save_fp_context32)(struct sigcontext32 __user *sc);
 extern asmlinkage int (*restore_fp_context32)(struct sigcontext32 __user *sc);
 
 extern void fpu_emulator_init_fpu(void);
+extern int fpu_emulator_save_context(struct sigcontext __user *sc);
+extern int fpu_emulator_restore_context(struct sigcontext __user *sc);
 extern void _init_fpu(void);
 extern void _save_fp(struct task_struct *);
 extern void _restore_fp(struct task_struct *);

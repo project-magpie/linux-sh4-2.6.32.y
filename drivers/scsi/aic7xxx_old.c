@@ -2696,7 +2696,7 @@ aic7xxx_done(struct aic7xxx_host *p, struct aic7xxx_scb *scb)
   {
     pci_unmap_single(p->pdev,
                      le32_to_cpu(scb->sg_list[0].address),
-                     sizeof(cmd->sense_buffer),
+                     SCSI_SENSE_BUFFERSIZE,
                      PCI_DMA_FROMDEVICE);
   }
   if (scb->flags & SCB_RECOVERY_SCB)
@@ -4267,13 +4267,13 @@ aic7xxx_handle_seqint(struct aic7xxx_host *p, unsigned char intstat)
                        sizeof(generic_sense));
 
                 scb->sense_cmd[1] = (cmd->device->lun << 5);
-                scb->sense_cmd[4] = sizeof(cmd->sense_buffer);
+                scb->sense_cmd[4] = SCSI_SENSE_BUFFERSIZE;
 
                 scb->sg_list[0].length = 
-                  cpu_to_le32(sizeof(cmd->sense_buffer));
+                  cpu_to_le32(SCSI_SENSE_BUFFERSIZE);
 		scb->sg_list[0].address =
                         cpu_to_le32(pci_map_single(p->pdev, cmd->sense_buffer,
-                                                   sizeof(cmd->sense_buffer),
+                                                   SCSI_SENSE_BUFFERSIZE,
                                                    PCI_DMA_FROMDEVICE));
 
                 /*
@@ -4296,7 +4296,7 @@ aic7xxx_handle_seqint(struct aic7xxx_host *p, unsigned char intstat)
                 hscb->residual_data_count[2] = 0;
 
                 scb->sg_count = hscb->SG_segment_count = 1;
-                scb->sg_length = sizeof(cmd->sense_buffer);
+                scb->sg_length = SCSI_SENSE_BUFFERSIZE;
                 scb->tag_action = 0;
                 scb->flags |= SCB_SENSE;
                 /*
@@ -6472,7 +6472,7 @@ do_aic7xxx_isr(int irq, void *dev_id)
   unsigned long cpu_flags;
   struct aic7xxx_host *p;
   
-  p = (struct aic7xxx_host *)dev_id;
+  p = dev_id;
   if(!p)
     return IRQ_NONE;
   spin_lock_irqsave(p->host->host_lock, cpu_flags);
@@ -8416,10 +8416,9 @@ aic7xxx_alloc(struct scsi_host_template *sht, struct aic7xxx_host *temp)
     *p = *temp;
     p->host = host;
 
-    p->scb_data = kmalloc(sizeof(scb_data_type), GFP_ATOMIC);
-    if (p->scb_data != NULL)
+    p->scb_data = kzalloc(sizeof(scb_data_type), GFP_ATOMIC);
+    if (p->scb_data)
     {
-      memset(p->scb_data, 0, sizeof(scb_data_type));
       scbq_init (&p->scb_data->free_scbs);
     }
     else
@@ -9196,10 +9195,9 @@ aic7xxx_detect(struct scsi_host_template *template)
             printk(KERN_INFO "         this driver, we are ignoring it.\n");
           }
         }
-        else if ( (temp_p = kmalloc(sizeof(struct aic7xxx_host),
+        else if ( (temp_p = kzalloc(sizeof(struct aic7xxx_host),
                                     GFP_ATOMIC)) != NULL )
         {
-          memset(temp_p, 0, sizeof(struct aic7xxx_host));
           temp_p->chip = aic_pdevs[i].chip | AHC_PCI;
           temp_p->flags = aic_pdevs[i].flags;
           temp_p->features = aic_pdevs[i].features;
@@ -10295,7 +10293,6 @@ static int aic7xxx_queue(struct scsi_cmnd *cmd, void (*fn)(struct scsi_cmnd *))
   aic7xxx_position(cmd) = scb->hscb->tag;
   cmd->scsi_done = fn;
   cmd->result = DID_OK;
-  memset(cmd->sense_buffer, 0, sizeof(cmd->sense_buffer));
   aic7xxx_error(cmd) = DID_OK;
   aic7xxx_status(cmd) = 0;
   cmd->host_scribble = NULL;

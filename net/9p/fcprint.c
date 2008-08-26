@@ -142,6 +142,14 @@ p9_printdata(char *buf, int buflen, u8 *data, int datalen)
 	return p9_dumpdata(buf, buflen, data, datalen < 16?datalen:16);
 }
 
+/**
+ * p9_printfcall - decode and print a protocol structure into a buffer
+ * @buf: buffer to deposit decoded structure into
+ * @buflen: available space in buffer
+ * @fc: protocol rpc structure of type &p9_fcall
+ * @extended: whether or not session is operating with extended protocol
+ */
+
 int
 p9_printfcall(char *buf, int buflen, struct p9_fcall *fc, int extended)
 {
@@ -347,12 +355,12 @@ p9_printfcall(char *buf, int buflen, struct p9_fcall *fc, int extended)
 
 	return ret;
 }
-
 #else
 int
 p9_printfcall(char *buf, int buflen, struct p9_fcall *fc, int extended)
 {
 	return 0;
 }
-EXPORT_SYMBOL(p9_printfcall);
 #endif /* CONFIG_NET_9P_DEBUG */
+EXPORT_SYMBOL(p9_printfcall);
+

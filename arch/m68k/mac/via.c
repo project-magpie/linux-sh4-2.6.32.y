@@ -1,7 +1,7 @@
 /*
  *	6522 Versatile Interface Adapter (VIA)
  *
- *	There are two of these on the Mac II. Some IRQ's are vectored
+ *	There are two of these on the Mac II. Some IRQs are vectored
  *	via them as are assorted bits and bobs - eg RTC, ADB.
  *
  * CSA: Motorola seems to have removed documentation on the 6522 from
@@ -28,6 +28,7 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/ide.h>
+#include <linux/module.h>
 
 #include <asm/bootinfo.h>
 #include <asm/macintosh.h>
@@ -41,8 +42,10 @@ volatile __u8 *via1, *via2;
 /* See note in mac_via.h about how this is possibly not useful */
 volatile long *via_memory_bogon=(long *)&via_memory_bogon;
 #endif
-int rbv_present, via_alt_mapping;
-__u8 rbv_clear;
+int rbv_present;
+int via_alt_mapping;
+EXPORT_SYMBOL(via_alt_mapping);
+static __u8 rbv_clear;
 
 /*
  * Globals for accessing the VIA chip registers without having to

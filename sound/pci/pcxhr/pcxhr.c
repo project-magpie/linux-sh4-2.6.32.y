@@ -21,7 +21,6 @@
  */
 
 
-#include <sound/driver.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/slab.h>
@@ -459,7 +458,7 @@ static int pcxhr_update_r_buffer(struct pcxhr_stream *stream)
 
 	snd_printdd("pcxhr_update_r_buffer(pcm%c%d) : addr(%p) bytes(%zx) subs(%d)\n",
 		    is_capture ? 'c' : 'p',
-		    chip->chip_idx, (void*)subs->runtime->dma_addr,
+		    chip->chip_idx, (void *)(long)subs->runtime->dma_addr,
 		    subs->runtime->dma_bytes, subs->number);
 
 	pcxhr_init_rmh(&rmh, CMD_UPDATE_R_BUFFERS);
@@ -517,7 +516,7 @@ static void pcxhr_trigger_tasklet(unsigned long arg)
 	int capture_mask = 0;
 	int playback_mask = 0;
 
-#ifdef CONFIG_SND_DEBUG_DETECT
+#ifdef CONFIG_SND_DEBUG_VERBOSE
 	struct timeval my_tv1, my_tv2;
 	do_gettimeofday(&my_tv1);
 #endif
@@ -624,10 +623,10 @@ static void pcxhr_trigger_tasklet(unsigned long arg)
 
 	mutex_unlock(&mgr->setup_mutex);
 
-#ifdef CONFIG_SND_DEBUG_DETECT
+#ifdef CONFIG_SND_DEBUG_VERBOSE
 	do_gettimeofday(&my_tv2);
 	snd_printdd("***TRIGGER TASKLET*** TIME = %ld (err = %x)\n",
-		    my_tv2.tv_usec - my_tv1.tv_usec, err);
+		    (long)(my_tv2.tv_usec - my_tv1.tv_usec), err);
 #endif
 }
 
@@ -646,6 +645,8 @@ static int pcxhr_trigger(struct snd_pcm_substream *subs, int cmd)
 		if (snd_pcm_stream_linked(subs)) {
 			struct snd_pcxhr *chip = snd_pcm_substream_chip(subs);
 			snd_pcm_group_for_each_entry(s, subs) {
+				if (snd_pcm_substream_chip(s) != chip)
+					continue;
 				stream = s->runtime->private_data;
 				stream->status =
 					PCXHR_STREAM_STATUS_SCHEDULE_RUN;
@@ -662,6 +663,7 @@ static int pcxhr_trigger(struct snd_pcm_substream *subs, int cmd)
 			if (pcxhr_update_r_buffer(stream))
 				return -EINVAL;
 
+			stream->status = PCXHR_STREAM_STATUS_SCHEDULE_RUN;
 			if (pcxhr_set_stream_state(stream))
 				return -EINVAL;
 			stream->status = PCXHR_STREAM_STATUS_RUNNING;
@@ -844,7 +846,6 @@ static int pcxhr_open(struct snd_pcm_substream *subs)
 	struct pcxhr_mgr       *mgr = chip->mgr;
 	struct snd_pcm_runtime *runtime = subs->runtime;
 	struct pcxhr_stream    *stream;
-	int                 is_capture;
 
 	mutex_lock(&mgr->setup_mutex);
 
@@ -854,12 +855,10 @@ static int pcxhr_open(struct snd_pcm_substream *subs)
 	if( subs->stream == SNDRV_PCM_STREAM_PLAYBACK ) {
 		snd_printdd("pcxhr_open playback chip%d subs%d\n",
 			    chip->chip_idx, subs->number);
-		is_capture = 0;
 		stream = &chip->playback_stream[subs->number];
 	} else {
 		snd_printdd("pcxhr_open capture chip%d subs%d\n",
 			    chip->chip_idx, subs->number);
-		is_capture = 1;
 		if (mgr->mono_capture)
 			runtime->hw.channels_max = 1;
 		else
@@ -901,6 +900,8 @@ static int pcxhr_open(struct snd_pcm_substream *subs)
 
 	snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_BUFFER_BYTES, 4);
 	snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_PERIOD_BYTES, 4);
+
+	snd_pcm_set_sync(subs);
 
 	mgr->ref_count_rate++;
 

@@ -49,7 +49,7 @@ MODULE_LICENSE("GPL");
  * @p: pointer to buffer over which CRC is run
  * @len: length of buffer @p
  */
-u32 __attribute_pure__ crc32_le(u32 crc, unsigned char const *p, size_t len);
+u32 __pure crc32_le(u32 crc, unsigned char const *p, size_t len);
 
 #if CRC_LE_BITS == 1
 /*
@@ -57,7 +57,7 @@ u32 __attribute_pure__ crc32_le(u32 crc, unsigned char const *p, size_t len);
  * simplified by inlining the table in ?: form.
  */
 
-u32 __attribute_pure__ crc32_le(u32 crc, unsigned char const *p, size_t len)
+u32 __pure crc32_le(u32 crc, unsigned char const *p, size_t len)
 {
 	int i;
 	while (len--) {
@@ -69,7 +69,7 @@ u32 __attribute_pure__ crc32_le(u32 crc, unsigned char const *p, size_t len)
 }
 #else				/* Table-based approach */
 
-u32 __attribute_pure__ crc32_le(u32 crc, unsigned char const *p, size_t len)
+u32 __pure crc32_le(u32 crc, unsigned char const *p, size_t len)
 {
 # if CRC_LE_BITS == 8
 	const u32      *b =(u32 *)p;
@@ -145,7 +145,7 @@ u32 __attribute_pure__ crc32_le(u32 crc, unsigned char const *p, size_t len)
  * @p: pointer to buffer over which CRC is run
  * @len: length of buffer @p
  */
-u32 __attribute_pure__ crc32_be(u32 crc, unsigned char const *p, size_t len);
+u32 __pure crc32_be(u32 crc, unsigned char const *p, size_t len);
 
 #if CRC_BE_BITS == 1
 /*
@@ -153,7 +153,7 @@ u32 __attribute_pure__ crc32_be(u32 crc, unsigned char const *p, size_t len);
  * simplified by inlining the table in ?: form.
  */
 
-u32 __attribute_pure__ crc32_be(u32 crc, unsigned char const *p, size_t len)
+u32 __pure crc32_be(u32 crc, unsigned char const *p, size_t len)
 {
 	int i;
 	while (len--) {
@@ -167,7 +167,7 @@ u32 __attribute_pure__ crc32_be(u32 crc, unsigned char const *p, size_t len)
 }
 
 #else				/* Table-based approach */
-u32 __attribute_pure__ crc32_be(u32 crc, unsigned char const *p, size_t len)
+u32 __pure crc32_be(u32 crc, unsigned char const *p, size_t len)
 {
 # if CRC_BE_BITS == 8
 	const u32      *b =(u32 *)p;
@@ -348,7 +348,7 @@ EXPORT_SYMBOL(crc32_be);
  * but again the multiple of the polynomial to subtract depends only on
  * the high bits, the high 8 bits in this case.  
  *
- * The multile we need in that case is the low 32 bits of a 40-bit
+ * The multiple we need in that case is the low 32 bits of a 40-bit
  * value whose high 8 bits are given, and which is a multiple of the
  * generator polynomial.  This is simply the CRC-32 of the given
  * one-byte message.

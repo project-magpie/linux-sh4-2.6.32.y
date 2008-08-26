@@ -1,5 +1,5 @@
 /*
- *  linux/drivers/ide/legacy/falconide.c -- Atari Falcon IDE Driver
+ *  Atari Falcon IDE Driver
  *
  *     Created 12 Jul 1997 by Geert Uytterhoeven
  *
@@ -22,6 +22,7 @@
 #include <asm/atariints.h>
 #include <asm/atari_stdma.h>
 
+#define DRV_NAME "falconide"
 
     /*
      *  Base of the IDE interface
@@ -33,21 +34,7 @@
      *  Offsets from the above base
      */
 
-#define ATA_HD_DATA	0x00
-#define ATA_HD_ERROR	0x05		/* see err-bits */
-#define ATA_HD_NSECTOR	0x09		/* nr of sectors to read/write */
-#define ATA_HD_SECTOR	0x0d		/* starting sector */
-#define ATA_HD_LCYL	0x11		/* starting cylinder */
-#define ATA_HD_HCYL	0x15		/* high byte of starting cyl */
-#define ATA_HD_SELECT	0x19		/* 101dhhhh , d=drive, hhhh=head */
-#define ATA_HD_STATUS	0x1d		/* see status-bits */
 #define ATA_HD_CONTROL	0x39
-
-static int falconide_offsets[IDE_NR_PORTS] __initdata = {
-    ATA_HD_DATA, ATA_HD_ERROR, ATA_HD_NSECTOR, ATA_HD_SECTOR, ATA_HD_LCYL,
-    ATA_HD_HCYL, ATA_HD_SELECT, ATA_HD_STATUS, ATA_HD_CONTROL, -1
-};
-
 
     /*
      *  falconide_intr_lock is used to obtain access to the IDE interrupt,
@@ -57,24 +44,111 @@ static int falconide_offsets[IDE_NR_PORTS] __initdata = {
 int falconide_intr_lock;
 EXPORT_SYMBOL(falconide_intr_lock);
 
+static void falconide_input_data(ide_drive_t *drive, struct request *rq,
+				 void *buf, unsigned int len)
+{
+	unsigned long data_addr = drive->hwif->io_ports.data_addr;
+
+	if (drive->media == ide_disk && rq && rq->cmd_type == REQ_TYPE_FS)
+		return insw(data_addr, buf, (len + 1) / 2);
+
+	insw_swapw(data_addr, buf, (len + 1) / 2);
+}
+
+static void falconide_output_data(ide_drive_t *drive, struct request *rq,
+				  void *buf, unsigned int len)
+{
+	unsigned long data_addr = drive->hwif->io_ports.data_addr;
+
+	if (drive->media == ide_disk && rq && rq->cmd_type == REQ_TYPE_FS)
+		return outsw(data_addr, buf, (len + 1) / 2);
+
+	outsw_swapw(data_addr, buf, (len + 1) / 2);
+}
+
+/* Atari has a byte-swapped IDE interface */
+static const struct ide_tp_ops falconide_tp_ops = {
+	.exec_command		= ide_exec_command,
+	.read_status		= ide_read_status,
+	.read_altstatus		= ide_read_altstatus,
+	.read_sff_dma_status	= ide_read_sff_dma_status,
+
+	.set_irq		= ide_set_irq,
+
+	.tf_load		= ide_tf_load,
+	.tf_read		= ide_tf_read,
+
+	.input_data		= falconide_input_data,
+	.output_data		= falconide_output_data,
+};
+
+static const struct ide_port_info falconide_port_info = {
+	.tp_ops			= &falconide_tp_ops,
+	.host_flags		= IDE_HFLAG_NO_DMA,
+};
+
+static void __init falconide_setup_ports(hw_regs_t *hw)
+{
+	int i;
+
+	memset(hw, 0, sizeof(*hw));
+
+	hw->io_ports.data_addr = ATA_HD_BASE;
+
+	for (i = 1; i < 8; i++)
+		hw->io_ports_array[i] = ATA_HD_BASE + 1 + i * 4;
+
+	hw->io_ports.ctl_addr = ATA_HD_BASE + ATA_HD_CONTROL;
+
+	hw->irq = IRQ_MFP_IDE;
+	hw->ack_intr = NULL;
+
+	hw->chipset = ide_generic;
+}
 
     /*
      *  Probe for a Falcon IDE interface
      */
 
-void __init falconide_init(void)
+static int __init falconide_init(void)
 {
-    if (MACH_IS_ATARI && ATARIHW_PRESENT(IDE)) {
-	hw_regs_t hw;
-	int index;
+	struct ide_host *host;
+	hw_regs_t hw, *hws[] = { &hw, NULL, NULL, NULL };
+	int rc;
 
-	ide_setup_ports(&hw, ATA_HD_BASE, falconide_offsets,
-			0, 0, NULL,
-//			falconide_iops,
-			IRQ_MFP_IDE);
-	index = ide_register_hw(&hw, 1, NULL);
+	if (!MACH_IS_ATARI || !ATARIHW_PRESENT(IDE))
+		return -ENODEV;
 
-	if (index != -1)
-	    printk("ide%d: Falcon IDE interface\n", index);
-    }
+	printk(KERN_INFO "ide: Falcon IDE controller\n");
+
+	if (!request_mem_region(ATA_HD_BASE, 0x40, DRV_NAME)) {
+		printk(KERN_ERR "%s: resources busy\n", DRV_NAME);
+		return -EBUSY;
+	}
+
+	falconide_setup_ports(&hw);
+
+	host = ide_host_alloc(&falconide_port_info, hws);
+	if (host == NULL) {
+		rc = -ENOMEM;
+		goto err;
+	}
+
+	ide_get_lock(NULL, NULL);
+	rc = ide_host_register(host, &falconide_port_info, hws);
+	ide_release_lock();
+
+	if (rc)
+		goto err_free;
+
+	return 0;
+err_free:
+	ide_host_free(host);
+err:
+	release_mem_region(ATA_HD_BASE, 0x40);
+	return rc;
 }
+
+module_init(falconide_init);
+
+MODULE_LICENSE("GPL");

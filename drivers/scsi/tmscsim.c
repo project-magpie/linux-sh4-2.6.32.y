@@ -430,10 +430,7 @@ static __inline__ void dc390_Going_remove (struct dc390_dcb* pDCB, struct dc390_
 
 static struct scatterlist* dc390_sg_build_single(struct scatterlist *sg, void *addr, unsigned int length)
 {
-	memset(sg, 0, sizeof(struct scatterlist));
-	sg->page	= virt_to_page(addr);
-	sg->length	= length;
-	sg->offset	= (unsigned long)addr & ~PAGE_MASK;
+	sg_init_one(sg, addr, length);
 	return sg;
 }
 
@@ -447,7 +444,7 @@ static int dc390_pci_map (struct dc390_srb* pSRB)
 
 	/* Map sense buffer */
 	if (pSRB->SRBFlag & AUTO_REQSENSE) {
-		pSRB->pSegmentList	= dc390_sg_build_single(&pSRB->Segmentx, pcmd->sense_buffer, sizeof(pcmd->sense_buffer));
+		pSRB->pSegmentList	= dc390_sg_build_single(&pSRB->Segmentx, pcmd->sense_buffer, SCSI_SENSE_BUFFERSIZE);
 		pSRB->SGcount		= pci_map_sg(pdev, pSRB->pSegmentList, 1,
 						     DMA_FROM_DEVICE);
 		cmdp->saved_dma_handle	= sg_dma_address(pSRB->pSegmentList);
@@ -455,7 +452,7 @@ static int dc390_pci_map (struct dc390_srb* pSRB)
 		/* TODO: error handling */
 		if (pSRB->SGcount != 1)
 			error = 1;
-		DEBUG1(printk("%s(): Mapped sense buffer %p at %x\n", __FUNCTION__, pcmd->sense_buffer, cmdp->saved_dma_handle));
+		DEBUG1(printk("%s(): Mapped sense buffer %p at %x\n", __func__, pcmd->sense_buffer, cmdp->saved_dma_handle));
 	/* Map SG list */
 	} else if (scsi_sg_count(pcmd)) {
 		int nseg;
@@ -469,7 +466,7 @@ static int dc390_pci_map (struct dc390_srb* pSRB)
 		if (nseg < 0)
 			error = 1;
 		DEBUG1(printk("%s(): Mapped SG %p with %d (%d) elements\n",\
-			      __FUNCTION__, scsi_sglist(pcmd), nseg, scsi_sg_count(pcmd)));
+			      __func__, scsi_sglist(pcmd), nseg, scsi_sg_count(pcmd)));
 	/* Map single segment */
 	} else
 		pSRB->SGcount = 0;
@@ -486,11 +483,11 @@ static void dc390_pci_unmap (struct dc390_srb* pSRB)
 
 	if (pSRB->SRBFlag) {
 		pci_unmap_sg(pdev, &pSRB->Segmentx, 1, DMA_FROM_DEVICE);
-		DEBUG1(printk("%s(): Unmapped sense buffer at %x\n", __FUNCTION__, cmdp->saved_dma_handle));
+		DEBUG1(printk("%s(): Unmapped sense buffer at %x\n", __func__, cmdp->saved_dma_handle));
 	} else {
 		scsi_dma_unmap(pcmd);
 		DEBUG1(printk("%s(): Unmapped SG at %p with %d elements\n",
-			      __FUNCTION__, scsi_sglist(pcmd), scsi_sg_count(pcmd)));
+			      __func__, scsi_sglist(pcmd), scsi_sg_count(pcmd)));
 	}
 }
 
@@ -567,12 +564,12 @@ dc390_StartSCSI( struct dc390_acb* pACB, struct dc390_dcb* pDCB, struct dc390_sr
 	pDCB->TagMask |= 1 << tag[1];
 	pSRB->TagNumber = tag[1];
 	DC390_write8(ScsiFifo, tag[1]);
-	DEBUG1(printk(KERN_INFO "DC390: Select w/DisCn for Cmd %li (SRB %p), block tag %02x\n", scmd->pid, pSRB, tag[1]));
+	DEBUG1(printk(KERN_INFO "DC390: Select w/DisCn for Cmd %li (SRB %p), block tag %02x\n", scmd->serial_number, pSRB, tag[1]));
 	cmd = SEL_W_ATN3;
     } else {
 	/* No TagQ */
 //no_tag:
-	DEBUG1(printk(KERN_INFO "DC390: Select w%s/DisCn for Cmd %li (SRB %p), No TagQ\n", disc_allowed ? "" : "o", scmd->pid, pSRB));
+	DEBUG1(printk(KERN_INFO "DC390: Select w%s/DisCn for Cmd %li (SRB %p), No TagQ\n", disc_allowed ? "" : "o", scmd->serial_number, pSRB));
     }
 
     pSRB->SRBState = SRB_START_;
@@ -602,7 +599,7 @@ dc390_StartSCSI( struct dc390_acb* pACB, struct dc390_dcb* pDCB, struct dc390_sr
 	    DC390_write8 (ScsiFifo, pDCB->TargetLUN << 5);
 	    DC390_write8 (ScsiFifo, 0);
 	    DC390_write8 (ScsiFifo, 0);
-	    DC390_write8 (ScsiFifo, sizeof(scmd->sense_buffer));
+	    DC390_write8 (ScsiFifo, SCSI_SENSE_BUFFERSIZE);
 	    DC390_write8 (ScsiFifo, 0);
 	    DEBUG1(printk (KERN_DEBUG "DC390: AutoReqSense !\n"));
 	  }
@@ -623,7 +620,7 @@ dc390_StartSCSI( struct dc390_acb* pACB, struct dc390_dcb* pDCB, struct dc390_sr
     {
 	dc390_freetag (pDCB, pSRB);
 	DEBUG0(printk ("DC390: Interrupt during Start SCSI (pid %li, target %02i-%02i)\n",
-		scmd->pid, scmd->device->id, scmd->device->lun));
+		scmd->serial_number, scmd->device->id, scmd->device->lun));
 	pSRB->SRBState = SRB_READY;
 	//DC390_write8 (ScsiCmd, CLEAR_FIFO_CMD);
 	pACB->SelLost++;
@@ -1392,7 +1389,7 @@ dc390_CommandPhase( struct dc390_acb* pACB, struct dc390_srb* pSRB, u8 *psstatus
 	DC390_write8 (ScsiFifo, pDCB->TargetLUN << 5);
 	DC390_write8 (ScsiFifo, 0);
 	DC390_write8 (ScsiFifo, 0);
-	DC390_write8 (ScsiFifo, sizeof(pSRB->pcmd->sense_buffer));
+	DC390_write8 (ScsiFifo, SCSI_SENSE_BUFFERSIZE);
 	DC390_write8 (ScsiFifo, 0);
 	DEBUG0(printk(KERN_DEBUG "DC390: AutoReqSense (CmndPhase)!\n"));
     }
@@ -1708,7 +1705,7 @@ dc390_SRBdone( struct dc390_acb* pACB, struct dc390_dcb* pDCB, struct dc390_srb*
     status = pSRB->TargetStatus;
 
     DEBUG0(printk (" SRBdone (%02x,%08x), SRB %p, pid %li\n", status, pcmd->result,\
-		pSRB, pcmd->pid));
+		pSRB, pcmd->serial_number));
     if(pSRB->SRBFlag & AUTO_REQSENSE)
     {	/* Last command was a Request Sense */
 	pSRB->SRBFlag &= ~AUTO_REQSENSE;
@@ -1729,7 +1726,7 @@ dc390_SRBdone( struct dc390_acb* pACB, struct dc390_dcb* pDCB, struct dc390_srb*
 	    } else {
 		SET_RES_DRV(pcmd->result, DRIVER_SENSE);
 		//pSRB->ScsiCmdLen	 = (u8) (pSRB->Segment1[0] >> 8);
-		DEBUG0 (printk ("DC390: RETRY pid %li (%02x), target %02i-%02i\n", pcmd->pid, pcmd->cmnd[0], pcmd->device->id, pcmd->device->lun));
+		DEBUG0 (printk ("DC390: RETRY pid %li (%02x), target %02i-%02i\n", pcmd->serial_number, pcmd->cmnd[0], pcmd->device->id, pcmd->device->lun));
 		pSRB->TotalXferredLen = 0;
 		SET_RES_DID(pcmd->result, DID_SOFT_ERROR);
 	    }
@@ -1749,7 +1746,7 @@ dc390_SRBdone( struct dc390_acb* pACB, struct dc390_dcb* pDCB, struct dc390_srb*
 	else if (status == SAM_STAT_TASK_SET_FULL)
 	{
 	    scsi_track_queue_full(pcmd->device, pDCB->GoingSRBCnt - 1);
-	    DEBUG0 (printk ("DC390: RETRY pid %li (%02x), target %02i-%02i\n", pcmd->pid, pcmd->cmnd[0], pcmd->device->id, pcmd->device->lun));
+	    DEBUG0 (printk ("DC390: RETRY pid %li (%02x), target %02i-%02i\n", pcmd->serial_number, pcmd->cmnd[0], pcmd->device->id, pcmd->device->lun));
 	    pSRB->TotalXferredLen = 0;
 	    SET_RES_DID(pcmd->result, DID_SOFT_ERROR);
 	}
@@ -1803,7 +1800,7 @@ cmd_done:
     /* Add to free list */
     dc390_Free_insert (pACB, pSRB);
 
-    DEBUG0(printk (KERN_DEBUG "DC390: SRBdone: done pid %li\n", pcmd->pid));
+    DEBUG0(printk (KERN_DEBUG "DC390: SRBdone: done pid %li\n", pcmd->serial_number));
     pcmd->scsi_done (pcmd);
 
     return;
@@ -1998,7 +1995,7 @@ static int DC390_abort(struct scsi_cmnd *cmd)
 	struct dc390_dcb *pDCB = (struct dc390_dcb*) cmd->device->hostdata;
 
 	scmd_printk(KERN_WARNING, cmd,
-		"DC390: Abort command (pid %li)\n", cmd->pid);
+		"DC390: Abort command (pid %li)\n", cmd->serial_number);
 
 	/* abort() is too stupid for already sent commands at the moment. 
 	 * If it's called we are in trouble anyway, so let's dump some info 
@@ -2006,7 +2003,7 @@ static int DC390_abort(struct scsi_cmnd *cmd)
 	dc390_dumpinfo(pACB, pDCB, NULL);
 
 	pDCB->DCBFlag |= ABORT_DEV_;
-	printk(KERN_INFO "DC390: Aborted pid %li\n", cmd->pid);
+	printk(KERN_INFO "DC390: Aborted pid %li\n", cmd->serial_number);
 
 	return FAILED;
 }

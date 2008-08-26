@@ -1,13 +1,10 @@
 /*
-    i2c-hydra.c - Part of lm_sensors,  Linux kernel modules
-                  for hardware monitoring
-
     i2c Support for the Apple `Hydra' Mac I/O
 
     Copyright (c) 1999-2004 Geert Uytterhoeven <geert@linux-m68k.org>
 
     Based on i2c Support for Via Technologies 82C586B South Bridge
-    Copyright (c) 1998, 1999 Kyösti Mälkki <kmalkki@cc.hut.fi>
+    Copyright (c) 1998, 1999 KyÃ¶sti MÃ¤lkki <kmalkki@cc.hut.fi>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by

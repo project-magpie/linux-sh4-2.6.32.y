@@ -14,16 +14,6 @@ static void __init error(char *x)
 		message = x;
 }
 
-static void __init *malloc(size_t size)
-{
-	return kmalloc(size, GFP_KERNEL);
-}
-
-static void __init free(void *where)
-{
-	kfree(where);
-}
-
 /* link hash */
 
 #define N_ALIGN(len) ((((len) + 1) & ~3) + 2)
@@ -57,7 +47,7 @@ static char __init *find_link(int major, int minor, int ino,
 			continue;
 		return (*p)->name;
 	}
-	q = (struct hash *)malloc(sizeof(struct hash));
+	q = kmalloc(sizeof(struct hash), GFP_KERNEL);
 	if (!q)
 		panic("can't allocate link hash entry");
 	q->major = major;
@@ -77,7 +67,7 @@ static void __init free_hash(void)
 		while (*p) {
 			q = *p;
 			*p = q->next;
-			free(q);
+			kfree(q);
 		}
 	}
 }
@@ -407,18 +397,10 @@ static long bytes_out;
 
 static void __init flush_window(void);
 static void __init error(char *m);
-static void __init gzip_mark(void **);
-static void __init gzip_release(void **);
+
+#define NO_INFLATE_MALLOC
 
 #include "../lib/inflate.c"
-
-static void __init gzip_mark(void **ptr)
-{
-}
-
-static void __init gzip_release(void **ptr)
-{
-}
 
 /* ===========================================================================
  * Write the output window window[0..outcnt-1] and update crc and bytes_out.
@@ -445,10 +427,10 @@ static char * __init unpack_to_rootfs(char *buf, unsigned len, int check_only)
 {
 	int written;
 	dry_run = check_only;
-	header_buf = malloc(110);
-	symlink_buf = malloc(PATH_MAX + N_ALIGN(PATH_MAX) + 1);
-	name_buf = malloc(N_ALIGN(PATH_MAX));
-	window = malloc(WSIZE);
+	header_buf = kmalloc(110, GFP_KERNEL);
+	symlink_buf = kmalloc(PATH_MAX + N_ALIGN(PATH_MAX) + 1, GFP_KERNEL);
+	name_buf = kmalloc(N_ALIGN(PATH_MAX), GFP_KERNEL);
+	window = kmalloc(WSIZE, GFP_KERNEL);
 	if (!window || !header_buf || !symlink_buf || !name_buf)
 		panic("can't allocate buffers");
 	state = Start;
@@ -484,10 +466,10 @@ static char * __init unpack_to_rootfs(char *buf, unsigned len, int check_only)
 		buf += inptr;
 		len -= inptr;
 	}
-	free(window);
-	free(name_buf);
-	free(symlink_buf);
-	free(header_buf);
+	kfree(window);
+	kfree(name_buf);
+	kfree(symlink_buf);
+	kfree(header_buf);
 	return message;
 }
 
@@ -503,7 +485,6 @@ static int __init retain_initrd_param(char *str)
 __setup("retain_initrd", retain_initrd_param);
 
 extern char __initramfs_start[], __initramfs_end[];
-#ifdef CONFIG_BLK_DEV_INITRD
 #include <linux/initrd.h>
 #include <linux/kexec.h>
 
@@ -539,15 +520,12 @@ skip:
 	initrd_end = 0;
 }
 
-#endif
-
 static int __init populate_rootfs(void)
 {
 	char *err = unpack_to_rootfs(__initramfs_start,
 			 __initramfs_end - __initramfs_start, 0);
 	if (err)
 		panic(err);
-#ifdef CONFIG_BLK_DEV_INITRD
 	if (initrd_start) {
 #ifdef CONFIG_BLK_DEV_RAM
 		int fd;
@@ -579,7 +557,6 @@ static int __init populate_rootfs(void)
 		free_initrd();
 #endif
 	}
-#endif
 	return 0;
 }
 rootfs_initcall(populate_rootfs);

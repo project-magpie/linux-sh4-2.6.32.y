@@ -1,7 +1,7 @@
 /*
  *   ALSA sequencer Timer
  *   Copyright (c) 1998-1999 by Frank van de Pol <fvdpol@coil.demon.nl>
- *                              Jaroslav Kysela <perex@suse.cz>
+ *                              Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -20,19 +20,11 @@
  *
  */
 
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <linux/slab.h>
 #include "seq_timer.h"
 #include "seq_queue.h"
 #include "seq_info.h"
-
-extern int seq_default_timer_class;
-extern int seq_default_timer_sclass;
-extern int seq_default_timer_card;
-extern int seq_default_timer_device;
-extern int seq_default_timer_subdevice;
-extern int seq_default_timer_resolution;
 
 /* allowed sequencer timer frequencies, in Hz */
 #define MIN_FREQUENCY		10

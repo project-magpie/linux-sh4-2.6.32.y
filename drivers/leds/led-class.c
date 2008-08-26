@@ -24,6 +24,12 @@
 
 static struct class *leds_class;
 
+static void led_update_brightness(struct led_classdev *led_cdev)
+{
+	if (led_cdev->brightness_get)
+		led_cdev->brightness = led_cdev->brightness_get(led_cdev);
+}
+
 static ssize_t led_brightness_show(struct device *dev, 
 		struct device_attribute *attr, char *buf)
 {
@@ -31,6 +37,7 @@ static ssize_t led_brightness_show(struct device *dev,
 	ssize_t ret = 0;
 
 	/* no lock needed for this */
+	led_update_brightness(led_cdev);
 	sprintf(buf, "%u\n", led_cdev->brightness);
 	ret = strlen(buf) + 1;
 
@@ -51,6 +58,9 @@ static ssize_t led_brightness_store(struct device *dev,
 
 	if (count == size) {
 		ret = count;
+
+		if (state == LED_OFF)
+			led_trigger_remove(led_cdev);
 		led_set_brightness(led_cdev, state);
 	}
 
@@ -93,12 +103,10 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 {
 	int rc;
 
-	led_cdev->dev = device_create(leds_class, parent, 0, "%s",
-					    led_cdev->name);
-	if (unlikely(IS_ERR(led_cdev->dev)))
+	led_cdev->dev = device_create_drvdata(leds_class, parent, 0, led_cdev,
+					      "%s", led_cdev->name);
+	if (IS_ERR(led_cdev->dev))
 		return PTR_ERR(led_cdev->dev);
-
-	dev_set_drvdata(led_cdev->dev, led_cdev);
 
 	/* register the attributes */
 	rc = device_create_file(led_cdev->dev, &dev_attr_brightness);
@@ -106,12 +114,14 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 		goto err_out;
 
 	/* add to the list of leds */
-	write_lock(&leds_list_lock);
+	down_write(&leds_list_lock);
 	list_add_tail(&led_cdev->node, &leds_list);
-	write_unlock(&leds_list_lock);
+	up_write(&leds_list_lock);
+
+	led_update_brightness(led_cdev);
 
 #ifdef CONFIG_LEDS_TRIGGERS
-	rwlock_init(&led_cdev->trigger_lock);
+	init_rwsem(&led_cdev->trigger_lock);
 
 	rc = device_create_file(led_cdev->dev, &dev_attr_trigger);
 	if (rc)
@@ -137,7 +147,7 @@ err_out:
 EXPORT_SYMBOL_GPL(led_classdev_register);
 
 /**
- * led_classdev_unregister - unregisters a object of led_properties class.
+ * __led_classdev_unregister - unregisters a object of led_properties class.
  * @led_cdev: the led device to unregister
  *
  * Unregisters a previously registered via led_classdev_register object.
@@ -147,17 +157,17 @@ void led_classdev_unregister(struct led_classdev *led_cdev)
 	device_remove_file(led_cdev->dev, &dev_attr_brightness);
 #ifdef CONFIG_LEDS_TRIGGERS
 	device_remove_file(led_cdev->dev, &dev_attr_trigger);
-	write_lock(&led_cdev->trigger_lock);
+	down_write(&led_cdev->trigger_lock);
 	if (led_cdev->trigger)
 		led_trigger_set(led_cdev, NULL);
-	write_unlock(&led_cdev->trigger_lock);
+	up_write(&led_cdev->trigger_lock);
 #endif
 
 	device_unregister(led_cdev->dev);
 
-	write_lock(&leds_list_lock);
+	down_write(&leds_list_lock);
 	list_del(&led_cdev->node);
-	write_unlock(&leds_list_lock);
+	up_write(&leds_list_lock);
 }
 EXPORT_SYMBOL_GPL(led_classdev_unregister);
 

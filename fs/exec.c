@@ -24,32 +24,31 @@
 
 #include <linux/slab.h>
 #include <linux/file.h>
-#include <linux/mman.h>
-#include <linux/a.out.h>
+#include <linux/fdtable.h>
+#include <linux/mm.h>
 #include <linux/stat.h>
 #include <linux/fcntl.h>
 #include <linux/smp_lock.h>
+#include <linux/swap.h>
+#include <linux/string.h>
 #include <linux/init.h>
-#include <linux/pagemap.h>
 #include <linux/highmem.h>
 #include <linux/spinlock.h>
 #include <linux/key.h>
 #include <linux/personality.h>
 #include <linux/binfmts.h>
-#include <linux/swap.h>
 #include <linux/utsname.h>
 #include <linux/pid_namespace.h>
 #include <linux/module.h>
 #include <linux/namei.h>
 #include <linux/proc_fs.h>
-#include <linux/ptrace.h>
 #include <linux/mount.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
-#include <linux/rmap.h>
 #include <linux/tsacct_kern.h>
 #include <linux/cn_proc.h>
 #include <linux/audit.h>
+#include <linux/tracehook.h>
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -59,56 +58,37 @@
 #include <linux/kmod.h>
 #endif
 
+#ifdef __alpha__
+/* for /sbin/loader handling in search_binary_handler() */
+#include <linux/a.out.h>
+#endif
+
 int core_uses_pid;
 char core_pattern[CORENAME_MAX_SIZE] = "core";
 int suid_dumpable = 0;
 
-EXPORT_SYMBOL(suid_dumpable);
 /* The maximal length of core_pattern is also specified in sysctl.c */
 
-static struct linux_binfmt *formats;
+static LIST_HEAD(formats);
 static DEFINE_RWLOCK(binfmt_lock);
 
 int register_binfmt(struct linux_binfmt * fmt)
 {
-	struct linux_binfmt ** tmp = &formats;
-
 	if (!fmt)
 		return -EINVAL;
-	if (fmt->next)
-		return -EBUSY;
 	write_lock(&binfmt_lock);
-	while (*tmp) {
-		if (fmt == *tmp) {
-			write_unlock(&binfmt_lock);
-			return -EBUSY;
-		}
-		tmp = &(*tmp)->next;
-	}
-	fmt->next = formats;
-	formats = fmt;
+	list_add(&fmt->lh, &formats);
 	write_unlock(&binfmt_lock);
 	return 0;	
 }
 
 EXPORT_SYMBOL(register_binfmt);
 
-int unregister_binfmt(struct linux_binfmt * fmt)
+void unregister_binfmt(struct linux_binfmt * fmt)
 {
-	struct linux_binfmt ** tmp = &formats;
-
 	write_lock(&binfmt_lock);
-	while (*tmp) {
-		if (fmt == *tmp) {
-			*tmp = fmt->next;
-			fmt->next = NULL;
-			write_unlock(&binfmt_lock);
-			return 0;
-		}
-		tmp = &(*tmp)->next;
-	}
+	list_del(&fmt->lh);
 	write_unlock(&binfmt_lock);
-	return -EINVAL;
 }
 
 EXPORT_SYMBOL(unregister_binfmt);
@@ -126,26 +106,33 @@ static inline void put_binfmt(struct linux_binfmt * fmt)
  */
 asmlinkage long sys_uselib(const char __user * library)
 {
-	struct file * file;
+	struct file *file;
 	struct nameidata nd;
-	int error;
+	char *tmp = getname(library);
+	int error = PTR_ERR(tmp);
 
-	error = __user_path_lookup_open(library, LOOKUP_FOLLOW, &nd, FMODE_READ|FMODE_EXEC);
+	if (!IS_ERR(tmp)) {
+		error = path_lookup_open(AT_FDCWD, tmp,
+					 LOOKUP_FOLLOW, &nd,
+					 FMODE_READ|FMODE_EXEC);
+		putname(tmp);
+	}
 	if (error)
 		goto out;
 
-	error = -EACCES;
-	if (nd.mnt->mnt_flags & MNT_NOEXEC)
-		goto exit;
 	error = -EINVAL;
-	if (!S_ISREG(nd.dentry->d_inode->i_mode))
+	if (!S_ISREG(nd.path.dentry->d_inode->i_mode))
 		goto exit;
 
-	error = vfs_permission(&nd, MAY_READ | MAY_EXEC);
+	error = -EACCES;
+	if (nd.path.mnt->mnt_flags & MNT_NOEXEC)
+		goto exit;
+
+	error = vfs_permission(&nd, MAY_READ | MAY_EXEC | MAY_OPEN);
 	if (error)
 		goto exit;
 
-	file = nameidata_to_filp(&nd, O_RDONLY);
+	file = nameidata_to_filp(&nd, O_RDONLY|O_LARGEFILE);
 	error = PTR_ERR(file);
 	if (IS_ERR(file))
 		goto out;
@@ -155,7 +142,7 @@ asmlinkage long sys_uselib(const char __user * library)
 		struct linux_binfmt * fmt;
 
 		read_lock(&binfmt_lock);
-		for (fmt = formats ; fmt ; fmt = fmt->next) {
+		list_for_each_entry(fmt, &formats, lh) {
 			if (!fmt->load_shlib)
 				continue;
 			if (!try_module_get(fmt->module))
@@ -174,7 +161,7 @@ out:
   	return error;
 exit:
 	release_open_intent(&nd);
-	path_release(&nd);
+	path_put(&nd.path);
 	goto out;
 }
 
@@ -199,8 +186,15 @@ static struct page *get_arg_page(struct linux_binprm *bprm, unsigned long pos,
 		return NULL;
 
 	if (write) {
-		struct rlimit *rlim = current->signal->rlim;
 		unsigned long size = bprm->vma->vm_end - bprm->vma->vm_start;
+		struct rlimit *rlim;
+
+		/*
+		 * We've historically supported up to 32 pages (ARG_MAX)
+		 * of argument strings even with small stacks
+		 */
+		if (size <= ARG_MAX)
+			return page;
 
 		/*
 		 * Limit to 1/4-th the stack size for the argv+env strings.
@@ -209,6 +203,7 @@ static struct page *get_arg_page(struct linux_binprm *bprm, unsigned long pos,
 		 *  - the program will have a reasonable amount of stack left
 		 *    to work from.
 		 */
+		rlim = current->signal->rlim;
 		if (size > rlim[RLIMIT_STACK].rlim_cur / 4) {
 			put_page(page);
 			return NULL;
@@ -260,7 +255,7 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 	vma->vm_start = vma->vm_end - PAGE_SIZE;
 
 	vma->vm_flags = VM_STACK_FLAGS;
-	vma->vm_page_prot = protection_map[vma->vm_flags & 0x7];
+	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 	err = insert_vm_struct(mm, vma);
 	if (err) {
 		up_write(&mm->mmap_sem);
@@ -554,7 +549,7 @@ static int shift_arg_pages(struct vm_area_struct *vma, unsigned long shift)
 		/*
 		 * when the old and new regions overlap clear from new_end.
 		 */
-		free_pgd_range(&tlb, new_end, old_end, new_end,
+		free_pgd_range(tlb, new_end, old_end, new_end,
 			vma->vm_next ? vma->vm_next->vm_start : 0);
 	} else {
 		/*
@@ -563,7 +558,7 @@ static int shift_arg_pages(struct vm_area_struct *vma, unsigned long shift)
 		 * have constraints on va-space that make this illegal (IA64) -
 		 * for the others its just a little faster.
 		 */
-		free_pgd_range(&tlb, old_start, old_end, new_end,
+		free_pgd_range(tlb, old_start, old_end, new_end,
 			vma->vm_next ? vma->vm_next->vm_start : 0);
 	}
 	tlb_finish_mmu(tlb, new_end, old_end);
@@ -623,7 +618,7 @@ int setup_arg_pages(struct linux_binprm *bprm,
 	bprm->exec -= stack_shift;
 
 	down_write(&mm->mmap_sem);
-	vm_flags = vma->vm_flags;
+	vm_flags = VM_STACK_FLAGS;
 
 	/*
 	 * Adjust stack execute permissions; explicitly enable for
@@ -671,38 +666,43 @@ EXPORT_SYMBOL(setup_arg_pages);
 struct file *open_exec(const char *name)
 {
 	struct nameidata nd;
-	int err;
 	struct file *file;
+	int err;
 
-	err = path_lookup_open(AT_FDCWD, name, LOOKUP_FOLLOW, &nd, FMODE_READ|FMODE_EXEC);
-	file = ERR_PTR(err);
+	err = path_lookup_open(AT_FDCWD, name, LOOKUP_FOLLOW, &nd,
+				FMODE_READ|FMODE_EXEC);
+	if (err)
+		goto out;
 
-	if (!err) {
-		struct inode *inode = nd.dentry->d_inode;
-		file = ERR_PTR(-EACCES);
-		if (!(nd.mnt->mnt_flags & MNT_NOEXEC) &&
-		    S_ISREG(inode->i_mode)) {
-			int err = vfs_permission(&nd, MAY_EXEC);
-			file = ERR_PTR(err);
-			if (!err) {
-				file = nameidata_to_filp(&nd, O_RDONLY);
-				if (!IS_ERR(file)) {
-					err = deny_write_access(file);
-					if (err) {
-						fput(file);
-						file = ERR_PTR(err);
-					}
-				}
-out:
-				return file;
-			}
-		}
-		release_open_intent(&nd);
-		path_release(&nd);
+	err = -EACCES;
+	if (!S_ISREG(nd.path.dentry->d_inode->i_mode))
+		goto out_path_put;
+
+	if (nd.path.mnt->mnt_flags & MNT_NOEXEC)
+		goto out_path_put;
+
+	err = vfs_permission(&nd, MAY_EXEC | MAY_OPEN);
+	if (err)
+		goto out_path_put;
+
+	file = nameidata_to_filp(&nd, O_RDONLY|O_LARGEFILE);
+	if (IS_ERR(file))
+		return file;
+
+	err = deny_write_access(file);
+	if (err) {
+		fput(file);
+		goto out;
 	}
-	goto out;
-}
 
+	return file;
+
+ out_path_put:
+	release_open_intent(&nd);
+	path_put(&nd.path);
+ out:
+	return ERR_PTR(err);
+}
 EXPORT_SYMBOL(open_exec);
 
 int kernel_read(struct file *file, unsigned long offset,
@@ -737,12 +737,10 @@ static int exec_mmap(struct mm_struct *mm)
 		 * Make sure that if there is a core dump in progress
 		 * for the old mm, we get out and die instead of going
 		 * through with the exec.  We must hold mmap_sem around
-		 * checking core_waiters and changing tsk->mm.  The
-		 * core-inducing thread will increment core_waiters for
-		 * each thread whose ->mm == old_mm.
+		 * checking core_state and changing tsk->mm.
 		 */
 		down_read(&old_mm->mmap_sem);
-		if (unlikely(old_mm->core_waiters)) {
+		if (unlikely(old_mm->core_state)) {
 			up_read(&old_mm->mmap_sem);
 			return -EINTR;
 		}
@@ -753,6 +751,7 @@ static int exec_mmap(struct mm_struct *mm)
 	tsk->active_mm = mm;
 	activate_mm(active_mm, mm);
 	task_unlock(tsk);
+	mm_update_next_owner(old_mm);
 	arch_pick_mmap_layout(mm);
 	if (old_mm) {
 		up_read(&old_mm->mmap_sem);
@@ -773,84 +772,38 @@ static int exec_mmap(struct mm_struct *mm)
 static int de_thread(struct task_struct *tsk)
 {
 	struct signal_struct *sig = tsk->signal;
-	struct sighand_struct *newsighand, *oldsighand = tsk->sighand;
+	struct sighand_struct *oldsighand = tsk->sighand;
 	spinlock_t *lock = &oldsighand->siglock;
 	struct task_struct *leader = NULL;
 	int count;
-
-	/*
-	 * If we don't share sighandlers, then we aren't sharing anything
-	 * and we can just re-use it all.
-	 */
-	if (atomic_read(&oldsighand->count) <= 1) {
-		exit_itimers(sig);
-		return 0;
-	}
-
-	newsighand = kmem_cache_alloc(sighand_cachep, GFP_KERNEL);
-	if (!newsighand)
-		return -ENOMEM;
 
 	if (thread_group_empty(tsk))
 		goto no_thread_group;
 
 	/*
 	 * Kill all other threads in the thread group.
-	 * We must hold tasklist_lock to call zap_other_threads.
 	 */
-	read_lock(&tasklist_lock);
 	spin_lock_irq(lock);
-	if (sig->flags & SIGNAL_GROUP_EXIT) {
+	if (signal_group_exit(sig)) {
 		/*
 		 * Another group action in progress, just
 		 * return so that the signal is processed.
 		 */
 		spin_unlock_irq(lock);
-		read_unlock(&tasklist_lock);
-		kmem_cache_free(sighand_cachep, newsighand);
 		return -EAGAIN;
 	}
-
-	/*
-	 * child_reaper ignores SIGKILL, change it now.
-	 * Reparenting needs write_lock on tasklist_lock,
-	 * so it is safe to do it under read_lock.
-	 */
-	if (unlikely(tsk->group_leader == child_reaper(tsk)))
-		tsk->nsproxy->pid_ns->child_reaper = tsk;
-
+	sig->group_exit_task = tsk;
 	zap_other_threads(tsk);
-	read_unlock(&tasklist_lock);
 
-	/*
-	 * Account for the thread group leader hanging around:
-	 */
-	count = 1;
-	if (!thread_group_leader(tsk)) {
-		count = 2;
-		/*
-		 * The SIGALRM timer survives the exec, but needs to point
-		 * at us as the new group leader now.  We have a race with
-		 * a timer firing now getting the old leader, so we need to
-		 * synchronize with any firing (by calling del_timer_sync)
-		 * before we can safely let the old group leader die.
-		 */
-		sig->tsk = tsk;
-		spin_unlock_irq(lock);
-		if (hrtimer_cancel(&sig->real_timer))
-			hrtimer_restart(&sig->real_timer);
-		spin_lock_irq(lock);
-	}
+	/* Account for the thread group leader hanging around: */
+	count = thread_group_leader(tsk) ? 1 : 2;
+	sig->notify_count = count;
 	while (atomic_read(&sig->count) > count) {
-		sig->group_exit_task = tsk;
-		sig->notify_count = count;
 		__set_current_state(TASK_UNINTERRUPTIBLE);
 		spin_unlock_irq(lock);
 		schedule();
 		spin_lock_irq(lock);
 	}
-	sig->group_exit_task = NULL;
-	sig->notify_count = 0;
 	spin_unlock_irq(lock);
 
 	/*
@@ -859,15 +812,20 @@ static int de_thread(struct task_struct *tsk)
 	 * and to assume its PID:
 	 */
 	if (!thread_group_leader(tsk)) {
-		/*
-		 * Wait for the thread group leader to be a zombie.
-		 * It should already be zombie at this point, most
-		 * of the time.
-		 */
 		leader = tsk->group_leader;
-		while (leader->exit_state != EXIT_ZOMBIE)
-			yield();
 
+		sig->notify_count = -1;	/* for exit_notify() */
+		for (;;) {
+			write_lock_irq(&tasklist_lock);
+			if (likely(leader->exit_state))
+				break;
+			__set_current_state(TASK_UNINTERRUPTIBLE);
+			write_unlock_irq(&tasklist_lock);
+			schedule();
+		}
+
+		if (unlikely(task_child_reaper(tsk) == leader))
+			task_active_pid_ns(tsk)->child_reaper = tsk;
 		/*
 		 * The only record we have of the real-time age of a
 		 * process, regardless of execs it's done, is start_time.
@@ -880,10 +838,8 @@ static int de_thread(struct task_struct *tsk)
 		 */
 		tsk->start_time = leader->start_time;
 
-		write_lock_irq(&tasklist_lock);
-
-		BUG_ON(leader->tgid != tsk->tgid);
-		BUG_ON(tsk->pid == tsk->tgid);
+		BUG_ON(!same_thread_group(leader, tsk));
+		BUG_ON(has_group_leader_pid(tsk));
 		/*
 		 * An exec() starts a new thread group with the
 		 * TGID of the previous thread group. Rehash the
@@ -898,7 +854,7 @@ static int de_thread(struct task_struct *tsk)
 		 */
 		detach_pid(tsk, PIDTYPE_PID);
 		tsk->pid = leader->pid;
-		attach_pid(tsk, PIDTYPE_PID,  find_pid(tsk->pid));
+		attach_pid(tsk, PIDTYPE_PID,  task_pid(leader));
 		transfer_pid(leader, tsk, PIDTYPE_PGID);
 		transfer_pid(leader, tsk, PIDTYPE_SID);
 		list_replace_rcu(&leader->tasks, &tsk->tasks);
@@ -912,42 +868,34 @@ static int de_thread(struct task_struct *tsk)
 		leader->exit_state = EXIT_DEAD;
 
 		write_unlock_irq(&tasklist_lock);
-        }
+	}
 
-	/*
-	 * There may be one thread left which is just exiting,
-	 * but it's safe to stop telling the group to kill themselves.
-	 */
-	sig->flags = 0;
+	sig->group_exit_task = NULL;
+	sig->notify_count = 0;
 
 no_thread_group:
 	exit_itimers(sig);
+	flush_itimer_signals();
 	if (leader)
 		release_task(leader);
 
-	if (atomic_read(&oldsighand->count) == 1) {
+	if (atomic_read(&oldsighand->count) != 1) {
+		struct sighand_struct *newsighand;
 		/*
-		 * Now that we nuked the rest of the thread group,
-		 * it turns out we are not sharing sighand any more either.
-		 * So we can just keep it.
+		 * This ->sighand is shared with the CLONE_SIGHAND
+		 * but not CLONE_THREAD task, switch to the new one.
 		 */
-		kmem_cache_free(sighand_cachep, newsighand);
-	} else {
-		/*
-		 * Move our state over to newsighand and switch it in.
-		 */
+		newsighand = kmem_cache_alloc(sighand_cachep, GFP_KERNEL);
+		if (!newsighand)
+			return -ENOMEM;
+
 		atomic_set(&newsighand->count, 1);
 		memcpy(newsighand->action, oldsighand->action,
 		       sizeof(newsighand->action));
 
 		write_lock_irq(&tasklist_lock);
 		spin_lock(&oldsighand->siglock);
-		spin_lock_nested(&newsighand->siglock, SINGLE_DEPTH_NESTING);
-
 		rcu_assign_pointer(tsk->sighand, newsighand);
-		recalc_sigpending();
-
-		spin_unlock(&newsighand->siglock);
 		spin_unlock(&oldsighand->siglock);
 		write_unlock_irq(&tasklist_lock);
 
@@ -957,12 +905,11 @@ no_thread_group:
 	BUG_ON(!thread_group_leader(tsk));
 	return 0;
 }
-	
+
 /*
  * These functions flushes out all traces of the currently running executable
  * so that a new one can be started
  */
-
 static void flush_old_files(struct files_struct * files)
 {
 	long j = -1;
@@ -993,12 +940,13 @@ static void flush_old_files(struct files_struct * files)
 	spin_unlock(&files->file_lock);
 }
 
-void get_task_comm(char *buf, struct task_struct *tsk)
+char *get_task_comm(char *buf, struct task_struct *tsk)
 {
 	/* buf must be at least sizeof(tsk->comm) in size */
 	task_lock(tsk);
 	strncpy(buf, tsk->comm, sizeof(tsk->comm));
 	task_unlock(tsk);
+	return buf;
 }
 
 void set_task_comm(struct task_struct *tsk, char *buf)
@@ -1012,7 +960,6 @@ int flush_old_exec(struct linux_binprm * bprm)
 {
 	char * name;
 	int i, ch, retval;
-	struct files_struct *files;
 	char tcomm[sizeof(current->comm)];
 
 	/*
@@ -1023,27 +970,18 @@ int flush_old_exec(struct linux_binprm * bprm)
 	if (retval)
 		goto out;
 
-	/*
-	 * Make sure we have private file handles. Ask the
-	 * fork helper to do the work for us and the exit
-	 * helper to do the cleanup of the old one.
-	 */
-	files = current->files;		/* refcounted so safe to hold */
-	retval = unshare_files();
-	if (retval)
-		goto out;
+	set_mm_exe_file(bprm->mm, bprm->file);
+
 	/*
 	 * Release all of the old mmap stuff
 	 */
 	retval = exec_mmap(bprm->mm);
 	if (retval)
-		goto mmap_failed;
+		goto out;
 
 	bprm->mm = NULL;		/* We're using it now */
 
 	/* This is the point of no return */
-	put_files_struct(files);
-
 	current->sas_ss_sp = current->sas_ss_size = 0;
 
 	if (current->euid == current->uid && current->egid == current->gid)
@@ -1093,8 +1031,6 @@ int flush_old_exec(struct linux_binprm * bprm)
 
 	return 0;
 
-mmap_failed:
-	reset_files_struct(current, files);
 out:
 	return retval;
 }
@@ -1150,13 +1086,8 @@ EXPORT_SYMBOL(prepare_binprm);
 
 static int unsafe_exec(struct task_struct *p)
 {
-	int unsafe = 0;
-	if (p->ptrace & PT_PTRACED) {
-		if (p->ptrace & PT_PTRACE_CAP)
-			unsafe |= LSM_UNSAFE_PTRACE_CAP;
-		else
-			unsafe |= LSM_UNSAFE_PTRACE;
-	}
+	int unsafe = tracehook_unsafe_exec(p);
+
 	if (atomic_read(&p->fs->count) > 1 ||
 	    atomic_read(&p->files->count) > 1 ||
 	    atomic_read(&p->sighand->count) > 1)
@@ -1284,7 +1215,7 @@ int search_binary_handler(struct linux_binprm *bprm,struct pt_regs *regs)
 	retval = -ENOENT;
 	for (try=0; try<2; try++) {
 		read_lock(&binfmt_lock);
-		for (fmt = formats ; fmt ; fmt = fmt->next) {
+		list_for_each_entry(fmt, &formats, lh) {
 			int (*fn)(struct linux_binprm *, struct pt_regs *) = fmt->load_binary;
 			if (!fn)
 				continue;
@@ -1293,6 +1224,7 @@ int search_binary_handler(struct linux_binprm *bprm,struct pt_regs *regs)
 			read_unlock(&binfmt_lock);
 			retval = fn(bprm, regs);
 			if (retval >= 0) {
+				tracehook_report_exec(fmt, bprm, regs);
 				put_binfmt(fmt);
 				allow_write_access(bprm->file);
 				if (bprm->file)
@@ -1331,6 +1263,12 @@ int search_binary_handler(struct linux_binprm *bprm,struct pt_regs *regs)
 
 EXPORT_SYMBOL(search_binary_handler);
 
+void free_bprm(struct linux_binprm *bprm)
+{
+	free_arg_pages(bprm);
+	kfree(bprm);
+}
+
 /*
  * sys_execve() executes a new program.
  */
@@ -1341,13 +1279,17 @@ int do_execve(char * filename,
 {
 	struct linux_binprm *bprm;
 	struct file *file;
-	unsigned long env_p;
+	struct files_struct *displaced;
 	int retval;
+
+	retval = unshare_files(&displaced);
+	if (retval)
+		goto out_ret;
 
 	retval = -ENOMEM;
 	bprm = kzalloc(sizeof(*bprm), GFP_KERNEL);
 	if (!bprm)
-		goto out_ret;
+		goto out_files;
 
 	file = open_exec(filename);
 	retval = PTR_ERR(file);
@@ -1389,24 +1331,23 @@ int do_execve(char * filename,
 	if (retval < 0)
 		goto out;
 
-	env_p = bprm->p;
 	retval = copy_strings(bprm->argc, argv, bprm);
 	if (retval < 0)
 		goto out;
-	bprm->argv_len = env_p - bprm->p;
 
+	current->flags &= ~PF_KTHREAD;
 	retval = search_binary_handler(bprm,regs);
 	if (retval >= 0) {
 		/* execve success */
-		free_arg_pages(bprm);
 		security_bprm_free(bprm);
 		acct_update_integrals(current);
-		kfree(bprm);
+		free_bprm(bprm);
+		if (displaced)
+			put_files_struct(displaced);
 		return retval;
 	}
 
 out:
-	free_arg_pages(bprm);
 	if (bprm->security)
 		security_bprm_free(bprm);
 
@@ -1420,8 +1361,11 @@ out_file:
 		fput(bprm->file);
 	}
 out_kfree:
-	kfree(bprm);
+	free_bprm(bprm);
 
+out_files:
+	if (displaced)
+		reset_files_struct(displaced);
 out_ret:
 	return retval;
 }
@@ -1446,17 +1390,14 @@ EXPORT_SYMBOL(set_binfmt);
  * name into corename, which must have space for at least
  * CORENAME_MAX_SIZE bytes plus one byte for the zero terminator.
  */
-static int format_corename(char *corename, const char *pattern, long signr)
+static int format_corename(char *corename, int nr_threads, long signr)
 {
-	const char *pat_ptr = pattern;
+	const char *pat_ptr = core_pattern;
+	int ispipe = (*pat_ptr == '|');
 	char *out_ptr = corename;
 	char *const out_end = corename + CORENAME_MAX_SIZE;
 	int rc;
 	int pid_in_pattern = 0;
-	int ispipe = 0;
-
-	if (*pattern == '|')
-		ispipe = 1;
 
 	/* Repeat as long as we have more pattern to process and more output
 	   space */
@@ -1479,7 +1420,7 @@ static int format_corename(char *corename, const char *pattern, long signr)
 			case 'p':
 				pid_in_pattern = 1;
 				rc = snprintf(out_ptr, out_end - out_ptr,
-					      "%d", current->tgid);
+					      "%d", task_tgid_vnr(current));
 				if (rc > out_end - out_ptr)
 					goto out;
 				out_ptr += rc;
@@ -1537,6 +1478,14 @@ static int format_corename(char *corename, const char *pattern, long signr)
 					goto out;
 				out_ptr += rc;
 				break;
+			/* core limit size */
+			case 'c':
+				rc = snprintf(out_ptr, out_end - out_ptr,
+					      "%lu", current->signal->rlim[RLIMIT_CORE].rlim_cur);
+				if (rc > out_end - out_ptr)
+					goto out;
+				out_ptr += rc;
+				break;
 			default:
 				break;
 			}
@@ -1549,9 +1498,9 @@ static int format_corename(char *corename, const char *pattern, long signr)
 	 * and core_uses_pid is set, then .%pid will be appended to
 	 * the filename. Do not do this for piped commands. */
 	if (!ispipe && !pid_in_pattern
-            && (core_uses_pid || atomic_read(&current->mm->mm_users) != 1)) {
+	    && (core_uses_pid || nr_threads)) {
 		rc = snprintf(out_ptr, out_end - out_ptr,
-			      ".%d", current->tgid);
+			      ".%d", task_tgid_vnr(current));
 		if (rc > out_end - out_ptr)
 			goto out;
 		out_ptr += rc;
@@ -1561,9 +1510,10 @@ out:
 	return ispipe;
 }
 
-static void zap_process(struct task_struct *start)
+static int zap_process(struct task_struct *start)
 {
 	struct task_struct *t;
+	int nr = 0;
 
 	start->signal->flags = SIGNAL_GROUP_EXIT;
 	start->signal->group_stop_count = 0;
@@ -1571,72 +1521,99 @@ static void zap_process(struct task_struct *start)
 	t = start;
 	do {
 		if (t != current && t->mm) {
-			t->mm->core_waiters++;
 			sigaddset(&t->pending.signal, SIGKILL);
 			signal_wake_up(t, 1);
+			nr++;
 		}
-	} while ((t = next_thread(t)) != start);
+	} while_each_thread(start, t);
+
+	return nr;
 }
 
 static inline int zap_threads(struct task_struct *tsk, struct mm_struct *mm,
-				int exit_code)
+				struct core_state *core_state, int exit_code)
 {
 	struct task_struct *g, *p;
 	unsigned long flags;
-	int err = -EAGAIN;
+	int nr = -EAGAIN;
 
 	spin_lock_irq(&tsk->sighand->siglock);
-	if (!(tsk->signal->flags & SIGNAL_GROUP_EXIT)) {
+	if (!signal_group_exit(tsk->signal)) {
+		mm->core_state = core_state;
 		tsk->signal->group_exit_code = exit_code;
-		zap_process(tsk);
-		err = 0;
+		nr = zap_process(tsk);
 	}
 	spin_unlock_irq(&tsk->sighand->siglock);
-	if (err)
-		return err;
+	if (unlikely(nr < 0))
+		return nr;
 
-	if (atomic_read(&mm->mm_users) == mm->core_waiters + 1)
+	if (atomic_read(&mm->mm_users) == nr + 1)
 		goto done;
-
+	/*
+	 * We should find and kill all tasks which use this mm, and we should
+	 * count them correctly into ->nr_threads. We don't take tasklist
+	 * lock, but this is safe wrt:
+	 *
+	 * fork:
+	 *	None of sub-threads can fork after zap_process(leader). All
+	 *	processes which were created before this point should be
+	 *	visible to zap_threads() because copy_process() adds the new
+	 *	process to the tail of init_task.tasks list, and lock/unlock
+	 *	of ->siglock provides a memory barrier.
+	 *
+	 * do_exit:
+	 *	The caller holds mm->mmap_sem. This means that the task which
+	 *	uses this mm can't pass exit_mm(), so it can't exit or clear
+	 *	its ->mm.
+	 *
+	 * de_thread:
+	 *	It does list_replace_rcu(&leader->tasks, &current->tasks),
+	 *	we must see either old or new leader, this does not matter.
+	 *	However, it can change p->sighand, so lock_task_sighand(p)
+	 *	must be used. Since p->mm != NULL and we hold ->mmap_sem
+	 *	it can't fail.
+	 *
+	 *	Note also that "g" can be the old leader with ->mm == NULL
+	 *	and already unhashed and thus removed from ->thread_group.
+	 *	This is OK, __unhash_process()->list_del_rcu() does not
+	 *	clear the ->next pointer, we will find the new leader via
+	 *	next_thread().
+	 */
 	rcu_read_lock();
 	for_each_process(g) {
 		if (g == tsk->group_leader)
 			continue;
-
+		if (g->flags & PF_KTHREAD)
+			continue;
 		p = g;
 		do {
 			if (p->mm) {
-				if (p->mm == mm) {
-					/*
-					 * p->sighand can't disappear, but
-					 * may be changed by de_thread()
-					 */
+				if (unlikely(p->mm == mm)) {
 					lock_task_sighand(p, &flags);
-					zap_process(p);
+					nr += zap_process(p);
 					unlock_task_sighand(p, &flags);
 				}
 				break;
 			}
-		} while ((p = next_thread(p)) != g);
+		} while_each_thread(g, p);
 	}
 	rcu_read_unlock();
 done:
-	return mm->core_waiters;
+	atomic_set(&core_state->nr_threads, nr);
+	return nr;
 }
 
-static int coredump_wait(int exit_code)
+static int coredump_wait(int exit_code, struct core_state *core_state)
 {
 	struct task_struct *tsk = current;
 	struct mm_struct *mm = tsk->mm;
-	struct completion startup_done;
 	struct completion *vfork_done;
 	int core_waiters;
 
-	init_completion(&mm->core_done);
-	init_completion(&startup_done);
-	mm->core_startup_done = &startup_done;
-
-	core_waiters = zap_threads(tsk, mm, exit_code);
+	init_completion(&core_state->startup);
+	core_state->dumper.task = tsk;
+	core_state->dumper.next = NULL;
+	core_waiters = zap_threads(tsk, mm, core_state, exit_code);
 	up_write(&mm->mmap_sem);
 
 	if (unlikely(core_waiters < 0))
@@ -1653,10 +1630,30 @@ static int coredump_wait(int exit_code)
 	}
 
 	if (core_waiters)
-		wait_for_completion(&startup_done);
+		wait_for_completion(&core_state->startup);
 fail:
-	BUG_ON(mm->core_waiters);
 	return core_waiters;
+}
+
+static void coredump_finish(struct mm_struct *mm)
+{
+	struct core_thread *curr, *next;
+	struct task_struct *task;
+
+	next = mm->core_state->dumper.next;
+	while ((curr = next) != NULL) {
+		next = curr->next;
+		task = curr->task;
+		/*
+		 * see exit_mm(), curr->task must not see
+		 * ->task == NULL before we read ->next.
+		 */
+		smp_mb();
+		curr->task = NULL;
+		wake_up_process(task);
+	}
+
+	mm->core_state = NULL;
 }
 
 /*
@@ -1699,7 +1696,6 @@ void set_dumpable(struct mm_struct *mm, int value)
 		break;
 	}
 }
-EXPORT_SYMBOL_GPL(set_dumpable);
 
 int get_dumpable(struct mm_struct *mm)
 {
@@ -1711,6 +1707,7 @@ int get_dumpable(struct mm_struct *mm)
 
 int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 {
+	struct core_state core_state;
 	char corename[CORENAME_MAX_SIZE + 1];
 	struct mm_struct *mm = current->mm;
 	struct linux_binfmt * binfmt;
@@ -1720,6 +1717,10 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	int fsuid = current->fsuid;
 	int flag = 0;
 	int ispipe = 0;
+	unsigned long core_limit = current->signal->rlim[RLIMIT_CORE].rlim_cur;
+	char **helper_argv = NULL;
+	int helper_argc = 0;
+	char *delimit;
 
 	audit_core_dumps(signr);
 
@@ -1727,7 +1728,10 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	if (!binfmt || !binfmt->core_dump)
 		goto fail;
 	down_write(&mm->mmap_sem);
-	if (!get_dumpable(mm)) {
+	/*
+	 * If another thread got here first, or we are not dumpable, bail out.
+	 */
+	if (mm->core_state || !get_dumpable(mm)) {
 		up_write(&mm->mmap_sem);
 		goto fail;
 	}
@@ -1741,9 +1745,8 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 		flag = O_EXCL;		/* Stop rewrite attacks */
 		current->fsuid = 0;	/* Dump root private */
 	}
-	set_dumpable(mm, 0);
 
-	retval = coredump_wait(exit_code);
+	retval = coredump_wait(exit_code, &core_state);
 	if (retval < 0)
 		goto fail;
 
@@ -1753,19 +1756,46 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	 */
 	clear_thread_flag(TIF_SIGPENDING);
 
-	if (current->signal->rlim[RLIMIT_CORE].rlim_cur < binfmt->min_coredump)
-		goto fail_unlock;
-
 	/*
 	 * lock_kernel() because format_corename() is controlled by sysctl, which
 	 * uses lock_kernel()
 	 */
  	lock_kernel();
-	ispipe = format_corename(corename, core_pattern, signr);
+	ispipe = format_corename(corename, retval, signr);
 	unlock_kernel();
+	/*
+	 * Don't bother to check the RLIMIT_CORE value if core_pattern points
+	 * to a pipe.  Since we're not writing directly to the filesystem
+	 * RLIMIT_CORE doesn't really apply, as no actual core file will be
+	 * created unless the pipe reader choses to write out the core file
+	 * at which point file size limits and permissions will be imposed
+	 * as it does with any other process
+	 */
+	if ((!ispipe) && (core_limit < binfmt->min_coredump))
+		goto fail_unlock;
+
  	if (ispipe) {
+		helper_argv = argv_split(GFP_KERNEL, corename+1, &helper_argc);
+		/* Terminate the string before the first option */
+		delimit = strchr(corename, ' ');
+		if (delimit)
+			*delimit = '\0';
+		delimit = strrchr(helper_argv[0], '/');
+		if (delimit)
+			delimit++;
+		else
+			delimit = helper_argv[0];
+		if (!strcmp(delimit, current->comm)) {
+			printk(KERN_NOTICE "Recursive core dump detected, "
+					"aborting\n");
+			goto fail_unlock;
+		}
+
+		core_limit = RLIM_INFINITY;
+
 		/* SIGPIPE can happen, but it's just never processed */
- 		if(call_usermodehelper_pipe(corename+1, NULL, NULL, &file)) {
+ 		if (call_usermodehelper_pipe(corename+1, helper_argv, NULL,
+				&file)) {
  			printk(KERN_INFO "Core dump to %s pipe failed\n",
 			       corename);
  			goto fail_unlock;
@@ -1786,6 +1816,12 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	   but keep the previous behaviour for now. */
 	if (!ispipe && !S_ISREG(inode->i_mode))
 		goto close_fail;
+	/*
+	 * Dont allow local users get cute and trick others to coredump
+	 * into their pre-created files:
+	 */
+	if (inode->i_uid != current->fsuid)
+		goto close_fail;
 	if (!file->f_op)
 		goto close_fail;
 	if (!file->f_op->write)
@@ -1793,15 +1829,18 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	if (!ispipe && do_truncate(file->f_path.dentry, 0, 0, file) != 0)
 		goto close_fail;
 
-	retval = binfmt->core_dump(signr, regs, file);
+	retval = binfmt->core_dump(signr, regs, file, core_limit);
 
 	if (retval)
 		current->signal->group_exit_code |= 0x80;
 close_fail:
 	filp_close(file, NULL);
 fail_unlock:
+	if (helper_argv)
+		argv_free(helper_argv);
+
 	current->fsuid = fsuid;
-	complete_all(&mm->core_done);
+	coredump_finish(mm);
 fail:
 	return retval;
 }

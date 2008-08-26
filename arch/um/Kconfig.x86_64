@@ -1,3 +1,10 @@
+
+menu "Host processor type and features"
+
+source "arch/x86/Kconfig.cpu"
+
+endmenu
+
 config UML_X86
 	bool
 	default y
@@ -11,29 +18,9 @@ config RWSEM_GENERIC_SPINLOCK
 	bool
 	default y
 
-config SEMAPHORE_SLEEPERS
-	bool
-	default y
-
-config TOP_ADDR
- 	hex
-	default 0x80000000
-
 config 3_LEVEL_PGTABLES
        bool
        default y
-
-config STUB_CODE
-	hex
-	default 0x7fbfffe000
-
-config STUB_DATA
-	hex
-	default 0x7fbffff000
-
-config STUB_START
-	hex
-	default STUB_CODE
 
 config ARCH_HAS_SC_SIGNALS
 	bool
@@ -51,3 +38,5 @@ config GENERIC_HWEIGHT
 	bool
 	default y
 
+config ARCH_SUPPORTS_AOUT
+	def_bool y

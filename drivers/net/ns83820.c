@@ -1,4 +1,4 @@
-#define VERSION "0.22"
+#define VERSION "0.23"
 /* ns83820.c by Benjamin LaHaise with contributions.
  *
  * Questions/comments/discussion to linux-ns83820@kvack.org.
@@ -585,16 +585,13 @@ static inline int rx_refill(struct net_device *ndev, gfp_t gfp)
 	for (i=0; i<NR_RX_DESC; i++) {
 		struct sk_buff *skb;
 		long res;
+
 		/* extra 16 bytes for alignment */
-		skb = __dev_alloc_skb(REAL_RX_BUF_SIZE+16, gfp);
+		skb = __netdev_alloc_skb(ndev, REAL_RX_BUF_SIZE+16, gfp);
 		if (unlikely(!skb))
 			break;
 
-		res = (long)skb->data & 0xf;
-		res = 0x10 - res;
-		res &= 0xf;
-		skb_reserve(skb, res);
-
+		skb_reserve(skb, skb->data - PTR_ALIGN(skb->data, 16));
 		if (gfp != GFP_ATOMIC)
 			spin_lock_irqsave(&dev->rx_info.lock, flags);
 		res = ns83820_add_rx_skb(dev, skb);
@@ -611,8 +608,7 @@ static inline int rx_refill(struct net_device *ndev, gfp_t gfp)
 	return i ? 0 : -ENOMEM;
 }
 
-static void FASTCALL(rx_refill_atomic(struct net_device *ndev));
-static void fastcall rx_refill_atomic(struct net_device *ndev)
+static void rx_refill_atomic(struct net_device *ndev)
 {
 	rx_refill(ndev, GFP_ATOMIC);
 }
@@ -633,8 +629,7 @@ static inline void clear_rx_desc(struct ns83820 *dev, unsigned i)
 	build_rx_desc(dev, dev->rx_info.descs + (DESC_SIZE * i), 0, 0, CMDSTS_OWN, 0);
 }
 
-static void FASTCALL(phy_intr(struct net_device *ndev));
-static void fastcall phy_intr(struct net_device *ndev)
+static void phy_intr(struct net_device *ndev)
 {
 	struct ns83820 *dev = PRIV(ndev);
 	static const char *speeds[] = { "10", "100", "1000", "1000(?)", "1000F" };
@@ -832,8 +827,7 @@ static void ns83820_cleanup_rx(struct ns83820 *dev)
 	}
 }
 
-static void FASTCALL(ns83820_rx_kick(struct net_device *ndev));
-static void fastcall ns83820_rx_kick(struct net_device *ndev)
+static void ns83820_rx_kick(struct net_device *ndev)
 {
 	struct ns83820 *dev = PRIV(ndev);
 	/*if (nr_rx_empty(dev) >= NR_RX_DESC/4)*/ {
@@ -854,8 +848,7 @@ static void fastcall ns83820_rx_kick(struct net_device *ndev)
 /* rx_irq
  *
  */
-static void FASTCALL(rx_irq(struct net_device *ndev));
-static void fastcall rx_irq(struct net_device *ndev)
+static void rx_irq(struct net_device *ndev)
 {
 	struct ns83820 *dev = PRIV(ndev);
 	struct rx_info *info = &dev->rx_info;
@@ -1247,6 +1240,149 @@ static struct net_device_stats *ns83820_get_stats(struct net_device *ndev)
 	return &dev->stats;
 }
 
+/* Let ethtool retrieve info */
+static int ns83820_get_settings(struct net_device *ndev,
+				struct ethtool_cmd *cmd)
+{
+	struct ns83820 *dev = PRIV(ndev);
+	u32 cfg, tanar, tbicr;
+	int have_optical = 0;
+	int fullduplex   = 0;
+
+	/*
+	 * Here's the list of available ethtool commands from other drivers:
+	 *	cmd->advertising =
+	 *	cmd->speed =
+	 *	cmd->duplex =
+	 *	cmd->port = 0;
+	 *	cmd->phy_address =
+	 *	cmd->transceiver = 0;
+	 *	cmd->autoneg =
+	 *	cmd->maxtxpkt = 0;
+	 *	cmd->maxrxpkt = 0;
+	 */
+
+	/* read current configuration */
+	cfg   = readl(dev->base + CFG) ^ SPDSTS_POLARITY;
+	tanar = readl(dev->base + TANAR);
+	tbicr = readl(dev->base + TBICR);
+
+	if (dev->CFG_cache & CFG_TBI_EN) {
+		/* we have an optical interface */
+		have_optical = 1;
+		fullduplex = (cfg & CFG_DUPSTS) ? 1 : 0;
+
+	} else {
+		/* We have copper */
+		fullduplex = (cfg & CFG_DUPSTS) ? 1 : 0;
+        }
+
+	cmd->supported = SUPPORTED_Autoneg;
+
+	/* we have optical interface */
+	if (dev->CFG_cache & CFG_TBI_EN) {
+		cmd->supported |= SUPPORTED_1000baseT_Half |
+					SUPPORTED_1000baseT_Full |
+					SUPPORTED_FIBRE;
+		cmd->port       = PORT_FIBRE;
+	} /* TODO: else copper related  support */
+
+	cmd->duplex = fullduplex ? DUPLEX_FULL : DUPLEX_HALF;
+	switch (cfg / CFG_SPDSTS0 & 3) {
+	case 2:
+		cmd->speed = SPEED_1000;
+		break;
+	case 1:
+		cmd->speed = SPEED_100;
+		break;
+	default:
+		cmd->speed = SPEED_10;
+		break;
+	}
+	cmd->autoneg = (tbicr & TBICR_MR_AN_ENABLE) ? 1: 0;
+	return 0;
+}
+
+/* Let ethool change settings*/
+static int ns83820_set_settings(struct net_device *ndev,
+				struct ethtool_cmd *cmd)
+{
+	struct ns83820 *dev = PRIV(ndev);
+	u32 cfg, tanar;
+	int have_optical = 0;
+	int fullduplex   = 0;
+
+	/* read current configuration */
+	cfg = readl(dev->base + CFG) ^ SPDSTS_POLARITY;
+	tanar = readl(dev->base + TANAR);
+
+	if (dev->CFG_cache & CFG_TBI_EN) {
+		/* we have optical */
+		have_optical = 1;
+		fullduplex   = (tanar & TANAR_FULL_DUP);
+
+	} else {
+		/* we have copper */
+		fullduplex = cfg & CFG_DUPSTS;
+	}
+
+	spin_lock_irq(&dev->misc_lock);
+	spin_lock(&dev->tx_lock);
+
+	/* Set duplex */
+	if (cmd->duplex != fullduplex) {
+		if (have_optical) {
+			/*set full duplex*/
+			if (cmd->duplex == DUPLEX_FULL) {
+				/* force full duplex */
+				writel(readl(dev->base + TXCFG)
+					| TXCFG_CSI | TXCFG_HBI | TXCFG_ATP,
+					dev->base + TXCFG);
+				writel(readl(dev->base + RXCFG) | RXCFG_RX_FD,
+					dev->base + RXCFG);
+				/* Light up full duplex LED */
+				writel(readl(dev->base + GPIOR) | GPIOR_GP1_OUT,
+					dev->base + GPIOR);
+			} else {
+				/*TODO: set half duplex */
+			}
+
+		} else {
+			/*we have copper*/
+			/* TODO: Set duplex for copper cards */
+		}
+		printk(KERN_INFO "%s: Duplex set via ethtool\n",
+		ndev->name);
+	}
+
+	/* Set autonegotiation */
+	if (1) {
+		if (cmd->autoneg == AUTONEG_ENABLE) {
+			/* restart auto negotiation */
+			writel(TBICR_MR_AN_ENABLE | TBICR_MR_RESTART_AN,
+				dev->base + TBICR);
+			writel(TBICR_MR_AN_ENABLE, dev->base + TBICR);
+				dev->linkstate = LINK_AUTONEGOTIATE;
+
+			printk(KERN_INFO "%s: autoneg enabled via ethtool\n",
+				ndev->name);
+		} else {
+			/* disable auto negotiation */
+			writel(0x00000000, dev->base + TBICR);
+		}
+
+		printk(KERN_INFO "%s: autoneg %s via ethtool\n", ndev->name,
+				cmd->autoneg ? "ENABLED" : "DISABLED");
+	}
+
+	phy_intr(ndev);
+	spin_unlock(&dev->tx_lock);
+	spin_unlock_irq(&dev->misc_lock);
+
+	return 0;
+}
+/* end ethtool get/set support -df */
+
 static void ns83820_get_drvinfo(struct net_device *ndev, struct ethtool_drvinfo *info)
 {
 	struct ns83820 *dev = PRIV(ndev);
@@ -1263,8 +1399,10 @@ static u32 ns83820_get_link(struct net_device *ndev)
 }
 
 static const struct ethtool_ops ops = {
-	.get_drvinfo = ns83820_get_drvinfo,
-	.get_link = ns83820_get_link
+	.get_settings    = ns83820_get_settings,
+	.set_settings    = ns83820_set_settings,
+	.get_drvinfo     = ns83820_get_drvinfo,
+	.get_link        = ns83820_get_link
 };
 
 /* this function is called in irq context from the ISR */
@@ -1817,6 +1955,7 @@ static int __devinit ns83820_init_one(struct pci_dev *pci_dev, const struct pci_
 	long addr;
 	int err;
 	int using_dac = 0;
+	DECLARE_MAC_BUF(mac);
 
 	/* See if we can set the dma mask early on; failure is fatal. */
 	if (sizeof(dma_addr_t) == 8 &&
@@ -1843,7 +1982,6 @@ static int __devinit ns83820_init_one(struct pci_dev *pci_dev, const struct pci_
 	spin_lock_init(&dev->misc_lock);
 	dev->pci_dev = pci_dev;
 
-	SET_MODULE_OWNER(ndev);
 	SET_NETDEV_DEV(ndev, &pci_dev->dev);
 
 	INIT_WORK(&dev->tq_refill, queue_refill);
@@ -2082,13 +2220,11 @@ static int __devinit ns83820_init_one(struct pci_dev *pci_dev, const struct pci_
 		ndev->features |= NETIF_F_HIGHDMA;
 	}
 
-	printk(KERN_INFO "%s: ns83820 v" VERSION ": DP83820 v%u.%u: %02x:%02x:%02x:%02x:%02x:%02x io=0x%08lx irq=%d f=%s\n",
+	printk(KERN_INFO "%s: ns83820 v" VERSION ": DP83820 v%u.%u: %s io=0x%08lx irq=%d f=%s\n",
 		ndev->name,
 		(unsigned)readl(dev->base + SRR) >> 8,
 		(unsigned)readl(dev->base + SRR) & 0xff,
-		ndev->dev_addr[0], ndev->dev_addr[1],
-		ndev->dev_addr[2], ndev->dev_addr[3],
-		ndev->dev_addr[4], ndev->dev_addr[5],
+		print_mac(mac, ndev->dev_addr),
 		addr, pci_dev->irq,
 		(ndev->features & NETIF_F_HIGHDMA) ? "h,sg" : "sg"
 		);

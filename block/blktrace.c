@@ -25,7 +25,6 @@
 #include <linux/time.h>
 #include <asm/uaccess.h>
 
-static DEFINE_PER_CPU(unsigned long long, blk_trace_cpu_offset) = { 0, };
 static unsigned int blktrace_seq __read_mostly = 1;
 
 /*
@@ -41,7 +40,7 @@ static void trace_note(struct blk_trace *bt, pid_t pid, int action,
 		const int cpu = smp_processor_id();
 
 		t->magic = BLK_IO_TRACE_MAGIC | BLK_IO_TRACE_VERSION;
-		t->time = cpu_clock(cpu) - per_cpu(blk_trace_cpu_offset, cpu);
+		t->time = ktime_to_ns(ktime_get());
 		t->device = bt->dev;
 		t->action = action;
 		t->pid = pid;
@@ -75,6 +74,24 @@ static void trace_note_time(struct blk_trace *bt)
 	trace_note(bt, 0, BLK_TN_TIMESTAMP, words, sizeof(words));
 	local_irq_restore(flags);
 }
+
+void __trace_note_message(struct blk_trace *bt, const char *fmt, ...)
+{
+	int n;
+	va_list args;
+	unsigned long flags;
+	char *buf;
+
+	local_irq_save(flags);
+	buf = per_cpu_ptr(bt->msg_data, smp_processor_id());
+	va_start(args, fmt);
+	n = vscnprintf(buf, BLK_TN_MAX_MSG, fmt, args);
+	va_end(args);
+
+	trace_note(bt, 0, BLK_TN_MESSAGE, buf, n);
+	local_irq_restore(flags);
+}
+EXPORT_SYMBOL_GPL(__trace_note_message);
 
 static int act_log_check(struct blk_trace *bt, u32 what, sector_t sector,
 			 pid_t pid)
@@ -142,10 +159,7 @@ void __blk_add_trace(struct blk_trace *bt, sector_t sector, int bytes,
 	/*
 	 * A word about the locking here - we disable interrupts to reserve
 	 * some space in the relay per-cpu buffer, to prevent an irq
-	 * from coming in and stepping on our toes. Once reserved, it's
-	 * enough to get preemption disabled to prevent read of this data
-	 * before we are through filling it. get_cpu()/put_cpu() does this
-	 * for us
+	 * from coming in and stepping on our toes.
 	 */
 	local_irq_save(flags);
 
@@ -159,7 +173,7 @@ void __blk_add_trace(struct blk_trace *bt, sector_t sector, int bytes,
 
 		t->magic = BLK_IO_TRACE_MAGIC | BLK_IO_TRACE_VERSION;
 		t->sequence = ++(*sequence);
-		t->time = cpu_clock(cpu) - per_cpu(blk_trace_cpu_offset, cpu);
+		t->time = ktime_to_ns(ktime_get());
 		t->sector = sector;
 		t->bytes = bytes;
 		t->action = what;
@@ -179,7 +193,7 @@ void __blk_add_trace(struct blk_trace *bt, sector_t sector, int bytes,
 EXPORT_SYMBOL_GPL(__blk_add_trace);
 
 static struct dentry *blk_tree_root;
-static struct mutex blk_tree_mutex;
+static DEFINE_MUTEX(blk_tree_mutex);
 static unsigned int root_users;
 
 static inline void blk_remove_root(void)
@@ -202,6 +216,7 @@ static void blk_remove_tree(struct dentry *dir)
 static struct dentry *blk_create_tree(const char *blk_name)
 {
 	struct dentry *dir = NULL;
+	int created = 0;
 
 	mutex_lock(&blk_tree_mutex);
 
@@ -209,13 +224,17 @@ static struct dentry *blk_create_tree(const char *blk_name)
 		blk_tree_root = debugfs_create_dir("block", NULL);
 		if (!blk_tree_root)
 			goto err;
+		created = 1;
 	}
 
 	dir = debugfs_create_dir(blk_name, blk_tree_root);
 	if (dir)
 		root_users++;
-	else
-		blk_remove_root();
+	else {
+		/* Delete root only if we created it */
+		if (created)
+			blk_remove_root();
+	}
 
 err:
 	mutex_unlock(&blk_tree_mutex);
@@ -225,13 +244,15 @@ err:
 static void blk_trace_cleanup(struct blk_trace *bt)
 {
 	relay_close(bt->rchan);
+	debugfs_remove(bt->msg_file);
 	debugfs_remove(bt->dropped_file);
 	blk_remove_tree(bt->dir);
 	free_percpu(bt->sequence);
+	free_percpu(bt->msg_data);
 	kfree(bt);
 }
 
-static int blk_trace_remove(struct request_queue *q)
+int blk_trace_remove(struct request_queue *q)
 {
 	struct blk_trace *bt;
 
@@ -245,6 +266,7 @@ static int blk_trace_remove(struct request_queue *q)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(blk_trace_remove);
 
 static int blk_dropped_open(struct inode *inode, struct file *filp)
 {
@@ -268,6 +290,44 @@ static const struct file_operations blk_dropped_fops = {
 	.owner =	THIS_MODULE,
 	.open =		blk_dropped_open,
 	.read =		blk_dropped_read,
+};
+
+static int blk_msg_open(struct inode *inode, struct file *filp)
+{
+	filp->private_data = inode->i_private;
+
+	return 0;
+}
+
+static ssize_t blk_msg_write(struct file *filp, const char __user *buffer,
+				size_t count, loff_t *ppos)
+{
+	char *msg;
+	struct blk_trace *bt;
+
+	if (count > BLK_TN_MAX_MSG)
+		return -EINVAL;
+
+	msg = kmalloc(count, GFP_KERNEL);
+	if (msg == NULL)
+		return -ENOMEM;
+
+	if (copy_from_user(msg, buffer, count)) {
+		kfree(msg);
+		return -EFAULT;
+	}
+
+	bt = filp->private_data;
+	__trace_note_message(bt, "%s", msg);
+	kfree(msg);
+
+	return count;
+}
+
+static const struct file_operations blk_msg_fops = {
+	.owner =	THIS_MODULE,
+	.open =		blk_msg_open,
+	.write =	blk_msg_write,
 };
 
 /*
@@ -312,33 +372,25 @@ static struct rchan_callbacks blk_relay_callbacks = {
 /*
  * Setup everything required to start tracing
  */
-static int blk_trace_setup(struct request_queue *q, struct block_device *bdev,
-			   char __user *arg)
+int do_blk_trace_setup(struct request_queue *q, char *name, dev_t dev,
+			struct blk_user_trace_setup *buts)
 {
-	struct blk_user_trace_setup buts;
 	struct blk_trace *old_bt, *bt = NULL;
 	struct dentry *dir = NULL;
-	char b[BDEVNAME_SIZE];
 	int ret, i;
 
-	if (copy_from_user(&buts, arg, sizeof(buts)))
-		return -EFAULT;
-
-	if (!buts.buf_size || !buts.buf_nr)
+	if (!buts->buf_size || !buts->buf_nr)
 		return -EINVAL;
 
-	strcpy(buts.name, bdevname(bdev, b));
+	strcpy(buts->name, name);
 
 	/*
 	 * some device names have larger paths - convert the slashes
 	 * to underscores for this to work as expected
 	 */
-	for (i = 0; i < strlen(buts.name); i++)
-		if (buts.name[i] == '/')
-			buts.name[i] = '_';
-
-	if (copy_to_user(arg, &buts, sizeof(buts)))
-		return -EFAULT;
+	for (i = 0; i < strlen(buts->name); i++)
+		if (buts->name[i] == '/')
+			buts->name[i] = '_';
 
 	ret = -ENOMEM;
 	bt = kzalloc(sizeof(*bt), GFP_KERNEL);
@@ -349,13 +401,17 @@ static int blk_trace_setup(struct request_queue *q, struct block_device *bdev,
 	if (!bt->sequence)
 		goto err;
 
+	bt->msg_data = __alloc_percpu(BLK_TN_MAX_MSG);
+	if (!bt->msg_data)
+		goto err;
+
 	ret = -ENOENT;
-	dir = blk_create_tree(buts.name);
+	dir = blk_create_tree(buts->name);
 	if (!dir)
 		goto err;
 
 	bt->dir = dir;
-	bt->dev = bdev->bd_dev;
+	bt->dev = dev;
 	atomic_set(&bt->dropped, 0);
 
 	ret = -EIO;
@@ -363,20 +419,25 @@ static int blk_trace_setup(struct request_queue *q, struct block_device *bdev,
 	if (!bt->dropped_file)
 		goto err;
 
-	bt->rchan = relay_open("trace", dir, buts.buf_size, buts.buf_nr, &blk_relay_callbacks, bt);
+	bt->msg_file = debugfs_create_file("msg", 0222, dir, bt, &blk_msg_fops);
+	if (!bt->msg_file)
+		goto err;
+
+	bt->rchan = relay_open("trace", dir, buts->buf_size,
+				buts->buf_nr, &blk_relay_callbacks, bt);
 	if (!bt->rchan)
 		goto err;
 
-	bt->act_mask = buts.act_mask;
+	bt->act_mask = buts->act_mask;
 	if (!bt->act_mask)
 		bt->act_mask = (u16) -1;
 
-	bt->start_lba = buts.start_lba;
-	bt->end_lba = buts.end_lba;
+	bt->start_lba = buts->start_lba;
+	bt->end_lba = buts->end_lba;
 	if (!bt->end_lba)
 		bt->end_lba = -1ULL;
 
-	bt->pid = buts.pid;
+	bt->pid = buts->pid;
 	bt->trace_state = Blktrace_setup;
 
 	ret = -EBUSY;
@@ -391,9 +452,12 @@ err:
 	if (dir)
 		blk_remove_tree(dir);
 	if (bt) {
+		if (bt->msg_file)
+			debugfs_remove(bt->msg_file);
 		if (bt->dropped_file)
 			debugfs_remove(bt->dropped_file);
 		free_percpu(bt->sequence);
+		free_percpu(bt->msg_data);
 		if (bt->rchan)
 			relay_close(bt->rchan);
 		kfree(bt);
@@ -401,7 +465,28 @@ err:
 	return ret;
 }
 
-static int blk_trace_startstop(struct request_queue *q, int start)
+int blk_trace_setup(struct request_queue *q, char *name, dev_t dev,
+		    char __user *arg)
+{
+	struct blk_user_trace_setup buts;
+	int ret;
+
+	ret = copy_from_user(&buts, arg, sizeof(buts));
+	if (ret)
+		return -EFAULT;
+
+	ret = do_blk_trace_setup(q, name, dev, &buts);
+	if (ret)
+		return ret;
+
+	if (copy_to_user(arg, &buts, sizeof(buts)))
+		return -EFAULT;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(blk_trace_setup);
+
+int blk_trace_startstop(struct request_queue *q, int start)
 {
 	struct blk_trace *bt;
 	int ret;
@@ -434,6 +519,7 @@ static int blk_trace_startstop(struct request_queue *q, int start)
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(blk_trace_startstop);
 
 /**
  * blk_trace_ioctl: - handle the ioctls associated with tracing
@@ -446,6 +532,7 @@ int blk_trace_ioctl(struct block_device *bdev, unsigned cmd, char __user *arg)
 {
 	struct request_queue *q;
 	int ret, start = 0;
+	char b[BDEVNAME_SIZE];
 
 	q = bdev_get_queue(bdev);
 	if (!q)
@@ -455,7 +542,8 @@ int blk_trace_ioctl(struct block_device *bdev, unsigned cmd, char __user *arg)
 
 	switch (cmd) {
 	case BLKTRACESETUP:
-		ret = blk_trace_setup(q, bdev, arg);
+		bdevname(bdev, b);
+		ret = blk_trace_setup(q, b, bdev->bd_dev, arg);
 		break;
 	case BLKTRACESTART:
 		start = 1;
@@ -486,77 +574,3 @@ void blk_trace_shutdown(struct request_queue *q)
 		blk_trace_remove(q);
 	}
 }
-
-/*
- * Average offset over two calls to cpu_clock() with a gettimeofday()
- * in the middle
- */
-static void blk_check_time(unsigned long long *t, int this_cpu)
-{
-	unsigned long long a, b;
-	struct timeval tv;
-
-	a = cpu_clock(this_cpu);
-	do_gettimeofday(&tv);
-	b = cpu_clock(this_cpu);
-
-	*t = tv.tv_sec * 1000000000 + tv.tv_usec * 1000;
-	*t -= (a + b) / 2;
-}
-
-/*
- * calibrate our inter-CPU timings
- */
-static void blk_trace_check_cpu_time(void *data)
-{
-	unsigned long long *t;
-	int this_cpu = get_cpu();
-
-	t = &per_cpu(blk_trace_cpu_offset, this_cpu);
-
-	/*
-	 * Just call it twice, hopefully the second call will be cache hot
-	 * and a little more precise
-	 */
-	blk_check_time(t, this_cpu);
-	blk_check_time(t, this_cpu);
-
-	put_cpu();
-}
-
-static void blk_trace_set_ht_offsets(void)
-{
-#if defined(CONFIG_SCHED_SMT)
-	int cpu, i;
-
-	/*
-	 * now make sure HT siblings have the same time offset
-	 */
-	preempt_disable();
-	for_each_online_cpu(cpu) {
-		unsigned long long *cpu_off, *sibling_off;
-
-		for_each_cpu_mask(i, cpu_sibling_map[cpu]) {
-			if (i == cpu)
-				continue;
-
-			cpu_off = &per_cpu(blk_trace_cpu_offset, cpu);
-			sibling_off = &per_cpu(blk_trace_cpu_offset, i);
-			*sibling_off = *cpu_off;
-		}
-	}
-	preempt_enable();
-#endif
-}
-
-static __init int blk_trace_init(void)
-{
-	mutex_init(&blk_tree_mutex);
-	on_each_cpu(blk_trace_check_cpu_time, NULL, 1, 1);
-	blk_trace_set_ht_offsets();
-
-	return 0;
-}
-
-module_init(blk_trace_init);
-

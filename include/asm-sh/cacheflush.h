@@ -43,29 +43,29 @@ extern void __flush_purge_region(void *start, int size);
 extern void __flush_invalidate_region(void *start, int size);
 #endif
 
-#define flush_cache_vmap(start, end)		flush_cache_all()
-#define flush_cache_vunmap(start, end)		flush_cache_all()
+#define ARCH_HAS_FLUSH_KERNEL_DCACHE_PAGE
+static inline void flush_kernel_dcache_page(struct page *page)
+{
+	flush_dcache_page(page);
+}
 
-#define copy_to_user_page(vma, page, vaddr, dst, src, len) \
+#define copy_to_user_page(vma, page, vaddr, dst, src, len)	\
 	do {							\
 		flush_cache_page(vma, vaddr, page_to_pfn(page));\
 		memcpy(dst, src, len);				\
 		flush_icache_user_range(vma, page, vaddr, len);	\
 	} while (0)
 
-#define copy_from_user_page(vma, page, vaddr, dst, src, len) \
+#define copy_from_user_page(vma, page, vaddr, dst, src, len)	\
 	do {							\
 		flush_cache_page(vma, vaddr, page_to_pfn(page));\
 		memcpy(dst, src, len);				\
 	} while (0)
 
-#define HAVE_ARCH_UNMAPPED_AREA
+#define flush_cache_vmap(start, end)		flush_cache_all()
+#define flush_cache_vunmap(start, end)		flush_cache_all()
 
-#define ARCH_HAS_FLUSH_KERNEL_DCACHE_PAGE
-static inline void flush_kernel_dcache_page(struct page *page)
-{
-	flush_dcache_page(page);
-}
+#define HAVE_ARCH_UNMAPPED_AREA
 
 #endif /* __KERNEL__ */
 #endif /* __ASM_SH_CACHEFLUSH_H */

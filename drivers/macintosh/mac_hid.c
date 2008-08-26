@@ -103,6 +103,9 @@ int mac_hid_mouse_emulate_buttons(int caller, unsigned int keycode, int down)
 	return 0;
 }
 
+static struct lock_class_key emumousebtn_event_class;
+static struct lock_class_key emumousebtn_mutex_class;
+
 static int emumousebtn_input_register(void)
 {
 	int ret;
@@ -111,15 +114,19 @@ static int emumousebtn_input_register(void)
 	if (!emumousebtn)
 		return -ENOMEM;
 
+	lockdep_set_class(&emumousebtn->event_lock, &emumousebtn_event_class);
+	lockdep_set_class(&emumousebtn->mutex, &emumousebtn_mutex_class);
+
 	emumousebtn->name = "Macintosh mouse button emulation";
 	emumousebtn->id.bustype = BUS_ADB;
 	emumousebtn->id.vendor = 0x0001;
 	emumousebtn->id.product = 0x0001;
 	emumousebtn->id.version = 0x0100;
 
-	emumousebtn->evbit[0] = BIT(EV_KEY) | BIT(EV_REL);
-	emumousebtn->keybit[LONG(BTN_MOUSE)] = BIT(BTN_LEFT) | BIT(BTN_MIDDLE) | BIT(BTN_RIGHT);
-	emumousebtn->relbit[0] = BIT(REL_X) | BIT(REL_Y);
+	emumousebtn->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_REL);
+	emumousebtn->keybit[BIT_WORD(BTN_MOUSE)] = BIT_MASK(BTN_LEFT) |
+		BIT_MASK(BTN_MIDDLE) | BIT_MASK(BTN_RIGHT);
+	emumousebtn->relbit[0] = BIT_MASK(REL_X) | BIT_MASK(REL_Y);
 
 	ret = input_register_device(emumousebtn);
 	if (ret)

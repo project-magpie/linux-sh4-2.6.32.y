@@ -226,14 +226,6 @@ static int olpc_bat_get_property(struct power_supply *psy,
 			return ret;
 		val->intval = ec_byte;
 		break;
-	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
-		if (ec_byte & BAT_STAT_FULL)
-			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_FULL;
-		else if (ec_byte & BAT_STAT_LOW)
-			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_LOW;
-		else
-			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
-		break;
 	case POWER_SUPPLY_PROP_TEMP:
 		ret = olpc_ec_cmd(EC_BAT_TEMP, NULL, 0, (void *)&ec_word, 2);
 		if (ret)
@@ -265,7 +257,6 @@ static enum power_supply_property olpc_bat_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_AVG,
 	POWER_SUPPLY_PROP_CURRENT_AVG,
 	POWER_SUPPLY_PROP_CAPACITY,
-	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_TEMP_AMBIENT,
 	POWER_SUPPLY_PROP_MANUFACTURER,
@@ -324,7 +315,6 @@ static int __init olpc_bat_init(void)
 	if (ret)
 		goto battery_failed;
 
-	olpc_register_battery_callback(&olpc_battery_trigger_uevent);
 	goto success;
 
 battery_failed:
@@ -337,7 +327,6 @@ success:
 
 static void __exit olpc_bat_exit(void)
 {
-	olpc_deregister_battery_callback();
 	power_supply_unregister(&olpc_bat);
 	power_supply_unregister(&olpc_ac);
 	platform_device_unregister(bat_pdev);

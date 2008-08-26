@@ -21,6 +21,9 @@
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 
+extern void __clear_user_page(void *to, void *orig_to);
+extern void __copy_user_page(void *to, void *from, void *orig_to);
+
 //extern struct semaphore p3map_sem[];
 static atomic_t concurreny_check[16];
 

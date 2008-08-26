@@ -50,7 +50,7 @@ relocate_new_kernel:
 	mov lr,r1
 	mov r0,#0
 	ldr r1,kexec_mach_type
-	mov r2,#0
+	ldr r2,kexec_boot_atags
 	mov pc,lr
 
 	.globl kexec_start_address
@@ -63,6 +63,11 @@ kexec_indirection_page:
 
 	.globl kexec_mach_type
 kexec_mach_type:
+	.long	0x0
+
+	/* phy addr of the atags for the new kernel */
+	.globl kexec_boot_atags
+kexec_boot_atags:
 	.long	0x0
 
 relocate_new_kernel_end:

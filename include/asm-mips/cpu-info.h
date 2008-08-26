@@ -14,10 +14,6 @@
 
 #include <asm/cache.h>
 
-#ifdef CONFIG_SGI_IP27
-#include <asm/sn/types.h>
-#endif
-
 /*
  * Descriptor for a cache
  */
@@ -43,20 +39,6 @@ struct cache_desc {
 struct cpuinfo_mips {
 	unsigned long		udelay_val;
 	unsigned long		asid_cache;
-#if defined(CONFIG_SGI_IP27)
-//	cpuid_t		p_cpuid;	/* PROM assigned cpuid */
-	cnodeid_t	p_nodeid;	/* my node ID in compact-id-space */
-	nasid_t		p_nasid;	/* my node ID in numa-as-id-space */
-	unsigned char	p_slice;	/* Physical position on node board */
-#endif
-#if 0
-	unsigned long		loops_per_sec;
-	unsigned long		ipi_count;
-	unsigned long		irq_attempt[NR_IRQS];
-	unsigned long		smp_local_irq_count;
-	unsigned long		prof_multiplier;
-	unsigned long		prof_counter;
-#endif
 
 	/*
 	 * Capability and feature descriptor structure for MIPS CPU
@@ -72,7 +54,9 @@ struct cpuinfo_mips {
 	struct cache_desc	dcache;	/* Primary D or combined I/D cache */
 	struct cache_desc	scache;	/* Secondary cache */
 	struct cache_desc	tcache;	/* Tertiary/split secondary cache */
-#if defined(CONFIG_MIPS_MT_SMTC)
+	int			srsets;	/* Shadow register sets */
+	int			core;	/* physical core number */
+#if defined(CONFIG_MIPS_MT_SMP) || defined(CONFIG_MIPS_MT_SMTC)
 	/*
 	 * In the MIPS MT "SMTC" model, each TC is considered
 	 * to be a "CPU" for the purposes of scheduling, but
@@ -80,8 +64,10 @@ struct cpuinfo_mips {
 	 * to all TCs within the same VPE.
 	 */
 	int			vpe_id;  /* Virtual Processor number */
+#endif
+#ifdef CONFIG_MIPS_MT_SMTC
 	int			tc_id;   /* Thread Context number */
-#endif /* CONFIG_MIPS_MT */
+#endif
 	void 			*data;	/* Additional data */
 } __attribute__((aligned(SMP_CACHE_BYTES)));
 
@@ -91,5 +77,8 @@ extern struct cpuinfo_mips cpu_data[];
 
 extern void cpu_probe(void);
 extern void cpu_report(void);
+
+extern const char *__cpu_name[];
+#define cpu_name_string()	__cpu_name[smp_processor_id()]
 
 #endif /* __ASM_CPU_INFO_H */

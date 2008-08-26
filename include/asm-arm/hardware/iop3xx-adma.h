@@ -260,7 +260,7 @@ static inline int iop_chan_memset_slot_count(size_t len, int *slots_per_op)
 static inline int iop3xx_aau_xor_slot_count(size_t len, int src_cnt,
 					int *slots_per_op)
 {
-	const static int slot_count_table[] = { 0,
+	static const char slot_count_table[] = {
 						1, 1, 1, 1, /* 01 - 04 */
 						2, 2, 2, 2, /* 05 - 08 */
 						4, 4, 4, 4, /* 09 - 12 */
@@ -270,7 +270,7 @@ static inline int iop3xx_aau_xor_slot_count(size_t len, int src_cnt,
 						8, 8, 8, 8, /* 25 - 28 */
 						8, 8, 8, 8, /* 29 - 32 */
 					      };
-	*slots_per_op = slot_count_table[src_cnt];
+	*slots_per_op = slot_count_table[src_cnt - 1];
 	return *slots_per_op;
 }
 
@@ -369,7 +369,7 @@ static inline u32 iop_desc_get_byte_count(struct iop_adma_desc_slot *desc,
 /* translate the src_idx to a descriptor word index */
 static inline int __desc_idx(int src_idx)
 {
-	const static int desc_idx_table[] = { 0, 0, 0, 0,
+	static const int desc_idx_table[] = { 0, 0, 0, 0,
 					      0, 1, 2, 3,
 					      5, 6, 7, 8,
 					      9, 10, 11, 12,
@@ -414,7 +414,7 @@ static inline void iop3xx_aau_desc_set_src_addr(struct iop3xx_desc_aau *hw_desc,
 }
 
 static inline void
-iop_desc_init_memcpy(struct iop_adma_desc_slot *desc, int int_en)
+iop_desc_init_memcpy(struct iop_adma_desc_slot *desc, unsigned long flags)
 {
 	struct iop3xx_desc_dma *hw_desc = desc->hw_desc;
 	union {
@@ -425,14 +425,14 @@ iop_desc_init_memcpy(struct iop_adma_desc_slot *desc, int int_en)
 	u_desc_ctrl.value = 0;
 	u_desc_ctrl.field.mem_to_mem_en = 1;
 	u_desc_ctrl.field.pci_transaction = 0xe; /* memory read block */
-	u_desc_ctrl.field.int_en = int_en;
+	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 	hw_desc->desc_ctrl = u_desc_ctrl.value;
 	hw_desc->upper_pci_src_addr = 0;
 	hw_desc->crc_addr = 0;
 }
 
 static inline void
-iop_desc_init_memset(struct iop_adma_desc_slot *desc, int int_en)
+iop_desc_init_memset(struct iop_adma_desc_slot *desc, unsigned long flags)
 {
 	struct iop3xx_desc_aau *hw_desc = desc->hw_desc;
 	union {
@@ -443,12 +443,13 @@ iop_desc_init_memset(struct iop_adma_desc_slot *desc, int int_en)
 	u_desc_ctrl.value = 0;
 	u_desc_ctrl.field.blk1_cmd_ctrl = 0x2; /* memory block fill */
 	u_desc_ctrl.field.dest_write_en = 1;
-	u_desc_ctrl.field.int_en = int_en;
+	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 	hw_desc->desc_ctrl = u_desc_ctrl.value;
 }
 
 static inline u32
-iop3xx_desc_init_xor(struct iop3xx_desc_aau *hw_desc, int src_cnt, int int_en)
+iop3xx_desc_init_xor(struct iop3xx_desc_aau *hw_desc, int src_cnt,
+		     unsigned long flags)
 {
 	int i, shift;
 	u32 edcr;
@@ -509,21 +510,23 @@ iop3xx_desc_init_xor(struct iop3xx_desc_aau *hw_desc, int src_cnt, int int_en)
 
 	u_desc_ctrl.field.dest_write_en = 1;
 	u_desc_ctrl.field.blk1_cmd_ctrl = 0x7; /* direct fill */
-	u_desc_ctrl.field.int_en = int_en;
+	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 	hw_desc->desc_ctrl = u_desc_ctrl.value;
 
 	return u_desc_ctrl.value;
 }
 
 static inline void
-iop_desc_init_xor(struct iop_adma_desc_slot *desc, int src_cnt, int int_en)
+iop_desc_init_xor(struct iop_adma_desc_slot *desc, int src_cnt,
+		  unsigned long flags)
 {
-	iop3xx_desc_init_xor(desc->hw_desc, src_cnt, int_en);
+	iop3xx_desc_init_xor(desc->hw_desc, src_cnt, flags);
 }
 
 /* return the number of operations */
 static inline int
-iop_desc_init_zero_sum(struct iop_adma_desc_slot *desc, int src_cnt, int int_en)
+iop_desc_init_zero_sum(struct iop_adma_desc_slot *desc, int src_cnt,
+		       unsigned long flags)
 {
 	int slot_cnt = desc->slot_cnt, slots_per_op = desc->slots_per_op;
 	struct iop3xx_desc_aau *hw_desc, *prev_hw_desc, *iter;
@@ -538,10 +541,10 @@ iop_desc_init_zero_sum(struct iop_adma_desc_slot *desc, int src_cnt, int int_en)
 	for (i = 0, j = 0; (slot_cnt -= slots_per_op) >= 0;
 		i += slots_per_op, j++) {
 		iter = iop_hw_desc_slot_idx(hw_desc, i);
-		u_desc_ctrl.value = iop3xx_desc_init_xor(iter, src_cnt, int_en);
+		u_desc_ctrl.value = iop3xx_desc_init_xor(iter, src_cnt, flags);
 		u_desc_ctrl.field.dest_write_en = 0;
 		u_desc_ctrl.field.zero_result_en = 1;
-		u_desc_ctrl.field.int_en = int_en;
+		u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 		iter->desc_ctrl = u_desc_ctrl.value;
 
 		/* for the subsequent descriptors preserve the store queue
@@ -559,7 +562,8 @@ iop_desc_init_zero_sum(struct iop_adma_desc_slot *desc, int src_cnt, int int_en)
 }
 
 static inline void
-iop_desc_init_null_xor(struct iop_adma_desc_slot *desc, int src_cnt, int int_en)
+iop_desc_init_null_xor(struct iop_adma_desc_slot *desc, int src_cnt,
+		       unsigned long flags)
 {
 	struct iop3xx_desc_aau *hw_desc = desc->hw_desc;
 	union {
@@ -591,7 +595,7 @@ iop_desc_init_null_xor(struct iop_adma_desc_slot *desc, int src_cnt, int int_en)
 	}
 
 	u_desc_ctrl.field.dest_write_en = 0;
-	u_desc_ctrl.field.int_en = int_en;
+	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 	hw_desc->desc_ctrl = u_desc_ctrl.value;
 }
 
@@ -763,18 +767,10 @@ static inline int iop_desc_get_zero_result(struct iop_adma_desc_slot *desc)
 static inline void iop_chan_append(struct iop_adma_chan *chan)
 {
 	u32 dma_chan_ctrl;
-	/* workaround dropped interrupts on 3xx */
-	mod_timer(&chan->cleanup_watchdog, jiffies + msecs_to_jiffies(3));
 
 	dma_chan_ctrl = __raw_readl(DMA_CCR(chan));
 	dma_chan_ctrl |= 0x2;
 	__raw_writel(dma_chan_ctrl, DMA_CCR(chan));
-}
-
-static inline void iop_chan_idle(int busy, struct iop_adma_chan *chan)
-{
-	if (!busy)
-		del_timer(&chan->cleanup_watchdog);
 }
 
 static inline u32 iop_chan_get_status(struct iop_adma_chan *chan)

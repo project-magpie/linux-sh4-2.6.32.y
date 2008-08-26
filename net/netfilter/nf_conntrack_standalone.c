@@ -14,6 +14,7 @@
 #include <linux/seq_file.h>
 #include <linux/percpu.h>
 #include <linux/netdevice.h>
+#include <net/net_namespace.h>
 #ifdef CONFIG_SYSCTL
 #include <linux/sysctl.h>
 #endif
@@ -24,31 +25,19 @@
 #include <net/netfilter/nf_conntrack_l4proto.h>
 #include <net/netfilter/nf_conntrack_expect.h>
 #include <net/netfilter/nf_conntrack_helper.h>
+#include <net/netfilter/nf_conntrack_acct.h>
 
 MODULE_LICENSE("GPL");
 
 #ifdef CONFIG_PROC_FS
 int
 print_tuple(struct seq_file *s, const struct nf_conntrack_tuple *tuple,
-	    struct nf_conntrack_l3proto *l3proto,
-	    struct nf_conntrack_l4proto *l4proto)
+            const struct nf_conntrack_l3proto *l3proto,
+            const struct nf_conntrack_l4proto *l4proto)
 {
 	return l3proto->print_tuple(s, tuple) || l4proto->print_tuple(s, tuple);
 }
 EXPORT_SYMBOL_GPL(print_tuple);
-
-#ifdef CONFIG_NF_CT_ACCT
-static unsigned int
-seq_print_counters(struct seq_file *s,
-		   const struct ip_conntrack_counter *counter)
-{
-	return seq_printf(s, "packets=%llu bytes=%llu ",
-			  (unsigned long long)counter->packets,
-			  (unsigned long long)counter->bytes);
-}
-#else
-#define seq_print_counters(x, y)	0
-#endif
 
 struct ct_iter_state {
 	unsigned int bucket;
@@ -57,12 +46,14 @@ struct ct_iter_state {
 static struct hlist_node *ct_get_first(struct seq_file *seq)
 {
 	struct ct_iter_state *st = seq->private;
+	struct hlist_node *n;
 
 	for (st->bucket = 0;
 	     st->bucket < nf_conntrack_htable_size;
 	     st->bucket++) {
-		if (!hlist_empty(&nf_conntrack_hash[st->bucket]))
-			return nf_conntrack_hash[st->bucket].first;
+		n = rcu_dereference(nf_conntrack_hash[st->bucket].first);
+		if (n)
+			return n;
 	}
 	return NULL;
 }
@@ -72,11 +63,11 @@ static struct hlist_node *ct_get_next(struct seq_file *seq,
 {
 	struct ct_iter_state *st = seq->private;
 
-	head = head->next;
+	head = rcu_dereference(head->next);
 	while (head == NULL) {
 		if (++st->bucket >= nf_conntrack_htable_size)
 			return NULL;
-		head = nf_conntrack_hash[st->bucket].first;
+		head = rcu_dereference(nf_conntrack_hash[st->bucket].first);
 	}
 	return head;
 }
@@ -92,8 +83,9 @@ static struct hlist_node *ct_get_idx(struct seq_file *seq, loff_t pos)
 }
 
 static void *ct_seq_start(struct seq_file *seq, loff_t *pos)
+	__acquires(RCU)
 {
-	read_lock_bh(&nf_conntrack_lock);
+	rcu_read_lock();
 	return ct_get_idx(seq, *pos);
 }
 
@@ -104,82 +96,73 @@ static void *ct_seq_next(struct seq_file *s, void *v, loff_t *pos)
 }
 
 static void ct_seq_stop(struct seq_file *s, void *v)
+	__releases(RCU)
 {
-	read_unlock_bh(&nf_conntrack_lock);
+	rcu_read_unlock();
 }
 
 /* return 0 on success, 1 in case of error */
 static int ct_seq_show(struct seq_file *s, void *v)
 {
 	const struct nf_conntrack_tuple_hash *hash = v;
-	const struct nf_conn *conntrack = nf_ct_tuplehash_to_ctrack(hash);
-	struct nf_conntrack_l3proto *l3proto;
-	struct nf_conntrack_l4proto *l4proto;
+	const struct nf_conn *ct = nf_ct_tuplehash_to_ctrack(hash);
+	const struct nf_conntrack_l3proto *l3proto;
+	const struct nf_conntrack_l4proto *l4proto;
 
-	NF_CT_ASSERT(conntrack);
+	NF_CT_ASSERT(ct);
 
 	/* we only want to print DIR_ORIGINAL */
 	if (NF_CT_DIRECTION(hash))
 		return 0;
 
-	l3proto = __nf_ct_l3proto_find(conntrack->tuplehash[IP_CT_DIR_ORIGINAL]
-				       .tuple.src.l3num);
-
+	l3proto = __nf_ct_l3proto_find(nf_ct_l3num(ct));
 	NF_CT_ASSERT(l3proto);
-	l4proto = __nf_ct_l4proto_find(conntrack->tuplehash[IP_CT_DIR_ORIGINAL]
-				   .tuple.src.l3num,
-				   conntrack->tuplehash[IP_CT_DIR_ORIGINAL]
-				   .tuple.dst.protonum);
+	l4proto = __nf_ct_l4proto_find(nf_ct_l3num(ct), nf_ct_protonum(ct));
 	NF_CT_ASSERT(l4proto);
 
 	if (seq_printf(s, "%-8s %u %-8s %u %ld ",
-		       l3proto->name,
-		       conntrack->tuplehash[IP_CT_DIR_ORIGINAL].tuple.src.l3num,
-		       l4proto->name,
-		       conntrack->tuplehash[IP_CT_DIR_ORIGINAL].tuple.dst.protonum,
-		       timer_pending(&conntrack->timeout)
-		       ? (long)(conntrack->timeout.expires - jiffies)/HZ : 0) != 0)
+		       l3proto->name, nf_ct_l3num(ct),
+		       l4proto->name, nf_ct_protonum(ct),
+		       timer_pending(&ct->timeout)
+		       ? (long)(ct->timeout.expires - jiffies)/HZ : 0) != 0)
 		return -ENOSPC;
 
-	if (l3proto->print_conntrack(s, conntrack))
+	if (l4proto->print_conntrack && l4proto->print_conntrack(s, ct))
 		return -ENOSPC;
 
-	if (l4proto->print_conntrack(s, conntrack))
-		return -ENOSPC;
-
-	if (print_tuple(s, &conntrack->tuplehash[IP_CT_DIR_ORIGINAL].tuple,
+	if (print_tuple(s, &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple,
 			l3proto, l4proto))
 		return -ENOSPC;
 
-	if (seq_print_counters(s, &conntrack->counters[IP_CT_DIR_ORIGINAL]))
+	if (seq_print_acct(s, ct, IP_CT_DIR_ORIGINAL))
 		return -ENOSPC;
 
-	if (!(test_bit(IPS_SEEN_REPLY_BIT, &conntrack->status)))
+	if (!(test_bit(IPS_SEEN_REPLY_BIT, &ct->status)))
 		if (seq_printf(s, "[UNREPLIED] "))
 			return -ENOSPC;
 
-	if (print_tuple(s, &conntrack->tuplehash[IP_CT_DIR_REPLY].tuple,
+	if (print_tuple(s, &ct->tuplehash[IP_CT_DIR_REPLY].tuple,
 			l3proto, l4proto))
 		return -ENOSPC;
 
-	if (seq_print_counters(s, &conntrack->counters[IP_CT_DIR_REPLY]))
+	if (seq_print_acct(s, ct, IP_CT_DIR_REPLY))
 		return -ENOSPC;
 
-	if (test_bit(IPS_ASSURED_BIT, &conntrack->status))
+	if (test_bit(IPS_ASSURED_BIT, &ct->status))
 		if (seq_printf(s, "[ASSURED] "))
 			return -ENOSPC;
 
 #if defined(CONFIG_NF_CONNTRACK_MARK)
-	if (seq_printf(s, "mark=%u ", conntrack->mark))
+	if (seq_printf(s, "mark=%u ", ct->mark))
 		return -ENOSPC;
 #endif
 
 #ifdef CONFIG_NF_CONNTRACK_SECMARK
-	if (seq_printf(s, "secmark=%u ", conntrack->secmark))
+	if (seq_printf(s, "secmark=%u ", ct->secmark))
 		return -ENOSPC;
 #endif
 
-	if (seq_printf(s, "use=%u\n", atomic_read(&conntrack->ct_general.use)))
+	if (seq_printf(s, "use=%u\n", atomic_read(&ct->ct_general.use)))
 		return -ENOSPC;
 
 	return 0;
@@ -194,22 +177,8 @@ static const struct seq_operations ct_seq_ops = {
 
 static int ct_open(struct inode *inode, struct file *file)
 {
-	struct seq_file *seq;
-	struct ct_iter_state *st;
-	int ret;
-
-	st = kzalloc(sizeof(struct ct_iter_state), GFP_KERNEL);
-	if (st == NULL)
-		return -ENOMEM;
-	ret = seq_open(file, &ct_seq_ops);
-	if (ret)
-		goto out_free;
-	seq          = file->private_data;
-	seq->private = st;
-	return ret;
-out_free:
-	kfree(st);
-	return ret;
+	return seq_open_private(file, &ct_seq_ops,
+			sizeof(struct ct_iter_state));
 }
 
 static const struct file_operations ct_file_ops = {
@@ -258,7 +227,7 @@ static void ct_cpu_seq_stop(struct seq_file *seq, void *v)
 static int ct_cpu_seq_show(struct seq_file *seq, void *v)
 {
 	unsigned int nr_conntracks = atomic_read(&nf_conntrack_count);
-	struct ip_conntrack_stat *st = v;
+	const struct ip_conntrack_stat *st = v;
 
 	if (v == SEQ_START_TOKEN) {
 		seq_printf(seq, "entries  searched found new invalid ignore delete delete_list insert insert_failed drop early_drop icmp_error  expect_new expect_create expect_delete\n");
@@ -305,8 +274,43 @@ static const struct file_operations ct_cpu_seq_fops = {
 	.open	 = ct_cpu_seq_open,
 	.read	 = seq_read,
 	.llseek	 = seq_lseek,
-	.release = seq_release_private,
+	.release = seq_release,
 };
+
+static int nf_conntrack_standalone_init_proc(void)
+{
+	struct proc_dir_entry *pde;
+
+	pde = proc_net_fops_create(&init_net, "nf_conntrack", 0440, &ct_file_ops);
+	if (!pde)
+		goto out_nf_conntrack;
+
+	pde = proc_create("nf_conntrack", S_IRUGO, init_net.proc_net_stat,
+			  &ct_cpu_seq_fops);
+	if (!pde)
+		goto out_stat_nf_conntrack;
+	return 0;
+
+out_stat_nf_conntrack:
+	proc_net_remove(&init_net, "nf_conntrack");
+out_nf_conntrack:
+	return -ENOMEM;
+}
+
+static void nf_conntrack_standalone_fini_proc(void)
+{
+	remove_proc_entry("nf_conntrack", init_net.proc_net_stat);
+	proc_net_remove(&init_net, "nf_conntrack");
+}
+#else
+static int nf_conntrack_standalone_init_proc(void)
+{
+	return 0;
+}
+
+static void nf_conntrack_standalone_fini_proc(void)
+{
+}
 #endif /* CONFIG_PROC_FS */
 
 /* Sysctl support */
@@ -396,72 +400,67 @@ static ctl_table nf_ct_netfilter_table[] = {
 	{ .ctl_name = 0 }
 };
 
-static ctl_table nf_ct_net_table[] = {
-	{
-		.ctl_name	= CTL_NET,
-		.procname	= "net",
-		.mode		= 0555,
-		.child		= nf_ct_netfilter_table,
-	},
-	{ .ctl_name = 0 }
+static struct ctl_path nf_ct_path[] = {
+	{ .procname = "net", .ctl_name = CTL_NET, },
+	{ }
 };
+
 EXPORT_SYMBOL_GPL(nf_ct_log_invalid);
+
+static int nf_conntrack_standalone_init_sysctl(void)
+{
+	nf_ct_sysctl_header =
+		register_sysctl_paths(nf_ct_path, nf_ct_netfilter_table);
+	if (nf_ct_sysctl_header == NULL) {
+		printk("nf_conntrack: can't register to sysctl.\n");
+		return -ENOMEM;
+	}
+	return 0;
+
+}
+
+static void nf_conntrack_standalone_fini_sysctl(void)
+{
+	unregister_sysctl_table(nf_ct_sysctl_header);
+}
+#else
+static int nf_conntrack_standalone_init_sysctl(void)
+{
+	return 0;
+}
+
+static void nf_conntrack_standalone_fini_sysctl(void)
+{
+}
 #endif /* CONFIG_SYSCTL */
 
 static int __init nf_conntrack_standalone_init(void)
 {
-#ifdef CONFIG_PROC_FS
-	struct proc_dir_entry *proc, *proc_stat;
-#endif
-	int ret = 0;
+	int ret;
 
 	ret = nf_conntrack_init();
 	if (ret < 0)
-		return ret;
+		goto out;
+	ret = nf_conntrack_standalone_init_proc();
+	if (ret < 0)
+		goto out_proc;
+	ret = nf_conntrack_standalone_init_sysctl();
+	if (ret < 0)
+		goto out_sysctl;
+	return 0;
 
-#ifdef CONFIG_PROC_FS
-	proc = proc_net_fops_create("nf_conntrack", 0440, &ct_file_ops);
-	if (!proc) goto cleanup_init;
-
-	proc_stat = create_proc_entry("nf_conntrack", S_IRUGO, proc_net_stat);
-	if (!proc_stat)
-		goto cleanup_proc;
-
-	proc_stat->proc_fops = &ct_cpu_seq_fops;
-	proc_stat->owner = THIS_MODULE;
-#endif
-#ifdef CONFIG_SYSCTL
-	nf_ct_sysctl_header = register_sysctl_table(nf_ct_net_table);
-	if (nf_ct_sysctl_header == NULL) {
-		printk("nf_conntrack: can't register to sysctl.\n");
-		ret = -ENOMEM;
-		goto cleanup_proc_stat;
-	}
-#endif
-	return ret;
-
-#ifdef CONFIG_SYSCTL
- cleanup_proc_stat:
-#endif
-#ifdef CONFIG_PROC_FS
-	remove_proc_entry("nf_conntrack", proc_net_stat);
- cleanup_proc:
-	proc_net_remove("nf_conntrack");
- cleanup_init:
-#endif /* CNFIG_PROC_FS */
+out_sysctl:
+	nf_conntrack_standalone_fini_proc();
+out_proc:
 	nf_conntrack_cleanup();
+out:
 	return ret;
 }
 
 static void __exit nf_conntrack_standalone_fini(void)
 {
-#ifdef CONFIG_SYSCTL
-	unregister_sysctl_table(nf_ct_sysctl_header);
-#endif
-#ifdef CONFIG_PROC_FS
-	remove_proc_entry("nf_conntrack", proc_net_stat);
-	proc_net_remove("nf_conntrack");
-#endif /* CNFIG_PROC_FS */
+	nf_conntrack_standalone_fini_sysctl();
+	nf_conntrack_standalone_fini_proc();
 	nf_conntrack_cleanup();
 }
 

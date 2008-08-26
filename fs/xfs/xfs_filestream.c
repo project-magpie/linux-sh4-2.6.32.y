@@ -73,7 +73,7 @@ xfs_filestreams_trace(
 #define TRACE4(mp,t,a0,a1,a2,a3)	TRACE6(mp,t,a0,a1,a2,a3,0,0)
 #define TRACE5(mp,t,a0,a1,a2,a3,a4)	TRACE6(mp,t,a0,a1,a2,a3,a4,0)
 #define TRACE6(mp,t,a0,a1,a2,a3,a4,a5) \
-	xfs_filestreams_trace(mp, t, __FUNCTION__, __LINE__, \
+	xfs_filestreams_trace(mp, t, __func__, __LINE__, \
 				(__psunsigned_t)a0, (__psunsigned_t)a1, \
 				(__psunsigned_t)a2, (__psunsigned_t)a3, \
 				(__psunsigned_t)a4, (__psunsigned_t)a5)
@@ -348,7 +348,7 @@ _xfs_filestream_update_ag(
 }
 
 /* xfs_fstrm_free_func(): callback for freeing cached stream items. */
-void
+STATIC void
 xfs_fstrm_free_func(
 	unsigned long	ino,
 	void		*data)

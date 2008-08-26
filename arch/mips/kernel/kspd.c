@@ -20,6 +20,7 @@
 #include <linux/sched.h>
 #include <linux/unistd.h>
 #include <linux/file.h>
+#include <linux/fdtable.h>
 #include <linux/fs.h>
 #include <linux/syscalls.h>
 #include <linux/workqueue.h>
@@ -118,11 +119,11 @@ struct apsp_table syscall_command_table[] = {
 
 static int sp_syscall(int num, int arg0, int arg1, int arg2, int arg3)
 {
-	register long int _num  __asm__ ("$2") = num;
-	register long int _arg0  __asm__ ("$4") = arg0;
-	register long int _arg1  __asm__ ("$5") = arg1;
-	register long int _arg2  __asm__ ("$6") = arg2;
-	register long int _arg3  __asm__ ("$7") = arg3;
+	register long int _num  __asm__("$2") = num;
+	register long int _arg0  __asm__("$4") = arg0;
+	register long int _arg1  __asm__("$5") = arg1;
+	register long int _arg2  __asm__("$6") = arg2;
+	register long int _arg3  __asm__("$7") = arg3;
 
 	mm_segment_t old_fs;
 
@@ -161,8 +162,7 @@ static unsigned int translate_open_flags(int flags)
 	int i;
 	unsigned int ret = 0;
 
-	for (i = 0; i < (sizeof(open_flags_table) / sizeof(struct apsp_table));
-	     i++) {
+	for (i = 0; i < ARRAY_SIZE(open_flags_table); i++) {
 		if( (flags & open_flags_table[i].sp) ) {
 			ret |= open_flags_table[i].ap;
 		}
@@ -222,7 +222,7 @@ void sp_work_handle_request(void)
 		}
 	}
 
-	/* Run the syscall at the priviledge of the user who loaded the
+	/* Run the syscall at the privilege of the user who loaded the
 	   SP program */
 
 	if (vpe_getuid(tclimit))
@@ -239,7 +239,7 @@ void sp_work_handle_request(void)
  	case MTSP_SYSCALL_GETTOD:
  		memset(&tz, 0, sizeof(tz));
  		if ((ret.retval = sp_syscall(__NR_gettimeofday, (int)&tv,
- 		                             (int)&tz, 0,0)) == 0)
+					     (int)&tz, 0, 0)) == 0)
 		ret.retval = tv.tv_sec;
 		break;
 
@@ -257,7 +257,7 @@ void sp_work_handle_request(void)
 
 		vcwd = vpe_getcwd(tclimit);
 
- 		/* change to the cwd of the process that loaded the SP program */
+		/* change to cwd of the process that loaded the SP program */
 		old_fs = get_fs();
 		set_fs(KERNEL_DS);
 		sys_chdir(vcwd);
@@ -323,6 +323,9 @@ static void sp_cleanup(void)
 			set >>= 1;
 		}
 	}
+
+	/* Put daemon cwd back to root to avoid umount problems */
+	sys_chdir("/");
 }
 
 static int channel_open = 0;

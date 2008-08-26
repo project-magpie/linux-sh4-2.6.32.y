@@ -10,16 +10,10 @@
 #ifndef _ASMARM_PAGE_H
 #define _ASMARM_PAGE_H
 
-
-#ifdef __KERNEL__
-
 /* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT		12
 #define PAGE_SIZE		(1UL << PAGE_SHIFT)
 #define PAGE_MASK		(~(PAGE_SIZE-1))
-
-/* to align the pointer to the (next) page boundary */
-#define PAGE_ALIGN(addr)	(((addr)+PAGE_SIZE-1)&PAGE_MASK)
 
 #ifndef __ASSEMBLY__
 
@@ -71,6 +65,14 @@
 #  define MULTI_USER 1
 # else
 #  define _USER v4wb
+# endif
+#endif
+
+#ifdef CONFIG_CPU_COPY_FEROCEON
+# ifdef _USER
+#  define MULTI_USER 1
+# else
+#  define _USER feroceon
 # endif
 #endif
 
@@ -176,6 +178,8 @@ typedef unsigned long pgprot_t;
 
 #endif /* CONFIG_MMU */
 
+typedef struct page *pgtable_t;
+
 #include <asm/memory.h>
 
 #endif /* !__ASSEMBLY__ */
@@ -191,7 +195,5 @@ typedef unsigned long pgprot_t;
 #endif
 
 #include <asm-generic/page.h>
-
-#endif /* __KERNEL__ */
 
 #endif

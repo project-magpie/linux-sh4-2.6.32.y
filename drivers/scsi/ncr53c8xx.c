@@ -4963,10 +4963,11 @@ void ncr_complete (struct ncb *np, struct ccb *cp)
 		**	Copy back sense data to caller's buffer.
 		*/
 		memcpy(cmd->sense_buffer, cp->sense_buf,
-		       min(sizeof(cmd->sense_buffer), sizeof(cp->sense_buf)));
+		       min_t(size_t, SCSI_SENSE_BUFFERSIZE,
+			     sizeof(cp->sense_buf)));
 
 		if (DEBUG_FLAGS & (DEBUG_RESULT|DEBUG_TINY)) {
-			u_char * p = (u_char*) & cmd->sense_buffer;
+			u_char *p = cmd->sense_buffer;
 			int i;
 			PRINT_ADDR(cmd, "sense data:");
 			for (i=0; i<14; i++) printk (" %x", *p++);
@@ -8143,12 +8144,7 @@ static int ncr53c8xx_abort(struct scsi_cmnd *cmd)
 	unsigned long flags;
 	struct scsi_cmnd *done_list;
 
-#if defined SCSI_RESET_SYNCHRONOUS && defined SCSI_RESET_ASYNCHRONOUS
-	printk("ncr53c8xx_abort: pid=%lu serial_number=%ld\n",
-		cmd->pid, cmd->serial_number);
-#else
-	printk("ncr53c8xx_abort: command pid %lu\n", cmd->pid);
-#endif
+	printk("ncr53c8xx_abort: command pid %lu\n", cmd->serial_number);
 
 	NCR_LOCK_NCB(np, flags);
 
@@ -8190,7 +8186,7 @@ static void insert_into_waiting_list(struct ncb *np, struct scsi_cmnd *cmd)
 	cmd->next_wcmd = NULL;
 	if (!(wcmd = np->waiting_list)) np->waiting_list = cmd;
 	else {
-		while ((wcmd->next_wcmd) != 0)
+		while (wcmd->next_wcmd)
 			wcmd = (struct scsi_cmnd *) wcmd->next_wcmd;
 		wcmd->next_wcmd = (char *) cmd;
 	}
@@ -8226,7 +8222,7 @@ static void process_waiting_list(struct ncb *np, int sts)
 #ifdef DEBUG_WAITING_LIST
 	if (waiting_list) printk("%s: waiting_list=%lx processing sts=%d\n", ncr_name(np), (u_long) waiting_list, sts);
 #endif
-	while ((wcmd = waiting_list) != 0) {
+	while ((wcmd = waiting_list) != NULL) {
 		waiting_list = (struct scsi_cmnd *) wcmd->next_wcmd;
 		wcmd->next_wcmd = NULL;
 		if (sts == DID_OK) {
@@ -8247,7 +8243,8 @@ static void process_waiting_list(struct ncb *np, int sts)
 
 #undef next_wcmd
 
-static ssize_t show_ncr53c8xx_revision(struct class_device *dev, char *buf)
+static ssize_t show_ncr53c8xx_revision(struct device *dev,
+				       struct device_attribute *attr, char *buf)
 {
 	struct Scsi_Host *host = class_to_shost(dev);
 	struct host_data *host_data = (struct host_data *)host->hostdata;
@@ -8255,12 +8252,12 @@ static ssize_t show_ncr53c8xx_revision(struct class_device *dev, char *buf)
 	return snprintf(buf, 20, "0x%x\n", host_data->ncb->revision_id);
 }
   
-static struct class_device_attribute ncr53c8xx_revision_attr = {
+static struct device_attribute ncr53c8xx_revision_attr = {
 	.attr	= { .name = "revision", .mode = S_IRUGO, },
 	.show	= show_ncr53c8xx_revision,
 };
   
-static struct class_device_attribute *ncr53c8xx_host_attrs[] = {
+static struct device_attribute *ncr53c8xx_host_attrs[] = {
 	&ncr53c8xx_revision_attr,
 	NULL
 };
@@ -8528,18 +8525,15 @@ struct Scsi_Host * __init ncr_attach(struct scsi_host_template *tpnt,
 }
 
 
-int ncr53c8xx_release(struct Scsi_Host *host)
+void ncr53c8xx_release(struct Scsi_Host *host)
 {
-	struct host_data *host_data;
+	struct host_data *host_data = shost_priv(host);
 #ifdef DEBUG_NCR53C8XX
 	printk("ncr53c8xx: release\n");
 #endif
-	if (!host)
-		return 1;
-	host_data = (struct host_data *)host->hostdata;
-	if (host_data && host_data->ncb)
+	if (host_data->ncb)
 		ncr_detach(host_data->ncb);
-	return 1;
+	scsi_host_put(host);
 }
 
 static void ncr53c8xx_set_period(struct scsi_target *starget, int period)

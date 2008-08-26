@@ -23,7 +23,6 @@
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/module.h>
-#include <linux/a.out.h>
 #include <linux/user.h>
 #include <linux/string.h>
 #include <linux/linkage.h>
@@ -469,15 +468,26 @@ static inline void access_error040(struct frame *fp)
 			 * (if do_page_fault didn't fix the mapping,
                          * the writeback won't do good)
 			 */
+disable_wb:
 #ifdef DEBUG
 			printk(".. disabling wb2\n");
 #endif
 			if (fp->un.fmt7.wb2a == fp->un.fmt7.faddr)
 				fp->un.fmt7.wb2s &= ~WBV_040;
+			if (fp->un.fmt7.wb3a == fp->un.fmt7.faddr)
+				fp->un.fmt7.wb3s &= ~WBV_040;
 		}
-	} else if (send_fault_sig(&fp->ptregs) > 0) {
-		printk("68040 access error, ssw=%x\n", ssw);
-		trap_c(fp);
+	} else {
+		/* In case of a bus error we either kill the process or expect
+		 * the kernel to catch the fault, which then is also responsible
+		 * for cleaning up the mess.
+		 */
+		current->thread.signo = SIGBUS;
+		current->thread.faddr = fp->un.fmt7.faddr;
+		if (send_fault_sig(&fp->ptregs) >= 0)
+			printk("68040 bus error (ssw=%x, faddr=%lx)\n", ssw,
+			       fp->un.fmt7.faddr);
+		goto disable_wb;
 	}
 
 	do_040writebacks(fp);
@@ -900,7 +910,7 @@ void show_registers(struct pt_regs *regs)
 	       regs->d4, regs->d5, regs->a0, regs->a1);
 
 	printk("Process %s (pid: %d, task=%p)\n",
-		current->comm, current->pid, current);
+		current->comm, task_pid_nr(current), current);
 	addr = (unsigned long)&fp->un;
 	printk("Frame format=%X ", regs->format);
 	switch (regs->format) {
@@ -1038,7 +1048,7 @@ void bad_super_trap (struct frame *fp)
 				fp->un.fmtb.daddr, space_names[ssw & DFC],
 				fp->ptregs.pc);
 	}
-	printk ("Current process id is %d\n", current->pid);
+	printk ("Current process id is %d\n", task_pid_nr(current));
 	die_if_kernel("BAD KERNEL TRAP", &fp->ptregs, 0);
 }
 

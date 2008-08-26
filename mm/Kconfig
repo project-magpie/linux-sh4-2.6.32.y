@@ -37,7 +37,7 @@ config DISCONTIGMEM_MANUAL
 	  in their physical address spaces, and this option provides
 	  more efficient handling of these holes.  However, the vast
 	  majority of hardware has quite flat address spaces, and
-	  can have degraded performance from extra overhead that
+	  can have degraded performance from the extra overhead that
 	  this option imposes.
 
 	  Many NUMA configurations will have this as the only option.
@@ -77,6 +77,9 @@ config FLAT_NODE_MEM_MAP
 	def_bool y
 	depends on !SPARSEMEM
 
+config HAVE_GET_USER_PAGES_FAST
+	bool
+
 #
 # Both the NUMA code and DISCONTIGMEM use arrays of pg_data_t's
 # to represent different areas of memory.  This variable allows
@@ -112,12 +115,24 @@ config SPARSEMEM_EXTREME
 	def_bool y
 	depends on SPARSEMEM && !SPARSEMEM_STATIC
 
+config SPARSEMEM_VMEMMAP_ENABLE
+	def_bool n
+
+config SPARSEMEM_VMEMMAP
+	bool "Sparse Memory virtual memmap"
+	depends on SPARSEMEM && SPARSEMEM_VMEMMAP_ENABLE
+	default y
+	help
+	 SPARSEMEM_VMEMMAP uses a virtually mapped memmap to optimise
+	 pfn_to_page and page_to_pfn operations.  This is the most
+	 efficient option when sufficient kernel resources are available.
+
 # eventually, we can have this option just 'select SPARSEMEM'
 config MEMORY_HOTPLUG
 	bool "Allow for memory hot-add"
 	depends on SPARSEMEM || X86_64_ACPI_NUMA
 	depends on HOTPLUG && !HIBERNATION && ARCH_ENABLE_MEMORY_HOTPLUG
-	depends on (IA64 || X86 || PPC64 || SUPERH)
+	depends on (IA64 || X86 || PPC64 || SUPERH || S390)
 
 comment "Memory hotplug is currently incompatible with Software Suspend"
 	depends on SPARSEMEM && HOTPLUG && HIBERNATION
@@ -125,6 +140,23 @@ comment "Memory hotplug is currently incompatible with Software Suspend"
 config MEMORY_HOTPLUG_SPARSE
 	def_bool y
 	depends on SPARSEMEM && MEMORY_HOTPLUG
+
+config MEMORY_HOTREMOVE
+	bool "Allow for memory hot remove"
+	depends on MEMORY_HOTPLUG && ARCH_ENABLE_MEMORY_HOTREMOVE
+	depends on MIGRATION
+
+#
+# If we have space for more page flags then we can enable additional
+# optimizations and functionality.
+#
+# Regular Sparsemem takes page flag bits for the sectionid if it does not
+# use a virtual memmap. Disable extended page flags for 32 bit platforms
+# that require the use of a sectionid in the page flags.
+#
+config PAGEFLAGS_EXTENDED
+	def_bool y
+	depends on 64BIT || SPARSEMEM_VMEMMAP || !NUMA || !SPARSEMEM
 
 # Heavily threaded applications may benefit from splitting the mm-wide
 # page_table_lock, so that faults on different parts of the user address
@@ -137,7 +169,6 @@ config SPLIT_PTLOCK_CPUS
 	int
 	default "4096" if ARM && !CPU_CACHE_VIPT
 	default "4096" if PARISC && !PA20
-	default "4096" if XEN
 	default "4"
 
 #
@@ -146,7 +177,7 @@ config SPLIT_PTLOCK_CPUS
 config MIGRATION
 	bool "Page migration"
 	def_bool y
-	depends on NUMA
+	depends on NUMA || ARCH_ENABLE_MEMORY_HOTREMOVE
 	help
 	  Allows the migration of the physical location of pages of processes
 	  while the virtual addresses are not changed. This is useful for
@@ -171,7 +202,7 @@ config BOUNCE
 config NR_QUICK
 	int
 	depends on QUICKLIST
-	default "2" if (SUPERH && !SUPERH64)
+	default "2" if SUPERH || AVR32
 	default "1"
 
 config VIRT_TO_BUS

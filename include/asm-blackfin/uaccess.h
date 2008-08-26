@@ -31,7 +31,7 @@ static inline void set_fs(mm_segment_t fs)
 #define VERIFY_READ	0
 #define VERIFY_WRITE	1
 
-#define access_ok(type,addr,size) _access_ok((unsigned long)(addr),(size))
+#define access_ok(type, addr, size) _access_ok((unsigned long)(addr), (size))
 
 static inline int is_in_rom(unsigned long addr)
 {
@@ -133,7 +133,7 @@ static inline int bad_user_access_length(void)
 }
 
 #define __put_user_bad() (printk(KERN_INFO "put_user_bad %s:%d %s\n",\
-                           __FILE__, __LINE__, __FUNCTION__),\
+                           __FILE__, __LINE__, __func__),\
                            bad_user_access_length(), (-EFAULT))
 
 /*
@@ -177,7 +177,7 @@ static inline int bad_user_access_length(void)
 		default:						\
 			x = 0;						\
 			printk(KERN_INFO "get_user_bad: %s:%d %s\n",    \
-			       __FILE__, __LINE__, __FUNCTION__);	\
+			       __FILE__, __LINE__, __func__);	\
 			_err = __get_user_bad();			\
 			break;						\
 		}							\

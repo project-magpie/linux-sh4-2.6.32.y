@@ -217,6 +217,10 @@ hil_keyb_init(void)
 		return -ENOMEM;
 
 #if defined(CONFIG_HP300)
+	if (!MACH_IS_HP300) {
+		err = -ENODEV;
+		goto err1;
+	}
 	if (!hwreg_present((void *)(HILBASE + HIL_DATA))) {
 		printk(KERN_ERR "HIL: hardware register was not found\n");
 		err = -ENODEV;
@@ -266,8 +270,9 @@ hil_keyb_init(void)
 		if (hphilkeyb_keycode[i] != KEY_RESERVED)
 			set_bit(hphilkeyb_keycode[i], hil_dev.dev->keybit);
 
-	hil_dev.dev->evbit[0]	= BIT(EV_KEY) | BIT(EV_REP);
-	hil_dev.dev->ledbit[0]	= BIT(LED_NUML) | BIT(LED_CAPSL) | BIT(LED_SCROLLL);
+	hil_dev.dev->evbit[0]	= BIT_MASK(EV_KEY) | BIT_MASK(EV_REP);
+	hil_dev.dev->ledbit[0]	= BIT_MASK(LED_NUML) | BIT_MASK(LED_CAPSL) |
+		BIT_MASK(LED_SCROLLL);
 	hil_dev.dev->keycodemax	= HIL_KEYCODES_SET1_TBLSIZE;
 	hil_dev.dev->keycodesize= sizeof(hphilkeyb_keycode[0]);
 	hil_dev.dev->keycode	= hphilkeyb_keycode;

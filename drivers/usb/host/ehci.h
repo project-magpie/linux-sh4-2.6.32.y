@@ -74,7 +74,6 @@ struct ehci_hcd {			/* one per controller */
 	/* async schedule support */
 	struct ehci_qh		*async;
 	struct ehci_qh		*reclaim;
-	unsigned		reclaim_ready : 1;
 	unsigned		scanning : 1;
 
 	/* periodic schedule support */
@@ -98,6 +97,8 @@ struct ehci_hcd {			/* one per controller */
 			dedicated to the companion controller */
 	unsigned long		owned_ports;		/* which ports are
 			owned by the companion during a bus suspend */
+	unsigned long		port_c_suspend;		/* which ports have
+			the change-suspend feature turned on */
 
 	/* per-HC memory pools (could be per-bus, but ...) */
 	struct dma_pool		*qh_pool;	/* qh per active urb */
@@ -105,6 +106,7 @@ struct ehci_hcd {			/* one per controller */
 	struct dma_pool		*itd_pool;	/* itd per iso urb */
 	struct dma_pool		*sitd_pool;	/* sitd per split iso urb */
 
+	struct timer_list	iaa_watchdog;
 	struct timer_list	watchdog;
 	unsigned long		actions;
 	unsigned		stamp;
@@ -112,7 +114,6 @@ struct ehci_hcd {			/* one per controller */
 	u32			command;
 
 	/* SILICON QUIRKS */
-	unsigned		is_tdi_rh_tt:1;	/* TDI roothub with TT */
 	unsigned		no_selective_suspend:1;
 	unsigned		has_fsl_port_bug:1; /* FreeScale */
 	unsigned		big_endian_mmio:1;
@@ -127,6 +128,14 @@ struct ehci_hcd {			/* one per controller */
 #else
 #	define COUNT(x) do {} while (0)
 #endif
+
+	/* debug files */
+#ifdef DEBUG
+	struct dentry		*debug_dir;
+	struct dentry		*debug_async;
+	struct dentry		*debug_periodic;
+	struct dentry		*debug_registers;
+#endif
 };
 
 /* convert between an HCD pointer and the corresponding EHCI_HCD */
@@ -140,9 +149,21 @@ static inline struct usb_hcd *ehci_to_hcd (struct ehci_hcd *ehci)
 }
 
 
+static inline void
+iaa_watchdog_start(struct ehci_hcd *ehci)
+{
+	WARN_ON(timer_pending(&ehci->iaa_watchdog));
+	mod_timer(&ehci->iaa_watchdog,
+			jiffies + msecs_to_jiffies(EHCI_IAA_MSECS));
+}
+
+static inline void iaa_watchdog_done(struct ehci_hcd *ehci)
+{
+	del_timer(&ehci->iaa_watchdog);
+}
+
 enum ehci_timer_action {
 	TIMER_IO_WATCHDOG,
-	TIMER_IAA_WATCHDOG,
 	TIMER_ASYNC_SHRINK,
 	TIMER_ASYNC_OFF,
 };
@@ -156,13 +177,19 @@ timer_action_done (struct ehci_hcd *ehci, enum ehci_timer_action action)
 static inline void
 timer_action (struct ehci_hcd *ehci, enum ehci_timer_action action)
 {
+	/* Don't override timeouts which shrink or (later) disable
+	 * the async ring; just the I/O watchdog.  Note that if a
+	 * SHRINK were pending, OFF would never be requested.
+	 */
+	if (timer_pending(&ehci->watchdog)
+			&& ((BIT(TIMER_ASYNC_SHRINK) | BIT(TIMER_ASYNC_OFF))
+				& ehci->actions))
+		return;
+
 	if (!test_and_set_bit (action, &ehci->actions)) {
 		unsigned long t;
 
 		switch (action) {
-		case TIMER_IAA_WATCHDOG:
-			t = EHCI_IAA_JIFFIES;
-			break;
 		case TIMER_IO_WATCHDOG:
 			t = EHCI_IO_JIFFIES;
 			break;
@@ -171,19 +198,13 @@ timer_action (struct ehci_hcd *ehci, enum ehci_timer_action action)
 			break;
 		// case TIMER_ASYNC_SHRINK:
 		default:
-			t = EHCI_SHRINK_JIFFIES;
+			/* add a jiffie since we synch against the
+			 * 8 KHz uframe counter.
+			 */
+			t = DIV_ROUND_UP(EHCI_SHRINK_FRAMES * HZ, 1000) + 1;
 			break;
 		}
-		t += jiffies;
-		// all timings except IAA watchdog can be overridden.
-		// async queue SHRINK often precedes IAA.  while it's ready
-		// to go OFF neither can matter, and afterwards the IO
-		// watchdog stops unless there's still periodic traffic.
-		if (action != TIMER_IAA_WATCHDOG
-				&& t > ehci->watchdog.expires
-				&& timer_pending (&ehci->watchdog))
-			return;
-		mod_timer (&ehci->watchdog, t);
+		mod_timer(&ehci->watchdog, t + jiffies);
 	}
 }
 
@@ -534,8 +555,8 @@ struct ehci_iso_stream {
 	 * trusting urb->interval == f(epdesc->bInterval) and
 	 * including the extra info for hw_bufp[0..2]
 	 */
-	u8			interval;
 	u8			usecs, c_usecs;
+	u16			interval;
 	u16			tt_usecs;
 	u16			maxp;
 	u16			raw_mask;
@@ -586,7 +607,6 @@ struct ehci_itd {
 	unsigned		frame;		/* where scheduled */
 	unsigned		pg;
 	unsigned		index[8];	/* in urb->iso_frame_desc */
-	u8			usecs[8];
 } __attribute__ ((aligned (32)));
 
 /*-------------------------------------------------------------------------*/
@@ -663,7 +683,7 @@ struct ehci_fstn {
  * needed (mostly in root hub code).
  */
 
-#define	ehci_is_TDI(e)			((e)->is_tdi_rh_tt)
+#define	ehci_is_TDI(e)			(ehci_to_hcd(e)->has_tt)
 
 /* Returns the speed of a device attached to a port on the root hub. */
 static inline unsigned int
@@ -725,9 +745,14 @@ ehci_port_speed(struct ehci_hcd *ehci, unsigned int portsc)
  * definition below can die once the 4xx support is
  * finally ported over.
  */
-#if defined(CONFIG_PPC)
+#if defined(CONFIG_PPC) && !defined(CONFIG_PPC_MERGE)
 #define readl_be(addr)		in_be32((__force unsigned *)addr)
 #define writel_be(val, addr)	out_be32((__force unsigned *)addr, val)
+#endif
+
+#if defined(CONFIG_ARM) && defined(CONFIG_ARCH_IXP4XX)
+#define readl_be(addr)		__raw_readl((__force unsigned *)addr)
+#define writel_be(val, addr)	__raw_writel(val, (__force unsigned *)addr)
 #endif
 
 static inline unsigned int ehci_readl(const struct ehci_hcd *ehci,

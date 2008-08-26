@@ -98,7 +98,7 @@ static int sas_get_port_device(struct asd_sas_port *port)
 			dev->dev_type = SATA_PM;
 		else
 			dev->dev_type = SATA_DEV;
-		dev->tproto = SATA_PROTO;
+		dev->tproto = SAS_PROTOCOL_SATA;
 	} else {
 		struct sas_identify_frame *id =
 			(struct sas_identify_frame *) dev->frame_rcvd;
@@ -285,7 +285,7 @@ static void sas_discover_domain(struct work_struct *work)
 	dev = port->port_dev;
 
 	SAS_DPRINTK("DOING DISCOVERY on port %d, pid:%d\n", port->id,
-		    current->pid);
+		    task_pid_nr(current));
 
 	switch (dev->dev_type) {
 	case SAS_END_DEV:
@@ -295,11 +295,14 @@ static void sas_discover_domain(struct work_struct *work)
 	case FANOUT_DEV:
 		error = sas_discover_root_expander(dev);
 		break;
-#ifdef CONFIG_SCSI_SAS_ATA
 	case SATA_DEV:
 	case SATA_PM:
+#ifdef CONFIG_SCSI_SAS_ATA
 		error = sas_discover_sata(dev);
 		break;
+#else
+		SAS_DPRINTK("ATA device seen but CONFIG_SCSI_SAS_ATA=N so cannot attach\n");
+		/* Fall through */
 #endif
 	default:
 		error = -ENXIO;
@@ -320,7 +323,7 @@ static void sas_discover_domain(struct work_struct *work)
 	}
 
 	SAS_DPRINTK("DONE DISCOVERY on port %d, pid:%d, result:%d\n", port->id,
-		    current->pid, error);
+		    task_pid_nr(current), error);
 }
 
 static void sas_revalidate_domain(struct work_struct *work)
@@ -334,12 +337,12 @@ static void sas_revalidate_domain(struct work_struct *work)
 			&port->disc.pending);
 
 	SAS_DPRINTK("REVALIDATING DOMAIN on port %d, pid:%d\n", port->id,
-		    current->pid);
+		    task_pid_nr(current));
 	if (port->port_dev)
 		res = sas_ex_revalidate_domain(port->port_dev);
 
 	SAS_DPRINTK("done REVALIDATING DOMAIN on port %d, pid:%d, res 0x%x\n",
-		    port->id, current->pid, res);
+		    port->id, task_pid_nr(current), res);
 }
 
 /* ---------- Events ---------- */

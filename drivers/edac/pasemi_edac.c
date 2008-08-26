@@ -26,6 +26,7 @@
 #include <linux/pci.h>
 #include <linux/pci_ids.h>
 #include <linux/slab.h>
+#include <linux/edac.h>
 #include "edac_core.h"
 
 #define MODULE_NAME "pasemi_edac"
@@ -225,7 +226,7 @@ static int __devinit pasemi_edac_probe(struct pci_dev *pdev,
 		EDAC_FLAG_NONE;
 	mci->mod_name = MODULE_NAME;
 	mci->dev_name = pci_name(pdev);
-	mci->ctl_name = "pasemi,1682m-mc";
+	mci->ctl_name = "pasemi,pwrficient-mc";
 	mci->edac_check = pasemi_edac_check;
 	mci->ctl_page_to_phys = NULL;
 	pci_read_config_dword(pdev, MCCFG_SCRUB, &scrub);
@@ -270,6 +271,7 @@ static void __devexit pasemi_edac_remove(struct pci_dev *pdev)
 
 static const struct pci_device_id pasemi_edac_pci_tbl[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_PASEMI, 0xa00a) },
+	{ }
 };
 
 MODULE_DEVICE_TABLE(pci, pasemi_edac_pci_tbl);
@@ -283,6 +285,9 @@ static struct pci_driver pasemi_edac_driver = {
 
 static int __init pasemi_edac_init(void)
 {
+       /* Ensure that the OPSTATE is set correctly for POLL or NMI */
+       opstate_init();
+
 	return pci_register_driver(&pasemi_edac_driver);
 }
 
@@ -296,4 +301,7 @@ module_exit(pasemi_edac_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Egor Martovetsky <egor@pasemi.com>");
-MODULE_DESCRIPTION("MC support for PA Semi PA6T-1682M memory controller");
+MODULE_DESCRIPTION("MC support for PA Semi PWRficient memory controller");
+module_param(edac_op_state, int, 0444);
+MODULE_PARM_DESC(edac_op_state, "EDAC Error Reporting state: 0=Poll,1=NMI");
+

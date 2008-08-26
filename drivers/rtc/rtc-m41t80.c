@@ -13,19 +13,21 @@
  *
  */
 
-#include <linux/module.h>
-#include <linux/init.h>
-#include <linux/slab.h>
-#include <linux/string.h>
-#include <linux/i2c.h>
-#include <linux/rtc.h>
 #include <linux/bcd.h>
+#include <linux/i2c.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/rtc.h>
+#include <linux/slab.h>
+#include <linux/smp_lock.h>
+#include <linux/string.h>
 #ifdef CONFIG_RTC_DRV_M41T80_WDT
-#include <linux/miscdevice.h>
-#include <linux/watchdog.h>
-#include <linux/reboot.h>
 #include <linux/fs.h>
 #include <linux/ioctl.h>
+#include <linux/miscdevice.h>
+#include <linux/reboot.h>
+#include <linux/watchdog.h>
 #endif
 
 #define M41T80_REG_SSEC	0
@@ -60,48 +62,21 @@
 
 #define DRV_VERSION "0.05"
 
-struct m41t80_chip_info {
-	const char *name;
-	u8 features;
+static const struct i2c_device_id m41t80_id[] = {
+	{ "m41t80", 0 },
+	{ "m41t81", M41T80_FEATURE_HT },
+	{ "m41t81s", M41T80_FEATURE_HT | M41T80_FEATURE_BL },
+	{ "m41t82", M41T80_FEATURE_HT | M41T80_FEATURE_BL },
+	{ "m41t83", M41T80_FEATURE_HT | M41T80_FEATURE_BL },
+	{ "m41st84", M41T80_FEATURE_HT | M41T80_FEATURE_BL },
+	{ "m41st85", M41T80_FEATURE_HT | M41T80_FEATURE_BL },
+	{ "m41st87", M41T80_FEATURE_HT | M41T80_FEATURE_BL },
+	{ }
 };
-
-static const struct m41t80_chip_info m41t80_chip_info_tbl[] = {
-	{
-		.name		= "m41t80",
-		.features	= 0,
-	},
-	{
-		.name		= "m41t81",
-		.features	= M41T80_FEATURE_HT,
-	},
-	{
-		.name		= "m41t81s",
-		.features	= M41T80_FEATURE_HT | M41T80_FEATURE_BL,
-	},
-	{
-		.name		= "m41t82",
-		.features	= M41T80_FEATURE_HT | M41T80_FEATURE_BL,
-	},
-	{
-		.name		= "m41t83",
-		.features	= M41T80_FEATURE_HT | M41T80_FEATURE_BL,
-	},
-	{
-		.name		= "m41st84",
-		.features	= M41T80_FEATURE_HT | M41T80_FEATURE_BL,
-	},
-	{
-		.name		= "m41st85",
-		.features	= M41T80_FEATURE_HT | M41T80_FEATURE_BL,
-	},
-	{
-		.name		= "m41st87",
-		.features	= M41T80_FEATURE_HT | M41T80_FEATURE_BL,
-	},
-};
+MODULE_DEVICE_TABLE(i2c, m41t80_id);
 
 struct m41t80_data {
-	const struct m41t80_chip_info *chip;
+	u8 features;
 	struct rtc_device *rtc;
 };
 
@@ -208,7 +183,7 @@ static int m41t80_rtc_proc(struct device *dev, struct seq_file *seq)
 	struct m41t80_data *clientdata = i2c_get_clientdata(client);
 	u8 reg;
 
-	if (clientdata->chip->features & M41T80_FEATURE_BL) {
+	if (clientdata->features & M41T80_FEATURE_BL) {
 		reg = i2c_smbus_read_byte_data(client, M41T80_REG_FLAGS);
 		seq_printf(seq, "battery\t\t: %s\n",
 			   (reg & M41T80_FLAGS_BATT_LOW) ? "exhausted" : "ok");
@@ -656,14 +631,12 @@ static int wdt_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 			return -EFAULT;
 
 		if (rv & WDIOS_DISABLECARD) {
-			printk(KERN_INFO
-			       "rtc-m41t80: disable watchdog\n");
+			pr_info("rtc-m41t80: disable watchdog\n");
 			wdt_disable();
 		}
 
 		if (rv & WDIOS_ENABLECARD) {
-			printk(KERN_INFO
-			       "rtc-m41t80: enable watchdog\n");
+			pr_info("rtc-m41t80: enable watchdog\n");
 			wdt_ping();
 		}
 
@@ -681,12 +654,16 @@ static int wdt_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 static int wdt_open(struct inode *inode, struct file *file)
 {
 	if (MINOR(inode->i_rdev) == WATCHDOG_MINOR) {
-		if (test_and_set_bit(0, &wdt_is_open))
+		lock_kernel();
+		if (test_and_set_bit(0, &wdt_is_open)) {
+			unlock_kernel();
 			return -EBUSY;
+		}
 		/*
 		 *	Activate
 		 */
 		wdt_is_open = 1;
+		unlock_kernel();
 		return 0;
 	}
 	return -ENODEV;
@@ -756,12 +733,12 @@ static struct notifier_block wdt_notifier = {
  *
  *****************************************************************************
  */
-static int m41t80_probe(struct i2c_client *client)
+static int m41t80_probe(struct i2c_client *client,
+			const struct i2c_device_id *id)
 {
-	int i, rc = 0;
+	int rc = 0;
 	struct rtc_device *rtc = NULL;
 	struct rtc_time tm;
-	const struct m41t80_chip_info *chip;
 	struct m41t80_data *clientdata = NULL;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C
@@ -772,19 +749,6 @@ static int m41t80_probe(struct i2c_client *client)
 
 	dev_info(&client->dev,
 		 "chip found, driver version " DRV_VERSION "\n");
-
-	chip = NULL;
-	for (i = 0; i < ARRAY_SIZE(m41t80_chip_info_tbl); i++) {
-		if (!strcmp(m41t80_chip_info_tbl[i].name, client->name)) {
-			chip = &m41t80_chip_info_tbl[i];
-			break;
-		}
-	}
-	if (!chip) {
-		dev_err(&client->dev, "%s is not supported\n", client->name);
-		rc = -ENODEV;
-		goto exit;
-	}
 
 	clientdata = kzalloc(sizeof(*clientdata), GFP_KERNEL);
 	if (!clientdata) {
@@ -801,7 +765,7 @@ static int m41t80_probe(struct i2c_client *client)
 	}
 
 	clientdata->rtc = rtc;
-	clientdata->chip = chip;
+	clientdata->features = id->driver_data;
 	i2c_set_clientdata(client, clientdata);
 
 	/* Make sure HT (Halt Update) bit is cleared */
@@ -810,7 +774,7 @@ static int m41t80_probe(struct i2c_client *client)
 		goto ht_err;
 
 	if (rc & M41T80_ALHOUR_HT) {
-		if (chip->features & M41T80_FEATURE_HT) {
+		if (clientdata->features & M41T80_FEATURE_HT) {
 			m41t80_get_datetime(client, &tm);
 			dev_info(&client->dev, "HT bit was set!\n");
 			dev_info(&client->dev,
@@ -842,7 +806,8 @@ static int m41t80_probe(struct i2c_client *client)
 		goto exit;
 
 #ifdef CONFIG_RTC_DRV_M41T80_WDT
-	if (chip->features & M41T80_FEATURE_HT) {
+	if (clientdata->features & M41T80_FEATURE_HT) {
+		save_client = client;
 		rc = misc_register(&wdt_dev);
 		if (rc)
 			goto exit;
@@ -851,7 +816,6 @@ static int m41t80_probe(struct i2c_client *client)
 			misc_deregister(&wdt_dev);
 			goto exit;
 		}
-		save_client = client;
 	}
 #endif
 	return 0;
@@ -878,7 +842,7 @@ static int m41t80_remove(struct i2c_client *client)
 	struct rtc_device *rtc = clientdata->rtc;
 
 #ifdef CONFIG_RTC_DRV_M41T80_WDT
-	if (clientdata->chip->features & M41T80_FEATURE_HT) {
+	if (clientdata->features & M41T80_FEATURE_HT) {
 		misc_deregister(&wdt_dev);
 		unregister_reboot_notifier(&wdt_notifier);
 	}
@@ -896,6 +860,7 @@ static struct i2c_driver m41t80_driver = {
 	},
 	.probe = m41t80_probe,
 	.remove = m41t80_remove,
+	.id_table = m41t80_id,
 };
 
 static int __init m41t80_rtc_init(void)

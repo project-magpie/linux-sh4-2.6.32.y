@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2007, R. Byron Moore
+ * Copyright (C) 2000 - 2008, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -500,25 +500,28 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 			acpi_os_printf("Reference: Debug\n");
 			break;
 
-		case AML_NAME_OP:
-
-			ACPI_DUMP_PATHNAME(obj_desc->reference.object,
-					   "Reference: Name: ", ACPI_LV_INFO,
-					   _COMPONENT);
-			ACPI_DUMP_ENTRY(obj_desc->reference.object,
-					ACPI_LV_INFO);
-			break;
-
 		case AML_INDEX_OP:
 
 			acpi_os_printf("Reference: Index %p\n",
 				       obj_desc->reference.object);
 			break;
 
+		case AML_LOAD_OP:
+
+			acpi_os_printf("Reference: [DdbHandle] TableIndex %p\n",
+				       obj_desc->reference.object);
+			break;
+
 		case AML_REF_OF_OP:
 
-			acpi_os_printf("Reference: (RefOf) %p\n",
-				       obj_desc->reference.object);
+			acpi_os_printf("Reference: (RefOf) %p [%s]\n",
+				       obj_desc->reference.object,
+				       acpi_ut_get_type_name(((union
+							       acpi_operand_object
+							       *)obj_desc->
+							      reference.
+							      object)->common.
+							     type));
 			break;
 
 		case AML_ARG_OP:
@@ -559,8 +562,9 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 
 		case AML_INT_NAMEPATH_OP:
 
-			acpi_os_printf("Reference.Node->Name %X\n",
-				       obj_desc->reference.node->name.integer);
+			acpi_os_printf("Reference: Namepath %X [%4.4s]\n",
+				       obj_desc->reference.node->name.integer,
+				       obj_desc->reference.node->name.ascii);
 			break;
 
 		default:
@@ -576,25 +580,22 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 
 	case ACPI_TYPE_BUFFER:
 
-		acpi_os_printf("Buffer len %X @ %p\n",
+		acpi_os_printf("Buffer length %.2X @ %p\n",
 			       obj_desc->buffer.length,
 			       obj_desc->buffer.pointer);
-
-		length = obj_desc->buffer.length;
-		if (length > 64) {
-			length = 64;
-		}
 
 		/* Debug only -- dump the buffer contents */
 
 		if (obj_desc->buffer.pointer) {
-			acpi_os_printf("Buffer Contents: ");
-
-			for (index = 0; index < length; index++) {
-				acpi_os_printf(" %02x",
-					       obj_desc->buffer.pointer[index]);
+			length = obj_desc->buffer.length;
+			if (length > 128) {
+				length = 128;
 			}
-			acpi_os_printf("\n");
+
+			acpi_os_printf
+			    ("Buffer Contents: (displaying length 0x%.2X)\n",
+			     length);
+			ACPI_DUMP_BUFFER(obj_desc->buffer.pointer, length);
 		}
 		break;
 
@@ -640,8 +641,8 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 			acpi_os_printf("\n");
 		} else {
 			acpi_os_printf(" base %8.8X%8.8X Length %X\n",
-				       ACPI_FORMAT_UINT64(obj_desc->region.
-							  address),
+				       ACPI_FORMAT_NATIVE_UINT(obj_desc->region.
+							       address),
 				       obj_desc->region.length);
 		}
 		break;
@@ -752,54 +753,42 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
  *
  * FUNCTION:    acpi_ex_dump_operands
  *
- * PARAMETERS:  Operands            - Operand list
- *              interpreter_mode    - Load or Exec
- *              Ident               - Identification
- *              num_levels          - # of stack entries to dump above line
- *              Note                - Output notation
- *              module_name         - Caller's module name
- *              line_number         - Caller's invocation line number
+ * PARAMETERS:	Operands	    - A list of Operand objects
+ *		opcode_name	    - AML opcode name
+ *		num_operands	    - Operand count for this opcode
  *
- * DESCRIPTION: Dump the object stack
+ * DESCRIPTION: Dump the operands associated with the opcode
  *
  ******************************************************************************/
 
 void
 acpi_ex_dump_operands(union acpi_operand_object **operands,
-		      acpi_interpreter_mode interpreter_mode,
-		      char *ident,
-		      u32 num_levels,
-		      char *note, char *module_name, u32 line_number)
+		      const char *opcode_name, u32 num_operands)
 {
-	acpi_native_uint i;
-
 	ACPI_FUNCTION_NAME(ex_dump_operands);
 
-	if (!ident) {
-		ident = "?";
-	}
-
-	if (!note) {
-		note = "?";
+	if (!opcode_name) {
+		opcode_name = "UNKNOWN";
 	}
 
 	ACPI_DEBUG_PRINT((ACPI_DB_EXEC,
-			  "************* Operand Stack Contents (Opcode [%s], %d Operands)\n",
-			  ident, num_levels));
+			  "**** Start operand dump for opcode [%s], %d operands\n",
+			  opcode_name, num_operands));
 
-	if (num_levels == 0) {
-		num_levels = 1;
+	if (num_operands == 0) {
+		num_operands = 1;
 	}
 
-	/* Dump the operand stack starting at the top */
+	/* Dump the individual operands */
 
-	for (i = 0; num_levels > 0; i--, num_levels--) {
-		acpi_ex_dump_operand(operands[i], 0);
+	while (num_operands) {
+		acpi_ex_dump_operand(*operands, 0);
+		operands++;
+		num_operands--;
 	}
 
 	ACPI_DEBUG_PRINT((ACPI_DB_EXEC,
-			  "************* Operand Stack dump from %s(%d), %s\n",
-			  module_name, line_number, note));
+			  "**** End operand dump for [%s]\n", opcode_name));
 	return;
 }
 
@@ -877,20 +866,43 @@ static void acpi_ex_dump_reference_obj(union acpi_operand_object *obj_desc)
 	ret_buf.length = ACPI_ALLOCATE_LOCAL_BUFFER;
 
 	if (obj_desc->reference.opcode == AML_INT_NAMEPATH_OP) {
-		acpi_os_printf("Named Object %p ", obj_desc->reference.node);
+		acpi_os_printf(" Named Object %p ", obj_desc->reference.node);
 
 		status =
 		    acpi_ns_handle_to_pathname(obj_desc->reference.node,
 					       &ret_buf);
 		if (ACPI_FAILURE(status)) {
-			acpi_os_printf("Could not convert name to pathname\n");
+			acpi_os_printf(" Could not convert name to pathname\n");
 		} else {
 			acpi_os_printf("%s\n", (char *)ret_buf.pointer);
 			ACPI_FREE(ret_buf.pointer);
 		}
 	} else if (obj_desc->reference.object) {
-		acpi_os_printf("\nReferenced Object: %p\n",
-			       obj_desc->reference.object);
+		if (ACPI_GET_DESCRIPTOR_TYPE(obj_desc) ==
+		    ACPI_DESC_TYPE_OPERAND) {
+			acpi_os_printf(" Target: %p",
+				       obj_desc->reference.object);
+			if (obj_desc->reference.opcode == AML_LOAD_OP) {
+				/*
+				 * For DDBHandle reference,
+				 * obj_desc->Reference.Object is the table index
+				 */
+				acpi_os_printf(" [DDBHandle]\n");
+			} else {
+				acpi_os_printf(" [%s]\n",
+					       acpi_ut_get_type_name(((union
+								       acpi_operand_object
+								       *)
+								      obj_desc->
+								      reference.
+								      object)->
+								     common.
+								     type));
+			}
+		} else {
+			acpi_os_printf(" Target: %p\n",
+				       obj_desc->reference.object);
+		}
 	}
 }
 
@@ -976,7 +988,9 @@ acpi_ex_dump_package_obj(union acpi_operand_object *obj_desc,
 
 	case ACPI_TYPE_LOCAL_REFERENCE:
 
-		acpi_os_printf("[Object Reference] ");
+		acpi_os_printf("[Object Reference] %s",
+			       (acpi_ps_get_opcode_info
+				(obj_desc->reference.opcode))->name);
 		acpi_ex_dump_reference_obj(obj_desc);
 		break;
 

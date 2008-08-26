@@ -18,14 +18,6 @@ enum {
 	PCI_CFG_REG_1	= 0x94,
 };
 
-enum {
-	PEX_DEV_CAP	= 0xe4,
-	PEX_DEV_CTRL	= 0xe8,
-	PEX_DEV_STA	= 0xea,
-	PEX_LNK_STAT	= 0xf2,
-	PEX_UNC_ERR_STAT= 0x104,
-};
-
 /* Yukon-2 */
 enum pci_dev_reg_1 {
 	PCI_Y2_PIG_ENA	 = 1<<31, /* Enable Plug-in-Go (YUKON-2) */
@@ -36,6 +28,11 @@ enum pci_dev_reg_1 {
 	PCI_Y2_PHY2_POWD = 1<<27, /* Set PHY 2 to Power Down (YUKON-2) */
 	PCI_Y2_PHY1_POWD = 1<<26, /* Set PHY 1 to Power Down (YUKON-2) */
 	PCI_Y2_PME_LEGACY= 1<<15, /* PCI Express legacy power management mode */
+
+	PCI_PHY_LNK_TIM_MSK= 3L<<8,/* Bit  9.. 8:	GPHY Link Trigger Timer */
+	PCI_ENA_L1_EVENT = 1<<7, /* Enable PEX L1 Event */
+	PCI_ENA_GPHY_LNK = 1<<6, /* Enable PEX L1 on GPHY Link down */
+	PCI_FORCE_PEX_L1 = 1<<5, /* Force to PEX L1 */
 };
 
 enum pci_dev_reg_2 {
@@ -53,7 +50,11 @@ enum pci_dev_reg_2 {
 
 /*	PCI_OUR_REG_4		32 bit	Our Register 4 (Yukon-ECU only) */
 enum pci_dev_reg_4 {
-					/* (Link Training & Status State Machine) */
+				/* (Link Training & Status State Machine) */
+	P_PEX_LTSSM_STAT_MSK	= 0x7fL<<25,	/* Bit 31..25:	PEX LTSSM Mask */
+#define P_PEX_LTSSM_STAT(x)	((x << 25) & P_PEX_LTSSM_STAT_MSK)
+	P_PEX_LTSSM_L1_STAT	= 0x34,
+	P_PEX_LTSSM_DET_STAT	= 0x01,
 	P_TIMER_VALUE_MSK	= 0xffL<<16,	/* Bit 23..16:	Timer Value Mask */
 					/* (Active State Power Management) */
 	P_FORCE_ASPM_REQUEST	= 1<<15, /* Force ASPM Request (A1 only) */
@@ -150,38 +151,6 @@ enum pci_cfg_reg1 {
 			       PCI_STATUS_REC_MASTER_ABORT | \
 			       PCI_STATUS_REC_TARGET_ABORT | \
 			       PCI_STATUS_PARITY)
-
-enum pex_dev_ctrl {
-	PEX_DC_MAX_RRS_MSK	= 7<<12, /* Bit 14..12:	Max. Read Request Size */
-	PEX_DC_EN_NO_SNOOP	= 1<<11,/* Enable No Snoop */
-	PEX_DC_EN_AUX_POW	= 1<<10,/* Enable AUX Power */
-	PEX_DC_EN_PHANTOM	= 1<<9,	/* Enable Phantom Functions */
-	PEX_DC_EN_EXT_TAG	= 1<<8,	/* Enable Extended Tag Field */
-	PEX_DC_MAX_PLS_MSK	= 7<<5,	/* Bit  7.. 5:	Max. Payload Size Mask */
-	PEX_DC_EN_REL_ORD	= 1<<4,	/* Enable Relaxed Ordering */
-	PEX_DC_EN_UNS_RQ_RP	= 1<<3,	/* Enable Unsupported Request Reporting */
-	PEX_DC_EN_FAT_ER_RP	= 1<<2,	/* Enable Fatal Error Reporting */
-	PEX_DC_EN_NFA_ER_RP	= 1<<1,	/* Enable Non-Fatal Error Reporting */
-	PEX_DC_EN_COR_ER_RP	= 1<<0,	/* Enable Correctable Error Reporting */
-};
-#define  PEX_DC_MAX_RD_RQ_SIZE(x) (((x)<<12) & PEX_DC_MAX_RRS_MSK)
-
-/* PEX_UNC_ERR_STAT	 PEX Uncorrectable Errors Status Register (Yukon-2) */
-enum pex_err {
-	PEX_UNSUP_REQ 	= 1<<20, /* Unsupported Request Error */
-
-	PEX_MALFOR_TLP	= 1<<18, /* Malformed TLP */
-
-	PEX_UNEXP_COMP	= 1<<16, /* Unexpected Completion */
-
-	PEX_COMP_TO	= 1<<14, /* Completion Timeout */
-	PEX_FLOW_CTRL_P	= 1<<13, /* Flow Control Protocol Error */
-	PEX_POIS_TLP	= 1<<12, /* Poisoned TLP */
-
-	PEX_DATA_LINK_P = 1<<4,	/* Data Link Protocol Error */
-	PEX_FATAL_ERRORS= (PEX_MALFOR_TLP | PEX_FLOW_CTRL_P | PEX_DATA_LINK_P),
-};
-
 
 enum csr_regs {
 	B0_RAP		= 0x0000,
@@ -287,7 +256,8 @@ enum csr_regs {
 	B3_PA_CTRL	= 0x01f0,
 	B3_PA_TEST	= 0x01f2,
 
-	Y2_CFG_SPC	= 0x1c00,
+	Y2_CFG_SPC	= 0x1c00,	/* PCI config space region */
+	Y2_CFG_AER      = 0x1d00,	/* PCI Advanced Error Report region */
 };
 
 /*	B0_CTST			16 bit	Control/Status register */
@@ -419,7 +389,6 @@ enum {
 			  Y2_IS_PAR_RX2 | Y2_IS_TCP_TXS2| Y2_IS_TCP_TXA2,
 
 	Y2_HWE_ALL_MASK	= Y2_IS_TIST_OV | Y2_IS_MST_ERR | Y2_IS_IRQ_STAT |
-			  Y2_IS_PCI_EXP |
 			  Y2_HWE_L1_MASK | Y2_HWE_L2_MASK,
 };
 
@@ -465,12 +434,14 @@ enum {
 
 /*	B2_CHIP_ID		 8 bit 	Chip Identification Number */
 enum {
-	CHIP_ID_YUKON_XL   = 0xb3, /* Chip ID for YUKON-2 XL */
-	CHIP_ID_YUKON_EC_U = 0xb4, /* Chip ID for YUKON-2 EC Ultra */
-	CHIP_ID_YUKON_EX   = 0xb5, /* Chip ID for YUKON-2 Extreme */
-	CHIP_ID_YUKON_EC   = 0xb6, /* Chip ID for YUKON-2 EC */
- 	CHIP_ID_YUKON_FE   = 0xb7, /* Chip ID for YUKON-2 FE */
- 	CHIP_ID_YUKON_FE_P = 0xb8, /* Chip ID for YUKON-2 FE+ */
+	CHIP_ID_YUKON_XL   = 0xb3, /* YUKON-2 XL */
+	CHIP_ID_YUKON_EC_U = 0xb4, /* YUKON-2 EC Ultra */
+	CHIP_ID_YUKON_EX   = 0xb5, /* YUKON-2 Extreme */
+	CHIP_ID_YUKON_EC   = 0xb6, /* YUKON-2 EC */
+ 	CHIP_ID_YUKON_FE   = 0xb7, /* YUKON-2 FE */
+ 	CHIP_ID_YUKON_FE_P = 0xb8, /* YUKON-2 FE+ */
+	CHIP_ID_YUKON_SUPR = 0xb9, /* YUKON-2 Supreme */
+	CHIP_ID_YUKON_UL_2 = 0xba, /* YUKON-2 Ultra 2 */
 };
 enum yukon_ec_rev {
 	CHIP_REV_YU_EC_A1    = 0,  /* Chip Rev. for Yukon-EC A1/A0 */
@@ -492,6 +463,9 @@ enum yukon_fe_p_rev {
 enum yukon_ex_rev {
 	CHIP_REV_YU_EX_A0    = 1,
 	CHIP_REV_YU_EX_B0    = 2,
+};
+enum yukon_supr_rev {
+	CHIP_REV_YU_SU_A0    = 0,
 };
 
 
@@ -1182,6 +1156,12 @@ enum {
 	PHY_M_PC_ENA_AUTO	= 3, /* 11 = Enable Automatic Crossover */
 };
 
+/* for Yukon-EC Ultra Gigabit Ethernet PHY (88E1149 only) */
+enum {
+	PHY_M_PC_COP_TX_DIS	= 1<<3, /* Copper Transmitter Disable */
+	PHY_M_PC_POW_D_ENA	= 1<<2,	/* Power Down Enable */
+};
+
 /* for 10/100 Fast Ethernet PHY (88E3082 only) */
 enum {
 	PHY_M_PC_ENA_DTE_DT	= 1<<15, /* Enable Data Terminal Equ. (DTE) Detect */
@@ -1357,18 +1337,21 @@ enum {
 	BLINK_670MS	= 4,/* 670 ms */
 };
 
-/**** PHY_MARV_LED_OVER    16 bit r/w LED control */
-enum {
-	PHY_M_LED_MO_DUP  = 3<<10,/* Bit 11..10:  Duplex */
-	PHY_M_LED_MO_10	  = 3<<8, /* Bit  9.. 8:  Link 10 */
-	PHY_M_LED_MO_100  = 3<<6, /* Bit  7.. 6:  Link 100 */
-	PHY_M_LED_MO_1000 = 3<<4, /* Bit  5.. 4:  Link 1000 */
-	PHY_M_LED_MO_RX	  = 3<<2, /* Bit  3.. 2:  Rx */
-	PHY_M_LED_MO_TX	  = 3<<0, /* Bit  1.. 0:  Tx */
+/*****  PHY_MARV_LED_OVER	16 bit r/w	Manual LED Override Reg *****/
+#define PHY_M_LED_MO_SGMII(x)	((x)<<14)	/* Bit 15..14:  SGMII AN Timer */
 
-	PHY_M_LED_ALL	  = PHY_M_LED_MO_DUP | PHY_M_LED_MO_10 
-			    | PHY_M_LED_MO_100 | PHY_M_LED_MO_1000
-			    | PHY_M_LED_MO_RX,
+#define PHY_M_LED_MO_DUP(x)	((x)<<10)	/* Bit 11..10:  Duplex */
+#define PHY_M_LED_MO_10(x)	((x)<<8)	/* Bit  9.. 8:  Link 10 */
+#define PHY_M_LED_MO_100(x)	((x)<<6)	/* Bit  7.. 6:  Link 100 */
+#define PHY_M_LED_MO_1000(x)	((x)<<4)	/* Bit  5.. 4:  Link 1000 */
+#define PHY_M_LED_MO_RX(x)	((x)<<2)	/* Bit  3.. 2:  Rx */
+#define PHY_M_LED_MO_TX(x)	((x)<<0)	/* Bit  1.. 0:  Tx */
+
+enum led_mode {
+	MO_LED_NORM  = 0,
+	MO_LED_BLINK = 1,
+	MO_LED_OFF   = 2,
+	MO_LED_ON    = 3,
 };
 
 /*****  PHY_MARV_EXT_CTRL_2	16 bit r/w	Ext. PHY Specific Ctrl 2 *****/
@@ -1447,6 +1430,7 @@ enum {
 /*****  PHY_MARV_PHY_CTRL (page 2)		16 bit r/w	MAC Specific Ctrl *****/
 enum {
 	PHY_M_MAC_MD_MSK	= 7<<7, /* Bit  9.. 7: Mode Select Mask */
+	PHY_M_MAC_GMIF_PUP	= 1<<3,	/* GMII Power Up (88E1149 only) */
 	PHY_M_MAC_MD_AUTO	= 3,/* Auto Copper/1000Base-X */
 	PHY_M_MAC_MD_COPPER	= 5,/* Copper only */
 	PHY_M_MAC_MD_1000BX	= 7,/* 1000Base-X only */
@@ -1850,6 +1834,28 @@ enum {
 
 /*	GPHY_CTRL		32 bit	GPHY Control Reg (YUKON only) */
 enum {
+	GPC_TX_PAUSE	= 1<<30, /* Tx pause enabled (ro) */
+	GPC_RX_PAUSE	= 1<<29, /* Rx pause enabled (ro) */
+	GPC_SPEED	= 3<<27, /* PHY speed (ro) */
+	GPC_LINK	= 1<<26, /* Link up (ro) */
+	GPC_DUPLEX	= 1<<25, /* Duplex (ro) */
+	GPC_CLOCK	= 1<<24, /* 125Mhz clock stable (ro) */
+
+	GPC_PDOWN	= 1<<23, /* Internal regulator 2.5 power down */
+	GPC_TSTMODE	= 1<<22, /* Test mode */
+	GPC_REG18	= 1<<21, /* Reg18 Power down */
+	GPC_REG12SEL	= 3<<19, /* Reg12 power setting */
+	GPC_REG18SEL	= 3<<17, /* Reg18 power setting */
+	GPC_SPILOCK	= 1<<16, /* SPI lock (ASF) */
+
+	GPC_LEDMUX	= 3<<14, /* LED Mux */
+	GPC_INTPOL	= 1<<13, /* Interrupt polarity */
+	GPC_DETECT	= 1<<12, /* Energy detect */
+	GPC_1000HD	= 1<<11, /* Enable 1000Mbit HD */
+	GPC_SLAVE	= 1<<10, /* Slave mode */
+	GPC_PAUSE	= 1<<9, /* Pause enable */
+	GPC_LEDCTL	= 3<<6, /* GPHY Leds */
+
 	GPC_RST_CLR	= 1<<1,	/* Clear GPHY Reset */
 	GPC_RST_SET	= 1<<0,	/* Set   GPHY Reset */
 };
@@ -1980,13 +1986,13 @@ struct sky2_status_le {
 struct tx_ring_info {
 	struct sk_buff	*skb;
 	DECLARE_PCI_UNMAP_ADDR(mapaddr);
-	DECLARE_PCI_UNMAP_ADDR(maplen);
+	DECLARE_PCI_UNMAP_LEN(maplen);
 };
 
 struct rx_ring_info {
 	struct sk_buff	*skb;
 	dma_addr_t	data_addr;
-	DECLARE_PCI_UNMAP_ADDR(data_size);
+	DECLARE_PCI_UNMAP_LEN(data_size);
 	dma_addr_t	frag_addr[ETH_JUMBO_MTU >> PAGE_SHIFT];
 };
 
@@ -2009,14 +2015,14 @@ struct sky2_port {
 	u16		     tx_cons;		/* next le to check */
 	u16		     tx_prod;		/* next le to use */
 	u16		     tx_next;		/* debug only */
-	u32		     tx_addr64;
+
 	u16		     tx_pending;
 	u16		     tx_last_mss;
 	u32		     tx_tcpsum;
 
 	struct rx_ring_info  *rx_ring ____cacheline_aligned_in_smp;
 	struct sky2_rx_le    *rx_le;
-	u32		     rx_addr64;
+
 	u16		     rx_next;		/* next re to check */
 	u16		     rx_put;		/* next le index to use */
 	u16		     rx_pending;
@@ -2050,24 +2056,25 @@ struct sky2_port {
 #ifdef CONFIG_SKY2_DEBUG
 	struct dentry	     *debugfs;
 #endif
-	struct net_device_stats net_stats;
-
 };
 
 struct sky2_hw {
 	void __iomem  	     *regs;
 	struct pci_dev	     *pdev;
+	struct napi_struct   napi;
 	struct net_device    *dev[2];
 	unsigned long	     flags;
 #define SKY2_HW_USE_MSI		0x00000001
 #define SKY2_HW_FIBRE_PHY	0x00000002
 #define SKY2_HW_GIGABIT		0x00000004
 #define SKY2_HW_NEWER_PHY	0x00000008
-#define SKY2_HW_FIFO_HANG_CHECK	0x00000010
+#define SKY2_HW_RAM_BUFFER	0x00000010
 #define SKY2_HW_NEW_LE		0x00000020	/* new LSOv2 format */
 #define SKY2_HW_AUTO_TX_SUM	0x00000040	/* new IP decode for Tx */
 #define SKY2_HW_ADV_POWER_CTL	0x00000080	/* additional PHY power regs */
+#define SKY2_HW_CLK_POWER	0x00000100	/* clock power management */
 
+	int		     pm_cap;
 	u8	     	     chip_id;
 	u8		     chip_rev;
 	u8		     pmd_type;

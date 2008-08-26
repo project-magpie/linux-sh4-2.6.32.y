@@ -16,7 +16,6 @@
 #include <linux/slab.h>
 #include <asm/processor.h>
 #include <asm/page.h>
-#include <asm/io.h>
 
 /*
  * Trivial page table functions.
@@ -91,6 +90,8 @@ extern unsigned int kobjsize(const void *objp);
 #define	VMALLOC_END	0xffffffff
 
 #define FIRST_USER_ADDRESS      (0)
+
+#include <asm-generic/pgtable.h>
 
 #else 
 

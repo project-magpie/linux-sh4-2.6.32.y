@@ -30,11 +30,7 @@
 /* In OMAP1710 H3 the Ethernet is directly connected to CS1 */
 #define OMAP1710_ETHR_START		0x04000300
 
-#define MAXIRQNUM			(IH_BOARD_BASE)
-#define MAXFIQNUM			MAXIRQNUM
-#define MAXSWINUM			MAXIRQNUM
-
-#define NR_IRQS				(MAXIRQNUM + 1)
-
+extern void h3_mmc_init(void);
+extern void h3_mmc_slot_cover_handler(void *arg, int state);
 
 #endif /*  __ASM_ARCH_OMAP_H3_H */

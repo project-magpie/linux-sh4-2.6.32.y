@@ -24,6 +24,8 @@ struct gpio_led_data {
 	u8 new_level;
 	u8 can_sleep;
 	u8 active_low;
+	int (*platform_gpio_blink_set)(unsigned gpio,
+			unsigned long *delay_on, unsigned long *delay_off);
 };
 
 static void gpio_led_work(struct work_struct *work)
@@ -49,18 +51,27 @@ static void gpio_led_set(struct led_classdev *led_cdev,
 	if (led_dat->active_low)
 		level = !level;
 
-	/* setting GPIOs with I2C/etc requires a preemptible task context */
+	/* Setting GPIOs with I2C/etc requires a task context, and we don't
+	 * seem to have a reliable way to know if we're already in one; so
+	 * let's just assume the worst.
+	 */
 	if (led_dat->can_sleep) {
-		if (preempt_count()) {
-			led_dat->new_level = level;
-			schedule_work(&led_dat->work);
-		} else
-			gpio_set_value_cansleep(led_dat->gpio, level);
+		led_dat->new_level = level;
+		schedule_work(&led_dat->work);
 	} else
 		gpio_set_value(led_dat->gpio, level);
 }
 
-static int __init gpio_led_probe(struct platform_device *pdev)
+static int gpio_blink_set(struct led_classdev *led_cdev,
+	unsigned long *delay_on, unsigned long *delay_off)
+{
+	struct gpio_led_data *led_dat =
+		container_of(led_cdev, struct gpio_led_data, cdev);
+
+	return led_dat->platform_gpio_blink_set(led_dat->gpio, delay_on, delay_off);
+}
+
+static int gpio_led_probe(struct platform_device *pdev)
 {
 	struct gpio_led_platform_data *pdata = pdev->dev.platform_data;
 	struct gpio_led *cur_led;
@@ -79,27 +90,31 @@ static int __init gpio_led_probe(struct platform_device *pdev)
 		cur_led = &pdata->leds[i];
 		led_dat = &leds_data[i];
 
+		ret = gpio_request(cur_led->gpio, cur_led->name);
+		if (ret < 0)
+			goto err;
+
 		led_dat->cdev.name = cur_led->name;
 		led_dat->cdev.default_trigger = cur_led->default_trigger;
 		led_dat->gpio = cur_led->gpio;
 		led_dat->can_sleep = gpio_cansleep(cur_led->gpio);
 		led_dat->active_low = cur_led->active_low;
+		if (pdata->gpio_blink_set) {
+			led_dat->platform_gpio_blink_set = pdata->gpio_blink_set;
+			led_dat->cdev.blink_set = gpio_blink_set;
+		}
 		led_dat->cdev.brightness_set = gpio_led_set;
-		led_dat->cdev.brightness = cur_led->active_low ? LED_FULL : LED_OFF;
-
-		ret = gpio_request(led_dat->gpio, led_dat->cdev.name);
-		if (ret < 0)
-			goto err;
+		led_dat->cdev.brightness = LED_OFF;
 
 		gpio_direction_output(led_dat->gpio, led_dat->active_low);
+
+		INIT_WORK(&led_dat->work, gpio_led_work);
 
 		ret = led_classdev_register(&pdev->dev, &led_dat->cdev);
 		if (ret < 0) {
 			gpio_free(led_dat->gpio);
 			goto err;
 		}
-
-		INIT_WORK(&led_dat->work, gpio_led_work);
 	}
 
 	platform_set_drvdata(pdev, leds_data);
@@ -110,17 +125,17 @@ err:
 	if (i > 0) {
 		for (i = i - 1; i >= 0; i--) {
 			led_classdev_unregister(&leds_data[i].cdev);
+			cancel_work_sync(&leds_data[i].work);
 			gpio_free(leds_data[i].gpio);
 		}
 	}
 
-	flush_scheduled_work();
 	kfree(leds_data);
 
 	return ret;
 }
 
-static int __exit gpio_led_remove(struct platform_device *pdev)
+static int __devexit gpio_led_remove(struct platform_device *pdev)
 {
 	int i;
 	struct gpio_led_platform_data *pdata = pdev->dev.platform_data;
@@ -130,9 +145,10 @@ static int __exit gpio_led_remove(struct platform_device *pdev)
 
 	for (i = 0; i < pdata->num_leds; i++) {
 		led_classdev_unregister(&leds_data[i].cdev);
+		cancel_work_sync(&leds_data[i].work);
 		gpio_free(leds_data[i].gpio);
 	}
-	
+
 	kfree(leds_data);
 
 	return 0;
@@ -144,7 +160,7 @@ static int gpio_led_suspend(struct platform_device *pdev, pm_message_t state)
 	struct gpio_led_platform_data *pdata = pdev->dev.platform_data;
 	struct gpio_led_data *leds_data;
 	int i;
-	
+
 	leds_data = platform_get_drvdata(pdev);
 
 	for (i = 0; i < pdata->num_leds; i++)
@@ -172,7 +188,8 @@ static int gpio_led_resume(struct platform_device *pdev)
 #endif
 
 static struct platform_driver gpio_led_driver = {
-	.remove		= __exit_p(gpio_led_remove),
+	.probe		= gpio_led_probe,
+	.remove		= __devexit_p(gpio_led_remove),
 	.suspend	= gpio_led_suspend,
 	.resume		= gpio_led_resume,
 	.driver		= {
@@ -183,7 +200,7 @@ static struct platform_driver gpio_led_driver = {
 
 static int __init gpio_led_init(void)
 {
-	return platform_driver_probe(&gpio_led_driver, gpio_led_probe);
+	return platform_driver_register(&gpio_led_driver);
 }
 
 static void __exit gpio_led_exit(void)
@@ -197,3 +214,4 @@ module_exit(gpio_led_exit);
 MODULE_AUTHOR("Raphael Assenat <raph@8d.com>");
 MODULE_DESCRIPTION("GPIO LED driver");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:leds-gpio");

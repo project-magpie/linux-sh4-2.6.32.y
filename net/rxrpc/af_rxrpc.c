@@ -14,6 +14,8 @@
 #include <linux/skbuff.h>
 #include <linux/poll.h>
 #include <linux/proc_fs.h>
+#include <linux/key-type.h>
+#include <net/net_namespace.h>
 #include <net/sock.h>
 #include <net/af_rxrpc.h>
 #include "ar-internal.h"
@@ -25,7 +27,7 @@ MODULE_ALIAS_NETPROTO(PF_RXRPC);
 
 unsigned rxrpc_debug; // = RXRPC_DEBUG_KPROTO;
 module_param_named(debug, rxrpc_debug, uint, S_IWUSR | S_IRUGO);
-MODULE_PARM_DESC(rxrpc_debug, "RxRPC debugging mask");
+MODULE_PARM_DESC(debug, "RxRPC debugging mask");
 
 static int sysctl_rxrpc_max_qlen __read_mostly = 10;
 
@@ -63,7 +65,7 @@ static void rxrpc_write_space(struct sock *sk)
 	if (rxrpc_writable(sk)) {
 		if (sk->sk_sleep && waitqueue_active(sk->sk_sleep))
 			wake_up_interruptible(sk->sk_sleep);
-		sk_wake_async(sk, 2, POLL_OUT);
+		sk_wake_async(sk, SOCK_WAKE_SPACE, POLL_OUT);
 	}
 	read_unlock(&sk->sk_callback_lock);
 }
@@ -237,7 +239,7 @@ static struct rxrpc_transport *rxrpc_name_to_transport(struct socket *sock,
 	/* find a remote transport endpoint from the local one */
 	peer = rxrpc_get_peer(srx, gfp);
 	if (IS_ERR(peer))
-		return ERR_PTR(PTR_ERR(peer));
+		return ERR_CAST(peer);
 
 	/* find a transport */
 	trans = rxrpc_get_transport(rx->local, peer, gfp);
@@ -280,7 +282,7 @@ struct rxrpc_call *rxrpc_kernel_begin_call(struct socket *sock,
 		trans = rxrpc_name_to_transport(sock, (struct sockaddr *) srx,
 						sizeof(*srx), 0, gfp);
 		if (IS_ERR(trans)) {
-			call = ERR_PTR(PTR_ERR(trans));
+			call = ERR_CAST(trans);
 			trans = NULL;
 			goto out;
 		}
@@ -304,7 +306,7 @@ struct rxrpc_call *rxrpc_kernel_begin_call(struct socket *sock,
 
 	bundle = rxrpc_get_bundle(rx, trans, key, service_id, gfp);
 	if (IS_ERR(bundle)) {
-		call = ERR_PTR(PTR_ERR(bundle));
+		call = ERR_CAST(bundle);
 		goto out;
 	}
 
@@ -605,12 +607,15 @@ static unsigned int rxrpc_poll(struct file *file, struct socket *sock,
 /*
  * create an RxRPC socket
  */
-static int rxrpc_create(struct socket *sock, int protocol)
+static int rxrpc_create(struct net *net, struct socket *sock, int protocol)
 {
 	struct rxrpc_sock *rx;
 	struct sock *sk;
 
 	_enter("%p,%d", sock, protocol);
+
+	if (net != &init_net)
+		return -EAFNOSUPPORT;
 
 	/* we support transport protocol UDP only */
 	if (protocol != PF_INET)
@@ -622,7 +627,7 @@ static int rxrpc_create(struct socket *sock, int protocol)
 	sock->ops = &rxrpc_rpc_ops;
 	sock->state = SS_UNCONNECTED;
 
-	sk = sk_alloc(PF_RXRPC, GFP_KERNEL, &rxrpc_proto, 1);
+	sk = sk_alloc(net, PF_RXRPC, GFP_KERNEL, &rxrpc_proto);
 	if (!sk)
 		return -ENOMEM;
 
@@ -655,9 +660,9 @@ static void rxrpc_sock_destructor(struct sock *sk)
 
 	rxrpc_purge_queue(&sk->sk_receive_queue);
 
-	BUG_TRAP(!atomic_read(&sk->sk_wmem_alloc));
-	BUG_TRAP(sk_unhashed(sk));
-	BUG_TRAP(!sk->sk_socket);
+	WARN_ON(atomic_read(&sk->sk_wmem_alloc));
+	WARN_ON(!sk_unhashed(sk));
+	WARN_ON(sk->sk_socket);
 
 	if (!sock_flag(sk, SOCK_DEAD)) {
 		printk("Attempt to release alive rxrpc socket: %p\n", sk);
@@ -829,8 +834,8 @@ static int __init af_rxrpc_init(void)
 	}
 
 #ifdef CONFIG_PROC_FS
-	proc_net_fops_create("rxrpc_calls", 0, &rxrpc_call_seq_fops);
-	proc_net_fops_create("rxrpc_conns", 0, &rxrpc_connection_seq_fops);
+	proc_net_fops_create(&init_net, "rxrpc_calls", 0, &rxrpc_call_seq_fops);
+	proc_net_fops_create(&init_net, "rxrpc_conns", 0, &rxrpc_connection_seq_fops);
 #endif
 	return 0;
 
@@ -868,8 +873,8 @@ static void __exit af_rxrpc_exit(void)
 
 	_debug("flush scheduled work");
 	flush_workqueue(rxrpc_workqueue);
-	proc_net_remove("rxrpc_conns");
-	proc_net_remove("rxrpc_calls");
+	proc_net_remove(&init_net, "rxrpc_conns");
+	proc_net_remove(&init_net, "rxrpc_calls");
 	destroy_workqueue(rxrpc_workqueue);
 	kmem_cache_destroy(rxrpc_call_jar);
 	_leave("");

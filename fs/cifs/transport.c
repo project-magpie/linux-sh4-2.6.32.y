@@ -1,7 +1,7 @@
 /*
  *   fs/cifs/transport.c
  *
- *   Copyright (C) International Business Machines  Corp., 2002,2007
+ *   Copyright (C) International Business Machines  Corp., 2002,2008
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *   Jeremy Allison (jra@samba.org) 2006.
  *
@@ -55,7 +55,7 @@ AllocMidQEntry(const struct smb_hdr *smb_buffer, struct cifsSesInfo *ses)
 	if (temp == NULL)
 		return temp;
 	else {
-		memset(temp, 0, sizeof (struct mid_q_entry));
+		memset(temp, 0, sizeof(struct mid_q_entry));
 		temp->mid = smb_buffer->Mid;	/* always LE */
 		temp->pid = current->pid;
 		temp->command = smb_buffer->Command;
@@ -142,6 +142,24 @@ void DeleteOplockQEntry(struct oplock_q_entry *oplockEntry)
 	kmem_cache_free(cifs_oplock_cachep, oplockEntry);
 }
 
+
+void DeleteTconOplockQEntries(struct cifsTconInfo *tcon)
+{
+	struct oplock_q_entry *temp;
+
+	if (tcon == NULL)
+		return;
+
+	spin_lock(&GlobalMid_Lock);
+	list_for_each_entry(temp, &GlobalOplock_Q, qhead) {
+		if ((temp->tcon) && (temp->tcon == tcon)) {
+			list_del(&temp->qhead);
+			kmem_cache_free(cifs_oplock_cachep, temp);
+		}
+	}
+	spin_unlock(&GlobalMid_Lock);
+}
+
 int
 smb_send(struct socket *ssocket, struct smb_hdr *smb_buffer,
 	 unsigned int smb_buf_length, struct sockaddr *sin)
@@ -158,7 +176,7 @@ smb_send(struct socket *ssocket, struct smb_hdr *smb_buffer,
 	iov.iov_len = len;
 
 	smb_msg.msg_name = sin;
-	smb_msg.msg_namelen = sizeof (struct sockaddr);
+	smb_msg.msg_namelen = sizeof(struct sockaddr);
 	smb_msg.msg_control = NULL;
 	smb_msg.msg_controllen = 0;
 	smb_msg.msg_flags = MSG_DONTWAIT + MSG_NOSIGNAL; /* BB add more flags?*/
@@ -228,7 +246,7 @@ smb_send2(struct socket *ssocket, struct kvec *iov, int n_vec,
 		return -ENOTSOCK; /* BB eventually add reconnect code here */
 
 	smb_msg.msg_name = sin;
-	smb_msg.msg_namelen = sizeof (struct sockaddr);
+	smb_msg.msg_namelen = sizeof(struct sockaddr);
 	smb_msg.msg_control = NULL;
 	smb_msg.msg_controllen = 0;
 	smb_msg.msg_flags = MSG_DONTWAIT + MSG_NOSIGNAL; /* BB add more flags?*/
@@ -308,7 +326,7 @@ smb_send2(struct socket *ssocket, struct kvec *iov, int n_vec,
 
 static int wait_for_free_request(struct cifsSesInfo *ses, const int long_op)
 {
-	if (long_op == -1) {
+	if (long_op == CIFS_ASYNC_OP) {
 		/* oplock breaks must not be held up */
 		atomic_inc(&ses->server->inFlight);
 	} else {
@@ -337,7 +355,7 @@ static int wait_for_free_request(struct cifsSesInfo *ses, const int long_op)
 				   as they are allowed to block on server */
 
 				/* update # of requests on the wire to server */
-				if (long_op < 3)
+				if (long_op != CIFS_BLOCKING_OP)
 					atomic_inc(&ses->server->inFlight);
 				spin_unlock(&GlobalMid_Lock);
 				break;
@@ -358,14 +376,13 @@ static int allocate_mid(struct cifsSesInfo *ses, struct smb_hdr *in_buf,
 	} else if (ses->status != CifsGood) {
 		/* check if SMB session is bad because we are setting it up */
 		if ((in_buf->Command != SMB_COM_SESSION_SETUP_ANDX) &&
-			(in_buf->Command != SMB_COM_NEGOTIATE)) {
+			(in_buf->Command != SMB_COM_NEGOTIATE))
 			return -EAGAIN;
-		} /* else ok - we are setting up session */
+		/* else ok - we are setting up session */
 	}
 	*ppmidQ = AllocMidQEntry(in_buf, ses);
-	if (*ppmidQ == NULL) {
+	if (*ppmidQ == NULL)
 		return -ENOMEM;
-	}
 	return 0;
 }
 
@@ -416,16 +433,46 @@ static int wait_for_response(struct cifsSesInfo *ses,
 	}
 }
 
+
+/*
+ *
+ * Send an SMB Request.  No response info (other than return code)
+ * needs to be parsed.
+ *
+ * flags indicate the type of request buffer and how long to wait
+ * and whether to log NT STATUS code (error) before mapping it to POSIX error
+ *
+ */
+int
+SendReceiveNoRsp(const unsigned int xid, struct cifsSesInfo *ses,
+		struct smb_hdr *in_buf, int flags)
+{
+	int rc;
+	struct kvec iov[1];
+	int resp_buf_type;
+
+	iov[0].iov_base = (char *)in_buf;
+	iov[0].iov_len = in_buf->smb_buf_length + 4;
+	flags |= CIFS_NO_RESP;
+	rc = SendReceive2(xid, ses, iov, 1, &resp_buf_type, flags);
+	cFYI(DBG2, ("SendRcvNoRsp flags %d rc %d", flags, rc));
+
+	return rc;
+}
+
 int
 SendReceive2(const unsigned int xid, struct cifsSesInfo *ses,
 	     struct kvec *iov, int n_vec, int *pRespBufType /* ret */,
-	     const int long_op)
+	     const int flags)
 {
 	int rc = 0;
+	int long_op;
 	unsigned int receive_len;
 	unsigned long timeout;
 	struct mid_q_entry *midQ;
 	struct smb_hdr *in_buf = iov[0].iov_base;
+
+	long_op = flags & CIFS_TIMEOUT_MASK;
 
 	*pRespBufType = CIFS_NO_BUFFER;  /* no response buf yet */
 
@@ -465,7 +512,6 @@ SendReceive2(const unsigned int xid, struct cifsSesInfo *ses,
 		wake_up(&ses->server->request_q);
 		return rc;
 	}
-
 	rc = cifs_sign_smb2(iov, n_vec, ses->server, &midQ->sequence_number);
 
 	midQ->midState = MID_REQUEST_SUBMITTED;
@@ -485,15 +531,22 @@ SendReceive2(const unsigned int xid, struct cifsSesInfo *ses,
 	if (rc < 0)
 		goto out;
 
-	if (long_op == -1)
-		goto out;
-	else if (long_op == 2) /* writes past end of file can take loong time */
+	if (long_op == CIFS_STD_OP)
+		timeout = 15 * HZ;
+	else if (long_op == CIFS_VLONG_OP) /* e.g. slow writes past EOF */
 		timeout = 180 * HZ;
-	else if (long_op == 1)
+	else if (long_op == CIFS_LONG_OP)
 		timeout = 45 * HZ; /* should be greater than
 			servers oplock break timeout (about 43 seconds) */
-	else
-		timeout = 15 * HZ;
+	else if (long_op == CIFS_ASYNC_OP)
+		goto out;
+	else if (long_op == CIFS_BLOCKING_OP)
+		timeout = 0x7FFFFFFF; /*  large, but not so large as to wrap */
+	else {
+		cERROR(1, ("unknown timeout flag %d", long_op));
+		rc = -EIO;
+		goto out;
+	}
 
 	/* wait for 15 seconds or until woken up due to response arriving or
 	   due to last connection to this server being unmounted */
@@ -568,18 +621,19 @@ SendReceive2(const unsigned int xid, struct cifsSesInfo *ses,
 			}
 
 			/* BB special case reconnect tid and uid here? */
-			/* BB special case Errbadpassword and pwdexpired here */
-			rc = map_smb_to_linux_error(midQ->resp_buf);
+			rc = map_smb_to_linux_error(midQ->resp_buf,
+						flags & CIFS_LOG_ERROR);
 
 			/* convert ByteCount if necessary */
-			if (receive_len >=
-			    sizeof (struct smb_hdr) -
-			    4 /* do not count RFC1001 header */  +
+			if (receive_len >= sizeof(struct smb_hdr) - 4
+			    /* do not count RFC1001 header */  +
 			    (2 * midQ->resp_buf->WordCount) + 2 /* bcc */ )
 				BCC(midQ->resp_buf) =
 					le16_to_cpu(BCC_LE(midQ->resp_buf));
-			midQ->resp_buf = NULL;  /* mark it so will not be freed
-						by DeleteMidQEntry */
+			if ((flags & CIFS_NO_RESP) == 0)
+				midQ->resp_buf = NULL;  /* mark it so buf will
+							   not be freed by
+							   DeleteMidQEntry */
 		} else {
 			rc = -EIO;
 			cFYI(1, ("Bad MID state?"));
@@ -667,17 +721,25 @@ SendReceive(const unsigned int xid, struct cifsSesInfo *ses,
 	if (rc < 0)
 		goto out;
 
-	if (long_op == -1)
-		goto out;
-	else if (long_op == 2) /* writes past end of file can take loong time */
-		timeout = 180 * HZ;
-	else if (long_op == 1)
-		timeout = 45 * HZ; /* should be greater than
-			servers oplock break timeout (about 43 seconds) */
-	else
+	if (long_op == CIFS_STD_OP)
 		timeout = 15 * HZ;
 	/* wait for 15 seconds or until woken up due to response arriving or
 	   due to last connection to this server being unmounted */
+	else if (long_op == CIFS_ASYNC_OP)
+		goto out;
+	else if (long_op == CIFS_VLONG_OP) /* writes past EOF can be slow */
+		timeout = 180 * HZ;
+	else if (long_op == CIFS_LONG_OP)
+		timeout = 45 * HZ; /* should be greater than
+			servers oplock break timeout (about 43 seconds) */
+	else if (long_op == CIFS_BLOCKING_OP)
+		timeout = 0x7FFFFFFF; /* large but no so large as to wrap */
+	else {
+		cERROR(1, ("unknown timeout flag %d", long_op));
+		rc = -EIO;
+		goto out;
+	}
+
 	if (signal_pending(current)) {
 		/* if signal pending do not hold up user for full smb timeout
 		but we still give response a chance to complete */
@@ -749,12 +811,11 @@ SendReceive(const unsigned int xid, struct cifsSesInfo *ses,
 			*pbytes_returned = out_buf->smb_buf_length;
 
 			/* BB special case reconnect tid and uid here? */
-			rc = map_smb_to_linux_error(out_buf);
+			rc = map_smb_to_linux_error(out_buf, 0 /* no log */ );
 
 			/* convert ByteCount if necessary */
-			if (receive_len >=
-			    sizeof (struct smb_hdr) -
-			    4 /* do not count RFC1001 header */  +
+			if (receive_len >= sizeof(struct smb_hdr) - 4
+			    /* do not count RFC1001 header */  +
 			    (2 * out_buf->WordCount) + 2 /* bcc */ )
 				BCC(out_buf) = le16_to_cpu(BCC_LE(out_buf));
 		} else {
@@ -817,7 +878,7 @@ send_lock_cancel(const unsigned int xid, struct cifsTconInfo *tcon,
 	pSMB->hdr.Mid = GetNextMid(ses->server);
 
 	return SendReceive(xid, ses, in_buf, out_buf,
-			&bytes_returned, 0);
+			&bytes_returned, CIFS_STD_OP);
 }
 
 int
@@ -849,7 +910,7 @@ SendReceiveBlockingLock(const unsigned int xid, struct cifsTconInfo *tcon,
 	   to the same server. We may make this configurable later or
 	   use ses->maxReq */
 
-	rc = wait_for_free_request(ses, 3);
+	rc = wait_for_free_request(ses, CIFS_BLOCKING_OP);
 	if (rc)
 		return rc;
 
@@ -993,12 +1054,11 @@ SendReceiveBlockingLock(const unsigned int xid, struct cifsTconInfo *tcon,
 			*pbytes_returned = out_buf->smb_buf_length;
 
 			/* BB special case reconnect tid and uid here? */
-			rc = map_smb_to_linux_error(out_buf);
+			rc = map_smb_to_linux_error(out_buf, 0 /* no log */ );
 
 			/* convert ByteCount if necessary */
-			if (receive_len >=
-			    sizeof (struct smb_hdr) -
-			    4 /* do not count RFC1001 header */  +
+			if (receive_len >= sizeof(struct smb_hdr) - 4
+			    /* do not count RFC1001 header */  +
 			    (2 * out_buf->WordCount) + 2 /* bcc */ )
 				BCC(out_buf) = le16_to_cpu(BCC_LE(out_buf));
 		} else {

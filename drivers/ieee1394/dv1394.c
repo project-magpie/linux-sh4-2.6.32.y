@@ -2167,6 +2167,7 @@ static const struct file_operations dv1394_fops=
 /*
  * Export information about protocols/devices supported by this driver.
  */
+#ifdef MODULE
 static struct ieee1394_device_id dv1394_id_table[] = {
 	{
 		.match_flags	= IEEE1394_MATCH_SPECIFIER_ID | IEEE1394_MATCH_VERSION,
@@ -2177,10 +2178,10 @@ static struct ieee1394_device_id dv1394_id_table[] = {
 };
 
 MODULE_DEVICE_TABLE(ieee1394, dv1394_id_table);
+#endif /* MODULE */
 
 static struct hpsb_protocol_driver dv1394_driver = {
-	.name		= "dv1394",
-	.id_table	= dv1394_id_table,
+	.name = "dv1394",
 };
 
 
@@ -2295,9 +2296,10 @@ static void dv1394_add_host(struct hpsb_host *host)
 
 	ohci = (struct ti_ohci *)host->hostdata;
 
-	device_create(hpsb_protocol_class, NULL, MKDEV(
-		IEEE1394_MAJOR,	IEEE1394_MINOR_BLOCK_DV1394 * 16 + (id<<2)),
-		"dv1394-%d", id);
+	device_create_drvdata(hpsb_protocol_class, NULL,
+			      MKDEV(IEEE1394_MAJOR,
+				    IEEE1394_MINOR_BLOCK_DV1394 * 16 + (id<<2)), NULL,
+			      "dv1394-%d", id);
 
 	dv1394_init(ohci, DV1394_NTSC, MODE_RECEIVE);
 	dv1394_init(ohci, DV1394_NTSC, MODE_TRANSMIT);
@@ -2568,7 +2570,6 @@ static int __init dv1394_init_module(void)
 
 	cdev_init(&dv1394_cdev, &dv1394_fops);
 	dv1394_cdev.owner = THIS_MODULE;
-	kobject_set_name(&dv1394_cdev.kobj, "dv1394");
 	ret = cdev_add(&dv1394_cdev, IEEE1394_DV1394_DEV, 16);
 	if (ret) {
 		printk(KERN_ERR "dv1394: unable to register character device\n");

@@ -131,7 +131,7 @@ simscsi_sg_readwrite (struct scsi_cmnd *sc, int mode, unsigned long offset)
 	stat.fd = desc[sc->device->id];
 
 	scsi_for_each_sg(sc, sl, scsi_sg_count(sc), i) {
-		req.addr = __pa(page_address(sl->page) + sl->offset);
+		req.addr = __pa(sg_virt(sl));
 		req.len  = sl->length;
 		if (DBG)
 			printk("simscsi_sg_%s @ %lx (off %lx) use_sg=%d len=%d\n",
@@ -201,22 +201,6 @@ simscsi_readwrite10 (struct scsi_cmnd *sc, int mode)
 	simscsi_sg_readwrite(sc, mode, offset);
 }
 
-static void simscsi_fillresult(struct scsi_cmnd *sc, char *buf, unsigned len)
-{
-
-	int i;
-	unsigned thislen;
-	struct scatterlist *slp;
-
-	scsi_for_each_sg(sc, slp, scsi_sg_count(sc), i) {
-		if (!len)
-			break;
-		thislen = min(len, slp->length);
-		memcpy(page_address(slp->page) + slp->offset, buf, thislen);
-		len -= thislen;
-	}
-}
-
 static int
 simscsi_queuecommand (struct scsi_cmnd *sc, void (*done)(struct scsi_cmnd *))
 {
@@ -258,7 +242,7 @@ simscsi_queuecommand (struct scsi_cmnd *sc, void (*done)(struct scsi_cmnd *))
 			buf[6] = 0;	/* reserved */
 			buf[7] = 0;	/* various flags */
 			memcpy(buf + 8, "HP      SIMULATED DISK  0.00",  28);
-			simscsi_fillresult(sc, buf, 36);
+			scsi_sg_copy_from_buffer(sc, buf, 36);
 			sc->result = GOOD;
 			break;
 
@@ -306,14 +290,15 @@ simscsi_queuecommand (struct scsi_cmnd *sc, void (*done)(struct scsi_cmnd *))
 			buf[5] = 0;
 			buf[6] = 2;
 			buf[7] = 0;
-			simscsi_fillresult(sc, buf, 8);
+			scsi_sg_copy_from_buffer(sc, buf, 8);
 			sc->result = GOOD;
 			break;
 
 		      case MODE_SENSE:
 		      case MODE_SENSE_10:
 			/* sd.c uses this to determine whether disk does write-caching. */
-			simscsi_fillresult(sc, (char *)empty_zero_page, scsi_bufflen(sc));
+			scsi_sg_copy_from_buffer(sc, (char *)empty_zero_page,
+						 PAGE_SIZE);
 			sc->result = GOOD;
 			break;
 
@@ -372,8 +357,13 @@ simscsi_init(void)
 		return -ENOMEM;
 
 	error = scsi_add_host(host, NULL);
-	if (!error)
-		scsi_scan_host(host);
+	if (error)
+		goto free_host;
+	scsi_scan_host(host);
+	return 0;
+
+ free_host:
+	scsi_host_put(host);
 	return error;
 }
 

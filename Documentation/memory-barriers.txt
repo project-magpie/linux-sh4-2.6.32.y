@@ -430,8 +430,8 @@ There are certain things that the Linux kernel memory barriers do not guarantee:
 
 	[*] For information on bus mastering DMA and coherency please read:
 
-	    Documentation/pci.txt
-	    Documentation/DMA-mapping.txt
+	    Documentation/PCI/pci.txt
+	    Documentation/PCI/PCI-DMA-mapping.txt
 	    Documentation/DMA-API.txt
 
 
@@ -994,7 +994,17 @@ The Linux kernel has eight basic CPU memory barriers:
 	DATA DEPENDENCY	read_barrier_depends()	smp_read_barrier_depends()
 
 
-All CPU memory barriers unconditionally imply compiler barriers.
+All memory barriers except the data dependency barriers imply a compiler
+barrier. Data dependencies do not impose any additional compiler ordering.
+
+Aside: In the case of data dependencies, the compiler would be expected to
+issue the loads in the correct order (eg. `a[b]` would have to load the value
+of b before loading a[b]), however there is no guarantee in the C specification
+that the compiler may not speculate the value of b (eg. is equal to 1) and load
+a before b (eg. tmp = a[1]; if (b != 1) tmp = a[b]; ). There is also the
+problem of a compiler reloading b after having loaded a[b], thus having a newer
+copy of b than a[b]. A consensus has not yet been reached about these problems,
+however the ACCESS_ONCE macro is a good place to start looking.
 
 SMP memory barriers are reduced to compiler barriers on uniprocessor compiled
 systems because it is assumed that a CPU will appear to be self-consistent,
@@ -1479,7 +1489,8 @@ kernel.
 
 Any atomic operation that modifies some state in memory and returns information
 about the state (old or new) implies an SMP-conditional general memory barrier
-(smp_mb()) on each side of the actual operation.  These include:
+(smp_mb()) on each side of the actual operation (with the exception of
+explicit lock operations, described later).  These include:
 
 	xchg();
 	cmpxchg();
@@ -1492,7 +1503,7 @@ about the state (old or new) implies an SMP-conditional general memory barrier
 	atomic_dec_and_test();
 	atomic_sub_and_test();
 	atomic_add_negative();
-	atomic_add_unless();
+	atomic_add_unless();	/* when succeeds (returns 1) */
 	test_and_set_bit();
 	test_and_clear_bit();
 	test_and_change_bit();
@@ -1536,9 +1547,18 @@ If they're used for constructing a lock of some description, then they probably
 do need memory barriers as a lock primitive generally has to do things in a
 specific order.
 
-
 Basically, each usage case has to be carefully considered as to whether memory
 barriers are needed or not.
+
+The following operations are special locking primitives:
+
+	test_and_set_bit_lock();
+	clear_bit_unlock();
+	__clear_bit_unlock();
+
+These implement LOCK-class and UNLOCK-class operations. These should be used in
+preference to other operations when implementing locking primitives, because
+their implementations can be optimised on many architectures.
 
 [!] Note that special memory barrier primitives are available for these
 situations because on some CPUs the atomic instructions used imply full memory

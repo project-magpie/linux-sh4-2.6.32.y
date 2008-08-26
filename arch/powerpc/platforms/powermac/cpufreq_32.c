@@ -113,8 +113,6 @@ static inline void debug_calc_bogomips(void)
 	 * result. We backup/restore the value to avoid affecting the
 	 * core cpufreq framework's own calculation.
 	 */
-	extern void calibrate_delay(void);
-
 	unsigned long save_lpj = loops_per_jiffy;
 	calibrate_delay();
 	loops_per_jiffy = save_lpj;
@@ -410,7 +408,6 @@ static int pmac_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	if (policy->cpu != 0)
 		return -ENODEV;
 
-	policy->governor = CPUFREQ_DEFAULT_GOVERNOR;
 	policy->cpuinfo.transition_latency	= CPUFREQ_ETERNAL;
 	policy->cur = cur_freq;
 

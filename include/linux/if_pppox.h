@@ -24,7 +24,6 @@
 #include <linux/if_ether.h>
 #include <linux/if.h>
 #include <linux/netdevice.h>
-#include <asm/semaphore.h>
 #include <linux/ppp_channel.h>
 #endif /* __KERNEL__ */
 #include <linux/if_pppol2tp.h>
@@ -40,7 +39,7 @@
 /************************************************************************ 
  * PPPoE addressing definition 
  */ 
-typedef __u16 sid_t; 
+typedef __be16 sid_t;
 struct pppoe_addr{ 
        sid_t           sid;                    /* Session identifier */ 
        unsigned char   remote[ETH_ALEN];       /* Remote address */ 
@@ -90,8 +89,8 @@ struct sockaddr_pppol2tp {
 #define PADS_CODE	0x65
 #define PADT_CODE	0xa7
 struct pppoe_tag {
-	__u16 tag_type;
-	__u16 tag_len;
+	__be16 tag_type;
+	__be16 tag_len;
 	char tag_data[0];
 } __attribute ((packed));
 
@@ -118,8 +117,8 @@ struct pppoe_hdr {
 #error	"Please fix <asm/byteorder.h>"
 #endif
 	__u8 code;
-	__u16 sid;
-	__u16 length;
+	__be16 sid;
+	__be16 length;
 	struct pppoe_tag tag[0];
 } __attribute__ ((packed));
 
@@ -152,7 +151,7 @@ struct pppox_sock {
 	union {
 		struct pppoe_opt pppoe;
 	} proto;
-	unsigned short		num;
+	__be16			num;
 };
 #define pppoe_dev	proto.pppoe.dev
 #define pppoe_ifindex	proto.pppoe.ifindex
@@ -172,7 +171,7 @@ static inline struct sock *sk_pppox(struct pppox_sock *po)
 struct module;
 
 struct pppox_proto {
-	int		(*create)(struct socket *sock);
+	int		(*create)(struct net *net, struct socket *sock);
 	int		(*ioctl)(struct socket *sock, unsigned int cmd,
 				 unsigned long arg);
 	struct module	*owner;

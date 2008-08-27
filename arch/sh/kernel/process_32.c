@@ -60,7 +60,7 @@ static int __init hlt_setup(char *__unused)
 }
 __setup("hlt", hlt_setup);
 
-void default_idle(void)
+static void default_idle(void)
 {
 	if (!hlt_counter) {
 		clear_thread_flag(TIF_POLLING_NRFLAG);

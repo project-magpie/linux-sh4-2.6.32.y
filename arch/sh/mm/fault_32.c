@@ -36,6 +36,11 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
 	int fault;
 	siginfo_t info;
 
+#ifdef CONFIG_SH_KGDB
+	if (kgdb_nofault && kgdb_bus_err_hook)
+		kgdb_bus_err_hook();
+#endif
+
 	tsk = current;
 	si_code = SEGV_MAPERR;
 

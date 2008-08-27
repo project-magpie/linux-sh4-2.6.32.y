@@ -77,9 +77,6 @@ config FLAT_NODE_MEM_MAP
 	def_bool y
 	depends on !SPARSEMEM
 
-config HAVE_GET_USER_PAGES_FAST
-	bool
-
 #
 # Both the NUMA code and DISCONTIGMEM use arrays of pg_data_t's
 # to represent different areas of memory.  This variable allows
@@ -209,6 +206,9 @@ config VIRT_TO_BUS
 	def_bool y
 	depends on !ARCH_NO_VIRT_TO_BUS
 
+config MMU_NOTIFIER
+	bool
+
 config BPA2
 	bool "Big Physical Area version 2"
 	---help---
@@ -218,4 +218,3 @@ config BPA2
 	  compatible wit the origional "Big Physical Area" API,
 	  but with extensions for multiple areas. It can also be configured
 	  from the architecture specific setup code.
-

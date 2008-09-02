@@ -17,24 +17,34 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) STMicroelectronics, 2007
+ * Copyright (C) STMicroelectronics, 2007, 2008
  *
  * 2007-July    Created by Chris Smith <chris.smith@st.com>
+ * 2008-August  kpprintf added by Chris Smith <chris.smith@st.com>
  */
 
 #ifdef CONFIG_KPTRACE
 
-// Mark a particular point in the code as "interesting" in the kptrace log
+#define KPTRACE_BUF_SIZE 1024
+#define KPTRACE_SMALL_BUF 128
+
+/* Mark a particular point in the code as "interesting" in the kptrace log */
 void kptrace_mark(void);
 
-// Write a string to the kptrace log
+/* Write a string to the kptrace log */
 void kptrace_write_record(const char *buf);
 
-// Stop logging trace records until kptrace_restart() is called
+/* Stop logging trace records until kptrace_restart() is called */
 void kptrace_pause(void);
 
-// Restart logging of trace records after a kptrace_pause()
+/* Restart logging of trace records after a kptrace_pause() */
 void kptrace_restart(void);
 
-#endif				/* CONFIG_KPTRACE */
-#endif				/* _LINUX_KPTRACE_H */
+/* Allow printf-style records to be added */
+extern char kpprintf_buf[KPTRACE_BUF_SIZE];
+#define kpprintf(args...) do { \
+	snprintf(kpprintf_buf, KPTRACE_BUF_SIZE, ## args); \
+	kptrace_write_record(kpprintf_buf); } while (0)
+
+#endif /* CONFIG_KPTRACE */
+#endif /* _LINUX_KPTRACE_H */

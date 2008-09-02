@@ -29,9 +29,6 @@
 #include <net/sock.h>
 #include <asm/sections.h>
 
-#define KPTRACE_BUF_SIZE 1024
-#define KPTRACE_SMALL_BUF 128
-
 #define INIT_SYSCALL_PROBE(x) create_tracepoint(set, #x, syscall_pre_handler, \
 				syscall_rp_handler);
 
@@ -66,6 +63,8 @@ typedef struct {
 
 static LIST_HEAD(tracepoint_sets);
 static LIST_HEAD(tracepoints);
+
+char kpprintf_buf[KPTRACE_BUF_SIZE];
 
 /* file-static data*/
 static char trace_buf[KPTRACE_BUF_SIZE];

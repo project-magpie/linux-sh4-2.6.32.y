@@ -14,10 +14,11 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) STMicroelectronics, 2007
+ * Copyright (C) STMicroelectronics, 2008
  *
  * 2007-Jul	Created by Chris Smith <chris.smith@st.com>
- *
+ * 2008-Aug     Chris Smith <chris.smith@st.com> added a sysfs interface for
+ *              user space tracing.
  */
 #include <linux/module.h>
 #include <linux/kprobes.h>
@@ -71,6 +72,7 @@ static char trace_buf[KPTRACE_BUF_SIZE];
 static char stack_buf[KPTRACE_BUF_SIZE];
 static char user_new_symbol[KPTRACE_BUF_SIZE];
 static tracepoint_set_t *user_set;
+static struct kobject userspace;
 static int user_stopon;
 static int user_starton;
 static int timestamping_enabled = 1;
@@ -125,6 +127,7 @@ static tracepoint_t *create_tracepoint(tracepoint_set_t * set, const char *name,
 static int user_pre_handler(struct kprobe *p, struct pt_regs *regs);
 static int user_rp_handler(struct kretprobe_instance *ri, struct pt_regs *regs);
 extern void get_stack(char *buf, unsigned long *sp, size_t size, size_t depth);
+static void write_trace_record_no_callstack(const char *rec);
 
 /* protection for the formatting temporary buffer */
 static DEFINE_SPINLOCK(tmpbuf_lock);
@@ -176,6 +179,15 @@ static struct attribute *user_tp_attribs[] = {
 	&(struct attribute){
 			    .owner = THIS_MODULE,
 			    .name = "starton",
+			    .mode = S_IRUGO | S_IWUSR,
+			    },
+	NULL
+};
+
+static struct attribute *userspace_attribs[] = {
+	&(struct attribute){
+			    .owner = THIS_MODULE,
+			    .name = "new_record",
 			    .mode = S_IRUGO | S_IWUSR,
 			    },
 	NULL
@@ -397,6 +409,26 @@ ssize_t user_store_attrs(struct kobject * kobj, struct attribute * attr,
 	return size;
 }
 
+static ssize_t userspace_show_attrs(struct kobject *kobj,
+				    struct attribute *attr, char *buffer)
+{
+	if (strcmp(attr->name, "new_record") == 0)
+		return snprintf(buffer, PAGE_SIZE,
+				"Used to add records from user space\n");
+
+	return snprintf(buffer, PAGE_SIZE, "Unknown attribute\n");
+}
+
+static ssize_t userspace_store_attrs(struct kobject *kobj,
+				     struct attribute *attr, const char *buffer,
+				     size_t size)
+{
+	if (strcmp(attr->name, "new_record") == 0)
+		write_trace_record_no_callstack(buffer);
+
+	return size;
+}
+
 /* Main control is a sysdev */
 struct sysdev_class kptrace_sysdev;
 SYSDEV_ATTR(configured, S_IRUGO | S_IWUSR, kptrace_configured_show_attrs,
@@ -410,19 +442,28 @@ static struct sys_device kptrace_device = {
 };
 
 /* Operations for the three kobj types */
-struct sysfs_ops tracepoint_sysfs_ops =
-    { &tracepoint_show_attrs, &tracepoint_store_attrs };
-struct sysfs_ops tracepoint_set_sysfs_ops =
-    { &tracepoint_set_show_attrs, &tracepoint_set_store_attrs };
+struct sysfs_ops tracepoint_sysfs_ops = {
+	&tracepoint_show_attrs, &tracepoint_store_attrs
+};
+struct sysfs_ops tracepoint_set_sysfs_ops = {
+	&tracepoint_set_show_attrs, &tracepoint_set_store_attrs
+};
 struct sysfs_ops user_sysfs_ops = { &user_show_attrs, &user_store_attrs };
+struct sysfs_ops userspace_sysfs_ops = {
+	&userspace_show_attrs, &userspace_store_attrs
+};
 
 /* Three kobj types: tracepoints, tracepoint sets, the special "user" tracepoint set */
-struct kobj_type tracepoint_type =
-    { NULL, &tracepoint_sysfs_ops, tracepoint_attribs };
+struct kobj_type tracepoint_type = {
+	NULL, &tracepoint_sysfs_ops, tracepoint_attribs
+};
 struct kobj_type tracepoint_set_type = { NULL, &tracepoint_set_sysfs_ops,
 	tracepoint_set_attribs
 };
 struct kobj_type user_type = { NULL, &user_sysfs_ops, user_tp_attribs };
+struct kobj_type userspace_type = {
+	NULL, &userspace_sysfs_ops, userspace_attribs
+};
 
 /*
  * Creates a tracepoint in the given set. Pointers to entry and/or return handlers
@@ -1302,11 +1343,17 @@ static int create_sysfs_tree(void)
 	kobject_set_name(&user_set->kobj, "%s", "user");
 	user_set->kobj.ktype = &user_type;
 	user_set->kobj.parent = &kptrace_sysdev.kset.kobj;
-	if (kobject_add(&user_set->kobj) < 0) {
+	if (kobject_add(&user_set->kobj) < 0)
 		printk(KERN_WARNING "kptrace: Failed to add kobject user\n");
-	}
-
 	user_set->enabled = 0;
+
+	kobject_init(&userspace);
+	kobject_set_name(&userspace, "%s", "userspace");
+	userspace.ktype = &userspace_type;
+	userspace.parent = &kptrace_sysdev.kset.kobj;
+	if (kobject_add(&userspace) < 0)
+		printk(KERN_WARNING
+		       "kptrace: Failed to add kobject userspace\n");
 
 	return 1;
 }
@@ -1320,10 +1367,14 @@ void init_core_event_logging(void)
 		return;
 	}
 
-	create_tracepoint(set, "handle_simple_irq", irq_pre_handler, irq_rp_handler);
-	create_tracepoint(set, "handle_level_irq", irq_pre_handler, irq_rp_handler);
-	create_tracepoint(set, "handle_fasteoi_irq", irq_pre_handler, irq_rp_handler);
-	create_tracepoint(set, "handle_edge_irq", irq_pre_handler, irq_rp_handler);
+	create_tracepoint(set, "handle_simple_irq", irq_pre_handler,
+			  irq_rp_handler);
+	create_tracepoint(set, "handle_level_irq", irq_pre_handler,
+			  irq_rp_handler);
+	create_tracepoint(set, "handle_fasteoi_irq", irq_pre_handler,
+			  irq_rp_handler);
+	create_tracepoint(set, "handle_edge_irq", irq_pre_handler,
+			  irq_rp_handler);
 	create_tracepoint(set, "__switch_to", context_switch_pre_handler, NULL);
 	create_tracepoint(set, "tasklet_hi_action", softirq_pre_handler,
 			  softirq_rp_handler);

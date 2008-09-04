@@ -337,8 +337,6 @@ void stpio_flagged_request_irq(struct stpio_pin *pin, int comp,
 
 	DPRINTK("called\n");
 
-	spin_lock(&stpio_lock);
-
 	/* stpio style interrupt handling doesn't allow sharing. */
 	BUG_ON(pin->func);
 
@@ -351,25 +349,18 @@ void stpio_flagged_request_irq(struct stpio_pin *pin, int comp,
 
 	if (flags & IRQ_DISABLED)
 		disable_irq(irq);
-
-	spin_unlock(&stpio_lock);
 }
 EXPORT_SYMBOL(stpio_flagged_request_irq);
 
 void stpio_free_irq(struct stpio_pin *pin)
 {
-	unsigned long flags;
 	int irq = pin_to_irq(pin);
-
-	spin_lock_irqsave(&stpio_lock, flags);
 
 	DPRINTK("calling free_irq\n");
 	free_irq(irq, pin);
 
 	pin->func = 0;
 	pin->dev = 0;
-
-	spin_unlock_irqrestore(&stpio_lock, flags);
 }
 EXPORT_SYMBOL(stpio_free_irq);
 
@@ -622,8 +613,6 @@ static struct irq_chip stpio_irq_chip = {
 	.mask		= stpio_irq_chip_disable,
 	.mask_ack	= stpio_irq_chip_disable,
 	.unmask		= stpio_irq_chip_enable,
-	.enable		= stpio_irq_chip_enable,
-	.disable	= stpio_irq_chip_disable,
 	.set_type	= stpio_irq_chip_type,
 };
 

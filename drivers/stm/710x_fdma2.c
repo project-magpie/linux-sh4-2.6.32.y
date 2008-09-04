@@ -656,8 +656,8 @@ static int fdma_run_initialise_sequence(struct fdma_dev *fd)
 static void fdma_get_fw_revision(struct fdma_dev * fd, int *major, int *minor)
 {
 	int reg = readl(fd->io_base + fd->regs.fdma_dmem_region);
-	*major  = (reg & 0xff00) >>8;
-	*minor  = reg & 0xff;
+	*major  = (reg & 0xff0000) >> 16;
+	*minor  = (reg & 0xff00) >> 8;
 }
 
 static void fdma_get_hw_revision(struct fdma_dev * fd, int *major, int *minor)

@@ -565,9 +565,10 @@ static int fdma_disable_all_channels(struct fdma_dev * fd)
 
 static void fdma_reset_channels(struct fdma_dev * fd)
 {
-	int channel=0;
-	for(;channel <(fd->ch_max-1);channel++)
-		writel(0,CMD_STAT_REG(channel));
+	int channel;
+
+	for (channel = fd->ch_min; channel <= fd->ch_max; channel++)
+		writel(0, CMD_STAT_REG(channel));
 }
 
 static struct stm_dma_req *stb710x_configure_pace_channel(struct fdma_dev *fd,
@@ -599,7 +600,7 @@ static struct stm_dma_req *stb710x_configure_pace_channel(struct fdma_dev *fd,
 
 static int fdma_register_caps(struct fdma_dev * fd)
 {
-	int channel = fd->ch_min;
+	int channel;
 	int res=0;
 	int num_caps = fd->ch_max - fd->ch_min + 1;
 	struct dma_chan_caps  dmac_caps[num_caps];
@@ -607,7 +608,7 @@ static int fdma_register_caps(struct fdma_dev * fd)
 	static const char* lb_caps[] = {STM_DMA_CAP_LOW_BW,NULL};
 	static const char* eth_caps[] = {STM_DMA_CAP_ETH_BUF,NULL};
 
-	for (;channel <= fd->ch_max;channel++) {
+	for (channel = fd->ch_min; channel <= fd->ch_max; channel++) {
 		dmac_caps[channel-fd->ch_min].ch_num = channel;
 		switch (channel) {
 		case 0 ... 3:
@@ -1314,8 +1315,8 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 	fd->ch_max = plat_data->max_ch_num;
 	fd->fdma_num = pdev->id;
 	fd->ch_status_mask =
-		((1ULL << (fd->ch_max*2)) - 1ULL) ^
-		((1    << (fd->ch_min*2)) - 1);
+		((1ULL << ((fd->ch_max + 1) * 2)) - 1ULL) ^
+		((1    << (fd->ch_min * 2)) - 1);
 
 	memcpy(&fd->regs,(u32*)plat_data->registers_ptr,sizeof(struct fdma_regs));
 	fd->fw_name = plat_data->fw_device_name;
@@ -1327,7 +1328,7 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 	spin_lock_init(&(fd)->channel_lock);
 	init_waitqueue_head(&(fd)->fw_load_q);
 
-	fd->dma_info.nr_channels = (fd->ch_max+1) - fd->ch_min;
+	fd->dma_info.nr_channels = fd->ch_max - fd->ch_min + 1;
 	fd->dma_info.ops	= &stb710x_fdma_ops;
 	fd->dma_info.flags	= DMAC_CHANNELS_TEI_CAPABLE;
 	strlcpy(fd->name, STM_DMAC_ID, FDMA_NAME_LEN);
@@ -1341,7 +1342,7 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 		printk("%s Error Registering DMAC\n",__FUNCTION__);
 	/*must take account of CH 0*/
 
-	for (i=fd->ch_min; i<=fd->ch_max; i++) {
+	for (i = fd->ch_min; i <= fd->ch_max; i++) {
 		struct dma_channel *channel;
 		channel = get_dma_channel(i);
 		channel->priv_data = &fd->channel[i];

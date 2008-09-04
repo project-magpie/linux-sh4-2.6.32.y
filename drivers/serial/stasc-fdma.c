@@ -3,7 +3,7 @@
  * FDMA extension
  *
  * Copyright (C) 2007 STMicroelectronics Limited
- * Author: Pawel MOLL <pawel.moll@st.com>
+ * Author: Pawel Moll <pawel.moll@st.com>
  *
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.

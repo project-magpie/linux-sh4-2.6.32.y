@@ -9,6 +9,8 @@
 #ifndef __ASM_SH_IRQ_ILC_H
 #define __ASM_SH_IRQ_ILC_H
 
+#include <linux/platform_device.h>
+
 #if defined(CONFIG_CPU_SUBTYPE_STX7105)
 #define ILC_FIRST_IRQ	176
 #define ILC_NR_IRQS	(64+35)

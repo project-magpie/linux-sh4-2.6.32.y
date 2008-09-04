@@ -33,14 +33,14 @@ extern void __iomem *ilc_base;
 /*
  * Macros to get/set/clear ILC registers
  */
-#define ILC_SET_ENABLE(_int)     ctrl_outl(_BIT(_int), ILC_SET_ENABLE_REG(_int))
-#define ILC_CLR_ENABLE(_int)     ctrl_outl(_BIT(_int), ILC_CLR_ENABLE_REG(_int))
-#define ILC_GET_ENABLE(_int)     (ctrl_inl(ILC_ENABLE_REG(_int)) & _BIT(_int))
-#define ILC_CLR_STATUS(_int)     ctrl_outl(_BIT(_int), ILC_CLR_STATUS_REG(_int))
-#define ILC_GET_STATUS(_int)     (ctrl_inl(ILC_STATUS_REG(_int)) & _BIT(_int))
-#define ILC_SET_PRI(_int, _pri)  ctrl_outl((_pri), ILC_PRIORITY_REG(_int))
+#define ILC_SET_ENABLE(_int)     writel(_BIT(_int), ILC_SET_ENABLE_REG(_int))
+#define ILC_CLR_ENABLE(_int)     writel(_BIT(_int), ILC_CLR_ENABLE_REG(_int))
+#define ILC_GET_ENABLE(_int)     (readl(ILC_ENABLE_REG(_int)) & _BIT(_int))
+#define ILC_CLR_STATUS(_int)     writel(_BIT(_int), ILC_CLR_STATUS_REG(_int))
+#define ILC_GET_STATUS(_int)     (readl(ILC_STATUS_REG(_int)) & _BIT(_int))
+#define ILC_SET_PRI(_int, _pri)  writel((_pri), ILC_PRIORITY_REG(_int))
 
-#define ILC_SET_TRIGMODE(_int, _mod) ctrl_outl((_mod), ILC_TRIGMODE_REG(_int))
+#define ILC_SET_TRIGMODE(_int, _mod) writel((_mod), ILC_TRIGMODE_REG(_int))
 
 #define ILC_TRIGGERMODE_NONE	0
 #define ILC_TRIGGERMODE_HIGH	1

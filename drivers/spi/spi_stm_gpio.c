@@ -16,6 +16,9 @@
  *      hold of PIO pin (freeing pin selects STPIO_IN (high-Z) mode).
  *    - added spi_stmpio_setup() and spi_stmpio_setup_transfer() to enfore
  *	SPI_STMPIO_MAX_SPEED_HZ
+ *  2008-08-28 Angus Clark <angus.clark@st.com>
+ *    - Updated to fit with changes to 'ssc_pio_t'
+ *    - Support for user-defined chip_select, specified in board setup
  *
  *  -------------------------------------------------------------------------
  */
@@ -36,7 +39,7 @@
 #define dgb_print(fmt, args...)  printk(KERN_INFO "%s: " \
 					fmt, __FUNCTION__ , ## args)
 #else
-#define dgb_print(fmt, args...)
+#define dgb_print(fmt, args...)	do { } while (0)
 #endif
 
 #define NAME "spi_stm_pio"
@@ -103,7 +106,7 @@ static u32 spi_gpio_txrx_mode3(struct spi_device *spi,
 	return bitbang_txrx_be_cpha1(spi, nsecs, 1, word, bits);
 }
 
-static void spi_gpio_chipselect(struct spi_device *spi, int value)
+static void spi_stpio_chipselect(struct spi_device *spi, int value)
 {
 	unsigned int out;
 
@@ -199,38 +202,45 @@ static int __init spi_probe(struct platform_device *pdev)
 	st_bitbang->bitbang.master = master;
 	st_bitbang->bitbang.master->setup = spi_stmpio_setup;
 	st_bitbang->bitbang.setup_transfer = spi_stmpio_setup_transfer;
-	st_bitbang->bitbang.chipselect = spi_gpio_chipselect;
+	st_bitbang->bitbang.chipselect = spi_stpio_chipselect;
 	st_bitbang->bitbang.txrx_word[SPI_MODE_0] = spi_gpio_txrx_mode0;
 	st_bitbang->bitbang.txrx_word[SPI_MODE_1] = spi_gpio_txrx_mode1;
 	st_bitbang->bitbang.txrx_word[SPI_MODE_2] = spi_gpio_txrx_mode2;
 	st_bitbang->bitbang.txrx_word[SPI_MODE_3] = spi_gpio_txrx_mode3;
 
+	if (pio_info->chipselect)
+		st_bitbang->bitbang.chipselect = (void (*)
+						  (struct spi_device *, int))
+			(pio_info->chipselect);
+	else
+		st_bitbang->bitbang.chipselect = spi_stpio_chipselect;
+
 	master->num_chipselect = SPI_NO_CHIPSELECT + 1;
 	master->bus_num = pdev->id;
 	st_bitbang->max_speed_hz = SPI_STMPIO_MAX_SPEED_HZ;
 
-	pio_info->clk = stpio_request_pin(pio_info->pio_port,
-					  pio_info->pio_pin[0],
+	pio_info->clk = stpio_request_pin(pio_info->pio[0].pio_port,
+					  pio_info->pio[0].pio_pin,
 					  "SPI Clock", STPIO_OUT);
 	if (!pio_info->clk) {
 		printk(KERN_ERR NAME " Faild to clk pin allocation PIO%d[%d]\n",
-		       pio_info->pio_port, pio_info->pio_pin[0]);
+		       pio_info->pio[0].pio_port, pio_info->pio[0].pio_pin);
 		return -1;
 	}
-	pio_info->sdout = stpio_request_pin(pio_info->pio_port,
-					    pio_info->pio_pin[1],
+	pio_info->sdout = stpio_request_pin(pio_info->pio[1].pio_port,
+					    pio_info->pio[1].pio_pin,
 					    "SPI Data Out", STPIO_OUT);
 	if (!pio_info->sdout) {
 		printk(KERN_ERR NAME " Faild to sda pin allocation PIO%d[%d]\n",
-		       pio_info->pio_port, pio_info->pio_pin[1]);
+		       pio_info->pio[1].pio_port, pio_info->pio[1].pio_pin);
 		return -1;
 	}
-	pio_info->sdin = stpio_request_pin(pio_info->pio_port,
-					   pio_info->pio_pin[2],
+	pio_info->sdin = stpio_request_pin(pio_info->pio[2].pio_port,
+					   pio_info->pio[2].pio_pin,
 					   "SPI Data In", STPIO_IN);
 	if (!pio_info->sdin) {
 		printk(KERN_ERR NAME " Faild to sdo pin allocation PIO%d[%d]\n",
-		       pio_info->pio_port, pio_info->pio_pin[2]);
+		       pio_info->pio[1].pio_port, pio_info->pio[1].pio_pin);
 		return -1;
 	}
 
@@ -244,9 +254,12 @@ static int __init spi_probe(struct platform_device *pdev)
 		return -1;
 	}
 
-	printk(KERN_INFO NAME ": Registered SPI Bus %d: PIO%d[%d/%d/%d]\n",
-	       master->bus_num, pio_info->pio_port, pio_info->pio_pin[0],
-	       pio_info->pio_pin[1], pio_info->pio_pin[2]);
+	printk(KERN_INFO NAME ": Registered SPI Bus %d: "
+	       "SCL [%d,%d], SDO [%d,%d], SDI [%d, %d]\n",
+	       master->bus_num,
+	       pio_info->pio[0].pio_port, pio_info->pio[0].pio_pin,
+	       pio_info->pio[1].pio_port, pio_info->pio[1].pio_pin,
+	       pio_info->pio[2].pio_port, pio_info->pio[2].pio_pin);
 
 	return 0;
 }

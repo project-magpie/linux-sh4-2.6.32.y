@@ -12,6 +12,8 @@ struct ssc_pio_t {
 	struct stpio_pin* clk;
 	struct stpio_pin* sdout;
 	struct stpio_pin* sdin;
+	/* chip-select for SPI bus (struct spi_device *spi) -> (void *)*/
+	void (*chipselect)(void *spi, int is_on);
 };
 
 #define SSC_I2C_CAPABILITY  0x0
@@ -40,6 +42,8 @@ struct ssc_pio_t {
 struct plat_ssc_data {
 	unsigned short		capability;	/* bitmask on the ssc capability */
 	unsigned long		routing;
+	/* chip-select for SPI bus (struct spi_device *spi) -> (void *)*/
+	void (*spi_chipselects[])(void *spi, int is_on);
 };
 
 #ifdef CONFIG_CPU_SUBTYPE_STX7105
@@ -72,22 +76,23 @@ struct plat_ssc_data {
 #define SSC3_MRST_PIO3_7	(1 << SSC_MRST_SHIFT(3))
 #define SSC3_MRST_PIO13_3	(2 << SSC_MRST_SHIFT(3))
 #define SSC3_MRST_PIO13_7	(3 << SSC_MRST_SHIFT(3))
+#endif
 
 #define SPI_LINE_SHIFT		0x0
 #define SPI_LINE_MASK		0x7
 #define SPI_BANK_SHIFT		0x3
-#define SPI_BANK_MASK		0xf
+#define SPI_BANK_MASK		0xff
 #define spi_get_bank(address)  (((address) >> SPI_BANK_SHIFT) & SPI_BANK_MASK)
 #define spi_get_line(address)  (((address) >> SPI_LINE_SHIFT) & SPI_LINE_MASK)
 #define spi_set_cs(bank, line) ((((bank) & SPI_BANK_MASK) << SPI_BANK_SHIFT) | \
 				 (((line) & SPI_LINE_MASK) << SPI_LINE_SHIFT))
 /* each spi bus is able to manage 'all' the pios as chip selector
-   therefore each master must have 8(pioline)x10(piobank)
-   10 pio banks is enough for our boards
+   therefore each master must have 8(pioline)x20(piobank)
+   20 pio banks is enough for our boards
    SPI_NO_CHIPSELECT to specify SPI device with no CS (ie CS tied to 'active')
 */
-#define SPI_NO_CHIPSELECT	(spi_set_cs(9, 7) + 1)
-#endif
+#define SPI_NO_CHIPSELECT	(spi_set_cs(19, 7) + 1)
+
 
 /* Private data for the SATA driver */
 struct plat_sata_data {

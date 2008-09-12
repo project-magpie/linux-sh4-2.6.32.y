@@ -547,6 +547,8 @@ void __init stx7200_configure_ssc(struct plat_ssc_data *data)
 	struct sysconf_field* ssc_sc;
 
 	for (i=0; i<ARRAY_SIZE(stssc_devices); i++, capability >>= SSC_BITS_SIZE){
+		struct ssc_pio_t *ssc_pio = stssc_devices[i].dev.platform_data;
+
 		if(capability & SSC_UNCONFIGURED)
 			continue;
 		/* We only support SSC as master, so always set up as such.
@@ -565,6 +567,7 @@ void __init stx7200_configure_ssc(struct plat_ssc_data *data)
 			stssc_devices[i].name = spi_st;
 			sysconf_write(ssc_sc, 0);
 			stssc_devices[i].id = num_spi++;
+			ssc_pio->chipselect = data->spi_chipselects[i];
 		} else {
 			stssc_devices[i].name = i2c_st;
 			sysconf_write(ssc_sc, 0);

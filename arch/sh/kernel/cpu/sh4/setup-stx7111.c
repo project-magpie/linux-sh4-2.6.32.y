@@ -201,7 +201,7 @@ static struct platform_device fdma_xbar_device = {
 /* SSC resources ----------------------------------------------------------- */
 
 static char i2c_st[] = "i2c_st";
-static char spi_st[] = "spi_st";
+static char spi_st[] = "spi_st_ssc";
 
 static struct platform_device stssc_devices[] = {
 	STSSC_DEVICE(0xfd040000, evt2irq(0x10e0), 2, 0, 1, 2),
@@ -251,6 +251,7 @@ void __init stx7111_configure_ssc(struct plat_ssc_data *data)
 			stssc_devices[i].name = spi_st;
 			sysconf_write(ssc_sc, 1);
 			stssc_devices[i].id = num_spi++;
+			ssc_pio->chipselect = data->spi_chipselects[i];
 		} else {
 			stssc_devices[i].name = i2c_st;
 			sysconf_write(ssc_sc, 0);

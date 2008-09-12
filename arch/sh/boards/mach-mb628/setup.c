@@ -16,6 +16,9 @@
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/emi.h>
+#include <linux/spi/spi.h>
+#include <linux/spi/spi_bitbang.h>
+#include <linux/spi/flash.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
@@ -62,16 +65,78 @@ static struct plat_stm_pwm_data pwm_private_info = {
 	.flags		= PLAT_STM_PWM_OUT1,
 };
 
+/* Chip-select for SSC1-SPI bus.  Serial FLASH is only device on this bus */
+static void spi_chipselect_ssc1(void *_spi, int value)
+{
+	struct spi_device *spi = _spi;
+	u8 reg;
+
+	/* Serial FLASH is on chip_select '1' */
+	if (spi->chip_select == 1) {
+
+		reg = epld_read(EPLD_ENABLE);
+
+		if (value == BITBANG_CS_ACTIVE)
+			if (spi->mode & SPI_CS_HIGH)
+				reg |= EPLD_ENABLE_SPI_NOTCS;
+			else
+				reg &= ~EPLD_ENABLE_SPI_NOTCS;
+		else
+			if (spi->mode & SPI_CS_HIGH)
+				reg &= ~EPLD_ENABLE_SPI_NOTCS;
+			else
+				reg |= EPLD_ENABLE_SPI_NOTCS;
+		epld_write(reg, EPLD_ENABLE);
+	}
+}
+
 static struct plat_ssc_data ssc_private_info = {
 	.capability  =
-		ssc0_has(SSC_UNCONFIGURED)	/* SSC1 */	|
+		ssc0_has(SSC_SPI_CAPABILITY)	/* SSC1 */	|
 		ssc1_has(SSC_SPI_CAPABILITY)	/* SSC2 */	|
 		ssc2_has(SSC_I2C_CAPABILITY)	/* SSC3 */	|
 		ssc3_has(SSC_I2C_CAPABILITY)	/* SSC4 */	|
 		ssc4_has(SSC_I2C_CAPABILITY)	/* SSC5 */	|
 		ssc5_has(SSC_I2C_CAPABILITY)	/* SSC6 */	|
 		ssc6_has(SSC_I2C_CAPABILITY),	/* SSC7 */
+	.spi_chipselects = {
+		[0] = spi_chipselect_ssc1,
+	},
 };
+
+/* MTD partitions for Serial FLASH device */
+static struct mtd_partition serialflash_partitions[] = {
+	{
+		.name = "sflash_1",
+		.size = 0x00080000,
+		.offset = 0,
+	}, {
+		.name = "sflash_2",
+		.size = MTDPART_SIZ_FULL,
+		.offset = 0x20000
+	},
+};
+
+/* Serial FLASH is type 'm25p32', handled by 'm25p80' SPI Protocol driver */
+static struct flash_platform_data serialflash_data = {
+	.name = "m25p80",
+	.parts = serialflash_partitions,
+	.nr_parts = ARRAY_SIZE(serialflash_partitions),
+	.type = "m25p32",
+};
+
+/* SPI 'board_info' to register serial FLASH protocol driver */
+static struct spi_board_info spi_serialflash[] =  {
+	{
+		.modalias	= "m25p80",
+		.bus_num	= 0,
+		.chip_select	= 1,
+		.max_speed_hz	= 5000000,
+		.platform_data	= &serialflash_data,
+		.mode		= SPI_MODE_3,
+	},
+};
+
 
 #ifdef FLASH_NOR
 /* J69 must be in position 2-3 to enable the on-board Flash devices (both
@@ -374,6 +439,7 @@ static int __init device_init(void)
 		epld_write(value, EPLD_AUDIO);
 	}
 #endif
+	spi_register_board_info(spi_serialflash, ARRAY_SIZE(spi_serialflash));
 
 	return platform_add_devices(mb628_devices, ARRAY_SIZE(mb628_devices));
 }

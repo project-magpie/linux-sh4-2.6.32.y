@@ -20,6 +20,8 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
+#include <linux/spi/spi.h>
+#include <linux/spi/flash.h>
 #include <linux/bug.h>
 #include <asm/processor.h>
 #include <asm/irq-ilc.h>
@@ -148,12 +150,64 @@ static struct platform_device physmap_flash = {
 	},
 };
 
+
+/* MTD partitions for Serial FLASH device */
+static struct mtd_partition serialflash_partitions[] = {
+	{
+		.name = "sflash_1",
+		.size = 0x00080000,
+		.offset = 0,
+	}, {
+		.name = "sflash_2",
+		.size = MTDPART_SIZ_FULL,
+		.offset = 0x20000
+	},
+};
+
+/* Serial FLASH is type 'm25p32', handled by 'm25p80' SPI Protocol driver */
+static struct flash_platform_data serialflash_data = {
+	.name = "m25p80",
+	.parts = serialflash_partitions,
+	.nr_parts = ARRAY_SIZE(serialflash_partitions),
+	.type = "m25p32",
+};
+
+/* SPI 'board_info' to register serial FLASH protocol driver */
+static struct spi_board_info spi_serialflash[] =  {
+	{
+		.modalias	= "m25p80",
+		.bus_num	= 8,
+		.chip_select	= spi_set_cs(15, 2),
+		.max_speed_hz	= 500000,
+		.platform_data	= &serialflash_data,
+		.mode		= SPI_MODE_3,
+	},
+};
+
+/* GPIO based SPI */
+static struct platform_device spi_pio_device[] = {
+	{
+		.name           = "spi_st_pio",
+		.id             = 8,
+		.num_resources  = 0,
+		.dev            = {
+			.platform_data =
+			&(struct ssc_pio_t) {
+				.pio = {{15, 0}, {15, 1}, {15, 3} },
+			},
+		},
+	},
+};
+
+
+
 static struct platform_device *mb705_devices[] __initdata = {
 	&epld_device,
 	&mb705_gpio_led,
 	&mb705_display_device,
 	&mb705_fpbutton_device,
 	&physmap_flash,
+	&spi_pio_device[0],
 };
 
 static struct mtd_partition nand_partitions[] = {
@@ -265,6 +319,8 @@ static int __init mb705_init(void)
 	epld_write(1, EPLD_EMI_INT_PRI(5));
 	epld_write(2, EPLD_EMI_INT_PRI(4));
 	epld_write((1<<4)|(1<<5)|(1<<9), EPLD_EMI_INT_MASK);
+
+	spi_register_board_info(spi_serialflash, ARRAY_SIZE(spi_serialflash));
 
 	return platform_add_devices(mb705_devices, ARRAY_SIZE(mb705_devices));
 }

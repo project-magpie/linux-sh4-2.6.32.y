@@ -300,6 +300,7 @@ void stx7141_configure_ethernet(int port, int reverse_mii, int mode,
 				int phy_bus);
 void stx7141_configure_audio_pins(int pcmout1, int pcmout2, int spdif,
 		int pcmin1, int pcmint2);
+void stx7141_configure_lirc(lirc_scd_t *scd);
 
 void stx7200_early_device_init(void);
 void stx7200_configure_asc(const int *ascs, int num_ascs, int console);

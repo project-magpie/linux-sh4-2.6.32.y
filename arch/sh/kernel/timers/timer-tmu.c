@@ -251,6 +251,7 @@ int tmu2_register_user(void *fnt, void *data)
 
 	return 0;
 }
+EXPORT_SYMBOL(tmu2_register_user);
 
 void tmu2_unregister_user(void)
 {
@@ -259,6 +260,7 @@ void tmu2_unregister_user(void)
 
 	return;
 }
+EXPORT_SYMBOL(tmu2_unregister_user);
 
 static struct irqaction tmu2_irq = {
 	.name		= "TMU2 periodic timer",

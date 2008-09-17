@@ -197,7 +197,7 @@ static void __exit st_cpufreq_module_exit(void)
 	st_cpufreq_update_clocks(0, 1);	/* switch to the highest frequency */
 }
 
-module_init(st_cpufreq_module_init);
+late_initcall(st_cpufreq_module_init);
 module_exit(st_cpufreq_module_exit);
 
 MODULE_DESCRIPTION("cpufreq driver for ST40 Micro");

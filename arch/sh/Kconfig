@@ -523,13 +523,11 @@ config SH_CPU_FREQ
 	  If unsure, say N.
 
 config STM_CPU_FREQ
-	bool "STMicroelectronics CPU Frequency driver"
-	depends on CPU_FREQ && (CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200 || \
-		                CPU_SUBTYPE_STX7111)
+	bool
+	default y
 	select CPU_FREQ_TABLE
-	help
-	  This adds the cpufreq driver for STMicroelectronics micros.
-	  For details, take a look at <file:Documentation/cpu-freq>.
+	depends on CPU_FREQ && (CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200 || \
+		                CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7141 )
 
 endmenu
 

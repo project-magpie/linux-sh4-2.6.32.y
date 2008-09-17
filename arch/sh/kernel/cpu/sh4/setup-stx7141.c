@@ -564,7 +564,7 @@ static void fix_mac_speed(void *priv, unsigned int speed)
 {
 	struct sysconf_field *sc = priv;
 
-	sysconf_write(sc, (speed == SPEED_100) ? 0 : 1);
+	sysconf_write(sc, (speed == SPEED_100) ? 1 : 0);
 }
 
 static struct plat_stmmacenet_data stx7141eth_private_data[2] = {

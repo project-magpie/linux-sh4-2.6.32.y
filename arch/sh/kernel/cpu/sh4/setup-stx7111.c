@@ -274,7 +274,7 @@ static struct sysconf_field *mac_speed_sc;
 
 static void fix_mac_speed(void* priv, unsigned int speed)
 {
-	sysconf_write(mac_speed_sc, (speed == SPEED_100) ? 0 : 1);
+	sysconf_write(mac_speed_sc, (speed == SPEED_100) ? 1 : 0);
 }
 
 /* Hopefully I can remove this now */

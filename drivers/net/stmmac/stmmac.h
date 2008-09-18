@@ -1,6 +1,6 @@
 #define ETH_RESOURCE_NAME	"stmmaceth"
 #define PHY_RESOURCE_NAME	"stmmacphy"
-#define DRV_MODULE_VERSION	"July_08"
+#define DRV_MODULE_VERSION	"Sept_08"
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
 #define STMMAC_VLAN_TAG_USED
@@ -59,4 +59,5 @@ struct eth_driver_local {
 	struct timer_list timer;
 	int shutdown;
 	struct tasklet_struct tx_task;
+	struct napi_struct napi;
 };

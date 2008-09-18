@@ -11,6 +11,11 @@
  * ----------------------------------------------------------------------------
  *
  * Changelog:
+ * Sep 2008
+ *	- Ported new napi_struct.
+ * August 2008:
+ *	- On egress packets use the skb_checksum_help function to compute
+ *	  the csum calculation.
  * July 2008:
  *	- Removed timer optimization through kernel timers.
  *	  RTC and TMU2 timers are also used for mitigating the transmission IRQs.
@@ -143,7 +148,7 @@ MODULE_PARM_DESC(threshold_ctrl, "tranfer threshold control");
 
 #if defined (CONFIG_STMMAC_TIMER)
 #define RX_IRQ_THRESHOLD	16	/* mitigate rx irq */
-#define TX_AGGREGATION		16	/* mitigate tx irq too */
+#define TX_AGGREGATION		32	/* mitigate tx irq too */
 #else
 #define RX_IRQ_THRESHOLD 1	/* always Interrupt on completion */
 #define TX_AGGREGATION	-1	/* no mitigation by default */
@@ -315,7 +320,6 @@ static void stmmac_adjust_link(struct net_device *dev)
 		if (!lp->oldlink) {
 			new_state = 1;
 			lp->oldlink = 1;
-			netif_schedule(dev);
 		}
 	} else if (lp->oldlink) {
 		new_state = 1;
@@ -344,6 +348,7 @@ static int stmmac_init_phy(struct net_device *dev)
 	struct eth_driver_local *lp = netdev_priv(dev);
 	struct phy_device *phydev;
 	char phy_id[BUS_ID_SIZE];
+	char bus_id[BUS_ID_SIZE];
 
 	lp->oldlink = 0;
 	lp->speed = 0;
@@ -353,8 +358,8 @@ static int stmmac_init_phy(struct net_device *dev)
                 /* We don't have a PHY, so do nothing */
                 return 0;
         }
-
-	snprintf(phy_id, BUS_ID_SIZE, PHY_ID_FMT, lp->bus_id, lp->phy_addr);
+	snprintf(bus_id, MII_BUS_ID_SIZE, "%x", lp->bus_id);
+	snprintf(phy_id, BUS_ID_SIZE, PHY_ID_FMT, bus_id, lp->phy_addr);
 	DBG(probe, DEBUG, "stmmac_init_phy:  trying to attach to %s\n", phy_id);
 
 	phydev =
@@ -876,11 +881,10 @@ static void stmmac_tx(struct net_device *dev)
  */
 void stmmac_schedule_rx(struct net_device *dev)
 {
-	stmmac_dma_disable_irq_rx(dev->base_addr);
+	struct eth_driver_local *lp = netdev_priv(dev);
 
-	if (likely(netif_rx_schedule_prep(dev))) {
-		__netif_rx_schedule(dev);
-	}
+	stmmac_dma_disable_irq_rx(dev->base_addr);
+	netif_rx_schedule(dev, &lp->napi);
 
 	return;
 }
@@ -1139,16 +1143,10 @@ static int stmmac_open(struct net_device *dev)
         if (lp->phydev)
 	   phy_start(lp->phydev);
 
+	napi_enable(&lp->napi);
+
 	netif_start_queue(dev);
 	return 0;
-}
-
-static void stmmac_tx_checksum(struct sk_buff *skb)
-{
-	const int offset = skb_transport_offset(skb);
-	unsigned int csum = skb_checksum(skb, offset, skb->len - offset, 0);
-	*(u16 *) (skb->data + offset + skb->csum_offset) = csum_fold(csum);
-	return;
 }
 
 /**
@@ -1175,6 +1173,7 @@ static int stmmac_release(struct net_device *dev)
 		stmmac_timer_close();
 	}
 #endif
+	napi_disable(&lp->napi);
 
 	/* Free the IRQ lines */
 	free_irq(dev->irq, dev);
@@ -1231,7 +1230,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	hwcsum = 0;
 	if (likely(skb->ip_summed == CHECKSUM_PARTIAL)) {
 		if (lp->mac_type->hw.csum == NO_HW_CSUM)
-			stmmac_tx_checksum(skb);
+			skb_checksum_help(skb);
 		else
 			hwcsum = 1;
 	}
@@ -1454,7 +1453,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 
 /**
  *  stmmac_poll - stmmac poll method (NAPI)
- *  @dev : pointer to the netdev structure.
+ *  @napi : pointer to the napi structure.
  *  @budget : maximum number of packets that the current CPU can receive from
  *	      all interfaces.
  *  Description :
@@ -1462,20 +1461,22 @@ static int stmmac_rx(struct net_device *dev, int limit)
  *   It is based on NAPI which provides a "inherent mitigation" in order
  *   to improve network performance.
  */
-static int stmmac_poll(struct net_device *dev, int *budget)
+static int stmmac_poll(struct napi_struct *napi, int budget)
 {
-	int work_done, limit = min(dev->quota, *budget);;
+	struct eth_driver_local *lp = container_of(napi,
+						   struct eth_driver_local,
+						   napi);
+	struct net_device *dev = lp->dev;
+	int work_done;
 
-	work_done = stmmac_rx(dev, limit);
-	dev->quota -= work_done;
-	*budget -= work_done;
+	work_done = stmmac_rx(dev, budget);
 
-	if (work_done < limit) {
-		netif_rx_complete(dev);
+	if (work_done < budget) {
+		RX_DBG(">>> rx work completed.\n");
+		netif_rx_complete(dev, napi);
 		stmmac_dma_enable_irq_rx(dev->base_addr);
-		return 0;
 	}
-	return 1;
+	return work_done;
 }
 
 /**
@@ -1715,8 +1716,7 @@ static int stmmac_probe(struct net_device *dev)
 
 	lp->pause = pause;
 
-	dev->poll = stmmac_poll;
-	dev->weight = 64;
+	netif_napi_add(dev, &lp->napi, stmmac_poll, lp->dma_rx_size);
 
 	/* Get the MAC address */
 	get_mac_address(dev->base_addr, dev->dev_addr,
@@ -1816,8 +1816,9 @@ static int stmmac_associate_phy(struct device *dev, void *data)
 	    "stmmacphy_dvr_probe: checking phy for bus %d\n", plat_dat->bus_id);
 
 	/* Check that this phy is for the MAC being initialised */
-	if (lp->bus_id != plat_dat->bus_id)
+	if (lp->bus_id != plat_dat->bus_id){
 		return 0;
+	}
 
 	/* OK, this PHY is connected to the MAC.  Go ahead and get the parameters */
 	DBG(probe, DEBUG, "stmmacphy_dvr_probe: OK. Found PHY config\n");
@@ -1937,7 +1938,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	printk(KERN_DEBUG "registering MDIO bus...\n");
 	ret = stmmac_mdio_register(ndev);
 	printk(KERN_DEBUG "MDIO bus registered!\n");
-	ndev = __dev_get_by_name("eth0");
+	ndev = __dev_get_by_name(&init_net, "eth0");
 
       out:
 	if (ret < 0) {
@@ -2010,6 +2011,7 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 			stmmac_timer_stop();
 		}
 #endif
+		napi_disable(&lp->napi);
 		/* Stop TX/RX DMA */
 		stmmac_dma_stop_tx(dev->base_addr);
 		stmmac_dma_stop_rx(dev->base_addr);
@@ -2072,6 +2074,7 @@ static int stmmac_resume(struct platform_device *pdev)
 	}
 #endif
 	tasklet_enable(&lp->tx_task);
+	napi_enable(&lp->napi);
 
 	phy_start(lp->phydev);
 

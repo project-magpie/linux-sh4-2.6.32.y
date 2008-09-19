@@ -308,11 +308,13 @@ int gpio_to_irq(unsigned gpio)
 {
 	return gpio + stpio_irq_base;
 }
+EXPORT_SYMBOL(gpio_to_irq);
 
 int irq_to_gpio(unsigned irq)
 {
 	return irq - stpio_irq_base;
 }
+EXPORT_SYMBOL(irq_to_gpio);
 
 static inline int pin_to_irq(struct stpio_pin *pin)
 {

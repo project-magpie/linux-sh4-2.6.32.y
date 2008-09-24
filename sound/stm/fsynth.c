@@ -424,7 +424,6 @@ static int snd_stm_fsynth_adjustment_get(struct snd_kcontrol *kcontrol,
 static int snd_stm_fsynth_adjustment_put(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
-	int result;
 	struct snd_stm_fsynth_channel *fsynth_channel =
 		snd_kcontrol_chip(kcontrol);
 	struct snd_stm_fsynth *fsynth;
@@ -445,11 +444,12 @@ static int snd_stm_fsynth_adjustment_put(struct snd_kcontrol *kcontrol,
 	channel = fsynth_channel - fsynth_channel->fsynth->channels;
 	old_adjustement = fsynth_channel->adjustment;
 
-	result = snd_stm_fsynth_channel_configure(fsynth, channel,
+	/* If the synthesizer hasn't been configured yet... */
+	if (fsynth_channel->frequency == 0)
+		fsynth_channel->adjustment = ucontrol->value.integer.value[0];
+	else if (snd_stm_fsynth_channel_configure(fsynth, channel,
 			fsynth_channel->frequency,
-			ucontrol->value.integer.value[0]);
-
-	if (result < 0)
+			ucontrol->value.integer.value[0]) < 0)
 		return -EINVAL;
 
 	return old_adjustement != fsynth_channel->adjustment;
@@ -512,7 +512,7 @@ int snd_stm_fsynth_set_frequency(struct snd_stm_fsynth_channel *fsynth_channel,
 
 	return snd_stm_fsynth_channel_configure(fsynth_channel->fsynth,
 			fsynth_channel - fsynth_channel->fsynth->channels,
-			frequency, 0);
+			frequency, fsynth_channel->adjustment);
 }
 
 int snd_stm_fsynth_add_adjustement_ctl(

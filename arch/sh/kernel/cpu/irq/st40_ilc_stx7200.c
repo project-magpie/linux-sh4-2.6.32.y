@@ -16,7 +16,10 @@
 #include <linux/irq.h>
 #include <linux/errno.h>
 #include <linux/platform_device.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 
+#include <asm/hw_irq.h>
 #include <asm/system.h>
 #include <asm/io.h>
 #include <asm/irq-ilc.h>
@@ -28,6 +31,7 @@ struct ilc_data {
 #define ilc_set_priority(_ilc, _prio)	((_ilc)->priority = (_prio))
 	unsigned char priority;
 #define ILC_STATE_USED			0x1
+#define ilc_is_used(_ilc)		(((_ilc)->state & ILC_STATE_USED) != 0)
 #define ilc_set_used(_ilc)		((_ilc)->state |= ILC_STATE_USED)
 #define ilc_set_unused(_ilc)		((_ilc)->state &= ~(ILC_STATE_USED))
 	unsigned char state;
@@ -58,7 +62,7 @@ static struct pr_mask priority_mask[16];
 /* #define ILC_DEBUG_DEMUX */
 
 #ifdef ILC_DEBUG
-#define DPRINTK(args...)   printk(args)
+#define DPRINTK(args...)   printk(KERN_DEBUG args)
 #else
 #define DPRINTK(args...)
 #endif
@@ -68,7 +72,7 @@ static struct pr_mask priority_mask[16];
  */
 
 #ifdef ILC_DEBUG_DEMUX
-#define DPRINTK2(args...)   printk(args)
+#define DPRINTK2(args...)   printk(KERN_DEBUG args)
 #else
 #define DPRINTK2(args...)
 #endif
@@ -86,31 +90,51 @@ void ilc_irq_demux(unsigned int irq, struct irq_desc *desc)
 	defined(CONFIG_CPU_SUBTYPE_STX7200)
 	unsigned int priority = 14 - irq;
 #endif
-	unsigned int irq_offset;
 	int handled = 0;
 	int idx;
-	unsigned long status;
 
-	DPRINTK2("ilc demux got irq %d\n", irq);
+	DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
 
 	for (idx = 0; idx < ILC_PRIORITY_MASK_SIZE; ++idx) {
+		unsigned long status;
+		unsigned int irq_offset;
 		struct irq_desc *desc;
 
-		status = ioread32(ilc_base + ILC_BASE_STATUS + (idx<<2)) &
-			ioread32(ilc_base + ILC_BASE_ENABLE + (idx<<2)) &
-			priority_mask[priority].mask[idx] ;
+		status = readl(ilc_base + ILC_BASE_STATUS + (idx << 2)) &
+			readl(ilc_base + ILC_BASE_ENABLE + (idx << 2)) &
+			priority_mask[priority].mask[idx];
 		if (!status)
 			continue;
 
-		irq_offset = (idx*32)+ffs(status)-1;
+		irq_offset = (idx * 32) + ffs(status) - 1;
 		desc = irq_desc + ILC_IRQ(irq_offset);
 		desc->handle_irq(ILC_IRQ(irq_offset), desc);
 		handled = 1;
 		ILC_CLR_STATUS(irq_offset);
 	}
 
-	if (!handled)
-		printk(KERN_INFO "ILC: spurious interrupt demux %d\n", irq);
+	if (likely(handled))
+		return;
+
+	atomic_inc(&irq_err_count);
+
+	printk(KERN_DEBUG "ILC: spurious interrupt demux %d\n", irq);
+
+	printk(KERN_DEBUG "ILC:  inputs   status  enabled    used\n");
+
+	for (idx = 0; idx < ILC_PRIORITY_MASK_SIZE; ++idx) {
+		unsigned long status, enabled, used;
+
+		status = readl(ilc_base + ILC_BASE_STATUS + (idx << 2));
+		enabled = readl(ilc_base + ILC_BASE_ENABLE + (idx << 2));
+		used = 0;
+		for (priority = 0; priority < 16; ++priority)
+			used |= priority_mask[priority].mask[idx];
+
+		printk(KERN_DEBUG "ILC: %3d-%3d: %08lx %08lx %08lx"
+				"\n", idx * 32, (idx * 32) + 31,
+				status, enabled, used);
+	}
 }
 
 static unsigned int startup_ilc_irq(unsigned int irq)
@@ -120,7 +144,9 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 	int irq_offset = irq - ILC_FIRST_IRQ;
 	unsigned long flags;
 
-	DPRINTK("ilc startup irq %d\n", irq);
+	DPRINTK("%s: irq %d\n", __FUNCTION__, irq);
+
+	WARN_ON(ilc_is_used(&ilc_data[irq_offset]));
 
 	if ((irq_offset < 0) || (irq_offset >= ILC_NR_IRQS))
 		return -ENODEV;
@@ -130,8 +156,7 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 
 	spin_lock_irqsave(&ilc_data_lock, flags);
 	ilc_set_used(this);
-	priority_mask[priority].mask[_BANK(irq_offset)] |=
-		_BIT(irq_offset);
+	priority_mask[priority].mask[_BANK(irq_offset)] |= _BIT(irq_offset);
 	spin_unlock_irqrestore(&ilc_data_lock, flags);
 
 #if	defined(CONFIG_CPU_SUBTYPE_STX7111)
@@ -159,7 +184,9 @@ static void shutdown_ilc_irq(unsigned int irq)
 	int irq_offset = irq - ILC_FIRST_IRQ;
 	unsigned long flags;
 
-	DPRINTK("ilc shutdown irq %d\n", irq);
+	DPRINTK("%s: irq %d\n", __FUNCTION__, irq);
+
+	WARN_ON(!ilc_is_used(&ilc_data[irq_offset]));
 
 	if ((irq_offset < 0) || (irq_offset >= ILC_NR_IRQS))
 		return;
@@ -172,29 +199,40 @@ static void shutdown_ilc_irq(unsigned int irq)
 
 	spin_lock_irqsave(&ilc_data_lock, flags);
 	ilc_set_unused(this);
-	priority_mask[priority].mask[_BANK(irq_offset)] &=
-		~(_BIT(irq_offset));
+	priority_mask[priority].mask[_BANK(irq_offset)] &= ~(_BIT(irq_offset));
 	spin_unlock_irqrestore(&ilc_data_lock, flags);
 }
 
-static void enable_ilc_irq(unsigned int irq)
+static void unmask_ilc_irq(unsigned int irq)
 {
 	int irq_offset = irq - ILC_FIRST_IRQ;
-DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
+
+	DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
+
+	WARN_ON(!ilc_is_used(&ilc_data[irq_offset]));
+
 	ILC_SET_ENABLE(irq_offset);
 }
 
-static void disable_ilc_irq(unsigned int irq)
+static void mask_ilc_irq(unsigned int irq)
 {
 	int irq_offset = irq - ILC_FIRST_IRQ;
-DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
+
+	DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
+
+	WARN_ON(!ilc_is_used(&ilc_data[irq_offset]));
+
 	ILC_CLR_ENABLE(irq_offset);
 }
 
 static void mask_and_ack_ilc(unsigned int irq)
 {
 	int irq_offset = irq - ILC_FIRST_IRQ;
-DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
+
+	DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
+
+	WARN_ON(!ilc_is_used(&ilc_data[irq_offset]));
+
 	ILC_CLR_ENABLE(irq_offset);
 	(void)ILC_GET_ENABLE(irq_offset); /* Defeat write posting */
 }
@@ -233,9 +271,9 @@ static struct irq_chip ilc_chip = {
 	.name		= "ILC3",
 	.startup	= startup_ilc_irq,
 	.shutdown	= shutdown_ilc_irq,
-	.mask		= disable_ilc_irq,
+	.mask		= mask_ilc_irq,
 	.mask_ack	= mask_and_ack_ilc,
-	.unmask		= enable_ilc_irq,
+	.unmask		= unmask_ilc_irq,
 	.set_type	= set_type_ilc_irq,
 };
 
@@ -244,7 +282,7 @@ void __init ilc_demux_init(void)
 	int irq;
 	int irq_offset;
 
-	/* Deafult all interrupts to active high. */
+	/* Default all interrupts to active high. */
 	for (irq_offset = 0; irq_offset < ILC_NR_IRQS; irq_offset++)
 		ILC_SET_TRIGMODE(irq_offset, ILC_TRIGGERMODE_HIGH);
 
@@ -253,5 +291,82 @@ void __init ilc_demux_init(void)
 		 * then change this to handle_simple_irq? */
 		set_irq_chip_and_handler_name(irq, &ilc_chip, handle_level_irq,
 					      "ILC");
-
 }
+
+#if defined(CONFIG_PROC_FS)
+
+static void *ilc_seq_start(struct seq_file *s, loff_t *pos)
+{
+	seq_printf(s, "input irq status enabled used priority mode\n");
+
+	if (*pos >= ILC_NR_IRQS)
+		return NULL;
+
+	return pos;
+}
+
+static void ilc_seq_stop(struct seq_file *s, void *v)
+{
+}
+
+static void *ilc_seq_next(struct seq_file *s, void *v, loff_t *pos)
+{
+	if (++(*pos) >= ILC_NR_IRQS)
+		return NULL;
+
+	return pos;
+}
+
+static int ilc_seq_show(struct seq_file *s, void *v)
+{
+	int input = *((loff_t *)v);
+	int status = (ILC_GET_STATUS(input) != 0);
+	int enabled = (ILC_GET_ENABLE(input) != 0);
+	int used = ilc_is_used(&ilc_data[input]);
+
+	seq_printf(s, "%3d %3d %d %d %d %d %d", input, input + ILC_FIRST_IRQ,
+			status, enabled, used, readl(ILC_PRIORITY_REG(input)),
+			readl(ILC_TRIGMODE_REG(input)));
+
+	if (enabled && !used)
+		seq_printf(s, " !!!");
+
+	seq_printf(s, "\n");
+
+	return 0;
+}
+
+static struct seq_operations ilc_seq_ops = {
+	.start = ilc_seq_start,
+	.next = ilc_seq_next,
+	.stop = ilc_seq_stop,
+	.show = ilc_seq_show,
+};
+
+static int ilc_proc_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &ilc_seq_ops);
+}
+
+static struct file_operations ilc_proc_ops = {
+	.owner = THIS_MODULE,
+	.open = ilc_proc_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release,
+};
+
+/* Called from late in the kernel initialisation sequence, once the
+ * normal memory allocator is available. */
+static int __init ilc_proc_init(void)
+{
+	struct proc_dir_entry *entry = create_proc_entry("ilc", S_IRUGO, NULL);
+
+	if (entry)
+		entry->proc_fops = &ilc_proc_ops;
+
+	return 0;
+}
+__initcall(ilc_proc_init);
+
+#endif /* CONFIG_PROC_FS */

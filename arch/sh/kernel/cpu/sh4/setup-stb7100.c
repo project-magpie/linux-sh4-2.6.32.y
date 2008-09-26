@@ -305,6 +305,8 @@ void __init stx7100_configure_ssc(struct plat_ssc_data *data)
 	struct sysconf_field* ssc_sc;
 
 	for (i=0; i<ARRAY_SIZE(stssc_devices); i++, capability >>= SSC_BITS_SIZE) {
+		struct ssc_pio_t *ssc_pio = stssc_devices[i].dev.platform_data;
+
 		if(capability & SSC_UNCONFIGURED)
 			continue;
 		if(!i){

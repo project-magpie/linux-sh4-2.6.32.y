@@ -27,26 +27,13 @@
 #include <asm/io.h>
 #include <asm/clock.h>
 
-#undef  dbg_print
-#ifdef  CONFIG_CPU_FREQ_DEBUG
-#define dbg_print(fmt, args...)  printk("%s: " fmt, __FUNCTION__ , ## args)
-#else
-#define dbg_print(fmt, args...)
-#endif
+#define clk_iomem			0xfe213000 /* Clockgen A */
+#define CKGA_PLL0LS_DIV_CFG(x)		(0xa10 + (((x) - 4) * 4))
+#define ST40_CLK 			(clk_iomem + CKGA_PLL0LS_DIV_CFG(4))
+#define CKGA_CLKOBS_MUX1_CFG		0x030
 
-static struct clk *sh4_clk;
-static unsigned long clk_iomem;
-static struct cpufreq_frequency_table *cpu_freqs;
-/*				1:1,	  1:2,	    1:4		*/
-unsigned long st40_ratios[] = { 0x10000, 0x10001, 0x10003 };
-
-static inline unsigned long _1_ms_lpj(void)
-{
-	return clk_get_rate(sh4_clk) / (1000 * 2);
-}
-
-#define CKGA_PLL0LS_DIV_CFG(x)		(0x900+((x)*4))
-#define ST40_CLK 	(clk_iomem + CKGA_PLL0LS_DIV_CFG(4))
+/*				1:1,	 1:2  1:4 */
+unsigned long st40_ratios[] = { 0x10000, 0x1, 0x3 };
 
 static void st_cpufreq_update_clocks(unsigned int set,
 				     int not_used_on_this_platform)
@@ -56,74 +43,49 @@ static void st_cpufreq_update_clocks(unsigned int set,
 	unsigned long st40_clk = ST40_CLK;
 	unsigned long l_p_j = _1_ms_lpj();
 
-	dbg_print("\n");
+	cpufreq_debug_printk(CPUFREQ_DEBUG_DRIVER, "st_cpufreq_update_clocks",
+		"\n");
 	l_p_j >>= 3;		/* l_p_j = 125 usec (for each HZ) */
 
 	local_irq_save(flag);
 
-	if (set > current_set) {	/* down scaling... */
+	if (set > current_set) { /* down scaling... */
 		/* it scales l_p_j based on the new frequency */
-		l_p_j >>= 1;	// 450 -> 225 or 225 -> 112.5
+		l_p_j >>= 1;	/* 450 -> 225 or 225 -> 112.5 */
 		if ((set + current_set) == 2)
-			l_p_j >>= 1;	// 450 -> 112.5
-
-		asm volatile (".balign	32	\n"
-			      "mov.l	%1, @%0\n"	// sets the st40 clock
-			      "tst	%2, %2	\n"
-			      "1:		\n"
-			      "bf/s	1b	\n"
-			      " dt	%2	\n"
-			::    "r" (st40_clk),		// 0
-			      "r"(st40_ratios[set]),	// 1
-			      "r"(l_p_j)		// 2
-			:	"memory", "t");
+			l_p_j >>= 1;	/* 450 -> 112.5 */
 	} else {
 		/* it scales l_p_j based on the new frequency */
-		l_p_j <<= 1;	// 225   -> 450 or 112.5 -> 225
+		l_p_j <<= 1;	/* 225   -> 450 or 112.5 -> 225 */
 		if ((set + current_set) == 2)
-			l_p_j <<= 1;	// 112.5 -> 450
-
-		asm volatile (".balign	32	\n"
-			      "mov.l	%1, @%0\n"	// sets the st40 clock
-			      "tst	%2, %2	\n"
-			      "1:		\n"
-			      "bf/s	1b	\n"
-			      " dt	%2	\n"
-			::    "r" (st40_clk),		// 0
-			      "r"(st40_ratios[set]),	// 1
-			      "r"(l_p_j)		// 2
-			:     "memory", "t");
+			l_p_j <<= 1;	/* 112.5 -> 450 */
 	}
+
+	asm volatile (".balign	32	\n"
+		      "mov.l	%1, @%0\n"
+		      "tst	%2, %2	\n"
+		      "1:		\n"
+		      "bf/s	1b	\n"
+		      " dt	%2	\n"
+		::    "r" (st40_clk),
+		      "r" (st40_ratios[set]),
+		      "r" (l_p_j)
+		:     "memory", "t");
 
 	current_set = set;
 	sh4_clk->rate = (cpu_freqs[set].frequency << 3) * 125;
 	local_irq_restore(flag);
 }
 
-void *__init st_cpufreq_platform_init(struct cpufreq_frequency_table
-				      *_cpu_freqs)
+#ifdef CONFIG_STM_CPU_FREQ_OBSERVE
+static void __init st_cpufreq_observe_init(void)
 {
-	dbg_print("\n");
-
-	if (!_cpu_freqs)
-		return NULL;
-	cpu_freqs = _cpu_freqs;
-
-	sh4_clk = clk_get(NULL, "sh4_clk");
-	clk_iomem = (unsigned long)clk_get_iomem();
-
-	if (!sh4_clk) {
-		printk(KERN_ERR "ERROR: on clk_get(sh4_clk)\n");
-		return NULL;
-	}
-	if (!clk_iomem)
-		return NULL;
-
-#ifdef CONFIG_CPU_FREQ_DEBUG
-	/* route the sh4/2  clock frequenfy */
-	iowrite32(0xc ,clk_iomem+CKGA_CLKOBS_MUX1_CFG);
-#endif
-	return (void *)st_cpufreq_update_clocks;
+	/* route the sh4/2  clock frequency */
+	iowrite32(0xc, clk_iomem + CKGA_CLKOBS_MUX1_CFG);
 }
+#endif
 
-MODULE_LICENSE("GPL");
+static int __init st_cpufreq_platform_init(void)
+{
+	return 0;
+}

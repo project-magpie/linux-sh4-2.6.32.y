@@ -15,7 +15,7 @@
 
 #define CLOCKGEN_BASE_ADDR	0x19213000	/* Clockgen A */
 
-static void __iomem *clkgen_base;
+void __iomem *clkgen_base;
 
 #define CLOCKGEN_PLL0_CFG	0x08
 #define CLOCKGEN_PLL0_CLK1_CTRL	0x14

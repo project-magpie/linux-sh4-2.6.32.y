@@ -39,11 +39,5 @@ clock-$(CONFIG_CPU_SUBTYPE_SH4_202)	+= clock-sh4-202.o
 
 obj-y	+= $(clock-y)
 
-ifdef CONFIG_STM_CPU_FREQ
-obj-y					+= cpufreq-stm.o
-obj-$(CONFIG_CPU_SUBTYPE_STB7100)	+= cpufreq-stb7100.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= cpufreq-stx7111.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7141)	+= cpufreq-stx7141.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= cpufreq-stx7200.o
-endif
+obj-$(CONFIG_STM_CPU_FREQ)		+= cpufreq-stm.o
 

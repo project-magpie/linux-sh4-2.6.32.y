@@ -523,11 +523,21 @@ config SH_CPU_FREQ
 	  If unsure, say N.
 
 config STM_CPU_FREQ
-	bool
+	tristate "STMicroelectronics CPU Frequency driver"
 	default y
 	select CPU_FREQ_TABLE
-	depends on CPU_FREQ && (CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200 || \
-		                CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7141 )
+	depends on CPU_FREQ
+	help
+	  This adds the cpufreq driver for STMicroelectronics micro.
+	  For details, take a look at <file:Documentation/cpu-freq>.
+
+config STM_CPU_FREQ_OBSERVE
+	bool "Observe the CPU frequency"
+	default n
+	depends on STM_CPU_FREQ && CPU_FREQ_DEBUG
+	help
+	  Enable this option to program the ClkGenA Observer to route
+	  the sh4_clk on an external pin
 
 endmenu
 

@@ -78,7 +78,7 @@ void __raw_writesw(void __iomem *addrp, const void *datap, int len)
 {
 	const u16 *data;
 
-	for (data = datap; len != 0; len--)
+	for (data = (u16 *) datap; len != 0; len--)
 		*(volatile unsigned short*)addrp = *data++;
 }
 EXPORT_SYMBOL(__raw_writesw);

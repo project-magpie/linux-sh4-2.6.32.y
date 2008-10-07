@@ -1089,10 +1089,10 @@ void __init plat_irq_setup(void)
 	ilc_early_init(&ilc3_device);
 
 	for (i=4; i<=6; i++)
-		prio_registers[i].set_reg += intc2_base;
+		prio_registers[i].set_reg += (unsigned long) intc2_base;
 	for (i=0; i<=2; i++) {
-		mask_registers[i].set_reg += intc2_base;
-		mask_registers[i].clr_reg += intc2_base;
+		mask_registers[i].set_reg += (unsigned long) intc2_base;
+		mask_registers[i].clr_reg += (unsigned long) intc2_base;
 	}
 
 	/* Configure the external interrupt pins as inputs */

@@ -162,16 +162,7 @@ static struct platform_device physmap_flash = {
 	},
 };
 
-static int mb618_phy_reset05(void *bus)
-{
-	/* Bring the PHY out of reset in MII mode */
-	epld_write(0x4 | 0, 0);
-	epld_write(0x4 | 1, 0);
-
-	return 1;
-}
-
-static int mb618_phy_reset06(void *bus)
+static int mb618_phy_reset(void *bus)
 {
 	epld_write(1, 0);	/* bank = Ctrl */
 
@@ -188,6 +179,7 @@ static struct plat_stmmacphy_data phy_private_data = {
 	.phy_addr = 0,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_MII,
+	.phy_reset = &mb618_phy_reset,
 };
 
 static struct platform_device mb618_phy_device = {
@@ -349,25 +341,8 @@ static void __iomem *mb618_ioport_map(unsigned long port, unsigned int size)
 }
 
 /*
- * We have several EPLD versions to cope with, with slightly different memory
- * maps and features:
+ * We now only support version 6 or later EPLDs:
  *
- * version 04:
- * off  read        reset
- *  0   Status      undef  (unused)
- *  4   Ctrl        20     (unused)
- *  8   Test        33
- *  c   Ident       0      (should be 1 but broken)
- * (note writes are broken)
- *
- * version 05:
- * off  read     write       reset
- *  0   Ident    Ctrl        45
- *  4   Test     Test        55
- *  8   IntStat  IntMaskSet  -
- *  c   IntMask  IntMaskClr  0
- *
- * version 06:
  * off        read       write         reset
  *  0         Ident      Bank          46 (Bank register defaults to 0)
  *  4 bank=0  Test       Test          55
@@ -387,93 +362,40 @@ static void __iomem *mb618_ioport_map(unsigned long port, unsigned int size)
 static void __init mb618_init_irq(void)
 {
 	unsigned char epld_reg;
-	int test_offset = -1;
-	int version_offset = -1;
-	int version = -1;
+	const int test_offset = 4;
+	const int version_offset = 0;
+	int version;
 
 	epld_early_init(&epld_device);
 
-	epld_reg = epld_read(0x4);
-	switch (epld_reg) {
-	case 0x20:
-		/*
-		 * Probably the Ctrl reg of a 04 EPLD. Look for the default
-		 * value in the test reg (we can't do a test as it is broken).
-		 */
-		epld_reg = epld_read(0x8);
-		if (epld_reg == 0x33)
-			version = 4;
-		break;
-	case 0x55:
-		/* Probably the Test reg of the 05 or later EPLD */
-		test_offset = 4;
-		version_offset = 0;
-		break;
-	}
-
-	if (test_offset > 0) {
-		epld_write(0x63, test_offset);
-		epld_reg = epld_read(test_offset);
-		if (epld_reg != (unsigned char)(~0x63)) {
-			printk(KERN_WARNING
-			       "Failed mb618 EPLD test (off %02x, res %02x)\n",
-			       test_offset, epld_reg);
-			return;
-		}
-
-		/* Assume we can trust the version register */
-		version = epld_read(version_offset) & 0xf;
-	}
-
-	if (version < 0) {
-		printk(KERN_WARNING "Unable to determine mb618 EPLD version\n");
+	epld_write(0, 0);	/* bank = Test */
+	epld_write(0x63, test_offset);
+	epld_reg = epld_read(test_offset);
+	if (epld_reg != (unsigned char)(~0x63)) {
+		printk(KERN_WARNING
+		       "Failed mb618 EPLD test (off %02x, res %02x)\n",
+		       test_offset, epld_reg);
 		return;
 	}
 
+	version = epld_read(version_offset) & 0x1f;
 	printk(KERN_INFO "mb618 EPLD version %02d\n", version);
 
-	switch (version) {
-	case 0 ... 4:
-		/* EPLD is unusable */
-		break;
-	case 5:
-		/* We need to control the PHY reset in software */
-		phy_private_data.phy_reset = &mb618_phy_reset05;
+	/*
+	 * We have the nice new shiny interrupt system at last.
+	 * For the moment just replicate the functionality to
+	 * route the STEM interrupt through.
+	 */
 
-		/* Quick hack to test STEM Ethernet card */
+	/* Route STEM Int0 (EPLD int 4) to output 2 */
+	epld_write(3, 0);	/* bank = IntPri1 */
+	epld_reg = epld_read(4);
+	epld_reg &= 0xfc;
+	epld_reg |= 2;
+	epld_write(epld_reg, 4);
 
-		/* The version 05 EPLD contains the harp style encoded
-		 * interrupt controller, which as usual gives us problems.
-		 * Enable the STEM INTR0 signal, and ignore the others.
-		 * This results in SYSITRQ[3..0] = 0100 when active,
-		 * SYSITRQ[3..0] = 0100 when inactive, so we can treat
-		 * SYSITRQ[2] as an active high interrupt pin.
-		 */
-		epld_write(1<<4, 8);
-
-		break;
-	default:
-		/* Assume v6 and above EPLDs are compatible */
-
-		/* We need to control the PHY reset in software */
-		phy_private_data.phy_reset = &mb618_phy_reset06;
-
-		/*
-		 * We have the nice new shiny interrupt system at last.
-		 * For the moment just replicate the functionality to
-		 * route the STEM interrupt through.
-		 */
-
-		/* Route STEM Int0 (EPLD int 4) to output 2 */
-		epld_write(3, 0);	/* bank = IntPri1 */
-		epld_reg = epld_read(4);
-		epld_reg &= 0xfc;
-		epld_reg |= 2;
-		epld_write(epld_reg, 4);
-
-		/* Enable it */
-		epld_write(1<<4, 8);
-	}
+	/* Enable it */
+	epld_write(1<<4, 8);
 }
 
 struct sh_machine_vector mv_mb618 __initmv = {

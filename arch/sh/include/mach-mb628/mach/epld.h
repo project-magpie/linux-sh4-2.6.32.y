@@ -26,6 +26,8 @@
 #define   EPLD_FLASH_NOTRESET		(1<<1)
 #define EPLD_IEEE		0x060000
 #define EPLD_ENABLE		0x070000
+#define   EPLD_ASC1_EN			(1<<0)
+#define   EPLD_ASC2_EN			(1<<1)
 #define   EPLD_ENABLE_HBEAT		(1<<2)
 #define   EPLD_ENABLE_SPI_NOTCS		(1<<3)
 #define   EPLD_ENABLE_IFE_NOTCS		(1<<4)

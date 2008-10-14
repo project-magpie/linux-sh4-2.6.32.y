@@ -35,6 +35,7 @@
 #include <mach/common.h>
 
 #define FLASH_NOR
+/* #define ENABLE_GMAC0 */
 
 static struct platform_device epld_device;
 
@@ -230,6 +231,12 @@ static struct nand_config_data mb628_nand_config = {
 static int mb628_phy_reset(void *bus)
 {
 	u8 reg;
+	static int first = 1;
+
+	/* Both PHYs share the same reset signal, only act on the first. */
+	if (!first)
+		return 1;
+	first = 0;
 
 	reg = epld_read(EPLD_RESET);
 	reg &= ~EPLD_RESET_MII;
@@ -242,33 +249,101 @@ static int mb628_phy_reset(void *bus)
 	 * procedure... Let's give him some time to settle down... */
 	udelay(1000);
 
+	/*
+	 * The SMSC LAN8700 requires a 21mS delay after reset. This
+	 * matches the power on reset signal period, which should only
+	 * be applied after power on, but experimentally appears to be
+	 * applied post reset as well.
+	 */
+	mdelay(25);
+
 	return 1;
 }
 
-static struct plat_stmmacphy_data phy_private_data = {
+/*
+ * Several things need to be configured to use the GMAC0 with the
+ * mb539 - SMSC LAN8700 PHY board:
+ *
+ * - normally the PHY's internal 1V8 regulator is used, which is
+ *   is enabled at PHY power up (not reset) by sampling RXCLK/REGOFF.
+ *   It appears that the STx7141's internal pull up resistor on this
+ *   signal is enabled at power on, defeating the internal pull down
+ *   in the SMSC device. Thus it is necessary to fix an external
+ *   pull down resistor to RXCLK/REGOFF. 10K appears to be sufficient.
+ *
+ *   Alternativly fitting J2 on the mb539 supplies power from an
+ *   off-chip regulator, working around this problem.
+ *
+ * - various signals are muxed with the MII pins (as well as DVO_DATA).
+ *   + ASC1_RXD and ASC1_RTS, so make sure J101 is set to 2-3. This
+ *     allows the EPLD to disable the level converter.
+ *   + PCIREQ1 and PCIREQ2 need to be disabled by removing J104 and J98
+ *     (near the PCI slot).
+ *   + SYSITRQ1 needs to be disabled, which requires removing R232
+ *     (near CN17). See DDTS INSbl29196 for details.
+ *
+ * - other jumper and switch settings for the mb539:
+ *   + J1 fit 1-2 (use on board crystal)
+ *   + SW1: 1:on, 2:off, 3:off, 4:off
+ *   + SW2: 1:off, 2:off, 3:off, 4:off
+ *
+ * - For reliable SMI signalling it is necessary to have a
+ *   pull up resistor on the MDIO signal. This can be done by
+ *   installing R3 on the mb539 which is normally a DNF.
+ *
+ * - to use the MDINT signal, R148 needs to be in position 1-2.
+ *   To disable this, replace the irq with -1 in the data below.
+ */
+
+static struct plat_stmmacphy_data phy_private_data[2] = {
+{
+	/* GMAC0: MII connector CN17. We assume a mb539 (SMSC 8700). */
 	.bus_id = 0,
+	.phy_addr = 0,
+	.phy_mask = 0,
+	.interface = PHY_INTERFACE_MODE_MII,
+	.phy_reset = mb628_phy_reset,
+}, {
+	/* GMAC1: on board NatSemi PHY */
+	.bus_id = 1,
 	.phy_addr = 1,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_MII,
 	.phy_reset = mb628_phy_reset,
-};
+} };
 
-static struct platform_device dp83865_phy_device = {
+static struct platform_device phy_devices[2] = {
+{
 	.name		= "stmmacphy",
 	.id		= 0,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
 		{
 			.name	= "phyirq",
-			.start	= -1,/*FIXME*/
+			.start	= ILC_IRQ(43), /* See MDINT above */
+			.end	= ILC_IRQ(43),
+			.flags	= IORESOURCE_IRQ,
+		},
+	},
+	.dev = {
+		.platform_data = &phy_private_data[0],
+	}
+}, {
+	.name		= "stmmacphy",
+	.id		= 1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.name	= "phyirq",
+			.start	= -1,/* ILC_IRQ(42) but MODE pin clash*/
 			.end	= -1,
 			.flags	= IORESOURCE_IRQ,
 		},
 	},
 	.dev = {
-		.platform_data = &phy_private_data,
+		.platform_data = &phy_private_data[1],
 	}
-};
+} };
 
 static struct platform_device epld_device = {
 	.name		= "epld",
@@ -330,7 +405,8 @@ static struct platform_device mb628_snd_external_dacs = {
 static struct platform_device *mb628_devices[] __initdata = {
 	&epld_device,
 	&physmap_flash,
-	&dp83865_phy_device,
+	&phy_devices[0],
+	&phy_devices[1],
 #ifdef CONFIG_SND
 	&mb628_snd_spdif_input,
 	&mb628_snd_external_dacs,
@@ -367,7 +443,17 @@ static int __init device_init(void)
 	 * stx7141_configure_usb(3);
 	 */
 
-	stx7141_configure_ethernet(1, 0, 0, 0);
+#ifdef ENABLE_GMAC0
+	/* Must disable ASC1 if using GMII0 */
+	epld_write(epld_read(EPLD_ENABLE) | EPLD_ASC1_EN, EPLD_ENABLE);
+
+	/* Configure GMII0 MDINT for active low */
+	set_irq_type(ILC_IRQ(43), IRQ_TYPE_LEVEL_LOW);
+
+	stx7141_configure_ethernet(0, 0, 0, 0);
+#endif
+
+	stx7141_configure_ethernet(1, 0, 0, 1);
 	stx7141_configure_lirc(&lirc_scd);
 
 #ifndef FLASH_NOR

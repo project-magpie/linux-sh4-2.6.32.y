@@ -217,8 +217,7 @@ static struct clocksource clocksource_sh = {
 	.mask		= CLOCKSOURCE_MASK(32),
 	.read		= null_hpt_read,
 	.shift		= 16,
-	.flags		= CLOCK_SOURCE_IS_CONTINUOUS |
-			  CLOCK_SOURCE_MUST_VERIFY,
+	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
 };
 
 static void __init init_sh_clocksource(void)

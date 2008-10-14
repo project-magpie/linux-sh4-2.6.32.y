@@ -958,7 +958,7 @@ void __init stx7141_configure_asc(const int *ascs, int num_ascs, int console)
 			stx7141_pio_sysconf(pio_port, 2, 3, "asc");
 			uart_data->pio_pin[2] = 2;
 			/* RTS */
-			stx7141_pio_sysconf(pio_port, 2, 3, "asc");
+			stx7141_pio_sysconf(pio_port, 3, 3, "asc");
 			uart_data->pio_pin[3] = 3;
 		}
 		pdev->id = i;

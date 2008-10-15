@@ -308,7 +308,7 @@ static struct plat_stmmacphy_data phy_private_data[2] = {
 	.bus_id = 1,
 	.phy_addr = 1,
 	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
+	.interface = PHY_INTERFACE_MODE_GMII,
 	.phy_reset = mb628_phy_reset,
 } };
 

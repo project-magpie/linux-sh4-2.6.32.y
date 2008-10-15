@@ -672,6 +672,15 @@ void stx7141_configure_ethernet(int port, int reverse_mii, int mode,
 	sc = sysconf_claim(SYS_CFG, 7, 16+port, 16+port, "stmmac");
 	sysconf_write(sc, 1);
 
+	/* GMII clock configuration */
+	if (port == 0) {
+		sc = sysconf_claim(SYS_CFG, 7, 13, 13, "stmmac");
+		sysconf_write(sc, 1);
+	} else if (port == 1) {
+		sc = sysconf_claim(SYS_CFG, 7, 15, 15, "stmmac");
+		sysconf_write(sc, 1);
+	}
+
 	/* enmii: Interface type (rev MII/MII) */
 	sc = sysconf_claim(SYS_CFG, 7, port ? 31 : 27, port ? 31 : 27,
 			   "stmmac");

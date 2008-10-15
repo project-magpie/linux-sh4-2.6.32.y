@@ -497,7 +497,7 @@ static void fix_mac_speed(void* priv, unsigned int speed)
 
 static struct plat_stmmacenet_data stx7105eth_private_data = {
 	.bus_id = 0,
-	.pbl = 8,
+	.pbl = 32,
 	.has_gmac = 1,
 	.fix_mac_speed = fix_mac_speed,
 };
@@ -520,6 +520,7 @@ static struct platform_device stx7105eth_device = {
         	},
 	},
 	.dev = {
+		.power.can_wakeup = 1,
 		.platform_data = &stx7105eth_private_data,
 	}
 };

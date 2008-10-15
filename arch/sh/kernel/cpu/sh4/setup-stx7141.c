@@ -570,13 +570,13 @@ static void fix_mac_speed(void *priv, unsigned int speed)
 static struct plat_stmmacenet_data stx7141eth_private_data[2] = {
 {
 	.bus_id = 0,
-	.pbl = 8,
+	.pbl = 32,
 	.has_gmac = 1,
 	.fix_mac_speed = fix_mac_speed,
 	.bsp_priv = 0,
 }, {
 	.bus_id = 1,
-	.pbl = 8,
+	.pbl = 32,
 	.has_gmac = 1,
 	.fix_mac_speed = fix_mac_speed,
 	.bsp_priv = 1,
@@ -621,6 +621,7 @@ static struct platform_device stx7141eth_devices[2] = {
 		},
 	},
 	.dev = {
+		.power.can_wakeup = 1,
 		.platform_data = &stx7141eth_private_data[1],
 	}
 } };

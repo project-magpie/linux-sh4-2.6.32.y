@@ -49,6 +49,13 @@ struct plat_ssc_data {
 	void (*spi_chipselects[])(void *spi, int is_on);
 };
 
+#ifdef CONFIG_CPU_SUBTYPE_STX5197
+/* SSC0 routine depends on whether port configured for SPI or I2C */
+
+#define SSC1_QAM_SCLT_SDAT	(0<<1)
+#define SSC1_QPSK		(1<<1)
+#endif
+
 #ifdef CONFIG_CPU_SUBTYPE_STX7105
 #define SSC_SCLK_SHIFT(n)	(0+(n*6))
 #define SSC_MTSR_SHIFT(n)	(2+(n*6))
@@ -257,7 +264,12 @@ struct nand_config_data {
 						/*  for multiple chips)		*/
 };
 
-
+void stx5197_early_device_init(void);
+void stx5197_configure_asc(const int *ascs, int num_ascs, int console);
+void stx5197_configure_usb(void);
+void stx5197_configure_ethernet(int rmii, int ext_clk, int phy_bus);
+void stx5197_configure_ssc(struct plat_ssc_data *data);
+void stx5197_configure_pwm(struct plat_stm_pwm_data *data);
 
 void stx7100_early_device_init(void);
 void stb7100_configure_asc(const int *ascs, int num_ascs, int console);

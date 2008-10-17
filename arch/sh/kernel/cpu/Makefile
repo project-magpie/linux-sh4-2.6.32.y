@@ -23,6 +23,7 @@ obj-y	+= irq/ init.o clock.o
 # clocks. Those which do not can remove it here, and define a complete
 # new clock architecture in their own processor specific code.
 archclock-y					:= clock-cpg.o
+archclock-$(CONFIG_CPU_SUBTYPE_STX5197)	:=
 archclock-$(CONFIG_CPU_SUBTYPE_STB7100)	:=
 archclock-$(CONFIG_CPU_SUBTYPE_STX7105)	:=
 archclock-$(CONFIG_CPU_SUBTYPE_STX7111)	:=

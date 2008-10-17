@@ -11,7 +11,11 @@
 
 #include <linux/platform_device.h>
 
-#if defined(CONFIG_CPU_SUBTYPE_STX7105)
+#if defined(CONFIG_CPU_SUBTYPE_STX5197)
+#define ILC_FIRST_IRQ	33
+#define ILC_NR_IRQS	72
+#define ILC_IRQ(x)	(ILC_FIRST_IRQ + (x))
+#elif defined(CONFIG_CPU_SUBTYPE_STX7105)
 #define ILC_FIRST_IRQ	176
 #define ILC_NR_IRQS	(64+35)
 #define ILC_INT_IRQ(x)	(ILC_FIRST_IRQ + (x))

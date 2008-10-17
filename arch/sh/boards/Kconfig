@@ -410,6 +410,17 @@ config SH_ST_MB680
 	  STi7105-MBOARD, ST board ID: mb680). More information at:
 	  <http://www.stlinux.com/boards/mb680/>
 
+config SH_ST_MB704
+	bool "mb704: STx5197 Validation board"
+	depends on CPU_SUBTYPE_STX5197
+	select SH_ST_STEM
+	select SH_ST_STPM_HD_V2
+	help
+	  Select STx5197 Validation if configuring for an
+	  STMicroelectronics STx5197 Validation Board (product code:
+	  STx5197-MBOARD, ST board ID: mb704). More information at:
+	  <http://www.stlinux.com/boards/mb704/>
+
 comment "ST Peripheral Boards"
 
 config SH_ST_DB641

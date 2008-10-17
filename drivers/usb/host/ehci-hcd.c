@@ -1009,7 +1009,8 @@ MODULE_LICENSE ("GPL");
 #define	PLATFORM_DRIVER		ehci_hcd_au1xxx_driver
 #endif
 
-#if defined(CONFIG_CPU_SUBTYPE_STB7100) || \
+#if defined(CONFIG_CPU_SUBTYPE_STX5197) || \
+    defined(CONFIG_CPU_SUBTYPE_STB7100) || \
     defined(CONFIG_CPU_SUBTYPE_STX7105) || \
     defined(CONFIG_CPU_SUBTYPE_STX7111) || \
     defined(CONFIG_CPU_SUBTYPE_STX7141) || \

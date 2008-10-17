@@ -691,8 +691,7 @@ static int snd_stm_fsynth_probe(struct platform_device *pdev)
 	snd_stm_assert(fsynth->ver > 0, return -EINVAL);
 	fsynth->bus_id = pdev->dev.bus_id;
 	fsynth->channels_max = channels_max;
-	fsynth->channels = (void *)fsynth + (channels_max *
-			sizeof(*fsynth->channels));
+	fsynth->channels = (void *)fsynth + sizeof(*fsynth);
 	for (i = 0; i < channels_max; i++) {
 		fsynth->channels[i].fsynth = fsynth;
 		snd_stm_magic_set(&fsynth->channels[i]);

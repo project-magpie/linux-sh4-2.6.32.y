@@ -39,6 +39,9 @@ struct ssc_pio_t {
 #define ssc8_has(cap)  ssc_capability(8,cap)
 #define ssc9_has(cap)  ssc_capability(9,cap)
 
+/* Set pio[x].pio_port to SSC_NO_PIO for hard wired SSC's */
+#define SSC_NO_PIO	0xff
+
 struct plat_ssc_data {
 	unsigned short		capability;	/* bitmask on the ssc capability */
 	unsigned long		routing;

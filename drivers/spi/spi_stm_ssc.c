@@ -472,6 +472,10 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
+	/* Check for hard wired SSC which doesn't use PIO pins */
+	if (pio_info->pio[0].pio_port == SSC_NO_PIO)
+		goto ssc_hard_wired;
+
 	/* Get PIO pins */
 	pio_info->clk = stpio_request_set_pin(pio_info->pio[0].pio_port,
 					  pio_info->pio[0].pio_pin,
@@ -501,6 +505,8 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
+ssc_hard_wired:
+
 	/* Disable I2C and Reset SSC */
 	ssc_store32(st_ssc, SSC_I2C, 0x0);
 	reg = ssc_load16(st_ssc, SSC_CTL);
@@ -517,6 +523,9 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	reg &= ~SSC_CTL_MS;
 	ssc_store32(st_ssc, SSC_CTL, reg);
 
+	if (pio_info->pio[0].pio_port == SSC_NO_PIO)
+		goto ssc_hard_wired2;
+
 #ifdef CONFIG_CPU_SUBTYPE_STX7141
 	stpio_configure_pin(pio_info->clk, STPIO_OUT);
 	stpio_configure_pin(pio_info->sdout, STPIO_OUT);
@@ -526,6 +535,8 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	stpio_configure_pin(pio_info->sdout, STPIO_ALT_OUT);
 	stpio_configure_pin(pio_info->sdin, STPIO_IN);
 #endif
+
+ssc_hard_wired2:
 
 	st_ssc->fcomms = clk_get_rate(clk_get(NULL, "comms_clk"));;
 
@@ -557,9 +568,11 @@ static int  spi_stm_remove(struct platform_device *pdev)
 
 	spi_bitbang_stop(&st_ssc->bitbang);
 
-	stpio_free_pin(pio_info->sdin);
-	stpio_free_pin(pio_info->clk);
-	stpio_free_pin(pio_info->sdout);
+	if (pio_info->sdin) {
+		stpio_free_pin(pio_info->sdin);
+		stpio_free_pin(pio_info->clk);
+		stpio_free_pin(pio_info->sdout);
+	}
 
 	return 0;
 }

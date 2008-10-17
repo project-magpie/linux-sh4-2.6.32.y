@@ -468,10 +468,10 @@ void snd_stm_buffer_free(struct snd_stm_buffer *buffer)
 			"dma_bytes=%u\n", runtime->dma_addr,
 			runtime->dma_area, runtime->dma_bytes);
 
-	iounmap(runtime->dma_area);
-
 	if (buffer->bpa2_part) {
 #if defined(CONFIG_BPA2)
+		iounmap(runtime->dma_area);
+
 		bpa2_free_pages(buffer->bpa2_part, runtime->dma_addr);
 		runtime->dma_area = NULL;
 		runtime->dma_addr = 0;

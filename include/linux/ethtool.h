@@ -575,5 +575,6 @@ struct ethtool_ops {
 #define	RXH_L4_B_2_3	(1 << 7) /* dst port in case of TCP/UDP/SCTP */
 #define	RXH_DISCARD	(1 << 31)
 
+#include <linux/types.h>
 
 #endif /* _LINUX_ETHTOOL_H */

@@ -61,6 +61,11 @@ static inline unsigned long _tmu_read(int tmu_num)
 	return ctrl_inl(TMU0_TCNT+0xC*tmu_num);
 }
 
+static inline int _tmu_is_running(int tmu_num)
+{
+	return !!(ctrl_inb(TMU_012_TSTR) & (0x1<<tmu_num));
+}
+
 static int tmu_timer_start(void)
 {
 	_tmu_start(TMU0);
@@ -204,13 +209,15 @@ static void tmu_clk_recalc(struct clk *clk)
 
 	_tmu_start(TMU0);
 
-	_tmu_stop(TMU2);
-	if(tmus_are_scaled)
-		tmu_latest_interval[TMU2] >>= 1;
-	else 	tmu_latest_interval[TMU2] <<= 1;
+	if (_tmu_is_running(TMU2)) {
+		_tmu_stop(TMU2);
+		if(tmus_are_scaled)
+			tmu_latest_interval[TMU2] >>= 1;
+		else 	tmu_latest_interval[TMU2] <<= 1;
 
-	tmu_timer_set_interval(TMU2, tmu_latest_interval[TMU2], 1);
-	_tmu_start(TMU2);
+		tmu_timer_set_interval(TMU2, tmu_latest_interval[TMU2], 1);
+		_tmu_start(TMU2);
+	}
 
 	local_irq_restore(flags);
 }

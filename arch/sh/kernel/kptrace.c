@@ -684,6 +684,9 @@ static void write_trace_record(struct kprobe *kp, struct pt_regs *regs,
 
 	tp = container_of(kp, tracepoint_t, kp);
 
+	if (kp && tp->starton == 1)
+		logging = 1;
+
 	if (!logging) {
 		spin_unlock_irqrestore(&tmpbuf_lock, flags);
 		return;
@@ -706,6 +709,8 @@ static void write_trace_record(struct kprobe *kp, struct pt_regs *regs,
 
 	spin_unlock_irqrestore(&tmpbuf_lock, flags);
 
+	if (kp && tp->stopon == 1)
+		logging = 0;
 }
 
 /*

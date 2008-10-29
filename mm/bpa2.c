@@ -60,6 +60,10 @@ struct range {
 	struct range *next;
 	unsigned long base;			/* base of allocated block */
 	unsigned long size;			/* size in bytes */
+#if defined(CONFIG_BPA2_ALLOC_TRACE)
+	const char *trace_file;
+	int trace_line;
+#endif
 };
 
 struct bpa2_part {
@@ -373,7 +377,8 @@ EXPORT_SYMBOL(bpa2_low_part);
  *
  * This function may not be called from an interrupt.
  */
-unsigned long bpa2_alloc_pages(struct bpa2_part* bp, int count, int align, int priority)
+unsigned long __bpa2_alloc_pages(struct bpa2_part *bp, int count, int align,
+		int priority, const char *trace_file, int trace_line)
 {
 	struct range *range, **range_ptr, *new_range, *align_range, *used_range;
 	unsigned long aligned_base=0;
@@ -446,6 +451,11 @@ unsigned long bpa2_alloc_pages(struct bpa2_part* bp, int count, int align, int p
 		*range_ptr = range->next;
 		used_range = range;
 	}
+#if defined(CONFIG_BPA2_ALLOC_TRACE)
+	/* Save the caller data */
+	used_range->trace_file = trace_file;
+	used_range->trace_line = trace_line;
+#endif
 	/*
 	 * Insert block into used list
 	 */
@@ -463,7 +473,7 @@ fail:
 
 	return result;
 }
-EXPORT_SYMBOL(bpa2_alloc_pages);
+EXPORT_SYMBOL(__bpa2_alloc_pages);
 
 /**
  * bpa2_free_pages - free pages allocated from a bpa2 partition
@@ -540,20 +550,25 @@ void bpa2_free_pages(struct bpa2_part* bp, unsigned long base)
 }
 EXPORT_SYMBOL(bpa2_free_pages);
 
-caddr_t	bigphysarea_alloc_pages(int count, int align, int priority)
+
+
+caddr_t	__bigphysarea_alloc_pages(int count, int align, int priority,
+		const char *trace_file, int trace_line)
 {
 	unsigned long addr;
 
 	if (! bpa2_bigphysarea_part)
 		return NULL;
 
-	addr = bpa2_alloc_pages(bpa2_bigphysarea_part, count, align, priority);
+	addr = __bpa2_alloc_pages(bpa2_bigphysarea_part, count,
+			align, priority, trace_file, trace_line);
+
 	if (addr == 0)
 		return NULL;
 
 	return phys_to_virt(addr);
 }
-EXPORT_SYMBOL(bigphysarea_alloc_pages);
+EXPORT_SYMBOL(__bigphysarea_alloc_pages);
 
 void bigphysarea_free_pages(caddr_t mapped_addr)
 {
@@ -655,6 +670,11 @@ static int bpa2_seq_show(struct seq_file *s, void *v)
 				range = range->next) {
 			seq_printf(s, "- %lu B at 0x%.8lx",
 					range->size, range->base);
+#if defined(CONFIG_BPA2_ALLOC_TRACE)
+			if (range->trace_file)
+				seq_printf(s, " (%s:%d)", range->trace_file,
+						range->trace_line);
+#endif
 			seq_printf(s, "\n");
 		}
 	}

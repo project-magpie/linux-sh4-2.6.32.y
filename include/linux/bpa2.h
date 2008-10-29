@@ -36,7 +36,16 @@ struct bpa2_part;
 void bpa2_init(struct bpa2_partition_desc* partdescs, int nparts);
 struct bpa2_part* bpa2_find_part(const char* name);
 int bpa2_low_part(struct bpa2_part* part);
-unsigned long bpa2_alloc_pages(struct bpa2_part *part, int count, int align, int priority);
+#if defined(CONFIG_BPA2_ALLOC_TRACE)
+#define bpa2_alloc_pages(part, count, align, priority) \
+		__bpa2_alloc_pages(part, count, align, priority, \
+		__FILE__, __LINE__)
+#else
+#define bpa2_alloc_pages(part, count, align, priority) \
+		__bpa2_alloc_pages(part, count, align, priority, NULL, 0)
+#endif
+unsigned long __bpa2_alloc_pages(struct bpa2_part *part, int count, int align,
+	       int priority, const char *trace_file, int trace_line);
 void bpa2_free_pages(struct bpa2_part *part, unsigned long base);
 
 
@@ -53,8 +62,17 @@ void bpa2_free_pages(struct bpa2_part *part, unsigned long base);
 		bigphysarea_free_pages(addr)
 
 /* New(er) interface */
-caddr_t	bigphysarea_alloc_pages(int count, int align, int priority);
-void	bigphysarea_free_pages(caddr_t base);
+#if defined(CONFIG_BPA2_ALLOC_TRACE)
+#define bigphysarea_alloc_pages(count, align, priority) \
+		__bigphysarea_alloc_pages(count, align, priority, \
+		__FILE__, __LINE__)
+#else
+#define bigphysarea_alloc_pages(count, align, priority) \
+		__bigphysarea_alloc_pages(count, align, priority, NULL, 0)
+#endif
+caddr_t	__bigphysarea_alloc_pages(int count, int align, int priority,
+		const char *trace_file, int trace_line);
+void bigphysarea_free_pages(caddr_t base);
 
 /* low level interface */
 void     bigphysarea_memory(unsigned long *base, unsigned long *size);

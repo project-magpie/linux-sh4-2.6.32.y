@@ -8,13 +8,12 @@
  * Extended for linux-2.1.121 till 2.4.0 (June 2000)
  *     by Pauline Middelink <middelink@polyware.nl>
  *
- * 17th Jan 2007 : STMicroelectronics Ltd. <carl.shaw@st.com>
- * 	Added kernel bpa2 command line parameter support:
- * 	bpa2parts=<partdef>[,<partdef>]
- * 	 <partdef> := <name>:<size>:[<base physical address>]:[flags]
- * 	 <name>    := name (<= 20 bytes length)
- * 	 <size>    := standard linux memory size (e.g. 4M)
- *       <flags>   := currently unused
+ * 17th Jan 2007 Carl Shaw <carl.shaw@st.com>
+ * 	Added kernel command line "bpa2parts=" parameter support.
+ *
+ * 9th Sep 2008 Pawel Moll <pawel.moll@st.com>
+ *      Added name aliases to "bpa2parts=" syntax.
+ *      Added allocation tracing features.
  *
  * This is a set of routines which allow you to reserve a large (?)
  * amount of physical memory at boot-time, which can be allocated/deallocated
@@ -22,6 +21,27 @@
  * video framegrabbers which need a lot of physical RAM (above the amount
  * allocated by kmalloc). This is by no means efficient or recommended;
  * to be used only in extreme circumstances.
+ *
+ * Partitions can be defined by a BSP (bpa2_init() shall be called somewhere
+ * on setup_arch() level) or by a "bpa2parts=" kernel command line parameter:
+ *
+ *	bpa2parts=<partdef>[,<partdef>]
+ *
+ * 	<partdef> := <names>:<size>[:<base physical address>][:<flags>]
+ * 	<names> := <name>[|<names>] (name and aliases separated by '|')
+ * 	<name> := partition name string (20 characters max.)
+ * 	<size> := standard linux memory size (e.g. 4M or 0x400000)
+ * 	<base physical address> := physical address the partition should
+ * 	                            start from (e.g. 32M or 0x02000000)
+ *      <flags> := currently unused
+ *
+ * Examples:
+ *
+ * 	bpa2parts=audio:1M,video:10M
+ *
+ * 	bpa2parts=LMI_VID|video|gfx:0x03000000:0x19000000,\
+ * 			LMI_SYS|audio:0x05000000:\
+ * 			bigphyarea:5M
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -54,7 +74,13 @@
 #include <linux/pfn.h>
 #include <linux/bpa2.h>
 
-#define MAX_NAME_LEN 20
+
+
+#define BPA2_MAX_NAME_LEN 20
+#define BPA2_RES_PREFIX "bpa2:"
+#define BPA2_RES_PREFIX_LEN 5
+
+
 
 struct bpa2_range {
 	struct bpa2_range *next;
@@ -67,72 +93,208 @@ struct bpa2_range {
 };
 
 struct bpa2_part {
-	char res_name[MAX_NAME_LEN];
 	struct resource res;
-	const char* name;
-	const char** aka;
 	struct bpa2_range initial_free_list;
 	struct bpa2_range *free_list;
 	struct bpa2_range *used_list;
 	int flags;
 	int low_mem;
 	struct list_head list;
+	int names_cnt;
+	/* Do not separate two following fields! */
+	char res_name_prefix[BPA2_RES_PREFIX_LEN]; /* resource name prefix */
+	char names[1]; /* will be expanded during allocation */
 };
+
+
 
 static LIST_HEAD(bpa2_parts);
 static struct bpa2_part *bpa2_bigphysarea_part;
 static DEFINE_SPINLOCK(bpa2_lock);
 
-static void __init bpa2_init_failure(struct bpa2_part *bp, const char *msg)
+
+
+/* Names form one looong string of fixed-size slots */
+static int bpa2_names_size(int names_cnt)
 {
-	printk(KERN_ERR "bpa2: %s ignored: %s\n", bp->res_name, msg);
+	return names_cnt * (BPA2_MAX_NAME_LEN + 1);
 }
 
-static int __init bpa2_alloc_low(struct bpa2_part *bp)
+static const char *bpa2_get_name(struct bpa2_part *part, int n)
 {
-	void* addr;
-	unsigned long size = bp->res.end - bp->res.start + 1;
+	BUG_ON(n >= part->names_cnt);
 
-	addr = alloc_bootmem_low_pages(size);
+	return part->names + n * (BPA2_MAX_NAME_LEN + 1);
+}
+
+static void bpa2_set_name(struct bpa2_part *part, int n, const char *name)
+{
+	BUG_ON(n >= part->names_cnt);
+
+	strlcpy(part->names + n * (BPA2_MAX_NAME_LEN + 1), name,
+			BPA2_MAX_NAME_LEN + 1);
+}
+
+static int bpa2_check_name(struct bpa2_part *part, const char *name)
+{
+	int i;
+
+	for (i = 0; i < part->names_cnt; i++)
+		if (strcmp(name, bpa2_get_name(part, i)) == 0)
+			return 0;
+
+	return -1;
+}
+
+static int __init bpa2_alloc_low(struct bpa2_part *part, unsigned long size,
+		unsigned long *start)
+{
+	void *addr = alloc_bootmem_low_pages(size);
+
 	if (addr == NULL) {
-		bpa2_init_failure(bp, "could not allocate");
-		return 0;
+		printk(KERN_ERR "bpa2: could not allocate low memory\n");
+		return -ENOMEM;
 	}
 
-	bp->res.start = virt_to_phys(addr);
-	bp->res.end = virt_to_phys(addr) + size - 1;
-	bp->low_mem = 1;
+	part->res.start = virt_to_phys(addr);
+	part->res.end = virt_to_phys(addr) + size - 1;
+	part->low_mem = 1;
 
-	return 1;
+	if (start)
+		*start = part->res.start;
+
+	return 0;
 }
 
-static int __init bpa2_init_low(struct bpa2_part *bp)
+static int __init bpa2_reserve_low(struct bpa2_part *part, unsigned long start,
+		unsigned long size)
 {
-	void* addr;
-	unsigned long size = bp->res.end - bp->res.start + 1;
+	void *addr;
 
 	/* Can't use reserve_bootmem() because there is no return code to
 	 * indicate success or failure. So use __alloc_bootmem_core(),
 	 * specifying a goal, which must be available. */
 	addr = __alloc_bootmem_core(NODE_DATA(0)->bdata, size, PAGE_SIZE,
-				    bp->res.start, 0);
+			start, 0);
 
-	if (addr != phys_to_virt(bp->res.start)) {
-		bpa2_init_failure(bp, "could not allocate");
-		if (addr) {
+	if (addr != phys_to_virt(start)) {
+		printk(KERN_ERR "bpa2: could not allocate boot memory\n");
+		if (addr)
 			free_bootmem((unsigned long)addr, size);
-		}
-		return 0;
+		return -ENOMEM;
 	}
 
-	bp->low_mem = 1;
+	part->res.start = start;
+	part->res.end = start + size - 1;
+	part->low_mem = 1;
 
-	return 1;
+	return 0;
 }
 
-static int __init bpa2_init_ext(struct bpa2_part *bp)
+static int __init bpa2_init_high(struct bpa2_part *part, unsigned long start,
+		unsigned long size)
 {
-	return 1;
+	part->res.start = start;
+	part->res.end = start + size - 1;
+	part->low_mem = 0;
+
+	return 0;
+}
+
+static int __init bpa2_add_part(const char **names, int names_cnt,
+		unsigned long start, unsigned long size, unsigned long flags)
+{
+	int result;
+	struct bpa2_part *part;
+	unsigned long start_pfn, end_pfn;
+	int i;
+
+	part = alloc_bootmem(sizeof(*part) + bpa2_names_size(names_cnt) - 1);
+	if (!part) {
+		printk(KERN_ERR "bpa2: can't allocate '%s' partition "
+				"structure\n", *names);
+		result = -ENOMEM;
+		goto fail;
+	}
+
+	if (start != PAGE_ALIGN(start)) {
+		printk(KERN_WARNING "bpa2: '%s' partition start address not "
+				"page aligned - fixed\n", *names);
+		start = PAGE_ALIGN(start);
+	}
+
+	if (size != PAGE_ALIGN(size)) {
+		printk(KERN_WARNING "bpa2: '%s' partition size not page "
+				"aligned - fixed\n", *names);
+		size = PAGE_ALIGN(size);
+	}
+
+	part->flags = flags;
+	part->names_cnt = names_cnt;
+
+	for (i = 0; i < names_cnt; i++)
+		bpa2_set_name(part, i, names[i]);
+
+	memcpy(part->res_name_prefix, BPA2_RES_PREFIX, BPA2_RES_PREFIX_LEN);
+	part->res.name = part->res_name_prefix; /* merged with the first name */
+	part->res.flags = IORESOURCE_BUSY | IORESOURCE_MEM;
+
+	/* Allocate/reserve/initialize requested memory area */
+	start_pfn = PFN_DOWN(start);
+	end_pfn = PFN_DOWN(start + size);
+	if (start == 0) {
+		result = bpa2_alloc_low(part, size, &start);
+	} else if ((start_pfn >= min_low_pfn) && (end_pfn <= max_low_pfn)) {
+		result = bpa2_reserve_low(part, start, size);
+	} else if ((start_pfn > max_low_pfn) || (end_pfn < min_low_pfn)) {
+		result = bpa2_init_high(part, start, size);
+	} else {
+		printk(KERN_ERR "bpa2: partition spans low memory boundary\n");
+		result = -EFAULT;
+	}
+	if (result != 0) {
+		printk(KERN_ERR "bpa2: failed to create '%s' partition\n",
+				*names);
+		goto fail;
+	}
+
+	/* Declare the resource */
+	result = insert_resource(&iomem_resource, &part->res);
+	if (result != 0) {
+		printk(KERN_ERR "bpa2: could not reserve '%s' partition "
+				"resource\n", *names);
+		goto fail;
+	}
+
+	/* Initialize ranges */
+	part->initial_free_list.next = NULL;
+	part->initial_free_list.base = start;
+	part->initial_free_list.size = size;
+	part->free_list = &part->initial_free_list;
+	part->used_list = NULL;
+
+	/* And finally... */
+	list_add_tail(&part->list, &bpa2_parts);
+	printk(KERN_INFO "bpa2: partition '%s' created at 0x%08lx, size %ld kB"
+			" (0x%08lx B)\n", *names, start, size / 1024, size);
+
+	/* Assign the legacy partition pointer, if that's the one */
+	if (bpa2_bigphysarea_part == NULL &&
+			bpa2_check_name(part, "bigphysarea") == 0) {
+		if (part->low_mem)
+			bpa2_bigphysarea_part = part;
+		else
+			printk(KERN_ERR "bpa2: bigphysarea ('%s') not in "
+					"logical memory\n", *names);
+	}
+
+	return 0;
+
+fail:
+	if (part)
+		free_bootmem(virt_to_phys(part), sizeof(*part) +
+				bpa2_names_size(names_cnt) - 1);
+	return result;
 }
 
 /**
@@ -148,78 +310,36 @@ static int __init bpa2_init_ext(struct bpa2_part *bp)
  */
 void __init bpa2_init(struct bpa2_partition_desc *partdescs, int nparts)
 {
-	struct bpa2_part *new_parts;
-	struct bpa2_part* bp;
+	for (; nparts; nparts--, partdescs++) {
+		int names_cnt = 1;
+		const char **names;
+		int i;
 
-	new_parts = alloc_bootmem(sizeof(*new_parts) * nparts);
-	if (! new_parts) {
-		printk(KERN_ERR "bpa2: could not allocate part table\n");
-		return;
-	}
-
-	bp = new_parts;
-
-	for ( ; nparts; nparts--) {
-		unsigned long start_pfn, end_pfn;
-		struct bpa2_range *free_list = &bp->initial_free_list;
-		int ok;
-
-		start_pfn = PFN_UP(partdescs->start);
-		end_pfn = PFN_DOWN(partdescs->start + partdescs->size);
-
-		snprintf(bp->res_name, sizeof(bp->res_name),
-			 "BPA2 (%s)", partdescs->name);
-		bp->res.name = bp->res_name;
-		bp->res.start = PFN_PHYS(start_pfn);
-		bp->res.end = PFN_PHYS(end_pfn) - 1;
-		bp->res.flags = IORESOURCE_BUSY | IORESOURCE_MEM;
-		bp->name = partdescs->name;
-		bp->aka = partdescs->aka;
-		bp->flags = partdescs->flags;
-
-		if (partdescs->start == 0) {
-			ok = bpa2_alloc_low(bp);
-		} else if ((start_pfn >= min_low_pfn) && (end_pfn <= max_low_pfn)) {
-			ok = bpa2_init_low(bp);
-		} else if ((start_pfn > max_low_pfn) || (end_pfn < min_low_pfn)) {
-			ok = bpa2_init_ext(bp);
-		} else {
-			bpa2_init_failure(bp, "spans low memory boundary");
-			ok = 0;
-		}
-
-		if (!ok)
-			continue;
-
-		if (insert_resource(&iomem_resource, &bp->res)) {
-			bpa2_init_failure(bp, "could not reserve");
+		if (!partdescs->name || !*partdescs->name) {
+			printk(KERN_ERR "bpa2: no partition name given!\n");
 			continue;
 		}
 
-		printk(KERN_INFO "%s @ 0x%08x size 0x%08x\n",
-			bp->res.name,
-			bp->res.start,
-			(bp->res.end - bp->res.start) );
-
-		free_list->next = NULL;
-		free_list->base = bp->res.start;
-		free_list->size = (bp->res.end + 1) - bp->res.start;
-		bp->free_list = free_list;
-
-		list_add_tail(&bp->list, &bpa2_parts);
-
-		bp++;
-		partdescs++;
-	}
-
-	if ((bpa2_bigphysarea_part == NULL) &&
-	    ((bp = bpa2_find_part("bigphysarea")) != NULL)) {
-		if (bp->low_mem) {
-			bpa2_bigphysarea_part = bp;
-		} else {
-			/* Should rate limit this I suppose */
-			printk(KERN_ERR "bpa2: bigphysarea not in logical memory\n");
+		/* Count aliases given in description */
+		names = partdescs->aka;
+		while (names && *names) {
+			names_cnt++;
+			names++;
 		}
+
+		/* Create names pointer array */
+		names = alloc_bootmem(sizeof(*names) * names_cnt);
+		names[0] = partdescs->name;
+		for (i = 1; i < names_cnt; i++)
+			names[i] = partdescs->aka[i - 1];
+
+		/* Finally create the partition */
+		if (bpa2_add_part(names, names_cnt, partdescs->start,
+				partdescs->size, partdescs->flags) != 0)
+			printk(KERN_ERR "bpa2: '%s' partition skipped\n",
+					*names);
+
+		free_bootmem(virt_to_phys(names), sizeof(*names) * names_cnt);
 	}
 }
 
@@ -228,20 +348,15 @@ void __init bpa2_init(struct bpa2_partition_desc *partdescs, int nparts)
  */
 static int __init bpa2_bigphys_setup(char *str)
 {
-	int par;
-	struct bpa2_partition_desc partdesc = {
-		.name   = "bigphysarea",
-		.start  = 0,
-		.size   = 0,
-		.flags  = BPA2_NORMAL,
-		.aka    = NULL,
-	};
+	const char *name = "bigphysarea";
+	int pages;
 
-	if (get_option(&str,&par) == 0)
-                return -EINVAL;
+	if (get_option(&str, &pages) != 1) {
+		printk(KERN_ERR "bpa2: wrong 'bigphysarea' parameter\n");
+		return -EINVAL;
+	}
 
-	partdesc.size = par << PAGE_SHIFT;
-	bpa2_init(&partdesc, 1);
+	bpa2_add_part(&name, 1, 0, pages << PAGE_SHIFT, BPA2_NORMAL);
 
 	return 1;
 }
@@ -252,71 +367,78 @@ __setup("bigphysarea=", bpa2_bigphys_setup);
  */
 static int __init bpa2_parts_setup(char *str)
 {
-	char *opt;
-	struct bpa2_partition_desc partdesc;
-	char *name;
+	char *desc;
 
 	if (!str || !*str)
 		return -EINVAL;
 
-	while ((opt = strsep(&str, ",")) != NULL){
-		char *p;
+	while ((desc = strsep(&str, ",")) != NULL) {
+		unsigned long start = 0;
+		unsigned long size = 0;
+		int names_cnt = 1;
+		const char **names;
+		char *token;
+		int i;
 
-		memset(&partdesc, 0, sizeof(partdesc));
-
-		/* Allocate memory for partition name, but we can't use kmalloc yet */
-		name = alloc_bootmem(MAX_NAME_LEN);
-		memset(name, 0, MAX_NAME_LEN);
-		partdesc.name = name;
-
-		/* Get name */
-		if ((p = strsep(&opt, ":")) == NULL)
-			goto invalid;
-
-		if (strlcpy(name, p, MAX_NAME_LEN) == 0){
-			printk(KERN_ERR "Invalid bpa2 partition name\n");
-			return -EINVAL;
+		/* Get '|'-separated partition names token */
+		token = strsep(&desc, ":");
+		if (!token || !*token) {
+			printk(KERN_ERR "bpa2: partition name(s) not given!\n");
+			continue;
 		}
 
-		/* Get size */
-		if ((p = strsep(&opt, ":")) == NULL)
-			goto invalid;
+		/* Check how many names we have... */
+		for (i = 0; token[i]; i++)
+			if (token[i] == '|')
+				names_cnt++;
 
-		partdesc.size = memparse(p,&p);
+		/* Separate names & create pointers table */
+		names = alloc_bootmem(sizeof(*names) * names_cnt);
+		for (i = 0; i < names_cnt; i++)
+			names[i] = strsep(&token, "|");
 
-		if (partdesc.size < PAGE_SIZE){
-			printk(KERN_ERR "Invalid bpa2 partition size\n");
-                	return -EINVAL;
+		/* Get partition size */
+		token = strsep(&desc, ":");
+		if (token) {
+			size = memparse(token, &token);
+			if (*token)
+				size = 0;
+		}
+		if (size == 0) {
+			printk(KERN_ERR "bpa2: partition size not given\n");
+			free_bootmem(virt_to_phys(names),
+					sizeof(*names) * names_cnt);
+			continue;
 		}
 
-		/* round size up to whole number of pages */
-		partdesc.size = ((partdesc.size+(PAGE_SIZE-1)) >> PAGE_SHIFT) << PAGE_SHIFT;
-
-		/* Get start address (optional) */
-		if ((p = strsep(&opt, ":")) == NULL)
-			goto invalid;
-
-		if (strlen(p) > 0){
-			if ((partdesc.start = memparse(p, &p)) == 0){
-				printk(KERN_ERR "Invalid bpa2 base address\n");
-                		return -EINVAL;
+		/* Get partition start address (optional) */
+		token = strsep(&desc, ":");
+		if (token && *token) {
+			start = memparse(token, &token);
+			if (*token)
+				start = 0;
+			if (start == 0) {
+				printk(KERN_ERR "bpa2: Invalid base "
+						"address!\n");
+				free_bootmem(virt_to_phys(names),
+						sizeof(*names) * names_cnt);
+				continue;
 			}
 		}
 
-		/* Get flags (optional) */
-		partdesc.flags = BPA2_NORMAL;
+		/* Get partition flags (not implemented yet) */
 
-		/* Add it to the list... */
-		bpa2_init(&partdesc, 1);
+		/* Finally add it to the list... */
+		if (bpa2_add_part(names, names_cnt, start, size,
+					BPA2_NORMAL) != 0)
+			printk(KERN_ERR "bpa2: '%s' partition skipped\n",
+					*names);
+
+		free_bootmem(virt_to_phys(names), sizeof(*names) * names_cnt);
 	}
 
 	return 1;
-
-invalid:
-	printk(KERN_ERR "Invalid bpa2 partition definition\n");
-	return -EINVAL;
 }
-
 __setup("bpa2parts=", bpa2_parts_setup);
 
 
@@ -329,19 +451,11 @@ __setup("bpa2parts=", bpa2_parts_setup);
  */
 struct bpa2_part *bpa2_find_part(const char *name)
 {
-	struct bpa2_part* bp;
-	const char** p;
+	struct bpa2_part *part;
 
-	list_for_each_entry(bp, &bpa2_parts, list) {
-		if (!strcmp(bp->name, name))
-			return bp;
-		if (bp->aka) {
-			for (p=bp->aka; *p; p++) {
-				if (!strcmp(*p, name))
-					return bp;
-			}
-		}
-	}
+	list_for_each_entry(part, &bpa2_parts, list)
+		if (bpa2_check_name(part, name) == 0)
+			return part;
 
 	return NULL;
 }
@@ -618,7 +732,7 @@ static int bpa2_seq_show(struct seq_file *s, void *v)
 	struct bpa2_range *range;
 	int free_count, free_total, free_max;
 	int used_count, used_total, used_max;
-	const char **aka;
+	int i;
 
 	free_count = 0;
 	free_total = 0;
@@ -640,9 +754,10 @@ static int bpa2_seq_show(struct seq_file *s, void *v)
 			used_max = range->size;
 	}
 
-	seq_printf(s, "Partition: '%s'", part->name);
-	for (aka = part->aka; *aka; aka++)
-		seq_printf(s, " aka '%s'", *aka);
+	seq_printf(s, "Partition: ");
+	for (i = 0; i < part->names_cnt; i++)
+		seq_printf(s, "%s'%s'", i > 0 ? " aka " : "",
+				bpa2_get_name(part, i));
 	seq_printf(s, "\n");
 	seq_printf(s, "Size: %d kB, base address: 0x%08x\n",
 			(part->res.end - part->res.start + 1) / 1024,

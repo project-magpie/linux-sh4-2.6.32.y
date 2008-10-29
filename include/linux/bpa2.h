@@ -21,21 +21,29 @@
 
 #include <linux/types.h>
 
-struct bpa2_partition_desc {
-	const char* name;
-	unsigned long start;
-	unsigned long size;
-	unsigned long flags;
-	const char** aka;
-};
+
+
+/*
+ * BPA2 Interface
+ */
 
 #define BPA2_NORMAL    0x00000001
 
+struct bpa2_partition_desc {
+	const char *name;
+	unsigned long start;
+	unsigned long size;
+	unsigned long flags;
+	const char **aka;
+};
+
 struct bpa2_part;
 
-void bpa2_init(struct bpa2_partition_desc* partdescs, int nparts);
-struct bpa2_part* bpa2_find_part(const char* name);
-int bpa2_low_part(struct bpa2_part* part);
+void bpa2_init(struct bpa2_partition_desc *partdescs, int nparts);
+
+struct bpa2_part *bpa2_find_part(const char *name);
+int bpa2_low_part(struct bpa2_part *part);
+
 #if defined(CONFIG_BPA2_ALLOC_TRACE)
 #define bpa2_alloc_pages(part, count, align, priority) \
 		__bpa2_alloc_pages(part, count, align, priority, \

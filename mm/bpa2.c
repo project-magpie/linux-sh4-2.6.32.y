@@ -56,10 +56,10 @@
 
 #define MAX_NAME_LEN 20
 
-struct range {
-	struct range *next;
-	unsigned long base;			/* base of allocated block */
-	unsigned long size;			/* size in bytes */
+struct bpa2_range {
+	struct bpa2_range *next;
+	unsigned long base; /* base of allocated block */
+	unsigned long size; /* size in bytes */
 #if defined(CONFIG_BPA2_ALLOC_TRACE)
 	const char *trace_file;
 	int trace_line;
@@ -71,24 +71,24 @@ struct bpa2_part {
 	struct resource res;
 	const char* name;
 	const char** aka;
-	struct range *free_list;
-	struct range *used_list;
-	struct range initial_free_list;
+	struct bpa2_range initial_free_list;
+	struct bpa2_range *free_list;
+	struct bpa2_range *used_list;
 	int flags;
 	int low_mem;
-	struct list_head next;
+	struct list_head list;
 };
 
 static LIST_HEAD(bpa2_parts);
 static struct bpa2_part *bpa2_bigphysarea_part;
 static DEFINE_SPINLOCK(bpa2_lock);
 
-static void __init bpa2_init_failure(struct bpa2_part* bp, const char* msg)
+static void __init bpa2_init_failure(struct bpa2_part *bp, const char *msg)
 {
 	printk(KERN_ERR "bpa2: %s ignored: %s\n", bp->res_name, msg);
 }
 
-static int __init bpa2_alloc_low(struct bpa2_part* bp)
+static int __init bpa2_alloc_low(struct bpa2_part *bp)
 {
 	void* addr;
 	unsigned long size = bp->res.end - bp->res.start + 1;
@@ -106,7 +106,7 @@ static int __init bpa2_alloc_low(struct bpa2_part* bp)
 	return 1;
 }
 
-static int __init bpa2_init_low(struct bpa2_part* bp)
+static int __init bpa2_init_low(struct bpa2_part *bp)
 {
 	void* addr;
 	unsigned long size = bp->res.end - bp->res.start + 1;
@@ -130,7 +130,7 @@ static int __init bpa2_init_low(struct bpa2_part* bp)
 	return 1;
 }
 
-static int __init bpa2_init_ext(struct bpa2_part* bp)
+static int __init bpa2_init_ext(struct bpa2_part *bp)
 {
 	return 1;
 }
@@ -146,7 +146,7 @@ static int __init bpa2_init_ext(struct bpa2_part* bp)
  * This must be called from early in the platform initialisation
  * sequence, while bootmem is still active.
  */
-void __init bpa2_init(struct bpa2_partition_desc* partdescs, int nparts)
+void __init bpa2_init(struct bpa2_partition_desc *partdescs, int nparts)
 {
 	struct bpa2_part *new_parts;
 	struct bpa2_part* bp;
@@ -161,7 +161,7 @@ void __init bpa2_init(struct bpa2_partition_desc* partdescs, int nparts)
 
 	for ( ; nparts; nparts--) {
 		unsigned long start_pfn, end_pfn;
-		struct range *free_list = &bp->initial_free_list;
+		struct bpa2_range *free_list = &bp->initial_free_list;
 		int ok;
 
 		start_pfn = PFN_UP(partdescs->start);
@@ -206,7 +206,7 @@ void __init bpa2_init(struct bpa2_partition_desc* partdescs, int nparts)
 		free_list->size = (bp->res.end + 1) - bp->res.start;
 		bp->free_list = free_list;
 
-		list_add_tail(&bp->next, &bpa2_parts);
+		list_add_tail(&bp->list, &bpa2_parts);
 
 		bp++;
 		partdescs++;
@@ -223,6 +223,9 @@ void __init bpa2_init(struct bpa2_partition_desc* partdescs, int nparts)
 	}
 }
 
+/*
+ * Create legacy "bigphysarea" partition (if kindly asked ;-)
+ */
 static int __init bpa2_bigphys_setup(char *str)
 {
 	int par;
@@ -245,7 +248,7 @@ static int __init bpa2_bigphys_setup(char *str)
 __setup("bigphysarea=", bpa2_bigphys_setup);
 
 /*
- * Check for the new bpa2parts parameter
+ * Create "bpa2parts"-defined partitions
  */
 static int __init bpa2_parts_setup(char *str)
 {
@@ -316,23 +319,25 @@ invalid:
 
 __setup("bpa2parts=", bpa2_parts_setup);
 
+
+
 /**
  * bpa2_find_part - find a bpa2 partition based on its name
  * @name: name of the partition to find
  *
- * Return the bpa2 partition corrisponding to the requested name.
+ * Return the bpa2 partition corresponding to the requested name.
  */
-struct bpa2_part* bpa2_find_part(const char* name)
+struct bpa2_part *bpa2_find_part(const char *name)
 {
 	struct bpa2_part* bp;
 	const char** p;
 
-	list_for_each_entry(bp, &bpa2_parts, next) {
-		if (! strcmp(bp->name, name))
+	list_for_each_entry(bp, &bpa2_parts, list) {
+		if (!strcmp(bp->name, name))
 			return bp;
 		if (bp->aka) {
 			for (p=bp->aka; *p; p++) {
-				if (! strcmp(*p, name))
+				if (!strcmp(*p, name))
 					return bp;
 			}
 		}
@@ -346,7 +351,7 @@ EXPORT_SYMBOL(bpa2_find_part);
  * bpa2_low_part - return whether a partition resides in low memory
  * @part: partition to query
  *
- * Return whether the specified patrition resides in low (that is,
+ * Return whether the specified partition resides in low (that is,
  * kernel logical) memory. If it does, then functions such as
  * phys_to_virt() can be used to convert the allocated memory into
  * a virtual address which can be directly dereferenced.
@@ -355,17 +360,19 @@ EXPORT_SYMBOL(bpa2_find_part);
  * the kernel's address space, and so if access is required it will
  * need to be mapped using ioremap() and accessed using readl() etc.
  */
-int bpa2_low_part(struct bpa2_part* part)
+int bpa2_low_part(struct bpa2_part *part)
 {
 	return part->low_mem;
 }
 EXPORT_SYMBOL(bpa2_low_part);
 
+
+
 /**
- * bpa2_alloc_pages - allocate pages from a bpa2 partition
- * @bp: partition to allocate from
+ * __bpa2_alloc_pages - allocate pages from a bpa2 partition
+ * @part: partition to allocate from
  * @count: number of pages to allocate
- * @align: required alinment
+ * @align: required alignment
  * @priority: GFP_* flags to use
  *
  * Allocate `count' pages from the partition. Pages are aligned to
@@ -373,15 +380,14 @@ EXPORT_SYMBOL(bpa2_low_part);
  * is used for partition management information, it does not influence the
  * memory returned.
  *
- *
- *
  * This function may not be called from an interrupt.
  */
-unsigned long __bpa2_alloc_pages(struct bpa2_part *bp, int count, int align,
+unsigned long __bpa2_alloc_pages(struct bpa2_part *part, int count, int align,
 		int priority, const char *trace_file, int trace_line)
 {
-	struct range *range, **range_ptr, *new_range, *align_range, *used_range;
-	unsigned long aligned_base=0;
+	struct bpa2_range *range, **range_ptr;
+	struct bpa2_range *new_range, *align_range, *used_range;
+	unsigned long aligned_base = 0;
 	unsigned long result = 0;
 
 	if (count == 0)
@@ -390,8 +396,8 @@ unsigned long __bpa2_alloc_pages(struct bpa2_part *bp, int count, int align,
 	/* Allocate the data structures we might need here so that we
 	 * don't have problems inside the spinlock.
 	 * Free at the end if not used. */
-	new_range = kmalloc(sizeof(struct range), priority);
-	align_range = kmalloc(sizeof(struct range), priority);
+	new_range = kmalloc(sizeof(*new_range), priority);
+	align_range = kmalloc(sizeof(*align_range), priority);
 	if ((new_range == NULL) || (align_range == NULL))
 		goto fail;
 
@@ -402,26 +408,22 @@ unsigned long __bpa2_alloc_pages(struct bpa2_part *bp, int count, int align,
 
 	spin_lock(&bpa2_lock);
 
-	/*
-	 * Search a free block which is large enough, even with alignment.
-	 */
-	range_ptr = &bp->free_list;
+	/* Search a free block which is large enough, even with alignment. */
+	range_ptr = &part->free_list;
 	while (*range_ptr != NULL) {
 		range = *range_ptr;
 		aligned_base = ((range->base + align - 1) / align) * align;
 		if (aligned_base + count * PAGE_SIZE <=
-		    range->base + range->size)
+				range->base + range->size)
 			break;
-	     range_ptr = &range->next;
+		range_ptr = &range->next;
 	}
 	if (*range_ptr == NULL)
 		goto fail_unlock;
 	range = *range_ptr;
 
-	/*
-	 * When we have to align, the pages needed for alignment can
-	 * be put back to the free pool.
-	 */
+	/* When we have to align, the pages needed for alignment can
+	 * be put back to the free pool. */
 	if (aligned_base != range->base) {
 		align_range->base = range->base;
 		align_range->size = aligned_base - range->base;
@@ -434,20 +436,16 @@ unsigned long __bpa2_alloc_pages(struct bpa2_part *bp, int count, int align,
 	}
 
 	if (count * PAGE_SIZE < range->size) {
-		/*
-		 * Range is larger than needed, create a new list element for
-		 * the used list and shrink the element in the free list.
-		 */
-		new_range->base        = range->base;
-		new_range->size        = count * PAGE_SIZE;
+		/* Range is larger than needed, create a new list element for
+		 * the used list and shrink the element in the free list. */
+		new_range->base = range->base;
+		new_range->size = count * PAGE_SIZE;
 		range->base = new_range->base + new_range->size;
 		range->size = range->size - new_range->size;
 		used_range = new_range;
 		new_range = NULL;
 	} else {
-		/*
-		 * Range fits perfectly, remove it from free list.
-		 */
+		/* Range fits perfectly, remove it from free list. */
 		*range_ptr = range->next;
 		used_range = range;
 	}
@@ -456,11 +454,9 @@ unsigned long __bpa2_alloc_pages(struct bpa2_part *bp, int count, int align,
 	used_range->trace_file = trace_file;
 	used_range->trace_line = trace_line;
 #endif
-	/*
-	 * Insert block into used list
-	 */
-	used_range->next = bp->used_list;
-	bp->used_list = used_range;
+	/* Insert block into used list */
+	used_range->next = part->used_list;
+	part->used_list = used_range;
 	result = used_range->base;
 
 fail_unlock:
@@ -477,7 +473,7 @@ EXPORT_SYMBOL(__bpa2_alloc_pages);
 
 /**
  * bpa2_free_pages - free pages allocated from a bpa2 partition
- * @bp: partition to free pages back to
+ * @part: partition to free pages back to
  * @base:
  * @align: required alinment
  * @priority: GFP_* flags to use
@@ -486,66 +482,62 @@ EXPORT_SYMBOL(__bpa2_alloc_pages);
  * address returned by `bigphysarea_alloc_pages'.
  * This function my not be called from an interrupt!
  */
-void bpa2_free_pages(struct bpa2_part* bp, unsigned long base)
+void bpa2_free_pages(struct bpa2_part *part, unsigned long base)
 {
-	struct range *prev, *next, *range, **range_ptr;
+	struct bpa2_range *prev, *next, *range, **range_ptr;
 
 	spin_lock(&bpa2_lock);
 
-	/*
-	 * Search the block in the used list.
-	 */
-	for (range_ptr = &bp->used_list;
-	     *range_ptr != NULL;
-	     range_ptr = &(*range_ptr)->next)
+	/* Search the block in the used list. */
+	for (range_ptr = &part->used_list;
+			*range_ptr != NULL;
+			range_ptr = &(*range_ptr)->next)
 		if ((*range_ptr)->base == base)
 			break;
 	if (*range_ptr == NULL) {
-		printk("%s: 0x%08x, not allocated!\n", __FUNCTION__,
-		       (unsigned)base);
+		printk(KERN_ERR "%s: 0x%08lx not allocated!\n",
+				__func__, base);
 		spin_unlock(&bpa2_lock);
 		return;
 	}
 	range = *range_ptr;
-	/*
-	 * Remove range from the used list:
-	 */
+
+	/* Remove range from the used list: */
 	*range_ptr = (*range_ptr)->next;
-	/*
-	 * The free-list is sorted by address, search insertion point
-	 * and insert block in free list.
-	 */
-	for (range_ptr = &bp->free_list, prev = NULL;
-	     *range_ptr != NULL;
-	     prev = *range_ptr, range_ptr = &(*range_ptr)->next)
+
+	/* The free-list is sorted by address, search insertion point
+	 * and insert block in free list. */
+	for (range_ptr = &part->free_list, prev = NULL;
+			*range_ptr != NULL;
+			prev = *range_ptr, range_ptr = &(*range_ptr)->next)
 		if ((*range_ptr)->base >= base)
 			break;
 	range->next  = *range_ptr;
 	*range_ptr   = range;
-	/*
-	 * Concatenate free range with neighbors, if possible.
+
+	/* Concatenate free range with neighbors, if possible.
 	 * Try for upper neighbor (next in list) first, then
-	 * for lower neighbor (predecessor in list).
-	 */
+	 * for lower neighbor (predecessor in list). */
 	next = NULL;
 	if (range->next != NULL &&
-	    range->base + range->size == range->next->base) {
+			range->base + range->size == range->next->base) {
 		next = range->next;
-		range->size += range->next->size;
+		range->size += next->size;
 		range->next = next->next;
 	}
 	if (prev != NULL &&
-	    prev->base + prev->size == range->base) {
-		prev->size += prev->next->size;
+			prev->base + prev->size == range->base) {
+		prev->size += range->size;
 		prev->next = range->next;
 	} else {
 		range = NULL;
 	}
+
 	spin_unlock(&bpa2_lock);
 
-	if (next && (next != &bp->initial_free_list))
+	if (next && (next != &part->initial_free_list))
 		kfree(next);
-	if (range && (range != &bp->initial_free_list))
+	if (range && (range != &part->initial_free_list))
 		kfree(range);
 }
 EXPORT_SYMBOL(bpa2_free_pages);
@@ -557,7 +549,7 @@ caddr_t	__bigphysarea_alloc_pages(int count, int align, int priority,
 {
 	unsigned long addr;
 
-	if (! bpa2_bigphysarea_part)
+	if (!bpa2_bigphysarea_part)
 		return NULL;
 
 	addr = __bpa2_alloc_pages(bpa2_bigphysarea_part, count,
@@ -622,8 +614,8 @@ static void *bpa2_seq_next(struct seq_file *s, void *v, loff_t *pos)
 
 static int bpa2_seq_show(struct seq_file *s, void *v)
 {
-	struct bpa2_part *part = list_entry(v, struct bpa2_part, next);
-	struct range *range;
+	struct bpa2_part *part = list_entry(v, struct bpa2_part, list);
+	struct bpa2_range *range;
 	int free_count, free_total, free_max;
 	int used_count, used_total, used_max;
 	const char **aka;

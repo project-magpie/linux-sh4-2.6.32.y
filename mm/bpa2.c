@@ -45,6 +45,7 @@
 #include <linux/init.h>
 #include <linux/pci.h>
 #include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 #include <linux/string.h>
 #include <linux/mm.h>
 #include <linux/bootmem.h>
@@ -579,88 +580,129 @@ EXPORT_SYMBOL(bigphysarea_free);
 
 #ifdef CONFIG_PROC_FS
 
-static char* get_part_info(char *p, struct bpa2_part *bp)
+static void *bpa2_seq_start(struct seq_file *s, loff_t *pos)
 {
-	struct range *ptr;
-	int     free_count, free_total, free_max;
-	int     used_count, used_total, used_max;
+	struct list_head *node;
+	loff_t i;
+
+	spin_lock(&bpa2_lock);
+
+	for (i = 0, node = bpa2_parts.next;
+			i < *pos && node != &bpa2_parts;
+			i++, node = node->next)
+		;
+
+	if (node == &bpa2_parts)
+		return NULL;
+
+	return node;
+}
+
+static void bpa2_seq_stop(struct seq_file *s, void *v)
+{
+	spin_unlock(&bpa2_lock);
+}
+
+static void *bpa2_seq_next(struct seq_file *s, void *v, loff_t *pos)
+{
+	struct list_head *node = v;
+
+	(*pos)++;
+	node = node->next;
+
+	if (node == &bpa2_parts)
+		return NULL;
+
+	seq_printf(s, "\n");
+
+	return node;
+}
+
+static int bpa2_seq_show(struct seq_file *s, void *v)
+{
+	struct bpa2_part *part = list_entry(v, struct bpa2_part, next);
+	struct range *range;
+	int free_count, free_total, free_max;
+	int used_count, used_total, used_max;
+	const char **aka;
 
 	free_count = 0;
 	free_total = 0;
-	free_max   = 0;
-	for (ptr = bp->free_list; ptr != NULL; ptr = ptr->next) {
+	free_max = 0;
+	for (range = part->free_list; range != NULL; range = range->next) {
 		free_count++;
-		free_total += ptr->size;
-		if (ptr->size > free_max)
-			free_max = ptr->size;
+		free_total += range->size;
+		if (range->size > free_max)
+			free_max = range->size;
 	}
 
 	used_count = 0;
 	used_total = 0;
-	used_max   = 0;
-	for (ptr = bp->used_list; ptr != NULL; ptr = ptr->next) {
+	used_max = 0;
+	for (range = part->used_list; range != NULL; range = range->next) {
 		used_count++;
-		used_total += ptr->size;
-		if (ptr->size > used_max)
-			used_max = ptr->size;
+		used_total += range->size;
+		if (range->size > used_max)
+			used_max = range->size;
 	}
 
-	p += sprintf(p, "Partition: %s, size %d kB\n", bp->name,
-		     (bp->res.end - bp->res.start + 1) / 1024);
-	if (bp->aka) {
-		const char** aka;
-		p += sprintf(p, "AKA: ");
-		for (aka=bp->aka; *aka; aka++)
-			p += sprintf(p, "%s, ", *aka);
-		p -= 2;
-		p += sprintf(p, "\n");
-	}
-	p += sprintf(p, "                       free list:             used list:\n");
-	p += sprintf(p, "number of blocks:      %8d               %8d\n",
-		     free_count, used_count);
-	p += sprintf(p, "size of largest block: %8d kB            %8d kB\n",
-		     free_max / 1024, used_max / 1024);
-	p += sprintf(p, "total:                 %8d kB            %8d kB\n",
-		     free_total / 1024, used_total /1024);
+	seq_printf(s, "Partition: '%s'", part->name);
+	for (aka = part->aka; *aka; aka++)
+		seq_printf(s, " aka '%s'", *aka);
+	seq_printf(s, "\n");
+	seq_printf(s, "Size: %d kB, base address: 0x%08x\n",
+			(part->res.end - part->res.start + 1) / 1024,
+			part->res.start);
+	seq_printf(s, "Statistics:                  free       "
+			"    used\n");
+	seq_printf(s, "- number of blocks:      %8d       %8d\n",
+			free_count, used_count);
+	seq_printf(s, "- size of largest block: %8d kB    %8d kB\n",
+			free_max / 1024, used_max / 1024);
+	seq_printf(s, "- total:                 %8d kB    %8d kB\n",
+			free_total / 1024, used_total / 1024);
 
 	if (used_count) {
-		p += sprintf(p, "allocations:      base          size\n");
-		for (ptr = bp->used_list; ptr != NULL; ptr = ptr->next) {
-			p += sprintf(p, "               0x%.8lx   %8lu B\n",
-				     ptr->base, ptr->size);
+		seq_printf(s, "Allocations:\n");
+		for (range = part->used_list; range != NULL;
+				range = range->next) {
+			seq_printf(s, "- %lu B at 0x%.8lx",
+					range->size, range->base);
+			seq_printf(s, "\n");
 		}
 	}
 
-	return  p;
+	return 0;
 }
 
-static int get_info(char *buffer, char **addr, off_t offset, int count)
+static struct seq_operations bpa2_seq_ops = {
+	.start = bpa2_seq_start,
+	.next = bpa2_seq_next,
+	.stop = bpa2_seq_stop,
+	.show = bpa2_seq_show,
+};
+
+static int bpa2_proc_open(struct inode *inode, struct file *file)
 {
-	struct bpa2_part* bp;
-	char* p = buffer;
-
-	spin_lock(&bpa2_lock);
-
-	list_for_each_entry(bp, &bpa2_parts, next) {
-		p = get_part_info(p, bp);
-		if (bpa2_parts.prev != &bp->next) {
-			*p++ = '\n';
-			*p++ = '\0';
-		}
-	}
-
-	spin_unlock(&bpa2_lock);
-
-	return p-buffer;
+	return seq_open(file, &bpa2_seq_ops);
 }
 
-/*
- * Called from late in the kernel initialisation sequence, once the
- * normal memory allocator is available.
- */
+static struct file_operations bpa2_proc_ops = {
+	.owner = THIS_MODULE,
+	.open = bpa2_proc_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release,
+};
+
+/* Called from late in the kernel initialisation sequence, once the
+ * normal memory allocator is available. */
 static int __init bpa2_proc_init(void)
 {
-	create_proc_info_entry("bpa2", 0444, &proc_root, get_info);
+	struct proc_dir_entry *entry = create_proc_entry("bpa2", 0, NULL);
+
+	if (entry)
+		entry->proc_fops = &bpa2_proc_ops;
 
 	return 0;
 }

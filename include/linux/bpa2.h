@@ -39,13 +39,20 @@ int bpa2_low_part(struct bpa2_part* part);
 unsigned long bpa2_alloc_pages(struct bpa2_part *part, int count, int align, int priority);
 void bpa2_free_pages(struct bpa2_part *part, unsigned long base);
 
-/* Backward compatibility APIs */
 
-/* original interface */
-caddr_t	bigphysarea_alloc(int size);
-void	bigphysarea_free(caddr_t addr, int size);
 
-/* new interface */
+/*
+ * Backward compatibility interface (bigphysarea)
+ */
+
+/* Original interface */
+#define bigphysarea_alloc(size) \
+		bigphysarea_alloc_pages(PAGE_ALIGN(size) >> PAGE_SHIFT, \
+		1, GFP_KERNEL)
+#define bigphysarea_free(addr, size) \
+		bigphysarea_free_pages(addr)
+
+/* New(er) interface */
 caddr_t	bigphysarea_alloc_pages(int count, int align, int priority);
 void	bigphysarea_free_pages(caddr_t base);
 

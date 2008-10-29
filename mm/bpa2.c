@@ -563,20 +563,7 @@ void bigphysarea_free_pages(caddr_t mapped_addr)
 }
 EXPORT_SYMBOL(bigphysarea_free_pages);
 
-caddr_t bigphysarea_alloc(int size)
-{
-	int pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
 
-	return bigphysarea_alloc_pages(pages, 1, GFP_KERNEL);
-}
-EXPORT_SYMBOL(bigphysarea_alloc);
-
-void bigphysarea_free(caddr_t addr, int size)
-{
-	(void)size;
-	bigphysarea_free_pages(addr);
-}
-EXPORT_SYMBOL(bigphysarea_free);
 
 #ifdef CONFIG_PROC_FS
 

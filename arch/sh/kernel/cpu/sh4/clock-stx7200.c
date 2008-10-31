@@ -46,6 +46,7 @@ unsigned long sysclkinalt[3] = { 0,0,0};
 
                                     /* 0  1  2  3  4  5  6     7  */
 static const unsigned int ratio1[] = { 1, 2, 3, 4, 6, 8, 1024, 1 };
+static const unsigned int ratio2[] = { 0, 1, 2, 1024, 3, 3, 3, 3 };
 
 static unsigned long final_divider(unsigned long input, int div_ratio, int div)
 {
@@ -188,7 +189,10 @@ static void sh4_clk_recalc(struct clk *clk)
 		break;
 	}
 
-	div2 = ratio1[(div_cfg >> sh4clk->shift) & 7];
+	if (cpu_data->cut_major < 2)
+		div2 = ratio1[(div_cfg >> sh4clk->shift) & 7];
+	else
+		div2 = ratio2[(div_cfg >> sh4clk->shift) & 7];
 	clk->rate = (clk->parent->rate / div1) / div2;
 
 	/* Note clk_sh4 and clk_sh4_ic have an extra clock gating

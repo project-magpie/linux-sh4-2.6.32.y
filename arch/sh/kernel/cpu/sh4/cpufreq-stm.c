@@ -183,17 +183,18 @@ static int __init st_cpufreq_module_init(void)
 		return -ENODEV;
 	}
 
-	if (st_cpufreq_platform_init()) { /* for platform initialization */
-		printk(KERN_ERR "%s: Error on platform initialization\n",
-			__FUNCTION__);
-		return -ENODEV;
-	}
 	for (idx = 0; idx < (ARRAY_SIZE(cpu_freqs)) - 1; ++idx) {
 		cpu_freqs[idx].frequency =
 		    (clk_get_rate(sh4_clk) / 1000) >> idx;
 		cpufreq_debug_printk(CPUFREQ_DEBUG_DRIVER,
 		"st_cpufreq_module_init", "Initialize idx %u @ %u\n",
 		idx, cpu_freqs[idx].frequency);
+	}
+
+	if (st_cpufreq_platform_init()) { /* for platform initialization */
+		printk(KERN_ERR "%s: Error on platform initialization\n",
+			__FUNCTION__);
+		return -ENODEV;
 	}
 
 	if (cpufreq_register_driver(&st_cpufreq_driver))

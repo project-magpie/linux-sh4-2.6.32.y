@@ -36,6 +36,7 @@ static struct clk *module_clk;
 #define CLKGNA_DIV_CFG		(clk_iomem + 0x10)
 #define CKGA_CLKOUT_SEL 	(clk_iomem + 0x18)
 #define SH4_CLK_MASK		(0x1ff << 1)
+#define SH4_CLK_MASK_C2		(0x3 << 1)
 /*
  *	value: 0  1  2  3  4  5  6     7
  *	ratio: 1, 2, 3, 4, 6, 8, 1024, 1
@@ -47,6 +48,13 @@ static unsigned long sh4_ratio[] = {
 	(3 << 1) | (5 << 4) | (5 << 7)	/* 1:4 - 1:8 - 1:8 */
 };
 
+static unsigned long sh4_ratio_c2[] = { /* ratios for Cut 2.0 */
+/*        cpu   */
+        (1 << 1),
+        (2 << 1),
+};
+
+static unsigned long *ratio;
 static void st_cpufreq_update_clocks(unsigned int set, int propagate)
 {
 	static unsigned int sh_current_set;
@@ -66,9 +74,12 @@ static void st_cpufreq_update_clocks(unsigned int set, int propagate)
 		if ((set + sh_current_set) == 2)
 			l_p_j <<= 1;
 	}
+	if (cpu_data->cut_major < 2)
+		clks_value &= ~SH4_CLK_MASK;
+	else
+		clks_value &= ~SH4_CLK_MASK_C2;
 
-	clks_value &= ~SH4_CLK_MASK;
-	clks_value |= sh4_ratio[set];
+	clks_value |= ratio[set];
 
 	local_irq_save(flag);
 	asm volatile (".balign	32	\n"
@@ -86,6 +97,7 @@ static void st_cpufreq_update_clocks(unsigned int set, int propagate)
 		"st_cpufreq_update_clocks:", "\n");
 	sh_current_set = set;
 	sh4_clk->rate = (cpu_freqs[set].frequency << 3) * 125;
+
 	if (cpu_data->cut_major < 2) {
 		sh4_ic_clk->rate = (cpu_freqs[set].frequency << 2) * 125;
 		module_clk->rate = clk_get_rate(pll0_clk) >> 3;
@@ -114,14 +126,15 @@ static void __init st_cpufreq_observe_init(void)
 static int __init st_cpufreq_platform_init(void)
 {
 	pll0_clk = clk_get(NULL, "pll0_clk");
-	sh4_ic_clk = clk_get(NULL, "sh4_ic_clk");
-	module_clk = clk_get(NULL, "module_clk");
-
+	ratio = sh4_ratio_c2;
 	if (!pll0_clk) {
 		printk(KERN_ERR "ERROR: on clk_get(pll0_clk)\n");
 		return -ENODEV;
 	}
 	if (cpu_data->cut_major < 2) {
+		ratio = sh4_ratio;
+		sh4_ic_clk = clk_get(NULL, "sh4_ic_clk");
+		module_clk = clk_get(NULL, "module_clk");
 		if (!sh4_ic_clk) {
 			printk(KERN_ERR "ERROR: on clk_get(sh4_ic_clk)\n");
 			return -ENODEV;
@@ -131,6 +144,9 @@ static int __init st_cpufreq_platform_init(void)
 			return -ENODEV;
 		}
 	}
+	 else
+		/* in the 7200 Cut 2 only two frequencies are supported */
+		cpu_freqs[2].frequency = CPUFREQ_TABLE_END;
 
 	return 0;
 }

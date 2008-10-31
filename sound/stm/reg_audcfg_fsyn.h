@@ -29,7 +29,7 @@
 #define offset__AUDCFG_FSYN_CFG(ip) 0x00
 #define get__AUDCFG_FSYN_CFG(ip) readl(ip->base + \
 	offset__AUDCFG_FSYN_CFG(ip))
-#define set__AUDCFG_FSYN_CFG(ip, value) writel((value), ip->base + \
+#define set__AUDCFG_FSYN_CFG(ip, value) writel(value, ip->base + \
 	offset__AUDCFG_FSYN_CFG(ip))
 
 /* RSTP */
@@ -331,20 +331,20 @@
 #define offset__AUDCFG_FSYN_MD(ip, n) ((n + 1) * 0x10 + 0x00)
 #define get__AUDCFG_FSYN_MD(ip, n) readl(ip->base + \
 	offset__AUDCFG_FSYN_MD(ip, n))
-#define set__AUDCFG_FSYN_MD(ip, n, value) writel((value), ip->base + \
+#define set__AUDCFG_FSYN_MD(ip, n, value) writel(value, ip->base + \
 	offset__AUDCFG_FSYN_MD(ip, n))
 
 /* MD */
 
-#define shift__AUDCFG_FSYN_MD__MD(ip, n) 0
-#define mask__AUDCFG_FSYN_MD__MD(ip, n) 0x1f
+#define shift__AUDCFG_FSYN_MD__MD(ip) 0
+#define mask__AUDCFG_FSYN_MD__MD(ip) 0x1f
 #define get__AUDCFG_FSYN_MD__MD(ip, n) ((readl(ip->base + \
-	offset__AUDCFG_FSYN_MD(ip, n)) >> shift__AUDCFG_FSYN_MD__MD(ip, n)) & \
-	mask__AUDCFG_FSYN_MD__MD(ip, n))
+	offset__AUDCFG_FSYN_MD(ip, n)) >> shift__AUDCFG_FSYN_MD__MD(ip)) & \
+	mask__AUDCFG_FSYN_MD__MD(ip))
 #define set__AUDCFG_FSYN_MD__MD(ip, n, value) writel((readl(ip->base + \
-	offset__AUDCFG_FSYN_MD(ip, n)) & ~(mask__AUDCFG_FSYN_MD__MD(ip, n) << \
-	shift__AUDCFG_FSYN_MD__MD(ip, n))) | (((value) & \
-	mask__AUDCFG_FSYN_MD__MD(ip, n)) << shift__AUDCFG_FSYN_MD__MD(ip, n)), \
+	offset__AUDCFG_FSYN_MD(ip, n)) & ~(mask__AUDCFG_FSYN_MD__MD(ip) << \
+	shift__AUDCFG_FSYN_MD__MD(ip))) | (((value) & \
+	mask__AUDCFG_FSYN_MD__MD(ip)) << shift__AUDCFG_FSYN_MD__MD(ip)), \
 	ip->base + offset__AUDCFG_FSYN_MD(ip, n))
 
 
@@ -356,20 +356,20 @@
 #define offset__AUDCFG_FSYN_PE(ip, n) ((n + 1) * 0x10 + 0x04)
 #define get__AUDCFG_FSYN_PE(ip, n) readl(ip->base + \
 	offset__AUDCFG_FSYN_PE(ip, n))
-#define set__AUDCFG_FSYN_PE(ip, n, value) writel((value), ip->base + \
+#define set__AUDCFG_FSYN_PE(ip, n, value) writel(value, ip->base + \
 	offset__AUDCFG_FSYN_PE(ip, n))
 
 /* PE */
 
-#define shift__AUDCFG_FSYN_PE__PE(ip, n) 0
-#define mask__AUDCFG_FSYN_PE__PE(ip, n) 0xffff
+#define shift__AUDCFG_FSYN_PE__PE(ip) 0
+#define mask__AUDCFG_FSYN_PE__PE(ip) 0xffff
 #define get__AUDCFG_FSYN_PE__PE(ip, n) ((readl(ip->base + \
-	offset__AUDCFG_FSYN_PE(ip, n)) >> shift__AUDCFG_FSYN_PE__PE(ip, n)) & \
-	mask__AUDCFG_FSYN_PE__PE(ip, n))
+	offset__AUDCFG_FSYN_PE(ip, n)) >> shift__AUDCFG_FSYN_PE__PE(ip)) & \
+	mask__AUDCFG_FSYN_PE__PE(ip))
 #define set__AUDCFG_FSYN_PE__PE(ip, n, value) writel((readl(ip->base + \
-	offset__AUDCFG_FSYN_PE(ip, n)) & ~(mask__AUDCFG_FSYN_PE__PE(ip, n) << \
-	shift__AUDCFG_FSYN_PE__PE(ip, n))) | (((value) & \
-	mask__AUDCFG_FSYN_PE__PE(ip, n)) << shift__AUDCFG_FSYN_PE__PE(ip, n)), \
+	offset__AUDCFG_FSYN_PE(ip, n)) & ~(mask__AUDCFG_FSYN_PE__PE(ip) << \
+	shift__AUDCFG_FSYN_PE__PE(ip))) | (((value) & \
+	mask__AUDCFG_FSYN_PE__PE(ip)) << shift__AUDCFG_FSYN_PE__PE(ip)), \
 	ip->base + offset__AUDCFG_FSYN_PE(ip, n))
 
 
@@ -381,22 +381,22 @@
 #define offset__AUDCFG_FSYN_SDIV(ip, n) ((n + 1) * 0x10 + 0x08)
 #define get__AUDCFG_FSYN_SDIV(ip, n) readl(ip->base + \
 	offset__AUDCFG_FSYN_SDIV(ip, n))
-#define set__AUDCFG_FSYN_SDIV(ip, n, value) writel((value), ip->base + \
+#define set__AUDCFG_FSYN_SDIV(ip, n, value) writel(value, ip->base + \
 	offset__AUDCFG_FSYN_SDIV(ip, n))
 
 /* SDIV */
 
-#define shift__AUDCFG_FSYN_SDIV__SDIV(ip, n) 0
-#define mask__AUDCFG_FSYN_SDIV__SDIV(ip, n) 0x7
+#define shift__AUDCFG_FSYN_SDIV__SDIV(ip) 0
+#define mask__AUDCFG_FSYN_SDIV__SDIV(ip) 0x7
 #define get__AUDCFG_FSYN_SDIV__SDIV(ip, n) ((readl(ip->base + \
-	offset__AUDCFG_FSYN_SDIV(ip, n)) >> shift__AUDCFG_FSYN_SDIV__SDIV(ip, \
-	n)) & mask__AUDCFG_FSYN_SDIV__SDIV(ip, n))
+	offset__AUDCFG_FSYN_SDIV(ip, n)) >> shift__AUDCFG_FSYN_SDIV__SDIV(ip)) \
+	& mask__AUDCFG_FSYN_SDIV__SDIV(ip))
 #define set__AUDCFG_FSYN_SDIV__SDIV(ip, n, value) \
 	writel((readl(ip->base + offset__AUDCFG_FSYN_SDIV(ip, n)) & \
-	~(mask__AUDCFG_FSYN_SDIV__SDIV(ip, n) << \
-	shift__AUDCFG_FSYN_SDIV__SDIV(ip, n))) | (((value) & \
-	mask__AUDCFG_FSYN_SDIV__SDIV(ip, n)) << \
-	shift__AUDCFG_FSYN_SDIV__SDIV(ip, n)), ip->base + \
+	~(mask__AUDCFG_FSYN_SDIV__SDIV(ip) << \
+	shift__AUDCFG_FSYN_SDIV__SDIV(ip))) | (((value) & \
+	mask__AUDCFG_FSYN_SDIV__SDIV(ip)) << \
+	shift__AUDCFG_FSYN_SDIV__SDIV(ip)), ip->base + \
 	offset__AUDCFG_FSYN_SDIV(ip, n))
 
 
@@ -408,39 +408,41 @@
 #define offset__AUDCFG_FSYN_PROGEN(ip, n) ((n + 1) * 0x10 + 0x0c)
 #define get__AUDCFG_FSYN_PROGEN(ip, n) readl(ip->base + \
 	offset__AUDCFG_FSYN_PROGEN(ip, n))
-#define set__AUDCFG_FSYN_PROGEN(ip, n, value) writel((value), ip->base \
-	+ offset__AUDCFG_FSYN_PROGEN(ip, n))
+#define set__AUDCFG_FSYN_PROGEN(ip, n, value) writel(value, ip->base + \
+	offset__AUDCFG_FSYN_PROGEN(ip, n))
 
 /* PROG_EN */
 
-#define shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n) 0
-#define mask__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n) 0x1
+#define shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip) 0
+#define mask__AUDCFG_FSYN_PROGEN__PROG_EN(ip) 0x1
 #define get__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n) ((readl(ip->base + \
 	offset__AUDCFG_FSYN_PROGEN(ip, n)) >> \
-	shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n)) & \
-	mask__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n))
+	shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip)) & \
+	mask__AUDCFG_FSYN_PROGEN__PROG_EN(ip))
 #define set__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n, value) \
 	writel((readl(ip->base + offset__AUDCFG_FSYN_PROGEN(ip, n)) & \
-	~(mask__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n) << \
-	shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n))) | (((value) & \
-	mask__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n)) << \
-	shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n)), ip->base + \
+	~(mask__AUDCFG_FSYN_PROGEN__PROG_EN(ip) << \
+	shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip))) | (((value) & \
+	mask__AUDCFG_FSYN_PROGEN__PROG_EN(ip)) << \
+	shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip)), ip->base + \
 	offset__AUDCFG_FSYN_PROGEN(ip, n))
 
-#define value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(ip, n) 0x0
-#define mask__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(ip, n) \
-	(value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(ip, n) << \
-	shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n))
+#define value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(ip) 0x0
+#define mask__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(ip) \
+	(value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(ip) << \
+	shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip))
 #define set__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(ip, n) \
 	set__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n, \
-	value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(ip, n))
+	value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(ip))
 
-#define value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_USED(ip, n) 0x1
-#define mask__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_USED(ip, n) \
-	(value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_USED(ip, n) << \
-	shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n))
+#define value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_USED(ip) 0x1
+#define mask__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_USED(ip) \
+	(value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_USED(ip) << \
+	shift__AUDCFG_FSYN_PROGEN__PROG_EN(ip))
 #define set__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_USED(ip, n) \
 	set__AUDCFG_FSYN_PROGEN__PROG_EN(ip, n, \
-	value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_USED(ip, n))
+	value__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_USED(ip))
+
+
 
 #endif

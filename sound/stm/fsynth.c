@@ -332,12 +332,12 @@ static int snd_stm_fsynth_channel_configure(struct snd_stm_fsynth *fsynth,
 	}
 
 	snd_stm_printd(1, "SDIV == 0x%x, MD == 0x%x, PE == 0x%x\n", sdiv,
-			(unsigned int)md & mask__AUDCFG_FSYN_MD__MD(fsynth,
-			channel), pe);
+			(unsigned int)md & mask__AUDCFG_FSYN_MD__MD(fsynth),
+			pe);
 	set__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(fsynth, channel);
 	set__AUDCFG_FSYN_SDIV__SDIV(fsynth, channel, sdiv);
 	set__AUDCFG_FSYN_MD__MD(fsynth, channel, (unsigned int)md &
-			mask__AUDCFG_FSYN_MD__MD(fsynth, channel));
+			mask__AUDCFG_FSYN_MD__MD(fsynth));
 	set__AUDCFG_FSYN_PE__PE(fsynth, channel, pe);
 	set__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_USED(fsynth, channel);
 	set__AUDCFG_FSYN_PROGEN__PROG_EN__PE0_MD0_IGNORED(fsynth, channel);

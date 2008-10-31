@@ -26,7 +26,7 @@
 #define offset__AUD_SPDIF_RST(ip) 0x00
 #define get__AUD_SPDIF_RST(ip) readl(ip->base + \
 	offset__AUD_SPDIF_RST(ip))
-#define set__AUD_SPDIF_RST(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_RST(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_RST(ip))
 
 /* SRSTP */
@@ -66,7 +66,7 @@
 #define offset__AUD_SPDIF_DATA(ip) 0x04
 #define get__AUD_SPDIF_DATA(ip) readl(ip->base + \
 	offset__AUD_SPDIF_DATA(ip))
-#define set__AUD_SPDIF_DATA(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_DATA(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_DATA(ip))
 
 /* DATA */
@@ -91,7 +91,7 @@
 #define offset__AUD_SPDIF_ITS(ip) 0x08
 #define get__AUD_SPDIF_ITS(ip) readl(ip->base + \
 	offset__AUD_SPDIF_ITS(ip))
-#define set__AUD_SPDIF_ITS(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_ITS(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_ITS(ip))
 
 /* UNF */
@@ -232,7 +232,7 @@
 #define offset__AUD_SPDIF_ITS_CLR(ip) 0x0c
 #define get__AUD_SPDIF_ITS_CLR(ip) readl(ip->base + \
 	offset__AUD_SPDIF_ITS_CLR(ip))
-#define set__AUD_SPDIF_ITS_CLR(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_ITS_CLR(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_ITS_CLR(ip))
 
 /* UNF */
@@ -384,7 +384,7 @@
 #define offset__AUD_SPDIF_IT_EN(ip) 0x10
 #define get__AUD_SPDIF_IT_EN(ip) readl(ip->base + \
 	offset__AUD_SPDIF_IT_EN(ip))
-#define set__AUD_SPDIF_IT_EN(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_IT_EN(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_IT_EN(ip))
 
 /* UNF */
@@ -578,7 +578,7 @@
 #define offset__AUD_SPDIF_IT_EN_SET(ip) 0x14
 #define get__AUD_SPDIF_IT_EN_SET(ip) readl(ip->base + \
 	offset__AUD_SPDIF_IT_EN_SET(ip))
-#define set__AUD_SPDIF_IT_EN_SET(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_IT_EN_SET(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_IT_EN_SET(ip))
 
 /* UNF */
@@ -734,7 +734,7 @@
 #define offset__AUD_SPDIF_IT_EN_CLR(ip) 0x18
 #define get__AUD_SPDIF_IT_EN_CLR(ip) readl(ip->base + \
 	offset__AUD_SPDIF_IT_EN_CLR(ip))
-#define set__AUD_SPDIF_IT_EN_CLR(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_IT_EN_CLR(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_IT_EN_CLR(ip))
 
 /* UNF */
@@ -890,7 +890,7 @@
 #define offset__AUD_SPDIF_CTRL(ip) 0x1c
 #define get__AUD_SPDIF_CTRL(ip) readl(ip->base + \
 	offset__AUD_SPDIF_CTRL(ip))
-#define set__AUD_SPDIF_CTRL(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_CTRL(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_CTRL(ip))
 
 /* MODE */
@@ -1068,7 +1068,7 @@
 #define offset__AUD_SPDIF_STA(ip) 0x20
 #define get__AUD_SPDIF_STA(ip) readl(ip->base + \
 	offset__AUD_SPDIF_STA(ip))
-#define set__AUD_SPDIF_STA(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_STA(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_STA(ip))
 
 /* RUN_STOP */
@@ -1293,7 +1293,7 @@
 #define offset__AUD_SPDIF_PA_PB(ip) 0x24
 #define get__AUD_SPDIF_PA_PB(ip) readl(ip->base + \
 	offset__AUD_SPDIF_PA_PB(ip))
-#define set__AUD_SPDIF_PA_PB(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_PA_PB(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_PA_PB(ip))
 
 /* PB */
@@ -1331,7 +1331,7 @@
 #define offset__AUD_SPDIF_PC_PD(ip) 0x28
 #define get__AUD_SPDIF_PC_PD(ip) readl(ip->base + \
 	offset__AUD_SPDIF_PC_PD(ip))
-#define set__AUD_SPDIF_PC_PD(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_PC_PD(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_PC_PD(ip))
 
 /* PD */
@@ -1369,7 +1369,7 @@
 #define offset__AUD_SPDIF_CL1(ip) 0x2c
 #define get__AUD_SPDIF_CL1(ip) readl(ip->base + \
 	offset__AUD_SPDIF_CL1(ip))
-#define set__AUD_SPDIF_CL1(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_CL1(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_CL1(ip))
 
 /* CL1 */
@@ -1394,7 +1394,7 @@
 #define offset__AUD_SPDIF_CR1(ip) 0x30
 #define get__AUD_SPDIF_CR1(ip) readl(ip->base + \
 	offset__AUD_SPDIF_CR1(ip))
-#define set__AUD_SPDIF_CR1(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_CR1(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_CR1(ip))
 
 /* CR1 */
@@ -1419,8 +1419,8 @@
 #define offset__AUD_SPDIF_CL2_CR2_UV(ip) 0x34
 #define get__AUD_SPDIF_CL2_CR2_UV(ip) readl(ip->base + \
 	offset__AUD_SPDIF_CL2_CR2_UV(ip))
-#define set__AUD_SPDIF_CL2_CR2_UV(ip, value) writel((value), ip->base \
-	+ offset__AUD_SPDIF_CL2_CR2_UV(ip))
+#define set__AUD_SPDIF_CL2_CR2_UV(ip, value) writel(value, ip->base + \
+	offset__AUD_SPDIF_CL2_CR2_UV(ip))
 
 /* CL2 */
 
@@ -1527,7 +1527,7 @@
 #define offset__AUD_SPDIF_PAU_LAT(ip) 0x38
 #define get__AUD_SPDIF_PAU_LAT(ip) readl(ip->base + \
 	offset__AUD_SPDIF_PAU_LAT(ip))
-#define set__AUD_SPDIF_PAU_LAT(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_PAU_LAT(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_PAU_LAT(ip))
 
 /* LAT */
@@ -1569,7 +1569,7 @@
 #define offset__AUD_SPDIF_BST_FL(ip) 0x3c
 #define get__AUD_SPDIF_BST_FL(ip) readl(ip->base + \
 	offset__AUD_SPDIF_BST_FL(ip))
-#define set__AUD_SPDIF_BST_FL(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_BST_FL(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_BST_FL(ip))
 
 /* PDBURST */
@@ -1612,7 +1612,7 @@
 	? -1 : 0x40)
 #define get__AUD_SPDIF_CONFIG(ip) readl(ip->base + \
 	offset__AUD_SPDIF_CONFIG(ip))
-#define set__AUD_SPDIF_CONFIG(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIF_CONFIG(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIF_CONFIG(ip))
 
 /* P_BIT */
@@ -1902,5 +1902,7 @@
 	mask__AUD_SPDIF_CONFIG__DMA_REQ_TRIG_LMT(ip)) << \
 	shift__AUD_SPDIF_CONFIG__DMA_REQ_TRIG_LMT(ip)), ip->base + \
 	offset__AUD_SPDIF_CONFIG(ip))
+
+
 
 #endif

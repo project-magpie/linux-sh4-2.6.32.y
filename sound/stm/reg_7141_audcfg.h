@@ -10,7 +10,7 @@
 #define offset__7141_AUDCFG_IO_CTRL(ip) 0x00
 #define get__7141_AUDCFG_IO_CTRL(ip) readl(ip->base + \
 	offset__7141_AUDCFG_IO_CTRL(ip))
-#define set__7141_AUDCFG_IO_CTRL(ip, value) writel((value), ip->base + \
+#define set__7141_AUDCFG_IO_CTRL(ip, value) writel(value, ip->base + \
 	offset__7141_AUDCFG_IO_CTRL(ip))
 
 /* CLKREC_SEL */
@@ -203,5 +203,7 @@
 	set__7141_AUDCFG_IO_CTRL__PCMR1_LRCLK_SEL__FROM_PCM_PLAYER_0(ip) \
 	set__7141_AUDCFG_IO_CTRL__PCMR1_LRCLK_SEL(ip, \
 	value__7141_AUDCFG_IO_CTRL__PCMR1_LRCLK_SEL__FROM_PCM_PLAYER_0(ip))
+
+
 
 #endif

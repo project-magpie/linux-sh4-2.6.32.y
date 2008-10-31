@@ -20,8 +20,8 @@
 #define offset__7200_AUDCFG_IOMUX_CTRL(ip) 0x00
 #define get__7200_AUDCFG_IOMUX_CTRL(ip) readl(ip->base + \
 	offset__7200_AUDCFG_IOMUX_CTRL(ip))
-#define set__7200_AUDCFG_IOMUX_CTRL(ip, value) writel((value), \
-	ip->base + offset__7200_AUDCFG_IOMUX_CTRL(ip))
+#define set__7200_AUDCFG_IOMUX_CTRL(ip, value) writel(value, ip->base \
+	+ offset__7200_AUDCFG_IOMUX_CTRL(ip))
 
 /* PCM_CLK_EN */
 
@@ -228,8 +228,8 @@
 #define offset__7200_AUDCFG_HDMI_CTRL(ip) 0x04
 #define get__7200_AUDCFG_HDMI_CTRL(ip) readl(ip->base + \
 	offset__7200_AUDCFG_HDMI_CTRL(ip))
-#define set__7200_AUDCFG_HDMI_CTRL(ip, value) writel((value), ip->base \
-	+ offset__7200_AUDCFG_HDMI_CTRL(ip))
+#define set__7200_AUDCFG_HDMI_CTRL(ip, value) writel(value, ip->base + \
+	offset__7200_AUDCFG_HDMI_CTRL(ip))
 
 /* HDMI_DEBUG */
 
@@ -288,7 +288,7 @@
 #define offset__7200_AUDCFG_RECOVERY_CTRL(ip) 0x08
 #define get__7200_AUDCFG_RECOVERY_CTRL(ip) readl(ip->base + \
 	offset__7200_AUDCFG_RECOVERY_CTRL(ip))
-#define set__7200_AUDCFG_RECOVERY_CTRL(ip, value) writel((value), \
+#define set__7200_AUDCFG_RECOVERY_CTRL(ip, value) writel(value, \
 	ip->base + offset__7200_AUDCFG_RECOVERY_CTRL(ip))
 
 /* RECO_EN0 */
@@ -450,5 +450,7 @@
 	mask__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip)) << \
 	shift__7200_AUDCFG_RECOVERY_CTRL__RECO_EXT1(ip)), ip->base + \
 	offset__7200_AUDCFG_RECOVERY_CTRL(ip))
+
+
 
 #endif

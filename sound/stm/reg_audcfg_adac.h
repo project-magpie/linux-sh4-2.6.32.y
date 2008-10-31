@@ -26,7 +26,7 @@
 #define offset__AUDCFG_ADAC_CTRL(ip) 0x00
 #define get__AUDCFG_ADAC_CTRL(ip) readl(ip->base + \
 	offset__AUDCFG_ADAC_CTRL(ip))
-#define set__AUDCFG_ADAC_CTRL(ip, value) writel((value), ip->base + \
+#define set__AUDCFG_ADAC_CTRL(ip, value) writel(value, ip->base + \
 	offset__AUDCFG_ADAC_CTRL(ip))
 
 /* NRST */
@@ -202,5 +202,7 @@
 #define set__AUDCFG_ADAC_CTRL__PDNBG__NORMAL(ip) \
 	set__AUDCFG_ADAC_CTRL__PDNBG(ip, \
 	value__AUDCFG_ADAC_CTRL__PDNBG__NORMAL(ip))
+
+
 
 #endif

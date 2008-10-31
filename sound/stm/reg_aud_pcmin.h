@@ -29,7 +29,7 @@
 #define offset__AUD_PCMIN_RST(ip) 0x00
 #define get__AUD_PCMIN_RST(ip) readl(ip->base + \
 	offset__AUD_PCMIN_RST(ip))
-#define set__AUD_PCMIN_RST(ip, value) writel((value), ip->base + \
+#define set__AUD_PCMIN_RST(ip, value) writel(value, ip->base + \
 	offset__AUD_PCMIN_RST(ip))
 
 /* RSTP */
@@ -68,7 +68,7 @@
 #define offset__AUD_PCMIN_DATA(ip) 0x04
 #define get__AUD_PCMIN_DATA(ip) readl(ip->base + \
 	offset__AUD_PCMIN_DATA(ip))
-#define set__AUD_PCMIN_DATA(ip, value) writel((value), ip->base + \
+#define set__AUD_PCMIN_DATA(ip, value) writel(value, ip->base + \
 	offset__AUD_PCMIN_DATA(ip))
 
 /* DATA */
@@ -93,7 +93,7 @@
 #define offset__AUD_PCMIN_ITS(ip) 0x08
 #define get__AUD_PCMIN_ITS(ip) readl(ip->base + \
 	offset__AUD_PCMIN_ITS(ip))
-#define set__AUD_PCMIN_ITS(ip, value) writel((value), ip->base + \
+#define set__AUD_PCMIN_ITS(ip, value) writel(value, ip->base + \
 	offset__AUD_PCMIN_ITS(ip))
 
 /* OVF */
@@ -146,7 +146,7 @@
 #define offset__AUD_PCMIN_ITS_CLR(ip) 0x0c
 #define get__AUD_PCMIN_ITS_CLR(ip) readl(ip->base + \
 	offset__AUD_PCMIN_ITS_CLR(ip))
-#define set__AUD_PCMIN_ITS_CLR(ip, value) writel((value), ip->base + \
+#define set__AUD_PCMIN_ITS_CLR(ip, value) writel(value, ip->base + \
 	offset__AUD_PCMIN_ITS_CLR(ip))
 
 /* OVF */
@@ -195,7 +195,7 @@
 #define offset__AUD_PCMIN_IT_EN(ip) 0x10
 #define get__AUD_PCMIN_IT_EN(ip) readl(ip->base + \
 	offset__AUD_PCMIN_IT_EN(ip))
-#define set__AUD_PCMIN_IT_EN(ip, value) writel((value), ip->base + \
+#define set__AUD_PCMIN_IT_EN(ip, value) writel(value, ip->base + \
 	offset__AUD_PCMIN_IT_EN(ip))
 
 /* OVF */
@@ -266,7 +266,7 @@
 #define offset__AUD_PCMIN_IT_EN_SET(ip) 0x14
 #define get__AUD_PCMIN_IT_EN_SET(ip) readl(ip->base + \
 	offset__AUD_PCMIN_IT_EN_SET(ip))
-#define set__AUD_PCMIN_IT_EN_SET(ip, value) writel((value), ip->base + \
+#define set__AUD_PCMIN_IT_EN_SET(ip, value) writel(value, ip->base + \
 	offset__AUD_PCMIN_IT_EN_SET(ip))
 
 /* OVF */
@@ -326,7 +326,7 @@
 #define offset__AUD_PCMIN_IT_EN_CLR(ip) 0x18
 #define get__AUD_PCMIN_IT_EN_CLR(ip) readl(ip->base + \
 	offset__AUD_PCMIN_IT_EN_CLR(ip))
-#define set__AUD_PCMIN_IT_EN_CLR(ip, value) writel((value), ip->base + \
+#define set__AUD_PCMIN_IT_EN_CLR(ip, value) writel(value, ip->base + \
 	offset__AUD_PCMIN_IT_EN_CLR(ip))
 
 /* OVF */
@@ -386,7 +386,7 @@
 #define offset__AUD_PCMIN_CTRL(ip) 0x1c
 #define get__AUD_PCMIN_CTRL(ip) readl(ip->base + \
 	offset__AUD_PCMIN_CTRL(ip))
-#define set__AUD_PCMIN_CTRL(ip, value) writel((value), ip->base + \
+#define set__AUD_PCMIN_CTRL(ip, value) writel(value, ip->base + \
 	offset__AUD_PCMIN_CTRL(ip))
 
 /* MODE */
@@ -526,7 +526,7 @@
 #define offset__AUD_PCMIN_STA(ip) 0x20
 #define get__AUD_PCMIN_STA(ip) readl(ip->base + \
 	offset__AUD_PCMIN_STA(ip))
-#define set__AUD_PCMIN_STA(ip, value) writel((value), ip->base + \
+#define set__AUD_PCMIN_STA(ip, value) writel(value, ip->base + \
 	offset__AUD_PCMIN_STA(ip))
 
 /* RUN_STOP */
@@ -660,7 +660,7 @@
 #define offset__AUD_PCMIN_FMT(ip) 0x24
 #define get__AUD_PCMIN_FMT(ip) readl(ip->base + \
 	offset__AUD_PCMIN_FMT(ip))
-#define set__AUD_PCMIN_FMT(ip, value) writel((value), ip->base + \
+#define set__AUD_PCMIN_FMT(ip, value) writel(value, ip->base + \
 	offset__AUD_PCMIN_FMT(ip))
 
 /* NBIT */
@@ -1031,5 +1031,7 @@
 	mask__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(ip)) << \
 	shift__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(ip)), ip->base + \
 	offset__AUD_PCMIN_FMT(ip))
+
+
 
 #endif

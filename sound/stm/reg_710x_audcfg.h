@@ -10,7 +10,7 @@
 #define offset__710X_AUDCFG_IO_CTRL(ip) 0x00
 #define get__710X_AUDCFG_IO_CTRL(ip) readl(ip->base + \
 	offset__710X_AUDCFG_IO_CTRL(ip))
-#define set__710X_AUDCFG_IO_CTRL(ip, value) writel((value), ip->base + \
+#define set__710X_AUDCFG_IO_CTRL(ip, value) writel(value, ip->base + \
 	offset__710X_AUDCFG_IO_CTRL(ip))
 
 /* PCM_CLK_EN */
@@ -172,5 +172,7 @@
 #define set__710X_AUDCFG_IO_CTRL__HDMI_AUD_SRC__SPDIF_PLAYER(ip) \
 	set__710X_AUDCFG_IO_CTRL__HDMI_AUD_SRC(ip, \
 	value__710X_AUDCFG_IO_CTRL__HDMI_AUD_SRC__SPDIF_PLAYER(ip))
+
+
 
 #endif

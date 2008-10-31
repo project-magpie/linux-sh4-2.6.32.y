@@ -26,7 +26,7 @@
 #define offset__AUD_SPDIFPC_CFG(ip) 0x000
 #define get__AUD_SPDIFPC_CFG(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_CFG(ip))
-#define set__AUD_SPDIFPC_CFG(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_CFG(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_CFG(ip))
 
 /* DEVICE_EN */
@@ -239,7 +239,7 @@
 #define offset__AUD_SPDIFPC_STA(ip) 0x004
 #define get__AUD_SPDIFPC_STA(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_STA(ip))
-#define set__AUD_SPDIFPC_STA(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_STA(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_STA(ip))
 
 /* SOFT_RESET */
@@ -458,7 +458,7 @@
 #define offset__AUD_SPDIFPC_IT_EN(ip) 0x008
 #define get__AUD_SPDIFPC_IT_EN(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_IT_EN(ip))
-#define set__AUD_SPDIFPC_IT_EN(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_IT_EN(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_IT_EN(ip))
 
 /* INTERRUPT_EN */
@@ -1035,7 +1035,7 @@
 #define offset__AUD_SPDIFPC_ITS(ip) 0x00c
 #define get__AUD_SPDIFPC_ITS(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_ITS(ip))
-#define set__AUD_SPDIFPC_ITS(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_ITS(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_ITS(ip))
 
 /* INTERRUPT */
@@ -1455,7 +1455,7 @@
 #define offset__AUD_SPDIFPC_IT_CLR(ip) 0x010
 #define get__AUD_SPDIFPC_IT_CLR(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_IT_CLR(ip))
-#define set__AUD_SPDIFPC_IT_CLR(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_IT_CLR(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_IT_CLR(ip))
 
 /* INTERRUPT_EN */
@@ -1882,7 +1882,7 @@
 #define offset__AUD_SPDIFPC_VAL(ip) 0x100
 #define get__AUD_SPDIFPC_VAL(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_VAL(ip))
-#define set__AUD_SPDIFPC_VAL(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_VAL(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_VAL(ip))
 
 /* VALIDITY_BITS */
@@ -1910,7 +1910,7 @@
 #define offset__AUD_SPDIFPC_DATA(ip) 0x104
 #define get__AUD_SPDIFPC_DATA(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_DATA(ip))
-#define set__AUD_SPDIFPC_DATA(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_DATA(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_DATA(ip))
 
 /* USER_DATA_BITS */
@@ -1938,8 +1938,8 @@
 #define offset__AUD_SPDIFPC_CHA_STA(ip, n) (0x108 + (n) * 4)
 #define get__AUD_SPDIFPC_CHA_STA(ip, n) readl(ip->base + \
 	offset__AUD_SPDIFPC_CHA_STA(ip, n))
-#define set__AUD_SPDIFPC_CHA_STA(ip, n, value) writel((value), \
-	ip->base + offset__AUD_SPDIFPC_CHA_STA(ip, n))
+#define set__AUD_SPDIFPC_CHA_STA(ip, n, value) writel(value, ip->base \
+	+ offset__AUD_SPDIFPC_CHA_STA(ip, n))
 
 /* CHA_STA */
 
@@ -1966,7 +1966,7 @@
 #define offset__AUD_SPDIFPC_CTRL(ip) 0x200
 #define get__AUD_SPDIFPC_CTRL(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_CTRL(ip))
-#define set__AUD_SPDIFPC_CTRL(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_CTRL(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_CTRL(ip))
 
 /* OPERATION */
@@ -2161,8 +2161,8 @@
 #define offset__AUD_SPDIFPC_SPDIFSTA(ip) 0x204
 #define get__AUD_SPDIFPC_SPDIFSTA(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_SPDIFSTA(ip))
-#define set__AUD_SPDIFPC_SPDIFSTA(ip, value) writel((value), ip->base \
-	+ offset__AUD_SPDIFPC_SPDIFSTA(ip))
+#define set__AUD_SPDIFPC_SPDIFSTA(ip, value) writel(value, ip->base + \
+	offset__AUD_SPDIFPC_SPDIFSTA(ip))
 
 /* RUN_STOP */
 
@@ -2391,7 +2391,7 @@
 #define offset__AUD_SPDIFPC_PAUSE(ip) 0x208
 #define get__AUD_SPDIFPC_PAUSE(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_PAUSE(ip))
-#define set__AUD_SPDIFPC_PAUSE(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_PAUSE(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_PAUSE(ip))
 
 /* PAUSE_LENGTH */
@@ -2435,8 +2435,8 @@
 #define offset__AUD_SPDIFPC_DATA_BURST(ip) 0x20c
 #define get__AUD_SPDIFPC_DATA_BURST(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_DATA_BURST(ip))
-#define set__AUD_SPDIFPC_DATA_BURST(ip, value) writel((value), \
-	ip->base + offset__AUD_SPDIFPC_DATA_BURST(ip))
+#define set__AUD_SPDIFPC_DATA_BURST(ip, value) writel(value, ip->base \
+	+ offset__AUD_SPDIFPC_DATA_BURST(ip))
 
 /* DATA_BURST */
 
@@ -2479,7 +2479,7 @@
 #define offset__AUD_SPDIFPC_PA_PB(ip) 0x210
 #define get__AUD_SPDIFPC_PA_PB(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_PA_PB(ip))
-#define set__AUD_SPDIFPC_PA_PB(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_PA_PB(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_PA_PB(ip))
 
 /* PB */
@@ -2517,7 +2517,7 @@
 #define offset__AUD_SPDIFPC_PC_PD(ip) 0x214
 #define get__AUD_SPDIFPC_PC_PD(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_PC_PD(ip))
-#define set__AUD_SPDIFPC_PC_PD(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_PC_PD(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_PC_PD(ip))
 
 /* PD */
@@ -2555,7 +2555,7 @@
 #define offset__AUD_SPDIFPC_CL1(ip) 0x218
 #define get__AUD_SPDIFPC_CL1(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_CL1(ip))
-#define set__AUD_SPDIFPC_CL1(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_CL1(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_CL1(ip))
 
 /* CHANNEL_STATUS */
@@ -2583,7 +2583,7 @@
 #define offset__AUD_SPDIFPC_CR1(ip) 0x21c
 #define get__AUD_SPDIFPC_CR1(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_CR1(ip))
-#define set__AUD_SPDIFPC_CR1(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_CR1(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_CR1(ip))
 
 /* CH_STA */
@@ -2609,7 +2609,7 @@
 #define offset__AUD_SPDIFPC_SUV(ip) 0x220
 #define get__AUD_SPDIFPC_SUV(ip) readl(ip->base + \
 	offset__AUD_SPDIFPC_SUV(ip))
-#define set__AUD_SPDIFPC_SUV(ip, value) writel((value), ip->base + \
+#define set__AUD_SPDIFPC_SUV(ip, value) writel(value, ip->base + \
 	offset__AUD_SPDIFPC_SUV(ip))
 
 /* CH_STA_LEFT */
@@ -2704,5 +2704,7 @@
 	mask__AUD_SPDIFPC_SUV__VAL_RIGHT(ip)) << \
 	shift__AUD_SPDIFPC_SUV__VAL_RIGHT(ip)), ip->base + \
 	offset__AUD_SPDIFPC_SUV(ip))
+
+
 
 #endif

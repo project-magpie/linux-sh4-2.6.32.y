@@ -219,8 +219,7 @@ int snd_stm_irq_request(struct platform_device *pdev,
 	return 0;
 }
 
-int snd_stm_fdma_request(struct platform_device *pdev,
-		unsigned int *channel)
+int snd_stm_fdma_request(struct platform_device *pdev, int *channel)
 {
 	static const char *fdmac_id[] = { STM_DMAC_ID, NULL };
 	static const char *fdma_cap_lb[] = { STM_DMA_CAP_LOW_BW, NULL };

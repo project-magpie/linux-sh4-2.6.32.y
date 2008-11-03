@@ -88,7 +88,7 @@ struct snd_stm_spdif_player {
 	void *base;
 	unsigned long fifo_phys_address;
 	unsigned int irq;
-	unsigned int fdma_channel;
+	int fdma_channel;
 
 	/* Environment settings */
 	struct snd_stm_fsynth_channel *fsynth_channel;

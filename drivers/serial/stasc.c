@@ -1052,8 +1052,9 @@ static irqreturn_t kgdbasc_interrupt(int irq, void *ptr)
 
 static void __init kgdbasc_lateinit(void)
 {
-	if (asc_console.index != kgdbasc_portno) {
+	kgdb_asc_port = &asc_ports[kgdbasc_portno];
 
+	if (asc_console.index != kgdbasc_portno) {
 		kgdbasc_set_termios();
 
 		if (request_irq(kgdb_asc_port->port.irq, kgdbasc_interrupt,
@@ -1062,8 +1063,6 @@ static void __init kgdbasc_lateinit(void)
 			return;
 		}
 		asc_enable_rx_interrupts(&kgdb_asc_port->port);
-
-		kgdb_asc_port = &asc_ports[kgdbasc_portno];
 	}
 	return;
 }

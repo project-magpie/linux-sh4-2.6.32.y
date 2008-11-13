@@ -150,4 +150,4 @@ config SND_STM_CONV_I2C
 		how to define required I2C addresses & commands.
 
 		If compiled as module, it will be called
-		snd-stm-conv-gpio.ko.
+		snd-stm-conv-i2c.ko.

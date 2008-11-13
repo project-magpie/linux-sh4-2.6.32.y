@@ -379,8 +379,6 @@ static inline int handle_delayslot(struct pt_regs *regs,
  * opcodes..
  */
 
-static int handle_unaligned_notify_count = 10;
-
 int handle_unaligned_access(opcode_t instruction, struct pt_regs *regs,
 			    struct mem_access *ma)
 {
@@ -390,12 +388,11 @@ int handle_unaligned_access(opcode_t instruction, struct pt_regs *regs,
 	index = (instruction>>8)&15;	/* 0x0F00 */
 	rm = regs->regs[index];
 
-	/* shout about the first ten userspace fixups */
-	if (user_mode(regs) && handle_unaligned_notify_count>0) {
-		handle_unaligned_notify_count--;
-
-		printk(KERN_NOTICE "Fixing up unaligned userspace access "
+	/* shout about userspace fixups */
+	if (printk_ratelimit ()) {
+		printk(KERN_NOTICE "Fixing up unaligned %s access "
 		       "in \"%s\" pid=%d pc=0x%p ins=0x%04hx\n",
+		       user_mode(regs) ? "userspace" : "kernel",
 		       current->comm, task_pid_nr(current),
 		       (void *)regs->pc, instruction);
 	}

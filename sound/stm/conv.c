@@ -64,7 +64,6 @@ struct snd_stm_conv_group {
 	struct snd_stm_conv_source *source;
 
 	struct list_head converters;
-	struct mutex converters_mutex; /* Protects converters list */
 
 	int enabled;
 	int muted_by_source;
@@ -86,14 +85,13 @@ struct snd_stm_conv_source {
 	struct snd_stm_conv_group *group_selected;
 	struct snd_stm_conv_group *group_active;
 	struct list_head groups;
-	struct mutex groups_mutex; /* Protects groups list & pointers*/
 	struct snd_kcontrol *ctl_route;
 
 	snd_stm_magic_field;
 };
 
 LIST_HEAD(snd_stm_conv_sources); /* Sources list */
-DEFINE_MUTEX(snd_stm_conv_sources_mutex); /* Synchronises the sources list */
+DEFINE_MUTEX(snd_stm_conv_mutex); /* Big Converters Structure Lock ;-) */
 
 
 
@@ -480,7 +478,7 @@ static int snd_stm_conv_ctl_route_info(struct snd_kcontrol *kcontrol,
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
 	uinfo->count = 1;
 
-	mutex_lock(&source->groups_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	list_for_each_entry(group, &source->groups, list) {
 		if (list_is_last(&group->list, &source->groups) &&
@@ -494,7 +492,7 @@ static int snd_stm_conv_ctl_route_info(struct snd_kcontrol *kcontrol,
 
 	uinfo->value.enumerated.items = item;
 
-	mutex_unlock(&source->groups_mutex);
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	return 0;
 }
@@ -512,7 +510,7 @@ static int snd_stm_conv_ctl_route_get(struct snd_kcontrol *kcontrol,
 	snd_stm_assert(source, return -EINVAL);
 	snd_stm_magic_assert(source, return -EINVAL);
 
-	mutex_lock(&source->groups_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	ucontrol->value.enumerated.item[0] = 0; /* First is default ;-) */
 
@@ -524,7 +522,7 @@ static int snd_stm_conv_ctl_route_get(struct snd_kcontrol *kcontrol,
 		item++;
 	};
 
-	mutex_unlock(&source->groups_mutex);
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	return 0;
 }
@@ -543,7 +541,7 @@ static int snd_stm_conv_ctl_route_put(struct snd_kcontrol *kcontrol,
 	snd_stm_assert(source, return -EINVAL);
 	snd_stm_magic_assert(source, return -EINVAL);
 
-	mutex_lock(&source->groups_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	list_for_each_entry(group, &source->groups, list) {
 		if (item == ucontrol->value.enumerated.item[0]) {
@@ -556,7 +554,7 @@ static int snd_stm_conv_ctl_route_put(struct snd_kcontrol *kcontrol,
 		item++;
 	}
 
-	mutex_unlock(&source->groups_mutex);
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	return changed;
 }
@@ -613,10 +611,13 @@ static struct snd_stm_conv_source *snd_stm_conv_get_source(
 {
 	struct snd_stm_conv_source *source;
 
+	snd_stm_printd(1, "snd_stm_conv_get_source(bus=%p, bus_id='%s')\n",
+			bus, bus_id);
+
 	snd_stm_assert(bus, return NULL);
 	snd_stm_assert(bus_id, return NULL);
 
-	mutex_lock(&snd_stm_conv_sources_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	list_for_each_entry(source, &snd_stm_conv_sources, list)
 		if (bus == source->bus && strcmp(bus_id, source->bus_id) == 0)
@@ -627,19 +628,18 @@ static struct snd_stm_conv_source *snd_stm_conv_get_source(
 	source = kzalloc(sizeof(*source), GFP_KERNEL);
 	if (!source) {
 		snd_stm_printe("Can't allocate memory for source!\n");
-		return NULL;
+		goto done;
 	}
 	snd_stm_magic_set(source);
 
 	source->bus = bus;
 	strlcpy(source->bus_id, bus_id, BUS_ID_SIZE);
 	INIT_LIST_HEAD(&source->groups);
-	mutex_init(&source->groups_mutex);
 
 	list_add_tail(&source->list, &snd_stm_conv_sources);
 
 done:
-	mutex_unlock(&snd_stm_conv_sources_mutex);
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	return source;
 }
@@ -674,7 +674,7 @@ struct snd_stm_conv_source *snd_stm_conv_register_source(struct bus_type *bus,
 	source->card = card;
 	source->card_device = card_device;
 
-	mutex_lock(&source->groups_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	/* Add route ALSA control if needed */
 
@@ -700,7 +700,7 @@ struct snd_stm_conv_source *snd_stm_conv_register_source(struct bus_type *bus,
 		}
 	}
 
-	mutex_unlock(&source->groups_mutex);
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	return source;
 }
@@ -713,15 +713,18 @@ int snd_stm_conv_unregister_source(struct snd_stm_conv_source *source)
 	snd_stm_assert(source, return -EINVAL);
 	snd_stm_magic_assert(source, return -EINVAL);
 
-	snd_stm_assert(list_empty(&source->groups), return -EINVAL);
-
-	mutex_lock(&snd_stm_conv_sources_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	list_del(&source->list);
-	snd_stm_magic_clear(source);
-	kfree(source);
+	source->channels_num = 0;
 
-	mutex_unlock(&snd_stm_conv_sources_mutex);
+	/* If there is no more registered converters... */
+	if (list_empty(&source->groups)) {
+		snd_stm_magic_clear(source);
+		kfree(source);
+	}
+
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	return 0;
 }
@@ -743,7 +746,7 @@ static inline struct snd_stm_conv_group *snd_stm_conv_get_group(
 	/* Random memory fuse */
 	snd_stm_assert(strlen(name) < 1024, return NULL);
 
-	mutex_lock(&source->groups_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	list_for_each_entry(group, &source->groups, list)
 		if (strcmp(name, group->name) == 0)
@@ -759,7 +762,6 @@ static inline struct snd_stm_conv_group *snd_stm_conv_get_group(
 	snd_stm_magic_set(group);
 
 	INIT_LIST_HEAD(&group->converters);
-	mutex_init(&group->converters_mutex);
 
 	strcpy(group->name, name);
 
@@ -778,12 +780,12 @@ static inline struct snd_stm_conv_group *snd_stm_conv_get_group(
 		snd_stm_conv_ctl_route_add(source);
 
 done:
-	mutex_unlock(&source->groups_mutex);
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	return group;
 }
 
-static inline int snd_stm_conv_remove_group(struct snd_stm_conv_group *group)
+static int snd_stm_conv_remove_group(struct snd_stm_conv_group *group)
 {
 	struct snd_stm_conv_source *source;
 
@@ -796,8 +798,6 @@ static inline int snd_stm_conv_remove_group(struct snd_stm_conv_group *group)
 
 	snd_stm_assert(source, return -EINVAL);
 	snd_stm_magic_assert(source, return -EINVAL);
-
-	mutex_lock(&source->groups_mutex);
 
 	list_del(&group->list);
 
@@ -827,7 +827,11 @@ static inline int snd_stm_conv_remove_group(struct snd_stm_conv_group *group)
 	snd_stm_magic_clear(group);
 	kfree(group);
 
-	mutex_unlock(&source->groups_mutex);
+	/* Release the source resources, if not used anymore */
+	if (list_empty(&source->groups) && source->channels_num == 0) {
+		snd_stm_magic_clear(source);
+		kfree(source);
+	}
 
 	return 0;
 }
@@ -892,12 +896,12 @@ struct snd_stm_conv_converter *snd_stm_conv_register_converter(
 		snd_stm_printe("WARNING! Adding a converter to an active "
 				"group!\n");
 
-	mutex_lock(&group->converters_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	converter->group = group;
 	list_add_tail(&converter->list, &group->converters);
 
-	mutex_unlock(&group->converters_mutex);
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	/* Add mute ALSA control if muting is supported and source is known */
 
@@ -939,7 +943,7 @@ int snd_stm_conv_unregister_converter(struct snd_stm_conv_converter *converter)
 	snd_stm_assert(group, return -EINVAL);
 	snd_stm_magic_assert(group, return -EINVAL);
 
-	mutex_lock(&group->converters_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	list_del(&converter->list);
 
@@ -952,7 +956,7 @@ int snd_stm_conv_unregister_converter(struct snd_stm_conv_converter *converter)
 	if (list_empty(&group->converters))
 		snd_stm_conv_remove_group(group);
 
-	mutex_unlock(&group->converters_mutex);
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	return 0;
 }
@@ -981,11 +985,11 @@ struct snd_stm_conv_group *snd_stm_conv_request_group(
 
 	snd_stm_assert(!source->group_active, return NULL);
 
-	mutex_lock(&source->groups_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	source->group_active = source->group_selected;
 
-	mutex_unlock(&source->groups_mutex);
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	return source->group_active;
 }
@@ -1002,11 +1006,11 @@ int snd_stm_conv_release_group(struct snd_stm_conv_group *group)
 
 	snd_stm_assert(group == group->source->group_active, return -EINVAL);
 
-	mutex_lock(&group->source->groups_mutex);
+	mutex_lock(&snd_stm_conv_mutex);
 
 	group->source->group_active = NULL;
 
-	mutex_unlock(&group->source->groups_mutex);
+	mutex_unlock(&snd_stm_conv_mutex);
 
 	return 0;
 }

@@ -942,9 +942,6 @@ static void handle_exception(struct pt_regs *regs)
 	regs->gbr = trap_registers.gbr;
 	regs->mach = trap_registers.mach;
 	regs->macl = trap_registers.macl;
-
-	vbr_val = trap_registers.vbr;
-	asm("ldc %0, vbr": :"r"(vbr_val));
 }
 
 asmlinkage void kgdb_handle_exception(unsigned long r4, unsigned long r5,

@@ -46,7 +46,7 @@ static struct eth_dev {
 	int user_duplex;
 } nwhwdev[NWHW_MAX_DEV];
 
-static int __init hex_conv_nibble(char x)
+static inline int hex_conv_nibble(char x)
 {
 	if ((x >= '0') && (x <= '9'))
 		return x - '0';
@@ -58,7 +58,7 @@ static int __init hex_conv_nibble(char x)
 	return -1;
 }
 
-static int __init parse_ether(const char *mac_addr_str, struct sockaddr *addr)
+static inline int parse_ether(const char *mac_addr_str, struct sockaddr *addr)
 {
 	int i, c1, c2;
 	char *mac_addr = addr->sa_data;
@@ -166,7 +166,9 @@ void nwhw_uconfig(struct net_device *dev)
 {
 	struct sockaddr ether_addr;
 	int ndev = 0;
-	int valid_ether = valid_ether = nwhwdev[ndev].user_hw_addr[0];
+	int valid_ether;
+
+	valid_ether = nwhwdev[ndev].user_hw_addr[0];
 
 	printk(KERN_DEBUG "%s\n", __FUNCTION__);
 	while (ndev < NWHW_MAX_DEV) {

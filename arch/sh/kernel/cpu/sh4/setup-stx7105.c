@@ -803,7 +803,7 @@ unsigned int stasc_configured_devices_count __initdata = 0;
 void __init stx7105_configure_asc(const int *ascs, int num_ascs, int console)
 {
 	int i;
-	static const int alt_conf[4] = { 4, 4, 3, 3 };
+	static const int alt_conf[4] = { 4, 4, 3, 2 };
 
 	for (i=0; i<num_ascs; i++) {
 		int port;

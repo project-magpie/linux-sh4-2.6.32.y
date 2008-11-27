@@ -146,15 +146,18 @@ static struct mtd_partition nand2_parts[] = {
 
 /* Timing data for onboard NAND */
 static struct emi_timing_data nand_timing_data = {
-	.rd_cycle_time	= 40,		 /* times in ns */
-	.rd_oee_start	= 0,
-	.rd_oee_end	= 10,
-	.rd_latchpoint	= 10,
+	.rd_cycle_time	 = 40,		 /* times in ns */
+	.rd_oee_start	 = 0,
+	.rd_oee_end	 = 10,
+	.rd_latchpoint	 = 10,
 
-	.busreleasetime = 10,
-	.wr_cycle_time	= 40,
-	.wr_oee_start	= 0,
-	.wr_oee_end	= 10,
+	.busreleasetime  = 10,
+	.wr_cycle_time	 = 40,
+	.wr_oee_start	 = 0,
+	.wr_oee_end	 = 10,
+
+	.wait_active_low = 0,
+
 };
 
 static struct nand_config_data cb101_nand_config[] = {

@@ -228,15 +228,17 @@ static struct nand_config_data nand_config = {
 
 	/* Timings for NAND512W3A */
 	.emi_timing_data = &(struct emi_timing_data) {
-		.rd_cycle_time	= 40,		 /* times in ns */
-		.rd_oee_start	= 0,
-		.rd_oee_end	= 10,
-		.rd_latchpoint	= 10,
-		.busreleasetime = 0,
+		.rd_cycle_time	 = 40,		 /* times in ns */
+		.rd_oee_start	 = 0,
+		.rd_oee_end	 = 10,
+		.rd_latchpoint	 = 10,
+		.busreleasetime  = 0,
 
-		.wr_cycle_time	= 40,
-		.wr_oee_start	= 0,
-		.wr_oee_end	= 10,
+		.wr_cycle_time	 = 40,
+		.wr_oee_start	 = 0,
+		.wr_oee_end	 = 10,
+
+		.wait_active_low = 0,
 	},
 
 	.chip_delay		= 40,		/* time in us */

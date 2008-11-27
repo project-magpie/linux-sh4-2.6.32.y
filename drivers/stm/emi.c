@@ -169,7 +169,8 @@ void __init emi_config_pata(int bank, int pc_mode)
 
 static void __init set_nand_read_timings(int bank, int cycle_time,
 		int IORD_start, int IORD_end,
-		int RD_latch, int busreleasetime)
+		int RD_latch, int busreleasetime,
+		int wait_active_low )
 {
 	cycle_time = cycle_time / 10;		/* cycles */
 	IORD_start = IORD_start / 5;		/* phases */
@@ -177,7 +178,7 @@ static void __init set_nand_read_timings(int bank, int cycle_time,
 	RD_latch = RD_latch / 10;		/* cycles */
 	busreleasetime = busreleasetime / 10;   /* cycles */
 
-	writel(0x04000699 | (busreleasetime << 11) | (RD_latch << 20),
+	writel(0x04000699 | (busreleasetime << 11) | (RD_latch << 20) | (wait_active_low << 25),
 			emi_control + BANK_EMICONFIGDATA(bank, 0));
 
 	writel((cycle_time << 24) | (IORD_start << 12) | (IORD_end << 8),
@@ -204,7 +205,8 @@ void __init emi_config_nand(int bank, struct emi_timing_data *timing_data)
 			timing_data->rd_oee_start,
 			timing_data->rd_oee_end,
 			timing_data->rd_latchpoint,
-			timing_data->busreleasetime);
+			timing_data->busreleasetime,
+			timing_data->wait_active_low);
 
 	set_nand_write_timings(bank,
 			timing_data->wr_cycle_time,

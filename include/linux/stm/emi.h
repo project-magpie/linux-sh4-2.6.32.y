@@ -19,6 +19,8 @@ struct emi_timing_data {
 	int wr_cycle_time;
 	int wr_oee_start;
 	int wr_oee_end;
+
+	int wait_active_low;
 };
 
 int emi_init(unsigned long memory_base, unsigned long control_base);

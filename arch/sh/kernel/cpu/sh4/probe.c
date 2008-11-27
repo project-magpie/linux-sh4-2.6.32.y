@@ -177,7 +177,8 @@ int __init detect_cpu_and_cache_system(void)
 	case 0x9090 ... 0x9092:
 		/* ST40-300 core */
 		switch (prr_all) {
-		case 0x10:
+		case 0x0010:
+			/* 7105 cut 1.0 */
 			cpu_data->type = CPU_STX7105;
 			break;
 		case 0x9f:
@@ -192,6 +193,10 @@ int __init detect_cpu_and_cache_system(void)
 			break;
 		case 0x9b00:
 			boot_cpu_data.type = CPU_STX7141;
+			break;
+		case 0x9e00 ... 0x9eff:
+			/* 7105 (cut 2.0 = 0x9e20) */
+			cpu_data->type = CPU_STX7105;
 			break;
 		default:
 			cpu_data->type = CPU_SH_NONE;

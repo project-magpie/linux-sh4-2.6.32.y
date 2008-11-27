@@ -541,13 +541,17 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 	sc = sysconf_claim(SYS_CFG, 7, 17, 17, "stmmac");
 	sysconf_write(sc, ext_mdio ? 1 : 0);
 
-	/* RMII pin multiplexing: 0: RMII interface active, 1: MII interface */
+	/* RMII pin multiplexing: 0: MII interface active, 1: RMII interface */
+	/* cut 1: This register wasn't connected, so only MII available */
 	sc = sysconf_claim(SYS_CFG, 7, 18, 18, "stmmac");
-	sysconf_write(sc, rmii_mode ? 0 : 1);
+	sysconf_write(sc, rmii_mode ? 1 : 0);
 
-	/* PHY EXT CLOCK: 0: provided by STx7105; 1: external */
-	sc = sysconf_claim(SYS_CFG, 7, 19, 19, "stmmac");
-	sysconf_write(sc, ext_clk ? 1 : 0);
+	/*
+	 * PHY EXT CLOCK: 0: provided by STx7105; 1: external
+	 * cut 1: sysconf7[19], however this wasn't connected, so only
+	 * input supported.
+	 * cut 2: direction now based on PIO direction, so this code removed.
+	 */
 
 	/* MAC speed*/
 	mac_speed_sc = sysconf_claim(SYS_CFG, 7, 20, 20, "stmmac");
@@ -631,8 +635,11 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 	pin = stpio_request_pin(9, 4, "eth", STPIO_ALT_BIDIR);
 
 	/* MIIPHYCLK */
+	/* Not implemented in cut 1 (DDTS GNBvd69906) - clock never output */
+	/* In cut 2 PIO direction used to control input or output. */
 	stx7105_pio_sysconf(9, 5, 1, "eth");
-	pin = stpio_request_pin(9, 5, "eth", STPIO_ALT_OUT);
+	pin = stpio_request_pin(9, 5, "eth",
+				ext_clk ? STPIO_IN : STPIO_ALT_OUT);
 
 	/* MIIMDINT */
 	stx7105_pio_sysconf(9, 6, 1, "eth");

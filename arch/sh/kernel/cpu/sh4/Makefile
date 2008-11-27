@@ -3,7 +3,7 @@
 #
 
 obj-y	:= probe.o common.o
-common-y	+= $(addprefix ../sh3/, entry.o ex.o)
+common-y	+= entry.o
 
 obj-$(CONFIG_SH_FPU)			+= fpu.o softfloat.o
 obj-$(CONFIG_SH_STORE_QUEUES)		+= sq.o

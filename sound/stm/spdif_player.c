@@ -1496,7 +1496,9 @@ static int snd_stm_spdif_player_probe(struct platform_device *pdev)
 	struct snd_card *card = snd_stm_card_get();
 	int buffer_bytes_max;
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
+	snd_stm_printd(1, "snd_stm_spdif_player_probe(pdev=%p)\n", pdev);
+
+	snd_stm_printd(0, "Probing device '%s'...\n", pdev->dev.bus_id);
 
 	snd_stm_assert(card != NULL, return -EINVAL);
 
@@ -1609,8 +1611,6 @@ static int snd_stm_spdif_player_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, spdif_player);
 
-	snd_stm_printd(0, "--- Probed successfully!\n");
-
 	return 0;
 
 error_conv_register_source:
@@ -1636,6 +1636,8 @@ error_alloc:
 static int snd_stm_spdif_player_remove(struct platform_device *pdev)
 {
 	struct snd_stm_spdif_player *spdif_player = platform_get_drvdata(pdev);
+
+	snd_stm_printd(1, "snd_stm_spdif_player_remove(pdev=%p)\n", pdev);
 
 	snd_stm_assert(spdif_player, return -EINVAL);
 	snd_stm_magic_assert(spdif_player, return -EINVAL);

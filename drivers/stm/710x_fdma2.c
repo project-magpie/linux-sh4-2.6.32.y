@@ -230,9 +230,14 @@ free_list:
 
 static void fdma_start_channel(struct fdma_dev * fd,
 			      int ch_num,
-			      unsigned long start_addr)
+			      unsigned long start_addr,
+			       unsigned long initial_count)
 {
 	u32 cmd_sta_value = (start_addr | CMDSTAT_FDMA_START_CHANNEL);
+
+	/* See comment in stb710x_fdma_get_residue() for why we do this. */
+	writel(initial_count,
+	       fd->io_base + (ch_num * NODE_DATA_OFFSET) + fd->regs.fdma_cntn);
 
 	writel(cmd_sta_value,CMD_STAT_REG(ch_num));
 	writel(MBOX_STR_CMD(ch_num),fd->io_base +fd->regs.fdma_cmd_set);
@@ -868,28 +873,74 @@ static int stb710x_fdma_get_residue(struct dma_channel *chan)
 {
 	struct fdma_dev *fd = FDMA_DEV(chan);
 	unsigned long irqflags;
-	int count = 0;
+	u32 count = 0;
 
 	spin_lock_irqsave(&fd->channel_lock, irqflags);
 
 	if (likely(FDMA_CHAN(chan)->sw_state != FDMA_IDLE)) {
 		void __iomem *chan_base = fd->io_base +
 				(chan->chan * NODE_DATA_OFFSET);
-		fdma_llu_entry *current_node, *next_node;
+		unsigned long current_node_phys, next_node_phys;
+		unsigned long stat1, stat2;
+		fdma_llu_entry *current_node;
 
 		/* Get info about current node */
-		current_node = phys_to_virt(readl(CMD_STAT_REG(chan->chan)) &
-				~0x1f);
-		count = readl(chan_base + fd->regs.fdma_cntn);
+		do {
+			stat1 = readl(CMD_STAT_REG(chan->chan));
+			count = readl(chan_base + fd->regs.fdma_cntn);
+			stat2 = readl(CMD_STAT_REG(chan->chan));
+		} while (stat1 != stat2);
+
+		current_node_phys = stat1 & ~0x1f;
+		current_node = phys_to_virt(current_node_phys);
+
+		switch (stat1 & 3) {
+		case FDMA_CHANNEL_IDLE:
+			/*
+			 * Channel has stopped, but we haven't taken
+			 * the interrupt to change the ->sw_state
+			 * field yet. We could legitimatly return zero
+			 * here, but instead pretend we haven't quite
+			 * finished yet. Is this the right thing to
+			 * do?
+			 */
+			count = 1;
+			goto unlock;
+
+		case FDMA_CHANNEL_RUNNING:
+		case FDMA_CHANNEL_PAUSED:
+			/*
+			 * Unfortuntaly the firmware appears to modify
+			 * CMD_STAT before it has modifed the COUNT.
+			 * However we write the count in
+			 * fdma_start_channel() so can assume it is
+			 * valid.
+			 */
+			break;
+
+		case CMDSTAT_FDMA_START_CHANNEL:
+			/*
+			 * Channel hasn't started running yet, so count
+			 * hasn't yet been loaded from the node. But again
+			 * the value was written in fdma_start_channel()
+			 * so the value read from hardware is valid.
+			 */
+			break;
+		}
+
+		next_node_phys = current_node->next_item;
 
 		/* Accumulate the bytes remaining in the list */
-		next_node = phys_to_virt(readl(chan_base + fd->regs.fdma_ptrn));
-		while (next_node && next_node > current_node) {
+		while (next_node_phys && next_node_phys > current_node_phys) {
+			fdma_llu_entry *next_node;
+
+			next_node = phys_to_virt(next_node_phys);
 			count += next_node->size_bytes;
-			next_node = phys_to_virt(next_node->next_item);
+			next_node_phys = next_node->next_item;
 		}
 	}
 
+unlock:
 	spin_unlock_irqrestore(&fd->channel_lock, irqflags);
 
 	return count;
@@ -1229,7 +1280,8 @@ static int stb710x_fdma_xfer(
 
 	BUG_ON(!(IS_CHANNEL_IDLE(fd,channel->chan)));
 
-	fdma_start_channel(fd,channel->chan, desc->llu_nodes->dma_addr);
+	fdma_start_channel(fd,channel->chan, desc->llu_nodes->dma_addr,
+			   desc->llu_nodes->virt_addr->size_bytes);
 	chan->sw_state = FDMA_RUNNING;
 
 	spin_unlock_irqrestore(&fd->channel_lock, irqflags);

@@ -869,30 +869,38 @@ static int fdma_check_firmware_state(struct fdma_dev * fd)
  *---------------------------------------------------------------------*/
 
 /*returns the number of bytes left to transfer for the current node*/
-static int stb710x_fdma_get_residue(struct dma_channel *chan)
+static int stb710x_fdma_get_residue(struct dma_channel *channel)
 {
-	struct fdma_dev *fd = FDMA_DEV(chan);
+	struct fdma_dev *fd = FDMA_DEV(channel);
+	struct channel_status *chan = FDMA_CHAN(channel);
+	struct stm_dma_params *params = chan->params;
+	struct dma_xfer_descriptor *desc =
+		(struct dma_xfer_descriptor*)params->priv;
 	unsigned long irqflags;
 	u32 count = 0;
 
 	spin_lock_irqsave(&fd->channel_lock, irqflags);
 
-	if (likely(FDMA_CHAN(chan)->sw_state != FDMA_IDLE)) {
+	if (likely(chan->sw_state != FDMA_IDLE)) {
 		void __iomem *chan_base = fd->io_base +
-				(chan->chan * NODE_DATA_OFFSET);
-		unsigned long current_node_phys, next_node_phys;
+				(channel->chan * NODE_DATA_OFFSET);
+		unsigned long current_node_phys;
 		unsigned long stat1, stat2;
-		fdma_llu_entry *current_node;
+		struct llu_node *current_node;
+		int node_num;
 
 		/* Get info about current node */
 		do {
-			stat1 = readl(CMD_STAT_REG(chan->chan));
+			stat1 = readl(CMD_STAT_REG(channel->chan));
 			count = readl(chan_base + fd->regs.fdma_cntn);
-			stat2 = readl(CMD_STAT_REG(chan->chan));
+			stat2 = readl(CMD_STAT_REG(channel->chan));
 		} while (stat1 != stat2);
 
 		current_node_phys = stat1 & ~0x1f;
-		current_node = phys_to_virt(current_node_phys);
+		for (node_num=0, current_node = desc->llu_nodes;
+		     current_node->dma_addr != current_node_phys;
+		     node_num++, current_node++)
+			BUG_ON(node_num == desc->alloced_nodes);
 
 		switch (stat1 & 3) {
 		case FDMA_CHANNEL_IDLE:
@@ -928,15 +936,12 @@ static int stb710x_fdma_get_residue(struct dma_channel *chan)
 			break;
 		}
 
-		next_node_phys = current_node->next_item;
-
-		/* Accumulate the bytes remaining in the list */
-		while (next_node_phys && next_node_phys > current_node_phys) {
-			fdma_llu_entry *next_node;
-
-			next_node = phys_to_virt(next_node_phys);
-			count += next_node->size_bytes;
-			next_node_phys = next_node->next_item;
+		if (current_node->virt_addr->next_item) {
+			do {
+				BUG_ON(node_num++ == desc->alloced_nodes);
+				current_node++;
+				count += current_node->virt_addr->size_bytes;
+			} while (current_node->virt_addr->next_item);
 		}
 	}
 

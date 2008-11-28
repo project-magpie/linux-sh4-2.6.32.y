@@ -218,7 +218,7 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 {
 	void *ret;
 	int order = get_order(size);
-	struct page *page, *end;
+	struct page *page;
 	unsigned long phys_addr;
 	void* kernel_addr;
 
@@ -250,11 +250,16 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 	 */
 	dma_cache_sync(dev, kernel_addr, size, DMA_BIDIRECTIONAL);
 
-	/* Free the otherwise unused pages */
-	split_page(page, order);
-	end = page + (1 << order);
-	for (page += size >> PAGE_SHIFT; page < end; page++) {
-		__free_page(page);
+	/*
+	 * Free the otherwise unused pages, unless got compound page
+	 */
+	if (!PageCompound(page)) {
+		struct page *end = page + (1 << order);
+
+		split_page(page, order);
+
+		for (page += size >> PAGE_SHIFT; page < end; page++)
+			__free_page(page);
 	}
 
 	*dma_handle = phys_addr;
@@ -267,16 +272,22 @@ void dma_free_coherent(struct device *dev, size_t size,
 {
 	int order = get_order(size);
 	struct page *page;
-	int i;
 
 	if (dma_release_from_coherent(dev, order, vaddr))
 		return;
 
 	size = PAGE_ALIGN(size);
 	page = __consistent_unmap(vaddr, size);
-	if (page)
-		for (i = 0; i < (size>>PAGE_SHIFT); i++)
-			__free_page(page+i);
+	if (page) {
+		if (PageCompound(page)) {
+			__free_pages(page, get_order(size));
+		} else {
+			int i;
+
+			for (i = 0; i < (size >> PAGE_SHIFT); i++)
+				__free_page(page + i);
+		}
+	}
 }
 EXPORT_SYMBOL(dma_free_coherent);
 

@@ -385,8 +385,7 @@ void snd_stm_buffer_dispose(struct snd_stm_buffer *buffer)
 	snd_stm_magic_assert(buffer, return);
 	snd_stm_assert(!buffer->allocated, return);
 
-	if (!buffer->bpa2_part)
-		snd_pcm_lib_preallocate_free_for_all(buffer->pcm);
+	/* snd_pcm_lib__preallocate*-ed buffer is freed automagically */
 
 	snd_stm_magic_clear(buffer);
 	kfree(buffer);

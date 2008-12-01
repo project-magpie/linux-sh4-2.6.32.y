@@ -337,6 +337,9 @@ void __init stx7105_configure_ssc(struct plat_ssc_data *data)
 		if(capability & SSC_UNCONFIGURED)
 			continue;
 
+		if (capability & SSC_I2C_CLK_UNIDIR)
+			ssc_pio->clk_unidir = 1;
+
 		switch (i) {
 		case 0:
 		case 1:

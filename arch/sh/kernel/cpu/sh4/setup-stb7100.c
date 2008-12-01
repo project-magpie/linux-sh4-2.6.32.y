@@ -324,6 +324,8 @@ void __init stx7100_configure_ssc(struct plat_ssc_data *data)
 			stssc_devices[i].name = i2c_st;
 			sysconf_write(ssc_sc, 0);
 			stssc_devices[i].id = num_i2c++;
+			if (capability & SSC_I2C_CLK_UNIDIR)
+				ssc_pio->clk_unidir = 1;
 		}
 		platform_device_register(&stssc_devices[i]);
 	}

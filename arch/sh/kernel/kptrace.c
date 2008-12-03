@@ -1832,9 +1832,6 @@ static int subbuf_start_handler(struct rchan_buf *buf,
 
 	subbuf_start_reserve(buf, sizeof(unsigned int));
 
-	if (n_subbufs > 1)
-		memset(subbuf, '\000', subbuf_size);
-
 	return 1;
 }
 

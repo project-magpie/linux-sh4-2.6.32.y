@@ -148,6 +148,7 @@
 typedef enum _iic_state_machine_e {
 	IIC_FSM_VOID = 0,
 	IIC_FSM_PREPARE,
+	IIC_FSM_NOREPSTART,
 	IIC_FSM_START,
 	IIC_FSM_DATA_WRITE,
 	IIC_FSM_PREPARE_2_READ,
@@ -297,10 +298,6 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 					     clk_get_rate(clk_get
 							  (NULL, "comms_clk")));
 
-		trsc->state = IIC_FSM_START;
-		conflags = SSC_I2C_STRTG;
-
-		ssc_store32(adap, SSC_CLR, 0xdc0);
 		trsc->start_state = IIC_FSM_START;
 
 		/* Enable RX FIFO, enable clock stretch on TX empty */
@@ -309,6 +306,18 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 			    SSC_CTL_EN_RX_FIFO | SSC_CTL_EN_TX_FIFO);
 
 		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM);
+
+		/* NO break! */
+
+	case IIC_FSM_NOREPSTART:
+		ssc_store32(adap, SSC_CLR, 0xdc0);
+		trsc->state = IIC_FSM_START;
+		conflags = SSC_I2C_STRTG;
+
+		if (!check_fastmode(adap))
+			ndelay(4000);
+		else
+			ndelay(700);
 
 		/* NO break! */
 
@@ -388,6 +397,7 @@ be_fsm_start:
 		conflags = 0;
 
 		jump_on_fsm_start(trsc);
+
 
 	case IIC_FSM_PREPARE_2_READ:
 		dbg_print2("-Prepare to Read...\n");
@@ -531,14 +541,28 @@ be_fsm_stop:
 		dbg_print2("-Stop\n");
 
 		if (++trsc->current_msg < trsc->queue_length) {
-			/* repstart */
-			dbg_print2(" STOP - REPSTART\n");
-			trsc->next_state = IIC_FSM_REPSTART_ADDR;
-			ssc_store32(adap, SSC_I2C,
-				    SSC_I2C_I2CM | SSC_I2C_TXENB |
-				    SSC_I2C_REPSTRTG);
-			ssc_store32(adap, SSC_IEN,
-				    SSC_IEN_REPSTRTEN | SSC_IEN_ARBLEN);
+			/* More transactions left... */
+			if (pmsg->flags & I2C_M_NOREPSTART) {
+				/* no repstart - stop then start */
+				dbg_print2(" STOP - STOP\n");
+				trsc->next_state = IIC_FSM_NOREPSTART;
+				ssc_store32(adap, SSC_I2C,
+					    SSC_I2C_I2CM | SSC_I2C_TXENB |
+					    SSC_I2C_STOPG);
+				ssc_store32(adap, SSC_IEN,
+					    SSC_IEN_STOPEN | SSC_IEN_ARBLEN);
+			} else {
+				/* repstart */
+				dbg_print2(" STOP - REPSTART\n");
+				trsc->next_state = IIC_FSM_REPSTART_ADDR;
+				ssc_store32(adap, SSC_I2C,
+					    SSC_I2C_I2CM |
+					    SSC_I2C_TXENB |
+					    SSC_I2C_REPSTRTG);
+				ssc_store32(adap, SSC_IEN,
+					    SSC_IEN_REPSTRTEN |
+					    SSC_IEN_ARBLEN);
+			}
 		} else {
 			/* stop */
 			dbg_print2(" STOP - STOP\n");

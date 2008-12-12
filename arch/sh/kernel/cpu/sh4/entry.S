@@ -957,19 +957,16 @@ ENTRY(system_call)
 	mov     #OFF_TRA, r12   !   6 EX        1 r12=OFF_TRA
 
 	mov.l   1f, r9          !   9 LS (l2)   1 r9=&TRA
+	mov     #((0x20<<2)-1), r8     !   6 EX  1 r12=0x7f
 
 	stc     sr, r10         ! 153 CO (l2i2) 2 r10=SR
 
 	mov.l   @r9, r9         !   9 LS (l2)   1 r9=TRA
 	and     r11, r10        !  78 EX        2 r10=SR&INV_MASK
 
-#if defined(CONFIG_KGDB) || defined (CONFIG_SH_STANDARD_BIOS)
-	mov     #((0x20<<2)-1), r8     !   6 EX  1 r12=0x7f
-
 	cmp/hi  r8, r9         !  57 MT        1 t=TRA>0x7f
 
 	bt      debug_trap	! 110 BR        1
-#endif
 
 	stc     k_g_imask, r11  ! 152 CO (l2i2) 2 r11=imask
 
@@ -1077,7 +1074,6 @@ syscall_trace_entry:
 	bra	syscall_exit
 	 mov.l	r0, @(OFF_R0,r15)	! Return value
 
-#if defined(CONFIG_KGDB) || defined (CONFIG_SH_STANDARD_BIOS)
 debug_trap:
 /*
  * The main debug trap handler.
@@ -1089,16 +1085,17 @@ debug_trap:
  * call table offset remains a simple in place mask.
  *
  */
-	and	#(0xf << 2), r9		! EX
-	mov.l	8f, r8			! LS
+	mov	#(0xf << 2), r10
 
-	add	r9, r8			! EX
+	mov.l	8f, r8
+	and	r10, r9
 
-	mov.l	@r8, r8			! LS
+	add	r9, r8
+
+	mov.l	@r8, r8
 
 	jmp	@r8
 	 mov	r15, r4 /* Jump to kgdb, pass stacked regs as arg */
-#endif
 
 syscall_badsys:			! Bad syscall number
 	get_current_thread_info r8, r0
@@ -1117,9 +1114,7 @@ syscall_badsys:			! Bad syscall number
 6:	.long	trace_hardirqs_off
 #endif
 7:	.long	schedule_tail	/* used by ret_from_fork */
-#if defined(CONFIG_KGDB) || defined (CONFIG_SH_STANDARD_BIOS)
 8:	.long	debug_trap_table
-#endif
 9:	.long	do_syscall_trace_leave
 
 !

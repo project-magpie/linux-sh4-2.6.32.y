@@ -874,14 +874,14 @@ static int stb710x_fdma_get_residue(struct dma_channel *channel)
 	struct fdma_dev *fd = FDMA_DEV(channel);
 	struct channel_status *chan = FDMA_CHAN(channel);
 	struct stm_dma_params *params = chan->params;
-	struct dma_xfer_descriptor *desc =
-		(struct dma_xfer_descriptor*)params->priv;
 	unsigned long irqflags;
 	u32 count = 0;
 
 	spin_lock_irqsave(&fd->channel_lock, irqflags);
 
 	if (likely(chan->sw_state != FDMA_IDLE)) {
+		struct dma_xfer_descriptor *desc =
+			(struct dma_xfer_descriptor*)params->priv;
 		void __iomem *chan_base = fd->io_base +
 				(channel->chan * NODE_DATA_OFFSET);
 		unsigned long current_node_phys;

@@ -34,7 +34,7 @@
 #include <linux/stm/soc.h>
 
 #define DRV_NAME			"sata_stm"
-#define DRV_VERSION			"0.5"
+#define DRV_VERSION			"0.6"
 
 /* Offsets of the component blocks */
 #define SATA_AHB2STBUS_BASE			0x00000000
@@ -225,6 +225,8 @@
 #define SERROR_ERR_C	(1<<9)
 #define SERROR_ERR_P	(1<<10)
 #define SERROR_ERR_E	(1<<11)
+#define SERROR_DIAG_N	(1<<16)
+#define SERROR_DIAG_X	(1<<26)
 
 #define SATA_FIS_SIZE	(8*1024)
 
@@ -269,7 +271,7 @@ struct stm_port_priv
 #define STM_MAX_LLIS	ATA_MAX_SECTORS
 #define STM_LLI_BYTES	(STM_MAX_LLIS * sizeof(struct stm_lli))
 
-static void stm_phy_reset(struct ata_port *ap)
+static void stm_phy_configure(struct ata_port *ap)
 {
 	void __iomem *mmio = ap->ioaddr.cmd_addr;
 	struct stm_host_priv *hpriv = ap->host->private_data;
@@ -298,8 +300,6 @@ DPRINTK("ENTER\n");
 		writel(hpriv->phy_init, mmio + SATA_PHYCR);
 		mdelay(100);
 	}
-
-	sata_phy_reset(ap);
 }
 
 /*
@@ -615,6 +615,50 @@ static void stm_data_xfer(struct ata_device *adev, unsigned char *buf,
 	writel(0xffffffff, mmio_base + SATA_ERRMR);
 }
 
+static void stm_freeze(struct ata_port *ap)
+{
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
+
+	/* Disable interrupts */
+	writel(0, mmio + SATA_INTMR);
+	readl(mmio + SATA_INTMR);	/* flush */
+}
+
+static void stm_thaw(struct ata_port *ap)
+{
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
+
+	/* Reenable interrupts */
+	writel(SATA_INT_ERR, mmio + SATA_INTMR);
+}
+
+static int stm_prereset(struct ata_port *ap, unsigned long deadline)
+{
+	stm_phy_configure(ap);
+	return ata_std_prereset(ap, deadline);
+}
+
+static void stm_postreset(struct ata_port *ap, unsigned int *classes)
+{
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
+
+	/* Enable notification of errors. These are reset by COMRESET. */
+	writel(0xffffffff, mmio + SATA_ERRMR);
+	writel(SATA_INT_ERR, mmio + SATA_INTMR);
+
+	ata_std_postreset(ap, classes);
+}
+
+static void stm_error_handler(struct ata_port *ap)
+{
+        ata_do_eh(ap, stm_prereset, ata_std_softreset,
+                  sata_std_hardreset, stm_postreset);
+}
+
+static void stm_post_internal_cmd(struct ata_queued_cmd *qc)
+{
+	stm_bmdma_stop(qc);
+}
 
 /* This needs munging to give per controller stats */
 static unsigned long error_count;
@@ -660,20 +704,33 @@ static unsigned stm_sata_host_irq(struct ata_port *ap)
 {
 	unsigned int handled = 0;
 	void __iomem *mmio = ap->ioaddr.cmd_addr;
-	u32 status, error;
+	struct ata_eh_info *ehi = &ap->eh_info;
+	u32 sstatus, serror;
 
 	if (readl(mmio + SATA_INTPR) & (SATA_INT_ERR)) {
 
-		/* Error code set in SError */
-		if (print_error) {
-			stm_sata_scr_read(ap, SCR_STATUS, &status);
-			stm_sata_scr_read(ap, SCR_ERROR, &error);
+		stm_sata_scr_read(ap, SCR_STATUS, &sstatus);
+		stm_sata_scr_read(ap, SCR_ERROR, &serror);
+		stm_sata_scr_write(ap, SCR_ERROR, serror);
+
+		if (print_error)
 			ata_port_printk(ap, KERN_ERR,
 					"SStatus 0x%08x, SError 0x%08x\n",
-					status, error);
-		}
+					sstatus, serror);
 		error_count++;
-		stm_sata_scr_write(ap, SCR_ERROR, -1);
+
+		ata_ehi_clear_desc(ehi);
+		ata_ehi_push_desc(ehi, "SStatus 0x%08x, SError 0x%08x",
+				  sstatus, serror);
+		ehi->serror |= serror;
+
+		if (serror & (SERROR_DIAG_N | SERROR_DIAG_X)) {
+			ata_ehi_hotplugged(&ap->eh_info);
+			ata_ehi_push_desc(ehi, "Treating as hot-%splug",
+					  serror & SERROR_DIAG_X ? "" : "un");
+		}
+
+		ata_port_freeze(ap);
 		handled = 1;
 	} else
 		if (ap && (!(ap->flags & ATA_FLAG_DISABLED))) {
@@ -878,7 +935,6 @@ static struct ata_port_operations stm_ops = {
 	.exec_command		= ata_exec_command,
 	.check_status		= ata_check_status,
 	.dev_select		= ata_noop_dev_select,
-	.phy_reset		= stm_phy_reset,
 	.check_atapi_dma	= stm_check_atapi_dma,
 	.bmdma_setup		= stm_bmdma_setup,
 	.bmdma_start		= stm_bmdma_start,
@@ -888,7 +944,10 @@ static struct ata_port_operations stm_ops = {
 	.qc_issue		= ata_qc_issue_prot,
 	.eng_timeout		= ata_eng_timeout, /* ?? */
 	.data_xfer		= stm_data_xfer,
-	.irq_handler		= stm_sata_interrupt,
+	.freeze			= stm_freeze,
+	.thaw			= stm_thaw,
+	.error_handler		= stm_error_handler,
+	.post_internal_cmd	= stm_post_internal_cmd,
 	.irq_clear		= stm_irq_clear,
 	.irq_on			= ata_dummy_irq_on,
 	.scr_read		= stm_sata_scr_read,
@@ -1044,16 +1103,8 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	/* Enable DMA controller */
 	writel(DMAC_DmaCfgReg_DMA_EN, mmio_base + DMAC_DmaCfgReg);
 
-	/* SATA host controller set up */
-
-	/* Clear serror register following probe, and before we enable
-	 * interrupts! */
-	/* scr_write(ap, SCR_ERROR, -1); */
+	/* Clear initial Serror */
 	writel(-1, mmio_base + SATA_SCR1);
-
-	/* Enable notification of errors */
-	writel(0xffffffff, mmio_base + SATA_ERRMR);
-	writel(SATA_INT_ERR, mmio_base + SATA_INTMR);
 
 	/* Finished hardware set up */
 

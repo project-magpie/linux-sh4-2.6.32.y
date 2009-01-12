@@ -29,7 +29,6 @@ config STMMAC_TIMER
 choice
         prompt "Select Timer device"
         depends on STMMAC_TIMER && EXPERIMENTAL
-        default no
 
 config STMMAC_TMU_TIMER
         bool "TMU channel 2"

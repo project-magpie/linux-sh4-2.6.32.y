@@ -16,31 +16,31 @@
 /* GMAC ID */
 #define GMAC_VERSION	0x00000020	/* GMAC CORE Version */
 #define GMAC_INT_STATUS	0x00000038	/* interrupt status register */
-enum gmac_irq_status{
-        time_stamp_irq = 0x0200,
-        mmc_rx_csum_offload_irq = 0x0080,
-        mmc_tx_irq = 0x0040,
-        mmc_rx_irq= 0x0020,
-        mmc_irq= 0x0010,
-        pmt_irq= 0x0008,
-        pcs_ane_irq= 0x0004,
-        pcs_link_irq= 0x0002,
-        rgmii_irq= 0x0001,
+enum gmac_irq_status {
+	time_stamp_irq = 0x0200,
+	mmc_rx_csum_offload_irq = 0x0080,
+	mmc_tx_irq = 0x0040,
+	mmc_rx_irq = 0x0020,
+	mmc_irq = 0x0010,
+	pmt_irq = 0x0008,
+	pcs_ane_irq = 0x0004,
+	pcs_link_irq = 0x0002,
+	rgmii_irq = 0x0001,
 };
 #define GMAC_INT_MASK	0x0000003c	/* interrupt mask register */
 
-#define GMAC_WAKEUP_FILTER       0x00000028      /* Wake-up Frame Filter */
+#define GMAC_WAKEUP_FILTER       0x00000028	/* Wake-up Frame Filter */
 
 /* PMT Control and Status */
 #define GMAC_PMT                 0x0000002c
-enum power_event{
-	pointer_reset  = 0x80000000,
+enum power_event {
+	pointer_reset = 0x80000000,
 	global_unicast = 0x00000200,
-	wake_up_rx_frame  = 0x00000040,
-	magic_frame    = 0x00000020,
+	wake_up_rx_frame = 0x00000040,
+	magic_frame = 0x00000020,
 	wake_up_frame_en = 0x00000004,
-	magic_pkt_en	 = 0x00000002,
-	power_down	 = 0x00000001,
+	magic_pkt_en = 0x00000002,
+	power_down = 0x00000001,
 };
 
 /* GMAC HW ADDR regs */
@@ -82,7 +82,8 @@ enum inter_frame_gap {
 #define GMAC_CONTROL_TE		0x00000008	/* Transmitter Enable */
 #define GMAC_CONTROL_RE		0x00000004	/* Receiver Enable */
 
-#define GMAC_CORE_INIT (GMAC_CONTROL_JD | GMAC_CONTROL_PS | GMAC_CONTROL_ACS | GMAC_CONTROL_IPC)
+#define GMAC_CORE_INIT (GMAC_CONTROL_JD | GMAC_CONTROL_PS | GMAC_CONTROL_ACS | \
+			GMAC_CONTROL_IPC | GMAC_CONTROL_JE | GMAC_CONTROL_BE)
 
 /* GMAC Frame Filter defines */
 #define GMAC_FRAME_FILTER_PR	0x00000001	/* Promiscuous Mode */
@@ -156,14 +157,15 @@ enum rfd {
 
 enum ttc_control {
 	DMA_CONTROL_TTC_64 = 0x00000000,
-	DMA_CONTROL_TTC_128 = 0x00040000,
-	DMA_CONTROL_TTC_192 = 0x00080000,
-	DMA_CONTROL_TTC_256 = 0x000c0000,
-	DMA_CONTROL_TTC_40 = 0x00100000,
-	DMA_CONTROL_TTC_32 = 0x00140000,
-	DMA_CONTROL_TTC_24 = 0x00180000,
-	DMA_CONTROL_TTC_16 = 0x001c0000,
+	DMA_CONTROL_TTC_128 = 0x00004000,
+	DMA_CONTROL_TTC_192 = 0x00008000,
+	DMA_CONTROL_TTC_256 = 0x0000c000,
+	DMA_CONTROL_TTC_40 = 0x00010000,
+	DMA_CONTROL_TTC_32 = 0x00014000,
+	DMA_CONTROL_TTC_24 = 0x00018000,
+	DMA_CONTROL_TTC_16 = 0x0001c000,
 };
+#define DMA_CONTROL_TC_TX_MASK	0xfffe3fff
 
 #define DMA_CONTROL_EFC		0x00000100
 #define DMA_CONTROL_FEF		0x00000080
@@ -171,10 +173,11 @@ enum ttc_control {
 
 enum rtc_control {
 	DMA_CONTROL_RTC_64 = 0x00000000,
-	DMA_CONTROL_RTC_32 = 0x00000010,
-	DMA_CONTROL_RTC_96 = 0x00000020,
-	DMA_CONTROL_RTC_128 = 0x00000030,
+	DMA_CONTROL_RTC_32 = 0x00000008,
+	DMA_CONTROL_RTC_96 = 0x00000010,
+	DMA_CONTROL_RTC_128 = 0x00000018,
 };
+#define DMA_CONTROL_TC_RX_MASK	0xffffffe7
 
 #define DMA_CONTROL_OSF	0x00000004	/* operate on second frame */
 
@@ -183,14 +186,3 @@ enum rtc_control {
 #define GMAC_MMC_RX_INTR   0x104
 #define GMAC_MMC_TX_INTR   0x108
 #define GMAC_MMC_RX_CSUM_OFFLOAD   0x208
-
-/* Transmit COE type 2 cannot be done in cut-through mode */
-#undef GMAC_TX_STORE_AND_FORWARD
-#define GMAC_TX_STORE_AND_FORWARD
-#undef GMAC_RX_STORE_AND_FORWARD
-/*#define GMAC_RX_STORE_AND_FORWARD*/
-
-#define STBUS_BRIDGE_OFFSET	0x00007000
-#define STBUS_BRIDGE_MAGIC	0x25C608 /* from validation */
-
-#define DMA_BUFFER_SIZE	8192 /* To support Jumbo */

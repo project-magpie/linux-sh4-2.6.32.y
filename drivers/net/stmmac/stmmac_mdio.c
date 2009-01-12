@@ -39,10 +39,10 @@
 int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 {
 	struct net_device *ndev = bus->priv;
-	struct eth_driver_local *lp = netdev_priv(ndev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
-	unsigned int mii_address = lp->mac_type->hw.mii.addr;
-	unsigned int mii_data = lp->mac_type->hw.mii.data;
+	unsigned int mii_address = priv->mac_type->hw.mii.addr;
+	unsigned int mii_data = priv->mac_type->hw.mii.data;
 
 	int data;
 	u16 regValue = (((phyaddr << 11) & (0x0000F800)) |
@@ -74,10 +74,10 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 {
 	struct net_device *ndev = bus->priv;
-	struct eth_driver_local *lp = netdev_priv(ndev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
-	unsigned int mii_address = lp->mac_type->hw.mii.addr;
-	unsigned int mii_data = lp->mac_type->hw.mii.data;
+	unsigned int mii_address = priv->mac_type->hw.mii.addr;
+	unsigned int mii_data = priv->mac_type->hw.mii.data;
 
 	u16 value =
 	    (((phyaddr << 11) & (0x0000F800)) | ((phyreg << 6) & (0x000007C0)))
@@ -96,10 +96,13 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	/* Wait until any existing MII operation is complete */
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
-
-	/* NOTE: we need to perform this "extra" read in order to fix an error
-	 * during the write operation */
+	/* This "extra" read was added, in the past, to fix an
+	* issue related to the control MII bus specific operation (MDC/MDIO).
+	* It forced the close operation of the message on the bus (hw hack
+	* was to add a specific pull-up on one of the two MCD/MDIO lines).
+	* It can be removed because no new board actually needs it.
 	stmmac_mdio_read(bus, phyaddr, phyreg);
+	*/
 	return 0;
 }
 
@@ -107,15 +110,15 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 int stmmac_mdio_reset(struct mii_bus *bus)
 {
 	struct net_device *ndev = bus->priv;
-	struct eth_driver_local *lp = netdev_priv(ndev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
 	unsigned long ioaddr = ndev->base_addr;
-	unsigned int mii_address = lp->mac_type->hw.mii.addr;
+	unsigned int mii_address = priv->mac_type->hw.mii.addr;
 
 	printk(KERN_DEBUG "stmmac_mdio_reset: called!\n");
 
-	if (lp->phy_reset) {
+	if (priv->phy_reset) {
 		printk(KERN_DEBUG "stmmac_mdio_reset: calling phy_reset\n");
-		return lp->phy_reset(lp->bsp_priv);
+		priv->phy_reset(priv->bsp_priv);
 	}
 
 	/* This is a workaround for problems with the STE101P PHY.
@@ -137,23 +140,23 @@ int stmmac_mdio_register(struct net_device *ndev)
 	int err = 0;
 	struct mii_bus *new_bus = kzalloc(sizeof(struct mii_bus), GFP_KERNEL);
 	int *irqlist = kzalloc(sizeof(int) * PHY_MAX_ADDR, GFP_KERNEL);
-	struct eth_driver_local *lp = netdev_priv(ndev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
 
 	if (new_bus == NULL)
 		return -ENOMEM;
 
 	/* Assign IRQ to phy at address phy_addr */
-	irqlist[lp->phy_addr] = lp->phy_irq;
+	irqlist[priv->phy_addr] = priv->phy_irq;
 
 	new_bus->name = "STMMAC MII Bus";
 	new_bus->read = &stmmac_mdio_read;
 	new_bus->write = &stmmac_mdio_write;
 	new_bus->reset = &stmmac_mdio_reset;
-	snprintf(new_bus->id, MII_BUS_ID_SIZE, "%x", lp->bus_id);
+	snprintf(new_bus->id, MII_BUS_ID_SIZE, "%x", priv->bus_id);
 	new_bus->priv = ndev;
 	new_bus->irq = irqlist;
-	new_bus->phy_mask = lp->phy_mask;
-	new_bus->dev = lp->device;
+	new_bus->phy_mask = priv->phy_mask;
+	new_bus->dev = priv->device;
 	printk(KERN_DEBUG "calling mdiobus_register\n");
 	err = mdiobus_register(new_bus);
 	printk(KERN_DEBUG "calling mdiobus_register done\n");
@@ -163,7 +166,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 		goto bus_register_fail;
 	}
 
-	lp->mii = new_bus;
+	priv->mii = new_bus;
 
 	return 0;
       bus_register_fail:
@@ -178,11 +181,11 @@ int stmmac_mdio_register(struct net_device *ndev)
  */
 int stmmac_mdio_unregister(struct net_device *ndev)
 {
-	struct eth_driver_local *lp = netdev_priv(ndev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
 
-	mdiobus_unregister(lp->mii);
-	lp->mii->priv = NULL;
-	kfree(lp->mii);
+	mdiobus_unregister(priv->mii);
+	priv->mii->priv = NULL;
+	kfree(priv->mii);
 
 	return 0;
 }

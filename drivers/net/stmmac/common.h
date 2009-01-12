@@ -31,7 +31,8 @@
 #define DMA_INTR_ENA_RIE 0x00000040	/* Receive Interrupt */
 #define DMA_INTR_ENA_ERE 0x00004000	/* Early Receive */
 
-#define DMA_INTR_NORMAL	(DMA_INTR_ENA_NIE | DMA_INTR_ENA_RIE | DMA_INTR_ENA_TIE \
+#define DMA_INTR_NORMAL	(DMA_INTR_ENA_NIE | DMA_INTR_ENA_RIE | \
+			DMA_INTR_ENA_TIE \
 			/*| DMA_INTR_ENA_ERE | DMA_INTR_ENA_TUE*/)
 
 /**** ABNORMAL INTERRUPT ****/
@@ -46,7 +47,8 @@
 #define DMA_INTR_ENA_TJE 0x00000008	/* Transmit Jabber */
 #define DMA_INTR_ENA_TSE 0x00000002	/* Transmit Stopped */
 
-#define DMA_INTR_ABNORMAL	DMA_INTR_ENA_AIE | DMA_INTR_ENA_FBE /*| DMA_INTR_ENA_UNE*/
+#define DMA_INTR_ABNORMAL	(DMA_INTR_ENA_AIE | DMA_INTR_ENA_FBE | \
+				DMA_INTR_ENA_UNE)
 
 /* DMA default interrupt mask */
 #define DMA_INTR_DEFAULT_MASK	(DMA_INTR_NORMAL | DMA_INTR_ABNORMAL)
@@ -95,9 +97,17 @@
 #define FLOW_TX		2
 #define FLOW_AUTO	(FLOW_TX | FLOW_RX)
 
-/* HW csum */
+/* DMA STORE-AND-FORWARD Operation Mode */
+#define SF_DMA_MODE 1
+
+#define HW_CSUM 1
 #define NO_HW_CSUM 0
-#define HAS_HW_CSUM 1
+
+/* GMAC TX FIFO is 8K, Rx FIFO is 16K */
+#define BUF_SIZE_16KiB 16384
+#define BUF_SIZE_8KiB 8192
+#define BUF_SIZE_4KiB 4096
+#define BUF_SIZE_2KiB 2048
 
 /* Power Down and WOL */
 #define PMT_NOT_SUPPORTED 0
@@ -120,6 +130,7 @@
 #define MMC_CONTROL_MAX_FRAME		0x7FF
 
 struct stmmac_extra_stats {
+	/* Transmit errors */
 	unsigned long tx_underflow;
 	unsigned long tx_carrier;
 	unsigned long tx_losscarrier;
@@ -128,6 +139,9 @@ struct stmmac_extra_stats {
 	unsigned long tx_vlan;
 	unsigned long tx_jabber;
 	unsigned long tx_frame_flushed;
+	unsigned long tx_payload_error;
+	unsigned long tx_ip_header_error;
+	/* Receive errors */
 	unsigned long rx_desc;
 	unsigned long rx_partial;
 	unsigned long rx_runt;
@@ -140,13 +154,10 @@ struct stmmac_extra_stats {
 	unsigned long rx_gmac_overflow;
 	unsigned long rx_watchdog;
 	unsigned long rx_filter;
-	unsigned long rx_dropped;
-	unsigned long rx_bytes;
-	unsigned long tx_bytes;
-	unsigned long tx_irq_n;
-	unsigned long rx_irq_n;
+	unsigned long rx_missed_cntr;
+	unsigned long rx_overflow_cntr;
+	/* Tx/Rx IRQ errors */
 	unsigned long tx_undeflow_irq;
-	unsigned long threshold;
 	unsigned long tx_process_stopped_irq;
 	unsigned long tx_jabber_irq;
 	unsigned long rx_overflow_irq;
@@ -155,86 +166,116 @@ struct stmmac_extra_stats {
 	unsigned long rx_watchdog_irq;
 	unsigned long tx_early_irq;
 	unsigned long fatal_bus_error_irq;
-	unsigned long rx_poll_n;
-	unsigned long tx_payload_error;
-	unsigned long tx_ip_header_error;
-	unsigned long rx_missed_cntr;
-	unsigned long rx_overflow_cntr;
+	/* Extra info */
+	unsigned long threshold; /* DMA tx/rx threshold (CSR6) */
+	unsigned long tx_task_n; /* Tx tasklet invokations */
+	unsigned long rx_poll_n; /* Rx poll method invokations */
+	unsigned long tx_pkt_n; /* Frames transmitted */
+	unsigned long rx_pkt_n; /* Frames received */
+	/* average of the #frames/#schedul_times */
+	unsigned long avg_tx_pkt_on_sched;
+	unsigned long avg_rx_pkt_on_sched;
+	unsigned long dma_tx_normal_irq; /* number of DMA normal TX irq */
+	unsigned long dma_rx_normal_irq; /* number of DMA normal RX irq */
 };
-#define EXTRA_STATS 40
+#define EXTRA_STATS 42
+
+/* In case of GMAC, the device can compute the HW checksums and
+ * found if the frame is corrupted. It can also decide to let the
+ * upper layer to compute the Csum in Sw. */
+enum rx_frame_status {
+	good_frame = 0,
+	discard_frame = 1,
+	csum_none = 2,
+};
 
 /* Specific device structure VFP in order to mark the
  * difference between mac and gmac in terms of registers, descriptors etc.
  */
 struct device_ops {
-	/* MAC core */
+	/* MAC core initialization */
 	void (*core_init) (unsigned long ioaddr);
-	void (*dump_mac_regs) (unsigned long ioaddr);
-
-	/* DMA core */
+	/* DMA core initialization */
 	int (*dma_init) (unsigned long ioaddr, int pbl, u32 dma_tx, u32 dma_rx);
+	/* Dump MAC registers */
+	void (*dump_mac_regs) (unsigned long ioaddr);
+	/* Dump DMA registers */
 	void (*dump_dma_regs) (unsigned long ioaddr);
-	void (*dma_operation_mode) (unsigned long ioaddr, int threshold);
+	/* Set tx/rx threshold in the csr6 register
+	 * An invalid value enables the store-and-forward mode */
+	void (*dma_mode) (unsigned long ioaddr, int txmode, int rxmode);
+	/* To track extra statistic (if supported) */
 	void (*dma_diagnostic_fr) (void *data, struct stmmac_extra_stats *x,
-					unsigned long ioaddr);
-
-
-	/* Descriptors */
-	void (*init_rx_desc) (dma_desc * p, unsigned int ring_size,
-			      int rx_irq_threshol);
-	void (*init_tx_desc) (dma_desc * p, unsigned int ring_size);
-	int (*set_buf_size) (unsigned int len);
-	int (*read_tx_ls) (void);
-	int (*read_tx_owner) (dma_desc * p);
-	int (*read_rx_owner) (dma_desc * p);
-	void (*release_tx_desc) (dma_desc * p);
-	void (*prepare_tx_desc) (dma_desc * p, int is_fs, int len, 
-				unsigned int csum_flags);
-	void (*set_tx_ic) (dma_desc * p, int value);
-	void (*set_tx_ls) (dma_desc * p);
-	int (*get_tx_ls) (dma_desc * p);
-	void (*set_tx_owner) (dma_desc * p);
-	void (*set_rx_owner) (dma_desc * p);
-	int (*get_rx_frame_len) (dma_desc * p);
-
-	/* driver functions */
-	int (*tx_status) (void *data, struct stmmac_extra_stats * x,
-			  dma_desc * p, unsigned long ioaddr);
-	int (*rx_status) (void *data, struct stmmac_extra_stats * x,
-			  dma_desc * p);
-	int (*get_tx_len) (dma_desc * p); /* Get the frm len */
-	void (*tx_checksum) (struct sk_buff * skb, dma_desc * p);
-	int (*rx_checksum) (dma_desc * p);
+				   unsigned long ioaddr);
+	/* RX descriptor ring initialization */
+	void (*init_rx_desc) (struct dma_desc *p, unsigned int ring_size);
+	/* TX descriptor ring initialization */
+	void (*init_tx_desc) (struct dma_desc *p, unsigned int ring_size);
+	/* Invoked by the xmit function to prepare the tx descriptor */
+	void (*prepare_tx_desc) (struct dma_desc *p, int is_fs, int len,
+				 int csum_flag);
+	/* Invoked by the xmit function to close the tx descriptor */
+	void (*close_tx_desc) (struct dma_desc *p);
+	/* Clean the tx descriptor as soon as the tx irq is received */
+	void (*release_tx_desc) (struct dma_desc *p);
+	/* Clear interrupt on tx frame completion. When this bit is
+	 * set an interrupt happens as soon as the frame is transmitted */
+	void (*clear_tx_ic) (struct dma_desc *p);
+	/* Interrupt after this number of packets have arrived. */
+	void (*disable_rx_ic) (struct dma_desc *p, unsigned int ring_size,
+			       int disable_ic);
+	/* Last tx segment reports the transmit status */
+	int (*get_tx_ls) (struct dma_desc *p);
+	/* Set/get the owner of the descriptor */
+	int (*get_tx_owner) (struct dma_desc *p);
+	int (*get_rx_owner) (struct dma_desc *p);
+	void (*set_tx_owner) (struct dma_desc *p);
+	void (*set_rx_owner) (struct dma_desc *p);
+	/* Get the receive frame size */
+	int (*get_rx_frame_len) (struct dma_desc *p);
+	/* Return the transmit status looking at the TDES1 */
+	int (*tx_status) (void *data, struct stmmac_extra_stats *x,
+			  struct dma_desc *p, unsigned long ioaddr);
+	/* Return the reception status looking at the RDES1 */
+	int (*rx_status) (void *data, struct stmmac_extra_stats *x,
+			  struct dma_desc *p);
+	/* Get the buffer size from the descriptor */
+	int (*get_tx_len) (struct dma_desc *p);
+	/* Multicast filter setting */
 	void (*set_filter) (struct net_device * dev);
+	/* Flow control setting */
 	void (*flow_ctrl) (unsigned long ioaddr, unsigned int duplex,
 			   unsigned int fc, unsigned int pause_time);
+	/* Set power management mode (e.g. magic frame) */
 	void (*pmt) (unsigned long ioaddr, unsigned long mode);
+	/* Handle extra events on specific interrupts hw dependent */
 	void (*host_irq_status) (unsigned long ioaddr);
 };
 
-struct mac_link_t {
+struct mac_link {
 	int port;
 	int duplex;
 	int speed;
 };
 
-struct mii_regs_t {
+struct mii_regs {
 	unsigned int addr;	/* MII Address */
 	unsigned int data;	/* MII Data */
 };
 
-struct hw_cap_t {
+struct hw_cap {
 	unsigned int addr_high;	/* Multicast Hash Table High */
 	unsigned int addr_low;	/* Multicast Hash Table Low */
 	unsigned int version;	/* Core Version register (GMAC) */
 	unsigned int pmt;	/* Power-Down mode (GMAC) */
-	unsigned int csum;	/* Checksum Offload */
-	unsigned int buf_size;	/* Buffer size */
-	struct mac_link_t link;
-	struct mii_regs_t mii;
+	struct mac_link link;
+	struct mii_regs mii;
 };
 
-struct device_info_t {
-	struct hw_cap_t hw;
+struct mac_device_info {
+	struct hw_cap hw;
 	struct device_ops *ops;
 };
+
+struct mac_device_info *gmac_setup(unsigned long addr);
+struct mac_device_info *mac100_setup(unsigned long addr);

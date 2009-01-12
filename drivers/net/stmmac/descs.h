@@ -1,4 +1,4 @@
-struct dma_desc_t {
+struct dma_desc {
 	/* Receive descriptor */
 	union {
 		struct {
@@ -130,8 +130,6 @@ struct dma_desc_t {
 	unsigned int des2;
 	unsigned int des3;
 };
-
-typedef struct dma_desc_t dma_desc;
 
 /* Transmit checksum insertion control */
 enum tdes_csum_insertion {

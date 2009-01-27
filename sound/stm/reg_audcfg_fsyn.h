@@ -304,7 +304,7 @@
 
 #define value__AUDCFG_FSYN_CFG__REF_CLK_IN__30_MHZ_CLOCK(ip) (ip->ver \
 	< ver__AUDCFG_FSYN__65_3_1 ? 0x0 : (ip->ver < ver__AUDCFG_FSYN__65_3_3 \
-	? 0x1 : 0x1))
+	? 0x1 : 0x0))
 #define mask__AUDCFG_FSYN_CFG__REF_CLK_IN__30_MHZ_CLOCK(ip) \
 	(value__AUDCFG_FSYN_CFG__REF_CLK_IN__30_MHZ_CLOCK(ip) << \
 	shift__AUDCFG_FSYN_CFG__REF_CLK_IN(ip))

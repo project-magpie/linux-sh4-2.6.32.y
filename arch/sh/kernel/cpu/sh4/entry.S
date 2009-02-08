@@ -50,7 +50,9 @@
  *	syscall #
  *
  *  As this is critical low level code which is potentially called thousands
- *  of times each second, effort has been spent to optimise it.
+ *  of times each second, effort has been spent to optimise it.  It has been
+ *  optimised for real-world situations where it is not likely to be all
+ *  resident in instruction and data caches.
  */
 
 #include <linux/sys.h>
@@ -70,10 +72,6 @@
 #include <cpu/mmu_context.h>
 #include <asm/pgtable.h>
 #include <asm/page.h>
-
-#if !defined(CONFIG_PREEMPT)
-#  define resume_kernel		__restore_all
-#endif
 
 #define k0	r0
 #define k1	r1
@@ -135,6 +133,33 @@
 	mov.l	r0, @-r15
 .endm
 
+!
+!  Macro for checking GUSA atomic rollback
+!
+!  k0, k1 used as scratch registers
+!
+.macro GUSA_CHECK
+#ifdef CONFIG_GUSA
+	! Check for roll back gRB (User and Kernel)
+	mov	r15, k0
+	shll	k0
+	bf	1f
+	shll	k0
+	bf	1f
+	stc	spc, k1
+	stc	r0_bank, k0
+	cmp/hs	k0, k1		! test k1 (saved PC) >= k0 (saved r0)
+	bt/s	2f
+	 stc	r1_bank, k1
+
+	add	#-2, k0
+	add	r15, k0
+	ldc	k0, spc		! PC = saved r0 + r15 - 2
+2:	mov	k1, r15		! SP = r1
+1:
+#endif
+.endm
+
 #if defined(CONFIG_KGDB)
 NMI_VEC = 0x1c0			! Must catch early for debounce
 #endif
@@ -184,34 +209,16 @@ ENTRY(vbr_base)
 	! Reset vector - unused as hardware automatically jumps to reset address
 	.long	0
 
-
 	!
 	! General exception vector
 	!
 
 	.balign 	256,0,256
+
 general_exception:
 	! Using k0, k1 for scratch registers (r0_bank1, r1_bank),
 
-#ifdef CONFIG_GUSA
-	! Check for roll back gRB (User and Kernel)
-	mov	r15, k0
-	shll	k0
-	bf	1f
-	shll	k0
-	bf	1f
-	stc	spc, k1
-	stc	r0_bank, k0
-	cmp/hs	k0, k1		! test k1 (saved PC) >= k0 (saved r0)
-	bt/s	2f
-	 stc	r1_bank, k1
-
-	add	#-2, k0
-	add	r15, k0
-	ldc	k0, spc		! PC = saved r0 + r15 - 2
-2:	mov	k1, r15		! SP = r1
-1:
-#endif
+	GUSA_CHECK
 
 	stc	ssr, k0		! Is it from kernel space?
 	shll	k0		! Check MD bit (bit30) by shifting it into...
@@ -249,10 +256,10 @@ general_exception:
 	add	#1, r10
 	mov.l	r10, @r9
 #endif
-	mova	exception_handling_table, r0
-	add	r8, r0
-	mov.l	@r0, r0
-	jmp	@r0
+	mov.l	4f, r9
+	add	r8, r9
+	mov.l	@r9, r9
+	jmp	@r9
 	 nop
 
 	rts
@@ -266,51 +273,7 @@ general_exception:
 #endif
 998: 	.long	0x000080f0
 999: 	.long	0xcfffffff
-
-	/* if COUNT_EXCEPTIONS not configured, tlb_miss_* */
-	/* will already be in d-cache... 		  */
-
-	.globl	exception_handling_table
-exception_handling_table:
-	.long	exception_error		/* 000 */
-	.long	exception_error
-#if defined(CONFIG_MMU)
-	.long	tlb_miss_load		/* 040 */
-	.long	tlb_miss_store
-	.long	initial_page_write
-	.long	tlb_protection_violation_load
-	.long	tlb_protection_violation_store
-	.long	address_error_load
-	.long	address_error_store	/* 100 */
-#else
-	.long	exception_error	! tlb miss load		/* 040 */
-	.long	exception_error	! tlb miss store
-	.long	exception_error	! initial page write
-	.long	exception_error	! tlb prot violation load
-	.long	exception_error	! tlb prot violation store
-	.long	exception_error	! address error load
-	.long	exception_error	! address error store	/* 100 */
-#endif
-#if defined(CONFIG_SH_FPU)
-	.long	fpu_error_trap_handler		/* 120 */
-#else
-	.long	exception_error		/* 120 */
-#endif
-	.long	exception_error		/* 140 */
-	.long	system_call	! Unconditional Trap	 /* 160 */
-	.long	exception_error
-		! reserved_instruction (filled by trap_init) /* 180 */
-	.long	exception_error
-		! illegal_slot_instruction (filled by trap_init) /*1A0*/
-ENTRY(nmi_slot)
-#if defined (CONFIG_KGDB)
-	.long	debug_trap_table	/* 1C0 */	! Allow trap to debugger
-#else
-	.long	exception_none	/* 1C0 */	! Not implemented yet
-#endif
-ENTRY(user_break_point_trap)
-	.long	break_point_trap	/* 1E0 */
-
+4:	.long	exception_handling_table
 
 
 /* gas doesn't flag impossible values for mov #immediate as an error */
@@ -509,25 +472,7 @@ interrupt:
 	! save all registers onto stack.
 	!
 
-#ifdef CONFIG_GUSA
-	! Check for roll back gRB (User and Kernel)
-	mov	r15, k0
-	shll	k0
-	bf	1f
-	shll	k0
-	bf	1f
-	stc	spc, k1
-	stc	r0_bank, k0
-	cmp/hs	k0, k1		! test k1 (saved PC) >= k0 (saved r0)
-	bt/s	2f
-	 stc	r1_bank, k1
-
-	add	#-2, k0
-	add	r15, k0
-	ldc	k0, spc		! PC = saved r0 + r15 - 2
-2:	mov	k1, r15		! SP = r1
-1:
-#endif
+	GUSA_CHECK
 
 	stc	ssr, k0		! Is it from kernel space?
 	shll	k0		! Check MD bit (bit30) by shifting it into...
@@ -560,8 +505,6 @@ interrupt:
 6:	.long	ret_from_irq
 998: 	.long	0x000080f0
 999: 	.long	0xcfffffff
-!
-!
 
 !
 ! TLB Miss / Initial Page write exception handling
@@ -711,8 +654,7 @@ ENTRY(exception_error)
 !  Exit function after general exception and IRQ
 !
 
-ENTRY(ret_from_irq)
-ret_from_exception:
+ENTRY(ret_from_exception)
 #if defined(CONFIG_PREEMPT)
 	cli
 #endif
@@ -721,6 +663,7 @@ ret_from_exception:
 	jsr	@r0
 	 nop
 #endif
+ret_from_irq:
 	!
 	mov	#OFF_SR, r0
 	mov.l	@(r0,r15), r0	! get status register
@@ -728,7 +671,7 @@ ret_from_exception:
 	shll	r0		! kernel space?
 	get_current_thread_info r8, r0
 #ifndef CONFIG_PREEMPT
-	bt	__restore_all
+	bt	restore_all
 #else
 	bt	resume_kernel	! Yes, it's from kernel, go back soon
 	bra	resume_userspace
@@ -829,12 +772,10 @@ restore_all:
 	 nop
 
 	.balign	32 /* align to d-cache boundary */
-5:	.long	0x00001000	! DSP
 #ifdef CONFIG_KGDB
 6:	.long	in_nmi
 #endif
 7:	.long	0x30000000
-
 
 !
 !  Code to run before returning to user-space
@@ -893,20 +834,6 @@ work_resched:
 4:	.long	trace_hardirqs_on
 5:	.long	trace_hardirqs_off
 #endif
-
-
-!
-!  Indirection to restore_all because of addressing limits
-!
-
-__restore_all:
-	mov.l	1f, r0
-	jmp	@r0
-	 nop
-
-	.align	2
-1:	.long	restore_all
-
 
 /*
  * Syscall interface:
@@ -968,19 +895,26 @@ ENTRY(system_call)
 
 	bt      debug_trap	! 110 BR        1
 
-	stc     k_g_imask, r11  ! 152 CO (l2i2) 2 r11=imask
+#ifdef CONFIG_TRACE_IRQFLAGS
+	mov.l	5f, r11
+	jsr	@r11
+	 nop
+#endif
+
+/* Expanded sti  (also included in code above ) */
+	stc     k_g_imask, r11
+
+	or      r11, r10
+
+        ldc     r10, sr
 
 	get_current_thread_info r8, xx  ! 152 CO (l2i2) 3
-
-	or      r11, r10        !  82 EX        2 r10=(SR&INV_MASK)|imask
 
 	mov.l   @(TI_FLAGS,r8), r8      ! 18 LS (l2)    3
 	add     r15, r12                !  49 EX        1 r12=SP+OFF_TRA
 
 	shll2	r3		!     EX	syscall num x4
 	mov.l   r9, @r12        !  27 LS        1 SP[OFF_TRA]=TRA
-
-	ldc     r10, sr         ! 132 CO (l4i4) 2 SR=r10
 
 	mov     #_TIF_WORK_SYSCALL_MASK, r10	! 6 EX    3
 	mov.l   2f, r12         !  9 LS (l2)    4 R12=number of syscallsx4
@@ -1024,7 +958,6 @@ ret_from_exception_end:
 !  Syscall exit function
 !
 
-	.balign	32  /* align to i-cache boundary */
 syscall_exit_work:
 	! r0: current_thread_info->flags
 	! r8: current_thread_info
@@ -1189,3 +1122,55 @@ syscall_badsys:			! Bad syscall number
 .LFDE_end:
 
 	.previous
+
+	.data
+
+	.globl	exception_handling_table
+exception_handling_table:
+	.long	exception_error		/* 000 */
+	.long	exception_error
+#if defined(CONFIG_MMU)
+	.long	tlb_miss_load		/* 040 */
+	.long	tlb_miss_store
+	.long	initial_page_write
+	.long	tlb_protection_violation_load
+	.long	tlb_protection_violation_store
+	.long	address_error_load
+	.long	address_error_store	/* 100 */
+#else
+	.long	exception_error	! tlb miss load		/* 040 */
+	.long	exception_error	! tlb miss store
+	.long	exception_error	! initial page write
+	.long	exception_error	! tlb prot violation load
+	.long	exception_error	! tlb prot violation store
+	.long	exception_error	! address error load
+	.long	exception_error	! address error store	/* 100 */
+#endif
+#if defined(CONFIG_SH_FPU)
+	.long	fpu_error_trap_handler	/* 120 */
+#else
+	.long	exception_error		/* 120 */
+#endif
+	.long	exception_error		/* 140 */
+	.long	system_call	! Unconditional Trap	 /* 160 */
+	.long	exception_error
+		! reserved_instruction (filled by trap_init) /* 180 */
+	.long	exception_error
+		! illegal_slot_instruction (filled by trap_init) /*1A0*/
+
+	! NOTE: don't use ENTRY() macros for data tables! ENTRY() contains alignment
+	! operations which could break a linear table!!
+	.globl  nmi_slot
+	nmi_slot:
+#if defined (CONFIG_KGDB)
+	.long	debug_trap_table	/* 1C0 */	! Allow trap to debugger
+#else
+	.long	exception_none	/* 1C0 */	! Not implemented yet
+#endif
+	.globl	user_break_point_trap
+	user_break_point_trap:
+	.long	break_point_trap	/* 1E0 */
+
+	.rept (0x820-0x1e0)/0x20	/* highest entry we access is at evt 0x820 in traps.c */
+	.long exception_error
+	.endr

@@ -519,6 +519,11 @@ pciauto_bus_scan(struct pci_channel *hose, int top_bus, int current_bus)
 		early_write_config_byte(hose, top_bus, current_bus, pci_devfn,
 					PCI_LATENCY_TIMER, 0x80);
 
+		/* We should set a sensible value for cache line size, it makes a big difference to
+		 * performance potentially
+		 */
+		early_write_config_byte(hose, top_bus, current_bus, pci_devfn, PCI_CACHE_LINE_SIZE,L1_CACHE_BYTES >> 2);
+
 		/* Allocate PCI I/O and/or memory space */
 		pciauto_setup_bars(hose, top_bus, current_bus, pci_devfn, PCI_BASE_ADDRESS_5);
 	}

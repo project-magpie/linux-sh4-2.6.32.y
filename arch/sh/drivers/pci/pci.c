@@ -157,6 +157,9 @@ void __init pcibios_update_irq(struct pci_dev *dev, int irq)
 	pci_write_config_byte(dev, PCI_INTERRUPT_LINE, irq);
 }
 
+
+#ifndef CONFIG_GENERIC_IOMAP
+
 void __iomem *pci_iomap(struct pci_dev *dev, int bar, unsigned long maxlen)
 {
 	resource_size_t start = pci_resource_start(dev, bar);
@@ -192,3 +195,6 @@ void pci_iounmap(struct pci_dev *dev, void __iomem *addr)
 	iounmap(addr);
 }
 EXPORT_SYMBOL(pci_iounmap);
+
+#endif
+

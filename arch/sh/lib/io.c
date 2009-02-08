@@ -14,6 +14,16 @@
 #include <linux/module.h>
 #include <linux/io.h>
 
+void __raw_readsb(const void __iomem *addrp, void *datap, int len)
+{
+	u8 *data;
+
+	for (data = datap; len != 0; len--)
+		*data++ = *(volatile unsigned char*)addrp;
+
+}
+EXPORT_SYMBOL(__raw_readsb);
+
 void __raw_readsw(const void __iomem *addrp, void *datap, int len)
 {
 	u16 *data;
@@ -73,6 +83,17 @@ void __raw_readsl(const void __iomem *addrp, void *datap, int len)
 		*data++ = *(volatile unsigned long*)addr;
 }
 EXPORT_SYMBOL(__raw_readsl);
+
+
+void __raw_writesb(void __iomem *addrp, const void *datap, int len)
+{
+	const u8 *data;
+
+	for (data = datap; len != 0; len--)
+		*(volatile unsigned char*)addrp = *data++;
+
+}
+EXPORT_SYMBOL(__raw_writesb);
 
 void __raw_writesw(void __iomem *addrp, const void *datap, int len)
 {

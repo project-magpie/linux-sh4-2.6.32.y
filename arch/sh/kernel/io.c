@@ -114,6 +114,8 @@ void memset_io(volatile void __iomem *dst, int c, unsigned long count)
 }
 EXPORT_SYMBOL(memset_io);
 
+#ifndef CONFIG_GENERIC_IOMAP
+
 void __iomem *ioport_map(unsigned long port, unsigned int nr)
 {
 	void __iomem *ret;
@@ -131,3 +133,6 @@ void ioport_unmap(void __iomem *addr)
 	sh_mv.mv_ioport_unmap(addr);
 }
 EXPORT_SYMBOL(ioport_unmap);
+
+#endif
+

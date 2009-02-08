@@ -173,6 +173,8 @@ __BUILD_MEMORY_STRING(w, u16)
 #define readw_relaxed(a) readw(a)
 #define readl_relaxed(a) readl(a)
 
+
+#ifndef CONFIG_GENERIC_IOMAP
 /* Simple MMIO */
 #define ioread8(a)		readb(a)
 #define ioread16(a)		readw(a)
@@ -193,6 +195,16 @@ __BUILD_MEMORY_STRING(w, u16)
 #define iowrite8_rep(p,s,c)	__raw_writesb(p,s,c)
 #define iowrite16_rep(p,s,c)	__raw_writesw(p,s,c)
 #define iowrite32_rep(p,s,c)	__raw_writesl(p,s,c)
+#endif
+
+#define mmio_insb(p,d,c)       __raw_readsb(p,d,c)
+#define mmio_insw(p,d,c)       __raw_readsw(p,d,c)
+#define mmio_insl(p,d,c)       __raw_readsl(p,d,c)
+
+#define mmio_outsb(p,s,c)      __raw_writesb(p,s,c)
+#define mmio_outsw(p,s,c)      __raw_writesw(p,s,c)
+#define mmio_outsl(p,s,c)      __raw_writesl(p,s,c)
+
 
 #define mmiowb()	wmb()	/* synco on SH-4A, otherwise a nop */
 

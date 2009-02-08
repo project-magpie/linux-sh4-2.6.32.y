@@ -31,16 +31,98 @@
 #include <linux/fs.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
+#if defined(CONFIG_MODULES_BPA2)
+#include <linux/pfn.h>
+#include <linux/bpa2.h>
+#endif
 #include <asm/unaligned.h>
 
+#if defined(CONFIG_MODULES_BPA2)
+static struct bpa2_part *modules_bpa2_part;
+
+void *module_alloc(unsigned long size)
+{
+	unsigned long addr;
+	unsigned long n_pages;
+
+	if (unlikely(size == 0))
+		return NULL;
+
+	if (unlikely(modules_bpa2_part == NULL))
+		 goto v_map;;
+
+	n_pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+
+	addr = bpa2_alloc_pages(modules_bpa2_part, n_pages, 1, GFP_KERNEL);
+
+	if (unlikely(!addr))
+		 goto v_map;;
+
+	return phys_to_virt(addr);
+
+v_map:
+	printk(KERN_WARNING "BPA2 module allocation failed\n");
+
+#ifdef CONFIG_MODULES_BPA2_FALLBACK
+	return vmalloc_exec(size);
+#else
+	return NULL;
+#endif
+}
+
+void module_free(struct module *mod, void *module_region)
+{
+	unsigned long addr;
+
+	/* Exit now on NULL address */
+	if (unlikely(module_region == NULL))
+		return;
+
+	if (likely(modules_bpa2_part) &&
+		  (module_region < (void *)VMALLOC_START)) {
+		addr = (unsigned long) virt_to_phys(module_region);
+		bpa2_free_pages(modules_bpa2_part, addr);
+		return;
+	}
+
+	vfree(module_region);
+
+	return;
+}
+
+static int __init modules_prepare_bpa2(void)
+{
+	struct bpa2_part *part = bpa2_find_part(CONFIG_MODULES_BPA2_PART_NAME);
+
+	if (!part) {
+		printk(KERN_WARNING "BPA2 module allocation: "
+			"cannot find BPA2 partition \"%s\"\n",
+			CONFIG_MODULES_BPA2_PART_NAME);
+		return -1;
+	}
+
+	/* We need to check if BPA2 partition is in kernel logical
+	 * memory.
+	 */
+	if (!bpa2_low_part(part)) {
+		printk(KERN_WARNING "BPA2 module allocation: "
+			"BPA2 partition \"%s\" is not in low memory\n",
+			CONFIG_MODULES_BPA2_PART_NAME);
+		return -1;
+	}
+
+	modules_bpa2_part = part;
+
+	return 0;
+}
+late_initcall(modules_prepare_bpa2);
+#else
 void *module_alloc(unsigned long size)
 {
 	if (size == 0)
 		return NULL;
-
-	return vmalloc_exec(size);
+	return vmalloc(size);
 }
-
 
 /* Free memory returned from module_alloc */
 void module_free(struct module *mod, void *module_region)
@@ -49,6 +131,8 @@ void module_free(struct module *mod, void *module_region)
 	/* FIXME: If module_region == mod->init_region, trim exception
            table entries. */
 }
+#endif
+
 
 /* We don't need anything special. */
 int module_frob_arch_sections(Elf_Ehdr *hdr,

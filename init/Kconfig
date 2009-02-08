@@ -891,6 +891,31 @@ config KMOD
 
 endif # MODULES
 
+config MODULES_BPA2
+	bool "Allocate memory for modules from BPA2"
+	depends on MODULES && BPA2 && SUPERH
+	help
+	  Setting this option allows to allocate memory for
+	  modules from BPA2 rather than vmalloc().
+
+config MODULES_BPA2_PART_NAME
+	string "Name of BPA2 partition to allocate buffers from"
+	depends on MODULES_BPA2
+	default "modules"
+	help
+	   Define a name of BPA2 partition used for allocating module memory.
+	   As worst case, if name is not given in command line, allocation
+	   will be done through vmalloc().
+
+config MODULES_BPA2_FALLBACK
+	bool "Fallback to vmalloc if BPA2 allocation fails"
+	depends on MODULES_BPA2
+	default y
+	help
+	   Memory for the module will normally be allocated from the BPA2
+	   partition. However if this flag is set then a second attempt will
+	   be made to use vmalloc().
+
 config STOP_MACHINE
 	bool
 	default y

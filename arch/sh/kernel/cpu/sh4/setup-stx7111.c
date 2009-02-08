@@ -240,7 +240,8 @@ void __init stx7111_configure_ssc(struct plat_ssc_data *data)
 			sysconf_write(ssc_sc, 0);
 
 			/* Select SSC1 instead of PCI interrupts */
-			ssc_sc = sysconf_claim(SYS_CFG, 5, 9, 11, "ssc");
+			/* Early datasheet version erroneously said 9-11 */
+			ssc_sc = sysconf_claim(SYS_CFG, 5, 10, 12, "ssc");
 			sysconf_write(ssc_sc, 0);
 
 			break;

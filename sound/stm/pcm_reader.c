@@ -619,14 +619,14 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 			DMA_CHANNEL_STATUS_RUNNING)
 		udelay(5);
 
-	/* Launch PCM reader */
-
-	set__AUD_PCMIN_CTRL__MODE__PCM(pcm_reader);
-
 	/* Enable required reader interrupts */
 
 	enable_irq(pcm_reader->irq);
 	set__AUD_PCMIN_IT_EN_SET__OVF__SET(pcm_reader);
+
+	/* Launch the reader */
+
+	set__AUD_PCMIN_CTRL__MODE__PCM(pcm_reader);
 
 	/* Wake up & unmute ADC */
 

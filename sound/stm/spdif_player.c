@@ -638,19 +638,19 @@ static inline int snd_stm_spdif_player_start(struct snd_pcm_substream
 			DMA_CHANNEL_STATUS_RUNNING)
 		udelay(5);
 
-	/* Launch SPDIF player */
+	/* Enable player interrupts */
+
+	enable_irq(spdif_player->irq);
+	set__AUD_SPDIF_IT_EN_SET__NSAMPLE__SET(spdif_player);
+	set__AUD_SPDIF_IT_EN_SET__UNF__SET(spdif_player);
+
+	/* Launch the player */
 
 	if (spdif_player->stream_settings.encoding_mode ==
 			SNDRV_STM_SPDIF_ENCODING_MODE_PCM)
 		set__AUD_SPDIF_CTRL__MODE__PCM(spdif_player);
 	else
 		set__AUD_SPDIF_CTRL__MODE__ENCODED(spdif_player);
-
-	/* Enable player interrupts */
-
-	enable_irq(spdif_player->irq);
-	set__AUD_SPDIF_IT_EN_SET__NSAMPLE__SET(spdif_player);
-	set__AUD_SPDIF_IT_EN_SET__UNF__SET(spdif_player);
 
 	/* Wake up & unmute converter */
 

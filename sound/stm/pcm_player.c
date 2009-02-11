@@ -621,15 +621,15 @@ static inline int snd_stm_pcm_player_start(struct snd_pcm_substream *substream)
 			DMA_CHANNEL_STATUS_RUNNING)
 		udelay(5);
 
-	/* Launch PCM player */
-
-	set__AUD_PCMOUT_CTRL__MODE__PCM(pcm_player);
-
 	/* Enable player interrupts */
 
 	enable_irq(pcm_player->irq);
 	set__AUD_PCMOUT_IT_EN_SET__NSAMPLE__SET(pcm_player);
 	set__AUD_PCMOUT_IT_EN_SET__UNF__SET(pcm_player);
+
+	/* Launch the player */
+
+	set__AUD_PCMOUT_CTRL__MODE__PCM(pcm_player);
 
 	/* Wake up & unmute DAC */
 

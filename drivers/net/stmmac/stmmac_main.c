@@ -2098,7 +2098,8 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	}
 
 	/* Get the MAC information */
-	if ((ndev->irq = platform_get_irq_byname(pdev, "macirq")) == 0) {
+	ndev->irq = platform_get_irq_byname(pdev, "macirq");
+	if (ndev->irq == -ENXIO) {
 		printk(KERN_ERR "%s: ERROR: MAC IRQ configuration "
 		       "information not found\n", __func__);
 		ret = -ENODEV;

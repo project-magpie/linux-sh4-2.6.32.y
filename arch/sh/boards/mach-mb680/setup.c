@@ -16,6 +16,7 @@
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/emi.h>
+#include <linux/delay.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
@@ -87,12 +88,34 @@ static struct platform_device mb680_leds = {
 	},
 };
 
+/*
+ * mb680 rev C added software control of the PHY reset, and buffers which
+ * allow isolation of the MII pins so that their use as MODE pins is not
+ * compromised by the PHY.
+ */
+static struct stpio_pin *phy_reset, *switch_en;
+
+static int mb680_phy_reset(void* bus)
+{
+	stpio_set_pin(phy_reset, 1);
+	stpio_set_pin(switch_en, 1);
+	udelay(1);
+	stpio_set_pin(phy_reset, 0);
+	udelay(100);
+	stpio_set_pin(phy_reset, 1);
+	udelay(1);
+	stpio_set_pin(switch_en, 0);
+
+	return 0;
+}
+
 static struct plat_stmmacphy_data phy_private_data = {
-	/* National Semiconductor DP83865 */
+	/* National Semiconductor DP83865 (rev A/B) or SMSC 8700 (rev C) */
 	.bus_id = 0,
 	.phy_addr = 1,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_MII,
+	.phy_reset = &mb680_phy_reset,
 };
 
 static struct platform_device mb680_phy_device = {
@@ -166,7 +189,11 @@ static int __init device_init(void)
 
 	stx7105_configure_usb(0, &usb_init[0]);
 	stx7105_configure_usb(1, &usb_init[1]);
-	stx7105_configure_ethernet(0, 0, 0, 1, 0, 0);
+
+	phy_reset = stpio_request_pin(5, 5, "ResetMII", STPIO_OUT);
+	switch_en = stpio_request_pin(11, 2, "MIIBusSwitch", STPIO_OUT);
+	stx7105_configure_ethernet(0, 0, 0, 0, 1, 0);
+
 	stx7105_configure_lirc(&lirc_scd);
 
 	return platform_add_devices(mb680_devices, ARRAY_SIZE(mb680_devices));

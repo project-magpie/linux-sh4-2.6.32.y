@@ -648,6 +648,7 @@ static inline int snd_stm_spdif_player_start(struct snd_pcm_substream
 
 	/* Enable player interrupts */
 
+	enable_irq(spdif_player->irq);
 	set__AUD_SPDIF_IT_EN_SET__NSAMPLE__SET(spdif_player);
 	set__AUD_SPDIF_IT_EN_SET__UNF__SET(spdif_player);
 
@@ -684,6 +685,7 @@ static inline int snd_stm_spdif_player_stop(struct snd_pcm_substream *substream)
 
 	set__AUD_SPDIF_IT_EN_CLR__NSAMPLE__CLEAR(spdif_player);
 	set__AUD_SPDIF_IT_EN_CLR__UNF__CLEAR(spdif_player);
+	disable_irq(spdif_player->irq);
 
 	/* Stop SPDIF player */
 

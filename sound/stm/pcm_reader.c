@@ -625,6 +625,7 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 
 	/* Enable required reader interrupts */
 
+	enable_irq(pcm_reader->irq);
 	set__AUD_PCMIN_IT_EN_SET__OVF__SET(pcm_reader);
 
 	/* Wake up & unmute ADC */
@@ -659,6 +660,7 @@ static inline int snd_stm_pcm_reader_stop(struct snd_pcm_substream *substream)
 	/* Disable interrupts */
 
 	set__AUD_PCMIN_IT_EN_CLR__OVF__CLEAR(pcm_reader);
+	disable_irq(pcm_reader->irq);
 
 	/* Stop PCM reader */
 

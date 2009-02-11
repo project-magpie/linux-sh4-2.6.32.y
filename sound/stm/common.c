@@ -216,6 +216,11 @@ int snd_stm_irq_request(struct platform_device *pdev,
 		return -EINVAL;
 	}
 
+	/* request_irq() enables the interrupt immediately; as it is
+	 * lethal in concurrent audio environment, we want to have
+	 * it disabled for most of the time... */
+	disable_irq(*irq);
+
 	return 0;
 }
 

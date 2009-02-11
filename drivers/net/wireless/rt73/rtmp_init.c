@@ -35,6 +35,15 @@
 
 #include	"rt_config.h"
 
+#ifdef CONFIG_WIRELESS_RT73_FRMW
+extern char __initrt73frmw_start[];
+extern char __initrt73frmw_end[];
+#define FIRMWAREIMAGE_LENGTH    (__initrt73frmw_end - __initrt73frmw_start)
+#else
+char *__initrt73frmw_start = NULL;
+#define FIRMWAREIMAGE_LENGTH MAX_FIRMWARE_IMAGE_SIZE
+#endif
+
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0)
 #define RT_USB_ALLOC_URB(iso)	usb_alloc_urb(iso, GFP_KERNEL);
@@ -1636,7 +1645,9 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 	USHORT i, loaded = 0;
 	ULONG *reg = kzalloc(sizeof(ULONG), GFP_KERNEL);
 	u16 crc = 0;
-	INT status;
+	INT status, ret;
+	unsigned char *pFirmwareImage;
+	static int booted = 0;
 #define BUFFERED_COPY
 #ifdef BUFFERED_COPY
 	u8 buf[64];
@@ -1650,8 +1661,42 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 		return -ENOMEM;
 	}
 
-	// Access firmware file
-	if ((status = request_firmware(&fw_entry, firmName, udevice))) {
+	if ((__initrt73frmw_start != NULL) && (!booted)) {
+		pFirmwareImage = kmalloc(MAX_FIRMWARE_IMAGE_SIZE,
+				MEM_ALLOC_FLAG);
+		if (pFirmwareImage == NULL) {
+			DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+			return -ENOMEM;
+		}
+		memset(pFirmwareImage, 0x00, MAX_FIRMWARE_IMAGE_SIZE);
+
+		memcpy(pFirmwareImage, __initrt73frmw_start,
+			FIRMWAREIMAGE_LENGTH);
+		for (i = 0; i < FIRMWAREIMAGE_LENGTH; i = i + 4) {
+			ret = RTUSBMultiWrite(pAd, FIRMWARE_IMAGE_BASE + i,
+						pFirmwareImage + i, 4);
+			if (ret < 0) {
+				status = NDIS_STATUS_FAILURE;
+				break;
+			}
+		}
+		if (pFirmwareImage != NULL)
+			kfree(pFirmwareImage);
+		// Send 'run firmware' request to device
+		if ((status = RTUSBFirmwareRun(pAd)) < 0) {
+			KPRINT(KERN_ERR, "Device refuses to run firmware\n");
+			return status;
+		}
+		// Reset LED
+		RTMPSetLED(pAd, LED_LINK_DOWN);
+		// Firmware loaded ok
+		OPSTATUS_SET_FLAG (pAd, fOP_STATUS_FIRMWARE_LOAD );
+		status = NDIS_STATUS_SUCCESS; // change to success
+		booted = 1;
+		DBGPRINT(RT_DEBUG_TRACE, "<-- LoadFirmware (status: %d, loaded:"
+				 "%d)\n", status, loaded);
+		return status;
+	} else if ((status = request_firmware(&fw_entry, firmName, udevice))) {
 		KPRINT(KERN_ERR, "Failed to request_firmware. "
 			"Check your firmware file location\n");
 		goto fw_error;

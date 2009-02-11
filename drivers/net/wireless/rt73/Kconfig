@@ -37,3 +37,16 @@ config STM_RT73_WIRELESS
 	
 	To compile this driver as a module, choose M here: the module will be called 
 	rt73.ko.
+
+config WIRELESS_RT73_FRMW
+	bool "Rt73 firmware loaded inside kernel"
+	depends on STM_RT73_WIRELESS
+	default n
+	---help---
+	Enabling this kernel option you will be able to load rt73 firmware
+	directly from kernel. In this case you have to put your rt73.bin
+	file under usr kernel directory.
+	To note that once on board, for each plug/unplug operation on your
+	physical wireless device, the original rt73.bin firmware (/lib/firmware)
+	will be used, so is mandatory to maintain it under the specified
+	directory.

@@ -8,11 +8,13 @@ PHONY += klibcdirs
 
 # Generate builtin.o based on initramfs_data.o
 obj-$(CONFIG_BLK_DEV_INITRD) := initramfs_data.o
+obj-$(CONFIG_WIRELESS_RT73_FRMW) += initwireless_data.o
 
 # initramfs_data.o contains the initramfs_data.cpio.gz image.
 # The image is included using .incbin, a dependency which is not
 # tracked automatically.
 $(obj)/initramfs_data.o: $(obj)/initramfs_data.cpio.gz FORCE
+$(obj)/initwireless_data.o: $(obj)/rt73.bin FORCE
 
 #####
 # Generate the initramfs cpio archive

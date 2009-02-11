@@ -43,6 +43,7 @@
 // 8051 firmware image - base address = 0x4000
 #define FIRMWARE_IMAGE_BASE     0x800
 #define FIRMWARE_IMAGE_SIZE	2048	// 2k byte
+#define MAX_FIRMWARE_IMAGE_SIZE        2048
 
 //
 // Security key table memory, base address = 0x1000

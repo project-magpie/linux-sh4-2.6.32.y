@@ -42,6 +42,14 @@ SECTIONS
 	__ex_table : { *(__ex_table) }
 	__stop___ex_table = .;
 
+#ifdef CONFIG_WIRELESS_RT73_FRMW
+	. = ALIGN(PAGE_SIZE);
+
+	__initrt73frmw_start = .;
+	.init.wireless : { *(.init.wireless) }
+	__initrt73frmw_end = .;
+#endif
+
 	_etext = .;			/* End of text section */
 
 	NOTES

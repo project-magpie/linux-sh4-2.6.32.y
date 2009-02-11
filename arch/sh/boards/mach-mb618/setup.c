@@ -253,6 +253,25 @@ static struct nand_config_data mb618_nand_config = {
 	.nr_parts		= ARRAY_SIZE(nand_partitions),
 };
 
+
+/* We don't bother with INT[BCD] as they are shared with the ssc
+ * J20-A must be removed, J20-B must be 5-6
+ */
+static struct pci_config_data  pci_config = {
+	.pci_irq = {PCI_PIN_DEFAULT, PCI_PIN_UNUSED, PCI_PIN_UNUSED, PCI_PIN_UNUSED},
+	.serr_irq = PCI_PIN_UNUSED,
+	.idsel_lo = 30,
+	.idsel_hi = 30,
+	.req_gnt = {PCI_PIN_DEFAULT, PCI_PIN_UNUSED, PCI_PIN_UNUSED, PCI_PIN_UNUSED},
+	.pci_clk = 33333333
+};
+
+int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
+{
+       /* We can use the standard function on this board */
+       return  stx7111_pcibios_map_platform_irq(&pci_config, pin);
+}
+
 static struct platform_device *mb618_devices[] __initdata = {
 	&mb618_leds,
 	&epld_device,
@@ -308,6 +327,7 @@ static struct i2c_board_info mb618_scart_audio __initdata = {
 
 static int __init device_init(void)
 {
+	stx7111_configure_pci(&pci_config);
 	stx7111_configure_pwm(&pwm_private_info);
 	stx7111_configure_ssc(&ssc_private_info);
 	stx7111_configure_usb(1); /* Enable inverter */
@@ -401,9 +421,5 @@ static void __init mb618_init_irq(void)
 }
 
 struct sh_machine_vector mv_mb618 __initmv = {
-	.mv_name		= "mb618",
-	.mv_setup		= mb618_setup,
-	.mv_nr_irqs		= NR_IRQS,
-	.mv_init_irq		= mb618_init_irq,
-	.mv_ioport_map		= mb618_ioport_map,
+	STM_MACHINE_VEC(mb618)
 };

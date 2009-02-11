@@ -187,3 +187,50 @@
 		}							\
 	}								\
 }
+
+
+#define PCI_DEVICE(_emiss_addr, _ahb_pci_addr, _pci_window_addr, _pci_window_size, _dma_irq, _irq_serr) \
+{											\
+	.name = "pci_stm",								\
+	.id = 0,									\
+	.num_resources = 6,								\
+	.resource = (struct resource[]) {						\
+		[0] = {									\
+			.start = _emiss_addr,						\
+			.end = (_emiss_addr) + 0x17fc,					\
+			.flags = IORESOURCE_MEM,					\
+		},									\
+		[1] = {									\
+			.start = _ahb_pci_addr,						\
+			.end = (_ahb_pci_addr) + 0xff,					\
+			.flags = IORESOURCE_MEM,					\
+		},									\
+		[2] = {									\
+			.start = _pci_window_addr,					\
+			.end = (_pci_window_addr) + (_pci_window_size) - 1,		\
+			.flags = IORESOURCE_MEM,					\
+		},									\
+		[3] = {									\
+			.start = 0x1024,						\
+			.end = 0xffff,							\
+			.flags = IORESOURCE_IO,						\
+		},									\
+		[4] = {									\
+				.name = "PCI DMA",					\
+				.start = _dma_irq,					\
+				.end = _dma_irq,					\
+				.flags= IORESOURCE_IRQ,					\
+		},									\
+		[5] = {									\
+				.name = "PCI SERR",					\
+				.start = _irq_serr,					\
+				.end = _irq_serr,					\
+				.flags= IORESOURCE_IRQ,					\
+		}									\
+	}										\
+}
+
+
+
+
+

@@ -10,7 +10,8 @@ obj-$(CONFIG_CPU_SUBTYPE_SH7751R)	+= pci-sh7751.o ops-sh4.o
 obj-$(CONFIG_CPU_SUBTYPE_SH7763)	+= pci-sh7780.o ops-sh4.o
 obj-$(CONFIG_CPU_SUBTYPE_SH7780)	+= pci-sh7780.o ops-sh4.o
 obj-$(CONFIG_CPU_SUBTYPE_SH7785)	+= pci-sh7780.o ops-sh4.o
-obj-$(CONFIG_CPU_SUBTYPE_ST40)		+= pci-st40.o
+obj-$(CONFIG_SH_ST_ST40RA_PCI)		+= pci-st40.o
+obj-$(CONFIG_SH_ST_SYNOPSYS_PCI) 	+= pci-synopsys.o
 obj-$(CONFIG_CPU_SH5)			+= pci-sh5.o ops-sh5.o
 
 obj-$(CONFIG_SH_DREAMCAST)		+= ops-dreamcast.o fixups-dreamcast.o

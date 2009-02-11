@@ -126,8 +126,28 @@ lirc_scd_t lirc_scd = {
 	.noiserecov = 0,
 };
 
+
+
+/* PCI configuration */
+
+static struct pci_config_data  pci_config = {
+	.pci_irq = {PCI_PIN_DEFAULT, PCI_PIN_DEFAULT, PCI_PIN_DEFAULT, PCI_PIN_DEFAULT},
+	.serr_irq = PCI_PIN_UNUSED,
+	.idsel_lo = 30,
+	.idsel_hi = 30,
+	.req_gnt = {PCI_PIN_DEFAULT, PCI_PIN_UNUSED, PCI_PIN_UNUSED, PCI_PIN_UNUSED},
+	.pci_clk = 33333333
+};
+
+int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
+{
+       /* We can use the standard function on this board */
+       return  stx7105_pcibios_map_platform_irq(&pci_config, pin);
+}
+
 static int __init device_init(void)
 {
+	stx7105_configure_pci(&pci_config);
 	stx7200_configure_sata(0);
 	stx7200_configure_sata(1);
 	stx7105_configure_pwm(&pwm_private_info);
@@ -153,6 +173,8 @@ static int __init device_init(void)
 }
 arch_initcall(device_init);
 
+
+#ifndef CONFIG_GENERIC_IOMAP
 static void __iomem *mb680_ioport_map(unsigned long port, unsigned int size)
 {
 	/* However picking somewhere safe isn't as easy as you might think.
@@ -162,6 +184,7 @@ static void __iomem *mb680_ioport_map(unsigned long port, unsigned int size)
 	 */
 	return (void __iomem *)CCN_PVR;
 }
+#endif
 
 static void __init mb680_init_irq(void)
 {
@@ -173,9 +196,5 @@ static void __init mb680_init_irq(void)
 }
 
 struct sh_machine_vector mv_mb680 __initmv = {
-	.mv_name		= "mb680",
-	.mv_setup		= mb680_setup,
-	.mv_nr_irqs		= NR_IRQS,
-	.mv_init_irq		= mb680_init_irq,
-	.mv_ioport_map		= mb680_ioport_map,
+	STM_MACHINE_VEC(mb680)
 };

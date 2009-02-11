@@ -306,6 +306,7 @@ config SH_ST_MB374
 	select SYS_SUPPORTS_PCI
 	select SH_ST_HARP_IRQ
 	select SH_ST_STEM
+	select SH_ST_ST40RA_PCI
 	help
 	  Select ST40RA-Starter if configuring for an
 	  STMicroelectronics ST40RA Starter Board (also known as the
@@ -369,6 +370,8 @@ config SH_ST_MB618
 	depends on CPU_SUBTYPE_STX7111
 	select SH_ST_EPLD
 	select SH_ST_STEM
+	select SYS_SUPPORTS_PCI
+	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select STx7111 Validation if configuring for an
 	  STMicroelectronics STx7111 Validation Board (product code:
@@ -404,6 +407,8 @@ config SH_ST_MB680
 	depends on CPU_SUBTYPE_STX7105
 	select SH_ST_STEM
 	select SH_ST_STPM_HD_V2
+	select SYS_SUPPORTS_PCI
+	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select STx7105 Validation if configuring for an
 	  STMicroelectronics STx7105 Validation Board (product code:

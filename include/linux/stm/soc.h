@@ -2,6 +2,7 @@
 #define __LINUX_STM_SOC_H
 
 #include <linux/lirc.h>
+#include <linux/compiler.h>
 
 /* This is the private platform data for the ssc driver */
 struct ssc_pio_t {
@@ -108,6 +109,100 @@ struct plat_ssc_data {
 */
 #define SPI_NO_CHIPSELECT	(spi_set_cs(19, 7) + 1)
 
+
+#define PCI_PIN_ALTERNATIVE -2 	/* Use alternative PIO rather than default */
+#define PCI_PIN_DEFAULT -1 	/* Use whatever the default is for that pin */
+#define PCI_PIN_UNUSED   0	/* Pin not in use */
+
+/* In the board setup, you can pass in the external interrupt numbers instead
+ * if you have wired up your board that way. It has the advantage that the PIO
+ * pins freed up can then be used for something else
+ */
+struct pci_config_data {
+	int pci_irq[4]; /* PCI_PIN_DEFAULT/PCI_PIN_UNUSED. Other IRQ can be passed in */
+	int serr_irq;   /* As above for SERR */
+	char idsel_lo;	/* Lowest address line connected to an idsel  - slot 0 */
+	char idsel_hi;	/* Highest address line connected to an idsel - slot n */
+	char req_gnt[4]; /* Set to PCI_PIN_DEFAULT if the corresponding req/gnt lines are in use */
+	unsigned pci_clk; /* PCI clock rate in Hz. If zero will default to 33MHz*/
+
+	/* Various PCI tuning parameters. Set by SOC layer. You don't have to specify
+	 * these as the defaults are usually fine. However, if you need to change them, you
+	 * can set ad_override_default and plug in your own values
+	 */
+	unsigned ad_threshold:4;
+	unsigned ad_chunks_in_msg:5;
+	unsigned ad_pcks_in_chunk:5;
+	unsigned ad_trigger_mode:1;
+	unsigned ad_posted:1;
+	unsigned ad_max_opcode:4;
+	unsigned ad_read_ahead:1;
+
+	unsigned ad_override_default:1; /* Set to override default values for your board */
+};
+
+u8 pci_synopsys_inb(unsigned long port);
+u16 pci_synopsys_inw(unsigned long port);
+u32 pci_synopsys_inl(unsigned long port);
+
+u8 pci_synopsys_inb_p(unsigned long port);
+u16 pci_synopsys_inw_p(unsigned long port);
+u32 pci_synopsys_inl_p(unsigned long port);
+
+void pci_synopsys_insb(unsigned long port, void *dst, unsigned long count);
+void pci_synopsys_insw(unsigned long port, void *dst, unsigned long count);
+void pci_synopsys_insl(unsigned long port, void *dst, unsigned long count);
+
+void pci_synopsys_outb(u8 val, unsigned long port);
+void pci_synopsys_outw(u16 val, unsigned long port);
+void pci_synopsys_outl(u32 val, unsigned long port);
+
+void pci_synopsys_outb_p(u8 val, unsigned long port);
+void pci_synopsys_outw_p(u16 val, unsigned long port);
+void pci_synopsys_outl_p(u32 val, unsigned long port);
+
+void pci_synopsys_outsb(unsigned long port, const void *src, unsigned long count);
+void pci_synopsys_outsw(unsigned long port, const void *src, unsigned long count);
+void pci_synopsys_outsl(unsigned long port, const void *src, unsigned long count);
+
+/* Macro used to fill in the IO machine vector at the board level */
+#ifdef CONFIG_SH_ST_SYNOPSYS_PCI
+/* We have to hook all the in/out functions as they cannot be memory
+ * mapped with the synopsys PCI IP
+ *
+ * Also, for PCI we use the generic iomap implementation, and so do
+ * not need the ioport_map function, instead using the generic cookie
+ * based implementation.
+ */
+#define STM_PCI_IO_MACHINE_VEC(board)		\
+	.mv_inb = pci_synopsys_inb,		\
+        .mv_inw = pci_synopsys_inw,		\
+        .mv_inl = pci_synopsys_inl,		\
+        .mv_outb = pci_synopsys_outb,		\
+        .mv_outw = pci_synopsys_outw,		\
+        .mv_outl = pci_synopsys_outl,		\
+        .mv_inb_p = pci_synopsys_inb_p,		\
+        .mv_inw_p = pci_synopsys_inw,		\
+        .mv_inl_p = pci_synopsys_inl,		\
+        .mv_outb_p = pci_synopsys_outb_p,	\
+        .mv_outw_p = pci_synopsys_outw,		\
+        .mv_outl_p = pci_synopsys_outl,		\
+        .mv_insb = pci_synopsys_insb,		\
+        .mv_insw = pci_synopsys_insw,		\
+        .mv_insl = pci_synopsys_insl,		\
+        .mv_outsb = pci_synopsys_outsb,		\
+        .mv_outsw = pci_synopsys_outsw,		\
+        .mv_outsl = pci_synopsys_outsl,
+#else
+#define STM_PCI_IO_MACHINE_VEC(board)	board##_ioport_map,
+#endif
+
+#define STM_MACHINE_VEC(board)				\
+	.mv_name		= #board,		\
+	.mv_setup		= board##_setup,	\
+	.mv_nr_irqs		= NR_IRQS,		\
+	.mv_init_irq		= board##_init_irq,	\
+	STM_PCI_IO_MACHINE_VEC(board)
 
 /* Private data for the SATA driver */
 struct plat_sata_data {
@@ -301,6 +396,8 @@ void stx7105_configure_nand(struct nand_config_data *data);
 void stx7105_configure_lirc(lirc_scd_t *scd);
 void stx7105_configure_pata(int bank, int pc_mode, int irq);
 void stx7105_configure_audio_pins(int pcmout, int spdif, int pcmin);
+void stx7105_configure_pci(struct pci_config_data *pci_config);
+int  stx7105_pcibios_map_platform_irq(struct pci_config_data *pci_config, u8 pin);
 
 void stx7111_early_device_init(void);
 void stx7111_configure_asc(const int *ascs, int num_ascs, int console);
@@ -310,6 +407,8 @@ void stx7111_configure_usb(int inv_enable);
 void stx7111_configure_ethernet(int en_mii, int sel, int ext_clk, int phy_bus);
 void stx7111_configure_nand(struct nand_config_data *data);
 void stx7111_configure_lirc(lirc_scd_t *scd);
+void stx7111_configure_pci(struct pci_config_data *pci_config);
+int  stx7111_pcibios_map_platform_irq(struct pci_config_data *pci_config, u8 pin);
 
 void stx7141_early_device_init(void);
 void stx7141_configure_asc(const int *ascs, int num_ascs, int console);

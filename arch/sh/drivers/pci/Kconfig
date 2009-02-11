@@ -35,3 +35,13 @@ config PCI_AUTO_UPDATE_RESOURCES
 	  with its resources updated beyond what they are when the device
 	  is powered up, set this to N. Everyone else will want this as Y.
 
+# Old style PCI controller, used on ST40RA, GX1 etc
+config SH_ST_ST40RA_PCI
+	bool
+	default n
+
+# Completely different PCI controller from synopsys
+config SH_ST_SYNOPSYS_PCI
+	bool
+	select GENERIC_IOMAP
+	default n

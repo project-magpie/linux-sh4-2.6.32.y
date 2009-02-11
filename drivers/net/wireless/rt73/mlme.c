@@ -375,6 +375,21 @@ VOID MlmeHandler(
 	NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
 }
 
+static void cancelSMTimers(
+	IN PRTMP_ADAPTER pAd)
+{
+	RTMPCancelTimer(&pAd->Mlme.PeriodicTimer);
+	RTMPCancelTimer(&pAd->Mlme.LinkDownTimer);
+	RTMPCancelTimer(&pAd->MlmeAux.AssocTimer);
+	RTMPCancelTimer(&pAd->MlmeAux.ReassocTimer);
+	RTMPCancelTimer(&pAd->MlmeAux.AuthTimer);
+	RTMPCancelTimer(&pAd->MlmeAux.BeaconTimer);
+	RTMPCancelTimer(&pAd->MlmeAux.ScanTimer);
+    RTMPCancelTimer(&pAd->PortCfg.QuickResponeForRateUpTimer);
+	RTMPCancelTimer(&pAd->RxAnt.RxAntDiversityTimer);
+
+} /* End cancelSMTimers () */
+
 VOID MlmeStart(
 	IN PRTMP_ADAPTER pAd)
 {
@@ -402,12 +417,24 @@ VOID MlmeHalt(
 	MlmeRestartStateMachine(pAd);
 
 	// Cancel pending timers
-	RTMPCancelTimer(&pAd->Mlme.PeriodicTimer);
-	RTMPCancelTimer(&pAd->Mlme.LinkDownTimer);
+	cancelSMTimers(pAd);
 
 	msleep(500); //RTMPusecDelay(500000); // 0.5 sec to guarantee timer canceled
 
+	RTUSBwaitTxDone(pAd);
+
+	// We want to wait until all pending receives and sends to the
+	// device object. We cancel any
+	// irps. Wait until sends and receives have stopped.
+	//
+	RTUSBCancelPendingIRPs(pAd);
+	RTUSBCleanUpMLMEWaitQueue(pAd);
+	RTUSBCleanUpMLMEBulkOutQueue(pAd);
+
+	RTUSBfreeCmdQ(pAd, &pAd->CmdQ);
+
 	MlmeQueueInit(&pAd->Mlme.Queue);
+	BssTableInit(&pAd->ScanTab);	// no scan resuls when closed - bb
 
 	DBGPRINT(RT_DEBUG_TRACE, "<== MlmeHalt\n");
 }
@@ -422,12 +449,7 @@ VOID MlmeSuspend(
 	DBGPRINT(RT_DEBUG_TRACE, "==>MlmeSuspend\n");
 
 	// Cancel pending timers
-	RTMPCancelTimer(&pAd->MlmeAux.AssocTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.ReassocTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.DisassocTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.AuthTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.BeaconTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.ScanTimer);
+	cancelSMTimers(pAd);
 
 	while (TRUE)
 	{
@@ -456,14 +478,14 @@ VOID MlmeSuspend(
 		Elem->Occupied = FALSE;
 	}
 	NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
+	RTUSBwaitTxDone(pAd);
 
-	// Remove running state
-	NdisAcquireSpinLock(&pAd->Mlme.Queue.Lock);
-	pAd->Mlme.Running = FALSE;
-	NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
-
-	RTUSBCleanUpMLMEWaitQueue(pAd);
+	RTUSBCancelPendingIRPs(pAd);
+	RTUSBCleanUpDataBulkInQueue(pAd);
+	RTUSBCleanUpDataBulkOutQueue(pAd);
 	RTUSBCleanUpMLMEBulkOutQueue(pAd);
+	RTUSBCleanUpMLMEWaitQueue(pAd);
+	RTUSBfreeCmdQ(pAd, &pAd->CmdQ);
 
 	// Set all state machines back IDLE
 	pAd->Mlme.CntlMachine.CurrState    = CNTL_IDLE;
@@ -471,12 +493,11 @@ VOID MlmeSuspend(
 	pAd->Mlme.AuthMachine.CurrState    = AUTH_REQ_IDLE;
 	pAd->Mlme.AuthRspMachine.CurrState = AUTH_RSP_IDLE;
 	pAd->Mlme.SyncMachine.CurrState    = SYNC_IDLE;
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_JOIN_IN_PROGRESS))
-		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_BSS_JOIN_IN_PROGRESS);//steven:for test
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_REASSOC_IN_PROGRESS))
-		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_REASSOC_IN_PROGRESS);//steven:for test
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
-		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS);//steven:for test
+
+	// Remove running state
+	NdisAcquireSpinLock(&pAd->Mlme.Queue.Lock);
+	pAd->Mlme.Running = FALSE;
+	NdisReleaseSpinLock(&pAd->Mlme.Queue.Lock);
 
 	DBGPRINT(RT_DEBUG_TRACE, "<==MlmeSuspend\n");
 }
@@ -486,12 +507,6 @@ VOID MlmeResume(
 {
 	DBGPRINT(RT_DEBUG_TRACE, "==>MlmeResume\n");
 
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_JOIN_IN_PROGRESS))
-		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_BSS_JOIN_IN_PROGRESS);//steven:for test
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_REASSOC_IN_PROGRESS))
-		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_REASSOC_IN_PROGRESS);//steven:for test
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
-		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS);//steven:for test
 	// Set all state machines back IDLE
 	pAd->Mlme.CntlMachine.CurrState    = CNTL_IDLE;
 	pAd->Mlme.AssocMachine.CurrState   = ASSOC_IDLE;
@@ -499,6 +514,13 @@ VOID MlmeResume(
 	pAd->Mlme.AuthRspMachine.CurrState = AUTH_RSP_IDLE;
 	pAd->Mlme.SyncMachine.CurrState    = SYNC_IDLE;
 
+	// If previously associated, reassociate on resume - bb.
+	if (pAd->MlmeAux.SsidLen > 0) {
+		memcpy(pAd->MlmeAux.AutoReconnectSsid, pAd->MlmeAux.Ssid,
+				pAd->MlmeAux.SsidLen);
+		pAd->MlmeAux.AutoReconnectSsidLen = pAd->MlmeAux.SsidLen;
+	}
+	MlmePeriodicExec(pAd);
 
 	DBGPRINT(RT_DEBUG_TRACE, "<==MlmeResume\n");
 }
@@ -532,8 +554,6 @@ VOID MlmePeriodicExecTimeout(
 VOID MlmePeriodicExec(
 	IN	PRTMP_ADAPTER pAd)
 {
-	unsigned long			flags;
-
 	// Timer need to reset every time, so using do-while loop
 	do
 	{
@@ -588,41 +608,10 @@ VOID MlmePeriodicExec(
 		// to recover the system
 		if (pAd->RalinkCounters.MgmtRingFullCount >= 2)
 		{
-			PCmdQElmt	cmdqelmt;
-
-			RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS);
-			DBGPRINT(RT_DEBUG_ERROR, "- (%s) mgmt ring full, count=%d\n",
-					__FUNCTION__, pAd->RalinkCounters.MgmtRingFullCount);
-
-			NdisAcquireSpinLock(&pAd->CmdQLock);
-			while (pAd->CmdQ.size > 0)
-			{
-				RTUSBDequeueCmd(&pAd->CmdQ, &cmdqelmt);
-				if(cmdqelmt == NULL) {	//Thomas
-				DBGPRINT(RT_DEBUG_INFO,
-						"- MlmePeriodicExec (cmdqelmt==NULL)\n");
-					break;
-				}
-				if (cmdqelmt->CmdFromNdis == TRUE)
-				{
-					if ((cmdqelmt->command != RT_OID_MULTI_READ_MAC) &&
-						(cmdqelmt->command != RT_OID_VENDOR_READ_BBP) &&
-						(cmdqelmt->command != RT_OID_USB_VENDOR_EEPROM_READ))
-					{
-						if (cmdqelmt->buffer != NULL){
-							kfree(cmdqelmt->buffer);
-						}
-					}
-					if(cmdqelmt != NULL){
-						kfree(cmdqelmt);
-					}
-				}
-				else
-					cmdqelmt->InUse = FALSE;
-			}
-			NdisReleaseSpinLock(&pAd->CmdQLock);
-
+			RTUSBfreeCmdQ(pAd, &pAd->CmdQ);
 			RTUSBEnqueueInternalCmd(pAd, RT_OID_RESET_FROM_ERROR);
+
+			DBGPRINT(RT_DEBUG_ERROR, "<---MlmePeriodicExec (Mgmt Ring Full)\n");
 			break;
 		}
 		pAd->RalinkCounters.MgmtRingFullCount = 0;
@@ -664,8 +653,10 @@ VOID STAMlmePeriodicExec(
 	}
 
 	// WPA MIC error should block association attempt for 60 seconds
-	if (pAd->PortCfg.bBlockAssoc && (time_after(pAd->Mlme.Now, pAd->PortCfg.LastMicErrorTime + (60 * HZ))))
+	if (pAd->PortCfg.bBlockAssoc &&
+		(time_after(pAd->Mlme.Now, pAd->PortCfg.LastMicErrorTime + (60*HZ)))) {
 		pAd->PortCfg.bBlockAssoc = FALSE;
+	}
 	DBGPRINT(RT_DEBUG_INFO, "MMCHK - PortCfg.Ssid=%s ... MlmeAux.Ssid=%s\n",
 			pAd->PortCfg.Ssid, pAd->MlmeAux.Ssid);
 
@@ -874,8 +865,8 @@ VOID STAMlmePeriodicExec(
 	{
 		if (!ADHOC_ON(pAd) && !INFRA_ON(pAd))
 		{
-			DBGPRINT(RT_DEBUG_INFO, "MLME periodic exec, no association so far\n");
-
+			DBGPRINT(RT_DEBUG_INFO, "-  %s, no association so far\n",
+					__FUNCTION__);
 			if ((pAd->PortCfg.bAutoReconnect == TRUE) &&
 				(MlmeValidateSSID(pAd->MlmeAux.AutoReconnectSsid, pAd->MlmeAux.AutoReconnectSsidLen) == TRUE))
 			{
@@ -1837,7 +1828,6 @@ VOID MlmeSetTxPreamble(
 	}
 
 	RTUSBReadMACRegister(pAd, TXRX_CSR4, &csr4->word);
-
 	if (TxPreamble == Rt802_11PreambleShort)
 	{
 		// NOTE: 1Mbps should always use long preamble
@@ -2078,8 +2068,6 @@ VOID MlmeUpdateTxRates(
 VOID MlmeRadioOff(
 	IN PRTMP_ADAPTER pAd)
 {
-	MLME_DISASSOC_REQ_STRUCT	DisReq;
-	MLME_QUEUE_ELEM 			MsgElem;
 	ULONG						i = 0;
 
 	DBGPRINT(RT_DEBUG_TRACE, "===>MlmeRadioOff()\n");
@@ -2094,27 +2082,9 @@ VOID MlmeRadioOff(
 	//
 	if (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))
 	{
-		if (INFRA_ON(pAd))
-		{
-			COPY_MAC_ADDR(&DisReq.Addr, pAd->PortCfg.Bssid);
-			DisReq.Reason =  REASON_DISASSOC_STA_LEAVING;
-
-			MsgElem.Machine = ASSOC_STATE_MACHINE;
-			MsgElem.MsgType = MT2_MLME_DISASSOC_REQ;
-			MsgElem.MsgLen = sizeof(MLME_DISASSOC_REQ_STRUCT);
-			memcpy(MsgElem.Msg, &DisReq, sizeof(MLME_DISASSOC_REQ_STRUCT));
-
-			MlmeDisassocReqAction(pAd, &MsgElem);
-			msleep(1);	//RTMPusecDelay(1000);
-		}
-
+		// all calls now preceeded with disassoc request - for now - bb
 		// Set Radio off flag will turn off RTUSBKickBulkOut function
 		RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF);
-
-		// Link down first if any association exists
-		if (INFRA_ON(pAd) || ADHOC_ON(pAd))
-			LinkDown(pAd, FALSE);
-
 	}
 	else
 	{
@@ -2122,8 +2092,7 @@ VOID MlmeRadioOff(
 		RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF);
 	}
 
-	RTUSBRejectPendingPackets(pAd); //reject all NDIS packets waiting in TX queue
-	RTUSBCleanUpDataBulkOutQueue(pAd);
+	RTUSBRejectPendingPackets(pAd);//reject all NDIS packets waiting in TX queue
 	MlmeSuspend(pAd, TRUE);
 
 	// Disable Rx
@@ -2142,14 +2111,7 @@ VOID MlmeRadioOff(
 		{
 			DBGPRINT(RT_DEBUG_TRACE,
 					"- (%s) BulkIn IRP Pending!!!\n", __FUNCTION__);
-			RTUSB_VendorRequest(pAd,
-				0,
-				DEVICE_VENDOR_REQUEST_OUT,
-				0x0C,
-				0x0,
-				0x0,
-				NULL,
-				0);
+			RTUSBStopRx(pAd);
 		}
 
 		if ((pAd->BulkOutPending[0] == TRUE) ||
@@ -2180,8 +2142,6 @@ VOID MlmeRadioOn(
 {
 	DBGPRINT(RT_DEBUG_TRACE,"MlmeRadioOn()\n");
 
-	NICResetFromError(pAd);
-
 	// Turn on radio, Abort TX, Disable RX
 	RTUSBWriteMACRegister(pAd, MAC_CSR10, 0x00000718);
 	RT73WriteTXRXCSR0(pAd, TRUE, FALSE);
@@ -2189,7 +2149,6 @@ VOID MlmeRadioOn(
 	// Clear Radio off flag
 	RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF);
 
-	MlmeResume(pAd);
 	RTUSBBulkReceive(pAd);
 
 	// enable RX of MAC block
@@ -2208,13 +2167,9 @@ VOID MlmeRadioOn(
 	// After MLME Reset the routine RTUSBResumeMsduTransmission will also be call
 	// To
 	//
-	MlmeEnqueue(pAd,
-				MLME_CNTL_STATE_MACHINE,
-				RT_CMD_RESET_MLME,
-				0,
-				NULL);
+	MlmeResume(pAd);
 
-}
+} /* End MlmeRadioOn () */
 
 // ===========================================================================================
 // bss_table.c
@@ -3443,13 +3398,7 @@ VOID MlmeRestartStateMachine(
 
 	// Cancel all timer events
 	// Be careful to cancel new added timer
-	RTMPCancelTimer(&pAd->MlmeAux.AssocTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.ReassocTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.DisassocTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.AuthTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.BeaconTimer);
-	RTMPCancelTimer(&pAd->MlmeAux.ScanTimer);
-
+	cancelSMTimers(pAd);
 
 	// Set all state machines back IDLE
 	pAd->Mlme.CntlMachine.CurrState    = CNTL_IDLE;
@@ -3457,12 +3406,6 @@ VOID MlmeRestartStateMachine(
 	pAd->Mlme.AuthMachine.CurrState    = AUTH_REQ_IDLE;
 	pAd->Mlme.AuthRspMachine.CurrState = AUTH_RSP_IDLE;
 	pAd->Mlme.SyncMachine.CurrState    = SYNC_IDLE;
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_JOIN_IN_PROGRESS))
-		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_BSS_JOIN_IN_PROGRESS);//steven:for test
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_REASSOC_IN_PROGRESS))
-		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_REASSOC_IN_PROGRESS);//steven:for test
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
-		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS);//steven:for test
 
 	RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_MLME_RESET_IN_PROGRESS);
 
@@ -4784,6 +4727,7 @@ VOID AsicEnableBssSync(
 
 	RTUSBReadMACRegister(pAd, TXRX_CSR9, &csr->word);
 
+
 	csr->field.BeaconInterval = pAd->PortCfg.BeaconPeriod << 4; // ASIC register in units of 1/16 TU
 	csr->field.bTsfTicking = 1;
 	csr->field.TsfSyncMode = 1; // sync TSF in INFRASTRUCTURE mode
@@ -4811,6 +4755,11 @@ VOID AsicEnableIbssSync(
 	PUCHAR			ptr;
 	UINT i;
 	DBGPRINT(RT_DEBUG_ERROR, "--->AsicEnableIbssSync(ADHOC mode)\n");
+
+	if (!csr9) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
 
 	RTUSBReadMACRegister(pAd, TXRX_CSR9, &csr9->word);
 	csr9->field.bBeaconGen = 0;
@@ -5024,6 +4973,7 @@ VOID AsicSetSlotTime(
 
 	RTUSBWriteMACRegister(pAd, MAC_CSR9, Csr9->word);
 
+
 	DBGPRINT(RT_DEBUG_TRACE, "AsicSetSlotTime(=%d us)\n", Csr9->field.SlotTime);
 	kfree(Csr9);
 }
@@ -5232,18 +5182,24 @@ VOID AsicAddSharedKeyEntry(
 		union aaa {
 		ULONG	temp_ul;
 		struct bbb{
+#ifdef BIG_ENDIAN
+			UCHAR ch4;
+			UCHAR ch3;
+			UCHAR ch2;
+			UCHAR ch1;
+#else
 			UCHAR ch1;
 			UCHAR ch2;
 			UCHAR ch3;
 			UCHAR ch4;
+#endif
 			} temp_uc;
 	} ddd;
 
 	if (!csr0 || !csr1) {
 		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
-    return;
-  }
-
+		return;
+	}
 	DBGPRINT(RT_DEBUG_TRACE, "AsicAddSharedKeyEntry: %s key #%d\n", CipherName[CipherAlg], BssIndex*4 + KeyIdx);
 	DBGPRINT(RT_DEBUG_TRACE, "   Key =");
 	for (i = 0; i < 16; i++)
@@ -5275,7 +5231,7 @@ VOID AsicAddSharedKeyEntry(
 	//
 	RTUSBReadMACRegister(pAd, SEC_CSR0, csr0);
 	*csr0 = *csr0 & ~BIT32[BssIndex*4 + KeyIdx];	// turn off the valid bit
-	RTUSBWriteMACRegister(pAd, SEC_CSR0, csr0);
+	RTUSBWriteMACRegister(pAd, SEC_CSR0, (int)csr0);
 
 
 	//
@@ -5283,6 +5239,8 @@ VOID AsicAddSharedKeyEntry(
 	//
 	offset = SHARED_KEY_TABLE_BASE + (4*BssIndex + KeyIdx)*HW_KEY_ENTRY_SIZE;
 
+	/* For big endian machines, we need to pre- swap the key data so that
+	 * the correct byte order is restored after endianization. */
 	for (i=0; i<MAX_LEN_OF_SHARE_KEY; i = i+4)
 	{
 		ddd.temp_uc.ch1  = pKey[i];
@@ -5339,7 +5297,7 @@ VOID AsicAddSharedKeyEntry(
 	//
 	RTUSBReadMACRegister(pAd, SEC_CSR0, csr0);
 	*csr0 |= BIT32[BssIndex*4 + KeyIdx]; 	// turrn on the valid bit
-	RTUSBWriteMACRegister(pAd, SEC_CSR0, csr0);
+	RTUSBWriteMACRegister(pAd, SEC_CSR0, (int)csr0);
 	kfree(csr0);
 	kfree(csr1);
 }
@@ -5370,13 +5328,22 @@ VOID AsicAddPairwiseKeyEntry(
 	IN PUCHAR		 pTxMic,
 	IN PUCHAR		 pRxMic)
 {
-	ULONG offset, csr2, csr3;
+	ULONG offset;
+	ULONG *csr2 = kmalloc(sizeof(ULONG), GFP_KERNEL);
+	ULONG *csr3 = kmalloc(sizeof(ULONG), GFP_KERNEL);
 
+	if (!csr2 || !csr3) {
+		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+		return;
+	}
+
+#if 0
 	DBGPRINT(RT_DEBUG_TRACE,"AsicAddPairwiseKeyEntry: Entry#%d Alg=%s mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
 		KeyIdx, CipherName[CipherAlg], pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5]);
 	DBGPRINT(RT_DEBUG_TRACE,"  Key	  = %02x:%02x:%02x:%02x:...\n", pKey[0],pKey[1],pKey[2],pKey[3]);
 	DBGPRINT(RT_DEBUG_TRACE,"  TxMIC  = %02x:%02x:%02x:%02x:...\n", pTxMic[0],pTxMic[1],pTxMic[2],pTxMic[3]);
 	DBGPRINT(RT_DEBUG_TRACE,"  pRxMic = %02x:%02x:%02x:%02x:...\n", pRxMic[0],pRxMic[1],pRxMic[2],pRxMic[3]);
+#endif
 
 	offset = PAIRWISE_KEY_TABLE_BASE + (KeyIdx * HW_KEY_ENTRY_SIZE);
 
@@ -5390,16 +5357,18 @@ VOID AsicAddPairwiseKeyEntry(
 	// enable this entry
 	if (KeyIdx < 32)
 	{
-		RTUSBReadMACRegister(pAd, SEC_CSR2, &csr2);
-		csr2 |= BIT32[KeyIdx];
-		RTUSBWriteMACRegister(pAd, SEC_CSR2, csr2);
+		RTUSBReadMACRegister(pAd, SEC_CSR2, csr2);
+		*csr2 |= BIT32[KeyIdx];
+		RTUSBWriteMACRegister(pAd, SEC_CSR2, *csr2);
 	}
 	else
 	{
-		RTUSBReadMACRegister(pAd, SEC_CSR3, &csr3);
-		csr3 |= BIT32[KeyIdx-32];
-		RTUSBWriteMACRegister(pAd, SEC_CSR3, csr3);
+		RTUSBReadMACRegister(pAd, SEC_CSR3, csr3);
+		*csr3 |= BIT32[KeyIdx-32];
+		RTUSBWriteMACRegister(pAd, SEC_CSR3, *csr3);
 	}
+	kfree(csr2);
+	kfree(csr3);
 }
 
 VOID AsicRemovePairwiseKeyEntry(

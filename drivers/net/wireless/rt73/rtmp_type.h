@@ -38,8 +38,10 @@
 // Put platform dependent declaration here
 // For example, linux type definition
 
-#ifdef RTMP_EMBEDDED
+#if defined(PPC) || defined(ARM)
 #define ALIGN_USB_RCV  __attribute__ ((aligned(2)))
+#elif defined(mips)
+#define ALIGN_USB_RCV  __attribute__ ((aligned(4)))
 #else
 #define ALIGN_USB_RCV
 #endif

@@ -808,17 +808,10 @@ void RTMPInitAdapterBlock(
 		NdisAllocateSpinLock(&pAd->BulkOutLock[2]);
 		NdisAllocateSpinLock(&pAd->BulkOutLock[3]);
 		NdisAllocateSpinLock(&pAd->CmdQLock);
-		NdisAllocateSpinLock(&pAd->SendTxWaitQueueLock[0]);
-		NdisAllocateSpinLock(&pAd->SendTxWaitQueueLock[1]);
-		NdisAllocateSpinLock(&pAd->SendTxWaitQueueLock[2]);
-		NdisAllocateSpinLock(&pAd->SendTxWaitQueueLock[3]);
-		NdisAllocateSpinLock(&pAd->DeQueueLock[0]);
-		NdisAllocateSpinLock(&pAd->DeQueueLock[1]);
-		NdisAllocateSpinLock(&pAd->DeQueueLock[2]);
-		NdisAllocateSpinLock(&pAd->DeQueueLock[3]);
 
 		NdisAllocateSpinLock(&pAd->MLMEWaitQueueLock);
 		NdisAllocateSpinLock(&pAd->MLMEQLock);
+		NdisAllocateSpinLock(&pAd->BulkFlagsLock);
 
 	}	while (FALSE);
 
@@ -828,16 +821,17 @@ void RTMPInitAdapterBlock(
 NDIS_STATUS	RTUSBWriteHWMACAddress(
 	IN	PRTMP_ADAPTER		pAd)
 {
-	MAC_CSR2_STRUC		*StaMacReg0 = kzalloc(sizeof(MAC_CSR2_STRUC), GFP_KERNEL);
-	MAC_CSR3_STRUC		*StaMacReg1 = kzalloc(sizeof(MAC_CSR3_STRUC), GFP_KERNEL);
+	MAC_CSR2_STRUC          *StaMacReg0 = kzalloc(sizeof(MAC_CSR2_STRUC), GFP_KERNEL);
+	MAC_CSR3_STRUC          *StaMacReg1 = kzalloc(sizeof(MAC_CSR3_STRUC), GFP_KERNEL);
 	NDIS_STATUS			Status = NDIS_STATUS_SUCCESS;
 	PUCHAR			curMAC;
 	int			t;
 
 	if (!StaMacReg0 || !StaMacReg1) {
 		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
-    return -ENOMEM;
-  }
+		return -ENOMEM;
+	}
+
 	if (pAd->bLocalAdminMAC != TRUE)
 	{
 		if (!memcmp(pAd->net_dev->dev_addr, "\x00\x00\x00\x00\x00\x00", 6)) {
@@ -914,6 +908,7 @@ VOID NICReadEEPROMParameters(
 		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return;
 	}
+
 	//Read MAC address.
 	RTUSBReadEEPROM(pAd, EEPROM_MAC_ADDRESS_BASE_OFFSET,
 					pAd->PermanentAddress, MAC_ADDR_LEN);
@@ -943,14 +938,22 @@ VOID NICReadEEPROMParameters(
 	// if E2PROM version mismatch with driver's expectation, then skip
 	// all subsequent E2RPOM retieval and set a system error bit to notify GUI
 	RTUSBReadEEPROM(pAd, EEPROM_VERSION_OFFSET, (PUCHAR)&Version->word, 2);
-	pAd->EepromVersion = Version->field.Version + Version->field.FaeReleaseNumber * 256;
-	DBGPRINT(RT_DEBUG_TRACE, "E2PROM: Version = %d, FAE release #%d\n", Version->field.Version, Version->field.FaeReleaseNumber);
+	Version->word = le16_to_cpu(Version->word);
+	pAd->EepromVersion = Version->field.Version +
+					Version->field.FaeReleaseNumber * 256;
+	DBGPRINT(RT_DEBUG_INFO, "E2PROM: Version = %d, FAE release #%d\n",
+			Version->field.Version, Version->field.FaeReleaseNumber);
 
-	// Read BBP default value from EEPROM and store to array(EEPROMDefaultValue) in pAd
-	RTUSBReadEEPROM(pAd, EEPROM_BBP_BASE_OFFSET, (PUCHAR)(pAd->EEPROMDefaultValue), 2 * NUM_EEPROM_BBP_PARMS);
+	// Read BBP default from EEPROM, store to array(EEPROMDefaultValue) in pAd
+	RTUSBReadEEPROM(pAd, EEPROM_BBP_BASE_OFFSET,
+				(PUCHAR)(pAd->EEPROMDefaultValue), 2 * NUM_EEPROM_BBP_PARMS);
 
+	// Bit of a swag, here - bb
+	for (i = 0; i < NUM_EEPROM_BBP_PARMS; i++) {
+		pAd->EEPROMDefaultValue[i] = le16_to_cpu(pAd->EEPROMDefaultValue[i]);
+	}
 	// We have to parse NIC configuration 0 at here.
-	// If TSSI did not have preloaded value, it should reset the TxAutoAgc to false
+	// If TSSI did not have preloaded value, it should reset TxAutoAgc to false
 	// Therefore, we have to read TxAutoAgc control beforehand.
 	// Read Tx AGC control bit
 	Antenna.word = pAd->EEPROMDefaultValue[0];
@@ -989,7 +992,8 @@ VOID NICReadEEPROMParameters(
 	// Value from 1 - 0x7f. Default value is 24.
 	// 0. 11b/g
 	// Power value 0xFA (-6) ~ 0x24 (36)
-	RTUSBReadEEPROM(pAd, EEPROM_G_TX_PWR_OFFSET, ChannelTxPower, 2 * NUM_EEPROM_TX_G_PARMS);
+	RTUSBReadEEPROM(pAd, EEPROM_G_TX_PWR_OFFSET,
+					ChannelTxPower, 2 * NUM_EEPROM_TX_G_PARMS);
 	for (i = 0; i < 2 * NUM_EEPROM_TX_G_PARMS; i++)
 	{
 		if ((ChannelTxPower[i] > 36) || (ChannelTxPower[i] < -6))
@@ -997,27 +1001,33 @@ VOID NICReadEEPROMParameters(
 		else
 			pAd->TxPower[i].Power = ChannelTxPower[i];
 
-		DBGPRINT(RT_DEBUG_INFO, "Tx power for channel %d : 0x%02x\n", pAd->TxPower[i].Channel, (UCHAR)(pAd->TxPower[i].Power));
+		DBGPRINT(RT_DEBUG_INFO, "Tx power for channel %d : 0x%02x\n",
+				pAd->TxPower[i].Channel, (UCHAR)(pAd->TxPower[i].Power));
 	}
 
 	// 1. UNI 36 - 64, HipperLAN 2 100 - 140, UNI 140 - 165
 	// Power value 0xFA (-6) ~ 0x24 (36)
-	RTUSBReadEEPROM(pAd, EEPROM_A_TX_PWR_OFFSET, ChannelTxPower, MAX_NUM_OF_A_CHANNELS);
+	RTUSBReadEEPROM(pAd, EEPROM_A_TX_PWR_OFFSET,
+					ChannelTxPower, MAX_NUM_OF_A_CHANNELS);
 	for (i = 0; i < MAX_NUM_OF_A_CHANNELS; i++)
 	{
 		if ((ChannelTxPower[i] > 36) || (ChannelTxPower[i] < -6))
 			pAd->TxPower[i + 14].Power = 24;
 		else
 			pAd->TxPower[i + 14].Power = ChannelTxPower[i];
-		DBGPRINT(RT_DEBUG_INFO, "Tx power for channel %d : 0x%02x\n", pAd->TxPower[i + 14].Channel, (UCHAR)(pAd->TxPower[i + 14].Power));
+		DBGPRINT(RT_DEBUG_INFO, "Tx power for channel %d : 0x%02x\n",
+				pAd->TxPower[i + 14].Channel,
+				(UCHAR)(pAd->TxPower[i + 14].Power));
 	}
 
 	//
-	// Please note, we must skip frist value, so we get TxPower as ChannelTxPower[i + 1];
-	// because the TxPower was stored from 0x7D, but we need to read EEPROM from 0x7C. (Word alignment)
+	// we must skip frist value, so we get TxPower as ChannelTxPower[i + 1];
+	// because the TxPower was stored from 0x7D, but we need to read EEPROM
+	// from 0x7C. (Word alignment)
 	//
 	// for J52, 34/38/42/46
-	RTUSBReadEEPROM(pAd, EEPROM_J52_TX_PWR_OFFSET, ChannelTxPower, 6); //must Read even valuse
+	RTUSBReadEEPROM(pAd, EEPROM_J52_TX_PWR_OFFSET,
+					ChannelTxPower, 6); //must Read even valuse
 
 	for (i = 0; i < 4; i++)
 	{
@@ -1027,7 +1037,9 @@ VOID NICReadEEPROMParameters(
 		else
 			pAd->TxPower[J52_CHANNEL_START_OFFSET + i].Power = ChannelTxPower[i + 1];
 
-		DBGPRINT(RT_DEBUG_INFO, "Tx power for channel %d : %0x\n", pAd->TxPower[J52_CHANNEL_START_OFFSET + i].Channel, pAd->TxPower[J52_CHANNEL_START_OFFSET + i].Power);
+		DBGPRINT(RT_DEBUG_INFO, "Tx power for channel %d : 0x%02x\n",
+				pAd->TxPower[J52_CHANNEL_START_OFFSET + i].Channel,
+				(UCHAR)pAd->TxPower[J52_CHANNEL_START_OFFSET + i].Power);
 	}
 
 	// Read TSSI reference and TSSI boundary for temperature compensation.
@@ -1052,10 +1064,12 @@ VOID NICReadEEPROMParameters(
 		if (pAd->TssiRefG == 0xff)
 			pAd->bAutoTxAgcG = FALSE;
 
-		DBGPRINT(RT_DEBUG_TRACE,"E2PROM: G Tssi[-4 .. +4] = %d %d %d %d - %d -%d %d %d %d, step=%d, tuning=%d\n",
-			pAd->TssiMinusBoundaryG[4], pAd->TssiMinusBoundaryG[3], pAd->TssiMinusBoundaryG[2], pAd->TssiMinusBoundaryG[1],
+		DBGPRINT(RT_DEBUG_INFO,"E2PROM: G Tssi[-4 .. +4] = %d %d %d %d - %d -%d %d %d %d, step=%d, tuning=%d\n",
+			pAd->TssiMinusBoundaryG[4], pAd->TssiMinusBoundaryG[3],
+			pAd->TssiMinusBoundaryG[2], pAd->TssiMinusBoundaryG[1],
 			pAd->TssiRefG,
-			pAd->TssiPlusBoundaryG[1], pAd->TssiPlusBoundaryG[2], pAd->TssiPlusBoundaryG[3], pAd->TssiPlusBoundaryG[4],
+			pAd->TssiPlusBoundaryG[1], pAd->TssiPlusBoundaryG[2],
+			pAd->TssiPlusBoundaryG[3], pAd->TssiPlusBoundaryG[4],
 			pAd->TxAgcStepG, pAd->bAutoTxAgcG);
 	}
 	// 1. 11a
@@ -1079,15 +1093,19 @@ VOID NICReadEEPROMParameters(
 		if (pAd->TssiRefA == 0xff)
 			pAd->bAutoTxAgcA = FALSE;
 
-		DBGPRINT(RT_DEBUG_TRACE,"E2PROM: A Tssi[-4 .. +4] = %d %d %d %d - %d -%d %d %d %d, step=%d, tuning=%d\n",
-			pAd->TssiMinusBoundaryA[4], pAd->TssiMinusBoundaryA[3], pAd->TssiMinusBoundaryA[2], pAd->TssiMinusBoundaryA[1],
+		DBGPRINT(RT_DEBUG_INFO,"E2PROM: A Tssi[-4 .. +4] = %d %d %d %d - %d -%d %d %d %d, step=%d, tuning=%d\n",
+			pAd->TssiMinusBoundaryA[4], pAd->TssiMinusBoundaryA[3],
+			pAd->TssiMinusBoundaryA[2], pAd->TssiMinusBoundaryA[1],
 			pAd->TssiRefA,
-			pAd->TssiPlusBoundaryA[1], pAd->TssiPlusBoundaryA[2], pAd->TssiPlusBoundaryA[3], pAd->TssiPlusBoundaryA[4],
+			pAd->TssiPlusBoundaryA[1], pAd->TssiPlusBoundaryA[2],
+			pAd->TssiPlusBoundaryA[3], pAd->TssiPlusBoundaryA[4],
 			pAd->TxAgcStepA, pAd->bAutoTxAgcA);
 	}
 	pAd->BbpRssiToDbmDelta = 0x79;
 
 	RTUSBReadEEPROM(pAd, EEPROM_FREQ_OFFSET, (PUCHAR)value, 2);
+	*value = le16_to_cpu(*value);
+	DBGPRINT(RT_DEBUG_INFO, "E2PROM[EEPROM_FREQ_OFFSET]=0x%04x\n", *value);
 	if ((*value & 0xFF00) == 0xFF00)
 	{
 		pAd->RFProgSeq = 0;
@@ -1105,9 +1123,9 @@ VOID NICReadEEPROMParameters(
 	DBGPRINT(RT_DEBUG_TRACE, "E2PROM: RF freq offset=0x%x\n", pAd->RfFreqOffset);
 
 	//CountryRegion byte offset = 0x25
-	*value = pAd->EEPROMDefaultValue[2] >> 8;
+	*value = pAd->EEPROMDefaultValue[2] >> 8;	// n.b. already flipped - bb
 	value2 = pAd->EEPROMDefaultValue[2] & 0x00FF;
-	if ((*value <= REGION_MAXIMUM_BG_BAND) && (value2 <= REGION_MAXIMUM_A_BAND))
+    if ((*value <= REGION_MAXIMUM_BG_BAND) && (value2 <= REGION_MAXIMUM_A_BAND))
 	{
 		pAd->PortCfg.CountryRegion = ((UCHAR) *value) | 0x80;
 		pAd->PortCfg.CountryRegionForABand = ((UCHAR) value2) | 0x80;
@@ -1117,7 +1135,9 @@ VOID NICReadEEPROMParameters(
 	// Get RSSI Offset on EEPROM 0x9Ah & 0x9Ch.
 	// The valid value are (-10 ~ 10)
 	//
-	RTUSBReadEEPROM(pAd, EEPROM_RSSI_BG_OFFSET, (PUCHAR)value, 2);
+	RTUSBReadEEPROM(pAd, EEPROM_RSSI_BG_OFFSET, (PUCHAR) value, 2);
+	*value = le16_to_cpu(*value);
+	DBGPRINT(RT_DEBUG_INFO, "E2PROM[EEPROM_RSSI_BG_OFFSET]=0x%04x\n", *value);
 	pAd->BGRssiOffset1 = *value & 0x00ff;
 	pAd->BGRssiOffset2 = (*value >> 8);
 
@@ -1129,7 +1149,9 @@ VOID NICReadEEPROMParameters(
 	if ((pAd->BGRssiOffset2 < -10) || (pAd->BGRssiOffset2 > 10))
 		pAd->BGRssiOffset2 = 0;
 
-	RTUSBReadEEPROM(pAd, EEPROM_RSSI_A_OFFSET, (PUCHAR)value, 2);
+	RTUSBReadEEPROM(pAd, EEPROM_RSSI_A_OFFSET, (PUCHAR) value, 2);
+	*value = le16_to_cpu(*value);
+	DBGPRINT(RT_DEBUG_INFO, "E2PROM[EEPROM_RSSI_A_OFFSET]=0x%04x\n", *value);
 	pAd->ARssiOffset1 = *value & 0x00ff;
 	pAd->ARssiOffset2 = (*value >> 8);
 
@@ -1145,6 +1167,9 @@ VOID NICReadEEPROMParameters(
 	// Get LED Setting.
 	//
 	RTUSBReadEEPROM(pAd, EEPROM_LED_OFFSET, (PUCHAR)&LedSetting->word, 2);
+	DBGPRINT(RT_DEBUG_INFO, "E2PROM[EEPROM_LED_OFFSET]=0x%04x\n",
+			LedSetting->word);
+	LedSetting->word = le16_to_cpu(LedSetting->word);
 	if (LedSetting->word == 0xFFFF)
 	{
 		//
@@ -1152,7 +1177,7 @@ VOID NICReadEEPROMParameters(
 		//
 		LedSetting->field.PolarityRDY_G = 0;   // Active High.
 		LedSetting->field.PolarityRDY_A = 0;   // Active High.
-		LedSetting->field.PolarityACT = 0;   // Active High.
+		LedSetting->field.PolarityACT = 0;	 // Active High.
 		LedSetting->field.PolarityGPIO_0 = 0; // Active High.
 		LedSetting->field.PolarityGPIO_1 = 0; // Active High.
 		LedSetting->field.PolarityGPIO_2 = 0; // Active High.
@@ -1160,6 +1185,7 @@ VOID NICReadEEPROMParameters(
 		LedSetting->field.PolarityGPIO_4 = 0; // Active High.
 		LedSetting->field.LedMode = LED_MODE_DEFAULT;
 	}
+	pAd->LedCntl.word = 0;
 	pAd->LedCntl.field.LedMode = LedSetting->field.LedMode;
 	pAd->LedCntl.field.PolarityRDY_G = LedSetting->field.PolarityRDY_G;
 	pAd->LedCntl.field.PolarityRDY_A = LedSetting->field.PolarityRDY_A;
@@ -1171,6 +1197,8 @@ VOID NICReadEEPROMParameters(
 	pAd->LedCntl.field.PolarityGPIO_4 = LedSetting->field.PolarityGPIO_4;
 
 	RTUSBReadEEPROM(pAd, EEPROM_TXPOWER_DELTA_OFFSET, (PUCHAR)value, 2);
+	*value = le16_to_cpu(*value);
+	DBGPRINT(RT_DEBUG_INFO, "E2PROM[EEPROM_TXPOWER_DELTA_OFFSET]=0x%04x\n", *value);
 	*value = *value & 0x00ff;
 	if (*value != 0xff)
 	{
@@ -1332,13 +1360,11 @@ VOID NICInitAsicFromEEPROM(
 NDIS_STATUS	NICInitializeAsic(
 	IN	PRTMP_ADAPTER	pAd)
 {
-	ULONG     Index;
+	ULONG			Index;
 	ULONG *Counter = kzalloc(sizeof(ULONG), GFP_KERNEL);
 	UCHAR *Value = kzalloc(sizeof(UCHAR), GFP_KERNEL);
 	ULONG *Version = kzalloc(sizeof(ULONG), GFP_KERNEL);
 	MAC_CSR12_STRUC *MacCsr12 = kzalloc(sizeof(MAC_CSR12_STRUC), GFP_KERNEL);
-
-	DBGPRINT(RT_DEBUG_TRACE, "--> NICInitializeAsic\n");
 
 	if(!Counter || !Value || !Version || !MacCsr12) {
 		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
@@ -1346,6 +1372,8 @@ NDIS_STATUS	NICInitializeAsic(
 	}
 	*Value = 0xff;
 	RTUSBReadMACRegister(pAd, MAC_CSR0, Version);
+
+	DBGPRINT(RT_DEBUG_TRACE, "--> NICInitializeAsic ASIC Ver 0x%x\n", *Version);
 
 	// Initialize MAC register to default value
 	for (Index = 0; Index < NUM_MAC_REG_PARMS; Index++)
@@ -1379,6 +1407,7 @@ NDIS_STATUS	NICInitializeAsic(
 		RTUSBReadBBPRegister(pAd, BBP_R0, Value);
 		DBGPRINT(RT_DEBUG_TRACE, "BBP version = %d\n", *Value);
 	} while ((++Index < 100) && ((*Value == 0xff) || (*Value == 0x00)));
+
 	// Initialize BBP register to default value
 	for (Index = 0; Index < NUM_BBP_REG_PARMS; Index++)
 	{
@@ -1394,11 +1423,11 @@ NDIS_STATUS	NICInitializeAsic(
 	RTUSBWriteMACRegister(pAd, MAC_CSR1, 0x4);
 
 	DBGPRINT(RT_DEBUG_TRACE, "<-- NICInitializeAsic\n");
-
 	kfree(Version);
 	kfree(MacCsr12);
 	kfree(Counter);
 	kfree(Value);
+
 	return NDIS_STATUS_SUCCESS;
 }
 
@@ -1473,9 +1502,10 @@ VOID NICUpdateRawCounters(
 	STA_CSR5_STRUC *StaCsr5 = kzalloc(sizeof(STA_CSR5_STRUC), GFP_KERNEL);
 
 	if(!StaCsr0 || !StaCsr1 || !StaCsr2 || !StaCsr3 || !StaCsr4 || !StaCsr5) {
-		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
-		return;
+	DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
+	return;
 	}
+
 	RTUSBReadMACRegister(pAd, STA_CSR0, &StaCsr0->word);
 
 	// Update RX PLCP error counter
@@ -1501,12 +1531,14 @@ VOID NICUpdateRawCounters(
 	// Update RX Overflow counter
 	RTUSBReadMACRegister(pAd, STA_CSR2, &StaCsr2->word);
 	pAd->Counters8023.RxNoBuffer += (StaCsr2->field.RxOverflowCount + StaCsr2->field.RxFifoOverflowCount);
+
 	// Update BEACON sent count
 	RTUSBReadMACRegister(pAd, STA_CSR3, &StaCsr3->word);
 	pAd->RalinkCounters.OneSecBeaconSentCnt += StaCsr3->field.TxBeaconCount;
 
 	RTUSBReadMACRegister(pAd, STA_CSR4, &StaCsr4->word);
 	RTUSBReadMACRegister(pAd, STA_CSR5, &StaCsr5->word);
+
 	// 1st - Transmit Success
 	OldValue = pAd->WlanCounters.TransmittedFragmentCount.vv.LowPart;
 	pAd->WlanCounters.TransmittedFragmentCount.vv.LowPart += (StaCsr4->field.TxOneRetryCount + StaCsr4->field.TxNoRetryCount + StaCsr5->field.TxMultiRetryCount);
@@ -1582,6 +1614,10 @@ VOID NICResetFromError(
 #endif
 	RTUSBWriteHWMACAddress(pAd);
 
+	// Switch to current channel, since during reset process, the connection
+	// should remain on.
+	AsicSwitchChannel(pAd, pAd->PortCfg.Channel);
+	AsicLockChannel(pAd, pAd->PortCfg.Channel);
 }
 
 INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
@@ -1617,21 +1653,29 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 	// Access firmware file
 	if ((status = request_firmware(&fw_entry, firmName, udevice))) {
 		KPRINT(KERN_ERR, "Failed to request_firmware. "
+			"Check your firmware file location\n");
+		goto fw_error;
+		DBGPRINT(RT_DEBUG_ERROR, "rt73: Failed to request_firmware. "
+				"Check your firmware file location\n");
+		KPRINT(KERN_ERR, "Failed to request_firmware. "
 				"Check your firmware file location\n");
 		goto fw_error;
 	}
 
 	if (fw_entry->size != FIRMWARE_IMAGE_SIZE) {
+		DBGPRINT(RT_DEBUG_ERROR, "rt73: Firmware file size error "
+			"(%d instead of %d)\n",
+			(int)fw_entry->size, FIRMWARE_IMAGE_SIZE);
 		KPRINT(KERN_ERR, "Firmware file size error "
 			"(%d instead of %d)\n",
-			fw_entry->size, FIRMWARE_IMAGE_SIZE);
+			(int)fw_entry->size, FIRMWARE_IMAGE_SIZE);
 		status = -EBADF;
 		goto error;
 	}
 
 	// Firmware CRC check
 	size = fw_entry->size - 2;
-	data = fw_entry->data;
+	data = (u8 *)fw_entry->data;
 
 	for (i=0; i < size; i++)
 		crc = ByteCRC16(*data++, crc);
@@ -1639,6 +1683,8 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 	crc = ByteCRC16(0x00, crc);
 
 	if (crc != ((fw_entry->data[size] << 8) | fw_entry->data[size + 1])) {
+		DBGPRINT(RT_DEBUG_ERROR, "rt73: Firmware CRC error "
+				"Check your firmware file integrity\n");
 		KPRINT(KERN_ERR, "Firmware CRC error "
 				"Check your firmware file integrity\n");
 		status = -EBADF;
@@ -1654,6 +1700,7 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 	}
 
 	if (!reg) {
+		DBGPRINT(RT_DEBUG_ERROR, "rt73: Unstable hardware\n");
 		KPRINT(KERN_ERR, "Unstable hardware\n");
 		status = -EBUSY;
 		goto error;
@@ -1668,6 +1715,7 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 #endif
 		if ((status = RTUSBMultiWrite(pAd, FIRMWARE_IMAGE_BASE + i,
 						&buf, sizeof(buf))) < 0) {
+			DBGPRINT(RT_DEBUG_ERROR, "rt73: Firmware loading error\n");
 			KPRINT(KERN_ERR, "Firmware loading error\n");
 			goto error;
 		}
@@ -1677,6 +1725,7 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 
 	if (loaded < FIRMWARE_IMAGE_SIZE) {
 		// Should never happen
+		DBGPRINT(RT_DEBUG_ERROR, "rt73: Firmware loading incomplete\n");
 		KPRINT(KERN_ERR, "Firmware loading incomplete\n");
 		status = -EIO;
 		goto error;
@@ -1685,6 +1734,7 @@ INT LoadFirmware (PRTMP_ADAPTER pAd, char *firmName)
 
 	// Send 'run firmware' request to device
 	if ((status = RTUSBFirmwareRun(pAd)) < 0) {
+		DBGPRINT(RT_DEBUG_ERROR, "rt73: Device refuses to run firmware\n");
 		KPRINT(KERN_ERR, "Device refuses to run firmware\n");
 		goto error;
 	}

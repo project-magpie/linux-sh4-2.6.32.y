@@ -156,7 +156,6 @@ NDIS_STATUS	RTMPSendPacket(
 	NDIS_STATUS 	Status = NDIS_STATUS_SUCCESS;
 	struct sk_buff_head	*pTxQueue;
 	UCHAR			PsMode;
-	unsigned long flags;
 
 	DBGPRINT(RT_DEBUG_INFO, "====> RTMPSendPacket\n");
 
@@ -174,9 +173,7 @@ NDIS_STATUS	RTMPSendPacket(
 	if (pSkb && pAd->PortCfg.BssType == BSS_MONITOR &&
 		   pAd->bAcceptRFMONTx == TRUE)
 	{
-		NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[QID_AC_BE]);
 		skb_queue_tail(&pAd->SendTxWaitQueue[QID_AC_BE], pSkb);
-		NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[QID_AC_BE]);
 		return (NDIS_STATUS_SUCCESS);
 	}
 
@@ -286,9 +283,6 @@ NDIS_STATUS	RTMPSendPacket(
 
 	RTMP_SET_PACKET_UP(pSkb, UserPriority);
 
-	// Make sure SendTxWait queue resource won't be used by other threads
-	NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[QueIdx]);
-
 	pTxQueue = &pAd->SendTxWaitQueue[QueIdx];
 
 	//
@@ -313,7 +307,8 @@ NDIS_STATUS	RTMPSendPacket(
 		PsMode = PWR_ACTIVE;		// Faked
 		if (PsMode == PWR_ACTIVE)
 		{
-			DBGPRINT(RT_DEBUG_INFO,"Ad-Hoc -> Enqueue one frame\n");
+			DBGPRINT(RT_DEBUG_INFO,"-  %s(Ad-Hoc) Enqueue one frame\n",
+					__FUNCTION__);
 
 			// Enqueue Ndis packet to end of Tx wait queue
 			skb_queue_tail(pTxQueue, pSkb);
@@ -323,11 +318,8 @@ NDIS_STATUS	RTMPSendPacket(
 #endif
 		}
 	}
-
-	NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[QueIdx]);
-
 	return (Status);
-}
+} /* End RTMPSendPacket () */
 
 /*
 	========================================================================
@@ -351,7 +343,7 @@ INT RTMPSendPackets(
 {
 	PRTMP_ADAPTER	pAd = net_dev->priv;
 	NDIS_STATUS 	Status = NDIS_STATUS_SUCCESS;
-	INT 			Index;
+	//INT 			Index;
 
 	DBGPRINT(RT_DEBUG_INFO, "===> RTMPSendPackets\n");
 
@@ -388,27 +380,7 @@ INT RTMPSendPackets(
 			return 0;
 		}
 	}
-
-	// Dequeue one frame from SendTxWait queue and process it
-	// There are two place calling dequeue for TX ring.
-	// 1. Here, right after queueing the frame.
-	// 2. At the end of TxRingTxDone service routine.
-	if ((!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)) &&
-		(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF)) &&
-		(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS)) &&
-		(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS)))
-	{
-		for (Index = 0; Index < 4; Index++)
-		{
-			if(!skb_queue_empty(&pAd->SendTxWaitQueue[Index]))
-			{
-				RTMPDeQueuePacket(pAd, Index);
-			}
-		}
-	}
-
-	// Kick bulk out
-	RTUSBKickBulkOut(pAd);
+	RTUSBMlmeUp(pAd);
 
 	return 0;
 }
@@ -455,10 +427,6 @@ NDIS_STATUS RTUSBHardTransmit(
 //	PUCHAR			pSrc;
 	PTX_CONTEXT		pTxContext;
 	PTXD_STRUC		pTxD;
-#ifdef BIG_ENDIAN
-	PTXD_STRUC		pDestTxD;
-	TXD_STRUC		TxD;
-#endif
 //	PURB			pUrb;
 	BOOLEAN			StartOfFrame;
 	BOOLEAN			bEAPOLFrame;
@@ -484,6 +452,7 @@ NDIS_STATUS RTUSBHardTransmit(
 	PUCHAR			pWirelessPacket;
 	ULONG			NextMpduSize;
 	BOOLEAN			bRTS_CTSFrame = FALSE;
+	unsigned long flags;	// For 'Ndis' spin lock
 
     if ((pAd->PortCfg.bIEEE80211H == 1) && (pAd->PortCfg.RadarDetect.RDMode != RD_NORMAL_MODE))
     {
@@ -516,14 +485,7 @@ NDIS_STATUS RTUSBHardTransmit(
 			pAd->NextTxIndex[QueIdx] = 0;
 		}
 
-#ifndef BIG_ENDIAN
 		pTxD  = (PTXD_STRUC) &pTxContext->TransferBuffer->TxDesc;
-#else
-		pDestTxD = (PTXD_STRUC) &pTxContext->TransferBuffer->TxDesc;
-		TxD = *pDestTxD;
-		pTxD = &TxD;
-		RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-#endif
 		memset(pTxD, 0, sizeof(TXD_STRUC));
 		pWirelessPacket = pTxContext->TransferBuffer->WirelessPacket;
 		memcpy( pWirelessPacket, pSkb->data, pSkb->len );
@@ -863,14 +825,7 @@ NDIS_STATUS RTUSBHardTransmit(
 			pAd->NextTxIndex[QueIdx] = 0;
 		}
 
-#ifndef BIG_ENDIAN
 		pTxD  = (PTXD_STRUC) &pTxContext->TransferBuffer->TxDesc;
-#else
-		pDestTxD = (PTXD_STRUC) &pTxContext->TransferBuffer->TxDesc;
-		TxD = *pDestTxD;
-		pTxD = &TxD;
-		RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-#endif
 		memset(pTxD, 0, sizeof(TXD_STRUC));
 		pWirelessPacket = pTxContext->TransferBuffer->WirelessPacket;
 
@@ -1104,9 +1059,6 @@ NDIS_STATUS RTUSBHardTransmit(
 
 #ifdef BIG_ENDIAN
 			RTMPFrameEndianChange(pAd, (PUCHAR)pHeader80211, DIR_WRITE, FALSE);
-			RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-			*pDestTxD = TxD;
-			pTxD = pDestTxD;
 #endif
 			RTUSBWriteTxDescriptor(pAd, pTxD, CipherAlg, 0, KeyIdx, bAckRequired, TRUE, FALSE,
 					RetryMode, FrameGap, TxRate, TxSize, QueIdx, 0, bRTS_CTSFrame);
@@ -1127,9 +1079,6 @@ NDIS_STATUS RTUSBHardTransmit(
 
 #ifdef BIG_ENDIAN
 			RTMPFrameEndianChange(pAd, (PUCHAR)pHeader80211, DIR_WRITE, FALSE);
-			RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-			*pDestTxD = TxD;
-			pTxD = pDestTxD;
 #endif
 			RTUSBWriteTxDescriptor(pAd, pTxD, CipherAlg, 0, KeyIdx, bAckRequired, FALSE, FALSE,
 					RetryMode, FrameGap, TxRate, TxSize, QueIdx, 0, bRTS_CTSFrame);
@@ -1201,7 +1150,8 @@ NDIS_STATUS RTUSBHardTransmit(
 	RELEASE_NDIS_PACKET(pAd, pSkb);
 
 	return (NDIS_STATUS_SUCCESS);
-}
+
+} /* End RTUSBHardTransmit () */
 
 /*
 	========================================================================
@@ -1230,10 +1180,6 @@ VOID	RTUSBMlmeHardTransmit(
 {
 	PTX_CONTEXT		pMLMEContext;
 	PTXD_STRUC		pTxD;
-#ifdef BIG_ENDIAN
-	PTXD_STRUC		pDestTxD;
-	TXD_STRUC		TxD;
-#endif
 	PUCHAR			pDest;
 	PHEADER_802_11	pHeader_802_11;
 	BOOLEAN 		AckRequired, InsertTimestamp;
@@ -1242,8 +1188,9 @@ VOID	RTUSBMlmeHardTransmit(
 	ULONG			Length = pMgmt->Length;
 	UCHAR			QueIdx;
 	UCHAR			MlmeRate;
+	unsigned long flags;	// For 'Ndis' spin lock
 
-	DBGPRINT(RT_DEBUG_INFO, "--->MlmeHardTransmit\n");
+	DBGPRINT(RT_DEBUG_INFO, "--->RTUSBMlmeHardTransmit\n");
 
 	pAd->PrioRingTxCnt++;
 
@@ -1259,14 +1206,7 @@ VOID	RTUSBMlmeHardTransmit(
 
 	pDest = pMLMEContext->TransferBuffer->WirelessPacket;
 
-#ifndef BIG_ENDIAN
 	pTxD = (PTXD_STRUC)(pMLMEContext->TransferBuffer);
-#else
-	pDestTxD  = (PTXD_STRUC)(pMLMEContext->TransferBuffer);
-	TxD = *pDestTxD;
-	pTxD = &TxD;
-	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-#endif
 	memset(pTxD, 0, sizeof(TXD_STRUC));
 
 	pHeader_802_11 = (PHEADER_802_11) pBuffer;
@@ -1329,6 +1269,7 @@ VOID	RTUSBMlmeHardTransmit(
 	}
 
 	memcpy(pDest, pBuffer, Length);
+	pHeader_802_11 = (PHEADER_802_11) pDest;
 
 	// Initialize Priority Descriptor
 	// For inter-frame gap, the number is for this frame and next frame
@@ -1336,14 +1277,15 @@ VOID	RTUSBMlmeHardTransmit(
 
 	QueIdx = QID_AC_BE;
 
+	// MakeIbssBeacon has made a canned and flipped TxD - bb
+	if (pHeader_802_11->FC.SubType != SUBTYPE_BEACON) {
+		RTUSBWriteTxDescriptor(pAd, pTxD, CIPHER_NONE, 0, 0,
+				AckRequired, FALSE, FALSE, SHORT_RETRY, IFS_BACKOFF,
+				MlmeRate, /*Length+4*/ Length, QueIdx, PID_MGMT_FRAME, FALSE);
+	}
 #ifdef BIG_ENDIAN
-	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-	*pDestTxD = TxD;
-	pTxD = pDestTxD;
+	RTMPFrameEndianChange(pAd, (PUCHAR)pHeader_802_11, DIR_WRITE, FALSE);
 #endif
-	RTUSBWriteTxDescriptor(pAd, pTxD, CIPHER_NONE, 0,0, AckRequired, FALSE, FALSE, SHORT_RETRY,
-			IFS_BACKOFF, MlmeRate, /*Length+4*/ Length, QueIdx, PID_MGMT_FRAME, FALSE);
-
 
 	// Build our URB for USBD
 	TransferBufferLength = sizeof(TXD_STRUC) + Length;
@@ -1357,8 +1299,9 @@ VOID	RTUSBMlmeHardTransmit(
 	pMLMEContext->BulkOutSize = TransferBufferLength;
 	RTUSB_SET_BULK_FLAG(pAd, fRTUSB_BULK_OUT_MLME);
 
-	DBGPRINT(RT_DEBUG_INFO, "<---MlmeHardTransmit\n");
-}
+	DBGPRINT(RT_DEBUG_INFO, "<---RTUSBMlmeHardTransmit\n");
+
+} /* End RTUSBMlmeHardTransmit () */
 
 /*
 	========================================================================
@@ -1473,15 +1416,12 @@ VOID	RTUSBRejectPendingPackets(
 	IN	PRTMP_ADAPTER	pAd)
 {
 	UCHAR			Index;
-	unsigned long flags;
 
 	DBGPRINT(RT_DEBUG_TRACE, "--->RejectPendingPackets\n");
 
 	for (Index = 0; Index < 4; Index++)
 	{
-		NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[Index]);
 		skb_queue_purge(&pAd->SendTxWaitQueue[Index]);
-		NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[Index]);
 	}
 
 	DBGPRINT(RT_DEBUG_TRACE, "<---RejectPendingPackets\n");
@@ -1513,7 +1453,7 @@ VOID	RTUSBRejectPendingPackets(
 */
 VOID	RTUSBWriteTxDescriptor(
 	IN	PRTMP_ADAPTER pAd,
-	IN	PTXD_STRUC	pSourceTxD,
+	IN	PTXD_STRUC	pTxD,
 	IN	UCHAR		CipherAlg,
 	IN	UCHAR		KeyTable,
 	IN	UCHAR		KeyIdx,
@@ -1529,19 +1469,6 @@ VOID	RTUSBWriteTxDescriptor(
 	IN	BOOLEAN		bAfterRTSCTS)
 {
 	UINT	Residual;
-
-	PTXD_STRUC		pTxD;
-
-#ifndef BIG_ENDIAN
-	pTxD = pSourceTxD;
-#else
-	TXD_STRUC		TxD;
-
-	TxD = *pSourceTxD;
-	pTxD = &TxD;
-	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-#endif
-
 
 	pTxD->HostQId	  = QueIdx;
 	pTxD->MoreFrag	  = Fragment;
@@ -1668,7 +1595,6 @@ VOID	RTUSBWriteTxDescriptor(
 
 #ifdef BIG_ENDIAN
 	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-	WriteBackToDescriptor((PUCHAR)pSourceTxD, (PUCHAR)pTxD, FALSE, TYPE_TXD);
 #endif
 }
 
@@ -1689,6 +1615,7 @@ VOID	RTUSBWriteTxDescriptor(
 		None
 
 	Note:
+		Called only from process context, protected by the usb semaphore.
 
 	========================================================================
 */
@@ -1702,27 +1629,11 @@ VOID	RTMPDeQueuePacket(
 	UCHAR			Count = 0;
 	struct sk_buff_head	*pQueue;
 	UCHAR			QueIdx;
-	unsigned long flags;
-
-	NdisAcquireSpinLock(&pAd->DeQueueLock[BulkOutPipeId]);
-	if (pAd->DeQueueRunning[BulkOutPipeId])
-	{
-		NdisReleaseSpinLock(&pAd->DeQueueLock[BulkOutPipeId]);
-		return;
-	}
-	else
-	{
-		pAd->DeQueueRunning[BulkOutPipeId] = TRUE;
-		NdisReleaseSpinLock(&pAd->DeQueueLock[BulkOutPipeId]);
-	}
 
 	QueIdx = BulkOutPipeId;
 
 	if (pAd->TxRingTotalNumber[BulkOutPipeId])
 		DBGPRINT(RT_DEBUG_INFO,"--RTMPDeQueuePacket %d TxRingTotalNumber= %d !!--\n", BulkOutPipeId, (INT)pAd->TxRingTotalNumber[BulkOutPipeId]);
-
-	// Make sure SendTxWait queue resource won't be used by other threads
-	NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId]);
 
 	// Select Queue
 	pQueue = &pAd->SendTxWaitQueue[BulkOutPipeId];
@@ -1758,12 +1669,9 @@ VOID	RTMPDeQueuePacket(
 			// Avaliable ring descriptors are enough for this frame
 			// Call hard transmit
 			// Nitro mode / Normal mode selection
-			NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId]);
 
 			Status = RTUSBHardTransmit(pAd, pSkb, FragmentRequired, QueIdx);
 
-			// Acquire the resource again, snice we may need to process it in this while-loop.
-			NdisAcquireSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId]);
 
 			if (Status == NDIS_STATUS_FAILURE)
 			{
@@ -1795,14 +1703,21 @@ VOID	RTMPDeQueuePacket(
 			break;
 		}
 	}
+}
 
-	// Release TxSwQueue0 resources
-	NdisReleaseSpinLock(&pAd->SendTxWaitQueueLock[BulkOutPipeId]);
+VOID	RTMPDeQueuePackets(
+IN	PRTMP_ADAPTER	pAd)
+{
+	int	Index;
 
-	NdisAcquireSpinLock(&pAd->DeQueueLock[BulkOutPipeId]);
-	pAd->DeQueueRunning[BulkOutPipeId] = FALSE;
-	NdisReleaseSpinLock(&pAd->DeQueueLock[BulkOutPipeId]);
-
+	for (Index = 0; Index < 4; Index++)
+	{
+		if(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS) &&
+			!skb_queue_empty(&pAd->SendTxWaitQueue[Index]))
+		{
+			RTMPDeQueuePacket(pAd, Index);
+		}
+	}
 }
 
 /*
@@ -1870,6 +1785,8 @@ VOID	RTUSBRxPacket(
 #ifdef BIG_ENDIAN
 		RTMPFrameEndianChange(pAd, (PUCHAR)pHeader, DIR_READ, FALSE);
 #endif
+		DBGPRINT(RT_DEBUG_INFO, "-   %s: Frame type %d subtype %d\n",
+				__FUNCTION__, pHeader->FC.Type, pHeader->FC.SubType);
 		if (pRxD->DataByteCnt < 4)
 			Status = NDIS_STATUS_FAILURE;
 		else
@@ -2400,13 +2317,7 @@ VOID	RTUSBRxPacket(
 			DBGPRINT(RT_DEBUG_TRACE, "<---RTUSBRxPacket RESET_BULK\n");
 			return;
 		}
-
-#ifdef BIG_ENDIAN
-		RTMPDescriptorEndianChange((PUCHAR)pRxD, TYPE_RXD);
-		WriteBackToDescriptor((PUCHAR)pDestRxD, (PUCHAR)pRxD, FALSE, TYPE_RXD);
-#endif
 	  }//if (pRxContext->pUrb->actual_length >= sizeof(RXD_STRUC)+ LENGTH_802_11)
-
 	} while (0);
 
 	DBGPRINT(RT_DEBUG_TRACE, "<---RTUSBRxPacket\n");
@@ -2599,8 +2510,6 @@ VOID	RTUSBSuspendMsduTransmission(
 VOID	RTUSBResumeMsduTransmission(
 	IN	PRTMP_ADAPTER	pAd)
 {
-	INT 	Index;
-
 	DBGPRINT(RT_DEBUG_ERROR,"SCAN done, resume MSDU transmission ...\n");
 	RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS);
 
@@ -2614,14 +2523,7 @@ VOID	RTUSBResumeMsduTransmission(
 		(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS)) &&
 		(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF)))
 	{
-		// Dequeue all Tx software queue, if have been queued.
-		for (Index = 0; Index < 4; Index++)
-		{
-			if(!skb_queue_empty(&pAd->SendTxWaitQueue[Index]))
-			{
-				RTMPDeQueuePacket(pAd, Index);
-			}
-		}
+		RTMPDeQueuePackets(pAd);
 	}
 
 	// Kick bulk out
@@ -2973,7 +2875,7 @@ NDIS_STATUS	RTMPCheckRxDescriptor(
 	{
 		UINT i;
 		PUCHAR ptr = (PUCHAR)pHeader;
-		DBGPRINT(RT_DEBUG_TRACE,"ERROR: CRC ok but CipherErr %d (len = %d, Mcast=%d, Cipher=%s, KeyId=%d)\n",
+		DBGPRINT(RT_DEBUG_ERROR,"ERROR: CRC ok but CipherErr %d (len = %d, Mcast=%d, Cipher=%s, KeyId=%d)\n",
 			pRxD->CipherErr,
 			pRxD->DataByteCnt,
 			pRxD->Mcast | pRxD->Bcast,
@@ -2982,7 +2884,7 @@ NDIS_STATUS	RTMPCheckRxDescriptor(
 #if 1
 		for (i=0;i<64; i+=16)
 		{
-			DBGPRINT(RT_DEBUG_TRACE,"%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x - %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",
+			DBGPRINT(RT_DEBUG_ERROR,"%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x - %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",
 				*ptr,*(ptr+1),*(ptr+2),*(ptr+3),*(ptr+4),*(ptr+5),*(ptr+6),*(ptr+7),
 				*(ptr+8),*(ptr+9),*(ptr+10),*(ptr+11),*(ptr+12),*(ptr+13),*(ptr+14),*(ptr+15));
 			ptr += 16;
@@ -3133,13 +3035,10 @@ VOID	RTMPSendNullFrame(
 {
 	PTX_CONTEXT		pNullContext;
 	PTXD_STRUC		pTxD;
-#ifdef BIG_ENDIAN
-	PTXD_STRUC		pDestTxD;
-	TXD_STRUC		TxD;
-#endif
 	UCHAR			QueIdx =QID_AC_VO;
 	PHEADER_802_11	pHdr80211;
 	ULONG			TransferBufferLength;
+	unsigned long flags;	// For 'Ndis' spin lock
 
 	if(OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED))
 	{
@@ -3177,14 +3076,7 @@ VOID	RTMPSendNullFrame(
 		pNullContext->InUse = TRUE;
 
 		// Fill Null frame body and TxD
-#ifndef BIG_ENDIAN
 		pTxD  = (PTXD_STRUC) &pNullContext->TransferBuffer->TxDesc;
-#else
-		pDestTxD  = (PTXD_STRUC) &pNullContext->TransferBuffer->TxDesc;
-		TxD = *pDestTxD;
-		pTxD = &TxD;
-		RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-#endif
 		memset(pTxD, 0, sizeof(TXD_STRUC));
 
 		pHdr80211 = (PHEADER_802_11) &pAd->NullContext.TransferBuffer->NullFrame;
@@ -3196,9 +3088,6 @@ VOID	RTMPSendNullFrame(
 
 #ifdef BIG_ENDIAN
 		RTMPFrameEndianChange(pAd, (PUCHAR)pHdr80211, DIR_WRITE, FALSE);
-		RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-		*pDestTxD = TxD;
-		pTxD = pDestTxD;
 #endif
 		RTUSBWriteTxDescriptor(pAd, pTxD, CIPHER_NONE, 0,0, FALSE, FALSE, FALSE, SHORT_RETRY,
 			IFS_BACKOFF, TxRate, sizeof(HEADER_802_11), QueIdx, PID_MGMT_FRAME, FALSE);
@@ -3235,14 +3124,11 @@ VOID	RTMPSendRTSCTSFrame(
 {
 	PTX_CONTEXT 		pTxContext;
 	PTXD_STRUC			pTxD;
-#ifdef BIG_ENDIAN
-	PTXD_STRUC			pDestTxD;
-	TXD_STRUC			TxD;
-#endif
 	PRTS_FRAME			pRtsFrame;
 	PUCHAR				pBuf;
 	ULONG				Length = 0;
 	ULONG				TransferBufferLength = 0;
+	unsigned long flags;	// For 'Ndis' spin lock
 
 	if ((Type != SUBTYPE_RTS) && ( Type != SUBTYPE_CTS))
 	{
@@ -3270,14 +3156,7 @@ VOID	RTMPSendRTSCTSFrame(
             pAd->NextTxIndex[QueIdx] = 0;
         }
 
-#ifndef BIG_ENDIAN
 		pTxD = (PTXD_STRUC) &pTxContext->TransferBuffer->TxDesc;
-#else
-		pDestTxD = (PTXD_STRUC) &pTxContext->TransferBuffer->TxDesc;
-		TxD = *pDestTxD;
-		pTxD = &TxD;
-		RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-#endif
 
 		pRtsFrame = (PRTS_FRAME) &pTxContext->TransferBuffer->RTSFrame;
 		pBuf = (PUCHAR) pRtsFrame;
@@ -3306,9 +3185,6 @@ VOID	RTMPSendRTSCTSFrame(
 
 #ifdef BIG_ENDIAN
 			RTMPFrameEndianChange(pAd, (PUCHAR)pRtsFrame, DIR_WRITE, FALSE);
-			RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-			*pDestTxD = TxD;
-			pTxD = pDestTxD;
 #endif
 			RTUSBWriteTxDescriptor(pAd, pTxD, CIPHER_NONE, 0,0, TRUE, TRUE, FALSE, SHORT_RETRY,
 				FrameGap, RTSRate, Length, QueIdx, 0, FALSE);
@@ -3323,9 +3199,6 @@ VOID	RTMPSendRTSCTSFrame(
 
 #ifdef BIG_ENDIAN
 			RTMPFrameEndianChange(pAd, (PUCHAR)pRtsFrame, DIR_WRITE, FALSE);
-			RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-			*pDestTxD = TxD;
-			pTxD = pDestTxD;
 #endif
 			RTUSBWriteTxDescriptor(pAd, pTxD, CIPHER_NONE, 0,0, FALSE, TRUE, FALSE, SHORT_RETRY,
 				FrameGap, RTSRate, Length, QueIdx, 0, FALSE);

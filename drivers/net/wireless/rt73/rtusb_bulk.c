@@ -53,6 +53,28 @@ void RTusb_fill_bulk_urb (struct urb *pUrb,
 }
 
 // ************************ Completion Func ************************ //
+/*
+	========================================================================
+
+	Routine Description:
+		This routine processes data and RTS/CTS frame completions.
+		If the current frame has transmitted OK and there are more fragments,
+		then schedule the next frame fragment.
+
+		If there's been an error, empty any remaining fragments for that
+		queue from the tx ring.
+
+	Arguments:
+		pUrb		Our URB
+		pt_regs		Historical
+
+	Return Value:
+		void
+
+	Note:
+		ALL (i.e. we've done a submit_urb) in-flight URBS are posted complete.
+	========================================================================
+*/
 VOID RTUSBBulkOutDataPacketComplete(purbb_t pUrb, struct pt_regs *pt_regs)
 {
 	PTX_CONTEXT 	pTxContext;
@@ -71,7 +93,6 @@ VOID RTUSBBulkOutDataPacketComplete(purbb_t pUrb, struct pt_regs *pt_regs)
 
 	// Store BulkOut PipeId
 	BulkOutPipeId = pTxContext->BulkOutPipeId;
-	pAd->TxRingTotalNumber[BulkOutPipeId]--;// sync. to PendingTx
 	pAd->BulkOutDataOneSecCount++;
 
 	switch (status) {
@@ -80,9 +101,11 @@ VOID RTUSBBulkOutDataPacketComplete(purbb_t pUrb, struct pt_regs *pt_regs)
 			{
 				pAd->Counters.GoodTransmits++;
 				FREE_TX_RING(pAd, BulkOutPipeId, pTxContext);
-
-				if (!skb_queue_empty(&pAd->SendTxWaitQueue[BulkOutPipeId])) {
-					RTMPDeQueuePacket(pAd, BulkOutPipeId);
+				pAd->TxRingTotalNumber[BulkOutPipeId]--;// sync. to PendingTx
+				pTxContext = nextTxContext(pAd, BulkOutPipeId);
+				if (pTxContext->bWaitingBulkOut == TRUE) {
+					RTUSB_SET_BULK_FLAG(pAd,
+							(fRTUSB_BULK_OUT_DATA_NORMAL << BulkOutPipeId));
 				}
 			}
 			else {
@@ -92,18 +115,18 @@ VOID RTUSBBulkOutDataPacketComplete(purbb_t pUrb, struct pt_regs *pt_regs)
 					(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET)))
 				{
 					FREE_TX_RING(pAd, BulkOutPipeId, pTxContext);
+					pAd->TxRingTotalNumber[BulkOutPipeId]--;// sync. to PendingTx
 
 					// Indicate next one is frag data which has highest priority
-					RTUSB_SET_BULK_FLAG(pAd, (fRTUSB_BULK_OUT_DATA_FRAG << BulkOutPipeId));
+					RTUSB_SET_BULK_FLAG(pAd,
+							(fRTUSB_BULK_OUT_DATA_FRAG << BulkOutPipeId));
 				}
 				else {
-					while (pTxContext->LastOne != TRUE) {
+					do {
 						FREE_TX_RING(pAd, BulkOutPipeId, pTxContext);
-						pTxContext = &(pAd->TxContext[BulkOutPipeId][pAd->NextBulkOutIndex[BulkOutPipeId]]);
-						atomic_dec(&pAd->PendingTx);
 						pAd->TxRingTotalNumber[BulkOutPipeId]--;// sync. to PendingTx
-					}
-					FREE_TX_RING(pAd, BulkOutPipeId, pTxContext);
+						pTxContext = nextTxContext(pAd, BulkOutPipeId);
+					} while (pTxContext->InUse != FALSE);
 				}
 			}
 			RTUSBMlmeUp(pAd);
@@ -115,18 +138,20 @@ VOID RTUSBBulkOutDataPacketComplete(purbb_t pUrb, struct pt_regs *pt_regs)
 		case -EPROTO:			// unplugged = -71
 			DBGPRINT(RT_DEBUG_ERROR,"=== %s: shutdown status=%d\n",
 					__FUNCTION__, status);
+			do {
+				FREE_TX_RING(pAd, BulkOutPipeId, pTxContext);
+				pAd->TxRingTotalNumber[BulkOutPipeId]--;// sync. to PendingTx
+				pTxContext = nextTxContext(pAd, BulkOutPipeId);
+			} while (pTxContext->InUse != FALSE);
 			break;
 
 		default:
-#if 1	// STATUS_OTHER
-			while (pTxContext->LastOne != TRUE) {
+#if 1	// TODO: Think about if we really want to do this reset - bb
+			do {
 				FREE_TX_RING(pAd, BulkOutPipeId, pTxContext);
-				pAd->TxRingTotalNumber[BulkOutPipeId]--;    // sync. to PendingTx
-				pTxContext = &(pAd->TxContext[BulkOutPipeId][pAd->NextBulkOutIndex[BulkOutPipeId]]);
-				atomic_dec(&pAd->PendingTx);
-			}
-			FREE_TX_RING(pAd, BulkOutPipeId, pTxContext);
-			pAd->TxRingTotalNumber[BulkOutPipeId]--;    // sync. to PendingTx
+				pAd->TxRingTotalNumber[BulkOutPipeId]--;// sync. to PendingTx
+				pTxContext = nextTxContext(pAd, BulkOutPipeId);
+			} while (pTxContext->InUse != FALSE);
 
 			if ((!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS)) &&
 				(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS)) &&
@@ -139,17 +164,6 @@ VOID RTUSBBulkOutDataPacketComplete(purbb_t pUrb, struct pt_regs *pt_regs)
 			}
 #endif
 			break;
-	}
-	pTxContext = &(pAd->TxContext[BulkOutPipeId][pAd->NextBulkOutIndex[BulkOutPipeId]]);
-	//
-	// bInUse = TRUE, means some process are filling TX data, after that must turn on bWaitingBulkOut
-	// bWaitingBulkOut = TRUE, means the TX data are waiting for bulk out.
-	//
-	if ((pTxContext->bWaitingBulkOut == TRUE) &&
-	!RTUSB_TEST_BULK_FLAG(pAd, (fRTUSB_BULK_OUT_DATA_FRAG << BulkOutPipeId)))
-	{
-		// Indicate There is data avaliable
-		RTUSB_SET_BULK_FLAG(pAd, (fRTUSB_BULK_OUT_DATA_NORMAL << BulkOutPipeId));
 	}
 	NdisAcquireSpinLock(&pAd->BulkOutLock[BulkOutPipeId]);
 	pAd->BulkOutPending[BulkOutPipeId] = FALSE;
@@ -178,8 +192,6 @@ VOID RTUSBBulkOutNullFrameComplete(purbb_t pUrb, struct pt_regs *pt_regs)
 
 	switch (status) {
 		case 0:					// OK
-		// Don't worry about the queue is empty or not, this function will check itself
-			RTMPDeQueuePacket(pAd, 0);
 			RTUSBMlmeUp(pAd);
 			break;
 
@@ -234,8 +246,6 @@ VOID RTUSBBulkOutRTSFrameComplete(purbb_t pUrb, struct pt_regs *pt_regs)
 
 	switch (status) {
 		case 0:					// OK
-		// Don't worry about the queue is empty or not, this function will check itself
-			RTMPDeQueuePacket(pAd, pRTSContext->BulkOutPipeId);
 			RTUSBMlmeUp(pAd);
 			break;
 
@@ -367,8 +377,6 @@ VOID RTUSBBulkOutPsPollComplete(purbb_t pUrb,struct pt_regs *pt_regs)
 
 	switch (status) {
 		case 0:					// OK
-		// Don't worry about the queue is empty or not, this function will check itself
-			RTMPDeQueuePacket(pAd, 0);
 			RTUSBMlmeUp(pAd);
 			break;
 
@@ -519,12 +527,16 @@ VOID	RTUSBInitRxDesc(
 	========================================================================
 
 	Routine Description:
+		Admit one URB for transmit. This routine submits one URB at a time,
+		even though there may be multiple entries in the Tx ring.
 
 	Arguments:
 
 	Return Value:
 
 	Note:
+		TODO: Make sure Ralink's controller doesn't blow up before we try
+		to change this to enqueue multiple URBs - bb.
 
 	========================================================================
 */
@@ -559,8 +571,9 @@ VOID	RTUSBBulkOutDataPacket(
 
 	if (pTxContext->bWaitingBulkOut	!= TRUE)
 	{
-		DBGPRINT(RT_DEBUG_ERROR, "RTUSBBulkOutDataPacket failed, pTxContext->bWaitingBulkOut != TRUE, Index %d, NextBulkOutIndex %d\n",
-			Index, pAd->NextBulkOutIndex[BulkOutPipeId]);
+		DBGPRINT(RT_DEBUG_ERROR, "RTUSBBulkOutDataPacket failed, "
+				"bWaitingBulkOut != TRUE, Index %d, NextBulkOutIndex %d\n",
+				Index, pAd->NextBulkOutIndex[BulkOutPipeId]);
 		NdisAcquireSpinLock(&pAd->BulkOutLock[BulkOutPipeId]);
 		pAd->BulkOutPending[BulkOutPipeId] = FALSE;
 		NdisReleaseSpinLock(&pAd->BulkOutLock[BulkOutPipeId]);
@@ -574,34 +587,33 @@ VOID	RTUSBBulkOutDataPacket(
 		// We will break it when the Key was Zero on RTUSBHardTransmit
 		// And this will cause deadlock that the TxContext always InUse.
 		//
+		DBGPRINT(RT_DEBUG_ERROR, "RTUSBBulkOutDataPacket failed, "
+				"BulkOutSize==0\n");
 		NdisAcquireSpinLock(&pAd->BulkOutLock[BulkOutPipeId]);
 
-		pTxContext->InUse	   = FALSE;
-		pTxContext->LastOne    = FALSE;
-		pTxContext->IRPPending = FALSE;
-		pTxContext->bWaitingBulkOut = FALSE;
-		pTxContext->BulkOutSize= 0;
-		pAd->NextBulkOutIndex[BulkOutPipeId] = (pAd->NextBulkOutIndex[BulkOutPipeId] + 1) % TX_RING_SIZE;
+		FREE_TX_RING(pAd, BulkOutPipeId, pTxContext);
+		pAd->TxRingTotalNumber[BulkOutPipeId]--;    // sync. to PendingTx
 		pAd->BulkOutPending[BulkOutPipeId] = FALSE;
 		NdisReleaseSpinLock(&pAd->BulkOutLock[BulkOutPipeId]);
 
 		return;
 	}
-	// FIXME totally hosed logic - bb
 	else if (!OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED) &&
 			!(pAd->PortCfg.BssType == BSS_MONITOR && pAd->bAcceptRFMONTx==TRUE))
 	{
 		//
-		// Since there is no connection, so we need to empty the Tx Bulk out Ring.
+		// There is no connection, so we need to empty the Tx Bulk out Ring.
 		//
-		while (atomic_read(&pAd->PendingTx) > 0)
-		{
-			DBGPRINT(RT_DEBUG_ERROR, "RTUSBBulkOutDataPacket failed, since NdisMediaStateDisconnected discard NextBulkOutIndex %d, NextIndex = %d\n",
-				pAd->NextBulkOutIndex[BulkOutPipeId], pAd->NextTxIndex[BulkOutPipeId]);
+		DBGPRINT(RT_DEBUG_ERROR, "RTUSBBulkOutDataPacket failed, "
+				"Media Disconnected NextBulkOutIndex %d, NextIndex=%d\n",
+				pAd->NextBulkOutIndex[BulkOutPipeId],
+				pAd->NextTxIndex[BulkOutPipeId]);
 
+		while (pTxContext->InUse != FALSE)
+		{
 			FREE_TX_RING(pAd, BulkOutPipeId, pTxContext);
 			pAd->TxRingTotalNumber[BulkOutPipeId]--;    // sync. to PendingTx
-			pTxContext = &(pAd->TxContext[BulkOutPipeId][pAd->NextBulkOutIndex[BulkOutPipeId]]);
+			pTxContext = nextTxContext(pAd, BulkOutPipeId);
 		}
 
 		NdisAcquireSpinLock(&pAd->BulkOutLock[BulkOutPipeId]);
@@ -610,7 +622,6 @@ VOID	RTUSBBulkOutDataPacket(
 
 		return;
 	}
-
 
 	// Init Tx context descriptor
 	RTUSBInitTxDesc(pAd, pTxContext, BulkOutPipeId, RTUSBBulkOutDataPacketComplete);
@@ -621,14 +632,15 @@ VOID	RTUSBBulkOutDataPacket(
 	pUrb = pTxContext->pUrb;
 	if((ret = rtusb_submit_urb(pUrb))!=0)
 	{
-		DBGPRINT(RT_DEBUG_ERROR, "Submit Tx URB failed %d\n", ret);
+		DBGPRINT(RT_DEBUG_ERROR, "-  %s: Submit Tx URB failed %d\n",
+				__FUNCTION__, ret);
 		return;
 	}
 	else {
 		atomic_inc(&pAd->PendingTx);
 	}
 
-	DBGPRINT(RT_DEBUG_TRACE, "<---RTUSBBulkOutDataPacket \n");
+	DBGPRINT(RT_DEBUG_TRACE, "<-- RTUSBBulkOutDataPacket \n");
 	return;
 }
 
@@ -700,6 +712,7 @@ VOID	RTUSBBulkOutNullFrame(
 	Return Value:
 
 	Note:
+		Apparently not called - bb.
 
 	========================================================================
 */
@@ -1111,6 +1124,39 @@ VOID	RTUSBKickBulkOut(
 
 	========================================================================
 */
+VOID	RTUSBCleanUpDataBulkInQueue(
+	IN	PRTMP_ADAPTER	pAd)
+{
+	int			i = 0;
+
+	DBGPRINT(RT_DEBUG_TRACE, "--> %s: %d PendingRx left\n",
+			__FUNCTION__, atomic_read(&pAd->PendingRx));
+
+	do {
+		PRX_CONTEXT pRxContext = &pAd->RxContext[i];
+
+		pRxContext->InUse = FALSE;
+		atomic_set(&pRxContext->IrpLock, IRPLOCK_COMPLETED);
+		pRxContext->IRPPending	= FALSE;
+	} while (++i < RX_RING_SIZE);
+
+	DBGPRINT(RT_DEBUG_TRACE, "<-- RTUSBCleanUpDataBulkInQueue\n");
+
+} /* End RTUSBCleanUpDataBulkInQueue () */
+
+/*
+	========================================================================
+
+	Routine Description:
+
+	Arguments:
+
+	Return Value:
+
+	Note:
+
+	========================================================================
+*/
 VOID	RTUSBCleanUpDataBulkOutQueue(
 	IN	PRTMP_ADAPTER	pAd)
 {
@@ -1118,7 +1164,7 @@ VOID	RTUSBCleanUpDataBulkOutQueue(
 	PTX_CONTEXT 	pTxContext;
 	unsigned long			flags;
 
-	DBGPRINT(RT_DEBUG_TRACE, "--->CleanUpDataBulkOutQueue\n");
+	DBGPRINT(RT_DEBUG_TRACE, "--->RTUSBCleanUpDataBulkOutQueue\n");
 
 	for (Idx = 0; Idx < 4; Idx++)
 	{
@@ -1135,7 +1181,7 @@ VOID	RTUSBCleanUpDataBulkOutQueue(
 		NdisReleaseSpinLock(&pAd->BulkOutLock[Idx]);
 	}
 
-	DBGPRINT(RT_DEBUG_TRACE, "<---CleanUpDataBulkOutQueue\n");
+	DBGPRINT(RT_DEBUG_TRACE, "<---RTUSBCleanUpDataBulkOutQueue\n");
 }
 
 /*
@@ -1175,6 +1221,28 @@ VOID	RTUSBCleanUpMLMEBulkOutQueue(
 
 	DBGPRINT(RT_DEBUG_TRACE, "<---%s\n", __FUNCTION__);
 }
+
+VOID	RTUSBwaitRxDone(
+	IN	PRTMP_ADAPTER	pAd)
+{
+	int i;
+
+	for (i = 0; atomic_read(&pAd->PendingRx) > 0 && i < 25; i++) {
+		msleep(UNLINK_TIMEOUT_MS);
+	}
+
+} /* End RTUSBwaitRxDone () */
+
+VOID	RTUSBwaitTxDone(
+	IN	PRTMP_ADAPTER	pAd)
+{
+	int i;
+
+	for (i = 0; atomic_read(&pAd->PendingTx) > 0 && i < 25; i++) {
+		msleep(UNLINK_TIMEOUT_MS);
+	}
+
+} /* End RTUSBwaitTxDone () */
 
 /*
 	========================================================================
@@ -1223,9 +1291,7 @@ VOID	RTUSBCancelPendingBulkInIRP(
 #endif
 
 	// maybe wait for cancellations to finish.
-	for (i = 0; atomic_read(&pAd->PendingRx) > 0 && i < 25; i++) {
-		msleep(UNLINK_TIMEOUT_MS);
-	}
+	RTUSBwaitRxDone(pAd);
 	pAd->CurRxBulkInIndex = pAd->NextRxBulkInIndex = 0;
 	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: %d PendingRx left\n",
 			__FUNCTION__, atomic_read(&pAd->PendingRx));
@@ -1339,9 +1405,7 @@ VOID	RTUSBCancelPendingBulkOutIRP(
 	}
 
 	// maybe wait for cancellations to finish.
-	for (i = 0; atomic_read(&pAd->PendingTx) > 0 && i < 25; i++) {
-		msleep(UNLINK_TIMEOUT_MS);
-	}
+	RTUSBwaitTxDone(pAd);
 	DBGPRINT(RT_DEBUG_TRACE, "<-- %s: %d PendingTx left\n",
 			__FUNCTION__, atomic_read(&pAd->PendingTx));
 }
@@ -1365,4 +1429,3 @@ VOID	RTUSBCancelPendingIRPs(
 	RTUSBCancelPendingBulkInIRP(pAd);
 	RTUSBCancelPendingBulkOutIRP(pAd);
 }
-

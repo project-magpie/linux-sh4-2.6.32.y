@@ -66,6 +66,8 @@ UCHAR   CipherWpa2TemplateLen = (sizeof(CipherWpa2Template) / sizeof(UCHAR));
     ==========================================================================
     Description:
         association state machine init, including state transition and timer init
+		All functions run in process context
+
     Parameters:
         S - pointer to the association state machine
     Note:
@@ -125,7 +127,6 @@ VOID AssocStateMachineInit(
     // timer init
     RTMPInitTimer(pAd, &pAd->MlmeAux.AssocTimer, &AssocTimeout);
     RTMPInitTimer(pAd, &pAd->MlmeAux.ReassocTimer, &ReassocTimeout);
-    RTMPInitTimer(pAd, &pAd->MlmeAux.DisassocTimer, &DisassocTimeout);
 
 }
 
@@ -162,24 +163,6 @@ VOID ReassocTimeout(
     RTMP_ADAPTER *pAd = (RTMP_ADAPTER *)data;
     DBGPRINT(RT_DEBUG_TRACE,"ASSOC - enqueue MT2_REASSOC_TIMEOUT \n");
     MlmeEnqueue(pAd, ASSOC_STATE_MACHINE, MT2_REASSOC_TIMEOUT, 0, NULL);
-    RTUSBMlmeUp(pAd);
-}
-
-/*
-    ==========================================================================
-    Description:
-        Disassociation timeout procedure. After disassociation timeout, this
-        function will be called and put a message into the MLME queue
-    Parameters:
-        Standard timer parameters
-    ==========================================================================
- */
-VOID DisassocTimeout(
-    IN	unsigned long data)
-{
-    RTMP_ADAPTER *pAd = (RTMP_ADAPTER *)data;
-    DBGPRINT(RT_DEBUG_TRACE,"ASSOC - enqueue MT2_DISASSOC_TIMEOUT \n");
-    MlmeEnqueue(pAd, ASSOC_STATE_MACHINE, MT2_DISASSOC_TIMEOUT, 0, NULL);
     RTUSBMlmeUp(pAd);
 }
 
@@ -565,7 +548,6 @@ VOID MlmeDisassocReqAction(
     HEADER_802_11         DisassocHdr;
     PCHAR                 pOutBuffer = NULL;
     ULONG                 FrameLen = 0;
-    ULONG                 Timeout = 0;
     USHORT                Status;
     USHORT                NStatus;
 #if WPA_SUPPLICANT_SUPPORT
@@ -580,13 +562,10 @@ VOID MlmeDisassocReqAction(
     if (NStatus != NDIS_STATUS_SUCCESS)
     {
         DBGPRINT(RT_DEBUG_TRACE, "ASSOC - MlmeDisassocReqAction() allocate memory failed\n");
-        pAd->Mlme.AssocMachine.CurrState = ASSOC_IDLE;
         Status = MLME_FAIL_NO_RESOURCE;
         MlmeEnqueue(pAd, MLME_CNTL_STATE_MACHINE, MT2_DISASSOC_CONF, 2, &Status);
         return;
     }
-
-    RTMPCancelTimer(&pAd->MlmeAux.DisassocTimer);
 
     DBGPRINT(RT_DEBUG_TRACE, "ASSOC - Send DISASSOC request\n");
     MgtMacHeaderInit(pAd, &DisassocHdr, SUBTYPE_DISASSOC, 0, pDisassocReq->Addr, pDisassocReq->Addr);
@@ -613,12 +592,11 @@ VOID MlmeDisassocReqAction(
     }
 #endif
 
-    pAd->PortCfg.DisassocReason = REASON_DISASSOC_STA_LEAVING;
+    pAd->PortCfg.DisassocReason = pDisassocReq->Reason;
     COPY_MAC_ADDR(pAd->PortCfg.DisassocSta, pDisassocReq->Addr);
 
-    RTMPSetTimer(pAd, &pAd->MlmeAux.DisassocTimer, Timeout);
-
-    pAd->Mlme.AssocMachine.CurrState = DISASSOC_WAIT_RSP;
+	Status = MLME_SUCCESS;
+	MlmeEnqueue(pAd, MLME_CNTL_STATE_MACHINE, MT2_DISASSOC_CONF, 2, &Status);
 }
 
 #if WPA_SUPPLICANT_SUPPORT

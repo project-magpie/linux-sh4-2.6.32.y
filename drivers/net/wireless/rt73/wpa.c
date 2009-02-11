@@ -1614,6 +1614,17 @@ VOID	WpaGroupMsg1Action(
     // Free allocated memory
     MlmeFreeMemory(pAd, pOutBuffer);
 
+#ifdef BIG_ENDIAN
+   // recovery original byte order, before extracting key index.
+{
+    USHORT	tmpKeyinfo;
+
+    memcpy(&tmpKeyinfo, &Packet.KeyDesc.KeyInfo, sizeof(USHORT));
+    tmpKeyinfo = SWAP16(tmpKeyinfo);
+    memcpy(&Packet.KeyDesc.KeyInfo, &tmpKeyinfo, sizeof(USHORT));
+}
+#endif
+
 	// 6. Update GTK
 	memset(pGroupKey, 0, sizeof(NDIS_802_11_KEY) + LEN_EAP_KEY);
 	pGroupKey->Length    = sizeof(NDIS_802_11_KEY) + LEN_EAP_KEY;

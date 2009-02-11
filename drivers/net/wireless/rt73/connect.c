@@ -158,6 +158,10 @@ VOID MlmeCntlMachinePerformAction(
 		case CNTL_WAIT_OID_DISASSOC:
 			if (Elem->MsgType == MT2_DISASSOC_CONF)
 			{
+				DBGPRINT(RT_DEBUG_TRACE,
+						"LinkDown(MlmeCntlMachinePerformAction)\n");
+				// maybe wait for the disassoc frame to hit the air.
+				RTUSBwaitTxDone(pAd);
 				LinkDown(pAd, FALSE);
 				pAd->Mlme.CntlMachine.CurrState = CNTL_IDLE;
 			}
@@ -207,7 +211,8 @@ VOID CntlIdleProc(
 						sizeof(MLME_DISASSOC_REQ_STRUCT), &DisassocReq);
 			pAd->Mlme.CntlMachine.CurrState = CNTL_WAIT_OID_DISASSOC;
 			// Set the AutoReconnectSsid to prevent it reconnect to old SSID
-			// Since calling this indicate user don't want to connect to that SSID anymore.
+			// Since calling this indicate user don't want to connect to that
+			// SSID anymore.
 			pAd->MlmeAux.AutoReconnectSsidLen= 32;
 			memset(pAd->MlmeAux.AutoReconnectSsid, 0, pAd->MlmeAux.AutoReconnectSsidLen);
 			break;
@@ -870,8 +875,10 @@ VOID LinkUp(
 	IN UCHAR BssType)
 {
 	ULONG	Now;
-	TXRX_CSR4_STRUC *NewTxRxCsr4 = kzalloc(sizeof(TXRX_CSR4_STRUC), GFP_KERNEL);
-	TXRX_CSR4_STRUC *CurTxRxCsr4 = kzalloc(sizeof(TXRX_CSR4_STRUC), GFP_KERNEL);
+	TXRX_CSR4_STRUC *NewTxRxCsr4 = kzalloc(sizeof(TXRX_CSR4_STRUC),
+						GFP_KERNEL);
+	TXRX_CSR4_STRUC *CurTxRxCsr4 = kzalloc(sizeof(TXRX_CSR4_STRUC),
+						GFP_KERNEL);
 
 	if (!NewTxRxCsr4 || !CurTxRxCsr4) {
 		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
@@ -884,10 +891,6 @@ VOID LinkUp(
 	// !!! LINK DOWN !!!
 	// [88888] OID_802_11_SSID should have returned NDTEST_WEP_AP2(Returned: )
 	//
-	// To prevent DisassocTimeoutAction to call Link down after we link up,
-	// cancel the DisassocTimer no matter what it start or not.
-	//
-	RTMPCancelTimer(&pAd->MlmeAux.DisassocTimer);
 
 	COPY_SETTINGS_FROM_MLME_AUX_TO_ACTIVE_CFG(pAd);
 	DBGPRINT(RT_DEBUG_TRACE, "!!! LINK UP !!! (Infra=%d, AID=%d, ssid=%s)\n",
@@ -1020,7 +1023,6 @@ VOID LinkUp(
 	//
 	RTUSBReadMACRegister(pAd, TXRX_CSR4, &CurTxRxCsr4->word);
 	NewTxRxCsr4->word = CurTxRxCsr4->word;
-	
 	if ((pAd->PortCfg.Channel <= 14) &&
 		((pAd->PortCfg.PhyMode == PHY_11B) ||
 		 (pAd->PortCfg.PhyMode == PHY_11BG_MIXED) ||
@@ -1035,6 +1037,7 @@ VOID LinkUp(
 
 	if (NewTxRxCsr4->word!= CurTxRxCsr4->word)
 		RTUSBWriteMACRegister(pAd, TXRX_CSR4, NewTxRxCsr4->word);
+
 
 	pAd->Mlme.PeriodicRound = 0;		// re-schedule MlmePeriodicExec()
 	pAd->bConfigChanged = FALSE;		// Reset config flag
@@ -1071,7 +1074,8 @@ VOID LinkDown(
 	IN PRTMP_ADAPTER pAd,
 	IN	BOOLEAN 	 IsReqFromAP)
 {
-	TXRX_CSR4_STRUC *CurTxRxCsr4 = kzalloc(sizeof(TXRX_CSR4_STRUC), GFP_KERNEL);
+	TXRX_CSR4_STRUC *CurTxRxCsr4 = kzalloc(sizeof(TXRX_CSR4_STRUC),
+					GFP_KERNEL);
 
 	DBGPRINT(RT_DEBUG_TRACE, "!!! LINK DOWN !!!\n");
 
@@ -1086,15 +1090,17 @@ VOID LinkDown(
 	{
 		OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_ADHOC_ON);
 
-#ifdef	SINGLE_ADHOC_LINKUP
+#if 1 //#ifdef	SINGLE_ADHOC_LINKUP
 		OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED);
 		// clean up previous SCAN result, add current BSS back to table if any
-		BssTableDeleteEntry(&pAd->PortCfg.ScanTab, &(pAd->PortCfg.Bssid), pAd->PortCfg.Channel);
+		BssTableDeleteEntry(&pAd->ScanTab,
+							pAd->PortCfg.Bssid, pAd->PortCfg.Channel);
 #else
 		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF))
 		{
 			OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED);
-			BssTableDeleteEntry(&pAd->ScanTab, pAd->PortCfg.Bssid, pAd->PortCfg.Channel);
+			BssTableDeleteEntry(&pAd->ScanTab,
+								pAd->PortCfg.Bssid, pAd->PortCfg.Channel);
 		}
 #endif
 	}
@@ -1117,7 +1123,8 @@ VOID LinkDown(
 			RTMPSetTimer(pAd, &pAd->Mlme.LinkDownTimer, 10000);
 		}
 
-		BssTableDeleteEntry(&pAd->ScanTab, pAd->PortCfg.Bssid, pAd->PortCfg.Channel);
+		BssTableDeleteEntry(&pAd->ScanTab,
+							pAd->PortCfg.Bssid, pAd->PortCfg.Channel);
 
 		// restore back to -
 		//		1. long slot (20 us) or short slot (9 us) time
@@ -1541,6 +1548,7 @@ ULONG MakeIbssBeacon(
 			  (pAd->PortCfg.WepStatus == Ndis802_11Encryption3Enabled);
 	CapabilityInfo = CAP_GENERATE(0, 1, Privacy, (pAd->PortCfg.TxPreamble == Rt802_11PreambleShort), 0);
 
+	cpu_to_le16s(&pAd->ActiveCfg.AtimWin);
 	MakeOutgoingFrame(pBeaconFrame, 				&FrameLen,
 					  sizeof(HEADER_802_11),		&BcnHdr,
 					  TIMESTAMP_LEN,				&FakeTimestamp,
@@ -1559,18 +1567,19 @@ ULONG MakeIbssBeacon(
 					  1,							&IbssLen,
 					  2,							&pAd->ActiveCfg.AtimWin,
 					  END_OF_ARGS);
+	le16_to_cpus(&pAd->ActiveCfg.AtimWin);
 
 	// add ERP_IE and EXT_RAE IE of in 802.11g
 	if (ExtRateLen)
 	{
 		ULONG	tmp;
 
-		MakeOutgoingFrame(pBeaconFrame + FrameLen,		   &tmp,
-						  3,							   LocalErpIe,
-						  1,							   &ExtRateIe,
-						  1,							   &ExtRateLen,
-						  ExtRateLen,					   ExtRate,
-						  END_OF_ARGS);
+		MakeOutgoingFrame(pBeaconFrame + FrameLen,	&tmp,
+						3,						LocalErpIe,
+						1,						&ExtRateIe,
+						1,						&ExtRateLen,
+						ExtRateLen,				ExtRate,
+						END_OF_ARGS);
 		FrameLen += tmp;
 	}
 
@@ -1579,30 +1588,27 @@ ULONG MakeIbssBeacon(
 	{
 		ULONG	tmp;
 
-		if (pAd->PortCfg.WepStatus == Ndis802_11Encryption2Enabled)		// Tkip
+		if (pAd->PortCfg.WepStatus == Ndis802_11Encryption2Enabled)	// Tkip
 		{
-			MakeOutgoingFrame(pBeaconFrame + FrameLen,		&tmp,
-							  1,							&WpaIe,
-							  1,							&CipherSuiteWpaNoneTkipLen,
-							  CipherSuiteWpaNoneTkipLen,	&CipherSuiteWpaNoneTkip[0],
-							  END_OF_ARGS);
+			MakeOutgoingFrame(pBeaconFrame + FrameLen,&tmp,
+						1,					&WpaIe,
+						1,					&CipherSuiteWpaNoneTkipLen,
+						CipherSuiteWpaNoneTkipLen,&CipherSuiteWpaNoneTkip[0],
+						END_OF_ARGS);
 			FrameLen += tmp;
 		}
-		else if (pAd->PortCfg.WepStatus == Ndis802_11Encryption3Enabled)	// Aes
+		else if (pAd->PortCfg.WepStatus == Ndis802_11Encryption3Enabled)// Aes
 		{
-			MakeOutgoingFrame(pBeaconFrame + FrameLen,	  &tmp,
-							  1,						  &WpaIe,
-							  1,						  &CipherSuiteWpaNoneAesLen,
-							  CipherSuiteWpaNoneAesLen,   &CipherSuiteWpaNoneAes[0],
-							  END_OF_ARGS);
+			MakeOutgoingFrame(pBeaconFrame + FrameLen,&tmp,
+						1,						&WpaIe,
+						1,						&CipherSuiteWpaNoneAesLen,
+						CipherSuiteWpaNoneAesLen,&CipherSuiteWpaNoneAes[0],
+						END_OF_ARGS);
 			FrameLen += tmp;
 		}
 	}
-
-#ifdef BIG_ENDIAN
-	RTMPFrameEndianChange(pAd, pBeaconFrame, DIR_WRITE, FALSE);
-#endif
-
+	// N.B. The frame is flipped as needed in RTUSBMlmeHardTransmit ()
+	// - if it is called - bb
 	RTUSBWriteTxDescriptor(pAd, pTxD, CIPHER_NONE, 0,0, FALSE, FALSE, TRUE, SHORT_RETRY,
 		IFS_BACKOFF, pAd->PortCfg.MlmeRate, FrameLen, QID_MGMT, PID_MGMT_FRAME, FALSE);
 
@@ -1613,9 +1619,14 @@ ULONG MakeIbssBeacon(
 	// or
 	// 2.) Modify cwmin.
 	//
+#ifdef BIG_ENDIAN
+	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
+#endif
 	pTxD->Cwmin = 2;
+#ifdef BIG_ENDIAN
+	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
+#endif
 
 	DBGPRINT(RT_DEBUG_TRACE, "MakeIbssBeacon (len=%d)\n", FrameLen);
 	return FrameLen;
 }
-

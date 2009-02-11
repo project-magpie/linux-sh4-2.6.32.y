@@ -82,8 +82,8 @@
 #define	MAX_CLIENT				2
 
 #define LOCAL_TXBUF_SIZE		2048
-#define TXD_SIZE				64
-#define RXD_SIZE				64
+#define TXD_SIZE				24
+#define RXD_SIZE				24
 #define TX_DMA_1ST_BUFFER_SIZE	64	  // only the 1st physical buffer is pre-allocated
 #define MGMT_DMA_BUFFER_SIZE	2048
 #define RX_DMA_BUFFER_SIZE      4096
@@ -835,7 +835,7 @@ typedef UCHAR ADDRESS[MAC_ADDRESS_LENGTH];
  /* D-Link */\
  {USB_DEVICE(0x07d1,0x3c03)},\
  {USB_DEVICE(0x07d1,0x3c04)},\
- {USB_DEVICE(0x07d1,0x3c06)},\
+ {USB_DEVICE(0x07d1,0x3c06)}, /* D-Link DWA111 - thanks to zenon_666 */ \
  {USB_DEVICE(0x07d1,0x3c07)},\
  /* Gemtek*/\
  {USB_DEVICE(0x15a9,0x0004)},\

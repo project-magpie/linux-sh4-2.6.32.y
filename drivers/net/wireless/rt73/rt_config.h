@@ -37,7 +37,8 @@
 #define	__RT_CONFIG_H__
 
 // Propagate predefined compiler variables asap - bb.
-#if defined(__BIG_ENDIAN) || defined(__BIG_ENDIAN__) || defined(_BIG_ENDIAN)
+#if defined(__BIG_ENDIAN) || defined(__BIG_ENDIAN__) || \
+	defined(_BIG_ENDIAN) || defined(__ARMEB__) || defined(__MIPSEB__)
 #define BIG_ENDIAN TRUE
 #endif /* __BIG_ENDIAN */
 
@@ -46,7 +47,7 @@
 #define RT2573_IMAGE_FILE_NAME      "rt73.bin"
 #define DRIVER_NAME                 "rt73"
 #define DRIVER_VERSION		    "1.0.3.6 CVS"
-#define DRIVER_RELDATE              "2008050900"
+#define DRIVER_RELDATE              "2009012305"
 
 // Query from UI
 #define DRV_MAJORVERSION        1
@@ -105,7 +106,13 @@
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 #include <asm/atomic.h>
-#include <asm/byteorder.h>
+#include <asm/unaligned.h>
+#if LINUX_VERSION_CODE < 0x20500
+#include <linux/pm.h>
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,20)
+#include <linux/freezer.h>
+#endif
 
 // load firmware
 #define __KERNEL_SYSCALLS__
@@ -256,16 +263,50 @@ static inline unsigned long msecs_to_jiffies(const unsigned int m)
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0)
-#define reserve_module(x)	try_module_get(x)
-#define release_module(x)	module_put(x)
-#define rtusb_submit_urb(purb) usb_submit_urb(purb, GFP_KERNEL)
+#define reserve_module(x)		try_module_get(x)
+#define release_module(x)		module_put(x)
+#define rt_daemonize(x, y...)	(daemonize(x, ## y))
+#define rtusb_submit_urb(purb)	usb_submit_urb(purb, GFP_KERNEL)
 #else
-#define usb_get_dev			usb_inc_dev_use
-#define usb_put_dev			usb_dec_dev_use
-#define reserve_module(x)  	MOD_INC_USE_COUNT
-#define release_module(x)	MOD_DEC_USE_COUNT
+#define allow_signal(x)
+#define usb_get_dev				usb_inc_dev_use
+#define usb_put_dev				usb_dec_dev_use
+#define reserve_module(x)  		MOD_INC_USE_COUNT
+#define release_module(x)		MOD_DEC_USE_COUNT
+#define rt_daemonize(x, y...)			\
+{										\
+	daemonize();						\
+	reparent_to_init();					\
+	sprintf(current->comm, x, ## y);	\
+}
 #define rtusb_submit_urb(purb) usb_submit_urb(purb)
 #endif
+
+// TODO Available as of 2.5.18, but patches are available for 2.4 series,
+// so we should find a way to allow for these. - bb
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,18) || !defined(CONFIG_PM)
+#define set_freezable()
+#define try_to_freeze()	0
+#else
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11)
+static inline int try_to_freeze()
+{
+	if (unlikely(current->flags & PF_FREEZE)) {
+		refrigerator(PF_FREEZE);
+		return 1;
+	} else
+		return 0;
+}
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,13)
+#define try_to_freeze()	try_to_freeze(PF_FREEZE)
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,23)
+static inline void set_freezable(void)
+{
+	current->flags &= ~PF_NOFREEZE;
+}
+#endif
+#endif /* < 2.5.18 || !CONFIG_PM */
 
 // 2.5.44? 2.5.26?
 #ifndef smp_read_barrier_depends
@@ -291,6 +332,27 @@ static inline unsigned long msecs_to_jiffies(const unsigned int m)
 #define dev_get_by_name(slot_name) dev_get_by_name(&init_net, slot_name)
 #define first_net_device() first_net_device(&init_net)
 #endif
+
+// Changes in 2.6.27, but Fedora jumps the gun - bb
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,25) || \
+   (LINUX_VERSION_CODE == KERNEL_VERSION(2,6,25) && \
+   (!defined(FEDORA) || (defined(FEDORA) && FEDORA < 10))) || \
+   (LINUX_VERSION_CODE == KERNEL_VERSION(2,6,26) && !defined(FEDORA))
+#define iwri_struct(x)
+#define iwri_start(x)
+#define iwri_ref(x)
+#else
+#define iwri_struct(x)	struct iw_request_info x
+#define iwri_start(x)	memset(&x, 0, sizeof(x))
+#define iwri_ref(x)		x,
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)
+static inline int kill_proc(pid_t pid, int sig, int priv)
+{
+	return kill_pid(find_pid_ns(pid, &init_pid_ns), sig, priv);
+}
+#endif /* LINUX_VERSION_CODE >= 2.6.27 */
 
 #ifndef USB_ST_NOERROR
 #define  USB_ST_NOERROR     0

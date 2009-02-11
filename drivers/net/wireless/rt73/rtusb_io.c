@@ -153,7 +153,6 @@ NTSTATUS	RTUSBReadMACRegister(
 	OUT	PULONG			pValue)
 {
 	NTSTATUS	Status;
-
 	Status = RTUSB_VendorRequest(
 		pAd,
 		0,
@@ -163,6 +162,7 @@ NTSTATUS	RTUSBReadMACRegister(
 		Offset,
 		pValue,
 		4);
+	le32_to_cpus(pValue);
 
 	return Status;
 }
@@ -187,6 +187,7 @@ NTSTATUS	RTUSBWriteMACRegister(
 {
 	NTSTATUS	Status;
 
+	cpu_to_le32s(&Value);
 	Status = RTUSB_VendorRequest(
 		pAd,
 		0,
@@ -284,7 +285,6 @@ NTSTATUS	RTUSBReadBBPRegister(
 		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return -ENOMEM;
 	}
-
 	// Verify the busy condition
 	do
 	{
@@ -294,6 +294,8 @@ NTSTATUS	RTUSBReadBBPRegister(
 		i++;
 	}
 	while ((i < RETRY_LIMIT) && (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)));
+	//DBGPRINT(RT_DEBUG_INFO, "- %s: Pre-busy PHY_CSR3=0x%08x\n",
+			//__FUNCTION__, PhyCsr3.word);
 
 	if ((i == RETRY_LIMIT) || (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
 	{
@@ -302,6 +304,8 @@ NTSTATUS	RTUSBReadBBPRegister(
 		//
 		*pValue = pAd->BbpWriteLatch[Id];
 
+		KPRINT(KERN_NOTICE,
+				"- BBP read: Pre-busy error or device removed!!!\n");
 		DBGPRINT(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
 		kfree(PhyCsr3);
 		return STATUS_UNSUCCESSFUL;
@@ -327,6 +331,8 @@ NTSTATUS	RTUSBReadBBPRegister(
 		i++;
 	}
 	while ((i < RETRY_LIMIT) && (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)));
+	//DBGPRINT(RT_DEBUG_INFO, "- %s: Post-busy PHY_CSR3=0x%08x\n",
+			//__FUNCTION__, PhyCsr3.word);
 
 	if ((i == RETRY_LIMIT) || (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
 	{
@@ -335,6 +341,8 @@ NTSTATUS	RTUSBReadBBPRegister(
 		//
 		*pValue = pAd->BbpWriteLatch[Id];
 
+		KPRINT(KERN_NOTICE,
+				"- BBP read: Post-busy error or device removed!!!\n");
 		DBGPRINT(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
 		kfree(PhyCsr3);
 		return STATUS_UNSUCCESSFUL;
@@ -381,17 +389,21 @@ NTSTATUS	RTUSBWriteBBPRegister(
 
 	if ((i == RETRY_LIMIT) || (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
 	{
-		DBGPRINT(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
 		kfree(PhyCsr3);
+		DBGPRINT(RT_DEBUG_ERROR,
+				"- %s: Busy error=0x%08x or device removed!!!\n",
+				__FUNCTION__, PhyCsr3->word);
+		KPRINT(KERN_NOTICE,
+				"- BBP write: Retry count exhausted or device removed!!!\n");
 		return STATUS_UNSUCCESSFUL;
 	}
 
 	// Prepare for write material
-	PhyCsr3->word         = 0;
-	PhyCsr3->field.fRead      = 0;
-	PhyCsr3->field.Value      = Value;
-	PhyCsr3->field.Busy     = 1;
-	PhyCsr3->field.RegNum     = Id;
+	PhyCsr3->word 				= 0;
+	PhyCsr3->field.fRead			= 0;
+	PhyCsr3->field.Value			= Value;
+	PhyCsr3->field.Busy			= 1;
+	PhyCsr3->field.RegNum 		= Id;
 	RTUSBWriteMACRegister(pAd, PHY_CSR3, PhyCsr3->word);
 
 	pAd->BbpWriteLatch[Id] = Value;
@@ -424,6 +436,7 @@ NTSTATUS	RTUSBWriteRFRegister(
 		DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
 		return -ENOMEM;
 	}
+
 	do
 	{
 		RTUSBReadMACRegister(pAd, PHY_CSR4, &PhyCsr4->word);
@@ -435,8 +448,12 @@ NTSTATUS	RTUSBWriteRFRegister(
 
 	if ((i == RETRY_LIMIT) || (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
 	{
-		DBGPRINT(RT_DEBUG_ERROR, "Retry count exhausted or device removed!!!\n");
 		kfree(PhyCsr4);
+		DBGPRINT(RT_DEBUG_ERROR,
+				"- %s: Busy error=0x%08x or device removed!!!\n",
+				__FUNCTION__, PhyCsr4->word);
+		KPRINT(KERN_NOTICE,
+				"- RF write: Retry count exhausted or device removed!!!\n");
 		return STATUS_UNSUCCESSFUL;
 	}
 
@@ -510,6 +527,36 @@ NTSTATUS	RTUSBWriteEEPROM(
 		Offset,
 		pData,
 		length);
+
+	return Status;
+}
+
+/*
+	========================================================================
+
+	Routine Description:
+
+	Arguments:
+
+	Return Value:
+
+	Note:
+
+	========================================================================
+*/
+NTSTATUS	RTUSBStopRx(
+	IN	PRTMP_ADAPTER	pAd)
+{
+	NTSTATUS	Status;
+
+	Status = RTUSB_VendorRequest(pAd,
+             0,
+             DEVICE_VENDOR_REQUEST_OUT,
+             0x0C,
+             0x0,
+             0x0,
+             NULL,
+             0);
 
 	return Status;
 }
@@ -797,9 +844,10 @@ VOID	RTUSBEnqueueInternalCmd(
 		NdisReleaseSpinLock(&pAd->CmdQLock);
 
 		RTUSBCMDUp(pAd);
-		DBGPRINT(RT_DEBUG_TRACE, "<-- %s: CmdThr up\n", __FUNCTION__);
+		//DBGPRINT(RT_DEBUG_TRACE, "<-- %s: CmdThr up\n", __FUNCTION__);
 	}
-	else DBGPRINT(RT_DEBUG_TRACE, "<-- %s CMDThr in use\n", __FUNCTION__);
+	else DBGPRINT(RT_DEBUG_TRACE, "<-- %s CMDThr for 0x%08x in use\n",
+			__FUNCTION__, Oid);
 }
 
 /*
@@ -829,6 +877,56 @@ VOID	RTUSBDequeueCmd(
 			cmdq->tail = NULL;
 	}
 }
+
+VOID	RTUSBfreeCmdQElem(
+	OUT	PCmdQElmt		cmdqelmt)
+{
+
+	if (cmdqelmt->CmdFromNdis == TRUE) {
+
+		if ((cmdqelmt->command != OID_802_11_BSSID_LIST_SCAN) &&
+			(cmdqelmt->command != RT_OID_802_11_BSSID) &&
+			(cmdqelmt->command != OID_802_11_SSID) &&
+			(cmdqelmt->command != OID_802_11_DISASSOCIATE))
+		{
+		}
+
+		if ((cmdqelmt->command != RT_OID_MULTI_READ_MAC) &&
+			(cmdqelmt->command != RT_OID_VENDOR_READ_BBP) &&
+#ifdef DBG
+			(cmdqelmt->command != RT_OID_802_11_QUERY_HARDWARE_REGISTER) &&
+#endif
+			(cmdqelmt->command != RT_OID_USB_VENDOR_EEPROM_READ))
+		{
+			if (cmdqelmt->buffer != NULL) {
+				kfree(cmdqelmt->buffer);
+			}
+		}
+		if(cmdqelmt != NULL) {
+			kfree((PCmdQElmt)cmdqelmt);
+		}
+	}
+	else {
+		cmdqelmt->InUse = FALSE;
+	}
+} /* End RTUSBfreeCmdQElem () */
+
+VOID	RTUSBfreeCmdQ(
+	IN	PRTMP_ADAPTER	pAd,
+	IN	PCmdQ			cmdq)
+{
+	CmdQElmt		*cmdqelmt;
+	unsigned long	flags;	// For "Ndis" spin lock
+
+	NdisAcquireSpinLock(&pAd->CmdQLock);
+	while (cmdq->size > 0)
+	{
+		RTUSBDequeueCmd(cmdq, &cmdqelmt);
+		RTUSBfreeCmdQElem(cmdqelmt);
+	}
+	NdisReleaseSpinLock(&pAd->CmdQLock);
+
+} /* End RTUSBfreeCmdQ () */
 
 /*
     ========================================================================
@@ -902,7 +1000,7 @@ INT	    RTUSB_VendorRequest(
 			DBGPRINT(RT_DEBUG_ERROR,"vendor request direction is failed\n");
 			ret = -1;
 		}
-    if (ret < 0) {
+        if (ret < 0) {
 			switch (ret) {
 			case -ECONNRESET:		// async unlink via call to usb_unlink_urb()
 			case -ENOENT:			// stopped by call to usb_kill_urb

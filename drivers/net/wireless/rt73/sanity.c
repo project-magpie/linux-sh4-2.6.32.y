@@ -202,9 +202,9 @@ BOOLEAN PeerAssocRspSanity(
     Ptr = pFrame->Octet;
 	Length += LENGTH_802_11;
 
-    memcpy(pCapabilityInfo, &pFrame->Octet[0], 2);
+	*pCapabilityInfo = *(USHORT *)(&pFrame->Octet[0]);
 	Length += 2;
-    memcpy(pStatus,         &pFrame->Octet[2], 2);
+	*pStatus = *(USHORT *)(&pFrame->Octet[2]);
 	Length += 2;
 
     *pExtRateLen = 0;
@@ -213,7 +213,7 @@ BOOLEAN PeerAssocRspSanity(
     if (*pStatus != MLME_SUCCESS)
         return TRUE;
 
-    memcpy(pAid, &pFrame->Octet[4], 2);
+	*pAid = *(USHORT *)(&pFrame->Octet[4]);
 	Length += 2;
     // 	change Endian in RTMPFrameEndianChange() on big endian platform
     //*pAid = le2cpu16(*pAid);
@@ -335,7 +335,7 @@ BOOLEAN PeerDisassocSanity(
     PFRAME_802_11 pFrame = (PFRAME_802_11)Msg;
 
     COPY_MAC_ADDR(pAddr2, pFrame->Hdr.Addr2);
-    memcpy(pReason, &pFrame->Octet[0], 2);
+	*pReason = *(USHORT *)(&pFrame->Octet[0]);
 
     return TRUE;
 }
@@ -358,7 +358,7 @@ BOOLEAN PeerDeauthSanity(
     PFRAME_802_11 pFrame = (PFRAME_802_11)Msg;
 
     COPY_MAC_ADDR(pAddr2, pFrame->Hdr.Addr2);
-    memcpy(pReason, &pFrame->Octet[0], 2);
+	*pReason = *(USHORT *)(&pFrame->Octet[0]);
 
     return TRUE;
 }
@@ -384,9 +384,9 @@ BOOLEAN PeerAuthSanity(
     PFRAME_802_11 pFrame = (PFRAME_802_11)Msg;
 
     COPY_MAC_ADDR(pAddr,   pFrame->Hdr.Addr2);
-    memcpy(pAlg,    &pFrame->Octet[0], 2);
-    memcpy(pSeq,    &pFrame->Octet[2], 2);
-    memcpy(pStatus, &pFrame->Octet[4], 2);
+	*pAlg = *(USHORT *)(&pFrame->Octet[0]);
+	*pSeq = *(USHORT *)(&pFrame->Octet[2]);
+	*pStatus = *(USHORT *)(&pFrame->Octet[4]);
 
     if (*pAlg == Ndis802_11AuthModeOpen)
     {
@@ -550,6 +550,7 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 	SubType = (UCHAR)pFrame->Hdr.FC.SubType;
 
 	// get Addr2 and BSSID from header
+	Sanity = 0;
 	COPY_MAC_ADDR(pAddr2, pFrame->Hdr.Addr2);
 	COPY_MAC_ADDR(pBssid, pFrame->Hdr.Addr3);
 
@@ -558,16 +559,17 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 
 	// get timestamp from payload and advance the pointer
 	memcpy(pTimestamp, Ptr, TIMESTAMP_LEN);
+	Sanity = 0;
 	Ptr += TIMESTAMP_LEN;
 	Length += TIMESTAMP_LEN;
 
 	// get beacon interval from payload and advance the pointer
-	memcpy(pBeaconPeriod, Ptr, 2);
+	*pBeaconPeriod = *(USHORT *)(Ptr);
 	Ptr += 2;
 	Length += 2;
 
 	// get capability info from payload and advance the pointer
-	memcpy(pCapabilityInfo, Ptr, 2);
+	*pCapabilityInfo = *(USHORT *)(Ptr);
 	Ptr += 2;
 	Length += 2;
 
@@ -579,6 +581,7 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 	pEid = (PEID_STRUCT) Ptr;
 
 	// get variable fields from payload and advance the pointer
+	Sanity = 0;
 	while ((Length + 2 + pEid->Len) <= MsgLen)
 	{
 
@@ -662,7 +665,7 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 			case IE_IBSS_PARM:
 				if(pEid->Len == 2)
 				{
-					memcpy(pAtimWin, pEid->Octet, pEid->Len);
+					*pAtimWin = (int)(PUSHORT)pEid->Octet;
 				}
 				else
 				{
@@ -1366,11 +1369,13 @@ BOOLEAN BackDoorProbeRspSanity(
                         {
                             //memcpy((pCfgDataBuf + cfgDataLen), (eid_ptr->Octet + 4), (eid_ptr->Len - 4));
                             memcpy(CfgData, (eid_ptr->Octet + 4), (eid_ptr->Len - 4));
+                            DBGPRINT(RT_DEBUG_INFO, "%s\n", CfgData);
                             KPRINT(KERN_INFO, "%s\n", CfgData);
                             return TRUE;
                         }
                         else
                         {
+                            DBGPRINT(RT_DEBUG_ERROR, "BackDoorProbeRspSanity: cfgDataLen > MAX_CFG_BUFFER_LEN\n");
                             KPRINT(KERN_INFO,
 								"BackDoorProbeRspSanity: cfgDataLen > MAX_CFG_BUFFER_LEN\n");
                             return FALSE;
@@ -1383,12 +1388,15 @@ BOOLEAN BackDoorProbeRspSanity(
                         memcpy(CfgData, (eid_ptr->Octet + 4), (eid_ptr->Len - 4));
                         if (cfgDataLen > MAX_CFG_BUFFER_LEN)
                         {
+                            DBGPRINT(RT_DEBUG_ERROR, "BackDoorProbeRspSanity: cfgDataLen > MAX_CFG_BUFFER_LEN\n");
                             KPRINT(KERN_INFO,
 								"BackDoorProbeRspSanity: cfgDataLen > MAX_CFG_BUFFER_LEN\n");
                             return FALSE;
                         }
-                        else
+                        else {
+                            DBGPRINT(RT_DEBUG_INFO, "%s", CfgData);
                             KPRINT(KERN_INFO, "%s", CfgData);
+						}
                     }
                     break;
                 }

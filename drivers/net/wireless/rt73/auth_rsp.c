@@ -126,11 +126,10 @@ VOID PeerDeauthAction(
 
     if (PeerDeauthSanity(pAd, Elem->Msg, Elem->MsgLen, Addr2, &Reason))
     {
+		DBGPRINT(RT_DEBUG_TRACE, "AUTH_RSP - (%s) DE-AUTH from AP Reason=%d\n",
+				__FUNCTION__, Reason);
         if (INFRA_ON(pAd) && MAC_ADDR_EQUAL(Addr2, &pAd->PortCfg.Bssid))
         {
-            DBGPRINT(RT_DEBUG_TRACE,
-					"AUTH_RSP - receive DE-AUTH from our AP Reason=%d\n",
-					le16_to_cpu(Reason));
             LinkDown(pAd, TRUE);
         }
     }

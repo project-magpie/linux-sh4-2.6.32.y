@@ -300,9 +300,25 @@ extern ULONG	RTDebugLevel;
 #define RTMP_TEST_FLAGS(_M, _F) 	(((_M)->Flags & (_F)) == (_F))
 
 // Flags control for RT2500 USB bulk out frame type
-#define RTUSB_SET_BULK_FLAG(_M, _F)				((_M)->BulkFlags |= (_F))
-#define RTUSB_CLEAR_BULK_FLAG(_M, _F)			((_M)->BulkFlags &= ~(_F))
-#define RTUSB_TEST_BULK_FLAG(_M, _F)			(((_M)->BulkFlags & (_F)) != 0)
+// We serialize modification between process context and interrupt context
+// and between processors, allowing also for relaxed memory consistency - bb
+//#define RTUSB_SET_BULK_FLAG(_M, _F)		((_M)->BulkFlags |= (_F))
+#define RTUSB_SET_BULK_FLAG(_M, _F)						\
+{														\
+	spin_lock_irqsave(&(_M)->BulkFlagsLock, flags);		\
+	smp_wmb();											\
+	(_M)->BulkFlags |= (_F);							\
+	spin_unlock_irqrestore(&(_M)->BulkFlagsLock, flags);	\
+}
+//#define RTUSB_CLEAR_BULK_FLAG(_M, _F)	((_M)->BulkFlags &= ~(_F))
+#define RTUSB_CLEAR_BULK_FLAG(_M, _F)					\
+{														\
+	spin_lock_irqsave(&(_M)->BulkFlagsLock, flags);		\
+	smp_wmb();											\
+	(_M)->BulkFlags &= ~(_F);							\
+	spin_unlock_irqrestore(&(_M)->BulkFlagsLock, flags);	\
+}
+#define RTUSB_TEST_BULK_FLAG(_M, _F)	(((_M)->BulkFlags & (_F)) != 0)
 
 #define OPSTATUS_SET_FLAG(_pAd, _F) 	((_pAd)->PortCfg.OpStatusFlags |= (_F))
 #define OPSTATUS_CLEAR_FLAG(_pAd, _F)	((_pAd)->PortCfg.OpStatusFlags &= ~(_F))
@@ -666,6 +682,8 @@ typedef struct _RTMP_SCATTER_GATHER_LIST {
 }
 
 #define	LOCAL_TX_RING_EMPTY(_p, _i)		(((_p)->TxContext[_i][(_p)->NextBulkOutIndex[_i]].InUse) == FALSE)
+
+#define nextTxContext(p, i)	(&((p)->TxContext[i][(p)->NextBulkOutIndex[i]]))
 
 typedef	struct _CmdQElmt	{
 	UINT				command;
@@ -1342,6 +1360,10 @@ typedef struct _RTMP_ADAPTER
 	CHAR							nickn[IW_ESSID_MAX_SIZE+1]; // nickname, only used in the iwconfig i/f
 	struct usb_device				*pUsb_Dev;
 	struct net_device				*net_dev;
+	struct usb_device *usb;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0) && defined(CONFIG_PM)
+	struct pm_dev				*pmdev;
+#endif
 	struct tasklet_struct			rx_bh;
 	struct tasklet_struct			rx_bk;
 	struct usb_config_descriptor	*config;
@@ -1544,18 +1566,12 @@ typedef struct _RTMP_ADAPTER
 	CmdQ				CmdQ;
 	CmdQElmt			CmdQElements[COMMAND_QUEUE_SIZE];
 
-	BOOLEAN				DeQueueRunning[4];		// for ensuring RTUSBDeQueuePacket get call once
-
 	// SpinLocks
-	spinlock_t			SendTxWaitQueueLock[4]; // SendTxWaitQueue spinlock
-
-	spinlock_t			DeQueueLock[4];
-
-	spinlock_t			MLMEWaitQueueLock;	// SendTxWaitQueue spinlock
-	spinlock_t			CmdQLock;			// SendTxWaitQueue spinlock
-	spinlock_t			BulkOutLock[4];		// SendTxWaitQueue spinlock for 4 ACs
-
-	spinlock_t			MLMEQLock;			// SendTxWaitQueue spinlock
+	spinlock_t			MLMEWaitQueueLock;
+	spinlock_t			CmdQLock;
+	spinlock_t			BulkOutLock[4];		// for 4 ACs
+	spinlock_t			MLMEQLock;
+	spinlock_t			BulkFlagsLock;
 
 	/////////////////////
 	// Transmit Path
@@ -1569,7 +1585,7 @@ typedef struct _RTMP_ADAPTER
 //	TX_BUFFER				TxMgmtBuf;
 //	PURB					pTxMgmtUrb;
 //	PIRP					pTxMgmtIrp;
-	struct sk_buff_head			SendTxWaitQueue[4];
+	struct sk_buff_head		SendTxWaitQueue[4];
 
 	UINT32					TxRingTotalNumber[4];
 	UCHAR					NextTxIndex[4];				// Next TxD write pointer
@@ -2184,9 +2200,6 @@ VOID AssocTimeout(
 VOID ReassocTimeout(
 	IN	unsigned long data);
 
-VOID DisassocTimeout(
-	IN	unsigned long data);
-
 VOID MlmeAssocReqAction(
 	IN PRTMP_ADAPTER pAd,
 	IN MLME_QUEUE_ELEM *Elem);
@@ -2694,19 +2707,28 @@ VOID	RTUSBBulkReceive(
 VOID	RTUSBKickBulkOut(
 	IN	PRTMP_ADAPTER pAd);
 
+VOID	RTUSBCleanUpDataBulkInQueue(
+	IN	PRTMP_ADAPTER	pAd);
+
 VOID	RTUSBCleanUpDataBulkOutQueue(
 	IN	PRTMP_ADAPTER	pAd);
 
 VOID	RTUSBCleanUpMLMEBulkOutQueue(
 	IN	PRTMP_ADAPTER	pAd);
 
-VOID	RTUSBCancelPendingIRPs(
+VOID	RTUSBwaitRxDone(
+	IN	PRTMP_ADAPTER	pAd);
+
+VOID	RTUSBwaitTxDone(
 	IN	PRTMP_ADAPTER	pAd);
 
 VOID RTUSBCancelPendingBulkOutIRP(
 	IN	PRTMP_ADAPTER	pAd);
 
 VOID	RTUSBCancelPendingBulkInIRP(
+	IN	PRTMP_ADAPTER	pAd);
+
+VOID	RTUSBCancelPendingIRPs(
 	IN	PRTMP_ADAPTER	pAd);
 
 
@@ -2791,6 +2813,9 @@ NTSTATUS	RTUSBWriteEEPROM(
 	IN	PVOID			pData,
 	IN	USHORT			length);
 
+NTSTATUS RTUSBStopRx(
+	IN	PRTMP_ADAPTER	pAd);
+
 NTSTATUS RTUSBPutToSleep(
 	IN	PRTMP_ADAPTER	pAd);
 
@@ -2812,8 +2837,15 @@ VOID	RTUSBEnqueueInternalCmd(
 	IN	NDIS_OID		Oid);
 
 VOID	RTUSBDequeueCmd(
-	IN	PCmdQ		cmdq,
-	OUT	PCmdQElmt	*pcmdqelmt);
+	IN	PCmdQ			cmdq,
+	OUT	PCmdQElmt		*pcmdqelmt);
+
+VOID	RTUSBfreeCmdQElem(
+	OUT	PCmdQElmt		pcmdqelmt);
+
+VOID	RTUSBfreeCmdQ(
+	IN	PRTMP_ADAPTER	pAd,
+	IN	PCmdQ			cmdq);
 
 INT		RTUSB_VendorRequest(
 	IN	PRTMP_ADAPTER	pAd,
@@ -2895,6 +2927,9 @@ VOID	RTUSBWriteTxDescriptor(
 VOID	RTMPDeQueuePacket(
 	IN	PRTMP_ADAPTER	pAd,
 	IN	UCHAR			BulkOutPipeId);
+
+VOID	RTMPDeQueuePackets(
+	IN	PRTMP_ADAPTER	pAd);
 
 VOID	RTUSBRxPacket(
 	IN	 unsigned long data);

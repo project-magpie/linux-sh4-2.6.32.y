@@ -424,6 +424,8 @@ VOID PeerBeaconAtScanAction(
 	UCHAR						VarIE[MAX_VIE_LEN];		// Total VIE length = MAX_VIE_LEN - -5
 	NDIS_802_11_VARIABLE_IEs	*pVIE = NULL;
 
+	DBGPRINT(RT_DEBUG_TRACE, "--> %s\n", __FUNCTION__);
+
     // NdisFillMemory(Ssid, MAX_LEN_OF_SSID, 0x00);
     pFrame = (PFRAME_802_11) Elem->Msg;
 	// Init Variable IE structure
@@ -490,7 +492,8 @@ VOID PeerBeaconAtScanAction(
 		CHAR CfgData[MAX_CFG_BUFFER_LEN+1] = {0};
 		if (BackDoorProbeRspSanity(pAd, Elem->Msg, Elem->MsgLen, CfgData))
 		{
-			//DBGPRINT(RT_DEBUG_INFO, "MlmeEnqueueForRecv: CfgData(len:%d):\n%s\n", (int)strlen(CfgData), CfgData);
+			DBGPRINT(RT_DEBUG_ERROR, "- %s: CfgData(len:%d): %s\n",
+					__FUNCTION__, (int)strlen(CfgData), CfgData);
 			pAd->PortCfg.bGetAPConfig = FALSE;
 		}
 	}
@@ -536,6 +539,7 @@ VOID PeerBeaconAtJoinAction(
     ULONG           Idx;
 	UCHAR   		PeerTxType;
 
+	DBGPRINT(RT_DEBUG_TRACE, "--> %s\n", __FUNCTION__);
 
 	// Init Variable IE structure
 	pVIE = (PNDIS_802_11_VARIABLE_IEs) VarIE;
@@ -732,9 +736,12 @@ VOID PeerBeacon(
 	UCHAR						VarIE[MAX_VIE_LEN];		// Total VIE length = MAX_VIE_LEN - -5
 	NDIS_802_11_VARIABLE_IEs	*pVIE = NULL;
 
-	if (!INFRA_ON(pAd) && !ADHOC_ON(pAd))
-		return;
+	DBGPRINT(RT_DEBUG_TRACE, "--> %s\n", __FUNCTION__);
 
+	if (!INFRA_ON(pAd) && !ADHOC_ON(pAd)) {
+		DBGPRINT(RT_DEBUG_ERROR, "<-- %s: Mode not specified\n", __FUNCTION__);
+		return;
+	}
 	// Init Variable IE structure
 	pVIE = (PNDIS_802_11_VARIABLE_IEs) VarIE;
 	pVIE->Length = 0;
@@ -1084,7 +1091,7 @@ VOID PeerProbeReqAction(
     UCHAR         LocalErpIe[3] = {IE_ERP, 1, 0};
     USHORT        NStatus;
     BOOLEAN       Privacy;
-    USHORT        CapabilityInfo;
+    USHORT        BeaconPeriod, CapabilityInfo, AtimWin;
 
     if (! ADHOC_ON(pAd))
         return;
@@ -1113,21 +1120,24 @@ VOID PeerProbeReqAction(
 	            return;
 
             //pAd->PortCfg.AtimWin = 0;  // ??????
-            DBGPRINT(RT_DEBUG_TRACE, "SYNC - Send PROBE_RSP to %02x:%02x:%02x:%02x:%02x:%02x...\n",
-                Addr2[0],Addr2[1],Addr2[2],Addr2[3],Addr2[4],Addr2[5] );
-            MgtMacHeaderInit(pAd, &ProbeRspHdr, SUBTYPE_PROBE_RSP, 0, Addr2, pAd->PortCfg.Bssid);
+            DBGPRINT(RT_DEBUG_TRACE,
+					"SYNC - Send PROBE_RSP to %02x:%02x:%02x:%02x:%02x:%02x\n",
+			Addr2[0],Addr2[1],Addr2[2],Addr2[3],Addr2[4],Addr2[5] );
+            MgtMacHeaderInit(pAd, &ProbeRspHdr,
+							SUBTYPE_PROBE_RSP, 0, Addr2, pAd->PortCfg.Bssid);
 
-
-			Privacy = (pAd->PortCfg.WepStatus == Ndis802_11Encryption1Enabled) ||
-					  (pAd->PortCfg.WepStatus == Ndis802_11Encryption2Enabled) ||
-					  (pAd->PortCfg.WepStatus == Ndis802_11Encryption3Enabled);
-			CapabilityInfo = CAP_GENERATE(0, 1, Privacy, (pAd->PortCfg.TxPreamble == Rt802_11PreambleShort), 0);
-
+			BeaconPeriod = cpu_to_le16(pAd->PortCfg.BeaconPeriod);
+			Privacy = (pAd->PortCfg.WepStatus==Ndis802_11Encryption1Enabled) ||
+					(pAd->PortCfg.WepStatus==Ndis802_11Encryption2Enabled) ||
+					(pAd->PortCfg.WepStatus==Ndis802_11Encryption3Enabled);
+			CapabilityInfo = cpu_to_le16(CAP_GENERATE(0, 1, Privacy,
+					(pAd->PortCfg.TxPreamble == Rt802_11PreambleShort), 0));
+			AtimWin = cpu_to_le16(pAd->ActiveCfg.AtimWin);
 
             MakeOutgoingFrame(pOutBuffer,                   &FrameLen,
                               sizeof(HEADER_802_11),        &ProbeRspHdr,
                               TIMESTAMP_LEN,                &FakeTimestamp,
-                              2,                            &pAd->PortCfg.BeaconPeriod,
+                              2,                            &BeaconPeriod,
                               2,                            &CapabilityInfo,
                               1,                            &SsidIe,
                               1,                            &pAd->PortCfg.SsidLen,
@@ -1140,7 +1150,7 @@ VOID PeerProbeReqAction(
                               1,                            &pAd->PortCfg.Channel,
                               1,                            &IbssIe,
                               1,                            &IbssLen,
-                              2,                            &pAd->ActiveCfg.AtimWin,
+                              2,                            &AtimWin,
                               END_OF_ARGS);
 
             if (pAd->ActiveCfg.ExtRateLen)
@@ -1500,57 +1510,42 @@ VOID EnqueuePsPoll(
 // per a specified duration, even the peer's clock is faster than us and win all the
 // hardware-based BEACON TX oppertunity.
 // we may remove this software feature once 2560 IC fix this problem in ASIC.
+
+// Beacon has been built in MakeIbssBeacon () - bb
 VOID EnqueueBeaconFrame(
     IN PRTMP_ADAPTER pAd)
 {
 
     PTXD_STRUC		pTxD;
-#ifdef BIG_ENDIAN
-    PTXD_STRUC      pDestTxD;
-    TXD_STRUC       TxD;
-#endif
     PCHAR           pBeaconFrame = pAd->BeaconBuf;
     PUCHAR			pOutBuffer = NULL;
-    LARGE_INTEGER   *Tsf = kzalloc(sizeof(LARGE_INTEGER), GFP_KERNEL);
     NDIS_STATUS		NStatus;
 
-		if(!Tsf) {
-			DBGPRINT(RT_DEBUG_ERROR, "couldn't allocate memory\n");
-			return;
-		}
-
-#ifndef BIG_ENDIAN
 	pTxD = &pAd->BeaconTxD;
-#else
-    pDestTxD  = &pAd->BeaconTxD;
-    TxD = *pDestTxD;
-    pTxD = &TxD;
+
+#ifdef BIG_ENDIAN
     RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
 #endif
-    DBGPRINT(RT_DEBUG_TRACE, "SYNC - driver sent BEACON (len=%d)...\n",pTxD->DataByteCnt);
+    DBGPRINT(RT_DEBUG_TRACE, "SYNC (%s) - driver sent BEACON (len=%d)\n",
+			__FUNCTION__, pTxD->DataByteCnt);
+#ifdef BIG_ENDIAN
+    RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
+#endif
 
     NStatus = MlmeAllocateMemory(pAd, (PVOID)&pOutBuffer);  //Get an unused nonpaged memory
 	if (NStatus != NDIS_STATUS_SUCCESS)
 	{
 		DBGPRINT(RT_DEBUG_TRACE, "EnqueueBeaconFrame allocate memory fail\n");
-		kfree(Tsf);
 		return;
 	}
 
-    RTUSBReadMACRegister(pAd, TXRX_CSR13, &Tsf->vv.HighPart);
-    RTUSBReadMACRegister(pAd, TXRX_CSR12, &Tsf->vv.LowPart);
+	// Preserve eight byte TSF little endian byte order - bb
+    RTUSBMultiRead(pAd, TXRX_CSR12,
+				pBeaconFrame + sizeof(HEADER_802_11), TIMESTAMP_LEN);
 
-    // TODO: not good if porting to big endian platform - TSF byte order ???
-    memcpy(pBeaconFrame + sizeof(HEADER_802_11), Tsf, TIMESTAMP_LEN);
 	memcpy(pOutBuffer, pBeaconFrame, 256);
 	MiniportMMRequest(pAd, pOutBuffer, pTxD->DataByteCnt);
 
-#ifdef BIG_ENDIAN
-    RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-    WriteBackToDescriptor((PUCHAR)pDestTxD, (PUCHAR)pTxD, FALSE, TYPE_TXD);
-#endif
-
-	kfree(Tsf);
 }
 
 /*

@@ -645,6 +645,7 @@ rt_ioctl_giwscan(struct net_device *dev,
 	char *end_buf = extra + IW_SCAN_MAX_DATA;   // some of platforms restricted on IW_SCAN_MAX_DATA
 	char *current_val;
     struct iw_event iwe;
+	iwri_struct(iwri);
 
 #if 0   // support bit rate, extended rate, quality and last beacon timing
     //-------------------------------------------
@@ -674,12 +675,13 @@ rt_ioctl_giwscan(struct net_device *dev,
 		//MAC address
 		//================================
 		memset(&iwe, 0, sizeof(iwe));
+		iwri_start(iwri);
 		iwe.cmd = SIOCGIWAP;
 		iwe.u.ap_addr.sa_family = ARPHRD_ETHER;
         memcpy(iwe.u.ap_addr.sa_data, &pAdapter->ScanTab.BssEntry[i].Bssid, ETH_ALEN);
 
         previous_ev = current_ev;
-        current_ev = iwe_stream_add_event(current_ev,end_buf, &iwe, IW_EV_ADDR_LEN);
+        current_ev = iwe_stream_add_event(iwri_ref(&iwri) current_ev,end_buf, &iwe, IW_EV_ADDR_LEN);
         if (current_ev == previous_ev)
             break;
 
@@ -691,7 +693,7 @@ rt_ioctl_giwscan(struct net_device *dev,
 		iwe.u.data.flags = 1;
 
         previous_ev = current_ev;
-		current_ev = iwe_stream_add_point(current_ev,end_buf, &iwe, pAdapter->ScanTab.BssEntry[i].Ssid);
+		current_ev = iwe_stream_add_point(iwri_ref(&iwri) current_ev,end_buf, &iwe, pAdapter->ScanTab.BssEntry[i].Ssid);
         if (current_ev == previous_ev)
             break;
 
@@ -714,7 +716,7 @@ rt_ioctl_giwscan(struct net_device *dev,
 		iwe.len = IW_EV_UINT_LEN;
 
         previous_ev = current_ev;
-		current_ev = iwe_stream_add_event(current_ev, end_buf, &iwe,  IW_EV_UINT_LEN);
+		current_ev = iwe_stream_add_event(iwri_ref(&iwri) current_ev, end_buf, &iwe,  IW_EV_UINT_LEN);
         if (current_ev == previous_ev)
             break;
 
@@ -730,7 +732,7 @@ rt_ioctl_giwscan(struct net_device *dev,
 		iwe.u.freq.i = 0;
 
 		previous_ev = current_ev;
-		current_ev = iwe_stream_add_event(current_ev,end_buf, &iwe, IW_EV_FREQ_LEN);
+		current_ev = iwe_stream_add_event(iwri_ref(&iwri) current_ev,end_buf, &iwe, IW_EV_FREQ_LEN);
         if (current_ev == previous_ev)
             break;
 
@@ -744,7 +746,7 @@ rt_ioctl_giwscan(struct net_device *dev,
 			iwe.u.data.flags = IW_ENCODE_DISABLED;
 
         previous_ev = current_ev;
-        current_ev = iwe_stream_add_point(current_ev, end_buf,&iwe,  (char *)pAdapter->SharedKey[(iwe.u.data.flags & IW_ENCODE_INDEX)-1].Key);
+        current_ev = iwe_stream_add_point(iwri_ref(&iwri) current_ev, end_buf,&iwe,  pAdapter->SharedKey[(iwe.u.data.flags & IW_ENCODE_INDEX)-1].Key);
         if (current_ev == previous_ev)
             break;
 
@@ -759,7 +761,7 @@ rt_ioctl_giwscan(struct net_device *dev,
 		{
 			iwe.u.bitrate.value = RateIdToMbps[pAdapter->ScanTab.BssEntry[i].SupRate[i]/2] * 1000000;
 			iwe.u.bitrate.disabled = 0;
-			current_val = iwe_stream_add_value(current_ev,
+			current_val = iwe_stream_add_value(iwri_ref(&iwri) current_ev,
 				current_val, end_buf, &iwe,
 				IW_EV_PARAM_LEN);
 		}
@@ -814,7 +816,7 @@ rt_ioctl_giwscan(struct net_device *dev,
 		}
 		iwe.u.bitrate.value = max_rate * 500000;
 		iwe.u.bitrate.disabled = 0;
-		current_val = iwe_stream_add_value(current_ev,
+		current_val = iwe_stream_add_value(iwri_ref(&iwri) current_ev,
 			current_val, end_buf, &iwe,
 			IW_EV_PARAM_LEN);
 		if((current_val-current_ev)>IW_EV_LCP_LEN)
@@ -830,7 +832,7 @@ rt_ioctl_giwscan(struct net_device *dev,
 		if (iwe.u.data.length)
 		{
 		    previous_ev = current_ev;
-			current_ev = iwe_stream_add_point(current_ev, end_buf, &iwe, custom);
+			current_ev = iwe_stream_add_point(iwri_ref(&iwri) current_ev, end_buf, &iwe, custom);
             if (current_ev == previous_ev)
                 break;
         }
@@ -841,7 +843,7 @@ rt_ioctl_giwscan(struct net_device *dev,
 		set_quality(pAdapter, &iwe.u.qual, pAdapter->ScanTab.BssEntry[i].Rssi);
 
 		previous_ev = current_ev;
-		current_ev = iwe_stream_add_event(current_ev, end_buf, &iwe, IW_EV_QUAL_LEN);
+		current_ev = iwe_stream_add_event(iwri_ref(&iwri) current_ev, end_buf, &iwe, IW_EV_QUAL_LEN);
         if (current_ev == previous_ev)
             break;
 
@@ -856,7 +858,7 @@ rt_ioctl_giwscan(struct net_device *dev,
 		if (iwe.u.data.length)
 		{
 		    previous_ev = current_ev;
-			current_ev = iwe_stream_add_point(current_ev, end_buf, &iwe, custom);
+			current_ev = iwe_stream_add_point(iwri_ref(&iwri) current_ev, end_buf, &iwe, custom);
             if (current_ev == previous_ev)
                 break;
         }
@@ -1057,7 +1059,7 @@ int rt_ioctl_siwfrag(struct net_device *dev,
 	if (rts->disabled)
 		val = MAX_FRAG_THRESHOLD;
 	else if (rts->value >= MIN_FRAG_THRESHOLD || rts->value <= MAX_FRAG_THRESHOLD)
-		val = __cpu_to_le16(rts->value & ~0x1); /* even numbers only */
+		val = rts->value & ~0x1; /* even numbers only */
 	else if (rts->value == 0)
 		val = MAX_FRAG_THRESHOLD;
 	else {
@@ -2874,8 +2876,8 @@ INT rt73_ioctl(
 	switch(cmd)
 	{
 		case SIOCGIFHWADDR:     //get  MAC addresses
-			DBGPRINT(RT_DEBUG_TRACE, "IOCTL::SIOCGIFHWADDR\n");
-			memcpy(wrq->u.name, pAd->CurrentAddress, ETH_ALEN);
+			wrq->u.ap_addr.sa_family = ARPHRD_ETHER;
+			memcpy(wrq->u.ap_addr.sa_data, pAd->CurrentAddress, ETH_ALEN);
             DBGPRINT(RT_DEBUG_TRACE, "IOCTL::SIOCGIFHWADDR(=%02x:%02x:%02x:%02x:%02x:%02x)\n",
 		        pAd->CurrentAddress[0],pAd->CurrentAddress[1],pAd->CurrentAddress[2],
 		        pAd->CurrentAddress[3],pAd->CurrentAddress[4],pAd->CurrentAddress[5]);

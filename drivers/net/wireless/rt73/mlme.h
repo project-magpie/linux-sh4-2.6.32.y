@@ -400,7 +400,7 @@ typedef struct _MLME_AUX {
 
 	RALINK_TIMER_STRUCT BeaconTimer, ScanTimer;
 	RALINK_TIMER_STRUCT AuthTimer;
-	RALINK_TIMER_STRUCT AssocTimer, ReassocTimer, DisassocTimer;
+	RALINK_TIMER_STRUCT AssocTimer, ReassocTimer;
 } MLME_AUX, *PMLME_AUX;
 
 // assoc struct is equal to reassoc

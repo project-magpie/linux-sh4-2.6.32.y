@@ -26,6 +26,7 @@
 #include <linux/io.h>
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
+#include <linux/delay.h>
 #include <asm/cacheflush.h>
 #include <linux/stm/stm-dma.h>
 #include <sound/driver.h>
@@ -616,6 +617,9 @@ static inline int snd_stm_pcm_player_start(struct snd_pcm_substream *substream)
 				pcm_player->device->bus_id);
 		return -EINVAL;
 	}
+	while (dma_get_status(pcm_player->fdma_channel) !=
+			DMA_CHANNEL_STATUS_RUNNING)
+		udelay(5);
 
 	/* Launch PCM player */
 

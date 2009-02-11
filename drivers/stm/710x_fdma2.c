@@ -931,12 +931,9 @@ static int fdma_get_residue(struct dma_channel *dma_chan)
 			break;
 		}
 
-		if (current_node->virt_addr->next_item) {
-			do {
-				BUG_ON(node_num++ == desc->alloced_nodes);
-				current_node++;
-				count += current_node->virt_addr->size_bytes;
-			} while (current_node->virt_addr->next_item);
+		while (++node_num < desc->alloced_nodes) {
+			current_node++;
+			count += current_node->virt_addr->size_bytes;
 		}
 	}
 

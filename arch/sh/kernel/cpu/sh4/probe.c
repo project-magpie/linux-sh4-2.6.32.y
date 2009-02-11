@@ -184,6 +184,9 @@ int __init detect_cpu_and_cache_system(void)
 		case 0x9f:
 			cpu_data->type = CPU_STX5197;
 			break;
+		case 0x9092:
+			/* CPU_STX7200 cut 3.0 */
+			/* no break */
 		case 0x9500 ... 0x95ff:
 			/* CPU_STX7200 cut 2.0 */
 			cpu_data->type = CPU_STX7200;

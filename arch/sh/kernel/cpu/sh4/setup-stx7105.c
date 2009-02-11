@@ -584,11 +584,11 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 
 	/* MIIRX_DV/MII_EXCRS */
 	stx7105_pio_sysconf(7, 4, 1, "eth");
-	pin = stpio_request_pin(7, 4, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(7, 4, "eth", STPIO_IN);
 
 	/* MIIRX_ER/MII_EXCOL */
 	stx7105_pio_sysconf(7, 5, 1, "eth");
-	pin = stpio_request_pin(7, 5, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(7, 5, "eth", STPIO_IN);
 
 	/* MIITXD[0] */
 	stx7105_pio_sysconf(7, 6, 1, "eth");
@@ -620,35 +620,35 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 
 	/* MIIRXCLK */
 	stx7105_pio_sysconf(8, 5, 1, "eth");
-	pin = stpio_request_pin(8, 5, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(8, 5, "eth", STPIO_IN);
 
 	/* MIIRXD[0] */
 	stx7105_pio_sysconf(8, 6, 1, "eth");
-	pin = stpio_request_pin(8, 6, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(8, 6, "eth", STPIO_IN);
 
 	/* MIIRXD[1] */
 	stx7105_pio_sysconf(8, 7, 1, "eth");
-	pin = stpio_request_pin(8, 7, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(8, 7, "eth", STPIO_IN);
 
 	/* MIIRXD[2] */
 	stx7105_pio_sysconf(9, 0, 1, "eth");
-	pin = stpio_request_pin(9, 0, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(9, 0, "eth", STPIO_IN);
 
 	/* MIIRXD[3] */
 	stx7105_pio_sysconf(9, 1, 1, "eth");
-	pin = stpio_request_pin(9, 1, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(9, 1, "eth", STPIO_IN);
 
 	/* MIITXCLK */
 	stx7105_pio_sysconf(9, 2, 1, "eth");
-	pin = stpio_request_pin(9, 2, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(9, 2, "eth", STPIO_IN);
 
 	/* MIICOL */
 	stx7105_pio_sysconf(9, 3, 1, "eth");
-	pin = stpio_request_pin(9, 3, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(9, 3, "eth", STPIO_IN);
 
 	/* MIICRS */
 	stx7105_pio_sysconf(9, 4, 1, "eth");
-	pin = stpio_request_pin(9, 4, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(9, 4, "eth", STPIO_IN);
 
 	/* MIIPHYCLK */
 	/* Not implemented in cut 1 (DDTS GNBvd69906) - clock never output */
@@ -659,7 +659,7 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 
 	/* MIIMDINT */
 	stx7105_pio_sysconf(9, 6, 1, "eth");
-	pin = stpio_request_pin(9, 6, "eth", STPIO_ALT_BIDIR);
+	pin = stpio_request_pin(9, 6, "eth", STPIO_IN);
 
 	platform_device_register(&stx7105eth_device);
 }

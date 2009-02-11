@@ -105,7 +105,7 @@ static struct plat_stmmacphy_data phy_private_data[2] = {
 	{
 		/* MII0: SMSC LAN8700 */
 		.bus_id = 0,
-		.phy_addr = 0,
+		.phy_addr = -1,
 		.phy_mask = 0,
 		.interface = PHY_INTERFACE_MODE_RMII,
 	}, {

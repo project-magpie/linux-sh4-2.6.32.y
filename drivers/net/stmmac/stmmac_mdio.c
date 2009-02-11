@@ -141,12 +141,14 @@ int stmmac_mdio_register(struct net_device *ndev)
 	struct mii_bus *new_bus = kzalloc(sizeof(struct mii_bus), GFP_KERNEL);
 	int *irqlist = kzalloc(sizeof(int) * PHY_MAX_ADDR, GFP_KERNEL);
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	int addr, found;
 
 	if (new_bus == NULL)
 		return -ENOMEM;
 
 	/* Assign IRQ to phy at address phy_addr */
-	irqlist[priv->phy_addr] = priv->phy_irq;
+	if (priv->phy_addr != -1)
+		irqlist[priv->phy_addr] = priv->phy_irq;
 
 	new_bus->name = "STMMAC MII Bus";
 	new_bus->read = &stmmac_mdio_read;
@@ -167,6 +169,27 @@ int stmmac_mdio_register(struct net_device *ndev)
 	}
 
 	priv->mii = new_bus;
+
+	found = 0;
+	for (addr = 0; addr < 32; addr++) {
+		struct phy_device *phydev = new_bus->phy_map[addr];
+		if (phydev) {
+			if (priv->phy_addr == -1) {
+				priv->phy_addr = addr;
+				phydev->irq = priv->phy_irq;
+				irqlist[addr] = priv->phy_irq;
+			}
+			printk(KERN_INFO
+			       "%s: PHY ID %08x at %d IRQ %d (%s)%s\n",
+			       ndev->name, phydev->phy_id, addr,
+			       phydev->irq, phydev->dev.bus_id,
+			       (addr == priv->phy_addr) ? " active" : "");
+			found = 1;
+		}
+	}
+
+	if (!found)
+		printk(KERN_WARNING "%s: No PHY found\n", ndev->name);
 
 	return 0;
       bus_register_fail:

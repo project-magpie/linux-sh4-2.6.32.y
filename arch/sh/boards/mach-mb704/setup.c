@@ -82,7 +82,7 @@ static struct platform_device mb704_leds = {
 static struct plat_stmmacphy_data phy_private_data = {
 	/* SMSC LAN 8700 on the mb762 */
 	.bus_id = 0,
-	.phy_addr = 0,
+	.phy_addr = -1,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_MII,
 };

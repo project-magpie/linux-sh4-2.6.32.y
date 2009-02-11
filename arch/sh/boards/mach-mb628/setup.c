@@ -302,7 +302,7 @@ static struct plat_stmmacphy_data phy_private_data[2] = {
 {
 	/* GMAC0: MII connector CN17. We assume a mb539 (SMSC 8700). */
 	.bus_id = 0,
-	.phy_addr = 0,
+	.phy_addr = -1,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_MII,
 	.phy_reset = mb628_phy_reset,

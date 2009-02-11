@@ -176,7 +176,7 @@ static int mb618_phy_reset(void *bus)
 static struct plat_stmmacphy_data phy_private_data = {
 	/* SMSC LAN 8700 */
 	.bus_id = 0,
-	.phy_addr = 0,
+	.phy_addr = -1,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_MII,
 	.phy_reset = &mb618_phy_reset,

@@ -102,7 +102,7 @@ static int cb102_phy_reset(void *bus)
 static struct plat_stmmacphy_data cb102_phy_private_data = {
 	/* MAC0: SMSC LAN8700 */
 	.bus_id = 0,
-	.phy_addr = 0,
+	.phy_addr = -1,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_MII,
 	.phy_reset = cb102_phy_reset,

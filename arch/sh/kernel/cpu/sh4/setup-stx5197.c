@@ -455,6 +455,78 @@ void stx5197_configure_pwm(struct plat_stm_pwm_data *data)
 	platform_device_register(&stm_pwm_device);
 }
 
+/* LiRC resources ---------------------------------------------------------- */
+static struct lirc_pio lirc_pios[] = {
+	[0] = {
+		.bank  = 2,
+		.pin   = 5,
+		.dir   = STPIO_IN,
+		.pinof = 0x00 | LIRC_IR_RX  | LIRC_PIO_ON
+	},
+	[1] = {
+		.bank  = 2,
+		.pin   = 6,
+		.dir   = STPIO_IN,
+		.pinof = 0x00 | LIRC_UHF_RX | LIRC_PIO_ON
+		/* To have UHF available on :
+		   MB704: need one wire from J14-C to J14-E
+		   MB676: need one wire from  J6-E to J15-A */
+	},
+	[2] = {
+		.bank  = 2,
+		.pin   = 7,
+		.dir   = STPIO_ALT_OUT,
+		.pinof = 0x00 | LIRC_IR_TX | LIRC_PIO_ON
+	}
+};
+
+static struct plat_lirc_data lirc_private_info = {
+	/* The clock settings will be calculated by the driver
+	 * from the system clock
+	 */
+	.irbclock	= 0, /* use current_cpu data */
+	.irbclkdiv      = 0, /* automatically calculate */
+	.irbperiodmult  = 0,
+	.irbperioddiv   = 0,
+	.irbontimemult  = 0,
+	.irbontimediv   = 0,
+	.irbrxmaxperiod = 0x5000,
+	.sysclkdiv	= 1,
+	.rxpolarity	= 1,
+	.pio_pin_arr  = lirc_pios,
+	.num_pio_pins = ARRAY_SIZE(lirc_pios)
+};
+
+static struct resource lirc_resource[] = {
+	[0] = {
+		.start = 0xfd118000,
+		.end   = 0xfd118000 + 0xa8,
+		.flags = IORESOURCE_MEM
+	},
+	[1] = {
+		.start = ILC_IRQ(19),
+		.end   = ILC_IRQ(19),
+		.flags = IORESOURCE_IRQ
+	},
+};
+
+static struct platform_device lirc_device = {
+	.name           = "lirc",
+	.id             = -1,
+	.num_resources  = ARRAY_SIZE(lirc_resource),
+	.resource       = lirc_resource,
+	.dev = {
+		.platform_data = &lirc_private_info
+	}
+};
+
+void __init stx5197_configure_lirc(lirc_scd_t *scd)
+{
+	lirc_private_info.scd_info = scd;
+
+	platform_device_register(&lirc_device);
+}
+
 /* ASC resources ----------------------------------------------------------- */
 
 static struct platform_device stm_stasc_devices[] = {

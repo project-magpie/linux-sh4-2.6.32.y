@@ -370,6 +370,7 @@ void stx5197_configure_usb(void);
 void stx5197_configure_ethernet(int rmii, int ext_clk, int phy_bus);
 void stx5197_configure_ssc(struct plat_ssc_data *data);
 void stx5197_configure_pwm(struct plat_stm_pwm_data *data);
+void stx5197_configure_lirc(lirc_scd_t *scd);
 
 void stx7100_early_device_init(void);
 void stb7100_configure_asc(const int *ascs, int num_ascs, int console);

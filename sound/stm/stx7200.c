@@ -777,7 +777,7 @@ static int __init snd_stm_stx7200_init(void)
 
 		break;
 
-	case 2:
+	case 2 ... 3:
 		SET_VER(snd_stm_fsynth_info, fsynth_0, 5);
 		SET_VER(snd_stm_fsynth_info, fsynth_1, 5);
 

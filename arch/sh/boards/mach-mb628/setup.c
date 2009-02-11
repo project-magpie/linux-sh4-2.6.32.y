@@ -15,6 +15,7 @@
 #include <linux/leds.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
+#include <linux/workqueue.h>
 #include <linux/stm/emi.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/spi_bitbang.h>

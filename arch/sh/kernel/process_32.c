@@ -26,6 +26,7 @@
 #include <asm/system.h>
 #include <asm/ubc.h>
 #include <asm/fpu.h>
+#include <asm/watchdog.h>
 
 static int hlt_counter;
 int ubc_usercnt = 0;
@@ -98,11 +99,18 @@ void cpu_idle(void)
 	}
 }
 
+static void watchdog_trigger_immediate(void)
+{
+	sh_wdt_write_cnt(0xFF);
+	sh_wdt_write_csr(0xC2);
+}
+
 void machine_restart(char * __unused)
 {
-	/* SR.BL=1 and invoke address error to let CPU reset (manual reset) */
-	asm volatile("ldc %0, sr\n\t"
-		     "mov.l @%1, %0" : : "r" (0x10000000), "r" (0x80000001));
+	/* Use watchdog timer to trigger reset */
+	local_irq_disable();
+	watchdog_trigger_immediate();
+	while (1) {};
 }
 
 void machine_halt(void)

@@ -447,7 +447,8 @@ static int __init device_init(void)
 
 #ifdef ENABLE_GMAC0
 	/* Must disable ASC1 if using GMII0 */
-	epld_write(epld_read(EPLD_ENABLE) | EPLD_ASC1_EN, EPLD_ENABLE);
+	epld_write(epld_read(EPLD_ENABLE) | EPLD_ASC1_EN | EPLD_ENABLE_MII0,
+		   EPLD_ENABLE);
 
 	/* Configure GMII0 MDINT for active low */
 	set_irq_type(ILC_IRQ(43), IRQ_TYPE_LEVEL_LOW);
@@ -455,6 +456,7 @@ static int __init device_init(void)
 	stx7141_configure_ethernet(0, 0, 0, 0);
 #endif
 
+	epld_write(epld_read(EPLD_ENABLE) | EPLD_ENABLE_MII1, EPLD_ENABLE);
 	stx7141_configure_ethernet(1, 0, 0, 1);
 	stx7141_configure_lirc(&lirc_scd);
 

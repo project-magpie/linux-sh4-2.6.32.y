@@ -227,8 +227,12 @@ struct phy_device * get_phy_device(struct mii_bus *bus, int addr)
 	if (r)
 		return ERR_PTR(r);
 
-	/* If the phy_id is mostly Fs, there is no device there */
-	if ((phy_id & 0x1fffffff) == 0x1fffffff)
+	/* A non-existent phy should return 0xffffffff as the bus
+	 * pull-ups should mean that all signals are high. Unfortunately
+	 * broken board designs can allow some lines to float or even
+	 * return 0.  Therefore we test for the most obvious problems...
+	 */
+	if ((phy_id & 0x1fffffff) == 0x1fffffff || phy_id == 0)
 		return NULL;
 
 	/*

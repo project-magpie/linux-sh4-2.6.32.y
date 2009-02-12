@@ -47,9 +47,12 @@
  *	       based on platform PIOs dependencies values (LIRC_PIO_ON,
  *	       LIRC_IR_RX, LIRC_UHF_RX so on )
  * 	       Angelo Castello <angelo.castello@st.com>
- * Apr  2008: Added SCD support
+ * Apr  2008:  Added SCD support
  * 	       Angelo Castello <angelo.castello@st.com>
- *            Carl Shaw <carl.shaw@st.com>
+ *	       Carl Shaw <carl.shaw@st.com>
+ * Feb  2009:  Added PM capability
+ * 	       Angelo Castello <angelo.castello@st.com>
+ *	       Francesco Virlinzi <francesco.virlinzi@st.com>
  *
  */
 #include <linux/kernel.h>
@@ -62,6 +65,7 @@
 #include <asm/irq.h>
 #include <asm/clock.h>
 #include <linux/ioport.h>
+#include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
@@ -245,6 +249,9 @@ typedef struct lirc_stm_rx_data_s {
 typedef struct lirc_stm_plugin_data_s {
 	int open_count;
 	struct plat_lirc_data *p_lirc_d;
+#ifdef CONFIG_PM
+	pm_message_t prev_state;
+#endif
 } lirc_stm_plugin_data_t;
 
 static lirc_stm_plugin_data_t pd;	/* IR data config */
@@ -534,10 +541,9 @@ static int lirc_stm_scd_set(char enable)
 	return 0;
 }
 
-static int lirc_stm_scd_config(lirc_scd_t * scd)
+static int lirc_stm_scd_config(lirc_scd_t * scd, unsigned long clk)
 {
 	unsigned int nrec, ival, scwidth;
-	struct clk *clk;
 	unsigned int scd_prescalar;
 	unsigned int tolerance;
 	unsigned int space, mark;
@@ -560,8 +566,7 @@ static int lirc_stm_scd_config(lirc_scd_t * scd)
 	writel(0x00, IRB_SCD_CFG);
 
 	/* Configure pre-scalar clock first to give 1MHz sampling */
-	clk = clk_get(NULL, "comms_clk");
-	scd_prescalar = clk_get_rate(clk) / 1000000;
+	scd_prescalar = clk / 1000000;
 	writel(scd_prescalar, IRB_SCD_PRESCALAR);
 
 	/* pre-loading of not filtered SCD codes and
@@ -725,6 +730,16 @@ static void lirc_stm_flush_rx(void)
 	/* clean the buffer */
 	lirc_stm_reset_rx_data();
 }
+static void lirc_stm_restore_rx(void)
+{
+	if (rx.scd_supported)
+		lirc_stm_scd_set(1);
+        /* enable interrupts and receiver */
+        writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
+        writel(0x01, IRB_RX_EN);
+	/* clean the buffer */
+	lirc_stm_reset_rx_data();
+}
 
 /*
 ** Called by lirc_dev as a last action on a real close
@@ -790,7 +805,8 @@ static int lirc_stm_ioctl(struct inode *node, struct file *filep,
 		if (copy_from_user(&scd, arg, sizeof(scd)))
 			return -EFAULT;
 
-		retval = lirc_stm_scd_config(&scd);
+		retval = lirc_stm_scd_config(&scd,
+			clk_get_rate(clk_get(NULL, "comms_clk")));
 		break;
 
 	case LIRC_SCD_ENABLE:
@@ -1002,46 +1018,23 @@ static void lirc_stm_calc_tx_clocks(unsigned int clockfreq,
 	DPRINTK("TX fine adjustment div  = %d\n", tx.div);
 }
 
-static int lirc_stm_hardware_init(struct platform_device *pdev)
+static void
+lirc_stm_calc_rx_clocks(struct platform_device *pdev, unsigned long baseclock)
 {
 	struct plat_lirc_data *lirc_private_data = NULL;
-	struct clk *clk;
-	unsigned int scwidth;
 	unsigned int rx_max_symbol_per;
-	int baseclock;
 
-	/*  set up the hardware version dependent setup parameters */
 	lirc_private_data = (struct plat_lirc_data *)pdev->dev.platform_data;
-
-	tx.carrier_freq = 38000;	// in Hz
-
-	/* Set the polarity inversion bit to the correct state */
-	writel(lirc_private_data->rxpolarity, IRB_RX_POLARITY_INV);
-
-	/*  Get or calculate the clock and timing adjustment values.
-	 *  We can auto-calculate these in some cases
-	 */
-
-	if (lirc_private_data->irbclock == 0) {
-		clk = clk_get(NULL, "comms_clk");
-		baseclock = clk_get_rate(clk) / lirc_private_data->sysclkdiv;
-	} else
-		baseclock = lirc_private_data->irbclock;
 
 	if (lirc_private_data->irbclkdiv == 0) {
 		/* Auto-calculate clock divisor */
-
 		int freqdiff;
-
 		rx.sampling_freq_div = baseclock / 10000000;
-
 		/* Work out the timing adjustment factors */
 		freqdiff = baseclock - (rx.sampling_freq_div * 10000000);
-
 		/* freqdiff contains the difference between our clock and a
 		 * true 10 MHz clock which the IR block wants
 		 */
-
 		if (freqdiff == 0) {
 			/* no adjustment required - our clock is running at the
 			 * required speed
@@ -1074,19 +1067,17 @@ static int lirc_stm_hardware_init(struct platform_device *pdev)
 		rx.sampling_freq_div = (lirc_private_data->irbclkdiv);
 		rx.symbol_mult = (lirc_private_data->irbperiodmult);
 		rx.symbol_div = (lirc_private_data->irbperioddiv);
-		rx.pulse_mult = (lirc_private_data->irbontimemult);
-		rx.pulse_div = (lirc_private_data->irbontimediv);
 	}
 
 	writel(rx.sampling_freq_div, IRB_RX_RATE_COMMON);
-	DPRINTK("IR clock is %d\n", baseclock);
+#define PRINTK(fmt, args...) printk(KERN_INFO LIRC_STM_NAME ": %s: " fmt, __FUNCTION__ , ## args)
+	PRINTK("IR clock is %d\n", baseclock);
 	DPRINTK("IR clock divisor is %d\n", rx.sampling_freq_div);
 	DPRINTK("IR clock divisor readlack is %d\n", readl(IRB_RX_RATE_COMMON));
 	DPRINTK("IR period mult factor is %d\n", rx.symbol_mult);
 	DPRINTK("IR period divisor factor is %d\n", rx.symbol_div);
 	DPRINTK("IR pulse mult factor is %d\n", rx.pulse_mult);
 	DPRINTK("IR pulse divisor factor is %d\n", rx.pulse_div);
-
 	/* maximum symbol period.
 	 * Symbol periods longer than this will generate
 	 * an interrupt and terminate a command
@@ -1100,7 +1091,33 @@ static int lirc_stm_hardware_init(struct platform_device *pdev)
 
 	DPRINTK("RX Maximum symbol period register 0x%x\n", rx_max_symbol_per);
 	writel(rx_max_symbol_per, IRB_MAX_SYM_PERIOD);
+}
 
+static int lirc_stm_hardware_init(struct platform_device *pdev)
+{
+	struct plat_lirc_data *lirc_private_data = NULL;
+	struct clk *clk;
+	unsigned int scwidth;
+	int baseclock;
+
+	/*  set up the hardware version dependent setup parameters */
+	lirc_private_data = (struct plat_lirc_data *)pdev->dev.platform_data;
+
+	tx.carrier_freq = 38000;	// in Hz
+
+	/* Set the polarity inversion bit to the correct state */
+	writel(lirc_private_data->rxpolarity, IRB_RX_POLARITY_INV);
+
+	/*  Get or calculate the clock and timing adjustment values.
+	 *  We can auto-calculate these in some cases
+	 */
+	if (lirc_private_data->irbclock == 0) {
+		clk = clk_get(NULL, "comms_clk");
+		baseclock = clk_get_rate(clk) / lirc_private_data->sysclkdiv;
+	} else
+		baseclock = lirc_private_data->irbclock;
+
+	lirc_stm_calc_rx_clocks(pdev, baseclock);
 	/*  Set up the transmit timings  */
 	if (lirc_private_data->subcarrwidth != 0)
 		scwidth = lirc_private_data->subcarrwidth;
@@ -1113,7 +1130,7 @@ static int lirc_stm_hardware_init(struct platform_device *pdev)
 	DPRINTK("subcarrier width set to %d %%\n", scwidth);
 	lirc_stm_calc_tx_clocks(baseclock, tx.carrier_freq, scwidth);
 
-	lirc_stm_scd_config(lirc_private_data->scd_info);
+	lirc_stm_scd_config(lirc_private_data->scd_info, baseclock);
 
 	return 0;
 }
@@ -1278,10 +1295,74 @@ static int lirc_stm_probe(struct platform_device *pdev)
 	return ret;
 }
 
+#ifdef CONFIG_PM
+static int lirc_stm_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct plat_lirc_data *lirc_private_data = NULL;
+	unsigned long tmp;
+	lirc_private_data = (struct plat_lirc_data *)pdev->dev.platform_data;
+	pd.prev_state = state;
+	switch (state.event) {
+	case PM_EVENT_SUSPEND:
+		if (device_may_wakeup(&(pdev->dev))) {
+			/* need for the resuming phase */
+                        lirc_stm_flush_rx();
+			lirc_stm_calc_rx_clocks(pdev, lirc_private_data->clk_on_low_power);
+			lirc_stm_scd_config(lirc_private_data->scd_info,
+				lirc_private_data->clk_on_low_power);
+			lirc_stm_restore_rx();
+			writel(0x02, IRB_SCD_CFG);
+			writel(0x01, IRB_SCD_CFG);
+			return 0;
+		}
+	case PM_EVENT_FREEZE:
+		/* disable IR RX/TX interrupts plus clear status*/
+		writel(0x00, IRB_RX_EN);
+		writel(0xff, IRB_RX_INT_CLEAR);
+		writel(0x00, IRB_TX_ENABLE);
+		writel(0x1e, IRB_TX_INT_CLEAR);
+		/* disabling LIRC irq request */
+		/* flush LIRC plugin data */
+		lirc_stm_reset_rx_data();
+		break;
+	}
+
+	return 0;
+}
+
+static int lirc_stm_resume(struct platform_device *pdev)
+{
+	switch (pd.prev_state.event) {
+	case PM_EVENT_FREEZE:
+		lirc_stm_hardware_init(pdev);
+		/* there was I really open device ? */
+		if (pd.open_count > 0) {
+			/* enable interrupts and receiver */
+			writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
+			writel(0x01, IRB_RX_EN);
+		}
+		break;
+	case PM_EVENT_SUSPEND:
+		lirc_stm_hardware_init(pdev);
+                lirc_stm_restore_rx();
+		writel(0x02, IRB_SCD_CFG);
+		writel(0x01, IRB_SCD_CFG);
+		break;
+	}
+	pd.prev_state = PMSG_ON;
+	return 0;
+}
+#else
+#define lirc_stm_suspend	NULL
+#define lirc_stm_resume		NULL
+#endif
+
 static struct platform_driver lirc_device_driver = {
 	.driver.name = "lirc",
 	.probe = lirc_stm_probe,
 	.remove = lirc_stm_remove,
+	.suspend = lirc_stm_suspend,
+	.resume = lirc_stm_resume,
 };
 
 static struct file_operations lirc_stm_fops = {

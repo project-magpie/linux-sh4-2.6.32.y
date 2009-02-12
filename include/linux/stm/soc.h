@@ -258,6 +258,9 @@ struct plat_lirc_data {
 	struct lirc_pio *pio_pin_arr;	/* PIO pin settings for driver */
 	unsigned int num_pio_pins;
 	lirc_scd_t *scd_info;		/* SCD settings */
+#ifdef CONFIG_PM
+	unsigned long clk_on_low_power; /* specify the system clock rate in lowpower mode */
+#endif
 };
 
 /* Private data for the STM on-board ethernet driver */

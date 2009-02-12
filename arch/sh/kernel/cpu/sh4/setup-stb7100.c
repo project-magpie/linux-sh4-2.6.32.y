@@ -633,7 +633,10 @@ static struct plat_lirc_data lirc_private_info = {
 	.sysclkdiv	= 1,
 	.rxpolarity	= 1,
 	.pio_pin_arr  = lirc_pios,
-	.num_pio_pins = ARRAY_SIZE(lirc_pios)
+	.num_pio_pins = ARRAY_SIZE(lirc_pios),
+#ifdef CONFIG_PM
+	.clk_on_low_power = 1500000,
+#endif
 };
 
 static struct resource lirc_resource[]= {

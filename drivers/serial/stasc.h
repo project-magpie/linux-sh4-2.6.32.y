@@ -30,8 +30,7 @@ struct asc_port_fdma {
 
 struct asc_port {
 	struct uart_port port;
-	unsigned char pio_port;
-	unsigned char pio_pin[4]; /* Tx, Rx, CTS, RTS */
+	unsigned long baud;
 	struct stpio_pin *pios[4];
 	unsigned char flags;
 #ifdef CONFIG_SERIAL_ST_ASC_FDMA
@@ -44,6 +43,7 @@ struct asc_port {
 
 /* Generic serial flags */
 #define ASC_RX_THROTTLE		0x0000001
+#define ASC_SUSPENDED		0x0000002
 
 #define FIFO_SIZE		16
 

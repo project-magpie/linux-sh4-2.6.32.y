@@ -308,7 +308,6 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	struct stasc_uart_data *data = pdev->dev.platform_data;
 	struct clk *clk;
 	unsigned long rate;
-	int i;
 
 	port->iotype	= UPIO_MEM;
 	port->flags	= UPF_BOOT_AUTOCONF;
@@ -335,10 +334,6 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	clk_put(clk);
 
 	ascport->port.uartclk = rate;
-
-	ascport->pio_port = data->pio_port;
-	for (i=0; i<4; i++)
-		ascport->pio_pin[i] = data->pio_pin[i];
 
 	ascport->flags = data->flags;
 }
@@ -427,6 +422,66 @@ static int __devexit asc_serial_remove(struct platform_device *pdev)
 	return uart_remove_one_port(&asc_uart_driver, port);
 }
 
+#ifdef CONFIG_PM
+static int asc_serial_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct asc_port *ascport = &asc_ports[pdev->id];
+	struct uart_port *port   = &(ascport->port);
+
+	if (!device_can_wakeup(&(pdev->dev)))
+		return 0; /* the other ASCs... */
+
+	if (state.event == PM_EVENT_SUSPEND && device_may_wakeup(&(pdev->dev))){
+#ifndef CONFIG_DISABLE_CONSOLE_SUSPEND
+		ascport->flags |= ASC_SUSPENDED;
+		if (ascport->pios[0])
+			stpio_configure_pin(ascport->pios[0], STPIO_IN); /* Tx  */
+		asc_disable_tx_interrupts(port);
+#endif
+		return 0; /* leaves the rx interrupt enabled! */
+	}
+
+	if (state.event == PM_EVENT_FREEZE) {
+		asc_disable_rx_interrupts(port);
+		return 0;
+	}
+	if (ascport->pios[0])
+		stpio_configure_pin(ascport->pios[0], STPIO_IN); /* Tx  */
+	if (ascport->pios[3])
+		stpio_configure_pin(ascport->pios[3], STPIO_IN); /* RTS */
+	ascport->flags |= ASC_SUSPENDED;
+	asc_disable_tx_interrupts(port);
+	asc_disable_rx_interrupts(port);
+	return 0;
+}
+
+static int asc_set_baud (struct uart_port *port, int baud);
+static int asc_serial_resume(struct platform_device *pdev)
+{
+	struct asc_port *ascport = &asc_ports[pdev->id];
+	struct uart_port *port   = &(ascport->port);
+	struct stasc_uart_data *pdata =
+		(struct stasc_uart_data *)pdev->dev.platform_data;
+	int i;
+
+	if (!device_can_wakeup(&(pdev->dev)))
+		return 0; /* the other ASCs... */
+
+	/* Reconfigure the Pio Pins */
+	for (i = 0; i < 4; ++i)
+		if (ascport->pios[i])
+			stpio_configure_pin(ascport->pios[i], pdata->pio_direction[i]);
+
+	asc_enable_rx_interrupts(port);
+	asc_enable_tx_interrupts(port);
+	ascport->flags &= ~ASC_SUSPENDED;
+	return 0;
+}
+#else
+#define asc_serial_suspend	NULL
+#define asc_serial_resume	NULL
+#endif
+
 static struct platform_driver asc_serial_driver = {
 	.probe		= asc_serial_probe,
 	.remove		= __devexit_p(asc_serial_remove),
@@ -434,6 +489,8 @@ static struct platform_driver asc_serial_driver = {
 		.name	= DRIVER_NAME,
 		.owner	= THIS_MODULE,
 	},
+	.suspend = asc_serial_suspend,
+	.resume	= asc_serial_resume,
 };
 
 static int __init asc_init(void)
@@ -478,21 +535,10 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 {
 	struct uart_port *port = &ascport->port;
 	struct platform_device *pdev = to_platform_device(port->dev);
+	struct stasc_uart_data *pdata =
+		(struct stasc_uart_data *)pdev->dev.platform_data;
 	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
 	int i;
-	static int pio_dirs[4] = {
-#ifdef CONFIG_CPU_SUBTYPE_STX7141
-		STPIO_OUT,	/* Tx */
-		STPIO_IN,	/* Rx */
-		STPIO_IN,	/* CTS */
-		STPIO_OUT	/* RTS */
-#else
-		STPIO_ALT_OUT,	/* Tx */
-		STPIO_IN,	/* Rx */
-		STPIO_IN,	/* CTS */
-		STPIO_ALT_OUT	/* RTS */
-#endif
-	};
 
 	if (req && !request_mem_region(port->mapbase, size, pdev->name))
 		return -EBUSY;
@@ -510,8 +556,8 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 	}
 
 	for (i=0; i<((ascport->flags & STASC_FLAG_NORTSCTS) ? 2 : 4); i++) {
-		ascport->pios[i] = stpio_request_pin(ascport->pio_port,
-			ascport->pio_pin[i], DRIVER_NAME, pio_dirs[i]);
+		ascport->pios[i] = stpio_request_pin(pdata->pio_port,
+			pdata->pio_pin[i], DRIVER_NAME, pdata->pio_direction[i]);
 	}
 
 	return 0;
@@ -580,6 +626,7 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 		ctrl_val |= ASC_CTL_CTSENABLE;
 
 	/* set speed and baud generator mode */
+	ascport->baud = baud;
 	ctrl_val |= asc_set_baud (port, baud);
 	uart_update_timeout(port, cflag, baud);
 
@@ -880,7 +927,10 @@ put_char (struct uart_port *port, char c)
 {
 	unsigned long flags;
 	unsigned long status;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 
+	if (ascport->flags & ASC_SUSPENDED)
+		return;
 try_again:
 	do {
 		status = asc_in (port, STA);

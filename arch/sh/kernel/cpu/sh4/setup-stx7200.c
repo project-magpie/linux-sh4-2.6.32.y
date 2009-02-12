@@ -1068,16 +1068,20 @@ static struct platform_device devrandom_rng_device = {
 static struct platform_device stm_stasc_devices[] = {
 	STASC_DEVICE(0xfd030000, ILC_IRQ(104),
 			STB7200_FDMA_REQ_UART_0_RX, STB7200_FDMA_REQ_UART_0_TX,
-			0, 0, 1, 4, 7), /* oe pin: 6 */
+			0, 0, 1, 4, 7,
+			STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT), /* oe pin: 6 */
 	STASC_DEVICE(0xfd031000, ILC_IRQ(105),
 			STB7200_FDMA_REQ_UART_1_RX, STB7200_FDMA_REQ_UART_1_TX,
-			1, 0, 1, 4, 5), /* oe pin: 6 */
+			1, 0, 1, 4, 5,
+			STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT), /* oe pin: 6 */
 	STASC_DEVICE(0xfd032000, ILC_IRQ(106),
 			STB7200_FDMA_REQ_UART_2_RX, STB7200_FDMA_REQ_UART_2_TX,
-			4, 3, 2, 4, 5),
+			4, 3, 2, 4, 5,
+			STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 	STASC_DEVICE(0xfd033000, ILC_IRQ(107),
 			STB7200_FDMA_REQ_UART_3_RX, STB7200_FDMA_REQ_UART_3_TX,
-			5, 4, 3, 5, 6),
+			5, 4, 3, 5, 6,
+			STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 };
 
 /*

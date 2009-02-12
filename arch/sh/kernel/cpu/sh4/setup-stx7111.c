@@ -423,13 +423,17 @@ static struct platform_device devrandom_rng_device = {
 
 static struct platform_device stm_stasc_devices[] = {
 	STASC_DEVICE(0xfd030000, evt2irq(0x1160), 11, 15,
-		     0, 0, 1, 4, 7), /* oe pin: 6 */
+		     0, 0, 1, 4, 7,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT), /* oe pin: 6 */
 	STASC_DEVICE(0xfd031000, evt2irq(0x1140), 12, 16,
-		     1, 0, 1, 4, 5), /* oe pin: 6 */
+		     1, 0, 1, 4, 5,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT), /* oe pin: 6 */
 	STASC_DEVICE(0xfd032000, evt2irq(0x1120), 13, 17,
-		     4, 3, 2, 4, 5),
+		     4, 3, 2, 4, 5,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 	STASC_DEVICE(0xfd033000, evt2irq(0x1100), 14, 18,
-		     5, 0, 1, 2, 3),
+		     5, 0, 1, 2, 3,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 };
 
 /*

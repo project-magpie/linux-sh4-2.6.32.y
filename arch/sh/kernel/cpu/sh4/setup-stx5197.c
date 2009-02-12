@@ -531,13 +531,17 @@ void __init stx5197_configure_lirc(lirc_scd_t *scd)
 
 static struct platform_device stm_stasc_devices[] = {
 	STASC_DEVICE(0xfd130000, ILC_IRQ(7), 8, 10,
-		     0, 0, 1, 5, 4),
+		     0, 0, 1, 5, 4,
+		     STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 	STASC_DEVICE(0xfd131000, ILC_IRQ(8), 9, 11,
-		     4, 0, 1, 3, 2),
+		     4, 0, 1, 3, 2,
+		     STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 	STASC_DEVICE(0xfd132000, ILC_IRQ(12), 3, 5,
-		     1, 2, 3, 5, 4),
+		     1, 2, 3, 5, 4,
+		     STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 	STASC_DEVICE(0xfd133000, ILC_IRQ(13), 4, 6,
-		     2, 0, 1, 2, 5),
+		     2, 0, 1, 2, 5,
+		     STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 };
 
 static const unsigned char asc_alt[4][4] = {

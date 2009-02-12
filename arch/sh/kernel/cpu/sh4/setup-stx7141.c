@@ -886,11 +886,14 @@ static struct platform_device devrandom_rng_device = {
 static struct platform_device stm_stasc_devices[] = {
 	/* 7141: Checked except pacing */
 	STASC_DEVICE(0xfd030000, ILC_IRQ(76), 11, 15,
-		     -1, -1, -1, -1, -1),
+		     -1, -1, -1, -1, -1,
+		STPIO_OUT, STPIO_IN, STPIO_IN, STPIO_OUT),
 	STASC_DEVICE(0xfd031000, ILC_IRQ(77), 12, 16,
-		     -1, -1, -1, -1, -1),
+		     -1, -1, -1, -1, -1,
+		STPIO_IN, STPIO_IN, STPIO_IN, STPIO_IN),
 	STASC_DEVICE(0xfd032000, ILC_IRQ(78), 13, 17,
-		     -1, -1, -1, -1, -1),
+		     -1, -1, -1, -1, -1,
+		STPIO_IN, STPIO_IN, STPIO_IN, STPIO_IN),
 };
 
 /*

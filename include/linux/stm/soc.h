@@ -324,8 +324,9 @@ struct usb_init_data {
 #endif
 
 struct stasc_uart_data {
-	unsigned char pio_port;
 	unsigned char pio_pin[4]; /* Tx, Rx, CTS, RTS */
+	unsigned char pio_direction[4];
+	unsigned char pio_port;
 	unsigned char flags;
 };
 

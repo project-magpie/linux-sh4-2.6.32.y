@@ -798,14 +798,14 @@ static struct platform_device devrandom_rng_device = {
 
 static struct platform_device stm_stasc_devices[] = {
 	/* 7105: Checked except pacing */
-	STASC_DEVICE(0xfd030000, evt2irq(0x1160), 11, 15,
-		     0, 0, 1, 4, 3), /* oe pin: 2 */
-	STASC_DEVICE(0xfd031000, evt2irq(0x1140), 12, 16,
-		     1, 0, 1, 4, 3),
-	STASC_DEVICE(0xfd032000, evt2irq(0x1120), 13, 17,
-		     4, 0, 1, 2, 3), /* or 12, 0, 1, 2, 3 */
-	STASC_DEVICE(0xfd033000, evt2irq(0x1100), 14, 18,
-		     5, 0, 1, 3, 2),
+	STASC_DEVICE(0xfd030000, evt2irq(0x1160), 11, 15, 0, 0, 1, 4, 3,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT), /* oe pin: 2 */
+	STASC_DEVICE(0xfd031000, evt2irq(0x1140), 12, 16, 1, 0, 1, 4, 3,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
+	STASC_DEVICE(0xfd032000, evt2irq(0x1120), 13, 17, 4, 0, 1, 2, 3,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT), /* or 12, 0, 1, 2, 3 */
+	STASC_DEVICE(0xfd033000, evt2irq(0x1100), 14, 18, 5, 0, 1, 3, 2,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 };
 
 /*

@@ -697,10 +697,14 @@ static struct platform_device devrandom_rng_device = {
 /* ASC resources ----------------------------------------------------------- */
 
 static struct platform_device stm_stasc_devices[] = {
-	STASC_DEVICE(0x18030000, 123, -1, -1, 0, 0, 1, 4, 7), /* oe pin: 6 */
-	STASC_DEVICE(0x18031000, 122, -1, -1, 1, 0, 1, 4, 5), /* oe pin: 6 */
-	STASC_DEVICE(0x18032000, 121, -1, -1, 4, 3, 2, 4, 5),
-	STASC_DEVICE(0x18033000, 120, -1, -1, 5, 0, 1, 2, 3),
+	STASC_DEVICE(0x18030000, 123, -1, -1, 0, 0, 1, 4, 7,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT), /* oe pin: 6 */
+	STASC_DEVICE(0x18031000, 122, -1, -1, 1, 0, 1, 4, 5,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT), /* oe pin: 6 */
+	STASC_DEVICE(0x18032000, 121, -1, -1, 4, 3, 2, 4, 5,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
+	STASC_DEVICE(0x18033000, 120, -1, -1, 5, 0, 1, 2, 3,
+		STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 };
 
 static unsigned int __initdata stm_stasc_fdma_requests_7100[][2] = {

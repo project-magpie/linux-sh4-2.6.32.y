@@ -18,7 +18,8 @@
 
 
 #define STASC_DEVICE(_base, _irq, _fdma_req_rx, _fdma_req_tx,		\
-		_pio_port, _ptx, _prx, _pcts, _prts)			\
+		_pio_port, _ptx, _prx, _pcts, _prts, _dptx, _dprx,	\
+		_dpcts, _dprts)						\
 {									\
 	.name		= "stasc",					\
 	.num_resources	= 2,						\
@@ -45,6 +46,7 @@
 		.platform_data = &(struct stasc_uart_data) {		\
 			.pio_port	= _pio_port,			\
 			.pio_pin	= { _ptx, _prx, _pcts, _prts },	\
+			.pio_direction	= { _dptx, _dprx, _dpcts, _dprts},\
 		}							\
 	}								\
 }

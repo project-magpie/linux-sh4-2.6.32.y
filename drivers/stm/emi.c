@@ -8,21 +8,23 @@
 
 #include <linux/kernel.h>
 #include <linux/device.h>
+#include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/stm/emi.h>
+#include <linux/stm/pm.h>
 
 
 #define EMI_GEN_CFG			0x0028
+#define EMI_BANKNUMBER			0x0860
+#define EMI_BANK_ENABLE			0x0280
 #define BANK_BASEADDRESS(b)		(0x800 + (0x10 * b))
 #define BANK_EMICONFIGDATA(b, r)	(0x100 + (0x40 * b) + (8 * r))
-
+#define EMI_COMMON_CFG(reg)		(0x10 + (0x8 * (reg)))
 
 
 static char emi_initialised;
 static unsigned long emi_memory_base;
 static void __iomem *emi_control;
-
-
 
 int __init emi_init(unsigned long memory_base, unsigned long control_base)
 {
@@ -53,7 +55,7 @@ unsigned long emi_bank_base(int bank)
 	return emi_memory_base + (reg << 22);
 }
 
-void __init emi_bank_configure(int bank, unsigned long data[4])
+void emi_bank_configure(int bank, unsigned long data[4])
 {
 	int i;
 
@@ -213,3 +215,86 @@ void __init emi_config_nand(int bank, struct emi_timing_data *timing_data)
 			timing_data->wr_oee_start,
 			timing_data->wr_oee_end);
 }
+
+#ifdef CONFIG_PM
+/*
+ * emi_num_common_cfg = 12 common config	+
+ * 			emi_bank_enable(0x280)	+
+ *			emi_bank_number(0x860)
+ */
+#define emi_num_common_cfg	(12 + 2)
+#define emi_num_bank		5
+#define emi_num_bank_cfg	4
+
+struct emi_pm_bank {
+	unsigned long cfg[emi_num_bank_cfg];
+	unsigned long base_address;
+};
+
+struct emi_pm {
+	unsigned long common_cfg[emi_num_common_cfg];
+	struct emi_pm_bank bank[emi_num_bank];
+};
+
+int emi_pm_state(pm_message_t state)
+{
+	int idx;
+	int bank, data;
+	static struct emi_pm *emi_saved_data;
+	static char _emi_name[] = "emi";
+	switch (state.event) {
+	case PM_EVENT_ON:
+		if (emi_saved_data) {
+			/* restore the previous common value */
+			for (idx = 0; idx < emi_num_common_cfg-2; ++idx)
+			writel(emi_saved_data->common_cfg[idx],
+				emi_control+EMI_COMMON_CFG(idx));
+			writel(emi_saved_data->common_cfg[12], emi_control
+					+ EMI_BANK_ENABLE);
+			writel(emi_saved_data->common_cfg[13], emi_control
+					+ EMI_BANKNUMBER);
+			/* restore the previous bank values */
+			for (bank = 0; bank < emi_num_bank; ++bank) {
+			  writel(emi_saved_data->bank[bank].base_address,
+				emi_control + BANK_BASEADDRESS(bank));
+			  for (data = 0; data < emi_num_bank_cfg; ++data)
+				emi_bank_configure(bank, emi_saved_data->bank[bank].cfg);
+			}
+			kfree(emi_saved_data);
+			emi_saved_data = NULL;
+		}
+		platform_pm_pwdn_req_n(_emi_name, HOST_PM, 0);
+		platform_pm_pwdn_ack_n(_emi_name, HOST_PM, 0);
+		break;
+	case PM_EVENT_SUSPEND:
+		platform_pm_pwdn_req_n(_emi_name, HOST_PM, 1);
+		platform_pm_pwdn_ack_n(_emi_name, HOST_PM, 1);
+		break;
+	case PM_EVENT_FREEZE:
+		emi_saved_data = kmalloc(sizeof(struct emi_pm), GFP_NOWAIT);
+		if (!emi_saved_data) {
+			printk(KERN_ERR "Unable to freeze the emi registers\n");
+			return -ENOMEM;
+		}
+		/* save the emi common values */
+		for (idx = 0; idx < emi_num_common_cfg-2; ++idx)
+			emi_saved_data->common_cfg[idx] =
+				readl(emi_control + EMI_COMMON_CFG(idx));
+		emi_saved_data->common_cfg[12] =
+				readl(emi_control + EMI_BANK_ENABLE);
+		emi_saved_data->common_cfg[13] =
+				readl(emi_control + EMI_BANKNUMBER);
+		/* save the emi bank value */
+		for (bank  = 0; bank < emi_num_bank; ++bank) {
+		  emi_saved_data->bank[bank].base_address =
+			readl(emi_control + BANK_BASEADDRESS(bank));
+		  for (data = 0; data < emi_num_bank_cfg; ++data)
+			emi_saved_data->bank[bank].cfg[data] =
+			   readl(emi_control + BANK_EMICONFIGDATA(bank, data));
+		}
+		/* on hibernation don't turn-off emi for harddisk issue */
+		break;
+	}
+	return 0;
+}
+#endif

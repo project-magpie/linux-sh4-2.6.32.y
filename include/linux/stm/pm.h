@@ -18,6 +18,8 @@
 
 extern void __iomem *clkgena_base;
 
+int emi_pm_state(pm_message_t state);
+
 /*
  * Several devices (i.e.: USB-SATA-PCI) have extra power capability
  * based on sysconf register and pio

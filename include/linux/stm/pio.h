@@ -71,4 +71,10 @@ void stpio_set_irq_type(struct stpio_pin* pin, int triggertype);
 /* Calculate gpio number of a given stpio pin... */
 #define stpio_to_gpio(portno, pinno) ((portno) * STPIO_PINS_IN_PORT + (pinno))
 
+#ifdef CONFIG_PM
+int stpio_set_wakeup(struct stpio_pin *pin, int enabled);
+#else
+#define stpio_set_wakeup(pin, enabled)	do {} while(0)
+#endif
+
 #endif /* __LINUX_STM_PIO_H */

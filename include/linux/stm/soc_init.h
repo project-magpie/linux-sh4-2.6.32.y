@@ -4,6 +4,7 @@
 	.name		= "stpio",					\
 	.id		= _id,						\
 	.num_resources	= 2,						\
+	.dev.power.can_wakeup = ((_irq) != -1),				\
 	.resource	= (struct resource[]) {				\
 		{							\
 			.start	= _base,				\

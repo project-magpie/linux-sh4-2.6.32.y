@@ -681,6 +681,7 @@ static struct platform_device stmmaceth_device[2] = {
 		},
 	},
 	.dev = {
+		.power.can_wakeup = 1,
 		.platform_data = &stmmaceth_private_data[0],
 	}
 }, {
@@ -701,6 +702,7 @@ static struct platform_device stmmaceth_device[2] = {
 		},
 	},
 	.dev = {
+		.power.can_wakeup = 1,
 		.platform_data = &stmmaceth_private_data[1],
 	}
 } };
@@ -892,6 +894,7 @@ static struct platform_device lirc_device = {
 	.num_resources  = ARRAY_SIZE(lirc_resource),
 	.resource       = lirc_resource,
 	.dev = {
+		   .power.can_wakeup = 0x1,
 	           .platform_data = &lirc_private_info
 	}
 };
@@ -1183,6 +1186,9 @@ void __init stx7200_configure_asc(const int *ascs, int num_ascs, int console)
 	}
 
 	stasc_console_device = console;
+	/* the console will be always a wakeup-able device */
+	stasc_configured_devices[console]->dev.power.can_wakeup = 1;
+	device_set_wakeup_enable(&stasc_configured_devices[console]->dev, 0x1);
 }
 
 /* Add platform device as configured by board specific code */

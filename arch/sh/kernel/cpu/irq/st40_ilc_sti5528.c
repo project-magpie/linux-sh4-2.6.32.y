@@ -15,6 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/irq.h>
+#include <linux/pm.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
@@ -53,10 +54,41 @@
  *           generate conflict between differnt CPUs when accessing the
  *           ILC
  */
+struct ilc_route_log {
+	int ilc_irq;
+	int ext_out;
+	int invert;
+};
 
-void __init ilc_route_external(int ilc_irq, int ext_out, int invert)
+static struct ilc_route_log ilc_log[4];
+
+/*
+ * it was '__init' but in the PM System we have to route the irq again...
+ */
+void ilc_route_external(int ilc_irq, int ext_out, int invert)
 {
+	int offset = ext_out-4;
 	ILC_SET_PRI(ilc_irq, 0x8000 | ext_out);
 	ILC_SET_TRIGMODE(ilc_irq, invert ? ILC_TRIGGERMODE_LOW : ILC_TRIGGERMODE_HIGH);
 	ILC_SET_ENABLE(ilc_irq);
+	ilc_log[offset].ilc_irq = ilc_irq;
+	ilc_log[offset].ext_out = ext_out;
+	ilc_log[offset].invert  = invert;
+}
+
+int ilc_pm_state(pm_message_t state)
+{
+	int idx;
+	static pm_message_t prev_state;
+	switch (state.event) {
+	case PM_EVENT_ON:
+		if (prev_state.event == PM_EVENT_FREEZE)
+		  for (idx = 0; idx < ARRAY_SIZE(ilc_log); ++idx)
+			ilc_route_external(ilc_log[idx].ilc_irq,
+					   ilc_log[idx].ext_out,
+					   ilc_log[idx].invert);
+	default:
+		prev_state = state;
+	}
+	return 0;
 }

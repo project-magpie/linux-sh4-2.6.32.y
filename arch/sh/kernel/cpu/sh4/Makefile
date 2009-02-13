@@ -52,3 +52,13 @@ obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= suspend-stx7111.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7141)	+= suspend-stx7141.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= suspend-stx7200.o
 endif
+
+ifdef CONFIG_HIBERNATION
+obj-y					+= cpu.o swsusp.o
+obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= swsusp-st_socs.o
+obj-$(CONFIG_CPU_SUBTYPE_STB7100)	+= swsusp-st_socs.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7105)	+= swsusp-st_socs.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= swsusp-st_socs.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7141)	+= swsusp-st_socs.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= swsusp-st_socs.o
+endif

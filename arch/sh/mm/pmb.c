@@ -22,6 +22,7 @@
 #include <linux/fs.h>
 #include <linux/seq_file.h>
 #include <linux/err.h>
+#include <linux/pm.h>
 #include <asm/system.h>
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
@@ -530,6 +531,31 @@ int pmb_virt_to_phys(void *addr, unsigned long *phys, unsigned long *flags)
 	return 0;
 }
 EXPORT_SYMBOL(pmb_virt_to_phys);
+
+#ifdef CONFIG_PM
+int pmb_pm_state(int state)
+{
+	static int prev_state;
+	int idx;
+	switch (state) {
+	case PM_EVENT_ON:
+	  if (prev_state == PM_EVENT_FREEZE) {
+		for (idx = 0; idx < NR_PMB_ENTRIES; ++idx)
+		  if (pmbm[idx].usage)
+			pmb_mapping_set(&pmbm[idx]);
+		}
+	  break;
+	case PM_EVENT_SUSPEND:
+	  break;
+	case PM_EVENT_FREEZE:
+	  break;
+	default:
+	  return -1;
+	}
+	prev_state = state;
+	return 0;
+}
+#endif
 
 static int pmb_seq_show(struct seq_file *file, void *iter)
 {

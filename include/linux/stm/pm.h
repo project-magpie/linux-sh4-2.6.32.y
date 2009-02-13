@@ -21,6 +21,7 @@ extern struct kset power_subsys;
 
 int emi_pm_state(pm_message_t state);
 int sysconf_pm_state(pm_message_t state);
+int ilc_pm_state(pm_message_t state);
 
 /*
  * Several devices (i.e.: USB-SATA-PCI) have extra power capability

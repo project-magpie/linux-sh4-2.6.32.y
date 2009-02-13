@@ -49,5 +49,14 @@ int  pmb_unmap(unsigned long addr);
 void pmb_init(void);
 int pmb_virt_to_phys(void *addr, unsigned long *phys, unsigned long *flags);
 
+#ifdef CONFIG_32BIT
+int pmb_pm_state(int state);
+#else
+static inline int pmb_pm_state(int state)
+{
+	return 0;
+}
+#endif
+
 #endif /* __MMU_H */
 

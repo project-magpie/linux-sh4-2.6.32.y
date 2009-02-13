@@ -720,8 +720,13 @@ static struct platform_device *stx5197_devices[] __initdata = {
 	&ilc3_device,
 };
 
+#include "./platform-pm-stx5197.c"
+
 static int __init stx5197_devices_setup(void)
 {
+	platform_add_pm_devices(stx5197_pm_devices,
+		ARRAY_SIZE(stx5197_pm_devices));
+
 	return platform_add_devices(stx5197_devices,
 				    ARRAY_SIZE(stx5197_devices));
 }

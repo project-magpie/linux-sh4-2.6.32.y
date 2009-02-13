@@ -13,6 +13,7 @@
 #include <linux/serial.h>
 #include <linux/io.h>
 #include <linux/i2c.h>
+#include <linux/delay.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/soc_init.h>
 #include <linux/stm/pio.h>
@@ -55,10 +56,11 @@ void __init stx7111_configure_usb(int inv_enable)
 	static struct stpio_pin *pin;
 	struct sysconf_field *sc;
 
+#ifndef CONFIG_PM
 	/* Power on USB */
 	sc = sysconf_claim(SYS_CFG, 32, 4,4, "USB");
 	sysconf_write(sc, 0);
-
+#endif
 	/* Work around for USB over-current detection chip being
 	 * active low, and the 7111 being active high.
 	 * Note this is an undocumented bit, which apparently enables
@@ -944,8 +946,13 @@ static struct platform_device *stx7111_devices[] __initdata = {
 	&devrandom_rng_device,
 };
 
+#include "./platform-pm-stx7111.c"
+
 static int __init stx7111_devices_setup(void)
 {
+	platform_add_pm_devices(stx7111_pm_devices,
+		ARRAY_SIZE(stx7111_pm_devices));
+
 	return platform_add_devices(stx7111_devices,
 				    ARRAY_SIZE(stx7111_devices));
 }

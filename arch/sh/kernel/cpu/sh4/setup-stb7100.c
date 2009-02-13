@@ -135,12 +135,14 @@ void __init stx7100_configure_usb(void)
 	pin = stpio_request_pin(5,7, "USBPWR", STPIO_OUT);
 	stpio_set_pin(pin, 1);
 
+#ifndef CONFIG_PM
 	sc = sysconf_claim(SYS_CFG, 2, 1, 1, "usb");
 	reg = sysconf_read(sc);
 	if (reg) {
 		sysconf_write(sc, 0);
 		mdelay(30);
 	}
+#endif
 
 	platform_device_register(&st_usb_device);
 
@@ -917,10 +919,15 @@ static struct platform_device *stx710x_devices[] __initdata = {
 	&devrandom_rng_device,
 };
 
+#include "./platform-pm-stb7100.c"
+
 static int __init stx710x_devices_setup(void)
 {
 	fdma_setup(chip_7109, chip_revision);
 	pio_late_setup();
+
+	platform_add_pm_devices(stx710x_pm_devices,
+				ARRAY_SIZE(stx710x_pm_devices));
 
 	return platform_add_devices(stx710x_devices,
 				    ARRAY_SIZE(stx710x_devices));

@@ -25,6 +25,7 @@
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/dma-mapping.h>
+#include <linux/delay.h>
 #include <asm/irq-ilc.h>
 
 static u64 st40_dma_mask = DMA_32BIT_MASK;
@@ -127,6 +128,7 @@ void __init stx7105_configure_usb(int port, struct usb_init_data *data)
 	/* USB PHY clock from alternate pad? */
 	/* sysconf_claim(SYS_CFG, 40, 2,2, "USB"); */
 
+#ifndef CONFIG_PM
 	/* Power up USB PHY */
 	sc = sysconf_claim(SYS_CFG, 32, 6+port,6+port, "USB");
 	sysconf_write(sc, 0);
@@ -134,6 +136,7 @@ void __init stx7105_configure_usb(int port, struct usb_init_data *data)
 	/* Power up USB host */
 	sc = sysconf_claim(SYS_CFG, 32, 4+port,4+port, "USB");
 	sysconf_write(sc, 0);
+#endif
 
 	/* USB overcurrent enable */
 	sc = sysconf_claim(SYS_CFG, 4, 11+port,11+port, "USBOC");
@@ -1345,8 +1348,13 @@ static struct platform_device *stx7105_devices[] __initdata = {
 	&devrandom_rng_device,
 };
 
+#include "./platform-pm-stx7105.c"
+
 static int __init stx7105_devices_setup(void)
 {
+	platform_add_pm_devices(stx7105_pm_devices,
+				    ARRAY_SIZE(stx7105_pm_devices));
+
 	return platform_add_devices(stx7105_devices,
 				    ARRAY_SIZE(stx7105_devices));
 }

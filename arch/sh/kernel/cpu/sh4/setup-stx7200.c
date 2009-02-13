@@ -364,9 +364,11 @@ void __init stx7200_configure_usb(int port)
 		first = 0;
 	}
 
+#ifndef CONFIG_PM
 	/* Power up port */
 	sc = sysconf_claim(SYS_CFG, 22, 3+port, 3+port, "usb");
 	sysconf_write(sc, 0);
+#endif
 
 	pio = stpio_request_pin(7, power_pins[port], "USB power",
 				STPIO_ALT_OUT);
@@ -1314,9 +1316,14 @@ static struct platform_device *stx7200_devices[] __initdata = {
 	&devrandom_rng_device,
 };
 
+#include "./platform-pm-stx7200.c"
+
 static int __init stx7200_devices_setup(void)
 {
 	pio_late_setup();
+
+	platform_add_pm_devices(stx7200_pm_devices,
+				ARRAY_SIZE(stx7200_pm_devices));
 
 	return platform_add_devices(stx7200_devices,
 				    ARRAY_SIZE(stx7200_devices));

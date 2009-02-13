@@ -259,11 +259,13 @@ void __init stx7141_configure_usb(int port)
 	}
 
 	/* Power up USB */
+#ifndef CONFIG_PM
 	sc = sysconf_claim(SYS_CFG, 32, 7+port, 7+port, "USB");
 	sysconf_write(sc, 0);
 	sc = sysconf_claim(SYS_STA, 15, 7+port, 7+port, "USB");
 	do {
 	} while (sysconf_read(sc));
+#endif
 
 	stx7141_pio_sysconf(usb_pins[port].pwr.port,
 			    usb_pins[port].pwr.pin,
@@ -1299,8 +1301,13 @@ static struct platform_device *stx7141_devices[] __initdata = {
 	&devrandom_rng_device,
 };
 
+#include "./platform-pm-stx7141.c"
+
 static int __init stx7141_devices_setup(void)
 {
+	platform_add_pm_devices(stx7141_pm_devices,
+		ARRAY_SIZE(stx7141_pm_devices));
+
 	return platform_add_devices(stx7141_devices,
 				    ARRAY_SIZE(stx7141_devices));
 }

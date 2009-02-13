@@ -35,11 +35,19 @@ struct ilc_data {
 #define ilc_set_used(_ilc)		((_ilc)->state |= ILC_STATE_USED)
 #define ilc_set_unused(_ilc)		((_ilc)->state &= ~(ILC_STATE_USED))
 	unsigned char state;
+/*
+ * trigger_mode is used to restore the right mode
+ * after a resume from hibernation
+ */
+	unsigned char trigger_mode;
 };
 
 static struct ilc_data ilc_data[ILC_NR_IRQS] =
 {
-	[0 ... ILC_NR_IRQS-1 ] = { .priority = 7 }
+	[0 ... ILC_NR_IRQS-1 ] = {
+			.priority = 7,
+			.trigger_mode = ILC_TRIGGERMODE_HIGH,
+			 }
 };
 
 static DEFINE_SPINLOCK(ilc_data_lock);
@@ -77,6 +85,34 @@ static struct pr_mask priority_mask[16];
 #define DPRINTK2(args...)
 #endif
 
+/*
+ * From evt2irq to ilc2irq
+ */
+int ilc2irq(unsigned int evtcode)
+{
+
+#if	defined(CONFIG_CPU_SUBTYPE_STX7111) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7141)
+	unsigned int priority = 7;
+#elif	defined(CONFIG_CPU_SUBTYPE_STX5197) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7105) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7200)
+	unsigned int priority = 14 - evt2irq(evtcode);
+#endif
+	int idx;
+	unsigned long status;
+	for (idx = 0, status = 0;
+	     idx < ILC_PRIORITY_MASK_SIZE;
+	     ++idx) {
+		status = readl(ilc_base + ILC_BASE_STATUS + (idx << 2)) &
+			readl(ilc_base + ILC_BASE_ENABLE + (idx << 2)) &
+			priority_mask[priority].mask[idx];
+		if (status)
+			break;
+	}
+
+	return ILC_FIRST_IRQ + (idx * 32) + ffs(status) - 1;
+}
 /*
  * The interrupt demux function. Check if this was an ILC interrupt, and
  * if so which device generated the interrupt.
@@ -265,6 +301,7 @@ static int set_type_ilc_irq(unsigned int irq, unsigned int flow_type)
 	}
 
 	ILC_SET_TRIGMODE(irq_offset, mode);
+	ilc_data[irq_offset].trigger_mode = (unsigned char)mode;
 
 	return 0;
 }
@@ -294,6 +331,29 @@ void __init ilc_demux_init(void)
 		set_irq_chip_and_handler_name(irq, &ilc_chip, handle_level_irq,
 					      "ILC");
 }
+
+#ifdef CONFIG_PM
+int ilc_pm_state(pm_message_t state)
+{
+	int idx;
+	long flag;
+	static pm_message_t prev_state = {.event = PM_EVENT_ON,};
+	switch (state.event) {
+	case PM_EVENT_ON:
+		if (prev_state.event == PM_EVENT_FREEZE){
+			local_irq_save(flag);
+			for (idx = 0; idx < ARRAY_SIZE(ilc_data); ++idx) {
+				ILC_SET_PRI(idx, ilc_data[idx].priority);
+				ILC_SET_TRIGMODE(idx, ilc_data[idx].trigger_mode);
+				}
+			local_irq_restore(flag);
+		}
+	default:
+		prev_state = state;
+	}
+	return 0;
+}
+#endif
 
 #if defined(CONFIG_PROC_FS)
 

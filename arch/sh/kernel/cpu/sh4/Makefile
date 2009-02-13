@@ -45,4 +45,10 @@ obj-$(CONFIG_STM_CPU_FREQ)		+= cpufreq-stm.o
 
 ifdef CONFIG_SUSPEND
 obj-y					+= suspend.o suspend-core.o
+obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= suspend-stx5197.o
+obj-$(CONFIG_CPU_SUBTYPE_STB7100)	+= suspend-stb7100.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7105)	+= suspend-stx7105.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= suspend-stx7111.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7141)	+= suspend-stx7141.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= suspend-stx7200.o
 endif

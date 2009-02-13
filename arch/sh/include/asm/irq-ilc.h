@@ -41,5 +41,6 @@
 void __init ilc_early_init(struct platform_device* pdev);
 void __init ilc_demux_init(void);
 void ilc_irq_demux(unsigned int irq, struct irq_desc *desc);
+int ilc2irq(unsigned int evtcode);
 
 #endif

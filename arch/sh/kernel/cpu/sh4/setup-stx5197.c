@@ -120,15 +120,10 @@ static struct plat_usb_data usb_wrapper =
 		    USB_FLAGS_STRAP_PLL		|
 		    USB_FLAGS_STBUS_CONFIG_THRESHOLD256);
 
-static struct platform_device  st40_ohci_device =
-	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE,
-			ILC_IRQ(28),
-			&usb_wrapper);
-
-static struct platform_device  st40_ehci_device =
-	USB_EHCI_DEVICE(0, AHB2STBUS_EHCI_BASE,
-			ILC_IRQ(29),
-			&usb_wrapper);
+static struct platform_device st_usb =
+	USB_DEVICE(0, AHB2STBUS_EHCI_BASE, ILC_IRQ(29),
+		      AHB2STBUS_OHCI_BASE, ILC_IRQ(28),
+		      &usb_wrapper);
 
 void __init stx5197_configure_usb(void)
 {
@@ -142,8 +137,8 @@ void __init stx5197_configure_usb(void)
 	sc = sysconf_claim(SYS_CFG, CFG_CONTROL_M, 12, 12, "USB");
 	sysconf_write(sc, 0);
 
-	platform_device_register(&st40_ohci_device);
-	platform_device_register(&st40_ehci_device);
+	platform_device_register(&st_usb);
+
 }
 
 /* FDMA resources ---------------------------------------------------------- */

@@ -86,11 +86,10 @@ static struct plat_usb_data usb_wrapper =
 		    USB_FLAGS_STRAP_PLL		|
 		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE);
 
-static struct platform_device  st40_ohci_device =
-	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE, 168, &usb_wrapper);
-
-static struct platform_device  st40_ehci_device =
-	USB_EHCI_DEVICE(0, AHB2STBUS_EHCI_BASE, 169, &usb_wrapper);
+static struct platform_device st_usb_device =
+	USB_DEVICE(0, AHB2STBUS_EHCI_BASE, 169,
+		      AHB2STBUS_OHCI_BASE, 168,
+		      &usb_wrapper);
 
 void __init stx7100_configure_usb(void)
 {
@@ -143,8 +142,8 @@ void __init stx7100_configure_usb(void)
 		mdelay(30);
 	}
 
-	platform_device_register(&st40_ohci_device);
-	platform_device_register(&st40_ehci_device);
+	platform_device_register(&st_usb_device);
+
 }
 
 /* FDMA resources ---------------------------------------------------------- */

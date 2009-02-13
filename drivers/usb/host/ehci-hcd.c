@@ -1016,7 +1016,7 @@ MODULE_LICENSE ("GPL");
     defined(CONFIG_CPU_SUBTYPE_STX7141) || \
     defined(CONFIG_CPU_SUBTYPE_STX7200)
 #include "ehci-stcore.c"
-#define	PLATFORM_DRIVER		ehci_hcd_st40_driver
+#define	PLATFORM_DRIVER		ehci_hcd_stm_driver
 #endif
 
 #ifdef CONFIG_PPC_PS3

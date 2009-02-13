@@ -28,7 +28,14 @@
 
 /*-------------------------------------------------------------------------*/
 
+#ifdef CONFIG_CPU_SUBTYPE_ST40
+/*
+ * FMV: No Connect/Disconnect WakeUp from USB
+ */
+#define	PORT_WAKE_BITS	(PORT_WKOC_E)
+else
 #define	PORT_WAKE_BITS	(PORT_WKOC_E|PORT_WKDISC_E|PORT_WKCONN_E)
+#endif
 
 #ifdef	CONFIG_PM
 
@@ -163,6 +170,13 @@ static int ehci_bus_suspend (struct usb_hcd *hcd)
 		}
 	}
 
+#ifdef CONFIG_CPU_SUBTYPE_ST40
+/*
+ * FMV: mdelay suggested by IP desiner
+ */
+	mdelay(10);
+#endif
+
 	/* Apparently some devices need a >= 1-uframe delay here */
 	if (ehci->bus_suspended)
 		udelay(150);
@@ -175,9 +189,16 @@ static int ehci_bus_suspend (struct usb_hcd *hcd)
 		end_unlink_async(ehci);
 
 	/* allow remote wakeup */
+#ifndef CONFIG_CPU_SUBTYPE_ST40
 	mask = INTR_MASK;
 	if (!hcd->self.root_hub->do_remote_wakeup)
 		mask &= ~STS_PCD;
+#else
+/*
+ * FMV: No remote wakeup
+ */
+	mask = INTR_MASK & ~STS_PCD;
+#endif
 	ehci_writel(ehci, mask, &ehci->regs->intr_enable);
 	ehci_readl(ehci, &ehci->regs->intr_enable);
 

@@ -12,11 +12,18 @@
  */
 
 #include <linux/platform_device.h>
-#include "ohci-stcore.h"
+#include <linux/interrupt.h>
+#include <linux/stm/soc.h>
 
-extern int usb_disabled(void);
+#undef dgb_print
 
-#include "stb7100-common.h"
+#ifdef CONFIG_USB_DEBUG
+#define dgb_print(fmt, args...)				\
+		printk(KERN_DEBUG "%s: " fmt, __FUNCTION__ , ## args)
+#else
+#define dgb_print(fmt, args...)
+#endif
+
 
 static int
 ohci_st40_start(struct usb_hcd *hcd)
@@ -24,6 +31,7 @@ ohci_st40_start(struct usb_hcd *hcd)
 	struct ohci_hcd *ohci = hcd_to_ohci(hcd);
 	int ret = 0;
 
+	dgb_print("\n");
 	if ((ret = ohci_init(ohci)) < 0)
 		return ret;
 
@@ -35,24 +43,50 @@ ohci_st40_start(struct usb_hcd *hcd)
 
 	return 0;
 }
-
-#ifdef	CONFIG_PM
-static int
-ohci_st40_suspend(struct usb_hcd *hcd, pm_message_t message)
+#ifdef CONFIG_PM
+static int stm_ohci_bus_suspend(struct usb_hcd *hcd)
 {
+	dgb_print("\n");
+	ohci_bus_suspend(hcd);
+
+	/* disable the interrupts */
+#if 0
+/*
+ * At the moment I don't know why
+ * but the next ochi_writel is the
+ * source of the problem...
+ */
+	ohci_writel(ohci, OHCI_INTR_SO | OHCI_INTR_WDH |
+		   OHCI_INTR_SF | OHCI_INTR_RD  |
+		   OHCI_INTR_UE | OHCI_INTR_FNO |
+		   OHCI_INTR_RHSC  | OHCI_INTR_OC |
+		   OHCI_INTR_MIE | OHCI_INTR_UE, &ohci->regs->intrdisable);
+#else
+	disable_irq(hcd->irq);
+	usb_root_hub_lost_power(hcd->self.root_hub);
+#endif
+
+
 	return 0;
 }
 
-static int
-ohci_st40_resume(struct usb_hcd *hcd)
+static int stm_ohci_bus_resume(struct usb_hcd *hcd)
 {
+	dgb_print("\n");
+	ohci_bus_resume(hcd);
+#if 1
+	enable_irq(hcd->irq);
+#endif
 	return 0;
 }
+#else
+#define stm_ohci_bus_suspend		NULL
+#define stm_ohci_bus_resume		NULL
 #endif
 
 static const struct hc_driver ohci_st40_hc_driver = {
 	.description =		hcd_name,
-	.product_desc =		"STM OHCI Host Controller",
+	.product_desc =		"stm-ohci",
 	.hcd_priv_size =	sizeof(struct ohci_hcd),
 
 	/* generic hardware linkage */
@@ -61,10 +95,6 @@ static const struct hc_driver ohci_st40_hc_driver = {
 
 	/* basic lifecycle operations */
 	.start =		ohci_st40_start,
-#ifdef	CONFIG_PM
-	.suspend =		ohci_st40_suspend,
-	.resume =		ohci_st40_resume,
-#endif
 	.stop =			ohci_stop,
 
 	/* managing i/o requests and associated device resources */
@@ -78,36 +108,31 @@ static const struct hc_driver ohci_st40_hc_driver = {
 	/* root hub support */
 	.hub_status_data =	ohci_hub_status_data,
 	.hub_control =		ohci_hub_control,
-#ifdef	CONFIG_USB_SUSPEND
-/* note we don't export these funcs for our ohci*/
-/*	.hub_suspend =		ohci_hub_suspend,*/
-/*	.hub_resume =		ohci_hub_resume,*/
+#ifdef CONFIG_PM
+	.bus_suspend =		stm_ohci_bus_suspend,
+	.bus_resume =		stm_ohci_bus_resume,
 #endif
 	.start_port_reset =	ohci_start_port_reset,
 };
 
-static int ohci_hcd_stm_probe(struct platform_device *pdev)
+int ohci_hcd_stm_probe(struct platform_device *pdev)
 {
 	struct usb_hcd *hcd = NULL;
-	const struct hc_driver *driver = &ohci_st40_hc_driver;
 	int retval;
+	struct resource *res;
 
-	if (usb_disabled())
-		return -ENODEV;
-
-	retval = ST40_start_host_control(pdev);
-	if (retval)
-		return retval;
-
-	hcd = usb_create_hcd(driver, &pdev->dev, pdev->dev.bus_id);
+	dgb_print("\n");
+	hcd = usb_create_hcd(&ohci_st40_hc_driver, &pdev->dev,
+		pdev->dev.bus_id);
 	if (!hcd) {
 		pr_debug("hcd_create_hcd failed");
 		retval = -ENOMEM;
 		goto err0;
 	}
 
-	hcd->rsrc_start = pdev->resource[0].start;
-	hcd->rsrc_len = pdev->resource[0].end - pdev->resource[0].start + 1;
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	hcd->rsrc_start = res->start;
+	hcd->rsrc_len = res->end - res->start + 1;
 
 	if (!request_mem_region(hcd->rsrc_start, hcd->rsrc_len,	hcd_name)) {
 		pr_debug("request_mem_region failed");
@@ -124,10 +149,17 @@ static int ohci_hcd_stm_probe(struct platform_device *pdev)
 
 	ohci_hcd_init(hcd_to_ohci(hcd));
 
-	retval = usb_add_hcd(hcd, pdev->resource[1].start, 0);
-	if (retval == 0)
+	res = platform_get_resource(pdev, IORESOURCE_IRQ, 1);
+	retval = usb_add_hcd(hcd, res->start, 0);
+	if (retval == 0) {
+#ifdef CONFIG_PM
+		hcd->self.root_hub->do_remote_wakeup = 0;
+		hcd->self.root_hub->persist_enabled = 0;
+		hcd->self.root_hub->autosuspend_disabled = 1;
+		hcd->self.root_hub->autoresume_disabled = 1;
+#endif
 		return retval;
-
+	}
 	iounmap(hcd->regs);
 err2:
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
@@ -141,6 +173,7 @@ static int ohci_hcd_stm_remove(struct platform_device *pdev)
 {
 	struct usb_hcd *hcd = platform_get_drvdata(pdev);
 
+	dgb_print("\n");
 	usb_remove_hcd(hcd);
 	iounmap(hcd->regs);
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
@@ -150,11 +183,5 @@ static int ohci_hcd_stm_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver ohci_hcd_stm_driver = {
-	.driver = {
-		.name = "stm-ohci",
-                .bus = &platform_bus_type
-	},
-	.probe = ohci_hcd_stm_probe,
-	.remove = ohci_hcd_stm_remove,
-        .shutdown = usb_hcd_platform_shutdown,
+	.driver.name = "stm-ohci",
 };

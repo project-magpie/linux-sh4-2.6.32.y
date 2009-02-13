@@ -98,16 +98,13 @@ static struct plat_usb_data usb_wrapper[2] = {
 		    USB_FLAGS_STBUS_CONFIG_THRESHOLD128),
 };
 
-static struct platform_device st40_ohci_devices[2] = {
-	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE(0), evt2irq(0x1700), &usb_wrapper[0]),
-	USB_OHCI_DEVICE(1, AHB2STBUS_OHCI_BASE(1), evt2irq(0x13c0), &usb_wrapper[1]),
-};
-
-static struct platform_device st40_ehci_devices[2] = {
-	USB_EHCI_DEVICE(0, AHB2STBUS_EHCI_BASE(0), evt2irq(0x1720), &usb_wrapper[0]),
-	USB_EHCI_DEVICE(1, AHB2STBUS_EHCI_BASE(1), evt2irq(0x13e0), &usb_wrapper[1]),
-};
-
+static struct platform_device usb_device[2] = {
+	USB_DEVICE(0, AHB2STBUS_EHCI_BASE(0), evt2irq(0x1720),
+		      AHB2STBUS_OHCI_BASE(0), evt2irq(0x1700),
+		      &usb_wrapper[0]),
+	USB_DEVICE(1, AHB2STBUS_EHCI_BASE(1), evt2irq(0x13e0),
+		      AHB2STBUS_OHCI_BASE(1), evt2irq(0x13c0),
+		      &usb_wrapper[1]),
 
 /**
  * stx7105_configure_usb - Configure a USB port
@@ -184,8 +181,8 @@ void __init stx7105_configure_usb(int port, struct usb_init_data *data)
 		pin = stpio_request_pin(pwr_portno, pwr_pinno, "USBPWR", STPIO_ALT_OUT);
 	}
 
-	platform_device_register(&st40_ohci_devices[port]);
-	platform_device_register(&st40_ehci_devices[port]);
+	platform_device_register(&usb_device[port]);
+
 }
 
 /* FDMA resources ---------------------------------------------------------- */

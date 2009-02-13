@@ -224,28 +224,15 @@ static struct plat_usb_data usb_wrapper[4] = {
 		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE),
 };
 
-static struct platform_device st40_ohci_devices[4] = {
-	/* USB2_0 */
-	USB_OHCI_DEVICE(0, 0xfe100000 + AHB2STBUS_OHCI_OFFSET,
-			ILC_IRQ(94), &usb_wrapper[0]),
-	/* USB2_1 */
-	USB_OHCI_DEVICE(1, 0xfea00000 + AHB2STBUS_OHCI_OFFSET,
-			ILC_IRQ(96), &usb_wrapper[1]),
-	/* USB1_0 */
-	USB_OHCI_DEVICE(2, 0xfeb00000 + AHB2STBUS_OHCI_OFFSET,
-			ILC_IRQ(97), &usb_wrapper[2]),
-	/* USB1_1 */
-	USB_OHCI_DEVICE(3, 0xfec00000 + AHB2STBUS_OHCI_OFFSET,
-			ILC_IRQ(98), &usb_wrapper[3]),
-};
-
-static struct platform_device st40_ehci_devices[2] = {
-	/* USB2_0 */
-	USB_EHCI_DEVICE(0, 0xfe100000 + AHB2STBUS_EHCI_OFFSET,
-			ILC_IRQ(93), &usb_wrapper[0]),
-	/* USB2_1 */
-	USB_EHCI_DEVICE(1, 0xfea00000 + AHB2STBUS_EHCI_OFFSET,
-			ILC_IRQ(95), &usb_wrapper[1]),
+static struct platform_device  st_usb_device[4] = {
+USB_DEVICE(0, 0xfe100000 + AHB2STBUS_EHCI_OFFSET, ILC_IRQ(93),
+	0xfe100000 + AHB2STBUS_OHCI_OFFSET, ILC_IRQ(94), &usb_wrapper[0]),
+USB_DEVICE(1, 0xfea00000 + AHB2STBUS_EHCI_OFFSET, ILC_IRQ(95),
+	0xfea00000 + AHB2STBUS_OHCI_OFFSET, ILC_IRQ(96), &usb_wrapper[1]),
+USB_DEVICE(2, NULL, NULL, 0xfeb00000 + AHB2STBUS_OHCI_OFFSET,
+	ILC_IRQ(97), &usb_wrapper[2]),
+USB_DEVICE(3, NULL, NULL, 0xfec00000 + AHB2STBUS_OHCI_OFFSET,
+	ILC_IRQ(98), &usb_wrapper[3])
 };
 
 void __init stx7141_configure_usb(int port)
@@ -298,9 +285,7 @@ void __init stx7141_configure_usb(int port)
 				  usb_pins[port].oc.pin, "USB", STPIO_IN);
 	}
 
-	platform_device_register(&st40_ohci_devices[port]);
-	if (port < 2)
-		platform_device_register(&st40_ehci_devices[port]);
+	platform_device_register(&st_usb_device[port]);
 }
 
 /* FDMA resources ---------------------------------------------------------- */

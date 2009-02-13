@@ -61,16 +61,13 @@ static struct plat_usb_data usb_wrapper[3] = {
 		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE),
 };
 
-static struct platform_device st40_ohci_devices[3] = {
-	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE(0), ILC_IRQ(81), &usb_wrapper[0]),
-	USB_OHCI_DEVICE(1, AHB2STBUS_OHCI_BASE(1), ILC_IRQ(83), &usb_wrapper[1]),
-	USB_OHCI_DEVICE(2, AHB2STBUS_OHCI_BASE(2), ILC_IRQ(85), &usb_wrapper[2]),
-};
-
-static struct platform_device st40_ehci_devices[3] = {
-	USB_EHCI_DEVICE(0, AHB2STBUS_EHCI_BASE(0), ILC_IRQ(80), &usb_wrapper[0]),
-	USB_EHCI_DEVICE(1, AHB2STBUS_EHCI_BASE(1), ILC_IRQ(82), &usb_wrapper[1]),
-	USB_EHCI_DEVICE(2, AHB2STBUS_EHCI_BASE(2), ILC_IRQ(84), &usb_wrapper[2]),
+static struct platform_device st_usb[3] = {
+	USB_DEVICE(0, AHB2STBUS_EHCI_BASE(0), ILC_IRQ(80),
+		      AHB2STBUS_OHCI_BASE(0), ILC_IRQ(81), &usb_wrapper[0]),
+	USB_DEVICE(1, AHB2STBUS_EHCI_BASE(1), ILC_IRQ(82),
+		      AHB2STBUS_OHCI_BASE(1), ILC_IRQ(83), &usb_wrapper[1]),
+	USB_DEVICE(2, AHB2STBUS_EHCI_BASE(2), ILC_IRQ(84),
+		      AHB2STBUS_OHCI_BASE(2), ILC_IRQ(85), &usb_wrapper[2]),
 };
 
 /*
@@ -382,8 +379,7 @@ void __init stx7200_configure_usb(int port)
 		pio = stpio_request_pin(7, oc_pins[port], "USB oc",
 					STPIO_IN);
 
-	platform_device_register(&st40_ohci_devices[port]);
-	platform_device_register(&st40_ehci_devices[port]);
+	platform_device_register(&st_usb[port]);
 }
 
 /* SATA resources ---------------------------------------------------------- */

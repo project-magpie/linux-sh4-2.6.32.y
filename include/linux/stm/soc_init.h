@@ -80,60 +80,41 @@
 	.ahb2stbus_wrapper_glue_base = _wrapper_base,			\
 	.ahb2stbus_protocol_base = _protocol_base,			\
 	.flags = _flags,						\
-	.initialised = 0,						\
-	.port_number = _port,						\
 }
 
-
-#define USB_EHCI_DEVICE(_port, _base, _irq, _wrapper)			\
+#define USB_DEVICE(_port, _eh_base, _eh_irq, _oh_base, _oh_irq, _wrapper)\
 {									\
-	.name = "stm-ehci",						\
-	.id=_port,							\
+	.name = "st-usb",						\
+	.id = _port,							\
 	.dev = {							\
 		.dma_mask = &st40_dma_mask,				\
 		.coherent_dma_mask = DMA_32BIT_MASK,			\
 		.platform_data = _wrapper,				\
 	},								\
-	.num_resources = 2,						\
+	.num_resources = 4,						\
 	.resource = (struct resource[]) {				\
 		[0] = {							\
-			.start = _base,					\
-			.end   = _base + 0xff,				\
+			.start = _eh_base,				\
+			.end   = _eh_base + 0xff,			\
 			.flags = IORESOURCE_MEM,			\
 		},							\
 		[1] = {							\
-			.start = _irq,					\
-			.end   = _irq,					\
+			.start = _eh_irq,				\
+			.end   = _eh_irq,				\
 			.flags = IORESOURCE_IRQ,			\
 		},							\
-	},								\
-}									\
-
-
-#define USB_OHCI_DEVICE(_port, _base, _irq, _wrapper)			\
-{									\
-	.name = "stm-ohci",						\
-	.id=_port,							\
-	.dev = {							\
-		.dma_mask = &st40_dma_mask,				\
-		.coherent_dma_mask = DMA_32BIT_MASK,			\
-		.platform_data = _wrapper,				\
-	},								\
-	.num_resources = 2,						\
-	.resource = (struct resource[]) {				\
-		[0] = {							\
-			.start = _base,					\
-			.end   = _base + 0xff,				\
+		[2] = {							\
+			.start = _oh_base,				\
+			.end   = _oh_base + 0xff,			\
 			.flags = IORESOURCE_MEM,			\
 		},							\
-		[1] = {							\
-			.start = _irq,					\
-			.end   = _irq,					\
+		[3] = {							\
+			.start = _oh_irq,				\
+			.end   = _oh_irq,				\
 			.flags = IORESOURCE_IRQ,			\
-		}							\
-	}								\
+		},							\
+	},								\
 }
-
 
 #define EMI_NAND_DEVICE(_id)							\
 {										\

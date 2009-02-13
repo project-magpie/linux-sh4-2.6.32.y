@@ -45,15 +45,10 @@ static struct plat_usb_data usb_wrapper =
 		    USB_FLAGS_STRAP_PLL		|
 		    USB_FLAGS_STBUS_CONFIG_THRESHOLD256);
 
-static struct platform_device  st40_ohci_device =
-	USB_OHCI_DEVICE(0, AHB2STBUS_OHCI_BASE,
-			evt2irq(0x1700), /* 168 */
-			&usb_wrapper);
-
-static struct platform_device  st40_ehci_device =
-	USB_EHCI_DEVICE(0, AHB2STBUS_EHCI_BASE,
-			evt2irq(0x1720), /* 169 */
-			&usb_wrapper);
+static struct platform_device st_usb =
+	USB_DEVICE(0, AHB2STBUS_EHCI_BASE, evt2irq(0x1720),
+		      AHB2STBUS_OHCI_BASE, evt2irq(0x1700),
+		      &usb_wrapper);
 
 void __init stx7111_configure_usb(int inv_enable)
 {
@@ -75,8 +70,8 @@ void __init stx7111_configure_usb(int inv_enable)
 	pin = stpio_request_pin(5,6, "USBOC", STPIO_IN);
 	pin = stpio_request_pin(5,7, "USBPWR", STPIO_ALT_OUT);
 
-	platform_device_register(&st40_ohci_device);
-	platform_device_register(&st40_ehci_device);
+	platform_device_register(&st_usb);
+
 }
 
 /* FDMA resources ---------------------------------------------------------- */

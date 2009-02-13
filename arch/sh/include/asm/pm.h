@@ -9,9 +9,13 @@
 #ifndef __ASM_SH_PM_H
 #define __ASM_SH_PM_H
 
+#include <asm/cpu/suspend.h>
+
 extern u8 wakeup_start;
 extern u8 wakeup_end;
 
 void pm_enter(void);
+
+extern void (*pm_idle)(void);
 
 #endif

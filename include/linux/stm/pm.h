@@ -17,6 +17,7 @@
 #include <linux/pm.h>
 
 extern void __iomem *clkgena_base;
+extern struct kset power_subsys;
 
 int emi_pm_state(pm_message_t state);
 

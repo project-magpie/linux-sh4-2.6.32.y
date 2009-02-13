@@ -43,3 +43,6 @@ obj-y	+= $(clock-y)
 
 obj-$(CONFIG_STM_CPU_FREQ)		+= cpufreq-stm.o
 
+ifdef CONFIG_SUSPEND
+obj-y					+= suspend.o suspend-core.o
+endif

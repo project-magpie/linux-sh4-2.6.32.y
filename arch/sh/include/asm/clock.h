@@ -10,12 +10,17 @@
 struct clk;
 
 struct clk_ops {
-	void (*init)(struct clk *clk);
-	void (*enable)(struct clk *clk);
-	void (*disable)(struct clk *clk);
+	int (*init)(struct clk *clk);
+	int (*enable)(struct clk *clk);
+	int (*disable)(struct clk *clk);
 	void (*recalc)(struct clk *clk);
-	int (*set_rate)(struct clk *clk, unsigned long rate, int algo_id);
+	int (*set_rate)(struct clk *clk, unsigned long rate);
+	int (*set_parent)(struct clk *clk, struct clk *parent);
 	long (*round_rate)(struct clk *clk, unsigned long rate);
+	int (*observe)(struct clk *clk, unsigned long *div); /* Route clock on external pin */
+	unsigned long (*get_measure)(struct clk *clk);
+	void *private_data;
+	int (*set_rate_ex)(struct clk *clk, unsigned long rate, int aldo_id);
 };
 
 struct clk {
@@ -27,9 +32,12 @@ struct clk {
 	struct clk		*parent;
 	struct clk_ops		*ops;
 
+	void			*private_data;
+
 	struct kref		kref;
 
 	unsigned long		rate;
+	unsigned long		nominal_rate;
 	unsigned long		flags;
 	unsigned long		arch_flags;
 };
@@ -64,6 +72,18 @@ static inline int clk_always_enable(const char *id)
 	return ret;
 }
 
+int clk_for_each(int (*fn)(struct clk *clk, void *data), void *data);
+
+/**
+ * Routes the clock on an external pin (if possible)
+ */
+int clk_observe(struct clk *clk, unsigned long *div);
+
+/**
+ * Evaluate the clock rate in hardware (if possible)
+ */
+unsigned long clk_get_measure(struct clk *clk);
+
 /* the exported API, in addition to clk_set_rate */
 /**
  * clk_set_rate_ex - set the clock rate for a clock source, with additional parameter
@@ -94,4 +114,7 @@ enum clk_sh_algo_id {
 
 	IP_N1,
 };
+
+/* arch/sh/kernel/cpu/clock.c */
+int clk_init(void);
 #endif /* __ASM_SH_CLOCK_H */

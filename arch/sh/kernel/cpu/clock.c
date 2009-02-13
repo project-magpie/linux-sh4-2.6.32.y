@@ -138,7 +138,19 @@ EXPORT_SYMBOL_GPL(clk_get_rate);
 
 int clk_set_rate(struct clk *clk, unsigned long rate)
 {
-	return clk_set_rate_ex(clk, rate, 0);
+	int ret = -EOPNOTSUPP;
+
+	if (likely(clk->ops && clk->ops->set_rate)) {
+		unsigned long flags;
+
+		spin_lock_irqsave(&clock_lock, flags);
+		ret = clk->ops->set_rate(clk, rate);
+		spin_unlock_irqrestore(&clock_lock, flags);
+	}
+
+	if (unlikely(clk->flags & CLK_RATE_PROPAGATES))
+		propagate_rate(clk);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(clk_set_rate);
 
@@ -146,11 +158,11 @@ int clk_set_rate_ex(struct clk *clk, unsigned long rate, int algo_id)
 {
 	int ret = -EOPNOTSUPP;
 
-	if (likely(clk->ops && clk->ops->set_rate)) {
+	if (likely(clk->ops && clk->ops->set_rate_ex)) {
 		unsigned long flags;
 
 		spin_lock_irqsave(&clock_lock, flags);
-		ret = clk->ops->set_rate(clk, rate, algo_id);
+		ret = clk->ops->set_rate_ex(clk, rate, algo_id);
 		spin_unlock_irqrestore(&clock_lock, flags);
 	}
 
@@ -191,6 +203,36 @@ long clk_round_rate(struct clk *clk, unsigned long rate)
 	return clk_get_rate(clk);
 }
 EXPORT_SYMBOL_GPL(clk_round_rate);
+
+int clk_set_parent(struct clk *clk, struct clk *parent)
+{
+	int ret = -EINVAL;
+	struct clk *old;
+	if (!parent || !clk)
+		return ret;
+	old = clk->parent;
+	if (likely(clk->ops && clk->ops->set_parent)) {
+		unsigned long flags;
+		spin_lock_irqsave(&clock_lock, flags);
+		ret = clk->ops->set_parent(clk, parent);
+		spin_unlock_irqrestore(&clock_lock, flags);
+		clk->parent = (ret ? old : parent);
+	}
+	if (unlikely(clk->flags & CLK_RATE_PROPAGATES))
+		propagate_rate(clk);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(clk_set_parent);
+
+int clk_observe(struct clk *clk, unsigned long *div)
+{
+	int ret = -EINVAL;
+	if (!clk)
+		return ret;
+	if (likely(clk->ops && clk->ops->observe))
+		ret = clk->ops->observe(clk, div);
+	return ret;
+}
 
 /*
  * Returns a clock. Note that we first try to use device id on the bus
@@ -266,3 +308,19 @@ static int __init clk_proc_init(void)
 	return 0;
 }
 subsys_initcall(clk_proc_init);
+
+int clk_for_each(int (*fn)(struct clk *clk, void *data), void *data)
+{
+	struct clk *clkp;
+	int result = 0;
+
+	if (!fn)
+		return -1;
+
+	mutex_lock(&clock_list_sem);
+	list_for_each_entry(clkp, &clock_list, node) {
+		result |= fn(clkp, data);
+		}
+	mutex_unlock(&clock_list_sem);
+	return result;
+}

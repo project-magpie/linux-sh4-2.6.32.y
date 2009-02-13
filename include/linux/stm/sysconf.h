@@ -60,6 +60,23 @@ void sysconf_write(struct sysconf_field *field, u64 value);
  */
 u64 sysconf_read(struct sysconf_field *field);
 
+/*
+ * sysconf_address: Return the address memory of sysconfig register
+ * @field: the sysconfig field to return
+ *
+ * This returns the address memory of sysconfig register
+ * @field must have been claimed using sysconf_claim().
+ */
+void *sysconf_address(struct sysconf_field *field);
+/*
+ * sysconf_mask: Return the bitmask of sysconfig register
+ * @field: the sysconfig field to return
+ *
+ * This returns the bitmask of sysconfig register
+ * @field must have been claimed using sysconf_claim().
+ */
+unsigned long sysconf_mask(struct sysconf_field *field);
+
 #define SYS_DEV 0
 #define SYS_STA 1
 #define SYS_CFG 2

@@ -12,6 +12,10 @@
 #ifndef __soc_stb7100_h__
 #define __soc_stb7100_h__
 
+#define CLOCKGEN_BASE_ADDR	0x19213000	/* Clockgen A */
+#define CLOCKGENB_BASE_ADDR	0x19000000	/* Clockgen B */
+#define CLOCKGENC_BASE_ADDR	0x19210000	/* Clockgen C */
+
 #define CLKA_LOCK			0x00
 #define CLKA_PLL0			0x08
   #define CLKA_PLL0_BYPASS		(1 << 20)

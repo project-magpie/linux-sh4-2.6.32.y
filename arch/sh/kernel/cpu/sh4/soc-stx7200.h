@@ -32,8 +32,7 @@
 #define CLKA_PLL1			0x04
   #define CLKA_PLL1_BYPASS		(1 << 20)
   #define CLKA_PLL1_ENABLE_STATUS	(1 << 19)
-  #define CLKA_PLL1_SUSPEND		((5 << 16) | (100 << 8) | \
-	(SYSACLKIN / 1000000))
+  #define CLKA_PLL1_SUSPEND		((100 << 8) | (SYSACLKIN / 1000000))
 
 #define CLKA_PLL2			0x08
   #define CLKA_PLL2_BYPASS		(1 << 20)

@@ -13,26 +13,18 @@
 #include <asm/clock.h>
 #include <asm/freq.h>
 #include <asm/io.h>
+#include <linux/pm.h>
 
-/* Values for mb680 */
-#define SYSCLKIN	30000000
-#define SYSCLKINALT	30000000
+#include "./clock-common.h"
+#include "./soc-stx7105.h"
 
-#define CLOCKGENA_BASE_ADDR	0xfe213000	/* Clockgen A */
-#define CLOCKGENB_BASE_ADDR	0xfe000000	/* Clockgen B */
-
-/* Definitions taken from targetpack sti7105_clockgena_regs.xml */
-#define CKGA_PLL0_CFG			0x000
-#define CKGA_PLL1_CFG			0x004
-#define CKGA_POWER_CFG			0x010
-#define CKGA_CLKOPSRC_SWITCH_CFG(x)	(0x014+((x)*0x10))
-#define CKGA_CLKOBS_MUX1_CFG		0x030
-#define CKGA_CLKOBS_MUX2_CFG		0x048
-/* All the following appear to be offsets into clkgen B, despite the name */
-#define CKGA_OSC_DIV_CFG(x)		(0x800+((x)*4))
-#define CKGA_PLL0HS_DIV_CFG(x)		(0x900+((x)*4))
-#define CKGA_PLL0LS_DIV_CFG(x)		(0xa10+(((x)-4)*4))
-#define CKGA_PLL1_DIV_CFG(x)		(0xb00+((x)*4))
+#ifdef CONFIG_CLK_LOW_LEVEL_DEBUG
+#include <linux/stm/pio.h>
+#define dgb_print(fmt, args...)				\
+			printk(KERN_DEBUG "%s: " fmt, __FUNCTION__ , ## args)
+#else
+#define dgb_print(fmt, args...)
+#endif
 
 #if 0
 
@@ -105,13 +97,12 @@ static unsigned long clkin[2] = {
 
 static struct sysconf_field *clkgena_clkosc_sel_sc;
 
-static void __iomem *clkgena_base, *clkgenb_base;
+static void __iomem *clkgena_base;
 
 static struct sysconf_field *clkgend_ddiv, *clkgend_rdiv;
 static struct sysconf_field *clkgend_clk_sel;
 
 /* Clkgen A clk_osc -------------------------------------------------------- */
-
 static void clkgena_clk_osc_init(struct clk *clk)
 {
 	clk->rate = clkin[sysconf_read(clkgena_clkosc_sel_sc)];
@@ -207,17 +198,30 @@ static struct pllclk pllclks[2] = {
 };
 
 /* Clkgen A clocks --------------------------------------------------------- */
-
-struct clkgenaclk
-{
-	struct clk clk;
-	unsigned long num;
+enum clockgenA_ID {
+	IC_STNOC_ID = 0,
+	FDMA0_ID,
+	FDMA1_ID,
+	NOT_USED_CLK_ID,
+	SH4_CLK_ID,
+	IC_IF_100_ID,
+	LX_DMU_ID,
+	LX_AUD_ID,
+	IC_DISP_200_ID,
+	IC_BDISP_200_ID,
+	IC_TS_200_ID,
+	DISP_PIPE_200_ID,
+	BLIT_PROC_ID,
+	ETH_PHY_ID,
+	PCI_ID,
+	EMI_ID,
+	IC_COMPO_200_ID,
+	IC_IF_200_ID
 };
 
 static void clkgena_clk_init(struct clk *clk)
 {
-	struct clkgenaclk *clkgenaclk = container_of(clk, struct clkgenaclk, clk);
-	unsigned long num = clkgenaclk->num;
+	unsigned long num = clk->private_data;
 	unsigned long data;
 	unsigned long src_sel;
 
@@ -243,8 +247,7 @@ static void clkgena_clk_init(struct clk *clk)
 
 static void clkgena_clk_recalc(struct clk *clk)
 {
-	struct clkgenaclk *clkgenaclk = container_of(clk, struct clkgenaclk, clk);
-	unsigned long num = clkgenaclk->num;
+	unsigned long num = clk->private_data;
 	unsigned long data;
 	unsigned long src_sel;
 	unsigned long div_cfg = 0;
@@ -278,40 +281,83 @@ static void clkgena_clk_recalc(struct clk *clk)
 	clk->rate = clk->parent->rate / ratio;
 }
 
+static const struct xratio ratios [] = {{1, 0x10000 },
+                                        {2, 0x1     },
+                                        {4, 0x3     },
+                                        {8, 0x7     },
+                                        {16, 0xf    },
+                                        {32, 0x1f   },
+                                        {NO_MORE_RATIO, }
+};
+
+static int clkgena_clk_setrate(struct clk *clk, unsigned long value)
+{
+	unsigned long num = clk->private_data;
+	unsigned long data;
+	unsigned long src_sel;
+	int idx;
+
+	idx = get_xratio_field(value, clk->parent->rate, ratios);
+	if (idx == NO_MORE_RATIO) {
+		dgb_print("No More Ratios for %d vs %d\n",
+			value, clk->parent->rate);
+		return -1;
+	}
+	dgb_print("Using ratio %d\n", ratios[idx].ratio);
+	data = readl(clkgena_base + CKGA_CLKOPSRC_SWITCH_CFG(num >> 4));
+	src_sel = (data >> ((num & 0xf) * 2)) & 3;
+	switch (src_sel) {
+	case 0: writel(ratios[idx].field, clkgena_base +
+			CKGA_OSC_DIV_CFG(num));
+		break;
+	case 1: writel(ratios[idx].field, clkgena_base +
+			((num <= 3) ? CKGA_PLL0HS_DIV_CFG(num) :
+			CKGA_PLL0LS_DIV_CFG(num)));
+		break;
+	case 2: writel(ratios[idx].field, clkgena_base +
+			CKGA_PLL1_DIV_CFG(num));
+		break;
+	case 3: clk->rate = 0;
+		return 0;
+	}
+	clk->rate = clk->parent->rate / ratios[idx].ratio ;
+	return 0;
+}
+
 static struct clk_ops clkgena_clk_ops = {
 	.init		= clkgena_clk_init,
+	.set_rate	= clkgena_clk_setrate,
 	.recalc		= clkgena_clk_recalc,
 };
 
 #define CLKGENA_CLK(_num, _name)				\
 	{							\
-		.clk = {					\
-			.name		= _name,		\
-			.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,	\
-			.ops		= &clkgena_clk_ops,	\
-		},						\
-		.num = _num,					\
+		.name		= _name,		\
+		.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,	\
+		.ops		= &clkgena_clk_ops,	\
+		.private_data = (void *) _num,		\
+		.id		= _num,			\
 	 }
 
-static struct clkgenaclk clkgenaclks[] = {
-	CLKGENA_CLK(0, "ic_STNOC"),
-	CLKGENA_CLK(1, "fdma0"),
-	CLKGENA_CLK(2, "fdma1"),
+struct clk clkgenaclks[] = {
+	CLKGENA_CLK(IC_STNOC_ID, "ic_STNOC"),
+	CLKGENA_CLK(FDMA0_ID, "fdma0"),
+	CLKGENA_CLK(FDMA1_ID, "fdma1"),
 	/* 3 not used */
-	CLKGENA_CLK(4, "sh4_clk"),
-	CLKGENA_CLK(5, "ic_if_100"),
-	CLKGENA_CLK(6, "lx_dmu_cpu"),
-	CLKGENA_CLK(7, "lx_aud_cpu"),
-	CLKGENA_CLK(8, "ic_disp_200"),
-	CLKGENA_CLK(9, "ic_bdisp_200"),
-	CLKGENA_CLK(10, "ic_ts_200"),
-	CLKGENA_CLK(11, "disp_pipe_200"),
-	CLKGENA_CLK(12, "blit_proc"),
-	CLKGENA_CLK(13, "ethernet_phy"),
-	CLKGENA_CLK(14, "pci"),
-	CLKGENA_CLK(15, "emi_master"),
-	CLKGENA_CLK(16, "ic_compo_200"),
-	CLKGENA_CLK(17, "ic_if_200"),
+	CLKGENA_CLK(SH4_CLK_ID, "sh4_clk"),
+	CLKGENA_CLK(IC_IF_100_ID, "ic_if_100"),
+	CLKGENA_CLK(LX_DMU_ID, "lx_dmu_cpu"),
+	CLKGENA_CLK(LX_AUD_ID, "lx_aud_cpu"),
+	CLKGENA_CLK(IC_DISP_200_ID, "ic_disp_200"),
+	CLKGENA_CLK(IC_BDISP_200_ID, "ic_bdisp_200"),
+	CLKGENA_CLK(IC_TS_200_ID, "ic_ts_200"),
+	CLKGENA_CLK(DISP_PIPE_200_ID, "disp_pipe_200"),
+	CLKGENA_CLK(BLIT_PROC_ID, "blit_proc"),
+	CLKGENA_CLK(ETH_PHY_ID, "ethernet_phy"),
+	CLKGENA_CLK(PCI_ID, "pci"),
+	CLKGENA_CLK(EMI_ID, "emi_master"),
+	CLKGENA_CLK(IC_COMPO_200_ID, "ic_compo_200"),
+	CLKGENA_CLK(IC_IF_200_ID, "ic_if_200"),
 };
 
 /* SH4 generic clocks ------------------------------------------------------ */
@@ -327,14 +373,14 @@ static struct clk_ops generic_clk_ops = {
 
 static struct clk generic_module_clk = {
 	.name		= "module_clk",
-	.parent		= &clkgenaclks[4].clk, /* ic_if_100 */
-	.flags		= CLK_ALWAYS_ENABLED,
+	.parent		= &clkgenaclks[4], /* ic_if_100 */
+	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &generic_clk_ops,
 };
 
 static struct clk generic_comms_clk = {
 	.name		= "comms_clk",
-	.parent		= &clkgenaclks[4].clk, /* ic_if_100 */
+	.parent		= &clkgenaclks[4], /* ic_if_100 */
 	.flags		= CLK_ALWAYS_ENABLED,
 	.ops		= &generic_clk_ops,
 };
@@ -363,6 +409,36 @@ static struct clk clkgend_clk = {
 	.ops		= &clkgend_clk_ops,
 };
 
+#ifdef CONFIG_PM
+int clk_pm_state(pm_message_t state)
+{
+	static int prev_state = PM_EVENT_ON;
+	int i;
+	switch (state.event) {
+	case PM_EVENT_ON:
+	if (prev_state == PM_EVENT_FREEZE) {
+		/* osc */
+		clkgena_clk_osc_init(&clkgena_clk_osc);
+		/* pll */
+		for (i = 0; i < ARRAY_SIZE(pllclks); ++i)
+			pll_clk_recalc(&pllclks[i].clk);
+		/* clock gen A */
+		for (i = 0; i < ARRAY_SIZE(clkgenaclks); ++i){
+			if (clkgena_clk_setrate(&clkgenaclks[i],
+				clkgenaclks[i].rate) < 0)
+				clkgena_clk_recalc(&clkgenaclks[i]);
+		}
+
+	}
+	case PM_EVENT_SUSPEND:
+	case PM_EVENT_FREEZE:
+		prev_state = state.event;
+		break;
+	}
+	return 0;
+}
+#endif
+
 /* ------------------------------------------------------------------------- */
 
 int __init clk_init(void)
@@ -373,7 +449,6 @@ int __init clk_init(void)
 
 	clkgena_clkosc_sel_sc = sysconf_claim(SYS_STA, 1, 0, 0, "clkgena");
 	clkgena_base = ioremap(CLOCKGENA_BASE_ADDR, 0x50);
-	clkgenb_base = ioremap(CLOCKGENB_BASE_ADDR, 0xc00);
 
 	ret = clk_register(&clkgena_clk_osc);
 	clk_enable(&clkgena_clk_osc);
@@ -384,8 +459,8 @@ int __init clk_init(void)
 	}
 
 	for (i=0; i<ARRAY_SIZE(clkgenaclks); i++) {
-		ret |= clk_register(&clkgenaclks[i].clk);
-		clk_enable(&clkgenaclks[i].clk);
+		ret |= clk_register(&clkgenaclks[i]);
+		clk_enable(&clkgenaclks[i]);
 	}
 
 	ret = clk_register(&generic_module_clk);

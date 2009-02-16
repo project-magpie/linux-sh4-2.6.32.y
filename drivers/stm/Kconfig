@@ -147,4 +147,24 @@ config STM_RNG
 
           This option can be used in conjunction with the /dev/hw_random
           driver found in the char drivers menu.
+
+config PMS
+	bool "Power Management Scheme"
+	default n
+	depends on PM
+	help
+	  This option enables the power management scheme on clocks and devices system
+
+config PMS_CHECK_GROUP
+	bool "PMS always checks the state group"
+	depends on PMS
+	default n
+	help
+	  Enable this option if the state group has to be controlled
+
+config PMS_DEBUG
+	bool "PMS debug"
+	default n
+	depends on PMS
+
 endmenu

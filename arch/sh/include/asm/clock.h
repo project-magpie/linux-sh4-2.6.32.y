@@ -40,6 +40,9 @@ struct clk {
 	unsigned long		nominal_rate;
 	unsigned long		flags;
 	unsigned long		arch_flags;
+
+	struct list_head	childs;
+	struct list_head	childs_node;
 };
 
 #define CLK_ALWAYS_ENABLED	(1 << 0)

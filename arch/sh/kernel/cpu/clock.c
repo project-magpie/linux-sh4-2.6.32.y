@@ -104,6 +104,9 @@ int clk_register(struct clk *clk)
 	mutex_lock(&clock_list_sem);
 
 	list_add(&clk->node, &clock_list);
+	INIT_LIST_HEAD(&clk->childs);
+	if (clk->parent)
+		list_add(&clk->childs_node, &clk->parent->childs);
 	kref_init(&clk->kref);
 
 	mutex_unlock(&clock_list_sem);
@@ -126,6 +129,8 @@ void clk_unregister(struct clk *clk)
 {
 	mutex_lock(&clock_list_sem);
 	list_del(&clk->node);
+	if (clk->parent)
+		list_del(&clk->childs_node);
 	mutex_unlock(&clock_list_sem);
 }
 EXPORT_SYMBOL_GPL(clk_unregister);

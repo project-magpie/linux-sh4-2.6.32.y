@@ -48,40 +48,11 @@ static int stm_ohci_bus_suspend(struct usb_hcd *hcd)
 {
 	dgb_print("\n");
 	ohci_bus_suspend(hcd);
-
-	/* disable the interrupts */
-#if 0
-/*
- * At the moment I don't know why
- * but the next ochi_writel is the
- * source of the problem...
- */
-	ohci_writel(ohci, OHCI_INTR_SO | OHCI_INTR_WDH |
-		   OHCI_INTR_SF | OHCI_INTR_RD  |
-		   OHCI_INTR_UE | OHCI_INTR_FNO |
-		   OHCI_INTR_RHSC  | OHCI_INTR_OC |
-		   OHCI_INTR_MIE | OHCI_INTR_UE, &ohci->regs->intrdisable);
-#else
-	disable_irq(hcd->irq);
 	usb_root_hub_lost_power(hcd->self.root_hub);
-#endif
-
-
-	return 0;
-}
-
-static int stm_ohci_bus_resume(struct usb_hcd *hcd)
-{
-	dgb_print("\n");
-	ohci_bus_resume(hcd);
-#if 1
-	enable_irq(hcd->irq);
-#endif
 	return 0;
 }
 #else
 #define stm_ohci_bus_suspend		NULL
-#define stm_ohci_bus_resume		NULL
 #endif
 
 static const struct hc_driver ohci_st40_hc_driver = {
@@ -96,6 +67,7 @@ static const struct hc_driver ohci_st40_hc_driver = {
 	/* basic lifecycle operations */
 	.start =		ohci_st40_start,
 	.stop =			ohci_stop,
+	.shutdown = ohci_shutdown,
 
 	/* managing i/o requests and associated device resources */
 	.urb_enqueue =		ohci_urb_enqueue,
@@ -110,7 +82,7 @@ static const struct hc_driver ohci_st40_hc_driver = {
 	.hub_control =		ohci_hub_control,
 #ifdef CONFIG_PM
 	.bus_suspend =		stm_ohci_bus_suspend,
-	.bus_resume =		stm_ohci_bus_resume,
+	.bus_resume =		ohci_bus_resume,
 #endif
 	.start_port_reset =	ohci_start_port_reset,
 };
@@ -167,19 +139,6 @@ err1:
 	usb_put_hcd(hcd);
 err0:
 	return retval;
-}
-
-static int ohci_hcd_stm_remove(struct platform_device *pdev)
-{
-	struct usb_hcd *hcd = platform_get_drvdata(pdev);
-
-	dgb_print("\n");
-	usb_remove_hcd(hcd);
-	iounmap(hcd->regs);
-	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
-	usb_put_hcd(hcd);
-
-	return 0;
 }
 
 static struct platform_driver ohci_hcd_stm_driver = {

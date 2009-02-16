@@ -13,7 +13,6 @@
 #include <linux/stm/soc.h>
 #include <linux/stm/pm.h>
 
-/*#include "stb7100-common.h"*/
 /* The transaction opcode is programmed in this register */
 #define AHB2STBUS_STBUS_OPC_OFFSET      0x00    /* From PROTOCOL_BASE */
 #define AHB2STBUS_STBUS_OPC_4BIT        0x00
@@ -64,7 +63,7 @@
 
 #ifdef CONFIG_USB_DEBUG
 #define dgb_print(fmt, args...)			\
-		printk(KERN_DEBUG "%s: " fmt, __FUNCTION__ , ## args)
+		printk(KERN_INFO "%s: " fmt, __FUNCTION__ , ## args)
 #else
 #define dgb_print(fmt, args...)
 #endif
@@ -151,7 +150,6 @@ static int ehci_hcd_stm_probe(struct platform_device *dev)
         struct ehci_hcd *ehci;
 	struct plat_usb_data *pdata = dev->dev.platform_data;
 	struct resource *res;
-
 
 	hcd = usb_create_hcd(&ehci_stm_hc_driver, &dev->dev, dev->dev.bus_id);
 	if (!hcd) {
@@ -311,6 +309,7 @@ static int st_usb_probe(struct platform_device *pdev)
 		ehci_hcd_stm_probe(pdev); /* is it EHCI able ? */
 		pdata->ehci_hcd = pdev->dev.driver_data;
 	}
+
 #ifdef CONFIG_USB_OHCI_HCD
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (res->start) {
@@ -333,13 +332,10 @@ static int st_usb_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct plat_usb_data *pdata = pdev->dev.platform_data;
 	unsigned long wrapper_base = pdata->ahb2stbus_wrapper_glue_base;
+	void *protocol_base = pdata->ahb2stbus_protocol_base;
 	struct usb_hcd *hcd = pdata->ehci_hcd;
-	struct ehci_hcd *ehci = hcd_to_ehci (hcd);
 	long reg;
 	dgb_print("\n");
-
-	if (ehci)
-		ehci_writel(ehci, 1, &ehci->regs->configured_flag);
 
 	if (pdata->flags & USB_FLAGS_STRAP_PLL) {
 		/* PLL turned off */
@@ -347,29 +343,28 @@ static int st_usb_suspend(struct platform_device *pdev, pm_message_t state)
 		writel(reg | AHB2STBUS_STRAP_PLL,
 			wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	}
+
+	writel(0, hcd->regs + AHB2STBUS_INSREG01_OFFSET);
+	writel(0, wrapper_base + AHB2STBUS_STRAP_OFFSET);
+	writel(0, protocol_base + AHB2STBUS_STBUS_OPC_OFFSET);
+	writel(0, protocol_base + AHB2STBUS_MSGSIZE_OFFSET);
+	writel(0, protocol_base + AHB2STBUS_CHUNKSIZE_OFFSET);
+	writel(0, protocol_base + AHB2STBUS_MSGSIZE_OFFSET);
+
+	writel(1, protocol_base + AHB2STBUS_SW_RESET);
+	mdelay(10);
+	writel(0, protocol_base + AHB2STBUS_SW_RESET);
+
 	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 1);
 	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 1);
 	return 0;
 }
 static int st_usb_resume(struct platform_device *pdev)
 {
-	struct plat_usb_data *pdata = pdev->dev.platform_data;
-	void *protocol_base = pdata->ahb2stbus_protocol_base;
-	void *wrapper_base = pdata->ahb2stbus_wrapper_glue_base;
-	long reg;
 	dgb_print("\n");
 	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 0);
 	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
-	if (pdata->flags & USB_FLAGS_STRAP_PLL) {
-		/* Start PLL */
-		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
-		writel(reg | AHB2STBUS_STRAP_PLL,
-			wrapper_base + AHB2STBUS_STRAP_OFFSET);
-		mdelay(30);
-		writel(reg & (~AHB2STBUS_STRAP_PLL),
-			wrapper_base + AHB2STBUS_STRAP_OFFSET);
-		mdelay(30);
-	}
+	st_usb_boot(pdev);
 	return 0;
 }
 #else

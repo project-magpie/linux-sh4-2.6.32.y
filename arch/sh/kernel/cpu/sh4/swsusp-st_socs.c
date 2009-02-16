@@ -29,11 +29,11 @@ static void st_socs_processor_state(int state)
 	if (state == PM_EVENT_FREEZE) {
 		ilc_pm_state(pm);
 		emi_pm_state(pm);
-/*		clk_pm_state(pm);*/
+		clk_pm_state(pm);
 		sysconf_pm_state(pm);
 	} else {
 		sysconf_pm_state(pm);
-/*		clk_pm_state(pm);*/
+		clk_pm_state(pm);
 		emi_pm_state(pm);
 		ilc_pm_state(pm);
 	}

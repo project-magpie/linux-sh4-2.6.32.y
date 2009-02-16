@@ -46,7 +46,7 @@ CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_BYPASS),
 CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_BYPASS),
 
 CLK_OR_LONG(CLKA_PWR_CFG, PWR_CFG_PLL0_OFF | PWR_CFG_PLL2_OFF),
-
+#if 0
 CLK_AND_LONG(CLKA_PLL0, ~(0x7ffff)),
 CLK_AND_LONG(CLKA_PLL2, ~(0x7ffff)),
 
@@ -57,11 +57,12 @@ CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL2_OFF)),
 
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
 CLK_AND_LONG(CLKA_PLL2, ~(CLKA_PLL2_BYPASS)),
-
+#endif
 /* END. */
 _END(),
 
 /* Restore the GenA.Pll0 and GenA.PLL2 original frequencies */
+#if 0
 CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_BYPASS),
 CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_BYPASS),
 
@@ -76,7 +77,7 @@ DATA_LOAD(0x1),
 IMMEDIATE_SRC0(CLKA_PLL2_BYPASS),
 _OR(),
 CLK_STORE(CLKA_PLL2),
-
+#endif
 CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL2_OFF)),
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
 CLK_AND_LONG(CLKA_PLL2, ~(CLKA_PLL2_BYPASS)),
@@ -106,7 +107,7 @@ CLK_OR_LONG(CLKA_PLL1, CLKA_PLL1_BYPASS),
 CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_BYPASS),
 
 CLK_OR_LONG(CLKA_PWR_CFG, PWR_CFG_PLL0_OFF | PWR_CFG_PLL1_OFF | PWR_CFG_PLL2_OFF),
-
+#if 0
 CLK_AND_LONG(CLKA_PLL0, ~(0x7ffff)),
 CLK_AND_LONG(CLKA_PLL1, ~(0x7ffff)),
 CLK_AND_LONG(CLKA_PLL2, ~(0x7ffff)),
@@ -120,11 +121,12 @@ CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL1_OFF | PWR_CFG_PLL2_
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
 CLK_AND_LONG(CLKA_PLL1, ~(CLKA_PLL1_BYPASS)),
 CLK_AND_LONG(CLKA_PLL2, ~(CLKA_PLL2_BYPASS)),
-
+#endif
 /* END. */
 _END() ,
 
 /* Restore the GenA.Pll0 and GenA.PLL2 original frequencies */
+#if 0
 CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_BYPASS),
 CLK_OR_LONG(CLKA_PLL1, CLKA_PLL1_BYPASS),
 CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_BYPASS),
@@ -145,7 +147,7 @@ DATA_LOAD(0x2),
 IMMEDIATE_SRC0(CLKA_PLL2_BYPASS),
 _OR(),
 CLK_STORE(CLKA_PLL2),
-
+#endif
 CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL1_OFF | PWR_CFG_PLL2_OFF)),
 
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
@@ -172,7 +174,7 @@ static int stx7200_suspend_prepare(suspend_state_t state)
 {
 	pm_message_t pm = {.event = PM_EVENT_SUSPEND, };
 	emi_pm_state(pm);
-/*	clk_pm_state(pm);*/
+	clk_pm_state(pm);
 	sysconf_pm_state(pm);
 
 	switch (state) {
@@ -213,7 +215,7 @@ static int stx7200_suspend_finish(suspend_state_t state)
 {
 	pm_message_t pm = {.event = PM_EVENT_ON, };
 	sysconf_pm_state(pm);
-/*	clk_pm_state(pm);*/
+	clk_pm_state(pm);
 	emi_pm_state(pm);
 	return 0;
 }
@@ -265,9 +267,10 @@ int __init suspend_platform_setup(struct sh4_suspend_t *st40data)
 	sc = sysconf_claim(SYS_CFG, 39, 20, 20, "pm");
 	stx7200_wrt_table[_SYS_CFG39] = (unsigned long)sysconf_address(sc);
 	stx7200_wrt_table[_SYS_CFG39_MASK] = sysconf_mask(sc);
+
 #ifdef CONFIG_PM_DEBUG
-//	ctrl_outl(0xc, CKGA_CLKOUT_SEL +
-//		CLOCKGEN_BASE_ADDR); /* sh4:2 routed on SYSCLK_OUT */
+	ctrl_outl(0xc, CKGA_CLKOUT_SEL +
+		CLOCKGEN_BASE_ADDR); /* sh4:2 routed on SYSCLK_OUT */
 #endif
 	return 0;
 }

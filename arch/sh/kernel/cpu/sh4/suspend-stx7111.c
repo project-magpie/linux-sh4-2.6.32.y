@@ -132,7 +132,7 @@ static int stx7111_suspend_prepare(suspend_state_t state)
 	int ret = -EINVAL;
 	pm_message_t pms = {.event = PM_EVENT_SUSPEND, };
 	emi_pm_state(pms);
-/*	clk_pm_state(pms);*/
+	clk_pm_state(pms);
 	sysconf_pm_state(pms);
 
 	switch (state) {
@@ -181,7 +181,7 @@ static int stx7111_suspend_finish(suspend_state_t state)
 {
 	pm_message_t pms = {.event = PM_EVENT_ON, };
 	sysconf_pm_state(pms);
-/*	clk_pm_state(pms);*/
+	clk_pm_state(pms);
 	emi_pm_state(pms);
 	return 0;
 }

@@ -106,7 +106,7 @@ static struct platform_device usb_device[2] = {
 	USB_DEVICE(1, AHB2STBUS_EHCI_BASE(1), evt2irq(0x13e0),
 		      AHB2STBUS_OHCI_BASE(1), evt2irq(0x13c0),
 		      &usb_wrapper[1]),
-
+};
 /**
  * stx7105_configure_usb - Configure a USB port
  * @port: USB port number (0 or 1)

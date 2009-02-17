@@ -281,6 +281,13 @@ config SH_ST_HDREF
           More information at:
           <http://www.linuxsh.st.com/boards/hdref/>
 
+config SH_ST_HMP7100
+        bool "STB7100 HMP board"
+        depends on CPU_SUBTYPE_STB7100
+        help
+          Select STB7100 HMP board if configuring for an
+          STMicroelectronics STB71xx HMP Reference Board
+
 config SH_ST_HMS1
 	bool "HMS1"
 	depends on CPU_SUBTYPE_STB7100

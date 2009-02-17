@@ -493,6 +493,7 @@ config SH_EXTERNAL_CLOCK
 	int "External clock"
 	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200
 	default "30000000" if SH_ST_MB442
+	default "27000000" if SH_ST_HMP7100
 	default "27000000"
 	help
 	  The kernel needs to know what the frequency of chip's external

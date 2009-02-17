@@ -121,6 +121,7 @@ machdir-$(CONFIG_SH_CAYMAN)			+= mach-cayman
 # ST Boards
 machdir-$(CONFIG_SH_ST_CB101)			+= mach-cb101
 machdir-$(CONFIG_SH_ST_CB102)			+= mach-cb102
+machdir-$(CONFIG_SH_ST_HMP7100) 		+= mach-hmp7100
 machdir-$(CONFIG_SH_ST_HMS1)			+= mach-hms1
 machdir-$(CONFIG_SH_ST_MB360)			+= mach-mb360 mach-st
 machdir-$(CONFIG_SH_ST_MB374)			+= mach-mb374 mach-st

@@ -261,7 +261,7 @@ config LIRC_SUPPORT
 			depends on LIRC_SIR
         config LIRC_STM
                 tristate "STM Lirc support"
-                depends on LIRC_SUPPORT && (SH_ST_MB411 || SH_ST_MB442 || SH_ST_MB448 || SH_ST_HMS1 || SH_ST_MB520 || SH_ST_MB618 || SH_ST_MB680 || SH_ST_MB704)
+                depends on LIRC_SUPPORT && (SH_ST_MB411 || SH_ST_MB442 || SH_ST_MB448 || SH_ST_HMS1 || SH_ST_MB520 || SH_ST_MB618 || SH_ST_MB680 || SH_ST_MB704 || SH_ST_HMP7100)
 		help
 		  The IR and UHF are identical and independent, except
 		  that the IRB receiver does not use the noise filter.
@@ -270,7 +270,7 @@ config LIRC_SUPPORT
 
         config LIRC_STM_UHF_RX
 	        bool "UHF Receiver mode"
-		depends on LIRC_STM && (SH_ST_MB411 || SH_ST_MB442 || SH_ST_MB520 || SH_ST_MB618 || SH_ST_MB680 || SH_ST_MB704)
+		depends on LIRC_STM && (SH_ST_MB411 || SH_ST_MB442 || SH_ST_MB520 || SH_ST_MB618 || SH_ST_MB680 || SH_ST_MB704 || SH_ST_HMP7100)
 		help
 		  This causes the driver to use UHF RX mode.
 

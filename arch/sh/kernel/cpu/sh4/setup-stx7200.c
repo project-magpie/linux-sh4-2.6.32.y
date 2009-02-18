@@ -402,6 +402,13 @@ static struct platform_device sata_device[2] = {
 
 void __init stx7200_configure_sata(unsigned int port)
 {
+	static int initialised_phy;
+
+	if ((cpu_data->cut_major >= 3) && (!initialised_phy)) {
+		stm_sata_miphy_init();
+		initialised_phy = 1;
+	}
+
 	BUG_ON(port > 1);
 	platform_device_register(sata_device + port);
 }

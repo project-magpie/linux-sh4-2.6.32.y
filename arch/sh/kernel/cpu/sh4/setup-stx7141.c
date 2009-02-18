@@ -487,6 +487,9 @@ static struct platform_device sata_device =
 
 void __init stx7141_configure_sata(void)
 {
+	if (cpu_data->cut_major >= 2)
+		stm_sata_miphy_init();
+
 	platform_device_register(&sata_device);
 }
 

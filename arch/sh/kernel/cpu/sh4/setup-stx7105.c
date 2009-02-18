@@ -423,26 +423,28 @@ static struct plat_sata_data sata_private_info = {
 	.only_32bit = 0,
 };
 
-static struct platform_device sata_device[2] = {
+static struct platform_device sata_device[1] = {
 	SATA_DEVICE(0, 0xfe209000, evt2irq(0xb00), evt2irq(0xa80),
-		    &sata_private_info),
-	SATA_DEVICE(1, 0xfd100000, ILC_EXT_IRQ(33), ILC_EXT_IRQ(34),
 		    &sata_private_info),
 };
 
-void __init stx7200_configure_sata(unsigned int port)
+void __init stx7105_configure_sata(void)
 {
 	struct sysconf_field *sc;
 
 	/* Power up SATA phy */
-	sc = sysconf_claim(SYS_CFG, 32, 8+port, 8+port, "USB");
+	sc = sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
 	sysconf_write(sc, 0);
 
-	/* Power up SATA host */
-	sc = sysconf_claim(SYS_CFG, 32, 10+port, 10+port, "USB");
-	sysconf_write(sc, (port == 0) ? 1 : 0);
+	if ((cpu_data->cut_major >= 3)) {
+		stm_sata_miphy_init();
+	}
 
-	platform_device_register(sata_device + port);
+	/* Power up SATA host */
+	sc = sysconf_claim(SYS_CFG, 32, 11 , 11, "SATA");
+	sysconf_write(sc, 0 );
+
+	platform_device_register(sata_device);
 }
 
 /* PATA resources ---------------------------------------------------------- */

@@ -171,8 +171,7 @@ int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 static int __init device_init(void)
 {
 	stx7105_configure_pci(&pci_config);
-	stx7200_configure_sata(0);
-	stx7200_configure_sata(1);
+	stx7105_configure_sata();
 	stx7105_configure_pwm(&pwm_private_info);
 	stx7105_configure_ssc(&ssc_private_info);
 

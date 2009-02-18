@@ -389,7 +389,7 @@ void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus);
 void stx7100_configure_lirc(lirc_scd_t *scd);
 void stx7100_configure_pata(int bank, int pc_mode, int irq);
 
-void stx7105_configure_sata(unsigned int port);
+void stx7105_configure_sata(void);
 void stx7105_early_device_init(void);
 void stx7105_configure_asc(const int *ascs, int num_ascs, int console);
 void stx7105_configure_pwm(struct plat_stm_pwm_data *data);
@@ -437,5 +437,7 @@ void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 void stx7200_configure_lirc(lirc_scd_t *scd);
 void stx7200_configure_nand(struct nand_config_data *data);
 void stx7200_configure_pata(int bank, int pc_mode, int irq);
+
+void stm_sata_miphy_init(void);
 
 #endif /* __LINUX_ST_SOC_H */

@@ -515,7 +515,7 @@ static int __init snd_stm_stx7105_init(void)
 	/* Cut 2.0 presumably will bring something new into the
 	 * matter, so above configuration must be checked!
 	 * - transfer_sizes (FIFO sizes has changed) */
-	WARN_ON(cpu_data->cut_major > 1);
+	WARN_ON(cpu_data->cut_major > 2);
 
 	/* Ugly but quick hack to have SPDIF player & I2S to SPDIF
 	 * converters enabled without loading STMFB...

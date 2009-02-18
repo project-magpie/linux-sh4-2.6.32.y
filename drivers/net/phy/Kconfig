@@ -81,6 +81,11 @@ config NATIONAL_PHY
 	---help---
 	  Currently supports the DP83865 PHY.
 
+config MICREL_PHY
+	tristate "Drivers for Micrel PHYs"
+	---help---
+	  Currently supports the KSZ8041 PHY.
+
 config FIXED_PHY
 	bool "Driver for MDIO Bus/PHY emulation with fixed speed/link PHYs"
 	depends on PHYLIB=y

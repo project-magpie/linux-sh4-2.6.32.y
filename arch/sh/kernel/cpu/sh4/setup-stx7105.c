@@ -559,8 +559,10 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 	sc = sysconf_claim(SYS_CFG, 7, 17, 17, "stmmac");
 	sysconf_write(sc, ext_mdio ? 1 : 0);
 
-	/* RMII pin multiplexing: 0: MII interface active, 1: RMII interface */
-	/* cut 1: This register wasn't connected, so only MII available */
+	/*
+	 * RMII pin multiplexing: 0: RMII interface active, 1: MII interface
+	 * cut 1: This register wasn't connected, so only MII available
+	 */
 	sc = sysconf_claim(SYS_CFG, 7, 18, 18, "stmmac");
 	sysconf_write(sc, rmii_mode ? 1 : 0);
 
@@ -570,6 +572,8 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 	 * input supported.
 	 * cut 2: direction now based on PIO direction, so this code removed.
 	 */
+	sc = sysconf_claim(SYS_CFG, 7, 19, 19, "stmmac");
+	sysconf_write(sc, ext_clk ? 1 : 0);
 
 	/* MAC speed*/
 	mac_speed_sc = sysconf_claim(SYS_CFG, 7, 20, 20, "stmmac");
@@ -584,80 +588,91 @@ void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 
 	/* Pin configuration... */
 
-	/* MIIRX_DV/MII_EXCRS */
+	/* MIIRX_DV / RMIICRS_DV */
 	stx7105_pio_sysconf(7, 4, 1, "eth");
 	pin = stpio_request_pin(7, 4, "eth", STPIO_IN);
 
-	/* MIIRX_ER/MII_EXCOL */
+	/* MIIRX_ER / RMIIRX_ER */
 	stx7105_pio_sysconf(7, 5, 1, "eth");
 	pin = stpio_request_pin(7, 5, "eth", STPIO_IN);
 
-	/* MIITXD[0] */
+	/* MIITXD[0] / RMIITXD[0] */
 	stx7105_pio_sysconf(7, 6, 1, "eth");
 	pin = stpio_request_pin(7, 6, "eth", STPIO_ALT_OUT);
 
-	/* MIITXD[1] */
+	/* MIITXD[1] / RMIITXD[1] */
 	stx7105_pio_sysconf(7, 7, 1, "eth");
 	pin = stpio_request_pin(7, 7, "eth", STPIO_ALT_OUT);
 
-	/* MIITXD[2] */
-	stx7105_pio_sysconf(8, 0, 1, "eth");
-	pin = stpio_request_pin(8, 0, "eth", STPIO_ALT_OUT);
+	if (!rmii_mode) {
+		/* MIITXD[2] */
+		stx7105_pio_sysconf(8, 0, 1, "eth");
+		pin = stpio_request_pin(8, 0, "eth", STPIO_ALT_OUT);
 
-	/* MIITXD[3] */
-	stx7105_pio_sysconf(8, 1, 1, "eth");
-	pin = stpio_request_pin(8, 1, "eth", STPIO_ALT_OUT);
+		/* MIITXD[3] */
+		stx7105_pio_sysconf(8, 1, 1, "eth");
+		pin = stpio_request_pin(8, 1, "eth", STPIO_ALT_OUT);
+	}
 
-	/* MIITX_EN */
+	/* MIITX_EN / RMIITX_EN */
 	stx7105_pio_sysconf(8, 2, 1, "eth");
 	pin = stpio_request_pin(8, 2, "eth", STPIO_ALT_OUT);
 
-	/* MIIMDIO */
+	/* MIIMDIO / RMIIMDIO */
 	stx7105_pio_sysconf(8, 3, 1, "eth");
 	pin = stpio_request_pin(8, 3, "eth", STPIO_ALT_BIDIR);
 
-	/* MIIMDC */
+	/* MIIMDC / RMIIMDC */
 	stx7105_pio_sysconf(8, 4, 1, "eth");
 	pin = stpio_request_pin(8, 4, "eth", STPIO_ALT_OUT);
 
-	/* MIIRXCLK */
-	stx7105_pio_sysconf(8, 5, 1, "eth");
-	pin = stpio_request_pin(8, 5, "eth", STPIO_IN);
+	if (!rmii_mode) {
+		/* MIIRXCLK */
+		stx7105_pio_sysconf(8, 5, 1, "eth");
+		pin = stpio_request_pin(8, 5, "eth", STPIO_IN);
+	}
 
-	/* MIIRXD[0] */
+	/* MIIRXD[0] / RMIIRXD[0] */
 	stx7105_pio_sysconf(8, 6, 1, "eth");
 	pin = stpio_request_pin(8, 6, "eth", STPIO_IN);
 
-	/* MIIRXD[1] */
+	/* MIIRXD[1] / RMIIRXD[1] */
 	stx7105_pio_sysconf(8, 7, 1, "eth");
 	pin = stpio_request_pin(8, 7, "eth", STPIO_IN);
 
-	/* MIIRXD[2] */
-	stx7105_pio_sysconf(9, 0, 1, "eth");
-	pin = stpio_request_pin(9, 0, "eth", STPIO_IN);
+	if (!rmii_mode) {
+		/* MIIRXD[2] */
+		stx7105_pio_sysconf(9, 0, 1, "eth");
+		pin = stpio_request_pin(9, 0, "eth", STPIO_IN);
 
-	/* MIIRXD[3] */
-	stx7105_pio_sysconf(9, 1, 1, "eth");
-	pin = stpio_request_pin(9, 1, "eth", STPIO_IN);
+		/* MIIRXD[3] */
+		stx7105_pio_sysconf(9, 1, 1, "eth");
+		pin = stpio_request_pin(9, 1, "eth", STPIO_IN);
 
-	/* MIITXCLK */
-	stx7105_pio_sysconf(9, 2, 1, "eth");
-	pin = stpio_request_pin(9, 2, "eth", STPIO_IN);
+		/* MIITXCLK */
+		stx7105_pio_sysconf(9, 2, 1, "eth");
+		pin = stpio_request_pin(9, 2, "eth", STPIO_IN);
 
-	/* MIICOL */
-	stx7105_pio_sysconf(9, 3, 1, "eth");
-	pin = stpio_request_pin(9, 3, "eth", STPIO_IN);
+		/* MIICOL */
+		stx7105_pio_sysconf(9, 3, 1, "eth");
+		pin = stpio_request_pin(9, 3, "eth", STPIO_IN);
 
-	/* MIICRS */
-	stx7105_pio_sysconf(9, 4, 1, "eth");
-	pin = stpio_request_pin(9, 4, "eth", STPIO_IN);
+		/* MIICRS */
+		stx7105_pio_sysconf(9, 4, 1, "eth");
+		pin = stpio_request_pin(9, 4, "eth", STPIO_IN);
+	}
 
-	/* MIIPHYCLK */
-	/* Not implemented in cut 1 (DDTS GNBvd69906) - clock never output */
-	/* In cut 2 PIO direction used to control input or output. */
 	stx7105_pio_sysconf(9, 5, 1, "eth");
-	pin = stpio_request_pin(9, 5, "eth",
-				ext_clk ? STPIO_IN : STPIO_ALT_OUT);
+	if (!rmii_mode) {
+		/* MIIPHYCLK */
+		/* Not implemented in cut 1 (DDTS GNBvd69906) - clock never output */
+		/* In cut 2 PIO direction used to control input or output. */
+		pin = stpio_request_pin(9, 5, "eth",
+					ext_clk ? STPIO_IN : STPIO_ALT_OUT);
+	} else {
+		/* RMIIREF_CLK */
+		pin = stpio_request_pin(9, 5, "eth", STPIO_ALT_BIDIR);
+	}
 
 	/* MIIMDINT */
 	stx7105_pio_sysconf(9, 6, 1, "eth");

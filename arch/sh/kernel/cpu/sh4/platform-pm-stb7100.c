@@ -67,12 +67,16 @@ static int
 emi_pwd_dwn_ack(struct platform_device *pdev, int host_phy, int ack)
 {
 	static struct sysconf_field *sc;
+	int i;
 
 	if (!sc)
 		sc = sysconf_claim(SYS_STA, 15, 0, 0, "emi pwr ack");
-	mdelay(10);
-/*	while (sysconf_read(sc) != ack);*/
-	return 0;
+	for (i = 5; i; --i) {
+		if (sysconf_read(sc) == ack)
+			return 0;
+		mdelay(10);
+	}
+	return -EINVAL;
 }
 
 static struct platform_device_pm stx710x_pm_devices[] = {

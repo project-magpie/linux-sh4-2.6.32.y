@@ -20,9 +20,7 @@ usb_pwr_dwn(struct platform_device *pdev, int host_phy, int pwd)
 	if (!sc[port])
 		sc[port] = sysconf_claim(SYS_CFG, 22, 3+port, 3+port,
 				"usb pwr");
-
 	sysconf_write(sc[port], (pwd ? 1 : 0));
-
 	return 0;
 }
 
@@ -31,13 +29,16 @@ usb_pwr_ack(struct platform_device *pdev, int host_phy, int ack)
 {
 	static struct sysconf_field *sc[3];
 	int port = pdev->id;
+	int i;
 	if (!sc[port])
 		sc[port] = sysconf_claim(SYS_STA, 13, 2+port, 2+port,
 					"usb ack");
-
-	while (sysconf_read(sc[port]) != ack);
-
-	return 0;
+	for (i = 5; i; --i) {
+		if (sysconf_read(sc[port]) == ack)
+			return 0;
+		mdelay(10);
+	}
+	return -EINVAL;
 }
 
 static int
@@ -62,11 +63,15 @@ static int
 emi_pwd_dwn_ack(struct platform_device *pdev, int host_phy, int ack)
 {
 	static struct sysconf_field *sc;
+	int i;
 	if (!sc)
 		sc = sysconf_claim(SYS_STA, 8, 1, 1, "emi pwr ack");
-/*	while (sysconf_read(sc) != ack);*/
-	mdelay(50);
-	return 0;
+	for (i = 5; i; --i) {
+		if (sysconf_read(sc) == ack)
+			return 0;
+		mdelay(10);
+	}
+	return -EINVAL;
 }
 
 static struct platform_device_pm stx7200_pm_devices[] = {

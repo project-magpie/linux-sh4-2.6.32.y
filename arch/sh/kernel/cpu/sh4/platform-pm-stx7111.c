@@ -14,13 +14,16 @@ static int
 usb_pwr_ack(struct platform_device *dev, int host_phy, int on)
 {
 	static struct sysconf_field *sc;
+	int i;
 
 	if (!sc)
 		sc = sysconf_claim(SYS_STA, 15, 4, 4, "USB_PW_ACK");
-
-	while (sysconf_read(sc) != on);
-
-	return 0;
+	for (i = 5; i; --i) {
+		if (sysconf_read(sc) == on)
+			return 0;
+		mdelay(10);
+	}
+	return -EINVAL;
 }
 
 static int
@@ -72,11 +75,15 @@ static int
 emi_pwr_dwn_ack(struct platform_device *dev, int host_phy, int ack)
 {
 	static struct sysconf_field *sc;
+	int i;
 	if (!sc)
 		sc = sysconf_claim(SYS_STA, 15, 1, 1, "emi pwr ack");
-/*	while (sysconf_read(sc) != ack);*/
-	mdelay(10);
-	return 0;
+	for (i = 5; i; --i) {
+		if (sysconf_read(sc) == ack)
+			return 0;
+		mdelay(10);
+	}
+	return -EINVAL;
 }
 
 

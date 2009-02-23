@@ -9,6 +9,7 @@
  * for more details.
  */
 #include <linux/stm/pm.h>
+#include <linux/delay.h>
 #ifdef CONFIG_PM
 static int
 usb_pwr_ack(struct platform_device *dev, int host_phy, int on)

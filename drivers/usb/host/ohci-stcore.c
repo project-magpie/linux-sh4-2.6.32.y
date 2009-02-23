@@ -14,6 +14,7 @@
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <linux/stm/soc.h>
+#include "./hcd-stm.h"
 
 #undef dgb_print
 
@@ -87,11 +88,12 @@ static const struct hc_driver ohci_st40_hc_driver = {
 	.start_port_reset =	ohci_start_port_reset,
 };
 
-int ohci_hcd_stm_probe(struct platform_device *pdev)
+static int ohci_hcd_stm_probe(struct platform_device *pdev)
 {
 	struct usb_hcd *hcd = NULL;
 	int retval;
 	struct resource *res;
+	struct plat_usb_data *pdata = pdev->dev.platform_data;
 
 	dgb_print("\n");
 	hcd = usb_create_hcd(&ohci_st40_hc_driver, &pdev->dev,
@@ -124,6 +126,7 @@ int ohci_hcd_stm_probe(struct platform_device *pdev)
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 1);
 	retval = usb_add_hcd(hcd, res->start, 0);
 	if (retval == 0) {
+		pdata->ohci_hcd = hcd;
 #ifdef CONFIG_PM
 		hcd->self.root_hub->do_remote_wakeup = 0;
 		hcd->self.root_hub->persist_enabled = 0;
@@ -142,5 +145,6 @@ err0:
 }
 
 static struct platform_driver ohci_hcd_stm_driver = {
+	.driver.owner = THIS_MODULE,
 	.driver.name = "stm-ohci",
 };

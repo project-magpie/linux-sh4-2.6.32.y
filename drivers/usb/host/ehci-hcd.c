@@ -1068,6 +1068,9 @@ static int __init ehci_hcd_init(void)
 	retval = platform_driver_register(&PLATFORM_DRIVER);
 	if (retval < 0)
 		goto clean0;
+#if defined(CONFIG_USB_STM_COMMON) || defined(CONFIG_USB_STM_COMMON_MODULE)
+	st_usb_register_hcd(0, ehci_hcd_stm_probe);
+#endif
 #endif
 
 #ifdef PCI_DRIVER

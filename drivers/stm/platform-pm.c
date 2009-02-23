@@ -100,41 +100,49 @@ int platform_pm_init(struct platform_device *pdev, int phy)
 {
 	return _platform_pm(RAW_INIT, TYPE_PDEV, (void *)pdev, phy, 0);
 }
+EXPORT_SYMBOL(platform_pm_init);
 
 int platform_pm_pwdn_req(struct platform_device *pdev, int phy, int pwd)
 {
 	return _platform_pm(RAW_PWD_REQ, TYPE_PDEV, (void *)pdev, phy, pwd);
 }
+EXPORT_SYMBOL(platform_pm_pwdn_req);
 
 int platform_pm_pwdn_ack(struct platform_device *pdev, int phy, int ack)
 {
 	return _platform_pm(RAW_PWD_ACK, TYPE_PDEV, (void *)pdev, phy, ack);
 }
+EXPORT_SYMBOL(platform_pm_pwdn_ack);
 
 int platform_pm_reset(struct platform_device *pdev, int phy)
 {
 	return _platform_pm(RAW_RESET, TYPE_PDEV, (void *)pdev, 0, 0);
 }
+EXPORT_SYMBOL(platform_pm_reset);
 
 int platform_pm_init_n(char *name, int phy)
 {
 	return _platform_pm(RAW_INIT, TYPE_NAME, (void *)name, phy, 0);
 }
+EXPORT_SYMBOL(platform_pm_init_n);
 
 int platform_pm_pwdn_req_n(char *name, int phy, int pwd)
 {
 	return _platform_pm(RAW_PWD_REQ, TYPE_NAME, (void *)name, phy, pwd);
 }
+EXPORT_SYMBOL(platform_pm_pwdn_req_n);
 
 int platform_pm_pwdn_ack_n(char *name, int phy, int ack)
 {
 	return _platform_pm(RAW_PWD_ACK, TYPE_NAME, (void *)name, phy, ack);
 }
+EXPORT_SYMBOL(platform_pm_pwdn_ack_n);
 
 int platform_pm_reset_n(char *name, int phy)
 {
 	return _platform_pm(RAW_RESET, TYPE_NAME, (void *)name, phy, 0);
 }
+EXPORT_SYMBOL(platform_pm_reset_n);
 
 int platform_add_pm_devices(struct platform_device_pm *pm, unsigned long size)
 {

@@ -31,7 +31,7 @@ usb_pwr_ack(struct platform_device *dev, int host_phy, int ack)
 	int i;
 
 	if (!sc[port])
-		sysconf_claim(SYS_STA, 15, 7+port, 7+port, "USB");
+		sc[port] = sysconf_claim(SYS_STA, 15, 7+port, 7+port, "USB");
 
 	for (i = 5; i; --i) {
                 if (sysconf_read(sc[port]) == ack)

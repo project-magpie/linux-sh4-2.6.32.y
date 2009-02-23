@@ -12,10 +12,10 @@
 #include <linux/stm/sysconf.h>
 #include <linux/errno.h>
 #include <linux/io.h>
+#include <linux/pm.h>
 #include <linux/delay.h>
 #include <asm/clock.h>
 #include <asm/freq.h>
-#include <asm/mb704/clocks.h>
 
 #include "./soc-stx5197.h"
 
@@ -298,7 +298,6 @@ static int dividedpll_clk_set_rate(struct clk *clk, unsigned long rate)
 {
 	int i;
 	unsigned long offset = CLKDIV_CONF0(clk->id - CLK_DDR_ID);
-	unsigned long flag;
 
 	for (i = 0; i < ARRAY_SIZE(divide_table); i++)
 		if ((clk_get_rate(clk->parent)*2) / divide_table[i].ratio2 == rate)
@@ -383,6 +382,21 @@ static struct clk generic_comms_clk = {
 	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &generic_clk_ops,
 };
+
+#ifdef CONFIG_PM
+int clk_pm_state(pm_message_t state)
+{
+	static int prev_state = PM_EVENT_ON;
+	switch (state.event) {
+	case PM_EVENT_ON:
+	case PM_EVENT_SUSPEND:
+	case PM_EVENT_FREEZE:
+		prev_state = state.event;
+		break;
+	}
+	return 0;
+}
+#endif
 
 int __init clk_init(void)
 {

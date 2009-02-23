@@ -13,6 +13,26 @@
 #ifndef __soc_stx5197_h__
 #define __soc_stx5197_h__
 
+/*
+ *      STx5197 Platform
+ */
+enum clocks_ID {
+	CLK_XTAL_ID,
+	CLK_PLLA_ID,
+	CLK_PLLB_ID,
+	CLK_DDR_ID,     /* 0 */
+	CLK_LMI_ID,
+	CLK_BLT_ID,
+	CLK_SYS_ID,
+	CLK_FDMA_ID,
+	CLK_SPARE_ID,
+	CLK_AV_ID,      /* 6 */
+	CLK_SPARE2_ID,
+	CLK_ETH_ID,     /* 8 */
+	CLK_ST40_ID,
+	CLK_ST40P_ID,
+};
+
 /* Values for mb704 */
 #define XTAL	30000000
 

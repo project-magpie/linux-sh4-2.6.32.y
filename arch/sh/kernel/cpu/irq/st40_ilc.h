@@ -25,8 +25,10 @@ extern void __iomem *ilc_base;
 #define ILC_ENABLE_REG(_int)         (ilc_base + 0x400 + _REG_OFF(_int))
 #define ILC_CLR_ENABLE_REG(_int)     (ilc_base + 0x480 + _REG_OFF(_int))
 #define ILC_SET_ENABLE_REG(_int)     (ilc_base + 0x500 + _REG_OFF(_int))
-#define ILC_EXT_WAKEUP_EN_REG        (ilc_base + 0x600)
-#define ILC_EXT_WAKPOL_EN_REG        (ilc_base + 0x680)
+
+#define ILC_EXT_WAKEUP_EN(_int)	     (ilc_base + 0x600 + _REG_OFF(_int))
+#define ILC_EXT_WAKPOL_EN(_int)	     (ilc_base + 0x680 + _REG_OFF(_int))
+
 #define ILC_PRIORITY_REG(_int)       (ilc_base + 0x800 + (8 * _int))
 #define ILC_TRIGMODE_REG(_int)       (ilc_base + 0x804 + (8 * _int))
 
@@ -42,6 +44,20 @@ extern void __iomem *ilc_base;
 
 #define ILC_SET_TRIGMODE(_int, _mod) writel((_mod), ILC_TRIGMODE_REG(_int))
 
+#define ILC_WAKEUP_ENABLE(_int)	writel(readl(ILC_EXT_WAKEUP_EN(_int)) |	\
+				_BIT(_int), ILC_EXT_WAKEUP_EN(_int))
+
+#define ILC_WAKEUP_DISABLE(_int) writel(readl(ILC_EXT_WAKEUP_EN(_int)) & \
+				~_BIT(_int), ILC_EXT_WAKEUP_EN(_int))
+
+#define ILC_WAKEUP_HI(_int)	writel(readl(ILC_EXT_WAKPOL_EN(_int)) | \
+				_BIT(_int), ILC_EXT_WAKPOL_EN(_int))
+
+#define ILC_WAKEUP_LOW(_int)	writel(readl(ILC_EXT_WAKPOL_EN(_int)) & \
+				~_BIT(_int), ILC_EXT_WAKPOL_EN(_int))
+
+#define ILC_WAKEUP(_int, high)	((high) ? (ILC_WAKEUP_HI(_int)) : \
+				(ILC_WAKEUP_LOW(_int)))
 #define ILC_TRIGGERMODE_NONE	0
 #define ILC_TRIGGERMODE_HIGH	1
 #define ILC_TRIGGERMODE_LOW	2

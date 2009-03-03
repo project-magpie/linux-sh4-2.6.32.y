@@ -14,6 +14,7 @@
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
+#include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/platform_device.h>
 #include <linux/proc_fs.h>
@@ -31,9 +32,15 @@ struct ilc_data {
 #define ilc_set_priority(_ilc, _prio)	((_ilc)->priority = (_prio))
 	unsigned char priority;
 #define ILC_STATE_USED			0x1
+#define ILC_WAKEUP_ENABLED		0x2
+
 #define ilc_is_used(_ilc)		(((_ilc)->state & ILC_STATE_USED) != 0)
 #define ilc_set_used(_ilc)		((_ilc)->state |= ILC_STATE_USED)
 #define ilc_set_unused(_ilc)		((_ilc)->state &= ~(ILC_STATE_USED))
+
+#define ilc_set_wakeup(_ilc)		((_ilc)->state |= ILC_WAKEUP_ENABLED)
+#define ilc_reset_wakeup(_ilc)		((_ilc)->state &= ~ILC_WAKEUP_ENABLED)
+#define ilc_wakeup_enabled(_ilc)  (((_ilc)->state & ILC_WAKEUP_ENABLED) != 0)
 	unsigned char state;
 /*
  * trigger_mode is used to restore the right mode
@@ -102,13 +109,11 @@ int ilc2irq(unsigned int evtcode)
 	int idx;
 	unsigned long status;
 	for (idx = 0, status = 0;
-	     idx < ILC_PRIORITY_MASK_SIZE;
+	     idx < ILC_PRIORITY_MASK_SIZE && !status;
 	     ++idx) {
 		status = readl(ilc_base + ILC_BASE_STATUS + (idx << 2)) &
 			readl(ilc_base + ILC_BASE_ENABLE + (idx << 2)) &
 			priority_mask[priority].mask[idx];
-		if (status)
-			break;
 	}
 
 	return ILC_FIRST_IRQ + (idx * 32) + ffs(status) - 1;
@@ -306,6 +311,28 @@ static int set_type_ilc_irq(unsigned int irq, unsigned int flow_type)
 	return 0;
 }
 
+static int set_wake_ilc_irq(unsigned int irq, unsigned int on)
+{
+	int irq_offset;
+	struct ilc_data *this;
+
+	if (irq < ILC_FIRST_IRQ ||
+	    irq > (ILC_NR_IRQS + ILC_FIRST_IRQ))
+		/* this interrupt can not be on ILC3 */
+		return -1;
+	irq_offset = irq - ILC_FIRST_IRQ;
+	this = &ilc_data[irq_offset];
+	if (on) {
+		ilc_set_wakeup(this);
+		ILC_WAKEUP_ENABLE(irq_offset);
+		ILC_WAKEUP(irq_offset, 1);
+	} else {
+		ilc_reset_wakeup(this);
+		ILC_WAKEUP_DISABLE(irq_offset);
+	}
+	return 0;
+}
+
 static struct irq_chip ilc_chip = {
 	.name		= "ILC3",
 	.startup	= startup_ilc_irq,
@@ -314,6 +341,7 @@ static struct irq_chip ilc_chip = {
 	.mask_ack	= mask_and_ack_ilc,
 	.unmask		= unmask_ilc_irq,
 	.set_type	= set_type_ilc_irq,
+	.set_wake	= set_wake_ilc_irq,
 };
 
 void __init ilc_demux_init(void)
@@ -359,7 +387,7 @@ int ilc_pm_state(pm_message_t state)
 
 static void *ilc_seq_start(struct seq_file *s, loff_t *pos)
 {
-	seq_printf(s, "input irq status enabled used priority mode\n");
+	seq_printf(s, "input irq status enabled used priority mode wakeup\n");
 
 	if (*pos >= ILC_NR_IRQS)
 		return NULL;
@@ -385,10 +413,13 @@ static int ilc_seq_show(struct seq_file *s, void *v)
 	int status = (ILC_GET_STATUS(input) != 0);
 	int enabled = (ILC_GET_ENABLE(input) != 0);
 	int used = ilc_is_used(&ilc_data[input]);
+	int wakeup = ilc_wakeup_enabled(&ilc_data[input]);
 
-	seq_printf(s, "%3d %3d %d %d %d %d %d", input, input + ILC_FIRST_IRQ,
+	seq_printf(s, "%3d %3d %d %d %d %d %d %d",
+			input, input + ILC_FIRST_IRQ,
 			status, enabled, used, readl(ILC_PRIORITY_REG(input)),
-			readl(ILC_TRIGMODE_REG(input)));
+			readl(ILC_TRIGMODE_REG(input)), wakeup
+	);
 
 	if (enabled && !used)
 		seq_printf(s, " !!!");

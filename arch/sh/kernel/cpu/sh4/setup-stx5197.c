@@ -489,31 +489,14 @@ static struct plat_lirc_data lirc_private_info = {
 	.sysclkdiv	= 1,
 	.rxpolarity	= 1,
 	.pio_pin_arr  = lirc_pios,
-	.num_pio_pins = ARRAY_SIZE(lirc_pios)
+	.num_pio_pins = ARRAY_SIZE(lirc_pios),
+#ifdef CONFIG_PM
+	.clk_on_low_power = XTAL,
+#endif
 };
 
-static struct resource lirc_resource[] = {
-	[0] = {
-		.start = 0xfd118000,
-		.end   = 0xfd118000 + 0xa8,
-		.flags = IORESOURCE_MEM
-	},
-	[1] = {
-		.start = ILC_IRQ(19),
-		.end   = ILC_IRQ(19),
-		.flags = IORESOURCE_IRQ
-	},
-};
-
-static struct platform_device lirc_device = {
-	.name           = "lirc",
-	.id             = -1,
-	.num_resources  = ARRAY_SIZE(lirc_resource),
-	.resource       = lirc_resource,
-	.dev = {
-		.platform_data = &lirc_private_info
-	}
-};
+static struct platform_device lirc_device =
+	STLIRC_DEVICE(0xfd118000, ILC_IRQ(19), ILC_EXT_IRQ(4);
 
 void __init stx5197_configure_lirc(lirc_scd_t *scd)
 {

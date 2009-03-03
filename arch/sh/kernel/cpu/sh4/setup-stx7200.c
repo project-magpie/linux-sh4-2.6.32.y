@@ -887,29 +887,8 @@ static struct plat_lirc_data lirc_private_info = {
 #endif
 };
 
-static struct resource lirc_resource[]= {
-        [0] = {
-		.start = 0xfd018000,
-		.end   = 0xfd018000 + 0xa0,
-	        .flags = IORESOURCE_MEM
-	},
-	[1] = {
-		.start = ILC_IRQ(116),
-		.end   = ILC_IRQ(116),
-	        .flags = IORESOURCE_IRQ
-	},
-};
-
-static struct platform_device lirc_device = {
-	.name           = "lirc",
-	.id             = -1,
-	.num_resources  = ARRAY_SIZE(lirc_resource),
-	.resource       = lirc_resource,
-	.dev = {
-		   .power.can_wakeup = 0x1,
-	           .platform_data = &lirc_private_info
-	}
-};
+static struct platform_device lirc_device =
+	STLIRC_DEVICE(0xfd018000, ILC_IRQ(116), ILC_IRQ(117));
 
 void __init stx7200_configure_lirc(lirc_scd_t *scd)
 {

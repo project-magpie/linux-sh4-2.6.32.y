@@ -1,3 +1,26 @@
+#define STLIRC_DEVICE(_mem_start, _irq, _wake_irq)	\
+{							\
+	.name = "lirc",					\
+	.id = -1,					\
+	.num_resources = 3,				\
+	.resource = (struct resource[]) {		\
+		{					\
+			.start = _mem_start,		\
+			.end = _mem_start + 0xa0,	\
+			.flags = IORESOURCE_MEM,	\
+		}, {					\
+			.start = _irq,			\
+			.flags = IORESOURCE_IRQ,	\
+		}, {					\
+			.start = _wake_irq,		\
+			.flags = IORESOURCE_IRQ,	\
+		},					\
+	},						\
+	.dev = {					\
+		.power.can_wakeup = 1,			\
+		.platform_data = &lirc_private_info	\
+        },						\
+}
 
 #define STPIO_DEVICE(_id, _base, _irq)					\
 {									\

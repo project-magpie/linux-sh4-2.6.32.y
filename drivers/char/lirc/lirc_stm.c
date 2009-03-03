@@ -76,8 +76,7 @@
 #define LIRC_STM_NAME "lirc_stm"
 
 /* General debugging */
-#undef LIRC_STM_DEBUG
-#ifdef  LIRC_STM_DEBUG
+#ifdef CONFIG_LIRC_STM_DEBUG
 #define DPRINTK(fmt, args...) printk(KERN_INFO LIRC_STM_NAME ": %s: " fmt, __FUNCTION__ , ## args)
 #else
 #define DPRINTK(fmt, args...)
@@ -1174,6 +1173,20 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		return -EIO;
 	}
 
+	/* Enable wakeup interrupt if any */
+	if ((irb_irq = platform_get_irq(pdev, 1)) == 0) {
+		printk(KERN_WARNING LIRC_STM_NAME
+			": Wake IRQ configuration not found\n");
+	} else {
+		DPRINTK("IRB irq is %d\n", irb_irq);
+		if (devm_request_irq(dev, irb_irq, lirc_stm_interrupt, IRQF_DISABLED,
+					LIRC_STM_NAME, (void *)&pd) < 0) {
+			printk(KERN_ERR LIRC_STM_NAME ": IRQ register failed\n");
+			return -EIO;
+			}
+		disable_irq(irb_irq);
+		enable_irq_wake(irb_irq);
+		}
 	/* Configure for ir or uhf. uhf_switch==1 is UHF */
 	if (uhf_switch)
 		ir_or_uhf_offset = 0x40;

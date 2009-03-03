@@ -81,7 +81,7 @@ static struct platform_device fsynth = {
 		},
 	},
 	.dev.platform_data = &(struct snd_stm_fsynth_info) {
-		.ver = 4,
+		.ver = 5,
 		.channels_from = 0,
 		.channels_to = 2,
 	},

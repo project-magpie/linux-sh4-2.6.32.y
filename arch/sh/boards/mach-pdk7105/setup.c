@@ -102,7 +102,7 @@ static int pdk7105_phy_reset(void* bus)
 static struct plat_stmmacphy_data phy_private_data = {
 	/* Micrel */
 	.bus_id = 0,
-	.phy_addr = 0,
+	.phy_addr = -1,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_MII,
 	.phy_reset = &pdk7105_phy_reset,
@@ -161,8 +161,9 @@ static int __init device_init(void)
 
 	phy_reset_pin = stpio_request_set_pin(15, 5, "eth_phy_reset",
 					      STPIO_OUT, 1);
-	stx7105_configure_ethernet(0, 0, 0, 1, 0, 0);
+	stx7105_configure_ethernet(0, 0, 0, 0, 0, 0);
 	stx7105_configure_lirc(&lirc_scd);
+	stx7105_configure_audio_pins(3, 1, 1);
 
 	return platform_add_devices(pdk7105_devices, ARRAY_SIZE(pdk7105_devices));
 }

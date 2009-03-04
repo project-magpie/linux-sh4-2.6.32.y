@@ -33,7 +33,6 @@
 #include <linux/mii.h>
 #include <linux/phy.h>
 #include <linux/stm/soc.h>
-#include <linux/if_vlan.h>
 #include <linux/dma-mapping.h>
 #include "stmmac.h"
 
@@ -1182,6 +1181,7 @@ static int stmmac_open(struct net_device *dev)
 
 	/* Initialize the MAC Core */
 	priv->mac_type->ops->core_init(ioaddr);
+
 	priv->tx_coalesce = 0;
 	priv->shutdown = 0;
 
@@ -1609,6 +1609,14 @@ static int stmmac_rx(struct net_device *dev, int limit)
 			else
 				skb->ip_summed = CHECKSUM_UNNECESSARY;
 
+#ifdef STMMAC_VLAN_TAG_USED
+			if ((priv->vlgrp != NULL) && (priv->is_gmac) &&
+				(p->des01.erx.vlan_tag)) {
+				RX_DBG(KERN_INFO "GMAC RX: VLAN frame tagged"
+					" by the core\n");
+				priv->xstats.rx_vlan++;
+			} /*FIXME*/
+#endif
 			netif_receive_skb(skb);
 
 			dev->stats.rx_packets++;
@@ -1729,9 +1737,9 @@ static void stmmac_multicast_list(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
-	/* Calling the hw function. */
+	spin_lock(&priv->lock);
 	priv->mac_type->ops->set_filter(dev);
-
+	spin_unlock(&priv->lock);
 	return;
 }
 
@@ -1844,11 +1852,39 @@ static void stmmac_vlan_rx_register(struct net_device *dev,
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
+	DBG(probe, INFO, "%s: Setting vlgrp to %p\n", dev->name, grp);
+
 	spin_lock(&priv->lock);
-	/* VLAN Tag identifier register already contains the VLAN tag ID. 
-	   (see hw mac initialization). */
 	priv->vlgrp = grp;
 	spin_unlock(&priv->lock);
+
+	return;
+}
+
+static void stmmac_vlan_rx_add_vid(struct net_device *dev, unsigned short vid)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+
+	DBG(probe, INFO, "%s: Adding vlanid %d to vlan filter\n", dev->name,
+								  vid);
+	spin_lock(&priv->lock);
+	priv->mac_type->ops->set_filter(dev);
+	spin_unlock(&priv->lock);
+	return;
+}
+
+static void stmmac_vlan_rx_kill_vid(struct net_device *dev, unsigned short vid)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+
+	DBG(probe, INFO, "%s: removing vlanid %d from vlan filter\n",
+		dev->name, vid);
+
+	spin_lock(&priv->lock);
+	vlan_group_set_device(priv->vlgrp, vid, NULL);
+	priv->mac_type->ops->set_filter(dev);
+	spin_unlock(&priv->lock);
+	return;
 }
 #endif
 
@@ -1883,11 +1919,16 @@ static int stmmac_probe(struct net_device *dev)
 	dev->poll_controller = stmmac_poll_controller;
 #endif
 #ifdef STMMAC_VLAN_TAG_USED
-	/* Supports IEEE 802.1Q VLAN tag detection for reception frames */
+	/* Both mac100 and gmac support receive VLAN tag detection */
 	dev->features |= NETIF_F_HW_VLAN_RX;
 	dev->vlan_rx_register = stmmac_vlan_rx_register;
-#endif
 
+	if (priv->vlan_rx_filter) {
+		dev->features |= NETIF_F_HW_VLAN_FILTER;
+		dev->vlan_rx_add_vid = stmmac_vlan_rx_add_vid;
+		dev->vlan_rx_kill_vid = stmmac_vlan_rx_kill_vid;
+	}
+#endif
 	priv->msg_enable = netif_msg_init(debug, default_msg_level);
 
 	if (priv->is_gmac)
@@ -2089,6 +2130,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	priv->bus_id = plat_dat->bus_id;
 	priv->pbl = plat_dat->pbl;	/* TLI */
 	priv->is_gmac = plat_dat->has_gmac;	/* GMAC is on board */
+	priv->vlan_rx_filter = 0; /*plat_dat->vlan_rx_filter;*/
 
 	platform_set_drvdata(pdev, ndev);
 

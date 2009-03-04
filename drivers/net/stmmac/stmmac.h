@@ -1,9 +1,10 @@
 #define ETH_RESOURCE_NAME	"stmmaceth"
 #define PHY_RESOURCE_NAME	"stmmacphy"
-#define DRV_MODULE_VERSION	"Jan_09"
+#define DRV_MODULE_VERSION	"March_09"
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
 #define STMMAC_VLAN_TAG_USED
+#include <linux/if_vlan.h>
 #endif
 
 #include "common.h"
@@ -70,6 +71,7 @@ struct stmmac_priv {
 	struct vlan_group *vlgrp;
 #endif
 	struct napi_struct napi;
+	int vlan_rx_filter;
 };
 
 int stmmac_mdio_unregister(struct net_device *ndev);

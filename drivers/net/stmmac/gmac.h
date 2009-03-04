@@ -11,7 +11,7 @@
 #define GMAC_MII_ADDR		0x00000010	/* MII Address */
 #define GMAC_MII_DATA		0x00000014	/* MII Data */
 #define GMAC_FLOW_CTRL		0x00000018	/* Flow Control */
-#define GMAC_VLAN		0x0000001c	/* VLAN Tag */
+#define GMAC_VLAN_TAG		0x0000001c	/* VLAN Tag */
 
 /* GMAC ID */
 #define GMAC_VERSION	0x00000020	/* GMAC CORE Version */

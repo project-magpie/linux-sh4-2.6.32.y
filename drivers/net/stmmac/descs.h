@@ -46,11 +46,11 @@ struct dma_desc {
 			u32 vlan_tag:1;
 			u32 overflow_error:1;
 			u32 length_error:1;
-			u32 source_filter_fail:1;
+			u32 sa_filter_fail:1;
 			u32 descriptor_error:1;
 			u32 error_summary:1;
 			u32 frame_length:14;
-			u32 filtering_fail:1;
+			u32 da_filter_fail:1;
 			u32 own:1;
 			/* RDES1 */
 			u32 buffer1_size:13;

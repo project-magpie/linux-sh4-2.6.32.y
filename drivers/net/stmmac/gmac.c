@@ -20,7 +20,7 @@
 #include <linux/ethtool.h>
 #include <asm/io.h>
 
-#include "common.h"
+#include "stmmac.h"
 #include "gmac.h"
 
 #undef GMAC_DEBUG
@@ -338,9 +338,14 @@ static int gmac_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 		DBG(KERN_ERR "GMAC RX: dribbling error\n");
 		ret = discard_frame;
 	}
-	if (unlikely(p->des01.erx.filtering_fail)) {
-		DBG(KERN_ERR "GMAC RX : filtering_fail error\n");
-		x->rx_filter++;
+	if (unlikely(p->des01.erx.sa_filter_fail)) {
+		DBG(KERN_ERR "GMAC RX : Source Address filter fail\n");
+		x->sa_rx_filter_fail++;
+		ret = discard_frame;
+	}
+	if (unlikely(p->des01.erx.da_filter_fail)) {
+		DBG(KERN_ERR "GMAC RX : Destination Address filter fail\n");
+		x->da_rx_filter_fail++;
 		ret = discard_frame;
 	}
 	if (unlikely(p->des01.erx.length_error)) {
@@ -387,9 +392,6 @@ static void gmac_core_init(unsigned long ioaddr)
 	value |= GMAC_CORE_INIT;
 	writel(value, ioaddr + GMAC_CONTROL);
 
-#if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-	writel(ETH_P_8021Q, ioaddr + GMAC_VLAN);
-#endif
 	/* STBus Bridge Configuration */
 	/*writel(0xc5608, ioaddr + 0x00007000);*/
 
@@ -398,13 +400,40 @@ static void gmac_core_init(unsigned long ioaddr)
 	/* Mask GMAC interrupts */
 	writel(0x207, ioaddr + GMAC_INT_MASK);
 
+#ifdef STMMAC_VLAN_TAG_USED
+	/* Tag detection without filtering */
+	writel(0x0, ioaddr + GMAC_VLAN_TAG);
+#endif
 	return;
 }
+
+#ifdef STMMAC_VLAN_TAG_USED
+static void gmac_vlan_filter(struct net_device *dev)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+	unsigned long ioaddr = dev->base_addr;
+
+	if ((priv->vlan_rx_filter) && (priv->vlgrp)) {
+		int vid;
+
+		for (vid = 0; vid < VLAN_VID_MASK; vid++)
+			if (vlan_group_get_device(priv->vlgrp, vid))
+				DBG(KERN_INFO "GMAC: VLAN RX filter: vid: %d"
+					"Reg7: 0x%x\n", vid, value);
+			/*FIXME*/
+	}
+	return;
+}
+#endif
 
 static void gmac_set_filter(struct net_device *dev)
 {
 	unsigned long ioaddr = dev->base_addr;
 	unsigned int value = 0;
+
+#ifdef STMMAC_VLAN_TAG_USED
+	gmac_vlan_filter(dev);
+#endif
 
 	if (dev->flags & IFF_PROMISC) {
 		value = GMAC_FRAME_FILTER_PR;
@@ -451,6 +480,7 @@ static void gmac_set_filter(struct net_device *dev)
 	    "HI 0x%08x, LO 0x%08x\n",
 	    __FUNCTION__, readl(ioaddr + GMAC_FRAME_FILTER),
 	    readl(ioaddr + GMAC_HASH_HIGH), readl(ioaddr + GMAC_HASH_LOW));
+
 	return;
 }
 

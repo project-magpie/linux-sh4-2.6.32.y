@@ -137,6 +137,7 @@ struct stmmac_extra_stats {
 	unsigned long tx_heartbeat;
 	unsigned long tx_deferred;
 	unsigned long tx_vlan;
+	unsigned long rx_vlan;
 	unsigned long tx_jabber;
 	unsigned long tx_frame_flushed;
 	unsigned long tx_payload_error;
@@ -153,7 +154,8 @@ struct stmmac_extra_stats {
 	unsigned long rx_multicast;
 	unsigned long rx_gmac_overflow;
 	unsigned long rx_watchdog;
-	unsigned long rx_filter;
+	unsigned long da_rx_filter_fail;
+	unsigned long sa_rx_filter_fail;
 	unsigned long rx_missed_cntr;
 	unsigned long rx_overflow_cntr;
 	/* Tx/Rx IRQ errors */
@@ -178,7 +180,7 @@ struct stmmac_extra_stats {
 	unsigned long dma_tx_normal_irq; /* number of DMA normal TX irq */
 	unsigned long dma_rx_normal_irq; /* number of DMA normal RX irq */
 };
-#define EXTRA_STATS 42
+#define EXTRA_STATS 44
 
 /* In case of GMAC, the device can compute the HW checksums and
  * found if the frame is corrupted. It can also decide to let the

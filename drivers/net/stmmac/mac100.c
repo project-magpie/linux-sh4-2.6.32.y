@@ -30,14 +30,14 @@
 #else
 #define DBG(fmt, args...)  do { } while(0)
 #endif
+
 static void mac100_core_init(unsigned long ioaddr)
 {
 	u32 value = readl(ioaddr + MAC_CONTROL);
+
 	writel((value | MAC_CORE_INIT), ioaddr + MAC_CONTROL);
 
-#if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-	/* VLAN1 Tag identifier register is programmed to 
-	 * the 802.1Q VLAN Extended Header (0x8100). */
+#ifdef STMMAC_VLAN_TAG_USED
 	writel(ETH_P_8021Q, ioaddr + MAC_VLAN1);
 #endif
 	return;

@@ -220,6 +220,7 @@ static struct {
 	"tx_heartbeat"}, {
 	"tx_deferred"}, {
 	"tx_vlan"}, {
+	"rx_vlan"}, {
 	"tx_jabber"}, {
 	"tx_frame_flushed"}, {
 	"tx_payload_error"}, {
@@ -235,7 +236,8 @@ static struct {
 	"rx_multicast"}, {
 	"rx_gmac_overflow"}, {
 	"rx_watchdog"}, {
-	"rx_filter"}, {
+	"da_rx_filter_fail"}, {
+	"sa_rx_filter_fail"}, {
 	"rx_missed_cntr"}, {
 	"rx_overflow_cntr"}, {
 	"tx_undeflow_irq"}, {

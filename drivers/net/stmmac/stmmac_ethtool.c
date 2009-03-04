@@ -20,11 +20,19 @@
 #include "stmmac.h"
 
 #define REG_SPACE_SIZE	0x1054
+#define MAC100_ETHTOOL_NAME	"st_mac100"
+#define GMAC_ETHTOOL_NAME	"st_gmac"
 
 void stmmac_ethtool_getdrvinfo(struct net_device *dev,
 			       struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, ETH_RESOURCE_NAME);
+	struct stmmac_priv *priv = netdev_priv(dev);
+
+	if (!priv->is_gmac)
+		strcpy(info->driver, MAC100_ETHTOOL_NAME);
+	else
+		strcpy(info->driver, GMAC_ETHTOOL_NAME);
+
 	strcpy(info->version, DRV_MODULE_VERSION);
 	info->fw_version[0] = '\0';
 	return;
@@ -98,18 +106,29 @@ void stmmac_ethtool_gregs(struct net_device *dev,
 	int i;
 	u32 *reg_space = (u32 *) space;
 
+	struct stmmac_priv *priv = netdev_priv(dev);
+
 	memset(reg_space, 0x0, REG_SPACE_SIZE);
-	/* MAC registers */
-	for (i = 0; i < 12; i++) {
-		reg_space[i] = readl(dev->base_addr + (i * 4));
+
+	if (!priv->is_gmac) {
+		/* MAC registers */
+		for (i = 0; i < 12; i++)
+			reg_space[i] = readl(dev->base_addr + (i * 4));
+		/* DMA registers */
+		for (i = 0; i < 9; i++)
+			reg_space[i + 12] =
+			    readl(dev->base_addr + (DMA_BUS_MODE + (i * 4)));
+		reg_space[22] = readl(dev->base_addr + DMA_CUR_TX_BUF_ADDR);
+		reg_space[23] = readl(dev->base_addr + DMA_CUR_RX_BUF_ADDR);
+	} else {
+		/* MAC registers */
+		for (i = 0; i < 55; i++)
+			reg_space[i] = readl(dev->base_addr + (i * 4));
+		/* DMA registers */
+		for (i = 0; i < 22; i++)
+			reg_space[i + 55] =
+			    readl(dev->base_addr + (DMA_BUS_MODE + (i * 4)));
 	}
-	/* DMA registers */
-	for (i = 0; i < 9; i++) {
-		reg_space[i + 12] =
-		    readl(dev->base_addr + (DMA_BUS_MODE + (i * 4)));
-	}
-	reg_space[22] = readl(dev->base_addr + DMA_CUR_TX_BUF_ADDR);
-	reg_space[23] = readl(dev->base_addr + DMA_CUR_RX_BUF_ADDR);
 
 	return;
 }

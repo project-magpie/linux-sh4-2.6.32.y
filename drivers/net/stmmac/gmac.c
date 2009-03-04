@@ -150,7 +150,7 @@ static void gmac_dump_dma_regs(unsigned long ioaddr)
 {
 	int i;
 	printk(KERN_INFO " DMA registers\n");
-	for (i = 0; i < 9; i++) {
+	for (i = 0; i < 22; i++) {
 		if ((i < 9) || (i > 17)) {
 			int offset = i * 4;
 			printk(KERN_INFO

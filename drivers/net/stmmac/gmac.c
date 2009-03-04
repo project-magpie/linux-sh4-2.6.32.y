@@ -26,6 +26,7 @@
 #undef GMAC_DEBUG
 /*#define GMAC_DEBUG*/
 #undef FRAME_FILTER_DEBUG
+/*#define FRAME_FILTER_DEBUG*/
 #ifdef GMAC_DEBUG
 #define DBG(fmt,args...)  printk(fmt, ## args)
 #else
@@ -411,7 +412,7 @@ static void gmac_core_init(unsigned long ioaddr)
 static void gmac_vlan_filter(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
+	/*unsigned long ioaddr = dev->base_addr;*/
 
 	if ((priv->vlan_rx_filter) && (priv->vlgrp)) {
 		int vid;
@@ -434,51 +435,70 @@ static void gmac_set_filter(struct net_device *dev)
 #ifdef STMMAC_VLAN_TAG_USED
 	gmac_vlan_filter(dev);
 #endif
+	DBG(KERN_INFO "%s: # mcasts %d, # unicast %d\n",
+	    __FUNCTION__, dev->mc_count, dev->uc_count);
 
-	if (dev->flags & IFF_PROMISC) {
+	if (dev->flags & IFF_PROMISC)
 		value = GMAC_FRAME_FILTER_PR;
-	} else if ((dev->mc_count > HASH_TABLE_SIZE)
+	else if ((dev->mc_count > HASH_TABLE_SIZE)
 		   || (dev->flags & IFF_ALLMULTI)) {
 		value = GMAC_FRAME_FILTER_PM;	/* pass all multi */
 		writel(0xffffffff, ioaddr + GMAC_HASH_HIGH);
 		writel(0xffffffff, ioaddr + GMAC_HASH_LOW);
-	} else if (dev->mc_count == 0) {
-		value = GMAC_FRAME_FILTER_HUC;
-	} else {		/* Store the addresses in the multicast HW filter */
+	} else if (dev->mc_count > 0) {
 		int i;
 		u32 mc_filter[2];
 		struct dev_mc_list *mclist;
 
-		/* Perfect filter mode for physical address and Hash
-		   filter for multicast */
+		/* Hash filter for multicast */
 		value = GMAC_FRAME_FILTER_HMC;
 
 		memset(mc_filter, 0, sizeof(mc_filter));
 		for (i = 0, mclist = dev->mc_list;
 		     mclist && i < dev->mc_count; i++, mclist = mclist->next) {
-			/* The upper 6 bits of the calculated CRC are used to index
-			   the contens of the hash table */
+			/* The upper 6 bits of the calculated CRC are used to
+			   index the contens of the hash table */
 			int bit_nr =
 			    bitrev32(~crc32_le(~0, mclist->dmi_addr, 6)) >> 26;
-			/* The most significant bit determines the register to use
-			   (H/L) while the other 5 bits determine the bit within
-			   the register. */
+			/* The most significant bit determines the register to
+			 * use (H/L) while the other 5 bits determine the bit
+			 * within the register. */
 			mc_filter[bit_nr >> 5] |= 1 << (bit_nr & 31);
 		}
 		writel(mc_filter[0], ioaddr + GMAC_HASH_LOW);
 		writel(mc_filter[1], ioaddr + GMAC_HASH_HIGH);
 	}
 
+	/* Handle multiple unicast addresses (perfect filtering)*/
+	if (dev->uc_count > GMAC_MAX_UNICAST_ADDRESSES)
+		/* Switch to promiscuous mode is more than 16 addrs
+		   are required */
+		value |= GMAC_FRAME_FILTER_PR;
+	else {
+		int i;
+		struct dev_addr_list *uc_ptr = dev->uc_list;
+
+			for (i = 0; i < dev->uc_count; i++) {
+			gmac_set_umac_addr(ioaddr, uc_ptr->da_addr, i + 1);
+
+			DBG(KERN_INFO "\t%d "
+			"- Unicast addr %02x:%02x:%02x:%02x:%02x:%02x\n", i + 1,
+			uc_ptr->da_addr[0], uc_ptr->da_addr[1],
+			uc_ptr->da_addr[2], uc_ptr->da_addr[3],
+			uc_ptr->da_addr[4], uc_ptr->da_addr[5]);
+
+			uc_ptr = uc_ptr->next;
+		}
+	}
+
 #ifdef FRAME_FILTER_DEBUG
-	/* Receive all mode enabled. Useful for debugging 
-	   filtering_fail errors. */
+	/* Enable Receive all mode (to debug filtering_fail errors) */
 	value |= GMAC_FRAME_FILTER_RA;
 #endif
 	writel(value, ioaddr + GMAC_FRAME_FILTER);
 
-	DBG(KERN_INFO "%s: GMAC frame filter reg: 0x%08x - Hash regs: "
-	    "HI 0x%08x, LO 0x%08x\n",
-	    __FUNCTION__, readl(ioaddr + GMAC_FRAME_FILTER),
+	DBG(KERN_INFO "\tFrame Filter reg: 0x%08x\n\tHash regs: "
+	    "HI 0x%08x, LO 0x%08x\n", readl(ioaddr + GMAC_FRAME_FILTER),
 	    readl(ioaddr + GMAC_HASH_HIGH), readl(ioaddr + GMAC_HASH_LOW));
 
 	return;

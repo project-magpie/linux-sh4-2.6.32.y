@@ -46,6 +46,9 @@ enum power_event {
 /* GMAC HW ADDR regs */
 #define GMAC_ADDR_HIGH	0x00000040	/* Mac Address 0 HI */
 #define GMAC_ADDR_LOW	0x00000044	/* Mac Address 0 LO */
+
+#define GMAC_MAX_UNICAST_ADDRESSES	16
+
 #define GMAC_ADDRs_HIGH(reg)		(0x00000048+((reg-1)*8))
 #define GMAC_ADDRs_LOW(reg)		(0x0000004c+((reg-1)*8))
 
@@ -92,6 +95,9 @@ enum inter_frame_gap {
 #define GMAC_FRAME_FILTER_DAIF	0x00000008	/* DA Inverse Filtering */
 #define GMAC_FRAME_FILTER_PM	0x00000010	/* Pass all multicast */
 #define GMAC_FRAME_FILTER_DBF	0x00000020	/* Disable Broadcast frames */
+#define GMAC_FRAME_FILTER_SAIF	0x00000100	/* Inverse Filtering */
+#define GMAC_FRAME_FILTER_SAF	0x00000200	/* Source Address Filter */
+#define GMAC_FRAME_FILTER_HPF	0x00000400	/* Hash or perfect Filter */
 #define GMAC_FRAME_FILTER_RA	0x80000000	/* Receive all mode */
 /* GMII ADDR  defines */
 #define GMAC_MII_ADDR_WRITE	0x00000002	/* MII Write */

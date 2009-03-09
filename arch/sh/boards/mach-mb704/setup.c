@@ -74,6 +74,7 @@ static struct platform_device mb704_leds = {
 				.name = "HB",
 				.default_trigger = "heartbeat",
 				.gpio = stpio_to_gpio(3, 6),
+				.active_low = 1,
 			},
 		},
 	},

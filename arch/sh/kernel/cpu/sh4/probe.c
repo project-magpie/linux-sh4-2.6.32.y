@@ -182,6 +182,7 @@ int __init detect_cpu_and_cache_system(void)
 			cpu_data->type = CPU_STX7105;
 			break;
 		case 0x9f:
+			/* 5197 cut 1.x */
 			cpu_data->type = CPU_STX5197;
 			break;
 		case 0x9092:
@@ -200,6 +201,10 @@ int __init detect_cpu_and_cache_system(void)
 		case 0x9e00 ... 0x9eff:
 			/* 7105 (cut 2.0 = 0x9e20) */
 			cpu_data->type = CPU_STX7105;
+			break;
+		case 0x9f00 ... 0x9fff:
+			/* 5197 (cut 2.0 = 0x9f02) */
+			cpu_data->type = CPU_STX5197;
 			break;
 		default:
 			cpu_data->type = CPU_SH_NONE;

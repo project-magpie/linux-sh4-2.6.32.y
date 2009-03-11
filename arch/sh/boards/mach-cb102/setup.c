@@ -26,14 +26,14 @@
 #include <sound/stm.h>
 
 static int ascs[2] __initdata = {
-	3 | (STASC_FLAG_NORTSCTS << 8), /* J8001 (3.5mm jack) */
 	2 | (STASC_FLAG_NORTSCTS << 8), /* TTL-level test points only... */
+	3 | (STASC_FLAG_NORTSCTS << 8), /* J8001 (3.5mm jack) */
 };
 
-static void __init cb102_setup(char **cmdline_p)
+static void __init cb103_setup(char **cmdline_p)
 {
 	stx7200_early_device_init();
-	stx7200_configure_asc(ascs, 2, 0);
+	stx7200_configure_asc(ascs, 2, 1);
 }
 
 static struct plat_ssc_data cb102_ssc_private_info = {

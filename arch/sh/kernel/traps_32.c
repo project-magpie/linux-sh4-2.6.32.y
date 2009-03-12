@@ -641,12 +641,24 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 
 		se_user += 1;
 
+#ifndef CONFIG_CPU_SH2A
+		set_fs(USER_DS);
+		if (copy_from_user (&instruction, (void *)(regs->pc),
+				   sizeof(instruction))) {
+                        /* Argh. Fault on the instruction itself.
+                           This should never happen non-SMP
+                        */
+			set_fs(oldfs);
+			goto uspace_segv;
+		}
+		set_fs(oldfs);
 		/* shout about userspace fixups */
 		if (se_usermode & 1)
 			printk("Unaligned userspace access "
 			       "in \"%s\" pid=%d pc=0x%p ins=0x%04hx\n",
-			       current->comm,current->pid,(u16*)regs->pc,
-			       instruction);
+			       current->comm,current->pid,
+			       (u16*)regs->pc,instruction);
+#endif
 
 		if (se_usermode & 2)
 			goto fixup;
@@ -656,6 +668,7 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 		else {
 			/* ignore */
 			trace_mark(kernel_arch_trap_exit, MARK_NOARGS);
+			regs->pc += instruction_size(instruction);
 			return;
 		}
 
@@ -667,15 +680,6 @@ fixup:
 		}
 
 		set_fs(USER_DS);
-		if (copy_from_user(&instruction, (void *)(regs->pc),
-				   sizeof(instruction))) {
-			/* Argh. Fault on the instruction itself.
-			   This should never happen non-SMP
-			*/
-			set_fs(oldfs);
-			goto uspace_segv;
-		}
-
 		tmp = handle_unaligned_access(instruction, regs,
 					      &user_mem_access);
 		set_fs(oldfs);

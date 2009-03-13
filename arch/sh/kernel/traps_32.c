@@ -649,8 +649,12 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 			goto uspace_segv;
 		}
 		set_fs(oldfs);
+
+		if (test_thread_flag (TIF_UAC_SIGBUS))
+			goto uspace_segv;
+
 		/* shout about userspace fixups */
-		if (se_usermode & 1)
+		if ((se_usermode & 1) && !(test_thread_flag (TIF_UAC_NOPRINT)))
 			printk("Unaligned userspace access "
 			       "in \"%s\" pid=%d pc=0x%p ins=0x%04hx\n",
 			       current->comm,current->pid,

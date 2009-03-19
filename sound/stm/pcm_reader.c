@@ -170,12 +170,7 @@ static struct snd_pcm_hardware snd_stm_pcm_reader_hw = {
 				SNDRV_PCM_INFO_MMAP_VALID |
 				SNDRV_PCM_INFO_INTERLEAVED |
 				SNDRV_PCM_INFO_BLOCK_TRANSFER),
-#if 0
-	.formats	= (SNDRV_PCM_FMTBIT_S32_LE |
-				SNDRV_PCM_FMTBIT_S16_LE),
-#else
 	.formats	= (SNDRV_PCM_FMTBIT_S32_LE),
-#endif
 
 	/* Keep in mind that we are working in slave mode, so sampling
 	 * rate is determined by external components... */
@@ -555,21 +550,6 @@ static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
 	/* Configure data memory format */
 
 	switch (runtime->format) {
-	case SNDRV_PCM_FORMAT_S16_LE:
-		set__AUD_PCMIN_CTRL__MEM_FMT__16_BITS_16_BITS(pcm_reader);
-
-		/* Workaround for a problem with L/R channels swap in case of
-		 * 16/16 memory model: PCM puts left channel data in
-		 * word's upper two bytes, but due to little endianess
-		 * character of our memory it will be interpreted as right
-		 * channel data...  The workaround is to invert L/R signal,
-		 * however it is cheating, because in such case channel
-		 * phases are shifted by one sample...
-		 * (ask me for more details if above is not clear ;-)
-		 * TODO this somehow better... */
-		set__AUD_PCMIN_FMT__LR_POL(pcm_reader, !lr_pol);
-		break;
-
 	case SNDRV_PCM_FORMAT_S32_LE:
 		/* Actually "16 bits/0 bits" means "24/20/18/16 bits on the
 		 * left than zeros"... ;-) */

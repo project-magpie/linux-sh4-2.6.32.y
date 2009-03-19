@@ -382,10 +382,11 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 		set__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(pcm_reader, transfer_size);
 		set__AUD_PCMIN_FMT__BACK_STALLING__DISABLED(pcm_reader);
 
-		/* This is a workaround for a problem with PCM Reader
-		 * FIFO underrunning (!!!), caused by FDMA issuing
-		 * more than one read per request line assertion... */
-		if (transfer_size > 2)
+		/* This is a workaround for a problem in early releases
+		 * of multi-channel PCM Readers with FIFO underrunning (!!!),
+		 * caused by spurious request line generation... */
+		if (pcm_reader->ver < ver__AUD_PCMIN__65_3_4 &&
+				transfer_size > 2)
 			fdma_req_config.count = transfer_size / 2;
 		else
 			fdma_req_config.count = transfer_size;

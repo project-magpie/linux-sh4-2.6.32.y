@@ -20,6 +20,9 @@
 /* 7200 2.0 */
 #define ver__AUD_PCMIN__65_3_3 5
 
+/* 7200 3.0 */
+#define ver__AUD_PCMIN__65_3_4 6
+
 
 
 /*

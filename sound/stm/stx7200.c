@@ -731,6 +731,7 @@ static int __init snd_stm_stx7200_init(void)
 {
 	int result;
 	struct snd_card *card;
+	int ver;
 
 	snd_stm_printd(0, "snd_stm_stx7200_init()\n");
 
@@ -800,8 +801,9 @@ static int __init snd_stm_stx7200_init(void)
 		hdmi_spdif_player.resource[0].start = 0xfd112c00;
 		hdmi_spdif_player.resource[0].end = 0xfd112c43;
 
-		SET_VER(snd_stm_pcm_reader_info, pcm_reader_0, 5);
-		SET_VER(snd_stm_pcm_reader_info, pcm_reader_1, 5);
+		ver = (cpu_data->cut_major == 2 ? 5 : 6);
+		SET_VER(snd_stm_pcm_reader_info, pcm_reader_0, ver);
+		SET_VER(snd_stm_pcm_reader_info, pcm_reader_1, ver);
 
 		break;
 

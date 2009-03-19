@@ -80,6 +80,7 @@ struct snd_stm_pcm_reader {
 	int fdma_max_transfer_size;
 	struct stm_dma_params *fdma_params_list;
 	struct stm_dma_req *fdma_request;
+	int running;
 
 	snd_stm_magic_field;
 };
@@ -135,6 +136,9 @@ static void snd_stm_pcm_reader_callback_node_done(unsigned long param)
 	snd_stm_assert(pcm_reader, return);
 	snd_stm_magic_assert(pcm_reader, return);
 
+	if (!pcm_reader->running)
+		return;
+
 	snd_stm_printd(2, "Period elapsed ('%s')\n",
 			pcm_reader->device->bus_id);
 
@@ -151,6 +155,9 @@ static void snd_stm_pcm_reader_callback_node_error(unsigned long param)
 
 	snd_stm_assert(pcm_reader, return);
 	snd_stm_magic_assert(pcm_reader, return);
+
+	if (!pcm_reader->running)
+		return;
 
 	snd_stm_printe("Error during FDMA transfer in reader '%s'!\n",
 			pcm_reader->device->bus_id);
@@ -619,9 +626,10 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 			DMA_CHANNEL_STATUS_RUNNING)
 		udelay(5);
 
-	/* Enable required reader interrupts */
+	/* Enable required reader interrupt (and clear possible stalled) */
 
 	enable_irq(pcm_reader->irq);
+	set__AUD_PCMIN_ITS_CLR__OVF__CLEAR(pcm_reader);
 	set__AUD_PCMIN_IT_EN_SET__OVF__SET(pcm_reader);
 
 	/* Launch the reader */
@@ -636,6 +644,8 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 		snd_stm_conv_unmute(pcm_reader->conv_group);
 	}
 
+	pcm_reader->running = 1;
+
 	return 0;
 }
 
@@ -649,6 +659,8 @@ static inline int snd_stm_pcm_reader_stop(struct snd_pcm_substream *substream)
 
 	snd_stm_assert(pcm_reader, return -EINVAL);
 	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+
+	pcm_reader->running = 0;
 
 	/* Mute & shutdown DAC */
 

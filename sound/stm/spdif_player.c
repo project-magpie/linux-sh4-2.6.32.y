@@ -638,10 +638,12 @@ static inline int snd_stm_spdif_player_start(struct snd_pcm_substream
 			DMA_CHANNEL_STATUS_RUNNING)
 		udelay(5);
 
-	/* Enable player interrupts */
+	/* Enable player interrupts (and clear possible stalled ones) */
 
 	enable_irq(spdif_player->irq);
+	set__AUD_SPDIF_ITS_CLR__NSAMPLE__CLEAR(spdif_player);
 	set__AUD_SPDIF_IT_EN_SET__NSAMPLE__SET(spdif_player);
+	set__AUD_SPDIF_ITS_CLR__UNF__CLEAR(spdif_player);
 	set__AUD_SPDIF_IT_EN_SET__UNF__SET(spdif_player);
 
 	/* Launch the player */

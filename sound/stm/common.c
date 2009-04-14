@@ -180,7 +180,7 @@ int snd_stm_memory_request(struct platform_device *pdev,
 		return -EINVAL;
 	}
 
-	snd_stm_printd(0, "Base address is 0x%p.\n", base_address);
+	snd_stm_printd(0, "Base address is 0x%p.\n", *base_address);
 
 	return 0;
 }

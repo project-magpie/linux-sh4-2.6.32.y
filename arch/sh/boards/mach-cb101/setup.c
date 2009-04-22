@@ -171,8 +171,10 @@ static struct plat_stmnand_data nand_config = {
 };
 
 static struct platform_device nand_devices[] = {
-	STM_NAND_DEVICE(1, &nand_config, nand1_parts, ARRAY_SIZE(nand1_parts)),
-	STM_NAND_DEVICE(2, &nand_config, nand2_parts, ARRAY_SIZE(nand2_parts)),
+	STM_NAND_DEVICE("stm-nand-emi", 1, &nand_config,
+			nand1_parts, ARRAY_SIZE(nand1_parts), 0),
+	STM_NAND_DEVICE("stm-nand-emi", 2, &nand_config, nand2_parts,
+			ARRAY_SIZE(nand2_parts), 0),
 };
 
 #ifdef CONFIG_SND

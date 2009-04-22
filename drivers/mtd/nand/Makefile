@@ -35,5 +35,6 @@ obj-$(CONFIG_MTD_NAND_ORION)		+= orion_nand.o
 obj-$(CONFIG_MTD_NAND_FSL_ELBC)		+= fsl_elbc_nand.o
 obj-$(CONFIG_MTD_NAND_FSL_UPM)		+= fsl_upm.o
 obj-$(CONFIG_MTD_NAND_STM_EMI)		+= stm_nand_emi.o
+obj-$(CONFIG_MTD_NAND_STM_FLEX)		+= stm_nand_flex.o stm_nand_ecc.o
 
 nand-objs := nand_base.o nand_bbt.o

@@ -407,7 +407,7 @@ config MTD_NAND_FSL_UPM
 	  processor localbus with User-Programmable Machine support.
 
 config MTD_NAND_STM_EMI
-       tristate "STMicroelectronics NAND support: EMI 'bit-banging'"
+       tristate "STMicroelectronics: EMI 'bit-banging'"
        depends on MTD_NAND
        depends on (CPU_SUBTYPE_STX7111 || \
 			CPU_SUBTYPE_STX7200 || \
@@ -448,5 +448,26 @@ config STM_NAND_EMI_CACHED
 	  latencies at the expence of an incresed IRQ latency.
 
 endchoice
+
+config MTD_NAND_STM_FLEX
+       tristate "STMicroelectronics: H/W FLEX Controller"
+       depends on CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7200
+       help
+         Enables the STMicroelectronics NAND Controller operating in FLEX mode.
+         This driver is required to access NAND devices when boot-from-NAND is
+         enabled.
+
+config STM_NAND_FLEX_BOOTMODESUPPORT
+        bool "Enable support for boot mode ECC"
+        depends on MTD_NAND_STM_FLEX
+        help
+          This option enables support for boot partition ECC format.
+
+config STM_NAND_FLEX_BOOTPARTITION
+        string "Name of boot partition" if STM_NAND_FLEX_BOOTMODESUPPORT
+        depends on MTD_NAND_STM_FLEX
+        default "Boot firmware"
+	help
+	  Name of NAND partition on which to use boot mode ECC format
 
 endif # MTD_NAND

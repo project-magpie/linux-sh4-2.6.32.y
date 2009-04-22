@@ -40,7 +40,7 @@
 #include <linux/stm/soc.h>
 #include <linux/stm/nand.h>
 
-#define NAME	"stm-nand"
+#define NAME	"stm-nand-emi"
 
 /*
  * Private data for stm_emi_nand driver.  Concurrency and device locking
@@ -484,7 +484,7 @@ static int nand_config_emi(int bank, struct nand_timing_data *td)
 	uint32_t bus_release;
 	uint32_t wait_active_low;
 
-	printk(KERN_INFO NAME "Configuring EMI Bank %d for NAND access\n",
+	printk(KERN_INFO NAME ": Configuring EMI Bank %d for NAND access\n",
 	       bank);
 
 	if (!td) {
@@ -545,6 +545,8 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 	struct plat_stmnand_data *stmdata = pdata->ctrl.priv;
 
 	struct stm_nand_emi *data;
+	struct nand_timing_data *tm;
+
 	int res = 0;
 
 	/* Allocate memory for the driver structure (and zero it) */
@@ -562,9 +564,6 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 	data->emi_size = (1 << 18) + 1;
 
 	/* Configure EMI Bank */
-	printk(KERN_INFO NAME ": Configuring EMI Bank%d for NAND device\n",
-	       data->emi_bank);
-
 	if (nand_config_emi(data->emi_bank, stmdata->timing_data) != 0) {
 		printk(KERN_ERR NAME ": Failed to configure EMI bank "
 		       "for NAND device\n");
@@ -624,9 +623,11 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 	/* Assign more sensible name (default is string from nand_ids.c!) */
 	data->mtd.name = pdev->dev.bus_id;
 
+	tm = stmdata->timing_data;
+
 	data->chip.IO_ADDR_R = data->io_base;
 	data->chip.IO_ADDR_W = data->io_base;
-	data->chip.chip_delay = stmdata->chip_delay;
+	data->chip.chip_delay = tm->chip_delay;
 	data->chip.cmd_ctrl = nand_cmd_ctrl_emi;
 
 	/* Do we have access to NAND_RBn? */
@@ -702,7 +703,8 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
  out6:
 
 	nand_release(&data->mtd);
-	stpio_free_pin(data->rbn);
+	if (data->rbn)
+		stpio_free_pin(data->rbn);
 	platform_set_drvdata(pdev, NULL);
 	iounmap(data->io_addr);
  out5:

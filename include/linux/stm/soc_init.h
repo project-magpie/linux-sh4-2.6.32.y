@@ -187,9 +187,10 @@
 	}									\
 }
 
-#define STM_NAND_DEVICE(_id, _nand_config, _parts, _nr_parts)		\
+#define STM_NAND_DEVICE(_driver, _id, _nand_config,			\
+			_parts, _nr_parts, _chip_options)		\
 {									\
-	.name		= "stm-nand",					\
+	.name		= _driver,					\
 	.id		= _id,						\
 	.num_resources	= 2,  /* Note: EMI mem configured by driver */	\
 	.resource	= (struct resource[]) {				\
@@ -208,6 +209,8 @@
 			{						\
 				.partitions	= _parts,		\
 				.nr_partitions	= _nr_parts,		\
+				.options	= NAND_NO_AUTOINCR |	\
+						_chip_options,		\
 			},						\
 			.ctrl =						\
 			{						\

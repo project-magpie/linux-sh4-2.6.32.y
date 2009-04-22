@@ -82,11 +82,11 @@ static struct nand_ecclayout nand_oob_64 = {
 		 .length = 38}}
 };
 
-static int nand_get_device(struct nand_chip *chip, struct mtd_info *mtd,
-			   int new_state);
+int nand_get_device(struct nand_chip *chip, struct mtd_info *mtd,
+		    int new_state);
 
-static int nand_do_write_oob(struct mtd_info *mtd, loff_t to,
-			     struct mtd_oob_ops *ops);
+int nand_do_write_oob(struct mtd_info *mtd, loff_t to,
+		      struct mtd_oob_ops *ops);
 
 /*
  * For devices which display every fart in the system on a separate LED. Is
@@ -100,7 +100,7 @@ DEFINE_LED_TRIGGER(nand_led_trigger);
  *
  * Deselect, release chip lock and wake up anyone waiting on the device
  */
-static void nand_release_device(struct mtd_info *mtd)
+void nand_release_device(struct mtd_info *mtd)
 {
 	struct nand_chip *chip = mtd->priv;
 
@@ -114,6 +114,7 @@ static void nand_release_device(struct mtd_info *mtd)
 	wake_up(&chip->controller->wq);
 	spin_unlock(&chip->controller->lock);
 }
+EXPORT_SYMBOL_GPL(nand_release_device);
 
 /**
  * nand_read_byte - [DEFAULT] read one byte from the chip
@@ -665,7 +666,7 @@ static void nand_command_lp(struct mtd_info *mtd, unsigned int command,
  *
  * Get the device and lock it for exclusive access
  */
-static int
+int
 nand_get_device(struct nand_chip *chip, struct mtd_info *mtd, int new_state)
 {
 	spinlock_t *lock = &chip->controller->lock;
@@ -695,6 +696,7 @@ nand_get_device(struct nand_chip *chip, struct mtd_info *mtd, int new_state)
 	remove_wait_queue(wq, &wait);
 	goto retry;
 }
+EXPORT_SYMBOL_GPL(nand_get_device);
 
 /**
  * nand_wait - [DEFAULT]  wait until the command is done
@@ -1033,8 +1035,8 @@ static uint8_t *nand_transfer_oob(struct nand_chip *chip, uint8_t *oob,
  *
  * Internal function. Called with chip held.
  */
-static int nand_do_read_ops(struct mtd_info *mtd, loff_t from,
-			    struct mtd_oob_ops *ops)
+int nand_do_read_ops(struct mtd_info *mtd, loff_t from,
+		     struct mtd_oob_ops *ops)
 {
 	int chipnr, page, realpage, col, bytes, aligned;
 	struct nand_chip *chip = mtd->priv;
@@ -1161,6 +1163,7 @@ static int nand_do_read_ops(struct mtd_info *mtd, loff_t from,
 
 	return  mtd->ecc_stats.corrected - stats.corrected ? -EUCLEAN : 0;
 }
+EXPORT_SYMBOL_GPL(nand_do_read_ops);
 
 /**
  * nand_read - [MTD Interface] MTD compability function for nand_do_read_ecc
@@ -1346,7 +1349,7 @@ static int nand_write_oob_syndrome(struct mtd_info *mtd,
  *
  * NAND read out-of-band data from the spare area
  */
-static int nand_do_read_oob(struct mtd_info *mtd, loff_t from,
+int nand_do_read_oob(struct mtd_info *mtd, loff_t from,
 			    struct mtd_oob_ops *ops)
 {
 	int page, realpage, chipnr, sndcmd = 1;
@@ -1430,6 +1433,7 @@ static int nand_do_read_oob(struct mtd_info *mtd, loff_t from,
 	ops->oobretlen = ops->ooblen;
 	return 0;
 }
+EXPORT_SYMBOL_GPL(nand_do_read_oob);
 
 /**
  * nand_read_oob - [MTD Interface] NAND read data and/or out-of-band
@@ -1703,8 +1707,8 @@ static uint8_t *nand_fill_oob(struct nand_chip *chip, uint8_t *oob,
  *
  * NAND write with ECC
  */
-static int nand_do_write_ops(struct mtd_info *mtd, loff_t to,
-			     struct mtd_oob_ops *ops)
+int nand_do_write_ops(struct mtd_info *mtd, loff_t to,
+		      struct mtd_oob_ops *ops)
 {
 	int chipnr, realpage, page, blockmask, column;
 	struct nand_chip *chip = mtd->priv;
@@ -1795,6 +1799,7 @@ static int nand_do_write_ops(struct mtd_info *mtd, loff_t to,
 		ops->oobretlen = ops->ooblen;
 	return ret;
 }
+EXPORT_SYMBOL_GPL(nand_do_write_ops);
 
 /**
  * nand_write - [MTD Interface] NAND write with ECC
@@ -1841,7 +1846,7 @@ static int nand_write(struct mtd_info *mtd, loff_t to, size_t len,
  *
  * NAND write out-of-band
  */
-static int nand_do_write_oob(struct mtd_info *mtd, loff_t to,
+int nand_do_write_oob(struct mtd_info *mtd, loff_t to,
 			     struct mtd_oob_ops *ops)
 {
 	int chipnr, page, status, len;
@@ -1912,6 +1917,7 @@ static int nand_do_write_oob(struct mtd_info *mtd, loff_t to,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(nand_do_write_oob);
 
 /**
  * nand_write_oob - [MTD Interface] NAND write data and/or out-of-band

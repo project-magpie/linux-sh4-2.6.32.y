@@ -88,8 +88,8 @@ static struct plat_stmnand_data nand_config = {
  * device structure.  SoC setup will configure SoC specific data.
  */
 static struct platform_device nand_device =
-	STM_NAND_DEVICE(STEM_CS0_BANK, &nand_config,
-			nand_parts, ARRAY_SIZE(nand_parts));
+	STM_NAND_DEVICE("stm-nand-emi", STEM_CS0_BANK, &nand_config,
+			nand_parts, ARRAY_SIZE(nand_parts), 0);
 
 #endif
 

@@ -160,7 +160,7 @@ static struct emi_timing_data nand_timing_data = {
 
 };
 
-static struct nand_config_data cb101_nand_config[] = {
+static struct plat_stmnand_data cb101_nand_config[] = {
 {
 	.emi_bank		= 1,
 	.emi_withinbankoffset	= 0,

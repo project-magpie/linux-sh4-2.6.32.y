@@ -222,7 +222,7 @@ static struct mtd_partition nand_partitions[] = {
 	},
 };
 
-static struct nand_config_data nand_config = {
+static struct plat_stmnand_data nand_config = {
 	.emi_bank		= 1,	/* Can be overridden */
 	.emi_withinbankoffset	= 0,
 

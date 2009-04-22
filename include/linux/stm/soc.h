@@ -430,20 +430,31 @@ struct plat_sysconf_data {
 
 
 
-/* NAND configuration data */
-struct nand_config_data {
-	unsigned int emi_bank;			/* EMI Bank#			*/
-	unsigned int emi_withinbankoffset;	/* Offset within EMI Bank	*/
-	void *emi_timing_data;			/* Timing data for EMI config   */
-	void *mtd_parts;			/* MTD partition table		*/
-	unsigned int chip_delay;		/* Read busy time for NAND chip */
-	int nr_parts;				/* Number of partitions		*/
-	int rbn_port;				/*  # : 'nand_RBn' PIO port #   */
-						/* -1 : if unconnected		*/
-	int rbn_pin;			        /*      'nand_RBn' PIO pin      */
-						/* (assumes shared RBn signal   */
-						/*  for multiple chips)		*/
+/* STM NAND configuration data (plat_nand/STM_NAND_EMI/FLEX/AFM) */
+struct plat_stmnand_data {
+	/* plat_nand/STM_NAND_EMI paramters */
+	unsigned int	emi_withinbankoffset;  /* Offset within EMI Bank      */
+	int		rbn_port;		/*  # : 'nand_RBn' PIO port   */
+						/* -1 : if unconnected	      */
+	int		rbn_pin;	        /*      'nand_RBn' PIO pin    */
+						/* (assumes shared RBn signal */
+						/*  for multiple chips)	      */
+
+	/* STM_NAND_EMI/FLEX/AFM paramters */
+	void		*timing_data;		/* Timings for EMI/NandC      */
+	unsigned char	flex_rbn_connected;	/* RBn signal connected?      */
+						/* (Required for NAND_AFM)    */
+
+	/* Legacy data for backwards compatibility with plat_nand driver      */
+	/*   will be removed once all platforms updated to use STM_NAND_EMI!  */
+	unsigned int	emi_bank;		/* EMI bank                   */
+	void		*emi_timing_data;	/* Timing data for EMI config */
+	void		*mtd_parts;		/* MTD partition table	      */
+	int		nr_parts;		/* Numer of partitions	      */
+	unsigned int	chip_delay;		/* Read-busy delay	      */
+
 };
+
 
 void stx5197_early_device_init(void);
 void stx5197_configure_asc(const int *ascs, int num_ascs, int console);
@@ -474,7 +485,7 @@ void stx7105_configure_ssc(struct plat_ssc_data *data);
 void stx7105_configure_usb(int port, struct usb_init_data *data);
 void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 				int ext_mdio, int ext_clk, int phy_bus);
-void stx7105_configure_nand(struct nand_config_data *data);
+void stx7105_configure_nand(struct plat_stmnand_data *data);
 void stx7105_configure_lirc(lirc_scd_t *scd);
 void stx7105_configure_pata(int bank, int pc_mode, int irq);
 void stx7105_configure_audio_pins(int pcmout, int spdif, int pcmin);
@@ -487,7 +498,7 @@ void stx7111_configure_pwm(struct plat_stm_pwm_data *data);
 void stx7111_configure_ssc(struct plat_ssc_data *data);
 void stx7111_configure_usb(int inv_enable);
 void stx7111_configure_ethernet(int en_mii, int sel, int ext_clk, int phy_bus);
-void stx7111_configure_nand(struct nand_config_data *data);
+void stx7111_configure_nand(struct plat_stmnand_data *data);
 void stx7111_configure_lirc(lirc_scd_t *scd);
 void stx7111_configure_pci(struct pci_config_data *pci_config);
 int  stx7111_pcibios_map_platform_irq(struct pci_config_data *pci_config, u8 pin);
@@ -512,7 +523,7 @@ void stx7200_configure_sata(unsigned int port);
 void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 				int phy_bus);
 void stx7200_configure_lirc(lirc_scd_t *scd);
-void stx7200_configure_nand(struct nand_config_data *data);
+void stx7200_configure_nand(struct plat_stmnand_data *data);
 void stx7200_configure_pata(int bank, int pc_mode, int irq);
 
 void stm_sata_miphy_init(void);

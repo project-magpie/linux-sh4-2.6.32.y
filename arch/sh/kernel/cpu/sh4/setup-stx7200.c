@@ -963,7 +963,7 @@ static struct platform_device nand_flash[] = {
  * Uses 'gen_nand.x' as ID for specifying MTD partitions on the kernel
  * command line.
  */
-void __init stx7200_configure_nand(struct nand_config_data *data)
+void __init stx7200_configure_nand(struct plat_stmnand_data *data)
 {
 	unsigned int bank_base;
 	unsigned int emi_bank = data->emi_bank;

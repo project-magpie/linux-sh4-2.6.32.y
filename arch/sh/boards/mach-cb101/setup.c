@@ -14,7 +14,10 @@
 #include <linux/platform_device.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
+#include <linux/stm/soc_init.h>
 #include <linux/stm/emi.h>
+#include <linux/mtd/nand.h>
+#include <linux/stm/nand.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
@@ -144,46 +147,32 @@ static struct mtd_partition nand2_parts[] = {
 	},
 };
 
-/* Timing data for onboard NAND */
-static struct emi_timing_data nand_timing_data = {
-	.rd_cycle_time	 = 40,		 /* times in ns */
-	.rd_oee_start	 = 0,
-	.rd_oee_end	 = 10,
-	.rd_latchpoint	 = 10,
+static struct plat_stmnand_data nand_config = {
+	/* STM_NAND_EMI data */
+	.emi_withinbankoffset	= 0,
+	.rbn_port		= 2,
+	.rbn_pin		= 7,
 
-	.busreleasetime  = 10,
-	.wr_cycle_time	 = 40,
-	.wr_oee_start	 = 0,
-	.wr_oee_end	 = 10,
+	/* STM_NAND_FLEX data */
+	.flex_rbn_connected	= 1,
 
-	.wait_active_low = 0,
-
+	/* STM_NAND_EMI/FLEX timing data */
+	.timing_data = &(struct nand_timing_data) {
+		.sig_setup	= 50,		/* times in ns */
+		.sig_hold	= 50,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
+		.wr_on		= 10,
+		.wr_off		= 40,
+		.rd_on		= 10,
+		.rd_off		= 40,
+		.chip_delay	= 30,		/* in us */
+	},
 };
 
-static struct plat_stmnand_data cb101_nand_config[] = {
-{
-	.emi_bank		= 1,
-	.emi_withinbankoffset	= 0,
-
-	.emi_timing_data	= &nand_timing_data,
-
-	.chip_delay		= 25,
-	.mtd_parts		= nand1_parts,
-	.nr_parts		= ARRAY_SIZE(nand1_parts),
-	.rbn_port		= 2,
-	.rbn_pin		= 7,
-}, {
-	.emi_bank		= 2,
-	.emi_withinbankoffset	= 0,
-
-	.emi_timing_data	= &nand_timing_data,
-
-	.chip_delay		= 25,
-	.mtd_parts		= nand2_parts,
-	.nr_parts		= ARRAY_SIZE(nand2_parts),
-	.rbn_port		= 2,
-	.rbn_pin		= 7,
-}
+static struct platform_device nand_devices[] = {
+	STM_NAND_DEVICE(1, &nand_config, nand1_parts, ARRAY_SIZE(nand1_parts)),
+	STM_NAND_DEVICE(2, &nand_config, nand2_parts, ARRAY_SIZE(nand2_parts)),
 };
 
 #ifdef CONFIG_SND
@@ -219,8 +208,8 @@ static int __init device_init(void)
 	stx7200_configure_usb(2);
 	stx7200_configure_ethernet(0, 0, 0, 0);
 	stx7200_configure_lirc(NULL);
-	stx7200_configure_nand(&cb101_nand_config[0]);
-	stx7200_configure_nand(&cb101_nand_config[1]);
+	stx7200_configure_nand(&nand_devices[0]);
+	stx7200_configure_nand(&nand_devices[1]);
 
 	return platform_add_devices(cb101_devices, ARRAY_SIZE(cb101_devices));
 }

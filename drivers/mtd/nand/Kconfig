@@ -406,4 +406,47 @@ config MTD_NAND_FSL_UPM
 	  Enables support for NAND Flash chips wired onto Freescale PowerPC
 	  processor localbus with User-Programmable Machine support.
 
+config MTD_NAND_STM_EMI
+       tristate "STMicroelectronics NAND support: EMI 'bit-banging'"
+       depends on MTD_NAND
+       depends on (CPU_SUBTYPE_STX7111 || \
+			CPU_SUBTYPE_STX7200 || \
+			CPU_SUBTYPE_STX7105 || \
+			CPU_SUBTYPE_STX7141)
+       help
+         Enables the STMicroelectronics NAND driver for platforms in which the
+         device is connected via an EMI bank.
+
+choice
+	prompt "Data Transfer"
+	depends on MTD_NAND_STM_EMI
+	default STM_NAND_EMI_LONGSL
+
+config STM_NAND_EMI_BYTE
+       bool "Legacy byte access"
+       help
+         Use legacy byte-wise access for page transfers.
+
+config STM_NAND_EMI_LONGSL
+	bool "Standard"
+	help
+	  Use optimised multi-byte routines for page transfers.
+
+config STM_NAND_EMI_FDMA
+	bool "FDMA Transfers"
+	depends on STM_DMA
+	help
+	  Use FDMA trasfers for page transfers.  Reduces CPU load during page
+	  read/writes.  Setup overheads may outweigh gains for small-page
+	  devices.
+
+config STM_NAND_EMI_CACHED
+	depends on EXPERIMENTAL
+	bool "Cached Transfers [EXPERIMENTAL]"
+	help
+	  Perform page transers via the cache-line.  Reduces the impact of STBus
+	  latencies at the expence of an incresed IRQ latency.
+
+endchoice
+
 endif # MTD_NAND

@@ -523,7 +523,7 @@ void stx7200_configure_sata(unsigned int port);
 void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 				int phy_bus);
 void stx7200_configure_lirc(lirc_scd_t *scd);
-void stx7200_configure_nand(struct plat_stmnand_data *data);
+void stx7200_configure_nand(struct platform_device *pdev);
 void stx7200_configure_pata(int bank, int pc_mode, int irq);
 
 void stm_sata_miphy_init(void);

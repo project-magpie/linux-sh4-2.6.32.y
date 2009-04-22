@@ -24,6 +24,8 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/mtd/partitions.h>
+#include <linux/mtd/nand.h>
+#include <linux/stm/nand.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/emi.h>
 #include <mach/stem.h>
@@ -43,8 +45,26 @@ static struct mtd_partition nand_partitions[] = {
 static struct plat_stmnand_data nand_config = {
 	.emi_bank		= STEM_CS0_BANK,
 	.emi_withinbankoffset	= STEM_CS0_OFFSET,
+	.chip_delay		= 30,
+	.mtd_parts		= nand_partitions,
+	.nr_parts		= ARRAY_SIZE(nand_partitions),
+	.rbn_port		= -1,
+	.rbn_pin		= -1,
 
-	/* Timing data for ST-NAND512W3A2C */
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
+	/* Timing data for SoCs using STM_NAND_EMI/FLEX/AFM drivers */
+	.timing_data = &(struct nand_timing_data) {
+		.sig_setup	= 50,		/* times in ns */
+		.sig_hold	= 50,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
+		.wr_on		= 10,
+		.wr_off		= 40,
+		.rd_on		= 10,
+		.rd_off		= 40,
+	},
+#else
+	/* Legacy Timing data for generic plat_nand driver */
 	.emi_timing_data = &(struct emi_timing_data) {
 		.rd_cycle_time	 = 50,		 /* times in ns */
 		.rd_oee_start	 = 0,
@@ -57,13 +77,58 @@ static struct plat_stmnand_data nand_config = {
 		.wr_oee_end	 = 10,
 		.wait_active_low = 0,
 	},
-
-	.chip_delay		= 30,
-	.mtd_parts		= nand_partitions,
-	.nr_parts		= ARRAY_SIZE(nand_partitions),
-	.rbn_port		= -1,
-	.rbn_pin		= -1,
+#endif
 };
+
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
+/* For SoCs migrated to STM_NAND_EMI/FLEX/AFM drivers, setup template platform
+ * device structure.  SoC setup will configure SoC specific data.
+ */
+static const char *nand_part_probes[] = { "cmdlinepart", NULL };
+
+static struct platform_device nand_device = {
+	.name		= "stm-nand",
+	.id		= STEM_CS0_BANK,
+	.num_resources	= 2,	/* Note: EMI mem configured by driver */
+	.resource	= (struct resource[]) {
+		[0] = {
+			/* NAND controller base address (FLEX/AFM) */
+			.name		= "flex_mem",
+			.flags		= IORESOURCE_MEM,
+		},
+		[1] = {
+			/* NAND controller IRQ (FLEX/AFM) */
+			.name		= "flex_irq",
+			.flags		= IORESOURCE_IRQ,
+		},
+		[2] = {
+			/* EMI Bank base address */
+			.name		= "emi_mem",
+			.flags		= IORESOURCE_MEM,
+		},
+
+	},
+
+	.dev		= {
+		.platform_data = &(struct platform_nand_data) {
+			.chip =
+			{
+				.chip_delay	= 30,
+				.partitions	= nand_partitions,
+				.nr_partitions	= ARRAY_SIZE(nand_partitions),
+				.part_probe_types = nand_part_probes,
+			},
+			.ctrl =
+			{
+				.priv = &nand_config,
+			},
+		},
+	},
+};
+
+
+
+#endif
 
 static int __init mb588_init(void)
 {
@@ -72,7 +137,7 @@ static int __init mb588_init(void)
 #elif defined(CONFIG_CPU_SUBTYPE_STX7111)
 	stx7111_configure_nand(&nand_config);
 #elif defined(CONFIG_CPU_SUBTYPE_STX7200)
-	stx7200_configure_nand(&nand_config);
+	stx7200_configure_nand(&nand_device);
 #else
 #	error Unsupported SOC.
 #endif

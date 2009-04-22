@@ -54,6 +54,7 @@ unsigned long emi_bank_base(int bank)
 
 	return emi_memory_base + (reg << 22);
 }
+EXPORT_SYMBOL_GPL(emi_bank_base);
 
 void emi_bank_configure(int bank, unsigned long data[4])
 {
@@ -64,6 +65,7 @@ void emi_bank_configure(int bank, unsigned long data[4])
 	for (i = 0; i < 4; i++)
 		writel(data[i], emi_control + BANK_EMICONFIGDATA(bank, i));
 }
+EXPORT_SYMBOL_GPL(emi_bank_configure);
 
 void emi_config_pcmode(int bank, int pc_mode)
 {
@@ -92,7 +94,7 @@ void emi_config_pcmode(int bank, int pc_mode)
 		writel(val, emi_control + EMI_GEN_CFG);
 	}
 }
-
+EXPORT_SYMBOL_GPL(emi_config_pcmode);
 
 /*
  *                ______________________________
@@ -166,8 +168,6 @@ static void __init set_pata_write_timings(int bank, int cycle_time,
 
 void __init emi_config_pata(int bank, int pc_mode)
 {
-	int mask;
-
 	BUG_ON(!emi_initialised);
 
 	/* Set timings for PIO4 */
@@ -178,7 +178,7 @@ void __init emi_config_pata(int bank, int pc_mode)
 
 }
 
-static void __init set_nand_read_timings(int bank, int cycle_time,
+static void set_nand_read_timings(int bank, int cycle_time,
 		int IORD_start, int IORD_end,
 		int RD_latch, int busreleasetime,
 		int wait_active_low )
@@ -196,7 +196,7 @@ static void __init set_nand_read_timings(int bank, int cycle_time,
 			emi_control + BANK_EMICONFIGDATA(bank, 1));
 }
 
-static void __init set_nand_write_timings(int bank, int cycle_time,
+static void set_nand_write_timings(int bank, int cycle_time,
 		int IOWR_start, int IOWR_end)
 {
 	cycle_time = cycle_time / 10;		/* cycles */
@@ -207,7 +207,7 @@ static void __init set_nand_write_timings(int bank, int cycle_time,
 			emi_control + BANK_EMICONFIGDATA(bank, 2));
 }
 
-void __init emi_config_nand(int bank, struct emi_timing_data *timing_data)
+void emi_config_nand(int bank, struct emi_timing_data *timing_data)
 {
 	BUG_ON(!emi_initialised);
 
@@ -227,6 +227,7 @@ void __init emi_config_nand(int bank, struct emi_timing_data *timing_data)
 	/* Disable PC mode */
 	emi_config_pcmode(bank, 0);
 }
+EXPORT_SYMBOL_GPL(emi_config_nand);
 
 #ifdef CONFIG_PM
 /*

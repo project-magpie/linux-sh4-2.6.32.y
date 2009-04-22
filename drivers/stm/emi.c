@@ -65,6 +65,33 @@ void emi_bank_configure(int bank, unsigned long data[4])
 		writel(data[i], emi_control + BANK_EMICONFIGDATA(bank, i));
 }
 
+void emi_config_pcmode(int bank, int pc_mode)
+{
+	int mask;
+
+	BUG_ON(!emi_initialised);
+
+	switch (bank) {
+	case 2:	/* Bank C */
+		mask = 1<<3;
+		break;
+	case 3:	/* Bank D */
+		mask = 1<<4;
+		break;
+	default:
+		mask = 0;
+		break;
+	}
+
+	if (mask) {
+		u32 val = readl(emi_control + EMI_GEN_CFG);
+		if (pc_mode)
+			val |= mask;
+		else
+			val &= (~mask);
+		writel(val, emi_control + EMI_GEN_CFG);
+	}
+}
 
 
 /*
@@ -147,26 +174,8 @@ void __init emi_config_pata(int bank, int pc_mode)
 	set_pata_read_timings(bank, 120, 35, 30, 20);
 	set_pata_write_timings(bank, 120, 35, 30);
 
-	switch (bank) {
-	case 2:	/* Bank C */
-		mask = 1<<3;
-		break;
-	case 3:	/* Bank D */
-		mask = 1<<4;
-		break;
-	default:
-		mask = 0;
-		break;
-	}
+	emi_config_pcmode(bank, pc_mode);
 
-	if (mask) {
-		u32 val = readl(emi_control + EMI_GEN_CFG);
-		if (pc_mode)
-			val |= mask;
-		else
-			val &= (~mask);
-		writel(val, emi_control + EMI_GEN_CFG);
-	}
 }
 
 static void __init set_nand_read_timings(int bank, int cycle_time,
@@ -214,6 +223,9 @@ void __init emi_config_nand(int bank, struct emi_timing_data *timing_data)
 			timing_data->wr_cycle_time,
 			timing_data->wr_oee_start,
 			timing_data->wr_oee_end);
+
+	/* Disable PC mode */
+	emi_config_pcmode(bank, 0);
 }
 
 #ifdef CONFIG_PM

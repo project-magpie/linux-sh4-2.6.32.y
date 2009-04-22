@@ -187,6 +187,36 @@
 	}									\
 }
 
+#define STM_NAND_DEVICE(_id, _nand_config, _parts, _nr_parts)		\
+{									\
+	.name		= "stm-nand",					\
+	.id		= _id,						\
+	.num_resources	= 2,  /* Note: EMI mem configured by driver */	\
+	.resource	= (struct resource[]) {				\
+		[0] = { /* NAND controller base address (FLEX/AFM) */	\
+			.name		= "flex_mem",			\
+			.flags		= IORESOURCE_MEM,		\
+		},							\
+		[1] = { /* NAND controller IRQ (FLEX/AFM) */		\
+			.name		= "flex_irq",			\
+			.flags		= IORESOURCE_IRQ,		\
+		},							\
+	},								\
+	.dev		= {						\
+		.platform_data = &(struct platform_nand_data) {		\
+			.chip =						\
+			{						\
+				.partitions	= _parts,		\
+				.nr_partitions	= _nr_parts,		\
+			},						\
+			.ctrl =						\
+			{						\
+				.priv = _nand_config,			\
+			},						\
+		},							\
+	},								\
+}
+
 #define SATA_DEVICE(_port, _base, _irq_hostc, _irq_dmac, _private)	\
 {									\
 	.name = "sata_stm",						\

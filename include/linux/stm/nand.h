@@ -25,6 +25,8 @@ struct nand_timing_data {
 
 	int rd_on;
 	int rd_off;
+
+	int chip_delay;		/* delay in us */
 };
 
 

@@ -75,6 +75,7 @@ struct stm_nand_emi {
 #endif
 };
 
+static const char *part_probes[] = { "cmdlinepart", NULL };
 
 /*
  * Routines for FDMA transfers.
@@ -625,7 +626,7 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 
 	data->chip.IO_ADDR_R = data->io_base;
 	data->chip.IO_ADDR_W = data->io_base;
-	data->chip.chip_delay = pdata->chip.chip_delay;
+	data->chip.chip_delay = stmdata->chip_delay;
 	data->chip.cmd_ctrl = nand_cmd_ctrl_emi;
 
 	/* Do we have access to NAND_RBn? */
@@ -682,14 +683,10 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 	data->chip.options |= pdata->chip.options;
 
 #ifdef CONFIG_MTD_PARTITIONS
-	if (pdata->chip.part_probe_types) {
-		res = parse_mtd_partitions(&data->mtd,
-					   pdata->chip.part_probe_types,
-					   &data->parts, 0);
-		if (res > 0) {
-			add_mtd_partitions(&data->mtd, data->parts, res);
-			return 0;
-		}
+	res = parse_mtd_partitions(&data->mtd, part_probes, &data->parts, 0);
+	if (res > 0) {
+		add_mtd_partitions(&data->mtd, data->parts, res);
+		return 0;
 	}
 	if (pdata->chip.partitions) {
 		data->parts = pdata->chip.partitions;

@@ -947,24 +947,27 @@ void __init stx7141_configure_asc(const int *ascs, int num_ascs, int console)
 			BUG();
 		}
 
-		uart_data->pio_port = pio_port;
 
 		if (pio_port) {
 			/* Tx */
 			stx7141_pio_sysconf(pio_port, 0, 3, "asc");
-			uart_data->pio_pin[0] = 0;
+			uart_data->pios[0].pio_port = pio_port;
+			uart_data->pios[0].pio_pin = 0;
 			/* Rx */
 			stx7141_pio_sysconf(pio_port, 1, 3, "asc");
-			uart_data->pio_pin[1] = 1;
+			uart_data->pios[1].pio_port = pio_port;
+			uart_data->pios[1].pio_pin = 1;
 		}
 
 		if (!(flags & STASC_FLAG_NORTSCTS)) {
 			/* CTS */
 			stx7141_pio_sysconf(pio_port, 2, 3, "asc");
-			uart_data->pio_pin[2] = 2;
+			uart_data->pios[2].pio_port = pio_port;
+			uart_data->pios[2].pio_pin = 2;
 			/* RTS */
 			stx7141_pio_sysconf(pio_port, 3, 3, "asc");
-			uart_data->pio_pin[3] = 3;
+			uart_data->pios[3].pio_port = pio_port;
+			uart_data->pios[3].pio_pin = 3;
 		}
 		pdev->id = i;
 		((struct stasc_uart_data *)(pdev->dev.platform_data))->flags =

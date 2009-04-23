@@ -857,19 +857,23 @@ void __init stx7105_configure_asc(const int *ascs, int num_ascs, int console)
 		uart_data = pdev->dev.platform_data;
 
 		/* Tx */
-		stx7105_pio_sysconf(uart_data->pio_port, uart_data->pio_pin[0],
-				    alt_conf[port], "asc");
+		stx7105_pio_sysconf(uart_data->pios[0].pio_port,
+				uart_data->pios[0].pio_pin,
+				alt_conf[port], "asc");
 		/* Rx */
-		stx7105_pio_sysconf(uart_data->pio_port, uart_data->pio_pin[1],
-				    alt_conf[port], "asc");
+		stx7105_pio_sysconf(uart_data->pios[1].pio_port,
+				uart_data->pios[1].pio_pin,
+				alt_conf[port], "asc");
 
 		if (! (flags & STASC_FLAG_NORTSCTS)) {
 			/* CTS */
-			stx7105_pio_sysconf(uart_data->pio_port, uart_data->pio_pin[2],
-					    alt_conf[port], "asc");
+			stx7105_pio_sysconf(uart_data->pios[2].pio_port,
+					uart_data->pios[2].pio_pin,
+					alt_conf[port], "asc");
 			/* RTS */
-			stx7105_pio_sysconf(uart_data->pio_port, uart_data->pio_pin[3],
-					    alt_conf[port], "asc");
+			stx7105_pio_sysconf(uart_data->pios[3].pio_port,
+					uart_data->pios[3].pio_pin,
+					alt_conf[port], "asc");
 		}
 		pdev->id = i;
 		((struct stasc_uart_data*)(pdev->dev.platform_data))->flags = flags;

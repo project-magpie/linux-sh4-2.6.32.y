@@ -470,7 +470,8 @@ static int asc_serial_resume(struct platform_device *pdev)
 	/* Reconfigure the Pio Pins */
 	for (i = 0; i < 4; ++i)
 		if (ascport->pios[i])
-			stpio_configure_pin(ascport->pios[i], pdata->pio_direction[i]);
+			stpio_configure_pin(ascport->pios[i],
+					pdata->pios[i].pio_direction);
 
 	asc_enable_rx_interrupts(port);
 	asc_enable_tx_interrupts(port);
@@ -555,10 +556,10 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 		}
 	}
 
-	for (i=0; i<((ascport->flags & STASC_FLAG_NORTSCTS) ? 2 : 4); i++) {
-		ascport->pios[i] = stpio_request_pin(pdata->pio_port,
-			pdata->pio_pin[i], DRIVER_NAME, pdata->pio_direction[i]);
-	}
+	for (i = 0; i < ((ascport->flags & STASC_FLAG_NORTSCTS) ? 2 : 4); i++)
+		ascport->pios[i] = stpio_request_pin(pdata->pios[i].pio_port,
+				pdata->pios[i].pio_pin, DRIVER_NAME,
+				pdata->pios[i].pio_direction);
 
 	return 0;
 }

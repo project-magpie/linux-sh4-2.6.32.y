@@ -45,9 +45,28 @@
 	},								\
 	.dev = {							\
 		.platform_data = &(struct stasc_uart_data) {		\
-			.pio_port	= _pio_port,			\
-			.pio_pin	= { _ptx, _prx, _pcts, _prts },	\
-			.pio_direction	= { _dptx, _dprx, _dpcts, _dprts},\
+			.pios = {					\
+				[0] = {	/* TXD */			\
+					.pio_port	= _pio_port,	\
+					.pio_pin	= _ptx,		\
+					.pio_direction	= _dptx,	\
+				},					\
+				[1] = { /* RXD */			\
+					.pio_port	= _pio_port,	\
+					.pio_pin	= _prx,		\
+					.pio_direction	= _dprx,	\
+				},					\
+				[2] = {	/* CTS */			\
+					.pio_port	= _pio_port,	\
+					.pio_pin	= _pcts,	\
+					.pio_direction	= _dpcts,	\
+				},					\
+				[3] = { /* RTS */			\
+					.pio_port	= _pio_port,	\
+					.pio_pin	= _prts,	\
+					.pio_direction	= _dprts,	\
+				},					\
+			},						\
 		}							\
 	}								\
 }

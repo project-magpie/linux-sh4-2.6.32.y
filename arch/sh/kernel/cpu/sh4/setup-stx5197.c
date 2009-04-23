@@ -578,20 +578,22 @@ void __init stx5197_configure_asc(const int *ascs, int num_ascs, int console)
 		uart_data = pdev->dev.platform_data;
 
 		/* Tx */
-		stx5197_pio_conf(uart_data->pio_port, uart_data->pio_pin[0],
-				 asc_alt[port][0], "asc");
+		stx5197_pio_conf(uart_data->pios[0].pio_port,
+				uart_data->pios[0].pio_pin,
+				asc_alt[port][0], "asc");
 		/* Rx */
-		stx5197_pio_conf(uart_data->pio_port, uart_data->pio_pin[1],
-				 asc_alt[port][1], "asc");
+		stx5197_pio_conf(uart_data->pios[1].pio_port,
+				uart_data->pios[1].pio_pin,
+				asc_alt[port][1], "asc");
 
 		if (!(flags & STASC_FLAG_NORTSCTS)) {
 			/* CTS */
-			stx5197_pio_conf(uart_data->pio_port,
-					 uart_data->pio_pin[2],
+			stx5197_pio_conf(uart_data->pios[2].pio_port,
+					 uart_data->pios[2].pio_pin,
 					 asc_alt[port][2], "asc");
 			/* RTS */
-			stx5197_pio_conf(uart_data->pio_port,
-					 uart_data->pio_pin[3],
+			stx5197_pio_conf(uart_data->pios[3].pio_port,
+					 uart_data->pios[3].pio_pin,
 					 asc_alt[port][3], "asc");
 		}
 		pdev->id = i;

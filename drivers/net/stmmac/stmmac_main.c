@@ -1547,6 +1547,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 	}
 #endif
 	count = 0;
+	prefetch(p);
 	while (!priv->mac_type->ops->get_rx_owner(p)) {
 		int status;
 
@@ -1557,6 +1558,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 
 		next_entry = (++priv->cur_rx) % rxsize;
 		p_next = priv->dma_rx + next_entry;
+		prefetch(p_next);
 
 		/* read the status of the incoming frame */
 		status = (priv->mac_type->ops->rx_status(&dev->stats,
@@ -1586,6 +1588,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 				dev->stats.rx_dropped++;
 				break;
 			}
+			prefetch(skb->data - NET_IP_ALIGN);
 			priv->rx_skbuff[entry] = NULL;
 
 			skb_put(skb, frame_len);
@@ -1613,7 +1616,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 			dev->last_rx = jiffies;
 		}
 		entry = next_entry;
-		p = p_next;
+		p = p_next;	/* use prefetched values */
 	}
 
 	stmmac_rx_refill(dev);

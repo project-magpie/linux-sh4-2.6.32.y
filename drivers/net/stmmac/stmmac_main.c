@@ -77,10 +77,6 @@ static int debug = -1;		/* -1: default, 0: no output, 16:  all */
 module_param(debug, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(debug, "Message Level (0: no output, 16: all)");
 
-static int minrx;
-module_param(minrx, int, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(minrx, "Copy only tiny-frames");
-
 static int phyaddr = -1;
 module_param(phyaddr, int, S_IRUGO);
 MODULE_PARM_DESC(phyaddr, "Physical device address");
@@ -169,8 +165,6 @@ static __inline__ void stmmac_verify_args(void)
 {
 	if (watchdog < 0)
 		watchdog = TX_TIMEO;
-	if (minrx < 0)
-		minrx = ETH_FRAME_LEN;
 	if (dma_rxsize < 0)
 		dma_rxsize = DMA_RX_SIZE;
 	if (dma_txsize < 0)
@@ -1540,7 +1534,11 @@ static int stmmac_rx(struct net_device *dev, int limit)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	unsigned int rxsize = priv->dma_rx_size;
-	unsigned int entry = priv->cur_rx % rxsize, count;
+	unsigned int entry = priv->cur_rx % rxsize;
+	unsigned int next_entry;
+	unsigned int count = 0;
+	struct dma_desc *p = priv->dma_rx + entry;
+	struct dma_desc *p_next;
 
 #ifdef STMMAC_RX_DEBUG
 	if (netif_msg_hw(priv)) {
@@ -1548,18 +1546,24 @@ static int stmmac_rx(struct net_device *dev, int limit)
 		display_ring(priv->dma_rx, rxsize);
 	}
 #endif
-	for (count = 0; count < limit; ++count) {
-		struct dma_desc *p = priv->dma_rx + entry;
+	count = 0;
+	while (!priv->mac_type->ops->get_rx_owner(p)) {
 		int status;
 
-		if (priv->mac_type->ops->get_rx_owner(p))
+		if (count >= limit)
 			break;
+
+		count++;
+
+		next_entry = (++priv->cur_rx) % rxsize;
+		p_next = priv->dma_rx + next_entry;
+
 		/* read the status of the incoming frame */
 		status = (priv->mac_type->ops->rx_status(&dev->stats,
 							 &priv->xstats, p));
-		if (unlikely(status == discard_frame)) {
+		if (unlikely(status == discard_frame))
 			dev->stats.rx_errors++;
-		} else {
+		else {
 			struct sk_buff *skb;
 			/* Length should omit the CRC */
 			int frame_len =
@@ -1574,53 +1578,21 @@ static int stmmac_rx(struct net_device *dev, int limit)
 				printk(KERN_DEBUG "\tdesc: %p [entry %d]"
 				       " buff=0x%x\n", p, entry, p->des2);
 #endif
-
-			/* Check if the packet is long enough to accept without
-			   copying to a minimally-sized skbuff. */
-			if (unlikely(frame_len < minrx)) {
-				skb =
-				    dev_alloc_skb(STMMAC_ALIGN(frame_len + 2));
-				if (unlikely(!skb)) {
-					if (printk_ratelimit())
-						printk(KERN_NOTICE
-						       "%s: low memory, "
-						       "packet dropped.\n",
-						       dev->name);
-					dev->stats.rx_dropped++;
-					break;
-				}
-
-				skb_reserve(skb, STMMAC_IP_ALIGN);
-				dma_sync_single_for_cpu(priv->device,
-							priv->rx_skbuff_dma
-							[entry], frame_len,
-							DMA_FROM_DEVICE);
-				skb_copy_to_linear_data(skb,
-							priv->
-							rx_skbuff[entry]->data,
-							frame_len);
-
-				skb_put(skb, frame_len);
-				dma_sync_single_for_device(priv->device,
-							   priv->rx_skbuff_dma
-							   [entry], frame_len,
-							   DMA_FROM_DEVICE);
-			} else {	/* zero-copy */
-				skb = priv->rx_skbuff[entry];
-				if (unlikely(!skb)) {
-					printk(KERN_ERR "%s: Inconsistent Rx "
-					       "descriptor chain.\n",
-					       dev->name);
-					dev->stats.rx_dropped++;
-					break;
-				}
-				priv->rx_skbuff[entry] = NULL;
-				skb_put(skb, frame_len);
-				dma_unmap_single(priv->device,
-						 priv->rx_skbuff_dma[entry],
-						 priv->dma_buf_sz,
-						 DMA_FROM_DEVICE);
+			skb = priv->rx_skbuff[entry];
+			if (unlikely(!skb)) {
+				printk(KERN_ERR "%s: Inconsistent Rx "
+				       "descriptor chain.\n",
+				       dev->name);
+				dev->stats.rx_dropped++;
+				break;
 			}
+			priv->rx_skbuff[entry] = NULL;
+
+			skb_put(skb, frame_len);
+			dma_unmap_single(priv->device,
+					 priv->rx_skbuff_dma[entry],
+					 priv->dma_buf_sz,
+					 DMA_FROM_DEVICE);
 #ifdef STMMAC_RX_DEBUG
 			if (netif_msg_pktdata(priv)) {
 				printk(KERN_INFO " frame received (%dbytes)",
@@ -1640,7 +1612,8 @@ static int stmmac_rx(struct net_device *dev, int limit)
 			dev->stats.rx_bytes += frame_len;
 			dev->last_rx = jiffies;
 		}
-		entry = (++priv->cur_rx) % rxsize;
+		entry = next_entry;
+		p = p_next;
 	}
 
 	stmmac_rx_refill(dev);
@@ -2364,8 +2337,6 @@ static int __init stmmac_cmdline_opt(char *str)
 				(unsigned long *)&flow_ctrl);
 		else if (!strncmp(opt, "pause:", 6))
 			strict_strtoul(opt + 6, 0, (unsigned long *)&pause);
-		else if (!strncmp(opt, "minrx:", 6))
-			strict_strtoul(opt + 6, 0, (unsigned long *)&minrx);
 		else if (!strncmp(opt, "tx_coalesce:", 12))
 			strict_strtoul(opt + 12, 0,
 				(unsigned long *)&tx_coalesce);

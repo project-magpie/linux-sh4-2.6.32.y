@@ -297,26 +297,37 @@ asix_write_cmd_async(struct usbnet *dev, u8 cmd, u16 value, u16 index,
 
 static int asix_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 {
-	u8  *head;
-	u32  header;
-	char *packet;
-	struct sk_buff *ax_skb;
-	u16 size;
+	u32 header;
 
-	head = (u8 *) skb->data;
-	memcpy(&header, head, sizeof(header));
+	memcpy(&header, skb->data, sizeof(header));
 	le32_to_cpus(&header);
-	packet = head + sizeof(header);
 
 	skb_pull(skb, 4);
 
 	while (skb->len > 0) {
+		struct sk_buff *ax_skb;
+		unsigned int size;
+		int offset;
+
 		if ((short)(header & 0x0000ffff) !=
 		    ~((short)((header & 0xffff0000) >> 16))) {
 			deverr(dev,"asix_rx_fixup() Bad Header Length");
 		}
+
 		/* get the packet length */
-		size = (u16) (header & 0x0000ffff);
+		size = header & 0x0000ffff;
+
+		/* Move in memory frames with incorrect alignment.
+		 * This is to prevent unaligned memory accesses into
+		 * the upper layers. */
+		offset = NET_IP_ALIGN ? ((unsigned long)skb->data -
+			 NET_IP_ALIGN) & 3 : 0;
+
+		if (offset) {
+			skb->data -= offset;
+			skb->tail -= offset;
+			memmove(skb->data - offset, skb->data, skb->len);
+		}
 
 		if ((skb->len) - ((size + 1) & 0xfffe) == 0)
 			return 2;
@@ -326,23 +337,18 @@ static int asix_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		}
 		ax_skb = skb_clone(skb, GFP_ATOMIC);
 		if (ax_skb) {
-			ax_skb->len = size;
-			ax_skb->data = packet;
-			skb_set_tail_pointer(ax_skb, size);
+			skb_trim(ax_skb, size);
 			usbnet_skb_return(dev, ax_skb);
-		} else {
+		} else
 			return 0;
-		}
 
 		skb_pull(skb, (size + 1) & 0xfffe);
 
 		if (skb->len == 0)
 			break;
 
-		head = (u8 *) skb->data;
-		memcpy(&header, head, sizeof(header));
+		memcpy(&header, skb->data, sizeof(header));
 		le32_to_cpus(&header);
-		packet = head + sizeof(header);
 		skb_pull(skb, 4);
 	}
 

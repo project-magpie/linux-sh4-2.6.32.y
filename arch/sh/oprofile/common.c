@@ -70,7 +70,7 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
         struct op_sh_model_spec *spec = NULL;
         int ret = -ENODEV;
 
-#if defined(CONFIG_CPU_SUBTYPE_STB7100)
+#if defined(CONFIG_OPROFILE_PWM)
 	spec = &op_sh7109_spec;
 #else
         spec = &op_shtimer_spec;

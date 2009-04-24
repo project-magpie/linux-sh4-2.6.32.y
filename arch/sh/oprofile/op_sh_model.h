@@ -20,7 +20,7 @@ struct op_sh_model_spec {
         char *name;
 };
 
-#if defined(CONFIG_CPU_SUBTYPE_STB7100)
+#if defined(CONFIG_OPROFILE_PWM)
 extern struct op_sh_model_spec op_sh7109_spec;
 #else
 extern struct op_sh_model_spec op_shtimer_spec;

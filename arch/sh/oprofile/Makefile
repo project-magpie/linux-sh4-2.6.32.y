@@ -14,7 +14,7 @@ profdrvr-$(CONFIG_CPU_SUBTYPE_SH7750)	+= op_model_sh7750.o
 profdrvr-$(CONFIG_CPU_SUBTYPE_SH7091)	+= op_model_sh7750.o
 
 # SH7109 has a PWM timer we nab for performance timing.
-profdrvr-$(CONFIG_CPU_SUBTYPE_STB7100)  += op_model_sh7109.o
+profdrvr-$(CONFIG_OPROFILE_PWM)  += op_model_sh7109.o
 
 oprofile-y				:= $(DRIVER_OBJS) $(profdrvr-y)
 

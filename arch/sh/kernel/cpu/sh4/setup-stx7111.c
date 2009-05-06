@@ -20,8 +20,6 @@
 #include <linux/phy.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
-#include <linux/stm/fdma-plat.h>
-#include <linux/stm/fdma-reqs.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/dma-mapping.h>
@@ -79,120 +77,96 @@ void __init stx7111_configure_usb(int inv_enable)
 
 #ifdef CONFIG_STM_DMA
 
-#include <linux/stm/7200_cut1_fdma2_firmware.h>
+#include <linux/stm/fdma_firmware_7200.h>
 
-static struct fdma_regs stx7111_fdma_regs = {
-	.fdma_id= FDMA2_ID,
-	.fdma_ver = FDAM2_VER,
-	.fdma_en = FDMA2_ENABLE_REG,
-	.fdma_clk_gate = FDMA2_CLOCKGATE,
-	.fdma_rev_id = FDMA2_REV_ID,
-	.fdma_cmd_statn = STB7200_FDMA_CMD_STATn_REG,
-	.fdma_ptrn = STB7200_FDMA_PTR_REG,
-	.fdma_cntn = STB7200_FDMA_COUNT_REG,
-	.fdma_saddrn = STB7200_FDMA_SADDR_REG,
-	.fdma_daddrn = STB7200_FDMA_DADDR_REG,
-	.fdma_req_ctln = STB7200_FDMA_REQ_CTLn_REG,
-	.fdma_cmd_sta = FDMA2_CMD_MBOX_STAT_REG,
-	.fdma_cmd_set = FDMA2_CMD_MBOX_SET_REG,
-	.fdma_cmd_clr = FDMA2_CMD_MBOX_CLR_REG,
-	.fdma_cmd_mask = FDMA2_CMD_MBOX_MASK_REG,
-	.fdma_int_sta = FDMA2_INT_STAT_REG,
-	.fdma_int_set = FDMA2_INT_SET_REG,
-	.fdma_int_clr= FDMA2_INT_CLR_REG,
-	.fdma_int_mask= FDMA2_INT_MASK_REG,
-	.fdma_sync_reg= FDMA2_SYNCREG,
-	.fdma_dmem_region = STX7111_DMEM_OFFSET,
-	.fdma_imem_region = STX7111_IMEM_OFFSET,
+static struct stm_plat_fdma_hw stx7111_fdma_hw = {
+	.slim_regs = {
+		.id       = 0x0000 + (0x000 << 2), /* 0x0000 */
+		.ver      = 0x0000 + (0x001 << 2), /* 0x0004 */
+		.en       = 0x0000 + (0x002 << 2), /* 0x0008 */
+		.clk_gate = 0x0000 + (0x003 << 2), /* 0x000c */
+	},
+	.periph_regs = {
+		.sync_reg = 0x8000 + (0xfe2 << 2), /* 0xbf88 */
+		.cmd_sta  = 0x8000 + (0xff0 << 2), /* 0xbfc0 */
+		.cmd_set  = 0x8000 + (0xff1 << 2), /* 0xbfc4 */
+		.cmd_clr  = 0x8000 + (0xff2 << 2), /* 0xbfc8 */
+		.cmd_mask = 0x8000 + (0xff3 << 2), /* 0xbfcc */
+		.int_sta  = 0x8000 + (0xff4 << 2), /* 0xbfd0 */
+		.int_set  = 0x8000 + (0xff5 << 2), /* 0xbfd4 */
+		.int_clr  = 0x8000 + (0xff6 << 2), /* 0xbfd8 */
+		.int_mask = 0x8000 + (0xff7 << 2), /* 0xbfdc */
+	},
+	.dmem_offset = 0x8000,
+	.dmem_size   = 0x800 << 2, /* 2048 * 4 = 8192 */
+	.imem_offset = 0xc000,
+	.imem_size   = 0x1000 << 2, /* 4096 * 4 = 16384 */
 };
 
-static struct fdma_platform_device_data stx7111_fdma0_plat_data = {
-	.registers_ptr = &stx7111_fdma_regs,
+static struct stm_plat_fdma_data stx7111_fdma_platform_data = {
+	.hw = &stx7111_fdma_hw,
+	.fw = &stm_fdma_firmware_7200,
 	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
-	.fw_device_name = "stb7200_v1.4.bin",
-	.fw.data_reg = (unsigned long*)&STB7200_DMEM_REGION,
-	.fw.imem_reg = (unsigned long*)&STB7200_IMEM_REGION,
-	.fw.imem_fw_sz = STB7200_IMEM_FIRMWARE_SZ,
-	.fw.dmem_fw_sz = STB7200_DMEM_FIRMWARE_SZ,
-	.fw.dmem_len = STB7200_DMEM_REGION_LENGTH,
-	.fw.imem_len = STB7200_IMEM_REGION_LENGTH
 };
 
+#define stx7111_fdma_platform_data_addr &stx7111_fdma_platform_data
 
-static struct fdma_platform_device_data stx7111_fdma1_plat_data = {
-	.registers_ptr = &stx7111_fdma_regs,
-	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
-	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
-	.fw_device_name = "stb7200_v1.4.bin",
-	.fw.data_reg = (unsigned long*)&STB7200_DMEM_REGION,
-	.fw.imem_reg = (unsigned long*)&STB7200_IMEM_REGION,
-	.fw.imem_fw_sz = STB7200_IMEM_FIRMWARE_SZ,
-	.fw.dmem_fw_sz = STB7200_DMEM_FIRMWARE_SZ,
-	.fw.dmem_len = STB7200_DMEM_REGION_LENGTH,
-	.fw.imem_len = STB7200_IMEM_REGION_LENGTH
-};
-
-#define stx7111_fdma0_plat_data_addr &stx7111_fdma0_plat_data
-#define stx7111_fdma1_plat_data_addr &stx7111_fdma1_plat_data
 #else
-#define stx7111_fdma0_plat_data_addr NULL
-#define stx7111_fdma1_plat_data_addr NULL
+
+#define stx7111_fdma_platform_data_addr NULL
+
 #endif /* CONFIG_STM_DMA */
 
-static struct platform_device fdma0_device = {
-	.name		= "stmfdma",
-	.id		= 0,
-	.num_resources	= 2,
-	.resource = (struct resource[2]) {
-		[0] = {
-			.start = STX7111_FDMA0_BASE,
-			.end   = STX7111_FDMA0_BASE + 0xffff,
-			.flags = IORESOURCE_MEM,
+static struct platform_device stx7111_fdma_devices[] = {
+	{
+		.name		= "stm-fdma",
+		.id		= 0,
+		.num_resources	= 2,
+		.resource = (struct resource[]) {
+			{
+				.start = 0xfe220000,
+				.end   = 0xfe22ffff,
+				.flags = IORESOURCE_MEM,
+			}, {
+				.start = evt2irq(0x1380),
+				.end   = evt2irq(0x1380),
+				.flags = IORESOURCE_IRQ,
+			},
 		},
-		[1] = {
-			.start = LINUX_FDMA0_STX7111_IRQ_VECT,
-			.end   = LINUX_FDMA0_STX7111_IRQ_VECT,
-			.flags = IORESOURCE_IRQ,
+		.dev.platform_data = stx7111_fdma_platform_data_addr,
+	}, {
+		.name		= "stm-fdma",
+		.id		= 1,
+		.resource = (struct resource[]) {
+			{
+				.start = 0xfe410000,
+				.end   = 0xfe41ffff,
+				.flags = IORESOURCE_MEM,
+			}, {
+				.start = evt2irq(0x13a0),
+				.end   = evt2irq(0x13a0),
+				.flags = IORESOURCE_IRQ,
+			},
 		},
-	},
-	.dev = {
-		.platform_data = stx7111_fdma0_plat_data_addr,
-	},
-};
-
-static struct platform_device fdma1_device = {
-	.name		= "stmfdma",
-	.id		= 1,
-	.resource = (struct resource[2]) {
-		[0] = {
-			.start = STX7111_FDMA1_BASE,
-			.end   = STX7111_FDMA1_BASE + 0xffff,
-			.flags = IORESOURCE_MEM,
-		},
-		[1] = {
-			.start = LINUX_FDMA1_STX7111_IRQ_VECT,
-			.end   = LINUX_FDMA1_STX7111_IRQ_VECT,
-			.flags = IORESOURCE_IRQ,
-		},
-	},
-	.dev = {
-		.platform_data = stx7111_fdma1_plat_data_addr,
+		.dev.platform_data = stx7111_fdma_platform_data_addr,
 	},
 };
 
-static struct platform_device fdma_xbar_device = {
-	.name		= "fdma-xbar",
+static struct platform_device stx7111_fdma_xbar_device = {
+	.name		= "stm-fdma-xbar",
 	.id		= -1,
 	.num_resources	= 1,
-	.resource	= (struct resource[1]) {
+	.resource	= (struct resource[]) {
 		{
-			.start	= STX7111_XBAR_BASE,
-			.end	= STX7111_XBAR_BASE+(4*1024)-1,
-			.flags	= IORESOURCE_MEM,
+			.start = 0xfe420000,
+			.end   = 0xfe420fff,
+			.flags = IORESOURCE_MEM,
 		},
 	},
 };
+
+
 
 /* SSC resources ----------------------------------------------------------- */
 
@@ -903,9 +877,9 @@ static int __init stx7111_subsys_setup(void)
 subsys_initcall(stx7111_subsys_setup);
 
 static struct platform_device *stx7111_devices[] __initdata = {
-	&fdma0_device,
-	//&fdma1_device,
-	&fdma_xbar_device,
+	&stx7111_fdma_devices[0],
+	&stx7111_fdma_devices[1],
+	&stx7111_fdma_xbar_device,
 	&sysconf_device,
 	&ilc3_device,
 	&hwrandom_rng_device,

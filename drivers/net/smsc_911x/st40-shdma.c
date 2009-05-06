@@ -1,7 +1,6 @@
 #include <linux/dma-mapping.h>
 #include <asm/dma.h>
 #include <linux/stm/stm-dma.h>
-#include <linux/stm/fdma-reqs.h>
 
 static struct stm_dma_params tx_transfer;
 
@@ -54,12 +53,12 @@ DWORD Platform_RequestDmaChannelSg(
 		return chan;
 
 	if(chip_7109){
-		dma_req_lines[SMSC_LONG_PTK_CHAN] = STB7109_FDMA_REQ_SSC_1_TX;
-		dma_req_lines[SMSC_SHORT_PTK_CHAN] = STB7109_FDMA_REQ_SSC_2_TX;
+		dma_req_lines[SMSC_LONG_PTK_CHAN] = 10;
+		dma_req_lines[SMSC_SHORT_PTK_CHAN] = 11;
 	}
 	else {
-		dma_req_lines[SMSC_LONG_PTK_CHAN] = STB7100_FDMA_REQ_SSC_1_TX;
-		dma_req_lines[SMSC_SHORT_PTK_CHAN] = STB7100_FDMA_REQ_SSC_2_TX;
+		dma_req_lines[SMSC_LONG_PTK_CHAN] = 12;
+		dma_req_lines[SMSC_SHORT_PTK_CHAN] = 13;
 	}
 
 	dma_reqs[0] = dma_req_config(chan, dma_req_lines[0], &dma_req_configs[0]);

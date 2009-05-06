@@ -326,6 +326,66 @@ struct usb_init_data {
 #define USB1_PWR_PIO14_7	(1<<1)
 #endif
 
+
+
+/*** FDMA platform data ***/
+
+struct stm_plat_fdma_slim_regs {
+	unsigned long id;
+	unsigned long ver;
+	unsigned long en;
+	unsigned long clk_gate;
+};
+
+struct stm_plat_fdma_periph_regs {
+	unsigned long sync_reg;
+	unsigned long cmd_sta;
+	unsigned long cmd_set;
+	unsigned long cmd_clr;
+	unsigned long cmd_mask;
+	unsigned long int_sta;
+	unsigned long int_set;
+	unsigned long int_clr;
+	unsigned long int_mask;
+};
+
+struct stm_plat_fdma_hw {
+	struct stm_plat_fdma_slim_regs slim_regs;
+	struct stm_plat_fdma_periph_regs periph_regs;
+	unsigned long dmem_offset;
+	unsigned long dmem_size;
+	unsigned long imem_offset;
+	unsigned long imem_size;
+};
+
+struct stm_plat_fdma_fw_regs {
+	unsigned long rev_id;
+	unsigned long cmd_statn;
+	unsigned long req_ctln;
+	unsigned long ptrn;
+	unsigned long cntn;
+	unsigned long saddrn;
+	unsigned long daddrn;
+};
+
+struct stm_plat_fdma_fw {
+	const char *name;
+	struct stm_plat_fdma_fw_regs fw_regs;
+	void *dmem;
+	unsigned long dmem_len;
+	void *imem;
+	unsigned long imem_len;
+};
+
+struct stm_plat_fdma_data {
+	struct stm_plat_fdma_hw *hw;
+	struct stm_plat_fdma_fw *fw;
+	int min_ch_num;
+	int max_ch_num;
+};
+
+
+
 struct stasc_uart_data {
 	struct {
 		unsigned char pio_port;

@@ -20,7 +20,6 @@
 #include <linux/spinlock.h>
 #include <linux/platform_device.h>
 #include <linux/stm/soc.h>
-#include <linux/stm/fdma-reqs.h>
 
 #include <asm/system.h>
 #include <asm/io.h>

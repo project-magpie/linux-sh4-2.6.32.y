@@ -10,7 +10,14 @@
 #ifndef __STM_FDMA_H
 #define __STM_FDMA_H
 
+#include <linux/interrupt.h>
+#include <linux/stm/soc.h>
+#include <linux/stm/stm-dma.h>
+
 #define CHAN_ALL_ENABLE 				3
+
+#define NODE_DATA_OFFSET				0x40
+#define CMD_STAT_OFFSET       				0x04
 
 /**cmd stat vals*/
 #define SET_NODE_COMP_PAUSE		    		(1 << 30)
@@ -26,8 +33,7 @@
 #define CMDSTAT_FDMA_RESTART_CHANNEL			0
 
 #define FDMA_CHANS					16
-#define FDMA_7100_REQ_LINES				32
-#define FDMA_7200_REQ_LINES				64
+#define FDMA_REQ_LINES					32
 
 /*******************************/
 /*MBOX SETUP VALUES*/
@@ -38,7 +44,7 @@
 #define CLEAR_WORD					0XFFFFFFFF
 
 #define CMD_STAT_REG(_chan_num) \
-		(fdma->io_base + fdma->regs.fdma_cmd_statn + \
+		(fdma->io_base + fdma->regs.cmd_statn + \
 		(_chan_num * CMD_STAT_OFFSET))
 
 #define FDMA_CHANNEL_IDLE 		0
@@ -93,6 +99,10 @@ enum fdma_state {
 
 struct fdma;
 
+struct stm_dma_req {
+	int req_line;
+};
+
 struct fdma_channel {
 	struct fdma *fdma;
 	int chan_num;
@@ -103,15 +113,46 @@ struct fdma_channel {
 	struct tasklet_struct fdma_error;
 };
 
+struct fdma_regs {
+	unsigned long id;
+	unsigned long ver;
+	unsigned long en;
+	unsigned long clk_gate;
+	unsigned long rev_id;
+	unsigned long cmd_statn;
+	unsigned long ptrn;
+	unsigned long cntn;
+	unsigned long saddrn;
+	unsigned long daddrn;
+	unsigned long req_ctln;
+	unsigned long sync_reg;
+	unsigned long cmd_sta;
+	unsigned long cmd_set;
+	unsigned long cmd_clr;
+	unsigned long cmd_mask;
+	unsigned long int_sta;
+	unsigned long int_set;
+	unsigned long int_clr;
+	unsigned long int_mask;
+};
+
 #define FDMA_NAME_LEN 20
 
 struct fdma {
 	char name[FDMA_NAME_LEN];
+	struct platform_device *pdev;
+
 	struct dma_info dma_info;
 	struct fdma_channel channels[FDMA_CHANS];
 	spinlock_t channels_lock; /* protects channels array */
+
 	struct resource *phys_mem;
 	void __iomem *io_base;
+
+	struct stm_dma_req reqs[FDMA_REQ_LINES];
+	unsigned long reqs_used_mask;
+	spinlock_t reqs_lock; /* protects reqs_used_mask */
+
 	u32 firmware_loaded;
 	u8 ch_min;
 	u8 ch_max;
@@ -121,15 +162,21 @@ struct fdma {
 	struct dma_pool *llu_pool;
 	wait_queue_head_t fw_load_q;
 
+	struct stm_plat_fdma_hw *hw;
+	struct stm_plat_fdma_fw *fw;
+
 	struct fdma_regs regs;
-
-	char *fw_name;
-	struct fdma_fw fw;
-	int comp_ch;
-
-	/* This is used with the xbar to allocate the next available req line */
-	unsigned long req_lines_inuse;
 };
+
+struct fdma_req_router {
+	int (*route)(struct fdma_req_router *router, int input_req_line,
+			int fdma, int fdma_req_line);
+};
+
+int fdma_register_req_router(struct fdma_req_router *router);
+void fdma_unregister_req_router(struct fdma_req_router *router);
+
+
 
 typedef volatile unsigned long device_t;
 
@@ -144,10 +191,5 @@ typedef volatile unsigned long device_t;
 #else
 #define fdma_dbg(fd, format, arg...)		do { } while (0)
 #endif
-
-struct stm_dma_req {
-	struct fdma_channel *channel;
-	int local_req_line;
-};
 
 #endif

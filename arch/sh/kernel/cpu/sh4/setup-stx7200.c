@@ -22,8 +22,6 @@
 #include <linux/stm/emi.h>
 #include <linux/ata_platform.h>
 #include <asm/irq-ilc.h>
-#include <linux/stm/fdma-plat.h>
-#include <linux/stm/fdma-reqs.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/delay.h>
@@ -420,117 +418,92 @@ void __init stx7200_configure_sata(unsigned int port)
 
 #ifdef CONFIG_STM_DMA
 
-#include <linux/stm/7200_cut1_fdma2_firmware.h>
+#include <linux/stm/fdma_firmware_7200.h>
 
-static struct fdma_regs stb7200_fdma_regs = {
-	.fdma_id= FDMA2_ID,
-	.fdma_ver = FDAM2_VER,
-	.fdma_en = FDMA2_ENABLE_REG,
-	.fdma_clk_gate = FDMA2_CLOCKGATE,
-	.fdma_rev_id = FDMA2_REV_ID,
-	.fdma_cmd_statn = STB7200_FDMA_CMD_STATn_REG,
-	.fdma_ptrn = STB7200_FDMA_PTR_REG,
-	.fdma_cntn = STB7200_FDMA_COUNT_REG,
-	.fdma_saddrn = STB7200_FDMA_SADDR_REG,
-	.fdma_daddrn = STB7200_FDMA_DADDR_REG,
-	.fdma_req_ctln = STB7200_FDMA_REQ_CTLn_REG,
-	.fdma_cmd_sta = FDMA2_CMD_MBOX_STAT_REG,
-	.fdma_cmd_set = FDMA2_CMD_MBOX_SET_REG,
-	.fdma_cmd_clr = FDMA2_CMD_MBOX_CLR_REG,
-	.fdma_cmd_mask = FDMA2_CMD_MBOX_MASK_REG,
-	.fdma_int_sta = FDMA2_INT_STAT_REG,
-	.fdma_int_set = FDMA2_INT_SET_REG,
-	.fdma_int_clr= FDMA2_INT_CLR_REG,
-	.fdma_int_mask= FDMA2_INT_MASK_REG,
-	.fdma_sync_reg= FDMA2_SYNCREG,
-	.fdma_dmem_region = STB7200_DMEM_OFFSET,
-	.fdma_imem_region = STB7200_IMEM_OFFSET,
+static struct stm_plat_fdma_hw stx7200_fdma_hw = {
+	.slim_regs = {
+		.id       = 0x0000 + (0x000 << 2), /* 0x0000 */
+		.ver      = 0x0000 + (0x001 << 2), /* 0x0004 */
+		.en       = 0x0000 + (0x002 << 2), /* 0x0008 */
+		.clk_gate = 0x0000 + (0x003 << 2), /* 0x000c */
+	},
+	.periph_regs = {
+		.sync_reg = 0x8000 + (0xfe2 << 2), /* 0xbf88 */
+		.cmd_sta  = 0x8000 + (0xff0 << 2), /* 0xbfc0 */
+		.cmd_set  = 0x8000 + (0xff1 << 2), /* 0xbfc4 */
+		.cmd_clr  = 0x8000 + (0xff2 << 2), /* 0xbfc8 */
+		.cmd_mask = 0x8000 + (0xff3 << 2), /* 0xbfcc */
+		.int_sta  = 0x8000 + (0xff4 << 2), /* 0xbfd0 */
+		.int_set  = 0x8000 + (0xff5 << 2), /* 0xbfd4 */
+		.int_clr  = 0x8000 + (0xff6 << 2), /* 0xbfd8 */
+		.int_mask = 0x8000 + (0xff7 << 2), /* 0xbfdc */
+	},
+	.dmem_offset = 0x8000,
+	.dmem_size   = 0x800 << 2, /* 2048 * 4 = 8192 */
+	.imem_offset = 0xc000,
+	.imem_size   = 0x1000 << 2, /* 4096 * 4 = 16384 */
 };
 
-static struct fdma_platform_device_data stb7200_fdma0_plat_data = {
-	.registers_ptr = &stb7200_fdma_regs,
+static struct stm_plat_fdma_data stx7200_fdma_platform_data = {
+	.hw = &stx7200_fdma_hw,
+	.fw = &stm_fdma_firmware_7200,
 	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
-	.fw_device_name = "stb7200_v1.4.bin",
-	.fw.data_reg = (unsigned long*)&STB7200_DMEM_REGION,
-	.fw.imem_reg = (unsigned long*)&STB7200_IMEM_REGION,
-	.fw.imem_fw_sz = STB7200_IMEM_FIRMWARE_SZ,
-	.fw.dmem_fw_sz = STB7200_DMEM_FIRMWARE_SZ,
-	.fw.dmem_len = STB7200_DMEM_REGION_LENGTH,
-	.fw.imem_len = STB7200_IMEM_REGION_LENGTH
 };
 
+#define stx7200_fdma_platform_data_addr &stx7200_fdma_platform_data
 
-static struct fdma_platform_device_data stb7200_fdma1_plat_data = {
-	.registers_ptr = &stb7200_fdma_regs,
-	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
-	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
-	.fw_device_name = "stb7200_v1.4.bin",
-	.fw.data_reg = (unsigned long*)&STB7200_DMEM_REGION,
-	.fw.imem_reg = (unsigned long*)&STB7200_IMEM_REGION,
-	.fw.imem_fw_sz = STB7200_IMEM_FIRMWARE_SZ,
-	.fw.dmem_fw_sz = STB7200_DMEM_FIRMWARE_SZ,
-	.fw.dmem_len = STB7200_DMEM_REGION_LENGTH,
-	.fw.imem_len = STB7200_IMEM_REGION_LENGTH
-};
-
-#define stb7200_fdma0_plat_data_addr &stb7200_fdma0_plat_data
-#define stb7200_fdma1_plat_data_addr &stb7200_fdma1_plat_data
 #else
-#define stb7200_fdma0_plat_data_addr NULL
-#define stb7200_fdma1_plat_data_addr NULL
+
+#define stx7200_fdma_platform_data_addr NULL
+
 #endif /* CONFIG_STM_DMA */
 
-static struct platform_device fdma0_7200_device = {
-	.name		= "stmfdma",
-	.id		= 0,
-	.num_resources	= 2,
-	.resource = (struct resource[2]) {
-		[0] = {
-			.start = STB7200_FDMA0_BASE,
-			.end   = STB7200_FDMA0_BASE + 0xffff,
-			.flags = IORESOURCE_MEM,
+static struct platform_device stx7200_fdma_devices[] = {
+	{
+		.name		= "stm-fdma",
+		.id		= 0,
+		.num_resources	= 2,
+		.resource = (struct resource[]) {
+			{
+				.start = 0xfd810000,
+				.end   = 0xfd81ffff,
+				.flags = IORESOURCE_MEM,
+			}, {
+				.start = ILC_IRQ(13),
+				.end   = ILC_IRQ(13),
+				.flags = IORESOURCE_IRQ,
+			},
 		},
-		[1] = {
-			.start = LINUX_FDMA0_STB7200_IRQ_VECT,
-			.end   = LINUX_FDMA0_STB7200_IRQ_VECT,
-			.flags = IORESOURCE_IRQ,
+		.dev.platform_data = stx7200_fdma_platform_data_addr,
+	}, {
+		.name		= "stm-fdma",
+		.id		= 1,
+		.num_resources	= 2,
+		.resource = (struct resource[2]) {
+			{
+				.start = 0xfd820000,
+				.end   = 0xfd82ffff,
+				.flags = IORESOURCE_MEM,
+			}, {
+				.start = ILC_IRQ(15),
+				.end   = ILC_IRQ(15),
+				.flags = IORESOURCE_IRQ,
+			},
 		},
-	},
-	.dev = {
-		.platform_data = stb7200_fdma0_plat_data_addr,
-	},
-};
-
-static struct platform_device fdma1_7200_device = {
-	.name		= "stmfdma",
-	.id		= 1,
-	.resource = (struct resource[2]) {
-		[0] = {
-			.start = STB7200_FDMA1_BASE,
-			.end   = STB7200_FDMA1_BASE + 0xffff,
-			.flags = IORESOURCE_MEM,
-		},
-		[1] = {
-			.start = LINUX_FDMA1_STB7200_IRQ_VECT,
-			.end   = LINUX_FDMA1_STB7200_IRQ_VECT,
-			.flags = IORESOURCE_IRQ,
-		},
-	},
-	.dev = {
-		.platform_data = stb7200_fdma1_plat_data_addr,
+		.dev.platform_data = stx7200_fdma_platform_data_addr,
 	},
 };
 
-static struct platform_device fdma_xbar_device = {
-	.name		= "fdma-xbar",
+static struct platform_device stx7200_fdma_xbar_device = {
+	.name		= "stm-fdma-xbar",
 	.id		= -1,
 	.num_resources	= 1,
-	.resource	= (struct resource[1]) {
+	.resource	= (struct resource[]) {
 		{
-			.start	= STB7200_XBAR_BASE,
-			.end	= STB7200_XBAR_BASE+(4*1024)-1,
-			.flags	= IORESOURCE_MEM,
+			.start = 0xfd830000,
+			.end   = 0xfd830fff,
+			.flags = IORESOURCE_MEM,
 		},
 	},
 };
@@ -1054,21 +1027,13 @@ static struct platform_device devrandom_rng_device = {
 /* ASC resources ----------------------------------------------------------- */
 
 static struct platform_device stm_stasc_devices[] = {
-	STASC_DEVICE(0xfd030000, ILC_IRQ(104),
-			STB7200_FDMA_REQ_UART_0_RX, STB7200_FDMA_REQ_UART_0_TX,
-			0, 0, 1, 4, 7,
+	STASC_DEVICE(0xfd030000, ILC_IRQ(104), 19, 23, 0, 0, 1, 4, 7,
 			STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT), /* oe pin: 6 */
-	STASC_DEVICE(0xfd031000, ILC_IRQ(105),
-			STB7200_FDMA_REQ_UART_1_RX, STB7200_FDMA_REQ_UART_1_TX,
-			1, 0, 1, 4, 5,
+	STASC_DEVICE(0xfd031000, ILC_IRQ(105), 20, 24, 1, 0, 1, 4, 5,
 			STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT), /* oe pin: 6 */
-	STASC_DEVICE(0xfd032000, ILC_IRQ(106),
-			STB7200_FDMA_REQ_UART_2_RX, STB7200_FDMA_REQ_UART_2_TX,
-			4, 3, 2, 4, 5,
+	STASC_DEVICE(0xfd032000, ILC_IRQ(106), 21, 25, 4, 3, 2, 4, 5,
 			STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
-	STASC_DEVICE(0xfd033000, ILC_IRQ(107),
-			STB7200_FDMA_REQ_UART_3_RX, STB7200_FDMA_REQ_UART_3_TX,
-			5, 4, 3, 5, 6,
+	STASC_DEVICE(0xfd033000, ILC_IRQ(107), 22, 26, 5, 4, 3, 5, 6,
 			STPIO_ALT_OUT, STPIO_IN, STPIO_IN, STPIO_ALT_OUT),
 };
 
@@ -1283,9 +1248,9 @@ postcore_initcall(stx7200_postcore_setup);
 /* Late resources ---------------------------------------------------------- */
 
 static struct platform_device *stx7200_devices[] __initdata = {
-	&fdma0_7200_device,
-	//&fdma1_7200_device,
-	&fdma_xbar_device,
+	&stx7200_fdma_devices[0],
+	/* &stx7200_fdma_devices[1], */
+	&stx7200_fdma_xbar_device,
 	&sysconf_device,
 	&ilc3_device,
         &rtc_device,

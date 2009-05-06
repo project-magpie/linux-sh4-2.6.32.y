@@ -19,8 +19,6 @@
 #include <linux/phy.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
-#include <linux/stm/fdma-plat.h>
-#include <linux/stm/fdma-reqs.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/dma-mapping.h>
@@ -95,70 +93,63 @@ void __init stx5197_configure_usb(void)
 
 #ifdef CONFIG_STM_DMA
 
-#include <linux/stm/7200_cut1_fdma2_firmware.h>
+#include <linux/stm/fdma_firmware_7200.h>
 
-static struct fdma_regs stx5197_fdma_regs = {
-	.fdma_id = FDMA2_ID,
-	.fdma_ver = FDAM2_VER,
-	.fdma_en = FDMA2_ENABLE_REG,
-	.fdma_clk_gate = FDMA2_CLOCKGATE,
-	.fdma_rev_id = FDMA2_REV_ID,
-	.fdma_cmd_statn = STB7200_FDMA_CMD_STATn_REG,
-	.fdma_ptrn = STB7200_FDMA_PTR_REG,
-	.fdma_cntn = STB7200_FDMA_COUNT_REG,
-	.fdma_saddrn = STB7200_FDMA_SADDR_REG,
-	.fdma_daddrn = STB7200_FDMA_DADDR_REG,
-	.fdma_req_ctln = STB7200_FDMA_REQ_CTLn_REG,
-	.fdma_cmd_sta = FDMA2_CMD_MBOX_STAT_REG,
-	.fdma_cmd_set = FDMA2_CMD_MBOX_SET_REG,
-	.fdma_cmd_clr = FDMA2_CMD_MBOX_CLR_REG,
-	.fdma_cmd_mask = FDMA2_CMD_MBOX_MASK_REG,
-	.fdma_int_sta = FDMA2_INT_STAT_REG,
-	.fdma_int_set = FDMA2_INT_SET_REG,
-	.fdma_int_clr = FDMA2_INT_CLR_REG,
-	.fdma_int_mask = FDMA2_INT_MASK_REG,
-	.fdma_sync_reg = FDMA2_SYNCREG,
-	.fdma_dmem_region = STX7111_DMEM_OFFSET,
-	.fdma_imem_region = STX7111_IMEM_OFFSET,
+static struct stm_plat_fdma_hw stx5197_fdma_hw = {
+	.slim_regs = {
+		.id       = 0x0000 + (0x000 << 2), /* 0x0000 */
+		.ver      = 0x0000 + (0x001 << 2), /* 0x0004 */
+		.en       = 0x0000 + (0x002 << 2), /* 0x0008 */
+		.clk_gate = 0x0000 + (0x003 << 2), /* 0x000c */
+	},
+	.periph_regs = {
+		.sync_reg = 0x8000 + (0xfe2 << 2), /* 0xbf88 */
+		.cmd_sta  = 0x8000 + (0xff0 << 2), /* 0xbfc0 */
+		.cmd_set  = 0x8000 + (0xff1 << 2), /* 0xbfc4 */
+		.cmd_clr  = 0x8000 + (0xff2 << 2), /* 0xbfc8 */
+		.cmd_mask = 0x8000 + (0xff3 << 2), /* 0xbfcc */
+		.int_sta  = 0x8000 + (0xff4 << 2), /* 0xbfd0 */
+		.int_set  = 0x8000 + (0xff5 << 2), /* 0xbfd4 */
+		.int_clr  = 0x8000 + (0xff6 << 2), /* 0xbfd8 */
+		.int_mask = 0x8000 + (0xff7 << 2), /* 0xbfdc */
+	},
+	.dmem_offset = 0x8000,
+	.dmem_size   = 0x800 << 2, /* 2048 * 4 = 8192 */
+	.imem_offset = 0xc000,
+	.imem_size   = 0x1000 << 2, /* 4096 * 4 = 16384 */
 };
 
-static struct fdma_platform_device_data stx5197_fdma_plat_data = {
-	.registers_ptr = &stx5197_fdma_regs,
+static struct stm_plat_fdma_data stx5197_fdma_platform_data = {
+	.hw = &stx5197_fdma_hw,
+	.fw = &stm_fdma_firmware_7200,
 	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
-	.fw_device_name = "stb7200_v1.4.bin",
-	.fw.data_reg = (unsigned long *)&STB7200_DMEM_REGION,
-	.fw.imem_reg = (unsigned long *)&STB7200_IMEM_REGION,
-	.fw.imem_fw_sz = STB7200_IMEM_FIRMWARE_SZ,
-	.fw.dmem_fw_sz = STB7200_DMEM_FIRMWARE_SZ,
-	.fw.dmem_len = STB7200_DMEM_REGION_LENGTH,
-	.fw.imem_len = STB7200_IMEM_REGION_LENGTH
 };
 
-#define stx5197_fdma_plat_data_addr &stx5197_fdma_plat_data
+#define stx5197_fdma_platform_data_addr &stx5197_fdma_platform_data
+
 #else
-#define stx5197_fdma_plat_data_addr NULL
+
+#define stx5197_fdma_platform_data_addr NULL
+
 #endif /* CONFIG_STM_DMA */
 
-static struct platform_device fdma_device = {
-	.name		= "stmfdma",
-	.id		= -1,
+static struct platform_device stx5197_fdma_device = {
+	.name		= "stm-fdma",
+	.id		= 0,
 	.num_resources	= 2,
-	.resource = (struct resource[2]) {
-		[0] = {
+	.resource = (struct resource[]) {
+		{
 			.start = 0xfdb00000,
 			.end   = 0xfdb0ffff,
 			.flags = IORESOURCE_MEM,
-		},
-		[1] = {
+		}, {
 			.start = ILC_IRQ(34),
 			.end   = ILC_IRQ(34),
 			.flags = IORESOURCE_IRQ,
 		},
 	},
-	.dev = {
-		.platform_data = stx5197_fdma_plat_data_addr,
-	},
+	.dev.platform_data = stx5197_fdma_platform_data_addr,
 };
 
 /* SSC resources ----------------------------------------------------------- */
@@ -752,7 +743,7 @@ static int __init stx5197_subsys_setup(void)
 subsys_initcall(stx5197_subsys_setup);
 
 static struct platform_device *stx5197_devices[] __initdata = {
-	&fdma_device,
+	&stx5197_fdma_device,
 	&stx5197_sysconf_devices[0],
 	&stx5197_sysconf_devices[1],
 	&ilc3_device,

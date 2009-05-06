@@ -14,6 +14,13 @@ static inline int arch_prepare_suspend(void)
 {
 	return 0;
 }
+static inline void save_processor_state(void)
+{
+	return;
+}
 
-extern void (*arch_swsusp_processor_state)(int suspend);
+static inline void restore_processor_state(void)
+{
+	return;
+}
 #endif /* __ASM_SH_SUSPEND_H */

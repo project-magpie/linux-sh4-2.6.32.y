@@ -7,6 +7,7 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/sysdev.h>
 #include <linux/device.h>
 #include <linux/delay.h>
 #include <linux/io.h>
@@ -249,7 +250,7 @@ struct emi_pm {
 	struct emi_pm_bank bank[emi_num_bank];
 };
 
-int emi_pm_state(pm_message_t state)
+static int emi_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
 	int idx;
 	int bank, data;
@@ -310,4 +311,32 @@ int emi_pm_state(pm_message_t state)
 	}
 	return 0;
 }
+
+static int emi_sysdev_resume(struct sys_device *dev)
+{
+	return emi_sysdev_suspend(dev, PMSG_ON);
+}
+
+static struct sysdev_class emi_sysdev_class = {
+	set_kset_name("emi"),
+};
+
+static struct sysdev_driver emi_sysdev_driver = {
+	.suspend = emi_sysdev_suspend,
+	.resume = emi_sysdev_resume,
+};
+
+struct sys_device emi_sysdev_dev = {
+	.cls = &emi_sysdev_class,
+};
+
+static int __init emi_sysdev_init(void)
+{
+	sysdev_class_register(&emi_sysdev_class);
+	sysdev_driver_register(&emi_sysdev_class, &emi_sysdev_driver);
+	sysdev_register(&emi_sysdev_dev);
+	return 0;
+}
+
+module_init(emi_sysdev_init);
 #endif

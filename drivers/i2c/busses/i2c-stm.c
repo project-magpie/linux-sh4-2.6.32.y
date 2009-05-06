@@ -1229,6 +1229,13 @@ static int iic_stm_remove(struct platform_device *pdev)
 static int iic_stm_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct iic_ssc *i2c_bus = pdev->dev.driver_data;
+	struct ssc_pio_t *pio_info =
+		(struct ssc_pio_t *)pdev->dev.platform_data;
+
+	if (pio_info->pio[0].pio_port != SSC_NO_PIO) {
+		stpio_configure_pin(pio_info->clk, STPIO_IN);
+		stpio_configure_pin(pio_info->sdout, STPIO_IN);
+	}
 	ssc_store32(i2c_bus, SSC_IEN, 0);
 	ssc_store32(i2c_bus, SSC_CTL, 0);
 	return 0;
@@ -1236,6 +1243,15 @@ static int iic_stm_suspend(struct platform_device *pdev, pm_message_t state)
 static int iic_stm_resume(struct platform_device *pdev)
 {
 	struct iic_ssc *i2c_bus = pdev->dev.driver_data;
+	struct ssc_pio_t *pio_info =
+		(struct ssc_pio_t *)pdev->dev.platform_data;
+
+	if (pio_info->pio[0].pio_port != SSC_NO_PIO) {
+		/* configure the pins */
+		stpio_configure_pin(pio_info->clk, (pio_info->clk_unidir ?
+			STPIO_ALT_BIDIR : STPIO_ALT_BIDIR));
+		stpio_configure_pin(pio_info->sdout, STPIO_ALT_BIDIR);
+	}
 	iic_stm_setup_timing(i2c_bus, clk_get_rate(clk_get(NULL, "comms_clk")));
 	return 0;
 }

@@ -154,17 +154,41 @@ static int i2c_st40_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int i2c_st40_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct ssc_pio_t *pio_info =
+		(struct ssc_pio_t *)pdev->dev.platform_data;
+	stpio_configure_pin(pio_info->clk, STPIO_IN);
+	stpio_configure_pin(pio_info->sdout, STPIO_IN);
+	return 0;
+}
+static int i2c_st40_resume(struct platform_device *pdev)
+{
+	struct ssc_pio_t *pio_info =
+		(struct ssc_pio_t *)pdev->dev.platform_data;
+	stpio_configure_pin(pio_info->clk, STPIO_BIDIR);
+	stpio_configure_pin(pio_info->sdout, STPIO_BIDIR);
+
+	stpio_set_pin(pio_info->clk, 1);
+	stpio_set_pin(pio_info->sdout, 1);
+	return 0;
+}
+#else
+  #define i2c_st40_suspend	NULL
+  #define i2c_st40_resume	NULL
+#endif
 static struct platform_driver i2c_sw_driver = {
 	.driver.name = "i2c_st",
 	.driver.owner = THIS_MODULE,
 	.probe = i2c_st40_probe,
 	.remove= i2c_st40_remove,
+	.suspend = i2c_st40_suspend,
+	.resume = i2c_st40_resume,
 };
 
 static int __init i2c_st40_pio_init(void)
 {
-	int i;
-
 	printk(KERN_INFO NAME": ST40 PIO based I2C Driver\n");
 
 	platform_driver_register(&i2c_sw_driver);

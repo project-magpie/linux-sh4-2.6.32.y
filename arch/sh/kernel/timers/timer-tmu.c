@@ -297,8 +297,8 @@ static int tmu2_set_rate(struct clk *clk, unsigned long freq, int algo_id)
 {
 	unsigned long interval;
 
-	if (freq == 0)
-		return -1;
+	if (!freq || !tmu2_interrupt_fnt)
+		return -EINVAL;
 
 	interval = clk->rate / freq;
 	tmu_timer_set_interval(TMU2, interval, 1);

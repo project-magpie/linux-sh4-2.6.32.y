@@ -50,6 +50,7 @@
 #include <linux/bitops.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
+#include <linux/sysdev.h>
 #ifdef CONFIG_GPIOLIB
 #include <linux/gpio.h>
 #endif
@@ -773,6 +774,14 @@ static int __devexit stpio_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
+/*
+ * Note on Power Management on Pio device
+ * ======================================
+ * The STPio is registered twice on different view:
+ * 1. as platform_device to manage the wakeup capability on the Pio device
+ * 2. as sysdev_device   to restore the pio direction after a resume
+ *    from hibernation
+ */
 static int stpio_suspend_late(struct platform_device *pdev, pm_message_t state)
 {
 	int port = pdev->id;
@@ -834,9 +843,55 @@ int stpio_set_wakeup(struct stpio_pin *pin, int enabled)
 		return -EINVAL;
 }
 EXPORT_SYMBOL(stpio_set_wakeup);
+
+static int stpio_sysdev_suspend(struct sys_device *dev, pm_message_t state)
+{
+	static pm_message_t prev;
+	int i, j;
+	/* we manage _only_ the resume from hibernation */
+	if (state.event == PM_EVENT_ON		&&
+	    prev.event  == PM_EVENT_FREEZE)
+		for (i = 0; i < STPIO_MAX_PORTS; ++i)
+		for (j = 0; j < STPIO_PINS_IN_PORT; ++j) {
+			if (!stpio_ports[i].pins[j].name) /* not used */
+				continue;
+			stpio_configure_pin(&stpio_ports[i].pins[j],
+				stpio_ports[i].pins[j].direction);
+		}
+	prev = state;
+	return 0;
+}
+
+static int stpio_sysdev_resume(struct sys_device *dev)
+{
+	return stpio_sysdev_suspend(dev, PMSG_ON);
+}
+
+static struct sysdev_class stpio_sysdev_class = {
+	set_kset_name("stpio"),
+};
+
+static struct sysdev_driver stpio_sysdev_driver = {
+	.suspend = stpio_sysdev_suspend,
+	.resume = stpio_sysdev_resume,
+};
+
+struct sys_device stpio_sysdev_dev = {
+	.cls = &stpio_sysdev_class,
+};
+
+static int __init stpio_sysdev_init(void)
+{
+
+	sysdev_class_register(&stpio_sysdev_class);
+	sysdev_driver_register(&stpio_sysdev_class, &stpio_sysdev_driver);
+	sysdev_register(&stpio_sysdev_dev);
+	return 0;
+}
 #else
 #define stpio_suspend_late	NULL
 #define stpio_resume_early	NULL
+#define stpio_sysdev_init()
 #endif
 
 static struct platform_driver stpio_driver = {
@@ -857,6 +912,8 @@ static int __init stpio_init(void)
 	if (proc_stpio)
 		proc_stpio->read_proc = stpio_read_proc;
 #endif
+
+	stpio_sysdev_init();
 
 	return platform_driver_register(&stpio_driver);
 }

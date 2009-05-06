@@ -27,14 +27,14 @@
 #include <asm/io.h>
 #include <asm/clock.h>
 
-extern void __iomem *clkgen_base;
+extern void __iomem *clkgena_base;
 static struct clk *pll0_clk;
 static struct clk *sh4_ic_clk;
 static struct clk *module_clk;
 
-#define CLOCKGEN_LOCK		(clkgen_base + 0x00)
-#define ST40_CLK_CTRL 		(clkgen_base + 0x14)
-#define CKGA_CLKOUT_SEL 	(clkgen_base + 0x38)
+#define CLOCKGEN_LOCK		(clkgena_base + 0x00)
+#define ST40_CLK_CTRL 		(clkgena_base + 0x14)
+#define CKGA_CLKOUT_SEL 	(clkgena_base + 0x38)
 
 static struct sh4_ratio {
 	long cpu, bus, per;

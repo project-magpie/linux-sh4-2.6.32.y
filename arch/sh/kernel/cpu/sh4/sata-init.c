@@ -316,4 +316,7 @@ void __init stm_sata_miphy_init(void)
 
 	/* bit lock detection strength */
 	SATA_JTAG_DR_Write_MIPHY(sc, 0x86, 0x61);
+
+	sysconf_release(sc);
+	sysconf_release(status_sc);
 }

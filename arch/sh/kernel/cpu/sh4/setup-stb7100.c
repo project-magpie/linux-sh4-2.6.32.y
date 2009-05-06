@@ -783,16 +783,17 @@ static struct platform_device sysconf_device = {
 	.resource	= (struct resource[]) {
 		{
 			.start	= 0x19001000,
-			.end	= 0x19001000 + 0x100,
+			.end	= 0x19001187,
 			.flags	= IORESOURCE_MEM
 		}
 	},
-	.dev = {
-		.platform_data = &(struct plat_sysconf_data) {
-			.sys_device_offset = 0,
-			.sys_sta_offset = 8,
-			.sys_cfg_offset = 0x100,
-		}
+	.dev.platform_data = &(struct plat_sysconf_data) {
+		.groups_num = 3,
+		.groups = (struct plat_sysconf_group []) {
+			PLAT_SYSCONF_GROUP(SYS_DEV, 0x000),
+			PLAT_SYSCONF_GROUP(SYS_STA, 0x008),
+			PLAT_SYSCONF_GROUP(SYS_CFG, 0x100),
+		},
 	}
 };
 
@@ -820,7 +821,7 @@ void __init stx7100_early_device_init(void)
 
 	/* Initialise PIO and sysconf drivers */
 
-	sysconf_early_init(&sysconf_device);
+	sysconf_early_init(&sysconf_device, 1);
 	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices),
 			 176);
 

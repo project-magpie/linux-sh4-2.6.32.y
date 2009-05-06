@@ -27,79 +27,29 @@
 #include <asm/irl.h>
 #include <asm/irq-ilc.h>
 
-/*
- * Config control A and B and config monitor A and B are in the High
- * Speed (HS) config regiter block (in STBus Group 1). We don't currently
- * map these.
- *
- * The remaining config control and config monitor registers are in the
- * High Density (HD) config register block (in STBus Group 3). These are
- * mapped using the sysconf driver as it does the right thing, as long
- * as we disregard the distinction between SYS_STA and SYS_CFG because
- * monitor and control registers are intermixed.
- *
- * Note registers are documented as offsets, but the sysconf driver
- * always multiples by 4, hence the divide below.
- */
-
-#define CFG_CONTROL_C	(0x00 / 4)
-#define CFG_CONTROL_D	(0x04 / 4)
-#define CFG_CONTROL_E	(0x08 / 4)
-#define CFG_CONTROL_F	(0x0c / 4)
-#define CFG_CONTROL_G	(0x10 / 4)
-#define CFG_CONTROL_H	(0x14 / 4)
-#define CFG_CONTROL_I	(0x18 / 4)
-#define CFG_CONTROL_J	(0x1c / 4)
-
-#define CFG_CONTROL_K	(0x40 / 4)
-#define CFG_CONTROL_L	(0x44 / 4)
-#define CFG_CONTROL_M	(0x48 / 4)
-#define CFG_CONTROL_N	(0x4c / 4)
-#define CFG_CONTROL_O	(0x50 / 4)
-#define CFG_CONTROL_P	(0x54 / 4)
-#define CFG_CONTROL_Q	(0x58 / 4)
-#define CFG_CONTROL_R	(0x5c / 4)
-
-#define CFG_MONITOR_C	(0x20 / 4)
-#define CFG_MONITOR_D	(0x24 / 4)
-#define CFG_MONITOR_E	(0x28 / 4)
-#define CFG_MONITOR_F	(0x2c / 4)
-#define CFG_MONITOR_G	(0x30 / 4)
-#define CFG_MONITOR_H	(0x34 / 4)
-#define CFG_MONITOR_I	(0x38 / 4)
-#define CFG_MONITOR_J	(0x3c / 4)
-
-#define CFG_MONITOR_K	(0x60 / 4)
-#define CFG_MONITOR_L	(0x64 / 4)
-#define CFG_MONITOR_M	(0x68 / 4)
-#define CFG_MONITOR_N	(0x6c / 4)
-#define CFG_MONITOR_O	(0x70 / 4)
-#define CFG_MONITOR_P	(0x74 / 4)
-#define CFG_MONITOR_Q	(0x78 / 4)
-#define CFG_MONITOR_R	(0x7c / 4)
-
 struct {
-	unsigned char cfg;
+	unsigned char regtype, regnum;
 	unsigned char off[2];
 } const pio_conf[5] = {
-	{ CFG_CONTROL_F, {  0,  8} },
-	{ CFG_CONTROL_F, { 16, 24} },
-	{ CFG_CONTROL_G, {  0,  8} },
-	{ CFG_CONTROL_G, { 16, 24} },
-	{ CFG_CONTROL_O, {  0,  8} }
+	{ CFG_CTRL_F, {  0,  8} },
+	{ CFG_CTRL_F, { 16, 24} },
+	{ CFG_CTRL_G, {  0,  8} },
+	{ CFG_CTRL_G, { 16, 24} },
+	{ CFG_CTRL_O, {  0,  8} }
 };
 
 static void stx5197_pio_conf(int bank, int pin, int alt, const char *name)
 {
-	int cfg = pio_conf[bank].cfg;
+	int regtype = pio_conf[bank].regtype;
+	int regnum = pio_conf[bank].regnum;
 	int bit[2] = {
 		 pio_conf[bank].off[0] + pin,
 		 pio_conf[bank].off[1] + pin
 	};
 	struct sysconf_field *sc[2];
 
-	sc[0] = sysconf_claim(SYS_CFG, cfg, bit[0], bit[0], name);
-	sc[1] = sysconf_claim(SYS_CFG, cfg, bit[1], bit[1], name);
+	sc[0] = sysconf_claim(regtype, regnum, bit[0], bit[0], name);
+	sc[1] = sysconf_claim(regtype, regnum, bit[1], bit[1], name);
 	sysconf_write(sc[0], (alt >> 0) & 1);
 	sysconf_write(sc[1], (alt >> 1) & 1);
 }
@@ -130,11 +80,11 @@ void __init stx5197_configure_usb(void)
 	struct sysconf_field *sc;
 
 	/* USB power down */
-	sc = sysconf_claim(SYS_CFG, CFG_CONTROL_H, 8, 8, "USB");
+	sc = sysconf_claim(CFG_CTRL_H, 8, 8, "USB");
 	sysconf_write(sc, 0);
 
 	/* DDR enable for ULPI. 0=8 bit SDR ULPI, 1=4 bit DDR ULPI */
-	sc = sysconf_claim(SYS_CFG, CFG_CONTROL_M, 12, 12, "USB");
+	sc = sysconf_claim(CFG_CTRL_M, 12, 12, "USB");
 	sysconf_write(sc, 0);
 
 	platform_device_register(&st_usb);
@@ -257,14 +207,14 @@ void __init stx5197_configure_ssc(struct plat_ssc_data *data)
 
 			/* spi_bootnotcomms
 			 * 0: SSC0 -> PIO1[7:6], 1: SSC0 -> SPI */
-			sc = sysconf_claim(SYS_CFG, CFG_CONTROL_M, 14, 14,
+			sc = sysconf_claim(CFG_CTRL_M, 14, 14,
 					   "ssc");
 
 			if (capability & SSC_SPI_CAPABILITY) {
 				sysconf_write(sc, 1);
 				ssc_pio->pio[0].pio_port = SSC_NO_PIO;
 
-				spi_cs = sysconf_claim(SYS_CFG, CFG_CONTROL_M,
+				spi_cs = sysconf_claim(CFG_CTRL_M,
 						       13, 13, "ssc");
 				sysconf_write(spi_cs, 1);
 				ssc_pio->chipselect = stx5197_ssc0_cs;
@@ -274,7 +224,7 @@ void __init stx5197_configure_ssc(struct plat_ssc_data *data)
 
 			/* pio_functionality_on_pio1_7.
 			 * 0: QAM validation, 1: Normal PIO */
-			sc = sysconf_claim(SYS_CFG, CFG_CONTROL_I, 2, 2, "ssc");
+			sc = sysconf_claim(CFG_CTRL_I, 2, 2, "ssc");
 			sysconf_write(sc, 1);
 
 			break;
@@ -287,7 +237,7 @@ void __init stx5197_configure_ssc(struct plat_ssc_data *data)
 				 *  0 IP289 I2C input from PIO1[0:1]
 				 *  1 IP289 input from BE COMMS SSC1
 				 */
-				sc = sysconf_claim(SYS_CFG, CFG_CONTROL_C,
+				sc = sysconf_claim(CFG_CTRL_C,
 						   1, 1, "ssc");
 				sysconf_write(sc, 1);
 			} else {
@@ -295,7 +245,7 @@ void __init stx5197_configure_ssc(struct plat_ssc_data *data)
 				   *    QAM_SCLT/SDAT.
 				   * 1: SSC1 is routed to QAM_SCLT/SDAT.
 				   */
-				  sc = sysconf_claim(SYS_CFG, CFG_CONTROL_K,
+				  sc = sysconf_claim(CFG_CTRL_K,
 						     27, 27, "ssc");
 				  sysconf_write(sc, 1);
 			}
@@ -395,22 +345,22 @@ void stx5197_configure_ethernet(int rmii, int ext_clk, int phy_bus)
 	stx5197eth_private_data.bus_id = phy_bus;
 
 	/* Ethernet interface on */
-	sc = sysconf_claim(SYS_CFG, CFG_CONTROL_E, 0, 0, "stmmac");
+	sc = sysconf_claim(CFG_CTRL_E, 0, 0, "stmmac");
 	sysconf_write(sc, 1);
 
 	/* MII plyclk out enable: 0=output, 1=input */
-	sc = sysconf_claim(SYS_CFG, CFG_CONTROL_E, 6, 6, "stmmac");
+	sc = sysconf_claim(CFG_CTRL_E, 6, 6, "stmmac");
 	sysconf_write(sc, ext_clk);
 
 	/* MAC speed*/
-	mac_speed_sc = sysconf_claim(SYS_CFG, CFG_CONTROL_E, 1, 1, "stmmac");
+	mac_speed_sc = sysconf_claim(CFG_CTRL_E, 1, 1, "stmmac");
 
 	/* RMII/MII pin mode */
-	sc = sysconf_claim(SYS_CFG, CFG_CONTROL_E, 7, 8, "stmmac");
+	sc = sysconf_claim(CFG_CTRL_E, 7, 8, "stmmac");
 	sysconf_write(sc, rmii ? 2 : 3);
 
 	/* MII mode */
-	sc = sysconf_claim(SYS_CFG, CFG_CONTROL_E, 2, 2, "stmmac");
+	sc = sysconf_claim(CFG_CTRL_E, 2, 2, "stmmac");
 	sysconf_write(sc, rmii ? 0 : 1);
 
 	platform_device_register(&stx5197eth_device);
@@ -599,24 +549,125 @@ arch_initcall(stx5197_add_asc);
 
 /* Early resources (sysconf and PIO) --------------------------------------- */
 
-static struct platform_device sysconf_device = {
-	.name		= "sysconf",
-	.id		= -1,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.start	= 0xfd901000,
-			.end	= 0xfd901000 + 4095,
-			.flags	= IORESOURCE_MEM
+#ifdef CONFIG_PROC_FS
+
+#define SYSCONF_FIELD(field) _SYSCONF_FIELD(#field, field)
+#define _SYSCONF_FIELD(name, group, num) case num: return name
+
+static const char *stx5197_sysconf_hd_field_name(int num)
+{
+	switch (num) {
+
+	SYSCONF_FIELD(CFG_CTRL_C);
+	SYSCONF_FIELD(CFG_CTRL_D);
+	SYSCONF_FIELD(CFG_CTRL_E);
+	SYSCONF_FIELD(CFG_CTRL_F);
+	SYSCONF_FIELD(CFG_CTRL_G);
+	SYSCONF_FIELD(CFG_CTRL_H);
+	SYSCONF_FIELD(CFG_CTRL_I);
+	SYSCONF_FIELD(CFG_CTRL_J);
+
+	SYSCONF_FIELD(CFG_CTRL_K);
+	SYSCONF_FIELD(CFG_CTRL_L);
+	SYSCONF_FIELD(CFG_CTRL_M);
+	SYSCONF_FIELD(CFG_CTRL_N);
+	SYSCONF_FIELD(CFG_CTRL_O);
+	SYSCONF_FIELD(CFG_CTRL_P);
+	SYSCONF_FIELD(CFG_CTRL_Q);
+	SYSCONF_FIELD(CFG_CTRL_R);
+
+	SYSCONF_FIELD(CFG_MONITOR_C);
+	SYSCONF_FIELD(CFG_MONITOR_D);
+	SYSCONF_FIELD(CFG_MONITOR_E);
+	SYSCONF_FIELD(CFG_MONITOR_F);
+	SYSCONF_FIELD(CFG_MONITOR_G);
+	SYSCONF_FIELD(CFG_MONITOR_H);
+	SYSCONF_FIELD(CFG_MONITOR_I);
+	SYSCONF_FIELD(CFG_MONITOR_J);
+
+	SYSCONF_FIELD(CFG_MONITOR_K);
+	SYSCONF_FIELD(CFG_MONITOR_L);
+	SYSCONF_FIELD(CFG_MONITOR_M);
+	SYSCONF_FIELD(CFG_MONITOR_N);
+	SYSCONF_FIELD(CFG_MONITOR_O);
+	SYSCONF_FIELD(CFG_MONITOR_P);
+	SYSCONF_FIELD(CFG_MONITOR_Q);
+	SYSCONF_FIELD(CFG_MONITOR_R);
+
+	}
+
+	return "???";
+}
+
+static const char *stx5197_sysconf_hs_field_name(int num)
+{
+	switch (num) {
+
+	SYSCONF_FIELD(CFG_CTRL_A);
+	SYSCONF_FIELD(CFG_CTRL_B);
+
+	SYSCONF_FIELD(CFG_MONITOR_A);
+	SYSCONF_FIELD(CFG_MONITOR_B);
+
+	}
+
+	return "???";
+}
+
+#endif
+
+static struct platform_device stx5197_sysconf_devices[] = {
+	{
+		.name		= "sysconf",
+		.id		= 0,
+		.num_resources	= 1,
+		.resource	= (struct resource[]) {
+			{
+				.start	= 0xfd901000,
+				.end	= 0xfd90107f,
+				.flags	= IORESOURCE_MEM
+			}
+		},
+		.dev.platform_data = &(struct plat_sysconf_data) {
+			.groups_num = 1,
+			.groups = (struct plat_sysconf_group []) {
+				{
+					.group = HD_CFG,
+					.offset = 0,
+					.name = "High Density group ",
+#ifdef CONFIG_PROC_FS
+					.field_name =
+						stx5197_sysconf_hd_field_name,
+#endif
+				},
+			},
+		}
+	}, {
+		.name		= "sysconf",
+		.id		= 1,
+		.num_resources	= 1,
+		.resource	= (struct resource[]) {
+			{
+				.start	= 0xfd902000,
+				.end	= 0xfd90200f,
+				.flags	= IORESOURCE_MEM
+			}
+		},
+		.dev.platform_data = &(struct plat_sysconf_data) {
+			.groups_num = 1,
+			.groups = (struct plat_sysconf_group []) {
+				{
+					.group = HS_CFG,
+					.offset = 0,
+					.name = "High Speed group ",
+#ifdef CONFIG_PROC_FS
+					.field_name =
+						stx5197_sysconf_hs_field_name,
+#endif
+				},
+			},
 		}
 	},
-	.dev = {
-		.platform_data = &(struct plat_sysconf_data) {
-			.sys_device_offset = 0,
-			.sys_sta_offset = 0,
-			.sys_cfg_offset = 0,
-		}
-	}
 };
 
 static struct platform_device stpio_devices[] = {
@@ -636,11 +687,12 @@ void __init stx5197_early_device_init(void)
 
 	/* Initialise PIO and sysconf drivers */
 
-	sysconf_early_init(&sysconf_device);
+	sysconf_early_init(stx5197_sysconf_devices,
+			ARRAY_SIZE(stx5197_sysconf_devices));
 	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices),
 			 ILC_FIRST_IRQ+ILC_NR_IRQS);
 
-	sc = sysconf_claim(SYS_DEV, CFG_MONITOR_H, 0, 31, "devid");
+	sc = sysconf_claim(CFG_MONITOR_H, 0, 31, "devid");
 	devid = sysconf_read(sc);
 	chip_revision = (devid >> 28) + 1;
 	boot_cpu_data.cut_major = chip_revision;
@@ -701,7 +753,8 @@ subsys_initcall(stx5197_subsys_setup);
 
 static struct platform_device *stx5197_devices[] __initdata = {
 	&fdma_device,
-	&sysconf_device,
+	&stx5197_sysconf_devices[0],
+	&stx5197_sysconf_devices[1],
 	&ilc3_device,
 };
 

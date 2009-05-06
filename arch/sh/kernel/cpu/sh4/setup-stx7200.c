@@ -30,7 +30,6 @@
 #include <linux/dma-mapping.h>
 
 static unsigned long chip_revision;
-static struct sysconf_field *sc7_2;
 
 /* USB resources ----------------------------------------------------------- */
 
@@ -329,6 +328,8 @@ static void __init usb_soft_jtag_reset(void)
 
 	mdelay(20);
 	sysconf_write(sc, 0x00000040);
+
+	sysconf_release(sc);
 }
 
 void __init stx7200_configure_usb(int port)
@@ -354,9 +355,11 @@ void __init stx7200_configure_usb(int port)
 		 * soft_jtag_en = 1 */
 		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "usb");
 		sysconf_write(sc, 1);
+		sysconf_release(sc);
 		/* tck = tdi = trstn_usb = tms_usb = 0 */
 		sc = sysconf_claim(SYS_CFG, 33, 0, 3, "usb");
 		sysconf_write(sc, 0);
+		sysconf_release(sc);
 
 		if (cpu_data->cut_major < 2)
 			usb_soft_jtag_reset();
@@ -793,11 +796,6 @@ void stx7200_configure_pwm(struct plat_stm_pwm_data *data)
 	stm_pwm_device.dev.platform_data = data;
 
 	if (data->flags & PLAT_STM_PWM_OUT0) {
-		/* Route UART2 (in and out) and PWM_OUT0 instead of SCI to pins
-		 * ssc2_mux_sel = 0 */
-		if (sc7_2 == NULL)
-			sc7_2 = sysconf_claim(SYS_CFG, 7, 2, 2, "pwm");
-		sysconf_write(sc7_2, 0);
 		stpio_request_pin(4, 6, "PWM", STPIO_ALT_OUT);
 	}
 
@@ -1137,12 +1135,6 @@ void __init stx7200_configure_asc(const int *ascs, int num_ascs, int console)
 				sysconf_write(sc, 0);
 			}
 
-			/* Route UART2 (in and out) and PWM_OUT0 instead of SCI to pins.
-			 * ssc2_mux_sel = 0 */
-			if (sc7_2 == NULL)
-				sc7_2 = sysconf_claim(SYS_CFG, 7, 2, 2, "asc");
-			sysconf_write(sc7_2, 0);
-
 			/* Route UART2&3/SCI outputs instead of DVP to pins.
 			 * conf_pad_pio[1]=0 */
 			sc = sysconf_claim(SYS_CFG, 7, 25, 25, "asc");
@@ -1163,11 +1155,6 @@ void __init stx7200_configure_asc(const int *ascs, int num_ascs, int console)
 				sc = sysconf_claim(SYS_CFG, 7, 28, 28, "asc");
 				sysconf_write(sc, 0);
 			}
-
-			/* Route UART3 (in and out) instead of SCI to pins
-			 * ssc3_mux_sel = 0 */
-			sc = sysconf_claim(SYS_CFG, 7, 3, 3, "asc");
-			sysconf_write(sc, 0);
 			break;
 		}
 
@@ -1199,16 +1186,17 @@ static struct platform_device sysconf_device = {
 	.resource	= (struct resource[]) {
 		{
 			.start	= 0xfd704000,
-			.end	= 0xfd704000 + 0x1d3,
+			.end	= 0xfd7041d3,
 			.flags	= IORESOURCE_MEM
 		}
 	},
-	.dev = {
-		.platform_data = &(struct plat_sysconf_data) {
-			.sys_device_offset = 0,
-			.sys_sta_offset = 8,
-			.sys_cfg_offset = 0x100,
-		}
+	.dev.platform_data = &(struct plat_sysconf_data) {
+		.groups_num = 3,
+		.groups = (struct plat_sysconf_group []) {
+			PLAT_SYSCONF_GROUP(SYS_DEV, 0x000),
+			PLAT_SYSCONF_GROUP(SYS_STA, 0x008),
+			PLAT_SYSCONF_GROUP(SYS_CFG, 0x100),
+		},
 	}
 };
 
@@ -1231,7 +1219,7 @@ void __init stx7200_early_device_init(void)
 
 	/* Initialise PIO and sysconf drivers */
 
-	sysconf_early_init(&sysconf_device);
+	sysconf_early_init(&sysconf_device, 1);
 	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices),
 		ILC_FIRST_IRQ+ILC_NR_IRQS);
 

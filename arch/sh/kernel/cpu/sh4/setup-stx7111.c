@@ -28,7 +28,6 @@
 #include <asm/irl.h>
 #include <asm/irq-ilc.h>
 
-static struct sysconf_field *sc7_3;
 static u64 st40_dma_mask = DMA_32BIT_MASK;
 
 
@@ -373,11 +372,6 @@ void stx7111_configure_pwm(struct plat_stm_pwm_data *data)
 	stm_pwm_device.dev.platform_data = data;
 
 	if (data->flags & PLAT_STM_PWM_OUT0) {
-		/* Route UART2 (in and out) and PWM_OUT0 instead of SCI to pins
-		 * ssc2_mux_sel = 0 */
-		if (!sc7_3)
-			sc7_3 = sysconf_claim(SYS_CFG, 7, 3, 3, "pwm");
-		sysconf_write(sc7_3, 0);
 		stpio_request_pin(4, 6, "PWM", STPIO_ALT_OUT);
 	}
 
@@ -495,14 +489,6 @@ void __init stx7111_configure_asc(const int *ascs, int num_ascs, int console)
 			break;
 
 		case 2:
-			/* Route UART2 (in and out) instead of SCI to pins.
-			 * ssc2_mux_sel = 0 */
-			if (!sc7_3)
-				sc7_3 = sysconf_claim(SYS_CFG, 7, 3, 3, "asc");
-			sysconf_write(sc7_3, 0);
-
-			break;
-
 		case 3:
 			/* Nothing to do! */
 			break;
@@ -825,12 +811,13 @@ static struct platform_device sysconf_device = {
 			.flags	= IORESOURCE_MEM
 		}
 	},
-	.dev = {
-		.platform_data = &(struct plat_sysconf_data) {
-			.sys_device_offset = 0,
-			.sys_sta_offset = 8,
-			.sys_cfg_offset = 0x100,
-		}
+	.dev.platform_data = &(struct plat_sysconf_data) {
+		.groups_num = 3,
+		.groups = (struct plat_sysconf_group []) {
+			PLAT_SYSCONF_GROUP(SYS_DEV, 0x000),
+			PLAT_SYSCONF_GROUP(SYS_STA, 0x008),
+			PLAT_SYSCONF_GROUP(SYS_CFG, 0x100),
+		},
 	}
 };
 
@@ -853,7 +840,7 @@ void __init stx7111_early_device_init(void)
 
 	/* Initialise PIO and sysconf drivers */
 
-	sysconf_early_init(&sysconf_device);
+	sysconf_early_init(&sysconf_device, 1);
 	stpio_early_init(stpio_devices, ARRAY_SIZE(stpio_devices),
 			 ILC_FIRST_IRQ+ILC_NR_IRQS);
 

@@ -349,11 +349,26 @@ extern unsigned int stasc_configured_devices_count;
 #define ASC2_PIO6		4
 #endif
 
-struct plat_sysconf_data {
-	int sys_device_offset;
-	int sys_sta_offset;
-	int sys_cfg_offset;
+#define PLAT_SYSCONF_GROUP(_id, _offset) \
+	{ \
+		.group = _id, \
+		.offset = _offset, \
+		.name = #_id \
+	}
+
+struct plat_sysconf_group {
+	int group;
+	unsigned long offset;
+	const char *name;
+	const char *(*field_name)(int num);
 };
+
+struct plat_sysconf_data {
+	int groups_num;
+	struct plat_sysconf_group *groups;
+};
+
+
 
 /* NAND configuration data */
 struct nand_config_data {
@@ -380,7 +395,7 @@ void stx5197_configure_lirc(lirc_scd_t *scd);
 
 void stx7100_early_device_init(void);
 void stb7100_configure_asc(const int *ascs, int num_ascs, int console);
-void sysconf_early_init(struct platform_device *pdev);
+void sysconf_early_init(struct platform_device *pdevs, int pdevs_num);
 void stpio_early_init(struct platform_device *pdev, int num_pdevs, int irq);
 
 void stx7100_configure_sata(void);

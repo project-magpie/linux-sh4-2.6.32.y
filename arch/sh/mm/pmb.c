@@ -15,6 +15,8 @@
  */
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/sysdev.h>
+#include <linux/cpu.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/bitops.h>
@@ -30,6 +32,7 @@
 #include <asm/io.h>
 #include <asm/mmu_context.h>
 #include <asm/sections.h>
+#include <asm/cacheflush.h>
 
 #if 0
 #define DPRINTK(fmt, args...) printk(KERN_ERR "%s: " fmt, __FUNCTION__, ## args)
@@ -532,31 +535,6 @@ int pmb_virt_to_phys(void *addr, unsigned long *phys, unsigned long *flags)
 }
 EXPORT_SYMBOL(pmb_virt_to_phys);
 
-#ifdef CONFIG_PM
-int pmb_pm_state(int state)
-{
-	static int prev_state;
-	int idx;
-	switch (state) {
-	case PM_EVENT_ON:
-	  if (prev_state == PM_EVENT_FREEZE) {
-		for (idx = 0; idx < NR_PMB_ENTRIES; ++idx)
-		  if (pmbm[idx].usage)
-			pmb_mapping_set(&pmbm[idx]);
-		}
-	  break;
-	case PM_EVENT_SUSPEND:
-	  break;
-	case PM_EVENT_FREEZE:
-	  break;
-	default:
-	  return -1;
-	}
-	prev_state = state;
-	return 0;
-}
-#endif
-
 static int pmb_seq_show(struct seq_file *file, void *iter)
 {
 	int i;
@@ -616,3 +594,45 @@ static int __init pmb_debugfs_init(void)
 	return 0;
 }
 postcore_initcall(pmb_debugfs_init);
+
+#ifdef CONFIG_PM
+static int pmb_sysdev_suspend(struct sys_device *dev, pm_message_t state)
+{
+	static pm_message_t prev_state;
+	int idx;
+	switch (state.event) {
+	case PM_EVENT_ON:
+		/* Resumeing from hibernation */
+		if (prev_state.event == PM_EVENT_FREEZE) {
+			for (idx = 0; idx < NR_PMB_ENTRIES; ++idx)
+				if (pmbm[idx].usage)
+					pmb_mapping_set(&pmbm[idx]);
+			flush_cache_all();
+		}
+	  break;
+	case PM_EVENT_SUSPEND:
+	  break;
+	case PM_EVENT_FREEZE:
+	  break;
+	}
+	prev_state = state;
+	return 0;
+}
+
+static int pmb_sysdev_resume(struct sys_device *dev)
+{
+	return pmb_sysdev_suspend(dev, PMSG_ON);
+}
+
+static struct sysdev_driver pmb_sysdev_driver = {
+	.suspend = pmb_sysdev_suspend,
+	.resume = pmb_sysdev_resume,
+};
+
+static int __init pmb_sysdev_init(void)
+{
+	return sysdev_driver_register(&cpu_sysdev_class, &pmb_sysdev_driver);
+}
+
+subsys_initcall(pmb_sysdev_init);
+#endif

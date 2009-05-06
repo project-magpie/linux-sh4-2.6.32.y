@@ -47,7 +47,6 @@ void save_processor_state(void)
 	if (arch_swsusp_processor_state)
 		arch_swsusp_processor_state(PM_EVENT_FREEZE);
 
-	pmb_pm_state(PM_EVENT_FREEZE);
 	return;
 }
 
@@ -57,9 +56,6 @@ void restore_processor_state(void)
 	unsigned long flags;
 	struct irq_desc *desc;
 	void (*irq_func)(unsigned int irq);
-
-	/* restore the (hw) pmb setting */
-	pmb_pm_state(PM_EVENT_ON);
 
 	if (arch_swsusp_processor_state)
 		arch_swsusp_processor_state(PM_EVENT_ON);

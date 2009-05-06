@@ -19,31 +19,34 @@
 #define BASE_SYS		(0x3)
 
 
-#define OP_END			(0)	/* no more data in the table */
-#define OP_SOURCE		(1+ OP_END)
-#define OP_LOAD			(1+ OP_SOURCE)		/* load  @(offset, Reg_idx) */
-#define OP_LOAD_SRC0		(1+ OP_LOAD)		/* Load SRC_0 from resources */
-#define OP_LOAD_SRC1		(1+ OP_LOAD_SRC0)	/* Load SRC_1 from  */
-#define OP_LOAD_SRC2		(1+ OP_LOAD_SRC1)	/* Load SRC_2 from table */
-#define OP_STORE		(1+ OP_LOAD_SRC2)	/* store @(offset, Reg_idx) */
+#define OP_END			(0*4)	/* no more data in the table */
+#define OP_END_NO_SLEEP		(1*4)
+#define OP_SOURCE		(2*4)
+#define OP_LOAD			(3*4)	/* load  @(offset, Reg_idx) */
+#define OP_ILOAD_SRC0		(4*4)	/* load_imm (from itable) on r1 */
+#define OP_ILOAD_SRC1		(5*4)	/* load_imm (from itable) on r3 */
+#define OP_ILOAD_SRC2		(6*4)	/* load_imm (from itable) on r4 */
+#define OP_ILOAD_DEST		(7*4)	/* load_imm (from table) on r2 */
 
-#define OP_ILOAD_SRC0		(1+ OP_STORE)		/* load_imm (from itable) on r1 */
-#define OP_ILOAD_SRC1		(1+ OP_ILOAD_SRC0)	/* load_imm (from itable) on r3 */
-#define OP_ILOAD_SRC2		(1+ OP_ILOAD_SRC1)	/* load_imm (from itable) on r4 */
-#define OP_ILOAD_DEST		(1+ OP_ILOAD_SRC2)	/* load_imm (from table) on r2 */
-
-#define OP_OR			(1+ OP_ILOAD_DEST)
-#define OP_AND			(1+ OP_OR)
-#define OP_NOT			(1+ OP_AND)
+#define OP_STORE		(8*4)	/* store @(offset, Reg_idx) */
+#define OP_OR			(9*4)
+#define OP_AND			(10*4)
+#define OP_NOT			(11*4)
 /* WHILE_EQ (idx, offset, mask, value)
  * wait until the mask bits is equal to value
  */
-#define OP_WHILE_EQ		(1+ OP_NOT)
+#define OP_WHILE_EQ		(12*4)
 /* WHILE_NEQ (idx, offset, mask, value)
  * wait until the mask bits isn't equal to value
  */
-#define OP_WHILE_NEQ		(1+ OP_WHILE_EQ)
-#define OP_DELAY		(1+ OP_WHILE_NEQ)	/* A loop delay */
+#define OP_WHILE_NEQ		(13*4)
+
+#define OP_DELAY		(14*4)	/* A loop delay */
+
+#define OP_LOAD_SRC0		(15*4)	/* Load SRC_0 from resources */
+#define OP_LOAD_SRC1		(16*4)	/* Load SRC_1 from  */
+#define OP_LOAD_SRC2		(17*4)	/* Load SRC_2 from table */
+#define _OPCODE_TABLE_SIZE_	3
 
 #ifndef __ASSEMBLY__
 
@@ -61,7 +64,7 @@ struct sh4_suspend_t {
 	struct pm_ops ops;
 };
 
-int suspend_platform_setup(struct sh4_suspend_t *pdata);
+int sh4_suspend_register(struct sh4_suspend_t *data);
 
 /* Operations */
 #define _OR()					OP_OR
@@ -82,6 +85,7 @@ int suspend_platform_setup(struct sh4_suspend_t *pdata);
 #define _LOAD_SRC2()				OP_LOAD_SRC2
 
 #define _END()					OP_END
+#define _END_NO_SLEEP()				OP_END_NO_SLEEP
 
 #define DATA_SOURCE(idx)					\
 	OP_SOURCE, BASE_DATA, (4*(idx))

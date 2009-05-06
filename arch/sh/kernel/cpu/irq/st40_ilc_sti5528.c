@@ -16,6 +16,9 @@
 #include <linux/init.h>
 #include <linux/irq.h>
 #include <linux/pm.h>
+#include <linux/sysdev.h>
+#include <linux/cpu.h>
+#include <linux/pm.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
@@ -75,20 +78,36 @@ void ilc_route_external(int ilc_irq, int ext_out, int invert)
 	ilc_log[offset].ext_out = ext_out;
 	ilc_log[offset].invert  = invert;
 }
-
-int ilc_pm_state(pm_message_t state)
+#ifdef CONFIG_PM
+static int ilc_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
 	int idx;
 	static pm_message_t prev_state;
-	switch (state.event) {
-	case PM_EVENT_ON:
-		if (prev_state.event == PM_EVENT_FREEZE)
+
+	if (state.event == PM_EVENT_ON &&
+	    prev_state.event == PM_EVENT_FREEZE) /* Resuming from hibernation*/
 		  for (idx = 0; idx < ARRAY_SIZE(ilc_log); ++idx)
 			ilc_route_external(ilc_log[idx].ilc_irq,
 					   ilc_log[idx].ext_out,
 					   ilc_log[idx].invert);
-	default:
-		prev_state = state;
-	}
+	prev_state = state;
 	return 0;
 }
+
+static int ilc_sysdev_resume(struct sys_device *dev)
+{
+	return ilc_sysdev_suspend(dev, PMSG_ON);
+}
+
+static struct sysdev_driver ilc_sysdev_driver = {
+	.suspend = ilc_sysdev_suspend,
+	.resume = ilc_sysdev_resume,
+};
+
+static int __init ilc_sysdev_init(void)
+{
+	return sysdev_driver_register(&cpu_sysdev_class, &ilc_sysdev_driver);
+}
+
+module_init(ilc_sysdev_init);
+#endif

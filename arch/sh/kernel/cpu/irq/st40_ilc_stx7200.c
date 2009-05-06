@@ -11,6 +11,8 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/sysdev.h>
+#include <linux/cpu.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -33,6 +35,7 @@ struct ilc_data {
 	unsigned char priority;
 #define ILC_STATE_USED			0x1
 #define ILC_WAKEUP_ENABLED		0x2
+#define ILC_ENABLED			0x4
 
 #define ilc_is_used(_ilc)		(((_ilc)->state & ILC_STATE_USED) != 0)
 #define ilc_set_used(_ilc)		((_ilc)->state |= ILC_STATE_USED)
@@ -41,6 +44,11 @@ struct ilc_data {
 #define ilc_set_wakeup(_ilc)		((_ilc)->state |= ILC_WAKEUP_ENABLED)
 #define ilc_reset_wakeup(_ilc)		((_ilc)->state &= ~ILC_WAKEUP_ENABLED)
 #define ilc_wakeup_enabled(_ilc)  (((_ilc)->state & ILC_WAKEUP_ENABLED) != 0)
+
+#define ilc_set_enabled(_ilc)		((_ilc)->state |= ILC_ENABLED)
+#define ilc_set_disabled(_ilc)		((_ilc)->state &= ~ILC_ENABLED)
+#define ilc_is_enabled(_ilc)		(((_ilc)->state & ILC_ENABLED) != 0)
+
 	unsigned char state;
 /*
  * trigger_mode is used to restore the right mode
@@ -188,8 +196,6 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 
 	DPRINTK("%s: irq %d\n", __FUNCTION__, irq);
 
-	WARN_ON(ilc_is_used(&ilc_data[irq_offset]));
-
 	if ((irq_offset < 0) || (irq_offset >= ILC_NR_IRQS))
 		return -ENODEV;
 
@@ -198,6 +204,7 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 
 	spin_lock_irqsave(&ilc_data_lock, flags);
 	ilc_set_used(this);
+	ilc_set_enabled(this);
 	priority_mask[priority].mask[_BANK(irq_offset)] |= _BIT(irq_offset);
 	spin_unlock_irqrestore(&ilc_data_lock, flags);
 
@@ -241,6 +248,7 @@ static void shutdown_ilc_irq(unsigned int irq)
 	ILC_SET_PRI(irq_offset, 0);
 
 	spin_lock_irqsave(&ilc_data_lock, flags);
+	ilc_set_disabled(this);
 	ilc_set_unused(this);
 	priority_mask[priority].mask[_BANK(irq_offset)] &= ~(_BIT(irq_offset));
 	spin_unlock_irqrestore(&ilc_data_lock, flags);
@@ -249,35 +257,35 @@ static void shutdown_ilc_irq(unsigned int irq)
 static void unmask_ilc_irq(unsigned int irq)
 {
 	int irq_offset = irq - ILC_FIRST_IRQ;
+	struct ilc_data *this = &ilc_data[irq_offset];
 
 	DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
 
-	WARN_ON(!ilc_is_used(&ilc_data[irq_offset]));
-
 	ILC_SET_ENABLE(irq_offset);
+	ilc_set_enabled(this);
 }
 
 static void mask_ilc_irq(unsigned int irq)
 {
 	int irq_offset = irq - ILC_FIRST_IRQ;
+	struct ilc_data *this = &ilc_data[irq_offset];
 
 	DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
 
-	WARN_ON(!ilc_is_used(&ilc_data[irq_offset]));
-
 	ILC_CLR_ENABLE(irq_offset);
+	ilc_set_disabled(this);
 }
 
 static void mask_and_ack_ilc(unsigned int irq)
 {
 	int irq_offset = irq - ILC_FIRST_IRQ;
+	struct ilc_data *this = &ilc_data[irq_offset];
 
 	DPRINTK2("%s: irq %d\n", __FUNCTION__, irq);
 
-	WARN_ON(!ilc_is_used(&ilc_data[irq_offset]));
-
 	ILC_CLR_ENABLE(irq_offset);
 	(void)ILC_GET_ENABLE(irq_offset); /* Defeat write posting */
+	ilc_set_disabled(this);
 }
 
 static int set_type_ilc_irq(unsigned int irq, unsigned int flow_type)
@@ -361,26 +369,50 @@ void __init ilc_demux_init(void)
 }
 
 #ifdef CONFIG_PM
-int ilc_pm_state(pm_message_t state)
+static int ilc_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
-	int idx;
-	long flag;
-	static pm_message_t prev_state = {.event = PM_EVENT_ON,};
-	switch (state.event) {
-	case PM_EVENT_ON:
-		if (prev_state.event == PM_EVENT_FREEZE){
+	int idx, irq;
+	unsigned long flag;
+	static pm_message_t prev_state;
+
+	if (state.event == PM_EVENT_ON &&
+	    prev_state.event == PM_EVENT_FREEZE) {
 			local_irq_save(flag);
 			for (idx = 0; idx < ARRAY_SIZE(ilc_data); ++idx) {
+				irq = idx + ILC_FIRST_IRQ;
 				ILC_SET_PRI(idx, ilc_data[idx].priority);
 				ILC_SET_TRIGMODE(idx, ilc_data[idx].trigger_mode);
+				if (ilc_is_used(&ilc_data[idx])) {
+					startup_ilc_irq(irq);
+					if (ilc_is_enabled(&ilc_data[idx]))
+						unmask_ilc_irq(irq);
+					else
+						mask_ilc_irq(irq);
 				}
+			}
 			local_irq_restore(flag);
 		}
-	default:
-		prev_state = state;
-	}
+
+	prev_state = state;
 	return 0;
 }
+
+static int ilc_sysdev_resume(struct sys_device *dev)
+{
+	return ilc_sysdev_suspend(dev, PMSG_ON);
+}
+
+static struct sysdev_driver ilc_sysdev_driver = {
+	.suspend = ilc_sysdev_suspend,
+	.resume = ilc_sysdev_resume,
+};
+
+static int __init ilc_sysdev_init(void)
+{
+	return sysdev_driver_register(&cpu_sysdev_class, &ilc_sysdev_driver);
+}
+
+module_init(ilc_sysdev_init);
 #endif
 
 #if defined(CONFIG_PROC_FS)

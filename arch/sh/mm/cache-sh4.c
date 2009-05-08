@@ -35,8 +35,10 @@ static void __flush_dcache_segment_4way(unsigned long start,
 					unsigned long extent);
 static void (*__flush_dcache_segment_fn)(unsigned long, unsigned long);
 
-static void __flush_cache_4096(unsigned long addr, unsigned long kaddr);
-static void (*__flush_cache_4096_uncached)(unsigned long addr, unsigned long kaddr);
+static void __flush_cache_4096(unsigned long addr, unsigned long kaddr,
+				int way_count, unsigned long way_incr);
+static void (*__flush_cache_4096_uncached)(unsigned long addr, unsigned long kaddr,
+					   int way_count, unsigned long way_incr);
 
 static void compute_alias(struct cache_info *c)
 {
@@ -230,21 +232,34 @@ static inline void flush_cache_4096(unsigned long start,
 				    unsigned long kaddr)
 {
 	unsigned long flags;
-	void (*fc4096)(unsigned long start, unsigned long kaddr);
+	struct cache_info *cache;
+	int way_count;
+	unsigned long way_incr;
+	void (*fc4096)(unsigned long start, unsigned long kaddr, int ways,
+			unsigned long way_incr);
 
 	/*
 	 * All types of SH-4 require PC to uncached to operate on the I-cache.
 	 * Some types of SH-4 require PC to be uncached to operate on the
 	 * D-cache.
 	 */
-	if ((boot_cpu_data.flags & CPU_HAS_P2_FLUSH_BUG) ||
-	    (start < CACHE_OC_ADDRESS_ARRAY))
+
+	if (unlikely(start < CACHE_OC_ADDRESS_ARRAY)){
+		cache = &boot_cpu_data.icache;
 		fc4096 = __flush_cache_4096_uncached;
-	else
+	} else {
+		cache = &boot_cpu_data.dcache;
 		fc4096 = __flush_cache_4096;
+	}
+
+	if (unlikely(boot_cpu_data.flags & CPU_HAS_P2_FLUSH_BUG))
+		fc4096 = __flush_cache_4096_uncached;
+
+	way_count = cache->ways;
+	way_incr = cache->way_incr;
 
 	local_irq_save(flags);
-	fc4096(start | SH_CACHE_ASSOC, kaddr);
+	fc4096(start | SH_CACHE_ASSOC, kaddr, way_count, way_incr);
 	local_irq_restore(flags);
 }
 
@@ -540,18 +555,10 @@ void flush_icache_user_range(struct vm_area_struct *vma,
  * 'phys'.
  */
 static void __uses_jump_to_uncached
-__flush_cache_4096(unsigned long addr, unsigned long kaddr)
+__flush_cache_4096(unsigned long addr, unsigned long kaddr, int way_count, unsigned long way_incr)
 {
-	int way_count;
 	unsigned long base_addr = addr;
-	struct cache_info *dcache;
-	unsigned long way_incr;
 	unsigned long a, ea, p;
-
-	dcache = &boot_cpu_data.dcache;
-	/* Write this way for better assembly. */
-	way_count = dcache->ways;
-	way_incr = dcache->way_incr;
 
 	/*
 	 * We know there will be >=1 iteration, so write as do-while to avoid

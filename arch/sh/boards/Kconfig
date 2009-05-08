@@ -423,11 +423,11 @@ config SH_ST_MB680
 	  <http://www.stlinux.com/boards/mb680/>
 
 config SH_ST_PDK7105
-	bool "PDK7105-SDK : STi7105 Reference board"
+	bool "PDK7105-SDK : STi7105 SDK Reference board"
 	depends on CPU_SUBTYPE_STX7105
 	help
 	  Select PDK7105-SDK if configuring for an
-	  STMicroelectronics STi7105 Reference Board.
+	  STMicroelectronics STi7105 SDK Reference Board.
 
 config SH_ST_MB704
 	bool "mb704: STx5197 Validation board"
@@ -439,6 +439,13 @@ config SH_ST_MB704
 	  STMicroelectronics STx5197 Validation Board (product code:
 	  STx5197-MBOARD, ST board ID: mb704). More information at:
 	  <http://www.stlinux.com/boards/mb704/>
+
+config SH_ST_MB839
+	bool "mb839: STi7105 Reference Board"
+	depends on CPU_SUBTYPE_STX7105
+	help
+	  Select MB839 if configuring for an
+	  STMicroelectronics STi7105 MB839 Reference Board.
 
 comment "ST Peripheral Boards"
 

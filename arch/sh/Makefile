@@ -136,6 +136,7 @@ machdir-$(CONFIG_SH_ST_MB628)			+= mach-mb628 mach-st
 machdir-$(CONFIG_SH_ST_MB671)			+= mach-mb671 mach-st
 machdir-$(CONFIG_SH_ST_MB680)			+= mach-mb680 mach-st
 machdir-$(CONFIG_SH_ST_MB704)			+= mach-mb704
+machdir-$(CONFIG_SH_ST_MB839)			+= mach-mb839
 machdir-$(CONFIG_SH_ST_PDK7105)			+= mach-pdk7105
 
 ifneq ($(machdir-y),)

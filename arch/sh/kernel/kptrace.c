@@ -508,7 +508,12 @@ static tracepoint_t *create_tracepoint(tracepoint_set_t * set, const char *name,
 	}
 
 	if (return_handler != NULL) {
-		tp->rp.kp.addr = tp->kp.addr;
+		if (entry_handler != NULL)
+			tp->rp.kp.addr = tp->kp.addr;
+		else
+			tp->rp.kp.addr = (kprobe_opcode_t *)
+						kallsyms_lookup_name(name);
+
 		tp->rp.handler = return_handler;
 		tp->rp.maxactive = 128;
 	}
@@ -846,6 +851,13 @@ static int context_switch_pre_handler(struct kprobe *p, struct pt_regs *regs)
 static int irq_rp_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	write_trace_record_no_callstack("i");
+	return 0;
+}
+
+static int irq_exit_rp_handler(struct kretprobe_instance *ri,
+				struct pt_regs *regs)
+{
+	write_trace_record_no_callstack("Ix");
 	return 0;
 }
 
@@ -1382,6 +1394,7 @@ void init_core_event_logging(void)
 			  irq_rp_handler);
 	create_tracepoint(set, "handle_edge_irq", irq_pre_handler,
 			  irq_rp_handler);
+	create_tracepoint(set, "irq_exit", NULL, irq_exit_rp_handler);
 	create_tracepoint(set, "__switch_to", context_switch_pre_handler, NULL);
 	create_tracepoint(set, "tasklet_hi_action", softirq_pre_handler,
 			  softirq_rp_handler);

@@ -989,11 +989,13 @@ static int syscall_shhh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	char filename[KPTRACE_SMALL_BUF];
 	int len = 0;
 
-	if (copy_from_user(filename, (char *)regs->regs[4], KPTRACE_SMALL_BUF)
-	    != 0) {
+	if (regs->pc == (unsigned)do_execve) {
+		/* Don't need to copy_from_user in this case */
+		snprintf(filename, KPTRACE_SMALL_BUF, (char *)regs->regs[4]);
+	} else if (copy_from_user(filename, (char *)regs->regs[4],
+			KPTRACE_SMALL_BUF) != 0)
 		snprintf(filename, KPTRACE_SMALL_BUF,
 			 "<copy_from_user failed>");
-	}
 
 	len =
 	    snprintf(static_buf, KPTRACE_SMALL_BUF, "E %.8x %s %.8x %.8x %.8x",
@@ -1419,7 +1421,7 @@ void init_syscall_logging(void)
 	INIT_SYSCALL_PROBE(sys_creat);
 	INIT_SYSCALL_PROBE(sys_link);
 	INIT_SYSCALL_PROBE(sys_unlink);
-	INIT_CUSTOM_SYSCALL_PROBE(sys_execve, syscall_shhh_pre_handler);
+	INIT_CUSTOM_SYSCALL_PROBE(do_execve, syscall_shhh_pre_handler);
 	INIT_SYSCALL_PROBE(sys_chdir);
 	INIT_SYSCALL_PROBE(sys_time);
 	INIT_SYSCALL_PROBE(sys_mknod);

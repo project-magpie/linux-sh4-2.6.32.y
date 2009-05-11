@@ -125,7 +125,58 @@ static struct platform_device pdk7105_phy_device = {
 	}
 };
 
+static struct mtd_partition mtd_parts_table[3] = {
+	{
+		.name = "Boot firmware",
+		.size = 0x00040000,
+		.offset = 0x00000000,
+	}, {
+		.name = "Kernel",
+		.size = 0x00200000,
+		.offset = 0x00040000,
+	}, {
+		.name = "Root FS",
+		.size = MTDPART_SIZ_FULL,
+		.offset = 0x00240000,
+	}
+};
+
+static struct stpio_pin *vpp_enable_pin;
+
+static void mtd_set_vpp(struct map_info *map, int vpp)
+{
+	if(vpp)
+		stpio_set_pin(vpp_enable_pin, 1);
+	else
+		stpio_set_pin(vpp_enable_pin, 0);
+
+}
+
+static struct physmap_flash_data pdk7105_physmap_flash_data = {
+	.width		= 2,
+	.set_vpp	= mtd_set_vpp,
+	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
+	.parts		= mtd_parts_table
+};
+
+static struct platform_device pdk7105_physmap_flash = {
+	.name		= "physmap-flash",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start		= 0x00000000,
+			.end		= 128*1024*1024 - 1,
+			.flags		= IORESOURCE_MEM,
+		}
+	},
+	.dev		= {
+		.platform_data	= &pdk7105_physmap_flash_data,
+	},
+};
+
 static struct platform_device *pdk7105_devices[] __initdata = {
+	&pdk7105_physmap_flash,
 	&pdk7105_leds,
 	&pdk7105_phy_device,
 };
@@ -164,6 +215,9 @@ static int __init device_init(void)
 	stx7105_configure_ethernet(0, 0, 0, 0, 0, 0);
 	stx7105_configure_lirc(&lirc_scd);
 	stx7105_configure_audio_pins(3, 1, 1);
+
+	vpp_enable_pin = stpio_request_set_pin(6, 4, "nor_vpp_enable",
+					      STPIO_OUT, 1);
 
 	return platform_add_devices(pdk7105_devices, ARRAY_SIZE(pdk7105_devices));
 }

@@ -671,9 +671,8 @@ config SENSORS_THMC50
 	  will be called thmc50.
 
 config SENSORS_STM_PWM
-	tristate "STM PWM Support"
-	depends on HWMON && CPU_SUBTYPE_ST40
-	default n
+	tristate "STMicroelectronics PWM"
+	depends on CPU_SUBTYPE_ST40
 	help
 	  This is a simple driver for the PWM (Pulse Width Modulation)
 	  hardware present on many ST chips. Although the PWM hardware can

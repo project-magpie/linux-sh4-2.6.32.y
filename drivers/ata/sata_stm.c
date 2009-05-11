@@ -32,6 +32,7 @@
 #include <scsi/scsi_cmnd.h>
 #include <linux/libata.h>
 #include <linux/stm/soc.h>
+#include <linux/stm/pm.h>
 
 #define DRV_NAME			"sata_stm"
 #define DRV_VERSION			"0.6"
@@ -1141,6 +1142,27 @@ static int stm_sata_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int stm_sata_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	if (state.event == PM_EVENT_SUSPEND) {
+		platform_pm_pwdn_req(pdev, HOST_PM, 1);
+		platform_pm_pwdn_ack(pdev, HOST_PM, 1);
+		}
+	return 0;
+}
+
+static int stm_sata_resume(struct platform_device *pdev)
+{
+	platform_pm_pwdn_req(pdev, HOST_PM, 0);
+	platform_pm_pwdn_ack(pdev, HOST_PM, 0);
+	return 0;
+}
+#else
+#define stm_sata_suspend	NULL
+#define stm_sata_resume		NULL
+#endif
+
 static struct platform_driver stm_sata_driver = {
 	.driver = {
 		.name = DRV_NAME,
@@ -1148,6 +1170,8 @@ static struct platform_driver stm_sata_driver = {
 	},
 	.probe = stm_sata_probe,
 	.remove = stm_sata_remove,
+	.suspend = stm_sata_suspend,
+	.resume = stm_sata_resume,
 };
 
 static int __init stm_sata_init(void)

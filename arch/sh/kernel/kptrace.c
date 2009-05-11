@@ -882,10 +882,9 @@ static int daemonize_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	char tbuf[KPTRACE_SMALL_BUF];
 	char name[KPTRACE_SMALL_BUF];
 
-	if (copy_from_user(name, (char *)regs->regs[4], KPTRACE_SMALL_BUF)
-	    != 0) {
+	if (strncpy_from_user(name, (char *)regs->regs[4],
+		KPTRACE_SMALL_BUF) < 0)
 		snprintf(name, KPTRACE_SMALL_BUF, "<copy_from_user failed>");
-	}
 
 	snprintf(tbuf, KPTRACE_SMALL_BUF, "KD %s\n", name);
 	write_trace_record(p, regs, tbuf);
@@ -908,10 +907,10 @@ static int kthread_create_rp_handler(struct kretprobe_instance *ri,
 	char name[KPTRACE_SMALL_BUF];
 	struct task_struct *new_task = (struct task_struct *)regs->regs[0];
 
-	if (copy_from_user(name, (char *)new_task->comm, KPTRACE_SMALL_BUF)
-	    != 0) {
+	if (strncpy_from_user(name, (char *)new_task->comm,
+		KPTRACE_SMALL_BUF) < 0)
 		snprintf(name, KPTRACE_SMALL_BUF, "<copy_from_user failed>");
-	}
+
 	snprintf(tbuf, KPTRACE_SMALL_BUF, "Kc %d %s\n", new_task->pid, name);
 	write_trace_record_no_callstack(tbuf);
 	return 0;
@@ -1029,9 +1028,9 @@ static int syscall_shhh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	int len = 0;
 
 	if (regs->pc == (unsigned)do_execve) {
-		/* Don't need to copy_from_user in this case */
+		/* Don't need to strncpy_from_user in this case */
 		snprintf(filename, KPTRACE_SMALL_BUF, (char *)regs->regs[4]);
-	} else if (copy_from_user(filename, (char *)regs->regs[4],
+	} else if (strncpy_from_user(filename, (char *)regs->regs[4],
 			KPTRACE_SMALL_BUF) != 0)
 		snprintf(filename, KPTRACE_SMALL_BUF,
 			 "<copy_from_user failed>");
@@ -1062,11 +1061,10 @@ static int syscall_sihh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	char filename[KPTRACE_SMALL_BUF];
 	int len = 0;
 
-	if (copy_from_user(filename, (char *)regs->regs[4], KPTRACE_SMALL_BUF)
-	    != 0) {
+	if (strncpy_from_user(filename, (char *)regs->regs[4],
+		KPTRACE_SMALL_BUF) < 0)
 		snprintf(filename, KPTRACE_SMALL_BUF,
 			 "<copy_from_user failed>");
-	}
 
 	len = snprintf(static_buf, KPTRACE_SMALL_BUF, "E %.8x %s %d %.8x %.8x",
 		       (int)regs->pc, filename, (int)regs->regs[5],

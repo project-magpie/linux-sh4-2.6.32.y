@@ -23,6 +23,7 @@
 #include <linux/module.h>
 #include <linux/kprobes.h>
 #include <linux/kallsyms.h>
+#include <linux/prctl.h>
 #include <linux/relay.h>
 #include <linux/debugfs.h>
 #include <linux/sysdev.h>
@@ -937,6 +938,32 @@ static int syscall_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	return 0;
 }
 
+/* Special syscall handler for prctl, in order to get the process name
+   out of prctl(PR_SET_NAME) calls. */
+static int syscall_prctl_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	char static_buf[KPTRACE_SMALL_BUF];
+
+	if ((unsigned)regs->regs[4] == PR_SET_NAME) {
+	    if (strncpy_from_user(static_buf, (char *)regs->regs[5],
+			KPTRACE_SMALL_BUF) < 0)
+		snprintf(static_buf, KPTRACE_SMALL_BUF,
+				"<copy_from_user failed>");
+
+	    snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %s",
+		     (int)regs->pc, (unsigned)regs->regs[4], static_buf);
+	} else {
+	    snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %.8x %.8x %.8x",
+		     (int)regs->pc, (unsigned)regs->regs[4],
+		     (unsigned)regs->regs[5], (unsigned)regs->regs[6],
+		     (unsigned)regs->regs[7]);
+	}
+	write_trace_record(p, regs, tbuf);
+	return 0;
+}
+
+
 /* Output syscall arguments in int, hex, hex, hex format */
 static int syscall_ihhh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
@@ -1585,7 +1612,7 @@ void init_syscall_logging(void)
 	INIT_SYSCALL_PROBE(sys_nfsservctl);
 	INIT_SYSCALL_PROBE(sys_setresgid16);
 	INIT_SYSCALL_PROBE(sys_getresgid16);
-	INIT_SYSCALL_PROBE(sys_prctl);
+	INIT_CUSTOM_SYSCALL_PROBE(sys_prctl, syscall_prctl_pre_handler);
 	INIT_SYSCALL_PROBE(sys_rt_sigreturn);
 	INIT_SYSCALL_PROBE(sys_rt_sigaction);
 	INIT_SYSCALL_PROBE(sys_rt_sigprocmask);

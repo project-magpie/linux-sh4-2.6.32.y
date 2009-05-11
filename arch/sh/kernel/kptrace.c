@@ -1059,6 +1059,16 @@ static int syscall_sihh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	return 0;
 }
 
+static int hash_futex_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	union futex_key *key = (union futex_key *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "HF %.8lx %p %.8x",
+		key->both.word, key->both.ptr, key->both.offset);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+}
+
 static int kmalloc_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
@@ -1640,6 +1650,7 @@ void init_syscall_logging(void)
 	INIT_SYSCALL_PROBE(sys_tkill);
 	INIT_SYSCALL_PROBE(sys_sendfile64);
 	INIT_SYSCALL_PROBE(sys_futex);
+	create_tracepoint(set, "hash_futex", hash_futex_handler, NULL);
 	INIT_SYSCALL_PROBE(sys_sched_setaffinity);
 	INIT_SYSCALL_PROBE(sys_sched_getaffinity);
 	INIT_SYSCALL_PROBE(sys_io_setup);

@@ -141,7 +141,6 @@ static int st_usb_suspend(struct platform_device *pdev, pm_message_t state)
 	struct plat_usb_data *pdata = pdev->dev.platform_data;
 	unsigned long wrapper_base = pdata->ahb2stbus_wrapper_glue_base;
 	void *protocol_base = pdata->ahb2stbus_protocol_base;
-	struct usb_hcd *hcd = pdata->ehci_hcd;
 	long reg;
 	dgb_print("\n");
 
@@ -152,7 +151,6 @@ static int st_usb_suspend(struct platform_device *pdev, pm_message_t state)
 			wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	}
 
-	writel(0, hcd->regs + AHB2STBUS_INSREG01_OFFSET);
 	writel(0, wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	writel(0, protocol_base + AHB2STBUS_STBUS_OPC_OFFSET);
 	writel(0, protocol_base + AHB2STBUS_MSGSIZE_OFFSET);

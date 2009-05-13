@@ -15,7 +15,7 @@
 #include <linux/ethtool.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
-#include <asm/io.h>
+#include <linux/io.h>
 
 #include "stmmac.h"
 
@@ -75,7 +75,7 @@ int stmmac_ethtool_setsettings(struct net_device *dev, struct ethtool_cmd *cmd)
 	return rc;
 }
 
-u32 stmmac_ethtool_getmsglevel(struct net_device * dev)
+u32 stmmac_ethtool_getmsglevel(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	return priv->msg_enable;
@@ -143,7 +143,7 @@ int stmmac_ethtool_set_tx_csum(struct net_device *netdev, u32 data)
 	return 0;
 }
 
-u32 stmmac_ethtool_get_rx_csum(struct net_device * dev)
+u32 stmmac_ethtool_get_rx_csum(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
@@ -158,7 +158,8 @@ stmmac_get_pauseparam(struct net_device *netdev,
 
 	spin_lock(&priv->lock);
 
-	pause->rx_pause = pause->tx_pause = 0;
+	pause->rx_pause = 0;
+	pause->tx_pause = 0;
 	pause->autoneg = priv->phydev->autoneg;
 
 	if (priv->flow_ctrl & FLOW_RX)
@@ -265,7 +266,7 @@ static int stmmac_stats_count(struct net_device *dev)
 }
 
 static void stmmac_ethtool_stats(struct net_device *dev,
-				 struct ethtool_stats *dummy, u64 * buf)
+				 struct ethtool_stats *dummy, u64 *buf)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	unsigned long ioaddr = dev->base_addr;
@@ -288,7 +289,7 @@ static void stmmac_ethtool_stats(struct net_device *dev,
 	return;
 }
 
-static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 * buf)
+static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 *buf)
 {
 	switch (stringset) {
 	case ETH_SS_STATS:

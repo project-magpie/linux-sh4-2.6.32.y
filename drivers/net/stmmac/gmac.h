@@ -1,4 +1,4 @@
-/* 
+/*
  * GMAC header file
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
  */
@@ -44,13 +44,9 @@ enum power_event {
 };
 
 /* GMAC HW ADDR regs */
-#define GMAC_ADDR_HIGH	0x00000040	/* Mac Address 0 HI */
-#define GMAC_ADDR_LOW	0x00000044	/* Mac Address 0 LO */
-
+#define GMAC_ADDR_HIGH(reg)		(0x00000040+(reg * 8))
+#define GMAC_ADDR_LOW(reg)		(0x00000044+(reg * 8))
 #define GMAC_MAX_UNICAST_ADDRESSES	16
-
-#define GMAC_ADDRs_HIGH(reg)		(0x00000048+((reg-1)*8))
-#define GMAC_ADDRs_LOW(reg)		(0x0000004c+((reg-1)*8))
 
 #define GMAC_AN_CTRL	0x000000c0	/* AN control */
 #define GMAC_AN_STATUS	0x000000c4	/* AN status */
@@ -71,19 +67,19 @@ enum inter_frame_gap {
 	GMAC_CONTROL_IFG_80 = 0x00020000,
 	GMAC_CONTROL_IFG_40 = 0x000e0000,
 };
-#define GMAC_CONTROL_DCRS	0x00010000	/* Disable carrier sense during tx */
-#define GMAC_CONTROL_PS		0x00008000	/* Port Select 0:GMI 1:MII */
-#define GMAC_CONTROL_FES	0x00004000	/* Speed 0:10 1:100 */
-#define GMAC_CONTROL_DO		0x00002000	/* Disable Rx Own */
-#define GMAC_CONTROL_LM		0x00001000	/* Loop-back mode */
-#define GMAC_CONTROL_DM		0x00000800	/* Duplex Mode */
-#define GMAC_CONTROL_IPC	0x00000400	/* Checksum Offload */
-#define GMAC_CONTROL_DR		0x00000200	/* Disable Retry */
-#define GMAC_CONTROL_LUD	0x00000100	/* Link up/down */
-#define GMAC_CONTROL_ACS	0x00000080	/* Automatic Pad Stripping */
-#define GMAC_CONTROL_DC		0x00000010	/* Deferral Check */
-#define GMAC_CONTROL_TE		0x00000008	/* Transmitter Enable */
-#define GMAC_CONTROL_RE		0x00000004	/* Receiver Enable */
+#define GMAC_CONTROL_DCRS	0x00010000 /* Disable carrier sense during tx */
+#define GMAC_CONTROL_PS		0x00008000 /* Port Select 0:GMI 1:MII */
+#define GMAC_CONTROL_FES	0x00004000 /* Speed 0:10 1:100 */
+#define GMAC_CONTROL_DO		0x00002000 /* Disable Rx Own */
+#define GMAC_CONTROL_LM		0x00001000 /* Loop-back mode */
+#define GMAC_CONTROL_DM		0x00000800 /* Duplex Mode */
+#define GMAC_CONTROL_IPC	0x00000400 /* Checksum Offload */
+#define GMAC_CONTROL_DR		0x00000200 /* Disable Retry */
+#define GMAC_CONTROL_LUD	0x00000100 /* Link up/down */
+#define GMAC_CONTROL_ACS	0x00000080 /* Automatic Pad Stripping */
+#define GMAC_CONTROL_DC		0x00000010 /* Deferral Check */
+#define GMAC_CONTROL_TE		0x00000008 /* Transmitter Enable */
+#define GMAC_CONTROL_RE		0x00000004 /* Receiver Enable */
 
 #define GMAC_CORE_INIT (GMAC_CONTROL_JD | GMAC_CONTROL_PS | GMAC_CONTROL_ACS | \
 			GMAC_CONTROL_IPC | GMAC_CONTROL_JE | GMAC_CONTROL_BE)
@@ -141,9 +137,9 @@ enum rx_tx_priority_ratio {
 #define DMA_BUS_FB	  	  0x00010000	/* Fixed Burst */
 
 /* DMA operation mode defines (start/stop tx/rx are placed in common header)*/
-#define DMA_CONTROL_DT		0x04000000	/* Disable Drop TCP/IP csum error */
-#define DMA_CONTROL_RSF		0x02000000	/* Receive Store and Forward */
-#define DMA_CONTROL_DFF		0x01000000	/* Disaable flushing */
+#define DMA_CONTROL_DT		0x04000000 /* Disable Drop TCP/IP csum error */
+#define DMA_CONTROL_RSF		0x02000000 /* Receive Store and Forward */
+#define DMA_CONTROL_DFF		0x01000000 /* Disaable flushing */
 /* Theshold for Activating the FC */
 enum rfa {
 	act_full_minus_1 = 0x00800000,
@@ -158,8 +154,8 @@ enum rfd {
 	deac_full_minus_3 = 0x00401000,
 	deac_full_minus_4 = 0x00401800,
 };
-#define DMA_CONTROL_TSF		0x00200000	/* Transmit  Store and Forward */
-#define DMA_CONTROL_FTF		0x00100000	/* Flush transmit FIFO */
+#define DMA_CONTROL_TSF		0x00200000 /* Transmit  Store and Forward */
+#define DMA_CONTROL_FTF		0x00100000 /* Flush transmit FIFO */
 
 enum ttc_control {
 	DMA_CONTROL_TTC_64 = 0x00000000,

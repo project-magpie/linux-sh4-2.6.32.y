@@ -77,10 +77,10 @@ enum ttc_control {
 	DMA_CONTROL_TTC_64 = 0x00004000,	/* Threshold is 64 DWORDS */
 	DMA_CONTROL_TTC_128 = 0x00008000,	/* Threshold is 128 DWORDS */
 	DMA_CONTROL_TTC_256 = 0x0000c000,	/* Threshold is 256 DWORDS */
-	DMA_CONTROL_TTC_18 = 0x00400000,	/* Threshold is 18 DWORDS [22:1] */
-	DMA_CONTROL_TTC_24 = 0x00404000,	/* Threshold is 24 DWORDS [22:1] */
-	DMA_CONTROL_TTC_32 = 0x00408000,	/* Threshold is 32 DWORDS [22:1] */
-	DMA_CONTROL_TTC_40 = 0x0040c000,	/* Threshold is 40 DWORDS [22:1] */
+	DMA_CONTROL_TTC_18 = 0x00400000,	/* Threshold is 18 DWORDS */
+	DMA_CONTROL_TTC_24 = 0x00404000,	/* Threshold is 24 DWORDS */
+	DMA_CONTROL_TTC_32 = 0x00408000,	/* Threshold is 32 DWORDS */
+	DMA_CONTROL_TTC_40 = 0x0040c000,	/* Threshold is 40 DWORDS */
 	DMA_CONTROL_SE = 0x00000008,	/* Stop On Empty */
 	DMA_CONTROL_OSF = 0x00000004,	/* Operate On 2nd Frame */
 };

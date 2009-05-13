@@ -1,7 +1,7 @@
 #include "descs.h"
 
 /* *********************************************
-   DMA CRS Control and Status Register Mapping 
+   DMA CRS Control and Status Register Mapping
  * *********************************************/
 #define DMA_BUS_MODE		0x00001000	/* Bus Mode */
 #define DMA_XMT_POLL_DEMAND	0x00001004	/* Transmit Poll Demand */
@@ -32,8 +32,7 @@
 #define DMA_INTR_ENA_ERE 0x00004000	/* Early Receive */
 
 #define DMA_INTR_NORMAL	(DMA_INTR_ENA_NIE | DMA_INTR_ENA_RIE | \
-			DMA_INTR_ENA_TIE \
-			/*| DMA_INTR_ENA_ERE | DMA_INTR_ENA_TUE*/)
+			DMA_INTR_ENA_TIE)
 
 /**** ABNORMAL INTERRUPT ****/
 #define DMA_INTR_ENA_AIE 0x00008000	/* Abnormal Summary */
@@ -61,7 +60,7 @@
  * ****************************/
 #define DMA_STATUS_GPI		0x10000000	/* PMT interrupt */
 #define DMA_STATUS_GMI		0x08000000	/* MMC interrupt */
-#define DMA_STATUS_GLI		0x04000000	/* GMAC Line interface interrupt */
+#define DMA_STATUS_GLI		0x04000000	/* GMAC Line interface int. */
 #define DMA_STATUS_GMI		0x08000000
 #define DMA_STATUS_GLI		0x04000000
 #define DMA_STATUS_EB_MASK	0x00380000	/* Error Bits Mask */
@@ -191,6 +190,47 @@ enum rx_frame_status {
 	csum_none = 2,
 };
 
+/*
+ * This function sets the hardware MAC address into the specified
+ * Hw register.
+ */
+static inline void stmmac_set_mac_addr(unsigned long ioaddr, u8 addr[6],
+			 unsigned int high, unsigned int low)
+{
+	unsigned long data;
+
+	data = (addr[5] << 8) | addr[4];
+	writel(data, ioaddr + high);
+	data = (addr[3] << 24) | (addr[2] << 16) | (addr[1] << 8) | addr[0];
+	writel(data, ioaddr + low);
+
+	return;
+}
+
+/*
+ * This function gets the hardware MAC address
+ */
+static inline void stmmac_get_mac_addr(unsigned long ioaddr,
+				unsigned char *addr, unsigned int high,
+				unsigned int low)
+{
+	unsigned int hi_addr, lo_addr;
+
+	/* Read the MAC address from the hardware */
+	hi_addr = readl(ioaddr + high);
+	lo_addr = readl(ioaddr + low);
+
+	/* Extract the MAC address from the high and low words */
+	addr[0] = lo_addr & 0xff;
+	addr[1] = (lo_addr >> 8) & 0xff;
+	addr[2] = (lo_addr >> 16) & 0xff;
+	addr[3] = (lo_addr >> 24) & 0xff;
+	addr[4] = hi_addr & 0xff;
+	addr[5] = (hi_addr >> 8) & 0xff;
+
+	return;
+}
+
 /* Specific device structure VFP in order to mark the
  * difference between mac and gmac in terms of registers, descriptors etc.
  */
@@ -244,7 +284,7 @@ struct device_ops {
 	/* Get the buffer size from the descriptor */
 	int (*get_tx_len) (struct dma_desc *p);
 	/* Multicast filter setting */
-	void (*set_filter) (struct net_device * dev);
+	void (*set_filter) (struct net_device *dev);
 	/* Flow control setting */
 	void (*flow_ctrl) (unsigned long ioaddr, unsigned int duplex,
 			   unsigned int fc, unsigned int pause_time);
@@ -252,6 +292,11 @@ struct device_ops {
 	void (*pmt) (unsigned long ioaddr, unsigned long mode);
 	/* Handle extra events on specific interrupts hw dependent */
 	void (*host_irq_status) (unsigned long ioaddr);
+	/* Set/Get Unicast MAC addresses */
+	void (*set_umac_addr) (unsigned long ioaddr, unsigned char *addr,
+			     unsigned int reg_n);
+	void (*get_umac_addr) (unsigned long ioaddr, unsigned char *addr,
+			     unsigned int reg_n);
 };
 
 struct mac_link {
@@ -266,8 +311,6 @@ struct mii_regs {
 };
 
 struct hw_cap {
-	unsigned int addr_high;	/* Multicast Hash Table High */
-	unsigned int addr_low;	/* Multicast Hash Table Low */
 	unsigned int version;	/* Core Version register (GMAC) */
 	unsigned int pmt;	/* Power-Down mode (GMAC) */
 	struct mac_link link;

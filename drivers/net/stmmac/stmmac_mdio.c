@@ -17,9 +17,9 @@
 #include <linux/mii.h>
 #include <linux/phy.h>
 
-#include <asm/io.h>
-#include <asm/irq.h>
-#include <asm/uaccess.h>
+#include <linux/io.h>
+#include <linux/irq.h>
+#include <linux/uaccess.h>
 
 #include "stmmac.h"
 
@@ -47,7 +47,7 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 	int data;
 	u16 regValue = (((phyaddr << 11) & (0x0000F800)) |
 			((phyreg << 6) & (0x000007C0)));
-	regValue |= MII_BUSY;	// GMAC
+	regValue |= MII_BUSY;	/* in case of GMAC */
 
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
 	}
@@ -83,7 +83,7 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	    (((phyaddr << 11) & (0x0000F800)) | ((phyreg << 6) & (0x000007C0)))
 	    | MII_WRITE;
 
-	value |= MII_BUSY;	// GMAC
+	value |= MII_BUSY;
 
 	/* Wait until any existing MII operation is complete */
 	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
@@ -192,7 +192,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 		printk(KERN_WARNING "%s: No PHY found\n", ndev->name);
 
 	return 0;
-      bus_register_fail:
+bus_register_fail:
 	kfree(new_bus);
 	return err;
 }

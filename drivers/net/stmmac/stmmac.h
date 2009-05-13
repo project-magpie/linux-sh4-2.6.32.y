@@ -1,6 +1,4 @@
-#define ETH_RESOURCE_NAME	"stmmaceth"
-#define PHY_RESOURCE_NAME	"stmmacphy"
-#define DRV_MODULE_VERSION	"March_09"
+#define DRV_MODULE_VERSION	"May_09"
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
 #define STMMAC_VLAN_TAG_USED
@@ -35,8 +33,8 @@ struct stmmac_priv {
 
 	struct mii_bus *mii;
 
-	spinlock_t lock;
-	spinlock_t tx_lock;
+	spinlock_t lock; /* interface lock */
+	spinlock_t tx_lock; /* tx lock */
 
 	struct dma_desc *dma_tx	____cacheline_aligned;
 	dma_addr_t dma_tx_phy;

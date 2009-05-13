@@ -1,4 +1,4 @@
-/* 
+/*
  * drivers/net/stmmac/stmmac_timer.c
  *
  * Use Timers for mitigating network interrupts.
@@ -23,7 +23,7 @@ static void stmmac_timer_handler(void *data)
 }
 
 #define STMMAC_TIMER_MSG(timer,freq) \
-printk(KERN_INFO "stmmac_timer: %s Timer ON (freq %dHz)\n",timer,freq);
+printk(KERN_INFO "stmmac_timer: %s Timer ON (freq %dHz)\n", timer, freq);
 
 #if defined(CONFIG_STMMAC_RTC_TIMER)
 #include <linux/rtc.h>
@@ -84,8 +84,6 @@ int stmmac_close_hw_timer(void)
 #include <linux/clk.h>
 #define TMU_CHANNEL "tmu2_clk"
 static struct clk *timer_clock;
-extern int tmu2_register_user(void *fnt, void *data);
-extern void tmu2_unregister_user(void);
 
 static void stmmac_tmu_start(unsigned int new_freq)
 {

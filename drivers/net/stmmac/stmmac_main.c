@@ -36,6 +36,9 @@
 #include <linux/dma-mapping.h>
 #include "stmmac.h"
 
+#define STMMAC_RESOURCE_NAME	"stmmaceth"
+#define PHY_RESOURCE_NAME	"stmmacphy"
+
 #undef STMMAC_DEBUG
 /*#define STMMAC_DEBUG*/
 #ifdef STMMAC_DEBUG
@@ -106,7 +109,7 @@ MODULE_PARM_DESC(tc, "DMA threshold control value");
 /*
  * These values have been set based on testing data as well as attempting
  * to minimize response time while increasing bulk throughput. */
-#if defined (CONFIG_STMMAC_TIMER)
+#if defined(CONFIG_STMMAC_TIMER)
 #define RX_COALESCE	32
 #define TX_COALESCE	64
 #else
@@ -125,7 +128,7 @@ module_param(tx_coalesce, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(tx_coalesce, "Tx irq coalescence parameter");
 
 /* Pay attention to tune this parameter; take care of both
- * hardware capability and network stabitily/performance impact. 
+ * hardware capability and network stability/performance impact.
  * Many tests showed that ~4ms latency seems to be good enough. */
 #ifdef CONFIG_STMMAC_TIMER
 #define DEFAULT_PERIODIC_RATE	256
@@ -184,17 +187,17 @@ static __inline__ void stmmac_verify_args(void)
 	return;
 }
 
-#if defined (STMMAC_XMIT_DEBUG) || defined (STMMAC_RX_DEBUG)
+#if defined(STMMAC_XMIT_DEBUG) || defined(STMMAC_RX_DEBUG)
 static __inline__ void print_pkt(unsigned char *buf, int len)
 {
 	int j;
-	printk("len = %d byte, buf addr: 0x%p", len, buf);
+	printk(KERN_INFO "len = %d byte, buf addr: 0x%p", len, buf);
 	for (j = 0; j < len; j++) {
 		if ((j % 16) == 0)
-			printk("\n %03x:", j);
-		printk(" %02x", buf[j]);
+			printk(KERN_INFO "\n %03x:", j);
+		printk(KERN_INFO " %02x", buf[j]);
 	}
-	printk("\n");
+	printk(KERN_INFO "\n");
 	return;
 }
 #endif
@@ -339,61 +342,23 @@ static int stmmac_init_phy(struct net_device *dev)
 		return PTR_ERR(phydev);
 	}
 
-	printk(KERN_DEBUG "stmmac_init_phy:  %s: attached to PHY. Link = %d\n",
-	       dev->name, phydev->link);
+	/*
+	* Broken ST PHY HW is sometimes missing the pull-up resistor on the
+	* MDIO line, which results in reads to non-existent devices returning
+	* 0 rather than 0xffff. Catch this here and treat 0 as a non-existent
+	* device as well.
+	* Note: phydev->phy_id is the result of reading the UID PHY registers.
+	*/
+	if (phydev->phy_id == 0) {
+		phy_disconnect(phydev);
+		return -ENODEV;
+	}
+	printk(KERN_DEBUG "stmmac_init_phy:  %s: attached to PHY (UID 0x%x)"
+	" Link = %d\n", dev->name, phydev->phy_id, phydev->link);
 
 	priv->phydev = phydev;
 
 	return 0;
-}
-
-/**
- * set_mac_addr
- * @ioaddr: device I/O address
- * @Addr: new MAC address
- * @high: High register offset
- * @low: low register offset
- * Description: the function sets the hardware MAC address
- */
-static void set_mac_addr(unsigned long ioaddr, u8 Addr[6],
-			 unsigned int high, unsigned int low)
-{
-	unsigned long data;
-
-	data = (Addr[5] << 8) | Addr[4];
-	writel(data, ioaddr + high);
-	data = (Addr[3] << 24) | (Addr[2] << 16) | (Addr[1] << 8) | Addr[0];
-	writel(data, ioaddr + low);
-
-	return;
-}
-
-/**
- * get_mac_addr
- * @ioaddr: device I/O address
- * @addr: mac address
- * @high: High register offset
- * @low: low register offset
- * Description: the function gets the hardware MAC address
- */
-static void get_mac_address(unsigned long ioaddr, unsigned char *addr,
-			    unsigned int high, unsigned int low)
-{
-	unsigned int hi_addr, lo_addr;
-
-	/* Read the MAC address from the hardware */
-	hi_addr = readl(ioaddr + high);
-	lo_addr = readl(ioaddr + low);
-
-	/* Extract the MAC address from the high and low words */
-	addr[0] = lo_addr & 0xff;
-	addr[1] = (lo_addr >> 8) & 0xff;
-	addr[2] = (lo_addr >> 16) & 0xff;
-	addr[3] = (lo_addr >> 24) & 0xff;
-	addr[4] = hi_addr & 0xff;
-	addr[5] = (hi_addr >> 8) & 0xff;
-
-	return;
 }
 
 /**
@@ -468,11 +433,12 @@ static void display_ring(struct dma_desc *p, int size)
 	int i;
 	for (i = 0; i < size; i++) {
 		struct tmp_s *x = (struct tmp_s *)(p + i);
-		printk("\t%d [0x%x]: DES0=0x%x DES1=0x%x BUF1=0x%x BUF2=0x%x",
+		printk(KERN_INFO "\t%d [0x%x]: DES0=0x%x DES1=0x%x"
+		       " BUF1=0x%x BUF2=0x%x",
 		       i, (unsigned int)virt_to_phys(&p[i]),
 		       (unsigned int)(x->a), (unsigned int)((x->a) >> 32),
 		       x->b, x->c);
-		printk("\n");
+		printk(KERN_INFO "\n");
 	}
 }
 
@@ -583,9 +549,9 @@ static void init_dma_desc_rings(struct net_device *dev)
 	priv->mac_type->ops->init_tx_desc(priv->dma_tx, txsize);
 
 	if (netif_msg_hw(priv)) {
-		printk("RX descriptor ring:\n");
+		printk(KERN_INFO "RX descriptor ring:\n");
 		display_ring(priv->dma_rx, rxsize);
-		printk("TX descriptor ring:\n");
+		printk(KERN_INFO "TX descriptor ring:\n");
 		display_ring(priv->dma_tx, txsize);
 	}
 	return;
@@ -649,7 +615,7 @@ static void free_dma_desc_resources(struct net_device *dev)
 	dma_free_rx_skbufs(dev);
 	dma_free_tx_skbufs(dev);
 
-	/* Free the region of consistent memory previously allocated for 
+	/* Free the region of consistent memory previously allocated for
 	 * the DMA */
 	dma_free_coherent(priv->device,
 			  priv->dma_tx_size * sizeof(struct dma_desc),
@@ -768,24 +734,24 @@ static void show_tx_process_state(unsigned int status)
 
 	switch (state) {
 	case 0:
-		printk("- TX (Stopped): Reset or Stop command\n");
+		printk(KERN_INFO "- TX (Stopped): Reset or Stop command\n");
 		break;
 	case 1:
-		printk("- TX (Running):Fetching the Tx desc\n");
+		printk(KERN_INFO "- TX (Running):Fetching the Tx desc\n");
 		break;
 	case 2:
-		printk("- TX (Running): Waiting for end of tx\n");
+		printk(KERN_INFO "- TX (Running): Waiting for end of tx\n");
 		break;
 	case 3:
-		printk("- TX (Running): Reading the data "
+		printk(KERN_INFO "- TX (Running): Reading the data "
 		       "and queuing the data into the Tx buf\n");
 		break;
 	case 6:
-		printk("- TX (Suspended): Tx Buff Underflow "
+		printk(KERN_INFO "- TX (Suspended): Tx Buff Underflow "
 		       "or an unavailable Transmit descriptor\n");
 		break;
 	case 7:
-		printk("- TX (Running): Closing Tx descriptor\n");
+		printk(KERN_INFO "- TX (Running): Closing Tx descriptor\n");
 		break;
 	default:
 		break;
@@ -805,29 +771,29 @@ static void show_rx_process_state(unsigned int status)
 
 	switch (state) {
 	case 0:
-		printk("- RX (Stopped): Reset or Stop command\n");
+		printk(KERN_INFO "- RX (Stopped): Reset or Stop command\n");
 		break;
 	case 1:
-		printk("- RX (Running): Fetching the Rx desc\n");
+		printk(KERN_INFO "- RX (Running): Fetching the Rx desc\n");
 		break;
 	case 2:
-		printk("- RX (Running):Checking for end of pkt\n");
+		printk(KERN_INFO "- RX (Running):Checking for end of pkt\n");
 		break;
 	case 3:
-		printk("- RX (Running): Waiting for Rx pkt\n");
+		printk(KERN_INFO "- RX (Running): Waiting for Rx pkt\n");
 		break;
 	case 4:
-		printk("- RX (Suspended): Unavailable Rx buf\n");
+		printk(KERN_INFO "- RX (Suspended): Unavailable Rx buf\n");
 		break;
 	case 5:
-		printk("- RX (Running): Closing Rx descriptor\n");
+		printk(KERN_INFO "- RX (Running): Closing Rx descriptor\n");
 		break;
 	case 6:
-		printk("- RX(Running): Flushing the current frame"
+		printk(KERN_INFO "- RX(Running): Flushing the current frame"
 		       " from the Rx buf\n");
 		break;
 	case 7:
-		printk("- RX (Running): Queuing the Rx frame"
+		printk(KERN_INFO "- RX (Running): Queuing the Rx frame"
 		       " from the Rx buf into memory\n");
 		break;
 	default:
@@ -873,11 +839,10 @@ static void stmmac_tx(struct net_device *dev)
 		DBG(intr, DEBUG, "stmmac_tx: curr %d, dirty %d\n",
 		    priv->cur_tx, priv->dirty_tx);
 
-		if (likely(p->des2)) {
+		if (likely(p->des2))
 			dma_unmap_single(priv->device, p->des2,
 					 priv->mac_type->ops->get_tx_len(p),
 					 DMA_TO_DEVICE);
-		}
 		if (unlikely(p->des3))
 			p->des3 = 0;
 
@@ -1087,10 +1052,9 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 
 	/* Optional hardware blocks, interrupts should be disabled */
 	if (unlikely(intr_status &
-		     (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI))) {
-		printk(KERN_WARNING "%s: unexpected status %08x\n", __func__,
+		     (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI)))
+		printk(KERN_INFO "%s: unexpected status %08x\n", __FUNCTION__,
 		       intr_status);
-	}
 
 	DBG(intr, INFO, "\n\n");
 
@@ -1176,8 +1140,7 @@ static int stmmac_open(struct net_device *dev)
 	}
 
 	/* Copy the MAC addr into the HW (in case we have set it with nwhw) */
-	set_mac_addr(ioaddr, dev->dev_addr, priv->mac_type->hw.addr_high,
-		     priv->mac_type->hw.addr_low);
+	priv->mac_type->ops->set_umac_addr(ioaddr, dev->dev_addr, 0);
 
 	/* Initialize the MAC Core */
 	priv->mac_type->ops->core_init(ioaddr);
@@ -1201,8 +1164,7 @@ static int stmmac_open(struct net_device *dev)
 	stmmac_dma_operation_mode(dev);
 
 	/* Start the ball rolling... */
-	DBG(probe, DEBUG, "%s: DMA RX/TX processes started...\n",
-	    ETH_RESOURCE_NAME);
+	DBG(probe, DEBUG, "%s: DMA RX/TX processes started...\n", dev->name);
 	stmmac_dma_start_tx(ioaddr);
 	stmmac_dma_start_rx(ioaddr);
 
@@ -1462,12 +1424,12 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 
 #ifdef STMMAC_XMIT_DEBUG
 	if (netif_msg_pktdata(priv)) {
-		printk("stmmac xmit: current=%d, dirty=%d, entry=%d, "
+		printk(KERN_INFO "stmmac xmit: current=%d, dirty=%d, entry=%d, "
 		       "first=%p, nfrags=%d\n",
 		       (priv->cur_tx % txsize), (priv->dirty_tx % txsize),
 		       entry, first, nfrags);
 		display_ring(priv->dma_tx, txsize);
-		printk(">>> frame to be transmitted: ");
+		printk(KERN_INFO ">>> frame to be transmitted: ");
 		print_pkt(skb->data, skb->len);
 	}
 #endif
@@ -1682,10 +1644,10 @@ static void stmmac_tx_timeout(struct net_device *dev)
 	       dev->name, jiffies, (jiffies - dev->trans_start));
 
 #ifdef STMMAC_DEBUG
-	printk("(current=%d, dirty=%d)\n",
+	printk(KERN_INFO "(current=%d, dirty=%d)\n",
 	       (priv->cur_tx % priv->dma_tx_size),
 	       (priv->dirty_tx % priv->dma_tx_size));
-	printk("DMA tx ring status: \n");
+	printk(KERN_INFO "DMA tx ring status: \n");
 	display_ring(priv->dma_tx, priv->dma_tx_size);
 #endif
 	/* Remove tx moderation */
@@ -1724,6 +1686,7 @@ static int stmmac_config(struct net_device *dev, struct ifmap *map)
 	return 0;
 }
 
+
 /**
  *  stmmac_multicast_list - entry point for multicast addressing
  *  @dev : pointer to the device structure
@@ -1748,7 +1711,7 @@ static void stmmac_multicast_list(struct net_device *dev)
  *   @dev : device pointer.
  *   @new_mtu : the new MTU size for the device.
  *   Description: the Maximum Transfer Unit (MTU) is used by the network layer
- *     to drive packet transmission. Ethernet has an MTU of 1500 octets 
+ *     to drive packet transmission. Ethernet has an MTU of 1500 octets
  *     (ETH_DATA_LEN). This value can be changed with ifconfig.
  *  Return value:
  *   0 on success and an appropriate (-)ve integer as defined in errno.h
@@ -1892,7 +1855,7 @@ static void stmmac_vlan_rx_kill_vid(struct net_device *dev, unsigned short vid)
  *  stmmac_probe - Initialization of the adapter .
  *  @dev : device pointer
  *  Description: The function initializes the network device structure for
- *		the STMMAC driver. It also calls the low level routines 
+ *		the STMMAC driver. It also calls the low level routines
  *		 in order to init the HW (i.e. the DMA engine)
  */
 static int stmmac_probe(struct net_device *dev)
@@ -1941,16 +1904,15 @@ static int stmmac_probe(struct net_device *dev)
 	netif_napi_add(dev, &priv->napi, stmmac_poll, 64);
 
 	/* Get the MAC address */
-	get_mac_address(dev->base_addr, dev->dev_addr,
-			priv->mac_type->hw.addr_high,
-			priv->mac_type->hw.addr_low);
+	priv->mac_type->ops->get_umac_addr(dev->base_addr, dev->dev_addr, 0);
 
 	if (!is_valid_ether_addr(dev->dev_addr)) {
 		printk(KERN_WARNING "\tno valid MAC address; "
 		       "please, set using ifconfig or nwhwconfig!\n");
 	}
 
-	if ((ret = register_netdev(dev))) {
+	ret = register_netdev(dev);
+	if (ret) {
 		printk(KERN_ERR "%s: ERROR %i registering the device\n",
 		       __func__, ret);
 		return -ENODEV;
@@ -1969,8 +1931,7 @@ static int stmmac_probe(struct net_device *dev)
 /**
  * stmmac_mac_device_setup
  * @dev : device pointer
- * Description: it detects and inits either 
- *  the mac 10/100 or the Gmac.
+ * Description: it detects and inits either the mac 10/100 or the Gmac.
  */
 static __inline__ void stmmac_mac_device_setup(struct net_device *dev)
 {
@@ -2051,7 +2012,7 @@ static int stmmac_associate_phy(struct device *dev, void *data)
 	    "stmmacphy_dvr_probe: PHY irq on bus %d is %d\n",
 	    plat_dat->bus_id, priv->phy_irq);
 
-	/* Override with kernel parameters if supplied XXX CRS XXX 
+	/* Override with kernel parameters if supplied XXX CRS XXX
 	 * this needs to have multiple instances */
 	if ((phyaddr >= 0) && (phyaddr <= 31))
 		plat_dat->phy_addr = phyaddr;
@@ -2068,9 +2029,9 @@ static int stmmac_associate_phy(struct device *dev, void *data)
 /**
  * stmmac_dvr_probe
  * @pdev: platform device pointer
- * Description: The driver is initialized through platform_device.  
- * 		Structures which define the configuration needed by the board 
- *		are defined in a board structure in arch/sh/boards/st/ .
+ * Description: The driver is initialized through platform_device.
+ * 		Structures which define the configuration needed by the board
+ *		are defined in a board structure in arch/sh/boards/mach- .
  */
 static int stmmac_dvr_probe(struct platform_device *pdev)
 {
@@ -2081,16 +2042,16 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	struct stmmac_priv *priv;
 	struct plat_stmmacenet_data *plat_dat;
 
-	printk(KERN_INFO "STMMAC driver:\n\tplatform registration... ");
+	printk(KERN_DEBUG "STMMAC driver:\n\tplatform registration... ");
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		ret = -ENODEV;
 		goto out;
 	}
-	printk(KERN_INFO "done!\n");
+	printk(KERN_DEBUG "done!\n");
 
 	if (!request_mem_region(res->start, (res->end - res->start),
-				ETH_RESOURCE_NAME)) {
+				pdev->name)) {
 		printk(KERN_ERR "%s: ERROR: memory allocation failed"
 		       "cannot get the I/O addr 0x%x\n",
 		       __func__, (unsigned int)res->start);
@@ -2105,7 +2066,6 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto out;
 	}
-
 	ndev = alloc_etherdev(sizeof(struct stmmac_priv));
 	if (!ndev) {
 		printk(KERN_ERR "%s: ERROR: allocating the device\n",
@@ -2142,9 +2102,8 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 
 	/* Network Device Registration */
 	ret = stmmac_probe(ndev);
-	if (ret < 0) {
+	if (ret < 0)
 		goto out;
-	}
 
 	/* associate a PHY - it is provided by another platform bus */
 	if (!driver_for_each_device
@@ -2158,12 +2117,16 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	priv->fix_mac_speed = plat_dat->fix_mac_speed;
 	priv->bsp_priv = plat_dat->bsp_priv;
 
+	printk(KERN_INFO "\t%s - (dev. name: %s - id: %d, IRQ #%d\n"
+		"\tIO base addr: 0x%08x)\n", ndev->name, pdev->name,
+		pdev->id, ndev->irq, (unsigned int) addr);
+
 	/* MDIO bus Registration */
-	printk(KERN_DEBUG "registering MDIO bus...\n");
+	printk(KERN_DEBUG "\tRegistering MDIO bus (id: %d)...\n", priv->bus_id);
 	ret = stmmac_mdio_register(ndev);
 	if (ret < 0)
 		goto out;
-	printk(KERN_DEBUG "MDIO bus registered!\n");
+	printk(KERN_DEBUG "\tMDIO bus registered!\n");
 
 out:
 	if (ret < 0) {
@@ -2258,8 +2221,8 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 		}
 	} else {
 		priv->shutdown = 1;
-		/* Although this can appear slightly redundant it actually 
-		 * makes fast the standby operation and guarantees the driver 
+		/* Although this can appear slightly redundant it actually
+		 * makes fast the standby operation and guarantees the driver
 		 * working if hibernation is on media. */
 		stmmac_release(dev);
 	}
@@ -2314,7 +2277,7 @@ out_resume:
 
 static struct platform_driver stmmac_driver = {
 	.driver = {
-		   .name = ETH_RESOURCE_NAME,
+		   .name = STMMAC_RESOURCE_NAME,
 		   },
 	.probe = stmmac_dvr_probe,
 	.remove = stmmac_dvr_remove,
@@ -2328,15 +2291,19 @@ static struct platform_driver stmmac_driver = {
 /**
  * stmmac_init_module - Entry point for the driver
  * Description: This function is the entry point for the driver.
+ * It returns error if the mac core registration fails.
  */
 static int __init stmmac_init_module(void)
 {
+	int ret;
+
 	if (platform_driver_register(&stmmacphy_driver)) {
 		printk(KERN_ERR "No PHY devices registered!\n");
 		return -ENODEV;
 	}
 
-	return platform_driver_register(&stmmac_driver);
+	ret = platform_driver_register(&stmmac_driver);
+	return ret;
 }
 
 /**

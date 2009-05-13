@@ -1,4 +1,4 @@
-/* 
+/*
  * drivers/net/stmmac/mac100.c
  *
  * This is a driver for the MAC 10/100 on-chip
@@ -18,7 +18,7 @@
 #include <linux/crc32.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
-#include <asm/io.h>
+#include <linux/io.h>
 
 #include "common.h"
 #include "mac100.h"
@@ -26,7 +26,7 @@
 #undef MAC100_DEBUG
 /*#define MAC100_DEBUG*/
 #ifdef MAC100_DEBUG
-#define DBG(fmt,args...)  printk(fmt, ## args)
+#define DBG(fmt, args...)  printk(fmt, ## args)
 #else
 #define DBG(fmt, args...)  do { } while(0)
 #endif
@@ -49,32 +49,32 @@ static void mac100_dump_mac_regs(unsigned long ioaddr)
 	       "\t  MAC100 CSR (base addr = 0x%8x)\n"
 	       "\t----------------------------------------------\n",
 	       (unsigned int)ioaddr);
-	printk("\tcontrol reg (offset 0x%x): 0x%08x\n", MAC_CONTROL,
+	printk(KERN_INFO "\tcontrol reg (offset 0x%x): 0x%08x\n", MAC_CONTROL,
 	       readl(ioaddr + MAC_CONTROL));
-	printk("\taddr HI (offset 0x%x): 0x%08x\n ", MAC_ADDR_HIGH,
+	printk(KERN_INFO "\taddr HI (offset 0x%x): 0x%08x\n ", MAC_ADDR_HIGH,
 	       readl(ioaddr + MAC_ADDR_HIGH));
-	printk("\taddr LO (offset 0x%x): 0x%08x\n", MAC_ADDR_LOW,
+	printk(KERN_INFO "\taddr LO (offset 0x%x): 0x%08x\n", MAC_ADDR_LOW,
 	       readl(ioaddr + MAC_ADDR_LOW));
-	printk("\tmulticast hash HI (offset 0x%x): 0x%08x\n", MAC_HASH_HIGH,
-	       readl(ioaddr + MAC_HASH_HIGH));
-	printk("\tmulticast hash LO (offset 0x%x): 0x%08x\n", MAC_HASH_LOW,
-	       readl(ioaddr + MAC_HASH_LOW));
-	printk("\tflow control (offset 0x%x): 0x%08x\n", MAC_FLOW_CTRL,
-	       readl(ioaddr + MAC_FLOW_CTRL));
-	printk("\tVLAN1 tag (offset 0x%x): 0x%08x\n", MAC_VLAN1,
+	printk(KERN_INFO "\tmulticast hash HI (offset 0x%x): 0x%08x\n",
+			MAC_HASH_HIGH, readl(ioaddr + MAC_HASH_HIGH));
+	printk(KERN_INFO "\tmulticast hash LO (offset 0x%x): 0x%08x\n",
+			MAC_HASH_LOW, readl(ioaddr + MAC_HASH_LOW));
+	printk(KERN_INFO "\tflow control (offset 0x%x): 0x%08x\n",
+		MAC_FLOW_CTRL, readl(ioaddr + MAC_FLOW_CTRL));
+	printk(KERN_INFO "\tVLAN1 tag (offset 0x%x): 0x%08x\n", MAC_VLAN1,
 	       readl(ioaddr + MAC_VLAN1));
-	printk("\tVLAN2 tag (offset 0x%x): 0x%08x\n", MAC_VLAN2,
+	printk(KERN_INFO "\tVLAN2 tag (offset 0x%x): 0x%08x\n", MAC_VLAN2,
 	       readl(ioaddr + MAC_VLAN2));
-	printk("\n\tMAC management counter registers\n");
-	printk("\t MMC crtl (offset 0x%x): 0x%08x\n",
+	printk(KERN_INFO "\n\tMAC management counter registers\n");
+	printk(KERN_INFO "\t MMC crtl (offset 0x%x): 0x%08x\n",
 	       MMC_CONTROL, readl(ioaddr + MMC_CONTROL));
-	printk("\t MMC High Interrupt (offset 0x%x): 0x%08x\n",
+	printk(KERN_INFO "\t MMC High Interrupt (offset 0x%x): 0x%08x\n",
 	       MMC_HIGH_INTR, readl(ioaddr + MMC_HIGH_INTR));
-	printk("\t MMC Low Interrupt (offset 0x%x): 0x%08x\n",
+	printk(KERN_INFO "\t MMC Low Interrupt (offset 0x%x): 0x%08x\n",
 	       MMC_LOW_INTR, readl(ioaddr + MMC_LOW_INTR));
-	printk("\t MMC High Interrupt Mask (offset 0x%x): 0x%08x\n",
+	printk(KERN_INFO "\t MMC High Interrupt Mask (offset 0x%x): 0x%08x\n",
 	       MMC_HIGH_INTR_MASK, readl(ioaddr + MMC_HIGH_INTR_MASK));
-	printk("\t MMC Low Interrupt Mask (offset 0x%x): 0x%08x\n",
+	printk(KERN_INFO "\t MMC Low Interrupt Mask (offset 0x%x): 0x%08x\n",
 	       MMC_LOW_INTR_MASK, readl(ioaddr + MMC_LOW_INTR_MASK));
 	return;
 }
@@ -129,11 +129,10 @@ static void mac100_dump_dma_regs(unsigned long ioaddr)
 	int i;
 
 	DBG(KERN_DEBUG "MAC100 DMA CSR \n");
-	for (i = 0; i < 9; i++) {
+	for (i = 0; i < 9; i++)
 		printk(KERN_DEBUG "\t CSR%d (offset 0x%x): 0x%08x\n", i,
 		       (DMA_BUS_MODE + i * 4),
 		       readl(ioaddr + DMA_BUS_MODE + i * 4));
-	}
 	DBG(KERN_DEBUG "\t CSR20 (offset 0x%x): 0x%08x\n",
 	    DMA_CUR_TX_BUF_ADDR, readl(ioaddr + DMA_CUR_TX_BUF_ADDR));
 	DBG(KERN_DEBUG "\t CSR21 (offset 0x%x): 0x%08x\n",
@@ -193,9 +192,8 @@ static int mac100_get_tx_frame_status(void *data, struct stmmac_extra_stats *x,
 		}
 		if (unlikely((p->des01.tx.excessive_deferral) ||
 			     (p->des01.tx.excessive_collisions) ||
-			     (p->des01.tx.late_collision))) {
+			     (p->des01.tx.late_collision)))
 			stats->collisions += p->des01.tx.collision_count;
-		}
 		ret = -1;
 	}
 	if (unlikely(p->des01.tx.heartbeat_fail)) {
@@ -203,9 +201,8 @@ static int mac100_get_tx_frame_status(void *data, struct stmmac_extra_stats *x,
 		stats->tx_heartbeat_errors++;
 		ret = -1;
 	}
-	if (unlikely(p->des01.tx.deferred)) {
+	if (unlikely(p->des01.tx.deferred))
 		x->tx_deferred++;
-	}
 
 	return (ret);
 }
@@ -215,7 +212,7 @@ static int mac100_get_tx_len(struct dma_desc *p)
 	return (p->des01.tx.buffer1_size);
 }
 
-/* This function verifies if the incoming frame has some errors 
+/* This function verifies if the incoming frame has some errors
  * and, if required, updates the multicast statistics.
  * In case of success, it returns  csum_none becasue the device
  * is not able to compute the csum in HW. */
@@ -233,18 +230,14 @@ static int mac100_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 	}
 
 	if (unlikely(p->des01.rx.error_summary)) {
-		if (unlikely(p->des01.rx.descriptor_error)) {
+		if (unlikely(p->des01.rx.descriptor_error))
 			x->rx_desc++;
-		}
-		if (unlikely(p->des01.rx.partial_frame_error)) {
+		if (unlikely(p->des01.rx.partial_frame_error))
 			x->rx_partial++;
-		}
-		if (unlikely(p->des01.rx.run_frame)) {
+		if (unlikely(p->des01.rx.run_frame))
 			x->rx_runt++;
-		}
-		if (unlikely(p->des01.rx.frame_too_long)) {
+		if (unlikely(p->des01.rx.frame_too_long))
 			x->rx_toolong++;
-		}
 		if (unlikely(p->des01.rx.collision)) {
 			x->rx_collision++;
 			stats->collisions++;
@@ -279,6 +272,19 @@ static void mac100_irq_status(unsigned long ioaddr)
 	return;
 }
 
+
+static void mac100_set_umac_addr(unsigned long ioaddr, unsigned char *addr,
+			  unsigned int reg_n)
+{
+	stmmac_set_mac_addr(ioaddr, addr, MAC_ADDR_HIGH, MAC_ADDR_LOW);
+}
+
+static void mac100_get_umac_addr(unsigned long ioaddr, unsigned char *addr,
+			  unsigned int reg_n)
+{
+	stmmac_get_mac_addr(ioaddr, addr, MAC_ADDR_HIGH, MAC_ADDR_LOW);
+}
+
 static void mac100_set_filter(struct net_device *dev)
 {
 	unsigned long ioaddr = dev->base_addr;
@@ -294,10 +300,10 @@ static void mac100_set_filter(struct net_device *dev)
 		value &= ~(MAC_CONTROL_PR | MAC_CONTROL_IF | MAC_CONTROL_HO);
 		writel(0xffffffff, ioaddr + MAC_HASH_HIGH);
 		writel(0xffffffff, ioaddr + MAC_HASH_LOW);
-	} else if (dev->mc_count == 0) {	/* Just get our own stuff .. no multicast?? */
+	} else if (dev->mc_count == 0) {	/* no multicast */
 		value &= ~(MAC_CONTROL_PM | MAC_CONTROL_PR | MAC_CONTROL_IF |
 			   MAC_CONTROL_HO | MAC_CONTROL_HP);
-	} else {		/* Store the addresses in the multicast HW filter */
+	} else {
 		int i;
 		u32 mc_filter[2];
 		struct dev_mc_list *mclist;
@@ -311,12 +317,12 @@ static void mac100_set_filter(struct net_device *dev)
 		memset(mc_filter, 0, sizeof(mc_filter));
 		for (i = 0, mclist = dev->mc_list;
 		     mclist && i < dev->mc_count; i++, mclist = mclist->next) {
-			/* The upper 6 bits of the calculated CRC are used to 
+			/* The upper 6 bits of the calculated CRC are used to
 			 * index the contens of the hash table */
 			int bit_nr =
 			    ether_crc(ETH_ALEN, mclist->dmi_addr) >> 26;
-			/* The most significant bit determines the register to 
-			 * use (H/L) while the other 5 bits determine the bit 
+			/* The most significant bit determines the register to
+			 * use (H/L) while the other 5 bits determine the bit
 			 * within the register. */
 			mc_filter[bit_nr >> 5] |= 1 << (bit_nr & 31);
 		}
@@ -359,9 +365,8 @@ static void mac100_init_rx_desc(struct dma_desc *p, unsigned int ring_size)
 	for (i = 0; i < ring_size; i++) {
 		p->des01.rx.own = 1;
 		p->des01.rx.buffer1_size = BUF_SIZE_2KiB - 1;
-		if (i == ring_size - 1) {
+		if (i == ring_size - 1)
 			p->des01.rx.end_ring = 1;
-		}
 		p++;
 	}
 	return;
@@ -494,6 +499,8 @@ struct device_ops mac100_driver = {
 	.get_rx_frame_len = mac100_get_rx_frame_len,
 	.host_irq_status = mac100_irq_status,
 	.disable_rx_ic = mac100_disable_rx_ic,
+	.set_umac_addr = mac100_set_umac_addr,
+	.get_umac_addr = mac100_get_umac_addr,
 };
 
 struct mac_device_info *mac100_setup(unsigned long ioaddr)
@@ -507,8 +514,6 @@ struct mac_device_info *mac100_setup(unsigned long ioaddr)
 
 	mac->ops = &mac100_driver;
 	mac->hw.pmt = PMT_NOT_SUPPORTED;
-	mac->hw.addr_high = MAC_ADDR_HIGH;
-	mac->hw.addr_low = MAC_ADDR_LOW;
 	mac->hw.link.port = MAC_CONTROL_PS;
 	mac->hw.link.duplex = MAC_CONTROL_F;
 	mac->hw.link.speed = 0;

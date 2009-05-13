@@ -1,4 +1,4 @@
-/* 
+/*
  * drivers/net/stmmac/gmac.c
  *
  * Giga Ethernet driver
@@ -18,7 +18,7 @@
 #include <linux/mii.h>
 #include <linux/phy.h>
 #include <linux/ethtool.h>
-#include <asm/io.h>
+#include <linux/io.h>
 
 #include "stmmac.h"
 #include "gmac.h"
@@ -28,7 +28,7 @@
 #undef FRAME_FILTER_DEBUG
 /*#define FRAME_FILTER_DEBUG*/
 #ifdef GMAC_DEBUG
-#define DBG(fmt,args...)  printk(fmt, ## args)
+#define DBG(fmt, args...)  printk(fmt, ## args)
 #else
 #define DBG(fmt, args...)  do { } while(0)
 #endif
@@ -43,7 +43,7 @@ static void gmac_dump_regs(unsigned long ioaddr)
 
 	for (i = 0; i < 55; i++) {
 		int offset = i * 4;
-		printk("\tReg No. %d (offset 0x%x): 0x%08x\n", i,
+		printk(KERN_INFO "\tReg No. %d (offset 0x%x): 0x%08x\n", i,
 		       offset, readl(ioaddr + offset));
 	}
 	return;
@@ -362,18 +362,16 @@ static void gmac_irq_status(unsigned long ioaddr)
 {
 	u32 intr_status = readl(ioaddr + GMAC_INT_STATUS);
 
-	/* Do not handle all the events, e.g. MMC interrupts 
+	/* Do not handle all the events, e.g. MMC interrupts
 	 * (not used by default). Indeed, to "clear" these events
 	 * we should read the register that generated the interrupt.
 	 */
-	if ((intr_status & mmc_tx_irq)) {
+	if ((intr_status & mmc_tx_irq))
 		DBG(KERN_DEBUG "GMAC: MMC tx interrupt: 0x%08x\n",
 		    readl(ioaddr + GMAC_MMC_TX_INTR));
-	}
-	if (unlikely(intr_status & mmc_rx_irq)) {
+	if (unlikely(intr_status & mmc_rx_irq))
 		DBG(KERN_DEBUG "GMAC: MMC rx interrupt: 0x%08x\n",
 		    readl(ioaddr + GMAC_MMC_RX_INTR));
-	}
 	if (unlikely(intr_status & mmc_rx_csum_offload_irq))
 		DBG(KERN_DEBUG "GMAC: MMC rx csum offload: 0x%08x\n",
 		    readl(ioaddr + GMAC_MMC_RX_CSUM_OFFLOAD));
@@ -406,6 +404,20 @@ static void gmac_core_init(unsigned long ioaddr)
 	writel(0x0, ioaddr + GMAC_VLAN_TAG);
 #endif
 	return;
+}
+
+static void gmac_set_umac_addr(unsigned long ioaddr, unsigned char *addr,
+				unsigned int reg_n)
+{
+	stmmac_set_mac_addr(ioaddr, addr, GMAC_ADDR_HIGH(reg_n),
+				GMAC_ADDR_LOW(reg_n));
+}
+
+static void gmac_get_umac_addr(unsigned long ioaddr, unsigned char *addr,
+				unsigned int reg_n)
+{
+	stmmac_get_mac_addr(ioaddr, addr, GMAC_ADDR_HIGH(reg_n),
+				GMAC_ADDR_LOW(reg_n));
 }
 
 #ifdef STMMAC_VLAN_TAG_USED
@@ -677,6 +689,8 @@ struct device_ops gmac_driver = {
 	.get_rx_frame_len = gmac_get_rx_frame_len,
 	.host_irq_status = gmac_irq_status,
 	.disable_rx_ic = gmac_disable_rx_ic,
+	.set_umac_addr = gmac_set_umac_addr,
+	.get_umac_addr = gmac_get_umac_addr,
 };
 
 struct mac_device_info *gmac_setup(unsigned long ioaddr)
@@ -692,8 +706,6 @@ struct mac_device_info *gmac_setup(unsigned long ioaddr)
 
 	mac->ops = &gmac_driver;
 	mac->hw.pmt = PMT_SUPPORTED;
-	mac->hw.addr_high = GMAC_ADDR_HIGH;
-	mac->hw.addr_low = GMAC_ADDR_LOW;
 	mac->hw.link.port = GMAC_CONTROL_PS;
 	mac->hw.link.duplex = GMAC_CONTROL_DM;
 	mac->hw.link.speed = GMAC_CONTROL_FES;

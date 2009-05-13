@@ -135,6 +135,7 @@ struct dma_desc {
 enum tdes_csum_insertion {
 	cic_disabled = 0,	/* Checksum Insertion Control */
 	cic_only_ip = 1,	/* Only IP header */
-	cic_no_pseudoheader = 2,	/* IP header but pseudoheader is not calculated */
+	cic_no_pseudoheader = 2,	/* IP header but pseudoheader
+					 * is not calculated */
 	cic_full = 3,		/* IP header and pseudoheader */
 };

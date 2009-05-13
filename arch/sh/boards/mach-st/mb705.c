@@ -232,17 +232,16 @@ static struct plat_stmnand_data nand_config = {
 	.rbn_port		= -1,
 	.rbn_pin		= -1,
 
-	/* Timing data for STM_NAND_EMI/FLEX/AFM drivers */
 	.timing_data = &(struct nand_timing_data) {
-		.sig_setup	= 20,		/* times in ns */
-		.sig_hold	= 10,
+		.sig_setup	= 50,		/* times in ns */
+		.sig_hold	= 50,
 		.CE_deassert	= 0,
 		.WE_to_RBn	= 100,
 		.wr_on		= 10,
-		.wr_off		= 30,
+		.wr_off		= 40,
 		.rd_on		= 10,
 		.rd_off		= 40,
-		.chip_delay	= 40,		/* in us */
+		.chip_delay	= 30,		/* in us */
 	},
 	.flex_rbn_connected	= 1,
 };

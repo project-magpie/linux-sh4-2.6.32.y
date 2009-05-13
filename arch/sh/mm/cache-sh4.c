@@ -276,7 +276,7 @@ void flush_dcache_page(struct page *page)
 	if ((mapping != NULL) && (! mapping_mapped(mapping))) {
 		/* There are no user mappings for this page, so we can
 		 * defer the flush. */
-		__set_bit(PG_dcache_dirty, &page->flags);
+		set_bit(PG_dcache_dirty, &page->flags);
 	} else {
 		/* page->mapping is NULL for argv/env pages, which
 		 * must be flushed here (there is no call to

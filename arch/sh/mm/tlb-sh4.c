@@ -42,7 +42,7 @@ void update_mmu_cache(struct vm_area_struct * vma,
 				unsigned long phys = pte_val(pte) & PTE_PHYS_MASK;
 				__flush_wback_region(phys_to_virt(phys),
 						     PAGE_SIZE);
-				__clear_bit(PG_dcache_dirty, &page->flags);
+				clear_bit(PG_dcache_dirty, &page->flags);
 			}
 		}
 	}

@@ -88,7 +88,6 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
 
 	/* Only enable interrupts if they were on before the fault */
 	if ((regs->sr & SR_IMASK) != SR_IMASK) {
-		trace_hardirqs_on();
 		local_irq_enable();
 	}
 

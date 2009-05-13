@@ -36,8 +36,9 @@
 #include <mach/common.h>
 
 #define FLASH_NOR
-/* #define ENABLE_GMAC0 */
-
+#ifdef CONFIG_STMMAC_DUAL_MAC
+#define ENABLE_GMAC0
+#endif
 static struct platform_device epld_device;
 
 static int ascs[] __initdata = {

@@ -31,3 +31,33 @@
 #endif	
 	.endm
 
+#ifdef CONFIG_TRACE_IRQFLAGS
+
+	.macro	TRACE_IRQS_ON
+	mov.l	7834f, r0
+	jsr	@r0
+	 nop
+	bra	7835f
+	 nop
+	.balign	4
+7834:	.long	trace_hardirqs_on
+7835:
+	.endm
+	.macro	TRACE_IRQS_OFF
+	mov.l	7834f, r0
+	jsr	@r0
+	 nop
+	bra	7835f
+	 nop
+	.balign	4
+7834:	.long	trace_hardirqs_off
+7835:
+	.endm
+
+#else
+	.macro	TRACE_IRQS_ON
+	.endm
+
+	.macro	TRACE_IRQS_OFF
+	.endm
+#endif

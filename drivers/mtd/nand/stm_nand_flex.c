@@ -197,7 +197,8 @@ static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 	p = ((uint32_t)buf & 0x3) ? flex.buf : buf;
 
 	/* Switch to 4-byte reads (required for ECC) */
-	flex_writereg(FLX_DATA_CFG_BEAT_4, EMINAND_FLEX_DATAREAD_CONFIG);
+	flex_writereg(FLX_DATA_CFG_BEAT_4 | FLX_DATA_CFG_CSN_STATUS,
+		      EMINAND_FLEX_DATAREAD_CONFIG);
 
 	readsl(flex.base_addr + EMINAND_FLEX_DATA, p, len/4);
 
@@ -208,10 +209,6 @@ static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 	flex_writereg(FLX_DATA_CFG_BEAT_1 | FLX_DATA_CFG_CSN_STATUS,
 		      EMINAND_FLEX_DATAREAD_CONFIG);
 
-	/* Deassert CSn, allow access to other EMI devices */
-	reg = flex_readreg(EMINAND_FLEXMODE_CONFIG);
-	reg |= (0x1 << 4);
-	flex_writereg(reg, EMINAND_FLEXMODE_CONFIG);
 }
 
 static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
@@ -227,8 +224,9 @@ static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 		p = buf;
 	}
 
-	/* Switch to 4-byte reads (required for ECC), and wait RBn */
-	flex_writereg(FLX_DATA_CFG_BEAT_4, EMINAND_FLEX_DATAWRITE_CONFIG);
+	/* Switch to 4-byte reads (required for ECC) */
+	flex_writereg(FLX_DATA_CFG_BEAT_4 | FLX_DATA_CFG_CSN_STATUS,
+		      EMINAND_FLEX_DATAWRITE_CONFIG);
 
 	writesl(flex.base_addr + EMINAND_FLEX_DATA, p, len/4);
 
@@ -236,10 +234,6 @@ static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 	flex_writereg(FLX_DATA_CFG_BEAT_1 | FLX_DATA_CFG_CSN_STATUS,
 		      EMINAND_FLEX_DATAWRITE_CONFIG);
 
-	/* Deassert CSn, allow access to other EMI devices */
-	reg = flex_readreg(EMINAND_FLEXMODE_CONFIG);
-	reg |= (0x1 << 4);
-	flex_writereg(reg, EMINAND_FLEXMODE_CONFIG);
 }
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT

@@ -85,6 +85,7 @@
 #define FLX_CMD_REG_CSN_STATUS			(0x1 << 31)
 
 /* FLEX: Data Config fields */
+#define FLX_DATA_CFG_RBN			(0x1 << 27)
 #define FLX_DATA_CFG_BEAT_1			(0x1 << 28)
 #define FLX_DATA_CFG_BEAT_2			(0x2 << 28)
 #define FLX_DATA_CFG_BEAT_3			(0x3 << 28)

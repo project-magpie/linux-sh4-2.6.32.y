@@ -18,6 +18,9 @@
 #include <linux/stm/soc.h>
 #include <linux/stm/emi.h>
 #include <linux/mtd/mtd.h>
+#include <linux/mtd/nand.h>
+#include <linux/stm/nand.h>
+#include <linux/stm/soc_init.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/spi/spi.h>
@@ -210,7 +213,8 @@ static struct platform_device *mb705_devices[] __initdata = {
 	&spi_pio_device[0],
 };
 
-static struct mtd_partition nand_partitions[] = {
+/* NAND Device */
+static struct mtd_partition nand_parts[] = {
 	{
 		.name	= "NAND root",
 		.offset	= 0,
@@ -223,28 +227,31 @@ static struct mtd_partition nand_partitions[] = {
 };
 
 static struct plat_stmnand_data nand_config = {
-	.emi_bank		= 1,	/* Can be overridden */
+	/* STM_NAND_EMI data */
 	.emi_withinbankoffset	= 0,
+	.rbn_port		= -1,
+	.rbn_pin		= -1,
 
-	/* Timings for NAND512W3A */
-	.emi_timing_data = &(struct emi_timing_data) {
-		.rd_cycle_time	 = 40,		 /* times in ns */
-		.rd_oee_start	 = 0,
-		.rd_oee_end	 = 10,
-		.rd_latchpoint	 = 10,
-		.busreleasetime  = 0,
-
-		.wr_cycle_time	 = 40,
-		.wr_oee_start	 = 0,
-		.wr_oee_end	 = 10,
-
-		.wait_active_low = 0,
+	/* Timing data for STM_NAND_EMI/FLEX/AFM drivers */
+	.timing_data = &(struct nand_timing_data) {
+		.sig_setup	= 20,		/* times in ns */
+		.sig_hold	= 10,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
+		.wr_on		= 10,
+		.wr_off		= 30,
+		.rd_on		= 10,
+		.rd_off		= 40,
+		.chip_delay	= 40,		/* in us */
 	},
-
-	.chip_delay		= 40,		/* time in us */
-	.mtd_parts		= nand_partitions,
-	.nr_parts		= ARRAY_SIZE(nand_partitions),
+	.flex_rbn_connected	= 1,
 };
+
+/* Platform data for STM_NAND_EMI/FLEX/AFM. (bank# may be updated later) */
+static struct platform_device nand_device =
+	STM_NAND_DEVICE("stm-nand-emi", 1, &nand_config,
+			nand_parts, ARRAY_SIZE(nand_parts), NAND_USE_FLASH_BBT);
+
 
 #include <linux/delay.h>
 
@@ -285,7 +292,7 @@ static int __init mb705_init(void)
 		u32 bank2_start = emi_bank_base(2);
 		physmap_flash.resource[0].start = bank1_start;
 		physmap_flash.resource[0].end = bank2_start - 1;
-		nand_config.emi_bank = 0;
+		nand_device.id = 0;
 	}
 
 	/*
@@ -298,7 +305,7 @@ static int __init mb705_init(void)
 	i |= EPLD_EMI_MISC_NOTNANDFLASHWP;
 	epld_write(i, EPLD_EMI_MISC);
 
-	stx7105_configure_nand(&nand_config);
+	stx7105_configure_nand(&nand_device);
 
 	/* Interrupt routing.
 	 * At the moment we only care about a small number of

@@ -52,7 +52,7 @@ static struct plat_stmnand_data nand_config = {
 	.rbn_port		= -1,
 	.rbn_pin		= -1,
 
-#if defined(CONFIG_CPU_SUBTYPE_STX7200)
+#if defined(CONFIG_CPU_SUBTYPE_STX7200 | CONFIG_CPU_SUBTYPE_STX7105)
 	/* Timing data for SoCs using STM_NAND_EMI/FLEX/AFM drivers */
 	.timing_data = &(struct nand_timing_data) {
 		.sig_setup	= 50,		/* times in ns */
@@ -82,10 +82,12 @@ static struct plat_stmnand_data nand_config = {
 #endif
 };
 
-#if defined(CONFIG_CPU_SUBTYPE_STX7200)
+#if defined(CONFIG_CPU_SUBTYPE_STX7200 | CONFIG_CPU_SUBTYPE_STX7105)
 
 /* For SoCs migrated to STM_NAND_EMI/FLEX/AFM drivers, setup template platform
- * device structure.  SoC setup will configure SoC specific data.
+ * device structure.  SoC setup will configure SoC specific data.  Use
+ * 'stm-nand-emi/flex/afm.x' as ID for specifying MTD partitions on the kernel
+ * command line.
  */
 static struct platform_device nand_device =
 	STM_NAND_DEVICE("stm-nand-emi", STEM_CS0_BANK, &nand_config,
@@ -96,7 +98,7 @@ static struct platform_device nand_device =
 static int __init mb588_init(void)
 {
 #if defined(CONFIG_CPU_SUBTYPE_STX7105)
-	stx7105_configure_nand(&nand_config);
+	stx7105_configure_nand(&nand_device);
 #elif defined(CONFIG_CPU_SUBTYPE_STX7111)
 	stx7111_configure_nand(&nand_config);
 #elif defined(CONFIG_CPU_SUBTYPE_STX7200)

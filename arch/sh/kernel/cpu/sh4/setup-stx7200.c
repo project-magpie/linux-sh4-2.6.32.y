@@ -870,10 +870,6 @@ void __init stx7200_configure_lirc(lirc_scd_t *scd)
 
 /* NAND setup -------------------------------------------------------------- */
 
-/*
- * Requires STMicroelectonics NAND driver (CONFIG_MTD_NAND_STM_EMI).  Use
- * 'stm-nand.x' as ID for specifying MTD partitions on the kernel command line.
- */
 void __init stx7200_configure_nand(struct platform_device *pdev)
 {
 	/* EMI Bank base address */

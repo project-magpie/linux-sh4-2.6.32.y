@@ -827,11 +827,11 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 	uint32_t reg;
 	uint32_t prog[8] = {0};
 
-	/* Initialise AFM NAND controller */
+	/* Initialise NAND controller */
 	res = flex_init_controller(pdev);
 	if (res != 0) {
 		printk(KERN_ERR NAME
-		       ": Failed to initialise AFM NAND Controller.\n");
+		       ": Failed to initialise NAND Controller.\n");
 		return res;
 	}
 
@@ -887,11 +887,13 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 	data->chip.IO_ADDR_R = flex.base_addr + EMINAND_FLEX_DATA;
 	data->chip.IO_ADDR_W = flex.base_addr + EMINAND_FLEX_DATA;
 
-	/* Reset AFM program. Is this really necessary? */
+#if defined(CONFIG_CPU_SUBTYPE_STX7200)
+	/* Reset AFM program. Why!?! */
 	memset(prog, 0, 32);
 	reg = flex_readreg(EMINAND_AFM_SEQUENCE_STATUS_REG);
 	memcpy_toio(flex.base_addr + EMINAND_AFM_SEQUENCE_REG_1,
 		    prog, 32);
+#endif
 
 	/* Scan to find existance of the device */
 	if (nand_scan(&data->mtd, 1)) {

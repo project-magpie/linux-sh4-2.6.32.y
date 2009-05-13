@@ -671,6 +671,9 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 
 	data->chip.ecc.mode = NAND_ECC_SOFT;
 
+	/* Copy chip options from platform data */
+	data->chip.options = pdata->chip.options;
+
 	platform_set_drvdata(pdev, data);
 
 	/* Scan to find existance of the device */
@@ -679,9 +682,6 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 		res = -ENXIO;
 		goto out6;
 	}
-
-	/* Force options which may not have been set during scan() */
-	data->chip.options |= pdata->chip.options;
 
 #ifdef CONFIG_MTD_PARTITIONS
 	res = parse_mtd_partitions(&data->mtd, part_probes, &data->parts, 0);

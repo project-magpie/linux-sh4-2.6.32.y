@@ -927,119 +927,22 @@ void __init stx7105_configure_lirc(lirc_scd_t *scd)
 	platform_device_register(&lirc_device);
 }
 
-/* NAND Resources ---------------------------------------------------------- */
+/* NAND Setup -------------------------------------------------------------- */
 
-static void nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
+void __init stx7105_configure_nand(struct platform_device *pdev)
 {
-	struct nand_chip *this = mtd->priv;
+	/* EMI Bank base address */
+	/*  - setup done in stm_nand_emi probe */
 
-	if (ctrl & NAND_CTRL_CHANGE) {
+	/* NAND Controller base address */
+	pdev->resource[0].start	= 0xFE701000;
+	pdev->resource[0].end	= 0xFE701FFF;
 
-		if (ctrl & NAND_CLE) {
-			this->IO_ADDR_W = (void *)((unsigned int)this->IO_ADDR_W |
-						   (unsigned int)(1 << 17));
-		}
-		else {
-			this->IO_ADDR_W = (void *)((unsigned int)this->IO_ADDR_W &
-						   ~(unsigned int)(1 << 17));
-		}
+	/* NAND Controller IRQ */
+	pdev->resource[1].start	= evt2irq(0x14a0);
+	pdev->resource[1].end	= evt2irq(0x14a0);
 
-		if (ctrl & NAND_ALE) {
-			this->IO_ADDR_W = (void *)((unsigned int)this->IO_ADDR_W |
-						   (unsigned int)(1 << 18));
-		}
-		else {
-			this->IO_ADDR_W = (void *)((unsigned int)this->IO_ADDR_W &
-						   ~(unsigned int)(1 << 18));
-		}
-	}
-
-	if (cmd != NAND_CMD_NONE) {
-		writeb(cmd, this->IO_ADDR_W);
-	}
-}
-
-static void nand_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
-{
-	int i;
-	struct nand_chip *chip = mtd->priv;
-
-	/* write buf up to 4-byte boundary */
-	while ((unsigned int)buf & 0x3) {
-		writeb(*buf++, chip->IO_ADDR_W);
-		len--;
-	}
-
-	writesl(chip->IO_ADDR_W, buf, len/4);
-
-	/* mop up trailing bytes */
-	for (i = (len & ~0x3); i < len; i++) {
-		writeb(buf[i], chip->IO_ADDR_W);
-	}
-}
-
-static void nand_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
-{
-	int i;
-	struct nand_chip *chip = mtd->priv;
-
-	/* read buf up to 4-byte boundary */
-	while ((unsigned int)buf & 0x3) {
-		*buf++ = readb(chip->IO_ADDR_R);
-		len--;
-	}
-
-	readsl(chip->IO_ADDR_R, buf, len/4);
-
-	/* mop up trailing bytes */
-	for (i = (len & ~0x3); i < len; i++) {
-		buf[i] = readb(chip->IO_ADDR_R);
-	}
-}
-
-static const char *nand_part_probes[] = { "cmdlinepart", NULL };
-
-static struct platform_device nand_flash[] = {
-	EMI_NAND_DEVICE(0),
-	EMI_NAND_DEVICE(1),
-	EMI_NAND_DEVICE(2),
-	EMI_NAND_DEVICE(3),
-	EMI_NAND_DEVICE(4),
- };
-
-
-/*
- * stx7105_configure_nand - Configures NAND support for the STx7105
- *
- * Requires generic platform NAND driver (CONFIG_MTD_NAND_PLATFORM).
- * Uses 'gen_nand.x' as ID for specifying MTD partitions on the kernel
- * command line.
- */
-void __init stx7105_configure_nand(struct plat_stmnand_data *data)
-{
-	unsigned int bank_base, bank_end;
-	unsigned int emi_bank = data->emi_bank;
-
-	struct platform_nand_data *nand_private_data =
-		nand_flash[emi_bank].dev.platform_data;
-
-	bank_base = emi_bank_base(emi_bank) + data->emi_withinbankoffset;
-	if (emi_bank == 4)
-		bank_end = 0x07ffffff;
-	else
-		bank_end = emi_bank_base(emi_bank+1) - 1;
-
-	printk("Configuring EMI Bank%d for NAND device\n", emi_bank);
-	emi_config_nand(data->emi_bank, data->emi_timing_data);
-
-	nand_flash[emi_bank].resource[0].start = bank_base;
-	nand_flash[emi_bank].resource[0].end = bank_end;
-
-	nand_private_data->chip.chip_delay = data->chip_delay;
-	nand_private_data->chip.partitions = data->mtd_parts;
-	nand_private_data->chip.nr_partitions = data->nr_parts;
-
-	platform_device_register(&nand_flash[emi_bank]);
+	platform_device_register(pdev);
 }
 
 /*

@@ -161,11 +161,12 @@ static void flex_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
 
 	if (cmd != NAND_CMD_NONE) {
 		if (flex_ctrl & NAND_CLE) {
-			reg = (cmd & 0xff) | FLX_CMD_REG_BEAT_1;
+			reg = (cmd & 0xff) | FLX_CMD_REG_BEAT_1 |
+				FLX_CMD_REG_CSN_STATUS;
 			flex_writereg(reg, EMINAND_FLEX_COMMAND_REG);
 		} else if (flex_ctrl & NAND_ALE) {
 			reg = (cmd & 0xff) | FLX_ADDR_REG_ADD8_VALID |
-				FLX_ADDR_REG_BEAT_1;
+				FLX_ADDR_REG_BEAT_1 | FLX_ADDR_REG_CSN_STATUS;
 			flex_writereg(reg, EMINAND_FLEX_ADDRESS_REG);
 		} else {
 			printk(KERN_ERR NAME "%s: unknown ctrl 0x%02x!\n",
@@ -190,12 +191,13 @@ static int flex_rbn(struct mtd_info *mtd)
 static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
 	uint8_t *p;
+	uint32_t reg;
 
 	/* Handle non-aligned buffer */
 	p = ((uint32_t)buf & 0x3) ? flex.buf : buf;
 
 	/* Switch to 4-byte reads (required for ECC) */
-	flex_writereg(0x00000000, EMINAND_FLEX_DATAREAD_CONFIG);
+	flex_writereg(FLX_DATA_CFG_BEAT_4, EMINAND_FLEX_DATAREAD_CONFIG);
 
 	readsl(flex.base_addr + EMINAND_FLEX_DATA, p, len/4);
 
@@ -203,12 +205,19 @@ static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 		memcpy(buf, p, len);
 
 	/* Switch back to 1-byte reads */
-	flex_writereg(0x10000000, EMINAND_FLEX_DATAREAD_CONFIG);
+	flex_writereg(FLX_DATA_CFG_BEAT_1 | FLX_DATA_CFG_CSN_STATUS,
+		      EMINAND_FLEX_DATAREAD_CONFIG);
+
+	/* Deassert CSn, allow access to other EMI devices */
+	reg = flex_readreg(EMINAND_FLEXMODE_CONFIG);
+	reg |= (0x1 << 4);
+	flex_writereg(reg, EMINAND_FLEXMODE_CONFIG);
 }
 
 static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
 	uint8_t *p;
+	uint32_t reg;
 
 	/* Handle non-aligned buffer */
 	if ((uint32_t)buf & 0x3) {
@@ -219,12 +228,18 @@ static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 	}
 
 	/* Switch to 4-byte reads (required for ECC), and wait RBn */
-	flex_writereg(0x00000000, EMINAND_FLEX_DATAWRITE_CONFIG);
+	flex_writereg(FLX_DATA_CFG_BEAT_4, EMINAND_FLEX_DATAWRITE_CONFIG);
 
 	writesl(flex.base_addr + EMINAND_FLEX_DATA, p, len/4);
 
 	/* Switch back to 1-byte writes  */
-	flex_writereg(0x10000000, EMINAND_FLEX_DATAWRITE_CONFIG);
+	flex_writereg(FLX_DATA_CFG_BEAT_1 | FLX_DATA_CFG_CSN_STATUS,
+		      EMINAND_FLEX_DATAWRITE_CONFIG);
+
+	/* Deassert CSn, allow access to other EMI devices */
+	reg = flex_readreg(EMINAND_FLEXMODE_CONFIG);
+	reg |= (0x1 << 4);
+	flex_writereg(reg, EMINAND_FLEXMODE_CONFIG);
 }
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
@@ -770,13 +785,13 @@ static int __init flex_init_controller(struct platform_device *pdev)
 	spin_lock_init(&flex.hwcontrol.lock);
 	init_waitqueue_head(&flex.hwcontrol.wq);
 
+	/* Disable boot_not_flex */
+	flex_writereg(0x00000000, EMINAND_BOOTBANK_CONFIG);
+
 	/* Reset FLEX Controller */
 	flex_writereg((0x1 << 3), EMINAND_FLEXMODE_CONFIG);
 	udelay(1);
 	flex_writereg(0x00, EMINAND_FLEXMODE_CONFIG);
-
-	/* Disable boot_not_flex */
-	flex_writereg(0x00000000, EMINAND_BOOTBANK_CONFIG);
 
 	/* Set Controller to FLEX mode */
 	flex_writereg(0x00000001, EMINAND_FLEXMODE_CONFIG);
@@ -785,10 +800,12 @@ static int __init flex_init_controller(struct platform_device *pdev)
 	flex_writereg(0x00, EMINAND_INTERRUPT_ENABLE);
 
 	/* To fit with MTD framework, configure FLEX_DATA reg for 1-byte
-	 * read/writes
+	 * read/writes, and deassert CSn
 	 */
-	flex_writereg(0x10000000, EMINAND_FLEX_DATAWRITE_CONFIG);
-	flex_writereg(0x10000000, EMINAND_FLEX_DATAREAD_CONFIG);
+	flex_writereg(FLX_DATA_CFG_BEAT_1 | FLX_DATA_CFG_CSN_STATUS,
+		      EMINAND_FLEX_DATAWRITE_CONFIG);
+	flex_writereg(FLX_DATA_CFG_BEAT_1 | FLX_DATA_CFG_CSN_STATUS,
+		      EMINAND_FLEX_DATAREAD_CONFIG);
 
 #ifdef CONFIG_MTD_DEBUG
 	flex_print_regs();

@@ -153,6 +153,10 @@ config CPU_SH5
 	bool
 	select CPU_HAS_FPU
 
+config CPU_ST40_300
+       bool
+       select CPU_SUBTYPE_ST40
+
 config CPU_SHX2
 	bool
 
@@ -313,28 +317,28 @@ config CPU_SUBTYPE_STB7100
 
 config CPU_SUBTYPE_STX5197
 	bool "Support STx5197 processors"
-	select CPU_SUBTYPE_ST40
+	select CPU_ST40_300
 	select SUPPORTS_32BIT
 	help
 	  Select STX5197 if you have an STx5197.
 
 config CPU_SUBTYPE_STX7105
 	bool "Support STx7105 processors"
-	select CPU_SUBTYPE_ST40
+	select CPU_ST40_300
 	select SUPPORTS_32BIT
 	help
 	  Select STX7105 if you have an STx7105 CPU.
 
 config CPU_SUBTYPE_STX7111
 	bool "Support STx7111 processors"
-	select CPU_SUBTYPE_ST40
+	select CPU_ST40_300
 	select SUPPORTS_32BIT
 	help
 	  Select STX7111 if you have an STx7111 CPU.
 
 config CPU_SUBTYPE_STX7141
 	bool "Support STx7141 processors"
-	select CPU_SUBTYPE_ST40
+	select CPU_ST40_300
 	select SUPPORTS_32BIT
 	help
 	  Select STX7141 if you have an STx7141 CPU.
@@ -342,6 +346,8 @@ config CPU_SUBTYPE_STX7141
 config CPU_SUBTYPE_STX7200
 	bool "Support STx7200 processor"
 	select CPU_SUBTYPE_ST40
+	# Note this doesn't select CPU_ST40_300 because cut 1 was an ST40-200.
+	# Boards designed to take cut 2 or later must set CPU_ST40_300.
 	select SUPPORTS_32BIT
 	help
 	  Select STx7200 if you have an STx7200 CPU.

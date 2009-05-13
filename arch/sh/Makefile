@@ -17,6 +17,7 @@ isa-$(CONFIG_CPU_SH3)			:= sh3
 isa-$(CONFIG_CPU_SH4)			:= sh4
 isa-$(CONFIG_CPU_SH4A)			:= sh4a
 isa-$(CONFIG_CPU_SH4AL_DSP)		:= sh4al
+isa-$(CONFIG_CPU_ST40_300)		:= st40-300
 isa-$(CONFIG_CPU_SH5)			:= shmedia
 isa-$(CONFIG_SH_DSP)			:= $(isa-y)-dsp
 
@@ -36,6 +37,8 @@ cflags-$(CONFIG_CPU_SH4)		:= $(call cc-option,-m4,) \
 	$(call cc-option,-mno-implicit-fp,-m4-nofpu)
 cflags-$(CONFIG_CPU_SH4A)		+= $(call cc-option,-m4a,) \
 					   $(call cc-option,-m4a-nofpu,)
+cflags-$(CONFIG_CPU_ST40_300)		+= $(call cc-option,-m4-300,) \
+					   $(call cc-option,-m4-300-nofpu,)
 cflags-$(CONFIG_CPU_SH5)		:= $(call cc-option,-m5-32media-nofpu,)
 
 cflags-$(CONFIG_CPU_BIG_ENDIAN)		+= -mb

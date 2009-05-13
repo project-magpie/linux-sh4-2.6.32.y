@@ -676,8 +676,9 @@ need_resched:
 
 	mov	#OFF_SR, r0
 	mov.l	@(r0,r15), r0		! get status register
-	and	#0xf0, r0		! interrupts off (exception path)?
-	cmp/eq	#0xf0, r0
+	shlr	r0
+	and	#(0xf0>>1), r0
+	cmp/eq	#(0xf0>>1), r0		! interrupts off (exception path)?
 	bt	noresched
 	mov.l	3f, r0
 	jsr	@r0			! call preempt_schedule_irq
@@ -742,7 +743,7 @@ restore_all:
 	!
 	! Calculate new SR value
 	mov	k3, k2			! original SR value
-	mov	#0xf0, k1
+	mov	#0xfffffff0, k1
 	extu.b	k1, k1
 	not	k1, k1
 	and	k1, k2			! Mask orignal SR value

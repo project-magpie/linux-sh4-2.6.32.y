@@ -35,7 +35,6 @@
 #include <linux/stm/stm-dma.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/pio.h>
-#include <linux/stm/fdma-reqs.h>
 #include <linux/completion.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/nand.h>

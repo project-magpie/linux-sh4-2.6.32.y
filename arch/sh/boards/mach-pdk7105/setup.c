@@ -16,10 +16,16 @@
 #include <linux/stm/pio.h>
 #include <linux/stm/soc.h>
 #include <linux/stm/emi.h>
+#include <linux/stm/sysconf.h>
 #include <linux/delay.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
+#include <linux/mtd/nand.h>
+#include <linux/stm/nand.h>
+#include <linux/spi/spi.h>
+#include <linux/spi/flash.h>
+#include <linux/stm/soc_init.h>
 #include <linux/phy.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
@@ -27,6 +33,23 @@
 #include <asm/irl.h>
 #include <asm/io.h>
 #include "../common/common.h"
+
+/*
+ * Flash setup depends on whether system is configured as boot-from-NOR
+ * (default) or boot-from-NAND.
+ *
+ * Jumper settings (board v1.2-011):
+ *
+ * boot-from-      |   NOR                     NAND
+ * ---------------------------------------------------------------
+ * JE2 (CS routing) |  0 (EMIA->NOR_CS)        1 (EMIA->NAND_CS)
+ *                  |    (EMIB->NOR_CS)          (EMIB->NOR_CS)
+ *                  |    (EMIC->NAND_CS)         (EMIC->NOR_CS)
+ * JE3 (data width) |  0 (16bit)               1 (8bit)
+ * JE5 (mode 15)    |  0 (boot NOR)            1 (boot NAND)
+ * ---------------------------------------------------------------
+ *
+ */
 
 static int ascs[2] __initdata = { 2, 3 };
 
@@ -141,20 +164,9 @@ static struct mtd_partition mtd_parts_table[3] = {
 	}
 };
 
-static struct stpio_pin *vpp_enable_pin;
-
-static void mtd_set_vpp(struct map_info *map, int vpp)
-{
-	if(vpp)
-		stpio_set_pin(vpp_enable_pin, 1);
-	else
-		stpio_set_pin(vpp_enable_pin, 0);
-
-}
-
 static struct physmap_flash_data pdk7105_physmap_flash_data = {
 	.width		= 2,
-	.set_vpp	= mtd_set_vpp,
+	.set_vpp	= NULL,
 	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
 	.parts		= mtd_parts_table
 };
@@ -175,10 +187,95 @@ static struct platform_device pdk7105_physmap_flash = {
 	},
 };
 
+/* Configuration for Serial Flash */
+static struct mtd_partition serialflash_partitions[] = {
+	{
+		.name = "SFLASH_1",
+		.size = 0x00080000,
+		.offset = 0,
+	}, {
+		.name = "SFLASH_2",
+		.size = MTDPART_SIZ_FULL,
+		.offset = 0x20000
+	},
+};
+
+static struct flash_platform_data serialflash_data = {
+	.name = "m25p80",
+	.parts = serialflash_partitions,
+	.nr_parts = ARRAY_SIZE(serialflash_partitions),
+	.type = "m25p64",
+};
+
+static struct spi_board_info spi_serialflash[] =  {
+	{
+		.modalias       = "m25p80",
+		.bus_num        = 8,
+		.chip_select    = spi_set_cs(15, 2),
+		.max_speed_hz   = 500000,
+		.platform_data  = &serialflash_data,
+		.mode           = SPI_MODE_3,
+	},
+};
+
+static struct platform_device spi_pio_device[] = {
+	{
+		.name           = "spi_st_pio",
+		.id             = 8,
+		.num_resources  = 0,
+		.dev            = {
+			.platform_data =
+				&(struct ssc_pio_t) {
+					.pio = {{15, 0}, {15, 1}, {15, 3} },
+				},
+		},
+	},
+};
+/* Configuration for NAND Flash */
+static struct mtd_partition nand_parts[] = {
+	{
+		.name   = "NAND root",
+		.offset = 0,
+		.size   = 0x00800000
+	}, {
+		.name   = "NAND home",
+		.offset = MTDPART_OFS_APPEND,
+		.size   = MTDPART_SIZ_FULL
+	},
+};
+
+static struct plat_stmnand_data nand_config = {
+	/* STM_NAND_EMI data */
+	.emi_withinbankoffset   = 0,
+	.rbn_port               = -1,
+	.rbn_pin                = -1,
+
+	.timing_data = &(struct nand_timing_data) {
+		.sig_setup      = 50,           /* times in ns */
+		.sig_hold       = 50,
+		.CE_deassert    = 0,
+		.WE_to_RBn      = 100,
+		.wr_on          = 10,
+		.wr_off         = 40,
+		.rd_on          = 10,
+		.rd_off         = 40,
+		.chip_delay     = 50,           /* in us */
+	},
+	.flex_rbn_connected     = 0,
+};
+
+/* Platform data for STM_NAND_EMI/FLEX/AFM. (bank# may be updated later) */
+static struct platform_device nand_device =
+STM_NAND_DEVICE("stm-nand-flex", 2, &nand_config,
+		nand_parts, ARRAY_SIZE(nand_parts), NAND_USE_FLASH_BBT);
+
+
+
 static struct platform_device *pdk7105_devices[] __initdata = {
 	&pdk7105_physmap_flash,
 	&pdk7105_leds,
 	&pdk7105_phy_device,
+	&spi_pio_device[0],
 };
 
 /* Configuration based on Futarque-RC signals train. */
@@ -192,6 +289,28 @@ lirc_scd_t lirc_scd = {
 
 static int __init device_init(void)
 {
+	u32 bank1_start;
+	u32 bank2_start;
+	struct sysconf_field *sc;
+	u32 boot_mode;
+
+	bank1_start = emi_bank_base(1);
+	bank2_start = emi_bank_base(2);
+
+	/* Configure FLASH according to boot device mode pins */
+	sc = sysconf_claim(SYS_STA, 1, 15, 16, "boot_mode");
+	boot_mode = sysconf_read(sc);
+	if (boot_mode == 0x0)
+		/* Default configuration */
+		pr_info("Configuring FLASH for boot-from-NOR\n");
+	else if (boot_mode == 0x1) {
+		/* Swap NOR/NAND banks */
+		pr_info("Configuring FLASH for boot-from-NAND\n");
+		physmap_flash.resource[0].start = bank1_start;
+		physmap_flash.resource[0].end = bank2_start - 1;
+		nand_device.id = 0;
+	}
+
 	stx7105_configure_sata();
 	stx7105_configure_pwm(&pwm_private_info);
 	stx7105_configure_ssc(&ssc_private_info);
@@ -216,8 +335,14 @@ static int __init device_init(void)
 	stx7105_configure_lirc(&lirc_scd);
 	stx7105_configure_audio_pins(3, 1, 1);
 
-	vpp_enable_pin = stpio_request_set_pin(6, 4, "nor_vpp_enable",
-					      STPIO_OUT, 1);
+	/*
+	 * FLASH_WP is shared by NOR and NAND.  However, since MTD NAND has no
+	 * concept of WP/VPP, we must permanently enable it
+	 */
+	stpio_request_set_pin(6, 4, "FLASH_WP", STPIO_OUT, 1);
+
+	stx7105_configure_nand(&nand_device);
+	spi_register_board_info(spi_serialflash, ARRAY_SIZE(spi_serialflash));
 
 	return platform_add_devices(pdk7105_devices, ARRAY_SIZE(pdk7105_devices));
 }

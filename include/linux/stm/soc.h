@@ -227,6 +227,19 @@ struct plat_stm_pwm_data {
 #define PWM_OUT1_PIO13_1	(1 << 1)
 #endif
 
+/* Platform data for the temperature sensor driver */
+struct plat_stm_temp_data {
+	const char *name;
+	struct {
+		int group, num, lsb, msb;
+	} pdn, dcorrect, overflow, data;
+	int calibrated:1;
+	int calibration_value;
+	void (*custom_set_dcorrect)(void *priv);
+	unsigned long (*custom_get_data)(void *priv);
+	void *custom_priv;
+};
+
 /* This is the private platform data for the lirc driver */
 #define LIRC_PIO_ON		0x08	/* PIO pin available */
 #define LIRC_IR_RX		0x04	/* IR RX PIO line available */

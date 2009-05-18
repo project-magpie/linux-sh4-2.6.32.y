@@ -1212,6 +1212,8 @@ static void __init pio_late_setup(void)
 		platform_device_register(pdev);
 }
 
+/* Other devices ----------------------------------------------------------- */
+
 /* This is the eSTB ILC3 */
 static struct platform_device ilc3_device = {
 	.name		= "ilc3",
@@ -1224,6 +1226,57 @@ static struct platform_device ilc3_device = {
 			.flags	= IORESOURCE_MEM
 		}
 	},
+};
+
+static unsigned long stx7141_temp1_get_data(void *priv)
+{
+	/* Some "bright sparkle" decided to split the data field
+	 * between SYS_STA12 & SYS_STA13 registers, having 11 (!!!)
+	 * bits unused in the SYS_STA13... WHY OH WHY?!?!?! */
+	static struct sysconf_field *data1_0_3, *data1_4_6;
+
+	if (!data1_0_3)
+		data1_0_3 = sysconf_claim(SYS_STA, 12, 28, 31, "stm-temp.1");
+	if (!data1_4_6)
+		data1_4_6 = sysconf_claim(SYS_STA, 13, 0, 2, "stm-temp.1");
+	if (!data1_0_3 || !data1_4_6)
+		return 0;
+
+	return (sysconf_read(data1_4_6) << 4) | sysconf_read(data1_0_3);
+}
+
+static struct platform_device stx7141_temp_devices[] = {
+	{
+		.name			= "stm-temp",
+		.id			= 0,
+		.dev.platform_data	= &(struct plat_stm_temp_data) {
+			.name = "STx7141 chip temperature 0",
+			.pdn = { SYS_CFG, 41, 4, 4 },
+			.dcorrect = { SYS_CFG, 41, 5, 9 },
+			.overflow = { SYS_STA, 12, 8, 8 },
+			.data = { SYS_STA, 12, 10, 16 },
+		},
+	}, {
+		.name			= "stm-temp",
+		.id			= 1,
+		.dev.platform_data	= &(struct plat_stm_temp_data) {
+			.name = "STx7141 chip temperature 1",
+			.pdn = { SYS_CFG, 41, 14, 14 },
+			.dcorrect = { SYS_CFG, 41, 15, 19 },
+			.overflow = { SYS_STA, 12, 26, 26 },
+			.custom_get_data = stx7141_temp1_get_data,
+		},
+	}, {
+		.name			= "stm-temp",
+		.id			= 2,
+		.dev.platform_data	= &(struct plat_stm_temp_data) {
+			.name = "STx7141 chip temperature 2",
+			.pdn = { SYS_CFG, 41, 24, 24 },
+			.dcorrect = { SYS_CFG, 41, 25, 29 },
+			.overflow = { SYS_STA, 13, 12, 12 },
+			.data = { SYS_STA, 13, 14, 20 },
+		},
+	}
 };
 
 /* Pre-arch initialisation ------------------------------------------------- */
@@ -1257,6 +1310,9 @@ static struct platform_device *stx7141_devices[] __initdata = {
 	&ilc3_device,
 	&hwrandom_rng_device,
 	&devrandom_rng_device,
+	&stx7141_temp_devices[0],
+	&stx7141_temp_devices[1],
+	&stx7141_temp_devices[2],
 };
 
 #include "./platform-pm-stx7141.c"

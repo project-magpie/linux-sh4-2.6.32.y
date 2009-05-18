@@ -1178,6 +1178,8 @@ static void __init pio_late_setup(void)
 	}
 }
 
+/* Other devices ----------------------------------------------------------- */
+
 static struct platform_device ilc3_device = {
 	.name		= "ilc3",
 	.id		= -1,
@@ -1188,6 +1190,18 @@ static struct platform_device ilc3_device = {
 			.end	= 0xfd000000 + 0x900,
 			.flags	= IORESOURCE_MEM
 		}
+	},
+};
+
+static struct platform_device stx7105_temp_device = {
+	.name			= "stm-temp",
+	.id			= -1,
+	.dev.platform_data	= &(struct plat_stm_temp_data) {
+		.name = "STx7105 chip temperature",
+		.pdn = { SYS_CFG, 41, 4, 4 },
+		.dcorrect = { SYS_CFG, 41, 5, 9 },
+		.overflow = { SYS_STA, 12, 8, 8 },
+		.data = { SYS_STA, 12, 10, 16 },
 	},
 };
 
@@ -1222,6 +1236,7 @@ static struct platform_device *stx7105_devices[] __initdata = {
 	&ilc3_device,
 	&hwrandom_rng_device,
 	&devrandom_rng_device,
+	&stx7105_temp_device,
 };
 
 #include "./platform-pm-stx7105.c"

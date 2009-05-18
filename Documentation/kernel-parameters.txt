@@ -1289,6 +1289,8 @@ and is between 256 and 4096 characters. It is defined in the file
 
 	n2=		[NET] SDL Inc. RISCom/N2 synchronous serial card
 
+	nbootpart=	[MTD,STM_NAND_FLEX] Specify boot-mode-ECC partition
+
 	NCR_D700=	[HW,SCSI]
 			See header of drivers/scsi/NCR_D700.c.
 

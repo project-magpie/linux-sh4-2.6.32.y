@@ -133,6 +133,9 @@ struct stm_nand_flex_controller {
 	struct stm_dma_params	dma_params[4];		/* FDMA params        */
 } flex;
 
+/* The command line passed to nboot_setup() */
+__initdata static char *cmdline;
+
 #define flex_writereg(val, reg)	iowrite32(val, flex.base_addr + (reg))
 #define flex_readreg(reg)	ioread32(flex.base_addr + (reg))
 
@@ -837,6 +840,9 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 	uint32_t reg;
 	uint32_t prog[8] = {0};
 
+	char *boot_part_name;
+	int boot_part_found = 0;
+
 	/* Initialise NAND controller */
 	res = flex_init_controller(pdev);
 	if (res != 0) {
@@ -920,6 +926,12 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 	data->mtd.write = nand_write;
 	data->mtd.read_oob = nand_read_oob;
 	data->mtd.write_oob = nand_write_oob;
+
+	/* Set name of boot partition */
+	boot_part_name = cmdline ? cmdline : CONFIG_STM_NAND_FLEX_BOOTPARTITION;
+	printk(KERN_INFO NAME ": Using boot partition name [%s] (from %s)\n",
+	       boot_part_name, cmdline ? "command line" : "kernel config");
+
 #endif
 
 #ifdef CONFIG_MTD_PARTITIONS
@@ -973,11 +985,11 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 			slave = *data->parts[i].mtdp;
 			part = PART(slave);
 
-			if (strcmp(slave->name,
-				   CONFIG_STM_NAND_FLEX_BOOTPARTITION) == 0) {
+			if (strcmp(slave->name, boot_part_name) == 0) {
 				printk(KERN_INFO NAME ": Found BOOT parition"
 				       "[%s], updating ECC paramters\n",
 				       slave->name);
+				boot_part_found = 1;
 
 				data->boot_start = part->offset;
 				data->boot_end = part->offset + slave->size;
@@ -993,6 +1005,9 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 			add_mtd_device(slave);
 			part->registered = 1;
 		}
+		if (!boot_part_found)
+			printk(KERN_WARNING NAME ": Failed to find boot "
+			       "partition [%s]\n", boot_part_name);
 #endif /* CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT */
 	} else
 #endif
@@ -1013,7 +1028,6 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 
 	return res;
 }
-
 
 static int __devexit stm_nand_flex_remove(struct platform_device *pdev)
 {
@@ -1040,6 +1054,14 @@ static struct platform_driver stm_nand_flex_driver = {
 		.owner	= THIS_MODULE,
 	},
 };
+
+static int __init bootpart_setup(char *s)
+{
+	cmdline = s;
+	return 1;
+}
+
+__setup("nbootpart=", bootpart_setup);
 
 static int __init stm_nand_flex_init(void)
 {

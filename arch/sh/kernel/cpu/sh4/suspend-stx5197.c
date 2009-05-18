@@ -31,10 +31,25 @@
 #define _SYS_CFG_H                      (2)
 #define _SYS_CFG_H_MASK                 (3)
 
+
+
+/*
+ * System Service Finite State Machine
+ *	+-------+   +------+    +------+
+ *	| reset |-->|  X1  |<-->| Prog |
+ *	+-------+   +------+    +------+
+ *	    	       /\	   |
+ *	    		|	   \/
+ *		wakeup	|       +-------+
+ *		event	+-------|Standby|
+ *			        +-------+
+ */
+
 /* *************************
  * STANDBY INSTRUCTION TABLE
  * *************************
  */
+#ifdef CONFIG_PM_DEBUG
 static unsigned long stx5197_standby_table[] __cacheline_aligned = {
 CLK_POKE(CLK_LOCK_CFG, 0xf0),
 CLK_POKE(CLK_LOCK_CFG, 0x0f), /* UnLock the clocks */
@@ -54,6 +69,7 @@ CLK_POKE(CLK_LOCK_CFG, 0x0f), /* UnLock the clocks */
 CLK_POKE(CLK_MODE_CTRL, CLK_MODE_CTRL_X1),
 CLK_AND_LONG(CLK_REDUCED_PM_CTRL, ~CLK_REDUCED_ON_XTAL_STDBY),
 CLK_AND_LONG(CLK_PLL_CONFIG1(0), ~CLK_PLL_CONFIG1_POFF),
+CLK_WHILE_NEQ(CLK_PLL_CONFIG1(0), CLK_PLL_CONFIG1_LOCK, CLK_PLL_CONFIG1_LOCK),
 CLK_POKE(CLK_MODE_CTRL, CLK_MODE_CTRL_PROG),
 CLK_POKE(CLK_LOCK_CFG, 0x100), /* Lock the clocks */
 _DELAY(),
@@ -61,6 +77,7 @@ _DELAY(),
 _DELAY(),
 _END()
 };
+#endif
 
 /* *********************
  * MEM INSTRUCTION TABLE
@@ -73,22 +90,19 @@ DATA_WHILE_NEQ(_SYS_MON_J, _SYS_MON_J_MASK, _SYS_MON_J_MASK),
 CLK_POKE(CLK_LOCK_CFG, 0xf0),
 CLK_POKE(CLK_LOCK_CFG, 0x0f), /* UnLock the clocks */
 
-CLK_POKE(CLK_MODE_CTRL, CLK_MODE_CTRL_X1),
-/* on exetrnal Xtal */
-CLK_OR_LONG(CLK_REDUCED_PM_CTRL, CLK_REDUCED_ON_XTAL_MEMSTDBY),
-CLK_OR_LONG(CLK_PLL_CONFIG1(0), CLK_PLL_CONFIG1_POFF),
-CLK_OR_LONG(CLK_PLL_CONFIG1(1), CLK_PLL_CONFIG1_POFF),
-CLK_POKE(CLK_MODE_CTRL, CLK_MODE_CTRL_PROG),
-CLK_POKE(CLK_LOCK_CFG, 0x100), /* Lock the clocks */
+/* disable PLLs in standby */
+CLK_OR_LONG(CLK_LP_MODE_DIS0, CLK_LP_MODE_DIS0_VALUE),
+CLK_POKE(CLK_MODE_CTRL, CLK_MODE_CTRL_STDB), /* IN STANDBY */
 
-_END(),
-
-CLK_POKE(CLK_LOCK_CFG, 0xf0),
-CLK_POKE(CLK_LOCK_CFG, 0x0f), /* UnLock the clocks */
-CLK_POKE(CLK_MODE_CTRL, CLK_MODE_CTRL_X1),
+_END_NO_SLEEP(),
+/*
+ * On a wakeup Event the System Service goes directly in X1 mode */
 CLK_AND_LONG(CLK_PLL_CONFIG1(0), ~CLK_PLL_CONFIG1_POFF),
 CLK_AND_LONG(CLK_PLL_CONFIG1(1), ~CLK_PLL_CONFIG1_POFF),
-CLK_AND_LONG(CLK_REDUCED_PM_CTRL, ~CLK_REDUCED_ON_XTAL_MEMSTDBY), /* on PLLs */
+/* Wait PLLs lock */
+CLK_WHILE_NEQ(CLK_PLL_CONFIG1(0), CLK_PLL_CONFIG1_LOCK, CLK_PLL_CONFIG1_LOCK),
+CLK_WHILE_NEQ(CLK_PLL_CONFIG1(1), CLK_PLL_CONFIG1_LOCK, CLK_PLL_CONFIG1_LOCK),
+
 CLK_POKE(CLK_MODE_CTRL, CLK_MODE_CTRL_PROG),
 CLK_POKE(CLK_LOCK_CFG, 0x100), /* Lock the clocks */
 
@@ -109,42 +123,6 @@ static unsigned long stx5197_wrt_table[8] __cacheline_aligned;
 
 static int stx5197_suspend_prepare(suspend_state_t state)
 {
-	int ret = -EINVAL;
-	pm_message_t pms = {.event = PM_EVENT_SUSPEND, };
-	emi_pm_state(pms);
-/*	clk_pm_state(pms);*/
-	sysconf_pm_state(pms);
-
-	switch (state) {
-	case PM_SUSPEND_STANDBY:
-	case PM_SUSPEND_MEM:
-		ret = 0;
-		break;
-	}
-	return ret;
-}
-
-static int stx5197_suspend_valid(suspend_state_t state)
-{
-	switch (state) {
-	case PM_SUSPEND_STANDBY:
-	case PM_SUSPEND_MEM:
-		return 1;
-	};
-	return 0;
-}
-
-/*
- * The xxxx_finish function is called after the resume
- * sysdev devices (i.e.: timer, cpufreq)
- * But it isn't a big issue in our platform
- */
-static int stx5197_suspend_finish(suspend_state_t state)
-{
-	pm_message_t pms = {.event = PM_EVENT_ON, };
-	sysconf_pm_state(pms);
-/*	clk_pm_state(pms);*/
-	emi_pm_state(pms);
 	return 0;
 }
 
@@ -154,31 +132,30 @@ static unsigned long stx5197_iomem[2] __cacheline_aligned = {
 
 static int stx5197_evt_to_irq(unsigned long evt)
 {
-	return ilc2irq(evt);
+	return ((evt < 0x400) ? ilc2irq(evt) : evt2irq(evt));
 }
 
-int __init suspend_platform_setup(struct sh4_suspend_t *st40data)
+static struct sh4_suspend_t st40data __cacheline_aligned = {
+	.iobase = stx5197_iomem,
+	.ops.prepare = stx5197_suspend_prepare,
+	.evt_to_irq = stx5197_evt_to_irq,
+#ifdef CONFIG_PM_DEBUG
+	.stby_tbl = (unsigned long)stx5197_standby_table,
+	.stby_size = DIV_ROUND_UP(ARRAY_SIZE(stx5197_standby_table) *
+			sizeof(long), L1_CACHE_BYTES),
+#endif
+	.mem_tbl = (unsigned long)stx5197_mem_table,
+	.mem_size = DIV_ROUND_UP(ARRAY_SIZE(stx5197_mem_table) * sizeof(long),
+			L1_CACHE_BYTES),
+	.wrt_tbl = (unsigned long)stx5197_wrt_table,
+	.wrt_size = DIV_ROUND_UP(ARRAY_SIZE(stx5197_wrt_table) * sizeof(long),
+			L1_CACHE_BYTES),
+};
+
+static int __init suspend_platform_setup(void)
 {
 
 	struct sysconf_field* sc;
-	st40data->iobase = stx5197_iomem;
-	st40data->ops.valid = stx5197_suspend_valid;
-	st40data->ops.finish = stx5197_suspend_finish;
-	st40data->ops.prepare = stx5197_suspend_prepare;
-
-	st40data->evt_to_irq = stx5197_evt_to_irq;
-
-	st40data->stby_tbl = (unsigned long)stx5197_standby_table;
-	st40data->stby_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stx5197_standby_table) * sizeof(long), L1_CACHE_BYTES);
-
-	st40data->mem_tbl = (unsigned long)stx5197_mem_table;
-	st40data->mem_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stx5197_mem_table) * sizeof(long), L1_CACHE_BYTES);
-
-	st40data->wrt_tbl = (unsigned long)stx5197_wrt_table;
-	st40data->wrt_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stx5197_wrt_table) * sizeof(long), L1_CACHE_BYTES);
 
 	sc = sysconf_claim(SYS_DEV, CFG_MONITOR_J, 24, 24, "LMI pwd ack");
 	stx5197_wrt_table[_SYS_MON_J] = (unsigned long)sysconf_address(sc);
@@ -188,5 +165,7 @@ int __init suspend_platform_setup(struct sh4_suspend_t *st40data)
 	stx5197_wrt_table[_SYS_CFG_H] = (unsigned long)sysconf_address(sc);
 	stx5197_wrt_table[_SYS_CFG_H_MASK] = sysconf_mask(sc);
 
-	return 0;
+	return sh4_suspend_register(&st40data);
 }
+
+late_initcall(suspend_platform_setup);

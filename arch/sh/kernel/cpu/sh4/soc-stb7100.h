@@ -22,6 +22,10 @@
   #define CLKA_PLL0_ENABLE		(1 << 19)
   #define CLKA_PLL0_SUSPEND		((5 << 16) | (100 << 8) | \
 	(CONFIG_SH_EXTERNAL_CLOCK / 1000000))
+
+#define CLKA_PLL0_LOCK			0x10
+  #define CLKA_PLL0_LOCK_LOCKED		0x01
+
 #define CLKA_ST40			0x14
 #define CLKA_ST40_IC			0x18
 #define CLKA_ST40_PER			0x1c
@@ -30,6 +34,9 @@
   #define CLKA_PLL1_ENABLE		(1 << 19)
   #define CLKA_PLL1_SUSPEND		((5 << 16) | (100 << 8) | \
 	(CONFIG_SH_EXTERNAL_CLOCK / 1000000))
+#define CLKA_PLL1_LOCK			0x2C
+  #define CLKA_PLL1_LOCK_LOCKED		0x01
+
 #define CLKA_CLK_DIV			0x30
 #define CLKA_CLK_EN			0x34
   #define CLKA_CLK_EN_ST231_AUD		(1 << 0)

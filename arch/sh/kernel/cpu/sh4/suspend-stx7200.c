@@ -40,6 +40,7 @@
  * STANDBY INSTRUCTION TABLE
  * *************************
  */
+#ifdef CONFIG_PM_DEBUG
 static unsigned long stx7200_standby_table[] __cacheline_aligned = {
 /* Down scale the GenA.Pll0 and GenA.Pll2*/
 CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_BYPASS),
@@ -79,6 +80,8 @@ _OR(),
 CLK_STORE(CLKA_PLL2),
 #endif
 CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL2_OFF)),
+CLK_WHILE_NEQ(CLKA_PLL0, CLKA_PLL0_LOCK, CLKA_PLL0_LOCK),
+CLK_WHILE_NEQ(CLKA_PLL2, CLKA_PLL2_LOCK, CLKA_PLL2_LOCK),
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
 CLK_AND_LONG(CLKA_PLL2, ~(CLKA_PLL2_BYPASS)),
 
@@ -86,6 +89,7 @@ _DELAY(),
 /* END. */
 _END()
 };
+#endif
 
 /* *********************
  * MEM INSTRUCTION TABLE
@@ -118,6 +122,10 @@ CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_SUSPEND),
 
 CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL1_OFF | PWR_CFG_PLL2_OFF)),
 
+CLK_WHILE_NEQ(CLKA_PLL0, CLKA_PLL0_LOCK, CLKA_PLL0_LOCK),
+CLK_WHILE_NEQ(CLKA_PLL1, CLKA_PLL1_LOCK, CLKA_PLL1_LOCK),
+CLK_WHILE_NEQ(CLKA_PLL2, CLKA_PLL2_LOCK, CLKA_PLL2_LOCK),
+
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
 CLK_AND_LONG(CLKA_PLL1, ~(CLKA_PLL1_BYPASS)),
 CLK_AND_LONG(CLKA_PLL2, ~(CLKA_PLL2_BYPASS)),
@@ -149,6 +157,10 @@ _OR(),
 CLK_STORE(CLKA_PLL2),
 #endif
 CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL1_OFF | PWR_CFG_PLL2_OFF)),
+/* Wait PLLs lock */
+CLK_WHILE_NEQ(CLKA_PLL0, CLKA_PLL0_LOCK, CLKA_PLL0_LOCK),
+CLK_WHILE_NEQ(CLKA_PLL1, CLKA_PLL1_LOCK, CLKA_PLL1_LOCK),
+CLK_WHILE_NEQ(CLKA_PLL2, CLKA_PLL2_LOCK, CLKA_PLL2_LOCK),
 
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
 CLK_AND_LONG(CLKA_PLL1, ~(CLKA_PLL1_BYPASS)),
@@ -172,53 +184,25 @@ static unsigned long stx7200_wrt_table[16] __cacheline_aligned;
 
 static int stx7200_suspend_prepare(suspend_state_t state)
 {
-	pm_message_t pm = {.event = PM_EVENT_SUSPEND, };
-	emi_pm_state(pm);
-	clk_pm_state(pm);
-	sysconf_pm_state(pm);
-
-	switch (state) {
-	case PM_SUSPEND_STANDBY:
+#ifdef CONFIG_PM_DEBUG
+	if (state == PM_SUSPEND_STANDBY) {
 		stx7200_wrt_table[0] =
 			readl(CLOCKGEN_BASE_ADDR + CLKA_PLL0) & 0x7ffff;
 		stx7200_wrt_table[1] =
 			readl(CLOCKGEN_BASE_ADDR + CLKA_PLL2) & 0x7ffff;
-		return 0;
-	case PM_SUSPEND_MEM:
+	} else
+#endif
+	{
 		stx7200_wrt_table[0] =
 			readl(CLOCKGEN_BASE_ADDR + CLKA_PLL0) & 0x7ffff;
 		stx7200_wrt_table[1] =
 			readl(CLOCKGEN_BASE_ADDR + CLKA_PLL1) & 0x7ffff;
 		stx7200_wrt_table[2] =
 			readl(CLOCKGEN_BASE_ADDR + CLKA_PLL2) & 0x7ffff;
-	   return 0;
 	}
-	return -EINVAL;
-}
-
-static int stx7200_suspend_valid(suspend_state_t state)
-{
-	switch (state) {
-	case PM_SUSPEND_STANDBY:
-	case PM_SUSPEND_MEM:
-		return 1;
-	};
 	return 0;
 }
 
-/*
- * The xxxx_finish function is called after the resume
- * sysdev devices (i.e.: timer, cpufreq)
- * But it isn't a big issue in our platform
- */
-static int stx7200_suspend_finish(suspend_state_t state)
-{
-	pm_message_t pm = {.event = PM_EVENT_ON, };
-	sysconf_pm_state(pm);
-	clk_pm_state(pm);
-	emi_pm_state(pm);
-	return 0;
-}
 
 static unsigned long stx7200_iomem[2] __cacheline_aligned = {
 		stx7200_wrt_table,	/* To access Sysconf    */
@@ -226,31 +210,29 @@ static unsigned long stx7200_iomem[2] __cacheline_aligned = {
 
 static int stx7200_evttoirq(unsigned long evt)
 {
-	return ilc2irq(evt);
+	return ((evt < 0x400) ? ilc2irq(evt) : evt2irq(evt));
 }
 
-int __init suspend_platform_setup(struct sh4_suspend_t *st40data)
+static struct sh4_suspend_t st40data __cacheline_aligned = {
+	.iobase = stx7200_iomem,
+	.ops.prepare = stx7200_suspend_prepare,
+	.evt_to_irq = stx7200_evttoirq,
+#ifdef CONFIG_PM_DEBUG
+	.stby_tbl = (unsigned long)stx7200_standby_table,
+	.stby_size = DIV_ROUND_UP(ARRAY_SIZE(stx7200_standby_table) *
+			sizeof(long), L1_CACHE_BYTES),
+#endif
+	.mem_tbl = (unsigned long)stx7200_mem_table,
+	.mem_size = DIV_ROUND_UP(ARRAY_SIZE(stx7200_mem_table) * sizeof(long),
+			L1_CACHE_BYTES),
+	.wrt_tbl = (unsigned long)stx7200_wrt_table,
+	.wrt_size = DIV_ROUND_UP(ARRAY_SIZE(stx7200_wrt_table) * sizeof(long),
+			L1_CACHE_BYTES),
+};
+
+static int __init suspend_platform_setup()
 {
 	struct sysconf_field* sc;
-
-	st40data->iobase = stx7200_iomem;
-	st40data->ops.valid = stx7200_suspend_valid;
-	st40data->ops.finish = stx7200_suspend_finish;
-	st40data->ops.prepare = stx7200_suspend_prepare;
-
-	st40data->evt_to_irq = stx7200_evttoirq;
-
-	st40data->stby_tbl = (unsigned long)stx7200_standby_table;
-	st40data->stby_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stx7200_standby_table)*sizeof(long), L1_CACHE_BYTES);
-
-	st40data->mem_tbl = (unsigned long)stx7200_mem_table;
-	st40data->mem_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stx7200_mem_table)*sizeof(long), L1_CACHE_BYTES);
-
-	st40data->wrt_tbl = (unsigned long)stx7200_wrt_table;
-	st40data->wrt_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stx7200_wrt_table) * sizeof(long), L1_CACHE_BYTES);
 
 	sc = sysconf_claim(SYS_STA, 4, 0, 0, "pm");
 	stx7200_wrt_table[_SYS_STA4] = (unsigned long)sysconf_address(sc);
@@ -272,5 +254,7 @@ int __init suspend_platform_setup(struct sh4_suspend_t *st40data)
 	ctrl_outl(0xc, CKGA_CLKOUT_SEL +
 		CLOCKGEN_BASE_ADDR); /* sh4:2 routed on SYSCLK_OUT */
 #endif
-	return 0;
+	return sh4_suspend_register(&st40data);
 }
+
+late_initcall(suspend_platform_setup);

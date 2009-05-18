@@ -21,7 +21,7 @@
 #define CLOCKGENA_BASE_ADDR	0xfe213000	/* Clockgen A */
 #define CLOCKGENB_BASE_ADDR	0xfe000000	/* Clockgen B */
 
-#define ckga_pll0_cfg			0x000
+#define CKGA_PLL0_CFG			0x000
   #define CKGA_PLL0_CFG_DIVRES		(1 << 20)
   #define CKGA_PLL0_CFG_BYPASS		CKGA_PLL0_CFG_DIVRES
   #define CKGA_PLL0_CFG_LOCK		(1 << 31)

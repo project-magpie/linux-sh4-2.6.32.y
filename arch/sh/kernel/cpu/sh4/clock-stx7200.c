@@ -620,8 +620,9 @@ int clk_pm_state(pm_message_t state)
 		tmp = readl(CLOCKGENB_BASE_ADDR + CLKB_PWR_CFG);
 		writel(tmp & ~CLKB_PLL0_OFF,
 			CLOCKGENB_BASE_ADDR + CLKB_PWR_CFG);
-
-		mdelay(10); /* wait for stable signal */
+		/* Wait PllB lock */
+		while ((readl(CLOCKGENB_BASE_ADDR + CLKB_PLL0_CFG)
+			& CLKB_PLL0_LOCK) != 0);
 		tmp = readl(CLOCKGENB_BASE_ADDR + CLKB_PLL0_CFG);
 		writel(tmp & ~CLKB_PLL0_BYPASS,
 			CLOCKGENB_BASE_ADDR + CLKB_PLL0_CFG);

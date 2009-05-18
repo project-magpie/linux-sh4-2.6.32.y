@@ -31,6 +31,10 @@
 
 #define _SYS_STA4		(7)
 #define _SYS_STA4_MASK		(8)
+#define _SYS_STA3		(11)
+#define _SYS_STA3_MASK		(12)
+#define _SYS_STA3_VALUE		(13)
+
 #define _SYS_CFG11		(9)
 #define _SYS_CFG11_MASK		(10)
 #define _SYS_CFG38		(5)
@@ -40,6 +44,7 @@
  * STANDBY INSTRUCTION TABLE
  * *************************
  */
+#ifdef CONFIG_PM_DEBUG
 static unsigned long stx7141_standby_table[] __cacheline_aligned = {
 IMMEDIATE_DEST(0x1f),
 /* reduces the st40 frequency */
@@ -63,6 +68,7 @@ CLK_STORE(CKGA_OSC_DIV_CFG(10)),
  /* END. */
 _END()
 };
+#endif
 
 /* *********************
  * MEM INSTRUCTION TABLE
@@ -96,8 +102,15 @@ _END(),
 
 /* Turn-on the PLLs */
 CLK_AND_LONG(CKGA_POWER_CFG, ~3),
+/* Wait PLLs lock */
+CLK_WHILE_NEQ(CKGA_PLL0_CFG, CKGA_PLL0_CFG_LOCK, CKGA_PLL0_CFG_LOCK),
+CLK_WHILE_NEQ(CKGA_PLL1_CFG, CKGA_PLL1_CFG_LOCK, CKGA_PLL1_CFG_LOCK),
+
 /* 1. Turn-on the LMI ClocksGenD */
 DATA_AND_NOT_LONG(_SYS_CFG11, _SYS_CFG11_MASK),
+/* Wait LMI ClocksGenD lock */
+DATA_WHILE_NEQ(_SYS_STA3, _SYS_STA3_MASK, _SYS_STA3_VALUE),
+
 /* 2. Disables the DDR self refresh mode */
 DATA_AND_NOT_LONG(_SYS_CFG38, _SYS_CFG38_MASK),
 /* waits until the ack bit is zero */
@@ -126,23 +139,17 @@ static unsigned long stx7141_wrt_table[16] __cacheline_aligned;
 
 static int stx7141_suspend_prepare(suspend_state_t state)
 {
-	int ret = -EINVAL;
-	pm_message_t pms = {.event = PM_EVENT_SUSPEND, };
-	emi_pm_state(pms);
-	clk_pm_state(pms);
-	sysconf_pm_state(pms);
-
-	switch (state) {
-	case PM_SUSPEND_STANDBY:
+#ifdef CONFIG_PM_DEBUG
+	if (state == PM_SUSPEND_STANDBY) {
 		stx7141_wrt_table[0] = /* swith config */
 		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_CLKOPSRC_SWITCH_CFG(0));
 		stx7141_wrt_table[1] = /* clk_ic */
 		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_OSC_DIV_CFG(0));
 		stx7141_wrt_table[2] = /* clk_ic_if_100 */
 		    ioread32(CLOCKGENA_BASE_ADDR + CKGA_OSC_DIV_CFG(10));
-		ret = 0;
-		break;
-	case PM_SUSPEND_MEM:
+	} else
+#endif
+	{
 		stx7141_wrt_table[0] = /* swith config */
 		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_CLKOPSRC_SWITCH_CFG(0));
 		stx7141_wrt_table[1] = /* swith config */
@@ -153,33 +160,7 @@ static int stx7141_suspend_prepare(suspend_state_t state)
 		    ioread32(CLOCKGENA_BASE_ADDR + CKGA_OSC_DIV_CFG(10));
 		stx7141_wrt_table[4] = /* clk_ic_if_200 */
 		    ioread32(CLOCKGENA_BASE_ADDR + CKGA_OSC_DIV_CFG(17));
-		ret = 0;
-		break;
 	}
-	return ret;
-}
-
-static int stx7141_suspend_valid(suspend_state_t state)
-{
-	switch (state) {
-	case PM_SUSPEND_STANDBY:
-	case PM_SUSPEND_MEM:
-		return 1;
-	};
-	return 0;
-}
-
-/*
- * The xxxx_finish function is called after the resume
- * sysdev devices (i.e.: timer, cpufreq)
- * But it isn't a big issue in our platform
- */
-static int stx7141_suspend_finish(suspend_state_t state)
-{
-	pm_message_t pms = {.event = PM_EVENT_ON, };
-	sysconf_pm_state(pms);
-	clk_pm_state(pms);
-	emi_pm_state(pms);
 	return 0;
 }
 
@@ -189,10 +170,27 @@ static unsigned long stx7141_iomem[2] __cacheline_aligned = {
 
 static int stx7141_evttoirq(unsigned long evt)
 {
-	return ilc2irq(evt);
+	return ((evt < 0x400) ? ilc2irq(evt) : evt2irq(evt));
 }
 
-int __init suspend_platform_setup(struct sh4_suspend_t *st40data)
+static struct sh4_suspend_t st40data __cacheline_aligned = {
+	.iobase = stx7141_iomem,
+	.ops.prepare = stx7141_suspend_prepare,
+	.evt_to_irq = stx7141_evttoirq,
+#ifdef CONFIG_PM_DEBUG
+	.stby_tbl = (unsigned long)stx7141_standby_table,
+	.stby_size = DIV_ROUND_UP(ARRAY_SIZE(stx7141_standby_table) *
+			sizeof(long), L1_CACHE_BYTES),
+#endif
+	.mem_tbl = (unsigned long)stx7141_mem_table,
+	.mem_size = DIV_ROUND_UP(ARRAY_SIZE(stx7141_mem_table) * sizeof(long),
+			L1_CACHE_BYTES),
+	.wrt_tbl = (unsigned long)stx7141_wrt_table,
+	.wrt_size = DIV_ROUND_UP(ARRAY_SIZE(stx7141_wrt_table) * sizeof(long),
+			L1_CACHE_BYTES),
+};
+
+static int __init suspend_platform_setup()
 {
 	struct sysconf_field *sc;
 #ifdef CONFIG_PM_DEBUG
@@ -202,24 +200,6 @@ int __init suspend_platform_setup(struct sh4_suspend_t *st40data)
 	sc = sysconf_claim(SYS_CFG, 19, 22, 23, "clkA dbg");
 	sysconf_write(sc, 11);
 #endif
-	st40data->iobase = stx7141_iomem;
-	st40data->ops.valid = stx7141_suspend_valid;
-	st40data->ops.finish = stx7141_suspend_finish;
-	st40data->ops.prepare = stx7141_suspend_prepare;
-
-	st40data->evt_to_irq = stx7141_evttoirq;
-
-	st40data->stby_tbl = (unsigned long)stx7141_standby_table;
-	st40data->stby_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stx7141_standby_table)*sizeof(long), L1_CACHE_BYTES);
-
-	st40data->mem_tbl = (unsigned long)stx7141_mem_table;
-	st40data->mem_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stx7141_mem_table)*sizeof(long), L1_CACHE_BYTES);
-
-	st40data->wrt_tbl = (unsigned long)stx7141_wrt_table;
-        st40data->wrt_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stx7141_wrt_table) * sizeof(long), L1_CACHE_BYTES);
 
 	sc = sysconf_claim(SYS_CFG, 38, 20, 20, "pm");
 	stx7141_wrt_table[_SYS_CFG38]      = (unsigned long)sysconf_address(sc);
@@ -233,5 +213,11 @@ int __init suspend_platform_setup(struct sh4_suspend_t *st40data)
 	stx7141_wrt_table[_SYS_STA4]      = (unsigned long)sysconf_address(sc);
 	stx7141_wrt_table[_SYS_STA4_MASK] = sysconf_mask(sc);
 
-	return 0;
+	sc = sysconf_claim(SYS_STA, 3, 0, 0, "pm");
+	stx7141_wrt_table[_SYS_STA3] = (unsigned long)sysconf_address(sc);
+	stx7141_wrt_table[_SYS_STA3_MASK] = sysconf_mask(sc);
+	stx7141_wrt_table[_SYS_STA3_VALUE] = 0;
+	return sh4_suspend_register(&st40data);
 }
+
+late_initcall(suspend_platform_setup);

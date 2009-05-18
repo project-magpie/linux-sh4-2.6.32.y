@@ -40,7 +40,8 @@ enum clocks_ID {
 
 #define CLK_PLL_CONFIG0(x)	((x*8)+0x0)
 #define CLK_PLL_CONFIG1(x)	((x*8)+0x4)
-  #define CLK_PLL_CONFIG1_POFF	(1<<13)
+#define  CLK_PLL_CONFIG1_POFF	(1<<13)
+#define  CLK_PLL_CONFIG1_LOCK	(1<<15)
 
 #define CLKDIV0_CONFIG0		0x90
 #define CLKDIV1_4_CONFIG0(n)	(0x0a0 + ((n-1)*0xc))
@@ -54,20 +55,20 @@ enum clocks_ID {
 
 
 #define CLK_MODE_CTRL		0x110
- #define CLK_MODE_CTRL_NULL	0x0
- #define CLK_MODE_CTRL_X1	0x1
- #define CLK_MODE_CTRL_PROG	0x2
- #define CLK_MODE_CTRL_STDB	0x3
+#define   CLK_MODE_CTRL_NULL	0x0
+#define   CLK_MODE_CTRL_X1	0x1
+#define   CLK_MODE_CTRL_PROG	0x2
+#define   CLK_MODE_CTRL_STDB	0x3
 
 /*
  * The REDUCED_PM is used in CLK_MODE_CTRL_PROG...
  */
 #define CLK_REDUCED_PM_CTRL	0x114
- #define CLK_REDUCED_ON_XTAL_MEMSTDBY	(1<<11)
- #define CLK_REDUCED_ON_XTAL_STDBY	(~(0x22))
+#define   CLK_REDUCED_ON_XTAL_MEMSTDBY	(1<<11)
+#define   CLK_REDUCED_ON_XTAL_STDBY	(~(0x22))
 
 #define CLK_LP_MODE_DIS0	0x118
-  #define CLK_LP_MODE_DIS0_VALUE	((0x3 << 11) | (0x7ff & ~(1<<9)))
+#define   CLK_LP_MODE_DIS0_VALUE	(0x3 << 11)
 
 #define CLK_LP_MODE_DIS2	0x11C
 

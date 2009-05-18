@@ -32,11 +32,13 @@
 #define _SYS_CFG11			(6)
 #define _SYS_CFG11_MASK			(7)
 
+extern void __iomem *clkgena_base;
+
 /* *************************
  * STANDBY INSTRUCTION TABLE
  * *************************
  */
-
+#ifdef CONFIG_PM_DEBUG
 static unsigned long stb7100_standby_table[] __cacheline_aligned = {
 /* 1. PLL0 at the minimum frequency */
 	/* Unlock the clocks */
@@ -51,6 +53,8 @@ CLK_AND_LONG(CLKA_PLL0, ~(0x7ffff)),
 CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_SUSPEND),
 	/* enables the pll0 */
 CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_ENABLE),
+	/* Wait PLL0 lock */
+CLK_WHILE_NEQ(CLKA_PLL0_LOCK, CLKA_PLL0_LOCK_LOCKED, CLKA_PLL0_LOCK_LOCKED),
 	/* removes the bypass */
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
 	/* 0 4 5 - 1:4 1:6 1:8	*/
@@ -79,6 +83,8 @@ _OR(),
 CLK_STORE(CLKA_PLL0),
 	/* enables the pll0 */
 CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_ENABLE),
+	/* Wait PLL0 lock */
+CLK_WHILE_NEQ(CLKA_PLL0_LOCK, CLKA_PLL0_LOCK_LOCKED, CLKA_PLL0_LOCK_LOCKED),
 	/* removes the bypass */
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
 	/* Lock the clocks */
@@ -86,7 +92,7 @@ CLK_POKE(CLKA_LOCK, 0x0),
 /* END. */
 _END()
 };
-
+#endif
 /* *********************
  * MEM INSTRUCTION TABLE
  * *********************
@@ -112,6 +118,8 @@ CLK_AND_LONG(CLKA_PLL0, ~(0x7ffff)),
 CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_SUSPEND),
 	/* enables the pll0 */
 CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_ENABLE),
+	/* Wait PLL0 lock */
+CLK_WHILE_NEQ(CLKA_PLL0_LOCK, CLKA_PLL0_LOCK_LOCKED, CLKA_PLL0_LOCK_LOCKED),
 	/* removes the bypass */
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
 
@@ -126,6 +134,8 @@ CLK_AND_LONG(CLKA_PLL1, ~(0x7ffff)),
 CLK_OR_LONG(CLKA_PLL1, CLKA_PLL1_SUSPEND),
 	/* enables the pll1 */
 CLK_OR_LONG(CLKA_PLL1, CLKA_PLL1_ENABLE),
+	/* Wait PLL1 lock */
+CLK_WHILE_NEQ(CLKA_PLL1_LOCK, CLKA_PLL1_LOCK_LOCKED, CLKA_PLL1_LOCK_LOCKED),
 CLK_AND_LONG(CLKA_PLL1_BYPASS, ~(2)),		/* removes the bypass */
 
 /* 4. Turn-off the LMI clocks and the ST231 clocks */
@@ -150,6 +160,8 @@ CLK_AND_LONG(CLKA_PLL1, ~(CLKA_PLL1_ENABLE)),	/* disable the pll1 */
 DATA_LOAD(0x1),
 CLK_STORE(CLKA_PLL1),
 CLK_OR_LONG(CLKA_PLL1, CLKA_PLL1_ENABLE),	/* enables the pll1 */
+	/* Wait PLL1 lock */
+CLK_WHILE_NEQ(CLKA_PLL1_LOCK, CLKA_PLL1_LOCK_LOCKED, CLKA_PLL1_LOCK_LOCKED),
 CLK_AND_LONG(CLKA_PLL1_BYPASS, ~(2)),		/* removes the bypass */
 
 /* 4. Disables the DDR self refresh mode */
@@ -167,6 +179,8 @@ IMMEDIATE_SRC0(CLKA_PLL0_BYPASS),
 _OR(),
 CLK_STORE(CLKA_PLL0),				/* save the r2 in PLL0 */
 CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_ENABLE),	/* enables the pll0 */
+	/* Wait PLL0 lock */
+CLK_WHILE_NEQ(CLKA_PLL0_LOCK, CLKA_PLL0_LOCK_LOCKED, CLKA_PLL0_LOCK_LOCKED),
 CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),	/* removes the bypass */
 CLK_POKE(CLKA_LOCK, 0x0),
 
@@ -182,46 +196,8 @@ static unsigned long stb7100_wrt_table[8] __cacheline_aligned;
 
 static int stb7100_suspend_prepare(suspend_state_t state)
 {
-	int ret = -EINVAL;
-	pm_message_t pms = {.event = PM_EVENT_SUSPEND, };
-	emi_pm_state(pms);
-/*	clk_pm_state(pms);*/
-	sysconf_pm_state(pms);
-	switch (state) {
-	case PM_SUSPEND_STANDBY:
-		stb7100_wrt_table[0] = readl(clkgena_base + CLKA_PLL0) & 0x7ffff;
-		ret = 0;
-	break;
-	case PM_SUSPEND_MEM:
-		stb7100_wrt_table[0] = readl(clkgena_base + CLKA_PLL0) & 0x7ffff;
-		stb7100_wrt_table[1] = readl(clkgena_base + CLKA_PLL1) & 0x7ffff;
-		ret = 0;
-	break;
-	}
-	return ret;
-}
-
-static int stb7100_suspend_valid(suspend_state_t state)
-{
-	switch (state) {
-	case PM_SUSPEND_STANDBY:
-	case PM_SUSPEND_MEM:
-		return 1;
-	};
-	return 0;
-}
-
-/*
- * The xxxx_finish function is called after the resume
- * sysdev devices (i.e.: timer, cpufreq)
- * But it isn't a big issue in our platform
- */
-static int stb7100_suspend_finish(suspend_state_t state)
-{
-	pm_message_t pms = {.event = PM_EVENT_ON, };
-	sysconf_pm_state(pms);
-/*	clk_pm_state(pms);*/
-	emi_pm_state(pms);
+	stb7100_wrt_table[0] = readl(clkgena_base + CLKA_PLL0) & 0x7ffff;
+	stb7100_wrt_table[1] = readl(clkgena_base + CLKA_PLL1) & 0x7ffff;
 	return 0;
 }
 
@@ -234,30 +210,28 @@ static unsigned long stb7100_iomem[2] __cacheline_aligned = {
 	stb7100_wrt_table,
 };
 
-int __init suspend_platform_setup(struct sh4_suspend_t *st40data)
+static struct sh4_suspend_t st40data __cacheline_aligned = {
+	.iobase = stb7100_iomem,
+	.ops.prepare = stb7100_suspend_prepare,
+	.evt_to_irq = stb7100_evttoirq,
+#ifdef CONFIG_PM_DEBUG
+	.stby_tbl = (unsigned long)stb7100_standby_table,
+	.stby_size = DIV_ROUND_UP(ARRAY_SIZE(stb7100_standby_table) *
+			sizeof(long), L1_CACHE_BYTES),
+#endif
+	.mem_tbl = (unsigned long)stb7100_mem_table,
+	.mem_size = DIV_ROUND_UP(ARRAY_SIZE(stb7100_mem_table) * sizeof(long),
+			L1_CACHE_BYTES),
+	.wrt_tbl = (unsigned long)stb7100_wrt_table,
+	.wrt_size = DIV_ROUND_UP(ARRAY_SIZE(stb7100_wrt_table) * sizeof(long),
+			L1_CACHE_BYTES),
+};
+
+static int __init suspend_platform_setup()
 {
 	struct sysconf_field* sc;
 
 	stb7100_iomem[1] = (unsigned long) clkgena_base;
-
-	st40data->iobase = stb7100_iomem;
-	st40data->ops.valid  = stb7100_suspend_valid;
-	st40data->ops.finish = stb7100_suspend_finish;
-	st40data->ops.prepare = stb7100_suspend_prepare;
-
-	st40data->evt_to_irq = stb7100_evttoirq;
-
-	st40data->stby_tbl = (unsigned long)stb7100_standby_table;
-	st40data->stby_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stb7100_standby_table)*sizeof(long), L1_CACHE_BYTES);;
-
-	st40data->mem_tbl = (unsigned long)stb7100_mem_table;
-	st40data->mem_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stb7100_mem_table)*sizeof(long), L1_CACHE_BYTES);
-
-	st40data->wrt_tbl = (unsigned long)stb7100_wrt_table;
-	st40data->wrt_size = DIV_ROUND_UP(
-		ARRAY_SIZE(stb7100_wrt_table)*sizeof(long), L1_CACHE_BYTES);
 
 	sc = sysconf_claim(SYS_STA, 12, 28, 28, "pm");
 	stb7100_wrt_table[_SYS_STA12] = (unsigned long)sysconf_address(sc);
@@ -273,5 +247,7 @@ int __init suspend_platform_setup(struct sh4_suspend_t *st40data)
 	sc = sysconf_claim(SYS_CFG, 11, 30, 30, "pm");
 	stb7100_wrt_table[_SYS_CFG11_MASK] |= sysconf_mask(sc);
 
-	return 0;
+	return sh4_suspend_register(&st40data);
 }
+
+late_initcall(suspend_platform_setup);

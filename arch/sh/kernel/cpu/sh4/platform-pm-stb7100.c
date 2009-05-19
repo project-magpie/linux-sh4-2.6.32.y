@@ -82,7 +82,7 @@ emi_pwd_dwn_ack(struct platform_device *pdev, int host_phy, int ack)
 static struct platform_device_pm stx710x_pm_devices[] = {
 pm_plat_dev(&st_usb_device, NULL, usb_pm_pwd_dwn, usb_pm_pwd_ack,
 	usb_pm_sw_reset),
-pm_plat_name("emi", NULL, emi_pwd_dwn_req, emi_pwd_dwn_ack, NULL),
+pm_plat_dev(&emi, NULL, emi_pwd_dwn_req, emi_pwd_dwn_ack, NULL),
 };
 
 #endif

@@ -1302,6 +1302,8 @@ static int __init stx7141_subsys_setup(void)
 }
 subsys_initcall(stx7141_subsys_setup);
 
+static struct platform_device emi = STEMI();
+
 static struct platform_device *stx7141_devices[] __initdata = {
 	&stx7141_fdma_devices[0],
 	&stx7141_fdma_devices[1],
@@ -1313,6 +1315,7 @@ static struct platform_device *stx7141_devices[] __initdata = {
 	&stx7141_temp_devices[0],
 	&stx7141_temp_devices[1],
 	&stx7141_temp_devices[2],
+	&emi,
 };
 
 #include "./platform-pm-stx7141.c"

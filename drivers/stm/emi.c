@@ -9,6 +9,7 @@
 #include <linux/kernel.h>
 #include <linux/sysdev.h>
 #include <linux/device.h>
+#include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/stm/emi.h>
@@ -232,6 +233,16 @@ EXPORT_SYMBOL_GPL(emi_config_nand);
 
 #ifdef CONFIG_PM
 /*
+ * Note on Power Management of EMI device
+ * ======================================
+ * The EMI is registered twice on different view:
+ * 1. as platform_device to acquire the platform specific
+ *    capability (via sysconf)
+ * 2. as sysdev_device to really manage the suspend/resume
+ *    operation on standby and hibernation
+ */
+
+/*
  * emi_num_common_cfg = 12 common config	+
  * 			emi_bank_enable(0x280)	+
  *			emi_bank_number(0x860)
@@ -250,12 +261,26 @@ struct emi_pm {
 	struct emi_pm_bank bank[emi_num_bank];
 };
 
+static struct platform_device *emi;
+
+static int __init emi_driver_probe(struct platform_device *pdev)
+{
+	emi = pdev;
+	return 0;
+}
+
+static struct platform_driver emi_driver = {
+	.driver.name = "emi",
+	.driver.owner = THIS_MODULE,
+	.probe = emi_driver_probe,
+};
+
 static int emi_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
 	int idx;
 	int bank, data;
 	static struct emi_pm *emi_saved_data;
-	static char _emi_name[] = "emi";
+
 	switch (state.event) {
 	case PM_EVENT_ON:
 		if (emi_saved_data) {
@@ -277,12 +302,12 @@ static int emi_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 			kfree(emi_saved_data);
 			emi_saved_data = NULL;
 		}
-		platform_pm_pwdn_req_n(_emi_name, HOST_PM, 0);
-		platform_pm_pwdn_ack_n(_emi_name, HOST_PM, 0);
+		platform_pm_pwdn_req(emi, HOST_PM, 0);
+		platform_pm_pwdn_ack(emi, HOST_PM, 0);
 		break;
 	case PM_EVENT_SUSPEND:
-		platform_pm_pwdn_req_n(_emi_name, HOST_PM, 1);
-		platform_pm_pwdn_ack_n(_emi_name, HOST_PM, 1);
+		platform_pm_pwdn_req(emi, HOST_PM, 1);
+		platform_pm_pwdn_ack(emi, HOST_PM, 1);
 		break;
 	case PM_EVENT_FREEZE:
 		emi_saved_data = kmalloc(sizeof(struct emi_pm), GFP_NOWAIT);
@@ -332,6 +357,7 @@ struct sys_device emi_sysdev_dev = {
 
 static int __init emi_sysdev_init(void)
 {
+	platform_driver_register(&emi_driver);
 	sysdev_class_register(&emi_sysdev_class);
 	sysdev_driver_register(&emi_sysdev_class, &emi_sysdev_driver);
 	sysdev_register(&emi_sysdev_dev);

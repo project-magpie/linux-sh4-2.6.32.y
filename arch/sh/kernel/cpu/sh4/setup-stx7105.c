@@ -1228,6 +1228,8 @@ static int __init stx7105_subsys_setup(void)
 }
 subsys_initcall(stx7105_subsys_setup);
 
+static struct platform_device emi = STEMI();
+
 static struct platform_device *stx7105_devices[] __initdata = {
 	&stx7105_fdma_devices[0],
 	&stx7105_fdma_devices[1],
@@ -1237,6 +1239,7 @@ static struct platform_device *stx7105_devices[] __initdata = {
 	&hwrandom_rng_device,
 	&devrandom_rng_device,
 	&stx7105_temp_device,
+	&emi,
 };
 
 #include "./platform-pm-stx7105.c"

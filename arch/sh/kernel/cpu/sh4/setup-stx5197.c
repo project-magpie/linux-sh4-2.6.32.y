@@ -742,11 +742,14 @@ static int __init stx5197_subsys_setup(void)
 }
 subsys_initcall(stx5197_subsys_setup);
 
+static struct platform_device emi = STEMI();
+
 static struct platform_device *stx5197_devices[] __initdata = {
 	&stx5197_fdma_device,
 	&stx5197_sysconf_devices[0],
 	&stx5197_sysconf_devices[1],
 	&ilc3_device,
+	&emi,
 };
 
 #include "./platform-pm-stx5197.c"

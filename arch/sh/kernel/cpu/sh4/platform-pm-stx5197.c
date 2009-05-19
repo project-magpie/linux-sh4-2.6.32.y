@@ -89,7 +89,7 @@ emi_pwr_dwn_ack(struct platform_device *dev, int host_phy, int ack)
 
 
 static struct platform_device_pm stx5197_pm_devices[] = {
-pm_plat_name("emi", NULL, emi_pwr_dwn_req, emi_pwr_dwn_ack, NULL),
+pm_plat_dev(&emi, NULL, emi_pwr_dwn_req, emi_pwr_dwn_ack, NULL),
 pm_plat_dev(&st_usb, NULL, usb_pwr_dwn, usb_pwr_ack, NULL),
 };
 #endif

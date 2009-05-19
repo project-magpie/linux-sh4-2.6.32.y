@@ -894,6 +894,7 @@ static int __init stx7100_postcore_setup(void)
 }
 postcore_initcall(stx7100_postcore_setup);
 
+static struct platform_device emi = STEMI();
 /* Late resources ---------------------------------------------------------- */
 
 static struct platform_device *stx7100_devices[] __initdata = {
@@ -905,6 +906,7 @@ static struct platform_device *stx7100_devices[] __initdata = {
 	&rtc_device,
 	&hwrandom_rng_device,
 	&devrandom_rng_device,
+	&emi,
 };
 
 #include "./platform-pm-stb7100.c"

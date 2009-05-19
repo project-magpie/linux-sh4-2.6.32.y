@@ -890,6 +890,8 @@ static int __init stx7111_subsys_setup(void)
 }
 subsys_initcall(stx7111_subsys_setup);
 
+static struct platform_device emi = STEMI();
+
 static struct platform_device *stx7111_devices[] __initdata = {
 	&stx7111_fdma_devices[0],
 	&stx7111_fdma_devices[1],
@@ -899,6 +901,7 @@ static struct platform_device *stx7111_devices[] __initdata = {
 	&hwrandom_rng_device,
 	&devrandom_rng_device,
 	&stx7111_temp_device,
+	&emi,
 };
 
 #include "./platform-pm-stx7111.c"

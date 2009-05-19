@@ -34,7 +34,7 @@ struct platform_device_pm {
 /* pwdn_req:	to raise a power down request */
 /* pwdn_ack: 	to check the status of pwdn request */
 /* reset:	to reset the device (i.e: USB) */
-	void *owner;
+	struct platform_device *owner;
 /* owner is (most of the time) the platform_device but
  * unfortunatelly some device (i.e.: EMI) has no
  * platform device... In this case I will do a serch by name
@@ -55,11 +55,6 @@ int platform_pm_pwdn_req(struct platform_device *pdev, int phy, int pwd);
 int platform_pm_pwdn_ack(struct platform_device *pdev, int phy, int ack);
 int platform_pm_reset(struct platform_device *pdev, int phy);
 
-int platform_pm_init_n(char *name, int phy);
-int platform_pm_pwdn_req_n(char *name, int phy, int pwd);
-int platform_pm_pwdn_ack_n(char *name, int phy, int ack);
-int platform_pm_reset_n(char *name, int phy);
-
 int platform_add_pm_devices(struct platform_device_pm *pm, unsigned long size);
 
 #define pm_plat_dev(_pdev, _p_init, _p_req, _p_ack, _p_reset)	\
@@ -71,24 +66,11 @@ int platform_add_pm_devices(struct platform_device_pm *pm, unsigned long size);
 	.reset = _p_reset,					\
 }
 
-#define pm_plat_name(_pname, _p_init, _p_req, _p_ack, _p_reset)	\
-{								\
-	.owner = (void *)_pname,				\
-	.pwdn_init = _p_init,					\
-	.pwdn_req = _p_req,					\
-	.pwdn_ack = _p_ack,					\
-	.reset = _p_reset,					\
-}
-
 #else
 #define platform_pm_init(pdev, phy)		do { } while (0)
 #define platform_pm_pwdn_req(pdev, phy, pwd)	do { } while (0)
 #define platform_pm_pwdn_ack(pdev, phy, ack)	do { } while (0)
 #define platform_pm_reset(pdev, phy)		do { } while (0)
-#define platform_pm_init_n(pdev, phy)		do { } while (0)
-#define platform_pm_pwdn_req_n(pdev, phy, pwd)	do { } while (0)
-#define platform_pm_pwdn_ack_n(pdev, phy, ack)	do { } while (0)
-#define platform_pm_reset_n(pdev, phy)		do { } while (0)
 #define platform_add_pm_devices(pm, size)	do { } while (0)
 #endif
 

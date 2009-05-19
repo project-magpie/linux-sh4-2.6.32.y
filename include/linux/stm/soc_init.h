@@ -1,3 +1,9 @@
+#define STEMI()						\
+{							\
+	.name = "emi",					\
+	.id = -1,					\
+}
+
 #define STLIRC_DEVICE(_mem_start, _irq, _wake_irq)	\
 {							\
 	.name = "lirc",					\

@@ -1138,6 +1138,8 @@ postcore_initcall(stx7200_postcore_setup);
 
 /* Late resources ---------------------------------------------------------- */
 
+static struct platform_device emi = STEMI();
+
 static struct platform_device *stx7200_devices[] __initdata = {
 	&stx7200_fdma_devices[0],
 	/* &stx7200_fdma_devices[1], */
@@ -1147,6 +1149,7 @@ static struct platform_device *stx7200_devices[] __initdata = {
         &rtc_device,
 	&hwrandom_rng_device,
 	&devrandom_rng_device,
+	&emi,
 };
 
 #include "./platform-pm-stx7200.c"

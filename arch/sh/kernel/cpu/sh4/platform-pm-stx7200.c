@@ -107,7 +107,7 @@ sata_pwd_dwn_ack(struct platform_device *pdev, int host_phy, int ack)
 }
 
 static struct platform_device_pm stx7200_pm_devices[] = {
-pm_plat_name("emi", NULL, emi_pwd_dwn_req, emi_pwd_dwn_ack, NULL),
+pm_plat_dev(&emi, NULL, emi_pwd_dwn_req, emi_pwd_dwn_ack, NULL),
 pm_plat_dev(&st_usb[0], NULL, usb_pwr_dwn, usb_pwr_ack, usb_sw_reset),
 pm_plat_dev(&st_usb[1], NULL, usb_pwr_dwn, usb_pwr_ack, usb_sw_reset),
 pm_plat_dev(&st_usb[2], NULL, usb_pwr_dwn, usb_pwr_ack, usb_sw_reset),

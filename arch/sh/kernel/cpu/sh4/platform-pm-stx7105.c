@@ -71,7 +71,7 @@ usb_pwr_ack(struct platform_device *dev, int host_phy, int ack)
 }
 
 static struct platform_device_pm stx7105_pm_devices[] = {
-pm_plat_name("emi", NULL, emi_pwr_dwn_req, emi_pwr_dwn_ack, NULL),
+pm_plat_dev(&emi, NULL, emi_pwr_dwn_req, emi_pwr_dwn_ack, NULL),
 pm_plat_dev(&usb_device[0], NULL, usb_pwr_req, usb_pwr_ack, NULL),
 pm_plat_dev(&usb_device[1], NULL, usb_pwr_req, usb_pwr_ack, NULL),
 /*

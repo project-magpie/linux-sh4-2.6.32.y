@@ -55,38 +55,29 @@ enum {
 	RAW_RESET,
 };
 
-enum {
-	TYPE_PDEV = 0,
-	TYPE_NAME,
-};
-
 static struct platform_device_pm *pm_devices;
 static unsigned long pm_devices_size;
 
-static struct platform_device_pm*
-platform_pm_idx(int type, void *owner)
+static struct platform_device_pm
+*platform_pm_idx(struct platform_device *owner)
 {
 	int i;
 	if (!pm_devices || !pm_devices_size)
 		return NULL;
 
 	for (i = 0; i < pm_devices_size; ++i)
-		if (type == TYPE_PDEV) {
-			if (pm_devices[i].owner == owner)
-				return &(pm_devices[i]);
-		} else /* uses the name only if pdev is NULL */
-		      if (!strcmp((char *)owner, (char *)pm_devices[i].owner))
-				return &(pm_devices[i]);
+		if (pm_devices[i].owner == owner)
+			return &(pm_devices[i]);
 	return NULL;
 }
 
-static int _platform_pm(int id_operation, int type, void *owner,
+static int _platform_pm(int id_operation, void *owner,
 	int host_phy, int data)
 {
 	struct platform_device_pm *pm_info;
 	int (*fns)(struct platform_device *pdev, int host_phy, int data);
 	long *pfns;
-	pm_info = platform_pm_idx(type, owner);
+	pm_info = platform_pm_idx(owner);
 	if (!pm_info) /* no pm capability for this device */
 		return 0;
 	pfns = (long *)pm_info;
@@ -98,51 +89,27 @@ static int _platform_pm(int id_operation, int type, void *owner,
 
 int platform_pm_init(struct platform_device *pdev, int phy)
 {
-	return _platform_pm(RAW_INIT, TYPE_PDEV, (void *)pdev, phy, 0);
+	return _platform_pm(RAW_INIT, (void *)pdev, phy, 0);
 }
 EXPORT_SYMBOL(platform_pm_init);
 
 int platform_pm_pwdn_req(struct platform_device *pdev, int phy, int pwd)
 {
-	return _platform_pm(RAW_PWD_REQ, TYPE_PDEV, (void *)pdev, phy, pwd);
+	return _platform_pm(RAW_PWD_REQ, (void *)pdev, phy, pwd);
 }
 EXPORT_SYMBOL(platform_pm_pwdn_req);
 
 int platform_pm_pwdn_ack(struct platform_device *pdev, int phy, int ack)
 {
-	return _platform_pm(RAW_PWD_ACK, TYPE_PDEV, (void *)pdev, phy, ack);
+	return _platform_pm(RAW_PWD_ACK, (void *)pdev, phy, ack);
 }
 EXPORT_SYMBOL(platform_pm_pwdn_ack);
 
 int platform_pm_reset(struct platform_device *pdev, int phy)
 {
-	return _platform_pm(RAW_RESET, TYPE_PDEV, (void *)pdev, 0, 0);
+	return _platform_pm(RAW_RESET, (void *)pdev, 0, 0);
 }
 EXPORT_SYMBOL(platform_pm_reset);
-
-int platform_pm_init_n(char *name, int phy)
-{
-	return _platform_pm(RAW_INIT, TYPE_NAME, (void *)name, phy, 0);
-}
-EXPORT_SYMBOL(platform_pm_init_n);
-
-int platform_pm_pwdn_req_n(char *name, int phy, int pwd)
-{
-	return _platform_pm(RAW_PWD_REQ, TYPE_NAME, (void *)name, phy, pwd);
-}
-EXPORT_SYMBOL(platform_pm_pwdn_req_n);
-
-int platform_pm_pwdn_ack_n(char *name, int phy, int ack)
-{
-	return _platform_pm(RAW_PWD_ACK, TYPE_NAME, (void *)name, phy, ack);
-}
-EXPORT_SYMBOL(platform_pm_pwdn_ack_n);
-
-int platform_pm_reset_n(char *name, int phy)
-{
-	return _platform_pm(RAW_RESET, TYPE_NAME, (void *)name, phy, 0);
-}
-EXPORT_SYMBOL(platform_pm_reset_n);
 
 int platform_add_pm_devices(struct platform_device_pm *pm, unsigned long size)
 {

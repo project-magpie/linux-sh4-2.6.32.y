@@ -607,46 +607,6 @@ static struct clk new_module_clk = {
 	.ops		= &comms_clk_ops
 };
 
-#ifdef CONFIG_PM
-int clk_pm_state(pm_message_t state)
-{
-	static int prev_state = PM_EVENT_ON;
-	unsigned long tmp;
-	switch (state.event) {
-	case PM_EVENT_ON:
-	if (prev_state == PM_EVENT_FREEZE) {
-	} else {
-		/* Restore the GenB.Pll0 frequency */
-		tmp = readl(CLOCKGENB_BASE_ADDR + CLKB_PWR_CFG);
-		writel(tmp & ~CLKB_PLL0_OFF,
-			CLOCKGENB_BASE_ADDR + CLKB_PWR_CFG);
-		/* Wait PllB lock */
-		while ((readl(CLOCKGENB_BASE_ADDR + CLKB_PLL0_CFG)
-			& CLKB_PLL0_LOCK) != 0);
-		tmp = readl(CLOCKGENB_BASE_ADDR + CLKB_PLL0_CFG);
-		writel(tmp & ~CLKB_PLL0_BYPASS,
-			CLOCKGENB_BASE_ADDR + CLKB_PLL0_CFG);
-		mdelay(10); /* wait for stable signal */
-	}
-	break;
-	case PM_EVENT_SUSPEND:
-		/* Reduce the GenB.Pll0 frequency */
-		tmp = readl(CLOCKGENB_BASE_ADDR + CLKB_PLL0_CFG);
-		writel(tmp | CLKB_PLL0_BYPASS,
-			CLOCKGENB_BASE_ADDR + CLKB_PLL0_CFG);
-
-		tmp = readl(CLOCKGENB_BASE_ADDR + CLKB_PWR_CFG);
-		writel(tmp | CLKB_PLL0_OFF,
-			CLOCKGENB_BASE_ADDR + CLKB_PWR_CFG);
-		break;
-	case PM_EVENT_FREEZE:
-		break;
-	}
-	prev_state = state.event;
-	return 0;
-}
-#endif
-
 int __init clk_init(void)
 {
 	int i, ret = 0;

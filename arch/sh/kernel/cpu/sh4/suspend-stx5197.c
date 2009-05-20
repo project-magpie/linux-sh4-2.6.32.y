@@ -157,11 +157,11 @@ static int __init suspend_platform_setup(void)
 
 	struct sysconf_field* sc;
 
-	sc = sysconf_claim(SYS_DEV, CFG_MONITOR_J, 24, 24, "LMI pwd ack");
+	sc = sysconf_claim(CFG_MONITOR_J, 24, 24, "LMI pwd ack");
 	stx5197_wrt_table[_SYS_MON_J] = (unsigned long)sysconf_address(sc);
 	stx5197_wrt_table[_SYS_MON_J_MASK] = sysconf_mask(sc);
 
-	sc = sysconf_claim(SYS_CFG, CFG_CONTROL_H, 26, 26, "LMI pwd req");
+	sc = sysconf_claim(CFG_CTRL_H, 26, 26, "LMI pwd req");
 	stx5197_wrt_table[_SYS_CFG_H] = (unsigned long)sysconf_address(sc);
 	stx5197_wrt_table[_SYS_CFG_H_MASK] = sysconf_mask(sc);
 

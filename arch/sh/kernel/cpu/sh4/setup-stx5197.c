@@ -25,6 +25,8 @@
 #include <asm/irl.h>
 #include <asm/irq-ilc.h>
 
+#include "soc-stx5197.h"
+
 struct {
 	unsigned char regtype, regnum;
 	unsigned char off[2];
@@ -76,11 +78,11 @@ static struct platform_device st_usb =
 void __init stx5197_configure_usb(void)
 {
 	struct sysconf_field *sc;
-
+#ifndef CONFIG_PM
 	/* USB power down */
 	sc = sysconf_claim(CFG_CTRL_H, 8, 8, "USB");
 	sysconf_write(sc, 0);
-
+#endif
 	/* DDR enable for ULPI. 0=8 bit SDR ULPI, 1=4 bit DDR ULPI */
 	sc = sysconf_claim(CFG_CTRL_M, 12, 12, "USB");
 	sysconf_write(sc, 0);

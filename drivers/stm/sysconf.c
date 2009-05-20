@@ -9,6 +9,7 @@
 #include <linux/kernel.h>
 #include <linux/bootmem.h>
 #include <linux/io.h>
+#include <linux/sysdev.h>
 #include <linux/list.h>
 #include <linux/platform_device.h>
 #include <linux/proc_fs.h>
@@ -310,7 +311,7 @@ EXPORT_SYMBOL(sysconf_mask);
 
 
 #ifdef CONFIG_PM
-int sysconf_pm_freeze(void)
+static int sysconf_pm_freeze(void)
 {
 	int result = 0;
 	int i;
@@ -339,7 +340,7 @@ int sysconf_pm_freeze(void)
 	return result;
 }
 
-int sysconf_pm_restore(void)
+static int sysconf_pm_restore(void)
 {
 	int result = 0;
 	int i;
@@ -370,7 +371,7 @@ int sysconf_pm_restore(void)
 	return result;
 }
 
-int sysconf_pm_state(pm_message_t state)
+static int sysconf_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
 	int result = 0;
 	static unsigned long prev_state = PM_EVENT_ON;
@@ -395,6 +396,24 @@ int sysconf_pm_state(pm_message_t state)
 
 	return result;
 }
+
+static int sysconf_sysdev_resume(struct sys_device *dev)
+{
+	return sysconf_sysdev_suspend(dev, PMSG_ON);
+}
+
+static struct sysdev_class sysconf_sysdev_class = {
+	set_kset_name("sysconf"),
+};
+
+static struct sysdev_driver sysconf_sysdev_driver = {
+	.suspend = sysconf_sysdev_suspend,
+	.resume = sysconf_sysdev_resume,
+};
+
+struct sys_device sysconf_sysdev_dev = {
+	.cls = &sysconf_sysdev_class,
+};
 #endif
 
 
@@ -658,6 +677,11 @@ static int __init sysconf_init(void)
 		entry->proc_fops = &sysconf_proc_ops;
 #endif
 
+#ifdef CONFIG_PM
+	sysdev_class_register(&sysconf_sysdev_class);
+	sysdev_driver_register(&sysconf_sysdev_class, &sysconf_sysdev_driver);
+	sysdev_register(&sysconf_sysdev_dev);
+#endif
 	return platform_driver_register(&sysconf_driver);
 }
 arch_initcall(sysconf_init);

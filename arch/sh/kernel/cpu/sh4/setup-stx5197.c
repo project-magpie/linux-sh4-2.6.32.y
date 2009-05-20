@@ -437,7 +437,7 @@ static struct plat_lirc_data lirc_private_info = {
 };
 
 static struct platform_device lirc_device =
-	STLIRC_DEVICE(0xfd118000, ILC_IRQ(19), ILC_EXT_IRQ(4);
+	STLIRC_DEVICE(0xfd118000, ILC_IRQ(19), ILC_EXT_IRQ(4));
 
 void __init stx5197_configure_lirc(lirc_scd_t *scd)
 {

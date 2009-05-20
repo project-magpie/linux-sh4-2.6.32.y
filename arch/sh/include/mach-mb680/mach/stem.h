@@ -24,7 +24,7 @@
  */
 #ifdef CONFIG_SH_ST_MB705
 #define STEM_CS0_BANK 4
-#define STEM_CS0_OFFSET (1<<17)
+#define STEM_CS0_OFFSET (1<<16)
 #else
 #define STEM_CS0_BANK 2
 #define STEM_CS0_OFFSET 0

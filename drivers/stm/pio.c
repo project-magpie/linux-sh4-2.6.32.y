@@ -542,6 +542,11 @@ static int stpio_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 	if (!pin->name)
 		pin->name = stpio_gpio_name;
 
+	/* Set the output value before we configure it as an output to
+	 * avoid any glitches
+	 */
+	stpio_set_pin(pin, value);
+
 	stpio_configure_pin(pin, STPIO_OUT);
 
 	return 0;

@@ -361,13 +361,25 @@ static ssize_t user_show_attrs(struct kobject *kobj, struct attribute *attr,
 ssize_t user_store_attrs(struct kobject * kobj, struct attribute * attr,
 			 const char *buffer, size_t size)
 {
-	tracepoint_t *new_tp = NULL;
+	struct list_head *p;
+	tracepoint_t *tp, *new_tp = NULL;
 
 	if (strcmp(attr->name, "new_symbol") == 0) {
 		strncpy(user_new_symbol, buffer, KPTRACE_BUF_SIZE);
 	}
 
 	if (strcmp(attr->name, "add") == 0) {
+		/* Check it doesn't already exist, to avoid duplicates */
+		list_for_each(p, &tracepoints) {
+			tp = list_entry(p, tracepoint_t, list);
+			if (tp != NULL && tp->user_tracepoint == 1) {
+				if (strncmp(kobject_name(&tp->kobj),
+					user_new_symbol,
+					KPTRACE_BUF_SIZE) == 0)
+					return size;
+			}
+		}
+
 		new_tp = create_tracepoint(user_set, user_new_symbol,
 					   &user_pre_handler, &user_rp_handler);
 
@@ -571,10 +583,11 @@ static void insert_tracepoints_in_set(tracepoint_set_t * set)
 
 	list_for_each(p, &tracepoints) {
 		tp = list_entry(p, tracepoint_t, list);
-		if ((strcmp
-		     (tp->kobj.parent->name,
-		      set->kobj.name) == 0) && (tp->enabled == 1)) {
-			insert_tracepoint(tp);
+		if (tp->kobj.parent) {
+			if ((strcmp
+			     (tp->kobj.parent->name,
+			      set->kobj.name) == 0) && (tp->enabled == 1))
+				insert_tracepoint(tp);
 		}
 	}
 }
@@ -646,10 +659,10 @@ static void start_tracing(void)
 /* Remove all tracepoints */
 static void stop_tracing(void)
 {
-	struct list_head *p;
+	struct list_head *p, *tmp;
 	tracepoint_t *tp;
 
-	list_for_each(p, &tracepoints) {
+	list_for_each_safe(p, tmp, &tracepoints) {
 		tp = list_entry(p, tracepoint_t, list);
 
 		if (tp->inserted == TP_INUSE) {
@@ -659,9 +672,10 @@ static void stop_tracing(void)
 		if (tp->user_tracepoint == 1) {
 			kobject_unregister(&tp->kobj);
 			tp->kp.addr = NULL;
+			list_del(p);
+		} else {
+			tp->enabled = 0;
 		}
-
-		tp->enabled = 0;
 	}
 }
 

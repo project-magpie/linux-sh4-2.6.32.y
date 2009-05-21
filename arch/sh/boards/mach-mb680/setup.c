@@ -159,7 +159,8 @@ static struct pci_config_data  pci_config = {
 	.idsel_lo = 30,
 	.idsel_hi = 30,
 	.req_gnt = {PCI_PIN_DEFAULT, PCI_PIN_UNUSED, PCI_PIN_UNUSED, PCI_PIN_UNUSED},
-	.pci_clk = 33333333
+	.pci_clk = 33333333,
+	.pci_reset_pio = stpio_to_gpio(15, 7)
 };
 
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)

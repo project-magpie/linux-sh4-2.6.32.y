@@ -19,8 +19,10 @@
 #include <linux/errno.h>
 #include <linux/io.h>
 #include <linux/stm/soc.h>
+#include <linux/gpio.h>
 #include <linux/cache.h>
 #include <linux/clk.h>
+#include <linux/delay.h>
 #include <asm/clock.h>
 #include "pci-synopsys.h"
 
@@ -33,6 +35,8 @@ static DEFINE_SPINLOCK(stm_pci_io_lock);
  */
 static void __iomem *emiss; /* pointer to emiss register area */
 static void __iomem *ahb_pci; /* Ditto for AHB registers */
+
+static unsigned pci_reset_pin = -EINVAL;	/* Global for PCI reset */
 
 /* Static lookup table to precompute byte enables for various
  * transaction size. Stolen from Doug, as it is clearer than
@@ -163,10 +167,12 @@ static inline void pci_csr_write(u32 addr, u32 cmd, u32 val)
  */
 static int idsel_lo, max_slot;
 
-#define TYPE0_CONFIG_CYCLE(fn, where) ( ((fn)<<8) | ((where) &~3)
-#define TYPE1_CONFIG_CYCLE(bus, devfn, where) (((bus) << 16) | ((devfn) << 8) | ((where) & ~3) | 1)
+#define TYPE0_CONFIG_CYCLE(fn, where) (((fn) << 8) | ((where) & ~3))
+#define TYPE1_CONFIG_CYCLE(bus, devfn, where) \
+	(((bus) << 16) | ((devfn) << 8) | ((where) & ~3) | 1)
 
-static int pci_stm_config_read(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 *val)
+static int pci_stm_config_read(struct pci_bus *bus, unsigned int devfn,
+			       int where, int size, u32 *val)
 {
 	int slot = PCI_SLOT(devfn);
 	int fn = PCI_FUNC(devfn);
@@ -177,7 +183,7 @@ static int pci_stm_config_read(struct pci_bus *bus, unsigned int devfn, int wher
 			*val = SIZE_MASK(size);
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		}
-		addr = TYPE0_CONFIG_CYCLE(fn,where) | ( (1 << (idsel_lo + slot)) ));
+		addr = TYPE0_CONFIG_CYCLE(fn, where) | (1<<(idsel_lo + slot));
 	} else {
 		addr = TYPE1_CONFIG_CYCLE(bus->number, devfn, where);
 	}
@@ -192,7 +198,8 @@ static int pci_stm_config_read(struct pci_bus *bus, unsigned int devfn, int wher
 	return PCIBIOS_SUCCESSFUL;
 }
 
-static int pci_stm_config_write(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 val)
+static int pci_stm_config_write(struct pci_bus *bus, unsigned int devfn,
+				int where, int size, u32 val)
 {
 	int slot = PCI_SLOT(devfn);
 	int fn = PCI_FUNC(devfn);
@@ -202,7 +209,7 @@ static int pci_stm_config_write(struct pci_bus *bus, unsigned int devfn, int whe
 		if(slot > max_slot) {
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		}
-		addr = TYPE0_CONFIG_CYCLE(fn,where) | ( (1 << (idsel_lo + slot)) ));
+		addr = TYPE0_CONFIG_CYCLE(fn, where) |  (1<<(idsel_lo + slot));
 	} else {
 		addr = TYPE1_CONFIG_CYCLE(bus->number, devfn, where);
 	}
@@ -413,7 +420,30 @@ char * __devinit pcibios_setup(char *str)
 	return str;
 }
 
-static void __devinit pci_stm_setup(struct pci_config_data *pci_config, unsigned long pci_window_start, unsigned long pci_window_size)
+void pci_stm_pio_reset(void)
+{
+	/* Active low for PCI signals */
+	if (gpio_direction_output(pci_reset_pin, 0)) {
+		printk(KERN_ERR "pci_stm: cannot set PCI RST (gpio %u)"
+				"to output\n", pci_reset_pin);
+		return;
+	}
+
+	mdelay(1); /* From PCI spec */
+
+	gpio_set_value(pci_reset_pin, 1);
+
+	/* PCI spec says there should be a one second delay here. This seems a
+	 * tad excessive to me! If you really have something that needs a huge
+	 * reset time then you should supply your own reset function
+	 */
+
+	mdelay(10);
+}
+
+static void __devinit pci_stm_setup(struct pci_config_data *pci_config,
+				    unsigned long pci_window_start,
+				    unsigned long pci_window_size)
 {
 	unsigned long lmi_base, lmi_end, mbar_size;
 	int fn;
@@ -492,6 +522,8 @@ static void __devinit pci_stm_setup(struct pci_config_data *pci_config, unsigned
 	writel(PCI_BRIDGE_INT_DMA_ENABLE_INT_ENABLE | PCI_BRIDGE_INT_DMA_ENABLE_INT_UNDEF_FN_ENABLE,
 	       emiss + PCI_BRIDGE_INT_DMA_ENABLE);
 
+	/* Reset any pci peripherals that are connected to the board */
+	if (pci_config->pci_reset) pci_config->pci_reset();
 }
 
 /* Probe function for PCI data
@@ -537,6 +569,20 @@ static int __devinit pci_stm_probe(struct platform_device *pdev)
 		printk(KERN_ERR "pci_stm: Unable to find pci clock\n");
 	}
 
+	if (!pci_config->pci_reset && pci_config->pci_reset_pio != -EINVAL) {
+		/* We have not been given a reset function by the board layer,
+		 * and the PIO is valid.  Assume it is done via PIO. Claim pins
+		 * specified in config and use default PIO reset function.
+		 */
+		if (!gpio_request(pci_config->pci_reset_pio, "PCI RST")) {
+			pci_reset_pin = pci_config->pci_reset_pio;
+			pci_config->pci_reset = pci_stm_pio_reset;
+		} else {
+			printk(KERN_ERR "pci_stm: PIO pin %d specified "
+					"for reset, cannot request\n",
+					pci_config->pci_reset_pio);
+		}
+	}
 
 	/* Set up the sh board channel stuff to point at the platform data we have passed in */
 	board_pci_channels[0].mem_resource = pdev->resource + 2;

@@ -124,7 +124,16 @@ struct pci_config_data {
 	char idsel_lo;	/* Lowest address line connected to an idsel  - slot 0 */
 	char idsel_hi;	/* Highest address line connected to an idsel - slot n */
 	char req_gnt[4]; /* Set to PCI_PIN_DEFAULT if the corresponding req/gnt lines are in use */
-	unsigned pci_clk; /* PCI clock rate in Hz. If zero will default to 33MHz*/
+	unsigned long pci_clk; /* PCI clock in Hz. If zero default to 33MHz */
+
+	/* If you supply a pci_reset() function, that will be used to reset the
+	 * PCI bus.  Otherwise it is assumed that the reset is done via PIO,
+	 * the number is specified here. Specify -EINVAL if no PIO reset is
+	 * required either, for example if the PCI reset is done as part of
+	 * power on reset.
+	 */
+	unsigned pci_reset_pio;
+	void (*pci_reset)(void);
 
 	/* Various PCI tuning parameters. Set by SOC layer. You don't have to specify
 	 * these as the defaults are usually fine. However, if you need to change them, you

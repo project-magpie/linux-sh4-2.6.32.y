@@ -116,7 +116,7 @@ static struct mtd_partition serialflash_partitions[] = {
 	}, {
 		.name = "sflash_2",
 		.size = MTDPART_SIZ_FULL,
-		.offset = 0x20000
+		.offset = MTDPART_OFS_NXTBLK,
 	},
 };
 

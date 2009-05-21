@@ -196,7 +196,7 @@ static struct mtd_partition serialflash_partitions[] = {
 	}, {
 		.name = "SFLASH_2",
 		.size = MTDPART_SIZ_FULL,
-		.offset = 0x20000
+		.offset = MTDPART_OFS_NXTBLK,
 	},
 };
 
@@ -306,8 +306,8 @@ static int __init device_init(void)
 	else if (boot_mode == 0x1) {
 		/* Swap NOR/NAND banks */
 		pr_info("Configuring FLASH for boot-from-NAND\n");
-		physmap_flash.resource[0].start = bank1_start;
-		physmap_flash.resource[0].end = bank2_start - 1;
+		pdk7105_physmap_flash.resource[0].start = bank1_start;
+		pdk7105_physmap_flash.resource[0].end = bank2_start - 1;
 		nand_device.id = 0;
 	}
 

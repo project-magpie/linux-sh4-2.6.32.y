@@ -409,6 +409,9 @@ void __init stx7105_configure_sata(void)
 	sysconf_write(sc, 0);
 
 	if ((cpu_data->cut_major >= 3)) {
+		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
+		sysconf_write(sc, 1);
+
 		stm_sata_miphy_init();
 	}
 

@@ -518,6 +518,7 @@ int  stx7111_pcibios_map_platform_irq(struct pci_config_data *pci_config, u8 pin
 
 void stx7141_early_device_init(void);
 void stx7141_configure_asc(const int *ascs, int num_ascs, int console);
+void stx7141_configure_sata(void);
 void stx7141_configure_pwm(struct plat_stm_pwm_data *data);
 void stx7141_configure_ssc(struct plat_ssc_data *data);
 void stx7141_configure_usb(int port);

@@ -441,11 +441,12 @@ static int __init device_init(void)
 	/* This requires fitting jumpers J52A 1-2 and J52B 4-5 */
 	stx7141_configure_usb(1);
 
-	/*
-	 * Disabled because overcurrent detection appears broken on cut 1.
-	 * stx7141_configure_usb(2);
-	 * stx7141_configure_usb(3);
-	 */
+	if (cpu_data->cut_major > 1) {
+		stx7141_configure_usb(2);
+		stx7141_configure_usb(3);
+
+		stx7141_configure_sata();
+	}
 
 #ifdef ENABLE_GMAC0
 	/* Must disable ASC1 if using GMII0 */

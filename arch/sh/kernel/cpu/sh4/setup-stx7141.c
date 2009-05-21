@@ -227,9 +227,9 @@ USB_DEVICE(0, 0xfe100000 + AHB2STBUS_EHCI_OFFSET, ILC_IRQ(93),
 	0xfe100000 + AHB2STBUS_OHCI_OFFSET, ILC_IRQ(94), &usb_wrapper[0]),
 USB_DEVICE(1, 0xfea00000 + AHB2STBUS_EHCI_OFFSET, ILC_IRQ(95),
 	0xfea00000 + AHB2STBUS_OHCI_OFFSET, ILC_IRQ(96), &usb_wrapper[1]),
-USB_DEVICE(2, NULL, NULL, 0xfeb00000 + AHB2STBUS_OHCI_OFFSET,
+USB_DEVICE(2, 0, 0, 0xfeb00000 + AHB2STBUS_OHCI_OFFSET,
 	ILC_IRQ(97), &usb_wrapper[2]),
-USB_DEVICE(3, NULL, NULL, 0xfec00000 + AHB2STBUS_OHCI_OFFSET,
+USB_DEVICE(3, 0, 0, 0xfec00000 + AHB2STBUS_OHCI_OFFSET,
 	ILC_IRQ(98), &usb_wrapper[3])
 };
 
@@ -249,9 +249,31 @@ void __init stx7141_configure_usb(int port)
 	};
 
 	if (first) {
-		/* ENABLE_USB48_CLK: Enable 48 MHz clock */
-		sc = sysconf_claim(SYS_CFG, 4, 5, 5, "USB");
-		sysconf_write(sc, 1);
+		if (cpu_data->cut_major < 2) {
+			/* ENABLE_USB48_CLK: Enable 48 MHz clock */
+			sc = sysconf_claim(SYS_CFG, 4, 5, 5, "USB");
+			sysconf_write(sc, 1);
+		} else {
+			/* Enable 48 MHz clock */
+			sc = sysconf_claim(SYS_CFG, 4, 4, 5, "USB");
+			sysconf_write(sc, 3);
+			sc = sysconf_claim(SYS_CFG, 4, 10, 10, "USB");
+			sysconf_write(sc, 1);
+
+			/* Set overcurrent polarities */
+			sc = sysconf_claim(SYS_CFG, 4, 6, 7, "USB");
+			sysconf_write(sc, 2);
+
+			/* enable resets  */
+			sc = sysconf_claim(SYS_CFG, 4, 8, 8, "USB"); /* 1_0 */
+			sysconf_write(sc, 1);
+			sc = sysconf_claim(SYS_CFG, 4, 13, 13, "USB"); /* 1_1 */
+			sysconf_write(sc, 1);
+			sc = sysconf_claim(SYS_CFG, 4, 1, 1, "USB"); /*2_0 */
+			sysconf_write(sc, 1);
+			sc = sysconf_claim(SYS_CFG, 4, 14, 14, "USB"); /* 2_1 */
+			sysconf_write(sc, 1);
+		}
 
 		first = 0;
 	}
@@ -274,16 +296,8 @@ void __init stx7141_configure_usb(int port)
 	stx7141_pio_sysconf(usb_pins[port].oc.port,
 			    usb_pins[port].oc.pin,
 			    usb_pins[port].oc.alt, "USB");
-	if (port > 1) {
-		/* Overcurrent detection is active high, so force
-		 * the pin low. */
-		stpio_request_set_pin(usb_pins[port].oc.port,
-				      usb_pins[port].oc.pin, "USB",
-				      STPIO_OUT, 0);
-	} else {
-		stpio_request_pin(usb_pins[port].oc.port,
-				  usb_pins[port].oc.pin, "USB", STPIO_IN);
-	}
+	stpio_request_pin(usb_pins[port].oc.port,
+			  usb_pins[port].oc.pin, "USB", STPIO_IN);
 
 	platform_device_register(&st_usb_device[port]);
 }
@@ -459,8 +473,20 @@ static struct platform_device sata_device =
 
 void __init stx7141_configure_sata(void)
 {
-	if (cpu_data->cut_major >= 2)
+	struct sysconf_field *sc;
+	if (cpu_data->cut_major >= 2) {
+		/* enable reset  */
+		sc = sysconf_claim(SYS_CFG, 4, 9, 9, "SATA");
+		sysconf_write(sc, 1);
+
+		sc = sysconf_claim(SYS_CFG, 32, 6, 6, "SATA");
+		sysconf_write(sc, 1);
+
+		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
+		sysconf_write(sc, 0);
+
 		stm_sata_miphy_init();
+	}
 
 	platform_device_register(&sata_device);
 }
@@ -523,6 +549,9 @@ void __init stx7141_configure_pata(int bank, int pc_mode, int irq)
 }
 
 /* Ethernet MAC resources -------------------------------------------------- */
+#define AHB_STBUS_BASE   0xFD118000
+#define AD_CONFIG_OFFSET 0x7000
+#define READ_AHEAD_MASK  0xFFCFFFFF
 
 static void fix_mac_speed(void *priv, unsigned int speed)
 {
@@ -632,6 +661,12 @@ void stx7141_configure_ethernet(int port, int reverse_mii, int mode,
 	};
 
 	stx7141eth_private_data[port].bus_id = phy_bus;
+
+	/* Cut 2 of 7141 has AHB wrapper bug for ethernet gmac */
+	/* Need to disable read-ahead - performance impact     */
+	if (cpu_data->cut_major == 2)
+		writel(readl(AHB_STBUS_BASE+AD_CONFIG_OFFSET) & READ_AHEAD_MASK,
+				AHB_STBUS_BASE + AD_CONFIG_OFFSET);
 
 	/* gmac_en: GMAC Enable */
 	sc = sysconf_claim(SYS_CFG, 7, 16+port, 16+port, "stmmac");
@@ -852,10 +887,10 @@ static struct platform_device stm_stasc_devices[] = {
 		STPIO_OUT, STPIO_IN, STPIO_IN, STPIO_OUT),
 	STASC_DEVICE(0xfd031000, ILC_IRQ(77), 12, 16,
 		     -1, -1, -1, -1, -1,
-		STPIO_IN, STPIO_IN, STPIO_IN, STPIO_IN),
+		STPIO_OUT, STPIO_IN, STPIO_IN, STPIO_OUT),
 	STASC_DEVICE(0xfd032000, ILC_IRQ(78), 13, 17,
 		     -1, -1, -1, -1, -1,
-		STPIO_IN, STPIO_IN, STPIO_IN, STPIO_IN),
+		STPIO_OUT, STPIO_IN, STPIO_IN, STPIO_OUT),
 };
 
 /*

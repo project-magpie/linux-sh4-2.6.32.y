@@ -19,7 +19,6 @@
 #define sata_tdo	(1<<1)
 
 /* sysconf config 33 */
-#define soft_jtag_en	(1<<6)
 #define tms_sata_en	(1<<5)
 #define trstn_sata	(1<<4)
 #define tdi_high	(1<<1)
@@ -30,41 +29,41 @@
 static void __init SATA_JTAG_IR_Select_MIPHY(struct sysconf_field *sc)
 {
 	/* Flush trst synchronizer with two tck clocks */
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 
 	/* Set tap into idle state */
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 
 	/* Set tap into shift ir state */
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
 
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 
 	/* Shift in MacroMicroBusAccess TDI = 101 */
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tdi_high | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tdi_high | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tdi_low | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tdi_low | tck_high);
+	sysconf_write(sc, trstn_sata | tdi_high | tck_low);
+	sysconf_write(sc, trstn_sata | tdi_high | tck_high);
+	sysconf_write(sc, trstn_sata | tdi_low | tck_low);
+	sysconf_write(sc, trstn_sata | tdi_low | tck_high);
 
 	/* Set tap into idle mode */
 	sysconf_write(sc,
-		      soft_jtag_en | tms_sata_en | trstn_sata | tdi_high |
+		      tms_sata_en | trstn_sata | tdi_high |
 		      tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tdi_high | tck_high);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tdi_high | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 }
 
 static void __init SATA_JTAG_DR_Write_MIPHY(struct sysconf_field *sc, u8 regno,
@@ -74,25 +73,25 @@ static void __init SATA_JTAG_DR_Write_MIPHY(struct sysconf_field *sc, u8 regno,
 	u8 x;
 
 	/* Set TAP into shift dr state */
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 
 	/* Shift in DR=[17:10]=data;[9:2]address=regno;[1]rd=0;[0]wr=1  */
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tdi_high | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tdi_high | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tdi_high | tck_low);
+	sysconf_write(sc, trstn_sata | tdi_high | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 
 	/* Push in the register address */
 	for (k = 0; k < 8; k++) {
 		x = ((regno >> k) & 0x1);
 		x = x << 1;
-		sysconf_write(sc, soft_jtag_en | trstn_sata | x | tck_low);
-		sysconf_write(sc, soft_jtag_en | trstn_sata | x | tck_high);
+		sysconf_write(sc, trstn_sata | x | tck_low);
+		sysconf_write(sc, trstn_sata | x | tck_high);
 	}
 
 	/* Push in the data to be written */
@@ -100,40 +99,40 @@ static void __init SATA_JTAG_DR_Write_MIPHY(struct sysconf_field *sc, u8 regno,
 	for (k = 0; k < 7; k++) {
 		x = ((data >> k) & 0x1);
 		x = x << 1;
-		sysconf_write(sc, soft_jtag_en | trstn_sata | x | tck_low);
-		sysconf_write(sc, soft_jtag_en | trstn_sata | x | tck_high);
+		sysconf_write(sc, trstn_sata | x | tck_low);
+		sysconf_write(sc, trstn_sata | x | tck_high);
 	}
 
 	/* Set TAP back round into SHIFT DR STATE
 	 * (exit1_dr,update_dr,idle,idle,select_dr,capture_dr) */
 	x = ((data >> 7) & 0x1);
 	x = x << 1;
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | x | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | x | tck_high);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | x | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | x | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 
 	/*Set TAP into idle mode */
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 }
 
 static __init u32 SATA_JTAG_DR_Read_MIPHY(struct sysconf_field *sc,
@@ -145,62 +144,62 @@ static __init u32 SATA_JTAG_DR_Read_MIPHY(struct sysconf_field *sc,
 	u32 ctrlbit, regvalue = 0;
 
 	/* Set TAP into shift DR state */
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 
 	/* Shift in DR=[17:10]dummy_data;[9:2]address=regno;[1]rd=1;[0]wr=0  */
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tdi_high | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tdi_high | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tdi_high | tck_low);
+	sysconf_write(sc, trstn_sata | tdi_high | tck_high);
 
 	/*  push in the register address */
 	for (k = 0; k < 8; k++) {
 		x = ((regno >> k) & 0x1);
 		x = x << 1;
-		sysconf_write(sc, soft_jtag_en | trstn_sata | x | tck_low);
-		sysconf_write(sc, soft_jtag_en | trstn_sata | x | tck_high);
+		sysconf_write(sc, trstn_sata | x | tck_low);
+		sysconf_write(sc, trstn_sata | x | tck_high);
 	}
 
 	/* Push in 0 in the data field */
 	for (k = 0; k < 7; k++) {
-		sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-		sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+		sysconf_write(sc, trstn_sata | tck_low);
+		sysconf_write(sc, trstn_sata | tck_high);
 	}
 
 	/* Set TAP back round into SHIFT DR STATE
 	 * (exit1_dr,update_dr,idle,idle,select_dr,capture_dr) */
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 
 	/* Shift out the MIPHY register contents */
 
 	/* Discard first 10 bits */
 	for (k = 0; k < 10; k++) {
-		sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-		sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+		sysconf_write(sc, trstn_sata | tck_low);
+		sysconf_write(sc, trstn_sata | tck_high);
 	}
 
 	for (k = 0; k < 7; k++) {
-		sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-		sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+		sysconf_write(sc, trstn_sata | tck_low);
+		sysconf_write(sc, trstn_sata | tck_high);
 		ctrlbit = sysconf_read(status_sc);
 		ctrlbit = ctrlbit & sata_tdo;
 		ctrlbit = ctrlbit >> 1;
@@ -208,21 +207,21 @@ static __init u32 SATA_JTAG_DR_Read_MIPHY(struct sysconf_field *sc,
 	}
 
 	/* Set TAP into idle mode */
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
 	ctrlbit = sysconf_read(status_sc);
 	ctrlbit = ctrlbit & sata_tdo;
 	ctrlbit = ctrlbit >> 1;
 	regvalue = ((ctrlbit & 0x1) << 7) | regvalue;
 
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | tms_sata_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_low);
-	sysconf_write(sc, soft_jtag_en | trstn_sata | tck_high);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_low);
+	sysconf_write(sc, tms_sata_en | trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
+	sysconf_write(sc, trstn_sata | tck_low);
+	sysconf_write(sc, trstn_sata | tck_high);
 
 	return (regvalue);
 }
@@ -230,8 +229,7 @@ static __init u32 SATA_JTAG_DR_Read_MIPHY(struct sysconf_field *sc,
 void __init stm_sata_miphy_init(void)
 {
 	struct sysconf_field *sc, *status_sc;
-
-	sc = sysconf_claim(SYS_CFG, 33, 0, 6, NULL);
+	sc = sysconf_claim(SYS_CFG, 33, 0, 5, NULL);
 	status_sc = sysconf_claim(SYS_STA, 0, 0, 2, NULL);
 
 	SATA_JTAG_IR_Select_MIPHY(sc);

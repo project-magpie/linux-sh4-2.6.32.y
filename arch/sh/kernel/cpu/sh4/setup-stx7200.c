@@ -40,22 +40,20 @@ static unsigned long chip_revision;
 
 static u64 st40_dma_mask = DMA_32BIT_MASK;
 
+
 static struct plat_usb_data usb_wrapper[3] = {
 	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE(0),
 		    AHB2STBUS_PROTOCOL_BASE(0),
 		    USB_FLAGS_STRAP_8BIT		|
-		    USB_FLAGS_STRAP_PLL			|
-		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE),
+		    USB_FLAGS_STRAP_PLL),
 	USB_WRAPPER(1, AHB2STBUS_WRAPPER_GLUE_BASE(1),
 		    AHB2STBUS_PROTOCOL_BASE(1),
 		    USB_FLAGS_STRAP_8BIT		|
-		    USB_FLAGS_STRAP_PLL			|
-		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE),
+		    USB_FLAGS_STRAP_PLL),
 	USB_WRAPPER(2, AHB2STBUS_WRAPPER_GLUE_BASE(2),
 		    AHB2STBUS_PROTOCOL_BASE(2),
 		    USB_FLAGS_STRAP_8BIT		|
-		    USB_FLAGS_STRAP_PLL			|
-		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE),
+		    USB_FLAGS_STRAP_PLL),
 };
 
 static struct platform_device st_usb[3] = {
@@ -337,6 +335,7 @@ void __init stx7200_configure_usb(int port)
 	const unsigned char oc_pins[3] = {0, 2, 5};
 	struct stpio_pin *pio;
 	struct sysconf_field *sc;
+	unsigned long trigger_mode;
 
 	if (first) {
 		/* route USB and parts of MAFE instead of DVO.
@@ -382,6 +381,15 @@ void __init stx7200_configure_usb(int port)
 		pio = stpio_request_pin(7, oc_pins[port], "USB oc",
 					STPIO_IN);
 
+	/*
+	 * On 7200c1 the AMBA-to-STBus bridge cannot be configured to work in
+	 * "threshold-triggered" mode.
+	 */
+	trigger_mode = (cpu_data->cut_major >= 2) ?
+				USB_FLAGS_STBUS_CONFIG_THRESHOLD256 :
+				USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE;
+
+	usb_wrapper[port].flags |= trigger_mode;
 	platform_device_register(&st_usb[port]);
 }
 

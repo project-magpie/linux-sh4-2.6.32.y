@@ -750,19 +750,12 @@ static inline void asc_receive_chars(struct uart_port *port)
 		} else if (status & ASC_STA_RBF) {
 			count = 1;
 		} else {
-			count = 0;
+			break;
 		}
 
 		/* Check for overrun before reading any data from the
 		 * RX FIFO, as this clears the overflow error condition. */
 		overrun = status & ASC_STA_OE;
-
-		/* Don't copy more bytes than there are room for in the buffer */
-		count = tty_buffer_request_room(tty, count);
-
-		/* If for any reason we can't copy more data, we're done! */
-		if (count == 0)
-			break;
 
 		for ( ; count != 0; count--) {
 			c = asc_in(port, RXBUF);

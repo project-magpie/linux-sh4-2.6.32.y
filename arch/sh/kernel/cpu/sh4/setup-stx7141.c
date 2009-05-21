@@ -418,7 +418,7 @@ void __init stx7141_configure_ssc(struct plat_ssc_data *data)
 	int capability = data->capability;
 	int pin;
 
-	for (i = 0; i < ARRAY_SIZE(stssc_devices); i++, capability >>= 2) {
+	for (i = 0; i < ARRAY_SIZE(stssc_devices); i++, capability >>= SSC_BITS_SIZE) {
 		struct ssc_pio_t *ssc_pio = stssc_devices[i].dev.platform_data;
 
 		if (capability & SSC_UNCONFIGURED)

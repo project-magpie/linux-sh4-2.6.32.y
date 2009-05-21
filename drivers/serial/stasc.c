@@ -426,10 +426,13 @@ static int asc_serial_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct asc_port *ascport = &asc_ports[pdev->id];
 	struct uart_port *port   = &(ascport->port);
+	unsigned long flags;
 
 	if (!device_can_wakeup(&(pdev->dev)))
 		return 0; /* the other ASCs... */
 
+	local_irq_save(flags);
+	ascport->ctrl = asc_in(port, CTL);
 	if (state.event == PM_EVENT_SUSPEND && device_may_wakeup(&(pdev->dev))){
 #ifndef CONFIG_DISABLE_CONSOLE_SUSPEND
 		ascport->flags |= ASC_SUSPENDED;
@@ -437,12 +440,12 @@ static int asc_serial_suspend(struct platform_device *pdev, pm_message_t state)
 			stpio_configure_pin(ascport->pios[0], STPIO_IN); /* Tx  */
 		asc_disable_tx_interrupts(port);
 #endif
-		return 0; /* leaves the rx interrupt enabled! */
+		goto ret_asc_suspend;
 	}
 
 	if (state.event == PM_EVENT_FREEZE) {
 		asc_disable_rx_interrupts(port);
-		return 0;
+		goto ret_asc_suspend;
 	}
 	if (ascport->pios[0])
 		stpio_configure_pin(ascport->pios[0], STPIO_IN); /* Tx  */
@@ -451,6 +454,9 @@ static int asc_serial_suspend(struct platform_device *pdev, pm_message_t state)
 	ascport->flags |= ASC_SUSPENDED;
 	asc_disable_tx_interrupts(port);
 	asc_disable_rx_interrupts(port);
+
+ret_asc_suspend:
+	local_irq_restore(flags);
 	return 0;
 }
 
@@ -461,20 +467,25 @@ static int asc_serial_resume(struct platform_device *pdev)
 	struct uart_port *port   = &(ascport->port);
 	struct stasc_uart_data *pdata =
 		(struct stasc_uart_data *)pdev->dev.platform_data;
+	unsigned long flags;
 	int i;
 
 	if (!device_can_wakeup(&(pdev->dev)))
 		return 0; /* the other ASCs... */
 
-	/* Reconfigure the Pio Pins */
+	local_irq_save(flags);
 	for (i = 0; i < 4; ++i)
-		if (ascport->pios[i])
-			stpio_configure_pin(ascport->pios[i],
-					pdata->pios[i].pio_direction);
+	if (ascport->pios[i])
+		stpio_configure_pin(ascport->pios[i],
+			pdata->pios[i].pio_direction);
 
+	asc_out(port, CTL, ascport->ctrl);
+	asc_out(port, TIMEOUT, 20);		/* hardcoded */
+	asc_set_baud(port, ascport->baud);	/* to resume from hmem */
 	asc_enable_rx_interrupts(port);
 	asc_enable_tx_interrupts(port);
 	ascport->flags &= ~ASC_SUSPENDED;
+	local_irq_restore(flags);
 	return 0;
 }
 #else

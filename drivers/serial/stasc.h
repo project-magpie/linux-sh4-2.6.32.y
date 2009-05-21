@@ -31,6 +31,7 @@ struct asc_port_fdma {
 struct asc_port {
 	struct uart_port port;
 	unsigned long baud;
+	unsigned long ctrl;
 	struct stpio_pin *pios[4];
 	unsigned char flags;
 #ifdef CONFIG_SERIAL_ST_ASC_FDMA

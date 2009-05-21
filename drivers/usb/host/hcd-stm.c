@@ -79,7 +79,7 @@ static int st_usb_boot(struct platform_device *dev)
 			  (1<<14) |  /* Enable threshold */
 			  (3<<9)  |  /* 2**3 Packets in a chunk */
 			  (0<<4)  ;  /* No messages */
-		reg |= ((usb_wrapper->flags &
+		req_reg |= ((usb_wrapper->flags &
 			USB_FLAGS_STBUS_CONFIG_THRESHOLD128) ? 7 /* 128 */ :
 				(8<<0));/* 256 */
 		do {

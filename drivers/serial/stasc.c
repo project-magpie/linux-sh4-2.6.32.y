@@ -252,7 +252,7 @@ static void asc_release_port(struct uart_port *port)
 		port->membase = NULL;
 	}
 
-	for (i=0; i<((ascport->flags & STASC_FLAG_NORTSCTS) ? 2 : 4); i++)
+	for (i=0; i<((ascport->platform_flags & STASC_FLAG_NORTSCTS) ? 2 : 4); i++)
 		stpio_free_pin(ascport->pios[i]);
 }
 
@@ -334,7 +334,7 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 
 	ascport->port.uartclk = rate;
 
-	ascport->flags = data->flags;
+	ascport->platform_flags = data->flags;
 }
 
 static struct uart_driver asc_uart_driver = {
@@ -566,7 +566,8 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 		}
 	}
 
-	for (i = 0; i < ((ascport->flags & STASC_FLAG_NORTSCTS) ? 2 : 4); i++)
+	for (i = 0; i < ((ascport->platform_flags & STASC_FLAG_NORTSCTS) ?
+								 2 : 4); i++)
 		ascport->pios[i] = stpio_request_pin(pdata->pios[i].pio_port,
 				pdata->pios[i].pio_pin, DRIVER_NAME,
 				pdata->pios[i].pio_direction);
@@ -633,7 +634,7 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 		ctrl_val |= ASC_CTL_PARITYODD;
 
 	/* hardware flow control */
-	if ((cflag & CRTSCTS) && (!(ascport->flags & STASC_FLAG_NORTSCTS)))
+	if ((cflag & CRTSCTS) && (!(ascport->platform_flags & STASC_FLAG_NORTSCTS)))
 		ctrl_val |= ASC_CTL_CTSENABLE;
 
 	/* set speed and baud generator mode */

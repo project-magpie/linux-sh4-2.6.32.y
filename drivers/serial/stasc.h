@@ -37,6 +37,7 @@ struct asc_port {
 #ifdef CONFIG_SERIAL_ST_ASC_FDMA
 	struct asc_port_fdma fdma;
 #endif
+	unsigned char platform_flags;
 };
 
 #define ASC_MAJOR		204

@@ -12,9 +12,10 @@
 #include <linux/mm.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
+#include <linux/vmalloc.h>
+#include <linux/io.h>
 #include <asm/cacheflush.h>
 #include <asm/addrspace.h>
-#include <asm/io.h>
 
 #ifdef CONFIG_32BIT
 

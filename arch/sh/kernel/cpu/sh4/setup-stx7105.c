@@ -251,6 +251,7 @@ static struct platform_device stx7105_fdma_devices[] = {
 	}, {
 		.name		= "stm-fdma",
 		.id		= 1,
+		.num_resources	= 2,
 		.resource = (struct resource[]) {
 			{
 				.start = 0xfe410000,

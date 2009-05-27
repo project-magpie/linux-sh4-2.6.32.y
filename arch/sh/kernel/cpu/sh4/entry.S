@@ -659,7 +659,7 @@ ret_from_irq:
 	shll	r0		! kernel space?
 	get_current_thread_info r8, r0
 #ifndef CONFIG_PREEMPT
-	bt	restore_all
+	bf	resume_userspace
 #else
 	bt	resume_kernel	! Yes, it's from kernel, go back soon
 	bra	resume_userspace

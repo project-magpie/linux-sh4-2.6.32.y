@@ -550,7 +550,6 @@ void __init stx7141_configure_pata(int bank, int pc_mode, int irq)
 }
 
 /* Ethernet MAC resources -------------------------------------------------- */
-#define AHB_STBUS_BASE   0xFD118000
 #define AD_CONFIG_OFFSET 0x7000
 #define READ_AHEAD_MASK  0xFFCFFFFF
 
@@ -665,10 +664,11 @@ void stx7141_configure_ethernet(int port, int reverse_mii, int mode,
 
 	/* Cut 2 of 7141 has AHB wrapper bug for ethernet gmac */
 	/* Need to disable read-ahead - performance impact     */
-	if (cpu_data->cut_major == 2)
-		writel(readl(AHB_STBUS_BASE+AD_CONFIG_OFFSET) & READ_AHEAD_MASK,
-				AHB_STBUS_BASE + AD_CONFIG_OFFSET);
-
+	if (cpu_data->cut_major == 2) {
+		unsigned long base = stx7141eth_devices[port].resource->start;
+		writel(readl(base + AD_CONFIG_OFFSET) & READ_AHEAD_MASK,
+				base + AD_CONFIG_OFFSET);
+	}
 	/* gmac_en: GMAC Enable */
 	sc = sysconf_claim(SYS_CFG, 7, 16+port, 16+port, "stmmac");
 	sysconf_write(sc, 1);

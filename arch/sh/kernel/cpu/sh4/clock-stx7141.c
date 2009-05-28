@@ -244,7 +244,9 @@ static const struct xratio ratios [] = {{1,  0x0 },
 					{2,  0x1 },
 					{4,  0x3 },
 					{8,  0x7 },
+					{12, 0xb },
 					{16, 0xf },
+					{24, 0x17 },
 					{32, 0x1f },
 					{NO_MORE_RATIO, }
 };

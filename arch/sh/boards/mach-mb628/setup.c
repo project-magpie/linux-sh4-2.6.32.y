@@ -285,6 +285,9 @@ static int mb628_phy_reset(void *bus)
  *     (near the PCI slot).
  *   + SYSITRQ1 needs to be disabled, which requires removing R232
  *     (near CN17). See DDTS INSbl29196 for details.
+ *   + PCIGNT2 needs to be disabled. This can be done either by removing
+ *     R241, or by ensuring that jumper J89 is not in position 1-2 (by
+ *     either removing it completely or putting it in position 2-3).
  *
  * - other jumper and switch settings for the mb539:
  *   + J1 fit 1-2 (use on board crystal)

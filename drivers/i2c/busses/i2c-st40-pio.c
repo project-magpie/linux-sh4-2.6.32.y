@@ -43,6 +43,7 @@ static void bit_st40_pio_setscl(void *data, int state)
 	struct ssc_pio_t *pio_info =
 		(struct ssc_pio_t *)pdev->dev.platform_data;
 	stpio_set_pin(pio_info->clk, state);
+	stpio_get_pin(pio_info->clk);
 }
 
 static void bit_st40_pio_setsda(void *data, int state)
@@ -51,6 +52,7 @@ static void bit_st40_pio_setsda(void *data, int state)
 	struct ssc_pio_t *pio_info =
 		(struct ssc_pio_t *)pdev->dev.platform_data;
 	stpio_set_pin(pio_info->sdout, state);
+	stpio_get_pin(pio_info->sdout);
 }
 
 static int bit_st40_pio_getscl(void *data)

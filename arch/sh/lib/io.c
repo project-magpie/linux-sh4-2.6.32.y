@@ -115,7 +115,7 @@ void __raw_writesl(void __iomem *addrp, const void *data, int len)
 			"1:				\n\t"
 			"mov.l	@%0+, %1	\n\t"
 			"dt		%3		\n\t"
-#ifdef CONFIG_CPU_SUBTYPE_ST40
+#ifdef CONFIG_CPU_ST40_300
 			/*
 			 * Note we cannot put the mov.l into the delay slot
 			 * here, because of a bug in the SH4-300 (GNBvd67168).

@@ -179,12 +179,13 @@ static int __init device_init(void)
 	/*
 	 * Note that USB port configuration depends on jumper
 	 * settings:
-	 *		  PORT 0  SW		PORT 1	SW
-	 *		+----------------------------------------
-	 * OC	normal	|  4[4]	J5A 2-3		 4[6]	J10A 2-3
-	 *	alt	| 12[5]	J5A 1-2		14[6]	J10A 1-2
-	 * PWR	normal	|  4[5]	J5B 2-3		 4[7]	J10B 2-3
-	 *	alt	| 12[6]	J5B 1-2		14[7]	J10B 1-2
+	 *
+	 *	  PORT 0	       		PORT 1
+	 *	+-----------------------------------------------------------
+	 * norm	|  4[4]	J5A:2-3			 4[6]	J10A:2-3
+	 * alt	| 12[5]	J5A:1-2  J6F:open	14[6]	J10A:1-2  J11G:open
+	 * norm	|  4[5]	J5B:2-3			 4[7]	J10B:2-3
+	 * alt	| 12[6]	J5B:1-2  J6G:open	14[7]	J10B:1-2  J11H:open
 	 */
 
 	stx7105_configure_usb(0, &usb_init[0]);

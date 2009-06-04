@@ -16,6 +16,8 @@
  * Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#ifndef __USB_CORE_HCD_H
+#define __USB_CORE_HCD_H
 
 #ifdef __KERNEL__
 
@@ -483,3 +485,5 @@ static inline void usbmon_urb_complete(struct usb_bus *bus, struct urb *urb,
 extern struct rw_semaphore ehci_cf_port_reset_rwsem;
 
 #endif /* __KERNEL__ */
+
+#endif /* __USB_CORE_HCD_H */

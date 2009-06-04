@@ -78,16 +78,12 @@ struct platform_device wdt_device = {
 
 static u64 st40_dma_mask = DMA_32BIT_MASK;
 
-static struct plat_usb_data usb_wrapper =
-	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE, AHB2STBUS_PROTOCOL_BASE,
-		    USB_FLAGS_STRAP_16BIT	|
-		    USB_FLAGS_STRAP_PLL		|
-		    USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE);
-
 static struct platform_device st_usb_device =
 	USB_DEVICE(0, AHB2STBUS_EHCI_BASE, 169,
 		      AHB2STBUS_OHCI_BASE, 168,
-		      &usb_wrapper);
+			AHB2STBUS_WRAPPER_GLUE_BASE, AHB2STBUS_PROTOCOL_BASE,
+			USB_FLAGS_STRAP_16BIT | USB_FLAGS_STRAP_PLL |
+			USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE);
 
 void __init stx7100_configure_usb(void)
 {

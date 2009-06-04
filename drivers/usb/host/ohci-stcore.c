@@ -52,8 +52,6 @@ static int stm_ohci_bus_suspend(struct usb_hcd *hcd)
 	usb_root_hub_lost_power(hcd->self.root_hub);
 	return 0;
 }
-#else
-#define stm_ohci_bus_suspend		NULL
 #endif
 
 static const struct hc_driver ohci_st40_hc_driver = {
@@ -93,20 +91,23 @@ static int ohci_hcd_stm_probe(struct platform_device *pdev)
 	struct usb_hcd *hcd = NULL;
 	int retval;
 	struct resource *res;
-	struct plat_usb_data *pdata = pdev->dev.platform_data;
+	struct platform_device *stm_usb_pdev;
 
 	dgb_print("\n");
 	hcd = usb_create_hcd(&ohci_st40_hc_driver, &pdev->dev,
 		pdev->dev.bus_id);
+
 	if (!hcd) {
 		pr_debug("hcd_create_hcd failed");
 		retval = -ENOMEM;
 		goto err0;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	stm_usb_pdev = to_platform_device(pdev->dev.parent);
+
+	res = platform_get_resource(stm_usb_pdev, IORESOURCE_MEM, 1);
 	hcd->rsrc_start = res->start;
-	hcd->rsrc_len = res->end - res->start + 1;
+	hcd->rsrc_len = res->end - res->start;
 
 	if (!request_mem_region(hcd->rsrc_start, hcd->rsrc_len,	hcd_name)) {
 		pr_debug("request_mem_region failed");
@@ -123,10 +124,9 @@ static int ohci_hcd_stm_probe(struct platform_device *pdev)
 
 	ohci_hcd_init(hcd_to_ohci(hcd));
 
-	res = platform_get_resource(pdev, IORESOURCE_IRQ, 1);
+	res = platform_get_resource(stm_usb_pdev, IORESOURCE_IRQ, 1);
 	retval = usb_add_hcd(hcd, res->start, 0);
 	if (retval == 0) {
-		pdata->ohci_hcd = hcd;
 #ifdef CONFIG_PM
 		hcd->self.root_hub->do_remote_wakeup = 0;
 		hcd->self.root_hub->persist_enabled = 0;
@@ -135,6 +135,7 @@ static int ohci_hcd_stm_probe(struct platform_device *pdev)
 #endif
 		return retval;
 	}
+
 	iounmap(hcd->regs);
 err2:
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
@@ -144,7 +145,22 @@ err0:
 	return retval;
 }
 
+static int ohci_hcd_stm_remove(struct platform_device *pdev)
+{
+	struct usb_hcd *hcd = platform_get_drvdata(pdev);
+
+	usb_remove_hcd(hcd);
+	iounmap(hcd->regs);
+	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
+	usb_put_hcd(hcd);
+
+	return 0;
+}
+
 static struct platform_driver ohci_hcd_stm_driver = {
-	.driver.owner = THIS_MODULE,
-	.driver.name = "stm-ohci",
+	.probe = ohci_hcd_stm_probe,
+	.remove = ohci_hcd_stm_remove,
+	.driver = {
+		.name = "stm-ohci",
+	},
 };

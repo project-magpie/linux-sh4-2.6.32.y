@@ -8,6 +8,8 @@
  *
  * This file is licenced under the GPL.
  */
+#ifndef __ST_USB_HCD__
+#define __ST_USB_HCD__
 
 /* The transaction opcode is programmed in this register */
 #define AHB2STBUS_STBUS_OPC_OFFSET      0x00    /* From PROTOCOL_BASE */
@@ -55,4 +57,13 @@
 #define AHB2STBUS_INSREG01_OFFSET       (0x10 + 0x84) /* From EHCI_BASE */
 #define AHB2STBUS_INOUT_THRESHOLD       0x00800080
 
-int st_usb_register_hcd(int is_ohci, int (*fnt)(struct platform_device *pdev));
+#include "../core/hcd.h"
+
+struct drv_usb_data {
+	void *ahb2stbus_wrapper_glue_base;
+	void *ahb2stbus_protocol_base;
+	struct platform_device *ehci_device;
+	struct platform_device *ohci_device;
+};
+
+#endif

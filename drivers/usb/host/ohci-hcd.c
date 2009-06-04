@@ -1057,12 +1057,7 @@ MODULE_LICENSE ("GPL");
 #define PLATFORM_DRIVER		ohci_hcd_sh_driver
 #endif
 
-#if defined(CONFIG_CPU_SUBTYPE_STX5197) || \
-	defined(CONFIG_CPU_SUBTYPE_STB7100) || \
-	defined(CONFIG_CPU_SUBTYPE_STX7105) || \
-	defined(CONFIG_CPU_SUBTYPE_STX7111) || \
-	defined(CONFIG_CPU_SUBTYPE_STX7141) || \
-	defined(CONFIG_CPU_SUBTYPE_STX7200)
+#if defined(CONFIG_USB_STM_COMMON) || defined(CONFIG_USB_STM_COMMON_MODULE)
 #include "ohci-stcore.c"
 #define PLATFORM_DRIVER		ohci_hcd_stm_driver
 #endif
@@ -1126,9 +1121,6 @@ static int __init ohci_hcd_mod_init(void)
 	retval = platform_driver_register(&PLATFORM_DRIVER);
 	if (retval < 0)
 		goto error_platform;
-#if defined(CONFIG_USB_STM_COMMON) || defined(CONFIG_USB_STM_COMMON_MODULE)
-	st_usb_register_hcd(1, ohci_hcd_stm_probe);
-#endif
 #endif
 
 #ifdef OF_PLATFORM_DRIVER

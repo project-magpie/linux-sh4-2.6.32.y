@@ -205,6 +205,13 @@ static int ehci_reset (struct ehci_hcd *ehci)
 	retval = handshake (ehci, &ehci->regs->command,
 			    CMD_RESET, 0, 250 * 1000);
 
+	/*
+	 * Some host controller doesn't deassert the reset bit
+	 */
+	if (retval == -ETIMEDOUT && ehci_has_reset_portno_bug(ehci)) {
+		ehci_writel(ehci, command & ~CMD_RESET, &ehci->regs->command);
+		retval = 0;
+	}
 	if (retval)
 		return retval;
 
@@ -1009,12 +1016,7 @@ MODULE_LICENSE ("GPL");
 #define	PLATFORM_DRIVER		ehci_hcd_au1xxx_driver
 #endif
 
-#if defined(CONFIG_CPU_SUBTYPE_STX5197) || \
-    defined(CONFIG_CPU_SUBTYPE_STB7100) || \
-    defined(CONFIG_CPU_SUBTYPE_STX7105) || \
-    defined(CONFIG_CPU_SUBTYPE_STX7111) || \
-    defined(CONFIG_CPU_SUBTYPE_STX7141) || \
-    defined(CONFIG_CPU_SUBTYPE_STX7200)
+#if defined(CONFIG_USB_STM_COMMON) || defined(CONFIG_USB_STM_COMMON_MODULE)
 #include "ehci-stcore.c"
 #define	PLATFORM_DRIVER		ehci_hcd_stm_driver
 #endif
@@ -1068,9 +1070,6 @@ static int __init ehci_hcd_init(void)
 	retval = platform_driver_register(&PLATFORM_DRIVER);
 	if (retval < 0)
 		goto clean0;
-#if defined(CONFIG_USB_STM_COMMON) || defined(CONFIG_USB_STM_COMMON_MODULE)
-	st_usb_register_hcd(0, ehci_hcd_stm_probe);
-#endif
 #endif
 
 #ifdef PCI_DRIVER

@@ -306,11 +306,7 @@ struct plat_stmmacphy_data {
 };
 
 struct plat_usb_data {
-	unsigned long ahb2stbus_wrapper_glue_base;
-	unsigned long ahb2stbus_protocol_base;
 	unsigned long flags;
-	void *ehci_hcd;
-	void *ohci_hcd;
 };
 
 #define USB_FLAGS_STRAP_8BIT			(1<<0)

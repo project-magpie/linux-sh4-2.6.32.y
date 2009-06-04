@@ -89,24 +89,19 @@ static inline void stx7105_pio_sysconf_alt(int bank, int pin, int alt_val, const
 #define AHB2STBUS_EHCI_BASE(N)          (UHOST2C_BASE(N) + 0x000ffe00)
 #define AHB2STBUS_PROTOCOL_BASE(N)      (UHOST2C_BASE(N) + 0x000fff00)
 
-static struct plat_usb_data usb_wrapper[2] = {
-	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE(0),
-		    AHB2STBUS_PROTOCOL_BASE(0),
-		    USB_FLAGS_STRAP_8BIT	|
-		    USB_FLAGS_STBUS_CONFIG_THRESHOLD128),
-	USB_WRAPPER(1, AHB2STBUS_WRAPPER_GLUE_BASE(1),
-		    AHB2STBUS_PROTOCOL_BASE(1),
-		    USB_FLAGS_STRAP_8BIT	|
-		    USB_FLAGS_STBUS_CONFIG_THRESHOLD128),
-};
-
 static struct platform_device usb_device[2] = {
 	USB_DEVICE(0, AHB2STBUS_EHCI_BASE(0), evt2irq(0x1720),
 		      AHB2STBUS_OHCI_BASE(0), evt2irq(0x1700),
-		      &usb_wrapper[0]),
+		      AHB2STBUS_WRAPPER_GLUE_BASE(0),
+		      AHB2STBUS_PROTOCOL_BASE(0),
+		      USB_FLAGS_STRAP_8BIT |
+		      USB_FLAGS_STBUS_CONFIG_THRESHOLD128),
 	USB_DEVICE(1, AHB2STBUS_EHCI_BASE(1), evt2irq(0x13e0),
 		      AHB2STBUS_OHCI_BASE(1), evt2irq(0x13c0),
-		      &usb_wrapper[1]),
+		      AHB2STBUS_WRAPPER_GLUE_BASE(1),
+		      AHB2STBUS_PROTOCOL_BASE(1),
+		      USB_FLAGS_STRAP_8BIT |
+		      USB_FLAGS_STBUS_CONFIG_THRESHOLD128)
 };
 /**
  * stx7105_configure_usb - Configure a USB port

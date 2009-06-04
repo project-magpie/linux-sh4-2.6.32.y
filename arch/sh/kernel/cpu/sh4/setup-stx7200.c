@@ -40,29 +40,22 @@ static unsigned long chip_revision;
 
 static u64 st40_dma_mask = DMA_32BIT_MASK;
 
-
-static struct plat_usb_data usb_wrapper[3] = {
-	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE(0),
-		    AHB2STBUS_PROTOCOL_BASE(0),
-		    USB_FLAGS_STRAP_8BIT		|
-		    USB_FLAGS_STRAP_PLL),
-	USB_WRAPPER(1, AHB2STBUS_WRAPPER_GLUE_BASE(1),
-		    AHB2STBUS_PROTOCOL_BASE(1),
-		    USB_FLAGS_STRAP_8BIT		|
-		    USB_FLAGS_STRAP_PLL),
-	USB_WRAPPER(2, AHB2STBUS_WRAPPER_GLUE_BASE(2),
-		    AHB2STBUS_PROTOCOL_BASE(2),
-		    USB_FLAGS_STRAP_8BIT		|
-		    USB_FLAGS_STRAP_PLL),
-};
-
 static struct platform_device st_usb[3] = {
 	USB_DEVICE(0, AHB2STBUS_EHCI_BASE(0), ILC_IRQ(80),
-		      AHB2STBUS_OHCI_BASE(0), ILC_IRQ(81), &usb_wrapper[0]),
+		      AHB2STBUS_OHCI_BASE(0), ILC_IRQ(81),
+		      AHB2STBUS_WRAPPER_GLUE_BASE(0),
+		      AHB2STBUS_PROTOCOL_BASE(0),
+		      USB_FLAGS_STRAP_8BIT | USB_FLAGS_STRAP_PLL),
 	USB_DEVICE(1, AHB2STBUS_EHCI_BASE(1), ILC_IRQ(82),
-		      AHB2STBUS_OHCI_BASE(1), ILC_IRQ(83), &usb_wrapper[1]),
+		      AHB2STBUS_OHCI_BASE(1), ILC_IRQ(83),
+		      AHB2STBUS_WRAPPER_GLUE_BASE(1),
+		      AHB2STBUS_PROTOCOL_BASE(1),
+		      USB_FLAGS_STRAP_8BIT | USB_FLAGS_STRAP_PLL),
 	USB_DEVICE(2, AHB2STBUS_EHCI_BASE(2), ILC_IRQ(84),
-		      AHB2STBUS_OHCI_BASE(2), ILC_IRQ(85), &usb_wrapper[2]),
+		      AHB2STBUS_OHCI_BASE(2), ILC_IRQ(85),
+		      AHB2STBUS_WRAPPER_GLUE_BASE(2),
+		      AHB2STBUS_PROTOCOL_BASE(2),
+		      USB_FLAGS_STRAP_8BIT | USB_FLAGS_STRAP_PLL),
 };
 
 /*
@@ -389,7 +382,8 @@ void __init stx7200_configure_usb(int port)
 				USB_FLAGS_STBUS_CONFIG_THRESHOLD256 :
 				USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE;
 
-	usb_wrapper[port].flags |= trigger_mode;
+	((struct plat_usb_data *)st_usb[port].dev.platform_data)->flags
+		|= trigger_mode;
 	platform_device_register(&st_usb[port]);
 }
 

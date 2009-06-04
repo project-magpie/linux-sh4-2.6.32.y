@@ -11,7 +11,6 @@
 
 #include <linux/platform_device.h>
 #include <linux/stm/soc.h>
-#include <linux/stm/pm.h>
 #include "./hcd-stm.h"
 
 /* Define a bus wrapper IN/OUT threshold of 128 */
@@ -94,32 +93,39 @@ static const struct hc_driver ehci_stm_hc_driver = {
 	.bus_resume = ehci_bus_resume,
 };
 
-static void ehci_hcd_st40_remove(struct usb_hcd *hcd, struct platform_device *pdev)
+static int ehci_hcd_stm_remove(struct platform_device *pdev)
 {
+	struct usb_hcd *hcd = platform_get_drvdata(pdev);
+
 	usb_remove_hcd(hcd);
 	iounmap(hcd->regs);
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
 	usb_put_hcd(hcd);
+
+	return 0;
 }
 
-static int ehci_hcd_stm_probe(struct platform_device *dev)
+static int ehci_hcd_stm_probe(struct platform_device *pdev)
 {
 	int retval = 0;
 	struct usb_hcd *hcd;
         struct ehci_hcd *ehci;
-	struct plat_usb_data *pdata = dev->dev.platform_data;
+	struct device *dev = &pdev->dev;
 	struct resource *res;
+	struct platform_device *stm_usb_pdev;
 
 	dgb_print("\n");
-	hcd = usb_create_hcd(&ehci_stm_hc_driver, &dev->dev, dev->dev.bus_id);
+	hcd = usb_create_hcd(&ehci_stm_hc_driver, dev, dev->bus_id);
 	if (!hcd) {
 		retval = -ENOMEM;
 		goto err0;
 	}
 
-	res = platform_get_resource(dev, IORESOURCE_MEM, 0);
+	stm_usb_pdev = to_platform_device(pdev->dev.parent);
+
+	res = platform_get_resource(stm_usb_pdev, IORESOURCE_MEM, 0);
 	hcd->rsrc_start = res->start;
-	hcd->rsrc_len = res->end - res->start + 1;
+	hcd->rsrc_len = res->end - res->start;
 
 	if (!request_mem_region(hcd->rsrc_start, hcd->rsrc_len, hcd_name)) {
 		pr_debug("request_mem_region failed");
@@ -141,10 +147,13 @@ static int ehci_hcd_stm_probe(struct platform_device *dev)
 	/* cache this readonly data; minimize device reads */
 	ehci->hcs_params = readl(&ehci->caps->hcs_params);
 
-	res = platform_get_resource(dev, IORESOURCE_IRQ, 0);
+/*
+ * Fix the reset port issue on a load-unload-load sequence
+ */
+	ehci->has_reset_port_bug = 1,
+	res = platform_get_resource(stm_usb_pdev, IORESOURCE_IRQ, 0);
 	retval = usb_add_hcd(hcd, res->start, 0);
 	if (retval == 0) {
-		pdata->ehci_hcd = hcd;
 #ifdef CONFIG_PM
 		hcd->self.root_hub->do_remote_wakeup = 0;
 		hcd->self.root_hub->persist_enabled = 0;
@@ -163,6 +172,9 @@ err0:
 }
 
 static struct platform_driver ehci_hcd_stm_driver = {
-	.driver.owner = THIS_MODULE,
-	.driver.name = "stm-ehci",
+	.probe = ehci_hcd_stm_probe,
+	.remove = ehci_hcd_stm_remove,
+	.driver = {
+		.name = "stm-ehci",
+	},
 };

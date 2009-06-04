@@ -64,16 +64,14 @@ static u64 st40_dma_mask = DMA_32BIT_MASK;
 #define AHB2STBUS_EHCI_BASE		(UHOST2C_BASE + 0x000ffe00)
 #define AHB2STBUS_PROTOCOL_BASE		(UHOST2C_BASE + 0x000fff00)
 
-static struct plat_usb_data usb_wrapper =
-	USB_WRAPPER(0, AHB2STBUS_WRAPPER_GLUE_BASE, AHB2STBUS_PROTOCOL_BASE,
-		    USB_FLAGS_STRAP_16BIT	|
-		    USB_FLAGS_STRAP_PLL		|
-		    USB_FLAGS_STBUS_CONFIG_THRESHOLD256);
-
 static struct platform_device st_usb =
 	USB_DEVICE(0, AHB2STBUS_EHCI_BASE, ILC_IRQ(29),
 		      AHB2STBUS_OHCI_BASE, ILC_IRQ(28),
-		      &usb_wrapper);
+		      AHB2STBUS_WRAPPER_GLUE_BASE,
+		      AHB2STBUS_PROTOCOL_BASE,
+		      USB_FLAGS_STRAP_16BIT	|
+		      USB_FLAGS_STRAP_PLL	|
+		      USB_FLAGS_STBUS_CONFIG_THRESHOLD256);
 
 void __init stx5197_configure_usb(void)
 {

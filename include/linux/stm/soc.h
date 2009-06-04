@@ -337,15 +337,15 @@ struct usb_init_data {
 };
 
 #ifdef CONFIG_CPU_SUBTYPE_STX7105
-#define USB0_OC_PIO4_4		(0<<0)
-#define USB0_OC_PIO12_5		(1<<0)
-#define USB0_PWR_PIO4_5		(0<<1)
-#define USB0_PWR_PIO12_6	(1<<1)
+#define USB0_OC_PIO4_4		0
+#define USB0_OC_PIO12_5		1
+#define USB0_PWR_PIO4_5		0
+#define USB0_PWR_PIO12_6	1
 
-#define USB1_OC_PIO4_6		(0<<0)
-#define USB1_OC_PIO14_6		(1<<0)
-#define USB1_PWR_PIO4_7		(0<<1)
-#define USB1_PWR_PIO14_7	(1<<1)
+#define USB1_OC_PIO4_6		0
+#define USB1_OC_PIO14_6		1
+#define USB1_PWR_PIO4_7		0
+#define USB1_PWR_PIO14_7	1
 #endif
 
 

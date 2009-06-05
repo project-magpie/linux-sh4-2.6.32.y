@@ -57,7 +57,7 @@ static void stx7105_pio_sysconf(int bank, int pin, int alt, const char* name)
 	int cfg = pio_sysconf[bank].syscfg;
 	struct sysconf_field *sc[3];
 
-	if ((cfg == 0) || alt == -1))
+	if ((cfg == 0) || (alt == -1))
 		return;
 
 	sc[0] = sysconf_claim(SYS_CFG, cfg, pin, pin, name);

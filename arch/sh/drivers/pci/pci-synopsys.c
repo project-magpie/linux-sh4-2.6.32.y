@@ -454,7 +454,7 @@ static void __devinit pci_stm_setup(struct pci_config_data *pci_config,
 	int fn;
 	unsigned v;
 	unsigned long req_gnt_mask = 0;
-	int i;
+	int i, req;
 
 	/* You HAVE to have either wrap or ping-pong enabled, even though they
 	 * are different bits. Very strange
@@ -467,14 +467,27 @@ static void __devinit pci_stm_setup(struct pci_config_data *pci_config,
 		| EMISS_CONFIG_CLOCK_SELECT_PCI | EMISS_CONFIG_PCI_HOST_NOT_DEVICE, emiss + EMISS_CONFIG);
 
 	/* Figure out what req/gnt lines we are using */
-	for(i = 0 ; i < 4; i++) {
+	for (i = 0; i < 4; i++) {
 		if(pci_config->req_gnt[i] != PCI_PIN_UNUSED) {
-			req_gnt_mask |= EMISS_ARBITER_CONFIG_MASK_BUS_REQ(i);
+			req = ((i == 0) && pci_config->req0_to_req3) ? 3 : i;
+			req_gnt_mask |= EMISS_ARBITER_CONFIG_MASK_BUS_REQ(req);
 		}
 	}
-	/* Configure the arbiter. More work needed to understand what all these fields do */
-	v =  readl(emiss + EMISS_ARBITER_CONFIG);
-	writel((v & ~req_gnt_mask) | EMISS_ARBITER_CONFIG_PCI_NOT_EMI, emiss + EMISS_ARBITER_CONFIG);
+
+	/* Pass through grant retraction feature for now */
+	v = readl(emiss + EMISS_ARBITER_CONFIG);
+	/* Clear these bits, note the req gnt is a set to 0 to enable */
+	v &=  ~(EMISS_ARBITER_CONFIG_BYPASS_ARBITER |
+		EMISS_ARBITER_CONFIG_STATIC_NOT_DYNAMIC	|
+		EMISS_ARBITER_CONFIG_PCI_NOT_EMI |
+		EMISS_ARBITER_CONFIG_BUS_FREE |
+		req_gnt_mask);
+
+	if (!pci_config->req0_to_req3 &&
+	    (pci_config->req_gnt[0] != PCI_PIN_UNUSED))
+		v |= EMISS_ARBITER_CONFIG_PCI_NOT_EMI;
+
+	writel(v, emiss + EMISS_ARBITER_CONFIG);
 
 	/* This field will need to be parameterised by the soc layer for sure, all silicon will likely be different */
 	writel( PCI_AD_CONFIG_READ_AHEAD(pci_config->ad_read_ahead) | PCI_AD_CONFIG_CHUNKS_IN_MSG(pci_config->ad_chunks_in_msg) |

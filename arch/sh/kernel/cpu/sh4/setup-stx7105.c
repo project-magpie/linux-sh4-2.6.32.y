@@ -1025,6 +1025,9 @@ void __init stx7105_configure_pci(struct pci_config_data *pci_conf)
 	int use_alt_for_int0;
 	int sys5_int_enables = 0;
 
+	/* Cut 3 has req0 wired to req3 to work around NAND problems */
+	pci_conf->req0_to_req3 = (cpu_data->cut_major >= 3);
+
 	/* Fill in the default values for the 7105 */
 	if(!pci_conf->ad_override_default) {
 		pci_conf->ad_threshold = 5;pci_conf->ad_read_ahead = 1;

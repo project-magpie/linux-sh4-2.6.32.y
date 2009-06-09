@@ -29,9 +29,14 @@
 
 
 #define EMISS_ARBITER_CONFIG			0x1004
-#define EMISS_ARBITER_CONFIG_PCI_NOT_EMI	(1<< 8)
-#define EMISS_ARBITER_CONFIG_MASK_BUS_REQ0 	(1<< 4)
-#define EMISS_ARBITER_CONFIG_MASK_BUS_REQ(n)	( 1 << (4 + n)) // OK for REQ0
+#define EMISS_ARBITER_CONFIG_BYPASS_ARBITER 	(1 << 2)
+#define EMISS_ARBITER_CONFIG_MASK_BUS_REQ0 	(1 << 4)
+/* Can use req0 with following macro */
+#define EMISS_ARBITER_CONFIG_MASK_BUS_REQ(n)	(1 << (4 + (n)))
+#define EMISS_ARBITER_CONFIG_PCI_NOT_EMI	(1 << 8)
+#define EMISS_ARBITER_CONFIG_BUS_FREE		(1 << 9)
+#define EMISS_ARBITER_CONFIG_STATIC_NOT_DYNAMIC	(1 << 12)
+
 #define EMISS_FRAME_LENGTH(n)			(0x1010 + ((n)*0x10))
 #define EMISS_HOLDOFF				(0x1014 + ((n)*0x10))
 #define EMISS_PRIORITY				(0x1018 + ((n)*4))

@@ -148,6 +148,12 @@ struct pci_config_data {
 	unsigned ad_read_ahead:1;
 
 	unsigned ad_override_default:1; /* Set to override default values for your board */
+
+	/* Cut3 7105/ cut 2 7141 connected req0 pin to req3 to work around some
+	 * problems with nand. This bit will be auto-probed by the chip layer,
+	 * the board layer should NOT have to set this
+	 */
+	unsigned req0_to_req3:1;
 };
 
 u8 pci_synopsys_inb(unsigned long port);

@@ -254,6 +254,27 @@ static struct platform_device nand_device =
 
 #include <linux/delay.h>
 
+static DEFINE_SPINLOCK(mb705_reset_lock);
+
+void mb705_reset(int mask, unsigned long usdelay)
+{
+	u16 reg;
+
+	spin_lock(&mb705_reset_lock);
+	reg = epld_read(EPLD_EMI_RESET);
+	reg |= mask;
+	epld_write(reg, EPLD_EMI_RESET);
+	spin_unlock(&mb705_reset_lock);
+
+	udelay(usdelay);
+
+	spin_lock(&mb705_reset_lock);
+	reg = epld_read(EPLD_EMI_RESET);
+	reg &= ~mask;
+	epld_write(reg, EPLD_EMI_RESET);
+	spin_unlock(&mb705_reset_lock);
+}
+
 static int __init mb705_init(void)
 {
 	int i;

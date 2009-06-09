@@ -17,6 +17,17 @@
 #define EPLD_EMI_TEST			0x002
 #define EPLD_EMI_SWITCH			0x004
 #define EPLD_EMI_SWITCH_BOOTFROMNOR		(1<<8)
+#define EPLD_EMI_RESET			0x006
+#define EPLD_EMI_RESET_SW0			(1<<0)	/* mb680: MII */
+#define EPLD_EMI_RESET_SW1			(1<<1)	/* mb680: PCI */
+#define EPLD_EMI_RESET_SW2			(1<<2)	/* mb680: STEM */
+#define EPLD_EMI_RESET_SW3			(1<<3)	/* mb680: n/c */
+#define EPLD_EMI_RESET_FLASH			(1<<4)
+#define EPLD_EMI_RESET_DVB			(1<<5)
+#define EPLD_EMI_RESET_DISPLAY			(1<<6)
+#define EPLD_EMI_RESET_MAFE			(1<<7)
+#define EPLD_EMI_RESET_SPDIF			(1<<8)
+#define EPLD_EMI_SMARTCARD		0x008
 #define EPLD_EMI_MISC			0x00a
 #define EPLD_EMI_MISC_NORFLASHVPPEN		(1<<2)
 #define EPLD_EMI_MISC_NOTNANDFLASHWP		(1<<3)
@@ -110,5 +121,7 @@
 #define EPLD_AUDIO_USERLED_LD11T		(1<<1)
 #define EPLD_AUDIO_USERLED_LD10B		(1<<2)
 #define EPLD_AUDIO_USERLED_LD10T		(1<<3)
+
+void mb705_reset(int bit, unsigned long usdelay);
 
 #endif

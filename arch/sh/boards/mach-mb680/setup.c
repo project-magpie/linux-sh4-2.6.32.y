@@ -27,6 +27,7 @@
 #include <asm/irl.h>
 #include <asm/io.h>
 #include <mach/common.h>
+#include <mach/mb705-epld.h>
 
 static int ascs[2] __initdata = { 2, 3 };
 
@@ -95,15 +96,29 @@ static struct platform_device mb680_leds = {
  */
 static struct stpio_pin *phy_reset, *switch_en;
 
-static int mb680_phy_reset(void* bus)
+/*
+ * When connected to the mb705, MII reset is controlled by an EPLD register
+ * on the mb705.
+ * When used standalone a PIO pin is used, and J47-C must be fitted.
+ */
+#ifdef CONFIG_SH_ST_MB705
+static void ll_phy_reset(void)
 {
-	stpio_set_pin(phy_reset, 1);
-	stpio_set_pin(switch_en, 1);
-	udelay(1);
+	mb705_reset(EPLD_EMI_RESET_SW0, 100);
+}
+#else
+static void ll_phy_reset(void)
+{
 	stpio_set_pin(phy_reset, 0);
 	udelay(100);
 	stpio_set_pin(phy_reset, 1);
-	udelay(1);
+}
+#endif
+
+static int mb680_phy_reset(void *bus)
+{
+	stpio_set_pin(switch_en, 1);
+	ll_phy_reset();
 	stpio_set_pin(switch_en, 0);
 
 	return 0;
@@ -191,8 +206,8 @@ static int __init device_init(void)
 	stx7105_configure_usb(0, &usb_init[0]);
 	stx7105_configure_usb(1, &usb_init[1]);
 
-	phy_reset = stpio_request_pin(5, 5, "ResetMII", STPIO_OUT);
-	switch_en = stpio_request_pin(11, 2, "MIIBusSwitch", STPIO_OUT);
+	phy_reset = stpio_request_set_pin(5, 5, "ResetMII", STPIO_OUT, 1);
+	switch_en = stpio_request_set_pin(11, 2, "MIIBusSwitch", STPIO_OUT, 1);
 	stx7105_configure_ethernet(0, 0, 0, 0, 1, 0);
 
 	stx7105_configure_lirc(&lirc_scd);

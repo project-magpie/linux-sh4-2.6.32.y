@@ -431,7 +431,12 @@ void pci_stm_pio_reset(void)
 
 	mdelay(1); /* From PCI spec */
 
-	gpio_set_value(pci_reset_pin, 1);
+	/* Change to input, assumes pullup . This will work for boards like the
+	 * PDK7105 which do a power on reset as well via a diode. If you drive
+	 * this as an output it prevents the reset switch (and the JTAG
+	 * reset!) from working correctly
+	 */
+	gpio_direction_input(pci_reset_pin);
 
 	/* PCI spec says there should be a one second delay here. This seems a
 	 * tad excessive to me! If you really have something that needs a huge

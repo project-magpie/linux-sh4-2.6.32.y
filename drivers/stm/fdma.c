@@ -382,7 +382,9 @@ static struct stm_dma_req *fdma_req_allocate(struct fdma_channel *channel,
 
 			if (fdma_req_router->route(fdma_req_router,
 						soc_req_line, fdma->pdev->id,
-						req_line) != 0)
+						req_line) == 0)
+				fdma->reqs_used_mask |= (1 << req_line);
+			else
 				req_line = -EBUSY;
 		}
 	} else {

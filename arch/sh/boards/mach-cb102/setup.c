@@ -30,7 +30,7 @@ static int ascs[2] __initdata = {
 	3 | (STASC_FLAG_NORTSCTS << 8), /* J8001 (3.5mm jack) */
 };
 
-static void __init cb103_setup(char **cmdline_p)
+static void __init cb102_setup(char **cmdline_p)
 {
 	stx7200_early_device_init();
 	stx7200_configure_asc(ascs, 2, 1);

@@ -1026,6 +1026,11 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 		snd_stm_printd(0, "Player capable of playing %u-channels PCM."
 				"\n", pcm_player->channels_constraint.list[i]);
 
+	/* STx7100 has a problem with 16/16 bits FIFO organization,
+	 * so we disable the 16 bits samples capability... */
+	if (pcm_player->ver <= ver__AUD_PCMOUT__90_1_3)
+		snd_stm_pcm_player_hw.formats &= ~SNDRV_PCM_FMTBIT_S16_LE;
+
 	/* Create ALSA lowlevel device */
 
 	result = snd_device_new(card, SNDRV_DEV_LOWLEVEL, pcm_player,

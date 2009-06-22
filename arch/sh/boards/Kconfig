@@ -290,6 +290,15 @@ config SH_ST_STPM_HD_V2
 	bool
 	default n
 
+config SH_ST_CAB5197
+	bool "CAB5197: STx5197 CAB reference board"
+	depends on CPU_SUBTYPE_STX5197
+	select SH_ST_STEM
+	select SH_ST_STPM_HD_V2
+	help
+	  Select STx5197 CAB Reference if configuring for an
+	  STMicroelectronics STx5197 CAB reference Board.
+
 config SH_ST_HDK7105
 	bool "HDK7105 : STx7105 HDK Reference board"
 	depends on CPU_SUBTYPE_STX7105

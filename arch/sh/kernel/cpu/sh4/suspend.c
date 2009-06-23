@@ -22,11 +22,10 @@
 #include <linux/hardirq.h>
 #include <linux/jiffies.h>
 #include <asm/system.h>
+#include <asm/cpu/cacheflush.h>
 #include <asm/io.h>
 #include <asm-generic/bug.h>
 #include <asm/pm.h>
-
-#include <linux/stm/pm.h>
 
 #undef  dbg_print
 
@@ -93,11 +92,6 @@ static int sh4_suspend_enter(suspend_state_t state)
 	return 0;
 }
 
-static void sleep_on_idle(void)
-{
-	asm volatile ("sleep	\n":::"memory");
-}
-
 static ssize_t power_wokenupby_show(struct kset *subsys, char *buf)
 {
 	return sprintf(buf, "%d\n", wokenup_by);
@@ -117,11 +111,6 @@ int __init sh4_suspend_register(struct sh4_suspend_t *pdata)
 
 	if (!pdata)
 		return -EINVAL;
-/*	the idle loop calls the sleep instruction
- *	but platform specific code (in the suspend_platform_setup
- *	implementation) could set a different 'on idle' action
- */
-	pm_idle = sleep_on_idle;
 	data = pdata;
 	data->ops.enter = sh4_suspend_enter;
 	if (data->stby_tbl && data->stby_size)

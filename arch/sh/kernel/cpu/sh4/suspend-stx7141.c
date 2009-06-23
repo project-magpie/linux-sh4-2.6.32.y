@@ -194,12 +194,23 @@ static struct sh4_suspend_t st40data __cacheline_aligned = {
 static int __init suspend_platform_setup()
 {
 	struct sysconf_field *sc;
-#ifdef CONFIG_PM_DEBUG
+#if defined(CONFIG_PM_DEBUG)
+	struct stpio_pin *pin;
 	/* route the sh4/2  clock frequenfy */
-	iowrite32(0xc, CLOCKGENA_BASE_ADDR + CKGA_CLKOBS_MUX1_CFG);
-	stpio_request_set_pin(3, 2, "clkA dbg", STPIO_ALT_OUT, 1);
-	sc = sysconf_claim(SYS_CFG, 19, 22, 23, "clkA dbg");
-	sysconf_write(sc, 11);
+	pin = stpio_request_set_pin(3, 2, "clkA dbg", STPIO_ALT_OUT, 1);
+	if (pin) {
+		iowrite32(0xc, CLOCKGENA_BASE_ADDR + CKGA_CLKOBS_MUX1_CFG);
+		sc = sysconf_claim(SYS_CFG, 19, 22, 23, "clkA dbg");
+		if (sc)
+			sysconf_write(sc, 11);
+		else {
+			printk(KERN_ERR
+			   "Not able to acquire the sysconf 19 [22,23]\n");
+			stpio_free_pin(pin);
+		}
+	} else
+		printk(KERN_ERR
+			"Not able to route the ClkA on external pin\n");
 #endif
 
 	sc = sysconf_claim(SYS_CFG, 38, 20, 20, "pm");

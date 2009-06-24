@@ -32,6 +32,7 @@
 #include <linux/string.h>
 #include <linux/kernel.h>
 #if defined(CONFIG_MODULES_BPA2)
+#include <linux/io.h>
 #include <linux/pfn.h>
 #include <linux/bpa2.h>
 #endif

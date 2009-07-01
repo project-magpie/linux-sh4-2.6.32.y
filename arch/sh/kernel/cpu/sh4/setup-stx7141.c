@@ -80,23 +80,14 @@ enum {
 
 	/* interrupt sources */
 	IRL0, IRL1, IRL2, IRL3, /* only IRLM mode described here */
-	TMU0, TMU1, TMU2_TUNI, TMU2_TICPI,
-	WDT,
-	HUDI,
-
-	/* interrupt groups */
-	TMU2, RTC,
+	TMU0, TMU1, TMU2, WDT, HUDI,
 };
 
 static struct intc_vect vectors[] = {
 	INTC_VECT(TMU0, 0x400), INTC_VECT(TMU1, 0x420),
-	INTC_VECT(TMU2_TUNI, 0x440), INTC_VECT(TMU2_TICPI, 0x460),
+	INTC_VECT(TMU2, 0x440), INTC_VECT(TMU2, 0x460),
 	INTC_VECT(WDT, 0x560),
 	INTC_VECT(HUDI, 0x600),
-};
-
-static struct intc_group groups[] = {
-	INTC_GROUP(TMU2, TMU2_TUNI, TMU2_TICPI),
 };
 
 static struct intc_prio_reg prio_registers[] = {
@@ -107,7 +98,7 @@ static struct intc_prio_reg prio_registers[] = {
 	{ 0xffd00010, 0, 16, 4, /* IPRD */     { IRL0, IRL1,  IRL2, IRL3 } },
 };
 
-static DECLARE_INTC_DESC(intc_desc, "stx7111", vectors, groups,
+static DECLARE_INTC_DESC(intc_desc, "stx7141", vectors, NULL,
 			 NULL, prio_registers, NULL);
 
 void __init plat_irq_setup(void)

@@ -61,9 +61,7 @@ enum {
 
 	/* interrupt sources */
 	IRL0, IRL1, IRL2, IRL3, /* only IRLM mode described here */
-	TMU0, TMU1, TMU2_TUNI, TMU2_TICPI,
-	WDT,
-	HUDI,
+	TMU0, TMU1, TMU2, WDT, HUDI,
 
 	PCI_DEV0, PCI_DEV1, PCI_DEV2, PCI_DEV3,		/* Group 0 */
 	I2S2SPDIF1, I2S2SPDIF2, I2S2SPDIF3,
@@ -91,7 +89,6 @@ enum {
 	ICAM3_KTE, ICAM3, KEY_SCANNER, MES_LMI_SYS,	/* Group 16 */
 
 	/* interrupt groups */
-	TMU2, RTC,
 	GROUP0_1, GROUP0_2, GROUP1, GROUP2, GROUP3,
 	GROUP4, GROUP5, GROUP6, GROUP7,
 	GROUP8, GROUP9, GROUP10, GROUP11,
@@ -101,7 +98,7 @@ enum {
 
 static struct intc_vect vectors[] = {
 	INTC_VECT(TMU0, 0x400), INTC_VECT(TMU1, 0x420),
-	INTC_VECT(TMU2_TUNI, 0x440), INTC_VECT(TMU2_TICPI, 0x460),
+	INTC_VECT(TMU2, 0x440), INTC_VECT(TMU2, 0x460),
 	INTC_VECT(WDT, 0x560),
 	INTC_VECT(HUDI, 0x600),
 
@@ -149,8 +146,6 @@ static struct intc_vect vectors[] = {
 };
 
 static struct intc_group groups[] = {
-	INTC_GROUP(TMU2, TMU2_TUNI, TMU2_TICPI),
-
 	/* PCI_DEV0 is not grouped */
 	INTC_GROUP(GROUP0_1, PCI_DEV1, PCI_DEV2, PCI_DEV3,
 		   I2S2SPDIF1),

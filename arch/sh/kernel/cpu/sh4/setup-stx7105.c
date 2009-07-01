@@ -59,9 +59,7 @@ enum {
 
 	/* interrupt sources */
 	IRL0, IRL1, IRL2, IRL3, /* only IRLM mode described here */
-	TMU0, TMU1, TMU2_TUNI, TMU2_TICPI,
-	WDT,
-	HUDI,
+	TMU0, TMU1, TMU2, WDT, HUDI,
 
 	I2S2SPDIF0,					/* Group 0 */
 	I2S2SPDIF1, I2S2SPDIF2, I2S2SPDIF3, SATA_DMAC,
@@ -91,7 +89,6 @@ enum {
 	ICAM3_KTE, ICAM3, KEY_SCANNER, MES,		/* Group 16 */
 
 	/* interrupt groups */
-	TMU2,
 	GROUP0_0, GROUP0_1,
 	GROUP1, GROUP2, GROUP3,
 	GROUP4, GROUP5, GROUP6, GROUP7,
@@ -101,8 +98,9 @@ enum {
 };
 
 static struct intc_vect vectors[] = {
-	INTC_VECT(TMU0, 0x400), INTC_VECT(TMU1, 0x420),
-	INTC_VECT(TMU2_TUNI, 0x440), INTC_VECT(TMU2_TICPI, 0x460),
+	INTC_VECT(TMU0, 0x400),
+	INTC_VECT(TMU1, 0x420),
+	INTC_VECT(TMU2, 0x440), INTC_VECT(TMU2, 0x460),
 	INTC_VECT(WDT, 0x560),
 	INTC_VECT(HUDI, 0x600),
 
@@ -152,8 +150,6 @@ static struct intc_vect vectors[] = {
 };
 
 static struct intc_group groups[] = {
-	INTC_GROUP(TMU2, TMU2_TUNI, TMU2_TICPI),
-
 	/* I2S2SPDIF0 is a single bit group */
 	INTC_GROUP(GROUP0_0, I2S2SPDIF1, I2S2SPDIF2, I2S2SPDIF3, SATA_DMAC),
 	INTC_GROUP(GROUP0_1, SATA_HOSTC, DVP, STANDALONE_PIO,

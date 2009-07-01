@@ -18,36 +18,6 @@
 
 /* SH4-only resources ----------------------------------------------------- */
 
-static struct resource rtc_resource[]= {
-        [0] = {
-		.start = 0xffc80000,
-		.end   = 0xffc80000 + 0x3c,
-	        .flags = IORESOURCE_IO
-	},
-	[1] = { /* periodic irq */
-		.start = 21,
-		.end   = 21,
-	        .flags = IORESOURCE_IRQ
-	},
-	[2] = { /* carry irq */
-		.start = 22,
-		.end   = 22,
-	        .flags = IORESOURCE_IRQ
-	},
-	[3] = { /* alarm irq */
-		.start = 20,
-		.end   = 20,
-	        .flags = IORESOURCE_IRQ
-	},
-};
-
-static struct platform_device rtc_device = {
-	.name           = "sh-rtc",
-	.id             = -1,
-	.num_resources  = ARRAY_SIZE(rtc_resource),
-	.resource       = rtc_resource,
-};
-
 static struct platform_device ilc3_device = {
 	.name		= "ilc3",
 	.id		= -1,
@@ -70,7 +40,6 @@ static struct platform_device ilc3_device = {
 };
 
 static struct platform_device *stx7200_sh4_devices[] __initdata = {
-	&rtc_device,
 	&ilc3_device,
 };
 
@@ -89,31 +58,18 @@ enum {
 	UNUSED = 0,
 
 	/* interrupt sources */
-	TMU0, TMU1, TMU2_TUNI, TMU2_TICPI,
-	RTC_ATI, RTC_PRI, RTC_CUI,
-	SCIF_ERI, SCIF_RXI, SCIF_BRI, SCIF_TXI,
-	WDT,
-	HUDI,
-
-	/* interrupt groups */
-	TMU2, RTC, SCIF,
+	TMU0, TMU1, TMU2, RTC, SCIF, WDT, HUDI,
 };
 
 static struct intc_vect vectors[] = {
-	INTC_VECT(TMU0, 0x400), INTC_VECT(TMU1, 0x420),
-	INTC_VECT(TMU2_TUNI, 0x440), INTC_VECT(TMU2_TICPI, 0x460),
-	INTC_VECT(RTC_ATI, 0x480), INTC_VECT(RTC_PRI, 0x4a0),
-	INTC_VECT(RTC_CUI, 0x4c0),
-	INTC_VECT(SCIF_ERI, 0x4e0), INTC_VECT(SCIF_RXI, 0x500),
-	INTC_VECT(SCIF_BRI, 0x520), INTC_VECT(SCIF_TXI, 0x540),
+	INTC_VECT(TMU0, 0x400),
+	INTC_VECT(TMU1, 0x420),
+	INTC_VECT(TMU2, 0x440), INTC_VECT(TMU2, 0x460),
+	INTC_VECT(RTC, 0x480), INTC_VECT(RTC, 0x4a0), INTC_VECT(RTC, 0x4c0),
+	INTC_VECT(SCIF, 0x4e0), INTC_VECT(SCIF, 0x500),
+		INTC_VECT(SCIF, 0x520), INTC_VECT(SCIF, 0x540),
 	INTC_VECT(WDT, 0x560),
 	INTC_VECT(HUDI, 0x600),
-};
-
-static struct intc_group groups[] = {
-	INTC_GROUP(TMU2, TMU2_TUNI, TMU2_TICPI),
-	INTC_GROUP(RTC, RTC_ATI, RTC_PRI, RTC_CUI),
-	INTC_GROUP(SCIF, SCIF_ERI, SCIF_RXI, SCIF_BRI, SCIF_TXI),
 };
 
 static struct intc_prio_reg prio_registers[] = {
@@ -123,7 +79,7 @@ static struct intc_prio_reg prio_registers[] = {
 	{ 0xffd0000c, 0, 16, 4, /* IPRC */ {    0,    0,    0,  HUDI } },
 };
 
-static DECLARE_INTC_DESC(intc_desc, "stx7200", vectors, groups,
+static DECLARE_INTC_DESC(intc_desc, "stx7200", vectors, NULL,
 			 NULL, prio_registers, NULL);
 
 void __init plat_irq_setup(void)

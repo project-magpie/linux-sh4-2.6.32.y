@@ -235,7 +235,7 @@ int fb_set_cmap(struct fb_cmap *cmap, struct fb_info *info)
 			if (transp)
 				htransp = *transp++;
 			if (info->fbops->fb_setcolreg(start++,
-						      hred, hgreen, hblue, 
+						      hred, hgreen, hblue,
 						      htransp, info))
 				break;
 		}
@@ -253,10 +253,6 @@ int fb_set_user_cmap(struct fb_cmap_user *cmap, struct fb_info *info)
 {
 	int rc, size = cmap->len * sizeof(u16);
 	struct fb_cmap umap;
-	
-	if (cmap->start < 0 || (!info->fbops->fb_setcolreg &&
-			        !info->fbops->fb_setcmap))
-		return -EINVAL;
 
 	memset(&umap, 0, sizeof(struct fb_cmap));
 	rc = fb_alloc_cmap(&umap, cmap->len, cmap->transp != NULL);
@@ -266,11 +262,23 @@ int fb_set_user_cmap(struct fb_cmap_user *cmap, struct fb_info *info)
 	    copy_from_user(umap.green, cmap->green, size) ||
 	    copy_from_user(umap.blue, cmap->blue, size) ||
 	    (cmap->transp && copy_from_user(umap.transp, cmap->transp, size))) {
-		fb_dealloc_cmap(&umap);
-		return -EFAULT;
+		rc = -EFAULT;
+		goto out;
 	}
 	umap.start = cmap->start;
+	if (!lock_fb_info(info)) {
+		rc = -ENODEV;
+		goto out;
+	}
+	if (cmap->start < 0 || (!info->fbops->fb_setcolreg &&
+				!info->fbops->fb_setcmap)) {
+		rc = -EINVAL;
+		goto out1;
+	}
 	rc = fb_set_cmap(&umap, info);
+out1:
+	unlock_fb_info(info);
+out:
 	fb_dealloc_cmap(&umap);
 	return rc;
 }

@@ -68,7 +68,8 @@
 #define OMAP3430_VPINIDLE				(1 << 0)
 
 /* PM_WKDEP_IVA2, PM_WKDEP_MPU shared bits */
-#define OMAP3430_EN_PER					(1 << 7)
+#define OMAP3430_EN_PER_SHIFT				7
+#define OMAP3430_EN_PER_MASK				(1 << 7)
 
 /* PM_PWSTCTRL_IVA2, PM_PWSTCTRL_MPU, PM_PWSTCTRL_CORE shared bits */
 #define OMAP3430_MEMORYCHANGE				(1 << 3)
@@ -77,7 +78,7 @@
 #define OMAP3430_LOGICSTATEST				(1 << 2)
 
 /* PM_PREPWSTST_IVA2, PM_PREPWSTST_CORE shared bits */
-#define OMAP3430_LASTLOGICSTATEENTERED				(1 << 2)
+#define OMAP3430_LASTLOGICSTATEENTERED			(1 << 2)
 
 /*
  * PM_PREPWSTST_IVA2, PM_PREPWSTST_MPU, PM_PREPWSTST_CORE,
@@ -278,8 +279,10 @@
 #define OMAP3430_EMULATION_MPU_RST			(1 << 11)
 
 /* PM_WKDEP_MPU specific bits */
-#define OMAP3430_PM_WKDEP_MPU_EN_DSS			(1 << 5)
-#define OMAP3430_PM_WKDEP_MPU_EN_IVA2			(1 << 2)
+#define OMAP3430_PM_WKDEP_MPU_EN_DSS_SHIFT		5
+#define OMAP3430_PM_WKDEP_MPU_EN_DSS_MASK		(1 << 5)
+#define OMAP3430_PM_WKDEP_MPU_EN_IVA2_SHIFT		2
+#define OMAP3430_PM_WKDEP_MPU_EN_IVA2_MASK		(1 << 2)
 
 /* PM_EVGENCTRL_MPU */
 #define OMAP3430_OFFLOADMODE_SHIFT			3
@@ -363,6 +366,7 @@
 
 /* PM_WKEN_WKUP specific bits */
 #define OMAP3430_EN_IO					(1 << 8)
+#define OMAP3430_EN_GPIO1				(1 << 3)
 
 /* PM_MPUGRPSEL_WKUP specific bits */
 
@@ -405,7 +409,7 @@
 /* PM_PREPWSTST_CAM specific bits */
 
 /* PM_PWSTCTRL_USBHOST specific bits */
-#define OMAP3430ES2_SAVEANDRESTORE_SHIFT		(1 << 4)
+#define OMAP3430ES2_SAVEANDRESTORE_SHIFT		4
 
 /* RM_RSTST_PER specific bits */
 
@@ -449,6 +453,14 @@
 #define OMAP3430_CMDRA0_MASK				(0xff << 0)
 
 /* PRM_VC_CMD_VAL_0 specific bits */
+#define OMAP3430_VC_CMD_ON_SHIFT			24
+#define OMAP3430_VC_CMD_ON_MASK				(0xFF << 24)
+#define OMAP3430_VC_CMD_ONLP_SHIFT			16
+#define OMAP3430_VC_CMD_ONLP_MASK			(0xFF << 16)
+#define OMAP3430_VC_CMD_RET_SHIFT			8
+#define OMAP3430_VC_CMD_RET_MASK			(0xFF << 8)
+#define OMAP3430_VC_CMD_OFF_SHIFT			0
+#define OMAP3430_VC_CMD_OFF_MASK			(0xFF << 0)
 
 /* PRM_VC_CMD_VAL_1 specific bits */
 

@@ -7,6 +7,10 @@
  *	(at your option) any later version.
  * 
  */
+
+#define BENQ_VENDOR_ID			0x04a5
+#define BENQ_PRODUCT_ID_S81		0x4027
+
 #define PL2303_VENDOR_ID	0x067b
 #define PL2303_PRODUCT_ID	0x2303
 #define PL2303_PRODUCT_ID_RSAQ2		0x04bb
@@ -110,3 +114,11 @@
 /* Y.C. Cable U.S.A., Inc - USB to RS-232 */
 #define YCCABLE_VENDOR_ID	0x05ad
 #define YCCABLE_PRODUCT_ID	0x0fba
+
+/* "Superial" USB - Serial */
+#define SUPERIAL_VENDOR_ID	0x5372
+#define SUPERIAL_PRODUCT_ID	0x2303
+
+/* Hewlett-Packard LD220-HP POS Pole Display */
+#define HP_VENDOR_ID		0x03f0
+#define HP_LD220_PRODUCT_ID	0x3524

@@ -31,11 +31,11 @@
  *  To quickly load the module,
  *
  *  modprobe -a snd-cmi8330 sbport=0x220 sbirq=5 sbdma8=1
- *    sbdma16=5 wssport=0x530 wssirq=11 wssdma=0
+ *    sbdma16=5 wssport=0x530 wssirq=11 wssdma=0 fmport=0x388
  *
  *  This card has two mixers and two PCM devices.  I've cheesed it such
  *  that recording and playback can be done through the same device.
- *  The driver "magically" routes the capturing to the AD1848 codec,
+ *  The driver "magically" routes the capturing to the CMI8330 codec,
  *  and playback to the SB16 codec.  This allows for full-duplex mode
  *  to some extent.
  *  The utilities in alsa-utils are aware of both devices, so passing
@@ -50,7 +50,9 @@
 #include <linux/pnp.h>
 #include <linux/moduleparam.h>
 #include <sound/core.h>
-#include <sound/ad1848.h>
+#include <sound/wss.h>
+#include <sound/opl3.h>
+#include <sound/mpu401.h>
 #include <sound/sb.h>
 #include <sound/initval.h>
 
@@ -79,6 +81,9 @@ static int sbdma16[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;
 static long wssport[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
 static int wssirq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;
 static int wssdma[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;
+static long fmport[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
+static long mpuport[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
+static int mpuirq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for CMI8330 soundcard.");
@@ -107,6 +112,12 @@ MODULE_PARM_DESC(wssirq, "IRQ # for CMI8330 WSS driver.");
 module_param_array(wssdma, int, NULL, 0444);
 MODULE_PARM_DESC(wssdma, "DMA for CMI8330 WSS driver.");
 
+module_param_array(fmport, long, NULL, 0444);
+MODULE_PARM_DESC(fmport, "FM port # for CMI8330 driver.");
+module_param_array(mpuport, long, NULL, 0444);
+MODULE_PARM_DESC(mpuport, "MPU-401 port # for CMI8330 driver.");
+module_param_array(mpuirq, int, NULL, 0444);
+MODULE_PARM_DESC(mpuirq, "IRQ # for CMI8330 MPU-401 port.");
 #ifdef CONFIG_PNP
 static int isa_registered;
 static int pnp_registered;
@@ -149,9 +160,10 @@ struct snd_cmi8330 {
 #ifdef CONFIG_PNP
 	struct pnp_dev *cap;
 	struct pnp_dev *play;
+	struct pnp_dev *mpu;
 #endif
 	struct snd_card *card;
-	struct snd_ad1848 *wss;
+	struct snd_wss *wss;
 	struct snd_sb *sb;
 
 	struct snd_pcm *pcm;
@@ -165,7 +177,7 @@ struct snd_cmi8330 {
 #ifdef CONFIG_PNP
 
 static struct pnp_card_device_id snd_cmi8330_pnpids[] = {
-	{ .id = "CMI0001", .devs = { { "@@@0001" }, { "@X@0001" } } },
+	{ .id = "CMI0001", .devs = { { "@@@0001" }, { "@X@0001" }, { "@H@0001" } } },
 	{ .id = "" }
 };
 
@@ -174,32 +186,59 @@ MODULE_DEVICE_TABLE(pnp_card, snd_cmi8330_pnpids);
 #endif
 
 
-static struct ad1848_mix_elem snd_cmi8330_controls[] __devinitdata = {
-AD1848_DOUBLE("Master Playback Volume", 0, CMI8330_MASTVOL, CMI8330_MASTVOL, 4, 0, 15, 0),
-AD1848_SINGLE("Loud Playback Switch", 0, CMI8330_MUTEMUX, 6, 1, 1),
-AD1848_DOUBLE("PCM Playback Switch", 0, AD1848_LEFT_OUTPUT, AD1848_RIGHT_OUTPUT, 7, 7, 1, 1),
-AD1848_DOUBLE("PCM Playback Volume", 0, AD1848_LEFT_OUTPUT, AD1848_RIGHT_OUTPUT, 0, 0, 63, 1),
-AD1848_DOUBLE("Line Playback Switch", 0, CMI8330_MUTEMUX, CMI8330_MUTEMUX, 4, 3, 1, 0),
-AD1848_DOUBLE("Line Playback Volume", 0, CMI8330_LINVOL, CMI8330_LINVOL, 4, 0, 15, 0),
-AD1848_DOUBLE("Line Capture Switch", 0, CMI8330_RMUX3D, CMI8330_RMUX3D, 2, 1, 1, 0),
-AD1848_DOUBLE("Line Capture Volume", 0, CMI8330_LINGAIN, CMI8330_LINGAIN, 4, 0, 15, 0),
-AD1848_DOUBLE("CD Playback Switch", 0, CMI8330_MUTEMUX, CMI8330_MUTEMUX, 2, 1, 1, 0),
-AD1848_DOUBLE("CD Capture Switch", 0, CMI8330_RMUX3D, CMI8330_RMUX3D, 4, 3, 1, 0),
-AD1848_DOUBLE("CD Playback Volume", 0, CMI8330_CDINVOL, CMI8330_CDINVOL, 4, 0, 15, 0),
-AD1848_DOUBLE("CD Capture Volume", 0, CMI8330_CDINGAIN, CMI8330_CDINGAIN, 4, 0, 15, 0),
-AD1848_SINGLE("Mic Playback Switch", 0, CMI8330_MUTEMUX, 0, 1, 0),
-AD1848_SINGLE("Mic Playback Volume", 0, CMI8330_OUTPUTVOL, 0, 7, 0),
-AD1848_SINGLE("Mic Capture Switch", 0, CMI8330_RMUX3D, 0, 1, 0),
-AD1848_SINGLE("Mic Capture Volume", 0, CMI8330_OUTPUTVOL, 5, 7, 0),
-AD1848_DOUBLE("Wavetable Playback Switch", 0, CMI8330_RECMUX, CMI8330_RECMUX, 1, 0, 1, 0),
-AD1848_DOUBLE("Wavetable Playback Volume", 0, CMI8330_WAVVOL, CMI8330_WAVVOL, 4, 0, 15, 0),
-AD1848_DOUBLE("Wavetable Capture Switch", 0, CMI8330_RECMUX, CMI8330_RECMUX, 5, 4, 1, 0),
-AD1848_DOUBLE("Wavetable Capture Volume", 0, CMI8330_WAVGAIN, CMI8330_WAVGAIN, 4, 0, 15, 0),
-AD1848_SINGLE("3D Control - Switch", 0, CMI8330_RMUX3D, 5, 1, 1),
-AD1848_SINGLE("PC Speaker Playback Volume", 0, CMI8330_OUTPUTVOL, 3, 3, 0),
-AD1848_SINGLE("FM Playback Switch", 0, CMI8330_RECMUX, 3, 1, 1),
-AD1848_SINGLE(SNDRV_CTL_NAME_IEC958("Input ",CAPTURE,SWITCH), 0, CMI8330_RMUX3D, 7, 1, 1),
-AD1848_SINGLE(SNDRV_CTL_NAME_IEC958("Input ",PLAYBACK,SWITCH), 0, CMI8330_MUTEMUX, 7, 1, 1),
+static struct snd_kcontrol_new snd_cmi8330_controls[] __devinitdata = {
+WSS_DOUBLE("Master Playback Volume", 0,
+		CMI8330_MASTVOL, CMI8330_MASTVOL, 4, 0, 15, 0),
+WSS_SINGLE("Loud Playback Switch", 0,
+		CMI8330_MUTEMUX, 6, 1, 1),
+WSS_DOUBLE("PCM Playback Switch", 0,
+		CS4231_LEFT_OUTPUT, CS4231_RIGHT_OUTPUT, 7, 7, 1, 1),
+WSS_DOUBLE("PCM Playback Volume", 0,
+		CS4231_LEFT_OUTPUT, CS4231_RIGHT_OUTPUT, 0, 0, 63, 1),
+WSS_DOUBLE("Line Playback Switch", 0,
+		CMI8330_MUTEMUX, CMI8330_MUTEMUX, 4, 3, 1, 0),
+WSS_DOUBLE("Line Playback Volume", 0,
+		CMI8330_LINVOL, CMI8330_LINVOL, 4, 0, 15, 0),
+WSS_DOUBLE("Line Capture Switch", 0,
+		CMI8330_RMUX3D, CMI8330_RMUX3D, 2, 1, 1, 0),
+WSS_DOUBLE("Line Capture Volume", 0,
+		CMI8330_LINGAIN, CMI8330_LINGAIN, 4, 0, 15, 0),
+WSS_DOUBLE("CD Playback Switch", 0,
+		CMI8330_MUTEMUX, CMI8330_MUTEMUX, 2, 1, 1, 0),
+WSS_DOUBLE("CD Capture Switch", 0,
+		CMI8330_RMUX3D, CMI8330_RMUX3D, 4, 3, 1, 0),
+WSS_DOUBLE("CD Playback Volume", 0,
+		CMI8330_CDINVOL, CMI8330_CDINVOL, 4, 0, 15, 0),
+WSS_DOUBLE("CD Capture Volume", 0,
+		CMI8330_CDINGAIN, CMI8330_CDINGAIN, 4, 0, 15, 0),
+WSS_SINGLE("Mic Playback Switch", 0,
+		CMI8330_MUTEMUX, 0, 1, 0),
+WSS_SINGLE("Mic Playback Volume", 0,
+		CMI8330_OUTPUTVOL, 0, 7, 0),
+WSS_SINGLE("Mic Capture Switch", 0,
+		CMI8330_RMUX3D, 0, 1, 0),
+WSS_SINGLE("Mic Capture Volume", 0,
+		CMI8330_OUTPUTVOL, 5, 7, 0),
+WSS_DOUBLE("Wavetable Playback Switch", 0,
+		CMI8330_RECMUX, CMI8330_RECMUX, 1, 0, 1, 0),
+WSS_DOUBLE("Wavetable Playback Volume", 0,
+		CMI8330_WAVVOL, CMI8330_WAVVOL, 4, 0, 15, 0),
+WSS_DOUBLE("Wavetable Capture Switch", 0,
+		CMI8330_RECMUX, CMI8330_RECMUX, 5, 4, 1, 0),
+WSS_DOUBLE("Wavetable Capture Volume", 0,
+		CMI8330_WAVGAIN, CMI8330_WAVGAIN, 4, 0, 15, 0),
+WSS_SINGLE("3D Control - Switch", 0,
+		CMI8330_RMUX3D, 5, 1, 1),
+WSS_SINGLE("PC Speaker Playback Volume", 0,
+		CMI8330_OUTPUTVOL, 3, 3, 0),
+WSS_DOUBLE("FM Playback Switch", 0,
+		CS4231_AUX2_LEFT_INPUT, CS4231_AUX2_RIGHT_INPUT, 7, 7, 1, 1),
+WSS_DOUBLE("FM Playback Volume", 0,
+		CS4231_AUX2_LEFT_INPUT, CS4231_AUX2_RIGHT_INPUT, 0, 0, 31, 1),
+WSS_SINGLE(SNDRV_CTL_NAME_IEC958("Input ", CAPTURE, SWITCH), 0,
+		CMI8330_RMUX3D, 7, 1, 1),
+WSS_SINGLE(SNDRV_CTL_NAME_IEC958("Input ", PLAYBACK, SWITCH), 0,
+		CMI8330_MUTEMUX, 7, 1, 1),
 };
 
 #ifdef ENABLE_SB_MIXER
@@ -268,7 +307,10 @@ static int __devinit snd_cmi8330_mixer(struct snd_card *card, struct snd_cmi8330
 	strcpy(card->mixername, "CMI8330/C3D");
 
 	for (idx = 0; idx < ARRAY_SIZE(snd_cmi8330_controls); idx++) {
-		if ((err = snd_ad1848_add_ctl_elem(acard->wss, &snd_cmi8330_controls[idx])) < 0)
+		err = snd_ctl_add(card,
+				snd_ctl_new1(&snd_cmi8330_controls[idx],
+					     acard->wss));
+		if (err < 0)
 			return err;
 	}
 
@@ -295,16 +337,21 @@ static int __devinit snd_cmi8330_pnp(int dev, struct snd_cmi8330 *acard,
 	if (acard->play == NULL)
 		return -EBUSY;
 
+	acard->mpu = pnp_request_card_device(card, id->devs[2].id, NULL);
+	if (acard->play == NULL)
+		return -EBUSY;
+
 	pdev = acard->cap;
 
 	err = pnp_activate_dev(pdev);
 	if (err < 0) {
-		snd_printk(KERN_ERR "CMI8330/C3D (AD1848) PnP configure failure\n");
+		snd_printk(KERN_ERR "CMI8330/C3D PnP configure failure\n");
 		return -EBUSY;
 	}
 	wssport[dev] = pnp_port_start(pdev, 0);
 	wssdma[dev] = pnp_dma(pdev, 0);
 	wssirq[dev] = pnp_irq(pdev, 0);
+	fmport[dev] = pnp_port_start(pdev, 1);
 
 	/* allocate SB16 resources */
 	pdev = acard->play;
@@ -319,6 +366,17 @@ static int __devinit snd_cmi8330_pnp(int dev, struct snd_cmi8330 *acard,
 	sbdma16[dev] = pnp_dma(pdev, 1);
 	sbirq[dev] = pnp_irq(pdev, 0);
 
+	/* allocate MPU-401 resources */
+	pdev = acard->mpu;
+
+	err = pnp_activate_dev(pdev);
+	if (err < 0) {
+		snd_printk(KERN_ERR
+			   "CMI8330/C3D (MPU-401) PnP configure failure\n");
+		return -EBUSY;
+	}
+	mpuport[dev] = pnp_port_start(pdev, 0);
+	mpuirq[dev] = pnp_irq(pdev, 0);
 	return 0;
 }
 #endif
@@ -385,7 +443,7 @@ static int __devinit snd_cmi8330_pcm(struct snd_card *card, struct snd_cmi8330 *
 	chip->streams[CMI_SB_STREAM].private_data = chip->sb;
 
 	/* AD1848 */
-	ops = snd_ad1848_get_pcm_ops(CMI_AD_STREAM);
+	ops = snd_wss_get_pcm_ops(CMI_AD_STREAM);
 	chip->streams[CMI_AD_STREAM].ops = *ops;
 	chip->streams[CMI_AD_STREAM].open = ops->open;
 	chip->streams[CMI_AD_STREAM].ops.open = cmi_open_callbacks[CMI_AD_STREAM];
@@ -439,39 +497,41 @@ static int snd_cmi8330_resume(struct snd_card *card)
 
 #define PFX	"cmi8330: "
 
-static struct snd_card *snd_cmi8330_card_new(int dev)
+static int snd_cmi8330_card_new(int dev, struct snd_card **cardp)
 {
 	struct snd_card *card;
 	struct snd_cmi8330 *acard;
+	int err;
 
-	card = snd_card_new(index[dev], id[dev], THIS_MODULE,
-			    sizeof(struct snd_cmi8330));
-	if (card == NULL) {
+	err = snd_card_create(index[dev], id[dev], THIS_MODULE,
+			      sizeof(struct snd_cmi8330), &card);
+	if (err < 0) {
 		snd_printk(KERN_ERR PFX "could not get a new card\n");
-		return NULL;
+		return err;
 	}
 	acard = card->private_data;
 	acard->card = card;
-	return card;
+	*cardp = card;
+	return 0;
 }
 
 static int __devinit snd_cmi8330_probe(struct snd_card *card, int dev)
 {
 	struct snd_cmi8330 *acard;
 	int i, err;
+	struct snd_opl3 *opl3;
 
 	acard = card->private_data;
-	if ((err = snd_ad1848_create(card,
-				     wssport[dev] + 4,
-				     wssirq[dev],
-				     wssdma[dev],
-				     AD1848_HW_DETECT,
-				     &acard->wss)) < 0) {
-		snd_printk(KERN_ERR PFX "(AD1848) device busy??\n");
+	err = snd_wss_create(card, wssport[dev] + 4, -1,
+			     wssirq[dev],
+			     wssdma[dev], -1,
+			     WSS_HW_DETECT, 0, &acard->wss);
+	if (err < 0) {
+		snd_printk(KERN_ERR PFX "(CMI8330) device busy??\n");
 		return err;
 	}
-	if (acard->wss->hardware != AD1848_HW_CMI8330) {
-		snd_printk(KERN_ERR PFX "(AD1848) not found during probe\n");
+	if (acard->wss->hardware != WSS_HW_CMI8330) {
+		snd_printk(KERN_ERR PFX "(CMI8330) not found during probe\n");
 		return -ENODEV;
 	}
 
@@ -489,9 +549,10 @@ static int __devinit snd_cmi8330_probe(struct snd_card *card, int dev)
 		return err;
 	}
 
-	snd_ad1848_out(acard->wss, AD1848_MISC_INFO, 0x40); /* switch on MODE2 */
+	snd_wss_out(acard->wss, CS4231_MISC_INFO, 0x40); /* switch on MODE2 */
 	for (i = CMI8330_RMUX3D; i <= CMI8330_CDINGAIN; i++)
-		snd_ad1848_out(acard->wss, i, snd_cmi8330_image[i - CMI8330_RMUX3D]);
+		snd_wss_out(acard->wss, i,
+			    snd_cmi8330_image[i - CMI8330_RMUX3D]);
 
 	if ((err = snd_cmi8330_mixer(card, acard)) < 0) {
 		snd_printk(KERN_ERR PFX "failed to create mixers\n");
@@ -501,6 +562,27 @@ static int __devinit snd_cmi8330_probe(struct snd_card *card, int dev)
 	if ((err = snd_cmi8330_pcm(card, acard)) < 0) {
 		snd_printk(KERN_ERR PFX "failed to create pcms\n");
 		return err;
+	}
+	if (fmport[dev] != SNDRV_AUTO_PORT) {
+		if (snd_opl3_create(card,
+				    fmport[dev], fmport[dev] + 2,
+				    OPL3_HW_AUTO, 0, &opl3) < 0) {
+			snd_printk(KERN_ERR PFX
+				   "no OPL device at 0x%lx-0x%lx ?\n",
+				   fmport[dev], fmport[dev] + 2);
+		} else {
+			err = snd_opl3_hwdep_new(opl3, 0, 1, NULL);
+			if (err < 0)
+				return err;
+		}
+	}
+
+	if (mpuport[dev] != SNDRV_AUTO_PORT) {
+		if (snd_mpu401_uart_new(card, 0, MPU401_HW_MPU401,
+					mpuport[dev], 0, mpuirq[dev],
+					IRQF_DISABLED, NULL) < 0)
+			printk(KERN_ERR PFX "no MPU-401 device at 0x%lx.\n",
+				mpuport[dev]);
 	}
 
 	strcpy(card->driver, "CMI8330/C3D");
@@ -536,9 +618,9 @@ static int __devinit snd_cmi8330_isa_probe(struct device *pdev,
 	struct snd_card *card;
 	int err;
 
-	card = snd_cmi8330_card_new(dev);
-	if (! card)
-		return -ENOMEM;
+	err = snd_cmi8330_card_new(dev, &card);
+	if (err < 0)
+		return err;
 	snd_card_set_dev(card, pdev);
 	if ((err = snd_cmi8330_probe(card, dev)) < 0) {
 		snd_card_free(card);
@@ -600,9 +682,9 @@ static int __devinit snd_cmi8330_pnp_detect(struct pnp_card_link *pcard,
 	if (dev >= SNDRV_CARDS)
 		return -ENODEV;
 			       
-	card = snd_cmi8330_card_new(dev);
-	if (! card)
-		return -ENOMEM;
+	res = snd_cmi8330_card_new(dev, &card);
+	if (res < 0)
+		return res;
 	if ((res = snd_cmi8330_pnp(dev, card->private_data, pcard, pid)) < 0) {
 		snd_printk(KERN_ERR PFX "PnP detection failed\n");
 		snd_card_free(card);

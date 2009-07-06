@@ -59,7 +59,7 @@
 #define DISPC_CONTROL		0x0040
 
 static struct {
-	u32		base;
+	void __iomem	*base;
 	void		(*lcdc_callback)(void *data);
 	void		*lcdc_callback_data;
 	unsigned long	l4_khz;
@@ -83,12 +83,14 @@ static inline u32 rfbi_read_reg(int idx)
 
 static int rfbi_get_clocks(void)
 {
-	if (IS_ERR((rfbi.dss_ick = clk_get(rfbi.fbdev->dev, "dss_ick")))) {
-		dev_err(rfbi.fbdev->dev, "can't get dss_ick\n");
+	rfbi.dss_ick = clk_get(rfbi.fbdev->dev, "ick");
+	if (IS_ERR(rfbi.dss_ick)) {
+		dev_err(rfbi.fbdev->dev, "can't get ick\n");
 		return PTR_ERR(rfbi.dss_ick);
 	}
 
-	if (IS_ERR((rfbi.dss1_fck = clk_get(rfbi.fbdev->dev, "dss1_fck")))) {
+	rfbi.dss1_fck = clk_get(rfbi.fbdev->dev, "dss1_fck");
+	if (IS_ERR(rfbi.dss1_fck)) {
 		dev_err(rfbi.fbdev->dev, "can't get dss1_fck\n");
 		clk_put(rfbi.dss_ick);
 		return PTR_ERR(rfbi.dss1_fck);
@@ -518,7 +520,11 @@ static int rfbi_init(struct omapfb_device *fbdev)
 	int r;
 
 	rfbi.fbdev = fbdev;
-	rfbi.base = io_p2v(RFBI_BASE);
+	rfbi.base = ioremap(RFBI_BASE, SZ_1K);
+	if (!rfbi.base) {
+		dev_err(fbdev->dev, "can't ioremap RFBI\n");
+		return -ENOMEM;
+	}
 
 	if ((r = rfbi_get_clocks()) < 0)
 		return r;
@@ -566,6 +572,7 @@ static void rfbi_cleanup(void)
 {
 	omap_dispc_free_irq();
 	rfbi_put_clocks();
+	iounmap(rfbi.base);
 }
 
 const struct lcd_ctrl_extif omap2_ext_if = {

@@ -27,9 +27,9 @@
 #include <linux/list.h>
 #include <linux/smp.h>
 #include <linux/cpumask.h>
+#include <linux/io.h>
 
 #include <asm/irq.h>
-#include <asm/io.h>
 #include <asm/mach/irq.h>
 #include <asm/hardware/gic.h>
 
@@ -109,11 +109,11 @@ static void gic_unmask_irq(unsigned int irq)
 }
 
 #ifdef CONFIG_SMP
-static void gic_set_cpu(unsigned int irq, cpumask_t mask_val)
+static void gic_set_cpu(unsigned int irq, const struct cpumask *mask_val)
 {
 	void __iomem *reg = gic_dist_base(irq) + GIC_DIST_TARGET + (gic_irq(irq) & ~3);
 	unsigned int shift = (irq % 4) * 8;
-	unsigned int cpu = first_cpu(mask_val);
+	unsigned int cpu = cpumask_first(mask_val);
 	u32 val;
 
 	spin_lock(&irq_controller_lock);
@@ -253,9 +253,9 @@ void __cpuinit gic_cpu_init(unsigned int gic_nr, void __iomem *base)
 }
 
 #ifdef CONFIG_SMP
-void gic_raise_softirq(cpumask_t cpumask, unsigned int irq)
+void gic_raise_softirq(const struct cpumask *mask, unsigned int irq)
 {
-	unsigned long map = *cpus_addr(cpumask);
+	unsigned long map = *cpus_addr(*mask);
 
 	/* this always happens on GIC0 */
 	writel(map << 16 | irq, gic_data[0].dist_base + GIC_DIST_SOFTINT);

@@ -21,8 +21,9 @@
 #define CPU_HAS_LLSC		0x0040	/* movli.l/movco.l */
 #define CPU_HAS_L2_CACHE	0x0080	/* Secondary cache / URAM */
 #define CPU_HAS_OP32		0x0100	/* 32-bit instruction support */
-#define CPU_HAS_ICBI		0x0200	/* icbi instruction */
-#define CPU_HAS_SYNCO		0x0400	/* synco instruction */
-#define CPU_HAS_FPCHG		0x0800	/* fpchg instruction */
+#define CPU_HAS_PTEAEX		0x0200	/* PTE ASID Extension support */
+#define CPU_HAS_ICBI		0x0400	/* icbi instruction */
+#define CPU_HAS_SYNCO		0x0800	/* synco instruction */
+#define CPU_HAS_FPCHG		0x1000	/* fpchg instruction */
 
 #endif /* __ASM_SH_CPU_FEATURES_H */

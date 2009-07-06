@@ -12,7 +12,7 @@
 #include <asm/desc.h>
 #include <asm/ftrace.h>
 
-#ifdef CONFIG_FTRACE
+#ifdef CONFIG_FUNCTION_TRACER
 /* mcount is defined in assembly */
 EXPORT_SYMBOL(mcount);
 #endif
@@ -58,5 +58,3 @@ EXPORT_SYMBOL(__memcpy);
 EXPORT_SYMBOL(empty_zero_page);
 EXPORT_SYMBOL(init_level4_pgt);
 EXPORT_SYMBOL(load_gs_index);
-
-EXPORT_SYMBOL(_proxy_pda);

@@ -6,6 +6,8 @@
  *  Author(s): Stefan Weinhuber <wein@de.ibm.com>
  */
 
+#define KMSG_COMPONENT "dasd"
+
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/kernel.h>
@@ -297,11 +299,12 @@ static void dasd_eer_write_standard_trigger(struct dasd_device *device,
 	struct dasd_eer_header header;
 	unsigned long flags;
 	struct eerbuffer *eerb;
+	char *sense;
 
 	/* go through cqr chain and count the valid sense data sets */
 	data_size = 0;
 	for (temp_cqr = cqr; temp_cqr; temp_cqr = temp_cqr->refers)
-		if (temp_cqr->irb.esw.esw0.erw.cons)
+		if (dasd_get_sense(&temp_cqr->irb))
 			data_size += 32;
 
 	header.total_size = sizeof(header) + data_size + 4; /* "EOR" */
@@ -309,15 +312,18 @@ static void dasd_eer_write_standard_trigger(struct dasd_device *device,
 	do_gettimeofday(&tv);
 	header.tv_sec = tv.tv_sec;
 	header.tv_usec = tv.tv_usec;
-	strncpy(header.busid, device->cdev->dev.bus_id, DASD_EER_BUSID_SIZE);
+	strncpy(header.busid, dev_name(&device->cdev->dev),
+		DASD_EER_BUSID_SIZE);
 
 	spin_lock_irqsave(&bufferlock, flags);
 	list_for_each_entry(eerb, &bufferlist, list) {
 		dasd_eer_start_record(eerb, header.total_size);
 		dasd_eer_write_buffer(eerb, (char *) &header, sizeof(header));
-		for (temp_cqr = cqr; temp_cqr; temp_cqr = temp_cqr->refers)
-			if (temp_cqr->irb.esw.esw0.erw.cons)
-				dasd_eer_write_buffer(eerb, cqr->irb.ecw, 32);
+		for (temp_cqr = cqr; temp_cqr; temp_cqr = temp_cqr->refers) {
+			sense = dasd_get_sense(&temp_cqr->irb);
+			if (sense)
+				dasd_eer_write_buffer(eerb, sense, 32);
+		}
 		dasd_eer_write_buffer(eerb, "EOR", 4);
 	}
 	spin_unlock_irqrestore(&bufferlock, flags);
@@ -349,7 +355,8 @@ static void dasd_eer_write_snss_trigger(struct dasd_device *device,
 	do_gettimeofday(&tv);
 	header.tv_sec = tv.tv_sec;
 	header.tv_usec = tv.tv_usec;
-	strncpy(header.busid, device->cdev->dev.bus_id, DASD_EER_BUSID_SIZE);
+	strncpy(header.busid, dev_name(&device->cdev->dev),
+		DASD_EER_BUSID_SIZE);
 
 	spin_lock_irqsave(&bufferlock, flags);
 	list_for_each_entry(eerb, &bufferlist, list) {
@@ -449,6 +456,7 @@ int dasd_eer_enable(struct dasd_device *device)
 {
 	struct dasd_ccw_req *cqr;
 	unsigned long flags;
+	struct ccw1 *ccw;
 
 	if (device->eer_cqr)
 		return 0;
@@ -466,10 +474,11 @@ int dasd_eer_enable(struct dasd_device *device)
 	cqr->expires = 10 * HZ;
 	clear_bit(DASD_CQR_FLAGS_USE_ERP, &cqr->flags);
 
-	cqr->cpaddr->cmd_code = DASD_ECKD_CCW_SNSS;
-	cqr->cpaddr->count = SNSS_DATA_SIZE;
-	cqr->cpaddr->flags = 0;
-	cqr->cpaddr->cda = (__u32)(addr_t) cqr->data;
+	ccw = cqr->cpaddr;
+	ccw->cmd_code = DASD_ECKD_CCW_SNSS;
+	ccw->count = SNSS_DATA_SIZE;
+	ccw->flags = 0;
+	ccw->cda = (__u32)(addr_t) cqr->data;
 
 	cqr->buildclk = get_clock();
 	cqr->status = DASD_CQR_FILLED;
@@ -532,9 +541,9 @@ static int dasd_eer_open(struct inode *inp, struct file *filp)
 	if (eerb->buffer_page_count < 1 ||
 	    eerb->buffer_page_count > INT_MAX / PAGE_SIZE) {
 		kfree(eerb);
-		MESSAGE(KERN_WARNING, "can't open device since module "
-			"parameter eer_pages is smaller then 1 or"
-			" bigger then %d", (int)(INT_MAX / PAGE_SIZE));
+		DBF_EVENT(DBF_WARNING, "can't open device since module "
+			"parameter eer_pages is smaller than 1 or"
+			" bigger than %d", (int)(INT_MAX / PAGE_SIZE));
 		unlock_kernel();
 		return -EINVAL;
 	}
@@ -685,7 +694,7 @@ int __init dasd_eer_init(void)
 	if (rc) {
 		kfree(dasd_eer_dev);
 		dasd_eer_dev = NULL;
-		MESSAGE(KERN_ERR, "%s", "dasd_eer_init could not "
+		DBF_EVENT(DBF_ERR, "%s", "dasd_eer_init could not "
 		       "register misc device");
 		return rc;
 	}

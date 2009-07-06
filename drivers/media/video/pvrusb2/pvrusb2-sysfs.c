@@ -65,6 +65,7 @@ struct pvr2_sysfs_ctl_item {
 	struct device_attribute attr_type;
 	struct device_attribute attr_min;
 	struct device_attribute attr_max;
+	struct device_attribute attr_def;
 	struct device_attribute attr_enum;
 	struct device_attribute attr_bits;
 	struct device_attribute attr_val;
@@ -143,6 +144,25 @@ static ssize_t show_max(struct device *class_dev,
 	pvr2_sysfs_trace("pvr2_sysfs(%p) show_max(cid=%d) is %ld",
 			 cip->chptr, cip->ctl_id, val);
 	return scnprintf(buf, PAGE_SIZE, "%ld\n", val);
+}
+
+static ssize_t show_def(struct device *class_dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	struct pvr2_sysfs_ctl_item *cip;
+	int val;
+	int ret;
+	unsigned int cnt = 0;
+	cip = container_of(attr, struct pvr2_sysfs_ctl_item, attr_def);
+	ret = pvr2_ctrl_get_def(cip->cptr, &val);
+	if (ret < 0) return ret;
+	ret = pvr2_ctrl_value_to_sym(cip->cptr, ~0, val,
+				     buf, PAGE_SIZE - 1, &cnt);
+	pvr2_sysfs_trace("pvr2_sysfs(%p) show_def(cid=%d) is %.*s (%d)",
+			 cip->chptr, cip->ctl_id, cnt, buf, val);
+	buf[cnt] = '\n';
+	return cnt + 1;
 }
 
 static ssize_t show_val_norm(struct device *class_dev,
@@ -320,6 +340,10 @@ static void pvr2_sysfs_add_control(struct pvr2_sysfs *sfp,int ctl_id)
 	cip->attr_max.attr.mode = S_IRUGO;
 	cip->attr_max.show = show_max;
 
+	cip->attr_def.attr.name = "def_val";
+	cip->attr_def.attr.mode = S_IRUGO;
+	cip->attr_def.show = show_def;
+
 	cip->attr_val.attr.name = "cur_val";
 	cip->attr_val.attr.mode = S_IRUGO;
 
@@ -343,6 +367,7 @@ static void pvr2_sysfs_add_control(struct pvr2_sysfs *sfp,int ctl_id)
 	cip->attr_gen[acnt++] = &cip->attr_name.attr;
 	cip->attr_gen[acnt++] = &cip->attr_type.attr;
 	cip->attr_gen[acnt++] = &cip->attr_val.attr;
+	cip->attr_gen[acnt++] = &cip->attr_def.attr;
 	cip->attr_val.show = show_val_norm;
 	cip->attr_val.store = store_val_norm;
 	if (pvr2_ctrl_has_custom_symbols(cptr)) {
@@ -604,16 +629,8 @@ static void class_dev_create(struct pvr2_sysfs *sfp,
 	pvr2_sysfs_trace("Creating class_dev id=%p",class_dev);
 
 	class_dev->class = &class_ptr->class;
-	if (pvr2_hdw_get_sn(sfp->channel.hdw)) {
-		snprintf(class_dev->bus_id, BUS_ID_SIZE, "sn-%lu",
-			 pvr2_hdw_get_sn(sfp->channel.hdw));
-	} else if (pvr2_hdw_get_unit_number(sfp->channel.hdw) >= 0) {
-		snprintf(class_dev->bus_id, BUS_ID_SIZE, "unit-%c",
-			 pvr2_hdw_get_unit_number(sfp->channel.hdw) + 'a');
-	} else {
-		kfree(class_dev);
-		return;
-	}
+	dev_set_name(class_dev, "%s",
+		     pvr2_hdw_get_device_identifier(sfp->channel.hdw));
 
 	class_dev->parent = &usb_dev->dev;
 

@@ -15,8 +15,8 @@
 #include <linux/device.h>
 #include <linux/leds.h>
 #include <linux/io.h>
-#include <asm/mb628/epld.h>
-#include "../../arch/sh/boards/st/common/common.h"
+#include <mach/epld.h>
+#include <mach/common.h>
 
 static void mb628_led_set(struct led_classdev *led_cdev,
 			  enum led_brightness brightness)

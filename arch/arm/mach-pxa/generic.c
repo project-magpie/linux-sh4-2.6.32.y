@@ -24,9 +24,11 @@
 #include <asm/system.h>
 #include <asm/pgtable.h>
 #include <asm/mach/map.h>
+#include <asm/mach-types.h>
 
-#include <mach/pxa-regs.h>
 #include <mach/reset.h>
+#include <mach/gpio.h>
+#include <mach/pxa2xx-gpio.h>
 
 #include "generic.h"
 
@@ -39,6 +41,21 @@ void clear_reset_status(unsigned int mask)
 		pxa3xx_clear_reset_status(mask);
 }
 
+unsigned long get_clock_tick_rate(void)
+{
+	unsigned long clock_tick_rate;
+
+	if (cpu_is_pxa25x())
+		clock_tick_rate = 3686400;
+	else if (machine_is_mainstone())
+		clock_tick_rate = 3249600;
+	else
+		clock_tick_rate = 3250000;
+
+	return clock_tick_rate;
+}
+EXPORT_SYMBOL(get_clock_tick_rate);
+
 /*
  * Get the clock frequency as reflected by CCCR and the turbo flag.
  * We assume these values have been applied via a fcs.
@@ -46,7 +63,7 @@ void clear_reset_status(unsigned int mask)
  */
 unsigned int get_clk_frequency_khz(int info)
 {
-	if (cpu_is_pxa21x() || cpu_is_pxa25x())
+	if (cpu_is_pxa25x())
 		return pxa25x_get_clk_frequency_khz(info);
 	else if (cpu_is_pxa27x())
 		return pxa27x_get_clk_frequency_khz(info);
@@ -60,7 +77,7 @@ EXPORT_SYMBOL(get_clk_frequency_khz);
  */
 unsigned int get_memclk_frequency_10khz(void)
 {
-	if (cpu_is_pxa21x() || cpu_is_pxa25x())
+	if (cpu_is_pxa25x())
 		return pxa25x_get_memclk_frequency_10khz();
 	else if (cpu_is_pxa27x())
 		return pxa27x_get_memclk_frequency_10khz();
@@ -88,11 +105,6 @@ static struct map_desc standard_io_desc[] __initdata = {
 		.pfn		= __phys_to_pfn(0x48000000),
 		.length		= 0x00200000,
 		.type		= MT_DEVICE
-	}, {	/* USB host */
-		.virtual	=  0xf8000000,
-		.pfn		= __phys_to_pfn(0x4c000000),
-		.length		= 0x00100000,
-		.type		= MT_DEVICE
 	}, {	/* Camera */
 		.virtual	=  0xfa000000,
 		.pfn		= __phys_to_pfn(0x50000000),
@@ -116,3 +128,33 @@ void __init pxa_map_io(void)
 	iotable_init(standard_io_desc, ARRAY_SIZE(standard_io_desc));
 	get_clk_frequency_khz(1);
 }
+
+/*
+ * Configure pins for GPIO or other functions
+ */
+int pxa_gpio_mode(int gpio_mode)
+{
+	unsigned long flags;
+	int gpio = gpio_mode & GPIO_MD_MASK_NR;
+	int fn = (gpio_mode & GPIO_MD_MASK_FN) >> 8;
+	int gafr;
+
+	if (gpio > pxa_last_gpio)
+		return -EINVAL;
+
+	local_irq_save(flags);
+	if (gpio_mode & GPIO_DFLT_LOW)
+		GPCR(gpio) = GPIO_bit(gpio);
+	else if (gpio_mode & GPIO_DFLT_HIGH)
+		GPSR(gpio) = GPIO_bit(gpio);
+	if (gpio_mode & GPIO_MD_MASK_DIR)
+		GPDR(gpio) |= GPIO_bit(gpio);
+	else
+		GPDR(gpio) &= ~GPIO_bit(gpio);
+	gafr = GAFR(gpio) & ~(0x3 << (((gpio) & 0xf)*2));
+	GAFR(gpio) = gafr |  (fn  << (((gpio) & 0xf)*2));
+	local_irq_restore(flags);
+
+	return 0;
+}
+EXPORT_SYMBOL(pxa_gpio_mode);

@@ -360,7 +360,7 @@ nlmsvc_defer_lock_rqst(struct svc_rqst *rqstp, struct nlm_block *block)
 __be32
 nlmsvc_lock(struct svc_rqst *rqstp, struct nlm_file *file,
 	    struct nlm_host *host, struct nlm_lock *lock, int wait,
-	    struct nlm_cookie *cookie)
+	    struct nlm_cookie *cookie, int reclaim)
 {
 	struct nlm_block	*block = NULL;
 	int			error;
@@ -406,6 +406,15 @@ nlmsvc_lock(struct svc_rqst *rqstp, struct nlm_file *file,
 		goto out;
 	}
 
+	if (locks_in_grace() && !reclaim) {
+		ret = nlm_lck_denied_grace_period;
+		goto out;
+	}
+	if (reclaim && !locks_in_grace()) {
+		ret = nlm_lck_denied_grace_period;
+		goto out;
+	}
+
 	if (!wait)
 		lock->fl.fl_flags &= ~FL_SLEEP;
 	error = vfs_lock_file(file->f_file, F_SETLK, &lock->fl, NULL);
@@ -417,6 +426,13 @@ nlmsvc_lock(struct svc_rqst *rqstp, struct nlm_file *file,
 			ret = nlm_granted;
 			goto out;
 		case -EAGAIN:
+			/*
+			 * If this is a blocking request for an
+			 * already pending lock request then we need
+			 * to put it back on lockd's block list
+			 */
+			if (wait)
+				break;
 			ret = nlm_lck_denied;
 			goto out;
 		case FILE_LOCK_DEFERRED:
@@ -502,6 +518,10 @@ nlmsvc_testlock(struct svc_rqst *rqstp, struct nlm_file *file,
 		goto out;
 	}
 
+	if (locks_in_grace()) {
+		ret = nlm_lck_denied_grace_period;
+		goto out;
+	}
 	error = vfs_test_lock(file->f_file, &lock->fl);
 	if (error == FILE_LOCK_DEFERRED) {
 		ret = nlmsvc_defer_lock_rqst(rqstp, block);
@@ -581,6 +601,9 @@ nlmsvc_cancel_blocked(struct nlm_file *file, struct nlm_lock *lock)
 				lock->fl.fl_pid,
 				(long long)lock->fl.fl_start,
 				(long long)lock->fl.fl_end);
+
+	if (locks_in_grace())
+		return nlm_lck_denied_grace_period;
 
 	mutex_lock(&file->f_mutex);
 	block = nlmsvc_lookup_block(file, lock);

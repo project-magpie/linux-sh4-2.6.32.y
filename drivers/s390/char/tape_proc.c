@@ -20,8 +20,6 @@
 
 #include "tape.h"
 
-#define PRINTK_HEADER "TAPE_PROC: "
-
 static const char *tape_med_st_verbose[MS_SIZE] =
 {
 	[MS_UNKNOWN] = "UNKNOWN ",
@@ -52,7 +50,7 @@ static int tape_proc_show(struct seq_file *m, void *v)
 		return 0;
 	spin_lock_irq(get_ccwdev_lock(device->cdev));
 	seq_printf(m, "%d\t", (int) n);
-	seq_printf(m, "%-10.10s ", device->cdev->dev.bus_id);
+	seq_printf(m, "%-10.10s ", dev_name(&device->cdev->dev));
 	seq_printf(m, "%04X/", device->cdev->id.cu_type);
 	seq_printf(m, "%02X\t", device->cdev->id.cu_model);
 	seq_printf(m, "%04X/", device->cdev->id.dev_type);
@@ -128,7 +126,6 @@ tape_proc_init(void)
 		proc_create("tapedevices", S_IFREG | S_IRUGO | S_IWUSR, NULL,
 			    &tape_proc_ops);
 	if (tape_proc_devices == NULL) {
-		PRINT_WARN("tape: Cannot register procfs entry tapedevices\n");
 		return;
 	}
 }

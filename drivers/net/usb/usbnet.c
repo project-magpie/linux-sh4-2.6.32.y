@@ -223,7 +223,7 @@ EXPORT_SYMBOL_GPL(usbnet_skb_return);
  *
  *-------------------------------------------------------------------------*/
 
-static int usbnet_change_mtu (struct net_device *net, int new_mtu)
+int usbnet_change_mtu (struct net_device *net, int new_mtu)
 {
 	struct usbnet	*dev = netdev_priv(net);
 	int		ll_mtu = new_mtu + net->hard_header_len;
@@ -246,14 +246,7 @@ static int usbnet_change_mtu (struct net_device *net, int new_mtu)
 
 	return 0;
 }
-
-/*-------------------------------------------------------------------------*/
-
-static struct net_device_stats *usbnet_get_stats (struct net_device *net)
-{
-	struct usbnet	*dev = netdev_priv(net);
-	return &dev->stats;
-}
+EXPORT_SYMBOL_GPL(usbnet_change_mtu);
 
 /*-------------------------------------------------------------------------*/
 
@@ -512,14 +505,13 @@ static int unlink_urbs (struct usbnet *dev, struct sk_buff_head *q)
 	int			count = 0;
 
 	spin_lock_irqsave (&q->lock, flags);
-	for (skb = q->next; skb != (struct sk_buff *) q; skb = skbnext) {
+	skb_queue_walk_safe(q, skb, skbnext) {
 		struct skb_data		*entry;
 		struct urb		*urb;
 		int			retval;
 
 		entry = (struct skb_data *) skb->cb;
 		urb = entry->urb;
-		skbnext = skb->next;
 
 		// during some PM-driven resume scenarios,
 		// these (async) unlinks complete immediately
@@ -549,7 +541,7 @@ EXPORT_SYMBOL_GPL(usbnet_unlink_rx_urbs);
 
 // precondition: never called in_interrupt
 
-static int usbnet_stop (struct net_device *net)
+int usbnet_stop (struct net_device *net)
 {
 	struct usbnet		*dev = netdev_priv(net);
 	int			temp;
@@ -593,6 +585,7 @@ static int usbnet_stop (struct net_device *net)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(usbnet_stop);
 
 /*-------------------------------------------------------------------------*/
 
@@ -600,7 +593,7 @@ static int usbnet_stop (struct net_device *net)
 
 // precondition: never called in_interrupt
 
-static int usbnet_open (struct net_device *net)
+int usbnet_open (struct net_device *net)
 {
 	struct usbnet		*dev = netdev_priv(net);
 	int			retval;
@@ -675,6 +668,7 @@ done:
 done_nopm:
 	return retval;
 }
+EXPORT_SYMBOL_GPL(usbnet_open);
 
 /*-------------------------------------------------------------------------*/
 
@@ -724,8 +718,8 @@ u32 usbnet_get_link (struct net_device *net)
 	if (dev->mii.mdio_read)
 		return mii_link_ok(&dev->mii);
 
-	/* Otherwise, say we're up (to avoid breaking scripts) */
-	return 1;
+	/* Otherwise, dtrt for drivers calling netif_carrier_{on,off} */
+	return ethtool_op_get_link(net);
 }
 EXPORT_SYMBOL_GPL(usbnet_get_link);
 
@@ -909,7 +903,7 @@ static void tx_complete (struct urb *urb)
 
 /*-------------------------------------------------------------------------*/
 
-static void usbnet_tx_timeout (struct net_device *net)
+void usbnet_tx_timeout (struct net_device *net)
 {
 	struct usbnet		*dev = netdev_priv(net);
 
@@ -918,10 +912,11 @@ static void usbnet_tx_timeout (struct net_device *net)
 
 	// FIXME: device recovery -- reset?
 }
+EXPORT_SYMBOL_GPL(usbnet_tx_timeout);
 
 /*-------------------------------------------------------------------------*/
 
-static int usbnet_start_xmit (struct sk_buff *skb, struct net_device *net)
+int usbnet_start_xmit (struct sk_buff *skb, struct net_device *net)
 {
 	struct usbnet		*dev = netdev_priv(net);
 	int			length;
@@ -1004,7 +999,7 @@ drop:
 	}
 	return retval;
 }
-
+EXPORT_SYMBOL_GPL(usbnet_start_xmit);
 
 /*-------------------------------------------------------------------------*/
 
@@ -1111,6 +1106,15 @@ void usbnet_disconnect (struct usb_interface *intf)
 }
 EXPORT_SYMBOL_GPL(usbnet_disconnect);
 
+static const struct net_device_ops usbnet_netdev_ops = {
+	.ndo_open		= usbnet_open,
+	.ndo_stop		= usbnet_stop,
+	.ndo_start_xmit		= usbnet_start_xmit,
+	.ndo_tx_timeout		= usbnet_tx_timeout,
+	.ndo_change_mtu		= usbnet_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
 
 /*-------------------------------------------------------------------------*/
 
@@ -1126,7 +1130,6 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	struct usb_device		*xdev;
 	int				status;
 	const char			*name;
-	DECLARE_MAC_BUF(mac);
 
 	name = udev->dev.driver->name;
 	info = (struct driver_info *) prod->driver_info;
@@ -1177,17 +1180,18 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 #if 0
 // dma_supported() is deeply broken on almost all architectures
 	// possible with some EHCI controllers
-	if (dma_supported (&udev->dev, DMA_64BIT_MASK))
+	if (dma_supported (&udev->dev, DMA_BIT_MASK(64)))
 		net->features |= NETIF_F_HIGHDMA;
 #endif
 
-	net->change_mtu = usbnet_change_mtu;
-	net->get_stats = usbnet_get_stats;
+	net->netdev_ops = &usbnet_netdev_ops;
+#ifdef CONFIG_COMPAT_NET_DEV_OPS
 	net->hard_start_xmit = usbnet_start_xmit;
 	net->open = usbnet_open;
 	net->stop = usbnet_stop;
-	net->watchdog_timeo = TX_TIMEOUT_JIFFIES;
 	net->tx_timeout = usbnet_tx_timeout;
+#endif
+	net->watchdog_timeo = TX_TIMEOUT_JIFFIES;
 	net->ethtool_ops = &usbnet_ethtool_ops;
 
 	// allow device-specific bind/init procedures
@@ -1237,11 +1241,11 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	if (status)
 		goto out3;
 	if (netif_msg_probe (dev))
-		devinfo (dev, "register '%s' at usb-%s-%s, %s, %s",
+		devinfo (dev, "register '%s' at usb-%s-%s, %s, %pM",
 			udev->dev.driver->name,
 			xdev->bus->bus_name, xdev->devpath,
 			dev->driver_info->description,
-			print_mac(mac, net->dev_addr));
+			net->dev_addr);
 
 	// ok, it's ready to go.
 	usb_set_intfdata (udev, dev);

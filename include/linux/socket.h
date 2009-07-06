@@ -24,10 +24,12 @@ struct __kernel_sockaddr_storage {
 #include <linux/types.h>		/* pid_t			*/
 #include <linux/compiler.h>		/* __user			*/
 
-#ifdef CONFIG_PROC_FS
+#ifdef __KERNEL__
+# ifdef CONFIG_PROC_FS
 struct seq_file;
 extern void socket_seq_show(struct seq_file *seq);
-#endif
+# endif
+#endif /* __KERNEL__ */
 
 typedef unsigned short	sa_family_t;
 
@@ -179,6 +181,7 @@ struct ucred {
 #define AF_ASH		18	/* Ash				*/
 #define AF_ECONET	19	/* Acorn Econet			*/
 #define AF_ATMSVC	20	/* ATM SVCs			*/
+#define AF_RDS		21	/* RDS sockets 			*/
 #define AF_SNA		22	/* Linux SNA Project (nutters!) */
 #define AF_IRDA		23	/* IRDA sockets			*/
 #define AF_PPPOX	24	/* PPPoX sockets		*/
@@ -190,7 +193,8 @@ struct ucred {
 #define AF_IUCV		32	/* IUCV sockets			*/
 #define AF_RXRPC	33	/* RxRPC sockets 		*/
 #define AF_ISDN		34	/* mISDN sockets 		*/
-#define AF_MAX		35	/* For now.. */
+#define AF_PHONET	35	/* Phonet sockets		*/
+#define AF_MAX		36	/* For now.. */
 
 /* Protocol families, same as address families. */
 #define PF_UNSPEC	AF_UNSPEC
@@ -216,6 +220,7 @@ struct ucred {
 #define PF_ASH		AF_ASH
 #define PF_ECONET	AF_ECONET
 #define PF_ATMSVC	AF_ATMSVC
+#define PF_RDS		AF_RDS
 #define PF_SNA		AF_SNA
 #define PF_IRDA		AF_IRDA
 #define PF_PPPOX	AF_PPPOX
@@ -227,6 +232,7 @@ struct ucred {
 #define PF_IUCV		AF_IUCV
 #define PF_RXRPC	AF_RXRPC
 #define PF_ISDN		AF_ISDN
+#define PF_PHONET	AF_PHONET
 #define PF_MAX		AF_MAX
 
 /* Maximum queue length specifiable by listen.  */
@@ -295,6 +301,8 @@ struct ucred {
 #define SOL_RXRPC	272
 #define SOL_PPPOL2TP	273
 #define SOL_BLUETOOTH	274
+#define SOL_PNPIPE	275
+#define SOL_RDS		276
 
 /* IPX options */
 #define IPX_TYPE	1

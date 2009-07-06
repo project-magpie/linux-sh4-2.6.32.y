@@ -1176,7 +1176,6 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 
 i2c_hard_wired:
 	pdev->dev.driver_data = i2c_stm;
-	i2c_stm->adapter.id = I2C_HW_STM_SSC;
 	i2c_stm->adapter.timeout = 2;
 	i2c_stm->adapter.retries = 0;
 	i2c_stm->adapter.class = I2C_CLASS_ALL;

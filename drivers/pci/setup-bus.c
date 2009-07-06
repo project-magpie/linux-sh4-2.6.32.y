@@ -27,7 +27,7 @@
 #include <linux/slab.h>
 
 
-static void pbus_assign_resources_sorted(struct pci_bus *bus)
+static void pbus_assign_resources_sorted(const struct pci_bus *bus)
 {
 	struct pci_dev *dev;
 	struct resource *res;
@@ -143,6 +143,9 @@ static void pci_setup_bridge(struct pci_bus *bus)
 	struct pci_dev *bridge = bus->self;
 	struct pci_bus_region region;
 	u32 l, bu, lu, io_upper16;
+
+	if (pci_is_enabled(bridge))
+		return;
 
 	dev_info(&bridge->dev, "PCI bridge, secondary bus %04x:%02x\n",
 		 pci_domain_nr(bus), bus->number);
@@ -299,7 +302,7 @@ static void pbus_size_io(struct pci_bus *bus)
 
 			if (r->parent || !(r->flags & IORESOURCE_IO))
 				continue;
-			r_size = r->end - r->start + 1;
+			r_size = resource_size(r);
 
 			if (r_size < 0x400)
 				/* Might be re-aligned for ISA */
@@ -350,15 +353,13 @@ static int pbus_size_mem(struct pci_bus *bus, unsigned long mask, unsigned long 
 
 			if (r->parent || (r->flags & mask) != type)
 				continue;
-			r_size = r->end - r->start + 1;
+			r_size = resource_size(r);
 			/* For bridges size != alignment */
-			align = (i < PCI_BRIDGE_RESOURCES) ? r_size : r->start;
+			align = resource_alignment(r);
 			order = __ffs(align) - 20;
 			if (order > 11) {
-				dev_warn(&dev->dev, "BAR %d too large: "
-				       "%#016llx-%#016llx\n", i,
-				       (unsigned long long)r->start,
-				       (unsigned long long)r->end);
+				dev_warn(&dev->dev, "BAR %d bad alignment %llx: "
+					 "%pR\n", i, (unsigned long long)align, r);
 				r->flags = 0;
 				continue;
 			}
@@ -377,11 +378,10 @@ static int pbus_size_mem(struct pci_bus *bus, unsigned long mask, unsigned long 
 	align = 0;
 	min_align = 0;
 	for (order = 0; order <= max_order; order++) {
-#ifdef CONFIG_RESOURCES_64BIT
-		resource_size_t align1 = 1ULL << (order + 20);
-#else
-		resource_size_t align1 = 1U << (order + 20);
-#endif
+		resource_size_t align1 = 1;
+
+		align1 <<= (order + 20);
+
 		if (!align)
 			min_align = align1;
 		else if (ALIGN(align + min_align, min_align) < align1)
@@ -498,7 +498,7 @@ void __ref pci_bus_size_bridges(struct pci_bus *bus)
 }
 EXPORT_SYMBOL(pci_bus_size_bridges);
 
-void __ref pci_bus_assign_resources(struct pci_bus *bus)
+void __ref pci_bus_assign_resources(const struct pci_bus *bus)
 {
 	struct pci_bus *b;
 	struct pci_dev *dev;
@@ -536,10 +536,13 @@ static void pci_bus_dump_res(struct pci_bus *bus)
 
         for (i = 0; i < PCI_BUS_NUM_RESOURCES; i++) {
                 struct resource *res = bus->resource[i];
-                if (!res)
+                if (!res || !res->end)
                         continue;
 
-		printk(KERN_INFO "bus: %02x index %x %s: [%llx, %llx]\n", bus->number, i, (res->flags & IORESOURCE_IO)? "io port":"mmio", res->start, res->end);
+		dev_printk(KERN_DEBUG, &bus->dev, "resource %d %s %pR\n", i,
+			   (res->flags & IORESOURCE_IO) ? "io: " :
+			    ((res->flags & IORESOURCE_PREFETCH)? "pref mem":"mem:"),
+			   res);
         }
 }
 

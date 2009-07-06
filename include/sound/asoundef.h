@@ -3,7 +3,7 @@
 
 /*
  *  Advanced Linux Sound Architecture - ALSA - Driver
- *  Copyright (c) 1994-2000 by Jaroslav Kysela <perex@suse.cz>
+ *  Copyright (c) 1994-2000 by Jaroslav Kysela <perex@perex.cz>
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -141,14 +141,14 @@
 #define IEC958_AES3_CON_CLOCK_1000PPM	(0<<4)	/* 1000 ppm */
 #define IEC958_AES3_CON_CLOCK_50PPM	(1<<4)	/* 50 ppm */
 #define IEC958_AES3_CON_CLOCK_VARIABLE	(2<<4)	/* variable pitch */
-#define IEC958_AES4_CON_MAX_WORDLEN_24  (1<<0)  /* 0 = 20-bit, 1 = 24-bit */
-#define IEC958_AES4_CON_WORDLEN         (7<<1)  /* mask - sample word length */
-#define IEC958_AES4_CON_WORDLEN_NOTID   (0<<1)  /* not indicated */
-#define IEC958_AES4_CON_WORDLEN_20_16   (1<<1)  /* 20-bit or 16-bit */
-#define IEC958_AES4_CON_WORDLEN_22_18   (2<<1)  /* 22-bit or 18-bit */
-#define IEC958_AES4_CON_WORDLEN_23_19   (4<<1)  /* 23-bit or 19-bit */
-#define IEC958_AES4_CON_WORDLEN_24_20   (5<<1)  /* 24-bit or 20-bit */
-#define IEC958_AES4_CON_WORDLEN_21_17   (6<<1)  /* 21-bit or 17-bit */
+#define IEC958_AES4_CON_MAX_WORDLEN_24	(1<<0)	/* 0 = 20-bit, 1 = 24-bit */
+#define IEC958_AES4_CON_WORDLEN		(7<<1)	/* mask - sample word length */
+#define IEC958_AES4_CON_WORDLEN_NOTID	(0<<1)	/* not indicated */
+#define IEC958_AES4_CON_WORDLEN_20_16	(1<<1)	/* 20-bit or 16-bit */
+#define IEC958_AES4_CON_WORDLEN_22_18	(2<<1)	/* 22-bit or 18-bit */
+#define IEC958_AES4_CON_WORDLEN_23_19	(4<<1)	/* 23-bit or 19-bit */
+#define IEC958_AES4_CON_WORDLEN_24_20	(5<<1)	/* 24-bit or 20-bit */
+#define IEC958_AES4_CON_WORDLEN_21_17	(6<<1)	/* 21-bit or 17-bit */
 #define IEC958_AES4_CON_ORIGFS		(15<<4)	/* mask - original sample frequency */
 #define IEC958_AES4_CON_ORIGFS_NOTID	(0<<4)	/* not indicated */
 #define IEC958_AES4_CON_ORIGFS_192000	(1<<4)	/* 192kHz */

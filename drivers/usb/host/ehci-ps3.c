@@ -81,7 +81,7 @@ static int ps3_ehci_probe(struct ps3_system_bus_device *dev)
 	int result;
 	struct usb_hcd *hcd;
 	unsigned int virq;
-	static u64 dummy_mask = DMA_32BIT_MASK;
+	static u64 dummy_mask = DMA_BIT_MASK(32);
 
 	if (usb_disabled()) {
 		result = -ENODEV;
@@ -205,6 +205,7 @@ static int ps3_ehci_remove(struct ps3_system_bus_device *dev)
 
 	tmp = hcd->irq;
 
+	ehci_shutdown(hcd);
 	usb_remove_hcd(hcd);
 
 	ps3_system_bus_set_driver_data(dev, NULL);

@@ -2357,7 +2357,8 @@ static int snd_cmipci_uswitch_get(struct snd_kcontrol *kcontrol,
 {
 	struct cmipci_switch_args *args;
 	args = (struct cmipci_switch_args *)kcontrol->private_value;
-	snd_assert(args != NULL, return -EINVAL);
+	if (snd_BUG_ON(!args))
+		return -EINVAL;
 	return _snd_cmipci_uswitch_get(kcontrol, ucontrol, args);
 }
 
@@ -2401,7 +2402,8 @@ static int snd_cmipci_uswitch_put(struct snd_kcontrol *kcontrol,
 {
 	struct cmipci_switch_args *args;
 	args = (struct cmipci_switch_args *)kcontrol->private_value;
-	snd_assert(args != NULL, return -EINVAL);
+	if (snd_BUG_ON(!args))
+		return -EINVAL;
 	return _snd_cmipci_uswitch_put(kcontrol, ucontrol, args);
 }
 
@@ -2662,7 +2664,8 @@ static int __devinit snd_cmipci_mixer_new(struct cmipci *cm, int pcm_spdif_devic
 	unsigned int idx;
 	int err;
 
-	snd_assert(cm != NULL && cm->card != NULL, return -EINVAL);
+	if (snd_BUG_ON(!cm || !cm->card))
+		return -EINVAL;
 
 	card = cm->card;
 
@@ -3011,7 +3014,7 @@ static int __devinit snd_cmipci_create(struct snd_card *card, struct pci_dev *pc
 		.dev_free =	snd_cmipci_dev_free,
 	};
 	unsigned int val;
-	long iomidi;
+	long iomidi = 0;
 	int integrated_midi = 0;
 	char modelstr[16];
 	int pcm_index, pcm_spdif_index;
@@ -3269,9 +3272,9 @@ static int __devinit snd_cmipci_probe(struct pci_dev *pci,
 		return -ENOENT;
 	}
 
-	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
-	if (card == NULL)
-		return -ENOMEM;
+	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
+	if (err < 0)
+		return err;
 	
 	switch (pci->device) {
 	case PCI_DEVICE_ID_CMEDIA_CM8738:

@@ -538,7 +538,7 @@ static int __init st_coproc_init(void)
 					device_create_file(&pdev->dev, &dev_attr_running))
 				printk(KERN_ERR "Error to add attribute to the coprocessor device\n");
 			/* Create the device file via Discovery System */
-			cop->class_dev = class_device_create(coproc_dev_class, NULL,
+			cop->class_dev = device_create(coproc_dev_class, NULL,
 						MKDEV(COPROCESSOR_MAJOR,pdev->id),
 						NULL,"st231-%d", pdev->id);
 		}

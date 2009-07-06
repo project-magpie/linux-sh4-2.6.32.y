@@ -38,29 +38,12 @@ MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
-static int __devinit aer_probe (struct pcie_device *dev,
-	const struct pcie_port_service_id *id );
+static int __devinit aer_probe (struct pcie_device *dev);
 static void aer_remove(struct pcie_device *dev);
-static int aer_suspend(struct pcie_device *dev, pm_message_t state)
-{return 0;}
-static int aer_resume(struct pcie_device *dev) {return 0;}
 static pci_ers_result_t aer_error_detected(struct pci_dev *dev,
 	enum pci_channel_state error);
 static void aer_error_resume(struct pci_dev *dev);
 static pci_ers_result_t aer_root_reset(struct pci_dev *dev);
-
-/*
- * PCI Express bus's AER Root service driver data structure
- */
-static struct pcie_port_service_id aer_id[] = {
-	{
-	.vendor 	= PCI_ANY_ID,
-	.device 	= PCI_ANY_ID,
-	.port_type 	= PCIE_RC_PORT,
-	.service_type 	= PCIE_PORT_SERVICE_AER,
-	},
-	{ /* end: all zeroes */ }
-};
 
 static struct pci_error_handlers aer_error_handlers = {
 	.error_detected = aer_error_detected,
@@ -69,13 +52,11 @@ static struct pci_error_handlers aer_error_handlers = {
 
 static struct pcie_port_service_driver aerdriver = {
 	.name		= "aer",
-	.id_table	= &aer_id[0],
+	.port_type	= PCIE_ANY_PORT,
+	.service	= PCIE_PORT_SERVICE_AER,
 
 	.probe		= aer_probe,
 	.remove		= aer_remove,
-
-	.suspend	= aer_suspend,
-	.resume		= aer_resume,
 
 	.err_handler	= &aer_error_handlers,
 
@@ -105,7 +86,7 @@ static irqreturn_t aer_irq(int irq, void *context)
 	unsigned long flags;
 	int pos;
 
-	pos = pci_find_aer_capability(pdev->port);
+	pos = pci_find_ext_capability(pdev->port, PCI_EXT_CAP_ID_ERR);
 	/*
 	 * Must lock access to Root Error Status Reg, Root Error ID Reg,
 	 * and Root error producer/consumer index
@@ -207,8 +188,7 @@ static void aer_remove(struct pcie_device *dev)
  *
  * Invoked when PCI Express bus loads AER service driver.
  **/
-static int __devinit aer_probe (struct pcie_device *dev,
-				const struct pcie_port_service_id *id )
+static int __devinit aer_probe (struct pcie_device *dev)
 {
 	int status;
 	struct aer_rpc *rpc;
@@ -252,7 +232,7 @@ static pci_ers_result_t aer_root_reset(struct pci_dev *dev)
 	u32 status;
 	int pos;
 
-	pos = pci_find_aer_capability(dev);
+	pos = pci_find_ext_capability(dev, PCI_EXT_CAP_ID_ERR);
 
 	/* Disable Root's interrupt in response to error messages */
 	pci_write_config_dword(dev, pos + PCI_ERR_ROOT_COMMAND, 0);
@@ -316,7 +296,7 @@ static void aer_error_resume(struct pci_dev *dev)
 	pci_write_config_word(dev, pos + PCI_EXP_DEVSTA, reg16);
 
 	/* Clean AER Root Error Status */
-	pos = pci_find_aer_capability(dev);
+	pos = pci_find_ext_capability(dev, PCI_EXT_CAP_ID_ERR);
 	pci_read_config_dword(dev, pos + PCI_ERR_UNCOR_STATUS, &status);
 	pci_read_config_dword(dev, pos + PCI_ERR_UNCOR_SEVER, &mask);
 	if (dev->error_state == pci_channel_io_normal)

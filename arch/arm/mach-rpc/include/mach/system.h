@@ -7,16 +7,16 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+#include <linux/io.h>
 #include <mach/hardware.h>
 #include <asm/hardware/iomd.h>
-#include <asm/io.h>
 
 static inline void arch_idle(void)
 {
 	cpu_do_idle();
 }
 
-static inline void arch_reset(char mode)
+static inline void arch_reset(char mode, const char *cmd)
 {
 	iomd_writeb(0, IOMD_ROMCR0);
 

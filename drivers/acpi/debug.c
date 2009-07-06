@@ -9,15 +9,9 @@
 #include <linux/moduleparam.h>
 #include <asm/uaccess.h>
 #include <acpi/acpi_drivers.h>
-#include <acpi/acglobal.h>
 
 #define _COMPONENT		ACPI_SYSTEM_COMPONENT
 ACPI_MODULE_NAME("debug");
-
-#ifdef MODULE_PARAM_PREFIX
-#undef MODULE_PARAM_PREFIX
-#endif
-#define MODULE_PARAM_PREFIX "acpi."
 
 struct acpi_dlayer {
 	const char *name;
@@ -44,11 +38,24 @@ static const struct acpi_dlayer acpi_debug_layers[] = {
 	ACPI_DEBUG_INIT(ACPI_CA_DISASSEMBLER),
 	ACPI_DEBUG_INIT(ACPI_COMPILER),
 	ACPI_DEBUG_INIT(ACPI_TOOLS),
+
+	ACPI_DEBUG_INIT(ACPI_BUS_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_AC_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_BATTERY_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_BUTTON_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_SBS_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_FAN_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_PCI_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_POWER_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_CONTAINER_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_SYSTEM_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_THERMAL_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_MEMORY_DEVICE_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_VIDEO_COMPONENT),
+	ACPI_DEBUG_INIT(ACPI_PROCESSOR_COMPONENT),
 };
 
 static const struct acpi_dlevel acpi_debug_levels[] = {
-	ACPI_DEBUG_INIT(ACPI_LV_ERROR),
-	ACPI_DEBUG_INIT(ACPI_LV_WARN),
 	ACPI_DEBUG_INIT(ACPI_LV_INIT),
 	ACPI_DEBUG_INIT(ACPI_LV_DEBUG_OBJECT),
 	ACPI_DEBUG_INIT(ACPI_LV_INFO),
@@ -285,16 +292,14 @@ acpi_system_write_debug(struct file *file,
 
 	return count;
 }
+#endif
 
-static int __init acpi_debug_init(void)
+int __init acpi_debug_init(void)
 {
+#ifdef CONFIG_ACPI_PROCFS
 	struct proc_dir_entry *entry;
 	int error = 0;
 	char *name;
-
-
-	if (acpi_disabled)
-		return 0;
 
 	/* 'debug_layer' [R/W] */
 	name = ACPI_SYSTEM_FILE_DEBUG_LAYER;
@@ -326,7 +331,7 @@ static int __init acpi_debug_init(void)
 	remove_proc_entry(ACPI_SYSTEM_FILE_DEBUG_LAYER, acpi_root_dir);
 	error = -ENODEV;
 	goto Done;
-}
-
-subsys_initcall(acpi_debug_init);
+#else
+	return 0;
 #endif
+}

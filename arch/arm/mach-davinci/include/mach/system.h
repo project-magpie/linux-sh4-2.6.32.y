@@ -11,7 +11,7 @@
 #ifndef __ASM_ARCH_SYSTEM_H
 #define __ASM_ARCH_SYSTEM_H
 
-#include <asm/io.h>
+#include <linux/io.h>
 #include <mach/hardware.h>
 
 extern void davinci_watchdog_reset(void);
@@ -21,7 +21,7 @@ static void arch_idle(void)
 	cpu_do_idle();
 }
 
-static void arch_reset(char mode)
+static void arch_reset(char mode, const char *cmd)
 {
 	davinci_watchdog_reset();
 }

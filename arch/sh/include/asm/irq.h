@@ -35,6 +35,9 @@ void make_imask_irq(unsigned int irq);
 
 #define irq_canonicalize(irq)	(irq)
 
+void init_IRQ(void);
+asmlinkage int do_IRQ(unsigned int irq, struct pt_regs *regs);
+
 #ifdef CONFIG_IRQSTACKS
 extern void irq_ctx_init(int cpu);
 extern void irq_ctx_exit(int cpu);

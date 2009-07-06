@@ -677,7 +677,7 @@ static int stpio_init_port(struct platform_device *pdev, int early)
 		}
 
 #ifdef CONFIG_GPIOLIB
-		port->gpio_chip.label = pdev->dev.bus_id;
+		port->gpio_chip.label = dev_name(&pdev->dev);
 		port->gpio_chip.direction_input = stpio_gpio_direction_input;
 		port->gpio_chip.get = stpio_gpio_get;
 		port->gpio_chip.direction_output = stpio_gpio_direction_output;

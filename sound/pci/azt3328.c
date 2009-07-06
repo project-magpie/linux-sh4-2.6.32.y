@@ -211,25 +211,25 @@ MODULE_SUPPORTED_DEVICE("{{Aztech,AZF3328}}");
 #endif
 
 #if DEBUG_MIXER
-#define snd_azf3328_dbgmixer(format, args...) printk(format, ##args)
+#define snd_azf3328_dbgmixer(format, args...) printk(KERN_DEBUG format, ##args)
 #else
 #define snd_azf3328_dbgmixer(format, args...)
 #endif
 
 #if DEBUG_PLAY_REC
-#define snd_azf3328_dbgplay(format, args...) printk(KERN_ERR format, ##args)
+#define snd_azf3328_dbgplay(format, args...) printk(KERN_DEBUG format, ##args)
 #else
 #define snd_azf3328_dbgplay(format, args...)
 #endif
 
 #if DEBUG_MISC
-#define snd_azf3328_dbgtimer(format, args...) printk(KERN_ERR format, ##args)
+#define snd_azf3328_dbgtimer(format, args...) printk(KERN_DEBUG format, ##args)
 #else
 #define snd_azf3328_dbgtimer(format, args...)
 #endif
 
 #if DEBUG_GAME
-#define snd_azf3328_dbggame(format, args...) printk(KERN_ERR format, ##args)
+#define snd_azf3328_dbggame(format, args...) printk(KERN_DEBUG format, ##args)
 #else
 #define snd_azf3328_dbggame(format, args...)
 #endif
@@ -816,7 +816,8 @@ snd_azf3328_mixer_new(struct snd_azf3328 *chip)
 	int err;
 
 	snd_azf3328_dbgcallenter();
-	snd_assert(chip != NULL && chip->card != NULL, return -EINVAL);
+	if (snd_BUG_ON(!chip || !chip->card))
+		return -EINVAL;
 
 	card = chip->card;
 
@@ -1471,7 +1472,8 @@ snd_azf3328_gameport_cooked_read(struct gameport *gameport,
 	u8 val;
 	unsigned long flags;
 
-	snd_assert(chip, return 0);
+	if (snd_BUG_ON(!chip))
+		return 0;
 
 	spin_lock_irqsave(&chip->reg_lock, flags);
 	val = snd_azf3328_game_inb(chip, IDX_GAME_LEGACY_COMPATIBLE);
@@ -2123,8 +2125,8 @@ snd_azf3328_create(struct snd_card *card,
 	chip->irq = -1;
 
 	/* check if we can restrict PCI DMA transfers to 24 bits */
-	if (pci_set_dma_mask(pci, DMA_24BIT_MASK) < 0 ||
-	    pci_set_consistent_dma_mask(pci, DMA_24BIT_MASK) < 0) {
+	if (pci_set_dma_mask(pci, DMA_BIT_MASK(24)) < 0 ||
+	    pci_set_consistent_dma_mask(pci, DMA_BIT_MASK(24)) < 0) {
 		snd_printk(KERN_ERR "architecture does not support "
 					"24bit PCI busmaster DMA\n"
 		);
@@ -2214,9 +2216,9 @@ snd_azf3328_probe(struct pci_dev *pci, const struct pci_device_id *pci_id)
 		return -ENOENT;
 	}
 
-	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
-	if (card == NULL)
-		return -ENOMEM;
+	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
+	if (err < 0)
+		return err;
 
 	strcpy(card->driver, "AZF3328");
 	strcpy(card->shortname, "Aztech AZF3328 (PCI168)");

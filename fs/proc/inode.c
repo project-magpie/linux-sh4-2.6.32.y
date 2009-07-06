@@ -35,16 +35,13 @@ struct proc_dir_entry *de_get(struct proc_dir_entry *de)
  */
 void de_put(struct proc_dir_entry *de)
 {
-	lock_kernel();
 	if (!atomic_read(&de->count)) {
 		printk("de_put: entry %s already free!\n", de->name);
-		unlock_kernel();
 		return;
 	}
 
 	if (atomic_dec_and_test(&de->count))
 		free_proc_entry(de);
-	unlock_kernel();
 }
 
 /*
@@ -61,11 +58,8 @@ static void proc_delete_inode(struct inode *inode)
 
 	/* Let go of any associated proc directory entry */
 	de = PROC_I(inode)->pde;
-	if (de) {
-		if (de->owner)
-			module_put(de->owner);
+	if (de)
 		de_put(de);
-	}
 	if (PROC_I(inode)->sysctl)
 		sysctl_head_put(PROC_I(inode)->sysctl);
 	clear_inode(inode);
@@ -106,14 +100,13 @@ static void init_once(void *foo)
 	inode_init_once(&ei->vfs_inode);
 }
 
-int __init proc_init_inodecache(void)
+void __init proc_init_inodecache(void)
 {
 	proc_inode_cachep = kmem_cache_create("proc_inode_cache",
 					     sizeof(struct proc_inode),
 					     0, (SLAB_RECLAIM_ACCOUNT|
 						SLAB_MEM_SPREAD|SLAB_PANIC),
 					     init_once);
-	return 0;
 }
 
 static const struct super_operations proc_sops = {
@@ -131,7 +124,7 @@ static void __pde_users_dec(struct proc_dir_entry *pde)
 		complete(pde->pde_unload_completion);
 }
 
-static void pde_users_dec(struct proc_dir_entry *pde)
+void pde_users_dec(struct proc_dir_entry *pde)
 {
 	spin_lock(&pde->pde_unload_lock);
 	__pde_users_dec(pde);
@@ -342,7 +335,7 @@ static int proc_reg_open(struct inode *inode, struct file *file)
 	if (!pde->proc_fops) {
 		spin_unlock(&pde->pde_unload_lock);
 		kfree(pdeo);
-		return rv;
+		return -EINVAL;
 	}
 	pde->pde_users++;
 	open = pde->proc_fops->open;
@@ -453,12 +446,9 @@ struct inode *proc_get_inode(struct super_block *sb, unsigned int ino,
 {
 	struct inode * inode;
 
-	if (!try_module_get(de->owner))
-		goto out_mod;
-
 	inode = iget_locked(sb, ino);
 	if (!inode)
-		goto out_ino;
+		return NULL;
 	if (inode->i_state & I_NEW) {
 		inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME;
 		PROC_I(inode)->fd = 0;
@@ -490,13 +480,8 @@ struct inode *proc_get_inode(struct super_block *sb, unsigned int ino,
 		}
 		unlock_new_inode(inode);
 	} else
-	       module_put(de->owner);
+	       de_put(de);
 	return inode;
-
-out_ino:
-	module_put(de->owner);
-out_mod:
-	return NULL;
 }			
 
 int proc_fill_super(struct super_block *s)

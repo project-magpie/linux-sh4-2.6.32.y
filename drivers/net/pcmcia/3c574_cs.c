@@ -257,6 +257,18 @@ static void tc574_detach(struct pcmcia_device *p_dev);
 	local data structures for one device.  The device is registered
 	with Card Services.
 */
+static const struct net_device_ops el3_netdev_ops = {
+	.ndo_open 		= el3_open,
+	.ndo_stop 		= el3_close,
+	.ndo_start_xmit		= el3_start_xmit,
+	.ndo_tx_timeout 	= el3_tx_timeout,
+	.ndo_get_stats		= el3_get_stats,
+	.ndo_do_ioctl		= el3_ioctl,
+	.ndo_set_multicast_list = set_rx_mode,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
 
 static int tc574_probe(struct pcmcia_device *link)
 {
@@ -284,18 +296,9 @@ static int tc574_probe(struct pcmcia_device *link)
 	link->conf.IntType = INT_MEMORY_AND_IO;
 	link->conf.ConfigIndex = 1;
 
-	/* The EL3-specific entries in the device structure. */
-	dev->hard_start_xmit = &el3_start_xmit;
-	dev->get_stats = &el3_get_stats;
-	dev->do_ioctl = &el3_ioctl;
+	dev->netdev_ops = &el3_netdev_ops;
 	SET_ETHTOOL_OPS(dev, &netdev_ethtool_ops);
-	dev->set_multicast_list = &set_rx_mode;
-	dev->open = &el3_open;
-	dev->stop = &el3_close;
-#ifdef HAVE_TX_TIMEOUT
-	dev->tx_timeout = el3_tx_timeout;
 	dev->watchdog_timeo = TX_TIMEOUT;
-#endif
 
 	return tc574_config(link);
 } /* tc574_attach */
@@ -345,7 +348,6 @@ static int tc574_config(struct pcmcia_device *link)
 	__be16 *phys_addr;
 	char *cardname;
 	__u32 config;
-	DECLARE_MAC_BUF(mac);
 
 	phys_addr = (__be16 *)dev->dev_addr;
 
@@ -355,9 +357,10 @@ static int tc574_config(struct pcmcia_device *link)
 	for (i = j = 0; j < 0x400; j += 0x20) {
 		link->io.BasePort1 = j ^ 0x300;
 		i = pcmcia_request_io(link, &link->io);
-		if (i == CS_SUCCESS) break;
+		if (i == 0)
+			break;
 	}
-	if (i != CS_SUCCESS) {
+	if (i != 0) {
 		cs_error(link, RequestIO, i);
 		goto failed;
 	}
@@ -377,7 +380,7 @@ static int tc574_config(struct pcmcia_device *link)
 	tuple.TupleDataMax = 64;
 	tuple.TupleOffset = 0;
 	tuple.DesiredTuple = 0x88;
-	if (pcmcia_get_first_tuple(link, &tuple) == CS_SUCCESS) {
+	if (pcmcia_get_first_tuple(link, &tuple) == 0) {
 		pcmcia_get_tuple_data(link, &tuple);
 		for (i = 0; i < 3; i++)
 			phys_addr[i] = htons(le16_to_cpu(buf[i]));
@@ -462,9 +465,9 @@ static int tc574_config(struct pcmcia_device *link)
 	strcpy(lp->node.dev_name, dev->name);
 
 	printk(KERN_INFO "%s: %s at io %#3lx, irq %d, "
-	       "hw_addr %s.\n",
+	       "hw_addr %pM.\n",
 	       dev->name, cardname, dev->base_addr, dev->irq,
-	       print_mac(mac, dev->dev_addr));
+	       dev->dev_addr);
 	printk(" %dK FIFO split %s Rx:Tx, %sMII interface.\n",
 		   8 << config & Ram_size,
 		   ram_split[(config & Ram_split) >> Ram_split_shift],
@@ -1035,7 +1038,8 @@ static int el3_rx(struct net_device *dev, int worklimit)
 	DEBUG(3, "%s: in rx_packet(), status %4.4x, rx_status %4.4x.\n",
 		  dev->name, inw(ioaddr+EL3_STATUS), inw(ioaddr+RxStatus));
 	while (!((rx_status = inw(ioaddr + RxStatus)) & 0x8000) &&
-		   (--worklimit >= 0)) {
+			worklimit > 0) {
+		worklimit--;
 		if (rx_status & 0x4000) { /* Error, update stats. */
 			short error = rx_status & 0x3800;
 			dev->stats.rx_errors++;
@@ -1061,7 +1065,6 @@ static int el3_rx(struct net_device *dev, int worklimit)
 						((pkt_len+3)>>2));
 				skb->protocol = eth_type_trans(skb, dev);
 				netif_rx(skb);
-				dev->last_rx = jiffies;
 				dev->stats.rx_packets++;
 				dev->stats.rx_bytes += pkt_len;
 			} else {

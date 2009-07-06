@@ -335,7 +335,7 @@ typedef struct local_info_t {
 	struct net_device	*dev;
 	struct pcmcia_device	*p_dev;
     dev_node_t node;
-    struct net_device_stats stats;
+
     int card_type;
     int probe_port;
     int silicon; /* silicon revision. 0=old CE2, 1=Scipper, 4=Mohawk */
@@ -353,9 +353,8 @@ typedef struct local_info_t {
  * Some more prototypes
  */
 static int do_start_xmit(struct sk_buff *skb, struct net_device *dev);
-static void do_tx_timeout(struct net_device *dev);
+static void xirc_tx_timeout(struct net_device *dev);
 static void xirc2ps_tx_timeout_task(struct work_struct *work);
-static struct net_device_stats *do_get_stats(struct net_device *dev);
 static void set_addresses(struct net_device *dev);
 static void set_multicast_list(struct net_device *dev);
 static int set_card_type(struct pcmcia_device *link, const void *s);
@@ -377,7 +376,7 @@ first_tuple(struct pcmcia_device *handle, tuple_t *tuple, cisparse_t *parse)
 
 	if ((err = pcmcia_get_first_tuple(handle, tuple)) == 0 &&
 			(err = pcmcia_get_tuple_data(handle, tuple)) == 0)
-		err = pcmcia_parse_tuple(handle, tuple, parse);
+		err = pcmcia_parse_tuple(tuple, parse);
 	return err;
 }
 
@@ -388,7 +387,7 @@ next_tuple(struct pcmcia_device *handle, tuple_t *tuple, cisparse_t *parse)
 
 	if ((err = pcmcia_get_next_tuple(handle, tuple)) == 0 &&
 			(err = pcmcia_get_tuple_data(handle, tuple)) == 0)
-		err = pcmcia_parse_tuple(handle, tuple, parse);
+		err = pcmcia_parse_tuple(tuple, parse);
 	return err;
 }
 
@@ -546,6 +545,19 @@ mii_wr(unsigned int ioaddr, u_char phyaddr, u_char phyreg, unsigned data,
 
 /*============= Main bulk of functions	=========================*/
 
+static const struct net_device_ops netdev_ops = {
+	.ndo_open		= do_open,
+	.ndo_stop		= do_stop,
+	.ndo_start_xmit		= do_start_xmit,
+	.ndo_tx_timeout 	= xirc_tx_timeout,
+	.ndo_set_config		= do_config,
+	.ndo_do_ioctl		= do_ioctl,
+	.ndo_set_multicast_list	= set_multicast_list,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 /****************
  * xirc2ps_attach() creates an "instance" of the driver, allocating
  * local data structures for one device.  The device is registered
@@ -581,19 +593,10 @@ xirc2ps_probe(struct pcmcia_device *link)
     link->irq.Instance = dev;
 
     /* Fill in card specific entries */
-    dev->hard_start_xmit = &do_start_xmit;
-    dev->set_config = &do_config;
-    dev->get_stats = &do_get_stats;
-    dev->do_ioctl = &do_ioctl;
-    SET_ETHTOOL_OPS(dev, &netdev_ethtool_ops);
-    dev->set_multicast_list = &set_multicast_list;
-    dev->open = &do_open;
-    dev->stop = &do_stop;
-#ifdef HAVE_TX_TIMEOUT
-    dev->tx_timeout = do_tx_timeout;
+    dev->netdev_ops = &netdev_ops;
+    dev->ethtool_ops = &netdev_ethtool_ops;
     dev->watchdog_timeo = TX_TIMEOUT;
     INIT_WORK(&local->tx_timeout_task, xirc2ps_tx_timeout_task);
-#endif
 
     return xirc2ps_config(link);
 } /* xirc2ps_attach */
@@ -715,6 +718,47 @@ has_ce2_string(struct pcmcia_device * p_dev)
 	return 0;
 }
 
+static int
+xirc2ps_config_modem(struct pcmcia_device *p_dev,
+		     cistpl_cftable_entry_t *cf,
+		     cistpl_cftable_entry_t *dflt,
+		     unsigned int vcc,
+		     void *priv_data)
+{
+	unsigned int ioaddr;
+
+	if (cf->io.nwin > 0  &&  (cf->io.win[0].base & 0xf) == 8) {
+		for (ioaddr = 0x300; ioaddr < 0x400; ioaddr += 0x10) {
+			p_dev->io.BasePort2 = cf->io.win[0].base;
+			p_dev->io.BasePort1 = ioaddr;
+			if (!pcmcia_request_io(p_dev, &p_dev->io))
+				return 0;
+		}
+	}
+	return -ENODEV;
+}
+
+static int
+xirc2ps_config_check(struct pcmcia_device *p_dev,
+		     cistpl_cftable_entry_t *cf,
+		     cistpl_cftable_entry_t *dflt,
+		     unsigned int vcc,
+		     void *priv_data)
+{
+	int *pass = priv_data;
+
+	if (cf->io.nwin > 0 && (cf->io.win[0].base & 0xf) == 8) {
+		p_dev->io.BasePort2 = cf->io.win[0].base;
+		p_dev->io.BasePort1 = p_dev->io.BasePort2
+			+ (*pass ? (cf->index & 0x20 ? -24:8)
+			   : (cf->index & 0x20 ?   8:-24));
+		if (!pcmcia_request_io(p_dev, &p_dev->io))
+			return 0;
+	}
+	return -ENODEV;
+
+}
+
 /****************
  * xirc2ps_config() is scheduled to run after a CARD_INSERTION event
  * is received, to configure the PCMCIA socket, and to make the
@@ -725,14 +769,12 @@ xirc2ps_config(struct pcmcia_device * link)
 {
     struct net_device *dev = link->priv;
     local_info_t *local = netdev_priv(dev);
+    unsigned int ioaddr;
     tuple_t tuple;
     cisparse_t parse;
-    unsigned int ioaddr;
     int err, i;
     u_char buf[64];
     cistpl_lan_node_id_t *node_id = (cistpl_lan_node_id_t*)parse.funce.data;
-    cistpl_cftable_entry_t *cf = &parse.cftable_entry;
-    DECLARE_MAC_BUF(mac);
 
     local->dingo_ccr = NULL;
 
@@ -846,19 +888,8 @@ xirc2ps_config(struct pcmcia_device * link)
 	    /* Take the Modem IO port from the CIS and scan for a free
 	     * Ethernet port */
 	    link->io.NumPorts1 = 16; /* no Mako stuff anymore */
-	    tuple.DesiredTuple = CISTPL_CFTABLE_ENTRY;
-	    for (err = first_tuple(link, &tuple, &parse); !err;
-				 err = next_tuple(link, &tuple, &parse)) {
-		if (cf->io.nwin > 0  &&  (cf->io.win[0].base & 0xf) == 8) {
-		    for (ioaddr = 0x300; ioaddr < 0x400; ioaddr += 0x10) {
-			link->conf.ConfigIndex = cf->index ;
-			link->io.BasePort2 = cf->io.win[0].base;
-			link->io.BasePort1 = ioaddr;
-			if (!(err=pcmcia_request_io(link, &link->io)))
-			    goto port_found;
-		    }
-		}
-	    }
+	    if (!pcmcia_loop_config(link, xirc2ps_config_modem, NULL))
+		    goto port_found;
 	} else {
 	    link->io.NumPorts1 = 18;
 	    /* We do 2 passes here: The first one uses the regular mapping and
@@ -866,21 +897,9 @@ xirc2ps_config(struct pcmcia_device * link)
 	     * mirrored every 32 bytes. Actually we use a mirrored port for
 	     * the Mako if (on the first pass) the COR bit 5 is set.
 	     */
-	    for (pass=0; pass < 2; pass++) {
-		tuple.DesiredTuple = CISTPL_CFTABLE_ENTRY;
-		for (err = first_tuple(link, &tuple, &parse); !err;
-				     err = next_tuple(link, &tuple, &parse)){
-		    if (cf->io.nwin > 0  &&  (cf->io.win[0].base & 0xf) == 8){
-			link->conf.ConfigIndex = cf->index ;
-			link->io.BasePort2 = cf->io.win[0].base;
-			link->io.BasePort1 = link->io.BasePort2
-				    + (pass ? (cf->index & 0x20 ? -24:8)
-					    : (cf->index & 0x20 ?   8:-24));
-			if (!(err=pcmcia_request_io(link, &link->io)))
+	    for (pass=0; pass < 2; pass++)
+		    if (!pcmcia_loop_config(link, xirc2ps_config_check, &pass))
 			    goto port_found;
-		    }
-		}
-	    }
 	    /* if special option:
 	     * try to configure as Ethernet only.
 	     * .... */
@@ -1034,9 +1053,9 @@ xirc2ps_config(struct pcmcia_device * link)
     strcpy(local->node.dev_name, dev->name);
 
     /* give some infos about the hardware */
-    printk(KERN_INFO "%s: %s: port %#3lx, irq %d, hwaddr %s\n",
+    printk(KERN_INFO "%s: %s: port %#3lx, irq %d, hwaddr %pM\n",
 	   dev->name, local->manf_str,(u_long)dev->base_addr, (int)dev->irq,
-	   print_mac(mac, dev->dev_addr));
+	   dev->dev_addr);
 
     return 0;
 
@@ -1156,7 +1175,7 @@ xirc2ps_interrupt(int irq, void *dev_id)
 	if (bytes_rcvd > maxrx_bytes && (rsr & PktRxOk)) {
 	    /* too many bytes received during this int, drop the rest of the
 	     * packets */
-	    lp->stats.rx_dropped++;
+	    dev->stats.rx_dropped++;
 	    DEBUG(2, "%s: RX drop, too much done\n", dev->name);
 	} else if (rsr & PktRxOk) {
 	    struct sk_buff *skb;
@@ -1170,7 +1189,7 @@ xirc2ps_interrupt(int irq, void *dev_id)
 	    if (!skb) {
 		printk(KNOT_XIRC "low memory, packet dropped (size=%u)\n",
 		       pktlen);
-		lp->stats.rx_dropped++;
+		dev->stats.rx_dropped++;
 	    } else { /* okay get the packet */
 		skb_reserve(skb, 2);
 		if (lp->silicon == 0 ) { /* work around a hardware bug */
@@ -1226,25 +1245,24 @@ xirc2ps_interrupt(int irq, void *dev_id)
 		}
 		skb->protocol = eth_type_trans(skb, dev);
 		netif_rx(skb);
-		dev->last_rx = jiffies;
-		lp->stats.rx_packets++;
-		lp->stats.rx_bytes += pktlen;
+		dev->stats.rx_packets++;
+		dev->stats.rx_bytes += pktlen;
 		if (!(rsr & PhyPkt))
-		    lp->stats.multicast++;
+		    dev->stats.multicast++;
 	    }
 	} else { /* bad packet */
 	    DEBUG(5, "rsr=%#02x\n", rsr);
 	}
 	if (rsr & PktTooLong) {
-	    lp->stats.rx_frame_errors++;
+	    dev->stats.rx_frame_errors++;
 	    DEBUG(3, "%s: Packet too long\n", dev->name);
 	}
 	if (rsr & CRCErr) {
-	    lp->stats.rx_crc_errors++;
+	    dev->stats.rx_crc_errors++;
 	    DEBUG(3, "%s: CRC error\n", dev->name);
 	}
 	if (rsr & AlignErr) {
-	    lp->stats.rx_fifo_errors++; /* okay ? */
+	    dev->stats.rx_fifo_errors++; /* okay ? */
 	    DEBUG(3, "%s: Alignment error\n", dev->name);
 	}
 
@@ -1255,7 +1273,7 @@ xirc2ps_interrupt(int irq, void *dev_id)
 	eth_status = GetByte(XIRCREG_ESR);
     }
     if (rx_status & 0x10) { /* Receive overrun */
-	lp->stats.rx_over_errors++;
+	dev->stats.rx_over_errors++;
 	PutByte(XIRCREG_CR, ClearRxOvrun);
 	DEBUG(3, "receive overrun cleared\n");
     }
@@ -1268,11 +1286,11 @@ xirc2ps_interrupt(int irq, void *dev_id)
 	nn = GetByte(XIRCREG0_PTR);
 	lp->last_ptr_value = nn;
 	if (nn < n) /* rollover */
-	    lp->stats.tx_packets += 256 - n;
+	    dev->stats.tx_packets += 256 - n;
 	else if (n == nn) { /* happens sometimes - don't know why */
 	    DEBUG(0, "PTR not changed?\n");
 	} else
-	    lp->stats.tx_packets += lp->last_ptr_value - n;
+	    dev->stats.tx_packets += lp->last_ptr_value - n;
 	netif_wake_queue(dev);
     }
     if (tx_status & 0x0002) {	/* Execessive collissions */
@@ -1280,7 +1298,7 @@ xirc2ps_interrupt(int irq, void *dev_id)
 	PutByte(XIRCREG_CR, RestartTx);  /* restart transmitter process */
     }
     if (tx_status & 0x0040)
-	lp->stats.tx_aborted_errors++;
+	dev->stats.tx_aborted_errors++;
 
     /* recalculate our work chunk so that we limit the duration of this
      * ISR to about 1/10 of a second.
@@ -1335,10 +1353,10 @@ xirc2ps_tx_timeout_task(struct work_struct *work)
 }
 
 static void
-do_tx_timeout(struct net_device *dev)
+xirc_tx_timeout(struct net_device *dev)
 {
     local_info_t *lp = netdev_priv(dev);
-    lp->stats.tx_errors++;
+    dev->stats.tx_errors++;
     printk(KERN_NOTICE "%s: transmit timed out\n", dev->name);
     schedule_work(&lp->tx_timeout_task);
 }
@@ -1394,18 +1412,9 @@ do_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
     dev_kfree_skb (skb);
     dev->trans_start = jiffies;
-    lp->stats.tx_bytes += pktlen;
+    dev->stats.tx_bytes += pktlen;
     netif_start_queue(dev);
     return 0;
-}
-
-static struct net_device_stats *
-do_get_stats(struct net_device *dev)
-{
-    local_info_t *lp = netdev_priv(dev);
-
-    /*	lp->stats.rx_missed_errors = GetByte(?) */
-    return &lp->stats;
 }
 
 /****************

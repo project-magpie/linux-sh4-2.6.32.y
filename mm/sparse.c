@@ -164,9 +164,7 @@ void __meminit mminit_validate_memmodel_limits(unsigned long *start_pfn,
 		WARN_ON_ONCE(1);
 		*start_pfn = max_sparsemem_pfn;
 		*end_pfn = max_sparsemem_pfn;
-	}
-
-	if (*end_pfn > max_sparsemem_pfn) {
+	} else if (*end_pfn > max_sparsemem_pfn) {
 		mminit_dprintk(MMINIT_WARNING, "pfnvalidation",
 			"End of range %lu -> %lu exceeds SPARSEMEM max %lu\n",
 			*start_pfn, *end_pfn, max_sparsemem_pfn);
@@ -570,7 +568,7 @@ static void free_section_usemap(struct page *memmap, unsigned long *usemap)
  * set.  If this is <=0, then that means that the passed-in
  * map was not consumed and must be freed.
  */
-int sparse_add_one_section(struct zone *zone, unsigned long start_pfn,
+int __meminit sparse_add_one_section(struct zone *zone, unsigned long start_pfn,
 			   int nr_pages)
 {
 	unsigned long section_nr = pfn_to_section_nr(start_pfn);

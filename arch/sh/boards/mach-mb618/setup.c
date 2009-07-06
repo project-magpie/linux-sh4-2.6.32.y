@@ -24,6 +24,7 @@
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
 #include <linux/i2c.h>
+#include <linux/irq.h>
 #include <sound/stm.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>

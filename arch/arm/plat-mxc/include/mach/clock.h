@@ -26,9 +26,13 @@
 struct module;
 
 struct clk {
+#ifndef CONFIG_COMMON_CLKDEV
+	/* As soon as i.MX1 and i.MX31 switched to clkdev, this
+	 * block can go away */
 	struct list_head node;
 	struct module *owner;
 	const char *name;
+#endif
 	int id;
 	/* Source clock this clk depends on */
 	struct clk *parent;
@@ -39,7 +43,7 @@ struct clk {
 	/* Register bit position for clock's enable/disable control. */
 	u8 enable_shift;
 	/* Register address for clock's enable/disable control. */
-	u32 enable_reg;
+	void __iomem *enable_reg;
 	u32 flags;
 	/* get the current clock rate (always a fresh value) */
 	unsigned long (*get_rate) (struct clk *);
@@ -62,6 +66,8 @@ struct clk {
 
 int clk_register(struct clk *clk);
 void clk_unregister(struct clk *clk);
+
+unsigned long mxc_decode_pll(unsigned int pll, u32 f_ref);
 
 #endif /* __ASSEMBLY__ */
 #endif /* __ASM_ARCH_MXC_CLOCK_H__ */

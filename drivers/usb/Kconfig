@@ -36,7 +36,8 @@ config USB_ARCH_HAS_OHCI
 	default y if PXA3xx
 	default y if ARCH_EP93XX
 	default y if ARCH_AT91
-	default y if ARCH_PNX4008
+	default y if ARCH_PNX4008 && I2C
+	default y if MFD_TC6393XB
 	# PPC:
 	default y if STB03xxx
 	default y if PPC_MPC52xx
@@ -46,6 +47,7 @@ config USB_ARCH_HAS_OHCI
 	default y if CPU_SUBTYPE_SH7720
 	default y if CPU_SUBTYPE_SH7721
 	default y if CPU_SUBTYPE_SH7763
+	default y if CPU_SUBTYPE_SH7786
 	default y if CPU_SUBTYPE_STX5197
 	default y if CPU_SUBTYPE_STB7100
 	default y if CPU_SUBTYPE_STX7105
@@ -109,6 +111,8 @@ source "drivers/usb/core/Kconfig"
 
 source "drivers/usb/mon/Kconfig"
 
+source "drivers/usb/wusbcore/Kconfig"
+
 source "drivers/usb/host/Kconfig"
 
 source "drivers/usb/musb/Kconfig"
@@ -158,5 +162,7 @@ source "drivers/usb/misc/Kconfig"
 source "drivers/usb/atm/Kconfig"
 
 source "drivers/usb/gadget/Kconfig"
+
+source "drivers/usb/otg/Kconfig"
 
 endif # USB_SUPPORT

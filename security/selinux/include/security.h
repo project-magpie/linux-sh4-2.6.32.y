@@ -27,24 +27,33 @@
 #define POLICYDB_VERSION_RANGETRANS	21
 #define POLICYDB_VERSION_POLCAP		22
 #define POLICYDB_VERSION_PERMISSIVE	23
+#define POLICYDB_VERSION_BOUNDARY	24
 
 /* Range of policy versions we understand*/
 #define POLICYDB_VERSION_MIN   POLICYDB_VERSION_BASE
 #ifdef CONFIG_SECURITY_SELINUX_POLICYDB_VERSION_MAX
 #define POLICYDB_VERSION_MAX	CONFIG_SECURITY_SELINUX_POLICYDB_VERSION_MAX_VALUE
 #else
-#define POLICYDB_VERSION_MAX	POLICYDB_VERSION_PERMISSIVE
+#define POLICYDB_VERSION_MAX	POLICYDB_VERSION_BOUNDARY
 #endif
 
+/* Mask for just the mount related flags */
+#define SE_MNTMASK	0x0f
+/* Super block security struct flags for mount options */
 #define CONTEXT_MNT	0x01
 #define FSCONTEXT_MNT	0x02
 #define ROOTCONTEXT_MNT	0x04
 #define DEFCONTEXT_MNT	0x08
+/* Non-mount related flags */
+#define SE_SBINITIALIZED	0x10
+#define SE_SBPROC		0x20
+#define SE_SBLABELSUPP	0x40
 
 #define CONTEXT_STR	"context="
 #define FSCONTEXT_STR	"fscontext="
 #define ROOTCONTEXT_STR	"rootcontext="
 #define DEFCONTEXT_STR	"defcontext="
+#define LABELSUPP_STR "seclabel"
 
 struct netlbl_lsm_secattr;
 
@@ -62,6 +71,16 @@ enum {
 extern int selinux_policycap_netpeer;
 extern int selinux_policycap_openperm;
 
+/*
+ * type_datum properties
+ * available at the kernel policy version >= POLICYDB_VERSION_BOUNDARY
+ */
+#define TYPEDATUM_PROPERTY_PRIMARY	0x0001
+#define TYPEDATUM_PROPERTY_ATTRIBUTE	0x0002
+
+/* limitation of boundary depth  */
+#define POLICYDB_BOUNDS_MAXDEPTH	4
+
 int security_load_policy(void *data, size_t len);
 
 int security_policycap_supported(unsigned int req_cap);
@@ -69,7 +88,6 @@ int security_policycap_supported(unsigned int req_cap);
 #define SEL_VEC_MAX 32
 struct av_decision {
 	u32 allowed;
-	u32 decided;
 	u32 auditallow;
 	u32 auditdeny;
 	u32 seqno;
@@ -116,6 +134,8 @@ int security_node_sid(u16 domain, void *addr, u32 addrlen,
 
 int security_validate_transition(u32 oldsid, u32 newsid, u32 tasksid,
 				 u16 tclass);
+
+int security_bounded_transition(u32 oldsid, u32 newsid);
 
 int security_sid_mls_copy(u32 sid, u32 mls_sid, u32 *new_sid);
 

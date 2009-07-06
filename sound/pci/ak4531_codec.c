@@ -51,7 +51,8 @@ static void snd_ak4531_dump(struct snd_ak4531 *ak4531)
 	int idx;
 	
 	for (idx = 0; idx < 0x19; idx++)
-		printk("ak4531 0x%x: 0x%x\n", idx, ak4531->regs[idx]);
+		printk(KERN_DEBUG "ak4531 0x%x: 0x%x\n",
+		       idx, ak4531->regs[idx]);
 }
 
 #endif
@@ -392,9 +393,10 @@ int __devinit snd_ak4531_mixer(struct snd_card *card,
 		.dev_free =	snd_ak4531_dev_free,
 	};
 
-	snd_assert(rak4531 != NULL, return -EINVAL);
-	*rak4531 = NULL;
-	snd_assert(card != NULL && _ak4531 != NULL, return -EINVAL);
+	if (snd_BUG_ON(!card || !_ak4531))
+		return -EINVAL;
+	if (rak4531)
+		*rak4531 = NULL;
 	ak4531 = kzalloc(sizeof(*ak4531), GFP_KERNEL);
 	if (ak4531 == NULL)
 		return -ENOMEM;
@@ -428,7 +430,8 @@ int __devinit snd_ak4531_mixer(struct snd_card *card,
 #if 0
 	snd_ak4531_dump(ak4531);
 #endif
-	*rak4531 = ak4531;
+	if (rak4531)
+		*rak4531 = ak4531;
 	return 0;
 }
 

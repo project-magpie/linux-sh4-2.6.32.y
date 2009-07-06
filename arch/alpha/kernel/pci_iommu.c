@@ -41,13 +41,6 @@ mk_iommu_pte(unsigned long paddr)
 	return (paddr >> (PAGE_SHIFT-1)) | 1;
 }
 
-static inline long
-calc_npages(long bytes)
-{
-	return (bytes + PAGE_SIZE - 1) >> PAGE_SHIFT;
-}
-
-
 /* Return the minimum of MAX or the first power of two larger
    than main memory.  */
 
@@ -254,7 +247,7 @@ pci_map_single_1(struct pci_dev *pdev, void *cpu_addr, size_t size,
 	    && paddr + size <= __direct_map_size) {
 		ret = paddr + __direct_map_base;
 
-		DBGA2("pci_map_single: [%p,%lx] -> direct %lx from %p\n",
+		DBGA2("pci_map_single: [%p,%zx] -> direct %llx from %p\n",
 		      cpu_addr, size, ret, __builtin_return_address(0));
 
 		return ret;
@@ -265,7 +258,7 @@ pci_map_single_1(struct pci_dev *pdev, void *cpu_addr, size_t size,
 	if (dac_allowed) {
 		ret = paddr + alpha_mv.pci_dac_offset;
 
-		DBGA2("pci_map_single: [%p,%lx] -> DAC %lx from %p\n",
+		DBGA2("pci_map_single: [%p,%zx] -> DAC %llx from %p\n",
 		      cpu_addr, size, ret, __builtin_return_address(0));
 
 		return ret;
@@ -287,7 +280,7 @@ pci_map_single_1(struct pci_dev *pdev, void *cpu_addr, size_t size,
 	if (!arena || arena->dma_base + arena->size - 1 > max_dma)
 		arena = hose->sg_isa;
 
-	npages = calc_npages((paddr & ~PAGE_MASK) + size);
+	npages = iommu_num_pages(paddr, size, PAGE_SIZE);
 
 	/* Force allocation to 64KB boundary for ISA bridges. */
 	if (pdev && pdev == isa_bridge)
@@ -306,7 +299,7 @@ pci_map_single_1(struct pci_dev *pdev, void *cpu_addr, size_t size,
 	ret = arena->dma_base + dma_ofs * PAGE_SIZE;
 	ret += (unsigned long)cpu_addr & ~PAGE_MASK;
 
-	DBGA2("pci_map_single: [%p,%lx] np %ld -> sg %lx from %p\n",
+	DBGA2("pci_map_single: [%p,%zx] np %ld -> sg %llx from %p\n",
 	      cpu_addr, size, npages, ret, __builtin_return_address(0));
 
 	return ret;
@@ -362,14 +355,14 @@ pci_unmap_single(struct pci_dev *pdev, dma_addr_t dma_addr, size_t size,
 	    && dma_addr < __direct_map_base + __direct_map_size) {
 		/* Nothing to do.  */
 
-		DBGA2("pci_unmap_single: direct [%lx,%lx] from %p\n",
+		DBGA2("pci_unmap_single: direct [%llx,%zx] from %p\n",
 		      dma_addr, size, __builtin_return_address(0));
 
 		return;
 	}
 
 	if (dma_addr > 0xffffffff) {
-		DBGA2("pci64_unmap_single: DAC [%lx,%lx] from %p\n",
+		DBGA2("pci64_unmap_single: DAC [%llx,%zx] from %p\n",
 		      dma_addr, size, __builtin_return_address(0));
 		return;
 	}
@@ -380,14 +373,14 @@ pci_unmap_single(struct pci_dev *pdev, dma_addr_t dma_addr, size_t size,
 
 	dma_ofs = (dma_addr - arena->dma_base) >> PAGE_SHIFT;
 	if (dma_ofs * PAGE_SIZE >= arena->size) {
-		printk(KERN_ERR "Bogus pci_unmap_single: dma_addr %lx "
-		       " base %lx size %x\n", dma_addr, arena->dma_base,
-		       arena->size);
+		printk(KERN_ERR "Bogus pci_unmap_single: dma_addr %llx "
+		       " base %llx size %x\n",
+		       dma_addr, arena->dma_base, arena->size);
 		return;
 		BUG();
 	}
 
-	npages = calc_npages((dma_addr & ~PAGE_MASK) + size);
+	npages = iommu_num_pages(dma_addr, size, PAGE_SIZE);
 
 	spin_lock_irqsave(&arena->lock, flags);
 
@@ -401,7 +394,7 @@ pci_unmap_single(struct pci_dev *pdev, dma_addr_t dma_addr, size_t size,
 
 	spin_unlock_irqrestore(&arena->lock, flags);
 
-	DBGA2("pci_unmap_single: sg [%lx,%lx] np %ld from %p\n",
+	DBGA2("pci_unmap_single: sg [%llx,%zx] np %ld from %p\n",
 	      dma_addr, size, npages, __builtin_return_address(0));
 }
 EXPORT_SYMBOL(pci_unmap_single);
@@ -451,7 +444,7 @@ try_again:
 		goto try_again;
 	}
 		
-	DBGA2("pci_alloc_consistent: %lx -> [%p,%x] from %p\n",
+	DBGA2("pci_alloc_consistent: %zx -> [%p,%llx] from %p\n",
 	      size, cpu_addr, *dma_addrp, __builtin_return_address(0));
 
 	return cpu_addr;
@@ -471,7 +464,7 @@ pci_free_consistent(struct pci_dev *pdev, size_t size, void *cpu_addr,
 	pci_unmap_single(pdev, dma_addr, size, PCI_DMA_BIDIRECTIONAL);
 	free_pages((unsigned long)cpu_addr, get_order(size));
 
-	DBGA2("pci_free_consistent: [%x,%lx] from %p\n",
+	DBGA2("pci_free_consistent: [%llx,%zx] from %p\n",
 	      dma_addr, size, __builtin_return_address(0));
 }
 EXPORT_SYMBOL(pci_free_consistent);
@@ -558,7 +551,7 @@ sg_fill(struct device *dev, struct scatterlist *leader, struct scatterlist *end,
 		out->dma_address = paddr + __direct_map_base;
 		out->dma_length = size;
 
-		DBGA("    sg_fill: [%p,%lx] -> direct %lx\n",
+		DBGA("    sg_fill: [%p,%lx] -> direct %llx\n",
 		     __va(paddr), size, out->dma_address);
 
 		return 0;
@@ -570,7 +563,7 @@ sg_fill(struct device *dev, struct scatterlist *leader, struct scatterlist *end,
 		out->dma_address = paddr + alpha_mv.pci_dac_offset;
 		out->dma_length = size;
 
-		DBGA("    sg_fill: [%p,%lx] -> DAC %lx\n",
+		DBGA("    sg_fill: [%p,%lx] -> DAC %llx\n",
 		     __va(paddr), size, out->dma_address);
 
 		return 0;
@@ -580,7 +573,7 @@ sg_fill(struct device *dev, struct scatterlist *leader, struct scatterlist *end,
 	   contiguous.  */
 
 	paddr &= ~PAGE_MASK;
-	npages = calc_npages(paddr + size);
+	npages = iommu_num_pages(paddr, size, PAGE_SIZE);
 	dma_ofs = iommu_arena_alloc(dev, arena, npages, 0);
 	if (dma_ofs < 0) {
 		/* If we attempted a direct map above but failed, die.  */
@@ -596,7 +589,7 @@ sg_fill(struct device *dev, struct scatterlist *leader, struct scatterlist *end,
 	out->dma_address = arena->dma_base + dma_ofs*PAGE_SIZE + paddr;
 	out->dma_length = size;
 
-	DBGA("    sg_fill: [%p,%lx] -> sg %lx np %ld\n",
+	DBGA("    sg_fill: [%p,%lx] -> sg %llx np %ld\n",
 	     __va(paddr), size, out->dma_address, npages);
 
 	/* All virtually contiguous.  We need to find the length of each
@@ -616,7 +609,7 @@ sg_fill(struct device *dev, struct scatterlist *leader, struct scatterlist *end,
 			sg++;
 		}
 
-		npages = calc_npages((paddr & ~PAGE_MASK) + size);
+		npages = iommu_num_pages(paddr, size, PAGE_SIZE);
 
 		paddr &= PAGE_MASK;
 		for (i = 0; i < npages; ++i, paddr += PAGE_SIZE)
@@ -759,7 +752,7 @@ pci_unmap_sg(struct pci_dev *pdev, struct scatterlist *sg, int nents,
 
 		if (addr > 0xffffffff) {
 			/* It's a DAC address -- nothing to do.  */
-			DBGA("    (%ld) DAC [%lx,%lx]\n",
+			DBGA("    (%ld) DAC [%llx,%zx]\n",
 			      sg - end + nents, addr, size);
 			continue;
 		}
@@ -767,15 +760,15 @@ pci_unmap_sg(struct pci_dev *pdev, struct scatterlist *sg, int nents,
 		if (addr >= __direct_map_base
 		    && addr < __direct_map_base + __direct_map_size) {
 			/* Nothing to do.  */
-			DBGA("    (%ld) direct [%lx,%lx]\n",
+			DBGA("    (%ld) direct [%llx,%zx]\n",
 			      sg - end + nents, addr, size);
 			continue;
 		}
 
-		DBGA("    (%ld) sg [%lx,%lx]\n",
+		DBGA("    (%ld) sg [%llx,%zx]\n",
 		     sg - end + nents, addr, size);
 
-		npages = calc_npages((addr & ~PAGE_MASK) + size);
+		npages = iommu_num_pages(addr, size, PAGE_SIZE);
 		ofs = (addr - arena->dma_base) >> PAGE_SHIFT;
 		iommu_arena_free(arena, ofs, npages);
 

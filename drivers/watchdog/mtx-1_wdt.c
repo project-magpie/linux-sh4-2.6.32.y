@@ -5,7 +5,7 @@
  *							All Rights Reserved.
  *                              http://www.4g-systems.biz
  *
- * 	(C) Copyright 2007 OpenWrt.org, Florian Fainelli <florian@openwrt.org>
+ *	(C) Copyright 2007 OpenWrt.org, Florian Fainelli <florian@openwrt.org>
  *
  *      This program is free software; you can redistribute it and/or
  *      modify it under the terms of the GNU General Public License
@@ -98,6 +98,8 @@ static void mtx1_wdt_reset(void)
 
 static void mtx1_wdt_start(void)
 {
+	unsigned long flags;
+
 	spin_lock_irqsave(&mtx1_wdt_device.lock, flags);
 	if (!mtx1_wdt_device.queue) {
 		mtx1_wdt_device.queue = 1;
@@ -110,6 +112,8 @@ static void mtx1_wdt_start(void)
 
 static int mtx1_wdt_stop(void)
 {
+	unsigned long flags;
+
 	spin_lock_irqsave(&mtx1_wdt_device.lock, flags);
 	if (mtx1_wdt_device.queue) {
 		mtx1_wdt_device.queue = 0;

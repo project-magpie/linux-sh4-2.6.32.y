@@ -295,7 +295,7 @@ struct cs4297a_state {
 	struct mutex open_mutex;
 	struct mutex open_sem_adc;
 	struct mutex open_sem_dac;
-	mode_t open_mode;
+	fmode_t open_mode;
 	wait_queue_head_t open_wait;
 	wait_queue_head_t open_wait_adc;
 	wait_queue_head_t open_wait_dac;
@@ -2200,7 +2200,9 @@ static int cs4297a_ioctl(struct inode *inode, struct file *file,
 				    sizeof(abinfo)) ? -EFAULT : 0;
 
 	case SNDCTL_DSP_NONBLOCK:
+		spin_lock(&file->f_lock);
 		file->f_flags |= O_NONBLOCK;
+		spin_unlock(&file->f_lock);
 		return 0;
 
 	case SNDCTL_DSP_GETODELAY:

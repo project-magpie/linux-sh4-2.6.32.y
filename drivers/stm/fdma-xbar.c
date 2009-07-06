@@ -39,7 +39,7 @@ static int __init fdma_xbar_probe(struct platform_device *pdev)
 	phys_size = memory->end - memory->start + 1;
 
 	xbar->memory = request_mem_region(phys_base, phys_size,
-			pdev->dev.bus_id);
+					  dev_name(&pdev->dev));
 	if (xbar->memory == NULL) {
 		kfree(xbar);
 		return -EBUSY;

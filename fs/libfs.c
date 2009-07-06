@@ -44,7 +44,7 @@ static int simple_delete_dentry(struct dentry *dentry)
  */
 struct dentry *simple_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *nd)
 {
-	static struct dentry_operations simple_dentry_operations = {
+	static const struct dentry_operations simple_dentry_operations = {
 		.d_delete = simple_delete_dentry,
 	};
 
@@ -231,7 +231,6 @@ int get_sb_pseudo(struct file_system_type *fs_type, char *name,
 	 */
 	root->i_ino = 1;
 	root->i_mode = S_IFDIR | S_IRUSR | S_IWUSR;
-	root->i_uid = root->i_gid = 0;
 	root->i_atime = root->i_mtime = root->i_ctime = CURRENT_TIME;
 	dentry = d_alloc(NULL, &d_name);
 	if (!dentry) {
@@ -243,11 +242,11 @@ int get_sb_pseudo(struct file_system_type *fs_type, char *name,
 	d_instantiate(dentry, root);
 	s->s_root = dentry;
 	s->s_flags |= MS_ACTIVE;
-	return simple_set_mnt(mnt, s);
+	simple_set_mnt(mnt, s);
+	return 0;
 
 Enomem:
-	up_write(&s->s_umount);
-	deactivate_super(s);
+	deactivate_locked_super(s);
 	return -ENOMEM;
 }
 
@@ -360,7 +359,7 @@ int simple_write_begin(struct file *file, struct address_space *mapping,
 	index = pos >> PAGE_CACHE_SHIFT;
 	from = pos & (PAGE_CACHE_SIZE - 1);
 
-	page = __grab_cache_page(mapping, index);
+	page = grab_cache_page_write_begin(mapping, index, flags);
 	if (!page)
 		return -ENOMEM;
 
@@ -436,8 +435,6 @@ int simple_fill_super(struct super_block *s, int magic, struct tree_descr *files
 	 */
 	inode->i_ino = 1;
 	inode->i_mode = S_IFDIR | 0755;
-	inode->i_uid = inode->i_gid = 0;
-	inode->i_blocks = 0;
 	inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 	inode->i_op = &simple_dir_inode_operations;
 	inode->i_fop = &simple_dir_operations;
@@ -464,8 +461,6 @@ int simple_fill_super(struct super_block *s, int magic, struct tree_descr *files
 		if (!inode)
 			goto out;
 		inode->i_mode = S_IFREG | files->mode;
-		inode->i_uid = inode->i_gid = 0;
-		inode->i_blocks = 0;
 		inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 		inode->i_fop = files->ops;
 		inode->i_ino = i;
@@ -579,6 +574,21 @@ ssize_t memory_read_from_buffer(void *to, size_t count, loff_t *ppos,
  * possibly a read which collects the result - which is stored in a
  * file-local buffer.
  */
+
+void simple_transaction_set(struct file *file, size_t n)
+{
+	struct simple_transaction_argresp *ar = file->private_data;
+
+	BUG_ON(n > SIMPLE_TRANSACTION_LIMIT);
+
+	/*
+	 * The barrier ensures that ar->size will really remain zero until
+	 * ar->data is ready for reading.
+	 */
+	smp_mb();
+	ar->size = n;
+}
+
 char *simple_transaction_get(struct file *file, const char __user *buf, size_t size)
 {
 	struct simple_transaction_argresp *ar;
@@ -732,28 +742,6 @@ out:
 	return ret;
 }
 
-/*
- * This is what d_alloc_anon should have been.  Once the exportfs
- * argument transition has been finished I will update d_alloc_anon
- * to this prototype and this wrapper will go away.   --hch
- */
-static struct dentry *exportfs_d_alloc(struct inode *inode)
-{
-	struct dentry *dentry;
-
-	if (!inode)
-		return NULL;
-	if (IS_ERR(inode))
-		return ERR_PTR(PTR_ERR(inode));
-
-	dentry = d_alloc_anon(inode);
-	if (!dentry) {
-		iput(inode);
-		dentry = ERR_PTR(-ENOMEM);
-	}
-	return dentry;
-}
-
 /**
  * generic_fh_to_dentry - generic helper for the fh_to_dentry export operation
  * @sb:		filesystem to do the file handle conversion on
@@ -782,7 +770,7 @@ struct dentry *generic_fh_to_dentry(struct super_block *sb, struct fid *fid,
 		break;
 	}
 
-	return exportfs_d_alloc(inode);
+	return d_obtain_alias(inode);
 }
 EXPORT_SYMBOL_GPL(generic_fh_to_dentry);
 
@@ -815,7 +803,7 @@ struct dentry *generic_fh_to_parent(struct super_block *sb, struct fid *fid,
 		break;
 	}
 
-	return exportfs_d_alloc(inode);
+	return d_obtain_alias(inode);
 }
 EXPORT_SYMBOL_GPL(generic_fh_to_parent);
 
@@ -836,7 +824,7 @@ EXPORT_SYMBOL(simple_getattr);
 EXPORT_SYMBOL(simple_link);
 EXPORT_SYMBOL(simple_lookup);
 EXPORT_SYMBOL(simple_pin_fs);
-EXPORT_SYMBOL(simple_prepare_write);
+EXPORT_UNUSED_SYMBOL(simple_prepare_write);
 EXPORT_SYMBOL(simple_readpage);
 EXPORT_SYMBOL(simple_release_fs);
 EXPORT_SYMBOL(simple_rename);
@@ -846,6 +834,7 @@ EXPORT_SYMBOL(simple_sync_file);
 EXPORT_SYMBOL(simple_unlink);
 EXPORT_SYMBOL(simple_read_from_buffer);
 EXPORT_SYMBOL(memory_read_from_buffer);
+EXPORT_SYMBOL(simple_transaction_set);
 EXPORT_SYMBOL(simple_transaction_get);
 EXPORT_SYMBOL(simple_transaction_read);
 EXPORT_SYMBOL(simple_transaction_release);

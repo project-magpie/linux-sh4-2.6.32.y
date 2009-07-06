@@ -18,6 +18,7 @@
 #include <linux/irqflags.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/pm.h>
+#include <linux/irq.h>
 #include <asm/system.h>
 #include <asm/io.h>
 #include <asm/pm.h>

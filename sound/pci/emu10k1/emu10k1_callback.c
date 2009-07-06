@@ -103,7 +103,10 @@ snd_emu10k1_synth_get_voice(struct snd_emu10k1 *hw)
 			int ch;
 			vp = &emu->voices[best[i].voice];
 			if ((ch = vp->ch) < 0) {
-				//printk("synth_get_voice: ch < 0 (%d) ??", i);
+				/*
+				printk(KERN_WARNING
+				       "synth_get_voice: ch < 0 (%d) ??", i);
+				*/
 				continue;
 			}
 			vp->emu->num_voices--;
@@ -145,7 +148,8 @@ terminate_voice(struct snd_emux_voice *vp)
 {
 	struct snd_emu10k1 *hw;
 	
-	snd_assert(vp, return);
+	if (snd_BUG_ON(!vp))
+		return;
 	hw = vp->hw;
 	snd_emu10k1_ptr_write(hw, DCYSUSV, vp->ch, 0x807f | DCYSUSV_CHANNELENABLE_MASK);
 	if (vp->block) {
@@ -325,7 +329,8 @@ start_voice(struct snd_emux_voice *vp)
 	
 	hw = vp->hw;
 	ch = vp->ch;
-	snd_assert(ch >= 0, return -EINVAL);
+	if (snd_BUG_ON(ch < 0))
+		return -EINVAL;
 	chan = vp->chan;
 
 	emem = (struct snd_emu10k1_memblk *)vp->block;
@@ -333,7 +338,7 @@ start_voice(struct snd_emux_voice *vp)
 		return -EINVAL;
 	emem->map_locked++;
 	if (snd_emu10k1_memblk_map(hw, emem) < 0) {
-		// printk("emu: cannot map!\n");
+		/* printk(KERN_ERR "emu: cannot map!\n"); */
 		return -ENOMEM;
 	}
 	mapped_offset = snd_emu10k1_memblk_offset(emem) >> 1;

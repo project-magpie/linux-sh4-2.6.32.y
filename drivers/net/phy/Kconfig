@@ -66,20 +66,21 @@ config REALTEK_PHY
 	---help---
 	  Supports the Realtek 821x PHY.
 
-config STE10XP
-	depends on PHYLIB
-        tristate "Driver for STM STe10Xp PHY"
-        ---help---
-          This is the driver for the STe100p and STe101p PHYs.
-	  The STe101p PHY is found on the ST DB666 daughter card for the MB411.
-	  The STe100p PHY is found on the STb7109REF (CoCo) board.
-          Say Y if you want it compiled into the kernel. To compile this
-          driver as a module, choose M here.
-
 config NATIONAL_PHY
 	tristate "Drivers for National Semiconductor PHYs"
 	---help---
 	  Currently supports the DP83865 PHY.
+
+config STE10XP
+	depends on PHYLIB
+	tristate "Driver for STMicroelectronics STe10Xp PHYs"
+	---help---
+	  This is the driver for the STe100p and STe101p PHYs.
+
+config LSI_ET1011C_PHY
+	tristate "Driver for LSI ET1011C PHY"
+	---help---
+	  Supports the LSI ET1011C PHY.
 
 config MICREL_PHY
 	tristate "Drivers for Micrel PHYs"
@@ -104,10 +105,13 @@ config MDIO_BITBANG
 
 	  If in doubt, say N.
 
-config MDIO_OF_GPIO
+config MDIO_GPIO
 	tristate "Support for GPIO lib-based bitbanged MDIO buses"
-	depends on MDIO_BITBANG && OF_GPIO
+	depends on MDIO_BITBANG && GENERIC_GPIO
 	---help---
 	  Supports GPIO lib-based MDIO busses.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called mdio-gpio.
 
 endif # PHYLIB

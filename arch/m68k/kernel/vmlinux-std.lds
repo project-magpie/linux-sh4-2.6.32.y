@@ -12,7 +12,7 @@ SECTIONS
   . = 0x1000;
   _text = .;			/* Text and read-only data */
   .text : {
-	*(.text.head)
+	HEAD_TEXT
 	TEXT_TEXT
 	SCHED_TEXT
 	LOCK_TEXT
@@ -34,10 +34,10 @@ SECTIONS
 	CONSTRUCTORS
 	}
 
-  .bss : { *(.bss) }		/* BSS */
-
   . = ALIGN(16);
-  .data.cacheline_aligned : { *(.data.cacheline_aligned) } :data
+  .data.cacheline_aligned : { *(.data.cacheline_aligned) }
+
+  .bss : { *(.bss) }		/* BSS */
 
   _edata = .;			/* End of data section */
 
@@ -48,7 +48,7 @@ SECTIONS
 	_sinittext = .;
 	INIT_TEXT
 	_einittext = .;
-  }
+  } :data
   .init.data : { INIT_DATA }
   . = ALIGN(16);
   __setup_start = .;
@@ -74,6 +74,7 @@ SECTIONS
   .init.ramfs : { *(.init.ramfs) }
   __initramfs_end = .;
 #endif
+  NOTES
   . = ALIGN(8192);
   __init_end = .;
 

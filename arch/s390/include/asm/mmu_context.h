@@ -20,12 +20,25 @@ static inline int init_new_context(struct task_struct *tsk,
 #ifdef CONFIG_64BIT
 	mm->context.asce_bits |= _ASCE_TYPE_REGION3;
 #endif
-	if (current->mm->context.pgstes) {
+	if (current->mm->context.alloc_pgste) {
+		/*
+		 * alloc_pgste indicates, that any NEW context will be created
+		 * with extended page tables. The old context is unchanged. The
+		 * page table allocation and the page table operations will
+		 * look at has_pgste to distinguish normal and extended page
+		 * tables. The only way to create extended page tables is to
+		 * set alloc_pgste and then create a new context (e.g. dup_mm).
+		 * The page table allocation is called after init_new_context
+		 * and if has_pgste is set, it will create extended page
+		 * tables.
+		 */
 		mm->context.noexec = 0;
-		mm->context.pgstes = 1;
+		mm->context.has_pgste = 1;
+		mm->context.alloc_pgste = 1;
 	} else {
 		mm->context.noexec = s390_noexec;
-		mm->context.pgstes = 0;
+		mm->context.has_pgste = 0;
+		mm->context.alloc_pgste = 0;
 	}
 	mm->context.asce_limit = STACK_TOP_MAX;
 	crst_table_init((unsigned long *) mm->pgd, pgd_entry_type(mm));
@@ -61,7 +74,7 @@ static inline void update_mm(struct mm_struct *mm, struct task_struct *tsk)
 static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 			     struct task_struct *tsk)
 {
-	cpu_set(smp_processor_id(), next->cpu_vm_mask);
+	cpumask_set_cpu(smp_processor_id(), mm_cpumask(next));
 	update_mm(next, tsk);
 }
 

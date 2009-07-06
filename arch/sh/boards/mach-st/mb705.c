@@ -26,9 +26,10 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/flash.h>
 #include <linux/bug.h>
+#include <linux/irq.h>
 #include <asm/processor.h>
 #include <asm/irq-ilc.h>
-#include "common.h"
+#include <mach/common.h>
 #include "mb705-epld.h"
 
 static DEFINE_SPINLOCK(misc_lock);

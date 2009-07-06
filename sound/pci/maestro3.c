@@ -1175,7 +1175,8 @@ snd_m3_pcm_trigger(struct snd_pcm_substream *subs, int cmd)
 	struct m3_dma *s = subs->runtime->private_data;
 	int err = -EINVAL;
 
-	snd_assert(s != NULL, return -ENXIO);
+	if (snd_BUG_ON(!s))
+		return -ENXIO;
 
 	spin_lock(&chip->reg_lock);
 	switch (cmd) {
@@ -1487,7 +1488,8 @@ snd_m3_pcm_prepare(struct snd_pcm_substream *subs)
 	struct snd_pcm_runtime *runtime = subs->runtime;
 	struct m3_dma *s = runtime->private_data;
 
-	snd_assert(s != NULL, return -ENXIO);
+	if (snd_BUG_ON(!s))
+		return -ENXIO;
 
 	if (runtime->format != SNDRV_PCM_FORMAT_U8 &&
 	    runtime->format != SNDRV_PCM_FORMAT_S16_LE)
@@ -1546,7 +1548,9 @@ snd_m3_pcm_pointer(struct snd_pcm_substream *subs)
 	struct snd_m3 *chip = snd_pcm_substream_chip(subs);
 	unsigned int ptr;
 	struct m3_dma *s = subs->runtime->private_data;
-	snd_assert(s != NULL, return 0);
+
+	if (snd_BUG_ON(!s))
+		return 0;
 
 	spin_lock(&chip->reg_lock);
 	ptr = snd_m3_get_pointer(chip, s, subs);
@@ -1666,7 +1670,7 @@ static irqreturn_t snd_m3_interrupt(int irq, void *dev_id)
 		return IRQ_NONE;
 
 	if (status & HV_INT_PENDING)
-		tasklet_hi_schedule(&chip->hwvol_tq);
+		tasklet_schedule(&chip->hwvol_tq);
 
 	/*
 	 * ack an assp int if its running
@@ -2526,8 +2530,8 @@ snd_m3_create(struct snd_card *card, struct pci_dev *pci,
 		return -EIO;
 
 	/* check, if we can restrict PCI DMA transfers to 28 bits */
-	if (pci_set_dma_mask(pci, DMA_28BIT_MASK) < 0 ||
-	    pci_set_consistent_dma_mask(pci, DMA_28BIT_MASK) < 0) {
+	if (pci_set_dma_mask(pci, DMA_BIT_MASK(28)) < 0 ||
+	    pci_set_consistent_dma_mask(pci, DMA_BIT_MASK(28)) < 0) {
 		snd_printk(KERN_ERR "architecture does not support 28bit PCI busmaster DMA\n");
 		pci_disable_device(pci);
 		return -ENXIO;
@@ -2687,9 +2691,9 @@ snd_m3_probe(struct pci_dev *pci, const struct pci_device_id *pci_id)
 		return -ENOENT;
 	}
 
-	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
-	if (card == NULL)
-		return -ENOMEM;
+	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
+	if (err < 0)
+		return err;
 
 	switch (pci->device) {
 	case PCI_DEVICE_ID_ESS_ALLEGRO:

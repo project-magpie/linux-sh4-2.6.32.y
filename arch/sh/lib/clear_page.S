@@ -54,53 +54,6 @@ ENTRY(clear_page)
 	.balign 4
 .Llimit:	.long	(PAGE_SIZE-28)
 
-#if defined(CONFIG_CPU_SH4)
-/*
- * __clear_page_wb
- * @to: P1 address
- *
- * void __clear_page_wb(void *to)
- */
-
-/*
- * r0 --- zero
- * r3 --- scratch
- * r4 --- to
- * r5 --- current pointer
- */
-ENTRY(__clear_page_wb)
-	mov	#0x10, r5		!   6 EX
-	mov	r4, r3			!   5 MT (latency=0)
-
-	shll8	r5			! 102 EX
-	add	#-4, r3			!  50 EX
-	add	r5, r3			!  49 EX
-	mov	#0, r0			!   6 EX
-
-1:
-	movca.l	r0, @r3			!  40 LS (latency=3-7)
-	mov	r3, r5			!   5 MT (latency=0)
-
-	mov.l	r0,@-r5			!  30 LS
-	add	#-32, r3		!  50 EX
-
-	mov.l	r0,@-r5			!  30 LS
-	mov.l	r0,@-r5			!  30 LS
-	mov.l	r0,@-r5			!  30 LS
-	mov.l	r0,@-r5			!  30 LS
-
-	mov.l	r0,@-r5			!  30 LS
-	cmp/hi	r4, r3			!  57 MT
-
-	mov.l	r0,@-r5			!  30 LS
-	bt/s	1b			! 111 BR
-
-	 ocbwb	@r5			!  44 LS (latency=1-5)
-
-	rts
-	 nop
-#endif
-
 ENTRY(__clear_user)
 	!
 	mov	#0, r0
@@ -199,48 +152,3 @@ ENTRY(__clear_user)
 	.long	8b, .Lbad_clear_user
 	.long	9b, .Lbad_clear_user
 .previous
-
-#if defined(CONFIG_CPU_SH4)
-/*
- * __clear_user_page
- * @to: P3 address (with same color as user page)
- * @orig_to: P1 address
- *
- * void __clear_user_page(void *to, void *orig_to)
- */
-
-/*
- * r0 --- scratch 
- * r4 --- to
- * r5 --- orig_to
- * r6 --- to + PAGE_SIZE
- */
-ENTRY(__clear_user_page)
-	mov.l	.Lpsz,r0
-	mov	r4,r6
-	add	r0,r6
-	mov	#0,r0
-	!
-1:	ocbi	@r5
-	add	#32,r5
-	movca.l	r0,@r4
-	mov	r4,r1
-	add	#32,r4
-	mov.l	r0,@-r4
-	mov.l	r0,@-r4
-	mov.l	r0,@-r4
-	mov.l	r0,@-r4
-	mov.l	r0,@-r4
-	mov.l	r0,@-r4
-	mov.l	r0,@-r4
-	add	#28,r4
-	cmp/eq	r6,r4
-	bf/s	1b
-	 ocbwb	@r1
-	!
-	rts
-	 nop
-	.balign	4
-.Lpsz:	.long	PAGE_SIZE
-
-#endif

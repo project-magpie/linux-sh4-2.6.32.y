@@ -28,7 +28,6 @@
 #include <linux/mm.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
-#include <linux/fsl_devices.h>
 #include <linux/ethtool.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
@@ -37,10 +36,8 @@
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 #include <asm/types.h>
-#include <asm/uaccess.h>
 
 #include "ucc_geth.h"
-#include "ucc_geth_mii.h"
 
 static char hw_stat_gstrings[][ETH_GSTRING_LEN] = {
 	"tx-64-frames",
@@ -324,17 +321,17 @@ static void uec_get_ethtool_stats(struct net_device *netdev,
 	if (stats_mode & UCC_GETH_STATISTICS_GATHERING_MODE_HARDWARE) {
 		base = (u32 __iomem *)&ugeth->ug_regs->tx64;
 		for (i = 0; i < UEC_HW_STATS_LEN; i++)
-			data[j++] = (u64)in_be32(&base[i]);
+			data[j++] = in_be32(&base[i]);
 	}
 	if (stats_mode & UCC_GETH_STATISTICS_GATHERING_MODE_FIRMWARE_TX) {
 		base = (u32 __iomem *)ugeth->p_tx_fw_statistics_pram;
 		for (i = 0; i < UEC_TX_FW_STATS_LEN; i++)
-			data[j++] = (u64)in_be32(&base[i]);
+			data[j++] = base ? in_be32(&base[i]) : 0;
 	}
 	if (stats_mode & UCC_GETH_STATISTICS_GATHERING_MODE_FIRMWARE_RX) {
 		base = (u32 __iomem *)ugeth->p_rx_fw_statistics_pram;
 		for (i = 0; i < UEC_RX_FW_STATS_LEN; i++)
-			data[j++] = (u64)in_be32(&base[i]);
+			data[j++] = base ? in_be32(&base[i]) : 0;
 	}
 }
 

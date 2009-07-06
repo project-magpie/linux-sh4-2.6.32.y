@@ -292,13 +292,6 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 	case CPU_R4300:
 	case CPU_5KC:
 	case CPU_TX49XX:
-	case CPU_AU1000:
-	case CPU_AU1100:
-	case CPU_AU1500:
-	case CPU_AU1550:
-	case CPU_AU1200:
-	case CPU_AU1210:
-	case CPU_AU1250:
 	case CPU_PR4450:
 		uasm_i_nop(p);
 		tlbw(p);
@@ -317,8 +310,11 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 	case CPU_BCM3302:
 	case CPU_BCM4710:
 	case CPU_LOONGSON2:
+	case CPU_CAVIUM_OCTEON:
+	case CPU_R5500:
 		if (m4kc_tlbp_war())
 			uasm_i_nop(p);
+	case CPU_ALCHEMY:
 		tlbw(p);
 		break;
 
@@ -1273,10 +1269,10 @@ void __cpuinit build_tlb_refill_handler(void)
 
 void __cpuinit flush_tlb_handlers(void)
 {
-	flush_icache_range((unsigned long)handle_tlbl,
+	local_flush_icache_range((unsigned long)handle_tlbl,
 			   (unsigned long)handle_tlbl + sizeof(handle_tlbl));
-	flush_icache_range((unsigned long)handle_tlbs,
+	local_flush_icache_range((unsigned long)handle_tlbs,
 			   (unsigned long)handle_tlbs + sizeof(handle_tlbs));
-	flush_icache_range((unsigned long)handle_tlbm,
+	local_flush_icache_range((unsigned long)handle_tlbm,
 			   (unsigned long)handle_tlbm + sizeof(handle_tlbm));
 }

@@ -64,7 +64,7 @@ enum {
 	afs_opt_vol,
 };
 
-static match_table_t afs_options_list = {
+static const match_table_t afs_options_list = {
 	{ afs_opt_cell,		"cell=%s"	},
 	{ afs_opt_rwpath,	"rwpath"	},
 	{ afs_opt_vol,		"vol=%s"	},
@@ -405,21 +405,20 @@ static int afs_get_sb(struct file_system_type *fs_type,
 		sb->s_flags = flags;
 		ret = afs_fill_super(sb, &params);
 		if (ret < 0) {
-			up_write(&sb->s_umount);
-			deactivate_super(sb);
+			deactivate_locked_super(sb);
 			goto error;
 		}
-		sb->s_options = new_opts;
+		save_mount_options(sb, new_opts);
 		sb->s_flags |= MS_ACTIVE;
 	} else {
 		_debug("reuse");
-		kfree(new_opts);
 		ASSERTCMP(sb->s_flags, &, MS_ACTIVE);
 	}
 
 	simple_set_mnt(mnt, sb);
 	afs_put_volume(params.volume);
 	afs_put_cell(params.cell);
+	kfree(new_opts);
 	_leave(" = 0 [%p]", sb);
 	return 0;
 

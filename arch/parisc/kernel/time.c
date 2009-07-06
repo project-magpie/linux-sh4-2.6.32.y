@@ -23,6 +23,8 @@
 #include <linux/smp.h>
 #include <linux/profile.h>
 #include <linux/clocksource.h>
+#include <linux/platform_device.h>
+#include <linux/ftrace.h>
 
 #include <asm/uaccess.h>
 #include <asm/io.h>
@@ -52,14 +54,14 @@ static unsigned long clocktick __read_mostly;	/* timer cycles per tick */
  * held off for an arbitrarily long period of time by interrupts being
  * disabled, so we may miss one or more ticks.
  */
-irqreturn_t timer_interrupt(int irq, void *dev_id)
+irqreturn_t __irq_entry timer_interrupt(int irq, void *dev_id)
 {
 	unsigned long now;
 	unsigned long next_tick;
 	unsigned long cycles_elapsed, ticks_elapsed;
 	unsigned long cycles_remainder;
 	unsigned int cpu = smp_processor_id();
-	struct cpuinfo_parisc *cpuinfo = &cpu_data[cpu];
+	struct cpuinfo_parisc *cpuinfo = &per_cpu(cpu_data, cpu);
 
 	/* gcc can optimize for "read-only" case with a local clocktick */
 	unsigned long cpt = clocktick;
@@ -212,8 +214,23 @@ void __init start_cpu_itimer(void)
 
 	mtctl(next_tick, 16);		/* kick off Interval Timer (CR16) */
 
-	cpu_data[cpu].it_value = next_tick;
+	per_cpu(cpu_data, cpu).it_value = next_tick;
 }
+
+static struct platform_device rtc_generic_dev = {
+	.name = "rtc-generic",
+	.id = -1,
+};
+
+static int __init rtc_init(void)
+{
+	if (platform_device_register(&rtc_generic_dev) < 0)
+		printk(KERN_ERR "unable to register rtc device...\n");
+
+	/* not necessarily an error */
+	return 0;
+}
+module_init(rtc_init);
 
 void __init time_init(void)
 {
@@ -245,4 +262,3 @@ void __init time_init(void)
 		xtime.tv_nsec = 0;
 	}
 }
-

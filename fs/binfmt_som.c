@@ -188,7 +188,6 @@ out:
 static int
 load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 {
-	int som_exec_fileno;
 	int retval;
 	unsigned int size;
 	unsigned long som_entry;
@@ -220,12 +219,6 @@ load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 		goto out_free;
 	}
 
-	retval = get_unused_fd();
-	if (retval < 0)
-		goto out_free;
-	get_file(bprm->file);
-	fd_install(som_exec_fileno = retval, bprm->file);
-
 	/* Flush all traces of the currently running executable */
 	retval = flush_old_exec(bprm);
 	if (retval)
@@ -255,7 +248,7 @@ load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	kfree(hpuxhdr);
 
 	set_binfmt(&som_format);
-	compute_creds(bprm);
+	install_exec_creds(bprm);
 	setup_arg_pages(bprm, STACK_TOP, EXSTACK_DEFAULT);
 
 	create_som_tables(bprm);
@@ -306,3 +299,5 @@ static void __exit exit_som_binfmt(void)
 
 core_initcall(init_som_binfmt);
 module_exit(exit_som_binfmt);
+
+MODULE_LICENSE("GPL");

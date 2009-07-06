@@ -88,11 +88,9 @@ struct machdep_calls {
 	unsigned long	(*tce_get)(struct iommu_table *tbl,
 				    long index);
 	void		(*tce_flush)(struct iommu_table *tbl);
-	void		(*pci_dma_dev_setup)(struct pci_dev *dev);
-	void		(*pci_dma_bus_setup)(struct pci_bus *bus);
 
 	void __iomem *	(*ioremap)(phys_addr_t addr, unsigned long size,
-				   unsigned long flags);
+				   unsigned long flags, void *caller);
 	void		(*iounmap)(volatile void __iomem *token);
 
 #ifdef CONFIG_PM
@@ -100,6 +98,9 @@ struct machdep_calls {
 	void		(*iommu_restore)(void);
 #endif
 #endif /* CONFIG_PPC64 */
+
+	void		(*pci_dma_dev_setup)(struct pci_dev *dev);
+	void		(*pci_dma_bus_setup)(struct pci_bus *bus);
 
 	int		(*probe)(void);
 	void		(*setup_arch)(void); /* Optional, may be NULL */
@@ -326,8 +327,6 @@ extern void __devinit smp_generic_take_timebase(void);
  */
 /* Print a boot progress message. */
 void ppc64_boot_msg(unsigned int src, const char *msg);
-/* Print a termination message (print only -- does not stop the kernel) */
-void ppc64_terminate_msg(unsigned int src, const char *msg);
 
 static inline void log_error(char *buf, unsigned int err_type, int fatal)
 {

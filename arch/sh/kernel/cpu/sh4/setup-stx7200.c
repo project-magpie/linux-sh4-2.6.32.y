@@ -21,6 +21,7 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
 #include <linux/ata_platform.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>

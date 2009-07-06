@@ -10,7 +10,7 @@
  *	as published by the Free Software Foundation; either version
  *	2 of the License, or (at your option) any later version.
  *
- *	based on softdog.c by Alan Cox <alan@redhat.com>
+ *	based on softdog.c by Alan Cox <alan@lxorguk.ukuu.org.uk>
  */
 
 #include <linux/module.h>
@@ -35,7 +35,8 @@ static int epx_c3_alive;
 
 static int nowayout = WATCHDOG_NOWAYOUT;
 module_param(nowayout, int, 0);
-MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default=" __MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
+MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
+					__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
 #define EPXC3_WATCHDOG_CTL_REG 0x1ee /* write 1 to enable, 0 to disable */
 #define EPXC3_WATCHDOG_PET_REG 0x1ef /* write anything to pet once enabled */

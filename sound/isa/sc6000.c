@@ -29,7 +29,7 @@
 #include <linux/io.h>
 #include <asm/dma.h>
 #include <sound/core.h>
-#include <sound/ad1848.h>
+#include <sound/wss.h>
 #include <sound/opl3.h>
 #include <sound/mpu401.h>
 #include <sound/control.h>
@@ -397,7 +397,7 @@ static int __devinit sc6000_init_board(char __iomem *vport, int irq, int dma,
 	return 0;
 }
 
-static int __devinit snd_sc6000_mixer(struct snd_ad1848 *chip)
+static int __devinit snd_sc6000_mixer(struct snd_wss *chip)
 {
 	struct snd_card *card = chip->card;
 	struct snd_ctl_elem_id id1, id2;
@@ -483,15 +483,15 @@ static int __devinit snd_sc6000_probe(struct device *devptr, unsigned int dev)
 	int xirq = irq[dev];
 	int xdma = dma[dev];
 	struct snd_card *card;
-	struct snd_ad1848 *chip;
+	struct snd_wss *chip;
 	struct snd_opl3 *opl3;
 	char __iomem *vport;
 	char __iomem *vmss_port;
 
 
-	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
-	if (!card)
-		return -ENOMEM;
+	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
+	if (err < 0)
+		return err;
 
 	if (xirq == SNDRV_AUTO_IRQ) {
 		xirq = snd_legacy_find_free_irq(possible_irqs);
@@ -548,21 +548,21 @@ static int __devinit snd_sc6000_probe(struct device *devptr, unsigned int dev)
 	if (err < 0)
 		goto err_unmap2;
 
-	err = snd_ad1848_create(card, mss_port[dev] + 4, xirq, xdma,
-				AD1848_HW_DETECT, &chip);
+	err = snd_wss_create(card, mss_port[dev] + 4,  -1, xirq, xdma, -1,
+			     WSS_HW_DETECT, 0, &chip);
 	if (err < 0)
 		goto err_unmap2;
 	card->private_data = chip;
 
-	err = snd_ad1848_pcm(chip, 0, NULL);
+	err = snd_wss_pcm(chip, 0, NULL);
 	if (err < 0) {
 		snd_printk(KERN_ERR PFX
-			   "error creating new ad1848 PCM device\n");
+			   "error creating new WSS PCM device\n");
 		goto err_unmap2;
 	}
-	err = snd_ad1848_mixer(chip);
+	err = snd_wss_mixer(chip);
 	if (err < 0) {
-		snd_printk(KERN_ERR PFX "error creating new ad1848 mixer\n");
+		snd_printk(KERN_ERR PFX "error creating new WSS mixer\n");
 		goto err_unmap2;
 	}
 	err = snd_sc6000_mixer(chip);
@@ -576,10 +576,6 @@ static int __devinit snd_sc6000_probe(struct device *devptr, unsigned int dev)
 		snd_printk(KERN_ERR PFX "no OPL device at 0x%x-0x%x ?\n",
 			   0x388, 0x388 + 2);
 	} else {
-		err = snd_opl3_timer_new(opl3, 0, 1);
-		if (err < 0)
-			goto err_unmap2;
-
 		err = snd_opl3_hwdep_new(opl3, 0, 1, NULL);
 		if (err < 0)
 			goto err_unmap2;

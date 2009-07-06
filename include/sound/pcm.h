@@ -268,7 +268,8 @@ struct snd_pcm_runtime {
 	int overrange;
 	snd_pcm_uframes_t avail_max;
 	snd_pcm_uframes_t hw_ptr_base;	/* Position at buffer restart */
-	snd_pcm_uframes_t hw_ptr_interrupt; /* Position at interrupt time*/
+	snd_pcm_uframes_t hw_ptr_interrupt; /* Position at interrupt time */
+	unsigned long hw_ptr_jiffies;	/* Time when hw_ptr is updated */
 
 	/* -- HW params -- */
 	snd_pcm_access_t access;	/* access mode */
@@ -364,7 +365,6 @@ struct snd_pcm_substream {
         /* -- timer section -- */
 	struct snd_timer *timer;		/* timer */
 	unsigned timer_running: 1;	/* time is running */
-	spinlock_t timer_lock;
 	/* -- next substream -- */
 	struct snd_pcm_substream *next;
 	/* -- linked substreams -- */
@@ -451,7 +451,7 @@ struct snd_pcm_notify {
 
 extern const struct file_operations snd_pcm_f_ops[2];
 
-int snd_pcm_new(struct snd_card *card, char *id, int device,
+int snd_pcm_new(struct snd_card *card, const char *id, int device,
 		int playback_count, int capture_count,
 		struct snd_pcm **rpcm);
 int snd_pcm_new_stream(struct snd_pcm *pcm, int stream, int substream_count);
@@ -974,10 +974,30 @@ int snd_pcm_lib_preallocate_pages_for_all(struct snd_pcm *pcm,
 int snd_pcm_lib_malloc_pages(struct snd_pcm_substream *substream, size_t size);
 int snd_pcm_lib_free_pages(struct snd_pcm_substream *substream);
 
-#define snd_pcm_substream_sgbuf(substream) ((substream)->runtime->dma_buffer_p->private_data)
-#define snd_pcm_sgbuf_pages(size) snd_sgbuf_aligned_pages(size)
-#define snd_pcm_sgbuf_get_addr(sgbuf,ofs) snd_sgbuf_get_addr(sgbuf,ofs)
-struct page *snd_pcm_sgbuf_ops_page(struct snd_pcm_substream *substream, unsigned long offset);
+/*
+ * SG-buffer handling
+ */
+#define snd_pcm_substream_sgbuf(substream) \
+	((substream)->runtime->dma_buffer_p->private_data)
+
+static inline dma_addr_t
+snd_pcm_sgbuf_get_addr(struct snd_pcm_substream *substream, unsigned int ofs)
+{
+	struct snd_sg_buf *sg = snd_pcm_substream_sgbuf(substream);
+	return snd_sgbuf_get_addr(sg, ofs);
+}
+
+static inline void *
+snd_pcm_sgbuf_get_ptr(struct snd_pcm_substream *substream, unsigned int ofs)
+{
+	struct snd_sg_buf *sg = snd_pcm_substream_sgbuf(substream);
+	return snd_sgbuf_get_ptr(sg, ofs);
+}
+
+struct page *snd_pcm_sgbuf_ops_page(struct snd_pcm_substream *substream,
+				    unsigned long offset);
+unsigned int snd_pcm_sgbuf_get_chunk_size(struct snd_pcm_substream *substream,
+					  unsigned int ofs, unsigned int size);
 
 /* handle mmap counter - PCM mmap callback should handle this counter properly */
 static inline void snd_pcm_mmap_data_open(struct vm_area_struct *area)
@@ -1014,5 +1034,7 @@ static inline void snd_pcm_limit_isa_dma_size(int dma, size_t *max)
 					 (IEC958_AES1_CON_ORIGINAL<<8)|\
 					 (IEC958_AES1_CON_PCM_CODER<<8)|\
 					 (IEC958_AES3_CON_FS_48000<<24))
+
+#define PCM_RUNTIME_CHECK(sub) snd_BUG_ON(!(sub) || !(sub)->runtime)
 
 #endif /* __SOUND_PCM_H */

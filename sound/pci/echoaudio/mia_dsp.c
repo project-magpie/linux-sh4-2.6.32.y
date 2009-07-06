@@ -42,7 +42,8 @@ static int init_hw(struct echoaudio *chip, u16 device_id, u16 subdevice_id)
 	int err;
 
 	DE_INIT(("init_hw() - Mia\n"));
-	snd_assert((subdevice_id & 0xfff0) == MIA, return -ENODEV);
+	if (snd_BUG_ON((subdevice_id & 0xfff0) != MIA))
+		return -ENODEV;
 
 	if ((err = init_dsp_comm_page(chip))) {
 		DE_INIT(("init_hw - could not initialize DSP comm page\n"));
@@ -67,18 +68,6 @@ static int init_hw(struct echoaudio *chip, u16 device_id, u16 subdevice_id)
 
 	if ((err = init_line_levels(chip)))
 		return err;
-
-	/* Default routing of the virtual channels: vchannels 0-3 go to analog
-	outputs and vchannels 4-7 go to S/PDIF outputs */
-	set_vmixer_gain(chip, 0, 0, 0);
-	set_vmixer_gain(chip, 1, 1, 0);
-	set_vmixer_gain(chip, 0, 2, 0);
-	set_vmixer_gain(chip, 1, 3, 0);
-	set_vmixer_gain(chip, 2, 4, 0);
-	set_vmixer_gain(chip, 3, 5, 0);
-	set_vmixer_gain(chip, 2, 6, 0);
-	set_vmixer_gain(chip, 3, 7, 0);
-	err = update_vmixer_level(chip);
 
 	DE_INIT(("init_hw done\n"));
 	return err;
@@ -161,8 +150,9 @@ static int set_sample_rate(struct echoaudio *chip, u32 rate)
 static int set_input_clock(struct echoaudio *chip, u16 clock)
 {
 	DE_ACT(("set_input_clock(%d)\n", clock));
-	snd_assert(clock == ECHO_CLOCK_INTERNAL || clock == ECHO_CLOCK_SPDIF,
-		   return -EINVAL);
+	if (snd_BUG_ON(clock != ECHO_CLOCK_INTERNAL &&
+		       clock != ECHO_CLOCK_SPDIF))
+		return -EINVAL;
 
 	chip->input_clock = clock;
 	return set_sample_rate(chip, chip->sample_rate);
@@ -176,8 +166,9 @@ static int set_vmixer_gain(struct echoaudio *chip, u16 output, u16 pipe,
 {
 	int index;
 
-	snd_assert(pipe < num_pipes_out(chip) &&
-		   output < num_busses_out(chip), return -EINVAL);
+	if (snd_BUG_ON(pipe >= num_pipes_out(chip) ||
+		       output >= num_busses_out(chip)))
+		return -EINVAL;
 
 	if (wait_handshake(chip))
 		return -EIO;
@@ -219,10 +210,10 @@ static int set_professional_spdif(struct echoaudio *chip, char prof)
 	DE_ACT(("set_professional_spdif %d\n", prof));
 	if (prof)
 		chip->comm_page->flags |=
-			__constant_cpu_to_le32(DSP_FLAG_PROFESSIONAL_SPDIF);
+			cpu_to_le32(DSP_FLAG_PROFESSIONAL_SPDIF);
 	else
 		chip->comm_page->flags &=
-			~__constant_cpu_to_le32(DSP_FLAG_PROFESSIONAL_SPDIF);
+			~cpu_to_le32(DSP_FLAG_PROFESSIONAL_SPDIF);
 	chip->professional_spdif = prof;
 	return update_flags(chip);
 }

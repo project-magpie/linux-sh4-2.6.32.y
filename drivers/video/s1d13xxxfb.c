@@ -51,6 +51,24 @@
 #endif
 
 /*
+ * List of card production ids
+ */
+static const int s1d13xxxfb_prod_ids[] = {
+	S1D13505_PROD_ID,
+	S1D13506_PROD_ID,
+	S1D13806_PROD_ID,
+};
+
+/*
+ * List of card strings
+ */
+static const char *s1d13xxxfb_prod_names[] = {
+	"S1D13505",
+	"S1D13506",
+	"S1D13806",
+};
+
+/*
  * Here we define the default struct fb_fix_screeninfo
  */
 static struct fb_fix_screeninfo __devinitdata s1d13xxxfb_fix = {
@@ -372,7 +390,6 @@ s1d13xxxfb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 	return 0;
 }
 
-
 /* framebuffer information structures */
 
 static struct fb_ops s1d13xxxfb_fbops = {
@@ -538,7 +555,8 @@ s1d13xxxfb_probe(struct platform_device *pdev)
 	struct fb_info *info;
 	struct s1d13xxxfb_pdata *pdata = NULL;
 	int ret = 0;
-	u8 revision;
+	int i;
+	u8 revision, prod_id;
 
 	dbg("probe called: device is %p\n", pdev);
 
@@ -607,10 +625,31 @@ s1d13xxxfb_probe(struct platform_device *pdev)
 		goto bail;
 	}
 
-	revision = s1d13xxxfb_readreg(default_par, S1DREG_REV_CODE);
-	if ((revision >> 2) != S1D_CHIP_REV) {
-		printk(KERN_INFO PFX "chip not found: %i\n", (revision >> 2));
-		ret = -ENODEV;
+	/* production id is top 6 bits */
+	prod_id = s1d13xxxfb_readreg(default_par, S1DREG_REV_CODE) >> 2;
+	/* revision id is lower 2 bits */
+	revision = s1d13xxxfb_readreg(default_par, S1DREG_REV_CODE) & 0x3;
+	ret = -ENODEV;
+
+	for (i = 0; i < ARRAY_SIZE(s1d13xxxfb_prod_ids); i++) {
+		if (prod_id == s1d13xxxfb_prod_ids[i]) {
+			/* looks like we got it in our list */
+			default_par->prod_id = prod_id;
+			default_par->revision = revision;
+			ret = 0;
+			break;
+		}
+	}
+
+	if (!ret) {
+		printk(KERN_INFO PFX "chip production id %i = %s\n",
+			prod_id, s1d13xxxfb_prod_names[i]);
+		printk(KERN_INFO PFX "chip revision %i\n", revision);
+	} else {
+		printk(KERN_INFO PFX
+			"unknown chip production id %i, revision %i\n",
+			prod_id, revision);
+		printk(KERN_INFO PFX "please contant maintainer\n");
 		goto bail;
 	}
 

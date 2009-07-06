@@ -1,5 +1,5 @@
 /*
- * dev_cgroup.c - device cgroup subsystem
+ * device_cgroup.c - device cgroup subsystem
  *
  * Copyright 2007 IBM Corp
  */
@@ -10,6 +10,8 @@
 #include <linux/list.h>
 #include <linux/uaccess.h>
 #include <linux/seq_file.h>
+#include <linux/rcupdate.h>
+#include <linux/mutex.h>
 
 #define ACC_MKNOD 1
 #define ACC_READ  2
@@ -20,20 +22,12 @@
 #define DEV_CHAR  2
 #define DEV_ALL   4  /* this represents all devices */
 
+static DEFINE_MUTEX(devcgroup_mutex);
+
 /*
  * whitelist locking rules:
- * cgroup_lock() cannot be taken under dev_cgroup->lock.
- * dev_cgroup->lock can be taken with or without cgroup_lock().
- *
- * modifications always require cgroup_lock
- * modifications to a list which is visible require the
- *   dev_cgroup->lock *and* cgroup_lock()
- * walking the list requires dev_cgroup->lock or cgroup_lock().
- *
- * reasoning: dev_whitelist_copy() needs to kmalloc, so needs
- *   a mutex, which the cgroup_lock() is.  Since modifying
- *   a visible list requires both locks, either lock can be
- *   taken for walking the list.
+ * hold devcgroup_mutex for update/read.
+ * hold rcu_read_lock() for read.
  */
 
 struct dev_whitelist_item {
@@ -47,7 +41,6 @@ struct dev_whitelist_item {
 struct dev_cgroup {
 	struct cgroup_subsys_state css;
 	struct list_head whitelist;
-	spinlock_t lock;
 };
 
 static inline struct dev_cgroup *css_to_devcgroup(struct cgroup_subsys_state *s)
@@ -77,20 +70,16 @@ static int devcgroup_can_attach(struct cgroup_subsys *ss,
 }
 
 /*
- * called under cgroup_lock()
+ * called under devcgroup_mutex
  */
 static int dev_whitelist_copy(struct list_head *dest, struct list_head *orig)
 {
 	struct dev_whitelist_item *wh, *tmp, *new;
 
 	list_for_each_entry(wh, orig, list) {
-		new = kmalloc(sizeof(*wh), GFP_KERNEL);
+		new = kmemdup(wh, sizeof(*wh), GFP_KERNEL);
 		if (!new)
 			goto free_and_exit;
-		new->major = wh->major;
-		new->minor = wh->minor;
-		new->type = wh->type;
-		new->access = wh->access;
 		list_add_tail(&new->list, dest);
 	}
 
@@ -106,20 +95,17 @@ free_and_exit:
 
 /* Stupid prototype - don't bother combining existing entries */
 /*
- * called under cgroup_lock()
- * since the list is visible to other tasks, we need the spinlock also
+ * called under devcgroup_mutex
  */
 static int dev_whitelist_add(struct dev_cgroup *dev_cgroup,
 			struct dev_whitelist_item *wh)
 {
 	struct dev_whitelist_item *whcopy, *walk;
 
-	whcopy = kmalloc(sizeof(*whcopy), GFP_KERNEL);
+	whcopy = kmemdup(wh, sizeof(*wh), GFP_KERNEL);
 	if (!whcopy)
 		return -ENOMEM;
 
-	memcpy(whcopy, wh, sizeof(*whcopy));
-	spin_lock(&dev_cgroup->lock);
 	list_for_each_entry(walk, &dev_cgroup->whitelist, list) {
 		if (walk->type != wh->type)
 			continue;
@@ -135,7 +121,6 @@ static int dev_whitelist_add(struct dev_cgroup *dev_cgroup,
 
 	if (whcopy != NULL)
 		list_add_tail_rcu(&whcopy->list, &dev_cgroup->whitelist);
-	spin_unlock(&dev_cgroup->lock);
 	return 0;
 }
 
@@ -148,15 +133,13 @@ static void whitelist_item_free(struct rcu_head *rcu)
 }
 
 /*
- * called under cgroup_lock()
- * since the list is visible to other tasks, we need the spinlock also
+ * called under devcgroup_mutex
  */
 static void dev_whitelist_rm(struct dev_cgroup *dev_cgroup,
 			struct dev_whitelist_item *wh)
 {
 	struct dev_whitelist_item *walk, *tmp;
 
-	spin_lock(&dev_cgroup->lock);
 	list_for_each_entry_safe(walk, tmp, &dev_cgroup->whitelist, list) {
 		if (walk->type == DEV_ALL)
 			goto remove;
@@ -174,7 +157,6 @@ remove:
 			call_rcu(&walk->rcu, whitelist_item_free);
 		}
 	}
-	spin_unlock(&dev_cgroup->lock);
 }
 
 /*
@@ -206,15 +188,16 @@ static struct cgroup_subsys_state *devcgroup_create(struct cgroup_subsys *ss,
 		list_add(&wh->list, &dev_cgroup->whitelist);
 	} else {
 		parent_dev_cgroup = cgroup_to_devcgroup(parent_cgroup);
+		mutex_lock(&devcgroup_mutex);
 		ret = dev_whitelist_copy(&dev_cgroup->whitelist,
 				&parent_dev_cgroup->whitelist);
+		mutex_unlock(&devcgroup_mutex);
 		if (ret) {
 			kfree(dev_cgroup);
 			return ERR_PTR(ret);
 		}
 	}
 
-	spin_lock_init(&dev_cgroup->lock);
 	return &dev_cgroup->css;
 }
 
@@ -295,7 +278,7 @@ static int devcgroup_seq_read(struct cgroup *cgroup, struct cftype *cft,
  * does the access granted to dev_cgroup c contain the access
  * requested in whitelist item refwh.
  * return 1 if yes, 0 if no.
- * call with c->lock held
+ * call with devcgroup_mutex held
  */
 static int may_access_whitelist(struct dev_cgroup *c,
 				       struct dev_whitelist_item *refwh)
@@ -330,15 +313,11 @@ static int parent_has_perm(struct dev_cgroup *childcg,
 {
 	struct cgroup *pcg = childcg->css.cgroup->parent;
 	struct dev_cgroup *parent;
-	int ret;
 
 	if (!pcg)
 		return 1;
 	parent = cgroup_to_devcgroup(pcg);
-	spin_lock(&parent->lock);
-	ret = may_access_whitelist(parent, wh);
-	spin_unlock(&parent->lock);
-	return ret;
+	return may_access_whitelist(parent, wh);
 }
 
 /*
@@ -357,16 +336,13 @@ static int parent_has_perm(struct dev_cgroup *childcg,
 static int devcgroup_update_access(struct dev_cgroup *devcgroup,
 				   int filetype, const char *buffer)
 {
-	struct dev_cgroup *cur_devcgroup;
 	const char *b;
 	char *endp;
-	int retval = 0, count;
+	int count;
 	struct dev_whitelist_item wh;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
-
-	cur_devcgroup = task_devcgroup(current);
 
 	memset(&wh, 0, sizeof(wh));
 	b = buffer;
@@ -437,7 +413,6 @@ static int devcgroup_update_access(struct dev_cgroup *devcgroup,
 	}
 
 handle:
-	retval = 0;
 	switch (filetype) {
 	case DEVCG_ALLOW:
 		if (!parent_has_perm(devcgroup, &wh))
@@ -456,11 +431,11 @@ static int devcgroup_access_write(struct cgroup *cgrp, struct cftype *cft,
 				  const char *buffer)
 {
 	int retval;
-	if (!cgroup_lock_live_group(cgrp))
-		return -ENODEV;
+
+	mutex_lock(&devcgroup_mutex);
 	retval = devcgroup_update_access(cgroup_to_devcgroup(cgrp),
 					 cft->private, buffer);
-	cgroup_unlock();
+	mutex_unlock(&devcgroup_mutex);
 	return retval;
 }
 
@@ -508,12 +483,11 @@ int devcgroup_inode_permission(struct inode *inode, int mask)
 		return 0;
 	if (!S_ISBLK(inode->i_mode) && !S_ISCHR(inode->i_mode))
 		return 0;
-	dev_cgroup = css_to_devcgroup(task_subsys_state(current,
-				devices_subsys_id));
-	if (!dev_cgroup)
-		return 0;
 
 	rcu_read_lock();
+
+	dev_cgroup = task_devcgroup(current);
+
 	list_for_each_entry_rcu(wh, &dev_cgroup->whitelist, list) {
 		if (wh->type & DEV_ALL)
 			goto acc_check;
@@ -533,6 +507,7 @@ acc_check:
 		rcu_read_unlock();
 		return 0;
 	}
+
 	rcu_read_unlock();
 
 	return -EPERM;
@@ -543,13 +518,14 @@ int devcgroup_inode_mknod(int mode, dev_t dev)
 	struct dev_cgroup *dev_cgroup;
 	struct dev_whitelist_item *wh;
 
-	dev_cgroup = css_to_devcgroup(task_subsys_state(current,
-				devices_subsys_id));
-	if (!dev_cgroup)
+	if (!S_ISBLK(mode) && !S_ISCHR(mode))
 		return 0;
 
 	rcu_read_lock();
-	list_for_each_entry(wh, &dev_cgroup->whitelist, list) {
+
+	dev_cgroup = task_devcgroup(current);
+
+	list_for_each_entry_rcu(wh, &dev_cgroup->whitelist, list) {
 		if (wh->type & DEV_ALL)
 			goto acc_check;
 		if ((wh->type & DEV_BLOCK) && !S_ISBLK(mode))
@@ -566,6 +542,8 @@ acc_check:
 		rcu_read_unlock();
 		return 0;
 	}
+
 	rcu_read_unlock();
+
 	return -EPERM;
 }

@@ -53,7 +53,7 @@
 #include <asm/pmac_low_i2c.h>
 #include <asm/pmac_pfunc.h>
 
-#define DEBUG
+#undef DEBUG
 
 #ifdef DEBUG
 #define DBG(fmt...) udbg_printf(fmt)
@@ -385,7 +385,6 @@ static void __init psurge_dual_sync_tb(int cpu_nr)
 static struct irqaction psurge_irqaction = {
 	.handler = psurge_primary_intr,
 	.flags = IRQF_DISABLED,
-	.mask = CPU_MASK_NONE,
 	.name = "primary IPI",
 };
 
@@ -739,7 +738,7 @@ static void __init smp_core99_setup(int ncpus)
 
 		/* XXX should get this from reg properties */
 		for (i = 1; i < ncpus; ++i)
-			smp_hw_index[i] = i;
+			set_hard_smp_processor_id(i, i);
 	}
 #endif
 
@@ -787,7 +786,7 @@ static void __devinit smp_core99_kick_cpu(int nr)
 {
 	unsigned int save_vector;
 	unsigned long target, flags;
-	unsigned int *vector = (unsigned int *)(KERNELBASE+0x100);
+	unsigned int *vector = (unsigned int *)(PAGE_OFFSET+0x100);
 
 	if (nr < 0 || nr > 3)
 		return;
@@ -801,7 +800,7 @@ static void __devinit smp_core99_kick_cpu(int nr)
 	save_vector = *vector;
 
 	/* Setup fake reset vector that does
-	 *   b __secondary_start_pmac_0 + nr*8 - KERNELBASE
+	 *   b __secondary_start_pmac_0 + nr*8
 	 */
 	target = (unsigned long) __secondary_start_pmac_0 + nr * 8;
 	patch_branch(vector, target, BRANCH_SET_LINK);

@@ -59,7 +59,6 @@
 #include <acpi/acpi_drivers.h>
 #include <acpi/processor.h>
 
-#define ACPI_PROCESSOR_COMPONENT	0x01000000
 #define ACPI_PROCESSOR_CLASS		"processor"
 #define ACPI_PROCESSOR_DEVICE_NAME	"Processor"
 #define ACPI_PROCESSOR_FILE_INFO	"info"
@@ -83,12 +82,13 @@ static int acpi_processor_add(struct acpi_device *device);
 static int acpi_processor_start(struct acpi_device *device);
 static int acpi_processor_remove(struct acpi_device *device, int type);
 static int acpi_processor_info_open_fs(struct inode *inode, struct file *file);
-static void acpi_processor_notify(acpi_handle handle, u32 event, void *data);
+static void acpi_processor_notify(struct acpi_device *device, u32 event);
 static acpi_status acpi_processor_hotadd_init(acpi_handle handle, int *p_cpu);
 static int acpi_processor_handle_eject(struct acpi_processor *pr);
 
 
 static const struct acpi_device_id processor_device_ids[] = {
+	{ACPI_PROCESSOR_OBJECT_HID, 0},
 	{ACPI_PROCESSOR_HID, 0},
 	{"", 0},
 };
@@ -104,6 +104,7 @@ static struct acpi_driver acpi_processor_driver = {
 		.start = acpi_processor_start,
 		.suspend = acpi_processor_suspend,
 		.resume = acpi_processor_resume,
+		.notify = acpi_processor_notify,
 		},
 };
 
@@ -138,7 +139,7 @@ static struct dmi_system_id __cpuinitdata processor_idle_dmi_table[] = {
 	{
 	set_no_mwait, "Extensa 5220", {
 	DMI_MATCH(DMI_BIOS_VENDOR, "Phoenix Technologies LTD"),
-	DMI_MATCH(DMI_SYS_VENDOR, "ACER"),
+	DMI_MATCH(DMI_SYS_VENDOR, "Acer"),
 	DMI_MATCH(DMI_PRODUCT_VERSION, "0100"),
 	DMI_MATCH(DMI_BOARD_NAME, "Columbia") }, NULL},
 	{},
@@ -359,7 +360,6 @@ static int acpi_processor_add_fs(struct acpi_device *device)
 		if (!acpi_device_dir(device))
 			return -ENODEV;
 	}
-	acpi_device_dir(device)->owner = THIS_MODULE;
 
 	/* 'info' [R] */
 	entry = proc_create_data(ACPI_PROCESSOR_FILE_INFO,
@@ -409,7 +409,7 @@ static int acpi_processor_remove_fs(struct acpi_device *device)
 /* Use the acpiid in MADT to map cpus in case of SMP */
 
 #ifndef CONFIG_SMP
-static int get_cpu_id(acpi_handle handle, u32 acpi_id) {return -1;}
+static int get_cpu_id(acpi_handle handle, int type, u32 acpi_id) { return -1; }
 #else
 
 static struct acpi_table_madt *madt;
@@ -427,28 +427,59 @@ static int map_lapic_id(struct acpi_subtable_header *entry,
 	return 0;
 }
 
+static int map_x2apic_id(struct acpi_subtable_header *entry,
+			 int device_declaration, u32 acpi_id, int *apic_id)
+{
+	struct acpi_madt_local_x2apic *apic =
+		(struct acpi_madt_local_x2apic *)entry;
+	u32 tmp = apic->local_apic_id;
+
+	/* Only check enabled APICs*/
+	if (!(apic->lapic_flags & ACPI_MADT_ENABLED))
+		return 0;
+
+	/* Device statement declaration type */
+	if (device_declaration) {
+		if (apic->uid == acpi_id)
+			goto found;
+	}
+
+	return 0;
+found:
+	*apic_id = tmp;
+	return 1;
+}
+
 static int map_lsapic_id(struct acpi_subtable_header *entry,
-		  u32 acpi_id, int *apic_id)
+		int device_declaration, u32 acpi_id, int *apic_id)
 {
 	struct acpi_madt_local_sapic *lsapic =
 		(struct acpi_madt_local_sapic *)entry;
+	u32 tmp = (lsapic->id << 8) | lsapic->eid;
+
 	/* Only check enabled APICs*/
-	if (lsapic->lapic_flags & ACPI_MADT_ENABLED) {
-		/* First check against id */
-		if (lsapic->processor_id == acpi_id) {
-			*apic_id = (lsapic->id << 8) | lsapic->eid;
-			return 1;
-		/* Check against optional uid */
-		} else if (entry->length >= 16 &&
-			lsapic->uid == acpi_id) {
-			*apic_id = lsapic->uid;
-			return 1;
-		}
-	}
+	if (!(lsapic->lapic_flags & ACPI_MADT_ENABLED))
+		return 0;
+
+	/* Device statement declaration type */
+	if (device_declaration) {
+		if (entry->length < 16)
+			printk(KERN_ERR PREFIX
+			    "Invalid LSAPIC with Device type processor (SAPIC ID %#x)\n",
+			    tmp);
+		else if (lsapic->uid == acpi_id)
+			goto found;
+	/* Processor statement declaration type */
+	} else if (lsapic->processor_id == acpi_id)
+		goto found;
+
 	return 0;
+found:
+	*apic_id = tmp;
+	return 1;
 }
 
-static int map_madt_entry(u32 acpi_id)
+static int map_madt_entry(int type, u32 acpi_id)
 {
 	unsigned long madt_end, entry;
 	int apic_id = -1;
@@ -468,8 +499,11 @@ static int map_madt_entry(u32 acpi_id)
 		if (header->type == ACPI_MADT_TYPE_LOCAL_APIC) {
 			if (map_lapic_id(header, acpi_id, &apic_id))
 				break;
+		} else if (header->type == ACPI_MADT_TYPE_LOCAL_X2APIC) {
+			if (map_x2apic_id(header, type, acpi_id, &apic_id))
+				break;
 		} else if (header->type == ACPI_MADT_TYPE_LOCAL_SAPIC) {
-			if (map_lsapic_id(header, acpi_id, &apic_id))
+			if (map_lsapic_id(header, type, acpi_id, &apic_id))
 				break;
 		}
 		entry += header->length;
@@ -477,7 +511,7 @@ static int map_madt_entry(u32 acpi_id)
 	return apic_id;
 }
 
-static int map_mat_entry(acpi_handle handle, u32 acpi_id)
+static int map_mat_entry(acpi_handle handle, int type, u32 acpi_id)
 {
 	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
 	union acpi_object *obj;
@@ -500,7 +534,7 @@ static int map_mat_entry(acpi_handle handle, u32 acpi_id)
 	if (header->type == ACPI_MADT_TYPE_LOCAL_APIC) {
 		map_lapic_id(header, acpi_id, &apic_id);
 	} else if (header->type == ACPI_MADT_TYPE_LOCAL_SAPIC) {
-		map_lsapic_id(header, acpi_id, &apic_id);
+		map_lsapic_id(header, type, acpi_id, &apic_id);
 	}
 
 exit:
@@ -509,14 +543,14 @@ exit:
 	return apic_id;
 }
 
-static int get_cpu_id(acpi_handle handle, u32 acpi_id)
+static int get_cpu_id(acpi_handle handle, int type, u32 acpi_id)
 {
 	int i;
 	int apic_id = -1;
 
-	apic_id = map_mat_entry(handle, acpi_id);
+	apic_id = map_mat_entry(handle, type, acpi_id);
 	if (apic_id == -1)
-		apic_id = map_madt_entry(acpi_id);
+		apic_id = map_madt_entry(type, acpi_id);
 	if (apic_id == -1)
 		return apic_id;
 
@@ -532,15 +566,16 @@ static int get_cpu_id(acpi_handle handle, u32 acpi_id)
                                  Driver Interface
    -------------------------------------------------------------------------- */
 
-static int acpi_processor_get_info(struct acpi_processor *pr, unsigned has_uid)
+static int acpi_processor_get_info(struct acpi_device *device)
 {
 	acpi_status status = 0;
 	union acpi_object object = { 0 };
 	struct acpi_buffer buffer = { sizeof(union acpi_object), &object };
-	int cpu_index;
+	struct acpi_processor *pr;
+	int cpu_index, device_declaration = 0;
 	static int cpu0_initialized;
 
-
+	pr = acpi_driver_data(device);
 	if (!pr)
 		return -EINVAL;
 
@@ -561,22 +596,23 @@ static int acpi_processor_get_info(struct acpi_processor *pr, unsigned has_uid)
 		ACPI_DEBUG_PRINT((ACPI_DB_INFO,
 				  "No bus mastering arbitration control\n"));
 
-	/* Check if it is a Device with HID and UID */
-	if (has_uid) {
-		unsigned long value;
+	if (!strcmp(acpi_device_hid(device), ACPI_PROCESSOR_HID)) {
+		/*
+		 * Declared with "Device" statement; match _UID.
+		 * Note that we don't handle string _UIDs yet.
+		 */
+		unsigned long long value;
 		status = acpi_evaluate_integer(pr->handle, METHOD_NAME__UID,
 						NULL, &value);
 		if (ACPI_FAILURE(status)) {
-			printk(KERN_ERR PREFIX "Evaluating processor _UID\n");
+			printk(KERN_ERR PREFIX
+			    "Evaluating processor _UID [%#x]\n", status);
 			return -ENODEV;
 		}
+		device_declaration = 1;
 		pr->acpi_id = value;
 	} else {
-		/*
-		* Evalute the processor object.  Note that it is common on SMP to
-		* have the first (boot) processor with a valid PBLK address while
-		* all others have a NULL address.
-		*/
+		/* Declared with "Processor" statement; match ProcessorID */
 		status = acpi_evaluate_object(pr->handle, NULL, NULL, &buffer);
 		if (ACPI_FAILURE(status)) {
 			printk(KERN_ERR PREFIX "Evaluating processor object\n");
@@ -584,12 +620,13 @@ static int acpi_processor_get_info(struct acpi_processor *pr, unsigned has_uid)
 		}
 
 		/*
-		* TBD: Synch processor ID (via LAPIC/LSAPIC structures) on SMP.
-		*      >>> 'acpi_get_processor_id(acpi_id, &id)' in arch/xxx/acpi.c
-		*/
+		 * TBD: Synch processor ID (via LAPIC/LSAPIC structures) on SMP.
+		 *      >>> 'acpi_get_processor_id(acpi_id, &id)' in
+		 *      arch/xxx/acpi.c
+		 */
 		pr->acpi_id = object.processor.proc_id;
 	}
-	cpu_index = get_cpu_id(pr->handle, pr->acpi_id);
+	cpu_index = get_cpu_id(pr->handle, device_declaration, pr->acpi_id);
 
 	/* Handle UP system running SMP kernel, with no LAPIC in MADT */
 	if (!cpu0_initialized && (cpu_index == -1) &&
@@ -655,13 +692,12 @@ static DEFINE_PER_CPU(void *, processor_device_array);
 static int __cpuinit acpi_processor_start(struct acpi_device *device)
 {
 	int result = 0;
-	acpi_status status = AE_OK;
 	struct acpi_processor *pr;
 	struct sys_device *sysdev;
 
 	pr = acpi_driver_data(device);
 
-	result = acpi_processor_get_info(pr, device->flags.unique_id);
+	result = acpi_processor_get_info(device);
 	if (result) {
 		/* Processor is physically not present */
 		return 0;
@@ -691,9 +727,6 @@ static int __cpuinit acpi_processor_start(struct acpi_device *device)
 	sysdev = get_cpu_sysdev(pr->id);
 	if (sysfs_create_link(&device->dev.kobj, &sysdev->kobj, "sysdev"))
 		return -EFAULT;
-
-	status = acpi_install_notify_handler(pr->handle, ACPI_DEVICE_NOTIFY,
-					     acpi_processor_notify, pr);
 
 	/* _PDC call should be done before doing anything else (if reqd.). */
 	arch_acpi_processor_init_pdc(pr);
@@ -740,16 +773,12 @@ static int __cpuinit acpi_processor_start(struct acpi_device *device)
 	return result;
 }
 
-static void acpi_processor_notify(acpi_handle handle, u32 event, void *data)
+static void acpi_processor_notify(struct acpi_device *device, u32 event)
 {
-	struct acpi_processor *pr = data;
-	struct acpi_device *device = NULL;
+	struct acpi_processor *pr = acpi_driver_data(device);
 	int saved;
 
 	if (!pr)
-		return;
-
-	if (acpi_bus_get_device(pr->handle, &device))
 		return;
 
 	switch (event) {
@@ -761,20 +790,20 @@ static void acpi_processor_notify(acpi_handle handle, u32 event, void *data)
 		acpi_bus_generate_proc_event(device, event,
 					pr->performance_platform_limit);
 		acpi_bus_generate_netlink_event(device->pnp.device_class,
-						  device->dev.bus_id, event,
+						  dev_name(&device->dev), event,
 						  pr->performance_platform_limit);
 		break;
 	case ACPI_PROCESSOR_NOTIFY_POWER:
 		acpi_processor_cst_has_changed(pr);
 		acpi_bus_generate_proc_event(device, event, 0);
 		acpi_bus_generate_netlink_event(device->pnp.device_class,
-						  device->dev.bus_id, event, 0);
+						  dev_name(&device->dev), event, 0);
 		break;
 	case ACPI_PROCESSOR_NOTIFY_THROTTLING:
 		acpi_processor_tstate_has_changed(pr);
 		acpi_bus_generate_proc_event(device, event, 0);
 		acpi_bus_generate_netlink_event(device->pnp.device_class,
-						  device->dev.bus_id, event, 0);
+						  dev_name(&device->dev), event, 0);
 	default:
 		ACPI_DEBUG_PRINT((ACPI_DB_INFO,
 				  "Unsupported event [0x%x]\n", event));
@@ -815,17 +844,21 @@ static int acpi_processor_add(struct acpi_device *device)
 	if (!pr)
 		return -ENOMEM;
 
+	if (!zalloc_cpumask_var(&pr->throttling.shared_cpu_map, GFP_KERNEL)) {
+		kfree(pr);
+		return -ENOMEM;
+	}
+
 	pr->handle = device->handle;
 	strcpy(acpi_device_name(device), ACPI_PROCESSOR_DEVICE_NAME);
 	strcpy(acpi_device_class(device), ACPI_PROCESSOR_CLASS);
-	acpi_driver_data(device) = pr;
+	device->driver_data = pr;
 
 	return 0;
 }
 
 static int acpi_processor_remove(struct acpi_device *device, int type)
 {
-	acpi_status status = AE_OK;
 	struct acpi_processor *pr = NULL;
 
 
@@ -834,10 +867,8 @@ static int acpi_processor_remove(struct acpi_device *device, int type)
 
 	pr = acpi_driver_data(device);
 
-	if (pr->id >= nr_cpu_ids) {
-		kfree(pr);
-		return 0;
-	}
+	if (pr->id >= nr_cpu_ids)
+		goto free;
 
 	if (type == ACPI_BUS_REMOVAL_EJECT) {
 		if (acpi_processor_handle_eject(pr))
@@ -845,9 +876,6 @@ static int acpi_processor_remove(struct acpi_device *device, int type)
 	}
 
 	acpi_processor_power_exit(pr, device);
-
-	status = acpi_remove_notify_handler(pr->handle, ACPI_DEVICE_NOTIFY,
-					    acpi_processor_notify);
 
 	sysfs_remove_link(&device->dev.kobj, "sysdev");
 
@@ -862,6 +890,9 @@ static int acpi_processor_remove(struct acpi_device *device, int type)
 
 	per_cpu(processors, pr->id) = NULL;
 	per_cpu(processor_device_array, pr->id) = NULL;
+
+free:
+	free_cpumask_var(pr->throttling.shared_cpu_map);
 	kfree(pr);
 
 	return 0;
@@ -875,7 +906,7 @@ static int acpi_processor_remove(struct acpi_device *device, int type)
 static int is_processor_present(acpi_handle handle)
 {
 	acpi_status status;
-	unsigned long sta = 0;
+	unsigned long long sta = 0;
 
 
 	status = acpi_evaluate_integer(handle, "_STA", NULL, &sta);
@@ -1120,7 +1151,6 @@ static int __init acpi_processor_init(void)
 	acpi_processor_dir = proc_mkdir(ACPI_PROCESSOR_CLASS, acpi_root_dir);
 	if (!acpi_processor_dir)
 		return -ENOMEM;
-	acpi_processor_dir->owner = THIS_MODULE;
 
 	/*
 	 * Check whether the system is DMI table. If yes, OSPM

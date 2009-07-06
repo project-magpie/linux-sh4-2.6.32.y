@@ -84,6 +84,11 @@ int intelfbhw_get_chipset(struct pci_dev *pdev, struct intelfb_info *dinfo)
 		dinfo->mobile = 0;
 		dinfo->pll_index = PLLS_I8xx;
 		return 0;
+	case PCI_DEVICE_ID_INTEL_854:
+		dinfo->mobile = 1;
+		dinfo->name = "Intel(R) 854";
+		dinfo->chipset = INTEL_854;
+		return 0;
 	case PCI_DEVICE_ID_INTEL_85XGM:
 		tmp = 0;
 		dinfo->mobile = 1;
@@ -143,6 +148,12 @@ int intelfbhw_get_chipset(struct pci_dev *pdev, struct intelfb_info *dinfo)
 		dinfo->mobile = 1;
 		dinfo->pll_index = PLLS_I9xx;
 		return 0;
+	case PCI_DEVICE_ID_INTEL_945GME:
+		dinfo->name = "Intel(R) 945GME";
+		dinfo->chipset = INTEL_945GME;
+		dinfo->mobile = 1;
+		dinfo->pll_index = PLLS_I9xx;
+		return 0;
 	case PCI_DEVICE_ID_INTEL_965G:
 		dinfo->name = "Intel(R) 965G";
 		dinfo->chipset = INTEL_965G;
@@ -186,6 +197,7 @@ int intelfbhw_get_memory(struct pci_dev *pdev, int *aperture_size,
 	case PCI_DEVICE_ID_INTEL_915GM:
 	case PCI_DEVICE_ID_INTEL_945G:
 	case PCI_DEVICE_ID_INTEL_945GM:
+	case PCI_DEVICE_ID_INTEL_945GME:
 	case PCI_DEVICE_ID_INTEL_965G:
 	case PCI_DEVICE_ID_INTEL_965GM:
 		/* 915, 945 and 965 chipsets support a 256MB aperture.

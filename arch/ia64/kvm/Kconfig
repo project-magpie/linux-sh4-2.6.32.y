@@ -4,6 +4,10 @@
 config HAVE_KVM
 	bool
 
+config HAVE_KVM_IRQCHIP
+       bool
+       default y
+
 menuconfig VIRTUALIZATION
 	bool "Virtualization"
 	depends on HAVE_KVM || IA64
@@ -20,6 +24,8 @@ if VIRTUALIZATION
 config KVM
 	tristate "Kernel-based Virtual Machine (KVM) support"
 	depends on HAVE_KVM && EXPERIMENTAL
+	# for device assignment:
+	depends on PCI
 	select PREEMPT_NOTIFIERS
 	select ANON_INODES
 	---help---
@@ -45,5 +51,7 @@ config KVM_INTEL
 
 config KVM_TRACE
        bool
+
+source drivers/virtio/Kconfig
 
 endif # VIRTUALIZATION

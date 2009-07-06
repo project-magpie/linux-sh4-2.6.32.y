@@ -150,10 +150,10 @@ page_not_present:
 	tlbmiss_restore
 	sub	sp, 4
 	stmts	--sp, r0-lr
-	rcall	save_full_context_ex
+	call	save_full_context_ex
 	mfsr	r12, SYSREG_ECR
 	mov	r11, sp
-	rcall	do_page_fault
+	call	do_page_fault
 	rjmp	ret_from_exception
 
 	.align	2
@@ -250,7 +250,7 @@ syscall_badsys:
 
 	.global ret_from_fork
 ret_from_fork:
-	rcall   schedule_tail
+	call   schedule_tail
 
 	/* check for syscall tracing */
 	get_thread_info r0
@@ -261,7 +261,7 @@ ret_from_fork:
 
 syscall_trace_enter:
 	pushm	r8-r12
-	rcall	syscall_trace
+	call	syscall_trace
 	popm	r8-r12
 	rjmp	syscall_trace_cont
 
@@ -269,14 +269,14 @@ syscall_exit_work:
 	bld	r1, TIF_SYSCALL_TRACE
 	brcc	1f
 	unmask_interrupts
-	rcall	syscall_trace
+	call	syscall_trace
 	mask_interrupts
 	ld.w	r1, r0[TI_flags]
 
 1:	bld	r1, TIF_NEED_RESCHED
 	brcc	2f
 	unmask_interrupts
-	rcall	schedule
+	call	schedule
 	mask_interrupts
 	ld.w	r1, r0[TI_flags]
 	rjmp	1b
@@ -287,7 +287,7 @@ syscall_exit_work:
 	unmask_interrupts
 	mov	r12, sp
 	mov	r11, r0
-	rcall	do_notify_resume
+	call	do_notify_resume
 	mask_interrupts
 	ld.w	r1, r0[TI_flags]
 	rjmp	1b
@@ -334,12 +334,67 @@ save_full_context_ex:
 
 	/* Low-level exception handlers */
 handle_critical:
+	/*
+	 * AT32AP700x errata:
+	 *
+	 * After a Java stack overflow or underflow trap, any CPU
+	 * memory access may cause erratic behavior. This will happen
+	 * when the four least significant bits of the JOSP system
+	 * register contains any value between 9 and 15 (inclusive).
+	 *
+	 * Possible workarounds:
+	 *   - Don't use the Java Extension Module
+	 *   - Ensure that the stack overflow and underflow trap
+	 *     handlers do not do any memory access or trigger any
+	 *     exceptions before the overflow/underflow condition is
+	 *     cleared (by incrementing or decrementing the JOSP)
+	 *   - Make sure that JOSP does not contain any problematic
+	 *     value before doing any exception or interrupt
+	 *     processing.
+	 *   - Set up a critical exception handler which writes a
+	 *     known-to-be-safe value, e.g. 4, to JOSP before doing
+	 *     any further processing.
+	 *
+	 * We'll use the last workaround for now since we cannot
+	 * guarantee that user space processes don't use Java mode.
+	 * Non-well-behaving userland will be terminated with extreme
+	 * prejudice.
+	 */
+#ifdef CONFIG_CPU_AT32AP700X
+	/*
+	 * There's a chance we can't touch memory, so temporarily
+	 * borrow PTBR to save the stack pointer while we fix things
+	 * up...
+	 */
+	mtsr	SYSREG_PTBR, sp
+	mov	sp, 4
+	mtsr	SYSREG_JOSP, sp
+	mfsr	sp, SYSREG_PTBR
+	sub	pc, -2
+
+	/* Push most of pt_regs on stack. We'll do the rest later */
 	sub	sp, 4
-	stmts	--sp, r0-lr
-	rcall	save_full_context_ex
+	pushm	r0-r12
+
+	/* PTBR mirrors current_thread_info()->task->active_mm->pgd */
+	get_thread_info r0
+	ld.w	r1, r0[TI_task]
+	ld.w	r2, r1[TSK_active_mm]
+	ld.w	r3, r2[MM_pgd]
+	mtsr	SYSREG_PTBR, r3
+#else
+	sub	sp, 4
+	pushm	r0-r12
+#endif
+	sub	r0, sp, -(14 * 4)
+	mov	r1, lr
+	mfsr	r2, SYSREG_RAR_EX
+	mfsr	r3, SYSREG_RSR_EX
+	pushm	r0-r3
+
 	mfsr	r12, SYSREG_ECR
 	mov	r11, sp
-	rcall	do_critical_exception
+	call	do_critical_exception
 
 	/* We should never get here... */
 bad_return:
@@ -352,18 +407,18 @@ bad_return:
 do_bus_error_write:
 	sub	sp, 4
 	stmts	--sp, r0-lr
-	rcall	save_full_context_ex
+	call	save_full_context_ex
 	mov	r11, 1
 	rjmp	1f
 
 do_bus_error_read:
 	sub	sp, 4
 	stmts	--sp, r0-lr
-	rcall	save_full_context_ex
+	call	save_full_context_ex
 	mov	r11, 0
 1:	mfsr	r12, SYSREG_BEAR
 	mov	r10, sp
-	rcall	do_bus_error
+	call	do_bus_error
 	rjmp	ret_from_exception
 
 	.align	1
@@ -378,7 +433,7 @@ do_nmi_ll:
 1:	pushm	r8, r9	/* PC and SR */
 	mfsr	r12, SYSREG_ECR
 	mov	r11, sp
-	rcall	do_nmi
+	call	do_nmi
 	popm	r8-r9
 	mtsr	SYSREG_RAR_NMI, r8
 	tst	r0, r0
@@ -402,29 +457,29 @@ do_nmi_ll:
 handle_address_fault:
 	sub	sp, 4
 	stmts	--sp, r0-lr
-	rcall	save_full_context_ex
+	call	save_full_context_ex
 	mfsr	r12, SYSREG_ECR
 	mov	r11, sp
-	rcall	do_address_exception
+	call	do_address_exception
 	rjmp	ret_from_exception
 
 handle_protection_fault:
 	sub	sp, 4
 	stmts	--sp, r0-lr
-	rcall	save_full_context_ex
+	call	save_full_context_ex
 	mfsr	r12, SYSREG_ECR
 	mov	r11, sp
-	rcall	do_page_fault
+	call	do_page_fault
 	rjmp	ret_from_exception
 
 	.align	1
 do_illegal_opcode_ll:
 	sub	sp, 4
 	stmts	--sp, r0-lr
-	rcall	save_full_context_ex
+	call	save_full_context_ex
 	mfsr	r12, SYSREG_ECR
 	mov	r11, sp
-	rcall	do_illegal_opcode
+	call	do_illegal_opcode
 	rjmp	ret_from_exception
 
 do_dtlb_modified:
@@ -458,11 +513,11 @@ do_dtlb_modified:
 do_fpe_ll:
 	sub	sp, 4
 	stmts	--sp, r0-lr
-	rcall	save_full_context_ex
+	call	save_full_context_ex
 	unmask_interrupts
 	mov	r12, 26
 	mov	r11, sp
-	rcall	do_fpe
+	call	do_fpe
 	rjmp	ret_from_exception
 
 ret_from_exception:
@@ -498,7 +553,7 @@ fault_resume_kernel:
 	lddsp	r4, sp[REG_SR]
 	bld	r4, SYSREG_GM_OFFSET
 	brcs	1f
-	rcall	preempt_schedule_irq
+	call	preempt_schedule_irq
 1:
 #endif
 
@@ -527,7 +582,7 @@ fault_exit_work:
 	bld	r1, TIF_NEED_RESCHED
 	brcc	1f
 	unmask_interrupts
-	rcall	schedule
+	call	schedule
 	mask_interrupts
 	ld.w	r1, r0[TI_flags]
 	rjmp	fault_exit_work
@@ -538,7 +593,7 @@ fault_exit_work:
 	unmask_interrupts
 	mov	r12, sp
 	mov	r11, r0
-	rcall	do_notify_resume
+	call	do_notify_resume
 	mask_interrupts
 	ld.w	r1, r0[TI_flags]
 	rjmp	fault_exit_work
@@ -561,10 +616,10 @@ handle_debug:
 
 .Ldebug_fixup_cont:
 #ifdef CONFIG_TRACE_IRQFLAGS
-	rcall	trace_hardirqs_off
+	call	trace_hardirqs_off
 #endif
 	mov	r12, sp
-	rcall	do_debug
+	call	do_debug
 	mov	sp, r12
 
 	lddsp	r2, sp[REG_SR]
@@ -588,7 +643,7 @@ handle_debug:
 	mtsr	SYSREG_RSR_DBG, r11
 	mtsr	SYSREG_RAR_DBG, r10
 #ifdef CONFIG_TRACE_IRQFLAGS
-	rcall	trace_hardirqs_on
+	call	trace_hardirqs_on
 1:
 #endif
 	ldmts	sp++, r0-lr
@@ -621,7 +676,7 @@ debug_resume_kernel:
 #ifdef CONFIG_TRACE_IRQFLAGS
 	bld	r11, SYSREG_GM_OFFSET
 	brcc	1f
-	rcall	trace_hardirqs_on
+	call	trace_hardirqs_on
 1:
 #endif
 	mfsr	r2, SYSREG_SR
@@ -692,7 +747,7 @@ irq_level\level:
 	mov	r11, sp
 	mov	r12, \level
 
-	rcall	do_IRQ
+	call	do_IRQ
 
 	lddsp	r4, sp[REG_SR]
 	bfextu	r4, r4, SYSREG_M0_OFFSET, 3
@@ -712,7 +767,7 @@ irq_level\level:
 
 1:
 #ifdef CONFIG_TRACE_IRQFLAGS
-	rcall	trace_hardirqs_on
+	call	trace_hardirqs_on
 #endif
 	popm	r8-r9
 	mtsr	rar_int\level, r8
@@ -752,7 +807,7 @@ irq_level\level:
 	lddsp	r4, sp[REG_SR]
 	bld	r4, SYSREG_GM_OFFSET
 	brcs	1b
-	rcall	preempt_schedule_irq
+	call	preempt_schedule_irq
 #endif
 	rjmp	1b
 	.endm

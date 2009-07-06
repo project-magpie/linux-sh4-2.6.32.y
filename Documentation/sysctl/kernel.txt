@@ -1,5 +1,6 @@
 Documentation for /proc/sys/kernel/*	kernel version 2.2.10
 	(c) 1998, 1999,  Rik van Riel <riel@nl.linux.org>
+	(c) 2009,        Shen Feng<shen@cn.fujitsu.com>
 
 For general info and legal blurb, please look in README.
 
@@ -18,6 +19,7 @@ Currently, these files might (depending on your configuration)
 show up in /proc/sys/kernel:
 - acpi_video_flags
 - acct
+- auto_msgmni
 - core_pattern
 - core_uses_pid
 - ctrl-alt-del
@@ -33,6 +35,7 @@ show up in /proc/sys/kernel:
 - msgmax
 - msgmnb
 - msgmni
+- nmi_watchdog
 - osrelease
 - ostype
 - overflowgid
@@ -40,6 +43,7 @@ show up in /proc/sys/kernel:
 - panic
 - pid_max
 - powersave-nap               [ PPC only ]
+- panic_on_unrecovered_nmi
 - printk
 - randomize_va_space
 - real-root-dev               ==> Documentation/initrd.txt
@@ -55,6 +59,7 @@ show up in /proc/sys/kernel:
 - sysrq                       ==> Documentation/sysrq.txt
 - tainted
 - threads-max
+- unknown_nmi_panic
 - version
 
 ==============================================================
@@ -351,9 +356,10 @@ kernel.  This value defaults to SHMMAX.
 
 softlockup_thresh:
 
-This value can be used to lower the softlockup tolerance
-threshold. The default threshold is 10s.  If a cpu is locked up
-for 10s, the kernel complains.  Valid values are 1-60s.
+This value can be used to lower the softlockup tolerance threshold.  The
+default threshold is 60 seconds.  If a cpu is locked up for 60 seconds,
+the kernel complains.  Valid values are 1-60 seconds.  Setting this
+tunable to zero will disable the softlockup detection altogether.
 
 ==============================================================
 
@@ -362,10 +368,69 @@ tainted:
 Non-zero if the kernel has been tainted.  Numeric values, which
 can be ORed together:
 
-  1 - A module with a non-GPL license has been loaded, this
-      includes modules with no license.
-      Set by modutils >= 2.4.9 and module-init-tools.
-  2 - A module was force loaded by insmod -f.
-      Set by modutils >= 2.4.9 and module-init-tools.
-  4 - Unsafe SMP processors: SMP with CPUs not designed for SMP.
+   1 - A module with a non-GPL license has been loaded, this
+       includes modules with no license.
+       Set by modutils >= 2.4.9 and module-init-tools.
+   2 - A module was force loaded by insmod -f.
+       Set by modutils >= 2.4.9 and module-init-tools.
+   4 - Unsafe SMP processors: SMP with CPUs not designed for SMP.
+   8 - A module was forcibly unloaded from the system by rmmod -f.
+  16 - A hardware machine check error occurred on the system.
+  32 - A bad page was discovered on the system.
+  64 - The user has asked that the system be marked "tainted".  This
+       could be because they are running software that directly modifies
+       the hardware, or for other reasons.
+ 128 - The system has died.
+ 256 - The ACPI DSDT has been overridden with one supplied by the user
+        instead of using the one provided by the hardware.
+ 512 - A kernel warning has occurred.
+1024 - A module from drivers/staging was loaded.
+
+==============================================================
+
+auto_msgmni:
+
+Enables/Disables automatic recomputing of msgmni upon memory add/remove or
+upon ipc namespace creation/removal (see the msgmni description above).
+Echoing "1" into this file enables msgmni automatic recomputing.
+Echoing "0" turns it off.
+auto_msgmni default value is 1.
+
+==============================================================
+
+nmi_watchdog:
+
+Enables/Disables the NMI watchdog on x86 systems.  When the value is non-zero
+the NMI watchdog is enabled and will continuously test all online cpus to
+determine whether or not they are still functioning properly. Currently,
+passing "nmi_watchdog=" parameter at boot time is required for this function
+to work.
+
+If LAPIC NMI watchdog method is in use (nmi_watchdog=2 kernel parameter), the
+NMI watchdog shares registers with oprofile. By disabling the NMI watchdog,
+oprofile may have more registers to utilize.
+
+==============================================================
+
+unknown_nmi_panic:
+
+The value in this file affects behavior of handling NMI. When the value is
+non-zero, unknown NMI is trapped and then panic occurs. At that time, kernel
+debugging information is displayed on console.
+
+NMI switch that most IA32 servers have fires unknown NMI up, for example.
+If a system hangs up, try pressing the NMI switch.
+
+==============================================================
+
+panic_on_unrecovered_nmi:
+
+The default Linux behaviour on an NMI of either memory or unknown is to continue
+operation. For many environments such as scientific computing it is preferable
+that the box is taken out and the error dealt with than an uncorrected
+parity/ECC error get propogated.
+
+A small number of systems do generate NMI's for bizarre random reasons such as
+power management so the default is off. That sysctl works like the existing
+panic controls already in that directory.
 

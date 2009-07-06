@@ -2,7 +2,7 @@
  * cs5530.c - Initialisation code for Cyrix/NatSemi VSA1 softaudio
  *
  * 	(C) Copyright 2007 Ash Willis <ashwillis@programmer.net>
- *	(C) Copyright 2003 Red Hat Inc <alan@redhat.com>
+ *	(C) Copyright 2003 Red Hat Inc <alan@lxorguk.ukuu.org.uk>
  *
  * This driver was ported (shamelessly ripped ;) from oss/kahlua.c but I did
  * mess with it a bit. The chip seems to have to have trouble with full duplex
@@ -132,7 +132,7 @@ static int __devinit snd_cs5530_create(struct snd_card *card,
 	}
 	chip->pci_base = pci_resource_start(pci, 0);
 
-	mem = ioremap_nocache(chip->pci_base, pci_resource_len(pci, 0));
+	mem = pci_ioremap_bar(pci, 0);
 	if (mem == NULL) {
 		kfree(chip);
 		pci_disable_device(pci);
@@ -258,10 +258,10 @@ static int __devinit snd_cs5530_probe(struct pci_dev *pci,
 		return -ENOENT;
 	}
 
-	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
+	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
 
-	if (card == NULL)
-		return -ENOMEM;
+	if (err < 0)
+		return err;
 
 	err = snd_cs5530_create(card, pci, &chip);
 	if (err < 0) {

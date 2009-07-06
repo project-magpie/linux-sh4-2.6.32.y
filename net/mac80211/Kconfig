@@ -16,19 +16,24 @@ menu "Rate control algorithm selection"
 
 config MAC80211_RC_PID
 	bool "PID controller based rate control algorithm" if EMBEDDED
-	default y
 	---help---
 	  This option enables a TX rate control algorithm for
 	  mac80211 that uses a PID controller to select the TX
 	  rate.
 
+config MAC80211_RC_MINSTREL
+	bool "Minstrel" if EMBEDDED
+	default y
+	---help---
+	  This option enables the 'minstrel' TX rate control algorithm
+
 choice
 	prompt "Default rate control algorithm"
-	default MAC80211_RC_DEFAULT_PID
+	default MAC80211_RC_DEFAULT_MINSTREL
 	---help---
 	  This option selects the default rate control algorithm
 	  mac80211 will use. Note that this default can still be
-	  overriden through the ieee80211_default_rc_algo module
+	  overridden through the ieee80211_default_rc_algo module
 	  parameter if different algorithms are available.
 
 config MAC80211_RC_DEFAULT_PID
@@ -39,10 +44,18 @@ config MAC80211_RC_DEFAULT_PID
 	  default rate control algorithm. You should choose
 	  this unless you know what you are doing.
 
+config MAC80211_RC_DEFAULT_MINSTREL
+	bool "Minstrel"
+	depends on MAC80211_RC_MINSTREL
+	---help---
+	  Select Minstrel as the default rate control algorithm.
+
+
 endchoice
 
 config MAC80211_RC_DEFAULT
 	string
+	default "minstrel" if MAC80211_RC_DEFAULT_MINSTREL
 	default "pid" if MAC80211_RC_DEFAULT_PID
 	default ""
 
@@ -179,19 +192,6 @@ config MAC80211_VERBOSE_MPL_DEBUG
 
 	  Do not select this option.
 
-config MAC80211_LOWTX_FRAME_DUMP
-	bool "Debug frame dumping"
-	depends on MAC80211_DEBUG_MENU
-	---help---
-	  Selecting this option will cause the stack to
-	  print a message for each frame that is handed
-	  to the lowlevel driver for transmission. This
-	  message includes all MAC addresses and the
-	  frame control field.
-
-	  If unsure, say N and insert the debugging code
-	  you require into the driver you are debugging.
-
 config MAC80211_DEBUG_COUNTERS
 	bool "Extra statistics for TX/RX debugging"
 	depends on MAC80211_DEBUG_MENU
@@ -202,10 +202,3 @@ config MAC80211_DEBUG_COUNTERS
 	  and show them in debugfs.
 
 	  If unsure, say N.
-
-config MAC80211_VERBOSE_SPECT_MGMT_DEBUG
-	bool "Verbose Spectrum Management (IEEE 802.11h)debugging"
-	depends on MAC80211_DEBUG_MENU
-	---help---
-	  Say Y here to print out verbose Spectrum Management (IEEE 802.11h)
-	  debug messages.

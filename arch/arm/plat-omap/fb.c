@@ -27,9 +27,9 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/bootmem.h>
+#include <linux/io.h>
 
 #include <mach/hardware.h>
-#include <asm/io.h>
 #include <asm/mach/map.h>
 
 #include <mach/board.h>
@@ -206,9 +206,10 @@ void __init omapfb_reserve_sdram(void)
 			config_invalid = 1;
 			return;
 		}
-		if (rg.paddr)
+		if (rg.paddr) {
 			reserve_bootmem(rg.paddr, rg.size, BOOTMEM_DEFAULT);
-		reserved += rg.size;
+			reserved += rg.size;
+		}
 		omapfb_config.mem_desc.region[i] = rg;
 		configured_regions++;
 	}

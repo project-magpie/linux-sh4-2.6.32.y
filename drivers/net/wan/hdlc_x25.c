@@ -163,15 +163,17 @@ static void x25_close(struct net_device *dev)
 
 static int x25_rx(struct sk_buff *skb)
 {
+	struct net_device *dev = skb->dev;
+
 	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL) {
-		skb->dev->stats.rx_dropped++;
+		dev->stats.rx_dropped++;
 		return NET_RX_DROP;
 	}
 
-	if (lapb_data_received(skb->dev, skb) == LAPB_OK)
+	if (lapb_data_received(dev, skb) == LAPB_OK)
 		return NET_RX_SUCCESS;
 
-	skb->dev->stats.rx_errors++;
+	dev->stats.rx_errors++;
 	dev_kfree_skb_any(skb);
 	return NET_RX_DROP;
 }
@@ -182,6 +184,7 @@ static struct hdlc_proto proto = {
 	.close		= x25_close,
 	.ioctl		= x25_ioctl,
 	.netif_rx	= x25_rx,
+	.xmit		= x25_xmit,
 	.module		= THIS_MODULE,
 };
 
@@ -211,7 +214,6 @@ static int x25_ioctl(struct net_device *dev, struct ifreq *ifr)
 
 		if ((result = attach_hdlc_protocol(dev, &proto, 0)))
 			return result;
-		dev->hard_start_xmit = x25_xmit;
 		dev->type = ARPHRD_X25;
 		netif_dormant_off(dev);
 		return 0;

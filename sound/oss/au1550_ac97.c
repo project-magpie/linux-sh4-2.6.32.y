@@ -93,7 +93,7 @@ static struct au1550_state {
 	spinlock_t      lock;
 	struct mutex open_mutex;
 	struct mutex sem;
-	mode_t          open_mode;
+	fmode_t          open_mode;
 	wait_queue_head_t open_wait;
 
 	struct dmabuf {
@@ -1627,7 +1627,9 @@ au1550_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 				    sizeof(abinfo)) ? -EFAULT : 0;
 
 	case SNDCTL_DSP_NONBLOCK:
+		spin_lock(&file->f_lock);
 		file->f_flags |= O_NONBLOCK;
+		spin_unlock(&file->f_lock);
 		return 0;
 
 	case SNDCTL_DSP_GETODELAY:

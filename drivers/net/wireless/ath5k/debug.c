@@ -58,8 +58,8 @@
  * THE POSSIBILITY OF SUCH DAMAGES.
  */
 
-#include "debug.h"
 #include "base.h"
+#include "debug.h"
 
 static unsigned int ath5k_debug;
 module_param_named(debug, ath5k_debug, uint, 0);
@@ -82,14 +82,14 @@ static int ath5k_debugfs_open(struct inode *inode, struct file *file)
 /* debugfs: registers */
 
 struct reg {
-	char *name;
+	const char *name;
 	int addr;
 };
 
 #define REG_STRUCT_INIT(r) { #r, r }
 
 /* just a few random registers, might want to add more */
-static struct reg regs[] = {
+static const struct reg regs[] = {
 	REG_STRUCT_INIT(AR5K_CR),
 	REG_STRUCT_INIT(AR5K_RXDP),
 	REG_STRUCT_INIT(AR5K_CFG),
@@ -142,7 +142,7 @@ static struct reg regs[] = {
 
 static void *reg_start(struct seq_file *seq, loff_t *pos)
 {
-	return *pos < ARRAY_SIZE(regs) ? &regs[*pos] : NULL;
+	return *pos < ARRAY_SIZE(regs) ? (void *)&regs[*pos] : NULL;
 }
 
 static void reg_stop(struct seq_file *seq, void *p)
@@ -153,7 +153,7 @@ static void reg_stop(struct seq_file *seq, void *p)
 static void *reg_next(struct seq_file *seq, void *p, loff_t *pos)
 {
 	++*pos;
-	return *pos < ARRAY_SIZE(regs) ? &regs[*pos] : NULL;
+	return *pos < ARRAY_SIZE(regs) ? (void *)&regs[*pos] : NULL;
 }
 
 static int reg_show(struct seq_file *seq, void *p)
@@ -165,7 +165,7 @@ static int reg_show(struct seq_file *seq, void *p)
 	return 0;
 }
 
-static struct seq_operations register_seq_ops = {
+static const struct seq_operations register_seq_ops = {
 	.start = reg_start,
 	.next  = reg_next,
 	.stop  = reg_stop,
@@ -189,43 +189,6 @@ static const struct file_operations fops_registers = {
 	.read    = seq_read,
 	.llseek  = seq_lseek,
 	.release = seq_release,
-	.owner = THIS_MODULE,
-};
-
-
-/* debugfs: TSF */
-
-static ssize_t read_file_tsf(struct file *file, char __user *user_buf,
-				   size_t count, loff_t *ppos)
-{
-	struct ath5k_softc *sc = file->private_data;
-	char buf[100];
-	snprintf(buf, sizeof(buf), "0x%016llx\n",
-		 (unsigned long long)ath5k_hw_get_tsf64(sc->ah));
-	return simple_read_from_buffer(user_buf, count, ppos, buf, 19);
-}
-
-static ssize_t write_file_tsf(struct file *file,
-				 const char __user *userbuf,
-				 size_t count, loff_t *ppos)
-{
-	struct ath5k_softc *sc = file->private_data;
-	char buf[20];
-
-	if (copy_from_user(buf, userbuf, min(count, sizeof(buf))))
-		return -EFAULT;
-
-	if (strncmp(buf, "reset", 5) == 0) {
-		ath5k_hw_reset_tsf(sc->ah);
-		printk(KERN_INFO "debugfs reset TSF\n");
-	}
-	return count;
-}
-
-static const struct file_operations fops_tsf = {
-	.read = read_file_tsf,
-	.write = write_file_tsf,
-	.open = ath5k_debugfs_open,
 	.owner = THIS_MODULE,
 };
 
@@ -327,7 +290,7 @@ static const struct file_operations fops_reset = {
 
 /* debugfs: debug level */
 
-static struct {
+static const struct {
 	enum ath5k_debug_level level;
 	const char *name;
 	const char *desc;
@@ -339,7 +302,7 @@ static struct {
 	{ ATH5K_DEBUG_BEACON,	"beacon",	"beacon handling" },
 	{ ATH5K_DEBUG_CALIBRATE, "calib",	"periodic calibration" },
 	{ ATH5K_DEBUG_TXPOWER,	"txpower",	"transmit power setting" },
-	{ ATH5K_DEBUG_LED,	"led",		"LED mamagement" },
+	{ ATH5K_DEBUG_LED,	"led",		"LED management" },
 	{ ATH5K_DEBUG_DUMP_RX,	"dumprx",	"print received skb content" },
 	{ ATH5K_DEBUG_DUMP_TX,	"dumptx",	"print transmit skb content" },
 	{ ATH5K_DEBUG_DUMPBANDS, "dumpbands",	"dump bands" },
@@ -417,19 +380,16 @@ ath5k_debug_init_device(struct ath5k_softc *sc)
 	sc->debug.debugfs_phydir = debugfs_create_dir(wiphy_name(sc->hw->wiphy),
 				ath5k_global_debugfs);
 
-	sc->debug.debugfs_debug = debugfs_create_file("debug", 0666,
+	sc->debug.debugfs_debug = debugfs_create_file("debug", S_IWUSR | S_IRUGO,
 				sc->debug.debugfs_phydir, sc, &fops_debug);
 
-	sc->debug.debugfs_registers = debugfs_create_file("registers", 0444,
+	sc->debug.debugfs_registers = debugfs_create_file("registers", S_IRUGO,
 				sc->debug.debugfs_phydir, sc, &fops_registers);
 
-	sc->debug.debugfs_tsf = debugfs_create_file("tsf", 0666,
-				sc->debug.debugfs_phydir, sc, &fops_tsf);
-
-	sc->debug.debugfs_beacon = debugfs_create_file("beacon", 0666,
+	sc->debug.debugfs_beacon = debugfs_create_file("beacon", S_IWUSR | S_IRUGO,
 				sc->debug.debugfs_phydir, sc, &fops_beacon);
 
-	sc->debug.debugfs_reset = debugfs_create_file("reset", 0222,
+	sc->debug.debugfs_reset = debugfs_create_file("reset", S_IWUSR,
 				sc->debug.debugfs_phydir, sc, &fops_reset);
 }
 
@@ -444,7 +404,6 @@ ath5k_debug_finish_device(struct ath5k_softc *sc)
 {
 	debugfs_remove(sc->debug.debugfs_debug);
 	debugfs_remove(sc->debug.debugfs_registers);
-	debugfs_remove(sc->debug.debugfs_tsf);
 	debugfs_remove(sc->debug.debugfs_beacon);
 	debugfs_remove(sc->debug.debugfs_reset);
 	debugfs_remove(sc->debug.debugfs_phydir);
@@ -465,7 +424,7 @@ ath5k_debug_dump_bands(struct ath5k_softc *sc)
 
 	for (b = 0; b < IEEE80211_NUM_BANDS; b++) {
 		struct ieee80211_supported_band *band = &sc->sbands[b];
-		char bname[5];
+		char bname[6];
 		switch (band->band) {
 		case IEEE80211_BAND_2GHZ:
 			strcpy(bname, "2 GHz");
@@ -525,7 +484,7 @@ ath5k_debug_printrxbuffs(struct ath5k_softc *sc, struct ath5k_hw *ah)
 		return;
 
 	printk(KERN_DEBUG "rx queue %x, link %p\n",
-		ath5k_hw_get_rx_buf(ah), sc->rxlink);
+		ath5k_hw_get_rxdp(ah), sc->rxlink);
 
 	spin_lock_bh(&sc->rxbuflock);
 	list_for_each_entry(bf, &sc->rxbuf, list) {

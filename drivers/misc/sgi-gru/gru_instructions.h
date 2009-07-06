@@ -19,26 +19,29 @@
 #ifndef __GRU_INSTRUCTIONS_H__
 #define __GRU_INSTRUCTIONS_H__
 
-#define gru_flush_cache_hook(p)
-#define gru_emulator_wait_hook(p, w)
+extern int gru_check_status_proc(void *cb);
+extern int gru_wait_proc(void *cb);
+extern void gru_wait_abort_proc(void *cb);
+
+
 
 /*
  * Architecture dependent functions
  */
 
-#if defined CONFIG_IA64
+#if defined(CONFIG_IA64)
 #include <linux/compiler.h>
 #include <asm/intrinsics.h>
-#define __flush_cache(p)		ia64_fc(p)
+#define __flush_cache(p)		ia64_fc((unsigned long)p)
 /* Use volatile on IA64 to ensure ordering via st4.rel */
-#define gru_ordered_store_int(p,v)					\
+#define gru_ordered_store_int(p, v)					\
 		do {							\
 			barrier();					\
 			*((volatile int *)(p)) = v; /* force st.rel */	\
 		} while (0)
-#elif defined CONFIG_X86_64
+#elif defined(CONFIG_X86_64)
 #define __flush_cache(p)		clflush(p)
-#define gru_ordered_store_int(p,v)					\
+#define gru_ordered_store_int(p, v)					\
 		do {							\
 			barrier();					\
 			*(int *)p = v;					\
@@ -299,6 +302,7 @@ static inline void gru_flush_cache(void *p)
 static inline void gru_start_instruction(struct gru_instruction *ins, int op32)
 {
 	gru_ordered_store_int(ins, op32);
+	gru_flush_cache(ins);
 }
 
 
@@ -557,20 +561,19 @@ extern int gru_get_cb_exception_detail(void *cb,
 
 #define GRU_EXC_STR_SIZE		256
 
-extern int gru_check_status_proc(void *cb);
-extern int gru_wait_proc(void *cb);
-extern void gru_wait_abort_proc(void *cb);
 
 /*
  * Control block definition for checking status
  */
 struct gru_control_block_status {
 	unsigned int	icmd		:1;
-	unsigned int	unused1		:31;
+	unsigned int	ima		:3;
+	unsigned int	reserved0	:4;
+	unsigned int	unused1		:24;
 	unsigned int	unused2		:24;
 	unsigned int	istatus		:2;
 	unsigned int	isubstatus	:4;
-	unsigned int	inused3		:2;
+	unsigned int	unused3		:2;
 };
 
 /* Get CB status */
@@ -604,8 +607,9 @@ static inline int gru_get_cb_substatus(void *cb)
 static inline int gru_check_status(void *cb)
 {
 	struct gru_control_block_status *cbs = (void *)cb;
-	int ret = cbs->istatus;
+	int ret;
 
+	ret = cbs->istatus;
 	if (ret == CBS_CALL_OS)
 		ret = gru_check_status_proc(cb);
 	return ret;
@@ -617,7 +621,7 @@ static inline int gru_check_status(void *cb)
 static inline int gru_wait(void *cb)
 {
 	struct gru_control_block_status *cbs = (void *)cb;
-	int ret = cbs->istatus;;
+	int ret = cbs->istatus;
 
 	if (ret != CBS_IDLE)
 		ret = gru_wait_proc(cb);

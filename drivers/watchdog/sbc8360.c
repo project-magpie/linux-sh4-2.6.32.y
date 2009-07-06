@@ -4,20 +4,20 @@
  *	(c) Copyright 2005 Webcon, Inc.
  *
  *	Based on ib700wdt.c, which is based on advantechwdt.c which is based
- *      on acquirewdt.c which is based on wdt.c.
+ *	on acquirewdt.c which is based on wdt.c.
  *
  *	(c) Copyright 2001 Charles Howes <chowes@vsol.net>
  *
- *      Based on advantechwdt.c which is based on acquirewdt.c which
- *       is based on wdt.c.
+ *	Based on advantechwdt.c which is based on acquirewdt.c which
+ *	is based on wdt.c.
  *
  *	(c) Copyright 2000-2001 Marek Michalkiewicz <marekm@linux.org.pl>
  *
  *	Based on acquirewdt.c which is based on wdt.c.
  *	Original copyright messages:
  *
- *	(c) Copyright 1996 Alan Cox <alan@redhat.com>, All Rights Reserved.
- *				http://www.redhat.com
+ *	(c) Copyright 1996 Alan Cox <alan@lxorguk.ukuu.org.uk>,
+ *						All Rights Reserved.
  *
  *	This program is free software; you can redistribute it and/or
  *	modify it under the terms of the GNU General Public License
@@ -28,11 +28,11 @@
  *	warranty for any of this software. This material is provided
  *	"AS-IS" and at no charge.
  *
- *	(c) Copyright 1995    Alan Cox <alan@redhat.com>
+ *	(c) Copyright 1995    Alan Cox <alan@lxorguk.ukuu.org.uk>
  *
- *      14-Dec-2001 Matt Domsch <Matt_Domsch@dell.com>
- *           Added nowayout module option to override CONFIG_WATCHDOG_NOWAYOUT
- *           Added timeout module option to override default
+ *	14-Dec-2001 Matt Domsch <Matt_Domsch@dell.com>
+ *	     Added nowayout module option to override CONFIG_WATCHDOG_NOWAYOUT
+ *	     Added timeout module option to override default
  *
  */
 

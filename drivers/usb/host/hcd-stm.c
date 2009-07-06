@@ -14,6 +14,7 @@
 #include <linux/stm/pm.h>
 #include <linux/delay.h>
 #include <linux/usb.h>
+#include <linux/io.h>
 #include "../core/hcd.h"
 #include "./hcd-stm.h"
 
@@ -102,9 +103,9 @@ static int st_usb_remove(struct platform_device *pdev)
 	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
-	devm_release_mem_region(res->start, res->end - res->start);
+	devm_release_mem_region(dev, res->start, res->end - res->start);
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
-	devm_release_mem_region(res->start, res->end - res->start);
+	devm_release_mem_region(dev, res->start, res->end - res->start);
 
 	if (dr_data->ehci_device)
 		platform_device_unregister(dr_data->ehci_device);
@@ -226,12 +227,12 @@ err_4:
 	devm_iounmap(dev, dr_data->ahb2stbus_protocol_base);
 err_3:
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
-	devm_release_mem_region(res->start, res->end - res->start);
+	devm_release_mem_region(dev, res->start, res->end - res->start);
 err_2:
 	devm_iounmap(dev, dr_data->ahb2stbus_wrapper_glue_base);
 err_1:
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
-	devm_release_mem_region(res->start, res->end - res->start);
+	devm_release_mem_region(dev, res->start, res->end - res->start);
 err_0:
 	kfree(dr_data);
 	return ret;

@@ -6,7 +6,6 @@
 #ifdef __KERNEL__
 #include <linux/in.h>
 #endif
-#include <linux/pim.h>
 
 /*
  *	Based on the MROUTING 3.5 defines primarily to keep
@@ -130,6 +129,7 @@ struct igmpmsg
  */
 
 #ifdef __KERNEL__
+#include <linux/pim.h>
 #include <net/sock.h>
 
 #ifdef CONFIG_IP_MROUTE
@@ -193,6 +193,9 @@ struct vif_device
 struct mfc_cache 
 {
 	struct mfc_cache *next;			/* Next entry on cache line 	*/
+#ifdef CONFIG_NET_NS
+	struct net *mfc_net;
+#endif
 	__be32 mfc_mcastgrp;			/* Group the entry belongs to 	*/
 	__be32 mfc_origin;			/* Source of packet 		*/
 	vifi_t mfc_parent;			/* Source interface		*/
@@ -214,6 +217,18 @@ struct mfc_cache
 		} res;
 	} mfc_un;
 };
+
+static inline
+struct net *mfc_net(const struct mfc_cache *mfc)
+{
+	return read_pnet(&mfc->mfc_net);
+}
+
+static inline
+void mfc_net_set(struct mfc_cache *mfc, struct net *net)
+{
+	write_pnet(&mfc->mfc_net, hold_net(net));
+}
 
 #define MFC_STATIC		1
 #define MFC_NOTIFY		2
@@ -241,7 +256,8 @@ struct mfc_cache
 
 #ifdef __KERNEL__
 struct rtmsg;
-extern int ipmr_get_route(struct sk_buff *skb, struct rtmsg *rtm, int nowait);
+extern int ipmr_get_route(struct net *net, struct sk_buff *skb,
+			  struct rtmsg *rtm, int nowait);
 #endif
 
 #endif

@@ -137,7 +137,7 @@ static struct usb_cdc_header_desc header_desc __initdata = {
 	.bDescriptorType =	USB_DT_CS_INTERFACE,
 	.bDescriptorSubType =	USB_CDC_HEADER_TYPE,
 
-	.bcdCDC =		__constant_cpu_to_le16(0x0110),
+	.bcdCDC =		cpu_to_le16(0x0110),
 };
 
 static struct usb_cdc_call_mgmt_descriptor call_mgmt_descriptor __initdata = {
@@ -172,7 +172,6 @@ static struct usb_interface_descriptor rndis_data_intf __initdata = {
 	.bDescriptorType =	USB_DT_INTERFACE,
 
 	/* .bInterfaceNumber = DYNAMIC */
-	.bAlternateSetting =	1,
 	.bNumEndpoints =	2,
 	.bInterfaceClass =	USB_CLASS_CDC_DATA,
 	.bInterfaceSubClass =	0,
@@ -188,7 +187,7 @@ static struct usb_endpoint_descriptor fs_notify_desc __initdata = {
 
 	.bEndpointAddress =	USB_DIR_IN,
 	.bmAttributes =		USB_ENDPOINT_XFER_INT,
-	.wMaxPacketSize =	__constant_cpu_to_le16(STATUS_BYTECOUNT),
+	.wMaxPacketSize =	cpu_to_le16(STATUS_BYTECOUNT),
 	.bInterval =		1 << LOG2_STATUS_INTERVAL_MSEC,
 };
 
@@ -231,7 +230,7 @@ static struct usb_endpoint_descriptor hs_notify_desc __initdata = {
 
 	.bEndpointAddress =	USB_DIR_IN,
 	.bmAttributes =		USB_ENDPOINT_XFER_INT,
-	.wMaxPacketSize =	__constant_cpu_to_le16(STATUS_BYTECOUNT),
+	.wMaxPacketSize =	cpu_to_le16(STATUS_BYTECOUNT),
 	.bInterval =		LOG2_STATUS_INTERVAL_MSEC + 4,
 };
 static struct usb_endpoint_descriptor hs_in_desc __initdata = {
@@ -240,7 +239,7 @@ static struct usb_endpoint_descriptor hs_in_desc __initdata = {
 
 	.bEndpointAddress =	USB_DIR_IN,
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize =	__constant_cpu_to_le16(512),
+	.wMaxPacketSize =	cpu_to_le16(512),
 };
 
 static struct usb_endpoint_descriptor hs_out_desc __initdata = {
@@ -249,7 +248,7 @@ static struct usb_endpoint_descriptor hs_out_desc __initdata = {
 
 	.bEndpointAddress =	USB_DIR_OUT,
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize =	__constant_cpu_to_le16(512),
+	.wMaxPacketSize =	cpu_to_le16(512),
 };
 
 static struct usb_descriptor_header *eth_hs_function[] __initdata = {
@@ -303,7 +302,7 @@ static void rndis_response_available(void *_rndis)
 	__le32				*data = req->buf;
 	int				status;
 
-	if (atomic_inc_return(&rndis->notify_count))
+	if (atomic_inc_return(&rndis->notify_count) != 1)
 		return;
 
 	/* Send RNDIS RESPONSE_AVAILABLE notification; a
@@ -438,7 +437,7 @@ invalid:
 		DBG(cdev, "rndis req%02x.%02x v%04x i%04x l%d\n",
 			ctrl->bRequestType, ctrl->bRequest,
 			w_value, w_index, w_length);
-		req->zero = 0;
+		req->zero = (value < w_length);
 		req->length = value;
 		value = usb_ep_queue(cdev->gadget->ep0, req, GFP_ATOMIC);
 		if (value < 0)
@@ -652,6 +651,8 @@ rndis_bind(struct usb_configuration *c, struct usb_function *f)
 				fs_in_desc.bEndpointAddress;
 		hs_out_desc.bEndpointAddress =
 				fs_out_desc.bEndpointAddress;
+		hs_notify_desc.bEndpointAddress =
+				fs_notify_desc.bEndpointAddress;
 
 		/* copy descriptors, and track endpoint copies */
 		f->hs_descriptors = usb_copy_descriptors(eth_hs_function);
@@ -663,6 +664,8 @@ rndis_bind(struct usb_configuration *c, struct usb_function *f)
 				f->hs_descriptors, &hs_in_desc);
 		rndis->hs.out = usb_find_endpoint(eth_hs_function,
 				f->hs_descriptors, &hs_out_desc);
+		rndis->hs.notify = usb_find_endpoint(eth_hs_function,
+				f->hs_descriptors, &hs_notify_desc);
 	}
 
 	rndis->port.open = rndis_open;

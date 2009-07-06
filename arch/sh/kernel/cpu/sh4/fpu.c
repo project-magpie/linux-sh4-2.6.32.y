@@ -37,7 +37,6 @@ extern unsigned long long float64_sub(unsigned long long a,
 				      unsigned long long b);
 extern unsigned long int float32_sub(unsigned long int a, unsigned long int b);
 extern unsigned long int float64_to_float32(unsigned long long a);
-
 static unsigned int fpu_exception_flags;
 
 /*

@@ -95,7 +95,7 @@ static int ohci_hcd_stm_probe(struct platform_device *pdev)
 
 	dgb_print("\n");
 	hcd = usb_create_hcd(&ohci_st40_hc_driver, &pdev->dev,
-		pdev->dev.bus_id);
+			     dev_name(&pdev->dev));
 
 	if (!hcd) {
 		pr_debug("hcd_create_hcd failed");

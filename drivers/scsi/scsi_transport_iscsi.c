@@ -138,7 +138,7 @@ static ssize_t
 show_ep_handle(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct iscsi_endpoint *ep = iscsi_dev_to_endpoint(dev);
-	return sprintf(buf, "%u\n", ep->id);
+	return sprintf(buf, "%llu\n", (unsigned long long) ep->id);
 }
 static ISCSI_ATTR(ep, handle, S_IRUGO, show_ep_handle, NULL);
 
@@ -156,7 +156,7 @@ static struct attribute_group iscsi_endpoint_group = {
 static int iscsi_match_epid(struct device *dev, void *data)
 {
 	struct iscsi_endpoint *ep = iscsi_dev_to_endpoint(dev);
-	unsigned int *epid = (unsigned int *) data;
+	uint64_t *epid = (uint64_t *) data;
 
 	return *epid == ep->id;
 }
@@ -166,7 +166,7 @@ iscsi_create_endpoint(int dd_size)
 {
 	struct device *dev;
 	struct iscsi_endpoint *ep;
-	unsigned int id;
+	uint64_t id;
 	int err;
 
 	for (id = 1; id < ISCSI_MAX_EPID; id++) {
@@ -187,7 +187,7 @@ iscsi_create_endpoint(int dd_size)
 
 	ep->id = id;
 	ep->dev.class = &iscsi_endpoint_class;
-	snprintf(ep->dev.bus_id, BUS_ID_SIZE, "ep-%u", id);
+	dev_set_name(&ep->dev, "ep-%llu", (unsigned long long) id);
 	err = device_register(&ep->dev);
         if (err)
                 goto free_ep;
@@ -246,30 +246,13 @@ static int iscsi_setup_host(struct transport_container *tc, struct device *dev,
 	memset(ihost, 0, sizeof(*ihost));
 	atomic_set(&ihost->nr_scans, 0);
 	mutex_init(&ihost->mutex);
-
-	snprintf(ihost->scan_workq_name, sizeof(ihost->scan_workq_name),
-		 "iscsi_scan_%d", shost->host_no);
-	ihost->scan_workq = create_singlethread_workqueue(
-						ihost->scan_workq_name);
-	if (!ihost->scan_workq)
-		return -ENOMEM;
-	return 0;
-}
-
-static int iscsi_remove_host(struct transport_container *tc, struct device *dev,
-			     struct device *cdev)
-{
-	struct Scsi_Host *shost = dev_to_shost(dev);
-	struct iscsi_cls_host *ihost = shost->shost_data;
-
-	destroy_workqueue(ihost->scan_workq);
 	return 0;
 }
 
 static DECLARE_TRANSPORT_CLASS(iscsi_host_class,
 			       "iscsi_host",
 			       iscsi_setup_host,
-			       iscsi_remove_host,
+			       NULL,
 			       NULL);
 
 static DECLARE_TRANSPORT_CLASS(iscsi_session_class,
@@ -377,7 +360,7 @@ int iscsi_session_chkready(struct iscsi_cls_session *session)
 		err = DID_IMM_RETRY << 16;
 		break;
 	case ISCSI_SESSION_FREE:
-		err = DID_NO_CONNECT << 16;
+		err = DID_TRANSPORT_FAILFAST << 16;
 		break;
 	default:
 		err = DID_NO_CONNECT << 16;
@@ -568,7 +551,7 @@ static void __iscsi_unblock_session(struct work_struct *work)
 	 * scanning from userspace).
 	 */
 	if (shost->hostt->scan_finished) {
-		if (queue_work(ihost->scan_workq, &session->scan_work))
+		if (scsi_queue_work(shost, &session->scan_work))
 			atomic_inc(&ihost->nr_scans);
 	}
 }
@@ -634,14 +617,6 @@ static void __iscsi_unbind_session(struct work_struct *work)
 
 	scsi_remove_target(&session->dev);
 	iscsi_session_event(session, ISCSI_KEVENT_UNBIND_SESSION);
-}
-
-static int iscsi_unbind_session(struct iscsi_cls_session *session)
-{
-	struct Scsi_Host *shost = iscsi_session_to_shost(session);
-	struct iscsi_cls_host *ihost = shost->shost_data;
-
-	return queue_work(ihost->scan_workq, &session->unbind_work);
 }
 
 struct iscsi_cls_session *
@@ -723,8 +698,7 @@ int iscsi_add_session(struct iscsi_cls_session *session, unsigned int target_id)
 	}
 	session->target_id = id;
 
-	snprintf(session->dev.bus_id, BUS_ID_SIZE, "session%u",
-		 session->sid);
+	dev_set_name(&session->dev, "session%u", session->sid);
 	err = device_add(&session->dev);
 	if (err) {
 		iscsi_cls_session_printk(KERN_ERR, session,
@@ -797,7 +771,6 @@ static int iscsi_iter_destroy_conn_fn(struct device *dev, void *data)
 void iscsi_remove_session(struct iscsi_cls_session *session)
 {
 	struct Scsi_Host *shost = iscsi_session_to_shost(session);
-	struct iscsi_cls_host *ihost = shost->shost_data;
 	unsigned long flags;
 	int err;
 
@@ -822,7 +795,7 @@ void iscsi_remove_session(struct iscsi_cls_session *session)
 
 	scsi_target_unblock(&session->dev);
 	/* flush running scans then delete devices */
-	flush_workqueue(ihost->scan_workq);
+	scsi_flush_work(shost);
 	__iscsi_unbind_session(&session->unbind_work);
 
 	/* hw iscsi may not have removed all connections from session */
@@ -897,8 +870,7 @@ iscsi_create_conn(struct iscsi_cls_session *session, int dd_size, uint32_t cid)
 	if (!get_device(&session->dev))
 		goto free_conn;
 
-	snprintf(conn->dev.bus_id, BUS_ID_SIZE, "connection%d:%u",
-		 session->sid, cid);
+	dev_set_name(&conn->dev, "connection%d:%u", session->sid, cid);
 	conn->dev.parent = &session->dev;
 	conn->dev.release = iscsi_conn_release;
 	err = device_register(&conn->dev);
@@ -968,15 +940,7 @@ iscsi_if_transport_lookup(struct iscsi_transport *tt)
 static int
 iscsi_broadcast_skb(struct sk_buff *skb, gfp_t gfp)
 {
-	int rc;
-
-	rc = netlink_broadcast(nls, skb, 0, 1, gfp);
-	if (rc < 0) {
-		printk(KERN_ERR "iscsi: can not broadcast skb (%d)\n", rc);
-		return rc;
-	}
-
-	return 0;
+	return netlink_broadcast(nls, skb, 0, 1, gfp);
 }
 
 static int
@@ -1010,7 +974,7 @@ int iscsi_recv_pdu(struct iscsi_cls_conn *conn, struct iscsi_hdr *hdr,
 
 	skb = alloc_skb(len, GFP_ATOMIC);
 	if (!skb) {
-		iscsi_conn_error(conn, ISCSI_ERR_CONN_FAILED);
+		iscsi_conn_error_event(conn, ISCSI_ERR_CONN_FAILED);
 		iscsi_cls_conn_printk(KERN_ERR, conn, "can not deliver "
 				      "control PDU: OOM\n");
 		return -ENOMEM;
@@ -1031,7 +995,7 @@ int iscsi_recv_pdu(struct iscsi_cls_conn *conn, struct iscsi_hdr *hdr,
 }
 EXPORT_SYMBOL_GPL(iscsi_recv_pdu);
 
-void iscsi_conn_error(struct iscsi_cls_conn *conn, enum iscsi_err error)
+void iscsi_conn_error_event(struct iscsi_cls_conn *conn, enum iscsi_err error)
 {
 	struct nlmsghdr	*nlh;
 	struct sk_buff	*skb;
@@ -1063,7 +1027,7 @@ void iscsi_conn_error(struct iscsi_cls_conn *conn, enum iscsi_err error)
 	iscsi_cls_conn_printk(KERN_INFO, conn, "detected conn error (%d)\n",
 			      error);
 }
-EXPORT_SYMBOL_GPL(iscsi_conn_error);
+EXPORT_SYMBOL_GPL(iscsi_conn_error_event);
 
 static int
 iscsi_if_send_reply(int pid, int seq, int type, int done, int multi,
@@ -1209,7 +1173,7 @@ int iscsi_session_event(struct iscsi_cls_session *session,
 	 * the user and when the daemon is restarted it will handle it
 	 */
 	rc = iscsi_broadcast_skb(skb, GFP_KERNEL);
-	if (rc < 0)
+	if (rc == -ESRCH)
 		iscsi_cls_session_printk(KERN_ERR, session,
 					 "Cannot notify userspace of session "
 					 "event %u. Check iscsi daemon\n",
@@ -1225,14 +1189,15 @@ iscsi_if_create_session(struct iscsi_internal *priv, struct iscsi_endpoint *ep,
 {
 	struct iscsi_transport *transport = priv->iscsi_transport;
 	struct iscsi_cls_session *session;
-	uint32_t host_no;
+	struct Scsi_Host *shost;
 
 	session = transport->create_session(ep, cmds_max, queue_depth,
-					    initial_cmdsn, &host_no);
+					    initial_cmdsn);
 	if (!session)
 		return -ENOMEM;
 
-	ev->r.c_session_ret.host_no = host_no;
+	shost = iscsi_session_to_shost(session);
+	ev->r.c_session_ret.host_no = shost->host_no;
 	ev->r.c_session_ret.sid = session->sid;
 	return 0;
 }
@@ -1361,7 +1326,7 @@ iscsi_tgt_dscvr(struct iscsi_transport *transport,
 		return -EINVAL;
 
 	shost = scsi_host_lookup(ev->u.tgt_dscvr.host_no);
-	if (IS_ERR(shost)) {
+	if (!shost) {
 		printk(KERN_ERR "target discovery could not find host no %u\n",
 		       ev->u.tgt_dscvr.host_no);
 		return -ENODEV;
@@ -1387,7 +1352,7 @@ iscsi_set_host_param(struct iscsi_transport *transport,
 		return -ENOSYS;
 
 	shost = scsi_host_lookup(ev->u.set_host_param.host_no);
-	if (IS_ERR(shost)) {
+	if (!shost) {
 		printk(KERN_ERR "set_host_param could not find host no %u\n",
 		       ev->u.set_host_param.host_no);
 		return -ENODEV;
@@ -1449,7 +1414,8 @@ iscsi_if_recv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 	case ISCSI_UEVENT_UNBIND_SESSION:
 		session = iscsi_session_lookup(ev->u.d_session.sid);
 		if (session)
-			iscsi_unbind_session(session);
+			scsi_queue_work(iscsi_session_to_shost(session),
+					&session->unbind_work);
 		else
 			err = -EINVAL;
 		break;
@@ -1811,11 +1777,10 @@ iscsi_register_transport(struct iscsi_transport *tt)
 	priv->daemon_pid = -1;
 	priv->iscsi_transport = tt;
 	priv->t.user_scan = iscsi_user_scan;
-	if (!(tt->caps & CAP_DATA_PATH_OFFLOAD))
-		priv->t.create_work_queue = 1;
+	priv->t.create_work_queue = 1;
 
 	priv->dev.class = &iscsi_transport_class;
-	snprintf(priv->dev.bus_id, BUS_ID_SIZE, "%s", tt->name);
+	dev_set_name(&priv->dev, "%s", tt->name);
 	err = device_register(&priv->dev);
 	if (err)
 		goto free_priv;

@@ -15,7 +15,6 @@
 #include <pcmcia/cs.h>
 #include <pcmcia/ss.h>
 #include <pcmcia/cistpl.h>
-#include "cs_internal.h"
 
 
 struct device;
@@ -57,6 +56,11 @@ struct soc_pcmcia_socket {
 
 	struct timer_list	poll_timer;
 	struct list_head	node;
+};
+
+struct skt_dev_info {
+	int nskt;
+	struct soc_pcmcia_socket skt[0];
 };
 
 struct pcmcia_state {
@@ -133,11 +137,11 @@ extern void soc_common_pcmcia_get_timing(struct soc_pcmcia_socket *, struct soc_
 
 extern struct list_head soc_pcmcia_sockets;
 
-extern int soc_common_drv_pcmcia_probe(struct device *dev, struct pcmcia_low_level *ops, int first, int nr);
+extern int soc_common_drv_pcmcia_probe(struct device *dev, struct pcmcia_low_level *ops, struct skt_dev_info *sinfo);
 extern int soc_common_drv_pcmcia_remove(struct device *dev);
 
 
-#ifdef DEBUG
+#ifdef CONFIG_PCMCIA_DEBUG
 
 extern void soc_pcmcia_debug(struct soc_pcmcia_socket *skt, const char *func,
 			     int lvl, const char *fmt, ...);

@@ -41,7 +41,7 @@
 #endif
 
 #if MFE_DEBUG>=1
-#define DPRINTK(str,args...) printk(KERN_DEBUG "meth: %s: " str, __FUNCTION__ , ## args)
+#define DPRINTK(str,args...) printk(KERN_DEBUG "meth: %s: " str, __func__ , ## args)
 #define MFE_RX_DEBUG 2
 #else
 #define DPRINTK(str,args...)
@@ -94,10 +94,9 @@ char o2meth_eaddr[8]={0,0,0,0,0,0,0,0};
 static inline void load_eaddr(struct net_device *dev)
 {
 	int i;
-	DECLARE_MAC_BUF(mac);
 	u64 macaddr;
 
-	DPRINTK("Loading MAC Address: %s\n", print_mac(mac, dev->dev_addr));
+	DPRINTK("Loading MAC Address: %pM\n", dev->dev_addr);
 	macaddr = 0;
 	for (i = 0; i < 6; i++)
 		macaddr |= (u64)dev->dev_addr[i] << ((5 - i) * 8);
@@ -128,11 +127,11 @@ static unsigned long mdio_read(struct meth_private *priv, unsigned long phyreg)
 static int mdio_probe(struct meth_private *priv)
 {
 	int i;
-	unsigned long p2, p3;
+	unsigned long p2, p3, flags;
 	/* check if phy is detected already */
 	if(priv->phy_addr>=0&&priv->phy_addr<32)
 		return 0;
-	spin_lock(&priv->meth_lock);
+	spin_lock_irqsave(&priv->meth_lock, flags);
 	for (i=0;i<32;++i){
 		priv->phy_addr=i;
 		p2=mdio_read(priv,2);
@@ -158,7 +157,7 @@ static int mdio_probe(struct meth_private *priv)
 			break;
 		}
 	}
-	spin_unlock(&priv->meth_lock);
+	spin_unlock_irqrestore(&priv->meth_lock, flags);
 	if(priv->phy_addr<32) {
 		return 0;
 	}
@@ -374,14 +373,14 @@ static int meth_release(struct net_device *dev)
 static void meth_rx(struct net_device* dev, unsigned long int_status)
 {
 	struct sk_buff *skb;
-	unsigned long status;
+	unsigned long status, flags;
 	struct meth_private *priv = netdev_priv(dev);
 	unsigned long fifo_rptr = (int_status & METH_INT_RX_RPTR_MASK) >> 8;
 
-	spin_lock(&priv->meth_lock);
+	spin_lock_irqsave(&priv->meth_lock, flags);
 	priv->dma_ctrl &= ~METH_DMA_RX_INT_EN;
 	mace->eth.dma_ctrl = priv->dma_ctrl;
-	spin_unlock(&priv->meth_lock);
+	spin_unlock_irqrestore(&priv->meth_lock, flags);
 
 	if (int_status & METH_INT_RX_UNDERFLOW) {
 		fifo_rptr = (fifo_rptr - 1) & 0x0f;
@@ -399,7 +398,7 @@ static void meth_rx(struct net_device* dev, unsigned long int_status)
 			int len = (status & 0xffff) - 4; /* omit CRC */
 			/* length sanity check */
 			if (len < 60 || len > 1518) {
-				printk(KERN_DEBUG "%s: bogus packet size: %ld, status=%#2lx.\n",
+				printk(KERN_DEBUG "%s: bogus packet size: %ld, status=%#2Lx.\n",
 				       dev->name, priv->rx_write,
 				       priv->rx_ring[priv->rx_write]->status.raw);
 				dev->stats.rx_errors++;
@@ -421,7 +420,6 @@ static void meth_rx(struct net_device* dev, unsigned long int_status)
 					skb_put(skb_c, len);
 					priv->rx_skbs[priv->rx_write] = skb;
 					skb_c->protocol = eth_type_trans(skb_c, dev);
-					dev->last_rx = jiffies;
 					dev->stats.rx_packets++;
 					dev->stats.rx_bytes += len;
 					netif_rx(skb_c);
@@ -454,12 +452,12 @@ static void meth_rx(struct net_device* dev, unsigned long int_status)
 		mace->eth.rx_fifo = priv->rx_ring_dmas[priv->rx_write];
 		ADVANCE_RX_PTR(priv->rx_write);
 	}
-	spin_lock(&priv->meth_lock);
+	spin_lock_irqsave(&priv->meth_lock, flags);
 	/* In case there was underflow, and Rx DMA was disabled */
 	priv->dma_ctrl |= METH_DMA_RX_INT_EN | METH_DMA_RX_EN;
 	mace->eth.dma_ctrl = priv->dma_ctrl;
 	mace->eth.int_stat = METH_INT_RX_THRESHOLD;
-	spin_unlock(&priv->meth_lock);
+	spin_unlock_irqrestore(&priv->meth_lock, flags);
 }
 
 static int meth_tx_full(struct net_device *dev)
@@ -472,11 +470,11 @@ static int meth_tx_full(struct net_device *dev)
 static void meth_tx_cleanup(struct net_device* dev, unsigned long int_status)
 {
 	struct meth_private *priv = netdev_priv(dev);
-	unsigned long status;
+	unsigned long status, flags;
 	struct sk_buff *skb;
 	unsigned long rptr = (int_status&TX_INFO_RPTR) >> 16;
 
-	spin_lock(&priv->meth_lock);
+	spin_lock_irqsave(&priv->meth_lock, flags);
 
 	/* Stop DMA notification */
 	priv->dma_ctrl &= ~(METH_DMA_TX_INT_EN);
@@ -529,12 +527,13 @@ static void meth_tx_cleanup(struct net_device* dev, unsigned long int_status)
 	}
 
 	mace->eth.int_stat = METH_INT_TX_EMPTY | METH_INT_TX_PKT;
-	spin_unlock(&priv->meth_lock);
+	spin_unlock_irqrestore(&priv->meth_lock, flags);
 }
 
 static void meth_error(struct net_device* dev, unsigned status)
 {
 	struct meth_private *priv = netdev_priv(dev);
+	unsigned long flags;
 
 	printk(KERN_WARNING "meth: error status: 0x%08x\n",status);
 	/* check for errors too... */
@@ -549,7 +548,7 @@ static void meth_error(struct net_device* dev, unsigned status)
 		printk(KERN_WARNING "meth: Rx overflow\n");
 	if (status & (METH_INT_RX_UNDERFLOW)) {
 		printk(KERN_WARNING "meth: Rx underflow\n");
-		spin_lock(&priv->meth_lock);
+		spin_lock_irqsave(&priv->meth_lock, flags);
 		mace->eth.int_stat = METH_INT_RX_UNDERFLOW;
 		/* more underflow interrupts will be delivered,
 		 * effectively throwing us into an infinite loop.
@@ -557,7 +556,7 @@ static void meth_error(struct net_device* dev, unsigned status)
 		priv->dma_ctrl &= ~METH_DMA_RX_EN;
 		mace->eth.dma_ctrl = priv->dma_ctrl;
 		DPRINTK("Disabled meth Rx DMA temporarily\n");
-		spin_unlock(&priv->meth_lock);
+		spin_unlock_irqrestore(&priv->meth_lock, flags);
 	}
 	mace->eth.int_stat = METH_INT_ERROR;
 }

@@ -53,6 +53,7 @@ struct scsi_disk {
 	unsigned	WCE : 1;	/* state of disk WCE bit */
 	unsigned	RCD : 1;	/* state of disk RCD bit, unused */
 	unsigned	DPOFUA : 1;	/* state of disk DPOFUA bit */
+	unsigned	first_scan : 1;
 };
 #define to_scsi_disk(obj) container_of(obj,struct scsi_disk,dev)
 
@@ -97,19 +98,28 @@ struct sd_dif_tuple {
        __be32 ref_tag;		/* Target LBA or indirect LBA */
 };
 
-#if defined(CONFIG_BLK_DEV_INTEGRITY)
+#ifdef CONFIG_BLK_DEV_INTEGRITY
 
-extern void sd_dif_op(struct scsi_cmnd *, unsigned int, unsigned int);
+extern void sd_dif_op(struct scsi_cmnd *, unsigned int, unsigned int, unsigned int);
 extern void sd_dif_config_host(struct scsi_disk *);
 extern int sd_dif_prepare(struct request *rq, sector_t, unsigned int);
 extern void sd_dif_complete(struct scsi_cmnd *, unsigned int);
 
 #else /* CONFIG_BLK_DEV_INTEGRITY */
 
-#define sd_dif_op(a, b, c)			do { } while (0)
-#define sd_dif_config_host(a)			do { } while (0)
-#define sd_dif_prepare(a, b, c)			(0)
-#define sd_dif_complete(a, b)			(0)
+static inline void sd_dif_op(struct scsi_cmnd *cmd, unsigned int a, unsigned int b, unsigned int c)
+{
+}
+static inline void sd_dif_config_host(struct scsi_disk *disk)
+{
+}
+static inline int sd_dif_prepare(struct request *rq, sector_t s, unsigned int a)
+{
+	return 0;
+}
+static inline void sd_dif_complete(struct scsi_cmnd *cmd, unsigned int a)
+{
+}
 
 #endif /* CONFIG_BLK_DEV_INTEGRITY */
 

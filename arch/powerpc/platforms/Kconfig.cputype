@@ -50,15 +50,24 @@ config 44x
 	select PPC_UDBG_16550
 	select 4xx_SOC
 	select PPC_PCI_CHOICE
+	select PHYS_64BIT
 
 config E200
 	bool "Freescale e200"
 
 endchoice
 
+# Until we have a choice of exclusive CPU types on 64-bit, we always
+# use PPC_BOOK3S. On 32-bit, this is equivalent to 6xx which is
+# "classic" MMU
+
+config PPC_BOOK3S
+       def_bool y
+       depends on PPC64 || 6xx
+
 config POWER4_ONLY
 	bool "Optimize for POWER4"
-	depends on PPC64
+	depends on PPC64 && PPC_BOOK3S
 	default n
 	---help---
 	  Cause the compiler to optimize for POWER4/POWER5/PPC970 processors.
@@ -67,16 +76,16 @@ config POWER4_ONLY
 
 config POWER3
 	bool
-	depends on PPC64
+	depends on PPC64 && PPC_BOOK3S
 	default y if !POWER4_ONLY
 
 config POWER4
-	depends on PPC64
+	depends on PPC64 && PPC_BOOK3S
 	def_bool y
 
 config TUNE_CELL
 	bool "Optimize for Cell Broadband Engine"
-	depends on PPC64
+	depends on PPC64 && PPC_BOOK3S
 	help
 	  Cause the compiler to optimize for the PPE of the Cell Broadband
 	  Engine. This will make the code run considerably faster on Cell
@@ -128,24 +137,25 @@ config FSL_EMB_PERFMON
 
 config PTE_64BIT
 	bool
-	depends on 44x || E500
-	default y if 44x
-	default y if E500 && PHYS_64BIT
+	depends on 44x || E500 || PPC_86xx
+	default y if PHYS_64BIT
 
 config PHYS_64BIT
-	bool 'Large physical address support' if E500
-	depends on 44x || E500
-	select RESOURCES_64BIT
-	default y if 44x
+	bool 'Large physical address support' if E500 || PPC_86xx
+	depends on (44x || E500 || PPC_86xx) && !PPC_83xx && !PPC_82xx
 	---help---
 	  This option enables kernel support for larger than 32-bit physical
-	  addresses.  This features is not be available on all e500 cores.
+	  addresses.  This feature may not be available on all cores.
+
+	  If you have more than 3.5GB of RAM or so, you also need to enable
+	  SWIOTLB under Kernel Options for this to work.  The actual number
+	  is platform-dependent.
 
 	  If in doubt, say N here.
 
 config ALTIVEC
 	bool "AltiVec Support"
-	depends on CLASSIC32 || POWER4
+	depends on 6xx || POWER4
 	---help---
 	  This option enables kernel support for the Altivec extensions to the
 	  PowerPC processor. The kernel currently supports saving and restoring
@@ -193,16 +203,28 @@ config SPE
 
 config PPC_STD_MMU
 	bool
-	depends on 6xx || POWER3 || POWER4 || PPC64
+	depends on 6xx || PPC64
 	default y
 
 config PPC_STD_MMU_32
 	def_bool y
 	depends on PPC_STD_MMU && PPC32
 
+config PPC_STD_MMU_64
+	def_bool y
+	depends on PPC_STD_MMU && PPC64
+
+config PPC_MMU_NOHASH
+	def_bool y
+	depends on !PPC_STD_MMU
+
+config PPC_BOOK3E_MMU
+	def_bool y
+	depends on FSL_BOOKE
+
 config PPC_MM_SLICES
 	bool
-	default y if HUGETLB_PAGE || PPC_64K_PAGES
+	default y if HUGETLB_PAGE || (PPC_STD_MMU_64 && PPC_64K_PAGES)
 	default n
 
 config VIRT_CPU_ACCOUNTING
@@ -221,7 +243,7 @@ config VIRT_CPU_ACCOUNTING
 	  If in doubt, say Y here.
 
 config SMP
-	depends on PPC_STD_MMU
+	depends on PPC_STD_MMU || FSL_BOOKE
 	bool "Symmetric multi-processing support"
 	---help---
 	  This enables support for systems with more than one CPU. If you have

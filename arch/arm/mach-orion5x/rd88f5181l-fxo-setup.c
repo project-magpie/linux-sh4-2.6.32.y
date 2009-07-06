@@ -16,6 +16,7 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mv643xx_eth.h>
 #include <linux/ethtool.h>
+#include <net/dsa.h>
 #include <asm/mach-types.h>
 #include <asm/gpio.h>
 #include <asm/leds.h>
@@ -88,9 +89,23 @@ static struct orion5x_mpp_mode rd88f5181l_fxo_mpp_modes[] __initdata = {
 };
 
 static struct mv643xx_eth_platform_data rd88f5181l_fxo_eth_data = {
-	.phy_addr	= -1,
+	.phy_addr	= MV643XX_ETH_PHY_NONE,
 	.speed		= SPEED_1000,
 	.duplex		= DUPLEX_FULL,
+};
+
+static struct dsa_chip_data rd88f5181l_fxo_switch_chip_data = {
+	.port_names[0]	= "lan2",
+	.port_names[1]	= "lan1",
+	.port_names[2]	= "wan",
+	.port_names[3]	= "cpu",
+	.port_names[5]	= "lan4",
+	.port_names[7]	= "lan3",
+};
+
+static struct dsa_platform_data rd88f5181l_fxo_switch_plat_data = {
+	.nr_chips	= 1,
+	.chip		= &rd88f5181l_fxo_switch_chip_data,
 };
 
 static void __init rd88f5181l_fxo_init(void)
@@ -107,6 +122,7 @@ static void __init rd88f5181l_fxo_init(void)
 	 */
 	orion5x_ehci0_init();
 	orion5x_eth_init(&rd88f5181l_fxo_eth_data);
+	orion5x_eth_switch_init(&rd88f5181l_fxo_switch_plat_data, NO_IRQ);
 	orion5x_uart0_init();
 
 	orion5x_setup_dev_boot_win(RD88F5181L_FXO_NOR_BOOT_BASE,

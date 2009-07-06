@@ -109,7 +109,8 @@ static struct request *get_alua_req(struct scsi_device *sdev,
 	}
 
 	rq->cmd_type = REQ_TYPE_BLOCK_PC;
-	rq->cmd_flags |= REQ_FAILFAST | REQ_NOMERGE;
+	rq->cmd_flags |= REQ_FAILFAST_DEV | REQ_FAILFAST_TRANSPORT |
+			 REQ_FAILFAST_DRIVER;
 	rq->retries = ALUA_FAILOVER_RETRIES;
 	rq->timeout = ALUA_FAILOVER_TIMEOUT;
 
@@ -246,8 +247,8 @@ static unsigned submit_stpg(struct scsi_device *sdev, struct alua_dh_data *h)
 	/* Prepare the data buffer */
 	memset(h->buff, 0, stpg_len);
 	h->buff[4] = TPGS_STATE_OPTIMIZED & 0x0f;
-	h->buff[6] = (h->group_id >> 8) & 0x0f;
-	h->buff[7] = h->group_id & 0x0f;
+	h->buff[6] = (h->group_id >> 8) & 0xff;
+	h->buff[7] = h->group_id & 0xff;
 
 	rq = get_alua_req(sdev, h->buff, stpg_len, WRITE);
 	if (!rq)
@@ -425,7 +426,7 @@ static int alua_check_sense(struct scsi_device *sdev,
 			/*
 			 * LUN Not Accessible - ALUA state transition
 			 */
-			return NEEDS_RETRY;
+			return ADD_TO_MLQUEUE;
 		if (sense_hdr->asc == 0x04 && sense_hdr->ascq == 0x0b)
 			/*
 			 * LUN Not Accessible -- Target port in standby state
@@ -447,19 +448,28 @@ static int alua_check_sense(struct scsi_device *sdev,
 			/*
 			 * Power On, Reset, or Bus Device Reset, just retry.
 			 */
-			return NEEDS_RETRY;
+			return ADD_TO_MLQUEUE;
 		if (sense_hdr->asc == 0x2a && sense_hdr->ascq == 0x06) {
 			/*
 			 * ALUA state changed
 			 */
-			return NEEDS_RETRY;
+			return ADD_TO_MLQUEUE;
 		}
 		if (sense_hdr->asc == 0x2a && sense_hdr->ascq == 0x07) {
 			/*
 			 * Implicit ALUA state transition failed
 			 */
-			return NEEDS_RETRY;
+			return ADD_TO_MLQUEUE;
 		}
+		if (sense_hdr->asc == 0x3f && sense_hdr->ascq == 0x0e) {
+			/*
+			 * REPORTED_LUNS_DATA_HAS_CHANGED is reported
+			 * when switching controllers on targets like
+			 * Intel Multi-Flex. We can just retry.
+			 */
+			return ADD_TO_MLQUEUE;
+		}
+
 		break;
 	}
 
@@ -490,7 +500,7 @@ static int alua_stpg(struct scsi_device *sdev, int state,
 		if (!err)
 			return SCSI_DH_IO;
 		err = alua_check_sense(sdev, &sense_hdr);
-		if (retry > 0 && err == NEEDS_RETRY) {
+		if (retry > 0 && err == ADD_TO_MLQUEUE) {
 			retry--;
 			goto retry;
 		}
@@ -535,7 +545,7 @@ static int alua_rtpg(struct scsi_device *sdev, struct alua_dh_data *h)
 			return SCSI_DH_IO;
 
 		err = alua_check_sense(sdev, &sense_hdr);
-		if (err == NEEDS_RETRY)
+		if (err == ADD_TO_MLQUEUE)
 			goto retry;
 		sdev_printk(KERN_INFO, sdev,
 			    "%s: rtpg sense code %02x/%02x/%02x\n",
@@ -690,6 +700,7 @@ static const struct scsi_dh_devlist alua_dev_list[] = {
 	{"IBM", "2107900" },
 	{"IBM", "2145" },
 	{"Pillar", "Axiom" },
+	{"Intel", "Multi-Flex"},
 	{NULL, NULL}
 };
 

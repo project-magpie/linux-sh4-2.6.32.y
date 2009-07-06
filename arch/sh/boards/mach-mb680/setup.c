@@ -23,11 +23,12 @@
 #include <linux/phy.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <asm/io.h>
 #include <mach/common.h>
-#include <mach/mb705-epld.h>
+#include "../mach-st/mb705-epld.h"
 
 static int ascs[2] __initdata = { 2, 3 };
 

@@ -18,16 +18,16 @@
 #include <linux/personality.h>
 #include <linux/kallsyms.h>
 #include <linux/delay.h>
+#include <linux/hardirq.h>
 #include <linux/init.h>
-#include <linux/kprobes.h>
+#include <linux/uaccess.h>
 
 #include <asm/atomic.h>
 #include <asm/cacheflush.h>
 #include <asm/system.h>
-#include <asm/uaccess.h>
 #include <asm/unistd.h>
 #include <asm/traps.h>
-#include <asm/io.h>
+#include <asm/unwind.h>
 
 #include "ptrace.h"
 #include "signal.h"
@@ -62,6 +62,7 @@ void dump_backtrace_entry(unsigned long where, unsigned long from, unsigned long
 		dump_mem("Exception stack", frame + 4, frame + 4 + sizeof(struct pt_regs));
 }
 
+#ifndef CONFIG_ARM_UNWIND
 /*
  * Stack pointers should always be within the kernels view of
  * physical memory.  If it is not there, then we can't dump
@@ -69,11 +70,13 @@ void dump_backtrace_entry(unsigned long where, unsigned long from, unsigned long
  */
 static int verify_stack(unsigned long sp)
 {
-	if (sp < PAGE_OFFSET || (sp > (unsigned long)high_memory && high_memory != 0))
+	if (sp < PAGE_OFFSET ||
+	    (sp > (unsigned long)high_memory && high_memory != NULL))
 		return -EFAULT;
 
 	return 0;
 }
+#endif
 
 /*
  * Dump out the contents of some memory nicely...
@@ -150,13 +153,33 @@ static void dump_instr(struct pt_regs *regs)
 	set_fs(fs);
 }
 
+#ifdef CONFIG_ARM_UNWIND
+static inline void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
+{
+	unwind_backtrace(regs, tsk);
+}
+#else
 static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 {
-	unsigned int fp;
+	unsigned int fp, mode;
 	int ok = 1;
 
 	printk("Backtrace: ");
-	fp = regs->ARM_fp;
+
+	if (!tsk)
+		tsk = current;
+
+	if (regs) {
+		fp = regs->ARM_fp;
+		mode = processor_mode(regs);
+	} else if (tsk != current) {
+		fp = thread_saved_fp(tsk);
+		mode = 0x10;
+	} else {
+		asm("mov %0, fp" : "=r" (fp) : : "cc");
+		mode = 0x10;
+	}
+
 	if (!fp) {
 		printk("no frame pointer");
 		ok = 0;
@@ -168,29 +191,20 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 	printk("\n");
 
 	if (ok)
-		c_backtrace(fp, processor_mode(regs));
+		c_backtrace(fp, mode);
 }
+#endif
 
 void dump_stack(void)
 {
-	__backtrace();
+	dump_backtrace(NULL, NULL);
 }
 
 EXPORT_SYMBOL(dump_stack);
 
 void show_stack(struct task_struct *tsk, unsigned long *sp)
 {
-	unsigned long fp;
-
-	if (!tsk)
-		tsk = current;
-
-	if (tsk != current)
-		fp = thread_saved_fp(tsk);
-	else
-		asm("mov %0, fp" : "=r" (fp) : : "cc");
-
-	c_backtrace(fp, 0x10);
+	dump_backtrace(NULL, tsk);
 	barrier();
 }
 
@@ -327,17 +341,6 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 	} else {
 		get_user(instr, (u32 __user *)pc);
 	}
-
-#ifdef CONFIG_KPROBES
-	/*
-	 * It is possible to have recursive kprobes, so we can't call
-	 * the kprobe trap handler with the undef_lock held.
-	 */
-	if (instr == KPROBE_BREAKPOINT_INSTRUCTION && !user_mode(regs)) {
-		kprobe_trap_handler(regs, instr);
-		return;
-	}
-#endif
 
 	if (call_undef_hook(regs, instr) == 0)
 		return;

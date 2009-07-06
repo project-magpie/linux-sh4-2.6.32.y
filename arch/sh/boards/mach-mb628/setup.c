@@ -29,6 +29,7 @@
 #include <linux/input.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <mach/epld.h>

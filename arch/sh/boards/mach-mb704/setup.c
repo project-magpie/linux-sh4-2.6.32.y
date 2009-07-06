@@ -24,9 +24,9 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/eeprom.h>
 #include <linux/io.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
-#include "../common/common.h"
 
 static int ascs[2] __initdata = { 2, 3 };
 

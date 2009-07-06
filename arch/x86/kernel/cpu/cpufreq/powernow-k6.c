@@ -1,6 +1,7 @@
 /*
  *  This file was based upon code in Powertweak Linux (http://powertweak.sf.net)
- *  (C) 2000-2003  Dave Jones, Arjan van de Ven, Janne Pänkälä, Dominik Brodowski.
+ *  (C) 2000-2003  Dave Jones, Arjan van de Ven, Janne Pänkälä,
+ *                 Dominik Brodowski.
  *
  *  Licensed under the terms of the GNU GPL License version 2.
  *
@@ -13,15 +14,15 @@
 #include <linux/cpufreq.h>
 #include <linux/ioport.h>
 #include <linux/slab.h>
+#include <linux/timex.h>
+#include <linux/io.h>
 
 #include <asm/msr.h>
-#include <asm/timex.h>
-#include <asm/io.h>
 
+#define POWERNOW_IOPORT 0xfff0          /* it doesn't matter where, as long
+					   as it is unused */
 
-#define POWERNOW_IOPORT 0xfff0         /* it doesn't matter where, as long
-					  as it is unused */
-
+#define PFX "powernow-k6: "
 static unsigned int                     busfreq;   /* FSB, in 10 kHz */
 static unsigned int                     max_multiplier;
 
@@ -48,12 +49,12 @@ static struct cpufreq_frequency_table clock_ratio[] = {
  */
 static int powernow_k6_get_cpu_multiplier(void)
 {
-	u64             invalue = 0;
-	u32             msrval;
+	u64 invalue = 0;
+	u32 msrval;
 
 	msrval = POWERNOW_IOPORT + 0x1;
 	wrmsr(MSR_K6_EPMR, msrval, 0); /* enable the PowerNow port */
-	invalue=inl(POWERNOW_IOPORT + 0x8);
+	invalue = inl(POWERNOW_IOPORT + 0x8);
 	msrval = POWERNOW_IOPORT + 0x0;
 	wrmsr(MSR_K6_EPMR, msrval, 0); /* disable it again */
 
@@ -67,14 +68,14 @@ static int powernow_k6_get_cpu_multiplier(void)
  *
  *   Tries to change the PowerNow! multiplier
  */
-static void powernow_k6_set_state (unsigned int best_i)
+static void powernow_k6_set_state(unsigned int best_i)
 {
-	unsigned long           outvalue=0, invalue=0;
-	unsigned long           msrval;
-	struct cpufreq_freqs    freqs;
+	unsigned long outvalue = 0, invalue = 0;
+	unsigned long msrval;
+	struct cpufreq_freqs freqs;
 
 	if (clock_ratio[best_i].index > max_multiplier) {
-		printk(KERN_ERR "cpufreq: invalid target frequency\n");
+		printk(KERN_ERR PFX "invalid target frequency\n");
 		return;
 	}
 
@@ -90,10 +91,10 @@ static void powernow_k6_set_state (unsigned int best_i)
 
 	msrval = POWERNOW_IOPORT + 0x1;
 	wrmsr(MSR_K6_EPMR, msrval, 0); /* enable the PowerNow port */
-	invalue=inl(POWERNOW_IOPORT + 0x8);
+	invalue = inl(POWERNOW_IOPORT + 0x8);
 	invalue = invalue & 0xf;
 	outvalue = outvalue | invalue;
-	outl(outvalue ,(POWERNOW_IOPORT + 0x8));
+	outl(outvalue , (POWERNOW_IOPORT + 0x8));
 	msrval = POWERNOW_IOPORT + 0x0;
 	wrmsr(MSR_K6_EPMR, msrval, 0); /* disable it again */
 
@@ -120,17 +121,19 @@ static int powernow_k6_verify(struct cpufreq_policy *policy)
  * powernow_k6_setpolicy - sets a new CPUFreq policy
  * @policy: new policy
  * @target_freq: the target frequency
- * @relation: how that frequency relates to achieved frequency (CPUFREQ_RELATION_L or CPUFREQ_RELATION_H)
+ * @relation: how that frequency relates to achieved frequency
+ *  (CPUFREQ_RELATION_L or CPUFREQ_RELATION_H)
  *
  * sets a new CPUFreq policy
  */
-static int powernow_k6_target (struct cpufreq_policy *policy,
+static int powernow_k6_target(struct cpufreq_policy *policy,
 			       unsigned int target_freq,
 			       unsigned int relation)
 {
-	unsigned int    newstate = 0;
+	unsigned int newstate = 0;
 
-	if (cpufreq_frequency_table_target(policy, &clock_ratio[0], target_freq, relation, &newstate))
+	if (cpufreq_frequency_table_target(policy, &clock_ratio[0],
+				target_freq, relation, &newstate))
 		return -EINVAL;
 
 	powernow_k6_set_state(newstate);
@@ -141,7 +144,7 @@ static int powernow_k6_target (struct cpufreq_policy *policy,
 
 static int powernow_k6_cpu_init(struct cpufreq_policy *policy)
 {
-	unsigned int i;
+	unsigned int i, f;
 	int result;
 
 	if (policy->cpu != 0)
@@ -152,11 +155,12 @@ static int powernow_k6_cpu_init(struct cpufreq_policy *policy)
 	busfreq = cpu_khz / max_multiplier;
 
 	/* table init */
-	for (i=0; (clock_ratio[i].frequency != CPUFREQ_TABLE_END); i++) {
-		if (clock_ratio[i].index > max_multiplier)
+	for (i = 0; (clock_ratio[i].frequency != CPUFREQ_TABLE_END); i++) {
+		f = clock_ratio[i].index;
+		if (f > max_multiplier)
 			clock_ratio[i].frequency = CPUFREQ_ENTRY_INVALID;
 		else
-			clock_ratio[i].frequency = busfreq * clock_ratio[i].index;
+			clock_ratio[i].frequency = busfreq * f;
 	}
 
 	/* cpuinfo and default policy values */
@@ -165,7 +169,7 @@ static int powernow_k6_cpu_init(struct cpufreq_policy *policy)
 
 	result = cpufreq_frequency_table_cpuinfo(policy, clock_ratio);
 	if (result)
-		return (result);
+		return result;
 
 	cpufreq_frequency_table_get_attr(clock_ratio, policy->cpu);
 
@@ -176,8 +180,8 @@ static int powernow_k6_cpu_init(struct cpufreq_policy *policy)
 static int powernow_k6_cpu_exit(struct cpufreq_policy *policy)
 {
 	unsigned int i;
-	for (i=0; i<8; i++) {
-		if (i==max_multiplier)
+	for (i = 0; i < 8; i++) {
+		if (i == max_multiplier)
 			powernow_k6_set_state(i);
 	}
 	cpufreq_frequency_table_put_attr(policy->cpu);
@@ -186,10 +190,12 @@ static int powernow_k6_cpu_exit(struct cpufreq_policy *policy)
 
 static unsigned int powernow_k6_get(unsigned int cpu)
 {
-	return busfreq * powernow_k6_get_cpu_multiplier();
+	unsigned int ret;
+	ret = (busfreq * powernow_k6_get_cpu_multiplier());
+	return ret;
 }
 
-static struct freq_attr* powernow_k6_attr[] = {
+static struct freq_attr *powernow_k6_attr[] = {
 	&cpufreq_freq_attr_scaling_available_freqs,
 	NULL,
 };
@@ -222,12 +228,12 @@ static int __init powernow_k6_init(void)
 		return -ENODEV;
 
 	if (!request_region(POWERNOW_IOPORT, 16, "PowerNow!")) {
-		printk("cpufreq: PowerNow IOPORT region already used.\n");
+		printk(KERN_INFO PFX "PowerNow IOPORT region already used.\n");
 		return -EIO;
 	}
 
 	if (cpufreq_register_driver(&powernow_k6_driver)) {
-		release_region (POWERNOW_IOPORT, 16);
+		release_region(POWERNOW_IOPORT, 16);
 		return -EINVAL;
 	}
 
@@ -243,13 +249,14 @@ static int __init powernow_k6_init(void)
 static void __exit powernow_k6_exit(void)
 {
 	cpufreq_unregister_driver(&powernow_k6_driver);
-	release_region (POWERNOW_IOPORT, 16);
+	release_region(POWERNOW_IOPORT, 16);
 }
 
 
-MODULE_AUTHOR ("Arjan van de Ven <arjanv@redhat.com>, Dave Jones <davej@codemonkey.org.uk>, Dominik Brodowski <linux@brodo.de>");
-MODULE_DESCRIPTION ("PowerNow! driver for AMD K6-2+ / K6-3+ processors.");
-MODULE_LICENSE ("GPL");
+MODULE_AUTHOR("Arjan van de Ven, Dave Jones <davej@redhat.com>, "
+		"Dominik Brodowski <linux@brodo.de>");
+MODULE_DESCRIPTION("PowerNow! driver for AMD K6-2+ / K6-3+ processors.");
+MODULE_LICENSE("GPL");
 
 module_init(powernow_k6_init);
 module_exit(powernow_k6_exit);

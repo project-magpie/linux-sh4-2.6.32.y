@@ -11,10 +11,10 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
+#include <linux/io.h>
 
 #include <asm/tlb.h>
 #include <asm/mach/map.h>
-#include <asm/io.h>
 #include <mach/mux.h>
 #include <mach/tc.h>
 
@@ -47,6 +47,22 @@ static struct map_desc omap730_io_desc[] __initdata = {
 		.virtual	= OMAP730_DSPREG_BASE,
 		.pfn		= __phys_to_pfn(OMAP730_DSPREG_START),
 		.length		= OMAP730_DSPREG_SIZE,
+		.type		= MT_DEVICE
+	}
+};
+#endif
+
+#ifdef CONFIG_ARCH_OMAP850
+static struct map_desc omap850_io_desc[] __initdata = {
+	{
+		.virtual	= OMAP850_DSP_BASE,
+		.pfn		= __phys_to_pfn(OMAP850_DSP_START),
+		.length		= OMAP850_DSP_SIZE,
+		.type		= MT_DEVICE
+	}, {
+		.virtual	= OMAP850_DSPREG_BASE,
+		.pfn		= __phys_to_pfn(OMAP850_DSPREG_START),
+		.length		= OMAP850_DSPREG_SIZE,
 		.type		= MT_DEVICE
 	}
 };
@@ -109,6 +125,13 @@ void __init omap1_map_common_io(void)
 		iotable_init(omap730_io_desc, ARRAY_SIZE(omap730_io_desc));
 	}
 #endif
+
+#ifdef CONFIG_ARCH_OMAP850
+	if (cpu_is_omap850()) {
+		iotable_init(omap850_io_desc, ARRAY_SIZE(omap850_io_desc));
+	}
+#endif
+
 #ifdef CONFIG_ARCH_OMAP15XX
 	if (cpu_is_omap15xx()) {
 		iotable_init(omap1510_io_desc, ARRAY_SIZE(omap1510_io_desc));
@@ -128,7 +151,7 @@ void __init omap1_map_common_io(void)
  * Common low-level hardware init for omap1. This should only get called from
  * board specific init.
  */
-void __init omap1_init_common_hw()
+void __init omap1_init_common_hw(void)
 {
 	/* REVISIT: Refer to OMAP5910 Errata, Advisory SYS_1: "Timeout Abort
 	 * on a Posted Write in the TIPB Bridge".

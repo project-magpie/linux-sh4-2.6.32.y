@@ -43,10 +43,14 @@ struct ads7846_platform_data {
 	u16	debounce_tol;		/* tolerance used for filtering */
 	u16	debounce_rep;		/* additional consecutive good readings
 					 * required after the first two */
+	int	gpio_pendown;		/* the GPIO used to decide the pendown
+					 * state if get_pendown_state == NULL
+					 */
 	int	(*get_pendown_state)(void);
 	int	(*filter_init)	(struct ads7846_platform_data *pdata,
 				 void **filter_data);
 	int	(*filter)	(void *filter_data, int data_idx, int *val);
 	void	(*filter_cleanup)(void *filter_data);
+	void	(*wait_for_sync)(void);
 };
 

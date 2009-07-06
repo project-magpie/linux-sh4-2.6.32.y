@@ -85,7 +85,8 @@ void snd_pcm_playback_silence(struct snd_pcm_substream *substream, snd_pcm_ufram
 		}
 		frames = runtime->buffer_size - runtime->silence_filled;
 	}
-	snd_assert(frames <= runtime->buffer_size, return);
+	if (snd_BUG_ON(frames > runtime->buffer_size))
+		return;
 	if (frames == 0)
 		return;
 	ofs = runtime->silence_start % runtime->buffer_size;
@@ -96,7 +97,7 @@ void snd_pcm_playback_silence(struct snd_pcm_substream *substream, snd_pcm_ufram
 			if (substream->ops->silence) {
 				int err;
 				err = substream->ops->silence(substream, -1, ofs, transfer);
-				snd_assert(err >= 0, );
+				snd_BUG_ON(err < 0);
 			} else {
 				char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, ofs);
 				snd_pcm_format_set_silence(runtime->format, hwbuf, transfer * runtime->channels);
@@ -108,7 +109,7 @@ void snd_pcm_playback_silence(struct snd_pcm_substream *substream, snd_pcm_ufram
 				for (c = 0; c < channels; ++c) {
 					int err;
 					err = substream->ops->silence(substream, c, ofs, transfer);
-					snd_assert(err >= 0, );
+					snd_BUG_ON(err < 0);
 				}
 			} else {
 				size_t dma_csize = runtime->dma_bytes / channels;
@@ -124,23 +125,32 @@ void snd_pcm_playback_silence(struct snd_pcm_substream *substream, snd_pcm_ufram
 	}
 }
 
+#ifdef CONFIG_SND_PCM_XRUN_DEBUG
+#define xrun_debug(substream)	((substream)->pstr->xrun_debug)
+#else
+#define xrun_debug(substream)	0
+#endif
+
+#define dump_stack_on_xrun(substream) do {	\
+		if (xrun_debug(substream) > 1)	\
+			dump_stack();		\
+	} while (0)
+
 static void xrun(struct snd_pcm_substream *substream)
 {
 	snd_pcm_stop(substream, SNDRV_PCM_STATE_XRUN);
-#ifdef CONFIG_SND_PCM_XRUN_DEBUG
-	if (substream->pstr->xrun_debug) {
+	if (xrun_debug(substream)) {
 		snd_printd(KERN_DEBUG "XRUN: pcmC%dD%d%c\n",
 			   substream->pcm->card->number,
 			   substream->pcm->device,
 			   substream->stream ? 'c' : 'p');
-		if (substream->pstr->xrun_debug > 1)
-			dump_stack();
+		dump_stack_on_xrun(substream);
 	}
-#endif
 }
 
-static inline snd_pcm_uframes_t snd_pcm_update_hw_ptr_pos(struct snd_pcm_substream *substream,
-							  struct snd_pcm_runtime *runtime)
+static snd_pcm_uframes_t
+snd_pcm_update_hw_ptr_pos(struct snd_pcm_substream *substream,
+			  struct snd_pcm_runtime *runtime)
 {
 	snd_pcm_uframes_t pos;
 
@@ -149,17 +159,21 @@ static inline snd_pcm_uframes_t snd_pcm_update_hw_ptr_pos(struct snd_pcm_substre
 	pos = substream->ops->pointer(substream);
 	if (pos == SNDRV_PCM_POS_XRUN)
 		return pos; /* XRUN */
-#ifdef CONFIG_SND_DEBUG
 	if (pos >= runtime->buffer_size) {
-		snd_printk(KERN_ERR  "BUG: stream = %i, pos = 0x%lx, buffer size = 0x%lx, period size = 0x%lx\n", substream->stream, pos, runtime->buffer_size, runtime->period_size);
+		if (printk_ratelimit()) {
+			snd_printd(KERN_ERR  "BUG: stream = %i, pos = 0x%lx, "
+				   "buffer size = 0x%lx, period size = 0x%lx\n",
+				   substream->stream, pos, runtime->buffer_size,
+				   runtime->period_size);
+		}
+		pos = 0;
 	}
-#endif
 	pos -= pos % runtime->min_align;
 	return pos;
 }
 
-static inline int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream,
-					     struct snd_pcm_runtime *runtime)
+static int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream,
+				      struct snd_pcm_runtime *runtime)
 {
 	snd_pcm_uframes_t avail;
 
@@ -181,48 +195,113 @@ static inline int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream
 	return 0;
 }
 
-static inline int snd_pcm_update_hw_ptr_interrupt(struct snd_pcm_substream *substream)
+#define hw_ptr_error(substream, fmt, args...)				\
+	do {								\
+		if (xrun_debug(substream)) {				\
+			if (printk_ratelimit()) {			\
+				snd_printd("PCM: " fmt, ##args);	\
+			}						\
+			dump_stack_on_xrun(substream);			\
+		}							\
+	} while (0)
+
+static int snd_pcm_update_hw_ptr_interrupt(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	snd_pcm_uframes_t pos;
-	snd_pcm_uframes_t new_hw_ptr, hw_ptr_interrupt;
-	snd_pcm_sframes_t delta;
+	snd_pcm_uframes_t old_hw_ptr, new_hw_ptr, hw_ptr_interrupt, hw_base;
+	snd_pcm_sframes_t hdelta, delta;
+	unsigned long jdelta;
 
+	old_hw_ptr = runtime->status->hw_ptr;
 	pos = snd_pcm_update_hw_ptr_pos(substream, runtime);
 	if (pos == SNDRV_PCM_POS_XRUN) {
 		xrun(substream);
 		return -EPIPE;
 	}
-	if (runtime->period_size == runtime->buffer_size)
-		goto __next_buf;
-	new_hw_ptr = runtime->hw_ptr_base + pos;
+	hw_base = runtime->hw_ptr_base;
+	new_hw_ptr = hw_base + pos;
 	hw_ptr_interrupt = runtime->hw_ptr_interrupt + runtime->period_size;
-
-	delta = hw_ptr_interrupt - new_hw_ptr;
-	if (delta > 0) {
-		if ((snd_pcm_uframes_t)delta < runtime->buffer_size / 2) {
-#ifdef CONFIG_SND_PCM_XRUN_DEBUG
-			if (runtime->periods > 1 && substream->pstr->xrun_debug) {
-				snd_printd(KERN_ERR "Unexpected hw_pointer value [1] (stream = %i, delta: -%ld, max jitter = %ld): wrong interrupt acknowledge?\n", substream->stream, (long) delta, runtime->buffer_size / 2);
-				if (substream->pstr->xrun_debug > 1)
-					dump_stack();
-			}
-#endif
-			return 0;
+	delta = new_hw_ptr - hw_ptr_interrupt;
+	if (hw_ptr_interrupt >= runtime->boundary) {
+		hw_ptr_interrupt -= runtime->boundary;
+		if (hw_base < runtime->boundary / 2)
+			/* hw_base was already lapped; recalc delta */
+			delta = new_hw_ptr - hw_ptr_interrupt;
+	}
+	if (delta < 0) {
+		delta += runtime->buffer_size;
+		if (delta < 0) {
+			hw_ptr_error(substream, 
+				     "Unexpected hw_pointer value "
+				     "(stream=%i, pos=%ld, intr_ptr=%ld)\n",
+				     substream->stream, (long)pos,
+				     (long)hw_ptr_interrupt);
+			/* rebase to interrupt position */
+			hw_base = new_hw_ptr = hw_ptr_interrupt;
+			/* align hw_base to buffer_size */
+			hw_base -= hw_base % runtime->buffer_size;
+			delta = 0;
+		} else {
+			hw_base += runtime->buffer_size;
+			if (hw_base >= runtime->boundary)
+				hw_base = 0;
+			new_hw_ptr = hw_base + pos;
 		}
-	      __next_buf:
-		runtime->hw_ptr_base += runtime->buffer_size;
-		if (runtime->hw_ptr_base == runtime->boundary)
-			runtime->hw_ptr_base = 0;
-		new_hw_ptr = runtime->hw_ptr_base + pos;
 	}
 
+	/* Do jiffies check only in xrun_debug mode */
+	if (!xrun_debug(substream))
+		goto no_jiffies_check;
+
+	/* Skip the jiffies check for hardwares with BATCH flag.
+	 * Such hardware usually just increases the position at each IRQ,
+	 * thus it can't give any strange position.
+	 */
+	if (runtime->hw.info & SNDRV_PCM_INFO_BATCH)
+		goto no_jiffies_check;
+	hdelta = new_hw_ptr - old_hw_ptr;
+	jdelta = jiffies - runtime->hw_ptr_jiffies;
+	if (((hdelta * HZ) / runtime->rate) > jdelta + HZ/100) {
+		delta = jdelta /
+			(((runtime->period_size * HZ) / runtime->rate)
+								+ HZ/100);
+		hw_ptr_error(substream,
+			     "hw_ptr skipping! [Q] "
+			     "(pos=%ld, delta=%ld, period=%ld, "
+			     "jdelta=%lu/%lu/%lu)\n",
+			     (long)pos, (long)hdelta,
+			     (long)runtime->period_size, jdelta,
+			     ((hdelta * HZ) / runtime->rate), delta);
+		hw_ptr_interrupt = runtime->hw_ptr_interrupt +
+				   runtime->period_size * delta;
+		if (hw_ptr_interrupt >= runtime->boundary)
+			hw_ptr_interrupt -= runtime->boundary;
+		/* rebase to interrupt position */
+		hw_base = new_hw_ptr = hw_ptr_interrupt;
+		/* align hw_base to buffer_size */
+		hw_base -= hw_base % runtime->buffer_size;
+		delta = 0;
+	}
+ no_jiffies_check:
+	if (delta > runtime->period_size + runtime->period_size / 2) {
+		hw_ptr_error(substream,
+			     "Lost interrupts? "
+			     "(stream=%i, delta=%ld, intr_ptr=%ld)\n",
+			     substream->stream, (long)delta,
+			     (long)hw_ptr_interrupt);
+		/* rebase hw_ptr_interrupt */
+		hw_ptr_interrupt =
+			new_hw_ptr - new_hw_ptr % runtime->period_size;
+	}
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
 	    runtime->silence_size > 0)
 		snd_pcm_playback_silence(substream, new_hw_ptr);
 
+	runtime->hw_ptr_base = hw_base;
 	runtime->status->hw_ptr = new_hw_ptr;
-	runtime->hw_ptr_interrupt = new_hw_ptr - new_hw_ptr % runtime->period_size;
+	runtime->hw_ptr_jiffies = jiffies;
+	runtime->hw_ptr_interrupt = hw_ptr_interrupt;
 
 	return snd_pcm_update_hw_ptr_post(substream, runtime);
 }
@@ -232,8 +311,9 @@ int snd_pcm_update_hw_ptr(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	snd_pcm_uframes_t pos;
-	snd_pcm_uframes_t old_hw_ptr, new_hw_ptr;
+	snd_pcm_uframes_t old_hw_ptr, new_hw_ptr, hw_base;
 	snd_pcm_sframes_t delta;
+	unsigned long jdelta;
 
 	old_hw_ptr = runtime->status->hw_ptr;
 	pos = snd_pcm_update_hw_ptr_pos(substream, runtime);
@@ -241,30 +321,44 @@ int snd_pcm_update_hw_ptr(struct snd_pcm_substream *substream)
 		xrun(substream);
 		return -EPIPE;
 	}
-	new_hw_ptr = runtime->hw_ptr_base + pos;
+	hw_base = runtime->hw_ptr_base;
+	new_hw_ptr = hw_base + pos;
 
-	delta = old_hw_ptr - new_hw_ptr;
-	if (delta > 0) {
-		if ((snd_pcm_uframes_t)delta < runtime->buffer_size / 2) {
-#ifdef CONFIG_SND_PCM_XRUN_DEBUG
-			if (runtime->periods > 2 && substream->pstr->xrun_debug) {
-				snd_printd(KERN_ERR "Unexpected hw_pointer value [2] (stream = %i, delta: -%ld, max jitter = %ld): wrong interrupt acknowledge?\n", substream->stream, (long) delta, runtime->buffer_size / 2);
-				if (substream->pstr->xrun_debug > 1)
-					dump_stack();
-			}
-#endif
+	delta = new_hw_ptr - old_hw_ptr;
+	jdelta = jiffies - runtime->hw_ptr_jiffies;
+	if (delta < 0) {
+		delta += runtime->buffer_size;
+		if (delta < 0) {
+			hw_ptr_error(substream, 
+				     "Unexpected hw_pointer value [2] "
+				     "(stream=%i, pos=%ld, old_ptr=%ld, jdelta=%li)\n",
+				     substream->stream, (long)pos,
+				     (long)old_hw_ptr, jdelta);
 			return 0;
 		}
-		runtime->hw_ptr_base += runtime->buffer_size;
-		if (runtime->hw_ptr_base == runtime->boundary)
-			runtime->hw_ptr_base = 0;
-		new_hw_ptr = runtime->hw_ptr_base + pos;
+		hw_base += runtime->buffer_size;
+		if (hw_base >= runtime->boundary)
+			hw_base = 0;
+		new_hw_ptr = hw_base + pos;
+	}
+	/* Do jiffies check only in xrun_debug mode */
+	if (xrun_debug(substream) &&
+	    ((delta * HZ) / runtime->rate) > jdelta + HZ/100) {
+		hw_ptr_error(substream,
+			     "hw_ptr skipping! "
+			     "(pos=%ld, delta=%ld, period=%ld, jdelta=%lu/%lu)\n",
+			     (long)pos, (long)delta,
+			     (long)runtime->period_size, jdelta,
+			     ((delta * HZ) / runtime->rate));
+		return 0;
 	}
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
 	    runtime->silence_size > 0)
 		snd_pcm_playback_silence(substream, new_hw_ptr);
 
+	runtime->hw_ptr_base = hw_base;
 	runtime->status->hw_ptr = new_hw_ptr;
+	runtime->hw_ptr_jiffies = jiffies;
 
 	return snd_pcm_update_hw_ptr_post(substream, runtime);
 }
@@ -354,7 +448,7 @@ static inline unsigned int muldiv32(unsigned int a, unsigned int b,
 {
 	u_int64_t n = (u_int64_t) a * b;
 	if (c == 0) {
-		snd_assert(n > 0, );
+		snd_BUG_ON(!n);
 		*r = 0;
 		return UINT_MAX;
 	}
@@ -380,7 +474,8 @@ static inline unsigned int muldiv32(unsigned int a, unsigned int b,
 int snd_interval_refine(struct snd_interval *i, const struct snd_interval *v)
 {
 	int changed = 0;
-	snd_assert(!snd_interval_empty(i), return -EINVAL);
+	if (snd_BUG_ON(snd_interval_empty(i)))
+		return -EINVAL;
 	if (i->min < v->min) {
 		i->min = v->min;
 		i->openmin = v->openmin;
@@ -423,7 +518,8 @@ EXPORT_SYMBOL(snd_interval_refine);
 
 static int snd_interval_refine_first(struct snd_interval *i)
 {
-	snd_assert(!snd_interval_empty(i), return -EINVAL);
+	if (snd_BUG_ON(snd_interval_empty(i)))
+		return -EINVAL;
 	if (snd_interval_single(i))
 		return 0;
 	i->max = i->min;
@@ -435,7 +531,8 @@ static int snd_interval_refine_first(struct snd_interval *i)
 
 static int snd_interval_refine_last(struct snd_interval *i)
 {
-	snd_assert(!snd_interval_empty(i), return -EINVAL);
+	if (snd_BUG_ON(snd_interval_empty(i)))
+		return -EINVAL;
 	if (snd_interval_single(i))
 		return 0;
 	i->min = i->max;
@@ -889,7 +986,8 @@ int snd_pcm_hw_rule_add(struct snd_pcm_runtime *runtime, unsigned int cond,
 	c->private = private;
 	k = 0;
 	while (1) {
-		snd_assert(k < ARRAY_SIZE(c->deps), return -EINVAL);
+		if (snd_BUG_ON(k >= ARRAY_SIZE(c->deps)))
+			return -EINVAL;
 		c->deps[k++] = dep;
 		if (dep < 0)
 			break;
@@ -903,12 +1001,12 @@ int snd_pcm_hw_rule_add(struct snd_pcm_runtime *runtime, unsigned int cond,
 EXPORT_SYMBOL(snd_pcm_hw_rule_add);
 
 /**
- * snd_pcm_hw_constraint_mask
+ * snd_pcm_hw_constraint_mask - apply the given bitmap mask constraint
  * @runtime: PCM runtime instance
  * @var: hw_params variable to apply the mask
  * @mask: the bitmap mask
  *
- * Apply the constraint of the given bitmap mask to a mask parameter.
+ * Apply the constraint of the given bitmap mask to a 32-bit mask parameter.
  */
 int snd_pcm_hw_constraint_mask(struct snd_pcm_runtime *runtime, snd_pcm_hw_param_t var,
 			       u_int32_t mask)
@@ -923,12 +1021,12 @@ int snd_pcm_hw_constraint_mask(struct snd_pcm_runtime *runtime, snd_pcm_hw_param
 }
 
 /**
- * snd_pcm_hw_constraint_mask64
+ * snd_pcm_hw_constraint_mask64 - apply the given bitmap mask constraint
  * @runtime: PCM runtime instance
  * @var: hw_params variable to apply the mask
  * @mask: the 64bit bitmap mask
  *
- * Apply the constraint of the given bitmap mask to a mask parameter.
+ * Apply the constraint of the given bitmap mask to a 64-bit mask parameter.
  */
 int snd_pcm_hw_constraint_mask64(struct snd_pcm_runtime *runtime, snd_pcm_hw_param_t var,
 				 u_int64_t mask)
@@ -944,7 +1042,7 @@ int snd_pcm_hw_constraint_mask64(struct snd_pcm_runtime *runtime, snd_pcm_hw_par
 }
 
 /**
- * snd_pcm_hw_constraint_integer
+ * snd_pcm_hw_constraint_integer - apply an integer constraint to an interval
  * @runtime: PCM runtime instance
  * @var: hw_params variable to apply the integer constraint
  *
@@ -959,7 +1057,7 @@ int snd_pcm_hw_constraint_integer(struct snd_pcm_runtime *runtime, snd_pcm_hw_pa
 EXPORT_SYMBOL(snd_pcm_hw_constraint_integer);
 
 /**
- * snd_pcm_hw_constraint_minmax
+ * snd_pcm_hw_constraint_minmax - apply a min/max range constraint to an interval
  * @runtime: PCM runtime instance
  * @var: hw_params variable to apply the range
  * @min: the minimal value
@@ -990,7 +1088,7 @@ static int snd_pcm_hw_rule_list(struct snd_pcm_hw_params *params,
 
 
 /**
- * snd_pcm_hw_constraint_list
+ * snd_pcm_hw_constraint_list - apply a list of constraints to a parameter
  * @runtime: PCM runtime instance
  * @cond: condition bits
  * @var: hw_params variable to apply the list constraint
@@ -1026,7 +1124,7 @@ static int snd_pcm_hw_rule_ratnums(struct snd_pcm_hw_params *params,
 }
 
 /**
- * snd_pcm_hw_constraint_ratnums
+ * snd_pcm_hw_constraint_ratnums - apply ratnums constraint to a parameter
  * @runtime: PCM runtime instance
  * @cond: condition bits
  * @var: hw_params variable to apply the ratnums constraint
@@ -1059,7 +1157,7 @@ static int snd_pcm_hw_rule_ratdens(struct snd_pcm_hw_params *params,
 }
 
 /**
- * snd_pcm_hw_constraint_ratdens
+ * snd_pcm_hw_constraint_ratdens - apply ratdens constraint to a parameter
  * @runtime: PCM runtime instance
  * @cond: condition bits
  * @var: hw_params variable to apply the ratdens constraint
@@ -1090,7 +1188,7 @@ static int snd_pcm_hw_rule_msbits(struct snd_pcm_hw_params *params,
 }
 
 /**
- * snd_pcm_hw_constraint_msbits
+ * snd_pcm_hw_constraint_msbits - add a hw constraint msbits rule
  * @runtime: PCM runtime instance
  * @cond: condition bits
  * @width: sample bits width
@@ -1118,7 +1216,7 @@ static int snd_pcm_hw_rule_step(struct snd_pcm_hw_params *params,
 }
 
 /**
- * snd_pcm_hw_constraint_step
+ * snd_pcm_hw_constraint_step - add a hw constraint step rule
  * @runtime: PCM runtime instance
  * @cond: condition bits
  * @var: hw_params variable to apply the step constraint
@@ -1149,7 +1247,7 @@ static int snd_pcm_hw_rule_pow2(struct snd_pcm_hw_params *params, struct snd_pcm
 }		
 
 /**
- * snd_pcm_hw_constraint_pow2
+ * snd_pcm_hw_constraint_pow2 - add a hw constraint power-of-2 rule
  * @runtime: PCM runtime instance
  * @cond: condition bits
  * @var: hw_params variable to apply the power-of-2 constraint
@@ -1197,13 +1295,13 @@ void _snd_pcm_hw_params_any(struct snd_pcm_hw_params *params)
 EXPORT_SYMBOL(_snd_pcm_hw_params_any);
 
 /**
- * snd_pcm_hw_param_value
+ * snd_pcm_hw_param_value - return @params field @var value
  * @params: the hw_params instance
  * @var: parameter to retrieve
- * @dir: pointer to the direction (-1,0,1) or NULL
+ * @dir: pointer to the direction (-1,0,1) or %NULL
  *
- * Return the value for field PAR if it's fixed in configuration space 
- *  defined by PARAMS. Return -EINVAL otherwise
+ * Return the value for field @var if it's fixed in configuration space
+ * defined by @params. Return -%EINVAL otherwise.
  */
 int snd_pcm_hw_param_value(const struct snd_pcm_hw_params *params,
 			   snd_pcm_hw_param_t var, int *dir)
@@ -1266,13 +1364,13 @@ static int _snd_pcm_hw_param_first(struct snd_pcm_hw_params *params,
 
 
 /**
- * snd_pcm_hw_param_first
+ * snd_pcm_hw_param_first - refine config space and return minimum value
  * @pcm: PCM instance
  * @params: the hw_params instance
  * @var: parameter to retrieve
- * @dir: pointer to the direction (-1,0,1) or NULL
+ * @dir: pointer to the direction (-1,0,1) or %NULL
  *
- * Inside configuration space defined by PARAMS remove from PAR all 
+ * Inside configuration space defined by @params remove from @var all
  * values > minimum. Reduce configuration space accordingly.
  * Return the minimum.
  */
@@ -1285,7 +1383,8 @@ int snd_pcm_hw_param_first(struct snd_pcm_substream *pcm,
 		return changed;
 	if (params->rmask) {
 		int err = snd_pcm_hw_refine(pcm, params);
-		snd_assert(err >= 0, return err);
+		if (snd_BUG_ON(err < 0))
+			return err;
 	}
 	return snd_pcm_hw_param_value(params, var, dir);
 }
@@ -1311,13 +1410,13 @@ static int _snd_pcm_hw_param_last(struct snd_pcm_hw_params *params,
 
 
 /**
- * snd_pcm_hw_param_last
+ * snd_pcm_hw_param_last - refine config space and return maximum value
  * @pcm: PCM instance
  * @params: the hw_params instance
  * @var: parameter to retrieve
- * @dir: pointer to the direction (-1,0,1) or NULL
+ * @dir: pointer to the direction (-1,0,1) or %NULL
  *
- * Inside configuration space defined by PARAMS remove from PAR all 
+ * Inside configuration space defined by @params remove from @var all
  * values < maximum. Reduce configuration space accordingly.
  * Return the maximum.
  */
@@ -1330,7 +1429,8 @@ int snd_pcm_hw_param_last(struct snd_pcm_substream *pcm,
 		return changed;
 	if (params->rmask) {
 		int err = snd_pcm_hw_refine(pcm, params);
-		snd_assert(err >= 0, return err);
+		if (snd_BUG_ON(err < 0))
+			return err;
 	}
 	return snd_pcm_hw_param_value(params, var, dir);
 }
@@ -1338,11 +1438,11 @@ int snd_pcm_hw_param_last(struct snd_pcm_substream *pcm,
 EXPORT_SYMBOL(snd_pcm_hw_param_last);
 
 /**
- * snd_pcm_hw_param_choose
+ * snd_pcm_hw_param_choose - choose a configuration defined by @params
  * @pcm: PCM instance
  * @params: the hw_params instance
  *
- * Choose one configuration from configuration space defined by PARAMS
+ * Choose one configuration from configuration space defined by @params.
  * The configuration chosen is that obtained fixing in this order:
  * first access, first format, first subformat, min channels,
  * min rate, min period time, max buffer size, min tick time
@@ -1368,7 +1468,8 @@ int snd_pcm_hw_params_choose(struct snd_pcm_substream *pcm,
 			err = snd_pcm_hw_param_first(pcm, params, *v, NULL);
 		else
 			err = snd_pcm_hw_param_last(pcm, params, *v, NULL);
-		snd_assert(err >= 0, return err);
+		if (snd_BUG_ON(err < 0))
+			return err;
 	}
 	return 0;
 }
@@ -1466,9 +1567,9 @@ void snd_pcm_period_elapsed(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime;
 	unsigned long flags;
 
-	snd_assert(substream != NULL, return);
+	if (PCM_RUNTIME_CHECK(substream))
+		return;
 	runtime = substream->runtime;
-	snd_assert(runtime != NULL, return);
 
 	if (runtime->transfer_ack_begin)
 		runtime->transfer_ack_begin(substream);
@@ -1567,7 +1668,6 @@ static int snd_pcm_lib_write_transfer(struct snd_pcm_substream *substream,
 			return err;
 	} else {
 		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff);
-		snd_assert(runtime->dma_area, return -EFAULT);
 		if (copy_from_user(hwbuf, buf, frames_to_bytes(runtime, frames)))
 			return -EFAULT;
 	}
@@ -1629,7 +1729,10 @@ static snd_pcm_sframes_t snd_pcm_lib_write1(struct snd_pcm_substream *substream,
 		cont = runtime->buffer_size - runtime->control->appl_ptr % runtime->buffer_size;
 		if (frames > cont)
 			frames = cont;
-		snd_assert(frames != 0, snd_pcm_stream_unlock_irq(substream); return -EINVAL);
+		if (snd_BUG_ON(!frames)) {
+			snd_pcm_stream_unlock_irq(substream);
+			return -EINVAL;
+		}
 		appl_ptr = runtime->control->appl_ptr;
 		appl_ofs = appl_ptr % runtime->buffer_size;
 		snd_pcm_stream_unlock_irq(substream);
@@ -1669,18 +1772,30 @@ static snd_pcm_sframes_t snd_pcm_lib_write1(struct snd_pcm_substream *substream,
 	return xfer > 0 ? (snd_pcm_sframes_t)xfer : err;
 }
 
+/* sanity-check for read/write methods */
+static int pcm_sanity_check(struct snd_pcm_substream *substream)
+{
+	struct snd_pcm_runtime *runtime;
+	if (PCM_RUNTIME_CHECK(substream))
+		return -ENXIO;
+	runtime = substream->runtime;
+	if (snd_BUG_ON(!substream->ops->copy && !runtime->dma_area))
+		return -EINVAL;
+	if (runtime->status->state == SNDRV_PCM_STATE_OPEN)
+		return -EBADFD;
+	return 0;
+}
+
 snd_pcm_sframes_t snd_pcm_lib_write(struct snd_pcm_substream *substream, const void __user *buf, snd_pcm_uframes_t size)
 {
 	struct snd_pcm_runtime *runtime;
 	int nonblock;
+	int err;
 
-	snd_assert(substream != NULL, return -ENXIO);
+	err = pcm_sanity_check(substream);
+	if (err < 0)
+		return err;
 	runtime = substream->runtime;
-	snd_assert(runtime != NULL, return -ENXIO);
-	snd_assert(substream->ops->copy != NULL || runtime->dma_area != NULL, return -EINVAL);
-	if (runtime->status->state == SNDRV_PCM_STATE_OPEN)
-		return -EBADFD;
-
 	nonblock = !!(substream->f_flags & O_NONBLOCK);
 
 	if (runtime->access != SNDRV_PCM_ACCESS_RW_INTERLEAVED &&
@@ -1703,7 +1818,8 @@ static int snd_pcm_lib_writev_transfer(struct snd_pcm_substream *substream,
 	int channels = runtime->channels;
 	int c;
 	if (substream->ops->copy) {
-		snd_assert(substream->ops->silence != NULL, return -EINVAL);
+		if (snd_BUG_ON(!substream->ops->silence))
+			return -EINVAL;
 		for (c = 0; c < channels; ++c, ++bufs) {
 			if (*bufs == NULL) {
 				if ((err = substream->ops->silence(substream, c, hwoff, frames)) < 0)
@@ -1717,7 +1833,6 @@ static int snd_pcm_lib_writev_transfer(struct snd_pcm_substream *substream,
 	} else {
 		/* default transfer behaviour */
 		size_t dma_csize = runtime->dma_bytes / channels;
-		snd_assert(runtime->dma_area, return -EFAULT);
 		for (c = 0; c < channels; ++c, ++bufs) {
 			char *hwbuf = runtime->dma_area + (c * dma_csize) + samples_to_bytes(runtime, hwoff);
 			if (*bufs == NULL) {
@@ -1738,14 +1853,12 @@ snd_pcm_sframes_t snd_pcm_lib_writev(struct snd_pcm_substream *substream,
 {
 	struct snd_pcm_runtime *runtime;
 	int nonblock;
+	int err;
 
-	snd_assert(substream != NULL, return -ENXIO);
+	err = pcm_sanity_check(substream);
+	if (err < 0)
+		return err;
 	runtime = substream->runtime;
-	snd_assert(runtime != NULL, return -ENXIO);
-	snd_assert(substream->ops->copy != NULL || runtime->dma_area != NULL, return -EINVAL);
-	if (runtime->status->state == SNDRV_PCM_STATE_OPEN)
-		return -EBADFD;
-
 	nonblock = !!(substream->f_flags & O_NONBLOCK);
 
 	if (runtime->access != SNDRV_PCM_ACCESS_RW_NONINTERLEAVED)
@@ -1769,7 +1882,6 @@ static int snd_pcm_lib_read_transfer(struct snd_pcm_substream *substream,
 			return err;
 	} else {
 		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff);
-		snd_assert(runtime->dma_area, return -EFAULT);
 		if (copy_to_user(buf, hwbuf, frames_to_bytes(runtime, frames)))
 			return -EFAULT;
 	}
@@ -1841,7 +1953,10 @@ static snd_pcm_sframes_t snd_pcm_lib_read1(struct snd_pcm_substream *substream,
 		cont = runtime->buffer_size - runtime->control->appl_ptr % runtime->buffer_size;
 		if (frames > cont)
 			frames = cont;
-		snd_assert(frames != 0, snd_pcm_stream_unlock_irq(substream); return -EINVAL);
+		if (snd_BUG_ON(!frames)) {
+			snd_pcm_stream_unlock_irq(substream);
+			return -EINVAL;
+		}
 		appl_ptr = runtime->control->appl_ptr;
 		appl_ofs = appl_ptr % runtime->buffer_size;
 		snd_pcm_stream_unlock_irq(substream);
@@ -1879,14 +1994,12 @@ snd_pcm_sframes_t snd_pcm_lib_read(struct snd_pcm_substream *substream, void __u
 {
 	struct snd_pcm_runtime *runtime;
 	int nonblock;
+	int err;
 	
-	snd_assert(substream != NULL, return -ENXIO);
+	err = pcm_sanity_check(substream);
+	if (err < 0)
+		return err;
 	runtime = substream->runtime;
-	snd_assert(runtime != NULL, return -ENXIO);
-	snd_assert(substream->ops->copy != NULL || runtime->dma_area != NULL, return -EINVAL);
-	if (runtime->status->state == SNDRV_PCM_STATE_OPEN)
-		return -EBADFD;
-
 	nonblock = !!(substream->f_flags & O_NONBLOCK);
 	if (runtime->access != SNDRV_PCM_ACCESS_RW_INTERLEAVED)
 		return -EINVAL;
@@ -1916,7 +2029,6 @@ static int snd_pcm_lib_readv_transfer(struct snd_pcm_substream *substream,
 		}
 	} else {
 		snd_pcm_uframes_t dma_csize = runtime->dma_bytes / channels;
-		snd_assert(runtime->dma_area, return -EFAULT);
 		for (c = 0; c < channels; ++c, ++bufs) {
 			char *hwbuf;
 			char __user *buf;
@@ -1938,11 +2050,12 @@ snd_pcm_sframes_t snd_pcm_lib_readv(struct snd_pcm_substream *substream,
 {
 	struct snd_pcm_runtime *runtime;
 	int nonblock;
+	int err;
 
-	snd_assert(substream != NULL, return -ENXIO);
+	err = pcm_sanity_check(substream);
+	if (err < 0)
+		return err;
 	runtime = substream->runtime;
-	snd_assert(runtime != NULL, return -ENXIO);
-	snd_assert(substream->ops->copy != NULL || runtime->dma_area != NULL, return -EINVAL);
 	if (runtime->status->state == SNDRV_PCM_STATE_OPEN)
 		return -EBADFD;
 

@@ -260,7 +260,7 @@ start_ap:
 	 * Switch into virtual mode:
 	 */
 	movl r16=(IA64_PSR_IT|IA64_PSR_IC|IA64_PSR_DT|IA64_PSR_RT|IA64_PSR_DFH|IA64_PSR_BN \
-		  |IA64_PSR_DI)
+		  |IA64_PSR_DI|IA64_PSR_AC)
 	;;
 	mov cr.ipsr=r16
 	movl r17=1f
@@ -367,16 +367,17 @@ start_ap:
 	;;
 #else
 (isAP)	br.few 2f
-	mov r20=r19
-	sub r19=r19,r18
+	movl r20=__cpu0_per_cpu
 	;;
 	shr.u r18=r18,3
 1:
-	ld8 r21=[r20],8;;
-	st8[r19]=r21,8
+	ld8 r21=[r19],8;;
+	st8[r20]=r21,8
 	adds r18=-1,r18;;
 	cmp4.lt p7,p6=0,r18
 (p7)	br.cond.dptk.few 1b
+	mov r19=r20
+	;;
 2:
 #endif
 	tpa r19=r19
@@ -1049,7 +1050,7 @@ END(ia64_delay_loop)
  * except that the multiplication and the shift are done with 128-bit
  * intermediate precision so that we can produce a full 64-bit result.
  */
-GLOBAL_ENTRY(sched_clock)
+GLOBAL_ENTRY(ia64_native_sched_clock)
 	addl r8=THIS_CPU(cpu_info) + IA64_CPUINFO_NSEC_PER_CYC_OFFSET,r0
 	mov.m r9=ar.itc		// fetch cycle-counter				(35 cyc)
 	;;
@@ -1065,7 +1066,13 @@ GLOBAL_ENTRY(sched_clock)
 	;;
 	shrp r8=r9,r8,IA64_NSEC_PER_CYC_SHIFT
 	br.ret.sptk.many rp
-END(sched_clock)
+END(ia64_native_sched_clock)
+#ifndef CONFIG_PARAVIRT
+	//unsigned long long
+	//sched_clock(void) __attribute__((alias("ia64_native_sched_clock")));
+	.global sched_clock
+sched_clock = ia64_native_sched_clock
+#endif
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING
 GLOBAL_ENTRY(cycle_to_cputime)

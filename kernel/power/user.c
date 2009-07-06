@@ -24,6 +24,7 @@
 #include <linux/cpu.h>
 #include <linux/freezer.h>
 #include <linux/smp_lock.h>
+#include <scsi/scsi_scan.h>
 
 #include <asm/uaccess.h>
 
@@ -92,18 +93,26 @@ static int snapshot_open(struct inode *inode, struct file *filp)
 	filp->private_data = data;
 	memset(&data->handle, 0, sizeof(struct snapshot_handle));
 	if ((filp->f_flags & O_ACCMODE) == O_RDONLY) {
+		/* Hibernating.  The image device should be accessible. */
 		data->swap = swsusp_resume_device ?
 			swap_type_of(swsusp_resume_device, 0, NULL) : -1;
 		data->mode = O_RDONLY;
-		error = pm_notifier_call_chain(PM_RESTORE_PREPARE);
-		if (error)
-			pm_notifier_call_chain(PM_POST_RESTORE);
-	} else {
-		data->swap = -1;
-		data->mode = O_WRONLY;
 		error = pm_notifier_call_chain(PM_HIBERNATION_PREPARE);
 		if (error)
 			pm_notifier_call_chain(PM_POST_HIBERNATION);
+	} else {
+		/*
+		 * Resuming.  We may need to wait for the image device to
+		 * appear.
+		 */
+		wait_for_device_probe();
+		scsi_complete_async_scans();
+
+		data->swap = -1;
+		data->mode = O_WRONLY;
+		error = pm_notifier_call_chain(PM_RESTORE_PREPARE);
+		if (error)
+			pm_notifier_call_chain(PM_POST_RESTORE);
 	}
 	if (error)
 		atomic_inc(&snapshot_device_available);
@@ -212,13 +221,20 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 	case SNAPSHOT_FREEZE:
 		if (data->frozen)
 			break;
+
 		printk("Syncing filesystems ... ");
 		sys_sync();
 		printk("done.\n");
 
-		error = freeze_processes();
+		error = usermodehelper_disable();
 		if (error)
+			break;
+
+		error = freeze_processes();
+		if (error) {
 			thaw_processes();
+			usermodehelper_enable();
+		}
 		if (!error)
 			data->frozen = 1;
 		break;
@@ -227,6 +243,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		if (!data->frozen || data->ready)
 			break;
 		thaw_processes();
+		usermodehelper_enable();
 		data->frozen = 0;
 		break;
 

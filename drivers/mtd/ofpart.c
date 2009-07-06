@@ -20,7 +20,6 @@
 #include <linux/mtd/partitions.h>
 
 int __devinit of_mtd_parse_partitions(struct device *dev,
-                                      struct mtd_info *mtd,
                                       struct device_node *node,
                                       struct mtd_partition **pparts)
 {
@@ -46,6 +45,13 @@ int __devinit of_mtd_parse_partitions(struct device *dev,
 	while ((pp = of_get_next_child(node, pp))) {
 		const u32 *reg;
 		int len;
+
+		/* check if this is a partition node */
+		partname = of_get_property(pp, "name", &len);
+		if (strcmp(partname, "partition") != 0) {
+			nr_parts--;
+			continue;
+		}
 
 		reg = of_get_property(pp, "reg", &len);
 		if (!reg || (len != 2 * sizeof(u32))) {

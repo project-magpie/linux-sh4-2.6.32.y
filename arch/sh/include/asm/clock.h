@@ -14,7 +14,7 @@ struct clk_ops {
 	int (*enable)(struct clk *clk);
 	int (*disable)(struct clk *clk);
 	void (*recalc)(struct clk *clk);
-	int (*set_rate)(struct clk *clk, unsigned long rate);
+	int (*set_rate)(struct clk *clk, unsigned long rate, int algo_id);
 	int (*set_parent)(struct clk *clk, struct clk *parent);
 	long (*round_rate)(struct clk *clk, unsigned long rate);
 	int (*observe)(struct clk *clk, unsigned long *div); /* Route clock on external pin */
@@ -50,6 +50,7 @@ struct clk {
 
 /* Should be defined by processor-specific code */
 void arch_init_clk_ops(struct clk_ops **, int type);
+int __init arch_clk_init(void);
 
 /* arch/sh/kernel/cpu/clock.c */
 int clk_init(void);

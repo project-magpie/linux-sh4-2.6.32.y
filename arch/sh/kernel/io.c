@@ -17,7 +17,7 @@
 /*
  * Copy data from IO memory space to "real" memory space.
  */
-void memcpy_fromio(void *to, volatile void __iomem *from, unsigned long count)
+void memcpy_fromio(void *to, const volatile void __iomem *from, unsigned long count)
 {
 	/*
 	 * Would it be worthwhile doing byte and long transfers first
@@ -108,7 +108,7 @@ void memset_io(volatile void __iomem *dst, int c, unsigned long count)
 {
         while (count) {
                 count--;
-                writeb(c, (void __iomem *)dst);
+                writeb(c, dst);
                 dst++;
         }
 }

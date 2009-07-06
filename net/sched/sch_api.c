@@ -97,10 +97,9 @@ static int tclass_notify(struct sk_buff *oskb, struct nlmsghdr *n,
 
    Auxiliary routines:
 
-   ---requeue
+   ---peek
 
-   requeues once dequeued packet. It is used for non-standard or
-   just buggy devices, which can defer output even if netif_queue_stopped()=0.
+   like dequeue but without removing a packet from the queue
 
    ---reset
 
@@ -147,8 +146,14 @@ int register_qdisc(struct Qdisc_ops *qops)
 
 	if (qops->enqueue == NULL)
 		qops->enqueue = noop_qdisc_ops.enqueue;
-	if (qops->requeue == NULL)
-		qops->requeue = noop_qdisc_ops.requeue;
+	if (qops->peek == NULL) {
+		if (qops->dequeue == NULL) {
+			qops->peek = noop_qdisc_ops.peek;
+		} else {
+			rc = -EINVAL;
+			goto out;
+		}
+	}
 	if (qops->dequeue == NULL)
 		qops->dequeue = noop_qdisc_ops.dequeue;
 
@@ -184,7 +189,7 @@ EXPORT_SYMBOL(unregister_qdisc);
    (root qdisc, all its children, children of children etc.)
  */
 
-struct Qdisc *qdisc_match_from_root(struct Qdisc *root, u32 handle)
+static struct Qdisc *qdisc_match_from_root(struct Qdisc *root, u32 handle)
 {
 	struct Qdisc *q;
 
@@ -199,28 +204,16 @@ struct Qdisc *qdisc_match_from_root(struct Qdisc *root, u32 handle)
 	return NULL;
 }
 
-/*
- * This lock is needed until some qdiscs stop calling qdisc_tree_decrease_qlen()
- * without rtnl_lock(); currently hfsc_dequeue(), netem_dequeue(), tbf_dequeue()
- */
-static DEFINE_SPINLOCK(qdisc_list_lock);
-
 static void qdisc_list_add(struct Qdisc *q)
 {
-	if ((q->parent != TC_H_ROOT) && !(q->flags & TCQ_F_INGRESS)) {
-		spin_lock_bh(&qdisc_list_lock);
+	if ((q->parent != TC_H_ROOT) && !(q->flags & TCQ_F_INGRESS))
 		list_add_tail(&q->list, &qdisc_root_sleeping(q)->list);
-		spin_unlock_bh(&qdisc_list_lock);
-	}
 }
 
 void qdisc_list_del(struct Qdisc *q)
 {
-	if ((q->parent != TC_H_ROOT) && !(q->flags & TCQ_F_INGRESS)) {
-		spin_lock_bh(&qdisc_list_lock);
+	if ((q->parent != TC_H_ROOT) && !(q->flags & TCQ_F_INGRESS))
 		list_del(&q->list);
-		spin_unlock_bh(&qdisc_list_lock);
-	}
 }
 EXPORT_SYMBOL(qdisc_list_del);
 
@@ -229,22 +222,17 @@ struct Qdisc *qdisc_lookup(struct net_device *dev, u32 handle)
 	unsigned int i;
 	struct Qdisc *q;
 
-	spin_lock_bh(&qdisc_list_lock);
-
 	for (i = 0; i < dev->num_tx_queues; i++) {
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
 		struct Qdisc *txq_root = txq->qdisc_sleeping;
 
 		q = qdisc_match_from_root(txq_root, handle);
 		if (q)
-			goto unlock;
+			goto out;
 	}
 
 	q = qdisc_match_from_root(dev->rx_queue.qdisc_sleeping, handle);
-
-unlock:
-	spin_unlock_bh(&qdisc_list_lock);
-
+out:
 	return q;
 }
 
@@ -417,6 +405,8 @@ static int qdisc_dump_stab(struct sk_buff *skb, struct qdisc_size_table *stab)
 	struct nlattr *nest;
 
 	nest = nla_nest_start(skb, TCA_STAB);
+	if (nest == NULL)
+		goto nla_put_failure;
 	NLA_PUT(skb, TCA_STAB_BASE, sizeof(stab->szopts), &stab->szopts);
 	nla_nest_end(skb, nest);
 
@@ -454,13 +444,23 @@ out:
 }
 EXPORT_SYMBOL(qdisc_calculate_pkt_len);
 
+void qdisc_warn_nonwc(char *txt, struct Qdisc *qdisc)
+{
+	if (!(qdisc->flags & TCQ_F_WARN_NONWC)) {
+		printk(KERN_WARNING
+		       "%s: %s qdisc %X: is non-work-conserving?\n",
+		       txt, qdisc->ops->id, qdisc->handle >> 16);
+		qdisc->flags |= TCQ_F_WARN_NONWC;
+	}
+}
+EXPORT_SYMBOL(qdisc_warn_nonwc);
+
 static enum hrtimer_restart qdisc_watchdog(struct hrtimer *timer)
 {
 	struct qdisc_watchdog *wd = container_of(timer, struct qdisc_watchdog,
 						 timer);
 
 	wd->qdisc->flags &= ~TCQ_F_THROTTLED;
-	smp_wmb();
 	__netif_schedule(qdisc_root(wd->qdisc));
 
 	return HRTIMER_NORESTART;
@@ -624,7 +624,7 @@ static struct Qdisc *dev_graft_qdisc(struct netdev_queue *dev_queue,
 	struct Qdisc *oqdisc = dev_queue->qdisc_sleeping;
 	spinlock_t *root_lock;
 
-	root_lock = qdisc_root_lock(oqdisc);
+	root_lock = qdisc_lock(oqdisc);
 	spin_lock_bh(root_lock);
 
 	/* Prune old scheduler */
@@ -635,7 +635,7 @@ static struct Qdisc *dev_graft_qdisc(struct netdev_queue *dev_queue,
 	if (qdisc == NULL)
 		qdisc = &noop_qdisc;
 	dev_queue->qdisc_sleeping = qdisc;
-	dev_queue->qdisc = &noop_qdisc;
+	rcu_assign_pointer(dev_queue->qdisc, &noop_qdisc);
 
 	spin_unlock_bh(root_lock);
 
@@ -764,7 +764,7 @@ qdisc_create(struct net_device *dev, struct netdev_queue *dev_queue,
 	struct qdisc_size_table *stab;
 
 	ops = qdisc_lookup_ops(kind);
-#ifdef CONFIG_KMOD
+#ifdef CONFIG_MODULES
 	if (ops == NULL && kind != NULL) {
 		char name[IFNAMSIZ];
 		if (nla_strlcpy(name, kind, IFNAMSIZ) < IFNAMSIZ) {
@@ -830,9 +830,16 @@ qdisc_create(struct net_device *dev, struct netdev_queue *dev_queue,
 			sch->stab = stab;
 		}
 		if (tca[TCA_RATE]) {
+			spinlock_t *root_lock;
+
+			if ((sch->parent != TC_H_ROOT) &&
+			    !(sch->flags & TCQ_F_INGRESS))
+				root_lock = qdisc_root_sleeping_lock(sch);
+			else
+				root_lock = qdisc_lock(sch);
+
 			err = gen_new_estimator(&sch->bstats, &sch->rate_est,
-						qdisc_root_lock(sch),
-						tca[TCA_RATE]);
+						root_lock, tca[TCA_RATE]);
 			if (err) {
 				/*
 				 * Any broken qdiscs that would require
@@ -883,8 +890,12 @@ static int qdisc_change(struct Qdisc *sch, struct nlattr **tca)
 	sch->stab = stab;
 
 	if (tca[TCA_RATE])
+		/* NB: ignores errors from replace_estimator
+		   because change can't be undone. */
 		gen_replace_estimator(&sch->bstats, &sch->rate_est,
-				      qdisc_root_lock(sch), tca[TCA_RATE]);
+					    qdisc_root_sleeping_lock(sch),
+					    tca[TCA_RATE]);
+
 	return 0;
 }
 
@@ -1161,8 +1172,8 @@ static int tc_fill_qdisc(struct sk_buff *skb, struct Qdisc *q, u32 clid,
 	if (q->stab && qdisc_dump_stab(skb, q->stab) < 0)
 		goto nla_put_failure;
 
-	if (gnet_stats_start_copy_compat(skb, TCA_STATS2, TCA_STATS,
-					 TCA_XSTATS, qdisc_root_lock(q), &d) < 0)
+	if (gnet_stats_start_copy_compat(skb, TCA_STATS2, TCA_STATS, TCA_XSTATS,
+					 qdisc_root_sleeping_lock(q), &d) < 0)
 		goto nla_put_failure;
 
 	if (q->ops->dump_stats && q->ops->dump_stats(q, &d) < 0)
@@ -1453,8 +1464,8 @@ static int tc_fill_tclass(struct sk_buff *skb, struct Qdisc *q,
 	if (cl_ops->dump && cl_ops->dump(q, cl, skb, tcm) < 0)
 		goto nla_put_failure;
 
-	if (gnet_stats_start_copy_compat(skb, TCA_STATS2, TCA_STATS,
-					 TCA_XSTATS, qdisc_root_lock(q), &d) < 0)
+	if (gnet_stats_start_copy_compat(skb, TCA_STATS2, TCA_STATS, TCA_XSTATS,
+					 qdisc_root_sleeping_lock(q), &d) < 0)
 		goto nla_put_failure;
 
 	if (cl_ops->dump_stats && cl_ops->dump_stats(q, cl, &d) < 0)

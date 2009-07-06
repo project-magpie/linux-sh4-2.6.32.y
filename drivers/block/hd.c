@@ -39,7 +39,10 @@
 #include <linux/ioport.h>
 #include <linux/init.h>
 #include <linux/blkpg.h>
+#include <linux/ata.h>
 #include <linux/hdreg.h>
+
+#define HD_IRQ 14
 
 #define REALLY_SLOW_IO
 #include <asm/system.h>
@@ -370,7 +373,7 @@ repeat:
 		struct hd_i_struct *disk = &hd_info[i];
 		disk->special_op = disk->recalibrate = 1;
 		hd_out(disk, disk->sect, disk->sect, disk->head-1,
-			disk->cyl, WIN_SPECIFY, &reset_hd);
+			disk->cyl, ATA_CMD_INIT_DEV_PARAMS, &reset_hd);
 		if (reset)
 			goto repeat;
 	} else
@@ -506,7 +509,6 @@ ok_to_write:
 	if (i > 0) {
 		SET_HANDLER(&write_intr);
 		outsw(HD_DATA, req->buffer, 256);
-		local_irq_enable();
 	} else {
 #if (HD_DELAY > 0)
 		last_req = read_timer();
@@ -538,8 +540,7 @@ static void hd_times_out(unsigned long dummy)
 	if (!CURRENT)
 		return;
 
-	disable_irq(HD_IRQ);
-	local_irq_enable();
+	spin_lock_irq(hd_queue->queue_lock);
 	reset = 1;
 	name = CURRENT->rq_disk->disk_name;
 	printk("%s: timeout\n", name);
@@ -549,16 +550,15 @@ static void hd_times_out(unsigned long dummy)
 #endif
 		end_request(CURRENT, 0);
 	}
-	local_irq_disable();
 	hd_request();
-	enable_irq(HD_IRQ);
+	spin_unlock_irq(hd_queue->queue_lock);
 }
 
 static int do_special_op(struct hd_i_struct *disk, struct request *req)
 {
 	if (disk->recalibrate) {
 		disk->recalibrate = 0;
-		hd_out(disk, disk->sect, 0, 0, 0, WIN_RESTORE, &recal_intr);
+		hd_out(disk, disk->sect, 0, 0, 0, ATA_CMD_RESTORE, &recal_intr);
 		return reset;
 	}
 	if (disk->head > 16) {
@@ -589,7 +589,6 @@ static void hd_request(void)
 		return;
 repeat:
 	del_timer(&device_timer);
-	local_irq_enable();
 
 	req = CURRENT;
 	if (!req) {
@@ -598,7 +597,6 @@ repeat:
 	}
 
 	if (reset) {
-		local_irq_disable();
 		reset_hd();
 		return;
 	}
@@ -631,13 +629,13 @@ repeat:
 	if (blk_fs_request(req)) {
 		switch (rq_data_dir(req)) {
 		case READ:
-			hd_out(disk, nsect, sec, head, cyl, WIN_READ,
+			hd_out(disk, nsect, sec, head, cyl, ATA_CMD_PIO_READ,
 				&read_intr);
 			if (reset)
 				goto repeat;
 			break;
 		case WRITE:
-			hd_out(disk, nsect, sec, head, cyl, WIN_WRITE,
+			hd_out(disk, nsect, sec, head, cyl, ATA_CMD_PIO_WRITE,
 				&write_intr);
 			if (reset)
 				goto repeat;
@@ -657,9 +655,7 @@ repeat:
 
 static void do_hd_request(struct request_queue *q)
 {
-	disable_irq(HD_IRQ);
 	hd_request();
-	enable_irq(HD_IRQ);
 }
 
 static int hd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
@@ -681,12 +677,16 @@ static irqreturn_t hd_interrupt(int irq, void *dev_id)
 {
 	void (*handler)(void) = do_hd;
 
+	spin_lock(hd_queue->queue_lock);
+
 	do_hd = NULL;
 	del_timer(&device_timer);
 	if (!handler)
 		handler = unexpected_hd_interrupt;
 	handler();
-	local_irq_enable();
+
+	spin_unlock(hd_queue->queue_lock);
+
 	return IRQ_HANDLED;
 }
 

@@ -40,7 +40,7 @@
 		v1.14 10/15/97 Avoided waiting..discard message for fast machines -djb
 		v1.15 1/31/98 Faster recovery for Tx errors. -djb
 		v1.16 2/3/98 Different ID port handling to avoid sound cards. -djb
-		v1.18 12Mar2001 Andrew Morton <andrewm@uow.edu.au>
+		v1.18 12Mar2001 Andrew Morton
 			- Avoid bogus detect of 3c590's (Andrzej Krzysztofowicz)
 			- Reviewed against 1.18 from scyld.com
 		v1.18a 17Nov2001 Jeff Garzik <jgarzik@pobox.com>
@@ -94,7 +94,7 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 
-static char version[] __initdata = DRV_NAME ".c:" DRV_VERSION " " DRV_RELDATE " becker@scyld.com\n";
+static char version[] __devinitdata = DRV_NAME ".c:" DRV_VERSION " " DRV_RELDATE " becker@scyld.com\n";
 
 #ifdef EL3_DEBUG
 static int el3_debug = EL3_DEBUG;
@@ -186,7 +186,7 @@ static int max_interrupt_work = 10;
 static int nopnp;
 #endif
 
-static int __init el3_common_init(struct net_device *dev);
+static int __devinit el3_common_init(struct net_device *dev);
 static void el3_common_remove(struct net_device *dev);
 static ushort id_read_eeprom(int index);
 static ushort read_eeprom(int ioaddr, int index);
@@ -480,9 +480,13 @@ static int pnp_registered;
 
 #ifdef CONFIG_EISA
 static struct eisa_device_id el3_eisa_ids[] = {
+		{ "TCM5090" },
+		{ "TCM5091" },
 		{ "TCM5092" },
 		{ "TCM5093" },
+		{ "TCM5094" },
 		{ "TCM5095" },
+		{ "TCM5098" },
 		{ "" }
 };
 MODULE_DEVICE_TABLE(eisa, el3_eisa_ids);
@@ -537,11 +541,25 @@ static struct mca_driver el3_mca_driver = {
 static int mca_registered;
 #endif /* CONFIG_MCA */
 
-static int __init el3_common_init(struct net_device *dev)
+static const struct net_device_ops netdev_ops = {
+	.ndo_open 		= el3_open,
+	.ndo_stop	 	= el3_close,
+	.ndo_start_xmit 	= el3_start_xmit,
+	.ndo_get_stats 		= el3_get_stats,
+	.ndo_set_multicast_list = set_multicast_list,
+	.ndo_tx_timeout 	= el3_tx_timeout,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	.ndo_poll_controller	= el3_poll_controller,
+#endif
+};
+
+static int __devinit el3_common_init(struct net_device *dev)
 {
 	struct el3_private *lp = netdev_priv(dev);
 	int err;
-	DECLARE_MAC_BUF(mac);
 	const char *if_names[] = {"10baseT", "AUI", "undefined", "BNC"};
 
 	spin_lock_init(&lp->lock);
@@ -554,16 +572,8 @@ static int __init el3_common_init(struct net_device *dev)
 	}
 
 	/* The EL3-specific entries in the device structure. */
-	dev->open = &el3_open;
-	dev->hard_start_xmit = &el3_start_xmit;
-	dev->stop = &el3_close;
-	dev->get_stats = &el3_get_stats;
-	dev->set_multicast_list = &set_multicast_list;
-	dev->tx_timeout = el3_tx_timeout;
+	dev->netdev_ops = &netdev_ops;
 	dev->watchdog_timeo = TX_TIMEOUT;
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	dev->poll_controller = el3_poll_controller;
-#endif
 	SET_ETHTOOL_OPS(dev, &ethtool_ops);
 
 	err = register_netdev(dev);
@@ -575,9 +585,9 @@ static int __init el3_common_init(struct net_device *dev)
 	}
 
 	printk(KERN_INFO "%s: 3c5x9 found at %#3.3lx, %s port, "
-	       "address %s, IRQ %d.\n",
+	       "address %pM, IRQ %d.\n",
 	       dev->name, dev->base_addr, if_names[(dev->if_port & 0x03)],
-	       print_mac(mac, dev->dev_addr), dev->irq);
+	       dev->dev_addr, dev->irq);
 
 	if (el3_debug > 0)
 		printk(KERN_INFO "%s", version);
@@ -1075,7 +1085,6 @@ el3_rx(struct net_device *dev)
 				outw(RxDiscard, ioaddr + EL3_CMD); /* Pop top Rx packet. */
 				skb->protocol = eth_type_trans(skb,dev);
 				netif_rx(skb);
-				dev->last_rx = jiffies;
 				dev->stats.rx_bytes += pkt_len;
 				dev->stats.rx_packets++;
 				continue;
@@ -1477,6 +1486,7 @@ el3_resume(struct device *pdev)
 	spin_lock_irqsave(&lp->lock, flags);
 
 	outw(PowerUp, ioaddr + EL3_CMD);
+	EL3WINDOW(0);
 	el3_up(dev);
 
 	if (netif_running(dev))

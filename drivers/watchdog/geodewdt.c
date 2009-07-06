@@ -34,11 +34,15 @@
 
 static int timeout = WATCHDOG_TIMEOUT;
 module_param(timeout, int, 0);
-MODULE_PARM_DESC(timeout, "Watchdog timeout in seconds. 1<= timeout <=131, default=" __MODULE_STRING(WATCHDOG_TIMEOUT) ".");
+MODULE_PARM_DESC(timeout,
+	"Watchdog timeout in seconds. 1<= timeout <=131, default="
+				__MODULE_STRING(WATCHDOG_TIMEOUT) ".");
 
 static int nowayout = WATCHDOG_NOWAYOUT;
 module_param(nowayout, int, 0);
-MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default=" __MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
+MODULE_PARM_DESC(nowayout,
+	"Watchdog cannot be stopped once started (default="
+				__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
 static struct platform_device *geodewdt_platform_device;
 static unsigned long wdt_flags;
@@ -130,8 +134,8 @@ static ssize_t geodewdt_write(struct file *file, const char __user *data,
 	return len;
 }
 
-static int geodewdt_ioctl(struct inode *inode, struct file *file,
-				unsigned int cmd, unsigned long arg)
+static long geodewdt_ioctl(struct file *file, unsigned int cmd,
+				unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
 	int __user *p = argp;
@@ -198,7 +202,7 @@ static const struct file_operations geodewdt_fops = {
 	.owner          = THIS_MODULE,
 	.llseek         = no_llseek,
 	.write          = geodewdt_write,
-	.ioctl          = geodewdt_ioctl,
+	.unlocked_ioctl = geodewdt_ioctl,
 	.open           = geodewdt_open,
 	.release        = geodewdt_release,
 };
@@ -269,7 +273,8 @@ static int __init geodewdt_init(void)
 	if (ret)
 		return ret;
 
-	geodewdt_platform_device = platform_device_register_simple(DRV_NAME, -1, NULL, 0);
+	geodewdt_platform_device = platform_device_register_simple(DRV_NAME,
+								-1, NULL, 0);
 	if (IS_ERR(geodewdt_platform_device)) {
 		ret = PTR_ERR(geodewdt_platform_device);
 		goto err;

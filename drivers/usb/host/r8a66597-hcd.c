@@ -66,7 +66,7 @@ static unsigned short endian;
 module_param(endian, ushort, 0644);
 MODULE_PARM_DESC(endian, "data endian: big=256, little=0 (default=0)");
 
-static unsigned short irq_sense = INTL;
+static unsigned short irq_sense = 0xff;
 module_param(irq_sense, ushort, 0644);
 MODULE_PARM_DESC(irq_sense, "IRQ sense: low level=32, falling edge=0 "
 		"(default=32)");
@@ -114,11 +114,14 @@ static int r8a66597_clock_enable(struct r8a66597 *r8a66597)
 	int i = 0;
 
 #if defined(CONFIG_SUPERH_ON_CHIP_R8A66597)
+#if defined(CONFIG_HAVE_CLK)
+	clk_enable(r8a66597->clk);
+#endif
 	do {
 		r8a66597_write(r8a66597, SCKE, SYSCFG0);
 		tmp = r8a66597_read(r8a66597, SYSCFG0);
 		if (i++ > 1000) {
-			err("register access fail.");
+			printk(KERN_ERR "r8a66597: register access fail.\n");
 			return -ENXIO;
 		}
 	} while ((tmp & SCKE) != SCKE);
@@ -128,7 +131,7 @@ static int r8a66597_clock_enable(struct r8a66597 *r8a66597)
 		r8a66597_write(r8a66597, USBE, SYSCFG0);
 		tmp = r8a66597_read(r8a66597, SYSCFG0);
 		if (i++ > 1000) {
-			err("register access fail.");
+			printk(KERN_ERR "r8a66597: register access fail.\n");
 			return -ENXIO;
 		}
 	} while ((tmp & USBE) != USBE);
@@ -141,7 +144,7 @@ static int r8a66597_clock_enable(struct r8a66597 *r8a66597)
 		msleep(1);
 		tmp = r8a66597_read(r8a66597, SYSCFG0);
 		if (i++ > 500) {
-			err("register access fail.");
+			printk(KERN_ERR "r8a66597: register access fail.\n");
 			return -ENXIO;
 		}
 	} while ((tmp & SCKE) != SCKE);
@@ -154,7 +157,11 @@ static void r8a66597_clock_disable(struct r8a66597 *r8a66597)
 {
 	r8a66597_bclr(r8a66597, SCKE, SYSCFG0);
 	udelay(1);
-#if !defined(CONFIG_SUPERH_ON_CHIP_R8A66597)
+#if defined(CONFIG_SUPERH_ON_CHIP_R8A66597)
+#if defined(CONFIG_HAVE_CLK)
+	clk_disable(r8a66597->clk);
+#endif
+#else
 	r8a66597_bclr(r8a66597, PLLC, SYSCFG0);
 	r8a66597_bclr(r8a66597, XCKE, SYSCFG0);
 	r8a66597_bclr(r8a66597, USBE, SYSCFG0);
@@ -265,7 +272,7 @@ static void get_port_number(char *devpath, u16 *root_port, u16 *hub_port)
 	if (root_port) {
 		*root_port = (devpath[0] & 0x0F) - 1;
 		if (*root_port >= R8A66597_MAX_ROOT_HUB)
-			err("illegal root port number");
+			printk(KERN_ERR "r8a66597: Illegal root port number.\n");
 	}
 	if (hub_port)
 		*hub_port = devpath[2] & 0x0F;
@@ -286,7 +293,7 @@ static u16 get_r8a66597_usb_speed(enum usb_device_speed speed)
 		usbspd = HSMODE;
 		break;
 	default:
-		err("unknown speed");
+		printk(KERN_ERR "r8a66597: unknown speed\n");
 		break;
 	}
 
@@ -385,7 +392,7 @@ static u8 alloc_usb_address(struct r8a66597 *r8a66597, struct urb *urb)
 	struct r8a66597_device *dev;
 
 	if (is_hub_limit(urb->dev->devpath)) {
-		err("Externel hub limit reached.");
+		dev_err(&urb->dev->dev, "External hub limit reached.\n");
 		return 0;
 	}
 
@@ -406,8 +413,9 @@ static u8 alloc_usb_address(struct r8a66597 *r8a66597, struct urb *urb)
 		return addr;
 	}
 
-	err("cannot communicate with a USB device more than 10.(%x)",
-	    r8a66597->address_map);
+	dev_err(&urb->dev->dev,
+		"cannot communicate with a USB device more than 10.(%x)\n",
+		r8a66597->address_map);
 
 	return 0;
 }
@@ -447,7 +455,8 @@ static void r8a66597_reg_wait(struct r8a66597 *r8a66597, unsigned long reg,
 	do {
 		tmp = r8a66597_read(r8a66597, reg);
 		if (i++ > 1000000) {
-			err("register%lx, loop %x is timeout", reg, loop);
+			printk(KERN_ERR "r8a66597: register%lx, loop %x "
+			       "is timeout\n", reg, loop);
 			break;
 		}
 		ndelay(1);
@@ -651,9 +660,9 @@ static u16 get_empty_pipenum(struct r8a66597 *r8a66597,
 	u16 array[R8A66597_MAX_NUM_PIPE], i = 0, min;
 
 	memset(array, 0, sizeof(array));
-	switch (ep->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) {
+	switch (usb_endpoint_type(ep)) {
 	case USB_ENDPOINT_XFER_BULK:
-		if (ep->bEndpointAddress & USB_ENDPOINT_DIR_MASK)
+		if (usb_endpoint_dir_in(ep))
 			array[i++] = 4;
 		else {
 			array[i++] = 3;
@@ -661,7 +670,7 @@ static u16 get_empty_pipenum(struct r8a66597 *r8a66597,
 		}
 		break;
 	case USB_ENDPOINT_XFER_INT:
-		if (ep->bEndpointAddress & USB_ENDPOINT_DIR_MASK) {
+		if (usb_endpoint_dir_in(ep)) {
 			array[i++] = 6;
 			array[i++] = 7;
 			array[i++] = 8;
@@ -669,13 +678,13 @@ static u16 get_empty_pipenum(struct r8a66597 *r8a66597,
 			array[i++] = 9;
 		break;
 	case USB_ENDPOINT_XFER_ISOC:
-		if (ep->bEndpointAddress & USB_ENDPOINT_DIR_MASK)
+		if (usb_endpoint_dir_in(ep))
 			array[i++] = 2;
 		else
 			array[i++] = 1;
 		break;
 	default:
-		err("Illegal type");
+		printk(KERN_ERR "r8a66597: Illegal type\n");
 		return 0;
 	}
 
@@ -705,7 +714,7 @@ static u16 get_r8a66597_type(__u8 type)
 		r8a66597_type = R8A66597_ISO;
 		break;
 	default:
-		err("Illegal type");
+		printk(KERN_ERR "r8a66597: Illegal type\n");
 		r8a66597_type = 0x0000;
 		break;
 	}
@@ -724,7 +733,7 @@ static u16 get_bufnum(u16 pipenum)
 	else if (check_interrupt(pipenum))
 		bufnum = 4 + (pipenum - 6);
 	else
-		err("Illegal pipenum (%d)", pipenum);
+		printk(KERN_ERR "r8a66597: Illegal pipenum (%d)\n", pipenum);
 
 	return bufnum;
 }
@@ -740,7 +749,7 @@ static u16 get_buf_bsize(u16 pipenum)
 	else if (check_interrupt(pipenum))
 		buf_bsize = 0;
 	else
-		err("Illegal pipenum (%d)", pipenum);
+		printk(KERN_ERR "r8a66597: Illegal pipenum (%d)\n", pipenum);
 
 	return buf_bsize;
 }
@@ -760,10 +769,12 @@ static void enable_r8a66597_pipe_dma(struct r8a66597 *r8a66597,
 			if ((r8a66597->dma_map & (1 << i)) != 0)
 				continue;
 
-			info("address %d, EndpointAddress 0x%02x use DMA FIFO",
-			     usb_pipedevice(urb->pipe),
-			     info->dir_in ? USB_ENDPOINT_DIR_MASK + info->epnum
-					    : info->epnum);
+			dev_info(&dev->udev->dev,
+				 "address %d, EndpointAddress 0x%02x use "
+				 "DMA FIFO\n", usb_pipedevice(urb->pipe),
+				 info->dir_in ?
+				 	USB_ENDPOINT_DIR_MASK + info->epnum
+					: info->epnum);
 
 			r8a66597->dma_map |= 1 << i;
 			dev->dma_map |= 1 << i;
@@ -917,10 +928,9 @@ static void init_pipe_info(struct r8a66597 *r8a66597, struct urb *urb,
 
 	info.pipenum = get_empty_pipenum(r8a66597, ep);
 	info.address = get_urb_to_r8a66597_addr(r8a66597, urb);
-	info.epnum = ep->bEndpointAddress & USB_ENDPOINT_NUMBER_MASK;
+	info.epnum = usb_endpoint_num(ep);
 	info.maxpacket = le16_to_cpu(ep->wMaxPacketSize);
-	info.type = get_r8a66597_type(ep->bmAttributes
-				      & USB_ENDPOINT_XFERTYPE_MASK);
+	info.type = get_r8a66597_type(usb_endpoint_type(ep));
 	info.bufnum = get_bufnum(info.pipenum);
 	info.buf_bsize = get_buf_bsize(info.pipenum);
 	if (info.type == R8A66597_BULK) {
@@ -930,7 +940,7 @@ static void init_pipe_info(struct r8a66597 *r8a66597, struct urb *urb,
 		info.interval = get_interval(urb, ep->bInterval);
 		info.timer_interval = get_timer_interval(urb, ep->bInterval);
 	}
-	if (ep->bEndpointAddress & USB_ENDPOINT_DIR_MASK)
+	if (usb_endpoint_dir_in(ep))
 		info.dir_in = 1;
 	else
 		info.dir_in = 0;
@@ -1003,6 +1013,9 @@ static void r8a66597_check_syssts(struct r8a66597 *r8a66597, int port,
 
 	r8a66597_write(r8a66597, ~DTCH, get_intsts_reg(port));
 	r8a66597_bset(r8a66597, DTCHE, get_intenb_reg(port));
+
+	if (r8a66597->bus_suspended)
+		usb_hcd_resume_root_hub(r8a66597_to_hcd(r8a66597));
 }
 
 /* this function must be called with interrupt disabled */
@@ -1187,7 +1200,7 @@ static int start_transfer(struct r8a66597 *r8a66597, struct r8a66597_td *td)
 		prepare_status_packet(r8a66597, td);
 		break;
 	default:
-		err("invalid type.");
+		printk(KERN_ERR "r8a66597: invalid type.\n");
 		break;
 	}
 
@@ -1295,7 +1308,7 @@ static void packet_read(struct r8a66597 *r8a66597, u16 pipenum)
 	if (unlikely((tmp & FRDY) == 0)) {
 		pipe_stop(r8a66597, td->pipe);
 		pipe_irq_disable(r8a66597, pipenum);
-		err("in fifo not ready (%d)", pipenum);
+		printk(KERN_ERR "r8a66597: in fifo not ready (%d)\n", pipenum);
 		finish_request(r8a66597, td, pipenum, td->urb, -EPIPE);
 		return;
 	}
@@ -1370,7 +1383,7 @@ static void packet_write(struct r8a66597 *r8a66597, u16 pipenum)
 	if (unlikely((tmp & FRDY) == 0)) {
 		pipe_stop(r8a66597, td->pipe);
 		pipe_irq_disable(r8a66597, pipenum);
-		err("out write fifo not ready. (%d)", pipenum);
+		printk(KERN_ERR "r8a66597: out fifo not ready (%d)\n", pipenum);
 		finish_request(r8a66597, td, pipenum, urb, -EPIPE);
 		return;
 	}
@@ -1384,7 +1397,7 @@ static void packet_write(struct r8a66597 *r8a66597, u16 pipenum)
 			   (int)urb->iso_frame_desc[td->iso_cnt].length);
 	} else {
 		buf = (u16 *)(urb->transfer_buffer + urb->actual_length);
-		size = min((int)bufsize,
+		size = min_t(u32, bufsize,
 			   urb->transfer_buffer_length - urb->actual_length);
 	}
 
@@ -1604,6 +1617,11 @@ static irqreturn_t r8a66597_irq(struct usb_hcd *hcd)
 			r8a66597_bclr(r8a66597, DTCHE, INTENB2);
 			r8a66597_usb_disconnect(r8a66597, 1);
 		}
+		if (mask2 & BCHG) {
+			r8a66597_write(r8a66597, ~BCHG, INTSTS2);
+			r8a66597_bclr(r8a66597, BCHGE, INTENB2);
+			usb_hcd_resume_root_hub(r8a66597_to_hcd(r8a66597));
+		}
 	}
 
 	if (mask1) {
@@ -1619,6 +1637,12 @@ static irqreturn_t r8a66597_irq(struct usb_hcd *hcd)
 			r8a66597_bclr(r8a66597, DTCHE, INTENB1);
 			r8a66597_usb_disconnect(r8a66597, 0);
 		}
+		if (mask1 & BCHG) {
+			r8a66597_write(r8a66597, ~BCHG, INTSTS1);
+			r8a66597_bclr(r8a66597, BCHGE, INTENB1);
+			usb_hcd_resume_root_hub(r8a66597_to_hcd(r8a66597));
+		}
+
 		if (mask1 & SIGN) {
 			r8a66597_write(r8a66597, ~SIGN, INTSTS1);
 			status = get_urb_error(r8a66597, 0);
@@ -1759,11 +1783,12 @@ static void r8a66597_timer(unsigned long _r8a66597)
 {
 	struct r8a66597 *r8a66597 = (struct r8a66597 *)_r8a66597;
 	unsigned long flags;
+	int port;
 
 	spin_lock_irqsave(&r8a66597->lock, flags);
 
-	r8a66597_root_hub_control(r8a66597, 0);
-	r8a66597_root_hub_control(r8a66597, 1);
+	for (port = 0; port < R8A66597_MAX_ROOT_HUB; port++)
+		r8a66597_root_hub_control(r8a66597, port);
 
 	spin_unlock_irqrestore(&r8a66597->lock, flags);
 }
@@ -2005,7 +2030,7 @@ static struct r8a66597_device *get_r8a66597_device(struct r8a66597 *r8a66597,
 		return dev;
 	}
 
-	err("get_r8a66597_device fail.(%d)\n", addr);
+	printk(KERN_ERR "r8a66597: get_r8a66597_device fail.(%d)\n", addr);
 	return NULL;
 }
 
@@ -2129,7 +2154,7 @@ static int r8a66597_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 
 		switch (wValue) {
 		case USB_PORT_FEAT_ENABLE:
-			rh->port &= (1 << USB_PORT_FEAT_POWER);
+			rh->port &= ~(1 << USB_PORT_FEAT_POWER);
 			break;
 		case USB_PORT_FEAT_SUSPEND:
 			break;
@@ -2201,6 +2226,68 @@ error:
 	return ret;
 }
 
+#if defined(CONFIG_PM)
+static int r8a66597_bus_suspend(struct usb_hcd *hcd)
+{
+	struct r8a66597 *r8a66597 = hcd_to_r8a66597(hcd);
+	int port;
+
+	dbg("%s", __func__);
+
+	for (port = 0; port < R8A66597_MAX_ROOT_HUB; port++) {
+		struct r8a66597_root_hub *rh = &r8a66597->root_hub[port];
+		unsigned long dvstctr_reg = get_dvstctr_reg(port);
+
+		if (!(rh->port & (1 << USB_PORT_FEAT_ENABLE)))
+			continue;
+
+		dbg("suspend port = %d", port);
+		r8a66597_bclr(r8a66597, UACT, dvstctr_reg);	/* suspend */
+		rh->port |= 1 << USB_PORT_FEAT_SUSPEND;
+
+		if (rh->dev->udev->do_remote_wakeup) {
+			msleep(3);	/* waiting last SOF */
+			r8a66597_bset(r8a66597, RWUPE, dvstctr_reg);
+			r8a66597_write(r8a66597, ~BCHG, get_intsts_reg(port));
+			r8a66597_bset(r8a66597, BCHGE, get_intenb_reg(port));
+		}
+	}
+
+	r8a66597->bus_suspended = 1;
+
+	return 0;
+}
+
+static int r8a66597_bus_resume(struct usb_hcd *hcd)
+{
+	struct r8a66597 *r8a66597 = hcd_to_r8a66597(hcd);
+	int port;
+
+	dbg("%s", __func__);
+
+	for (port = 0; port < R8A66597_MAX_ROOT_HUB; port++) {
+		struct r8a66597_root_hub *rh = &r8a66597->root_hub[port];
+		unsigned long dvstctr_reg = get_dvstctr_reg(port);
+
+		if (!(rh->port & (1 << USB_PORT_FEAT_SUSPEND)))
+			continue;
+
+		dbg("resume port = %d", port);
+		rh->port &= ~(1 << USB_PORT_FEAT_SUSPEND);
+		rh->port |= 1 << USB_PORT_FEAT_C_SUSPEND;
+		r8a66597_mdfy(r8a66597, RESUME, RESUME | UACT, dvstctr_reg);
+		msleep(50);
+		r8a66597_mdfy(r8a66597, UACT, RESUME | UACT, dvstctr_reg);
+	}
+
+	return 0;
+
+}
+#else
+#define	r8a66597_bus_suspend	NULL
+#define	r8a66597_bus_resume	NULL
+#endif
+
 static struct hc_driver r8a66597_hc_driver = {
 	.description =		hcd_name,
 	.hcd_priv_size =	sizeof(struct r8a66597),
@@ -2231,16 +2318,39 @@ static struct hc_driver r8a66597_hc_driver = {
 	 */
 	.hub_status_data =	r8a66597_hub_status_data,
 	.hub_control =		r8a66597_hub_control,
+	.bus_suspend =		r8a66597_bus_suspend,
+	.bus_resume =		r8a66597_bus_resume,
 };
 
 #if defined(CONFIG_PM)
 static int r8a66597_suspend(struct platform_device *pdev, pm_message_t state)
 {
+	struct r8a66597		*r8a66597 = dev_get_drvdata(&pdev->dev);
+	int port;
+
+	dbg("%s", __func__);
+
+	disable_controller(r8a66597);
+
+	for (port = 0; port < R8A66597_MAX_ROOT_HUB; port++) {
+		struct r8a66597_root_hub *rh = &r8a66597->root_hub[port];
+
+		rh->port = 0x00000000;
+	}
+
 	return 0;
 }
 
 static int r8a66597_resume(struct platform_device *pdev)
 {
+	struct r8a66597		*r8a66597 = dev_get_drvdata(&pdev->dev);
+	struct usb_hcd		*hcd = r8a66597_to_hcd(r8a66597);
+
+	dbg("%s", __func__);
+
+	enable_controller(r8a66597);
+	usb_root_hub_lost_power(hcd->self.root_hub);
+
 	return 0;
 }
 #else	/* if defined(CONFIG_PM) */
@@ -2256,14 +2366,19 @@ static int __init_or_module r8a66597_remove(struct platform_device *pdev)
 	del_timer_sync(&r8a66597->rh_timer);
 	usb_remove_hcd(hcd);
 	iounmap((void *)r8a66597->reg);
+#if defined(CONFIG_SUPERH_ON_CHIP_R8A66597) && defined(CONFIG_HAVE_CLK)
+	clk_put(r8a66597->clk);
+#endif
 	usb_put_hcd(hcd);
 	return 0;
 }
 
-#define resource_len(r) (((r)->end - (r)->start) + 1)
 static int __init r8a66597_probe(struct platform_device *pdev)
 {
-	struct resource *res = NULL;
+#if defined(CONFIG_SUPERH_ON_CHIP_R8A66597) && defined(CONFIG_HAVE_CLK)
+	char clk_name[8];
+#endif
+	struct resource *res = NULL, *ires;
 	int irq = -1;
 	void __iomem *reg = NULL;
 	struct usb_hcd *hcd = NULL;
@@ -2274,29 +2389,32 @@ static int __init r8a66597_probe(struct platform_device *pdev)
 
 	if (pdev->dev.dma_mask) {
 		ret = -EINVAL;
-		err("dma not support");
+		dev_err(&pdev->dev, "dma not supported\n");
 		goto clean_up;
 	}
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
-					   (char *)hcd_name);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		ret = -ENODEV;
-		err("platform_get_resource_byname error.");
+		dev_err(&pdev->dev, "platform_get_resource error.\n");
 		goto clean_up;
 	}
 
-	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
+	ires = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
+	if (!ires) {
 		ret = -ENODEV;
-		err("platform_get_irq error.");
+		dev_err(&pdev->dev,
+			"platform_get_resource IORESOURCE_IRQ error.\n");
 		goto clean_up;
 	}
 
-	reg = ioremap(res->start, resource_len(res));
+	irq = ires->start;
+	irq_trigger = ires->flags & IRQF_TRIGGER_MASK;
+
+	reg = ioremap(res->start, resource_size(res));
 	if (reg == NULL) {
 		ret = -ENOMEM;
-		err("ioremap error.");
+		dev_err(&pdev->dev, "ioremap error.\n");
 		goto clean_up;
 	}
 
@@ -2304,12 +2422,22 @@ static int __init r8a66597_probe(struct platform_device *pdev)
 	hcd = usb_create_hcd(&r8a66597_hc_driver, &pdev->dev, (char *)hcd_name);
 	if (!hcd) {
 		ret = -ENOMEM;
-		err("Failed to create hcd");
+		dev_err(&pdev->dev, "Failed to create hcd\n");
 		goto clean_up;
 	}
 	r8a66597 = hcd_to_r8a66597(hcd);
 	memset(r8a66597, 0, sizeof(struct r8a66597));
 	dev_set_drvdata(&pdev->dev, r8a66597);
+
+#if defined(CONFIG_SUPERH_ON_CHIP_R8A66597) && defined(CONFIG_HAVE_CLK)
+	snprintf(clk_name, sizeof(clk_name), "usb%d", pdev->id);
+	r8a66597->clk = clk_get(&pdev->dev, clk_name);
+	if (IS_ERR(r8a66597->clk)) {
+		dev_err(&pdev->dev, "cannot get clock \"%s\"\n", clk_name);
+		ret = PTR_ERR(r8a66597->clk);
+		goto clean_up2;
+	}
+#endif
 
 	spin_lock_init(&r8a66597->lock);
 	init_timer(&r8a66597->rh_timer);
@@ -2329,17 +2457,44 @@ static int __init r8a66597_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&r8a66597->child_device);
 
 	hcd->rsrc_start = res->start;
-	if (irq_sense == INTL)
-		irq_trigger = IRQF_TRIGGER_LOW;
-	else
-		irq_trigger = IRQF_TRIGGER_FALLING;
+
+	/* irq_sense setting on cmdline takes precedence over resource
+	 * settings, so the introduction of irqflags in IRQ resourse
+	 * won't disturb existing setups */
+	switch (irq_sense) {
+		case INTL:
+			irq_trigger = IRQF_TRIGGER_LOW;
+			break;
+		case 0:
+			irq_trigger = IRQF_TRIGGER_FALLING;
+			break;
+		case 0xff:
+			if (irq_trigger)
+				irq_sense = (irq_trigger & IRQF_TRIGGER_LOW) ?
+					    INTL : 0;
+			else {
+				irq_sense = INTL;
+				irq_trigger = IRQF_TRIGGER_LOW;
+			}
+			break;
+		default:
+			dev_err(&pdev->dev, "Unknown irq_sense value.\n");
+	}
+
 	ret = usb_add_hcd(hcd, irq, IRQF_DISABLED | irq_trigger);
 	if (ret != 0) {
-		err("Failed to add hcd");
-		goto clean_up;
+		dev_err(&pdev->dev, "Failed to add hcd\n");
+		goto clean_up3;
 	}
 
 	return 0;
+
+clean_up3:
+#if defined(CONFIG_SUPERH_ON_CHIP_R8A66597) && defined(CONFIG_HAVE_CLK)
+	clk_put(r8a66597->clk);
+clean_up2:
+#endif
+	usb_put_hcd(hcd);
 
 clean_up:
 	if (reg)
@@ -2364,7 +2519,8 @@ static int __init r8a66597_init(void)
 	if (usb_disabled())
 		return -ENODEV;
 
-	info("driver %s, %s", hcd_name, DRIVER_VERSION);
+	printk(KERN_INFO KBUILD_MODNAME ": driver %s, %s\n", hcd_name,
+	       DRIVER_VERSION);
 	return platform_driver_register(&r8a66597_driver);
 }
 module_init(r8a66597_init);

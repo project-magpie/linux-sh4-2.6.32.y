@@ -1153,7 +1153,7 @@ snd_ml403_ac97cr_create(struct snd_card *card, struct platform_device *pfdev,
 	/* get irq */
 	irq = platform_get_irq(pfdev, 0);
 	if (request_irq(irq, snd_ml403_ac97cr_irq, IRQF_DISABLED,
-			pfdev->dev.bus_id, (void *)ml403_ac97cr)) {
+			dev_name(&pfdev->dev), (void *)ml403_ac97cr)) {
 		snd_printk(KERN_ERR SND_ML403_AC97CR_DRIVER ": "
 			   "unable to grab IRQ %d\n",
 			   irq);
@@ -1166,7 +1166,7 @@ snd_ml403_ac97cr_create(struct snd_card *card, struct platform_device *pfdev,
 		   ml403_ac97cr->irq);
 	irq = platform_get_irq(pfdev, 1);
 	if (request_irq(irq, snd_ml403_ac97cr_irq, IRQF_DISABLED,
-			pfdev->dev.bus_id, (void *)ml403_ac97cr)) {
+			dev_name(&pfdev->dev), (void *)ml403_ac97cr)) {
 		snd_printk(KERN_ERR SND_ML403_AC97CR_DRIVER ": "
 			   "unable to grab IRQ %d\n",
 			   irq);
@@ -1279,9 +1279,9 @@ static int __devinit snd_ml403_ac97cr_probe(struct platform_device *pfdev)
 	if (!enable[dev])
 		return -ENOENT;
 
-	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
-	if (card == NULL)
-		return -ENOMEM;
+	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
+	if (err < 0)
+		return err;
 	err = snd_ml403_ac97cr_create(card, pfdev, &ml403_ac97cr);
 	if (err < 0) {
 		PDEBUG(INIT_FAILURE, "probe(): create failed!\n");

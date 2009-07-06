@@ -22,6 +22,7 @@
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/dma-mapping.h>
+#include <linux/irq.h>
 #include <asm/irl.h>
 #include <asm/irq-ilc.h>
 
@@ -790,9 +791,6 @@ static struct intc_group groups[] = {
 	INTC_GROUP(TMU2, TMU2_TUNI, TMU2_TICPI),
 };
 
-static struct intc_prio priorities[] = {
-};
-
 static struct intc_prio_reg prio_registers[] = {
 					   /*   15-12, 11-8,  7-4,   3-0 */
 	{ 0xffd00004, 0, 16, 4, /* IPRA */     { TMU0, TMU1, TMU2,       } },
@@ -802,7 +800,7 @@ static struct intc_prio_reg prio_registers[] = {
 };
 
 static DECLARE_INTC_DESC(intc_desc, "stx5197", vectors, groups,
-			 priorities, NULL, prio_registers, NULL);
+			 NULL, prio_registers, NULL);
 
 void __init plat_irq_setup(void)
 {

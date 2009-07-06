@@ -94,7 +94,6 @@ struct pnp_dev_node_info node_info;
 
 #ifdef CONFIG_HOTPLUG
 
-static int unloading = 0;
 static struct completion unload_sem;
 
 /*
@@ -158,7 +157,7 @@ static int pnp_dock_thread(void *unused)
 	int docked = -1, d = 0;
 
 	set_freezable();
-	while (!unloading) {
+	while (1) {
 		int status;
 
 		/*
@@ -211,7 +210,7 @@ static int pnpbios_get_resources(struct pnp_dev *dev)
 	if (!pnpbios_is_dynamic(dev))
 		return -EPERM;
 
-	dev_dbg(&dev->dev, "get resources\n");
+	pnp_dbg(&dev->dev, "get resources\n");
 	node = kzalloc(node_info.max_node_size, GFP_KERNEL);
 	if (!node)
 		return -1;
@@ -234,7 +233,7 @@ static int pnpbios_set_resources(struct pnp_dev *dev)
 	if (!pnpbios_is_dynamic(dev))
 		return -EPERM;
 
-	dev_dbg(&dev->dev, "set resources\n");
+	pnp_dbg(&dev->dev, "set resources\n");
 	node = kzalloc(node_info.max_node_size, GFP_KERNEL);
 	if (!node)
 		return -1;
@@ -519,7 +518,7 @@ static int __init pnpbios_init(void)
 {
 	int ret;
 
-#if defined(CONFIG_PPC_MERGE)
+#if defined(CONFIG_PPC)
 	if (check_legacy_ioport(PNPBIOS_BASE))
 		return -ENODEV;
 #endif
@@ -571,23 +570,24 @@ static int __init pnpbios_init(void)
 	return 0;
 }
 
-subsys_initcall(pnpbios_init);
+fs_initcall(pnpbios_init);
 
 static int __init pnpbios_thread_init(void)
 {
-	struct task_struct *task;
-
-#if defined(CONFIG_PPC_MERGE)
+#if defined(CONFIG_PPC)
 	if (check_legacy_ioport(PNPBIOS_BASE))
 		return 0;
 #endif
 	if (pnpbios_disabled)
 		return 0;
 #ifdef CONFIG_HOTPLUG
-	init_completion(&unload_sem);
-	task = kthread_run(pnp_dock_thread, NULL, "kpnpbiosd");
-	if (!IS_ERR(task))
-		unloading = 0;
+	{
+		struct task_struct *task;
+		init_completion(&unload_sem);
+		task = kthread_run(pnp_dock_thread, NULL, "kpnpbiosd");
+		if (IS_ERR(task))
+			return PTR_ERR(task);
+	}
 #endif
 	return 0;
 }

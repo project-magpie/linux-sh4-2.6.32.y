@@ -246,10 +246,11 @@ out:
 static void asix_async_cmd_callback(struct urb *urb)
 {
 	struct usb_ctrlrequest *req = (struct usb_ctrlrequest *)urb->context;
+	int status = urb->status;
 
-	if (urb->status < 0)
+	if (status < 0)
 		printk(KERN_DEBUG "asix_async_cmd_callback() failed with %d",
-			urb->status);
+			status);
 
 	kfree(req);
 	usb_free_urb(urb);
@@ -820,6 +821,18 @@ static int ax88172_link_reset(struct usbnet *dev)
 	return 0;
 }
 
+static const struct net_device_ops ax88172_netdev_ops = {
+	.ndo_open		= usbnet_open,
+	.ndo_stop		= usbnet_stop,
+	.ndo_start_xmit		= usbnet_start_xmit,
+	.ndo_tx_timeout		= usbnet_tx_timeout,
+	.ndo_change_mtu		= usbnet_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_do_ioctl		= asix_ioctl,
+	.ndo_set_multicast_list = ax88172_set_multicast,
+};
+
 static int ax88172_bind(struct usbnet *dev, struct usb_interface *intf)
 {
 	int ret = 0;
@@ -859,9 +872,8 @@ static int ax88172_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev->mii.phy_id_mask = 0x3f;
 	dev->mii.reg_num_mask = 0x1f;
 	dev->mii.phy_id = asix_get_phy_addr(dev);
-	dev->net->do_ioctl = asix_ioctl;
 
-	dev->net->set_multicast_list = ax88172_set_multicast;
+	dev->net->netdev_ops = &ax88172_netdev_ops;
 	dev->net->ethtool_ops = &ax88172_ethtool_ops;
 
 	asix_mdio_write(dev->net, dev->mii.phy_id, MII_BMCR, BMCR_RESET);
@@ -910,6 +922,18 @@ static int ax88772_link_reset(struct usbnet *dev)
 
 	return 0;
 }
+
+static const struct net_device_ops ax88772_netdev_ops = {
+	.ndo_open		= usbnet_open,
+	.ndo_stop		= usbnet_stop,
+	.ndo_start_xmit		= usbnet_start_xmit,
+	.ndo_tx_timeout		= usbnet_tx_timeout,
+	.ndo_change_mtu		= usbnet_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_do_ioctl		= asix_ioctl,
+	.ndo_set_multicast_list = asix_set_multicast,
+};
 
 static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 {
@@ -975,7 +999,6 @@ static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev->mii.mdio_write = asix_mdio_write;
 	dev->mii.phy_id_mask = 0x1f;
 	dev->mii.reg_num_mask = 0x1f;
-	dev->net->do_ioctl = asix_ioctl;
 	dev->mii.phy_id = asix_get_phy_addr(dev);
 
 	phyid = asix_get_phyid(dev);
@@ -991,7 +1014,7 @@ static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	msleep(150);
 
-	dev->net->set_multicast_list = asix_set_multicast;
+	dev->net->netdev_ops = &ax88772_netdev_ops;
 	dev->net->ethtool_ops = &ax88772_ethtool_ops;
 
 	asix_mdio_write(dev->net, dev->mii.phy_id, MII_BMCR, BMCR_RESET);
@@ -1116,11 +1139,13 @@ static int ax88178_link_reset(struct usbnet *dev)
 	mode = AX88178_MEDIUM_DEFAULT;
 
 	if (ecmd.speed == SPEED_1000)
-		mode |= AX_MEDIUM_GM | AX_MEDIUM_ENCK;
+		mode |= AX_MEDIUM_GM;
 	else if (ecmd.speed == SPEED_100)
 		mode |= AX_MEDIUM_PS;
 	else
 		mode &= ~(AX_MEDIUM_PS | AX_MEDIUM_GM);
+
+	mode |= AX_MEDIUM_ENCK;
 
 	if (ecmd.duplex == DUPLEX_FULL)
 		mode |= AX_MEDIUM_FD;
@@ -1192,6 +1217,18 @@ static int ax88178_change_mtu(struct net_device *net, int new_mtu)
 	return 0;
 }
 
+static const struct net_device_ops ax88178_netdev_ops = {
+	.ndo_open		= usbnet_open,
+	.ndo_stop		= usbnet_stop,
+	.ndo_start_xmit		= usbnet_start_xmit,
+	.ndo_tx_timeout		= usbnet_tx_timeout,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_multicast_list = asix_set_multicast,
+	.ndo_do_ioctl 		= asix_ioctl,
+	.ndo_change_mtu 	= ax88178_change_mtu,
+};
+
 static int ax88178_bind(struct usbnet *dev, struct usb_interface *intf)
 {
 	struct asix_data *data = (struct asix_data *)&dev->data;
@@ -1258,11 +1295,10 @@ static int ax88178_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev->mii.phy_id_mask = 0x1f;
 	dev->mii.reg_num_mask = 0xff;
 	dev->mii.supports_gmii = 1;
-	dev->net->do_ioctl = asix_ioctl;
 	dev->mii.phy_id = asix_get_phy_addr(dev);
-	dev->net->set_multicast_list = asix_set_multicast;
+
+	dev->net->netdev_ops = &ax88178_netdev_ops;
 	dev->net->ethtool_ops = &ax88178_ethtool_ops;
-	dev->net->change_mtu = &ax88178_change_mtu;
 
 	phyid = asix_get_phyid(dev);
 	dbg("PHYID=0x%08x", phyid);
@@ -1457,6 +1493,18 @@ static const struct usb_device_id	products [] = {
 }, {
 	// Apple USB Ethernet Adapter
 	USB_DEVICE(0x05ac, 0x1402),
+	.driver_info = (unsigned long) &ax88772_info,
+}, {
+	// Cables-to-Go USB Ethernet Adapter
+	USB_DEVICE(0x0b95, 0x772a),
+	.driver_info = (unsigned long) &ax88772_info,
+}, {
+	// ABOCOM for pci
+	USB_DEVICE(0x14ea, 0xab11),
+	.driver_info = (unsigned long) &ax88178_info,
+}, {
+	// ASIX 88772a
+	USB_DEVICE(0x0db0, 0xa877),
 	.driver_info = (unsigned long) &ax88772_info,
 },
 	{ },		// END

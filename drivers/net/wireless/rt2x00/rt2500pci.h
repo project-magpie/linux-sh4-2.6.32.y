@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2004 - 2008 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -57,8 +57,10 @@
 #define CSR_REG_SIZE			0x0174
 #define EEPROM_BASE			0x0000
 #define EEPROM_SIZE			0x0200
+#define BBP_BASE			0x0000
 #define BBP_SIZE			0x0040
-#define RF_SIZE				0x0014
+#define RF_BASE				0x0004
+#define RF_SIZE				0x0010
 
 /*
  * Number of TX queues.
@@ -1223,17 +1225,10 @@
 #define MAX_TXPOWER	31
 #define DEFAULT_TXPOWER	24
 
-#define TXPOWER_FROM_DEV(__txpower)		\
-({						\
-	((__txpower) > MAX_TXPOWER) ?		\
-		DEFAULT_TXPOWER : (__txpower);	\
-})
+#define TXPOWER_FROM_DEV(__txpower) \
+	(((u8)(__txpower)) > MAX_TXPOWER) ? DEFAULT_TXPOWER : (__txpower)
 
-#define TXPOWER_TO_DEV(__txpower)			\
-({							\
-	((__txpower) <= MIN_TXPOWER) ? MIN_TXPOWER :	\
-	(((__txpower) >= MAX_TXPOWER) ? MAX_TXPOWER :	\
-	(__txpower));					\
-})
+#define TXPOWER_TO_DEV(__txpower) \
+	clamp_t(char, __txpower, MIN_TXPOWER, MAX_TXPOWER)
 
 #endif /* RT2500PCI_H */

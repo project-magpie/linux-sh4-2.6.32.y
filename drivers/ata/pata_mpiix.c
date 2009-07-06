@@ -1,7 +1,7 @@
 /*
  * pata_mpiix.c 	- Intel MPIIX PATA for new ATA layer
  *			  (C) 2005-2006 Red Hat Inc
- *			  Alan Cox <alan@redhat.com>
+ *			  Alan Cox <alan@lxorguk.ukuu.org.uk>
  *
  * The MPIIX is different enough to the PIIX4 and friends that we give it
  * a separate driver. The old ide/pci code handles this by just not tuning
@@ -35,7 +35,7 @@
 #include <linux/libata.h>
 
 #define DRV_NAME "pata_mpiix"
-#define DRV_VERSION "0.7.6"
+#define DRV_VERSION "0.7.7"
 
 enum {
 	IDETIM = 0x6C,		/* IDE control register */
@@ -146,6 +146,7 @@ static struct ata_port_operations mpiix_port_ops = {
 	.cable_detect	= ata_cable_40wire,
 	.set_piomode	= mpiix_set_piomode,
 	.prereset	= mpiix_pre_reset,
+	.sff_data_xfer	= ata_sff_data_xfer32,
 };
 
 static int mpiix_init_one(struct pci_dev *dev, const struct pci_device_id *id)
@@ -199,7 +200,7 @@ static int mpiix_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 	   the MPIIX your box goes castors up */
 
 	ap->ops = &mpiix_port_ops;
-	ap->pio_mask = 0x1F;
+	ap->pio_mask = ATA_PIO4;
 	ap->flags |= ATA_FLAG_SLAVE_POSS;
 
 	ap->ioaddr.cmd_addr = cmd_addr;

@@ -41,9 +41,6 @@ enum {
  * while parent/subdir create the directory structure (every
  * /proc file has a parent, but "subdir" is NULL for all
  * non-directory entries).
- *
- * "owner" is used to protect module
- * from unloading while proc_dir_entry is in use
  */
 
 typedef	int (read_proc_t)(char *page, char **start, off_t off,
@@ -70,7 +67,6 @@ struct proc_dir_entry {
 	 * somewhere.
 	 */
 	const struct file_operations *proc_fops;
-	struct module *owner;
 	struct proc_dir_entry *next, *parent, *subdir;
 	void *data;
 	read_proc_t *read_proc;
@@ -97,12 +93,9 @@ struct vmcore {
 
 #ifdef CONFIG_PROC_FS
 
-extern struct proc_dir_entry *proc_root_kcore;
-
 extern spinlock_t proc_subdir_lock;
 
 extern void proc_root_init(void);
-extern void proc_misc_init(void);
 
 void proc_flush_task(struct task_struct *task);
 struct dentry *proc_pid_lookup(struct inode *dir, struct dentry * dentry, struct nameidata *);
@@ -137,9 +130,6 @@ extern struct inode *proc_get_inode(struct super_block *, unsigned int, struct p
  */
 extern int proc_readdir(struct file *, void *, filldir_t);
 extern struct dentry *proc_lookup(struct inode *, struct dentry *, struct nameidata *);
-
-extern const struct file_operations proc_kcore_operations;
-extern const struct file_operations ppc_htab_operations;
 
 extern int pid_ns_prepare_proc(struct pid_namespace *ns);
 extern void pid_ns_release_proc(struct pid_namespace *ns);

@@ -53,9 +53,6 @@
 #define NFSPROC4_CB_NULL 0
 #define NFSPROC4_CB_COMPOUND 1
 
-/* declarations */
-static const struct rpc_call_ops nfs4_cb_null_ops;
-
 /* Index of predefined Linux callback client operations */
 
 enum {
@@ -221,14 +218,15 @@ static int
 encode_cb_recall(struct xdr_stream *xdr, struct nfs4_cb_recall *cb_rec)
 {
 	__be32 *p;
-	int len = cb_rec->cbr_fhlen;
+	int len = cb_rec->cbr_fh.fh_size;
 
 	RESERVE_SPACE(12+sizeof(cb_rec->cbr_stateid) + len);
 	WRITE32(OP_CB_RECALL);
-	WRITEMEM(&cb_rec->cbr_stateid, sizeof(stateid_t));
+	WRITE32(cb_rec->cbr_stateid.si_generation);
+	WRITEMEM(&cb_rec->cbr_stateid.si_opaque, sizeof(stateid_opaque_t));
 	WRITE32(cb_rec->cbr_trunc);
 	WRITE32(len);
-	WRITEMEM(cb_rec->cbr_fhval, len);
+	WRITEMEM(&cb_rec->cbr_fh.fh_base, len);
 	return 0;
 }
 
@@ -357,14 +355,14 @@ static struct rpc_program cb_program = {
 		.nrvers		= ARRAY_SIZE(nfs_cb_version),
 		.version	= nfs_cb_version,
 		.stats		= &cb_stats,
+		.pipe_dir_name  = "/nfsd4_cb",
 };
 
 /* Reference counting, callback cleanup, etc., all look racy as heck.
  * And why is cb_set an atomic? */
 
-static int do_probe_callback(void *data)
+static struct rpc_clnt *setup_callback_client(struct nfs4_client *clp)
 {
-	struct nfs4_client *clp = data;
 	struct sockaddr_in	addr;
 	struct nfs4_callback    *cb = &clp->cl_callback;
 	struct rpc_timeout	timeparms = {
@@ -379,16 +377,16 @@ static int do_probe_callback(void *data)
 		.addrsize	= sizeof(addr),
 		.timeout	= &timeparms,
 		.program	= &cb_program,
+		.prognumber	= cb->cb_prog,
 		.version	= nfs_cb_version[1]->number,
-		.authflavor	= RPC_AUTH_UNIX, /* XXX: need AUTH_GSS... */
+		.authflavor	= clp->cl_flavor,
 		.flags		= (RPC_CLNT_CREATE_NOPING | RPC_CLNT_CREATE_QUIET),
-	};
-	struct rpc_message msg = {
-		.rpc_proc       = &nfs4_cb_procedures[NFSPROC4_CLNT_CB_NULL],
-		.rpc_argp       = clp,
+		.client_name    = clp->cl_principal,
 	};
 	struct rpc_clnt *client;
-	int status;
+
+	if (!clp->cl_principal && (clp->cl_flavor >= RPC_AUTH_GSS_KRB5))
+		return ERR_PTR(-EINVAL);
 
 	/* Initialize address */
 	memset(&addr, 0, sizeof(addr));
@@ -396,14 +394,31 @@ static int do_probe_callback(void *data)
 	addr.sin_port = htons(cb->cb_port);
 	addr.sin_addr.s_addr = htonl(cb->cb_addr);
 
-	/* Initialize rpc_stat */
-	memset(args.program->stats, 0, sizeof(struct rpc_stat));
-
 	/* Create RPC client */
 	client = rpc_create(&args);
+	if (IS_ERR(client))
+		dprintk("NFSD: couldn't create callback client: %ld\n",
+			PTR_ERR(client));
+	return client;
+
+}
+
+static int do_probe_callback(void *data)
+{
+	struct nfs4_client *clp = data;
+	struct nfs4_callback    *cb = &clp->cl_callback;
+	struct rpc_message msg = {
+		.rpc_proc       = &nfs4_cb_procedures[NFSPROC4_CLNT_CB_NULL],
+		.rpc_argp       = clp,
+	};
+	struct rpc_clnt *client;
+	int status;
+
+	client = setup_callback_client(clp);
 	if (IS_ERR(client)) {
-		dprintk("NFSD: couldn't create callback client\n");
 		status = PTR_ERR(client);
+		dprintk("NFSD: couldn't create callback client: %d\n",
+								status);
 		goto out_err;
 	}
 
@@ -419,10 +434,10 @@ static int do_probe_callback(void *data)
 out_release_client:
 	rpc_shutdown_client(client);
 out_err:
-	dprintk("NFSD: warning: no callback path to client %.*s\n",
-		(int)clp->cl_name.len, clp->cl_name.data);
+	dprintk("NFSD: warning: no callback path to client %.*s: error %d\n",
+		(int)clp->cl_name.len, clp->cl_name.data, status);
 	put_nfs4_client(clp);
-	return status;
+	return 0;
 }
 
 /*
@@ -448,7 +463,6 @@ nfsd4_probe_callback(struct nfs4_client *clp)
 
 /*
  * called with dp->dl_count inc'ed.
- * nfs4_lock_state() may or may not have been called.
  */
 void
 nfsd4_cb_recall(struct nfs4_delegation *dp)

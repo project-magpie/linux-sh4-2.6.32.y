@@ -142,8 +142,8 @@ static char *type_string (u8 bmAttributes)
 
 #include "net2280.h"
 
-#define valid_bit	__constant_cpu_to_le32 (1 << VALID_BIT)
-#define dma_done_ie	__constant_cpu_to_le32 (1 << DMA_DONE_INTERRUPT_ENABLE)
+#define valid_bit	cpu_to_le32 (1 << VALID_BIT)
+#define dma_done_ie	cpu_to_le32 (1 << DMA_DONE_INTERRUPT_ENABLE)
 
 /*-------------------------------------------------------------------------*/
 
@@ -178,6 +178,7 @@ net2280_enable (struct usb_ep *_ep, const struct usb_endpoint_descriptor *desc)
 
 	/* ep_reset() has already been called */
 	ep->stopped = 0;
+	ep->wedged = 0;
 	ep->out_overflow = 0;
 
 	/* set speed-dependent max packet; may kick in high bandwidth */
@@ -424,7 +425,7 @@ net2280_alloc_request (struct usb_ep *_ep, gfp_t gfp_flags)
 			return NULL;
 		}
 		td->dmacount = 0;	/* not VALID */
-		td->dmaaddr = __constant_cpu_to_le32 (DMA_ADDR_INVALID);
+		td->dmaaddr = cpu_to_le32 (DMA_ADDR_INVALID);
 		td->dmadesc = td->dmaaddr;
 		req->td = td;
 	}
@@ -668,7 +669,7 @@ fill_dma_desc (struct net2280_ep *ep, struct net2280_request *req, int valid)
 
 	/* 2280 may be polling VALID_BIT through ep->dma->dmadesc */
 	wmb ();
-	td->dmacount = cpu_to_le32p (&dmacount);
+	td->dmacount = cpu_to_le32(dmacount);
 }
 
 static const u32 dmactl_default =
@@ -774,7 +775,7 @@ static void start_dma (struct net2280_ep *ep, struct net2280_request *req)
 	fill_dma_desc (ep, req, 1);
 
 	if (!use_dma_chaining)
-		req->td->dmacount |= __constant_cpu_to_le32 (1 << END_OF_CHAIN);
+		req->td->dmacount |= cpu_to_le32 (1 << END_OF_CHAIN);
 
 	start_queue (ep, tmp, req->td_dma);
 }
@@ -1218,7 +1219,7 @@ static int net2280_dequeue (struct usb_ep *_ep, struct usb_request *_req)
 static int net2280_fifo_status (struct usb_ep *_ep);
 
 static int
-net2280_set_halt (struct usb_ep *_ep, int value)
+net2280_set_halt_and_wedge(struct usb_ep *_ep, int value, int wedged)
 {
 	struct net2280_ep	*ep;
 	unsigned long		flags;
@@ -1239,21 +1240,40 @@ net2280_set_halt (struct usb_ep *_ep, int value)
 	else if (ep->is_in && value && net2280_fifo_status (_ep) != 0)
 		retval = -EAGAIN;
 	else {
-		VDEBUG (ep->dev, "%s %s halt\n", _ep->name,
-				value ? "set" : "clear");
+		VDEBUG (ep->dev, "%s %s %s\n", _ep->name,
+				value ? "set" : "clear",
+				wedged ? "wedge" : "halt");
 		/* set/clear, then synch memory views with the device */
 		if (value) {
 			if (ep->num == 0)
 				ep->dev->protocol_stall = 1;
 			else
 				set_halt (ep);
-		} else
+			if (wedged)
+				ep->wedged = 1;
+		} else {
 			clear_halt (ep);
+			ep->wedged = 0;
+		}
 		(void) readl (&ep->regs->ep_rsp);
 	}
 	spin_unlock_irqrestore (&ep->dev->lock, flags);
 
 	return retval;
+}
+
+static int
+net2280_set_halt(struct usb_ep *_ep, int value)
+{
+	return net2280_set_halt_and_wedge(_ep, value, 0);
+}
+
+static int
+net2280_set_wedge(struct usb_ep *_ep)
+{
+	if (!_ep || _ep->name == ep0name)
+		return -EINVAL;
+	return net2280_set_halt_and_wedge(_ep, 1, 1);
 }
 
 static int
@@ -1302,6 +1322,7 @@ static const struct usb_ep_ops net2280_ep_ops = {
 	.dequeue	= net2280_dequeue,
 
 	.set_halt	= net2280_set_halt,
+	.set_wedge	= net2280_set_wedge,
 	.fifo_status	= net2280_fifo_status,
 	.fifo_flush	= net2280_fifo_flush,
 };
@@ -2386,9 +2407,9 @@ static void handle_stat0_irqs (struct net2280 *dev, u32 stat)
 
 			if (readl (&e->regs->ep_rsp)
 					& (1 << SET_ENDPOINT_HALT))
-				status = __constant_cpu_to_le32 (1);
+				status = cpu_to_le32 (1);
 			else
-				status = __constant_cpu_to_le32 (0);
+				status = cpu_to_le32 (0);
 
 			/* don't bother with a request object! */
 			writel (0, &dev->epregs [0].ep_irqenb);
@@ -2410,9 +2431,14 @@ static void handle_stat0_irqs (struct net2280 *dev, u32 stat)
 				goto do_stall;
 			if ((e = get_ep_by_addr (dev, w_index)) == 0)
 				goto do_stall;
-			clear_halt (e);
+			if (e->wedged) {
+				VDEBUG(dev, "%s wedged, halt not cleared\n",
+						ep->ep.name);
+			} else {
+				VDEBUG(dev, "%s clear halt\n", ep->ep.name);
+				clear_halt(e);
+			}
 			allow_status (ep);
-			VDEBUG (dev, "%s clear halt\n", ep->ep.name);
 			goto next_endpoints;
 			}
 			break;
@@ -2426,6 +2452,8 @@ static void handle_stat0_irqs (struct net2280 *dev, u32 stat)
 					|| w_length != 0)
 				goto do_stall;
 			if ((e = get_ep_by_addr (dev, w_index)) == 0)
+				goto do_stall;
+			if (e->ep.name == ep0name)
 				goto do_stall;
 			set_halt (e);
 			allow_status (ep);
@@ -2639,7 +2667,7 @@ static void handle_stat1_irqs (struct net2280 *dev, u32 stat)
 				req = list_entry (ep->queue.next,
 						struct net2280_request, queue);
 				dmacount = req->td->dmacount;
-				dmacount &= __constant_cpu_to_le32 (
+				dmacount &= cpu_to_le32 (
 						(1 << VALID_BIT)
 						| DMA_BYTE_COUNT_MASK);
 				if (dmacount && (dmacount & valid_bit) == 0)
@@ -2853,7 +2881,7 @@ static int net2280_probe (struct pci_dev *pdev, const struct pci_device_id *id)
 			goto done;
 		}
 		td->dmacount = 0;	/* not VALID */
-		td->dmaaddr = __constant_cpu_to_le32 (DMA_ADDR_INVALID);
+		td->dmaaddr = cpu_to_le32 (DMA_ADDR_INVALID);
 		td->dmadesc = td->dmaaddr;
 		dev->ep [i].dummy = td;
 	}

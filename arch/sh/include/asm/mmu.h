@@ -1,23 +1,6 @@
 #ifndef __MMU_H
 #define __MMU_H
 
-/* Default "unsigned long" context */
-typedef unsigned long mm_context_id_t[NR_CPUS];
-
-typedef struct {
-#ifdef CONFIG_MMU
-	mm_context_id_t		id;
-	void			*vdso;
-#else
-	struct vm_list_struct	*vmlist;
-	unsigned long		end_brk;
-#endif
-#ifdef CONFIG_BINFMT_ELF_FDPIC
-	unsigned long		exec_fdpic_loadmap;
-	unsigned long		interp_fdpic_loadmap;
-#endif
-} mm_context_t;
-
 /*
  * Privileged Space Mapping Buffer (PMB) definitions
  */
@@ -42,12 +25,30 @@ typedef struct {
 
 #define PMB_NO_ENTRY		(-1)
 
+#ifndef __ASSEMBLY__
+
+/* Default "unsigned long" context */
+typedef unsigned long mm_context_id_t[NR_CPUS];
+
+typedef struct {
+#ifdef CONFIG_MMU
+	mm_context_id_t		id;
+	void			*vdso;
+#else
+	unsigned long		end_brk;
+#endif
+#ifdef CONFIG_BINFMT_ELF_FDPIC
+	unsigned long		exec_fdpic_loadmap;
+	unsigned long		interp_fdpic_loadmap;
+#endif
+} mm_context_t;
 
 /* arch/sh/mm/pmb.c */
 long pmb_remap(unsigned long phys, unsigned long size, unsigned long flags);
-int  pmb_unmap(unsigned long addr);
+int pmb_unmap(unsigned long addr);
 void pmb_init(void);
 int pmb_virt_to_phys(void *addr, unsigned long *phys, unsigned long *flags);
 
-#endif /* __MMU_H */
+#endif /* __ASSEMBLY__ */
 
+#endif /* __MMU_H */

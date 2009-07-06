@@ -137,7 +137,8 @@ static int flexcop_send_diseqc_msg(struct dvb_frontend* fe, int len, u8 *msg, un
 			flexcop_diseqc_send_byte(fe, 0xff);
 		else {
 			flexcop_set_tone(fe, SEC_TONE_ON);
-			udelay(12500);
+			mdelay(12);
+			udelay(500);
 			flexcop_set_tone(fe, SEC_TONE_OFF);
 		}
 		msleep(20);
@@ -490,6 +491,7 @@ static struct s5h1420_config skystar2_rev2_7_s5h1420_config = {
 	.demod_address = 0x53,
 	.invert = 1,
 	.repeated_start_workaround = 1,
+	.serial_mpeg = 1,
 };
 
 static struct itd1000_config skystar2_rev2_7_itd1000_config = {
@@ -590,14 +592,14 @@ int flexcop_frontend_init(struct flexcop_device *fc)
 		fc->fe_sleep = ops->sleep;
 		ops->sleep = flexcop_sleep;
 
-		fc->dev_type = FC_SKY;
+		fc->dev_type = FC_SKY_REV26;
 		goto fe_found;
 	}
 
 	/* try the air dvb-t (mt352/Samsung tdtc9251dh0(??)) */
 	fc->fe = dvb_attach(mt352_attach, &samsung_tdtc9251dh0_config, i2c);
 	if (fc->fe != NULL) {
-		fc->dev_type = FC_AIR_DVB;
+		fc->dev_type = FC_AIR_DVBT;
 		fc->fe->ops.tuner_ops.calc_regs = samsung_tdtc9251dh0_calc_regs;
 		goto fe_found;
 	}
@@ -626,12 +628,14 @@ int flexcop_frontend_init(struct flexcop_device *fc)
 	}
 
 	/* try the cable dvb (stv0297) */
+	fc->fc_i2c_adap[0].no_base_addr = 1;
 	fc->fe = dvb_attach(stv0297_attach, &alps_tdee4_stv0297_config, i2c);
 	if (fc->fe != NULL) {
 		fc->dev_type = FC_CABLE;
 		fc->fe->ops.tuner_ops.set_params = alps_tdee4_stv0297_tuner_set_params;
 		goto fe_found;
 	}
+	fc->fc_i2c_adap[0].no_base_addr = 0;
 
 	/* try the sky v2.3 (vp310/Samsung tbdu18132(tsa5059)) */
 	fc->fe = dvb_attach(mt312_attach,
@@ -649,7 +653,7 @@ int flexcop_frontend_init(struct flexcop_device *fc)
 		fc->fe_sleep                = ops->sleep;
 		ops->sleep                  = flexcop_sleep;
 
-		fc->dev_type                = FC_SKY_OLD;
+		fc->dev_type                = FC_SKY_REV23;
 		goto fe_found;
 	}
 

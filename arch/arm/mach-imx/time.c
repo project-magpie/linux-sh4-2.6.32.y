@@ -18,9 +18,9 @@
 #include <linux/clocksource.h>
 #include <linux/clockchips.h>
 #include <linux/clk.h>
+#include <linux/io.h>
 
 #include <mach/hardware.h>
-#include <asm/io.h>
 #include <asm/leds.h>
 #include <asm/irq.h>
 #include <asm/mach/time.h>
@@ -73,7 +73,7 @@ static void __init imx_timer_hardware_init(void)
 	IMX_TCTL(TIMER_BASE) = TCTL_FRR | TCTL_CLK_PCLK1 | TCTL_TEN;
 }
 
-cycle_t imx_get_cycles(void)
+cycle_t imx_get_cycles(struct clocksource *cs)
 {
 	return IMX_TCN(TIMER_BASE);
 }
@@ -184,7 +184,7 @@ static int __init imx_clockevent_init(unsigned long rate)
 	clockevent_imx.min_delta_ns =
 		clockevent_delta2ns(0xf, &clockevent_imx);
 
-	clockevent_imx.cpumask = cpumask_of_cpu(0);
+	clockevent_imx.cpumask = cpumask_of(0);
 
 	clockevents_register_device(&clockevent_imx);
 

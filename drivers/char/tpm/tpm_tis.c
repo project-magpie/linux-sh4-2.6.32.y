@@ -630,12 +630,23 @@ static struct pnp_device_id tpm_pnp_tbl[] __devinitdata = {
 	{"", 0}			/* Terminator */
 };
 
+static __devexit void tpm_tis_pnp_remove(struct pnp_dev *dev)
+{
+	struct tpm_chip *chip = pnp_get_drvdata(dev);
+
+	tpm_dev_vendor_release(chip);
+
+	kfree(chip);
+}
+
+
 static struct pnp_driver tis_pnp_driver = {
 	.name = "tpm_tis",
 	.id_table = tpm_pnp_tbl,
 	.probe = tpm_tis_pnp_init,
 	.suspend = tpm_tis_pnp_suspend,
 	.resume = tpm_tis_pnp_resume,
+	.remove = tpm_tis_pnp_remove,
 };
 
 #define TIS_HID_USR_IDX sizeof(tpm_pnp_tbl)/sizeof(struct pnp_device_id) -2
@@ -643,12 +654,22 @@ module_param_string(hid, tpm_pnp_tbl[TIS_HID_USR_IDX].id,
 		    sizeof(tpm_pnp_tbl[TIS_HID_USR_IDX].id), 0444);
 MODULE_PARM_DESC(hid, "Set additional specific HID for this driver to probe");
 
-static struct device_driver tis_drv = {
-	.name = "tpm_tis",
-	.bus = &platform_bus_type,
-	.owner = THIS_MODULE,
-	.suspend = tpm_pm_suspend,
-	.resume = tpm_pm_resume,
+static int tpm_tis_suspend(struct platform_device *dev, pm_message_t msg)
+{
+	return tpm_pm_suspend(&dev->dev, msg);
+}
+
+static int tpm_tis_resume(struct platform_device *dev)
+{
+	return tpm_pm_resume(&dev->dev);
+}
+static struct platform_driver tis_drv = {
+	.driver = {
+		.name = "tpm_tis",
+		.owner		= THIS_MODULE,
+	},
+	.suspend = tpm_tis_suspend,
+	.resume = tpm_tis_resume,
 };
 
 static struct platform_device *pdev;
@@ -661,14 +682,14 @@ static int __init init_tis(void)
 	int rc;
 
 	if (force) {
-		rc = driver_register(&tis_drv);
+		rc = platform_driver_register(&tis_drv);
 		if (rc < 0)
 			return rc;
 		if (IS_ERR(pdev=platform_device_register_simple("tpm_tis", -1, NULL, 0)))
 			return PTR_ERR(pdev);
 		if((rc=tpm_tis_init(&pdev->dev, TIS_MEM_BASE, TIS_MEM_LEN, 0)) != 0) {
 			platform_device_unregister(pdev);
-			driver_unregister(&tis_drv);
+			platform_driver_unregister(&tis_drv);
 		}
 		return rc;
 	}
@@ -683,6 +704,7 @@ static void __exit cleanup_tis(void)
 	spin_lock(&tis_lock);
 	list_for_each_entry_safe(i, j, &tis_chips, list) {
 		chip = to_tpm_chip(i);
+		tpm_remove_hardware(chip->dev);
 		iowrite32(~TPM_GLOBAL_INT_ENABLE &
 			  ioread32(chip->vendor.iobase +
 				   TPM_INT_ENABLE(chip->vendor.
@@ -694,12 +716,12 @@ static void __exit cleanup_tis(void)
 			free_irq(chip->vendor.irq, chip);
 		iounmap(i->iobase);
 		list_del(&i->list);
-		tpm_remove_hardware(chip->dev);
 	}
 	spin_unlock(&tis_lock);
+
 	if (force) {
 		platform_device_unregister(pdev);
-		driver_unregister(&tis_drv);
+		platform_driver_unregister(&tis_drv);
 	} else
 		pnp_unregister_driver(&tis_pnp_driver);
 }

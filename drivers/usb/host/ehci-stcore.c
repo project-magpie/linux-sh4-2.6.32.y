@@ -115,7 +115,7 @@ static int ehci_hcd_stm_probe(struct platform_device *pdev)
 	struct platform_device *stm_usb_pdev;
 
 	dgb_print("\n");
-	hcd = usb_create_hcd(&ehci_stm_hc_driver, dev, dev->bus_id);
+	hcd = usb_create_hcd(&ehci_stm_hc_driver, dev, dev_name(dev));
 	if (!hcd) {
 		retval = -ENOMEM;
 		goto err0;

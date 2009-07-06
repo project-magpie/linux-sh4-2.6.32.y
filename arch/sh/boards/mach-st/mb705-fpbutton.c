@@ -19,7 +19,7 @@
 #include <linux/irq.h>
 #include <linux/jiffies.h>
 #include <linux/input.h>
-#include "common.h"
+#include <mach/common.h>
 #include "mb705-epld.h"
 
 #define SCAN_INTERVAL 100

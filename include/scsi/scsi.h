@@ -9,7 +9,8 @@
 #define _SCSI_SCSI_H
 
 #include <linux/types.h>
-#include <scsi/scsi_cmnd.h>
+
+struct scsi_cmnd;
 
 /*
  * The maximum number of SG segments that we will put inside a
@@ -263,6 +264,7 @@ static inline int scsi_status_is_good(int status)
 #define TYPE_RAID           0x0c
 #define TYPE_ENCLOSURE      0x0d    /* Enclosure Services Device */
 #define TYPE_RBC	    0x0e
+#define TYPE_OSD            0x11
 #define TYPE_NO_LUN         0x7f
 
 /* SCSI protocols; these are taken from SPC-3 section 7.5 */
@@ -307,6 +309,20 @@ struct ccs_modesel_head {
 struct scsi_lun {
 	__u8 scsi_lun[8];
 };
+
+/*
+ * The Well Known LUNS (SAM-3) in our int representation of a LUN
+ */
+#define SCSI_W_LUN_BASE 0xc100
+#define SCSI_W_LUN_REPORT_LUNS (SCSI_W_LUN_BASE + 1)
+#define SCSI_W_LUN_ACCESS_CONTROL (SCSI_W_LUN_BASE + 2)
+#define SCSI_W_LUN_TARGET_LOG_PAGE (SCSI_W_LUN_BASE + 3)
+
+static inline int scsi_is_wlun(unsigned int lun)
+{
+	return (lun & 0xff00) == SCSI_W_LUN_BASE;
+}
+
 
 /*
  *  MESSAGE CODES
@@ -367,6 +383,11 @@ struct scsi_lun {
 #define DID_IMM_RETRY   0x0c	/* Retry without decrementing retry count  */
 #define DID_REQUEUE	0x0d	/* Requeue command (no immediate retry) also
 				 * without decrementing the retry count	   */
+#define DID_TRANSPORT_DISRUPTED 0x0e /* Transport error disrupted execution
+				      * and the driver blocked the port to
+				      * recover the link. Transport class will
+				      * retry or fail IO */
+#define DID_TRANSPORT_FAILFAST	0x0f /* Transport class fastfailed the io */
 #define DRIVER_OK       0x00	/* Driver status                           */
 
 /*
@@ -382,16 +403,6 @@ struct scsi_lun {
 #define DRIVER_TIMEOUT      0x06
 #define DRIVER_HARD         0x07
 #define DRIVER_SENSE	    0x08
-
-#define SUGGEST_RETRY       0x10
-#define SUGGEST_ABORT       0x20
-#define SUGGEST_REMAP       0x30
-#define SUGGEST_DIE         0x40
-#define SUGGEST_SENSE       0x80
-#define SUGGEST_IS_OK       0xff
-
-#define DRIVER_MASK         0x0f
-#define SUGGEST_MASK        0xf0
 
 /*
  * Internal return values.
@@ -412,6 +423,7 @@ struct scsi_lun {
 #define SCSI_MLQUEUE_HOST_BUSY   0x1055
 #define SCSI_MLQUEUE_DEVICE_BUSY 0x1056
 #define SCSI_MLQUEUE_EH_RETRY    0x1057
+#define SCSI_MLQUEUE_TARGET_BUSY 0x1058
 
 /*
  *  Use these to separate status msg and our bytes
@@ -427,23 +439,6 @@ struct scsi_lun {
 #define msg_byte(result)    (((result) >> 8) & 0xff)
 #define host_byte(result)   (((result) >> 16) & 0xff)
 #define driver_byte(result) (((result) >> 24) & 0xff)
-#define suggestion(result)  (driver_byte(result) & SUGGEST_MASK)
-
-static inline void set_msg_byte(struct scsi_cmnd *cmd, char status)
-{
-	cmd->result |= status << 8;
-}
-
-static inline void set_host_byte(struct scsi_cmnd *cmd, char status)
-{
-	cmd->result |= status << 16;
-}
-
-static inline void set_driver_byte(struct scsi_cmnd *cmd, char status)
-{
-	cmd->result |= status << 24;
-}
-
 
 #define sense_class(sense)  (((sense) >> 4) & 0x7)
 #define sense_error(sense)  ((sense) & 0xf)

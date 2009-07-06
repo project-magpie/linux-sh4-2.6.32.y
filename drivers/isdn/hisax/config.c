@@ -361,12 +361,6 @@ module_param_array(io1, int, NULL, 0);
 
 int nrcards;
 
-extern const char *l1_revision;
-extern const char *l2_revision;
-extern const char *l3_revision;
-extern const char *lli_revision;
-extern const char *tei_revision;
-
 char *HiSax_getrev(const char *revision)
 {
 	char *rev;
@@ -1213,7 +1207,7 @@ static void HiSax_shiftcards(int idx)
 		memcpy(&cards[i], &cards[i + 1], sizeof(cards[i]));
 }
 
-static int HiSax_inithardware(int *busy_flag)
+static int __init HiSax_inithardware(int *busy_flag)
 {
 	int foundcards = 0;
 	int i = 0;
@@ -1542,7 +1536,9 @@ static void __exit HiSax_exit(void)
 	printk(KERN_INFO "HiSax module removed\n");
 }
 
-int hisax_init_pcmcia(void *pcm_iob, int *busy_flag, struct IsdnCard *card)
+#ifdef CONFIG_HOTPLUG
+
+int __devinit hisax_init_pcmcia(void *pcm_iob, int *busy_flag, struct IsdnCard *card)
 {
 	u_char ids[16];
 	int ret = -1;
@@ -1563,6 +1559,8 @@ error:
 }
 
 EXPORT_SYMBOL(hisax_init_pcmcia);
+#endif
+
 EXPORT_SYMBOL(HiSax_closecard);
 
 #include "hisax_if.h"
@@ -1579,6 +1577,11 @@ static int hisax_bc_setstack(struct PStack *st, struct BCState *bcs);
 static void hisax_bc_close(struct BCState *bcs);
 static void hisax_bh(struct work_struct *work);
 static void EChannel_proc_rcv(struct hisax_d_if *d_if);
+
+static int hisax_setup_card_dynamic(struct IsdnCard *card)
+{
+	return 2;
+}
 
 int hisax_register(struct hisax_d_if *hisax_d_if, struct hisax_b_if *b_if[],
 		   char *name, int protocol)
@@ -1599,7 +1602,8 @@ int hisax_register(struct hisax_d_if *hisax_d_if, struct hisax_b_if *b_if[],
 	cards[i].protocol = protocol;
 	sprintf(id, "%s%d", name, i);
 	nrcards++;
-	retval = checkcard(i, id, NULL, hisax_d_if->owner, hisax_cs_setup_card);
+	retval = checkcard(i, id, NULL, hisax_d_if->owner,
+				hisax_setup_card_dynamic);
 	if (retval == 0) { // yuck
 		cards[i].typ = 0;
 		nrcards--;

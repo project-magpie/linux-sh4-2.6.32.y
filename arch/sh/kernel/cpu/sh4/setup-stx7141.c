@@ -24,6 +24,7 @@
 #include <linux/mtd/partitions.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 
 static u64 st40_dma_mask = DMA_32BIT_MASK;

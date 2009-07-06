@@ -79,6 +79,7 @@ typedef int (*acpi_table_handler) (struct acpi_table_header *table);
 typedef int (*acpi_table_entry_handler) (struct acpi_subtable_header *header, const unsigned long end);
 
 char * __acpi_map_table (unsigned long phys_addr, unsigned long size);
+void __acpi_unmap_table(char *map, unsigned long size);
 int early_acpi_boot_init(void);
 int acpi_boot_init (void);
 int acpi_boot_table_init (void);
@@ -94,18 +95,11 @@ int acpi_parse_mcfg (struct acpi_table_header *header);
 void acpi_table_print_madt_entry (struct acpi_subtable_header *madt);
 
 /* the following four functions are architecture-dependent */
-#ifdef CONFIG_HAVE_ARCH_PARSE_SRAT
-#define NR_NODE_MEMBLKS MAX_NUMNODES
-#define acpi_numa_slit_init(slit) do {} while (0)
-#define acpi_numa_processor_affinity_init(pa) do {} while (0)
-#define acpi_numa_memory_affinity_init(ma) do {} while (0)
-#define acpi_numa_arch_fixup() do {} while (0)
-#else
 void acpi_numa_slit_init (struct acpi_table_slit *slit);
 void acpi_numa_processor_affinity_init (struct acpi_srat_cpu_affinity *pa);
+void acpi_numa_x2apic_affinity_init(struct acpi_srat_x2apic_cpu_affinity *pa);
 void acpi_numa_memory_affinity_init (struct acpi_srat_mem_affinity *ma);
 void acpi_numa_arch_fixup(void);
-#endif
 
 #ifdef CONFIG_ACPI_HOTPLUG_CPU
 /* Arch dependent functions for cpu hotplug support */
@@ -117,6 +111,7 @@ int acpi_register_ioapic(acpi_handle handle, u64 phys_addr, u32 gsi_base);
 int acpi_unregister_ioapic(acpi_handle handle, u32 gsi_base);
 void acpi_irq_stats_init(void);
 extern u32 acpi_irq_handled;
+extern u32 acpi_irq_not_handled;
 
 extern struct acpi_mcfg_allocation *pci_mmcfg_config;
 extern int pci_mmcfg_config_num;
@@ -139,22 +134,6 @@ extern int acpi_get_override_irq(int bus_irq, int *trigger, int *polarity);
  */
 void acpi_unregister_gsi (u32 gsi);
 
-struct acpi_prt_entry {
-	struct list_head	node;
-	struct acpi_pci_id	id;
-	u8			pin;
-	struct {
-		acpi_handle		handle;
-		u32			index;
-	}			link;
-	u32			irq;
-};
-
-struct acpi_prt_list {
-	int			count;
-	struct list_head	entries;
-};
-
 struct pci_dev;
 
 int acpi_pci_irq_enable (struct pci_dev *dev);
@@ -171,16 +150,12 @@ struct acpi_pci_driver {
 int acpi_pci_register_driver(struct acpi_pci_driver *driver);
 void acpi_pci_unregister_driver(struct acpi_pci_driver *driver);
 
-#ifdef CONFIG_ACPI_EC
-
 extern int ec_read(u8 addr, u8 *val);
 extern int ec_write(u8 addr, u8 val);
 extern int ec_transaction(u8 command,
                           const u8 *wdata, unsigned wdata_len,
                           u8 *rdata, unsigned rdata_len,
 			  int force_poll);
-
-#endif /*CONFIG_ACPI_EC*/
 
 #if defined(CONFIG_ACPI_WMI) || defined(CONFIG_ACPI_WMI_MODULE)
 
@@ -201,6 +176,50 @@ extern acpi_status wmi_get_event_data(u32 event, struct acpi_buffer *out);
 extern bool wmi_has_guid(const char *guid);
 
 #endif	/* CONFIG_ACPI_WMI */
+
+#define ACPI_VIDEO_OUTPUT_SWITCHING			0x0001
+#define ACPI_VIDEO_DEVICE_POSTING			0x0002
+#define ACPI_VIDEO_ROM_AVAILABLE			0x0004
+#define ACPI_VIDEO_BACKLIGHT				0x0008
+#define ACPI_VIDEO_BACKLIGHT_FORCE_VENDOR		0x0010
+#define ACPI_VIDEO_BACKLIGHT_FORCE_VIDEO		0x0020
+#define ACPI_VIDEO_OUTPUT_SWITCHING_FORCE_VENDOR	0x0040
+#define ACPI_VIDEO_OUTPUT_SWITCHING_FORCE_VIDEO		0x0080
+#define ACPI_VIDEO_BACKLIGHT_DMI_VENDOR			0x0100
+#define ACPI_VIDEO_BACKLIGHT_DMI_VIDEO			0x0200
+#define ACPI_VIDEO_OUTPUT_SWITCHING_DMI_VENDOR		0x0400
+#define ACPI_VIDEO_OUTPUT_SWITCHING_DMI_VIDEO		0x0800
+
+#if defined(CONFIG_ACPI_VIDEO) || defined(CONFIG_ACPI_VIDEO_MODULE)
+
+extern long acpi_video_get_capabilities(acpi_handle graphics_dev_handle);
+extern long acpi_is_video_device(struct acpi_device *device);
+extern int acpi_video_backlight_support(void);
+extern int acpi_video_display_switch_support(void);
+
+#else
+
+static inline long acpi_video_get_capabilities(acpi_handle graphics_dev_handle)
+{
+	return 0;
+}
+
+static inline long acpi_is_video_device(struct acpi_device *device)
+{
+	return 0;
+}
+
+static inline int acpi_video_backlight_support(void)
+{
+	return 0;
+}
+
+static inline int acpi_video_display_switch_support(void)
+{
+	return 0;
+}
+
+#endif /* defined(CONFIG_ACPI_VIDEO) || defined(CONFIG_ACPI_VIDEO_MODULE) */
 
 extern int acpi_blacklisted(void);
 #ifdef CONFIG_DMI
@@ -238,7 +257,42 @@ int acpi_check_mem_region(resource_size_t start, resource_size_t n,
 #ifdef CONFIG_PM_SLEEP
 void __init acpi_no_s4_hw_signature(void);
 void __init acpi_old_suspend_ordering(void);
+void __init acpi_s4_no_nvs(void);
 #endif /* CONFIG_PM_SLEEP */
+
+#define OSC_QUERY_TYPE			0
+#define OSC_SUPPORT_TYPE 		1
+#define OSC_CONTROL_TYPE		2
+#define OSC_SUPPORT_MASKS		0x1f
+
+/* _OSC DW0 Definition */
+#define OSC_QUERY_ENABLE		1
+#define OSC_REQUEST_ERROR		2
+#define OSC_INVALID_UUID_ERROR		4
+#define OSC_INVALID_REVISION_ERROR	8
+#define OSC_CAPABILITIES_MASK_ERROR	16
+
+/* _OSC DW1 Definition (OS Support Fields) */
+#define OSC_EXT_PCI_CONFIG_SUPPORT		1
+#define OSC_ACTIVE_STATE_PWR_SUPPORT 		2
+#define OSC_CLOCK_PWR_CAPABILITY_SUPPORT	4
+#define OSC_PCI_SEGMENT_GROUPS_SUPPORT		8
+#define OSC_MSI_SUPPORT				16
+
+/* _OSC DW1 Definition (OS Control Fields) */
+#define OSC_PCI_EXPRESS_NATIVE_HP_CONTROL	1
+#define OSC_SHPC_NATIVE_HP_CONTROL 		2
+#define OSC_PCI_EXPRESS_PME_CONTROL		4
+#define OSC_PCI_EXPRESS_AER_CONTROL		8
+#define OSC_PCI_EXPRESS_CAP_STRUCTURE_CONTROL	16
+
+#define OSC_CONTROL_MASKS 	(OSC_PCI_EXPRESS_NATIVE_HP_CONTROL | 	\
+				OSC_SHPC_NATIVE_HP_CONTROL | 		\
+				OSC_PCI_EXPRESS_PME_CONTROL |		\
+				OSC_PCI_EXPRESS_AER_CONTROL |		\
+				OSC_PCI_EXPRESS_CAP_STRUCTURE_CONTROL)
+
+extern acpi_status acpi_pci_osc_control_set(acpi_handle handle, u32 flags);
 #else	/* CONFIG_ACPI */
 
 static inline int early_acpi_boot_init(void)

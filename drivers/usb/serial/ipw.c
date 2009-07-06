@@ -170,12 +170,13 @@ static void ipw_read_bulk_callback(struct urb *urb)
 	usb_serial_debug_data(debug, &port->dev, __func__,
 					urb->actual_length, data);
 
-	tty = port->port.tty;
+	tty = tty_port_tty_get(&port->port);
 	if (tty && urb->actual_length) {
 		tty_buffer_request_room(tty, urb->actual_length);
 		tty_insert_flip_string(tty, data, urb->actual_length);
 		tty_flip_buffer_push(tty);
 	}
+	tty_kref_put(tty);
 
 	/* Continue trying to always read  */
 	usb_fill_bulk_urb(port->read_urb, port->serial->dev,
@@ -205,9 +206,6 @@ static int ipw_open(struct tty_struct *tty,
 	buf_flow_init = kmemdup(buf_flow_static, 16, GFP_KERNEL);
 	if (!buf_flow_init)
 		return -ENOMEM;
-
-	if (tty)
-		tty->low_latency = 1;
 
 	/* --1: Tell the modem to initialize (we think) From sniffs this is
 	 *	always the first thing that gets sent to the modem during
@@ -472,7 +470,7 @@ static struct usb_serial_driver ipw_device = {
 
 
 
-static int usb_ipw_init(void)
+static int __init usb_ipw_init(void)
 {
 	int retval;
 
@@ -484,11 +482,12 @@ static int usb_ipw_init(void)
 		usb_serial_deregister(&ipw_device);
 		return retval;
 	}
-	info(DRIVER_DESC " " DRIVER_VERSION);
+	printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_VERSION ":"
+	       DRIVER_DESC "\n");
 	return 0;
 }
 
-static void usb_ipw_exit(void)
+static void __exit usb_ipw_exit(void)
 {
 	usb_deregister(&usb_ipw_driver);
 	usb_serial_deregister(&ipw_device);

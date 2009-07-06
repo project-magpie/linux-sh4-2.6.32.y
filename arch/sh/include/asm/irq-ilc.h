@@ -10,6 +10,7 @@
 #define __ASM_SH_IRQ_ILC_H
 
 #include <linux/platform_device.h>
+#include <linux/hardirq.h>
 
 #if defined(CONFIG_CPU_SUBTYPE_STX5197)
 #define ILC_FIRST_IRQ	33

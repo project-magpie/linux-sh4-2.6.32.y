@@ -15,7 +15,7 @@
 #include <linux/string.h>
 #include <linux/slab.h>
 #include <linux/platform_device.h>
-#include <asm/io.h>
+#include <linux/io.h>
 #include <asm/gpio.h>
 #include <asm/hardware/scoop.h>
 
@@ -123,37 +123,6 @@ static int scoop_gpio_direction_output(struct gpio_chip *chip,
 
 	return 0;
 }
-
-unsigned short set_scoop_gpio(struct device *dev, unsigned short bit)
-{
-	unsigned short gpio_bit;
-	unsigned long flag;
-	struct scoop_dev *sdev = dev_get_drvdata(dev);
-
-	spin_lock_irqsave(&sdev->scoop_lock, flag);
-	gpio_bit = ioread16(sdev->base + SCOOP_GPWR) | bit;
-	iowrite16(gpio_bit, sdev->base + SCOOP_GPWR);
-	spin_unlock_irqrestore(&sdev->scoop_lock, flag);
-
-	return gpio_bit;
-}
-
-unsigned short reset_scoop_gpio(struct device *dev, unsigned short bit)
-{
-	unsigned short gpio_bit;
-	unsigned long flag;
-	struct scoop_dev *sdev = dev_get_drvdata(dev);
-
-	spin_lock_irqsave(&sdev->scoop_lock, flag);
-	gpio_bit = ioread16(sdev->base + SCOOP_GPWR) & ~bit;
-	iowrite16(gpio_bit, sdev->base + SCOOP_GPWR);
-	spin_unlock_irqrestore(&sdev->scoop_lock, flag);
-
-	return gpio_bit;
-}
-
-EXPORT_SYMBOL(set_scoop_gpio);
-EXPORT_SYMBOL(reset_scoop_gpio);
 
 unsigned short read_scoop_reg(struct device *dev, unsigned short reg)
 {

@@ -72,9 +72,9 @@ static long disk_size(DAC960_Controller_T *p, int drive_nr)
 	}
 }
 
-static int DAC960_open(struct inode *inode, struct file *file)
+static int DAC960_open(struct block_device *bdev, fmode_t mode)
 {
-	struct gendisk *disk = inode->i_bdev->bd_disk;
+	struct gendisk *disk = bdev->bd_disk;
 	DAC960_Controller_T *p = disk->queue->queuedata;
 	int drive_nr = (long)disk->private_data;
 
@@ -89,7 +89,7 @@ static int DAC960_open(struct inode *inode, struct file *file)
 			return -ENXIO;
 	}
 
-	check_disk_change(inode->i_bdev);
+	check_disk_change(bdev);
 
 	if (!get_capacity(p->disks[drive_nr]))
 		return -ENXIO;
@@ -1169,9 +1169,9 @@ static bool DAC960_V1_EnableMemoryMailboxInterface(DAC960_Controller_T
   int i;
 
   
-  if (pci_set_dma_mask(Controller->PCIDevice, DMA_32BIT_MASK))
+  if (pci_set_dma_mask(Controller->PCIDevice, DMA_BIT_MASK(32)))
 	return DAC960_Failure(Controller, "DMA mask out of range");
-  Controller->BounceBufferLimit = DMA_32BIT_MASK;
+  Controller->BounceBufferLimit = DMA_BIT_MASK(32);
 
   if ((hw_type == DAC960_PD_Controller) || (hw_type == DAC960_P_Controller)) {
     CommandMailboxesSize =  0;
@@ -1372,10 +1372,10 @@ static bool DAC960_V2_EnableMemoryMailboxInterface(DAC960_Controller_T
   dma_addr_t	CommandMailboxDMA;
   DAC960_V2_CommandStatus_T CommandStatus;
 
-	if (!pci_set_dma_mask(Controller->PCIDevice, DMA_64BIT_MASK))
-		Controller->BounceBufferLimit = DMA_64BIT_MASK;
-	else if (!pci_set_dma_mask(Controller->PCIDevice, DMA_32BIT_MASK))
-		Controller->BounceBufferLimit = DMA_32BIT_MASK;
+	if (!pci_set_dma_mask(Controller->PCIDevice, DMA_BIT_MASK(64)))
+		Controller->BounceBufferLimit = DMA_BIT_MASK(64);
+	else if (!pci_set_dma_mask(Controller->PCIDevice, DMA_BIT_MASK(32)))
+		Controller->BounceBufferLimit = DMA_BIT_MASK(32);
 	else
 		return DAC960_Failure(Controller, "DMA mask out of range");
 

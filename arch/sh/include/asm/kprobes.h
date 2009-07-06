@@ -1,38 +1,14 @@
-#ifndef _ASM_KPROBES_H
-#define _ASM_KPROBES_H
-/*
- *  Kernel Probes (KProbes)
- *  include/asm-sh/kprobes.h
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- *
- * Copyright (C) IBM Corporation, 2002, 2004
- *
- * 2002-Oct	Created by Vamsi Krishna S <vamsi_krishna@in.ibm.com> Kernel
- *		Probes initial implementation ( includes suggestions from
- *		Rusty Russell).
- * 2006-Mar	Create SH kprobe header by Lineo Solutions, Inc.
- *			(based on include/asm-i386/kprobes.h)
- */
+#ifndef __ASM_SH_KPROBES_H
+#define __ASM_SH_KPROBES_H
+
+#ifdef CONFIG_KPROBES
+
 #include <linux/types.h>
 #include <linux/ptrace.h>
 
-struct pt_regs;
-
 typedef u16 kprobe_opcode_t;
-#define BREAKPOINT_INSTRUCTION	0xc3ff
+#define BREAKPOINT_INSTRUCTION	0xc33a
+
 #define MAX_INSN_SIZE 16
 #define MAX_STACK_SIZE 64
 #define MIN_STACK_SIZE(ADDR) (((MAX_STACK_SIZE) < \
@@ -40,10 +16,15 @@ typedef u16 kprobe_opcode_t;
 	? (MAX_STACK_SIZE) \
 	: (((unsigned long)current_thread_info()) + THREAD_SIZE - (ADDR)))
 
-#define  ARCH_INACTIVE_KPROBE_COUNT 0
-#define flush_insn_slot(p)      do { } while (0)
+#define regs_return_value(_regs)		((_regs)->regs[0])
+#define flush_insn_slot(p)		do { } while (0)
+#define kretprobe_blacklist_size	0
 
+struct kprobe;
+
+void arch_remove_kprobe(struct kprobe *);
 void kretprobe_trampoline(void);
+void jprobe_return_end(void);
 
 /* Architecture specific copy of original instruction*/
 struct arch_specific_insn {
@@ -65,7 +46,13 @@ struct kprobe_ctlblk {
 	struct prev_kprobe prev_kprobe;
 };
 
-
+extern int kprobe_fault_handler(struct pt_regs *regs, int trapnr);
 extern int kprobe_exceptions_notify(struct notifier_block *self,
 				    unsigned long val, void *data);
-#endif				/* _ASM_KPROBES_H */
+extern int kprobe_handle_illslot(unsigned long pc);
+#else
+
+#define kprobe_handle_illslot(pc)	(-1)
+
+#endif /* CONFIG_KPROBES */
+#endif /* __ASM_SH_KPROBES_H */

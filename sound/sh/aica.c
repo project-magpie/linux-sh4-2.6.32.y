@@ -106,7 +106,8 @@ static void spu_memset(u32 toi, u32 what, int length)
 {
 	int i;
 	unsigned long flags;
-	snd_assert(length % 4 == 0, return);
+	if (snd_BUG_ON(length % 4))
+		return;
 	for (i = 0; i < length; i++) {
 		if (!(i % 8))
 			spu_write_wait();
@@ -564,7 +565,7 @@ static int load_aica_firmware(void)
 	err = request_firmware(&fw_entry, "aica_firmware.bin", &pd->dev);
 	if (unlikely(err))
 		return err;
-	/* write firware into memory */
+	/* write firmware into memory */
 	spu_disable();
 	spu_memload(0, fw_entry->data, fw_entry->size);
 	spu_enable();
@@ -589,7 +590,7 @@ static int __devinit add_aicamixer_controls(struct snd_card_aica
 	return 0;
 }
 
-static int snd_aica_remove(struct platform_device *devptr)
+static int __devexit snd_aica_remove(struct platform_device *devptr)
 {
 	struct snd_card_aica *dreamcastcard;
 	dreamcastcard = platform_get_drvdata(devptr);
@@ -601,18 +602,18 @@ static int snd_aica_remove(struct platform_device *devptr)
 	return 0;
 }
 
-static int __init snd_aica_probe(struct platform_device *devptr)
+static int __devinit snd_aica_probe(struct platform_device *devptr)
 {
 	int err;
 	struct snd_card_aica *dreamcastcard;
 	dreamcastcard = kmalloc(sizeof(struct snd_card_aica), GFP_KERNEL);
 	if (unlikely(!dreamcastcard))
 		return -ENOMEM;
-	dreamcastcard->card =
-	    snd_card_new(index, SND_AICA_DRIVER, THIS_MODULE, 0);
-	if (unlikely(!dreamcastcard->card)) {
+	err = snd_card_create(index, SND_AICA_DRIVER, THIS_MODULE, 0,
+			      &dreamcastcard->card);
+	if (unlikely(err < 0)) {
 		kfree(dreamcastcard);
-		return -ENODEV;
+		return err;
 	}
 	strcpy(dreamcastcard->card->driver, "snd_aica");
 	strcpy(dreamcastcard->card->shortname, SND_AICA_DRIVER);
@@ -650,7 +651,7 @@ static int __init snd_aica_probe(struct platform_device *devptr)
 
 static struct platform_driver snd_aica_driver = {
 	.probe = snd_aica_probe,
-	.remove = snd_aica_remove,
+	.remove = __devexit_p(snd_aica_remove),
 	.driver = {
 		   .name = SND_AICA_DRIVER},
 };

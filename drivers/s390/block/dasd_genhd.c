@@ -11,6 +11,8 @@
  *
  */
 
+#define KMSG_COMPONENT "dasd"
+
 #include <linux/interrupt.h>
 #include <linux/fs.h>
 #include <linux/blkpg.h>
@@ -99,7 +101,7 @@ int dasd_scan_partitions(struct dasd_block *block)
 	struct block_device *bdev;
 
 	bdev = bdget_disk(block->gdp, 0);
-	if (!bdev || blkdev_get(bdev, FMODE_READ, 1) < 0)
+	if (!bdev || blkdev_get(bdev, FMODE_READ) < 0)
 		return -ENODEV;
 	/*
 	 * See fs/partition/check.c:register_disk,rescan_partitions
@@ -152,7 +154,7 @@ void dasd_destroy_partitions(struct dasd_block *block)
 
 	invalidate_partition(block->gdp, 0);
 	/* Matching blkdev_put to the blkdev_get in dasd_scan_partitions. */
-	blkdev_put(bdev);
+	blkdev_put(bdev, FMODE_READ);
 	set_capacity(block->gdp, 0);
 }
 
@@ -163,9 +165,8 @@ int dasd_gendisk_init(void)
 	/* Register to static dasd major 94 */
 	rc = register_blkdev(DASD_MAJOR, "dasd");
 	if (rc != 0) {
-		MESSAGE(KERN_WARNING,
-			"Couldn't register successfully to "
-			"major no %d", DASD_MAJOR);
+		pr_warning("Registering the device driver with major number "
+			   "%d failed\n", DASD_MAJOR);
 		return rc;
 	}
 	return 0;

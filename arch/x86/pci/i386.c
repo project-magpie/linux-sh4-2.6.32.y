@@ -31,13 +31,11 @@
 #include <linux/ioport.h>
 #include <linux/errno.h>
 #include <linux/bootmem.h>
-#include <linux/acpi.h>
 
 #include <asm/pat.h>
-#include <asm/hpet.h>
-#include <asm/io_apic.h>
+#include <asm/e820.h>
+#include <asm/pci_x86.h>
 
-#include "pci.h"
 
 static int
 skip_isa_ioresource_align(struct pci_dev *dev) {
@@ -80,77 +78,6 @@ pcibios_align_resource(void *data, struct resource *res,
 }
 EXPORT_SYMBOL(pcibios_align_resource);
 
-static int check_res_with_valid(struct pci_dev *dev, struct resource *res)
-{
-	unsigned long base;
-	unsigned long size;
-	int i;
-
-	base = res->start;
-	size = (res->start == 0 && res->end == res->start) ? 0 :
-		 (res->end - res->start + 1);
-
-	if (!base || !size)
-		return 0;
-
-#ifdef CONFIG_HPET_TIMER
-	/* for hpet */
-	if (base == hpet_address && (res->flags & IORESOURCE_MEM)) {
-		dev_info(&dev->dev, "BAR has HPET at %08lx-%08lx\n",
-				 base, base + size - 1);
-		return 1;
-	}
-#endif
-
-#ifdef CONFIG_X86_IO_APIC
-	for (i = 0; i < nr_ioapics; i++) {
-		unsigned long ioapic_phys = mp_ioapics[i].mp_apicaddr;
-
-		if (base == ioapic_phys && (res->flags & IORESOURCE_MEM)) {
-			dev_info(&dev->dev, "BAR has ioapic at %08lx-%08lx\n",
-					 base, base + size - 1);
-			return 1;
-		}
-	}
-#endif
-
-#ifdef CONFIG_PCI_MMCONFIG
-	for (i = 0; i < pci_mmcfg_config_num; i++) {
-		unsigned long addr;
-
-		addr = pci_mmcfg_config[i].address;
-		if (base == addr && (res->flags & IORESOURCE_MEM)) {
-			dev_info(&dev->dev, "BAR has MMCONFIG at %08lx-%08lx\n",
-					 base, base + size - 1);
-			return 1;
-		}
-	}
-#endif
-
-	return 0;
-}
-
-static int check_platform(struct pci_dev *dev, struct resource *res)
-{
-	struct resource *root = NULL;
-
-	/*
-	 * forcibly insert it into the
-	 * resource tree
-	 */
-	if (res->flags & IORESOURCE_MEM)
-		root = &iomem_resource;
-	else if (res->flags & IORESOURCE_IO)
-		root = &ioport_resource;
-
-	if (root && check_res_with_valid(dev, res)) {
-		insert_resource(root, res);
-
-		return 1;
-	}
-
-	return 0;
-}
 /*
  *  Handle resources of PCI devices.  If the world were perfect, we could
  *  just allocate all the resource regions and do nothing more.  It isn't.
@@ -202,10 +129,7 @@ static void __init pcibios_allocate_bus_resources(struct list_head *bus_list)
 				pr = pci_find_parent_resource(dev, r);
 				if (!r->start || !pr ||
 				    request_resource(pr, r) < 0) {
-					if (check_platform(dev, r))
-						continue;
-					dev_err(&dev->dev, "BAR %d: can't "
-						"allocate resource\n", idx);
+					dev_info(&dev->dev, "BAR %d: can't allocate resource\n", idx);
 					/*
 					 * Something is wrong with the region.
 					 * Invalidate the resource to prevent
@@ -240,17 +164,13 @@ static void __init pcibios_allocate_resources(int pass)
 			else
 				disabled = !(command & PCI_COMMAND_MEMORY);
 			if (pass == disabled) {
-				dev_dbg(&dev->dev, "resource %#08llx-%#08llx "
-					"(f=%lx, d=%d, p=%d)\n",
+				dev_dbg(&dev->dev, "resource %#08llx-%#08llx (f=%lx, d=%d, p=%d)\n",
 					(unsigned long long) r->start,
 					(unsigned long long) r->end,
 					r->flags, disabled, pass);
 				pr = pci_find_parent_resource(dev, r);
 				if (!pr || request_resource(pr, r) < 0) {
-					if (check_platform(dev, r))
-						continue;
-					dev_err(&dev->dev, "BAR %d: can't "
-						"allocate resource\n", idx);
+					dev_info(&dev->dev, "BAR %d: can't allocate resource\n", idx);
 					/* We'll assign a new address later */
 					r->end -= r->start;
 					r->start = 0;
@@ -308,6 +228,8 @@ void __init pcibios_resource_survey(void)
 	pcibios_allocate_bus_resources(&pci_root_buses);
 	pcibios_allocate_resources(0);
 	pcibios_allocate_resources(1);
+
+	e820_reserve_resources_late();
 }
 
 /**
@@ -315,6 +237,10 @@ void __init pcibios_resource_survey(void)
  * give a chance for motherboard reserve resources
  */
 fs_initcall(pcibios_assign_resources);
+
+void __weak x86_pci_root_bus_res_quirks(struct pci_bus *b)
+{
+}
 
 /*
  *  If we set up a device for bus mastering, we need to check the latency
@@ -336,24 +262,7 @@ void pcibios_set_master(struct pci_dev *dev)
 	pci_write_config_byte(dev, PCI_LATENCY_TIMER, lat);
 }
 
-static void pci_unmap_page_range(struct vm_area_struct *vma)
-{
-	u64 addr = (u64)vma->vm_pgoff << PAGE_SHIFT;
-	free_memtype(addr, addr + vma->vm_end - vma->vm_start);
-}
-
-static void pci_track_mmap_page_range(struct vm_area_struct *vma)
-{
-	u64 addr = (u64)vma->vm_pgoff << PAGE_SHIFT;
-	unsigned long flags = pgprot_val(vma->vm_page_prot)
-						& _PAGE_CACHE_MASK;
-
-	reserve_memtype(addr, addr + vma->vm_end - vma->vm_start, flags, NULL);
-}
-
 static struct vm_operations_struct pci_mmap_ops = {
-	.open  = pci_track_mmap_page_range,
-	.close = pci_unmap_page_range,
 	.access = generic_access_phys,
 };
 
@@ -361,11 +270,6 @@ int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
 			enum pci_mmap_state mmap_state, int write_combine)
 {
 	unsigned long prot;
-	u64 addr = vma->vm_pgoff << PAGE_SHIFT;
-	unsigned long len = vma->vm_end - vma->vm_start;
-	unsigned long flags;
-	unsigned long new_flags;
-	int retval;
 
 	/* I/O space cannot be accessed via normal processor loads and
 	 * stores on this platform.
@@ -385,37 +289,6 @@ int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
 		prot |= _PAGE_CACHE_UC_MINUS;
 
 	vma->vm_page_prot = __pgprot(prot);
-
-	flags = pgprot_val(vma->vm_page_prot) & _PAGE_CACHE_MASK;
-	retval = reserve_memtype(addr, addr + len, flags, &new_flags);
-	if (retval)
-		return retval;
-
-	if (flags != new_flags) {
-		/*
-		 * Do not fallback to certain memory types with certain
-		 * requested type:
-		 * - request is uncached, return cannot be write-back
-		 * - request is uncached, return cannot be write-combine
-		 * - request is write-combine, return cannot be write-back
-		 */
-		if ((flags == _PAGE_CACHE_UC_MINUS &&
-		     (new_flags == _PAGE_CACHE_WB)) ||
-		    (flags == _PAGE_CACHE_WC &&
-		     new_flags == _PAGE_CACHE_WB)) {
-			free_memtype(addr, addr+len);
-			return -EINVAL;
-		}
-		flags = new_flags;
-	}
-
-	if (((vma->vm_pgoff < max_low_pfn_mapped) ||
-	     (vma->vm_pgoff >= (1UL<<(32 - PAGE_SHIFT)) &&
-	      vma->vm_pgoff < max_pfn_mapped)) &&
-	    ioremap_change_attr((unsigned long)__va(addr), len, flags)) {
-		free_memtype(addr, addr + len);
-		return -EINVAL;
-	}
 
 	if (io_remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
 			       vma->vm_end - vma->vm_start,

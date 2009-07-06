@@ -89,7 +89,7 @@
 #define DPLL_CTL		(0xfffecf00)
 
 /* DSP clock control. Must use __raw_readw() and __raw_writew() with these */
-#define DSP_CONFIG_REG_BASE     (0xe1008000)
+#define DSP_CONFIG_REG_BASE     IOMEM(0xe1008000)
 #define DSP_CKCTL		(DSP_CONFIG_REG_BASE + 0x0)
 #define DSP_IDLECT1		(DSP_CONFIG_REG_BASE + 0x4)
 #define DSP_IDLECT2		(DSP_CONFIG_REG_BASE + 0x8)
@@ -282,74 +282,8 @@
 
 #include "omap730.h"
 #include "omap1510.h"
-#include "omap24xx.h"
 #include "omap16xx.h"
+#include "omap24xx.h"
 #include "omap34xx.h"
-
-#ifndef __ASSEMBLER__
-
-/*
- * ---------------------------------------------------------------------------
- * Board specific defines
- * ---------------------------------------------------------------------------
- */
-
-#ifdef CONFIG_MACH_OMAP_INNOVATOR
-#include "board-innovator.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_H2
-#include "board-h2.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_PERSEUS2
-#include "board-perseus2.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_FSAMPLE
-#include "board-fsample.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_H3
-#include "board-h3.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_H4
-#include "board-h4.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_2430SDP
-#include "board-2430sdp.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_APOLLON
-#include "board-apollon.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_OSK
-#include "board-osk.h"
-#endif
-
-#ifdef CONFIG_MACH_VOICEBLUE
-#include "board-voiceblue.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_PALMTE
-#include "board-palmte.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_PALMZ71
-#include "board-palmz71.h"
-#endif
-
-#ifdef CONFIG_MACH_OMAP_PALMTT
-#include "board-palmtt.h"
-#endif
-
-#ifdef CONFIG_MACH_SX1
-#include "board-sx1.h"
-#endif
-
-#endif /* !__ASSEMBLER__ */
 
 #endif	/* __ASM_ARCH_OMAP_HARDWARE_H */

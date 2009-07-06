@@ -2,7 +2,7 @@
  * Page fault handler for SH with an MMU.
  *
  *  Copyright (C) 1999  Niibe Yutaka
- *  Copyright (C) 2003 - 2007  Paul Mundt
+ *  Copyright (C) 2003 - 2008  Paul Mundt
  *
  *  Based on linux/arch/i386/mm/fault.c:
  *   Copyright (C) 1995  Linus Torvalds
@@ -15,10 +15,11 @@
 #include <linux/mm.h>
 #include <linux/hardirq.h>
 #include <linux/kprobes.h>
+#include <linux/marker.h>
 #include <asm/io_trapped.h>
 #include <asm/system.h>
 #include <asm/mmu_context.h>
-#include <asm/kgdb.h>
+#include <asm/tlbflush.h>
 
 /*
  * This routine handles page faults.  It determines the address,
@@ -36,10 +37,10 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
 	int fault;
 	siginfo_t info;
 
-#ifdef CONFIG_SH_KGDB
-	if (kgdb_nofault && kgdb_bus_err_hook)
-		kgdb_bus_err_hook();
-#endif
+	/*
+	 * We don't bother with any notifier callbacks here, as they are
+	 * all handled through the __do_page_fault() fast-path.
+	 */
 
 	tsk = current;
 	si_code = SEGV_MAPERR;

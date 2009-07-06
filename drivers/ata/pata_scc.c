@@ -8,7 +8,7 @@
  *  Copyright 2003-2005 Jeff Garzik
  *  Copyright (C) 1998-1999 Andrzej Krzysztofowicz, Author and Maintainer
  *  Copyright (C) 1998-2000 Andre Hedrick <andre@linux-ide.org>
- *  Copyright (C) 2003 Red Hat Inc <alan@redhat.com>
+ *  Copyright (C) 2003 Red Hat Inc
  *
  * and drivers/ata/ahci.c:
  *  Copyright 2004-2005 Red Hat, Inc.
@@ -210,7 +210,6 @@ static void scc_set_piomode (struct ata_port *ap, struct ata_device *adev)
  *	scc_set_dmamode - Initialize host controller PATA DMA timings
  *	@ap: Port whose timings we are configuring
  *	@adev: um
- *	@udma: udma mode, 0 - 6
  *
  *	Set UDMA mode for device.
  *
@@ -1002,8 +1001,8 @@ static struct ata_port_operations scc_pata_ops = {
 static struct ata_port_info scc_port_info[] = {
 	{
 		.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_MMIO | ATA_FLAG_NO_LEGACY,
-		.pio_mask	= 0x1f,	/* pio0-4 */
-		.mwdma_mask	= 0x00,
+		.pio_mask	= ATA_PIO4,
+		/* No MWDMA */
 		.udma_mask	= ATA_UDMA6,
 		.port_ops	= &scc_pata_ops,
 	},

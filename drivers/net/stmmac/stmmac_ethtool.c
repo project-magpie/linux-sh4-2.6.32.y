@@ -64,7 +64,7 @@ int stmmac_ethtool_getsettings(struct net_device *dev, struct ethtool_cmd *cmd)
 
 int stmmac_ethtool_setsettings(struct net_device *dev, struct ethtool_cmd *cmd)
 {
-	struct stmmac_priv *priv = dev->priv;
+	struct stmmac_priv *priv = netdev_priv(dev);
 	struct phy_device *phy = priv->phydev;
 	int rc;
 

@@ -2,7 +2,7 @@
 # arch/sh/Makefile
 #
 # Copyright (C) 1999  Kaz Kojima
-# Copyright (C) 2002, 2003, 2004  Paul Mundt
+# Copyright (C) 2002 - 2008  Paul Mundt
 # Copyright (C) 2002  M. R. Brown
 #
 # This file is subject to the terms and conditions of the GNU General Public
@@ -19,15 +19,11 @@ isa-$(CONFIG_CPU_SH4A)			:= sh4a
 isa-$(CONFIG_CPU_SH4AL_DSP)		:= sh4al
 isa-$(CONFIG_CPU_ST40_300)		:= st40-300
 isa-$(CONFIG_CPU_SH5)			:= shmedia
+
+ifeq ($(CONFIG_SUPERH32),y)
 isa-$(CONFIG_SH_DSP)			:= $(isa-y)-dsp
-
-ifndef CONFIG_SH_DSP
-ifndef CONFIG_SH_FPU
-isa-y			:= $(isa-y)-nofpu
+isa-y					:= $(isa-y)-up
 endif
-endif
-
-isa-y			:= $(isa-y)-up
 
 cflags-$(CONFIG_CPU_SH2)		:= $(call cc-option,-m2,)
 cflags-$(CONFIG_CPU_SH2A)		+= $(call cc-option,-m2a,) \
@@ -37,15 +33,26 @@ cflags-$(CONFIG_CPU_SH4)		:= $(call cc-option,-m4,) \
 	$(call cc-option,-mno-implicit-fp,-m4-nofpu)
 cflags-$(CONFIG_CPU_SH4A)		+= $(call cc-option,-m4a,) \
 					   $(call cc-option,-m4a-nofpu,)
+cflags-$(CONFIG_CPU_SH4AL_DSP)		+= $(call cc-option,-m4al,)
 cflags-$(CONFIG_CPU_ST40_300)		+= $(call cc-option,-m4-300,) \
 					   $(call cc-option,-m4-300-nofpu,)
 cflags-$(CONFIG_CPU_SH5)		:= $(call cc-option,-m5-32media-nofpu,)
 
-cflags-$(CONFIG_CPU_BIG_ENDIAN)		+= -mb
-cflags-$(CONFIG_CPU_LITTLE_ENDIAN)	+= -ml
-
-cflags-y	+= $(call cc-option,-mno-fdpic)
-
+ifeq ($(cflags-y),)
+#
+# In the case where we are stuck with a compiler that has been uselessly
+# restricted to a particular ISA, a favourite default of newer GCCs when
+# extensive multilib targets are not provided, ensure we get the best fit
+# regarding FP generation. This is intentionally stupid (albeit many
+# orders of magnitude less than GCC's default behaviour), as anything
+# with a large number of multilib targets better have been built
+# correctly for the target in mind.
+#
+cflags-y	+= $(shell $(CC) $(KBUILD_CFLAGS) -print-multi-lib | \
+		     grep nofpu | sed q | sed -e 's/^/-/;s/;.*$$//')
+# At this point, anything goes.
+isaflags-y	:= $(call as-option,-Wa$(comma)-isa=any,)
+else
 #
 # -Wa,-isa= tuning implies -Wa,-dsp for the versions of binutils that
 # support it, while -Wa,-dsp by itself limits the range of usable opcodes
@@ -58,7 +65,12 @@ isaflags-y	:= $(call as-option,-Wa$(comma)-isa=$(isa-y),)
 
 isaflags-$(CONFIG_SH_DSP)		:= \
 	$(call as-option,-Wa$(comma)-isa=$(isa-y),-Wa$(comma)-dsp)
+endif
 
+cflags-$(CONFIG_CPU_BIG_ENDIAN)		+= -mb
+cflags-$(CONFIG_CPU_LITTLE_ENDIAN)	+= -ml
+
+cflags-y	+= $(call cc-option,-mno-fdpic)
 cflags-y	+= $(isaflags-y) -ffreestanding
 
 cflags-$(CONFIG_MORE_COMPILE_OPTIONS)	+= \
@@ -68,7 +80,12 @@ OBJCOPYFLAGS	:= -O binary -R .note -R .note.gnu.build-id -R .comment \
 		   -R .stab -R .stabstr -S
 
 # Give the various platforms the opportunity to set default image types
-defaultimage-$(CONFIG_SUPERH32)	:= zImage
+defaultimage-$(CONFIG_SUPERH32)			:= zImage
+defaultimage-$(CONFIG_SH_SH7785LCR)		:= uImage
+defaultimage-$(CONFIG_SH_RSK)			:= uImage
+defaultimage-$(CONFIG_SH_URQUELL)		:= uImage
+defaultimage-$(CONFIG_SH_7206_SOLUTION_ENGINE)	:= vmlinux
+defaultimage-$(CONFIG_SH_7619_SOLUTION_ENGINE)	:= vmlinux
 
 # Set some sensible Kbuild defaults
 KBUILD_DEFCONFIG	:= shx3_defconfig
@@ -79,8 +96,10 @@ KBUILD_IMAGE		:= $(defaultimage-y)
 # error messages during linking.
 #
 ifdef CONFIG_SUPERH32
+UTS_MACHINE	:= sh
 LDFLAGS_vmlinux	+= -e _stext
 else
+UTS_MACHINE	:= sh64
 LDFLAGS_vmlinux	+= --defsym phys_stext=_stext-$(CONFIG_PAGE_OFFSET) \
 		   --defsym phys_stext_shmedia=phys_stext+1 \
 		   -e phys_stext_shmedia
@@ -120,12 +139,13 @@ machdir-$(CONFIG_SH_LANDISK)			+= mach-landisk
 machdir-$(CONFIG_SH_TITAN)			+= mach-titan
 machdir-$(CONFIG_SH_LBOX_RE2)			+= mach-lboxre2
 machdir-$(CONFIG_SH_CAYMAN)			+= mach-cayman
+machdir-$(CONFIG_SH_RSK)			+= mach-rsk
 
 # ST Boards
 machdir-$(CONFIG_SH_ST_CB101)			+= mach-cb101
 machdir-$(CONFIG_SH_ST_CB102)			+= mach-cb102
 machdir-$(CONFIG_SH_ST_CB103)			+= mach-cb103
-machdir-$(CONFIG_SH_ST_HMP7100) 		+= mach-hmp7100
+machdir-$(CONFIG_SH_ST_HMP7100)			+= mach-hmp7100
 machdir-$(CONFIG_SH_ST_HMS1)			+= mach-hms1
 machdir-$(CONFIG_SH_ST_MB360)			+= mach-mb360 mach-st
 machdir-$(CONFIG_SH_ST_MB374)			+= mach-mb374 mach-st
@@ -133,8 +153,8 @@ machdir-$(CONFIG_SH_ST_MB411)			+= mach-mb411 mach-st
 machdir-$(CONFIG_SH_ST_MB442)			+= mach-mb442
 machdir-$(CONFIG_SH_ST_MB448)			+= mach-mb448
 machdir-$(CONFIG_SH_ST_MB519)			+= mach-mb519 mach-st
-machdir-$(CONFIG_SH_ST_MB602)		        += mach-mb602
-machdir-$(CONFIG_SH_ST_HDREF) 			+= mach-hdref
+machdir-$(CONFIG_SH_ST_MB602)			+= mach-mb602
+machdir-$(CONFIG_SH_ST_HDREF)			+= mach-hdref
 machdir-$(CONFIG_SH_ST_MB618)			+= mach-mb618 mach-st
 machdir-$(CONFIG_SH_ST_MB628)			+= mach-mb628 mach-st
 machdir-$(CONFIG_SH_ST_MB671)			+= mach-mb671 mach-st
@@ -145,8 +165,11 @@ machdir-$(CONFIG_SH_ST_PDK7105)			+= mach-pdk7105
 
 ifneq ($(machdir-y),)
 core-y	+= $(addprefix arch/sh/boards/, \
-	     $(filter-out ., $(addsuffix /,$(machdir-y))))
+	     $(filter-out ., $(patsubst %,%/,$(machdir-y))))
 endif
+
+# Common machine type headers. Not part of the arch/sh/boards/ hierarchy.
+machdir-y	+= mach-common
 
 # Companion chips
 core-$(CONFIG_HD6446X_SERIES)	+= arch/sh/cchips/hd6446x/
@@ -180,11 +203,8 @@ KBUILD_CFLAGS		+= -pipe $(cflags-y)
 KBUILD_CPPFLAGS		+= $(cflags-y)
 KBUILD_AFLAGS		+= $(cflags-y)
 
-LIBGCC := $(shell $(CC) $(KBUILD_CFLAGS) -print-libgcc-file-name)
-
 libs-$(CONFIG_SUPERH32)		:= arch/sh/lib/	$(libs-y)
 libs-$(CONFIG_SUPERH64)		:= arch/sh/lib64/ $(libs-y)
-libs-y				+= $(LIBGCC)
 
 PHONY += maketools FORCE
 

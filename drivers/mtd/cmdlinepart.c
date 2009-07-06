@@ -7,6 +7,7 @@
  *
  * mtdparts=<mtddef>[;<mtddef]
  * <mtddef>  := <mtd-id>:<partdef>[,<partdef>]
+ *              where <mtd-id> is the name from the "cat /proc/mtd" command
  * <partdef> := <size>[@offset][<name>][ro][lk]
  * <mtd-id>  := unique name used in mapping driver/device (mtd->name)
  * <size>    := standard linux memsize OR "-" to denote all remaining space
@@ -334,7 +335,11 @@ static int parse_cmdline_partitions(struct mtd_info *master,
 				}
 				offset += part->parts[i].size;
 			}
-			*pparts = part->parts;
+			*pparts = kmemdup(part->parts,
+					sizeof(*part->parts) * part->num_parts,
+					GFP_KERNEL);
+			if (!*pparts)
+				return -ENOMEM;
 			return part->num_parts;
 		}
 	}

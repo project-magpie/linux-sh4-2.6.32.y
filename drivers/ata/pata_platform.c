@@ -5,7 +5,7 @@
  *
  * Based on pata_pcmcia:
  *
- *   Copyright 2005-2006 Red Hat Inc <alan@redhat.com>, all rights reserved.
+ *   Copyright 2005-2006 Red Hat Inc, all rights reserved.
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
@@ -34,14 +34,12 @@ static int pata_platform_set_mode(struct ata_link *link, struct ata_device **unu
 {
 	struct ata_device *dev;
 
-	ata_link_for_each_dev(dev, link) {
-		if (ata_dev_enabled(dev)) {
-			/* We don't really care */
-			dev->pio_mode = dev->xfer_mode = XFER_PIO_0;
-			dev->xfer_shift = ATA_SHIFT_PIO;
-			dev->flags |= ATA_DFLAG_PIO;
-			ata_dev_printk(dev, KERN_INFO, "configured for PIO\n");
-		}
+	ata_for_each_dev(dev, link, ENABLED) {
+		/* We don't really care */
+		dev->pio_mode = dev->xfer_mode = XFER_PIO_0;
+		dev->xfer_shift = ATA_SHIFT_PIO;
+		dev->flags |= ATA_DFLAG_PIO;
+		ata_dev_printk(dev, KERN_INFO, "configured for PIO\n");
 	}
 	return 0;
 }
@@ -50,7 +48,7 @@ static void pata_platform_data_xfer(struct ata_device *adev,
 				    unsigned char *buf,
 				    unsigned int buflen, int write_data)
 {
-	ata_data_xfer_noirq(adev, buf, buflen, write_data);
+	ata_sff_data_xfer_noirq(adev, buf, buflen, write_data);
 	if (! write_data) {
 		__flush_wback_region(buf, buflen);
 	}
@@ -64,7 +62,7 @@ static struct ata_port_operations pata_platform_port_ops = {
 	.inherits		= &ata_sff_port_ops,
 	.sff_data_xfer		= ata_sff_data_xfer_noirq,
 	.cable_detect		= ata_cable_unknown,
-	.data_xfer		= pata_platform_data_xfer,
+	.sff_data_xfer		= pata_platform_data_xfer,
 	.set_mode		= pata_platform_set_mode,
 	.port_start		= ATA_OP_NULL,
 };
@@ -199,7 +197,7 @@ EXPORT_SYMBOL_GPL(__pata_platform_probe);
  *	A platform bus ATA device has been unplugged. Perform the needed
  *	cleanup. Also called on module unload for any active devices.
  */
-int __devexit __pata_platform_remove(struct device *dev)
+int __pata_platform_remove(struct device *dev)
 {
 	struct ata_host *host = dev_get_drvdata(dev);
 

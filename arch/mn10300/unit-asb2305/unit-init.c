@@ -18,7 +18,7 @@
 #include <asm/cpu/intctl-regs.h>
 #include <asm/cpu/rtc-regs.h>
 #include <asm/cpu/serial-regs.h>
-#include <asm/unit/serial.h>
+#include <unit/serial.h>
 
 /*
  * initialise some of the unit hardware before gdbstub is set up
@@ -52,7 +52,7 @@ void __init unit_init_IRQ(void)
 		switch (GET_XIRQ_TRIGGER(extnum)) {
 		case XIRQ_TRIGGER_HILEVEL:
 		case XIRQ_TRIGGER_LOWLEVEL:
-			set_irq_handler(XIRQ2IRQ(extnum), handle_level_irq);
+			set_intr_postackable(XIRQ2IRQ(extnum));
 			break;
 		default:
 			break;

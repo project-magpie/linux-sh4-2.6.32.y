@@ -28,9 +28,10 @@ static struct of_device_id mpc52xx_xlb_ids[] __initdata = {
 static struct of_device_id mpc52xx_bus_ids[] __initdata = {
 	{ .compatible = "fsl,mpc5200-immr", },
 	{ .compatible = "fsl,mpc5200b-immr", },
-	{ .compatible = "fsl,lpb", },
+	{ .compatible = "simple-bus", },
 
 	/* depreciated matches; shouldn't be used in new device trees */
+	{ .compatible = "fsl,lpb", },
 	{ .type = "builtin", .compatible = "mpc5200", }, /* efika */
 	{ .type = "soc", .compatible = "mpc5200", }, /* lite5200 */
 	{}
@@ -42,7 +43,7 @@ static struct of_device_id mpc52xx_bus_ids[] __initdata = {
  * from interrupt context while node mapping (which calls ioremap())
  * cannot be used at such point.
  */
-static spinlock_t mpc52xx_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(mpc52xx_lock);
 static struct mpc52xx_gpt __iomem *mpc52xx_wdt;
 static struct mpc52xx_cdm __iomem *mpc52xx_cdm;
 
@@ -90,7 +91,7 @@ mpc5200_setup_xlb_arbiter(void)
 	of_node_put(np);
 	if (!xlb) {
 		printk(KERN_ERR __FILE__ ": "
-			"Error mapping XLB in mpc52xx_setup_cpu().  "
+			"Error mapping XLB in mpc52xx_setup_cpu(). "
 			"Expect some abnormal behavior\n");
 		return;
 	}
@@ -99,11 +100,14 @@ mpc5200_setup_xlb_arbiter(void)
 	out_be32(&xlb->master_pri_enable, 0xff);
 	out_be32(&xlb->master_priority, 0x11111111);
 
-	/* Disable XLB pipelining
+	/*
+	 * Disable XLB pipelining
 	 * (cfr errate 292. We could do this only just before ATA PIO
 	 *  transaction and re-enable it afterwards ...)
+	 * Not needed on MPC5200B.
 	 */
-	out_be32(&xlb->config, in_be32(&xlb->config) | MPC52xx_XLB_CFG_PLDIS);
+	if ((mfspr(SPRN_SVR) & MPC5200_SVR_MASK) == MPC5200_SVR)
+		out_be32(&xlb->config, in_be32(&xlb->config) | MPC52xx_XLB_CFG_PLDIS);
 
 	iounmap(xlb);
 }
@@ -202,6 +206,43 @@ int mpc52xx_set_psc_clkdiv(int psc_id, int clkdiv)
 EXPORT_SYMBOL(mpc52xx_set_psc_clkdiv);
 
 /**
+ * mpc52xx_get_xtal_freq - Get SYS_XTAL_IN frequency for a device
+ *
+ * @node: device node
+ *
+ * Returns the frequency of the external oscillator clock connected
+ * to the SYS_XTAL_IN pin, or 0 if it cannot be determined.
+ */
+unsigned int mpc52xx_get_xtal_freq(struct device_node *node)
+{
+	u32 val;
+	unsigned int freq;
+
+	if (!mpc52xx_cdm)
+		return 0;
+
+	freq = mpc52xx_find_ipb_freq(node);
+	if (!freq)
+		return 0;
+
+	if (in_8(&mpc52xx_cdm->ipb_clk_sel) & 0x1)
+		freq *= 2;
+
+	val  = in_be32(&mpc52xx_cdm->rstcfg);
+	if (val & (1 << 5))
+		freq *= 8;
+	else
+		freq *= 4;
+	if (val & (1 << 6))
+		freq /= 12;
+	else
+		freq /= 16;
+
+	return freq;
+}
+EXPORT_SYMBOL(mpc52xx_get_xtal_freq);
+
+/**
  * mpc52xx_restart: ppc_md->restart hook for mpc5200 using the watchdog timer
  */
 void
@@ -216,7 +257,8 @@ mpc52xx_restart(char *cmd)
 		out_be32(&mpc52xx_wdt->count, 0x000000ff);
 		out_be32(&mpc52xx_wdt->mode, 0x00009004);
 	} else
-		printk("mpc52xx_restart: Can't access wdt. "
+		printk(KERN_ERR __FILE__ ": "
+			"mpc52xx_restart: Can't access wdt. "
 			"Restart impossible, system halted.\n");
 
 	while (1);

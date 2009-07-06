@@ -100,11 +100,11 @@ int sctp_chunk_iif(const struct sctp_chunk *chunk)
  */
 static const struct sctp_paramhdr ecap_param = {
 	SCTP_PARAM_ECN_CAPABLE,
-	__constant_htons(sizeof(struct sctp_paramhdr)),
+	cpu_to_be16(sizeof(struct sctp_paramhdr)),
 };
 static const struct sctp_paramhdr prsctp_param = {
 	SCTP_PARAM_FWD_TSN_SUPPORT,
-	__constant_htons(sizeof(struct sctp_paramhdr)),
+	cpu_to_be16(sizeof(struct sctp_paramhdr)),
 };
 
 /* A helper to initialize to initialize an op error inside a
@@ -224,7 +224,9 @@ struct sctp_chunk *sctp_make_init(const struct sctp_association *asoc,
 		num_ext += 2;
 	}
 
-	chunksize += sizeof(aiparam);
+	if (sp->adaptation_ind)
+		chunksize += sizeof(aiparam);
+
 	chunksize += vparam_len;
 
 	/* Account for AUTH related parameters */
@@ -304,10 +306,12 @@ struct sctp_chunk *sctp_make_init(const struct sctp_association *asoc,
 	if (sctp_prsctp_enable)
 		sctp_addto_chunk(retval, sizeof(prsctp_param), &prsctp_param);
 
-	aiparam.param_hdr.type = SCTP_PARAM_ADAPTATION_LAYER_IND;
-	aiparam.param_hdr.length = htons(sizeof(aiparam));
-	aiparam.adaptation_ind = htonl(sp->adaptation_ind);
-	sctp_addto_chunk(retval, sizeof(aiparam), &aiparam);
+	if (sp->adaptation_ind) {
+		aiparam.param_hdr.type = SCTP_PARAM_ADAPTATION_LAYER_IND;
+		aiparam.param_hdr.length = htons(sizeof(aiparam));
+		aiparam.adaptation_ind = htonl(sp->adaptation_ind);
+		sctp_addto_chunk(retval, sizeof(aiparam), &aiparam);
+	}
 
 	/* Add SCTP-AUTH chunks to the parameter list */
 	if (sctp_auth_enable) {
@@ -332,6 +336,7 @@ struct sctp_chunk *sctp_make_init_ack(const struct sctp_association *asoc,
 	sctp_inithdr_t initack;
 	struct sctp_chunk *retval;
 	union sctp_params addrs;
+	struct sctp_sock *sp;
 	int addrs_len;
 	sctp_cookie_param_t *cookie;
 	int cookie_len;
@@ -366,22 +371,24 @@ struct sctp_chunk *sctp_make_init_ack(const struct sctp_association *asoc,
 	/* Calculate the total size of allocation, include the reserved
 	 * space for reporting unknown parameters if it is specified.
 	 */
+	sp = sctp_sk(asoc->base.sk);
 	chunksize = sizeof(initack) + addrs_len + cookie_len + unkparam_len;
 
 	/* Tell peer that we'll do ECN only if peer advertised such cap.  */
 	if (asoc->peer.ecn_capable)
 		chunksize += sizeof(ecap_param);
 
-	if (sctp_prsctp_enable)
+	if (asoc->peer.prsctp_capable)
 		chunksize += sizeof(prsctp_param);
 
-	if (sctp_addip_enable) {
+	if (asoc->peer.asconf_capable) {
 		extensions[num_ext] = SCTP_CID_ASCONF;
 		extensions[num_ext+1] = SCTP_CID_ASCONF_ACK;
 		num_ext += 2;
 	}
 
-	chunksize += sizeof(aiparam);
+	if (sp->adaptation_ind)
+		chunksize += sizeof(aiparam);
 
 	if (asoc->peer.auth_capable) {
 		auth_random = (sctp_paramhdr_t *)asoc->c.auth_random;
@@ -432,10 +439,12 @@ struct sctp_chunk *sctp_make_init_ack(const struct sctp_association *asoc,
 	if (asoc->peer.prsctp_capable)
 		sctp_addto_chunk(retval, sizeof(prsctp_param), &prsctp_param);
 
-	aiparam.param_hdr.type = SCTP_PARAM_ADAPTATION_LAYER_IND;
-	aiparam.param_hdr.length = htons(sizeof(aiparam));
-	aiparam.adaptation_ind = htonl(sctp_sk(asoc->base.sk)->adaptation_ind);
-	sctp_addto_chunk(retval, sizeof(aiparam), &aiparam);
+	if (sp->adaptation_ind) {
+		aiparam.param_hdr.type = SCTP_PARAM_ADAPTATION_LAYER_IND;
+		aiparam.param_hdr.length = htons(sizeof(aiparam));
+		aiparam.adaptation_ind = htonl(sp->adaptation_ind);
+		sctp_addto_chunk(retval, sizeof(aiparam), &aiparam);
+	}
 
 	if (asoc->peer.auth_capable) {
 		sctp_addto_chunk(retval, ntohs(auth_random->length),
@@ -702,12 +711,14 @@ struct sctp_chunk *sctp_make_sack(const struct sctp_association *asoc)
 	__u32 ctsn;
 	__u16 num_gabs, num_dup_tsns;
 	struct sctp_tsnmap *map = (struct sctp_tsnmap *)&asoc->peer.tsn_map;
+	struct sctp_gap_ack_block gabs[SCTP_MAX_GABS];
 
+	memset(gabs, 0, sizeof(gabs));
 	ctsn = sctp_tsnmap_get_ctsn(map);
 	SCTP_DEBUG_PRINTK("sackCTSNAck sent:  0x%x.\n", ctsn);
 
 	/* How much room is needed in the chunk? */
-	num_gabs = sctp_tsnmap_num_gabs(map);
+	num_gabs = sctp_tsnmap_num_gabs(map, gabs);
 	num_dup_tsns = sctp_tsnmap_num_dups(map);
 
 	/* Initialize the SACK header.  */
@@ -763,7 +774,7 @@ struct sctp_chunk *sctp_make_sack(const struct sctp_association *asoc)
 	/* Add the gap ack block information.   */
 	if (num_gabs)
 		sctp_addto_chunk(retval, sizeof(__u32) * num_gabs,
-				 sctp_tsnmap_get_gabs(map));
+				 gabs);
 
 	/* Add the duplicate TSN information.  */
 	if (num_dup_tsns)
@@ -1012,6 +1023,29 @@ end:
 	return retval;
 }
 
+struct sctp_chunk *sctp_make_violation_paramlen(
+	const struct sctp_association *asoc,
+	const struct sctp_chunk *chunk,
+	struct sctp_paramhdr *param)
+{
+	struct sctp_chunk *retval;
+	static const char error[] = "The following parameter had invalid length:";
+	size_t payload_len = sizeof(error) + sizeof(sctp_errhdr_t) +
+				sizeof(sctp_paramhdr_t);
+
+	retval = sctp_make_abort(asoc, chunk, payload_len);
+	if (!retval)
+		goto nodata;
+
+	sctp_init_cause(retval, SCTP_ERROR_PROTO_VIOLATION,
+			sizeof(error) + sizeof(sctp_paramhdr_t));
+	sctp_addto_chunk(retval, sizeof(error), error);
+	sctp_addto_param(retval, sizeof(sctp_paramhdr_t), param);
+
+nodata:
+	return retval;
+}
+
 /* Make a HEARTBEAT chunk.  */
 struct sctp_chunk *sctp_make_heartbeat(const struct sctp_association *asoc,
 				  const struct sctp_transport *transport,
@@ -1188,7 +1222,7 @@ struct sctp_chunk *sctp_chunkify(struct sk_buff *skb,
 	 */
 	retval->tsn_missing_report = 0;
 	retval->tsn_gap_acked = 0;
-	retval->fast_retransmit = 0;
+	retval->fast_retransmit = SCTP_CAN_FRTX;
 
 	/* If this is a fragmented message, track all fragments
 	 * of the message (for SEND_FAILED).
@@ -1782,11 +1816,6 @@ static int sctp_process_inv_paramlength(const struct sctp_association *asoc,
 					const struct sctp_chunk *chunk,
 					struct sctp_chunk **errp)
 {
-	static const char error[] = "The following parameter had invalid length:";
-	size_t		payload_len = WORD_ROUND(sizeof(error)) +
-						sizeof(sctp_paramhdr_t);
-
-
 	/* This is a fatal error.  Any accumulated non-fatal errors are
 	 * not reported.
 	 */
@@ -1794,14 +1823,7 @@ static int sctp_process_inv_paramlength(const struct sctp_association *asoc,
 		sctp_chunk_free(*errp);
 
 	/* Create an error chunk and fill it in with our payload. */
-	*errp = sctp_make_op_error_space(asoc, chunk, payload_len);
-
-	if (*errp) {
-		sctp_init_cause(*errp, SCTP_ERROR_PROTO_VIOLATION,
-				sizeof(error) + sizeof(sctp_paramhdr_t));
-		sctp_addto_chunk(*errp, sizeof(error), error);
-		sctp_addto_param(*errp, sizeof(sctp_paramhdr_t), param);
-	}
+	*errp = sctp_make_violation_paramlen(asoc, chunk, param);
 
 	return 0;
 }
@@ -1886,11 +1908,13 @@ static void sctp_process_ext_param(struct sctp_association *asoc,
 			    /* if the peer reports AUTH, assume that he
 			     * supports AUTH.
 			     */
-			    asoc->peer.auth_capable = 1;
+			    if (sctp_auth_enable)
+				    asoc->peer.auth_capable = 1;
 			    break;
 		    case SCTP_CID_ASCONF:
 		    case SCTP_CID_ASCONF_ACK:
-			    asoc->peer.asconf_capable = 1;
+			    if (sctp_addip_enable)
+				    asoc->peer.asconf_capable = 1;
 			    break;
 		    default:
 			    break;
@@ -2275,8 +2299,9 @@ int sctp_process_init(struct sctp_association *asoc, sctp_cid_t cid,
 	}
 
 	/* Set up the TSN tracking pieces.  */
-	sctp_tsnmap_init(&asoc->peer.tsn_map, SCTP_TSN_MAP_SIZE,
-			 asoc->peer.i.initial_tsn);
+	if (!sctp_tsnmap_init(&asoc->peer.tsn_map, SCTP_TSN_MAP_INITIAL,
+				asoc->peer.i.initial_tsn, gfp))
+		goto clean_up;
 
 	/* RFC 2960 6.5 Stream Identifier and Stream Sequence Number
 	 *
@@ -2319,11 +2344,9 @@ clean_up:
 	/* Release the transport structures. */
 	list_for_each_safe(pos, temp, &asoc->peer.transport_addr_list) {
 		transport = list_entry(pos, struct sctp_transport, transports);
-		list_del_init(pos);
-		sctp_transport_free(transport);
+		if (transport->state != SCTP_ACTIVE)
+			sctp_assoc_rm_peer(asoc, transport);
 	}
-
-	asoc->peer.transport_count = 0;
 
 nomem:
 	return 0;
@@ -2456,10 +2479,13 @@ do_addr_param:
 		break;
 
 	case SCTP_PARAM_ADAPTATION_LAYER_IND:
-		asoc->peer.adaptation_ind = param.aind->adaptation_ind;
+		asoc->peer.adaptation_ind = ntohl(param.aind->adaptation_ind);
 		break;
 
 	case SCTP_PARAM_SET_PRIMARY:
+		if (!sctp_addip_enable)
+			goto fall_through;
+
 		addr_param = param.v + sizeof(sctp_addip_param_t);
 
 		af = sctp_get_af_specific(param_type2af(param.p->type));

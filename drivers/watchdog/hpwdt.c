@@ -40,12 +40,14 @@
 #include <linux/bootmem.h>
 #include <linux/slab.h>
 #include <asm/desc.h>
+#include <asm/cacheflush.h>
 
 #define PCI_BIOS32_SD_VALUE		0x5F32335F	/* "_32_" */
 #define CRU_BIOS_SIGNATURE_VALUE	0x55524324
 #define PCI_BIOS32_PARAGRAPH_LEN	16
 #define PCI_ROM_BASE1			0x000F0000
 #define ROM_SIZE			0x10000
+#define HPWDT_VERSION			"1.01"
 
 struct bios32_service_dir {
 	u32 signature;
@@ -116,6 +118,7 @@ static unsigned int reload;			/* the computed soft_margin */
 static int nowayout = WATCHDOG_NOWAYOUT;
 static char expect_release;
 static unsigned long hpwdt_is_open;
+static unsigned int allow_kdump;
 
 static void __iomem *pci_mem_addr;		/* the PCI-memory address */
 static unsigned long __iomem *hpwdt_timer_reg;
@@ -128,17 +131,14 @@ static void *cru_rom_addr;
 static struct cmn_registers cmn_regs;
 
 static struct pci_device_id hpwdt_devices[] = {
-	{
-	 .vendor = PCI_VENDOR_ID_COMPAQ,
-	 .device = 0xB203,
-	 .subvendor = PCI_ANY_ID,
-	 .subdevice = PCI_ANY_ID,
-	},
+	{ PCI_DEVICE(PCI_VENDOR_ID_COMPAQ, 0xB203) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_HP, 0x3306) },
 	{0},			/* terminate list */
 };
 MODULE_DEVICE_TABLE(pci, hpwdt_devices);
 
-extern asmlinkage void asminline_call(struct cmn_registers *pi86Regs, unsigned long *pRomEntry);
+extern asmlinkage void asminline_call(struct cmn_registers *pi86Regs,
+						unsigned long *pRomEntry);
 
 #ifndef CONFIG_X86_64
 /* --32 Bit Bios------------------------------------------------------------ */
@@ -221,19 +221,19 @@ static int __devinit cru_detect(unsigned long map_entry,
 
 	if (cmn_regs.u1.ral != 0) {
 		printk(KERN_WARNING
-		       "hpwdt: Call succeeded but with an error: 0x%x\n",
-		       cmn_regs.u1.ral);
+			"hpwdt: Call succeeded but with an error: 0x%x\n",
+			cmn_regs.u1.ral);
 	} else {
 		physical_bios_base = cmn_regs.u2.rebx;
 		physical_bios_offset = cmn_regs.u4.redx;
 		cru_length = cmn_regs.u3.recx;
 		cru_physical_address =
-		    physical_bios_base + physical_bios_offset;
+			physical_bios_base + physical_bios_offset;
 
 		/* If the values look OK, then map it in. */
 		if ((physical_bios_base + physical_bios_offset)) {
 			cru_rom_addr =
-			    ioremap(cru_physical_address, cru_length);
+				ioremap(cru_physical_address, cru_length);
 			if (cru_rom_addr)
 				retval = 0;
 		}
@@ -356,7 +356,6 @@ asm(".text                      \n\t"
     "call       *%r12           \n\t"
     "pushfq                     \n\t"
     "popq        %r12           \n\t"
-    "popfq                      \n\t"
     "movl       %eax, (%r9)     \n\t"
     "movl       %ebx, 4(%r9)    \n\t"
     "movl       %ecx, 8(%r9)    \n\t"
@@ -381,7 +380,7 @@ asm(".text                      \n\t"
  *	This function checks whether or not a SMBIOS/DMI record is
  *	the 64bit CRU info or not
  */
-static void __devinit dmi_find_cru(const struct dmi_header *dm)
+static void __devinit dmi_find_cru(const struct dmi_header *dm, void *dummy)
 {
 	struct smbios_cru64_info *smbios_cru64_ptr;
 	unsigned long cru_physical_address;
@@ -390,10 +389,12 @@ static void __devinit dmi_find_cru(const struct dmi_header *dm)
 		smbios_cru64_ptr = (struct smbios_cru64_info *) dm;
 		if (smbios_cru64_ptr->signature == CRU_BIOS_SIGNATURE_VALUE) {
 			cru_physical_address =
-			    smbios_cru64_ptr->physical_address +
-			    smbios_cru64_ptr->double_offset;
+				smbios_cru64_ptr->physical_address +
+				smbios_cru64_ptr->double_offset;
 			cru_rom_addr = ioremap(cru_physical_address,
-				    smbios_cru64_ptr->double_length);
+				smbios_cru64_ptr->double_length);
+			set_memory_x((unsigned long)cru_rom_addr & PAGE_MASK,
+				smbios_cru64_ptr->double_length >> PAGE_SHIFT);
 		}
 	}
 }
@@ -402,43 +403,15 @@ static int __devinit detect_cru_service(void)
 {
 	cru_rom_addr = NULL;
 
-	dmi_walk(dmi_find_cru);
+	dmi_walk(dmi_find_cru, NULL);
 
 	/* if cru_rom_addr has been set then we found a CRU service */
-	return ((cru_rom_addr != NULL) ? 0: -ENODEV);
+	return ((cru_rom_addr != NULL) ? 0 : -ENODEV);
 }
 
 /* ------------------------------------------------------------------------- */
 
 #endif
-
-/*
- *	NMI Handler
- */
-static int hpwdt_pretimeout(struct notifier_block *nb, unsigned long ulReason,
-			    void *data)
-{
-	unsigned long rom_pl;
-	static int die_nmi_called;
-
-	if (ulReason != DIE_NMI && ulReason != DIE_NMI_IPI)
-		return NOTIFY_OK;
-
-	spin_lock_irqsave(&rom_lock, rom_pl);
-	if (!die_nmi_called)
-		asminline_call(&cmn_regs, cru_rom_addr);
-	die_nmi_called = 1;
-	spin_unlock_irqrestore(&rom_lock, rom_pl);
-	if (cmn_regs.u1.ral == 0) {
-		printk(KERN_WARNING "hpwdt: An NMI occurred, "
-		       "but unable to determine source.\n");
-	} else {
-		panic("An NMI occurred, please see the Integrated "
-			"Management Log for details.\n");
-	}
-
-	return NOTIFY_STOP;
-}
 
 /*
  *	Watchdog operations
@@ -481,6 +454,36 @@ static int hpwdt_change_timer(int new_margin)
 	reload = (soft_margin * 1000) / 128;
 
 	return 0;
+}
+
+/*
+ *	NMI Handler
+ */
+static int hpwdt_pretimeout(struct notifier_block *nb, unsigned long ulReason,
+				void *data)
+{
+	unsigned long rom_pl;
+	static int die_nmi_called;
+
+	if (ulReason != DIE_NMI && ulReason != DIE_NMI_IPI)
+		return NOTIFY_OK;
+
+	spin_lock_irqsave(&rom_lock, rom_pl);
+	if (!die_nmi_called)
+		asminline_call(&cmn_regs, cru_rom_addr);
+	die_nmi_called = 1;
+	spin_unlock_irqrestore(&rom_lock, rom_pl);
+	if (cmn_regs.u1.ral == 0) {
+		printk(KERN_WARNING "hpwdt: An NMI occurred, "
+			"but unable to determine source.\n");
+	} else {
+		if (allow_kdump)
+			hpwdt_stop();
+		panic("An NMI occurred, please see the Integrated "
+			"Management Log for details.\n");
+	}
+
+	return NOTIFY_OK;
 }
 
 /*
@@ -600,7 +603,7 @@ static long hpwdt_ioctl(struct file *file, unsigned int cmd,
 /*
  *	Kernel interfaces
  */
-static struct file_operations hpwdt_fops = {
+static const struct file_operations hpwdt_fops = {
 	.owner = THIS_MODULE,
 	.llseek = no_llseek,
 	.write = hpwdt_write,
@@ -625,17 +628,18 @@ static struct notifier_block die_notifier = {
  */
 
 static int __devinit hpwdt_init_one(struct pci_dev *dev,
-				    const struct pci_device_id *ent)
+					const struct pci_device_id *ent)
 {
 	int retval;
 
 	/*
 	 * First let's find out if we are on an iLO2 server. We will
 	 * not run on a legacy ASM box.
+	 * So we only support the G5 ProLiant servers and higher.
 	 */
 	if (dev->subsystem_vendor != PCI_VENDOR_ID_HP) {
 		dev_warn(&dev->dev,
-		       "This server does not have an iLO2 ASIC.\n");
+			"This server does not have an iLO2 ASIC.\n");
 		return -ENODEV;
 	}
 
@@ -669,7 +673,7 @@ static int __devinit hpwdt_init_one(struct pci_dev *dev,
 	retval = detect_cru_service();
 	if (retval < 0) {
 		dev_warn(&dev->dev,
-		       "Unable to detect the %d Bit CRU Service.\n",
+			"Unable to detect the %d Bit CRU Service.\n",
 			HPWDT_ARCH);
 		goto error_get_cru;
 	}
@@ -684,7 +688,7 @@ static int __devinit hpwdt_init_one(struct pci_dev *dev,
 	retval = register_die_notifier(&die_notifier);
 	if (retval != 0) {
 		dev_warn(&dev->dev,
-		       "Unable to register a die notifier (err=%d).\n",
+			"Unable to register a die notifier (err=%d).\n",
 			retval);
 		goto error_die_notifier;
 	}
@@ -698,9 +702,11 @@ static int __devinit hpwdt_init_one(struct pci_dev *dev,
 	}
 
 	printk(KERN_INFO
-		"hp Watchdog Timer Driver: 1.00"
-		", timer margin: %d seconds( nowayout=%d).\n",
-		soft_margin, nowayout);
+		"hp Watchdog Timer Driver: %s"
+		", timer margin: %d seconds (nowayout=%d)"
+		", allow kernel dump: %s (default = 0/OFF).\n",
+		HPWDT_VERSION, soft_margin, nowayout,
+		(allow_kdump == 0) ? "OFF" : "ON");
 
 	return 0;
 
@@ -750,10 +756,14 @@ static int __init hpwdt_init(void)
 MODULE_AUTHOR("Tom Mingarelli");
 MODULE_DESCRIPTION("hp watchdog driver");
 MODULE_LICENSE("GPL");
+MODULE_VERSION(HPWDT_VERSION);
 MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);
 
 module_param(soft_margin, int, 0);
 MODULE_PARM_DESC(soft_margin, "Watchdog timeout in seconds");
+
+module_param(allow_kdump, int, 0);
+MODULE_PARM_DESC(allow_kdump, "Start a kernel dump after NMI occurs");
 
 module_param(nowayout, int, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="

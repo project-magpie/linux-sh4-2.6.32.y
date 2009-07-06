@@ -76,7 +76,6 @@ struct edgeport_uart_buf_desc {
 #define EDGE_READ_URB_STOPPING	1
 #define EDGE_READ_URB_STOPPED	2
 
-#define EDGE_LOW_LATENCY	1
 #define EDGE_CLOSING_WAIT	4000	/* in .01 sec */
 
 #define EDGE_OUT_BUF_SIZE	1024
@@ -232,7 +231,6 @@ static unsigned short OperationalBuildNumber;
 
 static int debug;
 
-static int low_latency = EDGE_LOW_LATENCY;
 static int closing_wait = EDGE_CLOSING_WAIT;
 static int ignore_cpu_rev;
 static int default_uart_mode;		/* RS232 */
@@ -572,7 +570,7 @@ static void chase_port(struct edgeport_port *port, unsigned long timeout,
 								int flush)
 {
 	int baud_rate;
-	struct tty_struct *tty = port->port->port.tty;
+	struct tty_struct *tty = tty_port_tty_get(&port->port->port);
 	wait_queue_t wait;
 	unsigned long flags;
 
@@ -599,6 +597,7 @@ static void chase_port(struct edgeport_port *port, unsigned long timeout,
 	if (flush)
 		edge_buf_clear(port->ep_out_buf);
 	spin_unlock_irqrestore(&port->ep_lock, flags);
+	tty_kref_put(tty);
 
 	/* wait for data to drain from the device */
 	timeout += jiffies;
@@ -1554,7 +1553,7 @@ static void handle_new_msr(struct edgeport_port *edge_port, __u8 msr)
 	/* Save the new modem status */
 	edge_port->shadow_msr = msr & 0xf0;
 
-	tty = edge_port->port->port.tty;
+	tty = tty_port_tty_get(&edge_port->port->port);
 	/* handle CTS flow control */
 	if (tty && C_CRTSCTS(tty)) {
 		if (msr & EDGEPORT_MSR_CTS) {
@@ -1564,6 +1563,7 @@ static void handle_new_msr(struct edgeport_port *edge_port, __u8 msr)
 			tty->hw_stopped = 1;
 		}
 	}
+	tty_kref_put(tty);
 
 	return;
 }
@@ -1574,6 +1574,7 @@ static void handle_new_lsr(struct edgeport_port *edge_port, int lsr_data,
 	struct async_icount *icount;
 	__u8 new_lsr = (__u8)(lsr & (__u8)(LSR_OVER_ERR | LSR_PAR_ERR |
 						LSR_FRM_ERR | LSR_BREAK));
+	struct tty_struct *tty;
 
 	dbg("%s - %02x", __func__, new_lsr);
 
@@ -1587,8 +1588,13 @@ static void handle_new_lsr(struct edgeport_port *edge_port, int lsr_data,
 		new_lsr &= (__u8)(LSR_OVER_ERR | LSR_BREAK);
 
 	/* Place LSR data byte into Rx buffer */
-	if (lsr_data && edge_port->port->port.tty)
-		edge_tty_recv(&edge_port->port->dev, edge_port->port->port.tty, &data, 1);
+	if (lsr_data) {
+		tty = tty_port_tty_get(&edge_port->port->port);
+		if (tty) {
+			edge_tty_recv(&edge_port->port->dev, tty, &data, 1);
+			tty_kref_put(tty);
+		}
+	}
 
 	/* update input line counters */
 	icount = &edge_port->icount;
@@ -1749,7 +1755,7 @@ static void edge_bulk_in_callback(struct urb *urb)
 		++data;
 	}
 
-	tty = edge_port->port->port.tty;
+	tty = tty_port_tty_get(&edge_port->port->port);
 	if (tty && urb->actual_length) {
 		usb_serial_debug_data(debug, &edge_port->port->dev,
 					__func__, urb->actual_length, data);
@@ -1761,6 +1767,7 @@ static void edge_bulk_in_callback(struct urb *urb)
 							urb->actual_length);
 		edge_port->icount.rx += urb->actual_length;
 	}
+	tty_kref_put(tty);
 
 exit:
 	/* continue read unless stopped */
@@ -1796,6 +1803,7 @@ static void edge_bulk_out_callback(struct urb *urb)
 	struct usb_serial_port *port = urb->context;
 	struct edgeport_port *edge_port = usb_get_serial_port_data(port);
 	int status = urb->status;
+	struct tty_struct *tty;
 
 	dbg("%s - port %d", __func__, port->number);
 
@@ -1818,7 +1826,9 @@ static void edge_bulk_out_callback(struct urb *urb)
 	}
 
 	/* send any buffered data */
-	edge_send(port->port.tty);
+	tty = tty_port_tty_get(&port->port);
+	edge_send(tty);
+	tty_kref_put(tty);
 }
 
 static int edge_open(struct tty_struct *tty,
@@ -1837,9 +1847,6 @@ static int edge_open(struct tty_struct *tty,
 
 	if (edge_port == NULL)
 		return -ENODEV;
-
-	if (tty)
-		tty->low_latency = low_latency;
 
 	port_number = port->number - port->serial->minor;
 	switch (port_number) {
@@ -1876,7 +1883,7 @@ static int edge_open(struct tty_struct *tty,
 
 	/* set up the port settings */
 	if (tty)
-		edge_set_termios(tty, port, port->port.tty->termios);
+		edge_set_termios(tty, port, tty->termios);
 
 	/* open up the port */
 
@@ -2966,7 +2973,8 @@ static int __init edgeport_init(void)
 	retval = usb_register(&io_driver);
 	if (retval)
 		goto failed_usb_register;
-	info(DRIVER_DESC " " DRIVER_VERSION);
+	printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_VERSION ":"
+	       DRIVER_DESC "\n");
 	return 0;
 failed_usb_register:
 	usb_serial_deregister(&edgeport_2port_device);
@@ -2994,9 +3002,6 @@ MODULE_FIRMWARE("edgeport/down3.bin");
 
 module_param(debug, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(debug, "Debug enabled or not");
-
-module_param(low_latency, bool, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(low_latency, "Low latency enabled or not");
 
 module_param(closing_wait, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(closing_wait, "Maximum wait for data to drain, in .01 secs");

@@ -152,6 +152,7 @@ void zap_pid_ns_processes(struct pid_namespace *pid_ns)
 {
 	int nr;
 	int rc;
+	struct task_struct *task;
 
 	/*
 	 * The last thread in the cgroup-init thread group is terminating.
@@ -169,7 +170,19 @@ void zap_pid_ns_processes(struct pid_namespace *pid_ns)
 	read_lock(&tasklist_lock);
 	nr = next_pidmap(pid_ns, 1);
 	while (nr > 0) {
-		kill_proc_info(SIGKILL, SEND_SIG_PRIV, nr);
+		rcu_read_lock();
+
+		/*
+		 * Use force_sig() since it clears SIGNAL_UNKILLABLE ensuring
+		 * any nested-container's init processes don't ignore the
+		 * signal
+		 */
+		task = pid_task(find_vpid(nr), PIDTYPE_PID);
+		if (task)
+			force_sig(SIGKILL, task);
+
+		rcu_read_unlock();
+
 		nr = next_pidmap(pid_ns, nr);
 	}
 	read_unlock(&tasklist_lock);
@@ -179,9 +192,6 @@ void zap_pid_ns_processes(struct pid_namespace *pid_ns)
 		rc = sys_wait4(-1, NULL, __WALL, NULL);
 	} while (rc != -ECHILD);
 
-
-	/* Child reaper for the pid namespace is going away */
-	pid_ns->child_reaper = NULL;
 	acct_exit_ns(pid_ns);
 	return;
 }

@@ -226,7 +226,7 @@ static int get_compatible_type(struct ff_device *ff, int effect_type)
  */
 static void ml_combine_effects(struct ff_effect *effect,
 			       struct ml_effect_state *state,
-			       int gain)
+			       unsigned int gain)
 {
 	struct ff_effect *new = state->effect;
 	unsigned int strong, weak, i;
@@ -397,8 +397,9 @@ static int ml_ff_playback(struct input_dev *dev, int effect_id, int value)
 {
 	struct ml_device *ml = dev->ff->private;
 	struct ml_effect_state *state = &ml->states[effect_id];
+	unsigned long flags;
 
-	spin_lock_bh(&ml->timer_lock);
+	spin_lock_irqsave(&ml->timer_lock, flags);
 
 	if (value > 0) {
 		debug("initiated play");
@@ -424,7 +425,7 @@ static int ml_ff_playback(struct input_dev *dev, int effect_id, int value)
 		ml_play_effects(ml);
 	}
 
-	spin_unlock_bh(&ml->timer_lock);
+	spin_unlock_irqrestore(&ml->timer_lock, flags);
 
 	return 0;
 }

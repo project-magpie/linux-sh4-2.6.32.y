@@ -1,35 +1,13 @@
 /*
- *  Kernel Probes (KProbes)
- *  arch/sh/kernel/kprobes.c
+ * Kernel probes (kprobes) for SuperH
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2
- * as published by the Free Software Foundation
+ * Copyright (C) 2007 Chris Smith <chris.smith@st.com>
+ * Copyright (C) 2006 Lineo Solutions, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- *
- * Copyright (C) IBM Corporation, 2002, 2004
- *
- * 2002-Oct	Created by Vamsi Krishna S <vamsi_krishna@in.ibm.com> Kernel
- *		Probes initial implementation ( includes contributions from
- *		Rusty Russell).
- * 2004-July	Suparna Bhattacharya <suparna@in.ibm.com> added jumper probes
- *		interface to access function arguments.
- * 2005-May	Hien Nguyen <hien@us.ibm.com>, Jim Keniston
- *		<jkenisto@us.ibm.com> and Prasanna S Panchamukhi
- *		<prasanna@in.ibm.com> added function-return probes.
- * 2006-Mar	Create SH kprobe by Lineo Solutions, Inc.
- *			(based on arch/i386/kernel/kprobes.c)
- * 2007-Mar	Chris Smith <chris.smith@st.com> completed sh work
+ * This file is subject to the terms and conditions of the GNU General Public
+ * License.  See the file "COPYING" in the main directory of this archive
+ * for more details.
  */
-
 #include <linux/kprobes.h>
 #include <linux/module.h>
 #include <linux/ptrace.h>
@@ -37,8 +15,6 @@
 #include <linux/kdebug.h>
 #include <asm/cacheflush.h>
 #include <asm/uaccess.h>
-
-void jprobe_return_end(void);
 
 DEFINE_PER_CPU(struct kprobe *, current_kprobe) = NULL;
 DEFINE_PER_CPU(struct kprobe_ctlblk, kprobe_ctlblk);
@@ -67,9 +43,8 @@ int __kprobes arch_prepare_kprobe(struct kprobe *p)
 {
 	kprobe_opcode_t opcode = *(kprobe_opcode_t *) (p->addr);
 
-	if (OPCODE_RTE(opcode)) {
+	if (OPCODE_RTE(opcode))
 		return -EFAULT;	/* Bad breakpoint */
-	}
 
 	p->opcode = opcode;
 
@@ -140,20 +115,20 @@ void __kprobes arch_remove_kprobe(struct kprobe *p)
 	}
 }
 
-static inline void save_previous_kprobe(struct kprobe_ctlblk *kcb)
+static void __kprobes save_previous_kprobe(struct kprobe_ctlblk *kcb)
 {
 	kcb->prev_kprobe.kp = kprobe_running();
 	kcb->prev_kprobe.status = kcb->kprobe_status;
 }
 
-static inline void restore_previous_kprobe(struct kprobe_ctlblk *kcb)
+static void __kprobes restore_previous_kprobe(struct kprobe_ctlblk *kcb)
 {
 	__get_cpu_var(current_kprobe) = kcb->prev_kprobe.kp;
 	kcb->kprobe_status = kcb->prev_kprobe.status;
 }
 
-static inline void set_current_kprobe(struct kprobe *p, struct pt_regs *regs,
-				      struct kprobe_ctlblk *kcb)
+static void __kprobes set_current_kprobe(struct kprobe *p, struct pt_regs *regs,
+					 struct kprobe_ctlblk *kcb)
 {
 	__get_cpu_var(current_kprobe) = p;
 }
@@ -163,7 +138,7 @@ static inline void set_current_kprobe(struct kprobe *p, struct pt_regs *regs,
  * on the next instruction, following branches. Two probes are set if the
  * branch is conditional.
  */
-static inline void prepare_singlestep(struct kprobe *p, struct pt_regs *regs)
+static void __kprobes prepare_singlestep(struct kprobe *p, struct pt_regs *regs)
 {
 	kprobe_opcode_t *addr = NULL;
 	saved_current_opcode.addr = (kprobe_opcode_t *) (regs->pc);
@@ -277,6 +252,17 @@ static int __kprobes kprobe_handler(struct pt_regs *regs)
 	p = get_kprobe(addr);
 	if (!p) {
 		/* Not one of ours: let kernel handle it */
+		if (*(kprobe_opcode_t *)addr != BREAKPOINT_INSTRUCTION) {
+			/*
+			 * The breakpoint instruction was removed right
+			 * after we hit it. Another cpu has removed
+			 * either a probepoint or a debugger breakpoint
+			 * at this address. In either case, no further
+			 * handling of this interrupt is appropriate.
+			 */
+			ret = 1;
+		}
+
 		goto no_kprobe;
 	}
 
@@ -287,12 +273,12 @@ static int __kprobes kprobe_handler(struct pt_regs *regs)
 		/* handler has already set things up, so skip ss setup */
 		return 1;
 
-      ss_probe:
+ss_probe:
 	prepare_singlestep(p, regs);
 	kcb->kprobe_status = KPROBE_HIT_SS;
 	return 1;
 
-      no_kprobe:
+no_kprobe:
 	preempt_enable_no_resched();
 	return ret;
 }
@@ -302,9 +288,11 @@ static int __kprobes kprobe_handler(struct pt_regs *regs)
  * here. When a retprobed function returns, this probe is hit and
  * trampoline_probe_handler() runs, calling the kretprobe's handler.
  */
-void kretprobe_trampoline_holder(void)
+static void __used kretprobe_trampoline_holder(void)
 {
-	asm volatile ("kretprobe_trampoline: \n" "nop\n");
+	asm volatile (".globl kretprobe_trampoline\n"
+		      "kretprobe_trampoline:\n\t"
+		      "nop\n");
 }
 
 /*
@@ -319,8 +307,7 @@ int __kprobes trampoline_probe_handler(struct kprobe *p, struct pt_regs *regs)
 	unsigned long trampoline_address = (unsigned long)&kretprobe_trampoline;
 
 	INIT_HLIST_HEAD(&empty_rp);
-	spin_lock_irqsave(&kretprobe_lock, flags);
-	head = kretprobe_inst_table_head(current);
+	kretprobe_hash_lock(current, &head, &flags);
 
 	/*
 	 * It is possible to have multiple instances associated with a given
@@ -361,7 +348,7 @@ int __kprobes trampoline_probe_handler(struct kprobe *p, struct pt_regs *regs)
 	kretprobe_assert(ri, orig_ret_address, trampoline_address);
 
 	regs->pc = orig_ret_address;
-	spin_unlock_irqrestore(&kretprobe_lock, flags);
+	kretprobe_hash_unlock(current, &flags);
 
 	preempt_enable_no_resched();
 
@@ -373,7 +360,7 @@ int __kprobes trampoline_probe_handler(struct kprobe *p, struct pt_regs *regs)
 	return orig_ret_address;
 }
 
-static inline int post_kprobe_handler(struct pt_regs *regs)
+static int __kprobes post_kprobe_handler(struct pt_regs *regs)
 {
 	struct kprobe *cur = kprobe_running();
 	struct kprobe_ctlblk *kcb = get_kprobe_ctlblk();
@@ -406,20 +393,21 @@ static inline int post_kprobe_handler(struct pt_regs *regs)
 		}
 	}
 
-	/*Restore back the original saved kprobes variables and continue. */
+	/* Restore back the original saved kprobes variables and continue. */
 	if (kcb->kprobe_status == KPROBE_REENTER) {
 		restore_previous_kprobe(kcb);
 		goto out;
 	}
+
 	reset_current_kprobe();
 
-      out:
+out:
 	preempt_enable_no_resched();
 
 	return 1;
 }
 
-static inline int kprobe_fault_handler(struct pt_regs *regs, int trapnr)
+int __kprobes kprobe_fault_handler(struct pt_regs *regs, int trapnr)
 {
 	struct kprobe *cur = kprobe_running();
 	struct kprobe_ctlblk *kcb = get_kprobe_ctlblk();
@@ -478,6 +466,7 @@ static inline int kprobe_fault_handler(struct pt_regs *regs, int trapnr)
 	default:
 		break;
 	}
+
 	return 0;
 }
 
@@ -500,7 +489,7 @@ int __kprobes kprobe_exceptions_notify(struct notifier_block *self,
 				ret = NOTIFY_STOP;
 			} else {
 				/* Not a kprobe trap */
-				force_sig(SIGTRAP, current);
+				ret = NOTIFY_DONE;
 			}
 		} else {
 			p = get_kprobe(addr);
@@ -513,8 +502,8 @@ int __kprobes kprobe_exceptions_notify(struct notifier_block *self,
 					ret = NOTIFY_STOP;
 				} else {
 					p = __get_cpu_var(current_kprobe);
-					if (p->break_handler
-					    && p->break_handler(p, args->regs))
+					if (p->break_handler &&
+					    p->break_handler(p, args->regs))
 						ret = NOTIFY_STOP;
 				}
 			}
@@ -551,31 +540,32 @@ int __kprobes setjmp_pre_handler(struct kprobe *p, struct pt_regs *regs)
 
 void __kprobes jprobe_return(void)
 {
-	__asm("trapa #-1\n\t" "jprobe_return_end:\n\t" "nop\n\t");
-
+	asm volatile ("trapa #0x3a\n\t" "jprobe_return_end:\n\t" "nop\n\t");
 }
 
 int __kprobes longjmp_break_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	struct kprobe_ctlblk *kcb = get_kprobe_ctlblk();
-	u8 *addr = (u8 *) regs->pc;
 	unsigned long stack_addr = kcb->jprobe_saved_r15;
+	u8 *addr = (u8 *)regs->pc;
 
-	if ((addr >= (u8 *) jprobe_return)
-	    && (addr <= (u8 *) jprobe_return_end)) {
+	if ((addr >= (u8 *)jprobe_return) &&
+	    (addr <= (u8 *)jprobe_return_end)) {
 		*regs = kcb->jprobe_saved_regs;
 
-		memcpy((kprobe_opcode_t *) stack_addr, kcb->jprobes_stack,
+		memcpy((kprobe_opcode_t *)stack_addr, kcb->jprobes_stack,
 		       MIN_STACK_SIZE(stack_addr));
 
 		kcb->kprobe_status = KPROBE_HIT_SS;
+		preempt_enable_no_resched();
 		return 1;
 	}
+
 	return 0;
 }
 
 static struct kprobe trampoline_p = {
-	.addr = (kprobe_opcode_t *) & kretprobe_trampoline,
+	.addr = (kprobe_opcode_t *)&kretprobe_trampoline,
 	.pre_handler = trampoline_probe_handler
 };
 

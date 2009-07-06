@@ -13,8 +13,6 @@
  * Free Software Foundation;  either version 2 of the  License, or (at your
  * option) any later version.
  *
- * Changelog:
- * - Oct 08: Tested GMII mode, reviewed advanced proprietary features.
  */
 
 #include <linux/kernel.h>
@@ -95,13 +93,9 @@ static void ns_giga_speed_fallback(struct phy_device *phydev, int mode)
 
 	/* Enable 8 bit expended memory read/write (no auto increment) */
 	phy_write(phydev, NS_EXP_MEM_CTL, 0);
-
 	phy_write(phydev, NS_EXP_MEM_ADD, 0x1C0);
-
 	phy_write(phydev, NS_EXP_MEM_DATA, 0x0008);
-
 	phy_write(phydev, MII_BMCR, (bmcr & ~BMCR_PDOWN));
-
 	phy_write(phydev, LED_CTRL_REG, mode);
 	return;
 }
@@ -115,7 +109,7 @@ static void ns_10_base_t_hdx_loopack(struct phy_device *phydev, int disable)
 			     ns_exp_read(phydev, 0x1c0) & 0xfffe);
 
 	printk(KERN_DEBUG "DP83865 PHY: 10BASE-T HDX loopback %s\n",
-		(ns_exp_read(phydev, 0x1c0) & 0x0001) ? "off" : "on");
+	       (ns_exp_read(phydev, 0x1c0) & 0x0001) ? "off" : "on");
 
 	return;
 }
@@ -156,7 +150,7 @@ static void __exit ns_exit(void)
 }
 
 MODULE_DESCRIPTION("NatSemi PHY driver");
-MODULE_AUTHOR("Herbert Valerio Riedel");
+MODULE_AUTHOR("Stuart Menefy");
 MODULE_LICENSE("GPL");
 
 module_init(ns_init);

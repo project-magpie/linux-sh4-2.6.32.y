@@ -131,13 +131,8 @@ struct task_struct *task_for_booting_cpu;
  */
 DEFINE_PER_CPU(int, cpu_state);
 
-/* Bitmasks of currently online, and possible CPUs */
-cpumask_t cpu_online_map;
-EXPORT_SYMBOL(cpu_online_map);
-cpumask_t cpu_possible_map = CPU_MASK_NONE;
-EXPORT_SYMBOL(cpu_possible_map);
-
 cpumask_t cpu_core_map[NR_CPUS] __cacheline_aligned;
+EXPORT_SYMBOL(cpu_core_map);
 DEFINE_PER_CPU_SHARED_ALIGNED(cpumask_t, cpu_sibling_map);
 EXPORT_PER_CPU_SYMBOL(cpu_sibling_map);
 
@@ -400,6 +395,7 @@ smp_callin (void)
 	spin_lock(&vector_lock);
 	/* Setup the per cpu irq handling data structures */
 	__setup_vector_irq(cpuid);
+	notify_cpu_starting(cpuid);
 	cpu_set(cpuid, cpu_online_map);
 	per_cpu(cpu_state, cpuid) = CPU_ONLINE;
 	spin_unlock(&vector_lock);
@@ -585,14 +581,14 @@ smp_build_cpu_map (void)
 
 	ia64_cpu_to_sapicid[0] = boot_cpu_id;
 	cpus_clear(cpu_present_map);
-	cpu_set(0, cpu_present_map);
-	cpu_set(0, cpu_possible_map);
+	set_cpu_present(0, true);
+	set_cpu_possible(0, true);
 	for (cpu = 1, i = 0; i < smp_boot_data.cpu_count; i++) {
 		sapicid = smp_boot_data.cpu_phys_id[i];
 		if (sapicid == boot_cpu_id)
 			continue;
-		cpu_set(cpu, cpu_present_map);
-		cpu_set(cpu, cpu_possible_map);
+		set_cpu_present(cpu, true);
+		set_cpu_possible(cpu, true);
 		ia64_cpu_to_sapicid[cpu] = sapicid;
 		cpu++;
 	}
@@ -630,12 +626,9 @@ smp_prepare_cpus (unsigned int max_cpus)
 	 */
 	if (!max_cpus) {
 		printk(KERN_INFO "SMP mode deactivated.\n");
-		cpus_clear(cpu_online_map);
-		cpus_clear(cpu_present_map);
-		cpus_clear(cpu_possible_map);
-		cpu_set(0, cpu_online_map);
-		cpu_set(0, cpu_present_map);
-		cpu_set(0, cpu_possible_map);
+		init_cpu_online(cpumask_of(0));
+		init_cpu_present(cpumask_of(0));
+		init_cpu_possible(cpumask_of(0));
 		return;
 	}
 }
@@ -686,7 +679,7 @@ int migrate_platform_irqs(unsigned int cpu)
 {
 	int new_cpei_cpu;
 	irq_desc_t *desc = NULL;
-	cpumask_t 	mask;
+	const struct cpumask *mask;
 	int 		retval = 0;
 
 	/*
@@ -699,7 +692,7 @@ int migrate_platform_irqs(unsigned int cpu)
 			 * Now re-target the CPEI to a different processor
 			 */
 			new_cpei_cpu = any_online_cpu(cpu_online_map);
-			mask = cpumask_of_cpu(new_cpei_cpu);
+			mask = cpumask_of(new_cpei_cpu);
 			set_cpei_target_cpu(new_cpei_cpu);
 			desc = irq_desc + ia64_cpe_irq;
 			/*
@@ -744,11 +737,10 @@ int __cpu_disable(void)
 
 	if (migrate_platform_irqs(cpu)) {
 		cpu_set(cpu, cpu_online_map);
-		return (-EBUSY);
+		return -EBUSY;
 	}
 
 	remove_siblinginfo(cpu);
-	cpu_clear(cpu, cpu_online_map);
 	fixup_irqs();
 	local_flush_tlb_all();
 	cpu_clear(cpu, cpu_callin_map);

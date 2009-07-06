@@ -63,6 +63,11 @@ struct vm_area_struct;
 extern void clear_user_page(void *to, unsigned long address, struct page *page);
 extern void copy_user_page(void *to, void *from, unsigned long address,
 			   struct page *page);
+#if defined(CONFIG_CPU_SH4)
+extern void copy_user_highpage(struct page *to, struct page *from,
+			       unsigned long vaddr, struct vm_area_struct *vma);
+#define __HAVE_ARCH_COPY_USER_HIGHPAGE
+#endif
 #else
 #define clear_user_page(page, vaddr, pg)	clear_page(page)
 #define copy_user_page(to, from, vaddr, pg)	copy_page(to, from)
@@ -101,6 +106,8 @@ typedef struct { unsigned long pgd; } pgd_t;
 
 typedef struct page *pgtable_t;
 
+#define pte_pgprot(x) __pgprot(pte_val(x) & PTE_FLAGS_MASK)
+
 #endif /* !__ASSEMBLY__ */
 
 /*
@@ -124,7 +131,12 @@ typedef struct page *pgtable_t;
  * is not visible (it is part of the PMB mapping) and so needs to be
  * added or subtracted as required.
  */
-#ifdef CONFIG_32BIT
+#if defined(CONFIG_PMB_FIXED)
+/* phys = virt - PAGE_OFFSET - (__MEMORY_START & 0xe0000000) */
+#define PMB_OFFSET	(PAGE_OFFSET - PXSEG(__MEMORY_START))
+#define __pa(x)	((unsigned long)(x) - PMB_OFFSET)
+#define __va(x)	((void *)((unsigned long)(x) + PMB_OFFSET))
+#elif defined(CONFIG_32BIT)
 #define __pa(x)	((unsigned long)(x)-PAGE_OFFSET+__MEMORY_START)
 #define __va(x)	((void *)((unsigned long)(x)+PAGE_OFFSET-__MEMORY_START))
 #else

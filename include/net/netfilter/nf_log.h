@@ -1,6 +1,8 @@
 #ifndef _NF_LOG_H
 #define _NF_LOG_H
 
+#include <linux/netfilter.h>
+
 /* those NF_LOG_* defines and struct nf_loginfo are legacy definitios that will
  * disappear once iptables is replaced with pkttables.  Please DO NOT use them
  * for any new code! */
@@ -28,7 +30,7 @@ struct nf_loginfo {
 	} u;
 };
 
-typedef void nf_logfn(unsigned int pf,
+typedef void nf_logfn(u_int8_t pf,
 		      unsigned int hooknum,
 		      const struct sk_buff *skb,
 		      const struct net_device *in,
@@ -40,15 +42,18 @@ struct nf_logger {
 	struct module	*me;
 	nf_logfn 	*logfn;
 	char		*name;
+	struct list_head	list[NFPROTO_NUMPROTO];
 };
 
 /* Function to register/unregister log function. */
-int nf_log_register(int pf, const struct nf_logger *logger);
-void nf_log_unregister(const struct nf_logger *logger);
-void nf_log_unregister_pf(int pf);
+int nf_log_register(u_int8_t pf, struct nf_logger *logger);
+void nf_log_unregister(struct nf_logger *logger);
+
+int nf_log_bind_pf(u_int8_t pf, const struct nf_logger *logger);
+void nf_log_unbind_pf(u_int8_t pf);
 
 /* Calls the registered backend logging function */
-void nf_log_packet(int pf,
+void nf_log_packet(u_int8_t pf,
 		   unsigned int hooknum,
 		   const struct sk_buff *skb,
 		   const struct net_device *in,

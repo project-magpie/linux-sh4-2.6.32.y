@@ -22,6 +22,7 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/phy.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <linux/delay.h>
 #include <sound/stm.h>

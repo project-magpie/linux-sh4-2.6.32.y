@@ -31,10 +31,9 @@
 #include <asm/qdio.h>
 #include <asm/ccwdev.h>
 #include <asm/ccwgroup.h>
+#include <asm/sysinfo.h>
 
 #include "qeth_core_mpc.h"
-
-#define KMSG_COMPONENT "qeth"
 
 /**
  * Debug Facility stuff
@@ -74,11 +73,6 @@ struct qeth_dbf_info {
 #define QETH_DBF_TEXT_(name, level, text...) \
 	qeth_dbf_longtext(QETH_DBF_##name, level, text)
 
-/**
- * some more debug stuff
- */
-#define PRINTK_HEADER	"qeth: "
-
 #define SENSE_COMMAND_REJECT_BYTE 0
 #define SENSE_COMMAND_REJECT_FLAG 0x80
 #define SENSE_RESETTING_EVENT_BYTE 1
@@ -90,11 +84,11 @@ struct qeth_dbf_info {
 #define CARD_RDEV(card) card->read.ccwdev
 #define CARD_WDEV(card) card->write.ccwdev
 #define CARD_DDEV(card) card->data.ccwdev
-#define CARD_BUS_ID(card) card->gdev->dev.bus_id
-#define CARD_RDEV_ID(card) card->read.ccwdev->dev.bus_id
-#define CARD_WDEV_ID(card) card->write.ccwdev->dev.bus_id
-#define CARD_DDEV_ID(card) card->data.ccwdev->dev.bus_id
-#define CHANNEL_ID(channel) channel->ccwdev->dev.bus_id
+#define CARD_BUS_ID(card) dev_name(&card->gdev->dev)
+#define CARD_RDEV_ID(card) dev_name(&card->read.ccwdev->dev)
+#define CARD_WDEV_ID(card) dev_name(&card->write.ccwdev->dev)
+#define CARD_DDEV_ID(card) dev_name(&card->data.ccwdev->dev)
+#define CHANNEL_ID(channel) dev_name(&channel->ccwdev->dev)
 
 /**
  * card stuff
@@ -140,6 +134,7 @@ struct qeth_perf_stats {
 	unsigned int sg_skbs_rx;
 	unsigned int sg_frags_rx;
 	unsigned int sg_alloc_page_rx;
+	unsigned int tx_csum;
 };
 
 /* Routing stuff */
@@ -409,7 +404,6 @@ struct qeth_qdio_q {
 /* possible types of qeth large_send support */
 enum qeth_large_send_types {
 	QETH_LARGE_SEND_NO,
-	QETH_LARGE_SEND_EDDP,
 	QETH_LARGE_SEND_TSO,
 };
 
@@ -649,7 +643,6 @@ struct qeth_card_options {
 	int macaddr_mode;
 	int fake_broadcast;
 	int add_hhlen;
-	int fake_ll;
 	int layer2;
 	enum qeth_large_send_types large_send;
 	int performance_stats;
@@ -689,6 +682,7 @@ struct qeth_mc_mac {
 	struct list_head list;
 	__u8 mc_addr[MAX_ADDR_LEN];
 	unsigned char mc_addrlen;
+	int is_vmac;
 };
 
 struct qeth_card {
@@ -732,6 +726,7 @@ struct qeth_card {
 	struct qeth_osn_info osn_info;
 	struct qeth_discipline discipline;
 	atomic_t force_alloc_skb;
+	struct service_level qeth_service_level;
 };
 
 struct qeth_card_list_struct {
@@ -843,11 +838,9 @@ int qeth_get_cast_type(struct qeth_card *, struct sk_buff *);
 int qeth_get_priority_queue(struct qeth_card *, struct sk_buff *, int, int);
 int qeth_get_elements_no(struct qeth_card *, void *, struct sk_buff *, int);
 int qeth_do_send_packet_fast(struct qeth_card *, struct qeth_qdio_out_q *,
-			struct sk_buff *, struct qeth_hdr *, int,
-			struct qeth_eddp_context *, int, int);
+			struct sk_buff *, struct qeth_hdr *, int, int, int);
 int qeth_do_send_packet(struct qeth_card *, struct qeth_qdio_out_q *,
-		    struct sk_buff *, struct qeth_hdr *,
-		    int, struct qeth_eddp_context *);
+		    struct sk_buff *, struct qeth_hdr *, int);
 int qeth_core_get_stats_count(struct net_device *);
 void qeth_core_get_ethtool_stats(struct net_device *,
 				struct ethtool_stats *, u64 *);

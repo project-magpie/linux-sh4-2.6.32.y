@@ -31,13 +31,12 @@
 #include <mach/i2c.h>
 #include <mach/camera.h>
 #include <asm/mach/map.h>
-#include <mach/pxa-regs.h>
+#include <mach/pxa27x.h>
 #include <mach/audio.h>
 #include <mach/mmc.h>
 #include <mach/ohci.h>
 #include <mach/pcm990_baseboard.h>
 #include <mach/pxafb.h>
-#include <mach/mfp-pxa27x.h>
 
 #include "devices.h"
 #include "generic.h"
@@ -55,6 +54,10 @@ static unsigned long pcm990_pin_config[] __initdata = {
 	GPIO89_USBH1_PEN,
 	/* PWM0 */
 	GPIO16_PWM0_OUT,
+
+	/* I2C */
+	GPIO117_I2C_SCL,
+	GPIO118_I2C_SDA,
 };
 
 /*
@@ -100,8 +103,7 @@ static struct pxafb_mode_info fb_info_sharp_lq084v1dg21 = {
 static struct pxafb_mach_info pcm990_fbinfo __initdata = {
 	.modes			= &fb_info_sharp_lq084v1dg21,
 	.num_modes		= 1,
-	.lccr0			= LCCR0_PAS,
-	.lccr3			= LCCR3_PCP,
+	.lcd_conn		= LCD_COLOR_TFT_16BPP | LCD_PCLK_EDGE_FALL,
 	.pxafb_lcd_power	= pcm990_lcd_power,
 };
 #elif defined(CONFIG_PCM990_DISPLAY_NEC)
@@ -123,8 +125,7 @@ struct pxafb_mode_info fb_info_nec_nl6448bc20_18d = {
 static struct pxafb_mach_info pcm990_fbinfo __initdata = {
 	.modes			= &fb_info_nec_nl6448bc20_18d,
 	.num_modes		= 1,
-	.lccr0			= LCCR0_Act,
-	.lccr3			= LCCR3_PixFlEdg,
+	.lcd_conn		= LCD_COLOR_TFT_16BPP | LCD_PCLK_EDGE_FALL,
 	.pxafb_lcd_power	= pcm990_lcd_power,
 };
 #endif
@@ -262,8 +263,7 @@ static void pcm990_irq_handler(unsigned int irq, struct irq_desc *desc)
 					GPIO_bit(PCM990_CTRL_INT_IRQ_GPIO);
 		if (likely(pending)) {
 			irq = PCM027_IRQ(0) + __ffs(pending);
-			desc = irq_desc + irq;
-			desc_handle_irq(irq, desc);
+			generic_handle_irq(irq);
 		}
 		pending = (~PCM990_INTSETCLR) & pcm990_irq_enabled;
 	} while (pending);
@@ -328,36 +328,10 @@ static struct pxamci_platform_data pcm990_mci_platform_data = {
 	.exit		= pcm990_mci_exit,
 };
 
-/*
- * init OHCI hardware to work with
- *
- * Note: Only USB port 1 (host only) is connected
- *
- * GPIO88 (USBHPWR#1): overcurrent in, overcurrent when low
- * GPIO89 (USBHPEN#1): power-on out, on when low
- */
-static int pcm990_ohci_init(struct device *dev)
-{
-	/*
-	 * disable USB port 2 and 3
-	 * power sense is active low
-	 */
-	UHCHR = ((UHCHR) | UHCHR_PCPL | UHCHR_PSPL | UHCHR_SSEP2 |
-				UHCHR_SSEP3) & ~(UHCHR_SSEP1 | UHCHR_SSE);
-	/*
-	 * wait 10ms after Power on
-	 * overcurrent per port
-	 * power switch per port
-	 */
-	UHCRHDA = (5<<24) | (1<<11) | (1<<8);	/* FIXME: Required? */
-
-	return 0;
-}
-
 static struct pxaohci_platform_data pcm990_ohci_platform_data = {
 	.port_mode	= PMM_PERPORT_MODE,
-	.init		= pcm990_ohci_init,
-	.exit		= NULL,
+	.flags		= ENABLE_PORT1 | POWER_CONTROL_LOW | POWER_SENSE_LOW,
+	.power_on_delay	= 10,
 };
 
 /*
@@ -403,16 +377,52 @@ struct pxacamera_platform_data pcm990_pxacamera_platform_data = {
 #include <linux/i2c/pca953x.h>
 
 static struct pca953x_platform_data pca9536_data = {
-	.gpio_base	= NR_BUILTIN_GPIO + 1,
+	.gpio_base	= NR_BUILTIN_GPIO,
 };
 
-static struct soc_camera_link iclink[] = {
-	{
-		.bus_id	= 0, /* Must match with the camera ID above */
-		.gpio	= NR_BUILTIN_GPIO + 1,
-	}, {
-		.bus_id	= 0, /* Must match with the camera ID above */
+static int gpio_bus_switch;
+
+static int pcm990_camera_set_bus_param(struct soc_camera_link *link,
+		unsigned long flags)
+{
+	if (gpio_bus_switch <= 0) {
+		if (flags == SOCAM_DATAWIDTH_10)
+			return 0;
+		else
+			return -EINVAL;
 	}
+
+	if (flags & SOCAM_DATAWIDTH_8)
+		gpio_set_value(gpio_bus_switch, 1);
+	else
+		gpio_set_value(gpio_bus_switch, 0);
+
+	return 0;
+}
+
+static unsigned long pcm990_camera_query_bus_param(struct soc_camera_link *link)
+{
+	int ret;
+
+	if (!gpio_bus_switch) {
+		ret = gpio_request(NR_BUILTIN_GPIO, "camera");
+		if (!ret) {
+			gpio_bus_switch = NR_BUILTIN_GPIO;
+			gpio_direction_output(gpio_bus_switch, 0);
+		} else
+			gpio_bus_switch = -EINVAL;
+	}
+
+	if (gpio_bus_switch > 0)
+		return SOCAM_DATAWIDTH_8 | SOCAM_DATAWIDTH_10;
+	else
+		return SOCAM_DATAWIDTH_10;
+}
+
+static struct soc_camera_link iclink = {
+	.bus_id	= 0, /* Must match with the camera ID above */
+	.query_bus_param = pcm990_camera_query_bus_param,
+	.set_bus_param = pcm990_camera_set_bus_param,
 };
 
 /* Board I2C devices. */
@@ -423,10 +433,10 @@ static struct i2c_board_info __initdata pcm990_i2c_devices[] = {
 		.platform_data = &pca9536_data,
 	}, {
 		I2C_BOARD_INFO("mt9v022", 0x48),
-		.platform_data = &iclink[0], /* With extender */
+		.platform_data = &iclink, /* With extender */
 	}, {
 		I2C_BOARD_INFO("mt9m001", 0x5d),
-		.platform_data = &iclink[0], /* With extender */
+		.platform_data = &iclink, /* With extender */
 	},
 };
 #endif /* CONFIG_VIDEO_PXA27x ||CONFIG_VIDEO_PXA27x_MODULE */

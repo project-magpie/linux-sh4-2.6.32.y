@@ -633,7 +633,7 @@ wavefront_get_sample_status (snd_wavefront_t *dev, int assume_rom)
 		wbuf[1] = i >> 7;
 
 		if (snd_wavefront_cmd (dev, WFC_IDENTIFY_SAMPLE_TYPE, rbuf, wbuf)) {
-			snd_printk("cannot identify sample "
+			snd_printk(KERN_WARNING "cannot identify sample "
 				   "type of slot %d\n", i);
 			dev->sample_status[i] = WF_ST_EMPTY;
 			continue;
@@ -1648,9 +1648,10 @@ snd_wavefront_synth_ioctl (struct snd_hwdep *hw, struct file *file,
 
 	card = (struct snd_card *) hw->card;
 
-	snd_assert(card != NULL, return -ENODEV);
-
-	snd_assert(card->private_data != NULL, return -ENODEV);
+	if (snd_BUG_ON(!card))
+		return -ENODEV;
+	if (snd_BUG_ON(!card->private_data))
+		return -ENODEV;
 
 	acard = card->private_data;
 	dev = &acard->wavefront;
@@ -1663,12 +1664,11 @@ snd_wavefront_synth_ioctl (struct snd_hwdep *hw, struct file *file,
 		break;
 
 	case WFCTL_WFCMD:
-		wc = kmalloc(sizeof(*wc), GFP_KERNEL);
-		if (! wc)
-			return -ENOMEM;
-		if (copy_from_user (wc, argp, sizeof (*wc)))
-			err = -EFAULT;
-		else if (wavefront_synth_control (acard, wc) < 0)
+		wc = memdup_user(argp, sizeof(*wc));
+		if (IS_ERR(wc))
+			return PTR_ERR(wc);
+
+		if (wavefront_synth_control (acard, wc) < 0)
 			err = -EIO;
 		else if (copy_to_user (argp, wc, sizeof (*wc)))
 			err = -EFAULT;

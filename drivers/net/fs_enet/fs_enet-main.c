@@ -209,7 +209,7 @@ static int fs_enet_rx_napi(struct napi_struct *napi, int budget)
 
 	if (received < budget) {
 		/* done */
-		netif_rx_complete(dev, napi);
+		napi_complete(napi);
 		(*fep->ops->napi_enable_rx)(dev);
 	}
 	return received;
@@ -478,7 +478,7 @@ fs_enet_interrupt(int irq, void *dev_id)
 				/* NOTE: it is possible for FCCs in NAPI mode    */
 				/* to submit a spurious interrupt while in poll  */
 				if (napi_ok)
-					__netif_rx_schedule(dev, &fep->napi);
+					__napi_schedule(&fep->napi);
 			}
 		}
 
@@ -664,23 +664,6 @@ static int fs_enet_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_OK;
 }
 
-static int fs_request_irq(struct net_device *dev, int irq, const char *name,
-		irq_handler_t irqf)
-{
-	struct fs_enet_private *fep = netdev_priv(dev);
-
-	(*fep->ops->pre_request_irq)(dev, irq);
-	return request_irq(irq, irqf, IRQF_SHARED, name, dev);
-}
-
-static void fs_free_irq(struct net_device *dev, int irq)
-{
-	struct fs_enet_private *fep = netdev_priv(dev);
-
-	free_irq(irq, dev);
-	(*fep->ops->post_free_irq)(dev, irq);
-}
-
 static void fs_timeout(struct net_device *dev)
 {
 	struct fs_enet_private *fep = netdev_priv(dev);
@@ -792,11 +775,16 @@ static int fs_enet_open(struct net_device *dev)
 	int r;
 	int err;
 
+	/* to initialize the fep->cur_rx,... */
+	/* not doing this, will cause a crash in fs_enet_rx_napi */
+	fs_init_bds(fep->ndev);
+
 	if (fep->fpi->use_napi)
 		napi_enable(&fep->napi);
 
 	/* Install our interrupt handler. */
-	r = fs_request_irq(dev, fep->interrupt, "fs_enet-mac", fs_enet_interrupt);
+	r = request_irq(fep->interrupt, fs_enet_interrupt, IRQF_SHARED,
+			"fs_enet-mac", dev);
 	if (r != 0) {
 		printk(KERN_ERR DRV_MODULE_NAME
 		       ": %s Could not allocate FS_ENET IRQ!", dev->name);
@@ -807,6 +795,7 @@ static int fs_enet_open(struct net_device *dev)
 
 	err = fs_init_phy(dev);
 	if (err) {
+		free_irq(fep->interrupt, dev);
 		if (fep->fpi->use_napi)
 			napi_disable(&fep->napi);
 		return err;
@@ -838,7 +827,7 @@ static int fs_enet_close(struct net_device *dev)
 	/* release any irqs */
 	phy_disconnect(fep->phydev);
 	fep->phydev = NULL;
-	fs_free_irq(dev, fep->interrupt);
+	free_irq(fep->interrupt, dev);
 
 	return 0;
 }
@@ -1030,6 +1019,22 @@ out_put_phy:
 #define IS_FEC(match) 0
 #endif
 
+static const struct net_device_ops fs_enet_netdev_ops = {
+	.ndo_open		= fs_enet_open,
+	.ndo_stop		= fs_enet_close,
+	.ndo_get_stats		= fs_enet_get_stats,
+	.ndo_start_xmit		= fs_enet_start_xmit,
+	.ndo_tx_timeout		= fs_timeout,
+	.ndo_set_multicast_list	= fs_set_multicast_list,
+	.ndo_do_ioctl		= fs_ioctl,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_mac_address	= eth_mac_addr,
+	.ndo_change_mtu		= eth_change_mtu,
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	.ndo_poll_controller	= fs_enet_netpoll,
+#endif
+};
+
 static int __devinit fs_enet_probe(struct of_device *ofdev,
                                    const struct of_device_id *match)
 {
@@ -1104,20 +1109,13 @@ static int __devinit fs_enet_probe(struct of_device *ofdev,
 	fep->tx_ring = fpi->tx_ring;
 	fep->rx_ring = fpi->rx_ring;
 
-	ndev->open = fs_enet_open;
-	ndev->hard_start_xmit = fs_enet_start_xmit;
-	ndev->tx_timeout = fs_timeout;
+	ndev->netdev_ops = &fs_enet_netdev_ops;
 	ndev->watchdog_timeo = 2 * HZ;
-	ndev->stop = fs_enet_close;
-	ndev->get_stats = fs_enet_get_stats;
-	ndev->set_multicast_list = fs_set_multicast_list;
-
 	if (fpi->use_napi)
 		netif_napi_add(ndev, &fep->napi, fs_enet_rx_napi,
 		               fpi->napi_weight);
 
 	ndev->ethtool_ops = &fs_ethtool_ops;
-	ndev->do_ioctl = fs_ioctl;
 
 	init_timer(&fep->phy_timer_list);
 
@@ -1127,10 +1125,7 @@ static int __devinit fs_enet_probe(struct of_device *ofdev,
 	if (ret)
 		goto out_free_bd;
 
-	printk(KERN_INFO "%s: fs_enet: %02x:%02x:%02x:%02x:%02x:%02x\n",
-	       ndev->name,
-	       ndev->dev_addr[0], ndev->dev_addr[1], ndev->dev_addr[2],
-	       ndev->dev_addr[3], ndev->dev_addr[4], ndev->dev_addr[5]);
+	printk(KERN_INFO "%s: fs_enet: %pM\n", ndev->name, ndev->dev_addr);
 
 	return 0;
 
@@ -1165,6 +1160,10 @@ static struct of_device_id fs_enet_match[] = {
 #ifdef CONFIG_FS_ENET_HAS_SCC
 	{
 		.compatible = "fsl,cpm1-scc-enet",
+		.data = (void *)&fs_scc_ops,
+	},
+	{
+		.compatible = "fsl,cpm2-scc-enet",
 		.data = (void *)&fs_scc_ops,
 	},
 #endif
@@ -1217,7 +1216,7 @@ static void __exit fs_cleanup(void)
 static void fs_enet_netpoll(struct net_device *dev)
 {
        disable_irq(dev->irq);
-       fs_enet_interrupt(dev->irq, dev, NULL);
+       fs_enet_interrupt(dev->irq, dev);
        enable_irq(dev->irq);
 }
 #endif

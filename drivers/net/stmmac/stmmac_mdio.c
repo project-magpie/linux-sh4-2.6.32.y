@@ -138,13 +138,20 @@ int stmmac_mdio_reset(struct mii_bus *bus)
 int stmmac_mdio_register(struct net_device *ndev)
 {
 	int err = 0;
-	struct mii_bus *new_bus = kzalloc(sizeof(struct mii_bus), GFP_KERNEL);
-	int *irqlist = kzalloc(sizeof(int) * PHY_MAX_ADDR, GFP_KERNEL);
+	struct mii_bus *new_bus;
+	int *irqlist;
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	int addr, found;
 
+	new_bus = mdiobus_alloc();
 	if (new_bus == NULL)
 		return -ENOMEM;
+
+	irqlist = kzalloc(sizeof(int) * PHY_MAX_ADDR, GFP_KERNEL);
+	if (irqlist == NULL) {
+		err = -ENOMEM;
+		goto irqlist_alloc_fail;
+	}
 
 	/* Assign IRQ to phy at address phy_addr */
 	if (priv->phy_addr != -1)
@@ -158,7 +165,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 	new_bus->priv = ndev;
 	new_bus->irq = irqlist;
 	new_bus->phy_mask = priv->phy_mask;
-	new_bus->dev = priv->device;
+	new_bus->parent = priv->device;
 	printk(KERN_DEBUG "calling mdiobus_register\n");
 	err = mdiobus_register(new_bus);
 	printk(KERN_DEBUG "calling mdiobus_register done\n");
@@ -182,7 +189,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 			printk(KERN_INFO
 			       "%s: PHY ID %08x at %d IRQ %d (%s)%s\n",
 			       ndev->name, phydev->phy_id, addr,
-			       phydev->irq, phydev->dev.bus_id,
+			       phydev->irq, dev_name(&phydev->dev),
 			       (addr == priv->phy_addr) ? " active" : "");
 			found = 1;
 		}
@@ -193,6 +200,8 @@ int stmmac_mdio_register(struct net_device *ndev)
 
 	return 0;
 bus_register_fail:
+	kfree(irqlist);
+irqlist_alloc_fail:
 	kfree(new_bus);
 	return err;
 }

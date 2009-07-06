@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2004 - 2008 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -25,6 +25,16 @@
 
 #ifndef RT2X00REG_H
 #define RT2X00REG_H
+
+/*
+ * RX crypto status
+ */
+enum rx_crypto {
+	RX_CRYPTO_SUCCESS = 0,
+	RX_CRYPTO_FAIL_ICV = 1,
+	RX_CRYPTO_FAIL_MIC = 2,
+	RX_CRYPTO_FAIL_KEY = 3,
+};
 
 /*
  * Antenna values
@@ -104,7 +114,34 @@ enum cipher {
  */
 	CIPHER_CKIP64 = 5,
 	CIPHER_CKIP128 = 6,
-	CIPHER_TKIP_NO_MIC = 7,
+	CIPHER_TKIP_NO_MIC = 7, /* Don't send to device */
+
+/*
+ * Max cipher type.
+ * Note that CIPHER_NONE isn't counted, and CKIP64 and CKIP128
+ * are excluded due to limitations in mac80211.
+ */
+	CIPHER_MAX = 4,
+};
+
+/*
+ * Rate modulations
+ */
+enum rate_modulation {
+	RATE_MODE_CCK = 0,
+	RATE_MODE_OFDM = 1,
+	RATE_MODE_HT_MIX = 2,
+	RATE_MODE_HT_GREENFIELD = 3,
+};
+
+/*
+ * Firmware validation error codes
+ */
+enum firmware_errors {
+	FW_OK,
+	FW_BAD_CRC,
+	FW_BAD_LENGTH,
+	FW_BAD_VERSION,
 };
 
 /*
@@ -136,7 +173,7 @@ struct rt2x00_field32 {
  */
 #define is_power_of_two(x)	( !((x) & ((x)-1)) )
 #define low_bit_mask(x)		( ((x)-1) & ~(x) )
-#define is_valid_mask(x)	is_power_of_two(1 + (x) + low_bit_mask(x))
+#define is_valid_mask(x)	is_power_of_two(1LU + (x) + low_bit_mask(x))
 
 /*
  * Macro's to find first set bit in a variable.
@@ -173,8 +210,7 @@ struct rt2x00_field32 {
  * does not exceed the given typelimit.
  */
 #define FIELD_CHECK(__mask, __type)			\
-	BUILD_BUG_ON(!__builtin_constant_p(__mask) ||	\
-		     !(__mask) ||			\
+	BUILD_BUG_ON(!(__mask) ||			\
 		     !is_valid_mask(__mask) ||		\
 		     (__mask) != (__type)(__mask))	\
 

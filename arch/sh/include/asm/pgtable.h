@@ -59,12 +59,12 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 
 /* PGD bits */
 #define PGDIR_SHIFT	(PTE_SHIFT + PTE_BITS)
-#define PGDIR_SIZE	(_AC(1, UL) << PGDIR_SHIFT)
+#define PGDIR_SIZE	(1UL << PGDIR_SHIFT)
 #define PGDIR_MASK	(~(PGDIR_SIZE-1))
 
 /* Entries per level */
 #define PTRS_PER_PTE	(PAGE_SIZE / (1 << PTE_MAGNITUDE))
-#define PTRS_PER_PGD	(PAGE_SIZE / 4)
+#define PTRS_PER_PGD	(PAGE_SIZE / sizeof(pgd_t))
 
 #define USER_PTRS_PER_PGD	(TASK_SIZE/PGDIR_SIZE)
 #define FIRST_USER_ADDRESS	0
@@ -76,16 +76,10 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 #endif
 
 #define PTE_PHYS_MASK		(PHYS_ADDR_MASK & PAGE_MASK)
+#define PTE_FLAGS_MASK		(~(PTE_PHYS_MASK) << PAGE_SHIFT)
 
 #ifdef CONFIG_SUPERH32
-/*
- * P3 usage:
- * First 1MB map is used by fixed purpose.
- * Currently only 4-entry (16kB) is used (see arch/sh/mm/cache.c)
- * Then consistent allocations (32 bit mode only), vmalloc and finally
- * fixmap.
- */
-#define CONSISTENT_BASE	(P3SEG+0x00100000)
+#define CONSISTENT_BASE	(P3SEG)
 #define CONSISTENT_END	(P3SEG+0x01000000)
 #define VMALLOC_START	CONSISTENT_END
 #else
@@ -150,6 +144,12 @@ extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 extern void paging_init(void);
 extern void page_table_range_init(unsigned long start, unsigned long end,
 				  pgd_t *pgd);
+
+#if !defined(CONFIG_CACHE_OFF) && defined(CONFIG_CPU_SH4) && defined(CONFIG_MMU)
+extern void kmap_coherent_init(void);
+#else
+#define kmap_coherent_init()	do { } while (0)
+#endif
 
 #endif /* __ASSEMBLY__ */
 

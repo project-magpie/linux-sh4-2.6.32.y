@@ -19,6 +19,7 @@
 #include <linux/notifier.h>
 #include <linux/lmb.h>
 #include <linux/of.h>
+#include <linux/pfn.h>
 #include <asm/sparsemem.h>
 #include <asm/prom.h>
 #include <asm/system.h>
@@ -89,6 +90,48 @@ static int __cpuinit fake_numa_create_new_node(unsigned long end_pfn,
 	return 0;
 }
 
+/*
+ * get_active_region_work_fn - A helper function for get_node_active_region
+ *	Returns datax set to the start_pfn and end_pfn if they contain
+ *	the initial value of datax->start_pfn between them
+ * @start_pfn: start page(inclusive) of region to check
+ * @end_pfn: end page(exclusive) of region to check
+ * @datax: comes in with ->start_pfn set to value to search for and
+ *	goes out with active range if it contains it
+ * Returns 1 if search value is in range else 0
+ */
+static int __init get_active_region_work_fn(unsigned long start_pfn,
+					unsigned long end_pfn, void *datax)
+{
+	struct node_active_region *data;
+	data = (struct node_active_region *)datax;
+
+	if (start_pfn <= data->start_pfn && end_pfn > data->start_pfn) {
+		data->start_pfn = start_pfn;
+		data->end_pfn = end_pfn;
+		return 1;
+	}
+	return 0;
+
+}
+
+/*
+ * get_node_active_region - Return active region containing start_pfn
+ * Active range returned is empty if none found.
+ * @start_pfn: The page to return the region for.
+ * @node_ar: Returned set to the active region containing start_pfn
+ */
+static void __init get_node_active_region(unsigned long start_pfn,
+		       struct node_active_region *node_ar)
+{
+	int nid = early_pfn_to_nid(start_pfn);
+
+	node_ar->nid = nid;
+	node_ar->start_pfn = start_pfn;
+	node_ar->end_pfn = start_pfn;
+	work_with_active_regions(nid, get_active_region_work_fn, node_ar);
+}
+
 static void __cpuinit map_cpu_to_node(int cpu, int node)
 {
 	numa_cpu_lookup_table[cpu] = node;
@@ -115,39 +158,25 @@ static void unmap_cpu_from_node(unsigned long cpu)
 }
 #endif /* CONFIG_HOTPLUG_CPU */
 
-static struct device_node * __cpuinit find_cpu_node(unsigned int cpu)
-{
-	unsigned int hw_cpuid = get_hard_smp_processor_id(cpu);
-	struct device_node *cpu_node = NULL;
-	const unsigned int *interrupt_server, *reg;
-	int len;
-
-	while ((cpu_node = of_find_node_by_type(cpu_node, "cpu")) != NULL) {
-		/* Try interrupt server first */
-		interrupt_server = of_get_property(cpu_node,
-					"ibm,ppc-interrupt-server#s", &len);
-
-		len = len / sizeof(u32);
-
-		if (interrupt_server && (len > 0)) {
-			while (len--) {
-				if (interrupt_server[len] == hw_cpuid)
-					return cpu_node;
-			}
-		} else {
-			reg = of_get_property(cpu_node, "reg", &len);
-			if (reg && (len > 0) && (reg[0] == hw_cpuid))
-				return cpu_node;
-		}
-	}
-
-	return NULL;
-}
-
 /* must hold reference to node during call */
 static const int *of_get_associativity(struct device_node *dev)
 {
 	return of_get_property(dev, "ibm,associativity", NULL);
+}
+
+/*
+ * Returns the property linux,drconf-usable-memory if
+ * it exists (the property exists only in kexec/kdump kernels,
+ * added by kexec-tools)
+ */
+static const u32 *of_get_usable_memory(struct device_node *memory)
+{
+	const u32 *prop;
+	u32 len;
+	prop = of_get_property(memory, "linux,drconf-usable-memory", &len);
+	if (!prop || len < sizeof(unsigned int))
+		return 0;
+	return prop;
 }
 
 /* Returns nid in the range [0..MAX_NUMNODES-1], or -1 if no useful numa
@@ -232,7 +261,7 @@ static int __init find_min_common_depth(void)
 	ref_points = of_get_property(rtas_root,
 			"ibm,associativity-reference-points", &len);
 
-	if ((len >= 1) && ref_points) {
+	if ((len >= 2 * sizeof(unsigned int)) && ref_points) {
 		depth = ref_points[1];
 	} else {
 		dbg("NUMA: ibm,associativity-reference-points not found.\n");
@@ -412,7 +441,7 @@ static int of_drconf_to_nid_single(struct of_drconf_cell *drmem,
 static int __cpuinit numa_setup_cpu(unsigned long lcpu)
 {
 	int nid = 0;
-	struct device_node *cpu = find_cpu_node(lcpu);
+	struct device_node *cpu = of_get_cpu_node(lcpu, NULL);
 
 	if (!cpu) {
 		WARN_ON(1);
@@ -471,11 +500,9 @@ static unsigned long __init numa_enforce_memory_limit(unsigned long start,
 	/*
 	 * We use lmb_end_of_DRAM() in here instead of memory_limit because
 	 * we've already adjusted it for the limit and it takes care of
-	 * having memory holes below the limit.
+	 * having memory holes below the limit.  Also, in the case of
+	 * iommu_is_off, memory_limit is not set but is implicitly enforced.
 	 */
-
-	if (! memory_limit)
-		return size;
 
 	if (start + size <= lmb_end_of_DRAM())
 		return size;
@@ -487,14 +514,29 @@ static unsigned long __init numa_enforce_memory_limit(unsigned long start,
 }
 
 /*
+ * Reads the counter for a given entry in
+ * linux,drconf-usable-memory property
+ */
+static inline int __init read_usm_ranges(const u32 **usm)
+{
+	/*
+	 * For each lmb in ibm,dynamic-memory a corresponding
+	 * entry in linux,drconf-usable-memory property contains
+	 * a counter followed by that many (base, size) duple.
+	 * read the counter from linux,drconf-usable-memory
+	 */
+	return read_n_cells(n_mem_size_cells, usm);
+}
+
+/*
  * Extract NUMA information from the ibm,dynamic-reconfiguration-memory
  * node.  This assumes n_mem_{addr,size}_cells have been set.
  */
 static void __init parse_drconf_memory(struct device_node *memory)
 {
-	const u32 *dm;
-	unsigned int n, rc;
-	unsigned long lmb_size, size;
+	const u32 *dm, *usm;
+	unsigned int n, rc, ranges, is_kexec_kdump = 0;
+	unsigned long lmb_size, base, size, sz;
 	int nid;
 	struct assoc_arrays aa;
 
@@ -510,6 +552,11 @@ static void __init parse_drconf_memory(struct device_node *memory)
 	if (rc)
 		return;
 
+	/* check if this is a kexec/kdump kernel */
+	usm = of_get_usable_memory(memory);
+	if (usm != NULL)
+		is_kexec_kdump = 1;
+
 	for (; n != 0; --n) {
 		struct of_drconf_cell drmem;
 
@@ -521,21 +568,31 @@ static void __init parse_drconf_memory(struct device_node *memory)
 		    || !(drmem.flags & DRCONF_MEM_ASSIGNED))
 			continue;
 
-		nid = of_drconf_to_nid_single(&drmem, &aa);
+		base = drmem.base_addr;
+		size = lmb_size;
+		ranges = 1;
 
-		fake_numa_create_new_node(
-				((drmem.base_addr + lmb_size) >> PAGE_SHIFT),
+		if (is_kexec_kdump) {
+			ranges = read_usm_ranges(&usm);
+			if (!ranges) /* there are no (base, size) duple */
+				continue;
+		}
+		do {
+			if (is_kexec_kdump) {
+				base = read_n_cells(n_mem_addr_cells, &usm);
+				size = read_n_cells(n_mem_size_cells, &usm);
+			}
+			nid = of_drconf_to_nid_single(&drmem, &aa);
+			fake_numa_create_new_node(
+				((base + size) >> PAGE_SHIFT),
 					   &nid);
-
-		node_set_online(nid);
-
-		size = numa_enforce_memory_limit(drmem.base_addr, lmb_size);
-		if (!size)
-			continue;
-
-		add_active_range(nid, drmem.base_addr >> PAGE_SHIFT,
-				 (drmem.base_addr >> PAGE_SHIFT)
-				 + (size >> PAGE_SHIFT));
+			node_set_online(nid);
+			sz = numa_enforce_memory_limit(base, size);
+			if (sz)
+				add_active_range(nid, base >> PAGE_SHIFT,
+						 (base >> PAGE_SHIFT)
+						 + (sz >> PAGE_SHIFT));
+		} while (--ranges);
 	}
 }
 
@@ -566,7 +623,7 @@ static int __init parse_numa_properties(void)
 	for_each_present_cpu(i) {
 		int nid;
 
-		cpu = find_cpu_node(i);
+		cpu = of_get_cpu_node(i, NULL);
 		BUG_ON(!cpu);
 		nid = of_node_to_nid_single(cpu);
 		of_node_put(cpu);
@@ -737,42 +794,50 @@ static void __init dump_numa_memory_topology(void)
  * required. nid is the preferred node and end is the physical address of
  * the highest address in the node.
  *
- * Returns the physical address of the memory.
+ * Returns the virtual address of the memory.
  */
-static void __init *careful_allocation(int nid, unsigned long size,
+static void __init *careful_zallocation(int nid, unsigned long size,
 				       unsigned long align,
 				       unsigned long end_pfn)
 {
+	void *ret;
 	int new_nid;
-	unsigned long ret = __lmb_alloc_base(size, align, end_pfn << PAGE_SHIFT);
+	unsigned long ret_paddr;
+
+	ret_paddr = __lmb_alloc_base(size, align, end_pfn << PAGE_SHIFT);
 
 	/* retry over all memory */
-	if (!ret)
-		ret = __lmb_alloc_base(size, align, lmb_end_of_DRAM());
+	if (!ret_paddr)
+		ret_paddr = __lmb_alloc_base(size, align, lmb_end_of_DRAM());
 
-	if (!ret)
-		panic("numa.c: cannot allocate %lu bytes on node %d",
+	if (!ret_paddr)
+		panic("numa.c: cannot allocate %lu bytes for node %d",
 		      size, nid);
 
+	ret = __va(ret_paddr);
+
 	/*
-	 * If the memory came from a previously allocated node, we must
-	 * retry with the bootmem allocator.
+	 * We initialize the nodes in numeric order: 0, 1, 2...
+	 * and hand over control from the LMB allocator to the
+	 * bootmem allocator.  If this function is called for
+	 * node 5, then we know that all nodes <5 are using the
+	 * bootmem allocator instead of the LMB allocator.
+	 *
+	 * So, check the nid from which this allocation came
+	 * and double check to see if we need to use bootmem
+	 * instead of the LMB.  We don't free the LMB memory
+	 * since it would be useless.
 	 */
-	new_nid = early_pfn_to_nid(ret >> PAGE_SHIFT);
+	new_nid = early_pfn_to_nid(ret_paddr >> PAGE_SHIFT);
 	if (new_nid < nid) {
-		ret = (unsigned long)__alloc_bootmem_node(NODE_DATA(new_nid),
+		ret = __alloc_bootmem_node(NODE_DATA(new_nid),
 				size, align, 0);
 
-		if (!ret)
-			panic("numa.c: cannot allocate %lu bytes on node %d",
-			      size, new_nid);
-
-		ret = __pa(ret);
-
-		dbg("alloc_bootmem %lx %lx\n", ret, size);
+		dbg("alloc_bootmem %p %lx\n", ret, size);
 	}
 
-	return (void *)ret;
+	memset(ret, 0, size);
+	return ret;
 }
 
 static struct notifier_block __cpuinitdata ppc64_numa_nb = {
@@ -780,10 +845,77 @@ static struct notifier_block __cpuinitdata ppc64_numa_nb = {
 	.priority = 1 /* Must run before sched domains notifier. */
 };
 
+static void mark_reserved_regions_for_nid(int nid)
+{
+	struct pglist_data *node = NODE_DATA(nid);
+	int i;
+
+	for (i = 0; i < lmb.reserved.cnt; i++) {
+		unsigned long physbase = lmb.reserved.region[i].base;
+		unsigned long size = lmb.reserved.region[i].size;
+		unsigned long start_pfn = physbase >> PAGE_SHIFT;
+		unsigned long end_pfn = PFN_UP(physbase + size);
+		struct node_active_region node_ar;
+		unsigned long node_end_pfn = node->node_start_pfn +
+					     node->node_spanned_pages;
+
+		/*
+		 * Check to make sure that this lmb.reserved area is
+		 * within the bounds of the node that we care about.
+		 * Checking the nid of the start and end points is not
+		 * sufficient because the reserved area could span the
+		 * entire node.
+		 */
+		if (end_pfn <= node->node_start_pfn ||
+		    start_pfn >= node_end_pfn)
+			continue;
+
+		get_node_active_region(start_pfn, &node_ar);
+		while (start_pfn < end_pfn &&
+			node_ar.start_pfn < node_ar.end_pfn) {
+			unsigned long reserve_size = size;
+			/*
+			 * if reserved region extends past active region
+			 * then trim size to active region
+			 */
+			if (end_pfn > node_ar.end_pfn)
+				reserve_size = (node_ar.end_pfn << PAGE_SHIFT)
+					- physbase;
+			/*
+			 * Only worry about *this* node, others may not
+			 * yet have valid NODE_DATA().
+			 */
+			if (node_ar.nid == nid) {
+				dbg("reserve_bootmem %lx %lx nid=%d\n",
+					physbase, reserve_size, node_ar.nid);
+				reserve_bootmem_node(NODE_DATA(node_ar.nid),
+						physbase, reserve_size,
+						BOOTMEM_DEFAULT);
+			}
+			/*
+			 * if reserved region is contained in the active region
+			 * then done.
+			 */
+			if (end_pfn <= node_ar.end_pfn)
+				break;
+
+			/*
+			 * reserved region extends past the active region
+			 *   get next active region that contains this
+			 *   reserved region
+			 */
+			start_pfn = node_ar.end_pfn;
+			physbase = start_pfn << PAGE_SHIFT;
+			size = size - reserve_size;
+			get_node_active_region(start_pfn, &node_ar);
+		}
+	}
+}
+
+
 void __init do_init_bootmem(void)
 {
 	int nid;
-	unsigned int i;
 
 	min_low_pfn = 0;
 	max_low_pfn = lmb_end_of_DRAM() >> PAGE_SHIFT;
@@ -800,17 +932,21 @@ void __init do_init_bootmem(void)
 
 	for_each_online_node(nid) {
 		unsigned long start_pfn, end_pfn;
-		unsigned long bootmem_paddr;
+		void *bootmem_vaddr;
 		unsigned long bootmap_pages;
 
 		get_pfn_range_for_nid(nid, &start_pfn, &end_pfn);
 
-		/* Allocate the node structure node local if possible */
-		NODE_DATA(nid) = careful_allocation(nid,
+		/*
+		 * Allocate the node structure node local if possible
+		 *
+		 * Be careful moving this around, as it relies on all
+		 * previous nodes' bootmem to be initialized and have
+		 * all reserved areas marked.
+		 */
+		NODE_DATA(nid) = careful_zallocation(nid,
 					sizeof(struct pglist_data),
 					SMP_CACHE_BYTES, end_pfn);
-		NODE_DATA(nid) = __va(NODE_DATA(nid));
-		memset(NODE_DATA(nid), 0, sizeof(struct pglist_data));
 
   		dbg("node %d\n", nid);
 		dbg("NODE_DATA() = %p\n", NODE_DATA(nid));
@@ -826,47 +962,23 @@ void __init do_init_bootmem(void)
   		dbg("end_paddr = %lx\n", end_pfn << PAGE_SHIFT);
 
 		bootmap_pages = bootmem_bootmap_pages(end_pfn - start_pfn);
-		bootmem_paddr = (unsigned long)careful_allocation(nid,
+		bootmem_vaddr = careful_zallocation(nid,
 					bootmap_pages << PAGE_SHIFT,
 					PAGE_SIZE, end_pfn);
-		memset(__va(bootmem_paddr), 0, bootmap_pages << PAGE_SHIFT);
 
-		dbg("bootmap_paddr = %lx\n", bootmem_paddr);
+		dbg("bootmap_vaddr = %p\n", bootmem_vaddr);
 
-		init_bootmem_node(NODE_DATA(nid), bootmem_paddr >> PAGE_SHIFT,
+		init_bootmem_node(NODE_DATA(nid),
+				  __pa(bootmem_vaddr) >> PAGE_SHIFT,
 				  start_pfn, end_pfn);
 
 		free_bootmem_with_active_regions(nid, end_pfn);
-
-		/* Mark reserved regions on this node */
-		for (i = 0; i < lmb.reserved.cnt; i++) {
-			unsigned long physbase = lmb.reserved.region[i].base;
-			unsigned long size = lmb.reserved.region[i].size;
-			unsigned long start_paddr = start_pfn << PAGE_SHIFT;
-			unsigned long end_paddr = end_pfn << PAGE_SHIFT;
-
-			if (early_pfn_to_nid(physbase >> PAGE_SHIFT) != nid &&
-			    early_pfn_to_nid((physbase+size-1) >> PAGE_SHIFT) != nid)
-				continue;
-
-			if (physbase < end_paddr &&
-			    (physbase+size) > start_paddr) {
-				/* overlaps */
-				if (physbase < start_paddr) {
-					size -= start_paddr - physbase;
-					physbase = start_paddr;
-				}
-
-				if (size > end_paddr - physbase)
-					size = end_paddr - physbase;
-
-				dbg("reserve_bootmem %lx %lx\n", physbase,
-				    size);
-				reserve_bootmem_node(NODE_DATA(nid), physbase,
-						     size, BOOTMEM_DEFAULT);
-			}
-		}
-
+		/*
+		 * Be very careful about moving this around.  Future
+		 * calls to careful_zallocation() depend on this getting
+		 * done correctly.
+		 */
+		mark_reserved_regions_for_nid(nid);
 		sparse_memory_present_with_active_regions(nid);
 	}
 }
@@ -900,57 +1012,32 @@ early_param("numa", early_numa);
 
 #ifdef CONFIG_MEMORY_HOTPLUG
 /*
- * Validate the node associated with the memory section we are
- * trying to add.
- */
-int valid_hot_add_scn(int *nid, unsigned long start, u32 lmb_size,
-		      unsigned long scn_addr)
-{
-	nodemask_t nodes;
-
-	if (*nid < 0 || !node_online(*nid))
-		*nid = any_online_node(NODE_MASK_ALL);
-
-	if ((scn_addr >= start) && (scn_addr < (start + lmb_size))) {
-		nodes_setall(nodes);
-		while (NODE_DATA(*nid)->node_spanned_pages == 0) {
-			node_clear(*nid, nodes);
-			*nid = any_online_node(nodes);
-		}
-
-		return 1;
-	}
-
-	return 0;
-}
-
-/*
- * Find the node associated with a hot added memory section represented
- * by the ibm,dynamic-reconfiguration-memory node.
+ * Find the node associated with a hot added memory section for
+ * memory represented in the device tree by the property
+ * ibm,dynamic-reconfiguration-memory/ibm,dynamic-memory.
  */
 static int hot_add_drconf_scn_to_nid(struct device_node *memory,
 				     unsigned long scn_addr)
 {
 	const u32 *dm;
-	unsigned int n, rc;
+	unsigned int drconf_cell_cnt, rc;
 	unsigned long lmb_size;
-	int default_nid = any_online_node(NODE_MASK_ALL);
-	int nid;
 	struct assoc_arrays aa;
+	int nid = -1;
 
-	n = of_get_drconf_memory(memory, &dm);
-	if (!n)
-		return default_nid;;
+	drconf_cell_cnt = of_get_drconf_memory(memory, &dm);
+	if (!drconf_cell_cnt)
+		return -1;
 
 	lmb_size = of_get_lmb_size(memory);
 	if (!lmb_size)
-		return default_nid;
+		return -1;
 
 	rc = of_get_assoc_arrays(memory, &aa);
 	if (rc)
-		return default_nid;
+		return -1;
 
-	for (; n != 0; --n) {
+	for (; drconf_cell_cnt != 0; --drconf_cell_cnt) {
 		struct of_drconf_cell drmem;
 
 		read_drconf_cell(&drmem, &dm);
@@ -961,36 +1048,26 @@ static int hot_add_drconf_scn_to_nid(struct device_node *memory,
 		    || !(drmem.flags & DRCONF_MEM_ASSIGNED))
 			continue;
 
-		nid = of_drconf_to_nid_single(&drmem, &aa);
+		if ((scn_addr < drmem.base_addr)
+		    || (scn_addr >= (drmem.base_addr + lmb_size)))
+			continue;
 
-		if (valid_hot_add_scn(&nid, drmem.base_addr, lmb_size,
-				      scn_addr))
-			return nid;
+		nid = of_drconf_to_nid_single(&drmem, &aa);
+		break;
 	}
 
-	BUG();	/* section address should be found above */
-	return 0;
+	return nid;
 }
 
 /*
- * Find the node associated with a hot added memory section.  Section
- * corresponds to a SPARSEMEM section, not an LMB.  It is assumed that
- * sections are fully contained within a single LMB.
+ * Find the node associated with a hot added memory section for memory
+ * represented in the device tree as a node (i.e. memory@XXXX) for
+ * each lmb.
  */
-int hot_add_scn_to_nid(unsigned long scn_addr)
+int hot_add_node_scn_to_nid(unsigned long scn_addr)
 {
 	struct device_node *memory = NULL;
-	int nid;
-
-	if (!numa_enabled || (min_common_depth < 0))
-		return any_online_node(NODE_MASK_ALL);
-
-	memory = of_find_node_by_path("/ibm,dynamic-reconfiguration-memory");
-	if (memory) {
-		nid = hot_add_drconf_scn_to_nid(memory, scn_addr);
-		of_node_put(memory);
-		return nid;
-	}
+	int nid = -1;
 
 	while ((memory = of_find_node_by_type(memory, "memory")) != NULL) {
 		unsigned long start, size;
@@ -1004,20 +1081,62 @@ int hot_add_scn_to_nid(unsigned long scn_addr)
 
 		/* ranges in cell */
 		ranges = (len >> 2) / (n_mem_addr_cells + n_mem_size_cells);
-ha_new_range:
-		start = read_n_cells(n_mem_addr_cells, &memcell_buf);
-		size = read_n_cells(n_mem_size_cells, &memcell_buf);
-		nid = of_node_to_nid_single(memory);
 
-		if (valid_hot_add_scn(&nid, start, size, scn_addr)) {
-			of_node_put(memory);
-			return nid;
+		while (ranges--) {
+			start = read_n_cells(n_mem_addr_cells, &memcell_buf);
+			size = read_n_cells(n_mem_size_cells, &memcell_buf);
+
+			if ((scn_addr < start) || (scn_addr >= (start + size)))
+				continue;
+
+			nid = of_node_to_nid_single(memory);
+			break;
 		}
 
-		if (--ranges)		/* process all ranges in cell */
-			goto ha_new_range;
+		of_node_put(memory);
+		if (nid >= 0)
+			break;
 	}
-	BUG();	/* section address should be found above */
-	return 0;
+
+	return nid;
 }
+
+/*
+ * Find the node associated with a hot added memory section.  Section
+ * corresponds to a SPARSEMEM section, not an LMB.  It is assumed that
+ * sections are fully contained within a single LMB.
+ */
+int hot_add_scn_to_nid(unsigned long scn_addr)
+{
+	struct device_node *memory = NULL;
+	int nid, found = 0;
+
+	if (!numa_enabled || (min_common_depth < 0))
+		return any_online_node(NODE_MASK_ALL);
+
+	memory = of_find_node_by_path("/ibm,dynamic-reconfiguration-memory");
+	if (memory) {
+		nid = hot_add_drconf_scn_to_nid(memory, scn_addr);
+		of_node_put(memory);
+	} else {
+		nid = hot_add_node_scn_to_nid(scn_addr);
+	}
+
+	if (nid < 0 || !node_online(nid))
+		nid = any_online_node(NODE_MASK_ALL);
+
+	if (NODE_DATA(nid)->node_spanned_pages)
+		return nid;
+
+	for_each_online_node(nid) {
+		if (NODE_DATA(nid)->node_spanned_pages) {
+			found = 1;
+			break;
+		}
+	}
+
+	BUG_ON(!found);
+	return nid;
+}
+
 #endif /* CONFIG_MEMORY_HOTPLUG */

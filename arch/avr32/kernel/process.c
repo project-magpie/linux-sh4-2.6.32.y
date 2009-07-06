@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/kallsyms.h>
 #include <linux/fs.h>
+#include <linux/pm.h>
 #include <linux/ptrace.h>
 #include <linux/reboot.h>
 #include <linux/tick.h>
@@ -17,10 +18,11 @@
 
 #include <asm/sysreg.h>
 #include <asm/ocd.h>
+#include <asm/syscalls.h>
 
 #include <mach/pm.h>
 
-void (*pm_power_off)(void) = NULL;
+void (*pm_power_off)(void);
 EXPORT_SYMBOL(pm_power_off);
 
 /*
@@ -330,7 +332,7 @@ int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpu)
 
 asmlinkage void ret_from_fork(void);
 
-int copy_thread(int nr, unsigned long clone_flags, unsigned long usp,
+int copy_thread(unsigned long clone_flags, unsigned long usp,
 		unsigned long unused,
 		struct task_struct *p, struct pt_regs *regs)
 {

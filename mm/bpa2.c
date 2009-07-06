@@ -169,18 +169,8 @@ static int __init bpa2_alloc_low(struct bpa2_part *part, unsigned long size,
 static int __init bpa2_reserve_low(struct bpa2_part *part, unsigned long start,
 		unsigned long size)
 {
-	void *addr;
-
-	/* Can't use reserve_bootmem() because there is no return code to
-	 * indicate success or failure. So use __alloc_bootmem_core(),
-	 * specifying a goal, which must be available. */
-	addr = __alloc_bootmem_core(NODE_DATA(0)->bdata, size, PAGE_SIZE,
-			start, 0);
-
-	if (addr != phys_to_virt(start)) {
+	if (reserve_bootmem(start, size, BOOTMEM_EXCLUSIVE)) {
 		printk(KERN_ERR "bpa2: could not allocate boot memory\n");
-		if (addr)
-			free_bootmem((unsigned long)addr, size);
 		return -ENOMEM;
 	}
 

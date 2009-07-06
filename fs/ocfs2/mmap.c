@@ -113,7 +113,11 @@ static int __ocfs2_page_mkwrite(struct inode *inode, struct buffer_head *di_bh,
 	 * ocfs2_write_begin_nolock().
 	 */
 	if (!PageUptodate(page) || page->mapping != inode->i_mapping) {
-		ret = -EINVAL;
+		/*
+		 * the page has been umapped in ocfs2_data_downconvert_worker.
+		 * So return 0 here and let VFS retry.
+		 */
+		ret = 0;
 		goto out;
 	}
 
@@ -150,8 +154,9 @@ out:
 	return ret;
 }
 
-static int ocfs2_page_mkwrite(struct vm_area_struct *vma, struct page *page)
+static int ocfs2_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
+	struct page *page = vmf->page;
 	struct inode *inode = vma->vm_file->f_path.dentry->d_inode;
 	struct buffer_head *di_bh = NULL;
 	sigset_t blocked, oldset;
@@ -192,7 +197,8 @@ out:
 	ret2 = ocfs2_vm_op_unblock_sigs(&oldset);
 	if (ret2 < 0)
 		mlog_errno(ret2);
-
+	if (ret)
+		ret = VM_FAULT_SIGBUS;
 	return ret;
 }
 

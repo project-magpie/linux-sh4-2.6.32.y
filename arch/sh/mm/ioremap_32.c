@@ -32,9 +32,10 @@
  * have to convert them into an offset in a page-aligned mapping, but the
  * caller shouldn't need to know that small detail.
  */
-void __iomem *__ioremap_prot(unsigned long phys_addr, unsigned long size,
-			     pgprot_t pgprot)
+static void __iomem *__ioremap_prot(unsigned long phys_addr, unsigned long size,
+				    pgprot_t pgprot)
 {
+	struct vm_struct * area;
 	unsigned long offset, last_addr, addr;
 	int simple = (pgprot_val(pgprot) == pgprot_val(PAGE_KERNEL)) ||
 		(pgprot_val(pgprot) == pgprot_val(PAGE_KERNEL_NOCACHE));
@@ -44,6 +45,20 @@ void __iomem *__ioremap_prot(unsigned long phys_addr, unsigned long size,
 	last_addr = phys_addr + size - 1;
 	if (!size || last_addr < phys_addr)
 		return NULL;
+
+	/*
+	 * If we're on an SH7751 or SH7780 PCI controller, PCI memory is
+	 * mapped at the end of the address space (typically 0xfd000000)
+	 * in a non-translatable area, so mapping through page tables for
+	 * this area is not only pointless, but also fundamentally
+	 * broken. Just return the physical address instead.
+	 *
+	 * For boards that map a small PCI memory aperture somewhere in
+	 * P1/P2 space, ioremap() will already do the right thing,
+	 * and we'll never get this far.
+	 */
+	if (is_pci_memaddr(phys_addr) && is_pci_memaddr(last_addr))
+		return (void __iomem *)phys_addr;
 
 	/*
 	 * Don't allow anybody to remap normal RAM that we're using..
@@ -60,31 +75,9 @@ void __iomem *__ioremap_prot(unsigned long phys_addr, unsigned long size,
 				return NULL;
 	}
 
-#ifndef CONFIG_32BIT
-	/*
-	 * For physical mappings <29 bits, with simple cached or uncached
-	 * protections, this is trivial, as everything is already mapped
-	 * through P1 and P2.
-	 */
-	if (likely(IS_29BIT(phys_addr) && simple)) {
-		if (cached)
-			return (void __iomem *)P1SEGADDR(phys_addr);
-
-		return (void __iomem *)P2SEGADDR(phys_addr);
-	}
-#endif
-
-	/* Similarly, P4 uncached addresses are permanently mapped */
+	/* P4 uncached addresses are permanently mapped */
 	if ((PXSEG(phys_addr) == P4SEG) && simple && !cached)
 		return (void __iomem *)phys_addr;
-
-#ifndef CONFIG_32BIT
-	/* Prevent mapping P1/2 addresses, to improve portability */
-	if (unlikely(!IS_29BIT(phys_addr)))
-		return (void __iomem *)0;
-#endif
-
-	/* Simple mapping failed, so use the PMB or TLB */
 
 	/*
 	 * Mappings have to be page-aligned
@@ -93,34 +86,28 @@ void __iomem *__ioremap_prot(unsigned long phys_addr, unsigned long size,
 	phys_addr &= PAGE_MASK;
 	size = PAGE_ALIGN(last_addr+1) - phys_addr;
 
-#ifdef CONFIG_32BIT
+#ifdef CONFIG_PMB
 	addr = pmb_remap(phys_addr, size, cached ? _PAGE_CACHABLE : 0);
-#else
-	addr = 0;
+	if (addr)
+		return (void __iomem *)(offset + (char *)addr);
 #endif
 
-	if (addr == 0) {
-		struct vm_struct * area;
+	area = get_vm_area(size, VM_IOREMAP);
+	if (!area)
+		return NULL;
+	area->phys_addr = phys_addr;
+	addr = (unsigned long)area->addr;
 
-		area = get_vm_area(size, VM_IOREMAP);
-		if (!area)
-			return NULL;
-
-		area->phys_addr = phys_addr;
-		addr = (unsigned long)area->addr;
-
-		if (ioremap_page_range(addr, addr + size, phys_addr, pgprot)) {
-			vunmap((void *)addr);
-			return NULL;
-		}
+	if (ioremap_page_range(addr, addr + size, phys_addr, pgprot)) {
+		vunmap((void *)addr);
+		return NULL;
 	}
 
 	return (void __iomem *)(offset + (char *)addr);
 }
-EXPORT_SYMBOL(__ioremap_prot);
 
-void __iomem *__ioremap_mode(unsigned long phys_addr, unsigned long size,
-	unsigned long flags)
+void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
+			unsigned long flags)
 {
 	pgprot_t pgprot;
 
@@ -131,24 +118,25 @@ void __iomem *__ioremap_mode(unsigned long phys_addr, unsigned long size,
 
 	return __ioremap_prot(phys_addr, size, pgprot);
 }
-EXPORT_SYMBOL(__ioremap_mode);
+EXPORT_SYMBOL(__ioremap);
 
 void __iounmap(void __iomem *addr)
 {
 	unsigned long vaddr = (unsigned long __force)addr;
+	unsigned long seg = PXSEG(vaddr);
 	struct vm_struct *p;
 
-	if (PXSEG(vaddr) == P4SEG)
+	if (seg == P4SEG || is_pci_memaddr(vaddr))
 		return;
 
-#ifndef CONFIG_32BIT
-	if (PXSEG(vaddr) < P3SEG)
+#ifdef CONFIG_29BIT
+	if (seg < P3SEG)
 		return;
 #endif
 
-#ifdef CONFIG_32BIT
-	if(pmb_unmap(vaddr))
-	  return;
+#ifdef CONFIG_PMB
+	if (pmb_unmap(vaddr))
+		return;
 #endif
 
 	p = remove_vm_area((void *)(vaddr & PAGE_MASK));

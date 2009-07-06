@@ -80,6 +80,18 @@ config B43_NPHY
 
 	  SAY N.
 
+config B43_PHY_LP
+	bool "IEEE 802.11g LP-PHY support (BROKEN)"
+	depends on B43 && EXPERIMENTAL && BROKEN
+	---help---
+	  Support for the LP-PHY.
+	  The LP-PHY is an IEEE 802.11g based PHY built into some notebooks
+	  and embedded devices.
+
+	  THIS IS BROKEN AND DOES NOT WORK YET.
+
+	  SAY N.
+
 # This config option automatically enables b43 LEDS support,
 # if it's possible.
 config B43_LEDS
@@ -98,10 +110,18 @@ config B43_DEBUG
 	bool "Broadcom 43xx debugging"
 	depends on B43
 	---help---
-	  Broadcom 43xx debugging messages.
+	  Broadcom 43xx debugging.
 
-	  Say Y, if you want to find out why the driver does not
-	  work for you.
+	  This adds additional runtime sanity checks and statistics to the driver.
+	  These checks and statistics might me expensive and hurt runtime performance
+	  of your system.
+	  This also adds the b43 debugfs interface.
+
+	  Do not enable this, unless you are debugging the driver.
+
+	  Say N, if you are a distributor or user building a release kernel
+	  for production use.
+	  Only say Y, if you are debugging a problem in the b43 driver sourcecode.
 
 config B43_FORCE_PIO
 	bool "Force usage of PIO instead of DMA"

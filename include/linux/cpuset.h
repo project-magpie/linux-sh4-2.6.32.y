@@ -12,6 +12,7 @@
 #include <linux/cpumask.h>
 #include <linux/nodemask.h>
 #include <linux/cgroup.h>
+#include <linux/mm.h>
 
 #ifdef CONFIG_CPUSETS
 
@@ -20,27 +21,38 @@ extern int number_of_cpusets;	/* How many cpusets are defined in system? */
 extern int cpuset_init_early(void);
 extern int cpuset_init(void);
 extern void cpuset_init_smp(void);
-extern void cpuset_cpus_allowed(struct task_struct *p, cpumask_t *mask);
-extern void cpuset_cpus_allowed_locked(struct task_struct *p, cpumask_t *mask);
+extern void cpuset_cpus_allowed(struct task_struct *p, struct cpumask *mask);
+extern void cpuset_cpus_allowed_locked(struct task_struct *p,
+				       struct cpumask *mask);
 extern nodemask_t cpuset_mems_allowed(struct task_struct *p);
 #define cpuset_current_mems_allowed (current->mems_allowed)
 void cpuset_init_current_mems_allowed(void);
 void cpuset_update_task_memory_state(void);
 int cpuset_nodemask_valid_mems_allowed(nodemask_t *nodemask);
 
-extern int __cpuset_zone_allowed_softwall(struct zone *z, gfp_t gfp_mask);
-extern int __cpuset_zone_allowed_hardwall(struct zone *z, gfp_t gfp_mask);
+extern int __cpuset_node_allowed_softwall(int node, gfp_t gfp_mask);
+extern int __cpuset_node_allowed_hardwall(int node, gfp_t gfp_mask);
 
-static int inline cpuset_zone_allowed_softwall(struct zone *z, gfp_t gfp_mask)
+static inline int cpuset_node_allowed_softwall(int node, gfp_t gfp_mask)
 {
 	return number_of_cpusets <= 1 ||
-		__cpuset_zone_allowed_softwall(z, gfp_mask);
+		__cpuset_node_allowed_softwall(node, gfp_mask);
 }
 
-static int inline cpuset_zone_allowed_hardwall(struct zone *z, gfp_t gfp_mask)
+static inline int cpuset_node_allowed_hardwall(int node, gfp_t gfp_mask)
 {
 	return number_of_cpusets <= 1 ||
-		__cpuset_zone_allowed_hardwall(z, gfp_mask);
+		__cpuset_node_allowed_hardwall(node, gfp_mask);
+}
+
+static inline int cpuset_zone_allowed_softwall(struct zone *z, gfp_t gfp_mask)
+{
+	return cpuset_node_allowed_softwall(zone_to_nid(z), gfp_mask);
+}
+
+static inline int cpuset_zone_allowed_hardwall(struct zone *z, gfp_t gfp_mask)
+{
+	return cpuset_node_allowed_hardwall(zone_to_nid(z), gfp_mask);
 }
 
 extern int cpuset_mems_allowed_intersects(const struct task_struct *tsk1,
@@ -74,11 +86,11 @@ static inline int cpuset_do_slab_mem_spread(void)
 	return current->flags & PF_SPREAD_SLAB;
 }
 
-extern void cpuset_track_online_nodes(void);
-
 extern int current_cpuset_is_being_rebound(void);
 
 extern void rebuild_sched_domains(void);
+
+extern void cpuset_print_task_mems_allowed(struct task_struct *p);
 
 #else /* !CONFIG_CPUSETS */
 
@@ -86,14 +98,15 @@ static inline int cpuset_init_early(void) { return 0; }
 static inline int cpuset_init(void) { return 0; }
 static inline void cpuset_init_smp(void) {}
 
-static inline void cpuset_cpus_allowed(struct task_struct *p, cpumask_t *mask)
+static inline void cpuset_cpus_allowed(struct task_struct *p,
+				       struct cpumask *mask)
 {
-	*mask = cpu_possible_map;
+	cpumask_copy(mask, cpu_possible_mask);
 }
 static inline void cpuset_cpus_allowed_locked(struct task_struct *p,
-								cpumask_t *mask)
+					      struct cpumask *mask)
 {
-	*mask = cpu_possible_map;
+	cpumask_copy(mask, cpu_possible_mask);
 }
 
 static inline nodemask_t cpuset_mems_allowed(struct task_struct *p)
@@ -106,6 +119,16 @@ static inline void cpuset_init_current_mems_allowed(void) {}
 static inline void cpuset_update_task_memory_state(void) {}
 
 static inline int cpuset_nodemask_valid_mems_allowed(nodemask_t *nodemask)
+{
+	return 1;
+}
+
+static inline int cpuset_node_allowed_softwall(int node, gfp_t gfp_mask)
+{
+	return 1;
+}
+
+static inline int cpuset_node_allowed_hardwall(int node, gfp_t gfp_mask)
 {
 	return 1;
 }
@@ -151,8 +174,6 @@ static inline int cpuset_do_slab_mem_spread(void)
 	return 0;
 }
 
-static inline void cpuset_track_online_nodes(void) {}
-
 static inline int current_cpuset_is_being_rebound(void)
 {
 	return 0;
@@ -160,7 +181,11 @@ static inline int current_cpuset_is_being_rebound(void)
 
 static inline void rebuild_sched_domains(void)
 {
-	partition_sched_domains(0, NULL, NULL);
+	partition_sched_domains(1, NULL, NULL);
+}
+
+static inline void cpuset_print_task_mems_allowed(struct task_struct *p)
+{
 }
 
 #endif /* !CONFIG_CPUSETS */

@@ -301,33 +301,7 @@ static inline int private_mapping_ok(struct vm_area_struct *vma)
 }
 #endif
 
-void __attribute__((weak))
-map_devmem(unsigned long pfn, unsigned long len, pgprot_t prot)
-{
-	/* nothing. architectures can override. */
-}
-
-void __attribute__((weak))
-unmap_devmem(unsigned long pfn, unsigned long len, pgprot_t prot)
-{
-	/* nothing. architectures can override. */
-}
-
-static void mmap_mem_open(struct vm_area_struct *vma)
-{
-	map_devmem(vma->vm_pgoff,  vma->vm_end - vma->vm_start,
-			vma->vm_page_prot);
-}
-
-static void mmap_mem_close(struct vm_area_struct *vma)
-{
-	unmap_devmem(vma->vm_pgoff,  vma->vm_end - vma->vm_start,
-			vma->vm_page_prot);
-}
-
 static struct vm_operations_struct mmap_mem_ops = {
-	.open  = mmap_mem_open,
-	.close = mmap_mem_close,
 #ifdef CONFIG_HAVE_IOREMAP_PROT
 	.access = generic_access_phys
 #endif
@@ -362,7 +336,6 @@ static int mmap_mem(struct file * file, struct vm_area_struct * vma)
 			    vma->vm_pgoff,
 			    size,
 			    vma->vm_page_prot)) {
-		unmap_devmem(vma->vm_pgoff, size, vma->vm_page_prot);
 		return -EAGAIN;
 	}
 	return 0;
@@ -424,9 +397,6 @@ static ssize_t read_oldmem(struct file *file, char __user *buf,
 	return read;
 }
 #endif
-
-extern long vread(char *buf, char *addr, unsigned long count);
-extern long vwrite(char *buf, char *addr, unsigned long count);
 
 #ifdef CONFIG_DEVKMEM
 /*
@@ -724,6 +694,9 @@ static ssize_t read_zero(struct file * file, char __user * buf,
 		written += chunk - unwritten;
 		if (unwritten)
 			break;
+		/* Consider changing this to just 'signal_pending()' with lots of testing */
+		if (fatal_signal_pending(current))
+			return written ? written : -EINTR;
 		buf += chunk;
 		count -= chunk;
 		cond_resched();
@@ -992,9 +965,9 @@ static int __init chr_dev_init(void)
 
 	mem_class = class_create(THIS_MODULE, "mem");
 	for (i = 0; i < ARRAY_SIZE(devlist); i++)
-		device_create_drvdata(mem_class, NULL,
-				      MKDEV(MEM_MAJOR, devlist[i].minor),
-				      NULL, devlist[i].name);
+		device_create(mem_class, NULL,
+			      MKDEV(MEM_MAJOR, devlist[i].minor), NULL,
+			      devlist[i].name);
 
 	return 0;
 }

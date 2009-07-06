@@ -20,12 +20,12 @@
 #include <linux/init.h>
 #include <linux/sysdev.h>
 #include <linux/device.h>
+#include <linux/io.h>
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 
 #include <mach/hardware.h>
-#include <asm/io.h>
 
 #include <mach/map.h>
 #include <mach/regs-gpio.h>
@@ -33,7 +33,7 @@
 
 #include <asm/mach-types.h>
 
-#include <asm/plat-s3c24xx/pm.h>
+#include <plat/pm.h>
 
 #define COPYRIGHT ", (c) 2005 Simtec Electronics"
 
@@ -61,7 +61,7 @@ static __init int pm_simtec_init(void)
 
 	__raw_writel(gstatus4, S3C2410_GSTATUS4);
 
-	return s3c2410_pm_init();
+	return s3c_pm_init();
 }
 
 arch_initcall(pm_simtec_init);

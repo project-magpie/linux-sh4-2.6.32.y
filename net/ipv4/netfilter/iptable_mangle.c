@@ -67,7 +67,6 @@ static struct
 static struct xt_table packet_mangler = {
 	.name		= "mangle",
 	.valid_hooks	= MANGLE_VALID_HOOKS,
-	.lock		= __RW_LOCK_UNLOCKED(packet_mangler.lock),
 	.me		= THIS_MODULE,
 	.af		= AF_INET,
 };
@@ -81,7 +80,7 @@ ipt_pre_routing_hook(unsigned int hook,
 		     int (*okfn)(struct sk_buff *))
 {
 	return ipt_do_table(skb, hook, in, out,
-			    nf_pre_routing_net(in, out)->ipv4.iptable_mangle);
+			    dev_net(in)->ipv4.iptable_mangle);
 }
 
 static unsigned int
@@ -92,7 +91,7 @@ ipt_post_routing_hook(unsigned int hook,
 		      int (*okfn)(struct sk_buff *))
 {
 	return ipt_do_table(skb, hook, in, out,
-			    nf_post_routing_net(in, out)->ipv4.iptable_mangle);
+			    dev_net(out)->ipv4.iptable_mangle);
 }
 
 static unsigned int
@@ -103,7 +102,7 @@ ipt_local_in_hook(unsigned int hook,
 		  int (*okfn)(struct sk_buff *))
 {
 	return ipt_do_table(skb, hook, in, out,
-			    nf_local_in_net(in, out)->ipv4.iptable_mangle);
+			    dev_net(in)->ipv4.iptable_mangle);
 }
 
 static unsigned int
@@ -114,7 +113,7 @@ ipt_forward_hook(unsigned int hook,
 	 int (*okfn)(struct sk_buff *))
 {
 	return ipt_do_table(skb, hook, in, out,
-			    nf_forward_net(in, out)->ipv4.iptable_mangle);
+			    dev_net(in)->ipv4.iptable_mangle);
 }
 
 static unsigned int
@@ -132,12 +131,8 @@ ipt_local_hook(unsigned int hook,
 
 	/* root is playing with raw sockets. */
 	if (skb->len < sizeof(struct iphdr)
-	    || ip_hdrlen(skb) < sizeof(struct iphdr)) {
-		if (net_ratelimit())
-			printk("iptable_mangle: ignoring short SOCK_RAW "
-			       "packet.\n");
+	    || ip_hdrlen(skb) < sizeof(struct iphdr))
 		return NF_ACCEPT;
-	}
 
 	/* Save things which could affect route */
 	mark = skb->mark;
@@ -147,7 +142,7 @@ ipt_local_hook(unsigned int hook,
 	tos = iph->tos;
 
 	ret = ipt_do_table(skb, hook, in, out,
-			   nf_local_out_net(in, out)->ipv4.iptable_mangle);
+			   dev_net(out)->ipv4.iptable_mangle);
 	/* Reroute for ANY change. */
 	if (ret != NF_DROP && ret != NF_STOLEN && ret != NF_QUEUE) {
 		iph = ip_hdr(skb);

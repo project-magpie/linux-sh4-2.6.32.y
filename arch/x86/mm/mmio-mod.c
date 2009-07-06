@@ -56,13 +56,6 @@ struct remap_trace {
 static DEFINE_PER_CPU(struct trap_reason, pf_reason);
 static DEFINE_PER_CPU(struct mmiotrace_rw, cpu_trace);
 
-#if 0 /* XXX: no way gather this info anymore */
-/* Access to this is not per-cpu. */
-static DEFINE_PER_CPU(atomic_t, dropped);
-#endif
-
-static struct dentry *marker_file;
-
 static DEFINE_MUTEX(mmiotrace_mutex);
 static DEFINE_SPINLOCK(trace_lock);
 static atomic_t mmiotrace_enabled;
@@ -75,7 +68,7 @@ static LIST_HEAD(trace_list);		/* struct remap_trace */
  *   and trace_lock.
  * - Routines depending on is_enabled() must take trace_lock.
  * - trace_list users must hold trace_lock.
- * - is_enabled() guarantees that mmio_trace_record is allowed.
+ * - is_enabled() guarantees that mmio_trace_{rw,mapping} are allowed.
  * - pre/post callbacks assume the effect of is_enabled() being true.
  */
 
@@ -96,44 +89,6 @@ static bool is_enabled(void)
 {
 	return atomic_read(&mmiotrace_enabled);
 }
-
-#if 0 /* XXX: needs rewrite */
-/*
- * Write callback for the debugfs entry:
- * Read a marker and write it to the mmio trace log
- */
-static ssize_t write_marker(struct file *file, const char __user *buffer,
-						size_t count, loff_t *ppos)
-{
-	char *event = NULL;
-	struct mm_io_header *headp;
-	ssize_t len = (count > 65535) ? 65535 : count;
-
-	event = kzalloc(sizeof(*headp) + len, GFP_KERNEL);
-	if (!event)
-		return -ENOMEM;
-
-	headp = (struct mm_io_header *)event;
-	headp->type = MMIO_MAGIC | (MMIO_MARKER << MMIO_OPCODE_SHIFT);
-	headp->data_len = len;
-
-	if (copy_from_user(event + sizeof(*headp), buffer, len)) {
-		kfree(event);
-		return -EFAULT;
-	}
-
-	spin_lock_irq(&trace_lock);
-#if 0 /* XXX: convert this to use tracing */
-	if (is_enabled())
-		relay_write(chan, event, sizeof(*headp) + len);
-	else
-#endif
-		len = -EINVAL;
-	spin_unlock_irq(&trace_lock);
-	kfree(event);
-	return len;
-}
-#endif
 
 static void print_pte(unsigned long address)
 {
@@ -307,8 +262,10 @@ static void ioremap_trace_core(resource_size_t offset, unsigned long size,
 	map.map_id = trace->id;
 
 	spin_lock_irq(&trace_lock);
-	if (!is_enabled())
+	if (!is_enabled()) {
+		kfree(trace);
 		goto not_enabled;
+	}
 
 	mmio_trace_mapping(&map);
 	list_add_tail(&trace->list, &trace_list);
@@ -377,6 +334,23 @@ void mmiotrace_iounmap(volatile void __iomem *addr)
 		iounmap_trace_core(addr);
 }
 
+int mmiotrace_printk(const char *fmt, ...)
+{
+	int ret = 0;
+	va_list args;
+	unsigned long flags;
+	va_start(args, fmt);
+
+	spin_lock_irqsave(&trace_lock, flags);
+	if (is_enabled())
+		ret = mmio_trace_printk(fmt, args);
+	spin_unlock_irqrestore(&trace_lock, flags);
+
+	va_end(args);
+	return ret;
+}
+EXPORT_SYMBOL(mmiotrace_printk);
+
 static void clear_trace_list(void)
 {
 	struct remap_trace *trace;
@@ -404,27 +378,34 @@ static void clear_trace_list(void)
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
-static cpumask_t downed_cpus;
+static cpumask_var_t downed_cpus;
 
 static void enter_uniprocessor(void)
 {
 	int cpu;
 	int err;
 
+	if (downed_cpus == NULL &&
+	    !alloc_cpumask_var(&downed_cpus, GFP_KERNEL)) {
+		pr_notice(NAME "Failed to allocate mask\n");
+		goto out;
+	}
+
 	get_online_cpus();
-	downed_cpus = cpu_online_map;
-	cpu_clear(first_cpu(cpu_online_map), downed_cpus);
+	cpumask_copy(downed_cpus, cpu_online_mask);
+	cpumask_clear_cpu(cpumask_first(cpu_online_mask), downed_cpus);
 	if (num_online_cpus() > 1)
 		pr_notice(NAME "Disabling non-boot CPUs...\n");
 	put_online_cpus();
 
-	for_each_cpu_mask(cpu, downed_cpus) {
+	for_each_cpu(cpu, downed_cpus) {
 		err = cpu_down(cpu);
 		if (!err)
 			pr_info(NAME "CPU%d is down.\n", cpu);
 		else
 			pr_err(NAME "Error taking CPU%d down: %d\n", cpu, err);
 	}
+out:
 	if (num_online_cpus() > 1)
 		pr_warning(NAME "multiple CPUs still online, "
 						"may miss events.\n");
@@ -437,10 +418,10 @@ static void __ref leave_uniprocessor(void)
 	int cpu;
 	int err;
 
-	if (cpus_weight(downed_cpus) == 0)
+	if (downed_cpus == NULL || cpumask_weight(downed_cpus) == 0)
 		return;
 	pr_notice(NAME "Re-enabling CPUs...\n");
-	for_each_cpu_mask(cpu, downed_cpus) {
+	for_each_cpu(cpu, downed_cpus) {
 		err = cpu_up(cpu);
 		if (!err)
 			pr_info(NAME "enabled CPU%d.\n", cpu);
@@ -462,25 +443,11 @@ static void leave_uniprocessor(void)
 }
 #endif
 
-#if 0 /* XXX: out of order */
-static struct file_operations fops_marker = {
-	.owner =	THIS_MODULE,
-	.write =	write_marker
-};
-#endif
-
 void enable_mmiotrace(void)
 {
 	mutex_lock(&mmiotrace_mutex);
 	if (is_enabled())
 		goto out;
-
-#if 0 /* XXX: tracing does not support text entries */
-	marker_file = debugfs_create_file("marker", 0660, dir, NULL,
-								&fops_marker);
-	if (!marker_file)
-		pr_err(NAME "marker file creation failed.\n");
-#endif
 
 	if (nommiotrace)
 		pr_info(NAME "MMIO tracing disabled.\n");
@@ -506,11 +473,6 @@ void disable_mmiotrace(void)
 
 	clear_trace_list(); /* guarantees: no more kmmio callbacks */
 	leave_uniprocessor();
-	if (marker_file) {
-		debugfs_remove(marker_file);
-		marker_file = NULL;
-	}
-
 	pr_info(NAME "disabled.\n");
 out:
 	mutex_unlock(&mmiotrace_mutex);

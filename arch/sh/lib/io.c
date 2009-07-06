@@ -14,33 +14,12 @@
 #include <linux/module.h>
 #include <linux/io.h>
 
-void __raw_readsb(const void __iomem *addrp, void *datap, int len)
-{
-	u8 *data;
-
-	for (data = datap; len != 0; len--)
-		*data++ = *(volatile unsigned char*)addrp;
-
-}
-EXPORT_SYMBOL(__raw_readsb);
-
-void __raw_readsw(const void __iomem *addrp, void *datap, int len)
-{
-	u16 *data;
-
-	for (data = datap; len != 0; len--)
-		*data++ = *(volatile unsigned short*)addrp;
-
-}
-EXPORT_SYMBOL(__raw_readsw);
-
-void __raw_readsl(const void __iomem *addrp, void *datap, int len)
+void __raw_readsl(const void __iomem *addr, void *datap, int len)
 {
 	u32 *data;
-	unsigned long addr = (unsigned long)addrp;
 
 	for (data = datap; (len != 0) && (((u32)data & 0x1f) != 0); len--)
-		*data++ = *(volatile unsigned long*)addr;
+		*data++ = __raw_readl(addr);
 
 	if (likely(len >= (0x20 >> 2))) {
 		int tmp2, tmp3, tmp4, tmp5, tmp6;
@@ -80,34 +59,12 @@ void __raw_readsl(const void __iomem *addrp, void *datap, int len)
 	}
 
 	for (; len != 0; len--)
-		*data++ = *(volatile unsigned long*)addr;
+		*data++ = __raw_readl(addr);
 }
 EXPORT_SYMBOL(__raw_readsl);
 
-
-void __raw_writesb(void __iomem *addrp, const void *datap, int len)
+void __raw_writesl(void __iomem *addr, const void *data, int len)
 {
-	const u8 *data;
-
-	for (data = datap; len != 0; len--)
-		*(volatile unsigned char*)addrp = *data++;
-
-}
-EXPORT_SYMBOL(__raw_writesb);
-
-void __raw_writesw(void __iomem *addrp, const void *datap, int len)
-{
-	const u16 *data;
-
-	for (data = (u16 *) datap; len != 0; len--)
-		*(volatile unsigned short*)addrp = *data++;
-}
-EXPORT_SYMBOL(__raw_writesw);
-
-void __raw_writesl(void __iomem *addrp, const void *data, int len)
-{
-	unsigned long addr = (unsigned long)addrp;
-
 	if (likely(len != 0)) {
 		int tmp1;
 

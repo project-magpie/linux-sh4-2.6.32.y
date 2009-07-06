@@ -10,14 +10,16 @@
  * for more details.
  */
 #include <linux/mm.h>
+#include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
+#include <linux/dma-debug.h>
 #include <linux/vmalloc.h>
 #include <linux/io.h>
 #include <asm/cacheflush.h>
 #include <asm/addrspace.h>
 
-#ifdef CONFIG_32BIT
+#ifdef CONFIG_PMB
 
 /*
  * This is yet another copy of the ARM (and powerpc) VM region allocation
@@ -58,27 +60,27 @@ static DEFINE_SPINLOCK(consistent_lock);
  * the amount of RAM found at boot time.)  I would imagine that get_vm_area()
  * would have to initialise this each time prior to calling vm_region_alloc().
  */
-struct vm_region {
+struct sh_vm_region {
 	struct list_head	vm_list;
 	unsigned long		vm_start;
 	unsigned long		vm_end;
 	struct page		*vm_pages;
 };
 
-static struct vm_region consistent_head = {
+static struct sh_vm_region consistent_head = {
 	.vm_list	= LIST_HEAD_INIT(consistent_head.vm_list),
 	.vm_start	= CONSISTENT_BASE,
 	.vm_end		= CONSISTENT_END,
 };
 
-static struct vm_region *
-vm_region_alloc(struct vm_region *head, size_t size, gfp_t gfp)
+static struct sh_vm_region *
+sh_vm_region_alloc(struct sh_vm_region *head, size_t size, gfp_t gfp)
 {
 	unsigned long addr = head->vm_start, end = head->vm_end - size;
 	unsigned long flags;
-	struct vm_region *c, *new;
+	struct sh_vm_region *c, *new;
 
-	new = kmalloc(sizeof(struct vm_region), gfp);
+	new = kmalloc(sizeof(struct sh_vm_region), gfp);
 	if (!new)
 		goto out;
 
@@ -112,10 +114,10 @@ out:
 	return NULL;
 }
 
-static struct vm_region *vm_region_find(struct vm_region *head,
+static struct sh_vm_region *sh_vm_region_find(struct sh_vm_region *head,
 					 unsigned long addr)
 {
-	struct vm_region *c;
+	struct sh_vm_region *c;
 
 	list_for_each_entry(c, &head->vm_list, vm_list) {
 		if (c->vm_start == addr)
@@ -128,11 +130,11 @@ out:
 
 static void *__consistent_map(struct page *page, size_t size, gfp_t gfp)
 {
-	struct vm_region *c;
+	struct sh_vm_region *c;
 	unsigned long vaddr;
 	unsigned long paddr;
 
-	c = vm_region_alloc(&consistent_head, size,
+	c = sh_vm_region_alloc(&consistent_head, size,
 			    gfp & ~(__GFP_DMA | __GFP_HIGHMEM));
 	if (!c)
 		return NULL;
@@ -152,11 +154,11 @@ static void *__consistent_map(struct page *page, size_t size, gfp_t gfp)
 static struct page *__consistent_unmap(void *vaddr, size_t size)
 {
 	unsigned long flags;
-	struct vm_region *c;
+	struct sh_vm_region *c;
 	struct page *page;
 
 	spin_lock_irqsave(&consistent_lock, flags);
-	c = vm_region_find(&consistent_head, (unsigned long)vaddr);
+	c = sh_vm_region_find(&consistent_head, (unsigned long)vaddr);
 	spin_unlock_irqrestore(&consistent_lock, flags);
 	if (!c)
 		goto no_area;
@@ -206,13 +208,14 @@ static struct page *__consistent_unmap(void *vaddr, size_t size)
 
 #endif
 
-struct dma_coherent_mem {
-	void		*virt_base;
-	u32		device_base;
-	int		size;
-	int		flags;
-	unsigned long	*bitmap;
-};
+#define PREALLOC_DMA_DEBUG_ENTRIES	4096
+
+static int __init dma_init(void)
+{
+	dma_debug_init(PREALLOC_DMA_DEBUG_ENTRIES);
+	return 0;
+}
+fs_initcall(dma_init);
 
 void *dma_alloc_coherent(struct device *dev, size_t size,
 			   dma_addr_t *dma_handle, gfp_t gfp)
@@ -264,6 +267,9 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 	}
 
 	*dma_handle = phys_addr;
+
+	debug_dma_alloc_coherent(dev, size, *dma_handle, ret);
+
 	return ret;
 }
 EXPORT_SYMBOL(dma_alloc_coherent);
@@ -276,6 +282,8 @@ void dma_free_coherent(struct device *dev, size_t size,
 
 	if (dma_release_from_coherent(dev, order, vaddr))
 		return;
+
+	debug_dma_free_coherent(dev, size, vaddr, dma_handle);
 
 	size = PAGE_ALIGN(size);
 	page = __consistent_unmap(vaddr, size);
@@ -317,7 +325,7 @@ static int __init memchunk_setup(char *str)
 }
 __setup("memchunk.", memchunk_setup);
 
-static void memchunk_cmdline_override(char *name, unsigned long *sizep)
+static void __init memchunk_cmdline_override(char *name, unsigned long *sizep)
 {
 	char *p = boot_command_line;
 	int k = strlen(name);
@@ -334,8 +342,8 @@ static void memchunk_cmdline_override(char *name, unsigned long *sizep)
 	}
 }
 
-int platform_resource_setup_memory(struct platform_device *pdev,
-				   char *name, unsigned long memsize)
+int __init platform_resource_setup_memory(struct platform_device *pdev,
+					  char *name, unsigned long memsize)
 {
 	struct resource *r;
 	dma_addr_t dma_handle;

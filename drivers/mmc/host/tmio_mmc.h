@@ -8,6 +8,9 @@
  * published by the Free Software Foundation.
  *
  */
+
+#include <linux/highmem.h>
+
 #define CNF_CMD     0x04
 #define CNF_CTL_BASE   0x10
 #define CNF_INT_PIN  0x3d
@@ -159,10 +162,10 @@ static inline void tmio_mmc_kunmap_atomic(struct tmio_mmc_host *host,
 #define STATUS_TO_TEXT(a) \
 	do { \
 		if (status & TMIO_STAT_##a) \
-			printf(#a); \
+			printk(#a); \
 	} while (0)
 
-void debug_status(u32 status)
+void pr_debug_status(u32 status)
 {
 	printk(KERN_DEBUG "status: %08x = ", status);
 	STATUS_TO_TEXT(CARD_REMOVE);

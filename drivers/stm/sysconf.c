@@ -325,7 +325,7 @@ static int sysconf_pm_freeze(void)
 		block->snapshot = kmalloc(block->size, GFP_NOWAIT);
 		if (!block->snapshot) {
 			pr_err("Failed to freeze %s!\n",
-					block->pdev->dev.bus_id);
+			       dev_name(&block->pdev->dev));
 			result = -ENOMEM;
 			continue;
 		}
@@ -353,7 +353,7 @@ static int sysconf_pm_restore(void)
 
 		if (!block->snapshot) {
 			pr_err("Failed to restore %s!\n",
-					block->pdev->dev.bus_id);
+			       dev_name(&block->pdev->dev));
 			result = -EINVAL;
 			continue;
 		}
@@ -455,8 +455,8 @@ static int sysconf_seq_show_blocks(struct seq_file *s)
 				IORESOURCE_MEM, 0);
 
 		seq_printf(s, "- %s: 0x%08x (0x%p), 0x%lxb\n",
-				block->pdev->dev.bus_id, mem->start,
-				block->base, block->size);
+			   dev_name(&block->pdev->dev), mem->start,
+			   block->base, block->size);
 	}
 
 	seq_printf(s, "\n");
@@ -474,8 +474,8 @@ static int sysconf_seq_show_groups(struct seq_file *s)
 		struct sysconf_group *group = &sysconf_groups[i];
 
 		seq_printf(s, "- %s: 0x%p (%s)\n",
-				group->name, group->base,
-				group->block->pdev->dev.bus_id);
+			   group->name, group->base,
+			   dev_name(&group->block->pdev->dev));
 	}
 
 	seq_printf(s, "\n");
@@ -588,7 +588,7 @@ void __init sysconf_early_init(struct platform_device *pdevs, int pdevs_num)
 		block->base = ioremap(mem->start, block->size);
 		if (!block->base)
 			panic("Unable to ioremap %s registers!",
-					block->pdev->dev.bus_id);
+			      dev_name(&block->pdev->dev));
 
 		sysconf_groups_num += data->groups_num;
 	}
@@ -649,7 +649,7 @@ static int __init sysconf_probe(struct platform_device *pdev)
 		if (request_mem_region(mem->start, mem->end -
 				mem->start + 1, pdev->name) == NULL) {
 			pr_err("Memory region request failed for %s!\n",
-					pdev->dev.bus_id);
+			       dev_name(&pdev->dev));
 			result = -EBUSY;
 		}
 	}

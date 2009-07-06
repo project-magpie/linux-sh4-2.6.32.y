@@ -1,9 +1,9 @@
 /*
- *  arch/sh/kernel/time.c
+ *  arch/sh/kernel/time_32.c
  *
  *  Copyright (C) 1999  Tetsuya Okada & Niibe Yutaka
  *  Copyright (C) 2000  Philipp Rumpf <prumpf@tux.org>
- *  Copyright (C) 2002 - 2007  Paul Mundt
+ *  Copyright (C) 2002 - 2008  Paul Mundt
  *  Copyright (C) 2002  M. R. Brown  <mrbrown@linux-sh.org>
  *
  *  Some code taken from i386 version.
@@ -16,6 +16,8 @@
 #include <linux/timex.h>
 #include <linux/sched.h>
 #include <linux/clockchips.h>
+#include <linux/mc146818rtc.h>	/* for rtc_lock */
+#include <linux/smp.h>
 #include <asm/clock.h>
 #include <asm/rtc.h>
 #include <asm/timer.h>
@@ -35,14 +37,6 @@ static void null_rtc_get_time(struct timespec *tv)
 }
 
 static int null_rtc_set_time(const time_t secs)
-{
-	return 0;
-}
-
-/*
- * Null high precision timer functions for systems lacking one.
- */
-static cycle_t null_hpt_read(void)
 {
 	return 0;
 }
@@ -110,7 +104,6 @@ int do_settimeofday(struct timespec *tv)
 EXPORT_SYMBOL(do_settimeofday);
 #endif /* !CONFIG_GENERIC_TIME */
 
-#ifndef CONFIG_GENERIC_CLOCKEVENTS
 /* last time the RTC clock got updated */
 static long last_rtc_update;
 
@@ -122,11 +115,6 @@ void handle_timer_tick(void)
 {
 	if (current->pid)
 		profile_tick(CPU_PROFILING);
-
-#ifdef CONFIG_HEARTBEAT
-	if (sh_mv.mv_heartbeat != NULL)
-		sh_mv.mv_heartbeat();
-#endif
 
 	/*
 	 * Here we are in the timer irq handler. We just have irqs locally
@@ -159,7 +147,6 @@ void handle_timer_tick(void)
 	update_process_times(user_mode(get_irq_regs()));
 #endif
 }
-#endif /* !CONFIG_GENERIC_CLOCKEVENTS */
 
 #ifdef CONFIG_PM
 int timer_suspend(struct sys_device *dev, pm_message_t state)
@@ -192,7 +179,12 @@ static struct sysdev_class timer_sysclass = {
 
 static int __init timer_init_sysfs(void)
 {
-	int ret = sysdev_class_register(&timer_sysclass);
+	int ret;
+
+	if (!sys_timer)
+		return 0;
+
+	ret = sysdev_class_register(&timer_sysclass);
 	if (ret != 0)
 		return ret;
 
@@ -203,42 +195,21 @@ device_initcall(timer_init_sysfs);
 
 void (*board_time_init)(void);
 
-/*
- * Shamelessly based on the MIPS and Sparc64 work.
- */
-static unsigned long timer_ticks_per_nsec_quotient __read_mostly;
-unsigned long sh_hpt_frequency = 0;
-
-#define NSEC_PER_CYC_SHIFT	10
-
-static struct clocksource clocksource_sh = {
+struct clocksource clocksource_sh = {
 	.name		= "SuperH",
-	.rating		= 200,
-	.mask		= CLOCKSOURCE_MASK(32),
-	.read		= null_hpt_read,
-	.shift		= 16,
-	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
 };
-
-static void __init init_sh_clocksource(void)
-{
-	if (!sh_hpt_frequency || clocksource_sh.read == null_hpt_read)
-		return;
-
-	clocksource_sh.mult = clocksource_hz2mult(sh_hpt_frequency,
-						  clocksource_sh.shift);
-
-	timer_ticks_per_nsec_quotient =
-		clocksource_hz2mult(sh_hpt_frequency, NSEC_PER_CYC_SHIFT);
-
-	clocksource_register(&clocksource_sh);
-}
 
 #ifdef CONFIG_GENERIC_TIME
 unsigned long long sched_clock(void)
 {
-	unsigned long long ticks = clocksource_sh.read();
-	return (ticks * timer_ticks_per_nsec_quotient) >> NSEC_PER_CYC_SHIFT;
+	unsigned long long cycles;
+
+	/* jiffies based sched_clock if no clocksource is installed */
+	if (!clocksource_sh.rating)
+		return (unsigned long long)jiffies * (NSEC_PER_SEC / HZ);
+
+	cycles = clocksource_sh.read(&clocksource_sh);
+	return cyc2ns(&clocksource_sh, cycles);
 }
 #endif
 
@@ -253,28 +224,17 @@ void __init time_init(void)
 	set_normalized_timespec(&wall_to_monotonic,
 				-xtime.tv_sec, -xtime.tv_nsec);
 
+#ifdef CONFIG_GENERIC_CLOCKEVENTS_BROADCAST
+	local_timer_setup(smp_processor_id());
+#endif
+
 	/*
 	 * Find the timer to use as the system timer, it will be
 	 * initialized for us.
 	 */
 	sys_timer = get_sys_timer();
+	if (unlikely(!sys_timer))
+		panic("System timer missing.\n");
+
 	printk(KERN_INFO "Using %s for system timer\n", sys_timer->name);
-
-	if (sys_timer->ops->read)
-		clocksource_sh.read = sys_timer->ops->read;
-
-	init_sh_clocksource();
-
-	if (sh_hpt_frequency)
-		printk("Using %lu.%03lu MHz high precision timer.\n",
-		       ((sh_hpt_frequency + 500) / 1000) / 1000,
-		       ((sh_hpt_frequency + 500) / 1000) % 1000);
-
-#if defined(CONFIG_SH_KGDB)
-	/*
-	 * Set up kgdb as requested. We do it here because the serial
-	 * init uses the timer vars we just set up for figuring baud.
-	 */
-	kgdb_init();
-#endif
 }

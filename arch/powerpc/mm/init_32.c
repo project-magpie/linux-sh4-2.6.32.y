@@ -35,7 +35,6 @@
 #include <asm/pgalloc.h>
 #include <asm/prom.h>
 #include <asm/io.h>
-#include <asm/mmu_context.h>
 #include <asm/pgtable.h>
 #include <asm/mmu.h>
 #include <asm/smp.h>
@@ -49,7 +48,7 @@
 
 #if defined(CONFIG_KERNEL_START_BOOL) || defined(CONFIG_LOWMEM_SIZE_BOOL)
 /* The ammount of lowmem must be within 0xF0000000 - KERNELBASE. */
-#if (CONFIG_LOWMEM_SIZE > (0xF0000000 - KERNELBASE))
+#if (CONFIG_LOWMEM_SIZE > (0xF0000000 - PAGE_OFFSET))
 #error "You must adjust CONFIG_LOWMEM_SIZE or CONFIG_START_KERNEL"
 #endif
 #endif
@@ -169,19 +168,12 @@ void __init MMU_init(void)
 		ppc_md.progress("MMU:mapin", 0x301);
 	mapin_ram();
 
-#ifdef CONFIG_HIGHMEM
-	ioremap_base = PKMAP_BASE;
-#else
-	ioremap_base = 0xfe000000UL;	/* for now, could be 0xfffff000 */
-#endif /* CONFIG_HIGHMEM */
-	ioremap_bot = ioremap_base;
+	/* Initialize early top-down ioremap allocator */
+	ioremap_bot = IOREMAP_TOP;
 
 	/* Map in I/O resources */
 	if (ppc_md.progress)
 		ppc_md.progress("MMU:setio", 0x302);
-
-	/* Initialize the context management stuff */
-	mmu_context_init();
 
 	if (ppc_md.progress)
 		ppc_md.progress("MMU:exit", 0x211);

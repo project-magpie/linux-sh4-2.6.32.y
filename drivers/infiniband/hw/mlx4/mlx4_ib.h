@@ -86,6 +86,7 @@ struct mlx4_ib_mr {
 
 struct mlx4_ib_fast_reg_page_list {
 	struct ib_fast_reg_page_list	ibfrpl;
+	__be64			       *mapped_page_list;
 	dma_addr_t			map;
 };
 
@@ -162,6 +163,7 @@ struct mlx4_ib_ah {
 struct mlx4_ib_dev {
 	struct ib_device	ib_dev;
 	struct mlx4_dev	       *dev;
+	int			num_ports;
 	void __iomem	       *uar_map;
 
 	struct mlx4_uar		priv_uar;

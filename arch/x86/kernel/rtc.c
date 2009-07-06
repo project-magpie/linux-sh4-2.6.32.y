@@ -1,14 +1,14 @@
 /*
  * RTC related functions
  */
+#include <linux/platform_device.h>
+#include <linux/mc146818rtc.h>
 #include <linux/acpi.h>
 #include <linux/bcd.h>
-#include <linux/mc146818rtc.h>
-#include <linux/platform_device.h>
 #include <linux/pnp.h>
 
-#include <asm/time.h>
 #include <asm/vsyscall.h>
+#include <asm/time.h>
 
 #ifdef CONFIG_X86_32
 /*
@@ -16,9 +16,9 @@
  * register we are working with.  It is required for NMI access to the
  * CMOS/RTC registers.  See include/asm-i386/mc146818rtc.h for details.
  */
-volatile unsigned long cmos_lock = 0;
+volatile unsigned long cmos_lock;
 EXPORT_SYMBOL(cmos_lock);
-#endif
+#endif /* CONFIG_X86_32 */
 
 /* For two digit years assume time is always after that */
 #define CMOS_YEARS_OFFS 2000
@@ -38,9 +38,9 @@ EXPORT_SYMBOL(rtc_lock);
  */
 int mach_set_rtc_mmss(unsigned long nowtime)
 {
-	int retval = 0;
 	int real_seconds, real_minutes, cmos_minutes;
 	unsigned char save_control, save_freq_select;
+	int retval = 0;
 
 	 /* tell the clock it's being set */
 	save_control = CMOS_READ(RTC_CONTROL);
@@ -52,7 +52,7 @@ int mach_set_rtc_mmss(unsigned long nowtime)
 
 	cmos_minutes = CMOS_READ(RTC_MINUTES);
 	if (!(save_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD)
-		BCD_TO_BIN(cmos_minutes);
+		cmos_minutes = bcd2bin(cmos_minutes);
 
 	/*
 	 * since we're only adjusting minutes and seconds,
@@ -69,11 +69,11 @@ int mach_set_rtc_mmss(unsigned long nowtime)
 
 	if (abs(real_minutes - cmos_minutes) < 30) {
 		if (!(save_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD) {
-			BIN_TO_BCD(real_seconds);
-			BIN_TO_BCD(real_minutes);
+			real_seconds = bin2bcd(real_seconds);
+			real_minutes = bin2bcd(real_minutes);
 		}
-		CMOS_WRITE(real_seconds,RTC_SECONDS);
-		CMOS_WRITE(real_minutes,RTC_MINUTES);
+		CMOS_WRITE(real_seconds, RTC_SECONDS);
+		CMOS_WRITE(real_minutes, RTC_MINUTES);
 	} else {
 		printk(KERN_WARNING
 		       "set_rtc_mmss: can't update from %d to %d\n",
@@ -124,16 +124,16 @@ unsigned long mach_get_cmos_time(void)
 	WARN_ON_ONCE(RTC_ALWAYS_BCD && (status & RTC_DM_BINARY));
 
 	if (RTC_ALWAYS_BCD || !(status & RTC_DM_BINARY)) {
-		BCD_TO_BIN(sec);
-		BCD_TO_BIN(min);
-		BCD_TO_BIN(hour);
-		BCD_TO_BIN(day);
-		BCD_TO_BIN(mon);
-		BCD_TO_BIN(year);
+		sec = bcd2bin(sec);
+		min = bcd2bin(min);
+		hour = bcd2bin(hour);
+		day = bcd2bin(day);
+		mon = bcd2bin(mon);
+		year = bcd2bin(year);
 	}
 
 	if (century) {
-		BCD_TO_BIN(century);
+		century = bcd2bin(century);
 		year += century * 100;
 		printk(KERN_INFO "Extended CMOS year: %d\n", century * 100);
 	} else
@@ -151,6 +151,7 @@ unsigned char rtc_cmos_read(unsigned char addr)
 	outb(addr, RTC_PORT(0));
 	val = inb(RTC_PORT(1));
 	lock_cmos_suffix(addr);
+
 	return val;
 }
 EXPORT_SYMBOL(rtc_cmos_read);
@@ -166,8 +167,8 @@ EXPORT_SYMBOL(rtc_cmos_write);
 
 static int set_rtc_mmss(unsigned long nowtime)
 {
-	int retval;
 	unsigned long flags;
+	int retval;
 
 	spin_lock_irqsave(&rtc_lock, flags);
 	retval = set_wallclock(nowtime);
@@ -223,11 +224,26 @@ static struct platform_device rtc_device = {
 static __init int add_rtc_cmos(void)
 {
 #ifdef CONFIG_PNP
-	if (!pnp_platform_devices)
-		platform_device_register(&rtc_device);
-#else
+	static const char *ids[] __initconst =
+	    { "PNP0b00", "PNP0b01", "PNP0b02", };
+	struct pnp_dev *dev;
+	struct pnp_id *id;
+	int i;
+
+	pnp_for_each_dev(dev) {
+		for (id = dev->id; id; id = id->next) {
+			for (i = 0; i < ARRAY_SIZE(ids); i++) {
+				if (compare_pnp_id(id, ids[i]) != 0)
+					return 0;
+			}
+		}
+	}
+#endif
+
 	platform_device_register(&rtc_device);
-#endif /* CONFIG_PNP */
+	dev_info(&rtc_device.dev,
+		 "registered platform RTC device (no PNP device found)\n");
+
 	return 0;
 }
 device_initcall(add_rtc_cmos);

@@ -211,14 +211,8 @@ static const struct ubifs_lprops *scan_for_dirty(struct ubifs_info *c,
  * dirty index heap, and it falls-back to LPT scanning if the heaps are empty
  * or do not have an LEB which satisfies the @min_space criteria.
  *
- * Note:
- *   o LEBs which have less than dead watermark of dirty space are never picked
- *   by this function;
- *
- * Returns zero and the LEB properties of
- * found dirty LEB in case of success, %-ENOSPC if no dirty LEB was found and a
- * negative error code in case of other failures. The returned LEB is marked as
- * "taken".
+ * Note, LEBs which have less than dead watermark of free + dirty space are
+ * never picked by this function.
  *
  * The additional @pick_free argument controls if this function has to return a
  * free or freeable LEB if one is present. For example, GC must to set it to %1,
@@ -231,6 +225,10 @@ static const struct ubifs_lprops *scan_for_dirty(struct ubifs_info *c,
  *
  * In addition @pick_free is set to %2 by the recovery process in order to
  * recover gc_lnum in which case an index LEB must not be returned.
+ *
+ * This function returns zero and the LEB properties of found dirty LEB in case
+ * of success, %-ENOSPC if no dirty LEB was found and a negative error code in
+ * case of other failures. The returned LEB is marked as "taken".
  */
 int ubifs_find_dirty_leb(struct ubifs_info *c, struct ubifs_lprops *ret_lp,
 			 int min_space, int pick_free)
@@ -245,7 +243,7 @@ int ubifs_find_dirty_leb(struct ubifs_info *c, struct ubifs_lprops *ret_lp,
 		int lebs, rsvd_idx_lebs = 0;
 
 		spin_lock(&c->space_lock);
-		lebs = c->lst.empty_lebs;
+		lebs = c->lst.empty_lebs + c->idx_gc_cnt;
 		lebs += c->freeable_cnt - c->lst.taken_empty_lebs;
 
 		/*
@@ -317,7 +315,7 @@ int ubifs_find_dirty_leb(struct ubifs_info *c, struct ubifs_lprops *ret_lp,
 		lp = idx_lp;
 
 	if (lp) {
-		ubifs_assert(lp->dirty >= c->dead_wm);
+		ubifs_assert(lp->free + lp->dirty >= c->dead_wm);
 		goto found;
 	}
 
@@ -480,7 +478,7 @@ const struct ubifs_lprops *do_find_free_space(struct ubifs_info *c,
  * ubifs_find_free_space - find a data LEB with free space.
  * @c: the UBIFS file-system description object
  * @min_space: minimum amount of required free space
- * @free: contains amount of free space in the LEB on exit
+ * @offs: contains offset of where free space starts on exit
  * @squeeze: whether to try to find space in a non-empty LEB first
  *
  * This function looks for an LEB with at least @min_space bytes of free space.
@@ -492,7 +490,7 @@ const struct ubifs_lprops *do_find_free_space(struct ubifs_info *c,
  * failed to find a LEB with @min_space bytes of free space and other a negative
  * error codes in case of failure.
  */
-int ubifs_find_free_space(struct ubifs_info *c, int min_space, int *free,
+int ubifs_find_free_space(struct ubifs_info *c, int min_space, int *offs,
 			  int squeeze)
 {
 	const struct ubifs_lprops *lprops;
@@ -509,7 +507,6 @@ int ubifs_find_free_space(struct ubifs_info *c, int min_space, int *free,
 		rsvd_idx_lebs = 0;
 	lebs = c->lst.empty_lebs + c->freeable_cnt + c->idx_gc_cnt -
 	       c->lst.taken_empty_lebs;
-	ubifs_assert(lebs + c->lst.idx_lebs >= c->min_idx_lebs);
 	if (rsvd_idx_lebs < lebs)
 		/*
 		 * OK to allocate an empty LEB, but we still don't want to go
@@ -561,10 +558,10 @@ int ubifs_find_free_space(struct ubifs_info *c, int min_space, int *free,
 		spin_unlock(&c->space_lock);
 	}
 
-	*free = lprops->free;
+	*offs = c->leb_size - lprops->free;
 	ubifs_release_lprops(c);
 
-	if (*free == c->leb_size) {
+	if (*offs == 0) {
 		/*
 		 * Ensure that empty LEBs have been unmapped. They may not have
 		 * been, for example, because of an unclean unmount.  Also
@@ -576,8 +573,8 @@ int ubifs_find_free_space(struct ubifs_info *c, int min_space, int *free,
 			return err;
 	}
 
-	dbg_find("found LEB %d, free %d", lnum, *free);
-	ubifs_assert(*free >= min_space);
+	dbg_find("found LEB %d, free %d", lnum, c->leb_size - *offs);
+	ubifs_assert(*offs <= c->leb_size - min_space);
 	return lnum;
 
 out:
@@ -904,11 +901,11 @@ static int get_idx_gc_leb(struct ubifs_info *c)
 	 * it is needed now for this commit.
 	 */
 	lp = ubifs_lpt_lookup_dirty(c, lnum);
-	if (unlikely(IS_ERR(lp)))
+	if (IS_ERR(lp))
 		return PTR_ERR(lp);
 	lp = ubifs_change_lp(c, lp, LPROPS_NC, LPROPS_NC,
 			     lp->flags | LPROPS_INDEX, -1);
-	if (unlikely(IS_ERR(lp)))
+	if (IS_ERR(lp))
 		return PTR_ERR(lp);
 	dbg_find("LEB %d, dirty %d and free %d flags %#x",
 		 lp->lnum, lp->dirty, lp->free, lp->flags);

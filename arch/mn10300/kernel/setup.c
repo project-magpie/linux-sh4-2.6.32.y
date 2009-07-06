@@ -30,7 +30,7 @@
 #include <asm/setup.h>
 #include <asm/io.h>
 #include <asm/smp.h>
-#include <asm/proc/proc.h>
+#include <proc/proc.h>
 #include <asm/busctl-regs.h>
 #include <asm/fpu.h>
 #include <asm/sections.h>
@@ -136,10 +136,6 @@ void __init setup_arch(char **cmdline_p)
 	data_resource.start = virt_to_bus(&_etext);
 	data_resource.end = virt_to_bus(&_edata)-1;
 
-#define PFN_UP(x)	(((x) + PAGE_SIZE-1) >> PAGE_SHIFT)
-#define PFN_DOWN(x)	((x) >> PAGE_SHIFT)
-#define PFN_PHYS(x)	((x) << PAGE_SHIFT)
-
 	start_pfn = (CONFIG_KERNEL_RAM_BASE_ADDRESS >> PAGE_SHIFT);
 	kstart_pfn = PFN_UP(__pa(&_text));
 	free_pfn = PFN_UP(__pa(&_end));
@@ -161,7 +157,7 @@ void __init setup_arch(char **cmdline_p)
 	   reserve the page it is occupying. */
 	if (CONFIG_INTERRUPT_VECTOR_BASE >= CONFIG_KERNEL_RAM_BASE_ADDRESS &&
 	    CONFIG_INTERRUPT_VECTOR_BASE < memory_end)
-		reserve_bootmem(CONFIG_INTERRUPT_VECTOR_BASE, 1,
+		reserve_bootmem(CONFIG_INTERRUPT_VECTOR_BASE, PAGE_SIZE,
 				BOOTMEM_DEFAULT);
 
 	reserve_bootmem(PAGE_ALIGN(PFN_PHYS(free_pfn)), bootmap_size,

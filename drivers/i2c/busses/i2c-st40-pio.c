@@ -117,7 +117,6 @@ static int __init i2c_st40_probe(struct platform_device *pdev)
 
 	sprintf(i2c_bus->name, "i2c_pio_%d", pdev->id);
 	i2c_bus->nr = pdev->id;
-	i2c_bus->id = I2C_HW_B_ST40_PIO;
 	i2c_bus->algo_data = algo;
 	i2c_bus->dev.parent = &pdev->dev;
 

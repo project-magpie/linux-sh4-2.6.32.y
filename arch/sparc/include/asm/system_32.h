@@ -15,6 +15,11 @@
 
 #include <linux/irqflags.h>
 
+static inline unsigned int probe_irq_mask(unsigned long val)
+{
+	return 0;
+}
+
 /*
  * Sparc (general) CPU types
  */
@@ -34,13 +39,7 @@ enum sparc_cpu {
 
 extern enum sparc_cpu sparc_cpu_model;
 
-#ifndef CONFIG_SUN4
-#define ARCH_SUN4C_SUN4 (sparc_cpu_model==sun4c)
-#define ARCH_SUN4 0
-#else
-#define ARCH_SUN4C_SUN4 1
-#define ARCH_SUN4 1
-#endif
+#define ARCH_SUN4C (sparc_cpu_model==sun4c)
 
 #define SUN4M_NCPUS            4              /* Architectural limit of sun4m. */
 
@@ -55,6 +54,7 @@ extern unsigned long empty_zero_page;
 extern void sun_do_break(void);
 extern int serial_console;
 extern int stop_a_enabled;
+extern int scons_pwroff;
 
 static inline int con_is_present(void)
 {
@@ -126,7 +126,7 @@ extern void flushw_all(void);
 #define switch_to(prev, next, last) do {						\
 	SWITCH_ENTER(prev);								\
 	SWITCH_DO_LAZY_FPU(next);							\
-	cpu_set(smp_processor_id(), next->active_mm->cpu_vm_mask);			\
+	cpumask_set_cpu(smp_processor_id(), mm_cpumask(next->active_mm));		\
 	__asm__ __volatile__(								\
 	"sethi	%%hi(here - 0x8), %%o7\n\t"						\
 	"mov	%%g6, %%g3\n\t"								\

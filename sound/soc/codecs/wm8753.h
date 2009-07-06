@@ -2,8 +2,7 @@
  * wm8753.h  --  audio driver for WM8753
  *
  * Copyright 2003 Wolfson Microelectronics PLC.
- * Author: Liam Girdwood
- *         liam.girdwood@wolfsonmicro.com or linux@wolfsonmicro.com
+ * Author: Liam Girdwood <lrg@slimlogic.co.uk>
  *
  *  This program is free software; you can redistribute  it and/or modify it
  *  under  the terms of  the GNU General  Public License as published by the
@@ -77,10 +76,6 @@
 #define WM8753_PLL2CTL4		0x3c
 #define WM8753_BIASCTL		0x3d
 #define WM8753_ADCTL2		0x3f
-
-struct wm8753_setup_data {
-	unsigned short i2c_address;
-};
 
 #define WM8753_PLL1			0
 #define WM8753_PLL2			1

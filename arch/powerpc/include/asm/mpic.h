@@ -5,6 +5,7 @@
 #include <linux/irq.h>
 #include <linux/sysdev.h>
 #include <asm/dcr.h>
+#include <asm/msi_bitmap.h>
 
 /*
  * Global registers
@@ -21,6 +22,14 @@
 #define MPIC_GREG_FEATURE_1		0x00010
 #define MPIC_GREG_GLOBAL_CONF_0		0x00020
 #define		MPIC_GREG_GCONF_RESET			0x80000000
+/* On the FSL mpic implementations the Mode field is expand to be
+ * 2 bits wide:
+ *	0b00 = pass through (interrupts routed to IRQ0)
+ *	0b01 = Mixed mode
+ *	0b10 = reserved
+ *	0b11 = External proxy / coreint
+ */
+#define		MPIC_GREG_GCONF_COREINT			0x60000000
 #define		MPIC_GREG_GCONF_8259_PTHROU_DIS		0x20000000
 #define		MPIC_GREG_GCONF_NO_BIAS			0x10000000
 #define		MPIC_GREG_GCONF_BASE_MASK		0x000fffff
@@ -301,8 +310,7 @@ struct mpic
 #endif
 
 #ifdef CONFIG_PCI_MSI
-	spinlock_t		bitmap_lock;
-	unsigned long		*hwirq_bitmap;
+	struct msi_bitmap	msi_bitmap;
 #endif
 
 #ifdef CONFIG_MPIC_BROKEN_REGREAD
@@ -355,6 +363,10 @@ struct mpic
 #define MPIC_NO_BIAS			0x00000400
 /* Ignore NIRQS as reported by FRR */
 #define MPIC_BROKEN_FRR_NIRQS		0x00000800
+/* Destination only supports a single CPU at a time */
+#define MPIC_SINGLE_DEST_CPU		0x00001000
+/* Enable CoreInt delivery of interrupts */
+#define MPIC_ENABLE_COREINT		0x00002000
 
 /* MPIC HW modification ID */
 #define MPIC_REGSET_MASK		0xf0000000
@@ -468,6 +480,8 @@ extern void mpic_end_irq(unsigned int irq);
 extern unsigned int mpic_get_one_irq(struct mpic *mpic);
 /* This one gets from the primary mpic */
 extern unsigned int mpic_get_irq(void);
+/* This one gets from the primary mpic via CoreInt*/
+extern unsigned int mpic_get_coreint_irq(void);
 /* Fetch Machine Check interrupt from primary mpic */
 extern unsigned int mpic_get_mcirq(void);
 

@@ -9,8 +9,8 @@
 
 #include <asm/tlb.h>
 #include <asm/mmu_context.h>
-#include <asm/arch/hwregs/asm/mmu_defs_asm.h>
-#include <asm/arch/hwregs/supp_reg.h>
+#include <arch/hwregs/asm/mmu_defs_asm.h>
+#include <arch/hwregs/supp_reg.h>
 
 #define UPDATE_TLB_SEL_IDX(val)					\
 do {								\
@@ -185,7 +185,7 @@ switch_mm(struct mm_struct *prev, struct mm_struct *next,
 		/* Make sure there is a MMU context. */
 		spin_lock(&mmu_context_lock);
 		get_mmu_context(next);
-		cpu_set(cpu, next->cpu_vm_mask);
+		cpumask_set_cpu(cpu, mm_cpumask(next));
 		spin_unlock(&mmu_context_lock);
 
 		/*

@@ -1,10 +1,10 @@
 /*
  *	Acquire Single Board Computer Watchdog Timer driver
  *
- *      Based on wdt.c. Original copyright messages:
+ *	Based on wdt.c. Original copyright messages:
  *
- *	(c) Copyright 1996 Alan Cox <alan@redhat.com>, All Rights Reserved.
- *				http://www.redhat.com
+ *	(c) Copyright 1996 Alan Cox <alan@lxorguk.ukuu.org.uk>,
+ *						All Rights Reserved.
  *
  *	This program is free software; you can redistribute it and/or
  *	modify it under the terms of the GNU General Public License
@@ -15,11 +15,11 @@
  *	warranty for any of this software. This material is provided
  *	"AS-IS" and at no charge.
  *
- *	(c) Copyright 1995    Alan Cox <alan@redhat.com>
+ *	(c) Copyright 1995    Alan Cox <alan@lxorguk.ukuu.org.uk>
  *
- *      14-Dec-2001 Matt Domsch <Matt_Domsch@dell.com>
- *          Added nowayout module option to override CONFIG_WATCHDOG_NOWAYOUT
- *          Can't add timeout - driver doesn't allow changing value
+ *	14-Dec-2001 Matt Domsch <Matt_Domsch@dell.com>
+ *	    Added nowayout module option to override CONFIG_WATCHDOG_NOWAYOUT
+ *	    Can't add timeout - driver doesn't allow changing value
  */
 
 /*

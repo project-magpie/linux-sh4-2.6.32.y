@@ -26,6 +26,7 @@
 static unsigned long reset_value[OP_MAX_COUNTER];
 
 static int oprofile_running;
+static int use_slot_nums;
 
 /* mmcr values are set in power4_reg_setup, used in power4_cpu_setup */
 static u32 mmcr0_val;
@@ -61,10 +62,16 @@ static int power4_reg_setup(struct op_counter_config *ctr,
 	else
 		mmcr0_val |= MMCR0_PROBLEM_DISABLE;
 
+	if (__is_processor(PV_POWER4) || __is_processor(PV_POWER4p) ||
+	    __is_processor(PV_970) || __is_processor(PV_970FX) ||
+	    __is_processor(PV_970MP) || __is_processor(PV_970GX) ||
+	    __is_processor(PV_POWER5) || __is_processor(PV_POWER5p))
+		use_slot_nums = 1;
+
 	return 0;
 }
 
-extern void ppc64_enable_pmcs(void);
+extern void ppc_enable_pmcs(void);
 
 /*
  * Older CPUs require the MMCRA sample bit to be always set, but newer 
@@ -91,7 +98,7 @@ static int power4_cpu_setup(struct op_counter_config *ctr)
 	unsigned int mmcr0 = mmcr0_val;
 	unsigned long mmcra = mmcra_val;
 
-	ppc64_enable_pmcs();
+	ppc_enable_pmcs();
 
 	/* set the freeze bit */
 	mmcr0 |= MMCR0_FC;
@@ -206,7 +213,7 @@ static unsigned long get_pc(struct pt_regs *regs)
 
 	mmcra = mfspr(SPRN_MMCRA);
 
-	if (mmcra & MMCRA_SAMPLE_ENABLE) {
+	if (use_slot_nums && (mmcra & MMCRA_SAMPLE_ENABLE)) {
 		slot = ((mmcra & MMCRA_SLOT) >> MMCRA_SLOT_SHIFT);
 		if (slot > 1)
 			pc += 4 * (slot - 1);

@@ -2,7 +2,7 @@
 #include <linux/pci.h>
 #include <linux/topology.h>
 #include <linux/cpu.h>
-#include "pci.h"
+#include <asm/pci_x86.h>
 
 #ifdef CONFIG_X86_64
 #include <asm/pci-direct.h>
@@ -94,11 +94,15 @@ struct pci_root_info {
 static int pci_root_num;
 static struct pci_root_info pci_root_info[PCI_ROOT_NR];
 
-void set_pci_bus_resources_arch_default(struct pci_bus *b)
+void x86_pci_root_bus_res_quirks(struct pci_bus *b)
 {
 	int i;
 	int j;
 	struct pci_root_info *info;
+
+	/* don't go for it if _CRS is used */
+	if (pci_probe & PCI_USE__CRS)
+		return;
 
 	/* if only one root bus, don't need to anything */
 	if (pci_root_num < 2)
@@ -580,7 +584,7 @@ static int __cpuinit amd_cpu_notify(struct notifier_block *self,
 				    unsigned long action, void *hcpu)
 {
 	int cpu = (long)hcpu;
-	switch(action) {
+	switch (action) {
 	case CPU_ONLINE:
 	case CPU_ONLINE_FROZEN:
 		smp_call_function_single(cpu, enable_pci_io_ecs, NULL, 0);

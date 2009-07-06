@@ -190,14 +190,16 @@ au1000_setup_dma_link(struct audio_stream *stream, unsigned int period_bytes,
 static void
 au1000_dma_stop(struct audio_stream *stream)
 {
-	snd_assert(stream->buffer, return);
+	if (snd_BUG_ON(!stream->buffer))
+		return;
 	disable_dma(stream->dma);
 }
 
 static void
 au1000_dma_start(struct audio_stream *stream)
 {
-	snd_assert(stream->buffer, return);
+	if (snd_BUG_ON(!stream->buffer))
+		return;
 
 	init_dma(stream->dma);
 	if (get_dma_active_buffer(stream->dma) == 0) {
@@ -634,9 +636,10 @@ au1000_init(void)
 	struct snd_card *card;
 	struct snd_au1000 *au1000;
 
-	card = snd_card_new(-1, "AC97", THIS_MODULE, sizeof(struct snd_au1000));
-	if (card == NULL)
-		return -ENOMEM;
+	err = snd_card_create(-1, "AC97", THIS_MODULE,
+			      sizeof(struct snd_au1000), &card);
+	if (err < 0)
+		return err;
 
 	card->private_free = snd_au1000_free;
 	au1000 = card->private_data;
@@ -676,7 +679,7 @@ au1000_init(void)
 		return err;
 	}
 
-	printk( KERN_INFO "ALSA AC97: Driver Initialized\n" );
+	printk(KERN_INFO "ALSA AC97: Driver Initialized\n");
 	au1000_card = card;
 	return 0;
 }

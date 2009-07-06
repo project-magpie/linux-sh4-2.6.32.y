@@ -33,8 +33,7 @@
 #include <linux/init.h>
 #include <linux/stm/soc.h>
 #include <sound/stm.h>
-
-#include "common.h"
+#include <mach/common.h>
 #include "mb705-epld.h"
 
 struct mb705_audio_conv {

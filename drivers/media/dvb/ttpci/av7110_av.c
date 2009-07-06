@@ -788,6 +788,9 @@ int av7110_write_to_decoder(struct dvb_demux_feed *feed, const u8 *buf, size_t l
 
 	dprintk(2, "av7110:%p, \n", av7110);
 
+	if (av7110->full_ts && demux->dmx.frontend->source != DMX_MEMORY_FE)
+		return 0;
+
 	switch (feed->pes_type) {
 	case 0:
 		if (av7110->audiostate.stream_source == AUDIO_SOURCE_MEMORY)
@@ -1453,7 +1456,7 @@ static int dvb_audio_release(struct inode *inode, struct file *file)
  * driver registration
  ******************************************************************************/
 
-static struct file_operations dvb_video_fops = {
+static const struct file_operations dvb_video_fops = {
 	.owner		= THIS_MODULE,
 	.write		= dvb_video_write,
 	.ioctl		= dvb_generic_ioctl,
@@ -1471,7 +1474,7 @@ static struct dvb_device dvbdev_video = {
 	.kernel_ioctl	= dvb_video_ioctl,
 };
 
-static struct file_operations dvb_audio_fops = {
+static const struct file_operations dvb_audio_fops = {
 	.owner		= THIS_MODULE,
 	.write		= dvb_audio_write,
 	.ioctl		= dvb_generic_ioctl,

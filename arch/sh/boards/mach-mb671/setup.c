@@ -21,6 +21,7 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <mach/epld.h>
 #include <mach/common.h>

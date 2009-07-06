@@ -41,7 +41,7 @@ static const char serial_revdate[] = "2007-11-06";
 #include <asm/irq.h>
 #include <asm/bitops.h>
 #include <asm/serial-regs.h>
-#include <asm/unit/timex.h>
+#include <unit/timex.h>
 #include "mn10300-serial.h"
 
 static inline __attribute__((format(printf, 1, 2)))
@@ -565,6 +565,11 @@ not_break:
 static void mn10300_serial_transmit_interrupt(struct mn10300_serial_port *port)
 {
 	_enter("%s", port->name);
+
+	if (!port->uart.info || !port->uart.info->port.tty) {
+		mn10300_serial_dis_tx_intr(port);
+		return;
+	}
 
 	if (uart_tx_stopped(&port->uart) ||
 	    uart_circ_empty(&port->uart.info->xmit))

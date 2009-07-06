@@ -25,7 +25,7 @@ enum {
 	opt_force, opt_err
 };
 
-static match_table_t tokens = {
+static const match_table_t tokens = {
 	{ opt_creator, "creator=%s" },
 	{ opt_type, "type=%s" },
 	{ opt_umask, "umask=%o" },
@@ -48,9 +48,9 @@ void hfsplus_fill_defaults(struct hfsplus_sb_info *opts)
 
 	opts->creator = HFSPLUS_DEF_CR_TYPE;
 	opts->type = HFSPLUS_DEF_CR_TYPE;
-	opts->umask = current->fs->umask;
-	opts->uid = current->uid;
-	opts->gid = current->gid;
+	opts->umask = current_umask();
+	opts->uid = current_uid();
+	opts->gid = current_gid();
 	opts->part = -1;
 	opts->session = -1;
 }

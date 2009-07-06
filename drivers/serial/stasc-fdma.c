@@ -664,7 +664,7 @@ static void asc_fdma_rx_ldisc_work(struct work_struct *work)
 	struct asc_port_fdma_rx_channel *rx = container_of(work,
 			struct asc_port_fdma_rx_channel, ldisc_work);
 	struct uart_port *port = rx->port;
-	struct tty_ldisc *ldisc = tty_ldisc_ref_wait(port->info->tty);
+	struct tty_ldisc *ldisc = tty_ldisc_ref_wait(port->info->port.tty);
 
 	while (rx->data_head != rx->data_tail) {
 		/* Get a data portion from fifo */
@@ -677,8 +677,8 @@ static void asc_fdma_rx_ldisc_work(struct work_struct *work)
 
 		/* Feed TTY line discipline with received data and flags buffer
 		 * (already prepared and filled with TTY_NORMAL flags) */
-		ldisc->receive_buf(port->info->tty, data->chars,
-				rx->flags, data->size);
+		ldisc->ops->receive_buf(port->info->port.tty, data->chars,
+					rx->flags, data->size);
 
 		if (data->remainder)
 			/* Free space in circular buffer */

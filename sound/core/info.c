@@ -154,11 +154,6 @@ EXPORT_SYMBOL(snd_seq_root);
 struct snd_info_entry *snd_oss_root;
 #endif
 
-static inline void snd_info_entry_prepare(struct proc_dir_entry *de)
-{
-	de->owner = THIS_MODULE;
-}
-
 static void snd_remove_proc_entry(struct proc_dir_entry *parent,
 				  struct proc_dir_entry *de)
 {
@@ -217,7 +212,8 @@ static ssize_t snd_info_entry_read(struct file *file, char __user *buffer,
 	loff_t pos;
 
 	data = file->private_data;
-	snd_assert(data != NULL, return -ENXIO);
+	if (snd_BUG_ON(!data))
+		return -ENXIO;
 	pos = *offset;
 	if (pos < 0 || (long) pos != pos || (ssize_t) count < 0)
 		return -EIO;
@@ -258,7 +254,8 @@ static ssize_t snd_info_entry_write(struct file *file, const char __user *buffer
 	loff_t pos;
 
 	data = file->private_data;
-	snd_assert(data != NULL, return -ENXIO);
+	if (snd_BUG_ON(!data))
+		return -ENXIO;
 	entry = data->entry;
 	pos = *offset;
 	if (pos < 0 || (long) pos != pos || (ssize_t) count < 0)
@@ -520,32 +517,11 @@ static const struct file_operations snd_info_entry_operations =
 	.release =		snd_info_entry_release,
 };
 
-/**
- * snd_create_proc_entry - create a procfs entry
- * @name: the name of the proc file
- * @mode: the file permission bits, S_Ixxx
- * @parent: the parent proc-directory entry
- *
- * Creates a new proc file entry with the given name and permission
- * on the given directory.
- *
- * Returns the pointer of new instance or NULL on failure.
- */
-static struct proc_dir_entry *snd_create_proc_entry(const char *name, mode_t mode,
-						    struct proc_dir_entry *parent)
-{
-	struct proc_dir_entry *p;
-	p = create_proc_entry(name, mode, parent);
-	if (p)
-		snd_info_entry_prepare(p);
-	return p;
-}
-
 int __init snd_info_init(void)
 {
 	struct proc_dir_entry *p;
 
-	p = snd_create_proc_entry("asound", S_IFDIR | S_IRUGO | S_IXUGO, NULL);
+	p = create_proc_entry("asound", S_IFDIR | S_IRUGO | S_IXUGO, NULL);
 	if (p == NULL)
 		return -ENOMEM;
 	snd_proc_root = p;
@@ -614,7 +590,8 @@ int snd_info_card_create(struct snd_card *card)
 	char str[8];
 	struct snd_info_entry *entry;
 
-	snd_assert(card != NULL, return -ENXIO);
+	if (snd_BUG_ON(!card))
+		return -ENXIO;
 
 	sprintf(str, "card%i", card->number);
 	if ((entry = snd_info_create_module_entry(card->module, str, NULL)) == NULL)
@@ -636,7 +613,8 @@ int snd_info_card_register(struct snd_card *card)
 {
 	struct proc_dir_entry *p;
 
-	snd_assert(card != NULL, return -ENXIO);
+	if (snd_BUG_ON(!card))
+		return -ENXIO;
 
 	if (!strcmp(card->id, card->proc_root->name))
 		return 0;
@@ -649,12 +627,30 @@ int snd_info_card_register(struct snd_card *card)
 }
 
 /*
+ * called on card->id change
+ */
+void snd_info_card_id_change(struct snd_card *card)
+{
+	mutex_lock(&info_mutex);
+	if (card->proc_root_link) {
+		snd_remove_proc_entry(snd_proc_root, card->proc_root_link);
+		card->proc_root_link = NULL;
+	}
+	if (strcmp(card->id, card->proc_root->name))
+		card->proc_root_link = proc_symlink(card->id,
+						    snd_proc_root,
+						    card->proc_root->name);
+	mutex_unlock(&info_mutex);
+}
+
+/*
  * de-register the card proc file
  * called from init.c
  */
 void snd_info_card_disconnect(struct snd_card *card)
 {
-	snd_assert(card != NULL, return);
+	if (!card)
+		return;
 	mutex_lock(&info_mutex);
 	if (card->proc_root_link) {
 		snd_remove_proc_entry(snd_proc_root, card->proc_root_link);
@@ -671,7 +667,8 @@ void snd_info_card_disconnect(struct snd_card *card)
  */
 int snd_info_card_free(struct snd_card *card)
 {
-	snd_assert(card != NULL, return -ENXIO);
+	if (!card)
+		return 0;
 	snd_info_free_entry(card->proc_root);
 	card->proc_root = NULL;
 	return 0;
@@ -849,7 +846,7 @@ static void snd_info_disconnect(struct snd_info_entry *entry)
 		return;
 	list_del_init(&entry->list);
 	root = entry->parent == NULL ? snd_proc_root : entry->parent->p;
-	snd_assert(root, return);
+	snd_BUG_ON(!root);
 	snd_remove_proc_entry(root, entry->p);
 	entry->p = NULL;
 }
@@ -947,15 +944,15 @@ int snd_info_register(struct snd_info_entry * entry)
 {
 	struct proc_dir_entry *root, *p = NULL;
 
-	snd_assert(entry != NULL, return -ENXIO);
+	if (snd_BUG_ON(!entry))
+		return -ENXIO;
 	root = entry->parent == NULL ? snd_proc_root : entry->parent->p;
 	mutex_lock(&info_mutex);
-	p = snd_create_proc_entry(entry->name, entry->mode, root);
+	p = create_proc_entry(entry->name, entry->mode, root);
 	if (!p) {
 		mutex_unlock(&info_mutex);
 		return -ENOMEM;
 	}
-	p->owner = entry->module;
 	if (!S_ISDIR(entry->mode))
 		p->proc_fops = &snd_info_entry_operations;
 	p->size = entry->size;

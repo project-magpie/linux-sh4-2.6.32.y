@@ -8,9 +8,13 @@
 #include <linux/preempt.h>
 #include <linux/cpumask.h>
 #include <linux/irqreturn.h>
+#include <linux/irqnr.h>
 #include <linux/hardirq.h>
 #include <linux/sched.h>
 #include <linux/irqflags.h>
+#include <linux/smp.h>
+#include <linux/percpu.h>
+
 #include <asm/atomic.h>
 #include <asm/ptrace.h>
 #include <asm/system.h>
@@ -55,8 +59,34 @@
 #define IRQF_NOBALANCING	0x00000800
 #define IRQF_IRQPOLL		0x00001000
 
+/*
+ * Bits used by threaded handlers:
+ * IRQTF_RUNTHREAD - signals that the interrupt handler thread should run
+ * IRQTF_DIED      - handler thread died
+ * IRQTF_WARNED    - warning "IRQ_WAKE_THREAD w/o thread_fn" has been printed
+ */
+enum {
+	IRQTF_RUNTHREAD,
+	IRQTF_DIED,
+	IRQTF_WARNED,
+};
+
 typedef irqreturn_t (*irq_handler_t)(int, void *);
 
+/**
+ * struct irqaction - per interrupt action descriptor
+ * @handler:	interrupt handler function
+ * @flags:	flags (see IRQF_* above)
+ * @mask:	no comment as it is useless and about to be removed
+ * @name:	name of the device
+ * @dev_id:	cookie to identify the device
+ * @next:	pointer to the next irqaction for shared interrupts
+ * @irq:	interrupt number
+ * @dir:	pointer to the proc/irq/NN/name entry
+ * @thread_fn:	interupt handler function for threaded interrupts
+ * @thread:	thread pointer for threaded interrupts
+ * @thread_flags:	flags related to @thread
+ */
 struct irqaction {
 	irq_handler_t handler;
 	unsigned long flags;
@@ -66,18 +96,68 @@ struct irqaction {
 	struct irqaction *next;
 	int irq;
 	struct proc_dir_entry *dir;
+	irq_handler_t thread_fn;
+	struct task_struct *thread;
+	unsigned long thread_flags;
 };
 
 extern irqreturn_t no_action(int cpl, void *dev_id);
-extern int __must_check request_irq(unsigned int, irq_handler_t handler,
-		       unsigned long, const char *, void *);
+
+#ifdef CONFIG_GENERIC_HARDIRQS
+extern int __must_check
+request_threaded_irq(unsigned int irq, irq_handler_t handler,
+		     irq_handler_t thread_fn,
+		     unsigned long flags, const char *name, void *dev);
+
+static inline int __must_check
+request_irq(unsigned int irq, irq_handler_t handler, unsigned long flags,
+	    const char *name, void *dev)
+{
+	return request_threaded_irq(irq, handler, NULL, flags, name, dev);
+}
+
+extern void exit_irq_thread(void);
+#else
+
+extern int __must_check
+request_irq(unsigned int irq, irq_handler_t handler, unsigned long flags,
+	    const char *name, void *dev);
+
+/*
+ * Special function to avoid ifdeffery in kernel/irq/devres.c which
+ * gets magically built by GENERIC_HARDIRQS=n architectures (sparc,
+ * m68k). I really love these $@%#!* obvious Makefile references:
+ * ../../../kernel/irq/devres.o
+ */
+static inline int __must_check
+request_threaded_irq(unsigned int irq, irq_handler_t handler,
+		     irq_handler_t thread_fn,
+		     unsigned long flags, const char *name, void *dev)
+{
+	return request_irq(irq, handler, flags, name, dev);
+}
+
+static inline void exit_irq_thread(void) { }
+#endif
+
 extern void free_irq(unsigned int, void *);
 
 struct device;
 
-extern int __must_check devm_request_irq(struct device *dev, unsigned int irq,
-			    irq_handler_t handler, unsigned long irqflags,
-			    const char *devname, void *dev_id);
+extern int __must_check
+devm_request_threaded_irq(struct device *dev, unsigned int irq,
+			  irq_handler_t handler, irq_handler_t thread_fn,
+			  unsigned long irqflags, const char *devname,
+			  void *dev_id);
+
+static inline int __must_check
+devm_request_irq(struct device *dev, unsigned int irq, irq_handler_t handler,
+		 unsigned long irqflags, const char *devname, void *dev_id)
+{
+	return devm_request_threaded_irq(dev, irq, handler, NULL, irqflags,
+					 devname, dev_id);
+}
+
 extern void devm_free_irq(struct device *dev, unsigned int irq, void *dev_id);
 
 /*
@@ -102,17 +182,26 @@ extern void disable_irq_nosync(unsigned int irq);
 extern void disable_irq(unsigned int irq);
 extern void enable_irq(unsigned int irq);
 
+/* The following three functions are for the core kernel use only. */
+extern void suspend_device_irqs(void);
+extern void resume_device_irqs(void);
+#ifdef CONFIG_PM_SLEEP
+extern int check_wakeup_irqs(void);
+#else
+static inline int check_wakeup_irqs(void) { return 0; }
+#endif
+
 #if defined(CONFIG_SMP) && defined(CONFIG_GENERIC_HARDIRQS)
 
-extern cpumask_t irq_default_affinity;
+extern cpumask_var_t irq_default_affinity;
 
-extern int irq_set_affinity(unsigned int irq, cpumask_t cpumask);
+extern int irq_set_affinity(unsigned int irq, const struct cpumask *cpumask);
 extern int irq_can_set_affinity(unsigned int irq);
 extern int irq_select_affinity(unsigned int irq);
 
 #else /* CONFIG_SMP */
 
-static inline int irq_set_affinity(unsigned int irq, cpumask_t cpumask)
+static inline int irq_set_affinity(unsigned int irq, const struct cpumask *m)
 {
 	return -EINVAL;
 }
@@ -248,11 +337,16 @@ enum
 	BLOCK_SOFTIRQ,
 	TASKLET_SOFTIRQ,
 	SCHED_SOFTIRQ,
-#ifdef CONFIG_HIGH_RES_TIMERS
 	HRTIMER_SOFTIRQ,
-#endif
-	RCU_SOFTIRQ, 	/* Preferable RCU should always be the last softirq */
+	RCU_SOFTIRQ,	/* Preferable RCU should always be the last softirq */
+
+	NR_SOFTIRQS
 };
+
+/* map softirq index to softirq name. update 'softirq_to_name' in
+ * kernel/softirq.c when adding a new softirq.
+ */
+extern char *softirq_to_name[NR_SOFTIRQS];
 
 /* softirq mask and active fields moved to irq_cpustat_t in
  * asm/hardirq.h to get better cache usage.  KAO
@@ -270,7 +364,27 @@ extern void softirq_init(void);
 #define __raise_softirq_irqoff(nr) do { or_softirq_pending(1UL << (nr)); } while (0)
 extern void raise_softirq_irqoff(unsigned int nr);
 extern void raise_softirq(unsigned int nr);
+extern void wakeup_softirqd(void);
 
+/* This is the worklist that queues up per-cpu softirq work.
+ *
+ * send_remote_sendirq() adds work to these lists, and
+ * the softirq handler itself dequeues from them.  The queues
+ * are protected by disabling local cpu interrupts and they must
+ * only be accessed by the local cpu that they are for.
+ */
+DECLARE_PER_CPU(struct list_head [NR_SOFTIRQS], softirq_work_list);
+
+/* Try to send a softirq to a remote cpu.  If this cannot be done, the
+ * work will be queued to the local cpu.
+ */
+extern void send_remote_softirq(struct call_single_data *cp, int cpu, int softirq);
+
+/* Like send_remote_softirq(), but the caller must disable local cpu interrupts
+ * and compute the current cpu, passed in as 'this_cpu'.
+ */
+extern void __send_remote_softirq(struct call_single_data *cp, int cpu,
+				  int this_cpu, int softirq);
 
 /* Tasklets --- multithreaded analogue of BHs.
 
@@ -439,6 +553,19 @@ static inline void init_irq_proc(void)
 }
 #endif
 
+#if defined(CONFIG_GENERIC_HARDIRQS) && defined(CONFIG_DEBUG_SHIRQ)
+extern void debug_poll_all_shared_irqs(void);
+#else
+static inline void debug_poll_all_shared_irqs(void) { }
+#endif
+
 int show_interrupts(struct seq_file *p, void *v);
+
+struct irq_desc;
+
+extern int early_irq_init(void);
+extern int arch_probe_nr_irqs(void);
+extern int arch_early_irq_init(void);
+extern int arch_init_chip_data(struct irq_desc *desc, int cpu);
 
 #endif

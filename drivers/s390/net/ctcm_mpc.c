@@ -19,6 +19,9 @@
 #undef DEBUGDATA
 #undef DEBUGCCW
 
+#define KMSG_COMPONENT "ctcm"
+#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -312,10 +315,10 @@ static struct net_device *ctcmpc_get_dev(int port_num)
 					CTCM_FUNTAIL, device);
 		return NULL;
 	}
-	priv = dev->priv;
+	priv = dev->ml_priv;
 	if (priv == NULL) {
 		CTCM_DBF_TEXT_(MPC_ERROR, CTC_DBF_ERROR,
-			"%s(%s): dev->priv is NULL",
+			"%s(%s): dev->ml_priv is NULL",
 					CTCM_FUNTAIL, device);
 		return NULL;
 	}
@@ -344,7 +347,7 @@ int ctc_mpc_alloc_channel(int port_num, void (*callback)(int, int))
 	dev = ctcmpc_get_dev(port_num);
 	if (dev == NULL)
 		return 1;
-	priv = dev->priv;
+	priv = dev->ml_priv;
 	grp = priv->mpcg;
 
 	grp->allochanfunc = callback;
@@ -386,11 +389,10 @@ int ctc_mpc_alloc_channel(int port_num, void (*callback)(int, int))
 		if (grp->allocchan_callback_retries < 4) {
 			if (grp->allochanfunc)
 				grp->allochanfunc(grp->port_num,
-					      grp->group_max_buflen);
+						  grp->group_max_buflen);
 		} else {
 			/* there are problems...bail out	    */
 			/* there may be a state mismatch so restart */
-			grp->port_persist = 1;
 			fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
 			grp->allocchan_callback_retries = 0;
 		}
@@ -416,7 +418,7 @@ void ctc_mpc_establish_connectivity(int port_num,
 	dev = ctcmpc_get_dev(port_num);
 	if (dev == NULL)
 		return;
-	priv = dev->priv;
+	priv = dev->ml_priv;
 	grp = priv->mpcg;
 	rch = priv->channel[READ];
 	wch = priv->channel[WRITE];
@@ -534,7 +536,7 @@ void ctc_mpc_dealloc_ch(int port_num)
 	dev = ctcmpc_get_dev(port_num);
 	if (dev == NULL)
 		return;
-	priv = dev->priv;
+	priv = dev->ml_priv;
 	grp = priv->mpcg;
 
 	CTCM_DBF_TEXT_(MPC_SETUP, CTC_DBF_DEBUG,
@@ -570,7 +572,7 @@ void ctc_mpc_flow_control(int port_num, int flowc)
 	dev = ctcmpc_get_dev(port_num);
 	if (dev == NULL)
 		return;
-	priv = dev->priv;
+	priv = dev->ml_priv;
 	grp = priv->mpcg;
 
 	CTCM_DBF_TEXT_(MPC_TRACE, CTC_DBF_DEBUG,
@@ -619,7 +621,7 @@ static void mpc_rcvd_sweep_resp(struct mpcg_info *mpcginfo)
 {
 	struct channel	  *rch = mpcginfo->ch;
 	struct net_device *dev = rch->netdev;
-	struct ctcm_priv   *priv = dev->priv;
+	struct ctcm_priv   *priv = dev->ml_priv;
 	struct mpc_group  *grp = priv->mpcg;
 	struct channel	  *ch = priv->channel[WRITE];
 
@@ -650,7 +652,7 @@ static void mpc_rcvd_sweep_resp(struct mpcg_info *mpcginfo)
 static void ctcmpc_send_sweep_resp(struct channel *rch)
 {
 	struct net_device *dev = rch->netdev;
-	struct ctcm_priv *priv = dev->priv;
+	struct ctcm_priv *priv = dev->ml_priv;
 	struct mpc_group *grp = priv->mpcg;
 	int rc = 0;
 	struct th_sweep *header;
@@ -696,11 +698,9 @@ static void ctcmpc_send_sweep_resp(struct channel *rch)
 	return;
 
 done:
-	if (rc != 0) {
-		grp->in_sweep = 0;
-		ctcm_clear_busy_do(dev);
-		fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
-	}
+	grp->in_sweep = 0;
+	ctcm_clear_busy_do(dev);
+	fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
 
 	return;
 }
@@ -712,7 +712,7 @@ static void mpc_rcvd_sweep_req(struct mpcg_info *mpcginfo)
 {
 	struct channel	  *rch     = mpcginfo->ch;
 	struct net_device *dev     = rch->netdev;
-	struct ctcm_priv  *priv = dev->priv;
+	struct ctcm_priv  *priv = dev->ml_priv;
 	struct mpc_group  *grp  = priv->mpcg;
 	struct channel	  *ch	   = priv->channel[WRITE];
 
@@ -846,7 +846,7 @@ static int mpcg_fsm_len = ARRAY_SIZE(mpcg_fsm);
 static void mpc_action_go_ready(fsm_instance *fsm, int event, void *arg)
 {
 	struct net_device *dev = arg;
-	struct ctcm_priv *priv = dev->priv;
+	struct ctcm_priv *priv = dev->ml_priv;
 	struct mpc_group *grp = priv->mpcg;
 
 	if (grp == NULL) {
@@ -890,7 +890,7 @@ static void mpc_action_go_ready(fsm_instance *fsm, int event, void *arg)
 void mpc_group_ready(unsigned long adev)
 {
 	struct net_device *dev = (struct net_device *)adev;
-	struct ctcm_priv *priv = dev->priv;
+	struct ctcm_priv *priv = dev->ml_priv;
 	struct mpc_group *grp = priv->mpcg;
 	struct channel *ch = NULL;
 
@@ -946,7 +946,7 @@ void mpc_group_ready(unsigned long adev)
 void mpc_channel_action(struct channel *ch, int direction, int action)
 {
 	struct net_device  *dev  = ch->netdev;
-	struct ctcm_priv   *priv = dev->priv;
+	struct ctcm_priv   *priv = dev->ml_priv;
 	struct mpc_group   *grp  = priv->mpcg;
 
 	if (grp == NULL) {
@@ -1056,7 +1056,7 @@ done:
 static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb)
 {
 	struct net_device *dev	= ch->netdev;
-	struct ctcm_priv *priv = dev->priv;
+	struct ctcm_priv *priv = dev->ml_priv;
 	struct mpc_group *grp = priv->mpcg;
 	struct pdu *curr_pdu;
 	struct mpcg_info *mpcginfo;
@@ -1115,7 +1115,6 @@ static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb)
 
 		if (unlikely(fsm_getstate(grp->fsm) != MPCG_STATE_READY))
 					goto done;
-		pdu_last_seen = 0;
 		while ((pskb->len > 0) && !pdu_last_seen) {
 			curr_pdu = (struct pdu *)pskb->data;
 
@@ -1232,8 +1231,9 @@ done:
 
 	dev_kfree_skb_any(pskb);
 	if (sendrc == NET_RX_DROP) {
-		printk(KERN_WARNING "%s %s() NETWORK BACKLOG EXCEEDED"
-		       " - PACKET DROPPED\n", dev->name, __func__);
+		dev_warn(&dev->dev,
+			"The network backlog for %s is exceeded, "
+			"package dropped\n", __func__);
 		fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
 	}
 
@@ -1254,7 +1254,7 @@ void ctcmpc_bh(unsigned long thischan)
 	struct channel	  *ch	= (struct channel *)thischan;
 	struct sk_buff	  *skb;
 	struct net_device *dev	= ch->netdev;
-	struct ctcm_priv  *priv	= dev->priv;
+	struct ctcm_priv  *priv	= dev->ml_priv;
 	struct mpc_group  *grp	= priv->mpcg;
 
 	CTCM_PR_DEBUG("%s cp:%i enter:  %s() %s\n",
@@ -1376,7 +1376,7 @@ static void mpc_action_go_inop(fsm_instance *fi, int event, void *arg)
 	BUG_ON(dev == NULL);
 	CTCM_PR_DEBUG("Enter %s: %s\n",	__func__, dev->name);
 
-	priv  = dev->priv;
+	priv  = dev->ml_priv;
 	grp =  priv->mpcg;
 	grp->flow_off_called = 0;
 	fsm_deltimer(&grp->timer);
@@ -1392,8 +1392,7 @@ static void mpc_action_go_inop(fsm_instance *fi, int event, void *arg)
 				CTCM_FUNTAIL, dev->name);
 	if ((grp->saved_state != MPCG_STATE_RESET) ||
 		/* dealloc_channel has been called */
-			((grp->saved_state == MPCG_STATE_RESET) &&
-						(grp->port_persist == 0)))
+		(grp->port_persist == 0))
 		fsm_deltimer(&priv->restart_timer);
 
 	wch = priv->channel[WRITE];
@@ -1482,7 +1481,7 @@ static void mpc_action_timeout(fsm_instance *fi, int event, void *arg)
 
 	BUG_ON(dev == NULL);
 
-	priv = dev->priv;
+	priv = dev->ml_priv;
 	grp = priv->mpcg;
 	wch = priv->channel[WRITE];
 	rch = priv->channel[READ];
@@ -1520,7 +1519,7 @@ void mpc_action_discontact(fsm_instance *fi, int event, void *arg)
 	if (ch) {
 		dev = ch->netdev;
 		if (dev) {
-			priv = dev->priv;
+			priv = dev->ml_priv;
 			if (priv) {
 				CTCM_DBF_TEXT_(MPC_TRACE, CTC_DBF_NOTICE,
 					"%s: %s: %s\n",
@@ -1568,7 +1567,7 @@ static int mpc_validate_xid(struct mpcg_info *mpcginfo)
 {
 	struct channel	   *ch	 = mpcginfo->ch;
 	struct net_device  *dev  = ch->netdev;
-	struct ctcm_priv   *priv = dev->priv;
+	struct ctcm_priv   *priv = dev->ml_priv;
 	struct mpc_group   *grp  = priv->mpcg;
 	struct xid2	   *xid  = mpcginfo->xid;
 	int	rc	 = 0;
@@ -1670,10 +1669,11 @@ static int mpc_validate_xid(struct mpcg_info *mpcginfo)
 					CTCM_FUNTAIL, ch->id);
 		}
 	}
-
 done:
 	if (rc) {
-		ctcm_pr_info("ctcmpc	   :  %s() failed\n", __FUNCTION__);
+		dev_warn(&dev->dev,
+			"The XID used in the MPC protocol is not valid, "
+			"rc = %d\n", rc);
 		priv->xid->xid2_flag2 = 0x40;
 		grp->saved_xid2->xid2_flag2 = 0x40;
 	}
@@ -1865,7 +1865,7 @@ static void mpc_action_doxid0(fsm_instance *fsm, int event, void *arg)
 {
 	struct channel	   *ch   = arg;
 	struct net_device  *dev  = ch->netdev;
-	struct ctcm_priv   *priv = dev->priv;
+	struct ctcm_priv   *priv = dev->ml_priv;
 	struct mpc_group   *grp  = priv->mpcg;
 
 	CTCM_PR_DEBUG("Enter %s: cp=%i ch=0x%p id=%s\n",
@@ -1905,17 +1905,15 @@ static void mpc_action_doxid0(fsm_instance *fsm, int event, void *arg)
 static void mpc_action_doxid7(fsm_instance *fsm, int event, void *arg)
 {
 	struct net_device *dev = arg;
-	struct ctcm_priv  *priv = dev->priv;
+	struct ctcm_priv  *priv = dev->ml_priv;
 	struct mpc_group  *grp  = NULL;
 	int direction;
 	int send = 0;
 
 	if (priv)
 		grp = priv->mpcg;
-	if (grp == NULL) {
-		fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
+	if (grp == NULL)
 		return;
-	}
 
 	for (direction = READ; direction <= WRITE; direction++)	{
 		struct channel *ch = priv->channel[direction];
@@ -1982,7 +1980,7 @@ static void mpc_action_rcvd_xid0(fsm_instance *fsm, int event, void *arg)
 	struct mpcg_info   *mpcginfo  = arg;
 	struct channel	   *ch   = mpcginfo->ch;
 	struct net_device  *dev  = ch->netdev;
-	struct ctcm_priv   *priv = dev->priv;
+	struct ctcm_priv   *priv = dev->ml_priv;
 	struct mpc_group   *grp  = priv->mpcg;
 
 	CTCM_PR_DEBUG("%s: ch-id:%s xid2:%i xid7:%i xidt_p2:%i \n",
@@ -2044,7 +2042,7 @@ static void mpc_action_rcvd_xid7(fsm_instance *fsm, int event, void *arg)
 	struct mpcg_info   *mpcginfo   = arg;
 	struct channel	   *ch	       = mpcginfo->ch;
 	struct net_device  *dev        = ch->netdev;
-	struct ctcm_priv   *priv    = dev->priv;
+	struct ctcm_priv   *priv    = dev->ml_priv;
 	struct mpc_group   *grp     = priv->mpcg;
 
 	CTCM_PR_DEBUG("Enter %s: cp=%i ch=0x%p id=%s\n",
@@ -2096,7 +2094,7 @@ static int mpc_send_qllc_discontact(struct net_device *dev)
 	__u32	new_len	= 0;
 	struct sk_buff   *skb;
 	struct qllc      *qllcptr;
-	struct ctcm_priv *priv = dev->priv;
+	struct ctcm_priv *priv = dev->ml_priv;
 	struct mpc_group *grp = priv->mpcg;
 
 	CTCM_PR_DEBUG("%s: GROUP STATE: %s\n",

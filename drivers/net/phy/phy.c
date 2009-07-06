@@ -45,7 +45,7 @@
  */
 void phy_print_status(struct phy_device *phydev)
 {
-	pr_info("PHY: %s - Link is %s", phydev->dev.bus_id,
+	pr_info("PHY: %s - Link is %s", dev_name(&phydev->dev),
 			phydev->link ? "Up" : "Down");
 	if (phydev->link)
 		printk(" - %d/%s", phydev->speed,
@@ -56,55 +56,6 @@ void phy_print_status(struct phy_device *phydev)
 }
 EXPORT_SYMBOL(phy_print_status);
 
-
-/**
- * phy_read - Convenience function for reading a given PHY register
- * @phydev: the phy_device struct
- * @regnum: register number to read
- *
- * NOTE: MUST NOT be called from interrupt context,
- * because the bus read/write functions may wait for an interrupt
- * to conclude the operation.
- */
-int phy_read(struct phy_device *phydev, u16 regnum)
-{
-	int retval;
-	struct mii_bus *bus = phydev->bus;
-
-	BUG_ON(in_interrupt());
-
-	mutex_lock(&bus->mdio_lock);
-	retval = bus->read(bus, phydev->addr, regnum);
-	mutex_unlock(&bus->mdio_lock);
-
-	return retval;
-}
-EXPORT_SYMBOL(phy_read);
-
-/**
- * phy_write - Convenience function for writing a given PHY register
- * @phydev: the phy_device struct
- * @regnum: register number to write
- * @val: value to write to @regnum
- *
- * NOTE: MUST NOT be called from interrupt context,
- * because the bus read/write functions may wait for an interrupt
- * to conclude the operation.
- */
-int phy_write(struct phy_device *phydev, u16 regnum, u16 val)
-{
-	int err;
-	struct mii_bus *bus = phydev->bus;
-
-	BUG_ON(in_interrupt());
-
-	mutex_lock(&bus->mdio_lock);
-	err = bus->write(bus, phydev->addr, regnum, val);
-	mutex_unlock(&bus->mdio_lock);
-
-	return err;
-}
-EXPORT_SYMBOL(phy_write);
 
 /**
  * phy_clear_interrupt - Ack the phy device's interrupt
@@ -366,7 +317,8 @@ int phy_mii_ioctl(struct phy_device *phydev,
 	switch (cmd) {
 	case SIOCGMIIPHY:
 		mii_data->phy_id = phydev->addr;
-		break;
+		/* fall through */
+
 	case SIOCGMIIREG:
 		mii_data->val_out = phy_read(phydev, mii_data->reg_num);
 		break;
@@ -413,7 +365,7 @@ int phy_mii_ioctl(struct phy_device *phydev,
 		break;
 
 	default:
-		return -ENOTTY;
+		return -EOPNOTSUPP;
 	}
 
 	return 0;
@@ -462,7 +414,6 @@ EXPORT_SYMBOL(phy_start_aneg);
 
 static void phy_change(struct work_struct *work);
 static void phy_state_machine(struct work_struct *work);
-static void phy_timer(unsigned long data);
 
 /**
  * phy_start_machine - start PHY state machine tracking
@@ -482,11 +433,8 @@ void phy_start_machine(struct phy_device *phydev,
 {
 	phydev->adjust_state = handler;
 
-	INIT_WORK(&phydev->state_queue, phy_state_machine);
-	init_timer(&phydev->phy_timer);
-	phydev->phy_timer.function = &phy_timer;
-	phydev->phy_timer.data = (unsigned long) phydev;
-	mod_timer(&phydev->phy_timer, jiffies + HZ);
+	INIT_DELAYED_WORK(&phydev->state_queue, phy_state_machine);
+	schedule_delayed_work(&phydev->state_queue, HZ);
 }
 
 /**
@@ -499,8 +447,7 @@ void phy_start_machine(struct phy_device *phydev,
  */
 void phy_stop_machine(struct phy_device *phydev)
 {
-	del_timer_sync(&phydev->phy_timer);
-	cancel_work_sync(&phydev->state_queue);
+	cancel_delayed_work_sync(&phydev->state_queue);
 
 	mutex_lock(&phydev->lock);
 	if (phydev->state > PHY_UP)
@@ -708,6 +655,10 @@ static void phy_change(struct work_struct *work)
 	struct phy_device *phydev =
 		container_of(work, struct phy_device, phy_queue);
 
+	if (phydev->drv->did_interrupt &&
+	    !phydev->drv->did_interrupt(phydev))
+		goto ignore;
+
 	err = phy_disable_interrupts(phydev);
 
 	if (err)
@@ -728,6 +679,15 @@ static void phy_change(struct work_struct *work)
 	if (err)
 		goto irq_enable_err;
 
+	/* reschedule state queue work to run as soon as possible */
+	cancel_delayed_work_sync(&phydev->state_queue);
+	schedule_delayed_work(&phydev->state_queue, 0);
+
+	return;
+
+ignore:
+	atomic_dec(&phydev->irq_disable);
+	enable_irq(phydev->irq);
 	return;
 
 irq_enable_err:
@@ -803,14 +763,12 @@ EXPORT_SYMBOL(phy_start);
 /**
  * phy_state_machine - Handle the state machine
  * @work: work_struct that describes the work to be done
- *
- * Description: Scheduled by the state_queue workqueue each time
- *   phy_timer is triggered.
  */
 static void phy_state_machine(struct work_struct *work)
 {
+	struct delayed_work *dwork = to_delayed_work(work);
 	struct phy_device *phydev =
-			container_of(work, struct phy_device, state_queue);
+			container_of(dwork, struct phy_device, state_queue);
 	int needs_aneg = 0;
 	int err = 0;
 
@@ -988,17 +946,5 @@ static void phy_state_machine(struct work_struct *work)
 	if (err < 0)
 		phy_error(phydev);
 
-	mod_timer(&phydev->phy_timer, jiffies + PHY_STATE_TIME * HZ);
-}
-
-/* PHY timer which schedules the state machine work */
-static void phy_timer(unsigned long data)
-{
-	struct phy_device *phydev = (struct phy_device *)data;
-
-	/*
-	 * PHY I/O operations can potentially sleep so we ensure that
-	 * it's done from a process context
-	 */
-	schedule_work(&phydev->state_queue);
+	schedule_delayed_work(&phydev->state_queue, PHY_STATE_TIME * HZ);
 }

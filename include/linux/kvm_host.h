@@ -16,6 +16,7 @@
 #include <linux/mm.h>
 #include <linux/preempt.h>
 #include <linux/marker.h>
+#include <linux/msi.h>
 #include <asm/signal.h>
 
 #include <linux/kvm.h>
@@ -34,6 +35,11 @@
 #define KVM_REQ_MMU_RELOAD         3
 #define KVM_REQ_TRIPLE_FAULT       4
 #define KVM_REQ_PENDING_TIMER      5
+#define KVM_REQ_UNHALT             6
+#define KVM_REQ_MMU_SYNC           7
+#define KVM_REQ_KVMCLOCK_UPDATE    8
+
+#define KVM_USERSPACE_IRQ_SOURCE_ID	0
 
 struct kvm_vcpu;
 extern struct kmem_cache *kvm_vcpu_cache;
@@ -68,7 +74,7 @@ struct kvm_vcpu {
 	struct kvm_run *run;
 	int guest_mode;
 	unsigned long requests;
-	struct kvm_guest_debug guest_debug;
+	unsigned long guest_debug;
 	int fpu_active;
 	int guest_fpu_loaded;
 	wait_queue_head_t wq;
@@ -102,6 +108,20 @@ struct kvm_memory_slot {
 	int user_alloc;
 };
 
+struct kvm_kernel_irq_routing_entry {
+	u32 gsi;
+	int (*set)(struct kvm_kernel_irq_routing_entry *e,
+		    struct kvm *kvm, int level);
+	union {
+		struct {
+			unsigned irqchip;
+			unsigned pin;
+		} irqchip;
+		struct msi_msg msi;
+	};
+	struct list_head link;
+};
+
 struct kvm {
 	struct mutex lock; /* protects the vcpus array and APIC accesses */
 	spinlock_t mmu_lock;
@@ -120,6 +140,11 @@ struct kvm {
 #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
 	struct kvm_coalesced_mmio_dev *coalesced_mmio_dev;
 	struct kvm_coalesced_mmio_ring *coalesced_mmio_ring;
+#endif
+
+#ifdef CONFIG_HAVE_KVM_IRQCHIP
+	struct list_head irq_routing; /* of kvm_kernel_irq_routing_entry */
+	struct hlist_head mask_notifier_list;
 #endif
 
 #ifdef KVM_ARCH_WANT_MMU_NOTIFIER
@@ -232,7 +257,6 @@ int kvm_vm_ioctl_set_memory_region(struct kvm *kvm,
 				   int user_alloc);
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg);
-void kvm_arch_destroy_vm(struct kvm *kvm);
 
 int kvm_arch_vcpu_ioctl_get_fpu(struct kvm_vcpu *vcpu, struct kvm_fpu *fpu);
 int kvm_arch_vcpu_ioctl_set_fpu(struct kvm_vcpu *vcpu, struct kvm_fpu *fpu);
@@ -250,8 +274,8 @@ int kvm_arch_vcpu_ioctl_get_mpstate(struct kvm_vcpu *vcpu,
 				    struct kvm_mp_state *mp_state);
 int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 				    struct kvm_mp_state *mp_state);
-int kvm_arch_vcpu_ioctl_debug_guest(struct kvm_vcpu *vcpu,
-				    struct kvm_debug_guest *dbg);
+int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
+					struct kvm_guest_debug *dbg);
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run);
 
 int kvm_arch_init(void *opaque);
@@ -279,11 +303,102 @@ void kvm_free_physmem(struct kvm *kvm);
 
 struct  kvm *kvm_arch_create_vm(void);
 void kvm_arch_destroy_vm(struct kvm *kvm);
+void kvm_free_all_assigned_devices(struct kvm *kvm);
+void kvm_arch_sync_events(struct kvm *kvm);
 
 int kvm_cpu_get_interrupt(struct kvm_vcpu *v);
 int kvm_cpu_has_interrupt(struct kvm_vcpu *v);
 int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu);
 void kvm_vcpu_kick(struct kvm_vcpu *vcpu);
+
+int kvm_is_mmio_pfn(pfn_t pfn);
+
+struct kvm_irq_ack_notifier {
+	struct hlist_node link;
+	unsigned gsi;
+	void (*irq_acked)(struct kvm_irq_ack_notifier *kian);
+};
+
+struct kvm_assigned_dev_kernel {
+	struct kvm_irq_ack_notifier ack_notifier;
+	struct work_struct interrupt_work;
+	struct list_head list;
+	int assigned_dev_id;
+	int host_busnr;
+	int host_devfn;
+	int host_irq;
+	bool host_irq_disabled;
+	int guest_irq;
+#define KVM_ASSIGNED_DEV_GUEST_INTX	(1 << 0)
+#define KVM_ASSIGNED_DEV_GUEST_MSI	(1 << 1)
+#define KVM_ASSIGNED_DEV_HOST_INTX	(1 << 8)
+#define KVM_ASSIGNED_DEV_HOST_MSI	(1 << 9)
+	unsigned long irq_requested_type;
+	int irq_source_id;
+	int flags;
+	struct pci_dev *dev;
+	struct kvm *kvm;
+};
+
+struct kvm_irq_mask_notifier {
+	void (*func)(struct kvm_irq_mask_notifier *kimn, bool masked);
+	int irq;
+	struct hlist_node link;
+};
+
+void kvm_register_irq_mask_notifier(struct kvm *kvm, int irq,
+				    struct kvm_irq_mask_notifier *kimn);
+void kvm_unregister_irq_mask_notifier(struct kvm *kvm, int irq,
+				      struct kvm_irq_mask_notifier *kimn);
+void kvm_fire_mask_notifiers(struct kvm *kvm, int irq, bool mask);
+
+int kvm_set_irq(struct kvm *kvm, int irq_source_id, int irq, int level);
+void kvm_notify_acked_irq(struct kvm *kvm, unsigned irqchip, unsigned pin);
+void kvm_register_irq_ack_notifier(struct kvm *kvm,
+				   struct kvm_irq_ack_notifier *kian);
+void kvm_unregister_irq_ack_notifier(struct kvm_irq_ack_notifier *kian);
+int kvm_request_irq_source_id(struct kvm *kvm);
+void kvm_free_irq_source_id(struct kvm *kvm, int irq_source_id);
+
+#ifdef CONFIG_IOMMU_API
+int kvm_iommu_map_pages(struct kvm *kvm, gfn_t base_gfn,
+			unsigned long npages);
+int kvm_iommu_map_guest(struct kvm *kvm);
+int kvm_iommu_unmap_guest(struct kvm *kvm);
+int kvm_assign_device(struct kvm *kvm,
+		      struct kvm_assigned_dev_kernel *assigned_dev);
+int kvm_deassign_device(struct kvm *kvm,
+			struct kvm_assigned_dev_kernel *assigned_dev);
+#else /* CONFIG_IOMMU_API */
+static inline int kvm_iommu_map_pages(struct kvm *kvm,
+				      gfn_t base_gfn,
+				      unsigned long npages)
+{
+	return 0;
+}
+
+static inline int kvm_iommu_map_guest(struct kvm *kvm)
+{
+	return -ENODEV;
+}
+
+static inline int kvm_iommu_unmap_guest(struct kvm *kvm)
+{
+	return 0;
+}
+
+static inline int kvm_assign_device(struct kvm *kvm,
+		struct kvm_assigned_dev_kernel *assigned_dev)
+{
+	return 0;
+}
+
+static inline int kvm_deassign_device(struct kvm *kvm,
+		struct kvm_assigned_dev_kernel *assigned_dev)
+{
+	return 0;
+}
+#endif /* CONFIG_IOMMU_API */
 
 static inline void kvm_guest_enter(void)
 {
@@ -307,6 +422,11 @@ static inline gpa_t gfn_to_gpa(gfn_t gfn)
 	return (gpa_t)gfn << PAGE_SHIFT;
 }
 
+static inline hpa_t pfn_to_hpa(pfn_t pfn)
+{
+	return (hpa_t)pfn << PAGE_SHIFT;
+}
+
 static inline void kvm_migrate_timers(struct kvm_vcpu *vcpu)
 {
 	set_bit(KVM_REQ_MIGRATE_TIMER, &vcpu->requests);
@@ -325,6 +445,25 @@ struct kvm_stats_debugfs_item {
 };
 extern struct kvm_stats_debugfs_item debugfs_entries[];
 extern struct dentry *kvm_debugfs_dir;
+
+#define KVMTRACE_5D(evt, vcpu, d1, d2, d3, d4, d5, name) \
+	trace_mark(kvm_trace_##name, "%u %p %u %u %u %u %u %u", KVM_TRC_##evt, \
+						vcpu, 5, d1, d2, d3, d4, d5)
+#define KVMTRACE_4D(evt, vcpu, d1, d2, d3, d4, name) \
+	trace_mark(kvm_trace_##name, "%u %p %u %u %u %u %u %u", KVM_TRC_##evt, \
+						vcpu, 4, d1, d2, d3, d4, 0)
+#define KVMTRACE_3D(evt, vcpu, d1, d2, d3, name) \
+	trace_mark(kvm_trace_##name, "%u %p %u %u %u %u %u %u", KVM_TRC_##evt, \
+						vcpu, 3, d1, d2, d3, 0, 0)
+#define KVMTRACE_2D(evt, vcpu, d1, d2, name) \
+	trace_mark(kvm_trace_##name, "%u %p %u %u %u %u %u %u", KVM_TRC_##evt, \
+						vcpu, 2, d1, d2, 0, 0, 0)
+#define KVMTRACE_1D(evt, vcpu, d1, name) \
+	trace_mark(kvm_trace_##name, "%u %p %u %u %u %u %u %u", KVM_TRC_##evt, \
+						vcpu, 1, d1, 0, 0, 0, 0)
+#define KVMTRACE_0D(evt, vcpu, name) \
+	trace_mark(kvm_trace_##name, "%u %p %u %u %u %u %u %u", KVM_TRC_##evt, \
+						vcpu, 0, 0, 0, 0, 0, 0)
 
 #ifdef CONFIG_KVM_TRACE
 int kvm_trace_ioctl(unsigned int ioctl, unsigned long arg);
@@ -354,6 +493,23 @@ static inline int mmu_notifier_retry(struct kvm_vcpu *vcpu, unsigned long mmu_se
 		return 1;
 	return 0;
 }
+#endif
+
+#ifdef CONFIG_HAVE_KVM_IRQCHIP
+
+#define KVM_MAX_IRQ_ROUTES 1024
+
+int kvm_setup_default_irq_routing(struct kvm *kvm);
+int kvm_set_irq_routing(struct kvm *kvm,
+			const struct kvm_irq_routing_entry *entries,
+			unsigned nr,
+			unsigned flags);
+void kvm_free_irq_routing(struct kvm *kvm);
+
+#else
+
+static inline void kvm_free_irq_routing(struct kvm *kvm) {}
+
 #endif
 
 #endif

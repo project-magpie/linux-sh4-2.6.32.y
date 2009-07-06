@@ -62,6 +62,51 @@
 #define PORT_PSELC	0xA4050128UL
 #define PORT_PSELD	0xA405012AUL
 
+#elif defined(CONFIG_CPU_SUBTYPE_SH7709)
+
+/* Control registers */
+#define PORT_PACR       0xa4000100UL
+#define PORT_PBCR       0xa4000102UL
+#define PORT_PCCR       0xa4000104UL
+#define PORT_PFCR       0xa400010aUL
+
+/* Data registers */
+#define PORT_PADR       0xa4000120UL
+#define PORT_PBDR       0xa4000122UL
+#define PORT_PCDR       0xa4000124UL
+#define PORT_PFDR       0xa400012aUL
+
 #endif
+
+#ifdef CONFIG_GPIOLIB
+
+static inline int gpio_get_value(unsigned gpio)
+{
+	return __gpio_get_value(gpio);
+}
+
+static inline void gpio_set_value(unsigned gpio, int value)
+{
+	__gpio_set_value(gpio, value);
+}
+
+static inline int gpio_cansleep(unsigned gpio)
+{
+	return __gpio_cansleep(gpio);
+}
+
+static inline int gpio_to_irq(unsigned gpio)
+{
+	WARN_ON(1);
+	return -ENOSYS;
+}
+
+static inline int irq_to_gpio(unsigned int irq)
+{
+	WARN_ON(1);
+	return -EINVAL;
+}
+
+#endif /* CONFIG_GPIOLIB */
 
 #endif

@@ -5,6 +5,19 @@
  *  http://www.gnu.org/licenses/gpl.html
  */
 
+
+enum pstate {
+	HW_PSTATE_INVALID = 0xff,
+	HW_PSTATE_0 = 0,
+	HW_PSTATE_1 = 1,
+	HW_PSTATE_2 = 2,
+	HW_PSTATE_3 = 3,
+	HW_PSTATE_4 = 4,
+	HW_PSTATE_5 = 5,
+	HW_PSTATE_6 = 6,
+	HW_PSTATE_7 = 7,
+};
+
 struct powernow_k8_data {
 	unsigned int cpu;
 
@@ -23,22 +36,23 @@ struct powernow_k8_data {
         u32 exttype; /* extended interface = 1 */
 
 	/* keep track of the current fid / vid or pstate */
-	u32 currvid, currfid, currpstate;
+	u32 currvid;
+	u32 currfid;
+	enum pstate currpstate;
 
 	/* the powernow_table includes all frequency and vid/fid pairings:
 	 * fid are the lower 8 bits of the index, vid are the upper 8 bits.
 	 * frequency is in kHz */
 	struct cpufreq_frequency_table  *powernow_table;
 
-#ifdef CONFIG_X86_POWERNOW_K8_ACPI
 	/* the acpi table needs to be kept. it's only available if ACPI was
 	 * used to determine valid frequency/vid/fid states */
 	struct acpi_processor_performance acpi_data;
-#endif
+
 	/* we need to keep track of associated cores, but let cpufreq
 	 * handle hotplug events - so just point at cpufreq pol->cpus
 	 * structure */
-	cpumask_t *available_cores;
+	struct cpumask *available_cores;
 };
 
 
@@ -207,10 +221,8 @@ static int core_frequency_transition(struct powernow_k8_data *data, u32 reqfid);
 
 static void powernow_k8_acpi_pst_values(struct powernow_k8_data *data, unsigned int index);
 
-#ifdef CONFIG_X86_POWERNOW_K8_ACPI
 static int fill_powernow_table_pstate(struct powernow_k8_data *data, struct cpufreq_frequency_table *powernow_table);
 static int fill_powernow_table_fidvid(struct powernow_k8_data *data, struct cpufreq_frequency_table *powernow_table);
-#endif
 
 #ifdef CONFIG_SMP
 static inline void define_siblings(int cpu, cpumask_t cpu_sharedcore_mask[])

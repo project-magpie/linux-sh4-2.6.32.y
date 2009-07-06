@@ -70,7 +70,6 @@
 #define DBG(fmt...)
 #endif
 
-int have_of = 1;
 int boot_cpuid = 0;
 u64 ppc64_pft_size;
 
@@ -203,8 +202,6 @@ void __init early_setup(unsigned long dt_ptr)
 
 	/* Fix up paca fields required for the boot cpu */
 	get_paca()->cpu_start = 1;
-	get_paca()->stab_real = __pa((u64)&initial_stab);
-	get_paca()->stab_addr = (u64)&initial_stab;
 
 	/* Probe the machine type */
 	probe_machine();
@@ -213,20 +210,8 @@ void __init early_setup(unsigned long dt_ptr)
 
 	DBG("Found, Initializing memory management...\n");
 
-	/*
-	 * Initialize the MMU Hash table and create the linear mapping
-	 * of memory. Has to be done before stab/slb initialization as
-	 * this is currently where the page size encoding is obtained
-	 */
-	htab_initialize();
-
-	/*
-	 * Initialize stab / SLB management except on iSeries
-	 */
-	if (cpu_has_feature(CPU_FTR_SLB))
-		slb_initialize();
-	else if (!firmware_has_feature(FW_FEATURE_ISERIES))
-		stab_initialize(get_paca()->stab_real);
+	/* Initialize the hash table or TLB handling */
+	early_init_mmu();
 
 	DBG(" <- early_setup()\n");
 }
@@ -234,30 +219,21 @@ void __init early_setup(unsigned long dt_ptr)
 #ifdef CONFIG_SMP
 void early_setup_secondary(void)
 {
-	struct paca_struct *lpaca = get_paca();
-
 	/* Mark interrupts enabled in PACA */
-	lpaca->soft_enabled = 0;
+	get_paca()->soft_enabled = 0;
 
-	/* Initialize hash table for that CPU */
-	htab_initialize_secondary();
-
-	/* Initialize STAB/SLB. We use a virtual address as it works
-	 * in real mode on pSeries and we want a virutal address on
-	 * iSeries anyway
-	 */
-	if (cpu_has_feature(CPU_FTR_SLB))
-		slb_initialize();
-	else
-		stab_initialize(lpaca->stab_addr);
+	/* Initialize the hash table or TLB handling */
+	early_init_mmu_secondary();
 }
 
 #endif /* CONFIG_SMP */
 
 #if defined(CONFIG_SMP) || defined(CONFIG_KEXEC)
+extern unsigned long __secondary_hold_spinloop;
+extern void generic_secondary_smp_init(void);
+
 void smp_release_cpus(void)
 {
-	extern unsigned long __secondary_hold_spinloop;
 	unsigned long *ptr;
 
 	DBG(" -> smp_release_cpus()\n");
@@ -266,12 +242,11 @@ void smp_release_cpus(void)
 	 * all now so they can start to spin on their individual paca
 	 * spinloops. For non SMP kernels, the secondary cpus never get out
 	 * of the common spinloop.
-	 * This is useless but harmless on iSeries, secondaries are already
-	 * waiting on their paca spinloops. */
+	 */
 
 	ptr  = (unsigned long *)((unsigned long)&__secondary_hold_spinloop
 			- PHYSICAL_START);
-	*ptr = 1;
+	*ptr = __pa(generic_secondary_smp_init);
 	mb();
 
 	DBG(" <- smp_release_cpus()\n");
@@ -361,6 +336,8 @@ void __init setup_system(void)
 	 */
 	do_feature_fixups(cur_cpu_spec->cpu_features,
 			  &__start___ftr_fixup, &__stop___ftr_fixup);
+	do_feature_fixups(cur_cpu_spec->mmu_features,
+			  &__start___mmu_ftr_fixup, &__stop___mmu_ftr_fixup);
 	do_feature_fixups(powerpc_firmware_features,
 			  &__start___fw_ftr_fixup, &__stop___fw_ftr_fixup);
 	do_lwsync_fixups(cur_cpu_spec->cpu_features,
@@ -432,8 +409,8 @@ void __init setup_system(void)
 	printk("Starting Linux PPC64 %s\n", init_utsname()->version);
 
 	printk("-----------------------------------------------------\n");
-	printk("ppc64_pft_size                = 0x%lx\n", ppc64_pft_size);
-	printk("physicalMemorySize            = 0x%lx\n", lmb_phys_mem_size());
+	printk("ppc64_pft_size                = 0x%llx\n", ppc64_pft_size);
+	printk("physicalMemorySize            = 0x%llx\n", lmb_phys_mem_size());
 	if (ppc64_caches.dline_size != 0x80)
 		printk("ppc64_caches.dcache_line_size = 0x%x\n",
 		       ppc64_caches.dline_size);
@@ -443,9 +420,9 @@ void __init setup_system(void)
 	if (htab_address)
 		printk("htab_address                  = 0x%p\n", htab_address);
 	printk("htab_hash_mask                = 0x%lx\n", htab_hash_mask);
-#if PHYSICAL_START > 0
-	printk("physical_start                = 0x%lx\n", PHYSICAL_START);
-#endif
+	if (PHYSICAL_START > 0)
+		printk("physical_start                = 0x%lx\n",
+		       PHYSICAL_START);
 	printk("-----------------------------------------------------\n");
 
 	DBG(" <- setup_system()\n");
@@ -491,7 +468,7 @@ static void __init emergency_stack_init(void)
 	 * bringup, we need to get at them in real mode. This means they
 	 * must also be within the RMO region.
 	 */
-	limit = min(0x10000000UL, lmb.rmo_size);
+	limit = min(0x10000000ULL, lmb.rmo_size);
 
 	for_each_possible_cpu(i) {
 		unsigned long sp;
@@ -576,13 +553,6 @@ void ppc64_boot_msg(unsigned int src, const char *msg)
 	printk("[boot]%04x %s\n", src, msg);
 }
 
-/* Print a termination message (print only -- does not stop the kernel) */
-void ppc64_terminate_msg(unsigned int src, const char *msg)
-{
-	ppc64_do_msg(PPC64_LINUX_FUNCTION|PPC64_TERM_MESSAGE|src, msg);
-	printk("[terminate]%04x %s\n", src, msg);
-}
-
 void cpu_die(void)
 {
 	if (ppc_md.cpu_die)
@@ -605,8 +575,6 @@ void __init setup_per_cpu_areas(void)
 
 	for_each_possible_cpu(i) {
 		ptr = alloc_bootmem_pages_node(NODE_DATA(cpu_to_node(i)), size);
-		if (!ptr)
-			panic("Cannot allocate cpu data for CPU %d\n", i);
 
 		paca[i].data_offset = ptr - __per_cpu_start;
 		memcpy(ptr, __per_cpu_start, __per_cpu_end - __per_cpu_start);

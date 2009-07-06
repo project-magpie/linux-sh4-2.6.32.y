@@ -22,6 +22,7 @@
 #include <linux/phy.h>
 #include <linux/lirc.h>
 #include <linux/io.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <mach/epld.h>
 #include <mach/common.h>

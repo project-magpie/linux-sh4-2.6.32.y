@@ -13,7 +13,7 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <asm/processor.h>
-#include "common.h"
+#include <mach/common.h>
 #include "mb705-epld.h"
 
 /* HDSP-253x display register offsets */

@@ -104,6 +104,11 @@ card*/pcm*/xrun_debug
 	When this value is greater than 1, the driver will show the
 	stack trace additionally.  This may help the debugging.
 
+	Since 2.6.30, this option also enables the hwptr check using
+	jiffies.  This detects spontaneous invalid pointer callback
+	values, but can be lead to too much corrections for a (mostly
+	buggy) hardware that doesn't give smooth pointer updates.
+
 card*/pcm*/sub*/info
 	The general information of this PCM sub-stream.
 
@@ -152,6 +157,16 @@ HD-Audio Codecs
 card*/codec#*
 	Shows the general codec information and the attribute of each
 	widget node.
+
+card*/eld#*
+	Available for HDMI or DisplayPort interfaces.
+	Shows ELD(EDID Like Data) info retrieved from the attached HDMI sink,
+	and describes its audio capabilities and configurations.
+
+	Some ELD fields may be modified by doing `echo name hex_value > eld#*`.
+	Only do this if you are sure the HDMI sink provided value is wrong.
+	And if that makes your HDMI audio work, please report to us so that we
+	can fix it in future kernel releases.
 
 
 Sequencer Information

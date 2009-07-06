@@ -103,7 +103,7 @@ static void vx_write_one_cbit(struct vx_core *chip, int index, int val)
  * returns the frequency of UER, or 0 if not sync,
  * or a negative error code.
  */
-static int vx_read_uer_status(struct vx_core *chip, int *mode)
+static int vx_read_uer_status(struct vx_core *chip, unsigned int *mode)
 {
 	int val, freq;
 
@@ -163,13 +163,15 @@ static int vx_calc_clock_from_freq(struct vx_core *chip, int freq)
 {
 	int hexfreq;
 
-	snd_assert(freq > 0, return 0);
+	if (snd_BUG_ON(freq <= 0))
+		return 0;
 
 	hexfreq = (28224000 * 10) / freq;
 	hexfreq = (hexfreq + 5) / 10;
 
 	/* max freq = 55125 Hz */
-	snd_assert(hexfreq > 0x00000200, return 0);
+	if (snd_BUG_ON(hexfreq <= 0x00000200))
+		return 0;
 
 	if (hexfreq <= 0x03ff)
 		return hexfreq - 0x00000201;

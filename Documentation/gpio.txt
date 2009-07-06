@@ -123,7 +123,10 @@ platform-specific implementation issue.
 
 Using GPIOs
 -----------
-One of the first things to do with a GPIO, often in board setup code when
+The first thing a system should do with a GPIO is allocate it, using
+the gpio_request() call; see later.
+
+One of the next things to do with a GPIO, often in board setup code when
 setting up a platform_device using the GPIO, is mark its direction:
 
 	/* set as input or output, returning 0 or negative errno */
@@ -141,8 +144,8 @@ This helps avoid signal glitching during system startup.
 
 For compatibility with legacy interfaces to GPIOs, setting the direction
 of a GPIO implicitly requests that GPIO (see below) if it has not been
-requested already.  That compatibility may be removed in the future;
-explicitly requesting GPIOs is strongly preferred.
+requested already.  That compatibility is being removed from the optional
+gpiolib framework.
 
 Setting the direction can fail if the GPIO number is invalid, or when
 that particular GPIO can't be used in that mode.  It's generally a bad
@@ -195,7 +198,7 @@ This requires sleeping, which can't be done from inside IRQ handlers.
 
 Platforms that support this type of GPIO distinguish them from other GPIOs
 by returning nonzero from this call (which requires a valid GPIO number,
-either explicitly or implicitly requested):
+which should have been previously allocated with gpio_request):
 
 	int gpio_cansleep(unsigned gpio);
 
@@ -212,10 +215,9 @@ for GPIOs that can't be accessed from IRQ handlers, these calls act the
 same as the spinlock-safe calls.
 
 
-Claiming and Releasing GPIOs (OPTIONAL)
----------------------------------------
+Claiming and Releasing GPIOs
+----------------------------
 To help catch system configuration errors, two calls are defined.
-However, many platforms don't currently support this mechanism.
 
 	/* request GPIO, returning 0 or negative errno.
 	 * non-null labels may be useful for diagnostics.
@@ -240,12 +242,9 @@ signal, or (b) something wrongly believes it's safe to remove drivers
 needed to manage a signal that's in active use.  That is, requesting a
 GPIO can serve as a kind of lock.
 
-These two calls are optional because not not all current Linux platforms
-offer such functionality in their GPIO support; a valid implementation
-could return success for all gpio_request() calls.  Unlike the other calls,
-the state they represent doesn't normally match anything from a hardware
-register; it's just a software bitmap which clearly is not necessary for
-correct operation of hardware or (bug free) drivers.
+Some platforms may also use knowledge about what GPIOs are active for
+power management, such as by powering down unused chip sectors and, more
+easily, gating off unused clocks.
 
 Note that requesting a GPIO does NOT cause it to be configured in any
 way; it just marks that GPIO as in use.  Separate code must handle any
@@ -264,7 +263,7 @@ map between them using calls like:
 	/* map GPIO numbers to IRQ numbers */
 	int gpio_to_irq(unsigned gpio);
 
-	/* map IRQ numbers to GPIO numbers */
+	/* map IRQ numbers to GPIO numbers (avoid using this) */
 	int irq_to_gpio(unsigned irq);
 
 Those return either the corresponding number in the other namespace, or
@@ -284,7 +283,8 @@ system wakeup capabilities.
 
 Non-error values returned from irq_to_gpio() would most commonly be used
 with gpio_get_value(), for example to initialize or update driver state
-when the IRQ is edge-triggered.
+when the IRQ is edge-triggered.  Note that some platforms don't support
+this reverse mapping, so you should avoid using it.
 
 
 Emulating Open Drain Signals

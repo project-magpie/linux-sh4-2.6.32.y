@@ -1,7 +1,7 @@
 /*
  *    pata_sis.c - SiS ATA driver
  *
- *	(C) 2005 Red Hat <alan@redhat.com>
+ *	(C) 2005 Red Hat
  *	(C) 2007 Bartlomiej Zolnierkiewicz
  *
  *    Based upon linux/drivers/ide/pci/sis5513.c
@@ -56,7 +56,6 @@ static const struct sis_laptop sis_laptop[] = {
 	{ 0x5513, 0x1043, 0x1107 },	/* ASUS A6K */
 	{ 0x5513, 0x1734, 0x105F },	/* FSC Amilo A1630 */
 	{ 0x5513, 0x1071, 0x8640 },     /* EasyNote K5305 */
-	{ 0x5513, 0x1039, 0x5513 },	/* Targa Visionary 1000 */
 	/* end marker */
 	{ 0, }
 };
@@ -113,7 +112,6 @@ static int sis_133_cable_detect(struct ata_port *ap)
 /**
  *	sis_66_cable_detect	-	check for 40/80 pin
  *	@ap: Port
- *	@deadline: deadline jiffies for the operation
  *
  *	Perform cable detection on the UDMA66, UDMA100 and early UDMA133
  *	SiS IDE controllers.
@@ -554,51 +552,57 @@ static struct ata_port_operations sis_old_ops = {
 
 static const struct ata_port_info sis_info = {
 	.flags		= ATA_FLAG_SLAVE_POSS,
-	.pio_mask	= 0x1f,	/* pio0-4 */
-	.mwdma_mask	= 0x07,
-	.udma_mask	= 0,
+	.pio_mask	= ATA_PIO4,
+	.mwdma_mask	= ATA_MWDMA2,
+	/* No UDMA */
 	.port_ops	= &sis_old_ops,
 };
 static const struct ata_port_info sis_info33 = {
 	.flags		= ATA_FLAG_SLAVE_POSS,
-	.pio_mask	= 0x1f,	/* pio0-4 */
-	.mwdma_mask	= 0x07,
-	.udma_mask	= ATA_UDMA2,	/* UDMA 33 */
+	.pio_mask	= ATA_PIO4,
+	.mwdma_mask	= ATA_MWDMA2,
+	.udma_mask	= ATA_UDMA2,
 	.port_ops	= &sis_old_ops,
 };
 static const struct ata_port_info sis_info66 = {
 	.flags		= ATA_FLAG_SLAVE_POSS,
-	.pio_mask	= 0x1f,	/* pio0-4 */
-	.udma_mask	= ATA_UDMA4,	/* UDMA 66 */
+	.pio_mask	= ATA_PIO4,
+	/* No MWDMA */
+	.udma_mask	= ATA_UDMA4,
 	.port_ops	= &sis_66_ops,
 };
 static const struct ata_port_info sis_info100 = {
 	.flags		= ATA_FLAG_SLAVE_POSS,
-	.pio_mask	= 0x1f,	/* pio0-4 */
+	.pio_mask	= ATA_PIO4,
+	/* No MWDMA */
 	.udma_mask	= ATA_UDMA5,
 	.port_ops	= &sis_100_ops,
 };
 static const struct ata_port_info sis_info100_early = {
 	.flags		= ATA_FLAG_SLAVE_POSS,
+	.pio_mask	= ATA_PIO4,
+	/* No MWDMA */
 	.udma_mask	= ATA_UDMA5,
-	.pio_mask	= 0x1f,	/* pio0-4 */
 	.port_ops	= &sis_66_ops,
 };
 static const struct ata_port_info sis_info133 = {
 	.flags		= ATA_FLAG_SLAVE_POSS,
-	.pio_mask	= 0x1f,	/* pio0-4 */
+	.pio_mask	= ATA_PIO4,
+	/* No MWDMA */
 	.udma_mask	= ATA_UDMA6,
 	.port_ops	= &sis_133_ops,
 };
 const struct ata_port_info sis_info133_for_sata = {
 	.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
-	.pio_mask	= 0x1f,	/* pio0-4 */
+	.pio_mask	= ATA_PIO4,
+	/* No MWDMA */
 	.udma_mask	= ATA_UDMA6,
 	.port_ops	= &sis_133_for_sata_ops,
 };
 static const struct ata_port_info sis_info133_early = {
 	.flags		= ATA_FLAG_SLAVE_POSS,
-	.pio_mask	= 0x1f,	/* pio0-4 */
+	.pio_mask	= ATA_PIO4,
+	/* No MWDMA */
 	.udma_mask	= ATA_UDMA6,
 	.port_ops	= &sis_133_early_ops,
 };

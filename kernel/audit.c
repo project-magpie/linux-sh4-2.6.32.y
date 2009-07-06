@@ -61,8 +61,11 @@
 
 #include "audit.h"
 
-/* No auditing will take place until audit_initialized != 0.
+/* No auditing will take place until audit_initialized == AUDIT_INITIALIZED.
  * (Initialization happens after skb_init is called.) */
+#define AUDIT_DISABLED		-1
+#define AUDIT_UNINITIALIZED	0
+#define AUDIT_INITIALIZED	1
 static int	audit_initialized;
 
 #define AUDIT_OFF	0
@@ -763,6 +766,9 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 
 				audit_log_format(ab, " msg=");
 				size = nlmsg_len(nlh);
+				if (size > 0 &&
+				    ((unsigned char *)data)[size - 1] == '\0')
+					size--;
 				audit_log_n_untrustedstring(ab, data, size);
 			}
 			audit_set_pid(ab, pid);
@@ -965,6 +971,9 @@ static int __init audit_init(void)
 {
 	int i;
 
+	if (audit_initialized == AUDIT_DISABLED)
+		return 0;
+
 	printk(KERN_INFO "audit: initializing netlink socket (%s)\n",
 	       audit_default ? "enabled" : "disabled");
 	audit_sock = netlink_kernel_create(&init_net, NETLINK_AUDIT, 0,
@@ -976,7 +985,7 @@ static int __init audit_init(void)
 
 	skb_queue_head_init(&audit_skb_queue);
 	skb_queue_head_init(&audit_skb_hold_queue);
-	audit_initialized = 1;
+	audit_initialized = AUDIT_INITIALIZED;
 	audit_enabled = audit_default;
 	audit_ever_enabled |= !!audit_default;
 
@@ -999,13 +1008,21 @@ __initcall(audit_init);
 static int __init audit_enable(char *str)
 {
 	audit_default = !!simple_strtol(str, NULL, 0);
-	printk(KERN_INFO "audit: %s%s\n",
-	       audit_default ? "enabled" : "disabled",
-	       audit_initialized ? "" : " (after initialization)");
-	if (audit_initialized) {
+	if (!audit_default)
+		audit_initialized = AUDIT_DISABLED;
+
+	printk(KERN_INFO "audit: %s", audit_default ? "enabled" : "disabled");
+
+	if (audit_initialized == AUDIT_INITIALIZED) {
 		audit_enabled = audit_default;
 		audit_ever_enabled |= !!audit_default;
+	} else if (audit_initialized == AUDIT_UNINITIALIZED) {
+		printk(" (after initialization)");
+	} else {
+		printk(" (until reboot)");
 	}
+	printk("\n");
+
 	return 1;
 }
 
@@ -1107,9 +1124,7 @@ unsigned int audit_serial(void)
 static inline void audit_get_stamp(struct audit_context *ctx,
 				   struct timespec *t, unsigned int *serial)
 {
-	if (ctx)
-		auditsc_get_stamp(ctx, t, serial);
-	else {
+	if (!ctx || !auditsc_get_stamp(ctx, t, serial)) {
 		*t = CURRENT_TIME;
 		*serial = audit_serial();
 	}
@@ -1146,7 +1161,7 @@ struct audit_buffer *audit_log_start(struct audit_context *ctx, gfp_t gfp_mask,
 	int reserve;
 	unsigned long timeout_start = jiffies;
 
-	if (!audit_initialized)
+	if (audit_initialized != AUDIT_INITIALIZED)
 		return NULL;
 
 	if (unlikely(audit_filter_type(type)))
@@ -1370,7 +1385,7 @@ void audit_log_n_string(struct audit_buffer *ab, const char *string,
 int audit_string_contains_control(const char *string, size_t len)
 {
 	const unsigned char *p;
-	for (p = string; p < (const unsigned char *)string + len && *p; p++) {
+	for (p = string; p < (const unsigned char *)string + len; p++) {
 		if (*p == '"' || *p < 0x21 || *p > 0x7e)
 			return 1;
 	}
@@ -1425,13 +1440,13 @@ void audit_log_d_path(struct audit_buffer *ab, const char *prefix,
 	/* We will allow 11 spaces for ' (deleted)' to be appended */
 	pathname = kmalloc(PATH_MAX+11, ab->gfp_mask);
 	if (!pathname) {
-		audit_log_format(ab, "<no memory>");
+		audit_log_string(ab, "<no_memory>");
 		return;
 	}
 	p = d_path(path, pathname, PATH_MAX+11);
 	if (IS_ERR(p)) { /* Should never happen since we send PATH_MAX */
 		/* FIXME: can we save some information here? */
-		audit_log_format(ab, "<too long>");
+		audit_log_string(ab, "<too_long>");
 	} else
 		audit_log_untrustedstring(ab, p);
 	kfree(pathname);

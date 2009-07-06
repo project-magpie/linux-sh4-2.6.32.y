@@ -2,6 +2,7 @@
  * Written by Martin Schwidefsky (schwidefsky@de.ibm.com)
  */
 
+#include <asm/thread_info.h>
 #include <asm/page.h>
 #include <asm-generic/vmlinux.lds.h>
 
@@ -28,8 +29,8 @@ SECTIONS
 	. = 0x00000000;
 	.text : {
 	_text = .;		/* Text and read-only data */
-		*(.text.head)
-	TEXT_TEXT
+		HEAD_TEXT
+		TEXT_TEXT
 		SCHED_TEXT
 		LOCK_TEXT
 		KPROBES_TEXT
@@ -55,7 +56,7 @@ SECTIONS
 		__start___ex_table = .;
 		*(__ex_table)
 		__stop___ex_table = .;
-	}
+	} :data
 
 	.data : {		/* Data */
 		DATA_DATA
@@ -86,7 +87,7 @@ SECTIONS
 	}
 	_edata = .;		/* End of data section */
 
-	. = ALIGN(2 * PAGE_SIZE);	/* init_task */
+	. = ALIGN(THREAD_SIZE);	/* init_task */
 	.data.init_task : {
 		*(.data.init_task)
 	}
@@ -107,6 +108,8 @@ SECTIONS
 		EXIT_TEXT
 	}
 
+	/* early.c uses stsi, which requires page aligned data. */
+	. = ALIGN(PAGE_SIZE);
 	.init.data : {
 		INIT_DATA
 	}

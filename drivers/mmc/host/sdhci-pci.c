@@ -107,6 +107,7 @@ static const struct sdhci_pci_fixes sdhci_ene_714 = {
 
 static const struct sdhci_pci_fixes sdhci_cafe = {
 	.quirks		= SDHCI_QUIRK_NO_SIMULT_VDD_AND_POWER |
+			  SDHCI_QUIRK_NO_BUSY_IRQ |
 			  SDHCI_QUIRK_BROKEN_TIMEOUT_VAL,
 };
 
@@ -326,7 +327,7 @@ static const struct pci_device_id pci_ids[] __devinitdata = {
 
 	{
 		.vendor         = PCI_VENDOR_ID_MARVELL,
-		.device         = PCI_DEVICE_ID_MARVELL_CAFE_SD,
+		.device         = PCI_DEVICE_ID_MARVELL_88ALP01_SD,
 		.subvendor      = PCI_ANY_ID,
 		.subdevice      = PCI_ANY_ID,
 		.driver_data    = (kernel_ulong_t)&sdhci_cafe,
@@ -379,7 +380,7 @@ static int sdhci_pci_enable_dma(struct sdhci_host *host)
 			"doesn't fully claim to support it.\n");
 	}
 
-	ret = pci_set_dma_mask(pdev, DMA_32BIT_MASK);
+	ret = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (ret)
 		return ret;
 
@@ -521,8 +522,8 @@ static struct sdhci_pci_slot * __devinit sdhci_pci_probe_slot(
 
 	host = sdhci_alloc_host(&pdev->dev, sizeof(struct sdhci_pci_slot));
 	if (IS_ERR(host)) {
-		ret = PTR_ERR(host);
-		goto unmap;
+		dev_err(&pdev->dev, "cannot allocate host\n");
+		return ERR_PTR(PTR_ERR(host));
 	}
 
 	slot = sdhci_priv(host);
@@ -540,11 +541,11 @@ static struct sdhci_pci_slot * __devinit sdhci_pci_probe_slot(
 	ret = pci_request_region(pdev, bar, mmc_hostname(host->mmc));
 	if (ret) {
 		dev_err(&pdev->dev, "cannot request region\n");
-		return ERR_PTR(ret);
+		goto free;
 	}
 
 	addr = pci_resource_start(pdev, bar);
-	host->ioaddr = ioremap_nocache(addr, pci_resource_len(pdev, bar));
+	host->ioaddr = pci_ioremap_bar(pdev, bar);
 	if (!host->ioaddr) {
 		dev_err(&pdev->dev, "failed to remap registers\n");
 		goto release;
@@ -571,6 +572,8 @@ unmap:
 
 release:
 	pci_release_region(pdev, bar);
+
+free:
 	sdhci_free_host(host);
 
 	return ERR_PTR(ret);
@@ -728,6 +731,6 @@ static void __exit sdhci_drv_exit(void)
 module_init(sdhci_drv_init);
 module_exit(sdhci_drv_exit);
 
-MODULE_AUTHOR("Pierre Ossman <drzeus@drzeus.cx>");
+MODULE_AUTHOR("Pierre Ossman <pierre@ossman.eu>");
 MODULE_DESCRIPTION("Secure Digital Host Controller Interface PCI driver");
 MODULE_LICENSE("GPL");

@@ -17,7 +17,7 @@
 #include <linux/io.h>
 #include <asm/system.h>
 #include <mach/epld.h>
-#include "common.h"
+#include <mach/common.h>
 
 #define NUM_EXTERNAL_IRQS 16
 

@@ -80,6 +80,8 @@ static inline int parse_ether(const char *mac_addr_str, struct sockaddr *addr)
 			return 0;
 	}
 
+	addr->sa_family = ARPHRD_ETHER;
+
 	return 1;
 }
 
@@ -122,12 +124,13 @@ static int __init nwhw_config(void)
 			       nwhwdev[ndev].user_hw_addr);
 
 			if (valid_ether) {
-				if ((!dev->set_mac_address ||
-				     dev->set_mac_address(dev, &ether_addr))) {
+				rtnl_lock();
+				if (dev_set_mac_address(dev, &ether_addr)) {
 					printk(KERN_WARNING
 					       "%s: not set MAC address...\n",
 					       __FUNCTION__);
 				}
+				rtnl_unlock();
 			}
 		}
 

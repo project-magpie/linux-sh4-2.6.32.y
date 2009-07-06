@@ -39,4 +39,7 @@ get_cycles (void)
 	return ret;
 }
 
+extern void ia64_cpu_local_tick (void);
+extern unsigned long long ia64_native_sched_clock (void);
+
 #endif /* _ASM_IA64_TIMEX_H */

@@ -26,6 +26,7 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/pci.h>
 #include <mach/orion5x.h>
+#include <mach/bridge-regs.h>
 #include "common.h"
 #include "mpp.h"
 
@@ -109,7 +110,7 @@ subsys_initcall(mss2_pci_init);
  ****************************************************************************/
 
 static struct mv643xx_eth_platform_data mss2_eth_data = {
-	.phy_addr	= 8,
+	.phy_addr	= MV643XX_ETH_PHY_ADDR(8),
 };
 
 /*****************************************************************************

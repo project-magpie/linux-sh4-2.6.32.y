@@ -26,8 +26,7 @@
 #include <asm/irq.h>
 #include <asm/mach-types.h>
 
-#include <mach/hardware.h>
-#include <mach/pxa-regs.h>
+#include <mach/pxa2xx-regs.h>
 
 #define GPIO_NAND_CS	(11)
 #define GPIO_NAND_RB	(89)
@@ -156,7 +155,7 @@ static int cmx270_init(void)
 	int mtd_parts_nb = 0;
 	int ret;
 
-	if (!machine_is_armcore())
+	if (!(machine_is_armcore() && cpu_is_pxa27x()))
 		return -ENODEV;
 
 	ret = gpio_request(GPIO_NAND_CS, "NAND CS");

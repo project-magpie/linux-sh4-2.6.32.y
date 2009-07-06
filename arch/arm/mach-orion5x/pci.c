@@ -13,6 +13,7 @@
 #include <linux/kernel.h>
 #include <linux/pci.h>
 #include <linux/mbus.h>
+#include <asm/irq.h>
 #include <asm/mach/pci.h>
 #include <plat/pcie.h>
 #include "common.h"
@@ -195,6 +196,7 @@ static int __init pcie_setup(struct pci_sys_data *sys)
 /*****************************************************************************
  * PCI controller
  ****************************************************************************/
+#define ORION5X_PCI_REG(x)	(ORION5X_PCI_VIRT_BASE | (x))
 #define PCI_MODE		ORION5X_PCI_REG(0xd00)
 #define PCI_CMD			ORION5X_PCI_REG(0xc00)
 #define PCI_P2P_CONF		ORION5X_PCI_REG(0x1d14)
@@ -541,6 +543,13 @@ static void __devinit rc_pci_fixup(struct pci_dev *dev)
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MARVELL, PCI_ANY_ID, rc_pci_fixup);
 
+static int orion5x_pci_disabled __initdata;
+
+void __init orion5x_pci_disable(void)
+{
+	orion5x_pci_disabled = 1;
+}
+
 void __init orion5x_pci_set_cardbus_mode(void)
 {
 	orion5x_pci_cardbus_mode = 1;
@@ -553,7 +562,7 @@ int __init orion5x_pci_sys_setup(int nr, struct pci_sys_data *sys)
 	if (nr == 0) {
 		orion_pcie_set_local_bus_nr(PCIE_BASE, sys->busnr);
 		ret = pcie_setup(sys);
-	} else if (nr == 1) {
+	} else if (nr == 1 && !orion5x_pci_disabled) {
 		orion5x_pci_set_bus_nr(sys->busnr);
 		ret = pci_setup(sys);
 	}
@@ -567,7 +576,7 @@ struct pci_bus __init *orion5x_pci_sys_scan_bus(int nr, struct pci_sys_data *sys
 
 	if (nr == 0) {
 		bus = pci_scan_bus(sys->busnr, &pcie_ops, sys);
-	} else if (nr == 1) {
+	} else if (nr == 1 && !orion5x_pci_disabled) {
 		bus = pci_scan_bus(sys->busnr, &pci_ops, sys);
 	} else {
 		bus = NULL;
@@ -584,7 +593,7 @@ int __init orion5x_pci_map_irq(struct pci_dev *dev, u8 slot, u8 pin)
 	/*
 	 * PCIe endpoint?
 	 */
-	if (bus < orion5x_pci_local_bus_nr())
+	if (orion5x_pci_disabled || bus < orion5x_pci_local_bus_nr())
 		return IRQ_ORION5X_PCIE0_INT;
 
 	return -1;

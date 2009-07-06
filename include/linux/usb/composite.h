@@ -130,6 +130,9 @@ struct usb_function {
 
 int usb_add_function(struct usb_configuration *, struct usb_function *);
 
+int usb_function_deactivate(struct usb_function *);
+int usb_function_activate(struct usb_function *);
+
 int usb_interface_id(struct usb_configuration *, struct usb_function *);
 
 /**
@@ -241,6 +244,10 @@ int usb_add_config(struct usb_composite_dev *,
  *	value; it should return zero on successful initialization.
  * @unbind: Reverses @bind(); called as a side effect of unregistering
  *	this driver.
+ * @suspend: Notifies when the host stops sending USB traffic,
+ *	after function notifications
+ * @resume: Notifies configuration when the host restarts USB traffic,
+ *	before function notifications
  *
  * Devices default to reporting self powered operation.  Devices which rely
  * on bus powered operation should report this in their @bind() method.
@@ -265,6 +272,10 @@ struct usb_composite_driver {
 
 	int			(*bind)(struct usb_composite_dev *);
 	int			(*unbind)(struct usb_composite_dev *);
+
+	/* global suspend hooks */
+	void			(*suspend)(struct usb_composite_dev *);
+	void			(*resume)(struct usb_composite_dev *);
 };
 
 extern int usb_composite_register(struct usb_composite_driver *);
@@ -316,9 +327,13 @@ struct usb_composite_dev {
 	struct usb_composite_driver	*driver;
 	u8				next_string_id;
 
-	spinlock_t			lock;
+	/* the gadget driver won't enable the data pullup
+	 * while the deactivation count is nonzero.
+	 */
+	unsigned			deactivations;
 
-	/* REVISIT use and existence of lock ... */
+	/* protects at least deactivation count */
+	spinlock_t			lock;
 };
 
 extern int usb_string_id(struct usb_composite_dev *c);

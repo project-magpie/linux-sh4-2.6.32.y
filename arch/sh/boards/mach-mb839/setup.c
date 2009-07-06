@@ -23,10 +23,11 @@
 #include <linux/phy.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <asm/io.h>
-#include "../common/common.h"
+#include <mach/common.h>
 
 /* smart card on PIO0, modem on PIO4, uart on PIO5 */
 static int ascs[2] __initdata = { 2, 3 };

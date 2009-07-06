@@ -23,6 +23,7 @@
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/dma-mapping.h>
+#include <linux/irq.h>
 #include <asm/irl.h>
 #include <asm/irq-ilc.h>
 
@@ -705,17 +706,15 @@ static struct platform_device pci_device =
 
 void __init stx7111_configure_pci(struct pci_config_data *pci_conf)
 {
+#ifndef CONFIG_PCI
+	return;
+#else
 	int i;
 	struct sysconf_field *sc;
 	struct stpio_pin *pin;
 	static const char *int_name[] = {"PCI INT A","PCI INT B","PCI INT C","PCI INT D"};
 	static const char *req_name[] = {"PCI REQ 0 ","PCI REQ 1","PCI REQ 2","PCI REQ 3"};
 	static const char *gnt_name[] = {"PCI GNT 0 ","PCI GNT 1","PCI GNT 2","PCI GNT 3"};
-
-
-#ifndef CONFIG_PCI
-	return;
-#else
 
 	/* Fill in the default values for the 7111 */
 	if(!pci_conf->ad_override_default) {

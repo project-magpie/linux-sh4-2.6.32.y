@@ -24,6 +24,7 @@
 #include <asm/io.h>
 #include <mach/epld.h>
 #include <asm/irq-stb7100.h>
+#include <asm/irq.h>
 #include <mach/common.h>
 
 static int ascs[2] __initdata = { 2, 3 };

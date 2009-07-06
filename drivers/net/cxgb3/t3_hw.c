@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003-2007 Chelsio, Inc. All rights reserved.
+ * Copyright (c) 2003-2008 Chelsio, Inc. All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -194,21 +194,18 @@ int t3_mc7_bd_read(struct mc7 *mc7, unsigned int start, unsigned int n,
 static void mi1_init(struct adapter *adap, const struct adapter_info *ai)
 {
 	u32 clkdiv = adap->params.vpd.cclk / (2 * adap->params.vpd.mdc) - 1;
-	u32 val = F_PREEN | V_MDIINV(ai->mdiinv) | V_MDIEN(ai->mdien) |
-	    V_CLKDIV(clkdiv);
+	u32 val = F_PREEN | V_CLKDIV(clkdiv);
 
-	if (!(ai->caps & SUPPORTED_10000baseT_Full))
-		val |= V_ST(1);
 	t3_write_reg(adap, A_MI1_CFG, val);
 }
 
-#define MDIO_ATTEMPTS 10
+#define MDIO_ATTEMPTS 20
 
 /*
- * MI1 read/write operations for direct-addressed PHYs.
+ * MI1 read/write operations for clause 22 PHYs.
  */
-static int mi1_read(struct adapter *adapter, int phy_addr, int mmd_addr,
-		    int reg_addr, unsigned int *valp)
+static int t3_mi1_read(struct adapter *adapter, int phy_addr, int mmd_addr,
+		       int reg_addr, unsigned int *valp)
 {
 	int ret;
 	u32 addr = V_REGADDR(reg_addr) | V_PHYADDR(phy_addr);
@@ -217,16 +214,17 @@ static int mi1_read(struct adapter *adapter, int phy_addr, int mmd_addr,
 		return -EINVAL;
 
 	mutex_lock(&adapter->mdio_lock);
+	t3_set_reg_field(adapter, A_MI1_CFG, V_ST(M_ST), V_ST(1));
 	t3_write_reg(adapter, A_MI1_ADDR, addr);
 	t3_write_reg(adapter, A_MI1_OP, V_MDI_OP(2));
-	ret = t3_wait_op_done(adapter, A_MI1_OP, F_BUSY, 0, MDIO_ATTEMPTS, 20);
+	ret = t3_wait_op_done(adapter, A_MI1_OP, F_BUSY, 0, MDIO_ATTEMPTS, 10);
 	if (!ret)
 		*valp = t3_read_reg(adapter, A_MI1_DATA);
 	mutex_unlock(&adapter->mdio_lock);
 	return ret;
 }
 
-static int mi1_write(struct adapter *adapter, int phy_addr, int mmd_addr,
+static int t3_mi1_write(struct adapter *adapter, int phy_addr, int mmd_addr,
 		     int reg_addr, unsigned int val)
 {
 	int ret;
@@ -236,18 +234,36 @@ static int mi1_write(struct adapter *adapter, int phy_addr, int mmd_addr,
 		return -EINVAL;
 
 	mutex_lock(&adapter->mdio_lock);
+	t3_set_reg_field(adapter, A_MI1_CFG, V_ST(M_ST), V_ST(1));
 	t3_write_reg(adapter, A_MI1_ADDR, addr);
 	t3_write_reg(adapter, A_MI1_DATA, val);
 	t3_write_reg(adapter, A_MI1_OP, V_MDI_OP(1));
-	ret = t3_wait_op_done(adapter, A_MI1_OP, F_BUSY, 0, MDIO_ATTEMPTS, 20);
+	ret = t3_wait_op_done(adapter, A_MI1_OP, F_BUSY, 0, MDIO_ATTEMPTS, 10);
 	mutex_unlock(&adapter->mdio_lock);
 	return ret;
 }
 
 static const struct mdio_ops mi1_mdio_ops = {
-	mi1_read,
-	mi1_write
+	t3_mi1_read,
+	t3_mi1_write
 };
+
+/*
+ * Performs the address cycle for clause 45 PHYs.
+ * Must be called with the MDIO_LOCK held.
+ */
+static int mi1_wr_addr(struct adapter *adapter, int phy_addr, int mmd_addr,
+		       int reg_addr)
+{
+	u32 addr = V_REGADDR(mmd_addr) | V_PHYADDR(phy_addr);
+
+	t3_set_reg_field(adapter, A_MI1_CFG, V_ST(M_ST), 0);
+	t3_write_reg(adapter, A_MI1_ADDR, addr);
+	t3_write_reg(adapter, A_MI1_DATA, reg_addr);
+	t3_write_reg(adapter, A_MI1_OP, V_MDI_OP(0));
+	return t3_wait_op_done(adapter, A_MI1_OP, F_BUSY, 0,
+			       MDIO_ATTEMPTS, 10);
+}
 
 /*
  * MI1 read/write operations for indirect-addressed PHYs.
@@ -256,17 +272,13 @@ static int mi1_ext_read(struct adapter *adapter, int phy_addr, int mmd_addr,
 			int reg_addr, unsigned int *valp)
 {
 	int ret;
-	u32 addr = V_REGADDR(mmd_addr) | V_PHYADDR(phy_addr);
 
 	mutex_lock(&adapter->mdio_lock);
-	t3_write_reg(adapter, A_MI1_ADDR, addr);
-	t3_write_reg(adapter, A_MI1_DATA, reg_addr);
-	t3_write_reg(adapter, A_MI1_OP, V_MDI_OP(0));
-	ret = t3_wait_op_done(adapter, A_MI1_OP, F_BUSY, 0, MDIO_ATTEMPTS, 20);
+	ret = mi1_wr_addr(adapter, phy_addr, mmd_addr, reg_addr);
 	if (!ret) {
 		t3_write_reg(adapter, A_MI1_OP, V_MDI_OP(3));
 		ret = t3_wait_op_done(adapter, A_MI1_OP, F_BUSY, 0,
-				      MDIO_ATTEMPTS, 20);
+				      MDIO_ATTEMPTS, 10);
 		if (!ret)
 			*valp = t3_read_reg(adapter, A_MI1_DATA);
 	}
@@ -278,18 +290,14 @@ static int mi1_ext_write(struct adapter *adapter, int phy_addr, int mmd_addr,
 			 int reg_addr, unsigned int val)
 {
 	int ret;
-	u32 addr = V_REGADDR(mmd_addr) | V_PHYADDR(phy_addr);
 
 	mutex_lock(&adapter->mdio_lock);
-	t3_write_reg(adapter, A_MI1_ADDR, addr);
-	t3_write_reg(adapter, A_MI1_DATA, reg_addr);
-	t3_write_reg(adapter, A_MI1_OP, V_MDI_OP(0));
-	ret = t3_wait_op_done(adapter, A_MI1_OP, F_BUSY, 0, MDIO_ATTEMPTS, 20);
+	ret = mi1_wr_addr(adapter, phy_addr, mmd_addr, reg_addr);
 	if (!ret) {
 		t3_write_reg(adapter, A_MI1_DATA, val);
 		t3_write_reg(adapter, A_MI1_OP, V_MDI_OP(1));
 		ret = t3_wait_op_done(adapter, A_MI1_OP, F_BUSY, 0,
-				      MDIO_ATTEMPTS, 20);
+				      MDIO_ATTEMPTS, 10);
 	}
 	mutex_unlock(&adapter->mdio_lock);
 	return ret;
@@ -400,6 +408,29 @@ int t3_phy_advertise(struct cphy *phy, unsigned int advert)
 }
 
 /**
+ *	t3_phy_advertise_fiber - set fiber PHY advertisement register
+ *	@phy: the PHY to operate on
+ *	@advert: bitmap of capabilities the PHY should advertise
+ *
+ *	Sets a fiber PHY's advertisement register to advertise the
+ *	requested capabilities.
+ */
+int t3_phy_advertise_fiber(struct cphy *phy, unsigned int advert)
+{
+	unsigned int val = 0;
+
+	if (advert & ADVERTISED_1000baseT_Half)
+		val |= ADVERTISE_1000XHALF;
+	if (advert & ADVERTISED_1000baseT_Full)
+		val |= ADVERTISE_1000XFULL;
+	if (advert & ADVERTISED_Pause)
+		val |= ADVERTISE_1000XPAUSE;
+	if (advert & ADVERTISED_Asym_Pause)
+		val |= ADVERTISE_1000XPSE_ASYM;
+	return mdio_write(phy, 0, MII_ADVERTISE, val);
+}
+
+/**
  *	t3_set_phy_speed_duplex - force PHY speed and duplex
  *	@phy: the PHY to operate on
  *	@speed: requested PHY speed
@@ -434,28 +465,60 @@ int t3_set_phy_speed_duplex(struct cphy *phy, int speed, int duplex)
 	return mdio_write(phy, 0, MII_BMCR, ctl);
 }
 
+int t3_phy_lasi_intr_enable(struct cphy *phy)
+{
+	return mdio_write(phy, MDIO_DEV_PMA_PMD, LASI_CTRL, 1);
+}
+
+int t3_phy_lasi_intr_disable(struct cphy *phy)
+{
+	return mdio_write(phy, MDIO_DEV_PMA_PMD, LASI_CTRL, 0);
+}
+
+int t3_phy_lasi_intr_clear(struct cphy *phy)
+{
+	u32 val;
+
+	return mdio_read(phy, MDIO_DEV_PMA_PMD, LASI_STAT, &val);
+}
+
+int t3_phy_lasi_intr_handler(struct cphy *phy)
+{
+	unsigned int status;
+	int err = mdio_read(phy, MDIO_DEV_PMA_PMD, LASI_STAT, &status);
+
+	if (err)
+		return err;
+	return (status & 1) ?  cphy_cause_link_change : 0;
+}
+
 static const struct adapter_info t3_adap_info[] = {
-	{2, 0, 0, 0,
+	{1, 1, 0,
 	 F_GPIO2_OEN | F_GPIO4_OEN |
-	 F_GPIO2_OUT_VAL | F_GPIO4_OUT_VAL, F_GPIO3 | F_GPIO5,
-	 0,
+	 F_GPIO2_OUT_VAL | F_GPIO4_OUT_VAL, { S_GPIO3, S_GPIO5 }, 0,
 	 &mi1_mdio_ops, "Chelsio PE9000"},
-	{2, 0, 0, 0,
+	{1, 1, 0,
 	 F_GPIO2_OEN | F_GPIO4_OEN |
-	 F_GPIO2_OUT_VAL | F_GPIO4_OUT_VAL, F_GPIO3 | F_GPIO5,
-	 0,
+	 F_GPIO2_OUT_VAL | F_GPIO4_OUT_VAL, { S_GPIO3, S_GPIO5 }, 0,
 	 &mi1_mdio_ops, "Chelsio T302"},
-	{1, 0, 0, 0,
+	{1, 0, 0,
 	 F_GPIO1_OEN | F_GPIO6_OEN | F_GPIO7_OEN | F_GPIO10_OEN |
 	 F_GPIO11_OEN | F_GPIO1_OUT_VAL | F_GPIO6_OUT_VAL | F_GPIO10_OUT_VAL,
-	 0, SUPPORTED_10000baseT_Full | SUPPORTED_AUI,
+	 { 0 }, SUPPORTED_10000baseT_Full | SUPPORTED_AUI,
 	 &mi1_mdio_ext_ops, "Chelsio T310"},
-	{2, 0, 0, 0,
+	{1, 1, 0,
 	 F_GPIO1_OEN | F_GPIO2_OEN | F_GPIO4_OEN | F_GPIO5_OEN | F_GPIO6_OEN |
 	 F_GPIO7_OEN | F_GPIO10_OEN | F_GPIO11_OEN | F_GPIO1_OUT_VAL |
-	 F_GPIO5_OUT_VAL | F_GPIO6_OUT_VAL | F_GPIO10_OUT_VAL, 0,
-	 SUPPORTED_10000baseT_Full | SUPPORTED_AUI,
+	 F_GPIO5_OUT_VAL | F_GPIO6_OUT_VAL | F_GPIO10_OUT_VAL,
+	 { S_GPIO9, S_GPIO3 }, SUPPORTED_10000baseT_Full | SUPPORTED_AUI,
 	 &mi1_mdio_ext_ops, "Chelsio T320"},
+	{},
+	{},
+	{1, 0, 0,
+	 F_GPIO1_OEN | F_GPIO2_OEN | F_GPIO4_OEN | F_GPIO6_OEN | F_GPIO7_OEN |
+	 F_GPIO10_OEN | F_GPIO1_OUT_VAL | F_GPIO6_OUT_VAL | F_GPIO10_OUT_VAL,
+	 { S_GPIO9 }, SUPPORTED_10000baseT_Full | SUPPORTED_AUI,
+	 &mi1_mdio_ext_ops, "Chelsio T310" },
 };
 
 /*
@@ -467,28 +530,22 @@ const struct adapter_info *t3_get_adapter_info(unsigned int id)
 	return id < ARRAY_SIZE(t3_adap_info) ? &t3_adap_info[id] : NULL;
 }
 
-#define CAPS_1G (SUPPORTED_10baseT_Full | SUPPORTED_100baseT_Full | \
-		 SUPPORTED_1000baseT_Full | SUPPORTED_Autoneg | SUPPORTED_MII)
-#define CAPS_10G (SUPPORTED_10000baseT_Full | SUPPORTED_AUI)
-
-static const struct port_type_info port_types[] = {
-	{NULL},
-	{t3_ael1002_phy_prep, CAPS_10G | SUPPORTED_FIBRE,
-	 "10GBASE-XR"},
-	{t3_vsc8211_phy_prep, CAPS_1G | SUPPORTED_TP | SUPPORTED_IRQ,
-	 "10/100/1000BASE-T"},
-	{NULL, CAPS_1G | SUPPORTED_TP | SUPPORTED_IRQ,
-	 "10/100/1000BASE-T"},
-	{t3_xaui_direct_phy_prep, CAPS_10G | SUPPORTED_TP, "10GBASE-CX4"},
-	{NULL, CAPS_10G, "10GBASE-KX4"},
-	{t3_qt2045_phy_prep, CAPS_10G | SUPPORTED_TP, "10GBASE-CX4"},
-	{t3_ael1006_phy_prep, CAPS_10G | SUPPORTED_FIBRE,
-	 "10GBASE-SR"},
-	{NULL, CAPS_10G | SUPPORTED_TP, "10GBASE-CX4"},
+struct port_type_info {
+	int (*phy_prep)(struct cphy *phy, struct adapter *adapter,
+			int phy_addr, const struct mdio_ops *ops);
 };
 
-#undef CAPS_1G
-#undef CAPS_10G
+static const struct port_type_info port_types[] = {
+	{ NULL },
+	{ t3_ael1002_phy_prep },
+	{ t3_vsc8211_phy_prep },
+	{ NULL},
+	{ t3_xaui_direct_phy_prep },
+	{ t3_ael2005_phy_prep },
+	{ t3_qt2045_phy_prep },
+	{ t3_ael1006_phy_prep },
+	{ NULL },
+};
 
 #define VPD_ENTRY(name, len) \
 	u8 name##_kword[2]; u8 name##_len; u8 name##_data[len]
@@ -522,7 +579,7 @@ struct t3_vpd {
 	u32 pad;		/* for multiple-of-4 sizing and alignment */
 };
 
-#define EEPROM_MAX_POLL   4
+#define EEPROM_MAX_POLL   40
 #define EEPROM_STAT_ADDR  0x4000
 #define VPD_BASE          0xc00
 
@@ -875,11 +932,10 @@ int t3_get_tp_version(struct adapter *adapter, u32 *vers)
 /**
  *	t3_check_tpsram_version - read the tp sram version
  *	@adapter: the adapter
- *	@must_load: set to 1 if loading a new microcode image is required
  *
  *	Reads the protocol sram version from flash.
  */
-int t3_check_tpsram_version(struct adapter *adapter, int *must_load)
+int t3_check_tpsram_version(struct adapter *adapter)
 {
 	int ret;
 	u32 vers;
@@ -888,7 +944,6 @@ int t3_check_tpsram_version(struct adapter *adapter, int *must_load)
 	if (adapter->params.rev == T3_REV_A)
 		return 0;
 
-	*must_load = 1;
 
 	ret = t3_get_tp_version(adapter, &vers);
 	if (ret)
@@ -899,13 +954,7 @@ int t3_check_tpsram_version(struct adapter *adapter, int *must_load)
 
 	if (major == TP_VERSION_MAJOR && minor == TP_VERSION_MINOR)
 		return 0;
-
-	if (major != TP_VERSION_MAJOR)
-		CH_ERR(adapter, "found wrong TP version (%u.%u), "
-		       "driver needs version %d.%d\n", major, minor,
-		       TP_VERSION_MAJOR, TP_VERSION_MINOR);
 	else {
-		*must_load = 0;
 		CH_ERR(adapter, "found wrong TP version (%u.%u), "
 		       "driver compiled for version %d.%d\n", major, minor,
 		       TP_VERSION_MAJOR, TP_VERSION_MINOR);
@@ -962,18 +1011,16 @@ int t3_get_fw_version(struct adapter *adapter, u32 *vers)
 /**
  *	t3_check_fw_version - check if the FW is compatible with this driver
  *	@adapter: the adapter
- *	@must_load: set to 1 if loading a new FW image is required
-
+ *
  *	Checks if an adapter's FW is compatible with the driver.  Returns 0
  *	if the versions are compatible, a negative error otherwise.
  */
-int t3_check_fw_version(struct adapter *adapter, int *must_load)
+int t3_check_fw_version(struct adapter *adapter)
 {
 	int ret;
 	u32 vers;
 	unsigned int type, major, minor;
 
-	*must_load = 1;
 	ret = t3_get_fw_version(adapter, &vers);
 	if (ret)
 		return ret;
@@ -985,17 +1032,11 @@ int t3_check_fw_version(struct adapter *adapter, int *must_load)
 	if (type == FW_VERSION_T3 && major == FW_VERSION_MAJOR &&
 	    minor == FW_VERSION_MINOR)
 		return 0;
-
-	if (major != FW_VERSION_MAJOR)
-		CH_ERR(adapter, "found wrong FW version(%u.%u), "
-		       "driver needs version %u.%u\n", major, minor,
-		       FW_VERSION_MAJOR, FW_VERSION_MINOR);
-	else if (minor < FW_VERSION_MINOR) {
-		*must_load = 0;
+	else if (major != FW_VERSION_MAJOR || minor < FW_VERSION_MINOR)
 		CH_WARN(adapter, "found old FW minor version(%u.%u), "
 		        "driver compiled for version %u.%u\n", major, minor,
 			FW_VERSION_MAJOR, FW_VERSION_MINOR);
-	} else {
+	else {
 		CH_WARN(adapter, "found newer FW version(%u.%u), "
 		        "driver compiled for version %u.%u\n", major, minor,
 			FW_VERSION_MAJOR, FW_VERSION_MINOR);
@@ -1112,6 +1153,38 @@ int t3_cim_ctl_blk_read(struct adapter *adap, unsigned int addr,
 	return ret;
 }
 
+static void t3_gate_rx_traffic(struct cmac *mac, u32 *rx_cfg,
+			       u32 *rx_hash_high, u32 *rx_hash_low)
+{
+	/* stop Rx unicast traffic */
+	t3_mac_disable_exact_filters(mac);
+
+	/* stop broadcast, multicast, promiscuous mode traffic */
+	*rx_cfg = t3_read_reg(mac->adapter, A_XGM_RX_CFG);
+	t3_set_reg_field(mac->adapter, A_XGM_RX_CFG,
+			 F_ENHASHMCAST | F_DISBCAST | F_COPYALLFRAMES,
+			 F_DISBCAST);
+
+	*rx_hash_high = t3_read_reg(mac->adapter, A_XGM_RX_HASH_HIGH);
+	t3_write_reg(mac->adapter, A_XGM_RX_HASH_HIGH, 0);
+
+	*rx_hash_low = t3_read_reg(mac->adapter, A_XGM_RX_HASH_LOW);
+	t3_write_reg(mac->adapter, A_XGM_RX_HASH_LOW, 0);
+
+	/* Leave time to drain max RX fifo */
+	msleep(1);
+}
+
+static void t3_open_rx_traffic(struct cmac *mac, u32 rx_cfg,
+			       u32 rx_hash_high, u32 rx_hash_low)
+{
+	t3_mac_enable_exact_filters(mac);
+	t3_set_reg_field(mac->adapter, A_XGM_RX_CFG,
+			 F_ENHASHMCAST | F_DISBCAST | F_COPYALLFRAMES,
+			 rx_cfg);
+	t3_write_reg(mac->adapter, A_XGM_RX_HASH_HIGH, rx_hash_high);
+	t3_write_reg(mac->adapter, A_XGM_RX_HASH_LOW, rx_hash_low);
+}
 
 /**
  *	t3_link_changed - handle interface link changes
@@ -1132,6 +1205,32 @@ void t3_link_changed(struct adapter *adapter, int port_id)
 
 	phy->ops->get_link_status(phy, &link_ok, &speed, &duplex, &fc);
 
+	if (!lc->link_ok && link_ok) {
+		u32 rx_cfg, rx_hash_high, rx_hash_low;
+		u32 status;
+
+		t3_xgm_intr_enable(adapter, port_id);
+		t3_gate_rx_traffic(mac, &rx_cfg, &rx_hash_high, &rx_hash_low);
+		t3_write_reg(adapter, A_XGM_RX_CTRL + mac->offset, 0);
+		t3_mac_enable(mac, MAC_DIRECTION_RX);
+
+		status = t3_read_reg(adapter, A_XGM_INT_STATUS + mac->offset);
+		if (status & F_LINKFAULTCHANGE) {
+			mac->stats.link_faults++;
+			pi->link_fault = 1;
+		}
+		t3_open_rx_traffic(mac, rx_cfg, rx_hash_high, rx_hash_low);
+	}
+
+	if (lc->requested_fc & PAUSE_AUTONEG)
+		fc &= lc->requested_fc;
+	else
+		fc = lc->requested_fc & (PAUSE_RX | PAUSE_TX);
+
+	if (link_ok == lc->link_ok && speed == lc->speed &&
+	    duplex == lc->duplex && fc == lc->fc)
+		return;                            /* nothing changed */
+
 	if (link_ok != lc->link_ok && adapter->params.rev > 0 &&
 	    uses_xaui(adapter)) {
 		if (link_ok)
@@ -1142,10 +1241,6 @@ void t3_link_changed(struct adapter *adapter, int port_id)
 	lc->link_ok = link_ok;
 	lc->speed = speed < 0 ? SPEED_INVALID : speed;
 	lc->duplex = duplex < 0 ? DUPLEX_INVALID : duplex;
-	if (lc->requested_fc & PAUSE_AUTONEG)
-		fc &= lc->requested_fc;
-	else
-		fc = lc->requested_fc & (PAUSE_RX | PAUSE_TX);
 
 	if (link_ok && speed >= 0 && lc->autoneg == AUTONEG_ENABLE) {
 		/* Set MAC speed, duplex, and flow control to match PHY. */
@@ -1154,6 +1249,59 @@ void t3_link_changed(struct adapter *adapter, int port_id)
 	}
 
 	t3_os_link_changed(adapter, port_id, link_ok, speed, duplex, fc);
+}
+
+void t3_link_fault(struct adapter *adapter, int port_id)
+{
+	struct port_info *pi = adap2pinfo(adapter, port_id);
+	struct cmac *mac = &pi->mac;
+	struct cphy *phy = &pi->phy;
+	struct link_config *lc = &pi->link_config;
+	int link_ok, speed, duplex, fc, link_fault;
+	u32 rx_cfg, rx_hash_high, rx_hash_low;
+
+	t3_gate_rx_traffic(mac, &rx_cfg, &rx_hash_high, &rx_hash_low);
+
+	if (adapter->params.rev > 0 && uses_xaui(adapter))
+		t3_write_reg(adapter, A_XGM_XAUI_ACT_CTRL + mac->offset, 0);
+
+	t3_write_reg(adapter, A_XGM_RX_CTRL + mac->offset, 0);
+	t3_mac_enable(mac, MAC_DIRECTION_RX);
+
+	t3_open_rx_traffic(mac, rx_cfg, rx_hash_high, rx_hash_low);
+
+	link_fault = t3_read_reg(adapter,
+				 A_XGM_INT_STATUS + mac->offset);
+	link_fault &= F_LINKFAULTCHANGE;
+
+	link_ok = lc->link_ok;
+	speed = lc->speed;
+	duplex = lc->duplex;
+	fc = lc->fc;
+
+	phy->ops->get_link_status(phy, &link_ok, &speed, &duplex, &fc);
+
+	if (link_fault) {
+		lc->link_ok = 0;
+		lc->speed = SPEED_INVALID;
+		lc->duplex = DUPLEX_INVALID;
+
+		t3_os_link_fault(adapter, port_id, 0);
+
+		/* Account link faults only when the phy reports a link up */
+		if (link_ok)
+			mac->stats.link_faults++;
+	} else {
+		if (link_ok)
+			t3_write_reg(adapter, A_XGM_XAUI_ACT_CTRL + mac->offset,
+				     F_TXACTENABLE | F_RXEN);
+
+		pi->link_fault = 0;
+		lc->link_ok = (unsigned char)link_ok;
+		lc->speed = speed < 0 ? SPEED_INVALID : speed;
+		lc->duplex = duplex < 0 ? DUPLEX_INVALID : duplex;
+		t3_os_link_fault(adapter, port_id, link_ok);
+	}
 }
 
 /**
@@ -1191,7 +1339,6 @@ int t3_link_start(struct cphy *phy, struct cmac *mac, struct link_config *lc)
 						   fc);
 			/* Also disables autoneg */
 			phy->ops->set_speed_duplex(phy, lc->speed, lc->duplex);
-			phy->ops->reset(phy, 0);
 		} else
 			phy->ops->autoneg_enable(phy);
 	} else {
@@ -1221,7 +1368,7 @@ struct intr_info {
 	unsigned int mask;	/* bits to check in interrupt status */
 	const char *msg;	/* message to print or NULL */
 	short stat_idx;		/* stat counter to increment or -1 */
-	unsigned short fatal:1;	/* whether the condition reported is fatal */
+	unsigned short fatal;	/* whether the condition reported is fatal */
 };
 
 /**
@@ -1278,7 +1425,7 @@ static int t3_handle_intr_status(struct adapter *adapter, unsigned int reg,
 #define MC7_INTR_MASK (F_AE | F_UE | F_CE | V_PE(M_PE))
 #define XGM_INTR_MASK (V_TXFIFO_PRTY_ERR(M_TXFIFO_PRTY_ERR) | \
 		       V_RXFIFO_PRTY_ERR(M_RXFIFO_PRTY_ERR) | \
-		       F_TXFIFO_UNDERRUN | F_RXFIFO_OVERFLOW)
+		       F_TXFIFO_UNDERRUN)
 #define PCIX_INTR_MASK (F_MSTDETPARERR | F_SIGTARABT | F_RCVTARABT | \
 			F_RCVMSTABT | F_SIGSYSERR | F_DETPARERR | \
 			F_SPLCMPDIS | F_UNXSPLCMP | F_RCVSPLCMPERR | \
@@ -1315,11 +1462,11 @@ static int t3_handle_intr_status(struct adapter *adapter, unsigned int reg,
 		       V_TX1TPPARERRENB(M_TX1TPPARERRENB) | \
 		       V_RXTPPARERRENB(M_RXTPPARERRENB) | \
 		       V_MCAPARERRENB(M_MCAPARERRENB))
+#define XGM_EXTRA_INTR_MASK (F_LINKFAULTCHANGE)
 #define PL_INTR_MASK (F_T3DBG | F_XGMAC0_0 | F_XGMAC0_1 | F_MC5A | F_PM1_TX | \
 		      F_PM1_RX | F_ULP2_TX | F_ULP2_RX | F_TP1 | F_CIM | \
 		      F_MC7_CM | F_MC7_PMTX | F_MC7_PMRX | F_SGE3 | F_PCIM0 | \
 		      F_MPS0 | F_CPL_SWITCH)
-
 /*
  * Interrupt handler for the PCIX1 module.
  */
@@ -1650,7 +1797,14 @@ static void mc7_intr_handler(struct mc7 *mc7)
 static int mac_intr_handler(struct adapter *adap, unsigned int idx)
 {
 	struct cmac *mac = &adap2pinfo(adap, idx)->mac;
-	u32 cause = t3_read_reg(adap, A_XGM_INT_CAUSE + mac->offset);
+	/*
+	 * We mask out interrupt causes for which we're not taking interrupts.
+	 * This allows us to use polling logic to monitor some of the other
+	 * conditions when taking interrupts would impose too much load on the
+	 * system.
+	 */
+	u32 cause = t3_read_reg(adap, A_XGM_INT_CAUSE + mac->offset) &
+		    ~F_RXFIFO_OVERFLOW;
 
 	if (cause & V_TXFIFO_PRTY_ERR(M_TXFIFO_PRTY_ERR)) {
 		mac->stats.tx_fifo_parity_err++;
@@ -1670,10 +1824,20 @@ static int mac_intr_handler(struct adapter *adap, unsigned int idx)
 		mac->stats.xaui_pcs_ctc_err++;
 	if (cause & F_XAUIPCSALIGNCHANGE)
 		mac->stats.xaui_pcs_align_change++;
+	if (cause & F_XGM_INT) {
+		t3_set_reg_field(adap,
+				 A_XGM_INT_ENABLE + mac->offset,
+				 F_XGM_INT, 0);
+		mac->stats.link_faults++;
+
+		t3_os_link_fault_handler(adap, idx);
+	}
 
 	t3_write_reg(adap, A_XGM_INT_CAUSE + mac->offset, cause);
+
 	if (cause & XGM_INTR_FATAL)
 		t3_fatal_err(adap);
+
 	return cause != 0;
 }
 
@@ -1682,25 +1846,23 @@ static int mac_intr_handler(struct adapter *adap, unsigned int idx)
  */
 int t3_phy_intr_handler(struct adapter *adapter)
 {
-	u32 mask, gpi = adapter_info(adapter)->gpio_intr;
 	u32 i, cause = t3_read_reg(adapter, A_T3DBG_INT_CAUSE);
 
 	for_each_port(adapter, i) {
 		struct port_info *p = adap2pinfo(adapter, i);
 
-		mask = gpi - (gpi & (gpi - 1));
-		gpi -= mask;
-
-		if (!(p->port_type->caps & SUPPORTED_IRQ))
+		if (!(p->phy.caps & SUPPORTED_IRQ))
 			continue;
 
-		if (cause & mask) {
+		if (cause & (1 << adapter_info(adapter)->gpio_intr[i])) {
 			int phy_cause = p->phy.ops->intr_handler(&p->phy);
 
 			if (phy_cause & cphy_cause_link_change)
 				t3_link_changed(adapter, i);
 			if (phy_cause & cphy_cause_fifo_error)
 				p->phy.fifo_errors++;
+			if (phy_cause & cphy_cause_module_change)
+				t3_os_phymod_changed(adapter, i);
 		}
 	}
 
@@ -1763,6 +1925,17 @@ int t3_slow_intr_handler(struct adapter *adapter)
 	return 1;
 }
 
+static unsigned int calc_gpio_intr(struct adapter *adap)
+{
+	unsigned int i, gpi_intr = 0;
+
+	for_each_port(adap, i)
+		if ((adap2pinfo(adap, i)->phy.caps & SUPPORTED_IRQ) &&
+		    adapter_info(adap)->gpio_intr[i])
+			gpi_intr |= 1 << adapter_info(adap)->gpio_intr[i];
+	return gpi_intr;
+}
+
 /**
  *	t3_intr_enable - enable interrupts
  *	@adapter: the adapter whose interrupts should be enabled
@@ -1805,10 +1978,8 @@ void t3_intr_enable(struct adapter *adapter)
 		t3_write_reg(adapter, A_ULPTX_INT_ENABLE, ULPTX_INTR_MASK);
 	}
 
-	t3_write_reg(adapter, A_T3DBG_GPIO_ACT_LOW,
-		     adapter_info(adapter)->gpio_intr);
-	t3_write_reg(adapter, A_T3DBG_INT_ENABLE,
-		     adapter_info(adapter)->gpio_intr);
+	t3_write_reg(adapter, A_T3DBG_INT_ENABLE, calc_gpio_intr(adapter));
+
 	if (is_pcie(adapter))
 		t3_write_reg(adapter, A_PCIE_INT_ENABLE, PCIE_INTR_MASK);
 	else
@@ -1870,6 +2041,22 @@ void t3_intr_clear(struct adapter *adapter)
 		t3_write_reg(adapter, A_PCIE_PEX_ERR, 0xffffffff);
 	t3_write_reg(adapter, A_PL_INT_CAUSE0, 0xffffffff);
 	t3_read_reg(adapter, A_PL_INT_CAUSE0);	/* flush */
+}
+
+void t3_xgm_intr_enable(struct adapter *adapter, int idx)
+{
+	struct port_info *pi = adap2pinfo(adapter, idx);
+
+	t3_write_reg(adapter, A_XGM_XGM_INT_ENABLE + pi->mac.offset,
+		     XGM_EXTRA_INTR_MASK);
+}
+
+void t3_xgm_intr_disable(struct adapter *adapter, int idx)
+{
+	struct port_info *pi = adap2pinfo(adapter, idx);
+
+	t3_write_reg(adapter, A_XGM_XGM_INT_DISABLE + pi->mac.offset,
+		     0x7ff);
 }
 
 /**
@@ -1937,16 +2124,40 @@ void t3_port_intr_clear(struct adapter *adapter, int idx)
 static int t3_sge_write_context(struct adapter *adapter, unsigned int id,
 				unsigned int type)
 {
-	t3_write_reg(adapter, A_SG_CONTEXT_MASK0, 0xffffffff);
-	t3_write_reg(adapter, A_SG_CONTEXT_MASK1, 0xffffffff);
-	t3_write_reg(adapter, A_SG_CONTEXT_MASK2, 0xffffffff);
-	t3_write_reg(adapter, A_SG_CONTEXT_MASK3, 0xffffffff);
+	if (type == F_RESPONSEQ) {
+		/*
+		 * Can't write the Response Queue Context bits for
+		 * Interrupt Armed or the Reserve bits after the chip
+		 * has been initialized out of reset.  Writing to these
+		 * bits can confuse the hardware.
+		 */
+		t3_write_reg(adapter, A_SG_CONTEXT_MASK0, 0xffffffff);
+		t3_write_reg(adapter, A_SG_CONTEXT_MASK1, 0xffffffff);
+		t3_write_reg(adapter, A_SG_CONTEXT_MASK2, 0x17ffffff);
+		t3_write_reg(adapter, A_SG_CONTEXT_MASK3, 0xffffffff);
+	} else {
+		t3_write_reg(adapter, A_SG_CONTEXT_MASK0, 0xffffffff);
+		t3_write_reg(adapter, A_SG_CONTEXT_MASK1, 0xffffffff);
+		t3_write_reg(adapter, A_SG_CONTEXT_MASK2, 0xffffffff);
+		t3_write_reg(adapter, A_SG_CONTEXT_MASK3, 0xffffffff);
+	}
 	t3_write_reg(adapter, A_SG_CONTEXT_CMD,
 		     V_CONTEXT_CMD_OPCODE(1) | type | V_CONTEXT(id));
 	return t3_wait_op_done(adapter, A_SG_CONTEXT_CMD, F_CONTEXT_CMD_BUSY,
 			       0, SG_CONTEXT_CMD_ATTEMPTS, 1);
 }
 
+/**
+ *	clear_sge_ctxt - completely clear an SGE context
+ *	@adapter: the adapter
+ *	@id: the context id
+ *	@type: the context type
+ *
+ *	Completely clear an SGE context.  Used predominantly at post-reset
+ *	initialization.  Note in particular that we don't skip writing to any
+ *	"sensitive bits" in the contexts the way that t3_sge_write_context()
+ *	does ...
+ */
 static int clear_sge_ctxt(struct adapter *adap, unsigned int id,
 			  unsigned int type)
 {
@@ -1954,7 +2165,14 @@ static int clear_sge_ctxt(struct adapter *adap, unsigned int id,
 	t3_write_reg(adap, A_SG_CONTEXT_DATA1, 0);
 	t3_write_reg(adap, A_SG_CONTEXT_DATA2, 0);
 	t3_write_reg(adap, A_SG_CONTEXT_DATA3, 0);
-	return t3_sge_write_context(adap, id, type);
+	t3_write_reg(adap, A_SG_CONTEXT_MASK0, 0xffffffff);
+	t3_write_reg(adap, A_SG_CONTEXT_MASK1, 0xffffffff);
+	t3_write_reg(adap, A_SG_CONTEXT_MASK2, 0xffffffff);
+	t3_write_reg(adap, A_SG_CONTEXT_MASK3, 0xffffffff);
+	t3_write_reg(adap, A_SG_CONTEXT_CMD,
+		     V_CONTEXT_CMD_OPCODE(1) | type | V_CONTEXT(id));
+	return t3_wait_op_done(adap, A_SG_CONTEXT_CMD, F_CONTEXT_CMD_BUSY,
+			       0, SG_CONTEXT_CMD_ATTEMPTS, 1);
 }
 
 /**
@@ -2538,10 +2756,10 @@ static void tp_config(struct adapter *adap, const struct tp_params *p)
 		     F_TCPCHECKSUMOFFLOAD | V_IPTTL(64));
 	t3_write_reg(adap, A_TP_TCP_OPTIONS, V_MTUDEFAULT(576) |
 		     F_MTUENABLE | V_WINDOWSCALEMODE(1) |
-		     V_TIMESTAMPSMODE(0) | V_SACKMODE(1) | V_SACKRX(1));
+		     V_TIMESTAMPSMODE(1) | V_SACKMODE(1) | V_SACKRX(1));
 	t3_write_reg(adap, A_TP_DACK_CONFIG, V_AUTOSTATE3(1) |
 		     V_AUTOSTATE2(1) | V_AUTOSTATE1(0) |
-		     V_BYTETHRESHOLD(16384) | V_MSSTHRESHOLD(2) |
+		     V_BYTETHRESHOLD(26880) | V_MSSTHRESHOLD(2) |
 		     F_AUTOCAREFUL | F_AUTOENABLE | V_DACK_MODE(1));
 	t3_set_reg_field(adap, A_TP_IN_CONFIG, F_RXFBARBPRIO | F_TXFBARBPRIO,
 			 F_IPV6ENABLE | F_NICMODE);
@@ -3005,20 +3223,22 @@ int t3_mps_set_active_ports(struct adapter *adap, unsigned int port_mask)
 }
 
 /*
- * Perform the bits of HW initialization that are dependent on the number
- * of available ports.
+ * Perform the bits of HW initialization that are dependent on the Tx
+ * channels being used.
  */
-static void init_hw_for_avail_ports(struct adapter *adap, int nports)
+static void chan_init_hw(struct adapter *adap, unsigned int chan_map)
 {
 	int i;
 
-	if (nports == 1) {
+	if (chan_map != 3) {                                 /* one channel */
 		t3_set_reg_field(adap, A_ULPRX_CTL, F_ROUND_ROBIN, 0);
 		t3_set_reg_field(adap, A_ULPTX_CONFIG, F_CFG_RR_ARB, 0);
-		t3_write_reg(adap, A_MPS_CFG, F_TPRXPORTEN | F_TPTXPORT0EN |
-			     F_PORT0ACTIVE | F_ENFORCEPKT);
-		t3_write_reg(adap, A_PM1_TX_CFG, 0xffffffff);
-	} else {
+		t3_write_reg(adap, A_MPS_CFG, F_TPRXPORTEN | F_ENFORCEPKT |
+			     (chan_map == 1 ? F_TPTXPORT0EN | F_PORT0ACTIVE :
+					      F_TPTXPORT1EN | F_PORT1ACTIVE));
+		t3_write_reg(adap, A_PM1_TX_CFG,
+			     chan_map == 1 ? 0xffffffff : 0);
+	} else {                                             /* two channels */
 		t3_set_reg_field(adap, A_ULPRX_CTL, 0, F_ROUND_ROBIN);
 		t3_set_reg_field(adap, A_ULPTX_CONFIG, 0, F_CFG_RR_ARB);
 		t3_write_reg(adap, A_ULPTX_DMA_WEIGHT,
@@ -3326,8 +3546,10 @@ int t3_init_hw(struct adapter *adapter, u32 fw_params)
 	t3_write_reg(adapter, A_PM1_RX_CFG, 0xffffffff);
 	t3_write_reg(adapter, A_PM1_RX_MODE, 0);
 	t3_write_reg(adapter, A_PM1_TX_MODE, 0);
-	init_hw_for_avail_ports(adapter, adapter->params.nports);
+	chan_init_hw(adapter, adapter->params.chan_map);
 	t3_sge_init(adapter, &adapter->params.sge);
+
+	t3_write_reg(adapter, A_T3DBG_GPIO_ACT_LOW, calc_gpio_intr(adapter));
 
 	t3_write_reg(adapter, A_CIM_HOST_ACC_DATA, vpd->uclk | fw_params);
 	t3_write_reg(adapter, A_CIM_BOOT_CFG,
@@ -3488,7 +3710,7 @@ void early_hw_init(struct adapter *adapter, const struct adapter_info *ai)
  * Older PCIe cards lose their config space during reset, PCI-X
  * ones don't.
  */
-static int t3_reset_adapter(struct adapter *adapter)
+int t3_reset_adapter(struct adapter *adapter)
 {
 	int i, save_and_restore_pcie =
 	    adapter->params.rev < T3_REV_B2 && is_pcie(adapter);
@@ -3556,14 +3778,23 @@ int t3_prep_adapter(struct adapter *adapter, const struct adapter_info *ai,
 		    int reset)
 {
 	int ret;
-	unsigned int i, j = 0;
+	unsigned int i, j = -1;
 
 	get_pci_mode(adapter, &adapter->params.pci);
 
 	adapter->params.info = ai;
-	adapter->params.nports = ai->nports;
+	adapter->params.nports = ai->nports0 + ai->nports1;
+	adapter->params.chan_map = (!!ai->nports0) | (!!ai->nports1 << 1);
 	adapter->params.rev = t3_read_reg(adapter, A_PL_REV);
-	adapter->params.linkpoll_period = 0;
+	/*
+	 * We used to only run the "adapter check task" once a second if
+	 * we had PHYs which didn't support interrupts (we would check
+	 * their link status once a second).  Now we check other conditions
+	 * in that routine which could potentially impose a very high
+	 * interrupt load on the system.  As such, we now always scan the
+	 * adapter state once a second ...
+	 */
+	adapter->params.linkpoll_period = 10;
 	adapter->params.stats_update_period = is_10G(adapter) ?
 	    MAC_STATS_ACCUM_SECS : (MAC_STATS_ACCUM_SECS * 10);
 	adapter->params.pci.vpd_cap_addr =
@@ -3584,7 +3815,7 @@ int t3_prep_adapter(struct adapter *adapter, const struct adapter_info *ai,
 		mc7_prep(adapter, &adapter->pmtx, MC7_PMTX_BASE_ADDR, "PMTX");
 		mc7_prep(adapter, &adapter->cm, MC7_CM_BASE_ADDR, "CM");
 
-		p->nchan = ai->nports;
+		p->nchan = adapter->params.chan_map == 3 ? 2 : 1;
 		p->pmrx_size = t3_mc7_size(&adapter->pmrx);
 		p->pmtx_size = t3_mc7_size(&adapter->pmtx);
 		p->cm_size = t3_mc7_size(&adapter->cm);
@@ -3620,16 +3851,24 @@ int t3_prep_adapter(struct adapter *adapter, const struct adapter_info *ai,
 
 	for_each_port(adapter, i) {
 		u8 hw_addr[6];
+		const struct port_type_info *pti;
 		struct port_info *p = adap2pinfo(adapter, i);
 
-		while (!adapter->params.vpd.port_type[j])
-			++j;
+		while (!adapter->params.vpd.port_type[++j])
+			;
 
-		p->port_type = &port_types[adapter->params.vpd.port_type[j]];
-		p->port_type->phy_prep(&p->phy, adapter, ai->phy_base_addr + j,
-				       ai->mdio_ops);
+		pti = &port_types[adapter->params.vpd.port_type[j]];
+		if (!pti->phy_prep) {
+			CH_ALERT(adapter, "Invalid port type index %d\n",
+				 adapter->params.vpd.port_type[j]);
+			return -EINVAL;
+		}
+
+		ret = pti->phy_prep(&p->phy, adapter, ai->phy_base_addr + j,
+				    ai->mdio_ops);
+		if (ret)
+			return ret;
 		mac_prep(&p->mac, adapter, j);
-		++j;
 
 		/*
 		 * The VPD EEPROM stores the base Ethernet address for the
@@ -3643,9 +3882,16 @@ int t3_prep_adapter(struct adapter *adapter, const struct adapter_info *ai,
 		       ETH_ALEN);
 		memcpy(adapter->port[i]->perm_addr, hw_addr,
 		       ETH_ALEN);
-		init_link_config(&p->link_config, p->port_type->caps);
+		init_link_config(&p->link_config, p->phy.caps);
 		p->phy.ops->power_down(&p->phy, 1);
-		if (!(p->port_type->caps & SUPPORTED_IRQ))
+
+		/*
+		 * If the PHY doesn't support interrupts for link status
+		 * changes, schedule a scan of the adapter links at least
+		 * once a second.
+		 */
+		if (!(p->phy.caps & SUPPORTED_IRQ) &&
+		    adapter->params.linkpoll_period > 10)
 			adapter->params.linkpoll_period = 10;
 	}
 
@@ -3661,7 +3907,7 @@ void t3_led_ready(struct adapter *adapter)
 int t3_replay_prep_adapter(struct adapter *adapter)
 {
 	const struct adapter_info *ai = adapter->params.info;
-	unsigned int i, j = 0;
+	unsigned int i, j = -1;
 	int ret;
 
 	early_hw_init(adapter, ai);
@@ -3670,15 +3916,17 @@ int t3_replay_prep_adapter(struct adapter *adapter)
 		return ret;
 
 	for_each_port(adapter, i) {
+		const struct port_type_info *pti;
 		struct port_info *p = adap2pinfo(adapter, i);
-		while (!adapter->params.vpd.port_type[j])
-			++j;
 
-		p->port_type->phy_prep(&p->phy, adapter, ai->phy_base_addr + j,
-					ai->mdio_ops);
+		while (!adapter->params.vpd.port_type[++j])
+			;
 
+		pti = &port_types[adapter->params.vpd.port_type[j]];
+		ret = pti->phy_prep(&p->phy, adapter, p->phy.addr, NULL);
+		if (ret)
+			return ret;
 		p->phy.ops->power_down(&p->phy, 1);
-		++j;
 	}
 
 return 0;

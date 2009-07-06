@@ -20,6 +20,7 @@
 #include <linux/delay.h>
 #include <linux/sched.h>
 #include <sound/core.h>
+#include <sound/mpu401.h>
 #include <asm/io.h>
 #include "oxygen.h"
 
@@ -232,3 +233,55 @@ void oxygen_write_i2c(struct oxygen *chip, u8 device, u8 map, u8 data)
 		      device | OXYGEN_2WIRE_DIR_WRITE);
 }
 EXPORT_SYMBOL(oxygen_write_i2c);
+
+static void _write_uart(struct oxygen *chip, unsigned int port, u8 data)
+{
+	if (oxygen_read8(chip, OXYGEN_MPU401 + 1) & MPU401_TX_FULL)
+		msleep(1);
+	oxygen_write8(chip, OXYGEN_MPU401 + port, data);
+}
+
+void oxygen_reset_uart(struct oxygen *chip)
+{
+	_write_uart(chip, 1, MPU401_RESET);
+	msleep(1); /* wait for ACK */
+	_write_uart(chip, 1, MPU401_ENTER_UART);
+}
+EXPORT_SYMBOL(oxygen_reset_uart);
+
+void oxygen_write_uart(struct oxygen *chip, u8 data)
+{
+	_write_uart(chip, 0, data);
+}
+EXPORT_SYMBOL(oxygen_write_uart);
+
+u16 oxygen_read_eeprom(struct oxygen *chip, unsigned int index)
+{
+	unsigned int timeout;
+
+	oxygen_write8(chip, OXYGEN_EEPROM_CONTROL,
+		      index | OXYGEN_EEPROM_DIR_READ);
+	for (timeout = 0; timeout < 100; ++timeout) {
+		udelay(1);
+		if (!(oxygen_read8(chip, OXYGEN_EEPROM_STATUS)
+		      & OXYGEN_EEPROM_BUSY))
+			break;
+	}
+	return oxygen_read16(chip, OXYGEN_EEPROM_DATA);
+}
+
+void oxygen_write_eeprom(struct oxygen *chip, unsigned int index, u16 value)
+{
+	unsigned int timeout;
+
+	oxygen_write16(chip, OXYGEN_EEPROM_DATA, value);
+	oxygen_write8(chip, OXYGEN_EEPROM_CONTROL,
+		      index | OXYGEN_EEPROM_DIR_WRITE);
+	for (timeout = 0; timeout < 10; ++timeout) {
+		msleep(1);
+		if (!(oxygen_read8(chip, OXYGEN_EEPROM_STATUS)
+		      & OXYGEN_EEPROM_BUSY))
+			return;
+	}
+	snd_printk(KERN_ERR "EEPROM write timeout\n");
+}

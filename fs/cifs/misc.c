@@ -75,12 +75,12 @@ sesInfoAlloc(void)
 
 	ret_buf = kzalloc(sizeof(struct cifsSesInfo), GFP_KERNEL);
 	if (ret_buf) {
-		write_lock(&GlobalSMBSeslock);
 		atomic_inc(&sesInfoAllocCount);
 		ret_buf->status = CifsNew;
-		list_add(&ret_buf->cifsSessionList, &GlobalSMBSessionList);
+		++ret_buf->ses_count;
+		INIT_LIST_HEAD(&ret_buf->smb_ses_list);
+		INIT_LIST_HEAD(&ret_buf->tcon_list);
 		init_MUTEX(&ret_buf->sesSem);
-		write_unlock(&GlobalSMBSeslock);
 	}
 	return ret_buf;
 }
@@ -93,14 +93,14 @@ sesInfoFree(struct cifsSesInfo *buf_to_free)
 		return;
 	}
 
-	write_lock(&GlobalSMBSeslock);
 	atomic_dec(&sesInfoAllocCount);
-	list_del(&buf_to_free->cifsSessionList);
-	write_unlock(&GlobalSMBSeslock);
 	kfree(buf_to_free->serverOS);
 	kfree(buf_to_free->serverDomain);
 	kfree(buf_to_free->serverNOS);
-	kfree(buf_to_free->password);
+	if (buf_to_free->password) {
+		memset(buf_to_free->password, 0, strlen(buf_to_free->password));
+		kfree(buf_to_free->password);
+	}
 	kfree(buf_to_free->domainName);
 	kfree(buf_to_free);
 }
@@ -111,17 +111,14 @@ tconInfoAlloc(void)
 	struct cifsTconInfo *ret_buf;
 	ret_buf = kzalloc(sizeof(struct cifsTconInfo), GFP_KERNEL);
 	if (ret_buf) {
-		write_lock(&GlobalSMBSeslock);
 		atomic_inc(&tconInfoAllocCount);
-		list_add(&ret_buf->cifsConnectionList,
-			 &GlobalTreeConnectionList);
 		ret_buf->tidStatus = CifsNew;
+		++ret_buf->tc_count;
 		INIT_LIST_HEAD(&ret_buf->openFileList);
-		init_MUTEX(&ret_buf->tconSem);
+		INIT_LIST_HEAD(&ret_buf->tcon_list);
 #ifdef CONFIG_CIFS_STATS
 		spin_lock_init(&ret_buf->stat_lock);
 #endif
-		write_unlock(&GlobalSMBSeslock);
 	}
 	return ret_buf;
 }
@@ -133,11 +130,12 @@ tconInfoFree(struct cifsTconInfo *buf_to_free)
 		cFYI(1, ("Null buffer passed to tconInfoFree"));
 		return;
 	}
-	write_lock(&GlobalSMBSeslock);
 	atomic_dec(&tconInfoAllocCount);
-	list_del(&buf_to_free->cifsConnectionList);
-	write_unlock(&GlobalSMBSeslock);
 	kfree(buf_to_free->nativeFileSystem);
+	if (buf_to_free->password) {
+		memset(buf_to_free->password, 0, strlen(buf_to_free->password));
+		kfree(buf_to_free->password);
+	}
 	kfree(buf_to_free);
 }
 
@@ -150,8 +148,7 @@ cifs_buf_get(void)
    but it may be more efficient to always alloc same size
    albeit slightly larger than necessary and maxbuffersize
    defaults to this and can not be bigger */
-	ret_buf = (struct smb_hdr *) mempool_alloc(cifs_req_poolp,
-						   GFP_KERNEL | GFP_NOFS);
+	ret_buf = mempool_alloc(cifs_req_poolp, GFP_NOFS);
 
 	/* clear the first few header bytes */
 	/* for most paths, more is cleared in header_assemble */
@@ -188,8 +185,7 @@ cifs_small_buf_get(void)
    but it may be more efficient to always alloc same size
    albeit slightly larger than necessary and maxbuffersize
    defaults to this and can not be bigger */
-	ret_buf = (struct smb_hdr *) mempool_alloc(cifs_sm_req_poolp,
-						   GFP_KERNEL | GFP_NOFS);
+	ret_buf = mempool_alloc(cifs_sm_req_poolp, GFP_NOFS);
 	if (ret_buf) {
 	/* No need to clear memory here, cleared in header assemble */
 	/*	memset(ret_buf, 0, sizeof(struct smb_hdr) + 27);*/
@@ -313,8 +309,6 @@ header_assemble(struct smb_hdr *buffer, char smb_command /* command */ ,
 	buffer->Flags2 = SMBFLG2_KNOWS_LONG_NAMES;
 	buffer->Pid = cpu_to_le16((__u16)current->tgid);
 	buffer->PidHigh = cpu_to_le16((__u16)(current->tgid >> 16));
-	spin_lock(&GlobalMid_Lock);
-	spin_unlock(&GlobalMid_Lock);
 	if (treeCon) {
 		buffer->Tid = treeCon->tid;
 		if (treeCon->ses) {
@@ -351,13 +345,13 @@ header_assemble(struct smb_hdr *buffer, char smb_command /* command */ ,
 		/*  BB Add support for establishing new tCon and SMB Session  */
 		/*      with userid/password pairs found on the smb session   */
 		/*	for other target tcp/ip addresses 		BB    */
-				if (current->fsuid != treeCon->ses->linux_uid) {
+				if (current_fsuid() != treeCon->ses->linux_uid) {
 					cFYI(1, ("Multiuser mode and UID "
 						 "did not match tcon uid"));
-					read_lock(&GlobalSMBSeslock);
-					list_for_each(temp_item, &GlobalSMBSessionList) {
-						ses = list_entry(temp_item, struct cifsSesInfo, cifsSessionList);
-						if (ses->linux_uid == current->fsuid) {
+					read_lock(&cifs_tcp_ses_lock);
+					list_for_each(temp_item, &treeCon->ses->server->smb_ses_list) {
+						ses = list_entry(temp_item, struct cifsSesInfo, smb_ses_list);
+						if (ses->linux_uid == current_fsuid()) {
 							if (ses->server == treeCon->ses->server) {
 								cFYI(1, ("found matching uid substitute right smb_uid"));
 								buffer->Uid = ses->Suid;
@@ -368,7 +362,7 @@ header_assemble(struct smb_hdr *buffer, char smb_command /* command */ ,
 							}
 						}
 					}
-					read_unlock(&GlobalSMBSeslock);
+					read_unlock(&cifs_tcp_ses_lock);
 				}
 			}
 		}
@@ -501,9 +495,10 @@ bool
 is_valid_oplock_break(struct smb_hdr *buf, struct TCP_Server_Info *srv)
 {
 	struct smb_com_lock_req *pSMB = (struct smb_com_lock_req *)buf;
-	struct list_head *tmp;
-	struct list_head *tmp1;
+	struct list_head *tmp, *tmp1, *tmp2;
+	struct cifsSesInfo *ses;
 	struct cifsTconInfo *tcon;
+	struct cifsInodeInfo *pCifsInode;
 	struct cifsFileInfo *netfile;
 
 	cFYI(1, ("Checking for oplock break or dnotify response"));
@@ -558,42 +553,45 @@ is_valid_oplock_break(struct smb_hdr *buf, struct TCP_Server_Info *srv)
 		return false;
 
 	/* look up tcon based on tid & uid */
-	read_lock(&GlobalSMBSeslock);
-	list_for_each(tmp, &GlobalTreeConnectionList) {
-		tcon = list_entry(tmp, struct cifsTconInfo, cifsConnectionList);
-		if ((tcon->tid == buf->Tid) && (srv == tcon->ses->server)) {
+	read_lock(&cifs_tcp_ses_lock);
+	list_for_each(tmp, &srv->smb_ses_list) {
+		ses = list_entry(tmp, struct cifsSesInfo, smb_ses_list);
+		list_for_each(tmp1, &ses->tcon_list) {
+			tcon = list_entry(tmp1, struct cifsTconInfo, tcon_list);
+			if (tcon->tid != buf->Tid)
+				continue;
+
 			cifs_stats_inc(&tcon->num_oplock_brks);
-			list_for_each(tmp1, &tcon->openFileList) {
-				netfile = list_entry(tmp1, struct cifsFileInfo,
+			write_lock(&GlobalSMBSeslock);
+			list_for_each(tmp2, &tcon->openFileList) {
+				netfile = list_entry(tmp2, struct cifsFileInfo,
 						     tlist);
-				if (pSMB->Fid == netfile->netfid) {
-					struct cifsInodeInfo *pCifsInode;
-					read_unlock(&GlobalSMBSeslock);
-					cFYI(1,
-					    ("file id match, oplock break"));
-					pCifsInode =
-						CIFS_I(netfile->pInode);
-					pCifsInode->clientCanCacheAll = false;
-					if (pSMB->OplockLevel == 0)
-						pCifsInode->clientCanCacheRead
-							= false;
-					pCifsInode->oplockPending = true;
-					AllocOplockQEntry(netfile->pInode,
-							  netfile->netfid,
-							  tcon);
-					cFYI(1,
-					    ("about to wake up oplock thread"));
-					if (oplockThread)
-					    wake_up_process(oplockThread);
-					return true;
-				}
+				if (pSMB->Fid != netfile->netfid)
+					continue;
+
+				write_unlock(&GlobalSMBSeslock);
+				read_unlock(&cifs_tcp_ses_lock);
+				cFYI(1, ("file id match, oplock break"));
+				pCifsInode = CIFS_I(netfile->pInode);
+				pCifsInode->clientCanCacheAll = false;
+				if (pSMB->OplockLevel == 0)
+					pCifsInode->clientCanCacheRead = false;
+				pCifsInode->oplockPending = true;
+				AllocOplockQEntry(netfile->pInode,
+						  netfile->netfid, tcon);
+				cFYI(1, ("about to wake up oplock thread"));
+				if (oplockThread)
+					wake_up_process(oplockThread);
+
+				return true;
 			}
-			read_unlock(&GlobalSMBSeslock);
+			write_unlock(&GlobalSMBSeslock);
+			read_unlock(&cifs_tcp_ses_lock);
 			cFYI(1, ("No matching file for oplock break"));
 			return true;
 		}
 	}
-	read_unlock(&GlobalSMBSeslock);
+	read_unlock(&cifs_tcp_ses_lock);
 	cFYI(1, ("Can not process oplock break for non-existent connection"));
 	return true;
 }
@@ -635,77 +633,6 @@ dump_smb(struct smb_hdr *smb_buf, int smb_buf_length)
 	}
 	printk(" | %s\n", debug_line);
 	return;
-}
-
-/* Windows maps these to the user defined 16 bit Unicode range since they are
-   reserved symbols (along with \ and /), otherwise illegal to store
-   in filenames in NTFS */
-#define UNI_ASTERIK     (__u16) ('*' + 0xF000)
-#define UNI_QUESTION    (__u16) ('?' + 0xF000)
-#define UNI_COLON       (__u16) (':' + 0xF000)
-#define UNI_GRTRTHAN    (__u16) ('>' + 0xF000)
-#define UNI_LESSTHAN    (__u16) ('<' + 0xF000)
-#define UNI_PIPE        (__u16) ('|' + 0xF000)
-#define UNI_SLASH       (__u16) ('\\' + 0xF000)
-
-/* Convert 16 bit Unicode pathname from wire format to string in current code
-   page.  Conversion may involve remapping up the seven characters that are
-   only legal in POSIX-like OS (if they are present in the string). Path
-   names are little endian 16 bit Unicode on the wire */
-int
-cifs_convertUCSpath(char *target, const __le16 *source, int maxlen,
-		    const struct nls_table *cp)
-{
-	int i, j, len;
-	__u16 src_char;
-
-	for (i = 0, j = 0; i < maxlen; i++) {
-		src_char = le16_to_cpu(source[i]);
-		switch (src_char) {
-			case 0:
-				goto cUCS_out; /* BB check this BB */
-			case UNI_COLON:
-				target[j] = ':';
-				break;
-			case UNI_ASTERIK:
-				target[j] = '*';
-				break;
-			case UNI_QUESTION:
-				target[j] = '?';
-				break;
-			/* BB We can not handle remapping slash until
-			   all the calls to build_path_from_dentry
-			   are modified, as they use slash as separator BB */
-			/* case UNI_SLASH:
-				target[j] = '\\';
-				break;*/
-			case UNI_PIPE:
-				target[j] = '|';
-				break;
-			case UNI_GRTRTHAN:
-				target[j] = '>';
-				break;
-			case UNI_LESSTHAN:
-				target[j] = '<';
-				break;
-			default:
-				len = cp->uni2char(src_char, &target[j],
-						NLS_MAX_CHARSET_SIZE);
-				if (len > 0) {
-					j += len;
-					continue;
-				} else {
-					target[j] = '?';
-				}
-		}
-		j++;
-		/* make sure we do not overrun callers allocated temp buffer */
-		if (j >= (2 * NAME_MAX))
-			break;
-	}
-cUCS_out:
-	target[j] = 0;
-	return j;
 }
 
 /* Convert 16 bit Unicode pathname to wire format from string in current code

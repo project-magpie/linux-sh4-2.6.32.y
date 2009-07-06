@@ -26,6 +26,9 @@
 #include <linux/err.h>
 #include <linux/debugfs.h>
 #include <linux/crash_dump.h>
+#include <linux/mmzone.h>
+#include <linux/clk.h>
+#include <linux/delay.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/page.h>
@@ -100,12 +103,11 @@ static int __init early_parse_mem(char *p)
 	size = memparse(p, &p);
 
 	if (size > __MEMORY_SIZE) {
-		static char msg[] __initdata = KERN_ERR
+		printk(KERN_ERR
 			"Using mem= to increase the size of kernel memory "
 			"is not allowed.\n"
 			"  Recompile the kernel with the correct value for "
-			"CONFIG_MEMORY_SIZE.\n";
-		printk(msg);
+			"CONFIG_MEMORY_SIZE.\n");
 		return 0;
 	}
 
@@ -144,6 +146,7 @@ static void __init reserve_crashkernel(void)
 {
 	unsigned long long free_mem;
 	unsigned long long crash_size, crash_base;
+	void *vp;
 	int ret;
 
 	free_mem = ((unsigned long long)max_low_pfn - min_low_pfn) << PAGE_SHIFT;
@@ -152,12 +155,14 @@ static void __init reserve_crashkernel(void)
 			&crash_size, &crash_base);
 	if (ret == 0 && crash_size) {
 		if (crash_base <= 0) {
-			printk(KERN_INFO "crashkernel reservation failed - "
-					"you have to specify a base address\n");
-			return;
-		}
-
-		if (reserve_bootmem(crash_base, crash_size,
+			vp = alloc_bootmem_nopanic(crash_size); 
+			if (!vp) {
+				printk(KERN_INFO "crashkernel allocation "
+				       "failed\n");
+				return;
+			}
+			crash_base = __pa(vp);
+		} else if (reserve_bootmem(crash_base, crash_size,
 					BOOTMEM_EXCLUSIVE) < 0) {
 			printk(KERN_INFO "crashkernel reservation failed - "
 					"memory is in use\n");
@@ -171,11 +176,30 @@ static void __init reserve_crashkernel(void)
 				(unsigned long)(free_mem >> 20));
 		crashk_res.start = crash_base;
 		crashk_res.end   = crash_base + crash_size - 1;
+		insert_resource(&iomem_resource, &crashk_res);
 	}
 }
 #else
 static inline void __init reserve_crashkernel(void)
 {}
+#endif
+
+#ifndef CONFIG_GENERIC_CALIBRATE_DELAY
+void __cpuinit calibrate_delay(void)
+{
+	struct clk *clk = clk_get(NULL, "cpu_clk");
+
+	if (IS_ERR(clk))
+		panic("Need a sane CPU clock definition!");
+
+	loops_per_jiffy = (clk_get_rate(clk) >> 1) / HZ;
+
+	printk(KERN_INFO "Calibrating delay loop (skipped)... "
+			 "%lu.%02lu BogoMIPS PRESET (lpj=%lu)\n",
+			 loops_per_jiffy/(500000/HZ),
+			 (loops_per_jiffy/(5000/HZ)) % 100,
+			 loops_per_jiffy);
+}
 #endif
 
 void __init __add_active_range(unsigned int nid, unsigned long start_pfn,
@@ -204,11 +228,6 @@ void __init __add_active_range(unsigned int nid, unsigned long start_pfn,
 	request_resource(res, &data_resource);
 	request_resource(res, &bss_resource);
 
-#ifdef CONFIG_KEXEC
-	if (crashk_res.start != crashk_res.end)
-		request_resource(res, &crashk_res);
-#endif
-
 	add_active_range(nid, start_pfn, end_pfn);
 }
 
@@ -230,8 +249,8 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 	node_set_online(0);
 
 	/*
-	 * Reserve the kernel text and the bootmem bitmap.
-	 * We do this in two steps (first step
+	 * Reserve the kernel text and
+	 * Reserve the bootmem bitmap. We do this in two steps (first step
 	 * was init_bootmem()), because this catches the (definitely buggy)
 	 * case of us accidentally initializing the bootmem allocator with
 	 * an invalid RAM area.
@@ -254,10 +273,7 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 	ROOT_DEV = Root_RAM0;
 
 	if (LOADER_TYPE && INITRD_START) {
-		/* INITRD_START is the offset from the start of RAM */
-
-		unsigned long initrd_start_phys = INITRD_START;
-		initrd_start_phys += __MEMORY_START;
+		unsigned long initrd_start_phys = INITRD_START + __MEMORY_START;
 
 		if (initrd_start_phys + INITRD_SIZE <= PFN_PHYS(max_low_pfn)) {
 			reserve_bootmem(initrd_start_phys, INITRD_SIZE,
@@ -268,7 +284,7 @@ void __init setup_bootmem_allocator(unsigned long free_pfn)
 			printk("initrd extends beyond end of memory "
 			       "(0x%08lx > 0x%08lx)\ndisabling initrd\n",
 			       initrd_start_phys + INITRD_SIZE,
-			       PFN_PHYS(max_low_pfn));
+			       (unsigned long)PFN_PHYS(max_low_pfn));
 			initrd_start = 0;
 		}
 	}
@@ -404,6 +420,7 @@ void __init setup_arch(char **cmdline_p)
 }
 
 static const char *cpu_name[] = {
+	[CPU_SH7201]	= "SH7201",
 	[CPU_SH7203]	= "SH7203",	[CPU_SH7263]	= "SH7263",
 	[CPU_SH7206]	= "SH7206",	[CPU_SH7619]	= "SH7619",
 	[CPU_SH7705]	= "SH7705",	[CPU_SH7706]	= "SH7706",
@@ -424,6 +441,7 @@ static const char *cpu_name[] = {
 	[CPU_SH7763]	= "SH7763",	[CPU_SH7770]	= "SH7770",
 	[CPU_SH7780]	= "SH7780",	[CPU_SH7781]	= "SH7781",
 	[CPU_SH7343]	= "SH7343",	[CPU_SH7785]	= "SH7785",
+	[CPU_SH7786]	= "SH7786",
 	[CPU_SH7722]	= "SH7722",	[CPU_SHX3]	= "SH-X3",
 	[CPU_SH5_101]	= "SH5-101",	[CPU_SH5_103]	= "SH5-103",
 	[CPU_MXG]	= "MX-G",	[CPU_SH7723]	= "SH7723",
@@ -440,7 +458,7 @@ EXPORT_SYMBOL(get_cpu_subtype);
 /* Symbolic CPU flags, keep in sync with asm/cpu-features.h */
 static const char *cpu_flags[] = {
 	"none", "fpu", "p2flush", "mmuassoc", "dsp", "perfctr",
-	"ptea", "llsc", "l2", "op32", "icbi", "synco", "fpchg", NULL
+	"ptea", "llsc", "l2", "op32", "pteaex", "icbi", "synco", "fpchg", NULL
 };
 
 static void show_cpuflags(struct seq_file *m, struct sh_cpuinfo *c)
@@ -550,6 +568,8 @@ struct dentry *sh_debugfs_root;
 static int __init sh_debugfs_init(void)
 {
 	sh_debugfs_root = debugfs_create_dir("sh", NULL);
+	if (!sh_debugfs_root)
+		return -ENOMEM;
 	if (IS_ERR(sh_debugfs_root))
 		return PTR_ERR(sh_debugfs_root);
 

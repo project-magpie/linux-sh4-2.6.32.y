@@ -347,7 +347,7 @@ static int pvr2_encoder_prep_config(struct pvr2_hdw *hdw)
 	int encMisc3Arg = 0;
 
 #if 0
-	/* This inexplicable bit happens in the Hauppage windows
+	/* This inexplicable bit happens in the Hauppauge windows
 	   driver (for both 24xxx and 29xxx devices).  However I
 	   currently see no difference in behavior with or without
 	   this stuff.  Leave this here as a note of its existence,
@@ -401,6 +401,10 @@ static int pvr2_encoder_prep_config(struct pvr2_hdw *hdw)
 
 	ret |= pvr2_encoder_vcmd(hdw, CX2341X_ENC_MISC,4, 0,3,0,0);
 	ret |= pvr2_encoder_vcmd(hdw, CX2341X_ENC_MISC,4,15,0,0,0);
+
+	/* prevent the PTSs from slowly drifting away in the generated
+	   MPEG stream */
+	ret |= pvr2_encoder_vcmd(hdw, CX2341X_ENC_MISC, 2, 4, 1);
 
 	return ret;
 }

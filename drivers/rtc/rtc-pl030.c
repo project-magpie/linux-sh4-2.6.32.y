@@ -34,15 +34,6 @@ static irqreturn_t pl030_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static int pl030_open(struct device *dev)
-{
-	return 0;
-}
-
-static void pl030_release(struct device *dev)
-{
-}
-
 static int pl030_ioctl(struct device *dev, unsigned int cmd, unsigned long arg)
 {
 	return -ENOIOCTLCMD;
@@ -104,8 +95,6 @@ static int pl030_set_time(struct device *dev, struct rtc_time *tm)
 }
 
 static const struct rtc_class_ops pl030_ops = {
-	.open		= pl030_open,
-	.release	= pl030_release,
 	.ioctl		= pl030_ioctl,
 	.read_time	= pl030_read_time,
 	.set_time	= pl030_set_time,
@@ -113,7 +102,7 @@ static const struct rtc_class_ops pl030_ops = {
 	.set_alarm	= pl030_set_alarm,
 };
 
-static int pl030_probe(struct amba_device *dev, void *id)
+static int pl030_probe(struct amba_device *dev, struct amba_id *id)
 {
 	struct pl030_rtc *rtc;
 	int ret;

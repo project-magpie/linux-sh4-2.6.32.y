@@ -17,6 +17,7 @@
 
 #include <linux/spi/at73c213.h>
 #include <linux/spi/spi.h>
+#include <linux/atmel-mci.h>
 
 #include <video/atmel_lcdc.h>
 
@@ -71,6 +72,16 @@ static struct spi_board_info spi1_board_info[] __initdata = { {
 } };
 #endif
 
+#ifndef CONFIG_BOARD_ATSTK100X_SW2_CUSTOM
+static struct mci_platform_data __initdata mci0_data = {
+	.slot[0] = {
+		.bus_width	= 4,
+		.detect_pin	= -ENODEV,
+		.wp_pin		= -ENODEV,
+	},
+};
+#endif
+
 #ifdef CONFIG_BOARD_ATSTK1000_EXTDAC
 static void __init atstk1004_setup_extdac(void)
 {
@@ -89,7 +100,7 @@ static void __init atstk1004_setup_extdac(void)
 		goto err_set_clk;
 	}
 
-	at32_select_periph(GPIO_PIN_PA(30), GPIO_PERIPH_A, 0);
+	at32_select_periph(GPIO_PIOA_BASE, (1 << 30), GPIO_PERIPH_A, 0);
 	at73c213_data.dac_clk = gclk;
 
 err_set_clk:
@@ -109,20 +120,18 @@ static void __init atstk1004_setup_extdac(void)
 void __init setup_board(void)
 {
 #ifdef	CONFIG_BOARD_ATSTK100X_SW2_CUSTOM
-	at32_map_usart(0, 1);	/* USART 0/B: /dev/ttyS1, IRDA */
+	at32_map_usart(0, 1, 0);	/* USART 0/B: /dev/ttyS1, IRDA */
 #else
-	at32_map_usart(1, 0);	/* USART 1/A: /dev/ttyS0, DB9 */
+	at32_map_usart(1, 0, 0);	/* USART 1/A: /dev/ttyS0, DB9 */
 #endif
 	/* USART 2/unused: expansion connector */
-	at32_map_usart(3, 2);	/* USART 3/C: /dev/ttyS2, DB9 */
+	at32_map_usart(3, 2, 0);	/* USART 3/C: /dev/ttyS2, DB9 */
 
 	at32_setup_serial_console(0);
 }
 
 static int __init atstk1004_init(void)
 {
-	at32_add_system_devices();
-
 #ifdef	CONFIG_BOARD_ATSTK100X_SW2_CUSTOM
 	at32_add_device_usart(1);
 #else
@@ -137,10 +146,11 @@ static int __init atstk1004_init(void)
 	at32_add_device_spi(1, spi1_board_info, ARRAY_SIZE(spi1_board_info));
 #endif
 #ifndef CONFIG_BOARD_ATSTK100X_SW2_CUSTOM
-	at32_add_device_mci(0, NULL);
+	at32_add_device_mci(0, &mci0_data);
 #endif
 	at32_add_device_lcdc(0, &atstk1000_lcdc_data,
-			     fbmem_start, fbmem_size, 0);
+			     fbmem_start, fbmem_size,
+			     ATMEL_LCDC_PRI_24BIT | ATMEL_LCDC_PRI_CONTROL);
 	at32_add_device_usba(0, NULL);
 #ifndef CONFIG_BOARD_ATSTK100X_SW3_CUSTOM
 	at32_add_device_ssc(0, ATMEL_SSC_TX);

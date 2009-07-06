@@ -52,12 +52,14 @@ SECTIONS
 	/* Text and gots */
 	.text : AT(ADDR(.text) - LOAD_OFFSET) {
 		ALIGN_FUNCTION();
-		*(.text.head)
+		HEAD_TEXT
 		_text = .;
-		*(.text .fixup .text.init.refok .exit.text.refok __ftr_alt_*)
+		/* careful! __ftr_alt_* sections need to be close to .text */
+		*(.text .fixup __ftr_alt_* .ref.text)
 		SCHED_TEXT
 		LOCK_TEXT
 		KPROBES_TEXT
+		IRQENTRY_TEXT
 
 #ifdef CONFIG_PPC32
 		*(.got1)
@@ -66,10 +68,11 @@ SECTIONS
 		__got2_end = .;
 #endif /* CONFIG_PPC32 */
 
-		. = ALIGN(PAGE_SIZE);
-		_etext = .;
-		PROVIDE32 (etext = .);
 	} :kernel
+
+	. = ALIGN(PAGE_SIZE);
+	_etext = .;
+	PROVIDE32 (etext = .);
 
 	/* Read-only data */
 	RODATA
@@ -86,7 +89,9 @@ SECTIONS
 	/* The dummy segment contents for the bug workaround mentioned above
 	   near PHDRS.  */
 	.dummy : AT(ADDR(.dummy) - LOAD_OFFSET) {
-		LONG(0xf177)
+		LONG(0)
+		LONG(0)
+		LONG(0)
 	} :kernel :dummy
 
 /*
@@ -151,6 +156,12 @@ SECTIONS
 		__stop___ftr_fixup = .;
 	}
 	. = ALIGN(8);
+	__mmu_ftr_fixup : AT(ADDR(__mmu_ftr_fixup) - LOAD_OFFSET) {
+		__start___mmu_ftr_fixup = .;
+		*(__mmu_ftr_fixup)
+		__stop___mmu_ftr_fixup = .;
+	}
+	. = ALIGN(8);
 	__lwsync_fixup : AT(ADDR(__lwsync_fixup) - LOAD_OFFSET) {
 		__start___lwsync_fixup = .;
 		*(__lwsync_fixup)
@@ -172,13 +183,7 @@ SECTIONS
 		__initramfs_end = .;
 	}
 #endif
-	. = ALIGN(PAGE_SIZE);
-	.data.percpu  : AT(ADDR(.data.percpu) - LOAD_OFFSET) {
-		__per_cpu_start = .;
-		*(.data.percpu)
-		*(.data.percpu.shared_aligned)
-		__per_cpu_end = .;
-	}
+	PERCPU(PAGE_SIZE)
 
 	. = ALIGN(8);
 	.machine.desc : AT(ADDR(.machine.desc) - LOAD_OFFSET) {
@@ -186,6 +191,23 @@ SECTIONS
 		*(.machine.desc)
 		__machine_desc_end = . ;
 	}
+#ifdef CONFIG_RELOCATABLE
+	. = ALIGN(8);
+	.dynsym : AT(ADDR(.dynsym) - LOAD_OFFSET) { *(.dynsym) }
+	.dynstr : AT(ADDR(.dynstr) - LOAD_OFFSET) { *(.dynstr) }
+	.dynamic : AT(ADDR(.dynamic) - LOAD_OFFSET)
+	{
+		__dynamic_start = .;
+		*(.dynamic)
+	}
+	.hash : AT(ADDR(.hash) - LOAD_OFFSET) { *(.hash) }
+	.interp : AT(ADDR(.interp) - LOAD_OFFSET) { *(.interp) }
+	.rela.dyn : AT(ADDR(.rela.dyn) - LOAD_OFFSET)
+	{
+		__rela_dyn_start = .;
+		*(.rela*)
+	}
+#endif
 
 	/* freed after init ends here */
 	. = ALIGN(PAGE_SIZE);
@@ -242,6 +264,7 @@ SECTIONS
 		*(.data.page_aligned)
 	}
 
+	. = ALIGN(L1_CACHE_BYTES);
 	.data.cacheline_aligned : AT(ADDR(.data.cacheline_aligned) - LOAD_OFFSET) {
 		*(.data.cacheline_aligned)
 	}

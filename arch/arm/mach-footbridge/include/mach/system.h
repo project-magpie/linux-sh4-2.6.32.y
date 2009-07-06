@@ -7,8 +7,8 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+#include <linux/io.h>
 #include <asm/hardware/dec21285.h>
-#include <asm/io.h>
 #include <mach/hardware.h>
 #include <asm/leds.h>
 #include <asm/mach-types.h>
@@ -18,7 +18,7 @@ static inline void arch_idle(void)
 	cpu_do_idle();
 }
 
-static inline void arch_reset(char mode)
+static inline void arch_reset(char mode, const char *cmd)
 {
 	if (mode == 's') {
 		/*

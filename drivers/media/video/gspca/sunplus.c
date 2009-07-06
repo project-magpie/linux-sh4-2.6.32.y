@@ -39,8 +39,11 @@ struct sd {
 	unsigned char contrast;
 	unsigned char colors;
 	unsigned char autogain;
+	u8 quality;
+#define QUALITY_MIN 70
+#define QUALITY_MAX 95
+#define QUALITY_DEF 85
 
-	char qindex;
 	char bridge;
 #define BRIDGE_SPCA504 0
 #define BRIDGE_SPCA504B 1
@@ -52,6 +55,8 @@ struct sd {
 #define LogitechClickSmart420 2
 #define LogitechClickSmart820 3
 #define MegapixV4 4
+
+	u8 *jpeg_hdr;
 };
 
 /* V4L2 controls supported by the driver */
@@ -123,7 +128,7 @@ static struct ctrl sd_ctrls[] = {
 	},
 };
 
-static struct v4l2_pix_format vga_mode[] = {
+static const struct v4l2_pix_format vga_mode[] = {
 	{320, 240, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
 		.bytesperline = 320,
 		.sizeimage = 320 * 240 * 3 / 8 + 590,
@@ -136,7 +141,7 @@ static struct v4l2_pix_format vga_mode[] = {
 		.priv = 1},
 };
 
-static struct v4l2_pix_format custom_mode[] = {
+static const struct v4l2_pix_format custom_mode[] = {
 	{320, 240, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
 		.bytesperline = 320,
 		.sizeimage = 320 * 240 * 3 / 8 + 590,
@@ -149,7 +154,7 @@ static struct v4l2_pix_format custom_mode[] = {
 		.priv = 1},
 };
 
-static struct v4l2_pix_format vga_mode2[] = {
+static const struct v4l2_pix_format vga_mode2[] = {
 	{176, 144, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
 		.bytesperline = 176,
 		.sizeimage = 176 * 144 * 3 / 8 + 590,
@@ -449,31 +454,47 @@ static const __u8 qtable_spca504_default[2][64] = {
 	 0x1e, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e}
 };
 
-static void reg_r(struct usb_device *dev,
-			   __u16 req,
-			   __u16 index,
-			   __u8 *buffer, __u16 length)
+/* read <len> bytes to gspca_dev->usb_buf */
+static void reg_r(struct gspca_dev *gspca_dev,
+		  __u16 req,
+		  __u16 index,
+		  __u16 len)
 {
-	usb_control_msg(dev,
-			usb_rcvctrlpipe(dev, 0),
+#ifdef GSPCA_DEBUG
+	if (len > USB_BUF_SZ) {
+		err("reg_r: buffer overflow");
+		return;
+	}
+#endif
+	usb_control_msg(gspca_dev->dev,
+			usb_rcvctrlpipe(gspca_dev->dev, 0),
 			req,
 			USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			0,		/* value */
-			index, buffer, length,
+			index,
+			len ? gspca_dev->usb_buf : NULL, len,
 			500);
 }
 
-static void reg_w(struct usb_device *dev,
-			    __u16 req,
-			    __u16 value,
-			    __u16 index,
-			    __u8 *buffer, __u16 length)
+/* write <len> bytes from gspca_dev->usb_buf */
+static void reg_w(struct gspca_dev *gspca_dev,
+		   __u16 req,
+		   __u16 value,
+		   __u16 index,
+		   __u16 len)
 {
-	usb_control_msg(dev,
-			usb_sndctrlpipe(dev, 0),
+#ifdef GSPCA_DEBUG
+	if (len > USB_BUF_SZ) {
+		err("reg_w: buffer overflow");
+		return;
+	}
+#endif
+	usb_control_msg(gspca_dev->dev,
+			usb_sndctrlpipe(gspca_dev->dev, 0),
 			req,
 			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			value, index, buffer, length,
+			value, index,
+			len ? gspca_dev->usb_buf : NULL, len,
 			500);
 }
 
@@ -634,7 +655,7 @@ static int spca504B_PollingDataReady(struct gspca_dev *gspca_dev)
 	int count = 10;
 
 	while (--count > 0) {
-		reg_r(gspca_dev->dev, 0x21, 0, gspca_dev->usb_buf, 1);
+		reg_r(gspca_dev, 0x21, 0, 1);
 		if ((gspca_dev->usb_buf[0] & 0x01) == 0)
 			break;
 		msleep(10);
@@ -644,15 +665,14 @@ static int spca504B_PollingDataReady(struct gspca_dev *gspca_dev)
 
 static void spca504B_WaitCmdStatus(struct gspca_dev *gspca_dev)
 {
-	struct usb_device *dev = gspca_dev->dev;
 	int count = 50;
 
 	while (--count > 0) {
-		reg_r(dev, 0x21, 1, gspca_dev->usb_buf, 1);
+		reg_r(gspca_dev, 0x21, 1, 1);
 		if (gspca_dev->usb_buf[0] != 0) {
 			gspca_dev->usb_buf[0] = 0;
-			reg_w(dev, 0x21, 0, 1, gspca_dev->usb_buf, 1);
-			reg_r(dev, 0x21, 1, gspca_dev->usb_buf, 1);
+			reg_w(gspca_dev, 0x21, 0, 1, 1);
+			reg_r(gspca_dev, 0x21, 1, 1);
 			spca504B_PollingDataReady(gspca_dev);
 			break;
 		}
@@ -662,16 +682,14 @@ static void spca504B_WaitCmdStatus(struct gspca_dev *gspca_dev)
 
 static void spca50x_GetFirmware(struct gspca_dev *gspca_dev)
 {
-	struct usb_device *dev = gspca_dev->dev;
 	__u8 *data;
 
-	data = kmalloc(64, GFP_KERNEL);
-	reg_r(dev, 0x20, 0, data, 5);
+	data = gspca_dev->usb_buf;
+	reg_r(gspca_dev, 0x20, 0, 5);
 	PDEBUG(D_STREAM, "FirmWare : %d %d %d %d %d ",
 		data[0], data[1], data[2], data[3], data[4]);
-	reg_r(dev, 0x23, 0, data, 64);
-	reg_r(dev, 0x23, 1, data, 64);
-	kfree(data);
+	reg_r(gspca_dev, 0x23, 0, 64);
+	reg_r(gspca_dev, 0x23, 1, 64);
 }
 
 static void spca504B_SetSizeType(struct gspca_dev *gspca_dev)
@@ -686,21 +704,21 @@ static void spca504B_SetSizeType(struct gspca_dev *gspca_dev)
 	Type = 0;
 	switch (sd->bridge) {
 	case BRIDGE_SPCA533:
-		reg_w(dev, 0x31, 0, 0, NULL, 0);
+		reg_w(gspca_dev, 0x31, 0, 0, 0);
 		spca504B_WaitCmdStatus(gspca_dev);
 		rc = spca504B_PollingDataReady(gspca_dev);
 		spca50x_GetFirmware(gspca_dev);
 		gspca_dev->usb_buf[0] = 2;			/* type */
-		reg_w(dev, 0x24, 0, 8, gspca_dev->usb_buf, 1);
-		reg_r(dev, 0x24, 8, gspca_dev->usb_buf, 1);
+		reg_w(gspca_dev, 0x24, 0, 8, 1);
+		reg_r(gspca_dev, 0x24, 8, 1);
 
 		gspca_dev->usb_buf[0] = Size;
-		reg_w(dev, 0x25, 0, 4, gspca_dev->usb_buf, 1);
-		reg_r(dev, 0x25, 4, gspca_dev->usb_buf, 1);	/* size */
+		reg_w(gspca_dev, 0x25, 0, 4, 1);
+		reg_r(gspca_dev, 0x25, 4, 1);			/* size */
 		rc = spca504B_PollingDataReady(gspca_dev);
 
 		/* Init the cam width height with some values get on init ? */
-		reg_w(dev, 0x31, 0, 4, NULL, 0);
+		reg_w(gspca_dev, 0x31, 0, 4, 0);
 		spca504B_WaitCmdStatus(gspca_dev);
 		rc = spca504B_PollingDataReady(gspca_dev);
 		break;
@@ -708,12 +726,12 @@ static void spca504B_SetSizeType(struct gspca_dev *gspca_dev)
 /* case BRIDGE_SPCA504B: */
 /* case BRIDGE_SPCA536: */
 		gspca_dev->usb_buf[0] = Size;
-		reg_w(dev, 0x25, 0, 4, gspca_dev->usb_buf, 1);
-		reg_r(dev, 0x25, 4, gspca_dev->usb_buf, 1);	/* size */
+		reg_w(gspca_dev, 0x25, 0, 4, 1);
+		reg_r(gspca_dev, 0x25, 4, 1);			/* size */
 		Type = 6;
 		gspca_dev->usb_buf[0] = Type;
-		reg_w(dev, 0x27, 0, 0, gspca_dev->usb_buf, 1);
-		reg_r(dev, 0x27, 0, gspca_dev->usb_buf, 1);	/* type */
+		reg_w(gspca_dev, 0x27, 0, 0, 1);
+		reg_r(gspca_dev, 0x27, 0, 1);			/* type */
 		rc = spca504B_PollingDataReady(gspca_dev);
 		break;
 	case BRIDGE_SPCA504:
@@ -752,18 +770,15 @@ static void spca504_wait_status(struct gspca_dev *gspca_dev)
 
 static void spca504B_setQtable(struct gspca_dev *gspca_dev)
 {
-	struct usb_device *dev = gspca_dev->dev;
-
 	gspca_dev->usb_buf[0] = 3;
-	reg_w(dev, 0x26, 0, 0, gspca_dev->usb_buf, 1);
-	reg_r(dev, 0x26, 0, gspca_dev->usb_buf, 1);
+	reg_w(gspca_dev, 0x26, 0, 0, 1);
+	reg_r(gspca_dev, 0x26, 0, 1);
 	spca504B_PollingDataReady(gspca_dev);
 }
 
 static void sp5xx_initContBrigHueRegisters(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
-	struct usb_device *dev = gspca_dev->dev;
 	int pollreg = 1;
 
 	switch (sd->bridge) {
@@ -774,20 +789,20 @@ static void sp5xx_initContBrigHueRegisters(struct gspca_dev *gspca_dev)
 	default:
 /*	case BRIDGE_SPCA533: */
 /*	case BRIDGE_SPCA504B: */
-		reg_w(dev, 0, 0, 0x21a7, NULL, 0);	/* brightness */
-		reg_w(dev, 0, 0x20, 0x21a8, NULL, 0);	/* contrast */
-		reg_w(dev, 0, 0, 0x21ad, NULL, 0);	/* hue */
-		reg_w(dev, 0, 1, 0x21ac, NULL, 0);	/* sat/hue */
-		reg_w(dev, 0, 0x20, 0x21ae, NULL, 0);	/* saturation */
-		reg_w(dev, 0, 0, 0x21a3, NULL, 0);	/* gamma */
+		reg_w(gspca_dev, 0, 0, 0x21a7, 0);	/* brightness */
+		reg_w(gspca_dev, 0, 0x20, 0x21a8, 0);	/* contrast */
+		reg_w(gspca_dev, 0, 0, 0x21ad, 0);	/* hue */
+		reg_w(gspca_dev, 0, 1, 0x21ac, 0);	/* sat/hue */
+		reg_w(gspca_dev, 0, 0x20, 0x21ae, 0);	/* saturation */
+		reg_w(gspca_dev, 0, 0, 0x21a3, 0);	/* gamma */
 		break;
 	case BRIDGE_SPCA536:
-		reg_w(dev, 0, 0, 0x20f0, NULL, 0);
-		reg_w(dev, 0, 0x21, 0x20f1, NULL, 0);
-		reg_w(dev, 0, 0x40, 0x20f5, NULL, 0);
-		reg_w(dev, 0, 1, 0x20f4, NULL, 0);
-		reg_w(dev, 0, 0x40, 0x20f6, NULL, 0);
-		reg_w(dev, 0, 0, 0x2089, NULL, 0);
+		reg_w(gspca_dev, 0, 0, 0x20f0, 0);
+		reg_w(gspca_dev, 0, 0x21, 0x20f1, 0);
+		reg_w(gspca_dev, 0, 0x40, 0x20f5, 0);
+		reg_w(gspca_dev, 0, 1, 0x20f4, 0);
+		reg_w(gspca_dev, 0, 0x40, 0x20f6, 0);
+		reg_w(gspca_dev, 0, 0, 0x2089, 0);
 		break;
 	}
 	if (pollreg)
@@ -799,11 +814,9 @@ static int sd_config(struct gspca_dev *gspca_dev,
 			const struct usb_device_id *id)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
-	struct usb_device *dev = gspca_dev->dev;
 	struct cam *cam;
 
 	cam = &gspca_dev->cam;
-	cam->epaddr = 0x01;
 
 	sd->bridge = id->driver_info >> 8;
 	sd->subtype = id->driver_info;
@@ -811,7 +824,7 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	if (sd->subtype == AiptekMiniPenCam13) {
 /* try to get the firmware as some cam answer 2.0.1.2.2
  * and should be a spca504b then overwrite that setting */
-		reg_r(dev, 0x20, 0, gspca_dev->usb_buf, 1);
+		reg_r(gspca_dev, 0x20, 0, 1);
 		switch (gspca_dev->usb_buf[0]) {
 		case 1:
 			break;		/* (right bridge/subtype) */
@@ -841,15 +854,15 @@ static int sd_config(struct gspca_dev *gspca_dev,
 		cam->nmodes = sizeof vga_mode2 / sizeof vga_mode2[0];
 		break;
 	}
-	sd->qindex = 5;			/* set the quantization table */
 	sd->brightness = sd_ctrls[SD_BRIGHTNESS].qctrl.default_value;
 	sd->contrast = sd_ctrls[SD_CONTRAST].qctrl.default_value;
 	sd->colors = sd_ctrls[SD_COLOR].qctrl.default_value;
+	sd->quality = QUALITY_DEF;
 	return 0;
 }
 
-/* this function is called at open time */
-static int sd_open(struct gspca_dev *gspca_dev)
+/* this function is called at probe and resume time */
+static int sd_init(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 	struct usb_device *dev = gspca_dev->dev;
@@ -860,12 +873,12 @@ static int sd_open(struct gspca_dev *gspca_dev)
 
 	switch (sd->bridge) {
 	case BRIDGE_SPCA504B:
-		reg_w(dev, 0x1d, 0, 0, NULL, 0);
-		reg_w(dev, 0, 1, 0x2306, NULL, 0);
-		reg_w(dev, 0, 0, 0x0d04, NULL, 0);
-		reg_w(dev, 0, 0, 0x2000, NULL, 0);
-		reg_w(dev, 0, 0x13, 0x2301, NULL, 0);
-		reg_w(dev, 0, 0, 0x2306, NULL, 0);
+		reg_w(gspca_dev, 0x1d, 0, 0, 0);
+		reg_w(gspca_dev, 0, 1, 0x2306, 0);
+		reg_w(gspca_dev, 0, 0, 0x0d04, 0);
+		reg_w(gspca_dev, 0, 0, 0x2000, 0);
+		reg_w(gspca_dev, 0, 0x13, 0x2301, 0);
+		reg_w(gspca_dev, 0, 0, 0x2306, 0);
 		/* fall thru */
 	case BRIDGE_SPCA533:
 		rc = spca504B_PollingDataReady(gspca_dev);
@@ -873,12 +886,12 @@ static int sd_open(struct gspca_dev *gspca_dev)
 		break;
 	case BRIDGE_SPCA536:
 		spca50x_GetFirmware(gspca_dev);
-		reg_r(dev, 0x00, 0x5002, gspca_dev->usb_buf, 1);
+		reg_r(gspca_dev, 0x00, 0x5002, 1);
 		gspca_dev->usb_buf[0] = 0;
-		reg_w(dev, 0x24, 0, 0, gspca_dev->usb_buf, 1);
-		reg_r(dev, 0x24, 0, gspca_dev->usb_buf, 1);
+		reg_w(gspca_dev, 0x24, 0, 0, 1);
+		reg_r(gspca_dev, 0x24, 0, 1);
 		rc = spca504B_PollingDataReady(gspca_dev);
-		reg_w(dev, 0x34, 0, 0, NULL, 0);
+		reg_w(gspca_dev, 0x34, 0, 0, 0);
 		spca504B_WaitCmdStatus(gspca_dev);
 		break;
 	case BRIDGE_SPCA504C:	/* pccam600 */
@@ -952,7 +965,7 @@ static int sd_open(struct gspca_dev *gspca_dev)
 	return 0;
 }
 
-static void sd_start(struct gspca_dev *gspca_dev)
+static int sd_start(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 	struct usb_device *dev = gspca_dev->dev;
@@ -960,6 +973,12 @@ static void sd_start(struct gspca_dev *gspca_dev)
 	int enable;
 	__u8 i;
 	__u8 info[6];
+
+	/* create the JPEG header */
+	sd->jpeg_hdr = kmalloc(JPEG_HDR_SZ, GFP_KERNEL);
+	jpeg_define(sd->jpeg_hdr, gspca_dev->height, gspca_dev->width,
+			0x22);		/* JPEG 411 */
+	jpeg_set_qual(sd->jpeg_hdr, sd->quality);
 
 	if (sd->bridge == BRIDGE_SPCA504B)
 		spca504B_setQtable(gspca_dev);
@@ -971,12 +990,12 @@ static void sd_start(struct gspca_dev *gspca_dev)
 /*	case BRIDGE_SPCA536: */
 		if (sd->subtype == MegapixV4 ||
 		    sd->subtype == LogitechClickSmart820) {
-			reg_w(dev, 0xf0, 0, 0, NULL, 0);
+			reg_w(gspca_dev, 0xf0, 0, 0, 0);
 			spca504B_WaitCmdStatus(gspca_dev);
-			reg_r(dev, 0xf0, 4, NULL, 0);
+			reg_r(gspca_dev, 0xf0, 4, 0);
 			spca504B_WaitCmdStatus(gspca_dev);
 		} else {
-			reg_w(dev, 0x31, 0, 4, NULL, 0);
+			reg_w(gspca_dev, 0x31, 0, 4, 0);
 			spca504B_WaitCmdStatus(gspca_dev);
 			rc = spca504B_PollingDataReady(gspca_dev);
 		}
@@ -1033,6 +1052,7 @@ static void sd_start(struct gspca_dev *gspca_dev)
 		break;
 	}
 	sp5xx_initContBrigHueRegisters(gspca_dev);
+	return 0;
 }
 
 static void sd_stopN(struct gspca_dev *gspca_dev)
@@ -1045,7 +1065,7 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 /*	case BRIDGE_SPCA533: */
 /*	case BRIDGE_SPCA536: */
 /*	case BRIDGE_SPCA504B: */
-		reg_w(dev, 0x31, 0, 0, NULL, 0);
+		reg_w(gspca_dev, 0x31, 0, 0, 0);
 		spca504B_WaitCmdStatus(gspca_dev);
 		spca504B_PollingDataReady(gspca_dev);
 		break;
@@ -1071,10 +1091,9 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 
 static void sd_stop0(struct gspca_dev *gspca_dev)
 {
-}
+	struct sd *sd = (struct sd *) gspca_dev;
 
-static void sd_close(struct gspca_dev *gspca_dev)
-{
+	kfree(sd->jpeg_hdr);
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
@@ -1153,9 +1172,8 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 					ffd9, 2);
 
 		/* put the JPEG header in the new frame */
-		jpeg_put_header(gspca_dev, frame,
-				((struct sd *) gspca_dev)->qindex,
-				0x22);
+		gspca_frame_add(gspca_dev, FIRST_PACKET, frame,
+			sd->jpeg_hdr, JPEG_HDR_SZ);
 	}
 
 	/* add 0x00 after 0xff */
@@ -1196,26 +1214,6 @@ static void setbrightness(struct gspca_dev *gspca_dev)
 	}
 }
 
-static void getbrightness(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-	__u16 brightness = 0;
-
-	switch (sd->bridge) {
-	default:
-/*	case BRIDGE_SPCA533: */
-/*	case BRIDGE_SPCA504B: */
-/*	case BRIDGE_SPCA504: */
-/*	case BRIDGE_SPCA504C: */
-		brightness = reg_r_12(gspca_dev, 0x00, 0x21a7, 2);
-		break;
-	case BRIDGE_SPCA536:
-		brightness = reg_r_12(gspca_dev, 0x00, 0x20f0, 2);
-		break;
-	}
-	sd->brightness = ((brightness & 0xff) - 128) % 255;
-}
-
 static void setcontrast(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -1231,24 +1229,6 @@ static void setcontrast(struct gspca_dev *gspca_dev)
 		break;
 	case BRIDGE_SPCA536:
 		reg_w_riv(dev, 0x0, 0x20f1, sd->contrast);
-		break;
-	}
-}
-
-static void getcontrast(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-
-	switch (sd->bridge) {
-	default:
-/*	case BRIDGE_SPCA533: */
-/*	case BRIDGE_SPCA504B: */
-/*	case BRIDGE_SPCA504: */
-/*	case BRIDGE_SPCA504C: */
-		sd->contrast = reg_r_12(gspca_dev, 0x00, 0x21a8, 2);
-		break;
-	case BRIDGE_SPCA536:
-		sd->contrast = reg_r_12(gspca_dev, 0x00, 0x20f1, 2);
 		break;
 	}
 }
@@ -1272,24 +1252,6 @@ static void setcolors(struct gspca_dev *gspca_dev)
 	}
 }
 
-static void getcolors(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-
-	switch (sd->bridge) {
-	default:
-/*	case BRIDGE_SPCA533: */
-/*	case BRIDGE_SPCA504B: */
-/*	case BRIDGE_SPCA504: */
-/*	case BRIDGE_SPCA504C: */
-		sd->colors = reg_r_12(gspca_dev, 0x00, 0x21ae, 2) >> 1;
-		break;
-	case BRIDGE_SPCA536:
-		sd->colors = reg_r_12(gspca_dev, 0x00, 0x20f6, 2) >> 1;
-		break;
-	}
-}
-
 static int sd_setbrightness(struct gspca_dev *gspca_dev, __s32 val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -1304,7 +1266,6 @@ static int sd_getbrightness(struct gspca_dev *gspca_dev, __s32 *val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	getbrightness(gspca_dev);
 	*val = sd->brightness;
 	return 0;
 }
@@ -1323,7 +1284,6 @@ static int sd_getcontrast(struct gspca_dev *gspca_dev, __s32 *val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	getcontrast(gspca_dev);
 	*val = sd->contrast;
 	return 0;
 }
@@ -1342,7 +1302,6 @@ static int sd_getcolors(struct gspca_dev *gspca_dev, __s32 *val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	getcolors(gspca_dev);
 	*val = sd->colors;
 	return 0;
 }
@@ -1363,18 +1322,47 @@ static int sd_getautogain(struct gspca_dev *gspca_dev, __s32 *val)
 	return 0;
 }
 
+static int sd_set_jcomp(struct gspca_dev *gspca_dev,
+			struct v4l2_jpegcompression *jcomp)
+{
+	struct sd *sd = (struct sd *) gspca_dev;
+
+	if (jcomp->quality < QUALITY_MIN)
+		sd->quality = QUALITY_MIN;
+	else if (jcomp->quality > QUALITY_MAX)
+		sd->quality = QUALITY_MAX;
+	else
+		sd->quality = jcomp->quality;
+	if (gspca_dev->streaming)
+		jpeg_set_qual(sd->jpeg_hdr, sd->quality);
+	return 0;
+}
+
+static int sd_get_jcomp(struct gspca_dev *gspca_dev,
+			struct v4l2_jpegcompression *jcomp)
+{
+	struct sd *sd = (struct sd *) gspca_dev;
+
+	memset(jcomp, 0, sizeof *jcomp);
+	jcomp->quality = sd->quality;
+	jcomp->jpeg_markers = V4L2_JPEG_MARKER_DHT
+			| V4L2_JPEG_MARKER_DQT;
+	return 0;
+}
+
 /* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
 	.nctrls = ARRAY_SIZE(sd_ctrls),
 	.config = sd_config,
-	.open = sd_open,
+	.init = sd_init,
 	.start = sd_start,
 	.stopN = sd_stopN,
 	.stop0 = sd_stop0,
-	.close = sd_close,
 	.pkt_scan = sd_pkt_scan,
+	.get_jcomp = sd_get_jcomp,
+	.set_jcomp = sd_set_jcomp,
 };
 
 /* -- module initialisation -- */
@@ -1456,13 +1444,19 @@ static struct usb_driver sd_driver = {
 	.id_table = device_table,
 	.probe = sd_probe,
 	.disconnect = gspca_disconnect,
+#ifdef CONFIG_PM
+	.suspend = gspca_suspend,
+	.resume = gspca_resume,
+#endif
 };
 
 /* -- module insert / remove -- */
 static int __init sd_mod_init(void)
 {
-	if (usb_register(&sd_driver) < 0)
-		return -1;
+	int ret;
+	ret = usb_register(&sd_driver);
+	if (ret < 0)
+		return ret;
 	PDEBUG(D_PROBE, "registered");
 	return 0;
 }

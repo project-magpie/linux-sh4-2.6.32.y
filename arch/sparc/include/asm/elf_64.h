@@ -195,7 +195,7 @@ static inline unsigned int sparc64_elf_hwcap(void)
 
 #define ELF_PLATFORM	(NULL)
 
-#define SET_PERSONALITY(ex, ibcs2)			\
+#define SET_PERSONALITY(ex)				\
 do {	unsigned long new_flags = current_thread_info()->flags; \
 	new_flags &= _TIF_32BIT;			\
 	if ((ex).e_ident[EI_CLASS] == ELFCLASS32)	\
@@ -208,10 +208,9 @@ do {	unsigned long new_flags = current_thread_info()->flags; \
 	else						\
 		clear_thread_flag(TIF_ABI_PENDING);	\
 	/* flush_thread will update pgd cache */	\
-	if (ibcs2)					\
-		set_personality(PER_SVR4);		\
-	else if (current->personality != PER_LINUX32)	\
-		set_personality(PER_LINUX);		\
+	if (personality(current->personality) != PER_LINUX32)	\
+		set_personality(PER_LINUX |		\
+			(current->personality & (~PER_MASK)));	\
 } while (0)
 
 #endif /* !(__ASM_SPARC64_ELF_H) */

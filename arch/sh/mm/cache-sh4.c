@@ -1,7 +1,6 @@
 /*
  * arch/sh/mm/cache-sh4.c
  *
- * Copyright (c) 2007 STMicroelectronics (R&D) Ltd.
  * Copyright (C) 1999, 2000, 2002  Niibe Yutaka
  * Copyright (C) 2001 - 2007  Paul Mundt
  * Copyright (C) 2003  Richard Curnow
@@ -112,9 +111,6 @@ void __init p3_cache_init(void)
 	}
 
 	emit_cache_params();
-
-	if (ioremap_page_range(P3SEG, P3SEG+(PAGE_SIZE * 4), 0, PAGE_KERNEL))
-		panic("%s failed.", __FUNCTION__);
 
 	/*
 	 * Pre-calculate the address of the uncached version of

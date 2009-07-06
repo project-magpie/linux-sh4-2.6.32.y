@@ -17,7 +17,6 @@
 #include <linux/compiler.h>
 #include <asm/page.h>
 #include <asm/types.h>
-#include <asm/cache.h>
 #include <asm/ptrace.h>
 #include <cpu/registers.h>
 
@@ -35,46 +34,6 @@ __asm__("gettr	tr0, %1\n\t" \
 	:"=r" (pc), "=r" (__dummy) \
 	: "1" (__dummy)); \
 pc; })
-
-/*
- * TLB information structure
- *
- * Defined for both I and D tlb, per-processor.
- */
-struct tlb_info {
-	unsigned long long next;
-	unsigned long long first;
-	unsigned long long last;
-
-	unsigned int entries;
-	unsigned int step;
-
-	unsigned long flags;
-};
-
-struct sh_cpuinfo {
-	enum cpu_type type;
-	unsigned long loops_per_jiffy;
-	unsigned long asid_cache;
-
-	unsigned int cpu_clock, master_clock, bus_clock, module_clock;
-
-	/* Cache info */
-	struct cache_info icache;
-	struct cache_info dcache;
-	struct cache_info scache;
-
-	/* TLB info */
-	struct tlb_info itlb;
-	struct tlb_info dtlb;
-
-	unsigned long flags;
-};
-
-extern struct sh_cpuinfo cpu_data[];
-#define boot_cpu_data cpu_data[0]
-#define current_cpu_data cpu_data[smp_processor_id()]
-#define raw_current_cpu_data cpu_data[raw_smp_processor_id()]
 
 #endif
 
@@ -169,8 +128,6 @@ struct thread_struct {
 #define INIT_MMAP \
 { &init_mm, 0, 0, NULL, PAGE_SHARED, VM_READ | VM_WRITE | VM_EXEC, 1, NULL, NULL }
 
-extern  struct pt_regs fake_swapper_regs;
-
 #define INIT_THREAD  {				\
 	.sp		= sizeof(init_stack) +	\
 			  (long) &init_stack,	\
@@ -188,13 +145,13 @@ extern  struct pt_regs fake_swapper_regs;
  */
 #define SR_USER (SR_MMU | SR_FD)
 
-#define start_thread(regs, new_pc, new_sp)			\
+#define start_thread(_regs, new_pc, new_sp)			\
 	set_fs(USER_DS);					\
-	regs->sr = SR_USER;	/* User mode. */		\
-	regs->pc = new_pc - 4;	/* Compensate syscall exit */	\
-	regs->pc |= 1;		/* Set SHmedia ! */		\
-	regs->regs[18] = 0;					\
-	regs->regs[15] = new_sp
+	_regs->sr = SR_USER;	/* User mode. */		\
+	_regs->pc = new_pc - 4;	/* Compensate syscall exit */	\
+	_regs->pc |= 1;		/* Set SHmedia ! */		\
+	_regs->regs[18] = 0;					\
+	_regs->regs[15] = new_sp
 
 /* Forward declaration, a strange C thing */
 struct task_struct;
@@ -269,7 +226,7 @@ extern unsigned long get_wchan(struct task_struct *p);
 #define KSTK_EIP(tsk)  ((tsk)->thread.pc)
 #define KSTK_ESP(tsk)  ((tsk)->thread.sp)
 
-#define cpu_relax()	barrier()
+#define user_stack_pointer(_regs)	((_regs)->regs[15])
 
 #endif	/* __ASSEMBLY__ */
 #endif /* __ASM_SH_PROCESSOR_64_H */

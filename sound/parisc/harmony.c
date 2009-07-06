@@ -868,7 +868,8 @@ snd_harmony_mixer_init(struct snd_harmony *h)
 	struct snd_card *card = h->card;
 	int idx, err;
 
-	snd_assert(h != NULL, return -EINVAL);
+	if (snd_BUG_ON(!h))
+		return -EINVAL;
 	strcpy(card->mixername, "Harmony Gain control interface");
 
 	for (idx = 0; idx < HARMONY_CONTROLS; idx++) {
@@ -974,9 +975,9 @@ snd_harmony_probe(struct parisc_device *padev)
 	struct snd_card *card;
 	struct snd_harmony *h;
 
-	card = snd_card_new(index, id, THIS_MODULE, 0);
-	if (card == NULL)
-		return -ENOMEM;
+	err = snd_card_create(index, id, THIS_MODULE, 0, &card);
+	if (err < 0)
+		return err;
 
 	err = snd_harmony_create(card, padev, &h);
 	if (err < 0)

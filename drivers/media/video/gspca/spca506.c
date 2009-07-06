@@ -110,7 +110,7 @@ static struct ctrl sd_ctrls[] = {
 	},
 };
 
-static struct v4l2_pix_format vga_mode[] = {
+static const struct v4l2_pix_format vga_mode[] = {
 	{160, 120, V4L2_PIX_FMT_SPCA505, V4L2_FIELD_NONE,
 		.bytesperline = 160,
 		.sizeimage = 160 * 120 * 3 / 2,
@@ -191,24 +191,6 @@ static void spca506_WriteI2c(struct gspca_dev *gspca_dev, __u16 valeur,
 		if ((gspca_dev->usb_buf[0] | gspca_dev->usb_buf[1]) == 0x00)
 			break;
 	}
-}
-
-static int spca506_ReadI2c(struct gspca_dev *gspca_dev, __u16 reg)
-{
-	int retry = 60;
-
-	reg_w(gspca_dev->dev, 0x07, SAA7113_I2C_BASE_WRITE, 0x0004);
-	reg_w(gspca_dev->dev, 0x07, reg, 0x0001);
-	reg_w(gspca_dev->dev, 0x07, 0x01, 0x0002);
-	while (--retry) {
-		reg_r(gspca_dev, 0x07, 0x0003, 2);
-		if ((gspca_dev->usb_buf[0] | gspca_dev->usb_buf[1]) == 0x00)
-			break;
-	}
-	if (retry == 0)
-		return -1;
-	reg_r(gspca_dev, 0x07, 0x0000, 1);
-	return gspca_dev->usb_buf[0];
 }
 
 static void spca506_SetNormeInput(struct gspca_dev *gspca_dev,
@@ -303,7 +285,6 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	struct cam *cam;
 
 	cam = &gspca_dev->cam;
-	cam->epaddr = 0x01;
 	cam->cam_mode = vga_mode;
 	cam->nmodes = sizeof vga_mode / sizeof vga_mode[0];
 	sd->brightness = sd_ctrls[SD_BRIGHTNESS].qctrl.default_value;
@@ -313,8 +294,8 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
-/* this function is called at open time */
-static int sd_open(struct gspca_dev *gspca_dev)
+/* this function is called at probe and resume time */
+static int sd_init(struct gspca_dev *gspca_dev)
 {
 	struct usb_device *dev = gspca_dev->dev;
 
@@ -422,7 +403,7 @@ static int sd_open(struct gspca_dev *gspca_dev)
 	return 0;
 }
 
-static void sd_start(struct gspca_dev *gspca_dev)
+static int sd_start(struct gspca_dev *gspca_dev)
 {
 	struct usb_device *dev = gspca_dev->dev;
 	__u16 norme;
@@ -549,6 +530,7 @@ static void sd_start(struct gspca_dev *gspca_dev)
 	PDEBUG(D_STREAM, "webcam started");
 	spca506_GetNormeInput(gspca_dev, &norme, &channel);
 	spca506_SetNormeInput(gspca_dev, norme, channel);
+	return 0;
 }
 
 static void sd_stopN(struct gspca_dev *gspca_dev)
@@ -558,14 +540,6 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 	reg_w(dev, 0x02, 0x00, 0x0000);
 	reg_w(dev, 0x03, 0x00, 0x0004);
 	reg_w(dev, 0x03, 0x00, 0x0003);
-}
-
-static void sd_stop0(struct gspca_dev *gspca_dev)
-{
-}
-
-static void sd_close(struct gspca_dev *gspca_dev)
-{
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
@@ -603,13 +577,6 @@ static void setbrightness(struct gspca_dev *gspca_dev)
 	spca506_WriteI2c(gspca_dev, 0x01, 0x09);
 }
 
-static void getbrightness(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-
-	sd->brightness = spca506_ReadI2c(gspca_dev, SAA7113_bright);
-}
-
 static void setcontrast(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -617,13 +584,6 @@ static void setcontrast(struct gspca_dev *gspca_dev)
 	spca506_Initi2c(gspca_dev);
 	spca506_WriteI2c(gspca_dev, sd->contrast, SAA7113_contrast);
 	spca506_WriteI2c(gspca_dev, 0x01, 0x09);
-}
-
-static void getcontrast(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-
-	sd->contrast = spca506_ReadI2c(gspca_dev, SAA7113_contrast);
 }
 
 static void setcolors(struct gspca_dev *gspca_dev)
@@ -635,13 +595,6 @@ static void setcolors(struct gspca_dev *gspca_dev)
 	spca506_WriteI2c(gspca_dev, 0x01, 0x09);
 }
 
-static void getcolors(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-
-	sd->colors = spca506_ReadI2c(gspca_dev, SAA7113_saturation);
-}
-
 static void sethue(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -649,13 +602,6 @@ static void sethue(struct gspca_dev *gspca_dev)
 	spca506_Initi2c(gspca_dev);
 	spca506_WriteI2c(gspca_dev, sd->hue, SAA7113_hue);
 	spca506_WriteI2c(gspca_dev, 0x01, 0x09);
-}
-
-static void gethue(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-
-	sd->hue = spca506_ReadI2c(gspca_dev, SAA7113_hue);
 }
 
 static int sd_setbrightness(struct gspca_dev *gspca_dev, __s32 val)
@@ -672,7 +618,6 @@ static int sd_getbrightness(struct gspca_dev *gspca_dev, __s32 *val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	getbrightness(gspca_dev);
 	*val = sd->brightness;
 	return 0;
 }
@@ -691,7 +636,6 @@ static int sd_getcontrast(struct gspca_dev *gspca_dev, __s32 *val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	getcontrast(gspca_dev);
 	*val = sd->contrast;
 	return 0;
 }
@@ -710,7 +654,6 @@ static int sd_getcolors(struct gspca_dev *gspca_dev, __s32 *val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	getcolors(gspca_dev);
 	*val = sd->colors;
 	return 0;
 }
@@ -729,7 +672,6 @@ static int sd_gethue(struct gspca_dev *gspca_dev, __s32 *val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	gethue(gspca_dev);
 	*val = sd->hue;
 	return 0;
 }
@@ -740,11 +682,9 @@ static struct sd_desc sd_desc = {
 	.ctrls = sd_ctrls,
 	.nctrls = ARRAY_SIZE(sd_ctrls),
 	.config = sd_config,
-	.open = sd_open,
+	.init = sd_init,
 	.start = sd_start,
 	.stopN = sd_stopN,
-	.stop0 = sd_stop0,
-	.close = sd_close,
 	.pkt_scan = sd_pkt_scan,
 };
 
@@ -772,13 +712,19 @@ static struct usb_driver sd_driver = {
 	.id_table = device_table,
 	.probe = sd_probe,
 	.disconnect = gspca_disconnect,
+#ifdef CONFIG_PM
+	.suspend = gspca_suspend,
+	.resume = gspca_resume,
+#endif
 };
 
 /* -- module insert / remove -- */
 static int __init sd_mod_init(void)
 {
-	if (usb_register(&sd_driver) < 0)
-		return -1;
+	int ret;
+	ret = usb_register(&sd_driver);
+	if (ret < 0)
+		return ret;
 	PDEBUG(D_PROBE, "registered");
 	return 0;
 }

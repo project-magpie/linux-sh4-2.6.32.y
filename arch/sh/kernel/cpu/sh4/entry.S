@@ -86,7 +86,6 @@
 ! Macro for pushing user registers
 ! k0 contains the stack
 ! k1, k4 scratch
-! k2 contains the event register contents
 ! k3 contains the return address
 !
 ! 998f: must contain 0x80f0
@@ -94,7 +93,6 @@
 !
 .macro PUSH_USER_REGS
 	mov	#-1, k4
-	mov.l	k2, @-r15	! EXPEVT
 	mov.l	k4, @-r15	! set TRA (default: -1)
 	!
 	sts.l	macl, @-r15
@@ -437,7 +435,7 @@ tlb_miss:
 	! One cache line if possible...
 1:	.long	swapper_pg_dir
 3:	.short	(PTRS_PER_PTE-1) << 2
-4:	.short	(PTRS_PER_PGD-1) << 2
+4:	.short	(_PTRS_PER_PGD-1) << 2
 5:	.long	_PAGE_PRESENT
 7:	.long	_PAGE_FLAGS_HARDWARE_MASK
 8:	.long	MMU_PTEH
@@ -746,7 +744,7 @@ restore_all:
 	mov	#0xfffffff0, k1
 	extu.b	k1, k1
 	not	k1, k1
-	and	k1, k2			! Mask orignal SR value
+	and	k1, k2			! Mask original SR value
 	!
 	mov	k3, k0			! Calculate IMASK-bits
 	shlr2	k0
@@ -765,7 +763,6 @@ restore_all:
 	mov	#0, k1
 	mov.b	k1, @k0
 #endif
-	mov.l	@r15+, k2		! restore EXPEVT
 	mov	k4, r15
 	rte
 	 nop

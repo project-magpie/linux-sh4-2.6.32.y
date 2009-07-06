@@ -23,6 +23,7 @@
 #include <linux/ata_platform.h>
 #include <linux/dma-mapping.h>
 #include <linux/serial_sci.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 
 static unsigned long chip_revision, chip_7109;

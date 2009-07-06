@@ -51,8 +51,10 @@ enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
 /*
  * Intent data
  */
-#define LOOKUP_OPEN		(0x0100)
-#define LOOKUP_CREATE		(0x0200)
+#define LOOKUP_OPEN		0x0100
+#define LOOKUP_CREATE		0x0200
+#define LOOKUP_EXCL		0x0400
+#define LOOKUP_RENAME_TARGET	0x0800
 
 extern int user_path_at(int, const char __user *, unsigned, struct path *);
 
@@ -61,11 +63,12 @@ extern int user_path_at(int, const char __user *, unsigned, struct path *);
 #define user_path_dir(name, path) \
 	user_path_at(AT_FDCWD, name, LOOKUP_FOLLOW | LOOKUP_DIRECTORY, path)
 
+extern int kern_path(const char *, unsigned, struct path *);
+
 extern int path_lookup(const char *, unsigned, struct nameidata *);
 extern int vfs_path_lookup(struct dentry *, struct vfsmount *,
 			   const char *, unsigned int, struct nameidata *);
 
-extern int path_lookup_open(int dfd, const char *name, unsigned lookup_flags, struct nameidata *, int open_flags);
 extern struct file *lookup_instantiate_filp(struct nameidata *nd, struct dentry *dentry,
 		int (*open)(struct inode *, struct file *));
 extern struct file *nameidata_to_filp(struct nameidata *nd, int flags);
@@ -88,6 +91,11 @@ static inline void nd_set_link(struct nameidata *nd, char *path)
 static inline char *nd_get_link(struct nameidata *nd)
 {
 	return nd->saved_names[nd->depth];
+}
+
+static inline void nd_terminate_link(void *name, size_t len, size_t maxlen)
+{
+	((char *) name)[min(len, maxlen)] = '\0';
 }
 
 #endif /* _LINUX_NAMEI_H */

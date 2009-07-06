@@ -122,7 +122,7 @@ struct cm_counter_attribute {
 
 #define CM_COUNTER_ATTR(_name, _index) \
 struct cm_counter_attribute cm_##_name##_counter_attr = { \
-	.attr = { .name = __stringify(_name), .mode = 0444, .owner = THIS_MODULE }, \
+	.attr = { .name = __stringify(_name), .mode = 0444 }, \
 	.index = _index \
 }
 
@@ -927,8 +927,7 @@ int ib_cm_listen(struct ib_cm_id *cm_id, __be64 service_id, __be64 service_mask,
 	unsigned long flags;
 	int ret = 0;
 
-	service_mask = service_mask ? service_mask :
-		       __constant_cpu_to_be64(~0ULL);
+	service_mask = service_mask ? service_mask : ~cpu_to_be64(0);
 	service_id &= service_mask;
 	if ((service_id & IB_SERVICE_ID_AGN_MASK) == IB_CM_ASSIGN_SERVICE_ID &&
 	    (service_id != IB_CM_ASSIGN_SERVICE_ID))
@@ -954,7 +953,7 @@ int ib_cm_listen(struct ib_cm_id *cm_id, __be64 service_id, __be64 service_mask,
 	spin_lock_irqsave(&cm.lock, flags);
 	if (service_id == IB_CM_ASSIGN_SERVICE_ID) {
 		cm_id->service_id = cpu_to_be64(cm.listen_service_id++);
-		cm_id->service_mask = __constant_cpu_to_be64(~0ULL);
+		cm_id->service_mask = ~cpu_to_be64(0);
 	} else {
 		cm_id->service_id = service_id;
 		cm_id->service_mask = service_mask;
@@ -1134,7 +1133,7 @@ int ib_send_cm_req(struct ib_cm_id *cm_id,
 			goto error1;
 	}
 	cm_id->service_id = param->service_id;
-	cm_id->service_mask = __constant_cpu_to_be64(~0ULL);
+	cm_id->service_mask = ~cpu_to_be64(0);
 	cm_id_priv->timeout_ms = cm_convert_to_ms(
 				    param->primary_path->packet_life_time) * 2 +
 				 cm_convert_to_ms(
@@ -1545,7 +1544,7 @@ static int cm_req_handler(struct cm_work *work)
 	cm_id_priv->id.cm_handler = listen_cm_id_priv->id.cm_handler;
 	cm_id_priv->id.context = listen_cm_id_priv->id.context;
 	cm_id_priv->id.service_id = req_msg->service_id;
-	cm_id_priv->id.service_mask = __constant_cpu_to_be64(~0ULL);
+	cm_id_priv->id.service_mask = ~cpu_to_be64(0);
 
 	cm_process_routed_req(req_msg, work->mad_recv_wc->wc);
 	cm_format_paths_from_req(req_msg, &work->path[0], &work->path[1]);
@@ -2898,7 +2897,7 @@ int ib_send_cm_sidr_req(struct ib_cm_id *cm_id,
 		goto out;
 
 	cm_id->service_id = param->service_id;
-	cm_id->service_mask = __constant_cpu_to_be64(~0ULL);
+	cm_id->service_mask = ~cpu_to_be64(0);
 	cm_id_priv->timeout_ms = param->timeout_ms;
 	cm_id_priv->max_cm_retries = param->max_cm_retries;
 	ret = cm_alloc_msg(cm_id_priv, &msg);
@@ -2992,7 +2991,7 @@ static int cm_sidr_req_handler(struct cm_work *work)
 	cm_id_priv->id.cm_handler = cur_cm_id_priv->id.cm_handler;
 	cm_id_priv->id.context = cur_cm_id_priv->id.context;
 	cm_id_priv->id.service_id = sidr_req_msg->service_id;
-	cm_id_priv->id.service_mask = __constant_cpu_to_be64(~0ULL);
+	cm_id_priv->id.service_mask = ~cpu_to_be64(0);
 
 	cm_format_sidr_req_event(work, &cur_cm_id_priv->id);
 	cm_process_work(cm_id_priv, work);
@@ -3691,9 +3690,9 @@ static void cm_add_one(struct ib_device *ib_device)
 	cm_dev->ib_device = ib_device;
 	cm_get_ack_delay(cm_dev);
 
-	cm_dev->device = device_create_drvdata(&cm_class, &ib_device->dev,
-					       MKDEV(0, 0), NULL,
-					       "%s", ib_device->name);
+	cm_dev->device = device_create(&cm_class, &ib_device->dev,
+				       MKDEV(0, 0), NULL,
+				       "%s", ib_device->name);
 	if (!cm_dev->device) {
 		kfree(cm_dev);
 		return;
@@ -3748,6 +3747,7 @@ error1:
 		cm_remove_port_fs(port);
 	}
 	device_unregister(cm_dev->device);
+	kfree(cm_dev);
 }
 
 static void cm_remove_one(struct ib_device *ib_device)
@@ -3776,6 +3776,7 @@ static void cm_remove_one(struct ib_device *ib_device)
 		cm_remove_port_fs(port);
 	}
 	device_unregister(cm_dev->device);
+	kfree(cm_dev);
 }
 
 static int __init ib_cm_init(void)
@@ -3787,7 +3788,7 @@ static int __init ib_cm_init(void)
 	rwlock_init(&cm.device_lock);
 	spin_lock_init(&cm.lock);
 	cm.listen_service_table = RB_ROOT;
-	cm.listen_service_id = __constant_be64_to_cpu(IB_CM_ASSIGN_SERVICE_ID);
+	cm.listen_service_id = be64_to_cpu(IB_CM_ASSIGN_SERVICE_ID);
 	cm.remote_id_table = RB_ROOT;
 	cm.remote_qp_table = RB_ROOT;
 	cm.remote_sidr_table = RB_ROOT;

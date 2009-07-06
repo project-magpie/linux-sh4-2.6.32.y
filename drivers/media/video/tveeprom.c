@@ -242,7 +242,7 @@ hauppauge_tuner[] =
 	{ TUNER_ABSENT,        		"TCL M2523_3DBH_E"},
 	{ TUNER_ABSENT,        		"TCL M2523_3DIH_E"},
 	{ TUNER_ABSENT,        		"TCL MFPE05_2_U"},
-	{ TUNER_PHILIPS_FMD1216ME_MK3,	"Philips FMD1216MEX"},
+	{ TUNER_PHILIPS_FMD1216MEX_MK3,	"Philips FMD1216MEX"},
 	{ TUNER_ABSENT,        		"Philips FRH2036B"},
 	{ TUNER_ABSENT,        		"Panasonic ENGF75_01GF"},
 	{ TUNER_ABSENT,        		"MaxLinear MXL5005"},
@@ -261,7 +261,12 @@ hauppauge_tuner[] =
 	{ TUNER_ABSENT,        		"MaxLinear MXL5005_v2"},
 	{ TUNER_PHILIPS_TDA8290, 	"Philips 18271_8295"},
 	/* 150-159 */
-	{ TUNER_ABSENT,                 "Xceive XC5000"},
+	{ TUNER_XC5000,                 "Xceive XC5000"},
+	{ TUNER_ABSENT,                 "Xceive XC3028L"},
+	{ TUNER_ABSENT,                 "NXP 18271C2_716x"},
+	{ TUNER_ABSENT,                 "Xceive XC4000"},
+	{ TUNER_ABSENT,                 "Dibcom 7070"},
+	{ TUNER_PHILIPS_TDA8290,        "NXP 18271C2"},
 };
 
 /* Use V4L2_IDENT_AMBIGUOUS for those audio 'chips' that are
@@ -427,6 +432,9 @@ void tveeprom_hauppauge_analog(struct i2c_client *c, struct tveeprom *tvee,
 	const char *t_fmt_name2[8] = { " none", "", "", "", "", "", "", "" };
 
 	memset(tvee, 0, sizeof(*tvee));
+	tvee->tuner_type = TUNER_ABSENT;
+	tvee->tuner2_type = TUNER_ABSENT;
+
 	done = len = beenhere = 0;
 
 	/* Different eeprom start offsets for em28xx, cx2388x and cx23418 */

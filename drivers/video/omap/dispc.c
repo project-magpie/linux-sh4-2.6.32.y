@@ -156,7 +156,7 @@ struct resmap {
 };
 
 static struct {
-	u32		base;
+	void __iomem	*base;
 
 	struct omapfb_mem_desc	mem_desc;
 	struct resmap		*res_map[DISPC_MEMTYPE_NUM];
@@ -212,9 +212,9 @@ static void enable_rfbi_mode(int enable)
 	dispc_write_reg(DISPC_CONTROL, l);
 
 	/* Set bypass mode in RFBI module */
-	l = __raw_readl(io_p2v(RFBI_CONTROL));
+	l = __raw_readl(IO_ADDRESS(RFBI_CONTROL));
 	l |= enable ? 0 : (1 << 1);
-	__raw_writel(l, io_p2v(RFBI_CONTROL));
+	__raw_writel(l, IO_ADDRESS(RFBI_CONTROL));
 }
 
 static void set_lcd_data_lines(int data_lines)
@@ -880,20 +880,22 @@ static irqreturn_t omap_dispc_irq_handler(int irq, void *dev)
 
 static int get_dss_clocks(void)
 {
-	if (IS_ERR((dispc.dss_ick = clk_get(dispc.fbdev->dev, "dss_ick")))) {
-		dev_err(dispc.fbdev->dev, "can't get dss_ick\n");
+	dispc.dss_ick = clk_get(dispc.fbdev->dev, "ick");
+	if (IS_ERR(dispc.dss_ick)) {
+		dev_err(dispc.fbdev->dev, "can't get ick\n");
 		return PTR_ERR(dispc.dss_ick);
 	}
 
-	if (IS_ERR((dispc.dss1_fck = clk_get(dispc.fbdev->dev, "dss1_fck")))) {
+	dispc.dss1_fck = clk_get(dispc.fbdev->dev, "dss1_fck");
+	if (IS_ERR(dispc.dss1_fck)) {
 		dev_err(dispc.fbdev->dev, "can't get dss1_fck\n");
 		clk_put(dispc.dss_ick);
 		return PTR_ERR(dispc.dss1_fck);
 	}
 
-	if (IS_ERR((dispc.dss_54m_fck =
-				clk_get(dispc.fbdev->dev, "dss_54m_fck")))) {
-		dev_err(dispc.fbdev->dev, "can't get dss_54m_fck\n");
+	dispc.dss_54m_fck = clk_get(dispc.fbdev->dev, "tv_fck");
+	if (IS_ERR(dispc.dss_54m_fck)) {
+		dev_err(dispc.fbdev->dev, "can't get tv_fck\n");
 		clk_put(dispc.dss_ick);
 		clk_put(dispc.dss1_fck);
 		return PTR_ERR(dispc.dss_54m_fck);
@@ -1349,14 +1351,19 @@ static int omap_dispc_init(struct omapfb_device *fbdev, int ext_mode,
 
 	memset(&dispc, 0, sizeof(dispc));
 
-	dispc.base = io_p2v(DISPC_BASE);
+	dispc.base = ioremap(DISPC_BASE, SZ_1K);
+	if (!dispc.base) {
+		dev_err(fbdev->dev, "can't ioremap DISPC\n");
+		return -ENOMEM;
+	}
+
 	dispc.fbdev = fbdev;
 	dispc.ext_mode = ext_mode;
 
 	init_completion(&dispc.frame_done);
 
 	if ((r = get_dss_clocks()) < 0)
-		return r;
+		goto fail0;
 
 	enable_interface_clocks(1);
 	enable_lcd_clocks(1);
@@ -1414,7 +1421,7 @@ static int omap_dispc_init(struct omapfb_device *fbdev, int ext_mode,
 	}
 
 	/* L3 firewall setting: enable access to OCM RAM */
-	__raw_writel(0x402000b0, io_p2v(0x680050a0));
+	__raw_writel(0x402000b0, IO_ADDRESS(0x680050a0));
 
 	if ((r = alloc_palette_ram()) < 0)
 		goto fail2;
@@ -1464,7 +1471,8 @@ fail1:
 	enable_lcd_clocks(0);
 	enable_interface_clocks(0);
 	put_dss_clocks();
-
+fail0:
+	iounmap(dispc.base);
 	return r;
 }
 
@@ -1481,6 +1489,7 @@ static void omap_dispc_cleanup(void)
 	free_irq(INT_24XX_DSS_IRQ, dispc.fbdev);
 	enable_interface_clocks(0);
 	put_dss_clocks();
+	iounmap(dispc.base);
 }
 
 const struct lcd_ctrl omap2_int_ctrl = {

@@ -25,7 +25,6 @@
 #include <mach/hardware.h>
 #include <asm/mach-types.h>
 #include <mach/pm.h>
-#include <mach/pxa-regs.h>
 #include <mach/pxa2xx-gpio.h>
 #include <mach/sharpsl.h>
 #include "sharpsl.h"
@@ -132,8 +131,17 @@ int sharpsl_pm_pxa_read_max1111(int channel)
 	if (machine_is_tosa()) // Ugly, better move this function into another module
 	    return 0;
 
+#ifdef CONFIG_CORGI_SSP_DEPRECATED
 	return corgi_ssp_max1111_get((channel << MAXCTRL_SEL_SH) | MAXCTRL_PD0 | MAXCTRL_PD1
 			| MAXCTRL_SGL | MAXCTRL_UNI | MAXCTRL_STR);
+#else
+	extern int max1111_read_channel(int);
+
+	/* max1111 accepts channels from 0-3, however,
+	 * it is encoded from 0-7 here in the code.
+	 */
+	return max1111_read_channel(channel >> 1);
+#endif
 }
 
 void sharpsl_pm_pxa_init(void)

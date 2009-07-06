@@ -108,6 +108,9 @@ static int i2c_device_probe(struct device *dev)
 	if (!driver->probe || !driver->id_table)
 		return -ENODEV;
 	client->driver = driver;
+	if (!device_can_wakeup(&client->dev))
+		device_init_wakeup(&client->dev,
+					client->flags & I2C_CLIENT_WAKE);
 	dev_dbg(dev, "probe\n");
 
 	status = driver->probe(client, i2c_match_id(driver->id_table, client));
@@ -149,7 +152,7 @@ static void i2c_device_shutdown(struct device *dev)
 		driver->shutdown(to_i2c_client(dev));
 }
 
-static int i2c_device_suspend(struct device * dev, pm_message_t mesg)
+static int i2c_device_suspend(struct device *dev, pm_message_t mesg)
 {
 	struct i2c_driver *driver;
 
@@ -161,7 +164,7 @@ static int i2c_device_suspend(struct device * dev, pm_message_t mesg)
 	return driver->suspend(to_i2c_client(dev), mesg);
 }
 
-static int i2c_device_resume(struct device * dev)
+static int i2c_device_resume(struct device *dev)
 {
 	struct i2c_driver *driver;
 
@@ -184,13 +187,15 @@ static void i2c_client_dev_release(struct device *dev)
 	kfree(to_i2c_client(dev));
 }
 
-static ssize_t show_client_name(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t
+show_client_name(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	return sprintf(buf, "%s\n", client->name);
 }
 
-static ssize_t show_modalias(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t
+show_modalias(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	return sprintf(buf, "%s%s\n", I2C_MODULE_PREFIX, client->name);
@@ -262,9 +267,11 @@ i2c_new_device(struct i2c_adapter *adap, struct i2c_board_info const *info)
 	client->adapter = adap;
 
 	client->dev.platform_data = info->platform_data;
-	device_init_wakeup(&client->dev, info->flags & I2C_CLIENT_WAKE);
 
-	client->flags = info->flags & ~I2C_CLIENT_WAKE;
+	if (info->archdata)
+		client->dev.archdata = *info->archdata;
+
+	client->flags = info->flags;
 	client->addr = info->addr;
 	client->irq = info->irq;
 
@@ -360,8 +367,7 @@ static struct i2c_driver dummy_driver = {
  * This returns the new i2c client, which should be saved for later use with
  * i2c_unregister_device(); or NULL to indicate an error.
  */
-struct i2c_client *
-i2c_new_dummy(struct i2c_adapter *adapter, u16 address)
+struct i2c_client *i2c_new_dummy(struct i2c_adapter *adapter, u16 address)
 {
 	struct i2c_board_info info = {
 		I2C_BOARD_INFO("dummy", address),
@@ -408,8 +414,8 @@ static void i2c_scan_static_board_info(struct i2c_adapter *adapter)
 		if (devinfo->busnum == adapter->nr
 				&& !i2c_new_device(adapter,
 						&devinfo->board_info))
-			printk(KERN_ERR "i2c-core: can't create i2c%d-%04x\n",
-				i2c_adapter_id(adapter),
+			dev_err(&adapter->dev,
+				"Can't create device at 0x%02x\n",
 				devinfo->board_info.addr);
 	}
 	mutex_unlock(&__i2c_board_lock);
@@ -435,6 +441,10 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 {
 	int res = 0, dummy;
 
+	/* Can't register until after driver model init */
+	if (unlikely(WARN_ON(!i2c_bus_type.p)))
+		return -EAGAIN;
+
 	mutex_init(&adap->bus_lock);
 	mutex_init(&adap->clist_lock);
 	INIT_LIST_HEAD(&adap->clients);
@@ -450,7 +460,12 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 		pr_debug("I2C adapter driver [%s] forgot to specify "
 			 "physical device\n", adap->name);
 	}
-	sprintf(adap->dev.bus_id, "i2c-%d", adap->nr);
+
+	/* Set default timeout to 1 second if not already set */
+	if (adap->timeout == 0)
+		adap->timeout = HZ;
+
+	dev_set_name(&adap->dev, "i2c-%d", adap->nr);
 	adap->dev.release = &i2c_adapter_dev_release;
 	adap->dev.class = &i2c_adapter_class;
 	res = device_register(&adap->dev);
@@ -572,7 +587,8 @@ static int i2c_do_del_adapter(struct device_driver *d, void *data)
 	struct i2c_client *client, *_n;
 	int res;
 
-	/* Remove the devices we created ourselves */
+	/* Remove the devices we created ourselves as the result of hardware
+	 * probing (using a driver's detect method) */
 	list_for_each_entry_safe(client, _n, &driver->clients, detected) {
 		if (client->adapter == adapter) {
 			dev_dbg(&adapter->dev, "Removing %s at 0x%x\n",
@@ -622,7 +638,7 @@ int i2c_del_adapter(struct i2c_adapter *adap)
 
 	/* detach any active clients. This must be done first, because
 	 * it can fail; in which case we give up. */
-	list_for_each_entry_safe(client, _n, &adap->clients, list) {
+	list_for_each_entry_safe_reverse(client, _n, &adap->clients, list) {
 		struct i2c_driver	*driver;
 
 		driver = client->driver;
@@ -694,10 +710,13 @@ int i2c_register_driver(struct module *owner, struct i2c_driver *driver)
 {
 	int res;
 
+	/* Can't register until after driver model init */
+	if (unlikely(WARN_ON(!i2c_bus_type.p)))
+		return -EAGAIN;
+
 	/* new style driver methods can't mix with legacy ones */
 	if (is_newstyle_driver(driver)) {
-		if (driver->attach_adapter || driver->detach_adapter
-				|| driver->detach_client) {
+		if (driver->detach_adapter || driver->detach_client) {
 			printk(KERN_WARNING
 					"i2c-core: driver [%s] is confused\n",
 					driver->driver.name);
@@ -736,6 +755,8 @@ static int __detach_adapter(struct device *dev, void *data)
 	struct i2c_driver *driver = data;
 	struct i2c_client *client, *_n;
 
+	/* Remove the devices we created ourselves as the result of hardware
+	 * probing (using a driver's detect method) */
 	list_for_each_entry_safe(client, _n, &driver->clients, detected) {
 		dev_dbg(&adapter->dev, "Removing %s at 0x%x\n",
 			client->name, client->addr);
@@ -828,12 +849,12 @@ int i2c_attach_client(struct i2c_client *client)
 
 	if (client->driver && !is_newstyle_driver(client->driver)) {
 		client->dev.release = i2c_client_release;
-		client->dev.uevent_suppress = 1;
+		dev_set_uevent_suppress(&client->dev, 1);
 	} else
 		client->dev.release = i2c_client_dev_release;
 
-	snprintf(&client->dev.bus_id[0], sizeof(client->dev.bus_id),
-		"%d-%04x", i2c_adapter_id(adapter), client->addr);
+	dev_set_name(&client->dev, "%d-%04x", i2c_adapter_id(adapter),
+		     client->addr);
 	res = device_register(&client->dev);
 	if (res)
 		goto out_err;
@@ -843,7 +864,7 @@ int i2c_attach_client(struct i2c_client *client)
 	mutex_unlock(&adapter->clist_lock);
 
 	dev_dbg(&adapter->dev, "client [%s] registered with bus id %s\n",
-		client->name, client->dev.bus_id);
+		client->name, dev_name(&client->dev));
 
 	if (adapter->client_register)  {
 		if (adapter->client_register(client)) {
@@ -976,7 +997,10 @@ static void __exit i2c_exit(void)
 	bus_unregister(&i2c_bus_type);
 }
 
-subsys_initcall(i2c_init);
+/* We must initialize early, because some subsystems register i2c drivers
+ * in subsys_initcall() code, but are linked (and initialized) before i2c.
+ */
+postcore_initcall(i2c_init);
 module_exit(i2c_exit);
 
 /* ----------------------------------------------------
@@ -996,7 +1020,7 @@ module_exit(i2c_exit);
  * Note that there is no requirement that each message be sent to
  * the same slave address, although that is the most common model.
  */
-int i2c_transfer(struct i2c_adapter * adap, struct i2c_msg *msgs, int num)
+int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 {
 	int ret;
 
@@ -1188,8 +1212,8 @@ int i2c_probe(struct i2c_adapter *adapter,
 		 && address_data->normal_i2c[0] == I2C_CLIENT_END)
 			return 0;
 
-		dev_warn(&adapter->dev, "SMBus Quick command not supported, "
-			 "can't probe for chips\n");
+		dev_dbg(&adapter->dev, "SMBus Quick command not supported, "
+			"can't probe for chips\n");
 		return -EOPNOTSUPP;
 	}
 
@@ -1350,6 +1374,10 @@ static int i2c_detect(struct i2c_adapter *adapter, struct i2c_driver *driver)
 		}
 	}
 
+	/* Stop here if the classes do not match */
+	if (!(adapter->class & driver->class))
+		goto exit_free;
+
 	/* Stop here if we can't use SMBUS_QUICK */
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_QUICK)) {
 		if (address_data->probe[0] == I2C_CLIENT_END
@@ -1361,10 +1389,6 @@ static int i2c_detect(struct i2c_adapter *adapter, struct i2c_driver *driver)
 		err = -EOPNOTSUPP;
 		goto exit_free;
 	}
-
-	/* Stop here if the classes do not match */
-	if (!(adapter->class & driver->class))
-		goto exit_free;
 
 	/* Probe entries are done second, and are not affected by ignore
 	   entries either */
@@ -1503,8 +1527,7 @@ EXPORT_SYMBOL(i2c_put_adapter);
 /* The SMBus parts */
 
 #define POLY    (0x1070U << 3)
-static u8
-crc8(u16 data)
+static u8 crc8(u16 data)
 {
 	int i;
 
@@ -1675,6 +1698,28 @@ s32 i2c_smbus_write_word_data(struct i2c_client *client, u8 command, u16 value)
 EXPORT_SYMBOL(i2c_smbus_write_word_data);
 
 /**
+ * i2c_smbus_process_call - SMBus "process call" protocol
+ * @client: Handle to slave device
+ * @command: Byte interpreted by slave
+ * @value: 16-bit "word" being written
+ *
+ * This executes the SMBus "process call" protocol, returning negative errno
+ * else a 16-bit unsigned "word" received from the device.
+ */
+s32 i2c_smbus_process_call(struct i2c_client *client, u8 command, u16 value)
+{
+	union i2c_smbus_data data;
+	int status;
+	data.word = value;
+
+	status = i2c_smbus_xfer(client->adapter, client->addr, client->flags,
+				I2C_SMBUS_WRITE, command,
+				I2C_SMBUS_PROC_CALL, &data);
+	return (status < 0) ? status : data.word;
+}
+EXPORT_SYMBOL(i2c_smbus_process_call);
+
+/**
  * i2c_smbus_read_block_data - SMBus "block read" protocol
  * @client: Handle to slave device
  * @command: Byte interpreted by slave
@@ -1793,7 +1838,8 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter * adapter, u16 addr,
 	case I2C_SMBUS_QUICK:
 		msg[0].len = 0;
 		/* Special case: The read/write field is used as data */
-		msg[0].flags = flags | (read_write==I2C_SMBUS_READ)?I2C_M_RD:0;
+		msg[0].flags = flags | (read_write == I2C_SMBUS_READ ?
+					I2C_M_RD : 0);
 		num = 1;
 		break;
 	case I2C_SMBUS_BYTE:
@@ -1945,9 +1991,9 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter * adapter, u16 addr,
  * This executes an SMBus protocol operation, and returns a negative
  * errno code else zero on success.
  */
-s32 i2c_smbus_xfer(struct i2c_adapter * adapter, u16 addr, unsigned short flags,
+s32 i2c_smbus_xfer(struct i2c_adapter *adapter, u16 addr, unsigned short flags,
 		   char read_write, u8 command, int protocol,
-                   union i2c_smbus_data * data)
+		   union i2c_smbus_data *data)
 {
 	s32 res;
 

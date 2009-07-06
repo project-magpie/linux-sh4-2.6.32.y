@@ -29,10 +29,10 @@
 #include <linux/phy.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
+#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <asm/io.h>
-#include "../common/common.h"
 
 /*
  * Flash setup depends on whether system is configured as boot-from-NOR

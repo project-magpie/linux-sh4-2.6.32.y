@@ -203,7 +203,7 @@ static ssize_t pms_constraint_show(struct kset *subsys, char *buf)
 				case PMS_TYPE_DEV:
 					ret += sprintf(buf+ret,
 						" + dev: %10s is ",
-						obj->dev->bus_id);
+						dev_name(&obj->dev));
 					if (constr->value == PM_EVENT_ON)
 						ret += sprintf(buf + ret,
 							"on\n");
@@ -444,7 +444,7 @@ EXPORT_SYMBOL(pms_register_clock_by_name);
 
 static int pms_dev_match_name(struct device *dev, void *data)
 {
-	return (strcmp((char *)data, dev->bus_id) == 0) ? 1: 0 ;
+	return (strcmp((char *)data, dev_name(dev)) == 0) ? 1: 0 ;
 }
 struct bus_type *find_bus(char *name);
 
@@ -639,7 +639,7 @@ int pms_set_constraint(struct pms_state *state,
 		return -1;
 	 dgb_print("state: %s - obj: %s - data: %u\n",
 		state->name,
-		(obj->type == PMS_TYPE_CLK) ? obj->clk->name: obj->dev->bus_id,
+		(obj->type == PMS_TYPE_CLK) ? obj->clk->name: dev_name(&obj->dev),
 		(unsigned int)value);
 	list_for_each_entry(constraint, &state->constraints, state_node)
 		if (constraint->obj == obj) {
@@ -741,7 +741,7 @@ static void pms_update_constraint(struct pms_constraint *constraint)
 	case PMS_TYPE_DEV:
 		if (constraint->value == PM_EVENT_ON) {
 			printk(KERN_INFO "pms resumes device %s\n",
-				dev->bus_id);
+				dev_name(dev));
 			resume_device(dev);
 			/* ...and moves into the active list...*/
 			mutex_lock(&dpm_list_mtx);
@@ -749,7 +749,7 @@ static void pms_update_constraint(struct pms_constraint *constraint)
 			mutex_unlock(&dpm_list_mtx);
 		} else if (!suspend_device(dev, PMSG_SUSPEND)) {
 			printk(KERN_INFO "pms suspends device %s\n",
-				dev->bus_id);
+				dev_name(dev));
 			/* ...and moves into the inactive list... */
 			mutex_lock(&dpm_list_mtx);
 			list_move(&dev->power.entry, &dpm_off);
@@ -1156,7 +1156,7 @@ static ssize_t pms_objects_show(struct kset *subsys, char *buf)
 			break;
 		case PMS_TYPE_DEV:
 			ret += sprintf(buf+ret, " + dev: %10s\n",
-					obj->dev->bus_id);
+					dev_name(&obj->dev));
 			break;
 		}
 	return ret;

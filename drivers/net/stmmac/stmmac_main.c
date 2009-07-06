@@ -590,9 +590,11 @@ static void dma_free_tx_skbufs(struct net_device *dev)
 
 	for (i = 0; i < priv->dma_tx_size; i++) {
 		if (priv->tx_skbuff[i] != NULL) {
-			if ((priv->dma_tx + i)->des2)
+			struct dma_desc *p = priv->dma_tx + i;
+
+			if (p->des2)
 				dma_unmap_single(priv->device,
-						 (priv->dma_tx + i)->des2,
+						 p->des2,
 						 priv->mac_type->ops->
 						 get_tx_len(p), DMA_TO_DEVICE);
 			dev_kfree_skb_any(priv->tx_skbuff[i]);
@@ -873,7 +875,7 @@ static void stmmac_schedule_rx(struct net_device *dev)
 	struct stmmac_priv *priv = netdev_priv(dev);
 	stmmac_dma_disable_irq_rx(dev->base_addr);
 
-	netif_rx_schedule(dev, &priv->napi);
+	napi_schedule(&priv->napi);
 
 	return;
 }
@@ -1618,7 +1620,7 @@ static int stmmac_poll(struct napi_struct *napi, int budget)
 
 	if (work_done < budget) {
 		RX_DBG(">>> rx work completed.\n");
-		netif_rx_complete(dev, napi);
+		napi_complete(napi);
 		stmmac_dma_enable_irq_rx(dev->base_addr);
 #ifdef CONFIG_STMMAC_TIMER
 		priv->tm->timer_start(tmrate);
@@ -1704,6 +1706,34 @@ static void stmmac_multicast_list(struct net_device *dev)
 	priv->mac_type->ops->set_filter(dev);
 	spin_unlock(&priv->lock);
 	return;
+}
+
+/**
+ *  stmmac_set_mac_address - set hardware address
+ *  @dev : pointer to the device structure
+ *  @p : hardware address
+ *  Description:
+ *  Set the hardware (MAC) address.
+ */
+static int stmmac_set_mac_address(struct net_device *dev, void *p)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+	unsigned long ioaddr = dev->base_addr;
+	struct sockaddr *addr = p;
+
+	if (!is_valid_ether_addr(addr->sa_data))
+		return -EINVAL;
+
+	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
+
+        if (!netif_running(dev))
+		return 0;
+
+	spin_lock(&priv->lock);
+	priv->mac_type->ops->set_umac_addr(ioaddr, dev->dev_addr, 0);
+       	spin_unlock(&priv->lock);
+	
+	return 0;
 }
 
 /**
@@ -1851,6 +1881,24 @@ static void stmmac_vlan_rx_kill_vid(struct net_device *dev, unsigned short vid)
 }
 #endif
 
+static const struct net_device_ops stmmac_netdev_ops = {
+	.ndo_open		= stmmac_open,
+	.ndo_stop		= stmmac_release,
+	.ndo_start_xmit		= stmmac_xmit,
+	.ndo_set_multicast_list	= stmmac_multicast_list,
+	.ndo_set_mac_address	= stmmac_set_mac_address,
+	.ndo_do_ioctl		= stmmac_ioctl,
+	.ndo_set_config		= stmmac_config,
+	.ndo_tx_timeout		= stmmac_tx_timeout,
+	.ndo_change_mtu		= stmmac_change_mtu,
+#ifdef STMMAC_VLAN_TAG_USED
+	.ndo_vlan_rx_register	= stmmac_vlan_rx_register,
+#endif
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	.ndo_poll_controller	= stmmac_poll_controller,
+#endif
+};
+
 /**
  *  stmmac_probe - Initialization of the adapter .
  *  @dev : device pointer
@@ -1865,26 +1913,15 @@ static int stmmac_probe(struct net_device *dev)
 
 	ether_setup(dev);
 
-	dev->open = stmmac_open;
-	dev->stop = stmmac_release;
-	dev->set_config = stmmac_config;
+	dev->netdev_ops = &stmmac_netdev_ops;
 
-	dev->hard_start_xmit = stmmac_xmit;
 	dev->features |= (NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_HIGHDMA);
 
-	dev->tx_timeout = stmmac_tx_timeout;
 	dev->watchdog_timeo = msecs_to_jiffies(watchdog);
-	dev->set_multicast_list = stmmac_multicast_list;
-	dev->change_mtu = stmmac_change_mtu;
 	dev->ethtool_ops = &stmmac_ethtool_ops;
-	dev->do_ioctl = &stmmac_ioctl;
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	dev->poll_controller = stmmac_poll_controller;
-#endif
 #ifdef STMMAC_VLAN_TAG_USED
 	/* Both mac100 and gmac support receive VLAN tag detection */
 	dev->features |= NETIF_F_HW_VLAN_RX;
-	dev->vlan_rx_register = stmmac_vlan_rx_register;
 
 	if (priv->vlan_rx_filter) {
 		dev->features |= NETIF_F_HW_VLAN_FILTER;

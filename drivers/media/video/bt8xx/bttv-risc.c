@@ -244,7 +244,8 @@ bttv_risc_overlay(struct bttv *btv, struct btcx_riscmem *risc,
 		  const struct bttv_format *fmt, struct bttv_overlay *ov,
 		  int skip_even, int skip_odd)
 {
-	int dwords,rc,line,maxy,start,end,skip,nskips;
+	int dwords, rc, line, maxy, start, end;
+	unsigned skip, nskips;
 	struct btcx_skiplist *skips;
 	__le32 *rp;
 	u32 ri,ra;
@@ -340,7 +341,7 @@ bttv_calc_geo_old(struct bttv *btv, struct bttv_geometry *geo,
 	int totalwidth   = tvnorm->totalwidth;
 	int scaledtwidth = tvnorm->scaledtwidth;
 
-	if (bttv_tvcards[btv->c.type].muxsel[btv->input] < 0) {
+	if (btv->input == btv->dig) {
 		swidth       = 720;
 		totalwidth   = 858;
 		scaledtwidth = 858;
@@ -390,7 +391,7 @@ bttv_calc_geo		(struct bttv *                  btv,
 	     && crop->width == tvnorm->cropcap.defrect.width
 	     && crop->height == tvnorm->cropcap.defrect.height
 	     && width <= tvnorm->swidth /* see PAL-Nc et al */)
-	    || bttv_tvcards[btv->c.type].muxsel[btv->input] < 0) {
+	    || btv->input == btv->dig) {
 		bttv_calc_geo_old(btv, geo, width, height,
 				  both_fields, tvnorm);
 		return;

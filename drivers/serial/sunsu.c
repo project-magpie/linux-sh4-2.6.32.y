@@ -1178,7 +1178,7 @@ static struct uart_driver sunsu_reg = {
 	.major			= TTY_MAJOR,
 };
 
-static int __init sunsu_kbd_ms_init(struct uart_sunsu_port *up)
+static int __devinit sunsu_kbd_ms_init(struct uart_sunsu_port *up)
 {
 	int quot, baud;
 #ifdef CONFIG_SERIO
@@ -1506,7 +1506,7 @@ static int __devexit su_remove(struct of_device *op)
 	return 0;
 }
 
-static struct of_device_id su_match[] = {
+static const struct of_device_id su_match[] = {
 	{
 		.name = "su",
 	},

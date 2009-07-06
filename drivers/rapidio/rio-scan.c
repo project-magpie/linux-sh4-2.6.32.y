@@ -365,15 +365,15 @@ static struct rio_dev *rio_setup_device(struct rio_net *net,
 				rdid++)
 			rswitch->route_table[rdid] = RIO_INVALID_ROUTE;
 		rdev->rswitch = rswitch;
-		sprintf(rio_name(rdev), "%02x:s:%04x", rdev->net->id,
-			rdev->rswitch->switchid);
+		dev_set_name(&rdev->dev, "%02x:s:%04x", rdev->net->id,
+			     rdev->rswitch->switchid);
 		rio_route_set_ops(rdev);
 
 		list_add_tail(&rswitch->node, &rio_switches);
 
 	} else
-		sprintf(rio_name(rdev), "%02x:e:%04x", rdev->net->id,
-			rdev->destid);
+		dev_set_name(&rdev->dev, "%02x:e:%04x", rdev->net->id,
+			     rdev->destid);
 
 	rdev->dev.bus = &rio_bus_type;
 
@@ -381,9 +381,9 @@ static struct rio_dev *rio_setup_device(struct rio_net *net,
 	rdev->dev.release = rio_release_dev;
 	rio_dev_get(rdev);
 
-	rdev->dma_mask = DMA_32BIT_MASK;
+	rdev->dma_mask = DMA_BIT_MASK(32);
 	rdev->dev.dma_mask = &rdev->dma_mask;
-	rdev->dev.coherent_dma_mask = DMA_32BIT_MASK;
+	rdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 
 	if ((rdev->pef & RIO_PEF_INB_DOORBELL) &&
 	    (rdev->dst_ops & RIO_DST_OPS_DOORBELL))
@@ -879,7 +879,7 @@ static void rio_update_route_tables(struct rio_mport *port)
  * link, then start recursive peer enumeration. Returns %0 if
  * enumeration succeeds or %-EBUSY if enumeration fails.
  */
-int rio_enum_mport(struct rio_mport *mport)
+int __devinit rio_enum_mport(struct rio_mport *mport)
 {
 	struct rio_net *net = NULL;
 	int rc = 0;
@@ -972,7 +972,7 @@ static void rio_enum_timeout(unsigned long data)
  * peer discovery. Returns %0 if discovery succeeds or %-EBUSY
  * on failure.
  */
-int rio_disc_mport(struct rio_mport *mport)
+int __devinit rio_disc_mport(struct rio_mport *mport)
 {
 	struct rio_net *net = NULL;
 	int enum_timeout_flag = 0;

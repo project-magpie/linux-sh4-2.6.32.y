@@ -69,7 +69,7 @@ Driver Notes and Issues
 History
 -------------------------------------------------------------------------------
 Log: nmclan_cs.c,v
- * 2.5.75-ac1 2003/07/11 Alan Cox <alan@redhat.com>
+ * 2.5.75-ac1 2003/07/11 Alan Cox <alan@lxorguk.ukuu.org.uk>
  * Fixed hang on card eject as we probe it
  * Cleaned up to use new style locking.
  *
@@ -436,6 +436,19 @@ static const struct ethtool_ops netdev_ethtool_ops;
 
 static void nmclan_detach(struct pcmcia_device *p_dev);
 
+static const struct net_device_ops mace_netdev_ops = {
+	.ndo_open		= mace_open,
+	.ndo_stop		= mace_close,
+	.ndo_start_xmit		= mace_start_xmit,
+	.ndo_tx_timeout		= mace_tx_timeout,
+	.ndo_set_config		= mace_config,
+	.ndo_get_stats		= mace_get_stats,
+	.ndo_set_multicast_list	= set_multicast_list,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 /* ----------------------------------------------------------------------------
 nmclan_attach
 	Creates an "instance" of the driver, allocating local data
@@ -474,17 +487,9 @@ static int nmclan_probe(struct pcmcia_device *link)
 
     lp->tx_free_frames=AM2150_MAX_TX_FRAMES;
 
-    dev->hard_start_xmit = &mace_start_xmit;
-    dev->set_config = &mace_config;
-    dev->get_stats = &mace_get_stats;
-    dev->set_multicast_list = &set_multicast_list;
+    dev->netdev_ops = &mace_netdev_ops;
     SET_ETHTOOL_OPS(dev, &netdev_ethtool_ops);
-    dev->open = &mace_open;
-    dev->stop = &mace_close;
-#ifdef HAVE_TX_TIMEOUT
-    dev->tx_timeout = mace_tx_timeout;
     dev->watchdog_timeo = TX_TIMEOUT;
-#endif
 
     return nmclan_config(link);
 } /* nmclan_attach */
@@ -659,7 +664,6 @@ static int nmclan_config(struct pcmcia_device *link)
   u_char buf[64];
   int i, last_ret, last_fn;
   unsigned int ioaddr;
-  DECLARE_MAC_BUF(mac);
 
   DEBUG(0, "nmclan_config(0x%p)\n", link);
 
@@ -719,9 +723,9 @@ static int nmclan_config(struct pcmcia_device *link)
   strcpy(lp->node.dev_name, dev->name);
 
   printk(KERN_INFO "%s: nmclan: port %#3lx, irq %d, %s port,"
-	 " hw_addr %s\n",
+	 " hw_addr %pM\n",
 	 dev->name, dev->base_addr, dev->irq, if_names[dev->if_port],
-	 print_mac(mac, dev->dev_addr));
+	 dev->dev_addr);
   return 0;
 
 cs_failed:
@@ -925,7 +929,7 @@ static void mace_tx_timeout(struct net_device *dev)
   printk(KERN_NOTICE "%s: transmit timed out -- ", dev->name);
 #if RESET_ON_TIMEOUT
   printk("resetting card\n");
-  pcmcia_reset_card(link, NULL);
+  pcmcia_reset_card(link->socket);
 #else /* #if RESET_ON_TIMEOUT */
   printk("NOT resetting card\n");
 #endif /* #if RESET_ON_TIMEOUT */
@@ -1193,7 +1197,6 @@ static int mace_rx(struct net_device *dev, unsigned char RxCnt)
 	
 	netif_rx(skb); /* Send the packet to the upper (protocol) layers. */
 
-	dev->last_rx = jiffies;
 	lp->linux_stats.rx_packets++;
 	lp->linux_stats.rx_bytes += pkt_len;
 	outb(0xFF, ioaddr + AM2150_RCV_NEXT); /* skip to next frame */

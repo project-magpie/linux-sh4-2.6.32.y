@@ -153,8 +153,6 @@ static int __sigp_set_arch(struct kvm_vcpu *vcpu, u32 parameter)
 
 	switch (parameter & 0xff) {
 	case 0:
-		printk(KERN_WARNING "kvm: request to switch to ESA/390 mode"
-							" not supported");
 		rc = 3; /* not operational */
 		break;
 	case 1:
@@ -236,6 +234,11 @@ int kvm_s390_handle_sigp(struct kvm_vcpu *vcpu)
 	u16 cpu_addr = vcpu->arch.guest_gprs[r3];
 	u8 order_code;
 	int rc;
+
+	/* sigp in userspace can exit */
+	if (vcpu->arch.sie_block->gpsw.mask & PSW_MASK_PSTATE)
+		return kvm_s390_inject_program_int(vcpu,
+						   PGM_PRIVILEGED_OPERATION);
 
 	order_code = disp2;
 	if (base2)

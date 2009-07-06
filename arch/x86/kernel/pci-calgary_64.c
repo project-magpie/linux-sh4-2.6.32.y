@@ -217,16 +217,6 @@ static inline unsigned long verify_bit_range(unsigned long* bitmap,
 
 #endif /* CONFIG_IOMMU_DEBUG */
 
-static inline unsigned int num_dma_pages(unsigned long dma, unsigned int dmalen)
-{
-	unsigned int npages;
-
-	npages = PAGE_ALIGN(dma + dmalen) - (dma & PAGE_MASK);
-	npages >>= PAGE_SHIFT;
-
-	return npages;
-}
-
 static inline int translation_enabled(struct iommu_table *tbl)
 {
 	/* only PHBs with translation enabled have an IOMMU table */
@@ -261,7 +251,7 @@ static void iommu_range_reserve(struct iommu_table *tbl,
 			       badbit, tbl, start_addr, npages);
 	}
 
-	set_bit_string(tbl->it_map, index, npages);
+	iommu_area_reserve(tbl->it_map, index, npages);
 
 	spin_unlock_irqrestore(&tbl->it_lock, flags);
 }
@@ -390,8 +380,9 @@ static inline struct iommu_table *find_iommu_table(struct device *dev)
 	return tbl;
 }
 
-static void calgary_unmap_sg(struct device *dev,
-	struct scatterlist *sglist, int nelems, int direction)
+static void calgary_unmap_sg(struct device *dev, struct scatterlist *sglist,
+			     int nelems,enum dma_data_direction dir,
+			     struct dma_attrs *attrs)
 {
 	struct iommu_table *tbl = find_iommu_table(dev);
 	struct scatterlist *s;
@@ -408,13 +399,14 @@ static void calgary_unmap_sg(struct device *dev,
 		if (dmalen == 0)
 			break;
 
-		npages = num_dma_pages(dma, dmalen);
+		npages = iommu_num_pages(dma, dmalen, PAGE_SIZE);
 		iommu_free(tbl, dma, npages);
 	}
 }
 
 static int calgary_map_sg(struct device *dev, struct scatterlist *sg,
-	int nelems, int direction)
+			  int nelems, enum dma_data_direction dir,
+			  struct dma_attrs *attrs)
 {
 	struct iommu_table *tbl = find_iommu_table(dev);
 	struct scatterlist *s;
@@ -427,7 +419,7 @@ static int calgary_map_sg(struct device *dev, struct scatterlist *sg,
 		BUG_ON(!sg_page(s));
 
 		vaddr = (unsigned long) sg_virt(s);
-		npages = num_dma_pages(vaddr, s->length);
+		npages = iommu_num_pages(vaddr, s->length, PAGE_SIZE);
 
 		entry = iommu_range_alloc(dev, tbl, npages);
 		if (entry == bad_dma_address) {
@@ -439,15 +431,14 @@ static int calgary_map_sg(struct device *dev, struct scatterlist *sg,
 		s->dma_address = (entry << PAGE_SHIFT) | s->offset;
 
 		/* insert into HW table */
-		tce_build(tbl, entry, npages, vaddr & PAGE_MASK,
-			  direction);
+		tce_build(tbl, entry, npages, vaddr & PAGE_MASK, dir);
 
 		s->dma_length = s->length;
 	}
 
 	return nelems;
 error:
-	calgary_unmap_sg(dev, sg, nelems, direction);
+	calgary_unmap_sg(dev, sg, nelems, dir, NULL);
 	for_each_sg(sg, s, nelems, i) {
 		sg->dma_address = bad_dma_address;
 		sg->dma_length = 0;
@@ -455,28 +446,31 @@ error:
 	return 0;
 }
 
-static dma_addr_t calgary_map_single(struct device *dev, phys_addr_t paddr,
-	size_t size, int direction)
+static dma_addr_t calgary_map_page(struct device *dev, struct page *page,
+				   unsigned long offset, size_t size,
+				   enum dma_data_direction dir,
+				   struct dma_attrs *attrs)
 {
-	void *vaddr = phys_to_virt(paddr);
+	void *vaddr = page_address(page) + offset;
 	unsigned long uaddr;
 	unsigned int npages;
 	struct iommu_table *tbl = find_iommu_table(dev);
 
 	uaddr = (unsigned long)vaddr;
-	npages = num_dma_pages(uaddr, size);
+	npages = iommu_num_pages(uaddr, size, PAGE_SIZE);
 
-	return iommu_alloc(dev, tbl, vaddr, npages, direction);
+	return iommu_alloc(dev, tbl, vaddr, npages, dir);
 }
 
-static void calgary_unmap_single(struct device *dev, dma_addr_t dma_handle,
-	size_t size, int direction)
+static void calgary_unmap_page(struct device *dev, dma_addr_t dma_addr,
+			       size_t size, enum dma_data_direction dir,
+			       struct dma_attrs *attrs)
 {
 	struct iommu_table *tbl = find_iommu_table(dev);
 	unsigned int npages;
 
-	npages = num_dma_pages(dma_handle, size);
-	iommu_free(tbl, dma_handle, npages);
+	npages = iommu_num_pages(dma_addr, size, PAGE_SIZE);
+	iommu_free(tbl, dma_addr, npages);
 }
 
 static void* calgary_alloc_coherent(struct device *dev, size_t size,
@@ -490,6 +484,8 @@ static void* calgary_alloc_coherent(struct device *dev, size_t size,
 	size = PAGE_ALIGN(size); /* size rounded up to full pages */
 	npages = size >> PAGE_SHIFT;
 	order = get_order(size);
+
+	flag &= ~(__GFP_DMA | __GFP_HIGHMEM | __GFP_DMA32);
 
 	/* alloc enough pages (and possibly more) */
 	ret = (void *)__get_free_pages(flag, order);
@@ -510,12 +506,26 @@ error:
 	return ret;
 }
 
-static struct dma_mapping_ops calgary_dma_ops = {
+static void calgary_free_coherent(struct device *dev, size_t size,
+				  void *vaddr, dma_addr_t dma_handle)
+{
+	unsigned int npages;
+	struct iommu_table *tbl = find_iommu_table(dev);
+
+	size = PAGE_ALIGN(size);
+	npages = size >> PAGE_SHIFT;
+
+	iommu_free(tbl, dma_handle, npages);
+	free_pages((unsigned long)vaddr, get_order(size));
+}
+
+static struct dma_map_ops calgary_dma_ops = {
 	.alloc_coherent = calgary_alloc_coherent,
-	.map_single = calgary_map_single,
-	.unmap_single = calgary_unmap_single,
+	.free_coherent = calgary_free_coherent,
 	.map_sg = calgary_map_sg,
 	.unmap_sg = calgary_unmap_sg,
+	.map_page = calgary_map_page,
+	.unmap_page = calgary_unmap_page,
 };
 
 static inline void __iomem * busno_to_bbar(unsigned char num)
@@ -1561,7 +1571,7 @@ static int __init calgary_parse_options(char *p)
 				++p;
 			if (*p == '\0')
 				break;
-			bridge = simple_strtol(p, &endp, 0);
+			bridge = simple_strtoul(p, &endp, 0);
 			if (p == endp)
 				break;
 

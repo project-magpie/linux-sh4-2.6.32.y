@@ -159,6 +159,7 @@
 #define SST39LF800	0x2781
 #define SST39LF160	0x2782
 #define SST39VF1601	0x234b
+#define SST39VF3201	0x235b
 #define SST39LF512	0x00D4
 #define SST39LF010	0x00D5
 #define SST39LF020	0x00D6
@@ -1490,6 +1491,21 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x1000,256)
 		}
 	}, {
+		.mfr_id		= MANUFACTURER_SST,     /* should be CFI */
+		.dev_id		= SST39VF3201,
+		.name		= "SST 39VF3201",
+		.devtypes	= CFI_DEVICETYPE_X16,
+		.uaddr		= MTD_UADDR_0xAAAA_0x5555,
+		.dev_size	= SIZE_4MiB,
+		.cmd_set	= P_ID_AMD_STD,
+		.nr_regions	= 4,
+		.regions	= {
+			ERASEINFO(0x1000,256),
+			ERASEINFO(0x1000,256),
+			ERASEINFO(0x1000,256),
+			ERASEINFO(0x1000,256)
+		}
+	}, {
 		.mfr_id		= MANUFACTURER_SST,
 		.dev_id		= SST36VF3203,
 		.name		= "SST 36VF3203",
@@ -1808,9 +1824,7 @@ static inline u32 jedec_read_mfr(struct map_info *map, uint32_t base,
 	 * several first banks can contain 0x7f instead of actual ID
 	 */
 	do {
-		uint32_t ofs = cfi_build_cmd_addr(0 + (bank << 8),
-						  cfi_interleave(cfi),
-						  cfi->device_type);
+		uint32_t ofs = cfi_build_cmd_addr(0 + (bank << 8), map, cfi);
 		mask = (1 << (cfi->device_type * 8)) - 1;
 		result = map_read(map, base + ofs);
 		bank++;
@@ -1824,7 +1838,7 @@ static inline u32 jedec_read_id(struct map_info *map, uint32_t base,
 {
 	map_word result;
 	unsigned long mask;
-	u32 ofs = cfi_build_cmd_addr(1, cfi_interleave(cfi), cfi->device_type);
+	u32 ofs = cfi_build_cmd_addr(1, map, cfi);
 	mask = (1 << (cfi->device_type * 8)) -1;
 	result = map_read(map, base + ofs);
 	return result.x[0] & mask;
@@ -2067,8 +2081,8 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 
 	}
 	/* Ensure the unlock addresses we try stay inside the map */
-	probe_offset1 = cfi_build_cmd_addr(cfi->addr_unlock1, cfi_interleave(cfi), cfi->device_type);
-	probe_offset2 = cfi_build_cmd_addr(cfi->addr_unlock2, cfi_interleave(cfi), cfi->device_type);
+	probe_offset1 = cfi_build_cmd_addr(cfi->addr_unlock1, map, cfi);
+	probe_offset2 = cfi_build_cmd_addr(cfi->addr_unlock2, map, cfi);
 	if (	((base + probe_offset1 + map_bankwidth(map)) >= map->size) ||
 		((base + probe_offset2 + map_bankwidth(map)) >= map->size))
 		goto retry;

@@ -205,6 +205,7 @@ struct cmdhdr_tbl_entry {
  * Description information bitdefs
  */
 enum {
+	CMD_DESC_RES = (1 << 11),
 	VENDOR_SPECIFIC_BIST = (1 << 10),
 	CMD_DESC_SNOOP_ENABLE = (1 << 9),
 	FPDMA_QUEUED_CMD = (1 << 8),
@@ -332,13 +333,14 @@ static unsigned int sata_fsl_fill_sg(struct ata_queued_cmd *qc, void *cmd_desc,
 		dma_addr_t sg_addr = sg_dma_address(sg);
 		u32 sg_len = sg_dma_len(sg);
 
-		VPRINTK("SATA FSL : fill_sg, sg_addr = 0x%x, sg_len = %d\n",
-			sg_addr, sg_len);
+		VPRINTK("SATA FSL : fill_sg, sg_addr = 0x%llx, sg_len = %d\n",
+			(unsigned long long)sg_addr, sg_len);
 
 		/* warn if each s/g element is not dword aligned */
 		if (sg_addr & 0x03)
 			ata_port_printk(qc->ap, KERN_ERR,
-					"s/g addr unaligned : 0x%x\n", sg_addr);
+					"s/g addr unaligned : 0x%llx\n",
+					(unsigned long long)sg_addr);
 		if (sg_len & 0x03)
 			ata_port_printk(qc->ap, KERN_ERR,
 					"s/g len unaligned : 0x%x\n", sg_len);
@@ -387,7 +389,7 @@ static void sata_fsl_qc_prep(struct ata_queued_cmd *qc)
 	void __iomem *hcr_base = host_priv->hcr_base;
 	unsigned int tag = sata_fsl_tag(qc->tag, hcr_base);
 	struct command_desc *cd;
-	u32 desc_info = CMD_DESC_SNOOP_ENABLE;
+	u32 desc_info = CMD_DESC_RES | CMD_DESC_SNOOP_ENABLE;
 	u32 num_prde = 0;
 	u32 ttl_dwords = 0;
 	dma_addr_t cd_paddr;
@@ -469,10 +471,10 @@ static bool sata_fsl_qc_fill_rtf(struct ata_queued_cmd *qc)
 	return true;
 }
 
-static int sata_fsl_scr_write(struct ata_port *ap, unsigned int sc_reg_in,
-			       u32 val)
+static int sata_fsl_scr_write(struct ata_link *link,
+			      unsigned int sc_reg_in, u32 val)
 {
-	struct sata_fsl_host_priv *host_priv = ap->host->private_data;
+	struct sata_fsl_host_priv *host_priv = link->ap->host->private_data;
 	void __iomem *ssr_base = host_priv->ssr_base;
 	unsigned int sc_reg;
 
@@ -493,10 +495,10 @@ static int sata_fsl_scr_write(struct ata_port *ap, unsigned int sc_reg_in,
 	return 0;
 }
 
-static int sata_fsl_scr_read(struct ata_port *ap, unsigned int sc_reg_in,
-			u32 *val)
+static int sata_fsl_scr_read(struct ata_link *link,
+			     unsigned int sc_reg_in, u32 *val)
 {
-	struct sata_fsl_host_priv *host_priv = ap->host->private_data;
+	struct sata_fsl_host_priv *host_priv = link->ap->host->private_data;
 	void __iomem *ssr_base = host_priv->ssr_base;
 	unsigned int sc_reg;
 
@@ -645,12 +647,12 @@ static int sata_fsl_port_start(struct ata_port *ap)
 	 * Workaround for 8315DS board 3gbps link-up issue,
 	 * currently limit SATA port to GEN1 speed
 	 */
-	sata_fsl_scr_read(ap, SCR_CONTROL, &temp);
+	sata_fsl_scr_read(&ap->link, SCR_CONTROL, &temp);
 	temp &= ~(0xF << 4);
 	temp |= (0x1 << 4);
-	sata_fsl_scr_write(ap, SCR_CONTROL, temp);
+	sata_fsl_scr_write(&ap->link, SCR_CONTROL, temp);
 
-	sata_fsl_scr_read(ap, SCR_CONTROL, &temp);
+	sata_fsl_scr_read(&ap->link, SCR_CONTROL, &temp);
 	dev_printk(KERN_WARNING, dev, "scr_control, speed limited to %x\n",
 			temp);
 #endif
@@ -840,7 +842,7 @@ issue_srst:
 
 	/* device reset/SRST is a control register update FIS, uses tag0 */
 	sata_fsl_setup_cmd_hdr_entry(pp, 0,
-				     SRST_CMD | CMD_DESC_SNOOP_ENABLE, 0, 0, 5);
+		SRST_CMD | CMD_DESC_RES | CMD_DESC_SNOOP_ENABLE, 0, 0, 5);
 
 	tf.ctl |= ATA_SRST;	/* setup SRST bit in taskfile control reg */
 	ata_tf_to_fis(&tf, pmp, 0, cfis);
@@ -868,7 +870,7 @@ issue_srst:
 			ioread32(CQ + hcr_base),
 			ioread32(CA + hcr_base), ioread32(CC + hcr_base));
 
-		sata_fsl_scr_read(ap, SCR_ERROR, &Serror);
+		sata_fsl_scr_read(&ap->link, SCR_ERROR, &Serror);
 
 		DPRINTK("HStatus = 0x%x\n", ioread32(hcr_base + HSTATUS));
 		DPRINTK("HControl = 0x%x\n", ioread32(hcr_base + HCONTROL));
@@ -886,7 +888,8 @@ issue_srst:
 	 * using ATA signature D2H register FIS to the host controller.
 	 */
 
-	sata_fsl_setup_cmd_hdr_entry(pp, 0, CMD_DESC_SNOOP_ENABLE, 0, 0, 5);
+	sata_fsl_setup_cmd_hdr_entry(pp, 0, CMD_DESC_RES | CMD_DESC_SNOOP_ENABLE,
+				      0, 0, 5);
 
 	tf.ctl &= ~ATA_SRST;	/* 2nd H2D Ctl. register FIS */
 	ata_tf_to_fis(&tf, pmp, 0, cfis);
@@ -972,9 +975,9 @@ static void sata_fsl_error_intr(struct ata_port *ap)
 	 * Handle & Clear SError
 	 */
 
-	sata_fsl_scr_read(ap, SCR_ERROR, &SError);
+	sata_fsl_scr_read(&ap->link, SCR_ERROR, &SError);
 	if (unlikely(SError & 0xFFFF0000)) {
-		sata_fsl_scr_write(ap, SCR_ERROR, SError);
+		sata_fsl_scr_write(&ap->link, SCR_ERROR, SError);
 	}
 
 	DPRINTK("error_intr,hStat=0x%x,CE=0x%x,DE =0x%x,SErr=0x%x\n",
@@ -1091,7 +1094,7 @@ static void sata_fsl_host_intr(struct ata_port *ap)
 
 	hstatus = ioread32(hcr_base + HSTATUS);
 
-	sata_fsl_scr_read(ap, SCR_ERROR, &SError);
+	sata_fsl_scr_read(&ap->link, SCR_ERROR, &SError);
 
 	if (unlikely(SError & 0xFFFF0000)) {
 		DPRINTK("serror @host_intr : 0x%x\n", SError);
@@ -1279,8 +1282,8 @@ static struct ata_port_operations sata_fsl_ops = {
 static const struct ata_port_info sata_fsl_port_info[] = {
 	{
 	 .flags = SATA_FSL_HOST_FLAGS,
-	 .pio_mask = 0x1f,	/* pio 0-4 */
-	 .udma_mask = 0x7f,	/* udma 0-6 */
+	 .pio_mask = ATA_PIO4,
+	 .udma_mask = ATA_UDMA6,
 	 .port_ops = &sata_fsl_ops,
 	 },
 };
@@ -1288,7 +1291,7 @@ static const struct ata_port_info sata_fsl_port_info[] = {
 static int sata_fsl_probe(struct of_device *ofdev,
 			const struct of_device_id *match)
 {
-	int retval = 0;
+	int retval = -ENXIO;
 	void __iomem *hcr_base = NULL;
 	void __iomem *ssr_base = NULL;
 	void __iomem *csr_base = NULL;

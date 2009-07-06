@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2004 - 2008 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -48,8 +48,10 @@
 #define CSR_REG_SIZE			0x04b0
 #define EEPROM_BASE			0x0000
 #define EEPROM_SIZE			0x0100
+#define BBP_BASE			0x0000
 #define BBP_SIZE			0x0080
-#define RF_SIZE				0x0014
+#define RF_BASE				0x0004
+#define RF_SIZE				0x0010
 
 /*
  * Number of TX queues.
@@ -86,8 +88,10 @@
 
 /*
  * SOFT_RESET_CSR
+ * FORCE_CLOCK_ON: Host force MAC clock ON
  */
 #define SOFT_RESET_CSR			0x0010
+#define SOFT_RESET_CSR_FORCE_CLOCK_ON	FIELD32(0x00000002)
 
 /*
  * MCU_INT_SOURCE_CSR: MCU interrupt source/mask register.
@@ -134,6 +138,16 @@
 #define PAIRWISE_KEY_TABLE_BASE		0x1200
 #define PAIRWISE_TA_TABLE_BASE		0x1a00
 
+#define SHARED_KEY_ENTRY(__idx) \
+	( SHARED_KEY_TABLE_BASE + \
+		((__idx) * sizeof(struct hw_key_entry)) )
+#define PAIRWISE_KEY_ENTRY(__idx) \
+	( PAIRWISE_KEY_TABLE_BASE + \
+		((__idx) * sizeof(struct hw_key_entry)) )
+#define PAIRWISE_TA_ENTRY(__idx) \
+	( PAIRWISE_TA_TABLE_BASE + \
+		((__idx) * sizeof(struct hw_pairwise_ta_entry)) )
+
 struct hw_key_entry {
 	u8 key[16];
 	u8 tx_mic[8];
@@ -142,7 +156,8 @@ struct hw_key_entry {
 
 struct hw_pairwise_ta_entry {
 	u8 address[6];
-	u8 reserved[2];
+	u8 cipher;
+	u8 reserved;
 } __attribute__ ((packed));
 
 /*
@@ -662,6 +677,10 @@ struct hw_pairwise_ta_entry {
  * SEC_CSR4: Pairwise key table lookup control.
  */
 #define SEC_CSR4			0x30b0
+#define SEC_CSR4_ENABLE_BSS0		FIELD32(0x00000001)
+#define SEC_CSR4_ENABLE_BSS1		FIELD32(0x00000002)
+#define SEC_CSR4_ENABLE_BSS2		FIELD32(0x00000004)
+#define SEC_CSR4_ENABLE_BSS3		FIELD32(0x00000008)
 
 /*
  * SEC_CSR5: shared key table security mode register.
@@ -1037,8 +1056,10 @@ struct hw_pairwise_ta_entry {
 
 /*
  * IO_CNTL_CSR
+ * RF_PS: Set RF interface value to power save
  */
 #define IO_CNTL_CSR			0x3498
+#define IO_CNTL_CSR_RF_PS		FIELD32(0x00000004)
 
 /*
  * UART_INT_SOURCE_CSR
@@ -1169,7 +1190,8 @@ struct hw_pairwise_ta_entry {
 #define EEPROM_NIC			0x0011
 #define EEPROM_NIC_ENABLE_DIVERSITY	FIELD16(0x0001)
 #define EEPROM_NIC_TX_DIVERSITY		FIELD16(0x0002)
-#define EEPROM_NIC_TX_RX_FIXED		FIELD16(0x000c)
+#define EEPROM_NIC_RX_FIXED		FIELD16(0x0004)
+#define EEPROM_NIC_TX_FIXED		FIELD16(0x0008)
 #define EEPROM_NIC_EXTERNAL_LNA_BG	FIELD16(0x0010)
 #define EEPROM_NIC_CARDBUS_ACCEL	FIELD16(0x0020)
 #define EEPROM_NIC_EXTERNAL_LNA_A	FIELD16(0x0040)
@@ -1428,8 +1450,10 @@ struct hw_pairwise_ta_entry {
 
 /*
  * Word4
+ * ICV: Received ICV of originally encrypted.
+ * NOTE: This is a guess, the official definition is "reserved"
  */
-#define RXD_W4_RESERVED			FIELD32(0xffffffff)
+#define RXD_W4_ICV			FIELD32(0xffffffff)
 
 /*
  * the above 20-byte is called RXINFO and will be DMAed to MAC RX block
@@ -1465,17 +1489,10 @@ struct hw_pairwise_ta_entry {
 #define MAX_TXPOWER	31
 #define DEFAULT_TXPOWER	24
 
-#define TXPOWER_FROM_DEV(__txpower)		\
-({						\
-	((__txpower) > MAX_TXPOWER) ?		\
-		DEFAULT_TXPOWER : (__txpower);	\
-})
+#define TXPOWER_FROM_DEV(__txpower) \
+	(((u8)(__txpower)) > MAX_TXPOWER) ? DEFAULT_TXPOWER : (__txpower)
 
-#define TXPOWER_TO_DEV(__txpower)			\
-({							\
-	((__txpower) <= MIN_TXPOWER) ? MIN_TXPOWER :	\
-	(((__txpower) >= MAX_TXPOWER) ? MAX_TXPOWER :	\
-	(__txpower));					\
-})
+#define TXPOWER_TO_DEV(__txpower) \
+	clamp_t(char, __txpower, MIN_TXPOWER, MAX_TXPOWER)
 
 #endif /* RT61PCI_H */

@@ -23,7 +23,7 @@
 #define IVTV_QUEUE_H
 
 #define IVTV_DMA_UNMAPPED	((u32) -1)
-#define SLICED_VBI_PIO 1
+#define SLICED_VBI_PIO 0
 
 /* ivtv_buffer utility functions */
 
@@ -53,14 +53,14 @@ static inline int ivtv_use_dma(struct ivtv_stream *s)
 static inline void ivtv_buf_sync_for_cpu(struct ivtv_stream *s, struct ivtv_buffer *buf)
 {
 	if (ivtv_use_dma(s))
-		pci_dma_sync_single_for_cpu(s->itv->dev, buf->dma_handle,
+		pci_dma_sync_single_for_cpu(s->itv->pdev, buf->dma_handle,
 				s->buf_size + 256, s->dma);
 }
 
 static inline void ivtv_buf_sync_for_device(struct ivtv_stream *s, struct ivtv_buffer *buf)
 {
 	if (ivtv_use_dma(s))
-		pci_dma_sync_single_for_device(s->itv->dev, buf->dma_handle,
+		pci_dma_sync_single_for_device(s->itv->pdev, buf->dma_handle,
 				s->buf_size + 256, s->dma);
 }
 
@@ -82,14 +82,14 @@ void ivtv_stream_free(struct ivtv_stream *s);
 static inline void ivtv_stream_sync_for_cpu(struct ivtv_stream *s)
 {
 	if (ivtv_use_dma(s))
-		pci_dma_sync_single_for_cpu(s->itv->dev, s->sg_handle,
+		pci_dma_sync_single_for_cpu(s->itv->pdev, s->sg_handle,
 			sizeof(struct ivtv_sg_element), PCI_DMA_TODEVICE);
 }
 
 static inline void ivtv_stream_sync_for_device(struct ivtv_stream *s)
 {
 	if (ivtv_use_dma(s))
-		pci_dma_sync_single_for_device(s->itv->dev, s->sg_handle,
+		pci_dma_sync_single_for_device(s->itv->pdev, s->sg_handle,
 			sizeof(struct ivtv_sg_element), PCI_DMA_TODEVICE);
 }
 

@@ -109,7 +109,6 @@ static struct irqaction cmt_irq = {
 	.name		= "timer",
 	.handler	= cmt_timer_interrupt,
 	.flags		= IRQF_DISABLED | IRQF_TIMER | IRQF_IRQPOLL,
-	.mask		= CPU_MASK_NONE,
 };
 
 static void cmt_clk_init(struct clk *clk)
@@ -174,7 +173,7 @@ static int cmt_timer_init(void)
 	return 0;
 }
 
-struct sys_timer_ops cmt_timer_ops = {
+static struct sys_timer_ops cmt_timer_ops = {
 	.init		= cmt_timer_init,
 	.start		= cmt_timer_start,
 	.stop		= cmt_timer_stop,

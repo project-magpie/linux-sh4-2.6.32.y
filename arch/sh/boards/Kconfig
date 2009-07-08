@@ -324,6 +324,15 @@ config SH_ST_HMP7100
 	  Select STx7100 HMP board if configuring for an
 	  STMicroelectronics STB71xx HMP Reference Board
 
+config SH_ST_HMP7105
+	bool "HMP7105: STx7105 Reference board"
+	depends on CPU_SUBTYPE_STX7105
+	select SYS_SUPPORTS_PCI
+	select SH_ST_SYNOPSYS_PCI if PCI
+	help
+	  Select HMP7105 if configuring for an STMicroelectronics
+	  HMP7105 reference board.
+
 config SH_ST_HMS1
 	bool "HMS1"
 	depends on CPU_SUBTYPE_STX7100

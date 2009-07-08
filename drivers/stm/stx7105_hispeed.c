@@ -308,6 +308,33 @@ void __init stx7105_configure_ethernet(struct stx7105_ethernet_config *config)
 				STM_GPIO_DIRECTION_ALT_OUT;
 	}
 
+	/*
+	 * This is a workaround for a problem seen on some boards, such as the
+	 * HMP7105, which use the SMSC LAN8700 with no board level logic
+	 * to work around conflicts on mode pin usage with the STx7105.
+	 *
+	 * Background
+	 * The 8700 uses the MII RXD[3] pin as a mode selection at reset
+	 * for whether nINT/TXERR/TXD4 is used as nINT or TXERR. However the
+	 * 7105 uses the same pin as MODE(9), to determine which processor
+	 * boots first.
+	 * Assuming the pull up/down resistors are configured so that
+	 * the ST40 boots first, this is causes the 8700 to treat
+	 * nINT/TXERR as TXERR, which is not what we want.
+	 *
+	 * Workaround
+	 * Force MII_MDINT to be an output, driven low, to indicate there is
+	 * no error.
+	 */
+	if (config->mdint_workaround) {
+		int penultimate_gpio = pad_config->gpio_values_num - 1;
+		struct stm_pad_gpio_value *gpio_value =
+			&pad_config->gpio_values[penultimate_gpio];
+
+		gpio_value->direction =	STM_GPIO_DIRECTION_OUT;
+		gpio_value->value = 0;
+	}
+
 	stx7105_ethernet_platform_data.pad_config = pad_config;
 	stx7105_ethernet_platform_data.bus_id = config->phy_bus;
 

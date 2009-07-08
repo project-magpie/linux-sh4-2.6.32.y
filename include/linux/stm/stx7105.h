@@ -130,6 +130,7 @@ struct stx7105_ethernet_config {
 		stx7105_ethernet_mode_rmii,
 		stx7105_ethernet_mode_reverse_mii,
 	} mode;
+	int mdint_workaround:1;
 	int ext_clk;
 	int phy_bus;
 };

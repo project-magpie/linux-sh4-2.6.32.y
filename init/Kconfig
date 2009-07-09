@@ -1131,20 +1131,9 @@ config MODULE_SRCVERSION_ALL
 	  the version).  With this option, such a "srcversion" field
 	  will be created for all modules.  If unsure, say N.
 
-endif # MODULES
-
-config INIT_ALL_POSSIBLE
-	bool
-	help
-	  Back when each arch used to define their own cpu_online_map and
-	  cpu_possible_map, some of them chose to initialize cpu_possible_map
-	  with all 1s, and others with all 0s.  When they were centralised,
-	  it was better to provide this option than to break all the archs
-	  and have several arch maintainers pursuing me down dark alleys.
-
 config MODULES_BPA2
 	bool "Allocate memory for modules from BPA2"
-	depends on MODULES && BPA2 && SUPERH
+	depends on BPA2 && SUPERH
 	help
 	  Setting this option allows to allocate memory for
 	  modules from BPA2 rather than vmalloc().
@@ -1165,6 +1154,17 @@ config MODULES_BPA2_FALLBACK
 	help
 	   Memory for the module will normally be allocated from the BPA2
 	   partition. However if this flag is set then a second attempt will
+
+endif # MODULES
+
+config INIT_ALL_POSSIBLE
+	bool
+	help
+	  Back when each arch used to define their own cpu_online_map and
+	  cpu_possible_map, some of them chose to initialize cpu_possible_map
+	  with all 1s, and others with all 0s.  When they were centralised,
+	  it was better to provide this option than to break all the archs
+	  and have several arch maintainers pursuing me down dark alleys.
 	   be made to use vmalloc().
 
 config STOP_MACHINE

@@ -711,6 +711,7 @@ int __init llc_station_init(void)
 	ev->type	= LLC_STATION_EV_TYPE_SIMPLE;
 	ev->prim_type	= LLC_STATION_EV_ENABLE_WITHOUT_DUP_ADDR_CHECK;
 	rc = llc_station_next_state(skb);
+	kfree_skb(skb);
 out:
 	return rc;
 }

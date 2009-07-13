@@ -65,7 +65,7 @@
 #include <linux/stm/soc_init.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
-#include <asm/io.h>
+#include <linux/io.h>
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
@@ -1067,7 +1067,7 @@ static u32 iic_stm_func(struct i2c_adapter *adap)
 static struct i2c_algorithm iic_stm_algo = {
 	.master_xfer = iic_stm_xfer,
 	.functionality = iic_stm_func,
-	.algo_control = iic_stm_control
+/*	.algo_control = iic_stm_control */
 };
 
 static ssize_t iic_bus_show_fastmode(struct device *dev,
@@ -1178,7 +1178,8 @@ i2c_hard_wired:
 	pdev->dev.driver_data = i2c_stm;
 	i2c_stm->adapter.timeout = 2;
 	i2c_stm->adapter.retries = 0;
-	i2c_stm->adapter.class = I2C_CLASS_ALL;
+	i2c_stm->adapter.class = I2C_CLASS_HWMON | I2C_CLASS_TV_ANALOG |
+		I2C_CLASS_TV_DIGITAL | I2C_CLASS_DDC | I2C_CLASS_SPD;;
 	sprintf(i2c_stm->adapter.name, "i2c-hw-%d", pdev->id);
 	i2c_stm->adapter.nr = pdev->id;
 	i2c_stm->adapter.algo = &iic_stm_algo;

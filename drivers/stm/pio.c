@@ -873,7 +873,7 @@ static int stpio_sysdev_resume(struct sys_device *dev)
 }
 
 static struct sysdev_class stpio_sysdev_class = {
-	set_kset_name("stpio"),
+	.name = "stpio",
 };
 
 static struct sysdev_driver stpio_sysdev_driver = {

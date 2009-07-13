@@ -403,7 +403,7 @@ static int sysconf_sysdev_resume(struct sys_device *dev)
 }
 
 static struct sysdev_class sysconf_sysdev_class = {
-	set_kset_name("sysconf"),
+	.name = "sysconf",
 };
 
 static struct sysdev_driver sysconf_sysdev_driver = {

@@ -343,7 +343,7 @@ static int emi_sysdev_resume(struct sys_device *dev)
 }
 
 static struct sysdev_class emi_sysdev_class = {
-	set_kset_name("emi"),
+	.name = "emi",
 };
 
 static struct sysdev_driver emi_sysdev_driver = {

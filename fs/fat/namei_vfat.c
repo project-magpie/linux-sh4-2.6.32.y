@@ -316,6 +316,7 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 	int sz = 0, extlen, baselen, i, numtail_baselen, numtail2_baselen;
 	int is_shortname;
 	struct shortname_info base_info, ext_info;
+	unsigned opt_shortname = opts->shortname;
 
 	is_shortname = 1;
 	INIT_SHORTNAME_INFO(&base_info);
@@ -424,13 +425,22 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 	memcpy(name_res, base, baselen);
 	memcpy(name_res + 8, ext, extlen);
 	*lcase = 0;
+
+#ifdef CONFIG_VFAT_NO_CREATE_WITH_LONGNAMES
+	if (is_shortname == 0)
+		return -ENAMETOOLONG;
+	if (!base_info.valid || !ext_info.valid)
+		return -EINVAL;
+	opt_shortname = VFAT_SFN_CREATE_WINNT;
+#endif
+
 	if (is_shortname && base_info.valid && ext_info.valid) {
 		if (vfat_find_form(dir, name_res) == 0)
 			return -EEXIST;
 
-		if (opts->shortname & VFAT_SFN_CREATE_WIN95) {
+		if (opt_shortname & VFAT_SFN_CREATE_WIN95) {
 			return (base_info.upper && ext_info.upper);
-		} else if (opts->shortname & VFAT_SFN_CREATE_WINNT) {
+		} else if (opt_shortname & VFAT_SFN_CREATE_WINNT) {
 			if ((base_info.upper || base_info.lower) &&
 			    (ext_info.upper || ext_info.lower)) {
 				if (!base_info.upper && base_info.lower)
@@ -593,15 +603,19 @@ static int vfat_build_slots(struct inode *dir, const unsigned char *name,
 {
 	struct msdos_sb_info *sbi = MSDOS_SB(dir->i_sb);
 	struct fat_mount_options *opts = &sbi->options;
-	struct msdos_dir_slot *ps;
 	struct msdos_dir_entry *de;
-	unsigned char cksum, lcase;
+	unsigned char lcase;
 	unsigned char msdos_name[MSDOS_NAME];
 	wchar_t *uname;
 	__le16 time, date;
 	u8 time_cs;
-	int err, ulen, usize, i;
+	int err, ulen, usize;
+#ifndef CONFIG_VFAT_NO_CREATE_WITH_LONGNAMES
+	int i;
+	struct msdos_dir_slot *ps;
+	unsigned char cksum;
 	loff_t offset;
+#endif
 
 	*nr_slots = 0;
 
@@ -628,6 +642,9 @@ static int vfat_build_slots(struct inode *dir, const unsigned char *name,
 		goto shortname;
 	}
 
+#ifdef CONFIG_VFAT_NO_CREATE_WITH_LONGNAMES
+	de = (struct msdos_dir_entry *)slots;
+#else
 	/* build the entry of long file name */
 	cksum = fat_checksum(msdos_name);
 
@@ -645,6 +662,7 @@ static int vfat_build_slots(struct inode *dir, const unsigned char *name,
 	}
 	slots[0].id |= 0x40;
 	de = (struct msdos_dir_entry *)ps;
+#endif
 
 shortname:
 	/* build the entry of 8.3 alias name */
@@ -1074,7 +1092,11 @@ static int vfat_get_sb(struct file_system_type *fs_type,
 
 static struct file_system_type vfat_fs_type = {
 	.owner		= THIS_MODULE,
+#ifdef CONFIG_VFAT_NO_CREATE_WITH_LONGNAMES
+	.name		= "lfat",
+#else
 	.name		= "vfat",
+#endif
 	.get_sb		= vfat_get_sb,
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
@@ -1093,6 +1115,9 @@ static void __exit exit_vfat_fs(void)
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("VFAT filesystem support");
 MODULE_AUTHOR("Gordon Chaffee");
+#ifdef CONFIG_VFAT_NO_CREATE_WITH_LONGNAMES
+MODULE_ALIAS("lfat");
+#endif
 
 module_init(init_vfat_fs)
 module_exit(exit_vfat_fs)

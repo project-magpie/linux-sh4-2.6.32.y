@@ -272,9 +272,12 @@ typedef struct elf64_phdr {
 #define SHT_HIUSER	0xffffffff
 
 /* sh_flags */
+#define SHF_NULL	0x0
 #define SHF_WRITE	0x1
 #define SHF_ALLOC	0x2
 #define SHF_EXECINSTR	0x4
+#define SHF_MERGE	0x10
+#define SHF_STRINGS	0x20
 #define SHF_MASKPROC	0xf0000000
 
 /* special section indexes */

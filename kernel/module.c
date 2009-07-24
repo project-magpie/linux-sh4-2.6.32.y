@@ -63,6 +63,28 @@
 #define ARCH_SHF_SMALL 0
 #endif
 
+#undef LKM_LOAD_BENCH
+#ifdef LKM_LOAD_BENCH
+
+#ifdef CONFIG_LKM_ELF_HASH
+const char lkm_loader[] = "ELF hash";
+#else
+const char lkm_loader[] = "Standard";
+#endif
+
+static inline s64 timeval_to_microsec(const struct timeval *tv)
+{
+	return ((s64) tv->tv_sec * 1000000L) + tv->tv_usec;
+}
+
+static inline void print_elapsed(const char *mod, struct timeval *start,
+				struct timeval *end)
+{
+	printk(KERN_INFO"LKM loader: %s - module: %s - spent %llu microsecs\n",
+	lkm_loader, mod, timeval_to_microsec(end)-timeval_to_microsec(start));
+}
+#endif
+
 /* If this is set, the section belongs in the init part of the module */
 #define INIT_OFFSET_MASK (1UL << (BITS_PER_LONG-1))
 
@@ -169,6 +191,12 @@ extern const struct kernel_symbol __start___ksymtab_gpl_future[];
 extern const struct kernel_symbol __stop___ksymtab_gpl_future[];
 extern const struct kernel_symbol __start___ksymtab_gpl_future[];
 extern const struct kernel_symbol __stop___ksymtab_gpl_future[];
+#ifdef CONFIG_LKM_ELF_HASH
+/* Provided by the linker as well*/
+extern const uint32_t __start___ksymtab_htable[];
+extern const uint32_t __start___ksymtab_gpl_htable[];
+extern const uint32_t __start___ksymtab_gpl_future_htable[];
+#endif
 extern const unsigned long __start___kcrctab[];
 extern const unsigned long __start___kcrctab_gpl[];
 extern const unsigned long __start___kcrctab_gpl_future[];
@@ -177,6 +205,10 @@ extern const struct kernel_symbol __start___ksymtab_unused[];
 extern const struct kernel_symbol __stop___ksymtab_unused[];
 extern const struct kernel_symbol __start___ksymtab_unused_gpl[];
 extern const struct kernel_symbol __stop___ksymtab_unused_gpl[];
+#ifdef CONFIG_LKM_ELF_HASH
+extern const uint32_t __start___ksymtab_unused_htable[];
+extern const uint32_t __start___ksymtab_unused_gpl_htable[];
+#endif
 extern const unsigned long __start___kcrctab_unused[];
 extern const unsigned long __start___kcrctab_unused_gpl[];
 #endif
@@ -186,6 +218,38 @@ extern const unsigned long __start___kcrctab_unused_gpl[];
 #else
 #define symversion(base, idx) ((base != NULL) ? ((base) + (idx)) : NULL)
 #endif
+
+#ifdef CONFIG_LKM_ELF_HASH
+#define HTABLE(__tab)	__tab##_htable, __tab
+
+static unsigned long gnu_hash(const unsigned char *name)
+{
+	unsigned long h = 5381;
+	unsigned char c;
+	for (c = *name; c != '\0'; c = *++name)
+		h = h * 33 + c;
+	return h & 0xffffffff;
+}
+
+static bool each_symbol_in_section(const struct symsearch *arr,
+				   unsigned int arrsize,
+				   struct module *owner,
+				   bool (*fn)(const struct symsearch *syms,
+					      struct module *owner,
+					      unsigned int symnum, void *data),
+				   void *data)
+{
+	unsigned int j;
+
+	for (j = 0; j < arrsize; j++) {
+		if (fn(&arr[j], owner, 0, data))
+			return true;
+	}
+
+	return false;
+}
+#else
+#define HTABLE(__tab)	__tab
 
 static bool each_symbol_in_section(const struct symsearch *arr,
 				   unsigned int arrsize,
@@ -205,6 +269,7 @@ static bool each_symbol_in_section(const struct symsearch *arr,
 
 	return false;
 }
+#endif
 
 /* Returns true as soon as fn returns true, otherwise false. */
 bool each_symbol(bool (*fn)(const struct symsearch *arr, struct module *owner,
@@ -212,21 +277,24 @@ bool each_symbol(bool (*fn)(const struct symsearch *arr, struct module *owner,
 {
 	struct module *mod;
 	const struct symsearch arr[] = {
-		{ __start___ksymtab, __stop___ksymtab, __start___kcrctab,
-		  NOT_GPL_ONLY, false },
-		{ __start___ksymtab_gpl, __stop___ksymtab_gpl,
+		{ HTABLE(__start___ksymtab),
+		  __stop___ksymtab, __start___kcrctab,
+		  NOT_GPL_ONLY, false},
+		{ HTABLE(__start___ksymtab_gpl), __stop___ksymtab_gpl,
 		  __start___kcrctab_gpl,
-		  GPL_ONLY, false },
-		{ __start___ksymtab_gpl_future, __stop___ksymtab_gpl_future,
+		  GPL_ONLY, false},
+		{ HTABLE(__start___ksymtab_gpl_future),
+		  __stop___ksymtab_gpl_future,
 		  __start___kcrctab_gpl_future,
-		  WILL_BE_GPL_ONLY, false },
+		  WILL_BE_GPL_ONLY, false},
 #ifdef CONFIG_UNUSED_SYMBOLS
-		{ __start___ksymtab_unused, __stop___ksymtab_unused,
+		{ HTABLE(__start___ksymtab_unused), __stop___ksymtab_unused,
 		  __start___kcrctab_unused,
-		  NOT_GPL_ONLY, true },
-		{ __start___ksymtab_unused_gpl, __stop___ksymtab_unused_gpl,
+		  NOT_GPL_ONLY, true},
+		{ HTABLE(__start___ksymtab_unused_gpl),
+		  __stop___ksymtab_unused_gpl,
 		  __start___kcrctab_unused_gpl,
-		  GPL_ONLY, true },
+		  GPL_ONLY, true},
 #endif
 	};
 
@@ -235,21 +303,21 @@ bool each_symbol(bool (*fn)(const struct symsearch *arr, struct module *owner,
 
 	list_for_each_entry_rcu(mod, &modules, list) {
 		struct symsearch arr[] = {
-			{ mod->syms, mod->syms + mod->num_syms, mod->crcs,
-			  NOT_GPL_ONLY, false },
-			{ mod->gpl_syms, mod->gpl_syms + mod->num_gpl_syms,
-			  mod->gpl_crcs,
+			{ HTABLE(mod->syms), mod->syms + mod->num_syms,
+			  mod->crcs, NOT_GPL_ONLY, false },
+			{ HTABLE(mod->gpl_syms),
+			  mod->gpl_syms + mod->num_gpl_syms, mod->gpl_crcs,
 			  GPL_ONLY, false },
-			{ mod->gpl_future_syms,
+			{ HTABLE(mod->gpl_future_syms),
 			  mod->gpl_future_syms + mod->num_gpl_future_syms,
 			  mod->gpl_future_crcs,
 			  WILL_BE_GPL_ONLY, false },
 #ifdef CONFIG_UNUSED_SYMBOLS
-			{ mod->unused_syms,
+			{ HTABLE(mod->unused_syms),
 			  mod->unused_syms + mod->num_unused_syms,
 			  mod->unused_crcs,
 			  NOT_GPL_ONLY, true },
-			{ mod->unused_gpl_syms,
+			{ HTABLE(mod->unused_gpl_syms),
 			  mod->unused_gpl_syms + mod->num_unused_gpl_syms,
 			  mod->unused_gpl_crcs,
 			  GPL_ONLY, true },
@@ -266,6 +334,9 @@ EXPORT_SYMBOL_GPL(each_symbol);
 struct find_symbol_arg {
 	/* Input */
 	const char *name;
+#ifdef CONFIG_LKM_ELF_HASH
+	unsigned long hash;
+#endif
 	bool gplok;
 	bool warn;
 
@@ -275,15 +346,9 @@ struct find_symbol_arg {
 	const struct kernel_symbol *sym;
 };
 
-static bool find_symbol_in_section(const struct symsearch *syms,
-				   struct module *owner,
-				   unsigned int symnum, void *data)
+static bool check_symbol_license(const struct symsearch *syms,
+				 const struct find_symbol_arg *fsa)
 {
-	struct find_symbol_arg *fsa = data;
-
-	if (strcmp(syms->start[symnum].name, fsa->name) != 0)
-		return false;
-
 	if (!fsa->gplok) {
 		if (syms->licence == GPL_ONLY)
 			return false;
@@ -296,8 +361,13 @@ static bool find_symbol_in_section(const struct symsearch *syms,
 			       "in the kernel source tree for more details.\n");
 		}
 	}
+	return true;
+}
 
 #ifdef CONFIG_UNUSED_SYMBOLS
+static void warn_symbol_unused(const struct symsearch *syms,
+			       const struct find_symbol_arg *fsa)
+{
 	if (syms->unused && fsa->warn) {
 		printk(KERN_WARNING "Symbol %s is marked as UNUSED, "
 		       "however this module is using it.\n", fsa->name);
@@ -309,17 +379,129 @@ static bool find_symbol_in_section(const struct symsearch *syms,
 		       "mailinglist together with submitting your code for "
 		       "inclusion.\n");
 	}
+}
+#else
+static inline void warn_symbol_unused(const struct symsearch *syms,
+			       const struct find_symbol_arg *fsa)
+{
+}
 #endif
+
+#ifdef CONFIG_LKM_ELF_HASH
+
+/* lookup symbol on given range of kernel_symbols
+ * It uses an ELF hash table to perform symbol lookup.
+ * Symbol's hash value are already computed at build time and
+ * available in the .undef.hash ELF section
+ */
+static bool find_symbol_in_section(const struct symsearch *syms,
+				   struct module *owner,
+				   unsigned int unused, void *data)
+{
+	struct find_symbol_arg *fsa = data;
+
+
+	const struct kernel_symbol *ks;
+	unsigned int idx;
+	uint32_t symidx;
+	struct elf_htable ht;
+	uint32_t *htable = (uint32_t *)syms->htable;
+
+	/* Check if the kernel symbol table is empty */
+	if (syms->start == syms->stop)
+		return false;
+
+	/* Sanity check: htable must be not NULL */
+	if (htable == NULL)
+		return false;
+
+	/* Get hash field from the ELF section */
+	ht.nbucket = *htable++;
+	ht.nchain = *htable++;
+	ht.elf_buckets = htable;
+	htable += ht.nbucket;
+	ht.chains = htable;
+
+	/* Perfom lookup using ELF hash table */
+	idx = fsa->hash % ht.nbucket;
+
+	for (symidx = ht.elf_buckets[idx]; symidx != -1;
+	     symidx = ht.chains[symidx]) {
+		ks = syms->start + symidx;
+		/*
+		 * If hash values don't match, we are sure symbols are
+		 * different, otherwise we need to explicitely do string
+		 * comparison.
+		 */
+		if ((ks->hash_value == fsa->hash)
+		    && !strcmp(ks->name, fsa->name)) {
+			if (!check_symbol_license(syms, fsa))
+				return false;
+			warn_symbol_unused(syms, fsa);
+
+			fsa->owner = owner;
+			fsa->crc = symversion(syms->crcs, symidx);
+			fsa->sym = ks;
+
+			return true;
+		} else
+			/*
+			 * After the first try, we are going to look into the
+			 * chain array, so we must be sure that the symidx does
+			 * not cross the boundary.
+			 */
+			if (symidx >= ht.nchain)
+				return false;
+	}
+	return false;
+}
+
+#else
+
+static bool find_symbol_in_section(const struct symsearch *syms,
+				   struct module *owner,
+				   unsigned int symnum, void *data)
+{
+	struct find_symbol_arg *fsa = data;
+
+	if (strcmp(syms->start[symnum].name, fsa->name) != 0)
+		return false;
+
+	if (!check_symbol_license(syms, fsa))
+		return false;
+
+	warn_symbol_unused(syms, fsa);
 
 	fsa->owner = owner;
 	fsa->crc = symversion(syms->crcs, symnum);
 	fsa->sym = &syms->start[symnum];
 	return true;
 }
+#endif
+
+#ifdef CONFIG_LKM_ELF_HASH
+#define HASH_VALUE_PARAM	const unsigned long gnu_hash_value,
+#define HASH_VALUE_ARG		, gnu_hash_value
+#define HASH_VALUE		gnu_hash_value
+#define HASH(__name__)	__name__, gnu_hash(__name__)
+#define SYMHASH_INDEX_PARAM	unsigned int symhashindex,
+#define SYMHASH_INDEX_ARG	symhashindex,
+#define KSYM_HASH(__sym__)	, __sym__->hash_value
+#else
+#define HASH_VALUE_ARG
+#define HASH_VALUE_PARAM
+#define HASH_VALUE
+#define HASH(__name__)		__name__
+#define SYMHASH_INDEX_PARAM
+#define SYMHASH_INDEX_ARG
+#define KSYM_HASH(__sym__)
+
+#endif
 
 /* Find a symbol and return it, along with, (optional) crc and
  * (optional) module which owns it */
-const struct kernel_symbol *find_symbol(const char *name,
+static const struct kernel_symbol *__find_symbol(const char *name,
+					HASH_VALUE_PARAM
 					struct module **owner,
 					const unsigned long **crc,
 					bool gplok,
@@ -328,6 +510,9 @@ const struct kernel_symbol *find_symbol(const char *name,
 	struct find_symbol_arg fsa;
 
 	fsa.name = name;
+#ifdef CONFIG_LKM_ELF_HASH
+	fsa.hash = HASH_VALUE;
+#endif
 	fsa.gplok = gplok;
 	fsa.warn = warn;
 
@@ -341,6 +526,17 @@ const struct kernel_symbol *find_symbol(const char *name,
 
 	DEBUGP("Failed to find symbol %s\n", name);
 	return NULL;
+}
+
+/* Find a symbol and return it, along with, (optional) crc and
+ * (optional) module which owns it */
+const struct kernel_symbol *find_symbol(const char *name,
+					struct module **owner,
+					const unsigned long **crc,
+					bool gplok,
+					bool warn)
+{
+	return __find_symbol(HASH(name), owner, crc, gplok, warn);
 }
 EXPORT_SYMBOL_GPL(find_symbol);
 
@@ -1096,13 +1292,14 @@ static inline int same_magic(const char *amagic, const char *bmagic,
 static const struct kernel_symbol *resolve_symbol(Elf_Shdr *sechdrs,
 						  unsigned int versindex,
 						  const char *name,
+						  HASH_VALUE_PARAM
 						  struct module *mod)
 {
 	struct module *owner;
 	const struct kernel_symbol *sym;
 	const unsigned long *crc;
 
-	sym = find_symbol(name, &owner, &crc,
+	sym = __find_symbol(name HASH_VALUE_ARG, &owner, &crc,
 			  !(mod->taints & (1 << TAINT_PROPRIETARY_MODULE)), true);
 	/* use_module can fail due to OOM,
 	   or module initialization or unloading */
@@ -1547,7 +1744,8 @@ static int verify_export_symbols(struct module *mod)
 
 	for (i = 0; i < ARRAY_SIZE(arr); i++) {
 		for (s = arr[i].sym; s < arr[i].sym + arr[i].num; s++) {
-			if (find_symbol(s->name, &owner, NULL, true, false)) {
+			if (__find_symbol(s->name KSYM_HASH(s), &owner, NULL,
+					true, false)) {
 				printk(KERN_ERR
 				       "%s: exports duplicate symbol %s"
 				       " (owned by %s)\n",
@@ -1562,6 +1760,7 @@ static int verify_export_symbols(struct module *mod)
 /* Change all symbols so that st_value encodes the pointer directly. */
 static int simplify_symbols(Elf_Shdr *sechdrs,
 			    unsigned int symindex,
+			    SYMHASH_INDEX_PARAM
 			    const char *strtab,
 			    unsigned int versindex,
 			    unsigned int pcpuindex,
@@ -1572,6 +1771,14 @@ static int simplify_symbols(Elf_Shdr *sechdrs,
 	unsigned int i, n = sechdrs[symindex].sh_size / sizeof(Elf_Sym);
 	int ret = 0;
 	const struct kernel_symbol *ksym;
+#ifdef CONFIG_LKM_ELF_HASH
+#define SYM_HASH_VALUE hash_values[u++],
+	unsigned long *hash_values = (void *)sechdrs[symhashindex].sh_addr;
+	unsigned int u = 0;
+#else
+#define SYM_HASH_VALUE
+#endif
+
 
 	for (i = 1; i < n; i++) {
 		switch (sym[i].st_shndx) {
@@ -1592,7 +1799,8 @@ static int simplify_symbols(Elf_Shdr *sechdrs,
 
 		case SHN_UNDEF:
 			ksym = resolve_symbol(sechdrs, versindex,
-					      strtab + sym[i].st_name, mod);
+					      strtab + sym[i].st_name,
+					      SYM_HASH_VALUE mod);
 			/* Ok if resolved.  */
 			if (ksym) {
 				sym[i].st_value = ksym->value;
@@ -1891,6 +2099,9 @@ static noinline struct module *load_module(void __user *umod,
 	unsigned int i;
 	unsigned int symindex = 0;
 	unsigned int strindex = 0;
+#ifdef CONFIG_LKM_ELF_HASH
+	unsigned int symhashindex = 0;
+#endif
 	unsigned int modindex, versindex, infoindex, pcpuindex;
 	unsigned int num_mcount;
 	struct module *mod;
@@ -1898,6 +2109,9 @@ static noinline struct module *load_module(void __user *umod,
 	void *percpu = NULL, *ptr = NULL; /* Stops spurious gcc warning */
 	unsigned long *mseg;
 	mm_segment_t old_fs;
+#ifdef LKM_LOAD_BENCH
+	struct timeval start, end;
+#endif
 
 	DEBUGP("load_module: umod=%p, len=%lu, uargs=%p\n",
 	       umod, len, uargs);
@@ -1970,6 +2184,20 @@ static noinline struct module *load_module(void __user *umod,
 		err = -ENOEXEC;
 		goto free_hdr;
 	}
+
+#ifdef CONFIG_LKM_ELF_HASH
+	/*
+	 * .undef.hash section must be there, even if empty.
+	 * It helps to check for mis-configured modules
+	 */
+	symhashindex = find_sec(hdr, sechdrs, secstrings, ".undef.hash");
+	if (symhashindex == 0) {
+		printk(KERN_WARNING "%s: module has no .undef.hash section\n",
+		       mod->name);
+		err = -ENOEXEC;
+		goto free_hdr;
+	}
+#endif
 
 	versindex = find_sec(hdr, sechdrs, secstrings, "__versions");
 	infoindex = find_sec(hdr, sechdrs, secstrings, ".modinfo");
@@ -2123,12 +2351,19 @@ static noinline struct module *load_module(void __user *umod,
 	/* Set up MODINFO_ATTR fields */
 	setup_modinfo(mod, sechdrs, infoindex);
 
+#ifdef LKM_LOAD_BENCH
+	do_gettimeofday(&start);
+#endif
 	/* Fix up syms, so that st_value is a pointer to location. */
-	err = simplify_symbols(sechdrs, symindex, strtab, versindex, pcpuindex,
-			       mod);
+	err = simplify_symbols(sechdrs, symindex, SYMHASH_INDEX_ARG strtab,
+				versindex, pcpuindex, mod);
 	if (err < 0)
 		goto cleanup;
 
+#ifdef LKM_LOAD_BENCH
+	do_gettimeofday(&end);
+	print_elapsed(mod->name, &start, &end);
+#endif
 	/* Now we've got everything in the final locations, we can
 	 * find optional sections. */
 	mod->kp = section_objs(hdr, sechdrs, secstrings, "__param",
@@ -2147,6 +2382,17 @@ static noinline struct module *load_module(void __user *umod,
 	mod->gpl_future_crcs = section_addr(hdr, sechdrs, secstrings,
 					    "__kcrctab_gpl_future");
 
+#ifdef CONFIG_LKM_ELF_HASH
+	/* ELF hash tables for exported symbols sections */
+	mod->syms_htable = section_addr(hdr, sechdrs, secstrings,
+					"__ksymtab.htable");
+	mod->gpl_syms_htable = section_addr(hdr, sechdrs, secstrings,
+						"__ksymtab_gpl.htable");
+	mod->gpl_future_syms_htable = section_addr(hdr, sechdrs, secstrings,
+						"__ksymtab_gpl_future.htable");
+#endif
+
+
 #ifdef CONFIG_UNUSED_SYMBOLS
 	mod->unused_syms = section_objs(hdr, sechdrs, secstrings,
 					"__ksymtab_unused",
@@ -2160,6 +2406,12 @@ static noinline struct module *load_module(void __user *umod,
 					    &mod->num_unused_gpl_syms);
 	mod->unused_gpl_crcs = section_addr(hdr, sechdrs, secstrings,
 					    "__kcrctab_unused_gpl");
+#ifdef CONFIG_LKM_ELF_HASH
+	mod->unused_syms_htable = section_addr(hdr, sechdrs, secstrings,
+						"__ksymtab_unused.htable");
+	mod->unused_gpl_syms_htable = section_addr(hdr, sechdrs, secstrings,
+						"__ksymtab_unused_gpl.htable");
+#endif
 #endif
 
 #ifdef CONFIG_MARKERS

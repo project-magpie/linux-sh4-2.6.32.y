@@ -173,6 +173,39 @@
 									\
 	TRACEDATA							\
 									\
+	/* Kernel ELF hash symbol table: Normal symbols */		\
+	__ksymtab.htable         : AT(ADDR(__ksymtab.htable) - LOAD_OFFSET) {\
+		VMLINUX_SYMBOL(__start___ksymtab_htable) = .;		\
+		*(__ksymtab.htable)					\
+	}								\
+									\
+	/* Kernel ELF hash symbol table: GPL-only symbols */		\
+	__ksymtab_gpl.htable  : AT(ADDR(__ksymtab_gpl.htable) - LOAD_OFFSET) { \
+		VMLINUX_SYMBOL(__start___ksymtab_gpl_htable) = .;	\
+		*(__ksymtab_gpl.htable)					\
+	}								\
+									\
+	/* Kernel ELF hash symbol table: GPL-future-only symbols */	\
+	__ksymtab_gpl_future.htable : 					\
+		AT(ADDR(__ksymtab_gpl_future.htable) - LOAD_OFFSET) {	\
+		VMLINUX_SYMBOL(__start___ksymtab_gpl_future_htable) = .;\
+		*(__ksymtab_gpl_future.htable)				\
+	}								\
+									\
+	/* Kernel ELF hash symbol table: Normal unused symbols */	\
+	__ksymtab_unused.htable :					\
+		AT(ADDR(__ksymtab_unused.htable) - LOAD_OFFSET) {	\
+		VMLINUX_SYMBOL(__start___ksymtab_unused_htable) = .;	\
+		*(__ksymtab_unused.htable)				\
+	}								\
+									\
+	/* Kernel ELF hash symbol table: GPL-only unused symbols */	\
+	__ksymtab_unused_gpl.htable :					\
+		AT(ADDR(__ksymtab_unused_gpl.htable) - LOAD_OFFSET) {	\
+		VMLINUX_SYMBOL(__start___ksymtab_unused_gpl_htable) = .;\
+		*(__ksymtab_unused_gpl.htable)				\
+	}								\
+									\
 	/* Kernel symbol table: Normal symbols */			\
 	__ksymtab         : AT(ADDR(__ksymtab) - LOAD_OFFSET) {		\
 		VMLINUX_SYMBOL(__start___ksymtab) = .;			\

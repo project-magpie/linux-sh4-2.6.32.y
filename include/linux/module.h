@@ -35,7 +35,28 @@ struct kernel_symbol
 {
 	unsigned long value;
 	const char *name;
+#ifdef CONFIG_LKM_ELF_HASH
+	unsigned long hash_value;
+#endif
 };
+
+#ifdef CONFIG_LKM_ELF_HASH
+/*
+ * This maps the ELF hash table
+ * The entries in the .hash table always have a size of 32 bits.
+ */
+
+struct elf_htable {
+	uint32_t nbucket;
+	uint32_t nchain;
+	const uint32_t *elf_buckets;
+	const uint32_t *chains;
+};
+
+#define DECL_ELF_HTABLE(__syms)	const uint32_t *__syms##_htable;
+#else
+#define DECL_ELF_HTABLE(__syms)
+#endif
 
 struct modversion_info
 {
@@ -187,6 +208,12 @@ void *__symbol_get_gpl(const char *symbol);
 #define __CRC_SYMBOL(sym, sec)
 #endif
 
+#ifdef CONFIG_LKM_ELF_HASH
+#define KERNEL_SYMBOL_HASH_VALUE , -1L
+#else
+#define KERNEL_SYMBOL_HASH_VALUE
+#endif
+
 /* For every exported symbol, place a struct in the __ksymtab section */
 #define __EXPORT_SYMBOL(sym, sec)				\
 	extern typeof(sym) sym;					\
@@ -197,7 +224,7 @@ void *__symbol_get_gpl(const char *symbol);
 	static const struct kernel_symbol __ksymtab_##sym	\
 	__used							\
 	__attribute__((section("__ksymtab" sec), unused))	\
-	= { (unsigned long)&sym, __kstrtab_##sym }
+	= { (unsigned long)&sym, __kstrtab_##sym KERNEL_SYMBOL_HASH_VALUE}
 
 #define EXPORT_SYMBOL(sym)					\
 	__EXPORT_SYMBOL(sym, "")
@@ -247,6 +274,7 @@ struct module
 	const struct kernel_symbol *syms;
 	const unsigned long *crcs;
 	unsigned int num_syms;
+	DECL_ELF_HTABLE(syms);
 
 	/* Kernel parameters. */
 	struct kernel_param *kp;
@@ -256,23 +284,27 @@ struct module
 	unsigned int num_gpl_syms;
 	const struct kernel_symbol *gpl_syms;
 	const unsigned long *gpl_crcs;
+	DECL_ELF_HTABLE(gpl_syms);
 
 #ifdef CONFIG_UNUSED_SYMBOLS
 	/* unused exported symbols. */
 	const struct kernel_symbol *unused_syms;
 	const unsigned long *unused_crcs;
 	unsigned int num_unused_syms;
+	DECL_ELF_HTABLE(unused_syms);
 
 	/* GPL-only, unused exported symbols. */
 	unsigned int num_unused_gpl_syms;
 	const struct kernel_symbol *unused_gpl_syms;
 	const unsigned long *unused_gpl_crcs;
+	DECL_ELF_HTABLE(unused_gpl_syms);
 #endif
 
 	/* symbols that will be GPL-only in the near future. */
 	const struct kernel_symbol *gpl_future_syms;
 	const unsigned long *gpl_future_crcs;
 	unsigned int num_gpl_future_syms;
+	DECL_ELF_HTABLE(gpl_future_syms);
 
 	/* Exception table */
 	unsigned int num_exentries;
@@ -390,6 +422,9 @@ static inline int within_module_init(unsigned long addr, struct module *mod)
 struct module *find_module(const char *name);
 
 struct symsearch {
+#ifdef CONFIG_LKM_ELF_HASH
+	const uint32_t *htable;
+#endif
 	const struct kernel_symbol *start, *stop;
 	const unsigned long *crcs;
 	enum {

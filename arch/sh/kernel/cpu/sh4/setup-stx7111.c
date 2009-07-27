@@ -488,7 +488,7 @@ static int __init stb7111_add_asc(void)
 arch_initcall(stb7111_add_asc);
 
 /* LiRC resources ---------------------------------------------------------- */
-static struct lirc_pio lirc_pios[] = {
+static struct lirc_pio_s lirc_pios[] = {
         [0] = {
 		.bank = 3,
 		.pin  = 3,
@@ -515,7 +515,7 @@ static struct lirc_pio lirc_pios[] = {
 	},
 };
 
-static struct plat_lirc_data lirc_private_info = {
+static struct lirc_plat_data_s lirc_private_info = {
 	/* For the 7111, the clock settings will be calculated by the driver
 	 * from the system clock
 	 */
@@ -538,10 +538,8 @@ static struct plat_lirc_data lirc_private_info = {
 static struct platform_device lirc_device =
 	STLIRC_DEVICE(0xfd018000, evt2irq(0x11a0), ILC_EXT_IRQ(4));
 
-void __init stx7111_configure_lirc(lirc_scd_t *scd)
+void __init stx7111_configure_lirc(void)
 {
-	lirc_private_info.scd_info = scd;
-
 	platform_device_register(&lirc_device);
 }
 

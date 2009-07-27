@@ -991,7 +991,7 @@ static int __init stx7141_add_asc(void)
 arch_initcall(stx7141_add_asc);
 
 /* LiRC resources ---------------------------------------------------------- */
-static struct lirc_pio lirc_pios[] = {
+static struct lirc_pio_s lirc_pios[] = {
 	[0] = {
 		.bank  = 3,
 		.pin   = 7,
@@ -1018,7 +1018,7 @@ static struct lirc_pio lirc_pios[] = {
 	},
 };
 
-static struct plat_lirc_data lirc_private_info = {
+static struct lirc_plat_data_s lirc_private_info = {
 	/* For the 7141, the clock settings will be calculated by the driver
 	 * from the system clock
 	 */
@@ -1041,13 +1041,12 @@ static struct plat_lirc_data lirc_private_info = {
 static struct platform_device lirc_device =
 	STLIRC_DEVICE(0xfd018000, ILC_IRQ(81), ILC_IRQ(86));
 
-void __init stx7141_configure_lirc(lirc_scd_t *scd)
+void __init stx7141_configure_lirc(void)
 {
-	lirc_private_info.scd_info = scd;
-	stx7141_pio_sysconf(5, 2, 1, "lirc");
-	stx7141_pio_sysconf(3, 7, 1, "lirc");
-	stx7141_pio_sysconf(5, 3, 1, "lirc");
-	stx7141_pio_sysconf(5, 4, 1, "lirc");
+	stx7141_pio_sysconf(5, 2, 1, LIRC_STM_NAME);
+	stx7141_pio_sysconf(3, 7, 1, LIRC_STM_NAME);
+	stx7141_pio_sysconf(5, 3, 1, LIRC_STM_NAME);
+	stx7141_pio_sysconf(5, 4, 1, LIRC_STM_NAME);
 	platform_device_register(&lirc_device);
 }
 

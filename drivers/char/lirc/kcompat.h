@@ -1,9 +1,13 @@
-/*      $Id: kcompat.h,v 5.34 2008/01/13 10:26:28 lirc Exp $      */
+/*      $Id: kcompat.h,v 5.44 2009/03/22 08:45:47 lirc Exp $      */
 
 #ifndef _KCOMPAT_H
 #define _KCOMPAT_H
 
 #include <linux/version.h>
+
+#ifndef __func__
+#define __func__ __FUNCTION__
+#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 16)
 #define LIRC_THIS_MODULE(x) x,
@@ -36,10 +40,10 @@ static inline void class_destroy(lirc_class_t *cls)
 	class_simple_destroy(cls);
 }
 
-#define lirc_class_device_create(cs, parent, dev, device, fmt, args...) \
-	class_simple_device_add(cs, dev, device, fmt, ## args)
+#define lirc_device_create(cs, parent, dev, drvdata, fmt, args...) \
+	class_simple_device_add(cs, dev, parent, fmt, ## args)
 
-static inline void class_device_destroy(lirc_class_t *cls, dev_t devt)
+static inline void lirc_device_destroy(lirc_class_t *cls, dev_t devt)
 {
 	class_simple_device_remove(devt);
 }
@@ -48,19 +52,48 @@ static inline void class_device_destroy(lirc_class_t *cls, dev_t devt)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 15)
 
-#define lirc_class_device_create(cs, parent, dev, device, fmt, args...) \
-	class_device_create(cs, dev, device, fmt, ## args)
+#define lirc_device_create(cs, parent, dev, drvdata, fmt, args...) \
+	class_device_create(cs, dev, parent, fmt, ## args)
 
 #else /* >= 2.6.15 */
 
-#define lirc_class_device_create class_device_create
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 26)
+
+#define lirc_device_create(cs, parent, dev, drvdata, fmt, args...) \
+	class_device_create(cs, NULL, dev, parent, fmt, ## args)
+
+#else /* >= 2.6.26 */
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 27)
+
+#define lirc_device_create(cs, parent, dev, drvdata, fmt, args...) \
+	device_create(cs, parent, dev, fmt, ## args)
+
+#else /* >= 2.6.27 */
+
+#define lirc_device_create device_create
+
+#endif /* >= 2.6.27 */
+
+#endif /* >= 2.6.26 */
+
 #define LIRC_DEVFS_PREFIX
 
-#endif
+#endif /* >= 2.6.15 */
 
 typedef struct class lirc_class_t;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 26)
+
+#define lirc_device_destroy class_device_destroy
+
+#else
+
+#define lirc_device_destroy device_destroy
+
 #endif
+
+#endif /* >= 2.6.13 */
 
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 4, 0)
 #define LIRC_HAVE_DEVFS
@@ -133,8 +166,8 @@ static inline void del_timer_sync(struct timer_list *timerlist)
 #ifndef LIRC_HAVE_SYSFS
 #define class_destroy(x) do { } while (0)
 #define class_create(x, y) NULL
-#define class_device_destroy(x, y) do { } while (0)
-#define lirc_class_device_create(x, y, z, xx, yy, zz) 0
+#define lirc_device_destroy(x, y) do { } while (0)
+#define lirc_device_create(x, y, z, xx, yy, zz) 0
 #define IS_ERR(x) 0
 typedef struct class_simple
 {
@@ -344,6 +377,26 @@ typedef u32 pm_message_t;
 /* added in 2.6.11 */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 11)
 #define DEFINE_SPINLOCK(x) spinlock_t x = SPIN_LOCK_UNLOCKED
+#endif
+
+/***************************** slab.h *********************************/
+/* added in 2.6.14 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 14)
+static inline void *kzalloc(size_t size, gfp_t flags)
+{
+        void *ret = kmalloc(size, flags);
+        if (ret)
+                memset(ret, 0, size);
+        return ret;
+}
+#endif
+
+/****************************** fs.h **********************************/
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 0)
+static inline unsigned iminor(struct inode *inode)
+{
+	return MINOR(inode->i_rdev);
+}
 #endif
 
 #endif /* _KCOMPAT_H */

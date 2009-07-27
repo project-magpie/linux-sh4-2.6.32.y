@@ -206,7 +206,7 @@ static int __init device_init(void)
 	stx7200_configure_ethernet(1, 0, 1, 1);
 #endif
 
-	stx7200_configure_lirc(NULL);
+	stx7200_configure_lirc();
 
 	return platform_add_devices(mb671_devices, ARRAY_SIZE(mb671_devices));
 }

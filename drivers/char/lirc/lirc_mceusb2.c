@@ -39,9 +39,7 @@
 #error "Sorry, this driver needs kernel version 2.6.5 or higher"
 #error "*******************************************************"
 #endif
-
 #include <linux/autoconf.h>
-
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/init.h>
@@ -56,7 +54,6 @@
 #include <linux/uaccess.h>
 #endif
 #include <linux/usb.h>
-#include <linux/poll.h>
 #include <linux/wait.h>
 #include <linux/time.h>
 
@@ -64,14 +61,14 @@
 #include "kcompat.h"
 #include "lirc_dev.h"
 
-#define DRIVER_VERSION	"$Revision: 1.44 $"
+#define DRIVER_VERSION	"$Revision: 1.81 $"
 #define DRIVER_AUTHOR	"Daniel Melander <lirc@rajidae.se>, " \
 			"Martin Blatter <martin_a_blatter@yahoo.com>"
 #define DRIVER_DESC	"Philips eHome USB IR Transceiver and Microsoft " \
 			"MCE 2005 Remote Control driver for LIRC"
 #define DRIVER_NAME	"lirc_mceusb2"
 
-#define USB_BUFLEN	16	/* USB reception buffer length */
+#define USB_BUFLEN	32	/* USB reception buffer length */
 #define LIRCBUF_SIZE	256	/* LIRC work buffer length */
 
 /* MCE constants */
@@ -87,6 +84,7 @@
 #define MCE_PULSE_BIT	0x80 /* Pulse bit, MSB set == PULSE else SPACE */
 #define MCE_PULSE_MASK	0x7F /* Pulse mask */
 #define MCE_MAX_PULSE_LENGTH 0x7F /* Longest transmittable pulse symbol */
+#define MCE_PACKET_LENGTH_MASK  0x7F /* Pulse mask */
 
 
 /* module parameters */
@@ -101,13 +99,7 @@ static int debug;
 			printk(KERN_DEBUG fmt, ## args);	\
 	} while (0)
 
-/* lock irctl structure */
-/*#define IRLOCK	down_interruptible(&ir->lock) */
-#define IRLOCK		down(&ir->lock)
-#define IRUNLOCK	up(&ir->lock)
-
 /* general constants */
-#define SUCCESS			0
 #define SEND_FLAG_IN_PROGRESS	1
 #define SEND_FLAG_COMPLETE	2
 #define RECV_FLAG_IN_PROGRESS	3
@@ -131,14 +123,25 @@ static int debug;
 #define VENDOR_MICROSOFT	0x045e
 #define VENDOR_FORMOSA		0x147a
 #define VENDOR_FINTEK		0x1934
+#define VENDOR_PINNACLE		0x2304
+#define VENDOR_ECS		0x1019
+#define VENDOR_WISTRON		0x0fb8
+#define VENDOR_COMPRO		0x185b
+#define VENDOR_NORTHSTAR	0x04eb
 
-static struct usb_device_id usb_remote_table [] = {
-	/* Philips eHome Infrared Transceiver */
-	{ USB_DEVICE(VENDOR_PHILIPS, 0x0815) },
+static struct usb_device_id mceusb_dev_table[] = {
+	/* Philips Infrared Transceiver - Sahara branded */
+	{ USB_DEVICE(VENDOR_PHILIPS, 0x0608) },
 	/* Philips Infrared Transceiver - HP branded */
 	{ USB_DEVICE(VENDOR_PHILIPS, 0x060c) },
 	/* Philips SRM5100 */
 	{ USB_DEVICE(VENDOR_PHILIPS, 0x060d) },
+	/* Philips Infrared Transceiver - Omaura */
+	{ USB_DEVICE(VENDOR_PHILIPS, 0x060f) },
+	/* Philips Infrared Transceiver - Spinel plus */
+	{ USB_DEVICE(VENDOR_PHILIPS, 0x0613) },
+	/* Philips eHome Infrared Transceiver */
+	{ USB_DEVICE(VENDOR_PHILIPS, 0x0815) },
 	/* SMK/Toshiba G83C0004D410 */
 	{ USB_DEVICE(VENDOR_SMK, 0x031d) },
 	/* SMK eHome Infrared Transceiver (Sony VAIO) */
@@ -175,18 +178,48 @@ static struct usb_device_id usb_remote_table [] = {
 	{ USB_DEVICE(VENDOR_MICROSOFT, 0x00a0) },
 	/* Formosa eHome Infrared Transceiver */
 	{ USB_DEVICE(VENDOR_FORMOSA, 0xe015) },
+	/* Formosa21 / eHome Infrared Receiver */
+	{ USB_DEVICE(VENDOR_FORMOSA, 0xe016) },
 	/* Formosa aim / Trust MCE Infrared Receiver */
 	{ USB_DEVICE(VENDOR_FORMOSA, 0xe017) },
 	/* Formosa Industrial Computing / Beanbag Emulation Device */
 	{ USB_DEVICE(VENDOR_FORMOSA, 0xe018) },
 	/* Fintek eHome Infrared Transceiver */
 	{ USB_DEVICE(VENDOR_FINTEK, 0x0602) },
+	/* Fintek eHome Infrared Transceiver (in the AOpen MP45) */
+	{ USB_DEVICE(VENDOR_FINTEK, 0x0702) },
+	/* Pinnacle Remote Kit */
+	{ USB_DEVICE(VENDOR_PINNACLE, 0x0225) },
+	/* Elitegroup Computer Systems IR */
+	{ USB_DEVICE(VENDOR_ECS, 0x0f38) },
+	/* Wistron Corp. eHome Infrared Receiver */
+	{ USB_DEVICE(VENDOR_WISTRON, 0x0002) },
+	/* Compro K100 */
+	{ USB_DEVICE(VENDOR_COMPRO, 0x3020) },
+	/* Northstar Systems eHome Infrared Transceiver */
+	{ USB_DEVICE(VENDOR_NORTHSTAR, 0xe004) },
 	/* Terminating entry */
 	{ }
 };
 
-/* data structure for each usb remote */
-struct irctl {
+static struct usb_device_id pinnacle_list[] = {
+	{ USB_DEVICE(VENDOR_PINNACLE, 0x0225) },
+	{}
+};
+
+static struct usb_device_id transmitter_mask_list[] = {
+	{ USB_DEVICE(VENDOR_SMK, 0x031d) },
+	{ USB_DEVICE(VENDOR_SMK, 0x0322) },
+	{ USB_DEVICE(VENDOR_SMK, 0x0334) },
+	{ USB_DEVICE(VENDOR_TOPSEED, 0x0001) },
+	{ USB_DEVICE(VENDOR_TOPSEED, 0x0007) },
+	{ USB_DEVICE(VENDOR_TOPSEED, 0x0008) },
+	{ USB_DEVICE(VENDOR_PINNACLE, 0x0225) },
+	{}
+};
+
+/* data structure for each usb transceiver */
+struct mceusb2_dev {
 
 	/* usb */
 	struct usb_device *usbdev;
@@ -202,10 +235,15 @@ struct irctl {
 	dma_addr_t dma_out;
 
 	/* lirc */
-	struct lirc_plugin *p;
+	struct lirc_driver *d;
 	lirc_t lircdata;
 	unsigned char is_pulse;
-	int connected;
+	struct {
+		u32 connected:1;
+		u32 pinnacle:1;
+		u32 transmitter_mask_inverted:1;
+		u32 reserved:29;
+	} flags;
 
 	unsigned char transmitter_mask;
 	unsigned int carrier_freq;
@@ -214,15 +252,19 @@ struct irctl {
 	int send_flags;
 	wait_queue_head_t wait_out;
 
-	struct semaphore lock;
+	struct mutex lock;
 };
 
 /* init strings */
 static char init1[] = {0x00, 0xff, 0xaa, 0xff, 0x0b};
 static char init2[] = {0xff, 0x18};
 
+static char pin_init1[] = { 0x9f, 0x07};
+static char pin_init2[] = { 0x9f, 0x13};
+static char pin_init3[] = { 0x9f, 0x0d};
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 11)
-static inline unsigned long usecs_to_jiffies(const unsigned int u)
+static unsigned long usecs_to_jiffies(const unsigned int u)
 {
 	if (u > jiffies_to_usecs(MAX_JIFFY_OFFSET))
 		return MAX_JIFFY_OFFSET;
@@ -235,9 +277,7 @@ static inline unsigned long usecs_to_jiffies(const unsigned int u)
 #endif
 }
 #endif
-
-
-static void usb_remote_printdata(struct irctl *ir, char *buf, int len)
+static void mceusb_dev_printdata(struct mceusb2_dev *ir, char *buf, int len)
 {
 	char codes[USB_BUFLEN*3 + 1];
 	int i;
@@ -254,7 +294,7 @@ static void usb_remote_printdata(struct irctl *ir, char *buf, int len)
 
 static void usb_async_callback(struct urb *urb, struct pt_regs *regs)
 {
-	struct irctl *ir;
+	struct mceusb2_dev *ir;
 	int len;
 
 	if (!urb)
@@ -269,14 +309,14 @@ static void usb_async_callback(struct urb *urb, struct pt_regs *regs)
 			ir->devnum, urb->status, len);
 
 		if (debug)
-			usb_remote_printdata(ir, urb->transfer_buffer, len);
+			mceusb_dev_printdata(ir, urb->transfer_buffer, len);
 	}
 
 }
 
 
 /* request incoming or send outgoing usb packet - used to initialize remote */
-static void request_packet_async(struct irctl *ir,
+static void request_packet_async(struct mceusb2_dev *ir,
 				 struct usb_endpoint_descriptor *ep,
 				 unsigned char *data, int size, int urb_type)
 {
@@ -286,7 +326,7 @@ static void request_packet_async(struct irctl *ir,
 
 	if (urb_type) {
 		async_urb = usb_alloc_urb(0, GFP_KERNEL);
-		if (async_urb) {
+		if (likely(async_urb)) {
 			/* alloc buffer */
 			async_buf = kmalloc(size, GFP_KERNEL);
 			if (async_buf) {
@@ -301,8 +341,6 @@ static void request_packet_async(struct irctl *ir,
 					ir, ep->bInterval);
 
 					memcpy(async_buf, data, size);
-					async_urb->transfer_flags =
-						URB_ASYNC_UNLINK;
 				} else {
 					/* inbound data */
 					usb_fill_int_urb(async_urb, ir->usbdev,
@@ -311,10 +349,8 @@ static void request_packet_async(struct irctl *ir,
 					async_buf, size,
 					(usb_complete_t) usb_async_callback,
 					ir, ep->bInterval);
-
-					async_urb->transfer_flags =
-						URB_ASYNC_UNLINK;
 				}
+				async_urb->transfer_flags = URB_ASYNC_UNLINK;
 			} else {
 				usb_free_urb(async_urb);
 				return;
@@ -341,19 +377,19 @@ static void request_packet_async(struct irctl *ir,
 		ir->devnum, res);
 }
 
-static int unregister_from_lirc(struct irctl *ir)
+static int unregister_from_lirc(struct mceusb2_dev *ir)
 {
-	struct lirc_plugin *p = ir->p;
+	struct lirc_driver *d = ir->d;
 	int devnum;
 	int rtn;
 
 	devnum = ir->devnum;
 	dprintk(DRIVER_NAME "[%d]: unregister from lirc called\n", devnum);
 
-	rtn = lirc_unregister_plugin(p->minor);
+	rtn = lirc_unregister_driver(d->minor);
 	if (rtn > 0) {
 		printk(DRIVER_NAME "[%d]: error in lirc_unregister minor: %d\n"
-			"Trying again...\n", devnum, p->minor);
+			"Trying again...\n", devnum, d->minor);
 		if (rtn == -EBUSY) {
 			printk(DRIVER_NAME
 				"[%d]: device is opened, will unregister"
@@ -363,29 +399,29 @@ static int unregister_from_lirc(struct irctl *ir)
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(HZ);
 
-		rtn = lirc_unregister_plugin(p->minor);
+		rtn = lirc_unregister_driver(d->minor);
 		if (rtn > 0)
 			printk(DRIVER_NAME "[%d]: lirc_unregister failed\n",
 			devnum);
 	}
 
-	if (rtn != SUCCESS) {
+	if (rtn) {
 		printk(DRIVER_NAME "[%d]: didn't free resources\n", devnum);
 		return -EAGAIN;
 	}
 
 	printk(DRIVER_NAME "[%d]: usb remote disconnected\n", devnum);
 
-	lirc_buffer_free(p->rbuf);
-	kfree(p->rbuf);
-	kfree(p);
+	lirc_buffer_free(d->rbuf);
+	kfree(d->rbuf);
+	kfree(d);
 	kfree(ir);
-	return SUCCESS;
+	return 0;
 }
 
 static int set_use_inc(void *data)
 {
-	struct irctl *ir = data;
+	struct mceusb2_dev *ir = data;
 
 	if (!ir) {
 		printk(DRIVER_NAME "[?]: set_use_inc called with no context\n");
@@ -394,19 +430,18 @@ static int set_use_inc(void *data)
 	dprintk(DRIVER_NAME "[%d]: set use inc\n", ir->devnum);
 
 	MOD_INC_USE_COUNT;
-
-	if (!ir->connected) {
+	if (!ir->flags.connected) {
 		if (!ir->usbdev)
 			return -ENOENT;
-		ir->connected = 1;
+		ir->flags.connected = 1;
 	}
 
-	return SUCCESS;
+	return 0;
 }
 
 static void set_use_dec(void *data)
 {
-	struct irctl *ir = data;
+	struct mceusb2_dev *ir = data;
 
 	if (!ir) {
 		printk(DRIVER_NAME "[?]: set_use_dec called with no context\n");
@@ -414,27 +449,27 @@ static void set_use_dec(void *data)
 	}
 	dprintk(DRIVER_NAME "[%d]: set use dec\n", ir->devnum);
 
-	if (ir->connected) {
-		IRLOCK;
-		ir->connected = 0;
-		IRUNLOCK;
+	if (ir->flags.connected) {
+		mutex_lock(&ir->lock);
+		ir->flags.connected = 0;
+		mutex_unlock(&ir->lock);
 	}
 	MOD_DEC_USE_COUNT;
 }
 
-static void send_packet_to_lirc(struct irctl *ir)
+static void send_packet_to_lirc(struct mceusb2_dev *ir)
 {
 	if (ir->lircdata != 0) {
-		lirc_buffer_write_1(ir->p->rbuf,
-				    (unsigned char *) &ir->lircdata);
-		wake_up(&ir->p->rbuf->wait_poll);
+		lirc_buffer_write(ir->d->rbuf,
+				  (unsigned char *) &ir->lircdata);
+		wake_up(&ir->d->rbuf->wait_poll);
 		ir->lircdata = 0;
 	}
 }
 
-static void usb_remote_recv(struct urb *urb, struct pt_regs *regs)
+static void mceusb_dev_recv(struct urb *urb, struct pt_regs *regs)
 {
-	struct irctl *ir;
+	struct mceusb2_dev *ir;
 	int buf_len, packet_len;
 	int i, j;
 
@@ -452,7 +487,7 @@ static void usb_remote_recv(struct urb *urb, struct pt_regs *regs)
 	packet_len = 0;
 
 	if (debug)
-		usb_remote_printdata(ir, urb->transfer_buffer, buf_len);
+		mceusb_dev_printdata(ir, urb->transfer_buffer, buf_len);
 
 	if (ir->send_flags == RECV_FLAG_IN_PROGRESS) {
 		ir->send_flags = SEND_FLAG_COMPLETE;
@@ -462,29 +497,14 @@ static void usb_remote_recv(struct urb *urb, struct pt_regs *regs)
 
 	switch (urb->status) {
 	/* success */
-	case SUCCESS:
+	case 0:
 		for (i = 0; i < buf_len; i++) {
-			/* decode mce packets on the form (84),AA,BB,CC,DD */
-			switch (ir->buf_in[i]) {
-			/* data headers */
-			case 0x8F:
-			case 0x8E:
-			case 0x8D:
-			case 0x8C:
-			case 0x8B:
-			case 0x8A:
-			case 0x89:
-			case 0x88:
-			case 0x87:
-			case 0x86:
-			case 0x85:
-			case 0x84:
-			case 0x83:
-			case 0x82:
-			case 0x81:
-			case 0x80:
+			/* decode mce packets of the form (84),AA,BB,CC,DD */
+			if (ir->buf_in[i] >= 0x80 && ir->buf_in[i] <= 0x9e) {
+				/* data headers */
 				/* decode packet data */
-				packet_len = ir->buf_in[i] & MCE_PULSE_MASK;
+				packet_len =
+					ir->buf_in[i] & MCE_PACKET_LENGTH_MASK;
 				for (j = 1;
 				     j <= packet_len && (i+j < buf_len);
 				     j++) {
@@ -507,15 +527,15 @@ static void usb_remote_recv(struct urb *urb, struct pt_regs *regs)
 				}
 
 				i += packet_len;
-				break;
-
+			} else if (ir->buf_in[i] == MCE_CONTROL_HEADER) {
 				/* status header (0x9F) */
-			case MCE_CONTROL_HEADER:
-				/* A transmission containing one or
-				   more consecutive ir commands always
-				   ends with a GAP of 100ms followed by the
-				   sequence 0x9F 0x01 0x01 0x9F 0x15
-				   0x00 0x00 0x80 */
+				/*
+				 * A transmission containing one or
+				 * more consecutive ir commands always
+				 * ends with a GAP of 100ms followed by the
+				 * sequence 0x9F 0x01 0x01 0x9F 0x15
+				 * 0x00 0x00 0x80
+				 */
 
 		/*
 		Uncomment this if the last 100ms
@@ -530,15 +550,11 @@ static void usb_remote_recv(struct urb *urb, struct pt_regs *regs)
 
 				/* end decode loop */
 				i = buf_len;
-				break;
-			default:
-				break;
 			}
 		}
 
 		break;
 
-		/* unlink */
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
@@ -551,7 +567,6 @@ static void usb_remote_recv(struct urb *urb, struct pt_regs *regs)
 		break;
 	}
 
-	/* resubmit urb */
 	usb_submit_urb(urb, GFP_ATOMIC);
 }
 
@@ -560,7 +575,7 @@ static ssize_t lirc_write(struct file *file, const char *buf,
 			  size_t n, loff_t *ppos)
 {
 	int i, count = 0, cmdcount = 0;
-	struct irctl *ir = NULL;
+	struct mceusb2_dev *ir = NULL;
 	lirc_t wbuf[LIRCBUF_SIZE]; /* Workbuffer with values from lirc */
 	unsigned char cmdbuf[MCE_CMDBUF_SIZE]; /* MCE command buffer */
 	unsigned long signal_duration = 0; /* Singnal length in us */
@@ -568,18 +583,18 @@ static ssize_t lirc_write(struct file *file, const char *buf,
 
 	do_gettimeofday(&start_time);
 
-	/* Retrieve lirc_plugin data for the device */
+	/* Retrieve lirc_driver data for the device */
 	ir = lirc_get_pdata(file);
-	if (!ir && !ir->usb_ep_out)
+	if (!ir || !ir->usb_ep_out)
 		return -EFAULT;
 
 	if (n % sizeof(lirc_t))
-		return(-EINVAL);
+		return -EINVAL;
 	count = n / sizeof(lirc_t);
 
 	/* Check if command is within limits */
 	if (count > LIRCBUF_SIZE || count%2 == 0)
-		return(-EINVAL);
+		return -EINVAL;
 	if (copy_from_user(wbuf, buf, n))
 		return -EFAULT;
 
@@ -628,9 +643,11 @@ static ssize_t lirc_write(struct file *file, const char *buf,
 	request_packet_async(ir, ir->usb_ep_out, cmdbuf,
 			     cmdcount, PHILUSB_OUTBOUND);
 
-	/* The lircd gap calculation expects the write function to
-	   wait the time it takes for the ircommand to be sent before
-	   it returns. */
+	/*
+	 * The lircd gap calculation expects the write function to
+	 * wait the time it takes for the ircommand to be sent before
+	 * it returns.
+	 */
 	do_gettimeofday(&end_time);
 	signal_duration -= (end_time.tv_usec - start_time.tv_usec) +
 			   (end_time.tv_sec - start_time.tv_sec) * 1000000;
@@ -642,28 +659,22 @@ static ssize_t lirc_write(struct file *file, const char *buf,
 	return n;
 }
 
-static void set_transmitter_mask(struct irctl *ir, unsigned int mask)
+static void set_transmitter_mask(struct mceusb2_dev *ir, unsigned int mask)
 {
-
-	/* SMK Transceiver does not use the inverted scheme, nor does Topseed*/
-	if ((ir->usbdev->descriptor.idVendor == VENDOR_SMK &&
-	     (ir->usbdev->descriptor.idProduct == 0x031d ||
-	      ir->usbdev->descriptor.idProduct == 0x0322 ||
-	      ir->usbdev->descriptor.idProduct == 0x0334)) ||
-	    (ir->usbdev->descriptor.idVendor == VENDOR_TOPSEED &&
-	     (ir->usbdev->descriptor.idProduct == 0x0001 ||
-	      ir->usbdev->descriptor.idProduct == 0x0007 ||
-	      ir->usbdev->descriptor.idProduct == 0x0008)))
-		ir->transmitter_mask = mask;
+	if (ir->flags.transmitter_mask_inverted)
+		/*
+		 * The mask begins at 0x02 and has an inverted
+		 * numbering scheme
+		 */
+		ir->transmitter_mask =
+			(mask != 0x03 ? mask ^ 0x03 : mask) << 1;
 	else
-		/* The mask begins at 0x02 and has an inverted
-		   numbering scheme */
-		ir->transmitter_mask = (mask != 0x03 ? mask ^ 0x03 : mask) << 1;
+		ir->transmitter_mask = mask;
 }
 
 
 /* Sets the send carrier frequency */
-static int set_send_carrier(struct irctl *ir, int carrier)
+static int set_send_carrier(struct mceusb2_dev *ir, int carrier)
 {
 	int clk = 10000000;
 	int prescaler = 0, divisor = 0;
@@ -692,8 +703,7 @@ static int set_send_carrier(struct irctl *ir, int carrier)
 					"requesting %d Hz\n",
 					ir->devnum, carrier);
 
-				/* Transmit the new carrier to the mce
-				   device */
+				/* Transmit new carrier to mce device */
 				request_packet_async(ir, ir->usb_ep_out,
 						     cmdbuf, sizeof(cmdbuf),
 						     PHILUSB_OUTBOUND);
@@ -715,11 +725,11 @@ static int lirc_ioctl(struct inode *node, struct file *filep,
 	int result;
 	unsigned int ivalue;
 	unsigned long lvalue;
-	struct irctl *ir = NULL;
+	struct mceusb2_dev *ir = NULL;
 
-	/* Retrieve lirc_plugin data for the device */
+	/* Retrieve lirc_driver data for the device */
 	ir = lirc_get_pdata(filep);
-	if (!ir && !ir->usb_ep_out)
+	if (!ir || !ir->usb_ep_out)
 		return -EFAULT;
 
 
@@ -780,11 +790,13 @@ static int lirc_ioctl(struct inode *node, struct file *filep,
 }
 
 static struct file_operations lirc_fops = {
+	.owner	= THIS_MODULE,
 	.write	= lirc_write,
+	.ioctl	= lirc_ioctl,
 };
 
 
-static int usb_remote_probe(struct usb_interface *intf,
+static int mceusb_dev_probe(struct usb_interface *intf,
 				const struct usb_device_id *id)
 {
 	struct usb_device *dev = interface_to_usbdev(intf);
@@ -793,14 +805,15 @@ static int usb_remote_probe(struct usb_interface *intf,
 	struct usb_endpoint_descriptor *ep_in = NULL;
 	struct usb_endpoint_descriptor *ep_out = NULL;
 	struct usb_host_config *config;
-	struct irctl *ir = NULL;
-	struct lirc_plugin *plugin = NULL;
+	struct mceusb2_dev *ir = NULL;
+	struct lirc_driver *driver = NULL;
 	struct lirc_buffer *rbuf = NULL;
 	int devnum, pipe, maxp;
 	int minor = 0;
 	int i;
 	char buf[63], name[128] = "";
 	int mem_failure = 0;
+	int is_pinnacle;
 
 	dprintk(DRIVER_NAME ": usb probe called\n");
 
@@ -809,6 +822,8 @@ static int usb_remote_probe(struct usb_interface *intf,
 	config = dev->actconfig;
 
 	idesc = intf->cur_altsetting;
+
+	is_pinnacle = usb_match_id(intf, pinnacle_list) ? 1 : 0;
 
 	/* step through the endpoints to find first bulk in and out endpoint */
 	for (i = 0; i < idesc->desc.bNumEndpoints; ++i) {
@@ -826,7 +841,14 @@ static int usb_remote_probe(struct usb_interface *intf,
 				"found\n");
 			ep_in = ep;
 			ep_in->bmAttributes = USB_ENDPOINT_XFER_INT;
-			ep_in->bInterval = 1;
+			if (is_pinnacle)
+				/*
+				 * setting seems to 1 seem to cause issues with
+				 * Pinnacle timing out on transfer.
+				 */
+				ep_in->bInterval = ep->bInterval;
+			else
+				ep_in->bInterval = 1;
 		}
 
 		if ((ep_out == NULL)
@@ -841,11 +863,19 @@ static int usb_remote_probe(struct usb_interface *intf,
 				"found\n");
 			ep_out = ep;
 			ep_out->bmAttributes = USB_ENDPOINT_XFER_INT;
-			ep_out->bInterval = 1;
+			if (is_pinnacle)
+				/*
+				 * setting seems to 1 seem to cause issues with
+				 * Pinnacle timing out on transfer.
+				 */
+				ep_out->bInterval = ep->bInterval;
+			else
+				ep_out->bInterval = 1;
 		}
 	}
-	if (ep_in == NULL) {
-		dprintk(DRIVER_NAME ": inbound and/or endpoint not found\n");
+	if (ep_in == NULL || ep_out == NULL) {
+		dprintk(DRIVER_NAME ": inbound and/or "
+			"outbound endpoint not found\n");
 		return -ENODEV;
 	}
 
@@ -853,18 +883,15 @@ static int usb_remote_probe(struct usb_interface *intf,
 	pipe = usb_rcvintpipe(dev, ep_in->bEndpointAddress);
 	maxp = usb_maxpacket(dev, pipe, usb_pipeout(pipe));
 
-	/* allocate kernel memory */
 	mem_failure = 0;
-	ir = kmalloc(sizeof(struct irctl), GFP_KERNEL);
+	ir = kzalloc(sizeof(struct mceusb2_dev), GFP_KERNEL);
 	if (!ir) {
 		mem_failure = 1;
 		goto mem_failure_switch;
 	}
 
-	memset(ir, 0, sizeof(struct irctl));
-
-	plugin = kmalloc(sizeof(struct lirc_plugin), GFP_KERNEL);
-	if (!plugin) {
+	driver = kzalloc(sizeof(struct lirc_driver), GFP_KERNEL);
+	if (!driver) {
 		mem_failure = 2;
 		goto mem_failure_switch;
 	}
@@ -892,34 +919,30 @@ static int usb_remote_probe(struct usb_interface *intf,
 		goto mem_failure_switch;
 	}
 
-	memset(plugin, 0, sizeof(struct lirc_plugin));
-
-	strcpy(plugin->name, DRIVER_NAME " ");
-	plugin->minor = -1;
-	plugin->features = LIRC_CAN_SEND_PULSE |
+	strcpy(driver->name, DRIVER_NAME " ");
+	driver->minor = -1;
+	driver->features = LIRC_CAN_SEND_PULSE |
 		LIRC_CAN_SET_TRANSMITTER_MASK |
 		LIRC_CAN_REC_MODE2 |
 		LIRC_CAN_SET_SEND_CARRIER;
-	plugin->data = ir;
-	plugin->rbuf = rbuf;
-	plugin->set_use_inc = &set_use_inc;
-	plugin->set_use_dec = &set_use_dec;
-	plugin->code_length = sizeof(lirc_t) * 8;
-	plugin->ioctl = lirc_ioctl;
-	plugin->fops  = &lirc_fops;
-	plugin->dev   = &dev->dev;
-	plugin->owner = THIS_MODULE;
+	driver->data = ir;
+	driver->rbuf = rbuf;
+	driver->set_use_inc = &set_use_inc;
+	driver->set_use_dec = &set_use_dec;
+	driver->code_length = sizeof(lirc_t) * 8;
+	driver->fops  = &lirc_fops;
+	driver->dev   = &intf->dev;
+	driver->owner = THIS_MODULE;
 
-	init_MUTEX(&ir->lock);
+	mutex_init(&ir->lock);
 	init_waitqueue_head(&ir->wait_out);
 
-	minor = lirc_register_plugin(plugin);
+	minor = lirc_register_driver(driver);
 	if (minor < 0)
 		mem_failure = 9;
 
 mem_failure_switch:
 
-	/* free allocated memory incase of failure */
 	switch (mem_failure) {
 	case 9:
 		usb_free_urb(ir->urb_in);
@@ -930,7 +953,7 @@ mem_failure_switch:
 	case 4:
 		kfree(rbuf);
 	case 3:
-		kfree(plugin);
+		kfree(driver);
 	case 2:
 		kfree(ir);
 	case 1:
@@ -939,85 +962,133 @@ mem_failure_switch:
 		return -ENOMEM;
 	}
 
-	plugin->minor = minor;
-	ir->p = plugin;
+	driver->minor = minor;
+	ir->d = driver;
 	ir->devnum = devnum;
 	ir->usbdev = dev;
 	ir->len_in = maxp;
-	ir->connected = 0;
+	ir->flags.connected = 0;
+	ir->flags.pinnacle = is_pinnacle;
+	ir->flags.transmitter_mask_inverted =
+		usb_match_id(intf, transmitter_mask_list) ? 0 : 1;
 
 	ir->lircdata = PULSE_MASK;
 	ir->is_pulse = 0;
 
-	/* ir->usbdev must be set */
+	/* ir->flags.transmitter_mask_inverted must be set */
 	set_transmitter_mask(ir, MCE_DEFAULT_TX_MASK);
 	/* Saving usb interface data for use by the transmitter routine */
 	ir->usb_ep_in = ep_in;
 	ir->usb_ep_out = ep_out;
 
 	if (dev->descriptor.iManufacturer
-		&& usb_string(dev, dev->descriptor.iManufacturer, buf, 63) > 0)
-		strncpy(name, buf, 128);
+	    && usb_string(dev, dev->descriptor.iManufacturer,
+			  buf, sizeof(buf)) > 0)
+		strlcpy(name, buf, sizeof(name));
 	if (dev->descriptor.iProduct
-		&& usb_string(dev, dev->descriptor.iProduct, buf, 63) > 0)
-		snprintf(name, 128, "%s %s", name, buf);
+	    && usb_string(dev, dev->descriptor.iProduct,
+			  buf, sizeof(buf)) > 0)
+		snprintf(name + strlen(name), sizeof(name) - strlen(name),
+			 " %s", buf);
 	printk(DRIVER_NAME "[%d]: %s on usb%d:%d\n", devnum, name,
 	       dev->bus->busnum, devnum);
 
 	/* inbound data */
 	usb_fill_int_urb(ir->urb_in, dev, pipe, ir->buf_in,
-		maxp, (usb_complete_t) usb_remote_recv, ir, ep_in->bInterval);
+		maxp, (usb_complete_t) mceusb_dev_recv, ir, ep_in->bInterval);
+	ir->urb_in->transfer_dma = ir->dma_in;
+	ir->urb_in->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 
 	/* initialize device */
-	request_packet_async(ir, ep_in, NULL, maxp, PHILUSB_INBOUND);
-	request_packet_async(ir, ep_in, NULL, maxp, PHILUSB_INBOUND);
-	request_packet_async(ir, ep_out, init1,
-			     sizeof(init1), PHILUSB_OUTBOUND);
-	request_packet_async(ir, ep_in, NULL, maxp, PHILUSB_INBOUND);
-	request_packet_async(ir, ep_out, init2,
-			     sizeof(init2), PHILUSB_OUTBOUND);
-	request_packet_async(ir, ep_in, NULL, maxp, 0);
+	if (ir->flags.pinnacle) {
+		int usbret;
+
+		/*
+		 * I have no idea why but this reset seems to be crucial to
+		 * getting the device to do outbound IO correctly - without
+		 * this the device seems to hang, ignoring all input - although
+		 * IR signals are correctly sent from the device, no input is
+		 * interpreted by the device and the host never does the
+		 * completion routine
+		 */
+
+		usbret = usb_reset_configuration(dev);
+		printk(DRIVER_NAME "[%d]: usb reset config ret %x\n",
+		       devnum, usbret);
+
+		/*
+		 * its possible we really should wait for a return
+		 * for each of these...
+		 */
+		request_packet_async(ir, ep_in, NULL, maxp, PHILUSB_INBOUND);
+		request_packet_async(ir, ep_out, pin_init1, sizeof(pin_init1),
+				     PHILUSB_OUTBOUND);
+		request_packet_async(ir, ep_in, NULL, maxp, PHILUSB_INBOUND);
+		request_packet_async(ir, ep_out, pin_init2, sizeof(pin_init2),
+				     PHILUSB_OUTBOUND);
+		request_packet_async(ir, ep_in, NULL, maxp, PHILUSB_INBOUND);
+		request_packet_async(ir, ep_out, pin_init3, sizeof(pin_init3),
+				     PHILUSB_OUTBOUND);
+		/* if we don't issue the correct number of receives
+		 * (PHILUSB_INBOUND) for each outbound, then the first few ir
+		 * pulses will be interpreted by the usb_async_callback routine
+		 * - we should ensure we have the right amount OR less - as the
+		 * mceusb_dev_recv routine will handle the control packets OK -
+		 * they start with 0x9f - but the async callback doesn't handle
+		 * ir pulse packets
+		 */
+		request_packet_async(ir, ep_in, NULL, maxp, 0);
+	} else {
+		request_packet_async(ir, ep_in, NULL, maxp, PHILUSB_INBOUND);
+		request_packet_async(ir, ep_in, NULL, maxp, PHILUSB_INBOUND);
+		request_packet_async(ir, ep_out, init1,
+				     sizeof(init1), PHILUSB_OUTBOUND);
+		request_packet_async(ir, ep_in, NULL, maxp, PHILUSB_INBOUND);
+		request_packet_async(ir, ep_out, init2,
+				     sizeof(init2), PHILUSB_OUTBOUND);
+		request_packet_async(ir, ep_in, NULL, maxp, 0);
+	}
 
 	usb_set_intfdata(intf, ir);
 
-	return SUCCESS;
+	return 0;
 }
 
 
-static void usb_remote_disconnect(struct usb_interface *intf)
+static void mceusb_dev_disconnect(struct usb_interface *intf)
 {
 	struct usb_device *dev = interface_to_usbdev(intf);
-	struct irctl *ir = usb_get_intfdata(intf);
+	struct mceusb2_dev *ir = usb_get_intfdata(intf);
 
 	usb_set_intfdata(intf, NULL);
 
-	if (!ir || !ir->p)
+	if (!ir || !ir->d)
 		return;
 
 	ir->usbdev = NULL;
 	wake_up_all(&ir->wait_out);
 
-	IRLOCK;
+	mutex_lock(&ir->lock);
 	usb_kill_urb(ir->urb_in);
 	usb_free_urb(ir->urb_in);
 	usb_buffer_free(dev, ir->len_in, ir->buf_in, ir->dma_in);
-	IRUNLOCK;
+	mutex_unlock(&ir->lock);
 
 	unregister_from_lirc(ir);
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 0)
-static int usb_remote_suspend(struct usb_interface *intf, pm_message_t message)
+static int mceusb_dev_suspend(struct usb_interface *intf, pm_message_t message)
 {
-	struct irctl *ir = usb_get_intfdata(intf);
+	struct mceusb2_dev *ir = usb_get_intfdata(intf);
 	printk(DRIVER_NAME "[%d]: suspend\n", ir->devnum);
 	usb_kill_urb(ir->urb_in);
 	return 0;
 }
 
-static int usb_remote_resume(struct usb_interface *intf)
+static int mceusb_dev_resume(struct usb_interface *intf)
 {
-	struct irctl *ir = usb_get_intfdata(intf);
+	struct mceusb2_dev *ir = usb_get_intfdata(intf);
 	printk(DRIVER_NAME "[%d]: resume\n", ir->devnum);
 	if (usb_submit_urb(ir->urb_in, GFP_ATOMIC))
 		return -EIO;
@@ -1025,19 +1096,19 @@ static int usb_remote_resume(struct usb_interface *intf)
 }
 #endif
 
-static struct usb_driver usb_remote_driver = {
+static struct usb_driver mceusb_dev_driver = {
 	LIRC_THIS_MODULE(.owner = THIS_MODULE)
 	.name =		DRIVER_NAME,
-	.probe =	usb_remote_probe,
-	.disconnect =	usb_remote_disconnect,
+	.probe =	mceusb_dev_probe,
+	.disconnect =	mceusb_dev_disconnect,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 0)
-	.suspend =	usb_remote_suspend,
-	.resume =	usb_remote_resume,
+	.suspend =	mceusb_dev_suspend,
+	.resume =	mceusb_dev_resume,
 #endif
-	.id_table =	usb_remote_table
+	.id_table =	mceusb_dev_table
 };
 
-static int __init usb_remote_init(void)
+static int __init mceusb_dev_init(void)
 {
 	int i;
 
@@ -1046,31 +1117,29 @@ static int __init usb_remote_init(void)
 	printk(KERN_INFO DRIVER_NAME ": " DRIVER_AUTHOR "\n");
 	dprintk(DRIVER_NAME ": debug mode enabled\n");
 
-	request_module("lirc_dev");
-
-	i = usb_register(&usb_remote_driver);
+	i = usb_register(&mceusb_dev_driver);
 	if (i < 0) {
 		printk(DRIVER_NAME ": usb register failed, result = %d\n", i);
 		return -ENODEV;
 	}
 
-	return SUCCESS;
+	return 0;
 }
 
-static void __exit usb_remote_exit(void)
+static void __exit mceusb_dev_exit(void)
 {
-	usb_deregister(&usb_remote_driver);
+	usb_deregister(&mceusb_dev_driver);
 }
 
-module_init(usb_remote_init);
-module_exit(usb_remote_exit);
+module_init(mceusb_dev_init);
+module_exit(mceusb_dev_exit);
 
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_LICENSE("GPL");
-MODULE_DEVICE_TABLE(usb, usb_remote_table);
+MODULE_DEVICE_TABLE(usb, mceusb_dev_table);
 
-module_param(debug, bool, 0644);
+module_param(debug, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(debug, "Debug enabled or not");
 
 EXPORT_NO_SYMBOLS;

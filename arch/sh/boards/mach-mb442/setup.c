@@ -20,7 +20,6 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/phy.h>
-#include <linux/lirc.h>
 #include <asm/irl.h>
 
 static int ascs[2] __initdata = { 2, 3 };
@@ -153,15 +152,6 @@ static struct platform_device *mb442_devices[] __initdata = {
 	&mb442_phy_device,
 };
 
-/* Configuration based on Futarque-RC signals train. */
-lirc_scd_t lirc_scd = {
-	.code = 0x3FFFC028,
-	.codelen = 0x1e,
-	.alt_codelen = 0,
-	.nomtime = 0x1f4,
-	.noiserecov = 0,
-};
-
 static int __init device_init(void)
 {
 	struct stpio_pin *smc91x_reset;
@@ -170,7 +160,7 @@ static int __init device_init(void)
 	stx7100_configure_pwm(&pwm_private_info);
 	stx7100_configure_ssc(&ssc_private_info);
 	stx7100_configure_usb();
-	stx7100_configure_lirc(&lirc_scd);
+	stx7100_configure_lirc();
 	stx7100_configure_pata(3, 1, IRL1_IRQ);
 
 	vpp_pio = stpio_request_set_pin(2, 7, "flash_VPP", STPIO_OUT, 0);

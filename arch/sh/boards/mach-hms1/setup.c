@@ -18,7 +18,6 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <asm/irl.h>
-#include <linux/lirc.h>
 
 static struct stpio_pin *vpp_pio;
 
@@ -132,7 +131,7 @@ static int __init hms1_device_init(void)
 	stx7100_configure_ssc(&ssc_private_info);
 	stx7100_configure_usb();
 	stx7100_configure_pata(3, 1, IRL1_IRQ);
-	stx7100_configure_lirc(NULL);
+	stx7100_configure_lirc();
 
 	vpp_pio = stpio_request_pin(2,5, "VPP", STPIO_OUT);
 

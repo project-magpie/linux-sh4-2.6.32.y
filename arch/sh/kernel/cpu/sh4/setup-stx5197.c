@@ -393,7 +393,7 @@ void stx5197_configure_pwm(struct plat_stm_pwm_data *data)
 }
 
 /* LiRC resources ---------------------------------------------------------- */
-static struct lirc_pio lirc_pios[] = {
+static struct lirc_pio_s lirc_pios[] = {
 	[0] = {
 		.bank  = 2,
 		.pin   = 5,
@@ -417,7 +417,7 @@ static struct lirc_pio lirc_pios[] = {
 	}
 };
 
-static struct plat_lirc_data lirc_private_info = {
+static struct lirc_plat_data_s lirc_private_info = {
 	/* The clock settings will be calculated by the driver
 	 * from the system clock
 	 */
@@ -440,10 +440,8 @@ static struct plat_lirc_data lirc_private_info = {
 static struct platform_device lirc_device =
 	STLIRC_DEVICE(0xfd118000, ILC_IRQ(19), ILC_EXT_IRQ(4));
 
-void __init stx5197_configure_lirc(lirc_scd_t *scd)
+void __init stx5197_configure_lirc(void)
 {
-	lirc_private_info.scd_info = scd;
-
 	platform_device_register(&lirc_device);
 }
 

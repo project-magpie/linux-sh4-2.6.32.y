@@ -4,82 +4,48 @@
  * (L) by Artur Lipowski <alipowski@interia.pl>
  *        This code is licensed under GNU GPL
  *
- * $Id: lirc_dev.h,v 1.22 2008/01/13 10:45:02 lirc Exp $
+ * $Id: lirc_dev.h,v 1.37 2009/03/15 09:34:00 lirc Exp $
  *
  */
 
 #ifndef _LINUX_LIRC_DEV_H
 #define _LINUX_LIRC_DEV_H
 
+#include <linux/version.h>
+#define LIRC_REMOVE_DURING_EXPORT
+#ifndef LIRC_REMOVE_DURING_EXPORT
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 11)
+/* when was it really introduced? */
+#define LIRC_HAVE_KFIFO
+#endif
+#endif
 #define MAX_IRCTL_DEVICES 4
 #define BUFLEN            16
 
-/* #define LIRC_BUFF_POWER_OF_2 */
-#ifdef LIRC_BUFF_POWER_OF_2
-#define mod(n, div) ((n) & ((div) - 1))
-#else
 #define mod(n, div) ((n) % (div))
-#endif
+
 #include <linux/slab.h>
 #include <linux/fs.h>
+#ifdef LIRC_HAVE_KFIFO
+#include <linux/kfifo.h>
+#endif
 
 struct lirc_buffer {
 	wait_queue_head_t wait_poll;
 	spinlock_t lock;
-
-	unsigned char *data;
 	unsigned int chunk_size;
 	unsigned int size; /* in chunks */
-	unsigned int fill; /* in chunks */
-	int head, tail;    /* in chunks */
 	/* Using chunks instead of bytes pretends to simplify boundary checking
 	 * And should allow for some performance fine tunning later */
+#ifdef LIRC_HAVE_KFIFO
+	struct kfifo *fifo;
+#else
+	unsigned int fill; /* in chunks */
+	int head, tail;    /* in chunks */
+	unsigned char *data;
+#endif
 };
-static inline void _lirc_buffer_clear(struct lirc_buffer *buf)
-{
-	buf->head = 0;
-	buf->tail = 0;
-	buf->fill = 0;
-}
-static inline int lirc_buffer_init(struct lirc_buffer *buf,
-				    unsigned int chunk_size,
-				    unsigned int size)
-{
-	/* Adjusting size to the next power of 2 would allow for
-	 * inconditional LIRC_BUFF_POWER_OF_2 optimization */
-	init_waitqueue_head(&buf->wait_poll);
-	spin_lock_init(&buf->lock);
-	_lirc_buffer_clear(buf);
-	buf->chunk_size = chunk_size;
-	buf->size = size;
-	buf->data = kmalloc(size*chunk_size, GFP_KERNEL);
-	if (buf->data == NULL)
-		return -1;
-	memset(buf->data, 0, size*chunk_size);
-	return 0;
-}
-static inline void lirc_buffer_free(struct lirc_buffer *buf)
-{
-	kfree(buf->data);
-	buf->data = NULL;
-	buf->head = 0;
-	buf->tail = 0;
-	buf->fill = 0;
-	buf->chunk_size = 0;
-	buf->size = 0;
-}
-static inline int  lirc_buffer_full(struct lirc_buffer *buf)
-{
-	return (buf->fill >= buf->size);
-}
-static inline int  lirc_buffer_empty(struct lirc_buffer *buf)
-{
-	return !(buf->fill);
-}
-static inline int  lirc_buffer_available(struct lirc_buffer *buf)
-{
-    return (buf->size - buf->fill);
-}
+#ifndef LIRC_HAVE_KFIFO
 static inline void lirc_buffer_lock(struct lirc_buffer *buf,
 				    unsigned long *flags)
 {
@@ -90,40 +56,143 @@ static inline void lirc_buffer_unlock(struct lirc_buffer *buf,
 {
 	spin_unlock_irqrestore(&buf->lock, *flags);
 }
+static inline void _lirc_buffer_clear(struct lirc_buffer *buf)
+{
+	buf->head = 0;
+	buf->tail = 0;
+	buf->fill = 0;
+}
+#endif
 static inline void lirc_buffer_clear(struct lirc_buffer *buf)
 {
+#ifdef LIRC_HAVE_KFIFO
+	if (buf->fifo)
+		kfifo_reset(buf->fifo);
+#else
 	unsigned long flags;
 	lirc_buffer_lock(buf, &flags);
 	_lirc_buffer_clear(buf);
 	lirc_buffer_unlock(buf, &flags);
+#endif
 }
-static inline void _lirc_buffer_remove_1(struct lirc_buffer *buf)
+static inline int lirc_buffer_init(struct lirc_buffer *buf,
+				    unsigned int chunk_size,
+				    unsigned int size)
 {
-	buf->head = mod(buf->head+1, buf->size);
-	buf->fill -= 1;
+	init_waitqueue_head(&buf->wait_poll);
+	spin_lock_init(&buf->lock);
+#ifndef LIRC_HAVE_KFIFO
+	_lirc_buffer_clear(buf);
+#endif
+	buf->chunk_size = chunk_size;
+	buf->size = size;
+#ifdef LIRC_HAVE_KFIFO
+	buf->fifo = kfifo_alloc(size*chunk_size, GFP_KERNEL, &buf->lock);
+	if (!buf->fifo)
+		return -ENOMEM;
+#else
+	buf->data = kmalloc(size*chunk_size, GFP_KERNEL);
+	if (buf->data == NULL)
+		return -ENOMEM;
+	memset(buf->data, 0, size*chunk_size);
+#endif
+	return 0;
 }
-static inline void lirc_buffer_remove_1(struct lirc_buffer *buf)
+static inline void lirc_buffer_free(struct lirc_buffer *buf)
 {
+#ifdef LIRC_HAVE_KFIFO
+	if (buf->fifo)
+		kfifo_free(buf->fifo);
+#else
+	kfree(buf->data);
+	buf->data = NULL;
+	buf->head = 0;
+	buf->tail = 0;
+	buf->fill = 0;
+	buf->chunk_size = 0;
+	buf->size = 0;
+#endif
+}
+#ifndef LIRC_HAVE_KFIFO
+static inline int  _lirc_buffer_full(struct lirc_buffer *buf)
+{
+	return (buf->fill >= buf->size);
+}
+#endif
+static inline int  lirc_buffer_full(struct lirc_buffer *buf)
+{
+#ifdef LIRC_HAVE_KFIFO
+	return kfifo_len(buf->fifo) == buf->size * buf->chunk_size;
+#else
 	unsigned long flags;
+	int ret;
 	lirc_buffer_lock(buf, &flags);
-	_lirc_buffer_remove_1(buf);
+	ret = _lirc_buffer_full(buf);
 	lirc_buffer_unlock(buf, &flags);
+	return ret;
+#endif
 }
+#ifndef LIRC_HAVE_KFIFO
+static inline int  _lirc_buffer_empty(struct lirc_buffer *buf)
+{
+	return !(buf->fill);
+}
+#endif
+static inline int  lirc_buffer_empty(struct lirc_buffer *buf)
+{
+#ifdef LIRC_HAVE_KFIFO
+	return !kfifo_len(buf->fifo);
+#else
+	unsigned long flags;
+	int ret;
+	lirc_buffer_lock(buf, &flags);
+	ret = _lirc_buffer_empty(buf);
+	lirc_buffer_unlock(buf, &flags);
+	return ret;
+#endif
+}
+#ifndef LIRC_HAVE_KFIFO
+static inline int  _lirc_buffer_available(struct lirc_buffer *buf)
+{
+	return (buf->size - buf->fill);
+}
+#endif
+static inline int  lirc_buffer_available(struct lirc_buffer *buf)
+{
+#ifdef LIRC_HAVE_KFIFO
+	return buf->size - (kfifo_len(buf->fifo) / buf->chunk_size);
+#else
+	unsigned long flags;
+	int ret;
+	lirc_buffer_lock(buf, &flags);
+	ret = _lirc_buffer_available(buf);
+	lirc_buffer_unlock(buf, &flags);
+	return ret;
+#endif
+}
+#ifndef LIRC_HAVE_KFIFO
 static inline void _lirc_buffer_read_1(struct lirc_buffer *buf,
-				     unsigned char *dest)
+				       unsigned char *dest)
 {
 	memcpy(dest, &buf->data[buf->head*buf->chunk_size], buf->chunk_size);
 	buf->head = mod(buf->head+1, buf->size);
 	buf->fill -= 1;
 }
-static inline void lirc_buffer_read_1(struct lirc_buffer *buf,
-				      unsigned char *dest)
+#endif
+static inline void lirc_buffer_read(struct lirc_buffer *buf,
+				    unsigned char *dest)
 {
+#ifdef LIRC_HAVE_KFIFO
+	if (kfifo_len(buf->fifo) >= buf->chunk_size)
+		kfifo_get(buf->fifo, dest, buf->chunk_size);
+#else
 	unsigned long flags;
 	lirc_buffer_lock(buf, &flags);
 	_lirc_buffer_read_1(buf, dest);
 	lirc_buffer_unlock(buf, &flags);
+#endif
 }
+#ifndef LIRC_HAVE_KFIFO
 static inline void _lirc_buffer_write_1(struct lirc_buffer *buf,
 				      unsigned char *orig)
 {
@@ -131,58 +200,70 @@ static inline void _lirc_buffer_write_1(struct lirc_buffer *buf,
 	buf->tail = mod(buf->tail+1, buf->size);
 	buf->fill++;
 }
-static inline void lirc_buffer_write_1(struct lirc_buffer *buf,
-				       unsigned char *orig)
+#endif
+static inline void lirc_buffer_write(struct lirc_buffer *buf,
+				     unsigned char *orig)
 {
+#ifdef LIRC_HAVE_KFIFO
+	kfifo_put(buf->fifo, orig, buf->chunk_size);
+#else
 	unsigned long flags;
 	lirc_buffer_lock(buf, &flags);
 	_lirc_buffer_write_1(buf, orig);
 	lirc_buffer_unlock(buf, &flags);
+#endif
 }
+#ifndef LIRC_HAVE_KFIFO
 static inline void _lirc_buffer_write_n(struct lirc_buffer *buf,
 					unsigned char *orig, int count)
 {
-	memcpy(&buf->data[buf->tail * buf->chunk_size], orig,
-	       count * buf->chunk_size);
-	buf->tail = mod(buf->tail + count, buf->size);
-	buf->fill += count;
-}
-static inline void lirc_buffer_write_n(struct lirc_buffer *buf,
-				       unsigned char *orig, int count)
-{
-	unsigned long flags;
 	int space1;
-
-	lirc_buffer_lock(buf, &flags);
 	if (buf->head > buf->tail)
 		space1 = buf->head - buf->tail;
 	else
 		space1 = buf->size - buf->tail;
 
 	if (count > space1) {
-		_lirc_buffer_write_n(buf, orig, space1);
-		_lirc_buffer_write_n(buf, orig+(space1*buf->chunk_size),
-				     count-space1);
+		memcpy(&buf->data[buf->tail * buf->chunk_size], orig,
+		       space1 * buf->chunk_size);
+		memcpy(&buf->data[0], orig + (space1 * buf->chunk_size),
+		       (count - space1) * buf->chunk_size);
 	} else {
-		_lirc_buffer_write_n(buf, orig, count);
+		memcpy(&buf->data[buf->tail * buf->chunk_size], orig,
+		       count * buf->chunk_size);
 	}
+	buf->tail = mod(buf->tail + count, buf->size);
+	buf->fill += count;
+}
+#endif
+static inline void lirc_buffer_write_n(struct lirc_buffer *buf,
+				       unsigned char *orig, int count)
+{
+#ifdef LIRC_HAVE_KFIFO
+	kfifo_put(buf->fifo, orig, count * buf->chunk_size);
+#else
+	unsigned long flags;
+	lirc_buffer_lock(buf, &flags);
+	_lirc_buffer_write_n(buf, orig, count);
 	lirc_buffer_unlock(buf, &flags);
+#endif
 }
 
-struct lirc_plugin {
+struct lirc_driver {
 	char name[40];
 	int minor;
-	int code_length;
+	unsigned long code_length;
+	unsigned int buffer_size; /* in chunks holding one code each */
 	int sample_rate;
 	unsigned long features;
 	void *data;
 	int (*add_to_buf) (void *data, struct lirc_buffer *buf);
+#ifndef LIRC_REMOVE_DURING_EXPORT
 	wait_queue_head_t* (*get_queue) (void *data);
+#endif
 	struct lirc_buffer *rbuf;
 	int (*set_use_inc) (void *data);
 	void (*set_use_dec) (void *data);
-	int (*ioctl) (struct inode *, struct file *, unsigned int,
-		      unsigned long);
 	struct file_operations *fops;
 	struct device *dev;
 	struct module *owner;
@@ -191,7 +272,7 @@ struct lirc_plugin {
  * this string will be used for logs
  *
  * minor:
- * indicates minor device (/dev/lirc) number for registered plugin
+ * indicates minor device (/dev/lirc) number for registered driver
  * if caller fills it with negative value, then the first free minor
  * number will be used (if available)
  *
@@ -204,7 +285,7 @@ struct lirc_plugin {
  * returned by get_queue)
  *
  * data:
- * it may point to any plugin data and this pointer will be passed to
+ * it may point to any driver data and this pointer will be passed to
  * all callback functions
  *
  * add_to_buf:
@@ -230,13 +311,12 @@ struct lirc_plugin {
  * set_use_dec:
  * set_use_dec will be called after device is closed
  *
- * ioctl:
- * Some ioctl's can be directly handled by lirc_dev but will be
- * forwared here if not NULL and only handled if it returns
- * -ENOIOCTLCMD (see also lirc_serial.c).
- *
  * fops:
- * file_operations for drivers which don't fit the current plugin model.
+ * file_operations for drivers which don't fit the current driver model.
+ *
+ * Some ioctl's can be directly handled by lirc_dev if the driver's
+ * ioctl function is NULL or if it returns -ENOIOCTLCMD (see also
+ * lirc_serial.c).
  *
  * owner:
  * the module owning this struct
@@ -248,15 +328,15 @@ struct lirc_plugin {
  *
  * returns negative value on error or minor number
  * of the registered device if success
- * contens of the structure pointed by p is copied
+ * contents of the structure pointed by d is copied
  */
-extern int lirc_register_plugin(struct lirc_plugin *p);
+extern int lirc_register_driver(struct lirc_driver *d);
 
 /* returns negative value on error or 0 if success
 */
-extern int lirc_unregister_plugin(int minor);
+extern int lirc_unregister_driver(int minor);
 
-/* Returns the private data stored in the lirc_plugin
+/* Returns the private data stored in the lirc_driver
  * associated with the given device file pointer.
  */
 void *lirc_get_pdata(struct file *file);

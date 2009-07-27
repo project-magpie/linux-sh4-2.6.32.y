@@ -1,17 +1,14 @@
-/*      $Id: lirc.h,v 5.12 2007/04/14 15:57:21 lirc Exp $      */
+/* Starndard LiRC interface. */
 
 #ifndef _LINUX_LIRC_H
 #define _LINUX_LIRC_H
 
-#if defined (__linux__)
-#include <asm/types.h>
+#if defined(__linux__)
 #include <linux/ioctl.h>
 #else
-#include <sys/types.h>
-#if defined (__NetBSD__)
+#if defined(__NetBSD__)
 #include <sys/ioctl.h>
 #endif
-typedef u_int32_t __u32;
 #endif
 
 #define PULSE_BIT  0x01000000
@@ -19,10 +16,7 @@ typedef u_int32_t __u32;
 
 typedef int lirc_t;
 
-/*
- * lirc compatible hardware features
- */
-
+/*** lirc compatible hardware features ***/
 
 #define LIRC_MODE2SEND(x) (x)
 #define LIRC_SEND2MODE(x) (x)
@@ -71,55 +65,40 @@ typedef int lirc_t;
 
 #define LIRC_CAN_NOTIFY_DECODE            0x01000000
 
-/*
- * IOCTL commands for lirc driver
- */
+/*** IOCTL commands for lirc driver ***/
 
-#define LIRC_GET_FEATURES              _IOR('i', 0x00000000, __u32)
+#define LIRC_GET_FEATURES              _IOR('i', 0x00000000, unsigned long)
 
-#define LIRC_GET_SEND_MODE             _IOR('i', 0x00000001, __u32)
-#define LIRC_GET_REC_MODE              _IOR('i', 0x00000002, __u32)
-#define LIRC_GET_SEND_CARRIER          _IOR('i', 0x00000003, __u32)
-#define LIRC_GET_REC_CARRIER           _IOR('i', 0x00000004, __u32)
-#define LIRC_GET_SEND_DUTY_CYCLE       _IOR('i', 0x00000005, __u32)
-#define LIRC_GET_REC_DUTY_CYCLE        _IOR('i', 0x00000006, __u32)
-#define LIRC_GET_REC_RESOLUTION        _IOR('i', 0x00000007, __u32)
+#define LIRC_GET_SEND_MODE             _IOR('i', 0x00000001, unsigned long)
+#define LIRC_GET_REC_MODE              _IOR('i', 0x00000002, unsigned long)
+#define LIRC_GET_SEND_CARRIER          _IOR('i', 0x00000003, unsigned int)
+#define LIRC_GET_REC_CARRIER           _IOR('i', 0x00000004, unsigned int)
+#define LIRC_GET_SEND_DUTY_CYCLE       _IOR('i', 0x00000005, unsigned int)
+#define LIRC_GET_REC_DUTY_CYCLE        _IOR('i', 0x00000006, unsigned int)
+#define LIRC_GET_REC_RESOLUTION        _IOR('i', 0x00000007, unsigned int)
 
 /* code length in bits, currently only for LIRC_MODE_LIRCCODE */
-#define LIRC_GET_LENGTH                _IOR('i', 0x0000000f, __u32)
+#define LIRC_GET_LENGTH                _IOR('i', 0x0000000f, unsigned long)
 
-#define LIRC_SET_SEND_MODE             _IOW('i', 0x00000011, __u32)
-#define LIRC_SET_REC_MODE              _IOW('i', 0x00000012, __u32)
+#define LIRC_SET_SEND_MODE             _IOW('i', 0x00000011, unsigned long)
+#define LIRC_SET_REC_MODE              _IOW('i', 0x00000012, unsigned long)
 /* Note: these can reset the according pulse_width */
-#define LIRC_SET_SEND_CARRIER          _IOW('i', 0x00000013, __u32)
-#define LIRC_SET_REC_CARRIER           _IOW('i', 0x00000014, __u32)
-#define LIRC_SET_SEND_DUTY_CYCLE       _IOW('i', 0x00000015, __u32)
-#define LIRC_SET_REC_DUTY_CYCLE        _IOW('i', 0x00000016, __u32)
-#define LIRC_SET_TRANSMITTER_MASK      _IOW('i', 0x00000017, __u32)
+#define LIRC_SET_SEND_CARRIER          _IOW('i', 0x00000013, unsigned int)
+#define LIRC_SET_REC_CARRIER           _IOW('i', 0x00000014, unsigned int)
+#define LIRC_SET_SEND_DUTY_CYCLE       _IOW('i', 0x00000015, unsigned int)
+#define LIRC_SET_REC_DUTY_CYCLE        _IOW('i', 0x00000016, unsigned int)
+#define LIRC_SET_TRANSMITTER_MASK      _IOW('i', 0x00000017, unsigned int)
 
-/* to set a range use
-   LIRC_SET_REC_DUTY_CYCLE_RANGE/LIRC_SET_REC_CARRIER_RANGE with the
-   lower bound first and later
-   LIRC_SET_REC_DUTY_CYCLE/LIRC_SET_REC_CARRIER with the upper bound */
+/*
+ * to set a range use
+ * LIRC_SET_REC_DUTY_CYCLE_RANGE/LIRC_SET_REC_CARRIER_RANGE with the
+ * lower bound first and later
+ * LIRC_SET_REC_DUTY_CYCLE/LIRC_SET_REC_CARRIER with the upper bound
+ */
 
-#define LIRC_SET_REC_DUTY_CYCLE_RANGE  _IOW('i', 0x0000001e, __u32)
-#define LIRC_SET_REC_CARRIER_RANGE     _IOW('i', 0x0000001f, __u32)
+#define LIRC_SET_REC_DUTY_CYCLE_RANGE  _IOW('i', 0x0000001e, unsigned int)
+#define LIRC_SET_REC_CARRIER_RANGE     _IOW('i', 0x0000001f, unsigned int)
 
 #define LIRC_NOTIFY_DECODE             _IO('i', 0x00000020)
-
-/* start code detect (SCD) support */
-typedef struct {
-        unsigned int code;		/* code symbols to be detect. */
-	unsigned int codelen;		/* start code length */
-	unsigned int alt_code;		/* alternative start code to be detected */
-	unsigned int alt_codelen;	/* alternative start code length */
-        unsigned int nomtime;		/* nominal symbol time in us */
-	unsigned int noiserecov;	/* noise recovery configuration */
-} lirc_scd_t;
-
-#define LIRC_SCD_CONFIGURE             _IOW('i', 0x00000021, __u32)
-#define LIRC_SCD_ENABLE                _IOW('i', 0x00000022, __u32)
-#define LIRC_SCD_DISABLE               _IOW('i', 0x00000023, __u32)
-#define LIRC_SCD_STATUS                _IOW('i', 0x00000024, __u32)
 
 #endif

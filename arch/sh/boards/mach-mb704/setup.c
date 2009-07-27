@@ -20,7 +20,6 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/phy.h>
-#include <linux/lirc.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/eeprom.h>
 #include <linux/io.h>
@@ -119,15 +118,6 @@ static struct platform_device *mb704_devices[] __initdata = {
 	&mb704_phy_device,
 };
 
-/* Configuration based on Futarque-RC signals train. */
-lirc_scd_t lirc_scd = {
-	.code = 0x3FFFC028,
-	.codelen = 0x1e,
-	.alt_codelen = 0,
-	.nomtime = 0x1f4,
-	.noiserecov = 0,
-};
-
 static int __init device_init(void)
 {
 	/*
@@ -138,7 +128,7 @@ static int __init device_init(void)
 	stx5197_configure_ssc(&ssc_private_info);
 	stx5197_configure_usb();
 	stx5197_configure_ethernet(0, 1, 0);
-	stx5197_configure_lirc(&lirc_scd);
+	stx5197_configure_lirc();
 
 	spi_register_board_info(&mb704_spi_device, 1);
 

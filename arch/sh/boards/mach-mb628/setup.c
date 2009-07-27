@@ -24,7 +24,6 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/phy.h>
-#include <linux/lirc.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
 #include <linux/delay.h>
@@ -421,15 +420,6 @@ static struct platform_device *mb628_devices[] __initdata = {
 #endif
 };
 
-/* Configuration based on Futarque-RC signals train. */
-lirc_scd_t lirc_scd = {
-	.code = 0x3FFFC028,
-	.codelen = 0x1e,
-	.alt_codelen = 0,
-	.nomtime = 0x1f4,
-	.noiserecov = 0,
-};
-
 static int __init device_init(void)
 {
 	/*
@@ -465,7 +455,7 @@ static int __init device_init(void)
 
 	epld_write(epld_read(EPLD_ENABLE) | EPLD_ENABLE_MII1, EPLD_ENABLE);
 	stx7141_configure_ethernet(1, 0, 0, 1);
-	stx7141_configure_lirc(&lirc_scd);
+	stx7141_configure_lirc();
 
 #ifndef FLASH_NOR
 	stx7141_configure_nand(&mb628_nand_config);

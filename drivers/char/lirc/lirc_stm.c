@@ -53,6 +53,10 @@
  * Feb  2009:  Added PM capability
  * 	       Angelo Castello <angelo.castello@st.com>
  *	       Francesco Virlinzi <francesco.virlinzi@st.com>
+ * Jul  2009:  ported for kernel 2.6.30 from lirc-0.8.5 project.
+ *	       Updated code to manage SCD values incoming from kconfig.
+ *	       Default SCD code is for the Futarque RC.
+ * 	       Angelo Castello <angelo.castello@st.com>
  *
  */
 #include <linux/kernel.h>
@@ -61,19 +65,22 @@
 #include <asm/uaccess.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
-#include <asm/io.h>
+#include <linux/io.h>
 #include <asm/irq.h>
 #include <asm/clock.h>
 #include <linux/ioport.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/stm/pio.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/lirc.h>
 #include <linux/time.h>
 #include <linux/lirc.h>
 #include "lirc_dev.h"
 
-#define LIRC_STM_NAME "lirc_stm"
+#ifndef LIRC_STM_NAME
+#error "*** You must have one into include/linux/stm/lirc.h     ***" \
+       "*** to be used as common link between board/soc/driver. ***"
+#endif
 
 /* General debugging */
 #ifdef CONFIG_LIRC_STM_DEBUG
@@ -210,6 +217,20 @@ static void *irb_base_address;	/* IR block register base address */
  * The nominal symbol duration is 500us, code length 4 and code Ob1101.
  */
 
+#ifdef CONFIG_LIRC_STM_UHF_SCD
+static const struct lirc_scd_s scd_s = {
+	.code = CONFIG_LIRC_STM_UHF_SCD_CODE,
+	.codelen = CONFIG_LIRC_STM_UHF_SCD_LEN,
+	.alt_codelen = 0,
+	.nomtime = CONFIG_LIRC_STM_UHF_SCD_NTIME,
+	.noiserecov = 0,
+};
+
+static struct lirc_scd_s *scd = (struct lirc_scd_s *)&scd_s;
+#else
+static struct lirc_scd_s *scd = ((struct lirc_scd_s *)0);
+#endif
+
 /* SOC dependent section - these values are set in the appropriate 
  * arch/sh/kernel/cpu/sh4/setup-* files and
  * transfered when the lirc device is opened
@@ -247,7 +268,7 @@ typedef struct lirc_stm_rx_data_s {
 
 typedef struct lirc_stm_plugin_data_s {
 	int open_count;
-	struct plat_lirc_data *p_lirc_d;
+	struct lirc_plat_data_s *p_lirc_d;
 #ifdef CONFIG_PM
 	pm_message_t prev_state;
 #endif
@@ -462,17 +483,15 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 						     rx.sync.tv_usec);
 						syncSpace -=
 						    (rx.sumUs -
-						     rx.
-						     rbuf[((rx.
-							    off_rbuf -
-							    1) * 2) + 1]);
+						     rx.rbuf[((rx.off_rbuf -
+							       1) * 2) + 1]);
 						if (syncSpace < 0)
 							syncSpace = 0;
 						else if (syncSpace > PULSE_MASK)
 							syncSpace = PULSE_MASK;
 					}
 
-					lirc_buffer_write_1
+					_lirc_buffer_write_1
 					    (&lirc_stm_rbuf, (unsigned char *)
 					     &syncSpace);
 					rx.sync = now;
@@ -481,7 +500,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 					 * pulse / space pairs
 					 */
 					if (rx.scd_supported)
-						lirc_buffer_write_n
+						_lirc_buffer_write_n
 						    (&lirc_stm_rbuf,
 						     (unsigned char *)rx.rscd,
 						     rx.off_rscd);
@@ -540,7 +559,7 @@ static int lirc_stm_scd_set(char enable)
 	return 0;
 }
 
-static int lirc_stm_scd_config(lirc_scd_t * scd, unsigned long clk)
+static int lirc_stm_scd_config(struct lirc_scd_s *scd, unsigned long clk)
 {
 	unsigned int nrec, ival, scwidth;
 	unsigned int scd_prescalar;
@@ -550,16 +569,16 @@ static int lirc_stm_scd_config(lirc_scd_t * scd, unsigned long clk)
 
 	rx.scd_supported = 0;
 	rx.off_rscd = 0;
-        if (!uhf_switch) {
-            printk(KERN_ERR LIRC_STM_NAME
-                   ": SCD not available in IR-RX mode. Not armed\n");
-            return -ENOTSUPP;
-        }
-        if (!(scd)) {
-            printk(KERN_ERR LIRC_STM_NAME
-                   ": SCD bad configuration. Not armed\n");
-            return -EIO;
-        }
+	if (!uhf_switch) {
+		printk(KERN_ERR LIRC_STM_NAME
+		       ": SCD not available in IR-RX mode. Not armed\n");
+		return -ENOTSUPP;
+	}
+	if (!scd) {
+		printk(KERN_ERR LIRC_STM_NAME
+		       ": SCD bad configuration. Not armed\n");
+		return -EIO;
+	}
 
 	/* SCD disable */
 	writel(0x00, IRB_SCD_CFG);
@@ -687,9 +706,9 @@ static int lirc_stm_scd_config(lirc_scd_t * scd, unsigned long clk)
 
 	/* Set supported flag */
 	rx.scd_supported = 1;
-        printk(KERN_INFO LIRC_STM_NAME
-               ": SCD code 0x%x codelen 0x%x nomtime 0x%x armed.\n",
-               scd->code, scd->codelen, scd->nomtime);
+	printk(KERN_INFO LIRC_STM_NAME
+	       ": SCD code 0x%x codelen 0x%x nomtime 0x%x armed.\n",
+	       scd->code, scd->codelen, scd->nomtime);
 
 	return 0;
 }
@@ -729,16 +748,6 @@ static void lirc_stm_flush_rx(void)
 	/* clean the buffer */
 	lirc_stm_reset_rx_data();
 }
-static void lirc_stm_restore_rx(void)
-{
-	if (rx.scd_supported)
-		lirc_stm_scd_set(1);
-        /* enable interrupts and receiver */
-        writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
-        writel(0x01, IRB_RX_EN);
-	/* clean the buffer */
-	lirc_stm_reset_rx_data();
-}
 
 /*
 ** Called by lirc_dev as a last action on a real close
@@ -758,7 +767,7 @@ static int lirc_stm_ioctl(struct inode *node, struct file *filep,
 {
 	int retval = 0;
 	unsigned long value = 0;
-	lirc_scd_t scd;
+	struct lirc_scd_s arg_scd;
 	char *msg = "";
 
 	switch (cmd) {
@@ -801,11 +810,14 @@ static int lirc_stm_ioctl(struct inode *node, struct file *filep,
 		break;
 
 	case LIRC_SCD_CONFIGURE:
-		if (copy_from_user(&scd, arg, sizeof(scd)))
+		if (copy_from_user(&arg_scd, (unsigned long *)arg, sizeof(scd)))
 			return -EFAULT;
 
-		retval = lirc_stm_scd_config(&scd,
-			clk_get_rate(clk_get(NULL, "comms_clk")));
+		retval = lirc_stm_scd_config(&arg_scd,
+					     clk_get_rate(clk_get
+							  (NULL, "comms_clk")));
+		if (retval == 0)
+			scd = &arg_scd;
 		break;
 
 	case LIRC_SCD_ENABLE:
@@ -859,7 +871,7 @@ static int lirc_stm_ioctl(struct inode *node, struct file *filep,
 
 	default:
 		msg = "???";
-	       _not_supported:
+_not_supported:
 		DPRINTK("command %s (0x%x) not supported\n", msg, cmd);
 		retval = -ENOIOCTLCMD;
 	}
@@ -874,7 +886,7 @@ static ssize_t lirc_stm_write(struct file *file, const char *buf,
 	size_t rdn = n / sizeof(size_t);
 	unsigned int symbol, mark;
 	int fifosyms, num_pio_pins;
-	struct lirc_pio *p;
+	struct lirc_pio_s *p;
 
 	num_pio_pins = pd.p_lirc_d->num_pio_pins;
 	while (num_pio_pins > 0) {
@@ -1020,12 +1032,12 @@ static void lirc_stm_calc_tx_clocks(unsigned int clockfreq,
 static void
 lirc_stm_calc_rx_clocks(struct platform_device *pdev, unsigned long baseclock)
 {
-	struct plat_lirc_data *lirc_private_data = NULL;
+	struct lirc_plat_data_s *lirc_pdata = NULL;
 	unsigned int rx_max_symbol_per;
 
-	lirc_private_data = (struct plat_lirc_data *)pdev->dev.platform_data;
+	lirc_pdata = (struct lirc_plat_data_s *)pdev->dev.platform_data;
 
-	if (lirc_private_data->irbclkdiv == 0) {
+	if (lirc_pdata->irbclkdiv == 0) {
 		/* Auto-calculate clock divisor */
 		int freqdiff;
 		rx.sampling_freq_div = baseclock / 10000000;
@@ -1063,14 +1075,13 @@ lirc_stm_calc_rx_clocks(struct platform_device *pdev, unsigned long baseclock)
 		}
 
 	} else {
-		rx.sampling_freq_div = (lirc_private_data->irbclkdiv);
-		rx.symbol_mult = (lirc_private_data->irbperiodmult);
-		rx.symbol_div = (lirc_private_data->irbperioddiv);
+		rx.sampling_freq_div = (lirc_pdata->irbclkdiv);
+		rx.symbol_mult = (lirc_pdata->irbperiodmult);
+		rx.symbol_div = (lirc_pdata->irbperioddiv);
 	}
 
 	writel(rx.sampling_freq_div, IRB_RX_RATE_COMMON);
-#define PRINTK(fmt, args...) printk(KERN_INFO LIRC_STM_NAME ": %s: " fmt, __FUNCTION__ , ## args)
-	PRINTK("IR clock is %d\n", baseclock);
+	printk(KERN_ERR LIRC_STM_NAME ": IR base clock is %lu\n", baseclock);
 	DPRINTK("IR clock divisor is %d\n", rx.sampling_freq_div);
 	DPRINTK("IR clock divisor readlack is %d\n", readl(IRB_RX_RATE_COMMON));
 	DPRINTK("IR period mult factor is %d\n", rx.symbol_mult);
@@ -1081,9 +1092,9 @@ lirc_stm_calc_rx_clocks(struct platform_device *pdev, unsigned long baseclock)
 	 * Symbol periods longer than this will generate
 	 * an interrupt and terminate a command
 	 */
-	if ((lirc_private_data->irbrxmaxperiod) != 0)
+	if ((lirc_pdata->irbrxmaxperiod) != 0)
 		rx_max_symbol_per =
-		    (lirc_private_data->irbrxmaxperiod) *
+		    (lirc_pdata->irbrxmaxperiod) *
 		    rx.symbol_mult / rx.symbol_div;
 	else
 		rx_max_symbol_per = 0;
@@ -1094,32 +1105,32 @@ lirc_stm_calc_rx_clocks(struct platform_device *pdev, unsigned long baseclock)
 
 static int lirc_stm_hardware_init(struct platform_device *pdev)
 {
-	struct plat_lirc_data *lirc_private_data = NULL;
+	struct lirc_plat_data_s *lirc_pdata = NULL;
 	struct clk *clk;
 	unsigned int scwidth;
 	int baseclock;
 
 	/*  set up the hardware version dependent setup parameters */
-	lirc_private_data = (struct plat_lirc_data *)pdev->dev.platform_data;
+	lirc_pdata = (struct lirc_plat_data_s *)pdev->dev.platform_data;
 
 	tx.carrier_freq = 38000;	// in Hz
 
 	/* Set the polarity inversion bit to the correct state */
-	writel(lirc_private_data->rxpolarity, IRB_RX_POLARITY_INV);
+	writel(lirc_pdata->rxpolarity, IRB_RX_POLARITY_INV);
 
 	/*  Get or calculate the clock and timing adjustment values.
 	 *  We can auto-calculate these in some cases
 	 */
-	if (lirc_private_data->irbclock == 0) {
+	if (lirc_pdata->irbclock == 0) {
 		clk = clk_get(NULL, "comms_clk");
-		baseclock = clk_get_rate(clk) / lirc_private_data->sysclkdiv;
+		baseclock = clk_get_rate(clk) / lirc_pdata->sysclkdiv;
 	} else
-		baseclock = lirc_private_data->irbclock;
+		baseclock = lirc_pdata->irbclock;
 
 	lirc_stm_calc_rx_clocks(pdev, baseclock);
 	/*  Set up the transmit timings  */
-	if (lirc_private_data->subcarrwidth != 0)
-		scwidth = lirc_private_data->subcarrwidth;
+	if (lirc_pdata->subcarrwidth != 0)
+		scwidth = lirc_pdata->subcarrwidth;
 	else
 		scwidth = 50;
 
@@ -1129,7 +1140,7 @@ static int lirc_stm_hardware_init(struct platform_device *pdev)
 	DPRINTK("subcarrier width set to %d %%\n", scwidth);
 	lirc_stm_calc_tx_clocks(baseclock, tx.carrier_freq, scwidth);
 
-	lirc_stm_scd_config(lirc_private_data->scd_info, baseclock);
+	lirc_stm_scd_config(scd, baseclock);
 
 	return 0;
 }
@@ -1144,10 +1155,12 @@ static int lirc_stm_probe(struct platform_device *pdev)
 {
 	int ret = -EINVAL;
 	int num_pio_pins;
-	struct lirc_pio *p;
+	struct lirc_pio_s *p;
 	struct device *dev = &pdev->dev;
 	struct resource *res;
-	int irb_irq = 0;
+	int irb_irq, irb_irq_wup;
+
+	irb_irq = irb_irq_wup = 0;
 
 	if (pdev->name == NULL) {
 		printk(KERN_ERR LIRC_STM_NAME
@@ -1157,7 +1170,7 @@ static int lirc_stm_probe(struct platform_device *pdev)
 
 	printk(KERN_INFO LIRC_STM_NAME
 	       ": probe found data for platform device %s\n", pdev->name);
-	pd.p_lirc_d = (struct plat_lirc_data *)pdev->dev.platform_data;
+	pd.p_lirc_d = (struct lirc_plat_data_s *)pdev->dev.platform_data;
 
 	if ((irb_irq = platform_get_irq(pdev, 0)) == 0) {
 		printk(KERN_ERR LIRC_STM_NAME
@@ -1165,28 +1178,29 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	DPRINTK("IRB irq is %d\n", irb_irq);
-
 	if (devm_request_irq(dev, irb_irq, lirc_stm_interrupt, IRQF_DISABLED,
 			     LIRC_STM_NAME, (void *)&pd) < 0) {
-		printk(KERN_ERR LIRC_STM_NAME ": IRQ register failed\n");
+            printk(KERN_ERR LIRC_STM_NAME ": IRQ %d register failed\n",
+                irb_irq);
 		return -EIO;
 	}
 
 	/* Enable wakeup interrupt if any */
-	if ((irb_irq = platform_get_irq(pdev, 1)) == 0) {
-		printk(KERN_WARNING LIRC_STM_NAME
-			": Wake IRQ configuration not found\n");
-	} else {
-		DPRINTK("IRB irq is %d\n", irb_irq);
-		if (devm_request_irq(dev, irb_irq, lirc_stm_interrupt, IRQF_DISABLED,
-					LIRC_STM_NAME, (void *)&pd) < 0) {
-			printk(KERN_ERR LIRC_STM_NAME ": IRQ register failed\n");
+	irb_irq_wup = platform_get_irq(pdev, 1);
+	if (irb_irq_wup != 0) {
+		if (devm_request_irq
+		    (dev, irb_irq_wup, lirc_stm_interrupt, IRQF_DISABLED,
+		     LIRC_STM_NAME, (void *)&pd) < 0) {
+			printk(KERN_ERR LIRC_STM_NAME
+			       ": wakeup IRQ %d register failed\n", irb_irq_wup);
 			return -EIO;
-			}
-		disable_irq(irb_irq);
-		enable_irq_wake(irb_irq);
 		}
+		disable_irq(irb_irq_wup);
+		enable_irq_wake(irb_irq_wup);
+		printk(KERN_INFO LIRC_STM_NAME
+		       ": the driver has wakeup IRQ %d\n", irb_irq_wup);
+	}
+
 	/* Configure for ir or uhf. uhf_switch==1 is UHF */
 	if (uhf_switch)
 		ir_or_uhf_offset = 0x40;
@@ -1240,7 +1254,7 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		DPRINTK("ioremapped to 0x%x\n", (unsigned int)irb_base_address);
 
 		printk(KERN_INFO LIRC_STM_NAME
-		       ": STM LIRC plugin has IRQ %d", irb_irq);
+		       ": the driver has IRQ %d", irb_irq);
 
 		/* Allocate the PIO pins */
 		num_pio_pins = pd.p_lirc_d->num_pio_pins;
@@ -1287,8 +1301,7 @@ static int lirc_stm_probe(struct platform_device *pdev)
 			/* something bad is happened */
 			if (ret) {
 				while (num_pio_pins < pd.p_lirc_d->num_pio_pins) {
-					stpio_free_pin(pd.p_lirc_d->
-						       pio_pin_arr
+					stpio_free_pin(pd.p_lirc_d->pio_pin_arr
 						       [num_pio_pins].pinaddr);
 					pd.p_lirc_d->pio_pin_arr[num_pio_pins].
 					    pinaddr = NULL;
@@ -1309,27 +1322,39 @@ static int lirc_stm_probe(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
+
+static void lirc_stm_restore_rx(void)
+{
+	if (rx.scd_supported)
+		lirc_stm_scd_set(1);
+	/* enable interrupts and receiver */
+	writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
+	writel(0x01, IRB_RX_EN);
+	/* clean the buffer */
+	lirc_stm_reset_rx_data();
+}
+
 static int lirc_stm_suspend(struct platform_device *pdev, pm_message_t state)
 {
-	struct plat_lirc_data *lirc_private_data = NULL;
+	struct lirc_plat_data_s *lirc_pdata = NULL;
 	unsigned long tmp;
-	lirc_private_data = (struct plat_lirc_data *)pdev->dev.platform_data;
+	lirc_pdata = (struct lirc_plat_data_s *)pdev->dev.platform_data;
 	pd.prev_state = state;
 	switch (state.event) {
 	case PM_EVENT_SUSPEND:
 		if (device_may_wakeup(&(pdev->dev))) {
 			/* need for the resuming phase */
-                        lirc_stm_flush_rx();
-			lirc_stm_calc_rx_clocks(pdev, lirc_private_data->clk_on_low_power);
-			lirc_stm_scd_config(lirc_private_data->scd_info,
-				lirc_private_data->clk_on_low_power);
+			lirc_stm_flush_rx();
+			lirc_stm_calc_rx_clocks(pdev,
+						lirc_pdata->clk_on_low_power);
+			lirc_stm_scd_config(scd, lirc_pdata->clk_on_low_power);
 			lirc_stm_restore_rx();
 			writel(0x02, IRB_SCD_CFG);
 			writel(0x01, IRB_SCD_CFG);
 			return 0;
 		}
 	case PM_EVENT_FREEZE:
-		/* disable IR RX/TX interrupts plus clear status*/
+		/* disable IR RX/TX interrupts plus clear status */
 		writel(0x00, IRB_RX_EN);
 		writel(0xff, IRB_RX_INT_CLEAR);
 		writel(0x00, IRB_TX_ENABLE);
@@ -1357,7 +1382,7 @@ static int lirc_stm_resume(struct platform_device *pdev)
 		break;
 	case PM_EVENT_SUSPEND:
 		lirc_stm_hardware_init(pdev);
-                lirc_stm_restore_rx();
+		lirc_stm_restore_rx();
 		writel(0x02, IRB_SCD_CFG);
 		writel(0x01, IRB_SCD_CFG);
 		break;
@@ -1371,7 +1396,7 @@ static int lirc_stm_resume(struct platform_device *pdev)
 #endif
 
 static struct platform_driver lirc_device_driver = {
-	.driver.name = "lirc",
+	.driver.name = LIRC_STM_NAME,
 	.probe = lirc_stm_probe,
 	.remove = lirc_stm_remove,
 	.suspend = lirc_stm_suspend,
@@ -1379,10 +1404,11 @@ static struct platform_driver lirc_device_driver = {
 };
 
 static struct file_operations lirc_stm_fops = {
-      write:lirc_stm_write,
+	.write = lirc_stm_write,
+	.ioctl = lirc_stm_ioctl,
 };
 
-static struct lirc_plugin lirc_stm_plugin = {
+static struct lirc_driver lirc_stm_driver = {
 	.name = LIRC_STM_NAME,
 	.minor = LIRC_STM_MINOR,
 	.code_length = 1,
@@ -1393,10 +1419,11 @@ static struct lirc_plugin lirc_stm_plugin = {
 	.data = (void *)&pd,
 	/* buffer handled by upper layer */
 	.add_to_buf = NULL,
+#ifndef LIRC_REMOVE_DURING_EXPORT
 	.get_queue = NULL,
+#endif
 	.set_use_inc = lirc_stm_open_inc,
 	.set_use_dec = lirc_stm_close_dec,
-	.ioctl = lirc_stm_ioctl,
 	.fops = &lirc_stm_fops,
 	.rbuf = &lirc_stm_rbuf,
 	.owner = THIS_MODULE,
@@ -1412,34 +1439,33 @@ static int __init lirc_stm_init(void)
 		goto out_err;
 	}
 
-        if (!pd.p_lirc_d) {
-                printk(KERN_ERR LIRC_STM_NAME 
-                       ": missed out hardware probing. Check kernel SoC config.\n");
-                goto out_err;
-        }
+	if (!pd.p_lirc_d) {
+		printk(KERN_ERR LIRC_STM_NAME
+		       ": missed out hardware probing."
+		       "Check kernel SoC config.\n");
+		goto out_err;
+	}
 
 	/* inform the top level driver that we use our own user buffer */
 	if (lirc_buffer_init(&lirc_stm_rbuf, sizeof(lirc_t),
 			     (2 * LIRC_STM_MAX_SYMBOLS))) {
 		printk(KERN_ERR LIRC_STM_NAME ": buffer init failed\n");
-                platform_driver_unregister(&lirc_device_driver);
+		platform_driver_unregister(&lirc_device_driver);
 		goto out_err;
 	}
 
 	request_module("lirc_dev");
-	if (lirc_register_plugin(&lirc_stm_plugin) < 0) {
-		printk(KERN_ERR LIRC_STM_NAME ": plugin registration failed\n");
+	if (lirc_register_driver(&lirc_stm_driver) < 0) {
+		printk(KERN_ERR LIRC_STM_NAME ": driver registration failed\n");
 		lirc_buffer_free(&lirc_stm_rbuf);
-                platform_driver_unregister(&lirc_device_driver);
+		platform_driver_unregister(&lirc_device_driver);
 		goto out_err;
 	}
 
-	printk(KERN_INFO
-	       "STMicroelectronics LIRC driver initialized.\n");
+	printk(KERN_INFO "STMicroelectronics LIRC driver initialized.\n");
 	return 0;
 out_err:
-	printk(KERN_ERR
-	       "STMicroelectronics LIRC driver not initialized.\n");
+	printk(KERN_ERR "STMicroelectronics LIRC driver not initialized.\n");
 	return -EINVAL;
 }
 
@@ -1447,15 +1473,15 @@ void __exit lirc_stm_release(void)
 {
 	int num_pio_pins;
 
-	DPRINTK("removing STM lirc plugin\n");
+	DPRINTK("removing STM lirc driver\n");
 
-	/* unregister the plugin */
+	/* unregister the driver */
 	lirc_stm_flush_rx();
 	platform_driver_unregister(&lirc_device_driver);
 
 	/* unplug the lirc stm driver */
-	if (lirc_unregister_plugin(LIRC_STM_MINOR) < 0)
-		printk(KERN_ERR LIRC_STM_NAME ": plugin unregister failed\n");
+	if (lirc_unregister_driver(LIRC_STM_MINOR) < 0)
+		printk(KERN_ERR LIRC_STM_NAME ": driver unregister failed\n");
 	/* free buffer */
 	lirc_buffer_free(&lirc_stm_rbuf);
 
@@ -1477,7 +1503,7 @@ MODULE_PARM_DESC(ir_or_uhf_offset, "Enable uhf mode");
 module_init(lirc_stm_init);
 module_exit(lirc_stm_release);
 MODULE_DESCRIPTION
-    ("Linux InfraRed receiver plugin for STMicroelectronics platforms");
+    ("Linux InfraRed receiver driver for STMicroelectronics platforms");
 MODULE_AUTHOR("Carl Shaw <carl.shaw@st.com>");
 MODULE_AUTHOR("Angelo Castello <angelo.castello@st.com>");
 MODULE_LICENSE("GPL");

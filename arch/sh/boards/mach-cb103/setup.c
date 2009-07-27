@@ -191,7 +191,7 @@ static int __init device_init(void)
 
 	stx7200_configure_ethernet(0, 0, 0, 0);
 
-	stx7200_configure_lirc(NULL);
+	stx7200_configure_lirc();
 
 	return platform_add_devices(cb103_devices, ARRAY_SIZE(cb103_devices));
 }

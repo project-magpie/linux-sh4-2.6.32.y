@@ -210,7 +210,7 @@ static int __init device_init(void)
 	stx7200_configure_usb(1);
 	stx7200_configure_usb(2);
 	stx7200_configure_ethernet(0, 0, 0, 0);
-	stx7200_configure_lirc(NULL);
+	stx7200_configure_lirc();
 	stx7200_configure_nand(&nand_devices[0]);
 	stx7200_configure_nand(&nand_devices[1]);
 

@@ -278,15 +278,6 @@ static struct platform_device *pdk7105_devices[] __initdata = {
 	&spi_pio_device[0],
 };
 
-/* Configuration based on Futarque-RC signals train. */
-lirc_scd_t lirc_scd = {
-	.code = 0x3FFFC028,
-	.codelen = 0x1e,
-	.alt_codelen = 0,
-	.nomtime = 0x1f4,
-	.noiserecov = 0,
-};
-
 /* PCI configuration */
 static struct pci_config_data  pci_config = {
 	.pci_irq = { PCI_PIN_DEFAULT, PCI_PIN_DEFAULT,
@@ -352,7 +343,7 @@ static int __init device_init(void)
 	phy_reset_pin = stpio_request_set_pin(15, 5, "eth_phy_reset",
 					      STPIO_OUT, 1);
 	stx7105_configure_ethernet(0, 0, 0, 0, 0, 0);
-	stx7105_configure_lirc(&lirc_scd);
+	stx7105_configure_lirc();
 	stx7105_configure_audio_pins(3, 1, 1);
 
 	/*

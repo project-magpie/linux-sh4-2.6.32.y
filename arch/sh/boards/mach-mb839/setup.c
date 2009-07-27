@@ -200,15 +200,6 @@ static struct platform_device *mb839_devices[] __initdata = {
 	&physmap_flash,
 };
 
-/* Configuration based on Futarque-RC signals train. */
-lirc_scd_t lirc_scd = {
-	.code = 0x3FFFC028,
-	.codelen = 0x1e,
-	.alt_codelen = 0,
-	.nomtime = 0x1f4,
-	.noiserecov = 0,
-};
-
 static int __init device_init(void)
 {
 	stx7105_configure_sata();
@@ -225,7 +216,7 @@ static int __init device_init(void)
 
 	stx7105_configure_ethernet(0, 0, 0, 0, 1, 0);
 
-	stx7105_configure_lirc(&lirc_scd);
+	stx7105_configure_lirc();
 
 	return platform_add_devices(mb839_devices, ARRAY_SIZE(mb839_devices));
 }

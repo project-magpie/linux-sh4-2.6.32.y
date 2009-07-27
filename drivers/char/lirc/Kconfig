@@ -15,52 +15,6 @@ menu "Linux InfraRed Controller"
 config LIRC_SUPPORT
 	tristate "Linux InfraRed Controller"
 
-	config LIRC_I2C
-		tristate "I2C Driver"
-		depends on LIRC_SUPPORT && VIDEO_BT848 && I2C && I2C_ALGOBIT
-		help
-		  Say Y here if you need support for the following cards:
-
-		  Pixelview IR
-		  Hauppauage IR
-		  PV951 IR
-		  TV-Box IR
-		  KNC ONE IR
-		  Asus TV-Box and Creative
-		  VisionTek BreakOut-Box
-		  Leadtek Winfast PVR2000
-
-		  If these dont make sense to you, then dont use the module.
-
-	config LIRC_GPIO
-		tristate "GPIO Driver"
-		depends on LIRC_SUPPORT && VIDEO_BT848
-		help
-		  TV-card remote control support for bttv based systems:
-		    AverMedia
-		    BestBuy
-		    Winfast TV2000
-		    I-O Data GV-BCTV5/PCI
-
-	config LIRC_BT829
-		tristate "BT829 Driver"
-		depends on LIRC_SUPPORT
-		help
-		  TV-card remote control support for BT829 based systems
-
-	config LIRC_IT87
-		tristate "IT87 Driver"
-		depends on LIRC_SUPPORT
-		help
-		  ITE IT8705 and IT8712(not tested) CIR-port support
-
-	config LIRC_ATIUSB
-		tristate "ATI USB Driver"
-		depends on LIRC_SUPPORT && USB
-		help
-		  Use this driver if you have an ATI X10 USB remote
-		  or an ATI Remote Wonder or ATI Remote Wonder II
-
 	config LIRC_MCEUSB
 		tristate "MCE USB Driver"
 		depends on LIRC_SUPPORT && USB
@@ -73,75 +27,6 @@ config LIRC_SUPPORT
 		help
 		  LIRC driver for the Philips eHome USB Infrared
 		  Transciever and the Microsoft MCE 2005 Remote Control
-
-	config LIRC_STREAMZAP
-		tristate "Streamzap Driver"
-		depends on LIRC_SUPPORT
-		help
-		  Install this driver if you have a Streamzap Remote Control
-
-	config LIRC_IGORPLUGUSB
-		tristate "Igorplugusb Driver"
-		depends on LIRC_SUPPORT
-		help
-		  Install this driver if you have a homebrew IgorPlugUSB
-		  receiver
-
-	config LIRC_IMON
-		tristate "IMON LIRC/VFD Driver"
-		depends on LIRC_SUPPORT
-		help
-		  Install this driver if you have an Ahanix/Soundgraph IMON
-		  IR receiver.  It also allows control of the VFD (display)
-
-	config LIRC_CMDIR
-		tristate "CMDIR Driver"
-		depends on LIRC_SUPPORT && USB
-		help
-		  Install this driver if you have an InnovationOne's
-		  COMMANDIR USB Transceiver
-
-	config LIRC_SASEM
-		tristate "Sasem Driver"
-		depends on LIRC_SUPPORT && USB
-		help
-		  This driver provides support for the USB Sasem Remote
-		  Controller V1.1
-
-	config LIRC_PARALLEL
-		tristate "Parallel Driver"
-		depends on LIRC_SUPPORT && !SMP && PARPORT
-
-		choice
-			prompt "Parallel Port"
-			depends on LIRC_PARALLEL
-			config LIRC_PARALLEL_LPT1
-				bool "LPT1 (0x378, 7)"
-			config LIRC_PARALLEL_LPT2
-				bool "LPT2 (0x278, 5)"
-			config LIRC_PARALLEL_LPT3
-				bool "COM3 (0x3bc, none)"
-			config LIRC_PARALLEL_OTHER
-				bool "Other (custom values)"
-		endchoice
-
-		config LIRC_PORT_PARALLEL
-			hex "I/O Port"
-				default "0x378" if LIRC_PARALLEL_LPT1
-				default "0x278" if LIRC_PARALLEL_LPT2
-				default "0x3bc" if LIRC_PARALLEL_LPT3
-			depends on LIRC_PARALLEL
-
-		config LIRC_IRQ_PARALLEL
-			hex "IRQ"
-				default "7" if LIRC_PARALLEL_LPT1
-				default "5" if LIRC_PARALLEL_LPT2
-			depends on LIRC_PARALLEL
-
-		config LIRC_TIMER
-			int "Timer"
-			default "65535"
-			depends on LIRC_PARALLEL
 
 	config LIRC_SERIAL
 		tristate "Serial Driver"
@@ -274,12 +159,52 @@ config LIRC_SUPPORT
 		help
 		  This causes the driver to use UHF RX mode.
 
+	        config LIRC_STM_UHF_SCD
+		        bool "Start Code Detector - SCD"
+			depends on LIRC_STM_UHF_RX
+			default y
+			help
+			  This causes the driver to use SCD on UHF RX mode.
+			  The start code detector detects any programmable start
+			  code on UHF RX input. It works on a time unit called
+			  symbol time. One graphical example to understand how to
+			  configure properly the code, code length and nominal time
+			  values based on Remote Control signals train can be found in
+			  drivers/char/lirc/lirc_stm.c driver.
+
+	        config LIRC_STM_UHF_SCD_CODE
+			hex "Code to be detected"
+			default "0x3FFFC028"
+			depends on LIRC_STM_UHF_SCD
+			help
+			  Default value for Futarque RC is 0x3FFFC028.
+
+	        config LIRC_STM_UHF_SCD_LEN
+			hex "Code length"
+			default "0x1e"
+			depends on LIRC_STM_UHF_SCD
+			help
+			  Default value for Futarque RC is 0x1e.
+
+	        config LIRC_STM_UHF_SCD_NTIME
+			hex "Nominal time for a symbol"
+				default "0x1f4"
+			depends on LIRC_STM_UHF_SCD
+			help
+			  Default value for Futarque RC is 0x1f4.
+
 	config LIRC_STM_DEBUG
 		depends on LIRC_STM
 		bool "Lirc debug"
 		default n
 		help
 		  Say yes if you want enable some debug printk information
+
+	config LIRC_TTUSBIR
+	        tristate "Technotrend USB IR Receiver"
+	        depends on LIRC_SUPPORT && USB
+	        help
+	          Driver for the Technotrend USB IR Receiver
 
 endmenu
 

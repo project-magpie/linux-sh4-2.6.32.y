@@ -818,7 +818,7 @@ static struct platform_device rtc_device = {
 };
 
 /* LiRC resources ---------------------------------------------------------- */
-static struct lirc_pio lirc_pios[] = {
+static struct lirc_pio_s lirc_pios[] = {
 	[0] = {
 		.bank = 3,
 		.pin  = 3,
@@ -845,7 +845,7 @@ static struct lirc_pio lirc_pios[] = {
 	}
 };
 
-static struct plat_lirc_data lirc_private_info = {
+static struct lirc_plat_data_s lirc_private_info = {
 	/* For the 7200, the clock settings will be calculated by the driver
 	 * from the system clock
 	 */
@@ -868,10 +868,8 @@ static struct plat_lirc_data lirc_private_info = {
 static struct platform_device lirc_device =
 	STLIRC_DEVICE(0xfd018000, ILC_IRQ(116), ILC_IRQ(117));
 
-void __init stx7200_configure_lirc(lirc_scd_t *scd)
+void __init stx7200_configure_lirc(void)
 {
-	lirc_private_info.scd_info = scd;
-
 	platform_device_register(&lirc_device);
 }
 

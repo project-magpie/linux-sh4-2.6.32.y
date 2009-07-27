@@ -20,7 +20,6 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/phy.h>
-#include <linux/lirc.h>
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <asm/irq-ilc.h>
@@ -183,15 +182,6 @@ static struct platform_device *mb519_devices[] __initdata = {
 	&mb519_phy_devices[1],
 };
 
-/* Configuration based on Futarque-RC signals train. */
-lirc_scd_t lirc_scd = {
-	.code = 0x3FFFC028,
-	.codelen = 0x1e,
-	.alt_codelen = 0,
-	.nomtime = 0x1f4,
-	.noiserecov = 0,
-};
-
 static int __init device_init(void)
 {
 	unsigned int epld_rev;
@@ -212,7 +202,7 @@ static int __init device_init(void)
 #else /* External PHY board (MII1) */
 	stx7200_configure_ethernet(1, 0, 1, 1);
 #endif
-	stx7200_configure_lirc(&lirc_scd);
+	stx7200_configure_lirc();
 
 	return platform_add_devices(mb519_devices, ARRAY_SIZE(mb519_devices));
 }

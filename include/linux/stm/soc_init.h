@@ -6,7 +6,7 @@
 
 #define STLIRC_DEVICE(_mem_start, _irq, _wake_irq)	\
 {							\
-	.name = "lirc",					\
+	.name = LIRC_STM_NAME,					\
 	.id = -1,					\
 	.num_resources = 3,				\
 	.resource = (struct resource[]) {		\

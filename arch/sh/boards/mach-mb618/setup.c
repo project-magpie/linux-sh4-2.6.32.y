@@ -20,7 +20,6 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/phy.h>
-#include <linux/lirc.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
 #include <linux/i2c.h>
@@ -284,15 +283,6 @@ static struct platform_device *mb618_devices[] __initdata = {
 	&mb618_button_device,
 };
 
-/* Configuration based on Futarque-RC signals train. */
-lirc_scd_t lirc_scd = {
-	.code = 0x3FFFC028,
-	.codelen = 0x1e,
-	.alt_codelen = 0,
-	.nomtime = 0x1f4,
-	.noiserecov = 0,
-};
-
 #ifdef CONFIG_SND
 /* SCART switch simple control */
 
@@ -334,7 +324,7 @@ static int __init device_init(void)
 	stx7111_configure_ssc(&ssc_private_info);
 	stx7111_configure_usb(1); /* Enable inverter */
 	stx7111_configure_ethernet(1, 0, 0, 0);
-        stx7111_configure_lirc(&lirc_scd);
+	stx7111_configure_lirc();
 
 	vpp_pio = stpio_request_pin(3,4, "VPP", STPIO_OUT);
 

@@ -156,17 +156,6 @@ static struct platform_device *mb680_devices[] __initdata = {
 	&mb680_phy_device,
 };
 
-/* Configuration based on Futarque-RC signals train. */
-lirc_scd_t lirc_scd = {
-	.code = 0x3FFFC028,
-	.codelen = 0x1e,
-	.alt_codelen = 0,
-	.nomtime = 0x1f4,
-	.noiserecov = 0,
-};
-
-
-
 /* PCI configuration */
 
 static struct pci_config_data  pci_config = {
@@ -211,7 +200,7 @@ static int __init device_init(void)
 	switch_en = stpio_request_set_pin(11, 2, "MIIBusSwitch", STPIO_OUT, 1);
 	stx7105_configure_ethernet(0, 0, 0, 0, 1, 0);
 
-	stx7105_configure_lirc(&lirc_scd);
+	stx7105_configure_lirc();
 
 	return platform_add_devices(mb680_devices, ARRAY_SIZE(mb680_devices));
 }

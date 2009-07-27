@@ -1,7 +1,7 @@
 #ifndef __LINUX_STM_SOC_H
 #define __LINUX_STM_SOC_H
 
-#include <linux/lirc.h>
+#include <linux/stm/lirc.h>
 #include <linux/compiler.h>
 
 /* This is the private platform data for the ssc driver */
@@ -255,42 +255,6 @@ struct plat_stm_temp_data {
 	void *custom_priv;
 };
 
-/* This is the private platform data for the lirc driver */
-#define LIRC_PIO_ON		0x08	/* PIO pin available */
-#define LIRC_IR_RX		0x04	/* IR RX PIO line available */
-#define LIRC_IR_TX		0x02	/* IR TX PIOs lines available */
-#define LIRC_UHF_RX		0x01	/* UHF RX PIO line available */
-
-struct lirc_pio {
-	unsigned int bank;
-	unsigned int pin;
-	unsigned int dir;
-	char pinof;
-        struct stpio_pin* pinaddr;
-};
-
-struct plat_lirc_data {
-	unsigned int irbclock;		/* IRB block clock (set to 0 for auto) */
-	unsigned int irbclkdiv;		/* IRB block clock divisor (set to 0 for auto) */
-	unsigned int irbperiodmult;	/* manual setting period multiplier */
-	unsigned int irbperioddiv;	/* manual setting period divisor */
-	unsigned int irbontimemult;	/* manual setting pulse period multiplier */
-	unsigned int irbontimediv;	/* manual setting pulse period divisor */
-	unsigned int irbrxmaxperiod;	/* maximum rx period in uS */
-	unsigned int irbversion;	/* IRB version type (1,2 or 3) */
-	unsigned int sysclkdiv;		/* factor to divide system bus clock by */
-	unsigned int rxpolarity;        /* flag to set gpio rx polarity (usually set to 1) */
-	unsigned int subcarrwidth;      /* Subcarrier width in percent - this is used to */
-					/* make the subcarrier waveform square after passing */
-					/* through the 555-based threshold detector on ST boards */
-	struct lirc_pio *pio_pin_arr;	/* PIO pin settings for driver */
-	unsigned int num_pio_pins;
-	lirc_scd_t *scd_info;		/* SCD settings */
-#ifdef CONFIG_PM
-	unsigned long clk_on_low_power; /* specify the system clock rate in lowpower mode */
-#endif
-};
-
 /* Private data for the STM on-board ethernet driver */
 struct plat_stmmacenet_data {
 	int bus_id;
@@ -486,7 +450,7 @@ void stx5197_configure_usb(void);
 void stx5197_configure_ethernet(int rmii, int ext_clk, int phy_bus);
 void stx5197_configure_ssc(struct plat_ssc_data *data);
 void stx5197_configure_pwm(struct plat_stm_pwm_data *data);
-void stx5197_configure_lirc(lirc_scd_t *scd);
+void stx5197_configure_lirc(void);
 
 void stx7100_early_device_init(void);
 void stb7100_configure_asc(const int *ascs, int num_ascs, int console);
@@ -498,7 +462,7 @@ void stx7100_configure_pwm(struct plat_stm_pwm_data *data);
 void stx7100_configure_ssc(struct plat_ssc_data *data);
 void stx7100_configure_usb(void);
 void stx7100_configure_ethernet(int rmii_mode, int ext_clk, int phy_bus);
-void stx7100_configure_lirc(lirc_scd_t *scd);
+void stx7100_configure_lirc(void);
 void stx7100_configure_pata(int bank, int pc_mode, int irq);
 
 void stx7105_configure_sata(void);
@@ -510,7 +474,7 @@ void stx7105_configure_usb(int port, struct usb_init_data *data);
 void stx7105_configure_ethernet(int reverse_mii, int rmii_mode, int mode,
 				int ext_mdio, int ext_clk, int phy_bus);
 void stx7105_configure_nand(struct platform_device *pdev);
-void stx7105_configure_lirc(lirc_scd_t *scd);
+void stx7105_configure_lirc(void);
 void stx7105_configure_pata(int bank, int pc_mode, int irq);
 void stx7105_configure_audio_pins(int pcmout, int spdif, int pcmin);
 void stx7105_configure_pci(struct pci_config_data *pci_config);
@@ -523,7 +487,7 @@ void stx7111_configure_ssc(struct plat_ssc_data *data);
 void stx7111_configure_usb(int inv_enable);
 void stx7111_configure_ethernet(int en_mii, int sel, int ext_clk, int phy_bus);
 void stx7111_configure_nand(struct plat_stmnand_data *data);
-void stx7111_configure_lirc(lirc_scd_t *scd);
+void stx7111_configure_lirc(void);
 void stx7111_configure_pci(struct pci_config_data *pci_config);
 int  stx7111_pcibios_map_platform_irq(struct pci_config_data *pci_config, u8 pin);
 
@@ -537,7 +501,7 @@ void stx7141_configure_ethernet(int port, int reverse_mii, int mode,
 				int phy_bus);
 void stx7141_configure_audio_pins(int pcmout1, int pcmout2, int spdif,
 		int pcmin1, int pcmint2);
-void stx7141_configure_lirc(lirc_scd_t *scd);
+void stx7141_configure_lirc(void);
 
 void stx7200_early_device_init(void);
 void stx7200_configure_asc(const int *ascs, int num_ascs, int console);
@@ -547,7 +511,7 @@ void stx7200_configure_usb(int port);
 void stx7200_configure_sata(unsigned int port);
 void stx7200_configure_ethernet(int mac, int rmii_mode, int ext_clk,
 				int phy_bus);
-void stx7200_configure_lirc(lirc_scd_t *scd);
+void stx7200_configure_lirc(void);
 void stx7200_configure_nand(struct platform_device *pdev);
 void stx7200_configure_pata(int bank, int pc_mode, int irq);
 

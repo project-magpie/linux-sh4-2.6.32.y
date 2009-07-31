@@ -1,19 +1,25 @@
-/* STMicroelectronics
-
-* This program is free software; you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation; either version 2 of the License, or
-* (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, wrssc to the Free Software
-* Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
-*/
+/*
+ * Copyright (C) 2004-2009 STMicroelectronics
+ *
+ * Author Angelo Castello <angelo.castello@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, wrssc to the Free Software
+ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ * Jul 2009 : Ported for kernel 2.6.30. Removed any deprecated istances.
+ *            angelo.castello@st.com
+ */
 
 #include <linux/i2c.h>
 #include <linux/rtc.h>
@@ -38,11 +44,7 @@
 #define M41ST85Y_INVALID	0xff	/* invalid value */
 #define M41ST85Y_IRQ_LEVEL	0x01	/* default value. 1=High, 0=Low */
 #define M41ST85Y_SQW_LEVEL	0x00	/* default value. 1=High, 0=Low */
-#if defined(CONFIG_CPU_SUBTYPE_STB7100)
 #define M41ST85Y_NOBUS		0x03	/* number of I2C busses */
-#else
-#error platform not supported.
-#endif
 
 /*
  * Addressing compliante to SPI PIO address mechanism
@@ -74,11 +76,6 @@ static __u8 wbuf[M41ST85Y_NREGMAP];
 static __u32 busid = M41ST85Y_NOBUS;
 static __u32 irqpio = CONFIG_RTC_DRV_M41ST85Y_IRQPIO /* Ex: 0x07 */ ,
     sqwpio = CONFIG_RTC_DRV_M41ST85Y_SQWPIO /* Ex: 0x0F */ ;
-
-/* I2C driver interface */
-static int m41st85y_attach(struct i2c_adapter *adapter);
-static int m41st85y_detach(struct i2c_client *client);
-static int m41st85y_probe(struct i2c_adapter *adapter, int address, int kind);
 
 static int m41st85y_transfer(struct m41st85y_s *instance,
 			     __u8 * buf, __u8 len, __u8 oper, __u8 at_addr)
@@ -171,11 +168,33 @@ void m41st85y_handler(struct stpio_pin *pin, void *dev)
 
 	if (!skip) {
 		events |= RTC_IRQF;
-		rtc_update_irq(&instance->rtc->class_dev, 1, events);
+		rtc_update_irq(instance->rtc, 1, events);
 	}
 }
 
-static int m41st85y_alarmset(unsigned int ioctl_cmd, struct rtc_time *ltime)
+static int m41st85y_read_time(struct device *dev, struct rtc_time *time_read)
+{
+	if (time_read == NULL)
+		return -EIO;
+
+	memset(time_read, 0, sizeof(struct rtc_time));
+
+	if (m41st85y_transfer(&m41st85y, rbuf, 9, M41ST85Y_RD, 0x00) >= 0) {
+		time_read->tm_sec = bcd2bin(rbuf[1] & 0x7f);
+		time_read->tm_min = bcd2bin(rbuf[2] & 0x7f);
+		time_read->tm_hour = bcd2bin(rbuf[3] & 0x3f);
+		time_read->tm_wday = bcd2bin(rbuf[4] & 0x07);
+		time_read->tm_mday = bcd2bin(rbuf[5] & 0x3f);
+		time_read->tm_mon = bcd2bin(rbuf[6] & 0x1f);
+		time_read->tm_year = bcd2bin(rbuf[7]);
+		return 0;
+	}
+
+	return -EIO;
+}
+
+static int m41st85y_alarmset(struct device *dev,
+			     unsigned int ioctl_cmd, struct rtc_time *ltime)
 {
 	/* to be sure that incoming ioctl request can be managed
 	   by this */
@@ -183,15 +202,15 @@ static int m41st85y_alarmset(unsigned int ioctl_cmd, struct rtc_time *ltime)
 		return -1;
 
 	if (ioctl_cmd == RTC_UIE_ON) {
-		rtc_get_rtc_time(ltime);
+		m41st85y_read_time(dev, ltime);
 
 		/* alarm update */
 		wbuf[0] = 0x0A;
-		wbuf[1] = BIN2BCD(ltime->tm_mon);
-		wbuf[2] = 0xC0 | BIN2BCD(ltime->tm_mday);
-		wbuf[3] = 0x80 | BIN2BCD(ltime->tm_hour);
-		wbuf[4] = 0x80 | BIN2BCD(ltime->tm_min);
-		wbuf[5] = 0x80 | BIN2BCD(ltime->tm_sec + 1);
+		wbuf[1] = bin2bcd(ltime->tm_mon);
+		wbuf[2] = 0xC0 | bin2bcd(ltime->tm_mday);
+		wbuf[3] = 0x80 | bin2bcd(ltime->tm_hour);
+		wbuf[4] = 0x80 | bin2bcd(ltime->tm_min);
+		wbuf[5] = 0x80 | bin2bcd(ltime->tm_sec + 1);
 		if (m41st85y_transfer(&m41st85y,
 				      wbuf, 6, M41ST85Y_WR,
 				      M41ST85Y_INVALID) >= 0) {
@@ -208,11 +227,11 @@ static int m41st85y_alarmset(unsigned int ioctl_cmd, struct rtc_time *ltime)
 				      rbuf, 6, M41ST85Y_RD, 0x0A) >= 0) {
 			/* alarm update */
 			wbuf[0] = 0x0A;
-			wbuf[1] = (rbuf[0] & 0xE0) | BIN2BCD(ltime->tm_mon);
-			wbuf[2] = (rbuf[1] & 0xC0) | BIN2BCD(ltime->tm_mday);
-			wbuf[3] = (rbuf[2] & 0xC0) | BIN2BCD(ltime->tm_hour);
-			wbuf[4] = (rbuf[3] & 0x80) | BIN2BCD(ltime->tm_min);
-			wbuf[5] = (rbuf[4] & 0x80) | BIN2BCD(ltime->tm_sec);
+			wbuf[1] = (rbuf[0] & 0xE0) | bin2bcd(ltime->tm_mon);
+			wbuf[2] = (rbuf[1] & 0xC0) | bin2bcd(ltime->tm_mday);
+			wbuf[3] = (rbuf[2] & 0xC0) | bin2bcd(ltime->tm_hour);
+			wbuf[4] = (rbuf[3] & 0x80) | bin2bcd(ltime->tm_min);
+			wbuf[5] = (rbuf[4] & 0x80) | bin2bcd(ltime->tm_sec);
 			DPRINTK("writing alarm date\n");
 			if (m41st85y_transfer(&m41st85y,
 					      wbuf, 6, M41ST85Y_WR,
@@ -240,27 +259,6 @@ static void m41st85y_release(struct device *dev)
 	/* unlocked at top level before to be use it again */
 }
 
-static int m41st85y_read_time(struct device *dev, struct rtc_time *time_read)
-{
-	if (time_read == NULL)
-		return -EIO;
-
-	memset(time_read, 0, sizeof(struct rtc_time));
-
-	if (m41st85y_transfer(&m41st85y, rbuf, 9, M41ST85Y_RD, 0x00) >= 0) {
-		time_read->tm_sec = BCD2BIN(rbuf[1] & 0x7f);
-		time_read->tm_min = BCD2BIN(rbuf[2] & 0x7f);
-		time_read->tm_hour = BCD2BIN(rbuf[3] & 0x3f);
-		time_read->tm_wday = BCD2BIN(rbuf[4] & 0x07);
-		time_read->tm_mday = BCD2BIN(rbuf[5] & 0x3f);
-		time_read->tm_mon = BCD2BIN(rbuf[6] & 0x1f);
-		time_read->tm_year = BCD2BIN(rbuf[7]);
-		return 0;
-	}
-
-	return -EIO;
-}
-
 static int m41st85y_set_time(struct device *dev, struct rtc_time *time_to_write)
 {
 	int err;
@@ -271,13 +269,13 @@ static int m41st85y_set_time(struct device *dev, struct rtc_time *time_to_write)
 		/* time update */
 		wbuf[0] = 0x00;
 		wbuf[1] = 0x00;
-		wbuf[2] = (rbuf[1] & 0x80) | BIN2BCD(time_to_write->tm_sec);
-		wbuf[3] = (rbuf[2] & 0x80) | BIN2BCD(time_to_write->tm_min);
-		wbuf[4] = (rbuf[3] & 0xC0) | BIN2BCD(time_to_write->tm_hour);
+		wbuf[2] = (rbuf[1] & 0x80) | bin2bcd(time_to_write->tm_sec);
+		wbuf[3] = (rbuf[2] & 0x80) | bin2bcd(time_to_write->tm_min);
+		wbuf[4] = (rbuf[3] & 0xC0) | bin2bcd(time_to_write->tm_hour);
 		memcpy(&wbuf[5], &rbuf[4], sizeof(char));
-		wbuf[6] = (rbuf[5] & 0xC0) | BIN2BCD(time_to_write->tm_mday);
-		wbuf[7] = (rbuf[6] & 0xE0) | BIN2BCD(time_to_write->tm_mon);
-		wbuf[8] = BIN2BCD((time_to_write->tm_year - m41st85y.epoch));
+		wbuf[6] = (rbuf[5] & 0xC0) | bin2bcd(time_to_write->tm_mday);
+		wbuf[7] = (rbuf[6] & 0xE0) | bin2bcd(time_to_write->tm_mon);
+		wbuf[8] = bin2bcd((time_to_write->tm_year - m41st85y.epoch));
 
 		err = m41st85y_transfer(&m41st85y,
 					wbuf, 9, M41ST85Y_WR, M41ST85Y_INVALID);
@@ -294,11 +292,11 @@ static int m41st85y_read_alarm(struct device *dev,
 		if ((err = m41st85y_transfer(&m41st85y,
 					     rbuf, 6, M41ST85Y_RD, 0x0A)) >= 0)
 		{
-			alarm_read->time.tm_mon = BCD2BIN(rbuf[0] & 0x1f);
-			alarm_read->time.tm_mday = BCD2BIN(rbuf[1] & 0x3f);
-			alarm_read->time.tm_hour = BCD2BIN(rbuf[2] & 0x3f);
-			alarm_read->time.tm_min = BCD2BIN(rbuf[3] & 0x7f);
-			alarm_read->time.tm_sec = BCD2BIN(rbuf[4] & 0x7f);
+			alarm_read->time.tm_mon = bcd2bin(rbuf[0] & 0x1f);
+			alarm_read->time.tm_mday = bcd2bin(rbuf[1] & 0x3f);
+			alarm_read->time.tm_hour = bcd2bin(rbuf[2] & 0x3f);
+			alarm_read->time.tm_min = bcd2bin(rbuf[3] & 0x7f);
+			alarm_read->time.tm_sec = bcd2bin(rbuf[4] & 0x7f);
 		}
 	} else
 		err = -EIO;
@@ -309,7 +307,7 @@ static int m41st85y_read_alarm(struct device *dev,
 static int m41st85y_set_alarm(struct device *dev,
 			      struct rtc_wkalrm *alarm_to_write)
 {
-	return m41st85y_alarmset(RTC_ALM_SET, &alarm_to_write->time);
+	return m41st85y_alarmset(dev, RTC_ALM_SET, &alarm_to_write->time);
 }
 
 static int m41st85y_ioctl(struct device *dev, unsigned int cmd,
@@ -381,7 +379,7 @@ static int m41st85y_ioctl(struct device *dev, unsigned int cmd,
 	case RTC_UIE_ON:	/* Allow ints for RTC updates. (one per second) */
 		{
 			stpio_enable_irq(m41st85y.irqpio, M41ST85Y_IRQ_LEVEL);
-			return m41st85y_alarmset(cmd, &ltime);
+			return m41st85y_alarmset(dev, cmd, &ltime);
 		}
 	case RTC_ALM_READ:	/* Read the present alarm time */
 		{
@@ -390,8 +388,8 @@ static int m41st85y_ioctl(struct device *dev, unsigned int cmd,
 			if ((err = m41st85y_read_alarm(NULL, &alarm_read)) >= 0)
 				return copy_to_user((void __user *)arg,
 						    &alarm_read.time,
-						    sizeof alarm_read.
-						    time) ? -EFAULT : 0;
+						    sizeof alarm_read.time) ?
+				    -EFAULT : 0;
 			return err;
 		}
 	case RTC_ALM_SET:	/* Store a time into the alarm */
@@ -400,11 +398,11 @@ static int m41st85y_ioctl(struct device *dev, unsigned int cmd,
 			    (&ltime, (struct rtc_time __user *)arg,
 			     sizeof ltime))
 				return -EFAULT;
-			return m41st85y_alarmset(cmd, &ltime);
+			return m41st85y_alarmset(dev, cmd, &ltime);
 		}
 	case RTC_RD_TIME:	/* Read the time/date from RTC  */
 		{
-			rtc_get_rtc_time(&ltime);
+			m41st85y_read_time(dev, &ltime);
 			return copy_to_user((void __user *)arg,
 					    &ltime, sizeof ltime) ? -EFAULT : 0;
 		}
@@ -545,59 +543,26 @@ static struct rtc_class_ops m41st85y_rtc_ops = {
 
 };
 
-static struct i2c_driver m41st85y_driver = {
-	.driver = {
-		   .name = "m41st85y",
-		   },
-	.attach_adapter = &m41st85y_attach,
-	.detach_client = &m41st85y_detach,
-};
-
-static int m41st85y_attach(struct i2c_adapter *adapter)
+static int m41st85y_probe(struct i2c_client *client,
+			  const struct i2c_device_id *id)
 {
-	return i2c_probe(adapter, &addr_data, m41st85y_probe);
-}
-
-static int m41st85y_probe(struct i2c_adapter *adapter, int address, int kind)
-{
-	int err = 0;
-	struct i2c_client *client;
-	struct rtc_device *rtc_dev;
-
-	m41st85y.adapter = adapter;
-
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		printk(KERN_ERR "m41st85y: functionality I2C unsupported\n");
+		return -ENODEV;
+	}
 	if (m41st85y_power_up() >= 0) {
 
-		if (!(client = kzalloc(sizeof(struct i2c_client), GFP_KERNEL))) {
-			err = -ENOMEM;
-			goto exit_err;
-		}
-
-		/* I2C client */
-		client->addr = address;
-		client->driver = &m41st85y_driver;
-		client->adapter = adapter;
-
-		strlcpy(client->name, m41st85y_driver.driver.name,
-			I2C_NAME_SIZE);
-
-		/* Inform the i2c layer */
-		if ((err = i2c_attach_client(client))) {
-			goto exit_kfree;
-		}
-
-		rtc_dev =
-		    rtc_device_register(m41st85y_driver.driver.name,
+		m41st85y.rtc =
+		    rtc_device_register(M41ST85Y_NAME,
 					&client->dev, &m41st85y_rtc_ops,
 					THIS_MODULE);
-		if (IS_ERR(rtc_dev)) {
-			err = PTR_ERR(rtc_dev);
-			goto exit_detach;
+		if (IS_ERR(m41st85y.rtc)) {
+			printk(KERN_ERR
+			       "m41st85y: RTC dev register failure.\n");
+			return PTR_ERR(m41st85y.rtc);
 		}
 
-		i2c_set_clientdata(client, rtc_dev);
-
-		m41st85y.rtc = rtc_dev;
+		m41st85y.adapter = client->adapter;
 		m41st85y.cmd = 0;	/* none */
 		m41st85y.epoch = 1900;	/* default value on Linux */
 		m41st85y.rtc->irq_freq = 1;	/* default square ware 1Hz */
@@ -620,14 +585,15 @@ static int m41st85y_probe(struct i2c_adapter *adapter, int address, int kind)
 					       m41st85y_get_piopin(sqwpio),
 					       M41ST85Y_NAME,
 					       STPIO_IN)) != NULL) {
-				stpio_request_irq(m41st85y.irqpio,
-						  M41ST85Y_IRQ_LEVEL,
-						  m41st85y_handler,
-						  (void *)&m41st85y);
-				stpio_request_irq(m41st85y.sqwpio,
-						  M41ST85Y_SQW_LEVEL,
-						  m41st85y_handler,
-						  (void *)&m41st85y);
+				stpio_flagged_request_irq(m41st85y.irqpio,
+							  M41ST85Y_IRQ_LEVEL,
+							  m41st85y_handler,
+							  (void *)&m41st85y, 0);
+				stpio_flagged_request_irq(m41st85y.sqwpio,
+							  M41ST85Y_SQW_LEVEL,
+							  m41st85y_handler,
+							  (void *)&m41st85y, 0);
+				i2c_set_clientdata(client, &m41st85y);
 				printk(KERN_INFO
 				       "m41st85y: STMicroelectronics M41ST85Y RTC Driver registered\n");
 				return 0;
@@ -636,35 +602,29 @@ static int m41st85y_probe(struct i2c_adapter *adapter, int address, int kind)
 		}
 		printk(KERN_ERR
 		       "m41st85y: STMicroelectronics M41ST85Y RTC Driver unregistered\n");
-		goto exit_detach;
 	}
-
-	return 0;
-      exit_detach:
-	i2c_detach_client(client);
-      exit_kfree:
-	kfree(client);
-      exit_err:
-	return err;
+	return -EIO;
 }
 
-static int m41st85y_detach(struct i2c_client *client)
+static int m41st85y_remove(struct i2c_client *client)
 {
-	int err;
-	struct rtc_device *rtc_dev = i2c_get_clientdata(client);
-
 	stpio_free_irq(m41st85y.irqpio);
 	stpio_free_irq(m41st85y.sqwpio);
-
-	if (rtc_dev)
-		rtc_device_unregister(rtc_dev);
-
-	if ((err = i2c_detach_client(client)))
-		return err;
-
-	kfree(client);
+	rtc_device_unregister(m41st85y.rtc);
 	return 0;
 }
+
+static struct i2c_device_id m41st85y_id[] = {
+	{M41ST85Y_NAME, 0},
+	{}
+};
+
+static struct i2c_driver m41st85y_driver = {
+	.driver.name = M41ST85Y_NAME,
+	.probe = m41st85y_probe,
+	.remove = m41st85y_remove,
+	.id_table = m41st85y_id
+};
 
 static __init int m41st85y_init(void)
 {
@@ -743,11 +703,6 @@ int rtc_unregister(rtc_task_t * task)
 	spin_unlock(&m41st85y.rtc->irq_task_lock);
 	spin_unlock_irq(&m41st85y.rtc->irq_lock);
 	return -EIO;
-}
-
-void rtc_get_rtc_time(struct rtc_time *ltime)
-{
-	m41st85y_read_time(NULL, ltime);
 }
 
 module_param(busid, uint, 0644);

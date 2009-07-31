@@ -1125,6 +1125,19 @@ config MODULE_SRCVERSION_ALL
 	  the version).  With this option, such a "srcversion" field
 	  will be created for all modules.  If unsure, say N.
 
+config LKM_ELF_HASH
+    bool "Enable ELF hash support for fast loading"
+    default y
+    help
+      Extend the modules and vmlinux ELF file by adding a new section
+      to implement the ELF hash table to be used for symbol lookup.
+      When inserting a module, the symbol lookup process will use the
+      ELF hash table for finding symbols. It also relies upon the support
+      provided by the ksymhash tool to avoiding further computation at
+      runtime of the hash values (of both exported and undefined symbols).
+      If you enable this feature, all other external modules must be
+      rebuilt accordingly.
+
 config MODULES_BPA2
 	bool "Allocate memory for modules from BPA2"
 	depends on BPA2 && SUPERH

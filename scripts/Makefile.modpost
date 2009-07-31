@@ -112,6 +112,23 @@ ifdef CONFIG_MARKERS
 $(markersfile):	       __modpost ;
 endif
 
+ifdef CONFIG_LKM_ELF_HASH
+# Use modpost -H to generate an ELF style hash table for
+# each of the kernel symbol table.
+# These data strcutures are included in .tmp_vmlinux.mod.c file.
+# This will be compiled and linked with the final vmlinx image
+# and used by the kernel for symbol lookup
+# Do not care of warnings about section mismatch on .tmp_vmlinux
+# the goal of mospost at this stage is just to create the ELF hash
+# table for the exported symbols
+
+just_modpost = scripts/mod/modpost
+quiet_cmd_kernel-htable = HTABLE  $@
+      cmd_kernel-htable = $(just_modpost) -s -S -H $@
+
+.tmp_vmlinux: FORCE
+	$(call cmd,kernel-htable)
+endif
 
 # Step 5), compile all *.mod.c files
 
@@ -132,8 +149,11 @@ quiet_cmd_ld_ko_o = LD [M]  $@
       cmd_ld_ko_o = $(LD) -r $(LDFLAGS) $(LDFLAGS_MODULE) -o $@		\
 			  $(filter-out FORCE,$^)
 
+include $(srctree)/scripts/ksymhash/Makefile
+
 $(modules): %.ko :%.o %.mod.o FORCE
 	$(call if_changed,ld_ko_o)
+	$(rule_ksymhash)
 
 targets += $(modules)
 

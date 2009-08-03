@@ -133,13 +133,6 @@ config COMPILE_OPTIONS
 	string "Additional compile arguments"
 	depends on MORE_COMPILE_OPTIONS
 
-config OPROFILE_PWM
-	bool "Use 710x PWM for profiling"
-	depends on OPROFILE
-	depends on CPU_SUBTYPE_STB7100
-	help
-	  Say Y here to use the 710x PWM timer for oprofile sampling.
-
 config SH64_SR_WATCH
 	bool "Debug: set SR.WATCH to enable hardware watchpoints and trace"
 	depends on SUPERH64

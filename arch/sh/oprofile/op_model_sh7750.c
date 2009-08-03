@@ -19,8 +19,6 @@
 #include <linux/fs.h>
 #include "op_impl.h"
 
-#include "op_sh_model.h"
-
 #define PM_CR_BASE	0xff000084	/* 16-bit */
 #define PM_CTR_BASE	0xff100004	/* 32-bit */
 

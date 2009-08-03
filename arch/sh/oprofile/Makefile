@@ -11,6 +11,3 @@ oprofile-y	:= $(DRIVER_OBJS) common.o backtrace.o
 oprofile-$(CONFIG_CPU_SUBTYPE_SH7750S)	+= op_model_sh7750.o
 oprofile-$(CONFIG_CPU_SUBTYPE_SH7750)	+= op_model_sh7750.o
 oprofile-$(CONFIG_CPU_SUBTYPE_SH7091)	+= op_model_sh7750.o
-
-# SH7109 has a PWM timer we nab for performance timing.
-profdrvr-$(CONFIG_OPROFILE_PWM)  += op_model_sh7109.o

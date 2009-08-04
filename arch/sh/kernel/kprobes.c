@@ -252,7 +252,9 @@ static int __kprobes kprobe_handler(struct pt_regs *regs)
 	p = get_kprobe(addr);
 	if (!p) {
 		/* Not one of ours: let kernel handle it */
-		if (*(kprobe_opcode_t *)addr != BREAKPOINT_INSTRUCTION) {
+		if ((*(kprobe_opcode_t *)addr != BREAKPOINT_INSTRUCTION) &&
+			(*(kprobe_opcode_t *)addr !=
+				BREAKPOINT_INSTRUCTION_REMOTE)) {
 			/*
 			 * The breakpoint instruction was removed right
 			 * after we hit it. Another cpu has removed

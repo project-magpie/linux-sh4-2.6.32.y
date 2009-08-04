@@ -7,7 +7,8 @@
 #include <linux/ptrace.h>
 
 typedef u16 kprobe_opcode_t;
-#define BREAKPOINT_INSTRUCTION	0xc33a
+#define BREAKPOINT_INSTRUCTION	0xc3c3
+#define BREAKPOINT_INSTRUCTION_REMOTE 0xc320
 
 #define MAX_INSN_SIZE 16
 #define MAX_STACK_SIZE 64

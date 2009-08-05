@@ -107,6 +107,7 @@ struct module {
 	const char *name;
 	int gpl_compatible;
 	struct symbol *unres;
+	struct elf_info *info;
 	int seen;
 	int skip;
 	int has_init;
@@ -115,6 +116,12 @@ struct module {
 	char **markers;
 	size_t nmarkers;
 	char	     srcversion[25];
+};
+
+/* How a symbol is exported */
+enum export {
+	export_plain,      export_unused,     export_gpl,
+	export_unused_gpl, export_gpl_future, export_unknown
 };
 
 struct elf_info {
@@ -130,8 +137,28 @@ struct elf_info {
 	Elf_Section  export_gpl_future_sec;
 	Elf_Section  markers_strings_sec;
 	const char   *strtab;
+	const char   *kstrings;
 	char	     *modinfo;
 	unsigned int modinfo_len;
+};
+
+/* A hash of all exported symbols,
+ * struct symbol is also used for lists of unresolved symbols */
+
+#define SYMBOL_HASH_SIZE 1024
+
+struct symbol {
+	struct symbol *next;
+	struct module *module;
+	unsigned int crc;
+	int crc_valid;
+	unsigned int weak:1;
+	unsigned int vmlinux:1;    /* 1 if symbol is defined in vmlinux */
+	unsigned int kernel:1;     /* 1 if symbol is from kernel
+				    *  (only for external modules) **/
+	unsigned int preloaded:1;  /* 1 if symbol from Module.symvers */
+	enum export  export;       /* Type of export */
+	char name[0];
 };
 
 /* file2alias.c */
@@ -155,3 +182,10 @@ void release_file(void *file, unsigned long size);
 void fatal(const char *fmt, ...);
 void warn(const char *fmt, ...);
 void merror(const char *fmt, ...);
+
+/* from ktablehash.c */
+#ifdef CONFIG_LKM_ELF_HASH
+void add_undef_hash(struct buffer *b, struct module *mod);
+void add_ksymtable_hash(struct buffer *b, struct module *mod);
+#endif
+

@@ -29,14 +29,13 @@ static int external_module = 0;
 static int vmlinux_section_warnings = 1;
 /* Only warn about unresolved symbols */
 static int warn_unresolved = 0;
+#ifdef CONFIG_LKM_ELF_HASH
+/* Create the ELF hash table for the vmlinux */
+static int vmlinux_hash;
+#endif
 /* How a symbol is exported */
 static int sec_mismatch_count = 0;
 static int sec_mismatch_verbose = 1;
-
-enum export {
-	export_plain,      export_unused,     export_gpl,
-	export_unused_gpl, export_gpl_future, export_unknown
-};
 
 #define PRINTF __attribute__ ((format (printf, 1, 2)))
 
@@ -84,9 +83,9 @@ static int is_vmlinux(const char *modname)
 		myname++;
 	else
 		myname = modname;
-
 	return (strcmp(myname, "vmlinux") == 0) ||
-	       (strcmp(myname, "vmlinux.o") == 0);
+	       (strcmp(myname, "vmlinux.o") == 0) ||
+	       (strcmp(myname, ".tmp_vmlinux") == 0);
 }
 
 void *do_nofail(void *ptr, const char *expr)
@@ -133,25 +132,6 @@ static struct module *new_module(char *modname)
 
 	return mod;
 }
-
-/* A hash of all exported symbols,
- * struct symbol is also used for lists of unresolved symbols */
-
-#define SYMBOL_HASH_SIZE 1024
-
-struct symbol {
-	struct symbol *next;
-	struct module *module;
-	unsigned int crc;
-	int crc_valid;
-	unsigned int weak:1;
-	unsigned int vmlinux:1;    /* 1 if symbol is defined in vmlinux */
-	unsigned int kernel:1;     /* 1 if symbol is from kernel
-				    *  (only for external modules) **/
-	unsigned int preloaded:1;  /* 1 if symbol from Module.symvers */
-	enum export  export;       /* Type of export */
-	char name[0];
-};
 
 static struct symbol *symbolhash[SYMBOL_HASH_SIZE];
 
@@ -453,6 +433,8 @@ static int parse_elf(struct elf_info *info, const char *filename)
 			info->export_gpl_future_sec = i;
 		else if (strcmp(secname, "__markers_strings") == 0)
 			info->markers_strings_sec = i;
+		else if (strcmp(secname, "__ksymtab_strings") == 0)
+			info->kstrings = (void *)hdr + sechdrs[i].sh_offset;
 
 		if (sechdrs[i].sh_type != SHT_SYMTAB)
 			continue;
@@ -1543,13 +1525,19 @@ static void read_symbols(char *modname)
 	char *version;
 	char *license;
 	struct module *mod;
-	struct elf_info info = { };
+	struct elf_info *info;
 	Elf_Sym *sym;
 
-	if (!parse_elf(&info, modname))
+	info = (struct elf_info *) malloc(sizeof(struct elf_info));
+	if (!info)
+		return;
+	memset(info, 0, sizeof(*info));
+
+	if (!parse_elf(info, modname))
 		return;
 
 	mod = new_module(modname);
+	mod->info = info;
 
 	/* When there's no vmlinux, don't print warnings about
 	 * unresolved symbols (since there'll be too many ;) */
@@ -1558,8 +1546,8 @@ static void read_symbols(char *modname)
 		mod->skip = 1;
 	}
 
-	license = get_modinfo(info.modinfo, info.modinfo_len, "license");
-	if (info.modinfo && !license && !is_vmlinux(modname))
+	license = get_modinfo(info->modinfo, info->modinfo_len, "license");
+	if (info->modinfo && !license && !is_vmlinux(modname))
 		warn("modpost: missing MODULE_LICENSE() in %s\n"
 		     "see include/linux/module.h for "
 		     "more information\n", modname);
@@ -1570,31 +1558,33 @@ static void read_symbols(char *modname)
 			mod->gpl_compatible = 0;
 			break;
 		}
-		license = get_next_modinfo(info.modinfo, info.modinfo_len,
+		license = get_next_modinfo(info->modinfo, info->modinfo_len,
 					   "license", license);
 	}
 
-	for (sym = info.symtab_start; sym < info.symtab_stop; sym++) {
-		symname = info.strtab + sym->st_name;
+	for (sym = info->symtab_start; sym < info->symtab_stop; sym++) {
+		symname = info->strtab + sym->st_name;
 
-		handle_modversions(mod, &info, sym, symname);
-		handle_moddevtable(mod, &info, sym, symname);
+		handle_modversions(mod, info, sym, symname);
+		handle_moddevtable(mod, info, sym, symname);
 	}
 	if (!is_vmlinux(modname) ||
 	     (is_vmlinux(modname) && vmlinux_section_warnings))
-		check_sec_ref(mod, modname, &info);
+		check_sec_ref(mod, modname, info);
 
-	version = get_modinfo(info.modinfo, info.modinfo_len, "version");
+	version = get_modinfo(info->modinfo, info->modinfo_len, "version");
 	if (version)
-		maybe_frob_rcs_version(modname, version, info.modinfo,
-				       version - (char *)info.hdr);
+		maybe_frob_rcs_version(modname, version, info->modinfo,
+				       version - (char *)info->hdr);
 	if (version || (all_versions && !is_vmlinux(modname)))
 		get_src_version(modname, mod->srcversion,
 				sizeof(mod->srcversion)-1);
 
-	get_markers(&info, mod);
+	get_markers(info, mod);
 
-	parse_elf_finish(&info);
+#ifndef CONFIG_LKM_ELF_HASH
+	parse_elf_finish(info);
+#endif
 
 	/* Our trick to get versioning for module struct etc. - it's
 	 * never passed as an argument to an exported function, so
@@ -2056,7 +2046,12 @@ int main(int argc, char **argv)
 	struct ext_sym_list *extsym_iter;
 	struct ext_sym_list *extsym_start = NULL;
 
-	while ((opt = getopt(argc, argv, "i:I:e:cmsSo:awM:K:")) != -1) {
+#ifdef CONFIG_LKM_ELF_HASH
+#define OPTIONS	"i:I:e:cmsSo:awM:K:H"
+#else
+#define OPTIONS	"i:I:e:cmsSo:awM:K:"
+#endif
+	while ((opt = getopt(argc, argv, OPTIONS)) != -1) {
 		switch (opt) {
 		case 'i':
 			kernel_read = optarg;
@@ -2100,6 +2095,11 @@ int main(int argc, char **argv)
 			case 'K':
 				markers_read = optarg;
 				break;
+#ifdef CONFIG_LKM_ELF_HASH
+		case 'H':
+			vmlinux_hash = 1;
+			break;
+#endif
 		default:
 			exit(1);
 		}
@@ -2127,6 +2127,18 @@ int main(int argc, char **argv)
 
 	err = 0;
 
+#ifdef CONFIG_LKM_ELF_HASH
+	/* We have asked to create the ELF hash table for a vmlinux */
+	if (vmlinux_hash && is_vmlinux(modules->name)) {
+		char fname[strlen(modules->name) + 10];
+		buf.pos = 0;
+		add_ksymtable_hash(&buf, modules);
+		sprintf(fname, "%s.mod.c", modules->name);
+		write_if_changed(&buf, fname);
+		/* Nothing else to do with vmlinux */
+		return 0;
+	}
+#endif
 	for (mod = modules; mod; mod = mod->next) {
 		char fname[strlen(mod->name) + 10];
 
@@ -2141,7 +2153,12 @@ int main(int argc, char **argv)
 		add_depends(&buf, mod, modules);
 		add_moddevtable(&buf, mod);
 		add_srcversion(&buf, mod);
-
+#ifdef CONFIG_LKM_ELF_HASH
+		add_undef_hash(&buf, mod);
+		add_ksymtable_hash(&buf, mod);
+		/* Now we have done so release resources */
+		parse_elf_finish(mod->info);
+#endif
 		sprintf(fname, "%s.mod.c", mod->name);
 		write_if_changed(&buf, fname);
 	}

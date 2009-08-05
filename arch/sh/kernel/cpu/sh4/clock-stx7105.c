@@ -103,9 +103,10 @@ static struct sysconf_field *clkgend_ddiv, *clkgend_rdiv;
 static struct sysconf_field *clkgend_clk_sel;
 
 /* Clkgen A clk_osc -------------------------------------------------------- */
-static void clkgena_clk_osc_init(struct clk *clk)
+static int clkgena_clk_osc_init(struct clk *clk)
 {
 	clk->rate = clkin[sysconf_read(clkgena_clkosc_sel_sc)];
+	return 0;
 }
 
 static struct clk_ops clkgena_clk_osc_ops = {
@@ -219,9 +220,9 @@ enum clockgenA_ID {
 	IC_IF_200_ID
 };
 
-static void clkgena_clk_init(struct clk *clk)
+static int clkgena_clk_init(struct clk *clk)
 {
-	unsigned long num = clk->private_data;
+	unsigned long num = (unsigned long)clk->private_data;
 	unsigned long data;
 	unsigned long src_sel;
 
@@ -243,11 +244,12 @@ static void clkgena_clk_init(struct clk *clk)
 		clk->parent = NULL;
 		break;
 	}
+	return 0;
 }
 
 static void clkgena_clk_recalc(struct clk *clk)
 {
-	unsigned long num = clk->private_data;
+	unsigned long num = (unsigned long)clk->private_data;
 	unsigned long data;
 	unsigned long src_sel;
 	unsigned long div_cfg = 0;
@@ -292,14 +294,15 @@ static const struct xratio ratios [] = {{1, 0x10000 },
                                         {NO_MORE_RATIO, }
 };
 
-static int clkgena_clk_setrate(struct clk *clk, unsigned long value)
+static int clkgena_clk_setrate(struct clk *clk, unsigned long value, int algoid)
 {
-	unsigned long num = clk->private_data;
+	unsigned long num = (unsigned long)clk->private_data;
 	unsigned long data;
 	unsigned long src_sel;
 	int idx;
 
-	idx = get_xratio_field(value, clk->parent->rate, ratios);
+	idx = get_xratio_field(value, clk->parent->rate,
+			      (struct xratio *)ratios);
 	if (idx == NO_MORE_RATIO) {
 		dgb_print("No More Ratios for %d vs %d\n",
 			value, clk->parent->rate);
@@ -389,7 +392,7 @@ static struct clk generic_comms_clk = {
 
 /* Clockgen D clocks ------------------------------------------------------- */
 
-static void clkgend_clk_init(struct clk *clk)
+static int clkgend_clk_init(struct clk *clk)
 {
 	int clk_sel = sysconf_read(clkgend_clk_sel);
 	int ddiv = sysconf_read(clkgend_ddiv);
@@ -399,6 +402,7 @@ static void clkgend_clk_init(struct clk *clk)
 		clk->rate = 0;
 	else
 		clk->rate = (clkin[clk_sel] * ddiv) / rdiv;
+	return 0;
 }
 
 static struct clk_ops clkgend_clk_ops = {

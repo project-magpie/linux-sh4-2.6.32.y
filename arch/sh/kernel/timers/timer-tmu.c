@@ -170,12 +170,13 @@ static struct irqaction tmu0_irq = {
 	.flags		= IRQF_DISABLED | IRQF_TIMER | IRQF_IRQPOLL,
 };
 
-static void __init tmu_clk_init(struct clk *clk)
+static int __init tmu_clk_init(struct clk *clk)
 {
 	u8 divisor  = TMU_TCR_INIT & 0x7;
 	int tmu_num = clk->name[3]-'0';
 	ctrl_outw(TMU_TCR_INIT, TMU0_TCR+(tmu_num*0xC));
 	clk->rate = clk_get_rate(clk->parent) / (4 << (divisor << 1));
+	return 0;
 }
 
 static void tmu_clk_recalc(struct clk *clk)
@@ -282,21 +283,21 @@ static struct irqaction tmu2_irq = {
 	.mask		= CPU_MASK_NONE,
 };
 
-static void tmu2_enable(struct clk *clk)
+static int tmu2_enable(struct clk *clk)
 {
 	_tmu_start(TMU2);
 	_tmu_set_irq(TMU2,1);
 
-	return;
+	return 0;
 }
 
-static void tmu2_disable(struct clk *clk)
+static int tmu2_disable(struct clk *clk)
 {
 	_tmu_stop(TMU2);
 	_tmu_set_irq(TMU2,0);
 	_tmu_clear_status(TMU2);
 
-	return;
+	return 0;
 }
 
 static int tmu2_set_rate(struct clk *clk, unsigned long freq, int algo_id)

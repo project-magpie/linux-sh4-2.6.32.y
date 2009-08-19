@@ -341,6 +341,14 @@ config SH_ST_HMS1
 	  More information at:
 	  <http://www.linuxsh.st.com/boards/hms1/>
 
+config SH_ST_IPIDTV7105
+	bool "ipidtv7105: STx7105 IPTV pluggin board"
+	depends on CPU_SUBTYPE_STX7105
+	select SYS_SUPPORTS_PCI
+	select SH_ST_SYNOPSYS_PCI if PCI
+	help
+	  Select SH_ST_IPIDTV7105 if configuring for an STx7105 IPiDTV board
+
 config SH_ST_MB360
 	bool "mb360: ST40RA Eval"
 	depends on CPU_SUBTYPE_ST40STB1

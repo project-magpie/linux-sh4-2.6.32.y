@@ -25,7 +25,6 @@ struct emi_timing_data {
 	int wait_active_low;
 };
 
-int emi_init(unsigned long memory_base, unsigned long control_base);
 unsigned long emi_bank_base(int bank);
 void emi_bank_configure(int bank, unsigned long data[4]);
 void emi_config_pcmode(int bank, int pc_mode);

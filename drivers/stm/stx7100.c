@@ -395,11 +395,19 @@ void __init stx7100_early_device_init(void)
 
 /* Pre-arch initialisation ------------------------------------------------ */
 
+static struct platform_device emi = {
+	.name = "emi",
+	.id = -1,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0, 64*1024*1024),
+		STM_PLAT_RESOURCE_MEM(0x1a100000, 0x874),
+	},
+};
+
 static int __init stx7100_postcore_setup(void)
 {
-	emi_init(0, 0x1a100000);
-
-	return 0;
+	return platform_device_register(&emi);
 }
 postcore_initcall(stx7100_postcore_setup);
 

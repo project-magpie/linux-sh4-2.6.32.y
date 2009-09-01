@@ -24,27 +24,10 @@
 #define EMI_COMMON_CFG(reg)		(0x10 + (0x8 * (reg)))
 
 
-static char emi_initialised;
+static struct platform_device *emi;
+#define emi_initialised			(emi != NULL)
 static unsigned long emi_memory_base;
 static void __iomem *emi_control;
-
-int __init emi_init(unsigned long memory_base, unsigned long control_base)
-{
-	BUG_ON(emi_initialised);
-
-	if (!request_mem_region(control_base, 0x864, "EMI"))
-		return -EBUSY;
-
-	emi_control = ioremap(control_base, 0x864);
-	if (emi_control == NULL)
-		return -ENOMEM;
-
-	emi_memory_base = memory_base;
-
-	emi_initialised = 1;
-
-	return 0;
-}
 
 unsigned long emi_bank_base(int bank)
 {
@@ -265,20 +248,6 @@ struct emi_pm {
 	struct emi_pm_bank bank[emi_num_bank];
 };
 
-static struct platform_device *emi;
-
-static int __init emi_driver_probe(struct platform_device *pdev)
-{
-	emi = pdev;
-	return 0;
-}
-
-static struct platform_driver emi_driver = {
-	.driver.name = "emi",
-	.driver.owner = THIS_MODULE,
-	.probe = emi_driver_probe,
-};
-
 static int emi_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
 	int idx;
@@ -359,14 +328,49 @@ struct sys_device emi_sysdev_dev = {
 	.cls = &emi_sysdev_class,
 };
 
-static int __init emi_sysdev_init(void)
+static void __init emi_sysdev_register(void)
 {
-	platform_driver_register(&emi_driver);
 	sysdev_class_register(&emi_sysdev_class);
 	sysdev_driver_register(&emi_sysdev_class, &emi_sysdev_driver);
 	sysdev_register(&emi_sysdev_dev);
+}
+#else
+#define emi_sysdev_register()
+#endif
+
+static int __init emi_driver_probe(struct platform_device *pdev)
+{
+	struct resource *res;
+
+	BUG_ON(emi_initialised);
+	/* acquires control base resource */
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+
+	if (!request_mem_region(res->start, res->end - res->start, "EMI"))
+		return -EBUSY;
+
+	emi_control = ioremap(res->start, res->end - res->start);
+	if (emi_control == NULL)
+		return -ENOMEM;
+
+	/* acquires mem base resource */
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	emi_memory_base = res->start;
+
+	emi = pdev; /* to say the EMI is initialised */
 	return 0;
 }
 
-module_init(emi_sysdev_init);
-#endif
+static struct platform_driver emi_driver = {
+	.driver.name = "emi",
+	.driver.owner = THIS_MODULE,
+	.probe = emi_driver_probe,
+};
+
+static int __init stm_emi_driver_init(void)
+{
+	emi_sysdev_register();
+	return platform_driver_register(&emi_driver);
+}
+
+postcore_initcall(stm_emi_driver_init);

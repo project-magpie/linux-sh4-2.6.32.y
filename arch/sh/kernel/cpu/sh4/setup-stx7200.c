@@ -10,6 +10,7 @@
  */
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/stm/platform.h>
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
 
@@ -58,6 +59,14 @@ static struct platform_device ilc3_device = {
 			.flags	= IORESOURCE_MEM
 		}
 	},
+	.dev.platform_data = &(struct stm_plat_ilc3_data) {
+		.default_priority = 7,
+		.num_input = ILC_NR_IRQS,
+		.num_output = 16,
+		.first_irq = ILC_FIRST_IRQ,
+		.cpu_irq = (int[]){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+			11, 12, 13, 14, 15, -1 },
+	},
 };
 
 static struct platform_device *stx7200_sh4_devices[] __initdata = {
@@ -70,7 +79,7 @@ static int __init stx7200_sh4_devices_setup(void)
 	return platform_add_devices(stx7200_sh4_devices,
 			ARRAY_SIZE(stx7200_sh4_devices));
 }
-device_initcall(stx7200_sh4_devices_setup);
+postcore_initcall(stx7200_sh4_devices_setup);
 
 
 
@@ -127,12 +136,4 @@ void __init plat_irq_setup(void)
 	sysconf_write(sc, 0xf);
 
 	register_intc_controller(&intc_desc);
-
-	for (irq=0; irq<16; irq++) {
-		set_irq_chip(irq, &dummy_irq_chip);
-		set_irq_chained_handler(irq, ilc_irq_demux);
-	}
-
-	ilc_early_init(&ilc3_device);
-	ilc_demux_init();
 }

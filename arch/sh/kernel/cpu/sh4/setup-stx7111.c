@@ -12,6 +12,7 @@
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <linux/stm/sysconf.h>
+#include <linux/stm/platform.h>
 #include <asm/irl.h>
 #include <asm/irq-ilc.h>
 
@@ -30,9 +31,14 @@ static struct platform_device ilc3_device = {
 			.flags	= IORESOURCE_MEM
 		}
 	},
+	.dev.platform_data = &(struct stm_plat_ilc3_data) {
+		.default_priority = 7,
+		.num_input = ILC_NR_IRQS,
+		.num_output = 16,
+		.first_irq = ILC_FIRST_IRQ,
+		.cpu_irq = (int[]){ IRL0_IRQ, IRL1_IRQ, IRL2_IRQ, IRL3_IRQ, -1},
+	},
 };
-
-/* Late resources --------------------------------------------------------- */
 
 
 static struct platform_device *stx7111_sh4_devices[] __initdata = {
@@ -44,7 +50,7 @@ static int __init stx7111_sh4_devices_setup(void)
 	return platform_add_devices(stx7111_sh4_devices,
 				    ARRAY_SIZE(stx7111_sh4_devices));
 }
-device_initcall(stx7111_sh4_devices_setup);
+postcore_initcall(stx7111_sh4_devices_setup);
 
 
 
@@ -245,17 +251,4 @@ void __init plat_irq_setup(void)
 
 	/* Disable encoded interrupts */
 	ctrl_outw(ctrl_inw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
-
-	/* Don't change the default priority assignments, so we get a
-	 * range of priorities for the ILC3 interrupts by picking the
-	 * correct output. */
-
-	for (i=0; i<4; i++) {
-		int irq = irl_irqs[i];
-		set_irq_chip(irq, &dummy_irq_chip);
-		set_irq_chained_handler(irq, ilc_irq_demux);
-	}
-
-	ilc_early_init(&ilc3_device);
-	ilc_demux_init();
 }

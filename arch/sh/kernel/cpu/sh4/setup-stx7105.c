@@ -12,6 +12,7 @@
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <linux/stm/sysconf.h>
+#include <linux/stm/platform.h>
 #include <asm/irq-ilc.h>
 
 
@@ -28,6 +29,14 @@ static struct platform_device ilc3_device = {
 			.flags	= IORESOURCE_MEM
 		}
 	},
+	.dev.platform_data = &(struct stm_plat_ilc3_data) {
+		.default_priority = 7,
+		.num_input = ILC_NR_IRQS,
+		.num_output = 16,
+		.first_irq = ILC_FIRST_IRQ,
+		.cpu_irq = (int[]){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+				   11, 12, 13, 14, 15, -1},
+	},
 };
 
 static struct platform_device *stx7105_sh4_devices[] __initdata = {
@@ -39,7 +48,7 @@ static int __init stx7105_sh4_devices_setup(void)
 	return platform_add_devices(stx7105_sh4_devices,
 			ARRAY_SIZE(stx7105_sh4_devices));
 }
-device_initcall(stx7105_sh4_devices_setup);
+postcore_initcall(stx7105_sh4_devices_setup);
 
 
 
@@ -230,8 +239,6 @@ void __init plat_irq_setup(void)
 	unsigned long intc2_base = (unsigned long)ioremap(0xfe001000, 0x400);
 	int i;
 
-	ilc_early_init(&ilc3_device);
-
 	for (i=4; i<=6; i++)
 		prio_registers[i].set_reg += intc2_base;
 	for (i=0; i<=2; i++) {
@@ -244,11 +251,4 @@ void __init plat_irq_setup(void)
 	sysconf_write(sc, 0xf);
 
 	register_intc_controller(&intc_desc);
-
-	for (i = 0; i < 16; i++) {
-		set_irq_chip(i, &dummy_irq_chip);
-		set_irq_chained_handler(i, ilc_irq_demux);
-	}
-
-	ilc_demux_init();
 }

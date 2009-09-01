@@ -1,17 +1,3 @@
-/*
- * linux/arch/sh/kernel/cpu/irq/st40_ilc.h
- *
- * Copyright (C) 2003 STMicroelectronics Limited
- * Author: Henry Bell <henry.bell@st.com>
- *
- * May be copied or modified under the terms of the GNU General Public
- * License.  See linux/COPYING for more information.
- *
- * Interrupt handling for ST40 Interrupt Level Controler (ILC).
- */
-
-extern void __iomem *ilc_base;
-
 #define _BIT(_int)		     (1 << (_int % 32))
 #define _REG_OFF(_int)		     (sizeof(int) * (_int / 32))
 #define _BANK(irq)		     ((irq) >> 5)

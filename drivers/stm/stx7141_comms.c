@@ -720,6 +720,7 @@ static struct platform_device stx7141_lirc_device = {
 	.resource = (struct resource []) {
 		STM_PLAT_RESOURCE_MEM(0xfd018000, 0x234),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(81), -1),
+		STM_PLAT_RESOURCE_IRQ(COMMS_ILC_EXT_IRQ(86), -1),
 	},
 	.dev.platform_data = &(struct stm_plat_lirc_data) {
 		/* The clock settings will be calculated by

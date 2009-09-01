@@ -11,6 +11,7 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
+#include <linux/stm/platform.h>
 #include <asm/irq-ilc.h>
 
 
@@ -20,7 +21,7 @@
 /* This is the eSTB ILC3 */
 static struct platform_device ilc3_device = {
 	.name		= "ilc3",
-	.id		= -1,
+	.id		= 0,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
 		{
@@ -29,10 +30,38 @@ static struct platform_device ilc3_device = {
 			.flags	= IORESOURCE_MEM
 		}
 	},
+	.dev.platform_data = &(struct stm_plat_ilc3_data) {
+		.default_priority = 7,
+		.num_input = ILC_NR_IRQS,
+		.num_output = 80,
+		.first_irq = ILC_FIRST_IRQ,
+		.cpu_irq = (int[]){ ILC_FIRST_IRQ-1, -1 },
+	},
+};
+
+static struct platform_device comms_ilc_device = {
+	.name		= "ilc3",
+	.id		= 1,
+	.dev.platform_data = &(struct stm_plat_ilc3_data) {
+		.default_priority = 7,
+		.num_input = COMMS_ILC_NR_IRQS,
+		.num_output = 16,
+		.first_irq = COMMS_ILC_FIRST_IRQ,
+		.cpu_irq = (int[]){ -1 },
+		},
+	.num_resources  = 1,
+	.resource	= (struct resource[]) {
+		{
+			.start  = 0xfd000000,
+			.end    = 0xfd000000 + 0x900,
+			.flags  = IORESOURCE_MEM
+		},
+	},
 };
 
 static struct platform_device *stx7141_sh4_devices[] __initdata = {
 	&ilc3_device,
+	&comms_ilc_device,
 };
 
 static int __init stx7141_sh4_devices_setup(void)
@@ -40,7 +69,7 @@ static int __init stx7141_sh4_devices_setup(void)
 	return platform_add_devices(stx7141_sh4_devices,
 			ARRAY_SIZE(stx7141_sh4_devices));
 }
-device_initcall(stx7141_sh4_devices_setup);
+postcore_initcall(stx7141_sh4_devices_setup);
 
 
 
@@ -87,20 +116,8 @@ void __init plat_irq_setup(void)
 
 	register_intc_controller(&intc_desc);
 
-	ilc_early_init(&ilc3_device);
-
-	/*
-	 * Currently we route all ILC3 interrupts to the 0'th output,
-	 * which is connected to INTC2: group 0 interrupt 0.
-	 */
-
 	/* Enable the INTC2 */
 	writel(7, intc2_base + 0x300);	/* INTPRI00 */
 	writel(1, intc2_base + 0x360);	/* INTMSKCLR00 */
 
-	/* Set up the demux function */
-	set_irq_chip(evt2irq(0xa00), &dummy_irq_chip);
-	set_irq_chained_handler(evt2irq(0xa00), ilc_irq_demux);
-
-	ilc_demux_init();
 }

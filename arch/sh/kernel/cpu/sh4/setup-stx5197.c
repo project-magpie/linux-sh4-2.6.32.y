@@ -10,6 +10,7 @@
  */
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/stm/platform.h>
 #include <asm/irq-ilc.h>
 
 /* SH4-only resources ----------------------------------------------------- */
@@ -25,6 +26,14 @@ static struct platform_device ilc3_device = {
 			.flags	= IORESOURCE_MEM
 		}
 	},
+	.dev.platform_data = &(struct stm_plat_ilc3_data) {
+		.default_priority = 7,
+		.num_input = ILC_NR_IRQS,
+		.num_output = 16,
+		.first_irq = ILC_FIRST_IRQ,
+		.cpu_irq = (int[]){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+				   11, 12, 13, 14, 15, -1 },
+	},
 };
 
 static struct platform_device *stx5197_sh4_devices[] __initdata = {
@@ -36,7 +45,7 @@ static int __init stx5197_sh4_devices_setup(void)
 	return platform_add_devices(stx5197_sh4_devices,
 				    ARRAY_SIZE(stx5197_sh4_devices));
 }
-device_initcall(stx5197_sh4_devices_setup);
+postcore_initcall(stx5197_sh4_devices_setup);
 
 
 
@@ -79,23 +88,5 @@ static DECLARE_INTC_DESC(intc_desc, "stx5197", vectors, groups,
 
 void __init plat_irq_setup(void)
 {
-	int i;
-
 	register_intc_controller(&intc_desc);
-
-	for (i = 0; i < 16; i++) {
-		/*
-		 * This is a hack to allow for the fact that we don't
-		 * register a chip type for the IRL lines. Without
-		 * this the interrupt type is "no_irq_chip" which
-		 * causes problems when trying to register the chained
-		 * handler.
-		 */
-		set_irq_chip(i, &dummy_irq_chip);
-
-		set_irq_chained_handler(i, ilc_irq_demux);
-	}
-
-	ilc_early_init(&ilc3_device);
-	ilc_demux_init();
 }

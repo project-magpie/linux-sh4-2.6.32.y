@@ -394,4 +394,14 @@ struct stm_plat_pci_config {
 
 };
 
+/*** ILC platform data ***/
+
+struct stm_plat_ilc3_data {
+	unsigned short default_priority;
+	unsigned short num_input;
+	unsigned short num_output;
+	unsigned short first_irq;
+	int *cpu_irq;	/* the irq the cpu sees (end with -1)*/
+};
+
 #endif

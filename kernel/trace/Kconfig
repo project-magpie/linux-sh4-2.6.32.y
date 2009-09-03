@@ -31,6 +31,9 @@ config HAVE_DYNAMIC_FTRACE
 config HAVE_FTRACE_MCOUNT_RECORD
 	bool
 
+config HAVE_KPTRACE
+	bool
+
 config HAVE_HW_BRANCH_TRACER
 	bool
 
@@ -415,6 +418,29 @@ config MMIOTRACE_TEST
 	  However, it should be safe to use on e.g. unused portion of VRAM.
 
 	  Say N, unless you absolutely know what you are doing.
+
+config KPTRACE
+	tristate "KPTrace (EXPERIMENTAL)"
+	depends on HAVE_KPTRACE
+	select KPROBES
+	select DEBUG_FS
+	select RELAY
+	select SYSFS
+	select KALLSYMS
+	help
+	  KPTrace is a kprobes-based dynamic trace tool. It provides a full
+	  set of optional pre-defined tracepoints, plus a simple way to add
+	  and remove tracepoints at runtime.
+
+config KPTRACE_SYNC
+       bool "Trace synchronization events"
+       depends on KPTRACE
+       default n
+       help
+        For KPTrace to be able to trace synchonization events (for example
+        mutex and semaphore usage), certain key functions like mutex_lock
+        must not be inlined. This may adversely affect system performance,
+        and so this option must be used with care.
 
 endmenu
 

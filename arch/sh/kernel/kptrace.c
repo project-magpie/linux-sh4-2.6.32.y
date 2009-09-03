@@ -27,6 +27,7 @@
 #include <linux/relay.h>
 #include <linux/debugfs.h>
 #include <linux/sysdev.h>
+#include <linux/futex.h>
 #include <asm/kptrace.h>
 #include <net/sock.h>
 #include <asm/sections.h>
@@ -52,6 +53,7 @@ typedef struct {
 	int stopon;
 	int starton;
 	int user_tracepoint;
+	int late_tracepoint;
 	struct file_operations *ops;
 	struct list_head list;
 } tracepoint_t;
@@ -282,6 +284,7 @@ static ssize_t tracepoint_store_attrs(struct kobject *kobj,
 }
 
 static ssize_t kptrace_stackdepth_show_attrs(struct sys_device *device,
+					     struct sysdev_attribute *attr,
 					     char *buffer)
 {
 	return snprintf(buffer, PAGE_SIZE, "Callstack depth is %d\n",
@@ -289,6 +292,7 @@ static ssize_t kptrace_stackdepth_show_attrs(struct sys_device *device,
 }
 
 static ssize_t kptrace_stackdepth_store_attrs(struct sys_device *device,
+					      struct sysdev_attribute *attr,
 					      const char *buffer, size_t size)
 {
 	stackdepth = simple_strtoul(buffer, NULL, 10);
@@ -296,12 +300,14 @@ static ssize_t kptrace_stackdepth_store_attrs(struct sys_device *device,
 }
 
 static ssize_t kptrace_configured_show_attrs(struct sys_device *device,
+					     struct sysdev_attribute *attr,
 					     char *buffer)
 {
 	return snprintf(buffer, PAGE_SIZE, "Used to start/stop tracing\n");
 }
 
 static ssize_t kptrace_configured_store_attrs(struct sys_device *device,
+					      struct sysdev_attribute *attr,
 					      const char *buffer, size_t size)
 {
 	if (*buffer == '1') {
@@ -374,8 +380,8 @@ ssize_t user_store_attrs(struct kobject * kobj, struct attribute * attr,
 			tp = list_entry(p, tracepoint_t, list);
 			if (tp != NULL && tp->user_tracepoint == 1) {
 				if (strncmp(kobject_name(&tp->kobj),
-					user_new_symbol,
-					KPTRACE_BUF_SIZE) == 0)
+					    user_new_symbol,
+					    KPTRACE_BUF_SIZE) == 0)
 					return size;
 			}
 		}
@@ -443,7 +449,10 @@ static ssize_t userspace_store_attrs(struct kobject *kobj,
 }
 
 /* Main control is a sysdev */
-struct sysdev_class kptrace_sysdev;
+struct sysdev_class kptrace_sysdev = {
+	.name = "kptrace"
+};
+
 SYSDEV_ATTR(configured, S_IRUGO | S_IWUSR, kptrace_configured_show_attrs,
 	    kptrace_configured_store_attrs);
 SYSDEV_ATTR(stackdepth, S_IRUGO | S_IWUSR, kptrace_stackdepth_show_attrs,
@@ -458,10 +467,12 @@ static struct sys_device kptrace_device = {
 struct sysfs_ops tracepoint_sysfs_ops = {
 	&tracepoint_show_attrs, &tracepoint_store_attrs
 };
+
 struct sysfs_ops tracepoint_set_sysfs_ops = {
 	&tracepoint_set_show_attrs, &tracepoint_set_store_attrs
 };
 struct sysfs_ops user_sysfs_ops = { &user_show_attrs, &user_store_attrs };
+
 struct sysfs_ops userspace_sysfs_ops = {
 	&userspace_show_attrs, &userspace_store_attrs
 };
@@ -470,28 +481,25 @@ struct sysfs_ops userspace_sysfs_ops = {
 struct kobj_type tracepoint_type = {
 	NULL, &tracepoint_sysfs_ops, tracepoint_attribs
 };
+
 struct kobj_type tracepoint_set_type = { NULL, &tracepoint_set_sysfs_ops,
 	tracepoint_set_attribs
 };
 struct kobj_type user_type = { NULL, &user_sysfs_ops, user_tp_attribs };
+
 struct kobj_type userspace_type = {
 	NULL, &userspace_sysfs_ops, userspace_attribs
 };
 
-/*
- * Creates a tracepoint in the given set. Pointers to entry and/or return handlers
- * can be NULL if it is not necessary to track those events.
- *
- * This function only initializes the data structures and adds the sysfs node.
- * To actually add the kprobes and start tracing, use insert_tracepoint().
- */
-static tracepoint_t *create_tracepoint(tracepoint_set_t * set, const char *name,
-				       int (*entry_handler) (struct kprobe *,
-							     struct pt_regs *),
-				       int (*return_handler) (struct
-							      kretprobe_instance
-							      *,
-							      struct pt_regs *))
+static tracepoint_t *__create_tracepoint(tracepoint_set_t * set,
+					 const char *name,
+					 int (*entry_handler) (struct kprobe *,
+							struct pt_regs *),
+					 int (*return_handler) (struct
+							kretprobe_instance *,
+							struct pt_regs
+							*),
+					 int late_tracepoint)
 {
 	tracepoint_t *tp;
 	tp = kzalloc(sizeof(*tp), GFP_KERNEL);
@@ -507,10 +515,16 @@ static tracepoint_t *create_tracepoint(tracepoint_set_t * set, const char *name,
 	tp->stopon = 0;
 	tp->starton = 0;
 	tp->user_tracepoint = 0;
+	tp->late_tracepoint = late_tracepoint;
 	tp->inserted = TP_UNUSED;
 
 	if (entry_handler != NULL) {
 		tp->kp.addr = (kprobe_opcode_t *) kallsyms_lookup_name(name);
+
+		if (tp->late_tracepoint == 1) {
+			tp->kp.flags |= KPROBE_FLAG_DISABLED;
+		}
+
 		if (!tp->kp.addr) {
 			printk(KERN_WARNING "kptrace: Symbol %s not found\n",
 			       name);
@@ -525,7 +539,7 @@ static tracepoint_t *create_tracepoint(tracepoint_set_t * set, const char *name,
 			tp->rp.kp.addr = tp->kp.addr;
 		else
 			tp->rp.kp.addr = (kprobe_opcode_t *)
-						kallsyms_lookup_name(name);
+			    kallsyms_lookup_name(name);
 
 		tp->rp.handler = return_handler;
 		tp->rp.maxactive = 128;
@@ -533,12 +547,8 @@ static tracepoint_t *create_tracepoint(tracepoint_set_t * set, const char *name,
 
 	list_add(&tp->list, &tracepoints);
 
-	kobject_init(&tp->kobj);
-	tp->kobj.k_name = NULL;
-	kobject_set_name(&tp->kobj, "%s", name);
-	tp->kobj.ktype = &tracepoint_type;
-	tp->kobj.parent = &set->kobj;
-	if (kobject_add(&tp->kobj) < 0) {
+	if (kobject_init_and_add(&tp->kobj, &tracepoint_type, &set->kobj, name)
+	    < 0) {
 		printk(KERN_WARNING "kptrace: Failed add to add kobject %s\n",
 		       name);
 		return NULL;
@@ -546,6 +556,43 @@ static tracepoint_t *create_tracepoint(tracepoint_set_t * set, const char *name,
 
 	return tp;
 }
+
+/*
+ * Creates a tracepoint in the given set. Pointers to entry and/or return
+ * handlers can be NULL if it is not necessary to track those events.
+ *
+ * This function only initializes the data structures and adds the sysfs node.
+ * To actually add the kprobes and start tracing, use insert_tracepoint().
+ */
+static tracepoint_t *create_tracepoint(tracepoint_set_t * set, const char *name,
+				       int (*entry_handler) (struct kprobe *,
+							     struct pt_regs *),
+				       int (*return_handler) (struct
+							      kretprobe_instance
+							      *,
+							      struct pt_regs *))
+{
+	return __create_tracepoint(set, name, entry_handler, return_handler, 0);
+}
+
+/*
+ * As create_tracepoint(), except that the tracepoint is not armed until all
+ * tracepoints have been added. This is useful when tracing a function used
+ * in the kprobe code, such as mutex_lock().
+ */
+#ifdef CONFIG_KPTRACE_SYNC
+static tracepoint_t *create_late_tracepoint(tracepoint_set_t * set,
+					    const char *name,
+					    int (*entry_handler) (struct
+							kprobe *,
+							struct pt_regs *),
+					    int (*return_handler) (struct
+							kretprobe_instance *,
+							struct pt_regs *))
+{
+	return __create_tracepoint(set, name, entry_handler, return_handler, 1);
+}
+#endif
 
 /*
  * Registers the kprobes for the tracepoint, so that it will start to
@@ -601,6 +648,8 @@ static void insert_tracepoints_in_set(tracepoint_set_t * set)
 int unregister_tracepoint(tracepoint_t * tp)
 {
 	if (tp->kp.addr != NULL) {
+		if (tp->late_tracepoint)
+			arch_disarm_kprobe(&tp->kp);
 		unregister_kprobe(&tp->kp);
 	}
 
@@ -626,14 +675,10 @@ static tracepoint_set_t *create_tracepoint_set(const char *name)
 
 	list_add(&set->list, &tracepoint_sets);
 
-	kobject_init(&set->kobj);
-	kobject_set_name(&set->kobj, "%s", name);
-	set->kobj.ktype = &tracepoint_set_type;
-	set->kobj.parent = &kptrace_sysdev.kset.kobj;
-	if (kobject_add(&set->kobj) < 0) {
+	if (kobject_init_and_add(&set->kobj, &tracepoint_set_type,
+				 &kptrace_sysdev.kset.kobj, name) < 0)
 		printk(KERN_WARNING "kptrace: Failed to add kobject %s\n",
 		       name);
-	}
 
 	set->enabled = 0;
 
@@ -643,13 +688,23 @@ static tracepoint_set_t *create_tracepoint_set(const char *name)
 /* Inserts all the tracepoints in each enabled set */
 static void start_tracing(void)
 {
-	struct list_head *p;
+	struct list_head *p, *tmp;
 	tracepoint_set_t *set;
+	tracepoint_t *tp;
 
 	list_for_each(p, &tracepoint_sets) {
 		set = list_entry(p, tracepoint_set_t, list);
 		if (set->enabled) {
 			insert_tracepoints_in_set(set);
+		}
+	}
+
+	/* Arm any "late" tracepoints */
+	list_for_each_safe(p, tmp, &tracepoints) {
+		tp = list_entry(p, tracepoint_t, list);
+		if (tp->late_tracepoint && tp->enabled) {
+			if (kprobe_disabled(&tp->kp))
+				arch_arm_kprobe(&tp->kp);
 		}
 	}
 
@@ -670,7 +725,7 @@ static void stop_tracing(void)
 		}
 
 		if (tp->user_tracepoint == 1) {
-			kobject_unregister(&tp->kobj);
+			kobject_put(&tp->kobj);
 			tp->kp.addr = NULL;
 			list_del(p);
 		} else {
@@ -870,7 +925,7 @@ static int irq_rp_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 }
 
 static int irq_exit_rp_handler(struct kretprobe_instance *ri,
-				struct pt_regs *regs)
+			       struct pt_regs *regs)
 {
 	write_trace_record_no_callstack("Ix");
 	return 0;
@@ -897,7 +952,7 @@ static int daemonize_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	char name[KPTRACE_SMALL_BUF];
 
 	if (strncpy_from_user(name, (char *)regs->regs[4],
-		KPTRACE_SMALL_BUF) < 0)
+			      KPTRACE_SMALL_BUF) < 0)
 		snprintf(name, KPTRACE_SMALL_BUF, "<copy_from_user failed>");
 
 	snprintf(tbuf, KPTRACE_SMALL_BUF, "KD %s\n", name);
@@ -922,7 +977,7 @@ static int kthread_create_rp_handler(struct kretprobe_instance *ri,
 	struct task_struct *new_task = (struct task_struct *)regs->regs[0];
 
 	if (strncpy_from_user(name, (char *)new_task->comm,
-		KPTRACE_SMALL_BUF) < 0)
+			      KPTRACE_SMALL_BUF) < 0)
 		snprintf(name, KPTRACE_SMALL_BUF, "<copy_from_user failed>");
 
 	snprintf(tbuf, KPTRACE_SMALL_BUF, "Kc %d %s\n", new_task->pid, name);
@@ -959,23 +1014,22 @@ static int syscall_prctl_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	char static_buf[KPTRACE_SMALL_BUF];
 
 	if ((unsigned)regs->regs[4] == PR_SET_NAME) {
-	    if (strncpy_from_user(static_buf, (char *)regs->regs[5],
-			KPTRACE_SMALL_BUF) < 0)
-		snprintf(static_buf, KPTRACE_SMALL_BUF,
-				"<copy_from_user failed>");
+		if (strncpy_from_user(static_buf, (char *)regs->regs[5],
+				      KPTRACE_SMALL_BUF) < 0)
+			snprintf(static_buf, KPTRACE_SMALL_BUF,
+				 "<copy_from_user failed>");
 
-	    snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %s",
-		     (int)regs->pc, (unsigned)regs->regs[4], static_buf);
+		snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %s",
+			 (int)regs->pc, (unsigned)regs->regs[4], static_buf);
 	} else {
-	    snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %.8x %.8x %.8x",
-		     (int)regs->pc, (unsigned)regs->regs[4],
-		     (unsigned)regs->regs[5], (unsigned)regs->regs[6],
-		     (unsigned)regs->regs[7]);
+		snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %.8x %.8x %.8x",
+			 (int)regs->pc, (unsigned)regs->regs[4],
+			 (unsigned)regs->regs[5], (unsigned)regs->regs[6],
+			 (unsigned)regs->regs[7]);
 	}
 	write_trace_record(p, regs, tbuf);
 	return 0;
 }
-
 
 /* Output syscall arguments in int, hex, hex, hex format */
 static int syscall_ihhh_pre_handler(struct kprobe *p, struct pt_regs *regs)
@@ -1045,7 +1099,7 @@ static int syscall_shhh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 		/* Don't need to strncpy_from_user in this case */
 		snprintf(filename, KPTRACE_SMALL_BUF, (char *)regs->regs[4]);
 	} else if (strncpy_from_user(filename, (char *)regs->regs[4],
-			KPTRACE_SMALL_BUF) != 0)
+				     KPTRACE_SMALL_BUF) < 0)
 		snprintf(filename, KPTRACE_SMALL_BUF,
 			 "<copy_from_user failed>");
 
@@ -1076,7 +1130,7 @@ static int syscall_sihh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	int len = 0;
 
 	if (strncpy_from_user(filename, (char *)regs->regs[4],
-		KPTRACE_SMALL_BUF) < 0)
+			      KPTRACE_SMALL_BUF) < 0)
 		snprintf(filename, KPTRACE_SMALL_BUF,
 			 "<copy_from_user failed>");
 
@@ -1102,9 +1156,12 @@ static int hash_futex_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
 	union futex_key *key = (union futex_key *)regs->regs[4];
+
 	snprintf(tbuf, KPTRACE_SMALL_BUF, "HF %.8lx %p %.8x",
-		key->both.word, key->both.ptr, key->both.offset);
+		 key->both.word, key->both.ptr, key->both.offset);
+
 	write_trace_record(p, regs, tbuf);
+
 	return 0;
 }
 
@@ -1242,13 +1299,13 @@ static int kmem_cache_free_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	return 0;
 }
 
+#ifdef CONFIG_BPA2
 static int bigphysarea_alloc_pages_pre_handler(struct kprobe *p,
 					       struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "MB 0x%.8x %d %d",
-		 (unsigned int)regs->regs[4], (int)regs->regs[5],
-		 (int)regs->regs[6]);
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "MB %d %d %d",
+		 (int)regs->regs[4], (int)regs->regs[5], (int)regs->regs[6]);
 	write_trace_record(p, regs, tbuf);
 	return 0;
 }
@@ -1272,6 +1329,36 @@ static int bigphysarea_free_pages_pre_handler(struct kprobe *p,
 	write_trace_record(p, regs, tbuf);
 	return 0;
 }
+
+static int bpa2_alloc_pages_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "MH 0x%.8x %d %d %d",
+		 (unsigned int)regs->regs[4], (int)regs->regs[5],
+		 (int)regs->regs[6], (int)regs->regs[7]);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+}
+
+static int bpa2_alloc_pages_rp_handler(struct kretprobe_instance *ri,
+				       struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "Mh 0x%.8x",
+		 (unsigned int)regs->regs[0]);
+	write_trace_record_no_callstack(tbuf);
+	return 0;
+}
+
+static int bpa2_free_pages_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "MI 0x%.8x 0x%.8x",
+		 (unsigned int)regs->regs[4], (unsigned int)regs->regs[5]);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+}
+#endif
 
 static int netif_receive_skb_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
@@ -1388,12 +1475,197 @@ static int it_real_fn_rp_handler(struct kretprobe_instance *ri,
 	return 0;
 }
 
+#ifdef CONFIG_KPTRACE_SYNC
+static int mutex_lock_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "ZM 0x%.8x",
+		 (unsigned int)regs->regs[4]);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int mutex_unlock_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "Zm 0x%.8x",
+		 (unsigned int)regs->regs[4]);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int lock_kernel_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	write_trace_record(p, regs, "ZL");
+	return 0;
+
+}
+
+static int unlock_kernel_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	write_trace_record(p, regs, "Zl");
+	return 0;
+
+}
+
+static int down_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	struct semaphore *sem = (struct semaphore *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "ZD 0x%.8x %d",
+		 (unsigned int)regs->regs[4], (unsigned int)sem->count);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int down_interruptible_pre_handler(struct kprobe *p,
+					  struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	struct semaphore *sem = (struct semaphore *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "ZI 0x%.8x %d",
+		 (unsigned int)regs->regs[4], (unsigned int)sem->count);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int down_trylock_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	struct semaphore *sem = (struct semaphore *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "ZT 0x%.8x %d",
+		 (unsigned int)regs->regs[4], (unsigned int)sem->count);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int down_trylock_rp_handler(struct kretprobe_instance *ri,
+				   struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "Zt %d", (unsigned int)regs->regs[0]);
+	write_trace_record_no_callstack(tbuf);
+
+	return 0;
+}
+
+static int up_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	struct semaphore *sem = (struct semaphore *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "ZU 0x%.8x %d",
+		 (unsigned int)regs->regs[4], (unsigned int)sem->count);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int underscore_up_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "Zu 0x%.8x",
+		 (unsigned int)regs->regs[4]);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int down_read_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	struct rw_semaphore *sem = (struct rw_semaphore *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "ZR 0x%.8x %d",
+		 (unsigned int)regs->regs[4], sem->activity);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int down_read_trylock_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	struct rw_semaphore *sem = (struct rw_semaphore *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "ZA 0x%.8x %d",
+		 (unsigned int)regs->regs[4], sem->activity);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int down_read_trylock_rp_handler(struct kretprobe_instance *ri,
+					struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "Za %d", (unsigned int)regs->regs[0]);
+	write_trace_record_no_callstack(tbuf);
+
+	return 0;
+}
+
+static int up_read_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	struct rw_semaphore *sem = (struct rw_semaphore *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "Zr 0x%.8x %d",
+		 (unsigned int)regs->regs[4], sem->activity);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int down_write_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	struct rw_semaphore *sem = (struct rw_semaphore *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "ZW 0x%.8x %d",
+		 (unsigned int)regs->regs[4], sem->activity);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int down_write_trylock_pre_handler(struct kprobe *p,
+					  struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	struct rw_semaphore *sem = (struct rw_semaphore *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "ZB 0x%.8x %d",
+		 (unsigned int)regs->regs[4], sem->activity);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+
+static int down_write_trylock_rp_handler(struct kretprobe_instance *ri,
+					 struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "Zb %d", (unsigned int)regs->regs[0]);
+	write_trace_record_no_callstack(tbuf);
+
+	return 0;
+}
+
+static int up_write_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+	char tbuf[KPTRACE_SMALL_BUF];
+	struct rw_semaphore *sem = (struct rw_semaphore *)regs->regs[4];
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "Zw 0x%.8x %d",
+		 (unsigned int)regs->regs[4], sem->activity);
+	write_trace_record(p, regs, tbuf);
+	return 0;
+
+}
+#endif /* CONFIG_KPTRACE_SYNC */
+
 /* Add the main sysdev and the "user" tracepoint set */
 static int create_sysfs_tree(void)
 {
-	kobject_init(&kptrace_sysdev.kset.kobj);
-	kobject_set_name(&kptrace_sysdev.kset.kobj, "%s", "kptrace");
-
 	sysdev_class_register(&kptrace_sysdev);
 	sysdev_register(&kptrace_device);
 	sysdev_create_file(&kptrace_device, &attr_configured);
@@ -1407,26 +1679,21 @@ static int create_sysfs_tree(void)
 	}
 	list_add(&user_set->list, &tracepoint_sets);
 
-	kobject_init(&user_set->kobj);
-	kobject_set_name(&user_set->kobj, "%s", "user");
-	user_set->kobj.ktype = &user_type;
-	user_set->kobj.parent = &kptrace_sysdev.kset.kobj;
-	if (kobject_add(&user_set->kobj) < 0)
+	if (kobject_init_and_add(&user_set->kobj, &user_type,
+				 &kptrace_sysdev.kset.kobj, "user") < 0)
 		printk(KERN_WARNING "kptrace: Failed to add kobject user\n");
 	user_set->enabled = 0;
 
-	kobject_init(&userspace);
-	kobject_set_name(&userspace, "%s", "userspace");
-	userspace.ktype = &userspace_type;
-	userspace.parent = &kptrace_sysdev.kset.kobj;
-	if (kobject_add(&userspace) < 0)
+	if (kobject_init_and_add(&userspace,
+				 &userspace_type, &kptrace_sysdev.kset.kobj,
+				 "userspace") < 0)
 		printk(KERN_WARNING
 		       "kptrace: Failed to add kobject userspace\n");
 
 	return 1;
 }
 
-void init_core_event_logging(void)
+static void init_core_event_logging(void)
 {
 	tracepoint_set_t *set = create_tracepoint_set("core_kernel_events");
 	if (set == NULL) {
@@ -1463,7 +1730,7 @@ void init_core_event_logging(void)
 	create_tracepoint(set, "exit_thread", exit_thread_pre_handler, NULL);
 }
 
-void init_syscall_logging(void)
+static void init_syscall_logging(void)
 {
 	tracepoint_set_t *set = create_tracepoint_set("syscalls");
 	if (set == NULL) {
@@ -1551,7 +1818,7 @@ void init_syscall_logging(void)
 	INIT_SYSCALL_PROBE(sys_uselib);
 	INIT_SYSCALL_PROBE(sys_swapon);
 	INIT_SYSCALL_PROBE(sys_reboot);
-	INIT_SYSCALL_PROBE(old_readdir);
+	INIT_SYSCALL_PROBE(sys_old_readdir);
 	INIT_CUSTOM_SYSCALL_PROBE(old_mmap, syscall_hiih_pre_handler);
 	INIT_CUSTOM_SYSCALL_PROBE(sys_munmap, syscall_hihh_pre_handler);
 	INIT_SYSCALL_PROBE(sys_truncate);
@@ -1758,7 +2025,7 @@ void init_syscall_logging(void)
 	INIT_SYSCALL_PROBE(sys_vmsplice);
 }
 
-void init_memory_logging(void)
+static void init_memory_logging(void)
 {
 	tracepoint_set_t *set = create_tracepoint_set("memory_events");
 	if (set == NULL) {
@@ -1777,21 +2044,28 @@ void init_memory_logging(void)
 	create_tracepoint(set, "vfree", vfree_pre_handler, NULL);
 	create_tracepoint(set, "__get_free_pages", get_free_pages_pre_handler,
 			  get_free_pages_rp_handler);
-	create_tracepoint(set, "__alloc_pages", alloc_pages_pre_handler,
-			  alloc_pages_rp_handler);
+	create_tracepoint(set, "__alloc_pages_internal",
+			  alloc_pages_pre_handler, alloc_pages_rp_handler);
 	create_tracepoint(set, "free_pages", free_pages_pre_handler, NULL);
 	create_tracepoint(set, "kmem_cache_alloc", kmem_cache_alloc_pre_handler,
 			  kmem_cache_alloc_rp_handler);
 	create_tracepoint(set, "kmem_cache_free", kmem_cache_free_pre_handler,
 			  NULL);
-	create_tracepoint(set, "bigphysarea_alloc_pages",
+#ifdef CONFIG_BPA2
+	create_tracepoint(set, "__bigphysarea_alloc_pages",
 			  bigphysarea_alloc_pages_pre_handler,
 			  bigphysarea_alloc_pages_rp_handler);
 	create_tracepoint(set, "bigphysarea_free_pages",
 			  bigphysarea_free_pages_pre_handler, NULL);
+	create_tracepoint(set, "__bpa2_alloc_pages",
+			  bpa2_alloc_pages_pre_handler,
+			  bpa2_alloc_pages_rp_handler);
+	create_tracepoint(set, "bpa2_free_pages",
+			  bpa2_free_pages_pre_handler, NULL);
+#endif
 }
 
-void init_network_logging(void)
+static void init_network_logging(void)
 {
 	tracepoint_set_t *set = create_tracepoint_set("network_events");
 	if (set == NULL) {
@@ -1811,7 +2085,7 @@ void init_network_logging(void)
 			  sock_recvmsg_rp_handler);
 }
 
-void init_timer_logging(void)
+static void init_timer_logging(void)
 {
 	tracepoint_set_t *set = create_tracepoint_set("timer_events");
 	if (!set) {
@@ -1828,6 +2102,46 @@ void init_timer_logging(void)
 			  softirq_pre_handler, softirq_rp_handler);
 	create_tracepoint(set, "try_to_wake_up", wake_pre_handler, NULL);
 }
+
+#ifdef CONFIG_KPTRACE_SYNC
+static void init_synchronization_logging(void)
+{
+	tracepoint_set_t *set = create_tracepoint_set("synchronization_events");
+	if (!set) {
+		printk(KERN_WARNING
+		       "kptrace: unable to create synchronization tracepoint "
+		       "set.\n");
+		return;
+	}
+
+	create_late_tracepoint(set, "mutex_lock", mutex_lock_pre_handler, NULL);
+	create_late_tracepoint(set, "mutex_unlock", mutex_unlock_pre_handler,
+			       NULL);
+
+	create_tracepoint(set, "lock_kernel", lock_kernel_pre_handler, NULL);
+	create_tracepoint(set, "unlock_kernel", unlock_kernel_pre_handler,
+			  NULL);
+
+	create_tracepoint(set, "down", down_pre_handler, NULL);
+	create_tracepoint(set, "down_interruptible",
+			  down_interruptible_pre_handler, NULL);
+	create_tracepoint(set, "down_trylock", down_trylock_pre_handler,
+			  down_trylock_rp_handler);
+	create_tracepoint(set, "up", up_pre_handler, NULL);
+	create_tracepoint(set, "__up", underscore_up_pre_handler, NULL);
+
+	create_tracepoint(set, "down_read", down_read_pre_handler, NULL);
+	create_tracepoint(set, "down_read_trylock",
+			  down_read_trylock_pre_handler,
+			  down_read_trylock_rp_handler);
+	create_tracepoint(set, "down_write", down_write_pre_handler, NULL);
+	create_tracepoint(set, "down_write_trylock",
+			  down_write_trylock_pre_handler,
+			  down_write_trylock_rp_handler);
+	create_tracepoint(set, "up_read", up_read_pre_handler, NULL);
+	create_tracepoint(set, "up_write", up_write_pre_handler, NULL);
+}
+#endif
 
 /**
  *	remove_channel_controls - removes produced/consumed control files
@@ -1879,7 +2193,7 @@ static int create_channel_controls(struct dentry *parent,
 	kfree(tmpname);
 	return 1;
 
-      cleanup_control_files:
+cleanup_control_files:
 	kfree(tmpname);
 	remove_channel_controls();
 	return 0;
@@ -2049,7 +2363,7 @@ static int create_controls(void)
 	}
 
 	return 1;
-      fail:
+fail:
 	remove_controls();
 	return 0;
 }
@@ -2385,6 +2699,9 @@ static int __init kptrace_init(void)
 	init_memory_logging();
 	init_network_logging();
 	init_timer_logging();
+#ifdef CONFIG_KPTRACE_SYNC
+	init_synchronization_logging();
+#endif
 
 	printk(KERN_INFO "kptrace: initialised\n");
 
@@ -2405,7 +2722,7 @@ static void kptrace_cleanup(void)
 	list_for_each(p, &tracepoint_sets) {
 		set = list_entry(p, tracepoint_set_t, list);
 		if (set != NULL) {
-			kobject_unregister(&set->kobj);
+			kobject_put(&set->kobj);
 			kfree(set);
 		}
 	}
@@ -2413,7 +2730,7 @@ static void kptrace_cleanup(void)
 	list_for_each(p, &tracepoints) {
 		tp = list_entry(p, tracepoint_t, list);
 		if (tp != NULL) {
-			kobject_unregister(&tp->kobj);
+			kobject_put(&tp->kobj);
 			kfree(tp);
 		}
 	}

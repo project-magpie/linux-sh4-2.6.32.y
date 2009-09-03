@@ -26,7 +26,7 @@
  * and the problem, and then passes it off to one of the appropriate
  * routines.
  */
-asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
+asmlinkage void do_page_fault(struct pt_regs *regs,
 					unsigned long writeaccess,
 					unsigned long address)
 {

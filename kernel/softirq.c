@@ -219,12 +219,16 @@ restart:
 			h->action(h);
 			trace_softirq_exit(h, softirq_vec);
 			if (unlikely(prev_count != preempt_count())) {
+				/* Nested kprobes might appear to cause an
+				 * inconsistent preemption count */
+#ifndef CONFIG_KPROBES
 				printk(KERN_ERR "huh, entered softirq %td %s %p"
 				       "with preempt_count %08x,"
 				       " exited with %08x?\n", h - softirq_vec,
 				       softirq_to_name[h - softirq_vec],
 				       h->action, prev_count, preempt_count());
 				preempt_count() = prev_count;
+#endif
 			}
 
 			rcu_bh_qsctr_inc(cpu);

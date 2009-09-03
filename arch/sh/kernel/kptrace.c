@@ -80,6 +80,7 @@ static int user_stopon;
 static int user_starton;
 static int timestamping_enabled = 1;
 static int stackdepth = 16;
+static const int interface_version = 1;
 
 /* relay data */
 static struct rchan *chan;
@@ -318,6 +319,23 @@ static ssize_t kptrace_configured_store_attrs(struct sys_device *device,
 	return size;
 }
 
+static ssize_t kptrace_version_show_attrs(struct sys_device *device,
+					     struct sysdev_attribute *attr,
+					     char *buffer)
+{
+	return snprintf(buffer, PAGE_SIZE, "%d\n",
+			interface_version);
+}
+
+static ssize_t kptrace_version_store_attrs(struct sys_device *device,
+					      struct sysdev_attribute *attr,
+					      const char *buffer, size_t size)
+{
+	/* Nothing happens */
+	return size;
+}
+
+
 static ssize_t user_show_attrs(struct kobject *kobj, struct attribute *attr,
 			       char *buffer)
 {
@@ -457,6 +475,9 @@ SYSDEV_ATTR(configured, S_IRUGO | S_IWUSR, kptrace_configured_show_attrs,
 	    kptrace_configured_store_attrs);
 SYSDEV_ATTR(stackdepth, S_IRUGO | S_IWUSR, kptrace_stackdepth_show_attrs,
 	    kptrace_stackdepth_store_attrs);
+SYSDEV_ATTR(version, S_IRUGO | S_IWUSR, kptrace_version_show_attrs,
+	    kptrace_version_store_attrs);
+
 
 static struct sys_device kptrace_device = {
 	.id = 0,
@@ -1670,6 +1691,7 @@ static int create_sysfs_tree(void)
 	sysdev_register(&kptrace_device);
 	sysdev_create_file(&kptrace_device, &attr_configured);
 	sysdev_create_file(&kptrace_device, &attr_stackdepth);
+	sysdev_create_file(&kptrace_device, &attr_version);
 
 	user_set = kzalloc(sizeof(*user_set), GFP_KERNEL);
 	if (!user_set) {

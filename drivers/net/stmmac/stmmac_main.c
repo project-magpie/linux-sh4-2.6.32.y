@@ -1886,6 +1886,24 @@ static void stmmac_vlan_rx_kill_vid(struct net_device *dev, unsigned short vid)
 }
 #endif
 
+static const struct net_device_ops stmmac_netdev_ops = {
+	.ndo_open = stmmac_open,
+	.ndo_start_xmit = stmmac_xmit,
+	.ndo_stop = stmmac_release,
+	.ndo_change_mtu = stmmac_change_mtu,
+	.ndo_set_multicast_list = stmmac_multicast_list,
+	.ndo_tx_timeout = stmmac_tx_timeout,
+	.ndo_do_ioctl = stmmac_ioctl,
+	.ndo_set_config = stmmac_config,
+#ifdef STMMAC_VLAN_TAG_USED
+	.ndo_vlan_rx_register = stmmac_vlan_rx_register,
+#endif
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	.ndo_poll_controller = stmmac_poll_controller,
+#endif
+};
+
+
 /**
  *  stmmac_probe - Initialization of the adapter .
  *  @dev : device pointer
@@ -1900,28 +1918,16 @@ static int stmmac_probe(struct net_device *dev)
 
 	ether_setup(dev);
 
-	dev->open = stmmac_open;
-	dev->stop = stmmac_release;
-	dev->set_config = stmmac_config;
-
-	dev->hard_start_xmit = stmmac_xmit;
-	dev->features |= (NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_HIGHDMA);
-
-	dev->tx_timeout = stmmac_tx_timeout;
-	dev->watchdog_timeo = msecs_to_jiffies(watchdog);
-	dev->set_multicast_list = stmmac_multicast_list;
-	dev->change_mtu = stmmac_change_mtu;
+	dev->netdev_ops = &stmmac_netdev_ops;
 	dev->ethtool_ops = &stmmac_ethtool_ops;
-	dev->do_ioctl = &stmmac_ioctl;
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	dev->poll_controller = stmmac_poll_controller;
-#endif
+
+	dev->features |= (NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_HIGHDMA);
+	dev->watchdog_timeo = msecs_to_jiffies(watchdog);
 #ifdef STMMAC_VLAN_TAG_USED
 	/* Both mac100 and gmac support receive VLAN tag detection */
 	dev->features |= NETIF_F_HW_VLAN_RX;
-	dev->vlan_rx_register = stmmac_vlan_rx_register;
 
-	if (priv->vlan_rx_filter) {
+	if (priv->vlan_rx_filter) { /*FIXME*/
 		dev->features |= NETIF_F_HW_VLAN_FILTER;
 		dev->vlan_rx_add_vid = stmmac_vlan_rx_add_vid;
 		dev->vlan_rx_kill_vid = stmmac_vlan_rx_kill_vid;

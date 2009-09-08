@@ -28,14 +28,14 @@
 static void gmac_dump_regs(unsigned long ioaddr)
 {
 	int i;
-	printk("\t----------------------------------------------\n"
+	pr_info("\t----------------------------------------------\n"
 	       "\t  GMAC registers (base addr = 0x%8x)\n"
 	       "\t----------------------------------------------\n",
 	       (unsigned int)ioaddr);
 
 	for (i = 0; i < 55; i++) {
 		int offset = i * 4;
-		printk(KERN_INFO "\tReg No. %d (offset 0x%x): 0x%08x\n", i,
+		pr_info("\tReg No. %d (offset 0x%x): 0x%08x\n", i,
 		       offset, readl(ioaddr + offset));
 	}
 	return;
@@ -140,12 +140,11 @@ static void gmac_dma_diagnostic_fr(void *data, struct stmmac_extra_stats *x,
 static void gmac_dump_dma_regs(unsigned long ioaddr)
 {
 	int i;
-	printk(KERN_INFO " DMA registers\n");
+	pr_info(" DMA registers\n");
 	for (i = 0; i < 22; i++) {
 		if ((i < 9) || (i > 17)) {
 			int offset = i * 4;
-			printk(KERN_INFO
-			       "\t Reg No. %d (offset 0x%x): 0x%08x\n", i,
+			pr_err("\t Reg No. %d (offset 0x%x): 0x%08x\n", i,
 			       (DMA_BUS_MODE + offset),
 			       readl(ioaddr + DMA_BUS_MODE + offset));
 		}
@@ -689,7 +688,7 @@ struct mac_device_info *gmac_setup(unsigned long ioaddr)
 	struct mac_device_info *mac;
 	u32 uid = readl(ioaddr + GMAC_VERSION);
 
-	printk(KERN_INFO "\tGMAC - user ID: 0x%x, Synopsys ID: 0x%x\n",
+	pr_info("\tGMAC - user ID: 0x%x, Synopsys ID: 0x%x\n",
 	       ((uid & 0x0000ff00) >> 8), (uid & 0x000000ff));
 
 	mac = kmalloc(sizeof(const struct mac_device_info), GFP_KERNEL);

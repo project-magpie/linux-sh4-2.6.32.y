@@ -38,36 +38,36 @@ static void mac100_core_init(unsigned long ioaddr)
 
 static void mac100_dump_mac_regs(unsigned long ioaddr)
 {
-	printk("\t----------------------------------------------\n"
+	pr_info("\t----------------------------------------------\n"
 	       "\t  MAC100 CSR (base addr = 0x%8x)\n"
 	       "\t----------------------------------------------\n",
 	       (unsigned int)ioaddr);
-	printk(KERN_INFO "\tcontrol reg (offset 0x%x): 0x%08x\n", MAC_CONTROL,
+	pr_info("\tcontrol reg (offset 0x%x): 0x%08x\n", MAC_CONTROL,
 	       readl(ioaddr + MAC_CONTROL));
-	printk(KERN_INFO "\taddr HI (offset 0x%x): 0x%08x\n ", MAC_ADDR_HIGH,
+	pr_info("\taddr HI (offset 0x%x): 0x%08x\n ", MAC_ADDR_HIGH,
 	       readl(ioaddr + MAC_ADDR_HIGH));
-	printk(KERN_INFO "\taddr LO (offset 0x%x): 0x%08x\n", MAC_ADDR_LOW,
+	pr_info("\taddr LO (offset 0x%x): 0x%08x\n", MAC_ADDR_LOW,
 	       readl(ioaddr + MAC_ADDR_LOW));
-	printk(KERN_INFO "\tmulticast hash HI (offset 0x%x): 0x%08x\n",
+	pr_info("\tmulticast hash HI (offset 0x%x): 0x%08x\n",
 			MAC_HASH_HIGH, readl(ioaddr + MAC_HASH_HIGH));
-	printk(KERN_INFO "\tmulticast hash LO (offset 0x%x): 0x%08x\n",
+	pr_info("\tmulticast hash LO (offset 0x%x): 0x%08x\n",
 			MAC_HASH_LOW, readl(ioaddr + MAC_HASH_LOW));
-	printk(KERN_INFO "\tflow control (offset 0x%x): 0x%08x\n",
+	pr_info("\tflow control (offset 0x%x): 0x%08x\n",
 		MAC_FLOW_CTRL, readl(ioaddr + MAC_FLOW_CTRL));
-	printk(KERN_INFO "\tVLAN1 tag (offset 0x%x): 0x%08x\n", MAC_VLAN1,
+	pr_info("\tVLAN1 tag (offset 0x%x): 0x%08x\n", MAC_VLAN1,
 	       readl(ioaddr + MAC_VLAN1));
-	printk(KERN_INFO "\tVLAN2 tag (offset 0x%x): 0x%08x\n", MAC_VLAN2,
+	pr_info("\tVLAN2 tag (offset 0x%x): 0x%08x\n", MAC_VLAN2,
 	       readl(ioaddr + MAC_VLAN2));
-	printk(KERN_INFO "\n\tMAC management counter registers\n");
-	printk(KERN_INFO "\t MMC crtl (offset 0x%x): 0x%08x\n",
+	pr_info("\n\tMAC management counter registers\n");
+	pr_info("\t MMC crtl (offset 0x%x): 0x%08x\n",
 	       MMC_CONTROL, readl(ioaddr + MMC_CONTROL));
-	printk(KERN_INFO "\t MMC High Interrupt (offset 0x%x): 0x%08x\n",
+	pr_info("\t MMC High Interrupt (offset 0x%x): 0x%08x\n",
 	       MMC_HIGH_INTR, readl(ioaddr + MMC_HIGH_INTR));
-	printk(KERN_INFO "\t MMC Low Interrupt (offset 0x%x): 0x%08x\n",
+	pr_info("\t MMC Low Interrupt (offset 0x%x): 0x%08x\n",
 	       MMC_LOW_INTR, readl(ioaddr + MMC_LOW_INTR));
-	printk(KERN_INFO "\t MMC High Interrupt Mask (offset 0x%x): 0x%08x\n",
+	pr_info("\t MMC High Interrupt Mask (offset 0x%x): 0x%08x\n",
 	       MMC_HIGH_INTR_MASK, readl(ioaddr + MMC_HIGH_INTR_MASK));
-	printk(KERN_INFO "\t MMC Low Interrupt Mask (offset 0x%x): 0x%08x\n",
+	pr_info("\t MMC Low Interrupt Mask (offset 0x%x): 0x%08x\n",
 	       MMC_LOW_INTR_MASK, readl(ioaddr + MMC_LOW_INTR_MASK));
 	return;
 }
@@ -122,7 +122,7 @@ static void mac100_dump_dma_regs(unsigned long ioaddr)
 
 	DBG(KERN_DEBUG "MAC100 DMA CSR \n");
 	for (i = 0; i < 9; i++)
-		printk(KERN_DEBUG "\t CSR%d (offset 0x%x): 0x%08x\n", i,
+		pr_debug("\t CSR%d (offset 0x%x): 0x%08x\n", i,
 		       (DMA_BUS_MODE + i * 4),
 		       readl(ioaddr + DMA_BUS_MODE + i * 4));
 	DBG(KERN_DEBUG "\t CSR20 (offset 0x%x): 0x%08x\n",
@@ -215,8 +215,8 @@ static int mac100_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 	struct net_device_stats *stats = (struct net_device_stats *)data;
 
 	if (unlikely(p->des01.rx.last_descriptor == 0)) {
-		printk(KERN_WARNING "mac100 Error: Oversized Ethernet "
-		       "frame spanned multiple buffers\n");
+		pr_warning("mac100 Error: Oversized Ethernet "
+			   "frame spanned multiple buffers\n");
 		stats->rx_length_errors++;
 		return discard_frame;
 	}
@@ -501,7 +501,7 @@ struct mac_device_info *mac100_setup(unsigned long ioaddr)
 	mac = kmalloc(sizeof(const struct mac_device_info), GFP_KERNEL);
 	memset(mac, 0, sizeof(struct mac_device_info));
 
-	printk(KERN_INFO "\tMAC 10/100\n");
+	pr_info("\tMAC 10/100\n");
 
 	mac->ops = &mac100_driver;
 	mac->hw.pmt = PMT_NOT_SUPPORTED;

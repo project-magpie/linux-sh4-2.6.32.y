@@ -50,7 +50,7 @@ int stmmac_open_hw_timer(struct net_device *dev, struct stmmac_timer *tm)
 
 	stmmac_rtc = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
 	if (stmmac_rtc == NULL) {
-		printk(KERN_ERR "open rtc device failed\n");
+		pr_error("open rtc device failed\n");
 		return -ENODEV;
 	}
 
@@ -58,7 +58,7 @@ int stmmac_open_hw_timer(struct net_device *dev, struct stmmac_timer *tm)
 
 	/* Periodic mode is not supported */
 	if ((rtc_irq_set_freq(stmmac_rtc, &stmmac_task, tm->freq) < 0)) {
-		printk(KERN_ERR "set periodic failed\n");
+		pr_error("set periodic failed\n");
 		rtc_irq_unregister(stmmac_rtc, &stmmac_task);
 		rtc_class_close(stmmac_rtc);
 		return -1;

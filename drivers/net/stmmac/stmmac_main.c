@@ -214,13 +214,13 @@ static void stmmac_verify_args(void)
 static void print_pkt(unsigned char *buf, int len)
 {
 	int j;
-	printk(KERN_INFO "len = %d byte, buf addr: 0x%p", len, buf);
+	pr_info("len = %d byte, buf addr: 0x%p", len, buf);
 	for (j = 0; j < len; j++) {
 		if ((j % 16) == 0)
-			printk(KERN_INFO "\n %03x:", j);
-		printk(KERN_INFO " %02x", buf[j]);
+			pr_info("\n %03x:", j);
+		pr_info(" %02x", buf[j]);
 	}
-	printk(KERN_INFO "\n");
+	pr_info("\n");
 	return;
 }
 #endif
@@ -297,10 +297,8 @@ static void stmmac_adjust_link(struct net_device *dev)
 				break;
 			default:
 				if (netif_msg_link(priv))
-					printk(KERN_WARNING
-					       "%s: Ack!  Speed (%d) is not 10"
-					       " or 100!\n", dev->name,
-					       phydev->speed);
+					pr_warning("%s: Speed (%d) is not 10"
+				       " or 100!\n", dev->name, phydev->speed);
 				break;
 			}
 
@@ -353,13 +351,13 @@ static int stmmac_init_phy(struct net_device *dev)
 
 	snprintf(bus_id, MII_BUS_ID_SIZE, "%x", priv->bus_id);
 	snprintf(phy_id, BUS_ID_SIZE, PHY_ID_FMT, bus_id, priv->phy_addr);
-	printk(KERN_DEBUG "stmmac_init_phy:  trying to attach to %s\n", phy_id);
+	pr_debug("stmmac_init_phy:  trying to attach to %s\n", phy_id);
 
 	phydev = phy_connect(dev, phy_id, &stmmac_adjust_link, 0,
 			priv->phy_interface);
 
 	if (IS_ERR(phydev)) {
-		printk(KERN_ERR "%s: Could not attach to PHY\n", dev->name);
+		pr_err("%s: Could not attach to PHY\n", dev->name);
 		return PTR_ERR(phydev);
 	}
 
@@ -374,7 +372,7 @@ static int stmmac_init_phy(struct net_device *dev)
 		phy_disconnect(phydev);
 		return -ENODEV;
 	}
-	printk(KERN_DEBUG "stmmac_init_phy:  %s: attached to PHY (UID 0x%x)"
+	pr_debug("stmmac_init_phy:  %s: attached to PHY (UID 0x%x)"
 	       " Link = %d\n", dev->name, phydev->phy_id, phydev->link);
 
 	priv->phydev = phydev;
@@ -454,12 +452,11 @@ static void display_ring(struct dma_desc *p, int size)
 	int i;
 	for (i = 0; i < size; i++) {
 		struct tmp_s *x = (struct tmp_s *)(p + i);
-		printk(KERN_INFO "\t%d [0x%x]: DES0=0x%x DES1=0x%x"
-		       " BUF1=0x%x BUF2=0x%x",
+		pr_info("\t%d [0x%x]: DES0=0x%x DES1=0x%x BUF1=0x%x BUF2=0x%x",
 		       i, (unsigned int)virt_to_phys(&p[i]),
 		       (unsigned int)(x->a), (unsigned int)((x->a) >> 32),
 		       x->b, x->c);
-		printk(KERN_INFO "\n");
+		pr_info("\n");
 	}
 }
 
@@ -516,8 +513,7 @@ static void init_dma_desc_rings(struct net_device *dev)
 						  GFP_KERNEL);
 
 	if ((priv->dma_rx == NULL) || (priv->dma_tx == NULL)) {
-		printk(KERN_ERR "%s:ERROR allocating the DMA Tx/Rx desc\n",
-		       __func__);
+		pr_err("%s:ERROR allocating the DMA Tx/Rx desc\n", __func__);
 		return;
 	}
 
@@ -535,7 +531,7 @@ static void init_dma_desc_rings(struct net_device *dev)
 
 		skb = netdev_alloc_skb(dev, bfsize);
 		if (unlikely(skb == NULL)) {
-			printk(KERN_ERR "%s: Rx init fails; skb is NULL\n",
+			pr_err("%s: Rx init fails; skb is NULL\n",
 			       __func__);
 			break;
 		}
@@ -571,9 +567,9 @@ static void init_dma_desc_rings(struct net_device *dev)
 	priv->mac_type->ops->init_tx_desc(priv->dma_tx, txsize);
 
 	if (netif_msg_hw(priv)) {
-		printk(KERN_INFO "RX descriptor ring:\n");
+		pr_info("RX descriptor ring:\n");
 		display_ring(priv->dma_rx, rxsize);
-		printk(KERN_INFO "TX descriptor ring:\n");
+		pr_info("TX descriptor ring:\n");
 		display_ring(priv->dma_tx, txsize);
 	}
 	return;
@@ -756,24 +752,24 @@ static void show_tx_process_state(unsigned int status)
 
 	switch (state) {
 	case 0:
-		printk(KERN_INFO "- TX (Stopped): Reset or Stop command\n");
+		pr_info("- TX (Stopped): Reset or Stop command\n");
 		break;
 	case 1:
-		printk(KERN_INFO "- TX (Running):Fetching the Tx desc\n");
+		pr_info("- TX (Running):Fetching the Tx desc\n");
 		break;
 	case 2:
-		printk(KERN_INFO "- TX (Running): Waiting for end of tx\n");
+		pr_info("- TX (Running): Waiting for end of tx\n");
 		break;
 	case 3:
-		printk(KERN_INFO "- TX (Running): Reading the data "
+		pr_info("- TX (Running): Reading the data "
 		       "and queuing the data into the Tx buf\n");
 		break;
 	case 6:
-		printk(KERN_INFO "- TX (Suspended): Tx Buff Underflow "
+		pr_info("- TX (Suspended): Tx Buff Underflow "
 		       "or an unavailable Transmit descriptor\n");
 		break;
 	case 7:
-		printk(KERN_INFO "- TX (Running): Closing Tx descriptor\n");
+		pr_info("- TX (Running): Closing Tx descriptor\n");
 		break;
 	default:
 		break;
@@ -793,29 +789,29 @@ static void show_rx_process_state(unsigned int status)
 
 	switch (state) {
 	case 0:
-		printk(KERN_INFO "- RX (Stopped): Reset or Stop command\n");
+		pr_info("- RX (Stopped): Reset or Stop command\n");
 		break;
 	case 1:
-		printk(KERN_INFO "- RX (Running): Fetching the Rx desc\n");
+		pr_info("- RX (Running): Fetching the Rx desc\n");
 		break;
 	case 2:
-		printk(KERN_INFO "- RX (Running):Checking for end of pkt\n");
+		pr_info("- RX (Running):Checking for end of pkt\n");
 		break;
 	case 3:
-		printk(KERN_INFO "- RX (Running): Waiting for Rx pkt\n");
+		pr_info("- RX (Running): Waiting for Rx pkt\n");
 		break;
 	case 4:
-		printk(KERN_INFO "- RX (Suspended): Unavailable Rx buf\n");
+		pr_info("- RX (Suspended): Unavailable Rx buf\n");
 		break;
 	case 5:
-		printk(KERN_INFO "- RX (Running): Closing Rx descriptor\n");
+		pr_info("- RX (Running): Closing Rx descriptor\n");
 		break;
 	case 6:
-		printk(KERN_INFO "- RX(Running): Flushing the current frame"
+		pr_info("- RX(Running): Flushing the current frame"
 		       " from the Rx buf\n");
 		break;
 	case 7:
-		printk(KERN_INFO "- RX (Running): Queuing the Rx frame"
+		pr_info("- RX (Running): Queuing the Rx frame"
 		       " from the Rx buf into memory\n");
 		break;
 	default:
@@ -1074,8 +1070,7 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 	/* Optional hardware blocks, interrupts should be disabled */
 	if (unlikely(intr_status &
 		     (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI)))
-		printk(KERN_INFO "%s: unexpected status %08x\n", __func__,
-		       intr_status);
+		pr_info("%s: unexpected status %08x\n", __func__, intr_status);
 
 	DBG(intr, INFO, "\n\n");
 
@@ -1103,7 +1098,7 @@ static int stmmac_open(struct net_device *dev)
 	 *      ifconfig eth0 hw ether xx:xx:xx:xx:xx:xx  */
 	if (!is_valid_ether_addr(dev->dev_addr)) {
 		random_ether_addr(dev->dev_addr);
-		printk(KERN_WARNING "%s: generated random MAC address "
+		pr_warning("%s: generated random MAC address "
 			"%.2x:%.2x:%.2x:%.2x:%.2x:%.2x.\n", dev->name,
 			dev->dev_addr[0], dev->dev_addr[1],
 			dev->dev_addr[2], dev->dev_addr[3],
@@ -1114,8 +1109,7 @@ static int stmmac_open(struct net_device *dev)
 
 	ret = stmmac_init_phy(dev);
 	if (unlikely(ret)) {
-		printk(KERN_ERR "%s: Cannot attach to PHY (error: %d)\n",
-		       __func__, ret);
+		pr_err("%s: Cannot attach to PHY (error: %d)\n", __func__, ret);
 		return ret;
 	}
 
@@ -1132,8 +1126,7 @@ static int stmmac_open(struct net_device *dev)
 #ifdef CONFIG_STMMAC_TIMER
 	priv->tm = kmalloc(sizeof(struct stmmac_timer *), GFP_KERNEL);
 	if (unlikely(priv->tm == NULL)) {
-		printk(KERN_ERR "%s: ERROR: timer memory alloc failed \n",
-		       __func__);
+		pr_err("%s: ERROR: timer memory alloc failed \n", __func__);
 		return -ENOMEM;
 	}
 	priv->tm->freq = tmrate;
@@ -1141,7 +1134,7 @@ static int stmmac_open(struct net_device *dev)
 	/* Test if the HW timer can be actually used.
 	 * In case of failure go haead without using any timers. */
 	if (unlikely((stmmac_open_hw_timer(dev, priv->tm)) < 0)) {
-		printk(KERN_WARNING "stmmaceth: cannot attach the HW timer\n");
+		pr_warning("stmmaceth: cannot attach the HW timer\n");
 		rx_coalesce = 1;
 		tmrate = 0;
 		priv->tm->freq = 0;
@@ -1160,7 +1153,7 @@ static int stmmac_open(struct net_device *dev)
 	if (unlikely(priv->mac_type->ops->dma_init(ioaddr,
 		priv->pbl, priv->dma_tx_phy, priv->dma_rx_phy) < 0)) {
 
-		printk(KERN_ERR "%s: DMA initialization failed\n", __func__);
+		pr_err("%s: DMA initialization failed\n", __func__);
 		return -1;
 	}
 
@@ -1276,12 +1269,12 @@ static int stmmac_sw_tso(struct stmmac_priv *priv, struct sk_buff *skb)
 	/* Estimate the number of fragments in the worst case */
 	if (unlikely(stmmac_tx_avail(priv) <= gso_segs * 3)) {
 		netif_stop_queue(priv->dev);
-		printk(KERN_ERR "%s: TSO BUG! Tx Ring full when queue awake\n",
+		pr_err("%s: TSO BUG! Tx Ring full when queue awake\n",
 		       __func__);
 		return NETDEV_TX_BUSY;
 	}
 #ifdef STMMAC_XMIT_DEBUG
-	printk(KERN_DEBUG "\tstmmac_sw_tso: segmenting: skb %p (len %d)\n",
+	pr_debug("\tstmmac_sw_tso: segmenting: skb %p (len %d)\n",
 	       skb, skb->len);
 #endif
 
@@ -1293,7 +1286,7 @@ static int stmmac_sw_tso(struct stmmac_priv *priv, struct sk_buff *skb)
 		curr_skb = segs;
 		segs = segs->next;
 #ifdef STMMAC_XMIT_DEBUG
-		printk(KERN_DEBUG "\t\tcurrent skb->len: %d, *curr %p,"
+		pr_debug("\t\tcurrent skb->len: %d, *curr %p,"
 		       "*next %p\n", curr_skb->len, curr_skb, segs);
 #endif
 		curr_skb->next = NULL;
@@ -1305,7 +1298,7 @@ static int stmmac_sw_tso(struct stmmac_priv *priv, struct sk_buff *skb)
 
 drop:
 #ifdef STMMAC_XMIT_DEBUG
-	printk(KERN_DEBUG "\t\tdropped!\n");
+	pr_debug("\t\tdropped!\n");
 #endif
 	priv->dev->stats.tx_dropped += 1;
 	dev_kfree_skb(skb);
@@ -1378,14 +1371,14 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	/* This is a hard error log it. */
 	if (unlikely(stmmac_tx_avail(priv) < nfrags + 1)) {
 		netif_stop_queue(dev);
-		printk(KERN_ERR "%s: BUG! Tx Ring full when queue awake\n",
+		pr_err("%s: BUG! Tx Ring full when queue awake\n",
 		       __func__);
 		ret = NETDEV_TX_BUSY;
 		goto end_xmit;
 	}
 
 	if (unlikely((priv->tx_skbuff[entry] != NULL))) {
-		printk(KERN_ERR "%s: BUG! Inconsistent Tx skb utilization\n",
+		pr_err("%s: BUG! Inconsistent Tx skb utilization\n",
 		       __func__);
 		dev_kfree_skb_any(skb);
 		dev->stats.tx_dropped += 1;
@@ -1394,7 +1387,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 #ifdef STMMAC_XMIT_DEBUG
 	if ((skb->len > ETH_FRAME_LEN) || nfrags)
-		printk(KERN_INFO "stmmac xmit:\n"
+		pr_info("stmmac xmit:\n"
 		       "\tskb addr %p - len: %d - nopaged_len: %d\n"
 		       "\tn_frags: %d - ip_summed: %d - %s gso\n",
 		       skb, skb->len, skb_headlen(skb), nfrags, skb->ip_summed,
@@ -1418,7 +1411,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 
 #ifdef STMMAC_XMIT_DEBUG
 	if ((nfrags > 0) || (skb->len > ETH_FRAME_LEN))
-		printk(KERN_DEBUG "stmmac xmit: skb len: %d, nopaged_len: %d,\n"
+		pr_debug("stmmac xmit: skb len: %d, nopaged_len: %d,\n"
 		       "\t\tn_frags: %d, ip_summed: %d\n",
 		       skb->len, skb_headlen(skb), nfrags, skb->ip_summed);
 #endif
@@ -1442,7 +1435,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		desc = priv->dma_tx + entry;
 
 #ifdef STMMAC_XMIT_DEBUG
-		printk(KERN_INFO "\t[entry %d] segment len: %d\n", entry, len);
+		pr_info("\t[entry %d] segment len: %d\n", entry, len);
 #endif
 		desc->des2 = dma_map_page(priv->device, frag->page,
 					  frag->page_offset,
@@ -1462,12 +1455,12 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 
 #ifdef STMMAC_XMIT_DEBUG
 	if (netif_msg_pktdata(priv)) {
-		printk(KERN_INFO "stmmac xmit: current=%d, dirty=%d, entry=%d, "
+		pr_info("stmmac xmit: current=%d, dirty=%d, entry=%d, "
 		       "first=%p, nfrags=%d\n",
 		       (priv->cur_tx % txsize), (priv->dirty_tx % txsize),
 		       entry, first, nfrags);
 		display_ring(priv->dma_tx, txsize);
-		printk(KERN_INFO ">>> frame to be transmitted: ");
+		pr_info(">>> frame to be transmitted: ");
 		print_pkt(skb->data, skb->len);
 	}
 #endif
@@ -1508,7 +1501,7 @@ static inline void stmmac_rx_refill(struct net_device *dev)
 		if (likely(priv->rx_skbuff[entry] == NULL)) {
 			struct sk_buff *skb = netdev_alloc_skb(dev, bfsize);
 			if (unlikely(skb == NULL)) {
-				printk(KERN_ERR "%s: skb is NULL\n", __func__);
+				pr_err("%s: skb is NULL\n", __func__);
 				break;
 			}
 			skb_reserve(skb, STMMAC_IP_ALIGN);
@@ -1541,7 +1534,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 
 #ifdef STMMAC_RX_DEBUG
 	if (netif_msg_hw(priv)) {
-		printk(KERN_DEBUG ">>> stmmac_rx: descriptor ring:\n");
+		pr_debug(">>> stmmac_rx: descriptor ring:\n");
 		display_ring(priv->dma_rx, rxsize);
 	}
 #endif
@@ -1572,17 +1565,17 @@ static int stmmac_rx(struct net_device *dev, int limit)
 
 #ifdef STMMAC_RX_DEBUG
 			if (frame_len > ETH_FRAME_LEN)
-				printk(KERN_DEBUG "\tRX frame size: %d,"
-				       " COE status: %d\n", frame_len, status);
+				pr_debug("\tRX frame size %d, COE status: %d\n",
+					frame_len, status);
 
 			if (netif_msg_hw(priv))
-				printk(KERN_DEBUG "\tdesc: %p [entry %d]"
-				       " buff=0x%x\n", p, entry, p->des2);
+				pr_debug("\tdesc: %p [entry %d] buff=0x%x\n",
+					p, entry, p->des2);
 #endif
 			skb = priv->rx_skbuff[entry];
 			if (unlikely(!skb)) {
-				printk(KERN_ERR "%s: Inconsistent Rx "
-				       "descriptor chain.\n", dev->name);
+				pr_err("%s: Inconsistent Rx descriptor chain\n",
+					dev->name);
 				dev->stats.rx_dropped++;
 				break;
 			}
@@ -1595,8 +1588,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 					 priv->dma_buf_sz, DMA_FROM_DEVICE);
 #ifdef STMMAC_RX_DEBUG
 			if (netif_msg_pktdata(priv)) {
-				printk(KERN_INFO " frame received (%dbytes)",
-				       frame_len);
+				pr_info(" frame received (%dbytes)", frame_len);
 				print_pkt(skb->data, frame_len);
 			}
 #endif
@@ -1676,14 +1668,13 @@ static void stmmac_tx_timeout(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
-	printk(KERN_WARNING "%s: Tx timeout at %ld, latency %ld\n",
+	pr_warning("%s: Tx timeout at %ld, latency %ld\n",
 	       dev->name, jiffies, (jiffies - dev->trans_start));
 
 #ifdef STMMAC_DEBUG
-	printk(KERN_INFO "(current=%d, dirty=%d)\n",
-	       (priv->cur_tx % priv->dma_tx_size),
+	pr_info("(current=%d, dirty=%d)\n", (priv->cur_tx % priv->dma_tx_size),
 	       (priv->dirty_tx % priv->dma_tx_size));
-	printk(KERN_INFO "DMA tx ring status: \n");
+	pr_info("DMA tx ring status: \n");
 	display_ring(priv->dma_tx, priv->dma_tx_size);
 #endif
 	/* Remove tx moderation */
@@ -1706,14 +1697,13 @@ static int stmmac_config(struct net_device *dev, struct ifmap *map)
 
 	/* Don't allow changing the I/O address */
 	if (map->base_addr != dev->base_addr) {
-		printk(KERN_WARNING "%s: can't change I/O address\n",
-		       dev->name);
+		pr_warning("%s: can't change I/O address\n", dev->name);
 		return -EOPNOTSUPP;
 	}
 
 	/* Don't allow changing the IRQ */
 	if (map->irq != dev->irq) {
-		printk(KERN_WARNING "%s: can't change IRQ number %d\n",
+		pr_warning("%s: can't change IRQ number %d\n",
 		       dev->name, dev->irq);
 		return -EOPNOTSUPP;
 	}
@@ -1785,7 +1775,7 @@ static irqreturn_t stmmac_interrupt(int irq, void *dev_id)
 	struct stmmac_priv *priv = netdev_priv(dev);
 
 	if (unlikely(!dev)) {
-		printk(KERN_ERR "%s: invalid dev pointer\n", __func__);
+		pr_err("%s: invalid dev pointer\n", __func__);
 		return IRQ_NONE;
 	}
 
@@ -1949,14 +1939,13 @@ static int stmmac_probe(struct net_device *dev)
 
 	stmmac_init_coalescence(priv->is_gmac, dev->mtu);
 
-	if (!is_valid_ether_addr(dev->dev_addr)) {
-		printk(KERN_WARNING "\tno valid MAC address; "
-		       "please, set using ifconfig or nwhwconfig!\n");
-	}
+	if (!is_valid_ether_addr(dev->dev_addr))
+		pr_warning("\tno valid MAC address;"
+			"please, use ifconfig or nwhwconfig!\n");
 
 	ret = register_netdev(dev);
 	if (ret) {
-		printk(KERN_ERR "%s: ERROR %i registering the device\n",
+		pr_err("%s: ERROR %i registering the device\n",
 		       __func__, ret);
 		return -ENODEV;
 	}
@@ -2005,7 +1994,7 @@ static int stmmacphy_dvr_probe(struct platform_device *pdev)
 	struct plat_stmmacphy_data *plat_dat;
 	plat_dat = (struct plat_stmmacphy_data *)((pdev->dev).platform_data);
 
-	printk(KERN_DEBUG "stmmacphy_dvr_probe: added phy for bus %d\n",
+	pr_debug("stmmacphy_dvr_probe: added phy for bus %d\n",
 	       plat_dat->bus_id);
 
 	return 0;
@@ -2039,8 +2028,8 @@ static int stmmac_associate_phy(struct device *dev, void *data)
 
 	plat_dat = (struct plat_stmmacphy_data *)(dev->platform_data);
 
-	DBG(probe, DEBUG,
-	    "stmmacphy_dvr_probe: checking phy for bus %d\n", plat_dat->bus_id);
+	DBG(probe, DEBUG, "%s: checking phy for bus %d\n", __func__,
+		plat_dat->bus_id);
 
 	/* Check that this phy is for the MAC being initialised */
 	if (priv->bus_id != plat_dat->bus_id)
@@ -2048,11 +2037,10 @@ static int stmmac_associate_phy(struct device *dev, void *data)
 
 	/* OK, this PHY is connected to the MAC.
 	   Go ahead and get the parameters */
-	DBG(probe, DEBUG, "stmmacphy_dvr_probe: OK. Found PHY config\n");
+	DBG(probe, DEBUG, "%s: OK. Found PHY config\n", __func__);
 	priv->phy_irq =
 	    platform_get_irq_byname(to_platform_device(dev), "phyirq");
-	DBG(probe, DEBUG,
-	    "stmmacphy_dvr_probe: PHY irq on bus %d is %d\n",
+	DBG(probe, DEBUG, "%s: PHY irq on bus %d is %d\n", __func__,
 	    plat_dat->bus_id, priv->phy_irq);
 
 	/* Override with kernel parameters if supplied XXX CRS XXX
@@ -2065,7 +2053,7 @@ static int stmmac_associate_phy(struct device *dev, void *data)
 	priv->phy_interface = plat_dat->interface;
 	priv->phy_reset = plat_dat->phy_reset;
 
-	DBG(probe, DEBUG, "stmmacphy_dvr_probe: exiting\n");
+	DBG(probe, DEBUG, "%s: exiting\n", __func__);
 	return 1;		/* forces exit of driver_for_each_device() */
 }
 
@@ -2085,17 +2073,17 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	struct stmmac_priv *priv;
 	struct plat_stmmacenet_data *plat_dat;
 
-	printk(KERN_DEBUG "STMMAC driver:\n\tplatform registration... ");
+	pr_info("STMMAC driver:\n\tplatform registration... ");
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		ret = -ENODEV;
 		goto out;
 	}
-	printk(KERN_DEBUG "done!\n");
+	pr_info("done!\n");
 
 	if (!request_mem_region(res->start, (res->end - res->start),
 				pdev->name)) {
-		printk(KERN_ERR "%s: ERROR: memory allocation failed"
+		pr_err("%s: ERROR: memory allocation failed"
 		       "cannot get the I/O addr 0x%x\n",
 		       __func__, (unsigned int)res->start);
 		ret = -EBUSY;
@@ -2104,15 +2092,14 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 
 	addr = ioremap(res->start, (res->end - res->start));
 	if (!addr) {
-		printk(KERN_ERR "%s: ERROR: memory mapping failed \n",
-		       __func__);
+		pr_err("%s: ERROR: memory mapping failed \n", __func__);
 		ret = -ENOMEM;
 		goto out;
 	}
 
 	ndev = alloc_etherdev(sizeof(struct stmmac_priv));
 	if (!ndev) {
-		printk(KERN_ERR "%s: ERROR: allocating the device\n", __func__);
+		pr_err("%s: ERROR: allocating the device\n", __func__);
 		ret = -ENOMEM;
 		goto out;
 	}
@@ -2122,7 +2109,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	/* Get the MAC information */
 	ndev->irq = platform_get_irq_byname(pdev, "macirq");
 	if (ndev->irq == -ENXIO) {
-		printk(KERN_ERR "%s: ERROR: MAC IRQ configuration "
+		pr_err("%s: ERROR: MAC IRQ configuration "
 		       "information not found\n", __func__);
 		ret = -ENODEV;
 		goto out;
@@ -2154,7 +2141,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	if (!driver_for_each_device
 	    (&(stmmacphy_driver.driver), NULL, (void *)priv,
 	     stmmac_associate_phy)) {
-		printk(KERN_ERR "No PHY device is associated with this MAC!\n");
+		pr_err("No PHY device is associated with this MAC!\n");
 		ret = -ENODEV;
 		goto out;
 	}
@@ -2162,16 +2149,16 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	priv->fix_mac_speed = plat_dat->fix_mac_speed;
 	priv->bsp_priv = plat_dat->bsp_priv;
 
-	printk(KERN_INFO "\t%s - (dev. name: %s - id: %d, IRQ #%d\n"
+	pr_info("\t%s - (dev. name: %s - id: %d, IRQ #%d\n"
 	       "\tIO base addr: 0x%08x)\n", ndev->name, pdev->name,
 	       pdev->id, ndev->irq, (unsigned int)addr);
 
 	/* MDIO bus Registration */
-	printk(KERN_DEBUG "\tRegistering MDIO bus (id: %d)...\n", priv->bus_id);
+	pr_debug("\tMDIO bus (id: %d)...", priv->bus_id);
 	ret = stmmac_mdio_register(ndev);
 	if (ret < 0)
 		goto out;
-	printk(KERN_DEBUG "\tMDIO bus registered!\n");
+	pr_debug("registered!\n");
 
 out:
 	if (ret < 0) {
@@ -2196,7 +2183,7 @@ static int stmmac_dvr_remove(struct platform_device *pdev)
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct resource *res;
 
-	printk(KERN_INFO "%s:\n\tremoving driver", __func__);
+	pr_info("%s:\n\tremoving driver", __func__);
 
 	stmmac_dma_stop_rx(ndev->base_addr);
 	stmmac_dma_stop_tx(ndev->base_addr);
@@ -2354,7 +2341,7 @@ static int __init stmmac_init_module(void)
 	int ret;
 
 	if (platform_driver_register(&stmmacphy_driver)) {
-		printk(KERN_ERR "No PHY devices registered!\n");
+		pr_err("No PHY devices registered!\n");
 		return -ENODEV;
 	}
 

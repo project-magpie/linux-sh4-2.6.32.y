@@ -102,10 +102,8 @@ static int stmmac_mdio_reset(struct mii_bus *bus)
 	unsigned long ioaddr = ndev->base_addr;
 	unsigned int mii_address = priv->mac_type->hw.mii.addr;
 
-	printk(KERN_DEBUG "stmmac_mdio_reset: called!\n");
-
 	if (priv->phy_reset) {
-		printk(KERN_DEBUG "stmmac_mdio_reset: calling phy_reset\n");
+		pr_debug("stmmac_mdio_reset: calling phy_reset\n");
 		priv->phy_reset(priv->bsp_priv);
 	}
 
@@ -154,12 +152,9 @@ int stmmac_mdio_register(struct net_device *ndev)
 	new_bus->irq = irqlist;
 	new_bus->phy_mask = priv->phy_mask;
 	new_bus->parent = priv->device;
-	printk(KERN_DEBUG "calling mdiobus_register\n");
 	err = mdiobus_register(new_bus);
-	printk(KERN_DEBUG "calling mdiobus_register done\n");
 	if (err != 0) {
-		printk(KERN_ERR "%s: Cannot register as MDIO bus\n",
-		       new_bus->name);
+		pr_err("%s: Cannot register as MDIO bus\n", new_bus->name);
 		goto bus_register_fail;
 	}
 
@@ -174,8 +169,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 				phydev->irq = priv->phy_irq;
 				irqlist[addr] = priv->phy_irq;
 			}
-			printk(KERN_INFO
-			       "%s: PHY ID %08x at %d IRQ %d (%s)%s\n",
+			pr_info("%s: PHY ID %08x at %d IRQ %d (%s)%s\n",
 			       ndev->name, phydev->phy_id, addr,
 			       phydev->irq, dev_name(&phydev->dev),
 			       (addr == priv->phy_addr) ? " active" : "");
@@ -184,7 +178,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 	}
 
 	if (!found)
-		printk(KERN_WARNING "%s: No PHY found\n", ndev->name);
+		pr_warning("%s: No PHY found\n", ndev->name);
 
 	return 0;
 bus_register_fail:

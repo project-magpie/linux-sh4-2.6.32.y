@@ -41,12 +41,12 @@ int stmmac_ethtool_getsettings(struct net_device *dev, struct ethtool_cmd *cmd)
 	struct phy_device *phy = priv->phydev;
 	int rc;
 	if (phy == NULL) {
-		printk(KERN_ERR "%s: %s: PHY is not registered\n",
+		pr_err("%s: %s: PHY is not registered\n",
 		       __func__, dev->name);
 		return -ENODEV;
 	}
 	if (!netif_running(dev)) {
-		printk(KERN_ERR "%s: interface is disabled: we cannot track "
+		pr_err("%s: interface is disabled: we cannot track "
 		"link speed / duplex setting\n", dev->name);
 		return -EBUSY;
 	}

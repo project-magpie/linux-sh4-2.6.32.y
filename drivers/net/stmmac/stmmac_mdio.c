@@ -10,16 +10,9 @@
  * Copyright (c) 2006-2007 STMicroelectronics
  *
  */
-#include <linux/kernel.h>
-#include <linux/string.h>
 #include <linux/netdevice.h>
-#include <linux/module.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
-
-#include <linux/io.h>
-#include <linux/irq.h>
-#include <linux/uaccess.h>
 
 #include "stmmac.h"
 
@@ -36,7 +29,7 @@
  * accessing the PHY registers.
  * Fortunately, it seems this has no drawback for the 7109 MAC.
  */
-int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
+static int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 {
 	struct net_device *ndev = bus->priv;
 	struct stmmac_priv *priv = netdev_priv(ndev);
@@ -49,13 +42,9 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 			((phyreg << 6) & (0x000007C0)));
 	regValue |= MII_BUSY;	/* in case of GMAC */
 
-	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
-	}
-
+	do {} while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1);
 	writel(regValue, ioaddr + mii_address);
-
-	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
-	}
+	do {} while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1);
 
 	/* Read the data from the MII data register */
 	data = (int)readl(ioaddr + mii_data);
@@ -71,7 +60,8 @@ int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
  * @phydata: phy data
  * Description: it writes the data into the MII register from within the device.
  */
-int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
+static int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg,
+			     u16 phydata)
 {
 	struct net_device *ndev = bus->priv;
 	struct stmmac_priv *priv = netdev_priv(ndev);
@@ -86,16 +76,14 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 	value |= MII_BUSY;
 
 	/* Wait until any existing MII operation is complete */
-	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
-	}
+	do {} while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1);
 
 	/* Set the MII address register to write */
 	writel(phydata, ioaddr + mii_data);
 	writel(value, ioaddr + mii_address);
 
 	/* Wait until any existing MII operation is complete */
-	while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1) {
-	}
+	do {} while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1);
 	/* This "extra" read was added, in the past, to fix an
 	* issue related to the control MII bus specific operation (MDC/MDIO).
 	* It forced the close operation of the message on the bus (hw hack
@@ -107,7 +95,7 @@ int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg, u16 phydata)
 }
 
 /* Resets the MII bus */
-int stmmac_mdio_reset(struct mii_bus *bus)
+static int stmmac_mdio_reset(struct mii_bus *bus)
 {
 	struct net_device *ndev = bus->priv;
 	struct stmmac_priv *priv = netdev_priv(ndev);

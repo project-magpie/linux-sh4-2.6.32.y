@@ -9,13 +9,10 @@
  * Copyright (c) 2006-2007 STMicroelectronics
  *
  */
-#include <linux/kernel.h>
 #include <linux/etherdevice.h>
-#include <linux/mm.h>
 #include <linux/ethtool.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
-#include <linux/io.h>
 
 #include "stmmac.h"
 
@@ -45,16 +42,14 @@ int stmmac_ethtool_getsettings(struct net_device *dev, struct ethtool_cmd *cmd)
 	int rc;
 	if (phy == NULL) {
 		printk(KERN_ERR "%s: %s: PHY is not registered\n",
-		       __FUNCTION__, dev->name);
+		       __func__, dev->name);
 		return -ENODEV;
 	}
-
 	if (!netif_running(dev)) {
 		printk(KERN_ERR "%s: interface is disabled: we cannot track "
-		       "link speed / duplex setting\n", dev->name);
+		"link speed / duplex setting\n", dev->name);
 		return -EBUSY;
 	}
-
 	cmd->transceiver = XCVR_INTERNAL;
 	spin_lock_irq(&priv->lock);
 	rc = phy_ethtool_gset(phy, cmd);

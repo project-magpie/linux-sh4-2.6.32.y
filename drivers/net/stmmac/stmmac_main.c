@@ -7,7 +7,7 @@
  *
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
  *
- * Copyright (C) 2007-2008 by STMicroelectronics
+ * Copyright (C) 2007-2009 by STMicroelectronics
  *
  * Documentation available at:
  *  http://www.stlinux.com
@@ -17,9 +17,7 @@
 
 #include <linux/module.h>
 #include <linux/init.h>
-#include <linux/sched.h>
 #include <linux/kernel.h>
-#include <linux/slab.h>
 #include <linux/interrupt.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
@@ -32,8 +30,9 @@
 #include <linux/crc32.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
-#include <linux/stm/soc.h>
+#include <linux/if_vlan.h>
 #include <linux/dma-mapping.h>
+#include <linux/stm/soc.h>
 #include "stmmac.h"
 
 #define STMMAC_RESOURCE_NAME	"stmmaceth"
@@ -46,7 +45,7 @@
 		((void)(netif_msg_##nlevel(priv) && \
 		printk(KERN_##klevel fmt, ## args)))
 #else
-#define DBG(nlevel, klevel, fmt, args...)  do { } while(0)
+#define DBG(nlevel, klevel, fmt, args...) do { } while (0)
 #endif
 
 #undef STMMAC_RX_DEBUG
@@ -59,11 +58,6 @@
 
 #undef STMMAC_XMIT_DEBUG
 /*#define STMMAC_XMIT_DEBUG*/
-#ifdef STMMAC_XMIT_DEBUG
-#define TX_DBG(fmt, args...)  printk(fmt, ## args)
-#else
-#define TX_DBG(fmt, args...)  do { } while (0)
-#endif
 
 #define STMMAC_ALIGN(x)	L1_CACHE_ALIGN(x)
 #define STMMAC_IP_ALIGN NET_IP_ALIGN
@@ -106,29 +100,21 @@ static int tc = TC_DEFAULT;
 module_param(tc, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(tc, "DMA threshold control value");
 
-/*
- * These values have been set based on testing data as well as attempting
- * to minimize response time while increasing bulk throughput. */
-#if defined(CONFIG_STMMAC_TIMER)
-#define RX_COALESCE	32
-#define TX_COALESCE	64
-#else
-#define RX_COALESCE	1	/* Always interrupt on completion */
-#define TX_COALESCE	-1	/* No moderation by default */
-#endif
+#define RX_NO_COALESCE	1	/* Always interrupt on completion */
+#define TX_NO_COALESCE	-1	/* No moderation by default */
 
 /* It makes sense to combine interrupt coalescence when the timer is enabled
  * to avoid adverse effects on timing and make safe the TCP traffic.*/
-static int rx_coalesce = RX_COALESCE;
+static int rx_coalesce = RX_NO_COALESCE;
 module_param(rx_coalesce, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(rx_coalesce, "Rx irq coalescence parameter");
 
-static int tx_coalesce = TX_COALESCE;
+static int tx_coalesce = TX_NO_COALESCE;
 module_param(tx_coalesce, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(tx_coalesce, "Tx irq coalescence parameter");
 
 /* Pay attention to tune this parameter; take care of both
- * hardware capability and network stability/performance impact.
+ * hardware capability and network stabitily/performance impact.
  * Many tests showed that ~4ms latency seems to be good enough. */
 #ifdef CONFIG_STMMAC_TIMER
 #define DEFAULT_PERIODIC_RATE	256
@@ -157,38 +143,75 @@ static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
 static int stmmac_rx(struct net_device *dev, int limit);
 static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev);
 
-extern struct ethtool_ops stmmac_ethtool_ops;
+/**
+ * stmmac_init_coalescence - init the coalescence parameters
+ * @gmac: to identify if the device; mac100 and gmac don't use the same tuning.
+ * @mtu: to moderate the coalescence in case of oversized frames.
+ * Description: initialises the coalescence parameters statically when
+ *		use Timer optimisation.
+ * These values have been set based on testing data as well as attempting
+ * to minimize response time while increasing bulk throughput.
+ * These parameters can also be tuned via sys and new values can be
+ * used after reopening the interface (via ifconfig for example).
+ * TODO: dynamic tuning.
+ */
+static void stmmac_init_coalescence(int gmac, int mtu)
+{
+#ifdef CONFIG_STMMAC_TIMER
+	/* maybe, params passed through cmdline?!? Do not use the defaults
+	 * values. */
+	if ((rx_coalesce != RX_NO_COALESCE) ||
+	    (tx_coalesce != TX_NO_COALESCE))
+		return;
+
+	if (gmac) {
+		rx_coalesce = 32;
+		tx_coalesce = 64;
+
+		if (unlikely(mtu > ETH_DATA_LEN)) {
+			/* Tests on oversized frames showed that it's better to
+			 * reduce the coalescence values to get the max
+			 * throughput. */
+			rx_coalesce = 4;
+			tx_coalesce = 4;
+		}
+	} else {
+		rx_coalesce = 16;
+		tx_coalesce = 32;
+	}
+#endif
+}
 
 /**
  * stmmac_verify_args - Check work parameters passed to the driver
  * Description: wrong parameters are replaced with the default values
  */
-static __inline__ void stmmac_verify_args(void)
+static void stmmac_verify_args(void)
 {
-	if (watchdog < 0)
+	if (unlikely(watchdog < 0))
 		watchdog = TX_TIMEO;
-	if (dma_rxsize < 0)
+	if (unlikely(dma_rxsize < 0))
 		dma_rxsize = DMA_RX_SIZE;
-	if (dma_txsize < 0)
+	if (unlikely(dma_txsize < 0))
 		dma_txsize = DMA_TX_SIZE;
-	if (tx_coalesce >= (dma_txsize))
-		tx_coalesce = TX_COALESCE;
-	if (rx_coalesce > (dma_rxsize))
-		rx_coalesce = RX_COALESCE;
-	if ((buf_sz < DMA_BUFFER_SIZE) || (buf_sz > BUF_SIZE_16KiB))
+	if (unlikely(tx_coalesce >= (dma_txsize)))
+		tx_coalesce = TX_NO_COALESCE;
+	if (unlikely(rx_coalesce > (dma_rxsize)))
+		rx_coalesce = RX_NO_COALESCE;
+	if (unlikely((buf_sz < DMA_BUFFER_SIZE) || (buf_sz > BUF_SIZE_16KiB)))
 		buf_sz = DMA_BUFFER_SIZE;
-	if (flow_ctrl > 1)
+	if (unlikely(flow_ctrl > 1))
 		flow_ctrl = FLOW_AUTO;
-	else if (flow_ctrl < 0)
+	else if (likely(flow_ctrl < 0))
 		flow_ctrl = FLOW_OFF;
-	if ((pause < 0) || (pause > 0xffff))
+	if (unlikely((pause < 0) || (pause > 0xffff)))
 		pause = PAUSE_TIME;
 
 	return;
 }
 
 #if defined(STMMAC_XMIT_DEBUG) || defined(STMMAC_RX_DEBUG)
-static __inline__ void print_pkt(unsigned char *buf, int len)
+static void print_pkt(unsigned char *buf, int len)
 {
 	int j;
 	printk(KERN_INFO "len = %d byte, buf addr: 0x%p", len, buf);
@@ -235,11 +258,10 @@ static void stmmac_adjust_link(struct net_device *dev)
 		 * If not, we operate in half-duplex mode. */
 		if (phydev->duplex != priv->oldduplex) {
 			new_state = 1;
-			if (!(phydev->duplex)) {
+			if (!(phydev->duplex))
 				ctrl &= ~priv->mac_type->hw.link.duplex;
-			} else {
+			else
 				ctrl |= priv->mac_type->hw.link.duplex;
-			}
 			priv->oldduplex = phydev->duplex;
 		}
 		/* Flow Control operation */
@@ -317,7 +339,7 @@ static int stmmac_init_phy(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	struct phy_device *phydev;
-	char phy_id[BUS_ID_SIZE];
+	char phy_id[BUS_ID_SIZE];	/* PHY to connect */
 	char bus_id[BUS_ID_SIZE];
 
 	priv->oldlink = 0;
@@ -333,8 +355,7 @@ static int stmmac_init_phy(struct net_device *dev)
 	snprintf(phy_id, BUS_ID_SIZE, PHY_ID_FMT, bus_id, priv->phy_addr);
 	printk(KERN_DEBUG "stmmac_init_phy:  trying to attach to %s\n", phy_id);
 
-	phydev =
-	    phy_connect(dev, phy_id, &stmmac_adjust_link, 0,
+	phydev = phy_connect(dev, phy_id, &stmmac_adjust_link, 0,
 			priv->phy_interface);
 
 	if (IS_ERR(phydev)) {
@@ -343,18 +364,18 @@ static int stmmac_init_phy(struct net_device *dev)
 	}
 
 	/*
-	* Broken ST PHY HW is sometimes missing the pull-up resistor on the
-	* MDIO line, which results in reads to non-existent devices returning
-	* 0 rather than 0xffff. Catch this here and treat 0 as a non-existent
-	* device as well.
-	* Note: phydev->phy_id is the result of reading the UID PHY registers.
-	*/
+	 * Broken ST PHY HW is sometimes missing the pull-up resistor on the
+	 * MDIO line, which results in reads to non-existent devices returning
+	 * 0 rather than 0xffff. Catch this here and treat 0 as a non-existent
+	 * device as well.
+	 * Note: phydev->phy_id is the result of reading the UID PHY registers.
+	 */
 	if (phydev->phy_id == 0) {
 		phy_disconnect(phydev);
 		return -ENODEV;
 	}
 	printk(KERN_DEBUG "stmmac_init_phy:  %s: attached to PHY (UID 0x%x)"
-	" Link = %d\n", dev->name, phydev->phy_id, phydev->link);
+	       " Link = %d\n", dev->name, phydev->phy_id, phydev->link);
 
 	priv->phydev = phydev;
 
@@ -457,12 +478,15 @@ static void init_dma_desc_rings(struct net_device *dev)
 	unsigned int bfsize = priv->dma_buf_sz;
 	int buff2_needed = 0;
 
-	if (dev->mtu >= BUF_SIZE_8KiB)
+	/* Set the Buffer size according to the MTU. */
+	if (unlikely(dev->mtu >= BUF_SIZE_8KiB))
 		bfsize = BUF_SIZE_16KiB;
-	else if (dev->mtu >= BUF_SIZE_4KiB)
+	else if (unlikely(dev->mtu >= BUF_SIZE_4KiB))
 		bfsize = BUF_SIZE_8KiB;
-	else if (dev->mtu >= DMA_BUFFER_SIZE)
+	else if (unlikely(dev->mtu >= BUF_SIZE_2KiB))
 		bfsize = BUF_SIZE_4KiB;
+	else if (unlikely(dev->mtu >= DMA_BUFFER_SIZE))
+		bfsize = BUF_SIZE_2KiB;
 	else
 		bfsize = DMA_BUFFER_SIZE;
 
@@ -473,19 +497,16 @@ static void init_dma_desc_rings(struct net_device *dev)
 	DBG(probe, INFO, "stmmac: txsize %d, rxsize %d, bfsize %d\n",
 	    txsize, rxsize, bfsize);
 
-	priv->rx_skbuff_dma =
-	    (dma_addr_t *) kmalloc(rxsize * sizeof(dma_addr_t), GFP_KERNEL);
+	priv->rx_skbuff_dma = kmalloc(rxsize * sizeof(dma_addr_t), GFP_KERNEL);
 	priv->rx_skbuff =
-	    (struct sk_buff **)kmalloc(sizeof(struct sk_buff *) * rxsize,
-				       GFP_KERNEL);
-	priv->dma_rx = (struct dma_desc *)dma_alloc_coherent(priv->device,
-							     rxsize *
-							     sizeof(struct
-								    dma_desc),
-							     &priv->dma_rx_phy,
-							     GFP_KERNEL);
-	priv->tx_skbuff =
-	    (struct sk_buff **)kmalloc(sizeof(struct sk_buff *) * txsize,
+	    kmalloc(sizeof(struct sk_buff *) * rxsize, GFP_KERNEL);
+	priv->dma_rx =
+	    (struct dma_desc *)dma_alloc_coherent(priv->device,
+						  rxsize *
+						  sizeof(struct dma_desc),
+						  &priv->dma_rx_phy,
+						  GFP_KERNEL);
+	priv->tx_skbuff = kmalloc(sizeof(struct sk_buff *) * txsize,
 				       GFP_KERNEL);
 	priv->dma_tx =
 	    (struct dma_desc *)dma_alloc_coherent(priv->device,
@@ -500,14 +521,14 @@ static void init_dma_desc_rings(struct net_device *dev)
 		return;
 	}
 
-	DBG(probe, DEBUG, "%s: DMA desc rings: virt addr (Rx %p, "
+	DBG(probe, INFO, "stmmac (%s) DMA desc rings: virt addr (Rx %p, "
 	    "Tx %p)\n\tDMA phy addr (Rx 0x%08x, Tx 0x%08x)\n",
 	    dev->name, priv->dma_rx, priv->dma_tx,
 	    (unsigned int)priv->dma_rx_phy, (unsigned int)priv->dma_tx_phy);
 
-	/* ---- RX INITIALIZATION */
-	DBG(probe, DEBUG, "Rx preallocated skb:\n[skb]\t\t[skb data] "
-	    "(buff size: %d)\n", bfsize);
+	/* RX INITIALIZATION */
+	DBG(probe, INFO, "stmmac: SKB addresses:\n"
+			 "skb\t\tskb data\tdma data\n");
 
 	for (i = 0; i < rxsize; i++) {
 		struct dma_desc *p = priv->dma_rx + i;
@@ -521,21 +542,22 @@ static void init_dma_desc_rings(struct net_device *dev)
 		skb_reserve(skb, STMMAC_IP_ALIGN);
 
 		priv->rx_skbuff[i] = skb;
-		priv->rx_skbuff_dma[i] = dma_map_single(priv->device, skb->data,
-							bfsize,
-							DMA_FROM_DEVICE);
+		priv->rx_skbuff_dma[i] = dma_map_single(priv->device,
+						skb->data,
+						bfsize - STMMAC_IP_ALIGN,
+						DMA_FROM_DEVICE);
 		p->des2 = priv->rx_skbuff_dma[i];
 		if (unlikely(buff2_needed))
 			p->des3 = p->des2 + BUF_SIZE_8KiB;
-		DBG(probe, DEBUG, "[%p]\t[%p]\n",
-		    priv->rx_skbuff[i], priv->rx_skbuff[i]->data);
+		DBG(probe, INFO, "[%p]\t[%p]\t[%x]\n", priv->rx_skbuff[i],
+			priv->rx_skbuff[i]->data, priv->rx_skbuff_dma[i]);
 	}
 	priv->cur_rx = 0;
 	priv->dirty_rx = (unsigned int)(i - rxsize);
 	priv->dma_buf_sz = bfsize;
 	buf_sz = bfsize;
 
-	/* ---- TX INITIALIZATION */
+	/* TX INITIALIZATION */
 	for (i = 0; i < txsize; i++) {
 		priv->tx_skbuff[i] = NULL;
 		priv->dma_tx[i].des2 = 0;
@@ -591,12 +613,10 @@ static void dma_free_tx_skbufs(struct net_device *dev)
 	for (i = 0; i < priv->dma_tx_size; i++) {
 		if (priv->tx_skbuff[i] != NULL) {
 			struct dma_desc *p = priv->dma_tx + i;
-
 			if (p->des2)
-				dma_unmap_single(priv->device,
-						 p->des2,
-						 priv->mac_type->ops->
-						 get_tx_len(p), DMA_TO_DEVICE);
+				dma_unmap_single(priv->device, p->des2,
+				 priv->mac_type->ops->get_tx_len(p),
+				 DMA_TO_DEVICE);
 			dev_kfree_skb_any(priv->tx_skbuff[i]);
 			priv->tx_skbuff[i] = NULL;
 		}
@@ -711,13 +731,13 @@ static void stmmac_dma_operation_mode(struct net_device *dev)
 	return;
 }
 
-static __inline__ void stmmac_dma_enable_irq_rx(unsigned long ioaddr)
+static inline void stmmac_dma_enable_irq_rx(unsigned long ioaddr)
 {
 	writel(DMA_INTR_DEFAULT_MASK, ioaddr + DMA_INTR_ENA);
 	return;
 }
 
-static __inline__ void stmmac_dma_disable_irq_rx(unsigned long ioaddr)
+static inline void stmmac_dma_disable_irq_rx(unsigned long ioaddr)
 {
 	writel(DMA_INTR_NO_RX, ioaddr + DMA_INTR_ENA);
 	return;
@@ -991,9 +1011,8 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 				/* Try to bump up the threshold */
 				priv->xstats.threshold += 64;
 				priv->mac_type->ops->dma_mode(ioaddr,
-							      priv->
-							      xstats.threshold,
-							      SF_DMA_MODE);
+					      priv->xstats.threshold,
+					      SF_DMA_MODE);
 			}
 			stmmac_tx_err(dev);
 			priv->xstats.tx_undeflow_irq++;
@@ -1055,7 +1074,7 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 	/* Optional hardware blocks, interrupts should be disabled */
 	if (unlikely(intr_status &
 		     (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI)))
-		printk(KERN_INFO "%s: unexpected status %08x\n", __FUNCTION__,
+		printk(KERN_INFO "%s: unexpected status %08x\n", __func__,
 		       intr_status);
 
 	DBG(intr, INFO, "\n\n");
@@ -1083,32 +1102,36 @@ static int stmmac_open(struct net_device *dev)
 	 * address using the following linux command:
 	 *      ifconfig eth0 hw ether xx:xx:xx:xx:xx:xx  */
 	if (!is_valid_ether_addr(dev->dev_addr)) {
-		printk(KERN_ERR "%s: no valid eth hw addr\n", __func__);
-		return -EINVAL;
+		random_ether_addr(dev->dev_addr);
+		printk(KERN_WARNING "%s: generated random MAC address "
+			"%.2x:%.2x:%.2x:%.2x:%.2x:%.2x.\n", dev->name,
+			dev->dev_addr[0], dev->dev_addr[1],
+			dev->dev_addr[2], dev->dev_addr[3],
+			dev->dev_addr[4], dev->dev_addr[5]);
 	}
 
 	stmmac_verify_args();
 
-	/* Attach the PHY */
 	ret = stmmac_init_phy(dev);
-	if (ret) {
+	if (unlikely(ret)) {
 		printk(KERN_ERR "%s: Cannot attach to PHY (error: %d)\n",
 		       __func__, ret);
-		return -ENODEV;
+		return ret;
 	}
 
 	/* Request the IRQ lines */
 	ret = request_irq(dev->irq, &stmmac_interrupt,
 			  IRQF_SHARED, dev->name, dev);
-	if (ret < 0) {
+	if (unlikely(ret < 0)) {
 		printk(KERN_ERR
 		       "%s: ERROR: allocating the IRQ %d (error: %d)\n",
 		       __func__, dev->irq, ret);
 		return ret;
 	}
+
 #ifdef CONFIG_STMMAC_TIMER
 	priv->tm = kmalloc(sizeof(struct stmmac_timer *), GFP_KERNEL);
-	if (priv->tm == NULL) {
+	if (unlikely(priv->tm == NULL)) {
 		printk(KERN_ERR "%s: ERROR: timer memory alloc failed \n",
 		       __func__);
 		return -ENOMEM;
@@ -1134,10 +1157,10 @@ static int stmmac_open(struct net_device *dev)
 	init_dma_desc_rings(dev);
 
 	/* DMA initialization and SW reset */
-	if (priv->mac_type->ops->dma_init(ioaddr, priv->pbl, priv->dma_tx_phy,
-					  priv->dma_rx_phy) < 0) {
-		printk(KERN_ERR "%s: DMA initialization failed\n",
-		       __func__);
+	if (unlikely(priv->mac_type->ops->dma_init(ioaddr,
+		priv->pbl, priv->dma_tx_phy, priv->dma_rx_phy) < 0)) {
+
+		printk(KERN_ERR "%s: DMA initialization failed\n", __func__);
 		return -1;
 	}
 
@@ -1185,12 +1208,12 @@ static int stmmac_open(struct net_device *dev)
 		phy_start(priv->phydev);
 
 	napi_enable(&priv->napi);
-
-	/* Owing to some hw issues met on COE; it is safe to control
+#if 0
+	/* FIXME: Owing to some hw issues met on COE; it is safe to control
 	 * (and limit) the size of the TSO frames. */
-/*	if (priv->is_gmac)
+	if (priv->is_gmac)
 		netif_set_gso_max_size(dev, BUF_SIZE_4KiB);
-*/
+#endif
 	netif_start_queue(dev);
 	return 0;
 }
@@ -1257,8 +1280,10 @@ static int stmmac_sw_tso(struct stmmac_priv *priv, struct sk_buff *skb)
 		       __func__);
 		return NETDEV_TX_BUSY;
 	}
-
-	TX_DBG("\tstmmac_sw_tso: segmenting: skb %p (len %d)\n", skb, skb->len);
+#ifdef STMMAC_XMIT_DEBUG
+	printk(KERN_DEBUG "\tstmmac_sw_tso: segmenting: skb %p (len %d)\n",
+	       skb, skb->len);
+#endif
 
 	segs = skb_gso_segment(skb, priv->dev->features & ~NETIF_F_TSO);
 	if (unlikely(IS_ERR(segs)))
@@ -1267,8 +1292,10 @@ static int stmmac_sw_tso(struct stmmac_priv *priv, struct sk_buff *skb)
 	do {
 		curr_skb = segs;
 		segs = segs->next;
-		TX_DBG("\t\tcurrent skb->len: %d, *curr %p, *next %p\n",
-		       curr_skb->len, curr_skb, segs);
+#ifdef STMMAC_XMIT_DEBUG
+		printk(KERN_DEBUG "\t\tcurrent skb->len: %d, *curr %p,"
+		       "*next %p\n", curr_skb->len, curr_skb, segs);
+#endif
 		curr_skb->next = NULL;
 		stmmac_xmit(curr_skb, priv->dev);
 	} while (segs);
@@ -1277,7 +1304,9 @@ static int stmmac_sw_tso(struct stmmac_priv *priv, struct sk_buff *skb)
 	return NETDEV_TX_OK;
 
 drop:
-	TX_DBG("\t\tdropped!\n");
+#ifdef STMMAC_XMIT_DEBUG
+	printk(KERN_DEBUG "\t\tdropped!\n");
+#endif
 	priv->dev->stats.tx_dropped += 1;
 	dev_kfree_skb(skb);
 	return NETDEV_TX_OK;
@@ -1307,8 +1336,8 @@ static unsigned int stmmac_handle_jumbo_frames(struct sk_buff *skb,
 		desc = priv->dma_tx + entry;
 
 		desc->des2 = dma_map_single(priv->device,
-					    skb->data + BUF_SIZE_8KiB,
-					    buf2_size, DMA_TO_DEVICE);
+					skb->data + BUF_SIZE_8KiB,
+					buf2_size, DMA_TO_DEVICE);
 		desc->des3 = desc->des2 + BUF_SIZE_4KiB;
 		priv->mac_type->ops->prepare_tx_desc(desc, 0,
 						     buf2_size, csum_insertion);
@@ -1316,7 +1345,7 @@ static unsigned int stmmac_handle_jumbo_frames(struct sk_buff *skb,
 		priv->tx_skbuff[entry] = NULL;
 	} else {
 		desc->des2 = dma_map_single(priv->device, skb->data,
-					    nopaged_len, DMA_TO_DEVICE);
+					nopaged_len, DMA_TO_DEVICE);
 		desc->des3 = desc->des2 + BUF_SIZE_4KiB;
 		priv->mac_type->ops->prepare_tx_desc(desc, 1, nopaged_len,
 						     csum_insertion);
@@ -1378,7 +1407,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	if (likely((skb->ip_summed == CHECKSUM_PARTIAL))) {
-		if (unlikely(priv->tx_coe == NO_HW_CSUM))
+		if (likely(priv->tx_coe == NO_HW_CSUM))
 			skb_checksum_help(skb);
 		else
 			csum_insertion = 1;
@@ -1387,6 +1416,12 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	desc = priv->dma_tx + entry;
 	first = desc;
 
+#ifdef STMMAC_XMIT_DEBUG
+	if ((nfrags > 0) || (skb->len > ETH_FRAME_LEN))
+		printk(KERN_DEBUG "stmmac xmit: skb len: %d, nopaged_len: %d,\n"
+		       "\t\tn_frags: %d, ip_summed: %d\n",
+		       skb->len, skb_headlen(skb), nfrags, skb->ip_summed);
+#endif
 	priv->tx_skbuff[entry] = skb;
 	if (unlikely(skb->len >= BUF_SIZE_4KiB)) {
 		entry = stmmac_handle_jumbo_frames(skb, dev, csum_insertion);
@@ -1394,7 +1429,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	} else {
 		unsigned int nopaged_len = skb_headlen(skb);
 		desc->des2 = dma_map_single(priv->device, skb->data,
-					    nopaged_len, DMA_TO_DEVICE);
+					nopaged_len, DMA_TO_DEVICE);
 		priv->mac_type->ops->prepare_tx_desc(desc, 1, nopaged_len,
 						     csum_insertion);
 	}
@@ -1406,8 +1441,9 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		entry = (++priv->cur_tx) % txsize;
 		desc = priv->dma_tx + entry;
 
-		TX_DBG(KERN_INFO "\t[entry %d] segment len: %d\n", entry, len);
-
+#ifdef STMMAC_XMIT_DEBUG
+		printk(KERN_INFO "\t[entry %d] segment len: %d\n", entry, len);
+#endif
 		desc->des2 = dma_map_page(priv->device, frag->page,
 					  frag->page_offset,
 					  len, DMA_TO_DEVICE);
@@ -1460,7 +1496,7 @@ end_xmit:
 	return ret;
 }
 
-static __inline__ void stmmac_rx_refill(struct net_device *dev)
+static inline void stmmac_rx_refill(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	unsigned int rxsize = priv->dma_rx_size;
@@ -1469,18 +1505,17 @@ static __inline__ void stmmac_rx_refill(struct net_device *dev)
 
 	for (; priv->cur_rx - priv->dirty_rx > 0; priv->dirty_rx++) {
 		unsigned int entry = priv->dirty_rx % rxsize;
-		if (priv->rx_skbuff[entry] == NULL) {
+		if (likely(priv->rx_skbuff[entry] == NULL)) {
 			struct sk_buff *skb = netdev_alloc_skb(dev, bfsize);
 			if (unlikely(skb == NULL)) {
-				printk(KERN_ERR "%s: skb is NULL\n",
-				       __func__);
+				printk(KERN_ERR "%s: skb is NULL\n", __func__);
 				break;
 			}
 			skb_reserve(skb, STMMAC_IP_ALIGN);
 			priv->rx_skbuff[entry] = skb;
 			priv->rx_skbuff_dma[entry] =
-			    dma_map_single(priv->device, skb->data, bfsize,
-					   DMA_FROM_DEVICE);
+			    dma_map_single(priv->device, skb->data,
+				bfsize - STMMAC_IP_ALIGN, DMA_FROM_DEVICE);
 			(p + entry)->des2 = priv->rx_skbuff_dma[entry];
 			if (priv->is_gmac) {
 				if (bfsize >= BUF_SIZE_8KiB)
@@ -1547,8 +1582,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 			skb = priv->rx_skbuff[entry];
 			if (unlikely(!skb)) {
 				printk(KERN_ERR "%s: Inconsistent Rx "
-				       "descriptor chain.\n",
-				       dev->name);
+				       "descriptor chain.\n", dev->name);
 				dev->stats.rx_dropped++;
 				break;
 			}
@@ -1558,8 +1592,7 @@ static int stmmac_rx(struct net_device *dev, int limit)
 			skb_put(skb, frame_len);
 			dma_unmap_single(priv->device,
 					 priv->rx_skbuff_dma[entry],
-					 priv->dma_buf_sz,
-					 DMA_FROM_DEVICE);
+					 priv->dma_buf_sz, DMA_FROM_DEVICE);
 #ifdef STMMAC_RX_DEBUG
 			if (netif_msg_pktdata(priv)) {
 				printk(KERN_INFO " frame received (%dbytes)",
@@ -1575,13 +1608,14 @@ static int stmmac_rx(struct net_device *dev, int limit)
 
 #ifdef STMMAC_VLAN_TAG_USED
 			if ((priv->vlgrp != NULL) && (priv->is_gmac) &&
-				(p->des01.erx.vlan_tag)) {
+			    (p->des01.erx.vlan_tag)) {
 				RX_DBG(KERN_INFO "GMAC RX: VLAN frame tagged"
-					" by the core\n");
+				       " by the core\n");
 				priv->xstats.rx_vlan++;
-			} /*FIXME*/
+			}
+			/*FIXME*/
 #endif
-			netif_receive_skb(skb);
+			    netif_receive_skb(skb);
 
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += frame_len;
@@ -1688,7 +1722,6 @@ static int stmmac_config(struct net_device *dev, struct ifmap *map)
 	return 0;
 }
 
-
 /**
  *  stmmac_multicast_list - entry point for multicast addressing
  *  @dev : pointer to the device structure
@@ -1706,34 +1739,6 @@ static void stmmac_multicast_list(struct net_device *dev)
 	priv->mac_type->ops->set_filter(dev);
 	spin_unlock(&priv->lock);
 	return;
-}
-
-/**
- *  stmmac_set_mac_address - set hardware address
- *  @dev : pointer to the device structure
- *  @p : hardware address
- *  Description:
- *  Set the hardware (MAC) address.
- */
-static int stmmac_set_mac_address(struct net_device *dev, void *p)
-{
-	struct stmmac_priv *priv = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
-	struct sockaddr *addr = p;
-
-	if (!is_valid_ether_addr(addr->sa_data))
-		return -EINVAL;
-
-	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
-
-        if (!netif_running(dev))
-		return 0;
-
-	spin_lock(&priv->lock);
-	priv->mac_type->ops->set_umac_addr(ioaddr, dev->dev_addr, 0);
-       	spin_unlock(&priv->lock);
-	
-	return 0;
 }
 
 /**
@@ -1859,7 +1864,7 @@ static void stmmac_vlan_rx_add_vid(struct net_device *dev, unsigned short vid)
 	struct stmmac_priv *priv = netdev_priv(dev);
 
 	DBG(probe, INFO, "%s: Adding vlanid %d to vlan filter\n", dev->name,
-								  vid);
+	    vid);
 	spin_lock(&priv->lock);
 	priv->mac_type->ops->set_filter(dev);
 	spin_unlock(&priv->lock);
@@ -1871,7 +1876,7 @@ static void stmmac_vlan_rx_kill_vid(struct net_device *dev, unsigned short vid)
 	struct stmmac_priv *priv = netdev_priv(dev);
 
 	DBG(probe, INFO, "%s: removing vlanid %d from vlan filter\n",
-		dev->name, vid);
+	    dev->name, vid);
 
 	spin_lock(&priv->lock);
 	vlan_group_set_device(priv->vlgrp, vid, NULL);
@@ -1880,24 +1885,6 @@ static void stmmac_vlan_rx_kill_vid(struct net_device *dev, unsigned short vid)
 	return;
 }
 #endif
-
-static const struct net_device_ops stmmac_netdev_ops = {
-	.ndo_open		= stmmac_open,
-	.ndo_stop		= stmmac_release,
-	.ndo_start_xmit		= stmmac_xmit,
-	.ndo_set_multicast_list	= stmmac_multicast_list,
-	.ndo_set_mac_address	= stmmac_set_mac_address,
-	.ndo_do_ioctl		= stmmac_ioctl,
-	.ndo_set_config		= stmmac_config,
-	.ndo_tx_timeout		= stmmac_tx_timeout,
-	.ndo_change_mtu		= stmmac_change_mtu,
-#ifdef STMMAC_VLAN_TAG_USED
-	.ndo_vlan_rx_register	= stmmac_vlan_rx_register,
-#endif
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	.ndo_poll_controller	= stmmac_poll_controller,
-#endif
-};
 
 /**
  *  stmmac_probe - Initialization of the adapter .
@@ -1913,15 +1900,26 @@ static int stmmac_probe(struct net_device *dev)
 
 	ether_setup(dev);
 
-	dev->netdev_ops = &stmmac_netdev_ops;
+	dev->open = stmmac_open;
+	dev->stop = stmmac_release;
+	dev->set_config = stmmac_config;
 
+	dev->hard_start_xmit = stmmac_xmit;
 	dev->features |= (NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_HIGHDMA);
 
+	dev->tx_timeout = stmmac_tx_timeout;
 	dev->watchdog_timeo = msecs_to_jiffies(watchdog);
+	dev->set_multicast_list = stmmac_multicast_list;
+	dev->change_mtu = stmmac_change_mtu;
 	dev->ethtool_ops = &stmmac_ethtool_ops;
+	dev->do_ioctl = &stmmac_ioctl;
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	dev->poll_controller = stmmac_poll_controller;
+#endif
 #ifdef STMMAC_VLAN_TAG_USED
 	/* Both mac100 and gmac support receive VLAN tag detection */
 	dev->features |= NETIF_F_HW_VLAN_RX;
+	dev->vlan_rx_register = stmmac_vlan_rx_register;
 
 	if (priv->vlan_rx_filter) {
 		dev->features |= NETIF_F_HW_VLAN_FILTER;
@@ -1942,6 +1940,8 @@ static int stmmac_probe(struct net_device *dev)
 
 	/* Get the MAC address */
 	priv->mac_type->ops->get_umac_addr(dev->base_addr, dev->dev_addr, 0);
+
+	stmmac_init_coalescence(priv->is_gmac, dev->mtu);
 
 	if (!is_valid_ether_addr(dev->dev_addr)) {
 		printk(KERN_WARNING "\tno valid MAC address; "
@@ -1970,7 +1970,7 @@ static int stmmac_probe(struct net_device *dev)
  * @dev : device pointer
  * Description: it detects and inits either the mac 10/100 or the Gmac.
  */
-static __inline__ void stmmac_mac_device_setup(struct net_device *dev)
+static void stmmac_mac_device_setup(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	unsigned long ioaddr = dev->base_addr;
@@ -2068,7 +2068,7 @@ static int stmmac_associate_phy(struct device *dev, void *data)
  * @pdev: platform device pointer
  * Description: The driver is initialized through platform_device.
  * 		Structures which define the configuration needed by the board
- *		are defined in a board structure in arch/sh/boards/mach- .
+ *		are defined in a board structure in arch/sh/boards/st/ .
  */
 static int stmmac_dvr_probe(struct platform_device *pdev)
 {
@@ -2103,13 +2103,15 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto out;
 	}
+
 	ndev = alloc_etherdev(sizeof(struct stmmac_priv));
 	if (!ndev) {
-		printk(KERN_ERR "%s: ERROR: allocating the device\n",
-		       __func__);
+		printk(KERN_ERR "%s: ERROR: allocating the device\n", __func__);
 		ret = -ENOMEM;
 		goto out;
 	}
+
+	SET_NETDEV_DEV(ndev, &pdev->dev);
 
 	/* Get the MAC information */
 	ndev->irq = platform_get_irq_byname(pdev, "macirq");
@@ -2127,7 +2129,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	priv->bus_id = plat_dat->bus_id;
 	priv->pbl = plat_dat->pbl;	/* TLI */
 	priv->is_gmac = plat_dat->has_gmac;	/* GMAC is on board */
-	priv->vlan_rx_filter = 0; /*plat_dat->vlan_rx_filter;*/
+	priv->vlan_rx_filter = 0;	/*plat_dat->vlan_rx_filter; */
 
 	platform_set_drvdata(pdev, ndev);
 
@@ -2155,8 +2157,8 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	priv->bsp_priv = plat_dat->bsp_priv;
 
 	printk(KERN_INFO "\t%s - (dev. name: %s - id: %d, IRQ #%d\n"
-		"\tIO base addr: 0x%08x)\n", ndev->name, pdev->name,
-		pdev->id, ndev->irq, (unsigned int) addr);
+	       "\tIO base addr: 0x%08x)\n", ndev->name, pdev->name,
+	       pdev->id, ndev->irq, (unsigned int)addr);
 
 	/* MDIO bus Registration */
 	printk(KERN_DEBUG "\tRegistering MDIO bus (id: %d)...\n", priv->bus_id);
@@ -2187,6 +2189,8 @@ static int stmmac_dvr_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct resource *res;
+
+	printk(KERN_INFO "%s:\n\tremoving driver", __func__);
 
 	stmmac_dma_stop_rx(ndev->base_addr);
 	stmmac_dma_stop_tx(ndev->base_addr);
@@ -2286,6 +2290,15 @@ static int stmmac_resume(struct platform_device *pdev)
 		goto out_resume;
 	}
 
+	/* Power Down bit, into the PM register, is cleared
+	 * automatically as soon as a magic packet or a Wake-up frame
+	 * is received. Anyway, it's better to manually clear
+	 * this bit because it can generate problems while resuming
+	 * from another devices (e.g. serial console). */
+	if (device_may_wakeup(&(pdev->dev)))
+		if (priv->wolenabled == PMT_SUPPORTED)
+			priv->mac_type->ops->pmt(dev->base_addr, 0);
+
 	netif_device_attach(dev);
 
 	/* Enable the MAC and DMA */
@@ -2360,7 +2373,6 @@ static int __init stmmac_cmdline_opt(char *str)
 
 	if (!str || !*str)
 		return -EINVAL;
-
 	while ((opt = strsep(&str, ",")) != NULL) {
 		if (!strncmp(opt, "debug:", 6))
 			strict_strtoul(opt + 6, 0, (unsigned long *)&debug);
@@ -2368,13 +2380,12 @@ static int __init stmmac_cmdline_opt(char *str)
 			strict_strtoul(opt + 8, 0, (unsigned long *)&phyaddr);
 		else if (!strncmp(opt, "dma_txsize:", 11))
 			strict_strtoul(opt + 11, 0,
-				(unsigned long *)&dma_txsize);
+				       (unsigned long *)&dma_txsize);
 		else if (!strncmp(opt, "dma_rxsize:", 11))
 			strict_strtoul(opt + 11, 0,
-				(unsigned long *)&dma_rxsize);
+				       (unsigned long *)&dma_rxsize);
 		else if (!strncmp(opt, "buf_sz:", 7))
-			strict_strtoul(opt + 7, 0,
-				(unsigned long *)&buf_sz);
+			strict_strtoul(opt + 7, 0, (unsigned long *)&buf_sz);
 		else if (!strncmp(opt, "tc:", 3))
 			strict_strtoul(opt + 3, 0, (unsigned long *)&tc);
 		else if (!strncmp(opt, "tx_coe:", 7))
@@ -2383,15 +2394,15 @@ static int __init stmmac_cmdline_opt(char *str)
 			strict_strtoul(opt + 9, 0, (unsigned long *)&watchdog);
 		else if (!strncmp(opt, "flow_ctrl:", 10))
 			strict_strtoul(opt + 10, 0,
-				(unsigned long *)&flow_ctrl);
+				       (unsigned long *)&flow_ctrl);
 		else if (!strncmp(opt, "pause:", 6))
 			strict_strtoul(opt + 6, 0, (unsigned long *)&pause);
 		else if (!strncmp(opt, "tx_coalesce:", 12))
 			strict_strtoul(opt + 12, 0,
-				(unsigned long *)&tx_coalesce);
+				       (unsigned long *)&tx_coalesce);
 		else if (!strncmp(opt, "rx_coalesce:", 12))
 			strict_strtoul(opt + 12, 0,
-				(unsigned long *)&rx_coalesce);
+				       (unsigned long *)&rx_coalesce);
 #ifdef CONFIG_STMMAC_TIMER
 		else if (!strncmp(opt, "tmrate:", 7))
 			strict_strtoul(opt + 7, 0, (unsigned long *)&tmrate);

@@ -1,4 +1,5 @@
 #include "descs.h"
+#include <linux/io.h>
 
 /* *********************************************
    DMA CRS Control and Status Register Mapping

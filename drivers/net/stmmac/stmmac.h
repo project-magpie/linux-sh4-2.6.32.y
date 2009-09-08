@@ -1,4 +1,4 @@
-#define DRV_MODULE_VERSION	"May_09"
+#define DRV_MODULE_VERSION	"Sept_09"
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
 #define STMMAC_VLAN_TAG_USED
@@ -68,9 +68,10 @@ struct stmmac_priv {
 #ifdef STMMAC_VLAN_TAG_USED
 	struct vlan_group *vlgrp;
 #endif
-	struct napi_struct napi;
 	int vlan_rx_filter;
+	struct napi_struct napi;
 };
 
-int stmmac_mdio_unregister(struct net_device *ndev);
-int stmmac_mdio_register(struct net_device *ndev);
+extern int stmmac_mdio_unregister(struct net_device *ndev);
+extern int stmmac_mdio_register(struct net_device *ndev);
+extern struct ethtool_ops stmmac_ethtool_ops;

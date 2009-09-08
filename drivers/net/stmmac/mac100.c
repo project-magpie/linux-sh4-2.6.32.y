@@ -8,17 +8,10 @@
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
  *
 */
-#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/slab.h>
 #include <linux/netdevice.h>
-#include <linux/etherdevice.h>
-#include <linux/skbuff.h>
-#include <linux/if_ether.h>
 #include <linux/crc32.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
-#include <linux/io.h>
 
 #include "common.h"
 #include "mac100.h"
@@ -28,7 +21,7 @@
 #ifdef MAC100_DEBUG
 #define DBG(fmt, args...)  printk(fmt, ## args)
 #else
-#define DBG(fmt, args...)  do { } while(0)
+#define DBG(fmt, args...)  do { } while (0)
 #endif
 
 static void mac100_core_init(unsigned long ioaddr)
@@ -86,8 +79,7 @@ static int mac100_dma_init(unsigned long ioaddr, int pbl, u32 dma_tx,
 	/* DMA SW reset */
 	value |= DMA_BUS_MODE_SFT_RESET;
 	writel(value, ioaddr + DMA_BUS_MODE);
-	while ((readl(ioaddr + DMA_BUS_MODE) & DMA_BUS_MODE_SFT_RESET)) {
-	}
+	do {} while ((readl(ioaddr + DMA_BUS_MODE) & DMA_BUS_MODE_SFT_RESET));
 
 	/* Enable Application Access by writing to DMA CSR0 */
 	writel(DMA_BUS_MODE_DEFAULT | (pbl << DMA_BUS_MODE_PBL_SHIFT),
@@ -204,12 +196,12 @@ static int mac100_get_tx_frame_status(void *data, struct stmmac_extra_stats *x,
 	if (unlikely(p->des01.tx.deferred))
 		x->tx_deferred++;
 
-	return (ret);
+	return ret;
 }
 
 static int mac100_get_tx_len(struct dma_desc *p)
 {
-	return (p->des01.tx.buffer1_size);
+	return p->des01.tx.buffer1_size;
 }
 
 /* This function verifies if the incoming frame has some errors
@@ -264,7 +256,7 @@ static int mac100_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 		stats->multicast++;
 		/* no error! */
 	}
-	return (ret);
+	return ret;
 }
 
 static void mac100_irq_status(unsigned long ioaddr)
@@ -334,7 +326,7 @@ static void mac100_set_filter(struct net_device *dev)
 
 	DBG(KERN_INFO "%s: CTRL reg: 0x%08x Hash regs: "
 	    "HI 0x%08x, LO 0x%08x\n",
-	    __FUNCTION__, readl(ioaddr + MAC_CONTROL),
+	    __func__, readl(ioaddr + MAC_CONTROL),
 	    readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
 	return;
 }
@@ -353,8 +345,8 @@ static void mac100_flow_ctrl(unsigned long ioaddr, unsigned int duplex,
 
 static void mac100_pmt(unsigned long ioaddr, unsigned long mode)
 {
-	/* There is no PMT module in the stb7109 so no wake-up-on-Lan hw feature
-	 * is supported. 
+	/* There is no PMT module in the stb7109 so no wake-up-on-Lan hw
+	 * feature is supported.
 	 */
 	return;
 }
@@ -389,9 +381,8 @@ static void mac100_init_tx_desc(struct dma_desc *p, unsigned int ring_size)
 	int i;
 	for (i = 0; i < ring_size; i++) {
 		p->des01.tx.own = 0;
-		if (i == ring_size - 1) {
+		if (i == ring_size - 1)
 			p->des01.tx.end_ring = 1;
-		}
 		p++;
 	}
 	return;

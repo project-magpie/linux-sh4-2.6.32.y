@@ -7,18 +7,10 @@
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
  *
 */
-#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/slab.h>
 #include <linux/netdevice.h>
-#include <linux/etherdevice.h>
-#include <linux/skbuff.h>
-#include <linux/if_ether.h>
 #include <linux/crc32.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
-#include <linux/ethtool.h>
-#include <linux/io.h>
 
 #include "stmmac.h"
 #include "gmac.h"
@@ -30,7 +22,7 @@
 #ifdef GMAC_DEBUG
 #define DBG(fmt, args...)  printk(fmt, ## args)
 #else
-#define DBG(fmt, args...)  do { } while(0)
+#define DBG(fmt, args...)  do { } while (0)
 #endif
 
 static void gmac_dump_regs(unsigned long ioaddr)
@@ -55,8 +47,7 @@ static int gmac_dma_init(unsigned long ioaddr, int pbl, u32 dma_tx, u32 dma_rx)
 	/* DMA SW reset */
 	value |= DMA_BUS_MODE_SFT_RESET;
 	writel(value, ioaddr + DMA_BUS_MODE);
-	while ((readl(ioaddr + DMA_BUS_MODE) & DMA_BUS_MODE_SFT_RESET)) {
-	}
+	do {} while ((readl(ioaddr + DMA_BUS_MODE) & DMA_BUS_MODE_SFT_RESET));
 
 	value = /* DMA_BUS_MODE_FB | */ DMA_BUS_MODE_4PBL |
 	    ((pbl << DMA_BUS_MODE_PBL_SHIFT) |
@@ -84,8 +75,7 @@ static void gmac_flush_tx_fifo(unsigned long ioaddr)
 	u32 csr6 = readl(ioaddr + DMA_CONTROL);
 	writel((csr6 | DMA_CONTROL_FTF), ioaddr + DMA_CONTROL);
 
-	while ((readl(ioaddr + DMA_CONTROL) & DMA_CONTROL_FTF)) {
-	}
+	do {} while ((readl(ioaddr + DMA_CONTROL) & DMA_CONTROL_FTF));
 }
 
 static void gmac_dma_operation_mode(unsigned long ioaddr, int txmode,
@@ -234,12 +224,12 @@ static int gmac_get_tx_frame_status(void *data, struct stmmac_extra_stats *x,
 		x->tx_vlan++;
 	}
 
-	return (ret);
+	return ret;
 }
 
 static int gmac_get_tx_len(struct dma_desc *p)
 {
-	return (p->des01.etx.buffer1_size);
+	return p->des01.etx.buffer1_size;
 }
 
 static int gmac_coe_rdes0(int ipc_err, int type, int payload_err)
@@ -354,7 +344,7 @@ static int gmac_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 		x->rx_lenght++;
 		ret = discard_frame;
 	}
-	return (ret);
+	return ret;
 }
 
 /* It is necessary to handle other events (e.g.  power management interrupt) */
@@ -448,7 +438,7 @@ static void gmac_set_filter(struct net_device *dev)
 	gmac_vlan_filter(dev);
 #endif
 	DBG(KERN_INFO "%s: # mcasts %d, # unicast %d\n",
-	    __FUNCTION__, dev->mc_count, dev->uc_count);
+	    __func__, dev->mc_count, dev->uc_count);
 
 	if (dev->flags & IFF_PROMISC)
 		value = GMAC_FRAME_FILTER_PR;
@@ -491,15 +481,16 @@ static void gmac_set_filter(struct net_device *dev)
 		struct dev_addr_list *uc_ptr = dev->uc_list;
 
 			for (i = 0; i < dev->uc_count; i++) {
-			gmac_set_umac_addr(ioaddr, uc_ptr->da_addr, i + 1);
+				gmac_set_umac_addr(ioaddr, uc_ptr->da_addr,
+						i + 1);
 
-			DBG(KERN_INFO "\t%d "
-			"- Unicast addr %02x:%02x:%02x:%02x:%02x:%02x\n", i + 1,
-			uc_ptr->da_addr[0], uc_ptr->da_addr[1],
-			uc_ptr->da_addr[2], uc_ptr->da_addr[3],
-			uc_ptr->da_addr[4], uc_ptr->da_addr[5]);
-
-			uc_ptr = uc_ptr->next;
+				DBG(KERN_INFO "\t%d "
+				"- Unicast addr %02x:%02x:%02x:%02x:%02x:"
+				"%02x\n", i + 1,
+				uc_ptr->da_addr[0], uc_ptr->da_addr[1],
+				uc_ptr->da_addr[2], uc_ptr->da_addr[3],
+				uc_ptr->da_addr[4], uc_ptr->da_addr[5]);
+				uc_ptr = uc_ptr->next;
 		}
 	}
 
@@ -542,11 +533,11 @@ static void gmac_flow_ctrl(unsigned long ioaddr, unsigned int duplex,
 
 static void gmac_pmt(unsigned long ioaddr, unsigned long mode)
 {
-	unsigned int pmt = power_down;
+	unsigned int pmt = 0;
 
 	if (mode == WAKE_MAGIC) {
 		DBG(KERN_DEBUG "GMAC: WOL Magic frame\n");
-		pmt |= magic_pkt_en;
+		pmt |= power_down | magic_pkt_en;
 	} else if (mode == WAKE_UCAST) {
 		DBG(KERN_DEBUG "GMAC: WOL on global unicast\n");
 		pmt |= global_unicast;

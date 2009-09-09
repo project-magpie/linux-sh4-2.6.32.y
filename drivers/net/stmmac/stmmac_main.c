@@ -836,6 +836,7 @@ static void stmmac_tx(struct net_device *dev)
 	spin_lock(&priv->tx_lock);
 	while (priv->dirty_tx != priv->cur_tx) {
 		int last;
+		struct sk_buff *skb = priv->tx_skbuff[entry];
 		struct dma_desc *p = priv->dma_tx + entry;
 
 		if (priv->mac_type->ops->get_tx_owner(p))
@@ -864,8 +865,19 @@ static void stmmac_tx(struct net_device *dev)
 		if (unlikely(p->des3))
 			p->des3 = 0;
 
-		if (likely(priv->tx_skbuff[entry] != NULL)) {
-			dev_kfree_skb_irq(priv->tx_skbuff[entry]);
+		if (skb != NULL) {
+			/*
+			 * If there's room in the queue (limit it to size)
+			 * we add this skb back into the pool,
+			 * if it's the right size.
+			 */
+			if ((skb_queue_len(&priv->rx_recycle) <
+				priv->dma_rx_size) &&
+				skb_recycle_check(skb, priv->dma_buf_sz))
+				__skb_queue_head(&priv->rx_recycle, skb);
+			else
+				dev_kfree_skb_any(skb);
+
 			priv->tx_skbuff[entry] = NULL;
 		}
 
@@ -1201,6 +1213,7 @@ static int stmmac_open(struct net_device *dev)
 		phy_start(priv->phydev);
 
 	napi_enable(&priv->napi);
+	skb_queue_head_init(&priv->rx_recycle);
 #if 0
 	/* FIXME: Owing to some hw issues met on COE; it is safe to control
 	 * (and limit) the size of the TSO frames. */
@@ -1238,6 +1251,7 @@ static int stmmac_release(struct net_device *dev)
 		kfree(priv->tm);
 #endif
 	napi_disable(&priv->napi);
+	skb_queue_purge(&priv->rx_recycle);
 
 	/* Free the IRQ lines */
 	free_irq(dev->irq, dev);
@@ -1499,11 +1513,15 @@ static inline void stmmac_rx_refill(struct net_device *dev)
 	for (; priv->cur_rx - priv->dirty_rx > 0; priv->dirty_rx++) {
 		unsigned int entry = priv->dirty_rx % rxsize;
 		if (likely(priv->rx_skbuff[entry] == NULL)) {
-			struct sk_buff *skb = netdev_alloc_skb(dev, bfsize);
-			if (unlikely(skb == NULL)) {
-				pr_err("%s: skb is NULL\n", __func__);
+			struct sk_buff *skb;
+
+			skb = __skb_dequeue(&priv->rx_recycle);
+			if (skb == NULL)
+				skb = netdev_alloc_skb(dev, bfsize);
+
+			if (unlikely(skb == NULL))
 				break;
-			}
+
 			skb_reserve(skb, STMMAC_IP_ALIGN);
 			priv->rx_skbuff[entry] = skb;
 			priv->rx_skbuff_dma[entry] =

@@ -43,6 +43,7 @@ struct stmmac_priv {
 	struct sk_buff **tx_skbuff;
 	struct sk_buff **rx_skbuff;
 	dma_addr_t *rx_skbuff_dma;
+	struct sk_buff_head rx_recycle;
 
 	unsigned int cur_rx, dirty_rx;
 	unsigned int cur_tx, dirty_tx;

@@ -1891,6 +1891,7 @@ static const struct net_device_ops stmmac_netdev_ops = {
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller = stmmac_poll_controller,
 #endif
+	.ndo_set_mac_address = eth_mac_addr,
 };
 
 

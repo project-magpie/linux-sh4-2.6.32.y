@@ -74,4 +74,4 @@ struct stmmac_priv {
 
 extern int stmmac_mdio_unregister(struct net_device *ndev);
 extern int stmmac_mdio_register(struct net_device *ndev);
-extern struct ethtool_ops stmmac_ethtool_ops;
+extern void stmmac_set_ethtool_ops(struct net_device *netdev);

@@ -1886,7 +1886,7 @@ static int stmmac_probe(struct net_device *dev)
 	ether_setup(dev);
 
 	dev->netdev_ops = &stmmac_netdev_ops;
-	dev->ethtool_ops = &stmmac_ethtool_ops;
+	stmmac_set_ethtool_ops(dev);
 
 	dev->features |= (NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_HIGHDMA);
 	dev->watchdog_timeo = msecs_to_jiffies(watchdog);

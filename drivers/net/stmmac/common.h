@@ -170,17 +170,11 @@ struct stmmac_extra_stats {
 	unsigned long fatal_bus_error_irq;
 	/* Extra info */
 	unsigned long threshold; /* DMA tx/rx threshold (CSR6) */
-	unsigned long tx_task_n; /* Tx tasklet invokations */
-	unsigned long rx_poll_n; /* Rx poll method invokations */
+	unsigned long poll_n; /* stmmac poll method invokations */
 	unsigned long tx_pkt_n; /* Frames transmitted */
 	unsigned long rx_pkt_n; /* Frames received */
-	/* average of the #frames/#schedul_times */
-	unsigned long avg_tx_pkt_on_sched;
-	unsigned long avg_rx_pkt_on_sched;
-	unsigned long dma_tx_normal_irq; /* number of DMA normal TX irq */
-	unsigned long dma_rx_normal_irq; /* number of DMA normal RX irq */
 };
-#define EXTRA_STATS 44
+#define EXTRA_STATS 39
 
 /* In case of GMAC, the device can compute the HW checksums and
  * found if the frame is corrupted. It can also decide to let the

@@ -9,7 +9,7 @@ int stmmac_open_hw_timer(struct net_device *dev, struct stmmac_timer *tm);
 /* Stop the timer and release it */
 int stmmac_close_hw_timer(void);
 /* Function used for scheduling task within the stmmac */
-void stmmac_timer_work(struct net_device *dev);
+void stmmac_schedule(struct net_device *dev);
 
 #if defined(CONFIG_STMMAC_TMU_TIMER)
 extern int tmu2_register_user(void *fnt, void *data);

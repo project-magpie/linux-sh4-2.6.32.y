@@ -17,7 +17,7 @@ static void stmmac_timer_handler(void *data)
 {
 	struct net_device *dev = (struct net_device *)data;
 
-	stmmac_timer_work(dev);
+	stmmac_schedule(dev);
 
 	return;
 }

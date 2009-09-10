@@ -246,14 +246,9 @@ static struct {
 	"tx_early_irq"}, {
 	"fatal_bus_error_irq"}, {
 	"threshold"}, {
-	"tx_task_n"}, {
-	"rx_poll_n"}, {
+	"poll_n"}, {
 	"tx_pkt_n"}, {
-	"rx_pkt_n"}, {
-	"avg_tx_pkt_on_sched"}, {
-	"avg_rx_pkt_on_sched"}, {
-	"dma_tx_normal_irq"}, {
-"dma_rx_normal_irq"},};
+"rx_pkt_n"},};
 
 static int stmmac_stats_count(struct net_device *dev)
 {
@@ -270,13 +265,6 @@ static void stmmac_ethtool_stats(struct net_device *dev,
 
 	priv->mac_type->ops->dma_diagnostic_fr(&dev->stats, &priv->xstats,
 					       ioaddr);
-	if (priv->xstats.tx_task_n)
-		priv->xstats.avg_tx_pkt_on_sched =
-			(priv->xstats.tx_pkt_n / priv->xstats.tx_task_n);
-	if (priv->xstats.rx_poll_n)
-		priv->xstats.avg_rx_pkt_on_sched =
-			(priv->xstats.rx_pkt_n / priv->xstats.rx_poll_n);
-
 	extra = (u32 *) &priv->xstats;
 
 	for (i = 0; i < EXTRA_STATS; i++)

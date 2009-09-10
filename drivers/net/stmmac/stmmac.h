@@ -51,7 +51,6 @@ struct stmmac_priv {
 	unsigned int dma_rx_size;
 	unsigned int dma_buf_sz;
 	unsigned int rx_buff;
-	struct tasklet_struct tx_task;
 	struct stmmac_extra_stats xstats;
 	struct mac_device_info *mac_type;
 	unsigned int flow_ctrl;

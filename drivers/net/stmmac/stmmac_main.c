@@ -826,12 +826,13 @@ static void show_rx_process_state(unsigned int status)
  * @dev: net device structure
  * Description: reclaim resources after transmit completes.
  */
-static void stmmac_tx(struct net_device *dev)
+static int stmmac_clean_tx(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	unsigned int txsize = priv->dma_tx_size;
 	unsigned long ioaddr = dev->base_addr;
 	unsigned int entry = priv->dirty_tx % txsize;
+	unsigned int count = 0;
 
 	spin_lock(&priv->tx_lock);
 	while (priv->dirty_tx != priv->cur_tx) {
@@ -841,6 +842,8 @@ static void stmmac_tx(struct net_device *dev)
 
 		if (priv->mac_type->ops->get_tx_owner(p))
 			break;
+
+		count++;
 
 		/* verify tx error by looking at the last segment */
 		last = priv->mac_type->ops->get_tx_ls(p);
@@ -890,64 +893,34 @@ static void stmmac_tx(struct net_device *dev)
 		netif_wake_queue(dev);
 
 	spin_unlock(&priv->tx_lock);
-	return;
+	return count;
 }
 
-/**
- * stmmac_schedule_rx:
- * @dev: net device structure
- * Description: it schedules the reception process.
- */
-static void stmmac_schedule_rx(struct net_device *dev)
+static inline void _stmmac_schedule(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
+
 	stmmac_dma_disable_irq_rx(dev->base_addr);
-
 	napi_schedule(&priv->napi);
-
-	return;
 }
 
-static void stmmac_tx_tasklet(unsigned long data)
+void stmmac_schedule(struct net_device *dev)
 {
-	struct net_device *dev = (struct net_device *)data;
-	struct stmmac_priv *priv = netdev_priv(dev);
-
-	priv->xstats.tx_task_n++;
-	stmmac_tx(dev);
-
 #ifdef CONFIG_STMMAC_TIMER
-	priv->tm->timer_start(tmrate);
-#endif
-	return;
-}
-
-#ifdef CONFIG_STMMAC_TIMER
-void stmmac_timer_work(struct net_device *dev)
-{
 	struct stmmac_priv *priv = netdev_priv(dev);
-
 	unsigned int rxentry = priv->cur_rx % priv->dma_rx_size;
 	unsigned int txentry = priv->dirty_tx % priv->dma_tx_size;
-	int rxret, txret;
+	int rxret = priv->mac_type->ops->get_rx_owner(priv->dma_rx + rxentry);
+	int txret = priv->mac_type->ops->get_tx_owner(priv->dma_tx + txentry);
 
-	/* Look at if there is pending work to do; otherwise, do not spend
-	   any other time here. */
-	rxret = priv->mac_type->ops->get_rx_owner(priv->dma_rx + rxentry);
-	if (likely(rxret == 0))
-		stmmac_schedule_rx(dev);
-
-	txret = priv->mac_type->ops->get_tx_owner(priv->dma_rx + txentry);
-	if (likely(txret == 0))
-		tasklet_schedule(&priv->tx_task);
-
-	/* Timer will be re-started later. */
-	if (likely(rxret == 0) || (rxret == 0))
-		priv->tm->timer_stop();
+	if ((rxret == 0) || (txret == 0))
+#endif
+		_stmmac_schedule(dev);
 
 	return;
 }
 
+#ifdef CONFIG_STMMAC_TIMER
 static void stmmac_no_timer_started(unsigned int x)
 {;
 };
@@ -1061,23 +1034,10 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 		}
 	}
 
-	/* NORMAL interrupts */
-	if (intr_status & DMA_STATUS_NIS) {
-		DBG(intr, INFO, " CSR5[16]: DMA NORMAL IRQ: ");
-		if (intr_status & DMA_STATUS_RI) {
-
-			RX_DBG("Receive irq [buf: 0x%08x]\n",
-			       readl(ioaddr + DMA_CUR_RX_BUF_ADDR));
-			priv->xstats.dma_rx_normal_irq++;
-			stmmac_schedule_rx(dev);
-		}
-		if (intr_status & (DMA_STATUS_TI)) {
-			DBG(intr, INFO, " Transmit irq [buf: 0x%08x]\n",
-			    readl(ioaddr + DMA_CUR_TX_BUF_ADDR));
-			priv->xstats.dma_tx_normal_irq++;
-			tasklet_schedule(&priv->tx_task);
-		}
-	}
+	/* TX/RX NORMAL interrupts */
+	if (likely((intr_status & DMA_STATUS_RI) ||
+		 (intr_status & (DMA_STATUS_TI))))
+			stmmac_schedule(dev);
 
 	/* Optional hardware blocks, interrupts should be disabled */
 	if (unlikely(intr_status &
@@ -1201,8 +1161,6 @@ static int stmmac_open(struct net_device *dev)
 #ifdef CONFIG_STMMAC_TIMER
 	priv->tm->timer_start(tmrate);
 #endif
-	tasklet_init(&priv->tx_task, stmmac_tx_tasklet, (unsigned long)dev);
-
 	/* Dump DMA/MAC registers */
 	if (netif_msg_hw(priv)) {
 		priv->mac_type->ops->dump_mac_regs(ioaddr);
@@ -1242,7 +1200,6 @@ static int stmmac_release(struct net_device *dev)
 	}
 
 	netif_stop_queue(dev);
-	tasklet_kill(&priv->tx_task);
 
 #ifdef CONFIG_STMMAC_TIMER
 	/* Stop and release the timer */
@@ -1637,6 +1594,8 @@ static int stmmac_rx(struct net_device *dev, int limit)
 
 	stmmac_rx_refill(dev);
 
+	priv->xstats.rx_pkt_n += count;
+
 	return count;
 }
 
@@ -1652,26 +1611,25 @@ static int stmmac_rx(struct net_device *dev, int limit)
  */
 static int stmmac_poll(struct napi_struct *napi, int budget)
 {
-	int work_done;
 	struct stmmac_priv *priv = container_of(napi, struct stmmac_priv, napi);
 	struct net_device *dev = priv->dev;
+	int tx_cleaned = 0, work_done = 0;
+
+	priv->xstats.poll_n++;
+
+	tx_cleaned = stmmac_clean_tx(dev);
 
 	work_done = stmmac_rx(dev, budget);
 
-	/* Update rx internal stats */
-	priv->xstats.rx_poll_n++;
-	priv->xstats.rx_pkt_n += work_done;
+	if (tx_cleaned)
+		return budget;
 
+	/* If budget not fully consumed, exit the polling mode */
 	if (work_done < budget) {
-		RX_DBG(">>> rx work completed.\n");
 		napi_complete(napi);
 		stmmac_dma_enable_irq_rx(dev->base_addr);
-#ifdef CONFIG_STMMAC_TIMER
-		priv->tm->timer_start(tmrate);
-#endif
 	}
 	return work_done;
-
 }
 
 /**
@@ -2243,7 +2201,6 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 		if (priv->phydev)
 			phy_stop(priv->phydev);
 		netif_stop_queue(dev);
-		tasklet_disable(&priv->tx_task);
 
 #ifdef CONFIG_STMMAC_TIMER
 		priv->tm->timer_stop();
@@ -2323,8 +2280,6 @@ static int stmmac_resume(struct platform_device *pdev)
 	priv->tm->timer_start(tmrate);
 #endif
 	napi_enable(&priv->napi);
-
-	tasklet_enable(&priv->tx_task);
 
 	if (priv->phydev)
 		phy_start(priv->phydev);

@@ -904,9 +904,9 @@ static inline void _stmmac_schedule(struct net_device *dev)
 	napi_schedule(&priv->napi);
 }
 
+#ifdef CONFIG_STMMAC_TIMER
 void stmmac_schedule(struct net_device *dev)
 {
-#ifdef CONFIG_STMMAC_TIMER
 	struct stmmac_priv *priv = netdev_priv(dev);
 	unsigned int rxentry = priv->cur_rx % priv->dma_rx_size;
 	unsigned int txentry = priv->dirty_tx % priv->dma_tx_size;
@@ -914,13 +914,11 @@ void stmmac_schedule(struct net_device *dev)
 	int txret = priv->mac_type->ops->get_tx_owner(priv->dma_tx + txentry);
 
 	if ((rxret == 0) || (txret == 0))
-#endif
 		_stmmac_schedule(dev);
 
 	return;
 }
 
-#ifdef CONFIG_STMMAC_TIMER
 static void stmmac_no_timer_started(unsigned int x)
 {;
 };
@@ -1037,7 +1035,7 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 	/* TX/RX NORMAL interrupts */
 	if (likely((intr_status & DMA_STATUS_RI) ||
 		 (intr_status & (DMA_STATUS_TI))))
-			stmmac_schedule(dev);
+			_stmmac_schedule(dev);
 
 	/* Optional hardware blocks, interrupts should be disabled */
 	if (unlikely(intr_status &

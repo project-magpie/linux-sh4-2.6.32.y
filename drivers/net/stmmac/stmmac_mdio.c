@@ -1,15 +1,29 @@
-/*
- * drivers/net/stmmac/stmmac_mdio.c
- *
- * STMMAC Ethernet Driver -- MDIO bus implementation
- * Provides Bus interface for MII registers
- *
- * Author: Carl Shaw <carl.shaw@st.com>
- * Maintainer: Giuseppe Cavallaro <peppe.cavallaro@st.com>
- *
- * Copyright (c) 2006-2007 STMicroelectronics
- *
- */
+/*******************************************************************************
+  STMMAC Ethernet Driver -- MDIO bus implementation
+  Provides Bus interface for MII registers
+
+  Copyright (C) 2007-2009  STMicroelectronics Ltd
+
+  This program is free software; you can redistribute it and/or modify it
+  under the terms and conditions of the GNU General Public License,
+  version 2, as published by the Free Software Foundation.
+
+  This program is distributed in the hope it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+  more details.
+
+  You should have received a copy of the GNU General Public License along with
+  this program; if not, write to the Free Software Foundation, Inc.,
+  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+
+  The full GNU General Public License is included in this distribution in
+  the file called "COPYING".
+
+  Author: Carl Shaw <carl.shaw@st.com>
+  Maintainer: Giuseppe Cavallaro <peppe.cavallaro@st.com>
+*******************************************************************************/
+
 #include <linux/netdevice.h>
 #include <linux/mii.h>
 #include <linux/phy.h>
@@ -84,17 +98,15 @@ static int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg,
 
 	/* Wait until any existing MII operation is complete */
 	do {} while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1);
-	/* This "extra" read was added, in the past, to fix an
-	* issue related to the control MII bus specific operation (MDC/MDIO).
-	* It forced the close operation of the message on the bus (hw hack
-	* was to add a specific pull-up on one of the two MCD/MDIO lines).
-	* It can be removed because no new board actually needs it.
-	stmmac_mdio_read(bus, phyaddr, phyreg);
-	*/
+
 	return 0;
 }
 
-/* Resets the MII bus */
+/**
+ * stmmac_mdio_reset
+ * @bus: points to the mii_bus structure
+ * Description: reset the MII bus
+ */
 static int stmmac_mdio_reset(struct mii_bus *bus)
 {
 	struct net_device *ndev = bus->priv;

@@ -1,13 +1,26 @@
-/*
- * drivers/net/stmmac/stmmac_timer.c
- *
- * Use Timers for mitigating network interrupts.
- * Currently it's possible to use both the SH4 RTC device
- * and the TMU channel 2.
- *
- * Copyright (C) 2008 by STMicroelectronics
- * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
-*/
+/*******************************************************************************
+  STMMAC external timer support.
+
+  Copyright (C) 2007-2009  STMicroelectronics Ltd
+
+  This program is free software; you can redistribute it and/or modify it
+  under the terms and conditions of the GNU General Public License,
+  version 2, as published by the Free Software Foundation.
+
+  This program is distributed in the hope it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+  more details.
+
+  You should have received a copy of the GNU General Public License along with
+  this program; if not, write to the Free Software Foundation, Inc.,
+  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+
+  The full GNU General Public License is included in this distribution in
+  the file called "COPYING".
+
+  Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
+*******************************************************************************/
 
 #include <linux/kernel.h>
 #include <linux/etherdevice.h>
@@ -22,7 +35,7 @@ static void stmmac_timer_handler(void *data)
 	return;
 }
 
-#define STMMAC_TIMER_MSG(timer,freq) \
+#define STMMAC_TIMER_MSG(timer, freq) \
 printk(KERN_INFO "stmmac_timer: %s Timer ON (freq %dHz)\n", timer, freq);
 
 #if defined(CONFIG_STMMAC_RTC_TIMER)
@@ -43,7 +56,7 @@ static void stmmac_rtc_stop(void)
 	return;
 }
 
-int stmmac_open_hw_timer(struct net_device *dev, struct stmmac_timer *tm)
+int stmmac_open_ext_timer(struct net_device *dev, struct stmmac_timer *tm)
 {
 	stmmac_task.private_data = dev;
 	stmmac_task.func = stmmac_timer_handler;
@@ -72,7 +85,7 @@ int stmmac_open_hw_timer(struct net_device *dev, struct stmmac_timer *tm)
 	return 0;
 }
 
-int stmmac_close_hw_timer(void)
+int stmmac_close_ext_timer(void)
 {
 	rtc_irq_set_state(stmmac_rtc, &stmmac_task, 0);
 	rtc_irq_unregister(stmmac_rtc, &stmmac_task);
@@ -98,7 +111,7 @@ static void stmmac_tmu_stop(void)
 	return;
 }
 
-int stmmac_open_hw_timer(struct net_device *dev, struct stmmac_timer *tm)
+int stmmac_open_ext_timer(struct net_device *dev, struct stmmac_timer *tm)
 {
 	timer_clock = clk_get(NULL, TMU_CHANNEL);
 
@@ -117,7 +130,7 @@ int stmmac_open_hw_timer(struct net_device *dev, struct stmmac_timer *tm)
 	return 0;
 }
 
-int stmmac_close_hw_timer(void)
+int stmmac_close_ext_timer(void)
 {
 	clk_disable(timer_clock);
 	tmu2_unregister_user();

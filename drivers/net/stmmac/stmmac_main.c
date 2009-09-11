@@ -1,19 +1,32 @@
-/* ============================================================================
- *
- * drivers/net/stmmac/stmmac_main.c
- *
- * This is the driver for the MAC 10/100/1000 on-chip Ethernet controllers
- * (Synopsys IP).
- *
- * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
- *
- * Copyright (C) 2007-2009 by STMicroelectronics
- *
- * Documentation available at:
- *  http://www.stlinux.com
- * Support available at:
- *  https://bugzilla.stlinux.com/
- * ===========================================================================*/
+/*******************************************************************************
+  This is the driver for the ST MAC 10/100/1000 on-chip Ethernet controllers.
+  ST Ethernet IPs are built around a Synopsys IP Core.
+
+  Copyright (C) 2007-2009  STMicroelectronics Ltd
+
+  This program is free software; you can redistribute it and/or modify it
+  under the terms and conditions of the GNU General Public License,
+  version 2, as published by the Free Software Foundation.
+
+  This program is distributed in the hope it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+  more details.
+
+  You should have received a copy of the GNU General Public License along with
+  this program; if not, write to the Free Software Foundation, Inc.,
+  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+
+  The full GNU General Public License is included in this distribution in
+  the file called "COPYING".
+
+  Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
+
+  Documentation available at:
+	http://www.stlinux.com
+  Support available at:
+	https://bugzilla.stlinux.com/
+*******************************************************************************/
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -144,16 +157,16 @@ static int stmmac_rx(struct net_device *dev, int limit);
 static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev);
 
 /**
- * stmmac_init_coalescence - init the coalescence parameters
+ * stmmac_init_coalescence - initialise the coalescence parameters
  * @gmac: to identify if the device; mac100 and gmac don't use the same tuning.
  * @mtu: to moderate the coalescence in case of oversized frames.
  * Description: initialises the coalescence parameters statically when
- *		use Timer optimisation.
+ * use Timer optimisation.
  * These values have been set based on testing data as well as attempting
  * to minimize response time while increasing bulk throughput.
  * These parameters can also be tuned via sys and new values can be
  * used after reopening the interface (via ifconfig for example).
- * TODO: dynamic tuning.
+ * TODO: dynamic setting.
  */
 static void stmmac_init_coalescence(int gmac, int mtu)
 {
@@ -362,7 +375,7 @@ static int stmmac_init_phy(struct net_device *dev)
 	}
 
 	/*
-	 * Broken ST PHY HW is sometimes missing the pull-up resistor on the
+	 * Broken HW is sometimes missing the pull-up resistor on the
 	 * MDIO line, which results in reads to non-existent devices returning
 	 * 0 rather than 0xffff. Catch this here and treat 0 as a non-existent
 	 * device as well.
@@ -1103,7 +1116,7 @@ static int stmmac_open(struct net_device *dev)
 
 	/* Test if the HW timer can be actually used.
 	 * In case of failure go haead without using any timers. */
-	if (unlikely((stmmac_open_hw_timer(dev, priv->tm)) < 0)) {
+	if (unlikely((stmmac_open_ext_timer(dev, priv->tm)) < 0)) {
 		pr_warning("stmmaceth: cannot attach the HW timer\n");
 		rx_coalesce = 1;
 		tmrate = 0;
@@ -1170,12 +1183,6 @@ static int stmmac_open(struct net_device *dev)
 
 	napi_enable(&priv->napi);
 	skb_queue_head_init(&priv->rx_recycle);
-#if 0
-	/* FIXME: Owing to some hw issues met on COE; it is safe to control
-	 * (and limit) the size of the TSO frames. */
-	if (priv->is_gmac)
-		netif_set_gso_max_size(dev, BUF_SIZE_4KiB);
-#endif
 	netif_start_queue(dev);
 	return 0;
 }
@@ -1201,7 +1208,7 @@ static int stmmac_release(struct net_device *dev)
 
 #ifdef CONFIG_STMMAC_TIMER
 	/* Stop and release the timer */
-	stmmac_close_hw_timer();
+	stmmac_close_ext_timer();
 	if (priv->tm != NULL)
 		kfree(priv->tm);
 #endif
@@ -1868,7 +1875,6 @@ static const struct net_device_ops stmmac_netdev_ops = {
 	.ndo_set_mac_address = eth_mac_addr,
 };
 
-
 /**
  *  stmmac_probe - Initialization of the adapter .
  *  @dev : device pointer
@@ -2151,7 +2157,7 @@ out:
  * @pdev: platform device pointer
  * Description: This function resets the TX/RX processes, disables the MAC RX/TX
  *   changes the link status, releases the DMA descriptor rings,
- *   unregisters the MDIO busm and unmaps allocated memory.
+ *   unregisters the MDIO bus and unmaps the allocated memory.
  */
 static int stmmac_dvr_remove(struct platform_device *pdev)
 {

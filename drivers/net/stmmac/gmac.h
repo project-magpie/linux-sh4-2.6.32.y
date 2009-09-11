@@ -1,9 +1,25 @@
-/*
- * GMAC header file
- * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
- */
+/*******************************************************************************
+  Copyright (C) 2007-2009  STMicroelectronics Ltd
 
-/* --- GMAC BLOCK defines --- */
+  This program is free software; you can redistribute it and/or modify it
+  under the terms and conditions of the GNU General Public License,
+  version 2, as published by the Free Software Foundation.
+
+  This program is distributed in the hope it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+  more details.
+
+  You should have received a copy of the GNU General Public License along with
+  this program; if not, write to the Free Software Foundation, Inc.,
+  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+
+  The full GNU General Public License is included in this distribution in
+  the file called "COPYING".
+
+  Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
+*******************************************************************************/
+
 #define GMAC_CONTROL		0x00000000	/* Configuration */
 #define GMAC_FRAME_FILTER	0x00000004	/* Frame Filter */
 #define GMAC_HASH_HIGH		0x00000008	/* Multicast Hash Table High */
@@ -12,10 +28,10 @@
 #define GMAC_MII_DATA		0x00000014	/* MII Data */
 #define GMAC_FLOW_CTRL		0x00000018	/* Flow Control */
 #define GMAC_VLAN_TAG		0x0000001c	/* VLAN Tag */
+#define GMAC_VERSION		0x00000020	/* GMAC CORE Version */
+#define GMAC_WAKEUP_FILTER	0x00000028	/* Wake-up Frame Filter */
 
-/* GMAC ID */
-#define GMAC_VERSION	0x00000020	/* GMAC CORE Version */
-#define GMAC_INT_STATUS	0x00000038	/* interrupt status register */
+#define GMAC_INT_STATUS		0x00000038	/* interrupt status register */
 enum gmac_irq_status {
 	time_stamp_irq = 0x0200,
 	mmc_rx_csum_offload_irq = 0x0080,
@@ -27,12 +43,10 @@ enum gmac_irq_status {
 	pcs_link_irq = 0x0002,
 	rgmii_irq = 0x0001,
 };
-#define GMAC_INT_MASK	0x0000003c	/* interrupt mask register */
-
-#define GMAC_WAKEUP_FILTER       0x00000028	/* Wake-up Frame Filter */
+#define GMAC_INT_MASK		0x0000003c	/* interrupt mask register */
 
 /* PMT Control and Status */
-#define GMAC_PMT                 0x0000002c
+#define GMAC_PMT		0x0000002c
 enum power_event {
 	pointer_reset = 0x80000000,
 	global_unicast = 0x00000200,
@@ -121,7 +135,7 @@ enum rx_tx_priority_ratio {
 	quadruple_ratio = 0x0000c000,	/*4:1 */
 };
 
-#define DMA_BUS_MODE_FB	0x00010000	/*Fixed burst */
+#define DMA_BUS_MODE_FB		0x00010000	/* Fixed burst */
 #define DMA_BUS_MODE_RPBL_MASK	0x003e0000	/* Rx-Programmable Burst Len */
 #define DMA_BUS_MODE_RPBL_SHIFT	17
 #define DMA_BUS_MODE_USP	0x00800000
@@ -181,7 +195,7 @@ enum rtc_control {
 };
 #define DMA_CONTROL_TC_RX_MASK	0xffffffe7
 
-#define DMA_CONTROL_OSF	0x00000004	/* operate on second frame */
+#define DMA_CONTROL_OSF	0x00000004	/* Operate on second frame */
 
 /* MMC registers offset */
 #define GMAC_MMC_CTRL      0x100

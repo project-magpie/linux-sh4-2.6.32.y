@@ -1,13 +1,31 @@
-/*
- * drivers/net/stmmac/mac100.c
- *
- * This is a driver for the MAC 10/100 on-chip
- * Ethernet controller currently present on STb7109 and 7200 SoCs.
- *
- * Copyright (C) 2007 by STMicroelectronics
- * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
- *
-*/
+/*******************************************************************************
+  This is the driver for the MAC 10/100 on-chip Ethernet controller
+  currently tested on all the ST boards based on STb7109 and stx7200 SoCs.
+
+  DWC Ether MAC 10/100 Universal version 4.0 has been used for developing
+  this code.
+
+  Copyright (C) 2007-2009  STMicroelectronics Ltd
+
+  This program is free software; you can redistribute it and/or modify it
+  under the terms and conditions of the GNU General Public License,
+  version 2, as published by the Free Software Foundation.
+
+  This program is distributed in the hope it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+  more details.
+
+  You should have received a copy of the GNU General Public License along with
+  this program; if not, write to the Free Software Foundation, Inc.,
+  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+
+  The full GNU General Public License is included in this distribution in
+  the file called "COPYING".
+
+  Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
+*******************************************************************************/
+
 #include <linux/netdevice.h>
 #include <linux/crc32.h>
 #include <linux/mii.h>
@@ -132,7 +150,7 @@ static void mac100_dump_dma_regs(unsigned long ioaddr)
 	return;
 }
 
-/* The DMA controller maintains two counters to track the number of
+/* DMA controller has two counters to track the number of
    the receive missed frames. */
 static void mac100_dma_diagnostic_fr(void *data, struct stmmac_extra_stats *x,
 				     unsigned long ioaddr)
@@ -204,9 +222,9 @@ static int mac100_get_tx_len(struct dma_desc *p)
 	return p->des01.tx.buffer1_size;
 }
 
-/* This function verifies if the incoming frame has some errors
+/* This function verifies if each incoming frame has some errors
  * and, if required, updates the multicast statistics.
- * In case of success, it returns  csum_none becasue the device
+ * In case of success, it returns csum_none becasue the device
  * is not able to compute the csum in HW. */
 static int mac100_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 				      struct dma_desc *p)
@@ -254,7 +272,6 @@ static int mac100_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 	if (p->des01.rx.multicast_frame) {
 		x->rx_multicast++;
 		stats->multicast++;
-		/* no error! */
 	}
 	return ret;
 }
@@ -263,7 +280,6 @@ static void mac100_irq_status(unsigned long ioaddr)
 {
 	return;
 }
-
 
 static void mac100_set_umac_addr(unsigned long ioaddr, unsigned char *addr,
 			  unsigned int reg_n)
@@ -343,11 +359,9 @@ static void mac100_flow_ctrl(unsigned long ioaddr, unsigned int duplex,
 	return;
 }
 
+/* No PMT module supported in our SoC  for the Ethernet Controller. */
 static void mac100_pmt(unsigned long ioaddr, unsigned long mode)
 {
-	/* There is no PMT module in the stb7109 so no wake-up-on-Lan hw
-	 * feature is supported.
-	 */
 	return;
 }
 
@@ -417,7 +431,6 @@ static void mac100_release_tx_desc(struct dma_desc *p)
 {
 	int ter = p->des01.tx.end_ring;
 
-/*	memset(p, 0, sizeof(struct dma_desc));*/
 	/* clean field used within the xmit */
 	p->des01.tx.first_segment = 0;
 	p->des01.tx.last_segment = 0;
@@ -463,7 +476,7 @@ static int mac100_get_rx_frame_len(struct dma_desc *p)
 	return p->des01.rx.frame_length;
 }
 
-struct device_ops mac100_driver = {
+struct stmmac_ops mac100_driver = {
 	.core_init = mac100_core_init,
 	.dump_mac_regs = mac100_dump_mac_regs,
 	.dma_init = mac100_dma_init,

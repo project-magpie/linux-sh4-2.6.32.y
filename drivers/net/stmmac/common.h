@@ -1,3 +1,27 @@
+/*******************************************************************************
+  STMMAC Common Header File
+
+  Copyright (C) 2007-2009  STMicroelectronics Ltd
+
+  This program is free software; you can redistribute it and/or modify it
+  under the terms and conditions of the GNU General Public License,
+  version 2, as published by the Free Software Foundation.
+
+  This program is distributed in the hope it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+  more details.
+
+  You should have received a copy of the GNU General Public License along with
+  this program; if not, write to the Free Software Foundation, Inc.,
+  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+
+  The full GNU General Public License is included in this distribution in
+  the file called "COPYING".
+
+  Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
+*******************************************************************************/
+
 #include "descs.h"
 #include <linux/io.h>
 
@@ -169,26 +193,20 @@ struct stmmac_extra_stats {
 	unsigned long tx_early_irq;
 	unsigned long fatal_bus_error_irq;
 	/* Extra info */
-	unsigned long threshold; /* DMA tx/rx threshold (CSR6) */
-	unsigned long poll_n; /* stmmac poll method invokations */
-	unsigned long tx_pkt_n; /* Frames transmitted */
-	unsigned long rx_pkt_n; /* Frames received */
+	unsigned long threshold;
+	unsigned long poll_n;
+	unsigned long tx_pkt_n;
+	unsigned long rx_pkt_n;
 };
 #define EXTRA_STATS 39
 
-/* In case of GMAC, the device can compute the HW checksums and
- * found if the frame is corrupted. It can also decide to let the
- * upper layer to compute the Csum in Sw. */
+/* GMAC core can compute the checksums in HW. */
 enum rx_frame_status {
 	good_frame = 0,
 	discard_frame = 1,
 	csum_none = 2,
 };
 
-/*
- * This function sets the hardware MAC address into the specified
- * Hw register.
- */
 static inline void stmmac_set_mac_addr(unsigned long ioaddr, u8 addr[6],
 			 unsigned int high, unsigned int low)
 {
@@ -202,9 +220,6 @@ static inline void stmmac_set_mac_addr(unsigned long ioaddr, u8 addr[6],
 	return;
 }
 
-/*
- * This function gets the hardware MAC address
- */
 static inline void stmmac_get_mac_addr(unsigned long ioaddr,
 				unsigned char *addr, unsigned int high,
 				unsigned int low)
@@ -226,10 +241,7 @@ static inline void stmmac_get_mac_addr(unsigned long ioaddr,
 	return;
 }
 
-/* Specific device structure VFP in order to mark the
- * difference between mac and gmac in terms of registers, descriptors etc.
- */
-struct device_ops {
+struct stmmac_ops {
 	/* MAC core initialization */
 	void (*core_init) (unsigned long ioaddr);
 	/* DMA core initialization */
@@ -314,7 +326,7 @@ struct hw_cap {
 
 struct mac_device_info {
 	struct hw_cap hw;
-	struct device_ops *ops;
+	struct stmmac_ops *ops;
 };
 
 struct mac_device_info *gmac_setup(unsigned long addr);

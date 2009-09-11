@@ -1,12 +1,29 @@
-/*
- * drivers/net/stmmac/gmac.c
- *
- * Giga Ethernet driver
- *
- * Copyright (C) 2007 by STMicroelectronics
- * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
- *
-*/
+/*******************************************************************************
+  This is the driver for the GMAC on-chip Ethernet controller for ST SoCs.
+  DWC Ether MAC 10/100/1000 Universal version 3.41a  has been used for
+  developing this code.
+
+  Copyright (C) 2007-2009  STMicroelectronics Ltd
+
+  This program is free software; you can redistribute it and/or modify it
+  under the terms and conditions of the GNU General Public License,
+  version 2, as published by the Free Software Foundation.
+
+  This program is distributed in the hope it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+  more details.
+
+  You should have received a copy of the GNU General Public License along with
+  this program; if not, write to the Free Software Foundation, Inc.,
+  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+
+  The full GNU General Public License is included in this distribution in
+  the file called "COPYING".
+
+  Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
+*******************************************************************************/
+
 #include <linux/netdevice.h>
 #include <linux/crc32.h>
 #include <linux/mii.h>
@@ -316,13 +333,12 @@ static int gmac_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 		ret = discard_frame;
 	}
 
-	/* It seems, if there is a payload csum error, the ES bit is set.
+	/* After a payload csum error, the ES bit is set.
 	 * It doesn't match with the information reported into the databook.
 	 * At any rate, we need to understand if the CSUM hw computation is ok
-	 * and report this info to the upper layers.  */
-	ret =
-	    gmac_coe_rdes0(p->des01.erx.ipc_csum_error, p->des01.erx.frame_type,
-			   p->des01.erx.payload_csum_error);
+	 * and report this info to the upper layers. */
+	ret = gmac_coe_rdes0(p->des01.erx.ipc_csum_error,
+		p->des01.erx.frame_type, p->des01.erx.payload_csum_error);
 
 	if (unlikely(p->des01.erx.dribbling)) {
 		DBG(KERN_ERR "GMAC RX: dribbling error\n");
@@ -346,15 +362,11 @@ static int gmac_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 	return ret;
 }
 
-/* It is necessary to handle other events (e.g.  power management interrupt) */
 static void gmac_irq_status(unsigned long ioaddr)
 {
 	u32 intr_status = readl(ioaddr + GMAC_INT_STATUS);
 
-	/* Do not handle all the events, e.g. MMC interrupts
-	 * (not used by default). Indeed, to "clear" these events
-	 * we should read the register that generated the interrupt.
-	 */
+	/* Not used events (e.g. MMC interrupts) are not handled. */
 	if ((intr_status & mmc_tx_irq))
 		DBG(KERN_DEBUG "GMAC: MMC tx interrupt: 0x%08x\n",
 		    readl(ioaddr + GMAC_MMC_TX_INTR));
@@ -422,7 +434,7 @@ static void gmac_vlan_filter(struct net_device *dev)
 			if (vlan_group_get_device(priv->vlgrp, vid))
 				DBG(KERN_INFO "GMAC: VLAN RX filter: vid: %d"
 					"Reg7: 0x%x\n", vid, value);
-			/*FIXME*/
+			/*FIXME: due to some HW limits...*/
 	}
 	return;
 }
@@ -552,7 +564,7 @@ static void gmac_init_rx_desc(struct dma_desc *p, unsigned int ring_size)
 	for (i = 0; i < ring_size; i++) {
 		p->des01.erx.own = 1;
 		p->des01.erx.buffer1_size = BUF_SIZE_8KiB - 1;
-		/* in case we use jumbo frames */
+		/* To support jumbo frames */
 		p->des01.erx.buffer2_size = BUF_SIZE_8KiB - 1;
 		if (i == ring_size - 1)
 			p->des01.erx.end_ring = 1;
@@ -652,7 +664,7 @@ static int gmac_get_rx_frame_len(struct dma_desc *p)
 	return p->des01.erx.frame_length;
 }
 
-struct device_ops gmac_driver = {
+struct stmmac_ops gmac_driver = {
 	.core_init = gmac_core_init,
 	.dump_mac_regs = gmac_dump_regs,
 	.dma_init = gmac_dma_init,

@@ -1,14 +1,27 @@
-/*
- * drivers/net/stmmac/stmmac_ethtool.c
- *
- * STMMAC Ethernet Driver
- * Ethtool support for STMMAC Ethernet Driver
- *
- * Author: Giuseppe Cavallaro
- *
- * Copyright (c) 2006-2007 STMicroelectronics
- *
- */
+/*******************************************************************************
+  STMMAC Ethtool support
+
+  Copyright (C) 2007-2009  STMicroelectronics Ltd
+
+  This program is free software; you can redistribute it and/or modify it
+  under the terms and conditions of the GNU General Public License,
+  version 2, as published by the Free Software Foundation.
+
+  This program is distributed in the hope it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+  more details.
+
+  You should have received a copy of the GNU General Public License along with
+  this program; if not, write to the Free Software Foundation, Inc.,
+  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+
+  The full GNU General Public License is included in this distribution in
+  the file called "COPYING".
+
+  Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
+*******************************************************************************/
+
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
 #include <linux/mii.h>
@@ -285,6 +298,7 @@ static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 *buf)
 	return;
 }
 
+/* Currently only support WOL through Magic packet. */
 static void stmmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);

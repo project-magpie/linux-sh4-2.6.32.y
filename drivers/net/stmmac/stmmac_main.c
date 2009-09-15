@@ -1490,7 +1490,7 @@ static inline void stmmac_rx_refill(struct net_device *dev)
 			    dma_map_single(priv->device, skb->data,
 				bfsize - STMMAC_IP_ALIGN, DMA_FROM_DEVICE);
 			(p + entry)->des2 = priv->rx_skbuff_dma[entry];
-			if (priv->is_gmac) {
+			if (unlikely(priv->is_gmac)) {
 				if (bfsize >= BUF_SIZE_8KiB)
 					(p + entry)->des3 =
 					    (p + entry)->des2 + BUF_SIZE_8KiB;

@@ -33,65 +33,66 @@
 #endif
 
 struct stmmac_priv {
-	struct net_device *dev;
-	struct device *device;
-
-	int pbl;
-	int is_gmac;
-	void (*fix_mac_speed) (void *priv, unsigned int speed);
-	void *bsp_priv;
-
-	int bus_id;
-	int phy_addr;
-	int phy_mask;
-	phy_interface_t phy_interface;
-	int (*phy_reset) (void *priv);
-	int phy_irq;
-
-	struct phy_device *phydev;
-	int oldlink;
-	int speed;
-	int oldduplex;
-
-	struct mii_bus *mii;
-
-	spinlock_t lock; /* interface lock */
-	spinlock_t tx_lock; /* tx lock */
-
-	struct dma_desc *dma_tx	____cacheline_aligned;
+	/* Frequently used values are kept adjacent for cache effect */
+	struct dma_desc *dma_tx ____cacheline_aligned;
 	dma_addr_t dma_tx_phy;
-	struct dma_desc *dma_rx	____cacheline_aligned;
-	dma_addr_t dma_rx_phy;
 	struct sk_buff **tx_skbuff;
+	unsigned int cur_tx;
+	unsigned int dirty_tx;
+	unsigned int dma_tx_size;
+	spinlock_t tx_lock;
+	int tx_coe;
+	int tx_coalesce;
+
+	struct dma_desc *dma_rx ;
+	unsigned int cur_rx;
+	unsigned int dirty_rx;
 	struct sk_buff **rx_skbuff;
 	dma_addr_t *rx_skbuff_dma;
 	struct sk_buff_head rx_recycle;
 
-	unsigned int cur_rx, dirty_rx;
-	unsigned int cur_tx, dirty_tx;
-	unsigned int dma_tx_size;
+	struct net_device *dev;
+	int is_gmac;
+	dma_addr_t dma_rx_phy;
 	unsigned int dma_rx_size;
+	int rx_csum;
 	unsigned int dma_buf_sz;
-	unsigned int rx_buff;
-	struct stmmac_extra_stats xstats;
+	struct device *device;
 	struct mac_device_info *mac_type;
+
+	struct stmmac_extra_stats xstats;
+	struct napi_struct napi;
+
+	phy_interface_t phy_interface;
+	int pbl;
+	int bus_id;
+	int phy_addr;
+	int phy_mask;
+	int (*phy_reset) (void *priv);
+	void (*fix_mac_speed) (void *priv, unsigned int speed);
+	void *bsp_priv;
+
+	int phy_irq;
+	struct phy_device *phydev;
+	int oldlink;
+	int speed;
+	int oldduplex;
 	unsigned int flow_ctrl;
 	unsigned int pause;
+	struct mii_bus *mii;
+
 	u32 msg_enable;
-	int rx_csum;
-	int tx_coe;
+	spinlock_t lock;
 	int wolopts;
 	int wolenabled;
 	int shutdown;
-	int tx_coalesce;
+	int vlan_rx_filter;
 #ifdef CONFIG_STMMAC_TIMER
 	struct stmmac_timer *tm;
 #endif
 #ifdef STMMAC_VLAN_TAG_USED
 	struct vlan_group *vlgrp;
 #endif
-	int vlan_rx_filter;
-	struct napi_struct napi;
 };
 
 extern int stmmac_mdio_unregister(struct net_device *ndev);

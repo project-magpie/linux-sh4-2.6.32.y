@@ -155,13 +155,12 @@
 
 struct stmmac_extra_stats {
 	/* Transmit errors */
-	unsigned long tx_underflow;
+	unsigned long tx_underflow ____cacheline_aligned;
 	unsigned long tx_carrier;
 	unsigned long tx_losscarrier;
 	unsigned long tx_heartbeat;
 	unsigned long tx_deferred;
 	unsigned long tx_vlan;
-	unsigned long rx_vlan;
 	unsigned long tx_jabber;
 	unsigned long tx_frame_flushed;
 	unsigned long tx_payload_error;
@@ -182,6 +181,7 @@ struct stmmac_extra_stats {
 	unsigned long sa_rx_filter_fail;
 	unsigned long rx_missed_cntr;
 	unsigned long rx_overflow_cntr;
+	unsigned long rx_vlan;
 	/* Tx/Rx IRQ errors */
 	unsigned long tx_undeflow_irq;
 	unsigned long tx_process_stopped_irq;
@@ -194,8 +194,8 @@ struct stmmac_extra_stats {
 	unsigned long fatal_bus_error_irq;
 	/* Extra info */
 	unsigned long threshold;
-	unsigned long poll_n;
 	unsigned long tx_pkt_n;
+	unsigned long poll_n;
 	unsigned long rx_pkt_n;
 };
 #define EXTRA_STATS 39
@@ -243,7 +243,7 @@ static inline void stmmac_get_mac_addr(unsigned long ioaddr,
 
 struct stmmac_ops {
 	/* MAC core initialization */
-	void (*core_init) (unsigned long ioaddr);
+	void (*core_init) (unsigned long ioaddr) ____cacheline_aligned;
 	/* DMA core initialization */
 	int (*dma_init) (unsigned long ioaddr, int pbl, u32 dma_tx, u32 dma_rx);
 	/* Dump MAC registers */
@@ -260,9 +260,13 @@ struct stmmac_ops {
 	void (*init_rx_desc) (struct dma_desc *p, unsigned int ring_size);
 	/* TX descriptor ring initialization */
 	void (*init_tx_desc) (struct dma_desc *p, unsigned int ring_size);
+
 	/* Invoked by the xmit function to prepare the tx descriptor */
 	void (*prepare_tx_desc) (struct dma_desc *p, int is_fs, int len,
 				 int csum_flag);
+	/* Set/get the owner of the descriptor */
+	void (*set_tx_owner) (struct dma_desc *p);
+	int (*get_tx_owner) (struct dma_desc *p);
 	/* Invoked by the xmit function to close the tx descriptor */
 	void (*close_tx_desc) (struct dma_desc *p);
 	/* Clean the tx descriptor as soon as the tx irq is received */
@@ -270,26 +274,25 @@ struct stmmac_ops {
 	/* Clear interrupt on tx frame completion. When this bit is
 	 * set an interrupt happens as soon as the frame is transmitted */
 	void (*clear_tx_ic) (struct dma_desc *p);
-	/* Interrupt after this number of packets have arrived. */
-	void (*disable_rx_ic) (struct dma_desc *p, unsigned int ring_size,
-			       int disable_ic);
 	/* Last tx segment reports the transmit status */
 	int (*get_tx_ls) (struct dma_desc *p);
-	/* Set/get the owner of the descriptor */
-	int (*get_tx_owner) (struct dma_desc *p);
-	int (*get_rx_owner) (struct dma_desc *p);
-	void (*set_tx_owner) (struct dma_desc *p);
-	void (*set_rx_owner) (struct dma_desc *p);
-	/* Get the receive frame size */
-	int (*get_rx_frame_len) (struct dma_desc *p);
 	/* Return the transmit status looking at the TDES1 */
 	int (*tx_status) (void *data, struct stmmac_extra_stats *x,
 			  struct dma_desc *p, unsigned long ioaddr);
+	/* Get the buffer size from the descriptor */
+	int (*get_tx_len) (struct dma_desc *p);
+	/* Handle extra events on specific interrupts hw dependent */
+	void (*host_irq_status) (unsigned long ioaddr);
+	/* Interrupt after this number of packets have arrived. */
+	void (*disable_rx_ic) (struct dma_desc *p, unsigned int ring_size,
+			       int disable_ic);
+	int (*get_rx_owner) (struct dma_desc *p);
+	void (*set_rx_owner) (struct dma_desc *p);
+	/* Get the receive frame size */
+	int (*get_rx_frame_len) (struct dma_desc *p);
 	/* Return the reception status looking at the RDES1 */
 	int (*rx_status) (void *data, struct stmmac_extra_stats *x,
 			  struct dma_desc *p);
-	/* Get the buffer size from the descriptor */
-	int (*get_tx_len) (struct dma_desc *p);
 	/* Multicast filter setting */
 	void (*set_filter) (struct net_device *dev);
 	/* Flow control setting */
@@ -297,8 +300,6 @@ struct stmmac_ops {
 			   unsigned int fc, unsigned int pause_time);
 	/* Set power management mode (e.g. magic frame) */
 	void (*pmt) (unsigned long ioaddr, unsigned long mode);
-	/* Handle extra events on specific interrupts hw dependent */
-	void (*host_irq_status) (unsigned long ioaddr);
 	/* Set/Get Unicast MAC addresses */
 	void (*set_umac_addr) (unsigned long ioaddr, unsigned char *addr,
 			     unsigned int reg_n);

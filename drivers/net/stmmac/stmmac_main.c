@@ -719,18 +719,17 @@ static void stmmac_dma_operation_mode(struct net_device *dev)
 
 	if (!priv->is_gmac) {
 		/* MAC 10/100 */
-		priv->mac_type->ops->dma_mode(dev->base_addr,
-					      priv->xstats.threshold, 0);
+		priv->mac_type->ops->dma_mode(dev->base_addr, tc, 0);
 		priv->tx_coe = NO_HW_CSUM;
 	} else {
 		if ((dev->mtu <= ETH_DATA_LEN) && (tx_coe)) {
 			priv->mac_type->ops->dma_mode(dev->base_addr,
 						      SF_DMA_MODE, SF_DMA_MODE);
+			tc = SF_DMA_MODE;
 			priv->tx_coe = HW_CSUM;
 		} else {
 			/* Checksum computation is performed in software. */
-			priv->mac_type->ops->dma_mode(dev->base_addr,
-						      priv->xstats.threshold,
+			priv->mac_type->ops->dma_mode(dev->base_addr, tc,
 						      SF_DMA_MODE);
 			priv->tx_coe = NO_HW_CSUM;
 		}
@@ -998,13 +997,13 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 		DBG(intr, INFO, "CSR5[15] DMA ABNORMAL IRQ: ");
 		if (unlikely(intr_status & DMA_STATUS_UNF)) {
 			DBG(intr, INFO, "transmit underflow\n");
-			if ((priv->xstats.threshold != SF_DMA_MODE)
-			    && (priv->xstats.threshold <= 256)) {
+			if (unlikely(tc != SF_DMA_MODE)
+			    && (tc <= 256)) {
 				/* Try to bump up the threshold */
-				priv->xstats.threshold += 64;
-				priv->mac_type->ops->dma_mode(ioaddr,
-					      priv->xstats.threshold,
+				tc += 64;
+				priv->mac_type->ops->dma_mode(ioaddr, tc,
 					      SF_DMA_MODE);
+				priv->xstats.threshold = tc;
 			}
 			stmmac_tx_err(dev);
 			priv->xstats.tx_undeflow_irq++;
@@ -1157,12 +1156,12 @@ static int stmmac_open(struct net_device *dev)
 	stmmac_mac_enable_rx(dev);
 	stmmac_mac_enable_tx(dev);
 
+	/* Set the HW DMA mode and the COE */
+	stmmac_dma_operation_mode(dev);
+
 	/* Extra statistics */
 	memset(&priv->xstats, 0, sizeof(struct stmmac_extra_stats));
 	priv->xstats.threshold = tc;
-
-	/* Set the HW DMA mode and the COE */
-	stmmac_dma_operation_mode(dev);
 
 	/* Start the ball rolling... */
 	DBG(probe, DEBUG, "%s: DMA RX/TX processes started...\n", dev->name);

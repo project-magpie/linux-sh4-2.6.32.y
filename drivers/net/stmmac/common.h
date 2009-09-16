@@ -198,7 +198,6 @@ struct stmmac_extra_stats {
 	unsigned long poll_n;
 	unsigned long rx_pkt_n;
 };
-#define EXTRA_STATS 39
 
 /* GMAC core can compute the checksums in HW. */
 enum rx_frame_status {

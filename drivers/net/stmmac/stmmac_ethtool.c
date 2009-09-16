@@ -33,6 +33,59 @@
 #define MAC100_ETHTOOL_NAME	"st_mac100"
 #define GMAC_ETHTOOL_NAME	"st_gmac"
 
+struct stmmac_stats {
+	char stat_string[ETH_GSTRING_LEN];
+	int sizeof_stat;
+	int stat_offset;
+};
+
+#define STMMAC_STAT(m)	\
+	{ #m, FIELD_SIZEOF(struct stmmac_extra_stats, m),	\
+	offsetof(struct stmmac_priv, xstats.m)}
+
+static const struct  stmmac_stats stmmac_gstrings_stats[] = {
+	STMMAC_STAT(tx_underflow),
+	STMMAC_STAT(tx_carrier),
+	STMMAC_STAT(tx_losscarrier),
+	STMMAC_STAT(tx_heartbeat),
+	STMMAC_STAT(tx_deferred),
+	STMMAC_STAT(tx_vlan),
+	STMMAC_STAT(rx_vlan),
+	STMMAC_STAT(tx_jabber),
+	STMMAC_STAT(tx_frame_flushed),
+	STMMAC_STAT(tx_payload_error),
+	STMMAC_STAT(tx_ip_header_error),
+	STMMAC_STAT(rx_desc),
+	STMMAC_STAT(rx_partial),
+	STMMAC_STAT(rx_runt),
+	STMMAC_STAT(rx_toolong),
+	STMMAC_STAT(rx_collision),
+	STMMAC_STAT(rx_crc),
+	STMMAC_STAT(rx_lenght),
+	STMMAC_STAT(rx_mii),
+	STMMAC_STAT(rx_multicast),
+	STMMAC_STAT(rx_gmac_overflow),
+	STMMAC_STAT(rx_watchdog),
+	STMMAC_STAT(da_rx_filter_fail),
+	STMMAC_STAT(sa_rx_filter_fail),
+	STMMAC_STAT(rx_missed_cntr),
+	STMMAC_STAT(rx_overflow_cntr),
+	STMMAC_STAT(tx_undeflow_irq),
+	STMMAC_STAT(tx_process_stopped_irq),
+	STMMAC_STAT(tx_jabber_irq),
+	STMMAC_STAT(rx_overflow_irq),
+	STMMAC_STAT(rx_buf_unav_irq),
+	STMMAC_STAT(rx_process_stopped_irq),
+	STMMAC_STAT(rx_watchdog_irq),
+	STMMAC_STAT(tx_early_irq),
+	STMMAC_STAT(fatal_bus_error_irq),
+	STMMAC_STAT(threshold),
+	STMMAC_STAT(poll_n),
+	STMMAC_STAT(tx_pkt_n),
+	STMMAC_STAT(rx_pkt_n),
+};
+#define STMMAC_STATS_LEN ARRAY_SIZE(stmmac_gstrings_stats)
+
 void stmmac_ethtool_getdrvinfo(struct net_device *dev,
 			       struct ethtool_drvinfo *info)
 {
@@ -45,6 +98,7 @@ void stmmac_ethtool_getdrvinfo(struct net_device *dev,
 
 	strcpy(info->version, DRV_MODULE_VERSION);
 	info->fw_version[0] = '\0';
+	info->n_stats = STMMAC_STATS_LEN;
 	return;
 }
 
@@ -219,77 +273,48 @@ stmmac_set_pauseparam(struct net_device *netdev,
 	return ret;
 }
 
-static struct {
-	const char str[ETH_GSTRING_LEN];
-} ethtool_stats_keys[] = {
-	{
-	"tx_underflow"}, {
-	"tx_carrier"}, {
-	"tx_losscarrier"}, {
-	"tx_heartbeat"}, {
-	"tx_deferred"}, {
-	"tx_vlan"}, {
-	"rx_vlan"}, {
-	"tx_jabber"}, {
-	"tx_frame_flushed"}, {
-	"tx_payload_error"}, {
-	"tx_ip_header_error"}, {
-	"rx_desc"}, {
-	"rx_partial"}, {
-	"rx_runt"}, {
-	"rx_toolong"}, {
-	"rx_collision"}, {
-	"rx_crc"}, {
-	"rx_lenght"}, {
-	"rx_mii"}, {
-	"rx_multicast"}, {
-	"rx_gmac_overflow"}, {
-	"rx_watchdog"}, {
-	"da_rx_filter_fail"}, {
-	"sa_rx_filter_fail"}, {
-	"rx_missed_cntr"}, {
-	"rx_overflow_cntr"}, {
-	"tx_undeflow_irq"}, {
-	"tx_process_stopped_irq"}, {
-	"tx_jabber_irq"}, {
-	"rx_overflow_irq"}, {
-	"rx_buf_unav_irq"}, {
-	"rx_process_stopped_irq"}, {
-	"rx_watchdog_irq"}, {
-	"tx_early_irq"}, {
-	"fatal_bus_error_irq"}, {
-	"threshold"}, {
-	"poll_n"}, {
-	"tx_pkt_n"}, {
-"rx_pkt_n"},};
-
-static int stmmac_stats_count(struct net_device *dev)
-{
-	return EXTRA_STATS;
-}
-
-static void stmmac_ethtool_stats(struct net_device *dev,
-				 struct ethtool_stats *dummy, u64 *buf)
+static void stmmac_get_ethtool_stats(struct net_device *dev,
+				 struct ethtool_stats *dummy, u64 *data)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	unsigned long ioaddr = dev->base_addr;
-	u32 *extra;
 	int i;
 
+	/* Update HW stats if supported */
 	priv->mac_type->ops->dma_diagnostic_fr(&dev->stats, &priv->xstats,
 					       ioaddr);
-	extra = (u32 *) &priv->xstats;
 
-	for (i = 0; i < EXTRA_STATS; i++)
-		buf[i] = extra[i];
+	for (i = 0; i < STMMAC_STATS_LEN; i++) {
+		char *p = (char *)priv + stmmac_gstrings_stats[i].stat_offset;
+		data[i] = (stmmac_gstrings_stats[i].sizeof_stat ==
+		sizeof(u64)) ? (*(u64 *)p) : (*(u32 *)p);
+	}
+
 	return;
 }
 
-static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 *buf)
+static int stmmac_get_sset_count(struct net_device *netdev, int sset)
 {
+	switch (sset) {
+	case ETH_SS_STATS:
+		return STMMAC_STATS_LEN;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 *data)
+{
+	int i;
+	u8 *p = data;
+
 	switch (stringset) {
 	case ETH_SS_STATS:
-		memcpy(buf, &ethtool_stats_keys, sizeof(ethtool_stats_keys));
+		for (i = 0; i < STMMAC_STATS_LEN; i++) {
+			memcpy(p, stmmac_gstrings_stats[i].stat_string,
+				ETH_GSTRING_LEN);
+			p += ETH_GSTRING_LEN;
+		}
 		break;
 	default:
 		WARN_ON(1);
@@ -349,17 +374,17 @@ static struct ethtool_ops stmmac_ethtool_ops = {
 	.set_tx_csum = stmmac_ethtool_set_tx_csum,
 	.get_sg = ethtool_op_get_sg,
 	.set_sg = ethtool_op_set_sg,
+	.get_pauseparam = stmmac_get_pauseparam,
+	.set_pauseparam = stmmac_set_pauseparam,
+	.get_ethtool_stats = stmmac_get_ethtool_stats,
+	.get_strings = stmmac_get_strings,
+	.get_wol = stmmac_get_wol,
+	.set_wol = stmmac_set_wol,
+	.get_sset_count	= stmmac_get_sset_count,
 #ifdef NETIF_F_TSO
 	.get_tso = ethtool_op_get_tso,
 	.set_tso = ethtool_op_set_tso,
 #endif
-	.get_pauseparam = stmmac_get_pauseparam,
-	.set_pauseparam = stmmac_set_pauseparam,
-	.get_ethtool_stats = stmmac_ethtool_stats,
-	.get_stats_count = stmmac_stats_count,
-	.get_strings = stmmac_get_strings,
-	.get_wol = stmmac_get_wol,
-	.set_wol = stmmac_set_wol,
 };
 
 void stmmac_set_ethtool_ops(struct net_device *netdev)

@@ -90,12 +90,12 @@ static int phyaddr = -1;
 module_param(phyaddr, int, S_IRUGO);
 MODULE_PARM_DESC(phyaddr, "Physical device address");
 
-#define DMA_TX_SIZE 128
+#define DMA_TX_SIZE 256
 static int dma_txsize = DMA_TX_SIZE;
 module_param(dma_txsize, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(dma_txsize, "Number of descriptors in the TX list");
 
-#define DMA_RX_SIZE 128
+#define DMA_RX_SIZE 256
 static int dma_rxsize = DMA_RX_SIZE;
 module_param(dma_rxsize, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(dma_rxsize, "Number of descriptors in the RX list");
@@ -1242,11 +1242,14 @@ static int stmmac_sw_tso(struct stmmac_priv *priv, struct sk_buff *skb)
 	int gso_segs = skb_shinfo(skb)->gso_segs;
 
 	/* Estimate the number of fragments in the worst case */
-	if (unlikely(stmmac_tx_avail(priv) <= gso_segs * 3)) {
+	if (unlikely(stmmac_tx_avail(priv) < gso_segs)) {
 		netif_stop_queue(priv->dev);
 		pr_err("%s: TSO BUG! Tx Ring full when queue awake\n",
 		       __func__);
-		return NETDEV_TX_BUSY;
+		if (stmmac_tx_avail(priv) < gso_segs)
+			return NETDEV_TX_BUSY;
+
+		netif_wake_queue(priv->dev);
 	}
 #ifdef STMMAC_XMIT_DEBUG
 	pr_debug("\tstmmac_sw_tso: segmenting: skb %p (len %d)\n",

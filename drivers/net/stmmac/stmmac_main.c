@@ -71,6 +71,11 @@
 
 #undef STMMAC_XMIT_DEBUG
 /*#define STMMAC_XMIT_DEBUG*/
+#ifdef STMMAC_TX_DEBUG
+#define TX_DBG(fmt, args...)  printk(fmt, ## args)
+#else
+#define TX_DBG(fmt, args...)  do { } while (0)
+#endif
 
 #define STMMAC_ALIGN(x)	L1_CACHE_ALIGN(x)
 #define STMMAC_IP_ALIGN NET_IP_ALIGN
@@ -1099,8 +1104,7 @@ static int stmmac_open(struct net_device *dev)
 	ret = request_irq(dev->irq, &stmmac_interrupt,
 			  IRQF_SHARED, dev->name, dev);
 	if (unlikely(ret < 0)) {
-		printk(KERN_ERR
-		       "%s: ERROR: allocating the IRQ %d (error: %d)\n",
+		pr_err("%s: ERROR: allocating the IRQ %d (error: %d)\n",
 		       __func__, dev->irq, ret);
 		return ret;
 	}
@@ -1244,17 +1248,15 @@ static int stmmac_sw_tso(struct stmmac_priv *priv, struct sk_buff *skb)
 	/* Estimate the number of fragments in the worst case */
 	if (unlikely(stmmac_tx_avail(priv) < gso_segs)) {
 		netif_stop_queue(priv->dev);
-		pr_err("%s: TSO BUG! Tx Ring full when queue awake\n",
+		TX_DBG(KERN_ERR "%s: TSO BUG! Tx Ring full when queue awake\n",
 		       __func__);
 		if (stmmac_tx_avail(priv) < gso_segs)
 			return NETDEV_TX_BUSY;
 
 		netif_wake_queue(priv->dev);
 	}
-#ifdef STMMAC_XMIT_DEBUG
-	pr_debug("\tstmmac_sw_tso: segmenting: skb %p (len %d)\n",
+	TX_DBG("\tstmmac_sw_tso: segmenting: skb %p (len %d)\n",
 	       skb, skb->len);
-#endif
 
 	segs = skb_gso_segment(skb, priv->dev->features & ~NETIF_F_TSO);
 	if (unlikely(IS_ERR(segs)))
@@ -1263,10 +1265,8 @@ static int stmmac_sw_tso(struct stmmac_priv *priv, struct sk_buff *skb)
 	do {
 		curr_skb = segs;
 		segs = segs->next;
-#ifdef STMMAC_XMIT_DEBUG
-		pr_debug("\t\tcurrent skb->len: %d, *curr %p,"
+		TX_DBG("\t\tcurrent skb->len: %d, *curr %p,"
 		       "*next %p\n", curr_skb->len, curr_skb, segs);
-#endif
 		curr_skb->next = NULL;
 		stmmac_xmit(curr_skb, priv->dev);
 	} while (segs);
@@ -1275,9 +1275,7 @@ static int stmmac_sw_tso(struct stmmac_priv *priv, struct sk_buff *skb)
 	return NETDEV_TX_OK;
 
 drop:
-#ifdef STMMAC_XMIT_DEBUG
-	pr_debug("\t\tdropped!\n");
-#endif
+	TX_DBG("\t\tdropped!\n");
 	priv->dev->stats.tx_dropped += 1;
 	dev_kfree_skb(skb);
 	return NETDEV_TX_OK;
@@ -1412,9 +1410,7 @@ static int stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		entry = (++priv->cur_tx) % txsize;
 		desc = priv->dma_tx + entry;
 
-#ifdef STMMAC_XMIT_DEBUG
-		pr_info("\t[entry %d] segment len: %d\n", entry, len);
-#endif
+		TX_DBG("\t[entry %d] segment len: %d\n", entry, len);
 		desc->des2 = dma_map_page(priv->device, frag->page,
 					  frag->page_offset,
 					  len, DMA_TO_DEVICE);
@@ -1497,7 +1493,7 @@ static inline void stmmac_rx_refill(struct net_device *dev)
 					(p + entry)->des3 =
 					    (p + entry)->des2 + BUF_SIZE_8KiB;
 			}
-			RX_DBG("\trefill entry #%d\n", entry);
+			RX_DBG(KERN_INFO "\trefill entry #%d\n", entry);
 		}
 		priv->mac_type->ops->set_rx_owner(p + entry);
 	}
@@ -1731,8 +1727,7 @@ static int stmmac_change_mtu(struct net_device *dev, int new_mtu)
 	int max_mtu;
 
 	if (netif_running(dev)) {
-		printk(KERN_ERR
-		       "%s: must be stopped to change its MTU\n", dev->name);
+		pr_err("%s: must be stopped to change its MTU\n", dev->name);
 		return -EBUSY;
 	}
 
@@ -1742,8 +1737,7 @@ static int stmmac_change_mtu(struct net_device *dev, int new_mtu)
 		max_mtu = ETH_DATA_LEN;
 
 	if ((new_mtu < 46) || (new_mtu > max_mtu)) {
-		printk(KERN_ERR
-		       "%s: invalid MTU, max MTU is: %d\n", dev->name, max_mtu);
+		pr_err("%s: invalid MTU, max MTU is: %d\n", dev->name, max_mtu);
 		return -EINVAL;
 	}
 

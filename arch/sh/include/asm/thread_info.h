@@ -116,13 +116,13 @@ extern void free_thread_info(struct thread_info *ti);
 #define TIF_SYSCALL_AUDIT	5	/* syscall auditing active */
 #define TIF_SECCOMP		6	/* secure computing */
 #define TIF_NOTIFY_RESUME	7	/* callback before returning to user */
-#define TIF_UAC_NOPRINT		8	/* Unaligned Access control flags ...*/
-#define TIF_UAC_SIGBUS		9
-#define TIF_UAC_NOFIX		10
 #define TIF_USEDFPU		16	/* FPU was used by this task this quantum (SMP) */
 #define TIF_POLLING_NRFLAG	17	/* true if poll_idle() is polling TIF_NEED_RESCHED */
 #define TIF_MEMDIE		18
 #define TIF_FREEZE		19	/* Freezing for suspend */
+#define TIF_UAC_NOPRINT		20	/* PR_UNALIGN_NOPRINT (1) */
+#define TIF_UAC_SIGBUS		21	/* PR_UNALIGN_SIGBUS (2) */
+
 
 #define _TIF_SYSCALL_TRACE	(1 << TIF_SYSCALL_TRACE)
 #define _TIF_SIGPENDING		(1 << TIF_SIGPENDING)
@@ -132,12 +132,11 @@ extern void free_thread_info(struct thread_info *ti);
 #define _TIF_SYSCALL_AUDIT	(1 << TIF_SYSCALL_AUDIT)
 #define _TIF_SECCOMP		(1 << TIF_SECCOMP)
 #define _TIF_NOTIFY_RESUME	(1 << TIF_NOTIFY_RESUME)
-#define _TIF_UAC_SIGBUS		(1<<TIF_UAC_SIGBUS)
-#define _TIF_UAC_NOPRINT	(1<<TIF_UAC_NOPRINT)
-#define _TIF_UAC_NOFIX		(1<<TIF_UAC_NOFIX)
 #define _TIF_USEDFPU		(1 << TIF_USEDFPU)
 #define _TIF_POLLING_NRFLAG	(1 << TIF_POLLING_NRFLAG)
 #define _TIF_FREEZE		(1 << TIF_FREEZE)
+#define _TIF_UAC_NOPRINT	(1 << TIF_UAC_NOPRINT)
+#define _TIF_UAC_SIGBUS		(1 << TIF_UAC_SIGBUS)
 
 /*
  * _TIF_ALLWORK_MASK and _TIF_WORK_MASK need to fit within a byte, or we

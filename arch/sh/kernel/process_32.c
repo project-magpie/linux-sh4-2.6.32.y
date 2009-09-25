@@ -213,6 +213,8 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 	} else {
 		childregs->regs[15] = (unsigned long)childregs;
 		ti->addr_limit = KERNEL_DS;
+		clear_thread_flag(TIF_USEDFPU);
+		p->fpu_counter = 0;
 	}
 
 	if (clone_flags & CLONE_SETTLS)

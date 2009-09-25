@@ -1809,7 +1809,7 @@ static void init_syscall_logging(void)
 	INIT_SYSCALL_PROBE(sys_getegid16);
 	INIT_SYSCALL_PROBE(sys_acct);
 	INIT_SYSCALL_PROBE(sys_umount);
-	INIT_CUSTOM_SYSCALL_PROBE(sys_ioctl, syscall_iihh_pre_handler);
+	INIT_CUSTOM_SYSCALL_PROBE(sys_ioctl, syscall_ihhh_pre_handler);
 	INIT_SYSCALL_PROBE(sys_fcntl);
 	INIT_SYSCALL_PROBE(sys_setpgid);
 	INIT_SYSCALL_PROBE(sys_umask);

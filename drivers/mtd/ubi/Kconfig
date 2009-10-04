@@ -1,5 +1,3 @@
-# drivers/mtd/ubi/Kconfig
-
 menuconfig MTD_UBI
 	tristate "Enable UBI - Unsorted block images"
 	select CRC32

@@ -1563,10 +1563,6 @@ static int stmmac_rx(struct net_device *dev, int limit)
 			}
 #endif
 			skb->protocol = eth_type_trans(skb, dev);
-			if (status == csum_none)
-				skb->ip_summed = CHECKSUM_NONE;
-			else
-				skb->ip_summed = CHECKSUM_UNNECESSARY;
 
 #ifdef STMMAC_VLAN_TAG_USED
 			if ((priv->vlgrp != NULL) && (priv->is_gmac) &&
@@ -1577,7 +1573,14 @@ static int stmmac_rx(struct net_device *dev, int limit)
 			}
 			/*FIXME*/
 #endif
-			    netif_receive_skb(skb);
+			if (unlikely(status == csum_none)) {
+				/* always for the old mac 10/100 */
+				skb->ip_summed = CHECKSUM_NONE;
+				netif_receive_skb(skb);
+			} else {
+				skb->ip_summed = CHECKSUM_UNNECESSARY;
+				napi_gro_receive(&priv->napi, skb);
+			}
 
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += frame_len;

@@ -455,6 +455,13 @@ struct netdev_queue {
 	spinlock_t		_xmit_lock;
 	int			xmit_lock_owner;
 	struct Qdisc		*qdisc_sleeping;
+	/*
+	 * please use this field instead of dev->trans_start
+	 */
+	unsigned long		trans_start;
+	unsigned long		tx_bytes;
+	unsigned long		tx_packets;
+	unsigned long		tx_dropped;
 } ____cacheline_aligned_in_smp;
 
 

@@ -330,7 +330,7 @@ static void stmmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 
 	spin_lock_irq(&priv->lock);
 	if (priv->wolenabled == PMT_SUPPORTED) {
-		wol->supported = WAKE_MAGIC /*| WAKE_UCAST */ ;
+		wol->supported = WAKE_MAGIC;
 		wol->wolopts = priv->wolopts;
 	}
 	spin_unlock_irq(&priv->lock);

@@ -23,9 +23,9 @@ config STMMAC_DUAL_MAC
 	default n
         depends on EXPERIMENTAL && STMMAC_ETH && !STMMAC_TIMER
 	help
-	  Some ST SoCs (for example: stx7141 and stx7200c2) have two
+	  Some ST SoCs (for example the stx7141 and stx7200c2) have two
 	  Ethernet Controllers. This option turns on the second Ethernet
-	  on this kind of platforms.
+	  device on this kind of platforms.
 
 config STMMAC_TIMER
 	bool "STMMAC Timer optimisation"

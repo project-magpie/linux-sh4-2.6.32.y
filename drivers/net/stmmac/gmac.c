@@ -689,8 +689,7 @@ struct mac_device_info *gmac_setup(unsigned long ioaddr)
 	pr_info("\tGMAC - user ID: 0x%x, Synopsys ID: 0x%x\n",
 	       ((uid & 0x0000ff00) >> 8), (uid & 0x000000ff));
 
-	mac = kmalloc(sizeof(const struct mac_device_info), GFP_KERNEL);
-	memset(mac, 0, sizeof(struct mac_device_info));
+	mac = kzalloc(sizeof(const struct mac_device_info), GFP_KERNEL);
 
 	mac->ops = &gmac_driver;
 	mac->hw.pmt = PMT_SUPPORTED;

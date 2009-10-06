@@ -1882,7 +1882,7 @@ static int stmmac_probe(struct net_device *dev)
  * @dev : device pointer
  * Description: select and initialise the mac device (mac100 or Gmac).
  */
-static void stmmac_mac_device_setup(struct net_device *dev)
+static int stmmac_mac_device_setup(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	unsigned long ioaddr = dev->base_addr;
@@ -1894,13 +1894,16 @@ static void stmmac_mac_device_setup(struct net_device *dev)
 	else
 		device = mac100_setup(ioaddr);
 
+	if (!device)
+		return -ENOMEM;
+
 	priv->mac_type = device;
 
 	priv->wolenabled = priv->mac_type->hw.pmt;	/* PMT supported */
 	if (priv->wolenabled == PMT_SUPPORTED)
 		priv->wolopts = WAKE_MAGIC;		/* Magic Frame */
 
-	return;
+	return 0;
 }
 
 static int stmmacphy_dvr_probe(struct platform_device *pdev)
@@ -2041,7 +2044,9 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	ndev->base_addr = (unsigned long)addr;
 
 	/* MAC HW revice detection */
-	stmmac_mac_device_setup(ndev);
+	ret = stmmac_mac_device_setup(ndev);
+	if (ret < 0)
+		goto out;
 
 	/* Network Device Registration */
 	ret = stmmac_probe(ndev);

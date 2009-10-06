@@ -511,8 +511,7 @@ struct mac_device_info *mac100_setup(unsigned long ioaddr)
 {
 	struct mac_device_info *mac;
 
-	mac = kmalloc(sizeof(const struct mac_device_info), GFP_KERNEL);
-	memset(mac, 0, sizeof(struct mac_device_info));
+	mac = kzalloc(sizeof(const struct mac_device_info), GFP_KERNEL);
 
 	pr_info("\tMAC 10/100\n");
 

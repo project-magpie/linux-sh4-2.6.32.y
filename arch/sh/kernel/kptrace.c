@@ -80,7 +80,7 @@ static int user_stopon;
 static int user_starton;
 static int timestamping_enabled = 1;
 static int stackdepth = 16;
-static const int interface_version = 1;
+static const int interface_version = 2;
 
 /* relay data */
 static struct rchan *chan;
@@ -320,21 +320,51 @@ static ssize_t kptrace_configured_store_attrs(struct sys_device *device,
 }
 
 static ssize_t kptrace_version_show_attrs(struct sys_device *device,
-					     struct sysdev_attribute *attr,
-					     char *buffer)
+					  struct sysdev_attribute *attr,
+					  char *buffer)
 {
-	return snprintf(buffer, PAGE_SIZE, "%d\n",
-			interface_version);
+	return snprintf(buffer, PAGE_SIZE, "%d\n", interface_version);
 }
 
 static ssize_t kptrace_version_store_attrs(struct sys_device *device,
-					      struct sysdev_attribute *attr,
-					      const char *buffer, size_t size)
+					   struct sysdev_attribute *attr,
+					   const char *buffer, size_t size)
 {
 	/* Nothing happens */
 	return size;
 }
 
+static ssize_t kptrace_pause_show_attrs(struct sys_device *device,
+					struct sysdev_attribute *attr,
+					char *buffer)
+{
+	return snprintf(buffer, PAGE_SIZE,
+			"Write to this file to pause tracing\n");
+}
+
+static ssize_t kptrace_pause_store_attrs(struct sys_device *device,
+					 struct sysdev_attribute *attr,
+					 const char *buffer, size_t size)
+{
+	kptrace_pause();
+	return size;
+}
+
+static ssize_t kptrace_restart_show_attrs(struct sys_device *device,
+					  struct sysdev_attribute *attr,
+					  char *buffer)
+{
+	return snprintf(buffer, PAGE_SIZE,
+			"Write to this file to restart tracing\n");
+}
+
+static ssize_t kptrace_restart_store_attrs(struct sys_device *device,
+					   struct sysdev_attribute *attr,
+					   const char *buffer, size_t size)
+{
+	kptrace_restart();
+	return size;
+}
 
 static ssize_t user_show_attrs(struct kobject *kobj, struct attribute *attr,
 			       char *buffer)
@@ -477,7 +507,10 @@ SYSDEV_ATTR(stackdepth, S_IRUGO | S_IWUSR, kptrace_stackdepth_show_attrs,
 	    kptrace_stackdepth_store_attrs);
 SYSDEV_ATTR(version, S_IRUGO | S_IWUSR, kptrace_version_show_attrs,
 	    kptrace_version_store_attrs);
-
+SYSDEV_ATTR(pause, S_IRUGO | S_IWUSR, kptrace_pause_show_attrs,
+	    kptrace_pause_store_attrs);
+SYSDEV_ATTR(restart, S_IRUGO | S_IWUSR, kptrace_restart_show_attrs,
+	    kptrace_restart_store_attrs);
 
 static struct sys_device kptrace_device = {
 	.id = 0,
@@ -515,9 +548,11 @@ struct kobj_type userspace_type = {
 static tracepoint_t *__create_tracepoint(tracepoint_set_t * set,
 					 const char *name,
 					 int (*entry_handler) (struct kprobe *,
-							struct pt_regs *),
+							struct pt_regs
+							*),
 					 int (*return_handler) (struct
-							kretprobe_instance *,
+							kretprobe_instance
+							*,
 							struct pt_regs
 							*),
 					 int late_tracepoint)
@@ -606,10 +641,14 @@ static tracepoint_t *create_late_tracepoint(tracepoint_set_t * set,
 					    const char *name,
 					    int (*entry_handler) (struct
 							kprobe *,
-							struct pt_regs *),
+							struct pt_regs
+							*),
 					    int (*return_handler) (struct
-							kretprobe_instance *,
-							struct pt_regs *))
+							kretprobe_instance
+							*,
+							struct
+							pt_regs
+							*))
 {
 	return __create_tracepoint(set, name, entry_handler, return_handler, 1);
 }
@@ -1692,6 +1731,8 @@ static int create_sysfs_tree(void)
 	sysdev_create_file(&kptrace_device, &attr_configured);
 	sysdev_create_file(&kptrace_device, &attr_stackdepth);
 	sysdev_create_file(&kptrace_device, &attr_version);
+	sysdev_create_file(&kptrace_device, &attr_pause);
+	sysdev_create_file(&kptrace_device, &attr_restart);
 
 	user_set = kzalloc(sizeof(*user_set), GFP_KERNEL);
 	if (!user_set) {

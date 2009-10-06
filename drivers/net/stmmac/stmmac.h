@@ -86,7 +86,6 @@ struct stmmac_priv {
 	int wolopts;
 	int wolenabled;
 	int shutdown;
-	int vlan_rx_filter;
 #ifdef CONFIG_STMMAC_TIMER
 	struct stmmac_timer *tm;
 #endif

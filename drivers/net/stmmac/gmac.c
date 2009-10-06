@@ -235,10 +235,12 @@ static int gmac_get_tx_frame_status(void *data, struct stmmac_extra_stats *x,
 		DBG(KERN_INFO "GMAC TX status: tx deferred\n");
 		x->tx_deferred++;
 	}
+#ifdef STMMAC_VLAN_TAG_USED
 	if (p->des01.etx.vlan_frame) {
 		DBG(KERN_INFO "GMAC TX status: VLAN frame\n");
 		x->tx_vlan++;
 	}
+#endif
 
 	return ret;
 }
@@ -359,6 +361,12 @@ static int gmac_get_rx_frame_status(void *data, struct stmmac_extra_stats *x,
 		x->rx_lenght++;
 		ret = discard_frame;
 	}
+#ifdef STMMAC_VLAN_TAG_USED
+	if (p->des01.erx.vlan_tag) {
+		DBG(KERN_INFO "GMAC RX: VLAN frame tagged\n");
+		x->rx_vlan++;
+	}
+#endif
 	return ret;
 }
 
@@ -421,33 +429,11 @@ static void gmac_get_umac_addr(unsigned long ioaddr, unsigned char *addr,
 				GMAC_ADDR_LOW(reg_n));
 }
 
-#ifdef STMMAC_VLAN_TAG_USED
-static void gmac_vlan_filter(struct net_device *dev)
-{
-	struct stmmac_priv *priv = netdev_priv(dev);
-	/*unsigned long ioaddr = dev->base_addr;*/
-
-	if ((priv->vlan_rx_filter) && (priv->vlgrp)) {
-		int vid;
-
-		for (vid = 0; vid < VLAN_VID_MASK; vid++)
-			if (vlan_group_get_device(priv->vlgrp, vid))
-				DBG(KERN_INFO "GMAC: VLAN RX filter: vid: %d"
-					"Reg7: 0x%x\n", vid, value);
-			/*FIXME: due to some HW limits...*/
-	}
-	return;
-}
-#endif
-
 static void gmac_set_filter(struct net_device *dev)
 {
 	unsigned long ioaddr = dev->base_addr;
 	unsigned int value = 0;
 
-#ifdef STMMAC_VLAN_TAG_USED
-	gmac_vlan_filter(dev);
-#endif
 	DBG(KERN_INFO "%s: # mcasts %d, # unicast %d\n",
 	    __func__, dev->mc_count, dev->uc_count);
 

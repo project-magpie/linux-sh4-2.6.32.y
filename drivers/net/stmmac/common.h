@@ -76,9 +76,6 @@
 
 /* DMA default interrupt mask */
 #define DMA_INTR_DEFAULT_MASK	(DMA_INTR_NORMAL | DMA_INTR_ABNORMAL)
-/* Disable DMA Rx IRQ (NAPI) */
-#define DMA_INTR_NO_RX	(DMA_INTR_ENA_NIE | DMA_INTR_ENA_TIE | \
-			DMA_INTR_ENA_TUE | DMA_INTR_ABNORMAL)
 
 /* ****************************
  *  DMA Status register defines

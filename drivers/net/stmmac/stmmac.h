@@ -40,7 +40,6 @@ struct stmmac_priv {
 	unsigned int cur_tx;
 	unsigned int dirty_tx;
 	unsigned int dma_tx_size;
-	spinlock_t tx_lock;
 	int tx_coe;
 	int tx_coalesce;
 

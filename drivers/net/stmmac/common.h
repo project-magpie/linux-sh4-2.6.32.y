@@ -192,8 +192,10 @@ struct stmmac_extra_stats {
 	/* Extra info */
 	unsigned long threshold;
 	unsigned long tx_pkt_n;
-	unsigned long poll_n;
 	unsigned long rx_pkt_n;
+	unsigned long poll_n;
+	unsigned long sched_timer_n;
+	unsigned long normal_irq_n;
 };
 
 /* GMAC core can compute the checksums in HW. */
@@ -253,7 +255,8 @@ struct stmmac_ops {
 	void (*dma_diagnostic_fr) (void *data, struct stmmac_extra_stats *x,
 				   unsigned long ioaddr);
 	/* RX descriptor ring initialization */
-	void (*init_rx_desc) (struct dma_desc *p, unsigned int ring_size);
+	void (*init_rx_desc) (struct dma_desc *p, unsigned int ring_size,
+				int disable_rx_ic);
 	/* TX descriptor ring initialization */
 	void (*init_tx_desc) (struct dma_desc *p, unsigned int ring_size);
 
@@ -279,9 +282,6 @@ struct stmmac_ops {
 	int (*get_tx_len) (struct dma_desc *p);
 	/* Handle extra events on specific interrupts hw dependent */
 	void (*host_irq_status) (unsigned long ioaddr);
-	/* Interrupt after this number of packets have arrived. */
-	void (*disable_rx_ic) (struct dma_desc *p, unsigned int ring_size,
-			       int disable_ic);
 	int (*get_rx_owner) (struct dma_desc *p);
 	void (*set_rx_owner) (struct dma_desc *p);
 	/* Get the receive frame size */

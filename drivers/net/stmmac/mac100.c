@@ -365,7 +365,8 @@ static void mac100_pmt(unsigned long ioaddr, unsigned long mode)
 	return;
 }
 
-static void mac100_init_rx_desc(struct dma_desc *p, unsigned int ring_size)
+static void mac100_init_rx_desc(struct dma_desc *p, unsigned int ring_size,
+				int disable_rx_ic)
 {
 	int i;
 	for (i = 0; i < ring_size; i++) {
@@ -373,17 +374,7 @@ static void mac100_init_rx_desc(struct dma_desc *p, unsigned int ring_size)
 		p->des01.rx.buffer1_size = BUF_SIZE_2KiB - 1;
 		if (i == ring_size - 1)
 			p->des01.rx.end_ring = 1;
-		p++;
-	}
-	return;
-}
-
-static void mac100_disable_rx_ic(struct dma_desc *p, unsigned int ring_size,
-				 int disable_ic)
-{
-	int i;
-	for (i = 0; i < ring_size; i++) {
-		if (i % disable_ic)
+		if (disable_rx_ic)
 			p->des01.rx.disable_ic = 1;
 		p++;
 	}
@@ -502,7 +493,6 @@ struct stmmac_ops mac100_driver = {
 	.set_rx_owner = mac100_set_rx_owner,
 	.get_rx_frame_len = mac100_get_rx_frame_len,
 	.host_irq_status = mac100_irq_status,
-	.disable_rx_ic = mac100_disable_rx_ic,
 	.set_umac_addr = mac100_set_umac_addr,
 	.get_umac_addr = mac100_get_umac_addr,
 };

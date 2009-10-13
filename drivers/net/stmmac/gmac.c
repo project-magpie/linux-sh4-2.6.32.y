@@ -544,7 +544,8 @@ static void gmac_pmt(unsigned long ioaddr, unsigned long mode)
 	return;
 }
 
-static void gmac_init_rx_desc(struct dma_desc *p, unsigned int ring_size)
+static void gmac_init_rx_desc(struct dma_desc *p, unsigned int ring_size,
+				int disable_rx_ic)
 {
 	int i;
 	for (i = 0; i < ring_size; i++) {
@@ -554,17 +555,7 @@ static void gmac_init_rx_desc(struct dma_desc *p, unsigned int ring_size)
 		p->des01.erx.buffer2_size = BUF_SIZE_8KiB - 1;
 		if (i == ring_size - 1)
 			p->des01.erx.end_ring = 1;
-		p++;
-	}
-	return;
-}
-
-static void gmac_disable_rx_ic(struct dma_desc *p, unsigned int ring_size,
-			       int disable_ic)
-{
-	int i;
-	for (i = 0; i < ring_size; i++) {
-		if (i % disable_ic)
+		if (disable_rx_ic)
 			p->des01.erx.disable_ic = 1;
 		p++;
 	}
@@ -676,7 +667,6 @@ struct stmmac_ops gmac_driver = {
 	.set_rx_owner = gmac_set_rx_owner,
 	.get_rx_frame_len = gmac_get_rx_frame_len,
 	.host_irq_status = gmac_irq_status,
-	.disable_rx_ic = gmac_disable_rx_ic,
 	.set_umac_addr = gmac_set_umac_addr,
 	.get_umac_addr = gmac_get_umac_addr,
 };

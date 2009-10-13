@@ -80,9 +80,11 @@ static const struct  stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(tx_early_irq),
 	STMMAC_STAT(fatal_bus_error_irq),
 	STMMAC_STAT(threshold),
-	STMMAC_STAT(poll_n),
 	STMMAC_STAT(tx_pkt_n),
 	STMMAC_STAT(rx_pkt_n),
+	STMMAC_STAT(poll_n),
+	STMMAC_STAT(sched_timer_n),
+	STMMAC_STAT(normal_irq_n),
 };
 #define STMMAC_STATS_LEN ARRAY_SIZE(stmmac_gstrings_stats)
 

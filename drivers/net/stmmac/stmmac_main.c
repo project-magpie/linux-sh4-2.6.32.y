@@ -121,16 +121,6 @@ MODULE_PARM_DESC(tc, "DMA threshold control value");
 #define RX_NO_COALESCE	1	/* Always interrupt on completion */
 #define TX_NO_COALESCE	-1	/* No moderation by default */
 
-/* It makes sense to combine interrupt coalescence when the timer is enabled
- * to avoid adverse effects on timing and make safe the TCP traffic.*/
-static int rx_coalesce = RX_NO_COALESCE;
-module_param(rx_coalesce, int, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(rx_coalesce, "Rx irq coalescence parameter");
-
-static int tx_coalesce = TX_NO_COALESCE;
-module_param(tx_coalesce, int, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(tx_coalesce, "Tx irq coalescence parameter");
-
 /* Pay attention to tune this parameter; take care of both
  * hardware capability and network stabitily/performance impact.
  * Many tests showed that ~4ms latency seems to be good enough. */
@@ -161,42 +151,6 @@ static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
 static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev);
 
 /**
- * stmmac_init_coalescence - initialise the coalescence parameters
- * @gmac: device type.
- * @mtu: Maximum Transfer Unit.
- * Description: this function initialises the coalescence parameters
- * used for mitigating the transmit and receive interrupts.
- * These default has been selected after performing several benchmark on
- * ST embedded platform. They try to reduce the CPU usage and
- * maximise the throughput. GMAC and MAC10/100 use different setting.
- * TODO: dynamic setting.
- */
-static void stmmac_init_coalescence(int gmac, int mtu)
-{
-#ifdef CONFIG_STMMAC_TIMER
-	/* Skip the default in case we pass rx/tx_coalesce. */
-	if ((rx_coalesce != RX_NO_COALESCE) || (tx_coalesce != TX_NO_COALESCE))
-		return;
-
-	if (gmac) {
-		rx_coalesce = 32;
-		tx_coalesce = 64;
-
-		if (unlikely(mtu > ETH_DATA_LEN)) {
-			/* Tests on oversized frames showed that it's better to
-			 * reduce the coalescence values to get the max
-			 * throughput. */
-			rx_coalesce = 4;
-			tx_coalesce = 4;
-		}
-	} else {
-		rx_coalesce = 16;
-		tx_coalesce = 32;
-	}
-#endif
-}
-
-/**
  * stmmac_verify_args - verify the driver parameters.
  * Description: it verifies if some wrong parameter is passed to the driver.
  * Note that wrong parameters are replaced with the default values.
@@ -209,10 +163,6 @@ static void stmmac_verify_args(void)
 		dma_rxsize = DMA_RX_SIZE;
 	if (unlikely(dma_txsize < 0))
 		dma_txsize = DMA_TX_SIZE;
-	if (unlikely(tx_coalesce >= (dma_txsize)))
-		tx_coalesce = TX_NO_COALESCE;
-	if (unlikely(rx_coalesce > (dma_rxsize)))
-		rx_coalesce = RX_NO_COALESCE;
 	if (unlikely((buf_sz < DMA_BUFFER_SIZE) || (buf_sz > BUF_SIZE_16KiB)))
 		buf_sz = DMA_BUFFER_SIZE;
 	if (unlikely(flow_ctrl > 1))
@@ -240,7 +190,9 @@ static void print_pkt(unsigned char *buf, int len)
 }
 #endif
 
-#define STMMAC_TX_THRESH	(MAX_SKB_FRAGS + 1)
+/* minimum number of free TX descriptors required to wake up TX process */
+#define STMMAC_TX_THRESH(x)	(x->dma_tx_size/4)
+
 static inline u32 stmmac_tx_avail(struct stmmac_priv *priv)
 {
 	return priv->dirty_tx + priv->dma_tx_size - priv->cur_tx - 1;
@@ -466,7 +418,12 @@ static void init_dma_desc_rings(struct net_device *dev)
 	unsigned int rxsize = priv->dma_rx_size;
 	unsigned int bfsize = priv->dma_buf_sz;
 	int buff2_needed = 0;
+	int dis_ic = 0;
 
+#ifdef CONFIG_STMMAC_TIMER
+	/* Using Timers disable interrupts on completion for the reception */
+	dis_ic = 1;
+#endif
 	/* Set the Buffer size according to the MTU;
 	 * indeed, in case of jumbo we need to bump-up the buffer sizes.
 	 */
@@ -556,8 +513,7 @@ static void init_dma_desc_rings(struct net_device *dev)
 	priv->cur_tx = 0;
 
 	/* Clear the Rx/Tx descriptors */
-	priv->mac_type->ops->init_rx_desc(priv->dma_rx, rxsize);
-	priv->mac_type->ops->disable_rx_ic(priv->dma_rx, rxsize, rx_coalesce);
+	priv->mac_type->ops->init_rx_desc(priv->dma_rx, rxsize, dis_ic);
 	priv->mac_type->ops->init_tx_desc(priv->dma_tx, txsize);
 
 	if (netif_msg_hw(priv)) {
@@ -789,17 +745,18 @@ static void stmmac_tx(struct stmmac_priv *priv)
 {
 	unsigned int txsize = priv->dma_tx_size;
 	unsigned long ioaddr = priv->dev->base_addr;
-	unsigned int entry = priv->dirty_tx % txsize;
 
 	while (priv->dirty_tx != priv->cur_tx) {
 		int last;
+		unsigned int entry = priv->dirty_tx % txsize;
 		struct sk_buff *skb = priv->tx_skbuff[entry];
 		struct dma_desc *p = priv->dma_tx + entry;
 
+		/* Check if the descriptor is owned by the DMA. */
 		if (priv->mac_type->ops->get_tx_owner(p))
 			break;
 
-		/* verify tx error by looking at the last segment */
+		/* Verify tx error by looking at the last segment */
 		last = priv->mac_type->ops->get_tx_ls(p);
 		if (likely(last)) {
 			int tx_error =
@@ -812,8 +769,8 @@ static void stmmac_tx(struct stmmac_priv *priv)
 			} else
 				priv->dev->stats.tx_errors++;
 		}
-		DBG(intr, DEBUG, "stmmac_tx: curr %d, dirty %d\n",
-		    priv->cur_tx, priv->dirty_tx);
+		TX_DBG("%s: curr %d, dirty %d\n", __func__,
+			priv->cur_tx, priv->dirty_tx);
 
 		if (likely(p->des2))
 			dma_unmap_single(priv->device, p->des2,
@@ -822,7 +779,7 @@ static void stmmac_tx(struct stmmac_priv *priv)
 		if (unlikely(p->des3))
 			p->des3 = 0;
 
-		if (skb != NULL) {
+		if (likely(skb != NULL)) {
 			/*
 			 * If there's room in the queue (limit it to size)
 			 * we add this skb back into the pool,
@@ -843,38 +800,69 @@ static void stmmac_tx(struct stmmac_priv *priv)
 		entry = (++priv->dirty_tx) % txsize;
 	}
 	if (unlikely(netif_queue_stopped(priv->dev) &&
-		     stmmac_tx_avail(priv) > STMMAC_TX_THRESH)) {
-
+		     stmmac_tx_avail(priv) > STMMAC_TX_THRESH(priv))) {
 		netif_tx_lock(priv->dev);
 		if (netif_queue_stopped(priv->dev) &&
-		     stmmac_tx_avail(priv) > STMMAC_TX_THRESH)
+		     stmmac_tx_avail(priv) > STMMAC_TX_THRESH(priv)) {
+			TX_DBG("%s: restart transmit\n", __func__);
 			netif_wake_queue(priv->dev);
-
+		}
 		netif_tx_unlock(priv->dev);
 	}
 	return;
 }
 
+static inline void stmmac_enable_irq(struct stmmac_priv *priv)
+{
+#ifndef CONFIG_STMMAC_TIMER
+	writel(DMA_INTR_DEFAULT_MASK, priv->dev->base_addr + DMA_INTR_ENA);
+#else
+	priv->tm->timer_start(tmrate);
+#endif
+}
+
+static inline void stmmac_disable_irq(struct stmmac_priv *priv)
+{
+#ifndef CONFIG_STMMAC_TIMER
+	writel(0, priv->dev->base_addr + DMA_INTR_ENA);
+#else
+	priv->tm->timer_stop();
+#endif
+}
+
+static int stmmac_has_work(struct stmmac_priv *priv)
+{
+	unsigned int has_work = 0;
+	int rxret, tx_work = 0;
+
+	rxret = priv->mac_type->ops->get_rx_owner(priv->dma_rx +
+		(priv->cur_rx % priv->dma_rx_size));
+
+	if (priv->dirty_tx != priv->cur_tx)
+		tx_work = 1;
+
+	if (likely(!rxret || tx_work))
+		has_work = 1;
+
+	return has_work;
+}
+
 static inline void _stmmac_schedule(struct stmmac_priv *priv)
 {
-	/* Disable interrupts */
-	writel(0, priv->dev->base_addr + DMA_INTR_ENA);
-	napi_schedule(&priv->napi);
+	if (likely(stmmac_has_work(priv))) {
+		stmmac_disable_irq(priv);
+		napi_schedule(&priv->napi);
+	}
 }
 
 #ifdef CONFIG_STMMAC_TIMER
 void stmmac_schedule(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
-	unsigned int rxentry = priv->cur_rx % priv->dma_rx_size;
-	unsigned int txentry = priv->dirty_tx % priv->dma_tx_size;
-	int rxret = priv->mac_type->ops->get_rx_owner(priv->dma_rx + rxentry);
-	int txret = priv->mac_type->ops->get_tx_owner(priv->dma_tx + txentry);
 
-	if ((rxret == 0) || (txret == 0)) {
-		priv->tm->timer_stop();
-		_stmmac_schedule(priv);
-	}
+	priv->xstats.sched_timer_n++;
+
+	_stmmac_schedule(priv);
 
 	return;
 }
@@ -887,15 +875,6 @@ static void stmmac_no_timer_stopped(void)
 {;
 };
 #endif
-
-static inline void stmmac_enable_irq(struct stmmac_priv *priv)
-{
-	/* Enable interrupts */
-	writel(DMA_INTR_DEFAULT_MASK, priv->dev->base_addr + DMA_INTR_ENA);
-#ifdef CONFIG_STMMAC_TIMER
-	priv->tm->timer_start(tmrate);
-#endif
-}
 
 /**
  * stmmac_tx_err:
@@ -941,9 +920,6 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 	if (netif_msg_rx_status(priv))
 		show_rx_process_state(intr_status);
 #endif
-	/* Clear the interrupt by writing a logic 1 to the CSR5[15-0] */
-	writel((intr_status & 0x1ffff), ioaddr + DMA_STATUS);
-
 	/* ABNORMAL interrupts */
 	if (unlikely(intr_status & DMA_STATUS_AIS)) {
 		DBG(intr, INFO, "CSR5[15] DMA ABNORMAL IRQ: ");
@@ -997,14 +973,20 @@ static void stmmac_dma_interrupt(struct net_device *dev)
 	}
 
 	/* TX/RX NORMAL interrupts */
-	if (likely((intr_status & DMA_STATUS_RI) ||
-		 (intr_status & (DMA_STATUS_TI))))
-			_stmmac_schedule(priv);
+	if (intr_status & DMA_STATUS_NIS) {
+		priv->xstats.normal_irq_n++;
+		if (likely((intr_status & DMA_STATUS_RI) ||
+			 (intr_status & (DMA_STATUS_TI))))
+				_stmmac_schedule(priv);
+	}
 
 	/* Optional hardware blocks, interrupts should be disabled */
 	if (unlikely(intr_status &
 		     (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI)))
 		pr_info("%s: unexpected status %08x\n", __func__, intr_status);
+
+	/* Clear the interrupt by writing a logic 1 to the CSR5[15-0] */
+	writel((intr_status & 0x1ffff), ioaddr + DMA_STATUS);
 
 	DBG(intr, INFO, "\n\n");
 
@@ -1065,7 +1047,6 @@ static int stmmac_open(struct net_device *dev)
 	 * In case of failure continue with no timer. */
 	if (unlikely((stmmac_open_ext_timer(dev, priv->tm)) < 0)) {
 		pr_warning("stmmaceth: cannot attach the HW timer\n");
-		rx_coalesce = 1;
 		tmrate = 0;
 		priv->tm->freq = 0;
 		priv->tm->timer_start = stmmac_no_timer_started;
@@ -1092,7 +1073,6 @@ static int stmmac_open(struct net_device *dev)
 	/* Initialize the MAC Core */
 	priv->mac_type->ops->core_init(ioaddr);
 
-	priv->tx_coalesce = 0;
 	priv->shutdown = 0;
 
 	/* Initialise the MMC (if present) to disable all interrupts. */
@@ -1347,7 +1327,11 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	/* Interrupt on completition only for the latest segment */
 	priv->mac_type->ops->close_tx_desc(desc);
-	/* to avoid raise condition */
+#ifdef CONFIG_STMMAC_TIMER
+	/* Clean IC while using timers */
+	priv->mac_type->ops->clear_tx_ic(desc);
+#endif
+	/* To avoid raise condition */
 	priv->mac_type->ops->set_tx_owner(first);
 
 	priv->cur_tx++;
@@ -1363,16 +1347,9 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		print_pkt(skb->data, skb->len);
 	}
 #endif
-	if (stmmac_tx_avail(priv) <= STMMAC_TX_THRESH) {
+	if (unlikely(stmmac_tx_avail(priv) <= (MAX_SKB_FRAGS + 1))) {
+		TX_DBG("%s: stop transmitted packets\n", __func__);
 		netif_stop_queue(dev);
-	} else {
-		/* Tx interrupts moderation */
-		if (priv->tx_coalesce <= tx_coalesce) {
-			priv->tx_coalesce++;
-			priv->mac_type->ops->clear_tx_ic(desc);
-		} else {
-			priv->tx_coalesce = 0;
-		}
 	}
 
 	dev->stats.tx_bytes += skb->len;
@@ -1435,7 +1412,6 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit)
 	}
 #endif
 	count = 0;
-	prefetch(p);
 	while (!priv->mac_type->ops->get_rx_owner(p)) {
 		int status;
 
@@ -1521,7 +1497,7 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit)
  *	      all interfaces.
  *  Description :
  *   This function implements the the reception process.
- *   Also poll the completed TX frames.
+ *   Also it runs the TX completion thread
  */
 static int stmmac_poll(struct napi_struct *napi, int budget)
 {
@@ -1529,10 +1505,7 @@ static int stmmac_poll(struct napi_struct *napi, int budget)
 	int work_done = 0;
 
 	priv->xstats.poll_n++;
-
-	/* run TX completion thread */
 	stmmac_tx(priv);
-
 	work_done = stmmac_rx(priv, budget);
 
 	if (work_done < budget) {
@@ -1553,9 +1526,6 @@ static int stmmac_poll(struct napi_struct *napi, int budget)
 static void stmmac_tx_timeout(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
-	/* Disable mitigation */
-	tx_coalesce = -1;
-	priv->tx_coalesce = 0;
 
 	/* Clear Tx resources and restart transmitting again */
 	stmmac_tx_err(priv);
@@ -1775,8 +1745,6 @@ static int stmmac_probe(struct net_device *dev)
 
 	/* Get the MAC address */
 	priv->mac_type->ops->get_umac_addr(dev->base_addr, dev->dev_addr, 0);
-
-	stmmac_init_coalescence(priv->is_gmac, dev->mtu);
 
 	if (!is_valid_ether_addr(dev->dev_addr))
 		pr_warning("\tno valid MAC address;"
@@ -2049,6 +2017,7 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
 	struct stmmac_priv *priv = netdev_priv(dev);
+	int dis_ic = 0;
 
 	if (!dev || !netif_running(dev))
 		return 0;
@@ -2060,10 +2029,10 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 		netif_stop_queue(dev);
 		if (priv->phydev)
 			phy_stop(priv->phydev);
-		netif_stop_queue(dev);
 
 #ifdef CONFIG_STMMAC_TIMER
 		priv->tm->timer_stop();
+		dis_ic = 1;
 #endif
 		napi_disable(&priv->napi);
 
@@ -2072,10 +2041,7 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 		stmmac_dma_stop_rx(dev->base_addr);
 		/* Clear the Rx/Tx descriptors */
 		priv->mac_type->ops->init_rx_desc(priv->dma_rx,
-						  priv->dma_rx_size);
-		priv->mac_type->ops->disable_rx_ic(priv->dma_rx,
-						   priv->dma_rx_size,
-						   rx_coalesce);
+						  priv->dma_rx_size, dis_ic);
 		priv->mac_type->ops->init_tx_desc(priv->dma_tx,
 						  priv->dma_tx_size);
 
@@ -2223,12 +2189,6 @@ static int __init stmmac_cmdline_opt(char *str)
 				       (unsigned long *)&flow_ctrl);
 		else if (!strncmp(opt, "pause:", 6))
 			strict_strtoul(opt + 6, 0, (unsigned long *)&pause);
-		else if (!strncmp(opt, "tx_coalesce:", 12))
-			strict_strtoul(opt + 12, 0,
-				       (unsigned long *)&tx_coalesce);
-		else if (!strncmp(opt, "rx_coalesce:", 12))
-			strict_strtoul(opt + 12, 0,
-				       (unsigned long *)&rx_coalesce);
 #ifdef CONFIG_STMMAC_TIMER
 		else if (!strncmp(opt, "tmrate:", 7))
 			strict_strtoul(opt + 7, 0, (unsigned long *)&tmrate);

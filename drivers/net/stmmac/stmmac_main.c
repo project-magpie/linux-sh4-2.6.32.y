@@ -78,7 +78,6 @@
 #endif
 
 #define STMMAC_ALIGN(x)	L1_CACHE_ALIGN(x)
-#define STMMAC_IP_ALIGN NET_IP_ALIGN
 #define JUMBO_LEN	9000
 
 /* Module parameters */
@@ -480,19 +479,15 @@ static void init_dma_desc_rings(struct net_device *dev)
 	for (i = 0; i < rxsize; i++) {
 		struct dma_desc *p = priv->dma_rx + i;
 
-		skb = netdev_alloc_skb(dev, bfsize);
+		skb = netdev_alloc_skb_ip_align(dev, bfsize);
 		if (unlikely(skb == NULL)) {
-			pr_err("%s: Rx init fails; skb is NULL\n",
-			       __func__);
+			pr_err("%s: Rx init fails; skb is NULL\n", __func__);
 			break;
 		}
-		skb_reserve(skb, STMMAC_IP_ALIGN);
-
 		priv->rx_skbuff[i] = skb;
-		priv->rx_skbuff_dma[i] = dma_map_single(priv->device,
-						skb->data,
-						bfsize - STMMAC_IP_ALIGN,
-						DMA_FROM_DEVICE);
+		priv->rx_skbuff_dma[i] = dma_map_single(priv->device, skb->data,
+						bfsize, DMA_FROM_DEVICE);
+
 		p->des2 = priv->rx_skbuff_dma[i];
 		if (unlikely(buff2_needed))
 			p->des3 = p->des2 + BUF_SIZE_8KiB;
@@ -1373,16 +1368,17 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv)
 
 			skb = __skb_dequeue(&priv->rx_recycle);
 			if (skb == NULL)
-				skb = netdev_alloc_skb(priv->dev, bfsize);
+				skb = netdev_alloc_skb_ip_align(priv->dev,
+								bfsize);
 
 			if (unlikely(skb == NULL))
 				break;
 
-			skb_reserve(skb, STMMAC_IP_ALIGN);
 			priv->rx_skbuff[entry] = skb;
 			priv->rx_skbuff_dma[entry] =
-			    dma_map_single(priv->device, skb->data,
-				bfsize - STMMAC_IP_ALIGN, DMA_FROM_DEVICE);
+			    dma_map_single(priv->device, skb->data, bfsize,
+					   DMA_FROM_DEVICE);
+
 			(p + entry)->des2 = priv->rx_skbuff_dma[entry];
 			if (unlikely(priv->is_gmac)) {
 				if (bfsize >= BUF_SIZE_8KiB)

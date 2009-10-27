@@ -15,10 +15,10 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/types.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
 #include <linux/stm/sysconf.h>
 
-
+#define DRIVER_NAME "stm-sysconf"
 
 struct sysconf_field {
 	u8 group, num;
@@ -576,7 +576,7 @@ void __init sysconf_early_init(struct platform_device *pdevs, int pdevs_num)
 
 	for (i = 0; i < sysconf_blocks_num; i++) {
 		struct sysconf_block *block = &sysconf_blocks[i];
-		struct plat_sysconf_data *data = pdevs[i].dev.platform_data;
+		struct stm_plat_sysconf_data *data = pdevs[i].dev.platform_data;
 		struct resource *mem;
 
 		block->pdev = &pdevs[i];
@@ -599,12 +599,12 @@ void __init sysconf_early_init(struct platform_device *pdevs, int pdevs_num)
 		panic("Failed to allocate memory for sysconf groups!\n");
 
 	for (i = 0; i < sysconf_blocks_num; i++) {
-		struct plat_sysconf_data *data = pdevs[i].dev.platform_data;
+		struct stm_plat_sysconf_data *data = pdevs[i].dev.platform_data;
 		struct sysconf_block *block = &sysconf_blocks[i];
 		int j;
 
 		for (j = 0; j < data->groups_num; j++) {
-			struct plat_sysconf_group *info = &data->groups[j];
+			struct stm_plat_sysconf_group *info = &data->groups[j];
 			struct sysconf_group *group;
 
 			BUG_ON(info->group < 0 ||
@@ -662,7 +662,7 @@ static int __init sysconf_probe(struct platform_device *pdev)
 static struct platform_driver sysconf_driver = {
 	.probe		= sysconf_probe,
 	.driver	= {
-		.name	= "sysconf",
+		.name	= DRIVER_NAME,
 		.owner	= THIS_MODULE,
 	},
 };

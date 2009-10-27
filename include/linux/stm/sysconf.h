@@ -10,6 +10,7 @@
 #define __LINUX_STM_SYSCONF_H
 
 #include <linux/types.h>
+#include <linux/platform_device.h>
 
 struct sysconf_field;
 
@@ -78,7 +79,11 @@ void *sysconf_address(struct sysconf_field *field);
  */
 unsigned long sysconf_mask(struct sysconf_field *field);
 
+/**
+ * sysconf_early_init - Used by board initialization code
+ */
 
+void sysconf_early_init(struct platform_device *pdevs, int pdevs_num);
 
 /**
  * Available register types:

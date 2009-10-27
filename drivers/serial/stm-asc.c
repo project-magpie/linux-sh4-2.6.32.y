@@ -3,7 +3,7 @@
  *  Asynchronous serial controller (ASC) driver
  */
 
-#if defined(CONFIG_SERIAL_ST_ASC_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
+#if defined(CONFIG_SERIAL_STM_ASC_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
 #define SUPPORT_SYSRQ
 #endif
 
@@ -36,11 +36,11 @@
 #include <asm/sh_bios.h>
 #endif
 
-#include "stasc.h"
+#include "stm-asc.h"
 
-#define DRIVER_NAME "stasc"
+#define DRIVER_NAME "stm-asc"
 
-#ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
+#ifdef CONFIG_SERIAL_STM_ASC_CONSOLE
 static struct console asc_console;
 #endif
 
@@ -54,13 +54,13 @@ static int asc_remap_port(struct asc_port *ascport, int req);
 void asc_set_termios_cflag (struct asc_port *, int ,int);
 static inline void asc_receive_chars(struct uart_port *);
 
-#ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
+#ifdef CONFIG_SERIAL_STM_ASC_CONSOLE
 static void asc_console_write (struct console *, const char *,
 				  unsigned );
 static int __init asc_console_setup (struct console *, char *);
 #endif
 
-#ifdef CONFIG_KGDB_ST_ASC
+#ifdef CONFIG_KGDB_STM_ASC
 static int kgdbasc_baud = CONFIG_KGDB_BAUDRATE;
 static int kgdbasc_portno = CONFIG_KGDB_PORT_NUM;
 static struct asc_port *kgdb_asc_port;
@@ -318,7 +318,7 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	port->mapbase	= pdev->resource[0].start;
 	port->irq	= pdev->resource[1].start;
 
-#ifdef CONFIG_SERIAL_ST_ASC_FDMA
+#ifdef CONFIG_SERIAL_STM_ASC_FDMA
 	ascport->fdma.rx_req_id = pdev->resource[2].start;
 	ascport->fdma.tx_req_id = pdev->resource[3].start;
 #endif
@@ -344,12 +344,12 @@ static struct uart_driver asc_uart_driver = {
 	.major		= ASC_MAJOR,
 	.minor		= ASC_MINOR_START,
 	.nr		= ASC_MAX_PORTS,
-#ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
+#ifdef CONFIG_SERIAL_STM_ASC_CONSOLE
 	.cons		= &asc_console,
 #endif
 };
 
-#ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
+#ifdef CONFIG_SERIAL_STM_ASC_CONSOLE
 static struct console asc_console = {
 	.name		= "ttyAS",
 	.device		= uart_console_device,
@@ -793,7 +793,7 @@ static inline void asc_receive_chars(struct uart_port *port)
 				continue;
 			tty_insert_flip_char(tty, c & 0xff, flag);
 		}
-#if defined(CONFIG_KGDB_ST_ASC)
+#if defined(CONFIG_KGDB_STM_ASC)
 		if (port == &kgdb_asc_port->port) {
 			if ((strncmp(tty->buf.head->char_buf_ptr,
 			     "$Hc-1#09",8) == 0)) {
@@ -834,7 +834,7 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 
 	spin_lock(&port->lock);
 
-#if defined(CONFIG_KGDB_ST_ASC)
+#if defined(CONFIG_KGDB_STM_ASC)
         /* To be Fixed: it seems that on a lot of ST40 platforms the breakpoint
            condition is not checked without this delay. This problem probably
            depends on an invalid port speed configuration.
@@ -858,7 +858,7 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 			asc_receive_chars(port);
 		}
 
-#if defined(CONFIG_KGDB_ST_ASC)
+#if defined(CONFIG_KGDB_STM_ASC)
 	if ((port == &kgdb_asc_port->port) &&
 			(status == BRK_STATUS)){
 		breakpoint();
@@ -926,7 +926,7 @@ static __inline__ char lowhex(int  x)
 }
 #endif
 
-#ifdef CONFIG_SERIAL_ST_ASC_CONSOLE
+#ifdef CONFIG_SERIAL_STM_ASC_CONSOLE
 static void
 put_char (struct uart_port *port, char c)
 {
@@ -968,7 +968,7 @@ put_string (struct uart_port *port, const char *buffer, int count)
 	int checksum;
 	int usegdb=0;
 
-    	/* This call only does a trap the first time it is
+	/* This call only does a trap the first time it is
 	 * called, and so is safe to do here unconditionally
 	 */
 	usegdb |= sh_bios_in_gdb_mode();
@@ -1053,13 +1053,13 @@ asc_console_write (struct console *co, const char *s, unsigned count)
 
 	put_string(port, s, count);
 }
-#endif /* CONFIG_SERIAL_ST_ASC_CONSOLE */
+#endif /* CONFIG_SERIAL_STM_ASC_CONSOLE */
 
 
 /* ===============================================================================
 				KGDB Functions
    =============================================================================== */
-#ifdef CONFIG_KGDB_ST_ASC
+#ifdef CONFIG_KGDB_STM_ASC
 static int kgdbasc_read_char(void)
 {
 	return get_char(&kgdb_asc_port->port);
@@ -1162,4 +1162,4 @@ errout:
 	return 1;
 }
 early_param("kgdbasc", kgdbasc_opt);
-#endif /* CONFIG_KGDB_ST_ASC */
+#endif /* CONFIG_KGDB_STM_ASC */

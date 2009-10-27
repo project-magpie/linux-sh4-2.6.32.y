@@ -1433,22 +1433,24 @@ config SPORT_BAUD_RATE
 	default 19200 if (SERIAL_SPORT_BAUD_RATE_19200)
 	default 9600 if (SERIAL_SPORT_BAUD_RATE_9600)
 
-config SERIAL_ST_ASC
+config SERIAL_STM_ASC
 	tristate "ST ASC serial port support"
 	depends on CPU_SUBTYPE_ST40
+	default y
 	select SERIAL_CORE
 	help
 	  This driver is for the on-chip Asychronous Serial Controller on
 	  some STMicroelectronics system-on-chip devices.
 
-config SERIAL_ST_ASC_CONSOLE
+config SERIAL_STM_ASC_CONSOLE
 	bool "Support for console on ST ASC"
-	depends on SERIAL_ST_ASC=y
+	depends on SERIAL_STM_ASC=y
+	default y
 	select SERIAL_CORE_CONSOLE
 
-config SERIAL_ST_ASC_FDMA
+config SERIAL_STM_ASC_FDMA
 	bool "Support FDMA on ST ASC"
-	depends on SERIAL_ST_ASC && STM_DMA
+	depends on SERIAL_STM_ASC && STM_DMA
 	help
 	  This enables on-chip FDMA to be used with the Asychronous Serial
 	  Controller on some STMicroelectronics system-on-chip devices.

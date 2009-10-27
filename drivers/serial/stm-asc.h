@@ -34,7 +34,7 @@ struct asc_port {
 	unsigned long ctrl;
 	struct stpio_pin *pios[4];
 	unsigned char flags;
-#ifdef CONFIG_SERIAL_ST_ASC_FDMA
+#ifdef CONFIG_SERIAL_STM_ASC_FDMA
 	struct asc_port_fdma fdma;
 #endif
 	unsigned char platform_flags;
@@ -194,7 +194,7 @@ ASC_FUNC(RETRIES,   ASC_RETRIES)
 
 /*---- FDMA interface ------------------------------------------*/
 
-#ifdef CONFIG_SERIAL_ST_ASC_FDMA
+#ifdef CONFIG_SERIAL_STM_ASC_FDMA
 int asc_fdma_startup(struct uart_port *port);
 void asc_fdma_shutdown(struct uart_port *port);
 int asc_fdma_enable(struct uart_port *port);

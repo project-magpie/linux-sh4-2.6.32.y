@@ -12,23 +12,23 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/delay.h>
+#include <linux/io.h>
 #include <linux/leds.h>
-#include <linux/stm/pio.h>
-#include <linux/stm/soc.h>
-#include <linux/workqueue.h>
+#include <linux/phy.h>
+#include <linux/lirc.h>
+#include <linux/gpio.h>
+#include <linux/gpio_keys.h>
+#include <linux/input.h>
 #include <linux/stm/emi.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/stx7141.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/spi_bitbang.h>
 #include <linux/spi/flash.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
-#include <linux/phy.h>
-#include <linux/gpio_keys.h>
-#include <linux/input.h>
-#include <linux/delay.h>
-#include <linux/io.h>
-#include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <mach/epld.h>
@@ -39,12 +39,7 @@
 #ifdef CONFIG_STMMAC_DUAL_MAC
 #define ENABLE_GMAC0
 #endif
-static struct platform_device epld_device;
-
-static int ascs[] __initdata = {
-	1 | (ASC1_PIO10 << 8),	/* PIO10 muxed with GMAC0 & DVO */
-	2 | (ASC2_PIO6  << 8)	/* PIO6 muxed with TS(NIM) and OOB_??? */
-};
+static struct platform_device mb628_epld_device;
 
 static void __init mb628_setup(char **cmdline_p)
 {
@@ -53,9 +48,17 @@ static void __init mb628_setup(char **cmdline_p)
 	printk(KERN_INFO "STMicroelectronics STx7141 Mboard initialisation\n");
 
 	stx7141_early_device_init();
-	stx7141_configure_asc(ascs, ARRAY_SIZE(ascs), 0);
 
-	epld_early_init(&epld_device);
+	stx7141_configure_asc(1, &(struct stx7141_asc_config) {
+			.routing.asc1 = stx7141_asc1_pio10,
+			.hw_flow_control = 1,
+			.is_console = 1, });
+	stx7141_configure_asc(2, &(struct stx7141_asc_config) {
+			.routing.asc2 = stx7141_asc2_pio6,
+			.hw_flow_control = 1,
+			.is_console = 0, });
+
+	epld_early_init(&mb628_epld_device);
 
 	epld_write(0xab, EPLD_TEST);
 	test = epld_read(EPLD_TEST);
@@ -64,14 +67,10 @@ static void __init mb628_setup(char **cmdline_p)
 	       (test == (u8)(~0xab)) ? "passed" : "failed");
 }
 
-static struct plat_stm_pwm_data pwm_private_info = {
-	.flags		= PLAT_STM_PWM_OUT1,
-};
-
-/* Chip-select for SSC1-SPI bus.  Serial FLASH is only device on this bus */
-static void spi_chipselect_ssc1(void *_spi, int value)
+/* Chip-select for first SSC SPI bus.
+ * Serial FLASH is only device on this bus */
+static void mb628_serial_flash_chipselect(struct spi_device *spi, int value)
 {
-	struct spi_device *spi = _spi;
 	u8 reg;
 
 	/* Serial FLASH is on chip_select '1' */
@@ -93,22 +92,8 @@ static void spi_chipselect_ssc1(void *_spi, int value)
 	}
 }
 
-static struct plat_ssc_data ssc_private_info = {
-	.capability  =
-		ssc0_has(SSC_SPI_CAPABILITY)	/* SSC1 */	|
-		ssc1_has(SSC_SPI_CAPABILITY)	/* SSC2 */	|
-		ssc2_has(SSC_I2C_CAPABILITY)	/* SSC3 */	|
-		ssc3_has(SSC_I2C_CAPABILITY)	/* SSC4 */	|
-		ssc4_has(SSC_I2C_CAPABILITY)	/* SSC5 */	|
-		ssc5_has(SSC_I2C_CAPABILITY)	/* SSC6 */	|
-		ssc6_has(SSC_I2C_CAPABILITY),	/* SSC7 */
-	.spi_chipselects = {
-		[0] = spi_chipselect_ssc1,
-	},
-};
-
 /* MTD partitions for Serial FLASH device */
-static struct mtd_partition serialflash_partitions[] = {
+static struct mtd_partition mb628_serial_flash_partitions[] = {
 	{
 		.name = "sflash_1",
 		.size = 0x00080000,
@@ -121,24 +106,23 @@ static struct mtd_partition serialflash_partitions[] = {
 };
 
 /* Serial FLASH is type 'm25p32', handled by 'm25p80' SPI Protocol driver */
-static struct flash_platform_data serialflash_data = {
+static struct flash_platform_data mb628_serial_flash_data = {
 	.name = "m25p80",
-	.parts = serialflash_partitions,
-	.nr_parts = ARRAY_SIZE(serialflash_partitions),
+	.parts = mb628_serial_flash_partitions,
+	.nr_parts = ARRAY_SIZE(mb628_serial_flash_partitions),
 	.type = "m25p32",
 };
 
 /* SPI 'board_info' to register serial FLASH protocol driver */
-static struct spi_board_info spi_serialflash[] =  {
-	{
-		.modalias	= "m25p80",
-		.bus_num	= 0,
-		.chip_select	= 1,
-		.max_speed_hz	= 5000000,
-		.platform_data	= &serialflash_data,
-		.mode		= SPI_MODE_3,
-	},
+static struct spi_board_info mb628_serial_flash =  {
+	.modalias	= "m25p80",
+	.bus_num	= 0,
+	.chip_select	= 1,
+	.max_speed_hz	= 5000000,
+	.platform_data	= &mb628_serial_flash_data,
+	.mode		= SPI_MODE_3,
 };
+
 
 
 #ifdef FLASH_NOR
@@ -147,13 +131,13 @@ static struct spi_board_info spi_serialflash[] =  {
 /* J89 and J84 must be both in position 1-2 to avoid shorting A15 */
 /* J70 must be in the 2-3 position to enable NOR Flash */
 
-static void set_vpp(struct map_info *info, int enable)
+static void mb628_nor_set_vpp(struct map_info *info, int enable)
 {
 	epld_write((enable ? EPLD_FLASH_NOTWP : 0) | EPLD_FLASH_NOTRESET,
 		   EPLD_FLASH);
 }
 
-static struct mtd_partition mtd_parts_table[3] = {
+static struct mtd_partition mb628_nor_flash_partitions[3] = {
 	{
 		.name = "Boot firmware",
 		.size = 0x00040000,
@@ -169,14 +153,7 @@ static struct mtd_partition mtd_parts_table[3] = {
 	}
 };
 
-static struct physmap_flash_data physmap_flash_data = {
-	.width		= 2,
-	.set_vpp	= set_vpp,
-	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
-	.parts		= mtd_parts_table
-};
-
-static struct platform_device physmap_flash = {
+static struct platform_device mb628_nor_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
@@ -187,15 +164,18 @@ static struct platform_device physmap_flash = {
 			.flags		= IORESOURCE_MEM,
 		}
 	},
-	.dev		= {
-		.platform_data	= &physmap_flash_data,
+	.dev.platform_data = &(struct physmap_flash_data) {
+		.width		= 2,
+		.set_vpp	= mb628_nor_set_vpp,
+		.nr_parts	= ARRAY_SIZE(mb628_nor_flash_partitions),
+		.parts		= mb628_nor_flash_partitions,
 	},
 };
 
 #else
 
 /* J70 must be in the 1-2 position to enable NAND Flash */
-static struct mtd_partition nand_partitions[] = {
+static struct mtd_partition mb628_nand_flash_partitions[] = {
 	{
 		.name	= "NAND root",
 		.offset	= 0,
@@ -207,7 +187,7 @@ static struct mtd_partition nand_partitions[] = {
 	},
 };
 
-static struct plat_stmnand_data mb628_nand_config = {
+static struct stm_plat_nand_config mb628_nand_flash_config = {
 	.emi_bank		= 0,
 	.emi_withinbankoffset	= 0,
 
@@ -227,8 +207,8 @@ static struct plat_stmnand_data mb628_nand_config = {
 	},
 
 	.chip_delay		= 40,		/* time in us */
-	.mtd_parts		= nand_partitions,
-	.nr_parts		= ARRAY_SIZE(nand_partitions),
+	.mtd_parts		= mb628_nand_flash_partitions,
+	.nr_parts		= ARRAY_SIZE(mb628_nand_flash_partitions),
 };
 #endif
 
@@ -302,7 +282,7 @@ static int mb628_phy_reset(void *bus)
  *   To disable this, replace the irq with -1 in the data below.
  */
 
-static struct plat_stmmacphy_data phy_private_data[2] = {
+static struct stm_plat_stmmacphy_data mb628_phy_private_data[2] = {
 {
 	/* GMAC0: MII connector CN17. We assume a mb539 (SMSC 8700). */
 	.bus_id = 0,
@@ -313,13 +293,13 @@ static struct plat_stmmacphy_data phy_private_data[2] = {
 }, {
 	/* GMAC1: on board NatSemi PHY */
 	.bus_id = 1,
-	.phy_addr = 1,
+	.phy_addr = -1,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_GMII,
 	.phy_reset = mb628_phy_reset,
 } };
 
-static struct platform_device phy_devices[2] = {
+static struct platform_device mb628_phy_devices[2] = {
 {
 	.name		= "stmmacphy",
 	.id		= 0,
@@ -332,9 +312,7 @@ static struct platform_device phy_devices[2] = {
 			.flags	= IORESOURCE_IRQ,
 		},
 	},
-	.dev = {
-		.platform_data = &phy_private_data[0],
-	}
+	.dev.platform_data = &mb628_phy_private_data[0],
 }, {
 	.name		= "stmmacphy",
 	.id		= 1,
@@ -347,12 +325,10 @@ static struct platform_device phy_devices[2] = {
 			.flags	= IORESOURCE_IRQ,
 		},
 	},
-	.dev = {
-		.platform_data = &phy_private_data[1],
-	}
+	.dev.platform_data = &mb628_phy_private_data[1],
 } };
 
-static struct platform_device epld_device = {
+static struct platform_device mb628_epld_device = {
 	.name		= "epld",
 	.id		= -1,
 	.num_resources	= 1,
@@ -410,26 +386,34 @@ static struct platform_device mb628_snd_external_dacs = {
 #endif
 
 static struct platform_device *mb628_devices[] __initdata = {
-	&epld_device,
-	&physmap_flash,
-	&phy_devices[0],
-	&phy_devices[1],
+	&mb628_epld_device,
+	&mb628_nor_flash,
+	&mb628_phy_devices[0],
+	&mb628_phy_devices[1],
 #ifdef CONFIG_SND
 	&mb628_snd_spdif_input,
 	&mb628_snd_external_dacs,
 #endif
 };
 
-static int __init device_init(void)
+static int __init mb628_device_init(void)
 {
 	/*
 	 * Can't enable PWM output without conflicting with either
 	 * SSC6 (audio) or USB1A OC (which is disabled because it is broken,
 	 * but would still result in contention).
 	 *
-	 * stx7141_configure_pwm(&pwm_private_info);
+	 * stx7141_configure_pwm(0, 1);
 	 */
-	stx7141_configure_ssc(&ssc_private_info);
+	stx7141_configure_ssc_spi(0, &(struct stx7141_ssc_spi_config) {
+			.chipselect = mb628_serial_flash_chipselect, });
+	stx7141_configure_ssc_spi(1, NULL);
+	stx7141_configure_ssc_i2c(2);
+	stx7141_configure_ssc_i2c(3);
+	stx7141_configure_ssc_i2c(4);
+	stx7141_configure_ssc_i2c(5);
+	stx7141_configure_ssc_i2c(6);
+
 	stx7141_configure_usb(0);
 
 	/* This requires fitting jumpers J52A 1-2 and J52B 4-5 */
@@ -450,22 +434,29 @@ static int __init device_init(void)
 	/* Configure GMII0 MDINT for active low */
 	set_irq_type(ILC_IRQ(43), IRQ_TYPE_LEVEL_LOW);
 
-	stx7141_configure_ethernet(0, 0, 0, 0);
+	stx7141_configure_ethernet(0, &(struct stx7141_ethernet_config) {
+			.mode = stx7141_ethernet_mode_mii,
+			.phy_bus = 0 });
 #endif
 
 	epld_write(epld_read(EPLD_ENABLE) | EPLD_ENABLE_MII1, EPLD_ENABLE);
-	stx7141_configure_ethernet(1, 0, 0, 1);
-	stx7141_configure_lirc();
+	stx7141_configure_ethernet(1, &(struct stx7141_ethernet_config) {
+			.mode = stx7141_ethernet_mode_mii,
+			.phy_bus = 1 });
+
+	stx7141_configure_lirc(&(struct stx7141_lirc_config) {
+			.rx_mode = stx7141_lirc_rx_disabled,
+			.tx_enabled = 1,
+			.tx_od_enabled = 1 });
 
 #ifndef FLASH_NOR
-	stx7141_configure_nand(&mb628_nand_config);
+	stx7141_configure_nand(&mb628_nand_flash_config);
 	/* The MTD NAND code doesn't understand the concept of VPP,
 	 * (or hardware write protect) so permanently enable it.
 	 */
 	epld_write(EPLD_FLASH_NOTWP | EPLD_FLASH_NOTRESET, EPLD_FLASH);
 #endif
 
-#ifdef CONFIG_SND
 	/* Audio peripherals
 	 *
 	 * WARNING! Board rev. A has swapped silkscreen labels of J16 & J32!
@@ -512,7 +503,13 @@ static int __init device_init(void)
 	 */
 
 	/* As digital audio outputs are now GPIOs, we have to claim them... */
-	stx7141_configure_audio_pins(5, 0, 1, 1, 1);
+	stx7141_configure_audio(&(struct stx7141_audio_config) {
+			.pcm_player_0_output =
+					stx7141_pcm_player_0_output_10_channels,
+			.pcm_player_1_output_enabled = 0,
+			.spdif_player_output_enabled = 1,
+			.pcm_reader_0_input_enabled = 1,
+			.pcm_reader_1_input_enabled = 1 });
 
 	/* We use both DACs to get full 10-channels output from
 	 * PCM Player #0 (EPLD muxing mode #1) */
@@ -525,12 +522,12 @@ static int __init device_init(void)
 
 		epld_write(value, EPLD_AUDIO);
 	}
-#endif
-	spi_register_board_info(spi_serialflash, ARRAY_SIZE(spi_serialflash));
+
+	spi_register_board_info(&mb628_serial_flash, 1);
 
 	return platform_add_devices(mb628_devices, ARRAY_SIZE(mb628_devices));
 }
-arch_initcall(device_init);
+arch_initcall(mb628_device_init);
 
 static void __iomem *mb628_ioport_map(unsigned long port, unsigned int size)
 {

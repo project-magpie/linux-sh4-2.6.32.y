@@ -20,3 +20,4 @@ obj-$(CONFIG_CPU_SUBTYPE_STX7100)	+= stx7100.o stx7100_audio.o stx7100_comms.o s
 obj-$(CONFIG_CPU_SUBTYPE_STX7105)	+= stx7105.o stx7105_audio.o stx7105_comms.o stx7105_hispeed.o stx7105_pci.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= stx7111.o stx7111_audio.o stx7111_comms.o stx7111_hispeed.o stx7111_pci.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7141)	+= stx7141.o stx7141_audio.o stx7141_comms.o stx7141_hispeed.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= stx7200.o stx7200_audio.o stx7200_comms.o stx7200_hispeed.o

@@ -55,7 +55,7 @@
 #include <asm/dma.h>
 #include <linux/clk.h>
 #include <linux/stm/stm-dma.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
 #include <linux/stm/nand.h>
 #include <linux/completion.h>
 #include <linux/interrupt.h>
@@ -95,7 +95,7 @@ struct stm_nand_flex_device {
 	struct mtd_info		mtd;
 	int			csn;
 
-	struct nand_timing_data *timing_data;
+	struct stm_nand_timing_data *timing_data;
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
 	unsigned long		boot_start;
@@ -131,13 +131,26 @@ struct stm_nand_flex_controller {
 	int			dma_chan;		/* FDMA channel	      */
 	unsigned long		init_fdma_jiffies;	/* Rate limit init    */
 	struct stm_dma_params	dma_params[4];		/* FDMA params        */
-} flex;
+
+	struct stm_nand_flex_device *devices[0];
+};
 
 /* The command line passed to nboot_setup() */
 __initdata static char *cmdline;
 
-#define flex_writereg(val, reg)	iowrite32(val, flex.base_addr + (reg))
-#define flex_readreg(reg)	ioread32(flex.base_addr + (reg))
+static struct stm_nand_flex_controller* mtd_to_flex(struct mtd_info *mtd)
+{
+	struct nand_chip *chip = mtd->priv;
+	struct nand_hw_control *controller = chip->controller;
+	struct stm_nand_flex_controller *flex;
+
+	flex = container_of(controller, struct stm_nand_flex_controller,
+			    hwcontrol);
+	return flex;
+}
+
+#define flex_writereg(val, reg)	iowrite32(val, flex->base_addr + (reg))
+#define flex_readreg(reg)	ioread32(flex->base_addr + (reg))
 
 static const char *part_probes[] = { "cmdlinepart", NULL };
 
@@ -146,6 +159,7 @@ static const char *part_probes[] = { "cmdlinepart", NULL };
 /* Assumes EMINAND_DATAREAD has been configured for 1-byte reads. */
 static uint8_t flex_read_byte(struct mtd_info *mtd)
 {
+	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
 	uint32_t reg;
 
 	reg =  flex_readreg(EMINAND_FLEX_DATA);
@@ -155,6 +169,7 @@ static uint8_t flex_read_byte(struct mtd_info *mtd)
 
 static void flex_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
 {
+	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
 	static unsigned int flex_ctrl;
 	uint32_t reg;
 
@@ -179,6 +194,8 @@ static void flex_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
 
 static int flex_rbn(struct mtd_info *mtd)
 {
+	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
+
 	/* Apply a small delay before sampling RBn signal */
 	ndelay(500);
 	return (flex_readreg(EMINAND_RBN_STATUS) & (0x4)) ? 1 : 0;
@@ -192,17 +209,17 @@ static int flex_rbn(struct mtd_info *mtd)
  */
 static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
+	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
 	uint8_t *p;
-	uint32_t reg;
 
 	/* Handle non-aligned buffer */
-	p = ((uint32_t)buf & 0x3) ? flex.buf : buf;
+	p = ((uint32_t)buf & 0x3) ? flex->buf : buf;
 
 	/* Switch to 4-byte reads (required for ECC) */
 	flex_writereg(FLX_DATA_CFG_BEAT_4 | FLX_DATA_CFG_CSN_STATUS,
 		      EMINAND_FLEX_DATAREAD_CONFIG);
 
-	readsl(flex.base_addr + EMINAND_FLEX_DATA, p, len/4);
+	readsl(flex->base_addr + EMINAND_FLEX_DATA, p, len/4);
 
 	if (p != buf)
 		memcpy(buf, p, len);
@@ -215,12 +232,12 @@ static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 
 static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
+	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
 	uint8_t *p;
-	uint32_t reg;
 
 	/* Handle non-aligned buffer */
 	if ((uint32_t)buf & 0x3) {
-		p = flex.buf;
+		p = flex->buf;
 		memcpy(p, buf, len);
 	} else {
 		p = buf;
@@ -230,7 +247,7 @@ static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 	flex_writereg(FLX_DATA_CFG_BEAT_4 | FLX_DATA_CFG_CSN_STATUS,
 		      EMINAND_FLEX_DATAWRITE_CONFIG);
 
-	writesl(flex.base_addr + EMINAND_FLEX_DATA, p, len/4);
+	writesl(flex->base_addr + EMINAND_FLEX_DATA, p, len/4);
 
 	/* Switch back to 1-byte writes  */
 	flex_writereg(FLX_DATA_CFG_BEAT_1 | FLX_DATA_CFG_CSN_STATUS,
@@ -609,7 +626,8 @@ static int nand_write_oob(struct mtd_info *mtd, loff_t to,
 
 
 /* Configure NAND controller timing registers */
-static void flex_set_timings(struct nand_timing_data *tm)
+static void flex_set_timings(struct stm_nand_flex_controller *flex,
+			     struct stm_nand_timing_data *tm)
 {
 	uint32_t n;
 	uint32_t reg;
@@ -666,6 +684,7 @@ static void flex_set_timings(struct nand_timing_data *tm)
  */
 static void flex_select_chip(struct mtd_info *mtd, int chipnr)
 {
+	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
 	struct nand_chip *chip = mtd->priv;
 	struct stm_nand_flex_device *data = chip->priv;
 
@@ -675,15 +694,15 @@ static void flex_select_chip(struct mtd_info *mtd, int chipnr)
 
 	} else if (chipnr == 0) {
 		/* If same chip as last time, no need to change anything */
-		if (data->csn == flex.current_csn)
+		if (data->csn == flex->current_csn)
 			return;
 
 		/* Set CSn on FLEX controller */
-		flex.current_csn = data->csn;
+		flex->current_csn = data->csn;
 		flex_writereg(0x1 << data->csn, EMINAND_MUXCONTROL_REG);
 
 		/* Set up timing parameters */
-		flex_set_timings(data->timing_data);
+		flex_set_timings(flex, data->timing_data);
 
 	} else {
 		printk(KERN_ERR NAME ": attempt to select chipnr = %d\n",
@@ -694,7 +713,7 @@ static void flex_select_chip(struct mtd_info *mtd, int chipnr)
 }
 
 #ifdef CONFIG_MTD_DEBUG
-static void flex_print_regs(void)
+static void flex_print_regs(struct stm_nand_flex_controller *flex)
 {
 	printk(NAME ": FLEX Registers:\n");
 	printk(KERN_INFO "\tbootbank_config = 0x%08x\n",
@@ -728,15 +747,19 @@ static void flex_print_regs(void)
 }
 #endif /* CONFIG_MTD_DEBUG */
 
-static int __init flex_init_controller(struct platform_device *pdev)
+static struct stm_nand_flex_controller * __init
+flex_init_controller(struct platform_device *pdev)
 {
+	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
 	struct resource *resource;
 	int res;
+	struct stm_nand_flex_controller *flex;
 
-	if (flex.initialised) {
-		flex.initialised++;
-		return 0;
-	}
+	flex = kzalloc(sizeof(struct stm_nand_flex_controller) +
+		       (sizeof(struct stm_nand_flex_device *) * pdata->nr_banks),
+		       GFP_KERNEL);
+	if (!flex)
+		return ERR_PTR(-ENOMEM);
 
 	/* Request IO Memory */
 	resource = platform_get_resource_byname(pdev, IORESOURCE_MEM,
@@ -746,11 +769,11 @@ static int __init flex_init_controller(struct platform_device *pdev)
 		res = -ENODEV;
 		goto out1;
 	}
-	flex.mem_region = request_mem_region(resource->start,
+	flex->mem_region = request_mem_region(resource->start,
 					     resource->end -
 					     resource->start + 1,
 					     pdev->name);
-	if (!flex.mem_region) {
+	if (!flex->mem_region) {
 		printk(KERN_ERR NAME ": Failed request memory region 0x%08x.\n",
 		       pdev->resource[0].start);
 		res = -EBUSY;
@@ -758,28 +781,28 @@ static int __init flex_init_controller(struct platform_device *pdev)
 	}
 
 	/* Map base address */
-	flex.base_addr = ioremap_nocache(resource->start,
+	flex->base_addr = ioremap_nocache(resource->start,
 					 resource->end - resource->start + 1);
-	if (!flex.base_addr) {
+	if (!flex->base_addr) {
 		printk(KERN_ERR NAME " Failed tp map base address  0x%08x\n",
 		       resource->start);
 		res = -EINVAL;
 		goto out2;
 	}
 
-	flex.buf = kmalloc(NAND_MAX_PAGESIZE +  NAND_MAX_OOBSIZE,
+	flex->buf = kmalloc(NAND_MAX_PAGESIZE +  NAND_MAX_OOBSIZE,
 			   GFP_KERNEL | __GFP_DMA);
-	if (!flex.buf) {
+	if (!flex->buf) {
 		printk(KERN_ERR NAME " Failed allocate bounce buffer\n");
 		res = -ENOMEM;
 		goto out3;
 	}
 
-	flex.current_csn = -1;
+	flex->current_csn = -1;
 
 	/* Initialise 'controller' structure */
-	spin_lock_init(&flex.hwcontrol.lock);
-	init_waitqueue_head(&flex.hwcontrol.wq);
+	spin_lock_init(&flex->hwcontrol.lock);
+	init_waitqueue_head(&flex->hwcontrol.wq);
 
 	/* Disable boot_not_flex */
 	flex_writereg(0x00000000, EMINAND_BOOTBANK_CONFIG);
@@ -804,35 +827,32 @@ static int __init flex_init_controller(struct platform_device *pdev)
 		      EMINAND_FLEX_DATAREAD_CONFIG);
 
 #ifdef CONFIG_MTD_DEBUG
-	flex_print_regs();
+	flex_print_regs(flex);
 #endif
-	flex.initialised++;
 
-	return 0;
+	return flex;
  out3:
-	iounmap(flex.base_addr);
+	iounmap(flex->base_addr);
  out2:
-	release_resource(flex.mem_region);
+	release_resource(flex->mem_region);
  out1:
-	return res;
+	return ERR_PTR(res);
 }
 
 static void __devexit flex_exit_controller(struct platform_device *pdev)
 {
-	if (--flex.initialised)
-		return;
+	struct stm_nand_flex_controller *flex = platform_get_drvdata(pdev);
 
-	kfree(flex.buf);
-	iounmap(flex.base_addr);
-	release_resource(flex.mem_region);
+	kfree(flex->buf);
+	iounmap(flex->base_addr);
+	release_resource(flex->mem_region);
 }
 
-static int __init stm_nand_flex_probe(struct platform_device *pdev)
+static struct stm_nand_flex_device * __init
+flex_init_bank(struct stm_nand_flex_controller *flex,
+	       struct stm_nand_bank_data *bank,
+	       int rbn_connected, const char *name)
 {
-	/* Platform data */
-	struct platform_nand_data *pdata = pdev->dev.platform_data;
-	struct plat_stmnand_data *stmdata = pdata->ctrl.priv;
-
 	struct stm_nand_flex_device *data;
 	int res;
 	int i;
@@ -842,14 +862,6 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 
 	char *boot_part_name;
 	int boot_part_found = 0;
-
-	/* Initialise NAND controller */
-	res = flex_init_controller(pdev);
-	if (res != 0) {
-		printk(KERN_ERR NAME
-		       ": Failed to initialise NAND Controller.\n");
-		return res;
-	}
 
 	/* Allocate memory for the device structure (and zero it) */
 	data = kzalloc(sizeof(struct stm_nand_flex_device), GFP_KERNEL);
@@ -864,22 +876,21 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 	data->chip.priv = data;
 	data->mtd.priv = &data->chip;
 	data->mtd.owner = THIS_MODULE;
-	platform_set_drvdata(pdev, data);
 
 	/* Assign more sensible name (default is string from nand_ids.c!) */
-	data->mtd.name = pdev->dev.bus_id;
-	data->csn = pdev->id;
+	data->mtd.name = name;
+	data->csn = bank->csn;
 
 	/* Use hwcontrol structure to manage access to FLEX Controller */
-	data->chip.controller = &flex.hwcontrol;
+	data->chip.controller = &flex->hwcontrol;
 	data->chip.state = FL_READY;
 
 	/* Get chip's timing data */
-	data->timing_data = stmdata->timing_data;;
+	data->timing_data = bank->timing_data;
 
 	/* Copy over chip specific platform data */
 	data->chip.chip_delay = data->timing_data->chip_delay;
-	data->chip.options = pdata->chip.options;
+	data->chip.options = bank->options;
 	data->chip.options |= NAND_NO_SUBPAGE_WRITE; /* Not tested, disable */
 	data->chip.options |= NAND_NO_AUTOINCR;      /* Not tested, disable */
 
@@ -893,21 +904,21 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 	data->chip.read_byte = flex_read_byte;
 	data->chip.read_buf = flex_read_buf;
 	data->chip.write_buf = flex_write_buf;
-	if (stmdata->flex_rbn_connected)
+	if (rbn_connected)
 		data->chip.dev_ready = flex_rbn;
 
 	/* For now, use NAND_ECC_SOFT. Callbacks filled in during scan() */
 	data->chip.ecc.mode = NAND_ECC_SOFT;
 
 	/* Data IO */
-	data->chip.IO_ADDR_R = flex.base_addr + EMINAND_FLEX_DATA;
-	data->chip.IO_ADDR_W = flex.base_addr + EMINAND_FLEX_DATA;
+	data->chip.IO_ADDR_R = flex->base_addr + EMINAND_FLEX_DATA;
+	data->chip.IO_ADDR_W = flex->base_addr + EMINAND_FLEX_DATA;
 
 #if defined(CONFIG_CPU_SUBTYPE_STX7200)
 	/* Reset AFM program. Why!?! */
 	memset(prog, 0, 32);
 	reg = flex_readreg(EMINAND_AFM_SEQUENCE_STATUS_REG);
-	memcpy_toio(flex.base_addr + EMINAND_AFM_SEQUENCE_REG_1,
+	memcpy_toio(flex->base_addr + EMINAND_AFM_SEQUENCE_REG_1,
 		    prog, 32);
 #endif
 
@@ -946,9 +957,9 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 		data->nr_parts = res;
 
 	/* If that didn't work, try using partitions from platform data */
-	if (!data->nr_parts && pdata->chip.partitions) {
-		data->parts = pdata->chip.partitions;
-		data->nr_parts = pdata->chip.nr_partitions;
+	if (!data->nr_parts && bank->partitions) {
+		data->parts = bank->partitions;
+		data->nr_parts = bank->nr_partitions;
 	}
 
 	/* If we found some partitions, perform setup */
@@ -1014,7 +1025,7 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 		res = add_mtd_device(&data->mtd);
 
 	if (!res)
-		return res;
+		return data;
 
  out3:
 	if (data->nr_parts) {
@@ -1024,24 +1035,68 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
  out2:
 	kfree(data);
  out1:
-	flex_exit_controller(pdev);
+	return res;
+}
 
+static int __init stm_nand_flex_probe(struct platform_device *pdev)
+{
+	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
+	int res;
+	int n;
+	struct stm_nand_bank_data *bank;
+	struct stm_nand_flex_controller *flex;
+
+	res = stm_pad_claim(pdata->pad_config, dev_name(&pdev->dev));
+	if (res) {
+		dev_err(&pdev->dev, "Pads request failed!\n");
+		return res;
+	}
+
+	flex = flex_init_controller(pdev);
+	if (IS_ERR(flex)) {
+		dev_err(&pdev->dev, "Failed to initialise NAND Controller.\n");
+		res = PTR_ERR(flex);
+		goto out1;
+	}
+
+	bank = pdata->banks;
+	for (n=0; n<pdata->nr_banks; n++) {
+		flex->devices[n] = flex_init_bank(flex, bank,
+						  pdata->flex_rbn_connected,
+						  dev_name(&pdev->dev));
+		bank++;
+	}
+
+	platform_set_drvdata(pdev, flex);
+
+	return 0;
+
+out1:
+	stm_pad_release(pdata->pad_config);
 	return res;
 }
 
 static int __devexit stm_nand_flex_remove(struct platform_device *pdev)
 {
-	struct stm_nand_flex_device *data = platform_get_drvdata(pdev);
-	int i;
+	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
+	struct stm_nand_flex_controller *flex = platform_get_drvdata(pdev);
+	int n;
 
-	nand_release(&data->mtd);
-	platform_set_drvdata(pdev, NULL);
+	for (n=0; n<pdata->nr_banks; n++) {
+		struct stm_nand_flex_device *data = flex->devices[n];
+		int i;
+
+		nand_release(&data->mtd);
+
+		if (data->nr_parts)
+			for (i = 0; i < data->nr_parts; i++)
+				kfree(data->parts[i].mtdp);
+		kfree(data);
+	}
+
 	flex_exit_controller(pdev);
 
-	if (data->nr_parts)
-		for (i = 0; i < data->nr_parts; i++)
-			kfree(data->parts[i].mtdp);
-	kfree(data);
+	platform_set_drvdata(pdev, NULL);
 
 	return 0;
 }

@@ -31,6 +31,12 @@
 #include <linux/stm/emi.h>
 #include <mach/stem.h>
 
+/*
+ * Comment out this line to use NAND through the EMI bit-banging driver
+ * instead of the Flex driver.
+ */
+#define NAND_USES_FLEX
+
 static struct mtd_partition nand_parts[] = {
 	{
 		.name	= "NAND root",
@@ -43,17 +49,11 @@ static struct mtd_partition nand_parts[] = {
 	},
 };
 
-static struct plat_stmnand_data nand_config = {
-	.emi_bank		= STEM_CS0_BANK,
-	.emi_withinbankoffset	= STEM_CS0_OFFSET,
-	.chip_delay		= 30,
-	.mtd_parts		= nand_parts,
-	.nr_parts		= ARRAY_SIZE(nand_parts),
-	.rbn_port		= -1,
-	.rbn_pin		= -1,
-
-#if defined(CONFIG_CPU_SUBTYPE_STX7200) || defined(CONFIG_CPU_SUBTYPE_STX7105)
-	/* Timing data for SoCs using STM_NAND_EMI/FLEX/AFM drivers */
+static struct stm_nand_bank_data nand_bank_data = {
+	.csn			= STEM_CS0_BANK,
+	.nr_partitions		= ARRAY_SIZE(nand_parts),
+	.partitions		= nand_parts,
+	.options		= 0,
 	.timing_data = &(struct nand_timing_data) {
 		.sig_setup	= 50,		/* times in ns */
 		.sig_hold	= 50,
@@ -65,48 +65,37 @@ static struct plat_stmnand_data nand_config = {
 		.rd_off		= 40,
 		.chip_delay	= 30		/* in us */
 	},
-#else
-	/* Legacy Timing data for generic plat_nand driver */
-	.emi_timing_data = &(struct emi_timing_data) {
-		.rd_cycle_time	 = 50,		/* times in ns */
-		.rd_oee_start	 = 0,
-		.rd_oee_end	 = 10,
-		.rd_latchpoint	 = 10,
-		.busreleasetime  = 10,
-
-		.wr_cycle_time	 = 50,
-		.wr_oee_start	 = 0,
-		.wr_oee_end	 = 10,
-		.wait_active_low = 0,
-	},
-#endif
+	.emi_withinbankoffset	= STEM_CS0_OFFSET,
 };
 
-#if defined(CONFIG_CPU_SUBTYPE_STX7200) || defined(CONFIG_CPU_SUBTYPE_STX7105)
-
-/* For SoCs migrated to STM_NAND_EMI/FLEX/AFM drivers, setup template platform
- * device structure.  SoC setup will configure SoC specific data.  Use
- * 'stm-nand-emi/flex/afm.x' as ID for specifying MTD partitions on the kernel
- * command line.
- */
-static struct platform_device nand_device =
-	STM_NAND_DEVICE("stm-nand-emi", STEM_CS0_BANK, &nand_config,
-			nand_parts, ARRAY_SIZE(nand_parts), 0);
-
+#ifndef NAND_USES_FLEX
+static struct platform_device nand_device = {
+	.name		= "stm-nand-emi",
+	.dev.platform_data = &(struct stm_plat_nand_emi_data){
+		.nr_banks	= 1,
+		.banks		= &nand_bank_data,
+		.emi_rbn_gpio	= -1,
+	},
+};
 #endif
 
 static int __init mb588_init(void)
 {
+#ifdef NAND_USES_FLEX
+/* Use this block if using Flex controller */
 #if defined(CONFIG_CPU_SUBTYPE_STX7105)
-	stx7105_configure_nand(&nand_device);
+	stx7105_configure_nand_flex(&nand_bank_data);
 #elif defined(CONFIG_CPU_SUBTYPE_STX7111)
-	stx7111_configure_nand(&nand_config);
+	stx7111_configure_nand_flex(&nand_bank_data);
 #elif defined(CONFIG_CPU_SUBTYPE_STX7200)
-	stx7200_configure_nand(&nand_device);
+	stx7200_configure_nand_flex(&nand_bank_data);
 #else
 #	error Unsupported SOC.
 #endif
 	return 0;
+#else
+	platform_add_device(&nand_device);
+#endif
 }
 arch_initcall(mb588_init);
 

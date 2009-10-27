@@ -12,7 +12,7 @@
 /* Timing Paramters for NAND Controller.  See ADCS #7864584: "NAND Flash support
  * upgrades for FMI Functional Secification".
  */
-struct nand_timing_data {
+struct stm_nand_timing_data {
 	/* Times specified in ns.  (Will be rounded up to nearest multiple of
 	   EMI clock period.) */
 	int sig_setup;
@@ -29,5 +29,14 @@ struct nand_timing_data {
 	int chip_delay;		/* delay in us */
 };
 
+struct stm_nand_bank_data {
+	int			csn;
+	int			nr_partitions;
+	struct mtd_partition	*partitions;
+	unsigned int		options;
+	struct stm_nand_timing_data	*timing_data;
+
+	unsigned int		emi_withinbankoffset;
+};
 
 #endif /* __LINUX_STM_NAND_H */

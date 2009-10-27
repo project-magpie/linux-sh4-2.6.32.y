@@ -26,18 +26,18 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <linux/completion.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/dma-mapping.h>
 #include <linux/clk.h>
-#include <asm/dma.h>
+#include <linux/gpio.h>
 #include <linux/stm/stm-dma.h>
 #include <linux/stm/emi.h>
-#include <linux/stm/pio.h>
-#include <linux/completion.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
 #include <linux/stm/nand.h>
+#include <asm/dma.h>
 
 #define NAME	"stm-nand-emi"
 
@@ -53,7 +53,7 @@ struct stm_nand_emi {
 	unsigned int		emi_base;
 	unsigned int		emi_size;
 
-	struct stpio_pin	*rbn;		/* Ready not busy pin         */
+	int			rbn_gpio;	/* Ready not busy pin         */
 
 	void __iomem		*io_base;	/* EMI base for NAND chip     */
 	void __iomem		*io_data;	/* Address for data IO        */
@@ -72,6 +72,16 @@ struct stm_nand_emi {
 	int			dma_chan;		/* FDMA channel	      */
 	struct stm_dma_params	dma_params[2];		/* FDMA params        */
 #endif
+};
+
+/*
+ * A group of NAND devices which hang off a single platform device, and
+ * share some hardware (normally a single Ready/notBusy signal).
+ */
+struct stm_nand_emi_group {
+	int rbn_gpio;
+	int nr_banks;
+	struct stm_nand_emi *banks[0];
 };
 
 static const char *part_probes[] = { "cmdlinepart", NULL };
@@ -463,12 +473,12 @@ static int nand_device_ready(struct mtd_info *mtd)
 	struct nand_chip *this = mtd->priv;
 	struct stm_nand_emi *data = this->priv;
 
-	return stpio_get_pin(data->rbn);
+	return gpio_get_value(data->rbn_gpio);
 }
 
 #define GET_CLK_CYCLES(X, T)	(((X) + (T) - 1) / (T))
 /* Configure EMI Bank for NAND access */
-static int nand_config_emi(int bank, struct nand_timing_data *td)
+static int nand_config_emi(int bank, struct stm_nand_timing_data *td)
 {
 	uint32_t emi_clk;
 	uint32_t emi_t_ns;
@@ -538,13 +548,12 @@ static int nand_config_emi(int bank, struct nand_timing_data *td)
 /*
  * Probe for the NAND device.
  */
-static int __init stm_nand_emi_probe(struct platform_device *pdev)
+static struct stm_nand_emi * __init nand_probe_bank(
+	struct stm_nand_bank_data *bank, int rbn_gpio,
+	const char* name)
 {
-	struct platform_nand_data *pdata = pdev->dev.platform_data;
-	struct plat_stmnand_data *stmdata = pdata->ctrl.priv;
-
 	struct stm_nand_emi *data;
-	struct nand_timing_data *tm;
+	struct stm_nand_timing_data *tm;
 
 	int res = 0;
 
@@ -553,24 +562,24 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 	if (!data) {
 		printk(KERN_ERR NAME
 		       ": Failed to allocate device structure.\n");
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 	}
 
 	/* Get EMI Bank base address */
-	data->emi_bank = pdev->id;
+	data->emi_bank = bank->csn;
 	data->emi_base = emi_bank_base(data->emi_bank) +
-		stmdata->emi_withinbankoffset;
+		bank->emi_withinbankoffset;
 	data->emi_size = (1 << 18) + 1;
 
 	/* Configure EMI Bank */
-	if (nand_config_emi(data->emi_bank, stmdata->timing_data) != 0) {
+	if (nand_config_emi(data->emi_bank, bank->timing_data) != 0) {
 		printk(KERN_ERR NAME ": Failed to configure EMI bank "
 		       "for NAND device\n");
 		goto out1;
 	}
 
 	/* Request IO Memory */
-	if (!request_mem_region(data->emi_base, data->emi_size, pdev->name)) {
+	if (!request_mem_region(data->emi_base, data->emi_size, name)) {
 		printk(KERN_ERR NAME ": Request mem 0x%x region failed\n",
 		       data->emi_base);
 		res = -ENODEV;
@@ -620,9 +629,9 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 	data->mtd.owner = THIS_MODULE;
 
 	/* Assign more sensible name (default is string from nand_ids.c!) */
-	data->mtd.name = pdev->dev.bus_id;
+	data->mtd.name = name;
 
-	tm = stmdata->timing_data;
+	tm = bank->timing_data;
 
 	data->chip.IO_ADDR_R = data->io_base;
 	data->chip.IO_ADDR_W = data->io_base;
@@ -630,19 +639,13 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 	data->chip.cmd_ctrl = nand_cmd_ctrl_emi;
 
 	/* Do we have access to NAND_RBn? */
-	if (stmdata->rbn_port >= 0) {
-		data->rbn = stpio_request_pin(stmdata->rbn_port,
-					      stmdata->rbn_pin,
-					      "nand_RBn", STPIO_IN);
-		if (data->rbn) {
-			data->chip.dev_ready = nand_device_ready;
-		} else {
-			printk(KERN_INFO NAME ": nand_rbn unavailable. "
-			       "Falling back to chip_delay\n");
-			/* Set a default delay if not previosuly specified */
-			if (data->chip.chip_delay == 0)
-				data->chip.chip_delay = 30;
-		}
+	if (gpio_is_valid(rbn_gpio)) {
+		data->rbn_gpio = rbn_gpio;
+		data->chip.dev_ready = nand_device_ready;
+	} else {
+		data->rbn_gpio = -1;
+		if (data->chip.chip_delay == 0)
+			data->chip.chip_delay = 30;
 	}
 
 	/* Set IO routines for acessing NAND pages */
@@ -671,9 +674,7 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 	data->chip.ecc.mode = NAND_ECC_SOFT;
 
 	/* Copy chip options from platform data */
-	data->chip.options = pdata->chip.options;
-
-	platform_set_drvdata(pdev, data);
+	data->chip.options = bank->options;
 
 	/* Scan to find existance of the device */
 	if (nand_scan(&data->mtd, 1)) {
@@ -686,25 +687,22 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 	res = parse_mtd_partitions(&data->mtd, part_probes, &data->parts, 0);
 	if (res > 0) {
 		add_mtd_partitions(&data->mtd, data->parts, res);
-		return 0;
+		return data;
 	}
-	if (pdata->chip.partitions) {
-		data->parts = pdata->chip.partitions;
+	if (bank->partitions) {
+		data->parts = bank->partitions;
 		res = add_mtd_partitions(&data->mtd, data->parts,
-					 pdata->chip.nr_partitions);
+					 bank->nr_partitions);
 	} else
 #endif
 		res = add_mtd_device(&data->mtd);
 	if (!res)
-		return res;
+		return data;
 
 	/* Release resources on error */
  out6:
 
 	nand_release(&data->mtd);
-	if (data->rbn)
-		stpio_free_pin(data->rbn);
-	platform_set_drvdata(pdev, NULL);
 	iounmap(data->io_addr);
  out5:
 	iounmap(data->io_cmd);
@@ -718,7 +716,49 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 	release_mem_region(data->emi_base, data->emi_size);
  out1:
 	kfree(data);
-	return res;
+	return ERR_PTR(res);
+}
+
+static int __init stm_nand_emi_probe(struct platform_device *pdev)
+{
+	struct stm_plat_nand_emi_data *pdata = pdev->dev.platform_data;
+	int res;
+	int n;
+	int rbn_gpio;
+	struct stm_nand_emi_group *group;
+	struct stm_nand_bank_data *bank;
+
+	group = kzalloc(sizeof(struct stm_nand_emi_group) +
+			(sizeof(struct stm_nand_emi *) * pdata->nr_banks),
+			GFP_KERNEL);
+	if (!group)
+		return -ENOMEM;
+
+	rbn_gpio = pdata->emi_rbn_gpio;
+	if (gpio_is_valid(rbn_gpio)) {
+		res = gpio_request(rbn_gpio, "nand_RBn");
+		if (res == 0) {
+			gpio_direction_input(rbn_gpio);
+		} else {
+			dev_err(&pdev->dev, "nand_rbn unavailable. "
+				"Falling back to chip_delay\n");
+			rbn_gpio = -1;
+		}
+	}
+
+	group->rbn_gpio = rbn_gpio;
+	group->nr_banks = pdata->nr_banks;
+
+	bank = pdata->banks;
+	for (n=0; n<pdata->nr_banks; n++) {
+		group->banks[n] = nand_probe_bank(bank, rbn_gpio,
+						  dev_name(&pdev->dev));
+		bank++;
+	}
+
+	platform_set_drvdata(pdev, group);
+
+	return 0;
 }
 
 /*
@@ -726,30 +766,38 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
  */
 static int __devexit stm_nand_emi_remove(struct platform_device *pdev)
 {
-	struct stm_nand_emi *data = platform_get_drvdata(pdev);
-	struct platform_nand_data *pdata = pdev->dev.platform_data;
+	struct stm_nand_emi_group *group = platform_get_drvdata(pdev);
+	struct stm_plat_nand_emi_data *pdata = pdev->dev.platform_data;
+	int n;
 
-	nand_release(&data->mtd);
+	for (n=0; n<group->nr_banks; n++) {
+		struct stm_nand_emi *data = group->banks[n];
 
-	if (data->rbn)
-		stpio_free_pin(data->rbn);
+		nand_release(&data->mtd);
 
 #ifdef CONFIG_MTD_PARTITIONS
-	if (data->parts && data->parts != pdata->chip.partitions)
-		kfree(data->parts);
+		if (data->parts && data->parts != pdata->banks[n].partitions)
+			kfree(data->parts);
 #endif
-	platform_set_drvdata(pdev, NULL);
-	iounmap(data->io_addr);
-	iounmap(data->io_cmd);
+
+		iounmap(data->io_addr);
+		iounmap(data->io_cmd);
 #ifdef CONFIG_STM_NAND_EMI_CACHED
-	iounmap(data->io_data);
+		iounmap(data->io_data);
 #endif
-	iounmap(data->io_base);
-	release_mem_region(data->emi_base, data->emi_size);
+		iounmap(data->io_base);
+		release_mem_region(data->emi_base, data->emi_size);
 #ifdef CONFIG_STM_NAND_EMI_FDMA
-	exit_fdma_nand(data);
+		exit_fdma_nand(data);
 #endif
-	kfree(data);
+		kfree(data);
+	}
+
+	if (gpio_is_valid(group->rbn_gpio))
+		gpio_free(group->rbn_gpio);
+
+	platform_set_drvdata(pdev, NULL);
+	kfree(group);
 
 	return 0;
 }

@@ -12,21 +12,20 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
-#include <linux/stm/pio.h>
-#include <linux/stm/soc.h>
-#include <linux/stm/emi.h>
-#include <linux/spi/spi.h>
+#include <linux/gpio.h>
+#include <linux/phy.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
-#include <linux/phy.h>
-#include <linux/io.h>
+#include <linux/spi/spi.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/stx7200.h>
 #include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <mach/epld.h>
 #include <mach/common.h>
 
-static int ascs[2] __initdata = { 2, 3 };
+
 
 static void __init mb519_setup(char **cmdline_p)
 {
@@ -34,23 +33,18 @@ static void __init mb519_setup(char **cmdline_p)
 			"initialisation\n");
 
 	stx7200_early_device_init();
-	stx7200_configure_asc(ascs, 2, 0);
+
+	stx7200_configure_asc(2, &(struct stx7200_asc_config) {
+			.hw_flow_control = 1,
+			.is_console = 1, });
+	stx7200_configure_asc(3, &(struct stx7200_asc_config) {
+			.hw_flow_control = 1,
+			.is_console = 0, });
 }
 
-static struct plat_stm_pwm_data pwm_private_info = {
-	.flags		= PLAT_STM_PWM_OUT0,
-};
 
-static struct plat_ssc_data ssc_private_info = {
-	.capability  = (
-			ssc0_has(SSC_I2C_CAPABILITY) |
-			ssc1_has(SSC_I2C_CAPABILITY) |
-			ssc2_has(SSC_I2C_CAPABILITY) |
-			ssc3_has(SSC_SPI_CAPABILITY) |
-			ssc4_has(SSC_I2C_CAPABILITY)),
-};
 
-static struct mtd_partition mtd_parts_table[3] = {
+static struct mtd_partition mb519_mtd_parts_table[3] = {
 	{
 		.name = "Boot firmware",
 		.size = 0x00040000,
@@ -66,43 +60,41 @@ static struct mtd_partition mtd_parts_table[3] = {
 	}
 };
 
-static void mtd_set_vpp(struct map_info *map, int vpp)
+static void mb519_mtd_set_vpp(struct map_info *map, int vpp)
 {
 	/* Bit 0: VPP enable
-	 * Bit 1: Reset (not used in later EPLD versions)
-	 */
+	 * Bit 1: Reset (not used in later EPLD versions) */
 
-	if (vpp) {
+	if (vpp)
 		epld_write(3, EPLD_FLASH);
-	} else {
+	else
 		epld_write(2, EPLD_FLASH);
-	}
 }
 
-static struct physmap_flash_data physmap_flash_data = {
+static struct physmap_flash_data mb519_physmap_flash_data = {
 	.width		= 2,
-	.set_vpp	= mtd_set_vpp,
-	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
-	.parts		= mtd_parts_table
+	.set_vpp	= mb519_mtd_set_vpp,
+	.nr_parts	= ARRAY_SIZE(mb519_mtd_parts_table),
+	.parts		= mb519_mtd_parts_table
 };
 
-static struct platform_device physmap_flash = {
+static struct platform_device mb519_physmap_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
 		{
 			.start		= 0x00000000,
-			.end		= 32*1024*1024 - 1,
+			.end		= 32 * 1024 * 1024 - 1,
 			.flags		= IORESOURCE_MEM,
 		}
 	},
 	.dev		= {
-		.platform_data	= &physmap_flash_data,
+		.platform_data	= &mb519_physmap_flash_data,
 	},
 };
 
-static struct plat_stmmacphy_data phy_private_data[2] = {
+static struct stm_plat_stmmacphy_data mb519_phy_private_data[2] = {
 	{
 		/* MAC0: STE101P */
 		.bus_id = 0,
@@ -115,7 +107,8 @@ static struct plat_stmmacphy_data phy_private_data[2] = {
 		.phy_addr = 0,
 		.phy_mask = 0,
 		.interface = PHY_INTERFACE_MODE_MII,
-	} };
+	}
+};
 
 static struct platform_device mb519_phy_devices[2] = {
 	{
@@ -140,7 +133,7 @@ static struct platform_device mb519_phy_devices[2] = {
 			},
 		},
 		.dev = {
-			.platform_data = &phy_private_data[0],
+			.platform_data = &mb519_phy_private_data[0],
 		}
 	}, {
 		.name		= "stmmacphy",
@@ -155,11 +148,14 @@ static struct platform_device mb519_phy_devices[2] = {
 				},
 			},
 			.dev = {
-				.platform_data = &phy_private_data[1],
+				.platform_data = &mb519_phy_private_data[1],
 			}
-	} };
+	}
+};
 
-static struct platform_device epld_device = {
+
+
+static struct platform_device mb519_epld_device = {
 	.name		= "epld",
 	.id		= -1,
 	.num_resources	= 1,
@@ -175,14 +171,17 @@ static struct platform_device epld_device = {
 	},
 };
 
+
+
 static struct platform_device *mb519_devices[] __initdata = {
-	&epld_device,
-	&physmap_flash,
+	&mb519_epld_device,
+	&mb519_physmap_flash,
 	&mb519_phy_devices[0],
 	&mb519_phy_devices[1],
 };
 
-static int __init device_init(void)
+
+static int __init mb519_device_init(void)
 {
 	unsigned int epld_rev;
 	unsigned int pcb_rev;
@@ -192,35 +191,45 @@ static int __init device_init(void)
 	printk(KERN_NOTICE "mb519 PCB rev %X EPLD rev %dr%d\n",
 			pcb_rev, epld_rev >> 4, epld_rev & 0xf);
 
-	stx7200_configure_pwm(&pwm_private_info);
-	stx7200_configure_ssc(&ssc_private_info);
+	stx7200_configure_ssc_i2c(0); /* HDMI */
+	/* Usage of the remaining SSC is defined by the peripheral
+	 * board (eg. MB520) */
+
 	stx7200_configure_usb(0);
 	stx7200_configure_usb(1);
 	stx7200_configure_usb(2);
+
 #if 1 /* On-board PHY (MII0) */
-	stx7200_configure_ethernet(0, 0, 1, 0);
+	stx7200_configure_ethernet(0, &(struct stx7200_ethernet_config) {
+			.mode = stx7200_ethernet_mode_mii,
+			.ext_clk = 1,
+			.phy_bus = 0, });
 #else /* External PHY board (MII1) */
-	stx7200_configure_ethernet(1, 0, 1, 1);
+	stx7200_configure_ethernet(1, &(struct stx7200_ethernet_config) {
+			.mode = stx7200_ethernet_mode_mii,
+			.ext_clk = 1,
+			.phy_bus = 1, });
 #endif
-	stx7200_configure_lirc();
 
 	return platform_add_devices(mb519_devices, ARRAY_SIZE(mb519_devices));
 }
-arch_initcall(device_init);
+arch_initcall(mb519_device_init);
+
+
 
 static void __iomem *mb519_ioport_map(unsigned long port, unsigned int size)
 {
 	/* However picking somewhere safe isn't as easy as you might think.
 	 * I used to use external ROM, but that can cause problems if you are
-	 * in the middle of updating Flash. So I'm now using the processor core
-	 * version register, which is guaranted to be available, and non-writable.
-	 */
+	 * in the middle of updating Flash. So I'm now using the processor
+	 * core version register, which is guaranted to be available, and
+	 * non-writable. */
 	return (void __iomem *)CCN_PVR;
 }
 
 static void __init mb519_init_irq(void)
 {
-	epld_early_init(&epld_device);
+	epld_early_init(&mb519_epld_device);
 
 	/* Mark Ethernet PHY as active low */
 	set_irq_type(ILC_IRQ(93), IRQ_TYPE_LEVEL_LOW);

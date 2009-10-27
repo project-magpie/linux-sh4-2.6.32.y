@@ -193,14 +193,11 @@ no_context:
 		printk(KERN_ALERT "pc = %08lx\n", regs->pc);
 		page = (unsigned long)get_TTB();
 		if (page) {
-			page = ((__typeof__(page) *)page)[address >> PGDIR_SHIFT];
+			page = ((__typeof__(page) *)page)[pgd_index(address)];
 			printk(KERN_ALERT "*pde = %08lx\n", page);
-			if (page & _PAGE_PRESENT) {
-				page &= PAGE_MASK;
-				address &= 0x003ff000;
-				page = ((__typeof__(page) *)
-						__va(page))[address >>
-							    PAGE_SHIFT];
+			if (virt_addr_valid(page)) {
+				address = pte_index(address);
+				page = ((__typeof__(page) *)page)[address];
 				printk(KERN_ALERT "*pte = %08lx\n", page);
 			}
 		}

@@ -2,6 +2,8 @@
 # Makefile for the STMicroelectronics device drivers.
 #
 
+obj-y					+= pad.o
+
 obj-y				+= sysconf.o
 obj-$(CONFIG_STM_DMA)		+= fdma.o fdma-xbar.o
 obj-$(CONFIG_STM_PIO)		+= pio.o

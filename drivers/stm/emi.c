@@ -50,6 +50,7 @@ unsigned long emi_bank_base(int bank)
 {
 	unsigned long reg;
 
+	BUG_ON(bank < 0 || bank >= EMI_BANKS);
 	BUG_ON(!emi_initialised);
 
 	reg = readl(emi_control + BANK_BASEADDRESS(bank));
@@ -62,6 +63,7 @@ void emi_bank_configure(int bank, unsigned long data[4])
 {
 	int i;
 
+	BUG_ON(bank < 0 || bank >= EMI_BANKS);
 	BUG_ON(!emi_initialised);
 
 	for (i = 0; i < 4; i++)
@@ -170,6 +172,7 @@ static void __init set_pata_write_timings(int bank, int cycle_time,
 
 void __init emi_config_pata(int bank, int pc_mode)
 {
+	BUG_ON(bank < 0 || bank >= EMI_BANKS);
 	BUG_ON(!emi_initialised);
 
 	/* Set timings for PIO4 */
@@ -211,6 +214,7 @@ static void set_nand_write_timings(int bank, int cycle_time,
 
 void emi_config_nand(int bank, struct emi_timing_data *timing_data)
 {
+	BUG_ON(bank < 0 || bank >= EMI_BANKS);
 	BUG_ON(!emi_initialised);
 
 	set_nand_read_timings(bank,

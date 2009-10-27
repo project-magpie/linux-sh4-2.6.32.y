@@ -9,6 +9,8 @@
 #ifndef __LINUX_STM_EMI_H
 #define __LINUX_STM_EMI_H
 
+#define EMI_BANKS 5
+
 struct emi_timing_data {
 	int rd_cycle_time;
 	int rd_oee_start;

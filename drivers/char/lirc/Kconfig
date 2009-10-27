@@ -144,6 +144,7 @@ config LIRC_SUPPORT
 				default "4" if LIRC_SIR_COM1 || LIRC_SIR_COM3
 				default "3" if LIRC_SIR_COM2 || LIRC_SIR_COM4
 			depends on LIRC_SIR
+
         config LIRC_STM
                 tristate "STM Lirc support"
                 depends on LIRC_SUPPORT && CPU_SUBTYPE_ST40
@@ -153,15 +154,9 @@ config LIRC_SUPPORT
 		  Not all ST platforms support both type of receivers.
 		  IR RX is the default mode.
 
-        config LIRC_STM_UHF_RX
-	        bool "UHF Receiver mode"
-		depends on LIRC_STM
-		help
-		  This causes the driver to use UHF RX mode.
-
 	        config LIRC_STM_UHF_SCD
 		        bool "Start Code Detector - SCD"
-			depends on LIRC_STM_UHF_RX
+			depends on LIRC_STM
 			default y
 			help
 			  This causes the driver to use SCD on UHF RX mode.

@@ -62,25 +62,23 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
-#include <asm/irq.h>
-#include <asm/clock.h>
+#include <linux/irq.h>
 #include <linux/ioport.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
-#include <linux/stm/pio.h>
-#include <linux/stm/lirc.h>
+#include <linux/gpio.h>
 #include <linux/time.h>
 #include <linux/lirc.h>
+#include <linux/stm/lirc.h>
+#include <linux/stm/platform.h>
+#include <asm/clock.h>
 #include "lirc_dev.h"
 
-#ifndef LIRC_STM_NAME
-#error "*** You must have one into include/linux/stm/lirc.h     ***" \
-       "*** to be used as common link between board/soc/driver. ***"
-#endif
+#define LIRC_STM_NAME "lirc-stm"
 
 /* General debugging */
 #ifdef CONFIG_LIRC_STM_DEBUG
@@ -92,11 +90,6 @@
 /*
  * Infra Red: hardware register map
  */
-#if defined(CONFIG_LIRC_STM_UHF_RX)
-static int uhf_switch = 1;
-#else
-static int uhf_switch = 0;
-#endif
 static int ir_or_uhf_offset;
 static void *irb_base_address;	/* IR block register base address */
 
@@ -218,7 +211,7 @@ static void *irb_base_address;	/* IR block register base address */
  */
 
 #ifdef CONFIG_LIRC_STM_UHF_SCD
-static const struct lirc_scd_s scd_s = {
+static struct lirc_scd_s scd_s = {
 	.code = CONFIG_LIRC_STM_UHF_SCD_CODE,
 	.codelen = CONFIG_LIRC_STM_UHF_SCD_LEN,
 	.alt_codelen = 0,
@@ -226,9 +219,9 @@ static const struct lirc_scd_s scd_s = {
 	.noiserecov = 0,
 };
 
-static struct lirc_scd_s *scd = (struct lirc_scd_s *)&scd_s;
+static struct lirc_scd_s *const scd = &scd_s;
 #else
-static struct lirc_scd_s *scd = ((struct lirc_scd_s *)0);
+static struct lirc_scd_s *const scd = NULL;
 #endif
 
 /* SOC dependent section - these values are set in the appropriate 
@@ -268,7 +261,7 @@ typedef struct lirc_stm_rx_data_s {
 
 typedef struct lirc_stm_plugin_data_s {
 	int open_count;
-	struct lirc_plat_data_s *p_lirc_d;
+	struct stm_plat_lirc_data *p_lirc_d;
 #ifdef CONFIG_PM
 	pm_message_t prev_state;
 #endif
@@ -569,7 +562,7 @@ static int lirc_stm_scd_config(struct lirc_scd_s *scd, unsigned long clk)
 
 	rx.scd_supported = 0;
 	rx.off_rscd = 0;
-	if (!uhf_switch) {
+	if (!pd.p_lirc_d->rxuhfmode) {
 		printk(KERN_ERR LIRC_STM_NAME
 		       ": SCD not available in IR-RX mode. Not armed\n");
 		return -ENOTSUPP;
@@ -817,7 +810,7 @@ static int lirc_stm_ioctl(struct inode *node, struct file *filep,
 					     clk_get_rate(clk_get
 							  (NULL, "comms_clk")));
 		if (retval == 0)
-			scd = &arg_scd;
+			*scd = arg_scd;	/* struct copy */
 		break;
 
 	case LIRC_SCD_ENABLE:
@@ -885,18 +878,9 @@ static ssize_t lirc_stm_write(struct file *file, const char *buf,
 	int i;
 	size_t rdn = n / sizeof(size_t);
 	unsigned int symbol, mark;
-	int fifosyms, num_pio_pins;
-	struct lirc_pio_s *p;
+	int fifosyms;
 
-	num_pio_pins = pd.p_lirc_d->num_pio_pins;
-	while (num_pio_pins > 0) {
-		p = &(pd.p_lirc_d->pio_pin_arr[num_pio_pins - 1]);
-		if (!(p->pinof ^ (LIRC_IR_TX | LIRC_PIO_ON)))
-			break;
-		else
-			num_pio_pins--;
-	}
-	if (!num_pio_pins) {
+	if (!pd.p_lirc_d->txenabled) {
 		printk(KERN_ERR LIRC_STM_NAME
 		       ": write operation unsupported.\n");
 		return -ENOTSUPP;
@@ -1032,10 +1016,10 @@ static void lirc_stm_calc_tx_clocks(unsigned int clockfreq,
 static void
 lirc_stm_calc_rx_clocks(struct platform_device *pdev, unsigned long baseclock)
 {
-	struct lirc_plat_data_s *lirc_pdata = NULL;
+	struct stm_plat_lirc_data *lirc_pdata = NULL;
 	unsigned int rx_max_symbol_per;
 
-	lirc_pdata = (struct lirc_plat_data_s *)pdev->dev.platform_data;
+	lirc_pdata = pdev->dev.platform_data;
 
 	if (lirc_pdata->irbclkdiv == 0) {
 		/* Auto-calculate clock divisor */
@@ -1105,13 +1089,13 @@ lirc_stm_calc_rx_clocks(struct platform_device *pdev, unsigned long baseclock)
 
 static int lirc_stm_hardware_init(struct platform_device *pdev)
 {
-	struct lirc_plat_data_s *lirc_pdata = NULL;
+	struct stm_plat_lirc_data *lirc_pdata;
 	struct clk *clk;
 	unsigned int scwidth;
 	int baseclock;
 
 	/*  set up the hardware version dependent setup parameters */
-	lirc_pdata = (struct lirc_plat_data_s *)pdev->dev.platform_data;
+	lirc_pdata = pdev->dev.platform_data;
 
 	tx.carrier_freq = 38000;	// in Hz
 
@@ -1154,8 +1138,6 @@ static int lirc_stm_remove(struct platform_device *pdev)
 static int lirc_stm_probe(struct platform_device *pdev)
 {
 	int ret = -EINVAL;
-	int num_pio_pins;
-	struct lirc_pio_s *p;
 	struct device *dev = &pdev->dev;
 	struct resource *res;
 	int irb_irq, irb_irq_wup;
@@ -1170,7 +1152,7 @@ static int lirc_stm_probe(struct platform_device *pdev)
 
 	printk(KERN_INFO LIRC_STM_NAME
 	       ": probe found data for platform device %s\n", pdev->name);
-	pd.p_lirc_d = (struct lirc_plat_data_s *)pdev->dev.platform_data;
+	pd.p_lirc_d = pdev->dev.platform_data;
 
 	if ((irb_irq = platform_get_irq(pdev, 0)) == 0) {
 		printk(KERN_ERR LIRC_STM_NAME
@@ -1187,7 +1169,7 @@ static int lirc_stm_probe(struct platform_device *pdev)
 
 	/* Enable wakeup interrupt if any */
 	irb_irq_wup = platform_get_irq(pdev, 1);
-	if (irb_irq_wup != 0) {
+	if (irb_irq_wup >= 0) {
 		if (devm_request_irq
 		    (dev, irb_irq_wup, lirc_stm_interrupt, IRQF_DISABLED,
 		     LIRC_STM_NAME, (void *)&pd) < 0) {
@@ -1201,8 +1183,8 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		       ": the driver has wakeup IRQ %d\n", irb_irq_wup);
 	}
 
-	/* Configure for ir or uhf. uhf_switch==1 is UHF */
-	if (uhf_switch)
+	/* Configure for ir or uhf. rxuhfmode==1 is UHF */
+	if (pd.p_lirc_d->rxuhfmode)
 		ir_or_uhf_offset = 0x40;
 	else
 		ir_or_uhf_offset = 0x00;
@@ -1253,64 +1235,14 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		DPRINTK("ioremapped register block at 0x%x\n", res->start);
 		DPRINTK("ioremapped to 0x%x\n", (unsigned int)irb_base_address);
 
-		printk(KERN_INFO LIRC_STM_NAME
-		       ": the driver has IRQ %d", irb_irq);
+		printk(KERN_INFO LIRC_STM_NAME": STM LIRC plugin using IRQ %d"
+				" in %s mode\n", irb_irq,
+				pd.p_lirc_d->rxuhfmode ? "UHF" : "IR");
 
-		/* Allocate the PIO pins */
-		num_pio_pins = pd.p_lirc_d->num_pio_pins;
-		while (num_pio_pins > 0) {
-			ret = 0;
-			p = &(pd.p_lirc_d->pio_pin_arr[num_pio_pins - 1]);
-			/* Can I satisfy the IR-RX request ? */
-			if ((ir_or_uhf_offset == 0x00)
-			    && (p->pinof & LIRC_IR_RX)) {
-				if (p->pinof & LIRC_PIO_ON)
-					printk(" using IR-RX mode\n");
-				else {
-					printk
-					    (" with IR-RX mode unsupported\n");
-					ret = -1;
-				}
-			}
-
-			/* Can I satisfy the UHF-RX request ? */
-			if ((ir_or_uhf_offset == 0x40)
-			    && (p->pinof & LIRC_UHF_RX)) {
-				if (p->pinof & LIRC_PIO_ON)
-					printk(" using UHF-RX mode\n");
-				else {
-					printk
-					    (" with UHF-RX mode unsupported\n");
-					ret = -1;
-				}
-			}
-
-			/* Try to satisfy the request */
-			if ((!ret) && (p->pinof & LIRC_PIO_ON))
-				if (!(p->pinaddr = stpio_request_pin(p->bank,
-								     p->pin,
-								     LIRC_STM_NAME,
-								     p->dir))) {
-					printk(KERN_ERR
-					       "\nlirc_stm: PIO[%d,%d] request failed\n",
-					       p->bank, p->pin);
-					ret = -1;
-
-				}
-
-			/* something bad is happened */
-			if (ret) {
-				while (num_pio_pins < pd.p_lirc_d->num_pio_pins) {
-					stpio_free_pin(pd.p_lirc_d->pio_pin_arr
-						       [num_pio_pins].pinaddr);
-					pd.p_lirc_d->pio_pin_arr[num_pio_pins].
-					    pinaddr = NULL;
-					num_pio_pins++;
-				}
-				return -EIO;
-			}
-
-			num_pio_pins--;
+		if (stm_pad_claim(pd.p_lirc_d->pads, LIRC_STM_NAME) != 0) {
+			printk(KERN_ERR LIRC_STM_NAME": Failed to claim "
+					"pads!\n");
+			return -EIO;
 		}
 
 		/* reset and then harware initialisation */
@@ -1336,9 +1268,10 @@ static void lirc_stm_restore_rx(void)
 
 static int lirc_stm_suspend(struct platform_device *pdev, pm_message_t state)
 {
-	struct lirc_plat_data_s *lirc_pdata = NULL;
+	struct stm_plat_lirc_data *lirc_pdata = NULL;
 	unsigned long tmp;
-	lirc_pdata = (struct lirc_plat_data_s *)pdev->dev.platform_data;
+
+	lirc_pdata = pdev->dev.platform_data;
 	pd.prev_state = state;
 	switch (state.event) {
 	case PM_EVENT_SUSPEND:
@@ -1471,8 +1404,6 @@ out_err:
 
 void __exit lirc_stm_release(void)
 {
-	int num_pio_pins;
-
 	DPRINTK("removing STM lirc driver\n");
 
 	/* unregister the driver */
@@ -1485,20 +1416,11 @@ void __exit lirc_stm_release(void)
 	/* free buffer */
 	lirc_buffer_free(&lirc_stm_rbuf);
 
-	/* deallocate the STPIO pins */
-	num_pio_pins = pd.p_lirc_d->num_pio_pins;
-	while (num_pio_pins > 0)
-		if (pd.p_lirc_d->pio_pin_arr[num_pio_pins - 1].pinaddr)
-			stpio_free_pin(pd.p_lirc_d->pio_pin_arr[--num_pio_pins].
-				       pinaddr);
-		else
-			--num_pio_pins;
+	/* release pads */
+	stm_pad_release(pd.p_lirc_d->pads);
 
 	printk(KERN_INFO "STMicroelectronics LIRC driver removed\n");
 }
-
-module_param(uhf_switch, bool, 0664);
-MODULE_PARM_DESC(ir_or_uhf_offset, "Enable uhf mode");
 
 module_init(lirc_stm_init);
 module_exit(lirc_stm_release);

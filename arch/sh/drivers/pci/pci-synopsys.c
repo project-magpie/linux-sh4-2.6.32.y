@@ -18,7 +18,8 @@
 #include <linux/pci.h>
 #include <linux/errno.h>
 #include <linux/io.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/pci-synopsys.h>
 #include <linux/gpio.h>
 #include <linux/cache.h>
 #include <linux/clk.h>
@@ -446,7 +447,7 @@ void pci_stm_pio_reset(void)
 	mdelay(10);
 }
 
-static void __devinit pci_stm_setup(struct pci_config_data *pci_config,
+static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 				    unsigned long pci_window_start,
 				    unsigned long pci_window_size)
 {
@@ -554,7 +555,7 @@ static int __devinit pci_stm_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret,irq;
 	unsigned long pci_window_start, pci_window_size;
-	struct pci_config_data *pci_config = pdev->dev.platform_data;
+	struct stm_plat_pci_config *pci_config = pdev->dev.platform_data;
 	struct clk *pci_clk;
 
 	emiss = plat_ioremap_region(pdev, 0);

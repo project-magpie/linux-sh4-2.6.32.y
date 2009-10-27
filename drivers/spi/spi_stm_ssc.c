@@ -24,23 +24,22 @@
  *  ------------------------------------------------------------------------
  */
 
-#include <linux/stm/pio.h>
-#include <asm/semaphore.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/kernel.h>
 #include <linux/interrupt.h>
 #include <linux/clk.h>
+#include <linux/delay.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
 #include <linux/completion.h>
-#include <linux/stm/soc.h>
-#include <linux/stm/stssc.h>
 #include <linux/uaccess.h>
 #include <linux/param.h>
+#include <linux/gpio.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/spi_bitbang.h>
-#include <linux/delay.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/stssc.h>
 
 #undef dgb_print
 
@@ -52,10 +51,9 @@
 #define dgb_print(fmt, args...)	do { } while (0)
 #endif
 
-#define NAME "spi_stm_ssc"
+#define NAME "spi-stm-ssc"
 
 struct spi_stm_ssc {
-
 	/* SSC SPI Controller */
 	struct spi_bitbang	bitbang;
 	unsigned long		base;
@@ -70,40 +68,39 @@ struct spi_stm_ssc {
 	unsigned int		tx_bytes_pending;
 	unsigned int		rx_bytes_pending;
 	struct completion	done;
-
 };
 
-static void spi_stpio_chipselect(struct spi_device *spi, int value)
+static void spi_stm_gpio_chipselect(struct spi_device *spi, int value)
 {
 	unsigned int out;
 
 	dgb_print("\n");
-	if (spi->chip_select == SPI_NO_CHIPSELECT)
-		return;
 
-	/* Request stpio_pin if not already done so */
-	/*  (stored in spi_device->controller_data) */
-	if (!spi->controller_data)
-		spi->controller_data =
-			stpio_request_pin(spi_get_bank(spi->chip_select),
-					  spi_get_line(spi->chip_select),
-					  "spi-cs", STPIO_OUT);
-	if (!spi->controller_data) {
-		printk(KERN_ERR NAME " Error spi-cs locked or not-exist\n");
+	if (spi->chip_select == (typeof(spi->chip_select))(STM_GPIO_INVALID))
 		return;
-	}
 
 	if (value == BITBANG_CS_ACTIVE)
 		out = spi->mode & SPI_CS_HIGH ? 1 : 0;
 	else
 		out = spi->mode & SPI_CS_HIGH ? 0 : 1;
 
-	stpio_set_pin((struct stpio_pin *)spi->controller_data, out);
+	if (unlikely(!spi->controller_data)) {
+		/* Allocate the GPIO when called for the first time.
+		 * FIXME: This code leaks a gpio! (no gpio_free()) */
+		if (gpio_request(spi->chip_select, "spi_stm_gpio CS") < 0) {
+			printk(KERN_ERR NAME " Failed to allocate CS pin\n");
+			return;
+		}
+		spi->controller_data = (void *)1;
+		gpio_direction_output(spi->chip_select, out);
+	} else {
+		gpio_set_value(spi->chip_select, out);
+	}
 
 	dgb_print("%s PIO%d[%d] -> %d \n",
 		  value == BITBANG_CS_ACTIVE ? "select" : "deselect",
-		  spi_get_bank(spi->chip_select),
-		  spi_get_line(spi->chip_select), out);
+		  stm_gpio_port(spi->chip_select),
+		  stm_gpio_pin(spi->chip_select), out);
 
 	return;
 }
@@ -408,13 +405,14 @@ static irqreturn_t spi_stmssc_irq(int irq, void *dev_id)
 
 static int __init spi_stm_probe(struct platform_device *pdev)
 {
-	struct ssc_pio_t *pio_info =
-			(struct ssc_pio_t *)pdev->dev.platform_data;
+	struct stm_plat_ssc_data *plat_data = pdev->dev.platform_data;
 	struct spi_master *master;
 	struct resource *res;
 	struct spi_stm_ssc *st_ssc;
 
 	u32 reg;
+
+	/* FIXME: nice error path would be appreciated... */
 
 	master = spi_alloc_master(&pdev->dev, sizeof(struct spi_stm_ssc));
 	if (!master)
@@ -423,19 +421,20 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, master);
 
 	st_ssc = spi_master_get_devdata(master);
-	st_ssc->bitbang.master     = spi_master_get(master);
+	st_ssc->bitbang.master = spi_master_get(master);
 	st_ssc->bitbang.setup_transfer = spi_stmssc_setup_transfer;
-	st_ssc->bitbang.txrx_bufs  = spi_stmssc_txrx_bufs;
+	st_ssc->bitbang.txrx_bufs = spi_stmssc_txrx_bufs;
 	st_ssc->bitbang.master->setup = spi_stmssc_setup;
 
-	if (pio_info->chipselect)
-		st_ssc->bitbang.chipselect = (void (*)
-					      (struct spi_device *, int))
-			pio_info->chipselect;
+	if (plat_data->spi_chipselect)
+		st_ssc->bitbang.chipselect = plat_data->spi_chipselect;
 	else
-		st_ssc->bitbang.chipselect = spi_stpio_chipselect;
+		st_ssc->bitbang.chipselect = spi_stm_gpio_chipselect;
 
-	master->num_chipselect = SPI_NO_CHIPSELECT + 1;
+	/* chip_select field of spi_device is declared as u8 and therefore
+	 * limits number of GPIOs that can be used as a CS line. Sorry. */
+	master->num_chipselect =
+			sizeof(((struct spi_device *)0)->chip_select) * 256;
 	master->bus_num = pdev->id;
 	init_completion(&st_ssc->done);
 
@@ -467,45 +466,15 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	}
 
 	if (devm_request_irq(&pdev->dev, res->start, spi_stmssc_irq,
-		IRQF_DISABLED, "stspi", st_ssc) < 0) {
+		IRQF_DISABLED, dev_name(&pdev->dev), st_ssc) < 0) {
 		printk(KERN_ERR NAME " Request irq failed\n");
 		return -ENODEV;
 	}
 
-	/* Check for hard wired SSC which doesn't use PIO pins */
-	if (pio_info->pio[0].pio_port == SSC_NO_PIO)
-		goto ssc_hard_wired;
-
-	/* Get PIO pins */
-	pio_info->clk = stpio_request_set_pin(pio_info->pio[0].pio_port,
-					  pio_info->pio[0].pio_pin,
-					      "SPI Clock", STPIO_BIDIR, 0);
-	if (!pio_info->clk) {
-		printk(KERN_ERR NAME
-		       " Failed to allocate clk pin (PIO%d[%d])\n",
-		       pio_info->pio[0].pio_port, pio_info->pio[0].pio_pin);
+	if (stm_pad_claim(plat_data->pad_config_ssc, dev_name(&pdev->dev))) {
+		printk(KERN_ERR NAME " Pads request failed!\n");
 		return -ENODEV;
 	}
-	pio_info->sdout = stpio_request_set_pin(pio_info->pio[1].pio_port,
-					    pio_info->pio[1].pio_pin,
-						"SPI Data out", STPIO_BIDIR, 0);
-	if (!pio_info->sdout) {
-		printk(KERN_ERR NAME
-		       " Failed to allocate sdo pin (PIO%d[%d])\n",
-		       pio_info->pio[1].pio_port, pio_info->pio[1].pio_pin);
-		return -ENODEV;
-	}
-	pio_info->sdin = stpio_request_pin(pio_info->pio[2].pio_port,
-					   pio_info->pio[2].pio_pin,
-					   "SPI Data in", STPIO_IN);
-	if (!pio_info->sdin) {
-		printk(KERN_ERR NAME
-		       " Failed to allocate sdi pin (PIO%d[%d])\n",
-		       pio_info->pio[2].pio_port, pio_info->pio[2].pio_pin);
-		return -ENODEV;
-	}
-
-ssc_hard_wired:
 
 	/* Disable I2C and Reset SSC */
 	ssc_store32(st_ssc, SSC_I2C, 0x0);
@@ -523,21 +492,6 @@ ssc_hard_wired:
 	reg &= ~SSC_CTL_MS;
 	ssc_store32(st_ssc, SSC_CTL, reg);
 
-	if (pio_info->pio[0].pio_port == SSC_NO_PIO)
-		goto ssc_hard_wired2;
-
-#ifdef CONFIG_CPU_SUBTYPE_STX7141
-	stpio_configure_pin(pio_info->clk, STPIO_OUT);
-	stpio_configure_pin(pio_info->sdout, STPIO_OUT);
-	stpio_configure_pin(pio_info->sdin, STPIO_IN);
-#else
-	stpio_configure_pin(pio_info->clk, STPIO_ALT_OUT);
-	stpio_configure_pin(pio_info->sdout, STPIO_ALT_OUT);
-	stpio_configure_pin(pio_info->sdin, STPIO_IN);
-#endif
-
-ssc_hard_wired2:
-
 	st_ssc->fcomms = clk_get_rate(clk_get(NULL, "comms_clk"));;
 
 	/* Start bitbang worker */
@@ -547,38 +501,44 @@ ssc_hard_wired2:
 		return -1;
 	}
 
-	printk(KERN_INFO NAME ": Registered SPI Bus %d: "
-	       "CLK[%d,%d] SDOUT[%d, %d] SDIN[%d, %d]\n", master->bus_num,
-	       pio_info->pio[0].pio_port, pio_info->pio[0].pio_pin,
-	       pio_info->pio[1].pio_port, pio_info->pio[1].pio_pin,
-	       pio_info->pio[2].pio_port, pio_info->pio[2].pio_pin);
+	printk(KERN_INFO NAME ": Registered SPI Bus %d\n", master->bus_num);
+	if (plat_data->gpio_sclk != STM_GPIO_INVALID &&
+			plat_data->gpio_mtsr != STM_GPIO_INVALID &&
+			plat_data->gpio_mrst != STM_GPIO_INVALID)
+		printk(KERN_INFO NAME ": Using PIO pins: CLK = PIO%d.%d, "
+				"SDOUT = PIO%d.%d, SDIN = PIO%d.%d\n",
+				stm_gpio_port(plat_data->gpio_sclk),
+				stm_gpio_pin(plat_data->gpio_sclk),
+				stm_gpio_port(plat_data->gpio_mtsr),
+				stm_gpio_pin(plat_data->gpio_mtsr),
+				stm_gpio_port(plat_data->gpio_mrst),
+				stm_gpio_pin(plat_data->gpio_mrst));
+	else
+		printk(KERN_INFO NAME ": Using non-PIO pins.\n");
 
 	return 0;
 }
 
-static int  spi_stm_remove(struct platform_device *pdev)
+static int spi_stm_remove(struct platform_device *pdev)
 {
+	struct stm_plat_ssc_data *plat_data = pdev->dev.platform_data;
 	struct spi_stm_ssc *st_ssc;
 	struct spi_master *master;
-	struct ssc_pio_t *pio_info =
-		(struct ssc_pio_t *)pdev->dev.platform_data;
 
 	master = platform_get_drvdata(pdev);
 	st_ssc = spi_master_get_devdata(master);
 
 	spi_bitbang_stop(&st_ssc->bitbang);
 
-	if (pio_info->sdin) {
-		stpio_free_pin(pio_info->sdin);
-		stpio_free_pin(pio_info->clk);
-		stpio_free_pin(pio_info->sdout);
-	}
+	stm_pad_release(plat_data->pad_config_ssc);
+
+	/* FIXME: Resources release... */
 
 	return 0;
 }
 
 static struct platform_driver spi_hw_driver = {
-	.driver.name = "spi_st_ssc",
+	.driver.name = NAME,
 	.driver.owner = THIS_MODULE,
 	.probe = spi_stm_probe,
 	.remove = spi_stm_remove,

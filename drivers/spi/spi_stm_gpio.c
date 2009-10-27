@@ -29,9 +29,10 @@
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/delay.h>
+#include <linux/gpio.h>
 #include <linux/spi/spi.h>
-#include <linux/stm/pio.h>
-#include <linux/stm/soc.h>
+#include <linux/spi/spi_bitbang.h>
+#include <linux/stm/platform.h>
 #include <linux/io.h>
 #include <linux/param.h>
 
@@ -42,36 +43,38 @@
 #define dgb_print(fmt, args...)	do { } while (0)
 #endif
 
-#define NAME "spi_stm_pio"
+#define NAME "spi-stm-gpio"
 
 /* Maybe this should be included in platform_data? */
 #define SPI_STMPIO_MAX_SPEED_HZ		1000000
 
+struct spi_stm_gpio {
+	struct spi_bitbang	bitbang;
+	struct platform_device	*pdev;
+	unsigned int gpio_sck, gpio_mosi, gpio_miso;
+	/* Max speed supported by STPIO bit-banging SPI controller */
+	int max_speed_hz;
+};
+
 static inline void setsck(struct spi_device *dev, int on)
 {
-	struct platform_device *pdev =
-		container_of(dev->dev.parent, struct platform_device, dev);
-	struct ssc_pio_t *pio_info =
-		(struct ssc_pio_t *)pdev->dev.platform_data;
-	stpio_set_pin(pio_info->clk, on ? 1 : 0);
+	struct spi_stm_gpio *spi_stm_gpio = spi_master_get_devdata(dev->master);
+
+	gpio_set_value(spi_stm_gpio->gpio_sck, on);
 }
 
 static inline void setmosi(struct spi_device *dev, int on)
 {
-	struct platform_device *pdev
-		= container_of(dev->dev.parent, struct platform_device, dev);
-	struct ssc_pio_t *pio_info =
-		(struct ssc_pio_t *)pdev->dev.platform_data;
-	stpio_set_pin(pio_info->sdout, on ? 1 : 0);
+	struct spi_stm_gpio *spi_stm_gpio = spi_master_get_devdata(dev->master);
+
+	gpio_set_value(spi_stm_gpio->gpio_mosi, on);
 }
 
 static inline u32 getmiso(struct spi_device *dev)
 {
-	struct platform_device *pdev
-		= container_of(dev->dev.parent, struct platform_device, dev);
-	struct ssc_pio_t *pio_info =
-		(struct ssc_pio_t *)pdev->dev.platform_data;
-	return stpio_get_pin(pio_info->sdin) ? 1 : 0;
+	struct spi_stm_gpio *spi_stm_gpio = spi_master_get_devdata(dev->master);
+
+	return gpio_get_value(spi_stm_gpio->gpio_miso);
 }
 
 #define EXPAND_BITBANG_TXRX
@@ -106,60 +109,51 @@ static u32 spi_gpio_txrx_mode3(struct spi_device *spi,
 	return bitbang_txrx_be_cpha1(spi, nsecs, 1, word, bits);
 }
 
-static void spi_stpio_chipselect(struct spi_device *spi, int value)
+static void spi_stm_gpio_chipselect(struct spi_device *spi, int value)
 {
 	unsigned int out;
 
 	dgb_print("\n");
-	if (spi->chip_select == SPI_NO_CHIPSELECT)
-		return;
 
-	/* Request stpio_pin if not already done so */
-	/*  (stored in spi_device->controller_data) */
-	if (!spi->controller_data)
-		spi->controller_data =
-			stpio_request_pin(spi_get_bank(spi->chip_select),
-					  spi_get_line(spi->chip_select),
-					  "spi-cs", STPIO_OUT);
-
-	if (!spi->controller_data) {
-		printk(KERN_ERR NAME " Error spi-cs locked or not-exist\n");
+	if (spi->chip_select == (typeof(spi->chip_select))(STM_GPIO_INVALID))
 		return;
-	}
 
 	if (value == BITBANG_CS_ACTIVE)
 		out = spi->mode & SPI_CS_HIGH ? 1 : 0;
 	else
 		out = spi->mode & SPI_CS_HIGH ? 0 : 1;
 
-	stpio_set_pin((struct stpio_pin *)spi->controller_data, out);
+	if (unlikely(!spi->controller_data)) {
+		/* Allocate the GPIO when called for the first time.
+		 * FIXME: This code leaks a gpio! (no gpio_free()) */
+		if (gpio_request(spi->chip_select, "spi_stm_gpio CS") < 0) {
+			printk(KERN_ERR NAME " Failed to allocate CS pin\n");
+			return;
+		}
+		spi->controller_data = (void *)1;
+		gpio_direction_output(spi->chip_select, out);
+	} else {
+		gpio_set_value(spi->chip_select, out);
+	}
 
 	dgb_print("%s PIO%d[%d] -> %d \n",
 		  value == BITBANG_CS_ACTIVE ? "select" : "deselect",
-		  spi_get_bank(spi->chip_select),
-		  spi_get_line(spi->chip_select), out);
+		  stm_gpio_port(spi->chip_select),
+		  stm_gpio_pin(spi->chip_select), out);
 
 	return;
 }
 
-struct spi_stm_gpio {
-	struct spi_bitbang	bitbang;
-	struct platform_device	*pdev;
-
-	/* Max speed supported by STPIO bit-banging SPI controller */
-	int max_speed_hz;
-};
-
 static int spi_stmpio_setup(struct spi_device *spi)
 {
-	struct spi_stm_gpio *spi_st = spi_master_get_devdata(spi->master);
+	struct spi_stm_gpio *spi_stm_gpio = spi_master_get_devdata(spi->master);
 
 	dgb_print("\n");
 
-	if (spi->max_speed_hz > spi_st->max_speed_hz) {
+	if (spi->max_speed_hz > spi_stm_gpio->max_speed_hz) {
 		printk(KERN_ERR NAME " requested baud rate (%dhz) exceeds "
 		       "max (%dhz)\n",
-		       spi->max_speed_hz, spi_st->max_speed_hz);
+		       spi->max_speed_hz, spi_stm_gpio->max_speed_hz);
 		return -EINVAL;
 	}
 
@@ -184,103 +178,109 @@ static int spi_stmpio_setup_transfer(struct spi_device *spi,
 
 static int __init spi_probe(struct platform_device *pdev)
 {
-	struct ssc_pio_t *pio_info =
-			(struct ssc_pio_t *)pdev->dev.platform_data;
+	struct stm_plat_ssc_data *plat_data = pdev->dev.platform_data;
 	struct spi_master *master;
-	struct spi_stm_gpio *st_bitbang;
+	struct spi_stm_gpio *spi_stm_gpio;
 
 	dgb_print("\n");
+
+	if (plat_data->gpio_sclk == STM_GPIO_INVALID ||
+			plat_data->gpio_mtsr == STM_GPIO_INVALID ||
+			plat_data->gpio_mrst == STM_GPIO_INVALID)
+		return -1;
+
 	master = spi_alloc_master(&pdev->dev, sizeof(struct spi_stm_gpio));
 	if (!master)
 		return -1;
 
-	st_bitbang = spi_master_get_devdata(master);
-	if (!st_bitbang)
+	spi_stm_gpio = spi_master_get_devdata(master);
+	if (!spi_stm_gpio)
 		return -1;
 
-	platform_set_drvdata(pdev, st_bitbang);
-	st_bitbang->bitbang.master = master;
-	st_bitbang->bitbang.master->setup = spi_stmpio_setup;
-	st_bitbang->bitbang.setup_transfer = spi_stmpio_setup_transfer;
-	st_bitbang->bitbang.chipselect = spi_stpio_chipselect;
-	st_bitbang->bitbang.txrx_word[SPI_MODE_0] = spi_gpio_txrx_mode0;
-	st_bitbang->bitbang.txrx_word[SPI_MODE_1] = spi_gpio_txrx_mode1;
-	st_bitbang->bitbang.txrx_word[SPI_MODE_2] = spi_gpio_txrx_mode2;
-	st_bitbang->bitbang.txrx_word[SPI_MODE_3] = spi_gpio_txrx_mode3;
+	platform_set_drvdata(pdev, spi_stm_gpio);
+	spi_stm_gpio->bitbang.master = master;
+	spi_stm_gpio->bitbang.master->setup = spi_stmpio_setup;
+	spi_stm_gpio->bitbang.setup_transfer = spi_stmpio_setup_transfer;
+	spi_stm_gpio->bitbang.chipselect = spi_stm_gpio_chipselect;
+	spi_stm_gpio->bitbang.txrx_word[SPI_MODE_0] = spi_gpio_txrx_mode0;
+	spi_stm_gpio->bitbang.txrx_word[SPI_MODE_1] = spi_gpio_txrx_mode1;
+	spi_stm_gpio->bitbang.txrx_word[SPI_MODE_2] = spi_gpio_txrx_mode2;
+	spi_stm_gpio->bitbang.txrx_word[SPI_MODE_3] = spi_gpio_txrx_mode3;
 
-	if (pio_info->chipselect)
-		st_bitbang->bitbang.chipselect = (void (*)
-						  (struct spi_device *, int))
-			(pio_info->chipselect);
+	if (plat_data->spi_chipselect)
+		spi_stm_gpio->bitbang.chipselect = plat_data->spi_chipselect;
 	else
-		st_bitbang->bitbang.chipselect = spi_stpio_chipselect;
+		spi_stm_gpio->bitbang.chipselect = spi_stm_gpio_chipselect;
 
-	master->num_chipselect = SPI_NO_CHIPSELECT + 1;
+	/* chip_select field of spi_device is declared as u8 and therefore
+	 * limits number of GPIOs that can be used as a CS line. Sorry. */
+	master->num_chipselect =
+			sizeof(((struct spi_device *)0)->chip_select) * 256;
+
 	master->bus_num = pdev->id;
-	st_bitbang->max_speed_hz = SPI_STMPIO_MAX_SPEED_HZ;
+	spi_stm_gpio->max_speed_hz = SPI_STMPIO_MAX_SPEED_HZ;
 
-	pio_info->clk = stpio_request_pin(pio_info->pio[0].pio_port,
-					  pio_info->pio[0].pio_pin,
-					  "SPI Clock", STPIO_OUT);
-	if (!pio_info->clk) {
-		printk(KERN_ERR NAME " Faild to clk pin allocation PIO%d[%d]\n",
-		       pio_info->pio[0].pio_port, pio_info->pio[0].pio_pin);
+	spi_stm_gpio->gpio_sck = plat_data->gpio_sclk;
+	if (gpio_request(spi_stm_gpio->gpio_sck, "spi-stm-gpio SCK") < 0) {
+		printk(KERN_ERR NAME " Failed to allocate PIO%d[%d] for SCK\n",
+				stm_gpio_port(spi_stm_gpio->gpio_sck),
+				stm_gpio_pin(spi_stm_gpio->gpio_sck));
 		return -1;
 	}
-	pio_info->sdout = stpio_request_pin(pio_info->pio[1].pio_port,
-					    pio_info->pio[1].pio_pin,
-					    "SPI Data Out", STPIO_OUT);
-	if (!pio_info->sdout) {
-		printk(KERN_ERR NAME " Faild to sda pin allocation PIO%d[%d]\n",
-		       pio_info->pio[1].pio_port, pio_info->pio[1].pio_pin);
+	spi_stm_gpio->gpio_mosi = plat_data->gpio_mtsr;
+	if (gpio_request(spi_stm_gpio->gpio_mosi, "spi-stm-gpio MOSI") < 0) {
+		printk(KERN_ERR NAME " Failed to allocate PIO%d[%d] for MOSI\n",
+				stm_gpio_port(spi_stm_gpio->gpio_mosi),
+				stm_gpio_pin(spi_stm_gpio->gpio_mosi));
 		return -1;
 	}
-	pio_info->sdin = stpio_request_pin(pio_info->pio[2].pio_port,
-					   pio_info->pio[2].pio_pin,
-					   "SPI Data In", STPIO_IN);
-	if (!pio_info->sdin) {
-		printk(KERN_ERR NAME " Faild to sdo pin allocation PIO%d[%d]\n",
-		       pio_info->pio[1].pio_port, pio_info->pio[1].pio_pin);
+	spi_stm_gpio->gpio_miso = plat_data->gpio_mrst;
+	if (gpio_request(spi_stm_gpio->gpio_miso, "spi-stm-gpio MISO") < 0) {
+		printk(KERN_ERR NAME " Failed to allocate PIO%d[%d] for MISO\n",
+				stm_gpio_port(spi_stm_gpio->gpio_miso),
+				stm_gpio_pin(spi_stm_gpio->gpio_miso));
 		return -1;
 	}
 
-	stpio_set_pin(pio_info->clk, 0);
-	stpio_set_pin(pio_info->sdout, 0);
-	stpio_set_pin(pio_info->sdin, 0);
+	gpio_direction_output(spi_stm_gpio->gpio_sck, 0);
+	gpio_direction_output(spi_stm_gpio->gpio_mosi, 0);
+	gpio_direction_output(spi_stm_gpio->gpio_miso, 0);
 
-	if (spi_bitbang_start(&st_bitbang->bitbang)) {
+	if (spi_bitbang_start(&spi_stm_gpio->bitbang)) {
 		printk(KERN_ERR NAME
 		       "The SPI Core refuses the spi_stm_gpio adapter\n");
 		return -1;
 	}
 
 	printk(KERN_INFO NAME ": Registered SPI Bus %d: "
-	       "SCL [%d,%d], SDO [%d,%d], SDI [%d, %d]\n",
+	       "SCK [%d,%d], MOSI [%d,%d], MISO [%d, %d]\n",
 	       master->bus_num,
-	       pio_info->pio[0].pio_port, pio_info->pio[0].pio_pin,
-	       pio_info->pio[1].pio_port, pio_info->pio[1].pio_pin,
-	       pio_info->pio[2].pio_port, pio_info->pio[2].pio_pin);
+	       stm_gpio_port(spi_stm_gpio->gpio_sck),
+	       stm_gpio_pin(spi_stm_gpio->gpio_sck),
+	       stm_gpio_port(spi_stm_gpio->gpio_mosi),
+	       stm_gpio_pin(spi_stm_gpio->gpio_mosi),
+	       stm_gpio_port(spi_stm_gpio->gpio_miso),
+	       stm_gpio_pin(spi_stm_gpio->gpio_miso));
 
 	return 0;
 }
 
 static int spi_remove(struct platform_device *pdev)
 {
-	struct ssc_pio_t *pio_info =
-			(struct ssc_pio_t *)pdev->dev.platform_data;
-	struct spi_stm_gpio *sp = platform_get_drvdata(pdev);
+	struct spi_stm_gpio *spi_stm_gpio = platform_get_drvdata(pdev);
 
 	dgb_print("\n");
-	spi_bitbang_stop(&sp->bitbang);
-	spi_master_put(sp->bitbang.master);
-	stpio_free_pin(pio_info->clk);
-	stpio_free_pin(pio_info->sdout);
-	stpio_free_pin(pio_info->sdin);
+	spi_bitbang_stop(&spi_stm_gpio->bitbang);
+	gpio_free(spi_stm_gpio->gpio_sck);
+	gpio_free(spi_stm_gpio->gpio_mosi);
+	gpio_free(spi_stm_gpio->gpio_miso);
+	spi_master_put(spi_stm_gpio->bitbang.master);
+
 	return 0;
 }
 
 static struct platform_driver spi_sw_driver = {
-	.driver.name = "spi_st_pio",
+	.driver.name = NAME,
 	.driver.owner = THIS_MODULE,
 	.probe = spi_probe,
 	.remove = spi_remove,

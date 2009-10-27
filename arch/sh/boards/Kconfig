@@ -290,6 +290,15 @@ config SH_ST_STPM_HD_V2
 	bool
 	default n
 
+config SH_ST_HDK7105
+	bool "HDK7105 : STx7105 HDK Reference board"
+	depends on CPU_SUBTYPE_STX7105
+	select SYS_SUPPORTS_PCI
+	select SH_ST_SYNOPSYS_PCI if PCI
+	help
+	  Select HDK7105 if configuring for an
+	  STMicroelectronics STi7105 HDK Reference Board.
+
 config SH_ST_HDREF
 	bool "ST HDref board"
 	depends on CPU_SUBTYPE_STX7100
@@ -440,15 +449,6 @@ config SH_ST_MB680
 	  STMicroelectronics STx7105 Validation Board (product code:
 	  STi7105-MBOARD, ST board ID: mb680). More information at:
 	  <http://www.stlinux.com/boards/mb680/>
-
-config SH_ST_PDK7105
-	bool "PDK7105-SDK : STi7105 SDK Reference board"
-	depends on CPU_SUBTYPE_STX7105
-	select SYS_SUPPORTS_PCI
-	select SH_ST_SYNOPSYS_PCI if PCI
-	help
-	  Select PDK7105-SDK if configuring for an
-	  STMicroelectronics STi7105 SDK Reference Board.
 
 config SH_ST_MB704
 	bool "mb704: STx5197 Validation board"

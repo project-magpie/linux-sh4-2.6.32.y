@@ -1,5 +1,5 @@
 /*
- * arch/sh/boards/mach-pdk7105/setup.c
+ * arch/sh/boards/mach-hdk7105/setup.c
  *
  * Copyright (C) 2008 STMicroelectronics Limited
  * Author: Stuart Menefy (stuart.menefy@st.com)
@@ -7,7 +7,7 @@
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
  *
- * STMicroelectronics PDK7105-SDK support.
+ * STMicroelectronics HDK7105-SDK support.
  */
 
 #include <linux/init.h>
@@ -28,13 +28,13 @@
 #include <asm/irq-ilc.h>
 
 
-#define PDK7105_PIO_PHY_RESET stm_gpio(15, 5)
+#define HDK7105_PIO_PHY_RESET stm_gpio(15, 5)
 
 
 
-static void __init pdk7105_setup(char **cmdline_p)
+static void __init hdk7105_setup(char **cmdline_p)
 {
-	printk(KERN_INFO "STMicroelectronics PDK7105-SDK "
+	printk(KERN_INFO "STMicroelectronics HDK7105 "
 			"board initialisation\n");
 
 	stx7105_early_device_init();
@@ -50,7 +50,7 @@ static void __init pdk7105_setup(char **cmdline_p)
 
 
 
-static struct platform_device pdk7105_leds = {
+static struct platform_device hdk7105_leds = {
 	.name = "leds-gpio",
 	.id = 0,
 	.dev.platform_data = &(struct gpio_led_platform_data) {
@@ -71,25 +71,25 @@ static struct platform_device pdk7105_leds = {
 
 
 
-static int pdk7105_phy_reset(void *bus)
+static int hdk7105_phy_reset(void *bus)
 {
-	gpio_set_value(PDK7105_PIO_PHY_RESET, 0);
+	gpio_set_value(HDK7105_PIO_PHY_RESET, 0);
 	udelay(100);
-	gpio_set_value(PDK7105_PIO_PHY_RESET, 1);
+	gpio_set_value(HDK7105_PIO_PHY_RESET, 1);
 
 	return 1;
 }
 
-static struct stm_plat_stmmacphy_data pdk7105_phy_private_data = {
+static struct stm_plat_stmmacphy_data hdk7105_phy_private_data = {
 	/* Micrel */
 	.bus_id = 0,
 	.phy_addr = 0,
 	.phy_mask = 0,
 	.interface = PHY_INTERFACE_MODE_MII,
-	.phy_reset = &pdk7105_phy_reset,
+	.phy_reset = &hdk7105_phy_reset,
 };
 
-static struct platform_device pdk7105_phy_device = {
+static struct platform_device hdk7105_phy_device = {
 	.name		= "stmmacphy",
 	.id		= 0,
 	.num_resources	= 1,
@@ -102,18 +102,18 @@ static struct platform_device pdk7105_phy_device = {
 		},
 	},
 	.dev = {
-		.platform_data = &pdk7105_phy_private_data,
+		.platform_data = &hdk7105_phy_private_data,
 	}
 };
 
 
 
-static struct platform_device *pdk7105_devices[] __initdata = {
-	&pdk7105_leds,
-	&pdk7105_phy_device,
+static struct platform_device *hdk7105_devices[] __initdata = {
+	&hdk7105_leds,
+	&hdk7105_phy_device,
 };
 
-static int __init pdk7105_device_init(void)
+static int __init hdk7105_device_init(void)
 {
 	stx7105_configure_sata();
 
@@ -149,8 +149,8 @@ static int __init pdk7105_device_init(void)
 			.routing.usb1.ovrcur = stx7105_usb1_ovrcur_pio4_6,
 			.routing.usb1.pwr = stx7105_usb1_pwr_pio4_7, });
 
-	gpio_request(PDK7105_PIO_PHY_RESET, "eth_phy_reset");
-	gpio_direction_output(PDK7105_PIO_PHY_RESET, 1);
+	gpio_request(HDK7105_PIO_PHY_RESET, "eth_phy_reset");
+	gpio_direction_output(HDK7105_PIO_PHY_RESET, 1);
 
 	stx7105_configure_ethernet(&(struct stx7105_ethernet_config) {
 			.mode = stx7105_ethernet_mode_mii,
@@ -162,14 +162,14 @@ static int __init pdk7105_device_init(void)
 			.tx_enabled = 0,
 			.tx_od_enabled = 0, });
 
-	return platform_add_devices(pdk7105_devices,
-			ARRAY_SIZE(pdk7105_devices));
+	return platform_add_devices(hdk7105_devices,
+			ARRAY_SIZE(hdk7105_devices));
 }
-arch_initcall(pdk7105_device_init);
+arch_initcall(hdk7105_device_init);
 
 
 
-static void __iomem *pdk7105_ioport_map(unsigned long port, unsigned int size)
+static void __iomem *hdk7105_ioport_map(unsigned long port, unsigned int size)
 {
 	/* However picking somewhere safe isn't as easy as you might think.
 	 * I used to use external ROM, but that can cause problems if you are
@@ -179,7 +179,7 @@ static void __iomem *pdk7105_ioport_map(unsigned long port, unsigned int size)
 	return (void __iomem *)CCN_PVR;
 }
 
-static void __init pdk7105_init_irq(void)
+static void __init hdk7105_init_irq(void)
 {
 #ifndef CONFIG_SH_ST_MB705
 	/* Configure STEM interrupts as active low. */
@@ -188,11 +188,10 @@ static void __init pdk7105_init_irq(void)
 #endif
 }
 
-struct sh_machine_vector mv_pdk7105 __initmv = {
-	.mv_name		= "pdk7105",
-	.mv_setup		= pdk7105_setup,
+struct sh_machine_vector mv_hdk7105 __initmv = {
+	.mv_name		= "hdk7105",
+	.mv_setup		= hdk7105_setup,
 	.mv_nr_irqs		= NR_IRQS,
-	.mv_init_irq		= pdk7105_init_irq,
-	.mv_ioport_map		= pdk7105_ioport_map,
+	.mv_init_irq		= hdk7105_init_irq,
+	.mv_ioport_map		= hdk7105_ioport_map,
 };
-

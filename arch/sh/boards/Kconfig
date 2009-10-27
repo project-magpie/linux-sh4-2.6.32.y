@@ -290,28 +290,6 @@ config SH_ST_STPM_HD_V2
 	bool
 	default n
 
-config SH_ST_CB101
-	bool "cb101: ST Customer board 101"
-	depends on CPU_SUBTYPE_STX7200
-	select SND_STM_CONV_DUMMY if SND_STM
-	help
-	  Select SH_ST_CB101 if configuring for this board.
-
-config SH_ST_CB102
-	bool "cb102: ST Customer board 102"
-	depends on CPU_SUBTYPE_STX7200
-	select CPU_ST40_300
-	select SND_STM_CONV_DUMMY if SND_STM
-	help
-	  Select SH_ST_CB102 if configuring for this board.
-
-config SH_ST_CB103
-	bool "cb103: ST Customer board 103"
-	depends on CPU_SUBTYPE_STX7200
-	select SND_STM_CONV_DUMMY if SND_STM
-	help
-	  Select SH_ST_CB103 if configuring for this board.
-
 config SH_ST_HDREF
         bool "ST HDref board"
         depends on CPU_SUBTYPE_STB7100

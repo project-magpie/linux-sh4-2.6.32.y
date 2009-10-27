@@ -31,7 +31,8 @@
  */
 
 #include <linux/init.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/stx7105.h>
 #include <sound/stm.h>
 #include <mach/common.h>
 #include "mb705-epld.h"
@@ -166,7 +167,11 @@ static int __init mb705_audio_init(void)
 
 	/* Configure digital audio pins (multiplexed with PIOs now...) */
 
-	stx7105_configure_audio_pins(3, 1, 1);
+	stx7105_configure_audio(&(struct stx7105_audio_config) {
+			.pcm_player_0_output =
+					stx7105_pcm_player_0_output_6_channels,
+			.spdif_player_output_enabled = 1,
+			.pcm_reader_input_enabled = 1, });
 
 	return 0;
 

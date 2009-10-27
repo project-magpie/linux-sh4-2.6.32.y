@@ -13,14 +13,15 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/leds.h>
+#include <linux/gpio.h>
+#include <linux/delay.h>
 #include <linux/stm/sysconf.h>
-#include <linux/stm/pio.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/stx7105.h>
 #include <linux/stm/emi.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
 #include <linux/stm/nand.h>
-#include <linux/stm/soc_init.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/spi/spi.h>
@@ -31,6 +32,12 @@
 #include <asm/irq-ilc.h>
 #include <mach/common.h>
 #include "mb705-epld.h"
+
+/*
+ * Comment out this line to use NAND through the EMI bit-banging driver
+ * instead of the Flex driver.
+ */
+#define NAND_USES_FLEX
 
 static DEFINE_SPINLOCK(misc_lock);
 
@@ -43,7 +50,7 @@ static struct platform_device mb705_gpio_led = {
 			{
 				.name = "HB",
 				.default_trigger = "heartbeat",
-				.gpio = stpio_to_gpio(2, 0),
+				.gpio = stm_gpio(2, 0),
 				.active_low = 1,
 			},
 		},
@@ -181,7 +188,7 @@ static struct spi_board_info spi_serialflash[] =  {
 	{
 		.modalias	= "m25p80",
 		.bus_num	= 8,
-		.chip_select	= spi_set_cs(15, 2),
+		.chip_select	= stm_gpio(15, 2),
 		.max_speed_hz	= 500000,
 		.platform_data	= &serialflash_data,
 		.mode		= SPI_MODE_3,
@@ -189,29 +196,17 @@ static struct spi_board_info spi_serialflash[] =  {
 };
 
 /* GPIO based SPI */
-static struct platform_device spi_pio_device[] = {
-	{
-		.name           = "spi_st_pio",
-		.id             = 8,
-		.num_resources  = 0,
-		.dev            = {
-			.platform_data =
-			&(struct ssc_pio_t) {
-				.pio = {{15, 0}, {15, 1}, {15, 3} },
-			},
+static struct platform_device spi_gpio_device = {
+	.name           = "spi-stm-gpio",
+	.id             = 8,
+	.num_resources  = 0,
+	.dev            = {
+		.platform_data = &(struct stm_plat_ssc_data) {
+			.gpio_sclk = stm_gpio(15, 0),
+			.gpio_mtsr = stm_gpio(15, 1),
+			.gpio_mrst = stm_gpio(15, 3),
 		},
 	},
-};
-
-
-
-static struct platform_device *mb705_devices[] __initdata = {
-	&epld_device,
-	&mb705_gpio_led,
-	&mb705_display_device,
-	&mb705_fpbutton_device,
-	&physmap_flash,
-	&spi_pio_device[0],
 };
 
 /* NAND Device */
@@ -227,13 +222,12 @@ static struct mtd_partition nand_parts[] = {
 	},
 };
 
-static struct plat_stmnand_data nand_config = {
-	/* STM_NAND_EMI data */
-	.emi_withinbankoffset	= 0,
-	.rbn_port		= -1,
-	.rbn_pin		= -1,
-
-	.timing_data = &(struct nand_timing_data) {
+struct stm_nand_bank_data nand_bank_data = {
+	.csn		= 1,
+	.nr_partitions	= ARRAY_SIZE(nand_parts),
+	.partitions	= nand_parts,
+	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.timing_data		= &(struct stm_nand_timing_data) {
 		.sig_setup	= 50,		/* times in ns */
 		.sig_hold	= 50,
 		.CE_deassert	= 0,
@@ -244,16 +238,32 @@ static struct plat_stmnand_data nand_config = {
 		.rd_off		= 40,
 		.chip_delay	= 30,		/* in us */
 	},
-	.flex_rbn_connected	= 1,
+
+	.emi_withinbankoffset	= 0,
 };
 
-/* Platform data for STM_NAND_EMI/FLEX/AFM. (bank# may be updated later) */
-static struct platform_device nand_device =
-	STM_NAND_DEVICE("stm-nand-emi", 1, &nand_config,
-			nand_parts, ARRAY_SIZE(nand_parts), NAND_USE_FLASH_BBT);
+#ifndef NAND_USES_FLEX
+static struct platform_device nand_device = {
+	.name		= "stm-nand-emi",
+	.dev.platform_data = &(struct stm_plat_nand_emi_data){
+		.nr_banks	= 1,
+		.banks		= &nand_bank_data,
+		.emi_rbn_gpio	= -1,
+	},
+};
+#endif
 
-
-#include <linux/delay.h>
+static struct platform_device *mb705_devices[] __initdata = {
+	&epld_device,
+	&mb705_gpio_led,
+	&mb705_display_device,
+	&mb705_fpbutton_device,
+	&physmap_flash,
+	&spi_gpio_device,
+#ifndef NAND_USES_FLEX
+	&nand_device,
+#endif
+};
 
 static DEFINE_SPINLOCK(mb705_reset_lock);
 
@@ -313,7 +323,7 @@ static int __init mb705_init(void)
 		u32 bank2_start = emi_bank_base(2);
 		physmap_flash.resource[0].start = bank1_start;
 		physmap_flash.resource[0].end = bank2_start - 1;
-		nand_device.id = 0;
+		nand_bank_data.csn = 0;
 	}
 
 	/*
@@ -326,7 +336,9 @@ static int __init mb705_init(void)
 	i |= EPLD_EMI_MISC_NOTNANDFLASHWP;
 	epld_write(i, EPLD_EMI_MISC);
 
-	stx7105_configure_nand(&nand_device);
+#ifdef NAND_USES_FLEX
+	stx7105_configure_nand_flex(1, &nand_bank_data, 1);
+#endif
 
 	/* Interrupt routing.
 	 * At the moment we only care about a small number of

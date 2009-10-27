@@ -258,7 +258,7 @@ static int __init nwhw_config_setup(char *str)
 
 	nwhw_print_args();
 
-	return (0);
+	return 1;
 }
 
 __setup("nwhwconf=", nwhw_config_setup);

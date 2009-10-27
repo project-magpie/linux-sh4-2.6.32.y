@@ -34,9 +34,28 @@
 #ifdef CONFIG_TRACE_IRQFLAGS
 
 	.macro	TRACE_IRQS_ON
+	mov.l	r0, @-r15
+	mov.l	r1, @-r15
+	mov.l	r2, @-r15
+	mov.l	r3, @-r15
+	mov.l	r4, @-r15
+	mov.l	r5, @-r15
+	mov.l	r6, @-r15
+	mov.l	r7, @-r15
+
 	mov.l	7834f, r0
 	jsr	@r0
 	 nop
+
+	mov.l	@r15+, r7
+	mov.l	@r15+, r6
+	mov.l	@r15+, r5
+	mov.l	@r15+, r4
+	mov.l	@r15+, r3
+	mov.l	@r15+, r2
+	mov.l	@r15+, r1
+	mov.l	@r15+, r0
+
 	bra	7835f
 	 nop
 	.balign	4
@@ -44,9 +63,29 @@
 7835:
 	.endm
 	.macro	TRACE_IRQS_OFF
+
+	mov.l	r0, @-r15
+	mov.l	r1, @-r15
+	mov.l	r2, @-r15
+	mov.l	r3, @-r15
+	mov.l	r4, @-r15
+	mov.l	r5, @-r15
+	mov.l	r6, @-r15
+	mov.l	r7, @-r15
+
 	mov.l	7834f, r0
 	jsr	@r0
 	 nop
+
+	mov.l	@r15+, r7
+	mov.l	@r15+, r6
+	mov.l	@r15+, r5
+	mov.l	@r15+, r4
+	mov.l	@r15+, r3
+	mov.l	@r15+, r2
+	mov.l	@r15+, r1
+	mov.l	@r15+, r0
+
 	bra	7835f
 	 nop
 	.balign	4

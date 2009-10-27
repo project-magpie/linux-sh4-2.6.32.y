@@ -16,13 +16,13 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 #include <linux/err.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
 #include <asm/io.h>
 
 struct stm_pwm {
 	struct resource *mem;
 	void* base;
-	struct class_device *class_dev;
+	struct device *hwmon_dev;
 };
 
 /* PWM registers */
@@ -45,7 +45,7 @@ static ssize_t show_pwm(struct device *dev, char * buf, int offset)
 {
 	struct stm_pwm *pwm = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%ld\n", readl(pwm->base + offset));
+	return sprintf(buf, "%u\n", readl(pwm->base + offset));
 }
 
 static ssize_t store_pwm(struct device *dev, const char * buf, size_t count,
@@ -81,10 +81,11 @@ static DEVICE_ATTR(pwm##n, S_IRUGO| S_IWUSR, show_pwm##n, store_pwm##n);
 pwm_fns(0)
 pwm_fns(1)
 
-static void
+static int
 stm_pwm_init(struct platform_device* pdev, struct stm_pwm *pwm,
-	     struct plat_stm_pwm_data *pwm_private_info)
+	     struct stm_plat_pwm_data *plat_data)
 {
+	int error;
 	u32 reg = 0;
 
 	/* disable PWM if currently running */
@@ -112,17 +113,44 @@ stm_pwm_init(struct platform_device* pdev, struct stm_pwm *pwm,
 	writel(0, pwm->base + PWM0_VAL);
 	writel(0, pwm->base + PWM1_VAL);
 
-	if (pwm_private_info->flags & PLAT_STM_PWM_OUT0) {
-		device_create_file(&pdev->dev, &dev_attr_pwm0);
+	if (plat_data->channel_enabled[0]) {
+		if (stm_pad_claim(plat_data->channel_pad_config[0],
+				dev_name(&pdev->dev)) != 0) {
+			error = -ENODEV;
+			goto error_pad_claim_0;
+		}
+		error = device_create_file(&pdev->dev, &dev_attr_pwm0);
+		if (error != 0)
+			goto error_create_file_0;
 	}
-	if (pwm_private_info->flags & PLAT_STM_PWM_OUT1) {
-		device_create_file(&pdev->dev, &dev_attr_pwm1);
+
+	if (plat_data->channel_enabled[1]) {
+		if (stm_pad_claim(plat_data->channel_pad_config[1],
+				dev_name(&pdev->dev)) != 0) {
+			error = -ENODEV;
+			goto error_pad_claim_1;
+		}
+		error = device_create_file(&pdev->dev, &dev_attr_pwm1);
+		if (error != 0)
+			goto error_create_file_1;
 	}
+
+	return 0;
+
+error_create_file_1:
+	stm_pad_release(plat_data->channel_pad_config[1]);
+error_pad_claim_1:
+	if (plat_data->channel_enabled[0])
+		device_remove_file(&pdev->dev, &dev_attr_pwm0);
+error_create_file_0:
+	if (plat_data->channel_enabled[0])
+		stm_pad_release(plat_data->channel_pad_config[0]);
+error_pad_claim_0:
+	return error;
 }
 
 static int stm_pwm_probe(struct platform_device *pdev)
 {
-	struct plat_stm_pwm_data *pwm_private_info = pdev->dev.platform_data;
 	struct resource *res;
 	struct stm_pwm *pwm;
 	int err;
@@ -153,20 +181,18 @@ static int stm_pwm_probe(struct platform_device *pdev)
 		goto failed2;
 	}
 
-	pwm->class_dev = hwmon_device_register(&pdev->dev);
-	if (IS_ERR(pwm->class_dev)) {
-		err = PTR_ERR(pwm->class_dev);
+	pwm->hwmon_dev = hwmon_device_register(&pdev->dev);
+	if (IS_ERR(pwm->hwmon_dev)) {
+		err = PTR_ERR(pwm->hwmon_dev);
 		dev_err(&pdev->dev, "Class registration failed (%d)\n", err);
 		goto failed3;
 	}
 
 	platform_set_drvdata(pdev, pwm);
-	dev_info(&pdev->dev, "registers at 0x%lx, mapped to 0x%p\n",
+	dev_info(&pdev->dev, "registers at 0x%x, mapped to 0x%p\n",
 		 res->start, pwm->base);
 
-	stm_pwm_init(pdev, pwm, pwm_private_info);
-
-	return 0;
+	return stm_pwm_init(pdev, pwm, pdev->dev.platform_data);
 
 failed3:
 	iounmap(pwm->base);
@@ -177,11 +203,17 @@ failed1:
 	return err;
 }
 
-static int stm_pwm_remove(struct platform_device *dev)
+static int stm_pwm_remove(struct platform_device *pdev)
 {
-	struct stm_pwm *pwm = platform_get_drvdata(dev);
+	struct stm_pwm *pwm = platform_get_drvdata(pdev);
+	struct stm_plat_pwm_data *plat_data = pdev->dev.platform_data;
+
 	if (pwm) {
-		hwmon_device_unregister(pwm->class_dev);
+		if (plat_data->channel_enabled[0])
+			stm_pad_release(plat_data->channel_pad_config[0]);
+		if (plat_data->channel_enabled[1])
+			stm_pad_release(plat_data->channel_pad_config[1]);
+		hwmon_device_unregister(pwm->hwmon_dev);
 		iounmap(pwm->base);
 		release_resource(pwm->mem);
 		kfree(pwm);

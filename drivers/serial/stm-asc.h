@@ -17,6 +17,7 @@
 #define _STASC_H
 
 #include <linux/serial_core.h>
+#include <linux/stm/pad.h>
 #include <linux/stm/stm-dma.h>
 
 struct asc_port_fdma {
@@ -30,22 +31,21 @@ struct asc_port_fdma {
 
 struct asc_port {
 	struct uart_port port;
-	unsigned long baud;
-	unsigned long ctrl;
-	struct stpio_pin *pios[4];
-	unsigned char flags;
+	struct stm_pad_config *pad_config;
+	int pad_config_claimed:1;
+	int hw_flow_control:1;
+	int suspended:1;
 #ifdef CONFIG_SERIAL_STM_ASC_FDMA
 	struct asc_port_fdma fdma;
 #endif
-	unsigned char platform_flags;
+#ifdef CONFIG_PM
+	unsigned long pm_ctrl;
+	unsigned long pm_baud;
+#endif
 };
 
 #define ASC_MAJOR		204
 #define ASC_MINOR_START		40
-
-/* Generic serial flags */
-#define ASC_RX_THROTTLE		0x0000001
-#define ASC_SUSPENDED		0x0000002
 
 #define FIFO_SIZE		16
 
@@ -162,20 +162,24 @@ extern struct asc_port asc_ports[ASC_MAX_PORTS];
  */
 
 #define ADJ 1
-#define BAUDRATE_VAL_M0(bps, clk)	((clk) / (16 * (bps)))
-#define BAUDRATE_VAL_M1(bps, clk)	( ((bps * (1 << 14)) / ((clk) / (1 << 6)) ) + ADJ )
+#define BAUDRATE_VAL_M0(bps, clk) \
+	((clk) / (16 * (bps)))
+#define BAUDRATE_VAL_M1(bps, clk) \
+	(((bps * (1 << 14)) / ((clk) / (1 << 6))) + ADJ)
 
 /*---- Access macros ------------------------------------------*/
 
 #define ASC_FUNC(name, offset)		\
-  static inline unsigned int asc_ ## name ## _in (struct uart_port* port)	\
-  {										\
-    return (readl(port->membase + (offset)));					\
-  }										\
-  static inline void asc_ ## name ## _out (struct uart_port* port, unsigned int value)	\
-  {										\
-    writel(value, port->membase + (offset));					\
-  }
+	static inline unsigned int asc_##name##_in(struct uart_port *port) \
+	{ \
+		return (readl(port->membase + (offset))); \
+	} \
+	\
+	static inline void asc_##name##_out(struct uart_port *port, \
+			unsigned int value) \
+	{ \
+		writel(value, port->membase + (offset)); \
+	}
 
 ASC_FUNC(BAUDRATE,  ASC_BAUDRATE)
 ASC_FUNC(TXBUF,     ASC_TXBUF)

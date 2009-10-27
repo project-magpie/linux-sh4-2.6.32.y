@@ -8,6 +8,10 @@
 #endif
 
 #include <linux/module.h>
+#include <linux/io.h>
+#include <linux/irq.h>
+#include <linux/uaccess.h>
+#include <linux/bitops.h>
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
 #include <linux/sysrq.h>
@@ -15,17 +19,13 @@
 #include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/console.h>
-#include <linux/stm/pio.h>
+#include <linux/gpio.h>
 #include <linux/generic_serial.h>
 #include <linux/spinlock.h>
 #include <linux/platform_device.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
 
 #include <asm/system.h>
-#include <asm/io.h>
-#include <asm/irq.h>
-#include <asm/uaccess.h>
-#include <asm/bitops.h>
 #include <asm/clock.h>
 
 #ifdef CONFIG_KGDB
@@ -51,13 +51,12 @@ static int  asc_request_irq(struct uart_port *);
 static void asc_free_irq(struct uart_port *);
 static void asc_transmit_chars(struct uart_port *);
 static int asc_remap_port(struct asc_port *ascport, int req);
-void asc_set_termios_cflag (struct asc_port *, int ,int);
+void asc_set_termios_cflag(struct asc_port *, int, int);
 static inline void asc_receive_chars(struct uart_port *);
 
 #ifdef CONFIG_SERIAL_STM_ASC_CONSOLE
-static void asc_console_write (struct console *, const char *,
-				  unsigned );
-static int __init asc_console_setup (struct console *, char *);
+static void asc_console_write(struct console *, const char *, unsigned);
+static int __init asc_console_setup(struct console *, char *);
 #endif
 
 #ifdef CONFIG_KGDB_STM_ASC
@@ -243,7 +242,6 @@ static void asc_release_port(struct uart_port *port)
 	struct asc_port *ascport = container_of(port, struct asc_port, port);
 	struct platform_device *pdev = to_platform_device(port->dev);
 	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
-	int i;
 
 	release_mem_region(port->mapbase, size);
 
@@ -252,8 +250,8 @@ static void asc_release_port(struct uart_port *port)
 		port->membase = NULL;
 	}
 
-	for (i=0; i<((ascport->platform_flags & STASC_FLAG_NORTSCTS) ? 2 : 4); i++)
-		stpio_free_pin(ascport->pios[i]);
+	stm_pad_release(ascport->pad_config);
+	ascport->pad_config_claimed = 0;
 }
 
 static int asc_request_port(struct uart_port *port)
@@ -304,7 +302,7 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 				    struct platform_device *pdev)
 {
 	struct uart_port *port = &ascport->port;
-	struct stasc_uart_data *data = pdev->dev.platform_data;
+	struct stm_plat_asc_data *plat_data = pdev->dev.platform_data;
 	struct clk *clk;
 	unsigned long rate;
 
@@ -328,13 +326,14 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	port->membase	= NULL;
 
 	clk = clk_get(NULL, "comms_clk");
-	if (IS_ERR(clk)) clk = clk_get(NULL, "bus_clk");
+	if (IS_ERR(clk))
+		clk = clk_get(NULL, "bus_clk");
 	rate = clk_get_rate(clk);
 	clk_put(clk);
 
 	ascport->port.uartclk = rate;
-
-	ascport->platform_flags = data->flags;
+	ascport->pad_config = plat_data->pad_config;
+	ascport->hw_flow_control = plat_data->hw_flow_control;
 }
 
 static struct uart_driver asc_uart_driver = {
@@ -364,8 +363,8 @@ static void __init asc_init_ports(void)
 {
 	int i;
 
-	for (i = 0; i < stasc_configured_devices_count; i++)
-		asc_init_port(&asc_ports[i], stasc_configured_devices[i]);
+	for (i = 0; i < stm_asc_configured_devices_num; i++)
+		asc_init_port(&asc_ports[i], stm_asc_configured_devices[i]);
 }
 
 /*
@@ -373,15 +372,15 @@ static void __init asc_init_ports(void)
  */
 static int __init asc_console_init(void)
 {
-	if (!stasc_configured_devices_count)
+	if (!stm_asc_configured_devices_num)
 		return 0;
 
 	asc_init_ports();
 	register_console(&asc_console);
-	if (stasc_console_device != -1)
-		add_preferred_console("ttyAS", stasc_console_device, NULL);
+	if (stm_asc_console_device != -1)
+		add_preferred_console("ttyAS", stm_asc_console_device, NULL);
 
-        return 0;
+	return 0;
 }
 console_initcall(asc_console_init);
 
@@ -393,7 +392,7 @@ static int __init asc_late_console_init(void)
 	if (!(asc_console.flags & CON_ENABLED))
 		register_console(&asc_console);
 
-        return 0;
+	return 0;
 }
 core_initcall(asc_late_console_init);
 #endif
@@ -406,9 +405,8 @@ static int __devinit asc_serial_probe(struct platform_device *pdev)
 	asc_init_port(ascport, pdev);
 
 	ret = uart_add_one_port(&asc_uart_driver, &ascport->port);
-	if (ret == 0) {
+	if (ret == 0)
 		platform_set_drvdata(pdev, &ascport->port);
-        }
 
 	return ret;
 }
@@ -417,7 +415,7 @@ static int __devexit asc_serial_remove(struct platform_device *pdev)
 {
 	struct uart_port *port = platform_get_drvdata(pdev);
 
-        platform_set_drvdata(pdev, NULL);
+	platform_set_drvdata(pdev, NULL);
 	return uart_remove_one_port(&asc_uart_driver, port);
 }
 
@@ -432,10 +430,11 @@ static int asc_serial_suspend(struct platform_device *pdev, pm_message_t state)
 		return 0; /* the other ASCs... */
 
 	local_irq_save(flags);
-	ascport->ctrl = asc_in(port, CTL);
+	ascport->pm_ctrl = asc_in(port, CTL);
+	ascport->pm_baud = asc_in(port, BAUDRATE);
 	if (state.event == PM_EVENT_SUSPEND && device_may_wakeup(&(pdev->dev))){
 #ifndef CONFIG_DISABLE_CONSOLE_SUSPEND
-		ascport->flags |= ASC_SUSPENDED;
+		ascport->suspended = 1;
 		if (ascport->pios[0])
 			stpio_configure_pin(ascport->pios[0], STPIO_IN); /* Tx  */
 		asc_disable_tx_interrupts(port);
@@ -451,7 +450,7 @@ static int asc_serial_suspend(struct platform_device *pdev, pm_message_t state)
 		stpio_configure_pin(ascport->pios[0], STPIO_IN); /* Tx  */
 	if (ascport->pios[3])
 		stpio_configure_pin(ascport->pios[3], STPIO_IN); /* RTS */
-	ascport->flags |= ASC_SUSPENDED;
+	ascport->suspended = 1;
 	asc_disable_tx_interrupts(port);
 	asc_disable_rx_interrupts(port);
 
@@ -479,12 +478,12 @@ static int asc_serial_resume(struct platform_device *pdev)
 		stpio_configure_pin(ascport->pios[i],
 			pdata->pios[i].pio_direction);
 
-	asc_out(port, CTL, ascport->ctrl);
+	asc_out(port, CTL, ascport->pm_ctrl);
 	asc_out(port, TIMEOUT, 20);		/* hardcoded */
-	asc_set_baud(port, ascport->baud);	/* to resume from hmem */
+	asc_out(port, BAUDRATE, ascport->pm_baud);
 	asc_enable_rx_interrupts(port);
 	asc_enable_tx_interrupts(port);
-	ascport->flags &= ~ASC_SUSPENDED;
+	ascport->suspended = 0;
 	local_irq_restore(flags);
 	return 0;
 }
@@ -546,10 +545,14 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 {
 	struct uart_port *port = &ascport->port;
 	struct platform_device *pdev = to_platform_device(port->dev);
-	struct stasc_uart_data *pdata =
-		(struct stasc_uart_data *)pdev->dev.platform_data;
 	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
-	int i;
+
+	if (!ascport->pad_config_claimed) {
+		/* Can't use dev_name() here as we can be called early */
+		if (stm_pad_claim(ascport->pad_config, "stasc") != 0)
+			return -ENODEV;
+		ascport->pad_config_claimed = 1;
+	}
 
 	if (req && !request_mem_region(port->mapbase, size, pdev->name))
 		return -EBUSY;
@@ -566,16 +569,10 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 		}
 	}
 
-	for (i = 0; i < ((ascport->platform_flags & STASC_FLAG_NORTSCTS) ?
-								 2 : 4); i++)
-		ascport->pios[i] = stpio_request_pin(pdata->pios[i].pio_port,
-				pdata->pios[i].pio_pin, DRIVER_NAME,
-				pdata->pios[i].pio_direction);
-
 	return 0;
 }
 
-static int asc_set_baud (struct uart_port *port, int baud)
+static int asc_set_baud(struct uart_port *port, int baud)
 {
 	unsigned int t;
 	unsigned long rate;
@@ -584,17 +581,16 @@ static int asc_set_baud (struct uart_port *port, int baud)
 
 	if (baud < 19200) {
 		t = BAUDRATE_VAL_M0(baud, rate);
-		asc_out (port, BAUDRATE, t);
+		asc_out(port, BAUDRATE, t);
 		return 0;
 	} else {
 		t = BAUDRATE_VAL_M1(baud, rate);
-		asc_out (port, BAUDRATE, t);
+		asc_out(port, BAUDRATE, t);
 		return ASC_CTL_BAUDMODE;
 	}
 }
 
-void
-asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
+void asc_set_termios_cflag(struct asc_port *ascport, int cflag, int baud)
 {
 	struct uart_port *port = &ascport->port;
 	unsigned int ctrl_val;
@@ -603,15 +599,15 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 	spin_lock_irqsave(&port->lock, flags);
 
 	/* read control register */
-	ctrl_val = asc_in (port, CTL);
+	ctrl_val = asc_in(port, CTL);
 
 	/* stop serial port and reset value */
-	asc_out (port, CTL, (ctrl_val & ~ASC_CTL_RUN));
+	asc_out(port, CTL, (ctrl_val & ~ASC_CTL_RUN));
 	ctrl_val = ASC_CTL_RXENABLE | ASC_CTL_FIFOENABLE;
 
 	/* reset fifo rx & tx */
-	asc_out (port, TXRESET, 1);
-	asc_out (port, RXRESET, 1);
+	asc_out(port, TXRESET, 1);
+	asc_out(port, RXRESET, 1);
 
 	/* set character length */
 	if ((cflag & CSIZE) == CS7)
@@ -634,12 +630,11 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 		ctrl_val |= ASC_CTL_PARITYODD;
 
 	/* hardware flow control */
-	if ((cflag & CRTSCTS) && (!(ascport->platform_flags & STASC_FLAG_NORTSCTS)))
+	if ((cflag & CRTSCTS) && ascport->hw_flow_control)
 		ctrl_val |= ASC_CTL_CTSENABLE;
 
 	/* set speed and baud generator mode */
-	ascport->baud = baud;
-	ctrl_val |= asc_set_baud (port, baud);
+	ctrl_val |= asc_set_baud(port, baud);
 	uart_update_timeout(port, cflag, baud);
 
 	/* Undocumented feature: use max possible baud */
@@ -671,24 +666,23 @@ asc_set_termios_cflag (struct asc_port *ascport, int cflag, int baud)
 	asc_out(port, TIMEOUT, 20);
 
 	/* write final value and enable port */
-	asc_out (port, CTL, (ctrl_val | ASC_CTL_RUN));
+	asc_out(port, CTL, (ctrl_val | ASC_CTL_RUN));
 
 	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 
-static inline unsigned asc_hw_txroom(struct uart_port* port)
+static inline unsigned asc_hw_txroom(struct uart_port *port)
 {
 	unsigned long status;
 
 	status = asc_in(port, STA);
-	if (status & ASC_STA_THE) {
+	if (status & ASC_STA_THE)
 		return FIFO_SIZE/2;
-	} else if (! (status & ASC_STA_TF)) {
+	else if (!(status & ASC_STA_TF))
 		return 1;
-	} else {
+	else
 		return 0;
-	}
 }
 
 /*
@@ -707,7 +701,7 @@ static void asc_transmit_chars(struct uart_port *port)
 	if ((txroom != 0) && port->x_char) {
 		c = port->x_char;
 		port->x_char = 0;
-		asc_out (port, TXBUF, c);
+		asc_out(port, TXBUF, c);
 		port->icount.tx++;
 		txroom = asc_hw_txroom(port);
 	}
@@ -732,14 +726,13 @@ static void asc_transmit_chars(struct uart_port *port)
 	do {
 		c = xmit->buf[xmit->tail];
 		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
-		asc_out (port, TXBUF, c);
+		asc_out(port, TXBUF, c);
 		port->icount.tx++;
 		txroom--;
 	} while ((txroom > 0) && (!uart_circ_empty(xmit)));
 
-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS) {
+	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 		uart_write_wakeup(port);
-	}
 
 	if (uart_circ_empty(xmit))
 		asc_disable_tx_interrupts(port);
@@ -749,7 +742,7 @@ static inline void asc_receive_chars(struct uart_port *port)
 {
 	int count;
 	struct tty_struct *tty = port->info->port.tty;
-	int copied=0;
+	int copied = 0;
 	unsigned long status;
 	unsigned long c = 0;
 	char flag;
@@ -769,7 +762,7 @@ static inline void asc_receive_chars(struct uart_port *port)
 		 * RX FIFO, as this clears the overflow error condition. */
 		overrun = status & ASC_STA_OE;
 
-		for ( ; count != 0; count--) {
+		for (; count != 0; count--) {
 			c = asc_in(port, RXBUF);
 			flag = TTY_NORMAL;
 			port->icount.rx++;
@@ -796,7 +789,7 @@ static inline void asc_receive_chars(struct uart_port *port)
 #if defined(CONFIG_KGDB_STM_ASC)
 		if (port == &kgdb_asc_port->port) {
 			if ((strncmp(tty->buf.head->char_buf_ptr,
-			     "$Hc-1#09",8) == 0)) {
+			     "$Hc-1#09", 8) == 0)) {
 				breakpoint();
 				return;
 			}
@@ -807,7 +800,7 @@ static inline void asc_receive_chars(struct uart_port *port)
 			tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 		}
 
-		copied=1;
+		copied = 1;
 	}
 
 	if (copied) {
@@ -835,14 +828,13 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 	spin_lock(&port->lock);
 
 #if defined(CONFIG_KGDB_STM_ASC)
-        /* To be Fixed: it seems that on a lot of ST40 platforms the breakpoint
-           condition is not checked without this delay. This problem probably
-           depends on an invalid port speed configuration.
-         */
-        udelay(1000);
+	/* To be Fixed: it seems that on a lot of ST40 platforms the breakpoint
+	   condition is not checked without this delay. This problem probably
+	   depends on an invalid port speed configuration. */
+	udelay(1000);
 #endif
 
-	status = asc_in (port, STA);
+	status = asc_in(port, STA);
 
 	if (asc_fdma_enabled(port)) {
 		/* FDMA transmission, only timeout-not-empty
@@ -859,10 +851,8 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 		}
 
 #if defined(CONFIG_KGDB_STM_ASC)
-	if ((port == &kgdb_asc_port->port) &&
-			(status == BRK_STATUS)){
+	if ((port == &kgdb_asc_port->port) && (status == BRK_STATUS))
 		breakpoint();
-	}
 #endif
 
 		if ((status & ASC_STA_THE) &&
@@ -879,7 +869,7 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 
 static int asc_request_irq(struct uart_port *port)
 {
-        struct platform_device *pdev = to_platform_device(port->dev);
+	struct platform_device *pdev = to_platform_device(port->dev);
 
 	if (request_irq(port->irq, asc_interrupt, 0,
 			pdev->name, port)) {
@@ -900,16 +890,16 @@ static void asc_free_irq(struct uart_port *port)
 
 static int get_char(struct uart_port *port)
 {
-        int c;
+	int c;
 	unsigned long status;
 
 	do {
 		status = asc_in(port, STA);
-	} while (! (status & ASC_STA_RBF));
+	} while (!(status & ASC_STA_RBF));
 
 	c = asc_in(port, RXBUF);
 
-        return c;
+	return c;
 }
 
 /* Taken from sh-stub.c of GDB 4.18 */
@@ -927,29 +917,28 @@ static __inline__ char lowhex(int  x)
 #endif
 
 #ifdef CONFIG_SERIAL_STM_ASC_CONSOLE
-static void
-put_char (struct uart_port *port, char c)
+static void put_char(struct uart_port *port, char c)
 {
 	unsigned long flags;
 	unsigned long status;
 	struct asc_port *ascport = container_of(port, struct asc_port, port);
 
-	if (ascport->flags & ASC_SUSPENDED)
+	if (ascport->suspended)
 		return;
 try_again:
 	do {
-		status = asc_in (port, STA);
+		status = asc_in(port, STA);
 	} while (status & ASC_STA_TF);
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	status = asc_in (port, STA);
+	status = asc_in(port, STA);
 	if (status & ASC_STA_TF) {
 		spin_unlock_irqrestore(&port->lock, flags);
 		goto try_again;
 	}
 
-	asc_out (port, TXBUF, c);
+	asc_out(port, TXBUF, c);
 
 	spin_unlock_irqrestore(&port->lock, flags);
 }
@@ -959,29 +948,29 @@ try_again:
  * This routine does not wait for a positive acknowledge.
  */
 
-static void
-put_string (struct uart_port *port, const char *buffer, int count)
+static void put_string(struct uart_port *port, const char *buffer, int count)
 {
 	int i;
 	const unsigned char *p = buffer;
 #if defined(CONFIG_SH_STANDARD_BIOS)
 	int checksum;
-	int usegdb=0;
+	int usegdb = 0;
 
 	/* This call only does a trap the first time it is
-	 * called, and so is safe to do here unconditionally
-	 */
+	 * called, and so is safe to do here unconditionally */
 	usegdb |= sh_bios_in_gdb_mode();
 
 	if (usegdb) {
 	    /*  $<packet info>#<checksum>. */
 	    do {
 		unsigned char c;
+
 		put_char(port, '$');
 		put_char(port, 'O'); /* 'O'utput to console */
 		checksum = 'O';
 
-		for (i=0; i<count; i++) { /* Don't use run length encoding */
+		/* Don't use run length encoding */
+		for (i = 0; i < count; i++) {
 			int h, l;
 
 			c = *p++;
@@ -1000,8 +989,8 @@ put_string (struct uart_port *port, const char *buffer, int count)
 
 	for (i = 0; i < count; i++) {
 		if (*p == 10)
-			put_char (port, '\r');
-		put_char (port, *p++);
+			put_char(port, '\r');
+		put_char(port, *p++);
 	}
 }
 
@@ -1014,8 +1003,7 @@ put_string (struct uart_port *port, const char *buffer, int count)
  *  Return non-zero if we didn't find a serial port.
  */
 
-static int __init
-asc_console_setup (struct console *co, char *options)
+static int __init asc_console_setup(struct console *co, char *options)
 {
 	struct asc_port *ascport;
 	int     baud = 9600;
@@ -1031,12 +1019,12 @@ asc_console_setup (struct console *co, char *options)
 	if ((ascport->port.mapbase == 0))
 		return -ENODEV;
 
-	if ((ret = asc_remap_port(ascport, 0)) != 0)
+	ret = asc_remap_port(ascport, 0);
+	if (ret != 0)
 		return ret;
 
-	if (options) {
-                uart_parse_options(options, &baud, &parity, &bits, &flow);
-	}
+	if (options)
+		uart_parse_options(options, &baud, &parity, &bits, &flow);
 
 	return uart_set_options(&ascport->port, co, baud, parity, bits, flow);
 }
@@ -1046,8 +1034,7 @@ asc_console_setup (struct console *co, char *options)
  *  any possible real use of the port...
  */
 
-static void
-asc_console_write (struct console *co, const char *s, unsigned count)
+static void asc_console_write(struct console *co, const char *s, unsigned count)
 {
 	struct uart_port *port = &asc_ports[co->index].port;
 
@@ -1056,9 +1043,9 @@ asc_console_write (struct console *co, const char *s, unsigned count)
 #endif /* CONFIG_SERIAL_STM_ASC_CONSOLE */
 
 
-/* ===============================================================================
+/* ========================================================================
 				KGDB Functions
-   =============================================================================== */
+   ======================================================================== */
 #ifdef CONFIG_KGDB_STM_ASC
 static int kgdbasc_read_char(void)
 {
@@ -1079,21 +1066,21 @@ static int kgdbasc_set_termios(void)
 
 	termios.c_cflag = CREAD | HUPCL | CLOCAL | CS8;
 	switch (kgdbasc_baud) {
-		case 9600:
-			termios.c_cflag |= B9600;
-			break;
-		case 19200:
-			termios.c_cflag |= B19200;
-			break;
-		case 38400:
-			termios.c_cflag |= B38400;
-			break;
-		case 57600:
-			termios.c_cflag |= B57600;
-			break;
-		case 115200:
-			termios.c_cflag |= B115200;
-			break;
+	case 9600:
+		termios.c_cflag |= B9600;
+		break;
+	case 19200:
+		termios.c_cflag |= B19200;
+		break;
+	case 38400:
+		termios.c_cflag |= B38400;
+		break;
+	case 57600:
+		termios.c_cflag |= B57600;
+		break;
+	case 115200:
+		termios.c_cflag |= B115200;
+		break;
 	}
 	asc_set_termios_cflag(kgdb_asc_port, termios.c_cflag, kgdbasc_baud);
 	return 0;

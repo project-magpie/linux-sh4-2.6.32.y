@@ -12,36 +12,34 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
-#include <linux/stm/pio.h>
-#include <linux/stm/soc.h>
-#include <linux/delay.h>
+#include <linux/gpio.h>
+#include <linux/phy.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
-#include <linux/phy.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/stx7100.h>
 #include <asm/irl.h>
 
-static int ascs[2] __initdata = {
-    2 | (STASC_FLAG_NORTSCTS << 8),
-    3 | (STASC_FLAG_NORTSCTS << 8),
-};
+
 
 void __init hdref_setup(char** cmdline_p)
 {
 	printk("STMicroelectronics HDref Reference board initialisation\n");
 
 	stx7100_early_device_init();
-	stb7100_configure_asc(ascs, 2, 0);
+
+	stx7100_configure_asc(2, &(struct stx7100_asc_config) {
+			.hw_flow_control = 0,
+			.is_console = 1, });
+	stx7100_configure_asc(3, &(struct stx7100_asc_config) {
+			.hw_flow_control = 0,
+			.is_console = 0, });
 }
 
-static struct plat_ssc_data ssc_private_info = {
-	.capability  =
-		ssc0_has(SSC_I2C_CAPABILITY) |
-		ssc1_has(SSC_SPI_CAPABILITY) |
-		ssc2_has(SSC_I2C_CAPABILITY),
-};
 
-static struct mtd_partition mtd_parts_table[3] = {
+
+static struct mtd_partition hdref_mtd_parts_table[3] = {
 	{
 		.name = "Boot firmware",
 		.size = 0x00040000,
@@ -57,37 +55,37 @@ static struct mtd_partition mtd_parts_table[3] = {
 	}
 };
 
-static struct physmap_flash_data physmap_flash_data = {
+static struct physmap_flash_data hdref_physmap_flash_data = {
 	.width		= 2,
 	.set_vpp	= NULL,
-	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
-	.parts		= mtd_parts_table
+	.nr_parts	= ARRAY_SIZE(hdref_mtd_parts_table),
+	.parts		= hdref_mtd_parts_table
 };
 
-static struct resource physmap_flash_resource = {
+static struct resource hdref_physmap_flash_resource = {
 	.start		= 0x00000000,
 	.end		= 0x00800000 - 1,
 	.flags		= IORESOURCE_MEM,
 };
 
-static struct platform_device physmap_flash = {
+static struct platform_device hdref_physmap_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.dev		= {
-		.platform_data	= &physmap_flash_data,
+		.platform_data	= &hdref_physmap_flash_data,
 	},
 	.num_resources	= 1,
-	.resource	= &physmap_flash_resource,
+	.resource	= &hdref_physmap_flash_resource,
 };
 
-static struct plat_stmmacphy_data phy_private_data = {
+static struct stm_plat_stmmacphy_data hdref_phy_private_data = {
         .bus_id = 0,
         .phy_addr = -1,
         .phy_mask = 0,
         .interface = PHY_INTERFACE_MODE_MII,
 };
 
-static struct platform_device phy_device = {
+static struct platform_device hdref_phy_device = {
         .name           = "stmmacphy",
         .id             = 0,
         .num_resources  = 1,
@@ -100,27 +98,41 @@ static struct platform_device phy_device = {
                 },
         },
         .dev = {
-                .platform_data = &phy_private_data,
+		.platform_data = &hdref_phy_private_data,
         }
 };
 
 static struct platform_device *hdref_devices[] __initdata = {
-	&physmap_flash,
-	&phy_device,
+	&hdref_physmap_flash,
+	&hdref_phy_device,
 };
 
-static int __init device_init(void)
+static int __init hdref_device_init(void)
 {
 	stx7100_configure_sata();
-	stx7100_configure_ssc(&ssc_private_info);
-	stx7100_configure_usb();
-	stx7100_configure_lirc();
-	stx7100_configure_pata(3, 1, IRL1_IRQ);
 
-	stx7100_configure_ethernet(0, 0, 0);
+	stx7100_configure_ssc_i2c(0);
+	stx7100_configure_ssc_spi(1, NULL);
+	stx7100_configure_ssc_i2c(2);
+
+	stx7100_configure_usb();
+
+	stx7100_configure_lirc(&(struct stx7100_lirc_config) {
+			.rx_mode = stx7100_lirc_rx_mode_ir,
+			.tx_enabled = 1,
+			.tx_od_enabled = 0, });
+
+	stx7100_configure_pata(&(struct stx7100_pata_config) {
+			.emi_bank = 3,
+			.pc_mode = 1,
+			.irq = IRL1_IRQ, });
+
+	stx7100_configure_ethernet(&(struct stx7100_ethernet_config) {
+			.mode = stx7100_ethernet_mode_mii,
+			.ext_clk = 0,
+			.phy_bus = 0 });
 
 	return platform_add_devices(hdref_devices,
 				    ARRAY_SIZE(hdref_devices));
 }
-
-device_initcall(device_init);
+device_initcall(hdref_device_init);

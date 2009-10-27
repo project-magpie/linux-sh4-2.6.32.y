@@ -12,23 +12,28 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/io.h>
 #include <linux/leds.h>
-#include <linux/stm/pio.h>
-#include <linux/stm/soc.h>
-#include <linux/stm/emi.h>
-#include <linux/mtd/mtd.h>
-#include <linux/mtd/physmap.h>
-#include <linux/mtd/partitions.h>
 #include <linux/phy.h>
+#include <linux/i2c.h>
+#include <linux/gpio.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
-#include <linux/i2c.h>
 #include <linux/irq.h>
-#include <sound/stm.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/stx7111.h>
+#include <linux/stm/emi.h>
+#include <linux/stm/pci-synopsys.h>
+#include <linux/mtd/mtd.h>
+#include <linux/mtd/nand.h>
+#include <linux/mtd/physmap.h>
+#include <linux/mtd/partitions.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
-#include <asm/io.h>
+#include <sound/stm.h>
 #include <mach/common.h>
+
+
 
 /* Whether the hardware supports NOR or NAND Flash depends on J34.
  * In position 1-2 CSA selects NAND, in position 2-3 is selects NOR.
@@ -36,28 +41,25 @@
  * (both NOR and NAND).
  */
 #define FLASH_NOR
+#define MB618_PIO_FLASH_VPP stm_gpio(3, 4)
 
-static int ascs[2] __initdata = { 2, 3 };
+
 
 static void __init mb618_setup(char** cmdline_p)
 {
-	printk("STMicroelectronics STx7111 Mboard initialisation\n");
+	printk(KERN_INFO "STMicroelectronics STx7111 Mboard initialisation\n");
 
 	stx7111_early_device_init();
-	stx7111_configure_asc(ascs, 2, 0);
+
+	stx7111_configure_asc(2, &(struct stx7111_asc_config) {
+			.hw_flow_control = 1,
+			.is_console = 1, });
+	stx7111_configure_asc(3, &(struct stx7111_asc_config) {
+			.hw_flow_control = 1,
+			.is_console = 0, });
 }
 
-static struct plat_stm_pwm_data pwm_private_info = {
-	.flags		= PLAT_STM_PWM_OUT0,
-};
 
-static struct plat_ssc_data ssc_private_info = {
-	.capability  =
-		ssc0_has(SSC_SPI_CAPABILITY) |
-		ssc1_has(SSC_I2C_CAPABILITY) |
-		ssc2_has(SSC_I2C_CAPABILITY) |
-		ssc3_has(SSC_I2C_CAPABILITY),
-};
 
 static struct platform_device mb618_leds = {
 	.name = "leds-gpio",
@@ -68,62 +70,55 @@ static struct platform_device mb618_leds = {
 			{
 				.name = "HB green",
 				.default_trigger = "heartbeat",
-				.gpio = stpio_to_gpio(6, 0),
-			},
-			{
+				.gpio = stm_gpio(6, 0),
+			}, {
 				.name = "HB red",
-				.gpio = stpio_to_gpio(6, 1),
+				.gpio = stm_gpio(6, 1),
 			},
 		},
 	},
 };
 
+
+
 static struct gpio_keys_button mb618_buttons[] = {
 	{
 		.code = BTN_0,
-		.gpio = stpio_to_gpio(6, 2),
+		.gpio = stm_gpio(6, 2),
 		.desc = "SW2",
-	},
-	{
+	}, {
 		.code = BTN_1,
-		.gpio = stpio_to_gpio(6, 3),
+		.gpio = stm_gpio(6, 3),
 		.desc = "SW3",
-	},
-	{
+	}, {
 		.code = BTN_2,
-		.gpio = stpio_to_gpio(6, 4),
+		.gpio = stm_gpio(6, 4),
 		.desc = "SW4",
-	},
-	{
+	}, {
 		.code = BTN_3,
-		.gpio = stpio_to_gpio(6, 5),
+		.gpio = stm_gpio(6, 5),
 		.desc = "SW5",
 	},
-};
-
-static struct gpio_keys_platform_data mb618_button_data = {
-	.buttons = mb618_buttons,
-	.nbuttons = ARRAY_SIZE(mb618_buttons),
 };
 
 static struct platform_device mb618_button_device = {
 	.name = "gpio-keys",
 	.id = -1,
 	.num_resources = 0,
-	.dev = {
-		.platform_data = &mb618_button_data,
-	}
+	.dev.platform_data = &(struct gpio_keys_platform_data) {
+		.buttons = mb618_buttons,
+		.nbuttons = ARRAY_SIZE(mb618_buttons),
+	},
 };
 
-/* J34 must be in the 2-3 position to enable NOR Flash */
-static struct stpio_pin *vpp_pio;
 
-static void set_vpp(struct map_info * info, int enable)
+
+static void mb618_nor_set_vpp(struct map_info *info, int enable)
 {
-	stpio_set_pin(vpp_pio, enable);
+	gpio_set_value(MB618_PIO_FLASH_VPP, enable);
 }
 
-static struct mtd_partition mtd_parts_table[3] = {
+static struct mtd_partition mb618_nor_flash_partitions[3] = {
 	{
 		.name = "Boot firmware",
 		.size = 0x00040000,
@@ -139,14 +134,7 @@ static struct mtd_partition mtd_parts_table[3] = {
 	}
 };
 
-static struct physmap_flash_data physmap_flash_data = {
-	.width		= 2,
-	.set_vpp	= set_vpp,
-	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
-	.parts		= mtd_parts_table
-};
-
-static struct platform_device physmap_flash = {
+static struct platform_device mb618_nor_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
@@ -157,9 +145,45 @@ static struct platform_device physmap_flash = {
 			.flags		= IORESOURCE_MEM,
 		}
 	},
-	.dev		= {
-		.platform_data	= &physmap_flash_data,
+	.dev.platform_data = &(struct physmap_flash_data) {
+		.width		= 2,
+		.set_vpp	= mb618_nor_set_vpp,
+		.nr_parts	= ARRAY_SIZE(mb618_nor_flash_partitions),
+		.parts		= mb618_nor_flash_partitions,
 	},
+};
+
+/* J34 must be in the 1-2 position to enable NOR Flash */
+static struct mtd_partition mb618_nand_flash_partitions[] = {
+	{
+		.name	= "NAND root",
+		.offset	= 0,
+		.size 	= 0x00800000
+	}, {
+		.name	= "NAND home",
+		.offset	= MTDPART_OFS_APPEND,
+		.size	= MTDPART_SIZ_FULL
+	},
+};
+
+struct stm_nand_bank_data nand_bank_data = {
+	.csn		= 0,
+	.nr_partitions	= ARRAY_SIZE(mb618_nand_flash_partitions),
+	.partitions	= mb618_nand_flash_partitions,
+	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.timing_data	= &(struct stm_nand_timing_data) {
+		.sig_setup	= 50,		/* times in ns */
+		.sig_hold	= 50,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
+		.wr_on		= 10,
+		.wr_off		= 40,
+		.rd_on		= 10,
+		.rd_off		= 40,
+		.chip_delay	= 30,		/* in us */
+	},
+
+	.emi_withinbankoffset	= 0,
 };
 
 static int mb618_phy_reset(void *bus)
@@ -173,7 +197,7 @@ static int mb618_phy_reset(void *bus)
 	return 1;
 }
 
-static struct plat_stmmacphy_data phy_private_data = {
+static struct stm_plat_stmmacphy_data mb618_phy_private_data = {
 	/* SMSC LAN 8700 */
 	.bus_id = 0,
 	.phy_addr = -1,
@@ -194,10 +218,10 @@ static struct platform_device mb618_phy_device = {
 			.flags	= IORESOURCE_IRQ,
 		},
 	},
-	.dev = {
-		.platform_data = &phy_private_data,
-	}
+	.dev.platform_data = &mb618_phy_private_data,
 };
+
+
 
 static struct platform_device epld_device = {
 	.name		= "epld",
@@ -216,55 +240,29 @@ static struct platform_device epld_device = {
 	},
 };
 
-/* J34 must be in the 1-2 position to enable NOR Flash */
-static struct mtd_partition nand_partitions[] = {
-	{
-		.name	= "NAND root",
-		.offset	= 0,
-		.size 	= 0x00800000
-	}, {
-		.name	= "NAND home",
-		.offset	= MTDPART_OFS_APPEND,
-		.size	= MTDPART_SIZ_FULL
-	},
-};
-
-static struct plat_stmnand_data mb618_nand_config = {
-	.emi_bank		= 0,
-	.emi_withinbankoffset	= 0,
-
-	/* Timings for NAND512W3A */
-	.emi_timing_data = &(struct emi_timing_data) {
-		.rd_cycle_time	 = 40,		 /* times in ns */
-		.rd_oee_start	 = 0,
-		.rd_oee_end	 = 10,
-		.rd_latchpoint	 = 10,
-		.busreleasetime  = 0,
-
-		.wr_cycle_time	 = 40,
-		.wr_oee_start	 = 0,
-		.wr_oee_end	 = 10,
-
-		.wait_active_low = 0,
-	},
-
-	.chip_delay		= 40,		/* time in us */
-	.mtd_parts		= nand_partitions,
-	.nr_parts		= ARRAY_SIZE(nand_partitions),
-};
 
 
-/* We don't bother with INT[BCD] as they are shared with the ssc
+/*
  * J20-A must be removed, J20-B must be 5-6
  */
-static struct pci_config_data  pci_config = {
-	.pci_irq = {PCI_PIN_DEFAULT, PCI_PIN_UNUSED, PCI_PIN_UNUSED, PCI_PIN_UNUSED},
+static struct stm_plat_pci_config  pci_config = {
+	.pci_irq = {
+		[0] = PCI_PIN_DEFAULT,
+		[1] = PCI_PIN_UNUSED,
+		[2] = PCI_PIN_UNUSED,
+		[3] = PCI_PIN_UNUSED
+	},
 	.serr_irq = PCI_PIN_UNUSED,
 	.idsel_lo = 30,
 	.idsel_hi = 30,
-	.req_gnt = {PCI_PIN_DEFAULT, PCI_PIN_UNUSED, PCI_PIN_UNUSED, PCI_PIN_UNUSED},
+	.req_gnt = {
+		[0] = PCI_PIN_DEFAULT,
+		[1] = PCI_PIN_UNUSED,
+		[2] = PCI_PIN_UNUSED,
+		[3] = PCI_PIN_UNUSED
+	},
 	.pci_clk = 33333333,
-	.pci_reset_pio = -EINVAL, /* Reset done by EPLD on power on, not PIO */
+	.pci_reset_pio = -EINVAL,	/* Reset done by EPLD on power on */
 };
 
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
@@ -277,13 +275,12 @@ static struct platform_device *mb618_devices[] __initdata = {
 	&mb618_leds,
 	&epld_device,
 #ifdef FLASH_NOR
-	&physmap_flash,
+	&mb618_nor_flash,
 #endif
 	&mb618_phy_device,
 	&mb618_button_device,
 };
 
-#ifdef CONFIG_SND
 /* SCART switch simple control */
 
 /* Enable CVBS output to both (TV & VCR) SCART outputs */
@@ -315,42 +312,59 @@ static struct i2c_board_info mb618_scart_audio __initdata = {
 		.disable_cmd_len = 2,
 	},
 };
-#endif
 
-static int __init device_init(void)
+static int __init mb618_devices_init(void)
 {
+	int peripherals_i2c_bus;
+
 	stx7111_configure_pci(&pci_config);
-	stx7111_configure_pwm(&pwm_private_info);
-	stx7111_configure_ssc(&ssc_private_info);
-	stx7111_configure_usb(1); /* Enable inverter */
-	stx7111_configure_ethernet(1, 0, 0, 0);
-	stx7111_configure_lirc();
+	stx7111_configure_pwm(&(struct stx7111_pwm_config) {
+			.out0_enabled = 1,
+			.out1_enabled = 0, });
 
-	vpp_pio = stpio_request_pin(3,4, "VPP", STPIO_OUT);
+	stx7111_configure_ssc_spi(0, NULL);
+	stx7111_configure_ssc_i2c(1); /* J12=1-2, J16=1-2 */
+	peripherals_i2c_bus = stx7111_configure_ssc_i2c(2);
+	stx7111_configure_ssc_i2c(3);
 
-#ifdef CONFIG_SND
-	i2c_register_board_info(1, &mb618_scart_audio, 1);
-#endif
+	stx7111_configure_usb(&(struct stx7111_usb_config) {
+			.invert_ovrcur = 1, });
+
+	stx7111_configure_ethernet(&(struct stx7111_ethernet_config) {
+			.mode = stx7111_ethernet_mode_mii,
+			.ext_clk = 0,
+			.phy_bus = 0, });
+
+	stx7111_configure_lirc(&(struct stx7111_lirc_config) {
+			.rx_mode = stx7111_lirc_rx_mode_ir,
+			.tx_enabled = 1,
+			.tx_od_enabled = 0, });
+
+	gpio_request(MB618_PIO_FLASH_VPP, "Flash VPP");
+	gpio_direction_output(MB618_PIO_FLASH_VPP, 0);
+
+	i2c_register_board_info(peripherals_i2c_bus, &mb618_scart_audio, 1);
 
 #ifndef FLASH_NOR
-	stx7111_configure_nand(&mb618_nand_config);
+	stx7111_configure_nand_flex(1, &nand_bank_data, 0);
 	/* The MTD NAND code doesn't understand the concept of VPP,
-	 * (or hardware write protect) so permanently enable it.
-	 */
-	stpio_set_pin(vpp_pio, 1);
+	 * (or hardware write protect) so permanently enable it. */
+	gpio_direction_output(MB618_PIO_FLASH_VPP, 1);
 #endif
 
 	return platform_add_devices(mb618_devices, ARRAY_SIZE(mb618_devices));
 }
-arch_initcall(device_init);
+arch_initcall(mb618_devices_init);
 
 static void __iomem *mb618_ioport_map(unsigned long port, unsigned int size)
 {
-	/* However picking somewhere safe isn't as easy as you might think.
-	 * I used to use external ROM, but that can cause problems if you are
-	 * in the middle of updating Flash. So I'm now using the processor core
-	 * version register, which is guaranted to be available, and non-writable.
+	/*
+	 * If we have PCI then this should never be called because we
+	 * are using the generic iomap implementation. If we don't
+	 * have PCI then there are no IO mapped devices, so it still
+	 * shouldn't be called.
 	 */
+	BUG();
 	return (void __iomem *)CCN_PVR;
 }
 
@@ -413,5 +427,12 @@ static void __init mb618_init_irq(void)
 }
 
 struct sh_machine_vector mv_mb618 __initmv = {
-	STM_MACHINE_VEC(mb618)
+	.mv_name		= "STx7111 Mboard",
+	.mv_setup		= mb618_setup,
+	.mv_nr_irqs		= NR_IRQS,
+	.mv_init_irq		= mb618_init_irq,
+	.mv_ioport_map		= mb618_ioport_map,
+#ifdef CONFIG_SH_ST_SYNOPSYS_PCI
+	STM_PCI_IO_MACHINE_VEC
+#endif
 };

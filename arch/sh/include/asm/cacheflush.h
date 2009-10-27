@@ -27,6 +27,7 @@
 #define __flush_purge_region(start, size)	do { (void)(start); } while (0)
 #define __flush_invalidate_region(start, size)	do { (void)(start); } while (0)
 #else
+#include <linux/mm.h>
 #include <cpu/cacheflush.h>
 
 /*
@@ -44,9 +45,10 @@ extern void __flush_invalidate_region(void *start, int size);
 #endif
 
 #define ARCH_HAS_FLUSH_KERNEL_DCACHE_PAGE
+void flush_kernel_dcache_page_addr(unsigned long addr);
 static inline void flush_kernel_dcache_page(struct page *page)
 {
-	flush_dcache_page(page);
+	flush_kernel_dcache_page_addr((unsigned long)page_address(page));
 }
 
 #if defined(CONFIG_CPU_SH4) && !defined(CONFIG_CACHE_OFF)

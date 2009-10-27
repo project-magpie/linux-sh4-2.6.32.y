@@ -278,18 +278,21 @@ void flush_dcache_page(struct page *page)
 		 * must be flushed here (there is no call to
 		 * update_mmu_cache in this case). Or there is a user
 		 * mapping for this page, so we flush. */
-
-		unsigned long kaddr = (unsigned long)page_address(page);
-		unsigned long addr = CACHE_OC_ADDRESS_ARRAY;
-		int i, n;
-
-		/* Loop all the D-cache */
-		n = boot_cpu_data.dcache.n_aliases;
-		for (i = 0; i < n; i++, addr += 4096)
-			flush_cache_4096(addr, kaddr);
+		flush_kernel_dcache_page(page);
 	}
 
 	wmb();
+}
+
+void flush_kernel_dcache_page_addr(unsigned long kaddr)
+{
+	unsigned long addr = CACHE_OC_ADDRESS_ARRAY;
+	int i, n;
+
+	/* Loop all the D-cache */
+	n = boot_cpu_data.dcache.n_aliases;
+	for (i = 0; i < n; i++, addr += 4096)
+		flush_cache_4096(addr, kaddr);
 }
 
 /* TODO: Selective icache invalidation through IC address array.. */

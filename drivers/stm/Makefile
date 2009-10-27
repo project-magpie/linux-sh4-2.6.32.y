@@ -15,3 +15,4 @@ obj-y				+= emi.o
 obj-$(CONFIG_PM)		+= platform-pm.o
 obj-$(CONFIG_PMS)		+= pms.o
 
+obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= stx5197.o

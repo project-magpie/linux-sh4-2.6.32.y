@@ -444,7 +444,7 @@ static int __init snd_stm_stx710x_init(void)
 	snd_stm_printd(0, "snd_stm_stx710x_init()\n");
 
 	switch (cpu_data->type) {
-	case CPU_STB7100:
+	case CPU_STX7100:
 		soc_type = "STx7100";
 
 		/* FDMA request line configuration */
@@ -471,7 +471,7 @@ static int __init snd_stm_stx710x_init(void)
 
 		break;
 
-	case CPU_STB7109:
+	case CPU_STX7109:
 		soc_type = "STx7109";
 
 		/* FDMA request line configuration */

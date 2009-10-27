@@ -267,11 +267,11 @@ static void stx7100_fdma_setup(void)
 {
 #ifdef CONFIG_STM_DMA
 	switch (cpu_data->type) {
-	case CPU_STB7100:
+	case CPU_STX7100:
 		stx7100_fdma_device.dev.platform_data =
 				&stx7100_fdma_platform_data;
 		break;
-	case CPU_STB7109:
+	case CPU_STX7109:
 		switch (cpu_data->cut_major) {
 		case 1:
 			BUG();
@@ -473,17 +473,17 @@ static struct platform_device stb7109eth_device = {
         .id             = 0,
         .num_resources  = 2,
         .resource       = (struct resource[]) {
-        	{
+		{
 	                .start = 0x18110000,
-        	        .end   = 0x1811ffff,
-                	.flags  = IORESOURCE_MEM,
-        	},
-        	{
+		        .end   = 0x1811ffff,
+			.flags  = IORESOURCE_MEM,
+		},
+		{
 			.name   = "macirq",
-                	.start  = 133,
-                	.end    = 133,
-                	.flags  = IORESOURCE_IRQ,
-        	},
+			.start  = 133,
+			.end    = 133,
+			.flags  = IORESOURCE_IRQ,
+		},
 	},
 	.dev = {
 		.platform_data = &eth7109_private_data,
@@ -838,7 +838,7 @@ void __init stx7100_early_device_init(void)
 	       chip_7109 ? "STx7109" : "STx7100", chip_revision);
 
 	if (chip_7109) {
-		boot_cpu_data.type = CPU_STB7109;
+		boot_cpu_data.type = CPU_STX7109;
 		sc = sysconf_claim(SYS_STA, 9, 0, 7, "devid");
 		devid = sysconf_read(sc);
 		printk("Chip version %ld.%ld\n", (devid >> 4)+1, devid & 0xf);

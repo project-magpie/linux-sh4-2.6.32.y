@@ -351,19 +351,19 @@ config CPU_SUBTYPE_ST40STB1
 	  Select ST40STB1 if you have a ST40RA CPU.
 	  This was previously called the ST40STB1, hence the option name.
 
-config CPU_SUBTYPE_STB7100
-	bool "Support STb710x processors"
-	select CPU_SUBTYPE_ST40
-	select SUPPORTS_32BIT
-	help
-	  Select STB7100 if you have an STb7100, STb7109 or STb5202 CPU.
-
 config CPU_SUBTYPE_STX5197
 	bool "Support STx5197 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
 	help
 	  Select STX5197 if you have an STx5197.
+
+config CPU_SUBTYPE_STX7100
+	bool "Support STx7100/7109 processors"
+	select CPU_SUBTYPE_ST40
+	select SUPPORTS_32BIT
+	help
+	  Select STX7100 if you have an STx7100, STx7109 or STx5202 CPU.
 
 config CPU_SUBTYPE_STX7105
 	bool "Support STx7105 processors"
@@ -580,7 +580,7 @@ endmenu
 
 config SH_EXTERNAL_CLOCK
 	int "External clock"
-	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7200
+	depends on CPU_SUBTYPE_STX7100 || CPU_SUBTYPE_STX7200
 	default "30000000" if SH_ST_MB442
 	default "27000000" if SH_ST_HMP7100
 	default "27000000"

@@ -20,7 +20,7 @@ obj-$(CONFIG_CPU_SUBTYPE_SH7760)	+= setup-sh7760.o
 obj-$(CONFIG_CPU_SUBTYPE_SH4_202)	+= setup-sh4-202.o
 obj-$(CONFIG_CPU_SUBTYPE_ST40STB1)	+= setup-st40ra.o
 obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= setup-stx5197.o
-obj-$(CONFIG_CPU_SUBTYPE_STB7100)	+= setup-stb7100.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7100)	+= setup-stx7100.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7105)	+= setup-stx7105.o sata-init.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= setup-stx7111.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7141)	+= setup-stx7141.o sata-init.o
@@ -30,7 +30,7 @@ obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= setup-stx7200.o sata-init.o
 ifndef CONFIG_CPU_SH4A
 clock-$(CONFIG_CPU_SH4)			:= clock-sh4.o
 clock-$(CONFIG_CPU_SUBTYPE_STX5197)	:= clock-stx5197.o clock-common.o
-clock-$(CONFIG_CPU_SUBTYPE_STB7100)	:= clock-stb7100.o clock-common.o
+clock-$(CONFIG_CPU_SUBTYPE_STX7100)	:= clock-stx7100.o clock-common.o
 clock-$(CONFIG_CPU_SUBTYPE_STX7105)	:= clock-stx7105.o clock-common.o
 clock-$(CONFIG_CPU_SUBTYPE_STX7111)	:= clock-stx7111.o clock-common.o
 clock-$(CONFIG_CPU_SUBTYPE_STX7141)	:= clock-stx7141.o clock-common.o
@@ -47,7 +47,7 @@ obj-$(CONFIG_STM_CPU_FREQ)		+= cpufreq-stm.o
 ifdef CONFIG_SUSPEND
 obj-y					+= suspend.o suspend-core.o
 obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= suspend-stx5197.o
-obj-$(CONFIG_CPU_SUBTYPE_STB7100)	+= suspend-stb7100.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7100)	+= suspend-stx7100.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7105)	+= suspend-stx7105.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= suspend-stx7111.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7141)	+= suspend-stx7141.o

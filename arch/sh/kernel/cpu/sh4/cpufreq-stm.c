@@ -40,8 +40,8 @@ static inline unsigned long _1_ms_lpj(void)
 	return clk_get_rate(sh4_clk) / (1000 * 2);
 }
 
-#if defined(CONFIG_CPU_SUBTYPE_STB7100)
- #include "./cpufreq-stb7100.c"
+#if defined(CONFIG_CPU_SUBTYPE_STX7100)
+ #include "./cpufreq-stx7100.c"
 #elif defined(CONFIG_CPU_SUBTYPE_STX7111)
  #include "./cpufreq-stx7111.c"
 #elif defined(CONFIG_CPU_SUBTYPE_STX7141)

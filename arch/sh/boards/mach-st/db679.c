@@ -26,7 +26,7 @@
 
 static int __init db679_init(void)
 {
-#if defined(CONFIG_CPU_SUBTYPE_STB7100)
+#if defined(CONFIG_CPU_SUBTYPE_STX7100)
 	stx7100_configure_pata(STEM_CS0_BANK, 0, STEM_INTR0_IRQ);
 #elif defined(CONFIG_CPU_SUBTYPE_STX7105)
 	/* Need to use STEM bank 1 as bank 0 isn't big enough */

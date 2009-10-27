@@ -4,7 +4,7 @@
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
  *
- * Code to handle the clockgen hardware on the STb7100.
+ * Code to handle the clockgen hardware on the STx7100.
  */
 
 #include <linux/init.h>

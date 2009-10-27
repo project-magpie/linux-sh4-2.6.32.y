@@ -1,5 +1,5 @@
 /*
- * arch/sh/kernel/cpu/sh4/cpufreq-stb7100.c
+ * arch/sh/kernel/cpu/sh4/cpufreq-stx7100.c
  *
  * Cpufreq driver for the ST40 processors.
  * Version: 0.1 (7 Jan 2008)

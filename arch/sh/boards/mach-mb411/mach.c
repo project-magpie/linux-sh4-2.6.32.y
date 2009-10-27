@@ -15,7 +15,7 @@
 #include <asm/system.h>
 #include <asm/io.h>
 #include <asm/machvec.h>
-#include <asm/irq-stb7100.h>
+#include <asm/irq-stx7100.h>
 #include <mach/epld.h>
 
 static void __iomem *mb411_ioport_map(unsigned long port, unsigned int size)

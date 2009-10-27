@@ -1,7 +1,7 @@
 menuconfig SND_STM
 	tristate "STMicroelectronics SoCs support"
 	depends on SND
-	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7105 || CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7141 || CPU_SUBTYPE_STX7200
+	depends on CPU_SUBTYPE_STX7100 || CPU_SUBTYPE_STX7105 || CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7141 || CPU_SUBTYPE_STX7200
 	select STM_DMA
 	select SND_PCM
 	select SND_DYNAMIC_MINORS
@@ -56,15 +56,15 @@ config SND_STM_DEBUG_LEVEL
 		/sys/module/snd_stm/parameter/debug_component_name (or
 		use module/kernel command line parameter ;-)...
 
-config SND_STM_STX710X
+config SND_STM_STX7100
 	tristate "STx7100 and STx7109 support"
 	depends on SND_STM
-	default y if CPU_SUBTYPE_STB7100
+	default y if CPU_SUBTYPE_STX7100
 	help
 		Select this to get ALSA driver for STx7100 and STx7109 chips.
 
 		If you compile this driver as a module, it will be
-		called snd-stm-stx710x.ko
+		called snd-stm-stx7100.ko
 
 config SND_STM_STX7105
 	tristate "STx7105 support"

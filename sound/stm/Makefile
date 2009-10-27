@@ -3,8 +3,8 @@ snd-stm-y := init.o common.o fsynth.o
 snd-stm-y += conv.o conv_i2sspdif.o conv_int_dac.o
 snd-stm-y += pcm_player.o pcm_reader.o spdif_player.o
 
-obj-$(CONFIG_SND_STM_STX710X) += snd-stm-stx710x.o
-snd-stm-stx710x-y := stx710x.o
+obj-$(CONFIG_SND_STM_STX7100) += snd-stm-stx7100.o
+snd-stm-stx7100-y := stx7100.o
 
 obj-$(CONFIG_SND_STM_STX7105) += snd-stm-stx7105.o
 snd-stm-stx7105-y := stx7105.o

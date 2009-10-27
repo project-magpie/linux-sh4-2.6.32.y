@@ -73,7 +73,7 @@ endchoice
 config STM_COPROCESSOR_SUPPORT
 	bool "STMicroelectronics coprocessor support"
 	default y
-	depends on CPU_SUBTYPE_STB7100 || CPU_SUBTYPE_STX7105 || CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7141 || CPU_SUBTYPE_STX7200
+	depends on CPU_SUBTYPE_STX7100 || CPU_SUBTYPE_STX7105 || CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7141 || CPU_SUBTYPE_STX7200
 	---help---
         Many of the ST system-on-chip devices have multiple CPUs, where a
         master CPU running Linux has control over a number of slave CPUs,
@@ -93,7 +93,7 @@ config STM_COPROCESSOR_SUPPORT
 config STM_NUM_COPROCESSOR
 	int
 	depends on STM_COPROCESSOR_SUPPORT
-	default 2 if CPU_SUBTYPE_STB7100
+	default 2 if CPU_SUBTYPE_STX7100
 	default 2 if CPU_SUBTYPE_STX7105
 	default 2 if CPU_SUBTYPE_STX7111
 	default 2 if CPU_SUBTYPE_STX7141

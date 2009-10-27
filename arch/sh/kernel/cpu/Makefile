@@ -25,7 +25,7 @@ obj-y	+= irq/ init.o clock.o
 # new clock architecture in their own processor specific code.
 archclock-y					:= clock-cpg.o
 archclock-$(CONFIG_CPU_SUBTYPE_STX5197)	:=
-archclock-$(CONFIG_CPU_SUBTYPE_STB7100)	:=
+archclock-$(CONFIG_CPU_SUBTYPE_STX7100)	:=
 archclock-$(CONFIG_CPU_SUBTYPE_STX7105)	:=
 archclock-$(CONFIG_CPU_SUBTYPE_STX7111)	:=
 archclock-$(CONFIG_CPU_SUBTYPE_STX7141)	:=

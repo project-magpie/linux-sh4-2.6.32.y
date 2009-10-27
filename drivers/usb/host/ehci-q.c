@@ -554,7 +554,7 @@ qh_urb_transaction (
 	is_input = usb_pipein (urb->pipe);
 
 	token = QTD_STS_ACTIVE;
-#ifdef CONFIG_CPU_SUBTYPE_STB7100
+#ifdef CONFIG_CPU_SUBTYPE_STX7100
 	/* The problem is that packets where the checksum has large numbers of 1's
 	 * the bitstuffing is still not correct. SMSC hubs seem to be very tight on the
 	 * specification, and fail. The workaround is to set the retry to infinite,

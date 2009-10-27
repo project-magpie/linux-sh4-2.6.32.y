@@ -9,7 +9,6 @@
  * for more details.
  */
 
-#include <linux/stm/soc.h>
 #include <linux/types.h>
 #include <linux/init.h>
 #include <linux/delay.h>

@@ -192,6 +192,11 @@ struct stm_plat_sata_data {
 	unsigned int only_32bit;
 };
 
+#ifdef CONFIG_SATA_STM
+void stm_sata_miphy_init(void);
+#else
+static inline void stm_sata_miphy_init(void) { }
+#endif
 
 /** PIO platform data ***/
 

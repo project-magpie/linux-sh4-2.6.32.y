@@ -35,7 +35,7 @@
 #include <linux/stm/pm.h>
 
 #define DRV_NAME			"sata-stm"
-#define DRV_VERSION			"0.6"
+#define DRV_VERSION			"0.7"
 
 /* Offsets of the component blocks */
 #define SATA_AHB2STBUS_BASE			0x00000000
@@ -231,9 +231,9 @@
 
 #define SATA_FIS_SIZE	(8*1024)
 
-static int stm_sata_scr_read(struct ata_port *ap, unsigned int sc_reg,
+static int stm_sata_scr_read(struct ata_link *link, unsigned int sc_reg,
 			     u32 *val);
-static int stm_sata_scr_write(struct ata_port *ap, unsigned int sc_reg,
+static int stm_sata_scr_write(struct ata_link *link, unsigned int sc_reg,
 			      u32 val);
 
 /* Layout of a DMAC Linked List Item (LLI)
@@ -261,6 +261,8 @@ struct stm_port_priv
 	struct stm_lli *softsg_node;	/* Current softsg node */
 	struct stm_lli *softsg_end;	/* End of the softsg node */
 	char smallburst;		/* Small DMA burst size */
+	char pmp;			/* Current SControl.PMP */
+	struct ata_link *active_link;	/* Link for last request */
 };
 
 /* There is an undocumented restriction that DMA blocks must not span
@@ -412,24 +414,19 @@ DPRINTK("ChEnReg %08lx DmaCfgReg %08lx\n",
        readl(mmio + DMAC_ChEnReg),
        readl(mmio + DMAC_DmaCfgReg));
 
-
-	/* Enable channel 0 */
-	wmb();
-	writel((1<<8) | (1<<0), mmio + DMAC_ChEnReg);
-
 	/* issue r/w command */
-	ata_exec_command(ap, &qc->tf);
+	ap->ops->sff_exec_command(ap, &qc->tf);
 }
 
 static void stm_bmdma_start(struct ata_queued_cmd *qc)
 {
-
-#if 0
-	void __iomem *mmio = ap->ioaddr.cmd_addr;
 	struct ata_port *ap = qc->ap;
+	void __iomem *mmio = ap->ioaddr.cmd_addr;
+
+	DPRINTK("ENTER\n");
+
 	/* Enable channel 0 */
 	writel((1<<8) | (1<<0), mmio + DMAC_ChEnReg);
-#endif
 }
 
 static void stm_bmdma_stop(struct ata_queued_cmd *qc)
@@ -449,9 +446,6 @@ DPRINTK("ENTER\n");
 
 	/* Disable DMA on the SATA host */
 	writel(0, mmio + SATA_DMACR);
-
-	/* one-PIO-cycle guaranteed wait, per spec, for HDMA1:0 transition */
-	ata_altstatus(ap);        /* dummy read */
 }
 
 static u8 stm_bmdma_status(struct ata_port *ap)
@@ -470,14 +464,11 @@ static void stm_fill_sg(struct ata_queued_cmd *qc)
 	struct stm_host_priv *hpriv = ap->host->private_data;
         struct stm_port_priv *pp = ap->private_data;
 	unsigned int write = (qc->tf.flags & ATA_TFLAG_WRITE);
-	unsigned int idx;
+	unsigned int si, idx;
 	u32 sar, dar, ctl0;
 	u32 fis_offset;
 
 	DPRINTK("ENTER\n");
-
-	WARN_ON(qc->__sg == NULL);
-	WARN_ON(qc->n_elem == 0 && qc->pad_len == 0);
 
 	ctl0 = 	DMAC_CTL_DST_TR_WIDTH_32	|
 		DMAC_CTL_SRC_TR_WIDTH_32	|
@@ -510,7 +501,7 @@ static void stm_fill_sg(struct ata_queued_cmd *qc)
 	idx = 0;
 	sar = dar = 0;
 	fis_offset = 0;
-	ata_for_each_sg(sg, qc) {
+	for_each_sg(qc->sg, sg, qc->n_elem, si) {
 		u32 addr;
 		u32 sg_len, len;
 
@@ -563,18 +554,39 @@ static void stm_fill_sg(struct ata_queued_cmd *qc)
 
 }
 
+static void stm_pmp_select(struct ata_port *ap, int pmp)
+{
+        if (sata_pmp_supported(ap)) {
+		struct stm_port_priv *pp = ap->private_data;
+
+		if (pp->pmp != pmp) {
+			u32 scontrol;
+
+			stm_sata_scr_read(&ap->link, SCR_CONTROL, &scontrol);
+			pp->pmp = pmp;
+			stm_sata_scr_write(&ap->link, SCR_CONTROL,
+					   (scontrol & 0xff0));
+		}
+	}
+}
+
 static void stm_qc_prep(struct ata_queued_cmd *qc)
 {
+	struct stm_port_priv *pp = qc->ap->private_data;
+
+	stm_pmp_select(qc->ap, qc->dev->link->pmp & 0xf);
+	pp->active_link = qc->dev->link;
+
 	if (!(qc->flags & ATA_QCFLAG_DMAMAP))
 		return;
 
 	stm_fill_sg(qc);
 }
 
-static void stm_data_xfer(struct ata_device *adev, unsigned char *buf,
-		           unsigned int buflen, int write_data)
+static unsigned int stm_data_xfer(struct ata_device *adev, unsigned char *buf,
+				  unsigned int buflen, int rw)
 {
-	struct ata_port *ap = adev->ap;
+	struct ata_port *ap = adev->link->ap;
 	unsigned int i;
 	unsigned int words = buflen >> 1;
 	u16 *buf16 = (u16 *) buf;
@@ -585,7 +597,7 @@ static void stm_data_xfer(struct ata_device *adev, unsigned char *buf,
 	writel(~SERROR_ERR_E, mmio_base + SATA_ERRMR);
 
 	/* Transfer multiple of 2 bytes */
-	if (write_data) {
+	if (rw == WRITE) {
 		for (i = 0; i < words; i++) {
 			writew(le16_to_cpu(buf16[i]), mmio);
 			ndelay(120);
@@ -602,63 +614,100 @@ static void stm_data_xfer(struct ata_device *adev, unsigned char *buf,
 		u16 align_buf[1] = { 0 };
 		unsigned char *trailing_buf = buf + buflen - 1;
 
-		if (write_data) {
+		if (rw == WRITE) {
 			memcpy(align_buf, trailing_buf, 1);
 			writew(le16_to_cpu(align_buf[0]), mmio);
 		} else {
 			align_buf[0] = cpu_to_le16(readw(mmio));
 			memcpy(trailing_buf, align_buf, 1);
 		}
+		words++;
 	}
 
 	/* Clear any errors and re-enable error reporting */
 	writel(-1, mmio_base + SATA_SCR1);
 	writel(0xffffffff, mmio_base + SATA_ERRMR);
+
+	return words << 1;
 }
 
 static void stm_freeze(struct ata_port *ap)
 {
 	void __iomem *mmio = ap->ioaddr.cmd_addr;
 
+	DPRINTK("ENTER\n");
+
 	/* Disable interrupts */
 	writel(0, mmio + SATA_INTMR);
 	readl(mmio + SATA_INTMR);	/* flush */
+	ata_sff_freeze(ap);
 }
 
 static void stm_thaw(struct ata_port *ap)
 {
 	void __iomem *mmio = ap->ioaddr.cmd_addr;
 
+	DPRINTK("ENTER\n");
+
 	/* Reenable interrupts */
 	writel(SATA_INT_ERR, mmio + SATA_INTMR);
+	ata_sff_thaw(ap);
 }
 
-static int stm_prereset(struct ata_port *ap, unsigned long deadline)
+static int stm_prereset(struct ata_link *link, unsigned long deadline)
 {
+	struct ata_port *ap = link->ap;
+
+	DPRINTK("ENTER\n");
+
 	stm_phy_configure(ap);
-	return ata_std_prereset(ap, deadline);
+	return ata_sff_prereset(link, deadline);
 }
 
-static void stm_postreset(struct ata_port *ap, unsigned int *classes)
+static void stm_postreset(struct ata_link *link, unsigned int *classes)
 {
+	struct ata_port *ap = link->ap;
 	void __iomem *mmio = ap->ioaddr.cmd_addr;
+
+	DPRINTK("ENTER\n");
 
 	/* Enable notification of errors. These are reset by COMRESET. */
 	writel(0xffffffff, mmio + SATA_ERRMR);
 	writel(SATA_INT_ERR, mmio + SATA_INTMR);
 
-	ata_std_postreset(ap, classes);
+	ata_sff_postreset(link, classes);
 }
 
-static void stm_error_handler(struct ata_port *ap)
+static int stm_pmp_hardreset(struct ata_link *link, unsigned int *class,
+			     unsigned long deadline)
 {
-        ata_do_eh(ap, stm_prereset, ata_std_softreset,
-                  sata_std_hardreset, stm_postreset);
+	DPRINTK("ENTER\n");
+
+	stm_pmp_select(link->ap, sata_srst_pmp(link));
+	return sata_std_hardreset(link, class, deadline);
 }
 
-static void stm_post_internal_cmd(struct ata_queued_cmd *qc)
+static int stm_softreset(struct ata_link *link, unsigned int *class,
+			 unsigned long deadline)
 {
-	stm_bmdma_stop(qc);
+	DPRINTK("ENTER\n");
+
+	stm_pmp_select(link->ap, sata_srst_pmp(link));
+	return ata_sff_softreset(link, class, deadline);
+}
+
+static void stm_dev_config(struct ata_device *adev)
+{
+	struct ata_port *ap = adev->link->ap;
+	int print_info = ap->link.eh_context.i.flags & ATA_EHI_PRINTINFO;
+
+	if (adev->max_sectors > STM_MAX_SECTORS) {
+		if (print_info)
+			ata_dev_printk(adev, KERN_INFO,
+				       "restricting to %d max sectors\n",
+				       STM_MAX_SECTORS);
+		adev->max_sectors = STM_MAX_SECTORS;
+	}
 }
 
 /* This needs munging to give per controller stats */
@@ -705,14 +754,14 @@ static unsigned stm_sata_host_irq(struct ata_port *ap)
 {
 	unsigned int handled = 0;
 	void __iomem *mmio = ap->ioaddr.cmd_addr;
-	struct ata_eh_info *ehi = &ap->eh_info;
+	struct ata_eh_info *ehi = &ap->link.eh_info;
 	u32 sstatus, serror;
 
 	if (readl(mmio + SATA_INTPR) & (SATA_INT_ERR)) {
 
-		stm_sata_scr_read(ap, SCR_STATUS, &sstatus);
-		stm_sata_scr_read(ap, SCR_ERROR, &serror);
-		stm_sata_scr_write(ap, SCR_ERROR, serror);
+		stm_sata_scr_read(&ap->link, SCR_STATUS, &sstatus);
+		stm_sata_scr_read(&ap->link, SCR_ERROR, &serror);
+		stm_sata_scr_write(&ap->link, SCR_ERROR, serror);
 
 		if (print_error)
 			ata_port_printk(ap, KERN_ERR,
@@ -726,7 +775,7 @@ static unsigned stm_sata_host_irq(struct ata_port *ap)
 		ehi->serror |= serror;
 
 		if (serror & (SERROR_DIAG_N | SERROR_DIAG_X)) {
-			ata_ehi_hotplugged(&ap->eh_info);
+			ata_ehi_hotplugged(ehi);
 			ata_ehi_push_desc(ehi, "Treating as hot-%splug",
 					  serror & SERROR_DIAG_X ? "" : "un");
 		}
@@ -736,10 +785,17 @@ static unsigned stm_sata_host_irq(struct ata_port *ap)
 	} else
 		if (ap && (!(ap->flags & ATA_FLAG_DISABLED))) {
 			struct ata_queued_cmd *qc;
+			struct stm_port_priv *pp = ap->private_data;
 
-			qc = ata_qc_from_tag(ap, ap->active_tag);
+			qc = ata_qc_from_tag(ap, pp->active_link->active_tag);
+			/*
+			 * ata_qc_issue sets qc->dev->link.active_tag
+			 * rather than ap->link.active_tag.  This
+			 * means for PMP the host link doesn't have
+			 * the tag set.
+			 */
 			if (qc && (!(qc->tf.ctl & ATA_NIEN)))
-				handled += ata_host_intr(ap, qc);
+				handled += ata_sff_host_intr(ap, qc);
 		}
 
 	return handled;
@@ -750,19 +806,16 @@ static irqreturn_t stm_sata_dma_interrupt(int irq, void *dev_instance)
 	struct ata_host *host = dev_instance;
 	unsigned int handled = 0;
 	unsigned int i;
-	unsigned long flags;
 	struct stm_host_priv *hpriv = host->private_data;
-
-DPRINTK("ENTER DMA\n");
 
 	BUG_ON(hpriv->shared_dma_host_irq);
 
-	spin_lock_irqsave(&host->lock, flags);
+	spin_lock(&host->lock);
 
 	for (i = 0; i < host->n_ports; i++)
 		handled += stm_sata_dma_irq(host->ports[i]);
 
-	spin_unlock_irqrestore(&host->lock, flags);
+	spin_unlock(&host->lock);
 
 	return IRQ_RETVAL(handled);
 }
@@ -772,12 +825,11 @@ static irqreturn_t stm_sata_interrupt(int irq, void *dev_instance)
 	struct ata_host *host = dev_instance;
 	unsigned int handled = 0;
 	unsigned int i;
-	unsigned long flags;
 	struct stm_host_priv *hpriv = host->private_data;
 
 DPRINTK("ENTER\n");
 
-	spin_lock_irqsave(&host->lock, flags);
+	spin_lock(&host->lock);
 
 	for (i = 0; i < host->n_ports; i++) {
 		if (hpriv->shared_dma_host_irq)
@@ -785,7 +837,7 @@ DPRINTK("ENTER\n");
 		handled += stm_sata_host_irq(host->ports[i]);
 	}
 
-	spin_unlock_irqrestore(&host->lock, flags);
+	spin_unlock(&host->lock);
 
 	return IRQ_RETVAL(handled);
 }
@@ -795,9 +847,9 @@ static void stm_irq_clear(struct ata_port *ap)
 	/* TODO */
 }
 
-static int stm_sata_scr_read(struct ata_port *ap, unsigned int sc_reg, u32 *val)
+static int stm_sata_scr_read(struct ata_link *link, unsigned int sc_reg, u32 *val)
 {
-	void __iomem *mmio = ap->ioaddr.cmd_addr;
+	void __iomem *mmio = link->ap->ioaddr.cmd_addr;
 
 	if (sc_reg > SCR_CONTROL) return -EINVAL;
 
@@ -805,12 +857,19 @@ static int stm_sata_scr_read(struct ata_port *ap, unsigned int sc_reg, u32 *val)
 	return 0;
 }
 
-static int stm_sata_scr_write(struct ata_port *ap, unsigned int sc_reg, u32 val)
+static int stm_sata_scr_write(struct ata_link *link, unsigned int sc_reg, u32 val)
 {
-	void __iomem *mmio = ap->ioaddr.cmd_addr;
+	void __iomem *mmio = link->ap->ioaddr.cmd_addr;
 
 DPRINTK("%d = %08x\n", sc_reg, val);
 	if (sc_reg > SCR_CONTROL) return -EINVAL;
+
+	if (sc_reg == SCR_CONTROL) {
+		struct stm_port_priv *pp = link->ap->private_data;
+
+		val &= ~(0xf << 16);
+		val |= pp->pmp << 16;
+	}
 
 	writel(val, mmio + SATA_SCR0 + (sc_reg * 4));
 	return 0;
@@ -839,126 +898,100 @@ static int stm_port_start (struct ata_port *ap)
 
 	pp->smallburst = 0;
 
-	rc = ata_pad_alloc(ap, dev);
-	if (rc)
-		return rc;
-
 	ap->private_data = pp;
 
 	return 0;
 }
 
-static ssize_t stm_show_serror(struct class_device *class_dev, char *buf)
+static ssize_t stm_show_serror(struct device *dev,
+			       struct device_attribute *attr, char *buf)
 {
-	//struct Scsi_Host *host = class_to_shost(class_dev);
 	ssize_t len;
 
 	len = snprintf(buf, PAGE_SIZE, "%ld\n", error_count);
 	return len;
 }
 
-static ssize_t stm_store_serror(struct class_device * class_dev,
-			       const char * buf, size_t count)
+static ssize_t stm_store_serror(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
 {
-	// struct Scsi_Host *host = class_to_shost(class_dev);
-
 	error_count = simple_strtoul(buf, NULL, 10);
 	return count;
 }
 
-static struct class_device_attribute stm_host_stats_attr = {
-	.attr = {
-		.name =		"serror",
-		.mode =		S_IRUGO | S_IWUGO,
-	},
-	.show = stm_show_serror,
-	.store = stm_store_serror,
-};
+static DEVICE_ATTR(serror, S_IRUGO | S_IWUGO,
+		   stm_show_serror, stm_store_serror);
 
-static ssize_t stm_show_printerror(struct class_device *class_dev, char *buf)
+static ssize_t stm_show_printerror(struct device *dev,
+				   struct device_attribute *attr, char *buf)
 {
-	//struct Scsi_Host *host = class_to_shost(class_dev);
 	ssize_t len;
 
 	len = snprintf(buf, PAGE_SIZE, "%d\n", print_error);
 	return len;
 }
 
-static ssize_t stm_store_printerror(struct class_device * class_dev,
-			       const char * buf, size_t count)
+static ssize_t stm_store_printerror(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
 {
-	// struct Scsi_Host *host = class_to_shost(class_dev);
-
 	print_error = simple_strtoul(buf, NULL, 10);
 	return count;
 }
 
-static struct class_device_attribute stm_host_printerror_attr = {
-	.attr = {
-		.name =		"printerror",
-		.mode =		S_IRUGO | S_IWUGO,
-	},
-	.show = stm_show_printerror,
-	.store = stm_store_printerror,
-};
+static DEVICE_ATTR(printerror, S_IRUGO | S_IWUGO,
+		   stm_show_printerror, stm_store_printerror);
 
 /* Host attributes initializer */
-static struct class_device_attribute *stm_host_attrs[] = {
-	&stm_host_stats_attr,
-	&stm_host_printerror_attr,
+static struct device_attribute *stm_host_attrs[] = {
+	&dev_attr_serror,
+	&dev_attr_printerror,
 	NULL,
 };
 
 static struct scsi_host_template stm_sht = {
-	.module			= THIS_MODULE,
-	.name			= DRV_NAME,
-	.ioctl			= ata_scsi_ioctl,
-	.queuecommand		= ata_scsi_queuecmd,
-	.can_queue		= ATA_DEF_QUEUE,
-	.this_id		= ATA_SHT_THIS_ID,
-	.sg_tablesize		= LIBATA_MAX_PRD,
+	ATA_BMDMA_SHT(DRV_NAME),
 	.max_sectors		= STM_MAX_SECTORS,
-	.cmd_per_lun		= ATA_SHT_CMD_PER_LUN,
-	.emulated		= ATA_SHT_EMULATED,
-	.use_clustering		= ATA_SHT_USE_CLUSTERING,
-	.proc_name		= DRV_NAME,
-	.dma_boundary		= ATA_DMA_BOUNDARY,
-	.slave_configure	= ata_scsi_slave_config,
-	.slave_destroy		= ata_scsi_slave_destroy,
-	.bios_param		= ata_std_bios_param,
 	.shost_attrs		= stm_host_attrs,
 };
 
 static struct ata_port_operations stm_ops = {
-	.port_disable		= ata_port_disable,
-	.tf_load		= ata_tf_load,
-	.tf_read		= ata_tf_read,
-	.exec_command		= ata_exec_command,
-	.check_status		= ata_check_status,
-	.dev_select		= ata_noop_dev_select,
+	.inherits		= &ata_sff_port_ops,
+
 	.check_atapi_dma	= stm_check_atapi_dma,
+	.qc_defer		= sata_pmp_qc_defer_cmd_switch,
+	.qc_prep		= stm_qc_prep,
+
+	.dev_config		= stm_dev_config,
+
+	.freeze			= stm_freeze,
+	.thaw			= stm_thaw,
+	.prereset		= stm_prereset,
+	.postreset		= stm_postreset,
+
+	.pmp_hardreset		= stm_pmp_hardreset,
+	.pmp_softreset		= stm_softreset,
+	.softreset		= stm_softreset,
+	.error_handler		= sata_pmp_error_handler,
+
+	.scr_read		= stm_sata_scr_read,
+	.scr_write		= stm_sata_scr_write,
+
+	.port_start		= stm_port_start,
+
+	.sff_data_xfer		= stm_data_xfer,
+	.sff_irq_clear		= stm_irq_clear,
+
 	.bmdma_setup		= stm_bmdma_setup,
 	.bmdma_start		= stm_bmdma_start,
 	.bmdma_stop		= stm_bmdma_stop,
 	.bmdma_status		= stm_bmdma_status,
-	.qc_prep		= stm_qc_prep,
-	.qc_issue		= ata_qc_issue_prot,
-	.eng_timeout		= ata_eng_timeout, /* ?? */
-	.data_xfer		= stm_data_xfer,
-	.freeze			= stm_freeze,
-	.thaw			= stm_thaw,
-	.error_handler		= stm_error_handler,
-	.post_internal_cmd	= stm_post_internal_cmd,
-	.irq_clear		= stm_irq_clear,
-	.irq_on			= ata_dummy_irq_on,
-	.scr_read		= stm_sata_scr_read,
-	.scr_write		= stm_sata_scr_write,
-	.port_start		= stm_port_start,
 };
 
 static const struct ata_port_info stm_port_info = {
 	.flags		= ATA_FLAG_SATA | ATA_FLAG_NO_LEGACY |
-			  ATA_FLAG_MMIO | ATA_FLAG_SATA_RESET,
+			  ATA_FLAG_MMIO | ATA_FLAG_SATA_RESET | ATA_FLAG_PMP,
 	.pio_mask	= 0x1f, /* pio0-4 */
 	.mwdma_mask	= 0x07, /* mwdma0-2 */
 	.udma_mask	= ATA_UDMA6,

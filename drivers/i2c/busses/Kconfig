@@ -513,30 +513,15 @@ config I2C_SIMTEC
 	  This driver can also be built as a module. If so, the module
 	  will be called i2c-simtec.
 
-choice
-	prompt "STMicroelectronics I2C support"
-	depends on I2C && CPU_SUBTYPE_ST40
-	help
-	  STMicroelectronics SoCs support the I2C bus using either a bit-banging
-	  PIO driver or using the hardware SSC.
-
-config I2C_ST40_PIO
-	tristate "I2C bit-banging PIO driver"
-	select I2C_ALGOBIT
-	help
-	  If you say yes to this option, support will be included for the
-	  PIO driven I2C in bit-banging mode.
-
-	  This driver can also be built as a module.  If so, the module
-	  will be called i2c-st40-pio
-
 config I2C_STM
-	tristate "I2C hardware SSC driver"
+	tristate "STMicroelectronics SSC I2C support"
+	depends on CPU_SUBTYPE_ST40
 	help
-	  If you say yes to this option, support will be included for the
-	  SSC driven I2C.
+	  Enable this option to add support for STMicroelectronics SoCs
+	  hardware SSC (Synchronous Serial Controller) as a I2C controller.
 
-endchoice
+	  This driver can also be built as module. If so, the module
+	  will be called i2c-stm.
 
 config I2C_STM_GLITCH_SUPPORT
         bool "I2C timing glitch suppression support"

@@ -60,9 +60,7 @@
  */
 
 #include <linux/i2c.h>
-#include <linux/stm/pio.h>
-#include <linux/stm/soc.h>
-#include <linux/stm/soc_init.h>
+#include <linux/gpio.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <linux/io.h>
@@ -71,9 +69,9 @@
 #include <linux/interrupt.h>
 #include <linux/wait.h>
 #include <linux/errno.h>
-#include <asm/delay.h>
-#include "./i2c-stm.h"
+#include <linux/stm/platform.h>
 #include <linux/stm/stssc.h>
+#include "./i2c-stm.h"
 
 #undef dbg_print
 
@@ -199,7 +197,8 @@ struct iic_ssc {
 	struct i2c_adapter adapter;
 	unsigned long config;
 	wait_queue_head_t wait_queue;
-	struct ssc_pio_t *pio_info;
+	struct stm_pad_config *pad_config_ssc, *pad_config_gpio;
+	unsigned int gpio_scl, gpio_sda;
 };
 
 #define jump_on_fsm_start(x)	{ (x)->state = IIC_FSM_START;	\
@@ -670,25 +669,21 @@ static void iic_pio_stop(struct iic_ssc *adap)
 {
 	int cnt = 0;
 
-	if (!(adap->pio_info)->clk)
-		return;		/* ssc hard wired */
+	if (!adap->pad_config_gpio)
+		return; /* SSC hard wired */
+
 	printk(KERN_WARNING "i2c-stm: doing PIO stop!\n");
 
 	/* Send STOP */
-	stpio_set_pin((adap->pio_info)->clk, 0);
-	stpio_set_pin((adap->pio_info)->sdout, 0);
-	stpio_configure_pin((adap->pio_info)->clk, STPIO_OUT);
-	stpio_configure_pin((adap->pio_info)->sdout, STPIO_BIDIR);
+	gpio_set_value(adap->gpio_scl, 0);
+	gpio_set_value(adap->gpio_sda, 0);
+	stm_pad_switch(adap->pad_config_ssc, adap->pad_config_gpio, "i2c-stm");
 	udelay(20);
-	stpio_set_pin((adap->pio_info)->clk, 1);
+	gpio_set_value(adap->gpio_scl, 1);
 	udelay(20);
-	stpio_set_pin((adap->pio_info)->sdout, 1);
+	gpio_set_value(adap->gpio_sda, 1);
 	udelay(30);
-	if ((adap->pio_info)->clk_unidir)
-		stpio_configure_pin((adap->pio_info)->clk, STPIO_ALT_OUT);
-	else
-		stpio_configure_pin((adap->pio_info)->clk, STPIO_ALT_BIDIR);
-	stpio_configure_pin((adap->pio_info)->sdout, STPIO_ALT_BIDIR);
+	stm_pad_switch(adap->pad_config_gpio, adap->pad_config_ssc, "i2c-stm");
 
 	/* Reset SSC */
 	ssc_store32(adap, SSC_CTL, SSC_CTL_SR | SSC_CTL_EN | SSC_CTL_MS |
@@ -714,7 +709,7 @@ static void iic_pio_stop(struct iic_ssc *adap)
 static int iic_stm_xfer(struct i2c_adapter *i2c_adap,
 			struct i2c_msg msgs[], int num)
 {
-	unsigned int flag;
+	unsigned long flag;
 	int result;
 	int timeout;
 #ifdef CONFIG_I2C_DEBUG_BUS
@@ -1098,8 +1093,7 @@ static DEVICE_ATTR(fastmode, S_IRUGO | S_IWUSR, iic_bus_show_fastmode,
 
 static int __init iic_stm_probe(struct platform_device *pdev)
 {
-	struct ssc_pio_t *pio_info =
-	    (struct ssc_pio_t *)pdev->dev.platform_data;
+	struct stm_plat_ssc_data *plat_data = pdev->dev.platform_data;
 	struct iic_ssc *i2c_stm;
 	struct resource *res;
 
@@ -1138,55 +1132,34 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	/* Check if we use GPIO... */
-	if (pio_info->pio[0].pio_port == SSC_NO_PIO)
-		goto i2c_hard_wired;
+	/* If SSC is hard wired, there will be no pad configurations */
 
-	if (pio_info->clk_unidir) {
-		/* Drive clock rather than using open collector.  Setting to
-		 * BIDIR can help if there are problems with SCK rise times.
-		 * It does mean, however, that slaves cannot clock stretch.
-		 */
-		pio_info->clk = stpio_request_set_pin(pio_info->pio[0].pio_port,
-						      pio_info->pio[0].pio_pin,
-						      "I2C Clock",
-						      STPIO_ALT_OUT, 1);
-	} else {
-		pio_info->clk = stpio_request_set_pin(pio_info->pio[0].pio_port,
-						      pio_info->pio[0].pio_pin,
-						      "I2C Clock",
-						      STPIO_ALT_BIDIR, 1);
-	}
-
-	if (!pio_info->clk) {
-		printk(KERN_ERR
-		       "i2c-stm: %s: Failed to get clk pin allocation\n",
-		       __FUNCTION__);
+	i2c_stm->pad_config_ssc = plat_data->pad_config_ssc;
+	if (i2c_stm->pad_config_ssc && stm_pad_claim(i2c_stm->pad_config_ssc,
+			"i2c-stm") != 0) {
+		printk(KERN_ERR "%s: Pads request failed!\n", __FUNCTION__);
 		return -ENODEV;
 	}
 
-	pio_info->sdout = stpio_request_set_pin(pio_info->pio[1].pio_port,
-						pio_info->pio[1].pio_pin,
-						"I2C Data", STPIO_ALT_BIDIR, 1);
-	if (!pio_info->sdout) {
-		printk(KERN_ERR "%s: Faild to sda pin allocation\n",
-		       __FUNCTION__);
-		return -ENODEV;
+	i2c_stm->pad_config_gpio = plat_data->pad_config_gpio;
+	if (i2c_stm->pad_config_gpio) {
+		/* No need to gpio_request(), as the pads are
+		 * already claimed... */
+		i2c_stm->gpio_scl = plat_data->gpio_sclk;
+		i2c_stm->gpio_sda = plat_data->gpio_mtsr;
 	}
 
-i2c_hard_wired:
 	pdev->dev.driver_data = i2c_stm;
 	i2c_stm->adapter.timeout = 2;
 	i2c_stm->adapter.retries = 0;
 	i2c_stm->adapter.class = I2C_CLASS_HWMON | I2C_CLASS_TV_ANALOG |
 		I2C_CLASS_TV_DIGITAL | I2C_CLASS_DDC | I2C_CLASS_SPD;;
-	sprintf(i2c_stm->adapter.name, "i2c-hw-%d", pdev->id);
+	sprintf(i2c_stm->adapter.name, "i2c-stm%d", pdev->id);
 	i2c_stm->adapter.nr = pdev->id;
 	i2c_stm->adapter.algo = &iic_stm_algo;
 	i2c_stm->adapter.dev.parent = &(pdev->dev);
 	iic_stm_setup_timing(i2c_stm, clk_get_rate(clk_get(NULL, "comms_clk")));
 	init_waitqueue_head(&(i2c_stm->wait_queue));
-	i2c_stm->pio_info = pio_info;
 	if (i2c_add_numbered_adapter(&(i2c_stm->adapter)) < 0) {
 		printk(KERN_ERR
 		       "%s: The I2C Core refuses the i2c/stm adapter\n",
@@ -1205,21 +1178,18 @@ i2c_hard_wired:
 static int iic_stm_remove(struct platform_device *pdev)
 {
 	struct resource *res;
-	struct iic_ssc *iic_stm = pdev->dev.driver_data;
-	struct ssc_pio_t *pio_info =
-	    (struct ssc_pio_t *)pdev->dev.platform_data;
+	struct iic_ssc *iic_stm = pdev->dev.driver_data ;
+	struct stm_plat_ssc_data *plat_data = pdev->dev.platform_data;
 
 	i2c_del_adapter(&iic_stm->adapter);
+	/* pad */
+	if (plat_data->pad_config_ssc)
+		stm_pad_release(plat_data->pad_config_ssc);
 	/* irq */
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	devm_free_irq(&pdev->dev, res->start, iic_stm);
 	/* mem */
 	devm_iounmap(&pdev->dev, iic_stm->base);
-	/* pio */
-	if (pio_info->clk) {
-		stpio_free_pin(pio_info->clk);
-		stpio_free_pin(pio_info->sdout);
-	}
 	/* kmem */
 	devm_kfree(&pdev->dev, iic_stm);
 	return 0;
@@ -1261,7 +1231,7 @@ static int iic_stm_resume(struct platform_device *pdev)
 #endif
 
 static struct platform_driver i2c_stm_driver = {
-	.driver.name = "i2c_st",
+	.driver.name = "i2c-stm",
 	.driver.owner = THIS_MODULE,
 	.probe = iic_stm_probe,
 	.remove = iic_stm_remove,

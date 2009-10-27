@@ -10,14 +10,6 @@ config STM_DRIVERS
 menu "STM specific devices"
         depends on STM_DRIVERS
 
-config STM_PIO
-	tristate "STMicroelectronics PIO Support"
-	depends on CPU_SUBTYPE_ST40
-	default y
-	help
-	  Driver for the PIO pins on STMicroelectronics ST40 and ST200
-	  based parts.
-
 config STM_DMA
 	bool "STMicroelectronics DMA API"
 	select SH_DMA_API

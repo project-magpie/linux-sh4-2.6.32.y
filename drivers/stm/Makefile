@@ -3,11 +3,11 @@
 #
 
 obj-y					+= emi.o
+obj-y					+= gpio.o
 obj-y					+= pad.o
 
 obj-y				+= sysconf.o
 obj-$(CONFIG_STM_DMA)		+= fdma.o fdma-xbar.o
-obj-$(CONFIG_STM_PIO)		+= pio.o
 obj-$(CONFIG_STM_COPROCESSOR_SUPPORT)	+= copro-st_socs.o
 obj-$(CONFIG_STM_COPROCESSOR)		+= stm-coprocessor.o
 obj-$(CONFIG_STM_COPROCESSOR_FRMW)	+= stm-coprocessor_frmw.o

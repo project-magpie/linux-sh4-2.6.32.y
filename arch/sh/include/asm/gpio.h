@@ -15,10 +15,12 @@
 #include <linux/kernel.h>
 #include <linux/errno.h>
 
+#if defined(CONFIG_STM_DRIVERS)
+#include <linux/stm/gpio.h>
+#else
+
 #if defined(CONFIG_CPU_SH3)
 #include <cpu/gpio.h>
-#elif defined(CONFIG_CPU_SUBTYPE_ST40)
-#include <linux/stm/gpio.h>
 #endif
 
 #define ARCH_NR_GPIOS 512
@@ -103,5 +105,7 @@ struct pinmux_info {
 };
 
 int register_pinmux(struct pinmux_info *pip);
+
+#endif /* CONFIG_STM_DRIVERS */
 
 #endif /* __ASM_SH_GPIO_H */

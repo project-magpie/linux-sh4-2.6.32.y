@@ -843,6 +843,15 @@ void __init stx7100_early_device_init(void)
 		devid = sysconf_read(sc);
 		printk("Chip version %ld.%ld\n", (devid >> 4)+1, devid & 0xf);
 		boot_cpu_data.cut_minor = devid & 0xf;
+		if (devid == 0x24) {
+			/*
+			 * See ADCS 8135002 "STI7109 CUT 4.0 CHANGES
+			 * VERSUS CUT 3.X" for details of this change.
+			 */
+			printk("Setting version to 4.0 to match commercial branding\n");
+			boot_cpu_data.cut_major = 4;
+			boot_cpu_data.cut_minor = 0;
+		}
 	}
 
 	/* Configure the ST40 RTC to source its clock from clockgenB.

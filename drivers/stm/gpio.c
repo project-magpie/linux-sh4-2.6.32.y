@@ -14,6 +14,7 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/pad.h>
 #include "reg_pio.h"
+#include "gpio_i.h"
 
 #define DPRINTK(...)
 
@@ -53,10 +54,8 @@ void __iomem **stm_gpio_bases;
 
 /*** PIO interrupt chained-handler implementation ***/
 
-static void stm_gpio_irq_chip_handler(unsigned int port_irq,
-		struct irq_desc *port_irq_desc)
+void stm_gpio_irq_handler(const struct stm_gpio_port *port)
 {
-	struct stm_gpio_port *port = get_irq_data(port_irq);
 	int port_no = port - stm_gpio_ports;
 	int pin_no;
 	unsigned long port_in, port_mask, port_comp, port_active;
@@ -159,6 +158,14 @@ static void stm_gpio_irq_chip_handler(unsigned int port_irq,
 	DPRINTK("exiting\n");
 }
 
+static void stm_gpio_irq_chip_handler(unsigned int port_irq,
+		struct irq_desc *port_irq_desc)
+{
+	struct stm_gpio_port *port = get_irq_data(port_irq);
+
+	stm_gpio_irq_handler(port);
+}
+
 static void stm_gpio_irq_chip_disable(unsigned int pin_irq)
 {
 	unsigned gpio = irq_to_gpio(pin_irq);
@@ -235,8 +242,9 @@ static struct irq_chip stm_gpio_irq_chip = {
 	.set_type	= stm_gpio_irq_chip_type,
 };
 
-static int stm_gpio_irq_init(int port_no, unsigned int port_irq, const char *name)
+struct stm_gpio_port *stm_gpio_irq_init(int port_no, const char* name)
 {
+	struct stm_gpio_port *port = &stm_gpio_ports[port_no];
 	struct stm_gpio_pin *pin;
 	unsigned int pin_irq;
 	int pin_no;
@@ -244,10 +252,7 @@ static int stm_gpio_irq_init(int port_no, unsigned int port_irq, const char *nam
 	/* Overwrite the "EARLY" label used before platform device init */
 	port->gpio_chip.label = name;
 
-	set_irq_chained_handler(port_irq, stm_gpio_irq_chip_handler);
-	set_irq_data(port_irq, &stm_gpio_ports[port_no]);
-
-	pin = stm_gpio_ports[port_no].pins;
+	pin = &port->pins[0];
 	pin_irq = stm_gpio_irq_base + (port_no * STM_GPIO_PINS_PER_PORT);
 	for (pin_no = 0; pin_no < STM_GPIO_PINS_PER_PORT; pin_no++) {
 		set_irq_chip_and_handler_name(pin_irq, &stm_gpio_irq_chip,
@@ -258,7 +263,7 @@ static int stm_gpio_irq_init(int port_no, unsigned int port_irq, const char *nam
 		pin_irq++;
 	}
 
-	return 0;
+	return port;
 }
 
 
@@ -468,65 +473,101 @@ static void stm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 
 /*** Early initialization ***/
 
+static void stm_gpio_early_init_port(struct stm_gpio_port *port,
+	int port_no, void* base, struct stm_pad_config *pad_config)
+{
+	int pin_no;
+
+	port->base = base;
+	port->gpio_chip.label = "EARLY";
+	port->gpio_chip.request = stm_gpio_request;
+	port->gpio_chip.free = stm_gpio_free;
+	port->gpio_chip.get = stm_gpio_get;
+	port->gpio_chip.set = stm_gpio_set;
+	port->gpio_chip.direction_input = stm_gpio_direction_input;
+	port->gpio_chip.direction_output = stm_gpio_direction_output;
+#ifdef CONFIG_DEBUG_FS
+	port->gpio_chip.dbg_show = stm_gpio_dbg_show;
+#endif
+	port->gpio_chip.base = port_no * STM_GPIO_PINS_PER_PORT;
+	port->gpio_chip.ngpio = STM_GPIO_PINS_PER_PORT;
+
+	stm_gpio_bases[port_no] = port->base;
+
+	for (pin_no = 0; pin_no < STM_GPIO_PINS_PER_PORT; pin_no++)
+		port->pins[pin_no].pad_config = &pad_config[pin_no];
+
+	if (gpiochip_add(&port->gpio_chip) != 0)
+		panic("stm_gpio: Failed to add gpiolib chip!\n");
+}
+
 /* This is called early to allow board start up code to use PIO
  * (in particular console devices). */
 void __init stm_gpio_early_init(struct platform_device pdevs[], int num,
 		int irq_base)
 {
-	int port_no;
+	int pdev_no;
+	int num_ports;
 
-	stm_gpio_num = num * STM_GPIO_PINS_PER_PORT;
+	num_ports = 0;
+	for (pdev_no = 0; pdev_no < num; pdev_no++) {
+		struct platform_device *pdev = &pdevs[pdev_no];
+		int last_port_no;
+
+		if (strcmp(pdev->name, "stm-pio10") == 0) {
+			struct stm_plat_pio10_data *data = pdev->dev.platform_data;
+			last_port_no = data->start_pio + data->num_pio - 1;
+		} else
+			last_port_no = pdev->id;
+		num_ports = max(num_ports, last_port_no+1);
+	}
+
+	stm_gpio_num = num_ports * STM_GPIO_PINS_PER_PORT;
 	stm_gpio_irq_base = irq_base;
 
-	stm_gpio_ports = alloc_bootmem(sizeof(*stm_gpio_ports) * num);
-	stm_gpio_bases = alloc_bootmem(sizeof(*stm_gpio_bases) * num);
+	stm_gpio_ports = alloc_bootmem(sizeof(*stm_gpio_ports) * num_ports);
+	stm_gpio_bases = alloc_bootmem(sizeof(*stm_gpio_bases) * num_ports);
 	if (!stm_gpio_ports || !stm_gpio_bases)
 		panic("stm_gpio: Can't get bootmem!\n");
 
-	for (port_no = 0; port_no < num; port_no++) {
-		struct platform_device *pdev = &pdevs[port_no];
+	for (pdev_no = 0; pdev_no < num; pdev_no++) {
+		struct platform_device *pdev = &pdevs[pdev_no];
 		struct resource *memory;
-		struct stm_gpio_port *port = &stm_gpio_ports[port_no];
-		struct stm_plat_pio_data *plat_data = pdev->dev.platform_data;
-		int pin_no;
-
-		/* Skip non existing ports */
-		if (!pdev->name)
-			continue;
+		void* base;
 
 		memory = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 		if (!memory)
 			panic("stm_gpio: Can't find memory resource!\n");
 
-		port->base = ioremap(memory->start,
+		base = ioremap(memory->start,
 				memory->end - memory->start + 1);
-		if (!port->base)
+		if (!base)
 			panic("stm_gpio: Can't get IO memory mapping!\n");
-		port->gpio_chip.label = "EARLY";
-		port->gpio_chip.request = stm_gpio_request;
-		port->gpio_chip.free = stm_gpio_free;
-		port->gpio_chip.get = stm_gpio_get;
-		port->gpio_chip.set = stm_gpio_set;
-		port->gpio_chip.direction_input = stm_gpio_direction_input;
-		port->gpio_chip.direction_output = stm_gpio_direction_output;
-#ifdef CONFIG_DEBUG_FS
-		port->gpio_chip.dbg_show = stm_gpio_dbg_show;
-#endif
-		port->gpio_chip.base = port_no * STM_GPIO_PINS_PER_PORT;
-		port->gpio_chip.ngpio = STM_GPIO_PINS_PER_PORT;
 
-		stm_gpio_bases[port_no] = port->base;
+		if (strcmp(pdev->name, "stm-pio10") == 0) {
+			struct stm_plat_pio10_data *data = pdev->dev.platform_data;
+			int port_no = data->start_pio;
+			struct stm_gpio_port *port = &stm_gpio_ports[port_no];
+			int i;
 
-		for (pin_no = 0; pin_no < STM_GPIO_PINS_PER_PORT; pin_no++)
-			port->pins[pin_no].pad_config =
-					&plat_data->pad_configs[pin_no];
+			for (i=0; i<data->num_pio; i++) {
+				stm_gpio_early_init_port(port, port_no, base,
+					data->port_data[i].pad_configs);
+				port++;
+				port_no++;
+				base += 0x1000;
+			}
+		} else {
+			struct stm_plat_pio_data *plat_data = pdev->dev.platform_data;
+			int port_no = pdev->id;
+			struct stm_gpio_port *port = &stm_gpio_ports[port_no];
 
-		if (gpiochip_add(&port->gpio_chip) != 0)
-			panic("stm_gpio: Failed to add gpiolib chip!\n");
+			stm_gpio_early_init_port(port, port_no, base,
+						 plat_data->pad_configs);
+			port_no++;
+		}
 	}
 }
-
-
 
 /*** Platform device driver ***/
 
@@ -545,9 +586,16 @@ static int __devinit stm_gpio_probe(struct platform_device *pdev)
 		return -EBUSY;
 
 	irq = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (irq && stm_gpio_irq_init(pdev->id, irq->start, dev_name(&pdev->dev)) != 0) {
-		printk(KERN_ERR "stm_gpio: Failed to init gpio interrupt!\n");
-		return -EINVAL;
+	if (irq) {
+		struct stm_gpio_port *port;
+		port = stm_gpio_irq_init(pdev->id, dev_name(&pdev->dev));
+		if (IS_ERR(port)) {
+			dev_err(&pdev->dev, "Failed to init gpio interrupt\n");
+			return PTR_ERR(port);
+		}
+
+		set_irq_chained_handler(irq->start, stm_gpio_irq_chip_handler);
+		set_irq_data(irq->start, &stm_gpio_ports[pdev->id]);
 	}
 
 	/* This is a good time to check consistency of linux/stm/gpio.h

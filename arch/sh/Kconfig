@@ -369,6 +369,7 @@ config CPU_SUBTYPE_STX7105
 	bool "Support STx7105 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
+	select STM_PIO10
 	help
 	  Select STX7105 if you have an STx7105 CPU.
 

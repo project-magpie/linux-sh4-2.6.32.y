@@ -8,7 +8,7 @@
  * advised to cap this at the hard limit that they're interested in
  * through the machvec.
  */
-#define NR_IRQS 400
+#define NR_IRQS 450
 
 /*
  * Convert back and forth between INTEVT and IRQ values.

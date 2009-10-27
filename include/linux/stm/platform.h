@@ -203,8 +203,7 @@ struct stm_plat_sata_data {
 		}, \
 	}
 
-#define STM_PLAT_PIO_DATA_LABELS_ONLY(_port_no) \
-	(struct stm_plat_pio_data) { \
+#define STM_PLAT_PIO_DATA_LABELS(_port_no) \
 		.pad_configs = (struct stm_pad_config []) { \
 			[0] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 0), \
 			[1] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 1), \
@@ -214,14 +213,24 @@ struct stm_plat_sata_data {
 			[5] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 5), \
 			[6] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 6), \
 			[7] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 7), \
-		}, \
+		}
+
+#define STM_PLAT_PIO_DATA_LABELS_ONLY(_port_no) \
+	(struct stm_plat_pio_data) { \
+		STM_PLAT_PIO_DATA_LABELS(_port_no) \
 	}
 
 struct stm_plat_pio_data {
 	struct stm_pad_config *pad_configs;
 };
 
-
+struct stm_plat_pio10_data {
+	int start_pio;
+	int num_pio;
+	struct {
+		struct stm_pad_config *pad_configs;
+	} port_data[10];
+};
 
 /*** Sysconf block platform data ***/
 

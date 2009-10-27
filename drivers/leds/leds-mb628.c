@@ -40,7 +40,7 @@ static struct led_classdev mb628_led = {
 
 static int __init mb628_led_init(void)
 {
-	led_classdev_register(NULL, &mb628_led);
+	return led_classdev_register(NULL, &mb628_led);
 }
 
 static void __exit mb628_led_exit(void)

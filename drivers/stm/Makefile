@@ -16,3 +16,4 @@ obj-$(CONFIG_PM)		+= platform-pm.o
 obj-$(CONFIG_PMS)		+= pms.o
 
 obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= stx5197.o
+obj-$(CONFIG_CPU_SUBTYPE_STX7100)	+= stx7100.o stx7100_audio.o stx7100_comms.o stx7100_hispeed.o

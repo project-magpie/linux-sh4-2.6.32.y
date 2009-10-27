@@ -62,17 +62,39 @@ static inline void kunmap_coherent(struct page *page)
 
 /*
  * clear_user_page
- * @to: P1 address
- * @address: U0 address to be mapped
- * @page: page (virt_to_page(to))
+ * @to: address of page in kernel space (possibly from kmap)
+ * @address: user space address
+ * @page: struct page
  */
 void clear_user_page(void *to, unsigned long address, struct page *page)
 {
-	clear_page(to);
-	if ((((address & PAGE_MASK) ^ (unsigned long)to) & CACHE_ALIAS))
-		__flush_wback_region(to, PAGE_SIZE);
+	void *vto;
+
+	if (((address ^ (unsigned long)to) & CACHE_ALIAS) == 0) {
+                clear_page(to);
+		return;
+	}
+
+	/* Kernel alias may have modified data in the cache. */
+	__flush_invalidate_region(page_address(page), PAGE_SIZE);
+
+	vto = kmap_coherent(page, address);
+	clear_page(vto);
+	kunmap_coherent(vto);
 }
 
+/*
+ * copy_to_user_page
+ * @vma: vm_area_struct holding the pages
+ * @page: struct page
+ * @vaddr: user space address
+ * @dst: address of page in kernel space (possibly from kmap)
+ * @src: source address in kernel logical memory
+ * @len: length of data in bytes (may be less than PAGE_SIZE)
+ *
+ * Copy data into the address space of a process other than the current
+ * process (eg for ptrace).
+ */
 void copy_to_user_page(struct vm_area_struct *vma, struct page *page,
 		       unsigned long vaddr, void *dst, const void *src,
 		       unsigned long len)
@@ -98,20 +120,47 @@ void copy_from_user_page(struct vm_area_struct *vma, struct page *page,
 	kunmap_coherent(vfrom);
 }
 
+/*
+ * copy_user_highpage
+ * @to: destination page
+ * @from: source page
+ * @vaddr: address of pages in user address space
+ * @vma: vm_area_struct holding the pages
+ *
+ * This is used in COW implementation to copy data from page @from to
+ * page @to. @from was previousl mapped at @vaddr, and @to will be.
+ * As this is used only in the COW implementation, this means that the
+ * source is unmodified, and so we don't have to worry about cache
+ * aliasing on that side.
+ */
+#ifdef CONFIG_HIGHMEM
+/*
+ * If we ever have a real highmem system, this code will need fixing
+ * (as will clear_user/clear_user_highmem), because the kmap potentitally
+ * creates another alias risk.
+ */
+#error This code is broken with real HIGHMEM
+#endif
 void copy_user_highpage(struct page *to, struct page *from,
 			unsigned long vaddr, struct vm_area_struct *vma)
 {
 	void *vfrom, *vto;
 
-	vto = kmap_atomic(to, KM_USER1);
-	vfrom = kmap_coherent(from, vaddr);
+	vfrom = page_address(from);
+	vto = page_address(to);
+
+	if (((vaddr ^ (unsigned long)vto) & CACHE_ALIAS) == 0) {
+                copy_page(vto, vfrom);
+		return;
+	}
+
+	/* Kernel alias may have modified data in the cache. */
+	__flush_invalidate_region(page_address(to), PAGE_SIZE);
+
+	vto = kmap_coherent(to, vaddr);
 	copy_page(vto, vfrom);
-	kunmap_coherent(vfrom);
+	kunmap_coherent(vto);
 
-	if (((vaddr ^ (unsigned long)vto) & CACHE_ALIAS))
-		__flush_wback_region(vto, PAGE_SIZE);
-
-	kunmap_atomic(vto, KM_USER1);
 	/* Make sure this page is cleared on other CPU's too before using it */
 	smp_wmb();
 }

@@ -11,11 +11,11 @@
  */
 
 #include <linux/init.h>
+#include <linux/io.h>
 #include <linux/irq.h>
 #include <asm/system.h>
-#include <asm/io.h>
 #include <asm/machvec.h>
-#include <asm/irq-stb7100.h>
+#include <asm/irq-stx7100.h>
 
 static void __iomem *hmp7100_ioport_map(unsigned long port, unsigned int size)
 {
@@ -30,8 +30,8 @@ static void __iomem *hmp7100_ioport_map(unsigned long port, unsigned int size)
 	/* However picking somewhere safe isn't as easy as you might think.
 	 * I used to use external ROM, but that can cause problems if you are
 	 * in the middle of updating Flash. So I'm now using the processor core
-	 * version register, which is guaranted to be available, and non-writable.
-	 */
+	 * version register, which is guaranted to be available, and
+	 * non-writable. */
 	return (void __iomem *)CCN_PVR;
 }
 
@@ -49,7 +49,7 @@ static void __init hmp7100_init_irq(void)
 	ilc_route_external(ILC_EXT_MDINT, 7, 0);	/* STe100 PHY */
 }
 
-void __init hmp7100_setup(char**);
+void __init hmp7100_setup(char **);
 
 static struct sh_machine_vector mv_hmp7100 __initmv = {
 	.mv_name		= "STb7100 HMP board",

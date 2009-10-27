@@ -10,7 +10,6 @@
  */
 
 #include <linux/platform_device.h>
-#include <linux/stm/soc.h>
 #include "./hcd-stm.h"
 
 /* Define a bus wrapper IN/OUT threshold of 128 */

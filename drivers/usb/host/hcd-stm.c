@@ -10,7 +10,7 @@
  */
 
 #include <linux/platform_device.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
 #include <linux/stm/pm.h>
 #include <linux/delay.h>
 #include <linux/usb.h>
@@ -29,24 +29,24 @@
 
 static int st_usb_boot(struct platform_device *pdev)
 {
-	struct plat_usb_data *pl_data = pdev->dev.platform_data;
+	struct stm_plat_usb_data *pl_data = pdev->dev.platform_data;
 	struct drv_usb_data *usb_data = pdev->dev.driver_data;
 	void *wrapper_base = usb_data->ahb2stbus_wrapper_glue_base;
 	void *protocol_base = usb_data->ahb2stbus_protocol_base;
 	unsigned long reg, req_reg;
 
 	if (pl_data->flags &
-		(USB_FLAGS_STRAP_8BIT | USB_FLAGS_STRAP_16BIT)) {
+		(STM_PLAT_USB_FLAGS_STRAP_8BIT | STM_PLAT_USB_FLAGS_STRAP_16BIT)) {
 		/* Set strap mode */
 		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
-		if (pl_data->flags & USB_FLAGS_STRAP_16BIT)
+		if (pl_data->flags & STM_PLAT_USB_FLAGS_STRAP_16BIT)
 			reg |= AHB2STBUS_STRAP_16_BIT;
 		else
 			reg &= ~AHB2STBUS_STRAP_16_BIT;
 		writel(reg, wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	}
 
-	if (pl_data->flags & USB_FLAGS_STRAP_PLL) {
+	if (pl_data->flags & STM_PLAT_USB_FLAGS_STRAP_PLL) {
 		/* Start PLL */
 		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
 		writel(reg | AHB2STBUS_STRAP_PLL,
@@ -57,7 +57,7 @@ static int st_usb_boot(struct platform_device *pdev)
 		mdelay(30);
 	}
 
-	if (pl_data->flags & USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE) {
+	if (pl_data->flags & STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE) {
 		/* Set the STBus Opcode Config for load/store 32 */
 		writel(AHB2STBUS_STBUS_OPC_32BIT,
 			protocol_base + AHB2STBUS_STBUS_OPC_OFFSET);
@@ -72,8 +72,8 @@ static int st_usb_boot(struct platform_device *pdev)
 	}
 
 	if (pl_data->flags &
-		(USB_FLAGS_STBUS_CONFIG_THRESHOLD128 |
-		USB_FLAGS_STBUS_CONFIG_THRESHOLD256)) {
+		(STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128 |
+		STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256)) {
 
 		req_reg = (1<<21) |  /* Turn on read-ahead */
 			  (5<<16) |  /* Opcode is store/load 32 */
@@ -82,7 +82,8 @@ static int st_usb_boot(struct platform_device *pdev)
 			  (3<<9)  |  /* 2**3 Packets in a chunk */
 			  (0<<4)  ;  /* No messages */
 		req_reg |= ((pl_data->flags &
-			USB_FLAGS_STBUS_CONFIG_THRESHOLD128) ? 7 /* 128 */ :
+			STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128) ?
+				(7<<0): /* 128 */
 				(8<<0));/* 256 */
 		do {
 			writel(req_reg, protocol_base +
@@ -95,6 +96,7 @@ static int st_usb_boot(struct platform_device *pdev)
 
 static int st_usb_remove(struct platform_device *pdev)
 {
+	struct stm_plat_usb_data *plat_data = pdev->dev.platform_data;
 	struct resource *res;
 	struct device *dev = &pdev->dev;
 	struct drv_usb_data *dr_data = platform_get_drvdata(pdev);
@@ -111,6 +113,8 @@ static int st_usb_remove(struct platform_device *pdev)
 		platform_device_unregister(dr_data->ehci_device);
 	if (dr_data->ohci_device)
 		platform_device_unregister(dr_data->ohci_device);
+
+	stm_pad_release(plat_data->pad_config);
 
 	return 0;
 }
@@ -147,6 +151,7 @@ error:
 
 static int st_usb_probe(struct platform_device *pdev)
 {
+	struct stm_plat_usb_data *plat_data = pdev->dev.platform_data;
 	struct drv_usb_data *dr_data;
 	struct device *dev = &pdev->dev;
 	struct resource *res;
@@ -163,6 +168,11 @@ static int st_usb_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, dr_data);
+
+	if (stm_pad_claim(plat_data->pad_config, dev_name(&pdev->dev)) != 0) {
+		ret = -EBUSY;
+		goto err_a;
+	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
 	if (!res) {
@@ -234,6 +244,8 @@ err_1:
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
 	devm_release_mem_region(dev, res->start, res->end - res->start);
 err_0:
+	stm_pad_release(plat_data->pad_config);
+err_a:
 	kfree(dr_data);
 	return ret;
 }
@@ -248,7 +260,7 @@ static void st_usb_shutdown(struct platform_device *pdev)
 static int st_usb_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct drv_usb_data *dr_data = platform_get_drvdata(pdev);
-	struct plat_usb_data *pl_data = pdev->dev.platform_data;
+	struct stm_plat_usb_data *pl_data = pdev->dev.platform_data;
 	void *wrapper_base = dr_data->ahb2stbus_wrapper_glue_base;
 	void *protocol_base = dr_data->ahb2stbus_protocol_base;
 	long reg;
@@ -289,7 +301,7 @@ static int st_usb_resume(struct platform_device *pdev)
 #endif
 
 static struct platform_driver st_usb_driver = {
-	.driver.name = "st-usb",
+	.driver.name = "stm-usb",
 	.driver.owner = THIS_MODULE,
 	.probe = st_usb_probe,
 	.shutdown = st_usb_shutdown,

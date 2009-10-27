@@ -13,7 +13,6 @@
 
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
-#include <linux/stm/soc.h>
 #include "./hcd-stm.h"
 
 #undef dgb_print

@@ -111,7 +111,7 @@ static inline void PIO_SET_MODE(unsigned long bank, unsigned long line, long mod
 
 #include <linux/io.h>
 #include <linux/stm/sysconf.h>
-#include <linux/stm/pio.h>
+#include <linux/gpio.h>
 #include <asm-generic/errno-base.h>
 
 #define clk_t	struct clk
@@ -143,11 +143,17 @@ static inline void SYSCONF_WRITE(unsigned long type, unsigned long num,
 
 static inline void PIO_SET_MODE(unsigned long bank, unsigned long line, long mode)
 {
-	static struct stpio_pin *pio;
-	if (!pio)
-		pio = stpio_request_pin(bank, line, "Clk Observer", mode);
-	else
-		stpio_configure_pin(pio, mode);
+	static int owned = 0;
+	int gpio = stm_gpio(bank, line);
+
+	if (!owned) {
+		if (!gpio_request(gpio, "Clk Observer"))
+			return;
+		else
+			owned = 1;
+	}
+
+	stm_gpio_direction(gpio, mode);
 }
 
 #ifdef CONFIG_CLK_LOW_LEVEL_DEBUG

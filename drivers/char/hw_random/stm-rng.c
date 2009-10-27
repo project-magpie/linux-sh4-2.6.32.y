@@ -29,7 +29,6 @@
 #define STM_RNG_DATA_REG   0x24
 
 static void __iomem *rng_base;
-static struct platform_device *rng_dev;
 
 static u32 stm_rng_read_reg(int reg)
 {
@@ -38,7 +37,7 @@ static u32 stm_rng_read_reg(int reg)
 
 static int stm_rng_data_present(struct hwrng *rng)
 {
-	return ((stm_rng_read_reg(STM_RNG_STATUS_REG)&3) == 0);
+	return ((stm_rng_read_reg(STM_RNG_STATUS_REG) & 3) == 0);
 }
 
 static int stm_rng_data_read(struct hwrng *rng, u32 *data)
@@ -59,18 +58,18 @@ static int __init stm_rng_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret;
 
-	BUG_ON(rng_dev);
+	BUG_ON(rng_base);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 
-	if (!res){
+	if (!res) {
 		printk(KERN_ERR "STM hw_random device probe failed."
 				"Please Check your SoC config.\n");
 		return -ENOENT;
 	}
 
 	rng_base = (u32 __iomem *)ioremap(res->start, 0x28);
-	if (!rng_base){
+	if (!rng_base) {
 		printk(KERN_ERR "STM hw_random device: cannot ioremap\n");
 		return -ENOMEM;
 	}
@@ -83,8 +82,6 @@ static int __init stm_rng_probe(struct platform_device *pdev)
 	}
 
 	dev_info(&pdev->dev, "STM Random Number Generator ver. 0.1\n");
-
-	rng_dev = pdev;
 
 	return 0;
 }
@@ -101,7 +98,7 @@ static int __exit stm_rng_remove(struct platform_device *pdev)
 
 static struct platform_driver stm_rng_driver = {
 	.driver = {
-		.name		= "stm_hwrandom",
+		.name		= "stm-hwrandom",
 		.owner		= THIS_MODULE,
 	},
 	.probe		= stm_rng_probe,

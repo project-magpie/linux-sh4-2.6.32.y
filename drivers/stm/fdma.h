@@ -11,7 +11,6 @@
 #define __STM_FDMA_H
 
 #include <linux/interrupt.h>
-#include <linux/stm/soc.h>
 #include <linux/stm/stm-dma.h>
 
 #define CHAN_ALL_ENABLE 				3

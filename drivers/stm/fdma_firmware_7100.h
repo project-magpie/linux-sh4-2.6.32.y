@@ -2,7 +2,7 @@
 #define __STM_FDMA_FIRMWARE_7100_H
 
 #include <linux/kernel.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
 
 
 

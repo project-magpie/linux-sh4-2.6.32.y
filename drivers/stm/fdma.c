@@ -12,6 +12,7 @@
 #include <linux/firmware.h>
 #include <linux/platform_device.h>
 #include <linux/dmapool.h>
+#include <linux/stm/platform.h>
 #include <linux/stm/stm-dma.h>
 
 #include "fdma.h"

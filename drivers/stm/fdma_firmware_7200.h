@@ -1,7 +1,8 @@
 #ifndef __STM_FDMA_FIRMWARE_7200_H
 #define __STM_FDMA_FIRMWARE_7200_H
 
-#include <linux/stm/soc.h>
+#include <linux/kernel.h>
+#include <linux/stm/platform.h>
 
 
 

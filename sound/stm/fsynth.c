@@ -26,8 +26,7 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/platform_device.h>
-#include <asm/div64.h>
-#include <sound/driver.h>
+#include <linux/math64.h>
 #include <sound/core.h>
 #include <sound/info.h>
 
@@ -204,7 +203,7 @@ static int solve_fsynth_eqn(unsigned int Fpll, unsigned int Fout,
 	p = 1048576ull * Fpll;		/* <<20? */
 	q = Fout;
 
-	predivide = (unsigned int)div64_64(p, q);
+	predivide = (unsigned int)div64_u64(p, q);
 
 	/* determine an appropriate value for the output divider using eqn. #4
 	 * with md = -16 and pe = 32768 (and round down) */
@@ -269,7 +268,7 @@ static int get_fsynth_output(unsigned int Fpll,
 	r = 1081344 - pe;
 	s = r + q;
 	t = (1 << (sdiv + 1)) * s;
-	u = div64_64(p, t);
+	u = div64_u64(p, t);
 
 	return (int)u;
 }
@@ -288,10 +287,13 @@ static int snd_stm_fsynth_channel_configure(struct snd_stm_fsynth *fsynth,
 			"frequency=%d, adjustment=%d)\n", fsynth, channel,
 			frequency, adjustment);
 
-	snd_stm_assert(fsynth, return -EINVAL);
-	snd_stm_magic_assert(fsynth, return -EINVAL);
-	snd_stm_assert(channel >= fsynth->channels_from, return -EINVAL);
-	snd_stm_assert(channel <= fsynth->channels_to, return -EINVAL);
+	if (snd_BUG_ON(!fsynth))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth)))
+		return -EINVAL;
+	if (snd_BUG_ON((channel < fsynth->channels_from) ||
+		       channel > fsynth->channels_to))
+		return -EINVAL;
 
 	/*             a
 	 * F = f + --------- * f = f + d
@@ -308,14 +310,14 @@ static int snd_stm_fsynth_channel_configure(struct snd_stm_fsynth *fsynth,
 	 *   d - delta (difference) between f and F
 	 */
 	if (adjustment < 0) {
-		/* div64_64 operates on unsigned values... */
+		/* div64_u64 operates on unsigned values... */
 		delta = -1;
 		adjustment = -adjustment;
 	} else {
 		delta = 1;
 	}
 	/* 500000 ppm is 0.5, which is used to round up values */
-	delta *= (int)div64_64((uint64_t)frequency * (uint64_t)adjustment +
+	delta *= (int)div64_u64((uint64_t)frequency * (uint64_t)adjustment +
 			500000, 1000000);
 	frequency_adjusted = frequency + delta;
 
@@ -364,14 +366,14 @@ static int snd_stm_fsynth_channel_configure(struct snd_stm_fsynth *fsynth,
 	frequency_achieved = get_fsynth_output(PLL_FREQ, sdiv, md, pe);
 	delta = frequency_achieved - frequency;
 	if (delta < 0) {
-		/* div64_64 operates on unsigned values... */
+		/* div64_u64 operates on unsigned values... */
 		delta = -delta;
 		adjustment_achieved = -1;
 	} else {
 		adjustment_achieved = 1;
 	}
 	/* frequency/2 is added to round up result */
-	adjustment_achieved *= (int)div64_64((uint64_t)delta * 1000000 +
+	adjustment_achieved *= (int)div64_u64((uint64_t)delta * 1000000 +
 			frequency / 2, frequency);
 
 	snd_stm_printd(1, "Nominal frequency is %d, actual frequency is %d, "
@@ -411,10 +413,14 @@ static int snd_stm_fsynth_adjustment_get(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_fsynth_adjustment_get(kcontrol=0x%p, "
 			"ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_stm_assert(fsynth_channel, return -EINVAL);
-	snd_stm_magic_assert(fsynth_channel, return -EINVAL);
-	snd_stm_assert(fsynth_channel->fsynth, return -EINVAL);
-	snd_stm_magic_assert(fsynth_channel->fsynth, return -EINVAL);
+	if (snd_BUG_ON(!fsynth_channel))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth_channel)))
+		return -EINVAL;
+	if (snd_BUG_ON(!fsynth_channel->fsynth))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth_channel->fsynth)))
+		return -EINVAL;
 
 	ucontrol->value.integer.value[0] = fsynth_channel->adjustment;
 
@@ -433,13 +439,17 @@ static int snd_stm_fsynth_adjustment_put(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_fsynth_clock_adjustment_put(kcontrol=0x%p,"
 			" ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_stm_assert(fsynth_channel, return -EINVAL);
-	snd_stm_magic_assert(fsynth_channel, return -EINVAL);
+	if (snd_BUG_ON(!fsynth_channel))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth_channel)))
+		return -EINVAL;
 
 	fsynth = fsynth_channel->fsynth;
 
-	snd_stm_assert(fsynth, return -EINVAL);
-	snd_stm_magic_assert(fsynth, return -EINVAL);
+	if (snd_BUG_ON(!fsynth))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth)))
+		return -EINVAL;
 
 	channel = fsynth_channel - fsynth_channel->fsynth->channels;
 	old_adjustement = fsynth_channel->adjustment;
@@ -470,7 +480,7 @@ static struct snd_kcontrol_new snd_stm_fsynth_adjustment_ctl = {
  */
 static int snd_stm_fsynth_bus_id_match(struct device *device, void *bus_id)
 {
-	return strcmp(device->bus_id, bus_id) == 0;
+	return strcmp(dev_name(device), bus_id) == 0;
 }
 
 struct snd_stm_fsynth_channel *snd_stm_fsynth_get_channel(const char *bus_id,
@@ -486,9 +496,11 @@ struct snd_stm_fsynth_channel *snd_stm_fsynth_get_channel(const char *bus_id,
 	if (device) {
 		struct snd_stm_fsynth *fsynth = dev_get_drvdata(device);
 
-		snd_stm_magic_assert(fsynth, return NULL);
-		snd_stm_assert(output >= fsynth->channels_from, return NULL);
-		snd_stm_assert(output <= fsynth->channels_to, return NULL);
+		if (snd_BUG_ON(!snd_stm_magic_valid(fsynth)))
+			return NULL;
+		if (snd_BUG_ON((output < fsynth->channels_from) ||
+			       (output > fsynth->channels_to)))
+		    return NULL;
 
 		return &fsynth->channels[output];
 	}
@@ -505,10 +517,14 @@ int snd_stm_fsynth_set_frequency(struct snd_stm_fsynth_channel *fsynth_channel,
 	snd_stm_printd(1, "snd_stm_fsynth_set_frequency(fsynth_channel=%p, "
 			"frequency=%d)\n", fsynth_channel, frequency);
 
-	snd_stm_assert(fsynth_channel, return -EINVAL);
-	snd_stm_magic_assert(fsynth_channel, return -EINVAL);
-	snd_stm_assert(fsynth_channel->fsynth, return -EINVAL);
-	snd_stm_magic_assert(fsynth_channel->fsynth, return -EINVAL);
+	if (snd_BUG_ON(!fsynth_channel))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth_channel)))
+		return -EINVAL;
+	if (snd_BUG_ON(!fsynth_channel->fsynth))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth_channel->fsynth)))
+		return -EINVAL;
 
 	return snd_stm_fsynth_channel_configure(fsynth_channel->fsynth,
 			fsynth_channel - fsynth_channel->fsynth->channels,
@@ -525,8 +541,10 @@ int snd_stm_fsynth_add_adjustement_ctl(
 			"card=%p, card_device=%d)\n", fsynth_channel,
 			card, card_device);
 
-	snd_stm_assert(fsynth_channel, return -EINVAL);
-	snd_stm_magic_assert(fsynth_channel, return -EINVAL);
+	if (snd_BUG_ON(!fsynth_channel))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth_channel)))
+		return -EINVAL;
 
 	snd_stm_fsynth_adjustment_ctl.device = card_device;
 	result = snd_ctl_add(card, snd_ctl_new1(&snd_stm_fsynth_adjustment_ctl,
@@ -554,8 +572,10 @@ static void snd_stm_fsynth_dump_registers(struct snd_info_entry *entry,
 	struct snd_stm_fsynth *fsynth = entry->private_data;
 	int i;
 
-	snd_stm_assert(fsynth, return);
-	snd_stm_magic_assert(fsynth, return);
+	if (snd_BUG_ON(!fsynth))
+		return;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth)))
+		return;
 
 	snd_iprintf(buffer, "--- %s ---\n", fsynth->bus_id);
 	snd_iprintf(buffer, "base = 0x%p\n", fsynth->base);
@@ -579,8 +599,10 @@ static int snd_stm_fsynth_register(struct snd_device *snd_device)
 	unsigned long value = 0;
 	int i;
 
-	snd_stm_assert(fsynth, return -EINVAL);
-	snd_stm_magic_assert(fsynth, return -EINVAL);
+	if (snd_BUG_ON(!fsynth))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth)))
+		return -EINVAL;
 
 	snd_stm_printd(0, "--- Registering frequency synthesizer '%s'...\n",
 			fsynth->bus_id);
@@ -626,8 +648,10 @@ static int snd_stm_fsynth_disconnect(struct snd_device *snd_device)
 	unsigned long value = 0;
 	int i;
 
-	snd_stm_assert(fsynth, return -EINVAL);
-	snd_stm_magic_assert(fsynth, return -EINVAL);
+	if (snd_BUG_ON(!fsynth))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth)))
+		return -EINVAL;
 
 	/* Remove procfs entry */
 
@@ -671,7 +695,8 @@ static int snd_stm_fsynth_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
 
-	snd_stm_assert(fsynth_info != NULL, return -EINVAL);
+	if (snd_BUG_ON(fsynth_info == NULL))
+		return -EINVAL;
 
 	if (fsynth_info->ver < ver__AUDCFG_FSYN__65_2_1_2)
 		channels_max = 3;
@@ -688,8 +713,9 @@ static int snd_stm_fsynth_probe(struct platform_device *pdev)
 	}
 	snd_stm_magic_set(fsynth);
 	fsynth->ver = fsynth_info->ver;
-	snd_stm_assert(fsynth->ver > 0, return -EINVAL);
-	fsynth->bus_id = pdev->dev.bus_id;
+	if (snd_BUG_ON(fsynth->ver <= 0))
+		return -EINVAL;
+	fsynth->bus_id = dev_name(&pdev->dev);
 	fsynth->channels_max = channels_max;
 	fsynth->channels = (void *)fsynth + sizeof(*fsynth);
 	for (i = 0; i < channels_max; i++) {
@@ -706,10 +732,10 @@ static int snd_stm_fsynth_probe(struct platform_device *pdev)
 
 	fsynth->channels_from = fsynth_info->channels_from;
 	fsynth->channels_to = fsynth_info->channels_to;
-	snd_stm_assert(fsynth->channels_from < fsynth->channels_to,
-			return -EINVAL);
-	snd_stm_assert(fsynth->channels_from >= 0, return -EINVAL);
-	snd_stm_assert(fsynth->channels_to < channels_max, return -EINVAL);
+	if (snd_BUG_ON((fsynth->channels_from >= fsynth->channels_to) ||
+		       (fsynth->channels_from < 0) ||
+		       (fsynth->channels_to >= channels_max)))
+		return -EINVAL;
 
 	snd_stm_printd(0, "Used synthesizer channels: %d to %d\n",
 			fsynth->channels_from, fsynth->channels_to);
@@ -745,8 +771,10 @@ static int snd_stm_fsynth_remove(struct platform_device *pdev)
 	struct snd_stm_fsynth *fsynth = platform_get_drvdata(pdev);
 	int i;
 
-	snd_stm_assert(fsynth, return -EINVAL);
-	snd_stm_magic_assert(fsynth, return -EINVAL);
+	if (snd_BUG_ON(!fsynth))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(fsynth)))
+		return -EINVAL;
 
 	snd_stm_memory_release(fsynth->mem_region, fsynth->base);
 
@@ -774,7 +802,7 @@ static struct platform_driver snd_stm_fsynth_driver = {
  * Initialization
  */
 
-int __init snd_stm_fsynth_init(void)
+int snd_stm_fsynth_init(void)
 {
 	return platform_driver_register(&snd_stm_fsynth_driver);
 }

@@ -10,14 +10,20 @@
 #include <linux/mm.h>
 #include <linux/platform_device.h>
 #include <linux/stringify.h>
-#include <linux/stm/soc.h>
-#include <linux/stm/stm-dma.h>
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/info.h>
 #include <sound/control.h>
 #include <sound/stm.h>
+
+
+
+/*
+ * Drivers initialization/cleanup
+ */
+
+int snd_stm_drivers_register(void);
+void snd_stm_drivers_unregister(void);
 
 
 
@@ -71,99 +77,6 @@ int snd_stm_conv_unmute(struct snd_stm_conv_group *group);
 
 
 /*
- * Audio frequency synthesizer description (platform data)
- */
-
-struct snd_stm_fsynth_info {
-	int ver;
-
-	int channels_from, channels_to;
-};
-
-
-
-/*
- * Internal audio DAC description (platform data)
- */
-
-struct snd_stm_conv_int_dac_info {
-	int ver;
-
-	const char *source_bus_id;
-	int channel_from, channel_to;
-};
-
-
-/*
- * I2S to SPDIF converter description (platform data)
- */
-
-struct snd_stm_conv_i2sspdif_info {
-	int ver;
-
-	const char *source_bus_id;
-	int channel_from, channel_to;
-};
-
-
-
-/*
- * PCM Player description (platform data)
- */
-
-struct snd_stm_pcm_player_info {
-	const char *name;
-	int ver;
-
-	int card_device;
-	const char *fsynth_bus_id;
-	int fsynth_output;
-
-	unsigned int channels;
-
-	unsigned char fdma_initiator;
-	unsigned int fdma_request_line;
-};
-
-
-
-/*
- * PCM Reader description (platform data)
- */
-
-struct snd_stm_pcm_reader_info {
-	const char *name;
-	int ver;
-
-	int card_device;
-
-	int channels;
-
-	unsigned char fdma_initiator;
-	unsigned int fdma_request_line;
-};
-
-
-
-/*
- * SPDIF Player description (platform data)
- */
-
-struct snd_stm_spdif_player_info {
-	const char *name;
-	int ver;
-
-	int card_device;
-	const char *fsynth_bus_id;
-	int fsynth_output;
-
-	unsigned char fdma_initiator;
-	unsigned int fdma_request_line;
-};
-
-
-
-/*
  * PCM buffer memory management
  */
 
@@ -213,18 +126,6 @@ int snd_stm_pcm_transfer_bytes(unsigned int bytes_per_frame,
 		unsigned int max_transfer_bytes);
 int snd_stm_pcm_hw_constraint_transfer_bytes(struct snd_pcm_runtime *runtime,
 		unsigned int max_transfer_bytes);
-
-
-
-/*
- * Device management
- */
-
-/* Add/remove a list of platform devices */
-int snd_stm_add_platform_devices(struct platform_device **devices,
-		int cnt);
-void snd_stm_remove_platform_devices(struct platform_device **devices,
-		int cnt);
 
 
 
@@ -349,9 +250,6 @@ extern int *snd_stm_debug_level;
 			if (level <= verbosity) \
 				snd_printk(KERN_INFO format, ## args); \
 		} while (0)
-
-#define snd_stm_assert snd_assert
-
 #else
 
 #define snd_stm_printd(level, format, args...) \
@@ -361,26 +259,11 @@ extern int *snd_stm_debug_level;
 						__snd_stm_component, \
 						__LINE__, ## args); \
 		} while (0)
-
-#define snd_stm_assert(expr, args...) \
-		do { \
-			if (unlikely(!(expr))) { \
-				printk(KERN_ERR "snd-stm:%s:%d: BUG? " \
-						"(%s)\n", \
-						__snd_stm_component, \
-						__LINE__, \
-						__stringify(expr)); \
-				dump_stack(); \
-				args; \
-			} \
-		} while (0)
 #endif
 
 #else
 
 #define snd_stm_printd(...) /* nothing */
-
-#define snd_stm_assert snd_assert
 
 #endif
 
@@ -409,16 +292,16 @@ extern int *snd_stm_debug_level;
 		(object)->__snd_stm_magic = snd_stm_magic_good
 #define snd_stm_magic_clear(object) \
 		(object)->__snd_stm_magic = snd_stm_magic_bad
-#define snd_stm_magic_assert(object, args...) \
+#define snd_stm_magic_valid(object) \
 		snd_stm_assert((object)->__snd_stm_magic == \
-				snd_stm_magic_good, ## args)
+			       snd_stm_magic_good)
 
 #else
 
 #	define snd_stm_magic_field /* nothing */
 #	define snd_stm_magic_set(object) /* nothing */
 #	define snd_stm_magic_clear(object) /* nothing */
-#	define snd_stm_magic_assert(object, args...) /* nothing */
+#	define snd_stm_magic_valid(object) 1
 
 #endif
 

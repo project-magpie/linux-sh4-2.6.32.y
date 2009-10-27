@@ -27,7 +27,6 @@
 #include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/i2c.h>
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <sound/info.h>
 #include <sound/stm.h>
@@ -76,8 +75,10 @@ static void snd_stm_conv_i2c_work(struct work_struct *work)
 
 	snd_stm_printd(1, "snd_stm_conv_i2c_work(work=%p)\n", work);
 
-	snd_stm_assert(conv_i2c, return);
-	snd_stm_magic_assert(conv_i2c, return);
+	if (snd_BUG_ON(!conv_i2c))
+		return;
+	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2c)))
+		return;
 
 	spin_lock(&conv_i2c->work_lock);
 
@@ -131,8 +132,10 @@ static unsigned int snd_stm_conv_i2c_get_format(void *priv)
 
 	snd_stm_printd(1, "snd_stm_conv_i2c_get_format(priv=%p)\n", priv);
 
-	snd_stm_assert(conv_i2c, return -EINVAL);
-	snd_stm_magic_assert(conv_i2c, return -EINVAL);
+	if (snd_BUG_ON(!conv_i2c))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2c)))
+		return -EINVAL;
 
 	return conv_i2c->info->format;
 }
@@ -144,8 +147,10 @@ static int snd_stm_conv_i2c_get_oversampling(void *priv)
 	snd_stm_printd(1, "snd_stm_conv_i2c_get_oversampling(priv=%p)\n",
 			priv);
 
-	snd_stm_assert(conv_i2c, return -EINVAL);
-	snd_stm_magic_assert(conv_i2c, return -EINVAL);
+	if (snd_BUG_ON(!conv_i2c))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2c)))
+		return -EINVAL;
 
 	return conv_i2c->info->oversampling;
 }
@@ -157,9 +162,12 @@ static int snd_stm_conv_i2c_set_enabled(int enabled, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_i2c_enable(enabled=%d, priv=%p)\n",
 			enabled, priv);
 
-	snd_stm_assert(conv_i2c, return -EINVAL);
-	snd_stm_magic_assert(conv_i2c, return -EINVAL);
-	snd_stm_assert(conv_i2c->info->enable_supported, return -EINVAL);
+	if (snd_BUG_ON(!conv_i2c))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2c)))
+		return -EINVAL;
+	if (snd_BUG_ON(!conv_i2c->info->enable_supported))
+		return -EINVAL;
 
 	snd_stm_printd(1, "%sabling DAC %s's.\n", enabled ? "En" : "Dis",
 			conv_i2c->bus_id);
@@ -179,9 +187,12 @@ static int snd_stm_conv_i2c_set_muted(int muted, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_i2c_set_muted(muted=%d, priv=%p)\n",
 			muted, priv);
 
-	snd_stm_assert(conv_i2c, return -EINVAL);
-	snd_stm_magic_assert(conv_i2c, return -EINVAL);
-	snd_stm_assert(conv_i2c->info->mute_supported, return -EINVAL);
+	if (snd_BUG_ON(!conv_i2c))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2c)))
+		return -EINVAL;
+	if (snd_BUG_ON(!conv_i2c->info->mute_supported))
+		return -EINVAL;
 
 	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
 			conv_i2c->bus_id);
@@ -197,7 +208,7 @@ static int snd_stm_conv_i2c_set_muted(int muted, void *priv)
 
 
 /*
- * Platform driver routines
+ * I2C driver routines
  */
 
 int snd_stm_conv_i2c_probe(struct i2c_client *client)
@@ -208,7 +219,8 @@ int snd_stm_conv_i2c_probe(struct i2c_client *client)
 	snd_stm_printd(0, "--- Probing I2C device '%s'...\n",
 			client->dev.bus_id);
 
-	snd_stm_assert(client->dev.platform_data != NULL, return -EINVAL);
+	if (snd_BUG_ON(client->dev.platform_data == NULL))
+		return -EINVAL;
 
 	conv_i2c = kzalloc(sizeof(*conv_i2c), GFP_KERNEL);
 	if (!conv_i2c) {
@@ -243,7 +255,8 @@ int snd_stm_conv_i2c_probe(struct i2c_client *client)
 
 	/* Get connections */
 
-	snd_stm_assert(conv_i2c->info->source_bus_id != NULL, return -EINVAL);
+	if (snd_BUG_ON(conv_i2c->info->source_bus_id == NULL))
+		return -EINVAL;
 	snd_stm_printd(0, "This converter is attached to '%s'.\n",
 			conv_i2c->info->source_bus_id);
 	conv_i2c->converter = snd_stm_conv_register_converter(
@@ -307,8 +320,10 @@ static int snd_stm_conv_i2c_remove(struct i2c_client *client)
 {
 	struct snd_stm_conv_i2c *conv_i2c = i2c_get_clientdata(client);
 
-	snd_stm_assert(conv_i2c, return -EINVAL);
-	snd_stm_magic_assert(conv_i2c, return -EINVAL);
+	if (snd_BUG_ON(!conv_i2c))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2c)))
+		return -EINVAL;
 
 	snd_device_free(snd_stm_card_get(), conv_i2c);
 	snd_stm_conv_unregister_converter(conv_i2c->converter);

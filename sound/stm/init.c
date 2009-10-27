@@ -23,7 +23,6 @@
 
 #include <linux/init.h>
 #include <linux/module.h>
-#include <sound/driver.h>
 #include <sound/core.h>
 
 #define COMPONENT init
@@ -37,11 +36,11 @@ int *snd_stm_debug_level = &debug;
 EXPORT_SYMBOL(snd_stm_debug_level);
 #endif
 
-static int __init snd_stm_init(void)
+int snd_stm_drivers_register(void)
 {
 	int result;
 
-	snd_stm_printd(0, "snd_stm_init()\n");
+	snd_stm_printd(0, "snd_stm_core_init()\n");
 
 	result = snd_stm_info_create();
 	if (result != 0) {
@@ -107,9 +106,9 @@ error_info:
 	return result;
 }
 
-static void __exit snd_stm_exit(void)
+void snd_stm_drivers_unregister(void)
 {
-	snd_stm_printd(0, "snd_stm_exit()\n");
+	snd_stm_printd(0, "snd_stm_core_exit()\n");
 
 	snd_stm_spdif_player_exit();
 	snd_stm_pcm_reader_exit();
@@ -119,6 +118,17 @@ static void __exit snd_stm_exit(void)
 	snd_stm_conv_exit();
 	snd_stm_fsynth_exit();
 	snd_stm_info_dispose();
+}
+
+
+
+static int __init snd_stm_init(void)
+{
+	return 0;
+}
+
+static void __exit snd_stm_exit(void)
+{
 }
 
 MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");

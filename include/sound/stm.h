@@ -1,5 +1,5 @@
 /*
- *   STMicrolectronics SoCs audio driver
+ *   STMicrolectronics SoCs audio subsystem
  *
  *   Copyright (c) 2005-2007 STMicroelectronics Limited
  *
@@ -25,7 +25,7 @@
 #define __SOUND_STM_H
 
 #include <linux/i2c.h>
-#include <sound/driver.h>
+#include <linux/stm/pad.h>
 #include <sound/core.h>
 
 
@@ -174,8 +174,8 @@ struct snd_stm_conv_epld_info {
 	unsigned unmute_value;
 };
 
-/* Dummy converter - use it (as a platform device) to define format or
- * oversampling only */
+/* Dummy converter - use it (as a "snd_conv_dummy" platform device)
+ * to define format or oversampling only */
 struct snd_stm_conv_dummy_info {
 	const char *group;
 
@@ -184,5 +184,106 @@ struct snd_stm_conv_dummy_info {
 	unsigned int format;
 	int oversampling;
 };
+
+
+
+/*
+ * Audio frequency synthesizer description (platform data)
+ */
+
+struct snd_stm_fsynth_info {
+	int ver;
+
+	int channels_from, channels_to;
+};
+
+
+
+/*
+ * Internal audio DAC description (platform data)
+ */
+
+struct snd_stm_conv_int_dac_info {
+	int ver;
+
+	const char *source_bus_id;
+	int channel_from, channel_to;
+};
+
+
+/*
+ * I2S to SPDIF converter description (platform data)
+ */
+
+struct snd_stm_conv_i2sspdif_info {
+	int ver;
+
+	const char *source_bus_id;
+	int channel_from, channel_to;
+};
+
+
+
+/*
+ * PCM Player description (platform data)
+ */
+
+struct snd_stm_pcm_player_info {
+	const char *name;
+	int ver;
+
+	int card_device;
+	const char *fsynth_bus_id;
+	int fsynth_output;
+
+	unsigned int channels;
+
+	unsigned char fdma_initiator;
+	unsigned int fdma_request_line;
+
+	struct stm_pad_config *pad_config;
+};
+
+
+
+/*
+ * PCM Reader description (platform data)
+ */
+
+struct snd_stm_pcm_reader_info {
+	const char *name;
+	int ver;
+
+	int card_device;
+
+	int channels;
+
+	unsigned char fdma_initiator;
+	unsigned int fdma_request_line;
+
+	struct stm_pad_config *pad_config;
+};
+
+
+
+/*
+ * SPDIF Player description (platform data)
+ */
+
+struct snd_stm_spdif_player_info {
+	const char *name;
+	int ver;
+
+	int card_device;
+	const char *fsynth_bus_id;
+	int fsynth_output;
+
+	unsigned char fdma_initiator;
+	unsigned int fdma_request_line;
+
+	struct stm_pad_config *pad_config;
+};
+
+
 
 #endif

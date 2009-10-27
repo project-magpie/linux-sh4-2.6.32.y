@@ -103,8 +103,10 @@ const char *snd_stm_conv_get_name(struct snd_stm_conv_group *group)
 {
 	snd_stm_printd(1, "snd_stm_conv_get_name(group=%p)\n", group);
 
-	snd_stm_assert(group, return NULL);
-	snd_stm_magic_assert(group, return NULL);
+	if (snd_BUG_ON(!group))
+		return NULL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group)))
+		return NULL;
 
 	return group->name;
 }
@@ -116,8 +118,10 @@ unsigned int snd_stm_conv_get_format(struct snd_stm_conv_group *group)
 
 	snd_stm_printd(1, "snd_stm_conv_get_format(group=%p)\n", group);
 
-	snd_stm_assert(group, return -EINVAL);
-	snd_stm_magic_assert(group, return -EINVAL);
+	if (snd_BUG_ON(!group))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group)))
+		return -EINVAL;
 
 	/* All configured converters must share the same input format -
 	 * get first of them and check the rest; if any of converters
@@ -148,8 +152,10 @@ int snd_stm_conv_get_oversampling(struct snd_stm_conv_group *group)
 	snd_stm_printd(1, "snd_stm_conv_get_oversampling(group=%p)\n",
 			group);
 
-	snd_stm_assert(group, return -EINVAL);
-	snd_stm_magic_assert(group, return -EINVAL);
+	if (snd_BUG_ON(!group))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group)))
+		return -EINVAL;
 
 	/* All configured converters must share the same oversampling value -
 	 * get first of them and check the rest; if any of converters
@@ -158,8 +164,10 @@ int snd_stm_conv_get_oversampling(struct snd_stm_conv_group *group)
 	list_for_each_entry(converter, &group->converters, list) {
 		int oversampling;
 
-		snd_stm_assert(converter, return -EINVAL);
-		snd_stm_magic_assert(converter, return -EINVAL);
+		if (snd_BUG_ON(!converter))
+			return -EINVAL;
+		if (snd_BUG_ON(!snd_stm_magic_valid(converter)))
+			return -EINVAL;
 
 		oversampling = converter->ops->get_oversampling(
 				converter->priv);
@@ -186,17 +194,24 @@ int snd_stm_conv_enable(struct snd_stm_conv_group *group,
 	snd_stm_printd(1, "snd_stm_conv_enable(group=%p, channel_from=%d, "
 			"channel_to=%d)\n", group, channel_from, channel_to);
 
-	snd_stm_assert(channel_to >= channel_from, return -EINVAL);
-	snd_stm_assert(group, return -EINVAL);
-	snd_stm_magic_assert(group, return -EINVAL);
-	snd_stm_assert(!group->enabled, return -EINVAL);
+	if (snd_BUG_ON(!channel_to >= channel_from))
+		return -EINVAL;
+	if (snd_BUG_ON(!group))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group)))
+		return -EINVAL;
+	if (snd_BUG_ON(group->enabled))
+		return -EINVAL;
 
 	group->enabled = 1;
 
 	list_for_each_entry(converter, &group->converters, list) {
-		snd_stm_assert(converter, return -EINVAL);
-		snd_stm_magic_assert(converter, return -EINVAL);
-		snd_stm_assert(!converter->enabled, continue);
+		if (snd_BUG_ON(!converter))
+			return -EINVAL;
+		if (snd_BUG_ON(!snd_stm_magic_valid(converter)))
+			return -EINVAL;
+		if (snd_BUG_ON(converter->enabled))
+			continue;
 
 		spin_lock(&converter->status_lock);
 
@@ -232,15 +247,20 @@ int snd_stm_conv_disable(struct snd_stm_conv_group *group)
 
 	snd_stm_printd(1, "snd_stm_conv_disable(group=%p)\n", group);
 
-	snd_stm_assert(group, return -EINVAL);
-	snd_stm_magic_assert(group, return -EINVAL);
-	snd_stm_assert(group->enabled, return -EINVAL);
+	if (snd_BUG_ON(!group))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group)))
+		return -EINVAL;
+	if (snd_BUG_ON(!group->enabled))
+		return -EINVAL;
 
 	group->enabled = 0;
 
 	list_for_each_entry(converter, &group->converters, list) {
-		snd_stm_assert(converter, return -EINVAL);
-		snd_stm_magic_assert(converter, return -EINVAL);
+		if (snd_BUG_ON(!converter))
+			return -EINVAL;
+		if (snd_BUG_ON(!snd_stm_magic_valid(converter)))
+			return -EINVAL;
 
 		spin_lock(&converter->status_lock);
 
@@ -273,16 +293,22 @@ int snd_stm_conv_mute(struct snd_stm_conv_group *group)
 
 	snd_stm_printd(1, "snd_stm_conv_mute(group=%p)\n", group);
 
-	snd_stm_assert(group, return -EINVAL);
-	snd_stm_magic_assert(group, return -EINVAL);
-	snd_stm_assert(group->enabled, return -EINVAL);
-	snd_stm_assert(!group->muted_by_source, return -EINVAL);
+	if (snd_BUG_ON(!group))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group)))
+		return -EINVAL;
+	if (snd_BUG_ON(!group->enabled))
+		return -EINVAL;
+	if (snd_BUG_ON(group->muted_by_source))
+		return -EINVAL;
 
 	group->muted_by_source = 1;
 
 	list_for_each_entry(converter, &group->converters, list) {
-		snd_stm_assert(converter, return -EINVAL);
-		snd_stm_magic_assert(converter, return -EINVAL);
+		if (snd_BUG_ON(!converter))
+			return -EINVAL;
+		if (snd_BUG_ON(!snd_stm_magic_valid(converter)))
+			return -EINVAL;
 
 		spin_lock(&converter->status_lock);
 
@@ -316,16 +342,22 @@ int snd_stm_conv_unmute(struct snd_stm_conv_group *group)
 
 	snd_stm_printd(1, "snd_stm_conv_unmute(group=%p)\n", group);
 
-	snd_stm_assert(group, return -EINVAL);
-	snd_stm_magic_assert(group, return -EINVAL);
-	snd_stm_assert(group->enabled, return -EINVAL);
-	snd_stm_assert(group->muted_by_source, return -EINVAL);
+	if (snd_BUG_ON(!group))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group)))
+		return -EINVAL;
+	if (snd_BUG_ON(!group->enabled))
+		return -EINVAL;
+	if (snd_BUG_ON(!group->muted_by_source))
+		return -EINVAL;
 
 	group->muted_by_source = 0;
 
 	list_for_each_entry(converter, &group->converters, list) {
-		snd_stm_assert(converter, return -EINVAL);
-		snd_stm_magic_assert(converter, return -EINVAL);
+		if (snd_BUG_ON(!converter))
+			return -EINVAL;
+		if (snd_BUG_ON(!snd_stm_magic_valid(converter)))
+			return -EINVAL;
 
 		spin_lock(&converter->status_lock);
 
@@ -366,8 +398,10 @@ static int snd_stm_conv_ctl_mute_get(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_conv_ctl_mute_get(kcontrol=0x%p,"
 			" ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_stm_assert(converter, return -EINVAL);
-	snd_stm_magic_assert(converter, return -EINVAL);
+	if (snd_BUG_ON(!converter))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(converter)))
+		return -EINVAL;
 
 	spin_lock(&converter->status_lock);
 
@@ -387,10 +421,13 @@ static int snd_stm_conv_ctl_mute_put(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_conv_ctl_mute_put(kcontrol=0x%p,"
 			" ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_stm_assert(converter, return -EINVAL);
-	snd_stm_magic_assert(converter, return -EINVAL);
+	if (snd_BUG_ON(!converter))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(converter)))
+		return -EINVAL;
 
-	snd_stm_assert(converter->ops->set_muted, return -EINVAL);
+	if (snd_BUG_ON(!converter->ops->set_muted))
+		return -EINVAL;
 
 	spin_lock(&converter->status_lock);
 
@@ -433,13 +470,17 @@ static int snd_stm_conv_ctl_mute_add(struct snd_stm_conv_converter *converter)
 	snd_stm_printd(1, "snd_stm_conv_ctl_mute_add(converter=%p)\n",
 			converter);
 
-	snd_stm_assert(converter, return -EINVAL);
-	snd_stm_magic_assert(converter, return -EINVAL);
+	if (snd_BUG_ON(!converter))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(converter)))
+		return -EINVAL;
 
 	source = converter->group->source;
 
-	snd_stm_assert(source, return -EINVAL);
-	snd_stm_magic_assert(source, return -EINVAL);
+	if (snd_BUG_ON(!source))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(source)))
+		return -EINVAL;
 
 	snd_stm_conv_ctl_mute.device = source->card_device;
 
@@ -472,8 +513,10 @@ static int snd_stm_conv_ctl_route_info(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_conv_ctl_route_info(kcontrol=0x%p,"
 			" uinfo=0x%p)\n", kcontrol, uinfo);
 
-	snd_stm_assert(source, return -EINVAL);
-	snd_stm_magic_assert(source, return -EINVAL);
+	if (snd_BUG_ON(!source))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(source)))
+		return -EINVAL;
 
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
 	uinfo->count = 1;
@@ -507,8 +550,10 @@ static int snd_stm_conv_ctl_route_get(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_conv_ctl_route_get(kcontrol=0x%p,"
 			" ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_stm_assert(source, return -EINVAL);
-	snd_stm_magic_assert(source, return -EINVAL);
+	if (snd_BUG_ON(!source))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(source)))
+		return -EINVAL;
 
 	mutex_lock(&snd_stm_conv_mutex);
 
@@ -538,8 +583,10 @@ static int snd_stm_conv_ctl_route_put(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_conv_ctl_route_put(kcontrol=0x%p,"
 			" ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	snd_stm_assert(source, return -EINVAL);
-	snd_stm_magic_assert(source, return -EINVAL);
+	if (snd_BUG_ON(!source))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(source)))
+		return -EINVAL;
 
 	mutex_lock(&snd_stm_conv_mutex);
 
@@ -574,8 +621,10 @@ static int snd_stm_conv_ctl_route_add(struct snd_stm_conv_source *source)
 
 	snd_stm_printd(1, "snd_stm_conv_ctl_route_add(source=%p)\n", source);
 
-	snd_stm_assert(source, return -EINVAL);
-	snd_stm_magic_assert(source, return -EINVAL);
+	if (snd_BUG_ON(!source))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(source)))
+		return -EINVAL;
 
 	snd_stm_conv_ctl_route.device = source->card_device;
 
@@ -601,7 +650,7 @@ static int snd_stm_conv_ctl_route_add(struct snd_stm_conv_source *source)
  * Converters router implementation
  */
 
-static inline int snd_stm_conv_more_than_one_entry(const struct list_head *head)
+static int snd_stm_conv_more_than_one_entry(const struct list_head *head)
 {
 	return !list_empty(head) && !list_is_last(head->next, head);
 }
@@ -614,8 +663,10 @@ static struct snd_stm_conv_source *snd_stm_conv_get_source(
 	snd_stm_printd(1, "snd_stm_conv_get_source(bus=%p, bus_id='%s')\n",
 			bus, bus_id);
 
-	snd_stm_assert(bus, return NULL);
-	snd_stm_assert(bus_id, return NULL);
+	if (snd_BUG_ON(!bus))
+		return NULL;
+	if (snd_BUG_ON(!bus_id))
+		return NULL;
 
 	mutex_lock(&snd_stm_conv_mutex);
 
@@ -655,11 +706,16 @@ struct snd_stm_conv_source *snd_stm_conv_register_source(struct bus_type *bus,
 			"channels_num=%d, card=%p, card_device=%d)\n",
 			bus, bus_id, channels_num, card, card_device);
 
-	snd_stm_assert(bus, return NULL);
-	snd_stm_assert(bus_id, return NULL);
-	snd_stm_assert(channels_num > 0, return NULL);
-	snd_stm_assert(card, return NULL);
-	snd_stm_assert(card_device >= 0, return NULL);
+	if (snd_BUG_ON(!bus))
+		return NULL;
+	if (snd_BUG_ON(!bus_id))
+		return NULL;
+	if (snd_BUG_ON(channels_num <= 0))
+		return NULL;
+	if (snd_BUG_ON(!card))
+		return NULL;
+	if (snd_BUG_ON(card_device < 0))
+		return NULL;
 
 	source = snd_stm_conv_get_source(bus, bus_id);
 	if (!source) {
@@ -667,8 +723,10 @@ struct snd_stm_conv_source *snd_stm_conv_register_source(struct bus_type *bus,
 		return NULL;
 	}
 
-	snd_stm_assert(source->channels_num == 0, return NULL);
-	snd_stm_assert(!source->card, return NULL);
+	if (snd_BUG_ON(source->channels_num != 0))
+		return NULL;
+	if (snd_BUG_ON(source->card))
+		return NULL;
 
 	source->channels_num = channels_num;
 	source->card = card;
@@ -687,10 +745,10 @@ struct snd_stm_conv_source *snd_stm_conv_register_source(struct bus_type *bus,
 	list_for_each_entry(group, &source->groups, list) {
 		struct snd_stm_conv_converter *converter;
 
-		snd_stm_magic_assert(group);
+		snd_BUG_ON(!snd_stm_magic_valid(group));
 
-		list_for_each_entry(converter, &group->converters, list) {
-			snd_stm_magic_assert(converter);
+		list_for_each_entry(converter, &group->converters, list){
+			snd_BUG_ON(!snd_stm_magic_valid(converter));
 
 			if (converter->ops->set_muted &&
 					snd_stm_conv_ctl_mute_add(converter)
@@ -708,10 +766,12 @@ struct snd_stm_conv_source *snd_stm_conv_register_source(struct bus_type *bus,
 int snd_stm_conv_unregister_source(struct snd_stm_conv_source *source)
 {
 	snd_stm_printd(1, "snd_stm_conv_unregister_source(source=%p)\n",
-			source);
+		       source);
 
-	snd_stm_assert(source, return -EINVAL);
-	snd_stm_magic_assert(source, return -EINVAL);
+	if (snd_BUG_ON(!source))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(source)))
+		return -EINVAL;
 
 	mutex_lock(&snd_stm_conv_mutex);
 
@@ -731,7 +791,7 @@ int snd_stm_conv_unregister_source(struct snd_stm_conv_source *source)
 
 
 
-static inline struct snd_stm_conv_group *snd_stm_conv_get_group(
+static struct snd_stm_conv_group *snd_stm_conv_get_group(
 		struct snd_stm_conv_source *source, const char *name)
 {
 	struct snd_stm_conv_group *group;
@@ -739,12 +799,16 @@ static inline struct snd_stm_conv_group *snd_stm_conv_get_group(
 	snd_stm_printd(1, "snd_stm_conv_get_group(source=%p, name='%s')\n",
 			source, name);
 
-	snd_stm_assert(source, return NULL);
-	snd_stm_magic_assert(source, return NULL);
-	snd_stm_assert(name, return NULL);
+	if (snd_BUG_ON(!source))
+		return NULL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(source)))
+		return NULL;
+	if (snd_BUG_ON(!name))
+		return NULL;
 
 	/* Random memory fuse */
-	snd_stm_assert(strlen(name) < 1024, return NULL);
+	if (snd_BUG_ON(strlen(name) >= 1024))
+		return NULL;
 
 	mutex_lock(&snd_stm_conv_mutex);
 
@@ -791,13 +855,17 @@ static int snd_stm_conv_remove_group(struct snd_stm_conv_group *group)
 
 	snd_stm_printd(1, "snd_stm_conv_remove_group(group=%p)\n", group);
 
-	snd_stm_assert(group, return -EINVAL);
-	snd_stm_magic_assert(group, return -EINVAL);
+	if (snd_BUG_ON(!group))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group)))
+		return -EINVAL;
 
 	source = group->source;
 
-	snd_stm_assert(source, return -EINVAL);
-	snd_stm_magic_assert(source, return -EINVAL);
+	if (snd_BUG_ON(!source))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(source)))
+		return -EINVAL;
 
 	list_del(&group->list);
 
@@ -853,12 +921,17 @@ struct snd_stm_conv_converter *snd_stm_conv_register_converter(
 			group_name, ops, priv, source_bus, source_bus_id,
 			source_channel_from, source_channel_to);
 
-	snd_stm_assert(group_name, return NULL);
-	snd_stm_assert(ops, return NULL);
-	snd_stm_assert(source_bus, return NULL);
-	snd_stm_assert(source_bus_id, return NULL);
-	snd_stm_assert(source_channel_from >= 0, return NULL);
-	snd_stm_assert(source_channel_to >= source_channel_from, return NULL);
+	if (snd_BUG_ON(!group_name))
+		return NULL;
+	if (snd_BUG_ON(!ops))
+		return NULL;
+	if (snd_BUG_ON(!source_bus))
+		return NULL;
+	if (snd_BUG_ON(!source_bus_id))
+		return NULL;
+	if (snd_BUG_ON((source_channel_from < 0) ||
+		       (source_channel_to < source_channel_from)))
+		return NULL;
 
 	/* Create converter description */
 
@@ -935,13 +1008,17 @@ int snd_stm_conv_unregister_converter(struct snd_stm_conv_converter *converter)
 	snd_stm_printd(1, "snd_stm_conv_unregister_converter(converter=%p)\n",
 			converter);
 
-	snd_stm_assert(converter, return -EINVAL);
-	snd_stm_magic_assert(converter, return -EINVAL);
+	if (snd_BUG_ON(!converter))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(converter)))
+		return -EINVAL;
 
 	group = converter->group;
 
-	snd_stm_assert(group, return -EINVAL);
-	snd_stm_magic_assert(group, return -EINVAL);
+	if (snd_BUG_ON(!group))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group)))
+		return -EINVAL;
 
 	mutex_lock(&snd_stm_conv_mutex);
 
@@ -967,8 +1044,10 @@ int snd_stm_conv_get_card_device(struct snd_stm_conv_converter *converter)
 	snd_stm_printd(1, "snd_stm_conv_get_card_device(converter=%p)\n",
 			converter);
 
-	snd_stm_assert(converter, return -EINVAL);
-	snd_stm_magic_assert(converter, return -EINVAL);
+	if (snd_BUG_ON(!converter))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(converter)))
+		return -EINVAL;
 
 	return converter->group->source->card_device;
 }
@@ -980,10 +1059,13 @@ struct snd_stm_conv_group *snd_stm_conv_request_group(
 {
 	snd_stm_printd(1, "snd_stm_conv_request_group(source=%p)\n", source);
 
-	snd_stm_assert(source, return NULL);
-	snd_stm_magic_assert(source, return NULL);
+	if (snd_BUG_ON(!source))
+		return NULL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(source)))
+		return NULL;
 
-	snd_stm_assert(!source->group_active, return NULL);
+	if (snd_BUG_ON(source->group_active))
+		return NULL;
 
 	mutex_lock(&snd_stm_conv_mutex);
 
@@ -998,13 +1080,18 @@ int snd_stm_conv_release_group(struct snd_stm_conv_group *group)
 {
 	snd_stm_printd(1, "snd_stm_conv_release_group(group=%p)\n", group);
 
-	snd_stm_assert(group, return -EINVAL);
-	snd_stm_magic_assert(group, return -EINVAL);
+	if (snd_BUG_ON(!group))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group)))
+		return -EINVAL;
 
-	snd_stm_assert(group->source, return -EINVAL);
-	snd_stm_magic_assert(group->source, return -EINVAL);
+	if (snd_BUG_ON(!group->source))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(group->source)))
+		return -EINVAL;
 
-	snd_stm_assert(group == group->source->group_active, return -EINVAL);
+	if (snd_BUG_ON(group != group->source->group_active))
+		return -EINVAL;
 
 	mutex_lock(&snd_stm_conv_mutex);
 
@@ -1074,7 +1161,7 @@ static void snd_stm_conv_info(struct snd_info_entry *entry,
  */
 
 
-int __init snd_stm_conv_init(void)
+int snd_stm_conv_init(void)
 {
 	/* Register converters information file in ALSA's procfs */
 

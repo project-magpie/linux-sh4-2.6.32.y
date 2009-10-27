@@ -28,7 +28,6 @@
 #include <linux/delay.h>
 #include <asm/cacheflush.h>
 #include <linux/stm/stm-dma.h>
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/control.h>
@@ -100,8 +99,10 @@ static irqreturn_t snd_stm_pcm_reader_irq_handler(int irq, void *dev_id)
 	snd_stm_printd(2, "snd_stm_pcm_reader_irq_handler(irq=%d, "
 			"dev_id=0x%p)\n", irq, dev_id);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	/* Get interrupt status & clear them immediately */
 	preempt_disable();
@@ -112,7 +113,7 @@ static irqreturn_t snd_stm_pcm_reader_irq_handler(int irq, void *dev_id)
 	/* Overflow? */
 	if (unlikely(status & mask__AUD_PCMIN_ITS__OVF__PENDING(pcm_reader))) {
 		snd_stm_printe("Overflow detected in PCM reader '%s'!\n",
-				pcm_reader->device->bus_id);
+			       dev_name(pcm_reader->device));
 
 		snd_pcm_stop(pcm_reader->substream, SNDRV_PCM_STATE_XRUN);
 
@@ -120,7 +121,7 @@ static irqreturn_t snd_stm_pcm_reader_irq_handler(int irq, void *dev_id)
 	}
 
 	/* Some alien interrupt??? */
-	snd_stm_assert(result == IRQ_HANDLED);
+	snd_BUG_ON(result != IRQ_HANDLED);
 
 	return result;
 }
@@ -133,8 +134,10 @@ static void snd_stm_pcm_reader_callback_node_done(unsigned long param)
 	snd_stm_printd(2, "snd_stm_pcm_reader_callback_node_done(param=0x%lx"
 			")\n", param);
 
-	snd_stm_assert(pcm_reader, return);
-	snd_stm_magic_assert(pcm_reader, return);
+	if (snd_BUG_ON(!pcm_reader))
+		return;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return;
 
 	if (!pcm_reader->running)
 		return;
@@ -153,14 +156,16 @@ static void snd_stm_pcm_reader_callback_node_error(unsigned long param)
 	snd_stm_printd(2, "snd_stm_pcm_reader_callback_node_error(param=0x%lx"
 			")\n", param);
 
-	snd_stm_assert(pcm_reader, return);
-	snd_stm_magic_assert(pcm_reader, return);
+	if (snd_BUG_ON(!pcm_reader))
+		return;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return;
 
 	if (!pcm_reader->running)
 		return;
 
 	snd_stm_printe("Error during FDMA transfer in reader '%s'!\n",
-			pcm_reader->device->bus_id);
+		       dev_name(pcm_reader->device));
 
 	snd_pcm_stop(pcm_reader->substream, SNDRV_PCM_STATE_XRUN);
 }
@@ -204,9 +209,10 @@ static int snd_stm_pcm_reader_open(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_reader_open(substream=0x%p)\n",
 			substream);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
-	snd_stm_assert(runtime, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader || !runtime))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	snd_pcm_set_sync(substream);  /* TODO: ??? */
 
@@ -267,8 +273,10 @@ static int snd_stm_pcm_reader_close(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_reader_close(substream=0x%p)\n",
 			substream);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	if (pcm_reader->conv_group) {
 		snd_stm_conv_release_group(pcm_reader->conv_group);
@@ -289,9 +297,10 @@ static int snd_stm_pcm_reader_hw_free(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_reader_hw_free(substream=0x%p)\n",
 			substream);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
-	snd_stm_assert(runtime, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader || !runtime))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	/* This callback may be called more than once... */
 
@@ -333,9 +342,10 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 	snd_stm_printd(1, "snd_stm_pcm_reader_hw_params(substream=0x%p,"
 			" hw_params=0x%p)\n", substream, hw_params);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
-	snd_stm_assert(runtime, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader || !runtime))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	/* This function may be called many times, so let's be prepared... */
 	if (snd_stm_buffer_is_allocated(pcm_reader->buffer))
@@ -346,7 +356,8 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 	buffer_bytes = params_buffer_bytes(hw_params);
 	periods = params_periods(hw_params);
 	period_bytes = buffer_bytes / periods;
-	snd_stm_assert(periods * period_bytes == buffer_bytes, return -EINVAL);
+	if (snd_BUG_ON(periods * period_bytes != buffer_bytes))
+		return -EINVAL;
 
 	/* Allocate buffer */
 
@@ -354,7 +365,7 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 			buffer_bytes);
 	if (result != 0) {
 		snd_stm_printe("Can't allocate %d bytes buffer for '%s'!\n",
-				buffer_bytes, pcm_reader->device->bus_id);
+			       buffer_bytes, dev_name(pcm_reader->device));
 		result = -ENOMEM;
 		goto error_buf_alloc;
 	}
@@ -370,15 +381,16 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 
 	snd_stm_printd(1, "FDMA request trigger limit set to %d.\n",
 			transfer_size);
-	snd_stm_assert(buffer_bytes % transfer_bytes == 0, return -EINVAL);
-	snd_stm_assert(transfer_size <= pcm_reader->fdma_max_transfer_size,
-			return -EINVAL);
+	if (snd_BUG_ON(buffer_bytes % transfer_bytes != 0))
+		return -EINVAL;
+	if (snd_BUG_ON(transfer_size > pcm_reader->fdma_max_transfer_size))
+		return -EINVAL;
 	if (pcm_reader->ver > ver__AUD_PCMIN__65_2_0) {
-		snd_stm_assert(transfer_size == 1 || transfer_size % 2 == 0,
-				return -EINVAL);
-		snd_stm_assert(transfer_size <=
-				mask__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(
-				pcm_reader), return -EINVAL);
+		if (snd_BUG_ON(transfer_size != 1 && transfer_size % 2 != 0))
+			return -EINVAL;
+		if (snd_BUG_ON(transfer_size >
+			mask__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(pcm_reader)))
+			return -EINVAL;
 		set__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(pcm_reader, transfer_size);
 		set__AUD_PCMIN_FMT__BACK_STALLING__DISABLED(pcm_reader);
 
@@ -402,7 +414,7 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 			pcm_reader->info->fdma_request_line, &fdma_req_config);
 	if (!pcm_reader->fdma_request) {
 		snd_stm_printe("Can't configure FDMA pacing channel for player"
-				" '%s'!\n", pcm_reader->device->bus_id);
+			       " '%s'!\n", dev_name(pcm_reader->device));
 		result = -EINVAL;
 		goto error_req_config;
 	}
@@ -461,7 +473,7 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 				pcm_reader->fdma_params_list, GFP_KERNEL);
 	if (result < 0) {
 		snd_stm_printe("Can't compile FDMA parameters for"
-				" reader '%s'!\n", pcm_reader->device->bus_id);
+			" reader '%s'!\n", dev_name(pcm_reader->device));
 		goto error_compile_list;
 	}
 
@@ -488,9 +500,10 @@ static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_reader_prepare(substream=0x%p)\n",
 			substream);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
-	snd_stm_assert(runtime, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader || !runtime))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	/* Get format value from connected converter */
 
@@ -568,9 +581,10 @@ static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
 
 	/* Number of channels... */
 
-	snd_stm_assert(runtime->channels % 2 == 0, return -EINVAL);
-	snd_stm_assert(runtime->channels >= 2 && runtime->channels <= 10,
-			return -EINVAL);
+	if (snd_BUG_ON(runtime->channels % 2 != 0))
+		return -EINVAL;
+	if (snd_BUG_ON(runtime->channels < 2 || runtime->channels > 10))
+		return -EINVAL;
 
 	if (pcm_reader->ver > ver__AUD_PCMIN__65_2_0)
 		set__AUD_PCMIN_FMT__NUM_CH(pcm_reader, runtime->channels / 2);
@@ -578,7 +592,7 @@ static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
+static int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 {
 	int result;
 	struct snd_stm_pcm_reader *pcm_reader =
@@ -587,8 +601,10 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_reader_start(substream=0x%p)\n",
 			substream);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	/* Un-reset PCM reader */
 
@@ -600,7 +616,7 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 			pcm_reader->fdma_params_list);
 	if (result != 0) {
 		snd_stm_printe("Can't launch FDMA transfer for reader '%s'!\n",
-				pcm_reader->device->bus_id);
+			       dev_name(pcm_reader->device));
 		return -EINVAL;
 	}
 	while (dma_get_status(pcm_reader->fdma_channel) !=
@@ -630,7 +646,7 @@ static inline int snd_stm_pcm_reader_start(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static inline int snd_stm_pcm_reader_stop(struct snd_pcm_substream *substream)
+static int snd_stm_pcm_reader_stop(struct snd_pcm_substream *substream)
 {
 	struct snd_stm_pcm_reader *pcm_reader =
 			snd_pcm_substream_chip(substream);
@@ -638,8 +654,10 @@ static inline int snd_stm_pcm_reader_stop(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_reader_stop(substream=0x%p)\n",
 			substream);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	pcm_reader->running = 0;
 
@@ -698,9 +716,10 @@ static snd_pcm_uframes_t snd_stm_pcm_reader_pointer(struct snd_pcm_substream
 	snd_stm_printd(2, "snd_stm_pcm_reader_pointer(substream=0x%p)\n",
 			substream);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
-	snd_stm_assert(runtime, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader || !runtime))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	residue = get_dma_residue(pcm_reader->fdma_channel);
 	pointer = bytes_to_frames(runtime, runtime->dma_bytes - residue);
@@ -742,10 +761,12 @@ static void snd_stm_pcm_reader_dump_registers(struct snd_info_entry *entry,
 {
 	struct snd_stm_pcm_reader *pcm_reader = entry->private_data;
 
-	snd_stm_assert(pcm_reader, return);
-	snd_stm_magic_assert(pcm_reader, return);
+	if (snd_BUG_ON(!pcm_reader))
+		return;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return;
 
-	snd_iprintf(buffer, "--- %s ---\n", pcm_reader->device->bus_id);
+	snd_iprintf(buffer, "--- %s ---\n", dev_name(pcm_reader->device));
 	snd_iprintf(buffer, "base = 0x%p\n", pcm_reader->base);
 
 	DUMP_REGISTER(RST);
@@ -769,8 +790,10 @@ static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 	snd_stm_printd(1, "snd_stm_pcm_reader_register(snd_device=0x%p)\n",
 			snd_device);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	snd_stm_printd(0, "--- Registering reader '%s'...\n",
 			pcm_reader->device->bus_id);
@@ -787,7 +810,7 @@ static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 	/* Registers view in ALSA's procfs */
 
 	snd_stm_info_register(&pcm_reader->proc_entry,
-			pcm_reader->device->bus_id,
+			dev_name(pcm_reader->device),
 			snd_stm_pcm_reader_dump_registers, pcm_reader);
 
 	snd_stm_printd(0, "--- Registered successfully!\n");
@@ -802,8 +825,10 @@ static int snd_stm_pcm_reader_disconnect(struct snd_device *snd_device)
 	snd_stm_printd(1, "snd_stm_pcm_reader_disconnect(snd_device=0x%p)\n",
 			snd_device);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	snd_stm_info_unregister(pcm_reader->proc_entry);
 
@@ -832,7 +857,8 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "Probing device '%s'...\n", pdev->dev.bus_id);
 
-	snd_stm_assert(card != NULL, return -EINVAL);
+	if (snd_BUG_ON(card == NULL))
+		return -EINVAL;
 
 	pcm_reader = kzalloc(sizeof(*pcm_reader), GFP_KERNEL);
 	if (!pcm_reader) {
@@ -843,9 +869,11 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 	}
 	snd_stm_magic_set(pcm_reader);
 	pcm_reader->info = pdev->dev.platform_data;
-	snd_stm_assert(pcm_reader->info != NULL, return -EINVAL);
+	if (snd_BUG_ON(pcm_reader->info == NULL))
+		return -EINVAL;
 	pcm_reader->ver = pcm_reader->info->ver;
-	snd_stm_assert(pcm_reader->ver > 0, return -EINVAL);
+	if (snd_BUG_ON(pcm_reader->ver <= 0))
+		return -EINVAL;
 	pcm_reader->device = &pdev->dev;
 
 	/* Get resources */
@@ -876,7 +904,7 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 
 	/* FDMA transfer size depends (among others ;-) on FIFO length,
 	 * which is:
-	 * - 2 cells (8 bytes) in STx710x and STx7200 cut 1.0
+	 * - 2 cells (8 bytes) in STx7100/9 and STx7200 cut 1.0
 	 * - 70 cells (280 bytes) in STx7111 and STx7200 cut 2.0. */
 
 	if (pcm_reader->ver < ver__AUD_PCMIN__65_3_1)
@@ -893,17 +921,17 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 		 * mode, so we will just not be using it ;-) */
 		static unsigned int channels_2[] = { 2 };
 
-		snd_stm_assert(pcm_reader->info->channels == 2, return -EINVAL);
+		if (snd_BUG_ON(pcm_reader->info->channels != 2))
+			return -EINVAL;
 		pcm_reader->channels_constraint.list = channels_2;
 		pcm_reader->channels_constraint.count = 1;
 	} else {
 		static unsigned int channels_2_10[] = { 2, 4, 6, 8, 10 };
 
-		snd_stm_assert(pcm_reader->info->channels > 0, return -EINVAL);
-		snd_stm_assert(pcm_reader->info->channels <= 10,
-				return -EINVAL);
-		snd_stm_assert(pcm_reader->info->channels % 2 == 0,
-				return -EINVAL);
+		if (snd_BUG_ON(pcm_reader->info->channels <= 0 ||
+			       pcm_reader->info->channels > 10 ||
+			       pcm_reader->info->channels % 2 != 0))
+			return -EINVAL;
 		pcm_reader->channels_constraint.list = channels_2_10;
 		pcm_reader->channels_constraint.count =
 			pcm_reader->info->channels / 2;
@@ -950,7 +978,7 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 	/* Register in converters router */
 
 	pcm_reader->conv_source = snd_stm_conv_register_source(
-			&platform_bus_type, pdev->dev.bus_id,
+			&platform_bus_type, dev_name(&pdev->dev),
 			pcm_reader->info->channels,
 			card, pcm_reader->info->card_device);
 	if (!pcm_reader->conv_source) {
@@ -991,8 +1019,10 @@ static int snd_stm_pcm_reader_remove(struct platform_device *pdev)
 
 	snd_stm_printd(1, "snd_stm_pcm_reader_remove(pdev=%p)\n", pdev);
 
-	snd_stm_assert(pcm_reader, return -EINVAL);
-	snd_stm_magic_assert(pcm_reader, return -EINVAL);
+	if (snd_BUG_ON(!pcm_reader))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_reader)))
+		return -EINVAL;
 
 	snd_stm_conv_unregister_source(pcm_reader->conv_source);
 	snd_stm_buffer_dispose(pcm_reader->buffer);
@@ -1018,7 +1048,7 @@ static struct platform_driver snd_stm_pcm_reader_driver = {
  * Initialization
  */
 
-int __init snd_stm_pcm_reader_init(void)
+int snd_stm_pcm_reader_init(void)
 {
 	return platform_driver_register(&snd_stm_pcm_reader_driver);
 }

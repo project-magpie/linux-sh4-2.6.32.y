@@ -26,8 +26,7 @@
 #include <linux/mm.h>
 #include <linux/platform_device.h>
 #include <linux/bpa2.h>
-#include <linux/stm/soc.h>
-#include <sound/driver.h>
+#include <linux/stm/stm-dma.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/info.h>
@@ -49,8 +48,9 @@ static int snd_stm_card_registered;
 struct snd_card *snd_stm_card_new(int index, const char *id,
 		struct module *module)
 {
-	snd_stm_assert(snd_stm_card == NULL, return NULL);
-	snd_stm_assert(!snd_stm_card_registered, return NULL);
+	snd_BUG_ON(snd_stm_card == NULL);
+	if (snd_BUG_ON(snd_stm_card_registered))
+		return NULL;
 
 	snd_stm_card = snd_card_new(index, id, module, 0);
 
@@ -62,8 +62,10 @@ int snd_stm_card_register(void)
 {
 	int result;
 
-	snd_stm_assert(snd_stm_card != NULL, return -EINVAL);
-	snd_stm_assert(!snd_stm_card_registered, return -EINVAL);
+	if (snd_BUG_ON(snd_stm_card == NULL))
+		return -EINVAL;
+	if (snd_BUG_ON(snd_stm_card_registered))
+		return -EINVAL;
 
 	result = snd_card_register(snd_stm_card);
 
@@ -76,7 +78,8 @@ EXPORT_SYMBOL(snd_stm_card_register);
 
 int snd_stm_card_is_registered(void)
 {
-	snd_stm_assert(snd_stm_card != NULL, return -EINVAL);
+	if (snd_BUG_ON(snd_stm_card == NULL))
+		return -EINVAL;
 
 	return snd_stm_card_registered;
 }
@@ -84,8 +87,10 @@ EXPORT_SYMBOL(snd_stm_card_is_registered);
 
 void snd_stm_card_free(void)
 {
-	snd_stm_assert(snd_stm_card != NULL, return);
-	snd_stm_assert(snd_stm_card_registered, return);
+	if (snd_BUG_ON(snd_stm_card == NULL))
+		return;
+	if (snd_BUG_ON(!snd_stm_card_registered))
+		return;
 
 	snd_card_free(snd_stm_card);
 
@@ -96,51 +101,12 @@ EXPORT_SYMBOL(snd_stm_card_free);
 
 struct snd_card *snd_stm_card_get(void)
 {
-	snd_stm_assert(snd_stm_card != NULL, return NULL);
+	if (snd_BUG_ON(snd_stm_card == NULL))
+		return NULL;
 
 	return snd_stm_card;
 }
 EXPORT_SYMBOL(snd_stm_card_get);
-
-
-
-/*
- * Device management
- */
-
-static void dummy_release(struct device *dev)
-{
-}
-
-int snd_stm_add_platform_devices(struct platform_device **devices,
-		int cnt)
-{
-	int result = 0;
-	int i;
-
-	for (i = 0; i < cnt; i++) {
-		devices[i]->dev.release = dummy_release;
-		result = platform_device_register(devices[i]);
-		if (result != 0) {
-			while (--i >= 0)
-				platform_device_unregister(devices[i]);
-			break;
-		}
-	}
-
-	return result;
-}
-EXPORT_SYMBOL(snd_stm_add_platform_devices);
-
-void snd_stm_remove_platform_devices(struct platform_device **devices,
-		int cnt)
-{
-	int i;
-
-	for (i = 0; i < cnt; i++)
-		platform_device_unregister(devices[i]);
-}
-EXPORT_SYMBOL(snd_stm_remove_platform_devices);
 
 
 
@@ -343,7 +309,8 @@ struct snd_stm_buffer *snd_stm_buffer_create(struct snd_pcm *pcm,
 	snd_stm_printd(1, "snd_stm_buffer_init(pcm=%p, prealloc_size=%d)\n",
 			pcm, prealloc_size);
 
-	snd_stm_assert(pcm, return NULL);
+	if (snd_BUG_ON(!pcm))
+		return NULL;
 
 	buffer = kzalloc(sizeof(*buffer), GFP_KERNEL);
 	if (!buffer) {
@@ -386,9 +353,12 @@ void snd_stm_buffer_dispose(struct snd_stm_buffer *buffer)
 {
 	snd_stm_printd(1, "snd_stm_buffer_dispose(buffer=%p)\n", buffer);
 
-	snd_stm_assert(buffer, return);
-	snd_stm_magic_assert(buffer, return);
-	snd_stm_assert(!buffer->allocated, return);
+	if (snd_BUG_ON(!buffer))
+		return;
+	if (snd_BUG_ON(!snd_stm_magic_valid(buffer)))
+		return;
+	if (snd_BUG_ON(buffer->allocated))
+		return;
 
 	/* snd_pcm_lib__preallocate*-ed buffer is freed automagically */
 
@@ -396,13 +366,15 @@ void snd_stm_buffer_dispose(struct snd_stm_buffer *buffer)
 	kfree(buffer);
 }
 
-inline int snd_stm_buffer_is_allocated(struct snd_stm_buffer *buffer)
+int snd_stm_buffer_is_allocated(struct snd_stm_buffer *buffer)
 {
 	snd_stm_printd(1, "snd_stm_buffer_is_allocated(buffer=%p)\n",
 			buffer);
 
-	snd_stm_assert(buffer, return -EINVAL);
-	snd_stm_magic_assert(buffer, return -EINVAL);
+	if (snd_BUG_ON(!buffer))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(buffer)))
+		return -EINVAL;
 
 	return buffer->allocated;
 }
@@ -413,10 +385,14 @@ int snd_stm_buffer_alloc(struct snd_stm_buffer *buffer,
 	snd_stm_printd(1, "snd_stm_buffer_alloc(buffer=%p, substream=%p, "
 			"size=%d)\n", buffer, substream, size);
 
-	snd_stm_assert(buffer, return -EINVAL);
-	snd_stm_magic_assert(buffer, return -EINVAL);
-	snd_stm_assert(!buffer->allocated, return -EINVAL);
-	snd_stm_assert(size > 0, return -EINVAL);
+	if (snd_BUG_ON(!buffer))
+		return -EINVAL;
+	if (snd_BUG_ON(!snd_stm_magic_valid(buffer)))
+		return -EINVAL;
+	if (snd_BUG_ON(buffer->allocated))
+		return -EINVAL;
+	if (snd_BUG_ON(size <= 0))
+		return -EINVAL;
 
 	if (buffer->bpa2_part) {
 #if defined(CONFIG_BPA2)
@@ -461,9 +437,12 @@ void snd_stm_buffer_free(struct snd_stm_buffer *buffer)
 
 	snd_stm_printd(1, "snd_stm_buffer_free(buffer=%p)\n", buffer);
 
-	snd_stm_assert(buffer, return);
-	snd_stm_magic_assert(buffer, return);
-	snd_stm_assert(buffer->allocated, return);
+	if (snd_BUG_ON(!buffer))
+		return;
+	if (snd_BUG_ON(!snd_stm_magic_valid(buffer)))
+		return;
+	if (snd_BUG_ON(!buffer->allocated))
+		return;
 
 	runtime = buffer->substream->runtime;
 
@@ -492,17 +471,17 @@ void snd_stm_buffer_free(struct snd_stm_buffer *buffer)
 	buffer->substream = NULL;
 }
 
-static struct page *snd_stm_buffer_mmap_nopage(struct vm_area_struct *area,
-		unsigned long address, int *type)
+static int snd_stm_buffer_mmap_fault(struct vm_area_struct *area,
+				     struct vm_fault *vmf)
 {
 	/* No VMA expanding here! */
-	return NOPAGE_SIGBUS;
+	return VM_FAULT_SIGBUS;
 }
 
 static struct vm_operations_struct snd_stm_buffer_mmap_vm_ops = {
 	.open =   snd_pcm_mmap_data_open,
 	.close =  snd_pcm_mmap_data_close,
-	.nopage = snd_stm_buffer_mmap_nopage,
+	.fault =  snd_stm_buffer_mmap_fault,
 };
 
 int snd_stm_buffer_mmap(struct snd_pcm_substream *substream,
@@ -714,8 +693,10 @@ int snd_stm_iec958_cmp(const struct snd_aes_iec958 *a,
 {
 	int result;
 
-	snd_stm_assert(a != NULL, return -EINVAL);
-	snd_stm_assert(b != NULL, return -EINVAL);
+	if (snd_BUG_ON(a == NULL))
+		return -EINVAL;
+	if (snd_BUG_ON(b == NULL))
+		return -EINVAL;
 
 	result = memcmp(a->status, b->status, sizeof(a->status));
 	if (result == 0)

@@ -137,7 +137,7 @@ void __init page_table_range_init(unsigned long start, unsigned long end,
 void __init paging_init(void)
 {
 	unsigned long max_zone_pfns[MAX_NR_ZONES];
-	unsigned long vaddr;
+	unsigned long vaddr_start, vaddr_end;
 	int nid;
 
 	/* We don't need to map the kernel through the TLB, as
@@ -154,8 +154,9 @@ void __init paging_init(void)
 	 * we can use the fixmap entries without calling kmalloc.
 	 * pte's will be filled in by __set_fixmap().
 	 */
-	vaddr = __fix_to_virt(__end_of_fixed_addresses - 1) & PMD_MASK;
-	page_table_range_init(vaddr, 0, swapper_pg_dir);
+	vaddr_start = __fix_to_virt(__end_of_fixed_addresses - 1);
+	vaddr_end = __fix_to_virt(0);
+	page_table_range_init(vaddr_start, vaddr_end, swapper_pg_dir);
 
 	kmap_coherent_init();
 

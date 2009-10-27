@@ -31,10 +31,10 @@
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_cmnd.h>
 #include <linux/libata.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
 #include <linux/stm/pm.h>
 
-#define DRV_NAME			"sata_stm"
+#define DRV_NAME			"sata-stm"
 #define DRV_VERSION			"0.6"
 
 /* Offsets of the component blocks */
@@ -987,7 +987,7 @@ static void stm_writew(unsigned short b, volatile void __iomem *addr)
 
 static int __devinit stm_sata_probe(struct platform_device *pdev)
 {
-	struct plat_sata_data *sata_private_info = pdev->dev.platform_data;
+	struct stm_plat_sata_data *sata_private_info = pdev->dev.platform_data;
 	struct device *dev = &pdev->dev;
 	struct resource *mem_res;
 	unsigned long phys_base, phys_size;

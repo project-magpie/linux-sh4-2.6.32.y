@@ -12,37 +12,40 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
-#include <linux/stm/pio.h>
-#include <linux/stm/soc.h>
+#include <linux/gpio.h>
 #include <linux/delay.h>
+#include <linux/phy.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
-#include <linux/phy.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/stx7100.h>
 #include <asm/irl.h>
 
-static int ascs[2] __initdata = { 2, 3 };
+
+
+#define MB602_PIO_STE100P_RESET stm_gpio(2, 4)
+#define MB602_PIO_SMC91X_RESET stm_gpio(2, 6)
+
+
 
 void __init mb602_setup(char** cmdline_p)
 {
 	printk("STMicroelectronics STb5202 Reference board initialisation\n");
 
 	stx7100_early_device_init();
-	stb7100_configure_asc(ascs, 2, 0);
+
+	stx7100_configure_asc(2, &(struct stx7100_asc_config) {
+			.hw_flow_control = 1,
+			.is_console = 1, });
+	stx7100_configure_asc(3, &(struct stx7100_asc_config) {
+			.hw_flow_control = 1,
+			.is_console = 0, });
 }
 
-static struct plat_stm_pwm_data pwm_private_info = {
-	.flags		= PLAT_STM_PWM_OUT1,
-};
 
-static struct plat_ssc_data ssc_private_info = {
-	.capability  =
-		ssc0_has(SSC_I2C_CAPABILITY) |
-		ssc1_has(SSC_SPI_CAPABILITY) |
-		ssc2_has(SSC_I2C_CAPABILITY),
-};
 
-static struct mtd_partition mtd_parts_table[3] = {
+static struct mtd_partition mb602_mtd_parts_table[3] = {
 	{
 		.name = "Boot firmware",
 		.size = 0x00040000,
@@ -58,30 +61,32 @@ static struct mtd_partition mtd_parts_table[3] = {
 	}
 };
 
-static struct physmap_flash_data physmap_flash_data = {
+static struct physmap_flash_data mb602_physmap_flash_data = {
 	.width		= 2,
 	.set_vpp	= NULL,
-	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
-	.parts		= mtd_parts_table
+	.nr_parts	= ARRAY_SIZE(mb602_mtd_parts_table),
+	.parts		= mb602_mtd_parts_table
 };
 
-static struct resource physmap_flash_resource = {
+static struct resource mb602_physmap_flash_resource = {
 	.start		= 0x00000000,
 	.end		= 0x00800000 - 1,
 	.flags		= IORESOURCE_MEM,
 };
 
-static struct platform_device physmap_flash = {
+static struct platform_device mb602_physmap_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.dev		= {
-		.platform_data	= &physmap_flash_data,
+		.platform_data	= &mb602_physmap_flash_data,
 	},
 	.num_resources	= 1,
-	.resource	= &physmap_flash_resource,
+	.resource	= &mb602_physmap_flash_resource,
 };
 
-static struct platform_device smsc_lan9117 = {
+
+
+static struct platform_device mb602_smsc_lan9117 = {
 	.name		= "smc911x",
 	.id		= -1,
 	.num_resources	= 4,
@@ -113,20 +118,20 @@ static struct platform_device smsc_lan9117 = {
 	},
 };
 
-static struct stpio_pin *phy_reset_pin;
-
 static int mb602_phy_reset(void* bus)
 {
-	stpio_set_pin(phy_reset_pin, 1);
+	gpio_set_value(MB602_PIO_STE100P_RESET, 1);
 	udelay(1);
-	stpio_set_pin(phy_reset_pin, 0);
+	gpio_set_value(MB602_PIO_STE100P_RESET, 0);
 	udelay(1);
-	stpio_set_pin(phy_reset_pin, 1);
+	gpio_set_value(MB602_PIO_STE100P_RESET, 1);
 
 	return 1;
 }
 
-static struct plat_stmmacphy_data phy_private_data = {
+
+
+static struct stm_plat_stmmacphy_data mb602_phy_private_data = {
 	.bus_id = 0,
 	.phy_addr = 14,
 	.phy_mask = 1,
@@ -147,43 +152,59 @@ static struct platform_device mb602_phy_device = {
 		},
 	},
 	.dev = {
-		.platform_data = &phy_private_data,
+		.platform_data = &mb602_phy_private_data,
 	 }
 };
 
+
+
 static struct platform_device *mb602_devices[] __initdata = {
-	&physmap_flash,
-	&smsc_lan9117,
+	&mb602_physmap_flash,
+	&mb602_smsc_lan9117,
 	&mb602_phy_device,
 };
 
-static int __init device_init(void)
+static int __init mb602_device_init(void)
 {
-	struct stpio_pin *smc911x_reset;
-
 	stx7100_configure_sata();
-	stx7100_configure_pwm(&pwm_private_info);
-	stx7100_configure_ssc(&ssc_private_info);
-	stx7100_configure_usb();
-	stx7100_configure_lirc();
-	stx7100_configure_pata(3, 1, IRL1_IRQ);
 
-	phy_reset_pin = stpio_request_set_pin(2, 4, "ste100p_reset",
-					      STPIO_OUT, 1);
-	stx7100_configure_ethernet(0, 0, 0);
+	stx7100_configure_pwm(&(struct stx7100_pwm_config) {
+			.out0_enabled = 0,
+			.out1_enabled = 1, });
+
+	stx7100_configure_ssc_i2c(0);
+	stx7100_configure_ssc_spi(1, NULL);
+	stx7100_configure_ssc_i2c(2);
+
+	stx7100_configure_usb();
+
+	stx7100_configure_lirc(&(struct stx7100_lirc_config) {
+			.rx_mode = stx7100_lirc_rx_mode_ir,
+			.tx_enabled = 0,
+			.tx_od_enabled = 0, });
+
+	stx7100_configure_pata(&(struct stx7100_pata_config) {
+			.emi_bank = 3,
+			.pc_mode = 1,
+			.irq = IRL1_IRQ, });
+
+	gpio_request(MB602_PIO_STE100P_RESET, "STE100P reset");
+	gpio_direction_output(MB602_PIO_STE100P_RESET, 1);
+
+	stx7100_configure_ethernet(&(struct stx7100_ethernet_config) {
+			.mode = stx7100_ethernet_mode_mii,
+			.ext_clk = 0,
+			.phy_bus = 0, });
 
 	/* Reset the SMSC 9117 Ethernet chip */
-	smc911x_reset = stpio_request_set_pin(2, 6, "smc911x_reset",
-					     STPIO_OUT, 0);
+	gpio_request(MB602_PIO_SMC91X_RESET, "SMC91x reset");
+	gpio_direction_output(MB602_PIO_SMC91X_RESET, 0);
 	udelay(1);
-	stpio_set_pin(smc911x_reset, 1);
+	gpio_set_value(MB602_PIO_SMC91X_RESET, 1);
 	udelay(1);
-	stpio_set_pin(smc911x_reset, 0);
-	udelay(1);
-	stpio_set_pin(smc911x_reset, 1);
+	gpio_set_value(MB602_PIO_SMC91X_RESET, 0);
 
 	return platform_add_devices(mb602_devices,
 				    ARRAY_SIZE(mb602_devices));
 }
-
-device_initcall(device_init);
+device_initcall(mb602_device_init);

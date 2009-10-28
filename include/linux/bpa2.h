@@ -56,7 +56,8 @@ unsigned long __bpa2_alloc_pages(struct bpa2_part *part, int count, int align,
 	       int priority, const char *trace_file, int trace_line);
 void bpa2_free_pages(struct bpa2_part *part, unsigned long base);
 
-
+void bpa2_memory(struct bpa2_part *part, unsigned long *base,
+		 unsigned long *size);
 
 /*
  * Backward compatibility interface (bigphysarea)

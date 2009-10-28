@@ -826,6 +826,7 @@ void bpa2_memory(struct bpa2_part *part, unsigned long *base,
 			part->res.end - part->res.start + 1
 			: 0;
 }
+EXPORT_SYMBOL(bpa2_memory);
 
 void bigphysarea_memory(unsigned long *base, unsigned long *size)
 {

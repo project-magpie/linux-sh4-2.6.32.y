@@ -45,7 +45,7 @@
 #include <linux/phy.h>
 #include <linux/if_vlan.h>
 #include <linux/dma-mapping.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
 #include "stmmac.h"
 
 #define STMMAC_RESOURCE_NAME	"stmmaceth"
@@ -1793,8 +1793,7 @@ static int stmmac_mac_device_setup(struct net_device *dev)
 
 static int stmmacphy_dvr_probe(struct platform_device *pdev)
 {
-	struct plat_stmmacphy_data *plat_dat;
-	plat_dat = (struct plat_stmmacphy_data *)((pdev->dev).platform_data);
+	struct stm_plat_stmmacphy_data *plat_dat = pdev->dev.platform_data;
 
 	pr_debug("stmmacphy_dvr_probe: added phy for bus %d\n",
 	       plat_dat->bus_id);
@@ -1826,9 +1825,7 @@ static struct platform_driver stmmacphy_driver = {
 static int stmmac_associate_phy(struct device *dev, void *data)
 {
 	struct stmmac_priv *priv = (struct stmmac_priv *)data;
-	struct plat_stmmacphy_data *plat_dat;
-
-	plat_dat = (struct plat_stmmacphy_data *)(dev->platform_data);
+	struct stm_plat_stmmacphy_data *plat_dat = dev->platform_data;
 
 	DBG(probe, DEBUG, "%s: checking phy for bus %d\n", __func__,
 		plat_dat->bus_id);
@@ -1871,7 +1868,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	unsigned int *addr = NULL;
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv;
-	struct plat_stmmacenet_data *plat_dat;
+	struct stm_plat_stmmacenet_data *plat_dat;
 
 	pr_info("STMMAC driver:\n\tplatform registration... ");
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -1918,7 +1915,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	priv = netdev_priv(ndev);
 	priv->device = &(pdev->dev);
 	priv->dev = ndev;
-	plat_dat = (struct plat_stmmacenet_data *)((pdev->dev).platform_data);
+	plat_dat = pdev->dev.platform_data;
 	priv->bus_id = plat_dat->bus_id;
 	priv->pbl = plat_dat->pbl;	/* TLI */
 	priv->is_gmac = plat_dat->has_gmac;	/* GMAC is on board */
@@ -1927,6 +1924,14 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 
 	/* Set the I/O base addr */
 	ndev->base_addr = (unsigned long)addr;
+
+	/* Pad routing setup */
+	if (stm_pad_claim(plat_dat->pad_config, dev_name(&pdev->dev)) != 0) {
+		printk(KERN_ERR "%s: Failed to request pads!\n",
+		       __FUNCTION__);
+		ret = -ENODEV;
+		goto out;
+	}
 
 	/* MAC HW revice detection */
 	ret = stmmac_mac_device_setup(ndev);
@@ -1982,6 +1987,7 @@ out:
 static int stmmac_dvr_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
+	struct stm_plat_stmmacenet_data *plat_dat = pdev->dev.platform_data;
 	struct resource *res;
 
 	pr_info("%s:\n\tremoving driver", __func__);
@@ -1998,6 +2004,8 @@ static int stmmac_dvr_remove(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, NULL);
 	unregister_netdev(ndev);
+
+	stm_pad_release(plat_dat->pad_config);
 
 	iounmap((void *)ndev->base_addr);
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);

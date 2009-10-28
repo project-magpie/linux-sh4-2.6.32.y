@@ -9,6 +9,7 @@
 #include <linux/seq_file.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
+#include <linux/module.h>
 
 
 
@@ -451,6 +452,7 @@ int stm_pad_claim(struct stm_pad_config *config, const char *dev_name)
 
 	return result;
 }
+EXPORT_SYMBOL(stm_pad_claim);
 
 int stm_pad_switch(struct stm_pad_config *old_config,
 		struct stm_pad_config *new_config, const char *new_dev_name)
@@ -495,6 +497,7 @@ void stm_pad_release(struct stm_pad_config *config)
 
 	mutex_unlock(&stm_pad_list_mutex);
 }
+EXPORT_SYMBOL(stm_pad_release);
 
 const char *stm_pad_owner(const char *label)
 {

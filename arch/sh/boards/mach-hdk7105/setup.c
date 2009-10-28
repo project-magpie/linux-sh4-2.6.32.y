@@ -22,6 +22,7 @@
 #include <linux/phy.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7105.h>
+#include <linux/stm/pci-synopsys.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
@@ -48,7 +49,32 @@ static void __init hdk7105_setup(char **cmdline_p)
 			.is_console = 0, });
 }
 
+/* PCI configuration */
+static struct stm_plat_pci_config pci_config = {
+	.pci_irq = {
+		[0] = PCI_PIN_DEFAULT,
+		[1] = PCI_PIN_DEFAULT,
+		[2] = PCI_PIN_UNUSED,
+		[3] = PCI_PIN_UNUSED
+	},
+	.serr_irq = PCI_PIN_UNUSED,
+	.idsel_lo = 30,
+	.idsel_hi = 30,
+	.req_gnt = {
+		[0] = PCI_PIN_DEFAULT,
+		[1] = PCI_PIN_UNUSED,
+		[2] = PCI_PIN_UNUSED,
+		[3] = PCI_PIN_UNUSED
+	},
+	.pci_clk = 33333333,
+	.pci_reset_pio = stm_gpio(15, 7)
+};
 
+int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
+{
+        /* We can use the standard function on this board */
+        return  stx7105_pcibios_map_platform_irq(&pci_config, pin);
+}
 
 static struct platform_device hdk7105_leds = {
 	.name = "leds-gpio",
@@ -115,6 +141,7 @@ static struct platform_device *hdk7105_devices[] __initdata = {
 
 static int __init hdk7105_device_init(void)
 {
+	stx7105_configure_pci(&pci_config);
 	stx7105_configure_sata();
 
 	stx7105_configure_pwm(&(struct stx7105_pwm_config) {
@@ -167,31 +194,24 @@ static int __init hdk7105_device_init(void)
 }
 arch_initcall(hdk7105_device_init);
 
-
-
 static void __iomem *hdk7105_ioport_map(unsigned long port, unsigned int size)
 {
-	/* However picking somewhere safe isn't as easy as you might think.
-	 * I used to use external ROM, but that can cause problems if you are
-	 * in the middle of updating Flash. So I'm now using the processor core
-	 * version register, which is guaranted to be available, and
-	 * non-writable. */
+	/*
+	 * If we have PCI then this should never be called because we
+	 * are using the generic iomap implementation. If we don't
+	 * have PCI then there are no IO mapped devices, so it still
+	 * shouldn't be called.
+	 */
+	BUG();
 	return (void __iomem *)CCN_PVR;
-}
-
-static void __init hdk7105_init_irq(void)
-{
-#ifndef CONFIG_SH_ST_MB705
-	/* Configure STEM interrupts as active low. */
-	set_irq_type(ILC_EXT_IRQ(1), IRQ_TYPE_LEVEL_LOW);
-	set_irq_type(ILC_EXT_IRQ(2), IRQ_TYPE_LEVEL_LOW);
-#endif
 }
 
 struct sh_machine_vector mv_hdk7105 __initmv = {
 	.mv_name		= "hdk7105",
 	.mv_setup		= hdk7105_setup,
 	.mv_nr_irqs		= NR_IRQS,
-	.mv_init_irq		= hdk7105_init_irq,
 	.mv_ioport_map		= hdk7105_ioport_map,
+#ifdef CONFIG_SH_ST_SYNOPSYS_PCI
+	STM_PCI_IO_MACHINE_VEC
+#endif
 };

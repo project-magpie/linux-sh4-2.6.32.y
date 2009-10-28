@@ -16,7 +16,6 @@
 #include <linux/lirc.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
-#include <linux/mtd/partitions.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7100.h>
 #include <asm/irl.h>
@@ -48,44 +47,17 @@ static void hms1_set_vpp(struct map_info *info, int enable)
 	gpio_set_value(HMS1_PIO_FLASH_VPP, enable);
 }
 
-static struct mtd_partition hms1_mtd_parts_table[3] = {
-	{
-		.name = "Boot firmware",
-		.size = 0x00040000,
-		.offset = 0x00000000,
-	}, {
-		.name = "Kernel",
-		.size = 0x00100000,
-		.offset = 0x00040000,
-
-	}, {
-		.name = "Root FS",
-		.size = MTDPART_SIZ_FULL,
-		.offset = 0x00140000,
-	}
-};
-
-static struct physmap_flash_data hms1_physmap_flash_data = {
-	.width		= 2,
-	.set_vpp	= hms1_set_vpp,
-	.nr_parts	= ARRAY_SIZE(hms1_mtd_parts_table),
-	.parts		= hms1_mtd_parts_table
-};
-
-static struct resource hms1_physmap_flash_resource = {
-	.start		= 0x00000000,
-	.end		= 0x00800000 - 1,
-	.flags		= IORESOURCE_MEM,
-};
-
 static struct platform_device hms1_physmap_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
-	.dev		= {
-		.platform_data	= &hms1_physmap_flash_data,
-	},
 	.num_resources	= 1,
-	.resource	= &hms1_physmap_flash_resource,
+	.resource	= (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0, 8*1024*1024),
+	},
+	.dev.platform_data = &(struct physmap_flash_data) {
+		.width		= 2,
+		.set_vpp	= hms1_set_vpp,
+	},
 };
 
 static struct platform_device hms1_smsc_lan9117 = {

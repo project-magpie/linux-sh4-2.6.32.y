@@ -20,7 +20,6 @@
 #include <linux/stm/stx7200.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
-#include <linux/mtd/partitions.h>
 #include <linux/irq.h>
 #include <asm/irq-ilc.h>
 #include <mach/epld.h>
@@ -41,22 +40,6 @@ static void __init mb671_setup(char **cmdline_p)
 			.is_console = 0 });
 }
 
-static struct mtd_partition mb671_mtd_parts_table[3] = {
-	{
-		.name = "Boot firmware",
-		.size = 0x00040000,
-		.offset = 0x00000000,
-	}, {
-		.name = "Kernel",
-		.size = 0x00100000,
-		.offset = 0x00040000,
-	}, {
-		.name = "Root FS",
-		.size = MTDPART_SIZ_FULL,
-		.offset = 0x00140000,
-	}
-};
-
 static void mb671_mtd_set_vpp(struct map_info *map, int vpp)
 {
 	/* Bit 0: VPP enable
@@ -70,26 +53,16 @@ static void mb671_mtd_set_vpp(struct map_info *map, int vpp)
 	}
 }
 
-static struct physmap_flash_data mb671_physmap_flash_data = {
-	.width		= 2,
-	.set_vpp	= mb671_mtd_set_vpp,
-	.nr_parts	= ARRAY_SIZE(mb671_mtd_parts_table),
-	.parts		= mb671_mtd_parts_table
-};
-
 static struct platform_device mb671_physmap_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
-		{
-			.start		= 0x00000000,
-			.end		= 32*1024*1024 - 1,
-			.flags		= IORESOURCE_MEM,
-		}
+		STM_PLAT_RESOURCE_MEM(0, 32*1024*1024),
 	},
-	.dev		= {
-		.platform_data	= &mb671_physmap_flash_data,
+	.dev.platform_data = &(struct physmap_flash_data) {
+		.width		= 2,
+		.set_vpp	= mb671_mtd_set_vpp,
 	},
 };
 

@@ -122,42 +122,16 @@ static void set_vpp(struct map_info * info, int enable)
 	spin_unlock(&misc_lock);
 }
 
-static struct mtd_partition mtd_parts_table[3] = {
-	{
-		.name = "Boot firmware",
-		.size = 0x00040000,
-		.offset = 0x00000000,
-	}, {
-		.name = "Kernel",
-		.size = 0x00100000,
-		.offset = 0x00040000,
-	}, {
-		.name = "Root FS",
-		.size = MTDPART_SIZ_FULL,
-		.offset = 0x00140000,
-	}
-};
-
-static struct physmap_flash_data physmap_flash_data = {
-	.width		= 2,
-	.set_vpp	= set_vpp,
-	.nr_parts	= ARRAY_SIZE(mtd_parts_table),
-	.parts		= mtd_parts_table
-};
-
 static struct platform_device physmap_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
-		{
-			.start		= 0x00000000,	/* Can be overridden */
-			.end		= 32*1024*1024 - 1,
-			.flags		= IORESOURCE_MEM,
-		}
+		STM_PLAT_RESOURCE_MEM(0, 32*1024*1024),
 	},
-	.dev		= {
-		.platform_data	= &physmap_flash_data,
+	.dev.platform_data = &(struct physmap_flash_data) {
+		.width		= 2,
+		.set_vpp	= set_vpp,
 	},
 };
 

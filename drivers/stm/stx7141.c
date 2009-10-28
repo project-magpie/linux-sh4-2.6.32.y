@@ -123,7 +123,15 @@ void __init stx7141_configure_nand_flex(int nr_banks,
 
 #ifdef CONFIG_STM_DMA
 
-#include "fdma_firmware_7200.h"
+static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7141 = {
+	.rev_id    = 0x8000 + (0x000 << 2), /* 0x8000 */
+	.cmd_statn = 0x8000 + (0x450 << 2), /* 0x9140 */
+	.req_ctln  = 0x8000 + (0x460 << 2), /* 0x9180 */
+	.ptrn      = 0x8000 + (0x560 << 2), /* 0x9580 */
+	.cntn      = 0x8000 + (0x562 << 2), /* 0x9588 */
+	.saddrn    = 0x8000 + (0x563 << 2), /* 0x958c */
+	.daddrn    = 0x8000 + (0x564 << 2), /* 0x9590 */
+};
 
 static struct stm_plat_fdma_hw stx7141_fdma_hw = {
 	.slim_regs = {
@@ -143,22 +151,18 @@ static struct stm_plat_fdma_hw stx7141_fdma_hw = {
 		.int_clr  = 0x8000 + (0xff6 << 2), /* 0xbfd8 */
 		.int_mask = 0x8000 + (0xff7 << 2), /* 0xbfdc */
 	},
-	.dmem_offset = 0x8000,
-	.dmem_size   = 0x800 << 2, /* 2048 * 4 = 8192 */
-	.imem_offset = 0xc000,
-	.imem_size   = 0x1000 << 2, /* 4096 * 4 = 16384 */
 };
 
 static struct stm_plat_fdma_data stx7141_fdma_0_platform_data = {
 	.hw = &stx7141_fdma_hw,
-	.fw = &stm_fdma_firmware_7200,
+	.fw = &stm_fdma_firmware_7141,
 	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
 static struct stm_plat_fdma_data stx7141_fdma_1_platform_data = {
 	.hw = &stx7141_fdma_hw,
-	.fw = &stm_fdma_firmware_7200,
+	.fw = &stm_fdma_firmware_7141,
 	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };

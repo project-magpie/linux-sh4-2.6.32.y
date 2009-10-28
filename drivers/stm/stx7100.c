@@ -79,9 +79,14 @@ void __init stx7100_configure_pata(struct stx7100_pata_config *config)
 
 #ifdef CONFIG_STM_DMA
 
-#include "fdma_firmware_7100.h"
-#include "fdma_firmware_7109c2.h"
-#include "fdma_firmware_7109c3.h"
+static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7100 = {
+	.rev_id    = 0x8000 + (0x000 << 2), /* 0x8000 */
+	.cmd_statn = 0x8000 + (0x010 << 2), /* 0x8040 */
+	.ptrn      = 0x8000 + (0x460 << 2), /* 0x9180 */
+	.cntn      = 0x8000 + (0x462 << 2), /* 0x9188 */
+	.saddrn    = 0x8000 + (0x463 << 2), /* 0x918c */
+	.daddrn    = 0x8000 + (0x464 << 2), /* 0x9190 */
+};
 
 static struct stm_plat_fdma_hw stx7100_fdma_hw = {
 	.slim_regs = {
@@ -101,10 +106,6 @@ static struct stm_plat_fdma_hw stx7100_fdma_hw = {
 		.int_clr  = 0x8000 + (0xff6 << 2), /* 0xbfd8 */
 		.int_mask = 0x8000 + (0xff7 << 2), /* 0xbfdc */
 	},
-	.dmem_offset = 0x8000,
-	.dmem_size   = 0x600 << 2, /* 1536 * 4 = 6144 */
-	.imem_offset = 0xc000,
-	.imem_size   = 0xa00 << 2, /* 2560 * 4 = 10240 */
 };
 
 static struct stm_plat_fdma_data stx7100_fdma_platform_data = {
@@ -112,6 +113,16 @@ static struct stm_plat_fdma_data stx7100_fdma_platform_data = {
 	.fw = &stm_fdma_firmware_7100,
 	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
+};
+
+static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7109c2 = {
+	.rev_id    = 0x8000 + (0x000 << 2), /* 0x8000 */
+	.cmd_statn = 0x8000 + (0x450 << 2), /* 0x9140 */
+	.req_ctln  = 0x8000 + (0x460 << 2), /* 0x9180 */
+	.ptrn      = 0x8000 + (0x500 << 2), /* 0x9400 */
+	.cntn      = 0x8000 + (0x502 << 2), /* 0x9408 */
+	.saddrn    = 0x8000 + (0x503 << 2), /* 0x940c */
+	.daddrn    = 0x8000 + (0x504 << 2), /* 0x9410 */
 };
 
 static struct stm_plat_fdma_hw stx7109c2_fdma_hw = {
@@ -132,10 +143,6 @@ static struct stm_plat_fdma_hw stx7109c2_fdma_hw = {
 		.int_clr  = 0x8000 + (0xff6 << 2), /* 0xbfd8 */
 		.int_mask = 0x8000 + (0xff7 << 2), /* 0xbfdc */
 	},
-	.dmem_offset = 0x8000,
-	.dmem_size   = 0x600 << 2, /* 1536 * 4 = 6144 */
-	.imem_offset = 0xc000,
-	.imem_size   = 0xa00 << 2, /* 2560 * 4 = 10240 */
 };
 
 static struct stm_plat_fdma_data stx7109c2_fdma_platform_data = {
@@ -143,6 +150,16 @@ static struct stm_plat_fdma_data stx7109c2_fdma_platform_data = {
 	.fw = &stm_fdma_firmware_7109c2,
 	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
+};
+
+static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7109c3 = {
+	.rev_id    = 0x8000 + (0x000 << 2), /* 0x8000 */
+	.cmd_statn = 0x8000 + (0x450 << 2), /* 0x9140 */
+	.req_ctln  = 0x8000 + (0x460 << 2), /* 0x9180 */
+	.ptrn      = 0x8000 + (0x500 << 2), /* 0x9400 */
+	.cntn      = 0x8000 + (0x502 << 2), /* 0x9408 */
+	.saddrn    = 0x8000 + (0x503 << 2), /* 0x940c */
+	.daddrn    = 0x8000 + (0x504 << 2), /* 0x9410 */
 };
 
 static struct stm_plat_fdma_hw stx7109c3_fdma_hw = {
@@ -163,10 +180,6 @@ static struct stm_plat_fdma_hw stx7109c3_fdma_hw = {
 		.int_clr  = 0x8000 + (0xff6 << 2), /* 0xbfd8 */
 		.int_mask = 0x8000 + (0xff7 << 2), /* 0xbfdc */
 	},
-	.dmem_offset = 0x8000,
-	.dmem_size   = 0x800 << 2, /* 2048 * 4 = 8192 */
-	.imem_offset = 0xc000,
-	.imem_size   = 0x1000 << 2, /* 4096 * 4 = 16384 */
 };
 
 static struct stm_plat_fdma_data stx7109c3_fdma_platform_data = {

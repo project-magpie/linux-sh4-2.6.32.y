@@ -26,6 +26,7 @@ config STPIO
 config STM_DMA
 	bool "STMicroelectronics DMA API"
 	select SH_DMA_API
+	select LIBELF
 	default y
 	---help---
 	  Selecting this option will provide support for STMicroelectronics'
@@ -60,20 +61,6 @@ config STM_DMA_DEBUG
 	bool "STMicroelectronics DMA Debug"
 	depends on STM_DMA
 	default n
-
-choice
-	prompt "FDMA firmware loading strategy"
-	depends on STM_DMA
-	default STM_DMA_FW_KERNEL
-
-config  STM_DMA_FW_USERSPACE
-	depends on EXPERIMENTAL
-	bool "Use hotplug firmware loading framework (EXPERIMENTAL)"
-
-config STM_DMA_FW_KERNEL
-	bool "Use firmware linked into the kernel image"
-
-endchoice
 
 config STM_COPROCESSOR_SUPPORT
 	bool "STMicroelectronics coprocessor support"

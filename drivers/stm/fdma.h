@@ -13,6 +13,7 @@
 #include <linux/interrupt.h>
 #include <linux/stm/stm-dma.h>
 
+#define NAME_MAX_LEN 10 /* "fdma.x.elf" */
 #define CHAN_ALL_ENABLE 				3
 
 #define NODE_DATA_OFFSET				0x40
@@ -139,6 +140,7 @@ struct fdma_regs {
 
 struct fdma {
 	char name[FDMA_NAME_LEN];
+	char fw_name[NAME_MAX_LEN + 1];
 	struct platform_device *pdev;
 
 	struct dma_info dma_info;
@@ -147,6 +149,7 @@ struct fdma {
 
 	struct resource *phys_mem;
 	void __iomem *io_base;
+	void __iomem *fw_vaddr;
 
 	struct stm_dma_req reqs[FDMA_REQ_LINES];
 	unsigned long reqs_used_mask;
@@ -162,7 +165,7 @@ struct fdma {
 	wait_queue_head_t fw_load_q;
 
 	struct stm_plat_fdma_hw *hw;
-	struct stm_plat_fdma_fw *fw;
+	struct stm_plat_fdma_fw_regs *fw;
 
 	struct fdma_regs regs;
 };

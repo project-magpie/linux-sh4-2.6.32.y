@@ -307,10 +307,6 @@ struct stm_plat_fdma_periph_regs {
 struct stm_plat_fdma_hw {
 	struct stm_plat_fdma_slim_regs slim_regs;
 	struct stm_plat_fdma_periph_regs periph_regs;
-	unsigned long dmem_offset;
-	unsigned long dmem_size;
-	unsigned long imem_offset;
-	unsigned long imem_size;
 };
 
 struct stm_plat_fdma_fw_regs {
@@ -323,18 +319,9 @@ struct stm_plat_fdma_fw_regs {
 	unsigned long daddrn;
 };
 
-struct stm_plat_fdma_fw {
-	const char *name;
-	struct stm_plat_fdma_fw_regs fw_regs;
-	void *dmem;
-	unsigned long dmem_len;
-	void *imem;
-	unsigned long imem_len;
-};
-
 struct stm_plat_fdma_data {
 	struct stm_plat_fdma_hw *hw;
-	struct stm_plat_fdma_fw *fw;
+	struct stm_plat_fdma_fw_regs *fw;
 	int min_ch_num;
 	int max_ch_num;
 };

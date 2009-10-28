@@ -14,6 +14,7 @@
 #include <linux/dmapool.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stm-dma.h>
+#include <linux/libelf.h>
 
 #include "fdma.h"
 
@@ -575,160 +576,80 @@ static void fdma_get_hw_revision(struct fdma *fdma, int *major, int *minor)
 	*minor = readl(fdma->io_base + fdma->regs.ver);
 }
 
-#if defined(CONFIG_STM_DMA_FW_KERNEL)
-
-static int fdma_do_bootload(struct fdma *fdma)
+static int fdma_load_elf(const struct firmware *fw, struct fdma *fdma)
 {
-	unsigned long unused;
-	unsigned long irqflags;
+	struct ELFinfo *elfinfo = NULL;
+	int i;
+	int fw_major, fw_minor;
+	int hw_major, hw_minor;
 
-	fdma_dbg(fdma, "FDMA: Loading Firmware...\n");
+	if (!fw) {
+		fdma_info(fdma, "Unable to load FDMA firmware: not present?\n");
+		return -EINVAL;
+	}
 
-	spin_lock_irqsave(&fdma->channels_lock, irqflags);
+	elfinfo = (struct ELFinfo *)ELF_initFromMem((uint8_t *)fw->data,
+							fw->size, 0);
+	if (elfinfo == NULL)
+		return -ENOMEM;
 
-	BUG_ON(fdma->fw->dmem_len > fdma->hw->dmem_size);
+	fdma->fw_vaddr = ioremap_nocache(ELF_checkPhMinVaddr(elfinfo),
+					ELF_checkPhMemSize(elfinfo));
 
-	memcpy(fdma->io_base + fdma->hw->dmem_offset,
-			fdma->fw->dmem, fdma->fw->dmem_len);
-	unused = fdma->hw->dmem_size - fdma->fw->dmem_len;
-	if (unused)
-		memset(fdma->io_base + fdma->hw->dmem_offset +
-				fdma->fw->dmem_len, 0, unused);
+	if (fdma->fw_vaddr == NULL) {
+		ELF_free(elfinfo);
+		return -EINVAL;
+	}
 
-	BUG_ON(fdma->fw->imem_len > fdma->hw->imem_size);
+	for (i = 1; i < elfinfo->header->e_phnum; i++)
+		if (elfinfo->progbase[i].p_type == PT_LOAD) {
+			memcpy((char *)(fdma->fw_vaddr +
+				(elfinfo->progbase[i].p_vaddr -
+				ELF_checkPhMinVaddr(elfinfo))),
+			(char *)(elfinfo->base + elfinfo->progbase[i].p_offset),
+			elfinfo->progbase[i].p_memsz);
+		}
+	ELF_free(elfinfo);
+	fdma_get_hw_revision(fdma, &hw_major, &hw_minor);
+	fdma_get_fw_revision(fdma, &fw_major, &fw_minor);
+	fdma_info(fdma, "SLIM hw %d.%d, FDMA fw %d.%d\n",
+			hw_major, hw_minor, fw_major, fw_minor);
 
-	memcpy(fdma->io_base + fdma->hw->imem_offset,
-			fdma->fw->imem, fdma->fw->imem_len);
-	unused = fdma->hw->imem_size - fdma->fw->imem_len;
-	if (unused)
-		memset(fdma->io_base + fdma->hw->imem_offset +
-				fdma->fw->imem_len, 0, unused);
-
-	fdma->firmware_loaded = 1;
-	spin_unlock_irqrestore(&fdma->channels_lock, irqflags);
-
-	wake_up(&fdma->fw_load_q);
-
-	return 0;
-}
-
-#elif defined(CONFIG_STM_DMA_FW_USERSPACE)
-
-/* Awkwardly the current FDMA elf instruction section is stored with
- * 3 byte words. The Slim requires the following - fmt(0x00nnnnnn).
- * where - 	0 - appended 0 byte
- * 	 	n value read from elf
- *
- * So we must manually insert these word by word from the elf,
- * This also means the size parameter is incorrect
- * - Grrrr. */
-static void fdma_build_elf_imem(struct fdma *fdma, Elf32_Shdr *sect_hd,
-		const struct firmware *slimcore_elf)
-{
-	int pos = 0;
-	char *file_off;
-	int imem_sz = sect_hd->sh_size + (sect_hd->sh_size / 3);
-	u8 *imem_st = kmalloc(imem_sz, GFP_KERNEL);
-	u8 *imem_ptr = imem_st;
-	char *imem_sect = fdma->io_base + fdma->hw->imem_offset;
-
-	file_off = (u8 *)&slimcore_elf->data[sect_hd->sh_offset];
-
-	do {
-		memcpy(imem_ptr, file_off, sizeof(char) * 3);
-		imem_ptr += 3;
-		file_off += 3;
-		*imem_ptr = 0x00;
-		imem_ptr++;
-	} while ((pos += 3) < sect_hd->sh_size);
-
-	memcpy(imem_sect, imem_st, imem_sz);
-	kfree(imem_ptr);
-}
-
-static void fdma_build_elf_dmem(struct fdma *fdma, Elf32_Shdr *sect_hd,
-		const struct firmware *slimcore_elf)
-{
-	char *dmem_sect = fdma->io_base + fdma->hw->dmem_offset;
-	char *file_off;
-
-	file_off = (char *)&slimcore_elf->data[sect_hd->sh_offset];
-	memcpy(dmem_sect, (char *)file_off, sect_hd->sh_size);
+	if (fdma_run_initialise_sequence(fdma) != 0)
+		return -ENODEV;
+	return 1;
 }
 
 static int fdma_do_bootload(struct fdma *fdma)
 {
 	int err;
-	int i, imem_loaded = 0, dmem_loaded = 0;
-	const struct firmware *slimcore_elf;
-	struct elf32_hdr hdr;
-	int hw_major, hw_minor;
-	int fw_major, fw_minor;
+	int result;
 
-	fdma_dbg(fdma, "FDMA: Loading Firmware ELF...\n");
+	if (fdma->pdev->id != -1)
+		result = snprintf(fdma->fw_name, sizeof(fdma->fw_name),
+				  "fdma.%d.elf", fdma->pdev->id);
+	else
+		result = snprintf(fdma->fw_name, sizeof(fdma->fw_name),
+				  "fdma.elf");
+	BUG_ON(result >= sizeof(fdma->fw_name)); /* was the string truncated? */
 
-	err = request_firmware(&slimcore_elf, fdma->fw->name, &fdma->pdev.dev);
-	if (err != 0) {
-		fdma_dbg(fdma, "%s Can't Locate/Load Firmware %s\n",
-				__FUNCTION__, fdma->fw->name);
-		return -ENOENT;
-	}
+	fdma_dbg(fdma, "FDMA: Loading ELF Firmware (%s)...\n", fdma->fw_name);
 
-	memcpy(&hdr, slimcore_elf->data, sizeof(struct elf32_hdr));
+	err = request_firmware_nowait(THIS_MODULE, 1, fdma->fw_name,
+					&fdma->pdev->dev, (struct fdma *)fdma,
+					(void *)fdma_load_elf);
+	if (err)
+		return -ENOMEM;
 
-	/* build the section header tbl */
-	for (i = 0; i < hdr.e_shnum; i++) {
-		Elf32_Shdr sect_hdr;
-		char *sh_addr = (char *)&slimcore_elf->data[hdr.e_shoff +
-				(i * sizeof(Elf32_Shdr))];
-
-		memcpy(&sect_hdr, (char *)sh_addr, sizeof(Elf32_Shdr));
-
-		if (SHT_PROGBITS == sect_hdr.sh_type) {
-			if (sect_hdr.sh_flags & SHF_ALLOC) {
-				if ((sect_hdr.sh_flags & SHF_EXECINSTR) ==
-						SHF_EXECINSTR) {
-					fdma_build_elf_imem(fdma, &sect_hdr,
-							slimcore_elf);
-					imem_loaded = 1;
-				} else if ((sect_hdr.sh_flags & SHF_WRITE) ==
-						SHF_WRITE) {
-					fdma_build_elf_dmem(fdma, &sect_hdr,
-							slimcore_elf);
-					dmem_loaded = 1;
-				}
-			}
-			if (dmem_loaded && imem_loaded) {
-				/* we can discard the remainder
-				 * of the elf now */
-				break;
-			}
-		}
-	}
-	release_firmware(slimcore_elf);
-	if (dmem_loaded && imem_loaded) {
-		fdma->firmware_loaded = 1;
-		wake_up(&fdma->fw_load_q);
-	} else {
-		return -ENODEV;
-	}
-
-	fdma_get_hw_revision(fdma, &hw_major, &hw_minor);
-	fdma_get_fw_revision(fdma, &fw_major, &fw_minor);
-	fdma_dbg(fdma, "STB_%dC%d %d.%d %d.%d OK\n",
-			fdma->cpu_subtype, fdma->cpu_rev,
-			hw_major, hw_minor, fw_major, fw_minor);
+	fdma->firmware_loaded = 1;
+	wake_up(&fdma->fw_load_q);
 
 	return 0;
 }
 
-#endif
-
 static int fdma_load_firmware(struct fdma *fdma)
 {
 	unsigned long irqflags = 0;
-	int hw_major, hw_minor;
-	int fw_major, fw_minor;
 
 	spin_lock_irqsave(&fdma->channels_lock, irqflags);
 	switch (fdma->firmware_loaded) {
@@ -739,13 +660,6 @@ static int fdma_load_firmware(struct fdma *fdma)
 			fdma->firmware_loaded = 0;
 			return -ENOMEM;
 		}
-		fdma_get_hw_revision(fdma, &hw_major, &hw_minor);
-		fdma_get_fw_revision(fdma, &fw_major, &fw_minor);
-		fdma_info(fdma, "SLIM hw %d.%d, FDMA fw %d.%d\n",
-				hw_major, hw_minor, fw_major, fw_minor);
-
-		if (fdma_run_initialise_sequence(fdma) != 0)
-			return -ENODEV;
 
 		return (fdma->firmware_loaded == 1) ? 0: -ENODEV;
 	case 1:
@@ -1273,13 +1187,13 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 	fdma->regs.ver = fdma->hw->slim_regs.ver;
 	fdma->regs.en = fdma->hw->slim_regs.en;
 	fdma->regs.clk_gate = fdma->hw->slim_regs.clk_gate;
-	fdma->regs.rev_id = fdma->fw->fw_regs.rev_id;
-	fdma->regs.cmd_statn = fdma->fw->fw_regs.cmd_statn;
-	fdma->regs.req_ctln = fdma->fw->fw_regs.req_ctln;
-	fdma->regs.ptrn = fdma->fw->fw_regs.ptrn;
-	fdma->regs.cntn = fdma->fw->fw_regs.cntn;
-	fdma->regs.saddrn = fdma->fw->fw_regs.saddrn;
-	fdma->regs.daddrn = fdma->fw->fw_regs.daddrn;
+	fdma->regs.rev_id = fdma->fw->rev_id;
+	fdma->regs.cmd_statn = fdma->fw->cmd_statn;
+	fdma->regs.req_ctln = fdma->fw->req_ctln;
+	fdma->regs.ptrn = fdma->fw->ptrn;
+	fdma->regs.cntn = fdma->fw->cntn;
+	fdma->regs.saddrn = fdma->fw->saddrn;
+	fdma->regs.daddrn = fdma->fw->daddrn;
 	fdma->regs.sync_reg = fdma->hw->periph_regs.sync_reg;
 	fdma->regs.cmd_sta = fdma->hw->periph_regs.cmd_sta;
 	fdma->regs.cmd_set = fdma->hw->periph_regs.cmd_set;
@@ -1344,6 +1258,7 @@ static int fdma_driver_remove(struct platform_device *pdev)
 
 	fdma_disable_all_channels(fdma);
 	iounmap(fdma->io_base);
+	iounmap(fdma->fw_vaddr);
 	dma_pool_destroy(fdma->llu_pool);
 	free_irq(fdma->irq, fdma);
 	unregister_dmac(&fdma->dma_info);

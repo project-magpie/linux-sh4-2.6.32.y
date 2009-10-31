@@ -414,8 +414,16 @@ static int stm_pad_exec_config(struct stm_pad_config *config,
 
 	for (i = 0; i < config->gpio_values_num; i++) {
 		struct stm_pad_gpio_value *value = &config->gpio_values[i];
+		int res;
 
-		if (stm_gpio_direction(value->gpio, value->direction) != 0)
+		if ((value->direction == STM_GPIO_DIRECTION_OUT) &&
+		    (value->value != -1))
+			res = gpio_direction_output(value->gpio,
+				value->value);
+		else
+			res = stm_gpio_direction(value->gpio,
+				value->direction);
+		if (res != 0)
 			return -EINVAL;
 	}
 

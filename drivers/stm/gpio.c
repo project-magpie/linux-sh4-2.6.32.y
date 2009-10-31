@@ -335,9 +335,9 @@ static int stm_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 {
 	struct stm_gpio_port *port = to_stm_gpio_port(chip);
 
-	set__PIO_PCx__OUTPUT_PUSH_PULL(port->base, offset);
-
 	stm_gpio_set(chip, offset, value);
+
+	set__PIO_PCx__OUTPUT_PUSH_PULL(port->base, offset);
 
 	return 0;
 }

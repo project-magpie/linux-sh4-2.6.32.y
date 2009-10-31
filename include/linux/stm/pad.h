@@ -141,6 +141,7 @@ struct stm_pad_sysconf_value {
 struct stm_pad_gpio_value {
 	unsigned gpio;
 	int direction;
+	int value;
 };
 
 #define STM_PAD_PIO_BIDIR(_port, _pin) \
@@ -149,11 +150,15 @@ struct stm_pad_gpio_value {
 		.direction = STM_GPIO_DIRECTION_BIDIR, \
 	}
 
-#define STM_PAD_PIO_OUT(_port, _pin) \
+#define STM_PAD_PIO_OUT_VALUE(_port, _pin, _value) \
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = STM_GPIO_DIRECTION_OUT, \
+		.value = _value, \
 	}
+
+#define STM_PAD_PIO_OUT(_port, _pin) \
+	STM_PAD_PIO_OUT_VALUE(_port, _pin, -1)
 
 #define STM_PAD_PIO_IN(_port, _pin) \
 	{ \

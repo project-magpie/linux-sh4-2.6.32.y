@@ -708,7 +708,7 @@ vmlinux-htable := $(tmp-vmlinux).mod.o
 
 # A temporary vmlinux is built for creating the related ELF
 # hash table through the modpost stage
-.tmp_vmlinux: $(vmlinux-lds) $(vmlinux-all) FORCE
+.tmp_vmlinux: $(vmlinux-all) FORCE
 	$(call cmd,vmlinux-modpost)
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modpost $@
 

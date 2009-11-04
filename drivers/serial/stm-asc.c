@@ -307,6 +307,7 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 
 	port->mapbase	= pdev->resource[0].start;
 	port->irq	= pdev->resource[1].start;
+	spin_lock_init(&port->lock);
 
 #ifdef CONFIG_SERIAL_STM_ASC_FDMA
 	ascport->fdma.rx_req_id = pdev->resource[2].start;

@@ -13,10 +13,19 @@
 #include <linux/seq_file.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/pad.h>
+#include <linux/stm/pio.h>
 #include "reg_pio.h"
 #include "gpio_i.h"
 
 #define DPRINTK(...)
+
+struct stpio_pin {
+#ifdef CONFIG_STPIO
+	void (*func)(struct stpio_pin *pin, void *dev);
+	void* dev;
+	unsigned short port_no, pin_no;
+#endif
+};
 
 struct stm_gpio_pin {
 	unsigned char flags;
@@ -27,6 +36,7 @@ struct stm_gpio_pin {
 #define PIN_IGNORE_FALLING_EDGE	(PIN_IGNORE_EDGE_FLAG | 1)
 #define PIN_IGNORE_EDGE_MASK	(PIN_IGNORE_EDGE_FLAG | PIN_IGNORE_EDGE_VAL)
 	struct stm_pad_config *pad_config;
+	struct stpio_pin stpio;
 };
 
 #define to_stm_gpio_port(chip) \
@@ -268,6 +278,49 @@ struct stm_gpio_port *stm_gpio_irq_init(int port_no, const char* name)
 
 
 
+/*** Internal utility functions ***/
+
+static const char* stm_gpio_owner(int port_no, int pin_no)
+{
+	char pad_label[] = "PIOxx.x";
+
+	snprintf(pad_label, sizeof(pad_label), "PIO%d.%d",
+		 port_no, pin_no);
+	return stm_pad_owner(pad_label);
+}
+
+
+
+/*** Low level hardware manipulation code for gpio/gpiolib and stpio ***/
+
+static inline int __stm_gpio_get(struct stm_gpio_port *port, unsigned offset)
+{
+	return get__PIO_PIN__PIN(port->base, offset);
+}
+
+static inline void __stm_gpio_set(struct stm_gpio_port *port, unsigned offset,
+		int value)
+{
+	if (value)
+		set__PIO_SET_POUT__SET_POUT__SET(port->base, offset);
+	else
+		set__PIO_CLR_POUT__CLR_POUT__CLEAR(port->base, offset);
+}
+
+static inline void __stm_gpio_direction(struct stm_gpio_port *port,
+		unsigned offset, unsigned int direction)
+{
+	WARN_ON(direction != STM_GPIO_DIRECTION_BIDIR &&
+			direction != STM_GPIO_DIRECTION_OUT &&
+			direction != STM_GPIO_DIRECTION_IN &&
+			direction != STM_GPIO_DIRECTION_ALT_OUT &&
+			direction != STM_GPIO_DIRECTION_ALT_BIDIR);
+
+	set__PIO_PCx(port->base, offset, direction);
+}
+
+
+
 /*** generic gpio & gpiolib interface implementation ***/
 
 /* Currently gpio_to_irq and irq_to_gpio don't go through the gpiolib
@@ -308,17 +361,14 @@ static int stm_gpio_get(struct gpio_chip *chip, unsigned offset)
 {
 	struct stm_gpio_port *port = to_stm_gpio_port(chip);
 
-	return get__PIO_PIN__PIN(port->base, offset);
+	return __stm_gpio_get(port, offset);
 }
 
 static void stm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 {
 	struct stm_gpio_port *port = to_stm_gpio_port(chip);
 
-	if (value)
-		set__PIO_SET_POUT__SET_POUT__SET(port->base, offset);
-	else
-		set__PIO_CLR_POUT__CLR_POUT__CLEAR(port->base, offset);
+	__stm_gpio_set(port, offset, value);
 }
 
 static int stm_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
@@ -335,7 +385,7 @@ static int stm_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 {
 	struct stm_gpio_port *port = to_stm_gpio_port(chip);
 
-	stm_gpio_set(chip, offset, value);
+	__stm_gpio_set(port, offset, value);
 
 	set__PIO_PCx__OUTPUT_PUSH_PULL(port->base, offset);
 
@@ -349,16 +399,174 @@ int stm_gpio_direction(unsigned int gpio, unsigned int direction)
 
 	BUG_ON(gpio >= stm_gpio_num);
 
-	WARN_ON(direction != STM_GPIO_DIRECTION_BIDIR &&
-			direction != STM_GPIO_DIRECTION_OUT &&
-			direction != STM_GPIO_DIRECTION_IN &&
-			direction != STM_GPIO_DIRECTION_ALT_OUT &&
-			direction != STM_GPIO_DIRECTION_ALT_BIDIR);
-
-	set__PIO_PCx(stm_gpio_bases[port_no], pin_no, direction);
+	__stm_gpio_direction(&stm_gpio_ports[port_no], pin_no, direction);
 
 	return 0;
 }
+
+#ifdef CONFIG_STPIO
+
+/*** Legacy stpio_... interface */
+
+#define stpio_pin_to_stm_gpio_pin(pin) \
+		container_of(pin, struct stm_gpio_pin, stpio)
+
+static inline int stpio_pin_to_irq(struct stpio_pin *pin)
+{
+	return gpio_to_irq(stm_gpio(pin->port_no, pin->pin_no));
+}
+
+struct stpio_pin *__stpio_request_pin(unsigned int portno,
+		unsigned int pinno, const char *name, int direction,
+		int __set_value, unsigned int value)
+{
+	struct stm_gpio_port *port;
+	struct stm_gpio_pin *gpio_pin;
+	int num_ports = stm_gpio_num / STM_GPIO_PINS_PER_PORT;
+	int res;
+
+	if (portno >= num_ports || pinno >= STM_GPIO_PINS_PER_PORT)
+		return NULL;
+
+	port = &stm_gpio_ports[portno];
+	gpio_pin = &port->pins[pinno];
+
+	res = stm_pad_claim(gpio_pin->pad_config, name);
+	if (res)
+		return NULL;
+
+	if (__set_value)
+		__stm_gpio_set(port, pinno, value);
+
+	__stm_gpio_direction(port, pinno, direction);
+
+	gpio_pin->stpio.port_no = portno;
+	gpio_pin->stpio.pin_no = pinno;
+
+	return &gpio_pin->stpio;
+}
+EXPORT_SYMBOL(__stpio_request_pin);
+
+void stpio_free_pin(struct stpio_pin *pin)
+{
+	struct stm_gpio_pin *gpio_pin = stpio_pin_to_stm_gpio_pin(pin);
+
+	stm_pad_release(gpio_pin->pad_config);
+
+}
+EXPORT_SYMBOL(stpio_free_pin);
+
+void stpio_configure_pin(struct stpio_pin *pin, int direction)
+{
+	struct stm_gpio_port *port = &stm_gpio_ports[pin->port_no];
+	int pin_no = pin->pin_no;
+
+	__stm_gpio_direction(port, pin_no, direction);
+}
+EXPORT_SYMBOL(stpio_configure_pin);
+
+void stpio_set_pin(struct stpio_pin *pin, unsigned int value)
+{
+	struct stm_gpio_port *port = &stm_gpio_ports[pin->port_no];
+	int pin_no = pin->pin_no;
+
+	__stm_gpio_set(port, pin_no, value);
+}
+EXPORT_SYMBOL(stpio_set_pin);
+
+unsigned int stpio_get_pin(struct stpio_pin *pin)
+{
+	struct stm_gpio_port *port = &stm_gpio_ports[pin->port_no];
+	int pin_no = pin->pin_no;
+
+	return __stm_gpio_get(port, pin_no);
+}
+EXPORT_SYMBOL(stpio_get_pin);
+
+static irqreturn_t stpio_irq_wrapper(int irq, void *dev_id)
+{
+	struct stpio_pin *pin = dev_id;
+
+	pin->func(pin, pin->dev);
+	return IRQ_HANDLED;
+}
+
+int stpio_flagged_request_irq(struct stpio_pin *pin, int comp,
+		       void (*handler)(struct stpio_pin *pin, void *dev),
+		       void *dev, unsigned long flags)
+{
+	int irq;
+	int ret;
+
+	/* stpio style interrupt handling doesn't allow sharing. */
+	BUG_ON(pin->func);
+
+	irq = stpio_pin_to_irq(pin);
+	pin->func = handler;
+	pin->dev = dev;
+
+	set_irq_type(irq, comp ? IRQ_TYPE_LEVEL_LOW : IRQ_TYPE_LEVEL_HIGH);
+	ret = request_irq(irq, stpio_irq_wrapper, 0,
+			  stm_gpio_owner(pin->port_no, pin->pin_no), pin);
+	BUG_ON(ret);
+
+	if (flags & IRQ_DISABLED) {
+		/* This is a race condition waiting to happen... */
+		disable_irq(irq);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(stpio_flagged_request_irq);
+
+void stpio_free_irq(struct stpio_pin *pin)
+{
+	int irq = stpio_pin_to_irq(pin);
+
+	free_irq(irq, pin);
+
+	pin->func = 0;
+	pin->dev = 0;
+}
+EXPORT_SYMBOL(stpio_free_irq);
+
+void stpio_enable_irq(struct stpio_pin *pin, int comp)
+{
+	int irq = stpio_pin_to_irq(pin);
+
+	set_irq_type(irq, comp ? IRQ_TYPE_LEVEL_LOW : IRQ_TYPE_LEVEL_HIGH);
+	enable_irq(irq);
+}
+EXPORT_SYMBOL(stpio_enable_irq);
+
+/* This function is safe to call in an IRQ UNLESS it is called in */
+/* the PIO interrupt callback function                            */
+void stpio_disable_irq(struct stpio_pin *pin)
+{
+	int irq = stpio_pin_to_irq(pin);
+
+	disable_irq(irq);
+}
+EXPORT_SYMBOL(stpio_disable_irq);
+
+/* This is safe to call in IRQ context */
+void stpio_disable_irq_nosync(struct stpio_pin *pin)
+{
+	int irq = stpio_pin_to_irq(pin);
+
+	disable_irq_nosync(irq);
+}
+EXPORT_SYMBOL(stpio_disable_irq_nosync);
+
+void stpio_set_irq_type(struct stpio_pin* pin, int triggertype)
+{
+	int irq = stpio_pin_to_irq(pin);
+
+	set_irq_type(irq, triggertype);
+}
+EXPORT_SYMBOL(stpio_set_irq_type);
+
+#endif /* CONFIG_STPIO */
 
 #ifdef CONFIG_DEBUG_FS
 static void stm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
@@ -453,11 +661,7 @@ static void stm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 
 			seq_printf(s, "\n");
 		} else {
-			char pad_label[] = "PIOxx.x";
-
-			snprintf(pad_label, sizeof(pad_label), "PIO%d.%d",
-					port_no, pin_no);
-			owner = stm_pad_owner(pad_label);
+			owner = stm_gpio_owner(port_no, pin_no);
 			if (owner) {
 				seq_printf(s, "allocated by pad mgr "
 						"to '%s'\n", owner);

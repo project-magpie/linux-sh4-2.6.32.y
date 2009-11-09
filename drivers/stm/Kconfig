@@ -15,6 +15,14 @@ config STM_PIO10
 	depends on STM_PIO
 	default n
 
+config STPIO
+	bool "Legacy stpio API"
+	default n
+	help
+	  Select this option to enable the legacy stpio interface. No
+	  code within the kernel uses this API, it is retained only for
+	  drivers outside the kernel which might still need it.
+
 config STM_DMA
 	bool "STMicroelectronics DMA API"
 	select SH_DMA_API

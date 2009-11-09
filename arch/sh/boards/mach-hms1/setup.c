@@ -14,6 +14,7 @@
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
 #include <linux/lirc.h>
+#include <linux/smsc911x.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/stm/platform.h>
@@ -61,9 +62,9 @@ static struct platform_device hms1_physmap_flash = {
 };
 
 static struct platform_device hms1_smsc_lan9117 = {
-	.name		= "smc911x",
+	.name		= "smsc911x",
 	.id		= -1,
-	.num_resources	= 4,
+	.num_resources	= 2,
 	.resource	= (struct resource []) {
 		{
 			.flags = IORESOURCE_MEM,
@@ -75,20 +76,11 @@ static struct platform_device hms1_smsc_lan9117 = {
 			.start = IRL0_IRQ,
 			.end   = IRL0_IRQ,
 		},
-		/* See end of "drivers/net/smsc_911x/smsc9118.c" file
-		 * for description of two following resources. */
-		{
-			.flags = IORESOURCE_IRQ,
-			.name  = "polarity",
-			.start = 1,
-			.end   = 1,
-		},
-		{
-			.flags = IORESOURCE_IRQ,
-			.name  = "type",
-			.start = 1,
-			.end   = 1,
-		},
+	},
+	.dev.platform_data = &(struct smsc911x_platform_config) {
+		.irq_polarity = SMSC911X_IRQ_POLARITY_ACTIVE_HIGH,
+		.irq_type = SMSC911X_IRQ_TYPE_PUSH_PULL,
+		.flags = SMSC911X_USE_32BIT,
 	},
 };
 

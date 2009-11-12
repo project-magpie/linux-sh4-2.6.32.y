@@ -499,11 +499,27 @@ static struct platform_device stx7200_sata_devices[] = {
 void __init stx7200_configure_sata(int port)
 {
 	static int configured[ARRAY_SIZE(stx7200_sata_devices)];
+	static int initialised_phy;
 
 	BUG_ON(port < 0 || port > ARRAY_SIZE(stx7200_sata_devices));
 
 	BUG_ON(configured[port]);
 	configured[port] = 1;
+
+	if (cpu_data->cut_major < 3) {
+		pr_warn("SATA is only supported on cut 3 or later\n");
+		return;
+	}
+
+	if (!initialised_phy) {
+		struct sysconf_field *sc;
+
+		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
+		sysconf_write(sc, 1);
+
+		stm_sata_miphy_init();
+		initialised_phy = 1;
+	}
 
 	platform_device_register(&stx7200_sata_devices[port]);
 }

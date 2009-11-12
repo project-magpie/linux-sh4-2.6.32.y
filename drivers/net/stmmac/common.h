@@ -241,7 +241,8 @@ static inline void stmmac_get_mac_addr(unsigned long ioaddr,
 
 struct stmmac_ops {
 	/* MAC core initialization */
-	void (*core_init) (unsigned long ioaddr) ____cacheline_aligned;
+	void (*core_init) (unsigned long ioaddr, int disable_readahead)
+		____cacheline_aligned;
 	/* DMA core initialization */
 	int (*dma_init) (unsigned long ioaddr, int pbl, u32 dma_tx, u32 dma_rx);
 	/* Dump MAC registers */

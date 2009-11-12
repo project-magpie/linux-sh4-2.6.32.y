@@ -394,14 +394,18 @@ static void gmac_irq_status(unsigned long ioaddr)
 	return;
 }
 
-static void gmac_core_init(unsigned long ioaddr)
+static void gmac_core_init(unsigned long ioaddr, int disable_readahead)
 {
 	u32 value = readl(ioaddr + GMAC_CONTROL);
 	value |= GMAC_CORE_INIT;
 	writel(value, ioaddr + GMAC_CONTROL);
 
 	/* STBus Bridge Configuration */
-	/*writel(0xc5608, ioaddr + 0x00007000);*/
+	if (disable_readahead) {
+		value = readl(ioaddr + GMAC_AHB_CONFIG);
+		value &= GMAC_AHB_CONFIG_READ_AHEAD_MASK;
+		writel(value, ioaddr + GMAC_AHB_CONFIG);
+	}
 
 	/* Freeze MMC counters */
 	writel(0x8, ioaddr + GMAC_MMC_CTRL);

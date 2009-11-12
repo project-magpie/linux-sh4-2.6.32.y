@@ -1066,7 +1066,7 @@ static int stmmac_open(struct net_device *dev)
 	/* Copy the MAC addr into the HW  */
 	priv->mac_type->ops->set_umac_addr(ioaddr, dev->dev_addr, 0);
 	/* Initialize the MAC Core */
-	priv->mac_type->ops->core_init(ioaddr);
+	priv->mac_type->ops->core_init(ioaddr, priv->disable_readahead);
 
 	priv->shutdown = 0;
 
@@ -1918,6 +1918,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	plat_dat = pdev->dev.platform_data;
 	priv->bus_id = plat_dat->bus_id;
 	priv->pbl = plat_dat->pbl;	/* TLI */
+	priv->disable_readahead = plat_dat->disable_readahead;
 	priv->is_gmac = plat_dat->has_gmac;	/* GMAC is on board */
 
 	platform_set_drvdata(pdev, ndev);

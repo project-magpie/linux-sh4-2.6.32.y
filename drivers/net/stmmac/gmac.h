@@ -202,3 +202,7 @@ enum rtc_control {
 #define GMAC_MMC_RX_INTR   0x104
 #define GMAC_MMC_TX_INTR   0x108
 #define GMAC_MMC_RX_CSUM_OFFLOAD   0x208
+
+/* AHB register offsets */
+#define GMAC_AHB_CONFIG		0x7000
+#define GMAC_AHB_CONFIG_READ_AHEAD_MASK	0xFFCFFFFF

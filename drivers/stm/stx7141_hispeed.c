@@ -413,6 +413,11 @@ void __init stx7141_configure_ethernet(int port,
 	stx7141_ethernet_platform_data[port].bsp_priv = sysconf_claim(SYS_CFG,
 			7, 20 + port, 20 + port, "stmmac");
 
+	/* Cut 2 of 7141 has AHB wrapper bug for ethernet gmac */
+	/* Need to disable read-ahead - performance impact     */
+	if (cpu_data->cut_major == 2)
+		stx7141_ethernet_platform_data[port].disable_readahead = 1;
+
 	platform_device_register(&stx7141_ethernet_devices[port]);
 }
 
@@ -591,9 +596,32 @@ static int stx7141_usb_enable(struct stm_pad_config *config, void *priv)
 	unsigned gpio;
 
 	if (first) {
-		/* ENABLE_USB48_CLK: Enable 48 MHz clock */
-		sc = sysconf_claim(SYS_CFG, 4, 5, 5, "USB");
-		sysconf_write(sc, 1);
+		if (cpu_data->cut_major < 2) {
+			/* ENABLE_USB48_CLK: Enable 48 MHz clock */
+			sc = sysconf_claim(SYS_CFG, 4, 5, 5, "USB");
+			sysconf_write(sc, 1);
+		} else {
+			/* Enable 48 MHz clock */
+			sc = sysconf_claim(SYS_CFG, 4, 4, 5, "USB");
+			sysconf_write(sc, 3);
+			sc = sysconf_claim(SYS_CFG, 4, 10, 10, "USB");
+			sysconf_write(sc, 1);
+
+			/* Set overcurrent polarities */
+			sc = sysconf_claim(SYS_CFG, 4, 6, 7, "USB");
+			sysconf_write(sc, 2);
+
+			/* enable resets  */
+			sc = sysconf_claim(SYS_CFG, 4, 8, 8, "USB"); /* 1_0 */
+			sysconf_write(sc, 1);
+			sc = sysconf_claim(SYS_CFG, 4, 13, 13, "USB"); /* 1_1 */
+			sysconf_write(sc, 1);
+			sc = sysconf_claim(SYS_CFG, 4, 1, 1, "USB"); /*2_0 */
+			sysconf_write(sc, 1);
+			sc = sysconf_claim(SYS_CFG, 4, 14, 14, "USB"); /* 2_1 */
+			sysconf_write(sc, 1);
+		}
+
 		first = 0;
 	}
 
@@ -662,6 +690,22 @@ void __init stx7141_configure_sata(void)
 
 	BUG_ON(configured);
 	configured = 1;
+
+	if (cpu_data->cut_major >= 2) {
+		struct sysconf_field *sc;
+
+		/* enable reset  */
+		sc = sysconf_claim(SYS_CFG, 4, 9, 9, "SATA");
+		sysconf_write(sc, 1);
+
+		sc = sysconf_claim(SYS_CFG, 32, 6, 6, "SATA");
+		sysconf_write(sc, 1);
+
+		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
+		sysconf_write(sc, 0);
+
+                stm_sata_miphy_init();
+	}
 
 	platform_device_register(&stx7141_sata_device);
 }

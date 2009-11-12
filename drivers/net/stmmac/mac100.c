@@ -42,7 +42,7 @@
 #define DBG(fmt, args...)  do { } while (0)
 #endif
 
-static void mac100_core_init(unsigned long ioaddr)
+static void mac100_core_init(unsigned long ioaddr, int disable_readahead)
 {
 	u32 value = readl(ioaddr + MAC_CONTROL);
 

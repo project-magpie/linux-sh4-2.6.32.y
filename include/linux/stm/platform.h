@@ -145,6 +145,7 @@ struct plat_stm_temp_data {
 struct stm_plat_stmmacenet_data {
 	int bus_id;
 	int pbl;
+	int disable_readahead;
 	int has_gmac;
 	void (*fix_mac_speed)(void *priv, unsigned int speed);
 	void (*hw_setup)(void);

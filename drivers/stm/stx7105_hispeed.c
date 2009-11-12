@@ -551,7 +551,10 @@ void __init stx7105_configure_sata(void)
 	BUG_ON(configured);
 	configured = 1;
 
-        BUG_ON(cpu_data->cut_major < 3);
+	if (cpu_data->cut_major < 3) {
+		pr_warn("SATA is only supported on cut 3 or later\n");
+		return;
+	}
 
 	/* Power up SATA phy */
 	sc = sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");

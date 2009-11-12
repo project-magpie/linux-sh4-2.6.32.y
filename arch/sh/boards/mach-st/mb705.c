@@ -25,6 +25,7 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/spi/spi.h>
+#include <linux/spi/spi_gpio.h>
 #include <linux/spi/flash.h>
 #include <linux/bug.h>
 #include <linux/irq.h>
@@ -162,23 +163,25 @@ static struct spi_board_info spi_serialflash[] =  {
 	{
 		.modalias	= "m25p80",
 		.bus_num	= 8,
-		.chip_select	= stm_gpio(15, 2),
 		.max_speed_hz	= 500000,
 		.platform_data	= &serialflash_data,
 		.mode		= SPI_MODE_3,
+		.chip_select	= 0,
+		.controller_data = (void *)stm_gpio(15, 2),
 	},
 };
 
 /* GPIO based SPI */
 static struct platform_device spi_gpio_device = {
-	.name           = "spi-stm-gpio",
+	.name           = "spi_gpio",
 	.id             = 8,
 	.num_resources  = 0,
 	.dev            = {
-		.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(15, 0),
-			.gpio_mtsr = stm_gpio(15, 1),
-			.gpio_mrst = stm_gpio(15, 3),
+		.platform_data = &(struct spi_gpio_platform_data) {
+			.sck = stm_gpio(15, 0),
+			.mosi = stm_gpio(15, 1),
+			.miso = stm_gpio(15, 3),
+			.num_chipselect = 1,
 		},
 	},
 };

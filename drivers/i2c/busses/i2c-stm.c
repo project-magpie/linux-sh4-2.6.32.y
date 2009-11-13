@@ -197,6 +197,7 @@ struct iic_ssc {
 	struct i2c_adapter adapter;
 	unsigned long config;
 	wait_queue_head_t wait_queue;
+	struct stm_pad_state *pad_state;
 	struct stm_pad_config *pad_config_ssc, *pad_config_gpio;
 	unsigned int gpio_scl, gpio_sda;
 };
@@ -677,13 +678,13 @@ static void iic_pio_stop(struct iic_ssc *adap)
 	/* Send STOP */
 	gpio_set_value(adap->gpio_scl, 0);
 	gpio_set_value(adap->gpio_sda, 0);
-	stm_pad_switch(adap->pad_config_ssc, adap->pad_config_gpio, "i2c-stm");
+	stm_pad_switch(adap->pad_state, adap->pad_config_gpio);
 	udelay(20);
 	gpio_set_value(adap->gpio_scl, 1);
 	udelay(20);
 	gpio_set_value(adap->gpio_sda, 1);
 	udelay(30);
-	stm_pad_switch(adap->pad_config_gpio, adap->pad_config_ssc, "i2c-stm");
+	stm_pad_switch(adap->pad_state, adap->pad_config_ssc);
 
 	/* Reset SSC */
 	ssc_store32(adap, SSC_CTL, SSC_CTL_SR | SSC_CTL_EN | SSC_CTL_MS |
@@ -1134,19 +1135,23 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 
 	/* If SSC is hard wired, there will be no pad configurations */
 
-	i2c_stm->pad_config_ssc = plat_data->pad_config_ssc;
-	if (i2c_stm->pad_config_ssc && stm_pad_claim(i2c_stm->pad_config_ssc,
-			"i2c-stm") != 0) {
-		printk(KERN_ERR "%s: Pads request failed!\n", __FUNCTION__);
-		return -ENODEV;
-	}
+	if (plat_data->pad_config) {
+		i2c_stm->pad_state = devm_stm_pad_claim(&pdev->dev,
+			plat_data->pad_config, "i2c-stm");
+		if (IS_ERR(i2c_stm->pad_state)) {
+			dev_err(&pdev->dev, "Pads request failed\n");
+			return -ENODEV;
+		}
 
-	i2c_stm->pad_config_gpio = plat_data->pad_config_gpio;
-	if (i2c_stm->pad_config_gpio) {
-		/* No need to gpio_request(), as the pads are
-		 * already claimed... */
-		i2c_stm->gpio_scl = plat_data->gpio_sclk;
-		i2c_stm->gpio_sda = plat_data->gpio_mtsr;
+		if (plat_data->pad_config_gpio) {
+			i2c_stm->pad_config_ssc = plat_data->pad_config_ssc;
+			i2c_stm->pad_config_gpio = plat_data->pad_config_gpio;
+
+			i2c_stm->gpio_scl = stm_pad_gpio(plat_data->pad_config,
+							 "SCL");
+			i2c_stm->gpio_sda = stm_pad_gpio(plat_data->pad_config,
+							 "SDA");
+		}
 	}
 
 	pdev->dev.driver_data = i2c_stm;
@@ -1179,12 +1184,8 @@ static int iic_stm_remove(struct platform_device *pdev)
 {
 	struct resource *res;
 	struct iic_ssc *iic_stm = pdev->dev.driver_data ;
-	struct stm_plat_ssc_data *plat_data = pdev->dev.platform_data;
 
 	i2c_del_adapter(&iic_stm->adapter);
-	/* pad */
-	if (plat_data->pad_config_ssc)
-		stm_pad_release(plat_data->pad_config_ssc);
 	/* irq */
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	devm_free_irq(&pdev->dev, res->start, iic_stm);

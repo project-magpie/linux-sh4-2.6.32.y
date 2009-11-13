@@ -12,6 +12,10 @@
 #include <linux/module.h>
 
 
+struct stm_pad_state {
+	struct stm_pad_config *config;
+	struct sysconf_field *sysconf_fields[];
+};
 
 /* Internal memory allocation (may be used very early, when
  * no kmalloc() is possible yet...) */
@@ -86,20 +90,27 @@ static int stm_pad_list_new(char *path, void *context)
 {
 	struct stm_pad_list *pad;
 	const char *owner = context;
+	int ret = 0;
 
 	BUG_ON(!path);
 	BUG_ON(!context);
+
+	mutex_lock(&stm_pad_list_mutex);
 
 	pad = stm_pad_list_find(path);
 	if (pad) {
 		pr_err("stm_pad: pad '%s' claimed by '%s' already used by "
 				"'%s'!\n", path, owner, pad->owner);
-		return -EBUSY;
+		ret = -EBUSY;
+		goto out;
 	}
 
 	pad = stm_pad_alloc(sizeof(*pad) + strlen(path));
-	if (!pad)
-		return -ENOMEM;
+	if (!pad) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
 	pad->owner = owner;
 	strcpy(pad->path, path);
 
@@ -107,7 +118,10 @@ static int stm_pad_list_new(char *path, void *context)
 
 	list_add(&pad->list, &stm_pad_list_root);
 
-	return 0;
+out:
+	mutex_unlock(&stm_pad_list_mutex);
+
+	return ret;
 }
 
 static int stm_pad_list_delete(char *path, void *context)
@@ -116,6 +130,8 @@ static int stm_pad_list_delete(char *path, void *context)
 	const char **owner = context;
 
 	BUG_ON(!path);
+
+	mutex_lock(&stm_pad_list_mutex);
 
 	pad = stm_pad_list_find(path);
 	WARN_ON(!pad);
@@ -126,6 +142,8 @@ static int stm_pad_list_delete(char *path, void *context)
 		list_del(&pad->list);
 		stm_pad_free(pad);
 	}
+
+	mutex_unlock(&stm_pad_list_mutex);
 
 	return 0;
 }
@@ -275,38 +293,74 @@ static int stm_pad_list_for_each_suffix(struct stm_pad_label *label,
 	return result;
 }
 
-static int stm_pad_list_claim(struct stm_pad_config *config, const char *owner)
+static int stm_pad_list_claim(struct stm_pad_state *state, const char *owner)
 {
-	int i;
+	struct stm_pad_config *config = state->config;
+	int pad_num;
+	int sysconf_num;
+	int gpio_num;
 
 	BUG_ON(!config);
 
-	for (i = 0; i < config->labels_num; i++) {
-		if (stm_pad_list_for_each_suffix(&config->labels[i],
+	for (pad_num = 0; pad_num < config->labels_num; pad_num++)
+		if (stm_pad_list_for_each_suffix(&config->labels[pad_num],
 				stm_pad_list_new, stm_pad_list_delete,
-				(void *)owner) != 0) {
-			while (--i >= 0)
-				stm_pad_list_for_each_suffix(&config->labels[i],
-						stm_pad_list_delete, NULL,
-						NULL);
-			return -EBUSY;
-		}
+				(void *)owner) != 0)
+			goto free_pads;
+
+	for (sysconf_num = 0; sysconf_num < config->sysconf_values_num;
+	     sysconf_num++) {
+		struct stm_pad_sysconf_value *value =
+				&config->sysconf_values[sysconf_num];
+		struct sysconf_field *field = sysconf_claim(value->regtype,
+				value->regnum, value->lsb, value->msb,
+				owner);
+		if (!field)
+			goto free_sysconf;
+
+		state->sysconf_fields[sysconf_num] = field;
 	}
 
+	for (gpio_num = 0; gpio_num < config->gpio_values_num; gpio_num++)
+		/* This will result in a recursive call to claim the pad. */
+		if (gpio_request(config->gpio_values[gpio_num].gpio, owner))
+			goto free_gpio;
+
 	return 0;
+
+free_gpio:
+	while (--gpio_num >= 0)
+		gpio_free(config->gpio_values[gpio_num].gpio);
+
+free_sysconf:
+	while (--sysconf_num >= 0)
+		sysconf_release(state->sysconf_fields[sysconf_num]);
+
+free_pads:
+	while (--pad_num >= 0)
+		stm_pad_list_for_each_suffix(&config->labels[pad_num],
+			stm_pad_list_delete, NULL, NULL);
+
+	return -EBUSY;
 }
 
-static const char *stm_pad_list_release(struct stm_pad_config *config)
+static const char *stm_pad_list_release(struct stm_pad_state *state)
 {
+	struct stm_pad_config *config = state->config;
 	const char *result = NULL;
 	int i;
 
 	BUG_ON(!config);
-	WARN_ON(config->labels_num == 0);
 
 	for (i = 0; i < config->labels_num; i++)
 		stm_pad_list_for_each_suffix(&config->labels[i],
 				stm_pad_list_delete, NULL, &result);
+
+	for (i = 0; i < config->sysconf_values_num; i++)
+		sysconf_release(state->sysconf_fields[i]);
+
+	for (i = 0; i < config->gpio_values_num; i++)
+		gpio_free(config->gpio_values[i].gpio);
 
 	return result;
 }
@@ -389,8 +443,8 @@ __initcall(stm_pad_proc_init);
 
 /* Pads interface implementation */
 
-static int stm_pad_exec_config(struct stm_pad_config *config,
-		const char *owner)
+static int stm_pad_exec_config(struct stm_pad_state *state,
+		struct stm_pad_config *config)
 {
 	int i;
 
@@ -399,15 +453,8 @@ static int stm_pad_exec_config(struct stm_pad_config *config,
 	for (i = 0; i < config->sysconf_values_num; i++) {
 		struct stm_pad_sysconf_value *value =
 				&config->sysconf_values[i];
-		struct sysconf_field *field = sysconf_claim(value->regtype,
-				value->regnum, value->lsb, value->msb,
-				owner);
 
-		/* TODO: sysconf_release() */
-		if (!field)
-			return -EBUSY;
-
-		sysconf_write(field, value->value);
+		sysconf_write(state->sysconf_fields[i], value->value);
 	}
 
 	/* gpio bits... */
@@ -416,13 +463,21 @@ static int stm_pad_exec_config(struct stm_pad_config *config,
 		struct stm_pad_gpio_value *value = &config->gpio_values[i];
 		int res;
 
+		if (value->direction == -1)
+			continue;
+
 		if ((value->direction == STM_GPIO_DIRECTION_OUT) &&
 		    (value->value != -1))
 			res = gpio_direction_output(value->gpio,
 				value->value);
-		else
+		else {
 			res = stm_gpio_direction(value->gpio,
 				value->direction);
+			if (res == 0)
+				/* This will result in a recursive call */
+				res = stm_gpio_mux(value->gpio, value->mux);
+		}
+
 		if (res != 0)
 			return -EINVAL;
 	}
@@ -430,7 +485,7 @@ static int stm_pad_exec_config(struct stm_pad_config *config,
 	/* Custom callback */
 
 	if (config->custom_claim) {
-		int err = config->custom_claim(config->custom_priv);
+		int err = config->custom_claim(config, config->custom_priv);
 
 		if (err != 0)
 			return err;
@@ -439,73 +494,88 @@ static int stm_pad_exec_config(struct stm_pad_config *config,
 	return 0;
 }
 
-int stm_pad_claim(struct stm_pad_config *config, const char *dev_name)
+struct stm_pad_state *stm_pad_claim_exec(struct stm_pad_config *config,
+		const char *dev_name, int flag)
 {
 	int result = 0;
+	struct stm_pad_state *state;
+	int state_size;
 
 	BUG_ON(!config);
 
-	mutex_lock(&stm_pad_list_mutex);
-	result = stm_pad_list_claim(config, dev_name);
-	mutex_unlock(&stm_pad_list_mutex);
+	state_size = sizeof(*state);
+	state_size += sizeof(struct sysconf_field *)*config->sysconf_values_num;
+	state = stm_pad_alloc(state_size);
+	if (!state)
+		return ERR_PTR(-ENOMEM);
 
-	if (result == 0) {
-		result = stm_pad_exec_config(config, dev_name);
-		if (result != 0) {
-			mutex_lock(&stm_pad_list_mutex);
-			stm_pad_list_release(config);
-			mutex_unlock(&stm_pad_list_mutex);
-		}
+	state->config = config;
+
+	result = stm_pad_list_claim(state, dev_name);
+	if (result)
+		goto out_free;
+
+	if (flag) {
+		result = stm_pad_exec_config(state, config);
+		if (result)
+			goto out_release;
 	}
 
-	return result;
+	return state;
+
+out_release:
+	stm_pad_list_release(state);
+out_free:
+	stm_pad_free(state);
+
+	return ERR_PTR(result);
+}
+EXPORT_SYMBOL(stm_pad_claim_exec);
+
+struct stm_pad_state *stm_pad_claim(struct stm_pad_config *config,
+		const char *dev_name)
+{
+	return stm_pad_claim_exec(config, dev_name, 1);
 }
 EXPORT_SYMBOL(stm_pad_claim);
 
-int stm_pad_switch(struct stm_pad_config *old_config,
-		struct stm_pad_config *new_config, const char *new_dev_name)
+int stm_pad_switch(struct stm_pad_state *state,
+		struct stm_pad_config *new_config)
 {
-	const char *old_dev_name;
+	return stm_pad_exec_config(state, new_config);
+}
+EXPORT_SYMBOL(stm_pad_switch);
 
-	BUG_ON(!old_config);
-	BUG_ON(!new_config);
+void stm_pad_release(struct stm_pad_state *state)
+{
+	BUG_ON(!state);
+
+	stm_pad_list_release(state);
+	stm_pad_free(state);
+}
+EXPORT_SYMBOL(stm_pad_release);
+
+int stm_pad_gpio(struct stm_pad_config *config, const char* name)
+{
+	int i;
+	int res = -ENODEV;
 
 	mutex_lock(&stm_pad_list_mutex);
 
-	old_dev_name = stm_pad_list_release(old_config);
+	for (i = 0; i < config->gpio_values_num; i++) {
+		struct stm_pad_gpio_value *value = &config->gpio_values[i];
 
-	if (stm_pad_list_claim(new_config, new_dev_name) != 0) {
-		if (stm_pad_list_claim(old_config, old_dev_name) != 0)
-			BUG();
-		mutex_unlock(&stm_pad_list_mutex);
-	} else {
-		mutex_unlock(&stm_pad_list_mutex);
-		if (stm_pad_exec_config(new_config, new_dev_name) != 0) {
-			mutex_lock(&stm_pad_list_mutex);
-			stm_pad_list_release(new_config);
-			if (stm_pad_list_claim(old_config, old_dev_name) != 0)
-				BUG();
-			else if (stm_pad_exec_config(old_config,
-						old_dev_name) != 0)
-				BUG();
-			mutex_unlock(&stm_pad_list_mutex);
+		if (value->name && !strcmp(value->name, name)) {
+			res = value->gpio;
+			break;
 		}
 	}
 
-	return 0;
-}
-
-void stm_pad_release(struct stm_pad_config *config)
-{
-	BUG_ON(!config);
-
-	mutex_lock(&stm_pad_list_mutex);
-
-	stm_pad_list_release(config);
-
 	mutex_unlock(&stm_pad_list_mutex);
+
+	return res;
 }
-EXPORT_SYMBOL(stm_pad_release);
+EXPORT_SYMBOL(stm_pad_gpio);
 
 const char *stm_pad_owner(const char *label)
 {
@@ -524,6 +594,87 @@ const char *stm_pad_owner(const char *label)
 
 	return result;
 }
+
+/*
+ * This is a custom version of stm_pad_switch, used by the gpio layer to
+ * switch the pad multiplexing and means we only have to store a single
+ * int in struct gpio_value rather than an entire struct stm_pad_config.
+ */
+int stm_pad_mux(struct stm_pad_state *state, struct stm_pad_config *config,
+		int mux)
+{
+	struct stm_pad_config new_config;
+	struct stm_pad_sysconf_value new_sysconf_value;
+
+	if (config->sysconf_values_num == 0)
+		return 0;
+
+	BUG_ON(config->sysconf_values_num != 1);
+
+	new_sysconf_value = config->sysconf_values[0];
+	new_sysconf_value.value = mux;
+
+	memset(&new_config, 0, sizeof(new_config));
+	new_config.sysconf_values_num = 1;
+	new_config.sysconf_values = &new_sysconf_value;
+
+	return stm_pad_exec_config(state, &new_config);
+
+}
+
+/* Device resource management aware routines */
+
+struct stm_pad_devres {
+	struct stm_pad_state *state;
+};
+
+static void stm_pad_devres_release(struct device *dev, void *res)
+{
+	struct stm_pad_devres *this = res;
+
+	stm_pad_release(this->state);
+}
+
+static int stm_pad_devres_match(struct device *dev, void *res, void *data)
+{
+	struct stm_pad_devres *this = res, *match = data;
+
+	return this->state == match->state;
+}
+
+struct stm_pad_state *devm_stm_pad_claim(struct device *dev,
+	struct stm_pad_config *config, const char *name)
+{
+	struct stm_pad_devres *dr;
+	struct stm_pad_state *state;
+
+	dr = devres_alloc(stm_pad_devres_release, sizeof(struct stm_pad_devres),
+			  GFP_KERNEL);
+	if (!dr)
+		return ERR_PTR(-ENOMEM);
+
+	state = stm_pad_claim(config, name);
+	if (IS_ERR(state)) {
+		devres_free(dr);
+		return state;
+	}
+
+	dr->state = state;
+	devres_add(dev, dr);
+
+	return state;
+}
+EXPORT_SYMBOL(devm_stm_pad_claim);
+
+void devm_stm_pad_release(struct device *dev, struct stm_pad_state *state)
+{
+	struct stm_pad_devres match_data = { state };
+
+	stm_pad_release(state);
+	WARN_ON(devres_destroy(dev, stm_pad_devres_release,
+			       stm_pad_devres_match, &match_data));
+}
+EXPORT_SYMBOL(devm_stm_pad_release);
 
 
 

@@ -15,11 +15,10 @@
 
 static struct stm_pad_config stx7100_ethernet_pad_configs[] = {
 	[stx7100_ethernet_mode_mii] = {
-		.labels_num = 3,
+		.labels_num = 2,
 		.labels = (struct stm_pad_label []) {
 			STM_PAD_LABEL_STRINGS("VIDDIGOUT", "HSYNCH", "VSYNCH"),
 			STM_PAD_LABEL_RANGE("VIDDIGOUT.YC", 0, 15),
-			STM_PAD_LABEL("PIO3.7"),
 		},
 		.sysconf_values_num = 3,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
@@ -42,12 +41,11 @@ static struct stm_pad_config stx7100_ethernet_pad_configs[] = {
 		},
 	},
 	[stx7100_ethernet_mode_rmii] = {
-		.labels_num = 3,
+		.labels_num = 2,
 		.labels = (struct stm_pad_label []) {
 			STM_PAD_LABEL("VIDDIGOUT.HSYNCH"),
 			STM_PAD_LABEL_LIST("VIDDIGOUT.YC",
 					0, 1, 4, 5, 6, 8, 9, 15),
-			STM_PAD_LABEL("PIO3.7"),
 		},
 		.sysconf_values_num = 3,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
@@ -112,7 +110,6 @@ void __init stx7100_configure_ethernet(struct stx7100_ethernet_config *config)
 	if ((config->mode == stx7100_ethernet_mode_mii) &&
 	    (config->ext_clk)) {
 		/* Do not claim PHYCLK pin */
-		pad_config->labels_num--;
 		pad_config->gpio_values_num--;
 	}
 	pad_config->gpio_values[0].direction =
@@ -136,13 +133,11 @@ void __init stx7100_configure_ethernet(struct stx7100_ethernet_config *config)
 
 /* USB resources ---------------------------------------------------------- */
 
-#define STX7100_USB_PIO_OVRCUR stm_gpio(5, 6)
-#define STX7100_USB_PIO_PWR stm_gpio(5, 7)
-
-static int stx7100_usb_pad_claim(void *priv)
+static int stx7100_usb_pad_claim(struct stm_pad_config *config, void *priv)
 {
 	struct sysconf_field *sc;
 	u32 reg;
+	int gpio;
 
 	/* Work around for USB over-current detection chip being
 	 * active low, and the 710x being active high.
@@ -151,13 +146,13 @@ static int stx7100_usb_pad_claim(void *priv)
 	 * around), but as we can't reliably determine the minor
 	 * revision number, hard luck, this works for most people.
 	 */
-	gpio_request(STX7100_USB_PIO_OVRCUR, "stm-usb OVRCUR");
+	gpio = stm_pad_gpio(config, "USB_OVRCUR");
 	if ((cpu_data->type == CPU_STX7109 && cpu_data->cut_major < 2) ||
 			(cpu_data->type == CPU_STX7100 &&
 			cpu_data->cut_major < 3))
-		gpio_direction_output(STX7100_USB_PIO_OVRCUR, 0);
+		gpio_direction_output(gpio, 0);
 	else
-		gpio_direction_input(STX7100_USB_PIO_OVRCUR);
+		gpio_direction_input(gpio);
 
 	/*
 	 * There have been two changes to the USB power enable signal:
@@ -181,8 +176,8 @@ static int stx7100_usb_pad_claim(void *priv)
 	 * option to select an inverted output from the TPS2052, so no
 	 * software work around is required.)
 	 */
-	gpio_request(STX7100_USB_PIO_PWR, "stm-usb PWR");
-	gpio_direction_output(STX7100_USB_PIO_PWR, 1);
+	gpio = stm_pad_gpio(config, "USB_PWR");
+	gpio_direction_output(gpio, 1);
 
 	sc = sysconf_claim(SYS_CFG, 2, 1, 1, "stm-usb");
 	BUG_ON(!sc);
@@ -195,26 +190,21 @@ static int stx7100_usb_pad_claim(void *priv)
 	return 0;
 }
 
-static int stx7100_usb_pad_release(void *priv)
-{
-	gpio_free(STX7100_USB_PIO_OVRCUR);
-	gpio_free(STX7100_USB_PIO_PWR);
-
-	return 0;
-}
-
 static struct stm_plat_usb_data stx7100_usb_platform_data = {
 	.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 		STM_PLAT_USB_FLAGS_STRAP_PLL |
 		STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
 	.pad_config = &(struct stm_pad_config) {
-		.labels_num = 2,
+		.labels_num = 1,
 		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO5", 6, 7),
 			STM_PAD_LABEL_STRINGS("USB", "DM", "DP", "REF"),
 		},
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_UNKNOWN_NAME(5, 6, "USB_OVERCUR"),
+			STM_PAD_PIO_UNKNOWN_NAME(5, 7, "USB_PWR"),
+		},
 		.custom_claim = stx7100_usb_pad_claim,
-		.custom_release = stx7100_usb_pad_release,
 	},
 };
 

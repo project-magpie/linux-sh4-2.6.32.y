@@ -1046,8 +1046,9 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 	struct stm_nand_bank_data *bank;
 	struct stm_nand_flex_controller *flex;
 
-	res = stm_pad_claim(pdata->pad_config, dev_name(&pdev->dev));
-	if (res) {
+	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, pdata->pad_config,
+				      dev_name(&pdev->dev)))) {
+		res = PTR_ERR(flex);
 		dev_err(&pdev->dev, "Pads request failed!\n");
 		return res;
 	}
@@ -1056,7 +1057,7 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 	if (IS_ERR(flex)) {
 		dev_err(&pdev->dev, "Failed to initialise NAND Controller.\n");
 		res = PTR_ERR(flex);
-		goto out1;
+		return res;
 	}
 
 	bank = pdata->banks;
@@ -1070,10 +1071,6 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, flex);
 
 	return 0;
-
-out1:
-	stm_pad_release(pdata->pad_config);
-	return res;
 }
 
 static int __devexit stm_nand_flex_remove(struct platform_device *pdev)

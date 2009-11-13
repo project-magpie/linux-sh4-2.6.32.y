@@ -36,6 +36,7 @@ struct stm_gpio_pin {
 #define PIN_IGNORE_FALLING_EDGE	(PIN_IGNORE_EDGE_FLAG | 1)
 #define PIN_IGNORE_EDGE_MASK	(PIN_IGNORE_EDGE_FLAG | PIN_IGNORE_EDGE_VAL)
 	struct stm_pad_config *pad_config;
+	struct stm_pad_state *pad_state;
 	struct stpio_pin stpio;
 };
 
@@ -319,6 +320,16 @@ static inline void __stm_gpio_direction(struct stm_gpio_port *port,
 	set__PIO_PCx(port->base, offset, direction);
 }
 
+static inline int __stm_gpio_mux(struct stm_gpio_port *port,
+		unsigned offset, int mux)
+{
+	struct stm_gpio_pin *gpio_pin;
+
+	gpio_pin = &port->pins[offset];
+
+	return stm_pad_mux(gpio_pin->pad_state, gpio_pin->pad_config, mux);
+}
+
 
 
 /*** generic gpio & gpiolib interface implementation ***/
@@ -346,15 +357,22 @@ EXPORT_SYMBOL(irq_to_gpio);
 static int stm_gpio_request(struct gpio_chip *chip, unsigned offset)
 {
 	struct stm_gpio_port *port = to_stm_gpio_port(chip);
+	struct stm_pad_state *pad_state;
 
-	return stm_pad_claim(port->pins[offset].pad_config, chip->label);
+	pad_state = stm_pad_claim_exec(port->pins[offset].pad_config,
+				       chip->label, 0);
+	if (IS_ERR(pad_state))
+		return PTR_ERR(pad_state);
+
+	port->pins[offset].pad_state = pad_state;
+	return 0;
 }
 
 static void stm_gpio_free(struct gpio_chip *chip, unsigned offset)
 {
 	struct stm_gpio_port *port = to_stm_gpio_port(chip);
 
-	stm_pad_release(port->pins[offset].pad_config);
+	stm_pad_release(port->pins[offset].pad_state);
 }
 
 static int stm_gpio_get(struct gpio_chip *chip, unsigned offset)
@@ -376,6 +394,7 @@ static int stm_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 	struct stm_gpio_port *port = to_stm_gpio_port(chip);
 
 	set__PIO_PCx__INPUT_HIGH_IMPEDANCE(port->base, offset);
+	__stm_gpio_mux(port, offset, -1);
 
 	return 0;
 }
@@ -388,6 +407,7 @@ static int stm_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 	__stm_gpio_set(port, offset, value);
 
 	set__PIO_PCx__OUTPUT_PUSH_PULL(port->base, offset);
+	__stm_gpio_mux(port, offset, -1);
 
 	return 0;
 }
@@ -403,6 +423,18 @@ int stm_gpio_direction(unsigned int gpio, unsigned int direction)
 
 	return 0;
 }
+
+int stm_gpio_mux(unsigned int gpio, int mux)
+{
+	int port_no = stm_gpio_port(gpio);
+	int pin_no = stm_gpio_pin(gpio);
+
+	BUG_ON(gpio >= stm_gpio_num);
+
+	return __stm_gpio_mux(&stm_gpio_ports[port_no], pin_no, mux);
+}
+
+
 
 #ifdef CONFIG_STPIO
 
@@ -422,8 +454,8 @@ struct stpio_pin *__stpio_request_pin(unsigned int portno,
 {
 	struct stm_gpio_port *port;
 	struct stm_gpio_pin *gpio_pin;
+	struct stm_pad_state *pad_state;
 	int num_ports = stm_gpio_num / STM_GPIO_PINS_PER_PORT;
-	int res;
 
 	if (portno >= num_ports || pinno >= STM_GPIO_PINS_PER_PORT)
 		return NULL;
@@ -431,8 +463,8 @@ struct stpio_pin *__stpio_request_pin(unsigned int portno,
 	port = &stm_gpio_ports[portno];
 	gpio_pin = &port->pins[pinno];
 
-	res = stm_pad_claim(gpio_pin->pad_config, name);
-	if (res)
+	pad_state = stm_pad_claim(gpio_pin->pad_config, name);
+	if (IS_ERR(pad_state))
 		return NULL;
 
 	if (__set_value)
@@ -440,6 +472,7 @@ struct stpio_pin *__stpio_request_pin(unsigned int portno,
 
 	__stm_gpio_direction(port, pinno, direction);
 
+	gpio_pin->pad_state = pad_state;
 	gpio_pin->stpio.port_no = portno;
 	gpio_pin->stpio.pin_no = pinno;
 
@@ -451,8 +484,7 @@ void stpio_free_pin(struct stpio_pin *pin)
 {
 	struct stm_gpio_pin *gpio_pin = stpio_pin_to_stm_gpio_pin(pin);
 
-	stm_pad_release(gpio_pin->pad_config);
-
+	stm_pad_release(gpio_pin->pad_state);
 }
 EXPORT_SYMBOL(stpio_free_pin);
 

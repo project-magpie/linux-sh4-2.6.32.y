@@ -1926,7 +1926,8 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	ndev->base_addr = (unsigned long)addr;
 
 	/* Pad routing setup */
-	if (stm_pad_claim(plat_dat->pad_config, dev_name(&pdev->dev)) != 0) {
+	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, plat_dat->pad_config,
+				      dev_name(&pdev->dev)))) {
 		printk(KERN_ERR "%s: Failed to request pads!\n",
 		       __FUNCTION__);
 		ret = -ENODEV;
@@ -1987,7 +1988,6 @@ out:
 static int stmmac_dvr_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
-	struct stm_plat_stmmacenet_data *plat_dat = pdev->dev.platform_data;
 	struct resource *res;
 
 	pr_info("%s:\n\tremoving driver", __func__);
@@ -2004,8 +2004,6 @@ static int stmmac_dvr_remove(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, NULL);
 	unregister_netdev(ndev);
-
-	stm_pad_release(plat_dat->pad_config);
 
 	iounmap((void *)ndev->base_addr);
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);

@@ -20,10 +20,6 @@ static struct stm_plat_usb_data stx7200_usb_platform_data[] = {
 				STM_PLAT_USB_FLAGS_STRAP_PLL |
 				STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
 		.pad_config = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO7", 0, 1),
-			},
 			.sysconf_values_num = 3,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* route USB and parts of MAFE instead of DVO:
@@ -50,10 +46,6 @@ static struct stm_plat_usb_data stx7200_usb_platform_data[] = {
 				STM_PLAT_USB_FLAGS_STRAP_PLL |
 				STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
 		.pad_config = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO7", 2, 3),
-			},
 			.sysconf_values_num = 3,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* route USB and parts of MAFE instead of DVO:
@@ -80,10 +72,6 @@ static struct stm_plat_usb_data stx7200_usb_platform_data[] = {
 				STM_PLAT_USB_FLAGS_STRAP_PLL |
 				STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
 		.pad_config = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO7", 4, 5),
-			},
 			.sysconf_values_num = 3,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* route USB and parts of MAFE instead of DVO:
@@ -175,7 +163,8 @@ static struct platform_device stx7200_usb_devices[] = {
 
 /* Workaround for USB problems on 7200 cut 1;
  * alternative to RC delay on board */
-static int __init stx7200_usb_soft_jtag_reset(void *priv)
+static int __init stx7200_usb_soft_jtag_reset(struct stm_pad_config *config,
+		void *priv)
 {
 	int i, j;
 	struct sysconf_field *sc;

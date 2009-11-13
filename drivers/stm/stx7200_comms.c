@@ -12,11 +12,6 @@
 
 static struct stm_pad_config stx7200_asc_pad_configs[] = {
 	[0] = {
-		.labels_num = 2, /* !!! see stx7200_configure_asc() */
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO0", 0, 1),
-			STM_PAD_LABEL_LIST("PIO0", 4, 7), /* HW flow control */
-		},
 		.sysconf_values_num = 2,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* Route UART0/1 and MPX instead of DVP to pins:
@@ -39,11 +34,6 @@ static struct stm_pad_config stx7200_asc_pad_configs[] = {
 		},
 	},
 	[1] = {
-		.labels_num = 2, /* !!! see stx7200_configure_asc() */
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO1", 0, 1),
-			STM_PAD_LABEL_LIST("PIO1", 4, 5), /* HW flow control */
-		},
 		.sysconf_values_num = 2, /* !!! see stx7200_configure_asc() */
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* CONF_PAD_PIO[5] = 0 - route UART0/1 and
@@ -66,11 +56,6 @@ static struct stm_pad_config stx7200_asc_pad_configs[] = {
 		},
 	},
 	[2] = {
-		.labels_num = 2, /* !!! see stx7200_configure_asc() */
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO4", 2, 3),
-			STM_PAD_LABEL_RANGE("PIO4", 4, 5), /* HW flow control */
-		},
 		.sysconf_values_num = 4, /* !!! see stx7200_configure_asc() */
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* Route UART2 (in and out) and PWM_OUT0 instead of
@@ -99,11 +84,6 @@ static struct stm_pad_config stx7200_asc_pad_configs[] = {
 		},
 	},
 	[3] = {
-		.labels_num = 2, /* !!! see stx7200_configure_asc() */
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO5", 3, 4),
-			STM_PAD_LABEL_RANGE("PIO5", 5, 6), /* HW flow control */
-		},
 		.sysconf_values_num = 2, /* !!! see stx7200_configure_asc() */
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* Route UART3 (in and out) instead of SCI to pins:
@@ -215,7 +195,6 @@ void __init stx7200_configure_asc(int asc, struct stx7200_asc_config *config)
 
 	if (!config->hw_flow_control) {
 		/* Don't claim RTS/CTS pads */
-		stx7200_asc_pad_configs[asc].labels_num--;
 		/* sysconf values responsible for RTS/CTS routing
 		 * are defined as the last ones... */
 		if (asc == 1 || asc == 2 || asc == 3)
@@ -250,12 +229,8 @@ arch_initcall(stx7200_add_asc);
 /* SSC resources ---------------------------------------------------------- */
 
 /* Pad configuration for I2C/SSC mode */
-static struct stm_pad_config stx7200_ssc_i2c_ssc_pad_configs[] = {
+static struct stm_pad_config stx7200_ssc_i2c_pad_configs[] = {
 	[0] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 0, 1),
-		},
 		.sysconf_values_num = 1,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* SSC0_MUX_SEL = 0 (default assignment) */
@@ -264,16 +239,12 @@ static struct stm_pad_config stx7200_ssc_i2c_ssc_pad_configs[] = {
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* SCL */
-			STM_PAD_PIO_ALT_BIDIR(2, 0),
+			STM_PAD_PIO_ALT_BIDIR_NAME(2, 0, "SCL"),
 			/* SDA */
-			STM_PAD_PIO_ALT_BIDIR(2, 1),
+			STM_PAD_PIO_ALT_BIDIR_NAME(2, 1, "SDA"),
 		},
 	},
 	[1] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO3", 0, 1),
-		},
 		.sysconf_values_num = 1,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* SSC1_MUX_SEL = 0 (default assignment) */
@@ -282,16 +253,12 @@ static struct stm_pad_config stx7200_ssc_i2c_ssc_pad_configs[] = {
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* SCL */
-			STM_PAD_PIO_ALT_BIDIR(3, 0),
+			STM_PAD_PIO_ALT_BIDIR_NAME(3, 0, "SCL"),
 			/* SDA */
-			STM_PAD_PIO_ALT_BIDIR(3, 1),
+			STM_PAD_PIO_ALT_BIDIR_NAME(3, 1, "SDA"),
 		},
 	},
 	[2] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO4", 0, 1),
-		},
 		.sysconf_values_num = 1,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* SSC2_MUX_SEL = 0 (separate PIOs) */
@@ -300,16 +267,12 @@ static struct stm_pad_config stx7200_ssc_i2c_ssc_pad_configs[] = {
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* SCL */
-			STM_PAD_PIO_ALT_BIDIR(4, 0),
+			STM_PAD_PIO_ALT_BIDIR_NAME(4, 0, "SCL"),
 			/* SDA */
-			STM_PAD_PIO_ALT_BIDIR(4, 1),
+			STM_PAD_PIO_ALT_BIDIR_NAME(4, 1, "SDA"),
 		},
 	},
 	[3] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO5", 0, 1),
-		},
 		.sysconf_values_num = 1,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* SSC3_MUX_SEL = 0 (separate PIOs) */
@@ -318,16 +281,12 @@ static struct stm_pad_config stx7200_ssc_i2c_ssc_pad_configs[] = {
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* SCL */
-			STM_PAD_PIO_ALT_BIDIR(5, 0),
+			STM_PAD_PIO_ALT_BIDIR_NAME(5, 0, "SCL"),
 			/* SDA */
-			STM_PAD_PIO_ALT_BIDIR(5, 1),
+			STM_PAD_PIO_ALT_BIDIR_NAME(5, 1, "SDA"),
 		},
 	},
 	[4] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO7", 6, 7),
-		},
 		.sysconf_values_num = 1,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* SSC4_MUX_SEL = 0 (separate PIOs) */
@@ -336,9 +295,9 @@ static struct stm_pad_config stx7200_ssc_i2c_ssc_pad_configs[] = {
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* SCL */
-			STM_PAD_PIO_ALT_BIDIR(7, 6),
+			STM_PAD_PIO_ALT_BIDIR_NAME(7, 6, "SCL"),
 			/* SDA */
-			STM_PAD_PIO_ALT_BIDIR(7, 7),
+			STM_PAD_PIO_ALT_BIDIR_NAME(7, 7, "SDA"),
 		},
 	},
 };
@@ -346,10 +305,6 @@ static struct stm_pad_config stx7200_ssc_i2c_ssc_pad_configs[] = {
 /* Pad configuration for I2C/GPIO (temporary) mode */
 static struct stm_pad_config stx7200_ssc_i2c_gpio_pad_configs[] = {
 	[0] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 0, 1),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* SCL */
@@ -359,10 +314,6 @@ static struct stm_pad_config stx7200_ssc_i2c_gpio_pad_configs[] = {
 		},
 	},
 	[1] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO3", 0, 1),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* SCL */
@@ -372,10 +323,6 @@ static struct stm_pad_config stx7200_ssc_i2c_gpio_pad_configs[] = {
 		},
 	},
 	[2] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO4", 0, 1),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* SCL */
@@ -385,10 +332,6 @@ static struct stm_pad_config stx7200_ssc_i2c_gpio_pad_configs[] = {
 		},
 	},
 	[3] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO5", 0, 1),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* SCL */
@@ -398,10 +341,6 @@ static struct stm_pad_config stx7200_ssc_i2c_gpio_pad_configs[] = {
 		},
 	},
 	[4] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO7", 6, 7),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* SCL */
@@ -412,13 +351,58 @@ static struct stm_pad_config stx7200_ssc_i2c_gpio_pad_configs[] = {
 	},
 };
 
+/* Pad configuration to revert to I2C/SSC mode from I2C/GPIO mode */
+static struct stm_pad_config stx7200_ssc_i2c_ssc_pad_configs[] = {
+	[0] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			/* SCL */
+			STM_PAD_PIO_ALT_BIDIR(2, 0),
+			/* SDA */
+			STM_PAD_PIO_ALT_BIDIR(2, 1),
+		},
+	},
+	[1] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			/* SCL */
+			STM_PAD_PIO_ALT_BIDIR(3, 0),
+			/* SDA */
+			STM_PAD_PIO_ALT_BIDIR(3, 1),
+		},
+	},
+	[2] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			/* SCL */
+			STM_PAD_PIO_ALT_BIDIR(4, 0),
+			/* SDA */
+			STM_PAD_PIO_ALT_BIDIR(4, 1),
+		},
+	},
+	[3] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			/* SCL */
+			STM_PAD_PIO_ALT_BIDIR(5, 0),
+			/* SDA */
+			STM_PAD_PIO_ALT_BIDIR(5, 1),
+		},
+	},
+	[4] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			/* SCL */
+			STM_PAD_PIO_ALT_BIDIR(7, 6),
+			/* SDA */
+			STM_PAD_PIO_ALT_BIDIR(7, 7),
+		},
+	},
+};
+
 /* Pad configuration for SPI/SSC mode */
 static struct stm_pad_config stx7200_ssc_spi_pad_configs[] = {
 	[0] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 0, 2),
-		},
 		.sysconf_values_num = 2,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* SSC0_MUX_SEL = 0 (default assignment) */
@@ -439,10 +423,6 @@ static struct stm_pad_config stx7200_ssc_spi_pad_configs[] = {
 		},
 	},
 	[1] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO3", 0, 2),
-		},
 		.sysconf_values_num = 1,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* SSC1_MUX_SEL = 0 (default assignment) */
@@ -459,10 +439,6 @@ static struct stm_pad_config stx7200_ssc_spi_pad_configs[] = {
 		},
 	},
 	[3] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO5", 0, 2),
-		},
 		.sysconf_values_num = 1,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* SSC3_MUX_SEL = 0 (separate PIOs) */
@@ -489,9 +465,6 @@ static struct platform_device stx7200_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(108), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(2, 0),
-			.gpio_mtsr = stm_gpio(2, 1),
-			.gpio_mrst = stm_gpio(2, 2),
 			/* .pad_config_* set in stx7200_configure_ssc_*() */
 		},
 	},
@@ -503,9 +476,6 @@ static struct platform_device stx7200_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(109), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(3, 0),
-			.gpio_mtsr = stm_gpio(3, 1),
-			.gpio_mrst = stm_gpio(3, 2),
 			/* .pad_config_* set in stx7200_configure_ssc_*() */
 		},
 	},
@@ -517,9 +487,6 @@ static struct platform_device stx7200_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(110), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(4, 0),
-			.gpio_mtsr = stm_gpio(4, 1),
-			.gpio_mrst = STM_GPIO_INVALID,
 			/* .pad_config_* set in stx7200_configure_ssc_*() */
 		},
 	},
@@ -531,9 +498,6 @@ static struct platform_device stx7200_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(111), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(5, 0),
-			.gpio_mtsr = stm_gpio(5, 1),
-			.gpio_mrst = stm_gpio(5, 2),
 			/* .pad_config_* set in stx7200_configure_ssc_*() */
 		},
 	},
@@ -545,9 +509,6 @@ static struct platform_device stx7200_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(112), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(7, 6),
-			.gpio_mtsr = stm_gpio(7, 7),
-			.gpio_mrst = STM_GPIO_INVALID,
 			/* .pad_config_* set in stx7200_configure_ssc_*() */
 		},
 	},
@@ -569,6 +530,7 @@ int __init stx7200_configure_ssc_i2c(int ssc)
 	stx7200_ssc_devices[ssc].id = i2c_busnum;
 
 	plat_data = stx7200_ssc_devices[ssc].dev.platform_data;
+	plat_data->pad_config = &stx7200_ssc_i2c_pad_configs[ssc];
 	plat_data->pad_config_ssc = &stx7200_ssc_i2c_ssc_pad_configs[ssc];
 	plat_data->pad_config_gpio = &stx7200_ssc_i2c_gpio_pad_configs[ssc];
 
@@ -698,10 +660,6 @@ void __init stx7200_configure_lirc(struct stx7200_lirc_config *config)
 static struct stm_plat_pwm_data stx7200_pwm_platform_data = {
 	.channel_pad_config = {
 		[0] = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL("PIO4.6"),
-			},
 			.sysconf_values_num = 1,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* Route UART2 and PWM_OUT0 instead of
@@ -714,10 +672,6 @@ static struct stm_plat_pwm_data stx7200_pwm_platform_data = {
 			},
 		},
 		[1] = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL("PIO4.7"),
-			},
 			.gpio_values_num = 1,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				STM_PAD_PIO_ALT_OUT(4, 7),

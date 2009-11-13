@@ -16,11 +16,6 @@
 
 static struct stm_pad_config stx5197_asc_pad_configs[] = {
 	[0] = {
-		.labels_num = 2, /* !!! see stx5197_configure_asc() */
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO0", 0, 1),
-			STM_PAD_LABEL_RANGE("PIO0", 4, 5), /* HW flow control */
-		},
 		.sysconf_values_num = 4, /* !!! see stx5197_configure_asc() */
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* Alt 0 for PIO0.0 & PIO0.1 */
@@ -43,11 +38,6 @@ static struct stm_pad_config stx5197_asc_pad_configs[] = {
 		},
 	},
 	[1] = {
-		.labels_num = 2, /* !!! see stx5197_configure_asc() */
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO4", 0, 1),
-			STM_PAD_LABEL_RANGE("PIO4", 2, 3), /* HW flow control */
-		},
 		.sysconf_values_num = 4, /* !!! see stx5197_configure_asc() */
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* Alt 2 for PIO4.0 & PIO4.1 */
@@ -70,11 +60,6 @@ static struct stm_pad_config stx5197_asc_pad_configs[] = {
 		},
 	},
 	[2] = {
-		.labels_num = 2, /* !!! see stx5197_configure_asc() */
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO1", 2, 3),
-			STM_PAD_LABEL_RANGE("PIO1", 4, 5), /* HW flow control */
-		},
 		.sysconf_values_num = 4, /* !!! see stx5197_configure_asc() */
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* Alt 1 for PIO1.2 & PIO1.3 */
@@ -97,11 +82,6 @@ static struct stm_pad_config stx5197_asc_pad_configs[] = {
 		},
 	},
 	[3] = {
-		.labels_num = 2, /* !!! see stx5197_configure_asc() */
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 0, 1),
-			STM_PAD_LABEL_LIST("PIO2", 2, 5), /* HW flow control */
-		},
 		.sysconf_values_num = 4, /* !!! see stx5197_configure_asc() */
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* Alt 1 for PIO2.0 & PIO2.1 */
@@ -215,7 +195,7 @@ void __init stx5197_configure_asc(int asc, struct stx5197_asc_config *config)
 
 	if (!config->hw_flow_control) {
 		/* Don't claim RTS/CTS pads */
-		stx5197_asc_pad_configs[asc].labels_num--;
+		stx5197_asc_pad_configs[asc].gpio_values_num -= 2;
 		/* sysconf values responsible for RTS/CTS routing
 		 * are defined as the last 2 or 4 ones... */
 		if (asc == 3)
@@ -253,10 +233,6 @@ arch_initcall(stx5197_add_asc);
 
 /* Pad configuration for SSC0 in I2C/SSC mode on PIO1.6/7 pads */
 static struct stm_pad_config stx5197_ssc0_i2c_ssc_pio1_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO1", 6, 7),
-	},
 	.sysconf_values_num = 4,
 	.sysconf_values = (struct stm_pad_sysconf_value []) {
 		/* SPI_BOOTNOTCOMMS
@@ -280,10 +256,6 @@ static struct stm_pad_config stx5197_ssc0_i2c_ssc_pio1_pad_config = {
 
 /* Pad configuration for SSC0 in I2C/GPIO (temporary) mode (on PIO1) */
 static struct stm_pad_config stx5197_ssc0_i2c_gpio_pad1_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO1", 6, 7),
-	},
 	.sysconf_values_num = 2,
 	.sysconf_values = (struct stm_pad_sysconf_value []) {
 		/* Alt 1 for PIO1.6 & PIO1.6 */
@@ -355,10 +327,6 @@ static struct stm_pad_config stx5197_ssc1_i2c_ssc_qam_config = {
 
 /* Pad configuration for SSC2 in I2C/SSC mode (always PIO3.3/2 pads) */
 static struct stm_pad_config stx5197_ssc2_i2c_ssc_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO3", 2, 3),
-	},
 	.sysconf_values_num = 2,
 	.sysconf_values = (struct stm_pad_sysconf_value []) {
 		/* Alt 1 for PIO3.2 & PIO3.3 */
@@ -376,10 +344,6 @@ static struct stm_pad_config stx5197_ssc2_i2c_ssc_pad_config = {
 
 /* Pad configuration for SSC2 in I2C GPIO (temporary) mode */
 static struct stm_pad_config stx5197_ssc2_i2c_gpio_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO3", 2, 3),
-	},
 	.sysconf_values_num = 2,
 	.sysconf_values = (struct stm_pad_sysconf_value []) {
 		/* Alt 0 for PIO3.2 & PIO3.3 */
@@ -404,9 +368,6 @@ static struct platform_device stx5197_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(5), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(1, 6),
-			.gpio_mtsr = stm_gpio(1, 7),
-			.gpio_mrst = STM_GPIO_INVALID,
 			/* .pad_config_* set in stx5197_configure_ssc_*() */
 		},
 	},
@@ -418,9 +379,6 @@ static struct platform_device stx5197_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(6), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = STM_GPIO_INVALID,
-			.gpio_mtsr = STM_GPIO_INVALID,
-			.gpio_mrst = STM_GPIO_INVALID,
 			/* .pad_config_* set in stx5197_configure_ssc_*() */
 		},
 	},
@@ -432,9 +390,6 @@ static struct platform_device stx5197_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(17), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(3, 3),
-			.gpio_mtsr = stm_gpio(3, 2),
-			.gpio_mrst = STM_GPIO_INVALID,
 			.pad_config_ssc = &stx5197_ssc2_i2c_ssc_pad_config,
 			.pad_config_gpio = &stx5197_ssc2_i2c_gpio_pad_config,
 		},
@@ -645,10 +600,6 @@ void __init stx5197_configure_lirc(struct stx5197_lirc_config *config)
 static struct stm_plat_pwm_data stx5197_pwm_platform_data = {
 	.channel_pad_config = {
 		[0] = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL("PIO2.4"),
-			},
 			.sysconf_values_num = 2,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* Alt. 1 for PIO2.4 */

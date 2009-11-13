@@ -114,8 +114,9 @@ stm_pwm_init(struct platform_device* pdev, struct stm_pwm *pwm,
 	writel(0, pwm->base + PWM1_VAL);
 
 	if (plat_data->channel_enabled[0]) {
-		if (stm_pad_claim(plat_data->channel_pad_config[0],
-				dev_name(&pdev->dev)) != 0) {
+		if (IS_ERR(devm_stm_pad_claim(&pdev->dev,
+					      plat_data->channel_pad_config[0],
+					      dev_name(&pdev->dev)))) {
 			error = -ENODEV;
 			goto error_pad_claim_0;
 		}
@@ -125,8 +126,9 @@ stm_pwm_init(struct platform_device* pdev, struct stm_pwm *pwm,
 	}
 
 	if (plat_data->channel_enabled[1]) {
-		if (stm_pad_claim(plat_data->channel_pad_config[1],
-				dev_name(&pdev->dev)) != 0) {
+		if (IS_ERR(devm_stm_pad_claim(&pdev->dev,
+					      plat_data->channel_pad_config[1],
+					      dev_name(&pdev->dev)))) {
 			error = -ENODEV;
 			goto error_pad_claim_1;
 		}
@@ -138,13 +140,10 @@ stm_pwm_init(struct platform_device* pdev, struct stm_pwm *pwm,
 	return 0;
 
 error_create_file_1:
-	stm_pad_release(plat_data->channel_pad_config[1]);
 error_pad_claim_1:
 	if (plat_data->channel_enabled[0])
 		device_remove_file(&pdev->dev, &dev_attr_pwm0);
 error_create_file_0:
-	if (plat_data->channel_enabled[0])
-		stm_pad_release(plat_data->channel_pad_config[0]);
 error_pad_claim_0:
 	return error;
 }
@@ -206,13 +205,8 @@ failed1:
 static int stm_pwm_remove(struct platform_device *pdev)
 {
 	struct stm_pwm *pwm = platform_get_drvdata(pdev);
-	struct stm_plat_pwm_data *plat_data = pdev->dev.platform_data;
 
 	if (pwm) {
-		if (plat_data->channel_enabled[0])
-			stm_pad_release(plat_data->channel_pad_config[0]);
-		if (plat_data->channel_enabled[1])
-			stm_pad_release(plat_data->channel_pad_config[1]);
 		hwmon_device_unregister(pwm->hwmon_dev);
 		iounmap(pwm->base);
 		release_resource(pwm->mem);

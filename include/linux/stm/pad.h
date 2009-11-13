@@ -142,47 +142,66 @@ struct stm_pad_gpio_value {
 	unsigned gpio;
 	int direction;
 	int value;
+	int mux;
+	const char *name;
 };
 
-#define STM_PAD_PIO_BIDIR(_port, _pin) \
+#define STM_PAD_PIO(_port, _pin, _direction, _value, _mux, _name) \
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
-		.direction = STM_GPIO_DIRECTION_BIDIR, \
+		.direction = _direction, \
+		.value = _value, \
+		.mux = _mux, \
+		.name = _name, \
 	}
+
+#define STM_PAD_PIO_DIR(_port, _pin, _direction) \
+	STM_PAD_PIO(_port, _pin, _direction, -1, -1, NULL)
+
+#define STM_PAD_PIO_BIDIR(_port, _pin) \
+	STM_PAD_PIO_DIR(_port, _pin, STM_GPIO_DIRECTION_BIDIR)
+
+#define STM_PAD_PIO_BIDIR_MUX(_port, _pin, _mux) \
+	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_BIDIR, -1, _mux, NULL)
+
+#define STM_PAD_PIO_BIDIR_MUX_NAME(_port, _pin, _mux, _name) \
+	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_BIDIR, -1, _mux, _name)
+
+#define STM_PAD_PIO_OUT_MUX(_port, _pin, _mux) \
+	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_OUT, -1, _mux, NULL)
 
 #define STM_PAD_PIO_OUT_VALUE(_port, _pin, _value) \
-	{ \
-		.gpio = stm_gpio(_port, _pin), \
-		.direction = STM_GPIO_DIRECTION_OUT, \
-		.value = _value, \
-	}
+	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_OUT, _value, -1, NULL)
 
 #define STM_PAD_PIO_OUT(_port, _pin) \
-	STM_PAD_PIO_OUT_VALUE(_port, _pin, -1)
+	STM_PAD_PIO_DIR(_port, _pin, STM_GPIO_DIRECTION_OUT)
+
+#define STM_PAD_PIO_IN_MUX(_port, _pin, _mux) \
+	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_IN, -1, _mux, NULL)
+
+#define STM_PAD_PIO_IN_NAME(_port, _pin, _name) \
+	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_IN, -1, -1, _name)
 
 #define STM_PAD_PIO_IN(_port, _pin) \
-	{ \
-		.gpio = stm_gpio(_port, _pin), \
-		.direction = STM_GPIO_DIRECTION_IN, \
-	}
+	STM_PAD_PIO_DIR(_port, _pin, STM_GPIO_DIRECTION_IN)
 
 #define STM_PAD_PIO_ALT_OUT(_port, _pin) \
-	{ \
-		.gpio = stm_gpio(_port, _pin), \
-		.direction = STM_GPIO_DIRECTION_ALT_OUT, \
-	}
+	STM_PAD_PIO_DIR(_port, _pin, STM_GPIO_DIRECTION_ALT_OUT)
+
+#define STM_PAD_PIO_ALT_BIDIR_MUX_NAME(_port, _pin, _mux, _name) \
+	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_ALT_BIDIR, -1, _mux, _name)
+
+#define STM_PAD_PIO_ALT_BIDIR_NAME(_port, _pin, _name) \
+	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_ALT_BIDIR, -1, -1, _name)
 
 #define STM_PAD_PIO_ALT_BIDIR(_port, _pin) \
-	{ \
-		.gpio = stm_gpio(_port, _pin), \
-		.direction = STM_GPIO_DIRECTION_ALT_BIDIR, \
-	}
+	STM_PAD_PIO_DIR(_port, _pin, STM_GPIO_DIRECTION_ALT_BIDIR)
+
+#define STM_PAD_PIO_UNKNOWN_NAME(_port, _pin, _name) \
+	STM_PAD_PIO(_port, _pin, -1, -1, -1, _name)
 
 #define STM_PAD_PIO_UNKNOWN(_port, _pin) \
-	{ \
-		.gpio = stm_gpio(_port, _pin), \
-		.direction = -1, \
-	}
+	STM_PAD_PIO_DIR(_port, _pin, -1)
 
 struct stm_pad_config {
 	int labels_num;
@@ -191,18 +210,29 @@ struct stm_pad_config {
 	struct stm_pad_sysconf_value *sysconf_values;
 	int gpio_values_num;
 	struct stm_pad_gpio_value *gpio_values;
-	int (*custom_claim)(void *priv);
-	int (*custom_release)(void *priv);
+	int (*custom_claim)(struct stm_pad_config *config, void *priv);
+	int (*custom_release)(struct stm_pad_config *config, void *priv);
 	void *custom_priv;
 };
 
-int stm_pad_claim(struct stm_pad_config *config, const char *dev_name);
-int stm_pad_switch(struct stm_pad_config *old_config,
-		struct stm_pad_config *new_config, const char *new_dev_name);
-void stm_pad_release(struct stm_pad_config *config);
+struct stm_pad_state;
+
+struct stm_pad_state *stm_pad_claim(struct stm_pad_config *config,
+		const char *dev_name);
+struct stm_pad_state *stm_pad_claim_exec(struct stm_pad_config *config,
+		const char *dev_name, int exec);
+int stm_pad_switch(struct stm_pad_state *state,
+		struct stm_pad_config *new_config);
+int stm_pad_gpio(struct stm_pad_config *config, const char *gpio_name);
+void stm_pad_release(struct stm_pad_state *state);
 
 const char *stm_pad_owner(const char *label);
+int stm_pad_mux(struct stm_pad_state *state, struct stm_pad_config *config,
+		int mux);
 
+struct stm_pad_state *devm_stm_pad_claim(struct device *dev,
+		struct stm_pad_config *config, const char *name);
+void devm_stm_pad_release(struct device *dev, struct stm_pad_state *state);
 
 
 struct stm_pad_config * __init stm_pad_config_alloc(int min_labels_num,

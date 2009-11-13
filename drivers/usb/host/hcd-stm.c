@@ -96,7 +96,6 @@ static int st_usb_boot(struct platform_device *pdev)
 
 static int st_usb_remove(struct platform_device *pdev)
 {
-	struct stm_plat_usb_data *plat_data = pdev->dev.platform_data;
 	struct resource *res;
 	struct device *dev = &pdev->dev;
 	struct drv_usb_data *dr_data = platform_get_drvdata(pdev);
@@ -113,8 +112,6 @@ static int st_usb_remove(struct platform_device *pdev)
 		platform_device_unregister(dr_data->ehci_device);
 	if (dr_data->ohci_device)
 		platform_device_unregister(dr_data->ohci_device);
-
-	stm_pad_release(plat_data->pad_config);
 
 	return 0;
 }
@@ -169,9 +166,10 @@ static int st_usb_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, dr_data);
 
-	if (stm_pad_claim(plat_data->pad_config, dev_name(&pdev->dev)) != 0) {
+	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
+				      dev_name(&pdev->dev)))) {
 		ret = -EBUSY;
-		goto err_a;
+		goto err_0;
 	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
@@ -241,11 +239,9 @@ err_3:
 err_2:
 	devm_iounmap(dev, dr_data->ahb2stbus_wrapper_glue_base);
 err_1:
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
 	devm_release_mem_region(dev, res->start, res->end - res->start);
 err_0:
-	stm_pad_release(plat_data->pad_config);
-err_a:
 	kfree(dr_data);
 	return ret;
 }

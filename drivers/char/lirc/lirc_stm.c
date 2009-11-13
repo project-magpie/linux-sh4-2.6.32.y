@@ -1239,7 +1239,8 @@ static int lirc_stm_probe(struct platform_device *pdev)
 				" in %s mode\n", irb_irq,
 				pd.p_lirc_d->rxuhfmode ? "UHF" : "IR");
 
-		if (stm_pad_claim(pd.p_lirc_d->pads, LIRC_STM_NAME) != 0) {
+		if (IS_ERR(devm_stm_pad_claim(dev, pd.p_lirc_d->pads,
+					      LIRC_STM_NAME))) {
 			printk(KERN_ERR LIRC_STM_NAME": Failed to claim "
 					"pads!\n");
 			return -EIO;
@@ -1415,9 +1416,6 @@ void __exit lirc_stm_release(void)
 		printk(KERN_ERR LIRC_STM_NAME ": driver unregister failed\n");
 	/* free buffer */
 	lirc_buffer_free(&lirc_stm_rbuf);
-
-	/* release pads */
-	stm_pad_release(pd.p_lirc_d->pads);
 
 	printk(KERN_INFO "STMicroelectronics LIRC driver removed\n");
 }

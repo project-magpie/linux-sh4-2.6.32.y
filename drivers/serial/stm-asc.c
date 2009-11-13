@@ -240,8 +240,10 @@ static void asc_release_port(struct uart_port *port)
 		port->membase = NULL;
 	}
 
-	stm_pad_release(ascport->pad_config);
-	ascport->pad_config_claimed = 0;
+	if (ascport->pad_state) {
+		stm_pad_release(ascport->pad_state);
+		ascport->pad_state = NULL;
+	}
 }
 
 static int asc_request_port(struct uart_port *port)
@@ -537,11 +539,14 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 	struct platform_device *pdev = to_platform_device(port->dev);
 	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
 
-	if (!ascport->pad_config_claimed) {
+	if (!ascport->pad_state) {
+		struct stm_pad_state *pad_state;
+
 		/* Can't use dev_name() here as we can be called early */
-		if (stm_pad_claim(ascport->pad_config, "stasc") != 0)
-			return -ENODEV;
-		ascport->pad_config_claimed = 1;
+		pad_state = stm_pad_claim(ascport->pad_config, "stasc");
+		if (IS_ERR(pad_state))
+			return PTR_ERR(pad_state);
+		ascport->pad_state = pad_state;
 	}
 
 	if (req && !request_mem_region(port->mapbase, size, pdev->name))

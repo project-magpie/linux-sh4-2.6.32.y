@@ -147,10 +147,6 @@ static struct stm_plat_usb_data stx7111_usb_platform_data = {
 		STM_PLAT_USB_FLAGS_STRAP_PLL |
 		STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
 	.pad_config = &(struct stm_pad_config) {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO5", 6, 7),
-		},
 		.sysconf_values_num = 2,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* Power on USB */

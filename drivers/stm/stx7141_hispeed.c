@@ -12,15 +12,7 @@
 static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 	[0] = (struct stm_pad_config []) {
 		[stx7141_ethernet_mode_mii] = {
-			.labels_num = 5,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO8", 0, 6),
-				STM_PAD_LABEL_RANGE("PIO9", 3, 7),
-				STM_PAD_LABEL_RANGE("PIO10", 0, 1),
-				STM_PAD_LABEL_RANGE("PIO10", 6, 7),
-				STM_PAD_LABEL_RANGE("PIO11", 0, 3),
-			},
-			.sysconf_values_num = 10,
+			.sysconf_values_num = 4,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* CONF_GMII0_CLOCK_OUT:
 				 * 0 = PIO11.3 is controlled by PIO muxing,
@@ -33,23 +25,16 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_SYS_CFG(7, 24, 26, 0),
 				/* ENMII0: 0 = reverse MII, 1 = MII mode */
 				STM_PAD_SYS_CFG(7, 27, 27, 1),
-				/* Alternative function 1 for all the PIOs */
-				STM_PAD_SYS_CFG(25, 28, 30, 1),
-				STM_PAD_SYS_CFG(35, 0, 17, 0x9249),
-				STM_PAD_SYS_CFG(35, 27, 30, 5),
-				STM_PAD_SYS_CFG(46, 0, 9, 0x155),
-				STM_PAD_SYS_CFG(46, 18, 29, 0x255),
-				STM_PAD_SYS_CFG(47, 0, 2, 1),
 			},
 			.gpio_values_num = 20,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				STM_PAD_PIO_IN(8, 0),		/* TXCLK */
-				STM_PAD_PIO_OUT(8, 1),		/* TXEN */
-				STM_PAD_PIO_OUT(8, 2),		/* TXERR */
-				STM_PAD_PIO_OUT(8, 3),		/* TXD.0 */
-				STM_PAD_PIO_OUT(8, 4),		/* TXD.1 */
-				STM_PAD_PIO_OUT(8, 5),		/* TXD.2 */
-				STM_PAD_PIO_OUT(8, 6),		/* TXD.3 */
+				STM_PAD_PIO_OUT_MUX(8, 1, 1),	/* TXEN */
+				STM_PAD_PIO_OUT_MUX(8, 2, 1),	/* TXERR */
+				STM_PAD_PIO_OUT_MUX(8, 3, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT_MUX(8, 4, 1),	/* TXD.1 */
+				STM_PAD_PIO_OUT_MUX(8, 5, 1),	/* TXD.2 */
+				STM_PAD_PIO_OUT_MUX(8, 6, 1),	/* TXD.3 */
 				STM_PAD_PIO_IN(9, 3),		/* RXCLK */
 				STM_PAD_PIO_IN(9, 4),		/* RXDV */
 				STM_PAD_PIO_IN(9, 5),		/* RXERR */
@@ -59,21 +44,14 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_PIO_IN(10, 1),		/* RXD.3 */
 				STM_PAD_PIO_IN(10, 6),		/* CRS */
 				STM_PAD_PIO_IN(10, 7),		/* COL */
-				STM_PAD_PIO_OUT(11, 0),		/* MDC */
-				STM_PAD_PIO_BIDIR(11, 1),	/* MDIO */
+				STM_PAD_PIO_OUT_MUX(11, 0, 1),	/* MDC */
+				STM_PAD_PIO_BIDIR_MUX(11, 1, 1),/* MDIO */
 				STM_PAD_PIO_IN(11, 2),		/* MDINT */
-				STM_PAD_PIO_OUT(11, 3),		/* PHYCLK */
+				STM_PAD_PIO_OUT_MUX(11, 3, 1),	/* PHYCLK */
 			},
 		},
 		[stx7141_ethernet_mode_gmii] = {
-			.labels_num = 4,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO8", 0, 7),
-				STM_PAD_LABEL_RANGE("PIO9", 0, 7),
-				STM_PAD_LABEL_RANGE("PIO10", 0, 7),
-				STM_PAD_LABEL_RANGE("PIO11", 0, 3),
-			},
-			.sysconf_values_num = 8,
+			.sysconf_values_num = 4,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* CONF_GMII0_CLOCK_OUT:
 				 * 0 = PIO11.3 is controlled by PIO muxing,
@@ -86,25 +64,20 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_SYS_CFG(7, 24, 26, 0),
 				/* ENMII0: 0 = reverse MII, 1 = MII mode */
 				STM_PAD_SYS_CFG(7, 27, 27, 1),
-				/* Alternative function 1 for all the PIOs */
-				STM_PAD_SYS_CFG(25, 28, 30, 1),
-				STM_PAD_SYS_CFG(35, 0, 30, 0x2aa49249),
-				STM_PAD_SYS_CFG(46, 0, 29, 0x9555555),
-				STM_PAD_SYS_CFG(47, 0, 2, 1),
 			},
 			.gpio_values_num = 28,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				STM_PAD_PIO_IN(8, 0),		/* TXCLK */
-				STM_PAD_PIO_OUT(8, 1),		/* TXEN */
-				STM_PAD_PIO_OUT(8, 2),		/* TXERR */
-				STM_PAD_PIO_OUT(8, 3),		/* TXD.0 */
-				STM_PAD_PIO_OUT(8, 4),		/* TXD.1 */
-				STM_PAD_PIO_OUT(8, 5),		/* TXD.2 */
-				STM_PAD_PIO_OUT(8, 6),		/* TXD.3 */
-				STM_PAD_PIO_OUT(8, 7),		/* TXD.4 */
-				STM_PAD_PIO_OUT(9, 0),		/* TXD.5 */
-				STM_PAD_PIO_OUT(9, 1),		/* TXD.6 */
-				STM_PAD_PIO_OUT(9, 2),		/* TXD.7 */
+				STM_PAD_PIO_OUT_MUX(8, 1, 1),	/* TXEN */
+				STM_PAD_PIO_OUT_MUX(8, 2, 1),	/* TXERR */
+				STM_PAD_PIO_OUT_MUX(8, 3, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT_MUX(8, 4, 1),	/* TXD.1 */
+				STM_PAD_PIO_OUT_MUX(8, 5, 1),	/* TXD.2 */
+				STM_PAD_PIO_OUT_MUX(8, 6, 1),	/* TXD.3 */
+				STM_PAD_PIO_OUT_MUX(8, 7, 1),	/* TXD.4 */
+				STM_PAD_PIO_OUT_MUX(9, 0, 1),	/* TXD.5 */
+				STM_PAD_PIO_OUT_MUX(9, 1, 1),	/* TXD.6 */
+				STM_PAD_PIO_OUT_MUX(9, 2, 1),	/* TXD.7 */
 				STM_PAD_PIO_IN(9, 3),		/* RXCLK */
 				STM_PAD_PIO_IN(9, 4),		/* RXDV */
 				STM_PAD_PIO_IN(9, 5),		/* RXERR */
@@ -118,22 +91,16 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_PIO_IN(10, 5),		/* RXD.7 */
 				STM_PAD_PIO_IN(10, 6),		/* CRS */
 				STM_PAD_PIO_IN(10, 7),		/* COL */
-				STM_PAD_PIO_OUT(11, 0),		/* MDC */
-				STM_PAD_PIO_BIDIR(11, 1),	/* MDIO */
+				STM_PAD_PIO_OUT_MUX(11, 0, 1),	/* MDC */
+				STM_PAD_PIO_BIDIR_MUX(11, 1, 1),/* MDIO */
 				STM_PAD_PIO_IN(11, 2),		/* MDINT */
-				STM_PAD_PIO_OUT(11, 3),		/* PHYCLK */
+				STM_PAD_PIO_OUT_MUX(11, 3, 1),	/* PHYCLK */
 			},
 		},
 		[stx7141_ethernet_mode_rgmii] = { /* TODO */ },
 		[stx7141_ethernet_mode_sgmii] = { /* TODO */ },
 		[stx7141_ethernet_mode_rmii] = {
-			.labels_num = 3,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO8", 1, 4),
-				STM_PAD_LABEL_RANGE("PIO9", 4, 7),
-				STM_PAD_LABEL_RANGE("PIO11", 0, 3),
-			},
-			.sysconf_values_num = 9,
+			.sysconf_values_num = 4,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* CONF_GMII0_CLOCK_OUT:
 				 * 0 = PIO11.3 is controlled by PIO muxing,
@@ -146,39 +113,25 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_SYS_CFG(7, 24, 26, 4),
 				/* ENMII0: 0 = reverse MII, 1 = MII mode */
 				STM_PAD_SYS_CFG(7, 27, 27, 1),
-				/* Alternative function 1 for all the PIOs */
-				STM_PAD_SYS_CFG(35, 0, 11, 0x249),
-				STM_PAD_SYS_CFG(35, 29, 30, 1),
-				STM_PAD_SYS_CFG(46, 0, 5, 0x15),
-				STM_PAD_SYS_CFG(46, 22, 29, 0x25),
-				STM_PAD_SYS_CFG(47, 0, 2, 1),
 			},
 			.gpio_values_num = 12,
 			.gpio_values = (struct stm_pad_gpio_value []) {
-				STM_PAD_PIO_OUT(8, 1),		/* TXEN */
-				STM_PAD_PIO_OUT(8, 2),		/* TXERR */
-				STM_PAD_PIO_OUT(8, 3),		/* TXD.0 */
-				STM_PAD_PIO_OUT(8, 4),		/* TXD.1 */
+				STM_PAD_PIO_OUT_MUX(8, 1, 1),	/* TXEN */
+				STM_PAD_PIO_OUT_MUX(8, 2, 1),	/* TXERR */
+				STM_PAD_PIO_OUT_MUX(8, 3, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT_MUX(8, 4, 1),	/* TXD.1 */
 				STM_PAD_PIO_IN(9, 4),		/* RXDV */
 				STM_PAD_PIO_IN(9, 5),		/* RXERR */
 				STM_PAD_PIO_IN(9, 6),		/* RXD.0 */
 				STM_PAD_PIO_IN(9, 7),		/* RXD.1 */
-				STM_PAD_PIO_OUT(11, 0),		/* MDC */
-				STM_PAD_PIO_BIDIR(11, 1),	/* MDIO */
+				STM_PAD_PIO_OUT_MUX(11, 0, 1),	/* MDC */
+				STM_PAD_PIO_BIDIR_MUX(11, 1, 1),/* MDIO */
 				STM_PAD_PIO_IN(11, 2),		/* MDINT */
-				STM_PAD_PIO_OUT(11, 3),		/* PHYCLK */
+				STM_PAD_PIO_OUT_MUX(11, 3, 1),	/* PHYCLK */
 			},
 		},
 		[stx7141_ethernet_mode_reverse_mii] = {
-			.labels_num = 5,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO8", 0, 6),
-				STM_PAD_LABEL_RANGE("PIO9", 3, 7),
-				STM_PAD_LABEL_RANGE("PIO10", 0, 1),
-				STM_PAD_LABEL_RANGE("PIO10", 6, 7),
-				STM_PAD_LABEL_RANGE("PIO11", 0, 3),
-			},
-			.sysconf_values_num = 10,
+			.sysconf_values_num = 4,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* CONF_GMII0_CLOCK_OUT:
 				 * 0 = PIO11.3 is controlled by PIO muxing,
@@ -191,23 +144,16 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_SYS_CFG(7, 24, 26, 0),
 				/* ENMII0: 0 = reverse MII, 1 = MII mode */
 				STM_PAD_SYS_CFG(7, 27, 27, 0),
-				/* Alternative function 1 for all the PIOs */
-				STM_PAD_SYS_CFG(25, 28, 30, 1),
-				STM_PAD_SYS_CFG(35, 0, 17, 0x9249),
-				STM_PAD_SYS_CFG(35, 27, 30, 5),
-				STM_PAD_SYS_CFG(46, 0, 9, 0x155),
-				STM_PAD_SYS_CFG(46, 18, 29, 0x255),
-				STM_PAD_SYS_CFG(47, 0, 2, 1),
 			},
 			.gpio_values_num = 20,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				STM_PAD_PIO_IN(8, 0),		/* TXCLK */
-				STM_PAD_PIO_OUT(8, 1),		/* TXEN */
-				STM_PAD_PIO_OUT(8, 2),		/* TXERR */
-				STM_PAD_PIO_OUT(8, 3),		/* TXD.0 */
-				STM_PAD_PIO_OUT(8, 4),		/* TXD.1 */
-				STM_PAD_PIO_OUT(8, 5),		/* TXD.2 */
-				STM_PAD_PIO_OUT(8, 6),		/* TXD.3 */
+				STM_PAD_PIO_OUT_MUX(8, 1, 1),	/* TXEN */
+				STM_PAD_PIO_OUT_MUX(8, 2, 1),	/* TXERR */
+				STM_PAD_PIO_OUT_MUX(8, 3, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT_MUX(8, 4, 1),	/* TXD.1 */
+				STM_PAD_PIO_OUT_MUX(8, 5, 1),	/* TXD.2 */
+				STM_PAD_PIO_OUT_MUX(8, 6, 1),	/* TXD.3 */
 				STM_PAD_PIO_IN(9, 3),		/* RXCLK */
 				STM_PAD_PIO_IN(9, 4),		/* RXDV */
 				STM_PAD_PIO_IN(9, 5),		/* RXERR */
@@ -217,24 +163,16 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_PIO_IN(10, 1),		/* RXD.3 */
 				STM_PAD_PIO_IN(10, 6),		/* CRS */
 				STM_PAD_PIO_IN(10, 7),		/* COL */
-				STM_PAD_PIO_OUT(11, 0),		/* MDC */
-				STM_PAD_PIO_BIDIR(11, 1),	/* MDIO */
+				STM_PAD_PIO_OUT_MUX(11, 0, 1),	/* MDC */
+				STM_PAD_PIO_BIDIR_MUX(11, 1, 1),/* MDIO */
 				STM_PAD_PIO_IN(11, 2),		/* MDINT */
-				STM_PAD_PIO_OUT(11, 3),		/* PHYCLK */
+				STM_PAD_PIO_OUT_MUX(11, 3, 1),	/* PHYCLK */
 			},
 		},
 	},
 	[1] = (struct stm_pad_config []) {
 		[stx7141_ethernet_mode_mii] = {
-			.labels_num = 5,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO11", 4, 7),
-				STM_PAD_LABEL_RANGE("PIO12", 0, 2),
-				STM_PAD_LABEL("PIO12.7"),
-				STM_PAD_LABEL_RANGE("PIO13", 0, 5),
-				STM_PAD_LABEL_RANGE("PIO14", 2, 7),
-			},
-			.sysconf_values_num = 7,
+			.sysconf_values_num = 4,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* CONF_GMII1_CLOCK_OUT:
 				 * 0 = PIO14.7 is controlled by PIO muxing,
@@ -247,20 +185,16 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_SYS_CFG(7, 28, 30, 0),
 				/* ENMII1: 0 = reverse MII, 1 = MII mode */
 				STM_PAD_SYS_CFG(7, 31, 31, 1),
-				/* Alternative function 1 for all the PIOs */
-				STM_PAD_SYS_CFG(47, 3, 23, 0x49249),
-				STM_PAD_SYS_CFG(48, 3, 23, 0x49249),
-				STM_PAD_SYS_CFG(49, 3, 19, 0x9249),
 			},
 			.gpio_values_num = 20,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				STM_PAD_PIO_IN(11, 4), 		/* TXCLK */
-				STM_PAD_PIO_OUT(11, 5),		/* TXEN */
-				STM_PAD_PIO_OUT(11, 6),		/* TXERR */
-				STM_PAD_PIO_OUT(11, 7),		/* TXD.0 */
-				STM_PAD_PIO_OUT(12, 0),		/* TXD.1 */
-				STM_PAD_PIO_OUT(12, 1),		/* TXD.2 */
-				STM_PAD_PIO_OUT(12, 2),		/* TXD.3 */
+				STM_PAD_PIO_OUT_MUX(11, 5, 1),	/* TXEN */
+				STM_PAD_PIO_OUT_MUX(11, 6, 1),	/* TXERR */
+				STM_PAD_PIO_OUT_MUX(11, 7, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT_MUX(12, 0, 1),	/* TXD.1 */
+				STM_PAD_PIO_OUT_MUX(12, 1, 1),	/* TXD.2 */
+				STM_PAD_PIO_OUT_MUX(12, 2, 1),	/* TXD.3 */
 				STM_PAD_PIO_IN(12, 7),		/* RXCLK */
 				STM_PAD_PIO_IN(13, 0),		/* RXDV */
 				STM_PAD_PIO_IN(13, 1),		/* RXERR */
@@ -270,21 +204,14 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_PIO_IN(13, 5),		/* RXD.3 */
 				STM_PAD_PIO_IN(14, 2),		/* CRS */
 				STM_PAD_PIO_IN(14, 3),		/* COL */
-				STM_PAD_PIO_OUT(14, 4),		/* MDC */
-				STM_PAD_PIO_BIDIR(14, 5),	/* MDIO */
+				STM_PAD_PIO_OUT_MUX(14, 4, 1),	/* MDC */
+				STM_PAD_PIO_BIDIR_MUX(14, 5, 1),/* MDIO */
 				STM_PAD_PIO_IN(14, 6),		/* MDINT */
-				STM_PAD_PIO_OUT(14, 7),		/* PHYCLK */
+				STM_PAD_PIO_OUT_MUX(14, 7, 1),	/* PHYCLK */
 			},
 		},
 		[stx7141_ethernet_mode_gmii] = {
-			.labels_num = 4,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO11", 4, 7),
-				STM_PAD_LABEL_RANGE("PIO12", 0, 7),
-				STM_PAD_LABEL_RANGE("PIO13", 0, 7),
-				STM_PAD_LABEL_RANGE("PIO14", 0, 7),
-			},
-			.sysconf_values_num = 7,
+			.sysconf_values_num = 4,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* CONF_GMII1_CLOCK_OUT:
 				 * 0 = PIO14.7 is controlled by PIO muxing,
@@ -297,24 +224,20 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_SYS_CFG(7, 28, 30, 0),
 				/* ENMII1: 0 = reverse MII, 1 = MII mode */
 				STM_PAD_SYS_CFG(7, 31, 31, 1),
-				/* Alternative function 1 for all the PIOs */
-				STM_PAD_SYS_CFG(47, 3, 29, 0x2a49249),
-				STM_PAD_SYS_CFG(48, 0, 30, 0x15249249),
-				STM_PAD_SYS_CFG(49, 0, 19, 0x49249),
 			},
 			.gpio_values_num = 28,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				STM_PAD_PIO_IN(11, 4), 		/* TXCLK */
-				STM_PAD_PIO_OUT(11, 5),		/* TXEN */
-				STM_PAD_PIO_OUT(11, 6),		/* TXERR */
-				STM_PAD_PIO_OUT(11, 7),		/* TXD.0 */
-				STM_PAD_PIO_OUT(12, 0),		/* TXD.1 */
-				STM_PAD_PIO_OUT(12, 1),		/* TXD.2 */
-				STM_PAD_PIO_OUT(12, 2),		/* TXD.3 */
-				STM_PAD_PIO_OUT(12, 3),		/* TXD.4 */
-				STM_PAD_PIO_OUT(12, 4),		/* TXD.5 */
-				STM_PAD_PIO_OUT(12, 5),		/* TXD.6 */
-				STM_PAD_PIO_OUT(12, 6),		/* TXD.7 */
+				STM_PAD_PIO_OUT_MUX(11, 5, 1),	/* TXEN */
+				STM_PAD_PIO_OUT_MUX(11, 6, 1),	/* TXERR */
+				STM_PAD_PIO_OUT_MUX(11, 7, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT_MUX(12, 0, 1),	/* TXD.1 */
+				STM_PAD_PIO_OUT_MUX(12, 1, 1),	/* TXD.2 */
+				STM_PAD_PIO_OUT_MUX(12, 2, 1),	/* TXD.3 */
+				STM_PAD_PIO_OUT_MUX(12, 3, 1),	/* TXD.4 */
+				STM_PAD_PIO_OUT_MUX(12, 4, 1),	/* TXD.5 */
+				STM_PAD_PIO_OUT_MUX(12, 5, 1),	/* TXD.6 */
+				STM_PAD_PIO_OUT_MUX(12, 6, 1),	/* TXD.7 */
 				STM_PAD_PIO_IN(12, 7),		/* RXCLK */
 				STM_PAD_PIO_IN(13, 0),		/* RXDV */
 				STM_PAD_PIO_IN(13, 1),		/* RXERR */
@@ -328,23 +251,16 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_PIO_IN(14, 1),		/* RXD.7 */
 				STM_PAD_PIO_IN(14, 2),		/* CRS */
 				STM_PAD_PIO_IN(14, 3),		/* COL */
-				STM_PAD_PIO_OUT(14, 4),		/* MDC */
-				STM_PAD_PIO_BIDIR(14, 5),	/* MDIO */
+				STM_PAD_PIO_OUT_MUX(14, 4, 1),	/* MDC */
+				STM_PAD_PIO_BIDIR_MUX(14, 5, 1),/* MDIO */
 				STM_PAD_PIO_IN(14, 6),		/* MDINT */
-				STM_PAD_PIO_OUT(14, 7),		/* PHYCLK */
+				STM_PAD_PIO_OUT_MUX(14, 7, 1),	/* PHYCLK */
 			},
 		},
 		[stx7141_ethernet_mode_rgmii] = { /* TODO */ },
 		[stx7141_ethernet_mode_sgmii] = { /* TODO */ },
 		[stx7141_ethernet_mode_rmii] = {
-			.labels_num = 4,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO11", 5, 7),
-				STM_PAD_LABEL("PIO12.0"),
-				STM_PAD_LABEL_RANGE("PIO13", 0, 3),
-				STM_PAD_LABEL_RANGE("PIO14", 4, 7),
-			},
-			.sysconf_values_num = 7,
+			.sysconf_values_num = 4,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* CONF_GMII1_CLOCK_OUT:
 				 * 0 = PIO14.7 is controlled by PIO muxing,
@@ -357,37 +273,25 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_SYS_CFG(7, 28, 30, 0),
 				/* ENMII1: 0 = reverse MII, 1 = MII mode */
 				STM_PAD_SYS_CFG(7, 31, 31, 1),
-				/* Alternative function 1 for all the PIOs */
-				STM_PAD_SYS_CFG(47, 6, 17, 0x249),
-				STM_PAD_SYS_CFG(48, 6, 17, 0x249),
-				STM_PAD_SYS_CFG(49, 9, 19, 0x249),
 			},
 			.gpio_values_num = 12,
 			.gpio_values = (struct stm_pad_gpio_value []) {
-				STM_PAD_PIO_OUT(11, 5),		/* TXEN */
-				STM_PAD_PIO_OUT(11, 6),		/* TXERR */
-				STM_PAD_PIO_OUT(11, 7),		/* TXD.0 */
-				STM_PAD_PIO_OUT(12, 0),		/* TXD.1 */
+				STM_PAD_PIO_OUT_MUX(11, 5, 1),	/* TXEN */
+				STM_PAD_PIO_OUT_MUX(11, 6, 1),	/* TXERR */
+				STM_PAD_PIO_OUT_MUX(11, 7, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT_MUX(12, 0, 1),	/* TXD.1 */
 				STM_PAD_PIO_IN(13, 0),		/* RXDV */
 				STM_PAD_PIO_IN(13, 1),		/* RXERR */
 				STM_PAD_PIO_IN(13, 2),		/* RXD.0 */
 				STM_PAD_PIO_IN(13, 3),		/* RXD.1 */
-				STM_PAD_PIO_OUT(14, 4),		/* MDC */
-				STM_PAD_PIO_BIDIR(14, 5),	/* MDIO */
+				STM_PAD_PIO_OUT_MUX(14, 4, 1),	/* MDC */
+				STM_PAD_PIO_BIDIR_MUX(14, 5, 1),/* MDIO */
 				STM_PAD_PIO_IN(14, 6),		/* MDINT */
-				STM_PAD_PIO_OUT(14, 7),		/* PHYCLK */
+				STM_PAD_PIO_OUT_MUX(14, 7, 1),	/* PHYCLK */
 			},
 		},
 		[stx7141_ethernet_mode_reverse_mii] = {
-			.labels_num = 5,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO11", 4, 7),
-				STM_PAD_LABEL_RANGE("PIO12", 0, 2),
-				STM_PAD_LABEL("PIO12.7"),
-				STM_PAD_LABEL_RANGE("PIO13", 0, 5),
-				STM_PAD_LABEL_RANGE("PIO14", 2, 7),
-			},
-			.sysconf_values_num = 7,
+			.sysconf_values_num = 4,
 			.sysconf_values = (struct stm_pad_sysconf_value []) {
 				/* CONF_GMII1_CLOCK_OUT:
 				 * 0 = PIO14.7 is controlled by PIO muxing,
@@ -400,20 +304,16 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_SYS_CFG(7, 28, 30, 0),
 				/* ENMII1: 0 = reverse MII, 1 = MII mode */
 				STM_PAD_SYS_CFG(7, 31, 31, 0),
-				/* Alternative function 1 for all the PIOs */
-				STM_PAD_SYS_CFG(47, 3, 23, 0x49249),
-				STM_PAD_SYS_CFG(48, 3, 23, 0x49249),
-				STM_PAD_SYS_CFG(49, 3, 19, 0x9249),
 			},
 			.gpio_values_num = 20,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				STM_PAD_PIO_IN(11, 4), 		/* TXCLK */
-				STM_PAD_PIO_OUT(11, 5),		/* TXEN */
-				STM_PAD_PIO_OUT(11, 6),		/* TXERR */
-				STM_PAD_PIO_OUT(11, 7),		/* TXD.0 */
-				STM_PAD_PIO_OUT(12, 0),		/* TXD.1 */
-				STM_PAD_PIO_OUT(12, 1),		/* TXD.2 */
-				STM_PAD_PIO_OUT(12, 2),		/* TXD.3 */
+				STM_PAD_PIO_OUT_MUX(11, 5, 1),	/* TXEN */
+				STM_PAD_PIO_OUT_MUX(11, 6, 1),	/* TXERR */
+				STM_PAD_PIO_OUT_MUX(11, 7, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT_MUX(12, 0, 1),	/* TXD.1 */
+				STM_PAD_PIO_OUT_MUX(12, 1, 1),	/* TXD.2 */
+				STM_PAD_PIO_OUT_MUX(12, 2, 1),	/* TXD.3 */
 				STM_PAD_PIO_IN(12, 7),		/* RXCLK */
 				STM_PAD_PIO_IN(13, 0),		/* RXDV */
 				STM_PAD_PIO_IN(13, 1),		/* RXERR */
@@ -423,10 +323,10 @@ static struct stm_pad_config *stx7141_ethernet_pad_configs[] = {
 				STM_PAD_PIO_IN(13, 5),		/* RXD.3 */
 				STM_PAD_PIO_IN(14, 2),		/* CRS */
 				STM_PAD_PIO_IN(14, 3),		/* COL */
-				STM_PAD_PIO_OUT(14, 4),		/* MDC */
-				STM_PAD_PIO_BIDIR(14, 5),	/* MDIO */
+				STM_PAD_PIO_OUT_MUX(14, 4, 1),	/* MDC */
+				STM_PAD_PIO_BIDIR_MUX(14, 5, 1),/* MDIO */
 				STM_PAD_PIO_IN(14, 6),		/* MDINT */
-				STM_PAD_PIO_OUT(14, 7),		/* PHYCLK */
+				STM_PAD_PIO_OUT_MUX(14, 7, 1),	/* PHYCLK */
 			},
 		},
 	},
@@ -522,8 +422,8 @@ void __init stx7141_configure_ethernet(int port,
 
 static u64 stx7141_usb_dma_mask = DMA_32BIT_MASK;
 
-static int stx7141_usb_enable(void *priv);
-static int stx7141_usb_disable(void *priv);
+static int stx7141_usb_enable(struct stm_pad_config *config, void *priv);
+static int stx7141_usb_disable(struct stm_pad_config *config, void *priv);
 
 static struct stm_plat_usb_data stx7141_usb_platform_data[] = {
 	[0] = { /* USB 2.0 port */
@@ -531,21 +431,12 @@ static struct stm_plat_usb_data stx7141_usb_platform_data[] = {
 				STM_PLAT_USB_FLAGS_STRAP_PLL |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
 		.pad_config = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO4", 6, 7),
-			},
-			.sysconf_values_num = 1,
-			.sysconf_values = (struct stm_pad_sysconf_value []) {
-				/* Alt. function 1 on PIO4.6 & PIO4.7 */
-				STM_PAD_SYS_CFG(20, 13, 14, 3),
-			},
 			.gpio_values_num = 2,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				/* Overcurrent detection */
-				STM_PAD_PIO_IN(4, 6),
+				STM_PAD_PIO_IN_NAME(4, 6, "USB_OVRCUR"),
 				/* USB power enable */
-				STM_PAD_PIO_OUT(4, 7),
+				STM_PAD_PIO_OUT_MUX(4, 7, 1),
 			},
 			.custom_claim = stx7141_usb_enable,
 			.custom_release = stx7141_usb_disable,
@@ -557,21 +448,12 @@ static struct stm_plat_usb_data stx7141_usb_platform_data[] = {
 				STM_PLAT_USB_FLAGS_STRAP_PLL |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
 		.pad_config = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO5", 0, 1),
-			},
-			.sysconf_values_num = 1,
-			.sysconf_values = (struct stm_pad_sysconf_value []) {
-				/* Alt. function 1 on PIO5.0 & PIO5.1 */
-				STM_PAD_SYS_CFG(20, 15, 18, 5),
-			},
 			.gpio_values_num = 2,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				/* Overcurrent detection */
-				STM_PAD_PIO_IN(5, 0),
+				STM_PAD_PIO_IN_NAME(5, 0, "USB_OVRCUR"),
 				/* USB power enable */
-				STM_PAD_PIO_OUT(5, 1),
+				STM_PAD_PIO_OUT_MUX(5, 1, 1),
 			},
 			.custom_claim = stx7141_usb_enable,
 			.custom_release = stx7141_usb_disable,
@@ -581,21 +463,12 @@ static struct stm_plat_usb_data stx7141_usb_platform_data[] = {
 	[2] = { /* USB 1.1 port */
 		.flags = STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
 		.pad_config = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO4", 2, 3),
-			},
-			.sysconf_values_num = 1,
-			.sysconf_values = (struct stm_pad_sysconf_value []) {
-				/* Alt. function 1 on PIO4.2 & PIO4.3 */
-				STM_PAD_SYS_CFG(20, 5, 8, 5),
-			},
 			.gpio_values_num = 2,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				/* Overcurrent detection */
-				STM_PAD_PIO_IN(4, 2),
+				STM_PAD_PIO_IN_NAME(4, 2, "USB_OVRCUR"),
 				/* USB power enable */
-				STM_PAD_PIO_OUT(4, 3),
+				STM_PAD_PIO_OUT_MUX(4, 3, 1),
 			},
 			.custom_claim = stx7141_usb_enable,
 			.custom_release = stx7141_usb_disable,
@@ -605,21 +478,12 @@ static struct stm_plat_usb_data stx7141_usb_platform_data[] = {
 	[3] = { /* USB 1.1 port */
 		.flags = STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
 		.pad_config = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL_RANGE("PIO4", 4, 5),
-			},
-			.sysconf_values_num = 1,
-			.sysconf_values = (struct stm_pad_sysconf_value []) {
-				/* Alt. function 1 on PIO4.4 & PIO4.5 */
-				STM_PAD_SYS_CFG(20, 9, 12, 5),
-			},
 			.gpio_values_num = 2,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				/* Overcurrent detection */
-				STM_PAD_PIO_IN(4, 4),
+				STM_PAD_PIO_IN_NAME(4, 4, "USB_OVRCUR"),
 				/* USB power enable */
-				STM_PAD_PIO_OUT(4, 5),
+				STM_PAD_PIO_OUT_MUX(4, 5, 1),
 			},
 			.custom_claim = stx7141_usb_enable,
 			.custom_release = stx7141_usb_disable,
@@ -719,7 +583,7 @@ static struct platform_device stx7141_usb_devices[] = {
 	},
 };
 
-static int stx7141_usb_enable(void *priv)
+static int stx7141_usb_enable(struct stm_pad_config *config, void *priv)
 {
 	int port = (int)priv;
 	static int first = 1;
@@ -742,12 +606,11 @@ static int stx7141_usb_enable(void *priv)
 
 	/* And yes, we have it again - overcurrent detection
 	 * problem... (at least in cut 1) */
-	gpio = stx7141_usb_platform_data[0].pad_config->gpio_values[0].gpio;
-
+	gpio = stm_pad_gpio(config, "USB_OVRCUR");
 	return gpio_direction_output(gpio, 0);
 }
 
-static int stx7141_usb_disable(void *priv)
+static int stx7141_usb_disable(struct stm_pad_config *config, void *priv)
 {
 	int port = (int)priv;
 	struct sysconf_field *sc;
@@ -757,8 +620,7 @@ static int stx7141_usb_disable(void *priv)
 	sc = sysconf_claim(SYS_CFG, 32, 7 + port, 7 + port, "USB");
 	sysconf_write(sc, 1);
 
-	gpio = stx7141_usb_platform_data[0].pad_config->gpio_values[0].gpio;
-
+	gpio = stm_pad_gpio(config, "USB_OVRCUR");
 	return gpio_direction_input(gpio);
 }
 

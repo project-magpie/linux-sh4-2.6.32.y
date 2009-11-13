@@ -471,7 +471,8 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	if (stm_pad_claim(plat_data->pad_config_ssc, dev_name(&pdev->dev))) {
+	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
+				      dev_name(&pdev->dev)))) {
 		printk(KERN_ERR NAME " Pads request failed!\n");
 		return -ENODEV;
 	}
@@ -502,26 +503,12 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	}
 
 	printk(KERN_INFO NAME ": Registered SPI Bus %d\n", master->bus_num);
-	if (plat_data->gpio_sclk != STM_GPIO_INVALID &&
-			plat_data->gpio_mtsr != STM_GPIO_INVALID &&
-			plat_data->gpio_mrst != STM_GPIO_INVALID)
-		printk(KERN_INFO NAME ": Using PIO pins: CLK = PIO%d.%d, "
-				"SDOUT = PIO%d.%d, SDIN = PIO%d.%d\n",
-				stm_gpio_port(plat_data->gpio_sclk),
-				stm_gpio_pin(plat_data->gpio_sclk),
-				stm_gpio_port(plat_data->gpio_mtsr),
-				stm_gpio_pin(plat_data->gpio_mtsr),
-				stm_gpio_port(plat_data->gpio_mrst),
-				stm_gpio_pin(plat_data->gpio_mrst));
-	else
-		printk(KERN_INFO NAME ": Using non-PIO pins.\n");
 
 	return 0;
 }
 
 static int spi_stm_remove(struct platform_device *pdev)
 {
-	struct stm_plat_ssc_data *plat_data = pdev->dev.platform_data;
 	struct spi_stm_ssc *st_ssc;
 	struct spi_master *master;
 
@@ -529,8 +516,6 @@ static int spi_stm_remove(struct platform_device *pdev)
 	st_ssc = spi_master_get_devdata(master);
 
 	spi_bitbang_stop(&st_ssc->bitbang);
-
-	stm_pad_release(plat_data->pad_config_ssc);
 
 	/* FIXME: Resources release... */
 

@@ -32,7 +32,7 @@ struct asc_port_fdma {
 struct asc_port {
 	struct uart_port port;
 	struct stm_pad_config *pad_config;
-	int pad_config_claimed:1;
+	struct stm_pad_state *pad_state;
 	int hw_flow_control:1;
 	int suspended:1;
 #ifdef CONFIG_SERIAL_STM_ASC_FDMA

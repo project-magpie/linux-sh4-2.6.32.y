@@ -69,37 +69,16 @@ static struct snd_stm_pcm_player_info stx7141_pcm_player_0_info = {
 };
 
 static struct stm_pad_config stx7141_pcm_player_0_pad_config = {
-	.labels_num = 5,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO15", 3, 6),
-		STM_PAD_LABEL("PIO15.7"),
-		STM_PAD_LABEL("PIO16.0"),
-		STM_PAD_LABEL("PIO16.1"),
-		STM_PAD_LABEL("PIO16.2"),
-	},
-	.sysconf_values_num = 5,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
-		/* Alt. func. 1 for PIO15.3-6 */
-		STM_PAD_SYS_CFG(49, 26, 30, 0x1d),
-		/* Alt. func. 2 for PIO15.7 */
-		STM_PAD_SYS_CFG(50, 0, 1, 2),
-		/* Alt. func. 2 for PIO16.0 */
-		STM_PAD_SYS_CFG(50, 2, 3, 2),
-		/* Alt. func. 2 for PIO16.1 */
-		STM_PAD_SYS_CFG(50, 4, 5, 2),
-		/* Alt. func. 2 for PIO16.2 */
-		STM_PAD_SYS_CFG(50, 6, 7, 2),
-	},
 	.gpio_values_num = 8,
 	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_OUT(15, 4),	/* MCLK */
-		STM_PAD_PIO_OUT(15, 5),	/* LRCLK */
-		STM_PAD_PIO_OUT(15, 6),	/* SCLK */
-		STM_PAD_PIO_OUT(15, 3),	/* DATA0 */
-		STM_PAD_PIO_OUT(15, 7),	/* DATA1 */
-		STM_PAD_PIO_OUT(16, 0),	/* DATA2 */
-		STM_PAD_PIO_OUT(16, 1),	/* DATA3 */
-		STM_PAD_PIO_OUT(16, 2),	/* DATA4 */
+		STM_PAD_PIO_OUT_MUX(15, 4, 1),	/* MCLK */
+		STM_PAD_PIO_OUT_MUX(15, 5, 1),	/* LRCLK */
+		STM_PAD_PIO_OUT_MUX(15, 6, 1),	/* SCLK */
+		STM_PAD_PIO_OUT_MUX(15, 3, 1),	/* DATA0 */
+		STM_PAD_PIO_OUT_MUX(15, 7, 2),	/* DATA1 */
+		STM_PAD_PIO_OUT_MUX(16, 0, 2),	/* DATA2 */
+		STM_PAD_PIO_OUT_MUX(16, 1, 2),	/* DATA3 */
+		STM_PAD_PIO_OUT_MUX(16, 2, 2),	/* DATA4 */
 	},
 };
 
@@ -127,11 +106,6 @@ static struct snd_stm_pcm_player_info stx7141_pcm_player_1_info = {
 };
 
 static struct stm_pad_config stx7141_pcm_player_1_pad_config = {
-	.labels_num = 2,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL("PIO15.7"),
-		STM_PAD_LABEL_RANGE("PIO16", 0, 2),
-	},
 	.sysconf_values_num = 1,
 	.sysconf_values = (struct stm_pad_sysconf_value []) {
 		/* Alt. func. 1 for PIO15.7 & PIO16.0-2 */
@@ -191,10 +165,6 @@ static struct snd_stm_spdif_player_info stx7141_spdif_player_info = {
 };
 
 static struct stm_pad_config stx7141_spdif_player_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL("PIO16.3"),
-	},
 	.sysconf_values_num = 1,
 	.sysconf_values = (struct stm_pad_sysconf_value []) {
 		/* Alt. func. 1 for PIO16.3 */
@@ -295,20 +265,11 @@ static struct snd_stm_pcm_reader_info stx7141_pcm_reader_0_info = {
 };
 
 static struct stm_pad_config stx7141_pcm_reader_0_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO15", 0, 2),
-	},
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
-		/* Alt. func. 1 for PIO15.0-2 */
-		STM_PAD_SYS_CFG(49, 20, 25, 0x15),
-	},
 	.gpio_values_num = 3,
 	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_IN(15, 0),	/* DATA */
-		STM_PAD_PIO_IN(15, 1),	/* LRCLK */
-		STM_PAD_PIO_IN(15, 2),	/* SCLK */
+		STM_PAD_PIO_IN_MUX(15, 0, 1),	/* DATA */
+		STM_PAD_PIO_IN_MUX(15, 1, 1),	/* LRCLK */
+		STM_PAD_PIO_IN_MUX(15, 2, 1),	/* SCLK */
 	},
 };
 
@@ -333,10 +294,6 @@ static struct snd_stm_pcm_reader_info stx7141_pcm_reader_1_info = {
 };
 
 static struct stm_pad_config stx7141_pcm_reader_1_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO16", 4, 6),
-	},
 	.sysconf_values_num = 1,
 	.sysconf_values = (struct stm_pad_sysconf_value []) {
 		/* Alt. func. 1 for PIO16.4-6 */
@@ -416,7 +373,6 @@ void __init stx7141_configure_audio(struct stx7141_audio_config *config)
 		stx7141_pcm_player_0_info.pad_config =
 				&stx7141_pcm_player_0_pad_config;
 
-		stx7141_pcm_player_0_pad_config.labels_num -= unused;
 		stx7141_pcm_player_0_pad_config.sysconf_values_num -= unused;
 		stx7141_pcm_player_0_pad_config.gpio_values_num -= unused;
 	}

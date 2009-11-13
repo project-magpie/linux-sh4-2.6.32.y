@@ -30,34 +30,21 @@ static struct stm_pad_config stx7141_asc0_mcard_pad_config = {
 };
 
 static struct stm_pad_config stx7141_asc1_pio10_pad_config = {
-	.labels_num = 2, /* !!! see stx7141_configure_asc() */
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO10", 0, 1),
-		STM_PAD_LABEL_RANGE("PIO10", 2, 3),
-	},
-	.sysconf_values_num = 5, /* !!! see stx7141_configure_asc() */
+	.sysconf_values_num = 1,
 	.sysconf_values = (struct stm_pad_sysconf_value []) {
 		/* ASC1_RXD/ASC1_CTS: from PIO10 (0) or from MCard (1) */
 		STM_PAD_SYS_CFG(36, 29, 29, 0),
-		/* PIO10[0]: alternative function 3 (ASC1_TXD) */
-		STM_PAD_SYS_CFG(46, 6, 7, 3),
-		/* PIO10[1]: alternative function 3 (ASC1_RXD) */
-		STM_PAD_SYS_CFG(46, 8, 9, 3),
-		/* PIO10[2]: alternative function 3 (ASC1_CTS) */
-		STM_PAD_SYS_CFG(46, 10, 11, 3),
-		/* PIO10[3]: alternative function 3 (ASC1_RTS) */
-		STM_PAD_SYS_CFG(46, 12, 13, 3),
 	},
 	.gpio_values_num = 4, /* !!! see stx7141_configure_asc() */
 	.gpio_values = (struct stm_pad_gpio_value []) {
 		/* TX */
-		STM_PAD_PIO_OUT(10, 0),
+		STM_PAD_PIO_OUT_MUX(10, 0, 3),
 		/* RX */
 		STM_PAD_PIO_IN(10, 1),
 		/* CTS */
 		STM_PAD_PIO_IN(10, 2),
 		/* RTS */
-		STM_PAD_PIO_OUT(10, 3),
+		STM_PAD_PIO_OUT_MUX(10, 3, 3),
 	},
 };
 
@@ -82,66 +69,40 @@ static struct stm_pad_config stx7141_asc1_mcard_pad_config = {
 };
 
 static struct stm_pad_config stx7141_asc2_pio1_pad_config = {
-	.labels_num = 2, /* !!! see stx7141_configure_asc() */
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO1", 0, 1),
-		STM_PAD_LABEL_RANGE("PIO1", 2, 3),
-	},
-	.sysconf_values_num = 5, /* !!! see stx7141_configure_asc() */
+	.sysconf_values_num = 1,
 	.sysconf_values = (struct stm_pad_sysconf_value []) {
 		/* ASC2_RXD/ASC2_CTS: from PIO1 (0) or from PIO6 (3) */
 		STM_PAD_SYS_CFG(36, 30, 31, 0),
-		/* PIO1[0]: alternative function 3 (ASC2_TXD) */
-		STM_PAD_SYS_CFG(19, 0, 1, 3),
-		/* PIO1[1]: alternative function 3 (ASC2_RXD) */
-		STM_PAD_SYS_CFG(19, 2, 3, 3),
-		/* PIO1[2]: alternative function 3 (ASC2_CTS) */
-		STM_PAD_SYS_CFG(19, 4, 5, 3),
-		/* PIO1[3]: alternative function 3 (ASC2_RTS) */
-		STM_PAD_SYS_CFG(19, 6, 7, 3),
 	},
 	.gpio_values_num = 4, /* !!! see stx7141_configure_asc() */
 	.gpio_values = (struct stm_pad_gpio_value []) {
 		/* TX */
-		STM_PAD_PIO_OUT(1, 0),
+		STM_PAD_PIO_OUT_MUX(1, 0, 3),
 		/* RX */
 		STM_PAD_PIO_IN(1, 1),
 		/* CTS */
 		STM_PAD_PIO_IN(1, 2),
 		/* RTS */
-		STM_PAD_PIO_OUT(1, 3),
+		STM_PAD_PIO_OUT_MUX(1, 3, 3),
 	},
 };
 
 static struct stm_pad_config stx7141_asc2_pio6_pad_config = {
-	.labels_num = 2, /* !!! see stx7141_configure_asc() */
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO6", 0, 1),
-		STM_PAD_LABEL_RANGE("PIO6", 2, 3),
-	},
-	.sysconf_values_num = 2, /* !!! see stx7141_configure_asc() */
+	.sysconf_values_num = 1,
 	.sysconf_values = (struct stm_pad_sysconf_value []) {
 		/* ASC2_RXD/ASC2_CTS: from PIO1 (0) or from PIO6 (3) */
 		STM_PAD_SYS_CFG(36, 30, 31, 3),
-		/* PIO6[0]: alternative function 3 (ASC2_TXD) */
-		STM_PAD_SYS_CFG(20, 27, 28, 3),
-		/* PIO6[1]: alternative function 3 (ASC2_RXD) */
-		STM_PAD_SYS_CFG(20, 29, 30, 3),
-		/* PIO6[2]: alternative function 3 (ASC2_CTS) */
-		STM_PAD_SYS_CFG(25, 0, 1, 3),
-		/* PIO6[3]: alternative function 3 (ASC2_RTS) */
-		STM_PAD_SYS_CFG(25, 2, 3, 3),
 	},
 	.gpio_values_num = 4, /* !!! see stx7141_configure_asc() */
 	.gpio_values = (struct stm_pad_gpio_value []) {
 		/* TX */
-		STM_PAD_PIO_OUT(6, 0),
+		STM_PAD_PIO_OUT_MUX(6, 0, 3),
 		/* RX */
 		STM_PAD_PIO_IN(6, 1),
 		/* CTS */
 		STM_PAD_PIO_IN(6, 2),
 		/* RTS */
-		STM_PAD_PIO_OUT(6, 3),
+		STM_PAD_PIO_OUT_MUX(6, 3, 3),
 	},
 };
 
@@ -238,8 +199,6 @@ void __init stx7141_configure_asc(int asc, struct stx7141_asc_config *config)
 		case stx7141_asc1_pio10:
 			pad_config = &stx7141_asc1_pio10_pad_config;
 			if (!config->hw_flow_control) {
-				pad_config->labels_num--;
-				pad_config->sysconf_values_num -= 2;
 				pad_config->gpio_values_num -= 2;
 			}
 			break;
@@ -266,8 +225,6 @@ void __init stx7141_configure_asc(int asc, struct stx7141_asc_config *config)
 			break;
 		}
 		if (!config->hw_flow_control) {
-			pad_config->labels_num--;
-			pad_config->sysconf_values_num -= 2;
 			pad_config->gpio_values_num -= 2;
 		}
 		break;
@@ -301,17 +258,61 @@ arch_initcall(stx7141_add_asc);
  * so the first SSC is SSC0 (zero). */
 
 /* Pad configuration for I2C/SSC mode */
-static struct stm_pad_config stx7141_ssc_i2c_ssc_pad_configs[] = {
+static struct stm_pad_config stx7141_ssc_i2c_pad_configs[] = {
 	[0] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 0, 1),
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX_NAME(2, 0, 1, "SCL"),
+			STM_PAD_PIO_BIDIR_MUX_NAME(2, 1, 1, "SDA"),
 		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alternative functions 1 for PIO2.0 & PIO2.1 */
-			STM_PAD_SYS_CFG(19, 12, 13, 3),
+	},
+	[1] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX_NAME(2, 3, 1, "SCL"),
+			STM_PAD_PIO_BIDIR_MUX_NAME(2, 4, 1, "SDA"),
 		},
+	},
+	[2] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX_NAME(2, 6, 1, "SCL"),
+			STM_PAD_PIO_BIDIR_MUX_NAME(2, 7, 1, "SDA"),
+		},
+	},
+	[3] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX_NAME(3, 0, 1, "SCL"),
+			STM_PAD_PIO_BIDIR_MUX_NAME(3, 1, 1, "SDA"),
+		},
+	},
+	[4] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX_NAME(2, 2, 1, "SCL"),
+			STM_PAD_PIO_BIDIR_MUX_NAME(2, 3, 1, "SDA"),
+		},
+	},
+	[5] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX_NAME(3, 4, 1, "SCL"),
+			STM_PAD_PIO_BIDIR_MUX_NAME(3, 5, 1, "SDA"),
+		},
+	},
+	[6] = {
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX_NAME(4, 0, 1, "SCL"),
+			STM_PAD_PIO_BIDIR_MUX_NAME(4, 1, 1, "SDA"),
+		},
+	},
+};
+
+/* Pad configuration for I2C/GPIO (temporary) mode */
+static struct stm_pad_config stx7141_ssc_i2c_gpio_pad_configs[] = {
+	[0] = {
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			STM_PAD_PIO_BIDIR(2, 0), /* SCL */
@@ -319,15 +320,6 @@ static struct stm_pad_config stx7141_ssc_i2c_ssc_pad_configs[] = {
 		},
 	},
 	[1] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 3, 4),
-		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alternative functions 1 for PIO2.3 & PIO2.4 */
-			STM_PAD_SYS_CFG(19, 15, 16, 3),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			STM_PAD_PIO_BIDIR(2, 3), /* SCL */
@@ -335,15 +327,6 @@ static struct stm_pad_config stx7141_ssc_i2c_ssc_pad_configs[] = {
 		},
 	},
 	[2] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 6, 7),
-		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alternative functions 1 for PIO2.6 & PIO2.7 */
-			STM_PAD_SYS_CFG(19, 18, 19, 3),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			STM_PAD_PIO_BIDIR(2, 6), /* SCL */
@@ -351,15 +334,6 @@ static struct stm_pad_config stx7141_ssc_i2c_ssc_pad_configs[] = {
 		},
 	},
 	[3] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO3", 0, 1),
-		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alternative functions 1 for PIO3.0 & PIO3.1 */
-			STM_PAD_SYS_CFG(19, 20, 21, 3),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			STM_PAD_PIO_BIDIR(3, 0), /* SCL */
@@ -367,15 +341,6 @@ static struct stm_pad_config stx7141_ssc_i2c_ssc_pad_configs[] = {
 		},
 	},
 	[4] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO3", 2, 3),
-		},
-		.sysconf_values_num = 2,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alternative functions 1 for PIO3.2 & PIO3.3 */
-			STM_PAD_SYS_CFG(19, 22, 25, 5),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			STM_PAD_PIO_BIDIR(2, 2), /* SCL */
@@ -383,15 +348,6 @@ static struct stm_pad_config stx7141_ssc_i2c_ssc_pad_configs[] = {
 		},
 	},
 	[5] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO3", 4, 5),
-		},
-		.sysconf_values_num = 2,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alternative functions 1 for PIO3.4 & PIO3.5 */
-			STM_PAD_SYS_CFG(19, 26, 29, 5),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			STM_PAD_PIO_BIDIR(3, 4), /* SCL */
@@ -399,15 +355,6 @@ static struct stm_pad_config stx7141_ssc_i2c_ssc_pad_configs[] = {
 		},
 	},
 	[6] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO4", 0, 1),
-		},
-		.sysconf_values_num = 2,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alternative functions 1 for PIO4.0 & PIO4.1 */
-			STM_PAD_SYS_CFG(20, 1, 4, 5),
-		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			STM_PAD_PIO_BIDIR(4, 0), /* SCL */
@@ -416,83 +363,55 @@ static struct stm_pad_config stx7141_ssc_i2c_ssc_pad_configs[] = {
 	},
 };
 
-/* Pad configuration for I2C/GPIO (temporary) mode */
-static struct stm_pad_config stx7141_ssc_i2c_gpio_pad_configs[] = {
+/* Pad configuration to revert to I2C/SSC mode from I2C/GPIO mode */
+static struct stm_pad_config stx7141_ssc_i2c_ssc_pad_configs[] = {
 	[0] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 0, 1),
-		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* PIO mode for PIO2.0 & PIO2.1 */
-			STM_PAD_SYS_CFG(19, 12, 13, 0),
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX(2, 0, 1), /* SCL */
+			STM_PAD_PIO_BIDIR_MUX(2, 1, 1), /* SDA */
 		},
 	},
 	[1] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 3, 4),
-		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* PIO mode for PIO2.3 & PIO2.4 */
-			STM_PAD_SYS_CFG(19, 15, 16, 0),
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX(2, 3, 1), /* SCL */
+			STM_PAD_PIO_BIDIR_MUX(2, 4, 1), /* SDA */
 		},
 	},
 	[2] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 6, 7),
-		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* PIO mode for PIO2.6 & PIO2.7 */
-			STM_PAD_SYS_CFG(19, 18, 19, 0),
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX(2, 6, 1), /* SCL */
+			STM_PAD_PIO_BIDIR_MUX(2, 7, 1), /* SDA */
 		},
 	},
 	[3] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO3", 0, 1),
-		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* PIO mode for PIO3.0 & PIO3.1 */
-			STM_PAD_SYS_CFG(19, 20, 21, 0),
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX(3, 0, 1), /* SCL */
+			STM_PAD_PIO_BIDIR_MUX(3, 1, 1), /* SDA */
 		},
 	},
 	[4] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO3", 2, 3),
-		},
-		.sysconf_values_num = 2,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* PIO mode for PIO3.2 & PIO3.3 */
-			STM_PAD_SYS_CFG(19, 22, 25, 0),
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX(2, 2, 1), /* SCL */
+			STM_PAD_PIO_BIDIR_MUX(2, 3, 1), /* SDA */
 		},
 	},
 	[5] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO3", 4, 5),
-		},
-		.sysconf_values_num = 2,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* PIO mode for PIO3.4 & PIO3.5 */
-			STM_PAD_SYS_CFG(19, 26, 29, 0),
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX(3, 4, 1), /* SCL */
+			STM_PAD_PIO_BIDIR_MUX(3, 5, 1), /* SDA */
 		},
 	},
 	[6] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO4", 0, 1),
-		},
-		.sysconf_values_num = 2,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* PIO mode for PIO4.0 & PIO4.1 */
-			STM_PAD_SYS_CFG(20, 1, 4, 0),
+		.gpio_values_num = 2,
+		.gpio_values = (struct stm_pad_gpio_value []) {
+			STM_PAD_PIO_BIDIR_MUX(4, 0, 1), /* SCL */
+			STM_PAD_PIO_BIDIR_MUX(4, 1, 1), /* SDA */
 		},
 	},
 };
@@ -500,53 +419,26 @@ static struct stm_pad_config stx7141_ssc_i2c_gpio_pad_configs[] = {
 /* Pad configuration for SPI/SSC mode */
 static struct stm_pad_config stx7141_ssc_spi_pad_configs[] = {
 	[0] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 0, 2),
-		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alternative functions 1 for PIO2.0-2*/
-			STM_PAD_SYS_CFG(19, 12, 14, 7),
-		},
 		.gpio_values_num = 3,
 		.gpio_values = (struct stm_pad_gpio_value []) {
-			STM_PAD_PIO_OUT(2, 0), /* SCK */
-			STM_PAD_PIO_OUT(2, 1), /* MOSI */
+			STM_PAD_PIO_OUT_MUX(2, 0, 1), /* SCK */
+			STM_PAD_PIO_OUT_MUX(2, 1, 1), /* MOSI */
 			STM_PAD_PIO_IN(2, 2),  /* MISO */
 		},
 	},
 	[1] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO2", 3, 5),
-		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alternative functions 1 for PIO2.3-5*/
-			STM_PAD_SYS_CFG(19, 15, 17, 7),
-		},
 		.gpio_values_num = 3,
 		.gpio_values = (struct stm_pad_gpio_value []) {
-			STM_PAD_PIO_OUT(2, 3), /* SCK */
-			STM_PAD_PIO_OUT(2, 4), /* MOSI */
+			STM_PAD_PIO_OUT_MUX(2, 3, 1), /* SCK */
+			STM_PAD_PIO_OUT_MUX(2, 4, 1), /* MOSI */
 			STM_PAD_PIO_IN(2, 5),  /* MISO */
 		},
 	},
 	[5] = {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO3", 4, 6),
-		},
-		.sysconf_values_num = 1,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alternative functions 1 for PIO3.4-6*/
-			STM_PAD_SYS_CFG(19, 26, 31, 0x15),
-		},
 		.gpio_values_num = 3,
 		.gpio_values = (struct stm_pad_gpio_value []) {
-			STM_PAD_PIO_OUT(3, 4), /* SCK */
-			STM_PAD_PIO_OUT(3, 5), /* MOSI */
+			STM_PAD_PIO_OUT_MUX(3, 4, 1), /* SCK */
+			STM_PAD_PIO_OUT_MUX(3, 5, 1), /* MOSI */
 			STM_PAD_PIO_IN(3, 6),  /* MISO */
 		},
 	},
@@ -561,9 +453,6 @@ static struct platform_device stx7141_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(69), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(2, 0),
-			.gpio_mtsr = stm_gpio(2, 1),
-			.gpio_mrst = stm_gpio(2, 2),
 			/* .pad_config_* set in stx7141_configure_ssc_*() */
 		},
 	},
@@ -575,9 +464,6 @@ static struct platform_device stx7141_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(70), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(2, 3),
-			.gpio_mtsr = stm_gpio(2, 4),
-			.gpio_mrst = stm_gpio(2, 5),
 			/* .pad_config_* set in stx7141_configure_ssc_*() */
 		},
 	},
@@ -589,9 +475,6 @@ static struct platform_device stx7141_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(71), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(2, 6),
-			.gpio_mtsr = stm_gpio(2, 7),
-			.gpio_mrst = STM_GPIO_INVALID,
 			/* .pad_config_* set in stx7141_configure_ssc_*() */
 		},
 	},
@@ -603,9 +486,6 @@ static struct platform_device stx7141_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(72), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(3, 0),
-			.gpio_mtsr = stm_gpio(3, 1),
-			.gpio_mrst = STM_GPIO_INVALID,
 			/* .pad_config_* set in stx7141_configure_ssc_*() */
 		},
 	},
@@ -617,9 +497,6 @@ static struct platform_device stx7141_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(73), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(3, 2),
-			.gpio_mtsr = stm_gpio(3, 3),
-			.gpio_mrst = STM_GPIO_INVALID,
 			/* .pad_config_* set in stx7141_configure_ssc_*() */
 		},
 	},
@@ -631,9 +508,6 @@ static struct platform_device stx7141_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(74), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(3, 4),
-			.gpio_mtsr = stm_gpio(3, 5),
-			.gpio_mrst = stm_gpio(3, 6),
 			/* .pad_config_* set in stx7141_configure_ssc_*() */
 		},
 	},
@@ -645,9 +519,6 @@ static struct platform_device stx7141_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(75), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.gpio_sclk = stm_gpio(4, 0),
-			.gpio_mtsr = stm_gpio(4, 1),
-			.gpio_mrst = STM_GPIO_INVALID,
 			/* .pad_config_* set in stx7141_configure_ssc_*() */
 		},
 	},
@@ -669,6 +540,7 @@ int __init stx7141_configure_ssc_i2c(int ssc)
 	stx7141_ssc_devices[ssc].id = i2c_busnum;
 
 	plat_data = stx7141_ssc_devices[ssc].dev.platform_data;
+	plat_data->pad_config = &stx7141_ssc_i2c_pad_configs[ssc];
 	plat_data->pad_config_ssc = &stx7141_ssc_i2c_ssc_pad_configs[ssc];
 	plat_data->pad_config_gpio = &stx7141_ssc_i2c_gpio_pad_configs[ssc];
 
@@ -802,33 +674,15 @@ void __init stx7141_configure_lirc(struct stx7141_lirc_config *config)
 static struct stm_plat_pwm_data stx7141_pwm_platform_data = {
 	.channel_pad_config = {
 		[0] = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL("PIO4.3"),
-			},
-			.sysconf_values_num = 1,
-			.sysconf_values = (struct stm_pad_sysconf_value []) {
-				/* Alternative function 2 for PIO3.4 */
-				STM_PAD_SYS_CFG(19, 26, 27, 2),
-			},
 			.gpio_values_num = 1,
 			.gpio_values = (struct stm_pad_gpio_value []) {
-				STM_PAD_PIO_OUT(4, 3),
+				STM_PAD_PIO_OUT_MUX(4, 3, 2),
 			},
 		},
 		[1] = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL("PIO4.2"),
-			},
-			.sysconf_values_num = 1,
-			.sysconf_values = (struct stm_pad_sysconf_value []) {
-				/* Alternative function 2 for PIO4.2 */
-				STM_PAD_SYS_CFG(20, 5, 6, 2),
-			},
 			.gpio_values_num = 1,
 			.gpio_values = (struct stm_pad_gpio_value []) {
-				STM_PAD_PIO_OUT(4, 2),
+				STM_PAD_PIO_OUT_MUX(4, 2, 2),
 			},
 		},
 	},

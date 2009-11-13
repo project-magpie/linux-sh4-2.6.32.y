@@ -75,10 +75,7 @@ extern struct platform_device *stm_asc_configured_devices[];
 /*** SSC platform data ***/
 
 struct stm_plat_ssc_data {
-	unsigned gpio_sclk; /* I2C = SCL, SPI = Clock */
-	unsigned gpio_mtsr; /* I2C = SDA, SPI = Master Transmit Slave Receive */
-	unsigned gpio_mrst; /* SPI (only) = Master Receive Slave Transmit */
-
+	struct stm_pad_config *pad_config;
 	struct stm_pad_config *pad_config_ssc;
 	struct stm_pad_config *pad_config_gpio;
 

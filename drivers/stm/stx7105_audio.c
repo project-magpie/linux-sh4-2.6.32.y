@@ -68,13 +68,6 @@ static struct snd_stm_pcm_player_info stx7105_pcm_player_0_info = {
 };
 
 static struct stm_pad_config stx7105_pcm_player_0_pad_config = {
-	.labels_num = 4,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_RANGE("PIO10", 3, 5),
-		STM_PAD_LABEL("PIO10.0"),
-		STM_PAD_LABEL("PIO10.1"),
-		STM_PAD_LABEL("PIO10.2"),
-	},
 	.gpio_values_num = 6,
 	.gpio_values = (struct stm_pad_gpio_value []) {
 		STM_PAD_PIO_ALT_OUT(10, 3),	/* MCLK */
@@ -140,10 +133,6 @@ static struct snd_stm_spdif_player_info stx7105_spdif_player_info = {
 };
 
 static struct stm_pad_config stx7105_spdif_player_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL("PIO10.6"),
-	},
 	.gpio_values_num = 1,
 	.gpio_values = (struct stm_pad_gpio_value []) {
 		STM_PAD_PIO_ALT_OUT(10, 6),
@@ -240,11 +229,6 @@ static struct snd_stm_pcm_reader_info stx7105_pcm_reader_info = {
 };
 
 static struct stm_pad_config stx7105_pcm_reader_pad_config = {
-	.labels_num = 2,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL("PIO10.7"),
-		STM_PAD_LABEL_RANGE("PIO11", 0, 1),
-	},
 	.gpio_values_num = 3,
 	.gpio_values = (struct stm_pad_gpio_value []) {
 		STM_PAD_PIO_IN(10, 0),	/* DATA */
@@ -317,7 +301,6 @@ void __init stx7105_configure_audio(struct stx7105_audio_config *config)
 		stx7105_pcm_player_0_info.pad_config =
 				&stx7105_pcm_player_0_pad_config;
 
-		stx7105_pcm_player_0_pad_config.labels_num -= unused;
 		stx7105_pcm_player_0_pad_config.gpio_values_num -= unused;
 	}
 

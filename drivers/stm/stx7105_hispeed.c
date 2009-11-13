@@ -14,12 +14,6 @@
 
 static struct stm_pad_config stx7105_ethernet_pad_configs[] = {
 	[stx7105_ethernet_mode_mii] = {
-		.labels_num = 3,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO7", 4, 7),
-			STM_PAD_LABEL_RANGE("PIO8", 0, 7),
-			STM_PAD_LABEL_RANGE("PIO9", 0, 6),
-		},
 		.sysconf_values_num = 11,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* ethernet_interface_on */
@@ -72,14 +66,6 @@ static struct stm_pad_config stx7105_ethernet_pad_configs[] = {
 		},
 	},
 	[stx7105_ethernet_mode_gmii] = {
-		.labels_num = 5,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO4", 4, 7),
-			STM_PAD_LABEL_RANGE("PIO5", 0, 3),
-			STM_PAD_LABEL_RANGE("PIO7", 4, 7),
-			STM_PAD_LABEL_RANGE("PIO8", 0, 7),
-			STM_PAD_LABEL_RANGE("PIO9", 0, 6),
-		},
 		.sysconf_values_num = 11,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* ethernet_interface_on */
@@ -143,13 +129,6 @@ static struct stm_pad_config stx7105_ethernet_pad_configs[] = {
 	[stx7105_ethernet_mode_rgmii] = { /* TODO */ },
 	[stx7105_ethernet_mode_sgmii] = { /* TODO */ },
 	[stx7105_ethernet_mode_rmii] = {
-		.labels_num = 4,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO7", 4, 7),
-			STM_PAD_LABEL_RANGE("PIO8", 2, 4),
-			STM_PAD_LABEL_RANGE("PIO8", 6, 7),
-			STM_PAD_LABEL_RANGE("PIO9", 5, 6),
-		},
 		.sysconf_values_num = 11,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* Ethernet ON */
@@ -192,12 +171,6 @@ static struct stm_pad_config stx7105_ethernet_pad_configs[] = {
 		},
 	},
 	[stx7105_ethernet_mode_reverse_mii] = {
-		.labels_num = 3,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_RANGE("PIO7", 4, 7),
-			STM_PAD_LABEL_RANGE("PIO8", 0, 7),
-			STM_PAD_LABEL_RANGE("PIO9", 0, 6),
-		},
 		.sysconf_values_num = 11,
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* Ethernet ON */
@@ -457,8 +430,6 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 		if (port == 0) {
 			switch (config->routing.usb0.ovrcur) {
 			case stx7105_usb0_ovrcur_pio4_4:
-				stm_pad_config_add_label_number(pad_config,
-						"PIO4", 4);
 				/* usb0_prt_ovrcurr_sel: 0 = PIO4.4 */
 				stm_pad_config_add_sys_cfg(pad_config,
 						4, 5, 5, 0);
@@ -466,8 +437,6 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 						STM_GPIO_DIRECTION_IN);
 				break;
 			case stx7105_usb0_ovrcur_pio12_5:
-				stm_pad_config_add_label_number(pad_config,
-						"PIO12", 5);
 				/* usb0_prt_ovrcurr_sel: 1 = PIO12.5 */
 				stm_pad_config_add_sys_cfg(pad_config,
 						4, 5, 5, 1);
@@ -481,8 +450,6 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 		} else {
 			switch (config->routing.usb1.ovrcur) {
 			case stx7105_usb1_ovrcur_pio4_6:
-				stm_pad_config_add_label_number(pad_config,
-						"PIO4", 6);
 				/* usb1_prt_ovrcurr_sel: 0 = PIO4.6 */
 				stm_pad_config_add_sys_cfg(pad_config,
 						4, 6, 6, 0);
@@ -490,8 +457,6 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 						STM_GPIO_DIRECTION_IN);
 				break;
 			case stx7105_usb1_ovrcur_pio14_6:
-				stm_pad_config_add_label_number(pad_config,
-						"PIO14", 6);
 				/* usb1_prt_ovrcurr_sel: 1 = PIO14.6 */
 				stm_pad_config_add_sys_cfg(pad_config,
 						4, 6, 6, 1);
@@ -509,8 +474,6 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 		if (port == 0) {
 			switch (config->routing.usb0.pwr) {
 			case stx7105_usb0_pwr_pio4_5:
-				stm_pad_config_add_label_number(pad_config,
-						"PIO4", 5);
 				stm_pad_config_add_pio(pad_config, 4, 5,
 						STM_GPIO_DIRECTION_ALT_OUT);
 				/* Alt. func. 4 */
@@ -520,8 +483,6 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 						34, 13, 13, 1);
 				break;
 			case stx7105_usb0_pwr_pio12_6:
-				stm_pad_config_add_label_number(pad_config,
-						"PIO12", 6);
 				stm_pad_config_add_pio(pad_config, 12, 6,
 						STM_GPIO_DIRECTION_ALT_OUT);
 				/* Alt. func. 3 */
@@ -539,8 +500,6 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 		} else {
 			switch (config->routing.usb1.pwr) {
 			case stx7105_usb1_pwr_pio4_7:
-				stm_pad_config_add_label_number(pad_config,
-						"PIO4", 7);
 				stm_pad_config_add_pio(pad_config, 4, 7,
 						STM_GPIO_DIRECTION_ALT_OUT);
 				/* Alt. func. 4 */
@@ -550,8 +509,6 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 						34, 15, 15, 1);
 				break;
 			case stx7105_usb1_pwr_pio14_7:
-				stm_pad_config_add_label_number(pad_config,
-						"PIO14", 7);
 				stm_pad_config_add_pio(pad_config, 14, 7,
 						STM_GPIO_DIRECTION_ALT_OUT);
 				break;

@@ -11,7 +11,7 @@
 
 static struct stm_pad_config stx7111_asc_pad_configs[] = {
 	[0] = {
-		.sysconf_values_num = 1,
+		.sysconf_values_num = 1, /* !!! see stx7111_configure_asc() */
 		.sysconf_values = (struct stm_pad_sysconf_value []) {
 			/* PDES_SCMUX_OUT = 0: route UART0 instead of PDES
 			 * to pins.  According to note against against
@@ -54,12 +54,6 @@ static struct stm_pad_config stx7111_asc_pad_configs[] = {
 		},
 	},
 	[2] = {
-		.sysconf_values_num = 1, /* !!! see stx7111_configure_asc() */
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Route UART2 (in and out) instead of SCI to pins.
-			 * ssc2_mux_sel = 0 */
-			STM_PAD_SYS_CFG(7, 3, 3, 0),
-		},
 		.gpio_values_num = 4, /* !!! see stx7111_configure_asc() */
 		.gpio_values = (struct stm_pad_gpio_value []) {
 			/* TX */
@@ -235,7 +229,8 @@ static struct stm_pad_config stx7111_ssc_i2c_pad_configs[] = {
 			/* dvo_out=0 */
 			STM_PAD_SYS_CFG(7, 10, 10, 0),
 			/* Select SSC1 instead of PCI interrupts */
-			STM_PAD_SYS_CFG(5, 9, 10, 0),
+			/* Early datasheet version erroneously said 9-11 */
+			STM_PAD_SYS_CFG(5, 11, 12, 0),
 		},
 		.gpio_values_num = 2,
 		.gpio_values = (struct stm_pad_gpio_value []) {
@@ -339,7 +334,8 @@ static struct stm_pad_config stx7111_ssc_spi_pad_configs[] = {
 			/* dvo_out=0 */
 			STM_PAD_SYS_CFG(7, 10, 10, 0),
 			/* Select SSC1 instead of PCI interrupts */
-			STM_PAD_SYS_CFG(5, 9, 11, 0),
+			/* Early datasheet version erroneously said 9-11 */
+			STM_PAD_SYS_CFG(5, 10, 12, 0),
 		},
 		.gpio_values_num = 3,
 		.gpio_values = (struct stm_pad_gpio_value []) {
@@ -550,12 +546,6 @@ void __init stx7111_configure_lirc(struct stx7111_lirc_config *config)
 static struct stm_plat_pwm_data stx7111_pwm_platform_data = {
 	.channel_pad_config = {
 		[0] = &(struct stm_pad_config) {
-			.sysconf_values_num = 1,
-			.sysconf_values = (struct stm_pad_sysconf_value []) {
-				/* Route UART2 and PWM_OUT0 instead of
-				 * SCI to pins: SSC2_MUX_SEL = 0 */
-				STM_PAD_SYS_CFG(7, 3, 3, 0),
-			},
 			.gpio_values_num = 1,
 			.gpio_values = (struct stm_pad_gpio_value []) {
 				STM_PAD_PIO_ALT_OUT(4, 6),

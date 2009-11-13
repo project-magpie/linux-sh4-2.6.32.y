@@ -122,7 +122,8 @@ static int ehci_hcd_stm_probe(struct platform_device *pdev)
 
 	stm_usb_pdev = to_platform_device(pdev->dev.parent);
 
-	res = platform_get_resource(stm_usb_pdev, IORESOURCE_MEM, 0);
+	res = platform_get_resource_byname(stm_usb_pdev,
+			IORESOURCE_MEM, "ehci");
 	hcd->rsrc_start = res->start;
 	hcd->rsrc_len = res->end - res->start;
 
@@ -150,7 +151,8 @@ static int ehci_hcd_stm_probe(struct platform_device *pdev)
  * Fix the reset port issue on a load-unload-load sequence
  */
 	ehci->has_reset_port_bug = 1,
-	res = platform_get_resource(stm_usb_pdev, IORESOURCE_IRQ, 0);
+	res = platform_get_resource_byname(stm_usb_pdev,
+			IORESOURCE_IRQ, "ehci");
 	retval = usb_add_hcd(hcd, res->start, 0);
 	if (retval == 0) {
 #ifdef CONFIG_PM

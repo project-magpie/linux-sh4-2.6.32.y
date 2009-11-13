@@ -103,9 +103,9 @@ static int st_usb_remove(struct platform_device *pdev)
 	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 0);
 	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "wrapper");
 	devm_release_mem_region(dev, res->start, res->end - res->start);
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "protocol");
 	devm_release_mem_region(dev, res->start, res->end - res->start);
 
 	if (dr_data->ehci_device)
@@ -172,7 +172,7 @@ static int st_usb_probe(struct platform_device *pdev)
 		goto err_0;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "wrapper");
 	if (!res) {
 		ret = -ENXIO;
 		goto err_0;
@@ -189,7 +189,7 @@ static int st_usb_probe(struct platform_device *pdev)
 		ret = -EFAULT;
 		goto err_1;
 	}
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "protocol");
 	if (!res) {
 		ret = -ENXIO;
 		goto err_2;
@@ -208,8 +208,8 @@ static int st_usb_probe(struct platform_device *pdev)
 	}
 	st_usb_boot(pdev);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0); /* ehci iomem */
-	if (res->start) {
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "ehci");
+	if (res) {
 		dr_data->ehci_device = stm_usb_device_create("stm-ehci",
 			pdev->id, pdev);
 		if (IS_ERR(dr_data->ehci_device)) {
@@ -218,8 +218,8 @@ static int st_usb_probe(struct platform_device *pdev)
 		}
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 1); /* ohci iomem */
-	if (res->start) {
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "ohci");
+	if (res) {
 		dr_data->ohci_device =
 			stm_usb_device_create("stm-ohci", pdev->id, pdev);
 		if (IS_ERR(dr_data->ohci_device)) {
@@ -234,12 +234,12 @@ static int st_usb_probe(struct platform_device *pdev)
 err_4:
 	devm_iounmap(dev, dr_data->ahb2stbus_protocol_base);
 err_3:
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "protocol");
 	devm_release_mem_region(dev, res->start, res->end - res->start);
 err_2:
 	devm_iounmap(dev, dr_data->ahb2stbus_wrapper_glue_base);
 err_1:
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "wrapper");
 	devm_release_mem_region(dev, res->start, res->end - res->start);
 err_0:
 	kfree(dr_data);

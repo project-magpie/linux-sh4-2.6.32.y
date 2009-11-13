@@ -106,15 +106,14 @@ static struct platform_device stx7200_usb_devices[] = {
 		},
 		.num_resources = 2,
 		.resource = (struct resource[]) {
-			/* EHCI */
-			STM_PLAT_RESOURCE_MEM(0xfd2ffe00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(80), -1),
-			/* OHCI */
-			STM_PLAT_RESOURCE_MEM(0xfd2ffc00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(81), -1),
-			/* Wrapper glue */
-			STM_PLAT_RESOURCE_MEM(0xfd200000, 0x100),
-			STM_PLAT_RESOURCE_MEM(0xfd2fff00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ehci", 0xfd2ffe00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ehci", ILC_IRQ(80), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("ohci", 0xfd2ffc00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ohci", ILC_IRQ(81), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("wrapper", 0xfd200000,
+						    0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("protocol", 0xfd2fff00,
+						    0x100),
 		},
 	},
 	[1] = {
@@ -127,15 +126,14 @@ static struct platform_device stx7200_usb_devices[] = {
 		},
 		.num_resources = 2,
 		.resource = (struct resource[]) {
-			/* EHCI */
-			STM_PLAT_RESOURCE_MEM(0xfd3ffe00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(82), -1),
-			/* OHCI */
-			STM_PLAT_RESOURCE_MEM(0xfd3ffc00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(83), -1),
-			/* Wrapper glue */
-			STM_PLAT_RESOURCE_MEM(0xfd300000, 0x100),
-			STM_PLAT_RESOURCE_MEM(0xfd3fff00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ehci", 0xfd3ffe00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ehci", ILC_IRQ(82), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("ohci", 0xfd3ffc00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ohci", ILC_IRQ(83), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("wrapper", 0xfd300000,
+						    0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("protocol", 0xfd3fff00,
+						    0x100),
 		},
 	},
 	[2] = {
@@ -148,15 +146,14 @@ static struct platform_device stx7200_usb_devices[] = {
 		},
 		.num_resources = 2,
 		.resource = (struct resource[]) {
-			/* EHCI */
-			STM_PLAT_RESOURCE_MEM(0xfd4ffe00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(84), -1),
-			/* OHCI */
-			STM_PLAT_RESOURCE_MEM(0xfd4ffc00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(85), -1),
-			/* Wrapper glue */
-			STM_PLAT_RESOURCE_MEM(0xfd400000, 0x100),
-			STM_PLAT_RESOURCE_MEM(0xfd4fff00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ehci", 0xfd4ffe00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ehci", ILC_IRQ(84), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("ohci", 0xfd4ffc00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ohci", ILC_IRQ(85), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("wrapper", 0xfd400000,
+						    0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("protocol", 0xfd4fff00,
+						    0x100),
 		},
 	},
 };
@@ -507,7 +504,7 @@ void __init stx7200_configure_sata(int port)
 	configured[port] = 1;
 
 	if (cpu_data->cut_major < 3) {
-		pr_warn("SATA is only supported on cut 3 or later\n");
+		pr_warning("SATA is only supported on cut 3 or later\n");
 		return;
 	}
 

@@ -780,15 +780,12 @@ static struct platform_device stx5197_usb_device = {
 	},
 	.num_resources = 6,
 	.resource = (struct resource[]) {
-		/* EHCI */
-		STM_PLAT_RESOURCE_MEM(0xfddffe00, 0x100),
-		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(29), -1),
-		/* OHCI */
-		STM_PLAT_RESOURCE_MEM(0xfddffc00, 0x100),
-		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(28), -1),
-		/* Wrapper glue */
-		STM_PLAT_RESOURCE_MEM(0xfdd00000, 0x100),
-		STM_PLAT_RESOURCE_MEM(0xfddfff00, 0x100),
+		STM_PLAT_RESOURCE_MEM_NAMED("ehci", 0xfddffe00, 0x100),
+		STM_PLAT_RESOURCE_IRQ_NAMED("ehci", ILC_IRQ(29), -1),
+		STM_PLAT_RESOURCE_MEM_NAMED("ohci", 0xfddffc00, 0x100),
+		STM_PLAT_RESOURCE_IRQ_NAMED("ohci", ILC_IRQ(28), -1),
+		STM_PLAT_RESOURCE_MEM_NAMED("wrapper", 0xfdd00000, 0x100),
+		STM_PLAT_RESOURCE_MEM_NAMED("protocol", 0xfddfff00, 0x100),
 	},
 };
 

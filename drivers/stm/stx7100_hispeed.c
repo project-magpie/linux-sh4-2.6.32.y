@@ -220,16 +220,12 @@ static struct platform_device stx7100_usb_device = {
 	},
 	.num_resources = 6,
 	.resource = (struct resource[]) {
-		/* EHCI */
-		STM_PLAT_RESOURCE_MEM(0x191ffe00, 0x100),
-		STM_PLAT_RESOURCE_IRQ(169, -1),
-		/* OHCI */
-		STM_PLAT_RESOURCE_MEM(0x191ffc00, 0x100),
-		STM_PLAT_RESOURCE_IRQ(168, -1),
-		/* Wrapper glue */
-		STM_PLAT_RESOURCE_MEM(0x19100000, 0x100),
-		/* Protocol converter */
-		STM_PLAT_RESOURCE_MEM(0x191fff00, 0x100),
+		STM_PLAT_RESOURCE_MEM_NAMED("ehci", 0x191ffe00, 0x100),
+		STM_PLAT_RESOURCE_IRQ_NAMED("ehci", 169, -1),
+		STM_PLAT_RESOURCE_MEM_NAMED("ohci", 0x191ffc00, 0x100),
+		STM_PLAT_RESOURCE_IRQ_NAMED("ohci", 168, -1),
+		STM_PLAT_RESOURCE_MEM_NAMED("wrapper", 0x19100000, 0x100),
+		STM_PLAT_RESOURCE_MEM_NAMED("protocol", 0x191fff00, 0x100),
 	},
 };
 

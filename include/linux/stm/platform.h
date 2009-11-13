@@ -19,6 +19,14 @@
 			.flags = IORESOURCE_MEM, \
 		}
 
+#define STM_PLAT_RESOURCE_MEM_NAMED(_name, _start, _size) \
+		{ \
+			.start = (_start), \
+			.end = (_start) + (_size) - 1, \
+			.name = (_name), \
+			.flags = IORESOURCE_MEM, \
+		}
+
 #if defined(CONFIG_CPU_SUBTYPE_ST40)
 
 #define STM_PLAT_RESOURCE_IRQ(_st40, _st200) \

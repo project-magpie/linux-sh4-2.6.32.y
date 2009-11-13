@@ -508,16 +508,14 @@ static struct platform_device stx7141_usb_devices[] = {
 		},
 		.num_resources = 6,
 		.resource = (struct resource[]) {
-			/* EHCI */
-			STM_PLAT_RESOURCE_MEM(0xfe1ffe00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(93), -1),
-			/* OHCI */
-			STM_PLAT_RESOURCE_MEM(0xfe1ffc00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(94), -1),
-			/* Wrapper glue */
-			STM_PLAT_RESOURCE_MEM(0xfe100000, 0x100),
-			/* Protocol converter */
-			STM_PLAT_RESOURCE_MEM(0xfe1fff00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ehci", 0xfe1ffe00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ehci", ILC_IRQ(93), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("ohci", 0xfe1ffc00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ohci", ILC_IRQ(94), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("wrapper", 0xfe100000,
+						    0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("protocol", 0xfe1fff00,
+						    0x100),
 		},
 	},
 	[1] = {
@@ -530,16 +528,14 @@ static struct platform_device stx7141_usb_devices[] = {
 		},
 		.num_resources = 6,
 		.resource = (struct resource[]) {
-			/* EHCI */
-			STM_PLAT_RESOURCE_MEM(0xfeaffe00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(95), -1),
-			/* OHCI */
-			STM_PLAT_RESOURCE_MEM(0xfeaffc00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(96), -1),
-			/* Wrapper glue */
-			STM_PLAT_RESOURCE_MEM(0xfea00000, 0x100),
-			/* Protocol converter */
-			STM_PLAT_RESOURCE_MEM(0xfeafff00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ehci", 0xfeaffe00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ehci", ILC_IRQ(95), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("ohci", 0xfeaffc00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ohci", ILC_IRQ(96), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("wrapper", 0xfea00000,
+						    0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("protocol", 0xfeafff00,
+						    0x100),
 		},
 	},
 	[2] = {
@@ -550,18 +546,14 @@ static struct platform_device stx7141_usb_devices[] = {
 			.coherent_dma_mask = DMA_32BIT_MASK,
 			.platform_data = &stx7141_usb_platform_data[2],
 		},
-		.num_resources = 6,
+		.num_resources = 4,
 		.resource = (struct resource[]) {
-			/* no EHCI */
-			{ .flags = 0 },
-			{ .flags = 0 },
-			/* OHCI */
-			STM_PLAT_RESOURCE_MEM(0xfebffc00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(97), -1),
-			/* Wrapper glue */
-			STM_PLAT_RESOURCE_MEM(0xfeb00000, 0x100),
-			/* Protocol converter */
-			STM_PLAT_RESOURCE_MEM(0xfebfff00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ohci", 0xfebffc00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ohci", ILC_IRQ(97), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("wrapper", 0xfeb00000,
+						    0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("protocol", 0xfebfff00,
+						    0x100),
 		},
 	},
 	[3] = {
@@ -572,18 +564,14 @@ static struct platform_device stx7141_usb_devices[] = {
 			.coherent_dma_mask = DMA_32BIT_MASK,
 			.platform_data = &stx7141_usb_platform_data[3],
 		},
-		.num_resources = 6,
+		.num_resources = 4,
 		.resource = (struct resource[]) {
-			/* no EHCI */
-			{ .flags = 0 },
-			{ .flags = 0 },
-			/* OHCI */
-			STM_PLAT_RESOURCE_MEM(0xfecffc00, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(98), -1),
-			/* Wrapper glue */
-			STM_PLAT_RESOURCE_MEM(0xfec00000, 0x100),
-			/* Protocol converter */
-			STM_PLAT_RESOURCE_MEM(0xfecfff00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ohci", 0xfecffc00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ohci", ILC_IRQ(98), -1),
+			STM_PLAT_RESOURCE_MEM_NAMED("wrapper", 0xfec00000,
+						    0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("protocol", 0xfecfff00,
+						    0x100),
 		},
 	},
 };

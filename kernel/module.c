@@ -286,7 +286,7 @@ bool each_symbol(bool (*fn)(const struct symsearch *arr, struct module *owner,
 		{ HTABLE(__start___ksymtab_gpl_future),
 		  __stop___ksymtab_gpl_future,
 		  __start___kcrctab_gpl_future,
-		  WILL_BE_GPL_ONLY, false},
+		  WILL_BE_GPL_ONLY, false },
 #ifdef CONFIG_UNUSED_SYMBOLS
 		{ HTABLE(__start___ksymtab_unused), __stop___ksymtab_unused,
 		  __start___kcrctab_unused,
@@ -294,7 +294,7 @@ bool each_symbol(bool (*fn)(const struct symsearch *arr, struct module *owner,
 		{ HTABLE(__start___ksymtab_unused_gpl),
 		  __stop___ksymtab_unused_gpl,
 		  __start___kcrctab_unused_gpl,
-		  GPL_ONLY, true},
+		  GPL_ONLY, true },
 #endif
 	};
 
@@ -391,8 +391,8 @@ static inline void warn_symbol_unused(const struct symsearch *syms,
 
 /* lookup symbol on given range of kernel_symbols
  * It uses an ELF hash table to perform symbol lookup.
- * Symbol's hash value are already computed at build time and
- * available in the .undef.hash ELF section
+ * Symbols hash values are already computed at build time
+ * for both undefined symbols and exported ones.
  */
 static bool find_symbol_in_section(const struct symsearch *syms,
 				   struct module *owner,
@@ -480,6 +480,7 @@ static bool find_symbol_in_section(const struct symsearch *syms,
 #endif
 
 #ifdef CONFIG_LKM_ELF_HASH
+
 #define HASH_VALUE_PARAM	const unsigned long gnu_hash_value,
 #define HASH_VALUE_ARG		, gnu_hash_value
 #define HASH_VALUE		gnu_hash_value
@@ -487,7 +488,9 @@ static bool find_symbol_in_section(const struct symsearch *syms,
 #define SYMHASH_INDEX_PARAM	unsigned int symhashindex,
 #define SYMHASH_INDEX_ARG	symhashindex,
 #define KSYM_HASH(__sym__)	, __sym__->hash_value
+
 #else
+
 #define HASH_VALUE_ARG
 #define HASH_VALUE_PARAM
 #define HASH_VALUE

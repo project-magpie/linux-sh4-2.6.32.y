@@ -1,11 +1,28 @@
 /*
- * Copyright STMicroelectronics Ltd (2009)
+ * Functions used by modpost to create data sections for Fast LKM hash loader
  *
- * Author: Carmelo Amoroso <carmelo.amoroso@st.com>
+ * Copyright (C) 2008-2009 STMicroelectronics Ltd
+ *
+ * Author(s): Carmelo Amoroso <carmelo.amoroso@st.com>, STMicroelectronics
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * any later version.
+
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  */
 
-#include "ksymtable.h"
+#define EMPTY_SLOT -1
+#include "modpost.h"
 
 /**
  * Record hash_values for unresolved symbols
@@ -14,20 +31,23 @@
 void add_undef_hash(struct buffer *b, struct module *mod)
 {
 	struct symbol *s;
+	unsigned int i;
 
 	buf_printf(b, "#ifdef CONFIG_LKM_ELF_HASH\n");
 	buf_printf(b, "static unsigned long __symtab_hash[]\n");
 	buf_printf(b, "__used\n");
-	buf_printf(b, "__attribute__((section(\".undef.hash\"))) = {\n");
+	buf_printf(b, "__attribute__((section(\".undef.hash\"))) = {\n\t");
 
-	for (s = mod->unres; s; s = s->next) {
+	for (s = mod->unres, i = 0; s; s = s->next) {
 		/*
 		 * Fill with zero, the order of unresolved symbol is not yet
 		 * correct. This will create a placeholder for the hash values.
 		 */
-		buf_printf(b, "\t%#8lx,\n", 0L);
+		buf_printf(b, "%lx, ", 0L);
+		if (!(++i % 24))
+			buf_printf(b, "\n\t");
 	}
-	buf_printf(b, "};\n");
+	buf_printf(b, "\n};\n");
 	buf_printf(b, "#endif\n");
 }
 
@@ -62,15 +82,6 @@ static uint32_t compute_bucket_count(unsigned long int nsyms, int gnu_hash)
 	return best_size;
 }
 
-static ksym_hash_t gnu_hash(const unsigned char *name)
-{
-	ksym_hash_t h = 5381;
-	unsigned char c;
-	for (c = *name; c != '\0'; c = *++name)
-		h = h * 33 + c;
-	return h & 0xffffffff;
-}
-
 /* Handle collisions: return the max of the used slot of the chain
   -1 in case of error */
 int handle_collision(struct elf_htable *htable, unsigned long idx,
@@ -97,11 +108,10 @@ int handle_collision(struct elf_htable *htable, unsigned long idx,
 	return handle_collision(htable, *slot, value);
 }
 
-#define GET_KSTRING(__ksym, __offset) (unsigned char *)(__ksym->name + __offset)
-
 static int fill_hashtable(struct elf_htable *htable,
 			  struct kernel_symbol *start,
-			  struct kernel_symbol *stop, long s_offset)
+			  struct kernel_symbol *stop,
+			  long kstrings_base)
 {
 	struct kernel_symbol *ksym;
 	uint32_t nb;
@@ -111,13 +121,14 @@ static int fill_hashtable(struct elf_htable *htable,
 	/* sanity check */
 	if ((htable->elf_buckets == NULL) || (htable->chains == NULL))
 		return -1;
-	/* Initialize buckets and chains with -1 that means empty */
-	memset(htable->elf_buckets, -1, htable->nbucket * sizeof(uint32_t));
-	memset(htable->chains, -1, htable->nchain * sizeof(uint32_t));
+	/* Initialize buckets and chains with EMPTY_SLOT */
+	memset(htable->elf_buckets, EMPTY_SLOT,
+	       htable->nbucket * sizeof(uint32_t));
+	memset(htable->chains, EMPTY_SLOT, htable->nchain * sizeof(uint32_t));
 
 	nb = htable->nbucket;
 	for (ksym = start, hvalue = 0; ksym < stop; ksym++, hvalue++) {
-		const unsigned char *name = GET_KSTRING(ksym, s_offset);
+		const unsigned char *name = GET_KSTRING(ksym, kstrings_base);
 		unsigned long h = gnu_hash(name);
 		unsigned long idx = h % nb;
 		uint32_t *slot = &htable->elf_buckets[idx];
@@ -149,26 +160,29 @@ static int fill_hashtable(struct elf_htable *htable,
 		;
 
 	htable->nchain = last_chain_slot + 1;
-	debugp("\t> Shortest chain lenght = %d\n", htable->nchain);
 	return 0;
 }
 
-static void add_elf_hashtable(struct buffer *b, const char *table,
-			      struct kernel_symbol *kstart,
-			      struct kernel_symbol *kstop, long off)
+static void add_elf_hashtable(struct buffer *b, const struct elf_info *elf,
+			      enum ksymtab_type type)
 {
+	const char *table = elf->ksym_tables[type].name;
+	struct kernel_symbol *kstart = elf->ksym_tables[type].start;
+	struct kernel_symbol *kstop = elf->ksym_tables[type].stop;
+
 	struct elf_htable htable = {
 		.nbucket = 0,
 		.nchain = 0,
 		.elf_buckets = NULL,
 		.chains = NULL,
 	};
+
 	unsigned long nsyms = (unsigned long)(kstop - kstart);
 	unsigned long i;
 
 	htable.nbucket = compute_bucket_count(nsyms, 0);
-	htable.elf_buckets =
-	    (uint32_t *) malloc(htable.nbucket * sizeof(uint32_t));
+	htable.elf_buckets = (uint32_t *)
+				malloc(htable.nbucket * sizeof(uint32_t));
 
 	if (!htable.elf_buckets)
 		return;
@@ -181,9 +195,12 @@ static void add_elf_hashtable(struct buffer *b, const char *table,
 	if (!htable.chains)
 		return;
 
-	debugp("\t> # buckets for %lu syms = %u\n", nsyms, htable.nbucket);
-
-	if (fill_hashtable(&htable, kstart, kstop, off) < 0)
+	/*
+	 * When handling relocatable objects as at this stage, ksym->name
+	 * is always an offset with respect to the __ksymtab_strings, so we must
+	 * use elf->kstrings for both vmlinux.o and <module>.o
+	 */
+	if (fill_hashtable(&htable, kstart, kstop, (long) elf->kstrings) < 0)
 		return;
 	buf_printf(b, "#ifdef CONFIG_LKM_ELF_HASH\n\n");
 	buf_printf(b, "#include <linux/types.h>\n");
@@ -197,13 +214,17 @@ static void add_elf_hashtable(struct buffer *b, const char *table,
 	/* 2nd entry is nchain */
 	buf_printf(b, "\t%u, /* chain lenght */\n", htable.nchain);
 	buf_printf(b, "\t/* the buckets */\n\t");
-	for (i = 0; i < htable.nbucket; i++)
-		buf_printf(b, "%d, ", htable.elf_buckets[i]);
-
+	for (i = 0; i < htable.nbucket; i++) {
+		buf_printf(b, "%4d, ", htable.elf_buckets[i]);
+		if (!((i+1) % 12))
+			buf_printf(b, "\n\t");
+	}
 	buf_printf(b, "\n\t/* the chains */\n\t");
-	for (i = 0; i < htable.nchain; i++)
-		buf_printf(b, "%d, ", htable.chains[i]);
-
+	for (i = 0; i < htable.nchain; i++) {
+		buf_printf(b, "%4d, ", htable.chains[i]);
+		if (!((i+1) % 12))
+			buf_printf(b, "\n\t");
+	}
 	buf_printf(b, "\n};\n");
 	buf_printf(b, "#endif\n");
 	free(htable.elf_buckets);
@@ -213,44 +234,13 @@ static void add_elf_hashtable(struct buffer *b, const char *table,
 /*
  * Add hash table (ELF SysV) for exported symbols
  */
-#define KSYMTABS (sizeof ksects / sizeof(ksects[0]))
 void add_ksymtable_hash(struct buffer *b, struct module *mod)
 {
 
-	struct kernel_symbol *kstart, *kstop;
-	unsigned int s;
+	enum ksymtab_type k;
 
-	struct export_sect ksects[] = {
-		{
-		 .name = "__ksymtab",
-		 .sec = mod->info->export_sec},
-		{
-		 .name = "__ksymtab_gpl",
-		 .sec = mod->info->export_gpl_sec},
-		{
-		 .name = "__ksymtab_gpl_future",
-		 .sec = mod->info->export_gpl_future_sec},
-#ifdef CONFIG_UNUSED_SYMBOLS
-		{
-		 .name = "__ksymtab_unused",
-		 .sec = mod->info->export_unused_sec},
-		{
-		 .name = "__ksymtab_unused_gpl",
-		 .sec = mod->info->export_unused_gpl_sec},
-#endif
-	};
-	debugp(">>> %s : processing module %s\n", __func__, mod->name);
-
-	for (s = 0; s < KSYMTABS; s++) {
-		if (!ksects[s].sec)
-			continue;
-		debugp("\t>> export table: %s\n", ksects[s].name);
-		/* Get first and last kernel symbol from the related ksymtab */
-		kstart = KSTART(mod->info, ksects[s].sec);
-		kstop = KSTOP(mod->info, ksects[s].sec);
-		/* FIXME: add proper error handling */
-
-		add_elf_hashtable(b, ksects[s].name, kstart, kstop,
-				  (long)mod->info->kstrings);
-	}
+	/* Skip __ksymtab_strings */
+	for (k = KSYMTAB; k < KSYMTAB_ALL; k++)
+		if (mod->info->ksym_tables[k].name)
+			add_elf_hashtable(b, mod->info, k);
 }

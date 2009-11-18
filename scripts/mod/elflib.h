@@ -54,6 +54,28 @@
 #define ksym_hash_t uint64_t
 #endif
 
+/* The 64-bit MIPS ELF ABI uses an unusual reloc format. */
+typedef struct
+{
+	Elf32_Word    r_sym;	/* Symbol index */
+	unsigned char r_ssym;	/* Special symbol for 2nd relocation */
+	unsigned char r_type3;	/* 3rd relocation type */
+	unsigned char r_type2;	/* 2nd relocation type */
+	unsigned char r_type1;	/* 1st relocation type */
+} _Elf64_Mips_R_Info;
+
+typedef union
+{
+	Elf64_Xword		r_info_number;
+	_Elf64_Mips_R_Info	r_info_fields;
+} _Elf64_Mips_R_Info_union;
+
+#define ELF64_MIPS_R_SYM(i) \
+  ((__extension__ (_Elf64_Mips_R_Info_union)(i)).r_info_fields.r_sym)
+
+#define ELF64_MIPS_R_TYPE(i) \
+  ((__extension__ (_Elf64_Mips_R_Info_union)(i)).r_info_fields.r_type1)
+
 #if KERNEL_ELFDATA != HOST_ELFDATA
 
 static inline void __endian(const void *src, void *dest, unsigned int size)
@@ -77,14 +99,14 @@ static inline void __endian(const void *src, void *dest, unsigned int size)
 
 #endif
 
-/* We have no more than 6 kernel symbol tables
+#define GET_KSTRING(__ksym, __offset) (unsigned char *)(__ksym->name + __offset)
+
+/* We have no more than 5 kernel symbol tables
 	__ksymtab
 	__ksymtab_gpl
 	__ksymtab_unused
 	__ksymtab_unused_gpl
 	__ksymtab_gpl_future
-			and
-	 __ksymtab_strings
 */
 
 enum ksymtab_type {
@@ -96,6 +118,18 @@ enum ksymtab_type {
 	KSYMTAB_ALL,
 };
 
+/*
+ * This maps the ELF hash table
+ * The entries in the .hash table always have a size of 32 bits.
+ */
+struct elf_htable {
+	uint32_t nbucket;
+	uint32_t nchain;
+	uint32_t *elf_buckets;
+	uint32_t *chains;
+};
+
+/* as defined in include/linux/module.h */
 struct kernel_symbol {
 	ksym_t value;
 	kstr_t name;
@@ -106,34 +140,41 @@ struct kernel_symtab {
 	const char *name;
 	struct kernel_symbol *start;
 	struct kernel_symbol *stop;
-	unsigned int entries;
+	Elf_Section sec;
 };
 
 struct elf_info {
 	unsigned long size;
-	Elf_Ehdr *hdr;
-	Elf_Shdr *sechdrs;
-
-	unsigned char is_lkm;
+	Elf_Ehdr     *hdr;
+	Elf_Shdr     *sechdrs;
+	Elf_Sym *symtab_start;
+	Elf_Sym *symtab_stop;
+	long kstr_offset;
 	unsigned long base_addr;
-	unsigned int unresolved;
-	struct {
-		Elf_Sym *start;
-		Elf_Sym *stop;
-	} symtab;
 
 	struct {
 		ksym_hash_t *start;
 		ksym_hash_t *stop;
-	} symtab_hash;
+	} undef_hash;
 
 	struct kernel_symtab ksym_tables[KSYMTAB_ALL];
-	const char *strtab;
-	const char *kstrings;
+	Elf_Section  markers_strings_sec;
+	const char   *strtab;
+	const char   *kstrings;
+	char	     *modinfo;
+	unsigned int modinfo_len;
 };
 
+/* from elflib.c */
 void fatal(const char *fmt, ...);
+void warn(const char *fmt, ...);
+void merror(const char *fmt, ...);
+
+ksym_hash_t gnu_hash(const unsigned char *name);
 void *grab_file(const char *filename, unsigned long *size);
 void release_file(void *file, unsigned long size);
 int parse_elf(struct elf_info *info, const char *filename);
+int parse_writable_elf(struct elf_info *info, const char *filename);
 void parse_elf_finish(struct elf_info *info);
+
+

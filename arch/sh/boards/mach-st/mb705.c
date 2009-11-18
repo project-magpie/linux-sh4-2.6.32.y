@@ -41,6 +41,7 @@
 #define NAND_USES_FLEX
 
 static DEFINE_SPINLOCK(misc_lock);
+char mb705_rev = '?';
 
 static struct platform_device mb705_gpio_led = {
 	.name = "leds-gpio",
@@ -64,8 +65,8 @@ static struct platform_device epld_device = {
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
 		{
-			.start	= 0x07000000,
-			.end	= 0x070002ff,
+			.start	= 0x04800000,
+			.end	= 0x048002ff,
 			.flags	= IORESOURCE_MEM,
 		}
 	},
@@ -81,8 +82,8 @@ static struct platform_device mb705_display_device = {
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
 		{
-			.start	= 0x07000140,
-			.end	= 0x070001bf,
+			.start	= 0x04800140,
+			.end	= 0x048001bf,
 			.flags	= IORESOURCE_MEM,
 		}
 	},
@@ -292,6 +293,8 @@ static int __init mb705_init(void)
 		       (((test ^ (0xab12+i)) & mask) == mask) ?
 		        "passed" : "failed");
 	}
+
+	mb705_rev = ((epld_read(EPLD_EMI_IDENT) >> 4) & 0xf) - 1 + 'A';
 
 	/* Determine whether NOR and NAND devices are swapped. */
 	i = epld_read(EPLD_EMI_SWITCH);

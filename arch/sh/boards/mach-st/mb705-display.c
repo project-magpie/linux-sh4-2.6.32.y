@@ -100,6 +100,8 @@ static int __init mb705_display_probe(struct platform_device *pdev)
 	int res;
 	struct display_data *dd;
 	int i;
+	char string[17];
+	int string_len;
 
 	dd = devm_kzalloc(dev, sizeof(*dd), GFP_KERNEL);
 	if (dd == NULL)
@@ -120,7 +122,8 @@ static int __init mb705_display_probe(struct platform_device *pdev)
 	/* notFL signal is controlled by DisplayCtrlReg[0] */
 	epld_write(1, EPLD_TS_DISPLAY_CTRL_REG);
 
-	store_text(dev, NULL, "mb705", 5);
+	string_len = scnprintf(string, sizeof(string), "MB705%c", mb705_rev);
+	store_text(dev, NULL, string, string_len);
 
 	return 0;
 }

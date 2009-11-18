@@ -17,14 +17,14 @@
  * J4 to 1-2 and fit J2A (notStemIntr(0) <= SysIRQ2).
  *
  * If used with mb705 STEMCS0 is routed via the EPLD (J14A in position 2-3)
- * which subdecodes STEMCS0 as CSE (bank 4) and A17-16 = 01 (the EPLDs
+ * which subdecodes STEMCS0 as CSC (bank 2) and A[25:24] != 00 (the EPLDs
  * occupy this same bank). Similarly StemIntr(0) is routed via the EPLD,
  * which we program up to route it directly to SysIRQ2, see mb705_init()
  * for more details
  */
 #ifdef CONFIG_SH_ST_MB705
-#define STEM_CS0_BANK 4
-#define STEM_CS0_OFFSET (1<<16)
+#define STEM_CS0_BANK 2
+#define STEM_CS0_OFFSET (1<<24)
 #else
 #define STEM_CS0_BANK 2
 #define STEM_CS0_OFFSET 0

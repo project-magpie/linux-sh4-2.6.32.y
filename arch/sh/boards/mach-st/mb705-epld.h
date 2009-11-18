@@ -123,5 +123,6 @@
 #define EPLD_AUDIO_USERLED_LD10T		(1<<3)
 
 void mb705_reset(int bit, unsigned long usdelay);
+extern char mb705_rev;
 
 #endif

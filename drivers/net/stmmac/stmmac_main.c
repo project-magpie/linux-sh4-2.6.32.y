@@ -416,7 +416,7 @@ static void init_dma_desc_rings(struct net_device *dev)
 	unsigned int txsize = priv->dma_tx_size;
 	unsigned int rxsize = priv->dma_rx_size;
 	unsigned int bfsize = priv->dma_buf_sz;
-	int buff2_needed = 0;
+	int buff2_needed = 0, dis_ic = 0;
 
 	/* Set the Buffer size according to the MTU;
 	 * indeed, in case of jumbo we need to bump-up the buffer sizes.
@@ -432,6 +432,11 @@ static void init_dma_desc_rings(struct net_device *dev)
 	else
 		bfsize = DMA_BUFFER_SIZE;
 
+#ifdef CONFIG_STMMAC_TIMER
+	/* Disable interrupts on completion for the reception if timer is on */
+	if (likely(priv->tm->enable))
+		dis_ic = 1;
+#endif
 	/* If the MTU exceeds 8k so use the second buffer in the chain */
 	if (bfsize >= BUF_SIZE_8KiB)
 		buff2_needed = 1;
@@ -503,8 +508,7 @@ static void init_dma_desc_rings(struct net_device *dev)
 	priv->cur_tx = 0;
 
 	/* Clear the Rx/Tx descriptors */
-	priv->mac_type->ops->init_rx_desc(priv->dma_rx, rxsize,
-				  priv->tm->enable); /* dis_ic with timer on */
+	priv->mac_type->ops->init_rx_desc(priv->dma_rx, rxsize, dis_ic);
 	priv->mac_type->ops->init_tx_desc(priv->dma_tx, txsize);
 
 	if (netif_msg_hw(priv)) {
@@ -805,19 +809,22 @@ static void stmmac_tx(struct stmmac_priv *priv)
 
 static inline void stmmac_enable_irq(struct stmmac_priv *priv)
 {
+#ifdef CONFIG_STMMAC_TIMER
 	if (likely(priv->tm->enable))
 		priv->tm->timer_start(tmrate);
 	else
-		writel(DMA_INTR_DEFAULT_MASK,
-			priv->dev->base_addr + DMA_INTR_ENA);
+#endif
+	writel(DMA_INTR_DEFAULT_MASK, priv->dev->base_addr + DMA_INTR_ENA);
 }
 
 static inline void stmmac_disable_irq(struct stmmac_priv *priv)
 {
+#ifdef CONFIG_STMMAC_TIMER
 	if (likely(priv->tm->enable))
 		priv->tm->timer_stop();
 	else
-		writel(0, priv->dev->base_addr + DMA_INTR_ENA);
+#endif
+	writel(0, priv->dev->base_addr + DMA_INTR_ENA);
 }
 
 static int stmmac_has_work(struct stmmac_priv *priv)
@@ -1031,6 +1038,7 @@ static int stmmac_open(struct net_device *dev)
 		pr_err("%s: ERROR: timer memory alloc failed \n", __func__);
 		return -ENOMEM;
 	}
+	priv->tm->freq = tmrate;
 
 	/* Test if the external timer can be actually used.
 	 * In case of failure continue without timer. */
@@ -1040,10 +1048,8 @@ static int stmmac_open(struct net_device *dev)
 		priv->tm->freq = 0;
 		priv->tm->timer_start = stmmac_no_timer_started;
 		priv->tm->timer_stop = stmmac_no_timer_stopped;
-	} else {
+	} else
 		priv->tm->enable = 1;
-		priv->tm->freq = tmrate;
-	}
 #endif
 
 	/* Create and initialize the TX/RX descriptors chains. */
@@ -2019,6 +2025,7 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
 	struct stmmac_priv *priv = netdev_priv(dev);
+	int dis_ic = 0;
 
 	if (!dev || !netif_running(dev))
 		return 0;
@@ -2033,6 +2040,8 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 
 #ifdef CONFIG_STMMAC_TIMER
 		priv->tm->timer_stop();
+		if (likely(priv->tm->enable))
+			dis_ic = 1;
 #endif
 		napi_disable(&priv->napi);
 
@@ -2041,7 +2050,7 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 		stmmac_dma_stop_rx(dev->base_addr);
 		/* Clear the Rx/Tx descriptors */
 		priv->mac_type->ops->init_rx_desc(priv->dma_rx,
-					priv->dma_rx_size, priv->tm->enable);
+					priv->dma_rx_size, dis_ic);
 		priv->mac_type->ops->init_tx_desc(priv->dma_tx,
 						  priv->dma_tx_size);
 

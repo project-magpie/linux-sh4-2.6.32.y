@@ -20,13 +20,14 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/smsc911x.h>
 #include <linux/stm/emi.h>
 #include <mach/stem.h>
 
 static struct platform_device smsc_lan9117 = {
-	.name		= "smc911x",
+	.name		= "smsc911x",
 	.id		= -1,
-	.num_resources	= 4,
+	.num_resources	= 2,
 	.resource	= (struct resource []) {
 		{
 			.flags = IORESOURCE_MEM,
@@ -36,20 +37,11 @@ static struct platform_device smsc_lan9117 = {
 			.flags = IORESOURCE_IRQ,
 			/* .start & .end - see db641_init() */
 		},
-		/* See end of "drivers/net/smsc_911x/smsc9118.c" file
-		 * for description of two following resources. */
-		{
-			.flags = IORESOURCE_IRQ,
-			.name  = "polarity",
-			.start = 0,
-			.end   = 0,
-		},
-		{
-			.flags = IORESOURCE_IRQ,
-			.name  = "type",
-			.start = 0,
-			.end   = 0,
-		},
+	},
+	.dev.platform_data = &(struct smsc911x_platform_config) {
+		.irq_polarity = SMSC911X_IRQ_POLARITY_ACTIVE_LOW,
+		.irq_type = SMSC911X_IRQ_TYPE_PUSH_PULL,
+		.flags = SMSC911X_USE_32BIT,
 	},
 };
 

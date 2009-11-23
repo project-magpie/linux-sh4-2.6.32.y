@@ -304,9 +304,16 @@ struct stm_plat_fdma_periph_regs {
 	unsigned long int_mask;
 };
 
+struct stm_plat_fdma_ram {
+	unsigned long offset;
+	unsigned long size;
+};
+
 struct stm_plat_fdma_hw {
 	struct stm_plat_fdma_slim_regs slim_regs;
+	struct stm_plat_fdma_ram dmem;
 	struct stm_plat_fdma_periph_regs periph_regs;
+	struct stm_plat_fdma_ram imem;
 };
 
 struct stm_plat_fdma_fw_regs {

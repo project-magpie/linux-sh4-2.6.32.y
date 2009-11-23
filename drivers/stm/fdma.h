@@ -57,6 +57,12 @@
 
 #define CHAN_NUM(chan) ((chan) - chip.channel)
 
+/* SLIM doesn't yet have an officially recognised ELF ID, so we use this */
+#define EM_SLIM 102
+
+/* Use the e_flags field of the ELF header to distinguish between SLIM usage */
+#define EF_SLIM_FDMA 2
+
 struct fdma_llu_entry {
 	u32 next_item;
 	u32 control;
@@ -149,7 +155,6 @@ struct fdma {
 
 	struct resource *phys_mem;
 	void __iomem *io_base;
-	void __iomem *fw_vaddr;
 
 	struct stm_dma_req reqs[FDMA_REQ_LINES];
 	unsigned long reqs_used_mask;

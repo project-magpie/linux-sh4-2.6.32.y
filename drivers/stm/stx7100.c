@@ -95,6 +95,10 @@ static struct stm_plat_fdma_hw stx7100_fdma_hw = {
 		.en       = 0x0000 + (0x002 << 2), /* 0x0008 */
 		.clk_gate = 0x0000 + (0x003 << 2), /* 0x000c */
 	},
+	.dmem = {
+		.offset   = 0x8000,
+		.size     = 0x600 << 2, /* 1536 * 4 = 6144 */
+	},
 	.periph_regs = {
 		.sync_reg = 0x8000 + (0xfe2 << 2), /* 0xbf88 */
 		.cmd_sta  = 0x8000 + (0xff0 << 2), /* 0xbfc0 */
@@ -105,6 +109,10 @@ static struct stm_plat_fdma_hw stx7100_fdma_hw = {
 		.int_set  = 0x8000 + (0xff5 << 2), /* 0xbfd4 */
 		.int_clr  = 0x8000 + (0xff6 << 2), /* 0xbfd8 */
 		.int_mask = 0x8000 + (0xff7 << 2), /* 0xbfdc */
+	},
+	.imem = {
+		.offset   = 0xc000,
+		.size     = 0xa00 << 2, /* 2560 * 4 = 10240 */
 	},
 };
 
@@ -132,6 +140,10 @@ static struct stm_plat_fdma_hw stx7109c2_fdma_hw = {
 		.en       = 0x0000 + (0x002 << 2), /* 0x0008 */
 		.clk_gate = 0x0000 + (0x003 << 2), /* 0x000c */
 	},
+	.dmem = {
+		.offset = 0x8000,
+		.size   = 0x600 << 2, /* 1536 * 4 = 6144 */
+	},
 	.periph_regs = {
 		.sync_reg = 0x8000 + (0xfe2 << 2), /* 0xbf88 */
 		.cmd_sta  = 0x8000 + (0xff0 << 2), /* 0xbfc0 */
@@ -142,6 +154,10 @@ static struct stm_plat_fdma_hw stx7109c2_fdma_hw = {
 		.int_set  = 0x8000 + (0xff5 << 2), /* 0xbfd4 */
 		.int_clr  = 0x8000 + (0xff6 << 2), /* 0xbfd8 */
 		.int_mask = 0x8000 + (0xff7 << 2), /* 0xbfdc */
+	},
+	.imem = {
+		.offset = 0xc000,
+		.size   = 0xa00 << 2, /* 2560 * 4 = 10240 */
 	},
 };
 
@@ -169,6 +185,10 @@ static struct stm_plat_fdma_hw stx7109c3_fdma_hw = {
 		.en       = 0x0000 + (0x002 << 2), /* 0x0008 */
 		.clk_gate = 0x0000 + (0x003 << 2), /* 0x000c */
 	},
+	.dmem = {
+		.offset = 0x8000,
+		.size   = 0x800 << 2, /* 2048 * 4 = 8192 */
+	},
 	.periph_regs = {
 		.sync_reg = 0x8000 + (0xfe2 << 2), /* 0xbf88 */
 		.cmd_sta  = 0x8000 + (0xff0 << 2), /* 0xbfc0 */
@@ -179,6 +199,10 @@ static struct stm_plat_fdma_hw stx7109c3_fdma_hw = {
 		.int_set  = 0x8000 + (0xff5 << 2), /* 0xbfd4 */
 		.int_clr  = 0x8000 + (0xff6 << 2), /* 0xbfd8 */
 		.int_mask = 0x8000 + (0xff7 << 2), /* 0xbfdc */
+	},
+	.imem = {
+		.offset = 0xc000,
+		.size   = 0x1000 << 2, /* 4096 * 4 = 16384 */
 	},
 };
 

@@ -576,12 +576,36 @@ static void fdma_get_hw_revision(struct fdma *fdma, int *major, int *minor)
 	*minor = readl(fdma->io_base + fdma->regs.ver);
 }
 
+static int fdma_segment_ok(signed long offset, unsigned long size,
+			   struct stm_plat_fdma_ram *ram)
+{
+	return (offset >= ram->offset) &&
+		((offset + size) <= (ram->offset + ram->size));
+}
+
+static int fdma_load_segment(struct fdma *fdma, struct ELFinfo *elfinfo, int i)
+{
+	Elf32_Phdr *phdr = &elfinfo->progbase[i];
+	void *data = elfinfo->base;
+	signed long offset = phdr->p_paddr - fdma->phys_mem->start;
+	unsigned long size = phdr->p_memsz;
+
+	if (!(fdma_segment_ok(offset, size, &fdma->hw->dmem) ||
+	      fdma_segment_ok(offset, size, &fdma->hw->imem)))
+	    return -EINVAL;
+
+	memcpy_toio(fdma->io_base + offset, data + phdr->p_offset, size);
+
+	return 0;
+}
+
 static int fdma_load_elf(const struct firmware *fw, struct fdma *fdma)
 {
 	struct ELFinfo *elfinfo = NULL;
 	int i;
 	int fw_major, fw_minor;
 	int hw_major, hw_minor;
+	int res;
 
 	if (!fw) {
 		fdma_info(fdma, "Unable to load FDMA firmware: not present?\n");
@@ -593,22 +617,20 @@ static int fdma_load_elf(const struct firmware *fw, struct fdma *fdma)
 	if (elfinfo == NULL)
 		return -ENOMEM;
 
-	fdma->fw_vaddr = ioremap_nocache(ELF_checkPhMinVaddr(elfinfo),
-					ELF_checkPhMemSize(elfinfo));
-
-	if (fdma->fw_vaddr == NULL) {
-		ELF_free(elfinfo);
-		return -EINVAL;
+	if ((elfinfo->header->e_type != ET_EXEC) ||
+	    (elfinfo->header->e_machine != EM_SLIM) ||
+	    (elfinfo->header->e_flags != EF_SLIM_FDMA)) {
+		res = -ENOMEM;
+		goto fail;
 	}
 
-	for (i = 1; i < elfinfo->header->e_phnum; i++)
+	for (i = 0; i < elfinfo->header->e_phnum; i++)
 		if (elfinfo->progbase[i].p_type == PT_LOAD) {
-			memcpy((char *)(fdma->fw_vaddr +
-				(elfinfo->progbase[i].p_vaddr -
-				ELF_checkPhMinVaddr(elfinfo))),
-			(char *)(elfinfo->base + elfinfo->progbase[i].p_offset),
-			elfinfo->progbase[i].p_memsz);
+			res = fdma_load_segment(fdma, elfinfo, i);
+			if (res)
+				goto fail;
 		}
+
 	ELF_free(elfinfo);
 	fdma_get_hw_revision(fdma, &hw_major, &hw_minor);
 	fdma_get_fw_revision(fdma, &fw_major, &fw_minor);
@@ -618,6 +640,10 @@ static int fdma_load_elf(const struct firmware *fw, struct fdma *fdma)
 	if (fdma_run_initialise_sequence(fdma) != 0)
 		return -ENODEV;
 	return 1;
+
+fail:
+	ELF_free(elfinfo);
+	return res;
 }
 
 static int fdma_do_bootload(struct fdma *fdma)
@@ -1258,7 +1284,6 @@ static int fdma_driver_remove(struct platform_device *pdev)
 
 	fdma_disable_all_channels(fdma);
 	iounmap(fdma->io_base);
-	iounmap(fdma->fw_vaddr);
 	dma_pool_destroy(fdma->llu_pool);
 	free_irq(fdma->irq, fdma);
 	unregister_dmac(&fdma->dma_info);

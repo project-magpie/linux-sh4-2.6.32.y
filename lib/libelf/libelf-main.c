@@ -22,12 +22,19 @@ unsigned int ELF_checkIdent(Elf32_Ehdr *hdr)
 }
 EXPORT_SYMBOL(ELF_checkIdent);
 
+static inline int ELF_valid_offset(struct ELFinfo *elfinfo, Elf32_Off off,
+	Elf32_Off struct_size)
+{
+	return off + struct_size <= elfinfo->size;
+}
+
 /* Initialise in-memory ELF file */
 struct ELFinfo *ELF_initFromMem(uint8_t *elffile,
 				uint32_t size, int mmapped)
 {
 	Elf32_Shdr	*sec;
 	struct ELFinfo *elfinfo;
+	int i;
 
 	elfinfo = (struct ELFinfo *)kmalloc(sizeof(struct ELFinfo), GFP_KERNEL);
 
@@ -42,29 +49,29 @@ struct ELFinfo *ELF_initFromMem(uint8_t *elffile,
 
 	/* Check that image is really an ELF file */
 
+	if (size < sizeof(Elf32_Ehdr))
+		goto fail;
+
 	if (ELF_checkIdent((Elf32_Ehdr *)elffile))
-		return NULL;
+		goto fail;
 
 	/* Make sure it is 32 bit, little endian and current version */
 	if (elffile[EI_CLASS] != ELFCLASS32 ||
 		elffile[EI_DATA] != ELFDATA2LSB ||
 		elffile[EI_VERSION] != EV_CURRENT)
-		return NULL;
+		goto fail;
 
 	/* Make sure we are a data file, relocatable or executable file */
 	if ((elfinfo->header)->e_type > 3) {
 		printk(KERN_ERR"Invalid ELF object type\n");
-		return NULL;
+		goto fail;
 	}
 
-	/*
-	 * Cache commonly-used addresses and values
-	 */
-
-	elfinfo->secbase = (Elf32_Shdr *)(elfinfo->base +
-				(elfinfo->header)->e_shoff);
-	elfinfo->progbase = (Elf32_Phdr *)(elfinfo->base +
-				(elfinfo->header)->e_phoff);
+	/* Check the structure sizes are what we expect */
+	if ((elfinfo->header->e_ehsize != sizeof(Elf32_Ehdr)) ||
+	    (elfinfo->header->e_phentsize != sizeof(Elf32_Phdr)) ||
+	    (elfinfo->header->e_shentsize != sizeof(Elf32_Shdr)))
+		goto fail;
 
 	/* Get number of sections */
 
@@ -86,6 +93,39 @@ struct ELFinfo *ELF_initFromMem(uint8_t *elffile,
 		elfinfo->numpheaders = (elfinfo->secbase)->sh_info;
 	}
 
+	/* Validate header offsets and sizes */
+	if (!ELF_valid_offset(elfinfo, elfinfo->header->e_shoff,
+			      sizeof(Elf32_Shdr) * elfinfo->numsections) ||
+	    !ELF_valid_offset(elfinfo, elfinfo->header->e_phoff,
+			      sizeof(Elf32_Phdr) * elfinfo->numpheaders))
+		goto fail;
+
+	/* Cache commonly-used addresses and values */
+	elfinfo->secbase = (Elf32_Shdr *)(elfinfo->base +
+				(elfinfo->header)->e_shoff);
+	elfinfo->progbase = (Elf32_Phdr *)(elfinfo->base +
+				(elfinfo->header)->e_phoff);
+
+	/* Validate section headers */
+	for (i = 0; i < elfinfo->numsections; i++) {
+		Elf32_Shdr *shdr;
+		shdr = &elfinfo->secbase[i];
+		if (!ELF_valid_offset(elfinfo, shdr->sh_offset,
+				      shdr->sh_size))
+			goto fail;
+	}
+
+	/* Validate program headers */
+	for (i = 0; i < elfinfo->numpheaders; i++) {
+		Elf32_Phdr *phdr;
+		phdr = &elfinfo->progbase[i];
+		if (!ELF_valid_offset(elfinfo, phdr->p_offset,
+				      phdr->p_filesz))
+			goto fail;
+		if (phdr->p_filesz < phdr->p_memsz)
+			goto fail;
+	}
+
 	/* Get address of string table */
 
 	if ((elfinfo->header)->e_shstrndx != SHN_HIRESERVE) {
@@ -96,11 +136,18 @@ struct ELFinfo *ELF_initFromMem(uint8_t *elffile,
 		elfinfo->strsecindex = (elfinfo->secbase)->sh_link;
 	}
 
-	sec = (Elf32_Shdr *)((uint8_t *)(elfinfo->secbase) +
-		((elfinfo->header)->e_shentsize * elfinfo->strsecindex));
+	if (elfinfo->strsecindex >= elfinfo->numsections)
+		goto fail;
+
+	sec = &elfinfo->secbase[elfinfo->strsecindex];
 	elfinfo->strtab  = (char *)(elfinfo->base + sec->sh_offset);
+	elfinfo->strtabsize = sec->sh_size;
 
 	return elfinfo;
+
+fail:
+	kfree(elfinfo);
+	return NULL;
 }
 EXPORT_SYMBOL(ELF_initFromMem);
 
@@ -194,30 +241,3 @@ int ELF_searchSectionType(const struct ELFinfo *elfinfo, const char *name,
 	return 1;
 }
 EXPORT_SYMBOL(ELF_searchSectionType);
-
-unsigned long ELF_checkPhMemSize(const struct ELFinfo *elfinfo)
-{
-	int i;
-	unsigned long memsz = 0;
-
-	for (i = 0; i < elfinfo->header->e_phnum; i++)
-		if (elfinfo->progbase[i].p_type == PT_LOAD)
-			memsz += elfinfo->progbase[i].p_memsz;
-	return memsz;
-}
-EXPORT_SYMBOL(ELF_checkPhMemSize);
-
-unsigned long ELF_checkPhMinVaddr(const struct ELFinfo *elfinfo)
-{
-	int i;
-	unsigned long min_vaddr;
-
-	min_vaddr = elfinfo->progbase[0].p_vaddr;
-	for (i = 1; i < elfinfo->header->e_phnum; i++)
-		if ((elfinfo->progbase[i].p_type == PT_LOAD) &&
-			((elfinfo->progbase[i].p_vaddr < min_vaddr) |
-						(min_vaddr == 0)))
-			min_vaddr = elfinfo->progbase[i].p_vaddr;
-	return min_vaddr;
-}
-EXPORT_SYMBOL(ELF_checkPhMinVaddr);

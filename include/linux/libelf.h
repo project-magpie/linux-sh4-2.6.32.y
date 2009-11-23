@@ -9,6 +9,7 @@ struct ELFinfo {
 	Elf_Shdr	*secbase;	/* Section headers base address */
 	Elf32_Phdr	*progbase;	/* Program headers base address */
 	char		*strtab;	/* String table for section headers */
+	uint32_t	strtabsize;	/* Size of string table */
 	uint32_t	strsecindex;	/* Section header index for strings */
 	uint32_t	numsections;	/* Number of sections */
 	uint32_t	numpheaders;	/* Number of program headers */

@@ -419,7 +419,7 @@ static int __init mb628_device_init(void)
 
 	epld_write(epld_read(EPLD_ENABLE) | EPLD_ENABLE_MII1, EPLD_ENABLE);
 	stx7141_configure_ethernet(1, &(struct stx7141_ethernet_config) {
-			.mode = stx7141_ethernet_mode_mii,
+			.mode = stx7141_ethernet_mode_gmii,
 			.phy_bus = 1 });
 
 	stx7141_configure_lirc(&(struct stx7141_lirc_config) {

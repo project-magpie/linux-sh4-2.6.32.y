@@ -352,7 +352,7 @@ static void stx7141_ethernet_bus_setup(unsigned long ioaddr)
 	writel(value, ioaddr + GMAC_AHB_CONFIG);
 }
 
-static struct stm_plat_stmmacenet_data stx7141_ethernet_platform_data[] = {
+static struct plat_stmmacenet_data stx7141_ethernet_platform_data[] = {
 	[0] = {
 		.pbl = 32,
 		.has_gmac = 1,

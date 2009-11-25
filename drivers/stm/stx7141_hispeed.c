@@ -339,6 +339,19 @@ static void stx7141_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
 	sysconf_write(mac_speed_sel, (speed == SPEED_100) ? 1 : 0);
 }
 
+/*
+ * Cut 2 of 7141 has AHB wrapper bug for ethernet gmac.
+ * Need to disable read-ahead - performance impact
+ */
+#define GMAC_AHB_CONFIG		0x7000
+#define GMAC_AHB_CONFIG_READ_AHEAD_MASK	0xFFCFFFFF
+static void stx7141_ethernet_bus_setup(unsigned long ioaddr)
+{
+	u32 value = readl(ioaddr + GMAC_AHB_CONFIG);
+	value &= GMAC_AHB_CONFIG_READ_AHEAD_MASK;
+	writel(value, ioaddr + GMAC_AHB_CONFIG);
+}
+
 static struct stm_plat_stmmacenet_data stx7141_ethernet_platform_data[] = {
 	[0] = {
 		.pbl = 32,
@@ -413,10 +426,9 @@ void __init stx7141_configure_ethernet(int port,
 	stx7141_ethernet_platform_data[port].bsp_priv = sysconf_claim(SYS_CFG,
 			7, 20 + port, 20 + port, "stmmac");
 
-	/* Cut 2 of 7141 has AHB wrapper bug for ethernet gmac */
-	/* Need to disable read-ahead - performance impact     */
 	if (cpu_data->cut_major == 2)
-		stx7141_ethernet_platform_data[port].disable_readahead = 1;
+		stx7141_ethernet_platform_data[port].bus_setup =
+					stx7141_ethernet_bus_setup;
 
 	platform_device_register(&stx7141_ethernet_devices[port]);
 }

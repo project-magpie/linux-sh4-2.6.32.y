@@ -146,33 +146,6 @@ struct plat_stm_temp_data {
 	void *custom_priv;
 };
 
-
-/*** Ethernet (STMMAC) platform data ***/
-
-/* Private data for the STM on-board ethernet driver */
-struct stm_plat_stmmacenet_data {
-	int bus_id;
-	int pbl;
-	int has_gmac;
-	void (*fix_mac_speed)(void *priv, unsigned int speed);
-	void (*bus_setup)(unsigned long ioaddr);
-
-	struct stm_pad_config *pad_config;
-
-	void *bsp_priv;
-};
-
-struct stm_plat_stmmacphy_data {
-	int bus_id;
-	int phy_addr;
-	unsigned int phy_mask;
-	int interface;
-	int (*phy_reset)(void *priv);
-	void *priv;
-};
-
-
-
 /*** USB platform data ***/
 
 #define STM_PLAT_USB_FLAGS_STRAP_8BIT			(1<<0)

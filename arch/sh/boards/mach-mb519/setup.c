@@ -66,7 +66,7 @@ static struct platform_device mb519_physmap_flash = {
 	},
 };
 
-static struct stm_plat_stmmacphy_data mb519_phy_private_data[2] = {
+static struct plat_stmmacphy_data mb519_phy_private_data[2] = {
 	{
 		/* MAC0: STE101P */
 		.bus_id = 0,

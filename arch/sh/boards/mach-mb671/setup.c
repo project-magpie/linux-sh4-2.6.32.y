@@ -66,7 +66,7 @@ static struct platform_device mb671_physmap_flash = {
 	},
 };
 
-static struct stm_plat_stmmacphy_data mb671_phy_private_data[2] = {
+static struct plat_stmmacphy_data mb671_phy_private_data[2] = {
 	{
 		/* MII0: SMSC LAN8700 */
 		.bus_id = 0,

@@ -113,7 +113,7 @@ static int mb680_phy_reset(void *bus)
 	return 0;
 }
 
-static struct stm_plat_stmmacphy_data mb680_phy_private_data = {
+static struct plat_stmmacphy_data mb680_phy_private_data = {
 	/* National Semiconductor DP83865 (rev A/B) or SMSC 8700 (rev C) */
 	.bus_id = 0,
 	.phy_addr = -1,

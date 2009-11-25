@@ -101,7 +101,7 @@ static int mb602_phy_reset(void* bus)
 
 
 
-static struct stm_plat_stmmacphy_data mb602_phy_private_data = {
+static struct plat_stmmacphy_data mb602_phy_private_data = {
 	.bus_id = 0,
 	.phy_addr = 14,
 	.phy_mask = 1,

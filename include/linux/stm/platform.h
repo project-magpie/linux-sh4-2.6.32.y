@@ -8,7 +8,7 @@
 #include <linux/spi/spi.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/nand.h>
-
+#include <linux/stmmac.h>
 
 /*** Platform definition helpers ***/
 

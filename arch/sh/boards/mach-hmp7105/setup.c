@@ -92,7 +92,7 @@ static int hmp7105_phy_reset(void *bus)
 	return 0;
 }
 
-static struct stm_plat_stmmacphy_data hmp7105_phy_private_data = {
+static struct plat_stmmacphy_data hmp7105_phy_private_data = {
 	/* SMSC 8700 */
 	.bus_id = 0,
 	.phy_addr = -1,

@@ -89,7 +89,7 @@ static struct spi_board_info mb704_serial_flash = {
 
 
 
-static struct stm_plat_stmmacphy_data mb704_phy_private_data = {
+static struct plat_stmmacphy_data mb704_phy_private_data = {
 	/* SMSC LAN 8700 on the mb762 */
 	.bus_id = 0,
 	.phy_addr = -1,

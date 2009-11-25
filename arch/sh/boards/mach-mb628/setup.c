@@ -260,7 +260,7 @@ static int mb628_phy_reset(void *bus)
  *   To disable this, replace the irq with -1 in the data below.
  */
 
-static struct stm_plat_stmmacphy_data mb628_phy_private_data[2] = {
+static struct plat_stmmacphy_data mb628_phy_private_data[2] = {
 {
 	/* GMAC0: MII connector CN17. We assume a mb539 (SMSC 8700). */
 	.bus_id = 0,

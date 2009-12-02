@@ -317,4 +317,14 @@ config INPUT_PCAP
 	  To compile this driver as a module, choose M here: the
 	  module will be called pcap_keys.
 
+config INPUT_TM1668
+	tristate "TM1668 LED/Keyboard controller"
+	help
+	  Say Y here if you want to enable driver for keyboard and LED
+	  display controlled by GPIO-connected TM1668 chip. Note that
+	  a related platform device must be defined in the board setup.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called tm1668.
+
 endif

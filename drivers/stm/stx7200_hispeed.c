@@ -416,9 +416,11 @@ static int __init stx7200_usb_soft_jtag_reset(void)
 	 * soft_jtag_en = 1 */
 	sc = sysconf_claim(SYS_CFG, 33, 6, 6, "usb");
 	sysconf_write(sc, 1);
+	sysconf_release(sc);
 	/* tck = tdi = trstn_usb = tms_usb = 0 */
 	sc = sysconf_claim(SYS_CFG, 33, 0, 3, "usb");
 	sysconf_write(sc, 0);
+	sysconf_release(sc);
 
 	sc = sysconf_claim(SYS_CFG, 33, 0, 6, "usb");
 
@@ -672,6 +674,7 @@ static int __init stx7200_usb_soft_jtag_reset(void)
 
 	mdelay(20);
 	sysconf_write(sc, 0x00000040);
+	sysconf_release(sc);
 
 	return 0;
 }

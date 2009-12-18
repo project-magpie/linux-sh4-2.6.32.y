@@ -251,27 +251,20 @@ static int stm_pad_list_for_each_suffix(struct stm_pad_label *label,
 		int (*callback_undo)(char *path, void *context),
 		void *context)
 {
+	char path[STM_PAD_LABEL_LEN];
 	int result = -EINVAL;
 
 	BUG_ON(!label);
 
 	switch (label->suffix_type) {
 	case stm_pad_label_suffix_none:
-		{
-			char path[STM_PAD_LABEL_LEN];
-
-			strlcpy(path, label->prefix, STM_PAD_LABEL_LEN);
-			result = callback_do(path, context);
-		}
+		strlcpy(path, label->prefix, STM_PAD_LABEL_LEN);
+		result = callback_do(path, context);
 		break;
 	case stm_pad_label_suffix_number:
-		{
-			char path[STM_PAD_LABEL_LEN];
-
-			snprintf(path, STM_PAD_LABEL_LEN, "%s.%d",
-					label->prefix, label->suffix.number);
-			result = callback_do(path, context);
-		}
+		snprintf(path, STM_PAD_LABEL_LEN, "%s.%d",
+				label->prefix, label->suffix.number);
+		result = callback_do(path, context);
 		break;
 	case stm_pad_label_suffix_range:
 		result = stm_pad_list_for_each_suffix_range(label,

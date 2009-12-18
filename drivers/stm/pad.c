@@ -52,7 +52,7 @@ static void *stm_pad_alloc(int size)
 
 static void stm_pad_free(void *addr)
 {
-	if (addr > (void *)stm_pad_static_buffer &&
+	if (addr >= (void *)stm_pad_static_buffer &&
 			addr < (void *)(stm_pad_static_buffer +
 			STM_PAD_STATIC_BUFFER_SIZE))
 		return;

@@ -105,7 +105,7 @@ static int stm_pad_list_new(char *path, void *context)
 		goto out;
 	}
 
-	pad = stm_pad_alloc(sizeof(*pad) + strlen(path));
+	pad = stm_pad_alloc(sizeof(*pad) + strlen(path) + 1);
 	if (!pad) {
 		ret = -ENOMEM;
 		goto out;

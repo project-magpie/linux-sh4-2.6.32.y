@@ -68,12 +68,15 @@ struct stm_gpio_irqmux {
 
 
 int stm_gpio_num; /* Number of available internal PIOs (pins) */
+EXPORT_SYMBOL(stm_gpio_num);
+
 static unsigned int stm_gpio_irq_base; /* First irq number used by PIO "chip" */
 static struct stm_gpio_port *stm_gpio_ports; /* PIO port descriptions */
 
 /* PIO port base addresses copy, used by optimized gpio_get_value()
  * and gpio_set_value() in include/linux/stm/gpio.h */
 void __iomem **stm_gpio_bases;
+EXPORT_SYMBOL(stm_gpio_bases);
 
 
 

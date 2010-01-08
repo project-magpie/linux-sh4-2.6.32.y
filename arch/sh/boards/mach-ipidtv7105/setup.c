@@ -46,11 +46,21 @@ static void __init ipidtv7105_setup(char **cmdline_p)
 
 	stx7105_early_device_init();
 
+	/* CN5, which is usually connected to CN6 on the debug board and
+	 * eventually becomes female DB9 socket CN8 there... */
 	stx7105_configure_asc(0, &(struct stx7105_asc_config) {
 			.routing.asc2 = stx7105_asc2_pio4,
 			.hw_flow_control = 1,
 			.is_console = 1, });
+
+	/* CN17, which is usually connected to CN18 on the debug board and
+	 * eventually becomes female DB9 socket CN7 there... */
 	stx7105_configure_asc(3, &(struct stx7105_asc_config) {
+			.hw_flow_control = 1,
+			.is_console = 0, });
+
+	/* CN4 */
+	stx7105_configure_asc(2, &(struct stx7105_asc_config) {
 			.hw_flow_control = 1,
 			.is_console = 0, });
 }

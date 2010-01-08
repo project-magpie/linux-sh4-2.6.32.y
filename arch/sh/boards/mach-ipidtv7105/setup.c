@@ -162,7 +162,7 @@ static struct mtd_partition nand_parts[] = {
 	{
 		.name   = "Boot firmware",
 		.offset = 0,
-		.size   = 0x00800000
+		.size   = 0x00100000
 	}, {
 		.name   = "NAND home",
 		.offset = MTDPART_OFS_APPEND,

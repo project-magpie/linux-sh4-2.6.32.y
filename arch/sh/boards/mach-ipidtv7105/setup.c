@@ -271,10 +271,6 @@ static int __init ipidtv7105_devices_init(void)
 
 	stx7105_configure_sata();
 
-	stx7105_configure_pwm(&(struct stx7105_pwm_config) {
-			.out0 = stx7105_pwm_out0_pio13_0,
-			.out1 = stx7105_pwm_out1_disabled, });
-
 	stx7105_configure_ssc_i2c(0, &(struct stx7105_ssc_config) {
 			.routing.ssc1.sclk = stx7105_ssc0_sclk_pio2_2,
 			.routing.ssc1.mtsr = stx7105_ssc0_mtsr_pio2_3, });

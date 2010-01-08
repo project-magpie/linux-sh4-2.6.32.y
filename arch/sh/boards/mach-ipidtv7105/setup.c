@@ -33,6 +33,10 @@
 #define IPIDTV7105_PIO_PCI_SERR  stm_gpio(15, 4)
 #define IPIDTV7105_PIO_PCI_RESET stm_gpio(15, 7)
 #define IPIDTV7105_PIO_FLASH_VPP stm_gpio(6, 5)
+#define IPIDTV7105_PIO_SPI_BOOT_CLK   stm_gpio(15, 0)
+#define IPIDTV7105_PIO_SPI_BOOT_DOUT  stm_gpio(15, 1)
+#define IPIDTV7105_PIO_SPI_BOOT_NOTCS stm_gpio(15, 2)
+#define IPIDTV7105_PIO_SPI_BOOT_DIN   stm_gpio(15, 3)
 
 /*
  * Comment out this line to use NAND through the EMI bit-banging driver
@@ -144,25 +148,11 @@ static struct flash_platform_data serialflash_data = {
 static struct spi_board_info spi_serialflash[] =  {
 	{
 		.modalias	= "m25p80",
-		.bus_num	= 8,
-		.chip_select	= stm_gpio(15, 2),
-		.max_speed_hz	= 50000,
+		.bus_num	= 0,
+		.chip_select	= stm_gpio(2, 4),
+		.max_speed_hz	= 5000000,
 		.platform_data	= &serialflash_data,
 		.mode		= SPI_MODE_3,
-	},
-};
-
-static struct platform_device spi_pio_device[] = {
-	{
-		.name	   = "spi_st_pio",
-		.id	     = 8,
-		.num_resources  = 0,
-		.dev	    = {
-			.platform_data =
-				&(struct ssc_pio_t) {
-					.pio = {{15, 0}, {15, 1}, {15, 3} },
-				},
-		},
 	},
 };
 #endif
@@ -212,9 +202,6 @@ static struct platform_device nand_device = {
 static struct platform_device *ipidtv7105_devices[] __initdata = {
 	&ipidtv7105_leds,
 	&ipidtv7105_phy_device,
-#if 0
-	&spi_pio_device[0],
-#endif
 #ifndef NAND_USES_FLEX
 	&nand_device,
 #endif
@@ -271,12 +258,31 @@ static int __init ipidtv7105_devices_init(void)
 
 	stx7105_configure_sata();
 
-	stx7105_configure_ssc_i2c(0, &(struct stx7105_ssc_config) {
-			.routing.ssc1.sclk = stx7105_ssc0_sclk_pio2_2,
-			.routing.ssc1.mtsr = stx7105_ssc0_mtsr_pio2_3, });
-	stx7105_configure_ssc_i2c(1, &(struct stx7105_ssc_config) {
+	/* Configure the SPI Boot as input */
+	if (gpio_request(IPIDTV7105_PIO_SPI_BOOT_CLK, "SPI Boot CLK") == 0)
+		gpio_direction_input(IPIDTV7105_PIO_SPI_BOOT_CLK);
+	else
+		printk(KERN_ERR "ipidtv7105: Failed to claim SPI Boot CLK!\n");
+
+	if (gpio_request(IPIDTV7105_PIO_SPI_BOOT_DOUT, "SPI Boot DOUT") == 0)
+		gpio_direction_input(IPIDTV7105_PIO_SPI_BOOT_DOUT);
+	else
+		printk(KERN_ERR "ipidtv7105: Failed to claim SPI Boot DOUT!\n");
+
+	if (gpio_request(IPIDTV7105_PIO_SPI_BOOT_NOTCS, "SPI Boot NOTCS") == 0)
+		gpio_direction_input(IPIDTV7105_PIO_SPI_BOOT_NOTCS);
+	else
+		printk(KERN_ERR "ipidtv7105: Failed to claim SPI Boot NOTCS!\n");
+
+	if (gpio_request(IPIDTV7105_PIO_SPI_BOOT_DIN, "SPI Boot DIN") == 0)
+		gpio_direction_input(IPIDTV7105_PIO_SPI_BOOT_DIN);
+	else
+		printk(KERN_ERR "ipidtv7105: Failed to claim SPI Boot DIN!\n");
+	stx7105_configure_ssc_spi(1, &(struct stx7105_ssc_config) {
 			.routing.ssc1.sclk = stx7105_ssc1_sclk_pio2_5,
-			.routing.ssc1.mtsr = stx7105_ssc1_mtsr_pio2_6, });
+			.routing.ssc1.mtsr = stx7105_ssc1_mtsr_pio2_6,
+			.routing.ssc1.mrst = stx7105_ssc1_mrst_pio2_7, });
+
 	stx7105_configure_ssc_i2c(2, &(struct stx7105_ssc_config) {
 			.routing.ssc2.sclk = stx7105_ssc2_sclk_pio3_4,
 			.routing.ssc2.mtsr = stx7105_ssc2_mtsr_pio3_5, });

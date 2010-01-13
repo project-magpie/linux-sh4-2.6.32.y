@@ -326,6 +326,7 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	ascport->port.uartclk = rate;
 	ascport->pad_config = plat_data->pad_config;
 	ascport->hw_flow_control = plat_data->hw_flow_control;
+	ascport->txfifo_bug = plat_data->txfifo_bug;
 }
 
 static struct uart_driver asc_uart_driver = {
@@ -670,14 +671,21 @@ void asc_set_termios_cflag(struct asc_port *ascport, int cflag, int baud)
 static inline unsigned asc_hw_txroom(struct uart_port *port)
 {
 	unsigned long status;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 
 	status = asc_in(port, STA);
-	if (status & ASC_STA_THE)
-		return FIFO_SIZE/2;
-	else if (!(status & ASC_STA_TF))
-		return 1;
-	else
-		return 0;
+
+	if (ascport->txfifo_bug) {
+		if (status & ASC_STA_THE)
+			return (FIFO_SIZE / 2) - 1;
+	} else {
+		if (status & ASC_STA_THE)
+			return FIFO_SIZE / 2;
+		else if (!(status & ASC_STA_TF))
+			return 1;
+	}
+
+	return 0;
 }
 
 /*
@@ -880,6 +888,14 @@ static __inline__ char lowhex(int  x)
 #endif
 
 #ifdef CONFIG_SERIAL_STM_ASC_CONSOLE
+static int asc_txfifo_is_full(struct asc_port *ascport, unsigned long status)
+{
+	if (ascport->txfifo_bug)
+		return !(status & ASC_STA_THE);
+
+	return status & ASC_STA_TF;
+}
+
 static void put_char(struct uart_port *port, char c)
 {
 	unsigned long flags;
@@ -891,12 +907,12 @@ static void put_char(struct uart_port *port, char c)
 try_again:
 	do {
 		status = asc_in(port, STA);
-	} while (status & ASC_STA_TF);
+	} while (asc_txfifo_is_full(ascport, status));
 
 	spin_lock_irqsave(&port->lock, flags);
 
 	status = asc_in(port, STA);
-	if (status & ASC_STA_TF) {
+	if (asc_txfifo_is_full(ascport, status)) {
 		spin_unlock_irqrestore(&port->lock, flags);
 		goto try_again;
 	}

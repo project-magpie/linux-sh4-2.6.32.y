@@ -71,6 +71,7 @@
 
 struct stm_plat_asc_data {
 	int hw_flow_control:1;
+	int txfifo_bug:1;
 	struct stm_pad_config *pad_config;
 };
 

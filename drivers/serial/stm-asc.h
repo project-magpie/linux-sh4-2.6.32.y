@@ -34,6 +34,7 @@ struct asc_port {
 	struct stm_pad_config *pad_config;
 	struct stm_pad_state *pad_state;
 	int hw_flow_control:1;
+	int txfifo_bug:1;
 	int suspended:1;
 #ifdef CONFIG_SERIAL_STM_ASC_FDMA
 	struct asc_port_fdma fdma;

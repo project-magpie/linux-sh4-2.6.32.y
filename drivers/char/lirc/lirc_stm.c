@@ -148,7 +148,7 @@ static void *irb_base_address;	/* IR block register base address */
 #define IRB_SCD_ALT_CODE	IRB_CM_REG(0x230)	/* SCD alternative start code */
 
 #define RX_CLEAR_IRQ(x) 		writel((x), IRB_RX_INT_CLEAR)
-#define RX_WORDS_IN_FIFO() 		(readl(IRB_RX_STATUS) & 0x0700)
+#define RX_WORDS_IN_FIFO() 		(readl(IRB_RX_STATUS) & 0xff00)
 
 #define LIRC_STM_MINOR			0
 #define LIRC_STM_MAX_SYMBOLS		100

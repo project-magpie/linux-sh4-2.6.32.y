@@ -18,6 +18,16 @@
 
 static int __initdata stx7100_emi_bank_configured[EMI_BANKS];
 
+static struct platform_device stx7100_emi = {
+	.name = "emi",
+	.id = -1,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0, 64 * 1024 * 1024),
+		STM_PLAT_RESOURCE_MEM(0x1a100000, 0x874),
+	},
+};
+
 
 
 /* PATA resources --------------------------------------------------------- */
@@ -346,14 +356,6 @@ static struct platform_device stx7100_pio_devices[] = {
 	},
 };
 
-static void __init stx7100_pio_late_setup(void)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(stx7100_pio_devices); i++)
-		platform_device_register(&stx7100_pio_devices[i]);
-}
-
 
 
 /* sysconf resources ------------------------------------------------------ */
@@ -432,19 +434,14 @@ void __init stx7100_early_device_init(void)
 
 /* Pre-arch initialisation ------------------------------------------------ */
 
-static struct platform_device emi = {
-	.name = "emi",
-	.id = -1,
-	.num_resources = 2,
-	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0, 64*1024*1024),
-		STM_PLAT_RESOURCE_MEM(0x1a100000, 0x874),
-	},
-};
-
 static int __init stx7100_postcore_setup(void)
 {
-	return platform_device_register(&emi);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(stx7100_pio_devices); i++)
+		platform_device_register(&stx7100_pio_devices[i]);
+
+	return platform_device_register(&stx7100_emi);
 }
 postcore_initcall(stx7100_postcore_setup);
 
@@ -462,11 +459,8 @@ static struct platform_device *stx7100_devices[] __initdata = {
 static int __init stx7100_devices_setup(void)
 {
 	stx7100_fdma_setup();
-	stx7100_pio_late_setup();
 
 	return platform_add_devices(stx7100_devices,
 			ARRAY_SIZE(stx7100_devices));
 }
 device_initcall(stx7100_devices_setup);
-
-

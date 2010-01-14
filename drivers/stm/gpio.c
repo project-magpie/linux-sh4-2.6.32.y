@@ -877,7 +877,7 @@ static int __init stm_gpio_init(void)
 {
 	return platform_driver_register(&stm_gpio_driver);
 }
-subsys_initcall(stm_gpio_init);
+postcore_initcall(stm_gpio_init);
 
 MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");
 MODULE_LICENSE("GPL");

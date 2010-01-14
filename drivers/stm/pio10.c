@@ -111,7 +111,7 @@ static int __init stm_pio10_init(void)
 {
 	return platform_driver_register(&stm_pio10_driver);
 }
-subsys_initcall(stm_pio10_init);
+postcore_initcall(stm_pio10_init);
 
 MODULE_AUTHOR("Stuart Menefy <stuart.menefy@st.com>");
 MODULE_DESCRIPTION("STMicroelectronics PIO10 driver");

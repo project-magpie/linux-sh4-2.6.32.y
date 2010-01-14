@@ -15,6 +15,16 @@
 
 static int __initdata stx7111_emi_bank_configured[EMI_BANKS];
 
+static struct platform_device stx7111_emi = {
+	.name = "emi",
+	.id = -1,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0, 128 * 1024 * 1024),
+		STM_PLAT_RESOURCE_MEM(0xfe700000, 0x874),
+	},
+};
+
 
 
 /* NAND Resources --------------------------------------------------------- */
@@ -173,6 +183,8 @@ static struct platform_device stx7111_rng_devrandom_device = {
 	}
 };
 
+
+
 /* Internal temperature sensor resources ---------------------------------- */
 
 static struct platform_device stx7111_temp_device = {
@@ -186,6 +198,8 @@ static struct platform_device stx7111_temp_device = {
 		.data = { SYS_STA, 12, 10, 16 },
 	},
 };
+
+
 
 /* PIO ports resources ---------------------------------------------------- */
 
@@ -262,14 +276,6 @@ static struct platform_device stx7111_pio_devices[] = {
 	},
 };
 
-static void __init stx7111_pio_late_setup(void)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(stx7111_pio_devices); i++)
-		platform_device_register(&stx7111_pio_devices[i]);
-}
-
 
 
 /* sysconf resources ------------------------------------------------------ */
@@ -325,19 +331,14 @@ void __init stx7111_early_device_init(void)
 
 /* Pre-arch initialisation ------------------------------------------------ */
 
-static struct platform_device emi = {
-	.name = "emi",
-	.id = -1,
-	.num_resources = 2,
-	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0, 128*1024*1024),
-		STM_PLAT_RESOURCE_MEM(0xfe700000, 0x874),
-	},
-};
-
 static int __init stx7111_postcore_setup(void)
 {
-	return platform_device_register(&emi);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(stx7111_pio_devices); i++)
+		platform_device_register(&stx7111_pio_devices[i]);
+
+	return platform_device_register(&stx7111_emi);
 }
 postcore_initcall(stx7111_postcore_setup);
 
@@ -357,8 +358,6 @@ static struct platform_device *stx7111_devices[] __initdata = {
 
 static int __init stx7111_devices_setup(void)
 {
-	stx7111_pio_late_setup();
-
 	return platform_add_devices(stx7111_devices,
 			ARRAY_SIZE(stx7111_devices));
 }

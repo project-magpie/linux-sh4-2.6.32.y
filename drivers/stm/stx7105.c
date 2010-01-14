@@ -15,6 +15,16 @@
 
 static int __initdata stx7105_emi_bank_configured[EMI_BANKS];
 
+static struct platform_device stx7105_emi = {
+	.name = "emi",
+	.id = -1,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0, 128 * 1024 * 1024),
+		STM_PLAT_RESOURCE_MEM(0xfe700000, 0x874),
+	},
+};
+
 
 
 /* PATA resources --------------------------------------------------------- */
@@ -107,6 +117,8 @@ void __init stx7105_configure_nand_flex(int nr_banks,
 
 	platform_device_register(&stx7105_nand_flex_device);
 }
+
+
 
 /* FDMA resources --------------------------------------------------------- */
 
@@ -226,6 +238,8 @@ static struct platform_device stx7105_rng_devrandom_device = {
 	}
 };
 
+
+
 /* Internal temperature sensor resources ---------------------------------- */
 
 static struct platform_device stx7105_temp_device = {
@@ -239,6 +253,8 @@ static struct platform_device stx7105_temp_device = {
 		.data = { SYS_STA, 12, 10, 16 },
 	},
 };
+
+
 
 /* PIO ports resources ---------------------------------------------------- */
 
@@ -343,15 +359,6 @@ static struct platform_device stx7105_pio_devices[] = {
 	},
 };
 
-static void __init stx7105_pio_late_setup(void)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(stx7105_pio_devices); i++)
-		if (stx7105_pio_devices[i].name) /* No PIO0 */
-			platform_device_register(&stx7105_pio_devices[i]);
-}
-
 
 
 /* sysconf resources ------------------------------------------------------ */
@@ -407,36 +414,20 @@ void __init stx7105_early_device_init(void)
 
 /* Pre-arch initialisation ------------------------------------------------ */
 
-static struct platform_device emi = {
-	.name = "emi",
-	.id = -1,
-	.num_resources = 2,
-	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0, 128*1024*1024),
-		STM_PLAT_RESOURCE_MEM(0xfe700000, 0x874),
-	},
-};
-
 static int __init stx7105_postcore_setup(void)
 {
-	return platform_device_register(&emi);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(stx7105_pio_devices); i++)
+		platform_device_register(&stx7105_pio_devices[i]);
+
+	return platform_device_register(&stx7105_emi);
 }
 postcore_initcall(stx7105_postcore_setup);
 
 
 
 /* Late initialisation ---------------------------------------------------- */
-
-static int __init stx7105_subsys_setup(void)
-{
-	/* we need to do PIO setup before module init, because some
-	 * drivers (eg gpio-keys) require that the interrupts
-	 * are available. */
-	stx7105_pio_late_setup();
-
-	return 0;
-}
-subsys_initcall(stx7105_subsys_setup);
 
 static struct platform_device *stx7105_devices[] __initdata = {
 	&stx7105_fdma_0_device,

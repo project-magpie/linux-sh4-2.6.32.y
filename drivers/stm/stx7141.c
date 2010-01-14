@@ -15,6 +15,16 @@
 
 static int __initdata stx7141_emi_bank_configured[EMI_BANKS];
 
+static struct platform_device stx7141_emi = {
+	.name = "emi",
+	.id = -1,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0, 128*1024*1024),
+		STM_PLAT_RESOURCE_MEM(0xfe700000, 0x874),
+	},
+};
+
 
 
 /* PATA resources --------------------------------------------------------- */
@@ -669,14 +679,6 @@ static struct platform_device stx7141_pio_devices[] = {
 	},
 };
 
-static void __init stx7141_pio_late_setup(void)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(stx7141_pio_devices); i++)
-		platform_device_register(&stx7141_pio_devices[i]);
-}
-
 
 
 /* sysconf resources ------------------------------------------------------ */
@@ -732,36 +734,20 @@ void __init stx7141_early_device_init(void)
 
 /* Pre-arch initialisation ------------------------------------------------ */
 
-static struct platform_device emi = {
-	.name = "emi",
-	.id = -1,
-	.num_resources = 2,
-	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0, 128*1024*1024),
-		STM_PLAT_RESOURCE_MEM(0xfe700000, 0x874),
-	},
-};
-
 static int __init stx7141_postcore_setup(void)
 {
-	return platform_device_register(&emi);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(stx7141_pio_devices); i++)
+		platform_device_register(&stx7141_pio_devices[i]);
+
+	return platform_device_register(&stx7141_emi);
 }
 postcore_initcall(stx7141_postcore_setup);
 
 
 
 /* Late initialisation ---------------------------------------------------- */
-
-static int __init stx7141_subsys_setup(void)
-{
-	/* we need to do PIO setup before module init, because some
-	 * drivers (eg gpio-keys) require that the interrupts
-	 * are available. */
-	stx7141_pio_late_setup();
-
-	return 0;
-}
-subsys_initcall(stx7141_subsys_setup);
 
 static struct platform_device *stx7141_devices[] __initdata = {
 	&stx7141_fdma_0_device,

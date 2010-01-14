@@ -181,35 +181,8 @@ static struct platform_device *hmp7105_devices[] __initdata = {
 #endif
 };
 
-static struct stm_plat_pci_config pci_config = {
-	.pci_irq = {
-		[0] = PCI_PIN_DEFAULT,
-		[1] = PCI_PIN_DEFAULT,
-		[2] = PCI_PIN_DEFAULT,
-		[3] = PCI_PIN_DEFAULT
-	},
-	.serr_irq = PCI_PIN_UNUSED,
-	.idsel_lo = 30,
-	.idsel_hi = 30,
-	.req_gnt = {
-		[0] = PCI_PIN_DEFAULT,
-		[1] = PCI_PIN_UNUSED,
-		[2] = PCI_PIN_UNUSED,
-		[3] = PCI_PIN_UNUSED
-	},
-	.pci_clk = 33333333,
-	.pci_reset_pio = stm_gpio(15, 7)
-};
-
-int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
-{
-       /* We can use the standard function on this board */
-       return  stx7105_pcibios_map_platform_irq(&pci_config, pin);
-}
-
 static int __init hmp7105_devices_init(void)
 {
-	stx7105_configure_pci(&pci_config);
 	stx7105_configure_sata();
 
 	stx7105_configure_pwm(&(struct stx7105_pwm_config) {

@@ -33,6 +33,8 @@
 
 
 #define MB680_PIO_PHY_RESET stm_gpio(5, 5)
+#define MB680_PIO_PCI_SERR stm_gpio(6, 4)
+#define MB680_PIO_PCI_RESET stm_gpio(15, 6)
 #define MB680_PIO_MII_BUS_SWITCH stm_gpio(11, 2)
 
 
@@ -159,14 +161,14 @@ static void mb705_epld_pci_reset(void)
 /*
  * J22-A must be removed, J22-B must be 2-3.
  */
-static struct stm_plat_pci_config pci_config = {
+static struct stm_plat_pci_config mb680_pci_config = {
 	.pci_irq = {
 		[0] = PCI_PIN_DEFAULT,
 		[1] = PCI_PIN_DEFAULT,
 		[2] = PCI_PIN_DEFAULT,
 		[3] = PCI_PIN_DEFAULT
 	},
-	.serr_irq = PCI_PIN_UNUSED,
+	.serr_irq = PCI_PIN_UNUSED, /* Modified in mb680_device_init() below */
 	.idsel_lo = 30,
 	.idsel_hi = 30,
 	.req_gnt = {
@@ -176,27 +178,35 @@ static struct stm_plat_pci_config pci_config = {
 		[3] = PCI_PIN_UNUSED
 	},
 	.pci_clk = 33333333,
-	/*
-	 * When connected to the mb705, PCI reset is controlled by an EPLD
+	/* When connected to the mb705, PCI reset is controlled by an EPLD
 	 * register on the mb705. When used standalone a PIO pin is used,
-	 * and J47-D, J9-G must be fitted.
-	 */
+	 * and J47-D, J9-G must be fitted. */
 #ifdef CONFIG_SH_ST_MB705
 	.pci_reset = mb705_epld_pci_reset,
 #else
-	.pci_reset_pio = stm_gpio(15, 6),
+	.pci_reset_gpio = MB680_PIO_PCI_RESET,
 #endif
 };
 
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
        /* We can use the standard function on this board */
-       return stx7105_pcibios_map_platform_irq(&pci_config, pin);
+       return stx7105_pcibios_map_platform_irq(&mb680_pci_config, pin);
 }
 
 static int __init mb680_devices_init(void)
 {
-	stx7105_configure_pci(&pci_config);
+	/* Setup the PCI_SERR# PIO
+	 * J20-A - open, J27-E - closed */
+	if (gpio_request(MB680_PIO_PCI_SERR, "PCI_SERR#") == 0) {
+		gpio_direction_input(MB680_PIO_PCI_SERR);
+		mb680_pci_config.serr_irq = gpio_to_irq(MB680_PIO_PCI_SERR);
+		set_irq_type(mb680_pci_config.serr_irq, IRQ_TYPE_LEVEL_LOW);
+	} else {
+		printk(KERN_WARNING "mb680: Failed to claim PCI_SERR PIO!\n");
+	}
+	stx7105_configure_pci(&mb680_pci_config);
+
 	stx7105_configure_sata();
 
 	stx7105_configure_pwm(&(struct stx7105_pwm_config) {
@@ -292,7 +302,5 @@ struct sh_machine_vector mv_mb680 __initmv = {
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= mb680_init_irq,
 	.mv_ioport_map		= mb680_ioport_map,
-#ifdef CONFIG_SH_ST_SYNOPSYS_PCI
 	STM_PCI_IO_MACHINE_VEC
-#endif
 };

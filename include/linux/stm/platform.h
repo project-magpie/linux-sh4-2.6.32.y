@@ -336,45 +336,44 @@ struct stm_plat_fdma_data {
 
 /*** PCI platform data ***/
 
-#define PCI_PIN_ALTERNATIVE	-2	/* Use alternative PIO rather than default */
-#define PCI_PIN_DEFAULT		-1	/* Use whatever the default is for that pin */
-#define PCI_PIN_UNUSED		0	/* Pin not in use */
+#define PCI_PIN_ALTERNATIVE -3 /* Use alternative PIO rather than default */
+#define PCI_PIN_DEFAULT     -2 /* Use whatever the default is for that pin */
+#define PCI_PIN_UNUSED	    -1 /* Pin not in use */
 
-/*
- * In the board setup, you can pass in the external interrupt numbers
- * instead if you have wired up your board that way. It has the
- * advantage that the PIO pins freed up can then be used for something
- * else.
- */
+/* In the board setup, you can pass in the external interrupt numbers instead
+ * if you have wired up your board that way. It has the advantage that the PIO
+ * pins freed up can then be used for something else. */
 struct stm_plat_pci_config {
-	int pci_irq[4];		/* PCI_PIN_DEFAULT/PCI_PIN_UNUSED.
-				 * Other IRQ can be passed in */
-	int serr_irq;		/* As above for SERR */
-	char idsel_lo;		/* Lowest address line connected to an
-				 * idsel  - slot 0 */
-	char idsel_hi;		/* Highest address line connected to an
-				 * idsel - slot n */
-	char req_gnt[4];	/* Set to PCI_PIN_DEFAULT if the
-				 * corresponding req/gnt lines are in use */
-	unsigned pci_clk;	/* PCI clock rate in Hz. If zero will
-				 * default to 33MHz*/
+	/* PCI_PIN_DEFAULT/PCI_PIN_UNUSED. Other IRQ can be passed in */
+	int pci_irq[4];
+	/* As above for SERR */
+	int serr_irq;
+	/* Lowest address line connected to an idsel  - slot 0 */
+	char idsel_lo;
+	/* Highest address line connected to an idsel - slot n */
+	char idsel_hi;
+	/* Set to PCI_PIN_DEFAULT if the corresponding req/gnt lines are
+	 * in use */
+	char req_gnt[4];
+	/* PCI clock in Hz. If zero default to 33MHz */
+	unsigned long pci_clk;
 
-	/*
-	 * If you supply a pci_reset() function, that will be used to reset the
-	 * PCI bus.  Otherwise it is assumed that the reset is done via PIO,
-	 * the number is specified here. Specify -EINVAL if no PIO reset is
-	 * required either, for example if the PCI reset is done as part of
-	 * power on reset.
-	 */
-	unsigned pci_reset_pio;
+	/* If you supply a pci_reset() function, that will be used to reset
+	 * the PCI bus.  Otherwise it is assumed that the reset is done via
+	 * PIO, the number is specified here. Specify -EINVAL if no PIO reset
+	 * is required either, for example if the PCI reset is done as part
+	 * of power on reset. */
+	unsigned pci_reset_gpio;
 	void (*pci_reset)(void);
 
-	/*
-	 * Various PCI tuning parameters. Set by SOC layer. You don't
-	 * have to specify these as the defaults are usually
-	 * fine. However, if you need to change them, you can set
-	 * ad_override_default and plug in your own values
-	 */
+	/* You may define a PCI clock name. If NULL it will fall
+	 * back to "pci" */
+	const char *clk_name;
+
+	/* Various PCI tuning parameters. Set by SOC layer. You don't have
+	 * to specify these as the defaults are usually fine. However, if
+	 * you need to change them, you can set ad_override_default and
+	 * plug in your own values. */
 	unsigned ad_threshold:4;
 	unsigned ad_chunks_in_msg:5;
 	unsigned ad_pcks_in_chunk:5;
@@ -382,17 +381,15 @@ struct stm_plat_pci_config {
 	unsigned ad_posted:1;
 	unsigned ad_max_opcode:4;
 	unsigned ad_read_ahead:1;
-	unsigned ad_override_default:1; /* Set to override default
-					 * values for your board */
+	/* Set to override default values for your board */
+	unsigned ad_override_default:1;
 
-	/*
-	 * Cut3 7105/ cut 2 7141 connected req0 pin to req3 to work
-	 * around some problems with nand. This bit will be
-	 * auto-probed by the chip layer, the board layer should NOT
-	 * have to set this.
-	 */
+	/* Some SOCs have req0 pin connected to req3 signal to work around
+	 * some problems with NAND. Also the PCI_NOT_EMI bit should NOT be
+	 * set sometimes. These bits will be set by the chip layer, the
+	 * board layer should NOT touch this. */
 	unsigned req0_to_req3:1;
-
+	unsigned req0_emi:1;
 };
 
 /*** ILC platform data ***/

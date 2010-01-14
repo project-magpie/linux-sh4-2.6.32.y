@@ -220,17 +220,16 @@ static struct platform_device epld_device = {
 
 
 
-/*
- * J20-A must be removed, J20-B must be 5-6
- */
-static struct stm_plat_pci_config  pci_config = {
+static struct stm_plat_pci_config mb618_pci_config = {
+	/* We don't bother with INT[BCD] as they are shared with the ssc
+	 * J20-A must be removed, J20-B must be 5-6 */
 	.pci_irq = {
 		[0] = PCI_PIN_DEFAULT,
 		[1] = PCI_PIN_UNUSED,
 		[2] = PCI_PIN_UNUSED,
 		[3] = PCI_PIN_UNUSED
 	},
-	.serr_irq = PCI_PIN_UNUSED,
+	.serr_irq = PCI_PIN_DEFAULT, /* J32-F fitted */
 	.idsel_lo = 30,
 	.idsel_hi = 30,
 	.req_gnt = {
@@ -240,13 +239,13 @@ static struct stm_plat_pci_config  pci_config = {
 		[3] = PCI_PIN_UNUSED
 	},
 	.pci_clk = 33333333,
-	.pci_reset_pio = -EINVAL,	/* Reset done by EPLD on power on */
+	.pci_reset_gpio = -EINVAL,	/* Reset done by EPLD on power on */
 };
 
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
        /* We can use the standard function on this board */
-       return  stx7111_pcibios_map_platform_irq(&pci_config, pin);
+       return stx7111_pcibios_map_platform_irq(&mb618_pci_config, pin);
 }
 
 static struct platform_device *mb618_devices[] __initdata = {
@@ -295,7 +294,8 @@ static int __init mb618_devices_init(void)
 {
 	int peripherals_i2c_bus;
 
-	stx7111_configure_pci(&pci_config);
+	stx7111_configure_pci(&mb618_pci_config);
+
 	stx7111_configure_pwm(&(struct stx7111_pwm_config) {
 			.out0_enabled = 1,
 			.out1_enabled = 0, });
@@ -410,7 +410,5 @@ struct sh_machine_vector mv_mb618 __initmv = {
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= mb618_init_irq,
 	.mv_ioport_map		= mb618_ioport_map,
-#ifdef CONFIG_SH_ST_SYNOPSYS_PCI
 	STM_PCI_IO_MACHINE_VEC
-#endif
 };

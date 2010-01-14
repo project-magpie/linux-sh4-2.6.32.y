@@ -36,6 +36,8 @@ void pci_synopsys_outsl(unsigned long port, const void *src,
  * not need the ioport_map function, instead using the generic cookie
  * based implementation.
  */
+#ifdef CONFIG_SH_ST_SYNOPSYS_PCI
+
 #define STM_PCI_IO_MACHINE_VEC			\
 	.mv_inb = pci_synopsys_inb,		\
 	.mv_inw = pci_synopsys_inw,		\
@@ -55,5 +57,11 @@ void pci_synopsys_outsl(unsigned long port, const void *src,
 	.mv_outsb = pci_synopsys_outsb,		\
 	.mv_outsw = pci_synopsys_outsw,		\
 	.mv_outsl = pci_synopsys_outsl,
+
+#else
+
+#define STM_PCI_IO_MACHINE_VEC
+
+#endif
 
 #endif /* LINUX_STM_PCI_SYNOPSYS_H */

@@ -28,7 +28,9 @@
 #include <asm/irq-ilc.h>
 
 
+#define HDK7105_PIO_PCI_SERR  stm_gpio(15, 4)
 #define HDK7105_PIO_PHY_RESET stm_gpio(15, 5)
+#define HDK7105_PIO_PCI_RESET stm_gpio(15, 7)
 
 
 
@@ -49,14 +51,14 @@ static void __init hdk7105_setup(char **cmdline_p)
 }
 
 /* PCI configuration */
-static struct stm_plat_pci_config pci_config = {
+static struct stm_plat_pci_config hdk7105_pci_config = {
 	.pci_irq = {
 		[0] = PCI_PIN_DEFAULT,
 		[1] = PCI_PIN_DEFAULT,
 		[2] = PCI_PIN_UNUSED,
 		[3] = PCI_PIN_UNUSED
 	},
-	.serr_irq = PCI_PIN_UNUSED,
+	.serr_irq = PCI_PIN_UNUSED, /* Modified in hdk7105_device_init() */
 	.idsel_lo = 30,
 	.idsel_hi = 30,
 	.req_gnt = {
@@ -66,13 +68,13 @@ static struct stm_plat_pci_config pci_config = {
 		[3] = PCI_PIN_UNUSED
 	},
 	.pci_clk = 33333333,
-	.pci_reset_pio = stm_gpio(15, 7)
+	.pci_reset_gpio = HDK7105_PIO_PCI_RESET,
 };
 
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
         /* We can use the standard function on this board */
-        return  stx7105_pcibios_map_platform_irq(&pci_config, pin);
+	return stx7105_pcibios_map_platform_irq(&hdk7105_pci_config, pin);
 }
 
 static struct platform_device hdk7105_leds = {
@@ -180,7 +182,17 @@ static struct platform_device *hdk7105_devices[] __initdata = {
 
 static int __init hdk7105_device_init(void)
 {
-	stx7105_configure_pci(&pci_config);
+	/* Setup the PCI_SERR# PIO */
+	if (gpio_request(HDK7105_PIO_PCI_SERR, "PCI_SERR#") == 0) {
+		gpio_direction_input(HDK7105_PIO_PCI_SERR);
+		hdk7105_pci_config.serr_irq =
+				gpio_to_irq(HDK7105_PIO_PCI_SERR);
+		set_irq_type(hdk7105_pci_config.serr_irq, IRQ_TYPE_LEVEL_LOW);
+	} else {
+		printk(KERN_WARNING "hdk7105: Failed to claim PCI SERR PIO!\n");
+	}
+	stx7105_configure_pci(&hdk7105_pci_config);
+
 	stx7105_configure_sata();
 
 	stx7105_configure_pwm(&(struct stx7105_pwm_config) {
@@ -250,7 +262,5 @@ struct sh_machine_vector mv_hdk7105 __initmv = {
 	.mv_setup		= hdk7105_setup,
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_ioport_map		= hdk7105_ioport_map,
-#ifdef CONFIG_SH_ST_SYNOPSYS_PCI
 	STM_PCI_IO_MACHINE_VEC
-#endif
 };

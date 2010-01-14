@@ -333,7 +333,6 @@ config SH_ST_HDK7105
 	bool "HDK7105 : STx7105 HDK Reference board"
 	depends on CPU_SUBTYPE_STX7105
 	select SYS_SUPPORTS_PCI
-	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select HDK7105 if configuring for an
 	  STMicroelectronics STi7105 HDK Reference Board.
@@ -358,7 +357,6 @@ config SH_ST_HMP7105
 	bool "HMP7105: STx7105 Reference board"
 	depends on CPU_SUBTYPE_STX7105
 	select SYS_SUPPORTS_PCI
-	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select HMP7105 if configuring for an STMicroelectronics
 	  HMP7105 reference board.
@@ -375,7 +373,6 @@ config SH_ST_IPIDTV7105
 	bool "ipidtv7105: STx7105 IPTV pluggin board"
 	depends on CPU_SUBTYPE_STX7105
 	select SYS_SUPPORTS_PCI
-	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select SH_ST_IPIDTV7105 if configuring for an STx7105 IPiDTV board
 
@@ -461,7 +458,6 @@ config SH_ST_MB618
 	select SH_ST_EPLD
 	select SH_ST_STEM
 	select SYS_SUPPORTS_PCI
-	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select STx7111 Validation if configuring for an
 	  STMicroelectronics STx7111 Validation Board (product code:
@@ -499,7 +495,6 @@ config SH_ST_MB680
 	select SH_ST_STEM
 	select SH_ST_STPM_HD_V2
 	select SYS_SUPPORTS_PCI
-	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select STx7105 Validation if configuring for an
 	  STMicroelectronics STx7105 Validation Board (product code:

@@ -30,6 +30,8 @@
 
 #define IPIDTV7105_PIO_PHY_RESET stm_gpio(15, 5)
 #define IPIDTV7105_PIO_PCI_IDSEL stm_gpio(10, 2)
+#define IPIDTV7105_PIO_PCI_SERR  stm_gpio(15, 4)
+#define IPIDTV7105_PIO_PCI_RESET stm_gpio(15, 7)
 #define IPIDTV7105_PIO_FLASH_VPP stm_gpio(6, 5)
 
 /*
@@ -208,7 +210,9 @@ static struct platform_device *ipidtv7105_devices[] __initdata = {
 #endif
 };
 
-static struct stm_plat_pci_config pci_config = {
+/* PCI configuration */
+
+static struct stm_plat_pci_config ipidtv7105_pci_config = {
 	.pci_irq = {
 		[0] = PCI_PIN_DEFAULT,
 		[1] = PCI_PIN_DEFAULT,
@@ -225,20 +229,35 @@ static struct stm_plat_pci_config pci_config = {
 		[3] = PCI_PIN_UNUSED
 	},
 	.pci_clk = 33333333,
-	.pci_reset_pio = stm_gpio(15, 7)
+	.pci_reset_gpio = IPIDTV7105_PIO_PCI_RESET,
 };
 
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
        /* We can use the standard function on this board */
-       return  stx7105_pcibios_map_platform_irq(&pci_config, pin);
+       return stx7105_pcibios_map_platform_irq(&ipidtv7105_pci_config, pin);
 }
 
 static int __init ipidtv7105_devices_init(void)
 {
-	gpio_request(IPIDTV7105_PIO_PCI_IDSEL, "pci_idsel");
-	gpio_direction_output(IPIDTV7105_PIO_PCI_IDSEL, 1);
-	stx7105_configure_pci(&pci_config);
+	/* The IDSEL line is connected to PIO10.2 only... Luckily
+	 * there is just one slot, so we can just force 1... */
+	if (gpio_request(IPIDTV7105_PIO_PCI_IDSEL, "PCI_IDSEL") == 0)
+		gpio_direction_output(IPIDTV7105_PIO_PCI_IDSEL, 1);
+	else
+		printk(KERN_ERR "ipidtv7105: Failed to claim PCI_IDSEL PIO!\n");
+	/* Setup the PCI_SERR# PIO */
+	if (gpio_request(IPIDTV7105_PIO_PCI_SERR, "PCI_SERR#") == 0) {
+		gpio_direction_input(IPIDTV7105_PIO_PCI_SERR);
+		iptv7105_pci_config.serr_irq =
+				gpio_to_irq(IPIDTV7105_PIO_PCI_SERR);
+		set_irq_type(ipidtv7105_pci_config.serr_irq,
+				IRQ_TYPE_LEVEL_LOW);
+	} else {
+		printk(KERN_ERR "ipidtv7105: Failed to claim PCI SERR PIO!\n");
+	}
+	/* And finally! */
+	stx7105_configure_pci(&ipidtv7105_pci_config);
 
 	stx7105_configure_sata();
 
@@ -317,7 +336,5 @@ struct sh_machine_vector mv_ipidtv7105 __initmv = {
 	.mv_setup	= ipidtv7105_setup,
 	.mv_nr_irqs	= NR_IRQS,
 	.mv_ioport_map	= ipidtv7105_ioport_map,
-#ifdef CONFIG_SH_ST_SYNOPSYS_PCI
 	STM_PCI_IO_MACHINE_VEC
-#endif
 };

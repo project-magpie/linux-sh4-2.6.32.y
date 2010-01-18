@@ -36,6 +36,7 @@ obj-$(CONFIG_HUGETLB_PAGE)	+= hugetlbpage.o
 obj-$(CONFIG_PMB)		+= pmb.o
 obj-$(CONFIG_PMB_FIXED)		+= pmb-fixed.o
 obj-$(CONFIG_NUMA)		+= numa.o
+obj-$(CONFIG_STM_L2_CACHE)	+= stm-l2-cache.o stm-l2-helper.o
 
 # Special flags for fault_64.o.  This puts restrictions on the number of
 # caller-save registers that the compiler can target when building this file.

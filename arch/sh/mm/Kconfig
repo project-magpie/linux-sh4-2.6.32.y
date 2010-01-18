@@ -290,4 +290,31 @@ config CACHE_OFF
 
 endchoice
 
+config STM_L2_CACHE
+	bool "STM Level-2 cache support"
+	depends on CPU_ST40_300
+	help
+	  Selecting this option will enable support for Level-2
+	  cache present in some of the STMicroelectronics SOCs.
+
+choice
+	prompt "Default Level-2 cache mode"
+	depends on STM_L2_CACHE
+	default STM_L2_CACHE_WRITEBACK
+	help
+	  Select a mode the Level-2 cache should be configured by
+	  default. This may be changed in runtime using
+	  "/sys/kernel/mm/l2/mode" file.
+
+config STM_L2_CACHE_BYPASSED
+	bool "Bypassed"
+
+config STM_L2_CACHE_WRITETHROUGH
+	bool "Write-through"
+
+config STM_L2_CACHE_WRITEBACK
+	bool "Write-back"
+
+endchoice
+
 endmenu

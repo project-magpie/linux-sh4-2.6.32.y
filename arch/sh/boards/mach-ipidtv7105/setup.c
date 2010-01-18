@@ -302,6 +302,11 @@ static int __init ipidtv7105_devices_init(void)
 			.tx_enabled = 1,
 			.tx_od_enabled = 1, });
 
+	stx7105_configure_audio(&(struct stx7105_audio_config) {
+			.pcm_player_0_output =
+					stx7105_pcm_player_0_output_2_channels,
+			});
+
 	/* just permanetly enable the flash*/
 	gpio_request(IPIDTV7105_PIO_FLASH_VPP, "eth_phy_reset");
 	gpio_direction_output(IPIDTV7105_PIO_FLASH_VPP, 1);

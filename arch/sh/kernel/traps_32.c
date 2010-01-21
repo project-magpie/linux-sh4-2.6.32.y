@@ -25,6 +25,7 @@
 #include <linux/kexec.h>
 #include <linux/limits.h>
 #include <linux/proc_fs.h>
+#include <linux/sysfs.h>
 #include <asm/system.h>
 #include <asm/uaccess.h>
 #include <asm/fpu.h>
@@ -35,6 +36,7 @@
 # define TRAP_ILLEGAL_SLOT_INST	6
 # define TRAP_ADDRESS_ERROR	9
 # ifdef CONFIG_CPU_SH2A
+#  define TRAP_UBC		12
 #  define TRAP_FPU_ERROR	13
 #  define TRAP_DIVZERO_ERROR	17
 #  define TRAP_DIVOVF_ERROR	18
@@ -46,7 +48,6 @@
 
 static unsigned long se_user;
 static unsigned long se_sys;
-static unsigned long se_skipped;
 static unsigned long se_half;
 static unsigned long se_word;
 static unsigned long se_dword;
@@ -54,8 +55,8 @@ static unsigned long se_multi;
 /* bitfield: 1: warn 2: fixup 4: signal -> combinations 2|4 && 1|2|4 are not
    valid! */
 static int se_usermode = 3;
-/* 0: no warning 1: print a warning message */
-static int se_kernmode_warn = 1;
+/* 0: no warning 1: print a warning message, disabled by default */
+static int se_kernmode_warn;
 
 #ifdef CONFIG_PROC_FS
 static const char *se_usermode_action[] = {
@@ -76,7 +77,6 @@ proc_alignment_read(char *page, char **start, off_t off, int count, int *eof,
 
 	p += sprintf(p, "User:\t\t%lu\n", se_user);
 	p += sprintf(p, "System:\t\t%lu\n", se_sys);
-	p += sprintf(p, "Skipped:\t%lu\n", se_skipped);
 	p += sprintf(p, "Half:\t\t%lu\n", se_half);
 	p += sprintf(p, "Word:\t\t%lu\n", se_word);
 	p += sprintf(p, "DWord:\t\t%lu\n", se_dword);
@@ -160,12 +160,12 @@ void die(const char * str, struct pt_regs * regs, long err)
 
 	oops_enter();
 
-	console_verbose();
 	spin_lock_irq(&die_lock);
+	console_verbose();
 	bust_spinlocks(1);
 
 	printk("%s: %04lx [#%d]\n", str, err & 0xffff, ++die_counter);
-
+	sysfs_printk_last_file();
 	print_modules();
 	show_regs(regs);
 
@@ -181,6 +181,7 @@ void die(const char * str, struct pt_regs * regs, long err)
 	bust_spinlocks(0);
 	add_taint(TAINT_DIE);
 	spin_unlock_irq(&die_lock);
+	oops_exit();
 
 	if (kexec_should_crash(current))
 		crash_kexec(regs);
@@ -191,7 +192,6 @@ void die(const char * str, struct pt_regs * regs, long err)
 	if (panic_on_oops)
 		panic("Fatal exception");
 
-	oops_exit();
 	do_exit(SIGSEGV);
 }
 
@@ -217,6 +217,7 @@ static void die_if_no_fixup(const char * str, struct pt_regs * regs, long err)
 			regs->pc = fixup->fixup;
 			return;
 		}
+
 		die(str, regs, err);
 	}
 }
@@ -261,7 +262,7 @@ static struct mem_access user_mem_access = {
  *   1 if emulation OK (PC already updated)
  *   -EFAULT on existential error
  */
-static int handle_unaligned_ins(opcode_t instruction, struct pt_regs *regs,
+static int handle_unaligned_ins(insn_size_t instruction, struct pt_regs *regs,
 				struct mem_access *ma)
 {
 	int ret, index, count;
@@ -413,10 +414,10 @@ static int handle_unaligned_ins(opcode_t instruction, struct pt_regs *regs,
  * - fetches the instruction from PC+2
  */
 static inline int handle_delayslot(struct pt_regs *regs,
-				   opcode_t old_instruction,
+				   insn_size_t old_instruction,
 				   struct mem_access *ma)
 {
-	opcode_t instruction;
+	insn_size_t instruction;
 	void __user *addr = (void __user *)(regs->pc +
 		instruction_size(old_instruction));
 
@@ -449,16 +450,17 @@ static inline int handle_delayslot(struct pt_regs *regs,
 #define SH_PC_8BIT_OFFSET(instr) ((((signed char)(instr))*2) + 4)
 #define SH_PC_12BIT_OFFSET(instr) ((((signed short)(instr<<4))>>3) + 4)
 
-/*
- * XXX: SH-2A needs this too, but it needs an overhaul thanks to mixed 32-bit
- * opcodes..
- */
-
-int handle_unaligned_access(opcode_t instruction, struct pt_regs *regs,
-			    struct mem_access *ma)
+int handle_unaligned_access(insn_size_t instruction, struct pt_regs *regs,
+			    struct mem_access *ma, int expected)
 {
 	u_int rm;
 	int ret, index;
+
+	/*
+	 * XXX: We can't handle mixed 16/32-bit instructions yet
+	 */
+	if (instruction_size(instruction) != 2)
+		return -EINVAL;
 
 	index = (instruction>>8)&15;	/* 0x0F00 */
 	rm = regs->regs[index];
@@ -602,7 +604,7 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 	unsigned long error_code = 0;
 	mm_segment_t oldfs;
 	siginfo_t info;
-	opcode_t instruction;
+	insn_size_t instruction;
 	int tmp;
 
 	/* Intentional ifdef */
@@ -619,13 +621,9 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 
 		se_user += 1;
 
-#ifndef CONFIG_CPU_SH2A
 		set_fs(USER_DS);
-		if (copy_from_user(&instruction, (void __user *)(regs->pc),
+		if (copy_from_user(&instruction, (insn_size_t *)(regs->pc & ~1),
 				   sizeof(instruction))) {
-                        /* Argh. Fault on the instruction itself.
-                           This should never happen non-SMP
-                        */
 			set_fs(oldfs);
 			goto uspace_segv;
 		}
@@ -635,12 +633,11 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 			goto uspace_segv;
 
 		/* shout about userspace fixups */
-		if ((se_usermode & 1) && !(test_thread_flag (TIF_UAC_NOPRINT)))
-			printk("Unaligned userspace access "
+		if (se_usermode & 1)
+			printk(KERN_NOTICE "Unaligned userspace access "
 			       "in \"%s\" pid=%d pc=0x%p ins=0x%04hx\n",
-			       current->comm,current->pid,
-			       (u16*)regs->pc,instruction);
-#endif
+			       current->comm, current->pid, (void *)regs->pc,
+			       instruction);
 
 		if (se_usermode & 2)
 			goto fixup;
@@ -649,7 +646,6 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 			goto uspace_segv;
 		else {
 			/* ignore */
-			trace_mark(kernel_arch_trap_exit, MARK_NOARGS);
 			regs->pc += instruction_size(instruction);
 			return;
 		}
@@ -663,7 +659,7 @@ fixup:
 
 		set_fs(USER_DS);
 		tmp = handle_unaligned_access(instruction, regs,
-					      &user_mem_access);
+					      &user_mem_access, 0);
 		set_fs(oldfs);
 
 		if (tmp>=0)
@@ -681,12 +677,6 @@ uspace_segv:
 	} else {
 		se_sys += 1;
 
-		if (se_kernmode_warn)
-			printk("Unaligned kernel access "
-			       "on behalf of \"%s\" pid=%d pc=0x%p ins=0x%04hx\n",
-			       current->comm,current->pid,(u16*)regs->pc,
-			       instruction);
-
 		if (regs->pc & 1)
 			die("unaligned program counter", regs, error_code);
 
@@ -700,7 +690,14 @@ uspace_segv:
 			die("insn faulting in do_address_error", regs, 0);
 		}
 
-		handle_unaligned_access(instruction, regs, &user_mem_access);
+		if (se_kernmode_warn)
+			printk(KERN_NOTICE "Unaligned kernel access "
+			       "on behalf of \"%s\" pid=%d pc=0x%p ins=0x%04hx\n",
+			       current->comm, current->pid, (void *)regs->pc,
+			       instruction);
+
+		handle_unaligned_access(instruction, regs,
+					&user_mem_access, 0);
 		set_fs(oldfs);
 	}
 }
@@ -966,32 +963,12 @@ void __init trap_init(void)
 #endif
 #endif
 
+#ifdef TRAP_UBC
+	set_exception_table_vec(TRAP_UBC, break_point_trap);
+#endif
+
 	/* Setup VBR for boot cpu */
 	per_cpu_trap_init();
-}
-
-void show_trace(struct task_struct *tsk, unsigned long *sp,
-		struct pt_regs *regs)
-{
-	unsigned long addr;
-
-	if (regs && user_mode(regs))
-		return;
-
-	printk("\nCall trace:\n");
-
-	while (!kstack_end(sp)) {
-		addr = *sp++;
-		if (kernel_text_address(addr))
-			print_ip_sym(addr);
-	}
-
-	printk("\n");
-
-	if (!tsk)
-		tsk = current;
-
-	debug_show_held_locks(tsk);
 }
 
 void get_stack(char *buf, unsigned long *sp, size_t size, size_t depth)
@@ -1039,7 +1016,6 @@ void get_stack(char *buf, unsigned long *sp, size_t size, size_t depth)
 		}
 	}
 }
-
 EXPORT_SYMBOL_GPL(get_stack);
 
 void show_stack(struct task_struct *tsk, unsigned long *sp)

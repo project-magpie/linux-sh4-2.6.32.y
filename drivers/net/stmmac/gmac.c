@@ -473,25 +473,21 @@ static void gmac_set_filter(struct net_device *dev)
 	}
 
 	/* Handle multiple unicast addresses (perfect filtering)*/
-	if (dev->uc_count > GMAC_MAX_UNICAST_ADDRESSES)
+	if (dev->uc.count > GMAC_MAX_UNICAST_ADDRESSES)
 		/* Switch to promiscuous mode is more than 16 addrs
 		   are required */
 		value |= GMAC_FRAME_FILTER_PR;
 	else {
 		int i;
-		struct dev_addr_list *uc_ptr = dev->uc_list;
+		struct netdev_hw_addr *ha;
 
-			for (i = 0; i < dev->uc_count; i++) {
-				gmac_set_umac_addr(ioaddr, uc_ptr->da_addr,
-						i + 1);
+		i = 1;
+		list_for_each_entry(ha, &dev->uc.list, list) {
+			unsigned char* addr = ha->addr;
 
-				DBG(KERN_INFO "\t%d "
-				"- Unicast addr %02x:%02x:%02x:%02x:%02x:"
-				"%02x\n", i + 1,
-				uc_ptr->da_addr[0], uc_ptr->da_addr[1],
-				uc_ptr->da_addr[2], uc_ptr->da_addr[3],
-				uc_ptr->da_addr[4], uc_ptr->da_addr[5]);
-				uc_ptr = uc_ptr->next;
+			gmac_set_umac_addr(ioaddr, addr, i);
+			DBG(KERN_INFO "\t%d - Unicast addr %pM\n", i, addr);
+			i++;
 		}
 	}
 

@@ -43,7 +43,6 @@ static struct clk_ops xtal_ops = {
 
 static struct clk xtal_osc = {
 	.name		= "xtal",
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &xtal_ops,
 	.id		= CLK_XTAL_ID,
 };
@@ -71,9 +70,9 @@ static unsigned long pll_freq(unsigned long input, int id)
 	return freq;
 }
 
-static void pll_clk_recalc(struct clk *clk)
+static unsigned long pll_clk_recalc(struct clk *clk)
 {
-	clk->rate = pll_freq(clk->parent->rate, clk->id);
+	return pll_freq(clk->parent->rate, clk->id);
 }
 
 static struct clk_ops pll_clk_ops = {
@@ -84,14 +83,12 @@ static struct clk pllclks[2] = {
 {
 	.name		= "PLLA",
 	.parent		= &xtal_osc,
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &pll_clk_ops,
 	.id		= CLK_PLLA_ID,
 },
 {
 	.name		= "PLLB",
 	.parent		= &xtal_osc,
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &pll_clk_ops,
 	.id		= CLK_PLLB_ID,
 }};
@@ -317,11 +314,11 @@ static int dividedpll_clk_set_rate(struct clk *clk, unsigned long rate)
 	return 0;
 }
 
-static void dividedpll_clk_recalc(struct clk *clk)
+static unsigned long dividedpll_clk_recalc(struct clk *clk)
 {
 	unsigned long num = clk->id - CLK_DDR_ID;
 
-	clk->rate = divider_freq(clk->parent->rate, num);
+	return divider_freq(clk->parent->rate, num);
 }
 
 static struct clk_ops dividedpll_clk_ops = {
@@ -335,7 +332,6 @@ static struct clk_ops dividedpll_clk_ops = {
 #define DIVIDEDPLL_CLK(_num, _name)					\
 {									\
 		.name	= _name,					\
-		.flags	= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,	\
 		.ops	= &dividedpll_clk_ops,				\
 		.id	= _num,						\
 }
@@ -360,9 +356,9 @@ struct clk dividedpll_clks[] = {
 
 /* SH4 generic clocks ------------------------------------------------------ */
 
-static void generic_clk_recalc(struct clk *clk)
+static unsigned long generic_clk_recalc(struct clk *clk)
 {
-	clk->rate = clk->parent->rate;
+	return clk->parent->rate;
 }
 
 static struct clk_ops generic_clk_ops = {
@@ -372,14 +368,12 @@ static struct clk_ops generic_clk_ops = {
 static struct clk generic_module_clk = {
 	.name		= "module_clk",
 	.parent		= &dividedpll_clks[8], /* st40_pck */
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &generic_clk_ops,
 };
 
 static struct clk generic_comms_clk = {
 	.name		= "comms_clk",
 	.parent		= &dividedpll_clks[3], /* clk_sys */
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &generic_clk_ops,
 };
 
@@ -398,7 +392,7 @@ int clk_pm_state(pm_message_t state)
 }
 #endif
 
-int __init clk_init(void)
+int __init arch_clk_init(void)
 {
 	int i, ret;
 

@@ -26,9 +26,9 @@ memcpy-$(CONFIG_CPU_SH4)	:= memcpy-sh4.o
 memset-y			:= memset.o
 memset-$(CONFIG_CPU_SH4)	:= memset-sh4.o
 
+lib-$(CONFIG_MMU)		+= copy_page.o __clear_user.o
+lib-$(CONFIG_MCOUNT)		+= mcount.o
 lib-$(CONFIG_SH4_CALIBRATE_DELAY) += calibrate-sh4.o
-lib-$(CONFIG_MMU)		+= copy_page.o clear_page.o
-lib-$(CONFIG_FUNCTION_TRACER)	+= mcount.o
 lib-y				+= $(memcpy-y) $(memset-y) $(udivsi3-y)
 
 EXTRA_CFLAGS += -Werror

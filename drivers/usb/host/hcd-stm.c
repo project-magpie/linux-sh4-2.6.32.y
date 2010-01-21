@@ -30,7 +30,7 @@
 static int st_usb_boot(struct platform_device *pdev)
 {
 	struct stm_plat_usb_data *pl_data = pdev->dev.platform_data;
-	struct drv_usb_data *usb_data = pdev->dev.driver_data;
+	struct drv_usb_data *usb_data = platform_get_drvdata(pdev);
 	void *wrapper_base = usb_data->ahb2stbus_wrapper_glue_base;
 	void *protocol_base = usb_data->ahb2stbus_protocol_base;
 	unsigned long reg, req_reg;

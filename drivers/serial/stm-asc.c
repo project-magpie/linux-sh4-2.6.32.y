@@ -143,7 +143,7 @@ static void asc_start_tx(struct uart_port *port)
 	if (asc_fdma_enabled(port))
 		asc_fdma_tx_start(port);
 	else {
-		struct circ_buf *xmit = &port->info->xmit;
+		struct circ_buf *xmit = &port->state->xmit;
 		asc_transmit_chars(port);
 		if (!uart_circ_empty(xmit))
 			asc_enable_tx_interrupts(port);
@@ -687,7 +687,7 @@ static inline unsigned asc_hw_txroom(struct uart_port *port)
  */
 static void asc_transmit_chars(struct uart_port *port)
 {
-	struct circ_buf *xmit = &port->info->xmit;
+	struct circ_buf *xmit = &port->state->xmit;
 	int txroom;
 	unsigned char c;
 
@@ -736,7 +736,7 @@ static void asc_transmit_chars(struct uart_port *port)
 static inline void asc_receive_chars(struct uart_port *port)
 {
 	int count;
-	struct tty_struct *tty = port->info->port.tty;
+	struct tty_struct *tty = port->state->port.tty;
 	int copied = 0;
 	unsigned long status;
 	unsigned long c = 0;

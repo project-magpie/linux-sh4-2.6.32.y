@@ -73,11 +73,12 @@ struct snd_stm_conv_group {
 	char name[1]; /* "Expandable" */
 };
 
+#define SND_STM_BUS_ID_SIZE 16
 struct snd_stm_conv_source {
 	struct list_head list;
 
 	struct bus_type *bus;
-	char bus_id[BUS_ID_SIZE];
+	char bus_id[SND_STM_BUS_ID_SIZE];
 	int channels_num;
 	struct snd_card *card;
 	int card_device;
@@ -684,7 +685,7 @@ static struct snd_stm_conv_source *snd_stm_conv_get_source(
 	snd_stm_magic_set(source);
 
 	source->bus = bus;
-	strlcpy(source->bus_id, bus_id, BUS_ID_SIZE);
+	strlcpy(source->bus_id, bus_id, SND_STM_BUS_ID_SIZE);
 	INIT_LIST_HEAD(&source->groups);
 
 	list_add_tail(&source->list, &snd_stm_conv_sources);

@@ -26,6 +26,7 @@ int main(void)
 	DEFINE(TI_CPU,		offsetof(struct thread_info, cpu));
 	DEFINE(TI_PRE_COUNT,	offsetof(struct thread_info, preempt_count));
 	DEFINE(TI_RESTART_BLOCK,offsetof(struct thread_info, restart_block));
+	DEFINE(TI_SIZE,		sizeof(struct thread_info));
 
 	DEFINE(_PTRS_PER_PGD,	PTRS_PER_PGD);
 

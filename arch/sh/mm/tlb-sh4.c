@@ -15,38 +15,15 @@
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 
-void update_mmu_cache(struct vm_area_struct * vma,
-		      unsigned long address, pte_t pte)
+void __update_tlb(struct vm_area_struct *vma, unsigned long address, pte_t pte)
 {
-	unsigned long flags;
-	unsigned long pteval;
-	unsigned long vpn;
+	unsigned long flags, pteval, vpn;
 
-	/* FIXME SIM: Do I need this test at all? Sparc doesn't */
-
-	/* vma can be null when called for a P3 address from
-	 * copy_user_page. Also ptrace may call this routine
-	 * to access an address in the process being debugged. */
+	/*
+	 * Handle debugger faulting in for debugee.
+	 */
 	if (vma && current->active_mm != vma->vm_mm)
 		return;
-
-#ifndef CONFIG_CACHE_OFF
-	{
-		unsigned long pfn = pte_pfn(pte);
-
-		if (pfn_valid(pfn)) {
-			struct page *page = pfn_to_page(pfn);
-
-			if (page_mapping(page) &&
-			    test_bit(PG_dcache_dirty, &page->flags)) {
-				unsigned long phys = pte_val(pte) & PTE_PHYS_MASK;
-				__flush_wback_region(phys_to_virt(phys),
-						     PAGE_SIZE);
-				clear_bit(PG_dcache_dirty, &page->flags);
-			}
-		}
-	}
-#endif
 
 	local_irq_save(flags);
 
@@ -66,9 +43,12 @@ void update_mmu_cache(struct vm_area_struct * vma,
 	 */
 	ctrl_outl(pte.pte_high, MMU_PTEA);
 #else
-	if (cpu_data->flags & CPU_HAS_PTEA)
-		/* TODO: make this look less hacky */
-		ctrl_outl(((pteval >> 28) & 0xe) | (pteval & 0x1), MMU_PTEA);
+	if (cpu_data->flags & CPU_HAS_PTEA) {
+		/* The last 3 bits and the first one of pteval contains
+		 * the PTEA timing control and space attribute bits
+		 */
+		ctrl_outl(copy_ptea_attributes(pteval), MMU_PTEA);
+	}
 #endif
 
 	/* Set PTEL register */

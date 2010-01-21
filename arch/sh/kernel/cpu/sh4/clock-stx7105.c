@@ -103,10 +103,9 @@ static struct sysconf_field *clkgend_ddiv, *clkgend_rdiv;
 static struct sysconf_field *clkgend_clk_sel;
 
 /* Clkgen A clk_osc -------------------------------------------------------- */
-static int clkgena_clk_osc_init(struct clk *clk)
+static void clkgena_clk_osc_init(struct clk *clk)
 {
 	clk->rate = clkin[sysconf_read(clkgena_clkosc_sel_sc)];
-	return 0;
 }
 
 static struct clk_ops clkgena_clk_osc_ops = {
@@ -115,7 +114,6 @@ static struct clk_ops clkgena_clk_osc_ops = {
 
 static struct clk clkgena_clk_osc = {
 	.name		= "clkgena_clk_osc",
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &clkgena_clk_osc_ops,
 };
 
@@ -167,11 +165,11 @@ struct pllclk
 	unsigned long pll_num;
 };
 
-static void pll_clk_recalc(struct clk *clk)
+static unsigned long pll_clk_recalc(struct clk *clk)
 {
 	struct pllclk *pllclk = container_of(clk, struct pllclk, clk);
 
-	clk->rate = clkgena_pll_freq(clk->parent->rate, pllclk->pll_num);
+	return clkgena_pll_freq(clk->parent->rate, pllclk->pll_num);
 }
 
 static struct clk_ops pll_clk_ops = {
@@ -183,7 +181,6 @@ static struct pllclk pllclks[2] = {
 		.clk = {
 			.name		= "clkgena_pll0_clk",
 			.parent		= &clkgena_clk_osc,
-			.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 			.ops		= &pll_clk_ops,
 		},
 		.pll_num = 0
@@ -191,7 +188,6 @@ static struct pllclk pllclks[2] = {
 		.clk = {
 			.name		= "clkgena_pll1_clk",
 			.parent		= &clkgena_clk_osc,
-			.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 			.ops		= &pll_clk_ops,
 		},
 		.pll_num = 1
@@ -220,7 +216,7 @@ enum clockgenA_ID {
 	IC_IF_200_ID
 };
 
-static int clkgena_clk_init(struct clk *clk)
+static void clkgena_clk_init(struct clk *clk)
 {
 	unsigned long num = (unsigned long)clk->private_data;
 	unsigned long data;
@@ -244,10 +240,9 @@ static int clkgena_clk_init(struct clk *clk)
 		clk->parent = NULL;
 		break;
 	}
-	return 0;
 }
 
-static void clkgena_clk_recalc(struct clk *clk)
+static unsigned long clkgena_clk_recalc(struct clk *clk)
 {
 	unsigned long num = (unsigned long)clk->private_data;
 	unsigned long data;
@@ -271,8 +266,7 @@ static void clkgena_clk_recalc(struct clk *clk)
 		div_cfg = readl(clkgena_base + CKGA_PLL1_DIV_CFG(num));
 		break;
 	case 3:
-		clk->rate = 0;
-		return;
+		return 0;
 	}
 
 	if (div_cfg & 0x10000)
@@ -280,7 +274,7 @@ static void clkgena_clk_recalc(struct clk *clk)
 	else
 		ratio = (div_cfg & 0x1F) + 1;
 
-	clk->rate = clk->parent->rate / ratio;
+	return clk->parent->rate / ratio;
 }
 
 static const struct xratio ratios [] = {{1, 0x10000 },
@@ -338,7 +332,6 @@ static struct clk_ops clkgena_clk_ops = {
 #define CLKGENA_CLK(_num, _name)				\
 	{							\
 		.name		= _name,		\
-		.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,	\
 		.ops		= &clkgena_clk_ops,	\
 		.private_data = (void *) _num,		\
 		.id		= _num,			\
@@ -367,9 +360,9 @@ struct clk clkgenaclks[] = {
 
 /* SH4 generic clocks ------------------------------------------------------ */
 
-static void generic_clk_recalc(struct clk *clk)
+static unsigned long generic_clk_recalc(struct clk *clk)
 {
-	clk->rate = clk->parent->rate;
+	return clk->parent->rate;
 }
 
 static struct clk_ops generic_clk_ops = {
@@ -379,20 +372,18 @@ static struct clk_ops generic_clk_ops = {
 static struct clk generic_module_clk = {
 	.name		= "module_clk",
 	.parent		= &clkgenaclks[4], /* ic_if_100 */
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &generic_clk_ops,
 };
 
 static struct clk generic_comms_clk = {
 	.name		= "comms_clk",
 	.parent		= &clkgenaclks[4], /* ic_if_100 */
-	.flags		= CLK_ALWAYS_ENABLED,
 	.ops		= &generic_clk_ops,
 };
 
 /* Clockgen D clocks ------------------------------------------------------- */
 
-static int clkgend_clk_init(struct clk *clk)
+static void clkgend_clk_init(struct clk *clk)
 {
 	int clk_sel = sysconf_read(clkgend_clk_sel);
 	int ddiv = sysconf_read(clkgend_ddiv);
@@ -402,7 +393,6 @@ static int clkgend_clk_init(struct clk *clk)
 		clk->rate = 0;
 	else
 		clk->rate = (clkin[clk_sel] * ddiv) / rdiv;
-	return 0;
 }
 
 static struct clk_ops clkgend_clk_ops = {
@@ -411,7 +401,6 @@ static struct clk_ops clkgend_clk_ops = {
 
 static struct clk clkgend_clk = {
 	.name		= "lmi2x",
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &clkgend_clk_ops,
 };
 
@@ -447,7 +436,7 @@ int clk_pm_state(pm_message_t state)
 
 /* ------------------------------------------------------------------------- */
 
-int __init clk_init(void)
+int __init arch_clk_init(void)
 {
 	int i, ret;
 

@@ -630,7 +630,7 @@ static int snd_stm_pcm_player_start(struct snd_pcm_substream *substream)
 			&pcm_player->fdma_params);
 	if (result != 0) {
 		snd_stm_printe("Can't launch FDMA transfer for player '%s'!\n",
-			       dev_name(&pcm_player->device));
+			       dev_name(pcm_player->device));
 		return -EINVAL;
 	}
 	while (dma_get_status(pcm_player->fdma_channel) !=

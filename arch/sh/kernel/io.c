@@ -1,16 +1,15 @@
 /*
- * linux/arch/sh/kernel/io.c
+ * arch/sh/kernel/io.c - Machine independent I/O functions.
  *
- * Copyright (C) 2000  Stuart Menefy
+ * Copyright (C) 2000 - 2009  Stuart Menefy
  * Copyright (C) 2005  Paul Mundt
- *
- * Also definitions of machine independent IO functions.
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
  */
 #include <linux/module.h>
+#include <linux/pci.h>
 #include <asm/machvec.h>
 #include <asm/io.h>
 
@@ -24,8 +23,8 @@ void memcpy_fromio(void *to, const volatile void __iomem *from, unsigned long co
 	 * to try and get aligned?
 	 */
 #ifdef CONFIG_CPU_SH4
-	if ( (count >= 0x20) &&
-	     (((u32)to & 0x1f) == 0) && (((u32)from & 0x3) == 0) ) {
+	if ((count >= 0x20) &&
+	     (((u32)to & 0x1f) == 0) && (((u32)from & 0x3) == 0)) {
 		int tmp2, tmp3, tmp4, tmp5, tmp6;
 
 		__asm__ __volatile__(
@@ -60,15 +59,15 @@ void memcpy_fromio(void *to, const volatile void __iomem *from, unsigned long co
 #endif
 
 	if ((((u32)to | (u32)from) & 0x3) == 0) {
-		for ( ; count > 3; count -= 4) {
-			*(u32*)to = *(volatile u32*)from;
+		for (; count > 3; count -= 4) {
+			*(u32 *)to = *(volatile u32 *)from;
 			to += 4;
 			from += 4;
 		}
 	}
 
-	for ( ; count > 0; count--) {
-		*(u8*)to = *(volatile u8*)from;
+	for (; count > 0; count--) {
+		*(u8 *)to = *(volatile u8 *)from;
 		to++;
 		from++;
 	}
@@ -84,14 +83,14 @@ void memcpy_toio(volatile void __iomem *to, const void *from, unsigned long coun
 {
 	if ((((u32)to | (u32)from) & 0x3) == 0) {
 		for ( ; count > 3; count -= 4) {
-			*(volatile u32*)to = *(u32*)from;
+			*(volatile u32 *)to = *(u32 *)from;
 			to += 4;
 			from += 4;
 		}
 	}
 
-	for ( ; count > 0; count--) {
-		*(volatile u8*)to = *(u8*)from;
+	for (; count > 0; count--) {
+		*(volatile u8 *)to = *(u8 *)from;
 		to++;
 		from++;
 	}
@@ -134,5 +133,4 @@ void ioport_unmap(void __iomem *addr)
 }
 EXPORT_SYMBOL(ioport_unmap);
 
-#endif
-
+#endif /* CONFIG_GENERIC_IOMAP */

@@ -998,26 +998,6 @@ static const struct ata_port_info stm_port_info = {
 	.port_ops	= &stm_ops,
 };
 
-static unsigned char stm_readb(const volatile void __iomem *addr)
-{
-	return readl(addr);
-}
-
-static unsigned short stm_readw(const volatile void __iomem *addr)
-{
-	return readl(addr);
-}
-
-static void stm_writeb(unsigned char b, volatile void __iomem *addr)
-{
-	writel(b, addr);
-}
-
-static void stm_writew(unsigned short b, volatile void __iomem *addr)
-{
-	writel(b, addr);
-}
-
 static int __devinit stm_sata_probe(struct platform_device *pdev)
 {
 	struct stm_plat_sata_data *sata_private_info = pdev->dev.platform_data;
@@ -1083,11 +1063,9 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	       hpriv->softsg ? "soft" : "hard");
 
 	if (sata_private_info->only_32bit) {
-		printk(KERN_DEBUG DRV_NAME " forcing all byte/word ops to long\n");
-		stm_ops.readb = stm_readb;
-		stm_ops.readw = stm_readw;
-		stm_ops.writeb = stm_writeb;
-		stm_ops.writew = stm_writew;
+		printk(KERN_ERR DRV_NAME " hardware doesn't support "
+			"byte/long ops, giving up\n");
+		return -EINVAL;
 	}
 
 	sata_rev = readl(mmio_base + SATA_VERSIONR);

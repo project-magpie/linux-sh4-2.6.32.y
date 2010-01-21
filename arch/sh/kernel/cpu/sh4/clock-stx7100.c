@@ -72,7 +72,6 @@ static struct clk_ops pll0_clk_ops = {
 
 static struct clk pll0_clk = {
 	.name		= "pll0_clk",
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &pll0_clk_ops,
 };
 
@@ -87,7 +86,6 @@ static struct clk_ops pll1_clk_ops = {
 
 static struct clk pll1_clk = {
 	.name		= "pll1_clk",
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &pll1_clk_ops,
 };
 
@@ -113,14 +111,13 @@ enum clockgenA_ID {
 	EMI_ID
 };
 
-static void clockgenA_clk_recalc(struct clk *clk)
+static unsigned long clockgenA_clk_recalc(struct clk *clk)
 {
 	struct clokgenA *cga = (struct clokgenA *)clk->private_data;
-	clk->rate = clk->parent->rate / cga->div;
-	return;
+	return clk->parent->rate / cga->div;
 }
 
-static int clockgenA_clk_set_rate(struct clk *clk, unsigned long value)
+static int clockgenA_clk_set_rate(struct clk *clk, unsigned long value, int algoid)
 {
 	unsigned long data = readl(clkgena_base + CLOCKGEN_CLK_DIV);
 	unsigned long val = 1 << (clk->id -5);
@@ -169,9 +166,10 @@ static void clockgenA_clk_XXable(struct clk *clk, int enable)
 	}
 	writel(0x0, clkgena_base);
 }
-static void clockgenA_clk_enable(struct clk *clk)
+static int clockgenA_clk_enable(struct clk *clk)
 {
 	clockgenA_clk_XXable(clk, 1);
+	return 0;
 }
 
 static void clockgenA_clk_disable(struct clk *clk)
@@ -190,7 +188,6 @@ static struct clk_ops clokgenA_ops = {
 #define CLKGENA(_id, clock, pll, _ctrl_reg, _div, _ratio)	\
 [_id] = {							\
 	.name	= #clock "_clk",				\
-	.flags	= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,	\
 	.parent	= &(pll),					\
 	.ops	= &clokgenA_ops,				\
 	.id	= (_id),					\
@@ -216,9 +213,9 @@ CLKGENA(IC_100_ID,	ic_100,   pll1_clk, 0, 4, NULL),
 CLKGENA(EMI_ID,	emi,      pll1_clk, 0, 4, NULL)
 };
 
-static void comms_clk_recalc(struct clk *clk)
+static unsigned long comms_clk_recalc(struct clk *clk)
 {
-	clk->rate = clk->parent->rate;
+	return clk->parent->rate;
 }
 
 static struct clk_ops comms_clk_ops = {
@@ -228,7 +225,6 @@ static struct clk_ops comms_clk_ops = {
 struct clk comms_clk = {
 	.name		= "comms_clk",
 	.parent		= &clkgena_clks[IC_100_ID],
-	.flags		= CLK_ALWAYS_ENABLED,
 	.ops		= &comms_clk_ops
 };
 
@@ -261,7 +257,7 @@ int clk_pm_state(pm_message_t state)
 }
 #endif
 
-int __init clk_init(void)
+int __init arch_clk_init(void)
 {
 	int i, ret = 0;
 

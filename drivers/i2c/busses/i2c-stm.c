@@ -1154,7 +1154,7 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 		}
 	}
 
-	pdev->dev.driver_data = i2c_stm;
+	platform_set_drvdata(pdev, i2c_stm);
 	i2c_stm->adapter.timeout = 2;
 	i2c_stm->adapter.retries = 0;
 	i2c_stm->adapter.class = I2C_CLASS_HWMON | I2C_CLASS_TV_ANALOG |
@@ -1183,7 +1183,7 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 static int iic_stm_remove(struct platform_device *pdev)
 {
 	struct resource *res;
-	struct iic_ssc *iic_stm = pdev->dev.driver_data ;
+	struct iic_ssc *iic_stm = platform_get_drvdata(pdev);
 
 	i2c_del_adapter(&iic_stm->adapter);
 	/* irq */

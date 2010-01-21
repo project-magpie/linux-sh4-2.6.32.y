@@ -305,8 +305,8 @@ static int stmmac_init_phy(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	struct phy_device *phydev;
-	char phy_id[BUS_ID_SIZE];	/* PHY to connect */
-	char bus_id[BUS_ID_SIZE];
+	char phy_id[MII_BUS_ID_SIZE];	/* PHY to connect */
+	char bus_id[MII_BUS_ID_SIZE];
 
 	priv->oldlink = 0;
 	priv->speed = 0;
@@ -318,7 +318,7 @@ static int stmmac_init_phy(struct net_device *dev)
 	}
 
 	snprintf(bus_id, MII_BUS_ID_SIZE, "%x", priv->bus_id);
-	snprintf(phy_id, BUS_ID_SIZE, PHY_ID_FMT, bus_id, priv->phy_addr);
+	snprintf(phy_id, MII_BUS_ID_SIZE, PHY_ID_FMT, bus_id, priv->phy_addr);
 	pr_debug("stmmac_init_phy:  trying to attach to %s\n", phy_id);
 
 	phydev = phy_connect(dev, phy_id, &stmmac_adjust_link, 0,
@@ -1040,10 +1040,10 @@ static int stmmac_open(struct net_device *dev)
 	}
 	priv->tm->freq = tmrate;
 
-	/* Test if the external timer can be actually used.
-	 * In case of failure continue without timer. */
+	/* Test if the HW timer can be actually used.
+	 * In case of failure continue with no timer. */
 	if (unlikely((stmmac_open_ext_timer(dev, priv->tm)) < 0)) {
-		pr_warning("stmmaceth: cannot attach the external timer.\n");
+		pr_warning("stmmaceth: cannot attach the HW timer\n");
 		tmrate = 0;
 		priv->tm->freq = 0;
 		priv->tm->timer_start = stmmac_no_timer_started;
@@ -1798,7 +1798,8 @@ static int stmmac_mac_device_setup(struct net_device *dev)
 
 static int stmmacphy_dvr_probe(struct platform_device *pdev)
 {
-	struct stm_plat_stmmacphy_data *plat_dat = pdev->dev.platform_data;
+	struct stm_plat_stmmacphy_data *plat_dat;
+	plat_dat = dev_get_platdata(&pdev->dev);
 
 	pr_debug("stmmacphy_dvr_probe: added phy for bus %d\n",
 	       plat_dat->bus_id);

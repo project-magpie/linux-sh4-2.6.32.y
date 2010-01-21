@@ -92,8 +92,12 @@
 
 static inline void ctrl_delay(void)
 {
-#ifdef P2SEG
+#ifdef CONFIG_CPU_SH4
+	__raw_readw(CCN_PVR);
+#elif defined(P2SEG)
 	__raw_readw(P2SEG);
+#else
+#error "Need a dummy address for delay"
 #endif
 }
 
@@ -123,10 +127,15 @@ static inline void __raw_reads##bwlq(volatile void __iomem *mem,	\
 
 __BUILD_MEMORY_STRING(b, u8)
 __BUILD_MEMORY_STRING(w, u16)
-__BUILD_MEMORY_STRING(q, u64)
 
+#ifdef CONFIG_SUPERH32
 void __raw_writesl(void __iomem *addr, const void *data, int longlen);
 void __raw_readsl(const void __iomem *addr, void *data, int longlen);
+#else
+__BUILD_MEMORY_STRING(l, u32)
+#endif
+
+__BUILD_MEMORY_STRING(q, u64)
 
 #define writesb			__raw_writesb
 #define writesw			__raw_writesw
@@ -162,19 +171,19 @@ void __raw_readsl(const void __iomem *addr, void *data, int longlen);
 #define iowrite8_rep(a, s, c)	__raw_writesb((a), (s), (c))
 #define iowrite16_rep(a, s, c)	__raw_writesw((a), (s), (c))
 #define iowrite32_rep(a, s, c)	__raw_writesl((a), (s), (c))
-#else
+#endif
+
 /*
  * Use __raw_readsl and __raw_writesl rather than the generic versions from
  * iomap.c because we have optimised versions for the SH.
  */  
-#define mmio_insb(p,d,c)       __raw_readsb(p,d,c)
-#define mmio_insw(p,d,c)       __raw_readsw(p,d,c)
-#define mmio_insl(p,d,c)       __raw_readsl(p,d,c)
+#define mmio_insb(p,d,c)	__raw_readsb(p,d,c)
+#define mmio_insw(p,d,c)	__raw_readsw(p,d,c)
+#define mmio_insl(p,d,c)	__raw_readsl(p,d,c)
 
-#define mmio_outsb(p,s,c)      __raw_writesb(p,s,c)
-#define mmio_outsw(p,s,c)      __raw_writesw(p,s,c)
-#define mmio_outsl(p,s,c)      __raw_writesl(p,s,c)
-#endif
+#define mmio_outsb(p,s,c)	__raw_writesb(p,s,c)
+#define mmio_outsw(p,s,c)	__raw_writesw(p,s,c)
+#define mmio_outsl(p,s,c)	__raw_writesl(p,s,c)
 
 /* synco on SH-4A, otherwise a nop */
 #define mmiowb()		wmb()
@@ -238,17 +247,6 @@ void __iomem *__ioremap(unsigned long offset, unsigned long size,
 			unsigned long flags);
 void __iounmap(void __iomem *addr);
 
-/* arch/sh/mm/ioremap_64.c */
-unsigned long onchip_remap(unsigned long addr, unsigned long size,
-			   const char *name);
-extern void onchip_unmap(unsigned long vaddr);
-#else
-#define __ioremap(offset, size, flags)	((void __iomem *)(offset))
-#define __iounmap(addr)			do { } while (0)
-#define onchip_remap(addr, size, name)	(addr)
-#define onchip_unmap(addr)		do { } while (0)
-#endif /* CONFIG_MMU */
-
 static inline void __iomem *
 __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 {
@@ -282,6 +280,10 @@ __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 
 	return __ioremap(offset, size, flags);
 }
+#else
+#define __ioremap_mode(offset, size, flags)	((void __iomem *)(offset))
+#define __iounmap(addr)				do { } while (0)
+#endif /* CONFIG_MMU */
 
 #define ioremap(offset, size)				\
 	__ioremap_mode((offset), (size), 0)

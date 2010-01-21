@@ -407,19 +407,9 @@ static struct pci_ops pci_config_ops = {
 	.write = pci_stm_config_write,
 };
 
-/* This is a global used by the sh PCI infrastructure
- * The resources are filled in from the platform data by
- * the probe() code
- */
-struct pci_channel board_pci_channels[] = {
-	{&pci_config_ops, NULL, NULL, 0, 256},
-	{NULL, NULL, NULL, 0, 0}
+static struct pci_channel stm_pci_controller = {
+	.pci_ops		= &pci_config_ops
 };
-
-char * __devinit pcibios_setup(char *str)
-{
-	return str;
-}
 
 void pci_stm_pio_reset(void)
 {
@@ -552,6 +542,7 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
  */
 static int __devinit pci_stm_probe(struct platform_device *pdev)
 {
+	struct pci_channel *chan = &stm_pci_controller;
 	struct resource *res;
 	int ret,irq;
 	unsigned long pci_window_start, pci_window_size;
@@ -604,8 +595,8 @@ static int __devinit pci_stm_probe(struct platform_device *pdev)
 	}
 
 	/* Set up the sh board channel stuff to point at the platform data we have passed in */
-	board_pci_channels[0].mem_resource = pdev->resource + 2;
-	board_pci_channels[0].io_resource = pdev->resource + 3;
+	chan->mem_resource = pdev->resource + 2;
+	chan->io_resource = pdev->resource + 3;
 
 	/* Extract where the PCI window is suppossed to be */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
@@ -618,13 +609,10 @@ static int __devinit pci_stm_probe(struct platform_device *pdev)
 	idsel_lo = pci_config->idsel_lo;
 	max_slot = pci_config->idsel_hi - idsel_lo;
 
-	/* Set the maximum devfn to probe, prevents the generic code
-	 * trying to probe for slots that we already know do not exist
-	 */
-	board_pci_channels[0].last_devfn = PCI_DEVFN(max_slot,7);
-
 	/* Now do all the register poking */
 	pci_stm_setup(pci_config, pci_window_start, pci_window_size);
+
+	register_pci_controller(chan);
 
 	return 0;
 }

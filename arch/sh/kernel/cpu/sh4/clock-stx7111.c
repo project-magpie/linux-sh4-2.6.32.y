@@ -102,7 +102,6 @@ static struct clk_ops clkgena_clk_osc_ops = {
 
 static struct clk clkgena_clk_osc = {
 	.name		= "clkgena_clk_osc",
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &clkgena_clk_osc_ops,
 };
 
@@ -148,11 +147,11 @@ static unsigned long clkgena_pll_freq(unsigned long clk_osc, int pll_num)
 	return 0;
 }
 
-static void pll_clk_recalc(struct clk *clk)
+static unsigned long pll_clk_recalc(struct clk *clk)
 {
 	unsigned long pll_num = (unsigned long) clk->private_data;
 
-	clk->rate = clkgena_pll_freq(clk->parent->rate, pll_num);
+	return clkgena_pll_freq(clk->parent->rate, pll_num);
 }
 
 static struct clk_ops pll_clk_ops = {
@@ -163,14 +162,12 @@ static struct clk pllclks[2] = {
 	{
 		.name		= "clkgena_pll0_clk",
 		.parent		= &clkgena_clk_osc,
-		.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 		.ops		= &pll_clk_ops,
 		.private_data	= (void *)0,
 	},
 	{
 		.name		= "clkgena_pll1_clk",
 		.parent		= &clkgena_clk_osc,
-		.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 		.ops		= &pll_clk_ops,
 		.private_data	= (void *)1,
 	}
@@ -203,7 +200,7 @@ struct clkgen_a {
 };
 
 
-static void clkgena_clk_recalc(struct clk *clk)
+static unsigned long clkgena_clk_recalc(struct clk *clk)
 {
 	struct clkgen_a *clkgen = (struct clkgen_a *)clk->private_data;
 	unsigned long num = clkgen->shift;
@@ -228,8 +225,7 @@ static void clkgena_clk_recalc(struct clk *clk)
 		div_cfg = readl(clkgena_base + CKGA_PLL1_DIV_CFG(num));
 		break;
 	case 3:
-		clk->rate = 0;
-		return;
+		return 0;
 	}
 
 	if (div_cfg & 0x10000)
@@ -237,7 +233,7 @@ static void clkgena_clk_recalc(struct clk *clk)
 	else
 		ratio = (div_cfg & 0x1F) + 1;
 
-	clk->rate = clk->parent->rate / ratio;
+	return clk->parent->rate / ratio;
 }
 
 static void clkgena_clk_init(struct clk *clk)
@@ -279,7 +275,7 @@ static const struct xratio ratios [] = {{1,  0x10000 },
 					{NO_MORE_RATIO, }
 };
 
-static int clkgena_clk_setrate(struct clk *clk, unsigned long value)
+static int clkgena_clk_setrate(struct clk *clk, unsigned long value, int algoid)
 {
 	struct clkgen_a *clkgen = (struct clkgen_a *)clk->private_data;
 	unsigned long num = clkgen->shift;
@@ -327,7 +323,6 @@ static struct clk_ops clkgena_clk_ops = {
 #define CLKGENA_CLK(_id, _name, _shift)					\
 [_id] = {								\
 	.name		= _name,					\
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,	\
 	.ops		= &clkgena_clk_ops,				\
 	.id		= _id,						\
 	.private_data	= (void *) &(struct clkgen_a)			\
@@ -359,9 +354,9 @@ struct clk clkgena_clks[] = {
 
 /* SH4 generic clocks ------------------------------------------------------ */
 
-static void generic_clk_recalc(struct clk *clk)
+static unsigned long generic_clk_recalc(struct clk *clk)
 {
-	clk->rate = clk->parent->rate;
+	return clk->parent->rate;
 }
 
 static struct clk_ops generic_clk_ops = {
@@ -371,14 +366,12 @@ static struct clk_ops generic_clk_ops = {
 static struct clk generic_module_clk = {
 	.name		= "module_clk",
 	.parent		= &clkgena_clks[IC_IF_100_ID], /* ic_if_100 */
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &generic_clk_ops,
 };
 
 static struct clk generic_comms_clk = {
 	.name		= "comms_clk",
 	.parent		= &clkgena_clks[IC_IF_100_ID], /* ic_if_100 */
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &generic_clk_ops,
 };
 
@@ -414,7 +407,7 @@ int clk_pm_state(pm_message_t state)
 }
 #endif
 
-int __init clk_init(void)
+int __init arch_clk_init(void)
 {
 	int i, ret;
 

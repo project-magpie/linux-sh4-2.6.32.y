@@ -164,7 +164,7 @@ static void asc_fdma_tx_callback_done(unsigned long param)
 {
 	struct uart_port *port = (struct uart_port *)param;
 	struct asc_port_fdma_tx_channel *tx = asc_ports[port->line].fdma.tx;
-	struct circ_buf *xmit = &port->info->xmit;
+	struct circ_buf *xmit = &port->state->xmit;
 
 	TRACE("Transmission of %lu bytes on ASC FDMA TX done for port %p.\n",
 			tx->transfer_size, port);
@@ -198,7 +198,7 @@ static void asc_fdma_tx_callback_error(unsigned long param)
 int asc_fdma_tx_start(struct uart_port *port)
 {
 	struct asc_port_fdma_tx_channel *tx = asc_ports[port->line].fdma.tx;
-	struct circ_buf *xmit = &port->info->xmit;
+	struct circ_buf *xmit = &port->state->xmit;
 	int result = 0;
 
 	TRACE("Starting ASC FDMA TX on port %p.\n", port);
@@ -664,7 +664,7 @@ static void asc_fdma_rx_ldisc_work(struct work_struct *work)
 	struct asc_port_fdma_rx_channel *rx = container_of(work,
 			struct asc_port_fdma_rx_channel, ldisc_work);
 	struct uart_port *port = rx->port;
-	struct tty_ldisc *ldisc = tty_ldisc_ref_wait(port->info->port.tty);
+	struct tty_ldisc *ldisc = tty_ldisc_ref_wait(port->state->port.tty);
 
 	while (rx->data_head != rx->data_tail) {
 		/* Get a data portion from fifo */
@@ -677,7 +677,7 @@ static void asc_fdma_rx_ldisc_work(struct work_struct *work)
 
 		/* Feed TTY line discipline with received data and flags buffer
 		 * (already prepared and filled with TTY_NORMAL flags) */
-		ldisc->ops->receive_buf(port->info->port.tty, data->chars,
+		ldisc->ops->receive_buf(port->state->port.tty, data->chars,
 					rx->flags, data->size);
 
 		if (data->remainder)

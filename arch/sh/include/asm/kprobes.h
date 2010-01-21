@@ -6,7 +6,7 @@
 #include <linux/types.h>
 #include <linux/ptrace.h>
 
-typedef u16 kprobe_opcode_t;
+typedef insn_size_t kprobe_opcode_t;
 #define BREAKPOINT_INSTRUCTION	0xc3c3
 #define BREAKPOINT_INSTRUCTION_REMOTE 0xc320
 

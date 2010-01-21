@@ -47,12 +47,14 @@ static struct platform_device ilc3_device = {
 	},
 };
 
-
-/* Late resources --------------------------------------------------------- */
+#include "stm-tmu.h"
 
 static struct platform_device *stx7100_sh4_devices[] __initdata = {
 	&wdt_device,
 	&ilc3_device,
+	&tmu0_device,
+	&tmu1_device,
+	&tmu2_device,
 };
 
 static int __init stx7100_sh4_devices_setup(void)
@@ -60,7 +62,19 @@ static int __init stx7100_sh4_devices_setup(void)
 	return platform_add_devices(stx7100_sh4_devices,
 			ARRAY_SIZE(stx7100_sh4_devices));
 }
-device_initcall(stx7100_sh4_devices_setup);
+arch_initcall(stx7100_sh4_devices_setup);
+
+static struct platform_device *stx7100_sh4_early_devices[] __initdata = {
+	&tmu0_device,
+	&tmu1_device,
+	&tmu2_device,	
+};
+
+void __init plat_early_device_setup(void)
+{
+	early_platform_add_devices(stx7100_sh4_early_devices,
+				   ARRAY_SIZE(stx7100_sh4_early_devices));
+}
 
 
 

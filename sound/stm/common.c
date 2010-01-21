@@ -48,11 +48,16 @@ static int snd_stm_card_registered;
 struct snd_card *snd_stm_card_new(int index, const char *id,
 		struct module *module)
 {
-	snd_BUG_ON(snd_stm_card == NULL);
+	int err;
+
+	if (snd_BUG_ON(snd_stm_card != NULL))
+		return NULL;
 	if (snd_BUG_ON(snd_stm_card_registered))
 		return NULL;
 
-	snd_stm_card = snd_card_new(index, id, module, 0);
+	err = snd_card_create(index, id, module, 0, &snd_stm_card);
+	if (err)
+		return NULL;
 
 	return snd_stm_card;
 }

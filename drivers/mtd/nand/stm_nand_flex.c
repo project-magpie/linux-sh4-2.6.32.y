@@ -1028,10 +1028,12 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 		return data;
 
  out3:
+#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
 	if (data->nr_parts) {
 		for (i = 0; i < data->nr_parts; i++)
 			kfree(data->parts[i].mtdp);
 	}
+#endif
  out2:
 	kfree(data);
  out1:
@@ -1085,9 +1087,11 @@ static int __devexit stm_nand_flex_remove(struct platform_device *pdev)
 
 		nand_release(&data->mtd);
 
+#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
 		if (data->nr_parts)
 			for (i = 0; i < data->nr_parts; i++)
 				kfree(data->parts[i].mtdp);
+#endif
 		kfree(data);
 	}
 

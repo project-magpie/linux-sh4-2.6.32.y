@@ -59,9 +59,14 @@ static struct platform_device comms_ilc_device = {
 	},
 };
 
+#include "stm-tmu.h"
+
 static struct platform_device *stx7141_sh4_devices[] __initdata = {
 	&ilc3_device,
 	&comms_ilc_device,
+	&tmu0_device,
+	&tmu1_device,
+	&tmu2_device,
 };
 
 static int __init stx7141_sh4_devices_setup(void)
@@ -69,7 +74,19 @@ static int __init stx7141_sh4_devices_setup(void)
 	return platform_add_devices(stx7141_sh4_devices,
 			ARRAY_SIZE(stx7141_sh4_devices));
 }
-postcore_initcall(stx7141_sh4_devices_setup);
+arch_initcall(stx7141_sh4_devices_setup);
+
+static struct platform_device *stx7141_sh4_early_devices[] __initdata = {
+	&tmu0_device,
+	&tmu1_device,
+	&tmu2_device,	
+};
+
+void __init plat_early_device_setup(void)
+{
+	early_platform_add_devices(stx7141_sh4_early_devices,
+				   ARRAY_SIZE(stx7141_sh4_early_devices));
+}
 
 
 

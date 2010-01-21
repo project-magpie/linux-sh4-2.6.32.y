@@ -25,8 +25,8 @@
 #include <asm/syscalls.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
-#include <asm/cachectl.h>
 #include <asm/cacheflush.h>
+#include <asm/cachectl.h>
 
 static inline long
 do_mmap2(unsigned long addr, unsigned long len, unsigned long prot,
@@ -89,8 +89,6 @@ asmlinkage int sys_ipc(uint call, int first, int second,
 
 	version = call >> 16; /* hack for backward compatibility */
 	call &= 0xffff;
-
-	trace_mark(kernel_arch_ipc_call, "call %u first %d", call, first);
 
 	if (call <= SEMTIMEDOP)
 		switch (call) {
@@ -184,8 +182,7 @@ asmlinkage int sys_ipc(uint call, int first, int second,
 }
 
 /* sys_cacheflush -- flush (part of) the processor cache.  */
-asmlinkage int
-sys_cacheflush (unsigned long addr, unsigned long len, int op)
+asmlinkage int sys_cacheflush(unsigned long addr, unsigned long len, int op)
 {
 	struct vm_area_struct *vma;
 
@@ -206,28 +203,20 @@ sys_cacheflush (unsigned long addr, unsigned long len, int op)
 		return -EFAULT;
 	}
 
-#if !defined(CONFIG_SH_CACHE_DISABLE)
-
 	switch (op & CACHEFLUSH_D_PURGE) {
 		case CACHEFLUSH_D_INVAL:
-			__flush_invalidate_region((void*)addr, len);
+			__flush_invalidate_region((void *)addr, len);
 			break;
 		case CACHEFLUSH_D_WB:
-			__flush_wback_region((void*)addr, len);
+			__flush_wback_region((void *)addr, len);
 			break;
 		case CACHEFLUSH_D_PURGE:
-			__flush_purge_region((void*)addr, len);
+			__flush_purge_region((void *)addr, len);
 			break;
 	}
-	if (op & CACHEFLUSH_I) {
-#ifdef CONFIG_CPU_SH4
-		flush_icache_range(addr, addr+len);
-#else
-		flush_cache_all();
-#endif
-	}
 
-#endif
+	if (op & CACHEFLUSH_I)
+		flush_cache_all();
 
 	up_read(&current->mm->mmap_sem);
 	return 0;

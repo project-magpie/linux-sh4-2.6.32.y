@@ -133,7 +133,6 @@ static struct clk_ops pll_clk_ops = {
 
 #define CLK_PLL(_name, _id)					\
 {	.name = _name,						\
-	.flags  = CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,	\
 	.ops    = &pll_clk_ops,					\
 	.private_data = (void *)(_id),				\
 }
@@ -146,7 +145,7 @@ static struct clk pllclks[3] = {
 
 /* Note we ignore the possibility that we are in SH4 mode.
  * Should check DIV_CFG.sh4_clk_ctl and switch to FRQCR mode. */
-static void sh4_clk_recalc(struct clk *clk)
+static unsigned long sh4_clk_recalc(struct clk *clk)
 {
 	unsigned long shift = (unsigned long)clk->private_data;
 	unsigned long div_cfg = ctrl_inl(CLOCKGEN_DIV_CFG);
@@ -154,8 +153,7 @@ static void sh4_clk_recalc(struct clk *clk)
 
 	switch ((div_cfg >> 20) & 3) {
 	case 0:
-		clk->rate = 0;
-		return;
+		return 0;
 	case 1:
 		div1 = 1;
 		break;
@@ -168,7 +166,7 @@ static void sh4_clk_recalc(struct clk *clk)
 		div2 = ratio1[(div_cfg >> shift) & 7];
 	else
 		div2 = ratio2[(div_cfg >> shift) & 7];
-	clk->rate = (clk->parent->rate / div1) / div2;
+	return (clk->parent->rate / div1) / div2;
 
 	/* Note clk_sh4 and clk_sh4_ic have an extra clock gating
 	 * stage here based on DIV2_CFG bits 0 and 1. clk_sh4_per (aka
@@ -185,7 +183,6 @@ static struct clk_ops sh4_clk_ops = {
 
 #define SH4_CLK(_name, _shift)					\
 {	.name = _name,						\
-	.flags  = CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,	\
 	.parent = &pllclks[0],					\
 	.ops    = &sh4_clk_ops,					\
 	.private_data = (void *)(_shift),			\
@@ -215,7 +212,7 @@ static void fdma_clk_init(struct clk *clk)
 		clk->parent = &pllclks[1];
 }
 
-static void fdmalx_clk_recalc(struct clk *clk)
+static unsigned long fdmalx_clk_recalc(struct clk *clk)
 {
 	struct fdmalxclk *fdmalxclk =  (struct fdmalxclk *)clk->private_data;
 	unsigned long div_cfg;
@@ -225,7 +222,7 @@ static void fdmalx_clk_recalc(struct clk *clk)
 	div_cfg = ctrl_inl(CLOCKGEN_DIV_CFG + fdmalxclk->div_cfg_reg);
 	div_ratio = (div_cfg >> fdmalxclk->div_cfg_shift) & 3;
 	normal_div = fdmalxclk->normal_div;
-	clk->rate = final_divider(clk->parent->rate, div_ratio, normal_div);
+	return final_divider(clk->parent->rate, div_ratio, normal_div);
 }
 
 static int lx_clk_XXable(struct clk *clk, int enable)
@@ -266,14 +263,14 @@ static struct clk_ops lx_clk_ops = {
 	.disable	= lx_clk_disable,
 };
 
-static void ic266_clk_recalc(struct clk *clk)
+static unsigned long ic266_clk_recalc(struct clk *clk)
 {
 	unsigned long div_cfg;
 	unsigned long div_ratio;
 
 	div_cfg = ctrl_inl(CLOCKGEN_DIV2_CFG);
 	div_ratio = ((div_cfg & (1<<5)) == 0) ? 1024 : 3;
-	clk->rate = clk->parent->rate / div_ratio;
+	return clk->parent->rate / div_ratio;
 }
 
 static struct clk_ops ic266_clk_ops = {
@@ -284,7 +281,6 @@ static struct clk_ops ic266_clk_ops = {
 	{							\
 		.name		= #_name,			\
 		.parent		= _parent,			\
-		.flags		= CLK_ALWAYS_ENABLED | _flags,	\
 		.ops		= &_ops,			\
 	}
 
@@ -296,7 +292,6 @@ static struct clk miscclks[1] = {
 {								\
 	.name		= #_name,				\
 	.parent		= _parent,				\
-	.flags		= CLK_ALWAYS_ENABLED,			\
 	.ops		= &_ops,				\
 	.private_data = (void *) &(struct fdmalxclk)		\
 	{							\
@@ -431,7 +426,6 @@ static struct clk clkB_pllclks[1] =
 {
 	{
 	.name		= "b_pll0_clk",
-	.flags		= CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
 	.ops		= &pll_clkB_ops,
 	.private_data	= NULL,
 	}
@@ -447,7 +441,6 @@ struct clkgenBdiv2 {
 	{							\
 		.name		= #_name,			\
 		.parent		= &clkB_pllclks[0],		\
-		.flags		= CLK_ALWAYS_ENABLED | _flags,	\
 		.ops		= &_ops,			\
 		.id		= (_id),			\
 	}
@@ -456,7 +449,6 @@ struct clkgenBdiv2 {
 {								\
 	.name		= #_name,				\
 	.parent		= &clkB_pllclks[0],			\
-	.flags		= CLK_ALWAYS_ENABLED,			\
 	.ops		= &clkgenb_div2_ops,			\
 	.id		= _id,					\
 	.private_data   = (void *) &(struct clkgenBdiv2)	\
@@ -466,7 +458,7 @@ struct clkgenBdiv2 {
 	}							\
 }
 
-static void clkgenb_div2_recalc(struct clk *clk)
+static unsigned long clkgenb_div2_recalc(struct clk *clk)
 {
 	struct clkgenBdiv2 *clkgenBdiv2 = (struct clkgenBdiv2 *)clk->private_data;
 	unsigned long div_cfg;
@@ -474,7 +466,7 @@ static void clkgenb_div2_recalc(struct clk *clk)
 
 	div_cfg = ctrl_inl(CLOCKGENB_DIV2_CFG);
 	div_ratio = (div_cfg >> clkgenBdiv2->div_cfg_shift) & 3;
-	clk->rate = final_divider(clk->parent->rate, div_ratio,
+	return final_divider(clk->parent->rate, div_ratio,
 				  clkgenBdiv2->normal_div);
 }
 
@@ -529,7 +521,7 @@ static void icreg_emi_eth_clk_recalc(struct clk *clk)
 
 	mux_cfg = ctrl_inl(CLOCKGEN_MUX_CFG);
 	div_ratio = ((mux_cfg & (CLOCKGEN_MUX_CFG_IC_REG_SRC)) == 0) ? 8 : 6;
-	clk->rate = clk->parent->rate / div_ratio;
+	return clk->parent->rate / div_ratio;
 }
 
 static int icreg_emi_eth_clk_XXable(struct clk *clk, int enable)
@@ -584,9 +576,9 @@ static struct clk *clockgenb_clocks[] = {
 	&clkB_miscclks[MISC_B_EMIMASTER_ID]
 };
 
-static void comms_clk_recalc(struct clk *clk)
+static unsigned long comms_clk_recalc(struct clk *clk)
 {
-	clk->rate = clk->parent->rate;
+	return clk->parent->rate;
 }
 
 static struct clk_ops comms_clk_ops = {
@@ -596,18 +588,16 @@ static struct clk_ops comms_clk_ops = {
 struct clk comms_clk = {
 	.name		= "comms_clk",
 	.parent		= &clkB_miscclks[MISC_B_ICREG_ID],
-	.flags		= CLK_ALWAYS_ENABLED,
 	.ops		= &comms_clk_ops
 };
 
 static struct clk new_module_clk = {
 	.name		= "module_clk",
 	.parent		= &clkB_miscclks[0],
-	.flags		= CLK_ALWAYS_ENABLED,
 	.ops		= &comms_clk_ops
 };
 
-int __init clk_init(void)
+int __init arch_clk_init(void)
 {
 	int i, ret = 0;
 

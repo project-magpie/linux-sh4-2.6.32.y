@@ -492,15 +492,38 @@ interrupt:
 	mov.l	1f, r9
 	mov.l	2f, r4
 	mov.l	@r4, r4
+	shlr2	r4
+	shlr	r4
+	mov	r4, r0		! save vector->jmp table offset for later
+	shlr2	r4		! vector to IRQ# conversion
+	add	#-0x10, r4
+
+	cmp/pz	r4		! is it a valid IRQ?
+	bf	10f
+
 	jmp	@r9
 	 mov	r15, r5
-	rts
-	 nop
+
+10:
+	/*
+	 * We got here as a result of taking the INTEVT path for something
+	 * that isn't a valid hard IRQ, therefore we bypass the do_IRQ()
+	 * path and special case the event dispatch instead.  This is the
+	 * expected path for the NMI (and any other brilliantly implemented
+	 * exception), which effectively wants regular exception dispatch
+	 * but is unfortunately reported through INTEVT rather than
+	 * EXPEVT.  Grr.
+	 */
+	mov.l	7f, r9
+	mov.l	@(r0, r9), r9
+	jmp	@r9
+	 mov	r15, r8		! trap handlers take saved regs in r8
 
 	.balign	32 /* d-cache align so only one line pulled */
 1:	.long	do_IRQ
 2:	.long	INTEVT
 6:	.long	ret_from_irq
+7:	.long   exception_handling_table
 998: 	.long	0x000080f0
 999: 	.long	0xcfffffff
 
@@ -782,7 +805,7 @@ ENTRY(resume_userspace)
 	cli
 	TRACE_IRQS_OFF
 	mov.l	@(TI_FLAGS,r8), r0		! current_thread_info->flags
-	tst	#_TIF_WORK_MASK, r0
+	tst	#(_TIF_WORK_MASK & 0xff), r0
 	bt/s	restore_all
 	 tst	#_TIF_NEED_RESCHED, r0
 
@@ -809,7 +832,7 @@ work_resched:
 	TRACE_IRQS_OFF
 	!
 	mov.l	@(TI_FLAGS,r8), r0		! current_thread_info->flags
-	tst	#_TIF_WORK_MASK, r0
+	tst	#(_TIF_WORK_MASK & 0xff), r0
 	bt	restore_all
 	bra	work_pending
 	 tst	#_TIF_NEED_RESCHED, r0
@@ -901,12 +924,18 @@ ENTRY(system_call)
 	shll2	r3		!     EX	syscall num x4
 	mov.l   r9, @r12        !  27 LS        1 SP[OFF_TRA]=TRA
 
-	mov     #_TIF_WORK_SYSCALL_MASK, r10	! 6 EX    3
+	mov     #(_TIF_WORK_SYSCALL_MASK & 0xff), r10	! 6 EX    3
 	mov.l   2f, r12         !  9 LS (l2)    4 R12=number of syscallsx4
 
 	tst     r10, r8         !  86 MT        3 T=tracing not enabled
+	mov     #(_TIF_WORK_SYSCALL_MASK >> 8), r9	! 6 EX    3
 
+	shll8   r9
 	bf      syscall_trace_entry     ! 108 BR        3
+
+	tst     r9, r8
+	bf      syscall_trace_entry
+	
 	cmp/hs  r12, r3                 !  58 MT        4
 
 	bt      syscall_badsys  ! 110 BR        4
@@ -929,7 +958,11 @@ syscall_exit:
 	!
 	get_current_thread_info r8, r0
 	mov.l	@(TI_FLAGS,r8), r0		! current_thread_info->flags
-	tst	#_TIF_ALLWORK_MASK, r0
+	tst	#(_TIF_ALLWORK_MASK & 0xff), r0
+	mov	#(_TIF_ALLWORK_MASK >> 8), r1
+	bf	syscall_exit_work
+	shlr8	r0
+	tst	r0, r1
 	bf	syscall_exit_work
 	bra	restore_all
 	 nop
@@ -942,7 +975,7 @@ ret_from_exception_end:
 syscall_exit_work:
 	! r0: current_thread_info->flags
 	! r8: current_thread_info
-	tst	#_TIF_WORK_SYSCALL_MASK, r0
+	tst	#(_TIF_WORK_SYSCALL_MASK & 0xff), r0
 	bt/s	work_pending
 	 tst	#_TIF_NEED_RESCHED, r0
 	TRACE_IRQS_ON

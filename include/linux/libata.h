@@ -143,7 +143,6 @@ enum {
 
 	ATA_DFLAG_PIO		= (1 << 12), /* device limited to PIO mode */
 	ATA_DFLAG_NCQ_OFF	= (1 << 13), /* device limited to non-NCQ mode */
-	ATA_DFLAG_SPUNDOWN	= (1 << 14), /* XXX: for spindown_compat */
 	ATA_DFLAG_SLEEPING	= (1 << 15), /* device is sleeping */
 	ATA_DFLAG_DUBIOUS_XFER	= (1 << 16), /* data transfer not verified */
 	ATA_DFLAG_NO_UNLOAD	= (1 << 17), /* device doesn't support unload */
@@ -190,6 +189,7 @@ enum {
 	ATA_FLAG_NO_POWEROFF_SPINDOWN = (1 << 11), /* don't spindown before poweroff */
 	ATA_FLAG_NO_HIBERNATE_SPINDOWN = (1 << 12), /* don't spindown before hibernation */
 	ATA_FLAG_DEBUGMSG	= (1 << 13),
+	ATA_FLAG_FPDMA_AA		= (1 << 14), /* driver supports Auto-Activate */
 	ATA_FLAG_IGN_SIMPLEX	= (1 << 15), /* ignore SIMPLEX */
 	ATA_FLAG_NO_IORDY	= (1 << 16), /* controller lacks iordy */
 	ATA_FLAG_ACPI_SATA	= (1 << 17), /* need native SATA ACPI layout */
@@ -385,6 +385,8 @@ enum {
 						    not multiple of 16 bytes */
 	ATA_HORKAGE_FIRMWARE_WARN = (1 << 12),	/* firmware update warning */
 	ATA_HORKAGE_1_5_GBPS	= (1 << 13),	/* force 1.5 Gbps */
+	ATA_HORKAGE_NOSETXFER	= (1 << 14),	/* skip SETXFER, SATA only */
+	ATA_HORKAGE_BROKEN_FPDMA_AA	= (1 << 15),	/* skip AA */
 
 	 /* DMA mask for user DMA control: User visible values; DO NOT
 	    renumber */
@@ -416,6 +418,17 @@ enum {
 				  ATA_TIMING_ACTIVE | ATA_TIMING_RECOVER |
 				  ATA_TIMING_DMACK_HOLD | ATA_TIMING_CYCLE |
 				  ATA_TIMING_UDMA,
+
+	/* ACPI constants */
+	ATA_ACPI_FILTER_SETXFER	= 1 << 0,
+	ATA_ACPI_FILTER_LOCK	= 1 << 1,
+	ATA_ACPI_FILTER_DIPM	= 1 << 2,
+	ATA_ACPI_FILTER_FPDMA_OFFSET = 1 << 3,	/* FPDMA non-zero offset */
+	ATA_ACPI_FILTER_FPDMA_AA = 1 << 4,	/* FPDMA auto activate */
+
+	ATA_ACPI_FILTER_DEFAULT	= ATA_ACPI_FILTER_SETXFER |
+				  ATA_ACPI_FILTER_LOCK |
+				  ATA_ACPI_FILTER_DIPM,
 };
 
 enum ata_xfer_mask {
@@ -585,9 +598,11 @@ struct ata_device {
 #ifdef CONFIG_ATA_ACPI
 	acpi_handle		acpi_handle;
 	union acpi_object	*gtf_cache;
+	unsigned int		gtf_filter;
 #endif
 	/* n_sector is CLEAR_BEGIN, read comment above CLEAR_BEGIN */
 	u64			n_sectors;	/* size of device, if ATA */
+	u64			n_native_sectors; /* native size, if ATA */
 	unsigned int		class;		/* ATA_DEV_xxx */
 	unsigned long		unpark_deadline;
 
@@ -860,11 +875,6 @@ struct ata_port_operations {
 	void (*phy_reset)(struct ata_port *ap);
 	void (*eng_timeout)(struct ata_port *ap);
 
-	unsigned char (*readb)(const volatile void __iomem *addr);
-	unsigned short (*readw)(const volatile void __iomem *addr);
-	void (*writeb)(unsigned char b, volatile void __iomem *addr);
-	void (*writew)(unsigned short b, volatile void __iomem *addr);
-
 	/*
 	 * ->inherits must be the last field and all the preceding
 	 * fields must be pointers.
@@ -918,57 +928,6 @@ static inline int ata_port_is_dummy(struct ata_port *ap)
 {
 	return ap->ops == &ata_dummy_port_ops;
 }
-
-static inline u8 sata_readb(struct ata_port *ap,
-			    const volatile void __iomem *addr)
-{
-	u8 r;
-	if (ap->ops->readb)
-		r = (ap->ops->readb)(addr);
-	else
-		r = readb(addr);
-
-	return r;
-}
-
-static inline u16 sata_readw(struct ata_port *ap,
-			     const volatile void __iomem *addr)
-{
-	u16 r;
-	if (ap->ops->readw)
-		r = (ap->ops->readw)(addr);
-	else
-		r = readw(addr);
-
-	return r;
-}
-
-static inline void sata_writeb(struct ata_port *ap,
-			       u8 b, volatile void __iomem *addr)
-{
-	if (ap->ops->writeb)
-		(ap->ops->writeb)(b, addr);
-	else
-		writeb(b, addr);
-}
-
-static inline void sata_writew(struct ata_port *ap,
-			       u16 b, volatile void __iomem *addr)
-{
-	if (ap->ops->writew)
-		(ap->ops->writew)(b, addr);
-	else
-		writew(b, addr);
-}
-
-#undef readb
-#define readb(a_)	sata_readb(ap, a_)
-#undef writeb
-#define writeb(v_,a_)	sata_writeb(ap, v_, a_)
-#undef readw
-#define readw(a_)	sata_readw(ap, a_)
-#undef writew
-#define writew(v_,a_)	sata_writew(ap, v_, a_)
 
 extern void ata_port_probe(struct ata_port *);
 extern int sata_set_spd(struct ata_link *link);

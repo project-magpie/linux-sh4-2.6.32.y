@@ -401,8 +401,7 @@ static struct irq_chip ilc_chip_template = {
 static void __init ilc_demux_init(struct platform_device *pdev)
 {
 	int irq, irq_offset;
-	struct drv_ilc_data *data = (struct drv_ilc_data *)
-		pdev->dev.driver_data;
+	struct drv_ilc_data *data = platform_get_drvdata(pdev);
 	struct stm_plat_ilc3_data *pdata = (struct stm_plat_ilc3_data *)
 		pdev->dev.platform_data;
 
@@ -435,15 +434,12 @@ static int __init ilc_probe(struct platform_device *pdev)
 	if (!request_mem_region(pdev->resource[0].start, size, pdev->name))
 		return -EBUSY;
 
-	if (pdev->dev.driver_data)
-		return 0;
-
 	drv_data = kzalloc(sizeof(struct drv_ilc_data), GFP_KERNEL);
 
 	if (!drv_data)
 		return -ENOMEM;
 
-	pdev->dev.driver_data = drv_data;
+	platform_set_drvdata(pdev, drv_data);
 	drv_data->pdev = pdev;
 	memcpy(&drv_data->chip, &ilc_chip_template, sizeof(ilc_chip_template));
 	spin_lock_init(&drv_data->lock);
@@ -536,8 +532,7 @@ static int ilc_seq_show(struct seq_file *s, void *v)
 			knode_driver.n_node);
 	struct device *ilc = dev_priv->device;
 
-	struct drv_ilc_data *data = (struct drv_ilc_data *)
-			ilc->driver_data;
+	struct drv_ilc_data *data = dev_get_drvdata(ilc);
 	struct stm_plat_ilc3_data *pdata = ilc->platform_data;
 	int i, status, enabled, used, wakeup;
 

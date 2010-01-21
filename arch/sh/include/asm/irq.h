@@ -8,7 +8,8 @@
  * advised to cap this at the hard limit that they're interested in
  * through the machvec.
  */
-#define NR_IRQS 450
+#define NR_IRQS			450
+#define NR_IRQS_LEGACY		8	/* Legacy external IRQ0-7 */
 
 /*
  * Convert back and forth between INTEVT and IRQ values.
@@ -33,7 +34,12 @@ extern unsigned short *irq_mask_register;
 void init_IRQ_pint(void);
 void make_imask_irq(unsigned int irq);
 
-#define irq_canonicalize(irq)	(irq)
+static inline int generic_irq_demux(int irq)
+{
+	return irq;
+}
+
+#define irq_demux(irq)		sh_mv.mv_irq_demux(irq)
 
 void init_IRQ(void);
 asmlinkage int do_IRQ(unsigned int irq, struct pt_regs *regs);
@@ -47,6 +53,7 @@ extern void irq_ctx_exit(int cpu);
 # define irq_ctx_exit(cpu) do { } while (0)
 #endif
 
+#include <asm-generic/irq.h>
 #ifdef CONFIG_CPU_SH5
 #include <cpu/irq.h>
 #endif

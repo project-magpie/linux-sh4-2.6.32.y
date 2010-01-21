@@ -23,6 +23,7 @@
 #include <linux/tick.h>
 #include <linux/reboot.h>
 #include <linux/fs.h>
+#include <linux/ftrace.h>
 #include <linux/preempt.h>
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -32,6 +33,7 @@
 #include <asm/fpu.h>
 #include <asm/watchdog.h>
 #include <asm/syscalls.h>
+#include <asm/watchdog.h>
 
 int ubc_usercnt = 0;
 
@@ -43,10 +45,13 @@ static void watchdog_trigger_immediate(void)
 
 void machine_restart(char * __unused)
 {
-	/* Use watchdog timer to trigger reset */
 	local_irq_disable();
+
+	/* Use watchdog timer to trigger reset */
 	watchdog_trigger_immediate();
-	while (1) {};
+
+	while (1)
+		cpu_sleep();
 }
 
 void machine_halt(void)
@@ -129,8 +134,6 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	/* Ok, create the new process.. */
 	pid = do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0,
 		      &regs, 0, NULL, NULL);
-
-	trace_mark(kernel_arch_kthread_create, "pid %d fn %p", pid, fn);
 
 	return pid;
 }
@@ -267,7 +270,8 @@ static void ubc_set_tracing(int asid, unsigned long pc)
 
 	if (current_cpu_data.type == CPU_SH7729 ||
 	    current_cpu_data.type == CPU_SH7710 ||
-	    current_cpu_data.type == CPU_SH7712) {
+	    current_cpu_data.type == CPU_SH7712 ||
+	    current_cpu_data.type == CPU_SH7203){
 		ctrl_outw(BBR_INST | BBR_READ | BBR_CPU, UBC_BBRA);
 		ctrl_outl(BRCR_PCBA | BRCR_PCTE, UBC_BRCR);
 	} else {
@@ -281,8 +285,8 @@ static void ubc_set_tracing(int asid, unsigned long pc)
  *	switch_to(x,y) should switch tasks from x to y.
  *
  */
-struct task_struct *__switch_to(struct task_struct *prev,
-				struct task_struct *next)
+__notrace_funcgraph struct task_struct *
+__switch_to(struct task_struct *prev, struct task_struct *next)
 {
 	struct thread_struct *next_t = &next->thread;
 
@@ -398,11 +402,6 @@ asmlinkage int sys_execve(char __user *ufilename, char __user * __user *uargv,
 		goto out;
 
 	error = do_execve(filename, uargv, uenvp, regs);
-	if (error == 0) {
-		task_lock(current);
-		current->ptrace &= ~PT_DTRACE;
-		task_unlock(current);
-	}
 	putname(filename);
 out:
 	return error;
@@ -439,6 +438,7 @@ asmlinkage void break_point_trap(void)
 #else
 	ctrl_outw(0, UBC_BBRA);
 	ctrl_outw(0, UBC_BBRB);
+	ctrl_outl(0, UBC_BRCR);
 #endif
 	current->thread.ubc_pc = 0;
 	ubc_usercnt -= 1;

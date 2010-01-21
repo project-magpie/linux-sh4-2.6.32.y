@@ -19,7 +19,9 @@
 #include <linux/completion.h>
 #include <linux/platform_device.h>
 #include <linux/i2c-pnx.h>
+#include <linux/io.h>
 #include <mach/hardware.h>
+#include <mach/i2c.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 
@@ -53,6 +55,9 @@ static inline void i2c_pnx_arm_timer(struct i2c_adapter *adap)
 	struct i2c_pnx_algo_data *data = adap->algo_data;
 	struct timer_list *timer = &data->mif.timer;
 	int expires = I2C_PNX_TIMEOUT / (1000 / HZ);
+
+	if (expires <= 1)
+		expires = 2;
 
 	del_timer_sync(timer);
 
@@ -586,7 +591,8 @@ static int __devinit i2c_pnx_probe(struct platform_device *pdev)
 	alg_data->mif.timer.data = (unsigned long)i2c_pnx->adapter;
 
 	/* Register I/O resource */
-	if (!request_region(alg_data->base, I2C_PNX_REGION_SIZE, pdev->name)) {
+	if (!request_mem_region(alg_data->base, I2C_PNX_REGION_SIZE,
+				pdev->name)) {
 		dev_err(&pdev->dev,
 		       "I/O region 0x%08x for I2C already in use.\n",
 		       alg_data->base);
@@ -650,7 +656,7 @@ out_clock:
 out_unmap:
 	iounmap((void *)alg_data->ioaddr);
 out_release:
-	release_region(alg_data->base, I2C_PNX_REGION_SIZE);
+	release_mem_region(alg_data->base, I2C_PNX_REGION_SIZE);
 out_drvdata:
 	platform_set_drvdata(pdev, NULL);
 out:
@@ -667,7 +673,7 @@ static int __devexit i2c_pnx_remove(struct platform_device *pdev)
 	i2c_del_adapter(adap);
 	i2c_pnx->set_clock_stop(pdev);
 	iounmap((void *)alg_data->ioaddr);
-	release_region(alg_data->base, I2C_PNX_REGION_SIZE);
+	release_mem_region(alg_data->base, I2C_PNX_REGION_SIZE);
 	platform_set_drvdata(pdev, NULL);
 
 	return 0;

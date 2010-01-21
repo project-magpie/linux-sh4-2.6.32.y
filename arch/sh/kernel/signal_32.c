@@ -145,7 +145,7 @@ static inline int restore_sigcontext_fpu(struct sigcontext __user *sc)
 {
 	struct task_struct *tsk = current;
 
-	if (!(current_cpu_data.flags & CPU_HAS_FPU))
+	if (!(boot_cpu_data.flags & CPU_HAS_FPU))
 		return 0;
 
 	set_used_math();
@@ -158,7 +158,7 @@ static inline int save_sigcontext_fpu(struct sigcontext __user *sc,
 {
 	struct task_struct *tsk = current;
 
-	if (!(current_cpu_data.flags & CPU_HAS_FPU))
+	if (!(boot_cpu_data.flags & CPU_HAS_FPU))
 		return 0;
 
 	if (!used_math()) {
@@ -199,7 +199,7 @@ restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc, int *r0_p
 #undef COPY
 
 #ifdef CONFIG_SH_FPU
-	if (current_cpu_data.flags & CPU_HAS_FPU) {
+	if (boot_cpu_data.flags & CPU_HAS_FPU) {
 		int owned_fp;
 		struct task_struct *tsk = current;
 
@@ -342,8 +342,8 @@ get_sigframe(struct k_sigaction *ka, unsigned long sp, size_t frame_size)
 
 /* These symbols are defined with the addresses in the vsyscall page.
    See vsyscall-trapa.S.  */
-extern void __user __kernel_sigreturn;
-extern void __user __kernel_rt_sigreturn;
+extern void __kernel_sigreturn(void);
+extern void __kernel_rt_sigreturn(void);
 
 static int setup_frame(int sig, struct k_sigaction *ka,
 			sigset_t *set, struct pt_regs *regs)
@@ -472,6 +472,7 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 		err |= __put_user(OR_R0_R0, &frame->retcode[6]);
 		err |= __put_user((__NR_rt_sigreturn), &frame->retcode[7]);
 		regs->pr = (unsigned long) frame->retcode;
+		flush_icache_range(regs->pr, regs->pr + sizeof(frame->retcode));
 	}
 
 	if (err)
@@ -496,8 +497,6 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 
 	pr_debug("SIG deliver (%s:%d): sp=%p pc=%08lx pr=%08lx\n",
 		 current->comm, task_pid_nr(current), frame, regs->pc, regs->pr);
-
-	flush_icache_range(regs->pr, regs->pr + sizeof(frame->retcode));
 
 	return 0;
 
@@ -650,5 +649,7 @@ asmlinkage void do_notify_resume(struct pt_regs *regs, unsigned int save_r0,
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 	}
 }

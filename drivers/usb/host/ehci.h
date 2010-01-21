@@ -118,6 +118,7 @@ struct ehci_hcd {			/* one per controller */
 	unsigned		stamp;
 	unsigned		random_frame;
 	unsigned long		next_statechange;
+	ktime_t			last_periodic_enable;
 	u32			command;
 
 	/* SILICON QUIRKS */
@@ -128,6 +129,7 @@ struct ehci_hcd {			/* one per controller */
 	unsigned		has_reset_port_bug:1; /* STMicroelectronics */
 	unsigned		has_amcc_usb23:1;
 	unsigned		need_io_watchdog:1;
+	unsigned		broken_periodic:1;
 
 	/* required for usb32 quirk */
 	#define OHCI_CTRL_HCFS          (3 << 6)

@@ -387,7 +387,7 @@ static void pll_clkB_init(struct clk *clk)
 	}
 }
 
-static int pll_clkB_XXable(struct clk *clk, int enable)
+static void pll_clkB_XXable(struct clk *clk, int enable)
 {
 	unsigned long bps = ctrl_inl(CLOCKGENB_PLL0_CFG);
 	unsigned long pwr = ctrl_inl(CLOCKGENB_POWER_CFG);
@@ -402,17 +402,17 @@ static int pll_clkB_XXable(struct clk *clk, int enable)
 		ctrl_outl(pwr | 1<<15, CLOCKGENB_POWER_CFG); 	/* turn-off  */
 		clk->rate = 0;
 	}
-	return 0;
 }
 
 static int pll_clkB_enable(struct clk *clk)
 {
-	return pll_clkB_XXable(clk, 1);
+	pll_clkB_XXable(clk, 1);
+	return 0;
 }
 
-static int pll_clkB_disable(struct clk *clk)
+static void pll_clkB_disable(struct clk *clk)
 {
-	return pll_clkB_XXable(clk, 0);
+	pll_clkB_XXable(clk, 0);
 }
 
 static struct clk_ops pll_clkB_ops = {

@@ -12,7 +12,7 @@
 
 /* USB resources ---------------------------------------------------------- */
 
-static u64 stx7200_usb_dma_mask = DMA_32BIT_MASK;
+static u64 stx7200_usb_dma_mask = DMA_BIT_MASK(32);
 
 static struct stm_plat_usb_data stx7200_usb_platform_data[] = {
 	[0] = {
@@ -101,7 +101,7 @@ static struct platform_device stx7200_usb_devices[] = {
 		.id = 0,
 		.dev = {
 			.dma_mask = &stx7200_usb_dma_mask,
-			.coherent_dma_mask = DMA_32BIT_MASK,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &stx7200_usb_platform_data[0],
 		},
 		.num_resources = 2,
@@ -121,7 +121,7 @@ static struct platform_device stx7200_usb_devices[] = {
 		.id = 1,
 		.dev = {
 			.dma_mask = &stx7200_usb_dma_mask,
-			.coherent_dma_mask = DMA_32BIT_MASK,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &stx7200_usb_platform_data[1],
 		},
 		.num_resources = 2,
@@ -141,7 +141,7 @@ static struct platform_device stx7200_usb_devices[] = {
 		.id = 2,
 		.dev = {
 			.dma_mask = &stx7200_usb_dma_mask,
-			.coherent_dma_mask = DMA_32BIT_MASK,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &stx7200_usb_platform_data[2],
 		},
 		.num_resources = 2,

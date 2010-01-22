@@ -322,7 +322,7 @@ void __init stx7105_configure_ethernet(struct stx7105_ethernet_config *config)
 
 /* USB resources ---------------------------------------------------------- */
 
-static u64 stx7105_usb_dma_mask = DMA_32BIT_MASK;
+static u64 stx7105_usb_dma_mask = DMA_BIT_MASK(32);
 
 static struct stm_plat_usb_data stx7105_usb_platform_data[] = {
 	[0] = {
@@ -343,7 +343,7 @@ static struct platform_device stx7105_usb_devices[] = {
 		.id = 0,
 		.dev = {
 			.dma_mask = &stx7105_usb_dma_mask,
-			.coherent_dma_mask = DMA_32BIT_MASK,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &stx7105_usb_platform_data[0],
 		},
 		.num_resources = 6,
@@ -365,7 +365,7 @@ static struct platform_device stx7105_usb_devices[] = {
 		.id = 1,
 		.dev = {
 			.dma_mask = &stx7105_usb_dma_mask,
-			.coherent_dma_mask = DMA_32BIT_MASK,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &stx7105_usb_platform_data[1],
 		},
 		.num_resources = 6,

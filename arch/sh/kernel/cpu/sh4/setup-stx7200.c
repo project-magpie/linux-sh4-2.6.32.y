@@ -101,7 +101,6 @@ static DECLARE_INTC_DESC(intc_desc, "stx7200", vectors, NULL,
 
 void __init plat_irq_setup(void)
 {
-	int irq;
 	struct sysconf_field *sc;
 
 	/* Configure the external interrupt pins as inputs */

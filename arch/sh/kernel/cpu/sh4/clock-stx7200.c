@@ -225,7 +225,7 @@ static unsigned long fdmalx_clk_recalc(struct clk *clk)
 	return final_divider(clk->parent->rate, div_ratio, normal_div);
 }
 
-static int lx_clk_XXable(struct clk *clk, int enable)
+static void lx_clk_XXable(struct clk *clk, int enable)
 {
 	struct fdmalxclk *fdmalxclk = (struct fdmalxclk *)clk->private_data;
 	unsigned long div_cfg = ctrl_inl(CLOCKGEN_DIV_CFG +
@@ -240,16 +240,15 @@ static int lx_clk_XXable(struct clk *clk, int enable)
 			CLOCKGEN_DIV_CFG + fdmalxclk->div_cfg_reg);
 		clk->rate = 0;
 	}
-
-	return 0;
 }
 static int lx_clk_enable(struct clk *clk)
 {
-	return lx_clk_XXable(clk, 1);
+	lx_clk_XXable(clk, 1);
+	return 0;
 }
-static int lx_clk_disable(struct clk *clk)
+static void lx_clk_disable(struct clk *clk)
 {
-	return lx_clk_XXable(clk, 0);
+	lx_clk_XXable(clk, 0);
 }
 
 static struct clk_ops fdma_clk_ops = {
@@ -470,7 +469,7 @@ static unsigned long clkgenb_div2_recalc(struct clk *clk)
 				  clkgenBdiv2->normal_div);
 }
 
-static int clkgenb_div2_XXable(struct clk *clk, int enable)
+static void clkgenb_div2_XXable(struct clk *clk, int enable)
 {
 	struct clkgenBdiv2 *clkgenBdiv2 =
 			(struct clkgenBdiv2 *)clk->private_data;
@@ -488,16 +487,16 @@ static int clkgenb_div2_XXable(struct clk *clk, int enable)
 		ctrl_outl(div_cfg, CLOCKGENB_DIV2_CFG);
 		clk->rate = 0;
 	}
-	return 0;
 }
 
 static int clkgenb_div2_enable(struct clk *clk)
 {
-	return clkgenb_div2_XXable(clk, 1);
+	clkgenb_div2_XXable(clk, 1);
+	return 0;
 }
-static int clkgenb_div2_disable(struct clk *clk)
+static void clkgenb_div2_disable(struct clk *clk)
 {
-	return clkgenb_div2_XXable(clk, 0);
+	clkgenb_div2_XXable(clk, 0);
 }
 
 static struct clk_ops clkgenb_div2_ops = {

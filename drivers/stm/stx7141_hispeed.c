@@ -425,7 +425,7 @@ void __init stx7141_configure_ethernet(int port,
 
 /* USB resources ---------------------------------------------------------- */
 
-static u64 stx7141_usb_dma_mask = DMA_32BIT_MASK;
+static u64 stx7141_usb_dma_mask = DMA_BIT_MASK(32);
 
 static int stx7141_usb_enable(struct stm_pad_config *config, void *priv);
 static int stx7141_usb_disable(struct stm_pad_config *config, void *priv);
@@ -503,7 +503,7 @@ static struct platform_device stx7141_usb_devices[] = {
 		.id = 0,
 		.dev = {
 			.dma_mask = &stx7141_usb_dma_mask,
-			.coherent_dma_mask = DMA_32BIT_MASK,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &stx7141_usb_platform_data[0],
 		},
 		.num_resources = 6,
@@ -523,7 +523,7 @@ static struct platform_device stx7141_usb_devices[] = {
 		.id = 1,
 		.dev = {
 			.dma_mask = &stx7141_usb_dma_mask,
-			.coherent_dma_mask = DMA_32BIT_MASK,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &stx7141_usb_platform_data[1],
 		},
 		.num_resources = 6,
@@ -543,7 +543,7 @@ static struct platform_device stx7141_usb_devices[] = {
 		.id = 2,
 		.dev = {
 			.dma_mask = &stx7141_usb_dma_mask,
-			.coherent_dma_mask = DMA_32BIT_MASK,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &stx7141_usb_platform_data[2],
 		},
 		.num_resources = 4,
@@ -561,7 +561,7 @@ static struct platform_device stx7141_usb_devices[] = {
 		.id = 3,
 		.dev = {
 			.dma_mask = &stx7141_usb_dma_mask,
-			.coherent_dma_mask = DMA_32BIT_MASK,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &stx7141_usb_platform_data[3],
 		},
 		.num_resources = 4,

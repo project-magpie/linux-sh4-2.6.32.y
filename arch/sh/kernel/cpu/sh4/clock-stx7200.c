@@ -513,7 +513,7 @@ struct clk clkB_div2clks[5] = {
 	CLKGENB_DIV2(DIV2_B_DMU1266_ID, dmu1_266,  20, 3)
 };
 
-static void icreg_emi_eth_clk_recalc(struct clk *clk)
+static unsigned long icreg_emi_eth_clk_recalc(struct clk *clk)
 {
 	unsigned long mux_cfg;
 	unsigned long div_ratio;

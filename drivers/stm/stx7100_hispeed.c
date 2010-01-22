@@ -208,14 +208,14 @@ static struct stm_plat_usb_data stx7100_usb_platform_data = {
 	},
 };
 
-static u64 stx7100_usb_dma_mask = DMA_32BIT_MASK;
+static u64 stx7100_usb_dma_mask = DMA_BIT_MASK(32);
 
 static struct platform_device stx7100_usb_device = {
 	.name = "stm-usb",
 	.id = 0,
 	.dev = {
 		.dma_mask = &stx7100_usb_dma_mask,
-		.coherent_dma_mask = DMA_32BIT_MASK,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 		.platform_data = &stx7100_usb_platform_data,
 	},
 	.num_resources = 6,

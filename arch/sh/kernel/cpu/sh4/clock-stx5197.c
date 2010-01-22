@@ -260,7 +260,6 @@ static void dividedpll_clk_XXable(struct clk *clk, int enable)
 {
 	unsigned long num = clk->id-CLK_DDR_ID;
 	unsigned long offset = CLKDIV_CONF0(num);
-	unsigned long flag;
 	unsigned long reg_cfg0, reg_cfg1, reg_cfg2;
 
 	dbg_print("\n");

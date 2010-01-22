@@ -219,7 +219,7 @@ static void dividedpll_hw_set(unsigned long addr,
 {
 	unsigned long flag;
 
-	addr += ss_base;
+	addr += (unsigned long)ss_base;
 
 	local_irq_save(flag);
 	writel(0xf0, ss_base + CLK_LOCK_CFG);

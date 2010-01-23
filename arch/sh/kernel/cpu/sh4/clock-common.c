@@ -302,7 +302,7 @@ int get_ratio_field(unsigned long rate, unsigned long prate, int *ratios)
 }
 
 int get_xratio_field(unsigned long rate, unsigned long prate,
-	struct xratio *ratios)
+	const struct xratio *ratios)
 {
 	int idx;
 	unsigned long h_threshold = rate + tollerance;

@@ -700,6 +700,7 @@ int __init stx7105_configure_ssc_i2c(int ssc, struct stx7105_ssc_config *config)
 		break;
 	default:
 		BUG();
+		pad_config = NULL; /* Keep the compiler happy ;-) */
 		pad_config_ssc = NULL; /* Keep the compiler happy ;-) */
 		pad_config_gpio = NULL; /* Keep the compiler happy ;-) */
 		break;

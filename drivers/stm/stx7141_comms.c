@@ -574,7 +574,7 @@ int __init stx7141_configure_ssc_spi(int ssc,
 	plat_data = stx7141_ssc_devices[ssc].dev.platform_data;
 	if (config)
 		plat_data->spi_chipselect = config->chipselect;
-	plat_data->pad_config_ssc = &stx7141_ssc_spi_pad_configs[ssc];
+	plat_data->pad_config = &stx7141_ssc_spi_pad_configs[ssc];
 
 	platform_device_register(&stx7141_ssc_devices[ssc]);
 

@@ -947,7 +947,7 @@ int __init stx7105_configure_ssc_spi(int ssc, struct stx7105_ssc_config *config)
 	}
 
 	plat_data->spi_chipselect = config->spi_chipselect;
-	plat_data->pad_config_ssc = pad_config;
+	plat_data->pad_config = pad_config;
 
 	platform_device_register(&stx7105_ssc_devices[ssc]);
 

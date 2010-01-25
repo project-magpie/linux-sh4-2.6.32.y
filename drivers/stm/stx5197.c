@@ -496,7 +496,7 @@ int __init stx5197_configure_ssc_spi(int ssc)
 	stx5197_ssc_devices[0].id = 0;
 
 	plat_data = stx5197_ssc_devices[ssc].dev.platform_data;
-	plat_data->pad_config_ssc = &stx5197_ssc0_spi_pad_config;
+	plat_data->pad_config = &stx5197_ssc0_spi_pad_config;
 	plat_data->spi_chipselect = stx5197_ssc0_spi_cs;
 	stx5197_ssc0_spi_cs_sc = sysconf_claim(CFG_CTRL_M,
 			13, 13, "ssc");

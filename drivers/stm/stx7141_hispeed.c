@@ -2,9 +2,11 @@
 #include <linux/platform_device.h>
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
+#include <linux/stm/miphy.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stx7141.h>
+#include <linux/delay.h>
 #include <asm/irq-ilc.h>
 
 /* Ethernet MAC resources ------------------------------------------------- */
@@ -658,7 +660,7 @@ void __init stx7141_configure_usb(int port)
 
 static struct platform_device stx7141_sata_device = {
 	.name = "sata-stm",
-	.id = 0,
+	.id = -1,
 	.dev.platform_data = &(struct stm_plat_sata_data) {
 		.phy_init = 0,
 		.pc_glue_logic_init = 0,
@@ -675,25 +677,56 @@ static struct platform_device stx7141_sata_device = {
 void __init stx7141_configure_sata(void)
 {
 	static int configured;
+	struct sysconf_field *sc;
+	struct stm_miphy_sysconf_soft_jtag jtag;
+	struct stm_miphy miphy = {
+		.ports_num = 1,
+		.jtag_tick = stm_miphy_sysconf_jtag_tick,
+		.jtag_priv = &jtag,
+	};
 
-	BUG_ON(configured);
-	configured = 1;
+	BUG_ON(configured++);
 
-	if (cpu_data->cut_major >= 2) {
-		struct sysconf_field *sc;
-
-		/* enable reset  */
-		sc = sysconf_claim(SYS_CFG, 4, 9, 9, "SATA");
-		sysconf_write(sc, 1);
-
-		sc = sysconf_claim(SYS_CFG, 32, 6, 6, "SATA");
-		sysconf_write(sc, 1);
-
-		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
-		sysconf_write(sc, 0);
-
-                stm_sata_miphy_init();
+	if (cpu_data->cut_major < 2) {
+		pr_warning("SATA is only supported on cut 2 or later\n");
+		return;
 	}
+
+	jtag.tck = sysconf_claim(SYS_CFG, 33, 0, 0, "SATA");
+	BUG_ON(!jtag.tck);
+	jtag.tms = sysconf_claim(SYS_CFG, 33, 5, 5, "SATA");
+	BUG_ON(!jtag.tms);
+	jtag.tdi = sysconf_claim(SYS_CFG, 33, 1, 1, "SATA");
+	BUG_ON(!jtag.tdi);
+	jtag.tdo = sysconf_claim(SYS_STA, 0, 1, 1, "SATA");
+	BUG_ON(!jtag.tdo);
+
+	/* SATA_ENABLE */
+	sc = sysconf_claim(SYS_CFG, 4, 9, 9, "SATA");
+	BUG_ON(!sc);
+	sysconf_write(sc, 1);
+
+	/* SATA_SLUMBER_POWER_MODE */
+	sc = sysconf_claim(SYS_CFG, 32, 6, 6, "SATA");
+	BUG_ON(!sc);
+	sysconf_write(sc, 1);
+
+	/* SOFT_JTAG_EN */
+	sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
+	BUG_ON(!sc);
+	sysconf_write(sc, 0);
+
+	/* TMS should be set to 1 when taking the TAP
+	 * machine out of reset... */
+	sysconf_write(jtag.tms, 1);
+
+	/* SATA_TRSTN */
+	sc = sysconf_claim(SYS_CFG, 33, 4, 4, "SATA");
+	BUG_ON(!sc);
+	sysconf_write(sc, 1);
+	udelay(100);
+
+	stm_miphy_init(&miphy, 0);
 
 	platform_device_register(&stx7141_sata_device);
 }

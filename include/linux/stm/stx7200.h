@@ -58,7 +58,7 @@ void stx7200_configure_ethernet(int port,
 void stx7200_configure_usb(int port);
 
 
-void stx7200_configure_sata(int port);
+void stx7200_configure_sata(void);
 
 
 struct stx7200_pata_config {

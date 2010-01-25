@@ -15,6 +15,11 @@ config STM_PIO10
 	depends on STM_PIO
 	default n
 
+config STM_MIPHY
+	bool
+	depends on SATA_STM
+	default n
+
 config STPIO
 	bool "Legacy stpio API"
 	default n

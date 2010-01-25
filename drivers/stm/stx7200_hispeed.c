@@ -3,6 +3,7 @@
 #include <linux/ethtool.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
+#include <linux/stm/miphy.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stx7200.h>
@@ -468,57 +469,63 @@ static struct stm_plat_sata_data stx7200_sata_platform_data = {
 	.only_32bit = 0,
 };
 
-static struct platform_device stx7200_sata_devices[] = {
-	[0] = {
-		.name = "sata-stm",
-		.id = 0,
-		.dev.platform_data = &stx7200_sata_platform_data,
-		.num_resources = 3,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd520000, 0x1000),
-			STM_PLAT_RESOURCE_IRQ_NAMED("hostc", ILC_IRQ(89), -1),
-			STM_PLAT_RESOURCE_IRQ_NAMED("dmac", ILC_IRQ(88), -1),
-		},
-	},
-	[1] = {
-		.name = "sata-stm",
-		.id = 1,
-		.dev.platform_data = &stx7200_sata_platform_data,
-		.num_resources = 3,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd521000, 0x1000),
-			STM_PLAT_RESOURCE_IRQ_NAMED("hostc", ILC_IRQ(91), -1),
-			STM_PLAT_RESOURCE_IRQ_NAMED("dmac", ILC_IRQ(90), -1),
-		},
+static struct platform_device stx7200_sata_device = {
+	.name = "sata-stm",
+	.id = -1,
+	.dev.platform_data = &stx7200_sata_platform_data,
+	.num_resources = 3,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0xfd520000, 0x1000),
+		STM_PLAT_RESOURCE_IRQ_NAMED("hostc", ILC_IRQ(89), -1),
+		STM_PLAT_RESOURCE_IRQ_NAMED("dmac", ILC_IRQ(88), -1),
 	},
 };
 
-void __init stx7200_configure_sata(int port)
+void __init stx7200_configure_sata(void)
 {
-	static int configured[ARRAY_SIZE(stx7200_sata_devices)];
-	static int initialised_phy;
+	static int configured;
+	struct sysconf_field *sc;
+	struct stm_miphy_sysconf_soft_jtag jtag;
+	struct stm_miphy miphy = {
+		.ports_num = 1,
+		.jtag_tick = stm_miphy_sysconf_jtag_tick,
+		.jtag_priv = &jtag,
+	};
 
-	BUG_ON(port < 0 || port > ARRAY_SIZE(stx7200_sata_devices));
-
-	BUG_ON(configured[port]);
-	configured[port] = 1;
+	BUG_ON(configured++);
 
 	if (cpu_data->cut_major < 3) {
 		pr_warning("SATA is only supported on cut 3 or later\n");
 		return;
 	}
 
-	if (!initialised_phy) {
-		struct sysconf_field *sc;
+	jtag.tck = sysconf_claim(SYS_CFG, 33, 0, 0, "SATA");
+	BUG_ON(!jtag.tck);
+	jtag.tms = sysconf_claim(SYS_CFG, 33, 5, 5, "SATA");
+	BUG_ON(!jtag.tms);
+	jtag.tdi = sysconf_claim(SYS_CFG, 33, 1, 1, "SATA");
+	BUG_ON(!jtag.tdi);
+	jtag.tdo = sysconf_claim(SYS_STA, 0, 1, 1, "SATA");
+	BUG_ON(!jtag.tdo);
 
-		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
-		sysconf_write(sc, 1);
+	/* SOFT_JTAG_EN */
+	sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
+	BUG_ON(!sc);
+	sysconf_write(sc, 1);
 
-		stm_sata_miphy_init();
-		initialised_phy = 1;
-	}
+	/* TMS should be set to 1 when taking the TAP
+	 * machine out of reset... */
+	sysconf_write(jtag.tms, 1);
 
-	platform_device_register(&stx7200_sata_devices[port]);
+	/* SATA_TRSTN */
+	sc = sysconf_claim(SYS_CFG, 33, 4, 4, "SATA");
+	BUG_ON(!sc);
+	sysconf_write(sc, 1);
+	udelay(100);
+
+	stm_miphy_init(&miphy, 0);
+
+	platform_device_register(&stx7200_sata_device);
 }
 
 

@@ -161,7 +161,7 @@ static int __init mb671_devices_init(void)
 	stx7200_configure_usb(1);
 	stx7200_configure_usb(2);
 
-	stx7200_configure_sata(0);
+	stx7200_configure_sata();
 
 #if 1 /* On-board PHY (MII0) in RMII mode, using MII_CLK */
 	stx7200_configure_ethernet(0, &(struct stx7200_ethernet_config) {

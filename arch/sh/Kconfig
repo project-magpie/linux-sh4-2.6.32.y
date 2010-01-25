@@ -413,14 +413,14 @@ config CPU_SUBTYPE_STX7100
 	  Select STX7100 if you have an STx7100, STx7109 or STx5202 CPU.
 
 config CPU_SUBTYPE_STX7105
-	bool "Support STx7105 processors"
+	bool "Support STx7105/7106 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
 	select SH_ST_SYNOPSYS_PCI if PCI
 	select STM_PIO10
 	select STM_MIPHY
 	help
-	  Select STX7105 if you have an STx7105 CPU.
+	  Select this if you have STx7105 or STx7106 CPU (or derivative).
 
 config CPU_SUBTYPE_STX7111
 	bool "Support STx7111 processors"

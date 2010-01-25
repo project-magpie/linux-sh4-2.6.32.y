@@ -17,4 +17,8 @@ void epld_early_init(struct platform_device *device);
 
 void harp_init_irq(void);
 
+/* peripheral boards callbacks */
+
+void mbxxx_configure_audio_pins(void);
+
 #endif

@@ -403,7 +403,8 @@ void __init stx7105_early_device_init(void)
 	chip_revision = (devid >> 28) + 1;
 	boot_cpu_data.cut_major = chip_revision;
 
-	printk(KERN_INFO "STx7105 version %ld.x\n", chip_revision);
+	printk(KERN_INFO "STx710%d version %ld.x\n",
+			cpu_data->type == CPU_STX7105 ? 5 : 6, chip_revision);
 
 	/* We haven't configured the LPC, so the sleep instruction may
 	 * do bad things. Thus we disable it here. */

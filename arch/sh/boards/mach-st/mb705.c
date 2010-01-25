@@ -268,9 +268,6 @@ static int __init mb705_init(void)
 {
 	int i;
 
-	/* So far valid only for 7105 processor board! */
-	BUG_ON(cpu_data->type != CPU_STX7105);
-
 	/* We are't actually doing this early here... */
 	epld_early_init(&epld_device);
 

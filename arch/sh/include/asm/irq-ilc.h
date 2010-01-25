@@ -19,7 +19,7 @@
 #define ILC_EXT_IRQ(x)	(ILC_FIRST_IRQ + 64 + (x))
 #elif defined(CONFIG_CPU_SUBTYPE_STX7105)
 #define ILC_FIRST_IRQ	176
-#define ILC_NR_IRQS	(64+35)
+#define ILC_NR_IRQS	(64 + 42)
 #define ILC_INT_IRQ(x)	(ILC_FIRST_IRQ + (x))
 #define ILC_EXT_IRQ(x)	(ILC_FIRST_IRQ + 64 + (x))
 #define ILC_IRQ(x)	ILC_INT_IRQ(x)

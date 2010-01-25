@@ -131,7 +131,7 @@ static struct platform_device mb680_phy_device = {
 	.resource	= (struct resource[]) {
 		{
 			.name	= "phyirq",
-			.start	= -1,/*FIXME, should be ILC_EXT_IRQ(6), */
+			.start	= -1, /* FIXME: should be ILC_EXT_IRQ(6), */
 			.end	= -1,
 			.flags	= IORESOURCE_IRQ,
 		},
@@ -194,6 +194,16 @@ int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
        return stx7105_pcibios_map_platform_irq(&mb680_pci_config, pin);
 }
 
+void __init mbxxx_configure_audio_pins(void)
+{
+	stx7105_configure_audio(&(struct stx7105_audio_config) {
+			.pcm_player_0_output =
+					stx7105_pcm_player_0_output_6_channels,
+			.spdif_player_output_enabled = 1,
+			.pcm_reader_input_enabled =
+					cpu_data->type == CPU_STX7105, });
+}
+
 static int __init mb680_devices_init(void)
 {
 	/* Setup the PCI_SERR# PIO
@@ -207,7 +217,10 @@ static int __init mb680_devices_init(void)
 	}
 	stx7105_configure_pci(&mb680_pci_config);
 
-	stx7105_configure_sata();
+	stx7105_configure_sata(0);
+
+	/* Valid only for mb680 rev. A & rev. B (they had two SATA lines) */
+	stx7105_configure_sata(1);
 
 	stx7105_configure_pwm(&(struct stx7105_pwm_config) {
 			.out0 = stx7105_pwm_out0_pio13_0,
@@ -238,12 +251,12 @@ static int __init mb680_devices_init(void)
 	 * alt	| 12[6]	J5B:1-2  J6G:open	14[7]	J10B:1-2  J11H:open
 	 */
 	stx7105_configure_usb(0, &(struct stx7105_usb_config) {
-			.ovrcur_mode = stx7105_usb_ovrcur_active_high,
+			.ovrcur_mode = stx7105_usb_ovrcur_active_low,
 			.pwr_enabled = 1,
 			.routing.usb0.ovrcur = stx7105_usb0_ovrcur_pio4_4,
 			.routing.usb0.pwr = stx7105_usb0_pwr_pio4_5, });
 	stx7105_configure_usb(1, &(struct stx7105_usb_config) {
-			.ovrcur_mode = stx7105_usb_ovrcur_active_high,
+			.ovrcur_mode = stx7105_usb_ovrcur_active_low,
 			.pwr_enabled = 1,
 			.routing.usb1.ovrcur = stx7105_usb1_ovrcur_pio4_6,
 			.routing.usb1.pwr = stx7105_usb1_pwr_pio4_7, });
@@ -253,7 +266,7 @@ static int __init mb680_devices_init(void)
 	gpio_request(MB680_PIO_MII_BUS_SWITCH, "MIIBusSwitchnotOE");
 	gpio_direction_output(MB680_PIO_MII_BUS_SWITCH, 1);
 
-	stx7105_configure_ethernet(&(struct stx7105_ethernet_config) {
+	stx7105_configure_ethernet(0, &(struct stx7105_ethernet_config) {
 			.mode = stx7105_ethernet_mode_mii,
 			.ext_clk = 1,
 			.phy_bus = 0, });

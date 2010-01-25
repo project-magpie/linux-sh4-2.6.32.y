@@ -447,10 +447,27 @@ int __init stx7105_configure_ssc_i2c(int ssc, struct stx7105_ssc_config *config)
 
 		/* SCL */
 		switch (config->routing.ssc2.sclk) {
+		case stx7105_ssc2_sclk_pio2_4:
+			/* 7106 only! */
+			BUG_ON(cpu_data->type != CPU_STX7106);
+
+			/* ssc2_sclk_in: 00 = PIO2.4 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 11, 12, 0);
+			/* Alt. func. 2 */
+			stm_pad_config_add_sys_cfg(pad_config, 21, 4, 4, 1);
+			stm_pad_config_add_sys_cfg(pad_config, 21, 12, 12, 0);
+
+			stm_pad_config_add_pio(pad_config, 2, 4,
+					STM_GPIO_DIRECTION_ALT_BIDIR);
+			stm_pad_config_add_pio(pad_config_gpio, 2, 4,
+					STM_GPIO_DIRECTION_BIDIR);
+			stm_pad_config_add_pio(pad_config_ssc, 2, 4,
+					STM_GPIO_DIRECTION_ALT_BIDIR);
+			break;
 		case stx7105_ssc2_sclk_pio3_4:
 			/* ssc2_sclk_in: 01 = PIO3.4 */
 			stm_pad_config_add_sys_cfg(pad_config, 16, 11, 12, 1);
-			/* Alt. func. 3ter */
+			/* Alt. func. 2 */
 			stm_pad_config_add_sys_cfg(pad_config, 25, 4, 4, 1);
 			stm_pad_config_add_sys_cfg(pad_config, 25, 12, 12, 0);
 
@@ -577,10 +594,27 @@ int __init stx7105_configure_ssc_i2c(int ssc, struct stx7105_ssc_config *config)
 
 		/* SCL */
 		switch (config->routing.ssc3.sclk) {
+		case stx7105_ssc3_sclk_pio2_7:
+			/* 7106 only! */
+			BUG_ON(cpu_data->type != CPU_STX7106);
+
+			/* ssc3_sclk_in: 00 = PIO2.7 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 18, 19, 0);
+			/* Alt. func. 2 */
+			stm_pad_config_add_sys_cfg(pad_config, 21, 7, 7, 1);
+			stm_pad_config_add_sys_cfg(pad_config, 21, 15, 15, 0);
+
+			stm_pad_config_add_pio(pad_config, 2, 7,
+					STM_GPIO_DIRECTION_ALT_BIDIR);
+			stm_pad_config_add_pio(pad_config_gpio, 2, 7,
+					STM_GPIO_DIRECTION_BIDIR);
+			stm_pad_config_add_pio(pad_config_ssc, 2, 7,
+					STM_GPIO_DIRECTION_ALT_BIDIR);
+			break;
 		case stx7105_ssc3_sclk_pio3_6:
 			/* ssc3_sclk_in: 01 = PIO3.6 */
 			stm_pad_config_add_sys_cfg(pad_config, 16, 18, 19, 1);
-			/* Alt. func. 3bis */
+			/* Alt. func. 2 */
 			stm_pad_config_add_sys_cfg(pad_config, 25, 6, 6, 1);
 			stm_pad_config_add_sys_cfg(pad_config, 25, 14, 14, 0);
 
@@ -749,10 +783,21 @@ int __init stx7105_configure_ssc_spi(int ssc, struct stx7105_ssc_config *config)
 
 		/* SCK */
 		switch (config->routing.ssc2.sclk) {
+		case stx7105_ssc2_sclk_pio2_4:
+			/* 7106 only! */
+			BUG_ON(cpu_data->type != CPU_STX7106);
+			/* ssc2_sclk_in: 00 = PIO2.4 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 11, 12, 0);
+			/* Alt. func. 2 */
+			stm_pad_config_add_sys_cfg(pad_config, 21, 4, 4, 1);
+			stm_pad_config_add_sys_cfg(pad_config, 21, 12, 12, 0);
+			stm_pad_config_add_pio(pad_config, 2, 4,
+					STM_GPIO_DIRECTION_ALT_BIDIR);
+			break;
 		case stx7105_ssc2_sclk_pio3_4:
 			/* ssc2_sclk_in: 01 = PIO3.4 */
 			stm_pad_config_add_sys_cfg(pad_config, 16, 11, 12, 1);
-			/* Alt. func. 3ter */
+			/* Alt. func. 2 */
 			stm_pad_config_add_sys_cfg(pad_config, 25, 4, 4, 1);
 			stm_pad_config_add_sys_cfg(pad_config, 25, 12, 12, 0);
 			stm_pad_config_add_pio(pad_config, 3, 4,
@@ -848,10 +893,21 @@ int __init stx7105_configure_ssc_spi(int ssc, struct stx7105_ssc_config *config)
 
 		/* SCK */
 		switch (config->routing.ssc3.sclk) {
+		case stx7105_ssc3_sclk_pio2_7:
+			/* 7106 only! */
+			BUG_ON(cpu_data->type != CPU_STX7106);
+			/* ssc3_sclk_in: 00 = PIO2.7 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 18, 19, 0);
+			/* Alt. func. 2 */
+			stm_pad_config_add_sys_cfg(pad_config, 21, 7, 7, 1);
+			stm_pad_config_add_sys_cfg(pad_config, 21, 15, 15, 0);
+			stm_pad_config_add_pio(pad_config, 2, 7,
+					STM_GPIO_DIRECTION_ALT_BIDIR);
+			break;
 		case stx7105_ssc3_sclk_pio3_6:
 			/* ssc3_sclk_in: 00 = PIO3.6 */
 			stm_pad_config_add_sys_cfg(pad_config, 16, 18, 19, 0);
-			/* Alt. func. 3bis */
+			/* Alt. func. 2 */
 			stm_pad_config_add_sys_cfg(pad_config, 25, 6, 6, 1);
 			stm_pad_config_add_sys_cfg(pad_config, 25, 14, 14, 0);
 			stm_pad_config_add_pio(pad_config, 3, 6,

@@ -14,12 +14,11 @@
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/io.h>
-#include <linux/input.h>
 #include <linux/leds.h>
 #include <linux/lirc.h>
 #include <linux/gpio.h>
-#include <linux/gpio_keys.h>
 #include <linux/phy.h>
+#include <linux/tm1668.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7105.h>
 #include <linux/stm/pci-synopsys.h>
@@ -82,16 +81,55 @@ static struct platform_device hdk7105_leds = {
 	.dev.platform_data = &(struct gpio_led_platform_data) {
 		.num_leds = 2,
 		.leds = (struct gpio_led[]) {
+			/* The schematics actually describes these PIOs
+			 * the other way round, but all tested boards
+			 * had the bi-colour LED fitted like below... */
 			{
-				.name = "LD5",
+				.name = "RED", /* This is also frontpanel LED */
+				.gpio = stm_gpio(7, 0),
+				.active_low = 1,
+			}, {
+				.name = "GREEN",
 				.default_trigger = "heartbeat",
-				.gpio = stm_gpio(2, 4),
-			},
-			{
-				.name = "LD6",
-				.gpio = stm_gpio(2, 3),
+				.gpio = stm_gpio(7, 1),
+				.active_low = 1,
 			},
 		},
+	},
+};
+
+static struct tm1668_key hdk7105_front_panel_keys[] = {
+	{ 0x00001000, KEY_UP, "Up (SWF2)" },
+	{ 0x00800000, KEY_DOWN, "Down (SWF7)" },
+	{ 0x00008000, KEY_LEFT, "Left (SWF6)" },
+	{ 0x00000010, KEY_RIGHT, "Right (SWF5)" },
+	{ 0x00000080, KEY_ENTER, "Enter (SWF1)" },
+	{ 0x00100000, KEY_ESC, "Escape (SWF4)" },
+};
+
+static struct tm1668_character hdk7105_front_panel_characters[] = {
+	TM1668_7_SEG_HEX_DIGITS,
+	TM1668_7_SEG_HEX_DIGITS_WITH_DOT,
+	TM1668_7_SEG_SEGMENTS,
+};
+
+static struct platform_device hdk7105_front_panel = {
+	.name = "tm1668",
+	.id = -1,
+	.dev.platform_data = &(struct tm1668_platform_data) {
+		.gpio_dio = stm_gpio(11, 2),
+		.gpio_sclk = stm_gpio(11, 3),
+		.gpio_stb = stm_gpio(11, 4),
+		.config = tm1668_config_6_digits_12_segments,
+
+		.keys_num = ARRAY_SIZE(hdk7105_front_panel_keys),
+		.keys = hdk7105_front_panel_keys,
+		.keys_poll_period = DIV_ROUND_UP(HZ, 5),
+
+		.brightness = 8,
+		.characters_num = ARRAY_SIZE(hdk7105_front_panel_characters),
+		.characters = hdk7105_front_panel_characters,
+		.text = "7105",
 	},
 };
 
@@ -136,6 +174,7 @@ static struct platform_device hdk7105_phy_device = {
 
 static struct platform_device *hdk7105_devices[] __initdata = {
 	&hdk7105_leds,
+	&hdk7105_front_panel,
 	&hdk7105_phy_device,
 };
 

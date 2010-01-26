@@ -7,6 +7,7 @@ ksymhash-objs	:= ksymhash.o elflib.o
 
 ifdef CONFIG_LKM_ELF_HASH
 modpost-objs += ktablehash.o
+HOSTCFLAGS_ktablehash.o += -DCONFIG_LKM_ELF_HASH
 HOSTCFLAGS_modpost.o += -DCONFIG_LKM_ELF_HASH
 endif
 

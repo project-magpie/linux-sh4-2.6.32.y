@@ -22,7 +22,7 @@ struct xratio {
 };
 
 int get_xratio_field(unsigned long rate, unsigned long prate,
-	struct xratio *ratios);
+	const struct xratio *ratios);
 #endif
 
 #ifdef __cplusplus

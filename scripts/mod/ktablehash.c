@@ -84,7 +84,7 @@ static uint32_t compute_bucket_count(unsigned long int nsyms, int gnu_hash)
 
 /* Handle collisions: return the max of the used slot of the chain
   -1 in case of error */
-int handle_collision(struct elf_htable *htable, unsigned long idx,
+static int handle_collision(struct elf_htable *htable, unsigned long idx,
 		     unsigned long value)
 {
 	uint32_t *slot;

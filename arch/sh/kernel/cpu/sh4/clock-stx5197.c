@@ -219,7 +219,7 @@ static void dividedpll_hw_set(unsigned long addr,
 {
 	unsigned long flag;
 
-	addr += ss_base;
+	addr += (unsigned long)ss_base;
 
 	local_irq_save(flag);
 	writel(0xf0, ss_base + CLK_LOCK_CFG);
@@ -256,11 +256,10 @@ static void dividedpll_hw_set(unsigned long addr,
 	local_irq_restore(flag);
 }
 
-static int dividedpll_clk_XXable(struct clk *clk, int enable)
+static void dividedpll_clk_XXable(struct clk *clk, int enable)
 {
 	unsigned long num = clk->id-CLK_DDR_ID;
 	unsigned long offset = CLKDIV_CONF0(num);
-	unsigned long flag;
 	unsigned long reg_cfg0, reg_cfg1, reg_cfg2;
 
 	dbg_print("\n");
@@ -276,22 +275,22 @@ static int dividedpll_clk_XXable(struct clk *clk, int enable)
 	dividedpll_hw_set(offset, reg_cfg0, reg_cfg1, reg_cfg2);
 
 	clk->rate = (enable ? divider_freq(clk->parent->rate, num) : 0);
-	return 0;
 }
 
-static int dividedpll_clk_disable(struct clk *clk)
+static void dividedpll_clk_disable(struct clk *clk)
 {
 	dbg_print("\n");
-	return dividedpll_clk_XXable(clk, 0);
+	dividedpll_clk_XXable(clk, 0);
 }
 
 static int dividedpll_clk_enable(struct clk *clk)
 {
 	dbg_print("\n");
-	return dividedpll_clk_XXable(clk, 1);
+	dividedpll_clk_XXable(clk, 1);
+	return 0;
 }
 
-static int dividedpll_clk_set_rate(struct clk *clk, unsigned long rate)
+static int dividedpll_clk_set_rate(struct clk *clk, unsigned long rate, int algo_id)
 {
 	int i;
 	unsigned long offset = CLKDIV_CONF0(clk->id - CLK_DDR_ID);

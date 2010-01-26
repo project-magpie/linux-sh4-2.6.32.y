@@ -140,7 +140,7 @@ void __init stx7111_configure_ethernet(struct stx7111_ethernet_config *config)
 
 /* USB resources ---------------------------------------------------------- */
 
-static u64 stx7111_usb_dma_mask = DMA_32BIT_MASK;
+static u64 stx7111_usb_dma_mask = DMA_BIT_MASK(32);
 
 static struct stm_plat_usb_data stx7111_usb_platform_data = {
 	.flags = STM_PLAT_USB_FLAGS_STRAP_16BIT |
@@ -173,7 +173,7 @@ static struct platform_device stx7111_usb_device = {
 	.id = 0,
 	.dev = {
 		.dma_mask = &stx7111_usb_dma_mask,
-		.coherent_dma_mask = DMA_32BIT_MASK,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 		.platform_data = &stx7111_usb_platform_data,
 	},
 	.num_resources = 6,

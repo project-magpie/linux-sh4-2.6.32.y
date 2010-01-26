@@ -746,7 +746,7 @@ void __init stx5197_configure_ethernet(struct stx5197_ethernet_config *config)
 
 /* USB resources ---------------------------------------------------------- */
 
-static u64 stx5197_usb_dma_mask = DMA_32BIT_MASK;
+static u64 stx5197_usb_dma_mask = DMA_BIT_MASK(32);
 
 static struct stm_plat_usb_data stx5197_usb_platform_data = {
 	.flags = STM_PLAT_USB_FLAGS_STRAP_16BIT |
@@ -775,7 +775,7 @@ static struct platform_device stx5197_usb_device = {
 	.id = -1,
 	.dev = {
 		.dma_mask = &stx5197_usb_dma_mask,
-		.coherent_dma_mask = DMA_32BIT_MASK,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 		.platform_data = &stx5197_usb_platform_data,
 	},
 	.num_resources = 6,

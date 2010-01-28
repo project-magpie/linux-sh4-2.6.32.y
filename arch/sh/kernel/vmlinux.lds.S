@@ -66,6 +66,9 @@ SECTIONS
 		__uncached_end = .;
 	}
 
+	. = ALIGN(PAGE_SIZE);
+	_sdata = .;
+
 	RW_DATA_SECTION(L1_CACHE_BYTES, PAGE_SIZE, THREAD_SIZE)
 
 	_edata = .;			/* End of data section */

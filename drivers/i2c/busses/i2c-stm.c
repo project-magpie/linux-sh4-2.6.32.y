@@ -70,7 +70,7 @@
 #include <linux/wait.h>
 #include <linux/errno.h>
 #include <linux/stm/platform.h>
-#include <linux/stm/stssc.h>
+#include <linux/stm/ssc.h>
 #include "./i2c-stm.h"
 
 #undef dbg_print

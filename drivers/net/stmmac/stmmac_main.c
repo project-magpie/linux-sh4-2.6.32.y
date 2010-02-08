@@ -45,7 +45,7 @@
 #include <linux/phy.h>
 #include <linux/if_vlan.h>
 #include <linux/dma-mapping.h>
-#include <linux/stm/platform.h>
+#include <linux/stm/soc.h>
 #include "stmmac.h"
 
 #define STMMAC_RESOURCE_NAME	"stmmaceth"
@@ -305,8 +305,8 @@ static int stmmac_init_phy(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	struct phy_device *phydev;
-	char phy_id[MII_BUS_ID_SIZE];	/* PHY to connect */
-	char bus_id[MII_BUS_ID_SIZE];
+	char phy_id[BUS_ID_SIZE];	/* PHY to connect */
+	char bus_id[BUS_ID_SIZE];
 
 	priv->oldlink = 0;
 	priv->speed = 0;
@@ -318,7 +318,7 @@ static int stmmac_init_phy(struct net_device *dev)
 	}
 
 	snprintf(bus_id, MII_BUS_ID_SIZE, "%x", priv->bus_id);
-	snprintf(phy_id, MII_BUS_ID_SIZE, PHY_ID_FMT, bus_id, priv->phy_addr);
+	snprintf(phy_id, BUS_ID_SIZE, PHY_ID_FMT, bus_id, priv->phy_addr);
 	pr_debug("stmmac_init_phy:  trying to attach to %s\n", phy_id);
 
 	phydev = phy_connect(dev, phy_id, &stmmac_adjust_link, 0,
@@ -1069,7 +1069,7 @@ static int stmmac_open(struct net_device *dev)
 	/* Copy the MAC addr into the HW  */
 	priv->mac_type->ops->set_umac_addr(ioaddr, dev->dev_addr, 0);
 	/* Initialize the MAC Core */
-	priv->mac_type->ops->core_init(ioaddr, priv->disable_readahead);
+	priv->mac_type->ops->core_init(ioaddr);
 
 	priv->shutdown = 0;
 
@@ -1798,8 +1798,8 @@ static int stmmac_mac_device_setup(struct net_device *dev)
 
 static int stmmacphy_dvr_probe(struct platform_device *pdev)
 {
-	struct stm_plat_stmmacphy_data *plat_dat;
-	plat_dat = dev_get_platdata(&pdev->dev);
+	struct plat_stmmacphy_data *plat_dat;
+	plat_dat = (struct plat_stmmacphy_data *)((pdev->dev).platform_data);
 
 	pr_debug("stmmacphy_dvr_probe: added phy for bus %d\n",
 	       plat_dat->bus_id);
@@ -1831,7 +1831,9 @@ static struct platform_driver stmmacphy_driver = {
 static int stmmac_associate_phy(struct device *dev, void *data)
 {
 	struct stmmac_priv *priv = (struct stmmac_priv *)data;
-	struct stm_plat_stmmacphy_data *plat_dat = dev->platform_data;
+	struct plat_stmmacphy_data *plat_dat;
+
+	plat_dat = (struct plat_stmmacphy_data *)(dev->platform_data);
 
 	DBG(probe, DEBUG, "%s: checking phy for bus %d\n", __func__,
 		plat_dat->bus_id);
@@ -1874,7 +1876,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	unsigned int *addr = NULL;
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv;
-	struct stm_plat_stmmacenet_data *plat_dat;
+	struct plat_stmmacenet_data *plat_dat;
 
 	pr_info("STMMAC driver:\n\tplatform registration... ");
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -1921,25 +1923,15 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	priv = netdev_priv(ndev);
 	priv->device = &(pdev->dev);
 	priv->dev = ndev;
-	plat_dat = pdev->dev.platform_data;
+	plat_dat = (struct plat_stmmacenet_data *)((pdev->dev).platform_data);
 	priv->bus_id = plat_dat->bus_id;
 	priv->pbl = plat_dat->pbl;	/* TLI */
-	priv->disable_readahead = plat_dat->disable_readahead;
 	priv->is_gmac = plat_dat->has_gmac;	/* GMAC is on board */
 
 	platform_set_drvdata(pdev, ndev);
 
 	/* Set the I/O base addr */
 	ndev->base_addr = (unsigned long)addr;
-
-	/* Pad routing setup */
-	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, plat_dat->pad_config,
-				      dev_name(&pdev->dev)))) {
-		printk(KERN_ERR "%s: Failed to request pads!\n",
-		       __FUNCTION__);
-		ret = -ENODEV;
-		goto out;
-	}
 
 	/* MAC HW revice detection */
 	ret = stmmac_mac_device_setup(ndev);
@@ -2051,7 +2043,7 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 		stmmac_dma_stop_rx(dev->base_addr);
 		/* Clear the Rx/Tx descriptors */
 		priv->mac_type->ops->init_rx_desc(priv->dma_rx,
-					priv->dma_rx_size, dis_ic);
+						  priv->dma_rx_size, dis_ic);
 		priv->mac_type->ops->init_tx_desc(priv->dma_tx,
 						  priv->dma_tx_size);
 

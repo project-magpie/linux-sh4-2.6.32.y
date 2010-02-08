@@ -394,18 +394,14 @@ static void gmac_irq_status(unsigned long ioaddr)
 	return;
 }
 
-static void gmac_core_init(unsigned long ioaddr, int disable_readahead)
+static void gmac_core_init(unsigned long ioaddr)
 {
 	u32 value = readl(ioaddr + GMAC_CONTROL);
 	value |= GMAC_CORE_INIT;
 	writel(value, ioaddr + GMAC_CONTROL);
 
 	/* STBus Bridge Configuration */
-	if (disable_readahead) {
-		value = readl(ioaddr + GMAC_AHB_CONFIG);
-		value &= GMAC_AHB_CONFIG_READ_AHEAD_MASK;
-		writel(value, ioaddr + GMAC_AHB_CONFIG);
-	}
+	/*writel(0xc5608, ioaddr + 0x00007000);*/
 
 	/* Freeze MMC counters */
 	writel(0x8, ioaddr + GMAC_MMC_CTRL);
@@ -473,21 +469,25 @@ static void gmac_set_filter(struct net_device *dev)
 	}
 
 	/* Handle multiple unicast addresses (perfect filtering)*/
-	if (dev->uc.count > GMAC_MAX_UNICAST_ADDRESSES)
+	if (dev->uc_count > GMAC_MAX_UNICAST_ADDRESSES)
 		/* Switch to promiscuous mode is more than 16 addrs
 		   are required */
 		value |= GMAC_FRAME_FILTER_PR;
 	else {
 		int i;
-		struct netdev_hw_addr *ha;
+		struct dev_addr_list *uc_ptr = dev->uc_list;
 
-		i = 1;
-		list_for_each_entry(ha, &dev->uc.list, list) {
-			unsigned char* addr = ha->addr;
+			for (i = 0; i < dev->uc_count; i++) {
+				gmac_set_umac_addr(ioaddr, uc_ptr->da_addr,
+						i + 1);
 
-			gmac_set_umac_addr(ioaddr, addr, i);
-			DBG(KERN_INFO "\t%d - Unicast addr %pM\n", i, addr);
-			i++;
+				DBG(KERN_INFO "\t%d "
+				"- Unicast addr %02x:%02x:%02x:%02x:%02x:"
+				"%02x\n", i + 1,
+				uc_ptr->da_addr[0], uc_ptr->da_addr[1],
+				uc_ptr->da_addr[2], uc_ptr->da_addr[3],
+				uc_ptr->da_addr[4], uc_ptr->da_addr[5]);
+				uc_ptr = uc_ptr->next;
 		}
 	}
 

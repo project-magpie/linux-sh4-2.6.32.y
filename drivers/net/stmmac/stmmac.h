@@ -64,7 +64,6 @@ struct stmmac_priv {
 
 	phy_interface_t phy_interface;
 	int pbl;
-	int disable_readahead;
 	int bus_id;
 	int phy_addr;
 	int phy_mask;

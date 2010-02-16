@@ -49,10 +49,14 @@ static void __init mb628_setup(char **cmdline_p)
 
 	stx7141_early_device_init();
 
+#ifndef ENABLE_GMAC0
+	/* Cannot use the ASC 1 when configure the GMAC0
+	 * due to a PIO conflict */
 	stx7141_configure_asc(1, &(struct stx7141_asc_config) {
 			.routing.asc1 = stx7141_asc1_pio10,
 			.hw_flow_control = 1,
 			.is_console = 1, });
+#endif
 	stx7141_configure_asc(2, &(struct stx7141_asc_config) {
 			.routing.asc2 = stx7141_asc2_pio6,
 			.hw_flow_control = 1,

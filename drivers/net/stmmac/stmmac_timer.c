@@ -40,101 +40,113 @@ printk(KERN_INFO "stmmac_timer: %s Timer ON (freq %dHz)\n", timer, freq);
 
 #if defined(CONFIG_STMMAC_RTC_TIMER)
 #include <linux/rtc.h>
-static struct rtc_device *stmmac_rtc;
-static rtc_task_t stmmac_task;
 
-static void stmmac_rtc_start(unsigned int new_freq)
+static void stmmac_rtc_start(void *timer, unsigned int new_freq)
 {
-	rtc_irq_set_freq(stmmac_rtc, &stmmac_task, new_freq);
-	rtc_irq_set_state(stmmac_rtc, &stmmac_task, 1);
+	struct rtc_device *rtc = timer;
+
+	rtc_irq_set_freq(rtc, rtc->irq_task, new_freq);
+	rtc_irq_set_state(rtc, rtc->irq_task, 1);
 	return;
 }
 
-static void stmmac_rtc_stop(void)
+static void stmmac_rtc_stop(void *timer)
 {
-	rtc_irq_set_state(stmmac_rtc, &stmmac_task, 0);
+	struct rtc_device *rtc = timer;
+
+	rtc_irq_set_state(rtc, rtc->irq_task, 0);
 	return;
 }
 
 int stmmac_open_ext_timer(struct net_device *dev, struct stmmac_timer *tm)
 {
-	stmmac_task.private_data = dev;
-	stmmac_task.func = stmmac_timer_handler;
+	struct rtc_device *rtc;
+	rtc_task_t rtc_task;
 
-	stmmac_rtc = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
-	if (stmmac_rtc == NULL) {
+	rtc_task.private_data = dev;
+	rtc_task.func = stmmac_timer_handler;
+
+	rtc = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
+	if (rtc == NULL) {
 		pr_err("open rtc device failed\n");
 		return -ENODEV;
 	}
 
-	rtc_irq_register(stmmac_rtc, &stmmac_task);
+	rtc_irq_register(rtc, &rtc_task);
 
 	/* Periodic mode is not supported */
-	if ((rtc_irq_set_freq(stmmac_rtc, &stmmac_task, tm->freq) < 0)) {
+	if ((rtc_irq_set_freq(rtc, &rtc_task, tm->freq) < 0)) {
 		pr_err("set periodic failed\n");
-		rtc_irq_unregister(stmmac_rtc, &stmmac_task);
-		rtc_class_close(stmmac_rtc);
+		rtc_irq_unregister(rtc, &rtc_task);
+		rtc_class_close(rtc);
 		return -1;
 	}
 
 	STMMAC_TIMER_MSG(CONFIG_RTC_HCTOSYS_DEVICE, tm->freq);
 
+	rtc->irq_task = &rtc_task;
+	tm->timer_callb = rtc;
 	tm->timer_start = stmmac_rtc_start;
 	tm->timer_stop = stmmac_rtc_stop;
 
 	return 0;
 }
 
-int stmmac_close_ext_timer(void)
+int stmmac_close_ext_timer(void *timer)
 {
-	rtc_irq_set_state(stmmac_rtc, &stmmac_task, 0);
-	rtc_irq_unregister(stmmac_rtc, &stmmac_task);
-	rtc_class_close(stmmac_rtc);
+	struct rtc_device *rtc = timer;
+
+	rtc_irq_set_state(rtc, rtc->irq_task, 0);
+	rtc_irq_unregister(rtc, rtc->irq_task);
+	rtc_class_close(rtc);
+
 	return 0;
 }
 
 #elif defined(CONFIG_STMMAC_TMU_TIMER)
-#include <linux/clk.h>
-#define TMU_CHANNEL "tmu2_clk"
-static struct clk *timer_clock;
+#include <linux/sh_timer.h>
 
-static void stmmac_tmu_start(unsigned int new_freq)
+/* Set rate and start the timer */
+static void stmmac_tmu_set_rate(void *timer_callb, unsigned int new_freq)
 {
-	clk_set_rate(timer_clock, new_freq);
-	clk_enable(timer_clock);
+	struct sh_timer_callb *timer = timer_callb;
+
+	timer->timer_start(timer->tmu_priv);
+	timer->set_rate(timer->tmu_priv, new_freq);
 	return;
 }
 
-static void stmmac_tmu_stop(void)
+static void stmmac_tmu_stop(void *timer_callb)
 {
-	clk_disable(timer_clock);
+	struct sh_timer_callb *timer = timer_callb;
+
+	timer->timer_stop(timer->tmu_priv);
 	return;
 }
 
 int stmmac_open_ext_timer(struct net_device *dev, struct stmmac_timer *tm)
 {
-	timer_clock = clk_get(NULL, TMU_CHANNEL);
+	struct sh_timer_callb *timer;
+	timer = sh_timer_register(stmmac_timer_handler,  (void *)dev);
 
-	if (timer_clock == NULL)
+	if (timer == NULL)
 		return -1;
 
-	if (tmu2_register_user(stmmac_timer_handler, (void *)dev) < 0) {
-		timer_clock = NULL;
-		return -1;
-	}
+	STMMAC_TIMER_MSG("sh_tmu", tm->freq);
 
-	STMMAC_TIMER_MSG("TMU2", tm->freq);
-	tm->timer_start = stmmac_tmu_start;
+	tm->timer_callb = timer;
+	tm->timer_start = stmmac_tmu_set_rate;
 	tm->timer_stop = stmmac_tmu_stop;
 
 	return 0;
 }
 
-int stmmac_close_ext_timer(void)
+int stmmac_close_ext_timer(void *timer_callb)
 {
-	clk_disable(timer_clock);
-	tmu2_unregister_user();
-	clk_put(timer_clock);
+	struct sh_timer_callb *timer = timer_callb;
+
+	stmmac_tmu_stop(timer_callb);
+	sh_timer_unregister(timer->tmu_priv);
 	return 0;
 }
 #endif

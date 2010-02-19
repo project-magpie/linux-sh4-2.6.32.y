@@ -681,7 +681,7 @@ static inline void stmmac_enable_irq(struct stmmac_priv *priv)
 {
 #ifdef CONFIG_STMMAC_TIMER
 	if (likely(priv->tm->enable))
-		priv->tm->timer_start(tmrate);
+		priv->tm->timer_start(priv->tm->timer_callb, tmrate);
 	else
 #endif
 		priv->hw->dma->enable_dma_irq(priv->dev->base_addr);
@@ -691,7 +691,7 @@ static inline void stmmac_disable_irq(struct stmmac_priv *priv)
 {
 #ifdef CONFIG_STMMAC_TIMER
 	if (likely(priv->tm->enable))
-		priv->tm->timer_stop();
+		priv->tm->timer_stop(priv->tm->timer_callb);
 	else
 #endif
 		priv->hw->dma->disable_dma_irq(priv->dev->base_addr);
@@ -734,11 +734,11 @@ void stmmac_schedule(struct net_device *dev)
 	return;
 }
 
-static void stmmac_no_timer_started(unsigned int x)
+static void stmmac_no_timer_started(void *t, unsigned int x)
 {;
 };
 
-static void stmmac_no_timer_stopped(void)
+static void stmmac_no_timer_stopped(void *t)
 {;
 };
 #endif
@@ -898,7 +898,7 @@ static int stmmac_open(struct net_device *dev)
 	priv->hw->dma->start_rx(ioaddr);
 
 #ifdef CONFIG_STMMAC_TIMER
-	priv->tm->timer_start(tmrate);
+	priv->tm->timer_start(priv->tm->timer_callb, tmrate);
 #endif
 	/* Dump DMA/MAC registers */
 	if (netif_msg_hw(priv)) {
@@ -936,7 +936,7 @@ static int stmmac_release(struct net_device *dev)
 
 #ifdef CONFIG_STMMAC_TIMER
 	/* Stop and release the timer */
-	stmmac_close_ext_timer();
+	stmmac_close_ext_timer(priv->tm->timer_callb);
 	if (priv->tm != NULL)
 		kfree(priv->tm);
 #endif
@@ -1838,7 +1838,7 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 			phy_stop(priv->phydev);
 
 #ifdef CONFIG_STMMAC_TIMER
-		priv->tm->timer_stop();
+		priv->tm->timer_stop(priv->tm->timer_callb);
 		if (likely(priv->tm->enable))
 			dis_ic = 1;
 #endif
@@ -1910,7 +1910,7 @@ static int stmmac_resume(struct platform_device *pdev)
 	priv->hw->dma->start_rx(ioaddr);
 
 #ifdef CONFIG_STMMAC_TIMER
-	priv->tm->timer_start(tmrate);
+	priv->tm->timer_start(priv->tm->timer_callb, tmrate);
 #endif
 	napi_enable(&priv->napi);
 

@@ -31,6 +31,12 @@
 #include <linux/clockchips.h>
 #include <linux/sh_timer.h>
 
+struct sh_timer_priv {
+	void (*priv_handler) (void *data);
+	void *data;
+	struct sh_timer_callb *fnc;
+};
+
 struct sh_tmu_priv {
 	void __iomem *mapbase;
 	struct clk *clk;
@@ -40,6 +46,7 @@ struct sh_tmu_priv {
 	unsigned long periodic;
 	struct clock_event_device ced;
 	struct clocksource cs;
+	struct sh_timer_priv tm;
 };
 
 static DEFINE_SPINLOCK(sh_tmu_lock);
@@ -342,8 +349,114 @@ static int sh_tmu_register(struct sh_tmu_priv *p, char *name,
 		sh_tmu_register_clockevent(p, name, clockevent_rating);
 	else if (clocksource_rating)
 		sh_tmu_register_clocksource(p, name, clocksource_rating);
-
 	return 0;
+}
+
+static void sh_timer_start(void *priv)
+{
+	struct sh_tmu_priv *p = priv;
+
+	sh_tmu_write(p, TCR, 0x0020);
+	sh_tmu_start_stop_ch(p, 1);
+}
+
+static void sh_timer_stop(void *priv)
+{
+	struct sh_tmu_priv *p = priv;
+
+	sh_tmu_start_stop_ch(p, 0);
+	sh_tmu_write(p, TCR, 0x0000);
+}
+
+static void sh_timer_set_rate(void *priv, unsigned long rate)
+{
+	struct sh_tmu_priv *p = priv;
+	unsigned long delta = p->rate / rate;
+
+	sh_tmu_set_next(p, delta, 1);
+}
+
+static irqreturn_t sh_timer_interrupt(int irq, void *dev_id)
+{
+	struct sh_tmu_priv *p = dev_id;
+
+	sh_tmu_write(p, TCR, 0x0020);
+
+	p->tm.priv_handler(p->tm.data);
+	return IRQ_HANDLED;
+}
+
+/* A Channel not used as clock source or for clock event (e.g. TMU2)
+ * can be used as generic timer and registered by another device. */
+struct sh_timer_callb *sh_timer_register(void *handler, void *data)
+{
+	struct sh_tmu_priv *p = NULL;
+	int ret, i;
+	/* As first element, look at the channel 2 because usually not
+	 * used. */
+	char *c[] = { "sh_tmu.2", "sh_tmu.1", "sh_tmu.0" };
+
+	for (i = 0; i < ARRAY_SIZE(c); i++) {
+		struct device *dev = bus_find_device_by_name(&platform_bus_type,
+							     NULL, c[i]);
+		if (dev) {
+			struct sh_timer_config *cfg = dev->platform_data;
+
+			if (!cfg->clockevent_rating &&
+			    !cfg->clocksource_rating) {
+				p = dev_get_drvdata(dev);
+				break;
+			}
+		}
+	}
+
+	/* Check if the channel has been not already registered as timer. */
+	if ((p == NULL) || (p->tm.fnc != NULL))
+		return NULL;
+
+	if (handler == NULL) {
+		pr_err("sh_tmu: invalid handler\n");
+		return NULL;
+	}
+
+	p->tm.fnc = kmalloc(sizeof(struct sh_timer_callb *),
+				      GFP_KERNEL);
+	if  (p->tm.fnc == NULL)
+		return NULL;
+
+	/* Prepare the new handler */
+	p->irqaction.handler = sh_timer_interrupt;
+	p->tm.priv_handler = handler;
+	p->tm.data = data;
+
+	ret = setup_irq(p->irqaction.irq, &p->irqaction);
+	if (ret) {
+		pr_err("sh_tmu: failed to request irq %d\n", p->irqaction.irq);
+		return NULL;
+	}
+
+	/* Channel is stopped and irq off */
+	sh_timer_stop(p);
+	sh_tmu_write(p, TCOR, 0xffffffff);
+	sh_tmu_write(p, TCNT, 0xffffffff);
+	p->rate = clk_get_rate(p->clk) / 4;
+
+	p->tm.fnc->tmu_priv = p; /* hook to invoke the timer callbacks */
+	p->tm.fnc->timer_start = sh_timer_start;
+	p->tm.fnc->timer_stop = sh_timer_stop;
+	p->tm.fnc->set_rate = sh_timer_set_rate;
+
+	return p->tm.fnc;
+}
+
+void sh_timer_unregister(void *priv)
+{
+	struct sh_tmu_priv *p = priv;
+
+	sh_tmu_disable(p);
+	remove_irq(p->irqaction.irq, &p->irqaction);
+	kfree(p->tm.fnc);
+	p->tm.fnc = NULL;
 }
 
 static int sh_tmu_setup(struct sh_tmu_priv *p, struct platform_device *pdev)

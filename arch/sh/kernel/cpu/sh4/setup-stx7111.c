@@ -11,8 +11,9 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
-#include <linux/stm/sysconf.h>
 #include <linux/stm/platform.h>
+#include <linux/stm/stx7111.h>
+#include <linux/stm/sysconf.h>
 #include <asm/irl.h>
 #include <asm/irq-ilc.h>
 

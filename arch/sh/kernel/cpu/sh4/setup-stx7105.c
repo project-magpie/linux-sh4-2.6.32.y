@@ -11,9 +11,11 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
-#include <linux/stm/sysconf.h>
 #include <linux/stm/platform.h>
+#include <linux/stm/stx7105.h>
+#include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
+
 
 
 /* SH4-only resources ----------------------------------------------------- */

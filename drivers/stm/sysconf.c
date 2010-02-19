@@ -41,7 +41,7 @@ struct sysconf_field {
 struct sysconf_group {
 	void __iomem *base;
 	const char *name;
-	const char *(*field_name)(int num);
+	const char *(*reg_name)(int num);
 	struct sysconf_block *block;
 };
 
@@ -308,6 +308,23 @@ unsigned long sysconf_mask(struct sysconf_field *field)
 }
 EXPORT_SYMBOL(sysconf_mask);
 
+const char *sysconf_group_name(int group)
+{
+	BUG_ON(group < 0 || group >= sysconf_groups_num);
+
+	return sysconf_groups[group].name;
+
+}
+EXPORT_SYMBOL(sysconf_group_name);
+
+const char *sysconf_reg_name(int group, int num)
+{
+	BUG_ON(group < 0 || group >= sysconf_groups_num);
+
+	return sysconf_groups[group].reg_name ?
+			sysconf_groups[group].reg_name(num) : NULL;
+}
+EXPORT_SYMBOL(sysconf_reg_name);
 
 
 #ifdef CONFIG_PM
@@ -495,8 +512,8 @@ static int sysconf_seq_show_fields(struct seq_file *s)
 	list_for_each_entry(field, &sysconf_fields, list) {
 		struct sysconf_group *group = &sysconf_groups[field->group];
 
-		if (group->field_name)
-			seq_printf(s, "- %s[", group->field_name(field->num));
+		if (group->reg_name)
+			seq_printf(s, "- %s[", group->reg_name(field->num));
 		else
 			seq_printf(s, "- %s%d[", group->name, field->num);
 
@@ -629,7 +646,7 @@ void __init sysconf_early_init(struct platform_device *pdevs, int pdevs_num)
 
 			group->base = block->base + info->offset;
 			group->name = info->name;
-			group->field_name = info->field_name;
+			group->reg_name = info->reg_name;
 			group->block = block;
 		}
 

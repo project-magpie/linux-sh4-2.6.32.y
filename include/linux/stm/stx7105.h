@@ -6,6 +6,13 @@
 #include <linux/stm/platform.h>
 
 
+/* Sysconfig groups */
+
+#define SYS_DEV 0
+#define SYS_STA 1
+#define SYS_CFG 2
+
+
 void stx7105_early_device_init(void);
 
 

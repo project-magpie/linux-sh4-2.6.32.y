@@ -11,6 +11,7 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
+#include <linux/stm/stx7100.h>
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
 

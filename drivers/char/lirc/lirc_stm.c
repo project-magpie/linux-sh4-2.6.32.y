@@ -1154,7 +1154,8 @@ static int lirc_stm_probe(struct platform_device *pdev)
 	       ": probe found data for platform device %s\n", pdev->name);
 	pd.p_lirc_d = pdev->dev.platform_data;
 
-	if ((irb_irq = platform_get_irq(pdev, 0)) == 0) {
+	irb_irq = platform_get_irq(pdev, 0);
+	if (irb_irq < 0) {
 		printk(KERN_ERR LIRC_STM_NAME
 		       ": IRQ configuration not found\n");
 		return -ENODEV;

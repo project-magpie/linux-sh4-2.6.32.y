@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: David McKay <david.mckay@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #ifndef LINUX_STM_PCI_SYNOPSYS_H
 #define LINUX_STM_PCI_SYNOPSYS_H
 

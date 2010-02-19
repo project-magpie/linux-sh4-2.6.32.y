@@ -22,6 +22,7 @@
 #include <linux/stm/nand.h>
 
 
+
 /*** Platform definition helpers ***/
 
 #define STM_PLAT_RESOURCE_MEM(_start, _size) \
@@ -142,6 +143,7 @@ struct stm_plat_pwm_data {
 };
 
 
+
 /*** Temperature sensor data ***/
 
 struct plat_stm_temp_data {
@@ -155,6 +157,7 @@ struct plat_stm_temp_data {
 	unsigned long (*custom_get_data)(void *priv);
 	void *custom_priv;
 };
+
 
 
 /*** Ethernet (STMMAC) platform data ***/
@@ -309,6 +312,8 @@ struct stm_plat_fdma_data {
 	int max_ch_num;
 };
 
+
+
 /*** PCI platform data ***/
 
 #define PCI_PIN_ALTERNATIVE -3 /* Use alternative PIO rather than default */
@@ -366,6 +371,8 @@ struct stm_plat_pci_config {
 	unsigned req0_to_req3:1;
 	unsigned req0_emi:1;
 };
+
+
 
 /*** ILC platform data ***/
 

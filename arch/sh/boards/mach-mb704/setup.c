@@ -120,7 +120,7 @@ static struct platform_device *mb704_devices[] __initdata = {
 static int __init mb704_devices_init(void)
 {
 	/* By default we don't configure PWM as the mb704 has J2C fitted
-	 * which resulsts in contention.
+	 * which results in contention.
 	 * stx5197_configure_pwm();
 	 */
 

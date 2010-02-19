@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/i2c.h>
@@ -13,107 +25,60 @@
 
 
 
+/* Note that 5197 documentation defines PIO alternative functions starting
+ * from 0. So for the "Pad Manager" use the STX5197_GPIO_FUNCTION defines
+ * some other value to describe "generic PIO" mode. */
+#define STX5197_GPIO_FUNCTION -42 /* Forty-two is such a nice number :-* */
+
+
+
 /* ASC resources ---------------------------------------------------------- */
 
 static struct stm_pad_config stx5197_asc_pad_configs[] = {
 	[0] = {
-		.sysconf_values_num = 4, /* !!! see stx5197_configure_asc() */
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alt 0 for PIO0.0 & PIO0.1 */
-			STM_PAD_CFG(CFG_CTRL_F, 0, 1, 0),
-			STM_PAD_CFG(CFG_CTRL_F, 8, 9, 0),
-			/* Alt 2 for PIO0.4 & PIO0.5 - HW flow control */
-			STM_PAD_CFG(CFG_CTRL_F, 4, 5, 0),
-			STM_PAD_CFG(CFG_CTRL_F, 12, 13, 3),
-		},
-		.gpio_values_num = 4, /* !!! see stx5197_configure_asc() */
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			/* TX */
-			STM_PAD_PIO_ALT_OUT(0, 0),
-			/* RX */
-			STM_PAD_PIO_IN(0, 1),
-			/* CTS (claimed for HW flow control only) */
-			STM_PAD_PIO_IN(0, 5),
-			/* RTS (claimed for HW flow control only) */
-			STM_PAD_PIO_ALT_OUT(0, 4),
+		.gpios_num = 4,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_OUT(0, 0, 0),	/* TX */
+			STM_PAD_PIO_IN(0, 1, -1),	/* RX */
+			STM_PAD_PIO_IN_NAMED(0, 5, -1, "CTS"),
+			STM_PAD_PIO_OUT_NAMED(0, 4, 2, "RTS"),
 		},
 	},
 	[1] = {
-		.sysconf_values_num = 4, /* !!! see stx5197_configure_asc() */
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alt 2 for PIO4.0 & PIO4.1 */
-			STM_PAD_CFG(CFG_CTRL_O, 0, 1, 3),
-			STM_PAD_CFG(CFG_CTRL_O, 8, 9, 3),
-			/* Alt 2 for PIO4.2 & alt 3 PIO4.3 - HW flow control */
-			STM_PAD_CFG(CFG_CTRL_O, 2, 3, 2),
-			STM_PAD_CFG(CFG_CTRL_O, 10, 11, 3),
-		},
-		.gpio_values_num = 4, /* !!! see stx5197_configure_asc() */
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			/* TX */
-			STM_PAD_PIO_ALT_OUT(4, 0),
-			/* RX */
-			STM_PAD_PIO_IN(4, 1),
-			/* CTS (claimed for HW flow control only) */
-			STM_PAD_PIO_IN(4, 3),
-			/* RTS (claimed for HW flow control only) */
-			STM_PAD_PIO_ALT_OUT(4, 2),
+		.gpios_num = 4,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_OUT(4, 0, 2),	/* TX */
+			STM_PAD_PIO_IN(4, 1, -1),	/* RX */
+			STM_PAD_PIO_IN_NAMED(4, 3, -1, "CTS"),
+			STM_PAD_PIO_OUT_NAMED(4, 2, 2, "RTS"),
 		},
 	},
 	[2] = {
-		.sysconf_values_num = 4, /* !!! see stx5197_configure_asc() */
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alt 1 for PIO1.2 & PIO1.3 */
-			STM_PAD_CFG(CFG_CTRL_F, 18, 19, 3),
-			STM_PAD_CFG(CFG_CTRL_F, 26, 27, 0),
-			/* Alt 1 for PIO1.4 & PIO1.5 - HW flow control */
-			STM_PAD_CFG(CFG_CTRL_F, 20, 21, 3),
-			STM_PAD_CFG(CFG_CTRL_F, 28, 29, 0),
-		},
-		.gpio_values_num = 4, /* !!! see stx5197_configure_asc() */
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			/* TX */
-			STM_PAD_PIO_ALT_OUT(1, 2),
-			/* RX */
-			STM_PAD_PIO_IN(1, 3),
-			/* CTS (claimed for HW flow control only) */
-			STM_PAD_PIO_IN(1, 5),
-			/* RTS (claimed for HW flow control only) */
-			STM_PAD_PIO_ALT_OUT(1, 4),
+		.gpios_num = 4,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_OUT(1, 2, 1),	/* TX */
+			STM_PAD_PIO_IN(1, 3, -1),	/* RX */
+			STM_PAD_PIO_IN_NAMED(1, 5, -1, "CTS"),
+			STM_PAD_PIO_OUT_NAMED(1, 4, 1, "RTS"),
 		},
 	},
 	[3] = {
-		.sysconf_values_num = 4, /* !!! see stx5197_configure_asc() */
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Alt 1 for PIO2.0 & PIO2.1 */
-			STM_PAD_CFG(CFG_CTRL_G, 0, 1, 3),
-			STM_PAD_CFG(CFG_CTRL_G, 8, 9, 0),
-			/* Alt 1 for PIO2.2 & PIO2.5 - HW flow control */
-			STM_PAD_CFG(CFG_CTRL_G, 2, 2, 1),
-			STM_PAD_CFG(CFG_CTRL_G, 10, 10, 0),
-			STM_PAD_CFG(CFG_CTRL_G, 5, 5, 1),
-			STM_PAD_CFG(CFG_CTRL_G, 13, 13, 0),
-		},
-		.gpio_values_num = 4, /* !!! see stx5197_configure_asc() */
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			/* TX */
-			STM_PAD_PIO_ALT_OUT(2, 0),
-			/* RX */
-			STM_PAD_PIO_IN(2, 1),
-			/* CTS (claimed for HW flow control only) */
-			STM_PAD_PIO_IN(2, 2),
-			/* RTS (claimed for HW flow control only) */
-			STM_PAD_PIO_ALT_OUT(2, 5),
+		.gpios_num = 4,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_OUT(2, 0, 1),	/* TX */
+			STM_PAD_PIO_IN(2, 1, -1),	/* RX */
+			STM_PAD_PIO_IN_NAMED(2, 2, -1, "CTS"),
+			STM_PAD_PIO_OUT_NAMED(2, 5, 1, "RTS"),
 		},
 	},
 };
 
 static struct platform_device stx5197_asc_devices[] = {
 	[0] = {
-		.name		= "stm-asc",
+		.name = "stm-asc",
 		/* .id set in stx5197_configure_asc() */
-		.num_resources	= 4,
-		.resource	= (struct resource[]) {
+		.num_resources = 4,
+		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfd130000, 0x2c),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(7), -1),
 			STM_PLAT_RESOURCE_DMA_NAMED("rx_half_full", 8),
@@ -124,10 +89,10 @@ static struct platform_device stx5197_asc_devices[] = {
 		},
 	},
 	[1] = {
-		.name		= "stm-asc",
+		.name = "stm-asc",
 		/* .id set in stx5197_configure_asc() */
-		.num_resources	= 4,
-		.resource	= (struct resource[]) {
+		.num_resources = 4,
+		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfd131000, 0x2c),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(8), -1),
 			STM_PLAT_RESOURCE_DMA_NAMED("rx_half_full", 9),
@@ -138,10 +103,10 @@ static struct platform_device stx5197_asc_devices[] = {
 		},
 	},
 	[2] = {
-		.name		= "stm-asc",
+		.name = "stm-asc",
 		/* .id set in stx5197_configure_asc() */
-		.num_resources	= 4,
-		.resource	= (struct resource[]) {
+		.num_resources = 4,
+		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfd132000, 0x2c),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(12), -1),
 			STM_PLAT_RESOURCE_DMA_NAMED("rx_half_full", 3),
@@ -152,10 +117,10 @@ static struct platform_device stx5197_asc_devices[] = {
 		},
 	},
 	[3] = {
-		.name		= "stm-asc",
+		.name = "stm-asc",
 		/* .id set in stx5197_configure_asc() */
-		.num_resources	= 4,
-		.resource	= (struct resource[]) {
+		.num_resources = 4,
+		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfd133000, 0x2c),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(13), -1),
 			STM_PLAT_RESOURCE_DMA_NAMED("rx_half_full", 4),
@@ -194,25 +159,16 @@ void __init stx5197_configure_asc(int asc, struct stx5197_asc_config *config)
 	if (!config)
 		config = &default_config;
 
-	if (!config->hw_flow_control) {
-		/* Don't claim RTS/CTS pads */
-		stx5197_asc_pad_configs[asc].gpio_values_num -= 2;
-		/* sysconf values responsible for RTS/CTS routing
-		 * are defined as the last 2 or 4 ones... */
-		if (asc == 3)
-			stx5197_asc_pad_configs[asc].sysconf_values_num -= 4;
-		else
-			stx5197_asc_pad_configs[asc].sysconf_values_num -= 2;
-		/* gpio direction values for RTS/CTS are given as the
-		 * last two ones... */
-		stx5197_asc_pad_configs[asc].gpio_values_num -= 2;
-	}
-
 	pdev = &stx5197_asc_devices[asc];
 	plat_data = pdev->dev.platform_data;
 
 	pdev->id = tty_id++;
 	plat_data->hw_flow_control = config->hw_flow_control;
+
+	if (!config->hw_flow_control) {
+		stm_pad_set_pio_ignored(plat_data->pad_config, "RTS");
+		stm_pad_set_pio_ignored(plat_data->pad_config, "CTS");
+	}
 
 	if (config->is_console)
 		stm_asc_console_device = pdev->id;
@@ -232,131 +188,71 @@ arch_initcall(stx5197_add_asc);
 
 /* SSC resources ---------------------------------------------------------- */
 
-/* Pad configuration for SSC0 in I2C/SSC mode on PIO1.6/7 pads */
-static struct stm_pad_config stx5197_ssc0_i2c_ssc_pio1_pad_config = {
-	.sysconf_values_num = 4,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
+/* Pad configuration for SSC0 in I2C mode on PIO1.6/7 pads */
+static struct stm_pad_config stx5197_ssc0_i2c_pio1_pad_config = {
+	.gpios_num = 2,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_BIDIR_NAMED(1, 6, 2, "SCL"),
+		STM_PAD_PIO_BIDIR_NAMED(1, 7, 2, "SDA"),
+	},
+	.sysconfs_num = 2,
+	.sysconfs = (struct stm_pad_sysconf []) {
 		/* SPI_BOOTNOTCOMMS
 		 * 0: SSC0 -> PIO1[7:6], 1: SSC0 -> SPI */
-		STM_PAD_CFG(CFG_CTRL_M, 14, 14, 0),
+		STM_PAD_SYSCONF(CFG_CTRL_M, 14, 14, 0),
 		/* PIO_FUNCTIONALITY_ON_PIO1_7
 		 * 0: QAM validation, 1: Normal PIO */
-		STM_PAD_CFG(CFG_CTRL_I, 2, 2, 1),
-		/* Alt 2 for PIO1.6 & PIO1.6 */
-		STM_PAD_CFG(CFG_CTRL_F, 22, 23, 0),
-		STM_PAD_CFG(CFG_CTRL_F, 30, 31, 3),
-	},
-	.gpio_values_num = 2,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		/* SCL */
-		STM_PAD_PIO_ALT_BIDIR(1, 6),
-		/* SDA */
-		STM_PAD_PIO_ALT_BIDIR(1, 7),
+		STM_PAD_SYSCONF(CFG_CTRL_I, 2, 2, 1),
 	},
 };
 
-/* Pad configuration for SSC0 in I2C/GPIO (temporary) mode (on PIO1) */
-static struct stm_pad_config stx5197_ssc0_i2c_gpio_pad1_pad_config = {
-	.sysconf_values_num = 2,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
-		/* Alt 1 for PIO1.6 & PIO1.6 */
-		STM_PAD_CFG(CFG_CTRL_F, 22, 23, 3),
-		STM_PAD_CFG(CFG_CTRL_F, 30, 31, 0),
-	},
-	.gpio_values_num = 2,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		/* SCL - in I2C mode on PIO1.6 only! */
-		STM_PAD_PIO_BIDIR(1, 6),
-		/* SDA - in I2C mode on PIO1.7 only!*/
-		STM_PAD_PIO_BIDIR(1, 7),
-	},
-};
-
-/* Pad configuration for SSC0 in I2C/SSC mode on SPI pads */
-static struct stm_pad_config stx5197_ssc0_i2c_ssc_spi_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_STRINGS("SPI", "CLK", "DATAIN"),
-	},
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
+/* Pad configuration for SSC0 in I2C mode on SPI pads */
+static struct stm_pad_config stx5197_ssc0_i2c_spi_pad_config = {
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
 		/* SPI_BOOTNOTCOMMS
 		 * 0: SSC0 -> PIO1[7:6], 1: SSC0 -> SPI */
-		STM_PAD_CFG(CFG_CTRL_M, 14, 14, 1),
+		STM_PAD_SYSCONF(CFG_CTRL_M, 14, 14, 1),
 	},
 };
 
 /* Pad configuration for SSC0 in SPI mode (dedicated SPI pads) */
 static struct stm_pad_config stx5197_ssc0_spi_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_STRINGS("SPI", "CLK", "DATAIN",
-				"DATAOUT", "NOTCS"),
-	},
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
 		/* SPI_BOOTNOTCOMMS
 		 * 0: SSC0 -> PIO1[7:6], 1: SSC0 -> SPI */
-		STM_PAD_CFG(CFG_CTRL_M, 14, 14, 1),
+		STM_PAD_SYSCONF(CFG_CTRL_M, 14, 14, 1),
 	},
 };
 
-/* Pad configuration for SSC1 in I2C/SSC mode as internal QPSK bus */
-static struct stm_pad_config stx5197_ssc1_i2c_ssc_qpsk_config = {
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
+/* Pad configuration for SSC1 in I2C mode as internal QPSK bus */
+static struct stm_pad_config stx5197_ssc1_i2c_qpsk_pad_config = {
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
 		/* QPSK_DEBUG_CONFIG
 		 * 0: IP289 I2C input from PIO1[0:1],
 		 * 1: IP289 input from BE COMMS SSC1 */
-		STM_PAD_CFG(CFG_CTRL_C, 1, 1, 1),
+		STM_PAD_SYSCONF(CFG_CTRL_C, 1, 1, 1),
 	},
 };
 
-/* Pad configuration for SSC1 in I2C/SSC mode on QAM_SCLT/QAM_SDAT pads */
-static struct stm_pad_config stx5197_ssc1_i2c_ssc_qam_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_STRINGS("QAM", "SCLT", "SDAT"),
+/* Pad configuration for SSC2 in I2C mode (always PIO3.3/2 pads) */
+static struct stm_pad_config stx5197_ssc2_i2c_pad_config = {
+	.gpios_num = 2,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_BIDIR_NAMED(3, 3, 1, "SCL"),
+		STM_PAD_PIO_BIDIR_NAMED(3, 2, 1, "SDA"),
 	},
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
+};
+
+/* Pad configuration for SSC1 in I2C mode on QAM_SCLT/QAM_SDAT pads */
+static struct stm_pad_config stx5197_ssc1_i2c_qam_pad_config = {
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
 		/* 0: QPSK repeater interface is routed to QAM_SCLT/SDAT,
 		 * 1: SSC1 is routed to QAM_SCLT/SDAT. */
-		STM_PAD_CFG(CFG_CTRL_K, 27, 27, 1),
-	},
-};
-
-/* Pad configuration for SSC2 in I2C/SSC mode (always PIO3.3/2 pads) */
-static struct stm_pad_config stx5197_ssc2_i2c_ssc_pad_config = {
-	.sysconf_values_num = 2,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
-		/* Alt 1 for PIO3.2 & PIO3.3 */
-		STM_PAD_CFG(CFG_CTRL_G, 18, 19, 3),
-		STM_PAD_CFG(CFG_CTRL_G, 26, 27, 0),
-	},
-	.gpio_values_num = 2,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		/* SCL */
-		STM_PAD_PIO_ALT_BIDIR(3, 3),
-		/* SDA */
-		STM_PAD_PIO_ALT_BIDIR(3, 2),
-	},
-};
-
-/* Pad configuration for SSC2 in I2C GPIO (temporary) mode */
-static struct stm_pad_config stx5197_ssc2_i2c_gpio_pad_config = {
-	.sysconf_values_num = 2,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
-		/* Alt 0 for PIO3.2 & PIO3.3 */
-		STM_PAD_CFG(CFG_CTRL_G, 18, 19, 0),
-		STM_PAD_CFG(CFG_CTRL_G, 26, 27, 0),
-	},
-	.gpio_values_num = 2,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		/* SCL */
-		STM_PAD_PIO_BIDIR(3, 3),
-		/* SDA */
-		STM_PAD_PIO_BIDIR(3, 2),
+		STM_PAD_SYSCONF(CFG_CTRL_K, 27, 27, 1),
 	},
 };
 
@@ -391,8 +287,7 @@ static struct platform_device stx5197_ssc_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(17), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			.pad_config_ssc = &stx5197_ssc2_i2c_ssc_pad_config,
-			.pad_config_gpio = &stx5197_ssc2_i2c_gpio_pad_config,
+			.pad_config = &stx5197_ssc2_i2c_pad_config,
 		},
 	},
 };
@@ -423,15 +318,12 @@ int __init stx5197_configure_ssc_i2c(int ssc,
 	case 0:
 		switch (config->routing.ssc0) {
 		case stx5197_ssc0_i2c_pio1:
-			plat_data->pad_config_ssc =
-					&stx5197_ssc0_i2c_ssc_pio1_pad_config;
-			plat_data->pad_config_gpio =
-					&stx5197_ssc0_i2c_gpio_pad1_pad_config;
+			plat_data->pad_config =
+					&stx5197_ssc0_i2c_pio1_pad_config;
 			break;
 		case stx5197_ssc0_i2c_spi:
-			plat_data->pad_config_ssc =
-					&stx5197_ssc0_i2c_ssc_spi_pad_config;
-			/* No GPIO pad config for obvious reasons ;-) */
+			plat_data->pad_config =
+					&stx5197_ssc0_i2c_spi_pad_config;
 			break;
 		default:
 			BUG();
@@ -441,14 +333,12 @@ int __init stx5197_configure_ssc_i2c(int ssc,
 	case 1:
 		switch (config->routing.ssc1) {
 		case stx5197_ssc1_i2c_qpsk:
-			plat_data->pad_config_ssc =
-					&stx5197_ssc1_i2c_ssc_qpsk_config;
-			/* No GPIO pad config for obvious reasons ;-) */
+			plat_data->pad_config =
+					&stx5197_ssc1_i2c_qpsk_pad_config;
 			break;
 		case stx5197_ssc1_i2c_qam:
-			plat_data->pad_config_ssc =
-					&stx5197_ssc1_i2c_ssc_qam_config;
-			/* No GPIO pad config for obvious reasons ;-) */
+			plat_data->pad_config =
+					&stx5197_ssc1_i2c_qam_pad_config;
 			break;
 		default:
 			BUG();
@@ -492,7 +382,7 @@ int __init stx5197_configure_ssc_spi(int ssc)
 	BUG_ON(stx5197_ssc_configured[0]);
 	stx5197_ssc_configured[0] = 1;
 
-	stx5197_ssc_devices[0].name = "spi-stm-ssc";
+	stx5197_ssc_devices[0].name = "spi-stm";
 	stx5197_ssc_devices[0].id = 0;
 
 	plat_data = stx5197_ssc_devices[ssc].dev.platform_data;
@@ -548,7 +438,7 @@ void __init stx5197_configure_lirc(struct stx5197_lirc_config *config)
 	if (!config)
 		config = &default_config;
 
-	pad_config = stm_pad_config_alloc(2, 4, 2);
+	pad_config = stm_pad_config_alloc(2, 0);
 	BUG_ON(!pad_config);
 
 	plat_data->txenabled = config->tx_enabled;
@@ -560,36 +450,19 @@ void __init stx5197_configure_lirc(struct stx5197_lirc_config *config)
 		break;
 	case stx5197_lirc_rx_mode_ir:
 		plat_data->rxuhfmode = 0;
-		stm_pad_config_add_label_number(pad_config, "PIO2", 5);
-		/* Alt. 2 for PIO2.5 (IRB_PPM_IN) */
-		stm_pad_config_add_sysconf(pad_config, CFG_CTRL_G, 5, 5, 0);
-		stm_pad_config_add_sysconf(pad_config,
-				CFG_CTRL_G, 13, 13, 1);
-		stm_pad_config_add_pio(pad_config, 2, 5, STM_GPIO_DIRECTION_IN);
+		stm_pad_config_add_pio_in(pad_config, 2, 5, -1);
 		break;
 	case stx5197_lirc_rx_mode_uhf:
 		plat_data->rxuhfmode = 1;
-		stm_pad_config_add_label_number(pad_config, "PIO2", 6);
-		/* Alt. 1 for PIO2.6 (IRB_UHF_IN) */
-		stm_pad_config_add_sysconf(pad_config, CFG_CTRL_G, 6, 6, 1);
-		stm_pad_config_add_sysconf(pad_config,
-				CFG_CTRL_G, 14, 14, 0);
-		stm_pad_config_add_pio(pad_config, 2, 6, STM_GPIO_DIRECTION_IN);
+		stm_pad_config_add_pio_in(pad_config, 2, 6, -1);
 		break;
 	default:
 		BUG();
 		break;
 	}
 
-	if (config->tx_enabled) {
-		stm_pad_config_add_label_number(pad_config, "PIO2", 7);
-		/* Alt. 1 for PIO2.7 (IRB_PPM_OUT) */
-		stm_pad_config_add_sysconf(pad_config, CFG_CTRL_G, 7, 7, 1);
-		stm_pad_config_add_sysconf(pad_config,
-				CFG_CTRL_G, 15, 15, 0);
-		stm_pad_config_add_pio(pad_config, 2, 7,
-				STM_GPIO_DIRECTION_ALT_OUT);
-	};
+	if (config->tx_enabled)
+		stm_pad_config_add_pio_out(pad_config, 2, 7, 1);
 
 	platform_device_register(&stx5197_lirc_device);
 }
@@ -601,15 +474,9 @@ void __init stx5197_configure_lirc(struct stx5197_lirc_config *config)
 static struct stm_plat_pwm_data stx5197_pwm_platform_data = {
 	.channel_pad_config = {
 		[0] = &(struct stm_pad_config) {
-			.sysconf_values_num = 2,
-			.sysconf_values = (struct stm_pad_sysconf_value []) {
-				/* Alt. 1 for PIO2.4 */
-				STM_PAD_CFG(CFG_CTRL_G, 4, 4, 1),
-				STM_PAD_CFG(CFG_CTRL_G, 12, 12, 0),
-			},
-			.gpio_values_num = 1,
-			.gpio_values = (struct stm_pad_gpio_value []) {
-				STM_PAD_PIO_ALT_OUT(2, 4),
+			.gpios_num = 1,
+			.gpios = (struct stm_pad_gpio []) {
+				STM_PAD_PIO_OUT(2, 4, 1),
 			},
 		},
 	},
@@ -646,49 +513,30 @@ void __init stx5197_configure_pwm(struct stx5197_pwm_config *config)
 
 static struct stm_pad_config stx5197_ethernet_pad_configs[] = {
 	[stx5197_ethernet_mode_mii] = {
-		.labels_num = 3,
-		.labels = (struct stm_pad_label []) {
-			/* MII is multiplexed with some
-			 * transport stream pads... */
-			STM_PAD_LABEL_STRINGS("TS0.OUT", "PACKETCLK", "ERROR",
-					"BITORBYTECLKVALID", "BITORBYTECLK"),
-			STM_PAD_LABEL_RANGE("TS0.OUT.DATA", 0, 7),
-			STM_PAD_LABEL_RANGE("TS0.IN.DATA", 1, 7),
-		},
-		.sysconf_values_num = 4,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
+		.sysconfs_num = 4,
+		.sysconfs = (struct stm_pad_sysconf []) {
 			/* Ethernet interface on */
-			STM_PAD_CFG(CFG_CTRL_E, 0, 0, 1),
+			STM_PAD_SYSCONF(CFG_CTRL_E, 0, 0, 1),
 			/* RMII/MII pin mode */
-			STM_PAD_CFG(CFG_CTRL_E, 7, 8, 3),
+			STM_PAD_SYSCONF(CFG_CTRL_E, 7, 8, 3),
 			/* MII mode */
-			STM_PAD_CFG(CFG_CTRL_E, 2, 2, 1),
-			/* MII phyclk out enable: 0=output, 1=input,
-			 * set in stx5197_configure_ethernet() */
-			STM_PAD_CFG(CFG_CTRL_E, 6, 6, -1),
-
+			STM_PAD_SYSCONF(CFG_CTRL_E, 2, 2, 1),
+			/* MII phyclk out enable: 0=output, 1=input */
+			STM_PAD_SYSCONF(CFG_CTRL_E, 6, 6, 0),
 		},
 	},
 	[stx5197_ethernet_mode_rmii] = {
-		.labels_num = 2,
-		.labels = (struct stm_pad_label []) {
-			/* RMII is multiplexed with some
-			 * transport stream pads... */
-			STM_PAD_LABEL_STRINGS("TS0.OUT", "PACKETCLK", "ERROR",
-					"BITORBYTECLKVALID", "BITORBYTECLK"),
-			STM_PAD_LABEL_RANGE("TS0.OUT.DATA", 0, 5),
-		},
-		.sysconf_values_num = 4,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
+		.sysconfs_num = 4,
+		.sysconfs = (struct stm_pad_sysconf []) {
 			/* Ethernet interface on */
-			STM_PAD_CFG(CFG_CTRL_E, 0, 0, 1),
+			STM_PAD_SYSCONF(CFG_CTRL_E, 0, 0, 1),
 			/* RMII/MII pin mode */
-			STM_PAD_CFG(CFG_CTRL_E, 7, 8, 2),
+			STM_PAD_SYSCONF(CFG_CTRL_E, 7, 8, 2),
 			/* MII mode */
-			STM_PAD_CFG(CFG_CTRL_E, 2, 2, 0),
+			STM_PAD_SYSCONF(CFG_CTRL_E, 2, 2, 0),
 			/* MII phyclk out enable: 0=output, 1=input,
 			 * set in stx5197_configure_ethernet() */
-			STM_PAD_CFG(CFG_CTRL_E, 6, 6, -1),
+			STM_PAD_SYSCONF(CFG_CTRL_E, 6, 6, -1),
 		},
 	},
 };
@@ -731,7 +579,8 @@ void __init stx5197_configure_ethernet(struct stx5197_ethernet_config *config)
 
 	pad_config = &stx5197_ethernet_pad_configs[config->mode];
 
-	pad_config->sysconf_values[3].value = (config->ext_clk ? 1 : 0);
+	if (config->mode == stx5197_ethernet_mode_rmii)
+		pad_config->sysconfs[3].value = (config->ext_clk ? 1 : 0);
 
 	stx5197_ethernet_platform_data.pad_config = pad_config;
 	stx5197_ethernet_platform_data.bus_id = config->phy_bus;
@@ -754,19 +603,13 @@ static struct stm_plat_usb_data stx5197_usb_platform_data = {
 		STM_PLAT_USB_FLAGS_STRAP_PLL |
 		STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
 	.pad_config = &(struct stm_pad_config) {
-		.labels_num = 2,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_STRINGS("USB",
-					"RESETB", "CLK", "STP", "DIR", "NXT"),
-			STM_PAD_LABEL_RANGE("USB.DATA", 0, 7),
-		},
-		.sysconf_values_num = 2,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
+		.sysconfs_num = 2,
+		.sysconfs = (struct stm_pad_sysconf []) {
 			/* USB power down */
-			STM_PAD_CFG(CFG_CTRL_H, 8, 8, 0),
+			STM_PAD_SYSCONF(CFG_CTRL_H, 8, 8, 0),
 			/* DDR enable for ULPI:
 			 * 0 = 8 bit SDR ULPI, 1 = 4 bit DDR ULPI */
-			STM_PAD_CFG(CFG_CTRL_M, 12, 12, 0),
+			STM_PAD_SYSCONF(CFG_CTRL_M, 12, 12, 0),
 		},
 	},
 };
@@ -883,7 +726,6 @@ static struct platform_device stx5197_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd120000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(0), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(0),
 	},
 	[1] = {
 		.name = "stm-gpio",
@@ -893,7 +735,6 @@ static struct platform_device stx5197_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd121000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(1), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(1),
 	},
 	[2] = {
 		.name = "stm-gpio",
@@ -903,7 +744,6 @@ static struct platform_device stx5197_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd122000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(2), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(2),
 	},
 	[3] = {
 		.name = "stm-gpio",
@@ -913,7 +753,6 @@ static struct platform_device stx5197_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd123000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(3), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(3),
 	},
 	[4] = {
 		.name = "stm-gpio",
@@ -923,9 +762,80 @@ static struct platform_device stx5197_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd124000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(4), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(4),
 	},
 };
+
+static int stx5197_pio_config(unsigned gpio,
+		enum stm_pad_gpio_direction direction, int function)
+{
+	int port = stm_gpio_port(gpio);
+	int pin = stm_gpio_pin(gpio);
+
+	BUG_ON(port > ARRAY_SIZE(stx5197_pio_devices));
+
+	if (function == STX5197_GPIO_FUNCTION) {
+		switch (direction) {
+		case stm_pad_gpio_direction_in:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_IN);
+			break;
+		case stm_pad_gpio_direction_out:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_OUT);
+			break;
+		case stm_pad_gpio_direction_bidir:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_BIDIR);
+			break;
+		default:
+			BUG();
+			break;
+		}
+	} else if (direction == stm_pad_gpio_direction_in) {
+		BUG_ON(function != -1);
+		stm_gpio_direction(gpio, STM_GPIO_DIRECTION_IN);
+	} else {
+		static struct sysconf_field *cfg_ctrl_fgo[3];
+		struct sysconf_field *cfg;
+		int offset;
+		unsigned int value;
+
+		BUG_ON(function < 0);
+		BUG_ON(function > 3);
+
+		switch (direction) {
+		case stm_pad_gpio_direction_out:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_ALT_OUT);
+			break;
+		case stm_pad_gpio_direction_bidir:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_ALT_BIDIR);
+			break;
+		default:
+			BUG();
+			break;
+		}
+
+		if (!cfg_ctrl_fgo[0]) {
+			cfg_ctrl_fgo[0] = sysconf_claim(CFG_CTRL_F, 0, 31,
+					"PIO Config");
+			BUG_ON(!cfg_ctrl_fgo[0]);
+			cfg_ctrl_fgo[1] = sysconf_claim(CFG_CTRL_G, 0, 31,
+					"PIO Config");
+			BUG_ON(!cfg_ctrl_fgo[1]);
+			cfg_ctrl_fgo[2] = sysconf_claim(CFG_CTRL_O, 0, 15,
+					"PIO Config");
+			BUG_ON(!cfg_ctrl_fgo[2]);
+		}
+
+		cfg = cfg_ctrl_fgo[port / 2];
+		offset = (port % 2) * 16 + pin;
+
+		value = sysconf_read(cfg);
+		value &= ~((1 << (offset + 8)) | (1 << offset));
+		value |= ((function >> 1) & 1) << (offset + 8);
+		value |= (function & 1) << offset;
+		sysconf_write(cfg, value);
+	}
+
+	return 0;
+}
 
 
 
@@ -992,6 +902,8 @@ void __init stx5197_early_device_init(void)
 	stm_gpio_early_init(stx5197_pio_devices,
 			ARRAY_SIZE(stx5197_pio_devices),
 			ILC_FIRST_IRQ + ILC_NR_IRQS);
+	stm_pad_init(ARRAY_SIZE(stx5197_pio_devices) * STM_GPIO_PINS_PER_PORT,
+			STX5197_GPIO_FUNCTION, stx5197_pio_config);
 
 	sc = sysconf_claim(CFG_MONITOR_H, 0, 31, "devid");
 	devid = sysconf_read(sc);

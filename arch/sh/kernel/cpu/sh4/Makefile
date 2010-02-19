@@ -43,6 +43,7 @@ clock-$(CONFIG_CPU_SUBTYPE_SH4_202)	+= clock-sh4-202.o
 obj-y	+= $(clock-y)
 
 obj-$(CONFIG_STM_CPU_FREQ)		+= cpufreq-stm.o
+obj-$(CONFIG_CPU_SUBTYPE_ST40)		+= stm-tmu.o
 
 ifdef CONFIG_SUSPEND
 obj-y					+= suspend.o suspend-core.o

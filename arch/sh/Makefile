@@ -154,6 +154,7 @@ machdir-$(CONFIG_SH_RSK)			+= mach-rsk
 # ST Boards
 machdir-$(CONFIG_SH_ST_CAB5197)			+= mach-cab5197
 machdir-$(CONFIG_SH_ST_HDK7105)			+= mach-hdk7105
+machdir-$(CONFIG_SH_ST_HDK7106)			+= mach-hdk7106
 machdir-$(CONFIG_SH_ST_HDREF)			+= mach-hdref
 machdir-$(CONFIG_SH_ST_HMP7100)			+= mach-hmp7100
 machdir-$(CONFIG_SH_ST_HMP7105)			+= mach-hmp7105

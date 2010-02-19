@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #ifndef __LINUX_STM_STX7141_H
 #define __LINUX_STM_STX7141_H
 
@@ -73,7 +85,15 @@ void stx7141_configure_ethernet(int port,
 		struct stx7141_ethernet_config *config);
 
 
-void stx7141_configure_usb(int port);
+struct stx7141_usb_config {
+	enum stx7141_usb_overcur_mode {
+		stx7141_usb_ovrcur_disabled,
+		stx7141_usb_ovrcur_active_high,
+		stx7141_usb_ovrcur_active_low,
+	} ovrcur_mode;
+	int pwr_enabled;
+};
+void stx7141_configure_usb(int port, struct stx7141_usb_config *config);
 
 
 void stx7141_configure_sata(void);

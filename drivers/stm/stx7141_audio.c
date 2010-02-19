@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/irq.h>
@@ -69,16 +81,16 @@ static struct snd_stm_pcm_player_info stx7141_pcm_player_0_info = {
 };
 
 static struct stm_pad_config stx7141_pcm_player_0_pad_config = {
-	.gpio_values_num = 8,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_OUT_MUX(15, 4, 1),	/* MCLK */
-		STM_PAD_PIO_OUT_MUX(15, 5, 1),	/* LRCLK */
-		STM_PAD_PIO_OUT_MUX(15, 6, 1),	/* SCLK */
-		STM_PAD_PIO_OUT_MUX(15, 3, 1),	/* DATA0 */
-		STM_PAD_PIO_OUT_MUX(15, 7, 2),	/* DATA1 */
-		STM_PAD_PIO_OUT_MUX(16, 0, 2),	/* DATA2 */
-		STM_PAD_PIO_OUT_MUX(16, 1, 2),	/* DATA3 */
-		STM_PAD_PIO_OUT_MUX(16, 2, 2),	/* DATA4 */
+	.gpios_num = 8,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_OUT(15, 4, 1),	/* MCLK */
+		STM_PAD_PIO_OUT(15, 5, 1),	/* LRCLK */
+		STM_PAD_PIO_OUT(15, 6, 1),	/* SCLK */
+		STM_PAD_PIO_OUT(15, 3, 1),	/* DATA0 */
+		STM_PAD_PIO_OUT(15, 7, 2),	/* DATA1 */
+		STM_PAD_PIO_OUT(16, 0, 2),	/* DATA2 */
+		STM_PAD_PIO_OUT(16, 1, 2),	/* DATA3 */
+		STM_PAD_PIO_OUT(16, 2, 2),	/* DATA4 */
 	},
 };
 
@@ -106,17 +118,12 @@ static struct snd_stm_pcm_player_info stx7141_pcm_player_1_info = {
 };
 
 static struct stm_pad_config stx7141_pcm_player_1_pad_config = {
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
-		/* Alt. func. 1 for PIO15.7 & PIO16.0-2 */
-		STM_PAD_SYS_CFG(50, 0, 7, 0x55),
-	},
-	.gpio_values_num = 4,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_OUT(15, 0),	/* MCLK */
-		STM_PAD_PIO_OUT(16, 1),	/* LRCLK */
-		STM_PAD_PIO_OUT(16, 2),	/* SCLK */
-		STM_PAD_PIO_OUT(15, 7),	/* DATA */
+	.gpios_num = 4,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_OUT(15, 0, 1),	/* MCLK */
+		STM_PAD_PIO_OUT(16, 1, 1),	/* LRCLK */
+		STM_PAD_PIO_OUT(16, 2, 1),	/* SCLK */
+		STM_PAD_PIO_OUT(15, 7, 1),	/* DATA */
 	},
 };
 
@@ -165,14 +172,9 @@ static struct snd_stm_spdif_player_info stx7141_spdif_player_info = {
 };
 
 static struct stm_pad_config stx7141_spdif_player_pad_config = {
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
-		/* Alt. func. 1 for PIO16.3 */
-		STM_PAD_SYS_CFG(50, 8, 8, 1),
-	},
-	.gpio_values_num = 1,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_OUT(16, 3),
+	.gpios_num = 1,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_OUT(16, 3, 1),
 	},
 };
 
@@ -265,11 +267,11 @@ static struct snd_stm_pcm_reader_info stx7141_pcm_reader_0_info = {
 };
 
 static struct stm_pad_config stx7141_pcm_reader_0_pad_config = {
-	.gpio_values_num = 3,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_IN_MUX(15, 0, 1),	/* DATA */
-		STM_PAD_PIO_IN_MUX(15, 1, 1),	/* LRCLK */
-		STM_PAD_PIO_IN_MUX(15, 2, 1),	/* SCLK */
+	.gpios_num = 3,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_IN(15, 0, 1),	/* DATA */
+		STM_PAD_PIO_IN(15, 1, 1),	/* LRCLK */
+		STM_PAD_PIO_IN(15, 2, 1),	/* SCLK */
 	},
 };
 
@@ -294,16 +296,11 @@ static struct snd_stm_pcm_reader_info stx7141_pcm_reader_1_info = {
 };
 
 static struct stm_pad_config stx7141_pcm_reader_1_pad_config = {
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
-		/* Alt. func. 1 for PIO16.4-6 */
-		STM_PAD_SYS_CFG(50, 9, 11, 7),
-	},
-	.gpio_values_num = 3,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_IN(16, 4),	/* DATA */
-		STM_PAD_PIO_IN(16, 5),	/* LRCLK */
-		STM_PAD_PIO_IN(16, 6),	/* SCLK */
+	.gpios_num = 3,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_IN(16, 4, 1),	/* DATA */
+		STM_PAD_PIO_IN(16, 5, 1),	/* LRCLK */
+		STM_PAD_PIO_IN(16, 6, 1),	/* SCLK */
 	},
 };
 
@@ -373,8 +370,8 @@ void __init stx7141_configure_audio(struct stx7141_audio_config *config)
 		stx7141_pcm_player_0_info.pad_config =
 				&stx7141_pcm_player_0_pad_config;
 
-		stx7141_pcm_player_0_pad_config.sysconf_values_num -= unused;
-		stx7141_pcm_player_0_pad_config.gpio_values_num -= unused;
+		stx7141_pcm_player_0_pad_config.sysconfs_num -= unused;
+		stx7141_pcm_player_0_pad_config.gpios_num -= unused;
 	}
 
 	if (config->pcm_player_1_output_enabled) {

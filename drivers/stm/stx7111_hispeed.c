@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/ethtool.h>
@@ -14,16 +26,8 @@
 
 static struct stm_pad_config stx7111_ethernet_pad_configs[] = {
 	[stx7111_ethernet_mode_mii] = {
-		.labels_num = 3,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_STRINGS("MII", "COL", "CRS", "MDC",
-					"MDINT", "MDIO", "PHYCLK", "RXCLK",
-					"RXDV", "RXERR", "TXCLK", "TXEN"),
-			STM_PAD_LABEL_RANGE("MII.RXD", 0, 3),
-			STM_PAD_LABEL_RANGE("MII.TXD", 0, 3),
-		},
-		.sysconf_values_num = 4,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
+		.sysconfs_num = 4,
+		.sysconfs = (struct stm_pad_sysconf []) {
 			/* ETHERNET_INTERFACE_ON: 0 = off, 1 = on */
 			STM_PAD_SYS_CFG(7, 16, 16, 1),
 			/* ETHERNET_PHY_CLK_EXT:
@@ -38,15 +42,8 @@ static struct stm_pad_config stx7111_ethernet_pad_configs[] = {
 		},
 	},
 	[stx7111_ethernet_mode_rmii] = {
-		.labels_num = 3,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_STRINGS("MII0", "MDC", "MDINT", "MDIO",
-					"PHYCLK", "RXDV", "RXERR", "TXEN"),
-			STM_PAD_LABEL_RANGE("MII.RXD", 0, 1),
-			STM_PAD_LABEL_RANGE("MII.TXD", 0, 1),
-		},
-		.sysconf_values_num = 4,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
+		.sysconfs_num = 4,
+		.sysconfs = (struct stm_pad_sysconf []) {
 			/* ETHERNET_INTERFACE_ON: 0 = off, 1 = on */
 			STM_PAD_SYS_CFG(7, 16, 16, 1),
 			/* ETHERNET_PHY_CLK_EXT:
@@ -61,16 +58,8 @@ static struct stm_pad_config stx7111_ethernet_pad_configs[] = {
 		},
 	},
 	[stx7111_ethernet_mode_reverse_mii] = {
-		.labels_num = 3,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_STRINGS("MII", "COL", "CRS", "MDC",
-					"MDINT", "MDIO", "PHYCLK", "RXCLK",
-					"RXDV", "RXERR", "TXCLK", "TXEN"),
-			STM_PAD_LABEL_RANGE("MII.RXD", 0, 3),
-			STM_PAD_LABEL_RANGE("MII.TXD", 0, 3),
-		},
-		.sysconf_values_num = 4,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
+		.sysconfs_num = 4,
+		.sysconfs = (struct stm_pad_sysconf []) {
 			/* ETHERNET_INTERFACE_ON: 0 = off, 1 = on */
 			STM_PAD_SYS_CFG(7, 16, 16, 1),
 			/* ETHERNET_PHY_CLK_EXT:
@@ -127,7 +116,7 @@ void __init stx7111_configure_ethernet(struct stx7111_ethernet_config *config)
 	stx7111_ethernet_platform_data.pad_config = pad_config;
 	stx7111_ethernet_platform_data.bus_id = config->phy_bus;
 
-	pad_config->sysconf_values[1].value = (config->ext_clk ? 1 : 0);
+	pad_config->sysconfs[1].value = (config->ext_clk ? 1 : 0);
 
 	/* MAC_SPEED_SEL */
 	stx7111_ethernet_platform_data.bsp_priv = sysconf_claim(SYS_CFG,
@@ -147,8 +136,15 @@ static struct stm_plat_usb_data stx7111_usb_platform_data = {
 		STM_PLAT_USB_FLAGS_STRAP_PLL |
 		STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
 	.pad_config = &(struct stm_pad_config) {
-		.sysconf_values_num = 2,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
+		.gpios_num = 2,
+		.gpios = (struct stm_pad_gpio []) {
+			/* Overcurrent detection */
+			STM_PAD_PIO_IN(5, 6, -1),
+			/* USB power enable */
+			STM_PAD_PIO_OUT(5, 7, 1),
+		},
+		.sysconfs_num = 2,
+		.sysconfs = (struct stm_pad_sysconf []) {
 			/* Power on USB */
 			STM_PAD_SYS_CFG(32, 4, 4, 0),
 			/* Work around for USB over-current detection chip
@@ -157,13 +153,6 @@ static struct stm_plat_usb_data stx7111_usb_platform_data = {
 			 * enables an inverter on the overcurrent signal.
 			 * Set in stx7111_configure_usb(). */
 			STM_PAD_SYS_CFG(6, 29, 29, 0),
-		},
-		.gpio_values_num = 2,
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			/* Overcurrent detection */
-			STM_PAD_PIO_IN(5, 6),
-			/* USB power enable */
-			STM_PAD_PIO_ALT_OUT(5, 7),
 		},
 	},
 };
@@ -195,7 +184,7 @@ void __init stx7111_configure_usb(struct stx7111_usb_config *config)
 	configured = 1;
 
 	if (config)
-		stx7111_usb_platform_data.pad_config->sysconf_values[1].value =
+		stx7111_usb_platform_data.pad_config->sysconfs[1].value =
 				(config->invert_ovrcur ? 1 : 0);
 
 	platform_device_register(&stx7111_usb_device);

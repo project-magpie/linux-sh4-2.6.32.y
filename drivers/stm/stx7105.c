@@ -1,11 +1,24 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
+#include <linux/gpio.h>
 #include <linux/platform_device.h>
 #include <linux/ata_platform.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
+#include <linux/stm/emi.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
-#include <linux/stm/emi.h>
 #include <linux/stm/stx7105.h>
 #include <asm/irq-ilc.h>
 
@@ -84,13 +97,6 @@ void __init stx7105_configure_pata(struct stx7105_pata_config *config)
 
 /* NAND Resources --------------------------------------------------------- */
 
-static struct stm_pad_config stx7105_nand_flex_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL("NANDRnotB"),
-	},
-};
-
 static struct platform_device stx7105_nand_flex_device = {
 	.name = "stm-nand-flex",
 	.id = 0,
@@ -98,9 +104,6 @@ static struct platform_device stx7105_nand_flex_device = {
 	.resource = (struct resource[2]) {
 		STM_PLAT_RESOURCE_MEM(0xFE701000, 0x1000),
 		STM_PLAT_RESOURCE_IRQ(evt2irq(0x14a0), -1),
-	},
-	.dev.platform_data = &(struct stm_plat_nand_flex_data){
-		.pad_config	= &stx7105_nand_flex_pad_config,
 	},
 };
 
@@ -268,7 +271,6 @@ static struct platform_device stx7105_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd020000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(evt2irq(0xc00), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(0),
 	},
 	[1] = {
 		.name = "stm-gpio",
@@ -278,7 +280,6 @@ static struct platform_device stx7105_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd021000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(evt2irq(0xc80), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(1),
 	},
 	[2] = {
 		.name = "stm-gpio",
@@ -288,7 +289,6 @@ static struct platform_device stx7105_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd022000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(evt2irq(0xd00), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(2),
 	},
 	[3] = {
 		.name = "stm-gpio",
@@ -298,7 +298,6 @@ static struct platform_device stx7105_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd023000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(evt2irq(0x1060), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(3),
 	},
 	[4] = {
 		.name = "stm-gpio",
@@ -308,7 +307,6 @@ static struct platform_device stx7105_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd024000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(evt2irq(0x1040), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(4),
 	},
 	[5] = {
 		.name = "stm-gpio",
@@ -318,7 +316,6 @@ static struct platform_device stx7105_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd025000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(evt2irq(0x1020), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(5),
 	},
 	[6] = {
 		.name = "stm-gpio",
@@ -328,36 +325,214 @@ static struct platform_device stx7105_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd026000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(evt2irq(0x1000), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(6),
 	},
 
-	/* Standalone PIO block */
+	/* Standalone PIO blocks */
+	/* All the following block use the same interrupt, which is
+	 * defined as a separate platform device below */
 	[7] = {
-		.name = "stm-pio10",
-		.id = -1,
-		.num_resources = 2,
+		.name = "stm-gpio",
+		.id = 7,
+		.num_resources = 1,
 		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfe010000, 0x10000),
-			STM_PLAT_RESOURCE_IRQ(evt2irq(0xb40), -1),
+			STM_PLAT_RESOURCE_MEM(0xfe010000, 0x100),
 		},
-		.dev.platform_data = &(struct stm_plat_pio10_data) {
-			.start_pio = 7,
-			.num_pio = 10,
-			.port_data = {
-				{ STM_PLAT_PIO_DATA_LABELS(7) },
-				{ STM_PLAT_PIO_DATA_LABELS(8) },
-				{ STM_PLAT_PIO_DATA_LABELS(9) },
-				{ STM_PLAT_PIO_DATA_LABELS(10) },
-				{ STM_PLAT_PIO_DATA_LABELS(11) },
-				{ STM_PLAT_PIO_DATA_LABELS(12) },
-				{ STM_PLAT_PIO_DATA_LABELS(13) },
-				{ STM_PLAT_PIO_DATA_LABELS(14) },
-				{ STM_PLAT_PIO_DATA_LABELS(15) },
-				{ STM_PLAT_PIO_DATA_LABELS(16) },
-			},
+	},
+	[8] = {
+		.name = "stm-gpio",
+		.id = 8,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe011000, 0x100),
+		},
+	},
+	[9] = {
+		.name = "stm-gpio",
+		.id = 9,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe012000, 0x100),
+		},
+	},
+	[10] = {
+		.name = "stm-gpio",
+		.id = 10,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe013000, 0x100),
+		},
+	},
+	[11] = {
+		.name = "stm-gpio",
+		.id = 11,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe014000, 0x100),
+		},
+	},
+	[12] = {
+		.name = "stm-gpio",
+		.id = 12,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe015000, 0x100),
+		},
+	},
+	[13] = {
+		.name = "stm-gpio",
+		.id = 13,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe016000, 0x100),
+		},
+	},
+	[14] = {
+		.name = "stm-gpio",
+		.id = 14,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe017000, 0x100),
+		},
+	},
+	[15] = {
+		.name = "stm-gpio",
+		.id = 15,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe018000, 0x100),
+		},
+	},
+	[16] = {
+		.name = "stm-gpio",
+		.id = 16,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe019000, 0x100),
 		},
 	},
 };
+
+static struct platform_device stx7105_pio_irqmux_device = {
+	.name = "stm-gpio-irqmux",
+	.id = -1,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0xfe01f080, 0x4),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0xb40), -1),
+	},
+	.dev.platform_data = &(struct stm_plat_pio_irqmux_data) {
+		.port_first = 7,
+		.ports_num = 10,
+	}
+};
+
+static int stx7105_pio_config(unsigned gpio,
+		enum stm_pad_gpio_direction direction, int function)
+{
+	static struct {
+		u8 sys_cfg_num;
+		u8 max;
+		struct sysconf_field *sc;
+	} functions[] = {
+		[0] = { 19, 5, },
+		[1] = { 20, 4, },
+		[2] = { 21, 4, },
+		[3] = { 25, 4, },
+		[4] = { 34, 4, },
+		[5] = { 35, 4, },
+		[6] = { 36, 4, },
+		[7] = { 37, 4, },
+		[8] = { 46, 3, },
+		[9] = { 47, 4, },
+		[10] = { 39, 2, },
+		[11] = { 53, 4, },
+		[12] = { 48, 5, },
+		[13] = { 49, 5, },
+		[14] = { 0, 1, },
+		[15] = { 50, 4, },
+		[16] = { 54, 2, },
+	};
+	int port = stm_gpio_port(gpio);
+	int pin = stm_gpio_pin(gpio);
+
+	BUG_ON(port > ARRAY_SIZE(functions));
+
+	if (function == 0) {
+		switch (direction) {
+		case stm_pad_gpio_direction_in:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_IN);
+			break;
+		case stm_pad_gpio_direction_out:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_OUT);
+			break;
+		case stm_pad_gpio_direction_bidir:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_BIDIR);
+			break;
+		default:
+			BUG();
+			break;
+		}
+	} else if (direction == stm_pad_gpio_direction_in) {
+		BUG_ON(function != -1);
+		stm_gpio_direction(gpio, STM_GPIO_DIRECTION_IN);
+	} else {
+		int sys_cfg_num = functions[port].sys_cfg_num;
+		int function_max = functions[port].max;
+
+		if (port == 14 && function == 2)
+			function = 1;
+
+		BUG_ON(function < 1);
+		BUG_ON(function > function_max);
+
+		switch (direction) {
+		case stm_pad_gpio_direction_out:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_ALT_OUT);
+			break;
+		case stm_pad_gpio_direction_bidir:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_ALT_BIDIR);
+			break;
+		default:
+			BUG();
+			break;
+		}
+
+		if (sys_cfg_num) {
+			struct sysconf_field *sc = functions[port].sc;
+			unsigned long val;
+
+			if (!sc) {
+				sc = sysconf_claim(SYS_CFG, sys_cfg_num,
+						0, 31, "PIO Config");
+				BUG_ON(!sc);
+				functions[port].sc = sc;
+			}
+
+			function--;
+
+			val = sysconf_read(sc);
+
+			if (function_max > 1) {
+				val &= ~(1 << pin);
+				val |= (function & 1) << pin;
+			}
+
+			if (function_max > 2) {
+				val &= ~(1 << (pin + 8));
+				val |= (function & (1 << 1)) << (pin + 8 - 1);
+			}
+
+			if (function_max > 4) {
+				val &= ~(1 << (pin + 16));
+				val |= (function & (1 << 2)) << (pin + 16 - 2);
+			}
+
+			sysconf_write(sc, val);
+		}
+	}
+
+	return 0;
+}
 
 
 
@@ -397,6 +572,8 @@ void __init stx7105_early_device_init(void)
 	stm_gpio_early_init(stx7105_pio_devices,
 			ARRAY_SIZE(stx7105_pio_devices),
 			ILC_FIRST_IRQ + ILC_NR_IRQS);
+	stm_pad_init(ARRAY_SIZE(stx7105_pio_devices) * STM_GPIO_PINS_PER_PORT,
+			0, stx7105_pio_config);
 
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);
@@ -421,6 +598,7 @@ static int __init stx7105_postcore_setup(void)
 
 	for (i = 0; i < ARRAY_SIZE(stx7105_pio_devices); i++)
 		platform_device_register(&stx7105_pio_devices[i]);
+	platform_device_register(&stx7105_pio_irqmux_device);
 
 	return platform_device_register(&stx7105_emi);
 }

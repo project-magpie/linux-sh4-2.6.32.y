@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/irq.h>
@@ -68,14 +80,14 @@ static struct snd_stm_pcm_player_info stx7105_pcm_player_0_info = {
 };
 
 static struct stm_pad_config stx7105_pcm_player_0_pad_config = {
-	.gpio_values_num = 6,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_ALT_OUT(10, 3),	/* MCLK */
-		STM_PAD_PIO_ALT_OUT(10, 4),	/* LRCLK */
-		STM_PAD_PIO_ALT_OUT(10, 5),	/* SCLK */
-		STM_PAD_PIO_ALT_OUT(10, 0),	/* DATA0 */
-		STM_PAD_PIO_ALT_OUT(10, 1),	/* DATA1 */
-		STM_PAD_PIO_ALT_OUT(10, 2),	/* DATA2 */
+	.gpios_num = 6,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_OUT(10, 3, 1),	/* MCLK */
+		STM_PAD_PIO_OUT(10, 4, 1),	/* LRCLK */
+		STM_PAD_PIO_OUT(10, 5, 1),	/* SCLK */
+		STM_PAD_PIO_OUT(10, 0, 1),	/* DATA0 */
+		STM_PAD_PIO_OUT(10, 1, 1),	/* DATA1 */
+		STM_PAD_PIO_OUT(10, 2, 1),	/* DATA2 */
 	},
 };
 
@@ -106,20 +118,20 @@ static struct snd_stm_pcm_player_info stx7105_pcm_player_1_info = {
  * what makes it almost useless... */
 
 static struct stm_pad_config stx7105_pcm_player_1_pad_config = {
-	.gpio_values_num = 3,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_ALT_OUT(10, 7),	/* DATA */
-		STM_PAD_PIO_ALT_OUT(11, 0),	/* LRCLK */
-		STM_PAD_PIO_ALT_OUT(11, 1),	/* SCLK */
+	.gpios_num = 3,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_OUT(10, 7, 1),	/* DATA */
+		STM_PAD_PIO_OUT(11, 0, 1),	/* LRCLK */
+		STM_PAD_PIO_OUT(11, 1, 1),	/* SCLK */
 	},
 };
 
 static struct stm_pad_config stx7106_pcm_player_1_pad_config = {
-	.gpio_values_num = 3,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_ALT_OUT(11, 0),	/* LRCLK */
-		STM_PAD_PIO_ALT_OUT(11, 1),	/* SCLK */
-		STM_PAD_PIO_ALT_OUT(11, 2),	/* DATA */
+	.gpios_num = 3,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_OUT(11, 0, 1),	/* LRCLK */
+		STM_PAD_PIO_OUT(11, 1, 1),	/* SCLK */
+		STM_PAD_PIO_OUT(11, 2, 1),	/* DATA */
 	},
 };
 
@@ -148,9 +160,9 @@ static struct snd_stm_spdif_player_info stx7105_spdif_player_info = {
 };
 
 static struct stm_pad_config stx7105_spdif_player_pad_config = {
-	.gpio_values_num = 1,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_ALT_OUT(10, 6),
+	.gpios_num = 1,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_OUT(10, 6, 1),
 	},
 };
 
@@ -244,20 +256,20 @@ static struct snd_stm_pcm_reader_info stx7105_pcm_reader_info = {
 };
 
 static struct stm_pad_config stx7105_pcm_reader_pad_config = {
-	.gpio_values_num = 3,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_IN(10, 7),	/* DATA */
-		STM_PAD_PIO_IN(11, 0),	/* SCLK */
-		STM_PAD_PIO_IN(11, 1),	/* LRCLK */
+	.gpios_num = 3,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_IN(10, 7, -1),	/* DATA */
+		STM_PAD_PIO_IN(11, 0, -1),	/* SCLK */
+		STM_PAD_PIO_IN(11, 1, -1),	/* LRCLK */
 	},
 };
 
 static struct stm_pad_config stx7106_pcm_reader_pad_config = {
-	.gpio_values_num = 3,
-	.gpio_values = (struct stm_pad_gpio_value []) {
-		STM_PAD_PIO_IN(11, 0),	/* SCLK */
-		STM_PAD_PIO_IN(11, 1),	/* LRCLK */
-		STM_PAD_PIO_IN(11, 2),	/* DATA */
+	.gpios_num = 3,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_IN(11, 0, -1),	/* SCLK */
+		STM_PAD_PIO_IN(11, 1, -1),	/* LRCLK */
+		STM_PAD_PIO_IN(11, 2, -1),	/* DATA */
 	},
 };
 
@@ -290,11 +302,6 @@ static struct platform_device *stx7105_audio_devices[] __initdata = {
 
 static int __init stx7105_audio_devices_setup(void)
 {
-	if (cpu_data->type != CPU_STX7105) {
-		BUG();
-		return -ENODEV;
-	}
-
 	/* Ugly but quick hack to have SPDIF player & I2S to SPDIF
 	 * converters enabled without loading STMFB...
 	 * TODO: do this in some sane way! */
@@ -325,7 +332,7 @@ void __init stx7105_configure_audio(struct stx7105_audio_config *config)
 		stx7105_pcm_player_0_info.pad_config =
 				&stx7105_pcm_player_0_pad_config;
 
-		stx7105_pcm_player_0_pad_config.gpio_values_num -= unused;
+		stx7105_pcm_player_0_pad_config.gpios_num -= unused;
 	}
 
 	if (config->spdif_player_output_enabled)

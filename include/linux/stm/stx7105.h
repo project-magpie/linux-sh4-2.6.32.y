@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #ifndef __LINUX_STM_STX7105_H
 #define __LINUX_STM_STX7105_H
 
@@ -142,12 +154,12 @@ struct stx7105_ethernet_config {
 	union {
 		struct {
 			enum {
-				stx7105_ethernet_mii1_mdio_pio11_0,
-				stx7105_ethernet_mii1_mdio_pio3_4
+				stx7105_ethernet_mii1_mdio_pio3_4,
+				stx7105_ethernet_mii1_mdio_pio11_0
 			} mdio;
 			enum {
-				stx7105_ethernet_mii1_mdc_pio11_1,
-				stx7105_ethernet_mii1_mdc_pio3_5
+				stx7105_ethernet_mii1_mdc_pio3_5,
+				stx7105_ethernet_mii1_mdc_pio11_1
 			} mdc;
 		} mii1;
 	} routing;

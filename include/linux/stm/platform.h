@@ -232,13 +232,7 @@ struct stm_plat_pio_data {
 	struct stm_pad_config *pad_configs;
 };
 
-struct stm_plat_pio10_data {
-	int start_pio;
-	int num_pio;
-	struct {
-		struct stm_pad_config *pad_configs;
-	} port_data[10];
-};
+
 
 /*** Sysconf block platform data ***/
 

@@ -10,11 +10,6 @@ config STM_DRIVERS
 menu "STM specific devices"
         depends on STM_DRIVERS
 
-config STM_PIO10
-	bool
-	depends on STM_PIO
-	default n
-
 config STM_MIPHY
 	bool
 	depends on SATA_STM

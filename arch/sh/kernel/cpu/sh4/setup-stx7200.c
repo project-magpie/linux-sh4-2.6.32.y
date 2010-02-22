@@ -18,31 +18,39 @@
 
 /* SH4-only resources ----------------------------------------------------- */
 
-static struct platform_device ilc3_device = {
+static struct platform_device stx7200_sh4_ilc3_device = {
 	.name		= "ilc3",
 	.id		= -1,
-	.num_resources	= 1,
+	.num_resources	= 16,
 	.resource	= (struct resource[]) {
-		{
-			.start	= 0xfd804000,
-			.end	= 0xfd804000 + 0x900,
-			.flags	= IORESOURCE_MEM
-		}
+		STM_PLAT_RESOURCE_MEM(0xfd804000, 0x900),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x200), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x220), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x240), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x260), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x280), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x2a0), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x2c0), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x2e0), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x300), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x320), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x340), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x360), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x380), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x3a0), -1),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x3c0), -1),
 	},
 	.dev.platform_data = &(struct stm_plat_ilc3_data) {
-		.default_priority = 7,
-		.num_input = ILC_NR_IRQS,
-		.num_output = 16,
+		.inputs_num = ILC_NR_IRQS,
+		.outputs_num = 16,
 		.first_irq = ILC_FIRST_IRQ,
-		.cpu_irq = (int[]){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-			11, 12, 13, 14, 15, -1 },
 	},
 };
 
 #include "stm-tmu.h"
 
 static struct platform_device *stx7200_sh4_devices[] __initdata = {
-	&ilc3_device,
+	&stx7200_sh4_ilc3_device,
 	&tmu0_device,
 	&tmu1_device,
 	&tmu2_device,

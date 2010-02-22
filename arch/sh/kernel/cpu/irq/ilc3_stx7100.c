@@ -82,10 +82,10 @@ static struct ilc_route_log ilc_log[4];
 void ilc_route_external(int ilc_irq, int ext_out, int invert)
 {
 	int offset = ext_out-4;
-	ILC_SET_PRI(ilc_irq, 0x8000 | ext_out);
-	ILC_SET_TRIGMODE(ilc_irq, invert ? ILC_TRIGGERMODE_LOW :
+	ILC_SET_PRI(ilc_base, ilc_irq, 0x8000 | ext_out);
+	ILC_SET_TRIGMODE(ilc_base, ilc_irq, invert ? ILC_TRIGGERMODE_LOW :
 		ILC_TRIGGERMODE_HIGH);
-	ILC_SET_ENABLE(ilc_irq);
+	ILC_SET_ENABLE(ilc_base, ilc_irq);
 	ilc_log[offset].ilc_irq = ilc_irq;
 	ilc_log[offset].ext_out = ext_out;
 	ilc_log[offset].invert  = invert;

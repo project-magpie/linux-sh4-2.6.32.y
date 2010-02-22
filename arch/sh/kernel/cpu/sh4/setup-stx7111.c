@@ -20,30 +20,28 @@
 
 /* SH4-only resources ----------------------------------------------------- */
 
-static struct platform_device ilc3_device = {
+static struct platform_device stx7111_sh4_ilc3_device = {
 	.name		= "ilc3",
 	.id		= -1,
-	.num_resources	= 1,
+	.num_resources	= 5,
 	.resource	= (struct resource[]) {
-		{
-			.start	= 0xfd000000,
-			.end	= 0xfd000000 + 0x900,
-			.flags	= IORESOURCE_MEM
-		}
+		STM_PLAT_RESOURCE_MEM(0xfd000000, 0x900),
+		STM_PLAT_RESOURCE_IRQ(IRL0_IRQ, -1),
+		STM_PLAT_RESOURCE_IRQ(IRL1_IRQ, -1),
+		STM_PLAT_RESOURCE_IRQ(IRL2_IRQ, -1),
+		STM_PLAT_RESOURCE_IRQ(IRL3_IRQ, -1),
 	},
 	.dev.platform_data = &(struct stm_plat_ilc3_data) {
-		.default_priority = 7,
-		.num_input = ILC_NR_IRQS,
-		.num_output = 16,
+		.inputs_num = ILC_NR_IRQS,
+		.outputs_num = 16,
 		.first_irq = ILC_FIRST_IRQ,
-		.cpu_irq = (int[]){ IRL0_IRQ, IRL1_IRQ, IRL2_IRQ, IRL3_IRQ, -1},
 	},
 };
 
 #include "stm-tmu.h"
 
 static struct platform_device *stx7111_sh4_devices[] __initdata = {
-	&ilc3_device,
+	&stx7111_sh4_ilc3_device,
 	&tmu0_device,
 	&tmu1_device,
 	&tmu2_device,
@@ -243,13 +241,10 @@ void __init plat_irq_setup(void)
 	struct sysconf_field *sc;
 	unsigned long intc2_base = (unsigned long)ioremap(0xfe001000, 0x400);
 	int i;
-	static const int irl_irqs[4] = {
-		IRL0_IRQ, IRL1_IRQ, IRL2_IRQ, IRL3_IRQ
-	};
 
-	for (i=4; i<=6; i++)
+	for (i = 4; i <= 6; i++)
 		prio_registers[i].set_reg += intc2_base;
-	for (i=0; i<=2; i++) {
+	for (i = 0; i <= 2; i++) {
 		mask_registers[i].set_reg += intc2_base;
 		mask_registers[i].clr_reg += intc2_base;
 	}

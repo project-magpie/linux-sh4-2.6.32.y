@@ -19,51 +19,25 @@
 /* SH4-only resources ----------------------------------------------------- */
 
 /* This is the eSTB ILC3 */
-static struct platform_device ilc3_device = {
+static struct platform_device stx7141_sh4_ilc3_device = {
 	.name		= "ilc3",
 	.id		= 0,
-	.num_resources	= 1,
+	.num_resources	= 2,
 	.resource	= (struct resource[]) {
-		{
-			.start	= 0xfd120000,
-			.end	= 0xfd120000 + 0x900,
-			.flags	= IORESOURCE_MEM
-		}
+		STM_PLAT_RESOURCE_MEM(0xfd120000, 0x900),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0xa00), -1),
 	},
 	.dev.platform_data = &(struct stm_plat_ilc3_data) {
-		.default_priority = 7,
-		.num_input = ILC_NR_IRQS,
-		.num_output = 80,
+		.inputs_num = ILC_NR_IRQS,
+		.outputs_num = 80,
 		.first_irq = ILC_FIRST_IRQ,
-		.cpu_irq = (int[]){ ILC_FIRST_IRQ-1, -1 },
-	},
-};
-
-static struct platform_device comms_ilc_device = {
-	.name		= "ilc3",
-	.id		= 1,
-	.dev.platform_data = &(struct stm_plat_ilc3_data) {
-		.default_priority = 7,
-		.num_input = COMMS_ILC_NR_IRQS,
-		.num_output = 16,
-		.first_irq = COMMS_ILC_FIRST_IRQ,
-		.cpu_irq = (int[]){ -1 },
-		},
-	.num_resources  = 1,
-	.resource	= (struct resource[]) {
-		{
-			.start  = 0xfd000000,
-			.end    = 0xfd000000 + 0x900,
-			.flags  = IORESOURCE_MEM
-		},
 	},
 };
 
 #include "stm-tmu.h"
 
 static struct platform_device *stx7141_sh4_devices[] __initdata = {
-	&ilc3_device,
-	&comms_ilc_device,
+	&stx7141_sh4_ilc3_device,
 	&tmu0_device,
 	&tmu1_device,
 	&tmu2_device,

@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/i2c.h>
@@ -302,7 +314,6 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18020000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(80, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(0),
 	},
 	[1] = {
 		.name = "stm-gpio",
@@ -312,7 +323,6 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18021000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(84, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(1),
 	},
 	[2] = {
 		.name = "stm-gpio",
@@ -322,7 +332,6 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18022000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(88, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(2),
 	},
 	[3] = {
 		.name = "stm-gpio",
@@ -332,7 +341,6 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18023000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(115, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(3),
 	},
 	[4] = {
 		.name = "stm-gpio",
@@ -342,7 +350,6 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18024000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(114, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(4),
 	},
 	[5] = {
 		.name = "stm-gpio",
@@ -352,9 +359,38 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18025000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(113, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(5),
 	},
 };
+
+static int stx7100_pio_config(unsigned gpio,
+		enum stm_pad_gpio_direction direction, int function)
+{
+	switch (direction) {
+	case stm_pad_gpio_direction_in:
+		BUG_ON(function != -1);
+		stm_gpio_direction(gpio, STM_GPIO_DIRECTION_IN);
+		break;
+	case stm_pad_gpio_direction_out:
+		BUG_ON(function < 0);
+		BUG_ON(function > 1);
+		stm_gpio_direction(gpio, function ?
+				STM_GPIO_DIRECTION_ALT_OUT :
+				STM_GPIO_DIRECTION_OUT);
+		break;
+	case stm_pad_gpio_direction_bidir:
+		BUG_ON(function < 0);
+		BUG_ON(function > 1);
+		stm_gpio_direction(gpio, function ?
+				STM_GPIO_DIRECTION_ALT_BIDIR :
+				STM_GPIO_DIRECTION_BIDIR);
+		break;
+	default:
+		BUG();
+		break;
+	}
+
+	return 0;
+}
 
 
 
@@ -400,6 +436,8 @@ void __init stx7100_early_device_init(void)
 	sysconf_early_init(&stx7100_sysconf_device, 1);
 	stm_gpio_early_init(stx7100_pio_devices,
 			ARRAY_SIZE(stx7100_pio_devices), 176);
+	stm_pad_init(ARRAY_SIZE(stx7100_pio_devices) * STM_GPIO_PINS_PER_PORT,
+			0, stx7100_pio_config);
 
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);

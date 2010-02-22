@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
@@ -21,7 +33,7 @@ static struct platform_device stx7200_emi = {
 	.id = -1,
 	.num_resources = 2,
 	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0, 128*1024*1024),
+		STM_PLAT_RESOURCE_MEM(0, 128 * 1024 * 1024),
 		STM_PLAT_RESOURCE_MEM(0xfdf00000, 0x874),
 	},
 };
@@ -85,13 +97,6 @@ void __init stx7200_configure_pata(struct stx7200_pata_config *config)
 
 /* NAND Resources --------------------------------------------------------- */
 
-static struct stm_pad_config stx7200_nand_flex_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL("NANDRnotB"),
-	},
-};
-
 static struct platform_device stx7200_nand_flex_device = {
 	.name = "stm-nand-flex",
 	.id = 0,
@@ -99,9 +104,6 @@ static struct platform_device stx7200_nand_flex_device = {
 	.resource = (struct resource[2]) {
 		STM_PLAT_RESOURCE_MEM(0xFEF01000, 0x1000),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(123), -1),
-	},
-	.dev.platform_data = &(struct stm_plat_nand_flex_data){
-		.pad_config	= &stx7200_nand_flex_pad_config,
 	},
 };
 
@@ -251,7 +253,6 @@ static struct platform_device stx7200_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd020000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(96), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(0),
 	},
 	[1] = {
 		.name = "stm-gpio",
@@ -261,7 +262,6 @@ static struct platform_device stx7200_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd021000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(97), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(1),
 	},
 	[2] = {
 		.name = "stm-gpio",
@@ -271,7 +271,6 @@ static struct platform_device stx7200_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd022000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(98), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(2),
 	},
 	[3] = {
 		.name = "stm-gpio",
@@ -281,7 +280,6 @@ static struct platform_device stx7200_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd023000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(99), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(3),
 	},
 	[4] = {
 		.name = "stm-gpio",
@@ -291,7 +289,6 @@ static struct platform_device stx7200_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd024000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(100), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(4),
 	},
 	[5] = {
 		.name = "stm-gpio",
@@ -301,7 +298,6 @@ static struct platform_device stx7200_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd025000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(101), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(5),
 	},
 	[6] = {
 		.name = "stm-gpio",
@@ -311,7 +307,6 @@ static struct platform_device stx7200_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd026000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(102), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(6),
 	},
 	[7] = {
 		.name = "stm-gpio",
@@ -321,9 +316,38 @@ static struct platform_device stx7200_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd027000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(103), -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(7),
 	},
 };
+
+static int stx7200_pio_config(unsigned gpio,
+		enum stm_pad_gpio_direction direction, int function)
+{
+	switch (direction) {
+	case stm_pad_gpio_direction_in:
+		BUG_ON(function != -1);
+		stm_gpio_direction(gpio, STM_GPIO_DIRECTION_IN);
+		break;
+	case stm_pad_gpio_direction_out:
+		BUG_ON(function < 0);
+		BUG_ON(function > 1);
+		stm_gpio_direction(gpio, function ?
+				STM_GPIO_DIRECTION_ALT_OUT :
+				STM_GPIO_DIRECTION_OUT);
+		break;
+	case stm_pad_gpio_direction_bidir:
+		BUG_ON(function < 0);
+		BUG_ON(function > 1);
+		stm_gpio_direction(gpio, function ?
+				STM_GPIO_DIRECTION_ALT_BIDIR :
+				STM_GPIO_DIRECTION_BIDIR);
+		break;
+	default:
+		BUG();
+		break;
+	}
+
+	return 0;
+}
 
 
 
@@ -363,6 +387,8 @@ void __init stx7200_early_device_init(void)
 	stm_gpio_early_init(stx7200_pio_devices,
 			ARRAY_SIZE(stx7200_pio_devices),
 			ILC_FIRST_IRQ + ILC_NR_IRQS);
+	stm_pad_init(ARRAY_SIZE(stx7200_pio_devices) * STM_GPIO_PINS_PER_PORT,
+			0, stx7200_pio_config);
 
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);
@@ -409,9 +435,7 @@ postcore_initcall(stx7200_postcore_setup);
 
 static struct platform_device *stx7200_devices[] __initdata = {
 	&stx7200_fdma_0_device,
-#if 0
 	&stx7200_fdma_1_device,
-#endif
 	&stx7200_fdma_xbar_device,
 	&stx7200_sysconf_device,
 	&stx7200_rng_hwrandom_device,

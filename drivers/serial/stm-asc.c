@@ -614,6 +614,8 @@ void asc_set_termios_cflag(struct asc_port *ascport, int cflag, int baud)
 			ctrl_val |= ASC_CTL_MODE_8BIT;
 	}
 
+	ascport->check_parity = (cflag & PARENB) ? 1 : 0;
+
 	/* set stop bit */
 	if (cflag & CSTOPB)
 		ctrl_val |= ASC_CTL_STOP_2BIT;
@@ -743,6 +745,7 @@ static void asc_transmit_chars(struct uart_port *port)
 static inline void asc_receive_chars(struct uart_port *port)
 {
 	int count;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 	struct tty_struct *tty = port->state->port.tty;
 	int copied = 0;
 	unsigned long status;
@@ -779,7 +782,8 @@ static inline void asc_receive_chars(struct uart_port *port)
 					port->icount.frame++;
 					flag = TTY_FRAME;
 				}
-			} else if (unlikely(c & ASC_RXBUF_PE)) {
+			} else if (ascport->check_parity &&
+				   unlikely(c & ASC_RXBUF_PE)) {
 				port->icount.parity++;
 				flag = TTY_PARITY;
 			}

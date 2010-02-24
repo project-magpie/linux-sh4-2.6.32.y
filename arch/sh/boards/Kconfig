@@ -531,6 +531,17 @@ config SH_ST_MB704
 	  STx5197-MBOARD, ST board ID: mb704). More information at:
 	  <http://www.stlinux.com/boards/mb704/>
 
+config SH_ST_MB796
+	bool "mb796: STx5206 Validation board"
+	depends on CPU_SUBTYPE_STX5206
+	select SH_ST_STEM
+	select SH_ST_STPM_HD_V2
+	select SYS_SUPPORTS_PCI
+	default n
+	help
+	  Select this if configuring for an STMicroelectronics STx5289
+	  Validation Board (product code: STi5289-MBOARD, ST board ID: mb796).
+
 config SH_ST_MB839
 	bool "mb839: STi7105 Reference Board"
 	depends on CPU_SUBTYPE_STX7105

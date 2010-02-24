@@ -418,7 +418,7 @@ config CPU_SUBTYPE_STX7100
 	select CPU_SUBTYPE_ST40
 	select SUPPORTS_32BIT
 	help
-	  Select STX7100 if you have an STx7100, STx7109 or STx5202 CPU.
+	  Select STX7100 if you have an STx7100 or STx7109 (or derivative).
 
 config CPU_SUBTYPE_STX7105
 	bool "Support STx7105/7106 processors"

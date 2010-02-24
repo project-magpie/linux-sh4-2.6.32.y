@@ -327,6 +327,7 @@ config SH_ST_STPM_SD
 config SH_ST_CAB5197
 	bool "CAB5197: STx5197 CAB reference board"
 	depends on CPU_SUBTYPE_STX5197
+	default n
 	help
 	  Select STx5197 CAB Reference if configuring for an
 	  STMicroelectronics STx5197 CAB reference Board.
@@ -344,6 +345,7 @@ config SH_ST_HDK7105
 	bool "HDK7105 : STx7105 HDK Reference board"
 	depends on CPU_SUBTYPE_STX7105
 	select SYS_SUPPORTS_PCI
+	default n
 	help
 	  Select HDK7105 if configuring for an
 	  STMicroelectronics STi7105 HDK Reference Board.
@@ -352,6 +354,7 @@ config SH_ST_HDK7106
 	bool "HDK7106 : STx7106 HDK Reference board"
 	depends on CPU_SUBTYPE_STX7105
 	select SYS_SUPPORTS_PCI
+	default n
 	help
 	  Select HDK7106 if configuring for an
 	  STMicroelectronics STi7106 HDK Reference Board.
@@ -359,15 +362,15 @@ config SH_ST_HDK7106
 config SH_ST_HDREF
 	bool "ST HDref board"
 	depends on CPU_SUBTYPE_STX7100
+	default n
 	help
 	  Select ST HDref board if configuring for an
 	  STMicroelectronics ST HD Reference Board
-	  More information at:
-	  <http://www.linuxsh.st.com/boards/hdref/>
 
 config SH_ST_HMP7100
 	bool "STx7100 HMP board"
 	depends on CPU_SUBTYPE_STX7100
+	default n
 	help
 	  Select STx7100 HMP board if configuring for an
 	  STMicroelectronics STB71xx HMP Reference Board
@@ -376,6 +379,7 @@ config SH_ST_HMP7105
 	bool "HMP7105: STx7105 Reference board"
 	depends on CPU_SUBTYPE_STX7105
 	select SYS_SUPPORTS_PCI
+	default n
 	help
 	  Select HMP7105 if configuring for an STMicroelectronics
 	  HMP7105 reference board.
@@ -383,15 +387,15 @@ config SH_ST_HMP7105
 config SH_ST_HMS1
 	bool "HMS1"
 	depends on CPU_SUBTYPE_STX7100
+	default n
 	help
 	  Select HMS1 if configuring for a HMS1 board.
-	  More information at:
-	  <http://www.linuxsh.st.com/boards/hms1/>
 
 config SH_ST_IPTV7105
 	bool "iptv7105: STx7105 IPTV pluggin board"
 	depends on CPU_SUBTYPE_STX7105
 	select SYS_SUPPORTS_PCI
+	default n
 	help
 	  Select SH_ST_IPTV7105 if configuring for an STx7105 IPTV board
 
@@ -400,11 +404,11 @@ config SH_ST_MB360
 	depends on CPU_SUBTYPE_ST40STB1
 	select SH_ST_HARP_IRQ
 	select SH_ST_STEM
+	default n
 	help
 	  Select ST40RA-Eval if configuring for an
 	  STMicroelectronics ST40RA Eval Board (product code: ST40RA-Eval,
-	  ST board ID: mb360). More information at:
-	  <http://www.stlinux.com/boards/mb360/>
+	  ST board ID: mb360).
 
 config SH_ST_MB374
 	bool "mb374: ST40RA Starter"
@@ -413,12 +417,12 @@ config SH_ST_MB374
 	select SH_ST_HARP_IRQ
 	select SH_ST_STEM
 	select SH_ST_ST40RA_PCI
+	default n
 	help
 	  Select ST40RA-Starter if configuring for an
 	  STMicroelectronics ST40RA Starter Board (also known as the
 	  ST40RA DDR Eval board) (product code: ST40RA-Starter,
-	  ST board ID: mb374). More information at:
-	  <http://www.stlinux.com/boards/mb374/>
+	  ST board ID: mb374).
 
 config SH_ST_MB411
 	bool "mb411: STx7100 Validation board"
@@ -426,29 +430,29 @@ config SH_ST_MB411
 	select SH_ST_HARP_IRQ
 	select SH_ST_EPLD
 	select SH_ST_STEM
+	default n
 	help
 	  Select STb7100 Validation if configuring for an
 	  STMicroelectronics STb7100 Validation Board (product code:
-	  STi7100-MBOARD, ST board ID: mb411). More information at:
-	  <http://www.stlinux.com/boards/mb411/>
+	  STi7100-MBOARD, ST board ID: mb411).
 
 config SH_ST_MB442
 	bool "mb442: STb7100 Reference board"
 	depends on CPU_SUBTYPE_STX7100
+	default n
 	help
 	  Select STb7100 Reference if configuring for an
 	  STMicroelectronics STb7100 Reference Board (product code:
 	  STb7100-REF). This is sometimes referred to as the CoCo board.
-	  More information at: <http://www.stlinux.com/boards/mb442/>
 
 config SH_ST_MB448
 	bool "mb448: STb7109E Reference board"
 	depends on CPU_SUBTYPE_STX7100
+	default n
 	help
 	  Select STb7109E Reference if configuring for an
 	  STMicroelectronics STB7109E Reference Board (product code:
-	  STB7109E-REF, ST board ID: mb448). More information at:
-	  <http://www.stlinux.com/boards/mb448/>
+	  STB7109E-REF, ST board ID: mb448).
 
 config SH_ST_MB519
 	bool "mb519: STx7200 Mboard"
@@ -456,20 +460,20 @@ config SH_ST_MB519
 	select SH_ST_EPLD
 	select SH_ST_STEM
 	select SH_ST_STPM_HD_V1
+	default n
 	help
 	  Select SH_ST_MB519 if configuring for an
 	  STMicroelectronics STx7200 Mboard (product code: STB7200-MBOARD,
-	  ST board ID: mb519). More information at:
-	  <http://www.stlinux.com/boards/mb519/>
+	  ST board ID: mb519).
 
 config SH_ST_MB602
 	bool "STB5202 Reference board"
 	depends on CPU_SUBTYPE_STX7100
+	default n
 	help
 	  Select STB5202 Reference if configuring for an
-	  STMicroelectronics STB5202 Reference Board (product code: STB5202-REF,
-	  ST board ID: mb602). More information at:
-	  <http://www.linuxsh.st.com/boards/mb602/>
+	  STMicroelectronics STB5202 Reference Board
+	  (product code: STB5202-REF, ST board ID: mb602).
 
 config SH_ST_MB618
 	bool "mb618: STx7111 Validation board"
@@ -477,11 +481,11 @@ config SH_ST_MB618
 	select SH_ST_EPLD
 	select SH_ST_STEM
 	select SYS_SUPPORTS_PCI
+	default n
 	help
 	  Select STx7111 Validation if configuring for an
 	  STMicroelectronics STx7111 Validation Board (product code:
-	  STB7111-MBOARD, ST board ID: mb618). More information at:
-	  <http://www.stlinux.com/boards/mb618/>
+	  STB7111-MBOARD, ST board ID: mb618).
 
 config SH_ST_MB628
 	bool "mb628: STx7141 Mboard"
@@ -490,11 +494,11 @@ config SH_ST_MB628
 	select SH_ST_STEM
 	select SND_STM_CONV_DUMMY if SND_STM
 	select SND_STM_CONV_EPLD if SND_STM
+	default n
 	help
 	  Select STx7141 Mboard if configuring for an
 	  STMicroelectronics STx7141 MBoard (product code:
-	  STi7141-MBOARD, ST board ID: mb628). More information at:
-	  <http://www.stlinux.com/boards/mb628/>
+	  STi7141-MBOARD, ST board ID: mb628).
 
 config SH_ST_MB671
 	bool "mb671: STx7200 cut 2.0 Mboard"
@@ -503,10 +507,10 @@ config SH_ST_MB671
 	select SH_ST_EPLD
 	select SH_ST_STEM
 	select SH_ST_STPM_HD_V1
+	default n
 	help
 	  Select SH_ST_MB671 if configuring for an STMicroelectronics
 	  STx7200 cut 2.0 Mboard (ST board ID: mb671).
-	  More information at: <http://www.stlinux.com/boards/>
 
 config SH_ST_MB680
 	bool "mb680: STx7105 Validation board"
@@ -514,22 +518,22 @@ config SH_ST_MB680
 	select SH_ST_STEM
 	select SH_ST_STPM_HD_V2
 	select SYS_SUPPORTS_PCI
+	default n
 	help
 	  Select STx7105 Validation if configuring for an
 	  STMicroelectronics STx7105 Validation Board (product code:
-	  STi7105-MBOARD, ST board ID: mb680). More information at:
-	  <http://www.stlinux.com/boards/mb680/>
+	  STi7105-MBOARD, ST board ID: mb680).
 
 config SH_ST_MB704
 	bool "mb704: STx5197 Validation board"
 	depends on CPU_SUBTYPE_STX5197
 	select SH_ST_STEM
 	select SH_ST_STPM_SD
+	default n
 	help
 	  Select STx5197 Validation if configuring for an
 	  STMicroelectronics STx5197 Validation Board (product code:
-	  STx5197-MBOARD, ST board ID: mb704). More information at:
-	  <http://www.stlinux.com/boards/mb704/>
+	  STx5197-MBOARD, ST board ID: mb704).
 
 config SH_ST_MB796
 	bool "mb796: STx5206 Validation board"
@@ -545,6 +549,7 @@ config SH_ST_MB796
 config SH_ST_MB839
 	bool "mb839: STi7105 Reference Board"
 	depends on CPU_SUBTYPE_STX7105
+	default n
 	help
 	  Select MB839 if configuring for an
 	  STMicroelectronics STi7105 MB839 Reference Board.
@@ -554,6 +559,7 @@ comment "ST Peripheral Boards"
 config SH_ST_DB641
 	bool "db641: STEM board with double SMSC LAN9117 Ethernet interface"
 	depends on SH_ST_STEM
+	default n
 	help
 	  Supports DB641 STEM board. Only first port (CN1) is supported.
 	  See "arch/sh/boards/st/common/db641.c" for configuration
@@ -562,6 +568,7 @@ config SH_ST_DB641
 config SH_ST_DB679
 	bool "db679: STEM based EMI to ATAPI drive interface"
 	depends on SH_ST_STEM
+	default n
 	help
 	  Supports DB679 STEM board. See "arch/sh/boards/st/common/db679.c"
 	  for configuration informations.
@@ -574,6 +581,7 @@ config SH_ST_MB520
 	select I2C_STM
 	select GPIO_PCF857X
 	select SND_STM_CONV_GPIO if SND_STM
+	default n
 	help
 	  Select SH_ST_MB520 if your processor board is connected
 	  to this STB-like peripherals board.
@@ -581,6 +589,7 @@ config SH_ST_MB520
 config SH_ST_MB562
 	bool "mb562: BD-DVD peripherals board"
 	depends on SH_ST_STPM_HD_V1
+	default n
 	help
 	  Select SH_ST_MB562 if your processor board is connected
 	  to this multi-audio-outputs board.
@@ -588,6 +597,7 @@ config SH_ST_MB562
 config SH_ST_MB588
 	bool "mb588: NAND Flash STEM board"
 	depends on SH_ST_STEM
+	default n
 	help
 	  Supports MB588 STEM board. See "arch/sh/boards/st/common/mb588.c"
 	  for configuration informations.
@@ -596,6 +606,7 @@ config SH_ST_MB705
 	bool "mb705: Generic HD peripherals board"
 	depends on SH_ST_STPM_HD_V2
 	select SH_ST_EPLD
+	default n
 	help
 	  Select SH_ST_MB705 if your processor board is connected
 	  to this STB-like peripherals board.

@@ -340,11 +340,12 @@ static inline void __stm_gpio_direction(struct stm_gpio_port *port,
 
 static int stm_gpio_request(struct gpio_chip *chip, unsigned offset)
 {
-	return 0;
+	return stm_pad_claim_gpio(chip->base + offset);
 }
 
 static void stm_gpio_free(struct gpio_chip *chip, unsigned offset)
 {
+	stm_pad_release_gpio(chip->base + offset);
 }
 
 static int stm_gpio_get(struct gpio_chip *chip, unsigned offset)

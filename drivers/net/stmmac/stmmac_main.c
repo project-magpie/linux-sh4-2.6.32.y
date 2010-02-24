@@ -1933,8 +1933,8 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	ndev->base_addr = (unsigned long)addr;
 
 	/* Pad routing setup */
-	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, plat_dat->pad_config,
-				      dev_name(&pdev->dev)))) {
+	if (!devm_stm_pad_claim(&pdev->dev, plat_dat->pad_config,
+			dev_name(&pdev->dev))) {
 		printk(KERN_ERR "%s: Failed to request pads!\n",
 		       __FUNCTION__);
 		ret = -ENODEV;

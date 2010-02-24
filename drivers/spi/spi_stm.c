@@ -471,8 +471,8 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
-				      dev_name(&pdev->dev)))) {
+	if (!devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
+			dev_name(&pdev->dev))) {
 		printk(KERN_ERR NAME " Pads request failed!\n");
 		return -ENODEV;
 	}

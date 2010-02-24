@@ -85,9 +85,6 @@ extern struct platform_device *stm_asc_configured_devices[];
 
 struct stm_plat_ssc_data {
 	struct stm_pad_config *pad_config;
-	struct stm_pad_config *pad_config_ssc;
-	struct stm_pad_config *pad_config_gpio;
-
 	void (*spi_chipselect)(struct spi_device *, int);
 };
 
@@ -201,35 +198,11 @@ struct stm_plat_sata_data {
 
 
 
-/** PIO platform data ***/
+/*** PIO platform data ***/
 
-#define STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, _pin_no) \
-	{ \
-		.labels_num = 1, \
-		.labels = (struct stm_pad_label []) { \
-			STM_PAD_LABEL("PIO" #_port_no "." #_pin_no), \
-		}, \
-	}
-
-#define STM_PLAT_PIO_DATA_LABELS(_port_no) \
-		.pad_configs = (struct stm_pad_config []) { \
-			[0] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 0), \
-			[1] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 1), \
-			[2] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 2), \
-			[3] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 3), \
-			[4] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 4), \
-			[5] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 5), \
-			[6] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 6), \
-			[7] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 7), \
-		}
-
-#define STM_PLAT_PIO_DATA_LABELS_ONLY(_port_no) \
-	(struct stm_plat_pio_data) { \
-		STM_PLAT_PIO_DATA_LABELS(_port_no) \
-	}
-
-struct stm_plat_pio_data {
-	struct stm_pad_config *pad_configs;
+struct stm_plat_pio_irqmux_data {
+	int port_first;
+	int ports_num;
 };
 
 
@@ -247,7 +220,7 @@ struct stm_plat_sysconf_group {
 	int group;
 	unsigned long offset;
 	const char *name;
-	const char *(*field_name)(int num);
+	const char *(*reg_name)(int num);
 };
 
 struct stm_plat_sysconf_data {

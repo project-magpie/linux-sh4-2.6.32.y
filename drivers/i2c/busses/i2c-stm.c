@@ -198,8 +198,6 @@ struct iic_ssc {
 	unsigned long config;
 	wait_queue_head_t wait_queue;
 	struct stm_pad_state *pad_state;
-	struct stm_pad_config *pad_config_ssc, *pad_config_gpio;
-	unsigned int gpio_scl, gpio_sda;
 };
 
 #define jump_on_fsm_start(x)	{ (x)->state = IIC_FSM_START;	\
@@ -668,23 +666,26 @@ static int iic_wait_free_bus(struct iic_ssc *adap)
  */
 static void iic_pio_stop(struct iic_ssc *adap)
 {
+	unsigned scl, sda;
 	int cnt = 0;
 
-	if (!adap->pad_config_gpio)
+	if (!adap->pad_state)
 		return; /* SSC hard wired */
 
 	printk(KERN_WARNING "i2c-stm: doing PIO stop!\n");
 
 	/* Send STOP */
-	gpio_set_value(adap->gpio_scl, 0);
-	gpio_set_value(adap->gpio_sda, 0);
-	stm_pad_switch(adap->pad_state, adap->pad_config_gpio);
+	scl = stm_pad_gpio_request_output(adap->pad_state, "SCL", 0);
+	BUG_ON(scl == STM_GPIO_INVALID);
+	sda = stm_pad_gpio_request_output(adap->pad_state, "SDA", 0);
+	BUG_ON(sda == STM_GPIO_INVALID);
 	udelay(20);
-	gpio_set_value(adap->gpio_scl, 1);
+	gpio_set_value(scl, 1);
 	udelay(20);
-	gpio_set_value(adap->gpio_sda, 1);
+	gpio_set_value(sda, 1);
 	udelay(30);
-	stm_pad_switch(adap->pad_state, adap->pad_config_ssc);
+	stm_pad_gpio_free(adap->pad_state, scl);
+	stm_pad_gpio_free(adap->pad_state, sda);
 
 	/* Reset SSC */
 	ssc_store32(adap, SSC_CTL, SSC_CTL_SR | SSC_CTL_EN | SSC_CTL_MS |
@@ -1134,23 +1135,12 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 	}
 
 	/* If SSC is hard wired, there will be no pad configurations */
-
 	if (plat_data->pad_config) {
 		i2c_stm->pad_state = devm_stm_pad_claim(&pdev->dev,
-			plat_data->pad_config, "i2c-stm");
-		if (IS_ERR(i2c_stm->pad_state)) {
+				plat_data->pad_config, "i2c-stm");
+		if (!i2c_stm->pad_state) {
 			dev_err(&pdev->dev, "Pads request failed\n");
 			return -ENODEV;
-		}
-
-		if (plat_data->pad_config_gpio) {
-			i2c_stm->pad_config_ssc = plat_data->pad_config_ssc;
-			i2c_stm->pad_config_gpio = plat_data->pad_config_gpio;
-
-			i2c_stm->gpio_scl = stm_pad_gpio(plat_data->pad_config,
-							 "SCL");
-			i2c_stm->gpio_sda = stm_pad_gpio(plat_data->pad_config,
-							 "SDA");
 		}
 	}
 

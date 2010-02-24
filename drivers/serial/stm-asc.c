@@ -321,6 +321,7 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	if (IS_ERR(clk))
 		clk = clk_get(NULL, "bus_clk");
 	rate = clk_get_rate(clk);
+	WARN_ON(rate == 0); /* Well, it won't work at all... */
 	clk_put(clk);
 
 	ascport->port.uartclk = rate;
@@ -541,13 +542,11 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
 
 	if (!ascport->pad_state) {
-		struct stm_pad_state *pad_state;
-
 		/* Can't use dev_name() here as we can be called early */
-		pad_state = stm_pad_claim(ascport->pad_config, "stasc");
-		if (IS_ERR(pad_state))
-			return PTR_ERR(pad_state);
-		ascport->pad_state = pad_state;
+		ascport->pad_state = stm_pad_claim(ascport->pad_config,
+				"stasc");
+		if (!ascport->pad_state)
+			return -EBUSY;
 	}
 
 	if (req && !request_mem_region(port->mapbase, size, pdev->name))

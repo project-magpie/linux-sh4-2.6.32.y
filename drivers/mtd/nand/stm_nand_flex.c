@@ -233,7 +233,7 @@ static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
 	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
-	uint8_t *p;
+	const uint8_t *p;
 
 	/* Handle non-aligned buffer */
 	if ((uint32_t)buf & 0x3) {
@@ -1047,13 +1047,6 @@ static int __init stm_nand_flex_probe(struct platform_device *pdev)
 	int n;
 	struct stm_nand_bank_data *bank;
 	struct stm_nand_flex_controller *flex;
-
-	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, pdata->pad_config,
-				      dev_name(&pdev->dev)))) {
-		res = PTR_ERR(flex);
-		dev_err(&pdev->dev, "Pads request failed!\n");
-		return res;
-	}
 
 	flex = flex_init_controller(pdev);
 	if (IS_ERR(flex)) {

@@ -114,9 +114,9 @@ stm_pwm_init(struct platform_device* pdev, struct stm_pwm *pwm,
 	writel(0, pwm->base + PWM1_VAL);
 
 	if (plat_data->channel_enabled[0]) {
-		if (IS_ERR(devm_stm_pad_claim(&pdev->dev,
-					      plat_data->channel_pad_config[0],
-					      dev_name(&pdev->dev)))) {
+		if (!devm_stm_pad_claim(&pdev->dev,
+				plat_data->channel_pad_config[0],
+				dev_name(&pdev->dev))) {
 			error = -ENODEV;
 			goto error_pad_claim_0;
 		}
@@ -126,9 +126,9 @@ stm_pwm_init(struct platform_device* pdev, struct stm_pwm *pwm,
 	}
 
 	if (plat_data->channel_enabled[1]) {
-		if (IS_ERR(devm_stm_pad_claim(&pdev->dev,
-					      plat_data->channel_pad_config[1],
-					      dev_name(&pdev->dev)))) {
+		if (!devm_stm_pad_claim(&pdev->dev,
+				plat_data->channel_pad_config[1],
+				dev_name(&pdev->dev))) {
 			error = -ENODEV;
 			goto error_pad_claim_1;
 		}

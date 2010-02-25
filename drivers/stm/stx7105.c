@@ -105,6 +105,9 @@ static struct platform_device stx7105_nand_flex_device = {
 		STM_PLAT_RESOURCE_MEM(0xFE701000, 0x1000),
 		STM_PLAT_RESOURCE_IRQ(evt2irq(0x14a0), -1),
 	},
+	.dev.platform_data = &(struct stm_plat_nand_flex_data) {
+		/* values set in stx7105_configure_nand_flex() */
+	},
 };
 
 void __init stx7105_configure_nand_flex(int nr_banks,

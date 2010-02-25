@@ -126,6 +126,9 @@ static struct platform_device stx7141_nand_flex_device = {
 		STM_PLAT_RESOURCE_MEM(0xFE701000, 0x1000),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(39), -1),
 	},
+	.dev.platform_data = &(struct stm_plat_nand_flex_data) {
+		/* values set in stx7141_configure_nand_flex() */
+	},
 };
 
 /* stx7141_configure_nand - Configures NAND support for the STx7141

@@ -831,6 +831,69 @@ static int stx5197_pio_config(unsigned gpio,
 
 /* sysconf resources ------------------------------------------------------ */
 
+#ifdef CONFIG_DEBUG_FS
+
+#define SYSCONF_REG(field) _SYSCONF_REG(#field, field)
+#define _SYSCONF_REG(name, group, num) case num: return name
+
+static const char *stx5197_sysconf_hd_reg_name(int num)
+{
+	switch (num) {
+	SYSCONF_REG(CFG_CTRL_C);
+	SYSCONF_REG(CFG_CTRL_D);
+	SYSCONF_REG(CFG_CTRL_E);
+	SYSCONF_REG(CFG_CTRL_F);
+	SYSCONF_REG(CFG_CTRL_G);
+	SYSCONF_REG(CFG_CTRL_H);
+	SYSCONF_REG(CFG_CTRL_I);
+	SYSCONF_REG(CFG_CTRL_J);
+
+	SYSCONF_REG(CFG_CTRL_K);
+	SYSCONF_REG(CFG_CTRL_L);
+	SYSCONF_REG(CFG_CTRL_M);
+	SYSCONF_REG(CFG_CTRL_N);
+	SYSCONF_REG(CFG_CTRL_O);
+	SYSCONF_REG(CFG_CTRL_P);
+	SYSCONF_REG(CFG_CTRL_Q);
+	SYSCONF_REG(CFG_CTRL_R);
+
+	SYSCONF_REG(CFG_MONITOR_C);
+	SYSCONF_REG(CFG_MONITOR_D);
+	SYSCONF_REG(CFG_MONITOR_E);
+	SYSCONF_REG(CFG_MONITOR_F);
+	SYSCONF_REG(CFG_MONITOR_G);
+	SYSCONF_REG(CFG_MONITOR_H);
+	SYSCONF_REG(CFG_MONITOR_I);
+	SYSCONF_REG(CFG_MONITOR_J);
+
+	SYSCONF_REG(CFG_MONITOR_K);
+	SYSCONF_REG(CFG_MONITOR_L);
+	SYSCONF_REG(CFG_MONITOR_M);
+	SYSCONF_REG(CFG_MONITOR_N);
+	SYSCONF_REG(CFG_MONITOR_O);
+	SYSCONF_REG(CFG_MONITOR_P);
+	SYSCONF_REG(CFG_MONITOR_Q);
+	SYSCONF_REG(CFG_MONITOR_R);
+	}
+
+	return "???";
+}
+
+static const char *stx5197_sysconf_hs_reg_name(int num)
+{
+	switch (num) {
+	SYSCONF_REG(CFG_CTRL_A);
+	SYSCONF_REG(CFG_CTRL_B);
+
+	SYSCONF_REG(CFG_MONITOR_A);
+	SYSCONF_REG(CFG_MONITOR_B);
+	}
+
+	return "???";
+}
+
+#endif
+
 static struct platform_device stx5197_sysconf_devices[] = {
 	{
 		.name		= "stm-sysconf",
@@ -842,7 +905,14 @@ static struct platform_device stx5197_sysconf_devices[] = {
 		.dev.platform_data = &(struct stm_plat_sysconf_data) {
 			.groups_num = 1,
 			.groups = (struct stm_plat_sysconf_group []) {
-				PLAT_SYSCONF_GROUP(HD_CFG, 0x000),
+				{
+					.group = HD_CFG,
+					.offset = 0,
+					.name = "High Density group ",
+#ifdef CONFIG_DEBUG_FS
+					.reg_name = stx5197_sysconf_hd_reg_name,
+#endif
+				},
 			},
 		}
 	}, {
@@ -855,7 +925,14 @@ static struct platform_device stx5197_sysconf_devices[] = {
 		.dev.platform_data = &(struct stm_plat_sysconf_data) {
 			.groups_num = 1,
 			.groups = (struct stm_plat_sysconf_group []) {
-				PLAT_SYSCONF_GROUP(HS_CFG, 0x000),
+				{
+					.group = HS_CFG,
+					.offset = 0,
+					.name = "High Speed group ",
+#ifdef CONFIG_DEBUG_FS
+					.reg_name = stx5197_sysconf_hs_reg_name,
+#endif
+				},
 			},
 		}
 	},

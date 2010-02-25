@@ -1,7 +1,8 @@
 /*******************************************************************************
-  STMMAC external timer Header File.
 
-  Copyright (C) 2007-2009  STMicroelectronics Ltd
+  Header file for stmmac platform data
+
+  Copyright (C) 2009  STMicroelectronics Ltd
 
   This program is free software; you can redistribute it and/or modify it
   under the terms and conditions of the GNU General Public License,
@@ -22,17 +23,31 @@
   Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
 *******************************************************************************/
 
-struct stmmac_timer {
-	void (*timer_start) (void *timer, unsigned int new_freq);
-	void (*timer_stop) (void *timer);
-	unsigned int freq;
-	unsigned int enable;
-	void *timer_callb;
+#ifndef __STMMAC_PLATFORM_DATA
+#define __STMMAC_PLATFORM_DATA
+
+/* platfrom data for platfrom device structure's platfrom_data field */
+
+/* Private data for the STM on-board ethernet driver */
+struct plat_stmmacenet_data {
+	int bus_id;
+	int pbl;
+	int has_gmac;
+	void (*fix_mac_speed)(void *priv, unsigned int speed);
+	void (*bus_setup)(unsigned long ioaddr);
+#ifdef CONFIG_STM_DRIVERS
+	struct stm_pad_config *pad_config;
+#endif
+	void *bsp_priv;
 };
 
-/* Open the HW timer device and return 0 in case of success */
-int stmmac_open_ext_timer(struct net_device *dev, struct stmmac_timer *tm);
-/* Stop the timer and release it */
-int stmmac_close_ext_timer(void *priv);
-/* Function used for scheduling task within the stmmac */
-void stmmac_schedule(struct net_device *dev);
+struct plat_stmmacphy_data {
+	int bus_id;
+	int phy_addr;
+	unsigned int phy_mask;
+	int interface;
+	int (*phy_reset)(void *priv);
+	void *priv;
+};
+#endif
+

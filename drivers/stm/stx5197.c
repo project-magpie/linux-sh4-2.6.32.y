@@ -699,7 +699,7 @@ static void stx5197_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
 	sysconf_write(mac_speed_sel, (speed == SPEED_100) ? 1 : 0);
 }
 
-static struct stm_plat_stmmacenet_data stx5197_ethernet_platform_data = {
+static struct plat_stmmacenet_data stx5197_ethernet_platform_data = {
 	.pbl = 32,
 	.fix_mac_speed = stx5197_ethernet_fix_mac_speed,
 	/* .pad_config set in stx5197_configure_ethernet() */

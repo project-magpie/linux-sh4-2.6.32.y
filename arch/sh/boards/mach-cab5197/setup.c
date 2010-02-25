@@ -53,7 +53,7 @@ static int cab_phy_reset(void *bus)
 	return 1;
 }
 
-static struct stm_plat_stmmacphy_data cab5197_phy_private_data = {
+static struct plat_stmmacphy_data cab5197_phy_private_data = {
 	.bus_id = 0,
 	.phy_addr = -1,
 	.phy_mask = 0,

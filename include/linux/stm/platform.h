@@ -8,7 +8,7 @@
 #include <linux/spi/spi.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/nand.h>
-
+#include <linux/stmmac.h>
 
 /*** Platform definition helpers ***/
 
@@ -145,34 +145,6 @@ struct plat_stm_temp_data {
 	unsigned long (*custom_get_data)(void *priv);
 	void *custom_priv;
 };
-
-
-/*** Ethernet (STMMAC) platform data ***/
-
-/* Private data for the STM on-board ethernet driver */
-struct stm_plat_stmmacenet_data {
-	int bus_id;
-	int pbl;
-	int disable_readahead;
-	int has_gmac;
-	void (*fix_mac_speed)(void *priv, unsigned int speed);
-	void (*hw_setup)(void);
-
-	struct stm_pad_config *pad_config;
-
-	void *bsp_priv;
-};
-
-struct stm_plat_stmmacphy_data {
-	int bus_id;
-	int phy_addr;
-	unsigned int phy_mask;
-	int interface;
-	int (*phy_reset)(void *priv);
-	void *priv;
-};
-
-
 
 /*** USB platform data ***/
 

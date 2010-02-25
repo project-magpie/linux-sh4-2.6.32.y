@@ -94,7 +94,7 @@ static struct platform_device mb411_physmap_flash = {
 
 
 
-static struct stm_plat_stmmacphy_data mb411_phy_private_data = {
+static struct plat_stmmacphy_data mb411_phy_private_data = {
 	.bus_id = 0,
 	.phy_addr = -1,
 	.phy_mask = 0,

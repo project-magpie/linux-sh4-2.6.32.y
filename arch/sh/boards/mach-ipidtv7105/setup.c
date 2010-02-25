@@ -82,7 +82,7 @@ static int ipidtv7105_phy_reset(void *bus)
 	return 1;
 }
 
-static struct stm_plat_stmmacphy_data ipidtv7105_phy_private_data = {
+static struct plat_stmmacphy_data ipidtv7105_phy_private_data = {
 	/* Micrel KSZ8041FTL */
 	.bus_id = 0,
 	.phy_addr = -1,

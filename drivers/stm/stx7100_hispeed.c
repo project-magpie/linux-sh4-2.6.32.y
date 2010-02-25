@@ -71,7 +71,7 @@ static void stx7100_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
 	sysconf_write(mac_speed_sel, (speed == SPEED_100) ? 1 : 0);
 }
 
-static struct stm_plat_stmmacenet_data stx7100_ethernet_platform_data = {
+static struct plat_stmmacenet_data stx7100_ethernet_platform_data = {
 	/* .pbl & .pad_config are set in stx7100_configure_ethernet() */
 	.has_gmac = 0,
 	.fix_mac_speed = stx7100_ethernet_fix_mac_speed,

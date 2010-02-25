@@ -647,8 +647,6 @@ void __init stx5197_configure_usb(void)
 
 /* FDMA resources --------------------------------------------------------- */
 
-#ifdef CONFIG_STM_DMA
-
 static struct stm_plat_fdma_fw_regs stx5197_fdma_fw = {
 	.rev_id    = 0x8000 + (0x000 << 2), /* 0x8000 */
 	.cmd_statn = 0x8000 + (0x450 << 2), /* 0x9140 */
@@ -694,23 +692,15 @@ static struct stm_plat_fdma_data stx5197_fdma_platform_data = {
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
-#define stx5197_fdma_platform_data_addr &stx5197_fdma_platform_data
-
-#else
-
-#define stx5197_fdma_platform_data_addr NULL
-
-#endif /* CONFIG_STM_DMA */
-
 static struct platform_device stx5197_fdma_device = {
-	.name		= "stm-fdma",
-	.id		= 0,
-	.num_resources	= 2,
+	.name = "stm-fdma",
+	.id = 0,
+	.num_resources = 2,
 	.resource = (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM(0xfdb00000, 0x10000),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(34), -1),
 	},
-	.dev.platform_data = stx5197_fdma_platform_data_addr,
+	.dev.platform_data = &stx5197_fdma_platform_data,
 };
 
 

@@ -99,8 +99,6 @@ void __init stx7100_configure_pata(struct stx7100_pata_config *config)
 
 /* FDMA resources --------------------------------------------------------- */
 
-#ifdef CONFIG_STM_DMA
-
 static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7100 = {
 	.rev_id    = 0x8000 + (0x000 << 2), /* 0x8000 */
 	.cmd_statn = 0x8000 + (0x010 << 2), /* 0x8040 */
@@ -235,13 +233,9 @@ static struct stm_plat_fdma_data stx7109c3_fdma_platform_data = {
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
-
-
-#endif /* CONFIG_STM_DMA */
-
 static struct platform_device stx7100_fdma_device = {
-	.name		= "stm-fdma",
-	.id		= -1,
+	.name = "stm-fdma",
+	.id = -1,
 	.num_resources	= 2,
 	.resource = (struct resource[2]) {
 		STM_PLAT_RESOURCE_MEM(0x19220000, 0x10000),
@@ -251,7 +245,6 @@ static struct platform_device stx7100_fdma_device = {
 
 static void stx7100_fdma_setup(void)
 {
-#ifdef CONFIG_STM_DMA
 	switch (cpu_data->type) {
 	case CPU_STX7100:
 		stx7100_fdma_device.dev.platform_data =
@@ -276,7 +269,6 @@ static void stx7100_fdma_setup(void)
 		BUG();
 		break;
 	}
-#endif
 }
 
 

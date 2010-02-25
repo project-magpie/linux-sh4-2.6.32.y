@@ -104,8 +104,6 @@ void __init stx5206_configure_pata(struct stx5206_pata_config *config)
 
 /* FDMA resources --------------------------------------------------------- */
 
-#ifdef CONFIG_STM_DMA
-
 static struct stm_plat_fdma_fw_regs stm_fdma_firmware_5206 = {
 	.rev_id    = 0x8000 + (0x000 << 2), /* 0x8000 */
 	.cmd_statn = 0x8000 + (0x450 << 2), /* 0x9140 */
@@ -151,23 +149,15 @@ static struct stm_plat_fdma_data stx5206_fdma_platform_data = {
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
-#define stx5206_fdma_platform_data_addr (&stx5206_fdma_platform_data)
-
-#else
-
-#define stx5206_fdma_platform_data_addr NULL
-
-#endif /* CONFIG_STM_DMA */
-
 static struct platform_device stx5206_fdma_device = {
-	.name		= "stm-fdma",
-	.id		= 0,
-	.num_resources	= 2,
+	.name = "stm-fdma",
+	.id = 0,
+	.num_resources = 2,
 	.resource = (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM(0xfe220000, 0x10000),
 		STM_PLAT_RESOURCE_IRQ(evt2irq(0x1380), -1),
 	},
-	.dev.platform_data = stx5206_fdma_platform_data_addr,
+	.dev.platform_data = &stx5206_fdma_platform_data,
 };
 
 

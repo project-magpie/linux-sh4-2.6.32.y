@@ -70,8 +70,6 @@ void __init stx7111_configure_nand_flex(int nr_banks,
 
 /* FDMA resources --------------------------------------------------------- */
 
-#ifdef CONFIG_STM_DMA
-
 static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7111 = {
 	.rev_id    = 0x8000 + (0x000 << 2), /* 0x8000 */
 	.cmd_statn = 0x8000 + (0x450 << 2), /* 0x9140 */
@@ -110,56 +108,40 @@ static struct stm_plat_fdma_hw stx7111_fdma_hw = {
 	},
 };
 
-static struct stm_plat_fdma_data stx7111_fdma_0_platform_data = {
+static struct stm_plat_fdma_data stx7111_fdma_platform_data = {
 	.hw = &stx7111_fdma_hw,
 	.fw = &stm_fdma_firmware_7111,
 	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
-static struct stm_plat_fdma_data stx7111_fdma_1_platform_data = {
-	.hw = &stx7111_fdma_hw,
-	.fw = &stm_fdma_firmware_7111,
-	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
-	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
-};
-
-#define stx7111_fdma_0_platform_data_addr &stx7111_fdma_0_platform_data
-#define stx7111_fdma_1_platform_data_addr &stx7111_fdma_1_platform_data
-
-#else
-
-#define stx7111_fdma_0_platform_data_addr NULL
-#define stx7111_fdma_1_platform_data_addr NULL
-
-#endif /* CONFIG_STM_DMA */
-
-static struct platform_device stx7111_fdma_0_device = {
-	.name		= "stm-fdma",
-	.id		= 0,
-	.num_resources	= 2,
-	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0xfe220000, 0x10000),
-		STM_PLAT_RESOURCE_IRQ(evt2irq(0x1380), -1),
-	},
-	.dev.platform_data = stx7111_fdma_0_platform_data_addr,
-};
-
-static struct platform_device stx7111_fdma_1_device = {
-	.name		= "stm-fdma",
-	.id		= 1,
-	.resource = (struct resource[2]) {
-		STM_PLAT_RESOURCE_MEM(0xfe410000, 0x10000),
-		STM_PLAT_RESOURCE_IRQ(evt2irq(0x13a0), -1),
-	},
-	.dev.platform_data = stx7111_fdma_1_platform_data_addr,
+static struct platform_device stx7111_fdma_devices[] = {
+	{
+		.name = "stm-fdma",
+		.id = 0,
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe220000, 0x10000),
+			STM_PLAT_RESOURCE_IRQ(evt2irq(0x1380), -1),
+		},
+		.dev.platform_data = &stx7111_fdma_platform_data,
+	}, {
+		.name = "stm-fdma",
+		.id = 1,
+		.num_resources = 2,
+		.resource = (struct resource[2]) {
+			STM_PLAT_RESOURCE_MEM(0xfe410000, 0x10000),
+			STM_PLAT_RESOURCE_IRQ(evt2irq(0x13a0), -1),
+		},
+		.dev.platform_data = &stx7111_fdma_platform_data,
+	}
 };
 
 static struct platform_device stx7111_fdma_xbar_device = {
-	.name		= "stm-fdma-xbar",
-	.id		= -1,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
+	.name = "stm-fdma-xbar",
+	.id = -1,
+	.num_resources = 1,
+	.resource = (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM(0xfe420000, 0x1000),
 	},
 };
@@ -375,8 +357,8 @@ postcore_initcall(stx7111_postcore_setup);
 /* Late initialisation ---------------------------------------------------- */
 
 static struct platform_device *stx7111_devices[] __initdata = {
-	&stx7111_fdma_0_device,
-	&stx7111_fdma_1_device,
+	&stx7111_fdma_devices[0],
+	&stx7111_fdma_devices[1],
 	&stx7111_fdma_xbar_device,
 	&stx7111_sysconf_device,
 	&stx7111_rng_hwrandom_device,

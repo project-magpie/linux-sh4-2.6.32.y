@@ -166,7 +166,7 @@ static struct stm_plat_pci_config mb680_pci_config = {
 		[0] = PCI_PIN_DEFAULT,
 		[1] = PCI_PIN_DEFAULT,
 		[2] = PCI_PIN_DEFAULT,
-		[3] = PCI_PIN_DEFAULT
+		[3] = PCI_PIN_UNUSED
 	},
 	.serr_irq = PCI_PIN_UNUSED, /* Modified in mb680_device_init() below */
 	.idsel_lo = 30,

@@ -321,11 +321,13 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	if (IS_ERR(clk))
 		clk = clk_get(NULL, "bus_clk");
 	rate = clk_get_rate(clk);
+	WARN_ON(rate == 0); /* Well, it won't work at all... */
 	clk_put(clk);
 
 	ascport->port.uartclk = rate;
 	ascport->pad_config = plat_data->pad_config;
 	ascport->hw_flow_control = plat_data->hw_flow_control;
+	ascport->txfifo_bug = plat_data->txfifo_bug;
 }
 
 static struct uart_driver asc_uart_driver = {
@@ -540,13 +542,11 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 	int size = pdev->resource[0].end - pdev->resource[0].start + 1;
 
 	if (!ascport->pad_state) {
-		struct stm_pad_state *pad_state;
-
 		/* Can't use dev_name() here as we can be called early */
-		pad_state = stm_pad_claim(ascport->pad_config, "stasc");
-		if (IS_ERR(pad_state))
-			return PTR_ERR(pad_state);
-		ascport->pad_state = pad_state;
+		ascport->pad_state = stm_pad_claim(ascport->pad_config,
+				"stasc");
+		if (!ascport->pad_state)
+			return -EBUSY;
 	}
 
 	if (req && !request_mem_region(port->mapbase, size, pdev->name))
@@ -614,6 +614,8 @@ void asc_set_termios_cflag(struct asc_port *ascport, int cflag, int baud)
 			ctrl_val |= ASC_CTL_MODE_8BIT;
 	}
 
+	ascport->check_parity = (cflag & PARENB) ? 1 : 0;
+
 	/* set stop bit */
 	if (cflag & CSTOPB)
 		ctrl_val |= ASC_CTL_STOP_2BIT;
@@ -670,14 +672,21 @@ void asc_set_termios_cflag(struct asc_port *ascport, int cflag, int baud)
 static inline unsigned asc_hw_txroom(struct uart_port *port)
 {
 	unsigned long status;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 
 	status = asc_in(port, STA);
-	if (status & ASC_STA_THE)
-		return FIFO_SIZE/2;
-	else if (!(status & ASC_STA_TF))
-		return 1;
-	else
-		return 0;
+
+	if (ascport->txfifo_bug) {
+		if (status & ASC_STA_THE)
+			return (FIFO_SIZE / 2) - 1;
+	} else {
+		if (status & ASC_STA_THE)
+			return FIFO_SIZE / 2;
+		else if (!(status & ASC_STA_TF))
+			return 1;
+	}
+
+	return 0;
 }
 
 /*
@@ -736,6 +745,7 @@ static void asc_transmit_chars(struct uart_port *port)
 static inline void asc_receive_chars(struct uart_port *port)
 {
 	int count;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 	struct tty_struct *tty = port->state->port.tty;
 	int copied = 0;
 	unsigned long status;
@@ -772,7 +782,8 @@ static inline void asc_receive_chars(struct uart_port *port)
 					port->icount.frame++;
 					flag = TTY_FRAME;
 				}
-			} else if (unlikely(c & ASC_RXBUF_PE)) {
+			} else if (ascport->check_parity &&
+				   unlikely(c & ASC_RXBUF_PE)) {
 				port->icount.parity++;
 				flag = TTY_PARITY;
 			}
@@ -880,6 +891,14 @@ static __inline__ char lowhex(int  x)
 #endif
 
 #ifdef CONFIG_SERIAL_STM_ASC_CONSOLE
+static int asc_txfifo_is_full(struct asc_port *ascport, unsigned long status)
+{
+	if (ascport->txfifo_bug)
+		return !(status & ASC_STA_THE);
+
+	return status & ASC_STA_TF;
+}
+
 static void put_char(struct uart_port *port, char c)
 {
 	unsigned long flags;
@@ -891,12 +910,12 @@ static void put_char(struct uart_port *port, char c)
 try_again:
 	do {
 		status = asc_in(port, STA);
-	} while (status & ASC_STA_TF);
+	} while (asc_txfifo_is_full(ascport, status));
 
 	spin_lock_irqsave(&port->lock, flags);
 
 	status = asc_in(port, STA);
-	if (status & ASC_STA_TF) {
+	if (asc_txfifo_is_full(ascport, status)) {
 		spin_unlock_irqrestore(&port->lock, flags);
 		goto try_again;
 	}

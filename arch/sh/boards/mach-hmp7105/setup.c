@@ -181,36 +181,9 @@ static struct platform_device *hmp7105_devices[] __initdata = {
 #endif
 };
 
-static struct stm_plat_pci_config pci_config = {
-	.pci_irq = {
-		[0] = PCI_PIN_DEFAULT,
-		[1] = PCI_PIN_DEFAULT,
-		[2] = PCI_PIN_DEFAULT,
-		[3] = PCI_PIN_DEFAULT
-	},
-	.serr_irq = PCI_PIN_UNUSED,
-	.idsel_lo = 30,
-	.idsel_hi = 30,
-	.req_gnt = {
-		[0] = PCI_PIN_DEFAULT,
-		[1] = PCI_PIN_UNUSED,
-		[2] = PCI_PIN_UNUSED,
-		[3] = PCI_PIN_UNUSED
-	},
-	.pci_clk = 33333333,
-	.pci_reset_pio = stm_gpio(15, 7)
-};
-
-int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
-{
-       /* We can use the standard function on this board */
-       return  stx7105_pcibios_map_platform_irq(&pci_config, pin);
-}
-
 static int __init hmp7105_devices_init(void)
 {
-	stx7105_configure_pci(&pci_config);
-	stx7105_configure_sata();
+	stx7105_configure_sata(0);
 
 	stx7105_configure_pwm(&(struct stx7105_pwm_config) {
 			.out0 = stx7105_pwm_out0_pio13_0,
@@ -230,19 +203,19 @@ static int __init hmp7105_devices_init(void)
 			.routing.ssc3.mtsr = stx7105_ssc3_mtsr_pio3_7, });
 
 	stx7105_configure_usb(0, &(struct stx7105_usb_config) {
-			.ovrcur_mode = stx7105_usb_ovrcur_active_high,
+			.ovrcur_mode = stx7105_usb_ovrcur_active_low,
 			.pwr_enabled = 1,
 			.routing.usb0.ovrcur = stx7105_usb0_ovrcur_pio4_4,
 			.routing.usb0.pwr = stx7105_usb0_pwr_pio4_5, });
 	stx7105_configure_usb(1, &(struct stx7105_usb_config) {
-			.ovrcur_mode = stx7105_usb_ovrcur_active_high,
+			.ovrcur_mode = stx7105_usb_ovrcur_active_low,
 			.pwr_enabled = 1,
 			.routing.usb1.ovrcur = stx7105_usb1_ovrcur_pio4_6,
 			.routing.usb1.pwr = stx7105_usb1_pwr_pio4_7, });
 
 	gpio_request(HMP7105_PIO_PHY_RESET, "notPioResetMII");
 	gpio_direction_output(HMP7105_PIO_PHY_RESET, 1);
-	stx7105_configure_ethernet(&(struct stx7105_ethernet_config) {
+	stx7105_configure_ethernet(0, &(struct stx7105_ethernet_config) {
 			.mode = stx7105_ethernet_mode_mii,
 			.ext_clk = 1,
 			.phy_bus = 0, });

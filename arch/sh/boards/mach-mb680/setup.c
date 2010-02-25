@@ -33,6 +33,8 @@
 
 
 #define MB680_PIO_PHY_RESET stm_gpio(5, 5)
+#define MB680_PIO_PCI_SERR stm_gpio(6, 4)
+#define MB680_PIO_PCI_RESET stm_gpio(15, 6)
 #define MB680_PIO_MII_BUS_SWITCH stm_gpio(11, 2)
 
 
@@ -129,7 +131,7 @@ static struct platform_device mb680_phy_device = {
 	.resource	= (struct resource[]) {
 		{
 			.name	= "phyirq",
-			.start	= -1,/*FIXME, should be ILC_EXT_IRQ(6), */
+			.start	= -1, /* FIXME: should be ILC_EXT_IRQ(6), */
 			.end	= -1,
 			.flags	= IORESOURCE_IRQ,
 		},
@@ -159,14 +161,14 @@ static void mb705_epld_pci_reset(void)
 /*
  * J22-A must be removed, J22-B must be 2-3.
  */
-static struct stm_plat_pci_config pci_config = {
+static struct stm_plat_pci_config mb680_pci_config = {
 	.pci_irq = {
 		[0] = PCI_PIN_DEFAULT,
 		[1] = PCI_PIN_DEFAULT,
 		[2] = PCI_PIN_DEFAULT,
-		[3] = PCI_PIN_DEFAULT
+		[3] = PCI_PIN_UNUSED
 	},
-	.serr_irq = PCI_PIN_UNUSED,
+	.serr_irq = PCI_PIN_UNUSED, /* Modified in mb680_device_init() below */
 	.idsel_lo = 30,
 	.idsel_hi = 30,
 	.req_gnt = {
@@ -176,28 +178,49 @@ static struct stm_plat_pci_config pci_config = {
 		[3] = PCI_PIN_UNUSED
 	},
 	.pci_clk = 33333333,
-	/*
-	 * When connected to the mb705, PCI reset is controlled by an EPLD
+	/* When connected to the mb705, PCI reset is controlled by an EPLD
 	 * register on the mb705. When used standalone a PIO pin is used,
-	 * and J47-D, J9-G must be fitted.
-	 */
+	 * and J47-D, J9-G must be fitted. */
 #ifdef CONFIG_SH_ST_MB705
 	.pci_reset = mb705_epld_pci_reset,
 #else
-	.pci_reset_pio = stm_gpio(15, 6),
+	.pci_reset_gpio = MB680_PIO_PCI_RESET,
 #endif
 };
 
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
        /* We can use the standard function on this board */
-       return stx7105_pcibios_map_platform_irq(&pci_config, pin);
+       return stx7105_pcibios_map_platform_irq(&mb680_pci_config, pin);
+}
+
+void __init mbxxx_configure_audio_pins(void)
+{
+	stx7105_configure_audio(&(struct stx7105_audio_config) {
+			.pcm_player_0_output =
+					stx7105_pcm_player_0_output_6_channels,
+			.spdif_player_output_enabled = 1,
+			.pcm_reader_input_enabled =
+					cpu_data->type == CPU_STX7105, });
 }
 
 static int __init mb680_devices_init(void)
 {
-	stx7105_configure_pci(&pci_config);
-	stx7105_configure_sata();
+	/* Setup the PCI_SERR# PIO
+	 * J20-A - open, J27-E - closed */
+	if (gpio_request(MB680_PIO_PCI_SERR, "PCI_SERR#") == 0) {
+		gpio_direction_input(MB680_PIO_PCI_SERR);
+		mb680_pci_config.serr_irq = gpio_to_irq(MB680_PIO_PCI_SERR);
+		set_irq_type(mb680_pci_config.serr_irq, IRQ_TYPE_LEVEL_LOW);
+	} else {
+		printk(KERN_WARNING "mb680: Failed to claim PCI_SERR PIO!\n");
+	}
+	stx7105_configure_pci(&mb680_pci_config);
+
+	stx7105_configure_sata(0);
+
+	/* Valid only for mb680 rev. A & rev. B (they had two SATA lines) */
+	stx7105_configure_sata(1);
 
 	stx7105_configure_pwm(&(struct stx7105_pwm_config) {
 			.out0 = stx7105_pwm_out0_pio13_0,
@@ -228,12 +251,12 @@ static int __init mb680_devices_init(void)
 	 * alt	| 12[6]	J5B:1-2  J6G:open	14[7]	J10B:1-2  J11H:open
 	 */
 	stx7105_configure_usb(0, &(struct stx7105_usb_config) {
-			.ovrcur_mode = stx7105_usb_ovrcur_active_high,
+			.ovrcur_mode = stx7105_usb_ovrcur_active_low,
 			.pwr_enabled = 1,
 			.routing.usb0.ovrcur = stx7105_usb0_ovrcur_pio4_4,
 			.routing.usb0.pwr = stx7105_usb0_pwr_pio4_5, });
 	stx7105_configure_usb(1, &(struct stx7105_usb_config) {
-			.ovrcur_mode = stx7105_usb_ovrcur_active_high,
+			.ovrcur_mode = stx7105_usb_ovrcur_active_low,
 			.pwr_enabled = 1,
 			.routing.usb1.ovrcur = stx7105_usb1_ovrcur_pio4_6,
 			.routing.usb1.pwr = stx7105_usb1_pwr_pio4_7, });
@@ -243,7 +266,7 @@ static int __init mb680_devices_init(void)
 	gpio_request(MB680_PIO_MII_BUS_SWITCH, "MIIBusSwitchnotOE");
 	gpio_direction_output(MB680_PIO_MII_BUS_SWITCH, 1);
 
-	stx7105_configure_ethernet(&(struct stx7105_ethernet_config) {
+	stx7105_configure_ethernet(0, &(struct stx7105_ethernet_config) {
 			.mode = stx7105_ethernet_mode_mii,
 			.ext_clk = 1,
 			.phy_bus = 0, });
@@ -292,7 +315,5 @@ struct sh_machine_vector mv_mb680 __initmv = {
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= mb680_init_irq,
 	.mv_ioport_map		= mb680_ioport_map,
-#ifdef CONFIG_SH_ST_SYNOPSYS_PCI
 	STM_PCI_IO_MACHINE_VEC
-#endif
 };

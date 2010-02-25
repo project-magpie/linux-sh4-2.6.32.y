@@ -13,10 +13,10 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 #include <linux/stm/sysconf.h>
-#include <linux/stm/soc.h>
+#include <linux/stm/platform.h>
 
 struct stm_temp_sensor {
-	struct class_device *class_dev;
+	struct device *dev;
 
 	struct plat_stm_temp_data *plat_data;
 
@@ -67,6 +67,7 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 {
 	struct stm_temp_sensor *sensor = platform_get_drvdata(pdev);
 	struct plat_stm_temp_data *plat_data = pdev->dev.platform_data;
+	const char *name = dev_name(&pdev->dev);
 	int err;
 
 	sensor = kzalloc(sizeof(*sensor), GFP_KERNEL);
@@ -82,7 +83,7 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 
 	sensor->pdn = sysconf_claim(plat_data->pdn.group,
 			plat_data->pdn.num, plat_data->pdn.lsb,
-			plat_data->pdn.msb, pdev->dev.bus_id);
+			plat_data->pdn.msb, name);
 	if (!sensor->pdn) {
 		dev_err(&pdev->dev, "Can't claim PDN sysconf bit!\n");
 		goto error_pdn;
@@ -92,7 +93,7 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 		sensor->dcorrect = sysconf_claim(plat_data->dcorrect.group,
 				plat_data->dcorrect.num,
 				plat_data->dcorrect.lsb,
-				plat_data->dcorrect.msb, pdev->dev.bus_id);
+				plat_data->dcorrect.msb, name);
 		if (!sensor->dcorrect) {
 			dev_err(&pdev->dev, "Can't claim DCORRECT sysconf "
 					"bits!\n");
@@ -102,7 +103,7 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 
 	sensor->overflow = sysconf_claim(plat_data->overflow.group,
 			plat_data->overflow.num, plat_data->overflow.lsb,
-			plat_data->overflow.msb, pdev->dev.bus_id);
+			plat_data->overflow.msb, name);
 	if (!sensor->overflow) {
 		dev_err(&pdev->dev, "Can't claim OVERFLOW sysconf bit!\n");
 		goto error_overflow;
@@ -111,16 +112,16 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 	if (!plat_data->custom_get_data) {
 		sensor->data = sysconf_claim(plat_data->data.group,
 				plat_data->data.num, plat_data->data.lsb,
-				plat_data->data.msb, pdev->dev.bus_id);
+				plat_data->data.msb, name);
 		if (!sensor->data) {
 			dev_err(&pdev->dev, "Can't claim DATA sysconf bits!\n");
 			goto error_data;
 		}
 	}
 
-	sensor->class_dev = hwmon_device_register(&pdev->dev);
-	if (IS_ERR(sensor->class_dev)) {
-		err = PTR_ERR(sensor->class_dev);
+	sensor->dev = hwmon_device_register(&pdev->dev);
+	if (IS_ERR(sensor->dev)) {
+		err = PTR_ERR(sensor->dev);
 		dev_err(&pdev->dev, "Failed to register hwmon device!\n");
 		goto error_class_dev;
 	}
@@ -155,7 +156,7 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 error_temp1_label:
 	device_remove_file(&pdev->dev, &dev_attr_temp1_input);
 error_temp1_input:
-	hwmon_device_unregister(sensor->class_dev);
+	hwmon_device_unregister(sensor->dev);
 error_class_dev:
 	if (sensor->data)
 		sysconf_release(sensor->data);
@@ -176,7 +177,7 @@ static int __devexit stm_temp_remove(struct platform_device *pdev)
 {
 	struct stm_temp_sensor *sensor = platform_get_drvdata(pdev);
 
-	hwmon_device_unregister(sensor->class_dev);
+	hwmon_device_unregister(sensor->dev);
 
 	sysconf_write(sensor->pdn, 0);
 

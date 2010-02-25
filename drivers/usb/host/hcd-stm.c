@@ -166,8 +166,8 @@ static int st_usb_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, dr_data);
 
-	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
-				      dev_name(&pdev->dev)))) {
+	if (!devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
+			dev_name(&pdev->dev))) {
 		ret = -EBUSY;
 		goto err_0;
 	}

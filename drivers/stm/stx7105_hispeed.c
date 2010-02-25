@@ -1,229 +1,318 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
+#include <linux/stm/miphy.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/stx7105.h>
+#include <linux/delay.h>
 #include <asm/irq-ilc.h>
 
 
 
 /* Ethernet MAC resources ------------------------------------------------- */
 
-static struct stm_pad_config stx7105_ethernet_pad_configs[] = {
-	[stx7105_ethernet_mode_mii] = {
-		.sysconf_values_num = 11,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* ethernet_interface_on */
-			STM_PAD_SYS_CFG(7, 16, 16, 1),
-			/* enMII: 0 = reverse MII mode, 1 = MII mode */
-			STM_PAD_SYS_CFG(7, 27, 27, 1),
-			/* mii_mdio_select:
-			 * 0 = from GMAC, 1 = miim_dio from external input */
-			STM_PAD_SYS_CFG(7, 17, 17, 0),
-			/* rmii_mode: 0 = MII, 1 = RMII interface activated */
-			/* CUT 1: This register wasn't connected,
-			 * so only MII available!!! */
-			STM_PAD_SYS_CFG(7, 18, 18, 0),
-			/* phy_intf_select:
-			 * 00 = GMII/MII, 01 = RGMII, 1x = SGMII */
-			STM_PAD_SYS_CFG(7, 25, 26, 0),
-			/* TXD[0-1] = PIO7.6-7 - alt. func 1 */
-			STM_PAD_SYS_CFG(37, 6, 7, 0),
-			STM_PAD_SYS_CFG(37, 14, 15, 0),
-			/* TXD[2-3], TX_EN, MDIO, MDC = PIO8.0-4 -
-			 * alt. func. 1 */
-			STM_PAD_SYS_CFG(46, 0, 4, 0),
-			STM_PAD_SYS_CFG(46, 8, 12, 0),
-			/* PHYCLK = PIO9.5 - alt. func. 1 */
-			STM_PAD_SYS_CFG(47, 5, 5, 0),
-			STM_PAD_SYS_CFG(47, 13, 13, 0),
+/* ... and yes, MDIOs are supposed to be configured as OUT, not BIDIR... */
+
+static struct stm_pad_config *stx7105_ethernet_pad_configs[] = {
+	[0] = (struct stm_pad_config []) {
+		[stx7105_ethernet_mode_mii] = {
+			.gpios_num = 19,
+			.gpios = (struct stm_pad_gpio []) {
+				STM_PAD_PIO_IN(7, 4, -1),	/* RXDV */
+				STM_PAD_PIO_IN(7, 5, -1),	/* RXERR */
+				STM_PAD_PIO_OUT(7, 6, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT(7, 7, 1),	/* TXD.1 */
+				STM_PAD_PIO_OUT(8, 0, 1),	/* TXD.2 */
+				STM_PAD_PIO_OUT(8, 1, 1),	/* TXD.3 */
+				STM_PAD_PIO_OUT(8, 2, 1),	/* TXEN */
+				STM_PAD_PIO_OUT(8, 3, 1),	/* MDIO */
+				STM_PAD_PIO_OUT(8, 4, 1),	/* MDC */
+				STM_PAD_PIO_IN(8, 5, -1),	/* RXCLK */
+				STM_PAD_PIO_IN(8, 6, -1),	/* RXD.0 */
+				STM_PAD_PIO_IN(8, 7, -1),	/* RXD.1 */
+				STM_PAD_PIO_IN(9, 0, -1),	/* RXD.2 */
+				STM_PAD_PIO_IN(9, 1, -1),	/* RXD.3 */
+				STM_PAD_PIO_IN(9, 2, -1),	/* TXCLK */
+				STM_PAD_PIO_IN(9, 3, -1),	/* COL */
+				STM_PAD_PIO_IN(9, 4, -1),	/* CRS */
+				STM_PAD_PIO_OUT_NAMED(9, 5, 1, "PHYCLK"),
+				STM_PAD_PIO_IN_NAMED(9, 6, -1, "MDINT"),
+			},
+			.sysconfs_num = 5,
+			.sysconfs = (struct stm_pad_sysconf []) {
+				/* ethernet_interface_on */
+				STM_PAD_SYS_CFG(7, 16, 16, 1),
+				/* enMII: 0 = reverse MII mode, 1 = MII mode */
+				STM_PAD_SYS_CFG(7, 27, 27, 1),
+				/* mii_mdio_select:
+				 * 0 = from GMAC,
+				 * 1 = miim_dio from external input */
+				STM_PAD_SYS_CFG(7, 17, 17, 0),
+				/* rmii_mode:
+				 * 0 = MII, 1 = RMII interface activated */
+				/* CUT 1: This register wasn't connected,
+				 * so only MII available!!! */
+				STM_PAD_SYS_CFG(7, 18, 18, 0),
+				/* phy_intf_select:
+				 * 00 = GMII/MII, 01 = RGMII, 1x = SGMII */
+				STM_PAD_SYS_CFG(7, 25, 26, 0),
+			},
 		},
-		.gpio_values_num = 19,
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			STM_PAD_PIO_IN(7, 4),		/* RXDV */
-			STM_PAD_PIO_IN(7, 5),		/* RXERR */
-			STM_PAD_PIO_ALT_OUT(7, 6),	/* TXD.0 */
-			STM_PAD_PIO_ALT_OUT(7, 7),	/* TXD.1 */
-			STM_PAD_PIO_ALT_OUT(8, 0),	/* TXD.2 */
-			STM_PAD_PIO_ALT_OUT(8, 1),	/* TXD.3 */
-			STM_PAD_PIO_ALT_OUT(8, 2),	/* TXEN */
-			STM_PAD_PIO_ALT_BIDIR(8, 3),	/* MDIO */
-			STM_PAD_PIO_ALT_OUT(8, 4),	/* MDC */
-			STM_PAD_PIO_IN(8, 5),		/* RXCLK */
-			STM_PAD_PIO_IN(8, 6),		/* RXD.0 */
-			STM_PAD_PIO_IN(8, 7),		/* RXD.1 */
-			STM_PAD_PIO_IN(9, 0),		/* RXD.2 */
-			STM_PAD_PIO_IN(9, 1),		/* RXD.3 */
-			STM_PAD_PIO_IN(9, 2),		/* TXCLK */
-			STM_PAD_PIO_IN(9, 3),		/* COL */
-			STM_PAD_PIO_IN(9, 4),		/* CRS */
-			STM_PAD_PIO_IN(9, 6),		/* MDINT */
-			STM_PAD_PIO_UNKNOWN(9, 5),	/* PHYCLK */
-			/* ^ direction set by stx7105_configure_ethernet() */
+		[stx7105_ethernet_mode_gmii] = { /* 7106 only! */
+			.gpios_num = 27,
+			.gpios = (struct stm_pad_gpio []) {
+				STM_PAD_PIO_IN(7, 4, -1),	/* RXDV */
+				STM_PAD_PIO_IN(7, 5, -1),	/* RXERR */
+				STM_PAD_PIO_OUT(7, 6, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT(7, 7, 1),	/* TXD.1 */
+				STM_PAD_PIO_OUT(8, 0, 1),	/* TXD.2 */
+				STM_PAD_PIO_OUT(8, 1, 1),	/* TXD.3 */
+				STM_PAD_PIO_OUT(8, 2, 1),	/* TXEN */
+				STM_PAD_PIO_OUT(8, 3, 1),	/* MDIO */
+				STM_PAD_PIO_OUT(8, 4, 1),	/* MDC */
+				STM_PAD_PIO_IN(8, 5, -1),	/* RXCLK */
+				STM_PAD_PIO_IN(8, 6, -1),	/* RXD.0 */
+				STM_PAD_PIO_IN(8, 7, -1),	/* RXD.1 */
+				STM_PAD_PIO_IN(9, 0, -1),	/* RXD.2 */
+				STM_PAD_PIO_IN(9, 1, -1),	/* RXD.3 */
+				STM_PAD_PIO_IN(9, 2, -1),	/* TXCLK */
+				STM_PAD_PIO_IN(9, 3, -1),	/* COL */
+				STM_PAD_PIO_IN(9, 4, -1),	/* CRS */
+				STM_PAD_PIO_OUT_NAMED(9, 5, 1, "PHYCLK"),
+				STM_PAD_PIO_IN_NAMED(9, 6, -1, "MDINT"),
+#if 0
+/* Note: TXER line is not configured (at this moment) as:
+   1. It is generally useless and not used at all by a lot of PHYs.
+   2. PIO9.7 is muxed with HDMI hot plug detect, which is likely to be used.
+   3. Apparently the GMAC (or the SOC) is broken anyway and it doesn't drive
+      it correctly ;-) */
+				STM_PAD_PIO_OUT(9, 7, 1),	/* TXER */
+#endif
+				STM_PAD_PIO_OUT(11, 0, 4),	/* TXD.6 */
+				STM_PAD_PIO_OUT(11, 1, 4),	/* TXD.7 */
+				STM_PAD_PIO_IN(15, 0, -1),	/* RXD.4 */
+				STM_PAD_PIO_IN(15, 1, -1),	/* RXD.5 */
+				STM_PAD_PIO_IN(15, 2, -1),	/* RXD.6 */
+				STM_PAD_PIO_IN(15, 3, -1),	/* RXD.7 */
+				STM_PAD_PIO_OUT(15, 4, 4),	/* TXD.4 */
+				STM_PAD_PIO_OUT(15, 5, 4),	/* TXD.5 */
+			},
+			.sysconfs_num = 5,
+			.sysconfs = (struct stm_pad_sysconf []) {
+				/* ethernet_interface_on */
+				STM_PAD_SYS_CFG(7, 16, 16, 1),
+				/* enMII: 0 = reverse MII mode, 1 = MII mode */
+				STM_PAD_SYS_CFG(7, 27, 27, 1),
+				/* mii_mdio_select:
+				 * 0 = from GMAC,
+				 * 1 = miim_dio from external input */
+				STM_PAD_SYS_CFG(7, 17, 17, 0),
+				/* rmii_mode: 0 = MII,
+				 * 1 = RMII interface activated */
+				/* CUT 1: This register wasn't connected,
+				 * so only MII available!!! */
+				STM_PAD_SYS_CFG(7, 18, 18, 0),
+				/* phy_intf_select:
+				 * 00 = GMII/MII, 01 = RGMII, 1x = SGMII */
+				STM_PAD_SYS_CFG(7, 25, 26, 0),
+			},
 		},
-	},
-	[stx7105_ethernet_mode_gmii] = {
-		.sysconf_values_num = 11,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* ethernet_interface_on */
-			STM_PAD_SYS_CFG(7, 16, 16, 1),
-			/* enMII: 0 = reverse MII mode, 1 = MII mode */
-			STM_PAD_SYS_CFG(7, 27, 27, 1),
-			/* mii_mdio_select:
-			 * 0 = from GMAC, 1 = miim_dio from external input */
-			STM_PAD_SYS_CFG(7, 17, 17, 0),
-			/* rmii_mode: 0 = MII, 1 = RMII interface activated */
-			/* CUT 1: This register wasn't connected,
-			 * so only MII available!!! */
-			STM_PAD_SYS_CFG(7, 18, 18, 0),
-			/* phy_intf_select:
-			 * 00 = GMII/MII, 01 = RGMII, 1x = SGMII */
-			STM_PAD_SYS_CFG(7, 25, 26, 0),
-			/* TXD[4-7] = PIO4.4-7 - alt. func. 2 */
-			STM_PAD_SYS_CFG(34, 4, 7, 0xf),
-			STM_PAD_SYS_CFG(34, 12, 15, 0),
-			/* TXD[0-1] = PIO7.6-7 - alt. func. 3 */
-			STM_PAD_SYS_CFG(37, 6, 7, 0),
-			STM_PAD_SYS_CFG(37, 14, 15, 3),
-			/* TXD[2-3], TX_EN, MDIO, MDC = PIO8.0-4 -
-			 * alt. func. 3 */
-			STM_PAD_SYS_CFG(46, 8, 12, 0x1f),
-			/* PHYCLK = PIO9.5 - alt. func. 3 */
-			STM_PAD_SYS_CFG(47, 13, 13, 1),
+		[stx7105_ethernet_mode_rgmii] = { /* TODO */ },
+		[stx7105_ethernet_mode_sgmii] = { /* TODO */ },
+		[stx7105_ethernet_mode_rmii] = {
+			.gpios_num = 11,
+			.gpios = (struct stm_pad_gpio []) {
+				STM_PAD_PIO_IN(7, 4, -1),	/* RXDV */
+				STM_PAD_PIO_IN(7, 5, -1),	/* RXERR */
+				STM_PAD_PIO_OUT(7, 6, 2),	/* TXD.0 */
+				STM_PAD_PIO_OUT(7, 7, 2),	/* TXD.1 */
+				STM_PAD_PIO_OUT(8, 2, 2),	/* TXEN */
+				STM_PAD_PIO_OUT(8, 3, 2),	/* MDIO */
+				STM_PAD_PIO_OUT(8, 4, 2),	/* MDC */
+				STM_PAD_PIO_IN(8, 6, -1),	/* RXD.0 */
+				STM_PAD_PIO_IN(8, 7, -1),	/* RXD.1 */
+				STM_PAD_PIO_OUT_NAMED(9, 5, 1, "PHYCLK"),
+				STM_PAD_PIO_IN_NAMED(9, 6, -1, "MDINT"),
+			},
+			.sysconfs_num = 5,
+			.sysconfs = (struct stm_pad_sysconf []) {
+				/* Ethernet ON */
+				STM_PAD_SYS_CFG(7, 16, 16, 1),
+				/* enMII: 0 = reverse MII mode, 1 = MII mode */
+				STM_PAD_SYS_CFG(7, 27, 27, 1),
+				/* mii_mdio_select:
+				 * 1 = miim_dio from external input,
+				 * 0 = from GMAC */
+				STM_PAD_SYS_CFG(7, 17, 17, 0),
+				/* rmii_mode: 0 = MII,
+				 * 1 = RMII interface activated */
+				/* CUT 1: This register wasn't connected,
+				 * so only MII available!!! */
+				STM_PAD_SYS_CFG(7, 18, 18, 1),
+				/* phy_intf_select:
+				 * 00 = GMII/MII, 01 = RGMII, 1x = SGMII */
+				STM_PAD_SYS_CFG(7, 25, 26, 0),
+			},
 		},
-		.gpio_values_num = 27,
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			STM_PAD_PIO_ALT_OUT(4, 4),	/* TXD.4 */
-			STM_PAD_PIO_ALT_OUT(4, 5),	/* TXD.5 */
-			STM_PAD_PIO_ALT_OUT(4, 6),	/* TXD.6 */
-			STM_PAD_PIO_ALT_OUT(4, 7),	/* TXD.7 */
-			STM_PAD_PIO_IN(5, 0),		/* RXD.4 */
-			STM_PAD_PIO_IN(5, 1),		/* RXD.5 */
-			STM_PAD_PIO_IN(5, 2),		/* RXD.6 */
-			STM_PAD_PIO_IN(5, 3),		/* RXD.7 */
-			STM_PAD_PIO_IN(7, 4),		/* RXDV */
-			STM_PAD_PIO_IN(7, 5),		/* RXERR */
-			STM_PAD_PIO_ALT_OUT(7, 6),	/* TXD.0 */
-			STM_PAD_PIO_ALT_OUT(7, 7),	/* TXD.1 */
-			STM_PAD_PIO_ALT_OUT(8, 0),	/* TXD.2 */
-			STM_PAD_PIO_ALT_OUT(8, 1),	/* TXD.3 */
-			STM_PAD_PIO_ALT_OUT(8, 2),	/* TXEN */
-			STM_PAD_PIO_ALT_BIDIR(8, 3),	/* MDIO */
-			STM_PAD_PIO_ALT_OUT(8, 4),	/* MDC */
-			STM_PAD_PIO_IN(8, 5),		/* RXCLK */
-			STM_PAD_PIO_IN(8, 6),		/* RXD.0 */
-			STM_PAD_PIO_IN(8, 7),		/* RXD.1 */
-			STM_PAD_PIO_IN(9, 0),		/* RXD.2 */
-			STM_PAD_PIO_IN(9, 1),		/* RXD.3 */
-			STM_PAD_PIO_IN(9, 2),		/* TXCLK */
-			STM_PAD_PIO_IN(9, 3),		/* COL */
-			STM_PAD_PIO_IN(9, 4),		/* CRS */
-			STM_PAD_PIO_IN(9, 6),		/* MDINT */
-			STM_PAD_PIO_UNKNOWN(9, 5),	/* PHYCLK */
-			/* ^ direction set by stx7105_configure_ethernet() */
-		},
-	},
-	[stx7105_ethernet_mode_rgmii] = { /* TODO */ },
-	[stx7105_ethernet_mode_sgmii] = { /* TODO */ },
-	[stx7105_ethernet_mode_rmii] = {
-		.sysconf_values_num = 11,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Ethernet ON */
-			STM_PAD_SYS_CFG(7, 16, 16, 1),
-			/* enMII: 0 = reverse MII mode, 1 = MII mode */
-			STM_PAD_SYS_CFG(7, 27, 27, 1),
-			/* mii_mdio_select:
-			 * 1 = miim_dio from external input, 0 = from GMAC */
-			STM_PAD_SYS_CFG(7, 17, 17, 0),
-			/* rmii_mode: 0 = MII, 1 = RMII interface activated */
-			/* CUT 1: This register wasn't connected,
-			 * so only MII available!!! */
-			STM_PAD_SYS_CFG(7, 18, 18, 1),
-			/* phy_intf_select:
-			 * 00 = GMII/MII, 01 = RGMII, 1x = SGMII */
-			STM_PAD_SYS_CFG(7, 25, 26, 0),
-			/* TXD[0-1] = PIO7.6-7 - alt. func 1 */
-			STM_PAD_SYS_CFG(37, 6, 7, 0),
-			STM_PAD_SYS_CFG(37, 14, 15, 0),
-			/* TX_EN, MDIO, MDC = PIO8.2-4 - alt. func. 2 */
-			STM_PAD_SYS_CFG(46, 2, 4, 7),
-			STM_PAD_SYS_CFG(46, 10, 12, 0),
-			/* REF_CLK = PIO9.5 - alt. func. 2 */
-			STM_PAD_SYS_CFG(47, 5, 5, 1),
-			STM_PAD_SYS_CFG(47, 13, 13, 0),
-		},
-		.gpio_values_num = 11,
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			STM_PAD_PIO_IN(7, 4),		/* RXDV */
-			STM_PAD_PIO_IN(7, 5),		/* RXERR */
-			STM_PAD_PIO_ALT_OUT(7, 6),	/* TXD.0 */
-			STM_PAD_PIO_ALT_OUT(7, 7),	/* TXD.1 */
-			STM_PAD_PIO_ALT_OUT(8, 2),	/* TXEN */
-			STM_PAD_PIO_ALT_BIDIR(8, 3),	/* MDIO */
-			STM_PAD_PIO_ALT_OUT(8, 4),	/* MDC */
-			STM_PAD_PIO_IN(8, 6),		/* RXD.0 */
-			STM_PAD_PIO_IN(8, 7),		/* RXD.1 */
-			STM_PAD_PIO_IN(9, 6),		/* MDINT */
-			STM_PAD_PIO_ALT_BIDIR(9, 5),	/* PHYCLK */
-		},
-	},
-	[stx7105_ethernet_mode_reverse_mii] = {
-		.sysconf_values_num = 11,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
-			/* Ethernet ON */
-			STM_PAD_SYS_CFG(7, 16, 16, 1),
-			/* enMII: 0 = reverse MII mode, 1 = MII mode */
-			STM_PAD_SYS_CFG(7, 27, 27, 0),
-			/* mii_mdio_select:
-			 * 1 = miim_dio from external input, 0 = from GMAC */
-			STM_PAD_SYS_CFG(7, 17, 17, 0),
-			/* rmii_mode: 0 = MII, 1 = RMII interface activated */
-			/* CUT 1: This register wasn't connected,
-			 * so only MII available!!! */
-			STM_PAD_SYS_CFG(7, 18, 18, 0),
-			/* phy_intf_select:
-			 * 00 = GMII/MII, 01 = RGMII, 1x = SGMII */
-			STM_PAD_SYS_CFG(7, 25, 26, 0),
-			/* TXD[0-1] = PIO7.6-7 - alt. func 1 */
-			STM_PAD_SYS_CFG(37, 6, 7, 0),
-			STM_PAD_SYS_CFG(37, 14, 15, 0),
-			/* TXD[2-3], TX_EN, MDIO, MDC = PIO8.0-4 -
-			 * alt. func. 1 */
-			STM_PAD_SYS_CFG(46, 0, 4, 0),
-			STM_PAD_SYS_CFG(46, 8, 12, 0),
-			/* PHYCLK = PIO9.5 - alt. func. 1 */
-			STM_PAD_SYS_CFG(47, 5, 5, 0),
-			STM_PAD_SYS_CFG(47, 13, 13, 0),
-		},
-		.gpio_values_num = 19,
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			/* TODO: check what about EXCRS output */
-			STM_PAD_PIO_IN(7, 4),		/* RXDV */
-			/* TODO: check what about EXCOL output */
-			STM_PAD_PIO_IN(7, 5),		/* RXERR */
-			STM_PAD_PIO_ALT_OUT(7, 6),	/* TXD.0 */
-			STM_PAD_PIO_ALT_OUT(7, 7),	/* TXD.1 */
-			STM_PAD_PIO_ALT_OUT(8, 0),	/* TXD.2 */
-			STM_PAD_PIO_ALT_OUT(8, 1),	/* TXD.3 */
-			STM_PAD_PIO_ALT_OUT(8, 2),	/* TXEN */
-			STM_PAD_PIO_ALT_BIDIR(8, 3),	/* MDIO */
-			STM_PAD_PIO_ALT_OUT(8, 4),	/* MDC */
-			STM_PAD_PIO_IN(8, 5),		/* RXCLK */
-			STM_PAD_PIO_IN(8, 6),		/* RXD.0 */
-			STM_PAD_PIO_IN(8, 7),		/* RXD.1 */
-			STM_PAD_PIO_IN(9, 0),		/* RXD.2 */
-			STM_PAD_PIO_IN(9, 1),		/* RXD.3 */
-			STM_PAD_PIO_IN(9, 2),		/* TXCLK */
-			STM_PAD_PIO_IN(9, 3),		/* COL */
-			STM_PAD_PIO_IN(9, 4),		/* CRS */
-			STM_PAD_PIO_IN(9, 6),		/* MDINT */
-			STM_PAD_PIO_UNKNOWN(9, 5),	/* PHYCLK */
-			/* ^ direction set by stx7105_configure_ethernet() */
+		[stx7105_ethernet_mode_reverse_mii] = {
+			.gpios_num = 19,
+			.gpios = (struct stm_pad_gpio []) {
+				/* TODO: check what about EXCRS output */
+				STM_PAD_PIO_IN(7, 4, -1),	/* RXDV */
+				/* TODO: check what about EXCOL output */
+				STM_PAD_PIO_IN(7, 5, -1),	/* RXERR */
+				STM_PAD_PIO_OUT(7, 6, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT(7, 7, 1),	/* TXD.1 */
+				STM_PAD_PIO_OUT(8, 0, 1),	/* TXD.2 */
+				STM_PAD_PIO_OUT(8, 1, 1),	/* TXD.3 */
+				STM_PAD_PIO_OUT(8, 2, 1),	/* TXEN */
+				STM_PAD_PIO_OUT(8, 3, 1),	/* MDIO */
+				STM_PAD_PIO_OUT(8, 4, 1),	/* MDC */
+				STM_PAD_PIO_IN(8, 5, -1),	/* RXCLK */
+				STM_PAD_PIO_IN(8, 6, -1),	/* RXD.0 */
+				STM_PAD_PIO_IN(8, 7, -1),	/* RXD.1 */
+				STM_PAD_PIO_IN(9, 0, -1),	/* RXD.2 */
+				STM_PAD_PIO_IN(9, 1, -1),	/* RXD.3 */
+				STM_PAD_PIO_IN(9, 2, -1),	/* TXCLK */
+				STM_PAD_PIO_IN(9, 3, -1),	/* COL */
+				STM_PAD_PIO_IN(9, 4, -1),	/* CRS */
+				STM_PAD_PIO_OUT_NAMED(9, 5, 1, "PHYCLK"),
+				STM_PAD_PIO_IN_NAMED(9, 6, -1, "MDINT"),
+			},
+			.sysconfs_num = 5,
+			.sysconfs = (struct stm_pad_sysconf []) {
+				/* Ethernet ON */
+				STM_PAD_SYS_CFG(7, 16, 16, 1),
+				/* enMII: 0 = reverse MII mode, 1 = MII mode */
+				STM_PAD_SYS_CFG(7, 27, 27, 0),
+				/* mii_mdio_select:
+				 * 1 = miim_dio from external input,
+				 * 0 = from GMAC */
+				STM_PAD_SYS_CFG(7, 17, 17, 0),
+				/* rmii_mode: 0 = MII,
+				 * 1 = RMII interface activated */
+				/* CUT 1: This register wasn't connected,
+				 * so only MII available!!! */
+				STM_PAD_SYS_CFG(7, 18, 18, 0),
+				/* phy_intf_select:
+				 * 00 = GMII/MII, 01 = RGMII, 1x = SGMII */
+				STM_PAD_SYS_CFG(7, 25, 26, 0),
+			},
 		},
 	},
+	[1] = (struct stm_pad_config []) { /* 7106 only! */
+		[stx7105_ethernet_mode_mii] = {
+			.gpios_num = 19,
+			.gpios = (struct stm_pad_gpio []) {
+				STM_PAD_PIO_IN(3, 6, -1),	/* MDINT */
+				STM_PAD_PIO_OUT(11, 2, 1),	/* TXEN */
+				STM_PAD_PIO_OUT_NAMED(11, 3, 2, "PHYCLK"),
+				STM_PAD_PIO_OUT(11, 4, 1),	/* TXD.0 */
+				STM_PAD_PIO_OUT(11, 5, 1),	/* TXD.1 */
+				STM_PAD_PIO_OUT(11, 6, 1),	/* TXD.2 */
+				STM_PAD_PIO_OUT(11, 7, 1),	/* TXD.3 */
+				STM_PAD_PIO_IN(15, 6, -1),	/* COL */
+				STM_PAD_PIO_IN(15, 7, -1),	/* CRS */
+				STM_PAD_PIO_IN(16, 0, -1),	/* RXD.0 */
+				STM_PAD_PIO_IN(16, 1, -1),	/* RXD.1 */
+				STM_PAD_PIO_IN(16, 2, -1),	/* RXD.2 */
+				STM_PAD_PIO_IN(16, 3, -1),	/* RXD.3 */
+				STM_PAD_PIO_IN(16, 4, -1),	/* RXDV */
+				STM_PAD_PIO_IN(16, 5, -1),	/* RXERR */
+				STM_PAD_PIO_IN(16, 6, -1),	/* RXCLK */
+				STM_PAD_PIO_IN(16, 7, -1),	/* TXCLK */
+				STM_PAD_PIO_STUB_NAMED(-1, -1, "MDIO"),
+				STM_PAD_PIO_STUB_NAMED(-1, -1, "MDC"),
+			},
+			.sysconfs_num = 7,
+			.sysconfs = (struct stm_pad_sysconf []) {
+				/* eth1_mdiin_src_sel:
+				 * 1 = mdi in is from PIO11(0)
+				 * 0 = mdc in is from PIO3(4) */
+				STM_PAD_SYS_CFG(16, 4, 4, -1), /* set below */
+				/* eth1_mdcin_src_sel:
+				 * 1 = mdc in is from PIO11(1)
+				 * 0 = mdc in is from PIO3(5) */
+				STM_PAD_SYS_CFG(16, 5, 5, -1), /* set below */
+				/* ethernet1_interface_on */
+				STM_PAD_SYS_CFG(7, 14, 14, 1),
+				/* enMII_eth1:
+				 * 0 = reverse MII mode, 1 = MII mode */
+				STM_PAD_SYS_CFG(7, 30, 30, 1),
+				/* mii_mdio_select_eth1:
+				 * 0 = from GMAC,
+				 * 1 = miim_dio from external input */
+				STM_PAD_SYS_CFG(7, 15, 15, 0),
+				/* rmii_mode_eth1:
+				 * 0 = MII, 1 = RMII interface activated */
+				/* CUT 1: This register wasn't connected,
+				 * so only MII available!!! */
+				STM_PAD_SYS_CFG(7, 19, 19, 0),
+				/* phy_intf_select_eth1:
+				 * 00 = GMII/MII, 01 = RGMII, 1x = SGMII */
+				STM_PAD_SYS_CFG(7, 28, 29, 0),
+			},
+		},
+		[stx7105_ethernet_mode_rmii] = {
+			.gpios_num = 11,
+			.gpios = (struct stm_pad_gpio []) {
+				STM_PAD_PIO_IN(3, 6, -1),	/* MDINT */
+				STM_PAD_PIO_OUT(11, 2, 3),	/* TXEN */
+				STM_PAD_PIO_STUB_NAMED(11, 3, "PHYCLK"),
+				STM_PAD_PIO_OUT(11, 4, 3),	/* TXD.0 */
+				STM_PAD_PIO_OUT(11, 5, 3),	/* TXD.1 */
+				STM_PAD_PIO_IN(16, 0, -1),	/* RXD.0 */
+				STM_PAD_PIO_IN(16, 1, -1),	/* RXD.1 */
+				STM_PAD_PIO_IN(16, 4, -1),	/* RXDV */
+				STM_PAD_PIO_IN(16, 5, -1),	/* RXERR */
+				STM_PAD_PIO_STUB_NAMED(-1, -1, "MDIO"),
+				STM_PAD_PIO_STUB_NAMED(-1, -1, "MDC"),
+			},
+			.sysconfs_num = 7,
+			.sysconfs = (struct stm_pad_sysconf []) {
+				/* eth1_mdiin_src_sel:
+				 * 1 = mdi in is from PIO11(0)
+				 * 0 = mdc in is from PIO3(4) */
+				STM_PAD_SYS_CFG(16, 4, 4, -1), /* set below */
+				/* eth1_mdcin_src_sel:
+				 * 1 = mdc in is from PIO11(1)
+				 * 0 = mdc in is from PIO3(5) */
+				STM_PAD_SYS_CFG(16, 5, 5, -1), /* set below */
+				/* ethernet1_interface_on */
+				STM_PAD_SYS_CFG(7, 14, 14, 1),
+				/* enMII_eth1:
+				 * 0 = reverse MII mode, 1 = MII mode */
+				STM_PAD_SYS_CFG(7, 30, 30, 1),
+				/* mii_mdio_select_eth1:
+				 * 1 = miim_dio from external input,
+				 * 0 = from GMAC */
+				STM_PAD_SYS_CFG(7, 15, 15, 0),
+				/* rmii_mode_eth1: 0 = MII,
+				 * 1 = RMII interface activated */
+				/* CUT 1: This register wasn't connected,
+				 * so only MII available!!! */
+				STM_PAD_SYS_CFG(7, 19, 19, 1),
+				/* phy_intf_select:
+				 * 00 = GMII/MII, 01 = RGMII, 1x = SGMII */
+				STM_PAD_SYS_CFG(7, 28, 29, 0),
+			},
+		},
+	}
 };
 
 static void stx7105_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
@@ -234,88 +323,169 @@ static void stx7105_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
 		sysconf_write(mac_speed_sel, (speed == SPEED_100) ? 1 : 0);
 }
 
-static struct plat_stmmacenet_data stx7105_ethernet_platform_data = {
-	.pbl = 32,
-	.has_gmac = 1,
-	.fix_mac_speed = stx7105_ethernet_fix_mac_speed,
-	/* .pad_config set in stx7105_configure_ethernet() */
-};
-
-static struct platform_device stx7105_ethernet_device = {
-	.name = "stmmaceth",
-	.id = 0,
-	.num_resources = 2,
-	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0xfd110000, 0x8000),
-		STM_PLAT_RESOURCE_IRQ_NAMED("macirq", evt2irq(0x12c0), -1),
-	},
-	.dev = {
-		.power.can_wakeup = 1,
-		.platform_data = &stx7105_ethernet_platform_data,
+static struct plat_stmmacenet_data stx7105_ethernet_platform_data[] = {
+	{
+		.pbl = 32,
+		.has_gmac = 1,
+		.fix_mac_speed = stx7105_ethernet_fix_mac_speed,
+		/* .pad_config set in stx7105_configure_ethernet() */
+	}, {
+		.pbl = 32,
+		.has_gmac = 1,
+		.fix_mac_speed = stx7105_ethernet_fix_mac_speed,
+		/* .pad_config set in stx7105_configure_ethernet() */
 	}
 };
 
-void __init stx7105_configure_ethernet(struct stx7105_ethernet_config *config)
+static struct platform_device stx7105_ethernet_devices[] = {
+	{
+		.name = "stmmaceth",
+		.id = 0,
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfd110000, 0x8000),
+			STM_PLAT_RESOURCE_IRQ_NAMED("macirq",
+					evt2irq(0x12c0), -1),
+		},
+		.dev = {
+			.power.can_wakeup = 1,
+			.platform_data = &stx7105_ethernet_platform_data,
+		}
+	}, {
+		.name = "stmmaceth",
+		.id = 1,
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfd118000, 0x8000),
+			STM_PLAT_RESOURCE_IRQ_NAMED("macirq",
+					ILC_EXT_IRQ(39), -1),
+		},
+		.dev = {
+			.power.can_wakeup = 1,
+			.platform_data = &stx7105_ethernet_platform_data,
+		}
+	}
+};
+
+void __init stx7105_configure_ethernet(int port,
+		struct stx7105_ethernet_config *config)
 {
-	static int configured;
+	static int configured[ARRAY_SIZE(stx7105_ethernet_devices)];
 	struct stx7105_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
 
-	BUG_ON(configured);
-	configured = 1;
+	BUG_ON(port < 0 || port >= ARRAY_SIZE(stx7105_ethernet_devices));
+
+	if (cpu_data->type == CPU_STX7105 && port != 0) {
+		pr_warning("Ethernet port 1 is not available in this SOC!\n");
+		return;
+	}
+
+	BUG_ON(configured[port]++);
 
 	if (!config)
 		config = &default_config;
 
-	/* TODO: RGMII and SGMII configurations */
-	BUG_ON(config->mode == stx7105_ethernet_mode_rgmii);
-	BUG_ON(config->mode == stx7105_ethernet_mode_sgmii);
+	pad_config = &stx7105_ethernet_pad_configs[port][config->mode];
 
-	pad_config = &stx7105_ethernet_pad_configs[config->mode];
-
-	if (config->mode != stx7105_ethernet_mode_rmii) {
-		int last_gpio = pad_config->gpio_values_num - 1;
-
-		pad_config->gpio_values[last_gpio].direction =
-				config->ext_clk ? STM_GPIO_DIRECTION_IN :
-				STM_GPIO_DIRECTION_ALT_OUT;
+	switch (config->mode) {
+	case stx7105_ethernet_mode_gmii:
+		BUG_ON(cpu_data->type != CPU_STX7106); /* 7106 only! */
+		BUG_ON(port == 1); /* Mode not available on MII1 */
+		break;
+	case stx7105_ethernet_mode_reverse_mii:
+		BUG_ON(port == 1); /* Mode not available on MII1 */
+		/* Fall through */
+	case stx7105_ethernet_mode_mii:
+		if (config->ext_clk)
+			stm_pad_set_pio_ignored(pad_config, "PHYCLK");
+		break;
+	case stx7105_ethernet_mode_rmii:
+		if (config->ext_clk)
+			stm_pad_set_pio_in(pad_config, "PHYCLK", -1);
+		break;
+	default:
+		/* TODO: RGMII and SGMII configurations */
+		BUG();
+		break;
 	}
 
-	/*
-	 * This is a workaround for a problem seen on some boards, such as the
-	 * HMP7105, which use the SMSC LAN8700 with no board level logic
-	 * to work around conflicts on mode pin usage with the STx7105.
-	 *
-	 * Background
-	 * The 8700 uses the MII RXD[3] pin as a mode selection at reset
-	 * for whether nINT/TXERR/TXD4 is used as nINT or TXERR. However the
-	 * 7105 uses the same pin as MODE(9), to determine which processor
-	 * boots first.
-	 * Assuming the pull up/down resistors are configured so that
-	 * the ST40 boots first, this is causes the 8700 to treat
-	 * nINT/TXERR as TXERR, which is not what we want.
-	 *
-	 * Workaround
-	 * Force MII_MDINT to be an output, driven low, to indicate there is
-	 * no error.
-	 */
-	if (config->mdint_workaround) {
-		int penultimate_gpio = pad_config->gpio_values_num - 1;
-		struct stm_pad_gpio_value *gpio_value =
-			&pad_config->gpio_values[penultimate_gpio];
+	switch (port) {
+	case 0:
+		/* mac_speed */
+		stx7105_ethernet_platform_data[0].bsp_priv =
+				sysconf_claim(SYS_CFG, 7, 20, 20, "stmmac");
 
-		gpio_value->direction =	STM_GPIO_DIRECTION_OUT;
-		gpio_value->value = 0;
+		/* This is a workaround for a problem seen on some boards,
+		 * such as the HMP7105, which use the SMSC LAN8700 with no
+		 * board level logic to work around conflicts on mode pin
+		 * usage with the STx7105.
+		 *
+		 * Background
+		 * The 8700 uses the MII RXD[3] pin as a mode selection at
+		 * reset for whether nINT/TXERR/TXD4 is used as nINT or TXERR.
+		 * However the 7105 uses the same pin as MODE(9), to determine
+		 * which processor boots first.
+		 * Assuming the pull up/down resistors are configured so that
+		 * the ST40 boots first, this is causes the 8700 to treat
+		 * nINT/TXERR as TXERR, which is not what we want.
+		 *
+		 * Workaround
+		 * Force MII_MDINT to be an output, driven low, to indicate
+		 * there is no error. */
+		if (config->mdint_workaround)
+			stm_pad_set_pio_out(pad_config, "MDINT", 0);
+		break;
+	case 1:
+		/* mac_speed */
+		stx7105_ethernet_platform_data[0].bsp_priv =
+				sysconf_claim(SYS_CFG, 7, 21, 21, "stmmac");
+
+		switch (config->routing.mii1.mdio) {
+		case stx7105_ethernet_mii1_mdio_pio3_4:
+			stm_pad_set_pio(pad_config, "MDIO", 3, 4);
+			stm_pad_set_pio_out(pad_config, "MDIO", 4);
+			/* eth1_mdiin_src_sel = 0 */
+			pad_config->sysconfs[0].value = 0;
+			break;
+		case stx7105_ethernet_mii1_mdio_pio11_0:
+			stm_pad_set_pio(pad_config, "MDIO", 11, 0);
+			stm_pad_set_pio_out(pad_config, "MDIO", 3);
+			/* eth1_mdiin_src_sel = 1 */
+			pad_config->sysconfs[0].value = 1;
+			break;
+		default:
+			BUG();
+			break;
+		}
+
+		switch (config->routing.mii1.mdc) {
+		case stx7105_ethernet_mii1_mdc_pio3_5:
+			stm_pad_set_pio(pad_config, "MDC", 3, 5);
+			stm_pad_set_pio_out(pad_config, "MDC", 4);
+			/* eth1_mdcin_src_sel = 0 */
+			pad_config->sysconfs[1].value = 0;
+			break;
+		case stx7105_ethernet_mii1_mdc_pio11_1:
+			stm_pad_set_pio(pad_config, "MDC", 11, 1);
+			stm_pad_set_pio_out(pad_config, "MDC", 3);
+			/* eth1_mdcin_src_sel = 1 */
+			pad_config->sysconfs[1].value = 1;
+			break;
+		default:
+			BUG();
+			break;
+		}
+		break;
+	default:
+		BUG();
+		break;
 	}
 
-	stx7105_ethernet_platform_data.pad_config = pad_config;
-	stx7105_ethernet_platform_data.bus_id = config->phy_bus;
+	stx7105_ethernet_platform_data[port].pad_config = pad_config;
+	stx7105_ethernet_platform_data[port].bus_id = config->phy_bus;
 
-	/* mac_speed */
-	stx7105_ethernet_platform_data.bsp_priv = sysconf_claim(SYS_CFG,
-			7, 20, 20, "stmmac");
-
-	platform_device_register(&stx7105_ethernet_device);
+	platform_device_register(&stx7105_ethernet_devices[port]);
 }
 
 
@@ -389,12 +559,12 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 	static int configured[ARRAY_SIZE(stx7105_usb_devices)];
 	struct stm_pad_config *pad_config;
 
-	BUG_ON(port < 0 || port > ARRAY_SIZE(stx7105_usb_devices));
+	BUG_ON(port < 0 || port >= ARRAY_SIZE(stx7105_usb_devices));
 
 	BUG_ON(configured[port]);
 	configured[port] = 1;
 
-	pad_config = stm_pad_config_alloc(2, 8, 2);
+	pad_config = stm_pad_config_alloc(2, 5);
 	BUG_ON(!pad_config);
 	stx7105_usb_platform_data[port].pad_config = pad_config;
 
@@ -419,29 +589,51 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 		if (config->ovrcur_mode == stx7105_usb_ovrcur_active_high)
 			/* usbX_prt_ovrcurr_pol */
 			stm_pad_config_add_sys_cfg(pad_config,
-					4, 3 + port, 3 + port, 0);
+					4, 3 + port, 3 + port, 1);
 		else if (config->ovrcur_mode == stx7105_usb_ovrcur_active_low)
 			/* usbX_prt_ovrcurr_pol */
 			stm_pad_config_add_sys_cfg(pad_config,
-					4, 3 + port, 3 + port, 1);
+					4, 3 + port, 3 + port, 0);
 		else
 			BUG();
 
 		if (port == 0) {
 			switch (config->routing.usb0.ovrcur) {
 			case stx7105_usb0_ovrcur_pio4_4:
-				/* usb0_prt_ovrcurr_sel: 0 = PIO4.4 */
-				stm_pad_config_add_sys_cfg(pad_config,
-						4, 5, 5, 0);
-				stm_pad_config_add_pio(pad_config, 4, 4,
-						STM_GPIO_DIRECTION_IN);
+				if (cpu_data->type == CPU_STX7105)
+					/* usb0_prt_ovrcurr_sel: 0 = PIO4.4 */
+					stm_pad_config_add_sys_cfg(pad_config,
+							4, 5, 5, 0);
+				else
+					/* usb0_prt_ovrcurr_sel[0..1]:
+					 * 0 = PIO4.4 */
+					stm_pad_config_add_sys_cfg(pad_config,
+							4, 5, 6, 0);
+				stm_pad_config_add_pio_in(pad_config,
+						4, 4, -1);
 				break;
 			case stx7105_usb0_ovrcur_pio12_5:
-				/* usb0_prt_ovrcurr_sel: 1 = PIO12.5 */
+				if (cpu_data->type == CPU_STX7105)
+					/* usb0_prt_ovrcurr_sel: 1 = PIO12.5 */
+					stm_pad_config_add_sys_cfg(pad_config,
+							4, 5, 5, 1);
+				else
+					/* usb0_prt_ovrcurr_sel[0..1]:
+					 * 1 = PIO12.5 */
+					stm_pad_config_add_sys_cfg(pad_config,
+							4, 5, 6, 1);
+				stm_pad_config_add_pio_in(pad_config,
+						12, 5, -1);
+				break;
+			case stx7105_usb0_ovrcur_pio14_4:
+				/* 7106 only! */
+				BUG_ON(cpu_data->type != CPU_STX7106);
+				/* usb0_prt_ovrcurr_sel[0..1]:
+				 * 2 = PIO14.4 */
 				stm_pad_config_add_sys_cfg(pad_config,
-						4, 5, 5, 1);
-				stm_pad_config_add_pio(pad_config, 12, 5,
-						STM_GPIO_DIRECTION_IN);
+						4, 5, 6, 2);
+				stm_pad_config_add_pio_in(pad_config,
+						14, 4, -1);
 				break;
 			default:
 				BUG();
@@ -451,17 +643,25 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 			switch (config->routing.usb1.ovrcur) {
 			case stx7105_usb1_ovrcur_pio4_6:
 				/* usb1_prt_ovrcurr_sel: 0 = PIO4.6 */
-				stm_pad_config_add_sys_cfg(pad_config,
-						4, 6, 6, 0);
-				stm_pad_config_add_pio(pad_config, 4, 6,
-						STM_GPIO_DIRECTION_IN);
+				if (cpu_data->type == CPU_STX7105)
+					stm_pad_config_add_sys_cfg(pad_config,
+							4, 6, 6, 0);
+				else
+					stm_pad_config_add_sys_cfg(pad_config,
+							4, 8, 8, 0);
+				stm_pad_config_add_pio_in(pad_config,
+						4, 6, -1);
 				break;
 			case stx7105_usb1_ovrcur_pio14_6:
 				/* usb1_prt_ovrcurr_sel: 1 = PIO14.6 */
-				stm_pad_config_add_sys_cfg(pad_config,
-						4, 6, 6, 1);
-				stm_pad_config_add_pio(pad_config, 14, 6,
-						STM_GPIO_DIRECTION_IN);
+				if (cpu_data->type == CPU_STX7105)
+					stm_pad_config_add_sys_cfg(pad_config,
+							4, 6, 6, 1);
+				else
+					stm_pad_config_add_sys_cfg(pad_config,
+							4, 8, 8, 1);
+				stm_pad_config_add_pio_in(pad_config,
+						14, 6, -1);
 				break;
 			default:
 				BUG();
@@ -474,24 +674,18 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 		if (port == 0) {
 			switch (config->routing.usb0.pwr) {
 			case stx7105_usb0_pwr_pio4_5:
-				stm_pad_config_add_pio(pad_config, 4, 5,
-						STM_GPIO_DIRECTION_ALT_OUT);
-				/* Alt. func. 4 */
-				stm_pad_config_add_sys_cfg(pad_config,
-						34, 5, 5, 1);
-				stm_pad_config_add_sys_cfg(pad_config,
-						34, 13, 13, 1);
+				stm_pad_config_add_pio_out(pad_config,
+						4, 5, 4);
 				break;
 			case stx7105_usb0_pwr_pio12_6:
-				stm_pad_config_add_pio(pad_config, 12, 6,
-						STM_GPIO_DIRECTION_ALT_OUT);
-				/* Alt. func. 3 */
-				stm_pad_config_add_sys_cfg(pad_config,
-						48, 6, 6, 0);
-				stm_pad_config_add_sys_cfg(pad_config,
-						48, 14, 14, 1);
-				stm_pad_config_add_sys_cfg(pad_config,
-						48, 22, 22, 0);
+				stm_pad_config_add_pio_out(pad_config,
+						12, 6, 3);
+				break;
+			case stx7105_usb0_pwr_pio14_5:
+				/* 7106 only! */
+				BUG_ON(cpu_data->type != CPU_STX7106);
+				stm_pad_config_add_pio_out(pad_config,
+						14, 5, 1);
 				break;
 			default:
 				BUG();
@@ -500,17 +694,12 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 		} else {
 			switch (config->routing.usb1.pwr) {
 			case stx7105_usb1_pwr_pio4_7:
-				stm_pad_config_add_pio(pad_config, 4, 7,
-						STM_GPIO_DIRECTION_ALT_OUT);
-				/* Alt. func. 4 */
-				stm_pad_config_add_sys_cfg(pad_config,
-						34, 7, 7, 1);
-				stm_pad_config_add_sys_cfg(pad_config,
-						34, 15, 15, 1);
+				stm_pad_config_add_pio_out(pad_config,
+						4, 7, 4);
 				break;
 			case stx7105_usb1_pwr_pio14_7:
-				stm_pad_config_add_pio(pad_config, 14, 7,
-						STM_GPIO_DIRECTION_ALT_OUT);
+				stm_pad_config_add_pio_out(pad_config,
+						14, 7, 2);
 				break;
 			default:
 				BUG();
@@ -529,7 +718,7 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 
 static struct platform_device stx7105_sata_device = {
 	.name = "sata-stm",
-	.id = 0,
+	.id = -1,
 	.dev.platform_data = &(struct stm_plat_sata_data) {
 		.phy_init = 0,
 		.pc_glue_logic_init = 0,
@@ -543,31 +732,129 @@ static struct platform_device stx7105_sata_device = {
 	},
 };
 
-void __init stx7105_configure_sata(void)
+static struct platform_device stx7106_sata_devices[] = {
+	{
+		.name = "sata-stm",
+		.id = 0,
+		.dev.platform_data = &(struct stm_plat_sata_data) {
+			.phy_init = 0,
+			.pc_glue_logic_init = 0,
+			.only_32bit = 0,
+		},
+		.num_resources = 3,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe208000, 0x1000),
+			STM_PLAT_RESOURCE_IRQ_NAMED("hostc",
+					evt2irq(0xb00), -1),
+			STM_PLAT_RESOURCE_IRQ_NAMED("dmac",
+					evt2irq(0xa80), -1),
+		},
+	}, {
+		.name = "sata-stm",
+		.id = 1,
+		.dev.platform_data = &(struct stm_plat_sata_data) {
+			.phy_init = 0,
+			.pc_glue_logic_init = 0,
+			.only_32bit = 0,
+		},
+		.num_resources = 3,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe209000, 0x1000),
+			STM_PLAT_RESOURCE_IRQ_NAMED("hostc",
+						ILC_EXT_IRQ(34), -1),
+			STM_PLAT_RESOURCE_IRQ_NAMED("dmac",
+						ILC_EXT_IRQ(33), -1),
+		},
+	}
+};
+
+void __init stx7105_configure_sata(int port)
 {
-	static int configured;
-	struct sysconf_field *sc;
+	static int configured[ARRAY_SIZE(stx7106_sata_devices)];
+	static int phys_initialized;
 
-	BUG_ON(configured);
-	configured = 1;
+	BUG_ON(port < 0 || port >= ARRAY_SIZE(stx7106_sata_devices));
 
-	if (cpu_data->cut_major < 3) {
-		pr_warning("SATA is only supported on cut 3 or later\n");
+	if (cpu_data->type == CPU_STX7105 &&
+			(port != 0 || cpu_data->cut_major < 3)) {
+		pr_warning("SATA port %d is not supported for this SOC!\n",
+				port);
 		return;
 	}
 
-	/* Power up SATA phy */
-	sc = sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
-	sysconf_write(sc, 0);
+	BUG_ON(configured[port]++);
 
-	/* Apply the PHY reset work around */
-	sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
-	sysconf_write(sc, 1);
-	stm_sata_miphy_init();
+	/* PHYs require this horrible initialization to be done now... */
+	if (!phys_initialized++) {
+		struct sysconf_field *sc;
+		struct stm_miphy_sysconf_soft_jtag jtag;
+		struct stm_miphy miphy = {
+			.jtag_tick = stm_miphy_sysconf_jtag_tick,
+			.jtag_priv = &jtag,
+		};
 
-	/* Power up SATA host */
-	sc = sysconf_claim(SYS_CFG, 32, 11, 11, "SATA");
-	sysconf_write(sc, 0);
+		jtag.tck = sysconf_claim(SYS_CFG, 33, 0, 0, "SATA");
+		BUG_ON(!jtag.tck);
+		jtag.tms = sysconf_claim(SYS_CFG, 33, 5, 5, "SATA");
+		BUG_ON(!jtag.tms);
+		jtag.tdi = sysconf_claim(SYS_CFG, 33, 1, 1, "SATA");
+		BUG_ON(!jtag.tdi);
+		jtag.tdo = sysconf_claim(SYS_STA, 0, 1, 1, "SATA");
+		BUG_ON(!jtag.tdo);
 
-	platform_device_register(&stx7105_sata_device);
+		/* Power up host controllers... */
+		if (cpu_data->type == CPU_STX7105)
+			sc = sysconf_claim(SYS_CFG, 32, 11, 11, "SATA");
+		else
+			sc = sysconf_claim(SYS_CFG, 32, 10, 11, "SATA");
+		BUG_ON(!sc);
+		sysconf_write(sc, 0);
+
+		/* soft_jtag_en */
+		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
+		BUG_ON(!sc);
+		sysconf_write(sc, 1);
+
+		/* TMS should be set to 1 when taking the TAP
+		 * machine out of reset... */
+		sysconf_write(jtag.tms, 1);
+
+		/* trstn_sata */
+		sc = sysconf_claim(SYS_CFG, 33, 4, 4, "SATA");
+		BUG_ON(!sc);
+		sysconf_write(sc, 1);
+		udelay(100);
+
+		/* Power up & initialize PHY(s) */
+		if (cpu_data->type == CPU_STX7105) {
+			/* 7105 */
+			miphy.ports_num = 1;
+
+			sc = sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
+			BUG_ON(!sc);
+			sysconf_write(sc, 0);
+			stm_miphy_init(&miphy, 0);
+		} else {
+			/* 7106 */
+			miphy.ports_num = 2;
+
+			/* The second PHY _must not_ be powered while
+			 * initializing the first one... */
+
+			sc = sysconf_claim(SYS_CFG, 32, 8, 8, "SATA");
+			BUG_ON(!sc);
+			sysconf_write(sc, 0);
+			stm_miphy_init(&miphy, 0);
+
+			sc = sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
+			BUG_ON(!sc);
+			sysconf_write(sc, 0);
+			stm_miphy_init(&miphy, 1);
+		}
+	}
+
+	if (cpu_data->type == CPU_STX7105)
+		platform_device_register(&stx7105_sata_device);
+	else
+		platform_device_register(&stx7106_sata_devices[port]);
 }

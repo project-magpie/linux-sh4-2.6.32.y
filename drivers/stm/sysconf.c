@@ -12,7 +12,7 @@
 #include <linux/sysdev.h>
 #include <linux/list.h>
 #include <linux/platform_device.h>
-#include <linux/proc_fs.h>
+#include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/types.h>
 #include <linux/stm/platform.h>
@@ -41,7 +41,7 @@ struct sysconf_field {
 struct sysconf_group {
 	void __iomem *base;
 	const char *name;
-	const char *(*field_name)(int num);
+	const char *(*reg_name)(int num);
 	struct sysconf_block *block;
 };
 
@@ -308,6 +308,23 @@ unsigned long sysconf_mask(struct sysconf_field *field)
 }
 EXPORT_SYMBOL(sysconf_mask);
 
+const char *sysconf_group_name(int group)
+{
+	BUG_ON(group < 0 || group >= sysconf_groups_num);
+
+	return sysconf_groups[group].name;
+
+}
+EXPORT_SYMBOL(sysconf_group_name);
+
+const char *sysconf_reg_name(int group, int num)
+{
+	BUG_ON(group < 0 || group >= sysconf_groups_num);
+
+	return sysconf_groups[group].reg_name ?
+			sysconf_groups[group].reg_name(num) : NULL;
+}
+EXPORT_SYMBOL(sysconf_reg_name);
 
 
 #ifdef CONFIG_PM
@@ -418,7 +435,8 @@ struct sys_device sysconf_sysdev_dev = {
 
 
 
-#ifdef CONFIG_PROC_FS
+#ifdef CONFIG_DEBUG_FS
+
 enum sysconf_seq_state { state_blocks, state_groups, state_fields, state_last };
 
 static void *sysconf_seq_start(struct seq_file *s, loff_t *pos)
@@ -494,8 +512,8 @@ static int sysconf_seq_show_fields(struct seq_file *s)
 	list_for_each_entry(field, &sysconf_fields, list) {
 		struct sysconf_group *group = &sysconf_groups[field->group];
 
-		if (group->field_name)
-			seq_printf(s, "- %s[", group->field_name(field->num));
+		if (group->reg_name)
+			seq_printf(s, "- %s[", group->reg_name(field->num));
 		else
 			seq_printf(s, "- %s%d[", group->name, field->num);
 
@@ -504,7 +522,9 @@ static int sysconf_seq_show_fields(struct seq_file *s)
 		else
 			seq_printf(s, "%d:%d", field->msb, field->lsb);
 
-		seq_printf(s, "] = 0x%lx (0x%p, %s)\n", sysconf_read(field),
+		seq_printf(s, "] = 0x%0*lx (0x%p, %s)\n",
+				(field->msb - field->lsb + 4) / 4,
+				sysconf_read(field),
 				field->reg, field->owner);
 	}
 
@@ -539,18 +559,28 @@ static struct seq_operations sysconf_seq_ops = {
 	.show = sysconf_seq_show,
 };
 
-static int sysconf_proc_open(struct inode *inode, struct file *file)
+static int sysconf_debugfs_open(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &sysconf_seq_ops);
 }
 
-static struct file_operations sysconf_proc_ops = {
+static const struct file_operations sysconf_debugfs_ops = {
 	.owner = THIS_MODULE,
-	.open = sysconf_proc_open,
+	.open = sysconf_debugfs_open,
 	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = seq_release,
 };
+
+static int __init sysconf_debugfs_init(void)
+{
+	debugfs_create_file("sysconf", S_IFREG | S_IRUGO,
+			NULL, NULL, &sysconf_debugfs_ops);
+
+	return 0;
+}
+subsys_initcall(sysconf_debugfs_init);
+
 #endif
 
 
@@ -616,7 +646,7 @@ void __init sysconf_early_init(struct platform_device *pdevs, int pdevs_num)
 
 			group->base = block->base + info->offset;
 			group->name = info->name;
-			group->field_name = info->field_name;
+			group->reg_name = info->reg_name;
 			group->block = block;
 		}
 
@@ -669,14 +699,6 @@ static struct platform_driver sysconf_driver = {
 
 static int __init sysconf_init(void)
 {
-#ifdef CONFIG_PROC_FS
-	struct proc_dir_entry *entry = create_proc_entry("sysconf",
-			S_IRUGO, NULL);
-
-	if (entry)
-		entry->proc_fops = &sysconf_proc_ops;
-#endif
-
 #ifdef CONFIG_PM
 	sysdev_class_register(&sysconf_sysdev_class);
 	sysdev_driver_register(&sysconf_sysdev_class, &sysconf_sysdev_driver);

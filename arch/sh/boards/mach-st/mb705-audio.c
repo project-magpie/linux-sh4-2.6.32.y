@@ -115,12 +115,6 @@ static struct snd_stm_conv_ops mb705_audio_enable_mute_ops = {
 
 static int __init mb705_audio_init(void)
 {
-#ifndef CONFIG_SH_ST_MB680
-	/* So far this code is supporting mb705 in a duet with mb680 only! */
-	BUG();
-	return -ENODEV;
-#endif
-
 	/* Check the SPDIF test mode */
 	if ((epld_read(EPLD_AUDIO_SWITCH2) & (EPLD_AUDIO_SWITCH1_SW21 |
 			EPLD_AUDIO_SWITCH1_SW22 | EPLD_AUDIO_SWITCH1_SW23 |
@@ -165,13 +159,8 @@ static int __init mb705_audio_init(void)
 		goto error;
 	}
 
-	/* Configure digital audio pins (multiplexed with PIOs now...) */
-
-	stx7105_configure_audio(&(struct stx7105_audio_config) {
-			.pcm_player_0_output =
-					stx7105_pcm_player_0_output_6_channels,
-			.spdif_player_output_enabled = 1,
-			.pcm_reader_input_enabled = 1, });
+	/* To be defined in processor board, which knows what SOC is there... */
+	mbxxx_configure_audio_pins();
 
 	return 0;
 

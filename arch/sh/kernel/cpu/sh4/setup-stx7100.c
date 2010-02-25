@@ -11,6 +11,7 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
+#include <linux/stm/stx7100.h>
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
 
@@ -18,43 +19,27 @@
 
 /* SH4-only resources ----------------------------------------------------- */
 
-static struct resource wdt_resource[] = {
-	/* Watchdog timer only needs a register address */
-	[0] = {
-		.start = 0xFFC00008,
-		.end = 0xFFC00010,
-		.flags = IORESOURCE_MEM,
-	}
-};
-
-struct platform_device wdt_device = {
+struct platform_device stx7100_sh4_wdt_device = {
 	.name = "wdt",
 	.id = -1,
-	.num_resources = ARRAY_SIZE(wdt_resource),
-	.resource = wdt_resource,
-};
-
-static struct platform_device ilc3_device = {
-	.name		= "ilc3",
-	.id		= -1,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.start	= 0x18000000,
-			.end	= 0x18000000 + 0x900,
-			.flags	= IORESOURCE_MEM
-		}
+	.num_resources = 1,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0xffc00008, 8),
 	},
 };
 
-#include "stm-tmu.h"
+static struct platform_device stx7100_sh4_ilc3_device = {
+	.name = "ilc3",
+	.id = -1,
+	.num_resources = 1,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0x18000000, 0x900),
+	},
+};
 
 static struct platform_device *stx7100_sh4_devices[] __initdata = {
-	&wdt_device,
-	&ilc3_device,
-	&tmu0_device,
-	&tmu1_device,
-	&tmu2_device,
+	&stx7100_sh4_wdt_device,
+	&stx7100_sh4_ilc3_device,
 };
 
 static int __init stx7100_sh4_devices_setup(void)
@@ -63,18 +48,6 @@ static int __init stx7100_sh4_devices_setup(void)
 			ARRAY_SIZE(stx7100_sh4_devices));
 }
 arch_initcall(stx7100_sh4_devices_setup);
-
-static struct platform_device *stx7100_sh4_early_devices[] __initdata = {
-	&tmu0_device,
-	&tmu1_device,
-	&tmu2_device,	
-};
-
-void __init plat_early_device_setup(void)
-{
-	early_platform_add_devices(stx7100_sh4_early_devices,
-				   ARRAY_SIZE(stx7100_sh4_early_devices));
-}
 
 
 
@@ -243,7 +216,7 @@ void __init plat_irq_setup(void)
 	void __iomem *intc2_base = ioremap(0x19001000, 0x400);
 	int i;
 
-	ilc_early_init(&ilc3_device);
+	ilc_early_init(&stx7100_sh4_ilc3_device);
 
 	for (i = 4; i <= 6; i++)
 		prio_registers[i].set_reg += (unsigned long) intc2_base;

@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/i2c.h>
@@ -17,6 +29,16 @@
 /* EMI resources ---------------------------------------------------------- */
 
 static int __initdata stx7100_emi_bank_configured[EMI_BANKS];
+
+static struct platform_device stx7100_emi = {
+	.name = "emi",
+	.id = -1,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0, 64 * 1024 * 1024),
+		STM_PLAT_RESOURCE_MEM(0x1a100000, 0x874),
+	},
+};
 
 
 
@@ -76,8 +98,6 @@ void __init stx7100_configure_pata(struct stx7100_pata_config *config)
 
 
 /* FDMA resources --------------------------------------------------------- */
-
-#ifdef CONFIG_STM_DMA
 
 static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7100 = {
 	.rev_id    = 0x8000 + (0x000 << 2), /* 0x8000 */
@@ -213,13 +233,9 @@ static struct stm_plat_fdma_data stx7109c3_fdma_platform_data = {
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
-
-
-#endif /* CONFIG_STM_DMA */
-
 static struct platform_device stx7100_fdma_device = {
-	.name		= "stm-fdma",
-	.id		= -1,
+	.name = "stm-fdma",
+	.id = -1,
 	.num_resources	= 2,
 	.resource = (struct resource[2]) {
 		STM_PLAT_RESOURCE_MEM(0x19220000, 0x10000),
@@ -229,7 +245,6 @@ static struct platform_device stx7100_fdma_device = {
 
 static void stx7100_fdma_setup(void)
 {
-#ifdef CONFIG_STM_DMA
 	switch (cpu_data->type) {
 	case CPU_STX7100:
 		stx7100_fdma_device.dev.platform_data =
@@ -254,7 +269,6 @@ static void stx7100_fdma_setup(void)
 		BUG();
 		break;
 	}
-#endif
 }
 
 
@@ -292,7 +306,6 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18020000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(80, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(0),
 	},
 	[1] = {
 		.name = "stm-gpio",
@@ -302,7 +315,6 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18021000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(84, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(1),
 	},
 	[2] = {
 		.name = "stm-gpio",
@@ -312,7 +324,6 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18022000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(88, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(2),
 	},
 	[3] = {
 		.name = "stm-gpio",
@@ -322,7 +333,6 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18023000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(115, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(3),
 	},
 	[4] = {
 		.name = "stm-gpio",
@@ -332,7 +342,6 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18024000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(114, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(4),
 	},
 	[5] = {
 		.name = "stm-gpio",
@@ -342,16 +351,37 @@ static struct platform_device stx7100_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0x18025000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(113, -1),
 		},
-		.dev.platform_data = &STM_PLAT_PIO_DATA_LABELS_ONLY(5),
 	},
 };
 
-static void __init stx7100_pio_late_setup(void)
+static int stx7100_pio_config(unsigned gpio,
+		enum stm_pad_gpio_direction direction, int function)
 {
-	int i;
+	switch (direction) {
+	case stm_pad_gpio_direction_in:
+		BUG_ON(function != -1);
+		stm_gpio_direction(gpio, STM_GPIO_DIRECTION_IN);
+		break;
+	case stm_pad_gpio_direction_out:
+		BUG_ON(function < 0);
+		BUG_ON(function > 1);
+		stm_gpio_direction(gpio, function ?
+				STM_GPIO_DIRECTION_ALT_OUT :
+				STM_GPIO_DIRECTION_OUT);
+		break;
+	case stm_pad_gpio_direction_bidir:
+		BUG_ON(function < 0);
+		BUG_ON(function > 1);
+		stm_gpio_direction(gpio, function ?
+				STM_GPIO_DIRECTION_ALT_BIDIR :
+				STM_GPIO_DIRECTION_BIDIR);
+		break;
+	default:
+		BUG();
+		break;
+	}
 
-	for (i = 0; i < ARRAY_SIZE(stx7100_pio_devices); i++)
-		platform_device_register(&stx7100_pio_devices[i]);
+	return 0;
 }
 
 
@@ -398,6 +428,8 @@ void __init stx7100_early_device_init(void)
 	sysconf_early_init(&stx7100_sysconf_device, 1);
 	stm_gpio_early_init(stx7100_pio_devices,
 			ARRAY_SIZE(stx7100_pio_devices), 176);
+	stm_pad_init(ARRAY_SIZE(stx7100_pio_devices) * STM_GPIO_PINS_PER_PORT,
+			0, stx7100_pio_config);
 
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);
@@ -432,19 +464,14 @@ void __init stx7100_early_device_init(void)
 
 /* Pre-arch initialisation ------------------------------------------------ */
 
-static struct platform_device emi = {
-	.name = "emi",
-	.id = -1,
-	.num_resources = 2,
-	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0, 64*1024*1024),
-		STM_PLAT_RESOURCE_MEM(0x1a100000, 0x874),
-	},
-};
-
 static int __init stx7100_postcore_setup(void)
 {
-	return platform_device_register(&emi);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(stx7100_pio_devices); i++)
+		platform_device_register(&stx7100_pio_devices[i]);
+
+	return platform_device_register(&stx7100_emi);
 }
 postcore_initcall(stx7100_postcore_setup);
 
@@ -462,11 +489,8 @@ static struct platform_device *stx7100_devices[] __initdata = {
 static int __init stx7100_devices_setup(void)
 {
 	stx7100_fdma_setup();
-	stx7100_pio_late_setup();
 
 	return platform_add_devices(stx7100_devices,
 			ARRAY_SIZE(stx7100_devices));
 }
 device_initcall(stx7100_devices_setup);
-
-

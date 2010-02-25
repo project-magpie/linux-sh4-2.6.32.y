@@ -1,6 +1,6 @@
 /*
  *  ------------------------------------------------------------------------
- *  spi_stm_ssc.c SPI/SSC driver for STMicroelectronics platforms
+ *  spi_stm.c SPI/SSC driver for STMicroelectronics platforms
  *  ------------------------------------------------------------------------
  *
  *  Copyright (c) 2008 STMicroelectronics Limited
@@ -39,21 +39,21 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/spi_bitbang.h>
 #include <linux/stm/platform.h>
-#include <linux/stm/stssc.h>
+#include <linux/stm/ssc.h>
 
 #undef dgb_print
 
 #ifdef CONFIG_SPI_DEBUG
 #define SPI_LOOP_DEBUG
 #define dgb_print(fmt, args...)  printk(KERN_INFO "%s: " \
-					fmt, __FUNCTION__ , ## args)
+					fmt, __func__ , ## args)
 #else
 #define dgb_print(fmt, args...)	do { } while (0)
 #endif
 
-#define NAME "spi-stm-ssc"
+#define NAME "spi-stm"
 
-struct spi_stm_ssc {
+struct spi_stm {
 	/* SSC SPI Controller */
 	struct spi_bitbang	bitbang;
 	unsigned long		base;
@@ -105,16 +105,16 @@ static void spi_stm_gpio_chipselect(struct spi_device *spi, int value)
 	return;
 }
 
-static int spi_stmssc_setup_transfer(struct spi_device *spi,
+static int spi_stm_setup_transfer(struct spi_device *spi,
 				     struct spi_transfer *t)
 {
-	struct spi_stm_ssc *st_ssc;
+	struct spi_stm *spi_stm;
 	u32 hz;
 	u8 bits_per_word;
 	u32 reg;
 	u32 sscbrg;
 
-	st_ssc = spi_master_get_devdata(spi->master);
+	spi_stm = spi_master_get_devdata(spi->master);
 	bits_per_word = (t) ? t->bits_per_word : 0;
 	hz = (t) ? t->speed_hz : 0;
 
@@ -130,24 +130,24 @@ static int spi_stmssc_setup_transfer(struct spi_device *spi,
 		       bits_per_word);
 		return -EINVAL;
 	}
-	st_ssc->bits_per_word = bits_per_word;
+	spi_stm->bits_per_word = bits_per_word;
 
 	/* Set SSC_BRF */
 	/* TODO: program prescaler for slower baudrates */
-	sscbrg = st_ssc->fcomms/(2*hz);
+	sscbrg = spi_stm->fcomms/(2*hz);
 	if (sscbrg < 0x07 || sscbrg > (0x1 << 16)) {
 		printk(KERN_ERR NAME " baudrate outside valid range"
 		       " %d (sscbrg = %d)\n", hz, sscbrg);
 		return -EINVAL;
 	}
-	st_ssc->baud = st_ssc->fcomms/(2*sscbrg);
+	spi_stm->baud = spi_stm->fcomms/(2*sscbrg);
 	if (sscbrg == (0x1 << 16)) /* 16-bit counter wraps */
 		sscbrg = 0x0;
 	dgb_print("setting baudrate: hz = %d, sscbrg = %d\n", hz, sscbrg);
-	ssc_store32(st_ssc, SSC_BRG, sscbrg);
+	ssc_store32(spi_stm, SSC_BRG, sscbrg);
 
 	 /* Set SSC_CTL and enable SSC */
-	 reg = ssc_load32(st_ssc, SSC_CTL);
+	 reg = ssc_load32(spi_stm, SSC_CTL);
 	 reg |= SSC_CTL_MS;
 
 	 if (spi->mode & SPI_CPOL)
@@ -179,22 +179,22 @@ static int spi_stmssc_setup_transfer(struct spi_device *spi,
 	 reg |= SSC_CTL_EN;
 
 	 dgb_print("ssc_ctl = 0x%04x\n", reg);
-	 ssc_store32(st_ssc, SSC_CTL, reg);
+	 ssc_store32(spi_stm, SSC_CTL, reg);
 
 	 /* Clear the status register */
-	 ssc_load32(st_ssc, SSC_RBUF);
+	 ssc_load32(spi_stm, SSC_RBUF);
 
 	 return 0;
 }
 
 /* the spi->mode bits understood by this driver: */
 #define MODEBITS  (SPI_CPOL | SPI_CPHA | SPI_LSB_FIRST | SPI_LOOP | SPI_CS_HIGH)
-static int spi_stmssc_setup(struct spi_device *spi)
+static int spi_stm_setup(struct spi_device *spi)
 {
-	struct spi_stm_ssc *st_ssc;
+	struct spi_stm *spi_stm;
 	int retval;
 
-	st_ssc = spi_master_get_devdata(spi->master);
+	spi_stm = spi_master_get_devdata(spi->master);
 
 	if (spi->mode & ~MODEBITS) {
 		printk(KERN_ERR NAME "unsupported mode bits %x\n",
@@ -210,7 +210,7 @@ static int spi_stmssc_setup(struct spi_device *spi)
 	if (!spi->bits_per_word)
 		spi->bits_per_word = 8;
 
-	retval = spi_stmssc_setup_transfer(spi, NULL);
+	retval = spi_stm_setup_transfer(spi, NULL);
 	if (retval < 0)
 		return retval;
 
@@ -237,7 +237,7 @@ static int spi_stmssc_setup(struct spi_device *spi)
       read the 'last' word from the RX_FIFO.
 
 */
-static void spi_stmssc_fill_tx_fifo(struct spi_stm_ssc *st_ssc)
+static void spi_stm_fill_tx_fifo(struct spi_stm *spi_stm)
 {
 	union {
 		u8 bytes[4];
@@ -246,31 +246,31 @@ static void spi_stmssc_fill_tx_fifo(struct spi_stm_ssc *st_ssc)
 	int i;
 
 	for (i = 0;
-	     i < SSC_TXFIFO_SIZE - 1 && st_ssc->tx_bytes_pending > 0; i++) {
-		if (st_ssc->bits_per_word > 8) {
-			if (st_ssc->tx_ptr) {
-				tmp.bytes[1] = *st_ssc->tx_ptr++;
-				tmp.bytes[0] = *st_ssc->tx_ptr++;
+	     i < SSC_TXFIFO_SIZE - 1 && spi_stm->tx_bytes_pending > 0; i++) {
+		if (spi_stm->bits_per_word > 8) {
+			if (spi_stm->tx_ptr) {
+				tmp.bytes[1] = *spi_stm->tx_ptr++;
+				tmp.bytes[0] = *spi_stm->tx_ptr++;
 			} else {
 				tmp.bytes[1] = 0;
 				tmp.bytes[0] = 0;
 			}
 
-			st_ssc->tx_bytes_pending -= 2;
+			spi_stm->tx_bytes_pending -= 2;
 
 		} else {
-			if (st_ssc->tx_ptr)
-				tmp.bytes[0] = *st_ssc->tx_ptr++;
+			if (spi_stm->tx_ptr)
+				tmp.bytes[0] = *spi_stm->tx_ptr++;
 			else
 				tmp.bytes[0] = 0;
 
-			st_ssc->tx_bytes_pending--;
+			spi_stm->tx_bytes_pending--;
 		}
-		ssc_store32(st_ssc, SSC_TBUF, tmp.dword);
+		ssc_store32(spi_stm, SSC_TBUF, tmp.dword);
 	}
 }
 
-static int spi_stmssc_rx_mopup(struct spi_stm_ssc *st_ssc)
+static int spi_stm_rx_mopup(struct spi_stm *spi_stm)
 {
 	unsigned long word_period_ns;
 	u32 rx_fifo_status;
@@ -281,28 +281,28 @@ static int spi_stmssc_rx_mopup(struct spi_stm_ssc *st_ssc)
 
 	dgb_print("\n");
 
-	word_period_ns = 1000000000 / st_ssc->baud;
-	word_period_ns *= st_ssc->bits_per_word;
+	word_period_ns = 1000000000 / spi_stm->baud;
+	word_period_ns *= spi_stm->bits_per_word;
 
 	/* delay for period equivalent to shifting 1 complete word
 	   out of and into shift register */
 	ndelay(word_period_ns);
 
 	/* Check 'last' word is actually there! */
-	rx_fifo_status = ssc_load32(st_ssc, SSC_RX_FSTAT);
+	rx_fifo_status = ssc_load32(spi_stm, SSC_RX_FSTAT);
 	if (rx_fifo_status == 1) {
-		tmp.dword = ssc_load32(st_ssc, SSC_RBUF);
+		tmp.dword = ssc_load32(spi_stm, SSC_RBUF);
 
-		if (st_ssc->bits_per_word > 8) {
-			if (st_ssc->rx_ptr) {
-				*st_ssc->rx_ptr++ = tmp.bytes[1];
-				*st_ssc->rx_ptr++ = tmp.bytes[0];
+		if (spi_stm->bits_per_word > 8) {
+			if (spi_stm->rx_ptr) {
+				*spi_stm->rx_ptr++ = tmp.bytes[1];
+				*spi_stm->rx_ptr++ = tmp.bytes[0];
 			}
-			st_ssc->rx_bytes_pending -= 2;
+			spi_stm->rx_bytes_pending -= 2;
 		} else {
-			if (st_ssc->rx_ptr)
-				*st_ssc->rx_ptr++ = tmp.bytes[0];
-			st_ssc->rx_bytes_pending--;
+			if (spi_stm->rx_ptr)
+				*spi_stm->rx_ptr++ = tmp.bytes[0];
+			spi_stm->rx_bytes_pending--;
 		}
 	} else {
 		dgb_print("should only be one word in RX_FIFO"
@@ -313,45 +313,45 @@ static int spi_stmssc_rx_mopup(struct spi_stm_ssc *st_ssc)
 }
 
 
-static int spi_stmssc_txrx_bufs(struct spi_device *spi, struct spi_transfer *t)
+static int spi_stm_txrx_bufs(struct spi_device *spi, struct spi_transfer *t)
 {
-	struct spi_stm_ssc *st_ssc;
+	struct spi_stm *spi_stm;
 
 	dgb_print("\n");
 
-	st_ssc = spi_master_get_devdata(spi->master);
+	spi_stm = spi_master_get_devdata(spi->master);
 
-	st_ssc->tx_ptr = t->tx_buf;
-	st_ssc->rx_ptr = t->rx_buf;
-	st_ssc->tx_bytes_pending = t->len;
-	st_ssc->rx_bytes_pending = t->len;
-	INIT_COMPLETION(st_ssc->done);
+	spi_stm->tx_ptr = t->tx_buf;
+	spi_stm->rx_ptr = t->rx_buf;
+	spi_stm->tx_bytes_pending = t->len;
+	spi_stm->rx_bytes_pending = t->len;
+	INIT_COMPLETION(spi_stm->done);
 
 	/* fill TX_FIFO */
-	spi_stmssc_fill_tx_fifo(st_ssc);
+	spi_stm_fill_tx_fifo(spi_stm);
 
 	/* enable TX_FIFO_EMPTY interrupts */
-	ssc_store32(st_ssc, SSC_IEN, SSC_IEN_TIEN);
+	ssc_store32(spi_stm, SSC_IEN, SSC_IEN_TIEN);
 
 	/* wait for all bytes to be transmitted*/
-	wait_for_completion(&st_ssc->done);
+	wait_for_completion(&spi_stm->done);
 
 	/* check 'last' byte has been received */
 	/* NOTE: need to read rxbuf, even if ignoring the result! */
-	if (st_ssc->rx_bytes_pending)
-		spi_stmssc_rx_mopup(st_ssc);
+	if (spi_stm->rx_bytes_pending)
+		spi_stm_rx_mopup(spi_stm);
 
 	/* disable ints */
-	ssc_store32(st_ssc, SSC_IEN, 0x0);
+	ssc_store32(spi_stm, SSC_IEN, 0x0);
 
-	return t->len - st_ssc->tx_bytes_pending;
+	return t->len - spi_stm->tx_bytes_pending;
 }
 
 
 
-static irqreturn_t spi_stmssc_irq(int irq, void *dev_id)
+static irqreturn_t spi_stm_irq(int irq, void *dev_id)
 {
-	struct spi_stm_ssc *st_ssc = (struct spi_stm_ssc *)dev_id;
+	struct spi_stm *spi_stm = (struct spi_stm *)dev_id;
 	unsigned int rx_fifo_status;
 	u32 ssc_status;
 
@@ -360,7 +360,7 @@ static irqreturn_t spi_stmssc_irq(int irq, void *dev_id)
 		u32 dword;
 	} tmp = {.dword = 0,};
 
-	ssc_status = ssc_load32(st_ssc, SSC_STA);
+	ssc_status = ssc_load32(spi_stm, SSC_STA);
 
 	/* FIFO_TX_EMPTY */
 	if (ssc_status & SSC_STA_TIR) {
@@ -368,34 +368,34 @@ static irqreturn_t spi_stmssc_irq(int irq, void *dev_id)
 		   else SSC_RX_FSTAT (0-7)
 		*/
 		rx_fifo_status = (ssc_status & SSC_STA_RIR) ? 8 :
-			ssc_load32(st_ssc, SSC_RX_FSTAT);
+			ssc_load32(spi_stm, SSC_RX_FSTAT);
 
 		/* Read all available words from RX_FIFO */
 		while (rx_fifo_status) {
-			tmp.dword = ssc_load32(st_ssc, SSC_RBUF);
+			tmp.dword = ssc_load32(spi_stm, SSC_RBUF);
 
-			if (st_ssc->bits_per_word > 8) {
-				if (st_ssc->rx_ptr) {
-					*st_ssc->rx_ptr++ = tmp.bytes[1];
-					*st_ssc->rx_ptr++ = tmp.bytes[0];
+			if (spi_stm->bits_per_word > 8) {
+				if (spi_stm->rx_ptr) {
+					*spi_stm->rx_ptr++ = tmp.bytes[1];
+					*spi_stm->rx_ptr++ = tmp.bytes[0];
 				}
-				st_ssc->rx_bytes_pending -= 2;
+				spi_stm->rx_bytes_pending -= 2;
 			} else {
-				if (st_ssc->rx_ptr)
-					*st_ssc->rx_ptr++ = tmp.bytes[0];
-				st_ssc->rx_bytes_pending--;
+				if (spi_stm->rx_ptr)
+					*spi_stm->rx_ptr++ = tmp.bytes[0];
+				spi_stm->rx_bytes_pending--;
 			}
 
-			rx_fifo_status = ssc_load32(st_ssc, SSC_RX_FSTAT);
+			rx_fifo_status = ssc_load32(spi_stm, SSC_RX_FSTAT);
 		}
 
 		/* See if there is more data to send */
-		if (st_ssc->tx_bytes_pending > 0)
-			spi_stmssc_fill_tx_fifo(st_ssc);
+		if (spi_stm->tx_bytes_pending > 0)
+			spi_stm_fill_tx_fifo(spi_stm);
 		else {
 			/* No more data to send */
-			ssc_store32(st_ssc, SSC_IEN, 0x0);
-			complete(&st_ssc->done);
+			ssc_store32(spi_stm, SSC_IEN, 0x0);
+			complete(&spi_stm->done);
 		}
 	}
 
@@ -408,35 +408,35 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	struct stm_plat_ssc_data *plat_data = pdev->dev.platform_data;
 	struct spi_master *master;
 	struct resource *res;
-	struct spi_stm_ssc *st_ssc;
+	struct spi_stm *spi_stm;
 
 	u32 reg;
 
 	/* FIXME: nice error path would be appreciated... */
 
-	master = spi_alloc_master(&pdev->dev, sizeof(struct spi_stm_ssc));
+	master = spi_alloc_master(&pdev->dev, sizeof(struct spi_stm));
 	if (!master)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, master);
 
-	st_ssc = spi_master_get_devdata(master);
-	st_ssc->bitbang.master = spi_master_get(master);
-	st_ssc->bitbang.setup_transfer = spi_stmssc_setup_transfer;
-	st_ssc->bitbang.txrx_bufs = spi_stmssc_txrx_bufs;
-	st_ssc->bitbang.master->setup = spi_stmssc_setup;
+	spi_stm = spi_master_get_devdata(master);
+	spi_stm->bitbang.master = spi_master_get(master);
+	spi_stm->bitbang.setup_transfer = spi_stm_setup_transfer;
+	spi_stm->bitbang.txrx_bufs = spi_stm_txrx_bufs;
+	spi_stm->bitbang.master->setup = spi_stm_setup;
 
 	if (plat_data->spi_chipselect)
-		st_ssc->bitbang.chipselect = plat_data->spi_chipselect;
+		spi_stm->bitbang.chipselect = plat_data->spi_chipselect;
 	else
-		st_ssc->bitbang.chipselect = spi_stm_gpio_chipselect;
+		spi_stm->bitbang.chipselect = spi_stm_gpio_chipselect;
 
 	/* chip_select field of spi_device is declared as u8 and therefore
 	 * limits number of GPIOs that can be used as a CS line. Sorry. */
 	master->num_chipselect =
 			sizeof(((struct spi_device *)0)->chip_select) * 256;
 	master->bus_num = pdev->id;
-	init_completion(&st_ssc->done);
+	init_completion(&spi_stm->done);
 
 	/* Get resources */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -450,10 +450,10 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	st_ssc->base =
+	spi_stm->base =
 		(unsigned long) devm_ioremap_nocache(&pdev->dev, res->start,
 						     res->end - res->start);
-	if (!st_ssc->base) {
+	if (!spi_stm->base) {
 		printk(KERN_ERR NAME " Request iomem 0x%x region failed\n",
 		       res->start);
 		return -ENOMEM;
@@ -465,40 +465,40 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	if (devm_request_irq(&pdev->dev, res->start, spi_stmssc_irq,
-		IRQF_DISABLED, dev_name(&pdev->dev), st_ssc) < 0) {
+	if (devm_request_irq(&pdev->dev, res->start, spi_stm_irq,
+		IRQF_DISABLED, dev_name(&pdev->dev), spi_stm) < 0) {
 		printk(KERN_ERR NAME " Request irq failed\n");
 		return -ENODEV;
 	}
 
-	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
-				      dev_name(&pdev->dev)))) {
+	if (!devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
+			dev_name(&pdev->dev))) {
 		printk(KERN_ERR NAME " Pads request failed!\n");
 		return -ENODEV;
 	}
 
 	/* Disable I2C and Reset SSC */
-	ssc_store32(st_ssc, SSC_I2C, 0x0);
-	reg = ssc_load16(st_ssc, SSC_CTL);
+	ssc_store32(spi_stm, SSC_I2C, 0x0);
+	reg = ssc_load16(spi_stm, SSC_CTL);
 	reg |= SSC_CTL_SR;
-	ssc_store32(st_ssc, SSC_CTL, reg);
+	ssc_store32(spi_stm, SSC_CTL, reg);
 
 	udelay(1);
-	reg = ssc_load32(st_ssc, SSC_CTL);
+	reg = ssc_load32(spi_stm, SSC_CTL);
 	reg &= ~SSC_CTL_SR;
-	ssc_store32(st_ssc, SSC_CTL, reg);
+	ssc_store32(spi_stm, SSC_CTL, reg);
 
 	/* Set SSC into slave mode before reconfiguring PIO pins */
-	reg = ssc_load32(st_ssc, SSC_CTL);
+	reg = ssc_load32(spi_stm, SSC_CTL);
 	reg &= ~SSC_CTL_MS;
-	ssc_store32(st_ssc, SSC_CTL, reg);
+	ssc_store32(spi_stm, SSC_CTL, reg);
 
-	st_ssc->fcomms = clk_get_rate(clk_get(NULL, "comms_clk"));;
+	spi_stm->fcomms = clk_get_rate(clk_get(NULL, "comms_clk"));;
 
 	/* Start bitbang worker */
-	if (spi_bitbang_start(&st_ssc->bitbang)) {
+	if (spi_bitbang_start(&spi_stm->bitbang)) {
 		printk(KERN_ERR NAME
-		       " The SPI Core refuses the spi_stm_ssc adapter\n");
+		       " The SPI Core refuses the spi_stm adapter\n");
 		return -1;
 	}
 
@@ -509,13 +509,13 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 
 static int spi_stm_remove(struct platform_device *pdev)
 {
-	struct spi_stm_ssc *st_ssc;
+	struct spi_stm *spi_stm;
 	struct spi_master *master;
 
 	master = platform_get_drvdata(pdev);
-	st_ssc = spi_master_get_devdata(master);
+	spi_stm = spi_master_get_devdata(master);
 
-	spi_bitbang_stop(&st_ssc->bitbang);
+	spi_bitbang_stop(&spi_stm->bitbang);
 
 	/* FIXME: Resources release... */
 
@@ -530,20 +530,20 @@ static struct platform_driver spi_hw_driver = {
 };
 
 
-static int __init spi_stm_ssc_init(void)
+static int __init spi_stm_init(void)
 {
 	printk(KERN_INFO NAME ": SSC SPI Driver\n");
 	return platform_driver_register(&spi_hw_driver);
 }
 
-static void __exit spi_stm_ssc_exit(void)
+static void __exit spi_stm_exit(void)
 {
 	dgb_print("\n");
 	platform_driver_unregister(&spi_hw_driver);
 }
 
-module_init(spi_stm_ssc_init);
-module_exit(spi_stm_ssc_exit);
+module_init(spi_stm_init);
+module_exit(spi_stm_exit);
 
 MODULE_AUTHOR("STMicroelectronics <www.st.com>");
 MODULE_DESCRIPTION("STM SSC SPI driver");

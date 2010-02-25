@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/irq.h>
@@ -106,13 +118,8 @@ static struct platform_device stx7200_pcm_player_0 = {
 };
 
 static struct stm_pad_config stx7200_pcm_player_1_auddig0_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_STRINGS("AUDDIG0", "PCMOUT", "PCMCLKOUT",
-				"LRCLKOUT", "SCLKOUT"),
-	},
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
 		/* CONF_PAD_AUD0: AUDDIG pads configuration:
 		 *   0 = two 2 channels audio streams,
 		 *   1 = one 10 channels audio stream
@@ -127,13 +134,8 @@ static struct stm_pad_config stx7200_pcm_player_1_auddig0_pad_config = {
 };
 
 static struct stm_pad_config stx7200_pcm_player_1_mii1_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_STRINGS("MII1", "RXD.3", "TXCLK", "COL",
-				"CRS", "MDINT", "PHYCLK"),
-	},
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
 		/* CONF_PAD_ETH4: MII1RXD.3, MII1TXCLK,
 		 *   MII1COL, MII1CRS, MII1MDINT &
 		 *   MII1PHYCLK pads function:
@@ -166,13 +168,8 @@ static struct platform_device stx7200_pcm_player_1 = {
 };
 
 static struct stm_pad_config stx7200_pcm_player_2_auddig1_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_STRINGS("AUDDIG1", "PCMOUT", "PCMCLKOUT",
-				"LRCLKOUT", "SCLKOUT"),
-	},
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
 		/* CONF_PAD_AUD0: AUDDIG pads configuration:
 		 *   0 = two 2 channels audio streams,
 		 *   1 = one 10 channels audio stream
@@ -187,13 +184,8 @@ static struct stm_pad_config stx7200_pcm_player_2_auddig1_pad_config = {
 };
 
 static struct stm_pad_config stx7200_pcm_player_2_mii0_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_STRINGS("MII0", "RXERR", "TXD.2", "TXD.3",
-				"RXCLK", "RXD.2", "RXD.3"),
-	},
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
 		/* CONF_PAD_ETH0: MII0.RXERR, MII0.TXD.2-3,
 		 *   MII0.RXCLK, MII0.RXD.2-3 pads function:
 		 *   0 = ethernet, 1 = audio,
@@ -225,15 +217,8 @@ static struct platform_device stx7200_pcm_player_2 = {
 };
 
 static struct stm_pad_config stx7200_pcm_player_3_auddig01_pad_config = {
-	.labels_num = 2,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL_STRINGS("AUDDIG0", "PCMOUT", "PCMCLKOUT",
-				"LRCLKOUT", "SCLKOUT"),
-		STM_PAD_LABEL_STRINGS("AUDDIG1", "PCMOUT", "PCMCLKOUT",
-				"LRCLKOUT", "SCLKOUT"),
-	},
-	.sysconf_values_num = 1,
-	.sysconf_values = (struct stm_pad_sysconf_value []) {
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
 		/* CONF_PAD_AUD0: AUDDIG pads configuration:
 		 *   0 = two 2 channels audio streams,
 		 *   1 = one 10 channels audio stream
@@ -287,12 +272,6 @@ static struct platform_device stx7200_spdif_player = {
 		.fsynth_output = 3,
 		.fdma_initiator = 0,
 		.fdma_request_line = 38,
-		.pad_config = &(struct stm_pad_config) {
-			.labels_num = 1,
-			.labels = (struct stm_pad_label []) {
-				STM_PAD_LABEL("AUDSPDIFOUT"),
-			},
-		},
 	},
 };
 

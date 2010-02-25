@@ -10,9 +10,9 @@ config STM_DRIVERS
 menu "STM specific devices"
         depends on STM_DRIVERS
 
-config STM_PIO10
+config STM_MIPHY
 	bool
-	depends on STM_PIO
+	depends on SATA_STM
 	default n
 
 config STPIO
@@ -121,12 +121,11 @@ config  COPROCESSOR_DEBUG
         addresses and operations you are using for coprocessor.
 
 config STM_RNG
-       depends on CPU_SUBTYPE_ST40
        bool "STM Random Number Generator Support"
        default y
        ---help---
          This option adds support for the hardware Random Number Generator
-          (RNG) present on the STx71xx and STx7200 SoCs.  It allows the
+         (RNG) present on different STMicroelectronics SoCs.  It allows the
          RNG to feed /dev/random with entropy thereby ensuring real
          random numbers from this device.
 
@@ -134,11 +133,10 @@ config STM_RNG
          useful.  In fact, it may block for a long time while waiting for
          entropy.
 
-         This option should always be enabled for the STx71xx and STx7200
-         SoCs.
+         This option should always be enabled for relevant SoCs.
 
-          This option can be used in conjunction with the /dev/hw_random
-          driver found in the char drivers menu.
+         This option can be used in conjunction with the /dev/hw_random
+         driver found in the char drivers menu.
 
 config PMS
 	bool "Power Management Scheme"

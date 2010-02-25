@@ -1,9 +1,71 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #ifndef __LINUX_STM_STX5197_H
 #define __LINUX_STM_STX5197_H
 
 #include <linux/device.h>
 #include <linux/spi/spi.h>
 #include <linux/stm/platform.h>
+
+
+
+/* Sysconfig groups & registers */
+
+#define HS_CFG 			0
+#define HD_CFG 			1
+
+#define CFG_CTRL_A		HS_CFG, (0x00 / 4)
+#define CFG_CTRL_B		HS_CFG, (0x04 / 4)
+
+#define CFG_CTRL_C		HD_CFG, (0x00 / 4)
+#define CFG_CTRL_D		HD_CFG, (0x04 / 4)
+#define CFG_CTRL_E		HD_CFG, (0x08 / 4)
+#define CFG_CTRL_F		HD_CFG, (0x0c / 4)
+#define CFG_CTRL_G		HD_CFG, (0x10 / 4)
+#define CFG_CTRL_H		HD_CFG, (0x14 / 4)
+#define CFG_CTRL_I		HD_CFG, (0x18 / 4)
+#define CFG_CTRL_J		HD_CFG, (0x1c / 4)
+
+#define CFG_CTRL_K		HD_CFG, (0x40 / 4)
+#define CFG_CTRL_L		HD_CFG, (0x44 / 4)
+#define CFG_CTRL_M		HD_CFG, (0x48 / 4)
+#define CFG_CTRL_N		HD_CFG, (0x4c / 4)
+#define CFG_CTRL_O		HD_CFG, (0x50 / 4)
+#define CFG_CTRL_P		HD_CFG, (0x54 / 4)
+#define CFG_CTRL_Q		HD_CFG, (0x58 / 4)
+#define CFG_CTRL_R		HD_CFG, (0x5c / 4)
+
+#define CFG_MONITOR_A		HS_CFG, (0x08 / 4)
+#define CFG_MONITOR_B		HS_CFG, (0x0c / 4)
+
+#define CFG_MONITOR_C		HD_CFG, (0x20 / 4)
+#define CFG_MONITOR_D		HD_CFG, (0x24 / 4)
+#define CFG_MONITOR_E		HD_CFG, (0x28 / 4)
+#define CFG_MONITOR_F		HD_CFG, (0x2c / 4)
+#define CFG_MONITOR_G		HD_CFG, (0x30 / 4)
+#define CFG_MONITOR_H		HD_CFG, (0x34 / 4)
+#define CFG_MONITOR_I		HD_CFG, (0x38 / 4)
+#define CFG_MONITOR_J		HD_CFG, (0x3c / 4)
+
+#define CFG_MONITOR_K		HD_CFG, (0x60 / 4)
+#define CFG_MONITOR_L		HD_CFG, (0x64 / 4)
+#define CFG_MONITOR_M		HD_CFG, (0x68 / 4)
+#define CFG_MONITOR_N		HD_CFG, (0x6c / 4)
+#define CFG_MONITOR_O		HD_CFG, (0x70 / 4)
+#define CFG_MONITOR_P		HD_CFG, (0x74 / 4)
+#define CFG_MONITOR_Q		HD_CFG, (0x78 / 4)
+#define CFG_MONITOR_R		HD_CFG, (0x7c / 4)
+
 
 
 void stx5197_early_device_init(void);

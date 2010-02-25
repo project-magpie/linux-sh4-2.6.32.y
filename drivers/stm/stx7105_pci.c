@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/stm/pad.h>
@@ -6,96 +18,106 @@
 #include <linux/stm/stx7105.h>
 #include <asm/irq-ilc.h>
 
-/*
- * This function assumes you are using the dedicated pins. Production boards will
- * more likely use the external interrupt pins and save the PIOs
- */
 
-int stx7105_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config, u8 pin)
+
+/* PCI Resources ---------------------------------------------------------- */
+
+/* You may pass one of the PCI_PIN_* constants to use dedicated pin or
+ * just pass interrupt number generated with gpio_to_irq() when PIO pads
+ * are used as interrupts or IRLx_IRQ when using external interrupts inputs */
+int stx7105_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,
+		u8 pin)
 {
 	int irq;
 	int pin_type;
 
-	if((pin > 4) || (pin < 1)) return -1;
+	if ((pin > 4) || (pin < 1))
+		return -1;
 
 	pin_type = pci_config->pci_irq[pin - 1];
 
-	switch(pin_type) {
-		case PCI_PIN_DEFAULT:
-		case PCI_PIN_ALTERNATIVE:
-			irq = ILC_EXT_IRQ(pin + 25);
+	switch (pin_type) {
+	case PCI_PIN_ALTERNATIVE:
+		/* There is an alternative for the INTA only! */
+		if (pin != 1) {
+			BUG();
+			irq = -1;
 			break;
-		case PCI_PIN_UNUSED:
-			irq = -1; /* Not used */
+		}
+		/* Fall through */
+	case PCI_PIN_DEFAULT:
+		/* There are only 3 dedicated interrupt lines! */
+		if (pin == 4) {
+			BUG();
+			irq = -1;
 			break;
-		default:
-			irq = pin_type; /* Take whatever interrupt you are told */
-			break;
+		}
+		irq = ILC_EXT_IRQ(pin + 25);
+		break;
+	case PCI_PIN_UNUSED:
+		irq = -1; /* Not used */
+		break;
+	default:
+		irq = pin_type; /* Take whatever interrupt you are told */
+		break;
 	}
 
 	return irq;
 }
 
-#ifdef CONFIG_32BIT
-#define PCI_WINDOW_START 0xc0000000
-#define PCI_WINDOW_SIZE  0x20000000 /* 512 Megs */
-#else
-#define PCI_WINDOW_START 0x08000000
-#define PCI_WINDOW_SIZE  0x04000000 /* 64 Megs */
-#endif
-
-/* Various controls bits in sysconfig 5 */
-/* Relative to the start of the PCI block, so they
- * can be plugged into sysconf(read/write) calls
- */
-
-#define PCI_DEVICE_NOT_HOST_ENABLE 	(1<<13)
-#define PCI_CLOCK_MASTER_NOT_SLAVE 	(1<<12)
-#define PCI_INT0_SRC_SEL		(1<<11)
-#define PCI_LOCK_IN_SEL			(1<<9)
-#define PCI_SYS_ERROR_ENABLE		(1<<8)
-#define PCI_RESETN_ENABLE		(1<<7)
-#define PCI_INT_TO_HOST_ENABLE		(1<<6)
-#define PCI_INT_FROM_DEVICE(n)		(1 << (5 - (n)))
-#define PCI_LOCK_IN_ENABLE		(1<<1)
-#define PCI_PME_IN_ENABLE		(1<<0)
-
-static struct platform_device pci_device =
-{
+static struct platform_device stx7105_pci_device = {
 	.name = "pci_stm",
-	.num_resources = 6,
+	.id = -1,
+	.num_resources = 7,
 	.resource = (struct resource[]) {
-		[0] = STM_PLAT_RESOURCE_MEM(0xfe400000, 0x17fc),
-		[1] = STM_PLAT_RESOURCE_MEM(0xfe560000, 0xff),
-		[2] = STM_PLAT_RESOURCE_MEM(PCI_WINDOW_START, PCI_WINDOW_SIZE),
-		[3] = {
-			.start = 0x1024,
+#ifdef CONFIG_32BIT
+		/* 512 MB */
+		STM_PLAT_RESOURCE_MEM_NAMED("Memory", 0xc0000000, 0x20000000),
+#else
+		/* 64 MB */
+		STM_PLAT_RESOURCE_MEM_NAMED("Memory", 0x08000000, 0x04000000),
+#endif
+		{
+			.name = "IO",
+			.start = 0x0400,
 			.end = 0xffff,
 			.flags = IORESOURCE_IO,
 		},
-		[4] = STM_PLAT_RESOURCE_IRQ_NAMED("PCI DMA", evt2irq(0x1280), -1),
-		[5] = STM_PLAT_RESOURCE_IRQ_NAMED("PCI SERR", ILC_IRQ(25), -1)
-	}
+		STM_PLAT_RESOURCE_MEM_NAMED("EMISS", 0xfe400000, 0x17fc),
+		STM_PLAT_RESOURCE_MEM_NAMED("PCI-AHB", 0xfe560000, 0xff),
+		STM_PLAT_RESOURCE_IRQ_NAMED("DMA", evt2irq(0x1280), -1),
+		STM_PLAT_RESOURCE_IRQ_NAMED("Error", ILC_EXT_IRQ(25), -1),
+		/* SERR interrupt set in stx7105_configure_pci() */
+		STM_PLAT_RESOURCE_IRQ_NAMED("SERR", -1, -1),
+	},
 };
+
+#define STX7105_PIO_PCI_REQ(i)   stm_gpio(6, 4 + i)
+#define STX7105_PIO_PCI_GNT(i)   stm_gpio(7, i)
+#define STX7105_PIO_PCI_INTA_ALT stm_gpio(15, 3)
+#define STX7105_PIO_PCI_INT(i)   stm_gpio(6, i)
+#define STX7105_PIO_PCI_SERR     stm_gpio(15, 4)
 
 void __init stx7105_configure_pci(struct stm_plat_pci_config *pci_conf)
 {
-#ifndef CONFIG_PCI
-	return;
-#else
-	int i;
 	struct sysconf_field *sc;
-	static const char *int_name[] = {"PCI INT A","PCI INT B","PCI INT C","PCI INT D"};
-	static const char *req_name[] = {"PCI REQ 0 ","PCI REQ 1","PCI REQ 2","PCI REQ 3"};
-	static const char *gnt_name[] = {"PCI GNT 0 ","PCI GNT 1","PCI GNT 2","PCI GNT 3"};
-	int use_alt_for_int0;
-	int sys5_int_enables = 0;
+	int i;
 
-	/* Cut 3 has req0 wired to req3 to work around NAND problems */
-        pci_conf->req0_to_req3 = (cpu_data->cut_major >= 3);
+	/* LLA clocks have these horrible names... */
+	pci_conf->clk_name = "CLKA_PCI";
+
+	/* 7105 cut 3 has req0 wired to req3 to work around NAND problems;
+	 * the same story for 7106 */
+	pci_conf->req0_to_req3 = (cpu_data->type == CPU_STX7106) ||
+			(cpu_data->cut_major >= 3);
+
+	/* Additionally, we are not supposed to configure the req0/req3
+	 * to PCI mode on 7105... */
+	pci_conf->req0_emi = (cpu_data->type == CPU_STX7105) &&
+			(cpu_data->cut_major >= 3);
 
 	/* Fill in the default values for the 7105 */
-	if(!pci_conf->ad_override_default) {
+	if (!pci_conf->ad_override_default) {
 		pci_conf->ad_threshold = 5;
 		pci_conf->ad_read_ahead = 1;
 		pci_conf->ad_chunks_in_msg = 0;
@@ -106,72 +128,179 @@ void __init stx7105_configure_pci(struct stm_plat_pci_config *pci_conf)
 	}
 
 	/* Copy over platform specific data to driver */
-	pci_device.dev.platform_data = pci_conf;
+	stx7105_pci_device.dev.platform_data = pci_conf;
 
+#if defined(CONFIG_PM)
+#warning TODO: PCI Power Management
+#endif
 	/* Claim and power up the PCI cell */
 	sc = sysconf_claim(SYS_CFG, 32, 2, 2, "PCI Power");
-	sysconf_write(sc, 0); // We will need to stash this somewhere for power management.
-
+	sysconf_write(sc, 0); /* We will need to stash this somewhere
+				 for power management. */
 	sc = sysconf_claim(SYS_STA, 15, 2, 2, "PCI Power status");
-	while(sysconf_read(sc)); // Loop until powered up
+	while (sysconf_read(sc))
+		cpu_relax(); /* Loop until powered up */
 
 	/* Claim and set pads into PCI mode */
 	sc = sysconf_claim(SYS_CFG, 31, 20, 20, "PCI");
 	sysconf_write(sc, 1);
 
-	/* SERR is only an output on Cut2, designed for device mode. So no point in enabling it.
-	 * LOCK is totally pointless, the SOCs do not support any form of coherency
-	 */
-	sc = sysconf_claim(SYS_CFG, 5, 16, 29, "PCI Config");
-	use_alt_for_int0 = (pci_conf->pci_irq[0] == PCI_PIN_ALTERNATIVE);
-	sysconf_write(sc, PCI_CLOCK_MASTER_NOT_SLAVE | ( (use_alt_for_int0) ? PCI_INT0_SRC_SEL : 0 ) );
+	/* PCI_CLOCK_MASTER_NOT_SLAVE:
+	 * 0: PCI clock is slave
+	 * 1: PCI clock is master */
+	sc = sysconf_claim(SYS_CFG, 5, 28, 28, "PCI");
+	sysconf_write(sc, 1);
 
-	if(use_alt_for_int0 ) {
-		set_irq_type(ILC_EXT_IRQ(26), IRQ_TYPE_LEVEL_LOW);
-		gpio_request(stm_gpio(15, 3), int_name[0]);
-		stm_gpio_direction(stm_gpio(15, 3), STM_GPIO_DIRECTION_IN);
-		sys5_int_enables |= PCI_INT_FROM_DEVICE(0);
-	}
+	/* REQ/GNT[0] are dedicated EMI pins */
+	BUG_ON(pci_conf->req_gnt[0] != PCI_PIN_DEFAULT);
 
-	for(i = 0; i < 4; i++) {
-                if(pci_conf->pci_irq[i] == PCI_PIN_DEFAULT) {
-			set_irq_type(ILC_EXT_IRQ(26 + i), IRQ_TYPE_LEVEL_LOW);
-			gpio_request(stm_gpio(6, i), int_name[i]);
-			stm_gpio_direction(stm_gpio(6, i), STM_GPIO_DIRECTION_IN);
-			/* Set the alternate function correctly in sysconfig */
-			sys5_int_enables |= PCI_INT_FROM_DEVICE(i);
-                }
-        }
+	/* Configure the REQ/GNT[1..2], muxed with PIOs */
+	for (i = 1; i < 4; i++) {
+		static const char *req_name[] = {
+			"PCI REQ 0",
+			"PCI REQ 1",
+			"PCI REQ 2",
+			"PCI REQ 3"
+		};
+		static const char *gnt_name[] = {
+			"PCI GNT 0 ",
+			"PCI GNT 1",
+			"PCI GNT 2",
+			"PCI GNT 3"
+		};
 
-	/* Set the approprate enabled interrupts */
-	sysconf_write(sc, sysconf_read(sc) | sys5_int_enables);
+		switch (pci_conf->req_gnt[i]) {
+		case PCI_PIN_DEFAULT:
+			/* Is there REQ/GNT[3] at all? */
+			BUG_ON(pci_conf->req0_to_req3 && i == 3);
 
-	/* REQ/GNT 0 are dedicated pins, so we start  from 1 */
-	for(i = 1; i < 4; i++ ) {
-		if(pci_conf->req_gnt[i] == PCI_PIN_DEFAULT) {
-			gpio_request(stm_gpio(6, 4 + i), req_name[i]);
-			stm_gpio_direction(stm_gpio(6, 4 + i), STM_GPIO_DIRECTION_IN);
-			gpio_request(stm_gpio(7, i), gnt_name[i]);
-			stm_gpio_direction(stm_gpio(7, i), STM_GPIO_DIRECTION_ALT_OUT);
+			if (gpio_request(STX7105_PIO_PCI_REQ(i),
+					req_name[i]) == 0)
+				stm_gpio_direction(STX7105_PIO_PCI_REQ(i),
+					STM_GPIO_DIRECTION_IN);
+			else
+				printk(KERN_ERR "Unable to configure PIO for "
+						"%s\n", req_name[i]);
 
-			/* stx7105_pio_sysconf_alt(7, i, 0x11, gnt_name[i]); */
-			sc = sysconf_claim(SYS_CFG, 37, i, i, gnt_name[i]);
-			sysconf_write(sc, 1);
-			sc = sysconf_claim(SYS_CFG, 37, i+8, i+8, gnt_name[i]);
-			sysconf_write(sc, 1);
+			if (gpio_request(STX7105_PIO_PCI_GNT(i),
+					gnt_name[i]) == 0)
+				stm_gpio_direction(STX7105_PIO_PCI_GNT(i),
+						STM_GPIO_DIRECTION_ALT_OUT);
+			else
+				printk(KERN_ERR "Unable to configure PIO for "
+						"%s\n", gnt_name[i]);
+			break;
+		case PCI_PIN_UNUSED:
+			/* Unused is unused - nothing to do */
+			break;
+		default:
+			/* No alternative here... */
+			BUG();
+			break;
 		}
 	}
 
-	/* Enable the SERR interrupt if wired up */
-	if(pci_conf->serr_irq == PCI_PIN_DEFAULT ) {
-		/* Use the default */
-		gpio_request(stm_gpio(6, 4), pci_device.resource[5].name);
-		stm_gpio_direction(stm_gpio(6, 4), STM_GPIO_DIRECTION_IN);
-	} else {
-		pci_device.resource[5].start = 	pci_device.resource[5].end = pci_conf->serr_irq;
+	/* Configure interrupt PIOs */
+	for (i = 0; i < 3; i++) {
+		static const char *int_name[] = {
+			"PCI INT A",
+			"PCI INT B",
+			"PCI INT C",
+		};
+
+		switch (pci_conf->pci_irq[i]) {
+		case PCI_PIN_ALTERNATIVE:
+			if (i != 0) {
+				BUG();
+				break;
+			}
+			if (gpio_request(STX7105_PIO_PCI_INTA_ALT,
+						int_name[0]) != 0) {
+				printk(KERN_ERR "Unable to claim PIO for "
+						"%s\n", int_name[0]);
+				break;
+			}
+
+			set_irq_type(ILC_EXT_IRQ(26), IRQ_TYPE_LEVEL_LOW);
+			stm_gpio_direction(STX7105_PIO_PCI_INTA_ALT,
+						STM_GPIO_DIRECTION_IN);
+
+			/* PCI_INT0_SRC_SEL:
+			 * 0: PCI_INT_FROM_DEVICE[0] is from PIO6[0]
+			 * 1: PCI_INT_FROM_DEVICE[0] is from PIO15[3] */
+			sc = sysconf_claim(SYS_CFG, 5, 27, 27, "PCI");
+			sysconf_write(sc, 1);
+
+			/* PCI_INT0_FROM_DEVICE:
+			 * 0: Indicates disabled
+			 * 1: Indicates PCI_INT_FROM_DEVICE[0] is enabled */
+			sc = sysconf_claim(SYS_CFG, 5, 21, 21, "PCI");
+			sysconf_write(sc, 1);
+			break;
+		case PCI_PIN_DEFAULT:
+			if (gpio_request(STX7105_PIO_PCI_INT(i),
+					int_name[i]) != 0) {
+				printk(KERN_ERR "Unable to claim PIO for "
+						"%s\n", int_name[i]);
+				break;
+			}
+
+			set_irq_type(ILC_EXT_IRQ(26 + i), IRQ_TYPE_LEVEL_LOW);
+			stm_gpio_direction(STX7105_PIO_PCI_INT(i),
+					STM_GPIO_DIRECTION_IN);
+
+			if (i == 0) {
+				/* PCI_INT0_SRC_SEL:
+				 * 0: PCI_INT_FROM_DEVICE[0] is from PIO6[0]
+				 * 1: PCI_INT_FROM_DEVICE[0] is from PIO15[3] */
+				sc = sysconf_claim(SYS_CFG, 5, 27, 27, "PCI");
+				sysconf_write(sc, 0);
+			}
+
+			/* PCI_INTn_FROM_DEVICE:
+			 * 0: Indicates disabled
+			 * 1: Indicates PCI_INT_FROM_DEVICE[n] is enabled */
+			sc = sysconf_claim(SYS_CFG, 5, 21 - i, 21 - i, "PCI");
+			sysconf_write(sc, 1);
+			break;
+		default:
+			/* Unused or interrupt number passed, nothing to do */
+			break;
+		}
+	}
+	BUG_ON(pci_conf->pci_irq[3] != PCI_PIN_UNUSED);
+
+	/* Configure the SERR interrupt (if wired up) */
+	switch (pci_conf->serr_irq) {
+	case PCI_PIN_DEFAULT:
+		if (gpio_request(STX7105_PIO_PCI_SERR, "PCI_SERR#") == 0) {
+			stm_gpio_direction(STX7105_PIO_PCI_SERR,
+					STM_GPIO_DIRECTION_IN);
+			pci_conf->serr_irq = gpio_to_irq(STX7105_PIO_PCI_SERR);
+			set_irq_type(pci_conf->serr_irq, IRQ_TYPE_LEVEL_LOW);
+		} else {
+			printk(KERN_WARNING "%s(): Failed to claim PCI SERR# "
+					"PIO!\n", __func__);
+			pci_conf->serr_irq = PCI_PIN_UNUSED;
+		}
+		break;
+	case PCI_PIN_ALTERNATIVE:
+		/* No alternative here */
+		BUG();
+		pci_conf->serr_irq = PCI_PIN_UNUSED;
+		break;
+	}
+	if (pci_conf->serr_irq != PCI_PIN_UNUSED) {
+		struct resource *res = platform_get_resource_byname(
+				&stx7105_pci_device, IORESOURCE_IRQ, "SERR");
+
+		BUG_ON(!res);
+		res->start = pci_conf->serr_irq;
+		res->end = pci_conf->serr_irq;
 	}
 
-	platform_device_register(&pci_device);
+	/* LOCK is not claimed as is totally pointless, the SOCs do not
+	 * support any form of coherency */
 
-#endif /* CONFIG_PCI */
+	platform_device_register(&stx7105_pci_device);
 }

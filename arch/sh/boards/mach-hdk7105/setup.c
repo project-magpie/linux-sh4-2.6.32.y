@@ -14,12 +14,11 @@
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/io.h>
-#include <linux/input.h>
 #include <linux/leds.h>
 #include <linux/lirc.h>
 #include <linux/gpio.h>
-#include <linux/gpio_keys.h>
 #include <linux/phy.h>
+#include <linux/tm1668.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7105.h>
 #include <linux/stm/pci-synopsys.h>
@@ -29,7 +28,9 @@
 #include <asm/irq-ilc.h>
 
 
+#define HDK7105_PIO_PCI_SERR  stm_gpio(15, 4)
 #define HDK7105_PIO_PHY_RESET stm_gpio(15, 5)
+#define HDK7105_PIO_PCI_RESET stm_gpio(15, 7)
 
 
 
@@ -50,14 +51,14 @@ static void __init hdk7105_setup(char **cmdline_p)
 }
 
 /* PCI configuration */
-static struct stm_plat_pci_config pci_config = {
+static struct stm_plat_pci_config hdk7105_pci_config = {
 	.pci_irq = {
 		[0] = PCI_PIN_DEFAULT,
 		[1] = PCI_PIN_DEFAULT,
 		[2] = PCI_PIN_UNUSED,
 		[3] = PCI_PIN_UNUSED
 	},
-	.serr_irq = PCI_PIN_UNUSED,
+	.serr_irq = PCI_PIN_UNUSED, /* Modified in hdk7105_device_init() */
 	.idsel_lo = 30,
 	.idsel_hi = 30,
 	.req_gnt = {
@@ -67,13 +68,13 @@ static struct stm_plat_pci_config pci_config = {
 		[3] = PCI_PIN_UNUSED
 	},
 	.pci_clk = 33333333,
-	.pci_reset_pio = stm_gpio(15, 7)
+	.pci_reset_gpio = HDK7105_PIO_PCI_RESET,
 };
 
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
         /* We can use the standard function on this board */
-        return  stx7105_pcibios_map_platform_irq(&pci_config, pin);
+	return stx7105_pcibios_map_platform_irq(&hdk7105_pci_config, pin);
 }
 
 static struct platform_device hdk7105_leds = {
@@ -82,16 +83,55 @@ static struct platform_device hdk7105_leds = {
 	.dev.platform_data = &(struct gpio_led_platform_data) {
 		.num_leds = 2,
 		.leds = (struct gpio_led[]) {
+			/* The schematics actually describes these PIOs
+			 * the other way round, but all tested boards
+			 * had the bi-colour LED fitted like below... */
 			{
-				.name = "LD5",
+				.name = "RED", /* This is also frontpanel LED */
+				.gpio = stm_gpio(7, 0),
+				.active_low = 1,
+			}, {
+				.name = "GREEN",
 				.default_trigger = "heartbeat",
-				.gpio = stm_gpio(2, 4),
-			},
-			{
-				.name = "LD6",
-				.gpio = stm_gpio(2, 3),
+				.gpio = stm_gpio(7, 1),
+				.active_low = 1,
 			},
 		},
+	},
+};
+
+static struct tm1668_key hdk7105_front_panel_keys[] = {
+	{ 0x00001000, KEY_UP, "Up (SWF2)" },
+	{ 0x00800000, KEY_DOWN, "Down (SWF7)" },
+	{ 0x00008000, KEY_LEFT, "Left (SWF6)" },
+	{ 0x00000010, KEY_RIGHT, "Right (SWF5)" },
+	{ 0x00000080, KEY_ENTER, "Enter (SWF1)" },
+	{ 0x00100000, KEY_ESC, "Escape (SWF4)" },
+};
+
+static struct tm1668_character hdk7105_front_panel_characters[] = {
+	TM1668_7_SEG_HEX_DIGITS,
+	TM1668_7_SEG_HEX_DIGITS_WITH_DOT,
+	TM1668_7_SEG_SEGMENTS,
+};
+
+static struct platform_device hdk7105_front_panel = {
+	.name = "tm1668",
+	.id = -1,
+	.dev.platform_data = &(struct tm1668_platform_data) {
+		.gpio_dio = stm_gpio(11, 2),
+		.gpio_sclk = stm_gpio(11, 3),
+		.gpio_stb = stm_gpio(11, 4),
+		.config = tm1668_config_6_digits_12_segments,
+
+		.keys_num = ARRAY_SIZE(hdk7105_front_panel_keys),
+		.keys = hdk7105_front_panel_keys,
+		.keys_poll_period = DIV_ROUND_UP(HZ, 5),
+
+		.brightness = 8,
+		.characters_num = ARRAY_SIZE(hdk7105_front_panel_characters),
+		.characters = hdk7105_front_panel_characters,
+		.text = "7105",
 	},
 };
 
@@ -136,13 +176,24 @@ static struct platform_device hdk7105_phy_device = {
 
 static struct platform_device *hdk7105_devices[] __initdata = {
 	&hdk7105_leds,
+	&hdk7105_front_panel,
 	&hdk7105_phy_device,
 };
 
 static int __init hdk7105_device_init(void)
 {
-	stx7105_configure_pci(&pci_config);
-	stx7105_configure_sata();
+	/* Setup the PCI_SERR# PIO */
+	if (gpio_request(HDK7105_PIO_PCI_SERR, "PCI_SERR#") == 0) {
+		gpio_direction_input(HDK7105_PIO_PCI_SERR);
+		hdk7105_pci_config.serr_irq =
+				gpio_to_irq(HDK7105_PIO_PCI_SERR);
+		set_irq_type(hdk7105_pci_config.serr_irq, IRQ_TYPE_LEVEL_LOW);
+	} else {
+		printk(KERN_WARNING "hdk7105: Failed to claim PCI SERR PIO!\n");
+	}
+	stx7105_configure_pci(&hdk7105_pci_config);
+
+	stx7105_configure_sata(0);
 
 	stx7105_configure_pwm(&(struct stx7105_pwm_config) {
 			.out0 = stx7105_pwm_out0_pio13_0,
@@ -166,12 +217,12 @@ static int __init hdk7105_device_init(void)
 			.routing.ssc3.mtsr = stx7105_ssc3_mtsr_pio3_7, });
 
 	stx7105_configure_usb(0, &(struct stx7105_usb_config) {
-			.ovrcur_mode = stx7105_usb_ovrcur_active_high,
+			.ovrcur_mode = stx7105_usb_ovrcur_active_low,
 			.pwr_enabled = 1,
 			.routing.usb0.ovrcur = stx7105_usb0_ovrcur_pio4_4,
 			.routing.usb0.pwr = stx7105_usb0_pwr_pio4_5, });
 	stx7105_configure_usb(1, &(struct stx7105_usb_config) {
-			.ovrcur_mode = stx7105_usb_ovrcur_active_high,
+			.ovrcur_mode = stx7105_usb_ovrcur_active_low,
 			.pwr_enabled = 1,
 			.routing.usb1.ovrcur = stx7105_usb1_ovrcur_pio4_6,
 			.routing.usb1.pwr = stx7105_usb1_pwr_pio4_7, });
@@ -179,7 +230,7 @@ static int __init hdk7105_device_init(void)
 	gpio_request(HDK7105_PIO_PHY_RESET, "eth_phy_reset");
 	gpio_direction_output(HDK7105_PIO_PHY_RESET, 1);
 
-	stx7105_configure_ethernet(&(struct stx7105_ethernet_config) {
+	stx7105_configure_ethernet(0, &(struct stx7105_ethernet_config) {
 			.mode = stx7105_ethernet_mode_mii,
 			.ext_clk = 0,
 			.phy_bus = 0, });
@@ -188,6 +239,9 @@ static int __init hdk7105_device_init(void)
 			.rx_mode = stx7105_lirc_rx_mode_ir,
 			.tx_enabled = 0,
 			.tx_od_enabled = 0, });
+
+	stx7105_configure_audio(&(struct stx7105_audio_config) {
+			.spdif_player_output_enabled = 1, });
 
 	return platform_add_devices(hdk7105_devices,
 			ARRAY_SIZE(hdk7105_devices));
@@ -211,7 +265,5 @@ struct sh_machine_vector mv_hdk7105 __initmv = {
 	.mv_setup		= hdk7105_setup,
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_ioport_map		= hdk7105_ioport_map,
-#ifdef CONFIG_SH_ST_SYNOPSYS_PCI
 	STM_PCI_IO_MACHINE_VEC
-#endif
 };

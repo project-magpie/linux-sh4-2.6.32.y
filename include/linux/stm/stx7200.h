@@ -1,9 +1,28 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #ifndef __LINUX_STM_STX7200_H
 #define __LINUX_STM_STX7200_H
 
 #include <linux/device.h>
 #include <linux/spi/spi.h>
 #include <linux/stm/platform.h>
+
+
+/* Sysconfig groups */
+
+#define SYS_DEV 0
+#define SYS_STA 1
+#define SYS_CFG 2
 
 
 void stx7200_early_device_init(void);
@@ -58,7 +77,7 @@ void stx7200_configure_ethernet(int port,
 void stx7200_configure_usb(int port);
 
 
-void stx7200_configure_sata(int port);
+void stx7200_configure_sata(void);
 
 
 struct stx7200_pata_config {

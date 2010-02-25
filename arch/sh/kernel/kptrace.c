@@ -920,7 +920,10 @@ static int user_pre_handler(struct kprobe *p, struct pt_regs *regs)
 static int user_rp_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "u %d", (int)regs->regs[0]);
+
+	u32 probe_func_addr = (u32) ri->rp->kp.addr;
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "u %d %.8x", (int)regs->regs[0],
+		 probe_func_addr);
 	write_trace_record_no_callstack(tbuf);
 	return 0;
 }

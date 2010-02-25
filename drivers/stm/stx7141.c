@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/ata_platform.h>
@@ -14,6 +26,34 @@
 /* EMI resources ---------------------------------------------------------- */
 
 static int __initdata stx7141_emi_bank_configured[EMI_BANKS];
+
+static struct platform_device stx7141_emi = {
+	.name = "emi",
+	.id = -1,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0, 128*1024*1024),
+		STM_PLAT_RESOURCE_MEM(0xfe700000, 0x874),
+	},
+};
+
+
+
+/* COMMS block ILC -------------------------------------------------------- */
+
+static struct platform_device stx7141_comms_ilc_device = {
+	.name		= "ilc3",
+	.id		= 1,
+	.num_resources  = 1,
+	.resource	= (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0xfd000000, 0x900),
+	},
+	.dev.platform_data = &(struct stm_plat_ilc3_data) {
+		.inputs_num = COMMS_ILC_NR_IRQS,
+		.outputs_num = 16,
+		.first_irq = COMMS_ILC_FIRST_IRQ,
+	},
+};
 
 
 
@@ -78,13 +118,6 @@ void __init stx7141_configure_pata(struct stx7141_pata_config *config)
 
 /* NAND Resources --------------------------------------------------------- */
 
-static struct stm_pad_config stx7141_nand_flex_pad_config = {
-	.labels_num = 1,
-	.labels = (struct stm_pad_label []) {
-		STM_PAD_LABEL("NANDRnotB"),
-	},
-};
-
 static struct platform_device stx7141_nand_flex_device = {
 	.name = "stm-nand-flex",
 	.id = 0,
@@ -93,8 +126,8 @@ static struct platform_device stx7141_nand_flex_device = {
 		STM_PLAT_RESOURCE_MEM(0xFE701000, 0x1000),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(39), -1),
 	},
-	.dev.platform_data = &(struct stm_plat_nand_flex_data){
-		.pad_config     = &stx7141_nand_flex_pad_config,
+	.dev.platform_data = &(struct stm_plat_nand_flex_data) {
+		/* values set in stx7141_configure_nand_flex() */
 	},
 };
 
@@ -120,8 +153,6 @@ void __init stx7141_configure_nand_flex(int nr_banks,
 
 
 /* FDMA resources --------------------------------------------------------- */
-
-#ifdef CONFIG_STM_DMA
 
 static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7141 = {
 	.rev_id    = 0x8000 + (0x000 << 2), /* 0x8000 */
@@ -161,56 +192,40 @@ static struct stm_plat_fdma_hw stx7141_fdma_hw = {
 	},
 };
 
-static struct stm_plat_fdma_data stx7141_fdma_0_platform_data = {
+static struct stm_plat_fdma_data stx7141_fdma_platform_data = {
 	.hw = &stx7141_fdma_hw,
 	.fw = &stm_fdma_firmware_7141,
 	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
 	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
-static struct stm_plat_fdma_data stx7141_fdma_1_platform_data = {
-	.hw = &stx7141_fdma_hw,
-	.fw = &stm_fdma_firmware_7141,
-	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
-	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
-};
-
-#define stx7141_fdma_0_platform_data_addr &stx7141_fdma_0_platform_data
-#define stx7141_fdma_1_platform_data_addr &stx7141_fdma_1_platform_data
-
-#else
-
-#define stx7141_fdma_0_platform_data_addr NULL
-#define stx7141_fdma_1_platform_data_addr NULL
-
-#endif /* CONFIG_STM_DMA */
-
-static struct platform_device stx7141_fdma_0_device = {
-	.name		= "stm-fdma",
-	.id		= 0,
-	.num_resources	= 2,
-	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0xfe220000, 0x10000),
-		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(44), -1),
-	},
-	.dev.platform_data = stx7141_fdma_0_platform_data_addr,
-};
-
-static struct platform_device stx7141_fdma_1_device = {
-	.name		= "stm-fdma",
-	.id		= 1,
-	.resource = (struct resource[2]) {
-		STM_PLAT_RESOURCE_MEM(0xfe410000, 0x10000),
-		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(45), -1),
-	},
-	.dev.platform_data = stx7141_fdma_1_platform_data_addr,
+static struct platform_device stx7141_fdma_devices[] = {
+	{
+		.name = "stm-fdma",
+		.id = 0,
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe220000, 0x10000),
+			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(44), -1),
+		},
+		.dev.platform_data = &stx7141_fdma_platform_data,
+	}, {
+		.name = "stm-fdma",
+		.id = 1,
+		.num_resources = 2,
+		.resource = (struct resource[2]) {
+			STM_PLAT_RESOURCE_MEM(0xfe410000, 0x10000),
+			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(45), -1),
+		},
+		.dev.platform_data = &stx7141_fdma_platform_data,
+	}
 };
 
 static struct platform_device stx7141_fdma_xbar_device = {
-	.name		= "stm-fdma-xbar",
-	.id		= -1,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
+	.name = "stm-fdma-xbar",
+	.id = -1,
+	.num_resources = 1,
+	.resource = (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM(0xfe420000, 0x1000),
 	},
 };
@@ -236,6 +251,8 @@ static struct platform_device stx7141_rng_devrandom_device = {
 		STM_PLAT_RESOURCE_MEM(0xfe250000, 0x1000),
 	}
 };
+
+
 
 /* Internal temperature sensor resources ---------------------------------- */
 
@@ -290,222 +307,16 @@ static struct platform_device stx7141_temp_devices[] = {
 	}
 };
 
+
+
 /* PIO ports resources ---------------------------------------------------- */
-
-#define STX7141_PIO_PAD_CONFIG(_port_no, _pin_no, _sys_cfg, _lsb, _msb) \
-	{ \
-		.labels_num = 1, \
-		.labels = (struct stm_pad_label []) { \
-			STM_PAD_LABEL("PIO" #_port_no "." #_pin_no), \
-		}, \
-		.sysconf_values_num = 1, \
-		.sysconf_values = (struct stm_pad_sysconf_value []) { \
-			STM_PAD_SYS_CFG(_sys_cfg, _lsb, _msb, 0), \
-		}, \
-	}
-
-static struct stm_plat_pio_data stx7141_pio_platform_data[] = {
-	/* no [0], see below */
-	[1] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(1, 0, 19, 0, 1),
-			[1] = STX7141_PIO_PAD_CONFIG(1, 1, 19, 2, 3),
-			[2] = STX7141_PIO_PAD_CONFIG(1, 2, 19, 4, 5),
-			[3] = STX7141_PIO_PAD_CONFIG(1, 3, 19, 6, 7),
-			[4] = STX7141_PIO_PAD_CONFIG(1, 4, 19, 8, 8),
-			[5] = STX7141_PIO_PAD_CONFIG(1, 5, 19, 9, 9),
-			[6] = STX7141_PIO_PAD_CONFIG(1, 6, 19, 10, 10),
-			[7] = STX7141_PIO_PAD_CONFIG(1, 7, 19, 11, 11),
-		},
-	},
-	[2] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(2, 0, 19, 12, 12),
-			[1] = STX7141_PIO_PAD_CONFIG(2, 1, 19, 13, 13),
-			[2] = STX7141_PIO_PAD_CONFIG(2, 2, 19, 14, 14),
-			[3] = STX7141_PIO_PAD_CONFIG(2, 3, 19, 15, 15),
-			[4] = STX7141_PIO_PAD_CONFIG(2, 4, 19, 16, 16),
-			[5] = STX7141_PIO_PAD_CONFIG(2, 5, 19, 17, 17),
-			[6] = STX7141_PIO_PAD_CONFIG(2, 6, 19, 18, 18),
-			[7] = STX7141_PIO_PAD_CONFIG(2, 7, 19, 19, 19),
-		},
-	},
-	[3] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(3, 0, 19, 20, 20),
-			[1] = STX7141_PIO_PAD_CONFIG(3, 1, 19, 21, 21),
-			[2] = STX7141_PIO_PAD_CONFIG(3, 2, 19, 22, 23),
-			[3] = STX7141_PIO_PAD_CONFIG(3, 3, 19, 24, 25),
-			[4] = STX7141_PIO_PAD_CONFIG(3, 4, 19, 26, 27),
-			[5] = STX7141_PIO_PAD_CONFIG(3, 5, 19, 28, 29),
-			[6] = STX7141_PIO_PAD_CONFIG(3, 6, 19, 30, 31),
-			[7] = STX7141_PIO_PAD_CONFIG(3, 7, 20, 0, 0),
-		},
-	},
-	[4] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(4, 0, 20, 1, 2),
-			[1] = STX7141_PIO_PAD_CONFIG(4, 1, 20, 3, 4),
-			[2] = STX7141_PIO_PAD_CONFIG(4, 2, 20, 5, 6),
-			[3] = STX7141_PIO_PAD_CONFIG(4, 3, 20, 7, 8),
-			[4] = STX7141_PIO_PAD_CONFIG(4, 4, 20, 9, 10),
-			[5] = STX7141_PIO_PAD_CONFIG(4, 5, 20, 11, 12),
-			[6] = STX7141_PIO_PAD_CONFIG(4, 6, 20, 13, 13),
-			[7] = STX7141_PIO_PAD_CONFIG(4, 7, 20, 14, 14),
-		},
-	},
-	[5] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(5, 0, 20, 15, 16),
-			[1] = STX7141_PIO_PAD_CONFIG(5, 1, 20, 17, 18),
-			[2] = STX7141_PIO_PAD_CONFIG(5, 2, 20, 19, 19),
-			[3] = STX7141_PIO_PAD_CONFIG(5, 3, 20, 20, 20),
-			[4] = STX7141_PIO_PAD_CONFIG(5, 4, 20, 21, 21),
-			[5] = STX7141_PIO_PAD_CONFIG(5, 5, 20, 22, 23),
-			[6] = STX7141_PIO_PAD_CONFIG(5, 6, 20, 24, 24),
-			[7] = STX7141_PIO_PAD_CONFIG(5, 7, 20, 25, 26),
-		},
-	},
-	[6] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(6, 0, 20, 27, 28),
-			[1] = STX7141_PIO_PAD_CONFIG(6, 1, 20, 29, 30),
-			[2] = STX7141_PIO_PAD_CONFIG(6, 2, 25, 0, 1),
-			[3] = STX7141_PIO_PAD_CONFIG(6, 3, 25, 2, 3),
-			[4] = STX7141_PIO_PAD_CONFIG(6, 4, 25, 4, 5),
-			[5] = STX7141_PIO_PAD_CONFIG(6, 5, 25, 6, 7),
-			[6] = STX7141_PIO_PAD_CONFIG(6, 6, 25, 8, 9),
-			[7] = STX7141_PIO_PAD_CONFIG(6, 7, 25, 10, 11),
-		},
-	},
-	[7] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(7, 0, 25, 12, 13),
-			[1] = STX7141_PIO_PAD_CONFIG(7, 1, 25, 14, 15),
-			[2] = STX7141_PIO_PAD_CONFIG(7, 2, 25, 16, 17),
-			[3] = STX7141_PIO_PAD_CONFIG(7, 3, 25, 18, 19),
-			[4] = STX7141_PIO_PAD_CONFIG(7, 4, 25, 20, 21),
-			[5] = STX7141_PIO_PAD_CONFIG(7, 5, 25, 22, 23),
-			[6] = STX7141_PIO_PAD_CONFIG(7, 6, 25, 24, 25),
-			[7] = STX7141_PIO_PAD_CONFIG(7, 7, 25, 26, 27),
-		},
-	},
-	[8] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(8, 0, 25, 28, 30),
-			[1] = STX7141_PIO_PAD_CONFIG(8, 1, 35, 0, 2),
-			[2] = STX7141_PIO_PAD_CONFIG(8, 2, 35, 3, 5),
-			[3] = STX7141_PIO_PAD_CONFIG(8, 3, 35, 6, 8),
-			[4] = STX7141_PIO_PAD_CONFIG(8, 4, 35, 9, 11),
-			[5] = STX7141_PIO_PAD_CONFIG(8, 5, 35, 12, 14),
-			[6] = STX7141_PIO_PAD_CONFIG(8, 6, 35, 15, 17),
-			[7] = STX7141_PIO_PAD_CONFIG(8, 7, 35, 18, 20),
-		},
-	},
-	[9] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(9, 0, 35, 21, 22),
-			[1] = STX7141_PIO_PAD_CONFIG(9, 1, 35, 23, 24),
-			[2] = STX7141_PIO_PAD_CONFIG(9, 2, 35, 25, 26),
-			[3] = STX7141_PIO_PAD_CONFIG(9, 3, 35, 27, 28),
-			[4] = STX7141_PIO_PAD_CONFIG(9, 4, 35, 29, 30),
-			[5] = STX7141_PIO_PAD_CONFIG(9, 5, 46, 0, 1),
-			[6] = STX7141_PIO_PAD_CONFIG(9, 6, 46, 2, 3),
-			[7] = STX7141_PIO_PAD_CONFIG(9, 7, 46, 4, 5),
-		},
-	},
-	[10] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(10, 0, 46, 6, 7),
-			[1] = STX7141_PIO_PAD_CONFIG(10, 1, 46, 8, 9),
-			[2] = STX7141_PIO_PAD_CONFIG(10, 2, 46, 10, 11),
-			[3] = STX7141_PIO_PAD_CONFIG(10, 3, 46, 12, 13),
-			[4] = STX7141_PIO_PAD_CONFIG(10, 4, 46, 14, 15),
-			[5] = STX7141_PIO_PAD_CONFIG(10, 5, 46, 16, 17),
-			[6] = STX7141_PIO_PAD_CONFIG(10, 6, 46, 18, 19),
-			[7] = STX7141_PIO_PAD_CONFIG(10, 7, 46, 20, 21),
-		},
-	},
-	[11] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(11, 0, 46, 22, 23),
-			[1] = STX7141_PIO_PAD_CONFIG(11, 1, 46, 24, 26),
-			[2] = STX7141_PIO_PAD_CONFIG(11, 2, 46, 27, 29),
-			[3] = STX7141_PIO_PAD_CONFIG(11, 3, 47, 0, 2),
-			[4] = STX7141_PIO_PAD_CONFIG(11, 4, 47, 3, 5),
-			[5] = STX7141_PIO_PAD_CONFIG(11, 5, 47, 6, 8),
-			[6] = STX7141_PIO_PAD_CONFIG(11, 6, 47, 9, 11),
-			[7] = STX7141_PIO_PAD_CONFIG(11, 7, 47, 12, 14),
-		},
-	},
-	[12] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(12, 0, 47, 15, 17),
-			[1] = STX7141_PIO_PAD_CONFIG(12, 1, 47, 18, 20),
-			[2] = STX7141_PIO_PAD_CONFIG(12, 2, 47, 21, 23),
-			[3] = STX7141_PIO_PAD_CONFIG(12, 3, 47, 24, 25),
-			[4] = STX7141_PIO_PAD_CONFIG(12, 4, 47, 26, 27),
-			[5] = STX7141_PIO_PAD_CONFIG(12, 5, 47, 28, 29),
-			[6] = STX7141_PIO_PAD_CONFIG(12, 6, 48, 0, 2),
-			[7] = STX7141_PIO_PAD_CONFIG(12, 7, 48, 3, 5),
-		},
-	},
-	[13] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(13, 0, 48, 6, 8),
-			[1] = STX7141_PIO_PAD_CONFIG(13, 1, 48, 9, 11),
-			[2] = STX7141_PIO_PAD_CONFIG(13, 2, 48, 12, 14),
-			[3] = STX7141_PIO_PAD_CONFIG(13, 3, 48, 15, 17),
-			[4] = STX7141_PIO_PAD_CONFIG(13, 4, 48, 18, 20),
-			[5] = STX7141_PIO_PAD_CONFIG(13, 5, 48, 21, 23),
-			[6] = STX7141_PIO_PAD_CONFIG(13, 6, 48, 24, 25),
-			[7] = STX7141_PIO_PAD_CONFIG(13, 7, 48, 26, 27),
-		},
-	},
-	[14] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(14, 0, 48, 28, 30),
-			[1] = STX7141_PIO_PAD_CONFIG(14, 1, 49, 0, 2),
-			[2] = STX7141_PIO_PAD_CONFIG(14, 2, 49, 3, 5),
-			[3] = STX7141_PIO_PAD_CONFIG(14, 3, 49, 6, 8),
-			[4] = STX7141_PIO_PAD_CONFIG(14, 4, 49, 9, 11),
-			[5] = STX7141_PIO_PAD_CONFIG(14, 5, 49, 12, 14),
-			[6] = STX7141_PIO_PAD_CONFIG(14, 6, 49, 15, 17),
-			[7] = STX7141_PIO_PAD_CONFIG(14, 7, 49, 18, 19),
-		},
-	},
-	[15] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(15, 0, 49, 20, 21),
-			[1] = STX7141_PIO_PAD_CONFIG(15, 1, 49, 22, 23),
-			[2] = STX7141_PIO_PAD_CONFIG(15, 2, 49, 24, 25),
-			[3] = STX7141_PIO_PAD_CONFIG(15, 3, 49, 26, 27),
-			[4] = STX7141_PIO_PAD_CONFIG(15, 4, 49, 28, 28),
-			[5] = STX7141_PIO_PAD_CONFIG(15, 5, 49, 29, 29),
-			[6] = STX7141_PIO_PAD_CONFIG(15, 6, 49, 30, 30),
-			[7] = STX7141_PIO_PAD_CONFIG(15, 7, 50, 0, 1),
-		},
-	},
-	[16] = {
-		.pad_configs = (struct stm_pad_config []) {
-			[0] = STX7141_PIO_PAD_CONFIG(16, 0, 50, 2, 3),
-			[1] = STX7141_PIO_PAD_CONFIG(16, 1, 50, 4, 5),
-			[2] = STX7141_PIO_PAD_CONFIG(16, 2, 50, 6, 7),
-			[3] = STX7141_PIO_PAD_CONFIG(16, 3, 50, 8, 8),
-			[4] = STX7141_PIO_PAD_CONFIG(16, 4, 50, 9, 9),
-			[5] = STX7141_PIO_PAD_CONFIG(16, 5, 50, 10, 10),
-			[6] = STX7141_PIO_PAD_CONFIG(16, 6, 50, 11, 11),
-			[7] = STX7141_PIO_PAD_CONFIG(16, 7, 50, 12, 12),
-		},
-	},
-};
 
 static struct platform_device stx7141_pio_devices[] = {
 	/* Some eee... individual named the first PIO block PIO1,
-	 * so there is no PIO0 here... */
+	 * so there is no stm-gpio.0 here... */
 
 	/* COMMS PIO blocks */
-	[0] = {
+	[1] = {
 		.name = "stm-gpio",
 		.id = 1,
 		.num_resources = 2,
@@ -513,9 +324,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd020000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(49), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[1],
 	},
-	[1] = {
+	[2] = {
 		.name = "stm-gpio",
 		.id = 2,
 		.num_resources = 2,
@@ -523,9 +333,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd021000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(50), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[2],
 	},
-	[2] = {
+	[3] = {
 		.name = "stm-gpio",
 		.id = 3,
 		.num_resources = 2,
@@ -533,9 +342,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd022000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(51), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[3],
 	},
-	[3] = {
+	[4] = {
 		.name = "stm-gpio",
 		.id = 4,
 		.num_resources = 2,
@@ -543,9 +351,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd023000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(52), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[4],
 	},
-	[4] = {
+	[5] = {
 		.name = "stm-gpio",
 		.id = 5,
 		.num_resources = 2,
@@ -553,9 +360,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd024000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(53), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[5],
 	},
-	[5] = {
+	[6] = {
 		.name = "stm-gpio",
 		.id = 6,
 		.num_resources = 2,
@@ -563,9 +369,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd025000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(54), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[6],
 	},
-	[6] = {
+	[7] = {
 		.name = "stm-gpio",
 		.id = 7,
 		.num_resources = 2,
@@ -573,11 +378,10 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd026000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(55), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[7],
 	},
 
 	/* Standalone PIO blocks */
-	[7] = {
+	[8] = {
 		.name = "stm-gpio",
 		.id = 8,
 		.num_resources = 2,
@@ -585,9 +389,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfe010000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(59), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[8],
 	},
-	[8] = {
+	[9] = {
 		.name = "stm-gpio",
 		.id = 9,
 		.num_resources = 2,
@@ -595,9 +398,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfe011000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(60), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[9],
 	},
-	[9] = {
+	[10] = {
 		.name = "stm-gpio",
 		.id = 10,
 		.num_resources = 2,
@@ -605,9 +407,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfe012000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(61), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[10],
 	},
-	[10] = {
+	[11] = {
 		.name = "stm-gpio",
 		.id = 11,
 		.num_resources = 2,
@@ -615,9 +416,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfe013000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(62), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[11],
 	},
-	[11] = {
+	[12] = {
 		.name = "stm-gpio",
 		.id = 12,
 		.num_resources = 2,
@@ -625,9 +425,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfe014000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(63), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[12],
 	},
-	[12] = {
+	[13] = {
 		.name = "stm-gpio",
 		.id = 13,
 		.num_resources = 2,
@@ -635,9 +434,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfe015000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(64), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[13],
 	},
-	[13] = {
+	[14] = {
 		.name = "stm-gpio",
 		.id = 14,
 		.num_resources = 2,
@@ -645,9 +443,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfe016000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(65), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[14],
 	},
-	[14] = {
+	[15] = {
 		.name = "stm-gpio",
 		.id = 15,
 		.num_resources = 2,
@@ -655,9 +452,8 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfe017000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(66), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[15],
 	},
-	[15] = {
+	[16] = {
 		.name = "stm-gpio",
 		.id = 16,
 		.num_resources = 2,
@@ -665,16 +461,206 @@ static struct platform_device stx7141_pio_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfe018000, 0x100),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(67), -1),
 		},
-		.dev.platform_data = &stx7141_pio_platform_data[16],
 	},
 };
 
-static void __init stx7141_pio_late_setup(void)
-{
-	int i;
+struct stx7141_pio_sysconf {
+	unsigned char num, lsb, msb;
+	struct sysconf_field *field;
+};
 
-	for (i = 0; i < ARRAY_SIZE(stx7141_pio_devices); i++)
-		platform_device_register(&stx7141_pio_devices[i]);
+static struct stx7141_pio_sysconf stx7141_pio_sysconfs[][8] = {
+	{
+		/* PIO0 doesn't exist */
+	}, {
+		{ 19,  0,  1 },	/* PIO1[0] */
+		{ 19,  2,  3 },	/* PIO1[1] */
+		{ 19,  4,  5 },	/* PIO1[2] */
+		{ 19,  5,  7 },	/* PIO1[3] */
+		{ 19,  8,  8 },	/* PIO1[4] */
+		{ 19,  9,  9 },	/* PIO1[5] */
+		{ 19, 10, 10 },	/* PIO1[6] */
+		{ 19, 11, 11 },	/* PIO1[7] */
+	}, {
+		{ 19, 12, 12 },	/* PIO2[0] */
+		{ 19, 13, 13 },	/* PIO2[1] */
+		{ 19, 14, 14 },	/* PIO2[2] */
+		{ 19, 15, 15 },	/* PIO2[3] */
+		{ 19, 16, 16 },	/* PIO2[4] */
+		{ 19, 17, 17 },	/* PIO2[5] */
+		{ 19, 18, 18 },	/* PIO2[6] */
+		{ 19, 19, 19 },	/* PIO2[7] */
+	}, {
+		{ 19, 20, 20 },	/* PIO3[0] */
+		{ 19, 21, 21 },	/* PIO3[1] */
+		{ 19, 22, 23 },	/* PIO3[2] */
+		{ 19, 24, 25 },	/* PIO3[3] */
+		{ 19, 26, 27 },	/* PIO3[4] */
+		{ 19, 28, 29 },	/* PIO3[5] */
+		{ 19, 30, 31 },	/* PIO3[6] */
+		{ 20,  0,  0 },	/* PIO3[7] */
+	}, {
+		{ 20,  1,  2 },	/* PIO4[0] */
+		{ 20,  3,  4 },	/* PIO4[1] */
+		{ 20,  5,  6 },	/* PIO4[2] */
+		{ 20,  7,  8 },	/* PIO4[3] */
+		{ 20,  9, 10 },	/* PIO4[4] */
+		{ 20, 11, 12 },	/* PIO4[5] */
+		{ 20, 13, 13 },	/* PIO4[6] */
+		{ 20, 14, 14 },	/* PIO4[7] */
+	}, {
+		{ 20, 15, 16 },	/* PIO5[0] */
+		{ 20, 17, 18 },	/* PIO5[1] */
+		{ 20, 19, 19 },	/* PIO5[2] */
+		{ 20, 20, 20 },	/* PIO5[3] */
+		{ 20, 21, 21 },	/* PIO5[4] */
+		{ 20, 22, 23 },	/* PIO5[5] */
+		{ 20, 24, 24 },	/* PIO5[6] */
+		{ 20, 25, 26 },	/* PIO5[7] */
+	}, {
+		{ 20, 27, 28 },	/* PIO6[0] */
+		{ 20, 29, 30 },	/* PIO6[1] */
+		{ 25,  0,  1 },	/* PIO6[2] */
+		{ 25,  2,  3 },	/* PIO6[3] */
+		{ 25,  4,  5 },	/* PIO6[4] */
+		{ 25,  6,  7 },	/* PIO6[5] */
+		{ 25,  8,  9 },	/* PIO6[6] */
+		{ 25, 10, 11 },	/* PIO6[7] */
+	}, {
+		{ 25, 12, 13 },	/* PIO7[0] */
+		{ 25, 14, 15 },	/* PIO7[1] */
+		{ 25, 16, 17 },	/* PIO7[2] */
+		{ 25, 18, 19 },	/* PIO7[3] */
+		{ 25, 20, 21 },	/* PIO7[4] */
+		{ 25, 22, 23 },	/* PIO7[5] */
+		{ 25, 24, 25 },	/* PIO7[6] */
+		{ 25, 26, 27 },	/* PIO7[7] */
+	}, {
+		{ 25, 28, 30 },	/* PIO8[0] */
+		{ 35,  0,  2 },	/* PIO8[1] */
+		{ 35,  3,  5 },	/* PIO8[2] */
+		{ 35,  6,  8 },	/* PIO8[3] */
+		{ 35,  9, 11 },	/* PIO8[4] */
+		{ 35, 12, 14 },	/* PIO8[5] */
+		{ 35, 15, 17 },	/* PIO8[6] */
+		{ 35, 18, 20 },	/* PIO8[7] */
+	}, {
+		{ 35, 21, 22 },	/* PIO9[0] */
+		{ 35, 23, 24 },	/* PIO9[1] */
+		{ 35, 25, 26 },	/* PIO9[2] */
+		{ 35, 27, 28 },	/* PIO9[3] */
+		{ 35, 29, 30 },	/* PIO9[4] */
+		{ 46,  0,  1 },	/* PIO9[5] */
+		{ 46,  2,  3 },	/* PIO9[6] */
+		{ 46,  4,  5 },	/* PIO9[7] */
+	}, {
+		{ 46,  6,  7 },	/* PIO10[0] */
+		{ 46,  8,  9 },	/* PIO10[1] */
+		{ 46, 10, 11 },	/* PIO10[2] */
+		{ 46, 12, 13 },	/* PIO10[3] */
+		{ 46, 14, 15 },	/* PIO10[4] */
+		{ 46, 16, 17 },	/* PIO10[5] */
+		{ 46, 18, 19 },	/* PIO10[6] */
+		{ 46, 20, 21 },	/* PIO10[7] */
+	}, {
+		{ 46, 22, 23 },	/* PIO11[0] */
+		{ 46, 24, 26 },	/* PIO11[1] */
+		{ 46, 27, 29 },	/* PIO11[2] */
+		{ 47,  0,  2 },	/* PIO11[3] */
+		{ 47,  3,  5 },	/* PIO11[4] */
+		{ 47,  6,  8 },	/* PIO11[5] */
+		{ 47,  9, 11 },	/* PIO11[6] */
+		{ 47, 12, 14 },	/* PIO11[7] */
+	}, {
+		{ 47, 15, 17 },	/* PIO12[0] */
+		{ 47, 18, 20 },	/* PIO12[1] */
+		{ 47, 21, 23 },	/* PIO12[2] */
+		{ 47, 24, 25 },	/* PIO12[3] */
+		{ 47, 26, 27 },	/* PIO12[4] */
+		{ 47, 28, 29 },	/* PIO12[5] */
+		{ 48,  0,  2 },	/* PIO12[6] */
+		{ 48,  3,  5 },	/* PIO12[7] */
+	}, {
+		{ 48,  6,  8 },	/* PIO13[0] */
+		{ 48,  9, 11 },	/* PIO13[1] */
+		{ 48, 12, 14 },	/* PIO13[2] */
+		{ 48, 15, 17 },	/* PIO13[3] */
+		{ 48, 18, 20 },	/* PIO13[4] */
+		{ 48, 21, 23 },	/* PIO13[5] */
+		{ 48, 24, 25 },	/* PIO13[6] */
+		{ 48, 26, 27 },	/* PIO13[7] */
+	}, {
+		{ 48, 28, 30 },	/* PIO14[0] */
+		{ 49,  0,  2 },	/* PIO14[1] */
+		{ 49,  3,  5 },	/* PIO14[2] */
+		{ 49,  6,  8 },	/* PIO14[3] */
+		{ 49,  9, 11 },	/* PIO14[4] */
+		{ 49, 12, 14 },	/* PIO14[5] */
+		{ 49, 15, 17 },	/* PIO14[6] */
+		{ 49, 18, 19 },	/* PIO14[7] */
+	}, {
+		{ 49, 20, 21 },	/* PIO15[0] */
+		{ 49, 22, 23 },	/* PIO15[1] */
+		{ 49, 24, 25 },	/* PIO15[2] */
+		{ 49, 26, 27 },	/* PIO15[3] */
+		{ 49, 28, 28 },	/* PIO15[4] */
+		{ 49, 29, 29 },	/* PIO15[5] */
+		{ 49, 30, 30 },	/* PIO15[6] */
+		{ 50,  0,  1 },	/* PIO15[7] */
+	}, {
+		{ 50,  2,  3 },	/* PIO16[0] */
+		{ 50,  4,  5 },	/* PIO16[1] */
+		{ 50,  6,  7 },	/* PIO16[2] */
+		{ 50,  8,  8 },	/* PIO16[3] */
+		{ 50,  9,  9 },	/* PIO16[4] */
+		{ 50, 10, 10 },	/* PIO16[5] */
+		{ 50, 11, 11 },	/* PIO16[6] */
+		{ 50, 12, 12 },	/* PIO16[7] */
+	}
+};
+
+static int stx7141_pio_config(unsigned gpio,
+		enum stm_pad_gpio_direction direction, int function)
+{
+	int port = stm_gpio_port(gpio);
+	int pin = stm_gpio_pin(gpio);
+	struct stx7141_pio_sysconf *sysconf;
+
+	BUG_ON(port < 1);
+	BUG_ON(port > ARRAY_SIZE(stx7141_pio_sysconfs));
+
+	sysconf = &stx7141_pio_sysconfs[port][pin];
+
+	if (direction == stm_pad_gpio_direction_in) {
+		BUG_ON(function != -1);
+		stm_gpio_direction(gpio, STM_GPIO_DIRECTION_IN);
+	} else {
+		BUG_ON(function < 0);
+		BUG_ON(function > (1 << (sysconf->msb - sysconf->lsb + 1)) - 1);
+
+		switch (direction) {
+		case stm_pad_gpio_direction_out:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_OUT);
+			break;
+		case stm_pad_gpio_direction_bidir:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_BIDIR);
+			break;
+		default:
+			BUG();
+			break;
+		}
+
+		if (!sysconf->field) {
+			sysconf->field = sysconf_claim(SYS_CFG, sysconf->num,
+					sysconf->lsb, sysconf->msb,
+					"PIO Config");
+			BUG_ON(!sysconf->field);
+		}
+
+		sysconf_write(sysconf->field, function);
+	}
+
+	return 0;
 }
 
 
@@ -715,6 +701,8 @@ void __init stx7141_early_device_init(void)
 	stm_gpio_early_init(stx7141_pio_devices,
 			ARRAY_SIZE(stx7141_pio_devices),
 			ILC_FIRST_IRQ + ILC_NR_IRQS);
+	stm_pad_init(ARRAY_SIZE(stx7141_pio_devices) * STM_GPIO_PINS_PER_PORT,
+			0, stx7141_pio_config);
 
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);
@@ -732,19 +720,22 @@ void __init stx7141_early_device_init(void)
 
 /* Pre-arch initialisation ------------------------------------------------ */
 
-static struct platform_device emi = {
-	.name = "emi",
-	.id = -1,
-	.num_resources = 2,
-	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0, 128*1024*1024),
-		STM_PLAT_RESOURCE_MEM(0xfe700000, 0x874),
-	},
+static struct platform_device *stx7141_postcore_devices[] __initdata = {
+	&stx7141_emi,
+	&stx7141_comms_ilc_device,
 };
 
 static int __init stx7141_postcore_setup(void)
 {
-	return platform_device_register(&emi);
+	int err = 0;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(stx7141_pio_devices) && !err; i++)
+		if (stx7141_pio_devices[i].name) /* No PIO0 */
+			err = platform_device_register(&stx7141_pio_devices[i]);
+
+	return err ? err : platform_add_devices(stx7141_postcore_devices,
+			ARRAY_SIZE(stx7141_postcore_devices));
 }
 postcore_initcall(stx7141_postcore_setup);
 
@@ -752,20 +743,9 @@ postcore_initcall(stx7141_postcore_setup);
 
 /* Late initialisation ---------------------------------------------------- */
 
-static int __init stx7141_subsys_setup(void)
-{
-	/* we need to do PIO setup before module init, because some
-	 * drivers (eg gpio-keys) require that the interrupts
-	 * are available. */
-	stx7141_pio_late_setup();
-
-	return 0;
-}
-subsys_initcall(stx7141_subsys_setup);
-
 static struct platform_device *stx7141_devices[] __initdata = {
-	&stx7141_fdma_0_device,
-	&stx7141_fdma_1_device,
+	&stx7141_fdma_devices[0],
+	&stx7141_fdma_devices[0],
 	&stx7141_fdma_xbar_device,
 	&stx7141_sysconf_device,
 	&stx7141_rng_hwrandom_device,

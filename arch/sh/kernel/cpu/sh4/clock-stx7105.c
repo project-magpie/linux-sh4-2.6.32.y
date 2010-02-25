@@ -9,6 +9,7 @@
 
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/stm/stx7105.h>
 #include <linux/stm/sysconf.h>
 #include <asm/clock.h>
 #include <asm/freq.h>

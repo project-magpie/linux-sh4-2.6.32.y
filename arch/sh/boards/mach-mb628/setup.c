@@ -14,7 +14,6 @@
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/io.h>
-#include <linux/leds.h>
 #include <linux/phy.h>
 #include <linux/lirc.h>
 #include <linux/gpio.h>
@@ -382,8 +381,8 @@ static int __init mb628_device_init(void)
 {
 	/*
 	 * Can't enable PWM output without conflicting with either
-	 * SSC6 (audio) or USB1A OC (which is disabled because it is broken,
-	 * but would still result in contention).
+	 * SSC6 (audio) or USB1A OC (which is disabled in cut 1 because it
+	 * has the wrong OC polarity but would still result in contention).
 	 *
 	 * stx7141_configure_pwm(0, 1);
 	 */
@@ -396,17 +395,23 @@ static int __init mb628_device_init(void)
 	stx7141_configure_ssc_i2c(5);
 	stx7141_configure_ssc_i2c(6);
 
-	stx7141_configure_usb(0);
+	stx7141_configure_usb(0, &(struct stx7141_usb_config) {
+		.ovrcur_mode = stx7141_usb_ovrcur_active_low,
+		.pwr_enabled = 1 });
 
 	/* This requires fitting jumpers J52A 1-2 and J52B 4-5 */
-	stx7141_configure_usb(1);
+	stx7141_configure_usb(1, &(struct stx7141_usb_config) {
+		.ovrcur_mode = stx7141_usb_ovrcur_active_low,
+		.pwr_enabled = 1 });
 
-	if (cpu_data->cut_major > 1) {
-		stx7141_configure_usb(2);
-		stx7141_configure_usb(3);
+	stx7141_configure_usb(2, &(struct stx7141_usb_config) {
+		.ovrcur_mode = stx7141_usb_ovrcur_active_low,
+		.pwr_enabled = 1 });
+	stx7141_configure_usb(3, &(struct stx7141_usb_config) {
+		.ovrcur_mode = stx7141_usb_ovrcur_active_low,
+		.pwr_enabled = 1 });
 
-		stx7141_configure_sata();
-	}
+	stx7141_configure_sata();
 
 #ifdef ENABLE_GMAC0
 	/* Must disable ASC1 if using GMII0 */

@@ -9,6 +9,7 @@
 
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/stm/stx7141.h>
 #include <linux/stm/sysconf.h>
 #include <linux/io.h>
 #include <linux/pm.h>

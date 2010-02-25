@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #ifndef __LINUX_STM_PLATFORM_H
 #define __LINUX_STM_PLATFORM_H
 
@@ -9,6 +21,7 @@
 #include <linux/stm/pad.h>
 #include <linux/stm/nand.h>
 #include <linux/stmmac.h>
+
 
 /*** Platform definition helpers ***/
 
@@ -71,6 +84,7 @@
 
 struct stm_plat_asc_data {
 	int hw_flow_control:1;
+	int txfifo_bug:1;
 	struct stm_pad_config *pad_config;
 };
 
@@ -84,9 +98,6 @@ extern struct platform_device *stm_asc_configured_devices[];
 
 struct stm_plat_ssc_data {
 	struct stm_pad_config *pad_config;
-	struct stm_pad_config *pad_config_ssc;
-	struct stm_pad_config *pad_config_gpio;
-
 	void (*spi_chipselect)(struct spi_device *, int);
 };
 
@@ -132,6 +143,7 @@ struct stm_plat_pwm_data {
 };
 
 
+
 /*** Temperature sensor data ***/
 
 struct plat_stm_temp_data {
@@ -170,50 +182,16 @@ struct stm_plat_sata_data {
 	unsigned int only_32bit;
 };
 
-#ifdef CONFIG_SATA_STM
-void stm_sata_miphy_init(void);
-#else
-static inline void stm_sata_miphy_init(void) { }
-#endif
 
-/** PIO platform data ***/
 
-#define STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, _pin_no) \
-	{ \
-		.labels_num = 1, \
-		.labels = (struct stm_pad_label []) { \
-			STM_PAD_LABEL("PIO" #_port_no "." #_pin_no), \
-		}, \
-	}
+/*** PIO platform data ***/
 
-#define STM_PLAT_PIO_DATA_LABELS(_port_no) \
-		.pad_configs = (struct stm_pad_config []) { \
-			[0] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 0), \
-			[1] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 1), \
-			[2] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 2), \
-			[3] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 3), \
-			[4] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 4), \
-			[5] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 5), \
-			[6] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 6), \
-			[7] = STM_PLAT_PIO_DATA_PAD_LABEL(_port_no, 7), \
-		}
-
-#define STM_PLAT_PIO_DATA_LABELS_ONLY(_port_no) \
-	(struct stm_plat_pio_data) { \
-		STM_PLAT_PIO_DATA_LABELS(_port_no) \
-	}
-
-struct stm_plat_pio_data {
-	struct stm_pad_config *pad_configs;
+struct stm_plat_pio_irqmux_data {
+	int port_first;
+	int ports_num;
 };
 
-struct stm_plat_pio10_data {
-	int start_pio;
-	int num_pio;
-	struct {
-		struct stm_pad_config *pad_configs;
-	} port_data[10];
-};
+
 
 /*** Sysconf block platform data ***/
 
@@ -228,7 +206,7 @@ struct stm_plat_sysconf_group {
 	int group;
 	unsigned long offset;
 	const char *name;
-	const char *(*field_name)(int num);
+	const char *(*reg_name)(int num);
 };
 
 struct stm_plat_sysconf_data {
@@ -305,47 +283,48 @@ struct stm_plat_fdma_data {
 	int max_ch_num;
 };
 
+
+
 /*** PCI platform data ***/
 
-#define PCI_PIN_ALTERNATIVE	-2	/* Use alternative PIO rather than default */
-#define PCI_PIN_DEFAULT		-1	/* Use whatever the default is for that pin */
-#define PCI_PIN_UNUSED		0	/* Pin not in use */
+#define PCI_PIN_ALTERNATIVE -3 /* Use alternative PIO rather than default */
+#define PCI_PIN_DEFAULT     -2 /* Use whatever the default is for that pin */
+#define PCI_PIN_UNUSED	    -1 /* Pin not in use */
 
-/*
- * In the board setup, you can pass in the external interrupt numbers
- * instead if you have wired up your board that way. It has the
- * advantage that the PIO pins freed up can then be used for something
- * else.
- */
+/* In the board setup, you can pass in the external interrupt numbers instead
+ * if you have wired up your board that way. It has the advantage that the PIO
+ * pins freed up can then be used for something else. */
 struct stm_plat_pci_config {
-	int pci_irq[4];		/* PCI_PIN_DEFAULT/PCI_PIN_UNUSED.
-				 * Other IRQ can be passed in */
-	int serr_irq;		/* As above for SERR */
-	char idsel_lo;		/* Lowest address line connected to an
-				 * idsel  - slot 0 */
-	char idsel_hi;		/* Highest address line connected to an
-				 * idsel - slot n */
-	char req_gnt[4];	/* Set to PCI_PIN_DEFAULT if the
-				 * corresponding req/gnt lines are in use */
-	unsigned pci_clk;	/* PCI clock rate in Hz. If zero will
-				 * default to 33MHz*/
+	/* PCI_PIN_DEFAULT/PCI_PIN_UNUSED. Other IRQ can be passed in */
+	int pci_irq[4];
+	/* As above for SERR */
+	int serr_irq;
+	/* Lowest address line connected to an idsel  - slot 0 */
+	char idsel_lo;
+	/* Highest address line connected to an idsel - slot n */
+	char idsel_hi;
+	/* Set to PCI_PIN_DEFAULT if the corresponding req/gnt lines are
+	 * in use */
+	char req_gnt[4];
+	/* PCI clock in Hz. If zero default to 33MHz */
+	unsigned long pci_clk;
 
-	/*
-	 * If you supply a pci_reset() function, that will be used to reset the
-	 * PCI bus.  Otherwise it is assumed that the reset is done via PIO,
-	 * the number is specified here. Specify -EINVAL if no PIO reset is
-	 * required either, for example if the PCI reset is done as part of
-	 * power on reset.
-	 */
-	unsigned pci_reset_pio;
+	/* If you supply a pci_reset() function, that will be used to reset
+	 * the PCI bus.  Otherwise it is assumed that the reset is done via
+	 * PIO, the number is specified here. Specify -EINVAL if no PIO reset
+	 * is required either, for example if the PCI reset is done as part
+	 * of power on reset. */
+	unsigned pci_reset_gpio;
 	void (*pci_reset)(void);
 
-	/*
-	 * Various PCI tuning parameters. Set by SOC layer. You don't
-	 * have to specify these as the defaults are usually
-	 * fine. However, if you need to change them, you can set
-	 * ad_override_default and plug in your own values
-	 */
+	/* You may define a PCI clock name. If NULL it will fall
+	 * back to "pci" */
+	const char *clk_name;
+
+	/* Various PCI tuning parameters. Set by SOC layer. You don't have
+	 * to specify these as the defaults are usually fine. However, if
+	 * you need to change them, you can set ad_override_default and
+	 * plug in your own values. */
 	unsigned ad_threshold:4;
 	unsigned ad_chunks_in_msg:5;
 	unsigned ad_pcks_in_chunk:5;
@@ -353,27 +332,25 @@ struct stm_plat_pci_config {
 	unsigned ad_posted:1;
 	unsigned ad_max_opcode:4;
 	unsigned ad_read_ahead:1;
-	unsigned ad_override_default:1; /* Set to override default
-					 * values for your board */
+	/* Set to override default values for your board */
+	unsigned ad_override_default:1;
 
-	/*
-	 * Cut3 7105/ cut 2 7141 connected req0 pin to req3 to work
-	 * around some problems with nand. This bit will be
-	 * auto-probed by the chip layer, the board layer should NOT
-	 * have to set this.
-	 */
+	/* Some SOCs have req0 pin connected to req3 signal to work around
+	 * some problems with NAND. Also the PCI_NOT_EMI bit should NOT be
+	 * set sometimes. These bits will be set by the chip layer, the
+	 * board layer should NOT touch this. */
 	unsigned req0_to_req3:1;
-
+	unsigned req0_emi:1;
 };
+
+
 
 /*** ILC platform data ***/
 
 struct stm_plat_ilc3_data {
-	unsigned short default_priority;
-	unsigned short num_input;
-	unsigned short num_output;
+	unsigned short inputs_num;
+	unsigned short outputs_num;
 	unsigned short first_irq;
-	int *cpu_irq;	/* the irq the cpu sees (end with -1)*/
 };
 
 #endif

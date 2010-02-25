@@ -155,7 +155,7 @@ static struct platform_device *mb839_devices[] __initdata = {
 
 static int __init device_init(void)
 {
-	stx7105_configure_sata();
+	stx7105_configure_sata(0);
 
 	stx7105_configure_pwm(&(struct stx7105_pwm_config) {
 			.out0 = stx7105_pwm_out0_pio13_0,
@@ -172,12 +172,12 @@ static int __init device_init(void)
 			.routing.ssc3.mtsr = stx7105_ssc3_mtsr_pio3_7, });
 
 	stx7105_configure_usb(0, &(struct stx7105_usb_config) {
-			.ovrcur_mode = stx7105_usb_ovrcur_active_high,
+			.ovrcur_mode = stx7105_usb_ovrcur_active_low,
 			.pwr_enabled = 1,
 			.routing.usb0.ovrcur = stx7105_usb0_ovrcur_pio4_4,
 			.routing.usb0.pwr = stx7105_usb0_pwr_pio4_5, });
 	stx7105_configure_usb(1, &(struct stx7105_usb_config) {
-			.ovrcur_mode = stx7105_usb_ovrcur_active_high,
+			.ovrcur_mode = stx7105_usb_ovrcur_active_low,
 			.pwr_enabled = 1,
 			.routing.usb1.ovrcur = stx7105_usb1_ovrcur_pio4_6,
 			.routing.usb1.pwr = stx7105_usb1_pwr_pio4_7, });
@@ -187,7 +187,7 @@ static int __init device_init(void)
 	gpio_request(MB839_PIO_PHY_MODE2, "PhyMode2Sel");
 	gpio_request(MB839_PIO_PHY_RESET, "ResetMII");
 
-	stx7105_configure_ethernet(&(struct stx7105_ethernet_config) {
+	stx7105_configure_ethernet(0, &(struct stx7105_ethernet_config) {
 			.mode = stx7105_ethernet_mode_mii,
 			.ext_clk = 1,
 			.phy_bus = 0, });

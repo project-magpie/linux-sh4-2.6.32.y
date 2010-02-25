@@ -9,6 +9,7 @@
 
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/stm/stx7111.h>
 #include <linux/stm/sysconf.h>
 #include <linux/pm.h>
 #include <asm/clock.h>

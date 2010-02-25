@@ -64,7 +64,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/pci.h>
-#include <linux/proc_fs.h>
+#include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/string.h>
 #include <linux/mm.h>
@@ -676,44 +676,23 @@ EXPORT_SYMBOL(bigphysarea_free_pages);
 
 
 
-#ifdef CONFIG_PROC_FS
+#ifdef CONFIG_DEBUG_FS
 
 static void *bpa2_seq_start(struct seq_file *s, loff_t *pos)
 {
-	struct list_head *node;
-	loff_t i;
-
 	spin_lock(&bpa2_lock);
 
-	for (i = 0, node = bpa2_parts.next;
-			i < *pos && node != &bpa2_parts;
-			i++, node = node->next)
-		;
+	return seq_list_start(&bpa2_parts, *pos);
+}
 
-	if (node == &bpa2_parts)
-		return NULL;
-
-	return node;
+static void *bpa2_seq_next(struct seq_file *s, void *v, loff_t *pos)
+{
+	return seq_list_next(v, &bpa2_parts, pos);
 }
 
 static void bpa2_seq_stop(struct seq_file *s, void *v)
 {
 	spin_unlock(&bpa2_lock);
-}
-
-static void *bpa2_seq_next(struct seq_file *s, void *v, loff_t *pos)
-{
-	struct list_head *node = v;
-
-	(*pos)++;
-	node = node->next;
-
-	if (node == &bpa2_parts)
-		return NULL;
-
-	seq_printf(s, "\n");
-
-	return node;
 }
 
 static int bpa2_seq_show(struct seq_file *s, void *v)
@@ -776,6 +755,8 @@ static int bpa2_seq_show(struct seq_file *s, void *v)
 		}
 	}
 
+	seq_printf(s, "\n");
+
 	return 0;
 }
 
@@ -786,33 +767,31 @@ static struct seq_operations bpa2_seq_ops = {
 	.show = bpa2_seq_show,
 };
 
-static int bpa2_proc_open(struct inode *inode, struct file *file)
+static int bpa2_debugfs_open(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &bpa2_seq_ops);
 }
 
-static struct file_operations bpa2_proc_ops = {
+static const struct file_operations bpa2_debugfs_ops = {
 	.owner = THIS_MODULE,
-	.open = bpa2_proc_open,
+	.open = bpa2_debugfs_open,
 	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = seq_release,
 };
 
-/* Called from late in the kernel initialisation sequence, once the
- * normal memory allocator is available. */
-static int __init bpa2_proc_init(void)
+static int __init bpa2_debugfs_init(void)
 {
-	struct proc_dir_entry *entry = create_proc_entry("bpa2", 0, NULL);
-
-	if (entry)
-		entry->proc_fops = &bpa2_proc_ops;
+	debugfs_create_file("bpa2", S_IFREG | S_IRUGO,
+			NULL, NULL, &bpa2_debugfs_ops);
 
 	return 0;
 }
-__initcall(bpa2_proc_init);
+subsys_initcall(bpa2_debugfs_init);
 
-#endif /* CONFIG_PROC_FS */
+#endif /* CONFIG_DEBUG_FS */
+
+
 
 void bpa2_memory(struct bpa2_part *part, unsigned long *base,
 		 unsigned long *size)

@@ -1,110 +1,125 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #ifndef __LINUX_STM_PAD_H
 #define __LINUX_STM_PAD_H
 
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
 
-#define STM_PAD_LABEL_LEN 32
+/* The stm_pad_gpio_value structure describes PIOs that are to be claimed in
+ * order to achieve I/O configuration required by a driver.
+ *
+ * "function" means the so-called "alternative PIO function",
+ * usually described in SOCs datasheets. It just describes
+ * which one of possible signals is to be multiplexed to
+ * the actual pin. It is then used by SOC-specific "gpio_config"
+ * callback provided when stm_pad_init() is called (see below).
+ *
+ * Function number meaning is absolutely up to the BSP author.
+ * There is just a polite suggestion that 0 could mean "normal"
+ * PIO functionality (as in: input/output, set high/low level).
+ * Other numbers may be related to datasheet definitions (usually
+ * 1 and more).
+ *
+ * "ignored" direction means that the PIO will not be claimed at,
+ * so setting it can be used to "remove" a PIO from configuration
+ * in runtime. */
 
-/* Label is defined as "<pads_group>[.<subgroup>[.<subgroup>]...].<pad_id>"
- *
- * Internally it is represented as a prefix string and optional suffix,
- * given either as a string or integer. Labels are always compared
- * as strings of the mentioned format, so it is possible to combine
- * different definitions.
- *
- * Maximum total length of label part (including dots and NULL
- * termination character) is STM_PAD_LABEL_LEN.
- *
- * The following label definitions of PIO3.7 pad are identical:
- *
- * - STM_PAD_LABEL("PIO3.7")
- * - STM_PAD_LABEL_NUMBER("PIO3", 7)
- * - STM_PAD_LABEL_STRINGS("PIO3", "7")
- *
- * These definitions are identical and describe set of PIO3.5, PIO3.6
- * and PIO3.7 pads:
- *
- * - STM_PAD_LABEL_RANGE("PIO3", 5, 7)
- * - STM_PAD_LABEL_LIST("PIO3", 5, 6, 7)
- * - STM_PAD_LABEL_STRINGS("PIO3", "5", "6", "7")
- *
- * Other examples:
- *
- * - STM_PAD_LABEL("MII.RXCLK")
- * - STM_PAD_LABEL_STRINGS("MII", "RXCLK")
- *
- * - STM_PAD_LABEL("VIDDIGOUT.YC.0")
- * - STM_PAD_LABEL_NUMBER("VIDDIGOUT.YC", 0)
- *
- * - STM_PAD_LABEL("TS0.OUT.DATA.0")
- * - STM_PAD_LABEL_NUMBER("TS0.OUT.DATA", 0)
- * - STM_PAD_LABEL_STRINGS("TS0.OUT.DATA", "0")
- */
-struct stm_pad_label {
-	const char *prefix;
-	enum {
-		stm_pad_label_suffix_none = 0,
-		stm_pad_label_suffix_number,
-		stm_pad_label_suffix_range,
-		stm_pad_label_suffix_list,
-		stm_pad_label_suffix_strings,
-	} suffix_type;
-	union {
-		int number;
-		struct {
-			int from, to;
-		} range;
-		int *list; /* STM_PAD_LABEL_LIST_LAST terminated */
-		char **strings; /* STM_PAD_LABEL_STRINGS_LAST terminated */
-	} suffix;
+enum stm_pad_gpio_direction {
+	stm_pad_gpio_direction_unknown,
+	stm_pad_gpio_direction_in,
+	stm_pad_gpio_direction_out,
+	stm_pad_gpio_direction_bidir,
+	stm_pad_gpio_direction_ignored
 };
 
-#define STM_PAD_LABEL(_label) \
+struct stm_pad_gpio {
+	unsigned gpio;
+	enum stm_pad_gpio_direction direction;
+	int out_value;
+	int function;
+	const char *name;
+};
+
+#define STM_PAD_PIO_IN(_port, _pin, _function) \
 	{ \
-		.prefix = _label, \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_in, \
+		.function = _function, \
 	}
 
-#define STM_PAD_LABEL_NUMBER(_prefix, _number) \
+#define STM_PAD_PIO_IN_NAMED(_port, _pin, _function, _name) \
 	{ \
-		.prefix = _prefix, \
-		.suffix_type = stm_pad_label_suffix_number, \
-		.suffix.number = _number, \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_in, \
+		.function = _function, \
+		.name = _name, \
 	}
 
-#define STM_PAD_LABEL_RANGE(_prefix, _from, _to) \
+#define STM_PAD_PIO_OUT(_port, _pin, _function) \
 	{ \
-		.prefix = _prefix, \
-		.suffix_type = stm_pad_label_suffix_range, \
-		.suffix.range.from = _from, \
-		.suffix.range.to = _to, \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_out, \
+		.out_value = -1, \
+		.function = _function, \
 	}
 
-#define STM_PAD_LABEL_LIST_LAST -1
-
-#define STM_PAD_LABEL_LIST(_prefix, _suffix...) \
+#define STM_PAD_PIO_OUT_NAMED(_port, _pin, _function, _name) \
 	{ \
-		.prefix = _prefix, \
-		.suffix_type = stm_pad_label_suffix_list, \
-		.suffix.list = (int []) { \
-			_suffix, \
-			STM_PAD_LABEL_LIST_LAST, \
-		}, \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_out, \
+		.out_value = -1, \
+		.function = _function, \
+		.name = _name, \
 	}
 
-#define STM_PAD_LABEL_STRINGS_LAST NULL
-
-#define STM_PAD_LABEL_STRINGS(_prefix, _strings...) \
+#define STM_PAD_PIO_BIDIR(_port, _pin, _function) \
 	{ \
-		.prefix = _prefix, \
-		.suffix_type = stm_pad_label_suffix_strings, \
-		.suffix.strings = (char *[]) { \
-			_strings, \
-			STM_PAD_LABEL_STRINGS_LAST, \
-		}, \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_bidir, \
+		.out_value = -1, \
+		.function = _function, \
 	}
 
-struct stm_pad_sysconf_value {
+#define STM_PAD_PIO_BIDIR_NAMED(_port, _pin, _function, _name) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_bidir, \
+		.out_value = -1, \
+		.function = _function, \
+		.name = _name, \
+	}
+
+#define STM_PAD_PIO_STUB_NAMED(_port, _pin, _name) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_unknown, \
+		.name = _name, \
+	}
+
+
+
+/* The bits that give us the most grief are "sysconf" values, and
+ * they are the most likely the SOC-specific settings that must
+ * be set while configuring the chip to some function, as required
+ * by a driver.
+ *
+ * Notice that you are not supposed to define GPIO muxing (the
+ * "alternative functions" mentioned above) related bits here.
+ * They should be configured automagically via SOC-specific
+ * muxing funtions (see stm_pad_init() below) */
+
+struct stm_pad_sysconf {
 	int regtype;
 	int regnum;
 	int lsb;
@@ -121,11 +136,9 @@ struct stm_pad_sysconf_value {
 		.value = _value, \
 	}
 
-/*
- * We have to do this indirection to allow the first argument to
- * STM_PAD_CFG to be a macro, as used by 5197 for ewxample.
- */
-#define STM_PAD_XXX(_regtype, _regnum, _lsb, _msb, _value) \
+/* We have to do this indirection to allow the first argument to
+ * STM_PAD_SYSCONF to be a macro, as used by 5197 for example. */
+#define ___STM_PAD_SYSCONF(_regtype, _regnum, _lsb, _msb, _value) \
         { \
                 .regtype = _regtype, \
                 .regnum = _regnum, \
@@ -133,132 +146,170 @@ struct stm_pad_sysconf_value {
                 .msb = _msb, \
                 .value = _value, \
         }
+#define STM_PAD_SYSCONF(_reg, _lsb, _msb, _value) \
+	___STM_PAD_SYSCONF(_reg, _lsb, _msb, _value)
 
 
-#define STM_PAD_CFG(_regtypenum, _lsb, _msb, _value) \
-	STM_PAD_XXX(_regtypenum, _lsb, _msb, _value)
 
-struct stm_pad_gpio_value {
-	unsigned gpio;
-	int direction;
-	int value;
-	int mux;
-	const char *name;
-};
+/* Pad state structure pointer is returned by the claim functions */
+struct stm_pad_state;
 
-#define STM_PAD_PIO(_port, _pin, _direction, _value, _mux, _name) \
-	{ \
-		.gpio = stm_gpio(_port, _pin), \
-		.direction = _direction, \
-		.value = _value, \
-		.mux = _mux, \
-		.name = _name, \
-	}
 
-#define STM_PAD_PIO_DIR(_port, _pin, _direction) \
-	STM_PAD_PIO(_port, _pin, _direction, -1, -1, NULL)
 
-#define STM_PAD_PIO_BIDIR(_port, _pin) \
-	STM_PAD_PIO_DIR(_port, _pin, STM_GPIO_DIRECTION_BIDIR)
-
-#define STM_PAD_PIO_BIDIR_MUX(_port, _pin, _mux) \
-	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_BIDIR, -1, _mux, NULL)
-
-#define STM_PAD_PIO_BIDIR_MUX_NAME(_port, _pin, _mux, _name) \
-	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_BIDIR, -1, _mux, _name)
-
-#define STM_PAD_PIO_OUT_MUX(_port, _pin, _mux) \
-	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_OUT, -1, _mux, NULL)
-
-#define STM_PAD_PIO_OUT_VALUE(_port, _pin, _value) \
-	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_OUT, _value, -1, NULL)
-
-#define STM_PAD_PIO_OUT(_port, _pin) \
-	STM_PAD_PIO_DIR(_port, _pin, STM_GPIO_DIRECTION_OUT)
-
-#define STM_PAD_PIO_IN_MUX(_port, _pin, _mux) \
-	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_IN, -1, _mux, NULL)
-
-#define STM_PAD_PIO_IN_NAME(_port, _pin, _name) \
-	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_IN, -1, -1, _name)
-
-#define STM_PAD_PIO_IN(_port, _pin) \
-	STM_PAD_PIO_DIR(_port, _pin, STM_GPIO_DIRECTION_IN)
-
-#define STM_PAD_PIO_ALT_OUT(_port, _pin) \
-	STM_PAD_PIO_DIR(_port, _pin, STM_GPIO_DIRECTION_ALT_OUT)
-
-#define STM_PAD_PIO_ALT_BIDIR_MUX_NAME(_port, _pin, _mux, _name) \
-	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_ALT_BIDIR, -1, _mux, _name)
-
-#define STM_PAD_PIO_ALT_BIDIR_NAME(_port, _pin, _name) \
-	STM_PAD_PIO(_port, _pin, STM_GPIO_DIRECTION_ALT_BIDIR, -1, -1, _name)
-
-#define STM_PAD_PIO_ALT_BIDIR(_port, _pin) \
-	STM_PAD_PIO_DIR(_port, _pin, STM_GPIO_DIRECTION_ALT_BIDIR)
-
-#define STM_PAD_PIO_UNKNOWN_NAME(_port, _pin, _name) \
-	STM_PAD_PIO(_port, _pin, -1, -1, -1, _name)
-
-#define STM_PAD_PIO_UNKNOWN(_port, _pin) \
-	STM_PAD_PIO_DIR(_port, _pin, -1)
+/* All above bits and pieces are gathered together in the below
+ * structure, known as "pad configuration".
+ *
+ * It contains lists of GPIOs used and sysconfig bits to be
+ * configured on demand of a driver.
+ *
+ * In special cases one may wish to use custom claim function,
+ * which is executed as the _last_ in order when claiming
+ * and must return 0 or other value in case of error. */
 
 struct stm_pad_config {
-	int labels_num;
-	struct stm_pad_label *labels;
-	int sysconf_values_num;
-	struct stm_pad_sysconf_value *sysconf_values;
-	int gpio_values_num;
-	struct stm_pad_gpio_value *gpio_values;
-	int (*custom_claim)(struct stm_pad_config *config, void *priv);
-	int (*custom_release)(struct stm_pad_config *config, void *priv);
+	int gpios_num;
+	struct stm_pad_gpio *gpios;
+	int sysconfs_num;
+	struct stm_pad_sysconf *sysconfs;
+	int (*custom_claim)(struct stm_pad_state *state, void *priv);
+	void (*custom_release)(struct stm_pad_state *state, void *priv);
 	void *custom_priv;
 };
 
-struct stm_pad_state;
+
+
+/* Pad manager initialization
+ *
+ * The gpio_config function should be provided by the SOC BSP
+ * and configure given GPIO to requested direction & alternative function.
+ *
+ * gpios_num is a overall number of PIO lines provided by the SOC,
+ * gpio_function is a number that should be passed to the gpio_config
+ * function in order to select generic PIO functionality.
+ *
+ * See also above (stm_pad_gpio_value definition). */
+
+int stm_pad_init(int gpios_num, int gpio_function,
+			int (*gpio_config)(unsigned gpio,
+			enum stm_pad_gpio_direction direction, int function));
+
+
+
+/* Driver interface */
 
 struct stm_pad_state *stm_pad_claim(struct stm_pad_config *config,
-		const char *dev_name);
-struct stm_pad_state *stm_pad_claim_exec(struct stm_pad_config *config,
-		const char *dev_name, int exec);
-int stm_pad_switch(struct stm_pad_state *state,
-		struct stm_pad_config *new_config);
-int stm_pad_gpio(struct stm_pad_config *config, const char *gpio_name);
+		const char *owner);
 void stm_pad_release(struct stm_pad_state *state);
 
-const char *stm_pad_owner(const char *label);
-int stm_pad_mux(struct stm_pad_state *state, struct stm_pad_config *config,
-		int mux);
-
 struct stm_pad_state *devm_stm_pad_claim(struct device *dev,
-		struct stm_pad_config *config, const char *name);
+		struct stm_pad_config *config, const char *owner);
 void devm_stm_pad_release(struct device *dev, struct stm_pad_state *state);
 
+/* Functions below are private methods, for the GPIO driver use only! */
+int stm_pad_claim_gpio(unsigned gpio);
+void stm_pad_release_gpio(unsigned gpio);
+const char *stm_pad_get_gpio_owner(unsigned gpio);
 
-struct stm_pad_config * __init stm_pad_config_alloc(int min_labels_num,
-		int min_sysconf_values_num, int min_gpio_values_num);
 
-int __init stm_pad_config_add_label(struct stm_pad_config *config,
-		const char *label);
-int __init stm_pad_config_add_label_number(struct stm_pad_config *config,
-		const char *prefix, int number);
-int __init stm_pad_config_add_label_range(struct stm_pad_config *config,
-		const char *prefix, int from, int to);
 
-int __init stm_pad_config_add_sysconf(struct stm_pad_config *config,
+/* GPIO interface */
+
+/* "name" is the GPIO name as defined in "struct stm_pad_gpio".
+ * Returns gpio number or STM_GPIO_INVALID in case of error */
+unsigned stm_pad_gpio_request_input(struct stm_pad_state *state,
+		const char *name);
+unsigned stm_pad_gpio_request_output(struct stm_pad_state *state,
+		const char *name, int value);
+void stm_pad_gpio_free(struct stm_pad_state *state, unsigned gpio);
+
+
+
+/* GPIO definition helpers
+ *
+ * If a GPIO on the list in pad configuration is defined with a name,
+ * it is possible to perform some operations on it in easy way... */
+
+int stm_pad_set_gpio(struct stm_pad_config *config, const char *name,
+		unsigned gpio);
+
+#define stm_pad_set_pio(config, name, port, pin) \
+	stm_pad_set_gpio(config, name, stm_gpio(port, pin))
+
+int stm_pad_set_gpio_direction_function(struct stm_pad_config *config,
+		const char *name, enum stm_pad_gpio_direction direction,
+		int out_value, int function);
+
+#define stm_pad_set_pio_in(config, name, function) \
+	stm_pad_set_gpio_direction_function(config, name, \
+			stm_pad_gpio_direction_in, -1, function)
+
+#define stm_pad_set_pio_out(config, name, function) \
+	stm_pad_set_gpio_direction_function(config, name, \
+			stm_pad_gpio_direction_out, -1, function)
+
+#define stm_pad_set_pio_bidir(config, name, function) \
+	stm_pad_set_gpio_direction_function(config, name, \
+			stm_pad_gpio_direction_bidir, -1, function)
+
+#define stm_pad_set_pio_ignored(config, name) \
+	stm_pad_set_gpio_direction_function(config, name, \
+			stm_pad_gpio_direction_ignored, -1, -1)
+
+
+
+/* Dynamic pad configuration allocation
+ *
+ * In some cases it's easier to create a pad configuration in runtime,
+ * rather then to prepare 2^16 different static blobs (or to alter
+ * 90% of pre-defined one). The API below helps in this... */
+
+struct stm_pad_config *stm_pad_config_alloc(int gpio_values_num,
+		int sysconf_values_num);
+
+int stm_pad_config_add_sysconf(struct stm_pad_config *config,
 		int regtype, int regnum, int lsb, int msb, int value);
-#ifdef SYS_CFG
-static inline int stm_pad_config_add_sys_cfg(struct stm_pad_config *config,
-		int regnum, int lsb, int msb, int value)
-{
-	return stm_pad_config_add_sysconf(config, SYS_CFG, regnum, lsb, msb,
-		value);
-}
-#endif
 
-int __init stm_pad_config_add_pio(struct stm_pad_config *config,
-		int port, int pin, int direction);
+#define stm_pad_config_add_sys_cfg(config, regnum, lsb, msb, value) \
+	stm_pad_config_add_sysconf(config, SYS_CFG, regnum, lsb, msb, value)
 
+int stm_pad_config_add_gpio_named(struct stm_pad_config *config,
+		unsigned gpio, enum stm_pad_gpio_direction direction,
+		int out_value, int function, const char *name);
 
+#define stm_pad_config_add_pio(config, port, pin, \
+			direction, out_value, function) \
+	stm_pad_config_add_gpio_named(config, stm_gpio(port, pin), \
+			direction, out_value, function, NULL)
+
+#define stm_pad_config_add_pio_named(config, port, pin, \
+			direction, out_value, function, name) \
+	stm_pad_config_add_gpio_named(config, stm_gpio(port, pin), \
+			direction, out_value, function, name)
+
+#define stm_pad_config_add_pio_in(config, port, pin, function) \
+	stm_pad_config_add_pio(config, port, pin, \
+			stm_pad_gpio_direction_in, -1, function)
+
+#define stm_pad_config_add_pio_in_named(config, port, pin, function, name) \
+	stm_pad_config_add_pio_named(config, port, pin, \
+			stm_pad_gpio_direction_in, -1, function, name)
+
+#define stm_pad_config_add_pio_out(config, port, pin, function) \
+	stm_pad_config_add_pio(config, port, pin, \
+			stm_pad_gpio_direction_out, -1, function)
+
+#define stm_pad_config_add_pio_out_named(config, port, pin, \
+			function, name) \
+	stm_pad_config_add_pio_named(config, port, pin, \
+			stm_pad_gpio_direction_out, -1, function, name)
+
+#define stm_pad_config_add_pio_bidir(config, port, pin, function) \
+	stm_pad_config_add_pio(config, port, pin, \
+			stm_pad_gpio_direction_bidir, -1, function)
+
+#define stm_pad_config_add_pio_bidir_named(config, port, pin, \
+			function, name) \
+	stm_pad_config_add_pio_named(config, port, pin, \
+			stm_pad_gpio_direction_bidir, -1, function, name)
 
 #endif

@@ -1,9 +1,28 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #ifndef __LINUX_STM_STX7105_H
 #define __LINUX_STM_STX7105_H
 
 #include <linux/device.h>
 #include <linux/spi/spi.h>
 #include <linux/stm/platform.h>
+
+
+/* Sysconfig groups */
+
+#define SYS_DEV 0
+#define SYS_STA 1
+#define SYS_CFG 2
 
 
 void stx7105_early_device_init(void);
@@ -50,6 +69,7 @@ struct stx7105_ssc_config {
 		} ssc1;
 		struct {
 			enum {
+				stx7105_ssc2_sclk_pio2_4, /* 7106 only! */
 				stx7105_ssc2_sclk_pio3_4,
 				stx7105_ssc2_sclk_pio12_0,
 				stx7105_ssc2_sclk_pio13_4,
@@ -69,6 +89,7 @@ struct stx7105_ssc_config {
 		} ssc2;
 		struct {
 			enum {
+				stx7105_ssc3_sclk_pio2_7, /* 7106 only! */
 				stx7105_ssc3_sclk_pio3_6,
 				stx7105_ssc3_sclk_pio13_2,
 				stx7105_ssc3_sclk_pio13_6,
@@ -130,11 +151,24 @@ struct stx7105_ethernet_config {
 		stx7105_ethernet_mode_rmii,
 		stx7105_ethernet_mode_reverse_mii,
 	} mode;
+	union {
+		struct {
+			enum {
+				stx7105_ethernet_mii1_mdio_pio3_4,
+				stx7105_ethernet_mii1_mdio_pio11_0
+			} mdio;
+			enum {
+				stx7105_ethernet_mii1_mdc_pio3_5,
+				stx7105_ethernet_mii1_mdc_pio11_1
+			} mdc;
+		} mii1;
+	} routing;
 	int mdint_workaround:1;
-	int ext_clk;
+	int ext_clk:1;
 	int phy_bus;
 };
-void stx7105_configure_ethernet(struct stx7105_ethernet_config *config);
+void stx7105_configure_ethernet(int port,
+		struct stx7105_ethernet_config *config);
 
 
 struct stx7105_usb_config {
@@ -148,11 +182,13 @@ struct stx7105_usb_config {
 		struct {
 			enum {
 				stx7105_usb0_ovrcur_pio4_4,
-				stx7105_usb0_ovrcur_pio12_5
+				stx7105_usb0_ovrcur_pio12_5,
+				stx7105_usb0_ovrcur_pio14_4, /* 7106 only! */
 			} ovrcur;
 			enum {
 				stx7105_usb0_pwr_pio4_5,
 				stx7105_usb0_pwr_pio12_6,
+				stx7105_usb0_pwr_pio14_5, /* 7106 only! */
 			} pwr;
 		} usb0;
 		struct {
@@ -170,7 +206,7 @@ struct stx7105_usb_config {
 void stx7105_configure_usb(int port, struct stx7105_usb_config *config);
 
 
-void stx7105_configure_sata(void);
+void stx7105_configure_sata(int port);
 
 
 struct stx7105_pata_config {
@@ -193,6 +229,7 @@ struct stx7105_audio_config {
 		stx7105_pcm_player_0_output_4_channels,
 		stx7105_pcm_player_0_output_6_channels,
 	} pcm_player_0_output;
+	int pcm_player_1_enabled;
 	int spdif_player_output_enabled;
 	int pcm_reader_input_enabled;
 };

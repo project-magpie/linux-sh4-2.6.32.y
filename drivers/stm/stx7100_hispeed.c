@@ -1,3 +1,15 @@
+/*
+ * (c) 2010 STMicroelectronics Limited
+ *
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+
+
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/delay.h>
@@ -15,13 +27,13 @@
 
 static struct stm_pad_config stx7100_ethernet_pad_configs[] = {
 	[stx7100_ethernet_mode_mii] = {
-		.labels_num = 2,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_STRINGS("VIDDIGOUT", "HSYNCH", "VSYNCH"),
-			STM_PAD_LABEL_RANGE("VIDDIGOUT.YC", 0, 15),
+		.gpios_num = 1,
+		.gpios = (struct stm_pad_gpio []) {
+			/* Claimed only when config->ext_clk == 0 */
+			STM_PAD_PIO_OUT_NAMED(3, 7, 1, "PHYCLK"),
 		},
-		.sysconf_values_num = 3,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
+		.sysconfs_num = 3,
+		.sysconfs = (struct stm_pad_sysconf []) {
 			/* DVO_ETH_PAD_DISABLE and ETH_IF_ON */
 			STM_PAD_SYS_CFG(7, 16, 17, 3),
 			/* RMII_MODE */
@@ -34,32 +46,21 @@ static struct stm_pad_config stx7100_ethernet_pad_configs[] = {
 			 */
 			STM_PAD_SYS_CFG(7, 19, 19, -1),
 		},
-		.gpio_values_num = 1, /* see stx7100_configure_ethernet() */
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			/* Claimed only when config->ext_clk == 0 */
-			STM_PAD_PIO_ALT_OUT(3, 7), /* PHYCLK */
-		},
 	},
 	[stx7100_ethernet_mode_rmii] = {
-		.labels_num = 2,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL("VIDDIGOUT.HSYNCH"),
-			STM_PAD_LABEL_LIST("VIDDIGOUT.YC",
-					0, 1, 4, 5, 6, 8, 9, 15),
+		.gpios_num = 1,
+		.gpios = (struct stm_pad_gpio []) {
+			/* Claimed only when config->ext_clk == 0 */
+			STM_PAD_PIO_OUT_NAMED(3, 7, 1, "PHYCLK"),
 		},
-		.sysconf_values_num = 3,
-		.sysconf_values = (struct stm_pad_sysconf_value []) {
+		.sysconfs_num = 3,
+		.sysconfs = (struct stm_pad_sysconf []) {
 			/* DVO_ETH_PAD_DISABLE and ETH_IF_ON */
 			STM_PAD_SYS_CFG(7, 16, 17, 3),
 			/* RMII_MODE */
 			STM_PAD_SYS_CFG(7, 18, 18, 1),
 			/* PHY_CLK_EXT */
 			STM_PAD_SYS_CFG(7, 19, 19, -1),
-		},
-		.gpio_values_num = 1,
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			/* Claimed only when config->ext_clk == 0 */
-			STM_PAD_PIO_ALT_OUT(3, 7), /* REF_CLK */
 		},
 	},
 };
@@ -106,16 +107,20 @@ void __init stx7100_configure_ethernet(struct stx7100_ethernet_config *config)
 
 	pad_config = &stx7100_ethernet_pad_configs[config->mode];
 
-	/* PIO3[7]: RMII: REF_CLK (in or out) MII: PHYCLK (out) */
-	if ((config->mode == stx7100_ethernet_mode_mii) &&
-	    (config->ext_clk)) {
-		/* Do not claim PHYCLK pin */
-		pad_config->gpio_values_num--;
+	switch (config->mode) {
+	case stx7100_ethernet_mode_mii:
+		if (config->ext_clk)
+			stm_pad_set_pio_ignored(pad_config, "PHYCLK");
+		break;
+	case stx7100_ethernet_mode_rmii:
+		if (config->ext_clk)
+			stm_pad_set_pio_in(pad_config, "PHYCLK", -1);
+		break;
+	default:
+		BUG();
+		break;
 	}
-	pad_config->gpio_values[0].direction =
-		config->ext_clk ? STM_GPIO_DIRECTION_IN :
-		STM_GPIO_DIRECTION_ALT_OUT;
-	pad_config->sysconf_values[2].value = (config->ext_clk ? 1 : 0);
+	pad_config->sysconfs[2].value = (config->ext_clk ? 1 : 0);
 
 	stx7100_ethernet_platform_data.pad_config = pad_config;
 	stx7100_ethernet_platform_data.bus_id = config->phy_bus;
@@ -133,11 +138,10 @@ void __init stx7100_configure_ethernet(struct stx7100_ethernet_config *config)
 
 /* USB resources ---------------------------------------------------------- */
 
-static int stx7100_usb_pad_claim(struct stm_pad_config *config, void *priv)
+static int stx7100_usb_pad_claim(struct stm_pad_state *state, void *priv)
 {
 	struct sysconf_field *sc;
-	u32 reg;
-	int gpio;
+	unsigned gpio;
 
 	/* Work around for USB over-current detection chip being
 	 * active low, and the 710x being active high.
@@ -146,13 +150,12 @@ static int stx7100_usb_pad_claim(struct stm_pad_config *config, void *priv)
 	 * around), but as we can't reliably determine the minor
 	 * revision number, hard luck, this works for most people.
 	 */
-	gpio = stm_pad_gpio(config, "USB_OVRCUR");
 	if ((cpu_data->type == CPU_STX7109 && cpu_data->cut_major < 2) ||
 			(cpu_data->type == CPU_STX7100 &&
-			cpu_data->cut_major < 3))
-		gpio_direction_output(gpio, 0);
-	else
-		gpio_direction_input(gpio);
+			cpu_data->cut_major < 3)) {
+		gpio = stm_pad_gpio_request_output(state, "OC", 0);
+		BUG_ON(gpio == STM_GPIO_INVALID);
+	}
 
 	/*
 	 * There have been two changes to the USB power enable signal:
@@ -176,13 +179,12 @@ static int stx7100_usb_pad_claim(struct stm_pad_config *config, void *priv)
 	 * option to select an inverted output from the TPS2052, so no
 	 * software work around is required.)
 	 */
-	gpio = stm_pad_gpio(config, "USB_PWR");
-	gpio_direction_output(gpio, 1);
+	gpio = stm_pad_gpio_request_output(state, "PWR", 1);
+	BUG_ON(gpio == STM_GPIO_INVALID);
 
 	sc = sysconf_claim(SYS_CFG, 2, 1, 1, "stm-usb");
 	BUG_ON(!sc);
-	reg = sysconf_read(sc);
-	if (reg) {
+	if (sysconf_read(sc)) {
 		sysconf_write(sc, 0);
 		mdelay(30);
 	}
@@ -192,17 +194,13 @@ static int stx7100_usb_pad_claim(struct stm_pad_config *config, void *priv)
 
 static struct stm_plat_usb_data stx7100_usb_platform_data = {
 	.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
-		STM_PLAT_USB_FLAGS_STRAP_PLL |
-		STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
+			STM_PLAT_USB_FLAGS_STRAP_PLL |
+			STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
 	.pad_config = &(struct stm_pad_config) {
-		.labels_num = 1,
-		.labels = (struct stm_pad_label []) {
-			STM_PAD_LABEL_STRINGS("USB", "DM", "DP", "REF"),
-		},
-		.gpio_values_num = 2,
-		.gpio_values = (struct stm_pad_gpio_value []) {
-			STM_PAD_PIO_UNKNOWN_NAME(5, 6, "USB_OVERCUR"),
-			STM_PAD_PIO_UNKNOWN_NAME(5, 7, "USB_PWR"),
+		.gpios_num = 2,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_IN_NAMED(5, 6, -1, "OC"),
+			STM_PAD_PIO_OUT_NAMED(5, 7, 1, "PWR"),
 		},
 		.custom_claim = stx7100_usb_pad_claim,
 	},

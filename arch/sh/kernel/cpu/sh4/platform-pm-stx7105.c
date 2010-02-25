@@ -15,7 +15,7 @@ emi_pwr_dwn_req(struct platform_device *dev, int host_phy, int dwn)
 {
 	static struct sysconf_field *sc;
 	if (!sc)
-		sc = sysconf_claim(SYS_CFG, 12, 1, 1, "emi pwr req");
+		sc = sysconf_claim(SYS_CFG, 32, 1, 1, "emi pwr req");
 
 	sysconf_write(sc, (dwn ? 1 : 0));
 	return 0;

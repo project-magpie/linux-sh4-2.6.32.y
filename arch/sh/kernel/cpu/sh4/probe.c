@@ -177,7 +177,7 @@ int __init detect_cpu_and_cache_system(void)
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		boot_cpu_data.flags &= ~CPU_HAS_PTEA;
 		break;
-	case 0x9090 ... 0x9092:
+	case 0x9090 ... 0x9093:
 		/* ST40-300 core */
 		switch (prr_all) {
 		case 0x0010:
@@ -208,6 +208,12 @@ int __init detect_cpu_and_cache_system(void)
 		case 0x9f00 ... 0x9fff:
 			/* 5197 (cut 2.0 = 0x9f02) */
 			boot_cpu_data.type = CPU_STX5197;
+			break;
+		case 0xa100 ... 0xa1ff:
+			boot_cpu_data.type = CPU_STX7106;
+			break;
+		case 0xa200 ... 0xa2ff:
+			boot_cpu_data.type = CPU_STX5206;
 			break;
 		default:
 			boot_cpu_data.type = CPU_SH_NONE;

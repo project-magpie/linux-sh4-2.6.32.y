@@ -52,6 +52,8 @@ static inline unsigned long _1_ms_lpj(void)
  #include "./cpufreq-stx7105.c"
 #elif defined(CONFIG_CPU_SUBTYPE_STX5197)
  #include "./cpufreq-stx5197.c"
+#elif defined(CONFIG_CPU_SUBTYPE_STX5206)
+ #include "./cpufreq-stx5206.c"
 #else
  #error "The CPUFrequency scaling isn't supported on this SOC"
 #endif

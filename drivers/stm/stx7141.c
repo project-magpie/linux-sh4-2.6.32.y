@@ -745,7 +745,7 @@ postcore_initcall(stx7141_postcore_setup);
 
 static struct platform_device *stx7141_devices[] __initdata = {
 	&stx7141_fdma_devices[0],
-	&stx7141_fdma_devices[0],
+	&stx7141_fdma_devices[1],
 	&stx7141_fdma_xbar_device,
 	&stx7141_sysconf_device,
 	&stx7141_rng_hwrandom_device,

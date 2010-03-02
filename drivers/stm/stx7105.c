@@ -102,7 +102,7 @@ static struct platform_device stx7105_nand_flex_device = {
 	.id = 0,
 	.num_resources = 2,
 	.resource = (struct resource[2]) {
-		STM_PLAT_RESOURCE_MEM(0xFE701000, 0x1000),
+		STM_PLAT_RESOURCE_MEM_NAMED("flex_mem", 0xFE701000, 0x1000),
 		STM_PLAT_RESOURCE_IRQ(evt2irq(0x14a0), -1),
 	},
 	.dev.platform_data = &(struct stm_plat_nand_flex_data) {

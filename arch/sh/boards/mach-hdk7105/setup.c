@@ -22,11 +22,30 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7105.h>
 #include <linux/stm/pci-synopsys.h>
+#include <linux/stm/emi.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
+#include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
+#include <linux/spi/spi.h>
+#include <linux/spi/flash.h>
 #include <asm/irq-ilc.h>
 
+/*
+ * Flash setup depends on boot-device:
+ *
+ * boot-from-       | NOR                NAND	            SPI
+ * ----------------------------------------------------------------------------
+ * JE2 (CS routing) | 0 (EMIA->NOR_CS)   1 (EMIA->NAND_CS)  0
+ *                  |   (EMIB->NOR_CS)     (EMIB->NOR_CS)     (EMIB->NOR_CS)
+ *                  |   (EMIC->NAND_CS)    (EMIC->NOR_CS)     (EMIC->NAND_CS)
+ * JE3 (data width) | 0 (16bit)          1 (8bit)           N/A
+ * JE5 (mode 15)    | 0 (boot NOR)       1 (boot NAND)	    0 (boot SPI)
+ * JE6 (mode 16)    | 0                  0                  1
+ * -----------------------------------------------------------------------------
+ *
+ * [Jumper settings based on board v1.2-011]
+ */
 
 #define HDK7105_PIO_PCI_SERR  stm_gpio(15, 4)
 #define HDK7105_PIO_PHY_RESET stm_gpio(15, 5)
@@ -172,16 +191,147 @@ static struct platform_device hdk7105_phy_device = {
 	}
 };
 
+static struct mtd_partition hdk7105_physmap_flash_partitions[] = {
+	{
+		.name = "Boot firmware",
+		.size = 0x00040000,
+		.offset = 0x00000000,
+	}, {
+		.name = "Kernel",
+		.size = 0x00200000,
+		.offset = 0x00040000,
+	}, {
+		.name = "Root FS",
+		.size = MTDPART_SIZ_FULL,
+		.offset = 0x00240000,
+	}
+};
+
+static struct physmap_flash_data hdk7105_physmap_flash_data = {
+	.width		= 2,
+	.set_vpp	= NULL,
+	.nr_parts	= ARRAY_SIZE(hdk7105_physmap_flash_partitions),
+	.parts		= hdk7105_physmap_flash_partitions
+};
+
+static struct platform_device hdk7105_physmap_flash = {
+	.name		= "physmap-flash",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start		= 0x00000000,
+			.end		= 64*1024*1024 - 1,
+			.flags		= IORESOURCE_MEM,
+		}
+	},
+	.dev		= {
+		.platform_data	= &hdk7105_physmap_flash_data,
+	},
+};
+
+static struct mtd_partition hdk7105_nand_flash_partitions[] = {
+	{
+		.name	= "NAND root",
+		.offset	= 0,
+		.size 	= 0x00800000
+	}, {
+		.name	= "NAND home",
+		.offset	= MTDPART_OFS_APPEND,
+		.size	= MTDPART_SIZ_FULL
+	},
+};
+
+struct stm_nand_bank_data hdk7105_nand_bank_data = {
+	.csn		= 1,
+	.nr_partitions	= ARRAY_SIZE(hdk7105_nand_flash_partitions),
+	.partitions	= hdk7105_nand_flash_partitions,
+	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.timing_data		= &(struct stm_nand_timing_data) {
+		.sig_setup	= 50,		/* times in ns */
+		.sig_hold	= 50,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
+		.wr_on		= 10,
+		.wr_off		= 40,
+		.rd_on		= 10,
+		.rd_off		= 40,
+		.chip_delay	= 30,		/* in us */
+	},
+
+	.emi_withinbankoffset	= 0,
+};
+
+static struct mtd_partition hdk7105_serial_flash_partitions[] = {
+	{
+		.name = "SFLASH_1",
+		.size = 0x00080000,
+		.offset = 0,
+	}, {
+		.name = "SFLASH_2",
+		.size = MTDPART_SIZ_FULL,
+		.offset = MTDPART_OFS_NXTBLK,
+	},
+};
+
+static struct flash_platform_data hdk7105_serial_flash_data = {
+	.name = "m25p80",
+	.parts = hdk7105_serial_flash_partitions,
+	.nr_parts = ARRAY_SIZE(hdk7105_serial_flash_partitions),
+	.type = "m25p32",
+};
+
+static struct spi_board_info hdk7105_serial_flash = {
+	.modalias       = "m25p80",
+	.bus_num        = 0,
+	.chip_select    = stm_gpio(2, 4),
+	.max_speed_hz   = 5000000,
+	.platform_data  = &hdk7105_serial_flash_data,
+	.mode           = SPI_MODE_3,
+};
 
 
 static struct platform_device *hdk7105_devices[] __initdata = {
 	&hdk7105_leds,
 	&hdk7105_front_panel,
 	&hdk7105_phy_device,
+	&hdk7105_physmap_flash,
 };
 
 static int __init hdk7105_device_init(void)
 {
+	struct sysconf_field *sc;
+	u32 boot_mode;
+
+	/* Configure FLASH devices */
+	sc = sysconf_claim(SYS_STA, 1, 15, 16, "boot_mode");
+	boot_mode = sysconf_read(sc);
+	switch (boot_mode) {
+	case 0x0:
+		/* Boot-from-NOR: */
+		/* NOR mapped to EMIA + EMIB (FMI_A26 = EMI_CSA#) */
+		pr_info("Configuring FLASH for boot-from-NOR\n");
+		hdk7105_physmap_flash.resource[0].start = 0x00000000;
+		hdk7105_physmap_flash.resource[0].end = emi_bank_base(2) - 1;
+		hdk7105_nand_bank_data.csn = 2;
+		break;
+	case 0x1:
+		/* Boot-from-NAND */
+		pr_info("Configuring FLASH for boot-from-NAND\n");
+		hdk7105_physmap_flash.resource[0].start = emi_bank_base(1);
+		hdk7105_physmap_flash.resource[0].end = emi_bank_base(2) - 1;
+		hdk7105_nand_bank_data.csn = 0;
+		break;
+	case 0x2:
+		/* Boot-from-SPI */
+		/* NOR mapped to EMIB, with physical offset of 0x06000000! */
+		pr_info("Configuring FLASH for boot-from-SPI\n");
+		hdk7105_physmap_flash.resource[0].start = emi_bank_base(1);
+		hdk7105_physmap_flash.resource[0].end = emi_bank_base(2) - 1;
+		hdk7105_nand_bank_data.csn = 2;
+		break;
+	}
+
 	/* Setup the PCI_SERR# PIO */
 	if (gpio_request(HDK7105_PIO_PCI_SERR, "PCI_SERR#") == 0) {
 		gpio_direction_input(HDK7105_PIO_PCI_SERR);
@@ -199,14 +349,25 @@ static int __init hdk7105_device_init(void)
 			.out0 = stx7105_pwm_out0_pio13_0,
 			.out1 = stx7105_pwm_out1_disabled, });
 
+	/* Set SPI Boot pads as inputs to avoid contention with SSC1 */
+	gpio_request(stm_gpio(15, 0), "SPI Boot CLK");
+	gpio_direction_input(stm_gpio(15, 0));
+	gpio_request(stm_gpio(15, 1), "SPI Boot DOUT");
+	gpio_direction_input(stm_gpio(15, 1));
+	gpio_request(stm_gpio(15, 2), "SPI Boot NOTCS");
+	gpio_direction_input(stm_gpio(15, 2));
+	gpio_request(stm_gpio(15, 3), "SPI Boot DIN");
+	gpio_direction_input(stm_gpio(15, 3));
+
 	/* I2C_xxxA - HDMI */
 	stx7105_configure_ssc_i2c(0, &(struct stx7105_ssc_config) {
 			.routing.ssc0.sclk = stx7105_ssc0_sclk_pio2_2,
 			.routing.ssc0.mtsr = stx7105_ssc0_mtsr_pio2_3, });
-	/* I2C_xxxB - JD3 (SCART switch on SCART board) */
-	stx7105_configure_ssc_i2c(1, &(struct stx7105_ssc_config) {
+	/* SPI - SerialFLASH */
+	stx7105_configure_ssc_spi(1, &(struct stx7105_ssc_config) {
 			.routing.ssc1.sclk = stx7105_ssc1_sclk_pio2_5,
-			.routing.ssc1.mtsr = stx7105_ssc1_mtsr_pio2_6, });
+			.routing.ssc1.mtsr = stx7105_ssc1_mtsr_pio2_6,
+			.routing.ssc1.mrst = stx7105_ssc1_mrst_pio2_7});
 	/* I2C_xxxC - JN1 (NIM), JN3, UT1 (CI chip), US2 (EEPROM) */
 	stx7105_configure_ssc_i2c(2, &(struct stx7105_ssc_config) {
 			.routing.ssc2.sclk = stx7105_ssc2_sclk_pio3_4,
@@ -242,6 +403,10 @@ static int __init hdk7105_device_init(void)
 
 	stx7105_configure_audio(&(struct stx7105_audio_config) {
 			.spdif_player_output_enabled = 1, });
+
+	stx7105_configure_nand_flex(1, &hdk7105_nand_bank_data, 1);
+
+	spi_register_board_info(&hdk7105_serial_flash, 1);
 
 	return platform_add_devices(hdk7105_devices,
 			ARRAY_SIZE(hdk7105_devices));

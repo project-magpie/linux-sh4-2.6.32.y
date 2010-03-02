@@ -197,7 +197,7 @@ static int flex_rbn(struct mtd_info *mtd)
 	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
 
 	/* Apply a small delay before sampling RBn signal */
-	ndelay(500);
+	ndelay(100);
 	return (flex_readreg(EMINAND_RBN_STATUS) & (0x4)) ? 1 : 0;
 }
 
@@ -211,17 +211,27 @@ static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
 	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
 	uint8_t *p;
+	int notaligned;
+	uint32_t lenaligned;
+
+	notaligned = ((uint32_t)buf & 0x3) || (len & 0x3);
 
 	/* Handle non-aligned buffer */
-	p = ((uint32_t)buf & 0x3) ? flex->buf : buf;
+	if (notaligned) {
+		p = flex->buf;
+		lenaligned = (len + 0x3) & ~0x3;
+	} else {
+		p = buf;
+		lenaligned = len;
+	}
 
 	/* Switch to 4-byte reads (required for ECC) */
 	flex_writereg(FLX_DATA_CFG_BEAT_4 | FLX_DATA_CFG_CSN_STATUS,
 		      EMINAND_FLEX_DATAREAD_CONFIG);
 
-	readsl(flex->base_addr + EMINAND_FLEX_DATA, p, len/4);
+	readsl(flex->base_addr + EMINAND_FLEX_DATA, p, lenaligned/4);
 
-	if (p != buf)
+	if (notaligned)
 		memcpy(buf, p, len);
 
 	/* Switch back to 1-byte reads */
@@ -234,6 +244,8 @@ static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
 	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
 	const uint8_t *p;
+
+	BUG_ON(len & 0x3);
 
 	/* Handle non-aligned buffer */
 	if ((uint32_t)buf & 0x3) {
@@ -891,7 +903,6 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	/* Copy over chip specific platform data */
 	data->chip.chip_delay = data->timing_data->chip_delay;
 	data->chip.options = bank->options;
-	data->chip.options |= NAND_NO_SUBPAGE_WRITE; /* Not tested, disable */
 	data->chip.options |= NAND_NO_AUTOINCR;      /* Not tested, disable */
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT

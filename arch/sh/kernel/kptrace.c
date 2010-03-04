@@ -14,7 +14,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) STMicroelectronics, 2008
+ * Copyright (C) STMicroelectronics, 2008, 2010
  *
  * 2007-Jul	Created by Chris Smith <chris.smith@st.com>
  * 2008-Aug     Chris Smith <chris.smith@st.com> added a sysfs interface for
@@ -68,7 +68,12 @@ typedef struct {
 static LIST_HEAD(tracepoint_sets);
 static LIST_HEAD(tracepoints);
 
-char kpprintf_buf[KPTRACE_BUF_SIZE];
+static char kpprintf_buf[KPTRACE_BUF_SIZE];
+EXPORT_SYMBOL(kpprintf_buf);
+static char kpprintf_buf_irq[KPTRACE_BUF_SIZE];
+EXPORT_SYMBOL(kpprintf_buf_irq);
+static struct mutex kpprintf_mutex;
+static DEFINE_SPINLOCK(kpprintf_lock);
 
 /* file-static data*/
 static char trace_buf[KPTRACE_BUF_SIZE];
@@ -869,12 +874,35 @@ void kptrace_write_record(const char *rec)
 	snprintf(tbuf, KPTRACE_SMALL_BUF, "K %s", rec);
 	write_trace_record_no_callstack(tbuf);
 }
-
 EXPORT_SYMBOL(kptrace_write_record);
 
 /*
+ * Provides a printf-style interface on the trace buffer.
+ */
+void kpprintf(char *fmt, ...)
+{
+	unsigned long flags;
+	va_list ap;
+	va_start(ap, fmt);
+
+	/* Only spin in interrupt context, to reduce intrusion */
+	if (in_interrupt()) {
+		spin_lock_irqsave(&kpprintf_lock, flags);
+		vsnprintf(kpprintf_buf_irq, KPTRACE_BUF_SIZE, fmt, ap);
+		kptrace_write_record(kpprintf_buf_irq);
+		spin_unlock_irqrestore(&kpprintf_lock, flags);
+	} else {
+		mutex_lock(&kpprintf_mutex);
+		vsnprintf(kpprintf_buf, KPTRACE_BUF_SIZE, fmt, ap);
+		kptrace_write_record(kpprintf_buf);
+		mutex_unlock(&kpprintf_mutex);
+	}
+}
+EXPORT_SYMBOL(kpprintf);
+
+/*
  * Indicates that this is an interesting point in the code.
- * Intended to be highlighted prominantly in a GUI.
+ * Intended to be highlighted prominently in a GUI.
  */
 void kptrace_mark(void)
 {
@@ -2741,6 +2769,8 @@ static struct file_operations consumed_fops = {
  */
 static int __init kptrace_init(void)
 {
+	mutex_init(&kpprintf_mutex);
+
 	dir = debugfs_create_dir("kptrace", NULL);
 
 	if (!dir) {

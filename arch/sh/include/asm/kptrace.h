@@ -41,10 +41,7 @@ void kptrace_pause(void);
 void kptrace_restart(void);
 
 /* Allow printf-style records to be added */
-extern char kpprintf_buf[KPTRACE_BUF_SIZE];
-#define kpprintf(args...) do { \
-	snprintf(kpprintf_buf, KPTRACE_BUF_SIZE, ## args); \
-	kptrace_write_record(kpprintf_buf); } while (0)
+void kpprintf(char *fmt, ...);
 
 #endif /* CONFIG_KPTRACE */
 #endif /* _LINUX_KPTRACE_H */

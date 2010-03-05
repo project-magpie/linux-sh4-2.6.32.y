@@ -467,6 +467,7 @@ unsigned stm_pad_gpio_request_output(struct stm_pad_state *state,
 
 	return result;
 }
+EXPORT_SYMBOL(stm_pad_gpio_request_output);
 
 void stm_pad_gpio_free(struct stm_pad_state *state, unsigned gpio)
 {
@@ -492,7 +493,7 @@ void stm_pad_gpio_free(struct stm_pad_state *state, unsigned gpio)
 	/* Should never be here... */
 	BUG();
 }
-
+EXPORT_SYMBOL(stm_pad_gpio_free);
 
 
 /* debugfs view of used pads */

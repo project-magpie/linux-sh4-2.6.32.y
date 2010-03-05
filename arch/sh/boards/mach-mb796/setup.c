@@ -69,7 +69,7 @@ static int mb796_phy_reset(void *bus)
 	return 0;
 }
 
-static struct stm_plat_stmmacphy_data mb796_phy_plat_data = {
+static struct plat_stmmacphy_data mb796_phy_plat_data = {
 	/* Micrel */
 	.bus_id = 0,
 	.phy_addr = -1,

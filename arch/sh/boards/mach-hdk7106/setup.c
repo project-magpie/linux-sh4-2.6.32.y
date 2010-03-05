@@ -141,7 +141,7 @@ static struct platform_device hdk7106_phy_devices[] = {
 	{ /* On-board ICplus IP1001 */
 		.name = "stmmacphy",
 		.id = 0,
-		.dev.platform_data = &(struct stm_plat_stmmacphy_data) {
+		.dev.platform_data = &(struct plat_stmmacphy_data) {
 			.bus_id = 0,
 			.phy_addr = 1,
 			.phy_mask = 0,
@@ -151,7 +151,7 @@ static struct platform_device hdk7106_phy_devices[] = {
 	}, { /* MII connector JN6 */
 		.name = "stmmacphy",
 		.id = 1,
-		.dev.platform_data = &(struct stm_plat_stmmacphy_data) {
+		.dev.platform_data = &(struct plat_stmmacphy_data) {
 			.bus_id = 1,
 			.phy_addr = -1,
 			.phy_mask = 0,

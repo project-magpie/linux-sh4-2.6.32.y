@@ -78,7 +78,7 @@ static struct platform_device hdk5289_front_panel = {
 
 
 
-static struct stm_plat_stmmacphy_data hdk5289_phy_plat_data = {
+static struct plat_stmmacphy_data hdk5289_phy_plat_data = {
 	/* Micrel */
 	.bus_id = 0,
 	.phy_addr = -1,

@@ -798,7 +798,7 @@ void bpa2_memory(struct bpa2_part *part, unsigned long *base,
 {
 	if (base)
 		*base = part?
-			(unsigned long)phys_to_virt(part->res.start)
+			part->res.start
 			: 0;
 	if (size)
 		*size = part?
@@ -809,6 +809,13 @@ EXPORT_SYMBOL(bpa2_memory);
 
 void bigphysarea_memory(unsigned long *base, unsigned long *size)
 {
-	bpa2_memory(bpa2_bigphysarea_part, base, size);
+	unsigned long phys_base;
+
+	bpa2_memory(bpa2_bigphysarea_part, &phys_base, size);
+
+	if (base)
+		*base = bpa2_bigphysarea_part ?
+			(unsigned long)phys_to_virt(phys_base)
+			: 0;
 }
 EXPORT_SYMBOL(bigphysarea_memory);

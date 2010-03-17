@@ -404,6 +404,17 @@ static int __init mb628_device_init(void)
 		.ovrcur_mode = stx7141_usb_ovrcur_active_low,
 		.pwr_enabled = 1 });
 
+	/*
+	 * USB1.1 ports on mb628 rev A are missing the series
+	 * resistors, which can make them unreliable, and also the
+	 * pull down resistors, which causes them to report spurious
+	 * device connection. Unfortunately we can't determine board
+	 * revision, but most boards are now rev B, so make the ports
+	 * available here. Boards with cut 1 Si will have these ports
+	 * disabled anyway, becuase the OC polarity is wrong.  Users
+	 * with rev A boards and cut 2 Si will need to remove these
+	 * lines.
+	 */
 	stx7141_configure_usb(2, &(struct stx7141_usb_config) {
 		.ovrcur_mode = stx7141_usb_ovrcur_active_low,
 		.pwr_enabled = 1 });
@@ -412,6 +423,8 @@ static int __init mb628_device_init(void)
 		.pwr_enabled = 1 });
 
 	stx7141_configure_sata();
+
+	/* Note R253 must be removed for Ethernet MDIO signal to work. */
 
 #ifdef ENABLE_GMAC0
 	/* Must disable ASC1 if using GMII0 */

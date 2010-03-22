@@ -404,10 +404,11 @@ int __init stx5197_configure_ssc_spi(int ssc)
 static struct platform_device stx5197_lirc_device = {
 	.name = "lirc-stm",
 	.id = -1,
-	.num_resources = 2,
+	.num_resources = 3,
 	.resource = (struct resource []) {
 		STM_PLAT_RESOURCE_MEM(0xfd118000, 0x234),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(19), -1),
+		STM_PLAT_RESOURCE_IRQ(ILC_EXT_IRQ(4), -1),
 	},
 	.dev.platform_data = &(struct stm_plat_lirc_data) {
 		/* The clock settings will be calculated by

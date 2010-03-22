@@ -351,7 +351,7 @@ static int sysconf_pm_freeze(void)
 			continue;
 		}
 
-		for (j = 0; j < block->size; i += sizeof(unsigned long))
+		for (j = 0; j < block->size; j += sizeof(unsigned long))
 			block->snapshot[j / sizeof(unsigned long)] =
 					readl(block->base + j);
 	}
@@ -379,7 +379,7 @@ static int sysconf_pm_restore(void)
 			continue;
 		}
 
-		for (j = 0; j < block->size; i += sizeof(unsigned long))
+		for (j = 0; j < block->size; j += sizeof(unsigned long))
 			writel(block->snapshot[j / sizeof(unsigned long)],
 					block->base + j);
 

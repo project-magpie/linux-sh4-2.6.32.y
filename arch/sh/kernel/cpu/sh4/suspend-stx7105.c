@@ -1,8 +1,7 @@
 /*
  * -------------------------------------------------------------------------
- * <linux_root>/arch/sh/kernel/cpu/sh4/suspend-stx7105.c
- * -------------------------------------------------------------------------
  * Copyright (C) 2009  STMicroelectronics
+ * Copyright (C) 2010  STMicroelectronics
  * Author: Francesco M. Virlinzi  <francesco.virlinzi@st.com>
  *
  * May be copied or modified under the terms of the GNU General Public
@@ -11,202 +10,299 @@
  * ------------------------------------------------------------------------- */
 
 #include <linux/init.h>
+#include <linux/kernel.h>
 #include <linux/suspend.h>
 #include <linux/errno.h>
 #include <linux/time.h>
 #include <linux/delay.h>
 #include <linux/irqflags.h>
-#include <linux/stm/pm.h>
+#include <linux/io.h>
+
+#include <linux/stm/clk.h>
+#include <linux/stm/stx7111.h>
 #include <linux/stm/sysconf.h>
-#include <asm/system.h>
-#include <asm/io.h>
-#include <asm/pm.h>
-#include <asm/irq.h>
 
-#include "./soc-stx7105.h"
+#include <asm/irq-ilc.h>
 
-#define _SYS_STA4		(7)
-#define _SYS_STA4_MASK		(8)
-#define _SYS_STA3		(11)
-#define _SYS_STA3_MASK		(12)
-#define _SYS_STA3_VALUE		(13)
+#include "stm_suspend.h"
 
-#define _SYS_CFG11		(9)
-#define _SYS_CFG11_MASK		(10)
-#define _SYS_CFG38		(5)
-#define _SYS_CFG38_MASK		(6)
+
+
+#define CGA				0xfe213000
+#define CKGA_PLL(x)			((x) * 4)
+#define CKGA_OSC_DIV_CFG(x)		(0x800 + (x) * 4)
+#define CKGA_PLL0HS_DIV_CFG(x)		(0x900 + (x) * 4)
+#define CKGA_PLL0LS_DIV_CFG(x)		(0xa10 + (x) * 4)
+#define CKGA_PLL1_DIV_CFG(x)		(0xb00 + (x) * 4)
+#define   CKGA_PLL_BYPASS		(1 << 20)
+#define   CKGA_PLL_LOCK			(1 << 31)
+#define CKGA_POWER_CFG			(0x010)
+#define CKGA_CLKOPSRC_SWITCH_CFG(x)     (0x014 + ((x) * 0x10))
+
+
+#define SYSCONF_BASE_ADDR		0xfe001000
+#define _SYS_STA(x)			(4 * (x) + 0x8 + SYSCONF_BASE_ADDR)
+#define _SYS_CFG(x)			(4 * (x) + 0x100 + SYSCONF_BASE_ADDR)
+
+#define LMI_BASE			0xFE901000
+#define   LMI_APPD(bank)		(0x1000 * (bank) + 0x14 + lmi)
+
+static void __iomem *cga;
+static void __iomem *lmi;
+static struct clk *comms_clk;
 /* *************************
  * STANDBY INSTRUCTION TABLE
  * *************************
  */
-#ifdef CONFIG_PM_DEBUG
 static unsigned long stx7105_standby_table[] __cacheline_aligned = {
-/* 1. Move all the clock on OSC */
-CLK_POKE(CKGA_CLKOPSRC_SWITCH_CFG(0x0), 0x0),
-CLK_POKE(CKGA_OSC_DIV_CFG(0x5), 29), /* ic_if_100 @ 1 MHz to be safe for Lirc*/
+POKE32(CGA + CKGA_OSC_DIV_CFG(4), 31),	/* st40 */
+POKE32(CGA + CKGA_OSC_DIV_CFG(0), 31),	/* STNoc */
+POKE32(CGA + CKGA_OSC_DIV_CFG(17), 31),	/* ic_if_200 */
+POKE32(CGA + CKGA_OSC_DIV_CFG(5), 29),	/* ic_if_100 */
 
-IMMEDIATE_DEST(0x1f),
+END_MARKER,
 /* reduces OSC_st40 */
-CLK_STORE(CKGA_OSC_DIV_CFG(4)),
-/* reduces OSC_clk_ic */
-CLK_STORE(CKGA_OSC_DIV_CFG(0x0)),
-/* END. */
-_END(),
+POKE32(CGA + CKGA_OSC_DIV_CFG(4), 0),	/* ST40 @ 30 MHz */
+POKE32(CGA + CKGA_OSC_DIV_CFG(0), 0),	/* STNoc @ 30 MHz */
+POKE32(CGA + CKGA_OSC_DIV_CFG(17), 0),	/* ic_if_200 */
+POKE32(CGA + CKGA_OSC_DIV_CFG(5), 0),	/* ic_if_100 */
 
-DATA_LOAD(0x0),
-CLK_STORE(CKGA_CLKOPSRC_SWITCH_CFG(0x0)),
-DATA_LOAD(0x1),
-CLK_STORE(CKGA_OSC_DIV_CFG(0x0)),
-DATA_LOAD(0x2),
-CLK_STORE(CKGA_OSC_DIV_CFG(5)),
-/* END. */
-_END()
+END_MARKER
 };
-#endif
+
 /* *********************
  * MEM INSTRUCTION TABLE
  * *********************
  */
 static unsigned long stx7105_mem_table[] __cacheline_aligned = {
 /* 1. Enables the DDR self refresh mode */
-DATA_OR_LONG(_SYS_CFG38, _SYS_CFG38_MASK),
+OR32(_SYS_CFG(38), (1 << 20)),
 /* waits until the ack bit is zero */
-DATA_WHILE_NEQ(_SYS_STA4, _SYS_STA4_MASK, _SYS_STA4_MASK),
+WHILE_NE32(_SYS_STA(4), 1, 1),
+
+/* Disable the analogue input buffers of the pads */
+OR32(_SYS_CFG(12), (1 << 10)),
+/* Disable the clock output */
+UPDATE32(_SYS_CFG(4), ~(1 << 2), 0),
 /* 1.1 Turn-off the ClockGenD */
-DATA_OR_LONG(_SYS_CFG11, _SYS_CFG11_MASK),
+OR32(_SYS_CFG(11), (1 << 12)),
+/* wait clock gen lock */
+WHILE_NE32(_SYS_STA(3), 1, 1),
 
-IMMEDIATE_DEST(0x1f),
-/* reduces OSC_st40 */
-CLK_STORE(CKGA_OSC_DIV_CFG(4)),
-/* reduces OSC_clk_ic */
-CLK_STORE(CKGA_OSC_DIV_CFG(0x0)),
-/* reduces OSC_clk_ic_if_200 */
-CLK_STORE(CKGA_OSC_DIV_CFG(17)),
-/* 2. Move all the clock on OSC */
+POKE32(CGA + CKGA_OSC_DIV_CFG(17), 31),	/* ic_if_200 */
+POKE32(CGA + CKGA_OSC_DIV_CFG(4), 31),	/* st40 */
+POKE32(CGA + CKGA_OSC_DIV_CFG(0x0), 31),	/* STNoc */
 
-CLK_POKE(CKGA_OSC_DIV_CFG(5), 29), /* ic_if_100 @ 1MHz to be safe for Lirc*/
+END_MARKER,
 
-IMMEDIATE_DEST(0x0),
-CLK_STORE(CKGA_CLKOPSRC_SWITCH_CFG(0x0)),
-CLK_STORE(CKGA_CLKOPSRC_SWITCH_CFG(0x1)),
-/* PLLs in power down */
-CLK_OR_LONG(CKGA_POWER_CFG, 0x3),
- /* END. */
-_END(),
+/*
+ * On resume the system is too much slow
+ * for this reason the main clocks are moved @ 30 MHz
+ */
+POKE32(CGA + CKGA_OSC_DIV_CFG(0), 0),	/* STNoc @ 30 MHz */
+POKE32(CGA + CKGA_OSC_DIV_CFG(4), 0),	/* ST40 @ 30 MHz */
+POKE32(CGA + CKGA_OSC_DIV_CFG(5), 0),	/* ic_if_100 @ 30 MHz*/
+POKE32(CGA + CKGA_OSC_DIV_CFG(17), 0),	/* ic_if_200 @ 30 MHz*/
 
-/* Turn-on the PLLs */
-CLK_AND_LONG(CKGA_POWER_CFG, ~3),
-/* Wait PLLS lock */
-CLK_WHILE_NEQ(CKGA_PLL0_CFG, CKGA_PLL0_CFG_LOCK, CKGA_PLL0_CFG_LOCK),
-CLK_WHILE_NEQ(CKGA_PLL1_CFG, CKGA_PLL1_CFG_LOCK, CKGA_PLL1_CFG_LOCK),
-
+UPDATE32(_SYS_CFG(12), ~(1 << 10), 0),
 /* 1. Turn-on the LMI ClocksGenD */
-DATA_AND_NOT_LONG(_SYS_CFG11, _SYS_CFG11_MASK),
+UPDATE32(_SYS_CFG(11), ~(1 << 12), 0),
 /* Wait LMI ClocksGenD lock */
-DATA_WHILE_NEQ(_SYS_STA3, _SYS_STA3_MASK, _SYS_STA3_VALUE),
+WHILE_NE32(_SYS_STA(3), 1, 0),
 
+/* Enable clock ouput */
+OR32(_SYS_CFG(4), (1 << 2)),
+/* Reset LMI Pad logic */
+OR32(_SYS_CFG(11), (1 << 27)),
 /* 2. Disables the DDR self refresh mode */
-DATA_AND_NOT_LONG(_SYS_CFG38, _SYS_CFG38_MASK),
+UPDATE32(_SYS_CFG(38), ~(1 << 20), 0),
 /* waits until the ack bit is zero */
-DATA_WHILE_EQ(_SYS_STA4, _SYS_STA4_MASK, _SYS_STA4_MASK),
+WHILE_NE32(_SYS_STA(4), 1, 0),
 
-IMMEDIATE_DEST(0x10000),
-CLK_STORE(CKGA_PLL0LS_DIV_CFG(4)),
-
-/* 3. Restore the previous clocks setting */
-DATA_LOAD(0x0),
-CLK_STORE(CKGA_CLKOPSRC_SWITCH_CFG(0x0)),
-DATA_LOAD(0x1),
-CLK_STORE(CKGA_CLKOPSRC_SWITCH_CFG(0x1)),
-DATA_LOAD(0x3),
-CLK_STORE(CKGA_OSC_DIV_CFG(5)),
-DATA_LOAD(0x2),
-CLK_STORE(CKGA_OSC_DIV_CFG(0x0)),
-DATA_LOAD(0x4),
-CLK_STORE(CKGA_OSC_DIV_CFG(17)),
-
-_DELAY(),
-_DELAY(),
-_DELAY(),
-_END()
+END_MARKER
 };
 
-static unsigned long stx7105_wrt_table[16] __cacheline_aligned;
 
-static int stx7105_suspend_prepare(suspend_state_t state)
+static int stx7105_suspend_begin(suspend_state_t state)
 {
-#ifdef CONFIG_PM_DEBUG
-	if (state == PM_SUSPEND_STANDBY) {
-		stx7105_wrt_table[0] = /* swith config */
-		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_CLKOPSRC_SWITCH_CFG(0));
-		stx7105_wrt_table[1] = /* clk_STNoc */
-		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_OSC_DIV_CFG(0));
-		stx7105_wrt_table[2] = /* clk_ic_if_100 */
-		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_OSC_DIV_CFG(5));
-	} else
-#endif
-	{
-		stx7105_wrt_table[0] = /* swith config */
-		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_CLKOPSRC_SWITCH_CFG(0));
-		stx7105_wrt_table[1] = /* swith config 1 */
-		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_CLKOPSRC_SWITCH_CFG(1));
-		stx7105_wrt_table[2] = /* clk_STNoc */
-		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_OSC_DIV_CFG(0));
-		stx7105_wrt_table[3] = /* clk_ic_if_100 */
-		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_OSC_DIV_CFG(5));
-		stx7105_wrt_table[4] = /* clk_ic_if_200 */
-		   ioread32(CLOCKGENA_BASE_ADDR + CKGA_OSC_DIV_CFG(17));
-	}
+	pr_info("[STM][PM] Analysing the wakeup devices\n");
+
+	comms_clk->rate = 1000000;	/* 1 MHz */
+
 	return 0;
 }
 
-static unsigned long stx7105_iomem[2] __cacheline_aligned = {
-		stx7105_wrt_table,
-		CLOCKGENA_BASE_ADDR};
-
-static int stx7105_evt_to_irq(unsigned long evt)
+static int stx7105_suspend_core(suspend_state_t state, int suspending)
 {
-	return evt2irq(evt);
+	static unsigned char *clka_osc_div;
+	static unsigned char *clka_pll0_div;
+	static unsigned char *clka_pll1_div;
+	static unsigned long *clka_switch_cfg;
+	static unsigned long saved_gplmi_appd;
+	int i;
+
+	if (suspending)
+		goto on_suspending;
+
+	if (!clka_osc_div) /* there was an error on suspending */
+		return 0;
+	/* Resuming... */
+	iowrite32(0, cga + CKGA_POWER_CFG);
+	while (!(ioread32(cga + CKGA_PLL(0)) & CKGA_PLL_LOCK))
+		;
+	while (!(ioread32(cga + CKGA_PLL(1)) & CKGA_PLL_LOCK))
+		;
+
+	/* applay the original parents */
+	iowrite32(clka_switch_cfg[0], cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
+	iowrite32(clka_switch_cfg[1], cga + CKGA_CLKOPSRC_SWITCH_CFG(1));
+
+	/* restore all the clocks settings */
+	for (i = 0; i < 18; ++i) {
+		iowrite32(clka_pll0_div[i], ((i < 4) ?
+			cga + CKGA_PLL0HS_DIV_CFG(i) :
+			cga + CKGA_PLL0LS_DIV_CFG(i)));
+		iowrite32(clka_pll1_div[i], cga + CKGA_PLL1_DIV_CFG(i));
+		iowrite32(clka_osc_div[i], cga + CKGA_OSC_DIV_CFG(i));
+	}
+	mdelay(10);
+	pr_devel("[STM][PM] ClockGen A: restored\n");
+	comms_clk->rate = comms_clk->parent->rate;
+
+	/* restore the APPD */
+	iowrite32(saved_gplmi_appd, LMI_APPD(0));
+
+	kfree(clka_osc_div);
+	kfree(clka_pll0_div);
+	kfree(clka_pll1_div);
+	kfree(clka_switch_cfg);
+	clka_switch_cfg = NULL;
+	clka_pll0_div = clka_pll1_div = clka_osc_div = NULL;
+
+	return 0;
+
+
+on_suspending:
+	clka_osc_div = kmalloc(sizeof(char) * 18, GFP_ATOMIC);
+	clka_pll0_div = kmalloc(sizeof(char) * 18, GFP_ATOMIC);
+	clka_pll1_div = kmalloc(sizeof(char) * 18, GFP_ATOMIC);
+	clka_switch_cfg = kmalloc(sizeof(long) * 2, GFP_ATOMIC);
+
+	if (!clka_osc_div || !clka_pll0_div ||
+		!clka_pll1_div || !clka_switch_cfg)
+		goto error;
+
+	/* save the current APPD setting*/
+	saved_gplmi_appd = ioread32(LMI_APPD(0));
+	/* disable the APPD */
+	iowrite32(0x0, LMI_APPD(0));
+
+	/* save the original settings */
+	clka_switch_cfg[0] = ioread32(cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
+	clka_switch_cfg[1] = ioread32(cga + CKGA_CLKOPSRC_SWITCH_CFG(1));
+
+	for (i = 0; i < 18; ++i) {
+		clka_osc_div[i] = ioread32(cga + CKGA_OSC_DIV_CFG(i));
+		clka_pll0_div[i] = ioread32(((i < 4) ?
+			cga + CKGA_PLL0HS_DIV_CFG(i) :
+			cga + CKGA_PLL0LS_DIV_CFG(i)));
+		clka_pll1_div[i] = ioread32(cga + CKGA_PLL1_DIV_CFG(i));
+		}
+	pr_devel("[STM][PM] ClockGen A: saved\n");
+	mdelay(10);
+
+	/* to avoid the system is to much slow all
+	 * the clocks are scaled @ 30 MHz
+	 * the final setting is done in the tables
+	 */
+	for (i = 0; i < 18; ++i)
+		iowrite32(0, cga + CKGA_OSC_DIV_CFG(i));
+
+	if (state == PM_SUSPEND_STANDBY) {
+		iowrite32(0, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
+	} else {
+		/* all the clocks on xtal */
+		iowrite32(0, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
+		iowrite32(0, cga + CKGA_CLKOPSRC_SWITCH_CFG(1));
+		/* turn-off the PLLs*/
+		iowrite32(3, cga + CKGA_POWER_CFG);
+	}
+
+	return 0;
+
+error:
+	kfree(clka_osc_div);
+	kfree(clka_pll1_div);
+	kfree(clka_pll0_div);
+	kfree(clka_switch_cfg);
+
+	clka_switch_cfg = NULL;
+	clka_pll0_div = clka_pll1_div = clka_osc_div = NULL;
+
+	return -ENOMEM;
 }
 
-static struct sh4_suspend_t st40data __cacheline_aligned = {
-	.iobase = stx7105_iomem,
-	.ops.prepare = stx7105_suspend_prepare,
+static int stx7105_suspend_pre_enter(suspend_state_t state)
+{
+	return stx7105_suspend_core(state, 1);
+}
+
+static int stx7105_suspend_post_enter(suspend_state_t state)
+{
+	return stx7105_suspend_core(state, 0);
+}
+static int stx7105_evt_to_irq(unsigned long evt)
+{
+	return ((evt < 0x400) ? ilc2irq(evt) : evt2irq(evt));
+}
+
+static struct stm_platform_suspend_t stx7105_suspend __cacheline_aligned = {
+
+	.ops.begin = stx7105_suspend_begin,
+
 	.evt_to_irq = stx7105_evt_to_irq,
-#ifdef CONFIG_PM_DEBUG
+	.pre_enter = stx7105_suspend_pre_enter,
+	.post_enter = stx7105_suspend_post_enter,
+
 	.stby_tbl = (unsigned long)stx7105_standby_table,
 	.stby_size = DIV_ROUND_UP(ARRAY_SIZE(stx7105_standby_table) *
 			sizeof(long), L1_CACHE_BYTES),
-#endif
+
 	.mem_tbl = (unsigned long)stx7105_mem_table,
 	.mem_size = DIV_ROUND_UP(ARRAY_SIZE(stx7105_mem_table) * sizeof(long),
 			L1_CACHE_BYTES),
-	.wrt_tbl = (unsigned long)stx7105_wrt_table,
-	.wrt_size = DIV_ROUND_UP(ARRAY_SIZE(stx7105_wrt_table) * sizeof(long),
-			L1_CACHE_BYTES),
 };
 
-static int __init suspend_platform_setup(void)
+static int __init stx7105_suspend_setup(void)
 {
 
-	struct sysconf_field* sc;
-	sc = sysconf_claim(SYS_CFG, 38, 20, 20, "pm");
-	stx7105_wrt_table[_SYS_CFG38]      = (unsigned long)sysconf_address(sc);
-	stx7105_wrt_table[_SYS_CFG38_MASK] = sysconf_mask(sc);
+	struct sysconf_field *sc[7];
+	int i;
 
-	sc = sysconf_claim(SYS_CFG, 11, 12, 12, "pm");
-	stx7105_wrt_table[_SYS_CFG11]      = (unsigned long)sysconf_address(sc);
-	stx7105_wrt_table[_SYS_CFG11_MASK] = sysconf_mask(sc);
+	sc[0] = sysconf_claim(SYS_STA, 4, 0, 0, "pm");
+	sc[1] = sysconf_claim(SYS_STA, 3, 0, 0, "pm");
+	sc[2] = sysconf_claim(SYS_CFG, 4, 2, 2, "pm");
+	sc[3] = sysconf_claim(SYS_CFG, 11, 12, 12, "pm");
+	sc[4] = sysconf_claim(SYS_CFG, 11, 27, 27, "pm");
+	sc[5] = sysconf_claim(SYS_CFG, 12, 10, 10, "pm");
+	sc[6] = sysconf_claim(SYS_CFG, 38, 20, 20, "pm");
 
-	sc = sysconf_claim(SYS_STA, 4, 0, 0, "pm");
-	stx7105_wrt_table[_SYS_STA4]      = (unsigned long)sysconf_address(sc);
-	stx7105_wrt_table[_SYS_STA4_MASK] = sysconf_mask(sc);
+	for (i = ARRAY_SIZE(sc)-1; i; --i)
+		if (!sc[i])
+			goto error;
 
-	sc = sysconf_claim(SYS_STA, 3, 0, 0, "pm");
-	stx7105_wrt_table[_SYS_STA3] = (unsigned long)sysconf_address(sc);
-	stx7105_wrt_table[_SYS_STA3_MASK] = sysconf_mask(sc);
-	stx7105_wrt_table[_SYS_STA3_VALUE] = 0;
-	return sh4_suspend_register(&st40data);
+	cga = ioremap(CGA, 0x1000);
+	lmi = ioremap(LMI_BASE, 0x1000);
+
+	comms_clk = clk_get(NULL, "comms_clk");
+
+	return stm_suspend_register(&stx7105_suspend);
+
+error:
+	for (i = ARRAY_SIZE(sc)-1; i; --i)
+		if (sc[i])
+			sysconf_release(sc[i]);
+	return 0;
 }
 
-late_initcall(suspend_platform_setup);
+module_init(stx7105_suspend_setup);

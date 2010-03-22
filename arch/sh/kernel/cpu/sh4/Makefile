@@ -5,7 +5,12 @@
 obj-y	:= probe.o common.o
 common-y	+= entry.o
 
+ifndef CONFIG_CPU_SUBTYPE_ST40
 obj-$(CONFIG_HIBERNATION)		+= $(addprefix ../sh3/, swsusp.o)
+else
+obj-$(CONFIG_HIBERNATION)		+= swsusp.o
+endif
+
 obj-$(CONFIG_SH_FPU)			+= fpu.o softfloat.o
 obj-$(CONFIG_SH_STORE_QUEUES)		+= sq.o
 
@@ -61,8 +66,4 @@ obj-$(CONFIG_CPU_SUBTYPE_STX7108)	+= suspend-stx7108.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= suspend-stx7111.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7141)	+= suspend-stx7141.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= suspend-stx7200.o
-endif
-
-ifdef CONFIG_HIBERNATION
-obj-y					+= cpu.o swsusp.o
 endif

@@ -1,8 +1,7 @@
 /*
  * -------------------------------------------------------------------------
- * <linux_root>/arch/sh/kernel/cpu/sh4/swsusp.S
- * -------------------------------------------------------------------------
  * Copyright (C) 2009  STMicroelectronics
+ * Copyright (C) 2010  STMicroelectronics
  * Author: Francesco M. Virlinzi  <francesco.virlinzi@st.com>
  *
  * May be copied or modified under the terms of the GNU General Public
@@ -65,7 +64,7 @@ ENTRY(swsusp_arch_suspend) ;
      nop
 
 .balign 4;
-1:.long saved_context_reg;
+1:.long swsusp_arch_regs_cpu0;
 2:.long swsusp_save;
 
 #define JUMPER()	        bra 201f;	\
@@ -165,5 +164,5 @@ really_swsusp_arch_resume:
 
 .balign 4			;
 10:.long restore_pblist		;
-11:.long saved_context_reg	;
+11:.long swsusp_arch_regs_cpu0	;
 12:.long flush_cache_all	;

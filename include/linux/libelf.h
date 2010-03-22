@@ -1,3 +1,6 @@
+#ifndef _LIBELF_H_
+#define _LIBELF_H_
+
 #include <linux/elf.h>
 #include <linux/module.h>
 
@@ -70,3 +73,5 @@ static inline unsigned long ELF_findBaseAddr(Elf32_Ehdr *hdr,
 {
 	return ELF_findBaseAddrCheck(hdr, sechdrs, base, SHF_NULL, SHT_NULL);
 }
+
+#endif /* _LIBELF_H_ */

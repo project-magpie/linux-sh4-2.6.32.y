@@ -112,6 +112,12 @@ static __always_inline void __set_pmb_entry(unsigned long vpn,
 	ctrl_outl(0, mk_pmb_addr(pos));
 	ctrl_outl(vpn, mk_pmb_addr(pos));
 	ctrl_outl(ppn | flags | PMB_V, mk_pmb_data(pos));
+
+	/*
+	 * Read back the value just written. This shouldn't be necessary,
+	 * but when resuming from hibernation it appears to fix a problem.
+	 */
+	ctrl_inl(mk_pmb_addr(pos));
 }
 
 static void __uses_jump_to_uncached set_pmb_entry(unsigned long vpn,

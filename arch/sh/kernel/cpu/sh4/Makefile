@@ -56,14 +56,13 @@ obj-y	+= $(clock-y)
 obj-$(CONFIG_STM_CPU_FREQ)		+= cpufreq-stm.o
 obj-$(CONFIG_CPU_SUBTYPE_ST40)		+= stm-tmu.o
 
-ifdef CONFIG_SUSPEND
-obj-y					+= suspend.o suspend-core.o
-obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= suspend-stx5197.o
-obj-$(CONFIG_CPU_SUBTYPE_STX5206)	+= suspend-stx5206.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7100)	+= suspend-stx7100.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7105)	+= suspend-stx7105.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7108)	+= suspend-stx7108.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7111)	+= suspend-stx7111.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7141)	+= suspend-stx7141.o
-obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= suspend-stx7200.o
-endif
+suspend-y				:= stm_suspend.o stm_suspend-core.o
+suspend-$(CONFIG_CPU_SUBTYPE_STX5197)	+= suspend-stx5197.o
+suspend-$(CONFIG_CPU_SUBTYPE_STX5206)	+= suspend-stx5206.o
+suspend-$(CONFIG_CPU_SUBTYPE_STX7100)	+= suspend-stx7100.o
+suspend-$(CONFIG_CPU_SUBTYPE_STX7105)	+= suspend-stx7105.o
+suspend-$(CONFIG_CPU_SUBTYPE_STX7108)	+= suspend-stx7108.o
+suspend-$(CONFIG_CPU_SUBTYPE_STX7111)	+= suspend-stx7111.o
+suspend-$(CONFIG_CPU_SUBTYPE_STX7141)	+= suspend-stx7141.o
+suspend-$(CONFIG_CPU_SUBTYPE_STX7200)	+= suspend-stx7200.o
+obj-$(CONFIG_SUSPEND)			+= $(suspend-y)

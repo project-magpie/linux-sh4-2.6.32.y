@@ -377,37 +377,6 @@ static struct clk generic_comms_clk = {
 };
 
 
-#ifdef CONFIG_PM
-int clk_pm_state(pm_message_t state)
-{
-	static int prev_state = PM_EVENT_ON;
-	int i;
-	switch (state.event) {
-	case PM_EVENT_ON:
-	if (prev_state == PM_EVENT_FREEZE) {
-	/* osc */
-	clkgena_clk_osc_init(&clkgena_clk_osc);
-	/* PLLs */
-	for (i = 0; i< ARRAY_SIZE(pllclks); ++i)
-		pll_clk_recalc(&pllclks[i]);
-	/* Clocn Gen A */
-	for (i = 0; i< ARRAY_SIZE(clkgena_clks); ++i) {
-		clkgena_clk_init(&clkgena_clks[i]);
-		if (clkgena_clk_setrate(&clkgena_clks[i],
-			clkgena_clks[i].rate) < 0 )
-				clkgena_clk_recalc(&clkgena_clks[i]);
-		}
-	}
-
-	case PM_EVENT_SUSPEND:
-	case PM_EVENT_FREEZE:
-		prev_state = state.event;
-		break;
-	}
-	return 0;
-}
-#endif
-
 int __init arch_clk_init(void)
 {
 	int i, ret;

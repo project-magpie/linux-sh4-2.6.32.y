@@ -233,30 +233,6 @@ static struct clk *onchip_clocks[] = {
 	&pll1_clk,
 };
 
-#ifdef CONFIG_PM
-int clk_pm_state(pm_message_t state)
-{
-	switch (state.event) {
-	case PM_EVENT_ON:
-		clockgenA_clk_set_rate(&clkgena_clks[LX_AUD_ID],
-			clkgena_clks[LX_AUD_ID].rate * 1024);
-		clockgenA_clk_set_rate(&clkgena_clks[LX_VID_ID],
-			clkgena_clks[LX_VID_ID].rate * 1024);
-			/* enables the analog parts for ClockGenB*/
-		break;
-	case PM_EVENT_SUSPEND:
-		clockgenA_clk_set_rate(&clkgena_clks[LX_AUD_ID],
-			clkgena_clks[LX_AUD_ID].rate / 1024);
-		clockgenA_clk_set_rate(&clkgena_clks[LX_VID_ID],
-			clkgena_clks[LX_VID_ID].rate / 1024);
-		break;
-	case PM_EVENT_FREEZE:
-		break;
-	}
-	return 0;
-}
-#endif
-
 int __init arch_clk_init(void)
 {
 	int i, ret = 0;

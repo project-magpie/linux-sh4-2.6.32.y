@@ -369,35 +369,6 @@ static struct clk clkgend_clk = {
 	.ops		= &clkgend_clk_ops,
 };
 
-#ifdef CONFIG_PM
-int clk_pm_state(pm_message_t state)
-{
-	static int prev_state = PM_EVENT_ON;
-	int i;
-	struct clk *clk;
-	switch (state.event) {
-	case PM_EVENT_ON:
-	if (prev_state == PM_EVENT_FREEZE) {
-		/* osc */
-		clkgena_clk_osc_init(&clkgena_clk_osc);
-		/* pll */
-		for (i = 0; i < ARRAY_SIZE(pllclks); ++i)
-			pll_clk_recalc(&pllclks[i].clk);
-		/* clocn gen A */
-		for (i = 0; i < ARRAY_SIZE(clkgenaclks); ++i) {
-			clk = &clkgenaclks[i];
-			clkgena_clk_setrate(clk, clk->rate);
-		}
-
-	}
-	case PM_EVENT_SUSPEND:
-	case PM_EVENT_FREEZE:
-		prev_state = state.event;
-		break;
-	}
-	return 0;
-}
-#endif
 /* ------------------------------------------------------------------------- */
 
 int __init arch_clk_init(void)

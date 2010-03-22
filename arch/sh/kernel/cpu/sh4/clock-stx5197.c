@@ -376,21 +376,6 @@ static struct clk generic_comms_clk = {
 	.ops		= &generic_clk_ops,
 };
 
-#ifdef CONFIG_PM
-int clk_pm_state(pm_message_t state)
-{
-	static int prev_state = PM_EVENT_ON;
-	switch (state.event) {
-	case PM_EVENT_ON:
-	case PM_EVENT_SUSPEND:
-	case PM_EVENT_FREEZE:
-		prev_state = state.event;
-		break;
-	}
-	return 0;
-}
-#endif
-
 int __init arch_clk_init(void)
 {
 	int i, ret;

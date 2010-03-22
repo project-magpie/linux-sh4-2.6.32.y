@@ -60,8 +60,10 @@ struct ilc_irq {
 #define ilc_is_enabled(_ilc)		(((_ilc)->state & ILC_ENABLED) != 0)
 	unsigned char state;
 
+#ifdef CONFIG_HIBERNATION
 	unsigned char trigger_mode; /* used to restore the right mode
 				     * after a resume from hibernation */
+#endif
 };
 
 struct ilc {
@@ -339,23 +341,20 @@ static int set_type_ilc_irq(unsigned int irq, unsigned int flow_type)
 	}
 
 	ILC_SET_TRIGMODE(ilc->base, input, mode);
+#ifdef CONFIG_HIBERNATION
 	ilc->irqs[input].trigger_mode = (unsigned char)mode;
+#endif
 
 	return 0;
 }
 
+#ifdef CONFIG_SUSPEND
 static int set_wake_ilc_irq(unsigned int irq, unsigned int on)
 {
 	struct ilc *ilc = get_irq_chip_data(irq);
-	int input;
-	struct ilc_irq *ilc_irq;
+	int input = irq - ilc->first_irq;
+	struct ilc_irq *ilc_irq = &ilc->irqs[input];
 
-	if (irq < ilc->first_irq || irq > (ilc->inputs_num + ilc->first_irq))
-		/* this interrupt can not be on ILC3 */
-		return -1;
-
-	input = irq - ilc->first_irq;
-	ilc_irq = &ilc->irqs[input];
 	if (on) {
 		ilc_set_wakeup(ilc_irq);
 		ILC_WAKEUP_ENABLE(ilc->base, input);
@@ -364,8 +363,12 @@ static int set_wake_ilc_irq(unsigned int irq, unsigned int on)
 		ilc_reset_wakeup(ilc_irq);
 		ILC_WAKEUP_DISABLE(ilc->base, input);
 	}
+
 	return 0;
 }
+#else
+#define set_wake_ilc_irq	NULL
+#endif	/* CONFIG_SUSPEND */
 
 static struct irq_chip ilc_chip = {
 	.name		= "ILC3",
@@ -442,7 +445,9 @@ static int __init ilc_probe(struct platform_device *pdev)
 
 	for (i = 0; i < ilc->inputs_num; ++i) {
 		ilc->irqs[i].priority = 7;
+#ifdef CONFIG_HIBERNATION
 		ilc->irqs[i].trigger_mode = ILC_TRIGGERMODE_HIGH;
+#endif
 	}
 
 	ilc->priority = kzalloc(ilc->outputs_num * sizeof(long), GFP_KERNEL);
@@ -551,18 +556,17 @@ subsys_initcall(ilc_debugfs_init);
 
 
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_HIBERNATION
 
-static int ilc_resume_from_hibernation(struct device *dev, void *_data)
+static int ilc_resume_from_hibernation(struct ilc *ilc)
 {
-	struct ilc *ilc = dev->driver_data;
 	unsigned long flag;
 	int i, irq;
 	local_irq_save(flag);
 	for (i = 0; i < ilc->inputs_num; ++i) {
 		irq = i + ilc->first_irq;
-		ILC_SET_PRI(i, ilc->irqs[i].priority);
-		ILC_SET_TRIGMODE(i, ilc->irqs[i].trigger_mode);
+		ILC_SET_PRI(ilc->base, i, ilc->irqs[i].priority);
+		ILC_SET_TRIGMODE(ilc->base, i, ilc->irqs[i].trigger_mode);
 		if (ilc_is_used(&ilc->irqs[i])) {
 			startup_ilc_irq(irq);
 			if (ilc_is_enabled(&ilc->irqs[i]))
@@ -578,14 +582,14 @@ static int ilc_resume_from_hibernation(struct device *dev, void *_data)
 static int ilc_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
 	static pm_message_t prev_state;
-	int ret = 0;
-	if (state.event == PM_EVENT_ON &&
-	    prev_state.event == PM_EVENT_FREEZE)
-		ret = driver_for_each_device(&ilc_driver.driver, NULL, NULL,
-			ilc_resume_from_hibernation);
+	struct ilc *ilc;
+
+	if (state.event == PM_EVENT_ON && prev_state.event == PM_EVENT_FREEZE)
+		list_for_each_entry(ilc, &ilcs_list, list)
+			ilc_resume_from_hibernation(ilc);
 
 	prev_state = state;
-	return ret;
+	return 0;
 }
 
 static int ilc_sysdev_resume(struct sys_device *dev)
@@ -602,6 +606,7 @@ static int __init ilc_sysdev_init(void)
 {
 	return sysdev_driver_register(&cpu_sysdev_class, &ilc_sysdev_driver);
 }
-arch_initcall(ilc_sysdev_init);
 
-#endif /* CONFIG_PM */
+module_init(ilc_sysdev_init);
+
+#endif /* CONFIG_HIBERNATION */

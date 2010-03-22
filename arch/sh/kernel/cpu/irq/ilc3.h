@@ -52,16 +52,16 @@
 		writel((_mod), _base + ILC_TRIGMODE_REG(_int))
 
 #define ILC_WAKEUP_ENABLE(_base, _int) \
-		writel(readl(ILC_EXT_WAKEUP_EN(_int)) |	\
+		writel(readl(_base + ILC_EXT_WAKEUP_EN(_int)) |	\
 				_BIT(_int), _base + ILC_EXT_WAKEUP_EN(_int))
 #define ILC_WAKEUP_DISABLE(_base, _int) \
-		writel(readl(ILC_EXT_WAKEUP_EN(_int)) & \
+		writel(readl(_base + ILC_EXT_WAKEUP_EN(_int)) & \
 				~_BIT(_int), _base + ILC_EXT_WAKEUP_EN(_int))
 #define ILC_WAKEUP_HI(_base, _int) \
-		writel(readl(ILC_EXT_WAKPOL_EN(_int)) | \
+		writel(readl(_base + ILC_EXT_WAKPOL_EN(_int)) | \
 				_BIT(_int), _base + ILC_EXT_WAKPOL_EN(_int))
 #define ILC_WAKEUP_LOW(_base, _int) \
-		writel(readl(ILC_EXT_WAKPOL_EN(_int)) & \
+		writel(readl(_base + ILC_EXT_WAKPOL_EN(_int)) & \
 				~_BIT(_int), _base + ILC_EXT_WAKPOL_EN(_int))
 #define ILC_WAKEUP(_base, _int, _high) \
 		((_high) ? (ILC_WAKEUP_HI(_base, _int)) : \

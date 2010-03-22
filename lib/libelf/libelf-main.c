@@ -122,7 +122,7 @@ struct ELFinfo *ELF_initFromMem(uint8_t *elffile,
 		if (!ELF_valid_offset(elfinfo, phdr->p_offset,
 				      phdr->p_filesz))
 			goto fail;
-		if (phdr->p_filesz < phdr->p_memsz)
+		if (phdr->p_filesz > phdr->p_memsz)
 			goto fail;
 	}
 

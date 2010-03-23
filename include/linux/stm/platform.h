@@ -349,5 +349,12 @@ struct stm_plat_ilc3_data {
 	unsigned short inputs_num;
 	unsigned short outputs_num;
 	unsigned short first_irq;
+
+	/*
+	 * The ILC supports the wakeup capability but on some chip when enabled
+	 * the system is unstable during the resume from suspend, so disable
+	 * it.
+	 */
+	int disable_wakeup:1;
 };
 #endif

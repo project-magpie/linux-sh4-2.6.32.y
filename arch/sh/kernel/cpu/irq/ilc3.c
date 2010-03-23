@@ -72,6 +72,7 @@ struct ilc {
 	void *base;
 	unsigned short inputs_num, outputs_num;
 	unsigned int first_irq;
+	int disable_wakeup:1;
 
 	spinlock_t lock;		/* a lock */
 
@@ -355,6 +356,9 @@ static int set_wake_ilc_irq(unsigned int irq, unsigned int on)
 	int input = irq - ilc->first_irq;
 	struct ilc_irq *ilc_irq = &ilc->irqs[input];
 
+	if (ilc->disable_wakeup)
+		return 0;
+
 	if (on) {
 		ilc_set_wakeup(ilc_irq);
 		ILC_WAKEUP_ENABLE(ilc->base, input);
@@ -436,6 +440,7 @@ static int __init ilc_probe(struct platform_device *pdev)
 	ilc->inputs_num = pdata->inputs_num;
 	ilc->outputs_num = pdata->outputs_num;
 	ilc->first_irq = pdata->first_irq;
+	ilc->disable_wakeup = pdata->disable_wakeup;
 
 	ilc->base = ioremap(memory->start, memory_size);
 	ilc->irqs = kzalloc(sizeof(struct ilc_irq) * ilc->inputs_num,

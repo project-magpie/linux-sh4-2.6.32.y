@@ -46,6 +46,7 @@ static struct platform_device stx7105_sh4_ilc3_device = {
 		.inputs_num = ILC_NR_IRQS,
 		.outputs_num = 16,
 		.first_irq = ILC_FIRST_IRQ,
+		.disable_wakeup = 1,
 	},
 };
 

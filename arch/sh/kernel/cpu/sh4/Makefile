@@ -43,7 +43,7 @@ clock-$(CONFIG_CPU_SUBTYPE_STX7100)	:= clock-stx7100.o
 clock-$(CONFIG_CPU_SUBTYPE_STX7105)	:=
 clock-$(CONFIG_CPU_SUBTYPE_STX7111)	:=
 clock-$(CONFIG_CPU_SUBTYPE_STX7141)	:=
-clock-$(CONFIG_CPU_SUBTYPE_STX7200)	:=
+clock-$(CONFIG_CPU_SUBTYPE_STX7200)	:= clock-stx7200.o
 endif
 
 # Additional clocks by subtype

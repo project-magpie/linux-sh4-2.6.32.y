@@ -1,20 +1,29 @@
-/************************************************************************
-File  : Low Level clock API
-        Common LLA functions (SOC independant)
+/*****************************************************************************
+ *
+ * File name   : clock-common.c
+ * Description : Low Level API - Common LLA functions (SOC independant)
+ *
+ * COPYRIGHT (C) 2009 STMicroelectronics - All Rights Reserved
+ * May be copied or modified under the terms of the GNU General Public
+ * License v2.  See linux/COPYING for more information.
+ *
+ *****************************************************************************/
 
-Author: F. Charpentier <fabrice.charpentier@st.com>
+/* ----- Modification history (most recent first)----
+11/mar/10 fabrice.charpentier@st.com
+	  clk_pll800_get_params() fully revisited.
+10/dec/09 francesco.virlinzi@st.com
+	  clk_pll1600_get_params() now same code for OS21 & Linux.
+13/oct/09 fabrice.charpentier@st.com
+	  clk_fsyn_get_rate() API changed. Now returns error code.
+30/sep/09 fabrice.charpentier@st.com
+	  Introducing clk_pll800_get_rate() & clk_pll1600_get_rate() to
+	  replace clk_pll800_freq() & clk_pll1600_freq().
+*/
 
-Copyright (C) 2008 STMicroelectronics
-************************************************************************/
-
-#if defined(ST_OS21)
-#include <math.h>
-#include "clock.h"
-
-#else   /* Linux */
 
 #include <linux/clk.h>
-#include <linux/math64.h>
+#include <asm-generic/div64.h>
 
 /*
  * Linux specific function
@@ -48,88 +57,216 @@ static unsigned int most_significant_set_bit(unsigned int x)
 	/* now count the number of set bits [clz is population(~x)] */
 	return population(x) - 1;
 }
-#endif
 
 #include "clock-oslayer.h"
 #include "clock-common.h"
 
 /* ========================================================================
-   Name:        clk_pll800_freq()
-   Description: Convert PLLx_CFG to freq for PLL800
-   Params:      'input' freq (Hz), 'cfg'=PLLx_CFG register value
+   Name:        clk_pll800_get_rate()
+   Description: Convert input/mdiv/ndiv/pvid values to frequency for PLL800
+   Params:      'input' freq (Hz), mdiv/ndiv/pvid values
+   Output:      '*rate' updated
+   Return:      Error code.
    ======================================================================== */
 
-unsigned long clk_pll800_freq(unsigned long input, unsigned long cfg)
+int clk_pll800_get_rate(unsigned long input, unsigned long mdiv,
+	unsigned long ndiv, unsigned long pdiv, unsigned long *rate)
 {
-	unsigned long freq, ndiv, pdiv, mdiv;
+	if (!mdiv)
+		mdiv++; /* mdiv=0 or 1 => MDIV=1 */
 
-	mdiv = (cfg >>  0) & 0xff;
-	ndiv = (cfg >>  8) & 0xff;
-	pdiv = (cfg >> 16) & 0x7;
-	freq = (((2 * (input/1000) * ndiv) / mdiv) / (1 << pdiv)) * 1000;
+	/* Note: input is divided by 1000 to avoid overflow */
+	*rate = (((2 * (input/1000) * ndiv) / mdiv) / (1 << pdiv)) * 1000;
 
-	return freq;
+	return 0;
 }
 
 /* ========================================================================
-   Name:        clk_pll1600_freq()
-   Description: Convert PLLx_CFG to freq for PLL1600
-                Always returns HS output value.
-   Params:      'input' freq (Hz), 'cfg'=PLLx_CFG register value
+   Name:        clk_pll1600_get_rate()
+   Description: Convert input/mdiv/ndiv values to frequency for PLL1600
+   Params:      'input' freq (Hz), mdiv/ndiv values
+		Info: mdiv also called rdiv, ndiv also called ddiv
+   Output:      '*rate' updated with value of HS output.
+   Return:      Error code.
    ======================================================================== */
 
-unsigned long clk_pll1600_freq(unsigned long input, unsigned long cfg)
+int clk_pll1600_get_rate(unsigned long input, unsigned long mdiv,
+			 unsigned long ndiv, unsigned long *rate)
 {
-	unsigned long freq, ndiv, mdiv;
+	if (!mdiv)
+		return CLK_ERR_BAD_PARAMETER;
 
-	mdiv = (cfg >>  0) & 0x7;
-	ndiv = (cfg >>  8) & 0xff;
-	freq = ((2 * (input/1000) * ndiv) / mdiv) * 1000;
+	/* Note: input is divided by 1000 to avoid overflow */
+	*rate = ((2 * (input/1000) * ndiv) / mdiv) * 1000;
 
-	return freq;
+	return 0;
+}
+
+/* ========================================================================
+   Name:        clk_pll800_get_params()
+   Description: Freq to parameters computation for PLL800
+   Input:       input & output freqs (Hz)
+   Output:      updated *mdiv, *ndiv & *pdiv (register values)
+   Return:      'clk_err_t' error code
+   ======================================================================== */
+/*
+ * PLL800 in FS mode computation algo
+ *
+ *             2 * N * Fin Mhz
+ * Fout Mhz = -----------------		[1]
+ *                M * (2 ^ P)
+ *
+ * Rules:
+ *   6.25Mhz <= output <= 800Mhz
+ *   FS mode means 3 <= N <= 255
+ *   1 <= M <= 255
+ *   1Mhz <= PFDIN (input/M) <= 50Mhz
+ *   200Mhz <= FVCO (input*2*N/M) <= 800Mhz
+ *   For better long term jitter select M minimum && P maximum
+ */
+
+int clk_pll800_get_params(unsigned long input, unsigned long output,
+	unsigned long *mdiv, unsigned long *ndiv, unsigned long *pdiv)
+{
+	const long p[] = { 1, 2, 4, 8, 16, 32 };
+	unsigned long m, n, pfdin, fvco;
+	unsigned long deviation, new_freq;
+	long new_deviation, pi;
+
+	/* Output clock range: 6.25Mhz to 800Mhz */
+	if (output < 6250000 || output > 800000000)
+		return CLK_ERR_BAD_PARAMETER;
+
+	input /= 1000;
+	output /= 1000;
+
+	deviation = output;
+	for (pi = 5; pi > 0 && deviation; pi--) {
+		for (m = 1; (m < 255) && deviation; m++) {
+			n = m * p[pi] * output / (input * 2);
+
+			/* Checks */
+			if (n < 3)
+				continue;
+			if (n > 255)
+				break;
+			pfdin = input / m; /* 1Mhz <= PFDIN <= 50Mhz */
+			if (pfdin < 1000 || pfdin > 50000)
+				continue;
+			/* 200Mhz <= FVCO <= 800Mhz */
+			fvco = (input * 2 * n) / m;
+			if (fvco > 800000)
+				continue;
+			if (fvco < 200000)
+				break;
+
+			new_freq = (input * 2 * n) / (m * p[pi]);
+			new_deviation = new_freq - output;
+			if (new_deviation < 0)
+				new_deviation = -new_deviation;
+			if (!new_deviation || new_deviation < deviation) {
+				*mdiv	= m;
+				*ndiv	= n;
+				*pdiv	= pi;
+				deviation = new_deviation;
+			}
+		}
+	}
+
+	if (deviation == output) /* No solution found */
+		return CLK_ERR_BAD_PARAMETER;
+
+    return 0;
+}
+
+/* ========================================================================
+   Name:        clk_pll1600_get_params()
+   Description: Freq to parameters computation for PLL1600
+   Input:       input,output=input/output freqs (Hz)
+   Output:      updated *mdiv (rdiv) & *ndiv (ddiv)
+   Return:      'clk_err_t' error code
+   ======================================================================== */
+
+
+/*
+ * Rules:
+ *   600Mhz <= output (FVCO) <= 1800Mhz
+ *   1 <= M (also called R) <= 7
+ *   4 <= N <= 255
+ *   4Mhz <= PFDIN (input/M) <= 75Mhz
+ */
+
+int clk_pll1600_get_params(unsigned long input, unsigned long output,
+			   unsigned long *mdiv, unsigned long *ndiv)
+{
+	unsigned long m, n, pfdin, fvco;
+	unsigned long deviation, new_freq;
+	long new_deviation;
+
+	/* Output clock range: 600Mhz to 1800Mhz */
+	if (output < 600000000 || output > 1800000000)
+		return CLK_ERR_BAD_PARAMETER;
+
+	input /= 1000;
+	output /= 1000;
+
+	deviation = output;
+	for (m = 1; (m < 7) && deviation; m++) {
+		n = m * output / (input * 2);
+
+		/* Checks */
+		if (n < 4)
+			continue;
+		if (n > 255)
+			break;
+		pfdin = input / m; /* 4Mhz <= PFDIN <= 75Mhz */
+		if (pfdin < 4000 || pfdin > 75000)
+			continue;
+
+		new_freq = (input * 2 * n) / m;
+		new_deviation = new_freq - output;
+		if (new_deviation < 0)
+			new_deviation = -new_deviation;
+		if (!new_deviation || new_deviation < deviation) {
+			*mdiv	= m;
+			*ndiv	= n;
+			deviation = new_deviation;
+		}
+	}
+
+	if (deviation == output) /* No solution found */
+		return CLK_ERR_BAD_PARAMETER;
+
+	return 0;
 }
 
 /* ========================================================================
    Name:        clk_fsyn_get_rate()
-   Description: Parameters to freq computation for frequency synthesizers
+   Description: Parameters to freq computation for frequency synthesizers.
+		WARNING: parameters are HARDWARE CODED values, not the one
+		used in formula.
    ======================================================================== */
 
 /* This has to be enhanced to support several Fsyn types */
 
-unsigned long clk_fsyn_get_rate(unsigned long input, unsigned long pe,
-		unsigned long md, unsigned long sd)
+int clk_fsyn_get_rate(unsigned long input, unsigned long pe,
+		unsigned long md, unsigned long sd, unsigned long *rate)
 {
-#ifdef ST_OS21
-
-    unsigned long rate,ref;
-    int pediv,mddiv,sddiv;
-
-    pediv = (pe&0xffff);
-    mddiv =(md&0x1f);
-    mddiv = ( mddiv - 32 );
-    sddiv =(sd&0x7);
-    sddiv = pow(2,(sddiv+1));
-
-    ref = input / 1000000;
-
-    rate = ((pow(2,15)*(ref*8))/(sddiv*((pediv*(1.0+mddiv/32.0))-((pediv-pow(2,15))*(1.0+(mddiv+1.0)/32.0)))))*1000000;
-
-    return(rate);
-
-#else   /* Linux: does not allow use of FPU in kernel space */
-
+	int md2 = md;
 	long long p, q, r, s, t, u;
+	if (md & 0x10)
+		md2 = md | 0xfffffff0;/* adjust the md sign */
+
+	input *= 8;
 
 	p = 1048576ll * input;
-	q = 32768 * md;
+	q = 32768 * md2;
 	r = 1081344 - pe;
 	s = r + q;
 	t = (1 << (sd + 1)) * s;
-	u = div64_u64(p, t);
+	*rate = div64_u64(p, t);
 
-	return u;
-
- #endif
+	return 0;
 }
 
 /* ========================================================================
@@ -137,59 +274,18 @@ unsigned long clk_fsyn_get_rate(unsigned long input, unsigned long pe,
    Description: Freq to parameters computation for frequency synthesizers
    Input:       input=input freq (Hz), output=output freq (Hz)
    Output:      updated *md, *pe & *sdiv
+		WARNING: parameters are HARDWARE CODED values, not the one
+		used in formula.
    Return:      'clk_err_t' error code
    ======================================================================== */
 
-/* This has to be enhanced to support several Fsyn types */
+/* This has to be enhanced to support several Fsyn types.
+   Currently based on C090_4FS216_25. */
 
-int clk_fsyn_get_params(int input, int output, int *md, int *pe, int *sdiv)
+int clk_fsyn_get_params(unsigned long input, unsigned long output,
+			unsigned long *md, unsigned long *pe,
+			unsigned long *sdiv)
 {
-#ifdef ST_OS21
-
-    double fr, Tr, Td1, Tx, fmx, nd1, nd2, Tdif;
-    int NTAP, msdiv, mfmx, ndiv, fout;
-
-    NTAP = 32;
-    mfmx = 0;
-
-    ndiv = 1.0;
-
-    fr = input * 8.0;
-    Tr = 1.0 / fr;
-    Td1 = 1.0 / (NTAP * fr);
-    msdiv = 0;
-
-    /* Looking for SDIV */
-    while (! ((mfmx >= (input*8)) && (mfmx <= (input*16))) && (msdiv < 7))
-    {
-        msdiv = msdiv + 1;
-        mfmx = pow(2,msdiv) * output;
-    }
-
-    *sdiv = msdiv - 1;
-    fmx = mfmx / (float)1000000.0;
-    if ((fmx < (8*input)) || (fmx > (16*input)))
-    {
-        return(CLK_ERR_BAD_PARAMETER);
-    }
-
-    Tx = 1 / (fmx * 1000000.0);
-
-    Tdif = Tr - Tx;
-
-    /* Looking for MD */
-    nd1 = floor((32.0 * (mfmx - fr) / mfmx));
-    nd2 = nd1 + 1.0;
-
-    *md = 32.0 - nd2;
-
-    /* Looking for PE */
-    *pe = ceil((32.0 * (mfmx - fr) / mfmx - nd1) * 32768.0);
-
-    return(0);
-
-#else   /* Linux */
-
 	unsigned long long p, q;
 	unsigned int predivide;
 	int preshift; /* always +ve but used in subtraction */
@@ -198,7 +294,7 @@ int clk_fsyn_get_params(int input, int output, int *md, int *pe, int *sdiv)
 	unsigned int lpe = 1 << 14;
 
 	/* pre-divide the frequencies */
-	p = 1048576ull * input;    /* <<20? */
+	p = 1048576ull * input * 8;    /* <<20? */
 	q = output;
 
 	predivide = (unsigned int)div64_u64(p, q);
@@ -240,86 +336,5 @@ int clk_fsyn_get_params(int input, int output, int *md, int *pe, int *sdiv)
 
 	/* return 0 if all variables meet their contraints */
 	return (lsdiv <= 7 && -16 <= lmd && lmd <= -1 && lpe <= 32767) ? 0 : -1;
-
-#endif
 }
 
-/* ========================================================================
-   Name:        clk_err_string
-   Description: Convert LLA error code to string.
-   Returns:     const char *ErrMessage
-   ======================================================================== */
-
-const char *clk_err_string(int err)
-{
-    static const char *errors[]={"unknown error","feature not supported","bad parameter","fatal error"};
-    if ( err > CLK_ERR_INTERNAL ) return(errors[0]);
-
-    return(errors[err]);
-}
-
-/* ========================================================================
-   Name:        clk_short_name
-   Description: Returns clock name with prefix skipped (XXX_).
-                "CLKA_DISP_200" becomes "DISP_200".
-   Returns:     const char *ShortName
-   ======================================================================== */
-
-const char *clk_short_name(const char *name)
-{
-    const char *Ptr;
-
-    for( Ptr = name; *Ptr && (*Ptr!='_'); Ptr++ );
-    Ptr++;  /* Skipping '_' */
-
-    return(Ptr);
-}
-
-#if !defined(ST_OS21)
-#define TOLLERANCE	5
-#define tollerance	((rate * (TOLLERANCE))/100)
-
-int get_ratio_field(unsigned long rate, unsigned long prate, int *ratios)
-{
-	int idx;
-	unsigned long h_threshold = rate + tollerance;
-	unsigned long l_threshold = rate - tollerance;
-
-	if (!prate || !rate || !ratios)
-		return NO_MORE_RATIO;
-	if (rate > prate)
-		return NO_MORE_RATIO;
-	for (idx = 0; ratios[idx] != NO_MORE_RATIO; ++idx) {
-		if (ratios[idx] == RATIO_RESERVED)
-			continue;
-		if (!ratios[idx])
-			continue;
-		if (prate/ratios[idx] >= l_threshold &&
-		    prate/ratios[idx] <= h_threshold)
-			return idx;
-	}
-	return NO_MORE_RATIO;
-}
-
-int get_xratio_field(unsigned long rate, unsigned long prate,
-	const struct xratio *ratios)
-{
-	int idx;
-	unsigned long h_threshold = rate + tollerance;
-	unsigned long l_threshold = rate - tollerance;
-	if (!prate || !rate || !ratios)
-		return NO_MORE_RATIO;
-	if (rate > prate)
-		return NO_MORE_RATIO;
-	for (idx = 0; ratios[idx].ratio != NO_MORE_RATIO; ++idx) {
-		if (ratios[idx].ratio == RATIO_RESERVED)
-			continue;
-		if (!ratios[idx].ratio)
-			continue;
-		if (prate/ratios[idx].ratio >= l_threshold &&
-		    prate/ratios[idx].ratio <= h_threshold)
-			return idx;
-	}
-	return NO_MORE_RATIO;
-}
-#endif

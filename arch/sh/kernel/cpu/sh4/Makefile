@@ -37,15 +37,13 @@ obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= setup-stx7200.o
 # Primary on-chip clocks (common)
 ifndef CONFIG_CPU_SH4A
 clock-$(CONFIG_CPU_SH4)			:= clock-sh4.o
-clock-$(CONFIG_CPU_SUBTYPE_FLI7510)	:= clock-fli7510.o clock-common.o
-clock-$(CONFIG_CPU_SUBTYPE_STX5197)	:= clock-stx5197.o clock-common.o
-clock-$(CONFIG_CPU_SUBTYPE_STX5206)	:= clock-stx5206.o clock-common.o
-clock-$(CONFIG_CPU_SUBTYPE_STX7100)	:= clock-stx7100.o clock-common.o
-clock-$(CONFIG_CPU_SUBTYPE_STX7105)	:= clock-stx7105.o clock-common.o
-clock-$(CONFIG_CPU_SUBTYPE_STX7108)	:= clock-stx7108.o clock-common.o
-clock-$(CONFIG_CPU_SUBTYPE_STX7111)	:= clock-stx7111.o clock-common.o
-clock-$(CONFIG_CPU_SUBTYPE_STX7141)	:= clock-stx7141.o clock-common.o
-clock-$(CONFIG_CPU_SUBTYPE_STX7200)	:= clock-stx7200.o clock-common.o
+clock-$(CONFIG_CPU_SUBTYPE_STX5197)	:=
+clock-$(CONFIG_CPU_SUBTYPE_STX5206)	:=
+clock-$(CONFIG_CPU_SUBTYPE_STX7100)	:=
+clock-$(CONFIG_CPU_SUBTYPE_STX7105)	:=
+clock-$(CONFIG_CPU_SUBTYPE_STX7111)	:=
+clock-$(CONFIG_CPU_SUBTYPE_STX7141)	:=
+clock-$(CONFIG_CPU_SUBTYPE_STX7200)	:=
 endif
 
 # Additional clocks by subtype

@@ -89,4 +89,3 @@ enum clocks_ID {
 #define CLK_LOCK()		writel(0x100, SYS_SERV_BASE_ADDR + CLK_LOCK_CFG);
 
 #endif
-

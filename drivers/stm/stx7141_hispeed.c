@@ -587,38 +587,10 @@ static int stx7141_usb_enable(struct stm_pad_state *state, void *priv)
 
 	spin_lock(&stx7141_usb_spin_lock);
 
-	/* State shared by all four ports */
-	if ((stx7141_usb_enabled_ports[stx7141_usb_2_ports] +
-	     stx7141_usb_enabled_ports[stx7141_usb_11_ports]) == 0) {
-		/* Select SATA clock */
-		stx7141_usb_phy_clock_sc = sysconf_claim(SYS_CFG,
-				40, 2, 3, "USB");
-		sysconf_write(stx7141_usb_phy_clock_sc, 0);
-
-		if (cpu_data->cut_major >= 2) {
-			/* Enable USB_XTAL_VALID */
-			stx7141_usb_pll_sc = sysconf_claim(SYS_CFG,
-					4, 10, 10, "USB");
-			sysconf_write(stx7141_usb_pll_sc, 1);
-		}
-	}
-
-	/* Select USB 1.1 clock source */
-	if ((port_group == stx7141_usb_11_ports) &&
-	    (stx7141_usb_enabled_ports[stx7141_usb_11_ports] == 0)) {
-		if (cpu_data->cut_major < 2) {
-			/* ENABLE_USB48_CLK: Enable 48 MHz clock */
-			stx7141_usb_clock_sc = sysconf_claim(SYS_CFG,
-					4, 5, 5, "USB");
-			sysconf_write(stx7141_usb_clock_sc, 1);
-		} else {
-			/* ENABLE_USB_CLK: use USB PHY */
-			stx7141_usb_clock_sc = sysconf_claim(SYS_CFG,
-					4, 4, 5, "USB");
-			sysconf_write(stx7141_usb_clock_sc, 3);
-		}
-	}
-
+/*
+ *	The USB clock management is moved in the clock-stx7141.c file
+ *	like any other clock
+ */
 	/* State shared by two ports */
 	if ((stx7141_usb_enabled_ports[port_group] == 0) &&
 	    (cpu_data->cut_major >= 2)) {

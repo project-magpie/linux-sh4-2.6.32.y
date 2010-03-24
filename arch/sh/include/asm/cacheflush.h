@@ -84,6 +84,27 @@ extern void copy_from_user_page(struct vm_area_struct *vma,
 #define flush_dcache_mmap_lock(mapping)		do { } while (0)
 #define flush_dcache_mmap_unlock(mapping)	do { } while (0)
 
+static inline void flush_ioremap_region(unsigned long phys, void __iomem *virt,
+					unsigned offset, size_t size)
+{
+	void *start = (void __force *)virt + offset;
+	__flush_purge_region(start, size);
+}
+
+static inline void writeback_ioremap_region(unsigned long phys, void __iomem *virt,
+					    unsigned offset, size_t size)
+{
+	void *start = (void __force *)virt + offset;
+	__flush_wback_region(start, size);
+}
+
+static inline void invalidate_ioremap_region(unsigned long phys, void __iomem *virt,
+					     unsigned offset, size_t size)
+{
+	void *start = (void __force *)virt + offset;
+	__flush_invalidate_region(start, size);
+}
+
 void kmap_coherent_init(void);
 void *kmap_coherent(struct page *page, unsigned long addr);
 void kunmap_coherent(void *kvaddr);

@@ -880,12 +880,11 @@ static void ath9k_hw_init_mode_gain_regs(struct ath_hw *ah)
 	}
 }
 
-static void ath9k_hw_init_11a_eeprom_fix(struct ath_hw *ah)
+static void ath9k_hw_init_eeprom_fix(struct ath_hw *ah)
 {
 	u32 i, j;
 
-	if ((ah->hw_version.devid == AR9280_DEVID_PCI) &&
-	    test_bit(ATH9K_MODE_11A, ah->caps.wireless_modes)) {
+	if (ah->hw_version.devid == AR9280_DEVID_PCI) {
 
 		/* EEPROM Fixup */
 		for (i = 0; i < ah->iniModes.ia_rows; i++) {
@@ -980,7 +979,7 @@ int ath9k_hw_init(struct ath_hw *ah)
 
 	ath9k_hw_init_mode_gain_regs(ah);
 	ath9k_hw_fill_cap_info(ah);
-	ath9k_hw_init_11a_eeprom_fix(ah);
+	ath9k_hw_init_eeprom_fix(ah);
 
 	r = ath9k_hw_init_macaddr(ah);
 	if (r) {
@@ -1296,6 +1295,16 @@ static void ath9k_hw_override_ini(struct ath_hw *ah,
 	 * Necessary to avoid issues on AR5416 2.0
 	 */
 	REG_WRITE(ah, 0x9800 + (651 << 2), 0x11);
+
+	/*
+	 * Disable RIFS search on some chips to avoid baseband
+	 * hang issues.
+	 */
+	if (AR_SREV_9100(ah) || AR_SREV_9160(ah)) {
+		val = REG_READ(ah, AR_PHY_HEAVY_CLIP_FACTOR_RIFS);
+		val &= ~AR_PHY_RIFS_INIT_DELAY;
+		REG_WRITE(ah, AR_PHY_HEAVY_CLIP_FACTOR_RIFS, val);
+	}
 }
 
 static u32 ath9k_hw_def_ini_fixup(struct ath_hw *ah,

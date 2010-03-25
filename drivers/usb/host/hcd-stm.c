@@ -254,8 +254,10 @@ static void st_usb_shutdown(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-static int st_usb_suspend(struct platform_device *pdev, pm_message_t state)
+#warning [STM] USB-PM: incomplete
+static int stm_usb_suspend(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
 	struct drv_usb_data *dr_data = platform_get_drvdata(pdev);
 	struct stm_plat_usb_data *pl_data = pdev->dev.platform_data;
 	void *wrapper_base = dr_data->ahb2stbus_wrapper_glue_base;
@@ -263,7 +265,7 @@ static int st_usb_suspend(struct platform_device *pdev, pm_message_t state)
 	long reg;
 	dgb_print("\n");
 
-	if (pl_data->flags & USB_FLAGS_STRAP_PLL) {
+	if (pl_data->flags & STM_PLAT_USB_FLAGS_STRAP_PLL) {
 		/* PLL turned off */
 		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
 		writel(reg | AHB2STBUS_STRAP_PLL,
@@ -282,28 +284,41 @@ static int st_usb_suspend(struct platform_device *pdev, pm_message_t state)
 
 	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 1);
 	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 1);
+
 	return 0;
 }
-static int st_usb_resume(struct platform_device *pdev)
+
+static int stm_usb_resume(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
+	struct drv_usb_data *dr_data = platform_get_drvdata(pdev);
+
 	dgb_print("\n");
 	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 0);
 	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
+
 	st_usb_boot(pdev);
+
 	return 0;
 }
 #else
-#define st_usb_suspend	NULL
-#define st_usb_resume	NULL
+#define stm_usb_suspend NULL
+#define stm_usb_resume NULL
 #endif
 
+static struct dev_pm_ops stm_usb_pm = {
+	.suspend = stm_usb_suspend,  /* on standby/memstandby */
+	.resume = stm_usb_resume,    /* resume from standby/memstandby */
+};
+
 static struct platform_driver st_usb_driver = {
-	.driver.name = "stm-usb",
-	.driver.owner = THIS_MODULE,
+	.driver = {
+		.name = "stm-usb",
+		.owner = THIS_MODULE,
+		.pm = &stm_usb_pm,
+	},
 	.probe = st_usb_probe,
 	.shutdown = st_usb_shutdown,
-	.suspend = st_usb_suspend,
-	.resume = st_usb_resume,
 	.remove = st_usb_remove,
 };
 

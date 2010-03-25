@@ -611,5 +611,10 @@ int __init plat_clk_init(void)
 		clk_enable(clk);
 	}
 
+	if (cpu_data->cut_major < 2)
+		for (i = 1; i < ARRAY_SIZE(sh4clks); ++i)
+			if (!clk_register(&sh4clks[i]))
+				clk_enable(&sh4clks[i]);
+
 	return ret;
 }

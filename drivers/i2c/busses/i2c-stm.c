@@ -1193,23 +1193,31 @@ static int iic_stm_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-static int iic_stm_suspend(struct platform_device *pdev, pm_message_t state)
+#warning [STM]: I2C-PM disabled
+static int iic_stm_suspend(struct device *dev)
 {
-	struct iic_ssc *i2c_bus = pdev->dev.driver_data;
+	struct platform_device *pdev =
+		container_of(dev, struct platform_device, dev);
+	struct iic_ssc *i2c_bus = platform_get_drvdata(pdev);
+#if 0
 	struct ssc_pio_t *pio_info =
 		(struct ssc_pio_t *)pdev->dev.platform_data;
-
 	if (pio_info->pio[0].pio_port != SSC_NO_PIO) {
 		stpio_configure_pin(pio_info->clk, STPIO_IN);
 		stpio_configure_pin(pio_info->sdout, STPIO_IN);
 	}
+#endif
 	ssc_store32(i2c_bus, SSC_IEN, 0);
 	ssc_store32(i2c_bus, SSC_CTL, 0);
+
 	return 0;
 }
-static int iic_stm_resume(struct platform_device *pdev)
+static int iic_stm_resume(struct device *dev)
 {
-	struct iic_ssc *i2c_bus = pdev->dev.driver_data;
+	struct platform_device *pdev =
+		container_of(dev, struct platform_device, dev);
+	struct iic_ssc *i2c_bus = platform_get_drvdata(pdev);
+#if 0
 	struct ssc_pio_t *pio_info =
 		(struct ssc_pio_t *)pdev->dev.platform_data;
 
@@ -1219,21 +1227,34 @@ static int iic_stm_resume(struct platform_device *pdev)
 			STPIO_ALT_BIDIR : STPIO_ALT_BIDIR));
 		stpio_configure_pin(pio_info->sdout, STPIO_ALT_BIDIR);
 	}
+#endif
+	/* enable RX, TX FIFOs - clear SR bit */
+	ssc_store32(i2c_bus, SSC_CTL, SSC_CTL_EN |
+		    SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8);
+	ssc_store32(i2c_bus, SSC_I2C, SSC_I2C_I2CM);
 	iic_stm_setup_timing(i2c_bus, clk_get_rate(clk_get(NULL, "comms_clk")));
 	return 0;
 }
 #else
-#define iic_stm_suspend		NULL
-#define	iic_stm_resume		NULL
+#define iic_stm_suspend NULL
+#define iic_stm_resume NULL
 #endif
 
-static struct platform_driver i2c_stm_driver = {
-	.driver.name = "i2c-stm",
-	.driver.owner = THIS_MODULE,
-	.probe = iic_stm_probe,
-	.remove = iic_stm_remove,
+static struct dev_pm_ops stm_i2c_pm_ops = {
 	.suspend = iic_stm_suspend,
 	.resume = iic_stm_resume,
+	.freeze = iic_stm_suspend,
+	.restore = iic_stm_resume,
+};
+
+static struct platform_driver i2c_stm_driver = {
+	.driver = {
+		.name = "i2c-stm",
+		.owner = THIS_MODULE,
+		.pm = &stm_i2c_pm_ops,
+	},
+	.probe = iic_stm_probe,
+	.remove = iic_stm_remove,
 };
 
 static int __init iic_stm_init(void)

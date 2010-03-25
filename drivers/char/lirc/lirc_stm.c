@@ -74,6 +74,7 @@
 #include <linux/init.h>
 #include <linux/uaccess.h>
 #include <linux/device.h>
+#include <linux/pm_runtime.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <linux/irq.h>
@@ -85,7 +86,7 @@
 #include <linux/lirc.h>
 #include <linux/stm/lirc.h>
 #include <linux/stm/platform.h>
-#include <asm/clock.h>
+#include <linux/stm/clk.h>
 #include "lirc_dev.h"
 
 #define LIRC_STM_NAME "lirc-stm"
@@ -106,12 +107,10 @@ static void *irb_base_address;	/* IR block register base address */
 struct lirc_stm_plugin_data_s {
 	int open_count;
 	struct stm_plat_lirc_data *p_lirc_d;
-#ifdef CONFIG_PM
-	pm_message_t prev_state;
-#endif
 };
 
 static struct lirc_stm_plugin_data_s pd;	/* IR data config */
+static struct clk *lirc_sys_clock;
 
 /* LIRC subsytem symbol buffer. managed only via common lirc routines
  * user process read symbols from here  */
@@ -831,8 +830,7 @@ static int lirc_stm_scd_config(unsigned long clk)
 				sizeof(scd_s)))			\
 			return -EFAULT;				\
 		retval = lirc_stm_scd_config(			\
-					clk_get_rate(clk_get	\
-					(NULL, "comms_clk")));	\
+				clk_get_rate(lirc_sys_clock));	\
 		break;						\
 	case LIRC_SCD_ENABLE:					\
 	case LIRC_SCD_DISABLE:					\
@@ -1264,7 +1262,6 @@ lirc_stm_rx_calc_clocks(struct platform_device *pdev, unsigned long baseclock)
 static int lirc_stm_hardware_init(struct platform_device *pdev)
 {
 	struct stm_plat_lirc_data *lirc_pdata;
-	struct clk *clk;
 	unsigned int scwidth;
 	int baseclock;
 
@@ -1277,11 +1274,7 @@ static int lirc_stm_hardware_init(struct platform_device *pdev)
 	/*  Get or calculate the clock and timing adjustment values.
 	 *  We can auto-calculate these in some cases
 	 */
-	if (lirc_pdata->irbclock == 0) {
-		clk = clk_get(NULL, "comms_clk");
-		baseclock = clk_get_rate(clk) / lirc_pdata->sysclkdiv;
-	} else
-		baseclock = lirc_pdata->irbclock;
+	baseclock = clk_get_rate(lirc_sys_clock) / lirc_pdata->sysclkdiv;
 
 	lirc_stm_rx_calc_clocks(pdev, baseclock);
 	/*  Set up the transmit timings  */
@@ -1319,6 +1312,12 @@ static int lirc_stm_probe(struct platform_device *pdev)
 	if (pdev->name == NULL) {
 		pr_err(LIRC_STM_NAME
 		       ": probe failed. Check kernel SoC config.\n");
+		return -ENODEV;
+	}
+
+	lirc_sys_clock = clk_get(NULL, "comms_clk");
+	if (!lirc_sys_clock) {
+		pr_err(LIRC_STM_NAME " system clock not found\n");
 		return -ENODEV;
 	}
 
@@ -1411,6 +1410,12 @@ static int lirc_stm_probe(struct platform_device *pdev)
 
 		/* enable signal detection */
 		ret = lirc_stm_hardware_init(pdev);
+
+		device_set_wakeup_capable(&pdev->dev, 1);
+		/* by default the device is on */
+		pm_runtime_set_active(&pdev->dev);
+		pm_suspend_ignore_children(&pdev->dev, 1);
+		pm_runtime_enable(&pdev->dev);
 	}
 	return ret;
 }
@@ -1423,75 +1428,91 @@ static void lirc_stm_rx_restore(void)
 	writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
 	writel(0x01, IRB_RX_EN);
 	/* clean the buffer */
-	lirc_stm_reset_rx_data();
+	lirc_stm_rx_reset_data();
 }
 
-static int lirc_stm_suspend(struct platform_device *pdev, pm_message_t state)
+static int lirc_stm_suspend(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
 	struct stm_plat_lirc_data *lirc_pdata = NULL;
-	unsigned long tmp;
 
 	lirc_pdata = pdev->dev.platform_data;
-	pd.prev_state = state;
-	switch (state.event) {
-	case PM_EVENT_SUSPEND:
-		if (device_may_wakeup(&(pdev->dev))) {
-			/* need for the resuming phase */
-			lirc_stm_rx_flush();
-			lirc_stm_rx_calc_clocks(pdev,
-						lirc_pdata->clk_on_low_power);
-			lirc_stm_scd_config(lirc_pdata->clk_on_low_power);
-			lirc_stm_rx_restore();
-			lirc_stm_scd_restart();
-			return 0;
-		}
-	case PM_EVENT_FREEZE:
-		/* disable IR RX/TX interrupts plus clear status */
-		writel(0x00, IRB_RX_EN);
-		writel(0xff, IRB_RX_INT_CLEAR);
-		writel(0x00, IRB_TX_ENABLE);
-		writel(0x1e, IRB_TX_INT_CLEAR);
-		/* disabling LIRC irq request */
-		/* flush LIRC plugin data */
-		lirc_stm_reset_rx_data();
-		break;
-	}
 
-	return 0;
-}
-
-static int lirc_stm_resume(struct platform_device *pdev)
-{
-	switch (pd.prev_state.event) {
-	case PM_EVENT_FREEZE:
-		lirc_stm_hardware_init(pdev);
-		/* there was I really open device ? */
-		if (pd.open_count > 0) {
-			/* enable interrupts and receiver */
-			writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
-			writel(0x01, IRB_RX_EN);
-		}
-		break;
-	case PM_EVENT_SUSPEND:
-		lirc_stm_hardware_init(pdev);
+	if (device_may_wakeup(&pdev->dev)) {
+		/* need for the resuming phase */
+		lirc_stm_rx_flush();
+		lirc_stm_rx_calc_clocks(pdev, clk_get_rate(lirc_sys_clock));
+		lirc_stm_scd_config(clk_get_rate(lirc_sys_clock));
 		lirc_stm_rx_restore();
 		lirc_stm_scd_restart();
-		break;
 	}
-	pd.prev_state = PMSG_ON;
+
 	return 0;
 }
-#else
-#define lirc_stm_suspend	NULL
-#define lirc_stm_resume		NULL
+
+static int lirc_stm_resume(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+
+	lirc_stm_hardware_init(pdev);
+	lirc_stm_rx_restore();
+	lirc_stm_scd_restart();
+
+	return 0;
+}
+
+static int lirc_stm_freeze(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct stm_plat_lirc_data *lirc_pdata = NULL;
+
+	lirc_pdata = pdev->dev.platform_data;
+
+	/* disable IR RX/TX interrupts plus clear status */
+	writel(0x00, IRB_RX_EN);
+	writel(0xff, IRB_RX_INT_CLEAR);
+	/* disabling LIRC irq request */
+	/* flush LIRC plugin data */
+	lirc_stm_rx_reset_data();
+
+	return 0;
+}
+
+static int lirc_stm_restore(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+
+	lirc_stm_hardware_init(pdev);
+	/* there was I really open device ? */
+	if (pd.open_count > 0) {
+		/* enable interrupts and receiver */
+		writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
+		writel(0x01, IRB_RX_EN);
+	}
+
+	return 0;
+}
+
+static struct dev_pm_ops stm_lirc_pm_ops = {
+	.suspend = lirc_stm_suspend,	/* on standby/memstandby */
+	.resume = lirc_stm_resume,	/* resume from standby/memstandby */
+	.freeze = lirc_stm_freeze,	/* hibernation */
+	.restore = lirc_stm_restore,	/* resume from hibernation */
+	.runtime_suspend = lirc_stm_suspend,
+	.runtime_resume = lirc_stm_resume,
+};
 #endif
 
 static struct platform_driver lirc_device_driver = {
-	.driver.name = LIRC_STM_NAME,
+	.driver = {
+		.name = LIRC_STM_NAME,
+		.owner	= THIS_MODULE,
+#ifdef CONFIG_PM
+		.pm     = &stm_lirc_pm_ops,
+#endif
+	},
 	.probe = lirc_stm_probe,
 	.remove = lirc_stm_remove,
-	.suspend = lirc_stm_suspend,
-	.resume = lirc_stm_resume,
 };
 
 static struct file_operations lirc_stm_fops = {

@@ -620,7 +620,7 @@ static struct stx7141_pio_sysconf stx7141_pio_sysconfs[][8] = {
 };
 
 static int stx7141_pio_config(unsigned gpio,
-		enum stm_pad_gpio_direction direction, int function)
+		enum stm_pad_gpio_direction direction, int function, void *priv)
 {
 	int port = stm_gpio_port(gpio);
 	int pin = stm_gpio_pin(gpio);

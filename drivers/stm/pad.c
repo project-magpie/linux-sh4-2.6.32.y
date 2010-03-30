@@ -94,13 +94,15 @@ static DEFINE_MUTEX(stm_pad_mutex);
 
 static int stm_pad_gpio_function;
 static int (*stm_pad_gpio_config)(unsigned gpio,
-		enum stm_pad_gpio_direction direction, int function);
+		enum stm_pad_gpio_direction direction,
+		int function, void *priv);
 
 
 
 int __init stm_pad_init(int gpios_num, int gpio_function,
 			int (*gpio_config)(unsigned gpio,
-			enum stm_pad_gpio_direction direction, int function))
+			enum stm_pad_gpio_direction direction,
+			int function, void *priv))
 {
 	BUG_ON(!gpio_config);
 
@@ -148,7 +150,7 @@ static int __stm_pad_claim(struct stm_pad_config *config,
 		stm_pad_gpios[gpio] = stm_pad_gpio_claimed;
 
 		if (stm_pad_gpio_config(gpio, pad_gpio->direction,
-				pad_gpio->function) != 0) {
+				pad_gpio->function, pad_gpio->priv) != 0) {
 			i++; /* Current GPIO must be released as well... */
 			goto error_gpios;
 		}
@@ -441,7 +443,7 @@ unsigned stm_pad_gpio_request_input(struct stm_pad_state *state,
 	if (pad_gpio && __stm_pad_gpio_request(pad_gpio, state->owner) == 0) {
 		gpio_direction_input(pad_gpio->gpio);
 		stm_pad_gpio_config(pad_gpio->gpio, stm_pad_gpio_direction_in,
-				stm_pad_gpio_function);
+				stm_pad_gpio_function, pad_gpio->priv);
 
 		result = pad_gpio->gpio;
 	}
@@ -460,7 +462,7 @@ unsigned stm_pad_gpio_request_output(struct stm_pad_state *state,
 		BUG_ON(value > 1);
 		gpio_direction_output(pad_gpio->gpio, value);
 		stm_pad_gpio_config(pad_gpio->gpio, stm_pad_gpio_direction_out,
-				stm_pad_gpio_function);
+				stm_pad_gpio_function, pad_gpio->priv);
 
 		result = pad_gpio->gpio;
 	}
@@ -484,7 +486,7 @@ void stm_pad_gpio_free(struct stm_pad_state *state, unsigned gpio)
 			gpio_free(gpio);
 
 			stm_pad_gpio_config(gpio, pad_gpio->direction,
-					pad_gpio->function);
+					pad_gpio->function, pad_gpio->priv);
 
 			return;
 		}
@@ -667,7 +669,22 @@ int __init stm_pad_set_gpio(struct stm_pad_config *config, const char *name,
 	return result;
 }
 
-int __init stm_pad_set_gpio_direction_function(struct stm_pad_config *config,
+int __init stm_pad_set_priv(struct stm_pad_config *config, const char *name,
+		void *priv)
+{
+	int result = -EINVAL;
+	struct stm_pad_gpio *pad_gpio = stm_pad_find_gpio(config, name);
+
+	WARN_ON(!pad_gpio);
+	if (pad_gpio) {
+		pad_gpio->priv = priv;
+		result = 0;
+	}
+
+	return result;
+}
+
+int __init stm_pad_set_direction_function(struct stm_pad_config *config,
 		const char *name, enum stm_pad_gpio_direction direction,
 		int out_value, int function)
 {

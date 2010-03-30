@@ -49,6 +49,7 @@ struct stm_pad_gpio {
 	int out_value;
 	int function;
 	const char *name;
+	void *priv;
 };
 
 #define STM_PAD_PIO_IN(_port, _pin, _function) \
@@ -191,7 +192,8 @@ struct stm_pad_config {
 
 int stm_pad_init(int gpios_num, int gpio_function,
 			int (*gpio_config)(unsigned gpio,
-			enum stm_pad_gpio_direction direction, int function));
+			enum stm_pad_gpio_direction direction,
+			int function, void *priv));
 
 
 
@@ -254,6 +256,9 @@ int stm_pad_set_gpio_direction_function(struct stm_pad_config *config,
 #define stm_pad_set_pio_ignored(config, name) \
 	stm_pad_set_gpio_direction_function(config, name, \
 			stm_pad_gpio_direction_ignored, -1, -1)
+
+int stm_pad_set_priv(struct stm_pad_config *config, const char *name,
+		void *priv);
 
 
 

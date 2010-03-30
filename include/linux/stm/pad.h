@@ -237,24 +237,24 @@ int stm_pad_set_gpio(struct stm_pad_config *config, const char *name,
 #define stm_pad_set_pio(config, name, port, pin) \
 	stm_pad_set_gpio(config, name, stm_gpio(port, pin))
 
-int stm_pad_set_gpio_direction_function(struct stm_pad_config *config,
+int stm_pad_set_direction_function(struct stm_pad_config *config,
 		const char *name, enum stm_pad_gpio_direction direction,
 		int out_value, int function);
 
 #define stm_pad_set_pio_in(config, name, function) \
-	stm_pad_set_gpio_direction_function(config, name, \
+	stm_pad_set_direction_function(config, name, \
 			stm_pad_gpio_direction_in, -1, function)
 
 #define stm_pad_set_pio_out(config, name, function) \
-	stm_pad_set_gpio_direction_function(config, name, \
+	stm_pad_set_direction_function(config, name, \
 			stm_pad_gpio_direction_out, -1, function)
 
 #define stm_pad_set_pio_bidir(config, name, function) \
-	stm_pad_set_gpio_direction_function(config, name, \
+	stm_pad_set_direction_function(config, name, \
 			stm_pad_gpio_direction_bidir, -1, function)
 
 #define stm_pad_set_pio_ignored(config, name) \
-	stm_pad_set_gpio_direction_function(config, name, \
+	stm_pad_set_direction_function(config, name, \
 			stm_pad_gpio_direction_ignored, -1, -1)
 
 int stm_pad_set_priv(struct stm_pad_config *config, const char *name,

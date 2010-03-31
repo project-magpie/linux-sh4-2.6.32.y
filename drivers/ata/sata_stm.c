@@ -880,7 +880,6 @@ static int stm_port_start (struct ata_port *ap)
 	struct device *dev = ap->host->dev;
 	struct stm_host_priv *hpriv = ap->host->private_data;
 	struct stm_port_priv *pp;
-	int rc;
 
 	pp = devm_kzalloc(dev, sizeof(*pp), GFP_KERNEL);
 	if (pp == NULL)

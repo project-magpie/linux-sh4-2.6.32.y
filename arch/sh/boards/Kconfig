@@ -546,6 +546,18 @@ config SH_ST_MB796
 	  Select this if configuring for an STMicroelectronics STx5289
 	  Validation Board (product code: STi5289-MBOARD, ST board ID: mb796).
 
+config SH_ST_MB837
+	bool "mb837: STx7108 Validation board"
+	depends on CPU_SUBTYPE_STX7108
+	select SH_ST_STEM
+	select SH_ST_STPM_HD_V2
+	select SYS_SUPPORTS_PCI
+	default n
+	help
+	  Select STx7108 Validation if configuring for an
+	  STMicroelectronics STx7108 Validation Board (product code:
+	  STi7108-MBOARD, ST board ID: mb837).
+
 config SH_ST_MB839
 	bool "mb839: STi7105 Reference Board"
 	depends on CPU_SUBTYPE_STX7105

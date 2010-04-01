@@ -1,0 +1,234 @@
+/*
+ * arch/sh/boards/mach-mb837/setup.c
+ *
+ * Copyright (C) 2010 STMicroelectronics Limited
+ * Author: Pawel Moll <pawel.moll@st.com>
+ *
+ * May be copied or modified under the terms of the GNU General Public
+ * License.  See linux/COPYING for more information.
+ *
+ * STMicroelectronics STi7108 processor board support.
+ */
+
+#include <linux/init.h>
+#include <linux/platform_device.h>
+#include <linux/delay.h>
+#include <linux/i2c.h>
+#include <linux/i2c/pcf857x.h>
+#include <linux/leds.h>
+#include <linux/phy.h>
+#include <linux/gpio.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/stx7108.h>
+#include <asm/irq.h>
+
+
+/* PCF8575 I2C PIO Extender (IC12) */
+#define PIO_EXTENDER_BASE 220
+#define PIO_EXTENDER_GPIO(port, pin) (PIO_EXTENDER_BASE + (port * 8) + (pin))
+
+
+
+#define MB837_NOTPIORESETMII0 PIO_EXTENDER_GPIO(1, 1)
+#define MB837_NOTPIORESETMII1 PIO_EXTENDER_GPIO(1, 2)
+
+
+
+static void __init mb837_setup(char **cmdline_p)
+{
+	printk(KERN_INFO "STMicroelectronics STi7108-MBOARD (mb837) "
+			"initialisation\n");
+
+	stx7108_early_device_init();
+
+	stx7108_configure_asc(2, &(struct stx7108_asc_config) {
+			.hw_flow_control = 1,
+			.is_console = 1, });
+	stx7108_configure_asc(3, &(struct stx7108_asc_config) {
+			.routing.asc3.txd = stx7108_asc3_txd_pio21_0,
+			.routing.asc3.rxd = stx7108_asc3_rxd_pio21_1,
+			.routing.asc3.cts = stx7108_asc3_cts_pio21_4,
+			.routing.asc3.rts = stx7108_asc3_rts_pio21_3,
+			.hw_flow_control = 1, });
+}
+
+
+
+static struct platform_device mb837_led = {
+	.name = "leds-gpio",
+	.id = -1,
+	.dev.platform_data = &(struct gpio_led_platform_data) {
+		.num_leds = 1,
+		.leds = (struct gpio_led[]) {
+			{
+				.name = "Heartbeat (LD6)", /* J23 1-2 */
+				.default_trigger = "heartbeat",
+				.gpio = stm_gpio(5, 4),
+			},
+		},
+	},
+};
+
+
+
+/* J14-B must be fitted */
+static int mb837_mii0_phy_reset(void *bus)
+{
+	static int requested;
+
+	if (!requested && gpio_request(MB837_NOTPIORESETMII0,
+				"notPioResetMii0") == 0) {
+		gpio_direction_output(MB837_NOTPIORESETMII0, 1);
+		requested = 1;
+	} else {
+		pr_warning("mb837: Failed to request notPioResetMii0!\n");
+	}
+
+	if (requested) {
+		gpio_set_value(MB837_NOTPIORESETMII0, 0);
+		udelay(15000);
+		gpio_set_value(MB837_NOTPIORESETMII0, 1);
+	}
+
+	return 0;
+}
+
+/* J14-A must be fitted */
+static int mb837_mii1_phy_reset(void *bus)
+{
+	static int requested;
+
+	if (!requested && gpio_request(MB837_NOTPIORESETMII1,
+				"notPioResetMii1") == 0) {
+		gpio_direction_output(MB837_NOTPIORESETMII1, 1);
+		requested = 1;
+	} else {
+		pr_warning("mb837: Failed to request notPioResetMii1!\n");
+	}
+
+	if (requested) {
+		gpio_set_value(MB837_NOTPIORESETMII1, 0);
+		udelay(15000);
+		gpio_set_value(MB837_NOTPIORESETMII1, 1);
+	}
+
+	return 0;
+}
+
+static struct platform_device mb837_phy_devices[] = {
+	{
+		.name = "stmmacphy",
+		.id = 0,
+		.dev.platform_data = &(struct plat_stmmacphy_data) {
+			.bus_id = 0,
+			.phy_addr = -1,
+			.phy_mask = 0,
+			.interface = PHY_INTERFACE_MODE_MII,
+			.phy_reset = &mb837_mii0_phy_reset,
+		},
+	}, {
+		.name = "stmmacphy",
+		.id = 1,
+		.dev.platform_data = &(struct plat_stmmacphy_data) {
+			.bus_id = 1,
+			.phy_addr = -1,
+			.phy_mask = 0,
+			.interface = PHY_INTERFACE_MODE_MII,
+			.phy_reset = &mb837_mii1_phy_reset,
+		},
+	}
+};
+
+
+
+/* PCF8575 I2C PIO Extender (IC12) */
+static struct i2c_board_info mb837_pio_extender = {
+	I2C_BOARD_INFO("pcf857x", 0x27),
+	.type = "pcf8575",
+	.platform_data = &(struct pcf857x_platform_data) {
+		.gpio_base = PIO_EXTENDER_BASE,
+	},
+};
+
+
+
+static struct platform_device *mb837_devices[] __initdata = {
+	&mb837_led,
+	&mb837_phy_devices[0],
+	&mb837_phy_devices[1],
+};
+
+
+
+static int __init mb837_devices_init(void)
+{
+	int ssc2_i2c;
+
+	/* MII1 & TS Connectors (inc. Cable Card one) - J42E & J42G */
+	stx7108_configure_ssc_i2c(0, NULL);
+
+	/* STRec to going to MB705 - J41C & J41D */
+	stx7108_configure_ssc_i2c(1, NULL);
+	/* MII0 & PIO Extender - J42A & J42C */
+	ssc2_i2c = stx7108_configure_ssc_i2c(2, &(struct stx7108_ssc_config) {
+			.routing.ssc2.sclk = stx7108_ssc2_sclk_pio1_3,
+			.routing.ssc2.mtsr = stx7108_ssc2_mtsr_pio1_4, });
+	/* NIM AB - J25 1-2 & J27 1-2 */
+	stx7108_configure_ssc_i2c(3, NULL);
+	/* NIM CDI - J24 1-2 & J26 1-2 */
+	stx7108_configure_ssc_i2c(5, NULL);
+	/* HDMI - J55C & J55D */
+	stx7108_configure_ssc_i2c(6, NULL);
+
+	/* PIO extender is connected to SSC2 */
+	i2c_register_board_info(ssc2_i2c, &mb837_pio_extender, 1);
+
+	stx7108_configure_lirc(&(struct stx7108_lirc_config) {
+			.rx_mode = stx7108_lirc_rx_mode_ir,
+			.tx_enabled = 1,
+			.tx_od_enabled = 1, });
+
+	/* J56A & J56B fitted */
+	stx7108_configure_usb(0);
+	/* J53A & J53B fitted */
+	stx7108_configure_usb(1);
+	/* J53C & J53D fitted */
+	stx7108_configure_usb(2);
+
+	stx7108_configure_sata(0);
+	stx7108_configure_sata(1);
+
+#if 0
+	stx7108_configure_ethernet(0, (&(struct stx7108_ethernet_config) {
+			.mode = stx7108_ethernet_mode_mii,
+			.ext_clk = 1,
+			.phy_bus = 0, });
+#else
+	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
+			.mode = stx7108_ethernet_mode_mii,
+			.ext_clk = 1,
+			.phy_bus = 1, });
+#endif
+
+	return platform_add_devices(mb837_devices, ARRAY_SIZE(mb837_devices));
+}
+arch_initcall(mb837_devices_init);
+
+
+
+static void __iomem *mb837_ioport_map(unsigned long port, unsigned int size)
+{
+	/* However picking somewhere safe isn't as easy as you might
+	 * think.  I used to use external ROM, but that can cause
+	 * problems if you are in the middle of updating Flash. So I'm
+	 * now using the processor core version register, which is
+	 * guaranteed to be available, and non-writable. */
+	return (void __iomem *)CCN_PVR;
+}
+
+struct sh_machine_vector mv_mb837 __initmv = {
+	.mv_name		= "mb837",
+	.mv_setup		= mb837_setup,
+	.mv_nr_irqs		= NR_IRQS,
+	.mv_ioport_map		= mb837_ioport_map,
+};

@@ -85,6 +85,7 @@ static void stx7111_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
 static struct plat_stmmacenet_data stx7111_ethernet_platform_data = {
 	.pbl = 32,
 	.has_gmac = 1,
+	.enh_desc = 1,
 	.fix_mac_speed = stx7111_ethernet_fix_mac_speed,
 };
 

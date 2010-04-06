@@ -36,18 +36,23 @@ int __init coproc_cpu_init(coproc_t * cop)
 #if defined CONFIG_CPU_SUBTYPE_STX7100
 	const unsigned int boot_lookup[] =   { 28, 26 };
 	const unsigned int reset_lookup[]  = { 29, 27 };
+	const int sys_cfg = 2;
 #elif defined CONFIG_CPU_SUBTYPE_STX7105
 	const unsigned int boot_lookup[] =   { 28, 26 };
 	const unsigned int reset_lookup[]  = { 29, 27 };
+	const int sys_cfg = 2;
 #elif defined CONFIG_CPU_SUBTYPE_STX7111
 	const unsigned int boot_lookup[] =   { 28, 26 };
 	const unsigned int reset_lookup[]  = { 29, 27 };
+	const int sys_cfg = 2;
 #elif defined CONFIG_CPU_SUBTYPE_STX7141
 	const unsigned int boot_lookup[] =   { 28, 26 };
 	const unsigned int reset_lookup[]  = { 29, 27 };
+	const int sys_cfg = 2;
 #elif defined CONFIG_CPU_SUBTYPE_STX7200
 	const unsigned int boot_lookup[] =   { 28, 36, 26, 34 };
 	const unsigned int reset_lookup[]  = { 29, 37, 27, 35 };
+	const int sys_cfg = 2;
 #else
 #error Need to define the sysconf configuration for this CPU subtype
 #endif
@@ -56,19 +61,19 @@ int __init coproc_cpu_init(coproc_t * cop)
 	BUG_ON(id >= coproc_info.max_coprs);
 
 	if(!copro_reset_out)
-	if(!(copro_reset_out=sysconf_claim(SYS_CFG, 9, 27, 28, NULL))){
+	if(!(copro_reset_out=sysconf_claim(sys_cfg, 9, 27, 28, NULL))){
 		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_9\n");
 		return 1;
 		}
 
 	if(!cpu_regs[id].boot)
-	if(!(cpu_regs[id].boot = sysconf_claim(SYS_CFG, boot_lookup[id], 0, 31, NULL))){
+	if(!(cpu_regs[id].boot = sysconf_claim(sys_cfg, boot_lookup[id], 0, 31, NULL))){
 		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n", boot_lookup[id]);
 		return 1;
 		}
 
 	if(!cpu_regs[id].reset)
-	if(!(cpu_regs[id].reset = sysconf_claim(SYS_CFG, reset_lookup[id], 0,31, NULL))){
+	if(!(cpu_regs[id].reset = sysconf_claim(sys_cfg, reset_lookup[id], 0,31, NULL))){
 		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n", reset_lookup[id]);
 		return 1;
 		}

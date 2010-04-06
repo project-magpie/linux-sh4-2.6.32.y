@@ -41,7 +41,7 @@ static int enh_desc_get_tx_frame_status(void *data,
 		if (unlikely(p->des01.etx.frame_flushed)) {
 			CHIP_DBG(KERN_ERR "\tframe_flushed error\n");
 			x->tx_frame_flushed++;
-			/*enh_desc_flush_tx_fifo(ioaddr);*/
+			dwmac_dma_flush_tx_fifo(ioaddr);
 		}
 
 		if (unlikely(p->des01.etx.loss_carrier)) {
@@ -69,7 +69,7 @@ static int enh_desc_get_tx_frame_status(void *data,
 
 		if (unlikely(p->des01.etx.underflow_error)) {
 			CHIP_DBG(KERN_ERR "\tunderflow error\n");
-			/*enh_desc_flush_tx_fifo(ioaddr);*/
+			dwmac_dma_flush_tx_fifo(ioaddr);
 			x->tx_underflow++;
 		}
 
@@ -81,7 +81,7 @@ static int enh_desc_get_tx_frame_status(void *data,
 		if (unlikely(p->des01.etx.payload_error)) {
 			CHIP_DBG(KERN_ERR "\tAddr/Payload csum error\n");
 			x->tx_payload_error++;
-			/*enh_desc_flush_tx_fifo(ioaddr);*/
+			dwmac_dma_flush_tx_fifo(ioaddr);
 		}
 
 		ret = -1;

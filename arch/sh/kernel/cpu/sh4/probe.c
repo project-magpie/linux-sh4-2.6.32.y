@@ -209,6 +209,9 @@ int __init detect_cpu_and_cache_system(void)
 			/* 5197 (cut 2.0 = 0x9f02) */
 			boot_cpu_data.type = CPU_STX5197;
 			break;
+		case 0xa000 ... 0xa0ff:
+			boot_cpu_data.type = CPU_FLI7510;
+			break;
 		case 0xa100 ... 0xa1ff:
 			boot_cpu_data.type = CPU_STX7106;
 			break;
@@ -217,6 +220,9 @@ int __init detect_cpu_and_cache_system(void)
 			break;
 		case 0xa300 ... 0xa3ff:
 			boot_cpu_data.type = CPU_STX7108;
+			break;
+		case 0xa500 ... 0xa5ff:
+			boot_cpu_data.type = CPU_FLI7520;
 			break;
 		default:
 			boot_cpu_data.type = CPU_SH_NONE;

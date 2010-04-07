@@ -12,7 +12,11 @@
 #include <linux/platform_device.h>
 #include <linux/hardirq.h>
 
-#if defined(CONFIG_CPU_SUBTYPE_STX5197)
+#if defined(CONFIG_CPU_SUBTYPE_FLI7510)
+#define ILC_FIRST_IRQ	44
+#define ILC_NR_IRQS	128
+#define ILC_IRQ(x)	(ILC_FIRST_IRQ + (x))
+#elif defined(CONFIG_CPU_SUBTYPE_STX5197)
 #define ILC_FIRST_IRQ	33
 #define ILC_NR_IRQS	72
 #define ILC_IRQ(x)	(ILC_FIRST_IRQ + (x))

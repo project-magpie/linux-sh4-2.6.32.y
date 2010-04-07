@@ -18,6 +18,7 @@ obj-$(CONFIG_CPU_SUBTYPE_SH7751)	+= setup-sh7750.o
 obj-$(CONFIG_CPU_SUBTYPE_SH7751R)	+= setup-sh7750.o
 obj-$(CONFIG_CPU_SUBTYPE_SH7760)	+= setup-sh7760.o
 obj-$(CONFIG_CPU_SUBTYPE_SH4_202)	+= setup-sh4-202.o
+obj-$(CONFIG_CPU_SUBTYPE_FLI7510)	+= setup-fli7510.o
 obj-$(CONFIG_CPU_SUBTYPE_ST40STB1)	+= setup-st40ra.o
 obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= setup-stx5197.o
 obj-$(CONFIG_CPU_SUBTYPE_STX5206)	+= setup-stx5206.o
@@ -31,6 +32,7 @@ obj-$(CONFIG_CPU_SUBTYPE_STX7200)	+= setup-stx7200.o
 # Primary on-chip clocks (common)
 ifndef CONFIG_CPU_SH4A
 clock-$(CONFIG_CPU_SH4)			:= clock-sh4.o
+clock-$(CONFIG_CPU_SUBTYPE_FLI7510)	:= clock-fli7510.o clock-common.o
 clock-$(CONFIG_CPU_SUBTYPE_STX5197)	:= clock-stx5197.o clock-common.o
 clock-$(CONFIG_CPU_SUBTYPE_STX5206)	:= clock-stx5206.o clock-common.o
 clock-$(CONFIG_CPU_SUBTYPE_STX7100)	:= clock-stx7100.o clock-common.o

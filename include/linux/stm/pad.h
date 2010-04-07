@@ -137,6 +137,15 @@ struct stm_pad_sysconf {
 		.value = _value, \
 	}
 
+#define STM_PAD_SYS_CFG_BANK(_bank, _regnum, _lsb, _msb, _value) \
+	{ \
+		.regtype = SYS_CFG_BANK##_bank, \
+		.regnum = _regnum, \
+		.lsb = _lsb, \
+		.msb = _msb, \
+		.value = _value, \
+	}
+
 /* We have to do this indirection to allow the first argument to
  * STM_PAD_SYSCONF to be a macro, as used by 5197 for example. */
 #define ___STM_PAD_SYSCONF(_regtype, _regnum, _lsb, _msb, _value) \

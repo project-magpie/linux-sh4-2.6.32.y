@@ -115,6 +115,7 @@ int ilc2irq(unsigned int evtcode)
 {
 	struct ilc *ilc = get_irq_data(evt2irq(evtcode));
 #if	defined(CONFIG_CPU_SUBTYPE_STX5206) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7108) || \
 	defined(CONFIG_CPU_SUBTYPE_STX7111) || \
 	defined(CONFIG_CPU_SUBTYPE_STX7141)
 	unsigned int priority = 7;
@@ -144,6 +145,7 @@ void ilc_irq_demux(unsigned int irq, struct irq_desc *desc)
 {
 	struct ilc *ilc = get_irq_data(irq);
 #if	defined(CONFIG_CPU_SUBTYPE_STX5206) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7108) || \
 	defined(CONFIG_CPU_SUBTYPE_STX7111) || \
 	defined(CONFIG_CPU_SUBTYPE_STX7141)
 	unsigned int priority = 7;
@@ -232,7 +234,8 @@ static unsigned int startup_ilc_irq(unsigned int irq)
 	defined(CONFIG_CPU_SUBTYPE_STX7105) || \
 	defined(CONFIG_CPU_SUBTYPE_STX7200)
 	ILC_SET_PRI(ilc->base, input, priority);
-#elif	defined(CONFIG_CPU_SUBTYPE_STX7141)
+#elif	defined(CONFIG_CPU_SUBTYPE_STX7108) || \
+	defined(CONFIG_CPU_SUBTYPE_STX7141)
 	ILC_SET_PRI(ilc->base, input, 0x0);
 #endif
 
@@ -444,7 +447,7 @@ static int __init ilc_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	for (i = 0; i < ilc->outputs_num; ++i)
-		ilc->priority[i] = kmalloc(sizeof(long) *
+		ilc->priority[i] = kzalloc(sizeof(long) *
 				DIV_ROUND_UP(ilc->inputs_num, 32), GFP_KERNEL);
 
 	ilc_demux_init(pdev);

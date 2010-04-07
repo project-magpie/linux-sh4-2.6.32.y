@@ -332,6 +332,15 @@ config SH_ST_CAB5197
 	  Select STx5197 CAB Reference if configuring for an
 	  STMicroelectronics STx5197 CAB reference Board.
 
+config SH_ST_FLDB
+	bool "fldb: Freeman Lite Development Board"
+	depends on CPU_SUBTYPE_FLI7510
+	select SYS_SUPPORTS_PCI
+	default n
+	help
+	  Select this if configuring for a
+	  Freeman Lite Development Board.
+
 config SH_ST_HDK5289
 	bool "HDK5289 : STx5289 HDK Reference board"
 	depends on CPU_SUBTYPE_STX5206

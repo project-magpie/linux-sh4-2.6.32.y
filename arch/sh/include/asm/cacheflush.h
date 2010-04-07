@@ -4,6 +4,7 @@
 #ifdef __KERNEL__
 
 #include <linux/mm.h>
+#include <asm/stm-l2-cache.h>
 
 /*
  * Cache flushing:
@@ -89,6 +90,7 @@ static inline void flush_ioremap_region(unsigned long phys, void __iomem *virt,
 {
 	void *start = (void __force *)virt + offset;
 	__flush_purge_region(start, size);
+	stm_l2_flush_purge_region(start, size);
 }
 
 static inline void writeback_ioremap_region(unsigned long phys, void __iomem *virt,
@@ -96,6 +98,7 @@ static inline void writeback_ioremap_region(unsigned long phys, void __iomem *vi
 {
 	void *start = (void __force *)virt + offset;
 	__flush_wback_region(start, size);
+	stm_l2_flush_wback_region(start, size);
 }
 
 static inline void invalidate_ioremap_region(unsigned long phys, void __iomem *virt,
@@ -103,6 +106,7 @@ static inline void invalidate_ioremap_region(unsigned long phys, void __iomem *v
 {
 	void *start = (void __force *)virt + offset;
 	__flush_invalidate_region(start, size);
+	stm_l2_flush_invalidate_region(start, size);
 }
 
 void kmap_coherent_init(void);

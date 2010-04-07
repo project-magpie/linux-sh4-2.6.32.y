@@ -18,6 +18,7 @@
 #include <linux/io.h>
 #include <asm/cacheflush.h>
 #include <asm/addrspace.h>
+#include <asm/stm-l2-cache.h>
 
 #ifdef CONFIG_PMB
 
@@ -306,12 +307,15 @@ void dma_cache_sync(struct device *dev, void *vaddr, size_t size,
 	switch (direction) {
 	case DMA_FROM_DEVICE:		/* invalidate only */
 		__flush_invalidate_region(vaddr, size);
+		stm_l2_flush_invalidate_region(vaddr, size);
 		break;
 	case DMA_TO_DEVICE:		/* writeback only */
 		__flush_wback_region(vaddr, size);
+		stm_l2_flush_wback_region(vaddr, size);
 		break;
 	case DMA_BIDIRECTIONAL:		/* writeback and invalidate */
 		__flush_purge_region(vaddr, size);
+		stm_l2_flush_purge_region(vaddr, size);
 		break;
 	default:
 		BUG();

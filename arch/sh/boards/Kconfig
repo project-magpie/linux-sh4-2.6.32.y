@@ -341,6 +341,15 @@ config SH_ST_FLDB
 	  Select this if configuring for a
 	  Freeman Lite Development Board.
 
+config SH_ST_FUDB
+	bool "fudb: Freeman Ultra Development Board"
+	depends on CPU_SUBTYPE_FLI7510
+	select SYS_SUPPORTS_PCI
+	select SND_STM_CONV_DUMMY if SND_STM
+	help
+	  Select this if configuring for a
+	  Freeman Ultra Development Board.
+
 config SH_ST_HDK5289
 	bool "HDK5289 : STx5289 HDK Reference board"
 	depends on CPU_SUBTYPE_STX5206

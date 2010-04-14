@@ -444,11 +444,13 @@ static struct plat_stmmacenet_data stx7108_ethernet_platform_data[] = {
 	{
 		.pbl = 32,
 		.has_gmac = 1,
+		.enh_desc = 1,
 		.fix_mac_speed = stx7108_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7108_configure_ethernet() */
 	}, {
 		.pbl = 32,
 		.has_gmac = 1,
+		.enh_desc = 1,
 		.fix_mac_speed = stx7108_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7108_configure_ethernet() */
 	}

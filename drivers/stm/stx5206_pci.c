@@ -68,48 +68,28 @@ static struct platform_device stx5206_pci_device = {
 	.id = -1,
 	.num_resources = 7,
 	.resource = (struct resource[]) {
-		{
-			.name = "Memory",
 #ifdef CONFIG_32BIT
-			.start = 0xc0000000,
-			.end = 0xdfffffff, /* 512 MB */
+		/* 512 MB */
+		STM_PLAT_RESOURCE_MEM_NAMED("Memory", 0xc0000000, 0x20000000),
 #else
-			.start = 0x08000000,
-			.end = 0x0bffffff, /* 64 MB */
+		/* 64 MB */
+		STM_PLAT_RESOURCE_MEM_NAMED("Memory", 0x08000000, 0x04000000),
 #endif
-			.flags = IORESOURCE_MEM,
-		}, {
+		{
 			.name = "IO",
 			.start = 0x0400,
 			.end = 0xffff,
 			.flags = IORESOURCE_IO,
-		}, {
-			.name = "EMISS",
-			.start = 0xfe400000,
-			.end = 0xfe4017fc,
-			.flags = IORESOURCE_MEM,
-		}, {
-			.name = "PCI-AHB",
-			.start = 0xfe560000,
-			.end = 0xfe5600ff,
-			.flags = IORESOURCE_MEM,
-		}, {
-			.name = "DMA",
-			.start = evt2irq(0x1280),
-			.end = evt2irq(0x1280),
-			.flags = IORESOURCE_IRQ,
-		}, {
-			.name = "Error",
-			.start = evt2irq(0x1200),
-			.end = evt2irq(0x1200),
-			.flags = IORESOURCE_IRQ,
-		}, { /* Keep this one last */
-			.name = "SERR",
-			/* .start & .end set in stx5206_configure_pci() */
-			.flags = IORESOURCE_IRQ,
-		}
+		},
+		STM_PLAT_RESOURCE_MEM_NAMED("EMISS", 0xfe400000, 0x17fc),
+		STM_PLAT_RESOURCE_MEM_NAMED("PCI-AHB", 0xfe560000, 0xff),
+		STM_PLAT_RESOURCE_IRQ_NAMED("DMA", evt2irq(0x1280), -1),
+		STM_PLAT_RESOURCE_IRQ_NAMED("Error", evt2irq(0x1200), -1),
+		/* SERR interrupt set in stx5206_configure_pci() */
+		STM_PLAT_RESOURCE_IRQ_NAMED("SERR", -1, -1),
 	},
 };
+
 void __init stx5206_configure_pci(struct stm_plat_pci_config *pci_conf)
 {
 	struct sysconf_field *sc;
@@ -190,9 +170,8 @@ void __init stx5206_configure_pci(struct stm_plat_pci_config *pci_conf)
 		/* "Disable" the SERR IRQ resource (it's last on the list) */
 		stx5206_pci_device.num_resources--;
 	} else {
-		/* The SERR IRQ resource is last */
-		int res_num = stx5206_pci_device.num_resources - 1;
-		struct resource *res = &stx5206_pci_device.resource[res_num];
+		struct resource *res = platform_get_resource_byname(
+				&stx5206_pci_device, IORESOURCE_IRQ, "SERR");
 
 		res->start = pci_conf->serr_irq;
 		res->end = pci_conf->serr_irq;

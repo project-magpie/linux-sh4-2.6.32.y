@@ -10,8 +10,26 @@
 #ifndef __ASM_SH_STM_L2_CACHE_H
 #define __ASM_SH_STM_L2_CACHE_H
 
+#if defined(CONFIG_STM_L2_CACHE)
+
 void stm_l2_flush_wback_region(void *start, int size);
 void stm_l2_flush_purge_region(void *start, int size);
 void stm_l2_flush_invalidate_region(void *start, int size);
+
+#else
+
+static inline void stm_l2_flush_wback_region(void *start, int size)
+{
+}
+
+static inline void stm_l2_flush_purge_region(void *start, int size)
+{
+}
+
+static inline void stm_l2_flush_invalidate_region(void *start, int size)
+{
+}
+
+#endif
 
 #endif /* __ASM_SH_STM_L2_CACHE_H */

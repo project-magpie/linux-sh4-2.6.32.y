@@ -153,9 +153,12 @@ machdir-$(CONFIG_SH_RSK)			+= mach-rsk
 
 # ST Boards
 machdir-$(CONFIG_SH_ST_CAB5197)			+= mach-cab5197
+machdir-$(CONFIG_SH_ST_FLDB)			+= mach-fldb
+machdir-$(CONFIG_SH_ST_FUDB)			+= mach-fudb
 machdir-$(CONFIG_SH_ST_HDK5289)			+= mach-hdk5289
 machdir-$(CONFIG_SH_ST_HDK7105)			+= mach-hdk7105
 machdir-$(CONFIG_SH_ST_HDK7106)			+= mach-hdk7106
+machdir-$(CONFIG_SH_ST_HDK7108)			+= mach-hdk7108
 machdir-$(CONFIG_SH_ST_HDREF)			+= mach-hdref
 machdir-$(CONFIG_SH_ST_HMP7100)			+= mach-hmp7100
 machdir-$(CONFIG_SH_ST_HMP7105)			+= mach-hmp7105
@@ -174,6 +177,7 @@ machdir-$(CONFIG_SH_ST_MB671)			+= mach-mb671 mach-st
 machdir-$(CONFIG_SH_ST_MB680)			+= mach-mb680 mach-st
 machdir-$(CONFIG_SH_ST_MB704)			+= mach-mb704
 machdir-$(CONFIG_SH_ST_MB796)			+= mach-mb796
+machdir-$(CONFIG_SH_ST_MB837)			+= mach-mb837
 machdir-$(CONFIG_SH_ST_MB839)			+= mach-mb839
 
 ifneq ($(machdir-y),)

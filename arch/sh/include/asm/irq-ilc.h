@@ -12,7 +12,11 @@
 #include <linux/platform_device.h>
 #include <linux/hardirq.h>
 
-#if defined(CONFIG_CPU_SUBTYPE_STX5197)
+#if defined(CONFIG_CPU_SUBTYPE_FLI7510)
+#define ILC_FIRST_IRQ	44
+#define ILC_NR_IRQS	128
+#define ILC_IRQ(x)	(ILC_FIRST_IRQ + (x))
+#elif defined(CONFIG_CPU_SUBTYPE_STX5197)
 #define ILC_FIRST_IRQ	33
 #define ILC_NR_IRQS	72
 #define ILC_IRQ(x)	(ILC_FIRST_IRQ + (x))
@@ -29,6 +33,11 @@
 #define ILC_INT_IRQ(x)	(ILC_FIRST_IRQ + (x))
 #define ILC_EXT_IRQ(x)	(ILC_FIRST_IRQ + 64 + (x))
 #define ILC_IRQ(x)	ILC_INT_IRQ(x)
+#elif	defined(CONFIG_CPU_SUBTYPE_STX7108)
+/* set this to 65 to allow 64 (INTEVT 0xa00) to demux */
+#define ILC_FIRST_IRQ	65
+#define ILC_NR_IRQS	180
+#define ILC_IRQ(x)	(ILC_FIRST_IRQ + (x))
 #elif	defined(CONFIG_CPU_SUBTYPE_STX7111)
 #define ILC_FIRST_IRQ	176
 #define ILC_NR_IRQS	(64+33)

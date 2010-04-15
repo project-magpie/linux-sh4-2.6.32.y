@@ -50,6 +50,8 @@ static inline unsigned long _1_ms_lpj(void)
  #include "./cpufreq-stx7200.c"
 #elif defined(CONFIG_CPU_SUBTYPE_STX7105)
  #include "./cpufreq-stx7105.c"
+#elif defined(CONFIG_CPU_SUBTYPE_STX7108)
+ #include "./cpufreq-stx7108.c"
 #elif defined(CONFIG_CPU_SUBTYPE_STX5197)
  #include "./cpufreq-stx5197.c"
 #elif defined(CONFIG_CPU_SUBTYPE_STX5206)

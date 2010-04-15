@@ -49,6 +49,7 @@ struct stm_pad_gpio {
 	int out_value;
 	int function;
 	const char *name;
+	void *priv;
 };
 
 #define STM_PAD_PIO_IN(_port, _pin, _function) \
@@ -136,6 +137,15 @@ struct stm_pad_sysconf {
 		.value = _value, \
 	}
 
+#define STM_PAD_SYS_CFG_BANK(_bank, _regnum, _lsb, _msb, _value) \
+	{ \
+		.regtype = SYS_CFG_BANK##_bank, \
+		.regnum = _regnum, \
+		.lsb = _lsb, \
+		.msb = _msb, \
+		.value = _value, \
+	}
+
 /* We have to do this indirection to allow the first argument to
  * STM_PAD_SYSCONF to be a macro, as used by 5197 for example. */
 #define ___STM_PAD_SYSCONF(_regtype, _regnum, _lsb, _msb, _value) \
@@ -191,7 +201,8 @@ struct stm_pad_config {
 
 int stm_pad_init(int gpios_num, int gpio_function,
 			int (*gpio_config)(unsigned gpio,
-			enum stm_pad_gpio_direction direction, int function));
+			enum stm_pad_gpio_direction direction,
+			int function, void *priv));
 
 
 
@@ -235,25 +246,28 @@ int stm_pad_set_gpio(struct stm_pad_config *config, const char *name,
 #define stm_pad_set_pio(config, name, port, pin) \
 	stm_pad_set_gpio(config, name, stm_gpio(port, pin))
 
-int stm_pad_set_gpio_direction_function(struct stm_pad_config *config,
+int stm_pad_set_direction_function(struct stm_pad_config *config,
 		const char *name, enum stm_pad_gpio_direction direction,
 		int out_value, int function);
 
 #define stm_pad_set_pio_in(config, name, function) \
-	stm_pad_set_gpio_direction_function(config, name, \
+	stm_pad_set_direction_function(config, name, \
 			stm_pad_gpio_direction_in, -1, function)
 
 #define stm_pad_set_pio_out(config, name, function) \
-	stm_pad_set_gpio_direction_function(config, name, \
+	stm_pad_set_direction_function(config, name, \
 			stm_pad_gpio_direction_out, -1, function)
 
 #define stm_pad_set_pio_bidir(config, name, function) \
-	stm_pad_set_gpio_direction_function(config, name, \
+	stm_pad_set_direction_function(config, name, \
 			stm_pad_gpio_direction_bidir, -1, function)
 
 #define stm_pad_set_pio_ignored(config, name) \
-	stm_pad_set_gpio_direction_function(config, name, \
+	stm_pad_set_direction_function(config, name, \
 			stm_pad_gpio_direction_ignored, -1, -1)
+
+int stm_pad_set_priv(struct stm_pad_config *config, const char *name,
+		void *priv);
 
 
 

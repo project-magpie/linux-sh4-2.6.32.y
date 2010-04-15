@@ -242,7 +242,7 @@ static struct platform_device stx5206_pio_devices[] = {
 };
 
 static int stx5206_pio_config(unsigned gpio,
-		enum stm_pad_gpio_direction direction, int function)
+		enum stm_pad_gpio_direction direction, int function, void *priv)
 {
 	int port = stm_gpio_port(gpio);
 	int pin = stm_gpio_pin(gpio);

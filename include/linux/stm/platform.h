@@ -222,7 +222,6 @@ struct stm_plat_nand_flex_data {
 	unsigned int nr_banks;
 	struct stm_nand_bank_data *banks;
 	unsigned int flex_rbn_connected:1;
-	struct stm_pad_config *pad_config;
 };
 
 struct stm_plat_nand_emi_data {

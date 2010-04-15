@@ -332,6 +332,24 @@ config SH_ST_CAB5197
 	  Select STx5197 CAB Reference if configuring for an
 	  STMicroelectronics STx5197 CAB reference Board.
 
+config SH_ST_FLDB
+	bool "fldb: Freeman Lite Development Board"
+	depends on CPU_SUBTYPE_FLI7510
+	select SYS_SUPPORTS_PCI
+	default n
+	help
+	  Select this if configuring for a
+	  Freeman Lite Development Board.
+
+config SH_ST_FUDB
+	bool "fudb: Freeman Ultra Development Board"
+	depends on CPU_SUBTYPE_FLI7510
+	select SYS_SUPPORTS_PCI
+	select SND_STM_CONV_DUMMY if SND_STM
+	help
+	  Select this if configuring for a
+	  Freeman Ultra Development Board.
+
 config SH_ST_HDK5289
 	bool "HDK5289 : STx5289 HDK Reference board"
 	depends on CPU_SUBTYPE_STX5206
@@ -358,6 +376,15 @@ config SH_ST_HDK7106
 	help
 	  Select HDK7106 if configuring for an
 	  STMicroelectronics STi7106 HDK Reference Board.
+
+config SH_ST_HDK7108
+	bool "HDK7108: STx7108 Reference board"
+	depends on CPU_SUBTYPE_STX7108
+	select SYS_SUPPORTS_PCI
+	default n
+	help
+	  Select SH_ST_HDK7108 if configuring for a
+	  STMicroelectronics STi7108 Reference Board.
 
 config SH_ST_HDREF
 	bool "ST HDref board"
@@ -545,6 +572,18 @@ config SH_ST_MB796
 	help
 	  Select this if configuring for an STMicroelectronics STx5289
 	  Validation Board (product code: STi5289-MBOARD, ST board ID: mb796).
+
+config SH_ST_MB837
+	bool "mb837: STx7108 Validation board"
+	depends on CPU_SUBTYPE_STX7108
+	select SH_ST_STEM
+	select SH_ST_STPM_HD_V2
+	select SYS_SUPPORTS_PCI
+	default n
+	help
+	  Select STx7108 Validation if configuring for an
+	  STMicroelectronics STx7108 Validation Board (product code:
+	  STi7108-MBOARD, ST board ID: mb837).
 
 config SH_ST_MB839
 	bool "mb839: STi7105 Reference Board"

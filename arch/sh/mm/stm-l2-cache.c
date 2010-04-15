@@ -561,7 +561,8 @@ static const char *l2_mode_name[] = {
 	[MODE_COPY_BACK] = "copy_back",
 };
 
-static ssize_t stm_l2_mode_show(struct kset *kset, char *buf)
+static ssize_t stm_l2_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
 {
 	ssize_t len = 0;
 	enum stm_l2_mode current_mode, mode;
@@ -579,21 +580,22 @@ static ssize_t stm_l2_mode_show(struct kset *kset, char *buf)
 	return len;
 }
 
-static ssize_t stm_l2_mode_store(struct kset *kset, const char *buf, size_t len)
+static ssize_t stm_l2_mode_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
 {
 	enum stm_l2_mode mode;
 
 	for (mode = MODE_BYPASS; mode < MODE_LAST; mode++) {
 		if (sysfs_streq(buf, l2_mode_name[mode])) {
 			stm_l2_set_mode(mode);
-			return len;
+			return count;
 		}
 	}
 
 	return -EINVAL;
 }
 
-static struct subsys_attribute stm_l2_mode_attr =
+static struct device_attribute stm_l2_mode_attr =
 	__ATTR(mode, S_IRUGO | S_IWUSR, stm_l2_mode_show, stm_l2_mode_store);
 
 static struct attribute_group stm_l2_attr_group = {
@@ -609,9 +611,9 @@ static int __init stm_l2_sysfs_init(void)
 	if (!stm_l2_base)
 		return 0;
 
-	return sysfs_create_group(&mm_kobj, &stm_l2_attr_group);
+	return sysfs_create_group(mm_kobj, &stm_l2_attr_group);
 }
-device_initcall(stm_l2_sysfs_init);
+late_initcall(stm_l2_sysfs_init);
 
 
 

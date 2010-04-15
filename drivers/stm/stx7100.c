@@ -355,7 +355,7 @@ static struct platform_device stx7100_pio_devices[] = {
 };
 
 static int stx7100_pio_config(unsigned gpio,
-		enum stm_pad_gpio_direction direction, int function)
+		enum stm_pad_gpio_direction direction, int function, void *priv)
 {
 	switch (direction) {
 	case stm_pad_gpio_direction_in:

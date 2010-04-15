@@ -412,7 +412,7 @@ static struct platform_device stx7105_pio_irqmux_device = {
 };
 
 static int stx7105_pio_config(unsigned gpio,
-		enum stm_pad_gpio_direction direction, int function)
+		enum stm_pad_gpio_direction direction, int function, void *priv)
 {
 	static struct {
 		u8 sys_cfg_num;

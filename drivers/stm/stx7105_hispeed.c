@@ -349,7 +349,7 @@ static struct platform_device stx7105_ethernet_devices[] = {
 		},
 		.dev = {
 			.power.can_wakeup = 1,
-			.platform_data = &stx7105_ethernet_platform_data,
+			.platform_data = &stx7105_ethernet_platform_data[0],
 		}
 	}, {
 		.name = "stmmaceth",
@@ -362,7 +362,7 @@ static struct platform_device stx7105_ethernet_devices[] = {
 		},
 		.dev = {
 			.power.can_wakeup = 1,
-			.platform_data = &stx7105_ethernet_platform_data,
+			.platform_data = &stx7105_ethernet_platform_data[1],
 		}
 	}
 };

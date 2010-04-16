@@ -19,4 +19,5 @@ struct lirc_scd_s {
 #define LIRC_SCD_CONFIGURE             _IOW('i', 0x00000021, struct lirc_scd_s)
 #define LIRC_SCD_ENABLE                _IO('i', 0x00000022)
 #define LIRC_SCD_DISABLE               _IO('i', 0x00000023)
-#define LIRC_SCD_STATUS                _IOW('i', 0x00000024, unsigned long)
+#define LIRC_SCD_STATUS                _IOR('i', 0x00000024, unsigned long)
+#define LIRC_SCD_GET_VALUE             _IOR('i', 0x00000025, struct lirc_scd_s)

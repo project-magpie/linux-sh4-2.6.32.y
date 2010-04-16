@@ -65,6 +65,9 @@
  *             Q4: to rebuild rightly the incoming signals train filtered by SCD
  *                 when detected from SCD_CODE or from SCD_ALT_CODE.
  *             Angelo Castello <angelo.castello@st.com>
+ * Apr  2010:  Code review and optimizations to reduce the driver initialization
+ *             time. All IRB capability are selectable from menuconfig.
+ *             Angelo Castello <angelo.castello@st.com>
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -89,70 +92,39 @@
 
 /* General debugging */
 #ifdef CONFIG_LIRC_STM_DEBUG
-#define DPRINTK(fmt, args...) printk(KERN_INFO LIRC_STM_NAME ": %s: " fmt, __FUNCTION__ , ## args)
+#define DPRINTK(fmt, args...) printk(KERN_INFO LIRC_STM_NAME \
+				": %s: " fmt, __func__ , ## args)
 #else
 #define DPRINTK(fmt, args...)
 #endif
 
 /*
- * Infra Red: hardware register map
+ * LiRC data
  */
 static int ir_or_uhf_offset;
 static void *irb_base_address;	/* IR block register base address */
+struct lirc_stm_plugin_data_s {
+	int open_count;
+	struct stm_plat_lirc_data *p_lirc_d;
+#ifdef CONFIG_PM
+	pm_message_t prev_state;
+#endif
+};
 
-/* IR transmitter registers */
-#define IRB_TX_REG(x)		(irb_base_address + x)
-#define IRB_TX_PRESCALAR	IRB_TX_REG(0x00)	/* clock prescalar       */
-#define IRB_TX_SUBCARRIER	IRB_TX_REG(0x04)	/* subcarrier frequency  */
-#define IRB_TX_SYMPERIOD	IRB_TX_REG(0x08)	/* symbol period         */
-#define IRB_TX_ONTIME		IRB_TX_REG(0x0c)	/* symbol pulse time     */
-#define IRB_TX_INT_ENABLE	IRB_TX_REG(0x10)	/* TX irq enable         */
-#define IRB_TX_INT_STATUS	IRB_TX_REG(0x14)	/* TX irq status         */
-#define IRB_TX_ENABLE		IRB_TX_REG(0x18)	/* TX enable             */
-#define IRB_TX_INT_CLEAR	IRB_TX_REG(0x1c)	/* TX interrupt clear    */
-#define IRB_TX_SUBCARRIER_WIDTH	IRB_TX_REG(0x20)	/* subcarrier freq width */
-#define IRB_TX_STATUS		IRB_TX_REG(0x24)	/* TX status */
+static struct lirc_stm_plugin_data_s pd;	/* IR data config */
 
-#define TX_INT_PENDING			0x01
-#define TX_INT_UNDERRUN			0x02
+/* LIRC subsytem symbol buffer. managed only via common lirc routines
+ * user process read symbols from here  */
+struct lirc_buffer lirc_stm_rbuf;
 
-#define TX_FIFO_DEPTH			7
-#define TX_FIFO_USED			((readl(IRB_TX_STATUS) >> 8) & 0x07)
-
-/* IR receiver registers */
-#define IRB_RX_REG(x)		(irb_base_address + x + ir_or_uhf_offset)
-#define IRB_RX_ON	    	IRB_RX_REG(0x40)	/* RX pulse time capture */
-#define IRB_RX_SYS          	IRB_RX_REG(0X44)	/* RX sym period capture */
-#define IRB_RX_INT_EN	    	IRB_RX_REG(0x48)	/* RX IRQ enable (R/W)   */
-#define IRB_RX_INT_STATUS      	IRB_RX_REG(0x4C)	/* RX IRQ status (R/W)   */
-#define IRB_RX_EN	    	IRB_RX_REG(0x50)	/* Receive enable (R/W)  */
-#define IRB_MAX_SYM_PERIOD  	IRB_RX_REG(0x54)	/* end of sym. max value */
-#define IRB_RX_INT_CLEAR 	IRB_RX_REG(0x58)	/* overrun status (W)    */
-#define IRB_RX_STATUS	    	IRB_RX_REG(0x6C)	/* receive status        */
-#define IRB_RX_NOISE_SUPPR  	IRB_RX_REG(0x5C)	/* noise suppression     */
-#define IRB_RX_POLARITY_INV 	IRB_RX_REG(0x68)	/* polarity inverter     */
-
-/* IRB and UHF common registers */
+/*
+ * IRB IR/UHF common configurations
+ */
 #define IRB_CM_REG(x)		(irb_base_address + x)
-#define IRB_RX_RATE_COMMON   	IRB_CM_REG(0x64)	/* sample frequency divisor */
-#define IRB_RX_CLOCK_SEL  	IRB_CM_REG(0x70)	/* clock select (LP mode)   */
-#define IRB_RX_CLOCK_SEL_STATUS IRB_CM_REG(0x74)	/* clock selection status   */
+#define IRB_RX_RATE_COMMON   	IRB_CM_REG(0x64)	/* sample freq divisor*/
+#define IRB_RX_CLOCK_SEL  	IRB_CM_REG(0x70)	/* clock select       */
+#define IRB_RX_CLOCK_SEL_STATUS IRB_CM_REG(0x74)	/* clock status       */
 #define IRB_RX_NOISE_SUPP_WIDTH IRB_CM_REG(0x9C)
-
-/* SCD registers */
-#define IRB_SCD_CFG		IRB_CM_REG(0x200)	/* SCD config */
-#define IRB_SCD_STA		IRB_CM_REG(0x204)	/* SCD status */
-#define IRB_SCD_CODE		IRB_CM_REG(0x208)	/* SCD code to be detected */
-#define IRB_SCD_CODE_LEN	IRB_CM_REG(0x20c)	/* SCD num code symbols */
-#define IRB_SCD_SYMB_MIN_TIME	IRB_CM_REG(0x210)	/* SCD min symbol time */
-#define IRB_SCD_SYMB_MAX_TIME	IRB_CM_REG(0x214)	/* SCD max symbol time */
-#define IRB_SCD_SYMB_NOM_TIME	IRB_CM_REG(0x218)	/* SCD nominal symbol time */
-#define IRB_SCD_PRESCALAR	IRB_CM_REG(0x21c)	/* SCD prescalar */
-#define IRB_SCD_INT_EN		IRB_CM_REG(0x220)	/* SCD interrupt enable */
-#define IRB_SCD_INT_CLR		IRB_CM_REG(0x224)	/* SCD interrupt clear */
-#define IRB_SCD_INT_STA		IRB_CM_REG(0x22c)	/* SCD interrupt status */
-#define IRB_SCD_NOISE_RECOV	IRB_CM_REG(0x228)	/* SCD noise recovery */
-#define IRB_SCD_ALT_CODE	IRB_CM_REG(0x230)	/* SCD alternative start code */
 
 #define RX_CLEAR_IRQ(x) 		writel((x), IRB_RX_INT_CLEAR)
 #define RX_WORDS_IN_FIFO() 		(readl(IRB_RX_STATUS) & 0xff00)
@@ -160,21 +132,6 @@ static void *irb_base_address;	/* IR block register base address */
 #define LIRC_STM_MINOR			0
 #define LIRC_STM_MAX_SYMBOLS		100
 #define LIRC_STM_BUFSIZE		(LIRC_STM_MAX_SYMBOLS*sizeof(lirc_t))
-
-#define LIRC_STM_SCD_MAX_SYMBOLS	32
-#define LIRC_STM_SCD_BUFSIZE		((LIRC_STM_SCD_MAX_SYMBOLS/2+1)*sizeof(lirc_t))
-#define LIRC_STM_SCD_TOLERANCE		25
-/* rx.scd_flags fields:
- *	scd normal                      1 -> bit 0
- *	scd altenative                  1 -> bit 1
- *	scd normal = alternative        1 -> bit 2
- *	scd enabled                     1 -> bit 3
- */
-#define SCD_NORMAL			0x01
-#define SCD_ALTERNATIVE			0x02
-#define SCD_NOR_EQ_ALT			0x04
-#define SCD_ENABLED			0x08
-#define SCD_ALT_MASK			(SCD_NORMAL|SCD_ALTERNATIVE|SCD_ENABLED)
 
 /* Bit settings */
 #define LIRC_STM_IS_OVERRUN	 	0x04
@@ -186,6 +143,21 @@ static void *irb_base_address;	/* IR block register base address */
  *          Enable RX interrupt              1  -> bit  0;
  */
 #define LIRC_STM_ENABLE_IRQ		0x0f
+
+/*
+ * IRB IR/UHF receiver configurations
+ */
+#define IRB_RX_REG(x)           (irb_base_address + x + ir_or_uhf_offset)
+#define IRB_RX_ON               IRB_RX_REG(0x40)	/* pulse time capture */
+#define IRB_RX_SYS              IRB_RX_REG(0X44)	/* sym period capture */
+#define IRB_RX_INT_EN           IRB_RX_REG(0x48)	/* IRQ enable (R/W)   */
+#define IRB_RX_INT_STATUS       IRB_RX_REG(0x4C)	/* IRQ status (R/W)   */
+#define IRB_RX_EN               IRB_RX_REG(0x50)	/* Receive enablei    */
+#define IRB_MAX_SYM_PERIOD      IRB_RX_REG(0x54)	/* max sym value      */
+#define IRB_RX_INT_CLEAR        IRB_RX_REG(0x58)	/* overrun status     */
+#define IRB_RX_STATUS           IRB_RX_REG(0x6C)	/* receive status     */
+#define IRB_RX_NOISE_SUPPR      IRB_RX_REG(0x5C)	/* noise suppression  */
+#define IRB_RX_POLARITY_INV     IRB_RX_REG(0x68)	/* polarity inverter  */
 
 /* RX graphical example to better understand the difference between ST IR block
  * output and standard definition used by LIRC (and most of the world!)
@@ -212,6 +184,41 @@ static void *irb_base_address;	/* IR block register base address */
  * represented by space>mark.
  */
 
+struct lirc_stm_rx_data_s {
+	/* timing fine control */
+	int symbol_mult;
+	int symbol_div;
+	int pulse_mult;
+	int pulse_div;
+	/* data configuration */
+	unsigned int sampling_freq_div;
+	lirc_t *rbuf;
+	unsigned int off_rbuf;
+	unsigned int sumUs;
+	int error;
+	struct timeval sync;
+};
+
+static struct lirc_stm_rx_data_s rx;	/* RX data config */
+
+/*
+ * IRB UHF-SCD filter configuration
+ */
+#ifdef CONFIG_LIRC_STM_UHF_SCD
+#define IRB_SCD_CFG             IRB_CM_REG(0x200)	/* config           */
+#define IRB_SCD_STA             IRB_CM_REG(0x204)	/* status           */
+#define IRB_SCD_CODE            IRB_CM_REG(0x208)	/* normal code      */
+#define IRB_SCD_CODE_LEN        IRB_CM_REG(0x20c)	/* num code symbols */
+#define IRB_SCD_SYMB_MIN_TIME   IRB_CM_REG(0x210)	/* min symbol time  */
+#define IRB_SCD_SYMB_MAX_TIME   IRB_CM_REG(0x214)	/* max symbol time  */
+#define IRB_SCD_SYMB_NOM_TIME   IRB_CM_REG(0x218)	/* nom symbol time  */
+#define IRB_SCD_PRESCALAR       IRB_CM_REG(0x21c)	/* prescalar        */
+#define IRB_SCD_INT_EN          IRB_CM_REG(0x220)	/* interrupt enable */
+#define IRB_SCD_INT_CLR         IRB_CM_REG(0x224)	/* interrupt clear  */
+#define IRB_SCD_INT_STA         IRB_CM_REG(0x22c)	/* interrupt status */
+#define IRB_SCD_NOISE_RECOV     IRB_CM_REG(0x228)	/* noise recovery   */
+#define IRB_SCD_ALT_CODE        IRB_CM_REG(0x230)	/* alternative code */
+
 /* Start Code Detect (SCD) graphical example to understand how to configure
  * propely the code, code length and nominal time values based on Remote Control
  * signals train example.
@@ -228,7 +235,22 @@ static void *irb_base_address;	/* IR block register base address */
  * The nominal symbol duration is 500us, code length 4 and code Ob1101.
  */
 
-#ifdef CONFIG_LIRC_STM_UHF_SCD
+#define LIRC_STM_SCD_MAX_SYMBOLS        32
+#define LIRC_STM_SCD_BUFSIZE            ((LIRC_STM_SCD_MAX_SYMBOLS/2+1) * \
+						sizeof(lirc_t))
+#define LIRC_STM_SCD_TOLERANCE          25
+/* rx.scd_flags fields:
+ * 	scd normal                      1 -> bit 0
+ * 	scd altenative                  1 -> bit 1
+ * 	scd normal = alternative        1 -> bit 2
+ * 	scd enabled                     1 -> bit 3
+ */
+#define SCD_NORMAL                      0x01
+#define SCD_ALTERNATIVE                 0x02
+#define SCD_NOR_EQ_ALT                  0x04
+#define SCD_ENABLED                     0x08
+#define SCD_ALT_MASK                    (SCD_NORMAL|SCD_ALTERNATIVE|SCD_ENABLED)
+
 static struct lirc_scd_s scd_s = {
 	.code = CONFIG_LIRC_STM_UHF_SCD_CODE,
 	.alt_code = CONFIG_LIRC_STM_UHF_SCD_ALTCODE,
@@ -236,71 +258,53 @@ static struct lirc_scd_s scd_s = {
 	.noiserecov = 0,
 };
 
-static struct lirc_scd_s *scd = &scd_s;
-#else
-static struct lirc_scd_s *scd = NULL;
-#endif
+/* SCD support */
+struct lirc_stm_scd_data_s {
+	struct lirc_scd_s value;
+	int flags;
+	lirc_t *prefix_code;
+	lirc_t *prefix_altcode;
+	unsigned int off_prefix_code;
+	unsigned int off_prefix_altcode;
+};
 
-/* SOC dependent section - these values are set in the appropriate 
- * arch/sh/kernel/cpu/sh4/setup-* files and
- * transfered when the lirc device is opened
+static struct lirc_stm_scd_data_s scd;	/* SCD data config */
+#endif /* CONFIG_LIRC_STM_UHF_SCD */
+
+/*
+ * IRB TX transmitter configuration
  */
+#ifdef CONFIG_LIRC_STM_TX
+#define IRB_TX_REG(x)		(irb_base_address + x)	/* TX ...            */
+#define IRB_TX_PRESCALAR	IRB_TX_REG(0x00)	/* clock prescalar   */
+#define IRB_TX_SUBCARRIER	IRB_TX_REG(0x04)	/* subcarrier freq   */
+#define IRB_TX_SYMPERIOD	IRB_TX_REG(0x08)	/* symbol period     */
+#define IRB_TX_ONTIME		IRB_TX_REG(0x0c)	/* symbol pulse time */
+#define IRB_TX_INT_ENABLE	IRB_TX_REG(0x10)	/* irq enable        */
+#define IRB_TX_INT_STATUS	IRB_TX_REG(0x14)	/* irq status        */
+#define IRB_TX_ENABLE		IRB_TX_REG(0x18)	/* enable            */
+#define IRB_TX_INT_CLEAR	IRB_TX_REG(0x1c)	/* interrupt clear   */
+#define IRB_TX_SUBCARRIER_WIDTH	IRB_TX_REG(0x20)	/* subcarrier freq   */
+#define IRB_TX_STATUS		IRB_TX_REG(0x24)	/* status            */
 
-typedef struct lirc_stm_tx_data_s {
+#define TX_INT_PENDING		0x01
+#define TX_INT_UNDERRUN		0x02
+
+#define TX_FIFO_DEPTH		7
+#define TX_FIFO_USED		((readl(IRB_TX_STATUS) >> 8) & 0x07)
+#define TX_CARRIER_FREQ		38000	/* 38KHz */
+
+struct lirc_stm_tx_data_s {
 	wait_queue_head_t waitq;
 	/* timing fine control */
 	unsigned int mult;
 	unsigned int div;
-	unsigned int carrier_freq;
 	/* transmit buffer */
 	lirc_t *wbuf;
 	unsigned int off_wbuf;
-} lirc_stm_tx_data_t;
+};
 
-typedef struct lirc_stm_rx_data_s {
-	/* timing fine control */
-	int symbol_mult;
-	int symbol_div;
-	int pulse_mult;
-	int pulse_div;
-	/* data configuration */
-	unsigned int sampling_freq_div;
-	lirc_t *rbuf;
-	unsigned int off_rbuf;
-	unsigned int sumUs;
-	int error;
-	struct timeval sync;
-	/* SCD support */
-	int scd_flags;
-	lirc_t *rscd_code;
-	lirc_t *rscd_altcode;
-	unsigned int off_rscd_code;
-	unsigned int off_rscd_altcode;
-} lirc_stm_rx_data_t;
-
-typedef struct lirc_stm_plugin_data_s {
-	int open_count;
-	struct stm_plat_lirc_data *p_lirc_d;
-#ifdef CONFIG_PM
-	pm_message_t prev_state;
-#endif
-} lirc_stm_plugin_data_t;
-
-static lirc_stm_plugin_data_t pd;	/* IR data config */
-static lirc_stm_rx_data_t rx;	/* RX data config */
-static lirc_stm_tx_data_t tx;	/* TX data config */
-
-/* LIRC subsytem symbol buffer. managed only via common lirc routines
- * user process read symbols from here  */
-struct lirc_buffer lirc_stm_rbuf;
-
-static inline void lirc_stm_reset_rx_data(void)
-{
-	rx.error = 0;
-	rx.off_rbuf = 0;
-	rx.sumUs = 0;
-	memset(rx.rbuf, 0, LIRC_STM_BUFSIZE);
-}
+static struct lirc_stm_tx_data_s tx;	/* TX data config */
 
 static inline unsigned int lirc_stm_time_to_cycles(unsigned int microsecondtime)
 {
@@ -309,7 +313,147 @@ static inline unsigned int lirc_stm_time_to_cycles(unsigned int microsecondtime)
 	 */
 	microsecondtime *= tx.mult;
 	microsecondtime /= tx.div;
-	return (microsecondtime * tx.carrier_freq / 1000000);
+	return microsecondtime * TX_CARRIER_FREQ / 1000000;
+}
+
+static ssize_t lirc_stm_write(struct file *file, const char *buf,
+			      size_t n, loff_t *ppos)
+{
+	int i;
+	size_t rdn = n / sizeof(size_t);
+	unsigned int symbol, mark;
+	int fifosyms;
+
+	if (!pd.p_lirc_d->txenabled) {
+		printk(KERN_ERR LIRC_STM_NAME
+		       ": write operation unsupported.\n");
+		return -ENOTSUPP;
+	}
+
+	if (n % sizeof(lirc_t))
+		return -EINVAL;
+
+	if (tx.off_wbuf != 0 && (file->f_flags & O_NONBLOCK))
+		return -EAGAIN;
+
+	/* Wait for transmit to become free... */
+	if (wait_event_interruptible(tx.waitq, tx.off_wbuf == 0))
+		return -ERESTARTSYS;
+
+	/* Prevent against buffer overflow... */
+	if (rdn > LIRC_STM_MAX_SYMBOLS)
+		rdn = LIRC_STM_MAX_SYMBOLS;
+
+	n -= rdn * sizeof(size_t);
+
+	if (copy_from_user((char *)tx.wbuf, buf, rdn * sizeof(size_t)))
+		return -EFAULT;
+
+	if (n == 0)
+		tx.wbuf[rdn - 1] = 0xFFFF;
+
+	/* load the first words into the FIFO */
+	fifosyms = rdn;
+
+	if (fifosyms > TX_FIFO_DEPTH)
+		fifosyms = TX_FIFO_DEPTH;
+
+	for (i = 0; i < fifosyms; i++) {
+		mark = tx.wbuf[(i * 2)];
+		symbol = mark + tx.wbuf[(i * 2) + 1];
+		DPRINTK("TX raw m %d s %d ", mark, symbol);
+
+		mark = lirc_stm_time_to_cycles(mark) + 1;
+		symbol = lirc_stm_time_to_cycles(symbol) + 2;
+		DPRINTK("cal m %d s %d\n", mark, symbol);
+
+		tx.off_wbuf++;
+		writel(mark, IRB_TX_ONTIME);
+		writel(symbol, IRB_TX_SYMPERIOD);
+	}
+
+	/* enable the transmit */
+	writel(0x07, IRB_TX_INT_ENABLE);
+	writel(0x01, IRB_TX_ENABLE);
+	DPRINTK("TX enabled\n");
+
+	return n;
+}
+
+static void lirc_stm_tx_calc_clocks(unsigned int clockfreq,
+				    unsigned int subwidthpercent)
+{
+	/*  We know the system base clock and the required IR carrier frequency
+	 *  We now want a divisor of the system base clock that gives the
+	 *  nearest integer multiple of the carrier frequency
+	 */
+
+	const unsigned int clkratio = clockfreq / TX_CARRIER_FREQ;
+	unsigned int scalar, n;
+	int delta;
+	unsigned int diffbest = clockfreq, nbest = 0, scalarbest = 0;
+	unsigned int nmin = clkratio / 255;
+
+	if ((nmin & 0x01) == 1)
+		nmin++;
+
+	for (n = nmin; n < clkratio; n += 2) {
+		scalar = clkratio / n;
+		if ((scalar & 0x01) == 0 && scalar != 0) {
+			delta = clockfreq - (scalar * TX_CARRIER_FREQ * n);
+			if (delta < 0)
+				delta *= -1;
+
+			if (delta < diffbest) {	/* better set of parameters ? */
+				diffbest = delta;
+				nbest = n;
+				scalarbest = scalar;
+			}
+			if (delta == 0)	/* an exact multiple */
+				break;
+		}
+	}
+
+	scalarbest /= 2;
+	nbest *= 2;
+
+	DPRINTK("TX clock scalar = %d\n", scalarbest);
+	DPRINTK("TX subcarrier scalar = %d\n", nbest);
+
+	/*  Set the registers now  */
+	writel(scalarbest, IRB_TX_PRESCALAR);
+	writel(nbest, IRB_TX_SUBCARRIER);
+	writel(nbest * subwidthpercent / 100, IRB_TX_SUBCARRIER_WIDTH);
+
+	/*  Now calculate timing to subcarrier cycles factors which compensate
+	 *  for any remaining difference between our clock ratios and real times
+	 *  in microseconds
+	 */
+
+	if (diffbest == 0) {
+		/* no adjustment required - our clock is running at the required
+		 * speed */
+		tx.mult = 1;
+		tx.div = 1;
+	} else {
+		/* adjustment is required */
+		delta = scalarbest * TX_CARRIER_FREQ * nbest;
+		tx.mult = delta / (clockfreq / 10000);
+
+		if (delta < clockfreq) {/* our clock is running too fast */
+			DPRINTK("clock running slow at %d\n", delta);
+			tx.div = tx.mult;
+			tx.mult = 10000;
+		} else {	/* our clock is running too slow */
+
+			DPRINTK("clock running fast at %d\n", delta);
+			tx.div = 10000;
+		}
+	}
+
+	DPRINTK("TX fine adjustment mult = %d\n", tx.mult);
+	DPRINTK("TX fine adjustment div  = %d\n", tx.div);
+	init_waitqueue_head(&tx.waitq);
 }
 
 static void lirc_stm_tx_interrupt(int irq, void *dev_id)
@@ -386,40 +530,58 @@ static void lirc_stm_tx_interrupt(int irq, void *dev_id)
 	}
 }
 
-static void lirc_stm_prescd_symbols(void)
+#define lirc_stm_tx_kzalloc() {					\
+	tx.wbuf = (lirc_t *) devm_kzalloc(dev,			\
+					LIRC_STM_BUFSIZE,	\
+					GFP_KERNEL);		\
+	if (!tx.wbuf)						\
+		return -ENOMEM;					\
+}
+
+#else
+#define lirc_stm_write NULL
+#define lirc_stm_tx_kzalloc()
+#define lirc_stm_tx_interrupt(irq, dev_id)
+#define lirc_stm_tx_calc_clocks(clockfreq, subwidthpercent)
+#endif /* CONFIG_LIRC_STM_TX */
+
+#ifdef CONFIG_LIRC_STM_UHF_SCD
+static void lirc_stm_scd_prefix_symbols(void)
 {
 	lirc_t *lscd;
 	unsigned int *offscd;
 
-	DPRINTK("SCD_STA(0x%x)\n", rx.scd_flags & 0x3);
+	if (!scd.flags)
+		return;
+
+	DPRINTK("SCD_STA(0x%x)\n", scd.flags & (SCD_ALTERNATIVE | SCD_NORMAL));
 	/* Here need to take care the following SCD constrain:
-	* If there is only one start code to be detected, the registers for
-	* normal and alternative start codes has been programmed with
-	* identical values. The low significate bits of scd_flags means:
-	*      1    : SCD_ENABLED
-	*       1   : SCD_NOR_EQ_ALT
-	*        1  : SCD_ALTERNATIVE
-	*         1 : SCD_NORMAL
-	*      11xx : normal and alternative are the same due to constrain.
-	*      1001 : normal detected
-	*      1011 : alternative detected
-	*/
-	if ((rx.scd_flags & SCD_NOR_EQ_ALT) ||
-	    (rx.scd_flags ^ SCD_ALT_MASK)) {
+	 * If there is only one start code to be detected, the registers for
+	 * normal and alternative start codes has been programmed with
+	 * identical values. The low significate bits of scd_flags means:
+	 *      1    : SCD_ENABLED
+	 *       1   : SCD_NOR_EQ_ALT
+	 *        1  : SCD_ALTERNATIVE
+	 *         1 : SCD_NORMAL
+	 *      11xx : normal and alternative are the same due to constrain.
+	 *      1001 : normal detected
+	 *      1011 : alternative detected
+	 */
+	if ((scd.flags & SCD_NOR_EQ_ALT) || (scd.flags ^ SCD_ALT_MASK)) {
 		/* normal code detected */
-		lscd = rx.rscd_code;
-		offscd = &rx.off_rscd_code;
+		lscd = scd.prefix_code;
+		offscd = &scd.off_prefix_code;
 	} else {
 		/* alternative code detected */
-		lscd = rx.rscd_altcode;
-		offscd = &rx.off_rscd_altcode;
+		lscd = scd.prefix_altcode;
+		offscd = &scd.off_prefix_altcode;
 	}
 
 	/* manage potential contiguous Pulse/Space when the SCD programming
-	* is not aligned to leading/trailing edge
-	*/
-	if ((lscd[*offscd-1] & PULSE_BIT) == (rx.rbuf[0] & PULSE_BIT)) {
-		rx.rbuf[0] += (lscd[*offscd-1] & ~PULSE_BIT);
+	 * is not aligned to leading/trailing edge
+	 */
+	if ((lscd[*offscd - 1] & PULSE_BIT) == (rx.rbuf[0] & PULSE_BIT)) {
+		rx.rbuf[0] += (lscd[*offscd - 1] & ~PULSE_BIT);
 		(*offscd)--;
 	}
 
@@ -427,20 +589,304 @@ static void lirc_stm_prescd_symbols(void)
 	return;
 }
 
+static int lirc_stm_scd_set(char enable)
+{
+	if (!scd.flags)
+		return -1;
+
+	if (enable) {
+		writel(0x01, IRB_SCD_INT_EN);
+		writel(0x01, IRB_SCD_INT_CLR);
+		writel(0x01, IRB_SCD_CFG);
+	} else {
+		writel(0x00, IRB_SCD_INT_EN);
+		writel(0x00, IRB_SCD_CFG);
+	}
+	DPRINTK("SCD %s\n", (enable ? "enabled" : "disabled"));
+	return 0;
+}
+
+static int lirc_stm_scd_config(unsigned long clk)
+{
+	unsigned int nrec, ival, scwidth;
+	unsigned int prescalar, tolerance;
+	unsigned int space, mark;
+	int i, j, k;
+	lirc_t *lscd;
+	unsigned int *offscd;
+	unsigned int code, codelen, alt_codelen, curr_codelen;
+	struct lirc_scd_s last_scd = scd.value;
+
+	if (!pd.p_lirc_d->rxuhfmode) {
+		printk(KERN_ERR LIRC_STM_NAME
+		       ": SCD not available in IR-RX mode. Not armed\n");
+		return -ENOTSUPP;
+	}
+
+	scd.value = scd_s;
+	scd.flags = 0;
+	scd.off_prefix_code = 0;
+	scd.off_prefix_altcode = 0;
+
+	codelen = fls(scd.value.code);
+	if ((scd.value.code == 0) ||
+	    (codelen > LIRC_STM_SCD_MAX_SYMBOLS) || (codelen < 1)) {
+		printk(KERN_ERR LIRC_STM_NAME
+		       ": SCD invalid start code. Not armed\n");
+		scd.value = last_scd;
+		return -EINVAL;
+	}
+
+	alt_codelen = fls(scd.value.alt_code);
+	if (alt_codelen > 0) {
+		if ((scd.value.alt_code == 0) ||
+		    (alt_codelen > LIRC_STM_SCD_MAX_SYMBOLS) ||
+		    (alt_codelen < codelen) ||
+		    (scd.value.code == (scd.value.alt_code >>
+					(alt_codelen - codelen)))) {
+			printk(KERN_ERR LIRC_STM_NAME
+			       ": SCD invalid alternative code. Not armed\n");
+			alt_codelen = 0;
+		}
+	}
+
+	/* SCD disable */
+	writel(0x00, IRB_SCD_CFG);
+
+	/* Configure pre-scalar clock first to give 1MHz sampling */
+	prescalar = clk / 1000000;
+	writel(prescalar, IRB_SCD_PRESCALAR);
+
+	/* pre-loading of not filtered SCD codes and
+	 * preparing data for tolerance calculation.
+	 */
+	lscd = scd.prefix_code;
+	offscd = &scd.off_prefix_code;
+	code = scd.value.code;
+	curr_codelen = codelen;
+	for (k = 0; k < 2; k++) {
+		space = 0;
+		mark = 0;
+		j = 0;
+		for (i = (curr_codelen - 1); i >= 0; i--) {
+			j = 1 << (i - 1);
+			if (code & (1 << i)) {
+				mark += scd.value.nomtime;
+				if (!(code & j) || (i == 0)) {
+					lscd[*offscd] = mark | PULSE_BIT;
+					DPRINTK("SCD mark rscd[%d](%d)\n",
+						*offscd,
+						lscd[*offscd] & ~PULSE_BIT);
+					(*offscd)++;
+					mark = 0;
+				}
+			} else {
+				space += scd.value.nomtime;
+				if ((code & j) || (i == 0)) {
+					lscd[*offscd] = space;
+					DPRINTK("SCD space rscd[%d](%d)\n",
+						*offscd, lscd[*offscd]);
+					(*offscd)++;
+					space = 0;
+				}
+			}
+		}
+		lscd = scd.prefix_altcode;
+		offscd = &scd.off_prefix_altcode;
+		code = scd.value.alt_code;
+		curr_codelen = alt_codelen;
+	}
+
+	/* normaly 20% of nomtine is enough as tolerance */
+	tolerance = scd.value.nomtime * LIRC_STM_SCD_TOLERANCE / 100;
+
+	DPRINTK("SCD prescalar %d nominal %d tolerance %d\n",
+		prescalar, scd.value.nomtime, tolerance);
+
+	/* Sanity check to garantee all hw constrains must be satisfied */
+	if ((tolerance > ((scd.value.nomtime >> 1) - scd.value.nomtime)) ||
+	    (scd.value.nomtime < ((scd.value.nomtime >> 1) + tolerance))) {
+		tolerance = scd.value.nomtime * LIRC_STM_SCD_TOLERANCE / 100;
+		DPRINTK("SCD tolerance out of range. default %d\n", tolerance);
+	}
+	if (tolerance < 4) {
+		tolerance = scd.value.nomtime * LIRC_STM_SCD_TOLERANCE / 100;
+		DPRINTK("SCD tolerance too close. default %d\n", tolerance);
+	}
+
+	/* Program in scd codes and lengths */
+	writel(scd.value.code, IRB_SCD_CODE);
+
+	/* Some cuts of chips have broken SCD, so check... */
+	i = readl(IRB_SCD_CODE);
+	if (i != scd.value.code) {
+		printk(KERN_ERR LIRC_STM_NAME
+		       ": SCD hardware fault.  Broken silicon?\n");
+		printk(KERN_ERR LIRC_STM_NAME
+		       ": SCD wrote code 0x%08x read 0x%08x. Not armed\n",
+		       scd.value.code, i);
+		scd.value = last_scd;
+		return -ENODEV;
+	}
+
+	/* Program scd min time, max time and nominal time */
+	writel(scd.value.nomtime - tolerance, IRB_SCD_SYMB_MIN_TIME);
+	writel(scd.value.nomtime, IRB_SCD_SYMB_NOM_TIME);
+	writel(scd.value.nomtime + tolerance, IRB_SCD_SYMB_MAX_TIME);
+
+	/* Program in noise recovery (if required) */
+	if (scd.value.noiserecov) {
+		nrec = 1 | (1 << 16);	/* primary and alt code enable */
+
+		i = 1 << (codelen - 1);
+		ival = scd.value.code & i;
+		if (ival)
+			nrec |= 2;
+
+		scwidth = 0;
+		while (i > 0 && ((scd.value.code & i) == ival)) {
+			scwidth++;
+			i >>= 1;
+		}
+
+		nrec |= (scwidth << 8);
+
+		i = 1 << (alt_codelen - 1);
+		ival = scd.value.alt_code & i;
+		if (ival)
+			nrec |= 1 << 17;
+
+		scwidth = 0;
+		while (i > 0 && ((scd.value.alt_code & i) == ival)) {
+			scwidth++;
+			i >>= 1;
+		}
+
+		nrec |= (scwidth << 24);
+
+		DPRINTK("SCD noise recovery 0x%08x\n", nrec);
+		writel(nrec, IRB_SCD_NOISE_RECOV);
+	}
+
+	/* Set supported flag */
+	printk(KERN_INFO LIRC_STM_NAME
+	       ": SCD normal code 0x%x codelen 0x%x nomtime 0x%x armed\n",
+	       scd.value.code, codelen, scd.value.nomtime);
+
+	if (alt_codelen > 0) {
+		printk(KERN_INFO LIRC_STM_NAME
+		       ": SCD alternative code 0x%x codelen 0x%x armed\n",
+		       scd.value.alt_code, alt_codelen);
+		writel(scd.value.alt_code, IRB_SCD_ALT_CODE);
+	} else {
+		writel(scd.value.code, IRB_SCD_ALT_CODE);
+		alt_codelen = codelen;
+		scd.flags |= SCD_NOR_EQ_ALT;
+	}
+
+	/* SCD codelen range [00001,...,11111,00000] where 00000 = 32 symbols */
+	writel(((alt_codelen & 0x1f) << 8)
+	       | (codelen & 0x1f), IRB_SCD_CODE_LEN);
+
+	scd.flags |= SCD_ENABLED;
+	return 0;
+}
+
+#define lirc_stm_scd_kzalloc() {				\
+	scd.prefix_code = (lirc_t *) devm_kzalloc(dev,		\
+					LIRC_STM_SCD_BUFSIZE,	\
+					GFP_KERNEL);		\
+	if (!scd.prefix_code)					\
+		return -ENOMEM;					\
+								\
+	scd.prefix_altcode = (lirc_t *) devm_kzalloc(dev,	\
+					LIRC_STM_SCD_BUFSIZE,	\
+					GFP_KERNEL);		\
+	if (!scd.prefix_altcode)				\
+		return -ENOMEM;					\
+}
+
+#define lirc_stm_scd_reactivate() {				\
+	if (scd.flags && lastSymbol) { 				\
+		/* reset the SCD flags */ 			\
+		scd.flags &= (SCD_ENABLED | SCD_NOR_EQ_ALT); 	\
+		writel(0x01, IRB_SCD_INT_EN);			\
+		writel(0x01, IRB_SCD_CFG);			\
+	}							\
+}
+
+#define lirc_stm_scd_set_flags() {				\
+	if (scd.flags) {					\
+		/* SCD status catched only the first time */	\
+		if (!(scd.flags & SCD_NORMAL)) {		\
+			scd.flags |= readb(IRB_SCD_STA);	\
+			writel(0x01, IRB_SCD_INT_CLR);		\
+			writel(0x00, IRB_SCD_INT_EN);		\
+		}						\
+	}							\
+}
+
+#define lirc_stm_scd_cases() {					\
+	case LIRC_SCD_CONFIGURE:				\
+		if (copy_from_user(&scd_s, (unsigned long *)arg,\
+				sizeof(scd_s)))			\
+			return -EFAULT;				\
+		retval = lirc_stm_scd_config(			\
+					clk_get_rate(clk_get	\
+					(NULL, "comms_clk")));	\
+		break;						\
+	case LIRC_SCD_ENABLE:					\
+	case LIRC_SCD_DISABLE:					\
+		retval = lirc_stm_scd_set(			\
+				cmd == LIRC_SCD_ENABLE);	\
+		break;						\
+	case LIRC_SCD_STATUS:					\
+		retval = put_user(scd.flags & SCD_ENABLED,	\
+					(unsigned long *)arg);	\
+		break;						\
+	case LIRC_SCD_GET_VALUE:				\
+		if (copy_to_user((unsigned long *)arg,		\
+				&scd.value,			\
+				sizeof(scd_s)))			\
+			return -EFAULT;				\
+		break;						\
+}
+
+#define lirc_stm_scd_restart() {				\
+	writel(0x02, IRB_SCD_CFG);				\
+	writel(0x01, IRB_SCD_CFG);				\
+}
+
+#else
+#define lirc_stm_scd_prefix_symbols()
+#define lirc_stm_scd_set(enable)
+#define lirc_stm_scd_config(clk)
+#define lirc_stm_scd_reactivate()
+#define lirc_stm_scd_set_flags()
+#define lirc_stm_scd_restart()
+#define lirc_stm_scd_kzalloc()
+#define lirc_stm_scd_cases() {                                  \
+	case LIRC_SCD_CONFIGURE: case LIRC_SCD_ENABLE:		\
+	case LIRC_SCD_DISABLE:   case LIRC_SCD_STATUS:		\
+		msg = "LIRC_SCD_xxx";				\
+		goto _not_supported;				\
+	}
+#endif /* CONFIG_LIRC_STM_UHF_SCD */
+
+static inline void lirc_stm_rx_reset_data(void)
+{
+	rx.error = 0;
+	rx.off_rbuf = 0;
+	rx.sumUs = 0;
+	memset(rx.rbuf, 0, LIRC_STM_BUFSIZE);
+}
 
 static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 {
 	unsigned int symbol, mark = 0;
 	int lastSymbol = 0, clear_irq = 1;
 
-	if (rx.scd_flags) {
-		/* SCD status catched only the first time */
-		if (!(rx.scd_flags & SCD_NORMAL)) {
-			rx.scd_flags |= readb(IRB_SCD_STA);
-			writel(0x01, IRB_SCD_INT_CLR);
-			writel(0x00, IRB_SCD_INT_EN);
-		}
-	}
+	lirc_stm_scd_set_flags();
 
 	while (RX_WORDS_IN_FIFO()) {
 		/* discard the entire collection in case of errors!  */
@@ -472,7 +918,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 		/* now handle the data depending on error condition */
 		if (rx.error) {
 			/*  Try again */
-			lirc_stm_reset_rx_data();
+			lirc_stm_rx_reset_data();
 			continue;
 		}
 
@@ -508,11 +954,12 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 				/* move the entire collection into user
 				 * buffer if enough space, drop otherwise
 				 * (perhaps too crude a recovery?)
+				 * We need to have enough space to move SCD
+				 * symbols yet (max 32).
 				 */
 				if (likely(lirc_buffer_available
 					   (&lirc_stm_rbuf) >=
-						((2 * rx.off_rbuf) +
-						LIRC_STM_SCD_MAX_SYMBOLS))) {
+					   ((2 * rx.off_rbuf) + 32))) {
 					struct timeval now;
 					lirc_t syncSpace;
 
@@ -558,8 +1005,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 					/* Now write the SCD filtered-out
 					 * pulse / space pairs
 					 */
-					if (rx.scd_flags)
-						lirc_stm_prescd_symbols();
+					lirc_stm_scd_prefix_symbols();
 
 					/*  Now write the pulse / space pairs
 					 *  EXCEPT FOR THE LAST SPACE
@@ -576,7 +1022,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 					printk(KERN_ERR LIRC_STM_NAME
 					       ": not enough space "
 					       "in user buffer\n");
-				lirc_stm_reset_rx_data();
+				lirc_stm_rx_reset_data();
 			}
 		}
 	}			/* while */
@@ -584,12 +1030,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 	RX_CLEAR_IRQ(LIRC_STM_CLEAR_IRQ | 0x02);
 	writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
 
-	if (rx.scd_flags && lastSymbol) {
-		/* reset the SCD flags */
-		rx.scd_flags &= (SCD_ENABLED | SCD_NOR_EQ_ALT);
-		writel(0x01, IRB_SCD_INT_EN);
-		writel(0x01, IRB_SCD_CFG);
-	}
+	lirc_stm_scd_reactivate();
 }
 
 static irqreturn_t lirc_stm_interrupt(int irq, void *dev_id)
@@ -600,211 +1041,10 @@ static irqreturn_t lirc_stm_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static int lirc_stm_scd_set(char enable)
-{
-	if (!rx.scd_flags)
-		return -1;
-
-	if (enable) {
-		writel(0x01, IRB_SCD_INT_EN);
-		writel(0x01, IRB_SCD_INT_CLR);
-		writel(0x01, IRB_SCD_CFG);
-	} else {
-		writel(0x00, IRB_SCD_INT_EN);
-		writel(0x00, IRB_SCD_CFG);
-	}
-	DPRINTK("SCD %s\n", (enable ? "enabled" : "disabled"));
-	return 0;
-}
-
-static int lirc_stm_scd_config(struct lirc_scd_s *scd, unsigned long clk)
-{
-	unsigned int nrec, ival, scwidth;
-	unsigned int prescalar, tolerance;
-	unsigned int space, mark;
-	int i, j, k;
-	lirc_t *lscd;
-	unsigned int *offscd;
-	unsigned int code, codelen, alt_codelen, curr_codelen;
-
-	rx.scd_flags = 0;
-	rx.off_rscd_code = 0;
-	rx.off_rscd_altcode = 0;
-	if (!pd.p_lirc_d->rxuhfmode) {
-		printk(KERN_ERR LIRC_STM_NAME
-			": SCD not available in IR-RX mode. Not armed\n");
-		return -ENOTSUPP;
-	}
-	if (!scd) {
-		printk(KERN_ERR LIRC_STM_NAME
-		       ": SCD bad configuration. Not armed\n");
-		return -EIO;
-	}
-
-	codelen = fls(scd->code);
-	if ((scd->code == 0) ||
-	    (codelen > LIRC_STM_SCD_MAX_SYMBOLS) ||
-	    (codelen < 1)) {
-		printk(KERN_ERR LIRC_STM_NAME
-			": SCD invalid start code. Not armed\n");
-		return -EINVAL;
-	}
-
-	alt_codelen = fls(scd->alt_code);
-	if (alt_codelen > 0) {
-		if ((scd->alt_code == 0) ||
-		    (alt_codelen > LIRC_STM_SCD_MAX_SYMBOLS) ||
-		    (alt_codelen < (codelen / 2))) {
-			printk(KERN_ERR LIRC_STM_NAME
-				": SCD invalid alternative code. Not armed\n");
-			return -EINVAL;
-		}
-	}
-
-	/* SCD disable */
-	writel(0x00, IRB_SCD_CFG);
-
-	/* Configure pre-scalar clock first to give 1MHz sampling */
-	prescalar = clk / 1000000;
-	writel(prescalar, IRB_SCD_PRESCALAR);
-
-	/* pre-loading of not filtered SCD codes and
-	 * preparing data for tolerance calculation.
-	 */
-	lscd = rx.rscd_code;
-	offscd = &rx.off_rscd_code;
-	code = scd->code;
-	curr_codelen = codelen;
-	for (k = 0; k < 2; k++) {
-		space = 0;
-		mark = 0;
-		j = 0;
-		for (i = (curr_codelen - 1); i >= 0; i--) {
-			j = 1 << (i - 1);
-			if (code & (1 << i)) {
-				mark += scd->nomtime;
-				if (!(code & j) || (i == 0)) {
-					lscd[*offscd] = mark | PULSE_BIT;
-					DPRINTK("SCD mark rscd[%d](%d)\n",
-						*offscd,
-					lscd[*offscd] & ~PULSE_BIT);
-					(*offscd)++;
-					mark = 0;
-				}
-			} else {
-				space += scd->nomtime;
-				if ((code & j) || (i == 0)) {
-					lscd[*offscd] = space;
-					DPRINTK("SCD space rscd[%d](%d)\n",
-					*offscd, lscd[*offscd]);
-					(*offscd)++;
-					space = 0;
-				}
-			}
-		}
-		lscd = rx.rscd_altcode;
-		offscd = &rx.off_rscd_altcode;
-		code = scd->alt_code;
-		curr_codelen = alt_codelen;
-	}
-
-	/* normaly 20% of nomtine is enough as tolerance */
-	tolerance = scd->nomtime * LIRC_STM_SCD_TOLERANCE / 100;
-
-	DPRINTK("SCD prescalar %d nominal %d tolerance %d\n",
-		prescalar, scd->nomtime, tolerance);
-
-	/* Sanity check to garantee all hw constrains must be satisfied */
-	if ((tolerance > ((scd->nomtime >> 1) - scd->nomtime)) ||
-	    (scd->nomtime < ((scd->nomtime >> 1) + tolerance))) {
-		tolerance = scd->nomtime * LIRC_STM_SCD_TOLERANCE / 100;
-		DPRINTK("SCD tolerance out of range. default %d\n", tolerance);
-	}
-	if (tolerance < 4) {
-		tolerance = scd->nomtime * LIRC_STM_SCD_TOLERANCE / 100;
-		DPRINTK("SCD tolerance too close. default %d\n", tolerance);
-	}
-
-	/* Program in scd codes and lengths */
-	writel(scd->code, IRB_SCD_CODE);
-
-	/* Some cuts of chips have broken SCD, so check... */
-	i = readl(IRB_SCD_CODE);
-	if (i != scd->code) {
-		printk(KERN_ERR LIRC_STM_NAME
-		       ": SCD hardware fault.  Broken silicon?\n");
-		printk(KERN_ERR LIRC_STM_NAME
-			": SCD wrote code 0x%08x read 0x%08x. Not armed\n",
-			scd->code, i);
-		return -ENODEV;
-	}
-
-	/* Program scd min time, max time and nominal time */
-	writel(scd->nomtime - tolerance, IRB_SCD_SYMB_MIN_TIME);
-	writel(scd->nomtime, IRB_SCD_SYMB_NOM_TIME);
-	writel(scd->nomtime + tolerance, IRB_SCD_SYMB_MAX_TIME);
-
-	/* Program in noise recovery (if required) */
-	if (scd->noiserecov) {
-		nrec = 1 | (1 << 16);	/* primary and alt code enable */
-
-		i = 1 << (codelen - 1);
-		ival = scd->code & i;
-		if (ival)
-			nrec |= 2;
-
-		scwidth = 0;
-		while (i > 0 && ((scd->code & i) == ival)) {
-			scwidth++;
-			i >>= 1;
-		}
-
-		nrec |= (scwidth << 8);
-
-		i = 1 << (alt_codelen - 1);
-		ival = scd->alt_code & i;
-		if (ival)
-			nrec |= 1 << 17;
-
-		scwidth = 0;
-		while (i > 0 && ((scd->alt_code & i) == ival)) {
-			scwidth++;
-			i >>= 1;
-		}
-
-		nrec |= (scwidth << 24);
-
-		DPRINTK("SCD noise recovery 0x%08x\n", nrec);
-		writel(nrec, IRB_SCD_NOISE_RECOV);
-	}
-
-	/* Set supported flag */
-	printk(KERN_INFO LIRC_STM_NAME
-		": SCD normal code 0x%x codelen 0x%x nomtime 0x%x armed.\n",
-		scd->code, codelen, scd->nomtime);
-
-	if (alt_codelen > 0) {
-		printk(KERN_INFO LIRC_STM_NAME
-			": SCD alternative code 0x%x codelen 0x%x armed.\n",
-			scd->alt_code, alt_codelen);
-		writel(scd->alt_code, IRB_SCD_ALT_CODE);
-	} else {
-		writel(scd->code, IRB_SCD_ALT_CODE);
-		alt_codelen = codelen;
-		rx.scd_flags |= SCD_NOR_EQ_ALT;
-	}
-
-	/* SCD codelen range [00001,...,11111,00000] where 00000 = 32 symbols */
-	writel(((alt_codelen & 0x1f) << 8)
-		| (codelen & 0x1f), IRB_SCD_CODE_LEN);
-
-	rx.scd_flags |= SCD_ENABLED;
-	return 0;
-}
-
 static int lirc_stm_open_inc(void *data)
 {
-	lirc_stm_plugin_data_t *lpd = (lirc_stm_plugin_data_t *) data;
+	struct lirc_stm_plugin_data_s *lpd =
+	    (struct lirc_stm_plugin_data_s *)data;
 	DPRINTK("entering open\n");
 
 	if (lpd->open_count++ == 0) {
@@ -815,17 +1055,17 @@ static int lirc_stm_open_inc(void *data)
 		/* enable interrupts and receiver */
 		writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
 		writel(0x01, IRB_RX_EN);
-		lirc_stm_reset_rx_data();
+		lirc_stm_rx_reset_data();
 		local_irq_restore(flags);
 
-		return lirc_stm_scd_set(1);
+		lirc_stm_scd_set(1);
 	} else
 		DPRINTK("plugin already open\n");
 
 	return 0;
 }
 
-static void lirc_stm_flush_rx(void)
+static void lirc_stm_rx_flush(void)
 {
 	lirc_stm_scd_set(0);
 	/* Disable receiver */
@@ -833,7 +1073,7 @@ static void lirc_stm_flush_rx(void)
 	/* Disable interrupt */
 	writel(0x20, IRB_RX_INT_EN);
 	/* clean the buffer */
-	lirc_stm_reset_rx_data();
+	lirc_stm_rx_reset_data();
 }
 
 /*
@@ -841,12 +1081,13 @@ static void lirc_stm_flush_rx(void)
 */
 static void lirc_stm_close_dec(void *data)
 {
-	lirc_stm_plugin_data_t *lpd = (lirc_stm_plugin_data_t *) data;
+	struct lirc_stm_plugin_data_s *lpd =
+	    (struct lirc_stm_plugin_data_s *)data;
 	DPRINTK("entering close\n");
 
 	/* The last close disable the receiver */
 	if (--lpd->open_count == 0)
-		lirc_stm_flush_rx();
+		lirc_stm_rx_flush();
 }
 
 static int lirc_stm_ioctl(struct inode *node, struct file *filep,
@@ -895,24 +1136,7 @@ static int lirc_stm_ioctl(struct inode *node, struct file *filep,
 			return (-ENOSYS);
 		break;
 
-	case LIRC_SCD_CONFIGURE:
-		if (copy_from_user(scd, (unsigned long *)arg, sizeof(*scd)))
-			return -EFAULT;
-
-		retval = lirc_stm_scd_config(scd,
-					     clk_get_rate(clk_get
-							  (NULL, "comms_clk")));
-		break;
-
-	case LIRC_SCD_ENABLE:
-	case LIRC_SCD_DISABLE:
-		retval = lirc_stm_scd_set(cmd == LIRC_SCD_ENABLE);
-		break;
-
-	case LIRC_SCD_STATUS:
-		retval = put_user(rx.scd_flags & SCD_ENABLED,
-					(unsigned long *)arg);
-		break;
+		lirc_stm_scd_cases();
 
 	case LIRC_GET_REC_RESOLUTION:
 		msg = "LIRC_GET_REC_RESOLUTION";
@@ -964,149 +1188,8 @@ _not_supported:
 	return retval;
 }
 
-static ssize_t lirc_stm_write(struct file *file, const char *buf,
-			      size_t n, loff_t * ppos)
-{
-	int i;
-	size_t rdn = n / sizeof(size_t);
-	unsigned int symbol, mark;
-	int fifosyms;
-
-	if (!pd.p_lirc_d->txenabled) {
-		printk(KERN_ERR LIRC_STM_NAME
-		       ": write operation unsupported.\n");
-		return -ENOTSUPP;
-	}
-
-	if (n % sizeof(lirc_t))
-		return -EINVAL;
-
-	if (tx.off_wbuf != 0 && (file->f_flags & O_NONBLOCK))
-		return -EAGAIN;
-
-	/* Wait for transmit to become free... */
-	if (wait_event_interruptible(tx.waitq, tx.off_wbuf == 0))
-		return -ERESTARTSYS;
-
-	/* Prevent against buffer overflow... */
-	if (rdn > LIRC_STM_MAX_SYMBOLS)
-		rdn = LIRC_STM_MAX_SYMBOLS;
-
-	n -= rdn * sizeof(size_t);
-
-	if (copy_from_user((char *)tx.wbuf, buf, rdn * sizeof(size_t))) {
-		return -EFAULT;
-	}
-
-	if (n == 0)
-		tx.wbuf[rdn - 1] = 0xFFFF;
-
-	/* load the first words into the FIFO */
-	fifosyms = rdn;
-
-	if (fifosyms > TX_FIFO_DEPTH)
-		fifosyms = TX_FIFO_DEPTH;
-
-	for (i = 0; i < fifosyms; i++) {
-		mark = tx.wbuf[(i * 2)];
-		symbol = mark + tx.wbuf[(i * 2) + 1];
-		DPRINTK("TX raw m %d s %d ", mark, symbol);
-
-		mark = lirc_stm_time_to_cycles(mark) + 1;
-		symbol = lirc_stm_time_to_cycles(symbol) + 2;
-		DPRINTK("cal m %d s %d\n", mark, symbol);
-
-		tx.off_wbuf++;
-		writel(mark, IRB_TX_ONTIME);
-		writel(symbol, IRB_TX_SYMPERIOD);
-	}
-
-	/* enable the transmit */
-	writel(0x07, IRB_TX_INT_ENABLE);
-	writel(0x01, IRB_TX_ENABLE);
-	DPRINTK("TX enabled\n");
-
-	return n;
-}
-
-static void lirc_stm_calc_tx_clocks(unsigned int clockfreq,
-				    unsigned int carrierfreq,
-				    unsigned int subwidthpercent)
-{
-	/*  We know the system base clock and the required IR carrier frequency
-	 *  We now want a divisor of the system base clock that gives the nearest
-	 *  integer multiple of the carrier frequency
-	 */
-
-	const unsigned int clkratio = clockfreq / carrierfreq;
-	unsigned int scalar, n;
-	int delta;
-	unsigned int diffbest = clockfreq, nbest = 0, scalarbest = 0;
-	unsigned int nmin = clkratio / 255;
-
-	if ((nmin & 0x01) == 1)
-		nmin++;
-
-	for (n = nmin; n < clkratio; n += 2) {
-		scalar = clkratio / n;
-		if ((scalar & 0x01) == 0 && scalar != 0) {
-			delta = clockfreq - (scalar * carrierfreq * n);
-			if (delta < 0)
-				delta *= -1;
-
-			if (delta < diffbest) {	/* better set of parameters ? */
-				diffbest = delta;
-				nbest = n;
-				scalarbest = scalar;
-			}
-			if (delta == 0)	/* an exact multiple */
-				break;
-		}
-	}
-
-	scalarbest /= 2;
-	nbest *= 2;
-
-	DPRINTK("TX clock scalar = %d\n", scalarbest);
-	DPRINTK("TX subcarrier scalar = %d\n", nbest);
-
-	/*  Set the registers now  */
-	writel(scalarbest, IRB_TX_PRESCALAR);
-	writel(nbest, IRB_TX_SUBCARRIER);
-	writel(nbest * subwidthpercent / 100, IRB_TX_SUBCARRIER_WIDTH);
-
-	/*  Now calculate timing to subcarrier cycles factors which compensate
-	 *  for any remaining difference between our clock ratios and real times
-	 *  in microseconds
-	 */
-
-	if (diffbest == 0) {
-		/* no adjustment required - our clock is running at the required
-		 * speed */
-		tx.mult = 1;
-		tx.div = 1;
-	} else {
-		/* adjustment is required */
-		delta = scalarbest * carrierfreq * nbest;
-		tx.mult = delta / (clockfreq / 10000);
-
-		if (delta < clockfreq) {	/* our clock is running too fast */
-			DPRINTK("clock running slow at %d\n", delta);
-			tx.div = tx.mult;
-			tx.mult = 10000;
-		} else {	/* our clock is running too slow */
-
-			DPRINTK("clock running fast at %d\n", delta);
-			tx.div = 10000;
-		}
-	}
-
-	DPRINTK("TX fine adjustment mult = %d\n", tx.mult);
-	DPRINTK("TX fine adjustment div  = %d\n", tx.div);
-}
-
 static void
-lirc_stm_calc_rx_clocks(struct platform_device *pdev, unsigned long baseclock)
+lirc_stm_rx_calc_clocks(struct platform_device *pdev, unsigned long baseclock)
 {
 	struct stm_plat_lirc_data *lirc_pdata = NULL;
 	unsigned int rx_max_symbol_per;
@@ -1157,7 +1240,7 @@ lirc_stm_calc_rx_clocks(struct platform_device *pdev, unsigned long baseclock)
 	}
 
 	writel(rx.sampling_freq_div, IRB_RX_RATE_COMMON);
-	DPRINTK(": IR base clock is %lu\n", baseclock);
+	DPRINTK("IR base clock is %lu\n", baseclock);
 	DPRINTK("IR clock divisor is %d\n", rx.sampling_freq_div);
 	DPRINTK("IR clock divisor readlack is %d\n", readl(IRB_RX_RATE_COMMON));
 	DPRINTK("IR period mult factor is %d\n", rx.symbol_mult);
@@ -1189,8 +1272,6 @@ static int lirc_stm_hardware_init(struct platform_device *pdev)
 	/*  set up the hardware version dependent setup parameters */
 	lirc_pdata = pdev->dev.platform_data;
 
-	tx.carrier_freq = 38000;	// in Hz
-
 	/* Set the polarity inversion bit to the correct state */
 	writel(lirc_pdata->rxpolarity, IRB_RX_POLARITY_INV);
 
@@ -1203,7 +1284,7 @@ static int lirc_stm_hardware_init(struct platform_device *pdev)
 	} else
 		baseclock = lirc_pdata->irbclock;
 
-	lirc_stm_calc_rx_clocks(pdev, baseclock);
+	lirc_stm_rx_calc_clocks(pdev, baseclock);
 	/*  Set up the transmit timings  */
 	if (lirc_pdata->subcarrwidth != 0)
 		scwidth = lirc_pdata->subcarrwidth;
@@ -1214,9 +1295,9 @@ static int lirc_stm_hardware_init(struct platform_device *pdev)
 		scwidth = 50;
 
 	DPRINTK("subcarrier width set to %d %%\n", scwidth);
-	lirc_stm_calc_tx_clocks(baseclock, tx.carrier_freq, scwidth);
+	lirc_stm_tx_calc_clocks(baseclock, scwidth);
 
-	lirc_stm_scd_config(scd, baseclock);
+	lirc_stm_scd_config(baseclock);
 
 	return 0;
 }
@@ -1255,8 +1336,8 @@ static int lirc_stm_probe(struct platform_device *pdev)
 
 	if (devm_request_irq(dev, irb_irq, lirc_stm_interrupt, IRQF_DISABLED,
 			     LIRC_STM_NAME, (void *)&pd) < 0) {
-            printk(KERN_ERR LIRC_STM_NAME ": IRQ %d register failed\n",
-                irb_irq);
+		printk(KERN_ERR LIRC_STM_NAME ": IRQ %d register failed\n",
+		       irb_irq);
 		return -EIO;
 	}
 
@@ -1267,7 +1348,8 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		    (dev, irb_irq_wup, lirc_stm_interrupt, IRQF_DISABLED,
 		     LIRC_STM_NAME, (void *)&pd) < 0) {
 			printk(KERN_ERR LIRC_STM_NAME
-			       ": wakeup IRQ %d register failed\n", irb_irq_wup);
+			       ": wakeup IRQ %d register failed\n",
+			       irb_irq_wup);
 			return -EIO;
 		}
 		disable_irq(irb_irq_wup);
@@ -1292,25 +1374,9 @@ static int lirc_stm_probe(struct platform_device *pdev)
 					       GFP_KERNEL)) == NULL)
 		return -ENOMEM;
 
-	if ((rx.rscd_code = (lirc_t *) devm_kzalloc(dev,
-						LIRC_STM_SCD_BUFSIZE,
-						GFP_KERNEL)) == NULL)
-		return -ENOMEM;
+	lirc_stm_scd_kzalloc();
 
-	if ((rx.rscd_altcode = (lirc_t *) devm_kzalloc(dev,
-						LIRC_STM_SCD_BUFSIZE,
-						GFP_KERNEL)) == NULL)
-		return -ENOMEM;
-
-	if ((tx.wbuf = (lirc_t *) devm_kzalloc(dev,
-					       LIRC_STM_BUFSIZE,
-					       GFP_KERNEL)) == NULL)
-		return -ENOMEM;
-
-	memset(rx.rbuf, 0, LIRC_STM_BUFSIZE);
-	memset(rx.rscd_code, 0, LIRC_STM_SCD_BUFSIZE);
-	memset(rx.rscd_altcode, 0, LIRC_STM_SCD_BUFSIZE);
-	memset(tx.wbuf, 0, LIRC_STM_BUFSIZE);
+	lirc_stm_tx_kzalloc();
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
@@ -1334,19 +1400,17 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		DPRINTK("ioremapped register block at 0x%x\n", res->start);
 		DPRINTK("ioremapped to 0x%x\n", (unsigned int)irb_base_address);
 
-		printk(KERN_INFO LIRC_STM_NAME": STM LIRC plugin using IRQ %d"
-				" in %s mode\n", irb_irq,
-				pd.p_lirc_d->rxuhfmode ? "UHF" : "IR");
+		printk(KERN_INFO LIRC_STM_NAME ": STM LIRC plugin using IRQ %d"
+		       " in %s mode\n", irb_irq,
+		       pd.p_lirc_d->rxuhfmode ? "UHF" : "IR");
 
 		if (!devm_stm_pad_claim(dev, pd.p_lirc_d->pads,
-				LIRC_STM_NAME)) {
-			printk(KERN_ERR LIRC_STM_NAME": Failed to claim "
-					"pads!\n");
+					LIRC_STM_NAME)) {
+			printk(KERN_ERR LIRC_STM_NAME ": Failed to claim "
+			       "pads!\n");
 			return -EIO;
 		}
 
-		/* reset and then harware initialisation */
-		init_waitqueue_head(&tx.waitq);
 		/* enable signal detection */
 		ret = lirc_stm_hardware_init(pdev);
 	}
@@ -1354,8 +1418,7 @@ static int lirc_stm_probe(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-
-static void lirc_stm_restore_rx(void)
+static void lirc_stm_rx_restore(void)
 {
 	lirc_stm_scd_set(1);
 	/* enable interrupts and receiver */
@@ -1376,13 +1439,12 @@ static int lirc_stm_suspend(struct platform_device *pdev, pm_message_t state)
 	case PM_EVENT_SUSPEND:
 		if (device_may_wakeup(&(pdev->dev))) {
 			/* need for the resuming phase */
-			lirc_stm_flush_rx();
-			lirc_stm_calc_rx_clocks(pdev,
+			lirc_stm_rx_flush();
+			lirc_stm_rx_calc_clocks(pdev,
 						lirc_pdata->clk_on_low_power);
-			lirc_stm_scd_config(scd, lirc_pdata->clk_on_low_power);
-			lirc_stm_restore_rx();
-			writel(0x02, IRB_SCD_CFG);
-			writel(0x01, IRB_SCD_CFG);
+			lirc_stm_scd_config(lirc_pdata->clk_on_low_power);
+			lirc_stm_rx_restore();
+			lirc_stm_scd_restart();
 			return 0;
 		}
 	case PM_EVENT_FREEZE:
@@ -1414,9 +1476,8 @@ static int lirc_stm_resume(struct platform_device *pdev)
 		break;
 	case PM_EVENT_SUSPEND:
 		lirc_stm_hardware_init(pdev);
-		lirc_stm_restore_rx();
-		writel(0x02, IRB_SCD_CFG);
-		writel(0x01, IRB_SCD_CFG);
+		lirc_stm_rx_restore();
+		lirc_stm_scd_restart();
 		break;
 	}
 	pd.prev_state = PMSG_ON;
@@ -1506,7 +1567,7 @@ void __exit lirc_stm_release(void)
 	DPRINTK("removing STM lirc driver\n");
 
 	/* unregister the driver */
-	lirc_stm_flush_rx();
+	lirc_stm_rx_flush();
 	platform_driver_unregister(&lirc_device_driver);
 
 	/* unplug the lirc stm driver */

@@ -1153,16 +1153,14 @@ static int stm_sata_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-static int stm_sata_suspend(struct platform_device *pdev, pm_message_t state)
+static int stm_sata_suspend(struct device *dev)
 {
-	if (state.event == PM_EVENT_SUSPEND) {
-		platform_pm_pwdn_req(pdev, HOST_PM, 1);
-		platform_pm_pwdn_ack(pdev, HOST_PM, 1);
-		}
+	platform_pm_pwdn_req(pdev, HOST_PM, 1);
+	platform_pm_pwdn_ack(pdev, HOST_PM, 1);
 	return 0;
 }
 
-static int stm_sata_resume(struct platform_device *pdev)
+static int stm_sata_resume(struct device *dev)
 {
 	platform_pm_pwdn_req(pdev, HOST_PM, 0);
 	platform_pm_pwdn_ack(pdev, HOST_PM, 0);
@@ -1173,15 +1171,19 @@ static int stm_sata_resume(struct platform_device *pdev)
 #define stm_sata_resume		NULL
 #endif
 
+static struct dev_pm_ops stm_sata_pm = {
+	.suspend = stm_sata_suspend,  /* on standby/memstandby */
+	.resume = stm_sata_resume,    /* resume from standby/memstandby */
+};
+
 static struct platform_driver stm_sata_driver = {
 	.driver = {
 		.name = DRV_NAME,
 		.owner = THIS_MODULE,
+		.pm = &stm_sata_pm,
 	},
 	.probe = stm_sata_probe,
 	.remove = stm_sata_remove,
-	.suspend = stm_sata_suspend,
-	.resume = stm_sata_resume,
 };
 
 static int __init stm_sata_init(void)

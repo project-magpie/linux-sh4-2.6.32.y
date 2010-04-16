@@ -57,7 +57,14 @@
  *	       Updated code to manage SCD values incoming from kconfig.
  *	       Default SCD code is for the Futarque RC.
  * 	       Angelo Castello <angelo.castello@st.com>
- *
+ * Apr  2010:  Fixed the following SCD issues:
+ *             Q1: to manage rightly border-line symbols
+ *             Q2: to add others constrains for safe initialization.
+ *             Q3: to manage potential contiguous Pulse/Space when the SCD
+ *                 programming is not aligned to leading/trailing edge
+ *             Q4: to rebuild rightly the incoming signals train filtered by SCD
+ *                 when detected from SCD_CODE or from SCD_ALT_CODE.
+ *             Angelo Castello <angelo.castello@st.com>
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -156,7 +163,18 @@ static void *irb_base_address;	/* IR block register base address */
 
 #define LIRC_STM_SCD_MAX_SYMBOLS	32
 #define LIRC_STM_SCD_BUFSIZE		((LIRC_STM_SCD_MAX_SYMBOLS/2+1)*sizeof(lirc_t))
-#define LIRC_STM_SCD_TOLERANCE		5
+#define LIRC_STM_SCD_TOLERANCE		25
+/* rx.scd_flags fields:
+ *	scd normal                      1 -> bit 0
+ *	scd altenative                  1 -> bit 1
+ *	scd normal = alternative        1 -> bit 2
+ *	scd enabled                     1 -> bit 3
+ */
+#define SCD_NORMAL			0x01
+#define SCD_ALTERNATIVE			0x02
+#define SCD_NOR_EQ_ALT			0x04
+#define SCD_ENABLED			0x08
+#define SCD_ALT_MASK			(SCD_NORMAL|SCD_ALTERNATIVE|SCD_ENABLED)
 
 /* Bit settings */
 #define LIRC_STM_IS_OVERRUN	 	0x04
@@ -213,15 +231,14 @@ static void *irb_base_address;	/* IR block register base address */
 #ifdef CONFIG_LIRC_STM_UHF_SCD
 static struct lirc_scd_s scd_s = {
 	.code = CONFIG_LIRC_STM_UHF_SCD_CODE,
-	.codelen = CONFIG_LIRC_STM_UHF_SCD_LEN,
-	.alt_codelen = 0,
+	.alt_code = CONFIG_LIRC_STM_UHF_SCD_ALTCODE,
 	.nomtime = CONFIG_LIRC_STM_UHF_SCD_NTIME,
 	.noiserecov = 0,
 };
 
-static struct lirc_scd_s *const scd = &scd_s;
+static struct lirc_scd_s *scd = &scd_s;
 #else
-static struct lirc_scd_s *const scd = NULL;
+static struct lirc_scd_s *scd = NULL;
 #endif
 
 /* SOC dependent section - these values are set in the appropriate 
@@ -237,7 +254,7 @@ typedef struct lirc_stm_tx_data_s {
 	unsigned int carrier_freq;
 	/* transmit buffer */
 	lirc_t *wbuf;
-	volatile int off_wbuf;
+	unsigned int off_wbuf;
 } lirc_stm_tx_data_t;
 
 typedef struct lirc_stm_rx_data_s {
@@ -249,14 +266,16 @@ typedef struct lirc_stm_rx_data_s {
 	/* data configuration */
 	unsigned int sampling_freq_div;
 	lirc_t *rbuf;
-	volatile int off_rbuf;
+	unsigned int off_rbuf;
 	unsigned int sumUs;
 	int error;
 	struct timeval sync;
 	/* SCD support */
-	int scd_supported;
-	lirc_t *rscd;
-	volatile int off_rscd;
+	int scd_flags;
+	lirc_t *rscd_code;
+	lirc_t *rscd_altcode;
+	unsigned int off_rscd_code;
+	unsigned int off_rscd_altcode;
 } lirc_stm_rx_data_t;
 
 typedef struct lirc_stm_plugin_data_s {
@@ -367,14 +386,60 @@ static void lirc_stm_tx_interrupt(int irq, void *dev_id)
 	}
 }
 
+static void lirc_stm_prescd_symbols(void)
+{
+	lirc_t *lscd;
+	unsigned int *offscd;
+
+	DPRINTK("SCD_STA(0x%x)\n", rx.scd_flags & 0x3);
+	/* Here need to take care the following SCD constrain:
+	* If there is only one start code to be detected, the registers for
+	* normal and alternative start codes has been programmed with
+	* identical values. The low significate bits of scd_flags means:
+	*      1    : SCD_ENABLED
+	*       1   : SCD_NOR_EQ_ALT
+	*        1  : SCD_ALTERNATIVE
+	*         1 : SCD_NORMAL
+	*      11xx : normal and alternative are the same due to constrain.
+	*      1001 : normal detected
+	*      1011 : alternative detected
+	*/
+	if ((rx.scd_flags & SCD_NOR_EQ_ALT) ||
+	    (rx.scd_flags ^ SCD_ALT_MASK)) {
+		/* normal code detected */
+		lscd = rx.rscd_code;
+		offscd = &rx.off_rscd_code;
+	} else {
+		/* alternative code detected */
+		lscd = rx.rscd_altcode;
+		offscd = &rx.off_rscd_altcode;
+	}
+
+	/* manage potential contiguous Pulse/Space when the SCD programming
+	* is not aligned to leading/trailing edge
+	*/
+	if ((lscd[*offscd-1] & PULSE_BIT) == (rx.rbuf[0] & PULSE_BIT)) {
+		rx.rbuf[0] += (lscd[*offscd-1] & ~PULSE_BIT);
+		(*offscd)--;
+	}
+
+	lirc_buffer_write_n(&lirc_stm_rbuf, (unsigned char *)lscd, *offscd);
+	return;
+}
+
+
 static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 {
 	unsigned int symbol, mark = 0;
 	int lastSymbol = 0, clear_irq = 1;
 
-	if (rx.scd_supported) {
-		writel(0x01, IRB_SCD_INT_CLR);
-		writel(0x00, IRB_SCD_INT_EN);
+	if (rx.scd_flags) {
+		/* SCD status catched only the first time */
+		if (!(rx.scd_flags & SCD_NORMAL)) {
+			rx.scd_flags |= readb(IRB_SCD_STA);
+			writel(0x01, IRB_SCD_INT_CLR);
+			writel(0x00, IRB_SCD_INT_EN);
+		}
 	}
 
 	while (RX_WORDS_IN_FIFO()) {
@@ -446,7 +511,8 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 				 */
 				if (likely(lirc_buffer_available
 					   (&lirc_stm_rbuf) >=
-					   ((2 * rx.off_rbuf) + rx.off_rscd))) {
+						((2 * rx.off_rbuf) +
+						LIRC_STM_SCD_MAX_SYMBOLS))) {
 					struct timeval now;
 					lirc_t syncSpace;
 
@@ -492,11 +558,8 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 					/* Now write the SCD filtered-out
 					 * pulse / space pairs
 					 */
-					if (rx.scd_supported)
-						_lirc_buffer_write_n
-						    (&lirc_stm_rbuf,
-						     (unsigned char *)rx.rscd,
-						     rx.off_rscd);
+					if (rx.scd_flags)
+						lirc_stm_prescd_symbols();
 
 					/*  Now write the pulse / space pairs
 					 *  EXCEPT FOR THE LAST SPACE
@@ -521,7 +584,9 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 	RX_CLEAR_IRQ(LIRC_STM_CLEAR_IRQ | 0x02);
 	writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
 
-	if (rx.scd_supported && lastSymbol) {
+	if (rx.scd_flags && lastSymbol) {
+		/* reset the SCD flags */
+		rx.scd_flags &= (SCD_ENABLED | SCD_NOR_EQ_ALT);
 		writel(0x01, IRB_SCD_INT_EN);
 		writel(0x01, IRB_SCD_CFG);
 	}
@@ -537,7 +602,7 @@ static irqreturn_t lirc_stm_interrupt(int irq, void *dev_id)
 
 static int lirc_stm_scd_set(char enable)
 {
-	if (!rx.scd_supported)
+	if (!rx.scd_flags)
 		return -1;
 
 	if (enable) {
@@ -555,16 +620,19 @@ static int lirc_stm_scd_set(char enable)
 static int lirc_stm_scd_config(struct lirc_scd_s *scd, unsigned long clk)
 {
 	unsigned int nrec, ival, scwidth;
-	unsigned int scd_prescalar;
-	unsigned int tolerance;
+	unsigned int prescalar, tolerance;
 	unsigned int space, mark;
-	int i, j;
+	int i, j, k;
+	lirc_t *lscd;
+	unsigned int *offscd;
+	unsigned int code, codelen, alt_codelen, curr_codelen;
 
-	rx.scd_supported = 0;
-	rx.off_rscd = 0;
+	rx.scd_flags = 0;
+	rx.off_rscd_code = 0;
+	rx.off_rscd_altcode = 0;
 	if (!pd.p_lirc_d->rxuhfmode) {
 		printk(KERN_ERR LIRC_STM_NAME
-		       ": SCD not available in IR-RX mode. Not armed\n");
+			": SCD not available in IR-RX mode. Not armed\n");
 		return -ENOTSUPP;
 	}
 	if (!scd) {
@@ -573,48 +641,78 @@ static int lirc_stm_scd_config(struct lirc_scd_s *scd, unsigned long clk)
 		return -EIO;
 	}
 
+	codelen = fls(scd->code);
+	if ((scd->code == 0) ||
+	    (codelen > LIRC_STM_SCD_MAX_SYMBOLS) ||
+	    (codelen < 1)) {
+		printk(KERN_ERR LIRC_STM_NAME
+			": SCD invalid start code. Not armed\n");
+		return -EINVAL;
+	}
+
+	alt_codelen = fls(scd->alt_code);
+	if (alt_codelen > 0) {
+		if ((scd->alt_code == 0) ||
+		    (alt_codelen > LIRC_STM_SCD_MAX_SYMBOLS) ||
+		    (alt_codelen < (codelen / 2))) {
+			printk(KERN_ERR LIRC_STM_NAME
+				": SCD invalid alternative code. Not armed\n");
+			return -EINVAL;
+		}
+	}
+
 	/* SCD disable */
 	writel(0x00, IRB_SCD_CFG);
 
 	/* Configure pre-scalar clock first to give 1MHz sampling */
-	scd_prescalar = clk / 1000000;
-	writel(scd_prescalar, IRB_SCD_PRESCALAR);
+	prescalar = clk / 1000000;
+	writel(prescalar, IRB_SCD_PRESCALAR);
 
 	/* pre-loading of not filtered SCD codes and
 	 * preparing data for tolerance calculation.
 	 */
-	space = mark = j = tolerance = 0;
-	for (i = (scd->codelen - 1); i >= 0; i--) {
-		j = 1 << (i - 1);
-		if (scd->code & (1 << i)) {
-			mark += scd->nomtime;
-			if (!(scd->code & j) || (i == 0)) {
-				rx.rscd[rx.off_rscd] = mark | PULSE_BIT;
-				DPRINTK("SCD mark rscd[%d](%d)\n",
-					rx.off_rscd,
-					rx.rscd[rx.off_rscd] & ~PULSE_BIT);
-				rx.off_rscd++;
-				tolerance += mark;
-				mark = 0;
-			}
-		} else {
-			space += scd->nomtime;
-			if ((scd->code & j) || (i == 0)) {
-				rx.rscd[rx.off_rscd] = space;
-				DPRINTK("SCD space rscd[%d](%d)\n",
-					rx.off_rscd, rx.rscd[rx.off_rscd]);
-				rx.off_rscd++;
-				tolerance += space;
-				space = 0;
+	lscd = rx.rscd_code;
+	offscd = &rx.off_rscd_code;
+	code = scd->code;
+	curr_codelen = codelen;
+	for (k = 0; k < 2; k++) {
+		space = 0;
+		mark = 0;
+		j = 0;
+		for (i = (curr_codelen - 1); i >= 0; i--) {
+			j = 1 << (i - 1);
+			if (code & (1 << i)) {
+				mark += scd->nomtime;
+				if (!(code & j) || (i == 0)) {
+					lscd[*offscd] = mark | PULSE_BIT;
+					DPRINTK("SCD mark rscd[%d](%d)\n",
+						*offscd,
+					lscd[*offscd] & ~PULSE_BIT);
+					(*offscd)++;
+					mark = 0;
+				}
+			} else {
+				space += scd->nomtime;
+				if ((code & j) || (i == 0)) {
+					lscd[*offscd] = space;
+					DPRINTK("SCD space rscd[%d](%d)\n",
+					*offscd, lscd[*offscd]);
+					(*offscd)++;
+					space = 0;
+				}
 			}
 		}
+		lscd = rx.rscd_altcode;
+		offscd = &rx.off_rscd_altcode;
+		code = scd->alt_code;
+		curr_codelen = alt_codelen;
 	}
 
-	/* normaly 5% of tolerance is much more than enough */
-	tolerance = (tolerance / rx.off_rscd) * LIRC_STM_SCD_TOLERANCE / 100;
+	/* normaly 20% of nomtine is enough as tolerance */
+	tolerance = scd->nomtime * LIRC_STM_SCD_TOLERANCE / 100;
 
 	DPRINTK("SCD prescalar %d nominal %d tolerance %d\n",
-		scd_prescalar, scd->nomtime, tolerance);
+		prescalar, scd->nomtime, tolerance);
 
 	/* Sanity check to garantee all hw constrains must be satisfied */
 	if ((tolerance > ((scd->nomtime >> 1) - scd->nomtime)) ||
@@ -626,10 +724,6 @@ static int lirc_stm_scd_config(struct lirc_scd_s *scd, unsigned long clk)
 		tolerance = scd->nomtime * LIRC_STM_SCD_TOLERANCE / 100;
 		DPRINTK("SCD tolerance too close. default %d\n", tolerance);
 	}
-	if ((scd->code == 0) || (scd->codelen >= LIRC_STM_SCD_MAX_SYMBOLS)) {
-		printk(KERN_ERR LIRC_STM_NAME ": SCD invalid start code\n");
-		return -EINVAL;
-	}
 
 	/* Program in scd codes and lengths */
 	writel(scd->code, IRB_SCD_CODE);
@@ -640,23 +734,10 @@ static int lirc_stm_scd_config(struct lirc_scd_s *scd, unsigned long clk)
 		printk(KERN_ERR LIRC_STM_NAME
 		       ": SCD hardware fault.  Broken silicon?\n");
 		printk(KERN_ERR LIRC_STM_NAME
-		       ": SCD wrote code 0x%08x read 0x%08x\n", scd->code, i);
+			": SCD wrote code 0x%08x read 0x%08x. Not armed\n",
+			scd->code, i);
 		return -ENODEV;
 	}
-
-	if (scd->alt_codelen > 0)
-		writel(scd->alt_code, IRB_SCD_ALT_CODE);
-	else {
-		writel(scd->code, IRB_SCD_ALT_CODE);
-		scd->alt_codelen = scd->codelen;
-		scd->alt_code = scd->code;
-	}
-
-	writel(((scd->alt_codelen & 0x1f) << 8)
-	       | (scd->codelen & 0x1f), IRB_SCD_CODE_LEN);
-
-	DPRINTK("SCD code 0x%x codelen 0x%x alt_code 0x%x alt_codelen 0x%x\n",
-		scd->code, scd->codelen, scd->alt_code, scd->alt_codelen);
 
 	/* Program scd min time, max time and nominal time */
 	writel(scd->nomtime - tolerance, IRB_SCD_SYMB_MIN_TIME);
@@ -667,7 +748,7 @@ static int lirc_stm_scd_config(struct lirc_scd_s *scd, unsigned long clk)
 	if (scd->noiserecov) {
 		nrec = 1 | (1 << 16);	/* primary and alt code enable */
 
-		i = 1 << (scd->codelen - 1);
+		i = 1 << (codelen - 1);
 		ival = scd->code & i;
 		if (ival)
 			nrec |= 2;
@@ -680,7 +761,7 @@ static int lirc_stm_scd_config(struct lirc_scd_s *scd, unsigned long clk)
 
 		nrec |= (scwidth << 8);
 
-		i = 1 << (scd->alt_codelen - 1);
+		i = 1 << (alt_codelen - 1);
 		ival = scd->alt_code & i;
 		if (ival)
 			nrec |= 1 << 17;
@@ -698,11 +779,26 @@ static int lirc_stm_scd_config(struct lirc_scd_s *scd, unsigned long clk)
 	}
 
 	/* Set supported flag */
-	rx.scd_supported = 1;
 	printk(KERN_INFO LIRC_STM_NAME
-	       ": SCD code 0x%x codelen 0x%x nomtime 0x%x armed.\n",
-	       scd->code, scd->codelen, scd->nomtime);
+		": SCD normal code 0x%x codelen 0x%x nomtime 0x%x armed.\n",
+		scd->code, codelen, scd->nomtime);
 
+	if (alt_codelen > 0) {
+		printk(KERN_INFO LIRC_STM_NAME
+			": SCD alternative code 0x%x codelen 0x%x armed.\n",
+			scd->alt_code, alt_codelen);
+		writel(scd->alt_code, IRB_SCD_ALT_CODE);
+	} else {
+		writel(scd->code, IRB_SCD_ALT_CODE);
+		alt_codelen = codelen;
+		rx.scd_flags |= SCD_NOR_EQ_ALT;
+	}
+
+	/* SCD codelen range [00001,...,11111,00000] where 00000 = 32 symbols */
+	writel(((alt_codelen & 0x1f) << 8)
+		| (codelen & 0x1f), IRB_SCD_CODE_LEN);
+
+	rx.scd_flags |= SCD_ENABLED;
 	return 0;
 }
 
@@ -722,8 +818,7 @@ static int lirc_stm_open_inc(void *data)
 		lirc_stm_reset_rx_data();
 		local_irq_restore(flags);
 
-		if (rx.scd_supported)
-			return lirc_stm_scd_set(1);
+		return lirc_stm_scd_set(1);
 	} else
 		DPRINTK("plugin already open\n");
 
@@ -732,8 +827,7 @@ static int lirc_stm_open_inc(void *data)
 
 static void lirc_stm_flush_rx(void)
 {
-	if (rx.scd_supported)
-		lirc_stm_scd_set(0);
+	lirc_stm_scd_set(0);
 	/* Disable receiver */
 	writel(0x00, IRB_RX_EN);
 	/* Disable interrupt */
@@ -760,7 +854,6 @@ static int lirc_stm_ioctl(struct inode *node, struct file *filep,
 {
 	int retval = 0;
 	unsigned long value = 0;
-	struct lirc_scd_s arg_scd;
 	char *msg = "";
 
 	switch (cmd) {
@@ -803,14 +896,12 @@ static int lirc_stm_ioctl(struct inode *node, struct file *filep,
 		break;
 
 	case LIRC_SCD_CONFIGURE:
-		if (copy_from_user(&arg_scd, (unsigned long *)arg, sizeof(scd)))
+		if (copy_from_user(scd, (unsigned long *)arg, sizeof(*scd)))
 			return -EFAULT;
 
-		retval = lirc_stm_scd_config(&arg_scd,
+		retval = lirc_stm_scd_config(scd,
 					     clk_get_rate(clk_get
 							  (NULL, "comms_clk")));
-		if (retval == 0)
-			*scd = arg_scd;	/* struct copy */
 		break;
 
 	case LIRC_SCD_ENABLE:
@@ -819,7 +910,8 @@ static int lirc_stm_ioctl(struct inode *node, struct file *filep,
 		break;
 
 	case LIRC_SCD_STATUS:
-		retval = put_user(rx.scd_supported, (unsigned long *)arg);
+		retval = put_user(rx.scd_flags & SCD_ENABLED,
+					(unsigned long *)arg);
 		break;
 
 	case LIRC_GET_REC_RESOLUTION:
@@ -1065,7 +1157,7 @@ lirc_stm_calc_rx_clocks(struct platform_device *pdev, unsigned long baseclock)
 	}
 
 	writel(rx.sampling_freq_div, IRB_RX_RATE_COMMON);
-	printk(KERN_ERR LIRC_STM_NAME ": IR base clock is %lu\n", baseclock);
+	DPRINTK(": IR base clock is %lu\n", baseclock);
 	DPRINTK("IR clock divisor is %d\n", rx.sampling_freq_div);
 	DPRINTK("IR clock divisor readlack is %d\n", readl(IRB_RX_RATE_COMMON));
 	DPRINTK("IR period mult factor is %d\n", rx.symbol_mult);
@@ -1200,9 +1292,14 @@ static int lirc_stm_probe(struct platform_device *pdev)
 					       GFP_KERNEL)) == NULL)
 		return -ENOMEM;
 
-	if ((rx.rscd = (lirc_t *) devm_kzalloc(dev,
-					       LIRC_STM_SCD_BUFSIZE,
-					       GFP_KERNEL)) == NULL)
+	if ((rx.rscd_code = (lirc_t *) devm_kzalloc(dev,
+						LIRC_STM_SCD_BUFSIZE,
+						GFP_KERNEL)) == NULL)
+		return -ENOMEM;
+
+	if ((rx.rscd_altcode = (lirc_t *) devm_kzalloc(dev,
+						LIRC_STM_SCD_BUFSIZE,
+						GFP_KERNEL)) == NULL)
 		return -ENOMEM;
 
 	if ((tx.wbuf = (lirc_t *) devm_kzalloc(dev,
@@ -1211,7 +1308,8 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	memset(rx.rbuf, 0, LIRC_STM_BUFSIZE);
-	memset(rx.rscd, 0, LIRC_STM_SCD_BUFSIZE);
+	memset(rx.rscd_code, 0, LIRC_STM_SCD_BUFSIZE);
+	memset(rx.rscd_altcode, 0, LIRC_STM_SCD_BUFSIZE);
 	memset(tx.wbuf, 0, LIRC_STM_BUFSIZE);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -1259,8 +1357,7 @@ static int lirc_stm_probe(struct platform_device *pdev)
 
 static void lirc_stm_restore_rx(void)
 {
-	if (rx.scd_supported)
-		lirc_stm_scd_set(1);
+	lirc_stm_scd_set(1);
 	/* enable interrupts and receiver */
 	writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
 	writel(0x01, IRB_RX_EN);

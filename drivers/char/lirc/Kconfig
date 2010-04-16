@@ -149,15 +149,22 @@ config LIRC_SUPPORT
                 tristate "STM Lirc support"
                 depends on LIRC_SUPPORT && CPU_SUBTYPE_ST40
 		help
-		  The IR and UHF are identical and independent, except
-		  that the IRB receiver does not use the noise filter.
-		  Not all ST platforms support both type of receivers.
-		  IR RX is the default mode.
+		 The IR and UHF RX processors are identical and independent,
+		 except that the IR receiver does not use the noise and
+		 SCD filters. Not all ST platforms support both type of
+		 receivers.
+		 IR RX is the default mode.
+
+		config LIRC_STM_UHF
+			bool "UHF RX processor"
+			depends on LIRC_STM
+			help
+			 To be able to setup Noise and/or SCD filters.
 
 	        config LIRC_STM_UHF_SCD
 		        bool "Start Code Detector - SCD"
-			depends on LIRC_STM
-			default y
+			depends on LIRC_STM_UHF
+			default n
 			help
 			  This causes the driver to use SCD on UHF RX mode.
 			  The start code detector detects any programmable start
@@ -172,21 +179,24 @@ config LIRC_SUPPORT
 			default "0x3FFFC028"
 			depends on LIRC_STM_UHF_SCD
 			help
-			  Default value for Futarque RC is 0x3FFFC028.
+			 The primary RC to be detected.
+			 Default value for Futarque RC is 0x3FFFC028.
 
-	        config LIRC_STM_UHF_SCD_LEN
-			hex "Code length"
-			default "0x1e"
+	        config LIRC_STM_UHF_SCD_ALTCODE
+			hex "Alternative code to be detected"
+			default "0x0"
 			depends on LIRC_STM_UHF_SCD
 			help
-			  Default value for Futarque RC is 0x1e.
+			 The second RC to be detected as alternative of the primary.
+			 The primary must be always setup before the use this.
 
 	        config LIRC_STM_UHF_SCD_NTIME
 			hex "Nominal time for a symbol"
 				default "0x1f4"
 			depends on LIRC_STM_UHF_SCD
 			help
-			  Default value for Futarque RC is 0x1f4.
+			 Default value for Futarque RC is 0x1f4. The nominal time
+			 is the same for normal and alternative symbols calculation.
 
 	config LIRC_STM_DEBUG
 		depends on LIRC_STM

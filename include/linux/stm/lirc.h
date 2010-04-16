@@ -11,9 +11,7 @@
  */
 struct lirc_scd_s {
 	unsigned int code;		/* code symbols to be detect. */
-	unsigned int codelen;		/* start code length */
 	unsigned int alt_code;		/* alternative SCD to be detected */
-	unsigned int alt_codelen;	/* alternative start code length */
 	unsigned int nomtime;		/* nominal symbol time in us */
 	unsigned int noiserecov;	/* noise recovery configuration */
 };

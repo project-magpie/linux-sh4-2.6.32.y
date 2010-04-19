@@ -14,6 +14,7 @@
 
 #include <linux/io.h>
 #include <linux/stm/sysconf.h>
+#include <linux/stm/gpio.h>
 #include <linux/stm/pio.h>
 #include <asm-generic/errno-base.h>
 
@@ -39,11 +40,13 @@
 static inline
 void PIO_SET_MODE(unsigned long bank, unsigned long line, long mode)
 {
-	static struct stpio_pin *pio;
-	if (!pio)
-		pio = stpio_request_pin(bank, line, "Clk Observer", mode);
-	else
-		stpio_configure_pin(pio, mode);
+	static int pin = -ENOSYS;
+
+	if (pin == -ENOSYS)
+		gpio_request(stm_gpio(bank, line), "Clk Observer");
+
+	if (pin >= 0)
+		stm_gpio_direction(pin, mode);
 }
 
 #define _CLK_OPS(_name, _desc, _init, _setparent, _setfreq, _recalc,	\

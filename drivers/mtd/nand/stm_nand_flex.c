@@ -311,6 +311,34 @@ static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 
 }
 
+static int flex_verify_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
+{
+	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
+	uint32_t *p = (uint32_t *)buf;
+	uint32_t d;
+	int ret = 0;
+	int i;
+
+	/* Switch to 4-byte reads */
+	flex_writereg(FLX_DATA_CFG_BEAT_4 | FLX_DATA_CFG_CSN_STATUS,
+		      EMINAND_FLEX_DATAREAD_CONFIG);
+
+	for (i = 0; i < len/4; i++) {
+		d = readl(flex->base_addr + EMINAND_FLEX_DATA);
+		if (d != *p++) {
+			ret = -EFAULT;
+			goto out1;
+		}
+	}
+
+ out1:
+	/* Switch back to 1-byte reads */
+	flex_writereg(FLX_DATA_CFG_BEAT_1 | FLX_DATA_CFG_CSN_STATUS,
+		      EMINAND_FLEX_DATAREAD_CONFIG);
+
+	return ret;
+}
+
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
 /* OOB Layout for Boot Mode HW ECC (SP and LP devices) */
 static struct nand_ecclayout boot_oob_16 = {
@@ -975,6 +1003,7 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	data->chip.read_byte = flex_read_byte;
 	data->chip.read_buf = flex_read_buf;
 	data->chip.write_buf = flex_write_buf;
+	data->chip.verify_buf = flex_verify_buf;
 	data->chip.waitfunc = flex_nand_wait;
 	if (rbn_connected)
 		data->chip.dev_ready = flex_rbn;

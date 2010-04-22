@@ -533,6 +533,14 @@ config MTD_NAND_STM_FLEX
          This driver is required to access NAND devices when boot-from-NAND is
          enabled.
 
+config STM_NAND_FLEX_CACHED
+       depends on EXPERIMENTAL
+       depends on MTD_NAND_STM_FLEX
+       bool "Reads via cacheline"
+       help
+	  Perform read operations via a cacheline.  Reduces the impact of STBus
+	  latencies at the expence of an incresed IRQ latency.
+
 config STM_NAND_FLEX_BOOTMODESUPPORT
         bool "Enable support for boot mode ECC"
         depends on MTD_NAND_STM_FLEX

@@ -126,11 +126,11 @@ struct stm_nand_flex_controller {
 
 	uint8_t			*buf;			/* Bounce buffer for  */
 							/* non-aligned xfer   */
-
-	void __iomem		*data_phys;
-	int			dma_chan;		/* FDMA channel	      */
-	unsigned long		init_fdma_jiffies;	/* Rate limit init    */
-	struct stm_dma_params	dma_params[4];		/* FDMA params        */
+#ifdef CONFIG_STM_NAND_FLEX_CACHED
+	unsigned long		data_phys;		/* FLEX data IO */
+	void __iomem		*data_cached;
+	spinlock_t		lock;
+#endif
 
 	struct stm_nand_flex_device *devices[0];
 };
@@ -251,6 +251,59 @@ static int flex_rbn(struct mtd_info *mtd)
  * In addition, readsl/writesl requires buf to be 4-byte aligned.  If necessary
  * we use flex.buf as bounce buffer.
  */
+#ifdef CONFIG_STM_NAND_FLEX_CACHED
+static void flex_read_buf_cached(struct mtd_info *mtd, uint8_t *buf, int len)
+{
+	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
+	unsigned long irq_flags;
+	uint8_t *p;
+	int notaligned;
+	int lenaligned;
+
+	notaligned = ((uint32_t)buf & 0x3) || (len & 0x3);
+
+	/* Handle non-4-byte-aligned buffer */
+	if (notaligned) {
+		p = flex->buf;
+		lenaligned = (len + 0x3) & ~0x3;
+	} else {
+		p = buf;
+		lenaligned = len;
+	}
+
+	/* Switch to 4-byte reads */
+	flex_writereg(FLX_DATA_CFG_BEAT_4 | FLX_DATA_CFG_CSN_STATUS,
+		      EMINAND_FLEX_DATAREAD_CONFIG);
+
+	while (lenaligned > 0) {
+		spin_lock_irqsave(&(flex->lock), irq_flags);
+		invalidate_ioremap_region(flex->data_phys,
+					  flex->data_cached, 0, L1_CACHE_BYTES);
+
+		memcpy_fromio(p, flex->data_cached,
+			      min(lenaligned, (int)L1_CACHE_BYTES));
+		spin_unlock_irqrestore(&(flex->lock), irq_flags);
+
+		p += L1_CACHE_BYTES;
+		lenaligned -= L1_CACHE_BYTES;
+	}
+
+#ifdef CONFIG_STM_L2_CACHE
+	/* If L2 cache is enabled, we must ensure the cacheline is evicted prior
+	 * to non-cached writes to FLEX_DATA.
+	 */
+	invalidate_ioremap_region(flex->data_phys,
+				  flex->data_cached, 0, L1_CACHE_BYTES);
+#endif
+
+	if (notaligned)
+		memcpy(buf, flex->buf, len);
+
+	/* Switch back to 1-byte reads */
+	flex_writereg(FLX_DATA_CFG_BEAT_1 | FLX_DATA_CFG_CSN_STATUS,
+		      EMINAND_FLEX_DATAREAD_CONFIG);
+}
+#else
 static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
 	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
@@ -283,6 +336,7 @@ static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 		      EMINAND_FLEX_DATAREAD_CONFIG);
 
 }
+#endif
 
 static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
@@ -882,7 +936,7 @@ flex_init_controller(struct platform_device *pdev)
 
 	/* Map base address */
 	flex->base_addr = ioremap_nocache(resource->start,
-					 resource->end - resource->start + 1);
+					  resource->end - resource->start + 1);
 	if (!flex->base_addr) {
 		printk(KERN_ERR NAME " Failed tp map base address  0x%08x\n",
 		       resource->start);
@@ -890,12 +944,24 @@ flex_init_controller(struct platform_device *pdev)
 		goto out2;
 	}
 
+#ifdef CONFIG_STM_NAND_FLEX_CACHED
+	flex->data_phys = resource->start + EMINAND_FLEX_DATA;
+	flex->data_cached = ioremap_cache(flex->data_phys, L1_CACHE_BYTES);
+	if (!flex->data_cached) {
+		printk(KERN_ERR NAME " Failed to map data reg 0x%08x\n",
+		       resource->start + EMINAND_FLEX_DATA);
+		res = -EINVAL;
+		goto out3;
+	}
+	spin_lock_init(&flex->lock);
+#endif
+
 	flex->buf = kmalloc(NAND_MAX_PAGESIZE +  NAND_MAX_OOBSIZE,
 			   GFP_KERNEL | __GFP_DMA);
 	if (!flex->buf) {
 		printk(KERN_ERR NAME " Failed allocate bounce buffer\n");
 		res = -ENOMEM;
-		goto out3;
+		goto out4;
 	}
 
 	flex->current_csn = -1;
@@ -931,7 +997,11 @@ flex_init_controller(struct platform_device *pdev)
 #endif
 
 	return flex;
+ out4:
+#ifdef CONFIG_STM_NAND_FLEX_CACHED
+	iounmap(flex->data_cached);
  out3:
+#endif
 	iounmap(flex->base_addr);
  out2:
 	release_resource(flex->mem_region);
@@ -945,6 +1015,9 @@ static void __devexit flex_exit_controller(struct platform_device *pdev)
 
 	kfree(flex->buf);
 	iounmap(flex->base_addr);
+#ifdef CONFIG_STM_NAND_FLEX_CACHED
+	iounmap(flex->data_cached);
+#endif
 	release_resource(flex->mem_region);
 }
 
@@ -956,9 +1029,6 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	struct stm_nand_flex_device *data;
 	int res;
 	int i;
-
-	uint32_t reg;
-	uint32_t prog[8] = {0};
 
 	char *boot_part_name;
 	int boot_part_found = 0;
@@ -1001,7 +1071,11 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	data->chip.cmd_ctrl = flex_cmd_ctrl;
 	data->chip.select_chip = flex_select_chip;
 	data->chip.read_byte = flex_read_byte;
+#ifdef CONFIG_STM_NAND_FLEX_CACHED
+	data->chip.read_buf = flex_read_buf_cached;
+#else
 	data->chip.read_buf = flex_read_buf;
+#endif
 	data->chip.write_buf = flex_write_buf;
 	data->chip.verify_buf = flex_verify_buf;
 	data->chip.waitfunc = flex_nand_wait;
@@ -1017,10 +1091,8 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 
 #if defined(CONFIG_CPU_SUBTYPE_STX7200)
 	/* Reset AFM program. Why!?! */
-	memset(prog, 0, 32);
-	reg = flex_readreg(EMINAND_AFM_SEQUENCE_STATUS_REG);
-	memcpy_toio(flex->base_addr + EMINAND_AFM_SEQUENCE_REG_1,
-		    prog, 32);
+	flex_readreg(EMINAND_AFM_SEQUENCE_STATUS_REG);
+	memset(flex->base_addr + EMINAND_AFM_SEQUENCE_REG_1, 0, 32);
 #endif
 
 	/* Scan to find existance of the device */
@@ -1138,7 +1210,7 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
  out2:
 	kfree(data);
  out1:
-	return res;
+	return ERR_PTR(res);
 }
 
 static int __init stm_nand_flex_probe(struct platform_device *pdev)

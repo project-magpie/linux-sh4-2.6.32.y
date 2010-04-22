@@ -193,8 +193,38 @@ static int __devexit stm_temp_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int stm_temp_suspend(struct device *dev)
+{
+	struct stm_temp_sensor *sensor = dev_get_drvdata(dev);
+	sysconf_write(sensor->pdn, 0);
+	return 0;
+}
+
+static int stm_temp_resume(struct device *dev)
+{
+	struct stm_temp_sensor *sensor = dev_get_drvdata(dev);
+	sysconf_write(sensor->pdn, 1);
+	return 0;
+}
+
+static struct dev_pm_ops stm_temp_pm = {
+	.suspend = stm_temp_suspend,  /* on standby/memstandby */
+	.resume = stm_temp_resume,    /* resume from standby/memstandby */
+	.freeze = stm_temp_suspend,
+	.restore = stm_temp_resume,
+	.runtime_suspend = stm_temp_suspend,
+	.runtime_resume = stm_temp_resume,
+};
+#endif
+
 static struct platform_driver stm_temp_driver = {
-	.driver.name	= "stm-temp",
+	.driver = {
+		.name	= "stm-temp",
+#ifdef CONFIG_PM
+		.pm = &stm_temp_pm,
+#endif
+	},
 	.probe		= stm_temp_probe,
 	.remove		= stm_temp_remove,
 };

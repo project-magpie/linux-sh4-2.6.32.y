@@ -118,13 +118,31 @@ static int check_short_pattern(uint8_t *buf, struct nand_bbt_descr *td)
 {
 	int i;
 	uint8_t *p = buf;
+	int ooblen, e = 0;
 
 	/* Compare the pattern */
 	for (i = 0; i < td->len; i++) {
 		if (p[td->offs + i] != td->pattern[i])
-			return -1;
+			goto check_stm_ecc;
 	}
 	return 0;
+
+ check_stm_ecc:
+	/* Potential bad-block... */
+	if (td->options & NAND_BBT_SCANSTMBOOTECC) {
+		/* Check for STM boot-mode ECC... */
+		ooblen = (td->offs == 5) ? 16 : 64;
+		e = 0;
+		for (i = 3; i < ooblen; i += 4)
+			e += hweight8(buf[i] ^ 'B');
+
+		/* Tolerate a single bit-error accross 'B' markers */
+		if (e <= 1)
+			return 0;
+	}
+
+	/* Bad-block confirmed! */
+	return -1;
 }
 
 /**

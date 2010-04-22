@@ -394,48 +394,73 @@ static int flex_verify_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 }
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
-/* OOB Layout for Boot Mode HW ECC (SP and LP devices) */
+/* The STMicroelectronics NAND boot-controller uses 3 bytes ECC per 128-byte
+ * data record.  However, the ECC layout clashes with the factory-set bad-block
+ * markers.  To help distinguish between boot-mode ECC blocks and factory-set
+ * bad-blocks, we use the 4th byte of each OOB record to store a boot-mode ECC
+ * marker.
+ */
 static struct nand_ecclayout boot_oob_16 = {
-	.eccbytes = 12,
-	.eccpos = {0, 1, 2,
-		   4, 5, 6,
-		   8, 9, 10,
-		   12, 13, 14},
-	.oobfree = {
-		{3, 1}, { 7, 1}, {11, 1}, {15, 1},
+	.eccbytes = 16,
+	.eccpos = {
+		0, 1, 2, 3,	/* 1st 128-byte record: ECC0, ECC1, ECC2, B */
+		4, 5, 6, 7,	/* 2st 128-byte record: ECC0, ECC1, ECC2, B */
+		8, 9, 10, 11,	/*                ...                       */
+		12, 13, 14, 15
 	},
+	.oobfree = {{0, 0} },	/* No free space in OOB */
 };
 
 static struct nand_ecclayout boot_oob_64 = {
-	.eccbytes = 48,
+	.eccbytes = 64,
 	.eccpos = {
-		0,  1,  2,	/* ECC for  1st 128-byte record */
-		4,  5,  6,	/* ECC for  2nd 128-byte record */
-		8,  9, 10,	/* ECC for  3rd 128-byte record */
-		12, 13, 14,	/* ECC for  4th 128-byte record */
-		16, 17, 18,	/* ECC for  5th 128-byte record */
-		20, 21, 22,	/* ECC for  6th 128-byte record */
-		24, 25, 26,	/* ECC for  7th 128-byte record */
-		28, 29, 30,	/* ECC for  8th 128-byte record */
-		32, 33, 34,	/* ECC for  9th 128-byte record */
-		36, 37, 38,	/* ECC for 10th 128-byte record */
-		40, 41, 42,	/* ECC for 11th 128-byte record */
-		44, 45, 46,	/* ECC for 12th 128-byte record */
-		48, 49, 50,	/* ECC for 13th 128-byte record */
-		52, 53, 54,	/* ECC for 14th 128-byte record */
-		56, 57, 58,	/* ECC for 15th 128-byte record */
-		60, 61, 62,	/* ECC for 16th 128-byte record */
+		0, 1, 2, 3,	/* 1st 128-byte record: ECC0, ECC1, ECC2, B */
+		4, 5, 6, 7,	/* 2st 128-byte record: ECC0, ECC1, ECC2, B */
+		8,  9, 10, 11,	/*                ...                       */
+		12, 13, 14, 15,
+		16, 17, 18, 19,
+		20, 21, 22, 23,
+		24, 25, 26, 27,
+		28, 29, 30, 31,
+		32, 33, 34, 35,
+		36, 37, 38, 39,
+		40, 41, 42, 43,
+		44, 45, 46, 47,
+		48, 49, 50, 51,
+		52, 53, 54, 55,
+		56, 57, 58, 59,
+		60, 61, 62, 63
 	},
-	.oobfree = {
-		{ 3, 1}, { 7, 1}, {11, 1}, {15, 1},
-		{19, 1}, {23, 1}, {27, 1}, {31, 1},
-		/* !!! .oobfree is fixed size of 8 - increasing size would break
-		   userspace abi.  For the moment, just expose 8 free bytes
-		  {35, 1}, {39, 1}, {43, 1}, {47, 1},
-		  {51, 1}, {55, 1}, {59, 1}, {63, 1}
-		*/
-	},
+	.oobfree = {{0, 0} },	/* No free OOB bytes */
 };
+
+static uint8_t scan_ff_pattern[] = { 0xff, 0xff };
+static struct nand_bbt_descr bbt_scan_sp = {
+	.options = NAND_BBT_SCAN2NDPAGE | NAND_BBT_SCANSTMBOOTECC,
+	.offs = 5,
+	.len = 1,
+	.pattern = scan_ff_pattern
+};
+
+static struct nand_bbt_descr bbt_scan_lp = {
+	.options = NAND_BBT_SCAN2NDPAGE | NAND_BBT_SCANSTMBOOTECC,
+	.offs = 0,
+	.len = 2,
+	.pattern = scan_ff_pattern
+};
+
+/* Update 'badblock_pattern' to handle STM boot-mode ECC prior to bad-block
+ * scanning */
+static int scan_bbt_stmecc(struct mtd_info *mtd)
+{
+	struct nand_chip *chip = mtd->priv;
+
+	chip->badblock_pattern = (mtd->writesize > 512) ?
+		&bbt_scan_lp : &bbt_scan_sp;
+
+	return nand_default_bbt(mtd);
+}
+
 
 /* Replicated from ../mtdpart.c: required here to get slave MTD offsets and
  * determine which ECC mode to use.
@@ -444,9 +469,7 @@ struct mtd_part {
 	struct mtd_info mtd;
 	struct mtd_info *master;
 	u_int32_t offset;
-	int index;
 	struct list_head list;
-	int registered;
 };
 
 #define PART(x)  ((struct mtd_part *)(x))
@@ -456,6 +479,7 @@ int boot_calc_ecc(struct mtd_info *mtd, const unsigned char *buf,
 		  unsigned char *ecc)
 {
 	stm_ecc_gen(buf, ecc, ECC_128);
+	ecc[3] = 'B';
 
 	return 0;
 }
@@ -484,7 +508,6 @@ static void flex_setup_eccparams(struct mtd_info *mtd)
 {
 	struct nand_chip *chip = mtd->priv;
 	struct stm_nand_flex_device *data = chip->priv;
-	int i;
 
 	/* Take a copy of ECC FLEX params, as set up during nand_scan() */
 	data->ecc_flex.ecc_ctrl = chip->ecc;
@@ -496,20 +519,14 @@ static void flex_setup_eccparams(struct mtd_info *mtd)
 	data->ecc_boot.ecc_ctrl.calculate = boot_calc_ecc;
 	data->ecc_boot.ecc_ctrl.correct = boot_correct_ecc;
 	data->ecc_boot.ecc_ctrl.size = 128;
-	data->ecc_boot.ecc_ctrl.bytes = 3;
+	data->ecc_boot.ecc_ctrl.bytes = 4;
 
 	if (mtd->oobsize == 16)
 		data->ecc_boot.ecc_ctrl.layout = &boot_oob_16;
 	else
 		data->ecc_boot.ecc_ctrl.layout = &boot_oob_64;
 
-	/* Derive remaing ECC BOOT params - see nand_base.c:nand_scan_tail() */
 	data->ecc_boot.ecc_ctrl.layout->oobavail = 0;
-	for (i = 0; i < MTD_MAX_OOBFREE_ENTRIES &&
-		     data->ecc_boot.ecc_ctrl.layout->oobfree[i].length; i++)
-		data->ecc_boot.ecc_ctrl.layout->oobavail +=
-			data->ecc_boot.ecc_ctrl.layout->oobfree[i].length;
-
 	data->ecc_boot.ecc_ctrl.steps = mtd->writesize /
 		data->ecc_boot.ecc_ctrl.size;
 	if (data->ecc_boot.ecc_ctrl.steps * data->ecc_boot.ecc_ctrl.size !=
@@ -1028,10 +1045,12 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 {
 	struct stm_nand_flex_device *data;
 	int res;
-	int i;
 
+#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
+	struct mtd_info *slave;
+	struct mtd_part *part;
 	char *boot_part_name;
-	int boot_part_found = 0;
+#endif
 
 	/* Allocate memory for the device structure (and zero it) */
 	data = kzalloc(sizeof(struct stm_nand_flex_device), GFP_KERNEL);
@@ -1064,8 +1083,9 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	data->chip.options |= NAND_NO_AUTOINCR;      /* Not tested, disable */
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
-	/* Force use of BBT when BOOTMODESUPPORT enabled */
-	data->chip.options |= NAND_USE_FLASH_BBT;
+	/* Handle STM H/W ECC layouts when performing initial scan for
+	 * bad-blocks */
+	data->chip.scan_bbt = scan_bbt_stmecc;
 #endif
 	/* Callbacks for FLEX mode operation */
 	data->chip.cmd_ctrl = flex_cmd_ctrl;
@@ -1119,80 +1139,50 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 #endif
 
 #ifdef CONFIG_MTD_PARTITIONS
-	/* The way paritions are setup needed to changed to allow for the
-	   possibility of BOOT SUPPORT... */
+	/* Try parsing commandline paritions */
+	data->nr_parts = parse_mtd_partitions(&data->mtd, part_probes,
+					      &data->parts, 0);
 
-	/* Try probing for MTD partitions */
-	res = parse_mtd_partitions(&data->mtd,
-				   part_probes,
-				   &data->parts, 0);
-	if (res > 0)
-		data->nr_parts = res;
-
-	/* If that didn't work, try using partitions from platform data */
+	/* Try platfotm data */
 	if (!data->nr_parts && bank->partitions) {
 		data->parts = bank->partitions;
 		data->nr_parts = bank->nr_partitions;
 	}
 
-	/* If we found some partitions, perform setup */
+	/* Add any partitions that were found */
 	if (data->nr_parts) {
-
-#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
-		struct mtd_part *part;
-		struct mtd_info *slave;
-
-		/* Allocate mtdp, so we can get hold of slave MTD devices
-		   (required for boot partition identification) */
-		for (i = 0; i < data->nr_parts; i++) {
-			data->parts[i].mtdp =
-				kzalloc(sizeof(struct mtd_partition *),
-					GFP_KERNEL);
-			if (!data->parts[i].mtdp) {
-				res = -ENOMEM;
-				goto out3;
-			}
-		}
-#endif /* CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT */
-
-		/* Setup slave MTD devices */
-		res = add_mtd_partitions(&data->mtd, data->parts,
-					 data->nr_parts);
-
+		res = add_mtd_partitions(&data->mtd,
+					 data->parts, data->nr_parts);
 		if (res)
-			goto out3;
+			goto out2;
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
-		/* Regiter slave devices with MTD, and look for BOOT partition
-		 (only necessary if mtdp was allocated!) */
-		for (i = 0; i < data->nr_parts; i++) {
-			slave = *data->parts[i].mtdp;
+		/* Update boot-mode slave partition */
+		slave = get_mtd_partition_slave(&data->mtd, boot_part_name);
+		if (slave) {
+			printk(KERN_INFO NAME ": Found BOOT parition"
+			       "[%s], updating ECC paramters\n",
+			       slave->name);
+
 			part = PART(slave);
+			data->boot_start = part->offset;
+			data->boot_end = part->offset + slave->size;
 
-			if (strcmp(slave->name, boot_part_name) == 0) {
-				printk(KERN_INFO NAME ": Found BOOT parition"
-				       "[%s], updating ECC paramters\n",
-				       slave->name);
-				boot_part_found = 1;
-
-				data->boot_start = part->offset;
-				data->boot_end = part->offset + slave->size;
-
-				slave->oobavail =
+			slave->oobavail =
 				data->ecc_boot.ecc_ctrl.layout->oobavail;
-				slave->subpage_sft =
-					data->ecc_boot.subpage_sft;
-				slave->ecclayout =
-					data->ecc_boot.ecc_ctrl.layout;
-			}
+			slave->subpage_sft =
+				data->ecc_boot.subpage_sft;
+			slave->ecclayout =
+				data->ecc_boot.ecc_ctrl.layout;
 
-			add_mtd_device(slave);
-			part->registered = 1;
-		}
-		if (!boot_part_found)
+			printk("boot-ECC 0x%08x->0x%08x\n",
+			       data->boot_start, data->boot_end);
+
+		} else {
 			printk(KERN_WARNING NAME ": Failed to find boot "
 			       "partition [%s]\n", boot_part_name);
-#endif /* CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT */
+		}
+#endif
 	} else
 #endif
 		res = add_mtd_device(&data->mtd);
@@ -1200,13 +1190,6 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	if (!res)
 		return data;
 
- out3:
-#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
-	if (data->nr_parts) {
-		for (i = 0; i < data->nr_parts; i++)
-			kfree(data->parts[i].mtdp);
-	}
-#endif
  out2:
 	kfree(data);
  out1:
@@ -1249,15 +1232,7 @@ static int __devexit stm_nand_flex_remove(struct platform_device *pdev)
 
 	for (n=0; n<pdata->nr_banks; n++) {
 		struct stm_nand_flex_device *data = flex->devices[n];
-		int i;
-
 		nand_release(&data->mtd);
-
-#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
-		if (data->nr_parts)
-			for (i = 0; i < data->nr_parts; i++)
-				kfree(data->parts[i].mtdp);
-#endif
 		kfree(data);
 	}
 

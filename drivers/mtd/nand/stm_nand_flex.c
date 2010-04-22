@@ -192,6 +192,50 @@ static void flex_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
 	}
 }
 
+/*
+ * Override the default nand_wait() function.  If we have access to
+ * RBn/dev_ready(), then we wait until RBn is asserted before issuing the
+ * NAND_CMD_STATUS command.  If RBn is not available, then we revert to the
+ * default behaviour and accept a bus stall until the NAND device becomes ready.
+ */
+static int flex_nand_wait(struct mtd_info *mtd, struct nand_chip *chip)
+{
+	unsigned long timeo = jiffies;
+	int status, state = chip->state;
+
+	if (state == FL_ERASING)
+		timeo += (HZ * 400) / 1000;
+	else
+		timeo += (HZ * 20) / 1000;
+
+	/* Apply this short delay always to ensure that we do wait tWB in
+	 * any case on any machine. */
+	ndelay(100);
+
+	if (chip->dev_ready) {
+		/* If we have access to RBn */
+		while (time_before(jiffies, timeo)) {
+			if (chip->dev_ready(mtd))
+				break;
+			cond_resched();
+		}
+		chip->cmdfunc(mtd, NAND_CMD_STATUS, -1, -1);
+	} else {
+		/* Else read NAND status register
+		 * (which will stall bus until NAND device is ready) */
+		chip->cmdfunc(mtd, NAND_CMD_STATUS, -1, -1);
+		while (time_before(jiffies, timeo)) {
+			if (chip->read_byte(mtd) & NAND_STATUS_READY)
+				break;
+			cond_resched();
+		}
+	}
+
+	/* Get operation status */
+	status = (int)chip->read_byte(mtd);
+	return status;
+}
+
 static int flex_rbn(struct mtd_info *mtd)
 {
 	struct stm_nand_flex_controller *flex = mtd_to_flex(mtd);
@@ -931,6 +975,7 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	data->chip.read_byte = flex_read_byte;
 	data->chip.read_buf = flex_read_buf;
 	data->chip.write_buf = flex_write_buf;
+	data->chip.waitfunc = flex_nand_wait;
 	if (rbn_connected)
 		data->chip.dev_ready = flex_rbn;
 

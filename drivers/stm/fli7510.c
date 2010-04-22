@@ -13,6 +13,8 @@
 #include <linux/init.h>
 #include <linux/gpio.h>
 #include <linux/platform_device.h>
+#include <linux/mtd/nand.h>
+#include <linux/mtd/partitions.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
@@ -33,6 +35,35 @@ static struct platform_device fli7510_emi = {
 	},
 };
 
+
+/* NAND Resources --------------------------------------------------------- */
+
+static struct platform_device fli7510_nand_flex_device = {
+	.name = "stm-nand-flex",
+	.id = 0,
+	.num_resources = 2,
+	.resource = (struct resource[2]) {
+		STM_PLAT_RESOURCE_MEM_NAMED("flex_mem", 0xFD101000, 0x1000),
+		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(35), -1),
+	},
+	.dev.platform_data = &(struct stm_plat_nand_flex_data) {
+		/* values set in stx7105_configure_nand_flex() */
+	},
+};
+
+void __init fli7510_configure_nand_flex(int nr_banks,
+					struct stm_nand_bank_data *banks,
+					int rbn_connected)
+{
+	struct stm_plat_nand_flex_data *data;
+
+	data = fli7510_nand_flex_device.dev.platform_data;
+	data->nr_banks = nr_banks;
+	data->banks = banks;
+	data->flex_rbn_connected = rbn_connected;
+
+	platform_device_register(&fli7510_nand_flex_device);
+}
 
 
 /* FDMA resources --------------------------------------------------------- */

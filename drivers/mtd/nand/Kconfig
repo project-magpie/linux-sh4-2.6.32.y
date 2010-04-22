@@ -527,7 +527,9 @@ endchoice
 
 config MTD_NAND_STM_FLEX
        tristate "STMicroelectronics: H/W FLEX Controller"
-       depends on CPU_SUBTYPE_STX7200 || CPU_SUBTYPE_STX7105
+	depends on (CPU_SUBTYPE_STX7200 ||  \
+			CPU_SUBTYPE_STX7105 || \
+			CPU_SUBTYPE_FLI7510)
        help
          Enables the STMicroelectronics NAND Controller operating in FLEX mode.
          This driver is required to access NAND devices when boot-from-NAND is

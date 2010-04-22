@@ -18,6 +18,7 @@
 #include <linux/leds.h>
 #include <linux/gpio.h>
 #include <linux/mtd/partitions.h>
+#include <linux/mtd/nand.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/flash.h>
 #include <linux/stm/platform.h>
@@ -122,6 +123,36 @@ static struct spi_board_info fudb_serial_flash =  {
 	},
 };
 
+static struct stm_nand_bank_data fudb_nand_flash = {
+	.csn		= 0,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND root",
+			.offset	= 0,
+			.size 	= 0x00800000
+		}, {
+			.name	= "NAND home",
+			.offset	= MTDPART_OFS_APPEND,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
+
+	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.timing_data		= &(struct stm_nand_timing_data) {
+		.sig_setup	= 50,		/* times in ns */
+		.sig_hold	= 50,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
+		.wr_on		= 10,
+		.wr_off		= 40,
+		.rd_on		= 10,
+		.rd_off		= 40,
+		.chip_delay	= 30,		/* in us */
+	},
+
+	.emi_withinbankoffset	= 0,
+};
 
 
 static int __init fudb_device_init(void)
@@ -169,6 +200,8 @@ static int __init fudb_device_init(void)
 			.phy_bus = 0, });
 
 	fli7510_configure_lirc();
+
+	fli7510_configure_nand_flex(1, &fudb_nand_flash, 1);
 
 	return platform_add_devices(fudb_devices,
 			ARRAY_SIZE(fudb_devices));

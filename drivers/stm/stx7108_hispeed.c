@@ -432,12 +432,18 @@ static struct stm_pad_config stx7108_ethernet_reverse_mii_pad_configs[] = {
 	},
 };
 
-static void stx7108_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
+static void stx7108_ethernet_rmii_speed(void *bsp_priv, unsigned int speed)
 {
 	struct sysconf_field *mac_speed_sel = bsp_priv;
 
-	if (mac_speed_sel)
-		sysconf_write(mac_speed_sel, (speed == SPEED_100) ? 1 : 0);
+	sysconf_write(mac_speed_sel, (speed == SPEED_100) ? 1 : 0);
+}
+
+static void stx7108_ethernet_gmii_gtx_speed(void *priv, unsigned int speed)
+{
+	void (*txclk_select)(int txclk_250_not_25_mhz) = priv;
+
+	txclk_select(speed == SPEED_1000);
 }
 
 static struct plat_stmmacenet_data stx7108_ethernet_platform_data[] = {
@@ -445,13 +451,13 @@ static struct plat_stmmacenet_data stx7108_ethernet_platform_data[] = {
 		.pbl = 32,
 		.has_gmac = 1,
 		.enh_desc = 1,
-		.fix_mac_speed = stx7108_ethernet_fix_mac_speed,
+		/* .fix_mac_speed set in stx7108_configure_ethernet() */
 		/* .pad_config set in stx7108_configure_ethernet() */
 	}, {
 		.pbl = 32,
 		.has_gmac = 1,
 		.enh_desc = 1,
-		.fix_mac_speed = stx7108_ethernet_fix_mac_speed,
+		/* .fix_mac_speed set in stx7108_configure_ethernet() */
 		/* .pad_config set in stx7108_configure_ethernet() */
 	}
 };
@@ -517,6 +523,8 @@ void __init stx7108_configure_ethernet(int port,
 		stm_pad_set_pio_out(pad_config, "PHYCLK", 1 + port);
 		stm_pad_set_priv(pad_config, "PHYCLK",
 				&stx7108_ethernet_retime_gtx_clock);
+		plat_data->fix_mac_speed = stx7108_ethernet_gmii_gtx_speed;
+		plat_data->bsp_priv = config->txclk_select;
 		break;
 	case stx7108_ethernet_mode_rmii:
 		pad_config = &stx7108_ethernet_rmii_pad_configs[port];
@@ -524,6 +532,14 @@ void __init stx7108_configure_ethernet(int port,
 			stm_pad_set_pio_in(pad_config, "PHYCLK", 2 + port);
 		else
 			stm_pad_set_pio_out(pad_config, "PHYCLK", 1 + port);
+		plat_data->fix_mac_speed = stx7108_ethernet_rmii_speed;
+		/* MIIx_MAC_SPEED_SEL */
+		if (port == 0)
+			plat_data->bsp_priv = sysconf_claim(SYS_CFG_BANK2,
+					27, 1, 1, "stmmac");
+		else
+			plat_data->bsp_priv = sysconf_claim(SYS_CFG_BANK4,
+					23, 1, 1, "stmmac");
 		break;
 	case stx7108_ethernet_mode_reverse_mii:
 		pad_config = &stx7108_ethernet_reverse_mii_pad_configs[port];
@@ -537,13 +553,6 @@ void __init stx7108_configure_ethernet(int port,
 		return;
 	}
 
-	/* MIIx_MAC_SPEED_SEL */
-	if (port == 0)
-		plat_data->bsp_priv = sysconf_claim(SYS_CFG_BANK2, 27, 1, 1,
-				"stmmac");
-	else
-		plat_data->bsp_priv = sysconf_claim(SYS_CFG_BANK4, 23, 1, 1,
-				"stmmac");
 	plat_data->pad_config = pad_config;
 	plat_data->bus_id = config->phy_bus;
 

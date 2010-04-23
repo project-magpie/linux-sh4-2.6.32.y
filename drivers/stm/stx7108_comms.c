@@ -502,7 +502,7 @@ int __init stx7108_configure_ssc_spi(int ssc, struct stx7108_ssc_config *config)
 	plat_data = stx7108_ssc_devices[ssc].dev.platform_data;
 
 	if (ssc == 2) {
-		pad_config = stm_pad_config_alloc(2, 0);
+		pad_config = stm_pad_config_alloc(3, 0);
 
 		/* SCK */
 		switch (config->routing.ssc2.sclk) {
@@ -642,7 +642,7 @@ static struct stm_plat_pwm_data stx7108_pwm_platform_data = {
 		[0] = &(struct stm_pad_config) {
 			.gpios_num = 1,
 			.gpios = (struct stm_pad_gpio []) {
-				STM_PAD_PIO_OUT(26, 1, 1),
+				STM_PAD_PIO_OUT(26, 4, 1),
 			},
 		},
 		[1] = &(struct stm_pad_config) {

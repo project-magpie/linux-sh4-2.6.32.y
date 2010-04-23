@@ -593,6 +593,13 @@ config SH_ST_MB839
 	  Select MB839 if configuring for an
 	  STMicroelectronics STi7105 MB839 Reference Board.
 
+config SH_ST_MB903
+	bool "mb903: STi7108M Reference board"
+	depends on CPU_SUBTYPE_STX7108
+	help
+	  Select SH_ST_MB903 if configuring for a
+	  STMicroelectronics STi7108M Reference Board.
+
 comment "ST Peripheral Boards"
 
 config SH_ST_DB641

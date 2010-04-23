@@ -12,8 +12,8 @@
 #include <linux/stm/pms.h>
 #include <linux/pm.h>
 #include <linux/pm_runtime.h>
-#include <linux/sysfs.h>
 #include <linux/suspend.h>
+#include <linux/sysfs.h>
 #include <linux/device.h>
 #include <linux/cpufreq.h>
 #include <linux/clk.h>
@@ -47,7 +47,7 @@ struct pms_object {
 	int type;
 	union {
 		void *data;
-		int cpu_id;	/* all the cpu managed by pms */
+		int cpu_id;		/* all the cpu managed by pms */
 		struct clk *clk;	/* all the clock  managed by pms */
 		struct device *dev;	/* all the device managed by pms */
 	};
@@ -57,6 +57,7 @@ struct pms_object {
 
 struct pms_state {
 	struct kobject kobj;
+	int is_active:1;
 	char name[PMS_STATE_NAME_SIZE];
 	struct list_head node;	/* the states list */
 	struct list_head constraints;	/* the constraint list */
@@ -73,8 +74,6 @@ struct pms_constraint {
 static LIST_HEAD(pms_state_list);
 static DECLARE_MUTEX(pms_sem);
 static spinlock_t pms_lock = __SPIN_LOCK_UNLOCKED();
-static struct pms_state **pms_active_states;
-static int pms_active_nr = -1;	/* how many profile are active */
 static char *pms_active_buf;	/* the last command line */
 
 struct kobject *pms_kobj;
@@ -788,6 +787,8 @@ static int pms_active_state(struct pms_state *state)
 		    if (constraint->state == state &&
 			!pms_check_constraint(constraint))
 			pms_update_constraint(constraint);
+
+	state->is_active = 1;
 	return 0;
 }
 
@@ -796,6 +797,7 @@ int pms_set_current_states(char *buf)
 	char *buf0, *buf1;
 	int n_state = 0, i;
 	struct pms_state **new_active_states;
+	struct pms_state *state;
 
 	pr_debug("\n");
 	if (!buf)
@@ -840,23 +842,25 @@ int pms_set_current_states(char *buf)
 				}
 	}
 #endif
+	/* declare the previous set as not_active */
+	list_for_each_entry(state, &pms_state_list, node)
+		state->is_active = 0;
+
 	/* now migrate to the new 'states' */
-	pms_active_nr = n_state;	/* how many state are active */
 	for (i = 0; i < n_state; ++i)
 		/* active the state */
 		pms_active_state(*(new_active_states + i));
 
-	kfree(pms_active_states);	/* frees the previous states */
-	pms_active_states = new_active_states;
 	kfree(pms_active_buf);
+	kfree(new_active_states);
 	strcpy(buf0, buf);
 	pms_active_buf = buf0;
 	return 0;
 
 error_pms_set_current_states:
 	pr_debug("Error in the sets of state required\n");
-	kfree(new_active_states);
 	kfree(buf0);
+	kfree(new_active_states);
 	return -EINVAL;
 }
 EXPORT_SYMBOL(pms_set_current_states);
@@ -864,9 +868,7 @@ EXPORT_SYMBOL(pms_set_current_states);
 char *pms_get_current_state(void)
 {
 	pr_debug("\n");
-	if (pms_active_states)
-		return pms_active_buf;
-	return NULL;
+	return pms_active_buf;
 }
 EXPORT_SYMBOL(pms_get_current_state);
 
@@ -910,22 +912,14 @@ int pms_set_wakeup_timers(unsigned long long second)
 #endif
 
 enum {
-	cmd_add_state = 1,
-	cmd_add_clk,
-	cmd_add_dev,
 	cmd_add_clk_constr,
 	cmd_add_dev_constr,
-	cmd_add_cpu,
 	cmd_add_cpu_constr,
 };
 
 static match_table_t tokens = {
-	{cmd_add_state, "state"},
-	{cmd_add_clk, "clock"},
-	{cmd_add_dev, "device"},
 	{cmd_add_clk_constr, "clock_rate"},
 	{cmd_add_dev_constr, "device_state"},
-	{cmd_add_cpu, "cpu"},
 	{cmd_add_cpu_constr, "cpu_rate"},
 };
 
@@ -940,168 +934,146 @@ static ssize_t pms_control_store(struct kobject *kobj,
 		token = match_token(p, tokens, NULL);
 		pr_debug("token: %d\n", token);
 		switch (token) {
-		case cmd_add_state:
-		case cmd_add_clk:
-		case cmd_add_dev:
-		case cmd_add_cpu: {
-				char *name = _strsep((char **)&buf, " \t\n");
-				if (!name)
-					continue;
-				switch (token) {
-				case cmd_add_state:
-					pr_debug("state command\n");
-					pms_create_state(name);
-					break;
-				case cmd_add_clk:
-					pr_debug("clk command\n");
-					pms_register_clock_n(name);
-					break;
-				case cmd_add_dev:
-					pr_debug("device command\n");
-					pms_register_device_n(name);
-					break;
-				case cmd_add_cpu:
-					pr_debug("cpu command\n");
-					pms_register_cpu(
-					   simple_strtoul(name, NULL, 10));
-					break;
-				}
-
-		}
-		break;
 		case cmd_add_clk_constr:{
-				char *clk_name, *state_name, *rate_name;
-				unsigned long rate;
-				struct clk *clk;
-				struct pms_state *state;
-				struct pms_object *obj;
-				/* State.Clock */
-				pr_debug
-				    ("Adding ...cmd_add_clock_constraint\n");
-				state_name = _strsep((char **)&buf, ": \t\n");
-				if (!state_name)
-					continue;
-				clk_name = _strsep((char **)&buf, " \n\t");
-				if (!clk_name)
-					continue;
-				rate_name = _strsep((char **)&buf, "- \t\n");
-				if (!rate_name)
-					continue;
-				rate = simple_strtoul(rate_name, NULL, 10);
-				pr_debug
-				   ("cmd_add_clock_constraint '%s.%s' @ %10u\n",
-				     state_name, clk_name, (unsigned int)rate);
-				state = pms_state_get(state_name);
-				clk = clk_get(NULL, clk_name);
-				if (!state || !clk) {
-					pr_debug
-					 ("State and/or Clock not declared\n");
-					continue;
-				}
-				if (clk_is_readonly(clk)) {
-					pr_debug("Clock read only\n");
-					continue;
-				}
-				/* check if the clock is in the pms */
-				obj = pms_find_object(PMS_TYPE_CLK,
-					(void *)clk);
-				if (!obj) {
-					pr_debug("Clock not in the pms\n");
-					continue;
-				}
-				pms_set_constraint(state, obj, rate);
+			char *clk_name;
+			char *state_name;
+			char *rate_name;
+			unsigned long rate;
+			struct clk *clk;
+			struct pms_state *state;
+			struct pms_object *obj;
+			/* State.Clock */
+			pr_debug("Adding ...cmd_add_clock_constraint\n");
+
+			state_name = _strsep((char **)&buf, ": \t\n");
+			if (!state_name)
+				continue;
+			clk_name = _strsep((char **)&buf, " \n\t");
+			if (!clk_name)
+				continue;
+			rate_name = _strsep((char **)&buf, "- \t\n");
+			if (!rate_name)
+				continue;
+			rate = simple_strtoul(rate_name, NULL, 10);
+			pr_debug("cmd_add_clock_constraint '%s.%s' @ %10u\n",
+			     state_name, clk_name, (unsigned int)rate);
+			clk = clk_get(NULL, clk_name);
+			if (!clk) {
+				pr_debug("Clock not declared\n");
+				continue;
 			}
+			state = pms_state_get(state_name);
+			if (!state)
+				/* create the state if required */
+				state = pms_create_state(state_name);
+
+			if (clk_is_readonly(clk)) {
+				pr_debug("Clock read only\n");
+				continue;
+			}
+			/* check if the clock is in the pms */
+			obj = pms_find_object(PMS_TYPE_CLK, (void *)clk);
+			if (!obj)
+				/* register the clock if required */
+				obj = pms_register_clock(clk);
+
+			pms_set_constraint(state, obj, rate);
+		}
 			break;
 		case cmd_add_dev_constr:{
-				char *state_name, *bus_name;
-				char *dev_name, *pmstate_name;
-				struct pms_state *state;
-				struct bus_type *bus;
-				struct device *dev;
-				unsigned long pmstate;
-				struct pms_object *obj;
-				/* State.Bus.Device on/off */
-				pr_debug("Adding ...cmd_add_dev_constraint\n");
-				state_name = _strsep((char **)&buf, ": \t\n");
-				if (!state_name)
-					continue;
-				bus_name = _strsep((char **)&buf, "/ \n\t");
-				if (!bus_name)
-					continue;
-				dev_name = _strsep((char **)&buf, " \n\t");
-				if (!dev_name)
-					continue;
-				pmstate_name = _strsep((char **)&buf, " \n\t");
-				if (!pmstate_name)
-					continue;
-				pr_debug("cmd_add_dev_constraint '%s\n",
-					  dev_name);
-				state = pms_state_get(state_name);
-				bus = find_bus(bus_name);
-				if (!state || !bus) {
-					pr_debug
-					   ("State and/or Bus not declared\n");
-					continue;
-				}
-				dev = bus_find_device_by_name(bus, NULL,
-						dev_name);
-				if (!dev) {
-					pr_debug("Device not found\n");
-					continue;
-				}
-				/* check if the device is in the pms */
-				obj = pms_find_object(PMS_TYPE_DEV,
-						(void *)dev);
-				if (!obj) {
-					pr_debug("Device not in the pms\n");
-					continue;
-				}
-				if (!strcmp(pmstate_name, "on")) {
-					pmstate = PM_EVENT_ON;
-				pr_debug
-					  ("Device state: %s.%s.%s state: on\n",
-					     state_name, bus_name, dev_name);
-				} else {
-					pmstate = PM_EVENT_SUSPEND;
-				pr_debug
-					("Device state: %s.%s.%s state: off\n",
-					     state_name, bus_name, dev_name);
-				}
-				pms_set_constraint(state, obj, pmstate);
+			char *state_name, *bus_name;
+			char *dev_name, *pmstate_name;
+
+			struct bus_type *bus;
+			struct device *dev;
+
+			unsigned long pmstate;
+
+			struct pms_state *state;
+			struct pms_object *obj;
+
+			/* State.Bus.Device on/off */
+			pr_debug("Adding ...cmd_add_dev_constraint\n");
+			state_name = _strsep((char **)&buf, ": \t\n");
+			if (!state_name)
+				continue;
+			bus_name = _strsep((char **)&buf, "/ \n\t");
+			if (!bus_name)
+				continue;
+			dev_name = _strsep((char **)&buf, " \n\t");
+			if (!dev_name)
+				continue;
+			pmstate_name = _strsep((char **)&buf, " \n\t");
+			if (!pmstate_name)
+				continue;
+			pr_debug("cmd_add_dev_constraint '%s\n", dev_name);
+
+			bus = find_bus(bus_name);
+			if (!bus) {
+				pr_debug("State and/or Bus not declared\n");
+				continue;
 			}
+			dev = bus_find_device_by_name(bus, NULL,
+					dev_name);
+			if (!dev) {
+				pr_debug("Device not found\n");
+				continue;
+			}
+
+			state = pms_state_get(state_name);
+			if (!state)
+				/* create the state if required */
+				state = pms_create_state(state_name);
+
+			/* check if the device is in the pms */
+			obj = pms_find_object(PMS_TYPE_DEV, (void *)dev);
+			if (!obj)
+				/* register the devi if required */
+				obj = pms_register_device(dev);
+
+			if (!strcmp(pmstate_name, "on")) {
+				pmstate = RPM_ACTIVE;
+				pr_debug("Device state: %s.%s.%s state: on\n",
+				     state_name, bus_name, dev_name);
+			} else {
+				pmstate = RPM_SUSPENDED;
+				pr_debug("Device state: %s.%s.%s state: off\n",
+				     state_name, bus_name, dev_name);
+			}
+			pms_set_constraint(state, obj, pmstate);
+		}
 			break;
 		case cmd_add_cpu_constr:{
-				char *state_name, *cpu_id_name, *rate_name;
-				struct pms_state *state;
-				int cpu_id;
-				unsigned long rate;
-				struct pms_object *obj;
-				pr_debug("Adding ...cmd_add_cpu_constraint\n");
-				state_name = _strsep((char **)&buf, ": \t\n");
-				if (!state_name)
-					continue;
-				cpu_id_name = _strsep((char **)&buf, " \t\n");
-				if (!cpu_id_name)
-					continue;
-				rate_name = _strsep((char **)&buf, " \t\n");
-				if (!rate_name)
-					continue;
-				state = pms_state_get(state_name);
-				if (!state) {
-					pr_debug("State not declared\n");
-					continue;
-				}
-				rate = simple_strtoul(rate_name, NULL, 10);
-				cpu_id = simple_strtoul(cpu_id_name, NULL, 10);
+			char *state_name, *cpu_id_name, *rate_name;
+			struct pms_state *state;
+			int cpu_id;
+			unsigned long rate;
+			struct pms_object *obj;
+			pr_debug("Adding ...cmd_add_cpu_constraint\n");
+			state_name = _strsep((char **)&buf, ": \t\n");
+			if (!state_name)
+				continue;
+			cpu_id_name = _strsep((char **)&buf, " \t\n");
+			if (!cpu_id_name)
+				continue;
+			rate_name = _strsep((char **)&buf, " \t\n");
+			if (!rate_name)
+				continue;
+			state = pms_state_get(state_name);
+			if (!state)
+				/* create the state if required */
+				state = pms_create_state(state_name);
+			rate = simple_strtoul(rate_name, NULL, 10);
+			cpu_id = simple_strtoul(cpu_id_name, NULL, 10);
 #ifdef CONFIG_CPU_FREQ
-				/* check if the cpu is in the pms */
-				obj = pms_find_object(PMS_TYPE_CPU,
-					(void *)cpu_id);
-				if (!obj)
-					pr_debug("CPU not in the pms\n");
-				pr_debug("CPU-%d constreint @ %u MHz\n",
-					  cpu_id, (unsigned int)rate);
-				pms_set_constraint(state, obj, rate);
+			/* check if the cpu is in the pms */
+			obj = pms_find_object(PMS_TYPE_CPU, (void *)cpu_id);
+			if (!obj)
+				/* register the cpu if required */
+				obj = pms_register_cpu(cpu_id);
+			pr_debug("CPU-%d constreint @ %u MHz\n",
+				  cpu_id, (unsigned int)rate);
+			pms_set_constraint(state, obj, rate);
 #endif
 			}
 			break;
@@ -1116,18 +1088,18 @@ static struct kobj_attribute pms_control_attr = (struct kobj_attribute)
 static ssize_t pms_current_show(struct kobject *kobj,
 	struct kobj_attribute *attr, char *buf)
 {
-	int idx, ret = 0;
+	int ret = 0;
+	struct pms_state *state;
+
 	pr_debug("\n");
-	if (!pms_active_states)
-		return -1;
-	ret += sprintf(buf + ret, "%s", pms_active_states[0]->name);
-	for (idx = 1; idx < pms_active_nr; ++idx)
-		ret += sprintf(buf + ret, ";%s", pms_active_states[idx]->name);
+	list_for_each_entry(state, &pms_state_list, node)
+		if (state->is_active)
+			ret += sprintf(buf + ret, "%s;", state->name);
 	ret += sprintf(buf + ret, "\n");
 	return ret;
 }
 
-static char *pms_global_state_n[4] = {
+static const char *pms_global_state_n[] = {
 	"pms_standby",
 	"pms_memstandby",
 	"pms_hibernation",

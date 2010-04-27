@@ -685,13 +685,6 @@ static struct stm_plat_fdma_hw stx5197_fdma_hw = {
 	},
 };
 
-static struct stm_plat_fdma_data stx5197_fdma_platform_data = {
-	.hw = &stx5197_fdma_hw,
-	.fw = &stx5197_fdma_fw,
-	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
-	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
-};
-
 static struct platform_device stx5197_fdma_device = {
 	.name = "stm-fdma",
 	.id = 0,
@@ -700,7 +693,10 @@ static struct platform_device stx5197_fdma_device = {
 		STM_PLAT_RESOURCE_MEM(0xfdb00000, 0x10000),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(34), -1),
 	},
-	.dev.platform_data = &stx5197_fdma_platform_data,
+	.dev.platform_data = &(struct stm_plat_fdma_data) {
+		.hw = &stx5197_fdma_hw,
+		.fw = &stx5197_fdma_fw,
+	},
 };
 
 

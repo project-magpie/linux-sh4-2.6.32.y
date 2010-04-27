@@ -35,27 +35,8 @@ config STM_DMA
 	  to these free-running operations it also allows management of the
 	  paced-transfer peripherals on recent STM parts.
 
-	  On STb710x and STx7200 DMA support is vital for the correct operation of the
-	  sound system.
-
 	  If you have a device from STMicroelectronics, then say Y here.
 	  Otherwise say N.
-
-config MIN_STM_DMA_CHANNEL_NR
-	depends on STM_DMA
-	int "Lowest STM-FDMAC channel"
-	default "0"
-	help
-	  This allows you to specify the low boundary FDMA channel number to
-	  use with STM-DMA
-
-config MAX_STM_DMA_CHANNEL_NR
-	depends on STM_DMA
-	int "Highest STM-FDMAC channel"
-	default "15"
-	help
-	  This allows you to specify the high boundary FDMA channel number to
-	  use with STM-DMA
 
 config STM_DMA_DEBUG
 	bool "STMicroelectronics DMA Debug"

@@ -278,8 +278,6 @@ struct stm_plat_fdma_fw_regs {
 struct stm_plat_fdma_data {
 	struct stm_plat_fdma_hw *hw;
 	struct stm_plat_fdma_fw_regs *fw;
-	int min_ch_num;
-	int max_ch_num;
 };
 
 

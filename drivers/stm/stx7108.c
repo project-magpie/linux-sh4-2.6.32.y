@@ -138,8 +138,6 @@ static struct stm_plat_fdma_hw stx7108_fdma_hw = {
 static struct stm_plat_fdma_data stx7108_fdma_platform_data = {
 	.hw = &stx7108_fdma_hw,
 	.fw = &stm_fdma_firmware_7108,
-	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
-	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
 static struct platform_device stx7108_fdma_devices[] = {

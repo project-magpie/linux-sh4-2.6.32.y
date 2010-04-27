@@ -20,6 +20,17 @@
 
 
 
+#define FDMA_MIN_CHANNEL 0
+#define FDMA_MAX_CHANNEL 15
+#define FDMA_MAX_DEVICES 3
+
+static char *fdma_channels[FDMA_MAX_DEVICES];
+module_param_array_named(channels, fdma_channels, charp, NULL, S_IRUGO);
+MODULE_PARM_DESC(channels, "Limit channels to be used by each of the FDMA "
+		"devices: channels=ch_min-ch_max[,ch_min-ch_max[...]]");
+
+
+
 static int fdma_setup_freerunning_node(struct stm_dma_params *params,
 		struct fdma_llu_entry *llu)
 {
@@ -1162,6 +1173,48 @@ static int fdma_extended(struct dma_channel *dma_chan,
  *---------------------------------------------------------------------*
  *---------------------------------------------------------------------*/
 
+static void __init fdma_channels_parse(struct fdma *fdma)
+{
+	char *str;
+	int min, max;
+
+	/* All channels available by default */
+	fdma->ch_min = FDMA_MIN_CHANNEL;
+	fdma->ch_max = FDMA_MAX_CHANNEL;
+
+	if (fdma->fdma_num >= FDMA_MAX_DEVICES) {
+		printk(KERN_WARNING "%s(): Increase FDMA_MAX_DEVICES!\n",
+				__func__);
+		return;
+	}
+
+	str = fdma_channels[fdma->fdma_num];
+	if (!str) /* No parameter */
+		return;
+
+	/* Should be a number followed by a hyphen */
+	if (get_option(&str, &min) != 3 || min < FDMA_MIN_CHANNEL) {
+		printk(KERN_ERR "%s(): Wrong channels range '%s' for FDMA%d!\n",
+				__func__, fdma_channels[fdma->fdma_num],
+				fdma->fdma_num);
+		return;
+	}
+
+	/* Skip the hyphen */
+	str++;
+
+	/* Should be a number followed by a '\0' */
+	if (get_option(&str, &max) != 1 || *str || max > FDMA_MAX_CHANNEL) {
+		printk(KERN_ERR "%s(): Wrong channels range '%s' for FDMA%d!\n",
+				__func__, fdma_channels[fdma->fdma_num],
+				fdma->fdma_num);
+		return;
+	}
+
+	fdma->ch_min = min;
+	fdma->ch_max = max;
+}
+
 static struct dma_ops fdma_ops = {
 	.request	= fdma_request,
 	.free		= fdma_free,
@@ -1199,10 +1252,9 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 		return -EINVAL;
 
 	fdma->pdev = pdev;
-
-	fdma->ch_min = plat_data->min_ch_num;
-	fdma->ch_max = plat_data->max_ch_num;
 	fdma->fdma_num = pdev->id;
+	fdma_channels_parse(fdma);
+
 	fdma->ch_status_mask = ((1ULL << ((fdma->ch_max + 1) * 2)) - 1ULL) ^
 			((1 << (fdma->ch_min * 2)) - 1);
 
@@ -1249,7 +1301,7 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 	fdma->dma_info.name = fdma->name;
 
 	if (register_dmac(&fdma->dma_info) != 0)
-		printk(KERN_ERR "%s Error Registering DMAC\n", __FUNCTION__);
+		printk(KERN_ERR "%s(): Error Registering DMAC\n", __func__);
 
 	for (chan_num = fdma->ch_min; chan_num <= fdma->ch_max; chan_num++) {
 		struct fdma_channel *channel = &fdma->channels[chan_num];

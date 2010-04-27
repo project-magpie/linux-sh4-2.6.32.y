@@ -139,8 +139,6 @@ static struct stm_plat_fdma_hw stx7100_fdma_hw = {
 static struct stm_plat_fdma_data stx7100_fdma_platform_data = {
 	.hw = &stx7100_fdma_hw,
 	.fw = &stm_fdma_firmware_7100,
-	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
-	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
 static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7109c2 = {
@@ -184,8 +182,6 @@ static struct stm_plat_fdma_hw stx7109c2_fdma_hw = {
 static struct stm_plat_fdma_data stx7109c2_fdma_platform_data = {
 	.hw = &stx7109c2_fdma_hw,
 	.fw = &stm_fdma_firmware_7109c2,
-	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
-	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
 static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7109c3 = {
@@ -229,8 +225,6 @@ static struct stm_plat_fdma_hw stx7109c3_fdma_hw = {
 static struct stm_plat_fdma_data stx7109c3_fdma_platform_data = {
 	.hw = &stx7109c3_fdma_hw,
 	.fw = &stm_fdma_firmware_7109c3,
-	.min_ch_num = CONFIG_MIN_STM_DMA_CHANNEL_NR,
-	.max_ch_num = CONFIG_MAX_STM_DMA_CHANNEL_NR,
 };
 
 static struct platform_device stx7100_fdma_device = {

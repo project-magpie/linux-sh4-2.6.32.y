@@ -113,7 +113,7 @@ static inline void pci_dma_burst_advice(struct pci_dev *pdev,
 }
 #endif
 
-#ifdef CONFIG_SUPERH32
+#if defined(CONFIG_SUPERH32) && !defined(CONFIG_CPU_SUBTYPE_ST40)
 /*
  * If we're on an SH7751 or SH7780 PCI controller, PCI memory is mapped
  * at the end of the address space in a special non-translatable area.

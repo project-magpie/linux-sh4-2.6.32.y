@@ -327,7 +327,7 @@ device_initcall(stm_l2_perf_counters_init);
 
 
 
-/* Flushing interface */
+/* Wait for the cache to finalize all pending operations */
 
 static void stm_l2_sync(void)
 {
@@ -336,20 +336,18 @@ static void stm_l2_sync(void)
 		cpu_relax();
 }
 
-static void stm_l2_flush_common(void *start, int size, unsigned int l2reg)
+
+
+/* Flushing interface */
+
+static void stm_l2_flush_common(unsigned long start, int size, int is_phys,
+		unsigned int l2reg)
 {
-	unsigned long phy_start;
-	unsigned long phy_end;
-	unsigned long addr;
+	/* Any code trying to flush P0 address is definitely wrong... */
+	BUG_ON(!is_phys && start < P1SEG);
 
-	/* Catch any case where DMA flush/purge/invalidate is invoked on an
-	 * address outside of P1/P2.  I can't see how anything else makes
-	 * sense because of page residency, swap etc. But who knows... */
-	BUG_ON((unsigned long)start < P1SEG);
-	BUG_ON((unsigned long)start >= P3SEG);
-
-	phy_start = virt_to_phys(start);
-	phy_end = phy_start + size;
+	/* Same with P4 address... */
+	BUG_ON(!is_phys && start >= P4SEG);
 
 	/* Ensure L1 writeback is done before starting writeback on L2 */
 	asm volatile("synco"
@@ -357,21 +355,79 @@ static void stm_l2_flush_common(void *start, int size, unsigned int l2reg)
 			: /* no input */
 			: "memory");
 
-	/* Round down to start of block. */
-	phy_start &= ~(stm_l2_block_size - 1);
-	for (addr = phy_start; addr < phy_end; addr += stm_l2_block_size)
-		writel(addr, stm_l2_base + l2reg);
+	if (likely(is_phys || (start >= P1SEG && start < P3SEG))) {
+		unsigned long phys_addr;
+		unsigned long phys_end;
+
+		if (is_phys) {
+			/* Physical address given. Cool. */
+			phys_addr = start;
+		} else {
+			/* We can assume that the memory pointed by a P1/P2
+			 * virtual address is physically contiguous, as it is
+			 * supposed to be kernel logical memory (not an
+			 * ioremapped area) */
+			BUG_ON(!virt_addr_valid(start));
+			phys_addr = virt_to_phys(start);
+		}
+		phys_end = phys_addr + size;
+
+		/* Round down to start of block (cache line). */
+		phys_addr &= ~(stm_l2_block_size - 1);
+
+		/* Do the honours! */
+		while (phys_addr < phys_end) {
+			writel(phys_addr, stm_l2_base + l2reg);
+			phys_addr += stm_l2_block_size;
+		}
+	} else if (start >= P3SEG && start < P4SEG) {
+		/* Round down to start of block (cache line). */
+		unsigned long virt_addr = start & ~(stm_l2_block_size - 1);
+		unsigned long virt_end = start + size;
+
+		while (virt_addr < virt_end) {
+			unsigned long phys_addr;
+			unsigned long phys_end;
+			pgd_t *pgd;
+			pud_t *pud;
+			pmd_t *pmd;
+			pte_t *pte;
+
+			/* When dealing with P3 memory, we have to go through
+			 * page directory... */
+			pgd = pgd_offset_k(virt_addr);
+			BUG_ON(pgd_none(*pgd));
+			pud = pud_offset(pgd, virt_addr);
+			BUG_ON(pud_none(*pud));
+			pmd = pmd_offset(pud, virt_addr);
+			BUG_ON(pmd_none(*pmd));
+			pte = pte_offset_kernel(pmd, virt_addr);
+			BUG_ON(pte_not_present(*pte));
+
+			/* Get the physical address */
+			phys_addr = pte_val(*pte) & PTE_PHYS_MASK; /* Page */
+			phys_addr += virt_addr & PAGE_MASK; /* Offset */
+
+			/* Beginning of the next page */
+			phys_end = PAGE_ALIGN(phys_addr + 1);
+
+			while (phys_addr < phys_end && virt_addr < virt_end) {
+				writel(phys_addr, stm_l2_base + l2reg);
+				phys_addr += stm_l2_block_size;
+				virt_addr += stm_l2_block_size;
+			}
+		}
+	}
 }
 
-
-void stm_l2_flush_wback_region(void *start, int size)
+void stm_l2_flush_wback(unsigned long start, int size, int is_phys)
 {
 	if (!stm_l2_base)
 		return;
 
 	switch (stm_l2_current_mode) {
 	case MODE_COPY_BACK:
-		stm_l2_flush_common(start, size, L2FA);
+		stm_l2_flush_common(start, size, is_phys, L2FA);
 		/* Fall through */
 	case MODE_WRITE_THROUGH:
 		/* Since this is for the purposes of DMA, we have to
@@ -387,16 +443,16 @@ void stm_l2_flush_wback_region(void *start, int size)
 	}
 
 }
-EXPORT_SYMBOL(stm_l2_flush_wback_region);
+EXPORT_SYMBOL(stm_l2_flush_wback);
 
-void stm_l2_flush_purge_region(void *start, int size)
+void stm_l2_flush_purge(unsigned long start, int size, int is_phys)
 {
 	if (!stm_l2_base)
 		return;
 
 	switch (stm_l2_current_mode) {
 	case MODE_COPY_BACK:
-		stm_l2_flush_common(start, size, L2PA);
+		stm_l2_flush_common(start, size, is_phys, L2PA);
 		/* Fall through */
 	case MODE_WRITE_THROUGH:
 		/* Since this is for the purposes of DMA, we have to
@@ -411,9 +467,9 @@ void stm_l2_flush_purge_region(void *start, int size)
 		break;
 	}
 }
-EXPORT_SYMBOL(stm_l2_flush_purge_region);
+EXPORT_SYMBOL(stm_l2_flush_purge);
 
-void stm_l2_flush_invalidate_region(void *start, int size)
+void stm_l2_flush_invalidate(unsigned long start, int size, int is_phys)
 {
 	if (!stm_l2_base)
 		return;
@@ -433,7 +489,7 @@ void stm_l2_flush_invalidate_region(void *start, int size)
 	switch (stm_l2_current_mode) {
 	case MODE_COPY_BACK:
 	case MODE_WRITE_THROUGH:
-		stm_l2_flush_common(start, size, L2IA);
+		stm_l2_flush_common(start, size, is_phys, L2IA);
 		stm_l2_sync();
 		break;
 	case MODE_BYPASS:
@@ -443,7 +499,7 @@ void stm_l2_flush_invalidate_region(void *start, int size)
 		break;
 	}
 }
-EXPORT_SYMBOL(stm_l2_flush_invalidate_region);
+EXPORT_SYMBOL(stm_l2_flush_invalidate);
 
 
 

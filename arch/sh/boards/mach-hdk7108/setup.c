@@ -16,6 +16,7 @@
 #include <linux/gpio.h>
 #include <linux/leds.h>
 #include <linux/tm1668.h>
+#include <linux/stm/pci-synopsys.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7108.h>
 #include <linux/stm/sysconf.h>
@@ -23,8 +24,9 @@
 
 
 
-#define HDK7108_PIO_POWER_ON_ETHERNET stm_gpio(15, 4)
 #define HDK7108_PIO_POWER_ON stm_gpio(4, 3)
+#define HDK7108_PIO_PCI_RESET stm_gpio(6, 4)
+#define HDK7108_PIO_POWER_ON_ETHERNET stm_gpio(15, 4)
 
 
 
@@ -150,8 +152,38 @@ static struct platform_device *hdk7108_devices[] __initdata = {
 
 
 
+static struct stm_plat_pci_config hdk7108_pci_config = {
+	.pci_irq = {
+		[0] = PCI_PIN_DEFAULT,
+		[1] = PCI_PIN_DEFAULT,
+		[2] = PCI_PIN_UNUSED,
+		[3] = PCI_PIN_UNUSED,
+	},
+	.serr_irq = PCI_PIN_DEFAULT,
+	.idsel_lo = 30,
+	.idsel_hi = 30,
+	.req_gnt = {
+		[0] = PCI_PIN_DEFAULT,
+		[1] = PCI_PIN_UNUSED,
+		[2] = PCI_PIN_UNUSED,
+		[3] = PCI_PIN_UNUSED,
+	},
+	.pci_clk = 33333333,
+	.pci_reset_gpio = HDK7108_PIO_PCI_RESET,
+};
+
+int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
+{
+	/* We can use the standard function on this board */
+	return stx7108_pcibios_map_platform_irq(&hdk7108_pci_config, pin);
+}
+
+
+
 static int __init device_init(void)
 {
+	stx7108_configure_pci(&hdk7108_pci_config);
+
 	/* The "POWER_ON_ETH" line should be rather called "PHY_RESET",
 	 * but it isn't... ;-) */
 	gpio_request(HDK7108_PIO_POWER_ON_ETHERNET, "POWER_ON_ETHERNET");
@@ -218,5 +250,6 @@ struct sh_machine_vector mv_hdk7108 __initmv = {
 	.mv_setup = hdk7108_setup,
 	.mv_nr_irqs = NR_IRQS,
 	.mv_ioport_map = hdk7108_ioport_map,
+	STM_PCI_IO_MACHINE_VEC
 };
 

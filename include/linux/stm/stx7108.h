@@ -152,4 +152,9 @@ struct stx7108_pata_config {
 void stx7108_configure_pata(struct stx7108_pata_config *config);
 
 
+void stx7108_configure_pci(struct stm_plat_pci_config *pci_config);
+int  stx7108_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,
+		u8 pin);
+
+
 #endif

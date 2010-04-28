@@ -18,6 +18,7 @@
 #include <linux/leds.h>
 #include <linux/phy.h>
 #include <linux/gpio.h>
+#include <linux/stm/pci-synopsys.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7108.h>
 #include <asm/irq.h>
@@ -160,9 +161,44 @@ static struct platform_device *mb837_devices[] __initdata = {
 
 
 
+static struct stm_plat_pci_config mb837_pci_config = {
+	.pci_irq = {
+		[0] = PCI_PIN_DEFAULT,
+		[1] = PCI_PIN_DEFAULT,
+		[2] = PCI_PIN_DEFAULT,
+		[3] = PCI_PIN_DEFAULT,
+	},
+	.serr_irq = PCI_PIN_DEFAULT,
+	.idsel_lo = 30,
+	.idsel_hi = 30,
+	.req_gnt = {
+		[0] = PCI_PIN_DEFAULT,
+		[1] = PCI_PIN_UNUSED,
+		[2] = PCI_PIN_UNUSED,
+		[3] = PCI_PIN_UNUSED,
+	},
+	.pci_clk = 33333333,
+	.pci_reset_gpio = -EINVAL,
+};
+
+
+
+int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
+{
+	/* We can use the standard function on this board */
+	return stx7108_pcibios_map_platform_irq(&mb837_pci_config, pin);
+}
+
+
 static int __init mb837_devices_init(void)
 {
 	int ssc2_i2c;
+
+	/* PCI jumper settings:
+	 * J18 not fitted, J19 2-3, J30-G fitted, J34-B fitted,
+	 * J35-A fitted, J35-B not fitted, J35-C fitted, J35-D not fitted,
+	 * J39-E fitted, J39-F not fitted */
+	stx7108_configure_pci(&mb837_pci_config);
 
 	/* MII1 & TS Connectors (inc. Cable Card one) - J42E & J42G */
 	stx7108_configure_ssc_i2c(0, NULL);
@@ -231,4 +267,5 @@ struct sh_machine_vector mv_mb837 __initmv = {
 	.mv_setup		= mb837_setup,
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_ioport_map		= mb837_ioport_map,
+	STM_PCI_IO_MACHINE_VEC
 };

@@ -508,6 +508,7 @@ config SH_ST_MB618
 	select SH_ST_EPLD
 	select SH_ST_STEM
 	select SYS_SUPPORTS_PCI
+	select I2C
 	default n
 	help
 	  Select STx7111 Validation if configuring for an

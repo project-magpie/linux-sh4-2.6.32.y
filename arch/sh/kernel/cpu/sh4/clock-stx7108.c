@@ -1,52 +1,51 @@
 /*
- * Copyright (C) 2009 STMicroelectronics Limited
+ * Copyright (C) 2010 STMicroelectronics Limited
  *
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
  *
- * Clocking framework stub.
+ * Code to handle the arch clocks on the STx7105.
  */
 
 #include <linux/init.h>
-#include <linux/kernel.h>
-#include <linux/err.h>
-#include <linux/io.h>
-#include <linux/pm.h>
-#include <asm/clock.h>
-#include <asm/freq.h>
+#include <linux/stm/clk.h>
 
-#include "clock-common.h"
+static int generic_clk_recalc(struct clk *clk)
+{
+	clk->rate = clk->parent->rate;
+	return 0;
+}
 
-
-
-/* SH4 generic clocks ----------------------------------------------------- */
-
-static struct clk generic_module_clk = {
-	.name = "module_clk",
-	.rate = 100000000,
+static struct clk_ops generic_clk_ops = {
+	.init = generic_clk_recalc,
+	.recalc = generic_clk_recalc,
 };
 
-static struct clk generic_comms_clk = {
-	.name = "comms_clk",
-	.rate = 100000000,
+static struct clk stm_clk[] = {
+	{
+		.name = "sh4_clk",
+		.ops = &generic_clk_ops,
+	}, {
+		.name = "module_clk",
+		.ops = &generic_clk_ops,
+	}, {
+		.name = "comms_clk",
+		.ops = &generic_clk_ops,
+	}
 };
 
-
-
-/* ------------------------------------------------------------------------ */
 
 int __init arch_clk_init(void)
 {
-	int err;
+	int i, ret = 0;
 
-	/* Generic SH-4 clocks */
+	stm_clk[0].parent = clk_get(NULL, "CLKA_SH4L2_ICK");
+	stm_clk[1].parent = clk_get(NULL, "CLKA_IC_REG_LP_ON");
+	stm_clk[2].parent = stm_clk[1].parent;
 
-	err = clk_register(&generic_module_clk);
-	if (err != 0)
-		goto error;
+	for (i = 0; i < ARRAY_SIZE(stm_clk); ++i)
+		if (!clk_register(&stm_clk[i]))
+			clk_enable(&stm_clk[i]);
 
-	err = clk_register(&generic_comms_clk);
-
-error:
-	return err;
+	return ret;
 }

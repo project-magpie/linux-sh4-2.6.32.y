@@ -20,6 +20,7 @@ obj-$(CONFIG_STM_RNG)			+= rng.o
 obj-$(CONFIG_PM)		+= wakeup_devices.o
 obj-$(CONFIG_PM)		+= platform-pm.o
 obj-$(CONFIG_PMS)		+= pms.o
+obj-$(CONFIG_PM_RUNTIME)		+= pm_runtime.o
 
 
 obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= stx5197.o

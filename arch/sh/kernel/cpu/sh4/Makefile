@@ -58,6 +58,7 @@ cpufreq-y				:= cpufreq-stm.o
 cpufreq-$(CONFIG_CPU_SUBTYPE_STX5197)	+= cpufreq-stx5197.o
 cpufreq-$(CONFIG_CPU_SUBTYPE_STX5206)	+= cpufreq-stx5206.o
 cpufreq-$(CONFIG_CPU_SUBTYPE_STX7105)	+= cpufreq-stx7105.o
+cpufreq-$(CONFIG_CPU_SUBTYPE_STX7108)	+= cpufreq-stx7108.o
 cpufreq-$(CONFIG_CPU_SUBTYPE_STX7111)	+= cpufreq-stx7111.o
 cpufreq-$(CONFIG_CPU_SUBTYPE_STX7141)	+= cpufreq-stx7141.o
 cpufreq-$(CONFIG_CPU_SUBTYPE_STX7200)	+= cpufreq-stx7200.o

@@ -37,6 +37,11 @@
 #define SYS_CFG_BANK4		9
 
 
+struct stx7108_pio_mode_config {
+	int oe:1;
+	int pu:1;
+	int od:1;
+};
 
 /* Structure aligned to the "STi7108 Generic Retime Padlogic
  * Application Note" SPEC */
@@ -47,6 +52,11 @@ struct stx7108_pio_retime_config {
 	int double_edge:2;
 	int invertclk:2;
 	int delay_input:2;
+};
+
+struct stx7108_pio_config {
+	struct stx7108_pio_mode_config *mode;
+	struct stx7108_pio_retime_config *retime;
 };
 
 

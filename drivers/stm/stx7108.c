@@ -465,7 +465,8 @@ static struct sysconf_field *stx7108_pio_15_26_pull_up[3];
 static struct sysconf_field *stx7108_pio_15_26_open_drain[3];
 
 static void stx7108_pio_config_direction(int port, int pin,
-		enum stm_pad_gpio_direction direction)
+		enum stm_pad_gpio_direction direction,
+		struct stx7108_pio_mode_config *custom_mode)
 {
 	struct sysconf_field *output_enable;
 	struct sysconf_field *pull_up;
@@ -517,6 +518,21 @@ static void stx7108_pio_config_direction(int port, int pin,
 		oe_value |= mask;
 		pu_value &= ~mask;
 		od_value |= mask;
+		break;
+	case stm_pad_gpio_direction_custom:
+		BUG_ON(!custom_mode);
+		if (custom_mode->oe)
+			oe_value |= mask;
+		else
+			oe_value &= ~mask;
+		if (custom_mode->pu)
+			pu_value |= mask;
+		else
+			pu_value &= ~mask;
+		if (custom_mode->od)
+			od_value |= mask;
+		else
+			od_value &= ~mask;
 		break;
 	default:
 		BUG();
@@ -637,16 +653,17 @@ static int stx7108_pio_config(unsigned gpio,
 {
 	int port = stm_gpio_port(gpio);
 	int pin = stm_gpio_pin(gpio);
-	struct stx7108_pio_retime_config *retime_config = priv;
+	struct stx7108_pio_config *config = priv;
 
 	BUG_ON(port > ARRAY_SIZE(stx7108_pio_devices));
 	BUG_ON(function < 0 || function > 5);
 
 	if (function > 0)
-		stx7108_pio_config_direction(port, pin, direction);
+		stx7108_pio_config_direction(port, pin, direction,
+				config ? config->mode : NULL);
 	stx7108_pio_config_function(port, pin, function);
-	if (retime_config)
-		stx7108_pio_config_retime(port, pin, retime_config);
+	if (config && config->retime)
+		stx7108_pio_config_retime(port, pin, config->retime);
 
 	return 0;
 }

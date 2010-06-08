@@ -97,7 +97,9 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_data[] = {
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_in, \
 		.function = _gmac + 1, \
-		.priv = &stx7108_ethernet_retime_data[_gmac], \
+		.priv = &(struct stx7108_pio_config) { \
+			.retime = &stx7108_ethernet_retime_data[_gmac], \
+		}, \
 	}
 
 #define STX7108_PIO_ETH_DATA_OUT(_gmac, _port, _pin) \
@@ -105,7 +107,9 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_data[] = {
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_out, \
 		.function = _gmac + 1, \
-		.priv = &stx7108_ethernet_retime_data[_gmac], \
+		.priv = &(struct stx7108_pio_config) { \
+			.retime = &stx7108_ethernet_retime_data[_gmac], \
+		}, \
 	}
 
 #define STX7108_PIO_ETH_CLOCK_IN(_gmac, _port, _pin) \
@@ -113,7 +117,9 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_data[] = {
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_in, \
 		.function = _gmac + 1, \
-		.priv = &stx7108_ethernet_retime_clock[_gmac], \
+		.priv = &(struct stx7108_pio_config) { \
+			.retime = &stx7108_ethernet_retime_clock[_gmac], \
+		}, \
 	}
 
 #define STX7108_PIO_ETH_CLOCK_OUT(_gmac, _port, _pin) \
@@ -121,7 +127,9 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_data[] = {
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_out, \
 		.function = _gmac + 1, \
-		.priv = &stx7108_ethernet_retime_clock[_gmac], \
+		.priv = &(struct stx7108_pio_config) { \
+			.retime = &stx7108_ethernet_retime_clock[_gmac], \
+		}, \
 	}
 
 #define STX7108_PIO_ETH_BYPASS_IN(_gmac, _port, _pin) \
@@ -129,7 +137,9 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_data[] = {
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_in, \
 		.function = _gmac + 1, \
-		.priv = &stx7108_ethernet_retime_bypass, \
+		.priv = &(struct stx7108_pio_config) { \
+			.retime = &stx7108_ethernet_retime_bypass, \
+		}, \
 	}
 
 #define STX7108_PIO_ETH_BYPASS_OUT(_gmac, _port, _pin) \
@@ -137,7 +147,9 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_data[] = {
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_out, \
 		.function = _gmac + 1, \
-		.priv = &stx7108_ethernet_retime_bypass, \
+		.priv = &(struct stx7108_pio_config) { \
+			.retime = &stx7108_ethernet_retime_bypass, \
+		}, \
 	}
 
 #define STX7108_PIO_ETH_PHY_CLOCK(_gmac, _port, _pin) \
@@ -145,7 +157,9 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_data[] = {
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_unknown, \
 		.name = "PHYCLK", \
-		.priv = &stx7108_ethernet_retime_phy_clock, \
+		.priv = &(struct stx7108_pio_config) { \
+			.retime = &stx7108_ethernet_retime_phy_clock, \
+		}, \
 	}
 
 static struct stm_pad_config stx7108_ethernet_mii_pad_configs[] = {

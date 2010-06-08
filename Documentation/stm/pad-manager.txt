@@ -148,7 +148,8 @@ of all related structures.
 
 The "gpio_config" is a callback function pointer that will be called in
 order to configure any given PIO pin in one of three possible directions
-(input, output or bi-directional mode) and into a particular function.
+(input, output or bi-directional) or custom mode (SOC and implementation
+specific) and into a particular function.
 
 The "function" numbering is completely SOC-dependent, as is both defined
 (in the "stm_pad_config" structures) and used (in the "gpio_config"

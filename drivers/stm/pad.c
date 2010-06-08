@@ -142,7 +142,9 @@ static int __stm_pad_claim(struct stm_pad_config *config,
 				pad_gpio->direction !=
 				stm_pad_gpio_direction_out &&
 				pad_gpio->direction !=
-				stm_pad_gpio_direction_bidir);
+				stm_pad_gpio_direction_bidir &&
+				pad_gpio->direction !=
+				stm_pad_gpio_direction_custom);
 
 		if (stm_pad_gpios[gpio] != stm_pad_gpio_unused)
 			goto error_gpios;
@@ -534,6 +536,7 @@ static int stm_pad_seq_show(struct seq_file *s, void *v)
 			[stm_pad_gpio_direction_in] = "input",
 			[stm_pad_gpio_direction_out] = "output",
 			[stm_pad_gpio_direction_bidir] = "bidirectional",
+			[stm_pad_gpio_direction_custom] = "custom mode",
 		};
 
 		if (i == 0)

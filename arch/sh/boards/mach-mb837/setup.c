@@ -245,6 +245,16 @@ static int __init mb837_devices_init(void)
 			.ext_clk = 1,
 			.phy_bus = 1, });
 #endif
+	/* MMC Hardware settings:
+	 * - Jumpers to be set:
+	 * 	J52[A..H] , J51[A..C] , J51-D, J42-B and J42-D
+	 * - Jumpers to be unset: J42-A and J42-C
+	 * HW workaround on board:
+	 * MMC lines pull-up resistors
+	 * In mb837 v1.0 schematic, the following pull-up values are wrong:
+	 * R(MMC_Cmd) = R258-2 = 61k and  R(MMC_Data2) = R261 = 10k.
+	 * They should be replaced by: R(MMC_Data2) = 61k R(MMC_Cmd) = 10k.
+	 */
 	stx7108_configure_mmc();
 
 	return platform_add_devices(mb837_devices, ARRAY_SIZE(mb837_devices));

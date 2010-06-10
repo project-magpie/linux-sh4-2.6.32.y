@@ -229,6 +229,8 @@ static int __init device_init(void)
 			.phy_bus = 1, });
 #endif
 
+	stx7108_configure_mmc();
+
 	return platform_add_devices(hdk7108_devices,
 			ARRAY_SIZE(hdk7108_devices));
 }

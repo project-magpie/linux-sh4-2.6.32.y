@@ -150,6 +150,7 @@ void stx7108_configure_ethernet(int port,
 
 void stx7108_configure_usb(int port);
 
+void stx7108_configure_mmc(void);
 
 void stx7108_configure_sata(int port);
 

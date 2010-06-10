@@ -93,8 +93,6 @@ void __init stx7108_configure_pata(struct stx7108_pata_config *config)
 	platform_device_register(&stx7108_pata_device);
 }
 
-
-
 /* FDMA resources --------------------------------------------------------- */
 
 static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7108 = {
@@ -733,7 +731,110 @@ static void __init stx7108_pio_init(void)
 	}
 }
 
+/* MMC/SD resources ------------------------------------------------------ */
 
+/* Custom PAD configuration for the MMC Host controller */
+#define STX7108_PIO_MMC_CLK_OUT(_port, _pin) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_custom, \
+		.function = 1, \
+		.name = "MMCCLK", \
+		.priv = &(struct stx7108_pio_config) {	\
+			.mode = &(struct stx7108_pio_mode_config) { \
+				.oe = 1, \
+				.pu = 1, \
+				.od = 1, \
+			}, \
+		}, \
+	}
+
+#define STX7108_PIO_MMC_OUT(_port, _pin) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_custom, \
+		.function = 1, \
+		.priv = &(struct stx7108_pio_config) {	\
+			.mode = &(struct stx7108_pio_mode_config) { \
+				.oe = 1, \
+				.pu = 1, \
+				.od = 1, \
+			}, \
+		}, \
+	}
+#define STX7108_PIO_MMC_BIDIR(_port, _pin) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_custom, \
+		.function = 1, \
+		.priv = &(struct stx7108_pio_config) {	\
+			.mode = &(struct stx7108_pio_mode_config) { \
+				.oe = 1, \
+				.pu = 0, \
+				.od = 0, \
+			}, \
+		}, \
+	}
+#define STX7108_PIO_MMC_IN(_port, _pin) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_in, \
+		.function = 1, \
+	}
+
+
+static struct stm_pad_config stx7108_mmc_pad_config = {
+	.gpios_num = 14,
+	.gpios = (struct stm_pad_gpio []) {
+		STX7108_PIO_MMC_CLK_OUT(1, 0),
+		STX7108_PIO_MMC_OUT(1, 1),	/* MMC command */
+		STX7108_PIO_MMC_IN(1, 2),	/* MMC Write Protection */
+		STX7108_PIO_MMC_IN(1, 3),	/* MMC Card Detect */
+		STX7108_PIO_MMC_OUT(1, 4),	/* MMC LED on */
+		STX7108_PIO_MMC_OUT(1, 5),	/* MMC Card PWR */
+		STX7108_PIO_MMC_BIDIR(0, 0),	/* MMC Data[0]*/
+		STX7108_PIO_MMC_BIDIR(0, 1),	/* MMC Data[1]*/
+		STX7108_PIO_MMC_BIDIR(0, 2),	/* MMC Data[2]*/
+		STX7108_PIO_MMC_BIDIR(0, 3),	/* MMC Data[3]*/
+		STX7108_PIO_MMC_BIDIR(0, 4),	/* MMC Data[4]*/
+		STX7108_PIO_MMC_BIDIR(0, 5),	/* MMC Data[5]*/
+		STX7108_PIO_MMC_BIDIR(0, 6),	/* MMC Data[6]*/
+		STX7108_PIO_MMC_BIDIR(0, 7),	/* MMC Data[7]*/
+	},
+};
+
+static struct arasan_platform_data stx7108_mmc_platform_data = {
+		.pad_config = &stx7108_mmc_pad_config,
+};
+
+static struct platform_device stx7108_mmc_device = {
+		.name = "arasan",
+		.id = 0,
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfdaba000, 0x1000),
+			STM_PLAT_RESOURCE_IRQ_NAMED("mmcirq",
+						    ILC_IRQ(120), -1),
+		},
+		.dev = {
+			.platform_data = &stx7108_mmc_platform_data,
+		}
+};
+
+#define PIO1_CFG_CLKNODATA	0x100
+
+void __init stx7108_configure_mmc(void)
+{
+	struct sysconf_field **regs;
+	unsigned long value;
+
+	regs = stx7108_pio_1_retime;
+	value = sysconf_read(regs[0]);
+	value |= PIO1_CFG_CLKNODATA; /* Output clock */
+	sysconf_write(regs[0], value);
+
+	platform_device_register(&stx7108_mmc_device);
+}
 
 /* sysconf resources ------------------------------------------------------ */
 

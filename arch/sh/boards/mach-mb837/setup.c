@@ -245,6 +245,7 @@ static int __init mb837_devices_init(void)
 			.ext_clk = 1,
 			.phy_bus = 1, });
 #endif
+	stx7108_configure_mmc();
 
 	return platform_add_devices(mb837_devices, ARRAY_SIZE(mb837_devices));
 }

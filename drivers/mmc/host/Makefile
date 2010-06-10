@@ -38,3 +38,4 @@ obj-$(CONFIG_MMC_VIA_SDMMC)	+= via-sdmmc.o
 ifeq ($(CONFIG_CB710_DEBUG),y)
 	CFLAGS-cb710-mmc	+= -DDEBUG
 endif
+obj-$(CONFIG_MMC_ARASAN)	+= arasan.o

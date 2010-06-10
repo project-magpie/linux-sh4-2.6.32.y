@@ -357,3 +357,13 @@ config MMC_VIA_SDMMC
 	  If you have a controller with this interface, say Y or M here.
 
 	  If unsure, say N.
+
+config MMC_ARASAN
+	tristate "Arasan MMC/SD/SDIO host driver"
+	depends on CPU_SUBTYPE_ST40
+	---help---
+	  This selects the Arasan MMC/SD/SDIO host controller integrated
+	  in the STMicroelectronics platforms (stx7108 and stx7106).
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mvsdio.

@@ -350,4 +350,9 @@ struct stm_plat_ilc3_data {
 	unsigned short first_irq;
 };
 
+struct arasan_platform_data {
+	unsigned int need_poll;
+	struct stm_pad_config *pad_config;
+};
+
 #endif

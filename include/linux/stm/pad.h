@@ -13,7 +13,6 @@
 #ifndef __LINUX_STM_PAD_H
 #define __LINUX_STM_PAD_H
 
-#include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
 
 /* The stm_pad_gpio_value structure describes PIOs that are to be claimed in

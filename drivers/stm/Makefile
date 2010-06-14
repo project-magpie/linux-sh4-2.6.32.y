@@ -15,6 +15,8 @@ obj-$(CONFIG_STM_COPROCESSOR_SUPPORT)	+= copro-st_socs.o
 obj-$(CONFIG_STM_COPROCESSOR)		+= stm-coprocessor.o
 obj-$(CONFIG_STM_COPROCESSOR_FRMW)	+= stm-coprocessor_frmw.o
 obj-$(CONFIG_STM_RNG)			+= rng.o
+
+obj-$(CONFIG_PM)		+= wakeup_devices.o
 obj-$(CONFIG_PM)		+= platform-pm.o
 obj-$(CONFIG_PMS)		+= pms.o
 

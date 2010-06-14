@@ -22,6 +22,7 @@
 #include <linux/stm/stx7108.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/clk.h>
+#include <linux/stm/wakeup_devices.h>
 
 #include <asm/irq-ilc.h>
 
@@ -74,7 +75,11 @@
 
 static void __iomem *cga0;
 static void __iomem *cga1;
-static struct clk *comms_clk;
+
+static struct clk *ca1_ref_clk;
+static struct clk *ca1_pll1_clk;
+static struct clk *ca1_ic_lp_on_clk;
+static unsigned long ca1_ic_lp_on_clk_rate;
 
 
 /* *************************
@@ -110,9 +115,6 @@ END_MARKER
  * *********************
  */
 static unsigned long stx7108_mem_table[] __cacheline_aligned = {
-POKE32(CGA1 + CKGA_OSC_DIV_CFG(11), 29),  /* CLKA_IC_REG_LP_ON @ 1 MHz to
-				       * be safe for lirc
-				       */
 POKE32(CGA1 + CKGA_OSC_DIV_CFG(10), 31),	/* CLKA_IC_REG_LP_OFF */
 
 POKE32(CGA0 + CKGA_OSC_DIV_CFG(16), 31),	/* STNoc */
@@ -146,9 +148,6 @@ POKE32(CGA0 + CKGA_OSC_DIV_CFG(16), 0),	/* STNoc */
 POKE32(CGA0 + CKGA_OSC_DIV_CFG(5), 0),	/* ST40 */
 POKE32(CGA0 + CKGA_OSC_DIV_CFG(4), 0),	/* ST40 C-L2 */
 
-POKE32(CGA1 + CKGA_OSC_DIV_CFG(11), 0),  /* CLKA_IC_REG_LP_ON @ 1 MHz to
-				       * be safe for lirc
-				       */
 POKE32(CGA1 + CKGA_OSC_DIV_CFG(10), 0),	/* CLKA_IC_REG_LP_OFF */
 
 
@@ -190,15 +189,35 @@ WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
 END_MARKER
 };
 
+static struct stm_wakeup_devices wkd;
+
 static int stx7108_suspend_begin(suspend_state_t state)
 {
+	pr_info("[STM][PM] Analyzing the wakeup devices\n");
 
-	printk(KERN_INFO"[STM][PM] Analyzing the wakeup devices\n");
+	stm_check_wakeup_devices(&wkd);
 
-	comms_clk->rate = 1000000;	/* 1 MHz */
+	if (wkd.hdmi_can_wakeup)
+		return 0;
+
+	ca1_ic_lp_on_clk_rate = clk_get_rate(ca1_ic_lp_on_clk);
+	/* Set ic_if_100 @ 1MHz */
+	clk_set_parent(ca1_ic_lp_on_clk, ca1_ref_clk);
+	clk_set_rate(ca1_ic_lp_on_clk, clk_get_rate(ca1_ref_clk)/2);
 
 	return 0;
 }
+
+static void stx7108_suspend_wake(void)
+{
+	if (wkd.hdmi_can_wakeup)
+		return;
+
+	/* Restore ic_if_100 */
+	clk_set_parent(ca1_ic_lp_on_clk, ca1_pll1_clk);
+	clk_set_rate(ca1_ic_lp_on_clk, ca1_ic_lp_on_clk_rate);
+}
+
 
 static int stx7108_suspend_core(suspend_state_t state, int suspending)
 {
@@ -251,7 +270,6 @@ static int stx7108_suspend_core(suspend_state_t state, int suspending)
 	pll1_regs = NULL;
 	osc_regs = NULL;
 
-	comms_clk->rate = comms_clk->parent->rate;
 	pr_debug("[STM][PM] ClockGens A: restored\n");
 	return 0;
 
@@ -331,6 +349,7 @@ static int stx7108_evttoirq(unsigned long evt)
 
 static struct stm_platform_suspend_t stx7108_suspend __cacheline_aligned = {
 	.ops.begin = stx7108_suspend_begin,
+	.ops.wake = stx7108_suspend_wake,
 
 	.evt_to_irq = stx7108_evttoirq,
 	.pre_enter = stx7108_suspend_pre_enter,
@@ -361,7 +380,12 @@ static int __init stx7108_suspend_setup(void)
 		if (!sc[i])
 			goto error;
 
-	comms_clk = clk_get(NULL, "comms_clk");
+	ca1_ref_clk = clk_get(NULL, "CLKA1_REF");
+	ca1_pll1_clk = clk_get(NULL, "CLKA1_PLL1");
+	ca1_ic_lp_on_clk = clk_get(NULL, "CLKA_IC_REG_LP_ON");
+
+	if (!ca1_ref_clk || !ca1_pll1_clk || !ca1_ic_lp_on_clk)
+		goto error;
 
 	cga0 = ioremap(CGA0, 0x1000);
 	cga1 = ioremap(CGA1, 0x1000);

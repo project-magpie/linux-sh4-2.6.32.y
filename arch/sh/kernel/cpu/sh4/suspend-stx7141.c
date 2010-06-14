@@ -22,6 +22,7 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stx7141.h>
 #include <linux/stm/clk.h>
+#include <linux/stm/wakeup_devices.h>
 
 #include <asm/irq-ilc.h>
 
@@ -46,7 +47,11 @@
 #define LMI_BASE			0xFE901000
 #define   LMI_APPD(bank)		(0x1000 * (bank) + 0x14 + lmi)
 
-static struct clk *comms_clk;
+static struct clk *ca_ref_clk;
+static struct clk *ca_pll1_clk;
+static struct clk *ca_ic_if_100_clk;
+static unsigned long ca_ic_if_100_clk_rate;
+
 static void __iomem *cga;
 static void __iomem *lmi;
 /* *************************
@@ -54,7 +59,6 @@ static void __iomem *lmi;
  * *************************
  */
 static unsigned long stx7141_standby_table[] __cacheline_aligned = {
-POKE32(CGA + CKGA_OSC_DIV_CFG(10), 29),
 POKE32(CGA + CKGA_OSC_DIV_CFG(4), 31),
 POKE32(CGA + CKGA_OSC_DIV_CFG(0), 31),
 
@@ -62,7 +66,6 @@ END_MARKER,
 
 POKE32(CGA + CKGA_OSC_DIV_CFG(0), 0),
 POKE32(CGA + CKGA_OSC_DIV_CFG(4), 0),
-POKE32(CGA + CKGA_OSC_DIV_CFG(10), 0),
 
 END_MARKER
 };
@@ -85,7 +88,6 @@ OR32(_SYS_CFG(11), (1 << 12)),
 /* wait clock gen lock */
 WHILE_NE32(_SYS_STA(3), 1, 1),
 
-POKE32(CGA + CKGA_OSC_DIV_CFG(10), 29),
 POKE32(CGA + CKGA_OSC_DIV_CFG(17), 31),
 POKE32(CGA + CKGA_OSC_DIV_CFG(4), 31),
 POKE32(CGA + CKGA_OSC_DIV_CFG(0), 31),
@@ -94,7 +96,6 @@ END_MARKER,
 
 POKE32(CGA + CKGA_OSC_DIV_CFG(0), 0),
 POKE32(CGA + CKGA_OSC_DIV_CFG(4), 0),
-POKE32(CGA + CKGA_OSC_DIV_CFG(10), 0),
 POKE32(CGA + CKGA_OSC_DIV_CFG(17), 0),
 
 UPDATE32(_SYS_CFG(12), ~(1 << 10), 0),
@@ -114,13 +115,35 @@ WHILE_NE32(_SYS_STA(4), 1, 0),
 END_MARKER
 };
 
+static struct stm_wakeup_devices wkd;
 
 static int stx7141_suspend_begin(suspend_state_t state)
 {
 	pr_info("[STM][PM] Analyzing the wakeup devices\n");
 
-	comms_clk->rate = 1000000;	/* 1 MHz for IRB*/
+	stm_check_wakeup_devices(&wkd);
+
+	if (wkd.hdmi_can_wakeup)
+		/* Need to keep ic_if_100 @ 100 MHz */
+		return 0;
+
+	ca_ic_if_100_clk_rate = clk_get_rate(ca_ic_if_100_clk);
+	clk_set_parent(ca_ic_if_100_clk, ca_ref_clk);
+	/* 15 MHz is safe to go... */
+	clk_set_rate(ca_ic_if_100_clk, clk_get_rate(ca_ref_clk)/2);
+
 	return 0;
+}
+
+static void stx7141_suspend_wake(void)
+{
+	if (wkd.hdmi_can_wakeup)
+		return;
+
+	/* Restore ic_if_100 to previous rate */
+	clk_set_parent(ca_ic_if_100_clk, ca_pll1_clk);
+	clk_set_rate(ca_ic_if_100_clk, ca_ic_if_100_clk_rate);
+
 }
 
 static int stx7141_suspend_core(suspend_state_t state, int suspending)
@@ -159,7 +182,7 @@ static int stx7141_suspend_core(suspend_state_t state, int suspending)
 	}
 	mdelay(10);
 	pr_devel("[STM][PM] ClockGen A: restored\n");
-	comms_clk->rate = comms_clk->parent->rate;
+
 
 	/* restore the APPD */
 	iowrite32(saved_gplmi_appd, LMI_APPD(0));
@@ -206,11 +229,26 @@ on_suspending:
 	 * the clocks are scaled @ 30 MHz
 	 * the final setting is done in the tables
 	 */
-	iowrite32(0, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
-	if (state == PM_SUSPEND_MEM) {
-		iowrite32(0, cga + CKGA_CLKOPSRC_SWITCH_CFG(1));
-		/* turn-off the PLLs*/
+	/* to avoid the system is to much slow all
+	 * the clocks are scaled @ 30 MHz
+	 * the final setting is done in the tables
+	 */
+	for (i = 0; i < 18; ++i)
+		iowrite32(0, cga + CKGA_OSC_DIV_CFG(i));
+
+	/* almost all the clocks off */
+	iowrite32(0xffcffcff, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
+	iowrite32(0x3, cga + CKGA_CLKOPSRC_SWITCH_CFG(1));
+
+	if (wkd.hdmi_can_wakeup) {/* cga_pll1 still powered */
+		/* move the ic_if_100 again under pll1 */
+		iowrite32(0x800, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
+		iowrite32(1, cga + CKGA_POWER_CFG);
+	} else {
 		iowrite32(3, cga + CKGA_POWER_CFG);
+		if (!wkd.lirc_can_wakeup)
+			clk_set_rate(ca_ic_if_100_clk,
+				    clk_get_rate(ca_ref_clk)/32);
 	}
 
 	return 0;
@@ -245,6 +283,7 @@ static int stx7141_evttoirq(unsigned long evt)
 static struct stm_platform_suspend_t stx7141_suspend __cacheline_aligned = {
 
 	.ops.begin = stx7141_suspend_begin,
+	.ops.wake = stx7141_suspend_wake,
 
 	.evt_to_irq = stx7141_evttoirq,
 	.pre_enter = stx7141_suspend_pre_enter,
@@ -276,7 +315,13 @@ static int __init stx7141_suspend_setup(void)
 		if (!sc[i])
 			goto error;
 
-	comms_clk = clk_get(NULL, "comms_clk");
+	ca_ref_clk = clk_get(NULL, "CLKA_REF");
+	ca_pll1_clk = clk_get(NULL, "CLKA_PLL1");
+	ca_ic_if_100_clk = clk_get(NULL, "CLKA_IC_IF_100");
+
+	if (!ca_ref_clk || !ca_pll1_clk || !ca_ic_if_100_clk)
+		goto error;
+
 	cga = ioremap(CGA, 0x1000);
 	lmi = ioremap(LMI_BASE, 0x1000);
 

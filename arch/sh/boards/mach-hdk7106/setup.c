@@ -243,6 +243,14 @@ static int __init device_init(void)
 	stx7105_configure_audio(&(struct stx7105_audio_config) {
 			.spdif_player_output_enabled = 1, });
 
+	/* HW note:
+	 * There is and error on the 7106-HDK MMC daughter board V 1.0
+	 * schematics.
+	 * The STMPS2151STR Pin 4 should be 'EN' and the Pin 5 should be
+	 * 'Power_IN'. These are reverse.
+	 */
+	stx7105_configure_mmc();
+
 	return platform_add_devices(hdk7106_devices,
 			ARRAY_SIZE(hdk7106_devices));
 }

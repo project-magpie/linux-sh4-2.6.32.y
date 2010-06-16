@@ -532,6 +532,81 @@ static int stx7105_pio_config(unsigned gpio,
 	return 0;
 }
 
+/* MMC/SD resources ------------------------------------------------------ */
+
+/*
+ * MMC is supposed to be configured as ALT_OUT, not ALT_BIDIR.
+ * GNBvd78840 MMC/SPI interface is working not ok when PIO is set in BD
+ */
+static struct stm_pad_config stx7105_mmc_pad_config = {
+	.gpios_num = 14,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_IN(11, 2, -1),	/* Card Detect */
+		STM_PAD_PIO_OUT_NAMED(11, 3, 1, "MMCCLK"),/* MMC clock */
+		STM_PAD_PIO_OUT(11, 4, 1),	/* MMC command */
+		STM_PAD_PIO_OUT(11, 5, 1),	/* MMC Data[0]*/
+		STM_PAD_PIO_OUT(11, 6, 1),	/* MMC Data[1]*/
+		STM_PAD_PIO_OUT(11, 7, 1),	/* MMC Data[2]*/
+		STM_PAD_PIO_OUT(16, 0, 1),	/* MMC Data[3]*/
+		STM_PAD_PIO_OUT(16, 1, 1),	/* MMC Data[4]*/
+		STM_PAD_PIO_OUT(16, 2, 1),	/* MMC Data[5]*/
+		STM_PAD_PIO_OUT(16, 3, 1),	/* MMC Data[6]*/
+		STM_PAD_PIO_OUT(16, 4, 1),	/* MMC Data[7]*/
+		STM_PAD_PIO_OUT(16, 5, 1),	/* MMC LED On */
+		STM_PAD_PIO_OUT(16, 6, 1),	/* MMC Power On */
+		STM_PAD_PIO_IN(16, 7, -1),	/* MMC Write Protection */
+	},
+};
+
+static struct arasan_platform_data stx7105_mmc_platform_data = {
+		.pad_config = &stx7105_mmc_pad_config,
+};
+
+static struct platform_device stx7105_mmc_device = {
+		.name = "arasan",
+		.id = 0,
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfd100000, 0x400),
+			STM_PLAT_RESOURCE_IRQ_NAMED("mmcirq",
+						    ILC_EXT_IRQ(41), -1),
+		},
+		.dev = {
+			.platform_data = &stx7105_mmc_platform_data,
+		}
+};
+
+void __init stx7105_configure_mmc(void)
+{
+	struct sysconf_field *sc;
+
+#if 0
+	/* MMC clock comes from the ClockGen_B bank1, channel 2;
+	 * this clock has been set to 52MHz.
+	 * For supporting SD High-Speed Mode we need to set it
+	 * to 50MHz.
+	 */
+	struct clk *clk = clk_get(NULL, "CLKB_FS1_CH2");
+	clk_set_rate(clk, 50000000);
+#else
+	/* FIXME: this is a dirty hack that will be removed.  */
+
+	/* UNLOCK CLKGENB*/
+	iowrite32(0xc0de, 0xfe000010);
+	/* SET FREQ via magic numbers */
+	iowrite32(0xfffffff3, 0xfe000070); /*MD*/
+	iowrite32(0x6667, 0xfe000074); /*PE*/
+	iowrite32(0x2, 0xfe00007c); /*SDIV*/
+	iowrite32(1, 0xfe000078); /*PRG*/
+	/* LOCK CLKGENB*/
+	iowrite32(0xc1a0, 0xfe000010);
+#endif
+	/* Out Enable coms from the MMC */
+	sc = sysconf_claim(SYS_CFG, 17, 0, 0, "mmc");
+	sysconf_write(sc, 1);
+
+	platform_device_register(&stx7105_mmc_device);
+}
 
 
 /* sysconf resources ------------------------------------------------------ */

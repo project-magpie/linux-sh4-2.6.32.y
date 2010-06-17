@@ -316,7 +316,45 @@ static int stx5206_pio_config(unsigned gpio,
 	return 0;
 }
 
+/* MMC/SD resources ------------------------------------------------------ */
 
+static struct stm_pad_config stx5206_mmc_pad_config = {
+	.gpios_num = 4,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_IN(3, 0, -1),	/* Card Detect */
+		STM_PAD_PIO_IN(3, 1, -1),	/* MMC Write Protection */
+		STM_PAD_PIO_OUT(3, 2, 1),	/* MMC Power On */
+		STM_PAD_PIO_OUT(3, 3, 1),	/* MMC LED On */
+	},
+};
+
+static struct arasan_platform_data stx5206_mmc_platform_data = {
+		.pad_config = &stx5206_mmc_pad_config,
+};
+
+static struct platform_device stx5206_mmc_device = {
+		.name = "arasan",
+		.id = 0,
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfd106000, 0xa000),
+			STM_PLAT_RESOURCE_IRQ_NAMED("mmcirq",
+						    evt2irq(0xa80), -1),
+		},
+		.dev = {
+			.platform_data = &stx5206_mmc_platform_data,
+		}
+};
+
+void __init stx5206_configure_mmc(void)
+{
+	struct sysconf_field *sc;
+
+	sc = sysconf_claim(SYS_CFG, 18, 19, 19, "mmc");
+	sysconf_write(sc, 1);
+
+	platform_device_register(&stx5206_mmc_device);
+}
 
 /* sysconf resources ------------------------------------------------------ */
 

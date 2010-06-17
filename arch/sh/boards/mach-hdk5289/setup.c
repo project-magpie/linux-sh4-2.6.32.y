@@ -133,6 +133,8 @@ static int __init hdk5289_devices_init(void)
 	stx5206_configure_lirc(&(struct stx5206_lirc_config) {
 			.rx_mode = stx5206_lirc_rx_mode_ir, });
 
+	stx5206_configure_mmc();
+
 	return platform_add_devices(hdk5289_devices,
 			ARRAY_SIZE(hdk5289_devices));
 }

@@ -128,6 +128,10 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 	stx5206_ethernet_platform_data.bsp_priv =
 			sysconf_claim(SYS_CFG, 7, 20, 20, "stmmac");
 
+	/* FIXME this is a dirty hack to Set the PHY CLK to 25MHz (MII)
+	 * in case it is not well provided by the target pack. */
+	iowrite32(0x11, 0xfe213a34);
+
 	platform_device_register(&stx5206_ethernet_device);
 }
 

@@ -64,9 +64,9 @@ struct spi_stm {
 	const u8		*tx_ptr;
 	u8			*rx_ptr;
 	u16			bits_per_word;
+	u16			bytes_per_word;
 	unsigned int		baud;
-	unsigned int		tx_bytes_pending;
-	unsigned int		rx_bytes_pending;
+	unsigned int		words_remaining;
 	struct completion	done;
 };
 
@@ -133,7 +133,6 @@ static int spi_stm_setup_transfer(struct spi_device *spi,
 	spi_stm->bits_per_word = bits_per_word;
 
 	/* Set SSC_BRF */
-	/* TODO: program prescaler for slower baudrates */
 	sscbrg = spi_stm->fcomms/(2*hz);
 	if (sscbrg < 0x07 || sscbrg > (0x1 << 16)) {
 		printk(KERN_ERR NAME " baudrate outside valid range"
@@ -143,7 +142,9 @@ static int spi_stm_setup_transfer(struct spi_device *spi,
 	spi_stm->baud = spi_stm->fcomms/(2*sscbrg);
 	if (sscbrg == (0x1 << 16)) /* 16-bit counter wraps */
 		sscbrg = 0x0;
-	dgb_print("setting baudrate: hz = %d, sscbrg = %d\n", hz, sscbrg);
+	dgb_print("setting baudrate: target = %u hz, "
+		  "actual = %u hz, sscbrg = %u\n",
+		  hz, st_ssc->baud, sscbrg);
 	ssc_store32(spi_stm, SSC_BRG, sscbrg);
 
 	 /* Set SSC_CTL and enable SSC */
@@ -173,8 +174,6 @@ static int spi_stm_setup_transfer(struct spi_device *spi,
 	 reg &= 0xfffffff0;
 	 reg |= (bits_per_word - 1);
 
-	 /* CHECK!: are we always going to use FIFO or
-	    do I need CONFIG_STM_SPI_HW_FIFO? */
 	 reg |= SSC_CTL_EN_TX_FIFO | SSC_CTL_EN_RX_FIFO;
 	 reg |= SSC_CTL_EN;
 
@@ -217,191 +216,133 @@ static int spi_stm_setup(struct spi_device *spi)
 	return 0;
 }
 
-/* For SSC SPI as MASTER, TX/RX is handled as follows:
-
-   1. Fill the TX_FIFO with up to (SSC_TXFIFO_SIZE - 1) words, and enable
-      TX_FIFO_EMPTY interrupts.
-   2. When the last word of TX_FIFO is copied to the shift register,
-      a TX_FIFO_EMPTY interrupt is issued, and the last word will *start* being
-      shifted out/in.
-   3. On receiving a TX_FIFO_EMPTY interrupt, copy all *available* received
-      words from the RX_FIFO. Note, depending on the time taken to shift out/in
-      the 'last' word compared to the IRQ latency, the 'last' word may not be
-      available yet in the RX_FIFO.
-   4. If there are more bytes to TX, refill the TX_FIFO.  Since the 'last' word
-      from the previous iteration may still be (or about to be) in the RX_FIFO,
-      only add up to (SSC_TXFIFO_SIZE - 1) words.  If all bytes have been
-      transmitted, disable TX and set completion.
-   5. If we are interested in the received data, check to see if the 'last' word
-      has been received.  If not, then wait the period of shifting 1 word, then
-      read the 'last' word from the RX_FIFO.
-
-*/
-static void spi_stm_fill_tx_fifo(struct spi_stm *spi_stm)
+/* Load the TX FIFO */
+static void ssc_write_tx_fifo(struct spi_stm *spi_stm)
 {
-	union {
-		u8 bytes[4];
-		u32 dword;
-	} tmp = {.dword = 0,};
+
+	uint32_t count;
+	uint32_t word = 0;
 	int i;
 
-	for (i = 0;
-	     i < SSC_TXFIFO_SIZE - 1 && spi_stm->tx_bytes_pending > 0; i++) {
-		if (spi_stm->bits_per_word > 8) {
-			if (spi_stm->tx_ptr) {
-				tmp.bytes[1] = *spi_stm->tx_ptr++;
-				tmp.bytes[0] = *spi_stm->tx_ptr++;
+	if (spi_stm->words_remaining > 8)
+		count = 8;
+	else
+		count = spi_stm->words_remaining;
+
+	for (i = 0; i < count; i++) {
+		if (spi_stm->tx_ptr) {
+			if (spi_stm->bytes_per_word == 1) {
+				word = *spi_stm->tx_ptr++;
 			} else {
-				tmp.bytes[1] = 0;
-				tmp.bytes[0] = 0;
+				word = *spi_stm->tx_ptr++;
+				word = *spi_stm->tx_ptr++ | (word << 8);
 			}
-
-			spi_stm->tx_bytes_pending -= 2;
-
-		} else {
-			if (spi_stm->tx_ptr)
-				tmp.bytes[0] = *spi_stm->tx_ptr++;
-			else
-				tmp.bytes[0] = 0;
-
-			spi_stm->tx_bytes_pending--;
 		}
-		ssc_store32(spi_stm, SSC_TBUF, tmp.dword);
+		ssc_store32(spi_stm, SSC_TBUF, word);
 	}
 }
 
-static int spi_stm_rx_mopup(struct spi_stm *spi_stm)
+/* Read the RX FIFO */
+static void ssc_read_rx_fifo(struct spi_stm *spi_stm)
 {
-	unsigned long word_period_ns;
-	u32 rx_fifo_status;
-	union {
-		u8 bytes[4];
-		u32 dword;
-	} tmp = {.dword = 0,};
 
-	dgb_print("\n");
+	uint32_t count;
+	uint32_t word = 0;
+	int i;
 
-	word_period_ns = 1000000000 / spi_stm->baud;
-	word_period_ns *= spi_stm->bits_per_word;
+	if (spi_stm->words_remaining > 8)
+		count = 8;
+	else
+		count = spi_stm->words_remaining;
 
-	/* delay for period equivalent to shifting 1 complete word
-	   out of and into shift register */
-	ndelay(word_period_ns);
-
-	/* Check 'last' word is actually there! */
-	rx_fifo_status = ssc_load32(spi_stm, SSC_RX_FSTAT);
-	if (rx_fifo_status == 1) {
-		tmp.dword = ssc_load32(spi_stm, SSC_RBUF);
-
-		if (spi_stm->bits_per_word > 8) {
-			if (spi_stm->rx_ptr) {
-				*spi_stm->rx_ptr++ = tmp.bytes[1];
-				*spi_stm->rx_ptr++ = tmp.bytes[0];
+	for (i = 0; i < count; i++) {
+		word = ssc_load32(spi_stm, SSC_RBUF);
+		if (spi_stm->rx_ptr) {
+			if (spi_stm->bytes_per_word == 1) {
+				*spi_stm->rx_ptr++ = (uint8_t)word;
+			} else {
+				*spi_stm->rx_ptr++ = (word >> 8);
+				*spi_stm->rx_ptr++ = word & 0xff;
 			}
-			spi_stm->rx_bytes_pending -= 2;
-		} else {
-			if (spi_stm->rx_ptr)
-				*spi_stm->rx_ptr++ = tmp.bytes[0];
-			spi_stm->rx_bytes_pending--;
 		}
-	} else {
-		dgb_print("should only be one word in RX_FIFO"
-			  "(rx_fifo_status = %d)\n", rx_fifo_status);
 	}
 
-	return 0;
+	spi_stm->words_remaining -= count;
+}
+
+/* Interrupt fired when TX shift register becomes empty */
+static irqreturn_t spi_stm_irq(int irq, void *dev_id)
+{
+	struct spi_stm *spi_stm = (struct spi_stm *)dev_id;
+
+	/* Read RX FIFO */
+	ssc_read_rx_fifo(spi_stm);
+
+	/* Fill TX FIFO */
+	if (spi_stm->words_remaining) {
+		ssc_write_tx_fifo(spi_stm);
+	} else {
+		/* TX/RX complete */
+		ssc_store32(spi_stm, SSC_IEN, 0x0);
+		complete(&spi_stm->done);
+	}
+
+	return IRQ_HANDLED;
 }
 
 
 static int spi_stm_txrx_bufs(struct spi_device *spi, struct spi_transfer *t)
 {
 	struct spi_stm *spi_stm;
+	uint32_t ctl = 0;
 
 	dgb_print("\n");
 
 	spi_stm = spi_master_get_devdata(spi->master);
 
+	/* Setup transfer */
 	spi_stm->tx_ptr = t->tx_buf;
 	spi_stm->rx_ptr = t->rx_buf;
-	spi_stm->tx_bytes_pending = t->len;
-	spi_stm->rx_bytes_pending = t->len;
-	INIT_COMPLETION(spi_stm->done);
 
-	/* fill TX_FIFO */
-	spi_stm_fill_tx_fifo(spi_stm);
+	if (spi_stm->bits_per_word > 8) {
+		/* Anything greater than 8 bits-per-word requires 2
+		 * bytes-per-word in the RX/TX buffers */
+		spi_stm->bytes_per_word = 2;
+		spi_stm->words_remaining = t->len/2;
+	} else if (spi_stm->bits_per_word == 8 &&
+		   ((t->len & 0x1) == 0)) {
+		/* If transfer is even-length, and 8 bits-per-word, then
+		 * implement as half-length 16 bits-per-word transfer */
+		spi_stm->bytes_per_word = 2;
+		spi_stm->words_remaining = t->len/2;
 
-	/* enable TX_FIFO_EMPTY interrupts */
-	ssc_store32(spi_stm, SSC_IEN, SSC_IEN_TIEN);
+		/* Set SSC_CTL to 16 bits-per-word */
+		ctl = ssc_load32(spi_stm, SSC_CTL);
+		ssc_store32(spi_stm, SSC_CTL, (ctl | 0xf));
 
-	/* wait for all bytes to be transmitted*/
-	wait_for_completion(&spi_stm->done);
+		ssc_load32(spi_stm, SSC_RBUF);
 
-	/* check 'last' byte has been received */
-	/* NOTE: need to read rxbuf, even if ignoring the result! */
-	if (spi_stm->rx_bytes_pending)
-		spi_stm_rx_mopup(spi_stm);
-
-	/* disable ints */
-	ssc_store32(spi_stm, SSC_IEN, 0x0);
-
-	return t->len - spi_stm->tx_bytes_pending;
-}
-
-
-
-static irqreturn_t spi_stm_irq(int irq, void *dev_id)
-{
-	struct spi_stm *spi_stm = (struct spi_stm *)dev_id;
-	unsigned int rx_fifo_status;
-	u32 ssc_status;
-
-	union {
-		u8 bytes[4];
-		u32 dword;
-	} tmp = {.dword = 0,};
-
-	ssc_status = ssc_load32(spi_stm, SSC_STA);
-
-	/* FIFO_TX_EMPTY */
-	if (ssc_status & SSC_STA_TIR) {
-		/* Find number of words available in RX_FIFO: 8 if RX_FIFO_FULL,
-		   else SSC_RX_FSTAT (0-7)
-		*/
-		rx_fifo_status = (ssc_status & SSC_STA_RIR) ? 8 :
-			ssc_load32(spi_stm, SSC_RX_FSTAT);
-
-		/* Read all available words from RX_FIFO */
-		while (rx_fifo_status) {
-			tmp.dword = ssc_load32(spi_stm, SSC_RBUF);
-
-			if (spi_stm->bits_per_word > 8) {
-				if (spi_stm->rx_ptr) {
-					*spi_stm->rx_ptr++ = tmp.bytes[1];
-					*spi_stm->rx_ptr++ = tmp.bytes[0];
-				}
-				spi_stm->rx_bytes_pending -= 2;
-			} else {
-				if (spi_stm->rx_ptr)
-					*spi_stm->rx_ptr++ = tmp.bytes[0];
-				spi_stm->rx_bytes_pending--;
-			}
-
-			rx_fifo_status = ssc_load32(spi_stm, SSC_RX_FSTAT);
-		}
-
-		/* See if there is more data to send */
-		if (spi_stm->tx_bytes_pending > 0)
-			spi_stm_fill_tx_fifo(spi_stm);
-		else {
-			/* No more data to send */
-			ssc_store32(spi_stm, SSC_IEN, 0x0);
-			complete(&spi_stm->done);
-		}
+	} else {
+		spi_stm->bytes_per_word = 1;
+		spi_stm->words_remaining = t->len;
 	}
 
-	return IRQ_HANDLED;
-}
+	INIT_COMPLETION(spi_stm->done);
 
+	/* Start transfer by writing to the TX FIFO */
+	ssc_write_tx_fifo(spi_stm);
+	ssc_store32(spi_stm, SSC_IEN, SSC_IEN_TEEN);
+
+	/* Wait for transfer to complete */
+	wait_for_completion(&spi_stm->done);
+
+	/* Restore SSC_CTL if necessary */
+	if (ctl)
+		ssc_store32(spi_stm, SSC_CTL, ctl);
+
+	return t->len;
+
+}
 
 static int __init spi_stm_probe(struct platform_device *pdev)
 {

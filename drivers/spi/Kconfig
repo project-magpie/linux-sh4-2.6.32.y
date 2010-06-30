@@ -229,7 +229,7 @@ config SPI_STMP3XXX
 	  SPI driver for Freescale STMP37xx/378x SoC SSP interface
 
 config SPI_STM
-	bool "STMicroelectronics SPI SSC-based driver"
+	tristate "STMicroelectronics SPI SSC-based driver"
 	depends on CPU_SUBTYPE_ST40
 	select SPI_BITBANG
 	help

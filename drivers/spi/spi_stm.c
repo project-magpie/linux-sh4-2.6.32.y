@@ -41,24 +41,19 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/ssc.h>
 
-#undef dgb_print
-
-#ifdef CONFIG_SPI_DEBUG
-#define SPI_LOOP_DEBUG
-#define dgb_print(fmt, args...)  printk(KERN_INFO "%s: " \
-					fmt, __func__ , ## args)
-#else
-#define dgb_print(fmt, args...)	do { } while (0)
-#endif
-
 #define NAME "spi-stm"
 
 struct spi_stm {
 	/* SSC SPI Controller */
 	struct spi_bitbang	bitbang;
-	unsigned long		base;
+	void __iomem		*base;
 	unsigned int		fcomms;
 	struct platform_device  *pdev;
+
+	/* Resources */
+	struct resource r_mem;
+	struct resource r_irq;
+	struct stm_pad_state *pad_state;
 
 	/* SSC SPI current transaction */
 	const u8		*tx_ptr;
@@ -74,9 +69,7 @@ static void spi_stm_gpio_chipselect(struct spi_device *spi, int value)
 {
 	unsigned int out;
 
-	dgb_print("\n");
-
-	if (spi->chip_select == (typeof(spi->chip_select))(STM_GPIO_INVALID))
+	if (!spi->controller_data)
 		return;
 
 	if (value == BITBANG_CS_ACTIVE)
@@ -84,23 +77,12 @@ static void spi_stm_gpio_chipselect(struct spi_device *spi, int value)
 	else
 		out = spi->mode & SPI_CS_HIGH ? 0 : 1;
 
-	if (unlikely(!spi->controller_data)) {
-		/* Allocate the GPIO when called for the first time.
-		 * FIXME: This code leaks a gpio! (no gpio_free()) */
-		if (gpio_request(spi->chip_select, "spi_stm_gpio CS") < 0) {
-			printk(KERN_ERR NAME " Failed to allocate CS pin\n");
-			return;
-		}
-		spi->controller_data = (void *)1;
-		gpio_direction_output(spi->chip_select, out);
-	} else {
-		gpio_set_value(spi->chip_select, out);
-	}
+	gpio_set_value(spi->chip_select, out);
 
-	dgb_print("%s PIO%d[%d] -> %d \n",
-		  value == BITBANG_CS_ACTIVE ? "select" : "deselect",
-		  stm_gpio_port(spi->chip_select),
-		  stm_gpio_pin(spi->chip_select), out);
+	dev_dbg(&spi->dev, "%s PIO%d[%d] -> %d \n",
+		value == BITBANG_CS_ACTIVE ? "select" : "deselect",
+		stm_gpio_port(spi->chip_select),
+		stm_gpio_pin(spi->chip_select), out);
 
 	return;
 }
@@ -126,8 +108,8 @@ static int spi_stm_setup_transfer(struct spi_device *spi,
 
 	/* Actually, can probably support 2-16 without any other change!!! */
 	if (bits_per_word != 8 && bits_per_word != 16) {
-		printk(KERN_ERR NAME " unsupported bits_per_word=%d\n",
-		       bits_per_word);
+		dev_err(&spi->dev, "unsupported bits_per_word=%d\n",
+			bits_per_word);
 		return -EINVAL;
 	}
 	spi_stm->bits_per_word = bits_per_word;
@@ -135,17 +117,18 @@ static int spi_stm_setup_transfer(struct spi_device *spi,
 	/* Set SSC_BRF */
 	sscbrg = spi_stm->fcomms/(2*hz);
 	if (sscbrg < 0x07 || sscbrg > (0x1 << 16)) {
-		printk(KERN_ERR NAME " baudrate outside valid range"
-		       " %d (sscbrg = %d)\n", hz, sscbrg);
+		dev_err(&spi->dev, "baudrate outside valid range"
+			" %d (sscbrg = %d)\n", hz, sscbrg);
 		return -EINVAL;
 	}
 	spi_stm->baud = spi_stm->fcomms/(2*sscbrg);
 	if (sscbrg == (0x1 << 16)) /* 16-bit counter wraps */
 		sscbrg = 0x0;
-	dgb_print("setting baudrate: target = %u hz, "
-		  "actual = %u hz, sscbrg = %u\n",
-		  hz, st_ssc->baud, sscbrg);
 	ssc_store32(spi_stm, SSC_BRG, sscbrg);
+
+	dev_dbg(&spi->dev, "setting baudrate: target = %u hz, "
+		"actual = %u hz, sscbrg = %u\n",
+		hz, spi_stm->baud, sscbrg);
 
 	 /* Set SSC_CTL and enable SSC */
 	 reg = ssc_load32(spi_stm, SSC_CTL);
@@ -177,13 +160,21 @@ static int spi_stm_setup_transfer(struct spi_device *spi,
 	 reg |= SSC_CTL_EN_TX_FIFO | SSC_CTL_EN_RX_FIFO;
 	 reg |= SSC_CTL_EN;
 
-	 dgb_print("ssc_ctl = 0x%04x\n", reg);
+	 dev_dbg(&spi->dev, "ssc_ctl = 0x%04x\n", reg);
 	 ssc_store32(spi_stm, SSC_CTL, reg);
 
 	 /* Clear the status register */
 	 ssc_load32(spi_stm, SSC_RBUF);
 
 	 return 0;
+}
+
+static void spi_stm_cleanup(struct spi_device *spi)
+{
+	if (spi->controller_data) {
+		gpio_free(spi->chip_select);
+		spi->controller_data = (void *)0;
+	}
 }
 
 /* the spi->mode bits understood by this driver: */
@@ -196,24 +187,40 @@ static int spi_stm_setup(struct spi_device *spi)
 	spi_stm = spi_master_get_devdata(spi->master);
 
 	if (spi->mode & ~MODEBITS) {
-		printk(KERN_ERR NAME "unsupported mode bits %x\n",
-			  spi->mode & ~MODEBITS);
+		dev_err(&spi->dev, "unsupported mode bits %x\n",
+			spi->mode & ~MODEBITS);
 		return -EINVAL;
 	}
 
 	if (!spi->max_speed_hz)  {
-		printk(KERN_ERR NAME " max_speed_hz unspecified\n");
+		dev_err(&spi->dev, "max_speed_hz unspecified\n");
 		return -EINVAL;
 	}
 
 	if (!spi->bits_per_word)
 		spi->bits_per_word = 8;
 
-	retval = spi_stm_setup_transfer(spi, NULL);
-	if (retval < 0)
-		return retval;
+	/* Request CS, if necessary */
+	if (!spi->controller_data &&
+	    spi->chip_select != (typeof(spi->chip_select))(STM_GPIO_INVALID)) {
+		retval = gpio_request(spi->chip_select, "spi_stm cs");
+		if (retval) {
+			dev_err(&spi->dev, "failed to allocate CS pin\n");
+			return retval;
+		}
+		spi->controller_data = (void *)1;
+		gpio_direction_output(spi->chip_select,
+				      spi->mode & SPI_CS_HIGH);
+	}
 
-	return 0;
+	retval = spi_stm_setup_transfer(spi, NULL);
+
+	if (retval && spi->controller_data) {
+		gpio_free(spi->chip_select);
+		spi->controller_data = (void *)0;
+	}
+
+	return retval;
 }
 
 /* Load the TX FIFO */
@@ -296,8 +303,6 @@ static int spi_stm_txrx_bufs(struct spi_device *spi, struct spi_transfer *t)
 	struct spi_stm *spi_stm;
 	uint32_t ctl = 0;
 
-	dgb_print("\n");
-
 	spi_stm = spi_master_get_devdata(spi->master);
 
 	/* Setup transfer */
@@ -350,14 +355,15 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	struct spi_master *master;
 	struct resource *res;
 	struct spi_stm *spi_stm;
-
 	u32 reg;
-
-	/* FIXME: nice error path would be appreciated... */
+	int status = 0;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(struct spi_stm));
-	if (!master)
-		return -ENOMEM;
+	if (!master) {
+		dev_err(&pdev->dev, "failed to allocate spi master\n");
+		status = -ENOMEM;
+		goto err0;
+	}
 
 	platform_set_drvdata(pdev, master);
 
@@ -366,6 +372,7 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	spi_stm->bitbang.setup_transfer = spi_stm_setup_transfer;
 	spi_stm->bitbang.txrx_bufs = spi_stm_txrx_bufs;
 	spi_stm->bitbang.master->setup = spi_stm_setup;
+	spi_stm->bitbang.master->cleanup = spi_stm_cleanup;
 
 	if (plat_data->spi_chipselect)
 		spi_stm->bitbang.chipselect = plat_data->spi_chipselect;
@@ -375,47 +382,56 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	/* chip_select field of spi_device is declared as u8 and therefore
 	 * limits number of GPIOs that can be used as a CS line. Sorry. */
 	master->num_chipselect =
-			sizeof(((struct spi_device *)0)->chip_select) * 256;
+		sizeof(((struct spi_device *)0)->chip_select) * 256;
 	master->bus_num = pdev->id;
 	init_completion(&spi_stm->done);
 
 	/* Get resources */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res)
-		return -ENODEV;
+	if (!res) {
+		dev_err(&pdev->dev, "failed to find IOMEM resource\n");
+		status = -ENOENT;
+		goto err1;
+	}
+	spi_stm->r_mem = *res;
 
-	if (!devm_request_mem_region(&pdev->dev, res->start,
-				     res->end - res->start, "spi")) {
-		printk(KERN_ERR NAME " Request mem 0x%x region failed\n",
-		       res->start);
-		return -ENOMEM;
+	if (!request_mem_region(res->start,
+				res->end - res->start + 1, NAME)) {
+		dev_err(&pdev->dev, "request memory region failed [0x%x]\n",
+			res->start);
+		status = -EBUSY;
+		goto err1;
 	}
 
-	spi_stm->base =
-		(unsigned long) devm_ioremap_nocache(&pdev->dev, res->start,
-						     res->end - res->start);
+	spi_stm->base = ioremap_nocache(res->start, res->end - res->start + 1);
 	if (!spi_stm->base) {
-		printk(KERN_ERR NAME " Request iomem 0x%x region failed\n",
-		       res->start);
-		return -ENOMEM;
+		dev_err(&pdev->dev, "ioremap memory failed [0x%x]\n",
+			res->start);
+		status = -ENXIO;
+		goto err2;
 	}
 
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
-		printk(KERN_ERR NAME " Request irq %d failed\n", res->start);
-		return -ENODEV;
+		dev_err(&pdev->dev, "failed to find IRQ resource\n");
+		status = -ENOENT;
+		goto err3;
+	}
+	spi_stm->r_irq = *res;
+
+	if (request_irq(res->start, spi_stm_irq,
+			IRQF_DISABLED, dev_name(&pdev->dev), spi_stm)) {
+		dev_err(&pdev->dev, "irq request failed\n");
+		status = -EBUSY;
+		goto err3;
 	}
 
-	if (devm_request_irq(&pdev->dev, res->start, spi_stm_irq,
-		IRQF_DISABLED, dev_name(&pdev->dev), spi_stm) < 0) {
-		printk(KERN_ERR NAME " Request irq failed\n");
-		return -ENODEV;
-	}
-
-	if (!devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
-			dev_name(&pdev->dev))) {
-		printk(KERN_ERR NAME " Pads request failed!\n");
-		return -ENODEV;
+	spi_stm->pad_state = stm_pad_claim(plat_data->pad_config,
+					   dev_name(&pdev->dev));
+	if (!spi_stm->pad_state) {
+		dev_err(&pdev->dev, "pads request failed\n");
+		status = -EBUSY;
+		goto err4;
 	}
 
 	/* Disable I2C and Reset SSC */
@@ -436,16 +452,31 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 
 	spi_stm->fcomms = clk_get_rate(clk_get(NULL, "comms_clk"));;
 
-	/* Start bitbang worker */
-	if (spi_bitbang_start(&spi_stm->bitbang)) {
-		printk(KERN_ERR NAME
-		       " The SPI Core refuses the spi_stm adapter\n");
-		return -1;
+	/* Start "bitbang" worker */
+	status = spi_bitbang_start(&spi_stm->bitbang);
+	if (status) {
+		dev_err(&pdev->dev, "bitbang start failed [%d]\n", status);
+		goto err5;
 	}
 
-	printk(KERN_INFO NAME ": Registered SPI Bus %d\n", master->bus_num);
+	dev_info(&pdev->dev, "registered SPI Bus %d\n", master->bus_num);
 
-	return 0;
+	return status;
+
+ err5:
+	stm_pad_release(spi_stm->pad_state);
+ err4:
+	free_irq(spi_stm->r_irq.start, spi_stm);
+ err3:
+	iounmap(spi_stm->base);
+ err2:
+	release_mem_region(spi_stm->r_mem.start,
+			   resource_size(&spi_stm->r_mem));
+ err1:
+	spi_master_put(spi_stm->bitbang.master);
+	platform_set_drvdata(pdev, NULL);
+ err0:
+	return status;
 }
 
 static int spi_stm_remove(struct platform_device *pdev)
@@ -458,12 +489,19 @@ static int spi_stm_remove(struct platform_device *pdev)
 
 	spi_bitbang_stop(&spi_stm->bitbang);
 
-	/* FIXME: Resources release... */
+	stm_pad_release(spi_stm->pad_state);
+	free_irq(spi_stm->r_irq.start, spi_stm);
+	iounmap(spi_stm->base);
+	release_mem_region(spi_stm->r_mem.start,
+			   resource_size(&spi_stm->r_mem));
+
+	spi_master_put(spi_stm->bitbang.master);
+	platform_set_drvdata(pdev, NULL);
 
 	return 0;
 }
 
-static struct platform_driver spi_hw_driver = {
+static struct platform_driver spi_stm_driver = {
 	.driver.name = NAME,
 	.driver.owner = THIS_MODULE,
 	.probe = spi_stm_probe,
@@ -473,14 +511,12 @@ static struct platform_driver spi_hw_driver = {
 
 static int __init spi_stm_init(void)
 {
-	printk(KERN_INFO NAME ": SSC SPI Driver\n");
-	return platform_driver_register(&spi_hw_driver);
+	return platform_driver_register(&spi_stm_driver);
 }
 
 static void __exit spi_stm_exit(void)
 {
-	dgb_print("\n");
-	platform_driver_unregister(&spi_hw_driver);
+	platform_driver_unregister(&spi_stm_driver);
 }
 
 module_init(spi_stm_init);

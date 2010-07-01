@@ -132,13 +132,16 @@ int ilc2irq(unsigned int evtcode)
 	int idx;
 
 	for (idx = 0, status = 0;
-	     idx < DIV_ROUND_UP(ilc->outputs_num, 32) && !status;
+	     idx < DIV_ROUND_UP(ilc->inputs_num, 32) && !status;
 	     ++idx)
 		status = readl(ilc->base + ILC_BASE_STATUS + (idx << 2)) &
 			readl(ilc->base + ILC_BASE_ENABLE + (idx << 2)) &
 			ilc->priority[priority][idx];
 
-	return ilc->first_irq + (idx * 32) + ffs(status) - 1;
+	if (!status)
+		return -1;
+
+	return ilc->first_irq + ((idx-1) * 32) + (ffs(status) - 1);
 }
 
 /*

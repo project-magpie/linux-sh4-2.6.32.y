@@ -9,6 +9,10 @@
  *
  *	Copyright 2003 (c) Lineo Solutions,Inc.
  *
+ * Large changes to support dynamic mappings using PMB
+ * Copyright (c) 2007 STMicroelectronics Limited
+ * Author: Stuart Menefy <stuart.menefy@st.com>
+ *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
@@ -122,7 +126,7 @@ static void __uses_jump_to_uncached clear_pmb_entry(int pos)
 
 static int pmb_alloc(int pos)
 {
-	if (unlikely(pos == PMB_NO_ENTRY))
+	if (likely(pos == PMB_NO_ENTRY))
 		pos = find_first_zero_bit(&pmb_map, NR_PMB_ENTRIES);
 
 repeat:
@@ -153,8 +157,6 @@ static struct pmb_mapping* pmb_mapping_alloc(void)
 	pmb_mappings_free = mapping->next;
 
 	memset(mapping, 0, sizeof(*mapping));
-        /* Set the first reference */
-        mapping->usage = 1;
 
 	return mapping;
 }
@@ -212,39 +214,78 @@ static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
 				    unsigned long req_virt, int *req_pos,
 				    unsigned long pmb_flags)
 {
+	unsigned long orig_phys = phys;
+	unsigned long orig_size = size;
+	int max_i = ARRAY_SIZE(pmb_sizes)-1;
 	struct pmb_mapping *new_mapping;
-	unsigned long alignment = 0;
-	unsigned long virt_offset = 0;
-	struct pmb_entry *prev_entry = NULL;
+	unsigned long alignment;
+	unsigned long virt_offset;
+	struct pmb_entry **prev_entry_ptr;
 	unsigned long prev_end, next_start;
 	struct pmb_mapping *next_mapping;
 	struct pmb_mapping **prev_ptr;
 	struct pmb_entry *entry;
 	unsigned long start;
 
+	if (size == 0)
+		return NULL;
+
 	new_mapping = pmb_mapping_alloc();
 	if (!new_mapping)
 		return NULL;
 
 	DPRINTK("request: phys %08lx, size %08lx\n", phys, size);
-	/* First work out the PMB entries to tile the physical region */
+
+	/*
+	 * First work out the PMB entries to tile the physical region.
+	 *
+	 * Fill in new_mapping and its list of entries, all fields
+	 * except those related to virtual addresses.
+	 *
+	 * alignment is the maximum alignment of all of the entries which
+	 * make up the mapping.
+	 * virt_offset will be non-zero in case some of the entries leading
+	 * upto those which force the maximal alignment are smaller than
+	 * those largest ones, and in this case virt_offset must be added
+	 * to the eventual virtual address (which is aligned to alignment),
+	 * to get the virtual address of the first entry.
+	 */
+ retry:
+	phys = orig_phys;
+	size = orig_size;
+	alignment = 0;
+	virt_offset = 0;
+	prev_entry_ptr = &new_mapping->entries;
+	new_mapping->size = 0;
 	while (size > 0) {
-		int pos;
 		unsigned long best_size;	/* bytes of size covered by tile */
 		int best_i;
 		unsigned long entry_phys;
 		unsigned long entry_size;	/* total size of tile */
 		int i;
 
-		if (req_pos)
-			pos = pmb_alloc(*req_pos++);
-		else
-			pos = pmb_alloc(PMB_NO_ENTRY);
-		if (pos == PMB_NO_ENTRY)
-			goto failed;
+		entry = *prev_entry_ptr;
+		if (entry == NULL) {
+			int pos;
 
+			pos = pmb_alloc(req_pos ? *req_pos++ : PMB_NO_ENTRY);
+			if (pos == PMB_NO_ENTRY)
+				goto failed_give_up;
+			entry = &pmbe[pos];
+			entry->next = NULL;
+			*prev_entry_ptr = entry;
+		}
+		prev_entry_ptr = &entry->next;
+
+		/*
+		 * Calculate the 'best' PMB entry size. This is the
+		 * one which covers the largest amount of the physical
+		 * address range we are trying to map, but if
+		 * increasing the size wouldn't increase the amount we
+		 * would be able to map, don't bother.
+		 */
 		best_size = best_i = 0;
-		for (i = 0; i < ARRAY_SIZE(pmb_sizes); i++) {
+		for (i = 0; i <= max_i; i++) {
 			unsigned long tmp_start, tmp_end, tmp_size;
 			tmp_start = phys & ~(pmb_sizes[i].size-1);
 			tmp_end = tmp_start + pmb_sizes[i].size;
@@ -259,9 +300,9 @@ static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
 
 		entry_size = pmb_sizes[best_i].size;
 		entry_phys = phys & ~(entry_size-1);
-		DPRINTK("using PMB %d: phys %08lx, size %08lx\n", pos, entry_phys, entry_size);
+		DPRINTK("using PMB %d: phys %08lx, size %08lx\n",
+			entry->pos, entry_phys, entry_size);
 
-		entry = &pmbe[pos];
 		entry->ppn   = entry_phys;
 		entry->size  = entry_size;
 		entry->flags = pmb_sizes[best_i].flag;
@@ -272,22 +313,18 @@ static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
 				virt_offset = alignment - new_mapping->size;
 		}
 
-		if (prev_entry) {
-			new_mapping->size += entry_size;
-			prev_entry->next = entry;
-		} else {
-			new_mapping->phys = entry_phys;
-			new_mapping->size = entry_size;
-			new_mapping->entries = entry;
-		}
-
-		prev_entry = entry;
+		new_mapping->size += entry_size;
 		size -= best_size;
 		phys += best_size;
 	}
 
+	new_mapping->phys = new_mapping->entries->ppn;
+
 	DPRINTK("mapping: phys %08lx, size %08lx\n", new_mapping->phys, new_mapping->size);
 	DPRINTK("virtual alignment %08lx, offset %08lx\n", alignment, virt_offset);
+
+	/* Each iteration should use at least as many entries previous ones */
+	BUG_ON(entry->next);
 
 	/* Do we have a conflict with the requested maping? */
 	BUG_ON((req_virt & (alignment-1)) != virt_offset);
@@ -325,6 +362,7 @@ static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
 	DPRINTK("success, using %08lx\n", start);
 	new_mapping->virt = start;
 	new_mapping->flags = pmb_flags;
+	new_mapping->usage = 1;
 	new_mapping->next = *prev_ptr;
 	*prev_ptr = new_mapping;
 
@@ -337,8 +375,16 @@ static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
 	return new_mapping;
 
 failed:
-	/* Need to free things here */
-	DPRINTK("failed\n");
+	if (--max_i >= 0) {
+		DPRINTK("failed, try again with max_i %d\n", max_i);
+		goto retry;
+	}
+
+failed_give_up:
+	DPRINTK("failed, give up\n");
+	for (entry = new_mapping->entries; entry; entry = entry->next)
+		pmb_free(entry->pos);
+	pmb_mapping_free(new_mapping);
 	return NULL;
 }
 

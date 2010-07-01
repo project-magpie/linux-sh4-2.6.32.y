@@ -546,6 +546,7 @@ config STM_NAND_FLEX_CACHED
 config STM_NAND_FLEX_BOOTMODESUPPORT
         bool "Enable support for boot mode ECC"
         depends on MTD_NAND_STM_FLEX
+	depends on MTD_PARTITIONS
         help
           This option enables support for boot partition ECC format.
 

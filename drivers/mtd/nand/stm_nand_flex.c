@@ -135,8 +135,10 @@ struct stm_nand_flex_controller {
 	struct stm_nand_flex_device *devices[0];
 };
 
+#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
 /* The command line passed to nboot_setup() */
 __initdata static char *cmdline;
+#endif
 
 static struct stm_nand_flex_controller* mtd_to_flex(struct mtd_info *mtd)
 {
@@ -152,7 +154,9 @@ static struct stm_nand_flex_controller* mtd_to_flex(struct mtd_info *mtd)
 #define flex_writereg(val, reg)	iowrite32(val, flex->base_addr + (reg))
 #define flex_readreg(reg)	ioread32(flex->base_addr + (reg))
 
+#ifdef CONFIG_MTD_PARTITIONS
 static const char *part_probes[] = { "cmdlinepart", NULL };
+#endif
 
 /*** FLEX mode control functions (cf nand_base.c) ***/
 
@@ -348,7 +352,7 @@ static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 	/* Handle non-aligned buffer */
 	if ((uint32_t)buf & 0x3) {
 		p = flex->buf;
-		memcpy(p, buf, len);
+		memcpy(flex->buf, buf, len);
 	} else {
 		p = buf;
 	}
@@ -1176,7 +1180,8 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 				data->ecc_boot.ecc_ctrl.layout;
 
 			printk("boot-ECC 0x%08x->0x%08x\n",
-			       data->boot_start, data->boot_end);
+			       (unsigned int)data->boot_start,
+			       (unsigned int)data->boot_end);
 
 		} else {
 			printk(KERN_WARNING NAME ": Failed to find boot "
@@ -1191,6 +1196,11 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 		return data;
 
  out2:
+#ifdef CONFIG_MTD_PARTITIONS
+	if (data->parts && data->parts != bank->partitions)
+		kfree(data->parts);
+#endif
+
 	kfree(data);
  out1:
 	return ERR_PTR(res);
@@ -1233,6 +1243,12 @@ static int __devexit stm_nand_flex_remove(struct platform_device *pdev)
 	for (n=0; n<pdata->nr_banks; n++) {
 		struct stm_nand_flex_device *data = flex->devices[n];
 		nand_release(&data->mtd);
+
+#ifdef CONFIG_MTD_PARTITIONS
+		if (data->parts && data->parts != pdata->banks[n].partitions)
+			kfree(data->parts);
+#endif
+
 		kfree(data);
 	}
 
@@ -1252,6 +1268,7 @@ static struct platform_driver stm_nand_flex_driver = {
 	},
 };
 
+#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
 static int __init bootpart_setup(char *s)
 {
 	cmdline = s;
@@ -1259,6 +1276,7 @@ static int __init bootpart_setup(char *s)
 }
 
 __setup("nbootpart=", bootpart_setup);
+#endif
 
 static int __init stm_nand_flex_init(void)
 {

@@ -29,7 +29,6 @@
 #include <linux/completion.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
-#include <linux/mtd/partitions.h>
 #include <linux/dma-mapping.h>
 #include <linux/clk.h>
 #include <linux/gpio.h>
@@ -38,6 +37,10 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/nand.h>
 #include <asm/dma.h>
+
+#ifdef CONFIG_MTD_PARTITIONS
+#include <linux/mtd/partitions.h>
+#endif
 
 #define NAME	"stm-nand-emi"
 
@@ -84,7 +87,9 @@ struct stm_nand_emi_group {
 	struct stm_nand_emi *banks[0];
 };
 
+#ifdef CONFIG_MTD_PARTITIONS
 static const char *part_probes[] = { "cmdlinepart", NULL };
+#endif
 
 /*
  * Routines for FDMA transfers.
@@ -767,7 +772,9 @@ static int __init stm_nand_emi_probe(struct platform_device *pdev)
 static int __devexit stm_nand_emi_remove(struct platform_device *pdev)
 {
 	struct stm_nand_emi_group *group = platform_get_drvdata(pdev);
+#ifdef CONFIG_MTD_PARTITIONS
 	struct stm_plat_nand_emi_data *pdata = pdev->dev.platform_data;
+#endif
 	int n;
 
 	for (n=0; n<group->nr_banks; n++) {

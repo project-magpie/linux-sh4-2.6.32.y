@@ -282,18 +282,29 @@ static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
 		 * one which covers the largest amount of the physical
 		 * address range we are trying to map, but if
 		 * increasing the size wouldn't increase the amount we
-		 * would be able to map, don't bother.
+		 * would be able to map, don't bother. Similarly, if
+		 * increasing the size would result in a mapping where
+		 * half or more of the coverage is wasted, don't bother.
 		 */
 		best_size = best_i = 0;
 		for (i = 0; i <= max_i; i++) {
+			unsigned long pmb_size = pmb_sizes[i].size;
 			unsigned long tmp_start, tmp_end, tmp_size;
-			tmp_start = phys & ~(pmb_sizes[i].size-1);
-			tmp_end = tmp_start + pmb_sizes[i].size;
+			tmp_start = phys & ~(pmb_size-1);
+			tmp_end = tmp_start + pmb_size;
 			tmp_size = min(phys+size, tmp_end)-max(phys, tmp_start);
-			if (tmp_size > best_size) {
-				best_i = i;
-				best_size = tmp_size;
+			if (tmp_size <= best_size)
+				continue;
+
+			if (best_size) {
+				unsigned long wasted_size;
+				wasted_size = pmb_size - tmp_size;
+				if (wasted_size >= (pmb_size / 2))
+					continue;
 			}
+
+			best_i = i;
+			best_size = tmp_size;
 		}
 
 		BUG_ON(best_size == 0);

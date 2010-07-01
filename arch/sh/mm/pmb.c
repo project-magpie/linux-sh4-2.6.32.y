@@ -338,7 +338,7 @@ static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
 	BUG_ON(entry->next);
 
 	/* Do we have a conflict with the requested maping? */
-	BUG_ON((req_virt & (alignment-1)) != virt_offset);
+	BUG_ON(req_virt && ((req_virt & (alignment-1)) != virt_offset));
 
 	/* Next try and find a virtual address to map this */
 	prev_end = P1SEG;

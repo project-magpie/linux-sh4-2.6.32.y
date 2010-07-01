@@ -52,6 +52,13 @@
 #include <linux/mtd/partitions.h>
 #endif
 
+#ifdef CONFIG_DEBUG_FS
+#include <linux/debugfs.h>
+struct dentry *file_erasebb;
+#endif
+
+u8 erasebb;
+
 /* Define default oob placement schemes for large and small page devices */
 static struct nand_ecclayout nand_oob_8 = {
 	.eccbytes = 3,
@@ -2243,7 +2250,8 @@ int nand_erase_nand(struct mtd_info *mtd, struct erase_info *instr,
 		/*
 		 * heck if we have a bad block, we do not erase bad blocks !
 		 */
-		if (nand_block_checkbad(mtd, ((loff_t) page) <<
+		if (!erasebb &&
+		    nand_block_checkbad(mtd, ((loff_t) page) <<
 					chip->page_shift, 0, allowbbt)) {
 			printk(KERN_WARNING "%s: attempt to erase a bad block "
 					"at page 0x%08x\n", __func__, page);
@@ -2971,12 +2979,22 @@ EXPORT_SYMBOL_GPL(nand_release);
 
 static int __init nand_base_init(void)
 {
+#ifdef CONFIG_DEBUG_FS
+	file_erasebb = debugfs_create_u8("nanderasebb", 0644, NULL, &erasebb);
+#endif
+
 	led_trigger_register_simple("nand-disk", &nand_led_trigger);
 	return 0;
 }
 
 static void __exit nand_base_exit(void)
 {
+
+#ifdef CONFIG_DEBUG_FS
+	if (file_erasebb)
+		debugfs_remove(file_erasebb);
+#endif
+
 	led_trigger_unregister_simple(nand_led_trigger);
 }
 

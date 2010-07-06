@@ -19,8 +19,8 @@
 	  clkgenc_enable()/clkgenc_disable()/clkgenc_xable_fsyn() revisited.
 15/dec/09 fabrice.charpent/francesco.virlinzi@st.com
 	  Bug fix in clkgenax_recalc() for CLKA1_PLL0LS.
-	  Replaced REGISTER_OPS by _CLK_OPS macro.
-	  Added LLA_VERSION in 'clock-stx7108.h'.
+	  Replaced REGISTER_OPS by
+	  _CLK_OPS macro. Added LLA_VERSION in 'clock-stx7108.h'.
 20/nov/09 francesco.virlinzi@st.com
 	  ClockGenA/B/C managed as bank
 03/nov/09 fabrice.charpentier@st.com
@@ -304,6 +304,8 @@ _CLK_P(CLKE_REF, &clkgene, 30000000,
 
 };
 
+
+
 SYSCONF(SYS_CFG_BANK1, 4, 8, 15);
 SYSCONF(SYS_CFG_BANK1, 4, 16, 23);
 SYSCONF(SYS_CFG_BANK1, 4, 24, 26);
@@ -457,9 +459,9 @@ static int clkgenax_get_index(int clkid, unsigned long *srcreg, int *shift)
 
 static int clkgenax_set_parent(clk_t *clk_p, clk_t *src_p)
 {
-    unsigned long clk_src, val;
+	unsigned long clk_src, val;
 	int idx, shift;
-    unsigned long srcreg, base;
+	unsigned long srcreg, base;
 
 	if (!clk_p || !src_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -492,12 +494,12 @@ static int clkgenax_set_parent(clk_t *clk_p, clk_t *src_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	base = clkgenax_get_base_address(clk_p->id);
-    val = CLK_READ(base + srcreg) & ~(0x3 << shift);
-    val = val | (clk_src << shift);
-    CLK_WRITE(base + srcreg, val);
+	val = CLK_READ(base + srcreg) & ~(0x3 << shift);
+	val = val | (clk_src << shift);
+	CLK_WRITE(base + srcreg, val);
 
-    clk_p->parent = &clk_clocks[src_p->id];
-    return clkgenax_recalc(clk_p);
+	clk_p->parent = &clk_clocks[src_p->id];
+	return clkgenax_recalc(clk_p);
 }
 
 /* ========================================================================
@@ -826,9 +828,9 @@ static int clkgena0_observe(clk_t *clk_p, unsigned long *div_p)
 	unsigned long divcfg;
 	/* WARNING: the obs_table[] must strictly follows clockgen
 	 * enum order taking into account any "holes" (CLKA0_NOT_USED_y)
-	 * filled with 0xffffffff
+	 * filled with 0xff
 	 */
-	static const unsigned long obs_table_a0[] = {
+	static const unsigned char obs_table_a0[] = {
 		0xa, 0xb, 0xc, 0xd, 0xe, 0xf, 0x10, 0x11,
 		0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19
 	};
@@ -839,7 +841,7 @@ static int clkgena0_observe(clk_t *clk_p, unsigned long *div_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	src = obs_table_a0[clk_p->id - CLKA_DMU_PREPROC];
-	if (src == 0xffffffff)
+	if (src == 0xff)
 		return 0;
 
 	switch (*div_p) {
@@ -878,7 +880,7 @@ static unsigned long clkgena0_get_measure(clk_t *clk_p)
 	unsigned long measure;
 	/* WARNING: the measure_table[] must strictly follows clockgen
 	 * enum order taking into account any "holes" (CLKA_NOT_USED)
-	 * filled with 0xffffffff
+	 * filled with 0xff
 	 */
 	static const unsigned char measure_table_a0[] = {
 		0xa, 0xb, 0xc, 0xd, 0xe, 0xf, 0x10, 0x11,
@@ -908,6 +910,7 @@ static unsigned long clkgena0_get_measure(clk_t *clk_p)
 
 	for (i = 0; i < 10; i++) {
 		mdelay(10);
+
 		data = CLK_READ(CKGA0_BASE_ADDRESS + CKGA_CLKOBS_STATUS);
 		if (data & 1)
 			break; /* IT */
@@ -1020,10 +1023,10 @@ static int clkgena1_observe(clk_t *clk_p, unsigned long *div_p)
 	unsigned long divcfg;
 	/* WARNING: the obs_table[] must strictly follows clockgen enum order
 	 * taking into account any "holes" (CLKA1_NOT_USED_y) filled
-	 * with 0xffffffff
+	 * with 0xff
 	 */
-	static const unsigned long obs_table_a1[] = {
-		0x9, 0xa, 0xb, 0xc, 0xd, 0xffffffff, 0xf, 0x10, 0x11,
+	static const unsigned char obs_table_a1[] = {
+		0x9, 0xa, 0xb, 0xc, 0xd, 0xff, 0xf, 0x10, 0x11,
 		0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19
 	};
 
@@ -1033,7 +1036,7 @@ static int clkgena1_observe(clk_t *clk_p, unsigned long *div_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	src = obs_table_a1[clk_p->id - CLKA_SLIM_FDMA_0];
-	if (src == 0xffffffff)
+	if (src == 0xff)
 		return 0;
 
 	switch (*div_p) {
@@ -1072,7 +1075,7 @@ static unsigned long clkgena1_get_measure(clk_t *clk_p)
 	unsigned long measure;
 	/* WARNING: the measure_table[] must strictly follows clockgen
 	 * enum order taking into account any "holes" (CLKA_NOT_USED)
-	 * filled with 0xffffffff
+	 * filled with 0xff
 	 */
 	static const unsigned char measure_table_a1[] = {
 		0x9, 0xa, 0xb, 0xc, 0xd, 0xff, 0x0f, 0x10, 0x11,
@@ -1146,6 +1149,7 @@ static int clkgenb_xable_fsyn(clk_t *clk_p, unsigned long enable)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+
 	if (clk_p->id < CLKB_FS0_CH1 || clk_p->id > CLKB_FS1_CH4)
 		return CLK_ERR_BAD_PARAMETER;
 
@@ -1200,7 +1204,7 @@ static int clkgenb_xable_clock(clk_t *clk_p, unsigned long enable)
 	int err = 0;
 	/* Power en/dis table for clkgen B.
 	   WARNING: enum order !! */
-	static const unsigned long power_table[] = {
+	static const unsigned char power_table[] = {
 		3, 9, 1, 0, 12, 11, 13
 	};
 
@@ -1442,6 +1446,10 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 	unsigned long reset = 0;/* Each bit set to 1 will be RESETTED */
 	unsigned long val, chan, tmp;
 
+	static const unsigned char div_table[] = {
+		/* 1  2     3  4     5     6     7  8 */
+		   0, 1, 0xff, 2, 0xff, 0xff, 0xff, 4 };
+
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
@@ -1461,9 +1469,9 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 		break;
 	case CLKB_SD_TO_VID_DIV:
 		if (*div_p == 1024)
-			set = 1<<7;
+			set = 1 << 7;
 		else
-			reset = 1<<7;
+			reset = 1 << 7;
 		val = CLK_READ(CKGB_BASE_ADDRESS + CKGB_POWER_DOWN);
 		val = (val & ~reset) | set;
 		clkgenb_unlock();
@@ -1532,23 +1540,16 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 
 	/* Clocks from "Video Clock Controller". */
 	case CLKB_PIX_HD ... CLKB_656:
-		chan = clk_p->id - CLKB_PIX_HD;
-		switch (*div_p) {
-		case 1:
-			set = 0;
-			break;
-		case 2:
-			set = 1;
-			break;
-		case 4:
-			set = 2;
-			break;
-		case 8:
-			set = 3;
-			break;
-		default:
+
+
+		if (*div_p < 1 || *div_p > 8)
 			return CLK_ERR_BAD_PARAMETER;
-		}
+
+		set = div_table[*div_p - 1];
+		if (set == 0xff)
+			return CLK_ERR_BAD_PARAMETER;
+
+		chan = clk_p->id - CLKB_PIX_HD;
 		/* Set Bank 3, SYSCONFIG 1 [15:0]: div_mode
 		 * (2bits per channel)
 		 */
@@ -1583,11 +1584,11 @@ static int clkgenb_observe(clk_t *clk_p, unsigned long *div_p)
 	if (clk_p->id >= CLKB_FS0_CHAN0 && clk_p->id <= CLKB_LPC) {
 		/* ClkgenB master clocks.
 		   WARNING: enum order from CLKB_FS0_CHAN0 to CLKB_LPC !! */
-		static const unsigned long observe_table[] = {
+		static const unsigned char observe_table[] = {
 			0, 3, 8, 9, 10, 12, 11, 13 };
 
 		out0 = observe_table[clk_p->id - CLKB_FS0_CHAN0];
-		if (out0 == 0xffffffff)
+		if (out0 == 0xff)
 			return CLK_ERR_FEATURE_NOT_SUPPORTED;
 
 		if (clk_p->id == CLKB_CLK48)
@@ -1606,7 +1607,7 @@ static int clkgenb_observe(clk_t *clk_p, unsigned long *div_p)
 		/* Video Clock Controler clocks.
 		   WARNING: enum order from CLKB_PIX_HD to CLKB_656 !! */
 		/* Group (0=channels 0->3, 1=channels 4->7 */
-		static const unsigned long observe_table2[] = {
+		static const unsigned char observe_table2[] = {
 			0x00, 0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x13 };
 		unsigned long group, out;
 
@@ -1645,17 +1646,12 @@ static int clkgenb_fsyn_recalc(clk_t *clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Which FSYN control registers to use ? */
-	switch (clk_p->id) {
-	case CLKB_FS0_CH1 ... CLKB_FS0_CH4:
+	if (clk_p->id <= CLKB_FS0_CH4) {
 		clkout = CKGB_FS0_CLKOUT_CTRL;
 		ctrl = CKGB_FS0_CTRL;
-		break;
-	case CLKB_FS1_CH1 ... CLKB_FS1_CH4:
+	} else {
 		clkout = CKGB_FS1_CLKOUT_CTRL;
 		ctrl = CKGB_FS1_CTRL;
-		break;
-	default:
-		return CLK_ERR_BAD_PARAMETER;
 	}
 
 	/* Is FSYN analog part UP ? */
@@ -1708,14 +1704,12 @@ static int clkgenb_recalc(clk_t *clk_p)
 {
 	unsigned long displaycfg, powerdown, fs_sel;
 	unsigned long chan, val;
-	int tab2481[] = { 2, 4, 8, 1 };
-	int tab2482[] = { 2, 4, 8, 2 };
-	int tab1248[] = { 1, 2, 4, 8 };
+	static unsigned char tab2481[] = { 2, 4, 8, 1 };
+	static unsigned char tab2482[] = { 2, 4, 8, 2 };
+	static unsigned char tab1248[] = { 1, 2, 4, 8 };
 	/* Power en/dis table for clkgen B.
 	   WARNING: enum order !! */
-	static unsigned long power_table[] = {
-		3, 9, 1, 0, 12, 11, 13
-	};
+	static unsigned char power_table[] = { 3, 9, 1, 0, 12, 11, 13 };
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -1845,13 +1839,13 @@ static int clkgenb_identify_parent(clk_t *clk_p)
 		}
 		break;
 
-	case CLKB_HD_TO_VID_DIV:   /* pix_hd */
+	case CLKB_HD_TO_VID_DIV:	/* pix_hd */
 		if (displaycfg & (1 << 14))  /* Source = FSYN 1 */
 			clk_p->parent = &clk_clocks[CLKB_FS1_CH1];
 		else
 			clk_p->parent = &clk_clocks[CLKB_FS0_CH1];
 		break;
-	case CLKB_SD_TO_VID_DIV:   /* pix_sd */
+	case CLKB_SD_TO_VID_DIV:	/* pix_sd */
 		if (fs_sel & (1 << 1))  /* Source = FSYN 1 */
 			clk_p->parent = &clk_clocks[CLKB_FS1_CH1];
 		else
@@ -1918,7 +1912,6 @@ static int clkgenc_fsyn_recalc(clk_t *clk_p)
 	unsigned long cfg, dig_bit;
 	unsigned long pe, md, sdiv;
 	int channel, err = 0;
-	static const long dig_table[] = {10, 11, 12, 13};
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -1933,7 +1926,7 @@ static int clkgenc_fsyn_recalc(clk_t *clk_p)
 	}
 
 	/* Checking FSYN digital part */
-	dig_bit = dig_table[clk_p->id - CLKC_FS0_CH1];
+	dig_bit = (clk_p->id - CLKC_FS0_CH1) + 10;
 
 	if ((cfg & (1 << dig_bit)) == 0) {	/* digital part in standbye */
 		clk_p->rate = 0;
@@ -1987,7 +1980,8 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 	unsigned long md, pe, sdiv;
 	unsigned long reg_value = 0;
 	int channel;
-	static unsigned long set_rate_table[] = { 0x06, 0x0A, 0x012, 0x022 };
+	static const unsigned char set_rate_table[] = {
+		0x06, 0x0A, 0x12, 0x22 };
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -2109,9 +2103,6 @@ static int clkgenc_init(clk_t *clk_p)
 static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 {
 	unsigned long val;
-	/* Digital standbye bits table.
-	   Warning: enum order: CLKC_FS0_CH1 ... CLKC_FS0_CH3 */
-	static const unsigned long dig_bit[] = {10, 11, 12, 13};
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -2122,9 +2113,9 @@ static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 
 	/* Powering down/up digital part */
 	if (enable)
-		val |= (1 << dig_bit[clk_p->id - CLKC_FS0_CH1]);
+		val |= (1 << (10 + (clk_p->id - CLKC_FS0_CH1)));
 	else
-		val &= ~(1 << dig_bit[clk_p->id - CLKC_FS0_CH1]);
+		val &= ~(1 << (10 + (clk_p->id - CLKC_FS0_CH1)));
 
 	/* Powering down/up analog part */
 	if (enable)

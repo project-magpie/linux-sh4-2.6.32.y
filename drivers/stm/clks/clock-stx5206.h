@@ -1,6 +1,6 @@
 /*****************************************************************************
  *
- * File name   : clock-stx5206.h
+ * File name:	clock-stx5206.h
  * Description : Low Level API - Clocks identifiers
  *
  * COPYRIGHT (C) 2009 STMicroelectronics - All Rights Reserved
@@ -10,7 +10,7 @@
  *****************************************************************************/
 
 /* LLA version: YYYYMMDD */
-#define LLA_VERSION 20100322
+#define LLA_VERSION 20100520
 
 enum {
 	/* Top level clocks */
@@ -57,9 +57,9 @@ enum {
 	CLKB_SRC_ED,
 	CLKB_DSS,
 	CLKB_DAA,
-	CLKB_27_0,          /* Spare FS0, CH4 */
+	CLKB_27_0,		/* Spare FS0, CH4 */
 	CLKB_SRC_SD,
-	CLKB_27_1,          /* Spare FS1, CH2 */
+	CLKB_27_1,		/* Spare FS1, CH2 */
 	CLKB_MMC,
 	CLKB_LPC,
 
@@ -83,9 +83,9 @@ enum {
 	CLKC_FS0_CH4,
 
 	/* Clockgen D */
-	CLKD_REF,           /* Clockgen D reference clock */
+	CLKD_REF,	/* Clockgen D reference clock */
 	CLKD_LMI2X,
 
 	/* Clockgen E = USB PHY */
-	CLKE_REF,           /* Clockgen E reference clock */
+	CLKE_REF,	/* Clockgen E reference clock */
 };

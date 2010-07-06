@@ -10,6 +10,8 @@
  *****************************************************************************/
 
 /* ----- Modification history (most recent first)----
+17/may/10 STAPI reports
+	  Fixed clkgenb_set_div function
 22/mar/10 fabrice.charpentier@st.com
 	  CLKA_PLL0, CLKB_FS0, CLKB_FS1, CLKC_FS0 identifiers removed.
 12/feb/10 fabrice.charpentier@st.com
@@ -84,13 +86,6 @@ static int clkgene_init(clk_t *clk_p);
 /* Per boards top input clocks. mb680 currently identical */
 #define SYSCLKIN	30	/* osc */
 #define SYSCLKALT 	30	/* Alternate  osc */
-
-static const unsigned short clkgena_offset_regs[] = {
-	CKGA_OSC_DIV0_CFG,
-	CKGA_PLL0HS_DIV0_CFG,
-	CKGA_PLL0LS_DIV0_CFG,
-	CKGA_PLL1_DIV0_CFG
-};
 
 _CLK_OPS(Top,
 	"Top clocks",
@@ -287,13 +282,15 @@ int __init plat_clk_init(void)
 	SYSCONF_CLAIM(SYS_CFG, 40, 0, 1);
 	SYSCONF_CLAIM(SYS_CFG, 40, 2, 3);
 
-	for (i = 0; i < ARRAY_SIZE(clk_clocks); ++i)
+	for (i = 0; i < CLKB_REF; ++i)
 		if (!clk_register(&clk_clocks[i]))
 			clk_enable(&clk_clocks[i]);
 
+	for (i = CLKB_REF; i < ARRAY_SIZE(clk_clocks); ++i)
+		clk_register(&clk_clocks[i]);
+
 	return 0;
 }
-
 
 /******************************************************************************
 Top level clocks group
@@ -595,7 +592,7 @@ static int clkgena_set_div(clk_t *clk_p, unsigned long *div_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Now according to parent, let's write divider ratio */
-	offset = clkgena_offset_regs[clk_p->parent->id - CLKA_REF];
+	offset = CKGA_SOURCE_CFG(clk_p->parent->id - CLKA_REF);
 	CLK_WRITE(CKGA_BASE_ADDRESS + offset + (4 * idx), div_cfg);
 
 	return 0;
@@ -674,7 +671,7 @@ static int clkgena_recalc(clk_t *clk_p)
 			return CLK_ERR_BAD_PARAMETER;
 
 		/* Now according to source, let's get divider ratio */
-		offset = clkgena_offset_regs[clk_p->parent->id - CLKA_REF];
+		offset = CKGA_SOURCE_CFG(clk_p->parent->id - CLKA_REF);
 		data = CLK_READ(CKGA_BASE_ADDRESS + offset + (4 * idx));
 
 		ratio = (data & 0x1F) + 1;
@@ -862,7 +859,7 @@ static int clkgenb_xable_fsyn(clk_t *clk_p, unsigned long enable)
 		if ((val & 0xf) == 0)
 			ctrlval &= ~(1 << 4);
 	}
-	CLK_WRITE(CKGB_BASE_ADDRESS + ctrl, val);
+	CLK_WRITE(CKGB_BASE_ADDRESS + ctrl, ctrlval);
 	clkgenb_lock();
 
 	/* Freq recalc required only if a channel is enabled */
@@ -1114,7 +1111,7 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 	unsigned long reset = 0;	/* Each bit set to 1 will be RESETTED */
 	unsigned long reg;
 	unsigned long val;
-	static const char shift_table[] = {0, 2, 4, 8, 10, 12};
+	static const char shift_table[] = {0, 2, 4, 6, 8, 10};
 	/* *div_p = 0, 1, 2, 3, 4, 5, 6, 7, 8 */
 	static const char div_table[] = { -1, 0, 1, -1, 2, -1, -1, -1, 3};
 

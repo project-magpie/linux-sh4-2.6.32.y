@@ -382,11 +382,11 @@ static void pll_hw_set(unsigned long addr, unsigned long cfg0,
 		   "2:	       \n"
 		   "bf/s     2b      \n"
 		   " dt      %7      \n"
-		   : : "r" (addr), "r"(cfg0),
-		      "r"(cfg1), "r"(cfg2),	/* with enable */
-		   "r"(SYS_SERVICE_ADDR + MODE_CONTROL),
-		   "r"(MODE_CTRL_X1),
-		   "r"(MODE_CTRL_PROG), "r"(1000000)
+		   : : "r" (addr), "r" (cfg0),
+		      "r" (cfg1), "r" (cfg2),	/* with enable */
+		   "r" (SYS_SERVICE_ADDR + MODE_CONTROL),
+		   "r" (MODE_CTRL_X1),
+		   "r" (MODE_CTRL_PROG), "r"(1000000)
 		   : "memory");
 
 	local_irq_restore(flags);

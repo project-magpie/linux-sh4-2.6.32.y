@@ -13,7 +13,7 @@
 #define __CLOCK_LLA_REGS_H
 
 
-/* --- Base addresses --- */
+/* --- Base addresses ---------------------------------------- */
 #define CKGA_BASE_ADDRESS		0xfe213000
 #define CKGB_BASE_ADDRESS		0xfe000000
 #define CKGC_BASE_ADDRESS		0xfe210000     /* AUDIO_CONF */
@@ -37,11 +37,20 @@
 #define CKGA_CLKOBS_MUX2_CFG		0x048
 #define CKGA_LOW_POWER_CTRL		0x04C
 
-#define CKGA_OSC_DIV0_CFG		0x800
-#define CKGA_PLL0HS_DIV0_CFG		0x900
-#define CKGA_PLL0LS_DIV0_CFG		0xA00
-#define CKGA_PLL1_DIV0_CFG		0xB00
-
+/*
+ * The CKGA_SOURCE_CFG(..) replaces the
+ * - CKGA_OSC_DIV0_CFG
+ * - CKGA_PLL0HS_DIV0_CFG
+ * - CKGA_PLL0LS_DIV0_CFG
+ * - CKGA_PLL1_DIV0_CFG
+ * macros.
+ * The _parent_id identifies the parent as:
+ * - 0: OSC
+ * - 1: PLL0_HS
+ * - 2: PLL0_LS
+ * - 3: PLL1
+ */
+#define CKGA_SOURCE_CFG(_parent_id)	(0x800 + (_parent_id) * 0x100)
 
 /* --- CKGB registers --- */
 #define CKGB_LOCK			0x010

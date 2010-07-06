@@ -10,6 +10,8 @@
  *****************************************************************************/
 
 /* ----- Modification history (most recent first)----
+19/may/10 francesco.virlinzi@st.com/fabrice.charpentier@st.com
+	  Added several divisor factor on 656_1, DISP_HD. PIX_SD, etc
 12/mar/10 francesco.virlinzi@st.com/fabrice.charpentier@st.com
 	  Removed CKGA_PLL0; power control on CKGA_PLL0HS
 	  Removed CLKB_PIX_FROM_DVP. Removed CLKB_FS0/FS1 & CLKC_FS0 ids.
@@ -88,13 +90,6 @@ static int clkgene_init(clk_t *clk_p);
 /* Per boards top input clocks */
 #define SYSCLKIN 	30	/* osc */
 #define SYSCLKALT	30	/* Alternate osc */
-
-static const unsigned short clkgena_offset_regs[] = {
-	CKGA_OSC_DIV0_CFG,
-	CKGA_PLL0HS_DIV0_CFG,
-	CKGA_PLL0LS_DIV0_CFG,
-	CKGA_PLL1_DIV0_CFG
-};
 
 _CLK_OPS(Top,
 	"Top clocks",
@@ -187,7 +182,7 @@ _CLK_P(CLKA_PLL0LS, &clkgena, 450000000,
 _CLK_P(CLKA_PLL1, &clkgena, 800000000,
 		CLK_RATE_PROPAGATES, &clk_clocks[CLKA_REF]),
 
-_CLK(CLKA_IC_STNOC,	&clkgena, 400000000, 0),
+_CLK(CLKA_IC_STNOC,	&clkgena, 400000000, CLK_ALWAYS_ENABLED),
 _CLK(CLKA_FDMA0,	&clkgena, 400000000, 0),
 _CLK(CLKA_FDMA1,	&clkgena, 400000000, 0),
 /* Note: CLKA_ETH1_PHY is UNUSED on 7105 */
@@ -199,7 +194,7 @@ _CLK(CLKA_LX_DMU_CPU,	&clkgena, 450000000, 0),
 _CLK(CLKA_LX_AUD_CPU,	&clkgena, 450000000, 0),
 _CLK(CLKA_IC_BDISP_200, &clkgena, 200000000, 0),
 _CLK(CLKA_IC_DISP_200,  &clkgena, 200000000, 0),
-_CLK(CLKA_IC_TS_200,	&clkgena, 200000000, 0),
+_CLK(CLKA_IC_TS_200,	&clkgena, 200000000, CLK_ALWAYS_ENABLED),
 _CLK(CLKA_DISP_PIPE_200, &clkgena, 200000000, 0),
 _CLK(CLKA_BLIT_PROC,	&clkgena, 266666666, 0),
 _CLK(CLKA_IC_DELTA_200, &clkgena, 266666666, 0),
@@ -207,7 +202,7 @@ _CLK(CLKA_IC_DELTA_200, &clkgena, 266666666, 0),
 _CLK(CLKA_ETH0_PHY,	&clkgena, 25000000,  0),
 _CLK(CLKA_PCI,		&clkgena, 66666666,  0),
 _CLK(CLKA_EMI_MASTER,	&clkgena, 100000000, 0),
-_CLK(CLKA_IC_COMPO_200, &clkgena, 200000000, 0),
+_CLK(CLKA_IC_COMPO_200, &clkgena, 200000000, CLK_ALWAYS_ENABLED),
 _CLK(CLKA_IC_IF_200,	&clkgena, 200000000, CLK_ALWAYS_ENABLED),
 
 /* Clockgen B */
@@ -275,6 +270,7 @@ _CLK(CLKE_REF, &clkgene, 30000000, CLK_ALWAYS_ENABLED),
 
 };
 
+
 SYSCONF(SYS_STA, 1, 0, 0);
 SYSCONF(SYS_CFG, 6, 0, 0);
 SYSCONF(SYS_CFG, 11, 1, 8);
@@ -299,11 +295,20 @@ int __init plat_clk_init(void)
 		if (!clk_register(&clk_clocks[i]))
 			clk_enable(&clk_clocks[i]);
 
+	return 0;
+}
+
+static int __init postcore_clk_init(void)
+{
+	int i;
+
 	for (i = CLKB_REF; i < ARRAY_SIZE(clk_clocks); ++i)
 		clk_register(&clk_clocks[i]);
 
 	return 0;
 }
+
+postcore_initcall(postcore_clk_init);
 
 
 /******************************************************************************
@@ -594,7 +599,7 @@ static int clkgena_set_div(clk_t *clk_p, unsigned long *div_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Now according to parent, let's write divider ratio */
-	offset = clkgena_offset_regs[clk_p->parent->id - CLKA_REF];
+	offset = CKGA_SOURCE_CFG(clk_p->parent->id - CLKA_REF);
 	CLK_WRITE(CKGA_BASE_ADDRESS + offset + (4 * idx), div_cfg);
 
 	return 0;
@@ -673,7 +678,7 @@ static int clkgena_recalc(clk_t *clk_p)
 			return CLK_ERR_BAD_PARAMETER;
 
 		/* Now according to source, let's get divider ratio */
-		offset = clkgena_offset_regs[clk_p->parent->id - CLKA_REF];
+		offset = CKGA_SOURCE_CFG(clk_p->parent->id - CLKA_REF);
 		data = CLK_READ(CKGA_BASE_ADDRESS + offset + (4 * idx));
 
 		ratio = (data & 0x1F) + 1;
@@ -753,7 +758,7 @@ static unsigned long clkgena_get_measure(clk_t *clk_p)
 		return 0;
 
 	src = measure_table[clk_p->id - CLKA_IC_STNOC];
-	if (src == 0xffffffff)
+	if (src == 0xff)
 		return 0;
 
 	measure = 0;
@@ -861,7 +866,7 @@ static int clkgenb_xable_fsyn(clk_t *clk_p, unsigned long enable)
 		if ((val & 0xf) == 0)
 			ctrlval &= ~(1 << 4);
 	}
-	CLK_WRITE(CKGB_BASE_ADDRESS + ctrl, val);
+	CLK_WRITE(CKGB_BASE_ADDRESS + ctrl, ctrlval);
 	clkgenb_lock();
 
 	/* Freq recalc required only if a channel is enabled */
@@ -900,6 +905,8 @@ static int clkgenb_xable_clock(clk_t *clk_p, unsigned long enable)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+	if (clk_p->id == CLKB_DVP)
+		return 0;
 
 	for (i = 0; i < ARRAY_SIZE(enable_clock); ++i)
 		if (enable_clock[i].clk_id == clk_p->id)
@@ -1022,6 +1029,13 @@ static int clkgenb_set_parent(clk_t *clk_p, clk_t *parent_p)
 			set = 0x3 << 2;
 		break;
 
+	case CLKB_656_1:
+		reg = CKGB_BASE_ADDRESS + CKGB_DISPLAY_CFG;
+		if (parent_p->id == CLKB_FS0_CH1)
+			reset = 1<<16;
+		else
+			set = 1<<16;
+		break;
 	case CLKB_PIP:
 		/* In fact NOT a clockgen B clock but closely linked to it */
 		if (parent_p->id == CLKB_DISP_ID)
@@ -1123,145 +1137,72 @@ static int clkgenb_set_fsclock(clk_t *clk_p, unsigned long freq)
 static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 {
 	unsigned long set = 0;	/* Each bit set to 1 will be SETTED */
-	unsigned long reset = 0;	/* Each bit set to 1 will be RESETTED */
+	unsigned long reset = 0;/* Each bit set to 1 will be RESETTED */
+	unsigned long shift = 0;
 	unsigned long reg;
 	unsigned long val;
+	static const unsigned char clk_shift[] = {
+		0,	/* CLKB_TMDS_HDMI	*/
+		2,	/* CLKB_656_1		*/
+		0xff,	/* CLKB_PIX_HD		*/
+		4,	/* CLKB_DISP_HD		*/
+		6,	/* CLKB_656_0		*/
+		0xff,	/* CLKB_GDP3		*/
+		8,	/* CLKB_DISP_ID		*/
+		12,	/* CLKB_PIX_SD		*/
+		10	/* CLKB_DVP		*/
+	};
+	static const unsigned char clk_shift_pwd[] = {
+		0,	/* CLKB_TMDS_HDMI	*/
+		2,	/* CLKB_656_1		*/
+		3,	/* CLKB_PIX_HD		*/
+		4,	/* CLKB_DISP_HD		*/
+		5,	/* CLKB_656_0		*/
+		0xff,	/* CLKB_GDP3		*/
+		6,	/* CLKB_DISP_ID		*/
+		7,	/* CLKB_PIX_SD		*/
+		0xff	/* CLKB_DVP		*/
+	};
+
+	static const unsigned char divisor_value[] = {
+	/* 1, 2,    3, 4,    5,    6,    7, 8 */
+	   3, 0, 0xff, 1, 0xff, 0xff, 0xff, 2 };
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
-	reg = CKGB_DISPLAY_CFG;
-	switch (clk_p->id) {
-	case CLKB_TMDS_HDMI:
-		switch (*div_p) {
-		case 2:
-			reset = 0x3;
-			break;
-		case 4:
-			reset = 1 << 1;
-			set = 1 << 0;
-			break;
-		case 1024:
-			reg = CKGB_POWER_DOWN;
-			set = 1 << 1;
-			break;
-		}
-		break;
-	case CLKB_656_1:
-		switch (*div_p) {
-		case 2:
-			reset = 0x3 << 2;
-			break;
-		case 8:
-			set = 1 << 3;
-			reset = 1 << 2;
-			break;
-		case 1024:
-			reg = CKGB_POWER_DOWN;
-			set = 1 << 2;
-			break;
-		}
-		break;
-	case CLKB_PIX_HD:
-		reg = CKGB_POWER_DOWN;
-		if (*div_p == 1024)
-			set = 1 << 3;
-		else
-			reset = 1 << 3;
-		break;
-	case CLKB_DISP_HD:
-		switch (*div_p) {
-		case 2:
-			reset = 0x3 << 4;
-			break;
-		case 4:
-			reset = 1 << 5;
-			set = 1 << 4;
-			break;
-		case 8:
-			set = 1 << 5;
-			reset = 1 << 4;
-			break;
-		case 1024:
-			reg = CKGB_POWER_DOWN;
-			set = 1 << 4;
-			break;
-		}
-		break;
-	case CLKB_656_0:
-		switch (*div_p) {
-		case 2:
-			reset = 0x3 << 6;
-			break;
-		case 4:
-			reset = 1 << 7;
-			set = 1 << 6;
-			break;
-		case 1024:
-			reg = CKGB_POWER_DOWN;
-			set = 1 << 5;
-			break;
-		}
-		break;
-	case CLKB_DISP_ID:
-		switch (*div_p) {
-		case 2:
-			reset = 0x3 << 8;
-			break;
-		case 1024:
-			reg = CKGB_POWER_DOWN;
-			set = 1 << 6;
-			break;
-		}
-		break;
-	case CLKB_PIX_SD:
-		/* clk_pix_sd sourced from Fsyn1 */
-		if (CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_SELECT) & 0x2) {
-			switch (*div_p) {
-			case 1024:
-				reg = CKGB_POWER_DOWN;
-				set = 1 << 7;
-				break;
-			}
-		} else {	/* clk_pix_sd sourced from Fsyn0 */
-			switch (*div_p) {
-			case 4:
-				reset = 1 << 11;
-				set = 1 << 10;
-				break;
-			case 8:
-				reset = 1 << 10;
-				set = 1 << 11;
-				break;
-			case 1024:
-				reg = CKGB_POWER_DOWN;
-				set = 1 << 7;
-				break;
-			}
-		}
-		break;
-	case CLKB_DVP:
-		/* clk_dvp sourced from Fsyn1 */
-		if (!CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_SELECT) & 0x4) {
-			switch (*div_p) {
-			case 4:
-				reset = 1 << 11;
-				set = 1 << 10;
-				break;
-			case 8:
-				set = 1 << 11;
-				reset = 1 << 10;
-				break;
-			}
-		}
-		break;
-	default:
+	/* the hw support specific divisor factor therefore
+	 * reject immediatelly a wrong divisor
+	 */
+	if (*div_p < 1 || *div_p > 8 && *div_p != 1024)
 		return CLK_ERR_BAD_PARAMETER;
+
+	if (*div_p == 1024) {
+		shift = clk_shift_pwd[clk_p->id - CLKB_TMDS_HDMI];
+		reg = CKGB_POWER_DOWN;
+		reset = 1;
+		set = 1;
+	} else {
+		set = divisor_value[*div_p - 1];
+
+		if (set == 0xff)
+			return CLK_ERR_BAD_PARAMETER;
+		shift = clk_shift[clk_p->id - CLKB_TMDS_HDMI];
+		reset = 3;
+		reg = CKGB_DISPLAY_CFG;
 	}
 
+	if (shift == 0xff)
+		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLKB_PIX_SD &&
+		/* clk_pix_sd sourced from Fsyn1 */
+	    clk_p->parent->id == CLKB_FS1_CH1)
+			shift += 2;
+
 	val = CLK_READ(CKGB_BASE_ADDRESS + reg);
-	val = val & ~reset;
-	val = val | set;
+	val = val & ~(reset << shift);
+	val = val | (set << shift);
 	clkgenb_unlock();
 	CLK_WRITE(CKGB_BASE_ADDRESS + reg, val);
 	clkgenb_lock();
@@ -1297,11 +1238,10 @@ static int clkgenb_observe(clk_t *clk_p, unsigned long *div_p)
 		/* Clocks available thru mux 1 */
 		{CLKB_PP, 11}, {CLKB_MMC, 14}
 	};
-	const struct gen_utility *observe_table = observe_table_stx7105;
+	struct gen_utility *observe_table = observe_table_stx7105;
 
 	if (cpu_data->type != CPU_STX7105)
 		observe_table = observe_table_stx7106;
-
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -1350,17 +1290,15 @@ static int clkgenb_fsyn_recalc(clk_t *clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Which FSYN control registers to use ? */
-	switch (clk_p->id) {
-	case CLKB_FS0_CH1 ... CLKB_FS0_CH4:
+	if (clk_p->id < CLKB_FS0_CH1 || clk_p->id > CLKB_FS1_CH4)
+		return CLK_ERR_BAD_PARAMETER;
+
+	if ((clk_p->id - CLKB_FS0_CH1) < 4) {
 		clkout = CKGB_FS0_CLKOUT_CTRL;
 		ctrl = CKGB_FS0_CTRL;
-		break;
-	case CLKB_FS1_CH1 ... CLKB_FS1_CH4:
+	} else {
 		clkout = CKGB_FS1_CLKOUT_CTRL;
 		ctrl = CKGB_FS1_CTRL;
-		break;
-	default:
-		return CLK_ERR_BAD_PARAMETER;
 	}
 
 	/* Is FSYN analog part UP ? */
@@ -1788,8 +1726,8 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 	unsigned long md, pe, sdiv;
 	unsigned long reg_value = 0;
 	int channel;
-	static const unsigned long set_rate_table[] = {
-		0x06, 0x0A, 0x012, 0x022};
+	static const unsigned char set_rate_table[] = {
+		0x06, 0x0A, 0x12, 0x22 };
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -1925,7 +1863,7 @@ static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 	val = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_CFG(0));
 
 	/* Powering down/up digital part */
-	if (clk_p->id >= CLKC_FS0_CH1 && clk_p->id <= CLKC_FS0_CH3) {
+	if (clk_p->id >= CLKC_FS0_CH1 && clk_p->id <= CLKC_FS0_CH4) {
 		if (enable) {
 			val |= (1 << dig_bit[clk_p->id - CLKC_FS0_CH1]);
 			val |= (1 << en_bit[clk_p->id - CLKC_FS0_CH1]);
@@ -1998,9 +1936,8 @@ static int clkgend_recalc(clk_t *clk_p)
 	else if (clk_p->id == CLKD_LMI2X) {
 		rdiv = SYSCONF_READ(SYS_CFG, 11, 9, 11);
 		ddiv = SYSCONF_READ(SYS_CFG, 11, 1, 8);
-		clk_p->rate =
-			(((clk_p->parent->rate / 1000000) * ddiv) / rdiv)
-				* 1000000;
+		clk_p->rate = (((clk_p->parent->rate / 1000000) * ddiv)
+				/ rdiv) * 1000000;
 	} else
 		return CLK_ERR_BAD_PARAMETER;   /* Unknown clock */
 

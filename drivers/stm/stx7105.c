@@ -98,7 +98,6 @@ void __init stx7105_configure_pata(struct stx7105_pata_config *config)
 /* NAND Resources --------------------------------------------------------- */
 
 static struct platform_device stx7105_nand_flex_device = {
-	.name = "stm-nand-flex",
 	.id = 0,
 	.num_resources = 2,
 	.resource = (struct resource[2]) {
@@ -106,7 +105,7 @@ static struct platform_device stx7105_nand_flex_device = {
 		STM_PLAT_RESOURCE_IRQ(evt2irq(0x14a0), -1),
 	},
 	.dev.platform_data = &(struct stm_plat_nand_flex_data) {
-		/* values set in stx7105_configure_nand_flex() */
+		/* values set in stx7105_configure_nand_flex/afm() */
 	},
 };
 
@@ -116,10 +115,26 @@ void __init stx7105_configure_nand_flex(int nr_banks,
 {
 	struct stm_plat_nand_flex_data *data;
 
+	stx7105_nand_flex_device.name = "stm-nand-flex",
+
 	data = stx7105_nand_flex_device.dev.platform_data;
 	data->nr_banks = nr_banks;
 	data->banks = banks;
 	data->flex_rbn_connected = rbn_connected;
+
+	platform_device_register(&stx7105_nand_flex_device);
+}
+
+void __init stx7105_configure_nand_afm(int nr_banks,
+				       struct stm_nand_bank_data *banks)
+{
+	struct stm_plat_nand_flex_data *data;
+
+	stx7105_nand_flex_device.name = "stm-nand-afm",
+
+	data = stx7105_nand_flex_device.dev.platform_data;
+	data->nr_banks = nr_banks;
+	data->banks = banks;
 
 	platform_device_register(&stx7105_nand_flex_device);
 }

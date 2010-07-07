@@ -48,6 +48,12 @@
 #define NR_PMB_ENTRIES	16
 #define MIN_PMB_MAPPING_SIZE	(8*1024*1024)
 
+#ifdef CONFIG_PMB_64M_TILES
+#define PMB_FIXED_SHIFT 26
+#define PMB_VIRT2POS(virt) (((virt) >> PMB_FIXED_SHIFT) & (NR_PMB_ENTRIES - 1))
+#define PMB_POS2VIRT(pos) (((pos) << PMB_FIXED_SHIFT) + P1SEG)
+#endif
+
 struct pmb_entry {
 	unsigned long vpn;
 	unsigned long ppn;
@@ -100,6 +106,9 @@ static __always_inline void __set_pmb_entry(unsigned long vpn,
 	if (likely(flags & PMB_C))
 		flags |= PMB_WT;
 #endif
+#ifdef CONFIG_PMB_64M_TILES
+	BUG_ON(pos != PMB_VIRT2POS(vpn));
+#endif
 	ctrl_outl(0, mk_pmb_addr(pos));
 	ctrl_outl(vpn, mk_pmb_addr(pos));
 	ctrl_outl(ppn | flags | PMB_V, mk_pmb_data(pos));
@@ -115,7 +124,14 @@ static void __uses_jump_to_uncached set_pmb_entry(unsigned long vpn,
 
 static __always_inline void __clear_pmb_entry(int pos)
 {
+#ifdef CONFIG_PMB_64M_TILES
 	ctrl_outl(0, mk_pmb_addr(pos));
+	ctrl_outl(PMB_POS2VIRT(pos), mk_pmb_addr(pos));
+	ctrl_outl((CONFIG_PMB_64M_TILES_PHYS & ~((1 << PMB_FIXED_SHIFT)-1)) |
+		  PMB_SZ_64M | PMB_WT | PMB_UB | PMB_V, mk_pmb_data(pos));
+#else
+	ctrl_outl(0, mk_pmb_addr(pos));
+#endif
 }
 
 static void __uses_jump_to_uncached clear_pmb_entry(int pos)
@@ -200,6 +216,122 @@ static void pmb_mapping_clear_and_free(struct pmb_mapping *mapping)
 		entry = entry->next;
 	} while (entry);
 }
+
+#ifdef CONFIG_PMB_64M_TILES
+
+static struct {
+	unsigned long size;
+	int flag;
+} pmb_sizes[] = {
+	{ .size = 1 << PMB_FIXED_SHIFT, .flag = PMB_SZ_64M,  },
+};
+
+/*
+ * Different algorithm when we tile the entire P1/P2 region with
+ * 64M PMB entries. This means the PMB entry is tied to the virtual
+ * address it covers, so we only need to search for the virtual
+ * address which accomodates the mapping we're interested in.
+ */
+static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
+				    unsigned long req_virt, int *req_pos,
+				    unsigned long pmb_flags)
+{
+	struct pmb_mapping *new_mapping;
+	struct pmb_mapping **prev_ptr;
+	unsigned long prev_end, next_start;
+	struct pmb_mapping *next_mapping;
+	unsigned long new_start, new_end;
+	const unsigned long pmb_size = pmb_sizes[0].size;
+	struct pmb_entry *entry;
+	struct pmb_entry **prev_entry_ptr;
+
+	if (size == 0)
+		return NULL;
+
+	new_mapping = pmb_mapping_alloc();
+	if (!new_mapping)
+		return NULL;
+
+	DPRINTK("request: phys %08lx, size %08lx\n", phys, size);
+
+	prev_end = P1SEG;
+	next_mapping = pmb_mappings;
+	prev_ptr = &pmb_mappings;
+	for (;;) {
+		if (next_mapping == NULL)
+			next_start = P3SEG;
+		else
+			next_start = next_mapping->virt;
+
+		DPRINTK("checking space between %08lx and %08lx\n",
+			prev_end, next_start);
+
+		if (req_virt) {
+			if ((req_virt < prev_end) || (req_virt > next_start))
+				goto next;
+			new_start = req_virt;
+		} else {
+			new_start = prev_end + (phys & (pmb_size-1));
+		}
+
+		new_end = new_start + size;
+
+		if (new_end <= next_start)
+			break;
+
+next:
+		if (next_mapping == NULL) {
+			DPRINTK("failed, give up\n");
+			return NULL;
+		}
+
+		prev_ptr = &next_mapping->next;
+		prev_end = next_mapping->virt + next_mapping->size;
+		next_mapping = next_mapping->next;
+	}
+
+	DPRINTK("found space at %08lx to %08lx\n", new_start, new_end);
+
+	BUG_ON(req_pos && (*req_pos != PMB_VIRT2POS(new_start)));
+
+	phys &= ~(pmb_size - 1);
+	new_start &= ~(pmb_size - 1);
+
+	new_mapping->phys = phys;
+	new_mapping->virt = new_start;
+	new_mapping->size = 0;
+	new_mapping->flags = pmb_flags;
+	new_mapping->entries = NULL;
+	new_mapping->usage = 1;
+	new_mapping->next = *prev_ptr;
+	*prev_ptr = new_mapping;
+
+	prev_entry_ptr = &new_mapping->entries;
+	while (new_start < new_end) {
+		int pos = PMB_VIRT2POS(new_start);
+
+		pos = pmb_alloc(pos);
+		BUG_ON(pos == PMB_NO_ENTRY);
+		DPRINTK("using PMB entry %d\n", pos);
+
+		entry = &pmbe[pos];
+		entry->vpn = new_start;
+		entry->ppn = phys;
+		entry->flags = pmb_sizes[0].flag;
+		entry->next = NULL;
+		entry->size = pmb_size;
+		*prev_entry_ptr = entry;
+		prev_entry_ptr = &entry->next;
+
+		new_start += pmb_size;
+		phys += pmb_size;
+		new_mapping->size += pmb_size;
+	}
+
+	return new_mapping;
+}
+
+#else
 
 static struct {
 	unsigned long size;
@@ -399,6 +531,7 @@ failed_give_up:
 	pmb_mapping_free(new_mapping);
 	return NULL;
 }
+#endif
 
 long pmb_remap(unsigned long phys,
 	       unsigned long size, unsigned long flags)
@@ -564,7 +697,7 @@ void __init pmb_init(void)
 	/* Create the initial mappings */
 	entry = NR_PMB_ENTRIES-1;
 	uc_mapping = pmb_calc(__pa(&__uncached_start), &__uncached_end - &__uncached_start,
-		 P3SEG-0x01000000, &entry, PMB_WT | PMB_UB);
+		 P3SEG-pmb_sizes[0].size, &entry, PMB_WT | PMB_UB);
 	ram_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P1SEG, 0, PMB_C);
 	apply_boot_mappings(uc_mapping, ram_mapping);
 }

@@ -116,6 +116,47 @@ config PMB_FIXED
 
 endchoice
 
+config PMB_64M_TILES
+	bool "Tile P1/P2 region with 64M PMB entries"
+	depends on PMB
+	help
+	  PMB lookups are architecturally defined such that if a miss
+	  occurs when accessing the P1/P2 region a reset will occur.
+	  This can make debugging kernel code very difficult, as a
+	  stray pointer will cause a reset rather than an exception as
+	  on most other architectures.
+
+	  To help with this problem, this option can be enabled which
+	  ensures that the entire P1/P2 region is always filled with
+	  PMB entries, so that a PMB miss can never occur.
+
+	  The disadvantags of enabing this option is that only 64M PMB
+	  entries can be used, as this the only way to guantee that
+	  there will always be sufficient PMB entries to fill the
+	  P1/P2 virtual region. This may mean that some PMB
+	  configurations which work without this option enabled fail
+	  when it is enabled.
+
+	  The second disadvantage is that the mappings created in this
+	  way are completly valid for read and write accesses (there
+	  is no way to cause an exception on a PMB hit either).
+	  Entries configured in this way can be mapped to any chosen
+	  physical address, using the option PMB_64M_TILES_PHYS
+	  below, which defaults to the start of kernel memory, which
+	  may cause corruption of code or data in this region if a
+	  invalid address is written to. It may be possible to choose
+	  another address which is less damaging, but that will depend
+	  on the SoC and application.
+
+config PMB_64M_TILES_PHYS
+	hex "PMB workaround physical memory start address"
+	depends on PMB_64M_TILES
+	default MEMORY_START
+	help
+	  The physical address to be used for any PMB mappings used to
+	  fill in holes in the virtual address space when PMB_64M_TILES
+	  is enabled.
+
 config X2TLB
 	bool "Enable extended TLB mode"
 	depends on (CPU_SHX2 || CPU_SHX3) && MMU && EXPERIMENTAL

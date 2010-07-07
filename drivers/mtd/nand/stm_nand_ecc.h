@@ -145,5 +145,7 @@ enum ecc_check stm_ecc_correct(uint8_t *p_data,
 			       uint8_t *new_ecc,
 			       enum ecc_size size);
 
+unsigned char stm_afm_lp1617(const unsigned char *buf);
+
 #endif /* ifndef STM_NAND_ECC_H */
 

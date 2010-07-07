@@ -36,6 +36,7 @@ extern void nand_release (struct mtd_info *mtd);
 /* Internal helper for board drivers which need to override command function */
 extern void nand_wait_ready(struct mtd_info *mtd);
 
+
 /* The maximum number of NAND chips in an array */
 #define NAND_MAX_CHIPS		8
 
@@ -535,8 +536,10 @@ struct nand_bbt_descr {
 #define NAND_BBT_SAVECONTENT	0x00002000
 /* Search good / bad pattern on the first and the second page */
 #define NAND_BBT_SCAN2NDPAGE	0x00004000
-/* Hanlde STMicroelectronics 'boot-mode' ECC layout */
-#define NAND_BBT_SCANSTMBOOTECC	0x00008000
+/* Hanlde STMicroelectronics H/W ECC schemes (boot-mode, AFM4) */
+#define NAND_BBT_SCANSTMBOOTECC	0x00010000
+#define NAND_BBT_SCANSTMAFMECC	0x00020000
+
 
 /* The maximum number of blocks to scan for a bbt */
 #define NAND_BBT_SCAN_MAXBLOCKS	4
@@ -549,6 +552,10 @@ extern int nand_erase_nand(struct mtd_info *mtd, struct erase_info *instr,
 			   int allowbbt);
 extern int nand_do_read(struct mtd_info *mtd, loff_t from, size_t len,
 			size_t * retlen, uint8_t * buf);
+extern int nand_get_device(struct nand_chip *chip,
+			   struct mtd_info *mtd, int new_state);
+extern void nand_release_device(struct mtd_info *mtd);
+
 
 /*
 * Constants for oob configuration

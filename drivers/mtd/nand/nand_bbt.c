@@ -140,6 +140,19 @@ static int check_short_pattern(uint8_t *buf, struct nand_bbt_descr *td)
 		if (e <= 1)
 			return 0;
 	}
+	if (td->options & NAND_BBT_SCANSTMAFMECC) {
+		/* Check for STM AFM ECC... */
+		ooblen = (td->offs == 5) ? 16 : 64;
+		e = 0;
+		for (i = 3; i < ooblen; i += 16) {
+			e += hweight8(buf[i]   ^ 'A');
+			e += hweight8(buf[i+1] ^ 'F');
+			e += hweight8(buf[i+2] ^ 'M');
+		}
+		/* Tolerate a single bit-error accross 'AFM' markers */
+		if (e <= 1)
+			return 0;
+	}
 
 	/* Bad-block confirmed! */
 	return -1;
@@ -1084,6 +1097,7 @@ int nand_update_bbt(struct mtd_info *mtd, loff_t offs)
 	kfree(buf);
 	return res;
 }
+EXPORT_SYMBOL_GPL(nand_update_bbt);
 
 /* Define some generic bad / good block scan pattern which are used
  * while scanning a device for factory marked good / bad blocks. */
@@ -1231,6 +1245,7 @@ int nand_isbad_bbt(struct mtd_info *mtd, loff_t offs, int allowbbt)
 	}
 	return 1;
 }
+EXPORT_SYMBOL_GPL(nand_isbad_bbt);
 
 EXPORT_SYMBOL(nand_scan_bbt);
 EXPORT_SYMBOL(nand_default_bbt);

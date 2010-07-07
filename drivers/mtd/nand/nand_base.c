@@ -2351,6 +2351,8 @@ int nand_erase_nand(struct mtd_info *mtd, struct erase_info *instr,
 	/* Return more or less happy */
 	return ret;
 }
+EXPORT_SYMBOL_GPL(nand_erase_nand);
+
 
 /**
  * nand_sync - [MTD Interface] sync

@@ -94,5 +94,10 @@
 #define FLX_DATA_CFG_BYTES_2			(0x1 << 30)
 #define FLX_DATA_CFG_CSN_STATUS			(0x1 << 31)
 
+/* AFM: Sequence Config fields */
+#define AFM_SEQ_CFG_GO				(0x1 << 26)
+#define AFM_SEQ_CFG_DIR_WRITE			(0x1 << 24)
+
+
 
 #endif /* STM_NANDC_REGS_H */

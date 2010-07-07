@@ -485,14 +485,19 @@ int __nand_correct_data(unsigned char *buf,
 		bit_addr = addressbits[b2 >> 2];
 		/* flip the bit */
 		buf[byte_addr] ^= (1 << bit_addr);
+		printk(KERN_DEBUG "%s: correcting bit [bit %d, byte %d, ",
+		       __func__, bit_addr, byte_addr);
 		return 1;
 
 	}
 	/* count nr of bits; use table lookup, faster than calculating it */
-	if ((bitsperbyte[b0] + bitsperbyte[b1] + bitsperbyte[b2]) == 1)
+	if ((bitsperbyte[b0] + bitsperbyte[b1] + bitsperbyte[b2]) == 1) {
+		printk(KERN_DEBUG "%s: ignoring error in ECC, data ok: [",
+		       __func__);
 		return 1;	/* error in ecc data; no action needed */
+	}
 
-	printk(KERN_ERR "uncorrectable error : ");
+	printk(KERN_ERR "%s: uncorrectable error: [", __func__);
 	return -1;
 }
 EXPORT_SYMBOL(__nand_correct_data);

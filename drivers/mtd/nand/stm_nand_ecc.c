@@ -9,10 +9,11 @@
  *  License Version 2.0 only.  See linux/COPYING for more information.
  *
  * Changelog:
+ *
+ *    2009-12-14 Angus Clark <angus.clark@st.com>
+ *        - Added S/W ECC for LP1617 bits, as required by AFM controller
  *    2009-02-25 Angus Clark <angus.clark@st.com>
- *
  *        - Renamed, formatted, and edited for linux compatibility
- *
  *        - Added clause in stm_ecc_correct() to hanlde inconsistency between
  *          data and expected ecc for freshly erased page.
  *
@@ -331,9 +332,9 @@ enum ecc_check stm_ecc_correct(uint8_t *p_data,
 				((ecc_xor[1] << 2) & 0x20) |
 				((ecc_xor[1] << 1) & 0x40);
 		}
-		printk(KERN_WARNING "%s: correcting bit "
-		       "(ECC block offset %03d:%d)\n",
-		       __FUNCTION__, byte_addr02, bit_addr02);
+		printk(KERN_DEBUG "%s: correcting bit [bit %d, byte %d, ",
+		       __func__, bit_addr02, byte_addr02);
+
 		/* Correct bit error in the data */
 		p_data[byte_addr02] ^= (0x01 << bit_addr02);
 
@@ -341,17 +342,230 @@ enum ecc_check stm_ecc_correct(uint8_t *p_data,
 		return E_D1_CHK;  /* Data had 1-bit error (now corrected) */
 	} else {
 		if (bit_cnt02 == 1) {
-			printk(KERN_WARNING "%s: error in ECC, data ok\n",
-			       __FUNCTION__);
+			printk(KERN_DEBUG "%s: ignoring error in ECC, "
+			       "data ok: [",  __func__);
 			return E_C1_CHK;  /* ECC has 1-bit error, data is ok */
 		} else {
-			printk(KERN_ERR "%s: uncorrectable error\n",
-			       __FUNCTION__);
+			printk(KERN_ERR "%s: uncorrectable error: [", __func__);
+
 			return E_UN_CHK;  /* Uncorrectable Error */
 		}
 	}
 }
 EXPORT_SYMBOL_GPL(stm_ecc_correct);
+
+/*****************************************************************************
+ * The STMicroelectronics ECC engine requires S/W generated LP16 and LP17 bits.
+ * The following code segment is based on nand_ecc.c:nand_calculate_ecc(),
+ * stripped-down to calculate only LP16 and LP17 parity bits.  Please see
+ * nand_ecc.c for further details.
+ *****************************************************************************/
+
+/*
+ * invparity is a 256 byte table that contains the odd parity
+ * for each byte. So if the number of bits in a byte is even,
+ * the array element is 1, and when the number of bits is odd
+ * the array eleemnt is 0.
+ */
+static const char invparity[256] = {
+	1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
+	0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+	0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+	1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
+	0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+	1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
+	1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
+	0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+	0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+	1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
+	1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
+	0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+	1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
+	0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+	0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
+	1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1
+};
+
+/*
+ * bitsperbyte contains the number of bits per byte
+ * this is only used for testing and repairing parity
+ * (a precalculated value slightly improves performance)
+ */
+static const char bitsperbyte[256] = {
+	0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
+	1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+	1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+	1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+	2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+	3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+	3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+	4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8,
+};
+
+/*
+ * addressbits is a lookup table to filter out the bits from the xor-ed
+ * ecc data that identify the faulty location.
+ * this is only used for repairing parity
+ * see the comments in nand_correct_data for more details
+ */
+static const char addressbits[256] = {
+	0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x01,
+	0x02, 0x02, 0x03, 0x03, 0x02, 0x02, 0x03, 0x03,
+	0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x01,
+	0x02, 0x02, 0x03, 0x03, 0x02, 0x02, 0x03, 0x03,
+	0x04, 0x04, 0x05, 0x05, 0x04, 0x04, 0x05, 0x05,
+	0x06, 0x06, 0x07, 0x07, 0x06, 0x06, 0x07, 0x07,
+	0x04, 0x04, 0x05, 0x05, 0x04, 0x04, 0x05, 0x05,
+	0x06, 0x06, 0x07, 0x07, 0x06, 0x06, 0x07, 0x07,
+	0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x01,
+	0x02, 0x02, 0x03, 0x03, 0x02, 0x02, 0x03, 0x03,
+	0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x01,
+	0x02, 0x02, 0x03, 0x03, 0x02, 0x02, 0x03, 0x03,
+	0x04, 0x04, 0x05, 0x05, 0x04, 0x04, 0x05, 0x05,
+	0x06, 0x06, 0x07, 0x07, 0x06, 0x06, 0x07, 0x07,
+	0x04, 0x04, 0x05, 0x05, 0x04, 0x04, 0x05, 0x05,
+	0x06, 0x06, 0x07, 0x07, 0x06, 0x06, 0x07, 0x07,
+	0x08, 0x08, 0x09, 0x09, 0x08, 0x08, 0x09, 0x09,
+	0x0a, 0x0a, 0x0b, 0x0b, 0x0a, 0x0a, 0x0b, 0x0b,
+	0x08, 0x08, 0x09, 0x09, 0x08, 0x08, 0x09, 0x09,
+	0x0a, 0x0a, 0x0b, 0x0b, 0x0a, 0x0a, 0x0b, 0x0b,
+	0x0c, 0x0c, 0x0d, 0x0d, 0x0c, 0x0c, 0x0d, 0x0d,
+	0x0e, 0x0e, 0x0f, 0x0f, 0x0e, 0x0e, 0x0f, 0x0f,
+	0x0c, 0x0c, 0x0d, 0x0d, 0x0c, 0x0c, 0x0d, 0x0d,
+	0x0e, 0x0e, 0x0f, 0x0f, 0x0e, 0x0e, 0x0f, 0x0f,
+	0x08, 0x08, 0x09, 0x09, 0x08, 0x08, 0x09, 0x09,
+	0x0a, 0x0a, 0x0b, 0x0b, 0x0a, 0x0a, 0x0b, 0x0b,
+	0x08, 0x08, 0x09, 0x09, 0x08, 0x08, 0x09, 0x09,
+	0x0a, 0x0a, 0x0b, 0x0b, 0x0a, 0x0a, 0x0b, 0x0b,
+	0x0c, 0x0c, 0x0d, 0x0d, 0x0c, 0x0c, 0x0d, 0x0d,
+	0x0e, 0x0e, 0x0f, 0x0f, 0x0e, 0x0e, 0x0f, 0x0f,
+	0x0c, 0x0c, 0x0d, 0x0d, 0x0c, 0x0c, 0x0d, 0x0d,
+	0x0e, 0x0e, 0x0f, 0x0f, 0x0e, 0x0e, 0x0f, 0x0f
+};
+
+/* The STMicroelectronics ECC engine requires S/W generated LP16 and LP17 bits.
+ * The following code segment is based on 'nand_calculate_ecc', stripped_down to
+ * generate only LP16 and LP17 parity bits.
+ *
+ * Angus Clark <angus.clark@st.com>
+ */
+unsigned char stm_afm_lp1617(const unsigned char *buf)
+{
+	int i;
+	const uint32_t *bp = (uint32_t *)buf;
+	const uint32_t eccsize_mult = 2;
+	uint32_t cur;		/* current value in buffer */
+	uint32_t rp16;
+	uint32_t uninitialized_var(rp17);	/* to make compiler happy */
+	uint32_t par;		/* the cumulative parity for all data */
+	uint32_t tmppar;	/* the cumulative parity for this iteration;
+				   for rp12, rp14 and rp16 at the end of the
+				   loop */
+	par = 0;
+	rp16 = 0;
+
+	/*
+	 * The loop is unrolled a number of times;
+	 * This avoids if statements to decide on which rp value to update
+	 * Also we process the data by longwords.
+	 * Note: passing unaligned data might give a performance penalty.
+	 * It is assumed that the buffers are aligned.
+	 * tmppar is the cumulative sum of this iteration.
+	 * needed for calculating rp12, rp14, rp16 and par
+	 * also used as a performance improvement for rp6, rp8 and rp10
+	 */
+	for (i = 0; i < eccsize_mult << 2; i++) {
+		cur = *bp++;
+		tmppar = cur;
+
+		cur = *bp++;
+		tmppar ^= cur;
+
+		cur = *bp++;
+		tmppar ^= cur;
+
+		cur = *bp++;
+		tmppar ^= cur;
+
+
+		cur = *bp++;
+		tmppar ^= cur;
+		cur = *bp++;
+		tmppar ^= cur;
+
+		cur = *bp++;
+		tmppar ^= cur;
+		cur = *bp++;
+		tmppar ^= cur;
+
+
+		cur = *bp++;
+		tmppar ^= cur;
+		cur = *bp++;
+		tmppar ^= cur;
+		cur = *bp++;
+		tmppar ^= cur;
+		cur = *bp++;
+		tmppar ^= cur;
+
+		cur = *bp++;
+		tmppar ^= cur;
+		cur = *bp++;
+		tmppar ^= cur;
+		cur = *bp++;
+		tmppar ^= cur;
+		cur = *bp++;
+		tmppar ^= cur;
+
+		par ^= tmppar;
+
+		if ((i & 0x4) == 0)
+			rp16 ^= tmppar;
+	}
+
+	/*
+	 * handle the fact that we use longword operations
+	 * we'll bring rp4..rp14..rp16 back to single byte entities by
+	 * shifting and xoring first fold the upper and lower 16 bits,
+	 * then the upper and lower 8 bits.
+	 */
+	rp16 ^= (rp16 >> 16);
+	rp16 ^= (rp16 >> 8);
+	rp16 &= 0xff;
+
+	/* reduce par to 16 bits then calculate rp1 and rp0 */
+	par ^= (par >> 16);
+
+	/* finally reduce par to 8 bits */
+	par ^= (par >> 8);
+	par &= 0xff;
+
+	/*
+	 * and calculate rp5..rp15..rp17
+	 * note that par = rp4 ^ rp5 and due to the commutative property
+	 * of the ^ operator we can say:
+	 * rp5 = (par ^ rp4);
+	 * The & 0xff seems superfluous, but benchmarking learned that
+	 * leaving it out gives slightly worse results. No idea why, probably
+	 * it has to do with the way the pipeline in pentium is organized.
+	 */
+	rp17 = (par ^ rp16) & 0xff;
+
+	return ~((invparity[rp17] << 1) | (invparity[rp16] << 0)) & 0x3;
+
+}
+EXPORT_SYMBOL_GPL(stm_afm_lp1617);
+
+/*****************************************************************************/
+
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Angus Clark");

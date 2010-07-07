@@ -100,7 +100,8 @@ static __always_inline void __set_pmb_entry(unsigned long vpn,
 	if (likely(flags & PMB_C))
 		flags |= PMB_WT;
 #endif
-	ctrl_outl(vpn | PMB_V, mk_pmb_addr(pos));
+	ctrl_outl(0, mk_pmb_addr(pos));
+	ctrl_outl(vpn, mk_pmb_addr(pos));
 	ctrl_outl(ppn | flags | PMB_V, mk_pmb_data(pos));
 }
 

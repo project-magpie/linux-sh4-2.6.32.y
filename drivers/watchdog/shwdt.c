@@ -63,7 +63,7 @@
  */
 static int clock_division_ratio = WTCSR_CKS_4096;
 
-#define next_ping_period(cks)	msecs_to_jiffies(cks - 4)
+#define next_ping_period(cks)	(jiffies + msecs_to_jiffies(cks - 4))
 
 static void sh_wdt_ping(unsigned long data);
 

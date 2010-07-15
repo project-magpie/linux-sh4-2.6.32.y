@@ -222,10 +222,11 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 			   dma_addr_t *dma_handle, gfp_t gfp)
 {
 	void *ret;
-	int order = get_order(size);
+	int order;
 	struct page *page;
 	unsigned long phys_addr;
 	void* kernel_addr;
+	size_t orig_size;
 
 	if (dma_alloc_from_coherent(dev, size, dma_handle, &ret))
 		return ret;
@@ -233,6 +234,7 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 	/* ignore region specifiers */
 	gfp &= ~(__GFP_DMA | __GFP_HIGHMEM);
 
+	orig_size = size;
 	size = PAGE_ALIGN(size);
 	order = get_order(size);
 
@@ -248,12 +250,12 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 		return NULL;
 	}
 
-	memset(kernel_addr, 0, size);
+	memset(kernel_addr, 0, orig_size);
 	/*
 	 * Pages from the page allocator may have data present in
 	 * cache. So flush the cache before using uncached memory.
 	 */
-	dma_cache_sync(dev, kernel_addr, size, DMA_BIDIRECTIONAL);
+	dma_cache_sync(dev, kernel_addr, orig_size, DMA_BIDIRECTIONAL);
 
 	/*
 	 * Free the otherwise unused pages, unless got compound page
@@ -269,7 +271,7 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 
 	*dma_handle = phys_addr;
 
-	debug_dma_alloc_coherent(dev, size, *dma_handle, ret);
+	debug_dma_alloc_coherent(dev, orig_size, *dma_handle, ret);
 
 	return ret;
 }

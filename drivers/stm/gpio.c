@@ -759,7 +759,6 @@ static int __devinit stm_gpio_probe(struct platform_device *pdev)
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq >= 0) {
-		set_irq_chip(irq, &dummy_irq_chip);
 		set_irq_chained_handler(irq, stm_gpio_irq_handler);
 		set_irq_data(irq, &stm_gpio_ports[port_no]);
 
@@ -831,7 +830,6 @@ static int __devinit stm_gpio_irqmux_probe(struct platform_device *pdev)
 
 	irqmux->port_first = plat_data->port_first;
 
-	set_irq_chip(irq, &dummy_irq_chip);
 	set_irq_chained_handler(irq, stm_gpio_irqmux_handler);
 	set_irq_data(irq, irqmux);
 

@@ -107,7 +107,7 @@ struct sysconf_field *sysconf_claim(int group, int num, int lsb, int msb,
 	} status = status_searching;
 	int bit_avail = 0;
 
-	pr_debug("%s(group=%d, num=%d, lsb=%d, msb=%d, devname='%s'\n",
+	pr_debug("%s(group=%d, num=%d, lsb=%d, msb=%d, devname='%s')\n",
 			__func__, group, num, lsb, msb, devname);
 
 	BUG_ON(group < 0 || group >= sysconf_groups_num);
@@ -217,7 +217,9 @@ void sysconf_write(struct sysconf_field *field, unsigned long value)
 {
 	int field_bits;
 
-	pr_debug("%s(field=0x%p)\n", __func__, field);
+	pr_debug("%s(field=0x%p (%s %d[%d:%d]) = 0x%08x)\n", __func__, field,
+		 sysconf_groups[field->group].name, field->num,
+		 field->msb, field->lsb, value);
 
 	BUG_ON(!field);
 	MAGIC_CHECK(field);
@@ -250,7 +252,9 @@ unsigned long sysconf_read(struct sysconf_field *field)
 	int field_bits;
 	u32 result;
 
-	pr_debug("%s(field=0x%p)\n", __func__, field);
+	pr_debug("%s(field=0x%p (%s %d[%d:%d]))\n", __func__, field,
+		 sysconf_groups[field->group].name, field->num,
+		 field->msb, field->lsb);
 
 	BUG_ON(!field);
 	MAGIC_CHECK(field);

@@ -9,7 +9,10 @@
  *
  * Driver for the front pannel button on the mb705 (SW12).
  *
- * Note SW8-4 must be on to disable propogation to the mb680
+ * Note that some mb705 EPLD revisions disable the ability for the
+ * FPButton to generate an interrupt, which renders this driver useless.
+ *
+ * Note SW8-4 on the mb705 must be on to disable propogation to the mb680
  * which interprets the FP button as a reset.
  */
 

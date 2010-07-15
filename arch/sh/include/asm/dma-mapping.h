@@ -137,7 +137,6 @@ static inline void dma_sync_single_for_cpu(struct device *dev,
 					   dma_addr_t dma_handle, size_t size,
 					   enum dma_data_direction dir)
 {
-	__dma_sync_single(dev, dma_handle, size, dir);
 	debug_dma_sync_single_for_cpu(dev, dma_handle, size, dir);
 }
 
@@ -156,7 +155,6 @@ static inline void dma_sync_single_range_for_cpu(struct device *dev,
 						 size_t size,
 						 enum dma_data_direction direction)
 {
-	dma_sync_single_for_cpu(dev, dma_handle+offset, size, direction);
 	debug_dma_sync_single_range_for_cpu(dev, dma_handle,
 					    offset, size, direction);
 }
@@ -177,7 +175,6 @@ static inline void dma_sync_sg_for_cpu(struct device *dev,
 				       struct scatterlist *sg, int nelems,
 				       enum dma_data_direction dir)
 {
-	__dma_sync_sg(dev, sg, nelems, dir);
 	debug_dma_sync_sg_for_cpu(dev, sg, nelems, dir);
 }
 

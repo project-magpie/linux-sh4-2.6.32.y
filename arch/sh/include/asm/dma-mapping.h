@@ -165,7 +165,7 @@ static inline void dma_sync_single_range_for_device(struct device *dev,
 						    size_t size,
 						    enum dma_data_direction direction)
 {
-	dma_sync_single_for_device(dev, dma_handle+offset, size, direction);
+	__dma_sync_single(dev, dma_handle+offset, size, direction);
 	debug_dma_sync_single_range_for_device(dev, dma_handle,
 					       offset, size, direction);
 }

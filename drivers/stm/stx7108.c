@@ -34,7 +34,7 @@ static struct platform_device stx7108_emi = {
 	.num_resources = 2,
 	.resource = (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM(0, 128 * 1024 * 1024),
-		STM_PLAT_RESOURCE_MEM(0xfe700000, 0x874),
+		STM_PLAT_RESOURCE_MEM(0xfe900000, 0x874),
 	},
 };
 

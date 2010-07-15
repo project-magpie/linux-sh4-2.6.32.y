@@ -32,6 +32,8 @@ int (*platform_notify_remove)(struct device *dev) = NULL;
 static struct kobject *dev_kobj;
 struct kobject *sysfs_dev_char_kobj;
 struct kobject *sysfs_dev_block_kobj;
+static char **suppress_bind;
+static char *suppress_bind_str __initdata;
 
 #ifdef CONFIG_BLOCK
 static inline int device_is_not_partition(struct device *dev)
@@ -320,6 +322,25 @@ out:
 
 static struct device_attribute uevent_attr =
 	__ATTR(uevent, S_IRUGO | S_IWUSR, show_uevent, store_uevent);
+
+static ssize_t show_suppress_bind(struct device *dev,
+				  struct device_attribute *attr,
+				  char *buf)
+{
+	return sprintf(buf, "%u\n", dev->suppress_bind);
+}
+
+static ssize_t store_suppress_bind(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	dev->suppress_bind = simple_strtoul(buf, NULL, 0);
+	return count;
+}
+
+static struct device_attribute suppress_bind_attr =
+	__ATTR(suppress_bind, S_IRUGO | S_IWUSR,
+	       show_suppress_bind, store_suppress_bind);
 
 static int device_add_attributes(struct device *dev,
 				 struct device_attribute *attrs)
@@ -873,6 +894,18 @@ int device_private_init(struct device *dev)
 	return 0;
 }
 
+static void device_add_check_suppress_bind(struct device *dev)
+{
+	char **p;
+
+	if (!suppress_bind)
+		return;
+
+	for (p = suppress_bind; *p; p++)
+		if (strcmp(*p, dev_name(dev)) == 0)
+			dev->suppress_bind = 1;
+}
+
 /**
  * device_add - add device to device hierarchy.
  * @dev: device.
@@ -952,6 +985,9 @@ int device_add(struct device *dev)
 		devtmpfs_create_node(dev);
 	}
 
+	error = device_create_file(dev, &suppress_bind_attr);
+	if (error)
+		goto BindError;
 	error = device_add_class_symlinks(dev);
 	if (error)
 		goto SymlinkError;
@@ -974,6 +1010,7 @@ int device_add(struct device *dev)
 					     BUS_NOTIFY_ADD_DEVICE, dev);
 
 	kobject_uevent(&dev->kobj, KOBJ_ADD);
+	device_add_check_suppress_bind(dev);
 	bus_probe_device(dev);
 	if (parent)
 		klist_add_tail(&dev->p->knode_parent,
@@ -1002,6 +1039,8 @@ done:
  AttrsError:
 	device_remove_class_symlinks(dev);
  SymlinkError:
+	device_remove_file(dev, &suppress_bind_attr);
+ BindError:
 	if (MAJOR(dev->devt))
 		device_remove_sys_dev_entry(dev);
  devtattrError:
@@ -1749,3 +1788,43 @@ void device_shutdown(void)
 	kobject_put(dev_kobj);
 	async_synchronize_full();
 }
+
+static int __init suppress_bind_init(void)
+{
+	int count;
+	char *p;
+	char *new_str;
+	char **new_ptr;
+
+	if (!suppress_bind_str)
+		return 0;
+
+	count = 1;
+	for (p = suppress_bind_str; (p = strchr(p, ',')) != NULL; p++)
+		count++;
+
+	new_str = kstrdup(suppress_bind_str, GFP_KERNEL);
+	if (!new_str)
+		return -ENOMEM;
+	new_ptr = kmalloc((count + 1) * sizeof(char *), GFP_KERNEL);
+	if (!new_ptr) {
+		kfree(new_str);
+		return -ENOMEM;
+	}
+
+	suppress_bind = new_ptr;
+
+	do {
+	} while ((*new_ptr++ = strsep(&new_str, ",")) != NULL);
+
+	return 0;
+}
+pure_initcall(suppress_bind_init);
+
+static int __init suppress_bind_setup(char *str)
+{
+	if (str && *str)
+		suppress_bind_str = str;
+	return 1;
+}
+__setup("suppress_bind=", suppress_bind_setup);

@@ -200,6 +200,9 @@ int driver_probe_device(struct device_driver *drv, struct device *dev)
 	if (!device_is_registered(dev))
 		return -ENODEV;
 
+	if (dev->suppress_bind)
+		return 0;
+
 	pr_debug("bus: '%s': %s: matched device %s with driver %s\n",
 		 drv->bus->name, __func__, dev_name(dev), drv->name);
 
@@ -240,7 +243,9 @@ int device_attach(struct device *dev)
 	int ret = 0;
 
 	down(&dev->sem);
-	if (dev->driver) {
+	if (dev->suppress_bind) {
+		pr_debug("suppressing bind for device '%s'\n", dev_name(dev));
+	} else if (dev->driver) {
 		ret = device_bind_driver(dev);
 		if (ret == 0)
 			ret = 1;

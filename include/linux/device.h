@@ -384,6 +384,7 @@ struct device {
 	struct kobject kobj;
 	const char		*init_name; /* initial name of the device */
 	struct device_type	*type;
+	unsigned		suppress_bind:1;
 
 	struct semaphore	sem;	/* semaphore to synchronize calls to
 					 * its driver.

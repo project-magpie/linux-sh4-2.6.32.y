@@ -693,6 +693,7 @@ source "arch/sh/boards/mach-highlander/Kconfig"
 source "arch/sh/boards/mach-sdk7780/Kconfig"
 source "arch/sh/boards/mach-migor/Kconfig"
 source "arch/sh/boards/mach-rsk/Kconfig"
+source "arch/sh/boards/mach-mb628/Kconfig"
 
 if SH_MAGIC_PANEL_R2
 

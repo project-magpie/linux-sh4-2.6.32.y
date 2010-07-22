@@ -35,9 +35,6 @@
 #include <mach/common.h>
 
 #define FLASH_NOR
-#ifdef CONFIG_STMMAC_DUAL_MAC
-#define ENABLE_GMAC0
-#endif
 static struct platform_device mb628_epld_device;
 
 static void __init mb628_setup(char **cmdline_p)
@@ -48,7 +45,7 @@ static void __init mb628_setup(char **cmdline_p)
 
 	stx7141_early_device_init();
 
-#ifndef ENABLE_GMAC0
+#ifndef CONFIG_SH_ST_MB628_STMMAC0
 	/* Cannot use the ASC 1 when configure the GMAC0
 	 * due to a PIO conflict */
 	stx7141_configure_asc(1, &(struct stx7141_asc_config) {
@@ -426,7 +423,7 @@ static int __init mb628_device_init(void)
 
 	/* Note R253 must be removed for Ethernet MDIO signal to work. */
 
-#ifdef ENABLE_GMAC0
+#ifdef CONFIG_SH_ST_MB628_STMMAC0
 	/* Must disable ASC1 if using GMII0 */
 	epld_write(epld_read(EPLD_ENABLE) | EPLD_ASC1_EN | EPLD_ENABLE_MII0,
 		   EPLD_ENABLE);

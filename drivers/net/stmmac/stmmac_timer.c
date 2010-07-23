@@ -35,8 +35,9 @@ static void stmmac_timer_handler(void *data)
 	return;
 }
 
-#define STMMAC_TIMER_MSG(timer, freq) \
-printk(KERN_INFO "stmmac_timer: %s Timer ON (freq %dHz)\n", timer, freq);
+#define STMMAC_TIMER_MSG(dev_name, timer, freq) \
+printk(KERN_INFO "stmmac_timer: (%s) %s Timer (freq %dHz)\n", \
+       dev_name, timer, freq);
 
 #if defined(CONFIG_STMMAC_RTC_TIMER)
 #include <linux/rtc.h>
@@ -82,7 +83,7 @@ int stmmac_open_ext_timer(struct net_device *dev, struct stmmac_timer *tm)
 		return -1;
 	}
 
-	STMMAC_TIMER_MSG(CONFIG_RTC_HCTOSYS_DEVICE, tm->freq);
+	STMMAC_TIMER_MSG(dev->name, CONFIG_RTC_HCTOSYS_DEVICE, tm->freq);
 
 	rtc->irq_task = &rtc_task;
 	tm->timer_callb = rtc;
@@ -132,7 +133,7 @@ int stmmac_open_ext_timer(struct net_device *dev, struct stmmac_timer *tm)
 	if (timer == NULL)
 		return -1;
 
-	STMMAC_TIMER_MSG("sh_tmu", tm->freq);
+	STMMAC_TIMER_MSG(dev->name, "sh_tmu", tm->freq);
 
 	tm->timer_callb = timer;
 	tm->timer_start = stmmac_tmu_set_rate;

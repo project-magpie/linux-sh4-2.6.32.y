@@ -397,7 +397,6 @@ static void display_ring(struct dma_desc *p, int size)
 		       i, (unsigned int)virt_to_phys(&p[i]),
 		       (unsigned int)(x->a), (unsigned int)((x->a) >> 32),
 		       x->b, x->c);
-		pr_info("\n");
 	}
 }
 
@@ -847,7 +846,8 @@ static int stmmac_open(struct net_device *dev)
 	/* Test if the external timer can be actually used.
 	 * In case of failure continue without timer. */
 	if (unlikely((stmmac_open_ext_timer(dev, priv->tm)) < 0)) {
-		pr_warning("stmmaceth: cannot attach the external timer.\n");
+		pr_warning("stmmac (%s): cannot attach the external timer.\n",
+			   dev->name);
 		tmrate = 0;
 		priv->tm->freq = 0;
 		priv->tm->timer_start = stmmac_no_timer_started;
@@ -901,7 +901,8 @@ static int stmmac_open(struct net_device *dev)
 	priv->hw->dma->start_rx(ioaddr);
 
 #ifdef CONFIG_STMMAC_TIMER
-	priv->tm->timer_start(priv->tm->timer_callb, tmrate);
+	if (likely(priv->tm->enable))
+		priv->tm->timer_start(priv->tm->timer_callb, tmrate);
 #endif
 	/* Dump DMA/MAC registers */
 	if (netif_msg_hw(priv)) {
@@ -1923,7 +1924,8 @@ static int stmmac_resume(struct platform_device *pdev)
 	priv->hw->dma->start_rx(ioaddr);
 
 #ifdef CONFIG_STMMAC_TIMER
-	priv->tm->timer_start(priv->tm->timer_callb, tmrate);
+	if (likely(priv->tm->enable))
+		priv->tm->timer_start(priv->tm->timer_callb, tmrate);
 #endif
 	napi_enable(&priv->napi);
 

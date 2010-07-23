@@ -848,7 +848,6 @@ static int stmmac_open(struct net_device *dev)
 	if (unlikely((stmmac_open_ext_timer(dev, priv->tm)) < 0)) {
 		pr_warning("stmmac (%s): cannot attach the external timer.\n",
 			   dev->name);
-		tmrate = 0;
 		priv->tm->freq = 0;
 		priv->tm->timer_start = stmmac_no_timer_started;
 		priv->tm->timer_stop = stmmac_no_timer_stopped;

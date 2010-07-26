@@ -197,6 +197,7 @@ struct cpufreq_governor cpufreq_gov_userspace = {
 	.show_setspeed	= show_speed,
 	.owner		= THIS_MODULE,
 };
+EXPORT_SYMBOL(cpufreq_gov_userspace);
 
 static int __init cpufreq_gov_userspace_init(void)
 {

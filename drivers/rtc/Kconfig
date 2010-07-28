@@ -855,4 +855,24 @@ config RTC_DRV_PCAP
 	  If you say Y here you will get support for the RTC found on
 	  the PCAP2 ASIC used on some Motorola phones.
 
+config RTC_DRV_STM_LPC
+	tristate "STMicroelectronics LPC RTC device driver"
+	depends on CPU_SUBTYPE_ST40 && !CPU_SUBTYPE_STX5197
+	help
+	  If you say yes here you get support for the
+	  STMicroelectronics Low Power Controller (LPC) based RTC.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called rtc-stm-lpc.
+
+config RTC_DRV_STM_SYS
+	tristate "STMicroelectronics system services RTC device driver"
+	depends on CPU_SUBTYPE_ST40 && CPU_SUBTYPE_STX5197
+	help
+	  If you say yes here you get support for the
+	  STMicroelectronics Low Power Timer in the system services block.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called rtc-stm-sys.
+
 endif # RTC_CLASS

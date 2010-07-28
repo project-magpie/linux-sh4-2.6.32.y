@@ -93,7 +93,14 @@ extern int stm_asc_console_device;
 extern unsigned int stm_asc_configured_devices_num;
 extern struct platform_device *stm_asc_configured_devices[];
 
-
+/*** LPC platform data ***/
+struct stm_plat_rtc_lpc {
+	unsigned int no_hw_req:1;	/* iomem in sys/serv 5197 */
+	unsigned int need_wdt_reset:1;	/* W/A on 7141 */
+	unsigned int need_wdt_start:1;	/* W/A on 7108 */
+	unsigned char irq_edge_level;
+	char *clk_id;
+};
 
 /*** SSC platform data ***/
 

@@ -997,6 +997,16 @@ static int __init stx5197_postcore_setup(void)
 postcore_initcall(stx5197_postcore_setup);
 
 
+/* Low Power Controller ---------------------------------------------------- */
+
+static struct platform_device stx5197_rtc_device = {
+	.name           = "stm-rtc",
+	.id             = -1,
+	.num_resources  = 1,
+	.resource       = (struct resource[]){
+		STM_PLAT_RESOURCE_MEM(0xFDC00000, 0x1000),
+	},
+};
 
 /* Late initialisation ---------------------------------------------------- */
 
@@ -1004,6 +1014,7 @@ static struct platform_device *stx5197_devices[] __initdata = {
 	&stx5197_fdma_device,
 	&stx5197_sysconf_devices[0],
 	&stx5197_sysconf_devices[1],
+	&stx5197_rtc_device,
 };
 
 static int __init stx5197_devices_setup(void)

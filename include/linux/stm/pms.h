@@ -75,7 +75,7 @@ int pms_global_standby(enum pms_standby_e state);
 /*
  * PMS Api based on LPC feature
  */
-#ifdef CONFIG_STM_LPC
+#ifdef CONFIG_RTC_CLASS
 int pms_set_wakeup_timers(unsigned long long second);
 #else
 static inline int pms_set_wakeup_timers(unsigned long long second)

@@ -904,11 +904,36 @@ int pms_global_standby(enum pms_standby_e state)
 }
 EXPORT_SYMBOL(pms_global_standby);
 
-#ifdef CONFIG_STM_LPC
+#ifdef CONFIG_RTC_CLASS
+#include <linux/rtc.h>
 int pms_set_wakeup_timers(unsigned long long second)
 {
+	static struct rtc_device *dev;
+	unsigned long secs_wake = 0;
+	struct rtc_wkalrm wake_time;
+
+
+	if (!dev)
+		dev = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
+
+	pr_info("%s - %d on %s\n", __func__, (int)second, dev_name(&dev->dev));
+	if (!second) {
+		wake_time.enabled = 0;
+		rtc_tm_to_time(&wake_time.time, &secs_wake);
+		return 0;
+	}
+	rtc_read_time(dev, &wake_time.time);
+	rtc_tm_to_time(&wake_time.time, &secs_wake);
+	secs_wake += second;
+
+	rtc_time_to_tm(secs_wake, &wake_time.time);
+
+	wake_time.enabled = 1;
+	rtc_set_alarm(dev, &wake_time);
+
 	return 0;
 }
+EXPORT_SYMBOL(pms_set_wakeup_timers);
 #endif
 
 enum {
@@ -1130,6 +1155,20 @@ static ssize_t pms_current_store(struct kobject *kobj,
 static struct kobj_attribute pms_current_attr = (struct kobj_attribute)
 __ATTR(current_state, S_IRUSR | S_IWUSR, pms_current_show, pms_current_store);
 
+#ifdef CONFIG_RTC_CLASS
+static ssize_t pms_timeout_store(struct kobject *kobj,
+	struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	unsigned long long second = simple_strtoul(buf, NULL, 10);
+	pr_info("%s\n", __func__);
+	pms_set_wakeup_timers(second);
+	return count;
+}
+
+static struct kobj_attribute pms_timeout_attr = (struct kobj_attribute)
+	__ATTR(timeout, S_IWUSR, NULL, pms_timeout_store);
+#endif
+
 static ssize_t pms_objects_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
@@ -1159,15 +1198,24 @@ static ssize_t pms_objects_show(struct kobject *kobj,
 static struct kobj_attribute pms_objects_attr = (struct kobj_attribute)
     __ATTR(objects, S_IRUSR, pms_objects_show, NULL);
 
-static struct attribute *pms_attr_group[] = {
+
+static struct attribute *pms_attrs[] = {
 	&pms_current_attr.attr,
 	&pms_control_attr.attr,
 	&pms_objects_attr.attr,
+#ifdef CONFIG_RTC_CLASS
+	&pms_timeout_attr.attr,
+#endif
+	NULL
+};
+
+static struct attribute_group pms_attr_group = {
+	.attrs = pms_attrs,
+	.name = "attributes"
 };
 
 static int __init pms_init(void)
 {
-	int i;
 	pr_debug("pms initialization\n");
 
 	pms_kobj = kobject_create_and_add("pms", NULL);
@@ -1176,9 +1224,7 @@ static int __init pms_init(void)
 		return -ENOMEM;
 
 	pms_kobj->ktype = &ktype_pms;
-	for (i = 0; i < ARRAY_SIZE(pms_attr_group); ++i)
-		if (sysfs_create_file(pms_kobj, pms_attr_group[i]))
-			;
+	sysfs_update_group(pms_kobj, &pms_attr_group);
 
 	return 0;
 }

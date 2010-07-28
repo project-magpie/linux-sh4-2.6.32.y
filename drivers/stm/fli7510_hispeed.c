@@ -180,6 +180,7 @@ static void fli7510_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
 static struct plat_stmmacenet_data fli7510_ethernet_platform_data = {
 	.pbl = 32,
 	.has_gmac = 1,
+	.enh_desc = 1,
 	.fix_mac_speed = fli7510_ethernet_fix_mac_speed,
 };
 

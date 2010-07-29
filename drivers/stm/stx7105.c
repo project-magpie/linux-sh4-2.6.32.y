@@ -558,12 +558,12 @@ static struct stm_pad_config stx7105_mmc_pad_config = {
 	},
 };
 
-static struct arasan_platform_data stx7105_mmc_platform_data = {
+static struct sdhci_platform_data stx7105_mmc_platform_data = {
 		.pad_config = &stx7105_mmc_pad_config,
 };
 
 static struct platform_device stx7105_mmc_device = {
-		.name = "arasan",
+		.name = "sdhci-stm",
 		.id = 0,
 		.num_resources = 2,
 		.resource = (struct resource[]) {

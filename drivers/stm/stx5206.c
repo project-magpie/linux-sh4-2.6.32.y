@@ -328,12 +328,12 @@ static struct stm_pad_config stx5206_mmc_pad_config = {
 	},
 };
 
-static struct arasan_platform_data stx5206_mmc_platform_data = {
+static struct sdhci_platform_data stx5206_mmc_platform_data = {
 		.pad_config = &stx5206_mmc_pad_config,
 };
 
 static struct platform_device stx5206_mmc_device = {
-		.name = "arasan",
+		.name = "sdhci-stm",
 		.id = 0,
 		.num_resources = 2,
 		.resource = (struct resource[]) {

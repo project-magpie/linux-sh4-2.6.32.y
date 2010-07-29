@@ -21,6 +21,7 @@
 #include <linux/stm/pad.h>
 #include <linux/stm/nand.h>
 #include <linux/stmmac.h>
+#include <linux/mmc/sdhci-stm.h>
 
 
 /*** Platform definition helpers ***/
@@ -349,10 +350,4 @@ struct stm_plat_ilc3_data {
 	unsigned short outputs_num;
 	unsigned short first_irq;
 };
-
-struct arasan_platform_data {
-	unsigned int need_poll;
-	struct stm_pad_config *pad_config;
-};
-
 #endif

@@ -31,6 +31,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 
+#define COPR_FW_NAME_MAX 30
 static int __init proc_st_coproc_init(void);
 #endif
 
@@ -79,7 +80,7 @@ static int st_coproc_open(struct inode *inode, struct file *file)
 	/*
 	 ** use minor number (ID) to access the current coproc. descriptor
 	 */
-	char firm_file[FIRMWARE_NAME_MAX];
+	char firm_file[COPR_FW_NAME_MAX];
 	char number[10];
 	unsigned long minor = MINOR((file)->f_dentry->d_inode->i_rdev);
 	unsigned long id_device = minor_2_device(minor);
@@ -281,7 +282,7 @@ static int __init st_coproc_init(void)
 			for(frmw_idx=0; frmw_idx < 10; ++frmw_idx)
 			/* Be carefull the '6' used in MKDEV(..) depends on
 			* minor number device file translation */
-			cop->class_dev = class_device_create(coproc_dev_class, NULL,
+			cop->dev = device_create(coproc_dev_class, NULL,
 						MKDEV(COPROCESSOR_MAJOR,pdev->id<<6 | frmw_idx),
 						NULL,"st231-%d-%d", pdev->id, frmw_idx);
 		}

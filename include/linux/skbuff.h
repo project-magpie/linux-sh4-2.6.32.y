@@ -187,7 +187,6 @@ union skb_shared_tx {
  * the end of the header data, ie. at skb->end.
  */
 struct skb_shared_info {
-	atomic_t	dataref;
 	unsigned short	nr_frags;
 	unsigned short	gso_size;
 #ifdef CONFIG_HAS_DMA
@@ -200,6 +199,12 @@ struct skb_shared_info {
 	union skb_shared_tx tx_flags;
 	struct sk_buff	*frag_list;
 	struct skb_shared_hwtstamps hwtstamps;
+
+	/*
+	 * Warning : all fields before dataref are cleared in __alloc_skb()
+	 */
+	atomic_t	dataref;
+
 	skb_frag_t	frags[MAX_SKB_FRAGS];
 #ifdef CONFIG_HAS_DMA
 	dma_addr_t	dma_maps[MAX_SKB_FRAGS];

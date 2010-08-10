@@ -22,7 +22,7 @@
 DEFINE_SPINLOCK(dma_spin_lock);
 static LIST_HEAD(registered_dmac_list);
 
-struct dma_info *get_dma_info(unsigned int chan)
+struct dma_info *get_dma_info(unsigned int vchan)
 {
 	struct dma_info *info;
 
@@ -31,8 +31,8 @@ struct dma_info *get_dma_info(unsigned int chan)
 	 * the channel is.
 	 */
 	list_for_each_entry(info, &registered_dmac_list, list) {
-		if ((chan <  info->first_vchannel_nr) ||
-		    (chan >= info->first_vchannel_nr + info->nr_channels))
+		if ((vchan <  info->first_vchannel_nr) ||
+		    (vchan >= info->first_vchannel_nr + info->nr_channels))
 			continue;
 
 		return info;
@@ -71,9 +71,9 @@ static unsigned int get_nr_channels(void)
 	return nr;
 }
 
-struct dma_channel *get_dma_channel(unsigned int chan)
+struct dma_channel *get_dma_channel(unsigned int vchan)
 {
-	struct dma_info *info = get_dma_info(chan);
+	struct dma_info *info = get_dma_info(vchan);
 	struct dma_channel *channel;
 	int i;
 
@@ -82,7 +82,7 @@ struct dma_channel *get_dma_channel(unsigned int chan)
 
 	for (i = 0; i < info->nr_channels; i++) {
 		channel = &info->channels[i];
-		if (channel->vchan == chan)
+		if (channel->vchan == vchan)
 			return channel;
 	}
 
@@ -90,10 +90,10 @@ struct dma_channel *get_dma_channel(unsigned int chan)
 }
 EXPORT_SYMBOL(get_dma_channel);
 
-int get_dma_residue(unsigned int chan)
+int get_dma_residue(unsigned int vchan)
 {
-	struct dma_info *info = get_dma_info(chan);
-	struct dma_channel *channel = get_dma_channel(chan);
+	struct dma_info *info = get_dma_info(vchan);
+	struct dma_channel *channel = get_dma_channel(vchan);
 
 	if (info->ops->get_residue)
 		return info->ops->get_residue(channel);
@@ -145,37 +145,37 @@ static int matching_dmac(const char*dmac_req, const char* dmac_inst)
  */
 int request_dma_bycap(const char **dmac, const char **caps, const char *dev_id)
 {
-	unsigned int found = 0;
 	struct dma_info *info;
 	const char **p;
 	int i;
+	int found;
 
 	BUG_ON(!dmac || !caps);
 
 	list_for_each_entry(info, &registered_dmac_list, list)
 		if (matching_dmac(*dmac, info->name) == 0) {
-			found = 1;
-			break;
+			for (i = 0; i < info->nr_channels; i++) {
+				struct dma_channel *channel =
+					&info->channels[i];
+
+				if (unlikely(!channel->caps))
+					continue;
+
+				found = 1;
+				for (p = caps; *p; p++)
+					if (!search_cap(channel->caps, *p)) {
+						found = 0;
+						break;
+					}
+				if (!found)
+					continue;
+
+				if (request_dma(channel->vchan, dev_id) == 0)
+					return channel->vchan;
+			}
 		}
 
-	if (!found)
-		return -ENODEV;
-
-	for (i = 0; i < info->nr_channels; i++) {
-		struct dma_channel *channel = &info->channels[i];
-
-		if (unlikely(!channel->caps))
-			continue;
-
-		for (p = caps; *p; p++) {
-			if (!search_cap(channel->caps, *p))
-				break;
-			if (request_dma(channel->chan, dev_id) == 0)
-				return channel->chan;
-		}
-	}
-
-	return -EINVAL;
+	return -ENODEV;
 }
 EXPORT_SYMBOL(request_dma_bycap);
 
@@ -200,28 +200,28 @@ int dmac_search_free_channel(const char *dev_id)
 			return result;
 
 		atomic_set(&channel->busy, 1);
-		return channel->chan;
+		return channel->vchan;
 	}
 
 	return -ENOSYS;
 }
 
-int request_dma(unsigned int chan, const char *dev_id)
+int request_dma(unsigned int vchan, const char *dev_id)
 {
 	struct dma_channel *channel = { 0 };
 	struct dma_info *info;
 	int result;
 
 #if defined(CONFIG_STM_DMA)
-	if(DMA_REQ_ANY_CHANNEL == chan)
+	if (DMA_REQ_ANY_CHANNEL == vchan)
 		return dmac_search_free_channel(dev_id);
 #endif
 
-	info = get_dma_info(chan);
+	info = get_dma_info(vchan);
 	if (!info)
 		return -EINVAL;
 
-	channel = get_dma_channel(chan);
+	channel = get_dma_channel(vchan);
 	if (atomic_xchg(&channel->busy, 1))
 		return -EBUSY;
 
@@ -239,10 +239,10 @@ int request_dma(unsigned int chan, const char *dev_id)
 }
 EXPORT_SYMBOL(request_dma);
 
-void free_dma(unsigned int chan)
+void free_dma(unsigned int vchan)
 {
-	struct dma_info *info = get_dma_info(chan);
-	struct dma_channel *channel = get_dma_channel(chan);
+	struct dma_info *info = get_dma_info(vchan);
+	struct dma_channel *channel = get_dma_channel(vchan);
 
 	if (info->ops->free)
 		info->ops->free(channel);
@@ -251,10 +251,10 @@ void free_dma(unsigned int chan)
 }
 EXPORT_SYMBOL(free_dma);
 
-void dma_wait_for_completion(unsigned int chan)
+void dma_wait_for_completion(unsigned int vchan)
 {
-	struct dma_info *info = get_dma_info(chan);
-	struct dma_channel *channel = get_dma_channel(chan);
+	struct dma_info *info = get_dma_info(vchan);
+	struct dma_channel *channel = get_dma_channel(vchan);
 
 	if (channel->flags & DMA_TEI_CAPABLE) {
 		wait_event(channel->wait_queue,
@@ -296,30 +296,30 @@ int register_chan_caps(const char *dmac, struct dma_chan_caps *caps)
 }
 EXPORT_SYMBOL(register_chan_caps);
 
-void dma_configure_channel(unsigned int chan, unsigned long flags)
+void dma_configure_channel(unsigned int vchan, unsigned long flags)
 {
-	struct dma_info *info = get_dma_info(chan);
-	struct dma_channel *channel = get_dma_channel(chan);
+	struct dma_info *info = get_dma_info(vchan);
+	struct dma_channel *channel = get_dma_channel(vchan);
 
 	if (info->ops->configure)
 		info->ops->configure(channel, flags);
 }
 EXPORT_SYMBOL(dma_configure_channel);
 
-int dma_xfer(unsigned int chan, unsigned long from,
+int dma_xfer(unsigned int vchan, unsigned long from,
 	     unsigned long to, size_t size, unsigned int mode)
 {
-	struct dma_info *info = get_dma_info(chan);
-	struct dma_channel *channel =  get_dma_channel(chan);
+	struct dma_info *info = get_dma_info(vchan);
+	struct dma_channel *channel =  get_dma_channel(vchan);
 
 	return info->ops->xfer(channel, from, to, size, mode);
 }
 EXPORT_SYMBOL(dma_xfer);
 
-int dma_extend(unsigned int chan, unsigned long op, void *param)
+int dma_extend(unsigned int vchan, unsigned long op, void *param)
 {
-	struct dma_info *info = get_dma_info(chan);
-	struct dma_channel *channel = get_dma_channel(chan);
+	struct dma_info *info = get_dma_info(vchan);
+	struct dma_channel *channel = get_dma_channel(vchan);
 
 	if (info->ops->extend)
 		return info->ops->extend(channel, op, param);

@@ -1310,7 +1310,9 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 		channel->chan_num = chan_num;
 		channel->fdma = fdma;
 
-		dma_chan = get_dma_channel(chan_num - fdma->ch_min);
+		dma_chan = get_dma_channel(chan_num - fdma->ch_min +
+					   fdma->dma_info.first_vchannel_nr);
+
 		dma_chan->priv_data = channel;
 		channel->dma_chan = dma_chan;
 	}

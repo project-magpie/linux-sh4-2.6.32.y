@@ -186,30 +186,30 @@ static inline void dma_params_init(struct stm_dma_params * p,
 	p->circular_llu = (STM_DMA_LIST_CIRC ==list_type ?1:0);
 };
 
-static inline int dma_get_status(unsigned int chan)
+static inline int dma_get_status(unsigned int vchan)
 {
-	return dma_extend(chan,STM_DMA_OP_STATUS,NULL);
+	return dma_extend(vchan, STM_DMA_OP_STATUS, NULL);
 }
 
 /* Flush implies pause - I mean pause+flush */
-static inline int dma_flush_channel(unsigned int chan)
+static inline int dma_flush_channel(unsigned int vchan)
 {
-	return dma_extend(chan, STM_DMA_OP_FLUSH,NULL);
+	return dma_extend(vchan, STM_DMA_OP_FLUSH, NULL);
 }
 
-static inline int dma_pause_channel(unsigned int chan)
+static inline int dma_pause_channel(unsigned int vchan)
 {
-	return dma_extend(chan, STM_DMA_OP_PAUSE,NULL);
+	return dma_extend(vchan, STM_DMA_OP_PAUSE, NULL);
 }
 
-static inline void dma_unpause_channel(unsigned int chan)
+static inline void dma_unpause_channel(unsigned int vchan)
 {
-	dma_extend(chan, STM_DMA_OP_UNPAUSE, NULL);
+	dma_extend(vchan, STM_DMA_OP_UNPAUSE, NULL);
 }
 
-static inline int dma_stop_channel(unsigned int chan)
+static inline int dma_stop_channel(unsigned int vchan)
 {
-	return dma_extend(chan, STM_DMA_OP_STOP, NULL);
+	return dma_extend(vchan, STM_DMA_OP_STOP, NULL);
 }
 
 static inline int dma_params_free(struct stm_dma_params *params)
@@ -217,34 +217,35 @@ static inline int dma_params_free(struct stm_dma_params *params)
 	return params->params_ops->free_params(params);
 }
 
-static inline int dma_compile_list(unsigned int chan,
+static inline int dma_compile_list(unsigned int vchan,
 				   struct stm_dma_params *params,
 				   gfp_t gfp_mask)
 {
 	params->context = gfp_mask;
-	return dma_extend(chan, STM_DMA_OP_COMPILE, params);
+	return dma_extend(vchan, STM_DMA_OP_COMPILE, params);
 }
 
-static inline int dma_xfer_list(unsigned int chan, struct stm_dma_params * p)
+static inline int dma_xfer_list(unsigned int vchan, struct stm_dma_params *p)
 {
 	/*TODO :- this is a bit 'orrible -
 	 * should really extend arch/sh/drivers/dma/dma-api.c
 	 * to include a 'set_dma_channel'*/
-	dma_configure_channel(chan, (unsigned long)p);
-	return dma_xfer(chan,0,0,0,0);
+	dma_configure_channel(vchan, (unsigned long)p);
+	return dma_xfer(vchan, 0, 0, 0, 0);
 }
 
-static inline struct stm_dma_req *dma_req_config(unsigned int chan,
+static inline struct stm_dma_req *dma_req_config(unsigned int vchan,
 	unsigned int req_line,
 	struct stm_dma_req_config* req_config)
 {
 	req_config->req_line = req_line;
-	return (struct stm_dma_req *)dma_extend(chan, STM_DMA_OP_REQ_CONFIG, req_config);
+	return (struct stm_dma_req *)
+		dma_extend(vchan, STM_DMA_OP_REQ_CONFIG, req_config);
 }
 
-static inline void dma_req_free(unsigned int chan, struct stm_dma_req *req)
+static inline void dma_req_free(unsigned int vchan, struct stm_dma_req *req)
 {
-	dma_extend(chan, STM_DMA_OP_REQ_FREE, req);
+	dma_extend(vchan, STM_DMA_OP_REQ_FREE, req);
 }
 
 static inline  void dma_params_sg(	struct stm_dma_params *p,

@@ -448,6 +448,7 @@ struct sh_timer_callb *sh_timer_register(void *handler, void *data)
 
 	return p->tm.fnc;
 }
+EXPORT_SYMBOL(sh_timer_register);
 
 void sh_timer_unregister(void *priv)
 {
@@ -458,6 +459,7 @@ void sh_timer_unregister(void *priv)
 	kfree(p->tm.fnc);
 	p->tm.fnc = NULL;
 }
+EXPORT_SYMBOL(sh_timer_unregister);
 
 static int sh_tmu_setup(struct sh_tmu_priv *p, struct platform_device *pdev)
 {

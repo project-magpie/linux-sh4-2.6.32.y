@@ -3,10 +3,15 @@
 
 /* Per-counter configuration as set via oprofilefs.  */
 struct op_counter_config {
-	unsigned long enabled;
-	unsigned long event;
 
+
+#ifdef CONFIG_OP_SH_USE_TMU
+	unsigned long rate; /* set/get sampling rate.*/
+#else
+	unsigned long enabled;
 	unsigned long long count;
+	unsigned long event;
+#endif
 
 	/* Dummy values for userspace tool compliance */
 	unsigned long kernel;

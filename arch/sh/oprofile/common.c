@@ -22,6 +22,7 @@
 
 extern struct op_sh_model op_model_sh7750_ops __weak;
 extern struct op_sh_model op_model_sh4a_ops __weak;
+extern struct op_sh_model op_sh_tmu_ops __weak ;
 
 static struct op_sh_model *model;
 
@@ -51,19 +52,29 @@ static int op_sh_create_files(struct super_block *sb, struct dentry *root)
 		snprintf(buf, sizeof(buf), "%d", i);
 		dir = oprofilefs_mkdir(sb, root, buf);
 
-		ret |= oprofilefs_create_ulong(sb, dir, "enabled", &ctr[i].enabled);
-		ret |= oprofilefs_create_ulong(sb, dir, "event", &ctr[i].event);
-		ret |= oprofilefs_create_ulong(sb, dir, "kernel", &ctr[i].kernel);
-		ret |= oprofilefs_create_ulong(sb, dir, "user", &ctr[i].user);
-
+#ifdef CONFIG_OP_SH_USE_TMU
+		if (model->create_files)
+		 ret |= model->create_files(sb, root);
+#else
+		ret |= oprofilefs_create_ulong(sb, dir, "enabled",
+						&ctr[i].enabled);
+		ret |= oprofilefs_create_ulong(sb, dir, "event",
+						&ctr[i].event);
 		if (model->create_files)
 			ret |= model->create_files(sb, dir);
 		else
-			ret |= oprofilefs_create_ulong(sb, dir, "count", &ctr[i].count);
-
+			ret |= oprofilefs_create_ulong(sb, dir, "count",
+						&ctr[i].count);
+#endif
 		/* Dummy entries */
-		ret |= oprofilefs_create_ulong(sb, dir, "unit_mask", &ctr[i].unit_mask);
+		ret |= oprofilefs_create_ulong(sb, dir, "kernel",
+						&ctr[i].kernel);
+		ret |= oprofilefs_create_ulong(sb, dir, "user",
+						&ctr[i].user);
+		ret |= oprofilefs_create_ulong(sb, dir, "unit_mask",
+						&ctr[i].unit_mask);
 	}
+
 
 	return ret;
 }
@@ -94,6 +105,9 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 	 */
 	ops->backtrace = sh_backtrace;
 
+#ifdef CONFIG_OP_SH_USE_TMU
+	lmodel = &op_sh_tmu_ops;
+#else
 	switch (current_cpu_data.type) {
 	/* SH-4 types */
 	case CPU_SH7750:
@@ -101,7 +115,7 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 		lmodel = &op_model_sh7750_ops;
 		break;
 
-        /* SH-4A types */
+	/* SH-4A types */
 	case CPU_SH7763:
 	case CPU_SH7770:
 	case CPU_SH7780:
@@ -124,8 +138,7 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 
 	if (!lmodel)
 		return -ENODEV;
-	if (!(current_cpu_data.flags & CPU_HAS_PERF_COUNTER))
-		return -ENODEV;
+#endif
 
 	ret = lmodel->init();
 	if (unlikely(ret != 0))
@@ -133,11 +146,11 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 
 	model = lmodel;
 
-	ops->setup		= op_sh_setup;
+	ops->setup	= op_sh_setup;
 	ops->create_files	= op_sh_create_files;
-	ops->start		= op_sh_start;
-	ops->stop		= op_sh_stop;
-	ops->cpu_type		= lmodel->cpu_type;
+	ops->start	= op_sh_start;
+	ops->stop	= op_sh_stop;
+	ops->cpu_type	= lmodel->cpu_type;
 
 	printk(KERN_INFO "oprofile: using %s performance monitoring.\n",
 	       lmodel->cpu_type);

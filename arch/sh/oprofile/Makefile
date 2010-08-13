@@ -11,3 +11,4 @@ oprofile-y	:= $(DRIVER_OBJS) common.o backtrace.o
 oprofile-$(CONFIG_CPU_SUBTYPE_SH7750S)	+= op_model_sh7750.o
 oprofile-$(CONFIG_CPU_SUBTYPE_SH7750)	+= op_model_sh7750.o
 oprofile-$(CONFIG_CPU_SUBTYPE_SH7091)	+= op_model_sh7750.o
+oprofile-$(CONFIG_OP_SH_USE_TMU)	+= op_model_sh_tmu.o

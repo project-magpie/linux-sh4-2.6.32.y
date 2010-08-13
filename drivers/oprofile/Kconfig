@@ -19,6 +19,14 @@ config OPROFILE
 
 	  If unsure, say N.
 
+config OP_SH_USE_TMU
+	bool "Sample using TMU2 timer"
+	depends on CPU_SUBTYPE_ST40 && OPROFILE
+	help
+	  Uses the generic timer API to sample using the TMU2 timer
+	  peripheral instead of the standard timer interrupt. This 
+	  allows the user to vary the sample rate with opcontrol --rate.
+
 config OPROFILE_IBS
 	bool "OProfile AMD IBS support (EXPERIMENTAL)"
 	default n

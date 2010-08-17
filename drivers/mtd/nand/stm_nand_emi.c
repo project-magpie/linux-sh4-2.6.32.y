@@ -103,15 +103,19 @@ static void fdma_err(unsigned long dummy)
 static int init_fdma_nand(struct stm_nand_emi *data)
 {
 	const char *dmac_id[] = {STM_DMAC_ID, NULL};
-	const char *cap_channel[] = {STM_DMA_CAP_LOW_BW,
-				     STM_DMA_CAP_HIGH_BW, NULL};
+	const char *cap_channel_lb[] = {STM_DMA_CAP_LOW_BW, NULL};
+	const char *cap_channel_hb[] = {STM_DMA_CAP_HIGH_BW, NULL};
 	int i;
 
 	/* Request DMA channel for NAND transactions */
-	data->dma_chan = request_dma_bycap(dmac_id, cap_channel, NAME);
+	data->dma_chan = request_dma_bycap(dmac_id, cap_channel_lb, NAME);
 	if (data->dma_chan < 0) {
-		printk(KERN_ERR NAME ": request_dma_bycap failed!\n");
-		return -EBUSY;
+		data->dma_chan = request_dma_bycap(dmac_id, cap_channel_hb,
+						   NAME);
+		if (data->dma_chan < 0) {
+			printk(KERN_ERR NAME ": request_dma_bycap failed!\n");
+			return -EBUSY;
+		}
 	}
 
 	/* Initialise DMA paramters */

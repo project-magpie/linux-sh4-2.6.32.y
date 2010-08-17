@@ -675,7 +675,7 @@ static void stm_postreset(struct ata_link *link, unsigned int *classes)
 	writel(0xffffffff, mmio + SATA_ERRMR);
 	writel(SATA_INT_ERR, mmio + SATA_INTMR);
 
-	ata_sff_postreset(link, classes);
+	ata_std_postreset(link, classes);
 }
 
 static int stm_pmp_hardreset(struct ata_link *link, unsigned int *class,

@@ -489,7 +489,13 @@ static int nand_device_ready(struct mtd_info *mtd)
 /* Configure EMI Bank for NAND access */
 static int nand_config_emi(int bank, struct stm_nand_timing_data *td)
 {
-	uint32_t emi_clk;
+	struct clk *emi_clk;
+	const char * const clk_names[] = {"emi_master",
+					  "emi",
+					  "CLKA_EMI_MASTER",
+					  "clk_emi",
+					  NULL};
+	const char * const *c = clk_names;
 	uint32_t emi_t_ns;
 	uint32_t emi_p_ns;
 
@@ -511,9 +517,18 @@ static int nand_config_emi(int bank, struct stm_nand_timing_data *td)
 		return 1;
 	}
 
-	/* Timings set in number of clock cycles */
-	emi_clk = clk_get_rate(clk_get(NULL, "emi_master"));
-	emi_t_ns = 1000000000UL / emi_clk;
+	/* Timings set in terms of EMI clock... */
+	do {
+		emi_clk = clk_get(NULL, *c);
+	} while ((!emi_clk || IS_ERR(emi_clk)) && *(++c) != NULL);
+
+	if (!emi_clk || IS_ERR(emi_clk)) {
+		printk(KERN_WARNING NAME ": Failed to find EMI clock. "
+		       "Using default 100MHz.\n");
+		emi_t_ns = 10;
+	} else {
+		emi_t_ns = 1000000000UL / clk_get_rate(emi_clk);
+	}
 	emi_p_ns = emi_t_ns / 2;
 
 	/* Convert nand timings to EMI compatible values */

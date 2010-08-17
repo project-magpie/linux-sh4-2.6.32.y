@@ -515,13 +515,13 @@ static int nand_config_emi(int bank, struct stm_nand_timing_data *td)
 	/* Convert nand timings to EMI compatible values */
 	rd_cycle = GET_CLK_CYCLES(td->rd_on + td->rd_off, emi_t_ns);
 	iord_start = 0;
-	iord_end = GET_CLK_CYCLES(td->rd_on, emi_p_ns);
+	iord_end = GET_CLK_CYCLES(td->rd_on, emi_t_ns);
 	rd_latch = GET_CLK_CYCLES(td->rd_on, emi_t_ns);
-	bus_release = GET_CLK_CYCLES(10, emi_t_ns);
+	bus_release = GET_CLK_CYCLES(50, emi_t_ns);
 	wait_active_low = 0;
 	wr_cycle = GET_CLK_CYCLES(td->wr_on + td->wr_off, emi_t_ns);
 	iowr_start = 0;
-	iowr_end = GET_CLK_CYCLES(td->wr_on, emi_p_ns);
+	iowr_end = GET_CLK_CYCLES(td->wr_on, emi_t_ns);
 
 	/* Set up EMI configuration data */
 	config[0] = 0x04000699 |

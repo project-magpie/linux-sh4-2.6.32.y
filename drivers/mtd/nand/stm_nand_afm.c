@@ -114,7 +114,8 @@ struct stm_nand_afm_device {
 /* STM NAND AFM Controller  */
 struct stm_nand_afm_controller {
 	void __iomem		*base;
-	void __iomem		*fifo;
+	void __iomem		*fifo_cached;
+	unsigned long		fifo_phys;
 
 	/* resources */
 	struct device		*dev;
@@ -626,9 +627,6 @@ afm_init_controller(struct platform_device *pdev)
 	struct stm_nand_afm_controller *afm;
 	struct resource *resource;
 	int err = 0;
-#ifdef CONFIG_STM_NAND_AFM_CACHED
-	unsigned long afm_fifo_phys;
-#endif
 
 	afm = kzalloc(sizeof(struct stm_nand_afm_controller) +
 		      (sizeof(struct stm_nand_afm_device *) * pdata->nr_banks),
@@ -669,13 +667,13 @@ afm_init_controller(struct platform_device *pdev)
 
 #ifdef CONFIG_STM_NAND_AFM_CACHED
 	/* Setup cached mapping to the AFM data FIFO */
-	afm_fifo_phys = (afm->map_base + EMINAND_AFM_DATA_FIFO);
+	afm->fifo_phys = (afm->map_base + EMINAND_AFM_DATA_FIFO);
 #ifndef CONFIG_32BIT
 	/* 29-bit uses 'Area 7' address.  [Should this be done in ioremap?] */
-	afm_fifo_phys &= 0x1fffffff;
+	afm->fifo_phys &= 0x1fffffff;
 #endif
-	afm->fifo = ioremap_cache(afm_fifo_phys, 128);
-	if (!afm->fifo) {
+	afm->fifo_cached = ioremap_cache(afm->fifo_phys, 512);
+	if (!afm->fifo_cached) {
 		dev_err(&pdev->dev, "fifo ioremap failed [0x%08x]\n",
 			afm->map_base + EMINAND_AFM_DATA_FIFO);
 		err = -ENXIO;
@@ -755,7 +753,7 @@ static void __devexit afm_exit_controller(struct platform_device *pdev)
 
 	free_irq(afm->irq, afm);
 #ifdef CONFIG_STM_NAND_AFM_CACHED
-	iounmap(afm->fifo);
+	iounmap(afm->fifo_cached);
 #endif
 	iounmap(afm->base);
 	release_mem_region(afm->map_base, afm->map_size);
@@ -1562,25 +1560,37 @@ static void afm_resume(struct mtd_info *mtd)
  */
 
 #ifdef CONFIG_STM_NAND_AFM_CACHED
-/* Read buffer via cacheline (reduces impact of STBus latency at expence of
- * increased interrupt latency) */
 static void afm_read_buf_cached(struct mtd_info *mtd, uint8_t *buf, int len)
 {
 	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
 
 	unsigned long irq_flags;
-	int bytes;
 
-	while (len > 0) {
-		bytes = min(len, 128);
+	int lenaligned = len & ~(L1_CACHE_BYTES-1);
+	int lenleft = len & (L1_CACHE_BYTES-1);
 
-		spin_lock_irqsave(&(afm.lock), irq_flags);
-		dma_cache_inv(afm->fifo_cached, bytes);
-		memcpy_fromio(buf, afm->fifo_cached, bytes);
+	while (lenaligned > 0) {
+		spin_lock_irqsave(&(afm->lock), irq_flags);
+		invalidate_ioremap_region(afm->fifo_phys, afm->fifo_cached,
+					  0, L1_CACHE_BYTES);
+		memcpy_fromio(buf, afm->fifo_cached, L1_CACHE_BYTES);
 		spin_unlock_irqrestore(&(afm->lock), irq_flags);
 
-		buf += bytes;
-		len -= bytes;
+		buf += L1_CACHE_BYTES;
+		lenaligned -= L1_CACHE_BYTES;
+	}
+
+#ifdef CONFIG_STM_L2_CACHE
+	/* If L2 cache is enabled, we must ensure the cacheline is evicted prior
+	 * to non-cached accesses..
+	 */
+	invalidate_ioremap_region(afm->fifo_phys, afm->fifo_cached,
+				  0, L1_CACHE_BYTES);
+#endif
+	/* Mop up any remaining bytes */
+	while (lenleft > 0) {
+		*buf++ = readb(afm->base + EMINAND_AFM_DATA_FIFO);
+		lenleft--;
 	}
 }
 #else

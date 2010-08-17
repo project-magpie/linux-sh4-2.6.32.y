@@ -64,6 +64,8 @@ struct stm_nand_emi {
 	void __iomem		*io_cmd;	/* CMD output (emi_addr(17))  */
 	void __iomem		*io_addr;	/* ADDR output (emi_addr(17)) */
 
+	spinlock_t		lock; /* save/restore IRQ flags */
+
 #ifdef CONFIG_MTD_PARTITIONS
 	int			nr_parts;	/* Partition Table	      */
 	struct mtd_partition	*parts;
@@ -372,24 +374,6 @@ static void nand_read_buf_dma(struct mtd_info *mtd, uint8_t *buf, int len)
 #endif /* CONFIG_STM_NAND_EMI_FDMA */
 
 #if defined(CONFIG_STM_NAND_EMI_LONGSL)
-static void nand_writesl_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
-{
-	int i;
-	struct nand_chip *chip = mtd->priv;
-
-	/* write buf up to 4-byte boundary */
-	while ((unsigned int)buf & 0x3) {
-		writeb(*buf++, chip->IO_ADDR_W);
-		len--;
-	}
-
-	writesl(chip->IO_ADDR_W, buf, len/4);
-
-	/* mop up trailing bytes */
-	for (i = (len & ~0x3); i < len; i++)
-		writeb(buf[i], chip->IO_ADDR_W);
-}
-
 static void nand_readsl_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
 	int i;
@@ -409,47 +393,58 @@ static void nand_readsl_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 }
 #endif /* CONFIG_STM_NAND_EMI_LONGSL */
 
-#if defined(CONFIG_STM_NAND_EMI_CACHED)
-/*
- * Routines for page transfers via cache. Interupts are disabled to preserve
- * cache line. Introduces IRQ latency of CACHEDIO_BLOCK_SIZE*nand_access_cycle +
- * STBus_latency.
- */
-#define CACHEDIO_BLOCK_SIZE 128
-static void nand_write_buf_cached_block(struct mtd_info *mtd,
-					const uint8_t *buf, int len)
+#if defined(CONFIG_STM_NAND_EMI_LONGSL) || defined(CONFIG_STM_NAND_EMI_CACHED)
+static void nand_writesl_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
+	int i;
 	struct nand_chip *chip = mtd->priv;
-	struct stm_nand_emi *data = chip->priv;
-	unsigned long irq_flags;
 
-	while (len > 0) {
-		local_irq_save(irq_flags);
-		memcpy_toio(data->io_data, buf, min(len, CACHEDIO_BLOCK_SIZE));
-		__flush_purge_region(data->io_data, CACHEDIO_BLOCK_SIZE);
-		local_irq_restore(irq_flags);
-
-		buf += CACHEDIO_BLOCK_SIZE;
-		len -= CACHEDIO_BLOCK_SIZE;
+	/* write buf up to 4-byte boundary */
+	while ((unsigned int)buf & 0x3) {
+		writeb(*buf++, chip->IO_ADDR_W);
+		len--;
 	}
-}
 
-static void nand_read_buf_cached_block(struct mtd_info *mtd,
-				       uint8_t *buf, int len)
+	writesl(chip->IO_ADDR_W, buf, len/4);
+
+	/* mop up trailing bytes */
+	for (i = (len & ~0x3); i < len; i++)
+		writeb(buf[i], chip->IO_ADDR_W);
+}
+#endif
+
+#if defined(CONFIG_STM_NAND_EMI_CACHED)
+static void nand_read_buf_cached(struct mtd_info *mtd, uint8_t *buf, int len)
 {
 	struct nand_chip *chip = mtd->priv;
 	struct stm_nand_emi *data = chip->priv;
 	unsigned long irq_flags;
 
-	while (len > 0) {
-		local_irq_save(irq_flags);
-		__flush_invalidate_region(data->io_data, CACHEDIO_BLOCK_SIZE);
-		memcpy_fromio(buf, data->io_data,
-			      min(len, CACHEDIO_BLOCK_SIZE));
-		local_irq_restore(irq_flags);
+	int lenaligned = len & ~(L1_CACHE_BYTES-1);
+	int lenleft = len & (L1_CACHE_BYTES-1);
 
-		buf += CACHEDIO_BLOCK_SIZE;
-		len -= CACHEDIO_BLOCK_SIZE;
+	while (lenaligned > 0) {
+		spin_lock_irqsave(&(data->lock), irq_flags);
+		invalidate_ioremap_region(data->emi_base,
+					  data->io_data, 0, L1_CACHE_BYTES);
+		memcpy_fromio(buf, data->io_data, L1_CACHE_BYTES);
+		spin_unlock_irqrestore(&(data->lock), irq_flags);
+
+		buf += L1_CACHE_BYTES;
+		lenaligned -= L1_CACHE_BYTES;
+	}
+
+#ifdef CONFIG_STM_L2_CACHE
+	/* If L2 cache is enabled, we must ensure the cacheline is evicted prior
+	 * to non-cached accesses..
+	 */
+	invalidate_ioremap_region(data->emi_base,
+				  data->io_data, 0, L1_CACHE_BYTES);
+#endif
+	/* Mop up any remaining bytes */
+	while (lenleft > 0) {
+		*buf++ = readb(chip->IO_ADDR_R);
+		lenleft--;
 	}
 }
 #endif /* CONFIG_STM_NAND_EMI_CACHED */
@@ -621,10 +616,10 @@ static struct stm_nand_emi * __init nand_probe_bank(
 
 #ifdef CONFIG_STM_NAND_EMI_CACHED
 	/* Map data address through cache line */
-	data->io_data = ioremap_cache(data->emi_base + 4096, 4096);
+	data->io_data = ioremap_cache(data->emi_base, 4096);
 	if (!data->io_data) {
 		printk(KERN_ERR NAME ": ioremap failed for io_data 0x%08x\n",
-		       data->emi_base + 4096);
+		       data->emi_base);
 		res = -ENOMEM;
 		goto out3;
 	}
@@ -686,8 +681,8 @@ static struct stm_nand_emi * __init nand_probe_bank(
 	data->chip.write_buf = nand_writesl_buf;
 
 #elif defined(CONFIG_STM_NAND_EMI_CACHED)
-	data->chip.read_buf = nand_read_buf_cached_block;
-	data->chip.write_buf = nand_write_buf_cached_block;
+	data->chip.read_buf = nand_read_buf_cached;
+	data->chip.write_buf = nand_writesl_buf;
 
 #elif defined(CONFIG_STM_NAND_EMI_BYTE)
 	/* Default byte orientated routines */

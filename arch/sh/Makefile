@@ -177,6 +177,7 @@ machdir-$(CONFIG_SH_ST_MB671)			+= mach-mb671 mach-st
 machdir-$(CONFIG_SH_ST_MB680)			+= mach-mb680 mach-st
 machdir-$(CONFIG_SH_ST_MB704)			+= mach-mb704
 machdir-$(CONFIG_SH_ST_MB796)			+= mach-mb796
+machdir-$(CONFIG_SH_ST_7102ISDB)		+= mach-7102isdb
 machdir-$(CONFIG_SH_ST_MB837)			+= mach-mb837
 machdir-$(CONFIG_SH_ST_MB839)			+= mach-mb839
 machdir-$(CONFIG_SH_ST_MB903)			+= mach-mb903

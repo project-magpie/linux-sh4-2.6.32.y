@@ -167,5 +167,19 @@ void stx7108_configure_pci(struct stm_plat_pci_config *pci_config);
 int  stx7108_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,
 		u8 pin);
 
+struct stx7108_nand_config {
+	enum {
+		stm_nand_emi,
+		stm_nand_flex,
+		stm_nand_afm
+	} driver;
+	int nr_banks;
+	struct stm_nand_bank_data *banks;
+	union {
+		int emi_gpio;
+		int flex_connected;
+	} rbn;
+};
+void stx7108_configure_nand(struct stx7108_nand_config *config);
 
 #endif

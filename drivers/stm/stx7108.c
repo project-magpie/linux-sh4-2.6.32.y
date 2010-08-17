@@ -93,6 +93,50 @@ void __init stx7108_configure_pata(struct stx7108_pata_config *config)
 	platform_device_register(&stx7108_pata_device);
 }
 
+/* NAND Resources --------------------------------------------------------- */
+
+static struct stm_plat_nand_flex_data stx7108_nand_flex_data;
+static struct stm_plat_nand_emi_data stx7108_nand_emi_data;
+
+static struct platform_device stx7108_nand_device = {
+	.id = 0,
+	.num_resources = 2,
+	.resource = (struct resource[2]) {
+		STM_PLAT_RESOURCE_MEM_NAMED("flex_mem", 0xFE901000, 0x2000),
+		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(121), -1),
+	},
+};
+
+void __init stx7108_configure_nand(struct stx7108_nand_config *config)
+{
+	struct platform_device *nand_device = &stx7108_nand_device;
+	struct stm_plat_nand_flex_data *flex_data = &stx7108_nand_flex_data;
+	struct stm_plat_nand_emi_data *emi_data = &stx7108_nand_emi_data;
+
+	switch (config->driver) {
+	case stm_nand_emi:
+		emi_data->nr_banks = config->nr_banks;
+		emi_data->banks = config->banks;
+		emi_data->emi_rbn_gpio = config->rbn.emi_gpio;
+		nand_device->dev.platform_data = emi_data;
+		nand_device->name = "stm-nand-emi";
+		break;
+	case stm_nand_flex:
+	case stm_nand_afm:
+		flex_data->nr_banks = config->nr_banks;
+		flex_data->banks = config->banks;
+		flex_data->flex_rbn_connected = config->rbn.flex_connected;
+		nand_device->dev.platform_data = flex_data;
+		nand_device->name = (config->driver == stm_nand_flex) ?
+			"stm-nand-flex" : "stm-nand-afm";
+		break;
+	default:
+		return;
+	}
+
+	platform_device_register(nand_device);
+}
+
 /* FDMA resources --------------------------------------------------------- */
 
 static struct stm_plat_fdma_fw_regs stm_fdma_firmware_7108 = {

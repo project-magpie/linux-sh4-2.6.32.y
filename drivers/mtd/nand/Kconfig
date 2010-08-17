@@ -488,6 +488,7 @@ config MTD_NAND_STM_EMI
        depends on (CPU_SUBTYPE_STX7111 || \
 			CPU_SUBTYPE_STX7200 || \
 			CPU_SUBTYPE_STX7105 || \
+			CPU_SUBTYPE_STX7108 || \
 			CPU_SUBTYPE_STX7141)
        help
          Enables the STMicroelectronics NAND driver for platforms in which the
@@ -529,6 +530,7 @@ config MTD_NAND_STM_FLEX
        tristate "STMicroelectronics: H/W FLEX Controller"
 	depends on (CPU_SUBTYPE_STX7200 ||  \
 			CPU_SUBTYPE_STX7105 || \
+			CPU_SUBTYPE_STX7108 || \
 			CPU_SUBTYPE_FLI7510)
        help
          Enables the STMicroelectronics NAND Controller operating in FLEX mode.
@@ -559,7 +561,9 @@ config STM_NAND_FLEX_BOOTPARTITION
 
 config MTD_NAND_STM_AFM
        tristate "STMicroelectronics: H/W AFM Controller"
-       depends on CPU_SUBTYPE_STX7200 || CPU_SUBTYPE_STX7105
+       depends on (CPU_SUBTYPE_STX7200 || \
+       	              CPU_SUBTYPE_STX7105 || \
+		      CPU_SUBTYPE_STX7108)
        help
          Enables the STMicroelectronics NAND Controller operating in AFM mode.
 

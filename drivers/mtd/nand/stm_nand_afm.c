@@ -563,6 +563,7 @@ static void afm_set_timings(struct stm_nand_afm_controller *afm,
 	const char * const clk_names[] = {"emi_master",
 					  "emi",
 					  "CLKA_EMI_MASTER",
+					  "clk_emi",
 					  NULL};
 	const char * const *c = clk_names;
 	uint32_t emi_t_ns;
@@ -572,9 +573,13 @@ static void afm_set_timings(struct stm_nand_afm_controller *afm,
 		emi_clk = clk_get(NULL, *c);
 	} while ((!emi_clk || IS_ERR(emi_clk)) && *(++c) != NULL);
 
-	BUG_ON(!emi_clk || IS_ERR(emi_clk));
-
-	emi_t_ns = 1000000000UL / clk_get_rate(emi_clk);
+	if (!emi_clk || IS_ERR(emi_clk)) {
+		printk(KERN_WARNING NAME ": Failed to find EMI clock. "
+		       "Using default 100MHz.\n");
+		emi_t_ns = 10;
+	} else {
+		emi_t_ns = 1000000000UL / clk_get_rate(emi_clk);
+	}
 
 	/* CONTROL_TIMING */
 	n = (tm->sig_setup + emi_t_ns - 1)/emi_t_ns;

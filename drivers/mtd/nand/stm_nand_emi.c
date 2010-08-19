@@ -299,6 +299,7 @@ static void nand_write_buf_dma(struct mtd_info *mtd,
 	int i;
 
 	if (len >= 512 &&
+	    virt_addr_valid(buf) &&
 	    (data->dma_chan >= 0 || init_fdma_nand_ratelimit(data) == 0)) {
 
 		/* Read up to cache line boundary */
@@ -341,6 +342,7 @@ static void nand_read_buf_dma(struct mtd_info *mtd, uint8_t *buf, int len)
 	int i;
 
 	if (len >= 512 &&
+	    virt_addr_valid(buf) &&
 	    (data->dma_chan >= 0 || init_fdma_nand_ratelimit(data) == 0)) {
 
 		/* Read up to cache-line boundary */

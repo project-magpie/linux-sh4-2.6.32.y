@@ -684,7 +684,7 @@ static int snd_stm_pcm_player_stop(struct snd_pcm_substream *substream)
 
 	set__AUD_PCMOUT_IT_EN_CLR__NSAMPLE__CLEAR(pcm_player);
 	set__AUD_PCMOUT_IT_EN_CLR__UNF__CLEAR(pcm_player);
-	disable_irq(pcm_player->irq);
+	disable_irq_nosync(pcm_player->irq);
 
 	/* Stop PCM player */
 

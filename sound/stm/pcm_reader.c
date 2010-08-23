@@ -671,7 +671,7 @@ static int snd_stm_pcm_reader_stop(struct snd_pcm_substream *substream)
 	/* Disable interrupts */
 
 	set__AUD_PCMIN_IT_EN_CLR__OVF__CLEAR(pcm_reader);
-	disable_irq(pcm_reader->irq);
+	disable_irq_nosync(pcm_reader->irq);
 
 	/* Stop PCM reader */
 

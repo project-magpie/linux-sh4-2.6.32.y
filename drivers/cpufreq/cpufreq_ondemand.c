@@ -67,6 +67,7 @@ struct cpufreq_governor cpufreq_gov_ondemand = {
        .max_transition_latency = TRANSITION_LATENCY_LIMIT,
        .owner                  = THIS_MODULE,
 };
+EXPORT_SYMBOL(cpufreq_gov_ondemand);
 
 /* Sampling types */
 enum {DBS_NORMAL_SAMPLE, DBS_SUB_SAMPLE};

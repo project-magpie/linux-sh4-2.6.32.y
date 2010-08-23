@@ -43,6 +43,7 @@ struct cpufreq_governor cpufreq_gov_powersave = {
 	.governor	= cpufreq_governor_powersave,
 	.owner		= THIS_MODULE,
 };
+EXPORT_SYMBOL(cpufreq_gov_powersave);
 
 static int __init cpufreq_gov_powersave_init(void)
 {

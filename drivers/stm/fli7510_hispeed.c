@@ -266,8 +266,7 @@ static int fli7510_usb_xtal_claim(struct stm_pad_state *state, void *priv)
 		fli7510_usb_xtal_sc = sysconf_claim(CFG_SPARE_1, 1, 1,
 				"USB_xtal_valid");
 		BUG_ON(!fli7510_usb_xtal_sc);
-		sysconf_write(fli7510_usb_xtal_sc,
-				cpu_data->type == CPU_FLI7510 ? 0 : 1);
+		sysconf_write(fli7510_usb_xtal_sc, 1);
 	}
 
 	return 0;

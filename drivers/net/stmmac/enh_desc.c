@@ -26,7 +26,7 @@
 
 static int enh_desc_get_tx_frame_status(void *data,
 				struct stmmac_extra_stats *x,
-				struct dma_desc *p, unsigned long ioaddr)
+				struct dma_desc *p, void __iomem *ioaddr)
 {
 	int ret = 0;
 	struct net_device_stats *stats = (struct net_device_stats *)data;

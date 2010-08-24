@@ -32,22 +32,22 @@
 #endif
 
 /* CSR1 enables the transmit DMA to check for new descriptor */
-void dwmac_enable_dma_transmission(unsigned long ioaddr)
+void dwmac_enable_dma_transmission(void __iomem *ioaddr)
 {
 	writel(1, ioaddr + DMA_XMT_POLL_DEMAND);
 }
 
-void dwmac_enable_dma_irq(unsigned long ioaddr)
+void dwmac_enable_dma_irq(void __iomem *ioaddr)
 {
 	writel(DMA_INTR_DEFAULT_MASK, ioaddr + DMA_INTR_ENA);
 }
 
-void dwmac_disable_dma_irq(unsigned long ioaddr)
+void dwmac_disable_dma_irq(void __iomem *ioaddr)
 {
 	writel(0, ioaddr + DMA_INTR_ENA);
 }
 
-void dwmac_dma_start_tx(unsigned long ioaddr)
+void dwmac_dma_start_tx(void __iomem *ioaddr)
 {
 	u32 value = readl(ioaddr + DMA_CONTROL);
 	value |= DMA_CONTROL_ST;
@@ -55,7 +55,7 @@ void dwmac_dma_start_tx(unsigned long ioaddr)
 	return;
 }
 
-void dwmac_dma_stop_tx(unsigned long ioaddr)
+void dwmac_dma_stop_tx(void __iomem *ioaddr)
 {
 	u32 value = readl(ioaddr + DMA_CONTROL);
 	value &= ~DMA_CONTROL_ST;
@@ -63,7 +63,7 @@ void dwmac_dma_stop_tx(unsigned long ioaddr)
 	return;
 }
 
-void dwmac_dma_start_rx(unsigned long ioaddr)
+void dwmac_dma_start_rx(void __iomem *ioaddr)
 {
 	u32 value = readl(ioaddr + DMA_CONTROL);
 	value |= DMA_CONTROL_SR;
@@ -72,7 +72,7 @@ void dwmac_dma_start_rx(unsigned long ioaddr)
 	return;
 }
 
-void dwmac_dma_stop_rx(unsigned long ioaddr)
+void dwmac_dma_stop_rx(void __iomem *ioaddr)
 {
 	u32 value = readl(ioaddr + DMA_CONTROL);
 	value &= ~DMA_CONTROL_SR;
@@ -153,7 +153,7 @@ static void show_rx_process_state(unsigned int status)
 }
 #endif
 
-int dwmac_dma_interrupt(unsigned long ioaddr,
+int dwmac_dma_interrupt(void __iomem *ioaddr,
 			struct stmmac_extra_stats *x)
 {
 	int ret = 0;
@@ -227,7 +227,7 @@ int dwmac_dma_interrupt(unsigned long ioaddr,
 	return ret;
 }
 
-void dwmac_dma_flush_tx_fifo(unsigned long ioaddr)
+void dwmac_dma_flush_tx_fifo(void __iomem *ioaddr)
 {
 	u32 csr6 = readl(ioaddr + DMA_CONTROL);
 	writel((csr6 | DMA_CONTROL_FTF), ioaddr + DMA_CONTROL);
@@ -235,7 +235,7 @@ void dwmac_dma_flush_tx_fifo(unsigned long ioaddr)
 	do {} while ((readl(ioaddr + DMA_CONTROL) & DMA_CONTROL_FTF));
 }
 
-void stmmac_set_mac_addr(unsigned long ioaddr, u8 addr[6],
+void stmmac_set_mac_addr(void __iomem *ioaddr, u8 addr[6],
 			 unsigned int high, unsigned int low)
 {
 	unsigned long data;
@@ -248,7 +248,7 @@ void stmmac_set_mac_addr(unsigned long ioaddr, u8 addr[6],
 	return;
 }
 
-void stmmac_get_mac_addr(unsigned long ioaddr, unsigned char *addr,
+void stmmac_get_mac_addr(void __iomem *ioaddr, unsigned char *addr,
 			 unsigned int high, unsigned int low)
 {
 	unsigned int hi_addr, lo_addr;

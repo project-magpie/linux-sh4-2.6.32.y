@@ -359,7 +359,7 @@ static void stx7141_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
  */
 #define GMAC_AHB_CONFIG		0x7000
 #define GMAC_AHB_CONFIG_READ_AHEAD_MASK	0xFFCFFFFF
-static void stx7141_ethernet_bus_setup(unsigned long ioaddr)
+static void stx7141_ethernet_bus_setup(void __iomem *ioaddr)
 {
 	u32 value = readl(ioaddr + GMAC_AHB_CONFIG);
 	value &= GMAC_AHB_CONFIG_READ_AHEAD_MASK;

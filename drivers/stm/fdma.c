@@ -1317,7 +1317,8 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 		channel->dma_chan = dma_chan;
 	}
 
-	err = request_irq(platform_get_irq(pdev, 0), fdma_irq,
+	fdma->irq = platform_get_irq(pdev, 0);
+	err = request_irq(fdma->irq, fdma_irq,
 			 IRQF_DISABLED | IRQF_SHARED, fdma->name, fdma);
 	if (err < 0)
 		panic("Cant Register irq %d for FDMA engine err %d\n",

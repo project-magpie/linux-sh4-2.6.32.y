@@ -69,8 +69,18 @@ static void spi_stm_gpio_chipselect(struct spi_device *spi, int value)
 {
 	unsigned int out;
 
-	if (!spi->controller_data)
+	if (spi->chip_select == (typeof(spi->chip_select))(STM_GPIO_INVALID))
 		return;
+
+	if (!spi->controller_data) {
+		if (gpio_request(spi->chip_select, "spi_stm cs")) {
+			dev_err(&spi->dev, "failed to allocate CS pin\n");
+			return;
+		}
+		spi->controller_data = (void *)1;
+		gpio_direction_output(spi->chip_select,
+				      spi->mode & SPI_CS_HIGH);
+	}
 
 	if (value == BITBANG_CS_ACTIVE)
 		out = spi->mode & SPI_CS_HIGH ? 1 : 0;
@@ -182,7 +192,6 @@ static void spi_stm_cleanup(struct spi_device *spi)
 static int spi_stm_setup(struct spi_device *spi)
 {
 	struct spi_stm *spi_stm;
-	int retval;
 
 	spi_stm = spi_master_get_devdata(spi->master);
 
@@ -200,27 +209,7 @@ static int spi_stm_setup(struct spi_device *spi)
 	if (!spi->bits_per_word)
 		spi->bits_per_word = 8;
 
-	/* Request CS, if necessary */
-	if (!spi->controller_data &&
-	    spi->chip_select != (typeof(spi->chip_select))(STM_GPIO_INVALID)) {
-		retval = gpio_request(spi->chip_select, "spi_stm cs");
-		if (retval) {
-			dev_err(&spi->dev, "failed to allocate CS pin\n");
-			return retval;
-		}
-		spi->controller_data = (void *)1;
-		gpio_direction_output(spi->chip_select,
-				      spi->mode & SPI_CS_HIGH);
-	}
-
-	retval = spi_stm_setup_transfer(spi, NULL);
-
-	if (retval && spi->controller_data) {
-		gpio_free(spi->chip_select);
-		spi->controller_data = (void *)0;
-	}
-
-	return retval;
+	return spi_stm_setup_transfer(spi, NULL);
 }
 
 /* Load the TX FIFO */

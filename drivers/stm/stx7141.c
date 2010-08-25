@@ -118,38 +118,47 @@ void __init stx7141_configure_pata(struct stx7141_pata_config *config)
 
 /* NAND Resources --------------------------------------------------------- */
 
-static struct platform_device stx7141_nand_flex_device = {
-	.name = "stm-nand-flex",
+static struct stm_plat_nand_flex_data stx7141_nand_flex_data;
+static struct stm_plat_nand_emi_data stx7141_nand_emi_data;
+
+static struct platform_device stx7141_nand_device = {
 	.id = 0,
 	.num_resources = 2,
 	.resource = (struct resource[2]) {
-		STM_PLAT_RESOURCE_MEM(0xFE701000, 0x1000),
-		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(39), -1),
-	},
-	.dev.platform_data = &(struct stm_plat_nand_flex_data) {
-		/* values set in stx7141_configure_nand_flex() */
+		STM_PLAT_RESOURCE_MEM_NAMED("flex_mem", 0xFE701000, 0x1000),
+		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(150), -1),
 	},
 };
 
-/* stx7141_configure_nand - Configures NAND support for the STx7141
- *
- * Requires generic platform NAND driver (CONFIG_MTD_NAND_PLATFORM).
- * Uses 'gen_nand.x' as ID for specifying MTD partitions on the kernel
- * command line. */
-void __init stx7141_configure_nand_flex(int nr_banks,
-					struct stm_nand_bank_data *banks,
-					int rbn_connected)
+void __init stx7141_configure_nand(struct stx7141_nand_config *config)
 {
-	struct stm_plat_nand_flex_data *data;
+	struct platform_device *nand_device = &stx7141_nand_device;
+	struct stm_plat_nand_flex_data *flex_data = &stx7141_nand_flex_data;
+	struct stm_plat_nand_emi_data *emi_data = &stx7141_nand_emi_data;
 
-	data = stx7141_nand_flex_device.dev.platform_data;
-	data->nr_banks = nr_banks;
-	data->banks = banks;
-	data->flex_rbn_connected = rbn_connected;
+	switch (config->driver) {
+	case stm_nand_emi:
+		emi_data->nr_banks = config->nr_banks;
+		emi_data->banks = config->banks;
+		emi_data->emi_rbn_gpio = config->rbn.emi_gpio;
+		nand_device->dev.platform_data = emi_data;
+		nand_device->name = "stm-nand-emi";
+		break;
+	case stm_nand_flex:
+	case stm_nand_afm:
+		flex_data->nr_banks = config->nr_banks;
+		flex_data->banks = config->banks;
+		flex_data->flex_rbn_connected = config->rbn.flex_connected;
+		nand_device->dev.platform_data = flex_data;
+		nand_device->name = (config->driver == stm_nand_flex) ?
+			"stm-nand-flex" : "stm-nand-afm";
+		break;
+	default:
+		return;
+	}
 
-	platform_device_register(&stx7141_nand_flex_device);
+	platform_device_register(nand_device);
 }
-
 
 
 /* FDMA resources --------------------------------------------------------- */

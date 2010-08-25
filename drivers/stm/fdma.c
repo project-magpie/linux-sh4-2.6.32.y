@@ -191,6 +191,10 @@ static int fdma_resize_nodelist_mem(struct fdma *fdma,
 	if (new_nnodes == 0)
 		goto free_list;
 
+	/* this happens if the DMA firmware was not loaded yet. */
+	if(!fdma->llu_pool)
+		return -ENOMEM;
+
 	old_list_size = sizeof(struct fdma_llu_node) * desc->alloced_nodes;
 	new_list_size = sizeof(struct fdma_llu_node) * new_nnodes;
 	new_nodes = kmalloc(new_list_size, context);

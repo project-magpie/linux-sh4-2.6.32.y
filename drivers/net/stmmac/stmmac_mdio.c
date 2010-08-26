@@ -46,7 +46,7 @@ static int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 {
 	struct net_device *ndev = bus->priv;
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	unsigned long ioaddr = ndev->base_addr;
+	void __iomem *ioaddr = (void __iomem *) ndev->base_addr;
 	unsigned int mii_address = priv->hw->mii.addr;
 	unsigned int mii_data = priv->hw->mii.data;
 
@@ -78,7 +78,7 @@ static int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg,
 {
 	struct net_device *ndev = bus->priv;
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	unsigned long ioaddr = ndev->base_addr;
+	void __iomem *ioaddr = (void __iomem *) ndev->base_addr;
 	unsigned int mii_address = priv->hw->mii.addr;
 	unsigned int mii_data = priv->hw->mii.data;
 
@@ -110,7 +110,7 @@ static int stmmac_mdio_reset(struct mii_bus *bus)
 {
 	struct net_device *ndev = bus->priv;
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	unsigned long ioaddr = ndev->base_addr;
+	void __iomem *ioaddr = (void __iomem *) ndev->base_addr;
 	unsigned int mii_address = priv->hw->mii.addr;
 
 	if (priv->phy_reset) {

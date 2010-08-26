@@ -31,7 +31,7 @@
 #include "dwmac100.h"
 #include "dwmac_dma.h"
 
-static int dwmac100_dma_init(unsigned long ioaddr, int pbl, u32 dma_tx,
+static int dwmac100_dma_init(void __iomem *ioaddr, int pbl, u32 dma_tx,
 			   u32 dma_rx)
 {
 	u32 value = readl(ioaddr + DMA_BUS_MODE);
@@ -58,8 +58,8 @@ static int dwmac100_dma_init(unsigned long ioaddr, int pbl, u32 dma_tx,
 /* Store and Forward capability is not used at all..
  * The transmit threshold can be programmed by
  * setting the TTC bits in the DMA control register.*/
-static void dwmac100_dma_operation_mode(unsigned long ioaddr, int txmode,
-				      int rxmode)
+static void dwmac100_dma_operation_mode(void __iomem *ioaddr, int txmode,
+					int rxmode)
 {
 	u32 csr6 = readl(ioaddr + DMA_CONTROL);
 
@@ -75,7 +75,7 @@ static void dwmac100_dma_operation_mode(unsigned long ioaddr, int txmode,
 	return;
 }
 
-static void dwmac100_dump_dma_regs(unsigned long ioaddr)
+static void dwmac100_dump_dma_regs(void __iomem *ioaddr)
 {
 	int i;
 
@@ -95,7 +95,7 @@ static void dwmac100_dump_dma_regs(unsigned long ioaddr)
  * the receive missed frames. */
 static void dwmac100_dma_diagnostic_fr(void *data,
 				     struct stmmac_extra_stats *x,
-				     unsigned long ioaddr)
+				     void __iomem *ioaddr)
 {
 	struct net_device_stats *stats = (struct net_device_stats *)data;
 	u32 csr8 = readl(ioaddr + DMA_MISSED_FRAME_CTR);

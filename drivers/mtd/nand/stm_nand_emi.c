@@ -297,6 +297,7 @@ static void nand_write_buf_dma(struct mtd_info *mtd,
 	struct stm_nand_emi *data = chip->priv;
 	unsigned long dma_align = dma_get_cache_alignment() - 1UL;
 	int i;
+	int orig_len = len;
 
 	if (len >= 512 &&
 	    virt_addr_valid(buf) &&
@@ -313,7 +314,7 @@ static void nand_write_buf_dma(struct mtd_info *mtd,
 			writesl(chip->IO_ADDR_W, buf, (len & ~dma_align)/4);
 
 		/* Mop up trailing bytes */
-		for (i = (len & ~dma_align); i < len; i++)
+		for (i = (len & ~dma_align); i < orig_len; i++)
 			writeb(buf[i], chip->IO_ADDR_W);
 	} else {
 		/* write buf up to 4-byte boundary */
@@ -325,7 +326,7 @@ static void nand_write_buf_dma(struct mtd_info *mtd,
 		writesl(chip->IO_ADDR_W, buf, len/4);
 
 		/* mop up trailing bytes */
-		for (i = (len & ~0x3); i < len; i++)
+		for (i = (len & ~0x3); i < orig_len; i++)
 			writeb(buf[i], chip->IO_ADDR_W);
 	}
 }
@@ -340,6 +341,7 @@ static void nand_read_buf_dma(struct mtd_info *mtd, uint8_t *buf, int len)
 	struct stm_nand_emi *data = chip->priv;
 	unsigned long dma_align = dma_get_cache_alignment() - 1UL;
 	int i;
+	int orig_len = len;
 
 	if (len >= 512 &&
 	    virt_addr_valid(buf) &&
@@ -356,7 +358,7 @@ static void nand_read_buf_dma(struct mtd_info *mtd, uint8_t *buf, int len)
 			readsl(chip->IO_ADDR_R, buf, (len & ~dma_align)/4);
 
 		/* Mop up trailing bytes */
-		for (i = (len & ~dma_align); i < len; i++)
+		for (i = (len & ~dma_align); i < orig_len; i++)
 			buf[i] = readb(chip->IO_ADDR_R);
 	} else {
 
@@ -369,7 +371,7 @@ static void nand_read_buf_dma(struct mtd_info *mtd, uint8_t *buf, int len)
 		readsl(chip->IO_ADDR_R, buf, len/4);
 
 		/* Mop up trailing bytes */
-		for (i = (len & ~0x3); i < len; i++)
+		for (i = (len & ~0x3); i < orig_len; i++)
 			buf[i] = readb(chip->IO_ADDR_R);
 	}
 }
@@ -380,6 +382,7 @@ static void nand_readsl_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
 	int i;
 	struct nand_chip *chip = mtd->priv;
+	int orig_len = len;
 
 	/* read buf up to 4-byte boundary */
 	while ((unsigned int)buf & 0x3) {
@@ -390,7 +393,7 @@ static void nand_readsl_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 	readsl(chip->IO_ADDR_R, buf, len/4);
 
 	/* mop up trailing bytes */
-	for (i = (len & ~0x3); i < len; i++)
+	for (i = (len & ~0x3); i < orig_len; i++)
 		buf[i] = readb(chip->IO_ADDR_R);
 }
 #endif /* CONFIG_STM_NAND_EMI_LONGSL */
@@ -400,6 +403,7 @@ static void nand_writesl_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
 	int i;
 	struct nand_chip *chip = mtd->priv;
+	int orig_len = len;
 
 	/* write buf up to 4-byte boundary */
 	while ((unsigned int)buf & 0x3) {
@@ -410,7 +414,7 @@ static void nand_writesl_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 	writesl(chip->IO_ADDR_W, buf, len/4);
 
 	/* mop up trailing bytes */
-	for (i = (len & ~0x3); i < len; i++)
+	for (i = (len & ~0x3); i < orig_len; i++)
 		writeb(buf[i], chip->IO_ADDR_W);
 }
 #endif

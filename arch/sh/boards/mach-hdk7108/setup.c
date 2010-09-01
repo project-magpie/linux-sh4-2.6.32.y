@@ -170,20 +170,20 @@ static struct platform_device hdk7108_phy_devices[] = {
 		.name = "stmmacphy",
 		.id = 0,
 		.dev.platform_data = &(struct plat_stmmacphy_data) {
-			.bus_id = 1,
+			.bus_id = 0,
 			.phy_addr = -1,
 			.phy_mask = 0,
-			.interface = PHY_INTERFACE_MODE_MII,
+			.interface = PHY_INTERFACE_MODE_GMII,
 			.phy_reset = &hdk7108_phy_reset,
 		},
 	}, { /* On-board ICplus IP1001 */
 		.name = "stmmacphy",
 		.id = 1,
 		.dev.platform_data = &(struct plat_stmmacphy_data) {
-			.bus_id = 0,
+			.bus_id = 1,
 			.phy_addr = 1,
 			.phy_mask = 0,
-			.interface = PHY_INTERFACE_MODE_MII,
+			.interface = PHY_INTERFACE_MODE_GMII,
 			.phy_reset = &hdk7108_phy_reset,
 		},
 	},
@@ -437,9 +437,17 @@ static int __init device_init(void)
 			.ext_clk = 1,
 			.phy_bus = 0, });
 #else
+	/* HW changes needed to use the GMII mode (GTX CLK) on the
+	 * HDK7108V1:
+	 *		RP18    RP42    RP14    Rp17
+	 *	GMII    NC       51R    NC      51R
+	 *	MII     NC       NC     51R     51R
+	 *
+	 * On the HDK7108V1/2: remove R31 and place it at R39.
+	 */
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
-			.mode = stx7108_ethernet_mode_mii,
-			.ext_clk = 1,
+			.mode = stx7108_ethernet_mode_gmii_gtx,
+			.ext_clk = 0,
 			.phy_bus = 1, });
 #endif
 

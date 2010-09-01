@@ -625,7 +625,7 @@ static struct sysconf_field *stx7108_pio_1_retime[2];
 static struct sysconf_field *stx7108_pio_6_14_retime[9][2];
 static struct sysconf_field *stx7108_pio_15_23_retime[9][2];
 
-static void stx7108_pio_config_retime(int port, int pin,
+void stx7108_pio_config_retime(int port, int pin,
 		struct stx7108_pio_retime_config *config)
 {
 	struct sysconf_field **regs;

@@ -72,6 +72,7 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_gtx_clock = {
 	.invertclk = -1,
 	.delay_input = -1,
 };
+static struct stx7108_pio_config gtx_priv;
 
 static struct stx7108_pio_retime_config stx7108_ethernet_retime_data[] = {
 	[0] = {
@@ -457,7 +458,8 @@ static void stx7108_ethernet_gmii_gtx_speed(void *priv, unsigned int speed)
 {
 	void (*txclk_select)(int txclk_250_not_25_mhz) = priv;
 
-	txclk_select(speed == SPEED_1000);
+	if (txclk_select)
+		txclk_select(speed == SPEED_1000);
 }
 
 static struct plat_stmmacenet_data stx7108_ethernet_platform_data[] = {
@@ -533,10 +535,10 @@ void __init stx7108_configure_ethernet(int port,
 		stm_pad_set_pio_ignored(pad_config, "PHYCLK");
 		break;
 	case stx7108_ethernet_mode_gmii_gtx:
+		gtx_priv.retime = &stx7108_ethernet_retime_gtx_clock;
 		pad_config = &stx7108_ethernet_gmii_pad_configs[port];
 		stm_pad_set_pio_out(pad_config, "PHYCLK", 1 + port);
-		stm_pad_set_priv(pad_config, "PHYCLK",
-				&stx7108_ethernet_retime_gtx_clock);
+		stm_pad_set_priv(pad_config, "PHYCLK", &gtx_priv);
 		plat_data->fix_mac_speed = stx7108_ethernet_gmii_gtx_speed;
 		plat_data->bsp_priv = config->txclk_select;
 		break;

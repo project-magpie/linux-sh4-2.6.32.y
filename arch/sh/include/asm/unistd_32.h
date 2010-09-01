@@ -345,8 +345,36 @@
 #define __NR_pwritev		334
 #define __NR_rt_tgsigqueueinfo	335
 #define __NR_perf_event_open	336
+/*
+ Currently not defined in STLinux kernel
+ Included and commented just to keep the number allocated
+ for the new syscalls available on mainstream
 
-#define NR_syscalls 337
+#define __NR_fanotify_init	337
+#define __NR_fanotify_mark	338
+#define __NR_prlimit64		339
+*/
+
+/* Non-multiplexed socket family */
+#define __NR_socket        340
+#define __NR_bind          341
+#define __NR_connect       342
+#define __NR_listen        343
+#define __NR_accept        344
+#define __NR_getsockname   345
+#define __NR_getpeername   346
+#define __NR_socketpair    347
+#define __NR_send          348
+#define __NR_sendto        349
+#define __NR_recv          350
+#define __NR_recvfrom      351
+#define __NR_shutdown      352
+#define __NR_setsockopt    353
+#define __NR_getsockopt    354
+#define __NR_sendmsg       355
+#define __NR_recvmsg       356
+
+#define NR_syscalls 357
 
 #ifdef __KERNEL__
 

@@ -8,7 +8,7 @@ mainmenu "Linux/SuperH Kernel Configuration"
 config SUPERH
 	def_bool y
 	select EMBEDDED
-	select HAVE_CLK
+	select CLKDEV_LOOKUP
 	select HAVE_IDE
 	select HAVE_LMB
 	select HAVE_OPROFILE

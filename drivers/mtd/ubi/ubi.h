@@ -360,6 +360,8 @@ struct ubi_wl_entry;
  * @peb_size: physical eraseblock size
  * @bad_peb_count: count of bad physical eraseblocks
  * @good_peb_count: count of good physical eraseblocks
+ * @corr_peb_count: count of corrupted physical eraseblocks (preserved and not
+ *                  used by UBI)
  * @erroneous_peb_count: count of erroneous physical eraseblocks in @erroneous
  * @max_erroneous: maximum allowed amount of erroneous physical eraseblocks
  * @min_io_size: minimal input/output unit size of the underlying MTD device
@@ -446,6 +448,7 @@ struct ubi_device {
 	int peb_size;
 	int bad_peb_count;
 	int good_peb_count;
+	int corr_peb_count;
 	int erroneous_peb_count;
 	int max_erroneous;
 	int min_io_size;

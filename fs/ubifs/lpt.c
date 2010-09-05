@@ -1362,6 +1362,7 @@ static int read_lsave(struct ubifs_info *c)
 		goto out;
 	for (i = 0; i < c->lsave_cnt; i++) {
 		int lnum = c->lsave[i];
+		struct ubifs_lprops *lprops;
 
 		/*
 		 * Due to automatic resizing, the values in the lsave table
@@ -1369,7 +1370,11 @@ static int read_lsave(struct ubifs_info *c)
 		 */
 		if (lnum >= c->leb_cnt)
 			continue;
-		ubifs_lpt_lookup(c, lnum);
+		lprops = ubifs_lpt_lookup(c, lnum);
+		if (IS_ERR(lprops)) {
+			err = PTR_ERR(lprops);
+			goto out;
+		}
 	}
 out:
 	vfree(buf);

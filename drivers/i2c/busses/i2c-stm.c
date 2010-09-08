@@ -71,19 +71,21 @@
 #include <linux/errno.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/ssc.h>
-#include "./i2c-stm.h"
+#include "i2c-stm.h"
 
 #undef dbg_print
 
-#ifdef  CONFIG_I2C_DEBUG_BUS
-#define dbg_print(fmt, args...)  printk("%s: " fmt, __FUNCTION__ , ## args)
+#ifdef CONFIG_I2C_DEBUG_BUS
+#define dbg_print(fmt, args...)  \
+	printk(KERN_DEBUG "%s: " fmt, __func__ , ## args)
 #else
 #define dbg_print(fmt, args...)
 #endif
 
 #undef dbg_print2
-#ifdef  CONFIG_I2C_DEBUG_ALGO
-#define dbg_print2(fmt, args...)  printk("%s: " fmt, __FUNCTION__ , ## args)
+#ifdef CONFIG_I2C_DEBUG_ALGO
+#define dbg_print2(fmt, args...)  \
+	printk(KERN_DEBUG "%s: " fmt, __func__ , ## args)
 #else
 #define dbg_print2(fmt, args...)
 #endif
@@ -143,7 +145,7 @@
 #define IIC_STM_READY_SPEED_MASK	   0x2
 #define IIC_STM_READY_SPEED_FAST	   0x2
 
-typedef enum _iic_state_machine_e {
+enum iic_state_machine {
 	IIC_FSM_VOID = 0,
 	IIC_FSM_PREPARE,
 	IIC_FSM_NOREPSTART,
@@ -156,22 +158,22 @@ typedef enum _iic_state_machine_e {
 	IIC_FSM_REPSTART,
 	IIC_FSM_REPSTART_ADDR,
 	IIC_FSM_ABORT
-} iic_state_machine_e;
+};
 
 #ifdef CONFIG_I2C_DEBUG_ALGO
-char *statename[] =
-    { "VOID", "PREPARE", "START", "DATA_WRITE", "PREPARE_2_READ",
+char *statename[] = {
+	"VOID", "PREPARE", "START", "DATA_WRITE", "PREPARE_2_READ",
 	"DATA_READ", "STOP", "COMPLETE", "REPSTART", "REPSTART_ADDR", "ABORT"
 };
 #endif
 
-typedef enum _iic_fsm_error_e {
+enum iic_fsm_error {
 	IIC_E_NO_ERROR = 0x0,
 	IIC_E_RUNNING = 0x1,
 	IIC_E_NOTACK = 0x2,
 	IIC_E_ARBL = 0x4,
 	IIC_E_BUSY = 0x8
-} iic_fsm_error_e;
+};
 
 /*
  * With the struct iic_transaction more information
@@ -179,15 +181,15 @@ typedef enum _iic_fsm_error_e {
  * the thread stack instead of (iic_ssc) adapter descriptor...
  */
 struct iic_transaction {
-	iic_state_machine_e start_state;
-	iic_state_machine_e state;
-	iic_state_machine_e next_state;
+	enum iic_state_machine start_state;
+	enum iic_state_machine state;
+	enum iic_state_machine next_state;
 	struct i2c_msg *msgs_queue;
 	int attempt;
 	int queue_length;
 	int current_msg;	/* the message on going */
 	int idx_current_msg;	/* the byte in the message */
-	iic_fsm_error_e status_error;
+	enum iic_fsm_error status_error;
 	int waitcondition;
 };
 
@@ -206,14 +208,14 @@ struct iic_ssc {
 #define jump_on_fsm_stop(x)	do { (x)->state = IIC_FSM_STOP;    \
 				goto be_fsm_stop; } while (0)
 
-#define jump_on_fsm_abort(x)	{ (x)->state = IIC_FSM_ABORT;    \
-                                  goto be_fsm_abort;	}
+#define jump_on_fsm_abort(x)	do { (x)->state = IIC_FSM_ABORT; \
+				goto be_fsm_abort;	} while (0)
 
-#define check_fastmode(adap)	(((adap)->config & \
-                                 IIC_STM_CONFIG_SPEED_MASK ) ? 1 : 0 )
+#define check_fastmode(adap)	\
+	(!!((adap)->config & IIC_STM_CONFIG_SPEED_MASK))
 
-#define check_ready_fastmode(adap)	(((adap)->config & \
-				IIC_STM_READY_SPEED_FAST ) ? 1 : 0 )
+#define check_ready_fastmode(adap)	\
+	(!!((adap)->config & IIC_STM_READY_SPEED_FAST))
 
 #define set_ready_fastmode(adap) ((adap)->config |= IIC_STM_READY_SPEED_FAST)
 
@@ -250,7 +252,10 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 	status = ssc_load32(adap, SSC_STA);
 	dbg_print2("ISR status = 0x%08x\n", status);
 
-	/* Slave mode detection - this should never happen as we don't support multi-master */
+	/*
+	 * Slave mode detection
+	 * this should never happen as we don't support multi-master
+	 */
 	if (trsc->state > IIC_FSM_START && ((status & SSC_STA_ARBL)
 					    || !(ssc_load32(adap, SSC_CTL) &
 						 SSC_CTL_MS))) {
@@ -432,9 +437,8 @@ be_fsm_start:
 		}
 
 		/* If end of RX, issue STOP or REPSTART */
-		if (trsc->idx_current_msg == pmsg->len) {
+		if (trsc->idx_current_msg == pmsg->len)
 			jump_on_fsm_stop(trsc);
-		}
 
 		/*    Generate clock for another set of bytes.
 		 *    We have to process the last byte separately as we need to
@@ -523,7 +527,7 @@ be_fsm_start:
 		break;
 
 	case IIC_FSM_ABORT:
-	      be_fsm_abort:
+be_fsm_abort:
 		dbg_print2("Abort - issuing STOP\n");
 		trsc->status_error |= IIC_E_NOTACK;
 
@@ -793,10 +797,14 @@ iic_xfer_retry:
 		    || (transaction.status_error & IIC_E_BUSY)) {
 			if (++transaction.attempt <= adap->adapter.retries) {
 				dbg_print2("RETRYING operation\n");
-				/* error on the address - automatically retry */
-				/* this used to be done in the FSM complete but it was not safe */
-				/* there as we need to wait for the bus to not be busy before */
-				/* doing another transaction */
+				/*
+				 * Error on the address - automatically retry
+				 *
+				 * This used to be done in the FSM complete
+				 * but it was not safe there as we need to
+				 * wait for the bus to not be busy before
+				 * doing another transaction
+				 */
 				transaction.status_error = 0;
 				transaction.next_state = IIC_FSM_START;
 				transaction.waitcondition = 1;
@@ -901,7 +909,7 @@ iic_xfer_retry:
 	return result;
 }
 
-#ifdef  CONFIG_I2C_DEBUG_BUS
+#ifdef CONFIG_I2C_DEBUG_BUS
 static void iic_stm_timing_trace(struct iic_ssc *adap)
 {
 	dbg_print("SSC_BRG  %d\n", ssc_load32(adap, SSC_BRG));
@@ -1031,7 +1039,7 @@ static void iic_stm_setup_timing(struct iic_ssc *adap, unsigned long clock)
 	ssc_store32(adap, SSC_NOISE_SUPP_WIDTH, 0);
 #endif
 
-#ifdef  CONFIG_I2C_DEBUG_BUS
+#ifdef CONFIG_I2C_DEBUG_BUS
 	iic_stm_timing_trace(adap);
 #endif
 	return;
@@ -1051,7 +1059,7 @@ static int iic_stm_control(struct i2c_adapter *adapter,
 		break;
 	default:
 		printk(KERN_WARNING " %s: i2c-ioctl not managed\n",
-		       __FUNCTION__);
+		       __func__);
 	}
 	return 0;
 }
@@ -1083,7 +1091,7 @@ static ssize_t iic_bus_store_fastmode(struct device *dev,
 {
 	struct i2c_adapter *adapter =
 	    container_of(dev, struct i2c_adapter, dev);
-	unsigned long val = simple_strtoul(buf, NULL, 10);
+	unsigned long val = strict_strtoul(buf, 10, NULL);
 
 	iic_stm_control(adapter, I2C_STM_IOCTL_FAST, val);
 
@@ -1098,6 +1106,7 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 	struct stm_plat_ssc_data *plat_data = pdev->dev.platform_data;
 	struct iic_ssc *i2c_stm;
 	struct resource *res;
+	int err;
 
 	i2c_stm = devm_kzalloc(&pdev->dev, sizeof(struct iic_ssc), GFP_KERNEL);
 
@@ -1109,28 +1118,26 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 
 	if (!devm_request_mem_region
-	    (&pdev->dev, res->start, res->end - res->start, "i2c")) {
-		printk(KERN_ERR "%s: Request mem 0x%x region not done\n",
-		       __FUNCTION__, res->start);
+	    (&pdev->dev, res->start, resource_size(res), "i2c")) {
+		dev_err(&pdev->dev, "Request mem region %pR failed\n", res);
 		return -ENOMEM;
 	}
-	if (!(i2c_stm->base =
-	      devm_ioremap_nocache(&pdev->dev, res->start,
-				   res->end - res->start))) {
-		printk(KERN_ERR "%s: Request iomem 0x%x region not done\n",
-		       __FUNCTION__, (unsigned int)res->start);
+
+	i2c_stm->base = devm_ioremap_nocache(&pdev->dev, res->start,
+					     resource_size(res));
+	if (!i2c_stm->base) {
+		dev_err(&pdev->dev, "ioremap mem region %pR failed\n", res);
 		return -ENOMEM;
 	}
 
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
-		printk(KERN_ERR "%s Request irq %d not done\n", __FUNCTION__,
-		       res->start);
+		dev_err(&pdev->dev, "Platform data does not specify IRQ\n");
 		return -ENODEV;
 	}
 	if (devm_request_irq(&pdev->dev, res->start, iic_state_machine,
 			     IRQF_DISABLED, "i2c", i2c_stm) < 0) {
-		printk(KERN_ERR "%s: Request irq not done\n", __FUNCTION__);
+		dev_err(&pdev->dev, "Request irq %d failed\n", res->start);
 		return -ENODEV;
 	}
 
@@ -1156,18 +1163,17 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 	iic_stm_setup_timing(i2c_stm, clk_get_rate(clk_get(NULL, "comms_clk")));
 	init_waitqueue_head(&(i2c_stm->wait_queue));
 	if (i2c_add_numbered_adapter(&(i2c_stm->adapter)) < 0) {
-		printk(KERN_ERR
-		       "%s: The I2C Core refuses the i2c/stm adapter\n",
-		       __FUNCTION__);
+		dev_err(&pdev->dev, "I2C core refuses the i2c/stm adapter\n");
 		return -ENODEV;
-	} else {
-		if (device_create_file
-		    (&(i2c_stm->adapter.dev), &dev_attr_fastmode))
-			printk(KERN_ERR
-			       "i2c-stm: cannot create fastmode sysfs entry\n");
 	}
-	return 0;
 
+	err = device_create_file(&(i2c_stm->adapter.dev), &dev_attr_fastmode);
+	if (err) {
+		dev_err(&pdev->dev, "Cannot create fastmode sysfs entry\n");
+		return err;
+	}
+
+	return 0;
 }
 
 static int iic_stm_remove(struct platform_device *pdev)

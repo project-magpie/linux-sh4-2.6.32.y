@@ -387,32 +387,44 @@ static void *clk_seq_next(struct seq_file *s, void *v, loff_t *pos)
 
 static void *clk_seq_start(struct seq_file *s, loff_t *pos)
 {
+	mutex_lock(&clks_list_sem);
 	return seq_list_start(&clks_list, *pos);
+}
+
+static void clk_seq_show_clk(struct seq_file *s, struct clk *clk, int depth)
+{
+	unsigned long rate = clk_get_rate(clk);
+	struct clk *child_clk;
+
+	seq_printf(s, "%*s%-*s: %4ld.%02ldMHz",
+		depth*2, "", 20-(depth*2), clk->name,
+		rate / 1000000, (rate % 1000000) / 10000);
+	if (clk->nominal_rate)
+		seq_printf(s, " [%4ld.%02ldMHz]", clk->nominal_rate / 1000000,
+			(clk->nominal_rate % 1000000) / 10000);
+	if (clk_is_always_enabled(clk))
+		seq_printf(s, " always enabled");
+	else
+		seq_printf(s, " users=%ld", clk->usage_counter);
+	seq_printf(s, "\n");
+
+	list_for_each_entry(child_clk, &clk->children, children_node)
+		clk_seq_show_clk(s, child_clk, depth+1);
 }
 
 static int clk_seq_show(struct seq_file *s, void *v)
 {
 	struct clk *clk = list_entry(v, struct clk, node);
-	unsigned long rate = clk_get_rate(clk);
 
-	if (unlikely(!rate && !clk->parent))
-		return 0;
-	seq_printf(s, "%-12s\t: %ld.%02ldMHz - ", clk->name,
-		rate / 1000000, (rate % 1000000) / 10000);
-	seq_printf(s, "[%ld.%02ldMHz] - ", clk->nominal_rate / 1000000,
-		(clk->nominal_rate % 1000000) / 10000);
-	seq_printf(s, "[0x%p]", clk);
-	if (clk_get_rate(clk))
-		seq_printf(s, " - enabled");
+	if (!clk->parent)
+		clk_seq_show_clk(s, clk, 0);
 
-	if (clk->parent)
-		seq_printf(s, " - [%s]", clk->parent->name);
-	seq_printf(s, "\n");
 	return 0;
 }
 
 static void clk_seq_stop(struct seq_file *s, void *v)
 {
+	mutex_unlock(&clks_list_sem);
 }
 
 static const struct seq_operations clk_seq_ops = {

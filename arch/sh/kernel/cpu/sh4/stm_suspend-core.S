@@ -13,27 +13,39 @@
 #include <cpu/mmu_context.h>
 #include "stm_suspend.h"
 
-#define JUMPER()		bra 81f;	\
-				 nop;		\
-			8:	bt 8f;		\
-			81:
+/*
+ * We need to ensure that this code is brought into the I and D-caches
+ * before executing it, so that no external (to the CPU) memory accesses
+ * occur other then the intended POKEs. To do this use the following macros:
+ *    JUMPER_START and JUMPER_END around sequences which we want
+ *	to be executed while loading up the cache
+ *    JUMPER_EXEC embedded in the application code
+ *    JUMPER_NOEXEC is a shorter sequence, where it is known the application
+ *       will not be executing
+ * one of these sequences needs to occur at least once per I-cache line.
+ */
+#define JUMPER_START		\
+	8:
+#define JUMPER_END		\
+		bt 8f
+#define JUMPER_NOEXEC		\
+	JUMPER_START		\
+	JUMPER_END
+#define JUMPER_EXEC		\
+		bra 81f;	\
+		 nop;		\
+	JUMPER_NOEXEC;		\
+	81:
 
-
-#undef ENTRY
-#define ENTRY(name, align)	\
-  .balign align;		\
-  .globl name;			\
-  name:
-
-.text
-ENTRY(stm_exec_table, 2)
+ENTRY(stm_exec_table)
+JUMPER_START
 	mov.l   r13,  @-r15
-	sett
-	bt/s 8f			! start the jump sequence
-	 sts.l	pr,  @-r15
+	sett				! JUMPER sequences assume t=1
+	sts.l	pr,  @-r15
+JUMPER_END
 
 .balign 32
-8:	bt	8f
+JUMPER_NOEXEC
 stm_really_exec_table:
 	! runs the suspend instruction table
 	bsr	DoPoking
@@ -50,18 +62,18 @@ stm_really_exec_table:
 	shll2	r1
 	not	r1,   r1
 
-	JUMPER()
+JUMPER_EXEC
 	stc	sr,   r0
 	and	r1,   r0		! 16
 	ldc	r0,   sr		! enables the interrupts
 
 	sleep				! SLEEP!!!
 
-	JUMPER()
+JUMPER_EXEC
 
 .balign		32
 wakeup_interrupt:
-	JUMPER()
+JUMPER_EXEC
 	! Reset SR.RB bit
 	mov.l	11f, r0
 	stc	sr, r1
@@ -89,10 +101,10 @@ wakeup_interrupt:
 	ldc	r0, sr
 	bra	cpu_resume
 	 nop
-	JUMPER()
+JUMPER_EXEC
 
 .balign		4
-	JUMPER()
+JUMPER_EXEC
 	nop
 cpu_resume:
 	! runs the resume instruction table
@@ -103,9 +115,9 @@ cpu_resume:
 	rts
 	 mov.l   @r15+, r13
 
-8:
+JUMPER_START
 	mov.l	10f, r0		! from 10f to 13f are in dcache
-	bt	8f
+JUMPER_END
 
 .balign 32
 10:	.long vbr_base
@@ -125,7 +137,7 @@ cpu_resume:
  */
 
 .balign	32
-8:	bt	8f
+JUMPER_NOEXEC
 DoPoking:
 	mov.l	@r4+, r5	/* opcode */
 	mov.l	@r4+, r1	/* operand 1 */
@@ -134,7 +146,7 @@ DoPoking:
 	mov.b	@(r0, r5), r5
 	extu.b	r5, r5
 	braf	r5
-	  nop
+	 nop
 SwitchJumpFrom:
 
 /* END_MARKER */
@@ -145,32 +157,32 @@ DoRet:
 /* POKE8(A, VAL) */
 DoPoke8:
 	bra	DoPoking
-	  mov.b	r2, @r1		/* *A = VAL */
+	 mov.b	r2, @r1		/* *A = VAL */
 
 /* POKE16(A, VAL) */
 DoPoke16:
 	bra	DoPoking
-	  mov.w	r2, @r1		/* *A = VAL */
+	 mov.w	r2, @r1		/* *A = VAL */
 
 /* POKE32(A, VAL) */
 DoPoke32:
 	bra	DoPoking
-	  mov.l	r2, @r1		/* *A = VAL */ ! 16
+	 mov.l	r2, @r1		/* *A = VAL */ ! 16
 
 /* OR8(A, VAL) */
 DoOr8:
 	mov.b	@r1, r3		/* *A */
 	or	r2, r3		/* *A | OR */
 	bra	DoPoking
-	  mov.b	r3, @r1		/* *A |= OR */
-8:	bt	8f
+	 mov.b	r3, @r1		/* *A |= OR */
+JUMPER_NOEXEC
 
 /* OR16(A, VAL) */
 DoOr16:
 	mov.w	@r1, r3		/* *A */
 	or	r2, r3		/* *A | OR */
 	bra	DoPoking
-	  mov.w	r3, @r1		/* *A |= OR */
+	 mov.w	r3, @r1		/* *A |= OR */
 
 /* OR32(A, VAL) */
 DoOr32:
@@ -187,9 +199,9 @@ DoUpdate8:
 	add	#3, r4
 	or	r2, r3		/* (*A & AND) | OR */
 	bra	DoPoking
-	  mov.b	r3, @r1		/* *A = ((*A & AND) | OR) */
+	 mov.b	r3, @r1		/* *A = ((*A & AND) | OR) */
 
-8:	bt	8f
+JUMPER_NOEXEC
 /* UPDATE16(A, AND, OR) */
 DoUpdate16:
 	mov.w	@r1, r3		/* *A */
@@ -198,7 +210,7 @@ DoUpdate16:
 	add	#2, r4
 	or	r2, r3		/* (*A & AND) | OR */
 	bra	DoPoking
-	  mov.w	r3, @r1		/* *A = ((*A & AND) | OR) */
+	 mov.w	r3, @r1		/* *A = ((*A & AND) | OR) */
 
 /* UPDATE32(A, AND, OR) */
 DoUpdate32:
@@ -209,7 +221,7 @@ DoUpdate32:
 	bra	DoPoking
 	 mov.l	r3, @r1		/* *A = ((*A & AND) | OR) */
 
-8:	bt	8f
+JUMPER_NOEXEC
 /* POKE_UPDATE32(A1, A2, AND, SHIFT, OR) */
 DoPokeUpdate32:
 	mov.l	@r2, r3		/* *A2 */
@@ -232,7 +244,7 @@ DoWhileNe8:
 	bf	1b		/* loop if false */
 	bt	DoPoking
 
-8:	bt	8f
+JUMPER_NOEXEC
 /* WHILE_NE16(A, AND, VAL) */
 DoWhileNe16:
 	mov.l	@r4+, r5	/* read VAL */
@@ -251,11 +263,12 @@ DoWhileNe32:
 	cmp/eq	r3, r5		/* if ((*A & AND) == VAL) */
 	bf	1b		/* loop if false */
 	bt	DoPoking
-8:	bt	8f
+JUMPER_NOEXEC
 
-/* IF_EQ32(NESTLEVEL, A, AND, VAL)
-   Note that NESTLEVEL is not in the actual table, but there is a distance
-   field following VAL.
+/*
+ * IF_EQ32(NESTLEVEL, A, AND, VAL)
+ * Note that NESTLEVEL is not in the actual table, but there is a distance
+ * field following VAL.
  */
 DoIfEq32:
 	mov.l	@r1, r1		/* *A */
@@ -267,11 +280,12 @@ DoIfEq32:
 	add	r3, r4		/* skip forward through pokes to ELSE or ENDIF*/
 	bf	DoPoking
 
-/* IF_GT32(NESTLEVEL, A, AND, VAL)
-   Note that NESTLEVEL is not in the actual table, but there is a distance
-   field following VAL.
+/*
+ * IF_GT32(NESTLEVEL, A, AND, VAL)
+ * Note that NESTLEVEL is not in the actual table, but there is a distance
+ * field following VAL.
  */
-8:	bt	8f
+JUMPER_NOEXEC
 DoIfGT32:
 	mov.l	@r1, r1		/* *A */
 	and	r2, r1		/* *A & AND */
@@ -282,16 +296,17 @@ DoIfGT32:
 	add	r3, r4		/* skip forward through pokes to ELSE or ENDIF*/
 	bf	DoPoking
 
-/* ELSE(NESTLEVEL)
-   Note that NESTLEVEL is not in the actual table, but there is a distance
-   field following the opcode.
+/*
+ * ELSE(NESTLEVEL)
+ * Note that NESTLEVEL is not in the actual table, but there is a distance
+ * field following the opcode.
  */
 DoElse:
 	add	#-4, r4		/* We took 1 arg too many from r4 for a delay */
 	bra	DoPoking
-	  add	r1, r4		/* skip through to ENDIF */
+	 add	r1, r4		/* skip through to ENDIF */
 
-8:	bt	8f
+JUMPER_NOEXEC
 /* DELAY(ITERATIONS) */
 DoDelay:
 	mov	r6, r2		/* _1_ms_lpj */
@@ -304,31 +319,33 @@ DoDelay:
 	bra	DoPoking
 	 add	#-4, r4		/* We took 1 arg too many from r4 for a delay */
 
-/* IF_DEVID_GE(NESTLEVEL, VAL)
-   Note that NESTLEVEL is not in the actual table, but there is a distance
-   field following VAL.
+/*
+ * IF_DEVID_GE(NESTLEVEL, VAL)
+ * Note that NESTLEVEL is not in the actual table, but there is a distance
+ * field following VAL.
  */
 DoIfDevIDGE:
 	cmp/hs	r1, r5		/* if (device ID >= VAL) */
 	bt	DoPoking	/* go ahead with these pokes if true */
 	bra	DoPoking
-	  add	r2, r4
+	 add	r2, r4
 
-8:	bt	8f
-/* IF_DEVID_LE(NESTLEVEL, VAL)
-   Note that NESTLEVEL is not in the actual table, but there is a distance
-   field following VAL.
+JUMPER_NOEXEC
+/*
+ * IF_DEVID_LE(NESTLEVEL, VAL)
+ * Note that NESTLEVEL is not in the actual table, but there is a distance
+ * field following VAL.
  */
 DoIfDevIDLE:
 	cmp/hi	r5, r1		/* if (device ID <= VAL) */
 	bt	1f		/* go ahead with these pokes if true */
 	add	r2, r4
 1:	bra	DoPoking
-	  nop
+	 nop
 
-8:
+JUMPER_START
 /*
- *	preload the instruction datas
+ *	preload the instruction data
  */
 	mov	r4, r0			/* start address I-table */
 	tst	r5, r5
@@ -344,7 +361,8 @@ DoIfDevIDLE:
 	bra	stm_really_exec_table
 	 mov.l	@r0, r0
 
-/* The SwitchJumpTable must be in increasing numeric order of opcode (with
+/*
+ * The SwitchJumpTable must be in increasing numeric order of opcode (with
  * padding for any missing entries).  Distance between SwitchJumpTable and any
  * of the operations must be less than 255 bytes (the assembler should point it
  * out if we ever break that condition and have to switch to 16 bit values).

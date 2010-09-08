@@ -45,34 +45,40 @@
 #define UPDATE8(A, AND, OR)			.long OP_UPDATE8, A, AND, OR
 #define UPDATE16(A, AND, OR)			.long OP_UPDATE16, A, AND, OR
 #define UPDATE32(A, AND, OR)			.long OP_UPDATE32, A, AND, OR
-#define POKE_UPDATE32(A1, A2, AND, SHIFT, OR)	.long OP_POKE_UPDATE32,\
-			 A1, A2, AND, SHIFT, OR
+#define POKE_UPDATE32(A1, A2, AND, SHIFT, OR)				\
+	.long OP_POKE_UPDATE32, A1, A2, AND, SHIFT, OR
 #define WHILE_NE8(A, AND, VAL)						\
-	.long OP_WHILE_NE8, A, AND, VAL; .if (VAL > 0xFF);		\
-	 ASM_ERROR("Value VAL in WHILE_NE8 should fit in 8 bits"); .endif
-#define WHILE_NE16(A, AND, VAL)				.long OP_WHILE_NE16,\
-		 A, AND, VAL; .if (VAL > 0xFFFF);\
-		 ASM_ERROR("Value VAL in WHILE_NE16 should fit in 16 bits");\
-		 .endif
-#define WHILE_NE32(A, AND, VAL)				.long OP_WHILE_NE32,\
-		 A, AND, VAL
+	.long OP_WHILE_NE8, A, AND, VAL;				\
+	.if (VAL > 0xFF);						\
+	.error "Value VAL in WHILE_NE8 should fit in 8 bits";		\
+	.endif
+#define WHILE_NE16(A, AND, VAL)						\
+	.long OP_WHILE_NE16, A, AND, VAL;				\
+	.if (VAL > 0xFFFF);						\
+	.error "Value VAL in WHILE_NE16 should fit in 16 bits";		\
+	.endif
+#define WHILE_NE32(A, AND, VAL)						\
+	.long OP_WHILE_NE32, A, AND, VAL
 #define IF_EQ32(NESTLEVEL, A, AND, VAL)					\
 	.long OP_IF_EQ32, A, AND, VAL, (NESTLEVEL ## f - .)
 #define IF_GT32(NESTLEVEL, A, AND, VAL)					\
 	.long OP_IF_GT32, A, AND, VAL, (NESTLEVEL ## f - .)
-/* An explicit ELSE will skip the OP_ELSE embedded in the ENDIF
+/*
+ * An explicit ELSE will skip the OP_ELSE embedded in the ENDIF
  * to make things faster
  */
 #define ELSE(NESTLEVEL)							\
 	.long OP_ELSE; NESTLEVEL: ; .long (NESTLEVEL ## f - .)
-/* ENDIF includes an OP_ELSE so that we end up at the correct position
+/*
+ * ENDIF includes an OP_ELSE so that we end up at the correct position
  * regardless of whether there is an explcit ELSE in the IF construct
  */
 #define ENDIF(NESTLEVEL)						\
 	.long OP_ELSE; NESTLEVEL: ; .long 0
 #define DELAY(ITERATIONS)						\
 	.long OP_DELAY, ITERATIONS
-/* The 2nd argument to the poke loop code (in R5 for ST40, or $r0.17 for ST200)
+/*
+ * The 2nd argument to the poke loop code (in R5 for ST40, or $r0.17 for ST200)
  * must be the device ID to compare against for these operations to work - the
  * poke loop code does not try to retrieve the device ID itself.
  */
@@ -80,8 +86,9 @@
 	.long OP_IF_DEVID_GE, VAL, (NESTLEVEL ## f - .)
 #define IF_DEVID_LE(NESTLEVEL, VAL)					\
 	.long OP_IF_DEVID_LE, VAL, (NESTLEVEL ## f - .)
-/* The end marker needs two extra entries which get read by the code, but are
-   never used.
+/*
+ * The end marker needs two extra entries which get read by the code, but are
+ * never used.
  */
 #define END_MARKER							\
 	.long OP_END_POKES

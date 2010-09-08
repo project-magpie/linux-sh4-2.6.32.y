@@ -38,6 +38,8 @@
 #define dbg_print(fmt, args...)
 #endif
 
+static struct stm_platform_suspend_t *platform_suspend;
+
 unsigned int wokenup_by;
 
 static inline unsigned long _1_ms_lpj(void)
@@ -48,16 +50,9 @@ static inline unsigned long _1_ms_lpj(void)
 	return clk_get_rate(sh4_clk) / (1000 * 2);
 }
 
-static struct stm_platform_suspend_t *platform_suspend;
-
-unsigned long stm_read_intevt(void)
+static unsigned long stm_read_intevt(void)
 {
-	unsigned long evt = INTEVT;
-	asm volatile(
-		"mov.l	@%0, %0	\n"
-		: "+r" (evt));
-
-	return evt;
+	return ctrl_inl(INTEVT);
 }
 
 static int stm_suspend_enter(suspend_state_t state)
@@ -76,11 +71,11 @@ static int stm_suspend_enter(suspend_state_t state)
 	if (platform_suspend->pre_enter)
 		err = platform_suspend->pre_enter(state);
 
+	/*
+	 * If the platform pre_enter returns an error suspend is
+	 * aborted.
+	 */
 	if (err)
-		/*
-		 * If the platform pre_enter notifies an error
-		 * No suspend is done
-		 */
 		goto on_error;
 
 	/* sets the right instruction table */
@@ -110,9 +105,6 @@ static int stm_suspend_enter(suspend_state_t state)
 	BUG_ON(in_irq());
 
 	wokenup_by = stm_read_intevt();
-/*
- *	without the evt_to_irq function the INTEVT is returned
- */
 	if (platform_suspend->evt_to_irq)
 		wokenup_by = platform_suspend->evt_to_irq(wokenup_by);
 

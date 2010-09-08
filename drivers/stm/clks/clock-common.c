@@ -199,7 +199,7 @@ int clk_pll800_get_params(unsigned long input, unsigned long output,
 int clk_pll1600_get_params(unsigned long input, unsigned long output,
 			   unsigned long *mdiv, unsigned long *ndiv)
 {
-	unsigned long m, n, pfdin, fvco;
+	unsigned long m, n, pfdin;
 	unsigned long deviation, new_freq;
 	long new_deviation;
 
@@ -253,7 +253,7 @@ int clk_fsyn_get_rate(unsigned long input, unsigned long pe,
 		unsigned long md, unsigned long sd, unsigned long *rate)
 {
 	int md2 = md;
-	long long p, q, r, s, t, u;
+	long long p, q, r, s, t;
 	if (md & 0x10)
 		md2 = md | 0xfffffff0;/* adjust the md sign */
 

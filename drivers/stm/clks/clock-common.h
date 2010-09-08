@@ -10,20 +10,6 @@ Copyright (C) 2008 STMicroelectronics
 #ifndef __CLKLLA_COMMON_H
 #define __CLKLLA_COMMON_H
 
-
-#define NO_MORE_RATIO		-1
-#define RATIO_RESERVED		-2
-
-int get_ratio_field(unsigned long rate, unsigned long prate, int *ratios);
-
-struct xratio {
-	unsigned long ratio;
-	unsigned long field;
-};
-
-int get_xratio_field(unsigned long rate, unsigned long prate,
-	struct xratio *ratios);
-
 /* ========================================================================
    Name:        clk_pll800_get_rate()
    Description: Convert input/mdiv/ndiv/pvid values to frequency for PLL800

@@ -49,6 +49,7 @@
 
 #include "clock-oslayer.h"
 #include "clock-common.h"
+#include "clock-utils.h"
 
 static int clkgena_observe(clk_t *clk_p, unsigned long *div_p);
 static int clkgenb_observe(clk_t *clk_p, unsigned long *div_p);
@@ -251,7 +252,7 @@ SYSCONF(SYS_CFG, 40, 2, 3);
 
 int __init plat_clk_init(void)
 {
-	int i;
+	int ret;
 
 	SYSCONF_CLAIM(SYS_STA, 1, 0, 1);
 	SYSCONF_CLAIM(SYS_CFG, 6, 0, 0);
@@ -260,13 +261,13 @@ int __init plat_clk_init(void)
 	SYSCONF_CLAIM(SYS_CFG, 40, 0, 1);
 	SYSCONF_CLAIM(SYS_CFG, 40, 2, 3);
 
-	for (i = 0; i < CLKB_REF; ++i)
-		if (!clk_register(&clk_clocks[i]))
-			clk_enable(&clk_clocks[i]);
-	for (i = CLKB_REF; i < ARRAY_SIZE(clk_clocks); ++i)
-		clk_register(&clk_clocks[i]);
+	ret = clk_register_table(clk_clocks, CLKB_REF, 1);
+	if (ret)
+		return ret;
 
-	return 0;
+	ret = clk_register_table(&clk_clocks[CLKB_REF],
+				 ARRAY_SIZE(clk_clocks) - CLKB_REF, 0);
+	return ret;
 }
 
 

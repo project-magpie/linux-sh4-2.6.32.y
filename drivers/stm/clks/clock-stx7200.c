@@ -15,6 +15,7 @@
 #include <linux/stm/clk.h>
 
 #include "clock-common.h"
+#include "clock-utils.h"
 
 /* Values for mb519 */
 #define SYSACLKIN	27000000
@@ -594,27 +595,26 @@ static struct clk *clockgenb_clocks[] = {
 
 int __init plat_clk_init(void)
 {
-	int i, ret = 0;
+	int ret;
 
 	/* Clockgen A */
-	for (i = 0; i < ARRAY_SIZE(clockgena_clocks); i++) {
-		struct clk *clk = clockgena_clocks[i];
-		ret |= clk_register(clk);
-		clk_enable(clk);
-	}
+	ret = clk_register_table(clockgena_clocks,
+				 ARRAY_SIZE(clockgena_clocks), 1);
+	if (ret)
+		return ret;
 
 	/* Clockgen B */
 	ctrl_outl(ctrl_inl(CLOCKGENB_IN_MUX_CFG) & ~0xf, CLOCKGENB_IN_MUX_CFG);
-	for (i = 0; i < ARRAY_SIZE(clockgenb_clocks); i++) {
-		struct clk *clk = clockgenb_clocks[i];
-		ret |= clk_register(clk);
-		clk_enable(clk);
+	ret = clk_register_table(clockgenb_clocks,
+				 ARRAY_SIZE(clockgenb_clocks), 1);
+	if (ret)
+		return ret;
+
+	if (cpu_data->cut_major < 2) {
+		ret = clk_register_table(&sh4clks[1], ARRAY_SIZE(sh4clks)-1, 1);
+		if (ret)
+			return ret;
 	}
 
-	if (cpu_data->cut_major < 2)
-		for (i = 1; i < ARRAY_SIZE(sh4clks); ++i)
-			if (!clk_register(&sh4clks[i]))
-				clk_enable(&sh4clks[i]);
-
-	return ret;
+	return 0;
 }

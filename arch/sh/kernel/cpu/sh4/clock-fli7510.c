@@ -12,6 +12,7 @@
 #include <linux/err.h>
 #include <linux/io.h>
 #include <linux/pm.h>
+#include <linux/clkdev.h>
 #include <asm/clock.h>
 #include <asm/freq.h>
 
@@ -21,14 +22,14 @@
 
 /* SH4 generic clocks ----------------------------------------------------- */
 
-static struct clk generic_module_clk = {
-	.name = "module_clk",
-	.rate = 100000000,
-};
-
-static struct clk generic_comms_clk = {
-	.name = "comms_clk",
-	.rate = 100000000,
+static struct clk clocks[] = {
+	{
+		.name = "module_clk",
+		.rate = 100000000,
+	}, {
+		.name = "comms_clk",
+		.rate = 100000000,
+	}
 };
 
 
@@ -37,16 +38,15 @@ static struct clk generic_comms_clk = {
 
 int __init arch_clk_init(void)
 {
-	int err;
+	int i;
+	int ret = 0;
 
-	/* Generic SH-4 clocks */
+	for (i = 0; i < ARRAY_SIZE(clocks); ++i) {
+		struct clk *clk = &clocks[i];
 
-	err = clk_register(&generic_module_clk);
-	if (err != 0)
-		goto error;
+		ret |= clk_register(clk);
+		clkdev_alloc(clk, clk->name, NULL);
+	}
 
-	err = clk_register(&generic_comms_clk);
-
-error:
-	return err;
+	return ret;
 }

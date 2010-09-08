@@ -35,6 +35,7 @@
 
 #include "clock-oslayer.h"
 #include "clock-common.h"
+#include "clock-utils.h"
 
 #define CRYSTAL  30000000
 
@@ -182,13 +183,7 @@ _CLK_P(FSB_USB, &FS, 48000000, 0, &clk_clocks[OSC_REF]),
 
 int __init plat_clk_init(void)
 {
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(clk_clocks); ++i)
-		if (!clk_register(&clk_clocks[i]))
-			clk_enable(&clk_clocks[i]);
-
-	return 0;
+	return clk_register_table(clk_clocks, ARRAY_SIZE(clk_clocks), 1);
 }
 
 

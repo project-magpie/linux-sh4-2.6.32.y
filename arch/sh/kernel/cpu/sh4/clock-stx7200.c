@@ -10,47 +10,19 @@
 #include <linux/init.h>
 #include <linux/stm/clk.h>
 
-static int generic_clk_recalc(struct clk *clk)
-{
-	clk->rate = clk->parent->rate;
-	return 0;
-}
-
-static struct clk_ops generic_clk_ops = {
-	.init = generic_clk_recalc,
-	.recalc = generic_clk_recalc,
-};
-
-static struct clk stm_clk[] = {
-	{
-		.name = "sh4_clk",
-		.ops = &generic_clk_ops,
-	}, {
-		.name = "module_clk",
-		.ops = &generic_clk_ops,
-	}, {
-		.name = "comms_clk",
-		.ops = &generic_clk_ops,
-	}
-};
-
-
 int __init arch_clk_init(void)
 {
-	int i, ret = 0;
+	int ret;
 
+	ret = plat_clk_init();
+	if (ret)
+		return ret;
 
-	stm_clk[0].parent = clk_get(NULL, "st40_clk");
-	stm_clk[2].parent = clk_get(NULL, "ic_reg");
-
-	if (cpu_data->cut_major < 2)
-		stm_clk[1].parent = clk_get(NULL, "st40_per_clk");
-	else
-		stm_clk[1].parent = clk_get(NULL, "ic_reg");
-
-	for (i = 0; i < ARRAY_SIZE(stm_clk); ++i)
-		if (!clk_register(&stm_clk[i]))
-			clk_enable(&stm_clk[i]);
+	clk_add_alias("sh4_clk", NULL, "st40_clk", NULL);
+	clk_add_alias("module_clk", NULL,
+		      (cpu_data->cut_major < 2) ? "st40_per_clk" : "ic_reg",
+		      NULL);
+	clk_add_alias("comms_clk", NULL, "ic_reg", NULL);
 
 	return ret;
 }

@@ -62,17 +62,14 @@ struct clk {
 #define CLK_ALWAYS_ENABLED	(1 << 0)
 #define CLK_RATE_PROPAGATES	(1 << 1)
 
+/* drivers/stm/clks/clock-... */
 
-int clk_init(void);
-
-/*
- * The clk_init calls the:
- * - plat_clk_init() to register the platform clocks
- * - arch_clk_init() to register the arch clock (virtual clocks)
- */
+/* SoC specific clock initialisation */
 int plat_clk_init(void);
-int arch_clk_init(void);
 
+/* drivers/stm/clk.c */
+
+/* Additions to the standard clk_... functions in include/linux/clk.h */
 
 int clk_register(struct clk *);
 void clk_unregister(struct clk *);
@@ -80,13 +77,36 @@ void clk_unregister(struct clk *);
 int clk_for_each(int (*fn)(struct clk *clk, void *data), void *data);
 int clk_for_each_child(struct clk *clk,
 		int (*fn)(struct clk *clk, void *data), void *data);
+
+static inline void recalculate_root_clocks(void)
+{}
+
+static inline void clk_enable_init_clocks(void)
+{}
+
+
 /**
- * Routes the clock on an external pin (if possible)
+ * clk_observe - route the clock to an external pin (if possible)
+ * @clk: clock source
+ * @div: divider
+ *
+ * To help with debugging clock related code, it is sometimes possible
+ * to route the clock directly to an external pin where it can be
+ * observed, typically with an oscilloscope.
+ *
+ * To allow high frequency clocks to be observed it is sometimes
+ * possible to divide the clock by a fixed amount before it is sent
+ * to an external pin. This factor is specified by @div, which is also
+ * used to return the actual divider used, which may not be the requested
+ * factor.
  */
 int clk_observe(struct clk *clk, unsigned long *div);
 
 /**
- * Evaluate the clock rate in hardware (if possible)
+ * clk_get_measure - evaluate the clock rate in hardware (if possible)
+ * @clk: clock source
+ *
+ * Measure the frequency of the specified clock and return it.
  */
 unsigned long clk_get_measure(struct clk *clk);
 

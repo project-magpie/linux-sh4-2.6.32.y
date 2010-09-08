@@ -10,42 +10,17 @@
 #include <linux/init.h>
 #include <linux/stm/clk.h>
 
-static int generic_clk_recalc(struct clk *clk)
-{
-	clk->rate = clk->parent->rate;
-	return 0;
-}
-
-static struct clk_ops generic_clk_ops = {
-	.init = generic_clk_recalc,
-	.recalc = generic_clk_recalc,
-};
-
-static struct clk stm_clk[] = {
-	{
-		.name = "sh4_clk",
-		.ops = &generic_clk_ops,
-	}, {
-		.name = "module_clk",
-		.ops = &generic_clk_ops,
-	}, {
-		.name = "comms_clk",
-		.ops = &generic_clk_ops,
-	}
-};
-
-
 int __init arch_clk_init(void)
 {
-	int i, ret = 0;
+	int ret;
 
-	stm_clk[0].parent = clk_get(NULL, "CLKA_SH4L2_ICK");
-	stm_clk[1].parent = clk_get(NULL, "CLKA_IC_REG_LP_ON");
-	stm_clk[2].parent = stm_clk[1].parent;
+	ret = plat_clk_init();
+	if (ret)
+		return ret;
 
-	for (i = 0; i < ARRAY_SIZE(stm_clk); ++i)
-		if (!clk_register(&stm_clk[i]))
-			clk_enable(&stm_clk[i]);
+	clk_add_alias("sh4_clk", NULL, "CLKA_SH4L2_ICK", NULL);
+	clk_add_alias("module_clk", NULL, "CLKA_IC_REG_LP_ON", NULL);
+	clk_add_alias("comms_clk", NULL, "CLKA_IC_REG_LP_ON", NULL);
 
 	return ret;
 }

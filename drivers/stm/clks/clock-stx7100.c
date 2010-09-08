@@ -15,8 +15,7 @@
 #include <linux/io.h>
 #include <asm-generic/div64.h>
 
-#include "clock-common.h"
-
+#include "clock-utils.h"
 
 static void __iomem *clkgena_base;
 
@@ -201,25 +200,19 @@ CLKGENA(EMI_ID,	emi,    pll_clk[1], 0, 4, NULL)
 
 int __init plat_clk_init(void)
 {
-	int i, ret = 0;
+	int ret;
 
 	/**************/
 	/* Clockgen A */
 	/**************/
 	clkgena_base = ioremap(0x19213000, 0x100);
+	if (!clkgena_base)
+		return -ENOMEM;
 
-	for (i = 0; i < ARRAY_SIZE(pll_clk); i++) {
-		struct clk *clk = &pll_clk[i];
+	ret = clk_register_table(pll_clk, ARRAY_SIZE(pll_clk), 1);
+	if (ret)
+		return ret;
 
-		ret |= clk_register(clk);
-		clk_enable(clk);
-	}
-
-	for (i = 0; i < ARRAY_SIZE(clkgena_clks); i++) {
-		struct clk *clk = &clkgena_clks[i];
-		ret |= clk_register(clk);
-		clk_enable(clk);
-	}
-
+	ret = clk_register_table(clkgena_clks, ARRAY_SIZE(clkgena_clks), 1);
 	return ret;
 }

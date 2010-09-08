@@ -352,36 +352,6 @@ unsigned long clk_get_measure(struct clk *clk)
 }
 EXPORT_SYMBOL(clk_get_measure);
 
-/*
- * Returns a clock.
- */
-struct clk *clk_get(struct device *dev, const char *name)
-{
-	struct clk *clkp, *clk = NULL;
-
-	mutex_lock(&clks_list_sem);
-
-	list_for_each_entry(clkp, &clks_list, node) {
-		if (strcmp(name, clkp->name) == 0 &&
-		    try_module_get(clkp->owner)) {
-			clk = clkp;
-			break;
-		}
-	}
-
-	mutex_unlock(&clks_list_sem);
-
-	return clk;
-}
-EXPORT_SYMBOL(clk_get);
-
-void clk_put(struct clk *clk)
-{
-	if (clk && !IS_ERR(clk))
-		module_put(clk->owner);
-}
-EXPORT_SYMBOL(clk_put);
-
 int clk_for_each(int (*fn)(struct clk *clk, void *data), void *data)
 {
 	struct clk *clkp;
@@ -408,42 +378,6 @@ int clk_for_each_child(struct clk *clk, int (*fn)(struct clk *clk, void *data),
 	return ret;
 }
 EXPORT_SYMBOL(clk_for_each_child);
-
-
-int __weak plat_clk_init(void)
-{
-	return 0;
-}
-
-
-int __weak arch_clk_init(void)
-{
-	return 0;
-}
-
-
-int __init clk_init(void)
-{
-	int ret;
-/*
- * the plat_clk_init registers the clocks the chip has
- */
-	ret = plat_clk_init();
-	if (ret) {
-		pr_err("[STM][CLK]: Error on plat_clk_init()\n");
-		return ret;
-	}
-/* the arch_clk_init registers the virtual clocks
- * the architecture needs
- */
-	ret = arch_clk_init();
-	if (ret) {
-		pr_err("[STM][CLK]: Error on arch_clk_init()\n");
-		return ret;
-	}
-	return ret;
-
-}
 
 #ifdef CONFIG_PROC_FS
 static void *clk_seq_next(struct seq_file *s, void *v, loff_t *pos)

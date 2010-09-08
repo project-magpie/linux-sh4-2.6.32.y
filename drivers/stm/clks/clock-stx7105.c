@@ -53,6 +53,7 @@
 
 #include "clock-oslayer.h"
 #include "clock-common.h"
+#include "clock-utils.h"
 
 static int clkgena_observe(clk_t *clk_p, unsigned long *div_p);
 static int clkgenb_observe(clk_t *clk_p, unsigned long *div_p);
@@ -281,8 +282,6 @@ SYSCONF(SYS_CFG, 40, 2, 2);
 
 int __init plat_clk_init(void)
 {
-	int i;
-
 	SYSCONF_CLAIM(SYS_STA, 1, 0, 0);
 	SYSCONF_CLAIM(SYS_CFG, 6, 0, 0);
 	SYSCONF_CLAIM(SYS_CFG, 11, 1, 8);
@@ -291,21 +290,13 @@ int __init plat_clk_init(void)
 	SYSCONF_CLAIM(SYS_CFG, 40, 0, 0);
 	SYSCONF_CLAIM(SYS_CFG, 40, 2, 2);
 
-	for (i = 0; i < CLKB_REF; ++i)
-		if (!clk_register(&clk_clocks[i]))
-			clk_enable(&clk_clocks[i]);
-
-	return 0;
+	return clk_register_table(clk_clocks, CLKB_REF, 1);
 }
 
 static int __init postcore_clk_init(void)
 {
-	int i;
-
-	for (i = CLKB_REF; i < ARRAY_SIZE(clk_clocks); ++i)
-		clk_register(&clk_clocks[i]);
-
-	return 0;
+	return clk_register_table(&clk_clocks[CLKB_REF],
+				  ARRAY_SIZE(clk_clocks) - CLKB_REF, 0);
 }
 
 postcore_initcall(postcore_clk_init);

@@ -30,11 +30,11 @@ static void __iomem *clkgena_base;
 #define CLOCKGEN_CLK_DIV	0x30
 #define CLOCKGEN_CLK_EN		0x34
 
-			       /* 0  1  2  3  4  5  6  7  */
-static unsigned char ratio1[] = { 1, 2, 3, 4, 6, 8 , NO_MORE_RATIO};
-static unsigned char ratio2[] = { 1, 2, 3, 4, 6, 8 , NO_MORE_RATIO};
-static unsigned char ratio3[] = { 4, 2, 4, 4, 6, 8 , NO_MORE_RATIO};
-static unsigned char ratio4[] = { 1, 2, 3, 4, 6, 8 , NO_MORE_RATIO};
+			        /* 0  1  2  3  4  5  6  7  */
+static unsigned char ratio1[8] = { 1, 2, 3, 4, 6, 8, 0, 0 };
+static unsigned char ratio2[8] = { 1, 2, 3, 4, 6, 8, 0, 0 };
+static unsigned char ratio3[8] = { 4, 2, 4, 4, 6, 8, 0, 0 };
+static unsigned char ratio4[8] = { 1, 2, 3, 4, 6, 8, 0, 0 };
 
 static int pll_freq(unsigned long addr)
 {
@@ -124,7 +124,9 @@ static int clockgenA_clk_init(struct clk *clk)
 	struct clokgenA *cga = (struct clokgenA *)clk->private_data;
 	if (cga->ratio) {
 		unsigned long data = readl(clkgena_base + cga->ctrl_reg) & 0x7;
-		cga->div = 2*cga->ratio[data];
+		unsigned char ratio = cga->ratio[data];
+		BUG_ON(!ratio);
+		cga->div = 2*ratio;
 	}
 	clk->rate = clk->parent->rate / cga->div;
 	return 0;

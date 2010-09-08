@@ -16,13 +16,13 @@
 #include <linux/usb.h>
 #include <linux/io.h>
 #include "../core/hcd.h"
-#include "./hcd-stm.h"
+#include "hcd-stm.h"
 
 #undef dgb_print
 
 #ifdef CONFIG_USB_DEBUG
 #define dgb_print(fmt, args...)			\
-		printk(KERN_INFO "%s: " fmt, __FUNCTION__ , ## args)
+		printk(KERN_INFO "%s: " fmt, __func__ , ## args)
 #else
 #define dgb_print(fmt, args...)
 #endif
@@ -36,7 +36,8 @@ static int st_usb_boot(struct platform_device *pdev)
 	unsigned long reg, req_reg;
 
 	if (pl_data->flags &
-		(STM_PLAT_USB_FLAGS_STRAP_8BIT | STM_PLAT_USB_FLAGS_STRAP_16BIT)) {
+		(STM_PLAT_USB_FLAGS_STRAP_8BIT |
+		 STM_PLAT_USB_FLAGS_STRAP_16BIT)) {
 		/* Set strap mode */
 		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
 		if (pl_data->flags & STM_PLAT_USB_FLAGS_STRAP_16BIT)
@@ -83,8 +84,8 @@ static int st_usb_boot(struct platform_device *pdev)
 			  (0<<4)  ;  /* No messages */
 		req_reg |= ((pl_data->flags &
 			STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128) ?
-				(7<<0): /* 128 */
-				(8<<0));/* 256 */
+				(7<<0) :	/* 128 */
+				(8<<0));	/* 256 */
 		do {
 			writel(req_reg, protocol_base +
 				AHB2STBUS_MSGSIZE_OFFSET);

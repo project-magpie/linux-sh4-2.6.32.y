@@ -317,22 +317,28 @@ static int emi_sysdev_resume(struct sys_device *dev)
 
 static struct sysdev_class emi_sysdev_class = {
 	.name = "emi",
-};
-
-static struct sysdev_driver emi_sysdev_driver = {
 	.suspend = emi_sysdev_suspend,
 	.resume = emi_sysdev_resume,
 };
 
 struct sys_device emi_sysdev_dev = {
+	.id = 0,
 	.cls = &emi_sysdev_class,
 };
 
 static void __init emi_sysdev_register(void)
 {
-	sysdev_class_register(&emi_sysdev_class);
-	sysdev_driver_register(&emi_sysdev_class, &emi_sysdev_driver);
-	sysdev_register(&emi_sysdev_dev);
+	int ret;
+
+	ret = sysdev_class_register(&emi_sysdev_class);
+	if (ret)
+		return ret;
+
+	ret = sysdev_register(&emi_sysdev_dev);
+	if (ret)
+		return ret;
+
+	return 0;
 }
 #else
 #define emi_sysdev_register()

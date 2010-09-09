@@ -6,6 +6,7 @@ obj-y					+= emi.o
 obj-y					+= gpio.o
 obj-y					+= pad.o
 obj-y					+= sysconf.o
+obj-y					+= clk.o
 obj-y					+= clks/
 
 obj-$(CONFIG_STM_DMA)		+= fdma.o fdma-xbar.o

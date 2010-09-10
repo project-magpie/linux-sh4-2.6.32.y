@@ -90,6 +90,7 @@ static struct plat_stmmacenet_data stx5206_ethernet_platform_data = {
 	.pbl = 32,
 	.has_gmac = 1,
 	.enh_desc = 1,
+	.tx_coe = 1,
 	.fix_mac_speed = stx5206_ethernet_fix_mac_speed,
 	/* .pad_config set in stx5206_configure_ethernet() */
 };

@@ -329,12 +329,14 @@ static struct plat_stmmacenet_data stx7105_ethernet_platform_data[] = {
 		.pbl = 32,
 		.has_gmac = 1,
 		.enh_desc = 1,
+		.tx_coe = 1,
 		.fix_mac_speed = stx7105_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7105_configure_ethernet() */
 	}, {
 		.pbl = 32,
 		.has_gmac = 1,
 		.enh_desc = 1,
+		.tx_coe = 1,
 		.fix_mac_speed = stx7105_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7105_configure_ethernet() */
 	}

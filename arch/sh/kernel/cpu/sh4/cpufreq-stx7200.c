@@ -85,6 +85,15 @@ static int stx7200_update(unsigned int set)
 
 	clks_value |= stx7200_ratios[set];
 
+	/*
+	 * After changing the clock divider we need a short delay
+	 * to allow the clocks to stabailize, during which there must
+	 * be no external memory accesses from the CPU. So inline
+	 *   raw_writel(clks_value, clks_address);
+	 *   mdelay(1);
+	 * in a single cache line. Should also try and prevent prefetching
+	 * but so far that hasn't been seen to be a problem.
+	 */
 	local_irq_save(flag);
 	asm volatile (".balign	32	\n"
 		      "mov.l	%1, @%0	\n"

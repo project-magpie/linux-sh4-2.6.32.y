@@ -164,8 +164,8 @@ int stm_cpufreq_register(struct stm_cpufreq *soc_cpufreq)
 
 	stm_cpufreq = soc_cpufreq;
 
-	cpu_freqs = kmalloc(sizeof(*cpu_freqs) * stm_cpufreq->num_frequency
-			+ 1, GFP_KERNEL);
+	cpu_freqs = kcalloc(stm_cpufreq->num_frequency + 1,
+			    sizeof(*cpu_freqs), GFP_KERNEL);
 
 	for (idx = 0; idx < stm_cpufreq->num_frequency; ++idx) {
 		cpu_freqs[idx].index = idx;

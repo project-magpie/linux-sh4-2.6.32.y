@@ -87,25 +87,7 @@ static unsigned long ca1_ic_lp_on_clk_rate;
  * *************************
  */
 static unsigned long stx7108_standby_table[] __cacheline_aligned = {
-
-POKE32(CGA1 + CKGA_OSC_DIV_CFG(11), 29),  /* CLKA_IC_REG_LP_ON @ 1 MHz to
-				       * be safe for lirc
-				       */
-POKE32(CGA1 + CKGA_OSC_DIV_CFG(10), 31),	/* CLKA_IC_REG_LP_OFF */
-
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(16), 31),	/* STNoc */
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(5), 31),	/* ST40 */
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(4), 31),	/* ST40 C-L2 */
-
 END_MARKER,
-
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(16), 0),	/* STNoc */
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(5), 0),	/* ST40 */
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(4), 0),	/* ST40 C-L2 */
-
-/* CLKA_IC_REG_LP_ON @ 1 MHz to be safe for lirc*/
-POKE32(CGA1 + CKGA_OSC_DIV_CFG(11), 0),
-POKE32(CGA1 + CKGA_OSC_DIV_CFG(10), 0),	/* CLKA_IC_REG_LP_OFF */
 
 END_MARKER
 };
@@ -115,12 +97,6 @@ END_MARKER
  * *********************
  */
 static unsigned long stx7108_mem_table[] __cacheline_aligned = {
-POKE32(CGA1 + CKGA_OSC_DIV_CFG(10), 31),	/* CLKA_IC_REG_LP_OFF */
-
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(16), 31),	/* STNoc */
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(5), 31),	/* ST40 */
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(4), 31),	/* ST40 C-L2 */
-
 /* 1. Enables the DDR self refresh mode based on paraghaph. 7.1.4
  *    -> from ACCESS to LowPower
  */
@@ -144,13 +120,6 @@ OR32(DDR3SS1_REG + DDR_PHY_PIR, 1 << 7),
  /* END. */
 END_MARKER,
 
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(16), 0),	/* STNoc */
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(5), 0),	/* ST40 */
-POKE32(CGA0 + CKGA_OSC_DIV_CFG(4), 0),	/* ST40 C-L2 */
-
-POKE32(CGA1 + CKGA_OSC_DIV_CFG(10), 0),	/* CLKA_IC_REG_LP_OFF */
-
-
 UPDATE32(DDR3SS0_REG + DDR_PHY_PIR, ~(1 << 7), 0),
 UPDATE32(DDR3SS1_REG + DDR_PHY_PIR, ~(1 << 7), 0),
 /*WHILE_NE32(SYS_BNK1_STA(5), 1, 1),*/
@@ -160,8 +129,6 @@ UPDATE32(DDR3SS0_REG + DDR_PHY_DXCCR, ~1, 0),
 
 UPDATE32(DDR3SS1_REG + DDR_PHY_IOCRV1, ~1, 0),
 UPDATE32(DDR3SS1_REG + DDR_PHY_DXCCR, ~1, 0),
-
-
 
 
 /* 2. Disables the DDR self refresh mode based on paraghaph 7.1.3
@@ -201,7 +168,7 @@ static int stx7108_suspend_begin(suspend_state_t state)
 		return 0;
 
 	ca1_ic_lp_on_clk_rate = clk_get_rate(ca1_ic_lp_on_clk);
-	/* Set ic_if_100 @ 1MHz */
+	/* Set ic_if_100 @ 15MHz */
 	clk_set_parent(ca1_ic_lp_on_clk, ca1_ref_clk);
 	clk_set_rate(ca1_ic_lp_on_clk, clk_get_rate(ca1_ref_clk)/2);
 
@@ -213,7 +180,7 @@ static void stx7108_suspend_wake(void)
 	if (wkd.hdmi_can_wakeup)
 		return;
 
-	/* Restore ic_if_100 */
+	/* ic_if_100 @ 30 MHz */
 	clk_set_parent(ca1_ic_lp_on_clk, ca1_pll1_clk);
 	clk_set_rate(ca1_ic_lp_on_clk, ca1_ic_lp_on_clk_rate);
 }
@@ -221,7 +188,6 @@ static void stx7108_suspend_wake(void)
 
 static int stx7108_suspend_core(suspend_state_t state, int suspending)
 {
-	static char *osc_regs;
 	static char *pll0_regs;
 	static char *pll1_regs;
 	static long *switch_cfg;
@@ -230,7 +196,7 @@ static int stx7108_suspend_core(suspend_state_t state, int suspending)
 	if (suspending)
 		goto on_suspending;
 
-	if (!(osc_regs && pll0_regs && pll1_regs && switch_cfg))
+	if (!(pll0_regs && pll1_regs && switch_cfg))
 		return 0;
 
 	iowrite32(0, cga0 + CKGA_POWER_CFG);
@@ -248,19 +214,16 @@ static int stx7108_suspend_core(suspend_state_t state, int suspending)
 	iowrite32(switch_cfg[3], cga1 + CKGA_CLKOPSRC_SWITCH_CFG2);
 
 	for (i = 0; i < 18; ++i) {
-		iowrite32(osc_regs[i], cga0 + CKGA_OSC_DIV_CFG(i));
 		iowrite32(pll0_regs[i], cga0 +
 			((i < 4) ? CKGA_PLL0HS_DIV_CFG(i) :
 				CKGA_PLL0LS_DIV_CFG(i)));
 		iowrite32(pll1_regs[i], cga0 + CKGA_PLL1_DIV_CFG(i));
 
-		iowrite32(osc_regs[i + 18], cga1 + CKGA_OSC_DIV_CFG(i));
 		iowrite32(pll0_regs[i + 18], cga1 +
 			((i < 4) ? CKGA_PLL0HS_DIV_CFG(i) :
 				CKGA_PLL0LS_DIV_CFG(i)));
 		iowrite32(pll1_regs[i + 18], cga0 + CKGA_PLL1_DIV_CFG(i));
 	}
-	kfree(osc_regs);
 	kfree(pll0_regs);
 	kfree(pll1_regs);
 	kfree(switch_cfg);
@@ -268,18 +231,16 @@ static int stx7108_suspend_core(suspend_state_t state, int suspending)
 	switch_cfg = NULL;
 	pll0_regs = NULL;
 	pll1_regs = NULL;
-	osc_regs = NULL;
 
 	pr_debug("[STM][PM] ClockGens A: restored\n");
 	return 0;
 
 on_suspending:
-	osc_regs = kmalloc(2 * 18, GFP_ATOMIC);
 	pll0_regs = kmalloc(2 * 18, GFP_ATOMIC);
 	pll1_regs = kmalloc(2 * 18, GFP_ATOMIC);
 	switch_cfg = kmalloc(sizeof(long) * 2 * 2, GFP_ATOMIC);
 
-	if (!(osc_regs && pll0_regs && pll1_regs && switch_cfg))
+	if (!(pll0_regs && pll1_regs && switch_cfg))
 		goto error;
 	/* Save the original parents */
 	switch_cfg[0] = ioread32(cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
@@ -290,25 +251,21 @@ on_suspending:
 	/* 18 OSC register for each bank */
 	for (i = 0; i < 18; ++i) {
 		/* CGA 0 */
-		osc_regs[i] = (char)ioread32(cga0 + CKGA_OSC_DIV_CFG(i));
 		pll0_regs[i] = (char)ioread32(cga0 + ((i < 4) ?
 			CKGA_PLL0HS_DIV_CFG(i) : CKGA_PLL0LS_DIV_CFG(i)));
 		pll1_regs[i] = (char)ioread32(cga0 + CKGA_PLL1_DIV_CFG(i));
 		/* CGA 1 */
-		osc_regs[i + 18] = (char)ioread32(cga1 + CKGA_OSC_DIV_CFG(i));
 		pll0_regs[i + 18] = (char)ioread32(cga1 + ((i < 4) ?
 			CKGA_PLL0HS_DIV_CFG(i) : CKGA_PLL0LS_DIV_CFG(i)));
 		pll1_regs[i + 18] = (char)ioread32(cga1 + CKGA_PLL1_DIV_CFG(i));
 
-		iowrite32(0x1f , cga0 + CKGA_OSC_DIV_CFG(i));
-		iowrite32(0x1f , cga1 + CKGA_OSC_DIV_CFG(i));
 	}
 
 	iowrite32(0xFFC3FCFF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
 	iowrite32(0xF3FFFFFF , cga1 + CKGA_CLKOPSRC_SWITCH_CFG);
 
 	if (state == PM_SUSPEND_MEM) {
-		/* all the clocks on xtal */
+		/* all the clocks off */
 		iowrite32(0xF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG2);
 		iowrite32(0xF, cga1 + CKGA_CLKOPSRC_SWITCH_CFG2);
 		/* turn-off the PLLs*/
@@ -319,7 +276,6 @@ on_suspending:
 	pr_debug("[STM][PM] ClockGens A: saved\n");
 	return 0;
 error:
-	kfree(osc_regs);
 	kfree(pll1_regs);
 	kfree(pll0_regs);
 	kfree(switch_cfg);
@@ -327,7 +283,6 @@ error:
 	switch_cfg = NULL;
 	pll0_regs = NULL;
 	pll1_regs = NULL;
-	osc_regs = NULL;
 
 	return -ENOMEM;
 }

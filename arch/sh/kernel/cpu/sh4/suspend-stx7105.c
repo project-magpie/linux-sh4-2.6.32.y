@@ -61,14 +61,10 @@ static unsigned long ca_ic_if_100_clk_rate;
  * *************************
  */
 static unsigned long stx7105_standby_table[] __cacheline_aligned = {
-POKE32(CGA + CKGA_OSC_DIV_CFG(4), 31),	/* st40 */
-POKE32(CGA + CKGA_OSC_DIV_CFG(0), 31),	/* STNoc */
 POKE32(CGA + CKGA_OSC_DIV_CFG(17), 31),	/* ic_if_200 */
 
 END_MARKER,
 /* reduces OSC_st40 */
-POKE32(CGA + CKGA_OSC_DIV_CFG(4), 0),	/* ST40 @ 30 MHz */
-POKE32(CGA + CKGA_OSC_DIV_CFG(0), 0),	/* STNoc @ 30 MHz */
 POKE32(CGA + CKGA_OSC_DIV_CFG(17), 0),	/* ic_if_200 */
 
 END_MARKER
@@ -94,8 +90,6 @@ OR32(_SYS_CFG(11), (1 << 12)),
 WHILE_NE32(_SYS_STA(3), 1, 1),
 
 POKE32(CGA + CKGA_OSC_DIV_CFG(17), 31),	/* ic_if_200 */
-POKE32(CGA + CKGA_OSC_DIV_CFG(4), 31),	/* st40 */
-POKE32(CGA + CKGA_OSC_DIV_CFG(0x0), 31),	/* STNoc */
 
 END_MARKER,
 
@@ -103,8 +97,6 @@ END_MARKER,
  * On resume the system is too much slow
  * for this reason the main clocks are moved @ 30 MHz
  */
-POKE32(CGA + CKGA_OSC_DIV_CFG(0), 0),	/* STNoc @ 30 MHz */
-POKE32(CGA + CKGA_OSC_DIV_CFG(4), 0),	/* ST40 @ 30 MHz */
 POKE32(CGA + CKGA_OSC_DIV_CFG(17), 0),	/* ic_if_200 @ 30 MHz*/
 
 UPDATE32(_SYS_CFG(12), ~(1 << 10), 0),
@@ -158,7 +150,6 @@ static void stx7105_suspend_wake(void)
 
 static int stx7105_suspend_core(suspend_state_t state, int suspending)
 {
-	static unsigned char *clka_osc_div;
 	static unsigned char *clka_pll0_div;
 	static unsigned char *clka_pll1_div;
 	static unsigned long *clka_switch_cfg;
@@ -168,7 +159,7 @@ static int stx7105_suspend_core(suspend_state_t state, int suspending)
 	if (suspending)
 		goto on_suspending;
 
-	if (!clka_osc_div) /* there was an error on suspending */
+	if (!clka_pll0_div) /* there was an error on suspending */
 		return 0;
 	/* Resuming... */
 	iowrite32(0, cga + CKGA_POWER_CFG);
@@ -187,7 +178,6 @@ static int stx7105_suspend_core(suspend_state_t state, int suspending)
 			cga + CKGA_PLL0HS_DIV_CFG(i) :
 			cga + CKGA_PLL0LS_DIV_CFG(i)));
 		iowrite32(clka_pll1_div[i], cga + CKGA_PLL1_DIV_CFG(i));
-		iowrite32(clka_osc_div[i], cga + CKGA_OSC_DIV_CFG(i));
 	}
 	mdelay(10);
 	pr_devel("[STM][PM] ClockGen A: restored\n");
@@ -195,24 +185,21 @@ static int stx7105_suspend_core(suspend_state_t state, int suspending)
 	/* restore the APPD */
 	iowrite32(saved_gplmi_appd, LMI_APPD(0));
 
-	kfree(clka_osc_div);
 	kfree(clka_pll0_div);
 	kfree(clka_pll1_div);
 	kfree(clka_switch_cfg);
 	clka_switch_cfg = NULL;
-	clka_pll0_div = clka_pll1_div = clka_osc_div = NULL;
+	clka_pll0_div = clka_pll1_div = NULL;
 
 	return 0;
 
 
 on_suspending:
-	clka_osc_div = kmalloc(sizeof(char) * 18, GFP_ATOMIC);
 	clka_pll0_div = kmalloc(sizeof(char) * 18, GFP_ATOMIC);
 	clka_pll1_div = kmalloc(sizeof(char) * 18, GFP_ATOMIC);
 	clka_switch_cfg = kmalloc(sizeof(long) * 2, GFP_ATOMIC);
 
-	if (!clka_osc_div || !clka_pll0_div ||
-		!clka_pll1_div || !clka_switch_cfg)
+	if (!clka_pll0_div || !clka_pll1_div || !clka_switch_cfg)
 		goto error;
 
 	/* save the current APPD setting*/
@@ -225,7 +212,6 @@ on_suspending:
 	clka_switch_cfg[1] = ioread32(cga + CKGA_CLKOPSRC_SWITCH_CFG(1));
 
 	for (i = 0; i < 18; ++i) {
-		clka_osc_div[i] = ioread32(cga + CKGA_OSC_DIV_CFG(i));
 		clka_pll0_div[i] = ioread32(((i < 4) ?
 			cga + CKGA_PLL0HS_DIV_CFG(i) :
 			cga + CKGA_PLL0LS_DIV_CFG(i)));
@@ -260,13 +246,12 @@ on_suspending:
 	return 0;
 
 error:
-	kfree(clka_osc_div);
 	kfree(clka_pll1_div);
 	kfree(clka_pll0_div);
 	kfree(clka_switch_cfg);
 
 	clka_switch_cfg = NULL;
-	clka_pll0_div = clka_pll1_div = clka_osc_div = NULL;
+	clka_pll0_div = clka_pll1_div = NULL;
 
 	return -ENOMEM;
 }

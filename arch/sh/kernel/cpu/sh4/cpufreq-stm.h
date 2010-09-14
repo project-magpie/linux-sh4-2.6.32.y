@@ -22,6 +22,5 @@ struct stm_cpufreq {
 
 int stm_cpufreq_register(struct stm_cpufreq *soc_cpufreq);
 int stm_cpufreq_remove(struct stm_cpufreq *soc_cpufreq);
-unsigned long cpuclock_to_1m_lpj(struct clk *cpu_clk);
 
 #endif

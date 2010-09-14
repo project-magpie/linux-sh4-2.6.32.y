@@ -62,10 +62,11 @@ static int stx7200_update(unsigned int set)
 	static unsigned int sh_current_set;
 	unsigned long clks_address = CLKA_DIV_CFG + CLOCKGENA_BASE_ADDR;
 	unsigned long clks_value = ctrl_inl(clks_address);
-	unsigned long l_p_j = cpuclock_to_1m_lpj(stx7200_cpufreq.cpu_clk);
+	unsigned long l_p_j;
 	unsigned long previos_set = sh_current_set;
 	unsigned long shift, flag;
 
+	l_p_j = (cpu_data[raw_smp_processor_id()].loops_per_jiffy * HZ) / 1000;
 	l_p_j >>= 3;	/* l_p_j = 125 usec (for each HZ) */
 
 	if (set == sh_current_set)

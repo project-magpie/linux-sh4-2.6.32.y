@@ -144,12 +144,6 @@ static struct cpufreq_driver stm_cpufreq_driver = {
 	.flags = CPUFREQ_PM_NO_WARN,
 };
 
-unsigned long cpuclock_to_1m_lpj(struct clk *cpu_clk)
-{
-	return clk_get_rate(cpu_clk) / (1000 * 2);
-}
-EXPORT_SYMBOL(cpuclock_to_1m_lpj);
-
 int stm_cpufreq_register(struct stm_cpufreq *soc_cpufreq)
 {
 	int idx;

@@ -53,7 +53,7 @@ static unsigned long *stx7200_ratios = stx7200c2_ratios;
 static int stx7200_update(unsigned int set);
 
 static struct stm_cpufreq stx7200_cpufreq = {
-	.num_frequency = 2, /* realy for Cut 2 */
+	.num_frequency = ARRAY_SIZE(stx7200c2_ratios),
 	.update = stx7200_update,
 };
 
@@ -142,7 +142,7 @@ static int __init stx7200_cpufreq_init(void)
 	}
 
 	if (cpu_data->cut_major < 2) {
-		stx7200_cpufreq.num_frequency = 3;
+		stx7200_cpufreq.num_frequency = ARRAY_SIZE(stx7200c1_ratios);
 		stx7200_ratios = stx7200c1_ratios;
 		sh4_ic_clk = clk_get(NULL, "st40_ic_clk");
 		module_clk = clk_get(NULL, "st40_per_clk");

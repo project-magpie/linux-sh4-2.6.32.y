@@ -618,11 +618,11 @@ static int __init ilc_init(void)
 {
 	int ret;
 
-	ret = platform_driver_register(&ilc_driver);
+	ret = sysdev_class_register(&ilc_sysdev_class);
 	if (ret)
 		return ret;
 
-	ret = sysdev_class_register(&cpu_sysdev_class);
+	ret = platform_driver_register(&ilc_driver);
 	if (ret)
 		return ret;
 

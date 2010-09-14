@@ -149,6 +149,14 @@ DELAY(1),
 END_MARKER
 };
 
+/*
+ * STx5197 clock architecture is very different from other SoC's, and
+ * we don't want to risk making clock transitions using the clock
+ * framework while suspending. So perform all the changes using the poke
+ * table, and directly change the clock rates in the clock framework
+ * here.
+ */
+
 static int stx5197_suspend_begin(suspend_state_t state)
 {
 	comms_clk->rate = XTAL;

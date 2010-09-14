@@ -397,7 +397,7 @@ static void clk_seq_show_clk(struct seq_file *s, struct clk *clk, int depth)
 	struct clk *child_clk;
 
 	seq_printf(s, "%*s%-*s: %4ld.%02ldMHz",
-		depth*2, "", 20-(depth*2), clk->name,
+		depth*2, "", 30-(depth*2), clk->name,
 		rate / 1000000, (rate % 1000000) / 10000);
 	if (clk->nominal_rate)
 		seq_printf(s, " [%4ld.%02ldMHz]", clk->nominal_rate / 1000000,

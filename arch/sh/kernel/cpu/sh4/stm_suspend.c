@@ -107,6 +107,8 @@ static int stm_suspend_enter(suspend_state_t state)
 	wokenup_by = stm_read_intevt();
 	if (platform_suspend->evt_to_irq)
 		wokenup_by = platform_suspend->evt_to_irq(wokenup_by);
+	else
+		wokenup_by = evt2irq(wokenup_by);
 
 	printk(KERN_INFO "CPU woken up by: 0x%x\n", wokenup_by);
 

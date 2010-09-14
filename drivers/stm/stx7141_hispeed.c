@@ -373,6 +373,7 @@ static struct plat_stmmacenet_data stx7141_ethernet_platform_data[] = {
 		.has_gmac = 1,
 		.enh_desc = 1,
 		.tx_coe = 1,
+		.bugged_jumbo =1,
 		.fix_mac_speed = stx7141_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7141_configure_ethernet() */
 	},
@@ -381,6 +382,7 @@ static struct plat_stmmacenet_data stx7141_ethernet_platform_data[] = {
 		.has_gmac = 1,
 		.enh_desc = 1,
 		.tx_coe = 1,
+		.bugged_jumbo =1,
 		.fix_mac_speed = stx7141_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7141_configure_ethernet() */
 	},

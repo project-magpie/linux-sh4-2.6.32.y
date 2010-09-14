@@ -182,6 +182,7 @@ static struct plat_stmmacenet_data fli7510_ethernet_platform_data = {
 	.has_gmac = 1,
 	.enh_desc = 1,
 	.tx_coe = 1,
+	.bugged_jumbo =1,
 	.fix_mac_speed = fli7510_ethernet_fix_mac_speed,
 };
 

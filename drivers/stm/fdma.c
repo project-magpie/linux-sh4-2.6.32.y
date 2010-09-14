@@ -1256,7 +1256,7 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 		return -EINVAL;
 
 	fdma->pdev = pdev;
-	fdma->fdma_num = pdev->id;
+	fdma->fdma_num = (pdev->id != -1 ? pdev->id : 0);
 	fdma_channels_parse(fdma);
 
 	fdma->ch_status_mask = ((1ULL << ((fdma->ch_max + 1) * 2)) - 1ULL) ^

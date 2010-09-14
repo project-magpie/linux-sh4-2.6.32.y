@@ -137,8 +137,7 @@ static int __clk_for_each_child(struct clk *clk,
 	struct clk *clkp;
 	int result = 0;
 
-	if (!fn || !clk)
-		return -EINVAL;
+	BUG_ON(!fn || !clk);
 
 	list_for_each_entry(clkp, &clk->children, children_node)
 		result |= fn(clkp, data);
@@ -167,8 +166,7 @@ int clk_enable(struct clk *clk)
 {
 	int ret = 0;
 
-	if (!clk)
-		return -EINVAL;
+	BUG_ON(!clk);
 
 	if (clk_is_always_enabled(clk))
 		/* No enable required! */
@@ -192,8 +190,8 @@ EXPORT_SYMBOL(clk_enable);
 void clk_disable(struct clk *clk)
 {
 	int ret;
-	if (!clk)
-		return;
+
+	BUG_ON(!clk);
 
 	if (clk_is_always_enabled(clk))
 		/* this clock can not be disabled */
@@ -215,8 +213,7 @@ EXPORT_SYMBOL(clk_disable);
 
 int clk_register(struct clk *clk)
 {
-	if (!clk || !clk->name)
-		return -EINVAL;
+	BUG_ON(!clk || !clk->name);
 
 	mutex_lock(&clks_list_sem);
 
@@ -244,8 +241,7 @@ EXPORT_SYMBOL(clk_register);
 
 void clk_unregister(struct clk *clk)
 {
-	if (!clk)
-		return;
+	BUG_ON(!clk);
 	mutex_lock(&clks_list_sem);
 	list_del(&clk->node);
 	if (clk->parent)
@@ -256,8 +252,7 @@ EXPORT_SYMBOL(clk_unregister);
 
 unsigned long clk_get_rate(struct clk *clk)
 {
-	if (!clk)
-		return -EINVAL;
+	BUG_ON(!clk);
 	return clk->rate;
 }
 EXPORT_SYMBOL(clk_get_rate);
@@ -266,8 +261,7 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 {
 	int ret = -EINVAL;
 
-	if (!clk)
-		return ret;
+	BUG_ON(!clk);
 
 	if (rate == clk_get_rate(clk))
 		return 0;
@@ -276,6 +270,7 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 
 	if (clk_wants_propagate(clk) && !ret)
 		clk_propagate_rate(clk);
+
 	return ret;
 }
 EXPORT_SYMBOL(clk_set_rate);
@@ -292,8 +287,7 @@ EXPORT_SYMBOL(clk_round_rate);
 
 struct clk *clk_get_parent(struct clk *clk)
 {
-	if (!clk)
-		return NULL;
+	BUG_ON(!clk);
 	return clk->parent;
 }
 EXPORT_SYMBOL(clk_get_parent);
@@ -304,8 +298,7 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	struct clk *old_parent;
 	unsigned long old_rate;
 
-	if (!parent || !clk)
-		return ret;
+	BUG_ON(!parent || !clk);
 
 	if (parent == clk_get_parent(clk))
 		return 0;
@@ -336,18 +329,14 @@ EXPORT_SYMBOL(clk_set_parent);
 
 int clk_observe(struct clk *clk, unsigned long *div)
 {
-	int ret = -EINVAL;
-	if (!clk)
-		return ret;
+	BUG_ON(!clk);
 	return __clk_observe(clk, div);
 }
 EXPORT_SYMBOL(clk_observe);
 
 unsigned long clk_get_measure(struct clk *clk)
 {
-	if (!clk)
-		return 0;
-
+	BUG_ON(!clk);
 	return __clk_get_measure(clk);
 }
 EXPORT_SYMBOL(clk_get_measure);

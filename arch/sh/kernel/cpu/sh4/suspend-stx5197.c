@@ -70,6 +70,7 @@
  *			        +-------+
  */
 static struct clk *comms_clk;
+static unsigned long comms_clk_rate;
 
 
 /* *************************
@@ -159,13 +160,14 @@ END_MARKER
 
 static int stx5197_suspend_begin(suspend_state_t state)
 {
+	comms_clk_rate = clk_get_rate(comms_clk);
 	comms_clk->rate = XTAL;
 	return 0;
 }
 
 static int stx5197_suspend_post_enter(suspend_state_t state)
 {
-	comms_clk->rate = comms_clk->parent->rate;
+	comms_clk->rate = comms_clk_rate;
 	return 0;
 }
 

@@ -58,6 +58,7 @@
 		(CONFIG_SH_EXTERNAL_CLOCK / 1000000))
 
 static struct clk *comms_clk;
+static unsigned long comms_clk_rate;
 static void __iomem *cga;
 
 /* *************************
@@ -137,6 +138,7 @@ END_MARKER
 
 static int stx7100_suspend_begin(suspend_state_t state)
 {
+	comms_clk_rate = clk_get_rate(comms_clk);
 	comms_clk->rate = CONFIG_SH_EXTERNAL_CLOCK / 4; /* 6.75 Mhz ~ 7.5 Mhz */
 	return 0;
 }
@@ -201,7 +203,7 @@ static int stx7100_suspend_core(suspend_state_t state, int suspending)
 			PMB_DATA | (14 << PMB_E_SHIFT));
 #endif
 
-	comms_clk->rate = comms_clk->parent->rate;
+	comms_clk->rate = comms_clk_rate;
 
 	return 0;
 

@@ -28,6 +28,7 @@
 #include "stm_suspend.h"
 
 static struct clk *comms_clk;
+static unsigned long comms_clk_rate;
 static void __iomem *cga;
 static void __iomem *cgb;
 
@@ -112,8 +113,9 @@ END_MARKER
 
 static int stx7200_suspend_begin(suspend_state_t state)
 {
-	pr_info("[STM][PM] Analising the wakeup devices\n");
+	pr_info("[STM][PM] Analysing the wakeup devices\n");
 
+	comms_clk_rate = clk_get_rate(comms_clk);
 	comms_clk->rate = 30000000;	/* 30 MHz */
 
 	return 0;
@@ -156,7 +158,7 @@ static int stx7200_suspend_core(suspend_state_t state, int suspending)
 	tmp = readl(cgb + CLKB_PLL0_CFG);
 	writel(tmp & ~CLKB_PLL_BYPASS, cgb + CLKB_PLL0_CFG);
 
-	comms_clk->rate = comms_clk->parent->rate;
+	comms_clk->rate = comms_clk_rate;
 	return 0;
 
 on_suspending:

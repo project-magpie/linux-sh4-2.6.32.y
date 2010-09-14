@@ -209,7 +209,7 @@ static int __init stx5197_suspend_setup(void)
 	return stm_suspend_register(&stx5197_suspend);
 
 error:
-	for (i = 6; i; --i)
+	for (i = ARRAY_SIZE(sc)-1; i; --i)
 		if (sc[i])
 			sysconf_release(sc[i]);
 	return -EINVAL;

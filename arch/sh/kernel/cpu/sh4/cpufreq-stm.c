@@ -173,8 +173,8 @@ int stm_cpufreq_register(struct stm_cpufreq *soc_cpufreq)
 		    (clk_get_rate(stm_cpufreq->cpu_clk) / 1000) >> idx;
 
 		cpufreq_debug_printk(CPUFREQ_DEBUG_DRIVER,
-		"st_cpufreq_module_init", "Initialize idx %u @ %u\n",
-		idx, cpu_freqs[idx].frequency);
+			"st_cpufreq_module_init", "Initialize idx %u @ %uKHz\n",
+			idx, cpu_freqs[idx].frequency);
 	}
 
 	cpu_freqs[stm_cpufreq->num_frequency].frequency = CPUFREQ_TABLE_END;

@@ -281,7 +281,7 @@ asmlinkage void __init sh_cpu_init(void)
 	if (current_cpu_data.type == CPU_SH_NONE)
 		panic("Unknown CPU");
 
-#ifdef CONFIG_32BIT
+#if defined CONFIG_32BIT && defined CONFIG_PMB
 	pmb_init();
 #else
 	/*

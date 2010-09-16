@@ -42,14 +42,6 @@ static struct stm_platform_suspend_t *platform_suspend;
 
 unsigned int wokenup_by;
 
-static inline unsigned long _1_ms_lpj(void)
-{
-	static struct clk *sh4_clk;
-	if (!sh4_clk)
-		sh4_clk = clk_get(NULL, "sh4_clk");
-	return clk_get_rate(sh4_clk) / (1000 * 2);
-}
-
 static unsigned long stm_read_intevt(void)
 {
 	return ctrl_inl(INTEVT);
@@ -59,7 +51,8 @@ static int stm_suspend_enter(suspend_state_t state)
 {
 	unsigned long soc_flags;
 	unsigned long tbl, tbl_size;
-	unsigned long lpj = _1_ms_lpj();
+	unsigned long lpj =
+		(cpu_data[raw_smp_processor_id()].loops_per_jiffy * HZ) / 1000;
 	int err = 0;
 
 	/* Must wait for serial buffers to clear */

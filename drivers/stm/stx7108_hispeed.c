@@ -65,12 +65,12 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_phy_clock = {
 };
 
 static struct stx7108_pio_retime_config stx7108_ethernet_retime_gtx_clock = {
-	.retime = -1,
+	.retime = 1,
 	.clk1notclk0 = 1,
 	.clknotdata = 1,
 	.double_edge = 0,
 	.invertclk = -1,
-	.delay_input = -1,
+	.delay_input = 1,
 };
 static struct stx7108_pio_config gtx_priv;
 

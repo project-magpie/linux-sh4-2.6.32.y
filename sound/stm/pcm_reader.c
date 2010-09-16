@@ -143,7 +143,7 @@ static void snd_stm_pcm_reader_callback_node_done(unsigned long param)
 		return;
 
 	snd_stm_printd(2, "Period elapsed ('%s')\n",
-			pcm_reader->device->bus_id);
+			dev_name(pcm_reader->device));
 
 	snd_pcm_period_elapsed(pcm_reader->substream);
 }
@@ -222,11 +222,11 @@ static int snd_stm_pcm_reader_open(struct snd_pcm_substream *substream)
 			snd_stm_conv_request_group(pcm_reader->conv_source);
 	if (pcm_reader->conv_group)
 		snd_stm_printd(1, "'%s' is attached to '%s' converter(s)...\n",
-				pcm_reader->device->bus_id,
+				dev_name(pcm_reader->device),
 				snd_stm_conv_get_name(pcm_reader->conv_group));
 	else
 		snd_stm_printd(1, "Warning! No converter attached to '%s'!\n",
-				pcm_reader->device->bus_id);
+				dev_name(pcm_reader->device));
 
 	/* Set up constraints & pass hardware capabilities info to ALSA */
 
@@ -796,7 +796,7 @@ static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 		return -EINVAL;
 
 	snd_stm_printd(0, "--- Registering reader '%s'...\n",
-			pcm_reader->device->bus_id);
+			dev_name(pcm_reader->device));
 
 	/* Set reset mode */
 
@@ -855,7 +855,7 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 
 	snd_stm_printd(1, "snd_stm_pcm_reader_probe(pdev=%p)\n", pdev);
 
-	snd_stm_printd(0, "Probing device '%s'...\n", pdev->dev.bus_id);
+	snd_stm_printd(0, "Probing device '%s'...\n", dev_name(&pdev->dev));
 
 	if (snd_BUG_ON(card == NULL))
 		return -EINVAL;

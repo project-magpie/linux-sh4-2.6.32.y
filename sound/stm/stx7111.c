@@ -139,7 +139,7 @@ static int __init snd_stm_stx7111_glue_probe(struct platform_device *pdev)
 	int result = 0;
 	struct snd_stm_stx7111_glue *stx7111_glue;
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
+	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
 
 	stx7111_glue = kzalloc(sizeof(*stx7111_glue), GFP_KERNEL);
 	if (!stx7111_glue) {

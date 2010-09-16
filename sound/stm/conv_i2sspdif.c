@@ -348,7 +348,8 @@ static int snd_stm_conv_i2sspdif_set_enabled(int enabled, void *priv)
 		return -EINVAL;
 
 	snd_stm_printd(1, "%sabling I2S to SPDIF converter '%s'.\n",
-			enabled ? "En" : "Dis", conv_i2sspdif->device->bus_id);
+			enabled ? "En" : "Dis",
+			dev_name(conv_i2sspdif->device));
 
 	if (enabled)
 		return snd_stm_conv_i2sspdif_enable(conv_i2sspdif);
@@ -505,7 +506,7 @@ static int snd_stm_conv_i2sspdif_register(struct snd_device *snd_device)
 		return -EINVAL;
 
 	snd_stm_printd(0, "--- Registering I2S to SPDIF converter '%s'...\n",
-			conv_i2sspdif->device->bus_id);
+			dev_name(conv_i2sspdif->device));
 
 	/* Initialize converter's input & SPDIF player as disabled */
 
@@ -599,7 +600,7 @@ static int snd_stm_conv_i2sspdif_probe(struct platform_device *pdev)
 			pdev->dev.platform_data;
 	struct snd_stm_conv_i2sspdif *conv_i2sspdif;
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
+	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
 
 	if (snd_BUG_ON(conv_i2sspdif_info == NULL))
 		return -EINVAL;

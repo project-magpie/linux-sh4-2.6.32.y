@@ -143,7 +143,7 @@ config SND_STM_CONV_GPIO
 
 config SND_STM_CONV_I2C
 	tristate "Generic I2C-controlled converter driver"
-	depends on SND_STM
+	depends on SND_STM && I2C
 	help
 		This provides generic driver for I2C-controlled
 		converters. See include/sound/stm.h for informations

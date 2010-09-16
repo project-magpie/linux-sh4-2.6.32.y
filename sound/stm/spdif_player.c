@@ -155,7 +155,7 @@ static irqreturn_t snd_stm_spdif_player_irq_handler(int irq, void *dev_id)
 				break;
 
 			snd_stm_printd(2, "Period elapsed ('%s')\n",
-					spdif_player->device->bus_id);
+					dev_name(spdif_player->device));
 			snd_pcm_period_elapsed(spdif_player->substream);
 
 			result = IRQ_HANDLED;
@@ -266,12 +266,12 @@ static int snd_stm_spdif_player_open(struct snd_pcm_substream *substream)
 			snd_stm_conv_request_group(spdif_player->conv_source);
 	if (spdif_player->conv_group)
 		snd_stm_printd(1, "'%s' is attached to '%s' converter(s)...\n",
-				spdif_player->device->bus_id,
+				dev_name(spdif_player->device),
 				snd_stm_conv_get_name(
 				spdif_player->conv_group));
 	else
 		snd_stm_printd(1, "Warning! No converter attached to '%s'!\n",
-				spdif_player->device->bus_id);
+				dev_name(spdif_player->device));
 
 	/* Get default data */
 
@@ -522,7 +522,7 @@ static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
 	}
 
 	snd_stm_printd(1, "Player %s: sampling frequency %d, oversampling %d\n",
-			spdif_player->device->bus_id, runtime->rate,
+			dev_name(spdif_player->device), runtime->rate,
 			oversampling);
 
 	if (snd_BUG_ON(oversampling <= 0))
@@ -1459,7 +1459,7 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 		return -EINVAL;
 
 	snd_stm_printd(0, "--- Registering player '%s'...\n",
-			spdif_player->device->bus_id);
+			dev_name(spdif_player->device));
 
 	/* Initialize hardware (format etc.) */
 
@@ -1560,7 +1560,7 @@ static int snd_stm_spdif_player_probe(struct platform_device *pdev)
 
 	snd_stm_printd(1, "snd_stm_spdif_player_probe(pdev=%p)\n", pdev);
 
-	snd_stm_printd(0, "Probing device '%s'...\n", pdev->dev.bus_id);
+	snd_stm_printd(0, "Probing device '%s'...\n", dev_name(&pdev->dev));
 
 	if (snd_BUG_ON(card == NULL))
 		return -EINVAL;

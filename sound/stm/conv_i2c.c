@@ -43,7 +43,6 @@
 struct snd_stm_conv_i2c {
 	/* System informations */
 	struct i2c_client *client;
-	const char *bus_id;
 	struct snd_stm_conv_converter *converter;
 	struct snd_stm_conv_i2c_info *info;
 	struct snd_stm_conv_ops ops;
@@ -103,8 +102,10 @@ static void snd_stm_conv_i2c_work(struct work_struct *work)
 
 		if (result != cmd_len)
 			snd_stm_printe("WARNING! Failed to %sable I2C converter"
-					" '%s'! (%d)\n", enable_value ? "en" :
-					"dis", conv_i2c->bus_id, result);
+					" '%s'! (%d)\n",
+					enable_value ? "en" : "dis",
+					dev_name(&conv_i2c->client->dev),
+					result);
 	}
 
 	cmd = NULL;
@@ -121,7 +122,8 @@ static void snd_stm_conv_i2c_work(struct work_struct *work)
 		if (result != cmd_len)
 			snd_stm_printe("WARNING! Failed to %smute I2C converter"
 					" '%s'! (%d)\n", mute_value ? "" : "un",
-					conv_i2c->bus_id, result);
+					dev_name(&conv_i2c->client->dev),
+					result);
 	}
 }
 
@@ -170,7 +172,7 @@ static int snd_stm_conv_i2c_set_enabled(int enabled, void *priv)
 		return -EINVAL;
 
 	snd_stm_printd(1, "%sabling DAC %s's.\n", enabled ? "En" : "Dis",
-			conv_i2c->bus_id);
+			dev_name(&conv_i2c->client->dev));
 
 	spin_lock(&conv_i2c->work_lock);
 	conv_i2c->work_enable_value = enabled;
@@ -195,7 +197,7 @@ static int snd_stm_conv_i2c_set_muted(int muted, void *priv)
 		return -EINVAL;
 
 	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
-			conv_i2c->bus_id);
+			dev_name(&conv_i2c->client->dev));
 
 	spin_lock(&conv_i2c->work_lock);
 	conv_i2c->work_mute_value = muted;
@@ -211,13 +213,14 @@ static int snd_stm_conv_i2c_set_muted(int muted, void *priv)
  * I2C driver routines
  */
 
-int snd_stm_conv_i2c_probe(struct i2c_client *client)
+int snd_stm_conv_i2c_probe(struct i2c_client *client,
+	const struct i2c_device_id *id)
 {
 	int result = 0;
 	struct snd_stm_conv_i2c *conv_i2c;
 
 	snd_stm_printd(0, "--- Probing I2C device '%s'...\n",
-			client->dev.bus_id);
+			dev_name(&client->dev));
 
 	if (snd_BUG_ON(client->dev.platform_data == NULL))
 		return -EINVAL;
@@ -231,7 +234,6 @@ int snd_stm_conv_i2c_probe(struct i2c_client *client)
 	}
 	snd_stm_magic_set(conv_i2c);
 	conv_i2c->client = client;
-	conv_i2c->bus_id = client->dev.bus_id;
 	conv_i2c->info = client->dev.platform_data;
 
 	conv_i2c->ops.get_format = snd_stm_conv_i2c_get_format;
@@ -248,7 +250,8 @@ int snd_stm_conv_i2c_probe(struct i2c_client *client)
 		if (result != 0) {
 			snd_stm_printe("User's init function failed for I2C "
 					"converter %s! (%d)\n",
-					conv_i2c->bus_id, result);
+					dev_name(&conv_i2c->client->dev),
+					result);
 			goto error_init;
 		}
 	}
@@ -282,7 +285,9 @@ int snd_stm_conv_i2c_probe(struct i2c_client *client)
 				conv_i2c->info->disable_cmd_len);
 		if (result != conv_i2c->info->disable_cmd_len) {
 			snd_stm_printe("Failed to disable I2C converter '%s'!"
-					" (%d)\n", conv_i2c->bus_id, result);
+					" (%d)\n",
+					dev_name(&conv_i2c->client->dev),
+					result);
 			goto error_set_enabled;
 		}
 	}
@@ -292,7 +297,9 @@ int snd_stm_conv_i2c_probe(struct i2c_client *client)
 				conv_i2c->info->mute_cmd_len);
 		if (result != conv_i2c->info->mute_cmd_len) {
 			snd_stm_printe("Failed to mute I2C converter '%s'!"
-					" (%d)\n", conv_i2c->bus_id, result);
+					" (%d)\n",
+					dev_name(&conv_i2c->client->dev),
+					result);
 			goto error_set_muted;
 		}
 	}

@@ -293,7 +293,7 @@ extern int *snd_stm_debug_level;
 #define snd_stm_magic_clear(object) \
 		(object)->__snd_stm_magic = snd_stm_magic_bad
 #define snd_stm_magic_valid(object) \
-		snd_stm_assert((object)->__snd_stm_magic == \
+		snd_BUG_ON((object)->__snd_stm_magic == \
 			       snd_stm_magic_good)
 
 #else

@@ -91,7 +91,7 @@ static int snd_stm_conv_dummy_probe(struct platform_device *pdev)
 {
 	struct snd_stm_conv_dummy *conv_dummy;
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
+	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
 
 	if (snd_BUG_ON(pdev->dev.platform_data == NULL))
 		return -EINVAL;

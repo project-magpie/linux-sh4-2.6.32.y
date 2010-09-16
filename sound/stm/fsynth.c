@@ -693,7 +693,7 @@ static int snd_stm_fsynth_probe(struct platform_device *pdev)
 	int channels_max;
 	int i;
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
+	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
 
 	if (snd_BUG_ON(fsynth_info == NULL))
 		return -EINVAL;

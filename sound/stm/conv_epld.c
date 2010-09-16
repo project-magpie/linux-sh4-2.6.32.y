@@ -195,7 +195,7 @@ static int snd_stm_conv_epld_probe(struct platform_device *pdev)
 	int result = 0;
 	struct snd_stm_conv_epld *conv_epld;
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
+	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
 
 	if (snd_BUG_ON(pdev->dev.platform_data == NULL))
 		return -EINVAL;
@@ -208,7 +208,7 @@ static int snd_stm_conv_epld_probe(struct platform_device *pdev)
 		goto error_alloc;
 	}
 	snd_stm_magic_set(conv_epld);
-	conv_epld->bus_id = pdev->dev.bus_id;
+	conv_epld->bus_id = dev_name(&pdev->dev);
 	conv_epld->info = pdev->dev.platform_data;
 
 	conv_epld->ops.get_format = snd_stm_conv_epld_get_format;

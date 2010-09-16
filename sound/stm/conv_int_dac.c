@@ -243,7 +243,7 @@ static int snd_stm_conv_int_dac_probe(struct platform_device *pdev)
 	struct snd_stm_conv_int_dac *conv_int_dac;
 	struct snd_card *card = snd_stm_card_get();
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", pdev->dev.bus_id);
+	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
 
 	if (snd_BUG_ON(card == NULL))
 		return -EINVAL;

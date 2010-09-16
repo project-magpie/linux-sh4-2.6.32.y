@@ -73,7 +73,7 @@ struct snd_stm_conv_group {
 	char name[1]; /* "Expandable" */
 };
 
-#define SND_STM_BUS_ID_SIZE 16
+#define SND_STM_BUS_ID_SIZE 64
 struct snd_stm_conv_source {
 	struct list_head list;
 

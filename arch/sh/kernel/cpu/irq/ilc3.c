@@ -74,6 +74,9 @@ struct ilc {
 	spinlock_t lock;
 	struct sys_device sysdev;
 	struct ilc_irq *irqs;
+#ifdef CONFIG_HIBERNATION
+	pm_message_t state;
+#endif
 	unsigned long **priority;
 };
 
@@ -590,16 +593,20 @@ static int ilc_resume_from_hibernation(struct ilc *ilc)
 
 static int ilc_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
+	struct ilc *ilc = sysdev_to_ilc(dev);
+
+	ilc->state = state;
+
 	return 0;
 }
 
 static int ilc_sysdev_resume(struct sys_device *dev)
 {
-	struct ilc *ilc;
-
-	ilc = sysdev_to_ilc(dev);
-	ilc_resume_from_hibernation(ilc);
-
+	struct ilc *ilc = sysdev_to_ilc(dev);
+	if (ilc->state.event == PM_EVENT_FREEZE) {
+		ilc_resume_from_hibernation(ilc);
+		ilc->state = PMSG_ON;
+	}
 	return 0;
 }
 

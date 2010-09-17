@@ -176,7 +176,6 @@ static void print_pkt(unsigned char *buf, int len)
 		printk(" %02x", buf[j]);
 	}
 	pr_info("\n");
-	return;
 }
 #endif
 
@@ -389,6 +388,7 @@ static void display_ring(struct dma_desc *p, int size)
 		       i, (unsigned int)virt_to_phys(&p[i]),
 		       (unsigned int)(x->a), (unsigned int)((x->a) >> 32),
 		       x->b, x->c);
+		pr_info("\n");
 	}
 }
 
@@ -507,7 +507,6 @@ static void init_dma_desc_rings(struct net_device *dev)
 		pr_info("TX descriptor ring:\n");
 		display_ring(priv->dma_tx, txsize);
 	}
-	return;
 }
 
 static void dma_free_rx_skbufs(struct stmmac_priv *priv)
@@ -522,7 +521,6 @@ static void dma_free_rx_skbufs(struct stmmac_priv *priv)
 		}
 		priv->rx_skbuff[i] = NULL;
 	}
-	return;
 }
 
 static void dma_free_tx_skbufs(struct stmmac_priv *priv)
@@ -540,7 +538,6 @@ static void dma_free_tx_skbufs(struct stmmac_priv *priv)
 			priv->tx_skbuff[i] = NULL;
 		}
 	}
-	return;
 }
 
 static void free_dma_desc_resources(struct stmmac_priv *priv)
@@ -560,8 +557,6 @@ static void free_dma_desc_resources(struct stmmac_priv *priv)
 	kfree(priv->rx_skbuff_dma);
 	kfree(priv->rx_skbuff);
 	kfree(priv->tx_skbuff);
-
-	return;
 }
 
 /**
@@ -584,8 +579,6 @@ static void stmmac_dma_operation_mode(struct stmmac_priv *priv)
 		tc = SF_DMA_MODE;
 	} else
 		priv->hw->dma->dma_mode(priv->ioaddr, tc, SF_DMA_MODE);
-
-	return;
 }
 
 /**
@@ -660,7 +653,6 @@ static void stmmac_tx(struct stmmac_priv *priv)
 		}
 		netif_tx_unlock(priv->dev);
 	}
-	return;
 }
 
 static inline void stmmac_enable_irq(struct stmmac_priv *priv)
@@ -716,8 +708,6 @@ void stmmac_schedule(struct net_device *dev)
 	priv->xstats.sched_timer_n++;
 
 	_stmmac_schedule(priv);
-
-	return;
 }
 
 static void stmmac_no_timer_started(void *t, unsigned int x)
@@ -748,8 +738,6 @@ static void stmmac_tx_err(struct stmmac_priv *priv)
 
 	priv->dev->stats.tx_errors++;
 	netif_wake_queue(priv->dev);
-
-	return;
 }
 
 
@@ -771,8 +759,6 @@ static void stmmac_dma_interrupt(struct stmmac_priv *priv)
 		stmmac_tx_err(priv);
 	} else if (unlikely(status == tx_hard_error))
 		stmmac_tx_err(priv);
-
-	return;
 }
 
 /**
@@ -819,7 +805,7 @@ static int stmmac_open(struct net_device *dev)
 #ifdef CONFIG_STMMAC_TIMER
 	priv->tm = kzalloc(sizeof(struct stmmac_timer *), GFP_KERNEL);
 	if (unlikely(priv->tm == NULL)) {
-		pr_err("%s: ERROR: timer memory alloc failed \n", __func__);
+		pr_err("%s: ERROR: timer memory alloc failed\n", __func__);
 		return -ENOMEM;
 	}
 	priv->tm->freq = tmrate;
@@ -1187,7 +1173,6 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv)
 		}
 		priv->hw->desc->set_rx_owner(p + entry);
 	}
-	return;
 }
 
 static int stmmac_rx(struct stmmac_priv *priv, int limit)
@@ -1326,7 +1311,6 @@ static void stmmac_tx_timeout(struct net_device *dev)
 
 	/* Clear Tx resources and restart transmitting again */
 	stmmac_tx_err(priv);
-	return;
 }
 
 /* Configuration changes (passed on by ifconfig) */
@@ -1368,7 +1352,6 @@ static void stmmac_multicast_list(struct net_device *dev)
 	spin_lock(&priv->lock);
 	priv->hw->mac->set_filter(dev);
 	spin_unlock(&priv->lock);
-	return;
 }
 
 /**
@@ -1491,8 +1474,6 @@ static void stmmac_vlan_rx_register(struct net_device *dev,
 	spin_lock(&priv->lock);
 	priv->vlgrp = grp;
 	spin_unlock(&priv->lock);
-
-	return;
 }
 #endif
 
@@ -1585,14 +1566,14 @@ static int stmmac_mac_device_setup(struct net_device *dev)
 	else
 		device = dwmac100_setup(priv->ioaddr);
 
+	if (!device)
+		return -ENOMEM;
+
 	if (priv->enh_desc) {
 		device->desc = &enh_desc_ops;
 		pr_info("\tEnhanced descriptor structure\n");
 	} else
 		device->desc = &ndesc_ops;
-
-	if (!device)
-		return -ENOMEM;
 
 	priv->hw = device;
 
@@ -1739,7 +1720,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, ndev);
 
 	/* Set the I/O base addr */
-	ndev->base_addr = (unsigned long) addr;
+	ndev->base_addr = (unsigned long)addr;
 
 	/* Verify embedded resource for the platform */
 	ret = stmmac_claim_resource(pdev);
@@ -1770,8 +1751,8 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	priv->bsp_priv = plat_dat->bsp_priv;
 
 	pr_info("\t%s - (dev. name: %s - id: %d, IRQ #%d\n"
-	       "\tIO base addr: 0x%08x)\n", ndev->name, pdev->name,
-	       pdev->id, ndev->irq, (unsigned int) addr);
+	       "\tIO base addr: 0x%p)\n", ndev->name, pdev->name,
+	       pdev->id, ndev->irq, addr);
 
 	/* MDIO bus Registration */
 	pr_debug("\tMDIO bus (id: %d)...", priv->bus_id);

@@ -32,7 +32,7 @@
 #include "dwmac_dma.h"
 
 static int dwmac100_dma_init(void __iomem *ioaddr, int pbl, u32 dma_tx,
-			   u32 dma_rx)
+			     u32 dma_rx)
 {
 	u32 value = readl(ioaddr + DMA_BUS_MODE);
 	int limit;
@@ -79,15 +79,13 @@ static void dwmac100_dma_operation_mode(void __iomem *ioaddr, int txmode,
 		csr6 |= DMA_CONTROL_TTC_128;
 
 	writel(csr6, ioaddr + DMA_CONTROL);
-
-	return;
 }
 
 static void dwmac100_dump_dma_regs(void __iomem *ioaddr)
 {
 	int i;
 
-	CHIP_DBG(KERN_DEBUG "DWMAC 100 DMA CSR \n");
+	CHIP_DBG(KERN_DEBUG "DWMAC 100 DMA CSR\n");
 	for (i = 0; i < 9; i++)
 		pr_debug("\t CSR%d (offset 0x%x): 0x%08x\n", i,
 		       (DMA_BUS_MODE + i * 4),
@@ -96,14 +94,12 @@ static void dwmac100_dump_dma_regs(void __iomem *ioaddr)
 	    DMA_CUR_TX_BUF_ADDR, readl(ioaddr + DMA_CUR_TX_BUF_ADDR));
 	CHIP_DBG(KERN_DEBUG "\t CSR21 (offset 0x%x): 0x%08x\n",
 	    DMA_CUR_RX_BUF_ADDR, readl(ioaddr + DMA_CUR_RX_BUF_ADDR));
-	return;
 }
 
 /* DMA controller has two counters to track the number of
  * the receive missed frames. */
-static void dwmac100_dma_diagnostic_fr(void *data,
-				     struct stmmac_extra_stats *x,
-				     void __iomem *ioaddr)
+static void dwmac100_dma_diagnostic_fr(void *data, struct stmmac_extra_stats *x,
+				       void __iomem *ioaddr)
 {
 	struct net_device_stats *stats = (struct net_device_stats *)data;
 	u32 csr8 = readl(ioaddr + DMA_MISSED_FRAME_CTR);
@@ -128,7 +124,6 @@ static void dwmac100_dma_diagnostic_fr(void *data,
 			x->rx_missed_cntr += miss_f;
 		}
 	}
-	return;
 }
 
 struct stmmac_dma_ops dwmac100_dma_ops = {

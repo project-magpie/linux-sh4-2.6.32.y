@@ -31,8 +31,6 @@ static void stmmac_timer_handler(void *data)
 	struct net_device *dev = (struct net_device *)data;
 
 	stmmac_schedule(dev);
-
-	return;
 }
 
 #define STMMAC_TIMER_MSG(dev_name, timer, freq) \

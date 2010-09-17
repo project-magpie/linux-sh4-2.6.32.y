@@ -40,7 +40,6 @@ static void dwmac100_core_init(void __iomem *ioaddr)
 #ifdef STMMAC_VLAN_TAG_USED
 	writel(ETH_P_8021Q, ioaddr + MAC_VLAN1);
 #endif
-	return;
 }
 
 static int dwmac100_rx_coe_supported(void __iomem *ioaddr)
@@ -51,9 +50,9 @@ static int dwmac100_rx_coe_supported(void __iomem *ioaddr)
 static void dwmac100_dump_mac_regs(void __iomem *ioaddr)
 {
 	pr_info("\t----------------------------------------------\n"
-		"\t  DWMAC 100 CSR (base addr = 0x%8x)\n"
+		"\t  DWMAC 100 CSR (base addr = 0x%p)\n"
 		"\t----------------------------------------------\n",
-		(unsigned int) ioaddr);
+		ioaddr);
 	pr_info("\tcontrol reg (offset 0x%x): 0x%08x\n", MAC_CONTROL,
 		readl(ioaddr + MAC_CONTROL));
 	pr_info("\taddr HI (offset 0x%x): 0x%08x\n ", MAC_ADDR_HIGH,
@@ -81,7 +80,6 @@ static void dwmac100_dump_mac_regs(void __iomem *ioaddr)
 		MMC_HIGH_INTR_MASK, readl(ioaddr + MMC_HIGH_INTR_MASK));
 	pr_info("\t MMC Low Interrupt Mask (offset 0x%x): 0x%08x\n",
 		MMC_LOW_INTR_MASK, readl(ioaddr + MMC_LOW_INTR_MASK));
-	return;
 }
 
 static void dwmac100_irq_status(void __iomem *ioaddr)
@@ -90,13 +88,13 @@ static void dwmac100_irq_status(void __iomem *ioaddr)
 }
 
 static void dwmac100_set_umac_addr(void __iomem *ioaddr, unsigned char *addr,
-			  unsigned int reg_n)
+				   unsigned int reg_n)
 {
 	stmmac_set_mac_addr(ioaddr, addr, MAC_ADDR_HIGH, MAC_ADDR_LOW);
 }
 
 static void dwmac100_get_umac_addr(void __iomem *ioaddr, unsigned char *addr,
-			  unsigned int reg_n)
+				   unsigned int reg_n)
 {
 	stmmac_get_mac_addr(ioaddr, addr, MAC_ADDR_HIGH, MAC_ADDR_LOW);
 }
@@ -152,19 +150,16 @@ static void dwmac100_set_filter(struct net_device *dev)
 	    "HI 0x%08x, LO 0x%08x\n",
 	    __func__, readl(ioaddr + MAC_CONTROL),
 	    readl(ioaddr + MAC_HASH_HIGH), readl(ioaddr + MAC_HASH_LOW));
-	return;
 }
 
 static void dwmac100_flow_ctrl(void __iomem *ioaddr, unsigned int duplex,
-			     unsigned int fc, unsigned int pause_time)
+			       unsigned int fc, unsigned int pause_time)
 {
 	unsigned int flow = MAC_FLOW_CTRL_ENABLE;
 
 	if (duplex)
 		flow |= (pause_time << MAC_FLOW_CTRL_PT_SHIFT);
 	writel(flow, ioaddr + MAC_FLOW_CTRL);
-
-	return;
 }
 
 /* No PMT module supported for this Ethernet Controller.
@@ -192,6 +187,8 @@ struct mac_device_info *dwmac100_setup(void __iomem *ioaddr)
 	struct mac_device_info *mac;
 
 	mac = kzalloc(sizeof(const struct mac_device_info), GFP_KERNEL);
+	if (!mac)
+		return NULL;
 
 	pr_info("\tDWMAC100\n");
 

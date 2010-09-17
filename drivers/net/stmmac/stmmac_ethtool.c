@@ -102,7 +102,6 @@ void stmmac_ethtool_getdrvinfo(struct net_device *dev,
 	strcpy(info->version, DRV_MODULE_VERSION);
 	info->fw_version[0] = '\0';
 	info->n_stats = STMMAC_STATS_LEN;
-	return;
 }
 
 int stmmac_ethtool_getsettings(struct net_device *dev, struct ethtool_cmd *cmd)
@@ -170,6 +169,7 @@ void stmmac_ethtool_gregs(struct net_device *dev,
 {
 	int i;
 	u32 *reg_space = (u32 *) space;
+
 	struct stmmac_priv *priv = netdev_priv(dev);
 
 	memset(reg_space, 0x0, REG_SPACE_SIZE);
@@ -193,8 +193,6 @@ void stmmac_ethtool_gregs(struct net_device *dev,
 			reg_space[i + 55] =
 			    readl(priv->ioaddr + (DMA_BUS_MODE + (i * 4)));
 	}
-
-	return;
 }
 
 int stmmac_ethtool_set_tx_csum(struct net_device *netdev, u32 data)
@@ -232,7 +230,6 @@ stmmac_get_pauseparam(struct net_device *netdev,
 		pause->tx_pause = 1;
 
 	spin_unlock(&priv->lock);
-	return;
 }
 
 static int
@@ -288,8 +285,6 @@ static void stmmac_get_ethtool_stats(struct net_device *dev,
 		data[i] = (stmmac_gstrings_stats[i].sizeof_stat ==
 		sizeof(u64)) ? (*(u64 *)p) : (*(u32 *)p);
 	}
-
-	return;
 }
 
 static int stmmac_get_sset_count(struct net_device *netdev, int sset)
@@ -319,7 +314,6 @@ static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 		WARN_ON(1);
 		break;
 	}
-	return;
 }
 
 /* Currently only support WOL through Magic packet. */

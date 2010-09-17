@@ -46,7 +46,6 @@ static int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 {
 	struct net_device *ndev = bus->priv;
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	void __iomem *ioaddr = (void __iomem *) ndev->base_addr;
 	unsigned int mii_address = priv->hw->mii.addr;
 	unsigned int mii_data = priv->hw->mii.data;
 
@@ -55,12 +54,12 @@ static int stmmac_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 			((phyreg << 6) & (0x000007C0)));
 	regValue |= MII_BUSY | ((priv->mii_clk_csr & 7) << 2);
 
-	do {} while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1);
-	writel(regValue, ioaddr + mii_address);
-	do {} while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1);
+	do {} while (((readl(priv->ioaddr + mii_address)) & MII_BUSY) == 1);
+	writel(regValue, priv->ioaddr + mii_address);
+	do {} while (((readl(priv->ioaddr + mii_address)) & MII_BUSY) == 1);
 
 	/* Read the data from the MII data register */
-	data = (int)readl(ioaddr + mii_data);
+	data = (int)readl(priv->ioaddr + mii_data);
 
 	return data;
 }
@@ -78,7 +77,6 @@ static int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg,
 {
 	struct net_device *ndev = bus->priv;
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	void __iomem *ioaddr = (void __iomem *) ndev->base_addr;
 	unsigned int mii_address = priv->hw->mii.addr;
 	unsigned int mii_data = priv->hw->mii.data;
 
@@ -90,14 +88,14 @@ static int stmmac_mdio_write(struct mii_bus *bus, int phyaddr, int phyreg,
 
 
 	/* Wait until any existing MII operation is complete */
-	do {} while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1);
+	do {} while (((readl(priv->ioaddr + mii_address)) & MII_BUSY) == 1);
 
 	/* Set the MII address register to write */
-	writel(phydata, ioaddr + mii_data);
-	writel(value, ioaddr + mii_address);
+	writel(phydata, priv->ioaddr + mii_data);
+	writel(value, priv->ioaddr + mii_address);
 
 	/* Wait until any existing MII operation is complete */
-	do {} while (((readl(ioaddr + mii_address)) & MII_BUSY) == 1);
+	do {} while (((readl(priv->ioaddr + mii_address)) & MII_BUSY) == 1);
 
 	return 0;
 }
@@ -111,7 +109,6 @@ static int stmmac_mdio_reset(struct mii_bus *bus)
 {
 	struct net_device *ndev = bus->priv;
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	void __iomem *ioaddr = (void __iomem *) ndev->base_addr;
 	unsigned int mii_address = priv->hw->mii.addr;
 
 	if (priv->phy_reset) {
@@ -123,7 +120,7 @@ static int stmmac_mdio_reset(struct mii_bus *bus)
 	 * It doesn't complete its reset until at least one clock cycle
 	 * on MDC, so perform a dummy mdio read.
 	 */
-	writel(0, ioaddr + mii_address);
+	writel(0, priv->ioaddr + mii_address);
 
 	return 0;
 }

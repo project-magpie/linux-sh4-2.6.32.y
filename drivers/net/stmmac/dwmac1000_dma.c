@@ -115,7 +115,6 @@ static void dwmac1000_dma_operation_mode(void __iomem *ioaddr, int txmode,
 	}
 
 	writel(csr6, ioaddr + DMA_CONTROL);
-	return;
 }
 
 /* Not yet implemented --- no RMON module */
@@ -137,7 +136,6 @@ static void dwmac1000_dump_dma_regs(void __iomem *ioaddr)
 			       readl(ioaddr + DMA_BUS_MODE + offset));
 		}
 	}
-	return;
 }
 
 struct stmmac_dma_ops dwmac1000_dma_ops = {

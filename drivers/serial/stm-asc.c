@@ -22,6 +22,7 @@
 #include <linux/gpio.h>
 #include <linux/generic_serial.h>
 #include <linux/spinlock.h>
+#include <linux/pm_runtime.h>
 #include <linux/platform_device.h>
 #include <linux/stm/platform.h>
 #include <linux/clk.h>
@@ -406,6 +407,10 @@ static int __devinit asc_serial_probe(struct platform_device *pdev)
 		/* enable the wakeup on console */
 		device_set_wakeup_enable(&pdev->dev, 1);
 		enable_irq_wake(pdev->resource[1].start);
+
+		pm_runtime_set_active(&pdev->dev);
+		pm_suspend_ignore_children(&pdev->dev, 1);
+		pm_runtime_enable(&pdev->dev);
 	}
 	return ret;
 }

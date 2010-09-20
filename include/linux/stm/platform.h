@@ -177,7 +177,7 @@ struct plat_stm_temp_data {
 
 struct stm_plat_usb_data {
 	unsigned long flags;
-	struct stm_pad_config *pad_config;
+	struct stm_device_config *device_config;
 };
 
 

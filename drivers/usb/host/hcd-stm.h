@@ -64,6 +64,7 @@ struct drv_usb_data {
 	void *ahb2stbus_protocol_base;
 	struct platform_device *ehci_device;
 	struct platform_device *ohci_device;
+	struct stm_device_state *device_state;
 };
 
 #ifdef CONFIG_PM_RUNTIME

@@ -11,7 +11,7 @@
 
 #include <linux/platform_device.h>
 #include <linux/stm/platform.h>
-#include <linux/stm/pm.h>
+#include <linux/stm/device.h>
 #include <linux/pm_runtime.h>
 #include <linux/delay.h>
 #include <linux/usb.h>
@@ -102,8 +102,7 @@ static int stm_usb_remove(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct drv_usb_data *dr_data = platform_get_drvdata(pdev);
 
-	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 0);
-	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
+	stm_device_power(dr_data->device_state, stm_device_power_off);
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "wrapper");
 	devm_release_mem_region(dev, res->start, res->end - res->start);
@@ -157,19 +156,15 @@ static int stm_usb_probe(struct platform_device *pdev)
 	int ret = 0;
 
 	dgb_print("\n");
-	/* Power on */
-	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 0);
-	/* Wait the ack */
-	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
-
 	dr_data = kzalloc(sizeof(struct drv_usb_data), GFP_KERNEL);
 	if (!dr_data)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, dr_data);
 
-	if (!devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
-			dev_name(&pdev->dev))) {
+	dr_data->device_state = devm_stm_device_init(&pdev->dev,
+		plat_data->device_config);
+	if (!dr_data->device_state) {
 		ret = -EBUSY;
 		goto err_0;
 	}
@@ -256,8 +251,10 @@ err_0:
 
 static void stm_usb_shutdown(struct platform_device *pdev)
 {
+	struct drv_usb_data *dr_data = platform_get_drvdata(pdev);
 	dgb_print("\n");
-	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 1);
+
+	stm_device_power(dr_data->device_state, stm_device_power_off);
 }
 
 #ifdef CONFIG_PM
@@ -293,8 +290,7 @@ static int stm_usb_suspend(struct device *dev)
 	mdelay(10);
 	writel(0, protocol_base + AHB2STBUS_SW_RESET);
 
-	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 1);
-	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 1);
+	stm_device_power(dr_data->device_state, stm_device_power_off);
 
 	return 0;
 }
@@ -310,8 +306,7 @@ static int stm_usb_resume(struct device *dev)
 #endif
 
 	dgb_print("\n");
-	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 0);
-	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
+	stm_device_power(dr_data->device_state, stm_device_power_on);
 
 	stm_usb_boot(pdev);
 

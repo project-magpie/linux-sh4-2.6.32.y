@@ -63,6 +63,7 @@
 #include <linux/gpio.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
+#include <linux/pm_runtime.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -1061,6 +1062,7 @@ static int iic_stm_control(struct i2c_adapter *adapter,
 		printk(KERN_WARNING " %s: i2c-ioctl not managed\n",
 		       __func__);
 	}
+
 	return 0;
 }
 
@@ -1173,6 +1175,11 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 		return err;
 	}
 
+	/* by default the device is on */
+	pm_runtime_set_active(&pdev->dev);
+	pm_suspend_ignore_children(&pdev->dev, 1);
+	pm_runtime_enable(&pdev->dev);
+
 	return 0;
 }
 
@@ -1245,6 +1252,8 @@ static struct dev_pm_ops stm_i2c_pm_ops = {
 	.resume = iic_stm_resume,
 	.freeze = iic_stm_suspend,
 	.restore = iic_stm_resume,
+	.runtime_suspend = iic_stm_suspend,
+	.runtime_resume = iic_stm_resume,
 };
 
 static struct platform_driver i2c_stm_driver = {

@@ -124,6 +124,7 @@ config PMS
 	bool "Power Management Scheme"
 	default n
 	depends on PM
+	select PM_RUNTIME
 	help
 	  This option enables the power management scheme on clocks and devices system
 

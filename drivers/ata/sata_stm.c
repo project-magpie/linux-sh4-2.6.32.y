@@ -36,7 +36,7 @@
 #include <scsi/scsi_transport.h>
 #include <linux/libata.h>
 #include <linux/stm/platform.h>
-#include <linux/stm/pm.h>
+#include <linux/stm/device.h>
 
 #define DRV_NAME			"sata-stm"
 #define DRV_VERSION			"0.7"
@@ -256,6 +256,7 @@ struct stm_host_priv
 	int softsg;			/* If using softsg */
 	int shared_dma_host_irq;	/* If we the interrupt from the DMA
 					 * and HOSTC are or'ed together */
+	struct stm_device_state *device_state;
 };
 
 struct stm_port_priv
@@ -1029,6 +1030,9 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 
         host->private_data = hpriv;
 
+	hpriv->device_state = devm_stm_device_init(dev,
+		sata_private_info->device_config);
+
 	mem_res = platform_get_resource(pdev,IORESOURCE_MEM,0);
 	phys_base = mem_res->start;
 	phys_size = mem_res->end - mem_res->start + 1;
@@ -1159,35 +1163,42 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 
 static int stm_sata_remove(struct platform_device *pdev)
 {
+	struct ata_host *host = dev_get_drvdata(&pdev->dev);
+	struct stm_host_priv *hpriv = host->private_data;
+
+	stm_device_power(hpriv->device_state,  stm_device_power_off);
+
 	return 0;
 }
 
 #ifdef CONFIG_PM
 static int stm_sata_suspend(struct device *dev)
 {
-	struct platform_device *pdev = to_platform_device(dev);
+	struct ata_host *host = dev_get_drvdata(dev);
+	struct stm_host_priv *hpriv = host->private_data;
 
 #ifdef CONFIG_PM_RUNTIME
 	if (dev->power.runtime_status != RPM_ACTIVE)
 		return 0; /* usb already suspended via runtime_suspend */
 #endif
 
-	platform_pm_pwdn_req(pdev, HOST_PM, 1);
-	platform_pm_pwdn_ack(pdev, HOST_PM, 1);
+	stm_device_power(hpriv->device_state,  stm_device_power_off);
+
 	return 0;
 }
 
 static int stm_sata_resume(struct device *dev)
 {
-	struct platform_device *pdev = to_platform_device(dev);
+	struct ata_host *host = dev_get_drvdata(dev);
+	struct stm_host_priv *hpriv = host->private_data;
 
 #ifdef CONFIG_PM_RUNTIME
 	if (dev->power.runtime_status == RPM_SUSPENDED)
 		return 0; /* usb wants resume via runtime_resume... */
 #endif
 
-	platform_pm_pwdn_req(pdev, HOST_PM, 0);
-	platform_pm_pwdn_ack(pdev, HOST_PM, 0);
+	stm_device_power(hpriv->device_state, stm_device_power_on);
+
 	return 0;
 }
 #else
@@ -1223,7 +1234,7 @@ static int stm_sata_runtime_suspend(struct device *dev)
 
 	}
 
-	stm_device_power(hpriv->handle, STM_POWER_OFF);
+	stm_device_power(hpriv->device_state,  stm_device_power_off);
 
 	return 0;
 }
@@ -1245,7 +1256,7 @@ static int stm_sata_runtime_resume(struct device *dev)
 	 * The child devices are discovered as hot-plug
 	 * when the host is powered-on
 	 */
-	stm_device_power(hpriv->handle, STM_POWER_ON);
+	stm_device_power(hpriv->device_state,  stm_device_power_on);
 
 	for (nr_port = 0; nr_port < host->n_ports; ++nr_port) {
 		port = host->ports[nr_port];

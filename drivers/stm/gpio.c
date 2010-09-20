@@ -47,23 +47,32 @@ struct stm_gpio_pin {
 #define PIN_IGNORE_RISING_EDGE	(PIN_IGNORE_EDGE_FLAG | 0)
 #define PIN_IGNORE_FALLING_EDGE	(PIN_IGNORE_EDGE_FLAG | 1)
 #define PIN_IGNORE_EDGE_MASK	(PIN_IGNORE_EDGE_FLAG | PIN_IGNORE_EDGE_VAL)
+
+	unsigned char direction;
 	struct stpio_pin stpio;
 };
 
 #define to_stm_gpio_port(chip) \
 		container_of(chip, struct stm_gpio_port, gpio_chip)
 
+#define sysdev_to_stm_gpio(dev) \
+		container_of((dev), struct stm_gpio_port, sysdev)
+
 struct stm_gpio_port {
 	struct gpio_chip gpio_chip;
 	void *base;
 	unsigned long irq_level_mask;
 	struct stm_gpio_pin pins[STM_GPIO_PINS_PER_PORT];
+	struct sys_device sysdev;
+	pm_message_t pm_state;
 };
 
 struct stm_gpio_irqmux {
 	void *base;
 	int port_first;
 };
+
+static struct sysdev_class stm_gpio_sysdev_class;
 
 
 
@@ -279,12 +288,19 @@ static int stm_gpio_irq_chip_type(unsigned int pin_irq, unsigned type)
 	return 0;
 }
 
+static int stm_gpio_irq_chip_wake(unsigned int irq, unsigned int on)
+{
+	return 0;
+}
+
 static struct irq_chip stm_gpio_irq_chip = {
 	.name		= "stm_gpio_irq",
+	.disable	= stm_gpio_irq_chip_disable,
 	.mask		= stm_gpio_irq_chip_disable,
 	.mask_ack	= stm_gpio_irq_chip_disable,
 	.unmask		= stm_gpio_irq_chip_enable,
 	.set_type	= stm_gpio_irq_chip_type,
+	.set_wake	= stm_gpio_irq_chip_wake,
 };
 
 static int stm_gpio_irq_init(int port_no)
@@ -334,6 +350,7 @@ static inline void __stm_gpio_direction(struct stm_gpio_port *port,
 			direction != STM_GPIO_DIRECTION_ALT_OUT &&
 			direction != STM_GPIO_DIRECTION_ALT_BIDIR);
 
+	port->pins[offset].direction = direction;
 	set__PIO_PCx(port->base, offset, direction);
 }
 
@@ -743,8 +760,10 @@ void __init stm_gpio_early_init(struct platform_device pdevs[], int num,
 static int __devinit stm_gpio_probe(struct platform_device *pdev)
 {
 	int port_no = pdev->id;
+	struct stm_gpio_port *port = &stm_gpio_ports[port_no];
 	struct resource *memory;
 	int irq;
+	int ret;
 
 	BUG_ON(port_no < 0);
 	BUG_ON(port_no >= stm_gpio_num);
@@ -769,7 +788,14 @@ static int __devinit stm_gpio_probe(struct platform_device *pdev)
 		}
 	}
 
-	stm_gpio_ports[port_no].gpio_chip.label = dev_name(&pdev->dev);
+	port->gpio_chip.label = dev_name(&pdev->dev);
+	dev_set_drvdata(&pdev->dev, port);
+
+	port->sysdev.id = port_no;
+	port->sysdev.cls = &stm_gpio_sysdev_class;
+	ret = sysdev_register(&port->sysdev);
+	if (ret)
+		return ret;
 
 	/* This is a good time to check consistency of linux/stm/gpio.h
 	 * declarations with the proper source... */
@@ -860,9 +886,94 @@ static struct platform_driver stm_gpio_irqmux_driver = {
 
 /*** Drivers initialization ***/
 
+#ifdef CONFIG_PM
+static int stm_gpio_hibernation_resume(struct stm_gpio_port *port)
+{
+	int pin_no;
+
+	for (pin_no = 0; pin_no < port->gpio_chip.ngpio; ++pin_no)
+		__stm_gpio_direction(port, pin_no,
+			port->pins[pin_no].direction);
+
+	return 0;
+}
+
+static int stm_gpio_suspend(struct stm_gpio_port *port)
+{
+	int port_no = port - stm_gpio_ports;
+	int pin_no;
+
+	/* Enable the wakeup pin IRQ if required */
+	for (pin_no = 0; pin_no < port->gpio_chip.ngpio; ++pin_no) {
+		int irq = gpio_to_irq(stm_gpio(port_no, pin_no));
+		struct irq_desc *desc = irq_to_desc(irq);
+
+		if (IRQ_WAKEUP & desc->status)
+			stm_gpio_irq_chip_enable(irq);
+		else
+			stm_gpio_irq_chip_disable(irq);
+	}
+
+	return 0;
+}
+
+static int stm_gpio_sysdev_suspend(struct sys_device *dev, pm_message_t state)
+{
+	struct stm_gpio_port *port = sysdev_to_stm_gpio(dev);
+	int ret = 0;
+
+	switch (state.event) {
+	case PM_EVENT_ON:
+		if (port->pm_state.event != PM_EVENT_FREEZE)
+			break;
+		ret = stm_gpio_hibernation_resume(port);
+		break;
+
+	case PM_EVENT_SUSPEND:
+		ret = stm_gpio_suspend(port);
+		break;
+
+	case PM_EVENT_FREEZE:
+		/* do nothing */
+		break;
+	}
+
+	port->pm_state = state;
+
+	return ret;
+}
+
+static int stm_gpio_sysdev_resume(struct sys_device *dev)
+{
+	return stm_gpio_sysdev_suspend(dev, PMSG_ON);
+}
+#else
+#define stm_gpio_sysdev_suspend NULL
+#define stm_gpio_sysdev_resume NULL
+#endif
+
+static struct sysdev_class stm_gpio_sysdev_class = {
+	.name = "stm-gpio",
+	.suspend = stm_gpio_sysdev_suspend,
+	.resume = stm_gpio_sysdev_resume,
+};
+
 static int __init stm_gpio_init(void)
 {
-	return platform_driver_register(&stm_gpio_driver) ||
-			platform_driver_register(&stm_gpio_irqmux_driver);
+	int ret;
+
+	ret = sysdev_class_register(&stm_gpio_sysdev_class);
+	if (ret)
+		return ret;
+
+	ret = platform_driver_register(&stm_gpio_driver);
+	if (ret)
+		return ret;
+
+	ret = platform_driver_register(&stm_gpio_irqmux_driver);
+	if (ret)
+		return ret;
+
+	return ret;
 }
 postcore_initcall(stm_gpio_init);

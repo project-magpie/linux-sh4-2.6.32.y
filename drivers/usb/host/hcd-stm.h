@@ -66,4 +66,11 @@ struct drv_usb_data {
 	struct platform_device *ohci_device;
 };
 
+#ifdef CONFIG_PM_RUNTIME
+int stm_ehci_hcd_register(struct platform_device *);
+int stm_ehci_hcd_unregister(struct platform_device *);
+
+int stm_ohci_hcd_register(struct platform_device *);
+int stm_ohci_hcd_unregister(struct platform_device *);
+#endif
 #endif

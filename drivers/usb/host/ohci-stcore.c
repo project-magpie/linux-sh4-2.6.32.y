@@ -165,3 +165,38 @@ static struct platform_driver ohci_hcd_stm_driver = {
 		.name = "stm-ohci",
 	},
 };
+
+#ifdef CONFIG_PM
+static DEFINE_MUTEX(stm_ohci_usb_mutex); /* to serialize the operations.. */
+
+int stm_ohci_hcd_unregister(struct platform_device *dev)
+{
+	struct usb_hcd *hcd = platform_get_drvdata(dev);
+	int ret = 0;
+
+	if (!hcd)
+		return ret;
+
+	mutex_lock(&stm_ohci_usb_mutex);
+	ret = ohci_hcd_stm_remove(dev);
+	mutex_unlock(&stm_ohci_usb_mutex);
+	if (ret)
+		dgb_print("[STM][USB] Error on %s 0x%x\n", __func__, dev);
+	return ret;
+}
+EXPORT_SYMBOL(stm_ohci_hcd_unregister);
+
+int stm_ohci_hcd_register(struct platform_device *dev)
+{
+	int ret = 0;
+
+	mutex_lock(&stm_ohci_usb_mutex);
+	ret = ohci_hcd_stm_probe(dev);
+	mutex_unlock(&stm_ohci_usb_mutex);
+	if (ret)
+		dgb_print("[STM][USB] Error on %s 0x%x\n", __func__, dev);
+
+	return ret;
+}
+EXPORT_SYMBOL(stm_ohci_hcd_register);
+#endif

@@ -1950,7 +1950,7 @@ static int clkgend_identify_parent(clk_t *clk_p)
 
 	if (clk_p->id == CLKD_REF) {
 		sel = SYSCONF_READ(SYS_CFG, 40, 0, 0);
-		if (sel)
+		if (!sel)
 			clk_p->parent = &clk_clocks[CLK_SYS];
 		else
 			clk_p->parent = &clk_clocks[CLK_SYSALT];
@@ -2044,7 +2044,7 @@ static int clkgene_identify_parent(clk_t *clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	sel = SYSCONF_READ(SYS_CFG, 40, 2, 2);
-	if (sel)
+	if (!sel)
 		clk_p->parent = &clk_clocks[CLK_SYS];
 	else
 		clk_p->parent = &clk_clocks[CLK_SYSALT];

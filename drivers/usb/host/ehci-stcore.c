@@ -20,7 +20,7 @@
 
 #ifdef CONFIG_USB_DEBUG
 #define dgb_print(fmt, args...)			\
-		printk(KERN_INFO "%s: " fmt, __FUNCTION__ , ## args)
+		pr_debug("%s: " fmt, __func__, ## args)
 #else
 #define dgb_print(fmt, args...)
 #endif

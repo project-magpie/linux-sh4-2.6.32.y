@@ -19,14 +19,14 @@
 
 #ifdef CONFIG_USB_DEBUG
 #define dgb_print(fmt, args...)				\
-		printk(KERN_DEBUG "%s: " fmt, __FUNCTION__ , ## args)
+		pr_debug("%s: " fmt, __func__ , ## args)
 #else
 #define dgb_print(fmt, args...)
 #endif
 
 
 static int
-ohci_st40_start(struct usb_hcd *hcd)
+stm_ohci_start(struct usb_hcd *hcd)
 {
 	struct ohci_hcd *ohci = hcd_to_ohci(hcd);
 	int ret = 0;
@@ -43,6 +43,7 @@ ohci_st40_start(struct usb_hcd *hcd)
 
 	return 0;
 }
+
 #ifdef CONFIG_PM
 static int stm_ohci_bus_suspend(struct usb_hcd *hcd)
 {
@@ -63,7 +64,7 @@ static const struct hc_driver ohci_st40_hc_driver = {
 	.flags =		HCD_USB11 | HCD_MEMORY,
 
 	/* basic lifecycle operations */
-	.start =		ohci_st40_start,
+	.start =		stm_ohci_start,
 	.stop =			ohci_stop,
 	.shutdown = ohci_shutdown,
 

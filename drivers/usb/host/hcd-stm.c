@@ -23,12 +23,12 @@
 
 #ifdef CONFIG_USB_DEBUG
 #define dgb_print(fmt, args...)			\
-		printk(KERN_INFO "%s: " fmt, __func__ , ## args)
+		pr_debug("%s: " fmt, __func__ , ## args)
 #else
 #define dgb_print(fmt, args...)
 #endif
 
-static int st_usb_boot(struct platform_device *pdev)
+static int stm_usb_boot(struct platform_device *pdev)
 {
 	struct stm_plat_usb_data *pl_data = pdev->dev.platform_data;
 	struct drv_usb_data *usb_data = platform_get_drvdata(pdev);
@@ -96,7 +96,7 @@ static int st_usb_boot(struct platform_device *pdev)
 	return 0;
 }
 
-static int st_usb_remove(struct platform_device *pdev)
+static int stm_usb_remove(struct platform_device *pdev)
 {
 	struct resource *res;
 	struct device *dev = &pdev->dev;
@@ -148,7 +148,7 @@ error:
 	return ERR_PTR(retval);
 }
 
-static int st_usb_probe(struct platform_device *pdev)
+static int stm_usb_probe(struct platform_device *pdev)
 {
 	struct stm_plat_usb_data *plat_data = pdev->dev.platform_data;
 	struct drv_usb_data *dr_data;
@@ -208,7 +208,7 @@ static int st_usb_probe(struct platform_device *pdev)
 		ret = -EFAULT;
 		goto err_3;
 	}
-	st_usb_boot(pdev);
+	stm_usb_boot(pdev);
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "ehci");
 	if (res) {
@@ -254,7 +254,7 @@ err_0:
 	return ret;
 }
 
-static void st_usb_shutdown(struct platform_device *pdev)
+static void stm_usb_shutdown(struct platform_device *pdev)
 {
 	dgb_print("\n");
 	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 1);
@@ -313,7 +313,7 @@ static int stm_usb_resume(struct device *dev)
 	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 0);
 	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
 
-	st_usb_boot(pdev);
+	stm_usb_boot(pdev);
 
 	return 0;
 }
@@ -378,28 +378,28 @@ static struct dev_pm_ops stm_usb_pm = {
 	.runtime_resume = stm_usb_runtime_resume,
 };
 
-static struct platform_driver st_usb_driver = {
+static struct platform_driver stm_usb_driver = {
 	.driver = {
 		.name = "stm-usb",
 		.owner = THIS_MODULE,
 		.pm = &stm_usb_pm,
 	},
-	.probe = st_usb_probe,
-	.shutdown = st_usb_shutdown,
-	.remove = st_usb_remove,
+	.probe = stm_usb_probe,
+	.shutdown = stm_usb_shutdown,
+	.remove = stm_usb_remove,
 };
 
-static int __init st_usb_init(void)
+static int __init stm_usb_init(void)
 {
-	return platform_driver_register(&st_usb_driver);
+	return platform_driver_register(&stm_usb_driver);
 }
 
-static void __exit st_usb_exit(void)
+static void __exit stm_usb_exit(void)
 {
-	platform_driver_unregister(&st_usb_driver);
+	platform_driver_unregister(&stm_usb_driver);
 }
 
 MODULE_LICENSE("GPL");
 
-module_init(st_usb_init);
-module_exit(st_usb_exit);
+module_init(stm_usb_init);
+module_exit(stm_usb_exit);

@@ -803,7 +803,7 @@ static int pmb_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 	case PM_EVENT_ON:
 		/* Resumeing from hibernation */
 		if (prev_state.event == PM_EVENT_FREEZE) {
-			for (idx = 0; idx < NR_PMB_ENTRIES; ++idx)
+			for (idx = 1; idx < NR_PMB_ENTRIES; ++idx)
 				if (pmbm[idx].usage)
 					pmb_mapping_set(&pmbm[idx]);
 			flush_cache_all();

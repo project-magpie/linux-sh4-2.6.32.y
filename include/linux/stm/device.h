@@ -76,6 +76,19 @@ struct stm_device_config {
 		.name = _name, \
 	}
 
+/* We have to do this indirection to allow the first argument to
+ * STM_DEVICE_SYSCONF to be a macro, as used by 5197 for example. */
+#define ___STM_DEVICE_SYSCONF(_regtype, _regnum, _lsb, _msb, _name) \
+        { \
+                .regtype = _regtype, \
+                .regnum = _regnum, \
+                .lsb = _lsb, \
+                .msb = _msb, \
+                .name = _name, \
+        }
+#define STM_DEVICE_SYSCONF(_reg, _lsb, _msb, _name) \
+	___STM_DEVICE_SYSCONF(_reg, _lsb, _msb, _name)
+
 struct stm_device_state *stm_device_init(struct stm_device_config *config,
 		struct device *dev);
 void stm_device_exit(struct stm_device_state *state);

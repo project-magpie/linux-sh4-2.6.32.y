@@ -8,7 +8,7 @@ obj-y					+= pad.o
 obj-y					+= sysconf.o
 obj-y					+= device.o
 obj-y					+= clk.o
-obj-y					+= clks/
+obj-y					+= clocks/
 
 obj-$(CONFIG_STM_DMA)		+= fdma.o fdma-xbar.o
 obj-$(CONFIG_STM_MIPHY)		+= miphy.o tap.o

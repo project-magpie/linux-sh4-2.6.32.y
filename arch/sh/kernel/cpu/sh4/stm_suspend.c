@@ -22,6 +22,8 @@
 #include <linux/jiffies.h>
 #include <linux/io.h>
 
+#include <linux/stm/pm_notify.h>
+
 #include <asm/system.h>
 #include <asm/cacheflush.h>
 #include <asm-generic/bug.h>
@@ -53,6 +55,9 @@ static int stm_suspend_enter(suspend_state_t state)
 	unsigned long tbl, tbl_size;
 	unsigned long lpj =
 		(cpu_data[raw_smp_processor_id()].loops_per_jiffy * HZ) / 1000;
+	enum stm_pm_type type = (state == PM_SUSPEND_STANDBY) ?
+		STM_PM_SUSPEND : STM_PM_MEMSUSPEND;
+	enum stm_pm_notify_return notify_ret;
 	int err = 0;
 
 	/* Must wait for serial buffers to clear */
@@ -90,10 +95,12 @@ static int stm_suspend_enter(suspend_state_t state)
 
 	BUG_ON(in_irq());
 
-	stm_exec_table(tbl, tbl_size, lpj, soc_flags);
+__stm_again_suspend:
+	notify_ret = stm_pm_prepare_enter(type);
+	if (notify_ret == STM_PM_RET_ERROR)
+		goto __stm_skip_suspend;
 
-	if (platform_suspend->post_enter)
-		platform_suspend->post_enter(state);
+	stm_exec_table(tbl, tbl_size, lpj, soc_flags);
 
 	BUG_ON(in_irq());
 
@@ -102,6 +109,14 @@ static int stm_suspend_enter(suspend_state_t state)
 		wokenup_by = platform_suspend->evt_to_irq(wokenup_by);
 	else
 		wokenup_by = evt2irq(wokenup_by);
+
+__stm_skip_suspend:
+	notify_ret = stm_pm_post_enter(type, wokenup_by);
+	if (notify_ret == STM_PM_RET_AGAIN)
+		goto __stm_again_suspend;
+
+	if (platform_suspend->post_enter)
+		platform_suspend->post_enter(state);
 
 	printk(KERN_INFO "CPU woken up by: 0x%x\n", wokenup_by);
 

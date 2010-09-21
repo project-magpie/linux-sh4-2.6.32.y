@@ -30,17 +30,13 @@ struct clk_ops {
 	long (*round_rate)(struct clk *clk, unsigned long rate);
 	int (*observe)(struct clk *clk, unsigned long *div);
 	unsigned long (*get_measure)(struct clk *clk);
-	void *private_data;
 };
 
 struct clk {
-	spinlock_t		lock;
-
 	struct list_head	node;
 
 	const char		*name;
 	int			id;
-	struct module		*owner;
 
 	struct clk		*parent;
 	struct clk_ops		*ops;
@@ -52,7 +48,6 @@ struct clk {
 	unsigned long		usage_counter;
 
 	unsigned long		rate;
-	unsigned long		nominal_rate;
 	unsigned long		flags;
 
 	struct list_head	children;
@@ -60,7 +55,6 @@ struct clk {
 };
 
 #define CLK_ALWAYS_ENABLED	(1 << 0)
-#define CLK_RATE_PROPAGATES	(1 << 1)
 
 /* drivers/stm/clks/clock-... */
 

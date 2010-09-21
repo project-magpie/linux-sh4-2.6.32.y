@@ -23,112 +23,91 @@
 #include <linux/stm/clk.h>
 
 static LIST_HEAD(clks_list);
-static DEFINE_MUTEX(clks_list_sem);
+static DEFINE_MUTEX(clks_sem);
 
 static int __clk_init(struct clk *clk)
 {
 	int ret = 0;
-	if (likely(clk->ops && clk->ops->init)) {
-		unsigned long flags;
-		spin_lock_irqsave(&clk->lock, flags);
+
+	if (likely(clk->ops && clk->ops->init))
 		ret = clk->ops->init(clk);
-		spin_unlock_irqrestore(&clk->lock, flags);
-	}
+
 	return ret;
 }
 
 static int __clk_enable(struct clk *clk)
 {
 	int ret = 0;
-	if (likely(clk->ops && clk->ops->enable)) {
-		unsigned long flags;
-		spin_lock_irqsave(&clk->lock, flags);
+
+	if (likely(clk->ops && clk->ops->enable))
 		ret = clk->ops->enable(clk);
-		spin_unlock_irqrestore(&clk->lock, flags);
-	}
+
 	return ret;
 }
 
 static int __clk_disable(struct clk *clk)
 {
 	int ret = 0;
-	if (likely(clk->ops && clk->ops->disable)) {
-		unsigned long flags;
-		spin_lock_irqsave(&clk->lock, flags);
+
+	if (likely(clk->ops && clk->ops->disable))
 		ret = clk->ops->disable(clk);
-		spin_unlock_irqrestore(&clk->lock, flags);
-	}
+
 	return ret;
 }
 
 static int __clk_set_rate(struct clk *clk, unsigned long rate)
 {
 	int ret = 0;
-	if (likely(clk->ops && clk->ops->set_rate)) {
-		unsigned long flags;
-		spin_lock_irqsave(&clk->lock, flags);
+
+	if (likely(clk->ops && clk->ops->set_rate))
 		ret = clk->ops->set_rate(clk, rate);
-		spin_unlock_irqrestore(&clk->lock, flags);
-	}
+
 	return ret;
 }
 
 static int __clk_set_parent(struct clk *clk, struct clk *parent)
 {
 	int ret = 0;
-	if (likely(clk->ops && clk->ops->set_parent)) {
-		unsigned long flags;
-		spin_lock_irqsave(&clk->lock, flags);
+
+	if (likely(clk->ops && clk->ops->set_parent))
 		ret = clk->ops->set_parent(clk, parent);
-		spin_unlock_irqrestore(&clk->lock, flags);
-	}
+
 	return ret;
 }
 
 static int __clk_recalc_rate(struct clk *clk)
 {
 	int ret = 0;
-	if (likely(clk->ops && clk->ops->recalc)) {
-		unsigned long flags;
-		spin_lock_irqsave(&clk->lock, flags);
+
+	if (likely(clk->ops && clk->ops->recalc))
 		ret = clk->ops->recalc(clk);
-		spin_unlock_irqrestore(&clk->lock, flags);
-	}
+
 	return ret;
 }
 
 static int __clk_observe(struct clk *clk, unsigned long *div)
 {
 	int ret = 0;
-	if (likely(clk->ops && clk->ops->observe)) {
-		unsigned long flags;
-		spin_lock_irqsave(&clk->lock, flags);
+
+	if (likely(clk->ops && clk->ops->observe))
 		ret = clk->ops->observe(clk, div);
-		spin_unlock_irqrestore(&clk->lock, flags);
-	}
+
 	return ret;
 }
 
 static int __clk_get_measure(struct clk *clk)
 {
 	int ret = 0;
-	if (likely(clk->ops && clk->ops->get_measure)) {
-		unsigned long flags;
-		spin_lock_irqsave(&clk->lock, flags);
+
+	if (likely(clk->ops && clk->ops->get_measure))
 		ret = clk->ops->get_measure(clk);
-		spin_unlock_irqrestore(&clk->lock, flags);
-	}
+
 	return ret;
 }
 
 static inline int clk_is_always_enabled(struct clk *clk)
 {
 	return clk->flags & CLK_ALWAYS_ENABLED;
-}
-
-static inline int clk_wants_propagate(struct clk *clk)
-{
-	return clk->flags & CLK_RATE_PROPAGATES;
 }
 
 static int __clk_for_each_child(struct clk *clk,
@@ -139,27 +118,51 @@ static int __clk_for_each_child(struct clk *clk,
 
 	BUG_ON(!fn || !clk);
 
-	list_for_each_entry(clkp, &clk->children, children_node)
-		result |= fn(clkp, data);
+	list_for_each_entry(clkp, &clk->children, children_node) {
+		result = fn(clkp, data);
+		if (result)
+			break;
+	}
 
 	return result;
 }
 
-static void clk_propagate_rate(struct clk *clk);
+static void clk_propagate(struct clk *clk);
 
 static int __clk_propagate_rate(struct clk *clk, void *data)
 {
 	__clk_recalc_rate(clk);
 
-	if (likely(clk_wants_propagate(clk)))
-		clk_propagate_rate(clk);
+	clk_propagate(clk);
 
 	return 0;
 }
 
-static void clk_propagate_rate(struct clk *clk)
+static void clk_propagate(struct clk *clk)
 {
 	__clk_for_each_child(clk, __clk_propagate_rate, NULL);
+}
+
+
+static void _clk_disable(struct clk *clk);
+
+int _clk_enable(struct clk *clk)
+{
+	int ret = 0;
+
+	if (clk->usage_counter++ == 0) {
+		if (clk->parent)
+			_clk_enable(clk->parent);
+		ret = __clk_enable(clk);
+		if (ret) { /* on error */
+			if (clk->parent)
+				_clk_disable(clk->parent);
+			--clk->usage_counter;
+		} else
+			clk_propagate(clk);
+	}
+
+	return ret;
 }
 
 int clk_enable(struct clk *clk)
@@ -167,35 +170,30 @@ int clk_enable(struct clk *clk)
 	int ret = 0;
 
 	BUG_ON(!clk);
+	mutex_lock(&clks_sem);
 
-	if (clk_is_always_enabled(clk))
-		/* No enable required! */
-		return 0;
+	ret = _clk_enable(clk);
 
-	if (clk->usage_counter++ == 0) {
-		if (clk->parent)
-			clk_enable(clk->parent);
-
-		ret = __clk_enable(clk);
-		if (ret) { /* on error */
-			if (clk->parent)
-				clk_disable(clk->parent);
-			--clk->usage_counter;
-		}
-	}
+	mutex_unlock(&clks_sem);
 	return ret;
 }
 EXPORT_SYMBOL(clk_enable);
 
-void clk_disable(struct clk *clk)
+void _clk_disable(struct clk *clk)
 {
 	int ret;
 
-	BUG_ON(!clk);
-
-	if (clk_is_always_enabled(clk))
-		/* this clock can not be disabled */
+	if (clk_is_always_enabled(clk)) {
+		/*
+		 * this clock can not be disabled;
+		 * This means this is:
+		 * - an external oscillator
+		 * - a system critical clock
+		 */
+		if (--clk->usage_counter == 0)
+			clk->usage_counter = 1;
 		return;
+	}
 
 	if (--clk->usage_counter == 0) {
 		ret = __clk_disable(clk);
@@ -203,11 +201,21 @@ void clk_disable(struct clk *clk)
 			clk->usage_counter++;
 			return;
 		}
+		clk_propagate(clk);
 		if (clk->parent)
-			clk_disable(clk->parent);
-
+			_clk_disable(clk->parent);
 	}
 	return;
+}
+
+void clk_disable(struct clk *clk)
+{
+	BUG_ON(!clk);
+	mutex_lock(&clks_sem);
+
+	_clk_disable(clk);
+
+	mutex_unlock(&clks_sem);
 }
 EXPORT_SYMBOL(clk_disable);
 
@@ -215,11 +223,10 @@ int clk_register(struct clk *clk)
 {
 	BUG_ON(!clk || !clk->name);
 
-	mutex_lock(&clks_list_sem);
+	mutex_lock(&clks_sem);
 
 	list_add_tail(&clk->node, &clks_list);
 	INIT_LIST_HEAD(&clk->children);
-	spin_lock_init(&clk->lock);
 
 	clk->usage_counter = 0;
 
@@ -230,10 +237,10 @@ int clk_register(struct clk *clk)
 
 	kref_init(&clk->kref);
 
-	mutex_unlock(&clks_list_sem);
+	mutex_unlock(&clks_sem);
 
 	if (clk_is_always_enabled(clk))
-		__clk_enable(clk);
+		clk_enable(clk);
 
 	return 0;
 }
@@ -242,11 +249,11 @@ EXPORT_SYMBOL(clk_register);
 void clk_unregister(struct clk *clk)
 {
 	BUG_ON(!clk);
-	mutex_lock(&clks_list_sem);
+	mutex_lock(&clks_sem);
 	list_del(&clk->node);
 	if (clk->parent)
 		list_del(&clk->children_node);
-	mutex_unlock(&clks_list_sem);
+	mutex_unlock(&clks_sem);
 }
 EXPORT_SYMBOL(clk_unregister);
 
@@ -263,13 +270,19 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 
 	BUG_ON(!clk);
 
-	if (rate == clk_get_rate(clk))
-		return 0;
+	mutex_lock(&clks_sem);
 
+	if (rate == clk_get_rate(clk)) {
+		ret = 0;
+		goto __ret_set_rate;
+	}
 	ret = __clk_set_rate(clk, rate);
 
-	if (clk_wants_propagate(clk) && !ret)
-		clk_propagate_rate(clk);
+	if (!ret)
+		clk_propagate(clk);
+
+__ret_set_rate:
+	mutex_unlock(&clks_sem);
 
 	return ret;
 }
@@ -279,8 +292,12 @@ long clk_round_rate(struct clk *clk, unsigned long rate)
 {
 	unsigned long ret = clk_get_rate(clk);
 
+	mutex_lock(&clks_sem);
+
 	if (likely(clk->ops && clk->ops->round_rate))
 		ret = clk->ops->round_rate(clk, rate);
+
+	mutex_unlock(&clks_sem);
 	return ret;
 }
 EXPORT_SYMBOL(clk_round_rate);
@@ -303,12 +320,13 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	if (parent == clk_get_parent(clk))
 		return 0;
 
+	mutex_lock(&clks_sem);
 	old_parent = clk_get_parent(clk);
 	old_rate = clk_get_rate(clk);
 
 	if (old_rate)
 		/* enable the new parent if required */
-		clk_enable(parent);
+		_clk_enable(parent);
 
 	ret = __clk_set_parent(clk, parent);
 
@@ -317,12 +335,13 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 
 	if (old_rate)
 		/* notify to the parent the 'disable' clock */
-		clk_disable(ret ? parent : old_parent);
+		_clk_disable(ret ? parent : old_parent);
 
 	/* propagate if required */
-	if (!ret && likely(clk_wants_propagate(clk)))
-		clk_propagate_rate(clk);
+	if (!ret)
+		clk_propagate(clk);
 
+	mutex_unlock(&clks_sem);
 	return ret;
 }
 EXPORT_SYMBOL(clk_set_parent);
@@ -349,10 +368,14 @@ int clk_for_each(int (*fn)(struct clk *clk, void *data), void *data)
 	if (!fn)
 		return -EINVAL;
 
-	mutex_lock(&clks_list_sem);
-	list_for_each_entry(clkp, &clks_list, node)
-		result |= fn(clkp, data);
-	mutex_unlock(&clks_list_sem);
+	mutex_lock(&clks_sem);
+	list_for_each_entry(clkp, &clks_list, node) {
+		result = fn(clkp, data);
+		if (result)
+			break;
+	}
+	mutex_unlock(&clks_sem);
+
 	return result;
 }
 EXPORT_SYMBOL(clk_for_each);
@@ -361,9 +384,11 @@ int clk_for_each_child(struct clk *clk, int (*fn)(struct clk *clk, void *data),
 		void *data)
 {
 	int ret = 0;
-	mutex_lock(&clks_list_sem);
+
+	mutex_lock(&clks_sem);
 	ret = __clk_for_each_child(clk, fn, data);
-	mutex_unlock(&clks_list_sem);
+	mutex_unlock(&clks_sem);
+
 	return ret;
 }
 EXPORT_SYMBOL(clk_for_each_child);
@@ -376,7 +401,7 @@ static void *clk_seq_next(struct seq_file *s, void *v, loff_t *pos)
 
 static void *clk_seq_start(struct seq_file *s, loff_t *pos)
 {
-	mutex_lock(&clks_list_sem);
+	mutex_lock(&clks_sem);
 	return seq_list_start(&clks_list, *pos);
 }
 
@@ -388,9 +413,6 @@ static void clk_seq_show_clk(struct seq_file *s, struct clk *clk, int depth)
 	seq_printf(s, "%*s%-*s: %4ld.%02ldMHz",
 		depth*2, "", 30-(depth*2), clk->name,
 		rate / 1000000, (rate % 1000000) / 10000);
-	if (clk->nominal_rate)
-		seq_printf(s, " [%4ld.%02ldMHz]", clk->nominal_rate / 1000000,
-			(clk->nominal_rate % 1000000) / 10000);
 	if (clk_is_always_enabled(clk))
 		seq_printf(s, " always enabled");
 	else
@@ -413,7 +435,7 @@ static int clk_seq_show(struct seq_file *s, void *v)
 
 static void clk_seq_stop(struct seq_file *s, void *v)
 {
-	mutex_unlock(&clks_list_sem);
+	mutex_unlock(&clks_sem);
 }
 
 static const struct seq_operations clk_seq_ops = {
@@ -453,23 +475,30 @@ module_init(clk_proc_init);
 #endif
 
 #ifdef CONFIG_HIBERNATION
-static int clk_resume_from_hibernation(struct clk *clk, void *data)
+static void clk_resume_from_hibernation(struct clk *clk)
 {
 	unsigned long rate = clk->rate;
 
-	__clk_set_parent(clk, clk->parent);
-	__clk_set_rate(clk, rate);
-	__clk_recalc_rate(clk);
-	return 0;
+	if (clk->parent)
+		/* re-parent to the frozen one! */
+		__clk_set_parent(clk, clk->parent);
+
+	if (rate) {
+		__clk_enable(clk);
+		/* force the frozen rate */
+		__clk_set_rate(clk, rate);
+	} else
+		__clk_disable(clk);
 }
 
 static int clks_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
 	static pm_message_t prev_state;
+	struct clk *clkp;
 
 	if (state.event == PM_EVENT_ON && prev_state.event == PM_EVENT_FREEZE)
-		/* Resumeing from hibernation */
-		clk_for_each(clk_resume_from_hibernation, NULL);
+		list_for_each_entry(clkp, &clks_list, node)
+			clk_resume_from_hibernation(clkp);
 
 	prev_state = state;
 	return 0;

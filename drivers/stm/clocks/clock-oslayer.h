@@ -20,6 +20,7 @@
 
 #define clk_t	struct clk
 
+#define CLK_RATE_PROPAGATES		0
 /* Register access macros */
 #define CLK_READ(addr)	  		ioread32((void *)addr)
 #define CLK_WRITE(addr, val)		iowrite32(val, (void *)addr)
@@ -67,7 +68,6 @@ static struct clk_ops  _name = {					\
 		 .id = (_id),						\
 		 .ops = (_ops),						\
 		 .flags = (_flags),					\
-		 .nominal_rate = (_nominal)				\
 }
 
 #define _CLK_P(_id, _ops, _nominal, _flags, _parent) 			\
@@ -75,7 +75,6 @@ static struct clk_ops  _name = {					\
 		 .id = (_id),						\
 		 .ops = (_ops), \
 		 .flags = (_flags),					\
-		 .nominal_rate = (_nominal),				\
 		 .parent = (_parent),					\
 }
 /* Low level API errors */

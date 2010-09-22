@@ -15,6 +15,7 @@ static void stm_wake_init(struct stm_wakeup_devices *wkd)
 	wkd->lirc_can_wakeup = 0;
 	wkd->hdmi_can_wakeup = 0;
 	wkd->eth_phy_can_wakeup = 0;
+	wkd->eth1_phy_can_wakeup = 0;
 }
 
 static int __check_wakeup_device(struct device *dev, void *data)
@@ -27,8 +28,12 @@ static int __check_wakeup_device(struct device *dev, void *data)
 			wkd->lirc_can_wakeup = 1;
 		else if (!strcmp(dev_name(dev), "hdmi"))
 			wkd->hdmi_can_wakeup = 1;
-		else if (!strcmp(dev_name(dev), "stmmacphy"))
+		else if (!strcmp(dev_name(dev), "stmmaceth"))
 			wkd->eth_phy_can_wakeup = 1;
+		else if (!strcmp(dev_name(dev), "stmmaceth.0"))
+			wkd->eth_phy_can_wakeup = 1;
+		else if (!strcmp(dev_name(dev), "stmmaceth.1"))
+			wkd->eth1_phy_can_wakeup = 1;
 
 	}
 	return 0;

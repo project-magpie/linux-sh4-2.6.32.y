@@ -195,7 +195,7 @@ int snd_stm_conv_enable(struct snd_stm_conv_group *group,
 	snd_stm_printd(1, "snd_stm_conv_enable(group=%p, channel_from=%d, "
 			"channel_to=%d)\n", group, channel_from, channel_to);
 
-	if (snd_BUG_ON(!channel_to >= channel_from))
+	if (snd_BUG_ON(!(channel_to >= channel_from)))
 		return -EINVAL;
 	if (snd_BUG_ON(!group))
 		return -EINVAL;

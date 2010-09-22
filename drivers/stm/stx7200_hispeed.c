@@ -16,7 +16,7 @@
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/stm/miphy.h>
-#include <linux/stm/pad.h>
+#include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stx7200.h>
 #include <asm/irq-ilc.h>
@@ -241,6 +241,23 @@ void __init stx7200_configure_ethernet(int port,
 
 
 /* USB resources ---------------------------------------------------------- */
+#define USB_PWR "USB_PWR"
+#define USB_ACK "USB_ACK"
+
+static void stx7200_usb_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, USB_PWR, value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, USB_ACK)
+			== value)
+			break;
+		mdelay(10);
+	}
+}
 
 static struct sysconf_field *stx7200_usb_conf_pad_pio_2_3;
 
@@ -275,66 +292,81 @@ static struct stm_plat_usb_data stx7200_usb_platform_data[] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STRAP_PLL |
 				STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
-		.pad_config = &(struct stm_pad_config) {
-			.gpios_num = 2,
-			.gpios = (struct stm_pad_gpio []) {
-				/* Overcurrent detection, must be BIDIR
-				 * for cut 1 - see stx7200_configure_usb() */
-				STM_PAD_PIO_IN_NAMED(7, 0, -1, "OC"),
-				/* USB power enable */
-				STM_PAD_PIO_OUT(7, 1, 1),
+		.device_config = &(struct stm_device_config){
+			.pad_config = &(struct stm_pad_config) {
+				.gpios_num = 2,
+				.gpios = (struct stm_pad_gpio []) {
+					/* Overcurrent detection, must be
+					 * BIDIR for cut 1 -
+					 * see stx7200_configure_usb()
+					 */
+					STM_PAD_PIO_IN_NAMED(7, 0, -1, "OC"),
+					/* USB power enable */
+					STM_PAD_PIO_OUT(7, 1, 1),
+				},
+				.custom_claim = stx7200_usb_claim,
+				.custom_release = stx7200_usb_release,
 			},
-			.sysconfs_num = 1,
-			.sysconfs = (struct stm_pad_sysconf []) {
-				/* Power up port */
-				STM_PAD_SYS_CFG(22, 3, 3, 0),
+			.sysconfs_num = 2,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYS_CFG(22, 3, 3, USB_PWR),
+				STM_DEVICE_SYS_STA(13, 2, 2, USB_ACK),
+				},
+			.power = stx7200_usb_power,
 			},
-			.custom_claim = stx7200_usb_claim,
-			.custom_release = stx7200_usb_release,
-		},
 	},
 	[1] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STRAP_PLL |
 				STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
-		.pad_config = &(struct stm_pad_config) {
-			.gpios_num = 2,
-			.gpios = (struct stm_pad_gpio []) {
-				/* Overcurrent detection, must be BIDIR
-				 * for cut 1 - see stx7200_configure_usb() */
-				STM_PAD_PIO_IN_NAMED(7, 2, -1, "OC"),
-				/* USB power enable */
+		.device_config = &(struct stm_device_config){
+			.pad_config = &(struct stm_pad_config) {
+				.gpios_num = 2,
+				.gpios = (struct stm_pad_gpio []) {
+					/* Overcurrent detection, must be
+					 * BIDIR for cut 1 -
+					 * see stx7200_configure_usb()
+					 */
+					STM_PAD_PIO_IN_NAMED(7, 2, -1, "OC"),
+					/* USB power enable */
 				STM_PAD_PIO_OUT(7, 3, 1),
+				},
+				.custom_claim = stx7200_usb_claim,
+				.custom_release = stx7200_usb_release,
 			},
-			.sysconfs_num = 1,
-			.sysconfs = (struct stm_pad_sysconf []) {
-				/* Power up port */
-				STM_PAD_SYS_CFG(22, 4, 4, 0),
+			.sysconfs_num = 2,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYS_CFG(22, 4, 4, USB_PWR),
+				STM_DEVICE_SYS_STA(13, 3, 3, USB_ACK),
+				},
+			.power = stx7200_usb_power,
 			},
-			.custom_claim = stx7200_usb_claim,
-			.custom_release = stx7200_usb_release,
-		},
 	},
 	[2] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STRAP_PLL |
 				STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
-		.pad_config = &(struct stm_pad_config) {
-			.gpios_num = 2,
-			.gpios = (struct stm_pad_gpio []) {
-				/* USB power enable */
-				STM_PAD_PIO_OUT(7, 4, 1),
-				/* Overcurrent detection, must be ALT_BIDIR
-				 * for cut 1 - see stx7200_configure_usb() */
-				STM_PAD_PIO_IN_NAMED(7, 5, -1, "OC"),
+		.device_config = &(struct stm_device_config){
+			.pad_config = &(struct stm_pad_config) {
+				.gpios_num = 2,
+				.gpios = (struct stm_pad_gpio []) {
+					/* USB power enable */
+					STM_PAD_PIO_OUT(7, 4, 1),
+					/* Overcurrent detection, must be
+					 * BIDIR for cut 1 -
+					 * see stx7200_configure_usb()
+					 */
+					STM_PAD_PIO_IN_NAMED(7, 5, -1, "OC"),
+				},
+				.custom_claim = stx7200_usb_claim,
+				.custom_release = stx7200_usb_release,
 			},
-			.sysconfs_num = 1,
-			.sysconfs = (struct stm_pad_sysconf []) {
-				/* Power up port */
-				STM_PAD_SYS_CFG(22, 5, 5, 0),
+			.sysconfs_num = 2,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYS_CFG(22, 5, 5, USB_PWR),
+				STM_DEVICE_SYS_STA(13, 4, 4, USB_ACK),
 			},
-			.custom_claim = stx7200_usb_claim,
-			.custom_release = stx7200_usb_release,
+			.power = stx7200_usb_power,
 		},
 	},
 };
@@ -693,7 +725,8 @@ void __init stx7200_configure_usb(int port)
 	/* Cut 1.0 suffered from (just) a few issues with USB... */
 	if (cpu_data->cut_major < 2) {
 		struct stm_pad_config *pad_config =
-				stx7200_usb_platform_data[port].pad_config;
+			stx7200_usb_platform_data[port]
+				.device_config->pad_config;
 
 		stm_pad_set_pio_bidir(pad_config, "OC", 1);
 
@@ -706,12 +739,36 @@ void __init stx7200_configure_usb(int port)
 
 
 /* SATA resources --------------------------------------------------------- */
+static void stx7200_sata_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int value = (power == stm_device_power_on) ? 0 : 1;
+	int i;
+
+	stm_device_sysconf_write(device_state, "SATA_PWR", value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, "SATA_ACK")
+			== value)
+			break;
+		mdelay(10);
+	}
+
+	return ;
+}
 
 /* Ok to have same private data for both controllers */
 static struct stm_plat_sata_data stx7200_sata_platform_data = {
 	.phy_init = 0,
 	.pc_glue_logic_init = 0,
 	.only_32bit = 0,
+	.device_config = &(struct stm_device_config) {
+			.sysconfs_num = 2,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYS_CFG(22, 1, 1, "SATA_PWR"),
+				STM_DEVICE_SYS_CFG(13, 0, 0, "SATA_ACK"),
+			},
+			.power = stx7200_sata_power,
+		}
 };
 
 static struct platform_device stx7200_sata_device = {

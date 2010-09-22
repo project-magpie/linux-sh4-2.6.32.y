@@ -96,7 +96,7 @@ END_MARKER
  * MEM INSTRUCTION TABLE
  * *********************
  */
-static unsigned long stx7108_mem_table[] __cacheline_aligned = {
+static unsigned long stx7108_mem_table_c1[] __cacheline_aligned = {
 /* 1. Enables the DDR self refresh mode based on paraghaph. 7.1.4
  *    -> from ACCESS to LowPower
  */
@@ -156,6 +156,46 @@ WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
 END_MARKER
 };
 
+
+static unsigned long stx7108_mem_table_c2[] __cacheline_aligned = {
+/* 1. Enables the DDR self refresh mode based on paraghaph. 7.1.4
+ *    -> from ACCESS to LowPower
+ */
+POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_SLEEP),
+WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_LOW_POWER, DDR_STAT_LOW_POWER),
+
+POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_SLEEP),
+WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_LOW_POWER, DDR_STAT_LOW_POWER),
+
+/*WHILE_NE32(SYS_BNK1_STA(5), 1, 0),*/
+
+ /* END. */
+END_MARKER,
+
+/* 2. Disables the DDR self refresh mode based on paraghaph 7.1.3
+ *    -> from LowPower to Access
+ */
+POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_WAKEUP),
+WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
+
+POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_CFG),
+WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_CONFIG, DDR_STAT_CONFIG),
+
+POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_GO),
+WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
+
+POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_WAKEUP),
+WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
+
+POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_CFG),
+WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_CONFIG, DDR_STAT_CONFIG),
+
+POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_GO),
+WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
+
+
+END_MARKER
+};
 static struct stm_wakeup_devices wkd;
 
 static int stx7108_suspend_begin(suspend_state_t state)
@@ -329,9 +369,9 @@ static struct stm_platform_suspend_t stx7108_suspend __cacheline_aligned = {
 	.stby_size = DIV_ROUND_UP(ARRAY_SIZE(stx7108_standby_table) *
 			sizeof(long), L1_CACHE_BYTES),
 
-	.mem_tbl = (unsigned long)stx7108_mem_table,
-	.mem_size = DIV_ROUND_UP(ARRAY_SIZE(stx7108_mem_table) * sizeof(long),
-			L1_CACHE_BYTES),
+	.mem_tbl = (unsigned long)stx7108_mem_table_c1,
+	.mem_size = DIV_ROUND_UP(ARRAY_SIZE(stx7108_mem_table_c1)
+			* sizeof(long), L1_CACHE_BYTES),
 
 };
 
@@ -339,6 +379,13 @@ static int __init stx7108_suspend_setup(void)
 {
 	struct sysconf_field *sc[2];
 	int i;
+
+	if (cpu_data->cut_major > 1) {
+		stx7108_suspend.mem_tbl = (unsigned long)stx7108_mem_table_c2;
+		stx7108_suspend.mem_size = DIV_ROUND_UP(
+			ARRAY_SIZE(stx7108_mem_table_c2) *
+			sizeof(long), L1_CACHE_BYTES);
+	}
 
 	/* ClockGen_D.Pll power up/down*/
 	sc[0] = sysconf_claim(SYS_CFG_BANK1, 4, 0, 0, "PM");

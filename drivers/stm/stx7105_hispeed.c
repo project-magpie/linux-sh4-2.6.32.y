@@ -331,6 +331,7 @@ static struct plat_stmmacenet_data stx7105_ethernet_platform_data[] = {
 		.enh_desc = 1,
 		.tx_coe = 1,
 		.bugged_jumbo =1,
+		.pmt = 1,
 		.fix_mac_speed = stx7105_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7105_configure_ethernet() */
 	}, {
@@ -339,6 +340,7 @@ static struct plat_stmmacenet_data stx7105_ethernet_platform_data[] = {
 		.enh_desc = 1,
 		.tx_coe = 1,
 		.bugged_jumbo =1,
+		.pmt = 1,
 		.fix_mac_speed = stx7105_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7105_configure_ethernet() */
 	}
@@ -354,10 +356,7 @@ static struct platform_device stx7105_ethernet_devices[] = {
 			STM_PLAT_RESOURCE_IRQ_NAMED("macirq",
 					evt2irq(0x12c0), -1),
 		},
-		.dev = {
-			.power.can_wakeup = 1,
-			.platform_data = &stx7105_ethernet_platform_data[0],
-		}
+		.dev.platform_data = &stx7105_ethernet_platform_data[0],
 	}, {
 		.name = "stmmaceth",
 		.id = 1,
@@ -367,10 +366,7 @@ static struct platform_device stx7105_ethernet_devices[] = {
 			STM_PLAT_RESOURCE_IRQ_NAMED("macirq",
 					ILC_EXT_IRQ(39), -1),
 		},
-		.dev = {
-			.power.can_wakeup = 1,
-			.platform_data = &stx7105_ethernet_platform_data[1],
-		}
+		.dev.platform_data = &stx7105_ethernet_platform_data[1],
 	}
 };
 

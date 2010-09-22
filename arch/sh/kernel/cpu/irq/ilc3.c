@@ -60,10 +60,8 @@ struct ilc_irq {
 #define ilc_is_enabled(_ilc)		(((_ilc)->state & ILC_ENABLED) != 0)
 	unsigned char state;
 
-#ifdef CONFIG_HIBERNATION
 	unsigned char trigger_mode; /* used to restore the right mode
 				     * after a resume from hibernation */
-#endif
 };
 
 struct ilc {
@@ -73,15 +71,17 @@ struct ilc {
 	unsigned short inputs_num, outputs_num;
 	unsigned int first_irq;
 	int disable_wakeup:1;
-
-	spinlock_t lock;		/* a lock */
-
+	spinlock_t lock;
+	struct sys_device sysdev;
 	struct ilc_irq *irqs;
 	unsigned long **priority;
 };
 
 static LIST_HEAD(ilcs_list);
 
+static struct sysdev_class ilc_sysdev_class;
+
+#define sysdev_to_ilc(x) container_of((x), struct ilc, sysdev)
 
 
 /*
@@ -342,9 +342,7 @@ static int set_type_ilc_irq(unsigned int irq, unsigned int flow_type)
 	}
 
 	ILC_SET_TRIGMODE(ilc->base, input, mode);
-#ifdef CONFIG_HIBERNATION
 	ilc->irqs[input].trigger_mode = (unsigned char)mode;
-#endif
 
 	return 0;
 }
@@ -420,11 +418,12 @@ static int __init ilc_probe(struct platform_device *pdev)
 	int memory_size;
 	struct ilc *ilc;
 	int i;
+	int error = 0;
 
 	memory = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!memory)
 		return -EINVAL;
-	memory_size = memory->end - memory->start + 1;
+	memory_size = resource_size(memory);
 
 	if (!request_mem_region(memory->start, memory_size, pdev->name))
 		return -EBUSY;
@@ -443,6 +442,9 @@ static int __init ilc_probe(struct platform_device *pdev)
 	ilc->disable_wakeup = pdata->disable_wakeup;
 
 	ilc->base = ioremap(memory->start, memory_size);
+	if (!ilc->base)
+		return -ENOMEM;
+
 	ilc->irqs = kzalloc(sizeof(struct ilc_irq) * ilc->inputs_num,
 			GFP_KERNEL);
 	if (!ilc->irqs)
@@ -450,24 +452,31 @@ static int __init ilc_probe(struct platform_device *pdev)
 
 	for (i = 0; i < ilc->inputs_num; ++i) {
 		ilc->irqs[i].priority = 7;
-#ifdef CONFIG_HIBERNATION
 		ilc->irqs[i].trigger_mode = ILC_TRIGGERMODE_HIGH;
-#endif
 	}
 
-	ilc->priority = kzalloc(ilc->outputs_num * sizeof(long), GFP_KERNEL);
+	ilc->priority = kzalloc(ilc->outputs_num * sizeof(long*), GFP_KERNEL);
 	if (!ilc->priority)
 		return -ENOMEM;
 
-	for (i = 0; i < ilc->outputs_num; ++i)
+	for (i = 0; i < ilc->outputs_num; ++i) {
 		ilc->priority[i] = kzalloc(sizeof(long) *
 				DIV_ROUND_UP(ilc->inputs_num, 32), GFP_KERNEL);
+		if (!ilc->priority[i])
+			return -ENOMEM;
+	}
 
 	ilc_demux_init(pdev);
 
 	list_add(&ilc->list, &ilcs_list);
 
-	return 0;
+	/* sysdev doesn't appear to like id's of -1 */
+	ilc->sysdev.id = (pdev->id == -1) ? 0 : pdev->id;
+
+	ilc->sysdev.cls = &ilc_sysdev_class,
+	error = sysdev_register(&ilc->sysdev);
+
+	return error;
 }
 
 static struct platform_driver ilc_driver = {
@@ -477,14 +486,6 @@ static struct platform_driver ilc_driver = {
 	},
 	.probe = ilc_probe,
 };
-
-static int __init ilc_init(void)
-{
-	return platform_driver_register(&ilc_driver);
-}
-arch_initcall(ilc_init);
-
-
 
 #if defined(CONFIG_DEBUG_FS)
 
@@ -586,32 +587,42 @@ static int ilc_resume_from_hibernation(struct ilc *ilc)
 
 static int ilc_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
-	static pm_message_t prev_state;
-	struct ilc *ilc;
-
-	if (state.event == PM_EVENT_ON && prev_state.event == PM_EVENT_FREEZE)
-		list_for_each_entry(ilc, &ilcs_list, list)
-			ilc_resume_from_hibernation(ilc);
-
-	prev_state = state;
 	return 0;
 }
 
 static int ilc_sysdev_resume(struct sys_device *dev)
 {
-	return ilc_sysdev_suspend(dev, PMSG_ON);
+	struct ilc *ilc;
+
+	ilc = sysdev_to_ilc(dev);
+	ilc_resume_from_hibernation(ilc);
+
+	return 0;
 }
 
-static struct sysdev_driver ilc_sysdev_driver = {
+#else
+#define ilc_sysdev_suspend NULL
+#define ilc_sysdev_resume NULL
+#endif
+
+static struct sysdev_class ilc_sysdev_class = {
+	.name = "ilc3",
 	.suspend = ilc_sysdev_suspend,
 	.resume = ilc_sysdev_resume,
 };
 
-static int __init ilc_sysdev_init(void)
+static int __init ilc_init(void)
 {
-	return sysdev_driver_register(&cpu_sysdev_class, &ilc_sysdev_driver);
+	int ret;
+
+	ret = platform_driver_register(&ilc_driver);
+	if (ret)
+		return ret;
+
+	ret = sysdev_class_register(&cpu_sysdev_class);
+	if (ret)
+		return ret;
+
+	return 0;	
 }
-
-module_init(ilc_sysdev_init);
-
-#endif /* CONFIG_HIBERNATION */
+arch_initcall(ilc_init);

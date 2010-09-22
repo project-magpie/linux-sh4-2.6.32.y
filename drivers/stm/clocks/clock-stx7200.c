@@ -340,25 +340,6 @@ static struct clk fdma_lx_miscdiv_clks[] = {
 	CLKGENA_MISCDIV(fdma_200, 14, 4)
 };
 
-static struct clk *clockgena_clocks[] = {
-	&pllclks[0],
-	&pllclks[1],
-	&pllclks[2],
-	&sh4clks[0],
-	&fdma_lx_miscdiv_clks[0],
-	&fdma_lx_miscdiv_clks[1],
-	&fdma_lx_miscdiv_clks[2],
-	&fdma_lx_miscdiv_clks[3],
-	&fdma_lx_miscdiv_clks[4],
-	&fdma_lx_miscdiv_clks[5],
-	&fdma_lx_miscdiv_clks[6],
-	&fdma_lx_miscdiv_clks[7],
-	&fdma_lx_miscdiv_clks[8],
-	&fdma_lx_miscdiv_clks[9],
-	&miscclks[0],
-};
-
-
 enum clockgen2B_ID {
 	DIV2_B_BDISP266_ID = 0,
 	DIV2_B_COMPO200_ID,
@@ -579,39 +560,43 @@ CLKGENB(MISC_B_ETHERNET_ID, ethernet,   icreg_emi_eth_clk_ops, 0),
 CLKGENB(MISC_B_EMIMASTER_ID, emi_master, icreg_emi_eth_clk_ops, 0),
 };
 
-static struct clk *clockgenb_clocks[] = {
-	&clkB_pllclks[0],
-
-	&clkB_div2clks[DIV2_B_BDISP266_ID],
-	&clkB_div2clks[DIV2_B_COMPO200_ID],
-	&clkB_div2clks[DIV2_B_DISP200_ID],
-	&clkB_div2clks[DIV2_B_VDP200_ID],
-	&clkB_div2clks[DIV2_B_DMU1266_ID],
-
-	&clkB_miscclks[MISC_B_ICREG_ID],
-	&clkB_miscclks[MISC_B_ETHERNET_ID],
-	&clkB_miscclks[MISC_B_EMIMASTER_ID]
-};
-
 int __init plat_clk_init(void)
 {
 	int ret;
 
 	/* Clockgen A */
-	ret = clk_register_table(clockgena_clocks,
-				 ARRAY_SIZE(clockgena_clocks), 1);
+	ret = clk_register_table(pllclks, ARRAY_SIZE(pllclks), 1);
+	if (ret)
+		return ret;
+
+	ret = clk_register_table(fdma_lx_miscdiv_clks,
+			ARRAY_SIZE(fdma_lx_miscdiv_clks), 1);
 	if (ret)
 		return ret;
 
 	/* Clockgen B */
 	ctrl_outl(ctrl_inl(CLOCKGENB_IN_MUX_CFG) & ~0xf, CLOCKGENB_IN_MUX_CFG);
-	ret = clk_register_table(clockgenb_clocks,
-				 ARRAY_SIZE(clockgenb_clocks), 1);
+
+	ret = clk_register_table(clkB_pllclks, ARRAY_SIZE(clkB_pllclks), 1);
+	if (ret)
+		return ret;
+
+	ret = clk_register_table(clkB_div2clks,	ARRAY_SIZE(clkB_div2clks), 1);
+
+	if (ret)
+		return ret;
+
+	ret = clk_register_table(clkB_miscclks, ARRAY_SIZE(clkB_miscclks), 1);
+
 	if (ret)
 		return ret;
 
 	if (cpu_data->cut_major < 2) {
-		ret = clk_register_table(&sh4clks[1], ARRAY_SIZE(sh4clks)-1, 1);
+		ret = clk_register_table(sh4clks, ARRAY_SIZE(sh4clks), 1);
+		if (ret)
+			return ret;
+	} else {
+		ret = clk_register_table(sh4clks, 1, 1);
 		if (ret)
 			return ret;
 	}

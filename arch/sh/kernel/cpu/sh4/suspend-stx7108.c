@@ -242,6 +242,7 @@ on_suspending:
 
 	if (!(pll0_regs && pll1_regs && switch_cfg))
 		goto error;
+
 	/* Save the original parents */
 	switch_cfg[0] = ioread32(cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
 	switch_cfg[1] = ioread32(cga0 + CKGA_CLKOPSRC_SWITCH_CFG2);
@@ -261,15 +262,28 @@ on_suspending:
 
 	}
 
-	iowrite32(0xFFC3FCFF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
+	/*
+	 * WOL needs:
+	 * - eth1.phy under cga_0.pll_1
+	 * - eth1.mac under cga_0.pll_0
+	 */
+	if (wkd.eth1_phy_can_wakeup)
+		iowrite32(0x6FC3FCFF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
+	else
+		iowrite32(0xFFC3FCFF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
 	iowrite32(0xF3FFFFFF, cga1 + CKGA_CLKOPSRC_SWITCH_CFG);
 
 	if (state == PM_SUSPEND_MEM) {
 		/* all the clocks off */
 		iowrite32(0xF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG2);
 		iowrite32(0xF, cga1 + CKGA_CLKOPSRC_SWITCH_CFG2);
-		/* turn-off cga_0.pll_0 and cga_0.pll_1 */
-		iowrite32(3, cga0 + CKGA_POWER_CFG);
+		/*
+		 * WOL on eth1 needs unser cga_0.pll_1!
+		 */
+		if (!wkd.eth1_phy_can_wakeup)
+			/* turn-off cga_1.pll_0 and cga_1.pll_1 */
+			iowrite32(3, cga0 + CKGA_POWER_CFG);
+
 		/* turn-off cga_1.pll_0 and cga_1.pll_1 */
 		iowrite32(3, cga1 + CKGA_POWER_CFG);
 	}

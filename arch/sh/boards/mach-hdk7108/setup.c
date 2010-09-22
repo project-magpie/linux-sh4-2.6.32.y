@@ -76,6 +76,7 @@
 #define HDK7108_PIO_PCI_RESET stm_gpio(6, 4)
 #define HDK7108_PIO_POWER_ON_ETHERNET stm_gpio(15, 4)
 #define HDK7108_GPIO_FLASH_WP stm_gpio(5, 5)
+#define HDK7108_GPIO_MII_SPEED_SEL stm_gpio(21, 7)
 
 
 static void __init hdk7108_setup(char **cmdline_p)
@@ -163,6 +164,15 @@ static int hdk7108_phy_reset(void *bus)
 	}
 
 	return 1;
+}
+
+static void hdk7108_mii_txclk_select(int txclk_250_not_25_mhz)
+{
+	/* When 1000 speed is negotiated we have to set the PIO21[7]. */
+	if (txclk_250_not_25_mhz)
+		gpio_set_value(HDK7108_GPIO_MII_SPEED_SEL, 1);
+	else
+		gpio_set_value(HDK7108_GPIO_MII_SPEED_SEL, 0);
 }
 
 static struct platform_device hdk7108_phy_devices[] = {
@@ -445,10 +455,14 @@ static int __init device_init(void)
 	 *
 	 * On the HDK7108V1/2: remove R31 and place it at R39.
 	 */
+	gpio_request(HDK7108_GPIO_MII_SPEED_SEL, "stmmac");
+	gpio_direction_output(HDK7108_GPIO_MII_SPEED_SEL, 0);
+
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_gmii_gtx,
 			.ext_clk = 0,
-			.phy_bus = 1, });
+			.phy_bus = 1,
+			.txclk_select = hdk7108_mii_txclk_select, });
 #endif
 
 	/*

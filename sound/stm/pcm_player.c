@@ -110,10 +110,8 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 		return -EINVAL;
 
 	/* Get interrupt status & clear them immediately */
-	preempt_disable();
 	status = get__AUD_PCMOUT_ITS(pcm_player);
 	set__AUD_PCMOUT_ITS_CLR(pcm_player, status);
-	preempt_enable();
 
 	/* Underflow? */
 	if (unlikely(status & mask__AUD_PCMOUT_ITS__UNF__PENDING(pcm_player))) {

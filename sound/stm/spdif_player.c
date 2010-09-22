@@ -134,10 +134,8 @@ static irqreturn_t snd_stm_spdif_player_irq_handler(int irq, void *dev_id)
 		return -EINVAL;
 
 	/* Get interrupt status & clear them immediately */
-	preempt_disable();
 	status = get__AUD_SPDIF_ITS(spdif_player);
 	set__AUD_SPDIF_ITS_CLR(spdif_player, status);
-	preempt_enable();
 
 	if (unlikely(status &
 			mask__AUD_SPDIF_ITS__UNF__PENDING(spdif_player))) {

@@ -222,7 +222,7 @@ static int stx7108_suspend_core(suspend_state_t state, int suspending)
 		iowrite32(pll0_regs[i + 18], cga1 +
 			((i < 4) ? CKGA_PLL0HS_DIV_CFG(i) :
 				CKGA_PLL0LS_DIV_CFG(i)));
-		iowrite32(pll1_regs[i + 18], cga0 + CKGA_PLL1_DIV_CFG(i));
+		iowrite32(pll1_regs[i + 18], cga1 + CKGA_PLL1_DIV_CFG(i));
 	}
 	kfree(pll0_regs);
 	kfree(pll1_regs);
@@ -262,14 +262,15 @@ on_suspending:
 	}
 
 	iowrite32(0xFFC3FCFF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
-	iowrite32(0xF3FFFFFF , cga1 + CKGA_CLKOPSRC_SWITCH_CFG);
+	iowrite32(0xF3FFFFFF, cga1 + CKGA_CLKOPSRC_SWITCH_CFG);
 
 	if (state == PM_SUSPEND_MEM) {
 		/* all the clocks off */
 		iowrite32(0xF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG2);
 		iowrite32(0xF, cga1 + CKGA_CLKOPSRC_SWITCH_CFG2);
-		/* turn-off the PLLs*/
+		/* turn-off cga_0.pll_0 and cga_0.pll_1 */
 		iowrite32(3, cga0 + CKGA_POWER_CFG);
+		/* turn-off cga_1.pll_0 and cga_1.pll_1 */
 		iowrite32(3, cga1 + CKGA_POWER_CFG);
 	}
 

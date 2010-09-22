@@ -12,12 +12,13 @@
 
 #include <linux/init.h>
 #include <linux/gpio.h>
+#include <linux/delay.h>
 #include <linux/platform_device.h>
 #include <linux/ata_platform.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/stm/emi.h>
-#include <linux/stm/pad.h>
+#include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stx7108.h>
 #include <asm/irq-ilc.h>
@@ -28,6 +29,23 @@
 
 static int __initdata stx7108_emi_bank_configured[EMI_BANKS];
 
+static void stx7108_emi_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, "EMI_PWR", value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, "EMI_ACK")
+			== value)
+			break;
+		mdelay(10);
+	}
+
+	return;
+}
+
 static struct platform_device stx7108_emi = {
 	.name = "emi",
 	.id = -1,
@@ -36,6 +54,14 @@ static struct platform_device stx7108_emi = {
 		STM_PLAT_RESOURCE_MEM(0, 128 * 1024 * 1024),
 		STM_PLAT_RESOURCE_MEM(0xfe900000, 0x874),
 	},
+	.dev.platform_data = &(struct stm_device_config){
+		.sysconfs_num = 2,
+		.sysconfs = (struct stm_device_sysconf []){
+			STM_DEVICE_SYS_CFG_BANK(2, 30, 0, 0, "EMI_PWR"),
+			STM_DEVICE_SYS_STA_BANK(2, 1, 0, 0, "EMI_ACK"),
+		},
+		.power = stx7108_emi_power,
+	}
 };
 
 

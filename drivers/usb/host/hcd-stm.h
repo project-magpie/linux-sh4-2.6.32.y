@@ -64,6 +64,14 @@ struct drv_usb_data {
 	void *ahb2stbus_protocol_base;
 	struct platform_device *ehci_device;
 	struct platform_device *ohci_device;
+	struct stm_device_state *device_state;
 };
 
+#ifdef CONFIG_PM_RUNTIME
+int stm_ehci_hcd_register(struct platform_device *);
+int stm_ehci_hcd_unregister(struct platform_device *);
+
+int stm_ohci_hcd_register(struct platform_device *);
+int stm_ohci_hcd_unregister(struct platform_device *);
+#endif
 #endif

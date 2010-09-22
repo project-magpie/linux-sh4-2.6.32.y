@@ -17,6 +17,7 @@
 #include <linux/stm/miphy.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
+#include <linux/stm/device.h>
 #include <linux/stm/stx7141.h>
 #include <linux/delay.h>
 #include <asm/irq-ilc.h>
@@ -371,6 +372,9 @@ static struct plat_stmmacenet_data stx7141_ethernet_platform_data[] = {
 		.pbl = 32,
 		.has_gmac = 1,
 		.enh_desc = 1,
+		.tx_coe = 1,
+		.bugged_jumbo =1,
+		.pmt = 1,
 		.fix_mac_speed = stx7141_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7141_configure_ethernet() */
 	},
@@ -378,6 +382,9 @@ static struct plat_stmmacenet_data stx7141_ethernet_platform_data[] = {
 		.pbl = 32,
 		.has_gmac = 1,
 		.enh_desc = 1,
+		.tx_coe = 1,
+		.bugged_jumbo =1,
+		.pmt = 1,
 		.fix_mac_speed = stx7141_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7141_configure_ethernet() */
 	},
@@ -392,10 +399,7 @@ static struct platform_device stx7141_ethernet_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd110000, 0x8000),
 			STM_PLAT_RESOURCE_IRQ_NAMED("macirq", ILC_IRQ(40), -1),
 		},
-		.dev = {
-			.power.can_wakeup = 1,
-			.platform_data = &stx7141_ethernet_platform_data[0],
-		}
+		.dev.platform_data = &stx7141_ethernet_platform_data[0],
 	},
 	[1] = {
 		.name = "stmmaceth",
@@ -405,10 +409,7 @@ static struct platform_device stx7141_ethernet_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfd118000, 0x8000),
 			STM_PLAT_RESOURCE_IRQ_NAMED("macirq", ILC_IRQ(47), -1),
 		},
-		.dev = {
-			.power.can_wakeup = 1,
-			.platform_data = &stx7141_ethernet_platform_data[1],
-		}
+		.dev.platform_data = &stx7141_ethernet_platform_data[1],
 	},
 };
 
@@ -458,26 +459,86 @@ static u64 stx7141_usb_dma_mask = DMA_BIT_MASK(32);
 static int stx7141_usb_enable(struct stm_pad_state *state, void *priv);
 static void stx7141_usb_disable(struct stm_pad_state *state, void *priv);
 
+#define USB_PWR "USB_PWR"
+#define USB_ACK "USB_ACK"
+#define USB_ENABLE "USB_ENABLE"
+
+static void stx7141_usb_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+	int enable_value = (power == stm_device_power_on) ? 1 : 0;
+
+	if (stm_device_get_config(device_state)->sysconfs_num > 2)
+		stm_device_sysconf_write(device_state, USB_ENABLE,
+					 enable_value);
+
+	stm_device_sysconf_write(device_state, USB_PWR, value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, USB_ACK)
+				 == value)
+			break;
+		mdelay(10);
+	}
+}
+
 static struct stm_plat_usb_data stx7141_usb_platform_data[] = {
 	[0] = { /* USB 2.0 port */
 		.flags = STM_PLAT_USB_FLAGS_STRAP_16BIT |
 				STM_PLAT_USB_FLAGS_STRAP_PLL |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
-		/* pad_config done in stx7141_configure_usb() */
+		.device_config = &(struct stm_device_config){
+			/* pad_config done in stx7141_configure_usb() */
+			.sysconfs_num = 3,
+			.sysconfs = (struct stm_device_sysconf []){
+				STM_DEVICE_SYS_CFG(32, 7, 7, USB_PWR),
+				STM_DEVICE_SYS_STA(15, 7, 7, USB_ACK),
+				STM_DEVICE_SYS_CFG(4, 1, 1, USB_ENABLE),
+			},
+			.power = stx7141_usb_power,
+		},
 	},
 	[1] = { /* USB 2.0 port */
 		.flags = STM_PLAT_USB_FLAGS_STRAP_16BIT |
 				STM_PLAT_USB_FLAGS_STRAP_PLL |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
-		/* pad_config done in stx7141_configure_usb() */
+		.device_config = &(struct stm_device_config){
+			/* pad_config done in stx7141_configure_usb() */
+			.sysconfs_num = 3,
+			.sysconfs = (struct stm_device_sysconf []){
+				STM_DEVICE_SYS_CFG(32, 8, 8, USB_PWR),
+				STM_DEVICE_SYS_STA(15, 8, 8, USB_ACK),
+				STM_DEVICE_SYS_CFG(4, 14, 14, USB_ENABLE),
+			},
+			.power = stx7141_usb_power,
+		},
 	},
 	[2] = { /* USB 1.1 port */
 		.flags = STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
-		/* pad_config done in stx7141_configure_usb() */
+		.device_config = &(struct stm_device_config){
+			/* pad_config done in stx7141_configure_usb() */
+			.sysconfs_num = 3,
+			.sysconfs = (struct stm_device_sysconf []){
+				STM_DEVICE_SYS_CFG(32, 9, 9, USB_PWR),
+				STM_DEVICE_SYS_STA(15, 9, 9, USB_ACK),
+				STM_DEVICE_SYS_CFG(4, 8, 8, USB_ENABLE),
+			},
+			.power = stx7141_usb_power,
+		},
 	},
 	[3] = { /* USB 1.1 port */
 		.flags = STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
-		/* pad_config done in stx7141_configure_usb() */
+		.device_config = &(struct stm_device_config){
+			/* pad_config done in stx7141_configure_usb() */
+			.sysconfs_num = 3,
+			.sysconfs = (struct stm_device_sysconf []){
+				STM_DEVICE_SYS_CFG(32, 10, 10, USB_PWR),
+				STM_DEVICE_SYS_STA(15, 10, 10, USB_ACK),
+				STM_DEVICE_SYS_CFG(4, 13, 13, USB_ENABLE),
+			},
+			.power = stx7141_usb_power,
+		},
 	},
 };
 
@@ -587,38 +648,10 @@ static int stx7141_usb_enable(struct stm_pad_state *state, void *priv)
 
 	spin_lock(&stx7141_usb_spin_lock);
 
-	/* State shared by all four ports */
-	if ((stx7141_usb_enabled_ports[stx7141_usb_2_ports] +
-	     stx7141_usb_enabled_ports[stx7141_usb_11_ports]) == 0) {
-		/* Select SATA clock */
-		stx7141_usb_phy_clock_sc = sysconf_claim(SYS_CFG,
-				40, 2, 3, "USB");
-		sysconf_write(stx7141_usb_phy_clock_sc, 0);
-
-		if (cpu_data->cut_major >= 2) {
-			/* Enable USB_XTAL_VALID */
-			stx7141_usb_pll_sc = sysconf_claim(SYS_CFG,
-					4, 10, 10, "USB");
-			sysconf_write(stx7141_usb_pll_sc, 1);
-		}
-	}
-
-	/* Select USB 1.1 clock source */
-	if ((port_group == stx7141_usb_11_ports) &&
-	    (stx7141_usb_enabled_ports[stx7141_usb_11_ports] == 0)) {
-		if (cpu_data->cut_major < 2) {
-			/* ENABLE_USB48_CLK: Enable 48 MHz clock */
-			stx7141_usb_clock_sc = sysconf_claim(SYS_CFG,
-					4, 5, 5, "USB");
-			sysconf_write(stx7141_usb_clock_sc, 1);
-		} else {
-			/* ENABLE_USB_CLK: use USB PHY */
-			stx7141_usb_clock_sc = sysconf_claim(SYS_CFG,
-					4, 4, 5, "USB");
-			sysconf_write(stx7141_usb_clock_sc, 3);
-		}
-	}
-
+/*
+ *	The USB clock management is moved in the clock-stx7141.c file
+ *	like any other clock
+ */
 	/* State shared by two ports */
 	if ((stx7141_usb_enabled_ports[port_group] == 0) &&
 	    (cpu_data->cut_major >= 2)) {
@@ -651,29 +684,6 @@ static int stx7141_usb_enable(struct stm_pad_state *state, void *priv)
 		sysconf_write(stx7141_usb_oc_invert_sc[port_group],
 			      oc_mode[port_group][mode].invert);
 	}
-
-	/* Enable USB port */
-	if (cpu_data->cut_major >= 2) {
-		static const unsigned char enable_bit[4] = {
-			1,
-			14,
-			8,
-			13
-		};
-
-		stx7141_usb_enable_sc[port] = sysconf_claim(SYS_CFG, 4,
-				enable_bit[port], enable_bit[port], "USB");
-		sysconf_write(stx7141_usb_enable_sc[port], 1);
-	}
-
-	/* Power up USB port */
-	stx7141_usb_pwr_req_sc[port] = sysconf_claim(SYS_CFG,
-			32, 7 + port, 7 + port, "USB");
-	sysconf_write(stx7141_usb_pwr_req_sc[port], 0);
-	stx7141_usb_pwr_ack_sc[port] = sysconf_claim(SYS_STA,
-			15, 7 + port, 7 + port, "USB");
-	do {
-	} while (sysconf_read(stx7141_usb_pwr_ack_sc[port]));
 
 	stx7141_usb_enabled_ports[port_group]++;
 
@@ -757,11 +767,14 @@ void __init stx7141_configure_usb(int port, struct stx7141_usb_config *config)
 			goto fail;
 	}
 
+	if (cpu_data->cut_major < 2)
+		stx7141_usb_platform_data[port].device_config->sysconfs_num--;
+
 	configured[port] = 1;
 	stx7141_usb_overcur_mode[port] = config->ovrcur_mode;
 
 	pad_config = stm_pad_config_alloc(2, 0);
-	stx7141_usb_platform_data[port].pad_config = pad_config;
+	stx7141_usb_platform_data[port].device_config->pad_config = pad_config;
 
 	if (config->ovrcur_mode != stx7141_usb_ovrcur_disabled) {
 		static const struct {
@@ -809,6 +822,17 @@ fail:
 
 /* SATA resources --------------------------------------------------------- */
 
+static void stx7141_sata_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int value = (power == stm_device_power_on) ? 1 : 0;
+
+	stm_device_sysconf_write(device_state, "SATA_PWR", value);
+	mdelay(10);
+
+	return ;
+}
+
 static struct platform_device stx7141_sata_device = {
 	.name = "sata-stm",
 	.id = -1,
@@ -816,6 +840,14 @@ static struct platform_device stx7141_sata_device = {
 		.phy_init = 0,
 		.pc_glue_logic_init = 0,
 		.only_32bit = 0,
+		.device_config = &(struct stm_device_config) {
+			.sysconfs_num = 2,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYS_CFG(32, 6, 6, "SATA_PWR"),
+				STM_DEVICE_SYS_STA(15, 5, 5, "SATA_ACK"),
+			},
+			.power = stx7141_sata_power,
+		}
 	},
 	.num_resources = 3,
 	.resource = (struct resource[]) {

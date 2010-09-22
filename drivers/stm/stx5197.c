@@ -13,11 +13,12 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/i2c.h>
+#include <linux/delay.h>
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
 #include <linux/ata_platform.h>
 #include <linux/mtd/partitions.h>
-#include <linux/stm/pad.h>
+#include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/stx5197.h>
@@ -404,10 +405,11 @@ int __init stx5197_configure_ssc_spi(int ssc)
 static struct platform_device stx5197_lirc_device = {
 	.name = "lirc-stm",
 	.id = -1,
-	.num_resources = 2,
+	.num_resources = 3,
 	.resource = (struct resource []) {
 		STM_PLAT_RESOURCE_MEM(0xfd118000, 0x234),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(19), -1),
+		STM_PLAT_RESOURCE_IRQ(ILC_EXT_IRQ(4), -1),
 	},
 	.dev.platform_data = &(struct stm_plat_lirc_data) {
 		/* The clock settings will be calculated by
@@ -598,18 +600,41 @@ void __init stx5197_configure_ethernet(struct stx5197_ethernet_config *config)
 
 static u64 stx5197_usb_dma_mask = DMA_BIT_MASK(32);
 
+static void stx5197_usb_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, "USB_PWR", value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, "USB_ACK")
+			== value)
+			break;
+		mdelay(10);
+	}
+
+	return;
+}
+
 static struct stm_plat_usb_data stx5197_usb_platform_data = {
 	.flags = STM_PLAT_USB_FLAGS_STRAP_16BIT |
 		STM_PLAT_USB_FLAGS_STRAP_PLL |
 		STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
-	.pad_config = &(struct stm_pad_config) {
+	.device_config = &(struct stm_device_config) {
 		.sysconfs_num = 2,
-		.sysconfs = (struct stm_pad_sysconf []) {
-			/* USB power down */
-			STM_PAD_SYSCONF(CFG_CTRL_H, 8, 8, 0),
-			/* DDR enable for ULPI:
-			 * 0 = 8 bit SDR ULPI, 1 = 4 bit DDR ULPI */
-			STM_PAD_SYSCONF(CFG_CTRL_M, 12, 12, 0),
+		.sysconfs = (struct stm_device_sysconf []){
+			STM_DEVICE_SYSCONF(CFG_CTRL_H, 8, 8, "USB_PWR"),
+			STM_DEVICE_SYSCONF(CFG_MONITOR_E, 30, 30, "USB_ACK"),
+		},
+		.power = stx5197_usb_power,
+		.pad_config = &(struct stm_pad_config) {
+			.sysconfs_num = 1,
+			.sysconfs = (struct stm_pad_sysconf []) {
+				/* DDR enable for ULPI:
+				 * 0 = 8 bit SDR ULPI, 1 = 4 bit DDR ULPI */
+				STM_PAD_SYSCONF(CFG_CTRL_M, 12, 12, 0),
+			},
 		},
 	},
 };
@@ -937,6 +962,22 @@ static struct platform_device stx5197_sysconf_devices[] = {
 
 
 /* EMI resources ---------------------------------------------------------- */
+static void stx5197_emi_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, "EMI_PWR", value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, "EMI_ACK")
+			== value)
+			break;
+		mdelay(10);
+	}
+
+	return;
+}
 
 static struct platform_device stx5197_emi = {
 	.name = "emi",
@@ -946,6 +987,14 @@ static struct platform_device stx5197_emi = {
 		STM_PLAT_RESOURCE_MEM(0, 128 * 1024 * 1024),
 		STM_PLAT_RESOURCE_MEM(0xfde30000, 0x874),
 	},
+	.dev.platform_data = &(struct stm_device_config){
+		.sysconfs_num = 2,
+		.sysconfs = (struct stm_device_sysconf []){
+			STM_DEVICE_SYSCONF(CFG_CTRL_I, 1, 1, "EMI_PWR"),
+			STM_DEVICE_SYSCONF(CFG_MONITOR_J, 1, 1, "EMI_ACK"),
+		},
+		.power = stx5197_emi_power,
+	}
 };
 
 
@@ -996,6 +1045,16 @@ static int __init stx5197_postcore_setup(void)
 postcore_initcall(stx5197_postcore_setup);
 
 
+/* Low Power Controller ---------------------------------------------------- */
+
+static struct platform_device stx5197_rtc_device = {
+	.name           = "stm-rtc",
+	.id             = -1,
+	.num_resources  = 1,
+	.resource       = (struct resource[]){
+		STM_PLAT_RESOURCE_MEM(0xFDC00000, 0x1000),
+	},
+};
 
 /* Late initialisation ---------------------------------------------------- */
 
@@ -1003,6 +1062,7 @@ static struct platform_device *stx5197_devices[] __initdata = {
 	&stx5197_fdma_device,
 	&stx5197_sysconf_devices[0],
 	&stx5197_sysconf_devices[1],
+	&stx5197_rtc_device,
 };
 
 static int __init stx5197_devices_setup(void)

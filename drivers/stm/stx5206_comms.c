@@ -427,3 +427,27 @@ void __init stx5206_configure_pwm(struct stx5206_pwm_config *config)
 
 	platform_device_register(&stx5206_pwm_device);
 }
+
+/* Low Power Controller ---------------------------------------------------- */
+
+static struct platform_device stx5206_lpc_device = {
+	.name           = "stm-rtc",
+	.id             = -1,
+	.num_resources  = 2,
+	.resource       = (struct resource[]){
+		STM_PLAT_RESOURCE_MEM(0xfd008000, 0x600),
+		STM_PLAT_RESOURCE_IRQ(ILC_EXT_IRQ(7), -1),
+	},
+	.dev.platform_data = &(struct stm_plat_rtc_lpc) {
+		.clk_id = "CLKB_LPC",
+		.need_wdt_reset = 1,
+		.irq_edge_level = IRQ_TYPE_EDGE_FALLING,
+	}
+};
+
+static int __init stx5206_add_lpc(void)
+{
+	return platform_device_register(&stx5206_lpc_device);
+}
+
+module_init(stx5206_add_lpc);

@@ -43,6 +43,7 @@ struct asc_port {
 #ifdef CONFIG_PM
 	unsigned long pm_ctrl;
 	unsigned long pm_baud;
+	unsigned long pm_irq;
 #endif
 };
 

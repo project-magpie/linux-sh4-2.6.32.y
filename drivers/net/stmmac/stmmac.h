@@ -50,7 +50,6 @@ struct stmmac_priv {
 	int is_gmac;
 	dma_addr_t dma_rx_phy;
 	unsigned int dma_rx_size;
-	int rx_csum;
 	unsigned int dma_buf_sz;
 	struct device *device;
 	struct mac_device_info *hw;
@@ -77,6 +76,7 @@ struct stmmac_priv {
 	unsigned int flow_ctrl;
 	unsigned int pause;
 	struct mii_bus *mii;
+	int mii_clk_csr;
 
 	u32 msg_enable;
 	spinlock_t lock;
@@ -90,6 +90,9 @@ struct stmmac_priv {
 	struct vlan_group *vlgrp;
 #endif
 	int enh_desc;
+	int rx_coe;
+	int bugged_jumbo;
+	int no_csum_insertion;
 };
 
 #ifdef CONFIG_STM_DRIVERS
@@ -100,8 +103,8 @@ static inline int stmmac_claim_resource(struct platform_device *pdev)
 	struct plat_stmmacenet_data *plat_dat = pdev->dev.platform_data;
 
 	/* Pad routing setup */
-	if (!devm_stm_pad_claim(&pdev->dev, plat_dat->pad_config,
-			dev_name(&pdev->dev))) {
+	if (IS_ERR(devm_stm_pad_claim(&pdev->dev, plat_dat->pad_config,
+			dev_name(&pdev->dev)))) {
 		printk(KERN_ERR "%s: Failed to request pads!\n", __func__);
 		ret = -ENODEV;
 	}

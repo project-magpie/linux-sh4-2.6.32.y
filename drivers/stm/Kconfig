@@ -124,19 +124,32 @@ config PMS
 	bool "Power Management Scheme"
 	default n
 	depends on PM
+	select PM_RUNTIME
 	help
-	  This option enables the power management scheme on clocks and devices system
+	  This option enables the STMicroelectronics Power Management
+	  Scheme (PMS).
+
+	  This is a kernel framework based around power profiles (pms_state),
+	  where the designer can specify devices power states and the
+	  clock frequency rates.
+	  Moving the system between pms_states the user application can
+	  tune the power consumption according with what the system is doing.
 
 config PMS_CHECK_GROUP
 	bool "PMS always checks the state group"
 	depends on PMS
 	default n
 	help
-	  Enable this option if the state group has to be controlled
+	  Enable this option if the state group has to be controlled.
+	  When a group of pms_states are enabled in the same time, this option
+	  forces the PMS to check that there is no conflict inside the group
+	  itself. In case of conflict the group is rejected.
 
 config PMS_DEBUG
 	bool "PMS debug"
 	default n
 	depends on PMS
+	help
+	  Enable this option to print out information about the PMS
 
 endmenu

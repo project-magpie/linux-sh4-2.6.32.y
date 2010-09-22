@@ -11,23 +11,24 @@
 
 #include <linux/platform_device.h>
 #include <linux/stm/platform.h>
-#include <linux/stm/pm.h>
+#include <linux/stm/device.h>
+#include <linux/pm_runtime.h>
 #include <linux/delay.h>
 #include <linux/usb.h>
 #include <linux/io.h>
 #include "../core/hcd.h"
-#include "./hcd-stm.h"
+#include "hcd-stm.h"
 
 #undef dgb_print
 
 #ifdef CONFIG_USB_DEBUG
 #define dgb_print(fmt, args...)			\
-		printk(KERN_INFO "%s: " fmt, __FUNCTION__ , ## args)
+		pr_debug("%s: " fmt, __func__ , ## args)
 #else
 #define dgb_print(fmt, args...)
 #endif
 
-static int st_usb_boot(struct platform_device *pdev)
+static int stm_usb_boot(struct platform_device *pdev)
 {
 	struct stm_plat_usb_data *pl_data = pdev->dev.platform_data;
 	struct drv_usb_data *usb_data = platform_get_drvdata(pdev);
@@ -36,7 +37,8 @@ static int st_usb_boot(struct platform_device *pdev)
 	unsigned long reg, req_reg;
 
 	if (pl_data->flags &
-		(STM_PLAT_USB_FLAGS_STRAP_8BIT | STM_PLAT_USB_FLAGS_STRAP_16BIT)) {
+		(STM_PLAT_USB_FLAGS_STRAP_8BIT |
+		 STM_PLAT_USB_FLAGS_STRAP_16BIT)) {
 		/* Set strap mode */
 		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
 		if (pl_data->flags & STM_PLAT_USB_FLAGS_STRAP_16BIT)
@@ -83,8 +85,8 @@ static int st_usb_boot(struct platform_device *pdev)
 			  (0<<4)  ;  /* No messages */
 		req_reg |= ((pl_data->flags &
 			STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128) ?
-				(7<<0): /* 128 */
-				(8<<0));/* 256 */
+				(7<<0) :	/* 128 */
+				(8<<0));	/* 256 */
 		do {
 			writel(req_reg, protocol_base +
 				AHB2STBUS_MSGSIZE_OFFSET);
@@ -94,14 +96,13 @@ static int st_usb_boot(struct platform_device *pdev)
 	return 0;
 }
 
-static int st_usb_remove(struct platform_device *pdev)
+static int stm_usb_remove(struct platform_device *pdev)
 {
 	struct resource *res;
 	struct device *dev = &pdev->dev;
 	struct drv_usb_data *dr_data = platform_get_drvdata(pdev);
 
-	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 0);
-	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
+	stm_device_power(dr_data->device_state, stm_device_power_off);
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "wrapper");
 	devm_release_mem_region(dev, res->start, res->end - res->start);
@@ -146,7 +147,7 @@ error:
 	return ERR_PTR(retval);
 }
 
-static int st_usb_probe(struct platform_device *pdev)
+static int stm_usb_probe(struct platform_device *pdev)
 {
 	struct stm_plat_usb_data *plat_data = pdev->dev.platform_data;
 	struct drv_usb_data *dr_data;
@@ -155,19 +156,15 @@ static int st_usb_probe(struct platform_device *pdev)
 	int ret = 0;
 
 	dgb_print("\n");
-	/* Power on */
-	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 0);
-	/* Wait the ack */
-	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
-
 	dr_data = kzalloc(sizeof(struct drv_usb_data), GFP_KERNEL);
 	if (!dr_data)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, dr_data);
 
-	if (!devm_stm_pad_claim(&pdev->dev, plat_data->pad_config,
-			dev_name(&pdev->dev))) {
+	dr_data->device_state = devm_stm_device_init(&pdev->dev,
+		plat_data->device_config);
+	if (!dr_data->device_state) {
 		ret = -EBUSY;
 		goto err_0;
 	}
@@ -206,7 +203,7 @@ static int st_usb_probe(struct platform_device *pdev)
 		ret = -EFAULT;
 		goto err_3;
 	}
-	st_usb_boot(pdev);
+	stm_usb_boot(pdev);
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "ehci");
 	if (res) {
@@ -229,6 +226,12 @@ static int st_usb_probe(struct platform_device *pdev)
 			goto err_4;
 		}
 	}
+
+	/* Initialize the pm_runtime fields */
+	pm_runtime_set_active(&pdev->dev);
+	pm_suspend_ignore_children(&pdev->dev, 1);
+	pm_runtime_enable(&pdev->dev);
+
 	return ret;
 
 err_4:
@@ -246,23 +249,31 @@ err_0:
 	return ret;
 }
 
-static void st_usb_shutdown(struct platform_device *pdev)
+static void stm_usb_shutdown(struct platform_device *pdev)
 {
+	struct drv_usb_data *dr_data = platform_get_drvdata(pdev);
 	dgb_print("\n");
-	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 1);
+
+	stm_device_power(dr_data->device_state, stm_device_power_off);
 }
 
 #ifdef CONFIG_PM
-static int st_usb_suspend(struct platform_device *pdev, pm_message_t state)
+static int stm_usb_suspend(struct device *dev)
 {
-	struct drv_usb_data *dr_data = platform_get_drvdata(pdev);
+	struct platform_device *pdev = to_platform_device(dev);
+	struct drv_usb_data *dr_data = dev_get_drvdata(dev);
 	struct stm_plat_usb_data *pl_data = pdev->dev.platform_data;
 	void *wrapper_base = dr_data->ahb2stbus_wrapper_glue_base;
 	void *protocol_base = dr_data->ahb2stbus_protocol_base;
 	long reg;
 	dgb_print("\n");
 
-	if (pl_data->flags & USB_FLAGS_STRAP_PLL) {
+#ifdef CONFIG_PM_RUNTIME
+	if (dev->power.runtime_status != RPM_ACTIVE)
+		return 0; /* usb already suspended via runtime_suspend */
+#endif
+
+	if (pl_data->flags & STM_PLAT_USB_FLAGS_STRAP_PLL) {
 		/* PLL turned off */
 		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
 		writel(reg | AHB2STBUS_STRAP_PLL,
@@ -279,44 +290,111 @@ static int st_usb_suspend(struct platform_device *pdev, pm_message_t state)
 	mdelay(10);
 	writel(0, protocol_base + AHB2STBUS_SW_RESET);
 
-	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 1);
-	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 1);
+	stm_device_power(dr_data->device_state, stm_device_power_off);
+
 	return 0;
 }
-static int st_usb_resume(struct platform_device *pdev)
+
+static int stm_usb_resume(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
+	struct drv_usb_data *dr_data = dev_get_drvdata(dev);
+
+#ifdef CONFIG_PM_RUNTIME
+	if (dev->power.runtime_status == RPM_SUSPENDED)
+		return 0; /* usb wants resume via runtime_resume... */
+#endif
+
 	dgb_print("\n");
-	platform_pm_pwdn_req(pdev, HOST_PM | PHY_PM, 0);
-	platform_pm_pwdn_ack(pdev, HOST_PM | PHY_PM, 0);
-	st_usb_boot(pdev);
+	stm_device_power(dr_data->device_state, stm_device_power_on);
+
+	stm_usb_boot(pdev);
+
 	return 0;
 }
 #else
-#define st_usb_suspend	NULL
-#define st_usb_resume	NULL
+#define stm_usb_suspend NULL
+#define stm_usb_resume NULL
 #endif
 
-static struct platform_driver st_usb_driver = {
-	.driver.name = "stm-usb",
-	.driver.owner = THIS_MODULE,
-	.probe = st_usb_probe,
-	.shutdown = st_usb_shutdown,
-	.suspend = st_usb_suspend,
-	.resume = st_usb_resume,
-	.remove = st_usb_remove,
+#ifdef CONFIG_PM_RUNTIME
+static int stm_usb_runtime_suspend(struct device *dev)
+{
+	struct drv_usb_data *dr_data = dev_get_drvdata(dev);
+
+	if (dev->power.runtime_status == RPM_SUSPENDED) {
+		dgb_print("%s already suspended\n", dev_name(dev));
+		return 0;
+	}
+
+	dgb_print("Runtime suspending %s\n", dev_name(dev));
+#if defined(CONFIG_USB_EHCI_HCD) || defined(CONFIG_USB_EHCI_HCD_MODULE)
+	if (dr_data->ehci_device)
+		stm_ehci_hcd_unregister(dr_data->ehci_device);
+#endif
+
+#if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
+	if (dr_data->ohci_device)
+		stm_ohci_hcd_unregister(dr_data->ohci_device);
+#endif
+
+	return stm_usb_suspend(dev);
+}
+static int stm_usb_runtime_resume(struct device *dev)
+{
+	struct drv_usb_data *dr_data = dev_get_drvdata(dev);
+
+	if (dev->power.runtime_status == RPM_ACTIVE) {
+		dgb_print("%s already active\n", dev_name(dev));
+		return 0;
+	}
+	dgb_print("Runtime resuming: %s\n", dev_name(dev));
+	stm_usb_resume(dev);
+#if defined(CONFIG_USB_EHCI_HCD) || defined(CONFIG_USB_EHCI_HCD_MODULE)
+	if (dr_data->ehci_device)
+		stm_ehci_hcd_register(dr_data->ehci_device);
+#endif
+
+#if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
+	if (dr_data->ohci_device)
+		stm_ohci_hcd_register(dr_data->ohci_device);
+#endif
+	return 0;
+}
+#else
+#define stm_usb_runtime_suspend		NULL
+#define stm_usb_runtime_resume		NULL
+#endif
+
+static struct dev_pm_ops stm_usb_pm = {
+	.suspend = stm_usb_suspend,  /* on standby/memstandby */
+	.resume = stm_usb_resume,    /* resume from standby/memstandby */
+	.runtime_suspend = stm_usb_runtime_suspend,
+	.runtime_resume = stm_usb_runtime_resume,
 };
 
-static int __init st_usb_init(void)
+static struct platform_driver stm_usb_driver = {
+	.driver = {
+		.name = "stm-usb",
+		.owner = THIS_MODULE,
+		.pm = &stm_usb_pm,
+	},
+	.probe = stm_usb_probe,
+	.shutdown = stm_usb_shutdown,
+	.remove = stm_usb_remove,
+};
+
+static int __init stm_usb_init(void)
 {
-	return platform_driver_register(&st_usb_driver);
+	return platform_driver_register(&stm_usb_driver);
 }
 
-static void __exit st_usb_exit(void)
+static void __exit stm_usb_exit(void)
 {
-	platform_driver_unregister(&st_usb_driver);
+	platform_driver_unregister(&stm_usb_driver);
 }
 
 MODULE_LICENSE("GPL");
 
-module_init(st_usb_init);
-module_exit(st_usb_exit);
+module_init(stm_usb_init);
+module_exit(stm_usb_exit);

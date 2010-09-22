@@ -351,7 +351,7 @@ static int sysconf_pm_freeze(void)
 			continue;
 		}
 
-		for (j = 0; j < block->size; i += sizeof(unsigned long))
+		for (j = 0; j < block->size; j += sizeof(unsigned long))
 			block->snapshot[j / sizeof(unsigned long)] =
 					readl(block->base + j);
 	}
@@ -379,7 +379,7 @@ static int sysconf_pm_restore(void)
 			continue;
 		}
 
-		for (j = 0; j < block->size; i += sizeof(unsigned long))
+		for (j = 0; j < block->size; j += sizeof(unsigned long))
 			writel(block->snapshot[j / sizeof(unsigned long)],
 					block->base + j);
 
@@ -425,16 +425,31 @@ static int sysconf_sysdev_resume(struct sys_device *dev)
 
 static struct sysdev_class sysconf_sysdev_class = {
 	.name = "sysconf",
-};
-
-static struct sysdev_driver sysconf_sysdev_driver = {
 	.suspend = sysconf_sysdev_suspend,
 	.resume = sysconf_sysdev_resume,
 };
 
 struct sys_device sysconf_sysdev_dev = {
+	.id = 0,
 	.cls = &sysconf_sysdev_class,
 };
+
+static int __init sysconf_sysdev_init(void)
+{
+	int ret;
+
+	ret = sysdev_class_register(&sysconf_sysdev_class);
+	if (ret)
+		return ret;
+
+	ret = sysdev_register(&sysconf_sysdev_dev);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+module_init(sysconf_sysdev_init);
 #endif
 
 
@@ -703,11 +718,6 @@ static struct platform_driver sysconf_driver = {
 
 static int __init sysconf_init(void)
 {
-#ifdef CONFIG_PM
-	sysdev_class_register(&sysconf_sysdev_class);
-	sysdev_driver_register(&sysconf_sysdev_class, &sysconf_sysdev_driver);
-	sysdev_register(&sysconf_sysdev_dev);
-#endif
 	return platform_driver_register(&sysconf_driver);
 }
 arch_initcall(sysconf_init);

@@ -14,6 +14,8 @@
 #ifndef __pms_h__
 #define __pms_h__
 
+#include  <linux/compiler.h>
+
 struct pms_state;
 struct pms_object;
 struct clk;
@@ -34,8 +36,20 @@ struct pms_object *pms_register_cpu(int cpu_id);
 struct pms_object *pms_register_clock(struct clk *clk);
 struct pms_object *pms_register_device(struct device *device);
 
-struct pms_object *pms_register_clock_by_name(char *clk_name);
-struct pms_object *pms_register_device_by_path(char *dev_path);
+struct pms_object *pms_register_clock_n(char *name);
+struct pms_object *pms_register_device_n(char *name);
+
+static inline struct pms_object __deprecated
+*pms_register_clock_by_name(char *name)
+{
+	return pms_register_clock_n(name);
+}
+
+static inline struct pms_object __deprecated
+*pms_register_device_by_path(char *name)
+{
+	return pms_register_device_n(name);
+}
 
 int pms_unregister_cpu(int cpu_id);
 int pms_unregister_clock(struct clk *clk);
@@ -49,32 +63,32 @@ int pms_check_valid(struct pms_state *a, struct pms_state *b);
 int pms_set_wakeup(struct pms_object *obj, int enable);
 int pms_get_wakeup(struct pms_object *obj);
 
-typedef enum {
+enum pms_standby_e {
 	PMS_GLOBAL_STANDBY = 0x0,
 	PMS_GLOBAL_MEMSTANDBY,
 	PMS_GLOBAL_HIBERNATION,
 	PMS_GLOBAL_MEMHIBERNATION
-} pms_standby_t;
+};
 
-int pms_global_standby(pms_standby_t state);
+int pms_global_standby(enum pms_standby_e state);
 
 /*
  * PMS Api based on LPC feature
  */
-#ifdef CONFIG_STM_LPC
+#ifdef CONFIG_RTC_CLASS
 int pms_set_wakeup_timers(unsigned long long second);
 #else
-inline int pms_set_wakeup_timers(unsigned long long second)
+static inline int pms_set_wakeup_timers(unsigned long long second)
 {
 	return 0;
 }
 #endif
-inline int pms_disable_wakeup_timers(void)
+static inline int pms_disable_wakeup_timers(void)
 {
 	return pms_set_wakeup_timers(0);
 }
 
-inline int pms_change_wakeup_timers(unsigned long long second)
+static inline int pms_change_wakeup_timers(unsigned long long second)
 {
 	pms_set_wakeup_timers(0);
 	return pms_set_wakeup_timers(second);

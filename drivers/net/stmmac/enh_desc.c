@@ -24,9 +24,8 @@
 
 #include "common.h"
 
-static int enh_desc_get_tx_frame_status(void *data,
-				struct stmmac_extra_stats *x,
-				struct dma_desc *p, void __iomem *ioaddr)
+static int enh_desc_get_tx_status(void *data, struct stmmac_extra_stats *x,
+				  struct dma_desc *p, void __iomem *ioaddr)
 {
 	int ret = 0;
 	struct net_device_stats *stats = (struct net_device_stats *)data;
@@ -149,8 +148,8 @@ static int enh_desc_coe_rdes0(int ipc_err, int type, int payload_err)
 	return ret;
 }
 
-static int enh_desc_get_rx_frame_status(void *data,
-			struct stmmac_extra_stats *x, struct dma_desc *p)
+static int enh_desc_get_rx_status(void *data, struct stmmac_extra_stats *x,
+				  struct dma_desc *p)
 {
 	int ret = good_frame;
 	struct net_device_stats *stats = (struct net_device_stats *)data;
@@ -228,7 +227,7 @@ static int enh_desc_get_rx_frame_status(void *data,
 }
 
 static void enh_desc_init_rx_desc(struct dma_desc *p, unsigned int ring_size,
-				int disable_rx_ic)
+				  int disable_rx_ic)
 {
 	int i;
 	for (i = 0; i < ring_size; i++) {
@@ -242,7 +241,6 @@ static void enh_desc_init_rx_desc(struct dma_desc *p, unsigned int ring_size,
 			p->des01.erx.disable_ic = 1;
 		p++;
 	}
-	return;
 }
 
 static void enh_desc_init_tx_desc(struct dma_desc *p, unsigned int ring_size)
@@ -255,8 +253,6 @@ static void enh_desc_init_tx_desc(struct dma_desc *p, unsigned int ring_size)
 			p->des01.etx.end_ring = 1;
 		p++;
 	}
-
-	return;
 }
 
 static int enh_desc_get_tx_owner(struct dma_desc *p)
@@ -290,12 +286,10 @@ static void enh_desc_release_tx_desc(struct dma_desc *p)
 
 	memset(p, 0, offsetof(struct dma_desc, des2));
 	p->des01.etx.end_ring = ter;
-
-	return;
 }
 
 static void enh_desc_prepare_tx_desc(struct dma_desc *p, int is_fs, int len,
-				 int csum_flag)
+				     int csum_flag)
 {
 	p->des01.etx.first_segment = is_fs;
 	if (unlikely(len > BUF_SIZE_4KiB)) {
@@ -325,8 +319,8 @@ static int enh_desc_get_rx_frame_len(struct dma_desc *p)
 }
 
 struct stmmac_desc_ops enh_desc_ops = {
-	.tx_status = enh_desc_get_tx_frame_status,
-	.rx_status = enh_desc_get_rx_frame_status,
+	.tx_status = enh_desc_get_tx_status,
+	.rx_status = enh_desc_get_rx_status,
 	.get_tx_len = enh_desc_get_tx_len,
 	.init_rx_desc = enh_desc_init_rx_desc,
 	.init_tx_desc = enh_desc_init_tx_desc,

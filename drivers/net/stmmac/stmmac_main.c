@@ -133,13 +133,6 @@ static int buf_sz = DMA_BUFFER_SIZE;
 module_param(buf_sz, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(buf_sz, "DMA buffer size");
 
-/* In case of Giga ETH, we can enable/disable the COE for the
- * transmit HW checksum computation.
- * Note that, if tx csum is off in HW, SG will be still supported. */
-static int tx_coe = HW_CSUM;
-module_param(tx_coe, int, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(tx_coe, "GMAC COE type 2 [on/off]");
-
 static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_LINK | NETIF_MSG_IFUP |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
@@ -183,7 +176,6 @@ static void print_pkt(unsigned char *buf, int len)
 		printk(" %02x", buf[j]);
 	}
 	pr_info("\n");
-	return;
 }
 #endif
 
@@ -396,6 +388,7 @@ static void display_ring(struct dma_desc *p, int size)
 		       i, (unsigned int)virt_to_phys(&p[i]),
 		       (unsigned int)(x->a), (unsigned int)((x->a) >> 32),
 		       x->b, x->c);
+		pr_info("\n");
 	}
 }
 
@@ -514,7 +507,6 @@ static void init_dma_desc_rings(struct net_device *dev)
 		pr_info("TX descriptor ring:\n");
 		display_ring(priv->dma_tx, txsize);
 	}
-	return;
 }
 
 static void dma_free_rx_skbufs(struct stmmac_priv *priv)
@@ -529,7 +521,6 @@ static void dma_free_rx_skbufs(struct stmmac_priv *priv)
 		}
 		priv->rx_skbuff[i] = NULL;
 	}
-	return;
 }
 
 static void dma_free_tx_skbufs(struct stmmac_priv *priv)
@@ -547,7 +538,6 @@ static void dma_free_tx_skbufs(struct stmmac_priv *priv)
 			priv->tx_skbuff[i] = NULL;
 		}
 	}
-	return;
 }
 
 static void free_dma_desc_resources(struct stmmac_priv *priv)
@@ -567,39 +557,28 @@ static void free_dma_desc_resources(struct stmmac_priv *priv)
 	kfree(priv->rx_skbuff_dma);
 	kfree(priv->rx_skbuff);
 	kfree(priv->tx_skbuff);
-
-	return;
 }
 
 /**
  *  stmmac_dma_operation_mode - HW DMA operation mode
  *  @priv : pointer to the private device structure.
  *  Description: it sets the DMA operation mode: tx/rx DMA thresholds
- *  or Store-And-Forward capability. It also verifies the COE for the
- *  transmission in case of Giga ETH.
+ *  or Store-And-Forward capability.
  */
 static void stmmac_dma_operation_mode(struct stmmac_priv *priv)
 {
-	if (!priv->is_gmac) {
-		/* MAC 10/100 */
-		priv->hw->dma->dma_mode(priv->ioaddr, tc, 0);
-		priv->tx_coe = NO_HW_CSUM;
-	} else {
-		if ((priv->dev->mtu <= ETH_DATA_LEN) && (tx_coe)) {
-			priv->hw->dma->dma_mode(priv->ioaddr,
-						SF_DMA_MODE, SF_DMA_MODE);
-			tc = SF_DMA_MODE;
-			priv->tx_coe = HW_CSUM;
-		} else {
-			/* Checksum computation is performed in software. */
-			priv->hw->dma->dma_mode(priv->ioaddr, tc,
-						SF_DMA_MODE);
-			priv->tx_coe = NO_HW_CSUM;
-		}
-	}
-	tx_coe = priv->tx_coe;
-
-	return;
+	if (likely((priv->tx_coe) && (!priv->no_csum_insertion))) {
+		/* In case of GMAC, SF mode has to be enabled
+		 * to perform the TX COE. This depends on:
+		 * 1) TX COE if actually supported
+		 * 2) There is no bugged Jumbo frame support
+		 *    that needs to not insert csum in the TDES.
+		 */
+		priv->hw->dma->dma_mode(priv->ioaddr,
+					SF_DMA_MODE, SF_DMA_MODE);
+		tc = SF_DMA_MODE;
+	} else
+		priv->hw->dma->dma_mode(priv->ioaddr, tc, SF_DMA_MODE);
 }
 
 /**
@@ -674,7 +653,6 @@ static void stmmac_tx(struct stmmac_priv *priv)
 		}
 		netif_tx_unlock(priv->dev);
 	}
-	return;
 }
 
 static inline void stmmac_enable_irq(struct stmmac_priv *priv)
@@ -730,8 +708,6 @@ void stmmac_schedule(struct net_device *dev)
 	priv->xstats.sched_timer_n++;
 
 	_stmmac_schedule(priv);
-
-	return;
 }
 
 static void stmmac_no_timer_started(void *t, unsigned int x)
@@ -762,8 +738,6 @@ static void stmmac_tx_err(struct stmmac_priv *priv)
 
 	priv->dev->stats.tx_errors++;
 	netif_wake_queue(priv->dev);
-
-	return;
 }
 
 
@@ -785,8 +759,6 @@ static void stmmac_dma_interrupt(struct stmmac_priv *priv)
 		stmmac_tx_err(priv);
 	} else if (unlikely(status == tx_hard_error))
 		stmmac_tx_err(priv);
-
-	return;
 }
 
 /**
@@ -833,7 +805,7 @@ static int stmmac_open(struct net_device *dev)
 #ifdef CONFIG_STMMAC_TIMER
 	priv->tm = kzalloc(sizeof(struct stmmac_timer *), GFP_KERNEL);
 	if (unlikely(priv->tm == NULL)) {
-		pr_err("%s: ERROR: timer memory alloc failed \n", __func__);
+		pr_err("%s: ERROR: timer memory alloc failed\n", __func__);
 		return -ENOMEM;
 	}
 	priv->tm->freq = tmrate;
@@ -872,6 +844,12 @@ static int stmmac_open(struct net_device *dev)
 		priv->bus_setup(priv->ioaddr);
 	/* Initialize the MAC Core */
 	priv->hw->mac->core_init(priv->ioaddr);
+
+	priv->rx_coe = priv->hw->mac->rx_coe(priv->ioaddr);
+	if (priv->rx_coe)
+		pr_info("stmmac: Rx Checksum Offload Engine supported\n");
+	if (priv->tx_coe)
+		pr_info("\tTX Checksum insertion supported\n");
 
 	priv->shutdown = 0;
 
@@ -1082,7 +1060,7 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		return stmmac_sw_tso(priv, skb);
 
 	if (likely((skb->ip_summed == CHECKSUM_PARTIAL))) {
-		if (likely(priv->tx_coe == NO_HW_CSUM))
+		if (unlikely((!priv->tx_coe) || (priv->no_csum_insertion)))
 			skb_checksum_help(skb);
 		else
 			csum_insertion = 1;
@@ -1195,7 +1173,6 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv)
 		}
 		priv->hw->desc->set_rx_owner(p + entry);
 	}
-	return;
 }
 
 static int stmmac_rx(struct stmmac_priv *priv, int limit)
@@ -1334,7 +1311,6 @@ static void stmmac_tx_timeout(struct net_device *dev)
 
 	/* Clear Tx resources and restart transmitting again */
 	stmmac_tx_err(priv);
-	return;
 }
 
 /* Configuration changes (passed on by ifconfig) */
@@ -1376,7 +1352,6 @@ static void stmmac_multicast_list(struct net_device *dev)
 	spin_lock(&priv->lock);
 	priv->hw->mac->set_filter(dev);
 	spin_unlock(&priv->lock);
-	return;
 }
 
 /**
@@ -1409,6 +1384,15 @@ static int stmmac_change_mtu(struct net_device *dev, int new_mtu)
 		pr_err("%s: invalid MTU, max MTU is: %d\n", dev->name, max_mtu);
 		return -EINVAL;
 	}
+
+	/* Some GMAC devices have a bugged Jumbo frame support that
+	 * needs to have the Tx COE disabled for oversized frames
+	 * (due to limited buffer sizes). In this case we disable
+	 * the TX csum insertionin the TDES and not use SF. */
+	if ((priv->bugged_jumbo) && (priv->dev->mtu > ETH_DATA_LEN))
+		priv->no_csum_insertion = 1;
+	else
+		priv->no_csum_insertion = 0;
 
 	dev->mtu = new_mtu;
 
@@ -1490,8 +1474,6 @@ static void stmmac_vlan_rx_register(struct net_device *dev,
 	spin_lock(&priv->lock);
 	priv->vlgrp = grp;
 	spin_unlock(&priv->lock);
-
-	return;
 }
 #endif
 
@@ -1537,9 +1519,6 @@ static int stmmac_probe(struct net_device *dev)
 	dev->features |= NETIF_F_HW_VLAN_RX;
 #endif
 	priv->msg_enable = netif_msg_init(debug, default_msg_level);
-
-	if (priv->is_gmac)
-		priv->rx_csum = 1;
 
 	if (flow_ctrl)
 		priv->flow_ctrl = FLOW_AUTO;	/* RX/TX pause on */
@@ -1587,20 +1566,19 @@ static int stmmac_mac_device_setup(struct net_device *dev)
 	else
 		device = dwmac100_setup(priv->ioaddr);
 
+	if (!device)
+		return -ENOMEM;
+
 	if (priv->enh_desc) {
 		device->desc = &enh_desc_ops;
 		pr_info("\tEnhanced descriptor structure\n");
 	} else
 		device->desc = &ndesc_ops;
 
-	if (!device)
-		return -ENOMEM;
-
 	priv->hw = device;
 
-	priv->wolenabled = priv->hw->pmt;	/* PMT supported */
-	if (priv->wolenabled == PMT_SUPPORTED)
-		priv->wolopts = WAKE_MAGIC;		/* Magic Frame */
+	if (device_can_wakeup(priv->device))
+		priv->wolopts = WAKE_MAGIC; /* Magic Frame as default */
 
 	return 0;
 }
@@ -1690,7 +1668,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 		ret = -ENODEV;
 		goto out;
 	}
-	pr_info("done!\n");
+	pr_info("\tdone!\n");
 
 	if (!request_mem_region(res->start, resource_size(res),	pdev->name)) {
 		pr_err("%s: ERROR: memory allocation failed"
@@ -1731,14 +1709,23 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	plat_dat = pdev->dev.platform_data;
 	priv->bus_id = plat_dat->bus_id;
 	priv->pbl = plat_dat->pbl;	/* TLI */
+	priv->mii_clk_csr = plat_dat->clk_csr;
+	priv->tx_coe = plat_dat->tx_coe;
+	priv->bugged_jumbo = plat_dat->bugged_jumbo;
 	priv->is_gmac = plat_dat->has_gmac;	/* GMAC is on board */
 	priv->enh_desc = plat_dat->enh_desc;
 	priv->ioaddr = addr;
 
+	/* PMT module is not integrated in all the MAC devices. */
+	if (plat_dat->pmt) {
+		pr_info("\tPMT module supported\n");
+		device_set_wakeup_capable(&pdev->dev, 1);
+	}
+
 	platform_set_drvdata(pdev, ndev);
 
 	/* Set the I/O base addr */
-	ndev->base_addr = (unsigned long) addr;
+	ndev->base_addr = (unsigned long)addr;
 
 	/* Verify embedded resource for the platform */
 	ret = stmmac_claim_resource(pdev);
@@ -1769,8 +1756,8 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	priv->bsp_priv = plat_dat->bsp_priv;
 
 	pr_info("\t%s - (dev. name: %s - id: %d, IRQ #%d\n"
-	       "\tIO base addr: 0x%08x)\n", ndev->name, pdev->name,
-	       pdev->id, ndev->irq, (unsigned int) addr);
+	       "\tIO base addr: 0x%p)\n", ndev->name, pdev->name,
+	       pdev->id, ndev->irq, addr);
 
 	/* MDIO bus Registration */
 	pr_debug("\tMDIO bus (id: %d)...", priv->bus_id);
@@ -1862,13 +1849,11 @@ static int stmmac_suspend(struct platform_device *pdev, pm_message_t state)
 
 		stmmac_mac_disable_tx(priv->ioaddr);
 
-		if (device_may_wakeup(&(pdev->dev))) {
-			/* Enable Power down mode by programming the PMT regs */
-			if (priv->wolenabled == PMT_SUPPORTED)
-				priv->hw->mac->pmt(priv->ioaddr, priv->wolopts);
-		} else {
+		/* Enable Power down mode by programming the PMT regs */
+		if (device_can_wakeup(priv->device))
+			priv->hw->mac->pmt(priv->ioaddr, priv->wolopts);
+		else
 			stmmac_mac_disable_rx(priv->ioaddr);
-		}
 	} else {
 		priv->shutdown = 1;
 		/* Although this can appear slightly redundant it actually
@@ -1889,23 +1874,22 @@ static int stmmac_resume(struct platform_device *pdev)
 	if (!netif_running(dev))
 		return 0;
 
-	spin_lock(&priv->lock);
-
 	if (priv->shutdown) {
 		/* Re-open the interface and re-init the MAC/DMA
-		   and the rings. */
+		   and the rings (i.e. on hibernation stage) */
 		stmmac_open(dev);
-		goto out_resume;
+		return 0;
 	}
+
+	spin_lock(&priv->lock);
 
 	/* Power Down bit, into the PM register, is cleared
 	 * automatically as soon as a magic packet or a Wake-up frame
 	 * is received. Anyway, it's better to manually clear
 	 * this bit because it can generate problems while resuming
 	 * from another devices (e.g. serial console). */
-	if (device_may_wakeup(&(pdev->dev)))
-		if (priv->wolenabled == PMT_SUPPORTED)
-			priv->hw->mac->pmt(priv->ioaddr, 0);
+	if (device_can_wakeup(priv->device))
+		priv->hw->mac->pmt(priv->ioaddr, 0);
 
 	netif_device_attach(dev);
 
@@ -1926,7 +1910,6 @@ static int stmmac_resume(struct platform_device *pdev)
 
 	netif_start_queue(dev);
 
-out_resume:
 	spin_unlock(&priv->lock);
 	return 0;
 }
@@ -1994,8 +1977,6 @@ static int __init stmmac_cmdline_opt(char *str)
 			strict_strtoul(opt + 7, 0, (unsigned long *)&buf_sz);
 		else if (!strncmp(opt, "tc:", 3))
 			strict_strtoul(opt + 3, 0, (unsigned long *)&tc);
-		else if (!strncmp(opt, "tx_coe:", 7))
-			strict_strtoul(opt + 7, 0, (unsigned long *)&tx_coe);
 		else if (!strncmp(opt, "watchdog:", 9))
 			strict_strtoul(opt + 9, 0, (unsigned long *)&watchdog);
 		else if (!strncmp(opt, "flow_ctrl:", 10))

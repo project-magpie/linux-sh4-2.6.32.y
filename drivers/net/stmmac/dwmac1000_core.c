@@ -47,20 +47,30 @@ static void dwmac1000_core_init(void __iomem *ioaddr)
 	/* Tag detection without filtering */
 	writel(0x0, ioaddr + GMAC_VLAN_TAG);
 #endif
-	return;
+}
+
+static int dwmac1000_rx_coe_supported(void __iomem *ioaddr)
+{
+	u32 value = readl(ioaddr + GMAC_CONTROL);
+
+	value |= GMAC_CONTROL_IPC;
+	writel(value, ioaddr + GMAC_CONTROL);
+
+	value = readl(ioaddr + GMAC_CONTROL);
+
+	return !!(value & GMAC_CONTROL_IPC);
 }
 
 static void dwmac1000_dump_regs(void __iomem *ioaddr)
 {
 	int i;
-	pr_info("\tDWMAC1000 regs (base addr = 0x%8x)\n", (unsigned int)ioaddr);
+	pr_info("\tDWMAC1000 regs (base addr = 0x%p)\n", ioaddr);
 
 	for (i = 0; i < 55; i++) {
 		int offset = i * 4;
 		pr_info("\tReg No. %d (offset 0x%x): 0x%08x\n", i,
 			offset, readl(ioaddr + offset));
 	}
-	return;
 }
 
 static void dwmac1000_set_umac_addr(void __iomem *ioaddr, unsigned char *addr,
@@ -140,8 +150,6 @@ static void dwmac1000_set_filter(struct net_device *dev)
 	CHIP_DBG(KERN_INFO "\tFrame Filter reg: 0x%08x\n\tHash regs: "
 	    "HI 0x%08x, LO 0x%08x\n", readl(ioaddr + GMAC_FRAME_FILTER),
 	    readl(ioaddr + GMAC_HASH_HIGH), readl(ioaddr + GMAC_HASH_LOW));
-
-	return;
 }
 
 static void dwmac1000_flow_ctrl(void __iomem *ioaddr, unsigned int duplex,
@@ -165,7 +173,6 @@ static void dwmac1000_flow_ctrl(void __iomem *ioaddr, unsigned int duplex,
 	}
 
 	writel(flow, ioaddr + GMAC_FLOW_CTRL);
-	return;
 }
 
 static void dwmac1000_pmt(void __iomem *ioaddr, unsigned long mode)
@@ -181,7 +188,6 @@ static void dwmac1000_pmt(void __iomem *ioaddr, unsigned long mode)
 	}
 
 	writel(pmt, ioaddr + GMAC_PMT);
-	return;
 }
 
 
@@ -205,12 +211,11 @@ static void dwmac1000_irq_status(void __iomem *ioaddr)
 		 * status register. */
 		readl(ioaddr + GMAC_PMT);
 	}
-
-	return;
 }
 
 struct stmmac_ops dwmac1000_ops = {
 	.core_init = dwmac1000_core_init,
+	.rx_coe = dwmac1000_rx_coe_supported,
 	.dump_regs = dwmac1000_dump_regs,
 	.host_irq_status = dwmac1000_irq_status,
 	.set_filter = dwmac1000_set_filter,
@@ -229,11 +234,12 @@ struct mac_device_info *dwmac1000_setup(void __iomem *ioaddr)
 		((uid & 0x0000ff00) >> 8), (uid & 0x000000ff));
 
 	mac = kzalloc(sizeof(const struct mac_device_info), GFP_KERNEL);
+	if (!mac)
+		return NULL;
 
 	mac->mac = &dwmac1000_ops;
 	mac->dma = &dwmac1000_dma_ops;
 
-	mac->pmt = PMT_SUPPORTED;
 	mac->link.port = GMAC_CONTROL_PS;
 	mac->link.duplex = GMAC_CONTROL_DM;
 	mac->link.speed = GMAC_CONTROL_FES;

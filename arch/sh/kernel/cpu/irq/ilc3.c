@@ -70,15 +70,21 @@ struct ilc {
 	void *base;
 	unsigned short inputs_num, outputs_num;
 	unsigned int first_irq;
-
-	spinlock_t lock;		/* a lock */
-
+	int disable_wakeup:1;
+	spinlock_t lock;
+	struct sys_device sysdev;
 	struct ilc_irq *irqs;
+#ifdef CONFIG_HIBERNATION
+	pm_message_t state;
+#endif
 	unsigned long **priority;
 };
 
 static LIST_HEAD(ilcs_list);
 
+static struct sysdev_class ilc_sysdev_class;
+
+#define sysdev_to_ilc(x) container_of((x), struct ilc, sysdev)
 
 
 /*
@@ -129,13 +135,16 @@ int ilc2irq(unsigned int evtcode)
 	int idx;
 
 	for (idx = 0, status = 0;
-	     idx < DIV_ROUND_UP(ilc->outputs_num, 32) && !status;
+	     idx < DIV_ROUND_UP(ilc->inputs_num, 32) && !status;
 	     ++idx)
 		status = readl(ilc->base + ILC_BASE_STATUS + (idx << 2)) &
 			readl(ilc->base + ILC_BASE_ENABLE + (idx << 2)) &
 			ilc->priority[priority][idx];
 
-	return ilc->first_irq + (idx * 32) + ffs(status) - 1;
+	if (!status)
+		return -1;
+
+	return ilc->first_irq + ((idx-1) * 32) + (ffs(status) - 1);
 }
 
 /*
@@ -344,18 +353,16 @@ static int set_type_ilc_irq(unsigned int irq, unsigned int flow_type)
 	return 0;
 }
 
+#ifdef CONFIG_SUSPEND
 static int set_wake_ilc_irq(unsigned int irq, unsigned int on)
 {
 	struct ilc *ilc = get_irq_chip_data(irq);
-	int input;
-	struct ilc_irq *ilc_irq;
+	int input = irq - ilc->first_irq;
+	struct ilc_irq *ilc_irq = &ilc->irqs[input];
 
-	if (irq < ilc->first_irq || irq > (ilc->inputs_num + ilc->first_irq))
-		/* this interrupt can not be on ILC3 */
-		return -1;
+	if (ilc->disable_wakeup)
+		return 0;
 
-	input = irq - ilc->first_irq;
-	ilc_irq = &ilc->irqs[input];
 	if (on) {
 		ilc_set_wakeup(ilc_irq);
 		ILC_WAKEUP_ENABLE(ilc->base, input);
@@ -364,8 +371,12 @@ static int set_wake_ilc_irq(unsigned int irq, unsigned int on)
 		ilc_reset_wakeup(ilc_irq);
 		ILC_WAKEUP_DISABLE(ilc->base, input);
 	}
+
 	return 0;
 }
+#else
+#define set_wake_ilc_irq	NULL
+#endif	/* CONFIG_SUSPEND */
 
 static struct irq_chip ilc_chip = {
 	.name		= "ILC3",
@@ -413,11 +424,12 @@ static int __init ilc_probe(struct platform_device *pdev)
 	int memory_size;
 	struct ilc *ilc;
 	int i;
+	int error = 0;
 
 	memory = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!memory)
 		return -EINVAL;
-	memory_size = memory->end - memory->start + 1;
+	memory_size = resource_size(memory);
 
 	if (!request_mem_region(memory->start, memory_size, pdev->name))
 		return -EBUSY;
@@ -433,8 +445,12 @@ static int __init ilc_probe(struct platform_device *pdev)
 	ilc->inputs_num = pdata->inputs_num;
 	ilc->outputs_num = pdata->outputs_num;
 	ilc->first_irq = pdata->first_irq;
+	ilc->disable_wakeup = pdata->disable_wakeup;
 
 	ilc->base = ioremap(memory->start, memory_size);
+	if (!ilc->base)
+		return -ENOMEM;
+
 	ilc->irqs = kzalloc(sizeof(struct ilc_irq) * ilc->inputs_num,
 			GFP_KERNEL);
 	if (!ilc->irqs)
@@ -445,19 +461,28 @@ static int __init ilc_probe(struct platform_device *pdev)
 		ilc->irqs[i].trigger_mode = ILC_TRIGGERMODE_HIGH;
 	}
 
-	ilc->priority = kzalloc(ilc->outputs_num * sizeof(long), GFP_KERNEL);
+	ilc->priority = kzalloc(ilc->outputs_num * sizeof(long*), GFP_KERNEL);
 	if (!ilc->priority)
 		return -ENOMEM;
 
-	for (i = 0; i < ilc->outputs_num; ++i)
+	for (i = 0; i < ilc->outputs_num; ++i) {
 		ilc->priority[i] = kzalloc(sizeof(long) *
 				DIV_ROUND_UP(ilc->inputs_num, 32), GFP_KERNEL);
+		if (!ilc->priority[i])
+			return -ENOMEM;
+	}
 
 	ilc_demux_init(pdev);
 
 	list_add(&ilc->list, &ilcs_list);
 
-	return 0;
+	/* sysdev doesn't appear to like id's of -1 */
+	ilc->sysdev.id = (pdev->id == -1) ? 0 : pdev->id;
+
+	ilc->sysdev.cls = &ilc_sysdev_class,
+	error = sysdev_register(&ilc->sysdev);
+
+	return error;
 }
 
 static struct platform_driver ilc_driver = {
@@ -467,14 +492,6 @@ static struct platform_driver ilc_driver = {
 	},
 	.probe = ilc_probe,
 };
-
-static int __init ilc_init(void)
-{
-	return platform_driver_register(&ilc_driver);
-}
-arch_initcall(ilc_init);
-
-
 
 #if defined(CONFIG_DEBUG_FS)
 
@@ -551,18 +568,17 @@ subsys_initcall(ilc_debugfs_init);
 
 
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_HIBERNATION
 
-static int ilc_resume_from_hibernation(struct device *dev, void *_data)
+static int ilc_resume_from_hibernation(struct ilc *ilc)
 {
-	struct ilc *ilc = dev->driver_data;
 	unsigned long flag;
 	int i, irq;
 	local_irq_save(flag);
 	for (i = 0; i < ilc->inputs_num; ++i) {
 		irq = i + ilc->first_irq;
-		ILC_SET_PRI(i, ilc->irqs[i].priority);
-		ILC_SET_TRIGMODE(i, ilc->irqs[i].trigger_mode);
+		ILC_SET_PRI(ilc->base, i, ilc->irqs[i].priority);
+		ILC_SET_TRIGMODE(ilc->base, i, ilc->irqs[i].trigger_mode);
 		if (ilc_is_used(&ilc->irqs[i])) {
 			startup_ilc_irq(irq);
 			if (ilc_is_enabled(&ilc->irqs[i]))
@@ -577,31 +593,46 @@ static int ilc_resume_from_hibernation(struct device *dev, void *_data)
 
 static int ilc_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
-	static pm_message_t prev_state;
-	int ret = 0;
-	if (state.event == PM_EVENT_ON &&
-	    prev_state.event == PM_EVENT_FREEZE)
-		ret = driver_for_each_device(&ilc_driver.driver, NULL, NULL,
-			ilc_resume_from_hibernation);
+	struct ilc *ilc = sysdev_to_ilc(dev);
 
-	prev_state = state;
-	return ret;
+	ilc->state = state;
+
+	return 0;
 }
 
 static int ilc_sysdev_resume(struct sys_device *dev)
 {
-	return ilc_sysdev_suspend(dev, PMSG_ON);
+	struct ilc *ilc = sysdev_to_ilc(dev);
+	if (ilc->state.event == PM_EVENT_FREEZE) {
+		ilc_resume_from_hibernation(ilc);
+		ilc->state = PMSG_ON;
+	}
+	return 0;
 }
 
-static struct sysdev_driver ilc_sysdev_driver = {
+#else
+#define ilc_sysdev_suspend NULL
+#define ilc_sysdev_resume NULL
+#endif
+
+static struct sysdev_class ilc_sysdev_class = {
+	.name = "ilc3",
 	.suspend = ilc_sysdev_suspend,
 	.resume = ilc_sysdev_resume,
 };
 
-static int __init ilc_sysdev_init(void)
+static int __init ilc_init(void)
 {
-	return sysdev_driver_register(&cpu_sysdev_class, &ilc_sysdev_driver);
-}
-arch_initcall(ilc_sysdev_init);
+	int ret;
 
-#endif /* CONFIG_PM */
+	ret = sysdev_class_register(&ilc_sysdev_class);
+	if (ret)
+		return ret;
+
+	ret = platform_driver_register(&ilc_driver);
+	if (ret)
+		return ret;
+
+	return 0;	
+}
+arch_initcall(ilc_init);

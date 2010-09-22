@@ -797,11 +797,11 @@ EXPORT_SYMBOL_GPL(device_reprobe);
  *
  * Note that kset_find_obj increments bus' reference count.
  */
-#ifdef CONFIG_CPU_SUBTYPE_ST40
+#ifdef CONFIG_PMS
 struct bus_type *find_bus(char *name)
 {
 	struct kobject *k = kset_find_obj(bus_kset, name);
-	return k ? to_bus(k) : NULL;
+	return k ? to_bus(k)->bus : NULL;
 }
 #endif  /*  0  */
 

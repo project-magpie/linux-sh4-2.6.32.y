@@ -8,6 +8,7 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/sysfs.h>
 #include <linux/err.h>
 #include <linux/hwmon.h>
@@ -151,6 +152,11 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, sensor);
 
+	/* Initialize the pm_runtime fields */
+	pm_runtime_set_active(&pdev->dev);
+	pm_suspend_ignore_children(&pdev->dev, 1);
+	pm_runtime_enable(&pdev->dev);
+
 	return 0;
 
 error_temp1_label:
@@ -193,8 +199,75 @@ static int __devexit stm_temp_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+#warning The stm-temp should be moved under stm_device API
+static int stm_temp_suspend(struct device *dev)
+{
+	struct stm_temp_sensor *sensor = dev_get_drvdata(dev);
+
+#ifdef CONFIG_PM_RUNTIME
+	if (dev->power.runtime_status != RPM_ACTIVE)
+		return 0; /* sensor already suspended via runtime_suspend */
+#endif
+
+	sysconf_write(sensor->pdn, 0);
+	return 0;
+}
+
+static int stm_temp_resume(struct device *dev)
+{
+	struct stm_temp_sensor *sensor = dev_get_drvdata(dev);
+
+#ifdef CONFIG_PM_RUNTIME
+	if (dev->power.runtime_status == RPM_SUSPENDED)
+		return 0; /* usb wants resume via runtime_resume... */
+#endif
+
+	sysconf_write(sensor->pdn, 1);
+	return 0;
+}
+
+#ifdef CONFIG_PM_RUNTIME
+static int stm_temp_runtime_suspend(struct device *dev)
+{
+	if (dev->power.runtime_status == RPM_SUSPENDED)
+		return 0;
+
+
+	stm_temp_suspend(dev);
+	return 0;
+}
+
+static int stm_temp_runtime_resume(struct device *dev)
+{
+	if (dev->power.runtime_status == RPM_ACTIVE)
+		return 0;
+
+	stm_temp_resume(dev);
+	return 0;
+}
+#else
+#define stm_temp_runtime_suspend	NULL
+#define stm_temp_runtime_resume		NULL
+#endif
+
+static struct dev_pm_ops stm_temp_pm = {
+	.suspend = stm_temp_suspend,  /* on standby/memstandby */
+	.resume = stm_temp_resume,    /* resume from standby/memstandby */
+	.freeze = stm_temp_suspend,
+	.restore = stm_temp_resume,
+	.runtime_suspend = stm_temp_runtime_suspend,
+	.runtime_resume = stm_temp_runtime_resume,
+};
+#endif
+
 static struct platform_driver stm_temp_driver = {
-	.driver.name	= "stm-temp",
+	.driver = {
+		.name	= "stm-temp",
+#ifdef CONFIG_PM
+		.pm = &stm_temp_pm,
+#endif
+	},
 	.probe		= stm_temp_probe,
 	.remove		= stm_temp_remove,
 };

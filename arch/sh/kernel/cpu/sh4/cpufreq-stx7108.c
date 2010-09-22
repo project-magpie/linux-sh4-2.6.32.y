@@ -1,35 +1,38 @@
 /*
- * arch/sh/kernel/cpu/sh4/cpufreq-stx7108.c
  *
- * Cpufreq driver for the ST40 processors.
+ * Cpufreq driver for the STx7108 platform
  *
  * Copyright (C) 2009 STMicroelectronics
+ * Copyright (C) 2010 STMicroelectronics
  * Author: Francesco M. Virlinzi <francesco.virlinzi@st.com>
  *
  * This program is under the terms of the
  * General Public License version 2 ONLY
  *
  */
-#include <linux/types.h>
 #include <linux/cpufreq.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/cpumask.h>
-#include <linux/smp.h>
-#include <linux/sched.h>	/* set_cpus_allowed() */
+#include <linux/clk.h>
 #include <linux/stm/clk.h>
 
-static struct clk *cpu_clk;	/* the real clock as defined in the lla */
+#include "cpufreq-stm.h"
 
-static void st_cpufreq_update_clocks(unsigned int set,
-				     int not_used_on_this_platform)
+
+static int stx7108_update(unsigned int set);
+
+static struct stm_cpufreq stx7108_cpufreq = {
+	.num_frequency = 3,
+	.update = stx7108_update,
+};
+
+static int stx7108_update(unsigned int set)
 {
-	static unsigned int current_set;
+	static int current_set ;
 	int right = 1, shift = 1;
-	unsigned long rate = clk_get_rate(cpu_clk);
 
 	if (set == current_set)
-		return;
+		return 0;
 
 	if ((set + current_set) == 2)
 		shift = 2;
@@ -38,31 +41,39 @@ static void st_cpufreq_update_clocks(unsigned int set,
 		right = 0;
 
 	if (right)
-		rate >>= shift;
+		clk_set_rate(stx7108_cpufreq.cpu_clk,
+			clk_get_rate(stx7108_cpufreq.cpu_clk) >> shift);
 	else
-		rate <<= shift;
-
-	clk_set_rate(cpu_clk, rate);
-	sh4_clk->rate = rate;
+		clk_set_rate(stx7108_cpufreq.cpu_clk,
+			clk_get_rate(stx7108_cpufreq.cpu_clk) << shift);
 	current_set = set;
+	return 0;
 }
 
 #ifdef CONFIG_STM_CPU_FREQ_OBSERVE
-static void __init st_cpufreq_observe_init(void)
+static void __init stx7108_observe(void)
 {
 	unsigned long div = 2;
-	clk_observe(cpu_clk, &div);
+	clk_observe(stx7108_cpufreq.cpu_clk, &div);
 }
+#else
+#define stx7108_observe()
 #endif
 
-static int __init st_cpufreq_platform_init(void)
+static int __init stx7108_cpufreq_init(void)
 {
-	cpu_clk = clk_get(NULL, "CLKA_SH4_ICK");
-
-	if (!cpu_clk) {
-		printk(KERN_ERR" CPU clock not fund!\n");
+	stx7108_cpufreq.cpu_clk = clk_get(NULL, "CLKA_SH4L2_ICK");
+	if (!stx7108_cpufreq.cpu_clk)
 		return -EINVAL;
-	}
-
+	stm_cpufreq_register(&stx7108_cpufreq);
+	stx7108_observe();
 	return 0;
 }
+
+static void stx7108_cpufreq_exit(void)
+{
+	stm_cpufreq_remove(&stx7108_cpufreq);
+}
+
+module_init(stx7108_cpufreq_init);
+module_exit(stx7108_cpufreq_exit);

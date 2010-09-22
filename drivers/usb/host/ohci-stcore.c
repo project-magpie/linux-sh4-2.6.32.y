@@ -19,14 +19,14 @@
 
 #ifdef CONFIG_USB_DEBUG
 #define dgb_print(fmt, args...)				\
-		printk(KERN_DEBUG "%s: " fmt, __FUNCTION__ , ## args)
+		pr_debug("%s: " fmt, __func__ , ## args)
 #else
 #define dgb_print(fmt, args...)
 #endif
 
 
 static int
-ohci_st40_start(struct usb_hcd *hcd)
+stm_ohci_start(struct usb_hcd *hcd)
 {
 	struct ohci_hcd *ohci = hcd_to_ohci(hcd);
 	int ret = 0;
@@ -43,6 +43,7 @@ ohci_st40_start(struct usb_hcd *hcd)
 
 	return 0;
 }
+
 #ifdef CONFIG_PM
 static int stm_ohci_bus_suspend(struct usb_hcd *hcd)
 {
@@ -63,7 +64,7 @@ static const struct hc_driver ohci_st40_hc_driver = {
 	.flags =		HCD_USB11 | HCD_MEMORY,
 
 	/* basic lifecycle operations */
-	.start =		ohci_st40_start,
+	.start =		stm_ohci_start,
 	.stop =			ohci_stop,
 	.shutdown = ohci_shutdown,
 
@@ -165,3 +166,38 @@ static struct platform_driver ohci_hcd_stm_driver = {
 		.name = "stm-ohci",
 	},
 };
+
+#ifdef CONFIG_PM
+static DEFINE_MUTEX(stm_ohci_usb_mutex); /* to serialize the operations.. */
+
+int stm_ohci_hcd_unregister(struct platform_device *dev)
+{
+	struct usb_hcd *hcd = platform_get_drvdata(dev);
+	int ret = 0;
+
+	if (!hcd)
+		return ret;
+
+	mutex_lock(&stm_ohci_usb_mutex);
+	ret = ohci_hcd_stm_remove(dev);
+	mutex_unlock(&stm_ohci_usb_mutex);
+	if (ret)
+		dgb_print("[STM][USB] Error on %s 0x%x\n", __func__, dev);
+	return ret;
+}
+EXPORT_SYMBOL(stm_ohci_hcd_unregister);
+
+int stm_ohci_hcd_register(struct platform_device *dev)
+{
+	int ret = 0;
+
+	mutex_lock(&stm_ohci_usb_mutex);
+	ret = ohci_hcd_stm_probe(dev);
+	mutex_unlock(&stm_ohci_usb_mutex);
+	if (ret)
+		dgb_print("[STM][USB] Error on %s 0x%x\n", __func__, dev);
+
+	return ret;
+}
+EXPORT_SYMBOL(stm_ohci_hcd_register);
+#endif

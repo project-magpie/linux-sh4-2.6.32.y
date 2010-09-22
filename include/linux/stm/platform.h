@@ -93,7 +93,14 @@ extern int stm_asc_console_device;
 extern unsigned int stm_asc_configured_devices_num;
 extern struct platform_device *stm_asc_configured_devices[];
 
-
+/*** LPC platform data ***/
+struct stm_plat_rtc_lpc {
+	unsigned int no_hw_req:1;	/* iomem in sys/serv 5197 */
+	unsigned int need_wdt_reset:1;	/* W/A on 7141 */
+	unsigned int need_wdt_start:1;	/* W/A on 7108 */
+	unsigned char irq_edge_level;
+	char *clk_id;
+};
 
 /*** SSC platform data ***/
 
@@ -170,7 +177,7 @@ struct plat_stm_temp_data {
 
 struct stm_plat_usb_data {
 	unsigned long flags;
-	struct stm_pad_config *pad_config;
+	struct stm_device_config *device_config;
 };
 
 
@@ -181,6 +188,7 @@ struct stm_plat_sata_data {
 	unsigned long phy_init;
 	unsigned long pc_glue_logic_init;
 	unsigned int only_32bit;
+	struct stm_device_config *device_config;
 };
 
 
@@ -349,5 +357,12 @@ struct stm_plat_ilc3_data {
 	unsigned short inputs_num;
 	unsigned short outputs_num;
 	unsigned short first_irq;
+
+	/*
+	 * The ILC supports the wakeup capability but on some chip when enabled
+	 * the system is unstable during the resume from suspend, so disable
+	 * it.
+	 */
+	int disable_wakeup:1;
 };
 #endif

@@ -15,7 +15,7 @@
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
 #include <linux/stm/miphy.h>
-#include <linux/stm/pad.h>
+#include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/stx7108.h>
@@ -65,12 +65,12 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_phy_clock = {
 };
 
 static struct stx7108_pio_retime_config stx7108_ethernet_retime_gtx_clock = {
-	.retime = -1,
+	.retime = 1,
 	.clk1notclk0 = 1,
 	.clknotdata = 1,
 	.double_edge = 0,
 	.invertclk = -1,
-	.delay_input = -1,
+	.delay_input = 1,
 };
 static struct stx7108_pio_config gtx_priv;
 
@@ -467,12 +467,18 @@ static struct plat_stmmacenet_data stx7108_ethernet_platform_data[] = {
 		.pbl = 32,
 		.has_gmac = 1,
 		.enh_desc = 1,
+		.tx_coe = 1,
+		.bugged_jumbo =1,
+		.pmt = 1,
 		/* .fix_mac_speed set in stx7108_configure_ethernet() */
 		/* .pad_config set in stx7108_configure_ethernet() */
 	}, {
 		.pbl = 32,
 		.has_gmac = 1,
 		.enh_desc = 1,
+		.tx_coe = 1,
+		.bugged_jumbo =1,
+		.pmt = 1,
 		/* .fix_mac_speed set in stx7108_configure_ethernet() */
 		/* .pad_config set in stx7108_configure_ethernet() */
 	}
@@ -487,10 +493,7 @@ static struct platform_device stx7108_ethernet_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfda88000, 0x8000),
 			STM_PLAT_RESOURCE_IRQ_NAMED("macirq", ILC_IRQ(21), -1),
 		},
-		.dev = {
-			.power.can_wakeup = 1,
-			.platform_data = &stx7108_ethernet_platform_data[0],
-		}
+		.dev.platform_data = &stx7108_ethernet_platform_data[0],
 	}, {
 		.name = "stmmaceth",
 		.id = 1,
@@ -499,10 +502,7 @@ static struct platform_device stx7108_ethernet_devices[] = {
 			STM_PLAT_RESOURCE_MEM(0xfe730000, 0x8000),
 			STM_PLAT_RESOURCE_IRQ_NAMED("macirq", ILC_IRQ(23), -1),
 		},
-		.dev = {
-			.power.can_wakeup = 1,
-			.platform_data = &stx7108_ethernet_platform_data[1],
-		}
+		.dev.platform_data = &stx7108_ethernet_platform_data[1],
 	}
 };
 
@@ -581,43 +581,109 @@ void __init stx7108_configure_ethernet(int port,
 
 static u64 stx7108_usb_dma_mask = DMA_BIT_MASK(32);
 
+#define USB_HOST_PWR	"USB_HOST_PWR"
+#define USB_PHY_PWR	"USB_PHY_PWR"
+#define USB_PHY_SH_CTL	"USB_PHY_SH_CTL"
+#define USB_PWR_ACK	"USB_PWR_ACK"
+
+static void stx7108_usb_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+	int phy_value = (power == stm_device_power_on) ? 1 : 0;
+
+	stm_device_sysconf_write(device_state, USB_HOST_PWR, value);
+	stm_device_sysconf_write(device_state, USB_PHY_PWR, phy_value);
+	stm_device_sysconf_write(device_state, USB_PHY_SH_CTL, phy_value);
+
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, USB_PWR_ACK)
+			== value)
+			break;
+		mdelay(10);
+	}
+}
+
 static struct stm_plat_usb_data stx7108_usb_platform_data[] = {
 	[0] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
-		.pad_config = &(struct stm_pad_config) {
-			.gpios_num = 2,
-			.gpios = (struct stm_pad_gpio []) {
-				/* Overcurrent detection */
-				STM_PAD_PIO_IN(23, 6, 1),
-				/* USB power enable */
-				STM_PAD_PIO_OUT(23, 7, 1),
+		.device_config = &(struct stm_device_config){
+			.power = stx7108_usb_power,
+			.sysconfs_num = 4,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYS_CFG_BANK(4, 46, 0, 0,
+					USB_HOST_PWR),
+				STM_DEVICE_SYS_CFG_BANK(4, 44, 0, 0,
+					USB_PHY_PWR),
+				STM_DEVICE_SYS_CFG_BANK(4, 44, 3, 3,
+					USB_PHY_SH_CTL),
+				STM_DEVICE_SYS_STA_BANK(4,  2, 0, 0,
+					USB_PWR_ACK),
+			},
+			.pad_config = &(struct stm_pad_config) {
+				.gpios_num = 2,
+				.gpios = (struct stm_pad_gpio []) {
+					/* Overcurrent detection */
+					STM_PAD_PIO_IN(23, 6, 1),
+					/* USB power enable */
+					STM_PAD_PIO_OUT(23, 7, 1),
+				},
 			},
 		},
 	},
 	[1] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
-		.pad_config = &(struct stm_pad_config) {
-			.gpios_num = 2,
-			.gpios = (struct stm_pad_gpio []) {
-				/* Overcurrent detection */
-				STM_PAD_PIO_IN(24, 0, 1),
-				/* USB power enable */
-				STM_PAD_PIO_OUT(24, 1, 1),
+		.device_config = &(struct stm_device_config){
+			.power = stx7108_usb_power,
+			.sysconfs_num = 4,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYS_CFG_BANK(4, 46, 1, 1,
+					USB_HOST_PWR),
+				STM_DEVICE_SYS_CFG_BANK(4, 44, 1, 1,
+					USB_PHY_PWR),
+				STM_DEVICE_SYS_CFG_BANK(4, 44, 4, 4,
+					USB_PHY_SH_CTL),
+				STM_DEVICE_SYS_STA_BANK(4,  2, 1, 1,
+					USB_PWR_ACK),
+			},
+			.pad_config = &(struct stm_pad_config) {
+				.gpios_num = 2,
+				.gpios = (struct stm_pad_gpio []) {
+					/* Overcurrent detection */
+					STM_PAD_PIO_IN(24, 0, 1),
+					/* USB power enable */
+					STM_PAD_PIO_OUT(24, 1, 1),
+				},
 			},
 		},
 	},
 	[2] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
-		.pad_config = &(struct stm_pad_config) {
-			.gpios_num = 2,
-			.gpios = (struct stm_pad_gpio []) {
-				/* Overcurrent detection */
-				STM_PAD_PIO_IN(24, 2, 1),
-				/* USB power enable */
-				STM_PAD_PIO_OUT(24, 3, 1),
+		.device_config = &(struct stm_device_config){
+			.power = stx7108_usb_power,
+			.sysconfs_num = 4,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYS_CFG_BANK(4, 46, 2, 2,
+					USB_HOST_PWR),
+				STM_DEVICE_SYS_CFG_BANK(4, 44, 2, 2,
+					USB_PHY_PWR),
+				STM_DEVICE_SYS_CFG_BANK(4, 44, 5, 5,
+					USB_PHY_SH_CTL),
+				STM_DEVICE_SYS_STA_BANK(4,  2, 2, 2,
+					USB_PWR_ACK),
+			},
+			.pad_config = &(struct stm_pad_config) {
+				.gpios_num = 2,
+				.gpios = (struct stm_pad_gpio []) {
+					/* Overcurrent detection */
+					STM_PAD_PIO_IN(24, 2, 1),
+					/* USB power enable */
+					STM_PAD_PIO_OUT(24, 3, 1),
+				},
 			},
 		},
 	},
@@ -708,21 +774,29 @@ void __init stx7108_configure_usb(int port)
 		sysconf_write(sc, 1);
 	}
 
-	/* Power up USB */
-#if !defined(CONFIG_PM)
-	sc = sysconf_claim(SYS_CFG_BANK4, 46, port, port, "USB");
-	sysconf_write(sc, 0);
-	sc = sysconf_claim(SYS_STA_BANK4, 2, port, port, "USB");
-	while (sysconf_read(sc))
-		cpu_relax();
-#endif
-
 	platform_device_register(&stx7108_usb_devices[port]);
 }
 
 
 
 /* SATA resources --------------------------------------------------------- */
+static void stx7108_sata_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int value = (power == stm_device_power_on) ? 0 : 1;
+	int i;
+
+	stm_device_sysconf_write(device_state, "SATA_PWR", value);
+
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, "SATA_ACK")
+				== value)
+			break;
+		mdelay(10);
+	}
+
+	return ;
+}
 
 static struct platform_device stx7108_sata_devices[] = {
 	[0] = {
@@ -732,6 +806,16 @@ static struct platform_device stx7108_sata_devices[] = {
 			.phy_init = 0,
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
+			.device_config = &(struct stm_device_config){
+				.power = stx7108_sata_power,
+				.sysconfs_num = 2,
+				.sysconfs = (struct stm_device_sysconf []) {
+					STM_DEVICE_SYS_CFG_BANK(4, 46, 3, 3,
+						"SATA_PWR"),
+					STM_DEVICE_SYS_STA_BANK(4, 2, 3, 3,
+						"SATA_ACK"),
+				},
+			},
 		},
 		.num_resources = 3,
 		.resource = (struct resource[]) {
@@ -747,6 +831,16 @@ static struct platform_device stx7108_sata_devices[] = {
 			.phy_init = 0,
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
+			.device_config = &(struct stm_device_config){
+				.power = stx7108_sata_power,
+				.sysconfs_num = 2,
+				.sysconfs = (struct stm_device_sysconf []) {
+					STM_DEVICE_SYS_CFG_BANK(4, 46, 4, 4,
+						"SATA_PWR"),
+					STM_DEVICE_SYS_STA_BANK(4, 2, 4, 4,
+						"SATA_ACK"),
+				},
+			},
 		},
 		.num_resources = 3,
 		.resource = (struct resource[]) {
@@ -812,12 +906,14 @@ void __init stx7108_configure_sata(int port)
 		BUG_ON(!sc);
 		sysconf_write(sc, 0);
 		stm_miphy_init(&miphy, 0);
+		sysconf_release(sc);
 
 		/* SATA_1_POWERDOWN_REQ */
 		sc = sysconf_claim(SYS_CFG_BANK4, 46, 4, 4, "SATA");
 		BUG_ON(!sc);
 		sysconf_write(sc, 0);
 		stm_miphy_init(&miphy, 1);
+		sysconf_release(sc);
 	}
 
 	platform_device_register(&stx7108_sata_devices[port]);

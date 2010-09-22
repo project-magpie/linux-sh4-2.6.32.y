@@ -74,6 +74,7 @@
 #include <linux/init.h>
 #include <linux/uaccess.h>
 #include <linux/device.h>
+#include <linux/pm_runtime.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <linux/irq.h>
@@ -85,15 +86,15 @@
 #include <linux/lirc.h>
 #include <linux/stm/lirc.h>
 #include <linux/stm/platform.h>
-#include <asm/clock.h>
+#include <linux/stm/clk.h>
 #include "lirc_dev.h"
 
 #define LIRC_STM_NAME "lirc-stm"
 
 /* General debugging */
 #ifdef CONFIG_LIRC_STM_DEBUG
-#define DPRINTK(fmt, args...) printk(KERN_INFO LIRC_STM_NAME \
-				": %s: " fmt, __func__ , ## args)
+#define DPRINTK(fmt, args...) \
+	pr_debug(LIRC_STM_NAME ": %s: " fmt, __func__ , ## args)
 #else
 #define DPRINTK(fmt, args...)
 #endif
@@ -106,12 +107,10 @@ static void *irb_base_address;	/* IR block register base address */
 struct lirc_stm_plugin_data_s {
 	int open_count;
 	struct stm_plat_lirc_data *p_lirc_d;
-#ifdef CONFIG_PM
-	pm_message_t prev_state;
-#endif
 };
 
 static struct lirc_stm_plugin_data_s pd;	/* IR data config */
+static struct clk *lirc_sys_clock;
 
 /* LIRC subsytem symbol buffer. managed only via common lirc routines
  * user process read symbols from here  */
@@ -325,7 +324,7 @@ static ssize_t lirc_stm_write(struct file *file, const char *buf,
 	int fifosyms;
 
 	if (!pd.p_lirc_d->txenabled) {
-		printk(KERN_ERR LIRC_STM_NAME
+		pr_err(LIRC_STM_NAME
 		       ": write operation unsupported.\n");
 		return -ENOTSUPP;
 	}
@@ -470,7 +469,7 @@ static void lirc_stm_tx_interrupt(int irq, void *dev_id)
 			/* There has been an underrun - clear flag, switch
 			 * off transmitter and signal possible exit
 			 */
-			printk(KERN_ERR LIRC_STM_NAME ": transmit underrun!\n");
+			pr_err(LIRC_STM_NAME ": transmit underrun!\n");
 			writel(0x02, IRB_TX_INT_CLEAR);
 			writel(0x00, IRB_TX_INT_ENABLE);
 			writel(0x00, IRB_TX_ENABLE);
@@ -618,7 +617,7 @@ static int lirc_stm_scd_config(unsigned long clk)
 	struct lirc_scd_s last_scd = scd.value;
 
 	if (!pd.p_lirc_d->rxuhfmode) {
-		printk(KERN_ERR LIRC_STM_NAME
+		pr_err(LIRC_STM_NAME
 		       ": SCD not available in IR-RX mode. Not armed\n");
 		return -ENOTSUPP;
 	}
@@ -631,8 +630,7 @@ static int lirc_stm_scd_config(unsigned long clk)
 	codelen = fls(scd.value.code);
 	if ((scd.value.code == 0) ||
 	    (codelen > LIRC_STM_SCD_MAX_SYMBOLS) || (codelen < 1)) {
-		printk(KERN_ERR LIRC_STM_NAME
-		       ": SCD invalid start code. Not armed\n");
+		pr_err(LIRC_STM_NAME ": SCD invalid start code. Not armed\n");
 		scd.value = last_scd;
 		return -EINVAL;
 	}
@@ -644,7 +642,7 @@ static int lirc_stm_scd_config(unsigned long clk)
 		    (alt_codelen < codelen) ||
 		    (scd.value.code == (scd.value.alt_code >>
 					(alt_codelen - codelen)))) {
-			printk(KERN_ERR LIRC_STM_NAME
+			pr_err(LIRC_STM_NAME
 			       ": SCD invalid alternative code. Not armed\n");
 			alt_codelen = 0;
 		}
@@ -720,9 +718,9 @@ static int lirc_stm_scd_config(unsigned long clk)
 	/* Some cuts of chips have broken SCD, so check... */
 	i = readl(IRB_SCD_CODE);
 	if (i != scd.value.code) {
-		printk(KERN_ERR LIRC_STM_NAME
+		pr_err(LIRC_STM_NAME
 		       ": SCD hardware fault.  Broken silicon?\n");
-		printk(KERN_ERR LIRC_STM_NAME
+		pr_err(LIRC_STM_NAME
 		       ": SCD wrote code 0x%08x read 0x%08x. Not armed\n",
 		       scd.value.code, i);
 		scd.value = last_scd;
@@ -769,12 +767,12 @@ static int lirc_stm_scd_config(unsigned long clk)
 	}
 
 	/* Set supported flag */
-	printk(KERN_INFO LIRC_STM_NAME
+	pr_info(LIRC_STM_NAME
 	       ": SCD normal code 0x%x codelen 0x%x nomtime 0x%x armed\n",
 	       scd.value.code, codelen, scd.value.nomtime);
 
 	if (alt_codelen > 0) {
-		printk(KERN_INFO LIRC_STM_NAME
+		pr_info(LIRC_STM_NAME
 		       ": SCD alternative code 0x%x codelen 0x%x armed\n",
 		       scd.value.alt_code, alt_codelen);
 		writel(scd.value.alt_code, IRB_SCD_ALT_CODE);
@@ -832,8 +830,7 @@ static int lirc_stm_scd_config(unsigned long clk)
 				sizeof(scd_s)))			\
 			return -EFAULT;				\
 		retval = lirc_stm_scd_config(			\
-					clk_get_rate(clk_get	\
-					(NULL, "comms_clk")));	\
+				clk_get_rate(lirc_sys_clock));	\
 		break;						\
 	case LIRC_SCD_ENABLE:					\
 	case LIRC_SCD_DISABLE:					\
@@ -891,7 +888,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 	while (RX_WORDS_IN_FIFO()) {
 		/* discard the entire collection in case of errors!  */
 		if (unlikely(readl(IRB_RX_INT_STATUS) & LIRC_STM_IS_OVERRUN)) {
-			printk(KERN_INFO LIRC_STM_NAME ": IR RX overrun\n");
+			pr_info(LIRC_STM_NAME ": IR RX overrun\n");
 			writel(LIRC_STM_CLEAR_OVERRUN, IRB_RX_INT_CLEAR);
 			rx.error = 1;
 		}
@@ -909,7 +906,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 		}
 
 		if (rx.off_rbuf >= LIRC_STM_MAX_SYMBOLS) {
-			printk(KERN_INFO LIRC_STM_NAME
+			pr_info(LIRC_STM_NAME
 			       ": IR too many symbols (max %d)\n",
 			       LIRC_STM_MAX_SYMBOLS);
 			rx.error = 1;
@@ -1019,7 +1016,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 					wake_up_interruptible
 					    (&lirc_stm_rbuf.wait_poll);
 				} else
-					printk(KERN_ERR LIRC_STM_NAME
+					pr_err(LIRC_STM_NAME
 					       ": not enough space "
 					       "in user buffer\n");
 				lirc_stm_rx_reset_data();
@@ -1265,7 +1262,6 @@ lirc_stm_rx_calc_clocks(struct platform_device *pdev, unsigned long baseclock)
 static int lirc_stm_hardware_init(struct platform_device *pdev)
 {
 	struct stm_plat_lirc_data *lirc_pdata;
-	struct clk *clk;
 	unsigned int scwidth;
 	int baseclock;
 
@@ -1278,11 +1274,7 @@ static int lirc_stm_hardware_init(struct platform_device *pdev)
 	/*  Get or calculate the clock and timing adjustment values.
 	 *  We can auto-calculate these in some cases
 	 */
-	if (lirc_pdata->irbclock == 0) {
-		clk = clk_get(NULL, "comms_clk");
-		baseclock = clk_get_rate(clk) / lirc_pdata->sysclkdiv;
-	} else
-		baseclock = lirc_pdata->irbclock;
+	baseclock = clk_get_rate(lirc_sys_clock) / lirc_pdata->sysclkdiv;
 
 	lirc_stm_rx_calc_clocks(pdev, baseclock);
 	/*  Set up the transmit timings  */
@@ -1318,26 +1310,31 @@ static int lirc_stm_probe(struct platform_device *pdev)
 	irb_irq = irb_irq_wup = 0;
 
 	if (pdev->name == NULL) {
-		printk(KERN_ERR LIRC_STM_NAME
+		pr_err(LIRC_STM_NAME
 		       ": probe failed. Check kernel SoC config.\n");
 		return -ENODEV;
 	}
 
-	printk(KERN_INFO LIRC_STM_NAME
+	lirc_sys_clock = clk_get(NULL, "comms_clk");
+	if (!lirc_sys_clock) {
+		pr_err(LIRC_STM_NAME " system clock not found\n");
+		return -ENODEV;
+	}
+
+	pr_info(LIRC_STM_NAME
 	       ": probe found data for platform device %s\n", pdev->name);
 	pd.p_lirc_d = pdev->dev.platform_data;
 
 	irb_irq = platform_get_irq(pdev, 0);
 	if (irb_irq < 0) {
-		printk(KERN_ERR LIRC_STM_NAME
+		pr_err(LIRC_STM_NAME
 		       ": IRQ configuration not found\n");
 		return -ENODEV;
 	}
 
 	if (devm_request_irq(dev, irb_irq, lirc_stm_interrupt, IRQF_DISABLED,
 			     LIRC_STM_NAME, (void *)&pd) < 0) {
-		printk(KERN_ERR LIRC_STM_NAME ": IRQ %d register failed\n",
-		       irb_irq);
+		pr_err(LIRC_STM_NAME ": IRQ %d register failed\n", irb_irq);
 		return -EIO;
 	}
 
@@ -1347,14 +1344,14 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		if (devm_request_irq
 		    (dev, irb_irq_wup, lirc_stm_interrupt, IRQF_DISABLED,
 		     LIRC_STM_NAME, (void *)&pd) < 0) {
-			printk(KERN_ERR LIRC_STM_NAME
+			pr_err(LIRC_STM_NAME
 			       ": wakeup IRQ %d register failed\n",
 			       irb_irq_wup);
 			return -EIO;
 		}
 		disable_irq(irb_irq_wup);
 		enable_irq_wake(irb_irq_wup);
-		printk(KERN_INFO LIRC_STM_NAME
+		pr_info(LIRC_STM_NAME
 		       ": the driver has wakeup IRQ %d\n", irb_irq_wup);
 	}
 
@@ -1380,13 +1377,13 @@ static int lirc_stm_probe(struct platform_device *pdev)
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
-		printk(KERN_ERR LIRC_STM_NAME ": IO MEM not found\n");
+		pr_err(LIRC_STM_NAME ": IO MEM not found\n");
 		return -ENODEV;
 	}
 
 	if (!devm_request_mem_region(dev, res->start,
 				     res->end - res->start, LIRC_STM_NAME)) {
-		printk(KERN_ERR LIRC_STM_NAME ": request_mem_region failed\n");
+		pr_err(LIRC_STM_NAME ": request_mem_region failed\n");
 		return -EBUSY;
 	}
 
@@ -1394,25 +1391,31 @@ static int lirc_stm_probe(struct platform_device *pdev)
 	    devm_ioremap_nocache(dev, res->start, res->end - res->start);
 
 	if (irb_base_address == NULL) {
-		printk(KERN_ERR LIRC_STM_NAME ": ioremap failed\n");
+		pr_err(LIRC_STM_NAME ": ioremap failed\n");
 		ret = -ENOMEM;
 	} else {
 		DPRINTK("ioremapped register block at 0x%x\n", res->start);
 		DPRINTK("ioremapped to 0x%x\n", (unsigned int)irb_base_address);
 
-		printk(KERN_INFO LIRC_STM_NAME ": STM LIRC plugin using IRQ %d"
+		pr_info(LIRC_STM_NAME ": STM LIRC plugin using IRQ %d"
 		       " in %s mode\n", irb_irq,
 		       pd.p_lirc_d->rxuhfmode ? "UHF" : "IR");
 
 		if (!devm_stm_pad_claim(dev, pd.p_lirc_d->pads,
 					LIRC_STM_NAME)) {
-			printk(KERN_ERR LIRC_STM_NAME ": Failed to claim "
+			pr_err(LIRC_STM_NAME ": Failed to claim "
 			       "pads!\n");
 			return -EIO;
 		}
 
 		/* enable signal detection */
 		ret = lirc_stm_hardware_init(pdev);
+
+		device_set_wakeup_capable(&pdev->dev, 1);
+		/* by default the device is on */
+		pm_runtime_set_active(&pdev->dev);
+		pm_suspend_ignore_children(&pdev->dev, 1);
+		pm_runtime_enable(&pdev->dev);
 	}
 	return ret;
 }
@@ -1425,75 +1428,91 @@ static void lirc_stm_rx_restore(void)
 	writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
 	writel(0x01, IRB_RX_EN);
 	/* clean the buffer */
-	lirc_stm_reset_rx_data();
+	lirc_stm_rx_reset_data();
 }
 
-static int lirc_stm_suspend(struct platform_device *pdev, pm_message_t state)
+static int lirc_stm_suspend(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
 	struct stm_plat_lirc_data *lirc_pdata = NULL;
-	unsigned long tmp;
 
 	lirc_pdata = pdev->dev.platform_data;
-	pd.prev_state = state;
-	switch (state.event) {
-	case PM_EVENT_SUSPEND:
-		if (device_may_wakeup(&(pdev->dev))) {
-			/* need for the resuming phase */
-			lirc_stm_rx_flush();
-			lirc_stm_rx_calc_clocks(pdev,
-						lirc_pdata->clk_on_low_power);
-			lirc_stm_scd_config(lirc_pdata->clk_on_low_power);
-			lirc_stm_rx_restore();
-			lirc_stm_scd_restart();
-			return 0;
-		}
-	case PM_EVENT_FREEZE:
-		/* disable IR RX/TX interrupts plus clear status */
-		writel(0x00, IRB_RX_EN);
-		writel(0xff, IRB_RX_INT_CLEAR);
-		writel(0x00, IRB_TX_ENABLE);
-		writel(0x1e, IRB_TX_INT_CLEAR);
-		/* disabling LIRC irq request */
-		/* flush LIRC plugin data */
-		lirc_stm_reset_rx_data();
-		break;
-	}
 
-	return 0;
-}
-
-static int lirc_stm_resume(struct platform_device *pdev)
-{
-	switch (pd.prev_state.event) {
-	case PM_EVENT_FREEZE:
-		lirc_stm_hardware_init(pdev);
-		/* there was I really open device ? */
-		if (pd.open_count > 0) {
-			/* enable interrupts and receiver */
-			writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
-			writel(0x01, IRB_RX_EN);
-		}
-		break;
-	case PM_EVENT_SUSPEND:
-		lirc_stm_hardware_init(pdev);
+	if (device_may_wakeup(&pdev->dev)) {
+		/* need for the resuming phase */
+		lirc_stm_rx_flush();
+		lirc_stm_rx_calc_clocks(pdev, clk_get_rate(lirc_sys_clock));
+		lirc_stm_scd_config(clk_get_rate(lirc_sys_clock));
 		lirc_stm_rx_restore();
 		lirc_stm_scd_restart();
-		break;
 	}
-	pd.prev_state = PMSG_ON;
+
 	return 0;
 }
-#else
-#define lirc_stm_suspend	NULL
-#define lirc_stm_resume		NULL
+
+static int lirc_stm_resume(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+
+	lirc_stm_hardware_init(pdev);
+	lirc_stm_rx_restore();
+	lirc_stm_scd_restart();
+
+	return 0;
+}
+
+static int lirc_stm_freeze(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct stm_plat_lirc_data *lirc_pdata = NULL;
+
+	lirc_pdata = pdev->dev.platform_data;
+
+	/* disable IR RX/TX interrupts plus clear status */
+	writel(0x00, IRB_RX_EN);
+	writel(0xff, IRB_RX_INT_CLEAR);
+	/* disabling LIRC irq request */
+	/* flush LIRC plugin data */
+	lirc_stm_rx_reset_data();
+
+	return 0;
+}
+
+static int lirc_stm_restore(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+
+	lirc_stm_hardware_init(pdev);
+	/* there was I really open device ? */
+	if (pd.open_count > 0) {
+		/* enable interrupts and receiver */
+		writel(LIRC_STM_ENABLE_IRQ, IRB_RX_INT_EN);
+		writel(0x01, IRB_RX_EN);
+	}
+
+	return 0;
+}
+
+static struct dev_pm_ops stm_lirc_pm_ops = {
+	.suspend = lirc_stm_suspend,	/* on standby/memstandby */
+	.resume = lirc_stm_resume,	/* resume from standby/memstandby */
+	.freeze = lirc_stm_freeze,	/* hibernation */
+	.restore = lirc_stm_restore,	/* resume from hibernation */
+	.runtime_suspend = lirc_stm_suspend,
+	.runtime_resume = lirc_stm_resume,
+};
 #endif
 
 static struct platform_driver lirc_device_driver = {
-	.driver.name = LIRC_STM_NAME,
+	.driver = {
+		.name = LIRC_STM_NAME,
+		.owner	= THIS_MODULE,
+#ifdef CONFIG_PM
+		.pm     = &stm_lirc_pm_ops,
+#endif
+	},
 	.probe = lirc_stm_probe,
 	.remove = lirc_stm_remove,
-	.suspend = lirc_stm_suspend,
-	.resume = lirc_stm_resume,
 };
 
 static struct file_operations lirc_stm_fops = {
@@ -1527,13 +1546,13 @@ static int __init lirc_stm_init(void)
 	DPRINTK("initializing the IR receiver...\n");
 
 	if (platform_driver_register(&lirc_device_driver)) {
-		printk(KERN_ERR LIRC_STM_NAME
+		pr_err(LIRC_STM_NAME
 		       ": platform driver register failed\n");
 		goto out_err;
 	}
 
 	if (!pd.p_lirc_d) {
-		printk(KERN_ERR LIRC_STM_NAME
+		pr_err(LIRC_STM_NAME
 		       ": missed out hardware probing."
 		       "Check kernel SoC config.\n");
 		goto out_err;
@@ -1542,23 +1561,23 @@ static int __init lirc_stm_init(void)
 	/* inform the top level driver that we use our own user buffer */
 	if (lirc_buffer_init(&lirc_stm_rbuf, sizeof(lirc_t),
 			     (2 * LIRC_STM_MAX_SYMBOLS))) {
-		printk(KERN_ERR LIRC_STM_NAME ": buffer init failed\n");
+		pr_err(LIRC_STM_NAME ": buffer init failed\n");
 		platform_driver_unregister(&lirc_device_driver);
 		goto out_err;
 	}
 
 	request_module("lirc_dev");
 	if (lirc_register_driver(&lirc_stm_driver) < 0) {
-		printk(KERN_ERR LIRC_STM_NAME ": driver registration failed\n");
+		pr_err(LIRC_STM_NAME ": driver registration failed\n");
 		lirc_buffer_free(&lirc_stm_rbuf);
 		platform_driver_unregister(&lirc_device_driver);
 		goto out_err;
 	}
 
-	printk(KERN_INFO "STMicroelectronics LIRC driver initialized.\n");
+	pr_info("STMicroelectronics LIRC driver initialized.\n");
 	return 0;
 out_err:
-	printk(KERN_ERR "STMicroelectronics LIRC driver not initialized.\n");
+	pr_err("STMicroelectronics LIRC driver not initialized.\n");
 	return -EINVAL;
 }
 
@@ -1572,11 +1591,11 @@ void __exit lirc_stm_release(void)
 
 	/* unplug the lirc stm driver */
 	if (lirc_unregister_driver(LIRC_STM_MINOR) < 0)
-		printk(KERN_ERR LIRC_STM_NAME ": driver unregister failed\n");
+		pr_err(LIRC_STM_NAME ": driver unregister failed\n");
 	/* free buffer */
 	lirc_buffer_free(&lirc_stm_rbuf);
 
-	printk(KERN_INFO "STMicroelectronics LIRC driver removed\n");
+	pr_info("STMicroelectronics LIRC driver removed\n");
 }
 
 module_init(lirc_stm_init);

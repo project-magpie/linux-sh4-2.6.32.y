@@ -1180,3 +1180,106 @@ exception_handling_table:
 	.rept (0x820-0x1e0)/0x20	/* highest entry we access is at evt 0x820 in traps.c */
 	.long exception_error
 	.endr
+
+#ifdef CONFIG_HIBERNATION
+
+! save_regs()
+! - save default tra, macl, mach, gbr, ssr, pr* and spc on the stack
+! - save r15*, r14, r13, r12, r11, r10, r9, r8 on the stack
+! - switch bank
+! - save r7, r6, r5, r4, r3, r2, r1, r0 on the stack
+! k0 contains original stack pointer*
+! k1 trashed
+! k3 passes original pr*
+! k4 passes SR bitmask
+! BL=1 on entry, on exit BL=0.
+
+ENTRY(save_regs)
+	mov	#-1, r1
+	mov.l	k1, @-r15	! set TRA (default: -1)
+	sts.l	macl, @-r15
+	sts.l	mach, @-r15
+	stc.l	gbr, @-r15
+	stc.l	ssr, @-r15
+	mov.l	k3, @-r15	! original pr in k3
+	stc.l	spc, @-r15
+
+	mov.l	k0, @-r15	! original stack pointer in k0
+	mov.l	r14, @-r15
+	mov.l	r13, @-r15
+	mov.l	r12, @-r15
+	mov.l	r11, @-r15
+	mov.l	r10, @-r15
+	mov.l	r9, @-r15
+	mov.l	r8, @-r15
+
+	mov.l	0f, k3		! SR bits to set in k3
+
+! save_low_regs()
+! - modify SR for bank switch
+! - save r7, r6, r5, r4, r3, r2, r1, r0 on the stack
+! k3 passes bits to set in SR
+! k4 passes bits to clear in SR
+
+ENTRY(save_low_regs)
+	stc	sr, r8
+	or	k3, r8
+	and	k4, r8
+	ldc	r8, sr
+
+	mov.l	r7, @-r15
+	mov.l	r6, @-r15
+	mov.l	r5, @-r15
+	mov.l	r4, @-r15
+	mov.l	r3, @-r15
+	mov.l	r2, @-r15
+	mov.l	r1, @-r15
+	rts
+	 mov.l	r0, @-r15
+
+! restore_regs()
+! - restore r0, r1, r2, r3, r4, r5, r6, r7 from the stack
+! - switch bank
+! - restore r8, r9, r10, r11, r12, r13, r14, r15 from the stack
+! - restore spc, pr*, ssr, gbr, mach, macl, skip default tra
+! k2 returns original pr
+! k3 returns original sr
+! k4 returns original stack pointer
+! r8 passes SR bitmask, overwritten with restored data on return
+! r9 trashed
+! BL=0 on entry, on exit BL=1 (depending on r8).
+
+ENTRY(restore_regs)
+	mov.l	@r15+, r0
+	mov.l	@r15+, r1
+	mov.l	@r15+, r2
+	mov.l	@r15+, r3
+	mov.l	@r15+, r4
+	mov.l	@r15+, r5
+	mov.l	@r15+, r6
+	mov.l	@r15+, r7
+	!
+	stc	sr, r9
+	or	r8, r9
+	ldc	r9, sr
+	!
+	mov.l	@r15+, r8
+	mov.l	@r15+, r9
+	mov.l	@r15+, r10
+	mov.l	@r15+, r11
+	mov.l	@r15+, r12
+	mov.l	@r15+, r13
+	mov.l	@r15+, r14
+	mov.l	@r15+, k4		! original stack pointer
+	ldc.l	@r15+, spc
+	mov.l	@r15+, k2		! original PR
+	mov.l	@r15+, k3		! original SR
+	ldc.l	@r15+, gbr
+	lds.l	@r15+, mach
+	lds.l	@r15+, macl
+	rts
+	 add	#4, r15			! Skip syscall numbe
+
+.balign 4
+0:	.long	0x000080f0		! FD=1, IMASK=15
+#endif

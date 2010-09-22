@@ -16,6 +16,7 @@
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
 #include <linux/stm/pad.h>
+#include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7100.h>
@@ -193,17 +194,34 @@ static int stx7100_usb_pad_claim(struct stm_pad_state *state, void *priv)
 	return 0;
 }
 
+#define USB_PWR "USB_PWR"
+
+static void stx7100_usb_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	stm_device_sysconf_write(device_state, USB_PWR, 
+		(power == stm_device_power_on) ? 0 : 1);
+	mdelay(30);
+}
+
 static struct stm_plat_usb_data stx7100_usb_platform_data = {
 	.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 			STM_PLAT_USB_FLAGS_STRAP_PLL |
 			STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE,
-	.pad_config = &(struct stm_pad_config) {
-		.gpios_num = 2,
-		.gpios = (struct stm_pad_gpio []) {
-			STM_PAD_PIO_IN_NAMED(5, 6, -1, "OC"),
-			STM_PAD_PIO_OUT_NAMED(5, 7, 1, "PWR"),
+	.device_config = &(struct stm_device_config){
+		.pad_config = &(struct stm_pad_config) {
+			.gpios_num = 2,
+			.gpios = (struct stm_pad_gpio []) {
+				STM_PAD_PIO_IN_NAMED(5, 6, -1, "OC"),
+				STM_PAD_PIO_OUT_NAMED(5, 7, 1, "PWR"),
+			},
+			.custom_claim = stx7100_usb_pad_claim,
 		},
-		.custom_claim = stx7100_usb_pad_claim,
+		.sysconfs_num = 1,
+		.sysconfs = (struct stm_device_sysconf []) {
+			STM_DEVICE_SYS_CFG(2, 4, 5, USB_PWR),
+		},
+		.power = stx7100_usb_power,
 	},
 };
 

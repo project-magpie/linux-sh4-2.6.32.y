@@ -105,4 +105,4 @@ extern void dwmac_dma_stop_tx(void __iomem *ioaddr);
 extern void dwmac_dma_start_rx(void __iomem *ioaddr);
 extern void dwmac_dma_stop_rx(void __iomem *ioaddr);
 extern int dwmac_dma_interrupt(void __iomem *ioaddr,
-			       struct stmmac_extra_stats *x);
+				struct stmmac_extra_stats *x);

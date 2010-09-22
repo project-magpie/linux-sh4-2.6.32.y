@@ -1,6 +1,8 @@
 #ifndef __ASM_SH_HWBLK_H
 #define __ASM_SH_HWBLK_H
 
+#ifdef CONFIG_HWBLK
+
 #include <asm/clock.h>
 #include <asm/io.h>
 
@@ -68,5 +70,14 @@ void hwblk_cnt_dec(struct hwblk_info *info, int hwblk, int cnt);
 }
 
 int sh_hwblk_clk_register(struct clk *clks, int nr);
+
+#else /* CONFIG_HWBLK */
+
+inline int hwblk_init(void)
+{
+	return 0;
+}
+
+#endif /* CONFIG_HWBLK */
 
 #endif /* __ASM_SH_HWBLK_H */

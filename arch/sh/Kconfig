@@ -8,7 +8,7 @@ mainmenu "Linux/SuperH Kernel Configuration"
 config SUPERH
 	def_bool y
 	select EMBEDDED
-	select HAVE_CLK
+	select CLKDEV_LOOKUP
 	select HAVE_IDE
 	select HAVE_LMB
 	select HAVE_OPROFILE
@@ -204,6 +204,7 @@ config CPU_SUBTYPE_ST40
 	select CPU_SH4
 	select GENERIC_GPIO
 	select ARCH_REQUIRE_GPIOLIB
+	select ARCH_SUSPEND_POSSIBLE
 
 config CPU_ST40_300
 	bool
@@ -641,12 +642,18 @@ config SH_PCLK_FREQ
 	  This is necessary for determining the reference clock value on
 	  platforms lacking an RTC.
 
+config SH_CLK
+	def_bool y if !CPU_SUBTYPE_ST40
+
 config SH_CLK_CPG
 	def_bool y if !CPU_SUBTYPE_ST40
 
 config SH_CLK_CPG_LEGACY
 	depends on SH_CLK_CPG
 	def_bool y if !CPU_SUBTYPE_SH7785 && !ARCH_SHMOBILE
+
+config HWBLK
+	def_bool y if !CPU_SUBTYPE_ST40
 
 config SH_CLK_MD
 	int "CPU Mode Pin Setting"

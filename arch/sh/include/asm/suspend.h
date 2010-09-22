@@ -4,18 +4,6 @@
 #ifndef __ASSEMBLY__
 static inline int arch_prepare_suspend(void) { return 0; }
 
-static inline void save_processor_state(void)
-{
-	return;
-}
-
-static inline void restore_processor_state(void)
-{
-	return;
-}
-
-extern const unsigned long __nosave_begin, __nosave_end;
-
 #include <asm/ptrace.h>
 
 struct swsusp_arch_regs {

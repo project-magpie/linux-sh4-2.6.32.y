@@ -112,6 +112,12 @@ static __always_inline void __set_pmb_entry(unsigned long vpn,
 	ctrl_outl(0, mk_pmb_addr(pos));
 	ctrl_outl(vpn, mk_pmb_addr(pos));
 	ctrl_outl(ppn | flags | PMB_V, mk_pmb_data(pos));
+
+	/*
+	 * Read back the value just written. This shouldn't be necessary,
+	 * but when resuming from hibernation it appears to fix a problem.
+	 */
+	ctrl_inl(mk_pmb_addr(pos));
 }
 
 static void __uses_jump_to_uncached set_pmb_entry(unsigned long vpn,
@@ -797,7 +803,7 @@ static int pmb_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 	case PM_EVENT_ON:
 		/* Resumeing from hibernation */
 		if (prev_state.event == PM_EVENT_FREEZE) {
-			for (idx = 0; idx < NR_PMB_ENTRIES; ++idx)
+			for (idx = 1; idx < NR_PMB_ENTRIES; ++idx)
 				if (pmbm[idx].usage)
 					pmb_mapping_set(&pmbm[idx]);
 			flush_cache_all();

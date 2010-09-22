@@ -69,9 +69,8 @@ static int ndesc_get_tx_len(struct dma_desc *p)
  * and, if required, updates the multicast statistics.
  * In case of success, it returns csum_none becasue the device
  * is not able to compute the csum in HW. */
-static int ndesc_get_rx_frame_status(void *data,
-				      struct stmmac_extra_stats *x,
-				      struct dma_desc *p)
+static int ndesc_get_rx_status(void *data, struct stmmac_extra_stats *x,
+			       struct dma_desc *p)
 {
 	int ret = csum_none;
 	struct net_device_stats *stats = (struct net_device_stats *)data;
@@ -121,7 +120,7 @@ static int ndesc_get_rx_frame_status(void *data,
 }
 
 static void ndesc_init_rx_desc(struct dma_desc *p, unsigned int ring_size,
-				int disable_rx_ic)
+			       int disable_rx_ic)
 {
 	int i;
 	for (i = 0; i < ring_size; i++) {
@@ -133,7 +132,6 @@ static void ndesc_init_rx_desc(struct dma_desc *p, unsigned int ring_size,
 			p->des01.rx.disable_ic = 1;
 		p++;
 	}
-	return;
 }
 
 static void ndesc_init_tx_desc(struct dma_desc *p, unsigned int ring_size)
@@ -145,7 +143,6 @@ static void ndesc_init_tx_desc(struct dma_desc *p, unsigned int ring_size)
 			p->des01.tx.end_ring = 1;
 		p++;
 	}
-	return;
 }
 
 static int ndesc_get_tx_owner(struct dma_desc *p)
@@ -180,12 +177,10 @@ static void ndesc_release_tx_desc(struct dma_desc *p)
 	memset(p, 0, offsetof(struct dma_desc, des2));
 	/* set termination field */
 	p->des01.tx.end_ring = ter;
-
-	return;
 }
 
 static void ndesc_prepare_tx_desc(struct dma_desc *p, int is_fs, int len,
-				   int csum_flag)
+				  int csum_flag)
 {
 	p->des01.tx.first_segment = is_fs;
 	p->des01.tx.buffer1_size = len;
@@ -209,7 +204,7 @@ static int ndesc_get_rx_frame_len(struct dma_desc *p)
 
 struct stmmac_desc_ops ndesc_ops = {
 	.tx_status = ndesc_get_tx_status,
-	.rx_status = ndesc_get_rx_frame_status,
+	.rx_status = ndesc_get_rx_status,
 	.get_tx_len = ndesc_get_tx_len,
 	.init_rx_desc = ndesc_init_rx_desc,
 	.init_tx_desc = ndesc_init_tx_desc,

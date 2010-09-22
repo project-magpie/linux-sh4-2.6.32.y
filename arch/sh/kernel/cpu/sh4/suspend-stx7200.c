@@ -3,6 +3,7 @@
  * <linux_root>/arch/sh/kernel/cpu/sh4/suspend-stx7200.c
  * -------------------------------------------------------------------------
  * Copyright (C) 2009  STMicroelectronics
+ * Copyright (C) 2010  STMicroelectronics
  * Author: Francesco M. Virlinzi  <francesco.virlinzi@st.com>
  *
  * May be copied or modified under the terms of the GNU General Public
@@ -16,81 +17,47 @@
 #include <linux/time.h>
 #include <linux/delay.h>
 #include <linux/irqflags.h>
+#include <linux/io.h>
+
+#include <linux/stm/stx7200.h>
 #include <linux/stm/sysconf.h>
-#include <linux/stm/pm.h>
-#include <linux/irq.h>
-#include <asm/system.h>
-#include <asm/io.h>
-#include <asm/pm.h>
+#include <linux/stm/clk.h>
+
 #include <asm/irq-ilc.h>
 
-#include "./soc-stx7200.h"
+#include "stm_suspend.h"
 
-#define _SYS_STA4			(3)
-#define _SYS_STA4_MASK			(4)
-#define _SYS_STA6			(5)
-#define _SYS_STA6_MASK			(6)
+static struct clk *comms_clk;
+static unsigned long comms_clk_rate;
+static void __iomem *cga;
+static void __iomem *cgb;
 
-/* To powerdown the LMIs */
-#define _SYS_CFG38			(7)
-#define _SYS_CFG38_MASK			(8)
-#define _SYS_CFG39			(9)
-#define _SYS_CFG39_MASK			(10)
+#define _SYS_STA(x) 		(0xfd704000 + 0x008 + (x) * 0x4)
+#define _SYS_CFG(x)		(0xfd704000 + 0x100 + (x) * 0x4)
+
+
+#define CLKA_PLL(x)			((x) * 0x04)
+#define   CLKA_PLL_BYPASS		(1 << 20)
+#define   CLKA_PLL_ENABLE_STATUS	(1 << 19)
+#define   CLKA_PLL_LOCK			(1 << 31)
+#define CLKA_PWR_CFG			0x1C
+
+#define CLKB_PLL0_CFG			0x3C
+#define   CLKB_PLL_LOCK			(1 << 31)
+#define   CLKB_PLL_BYPASS		(1 << 20)
+#define CLKB_PWR_CFG			0x58
+#define   CLKB_PLL0_OFF			(1 << 15)
 
 /* *************************
  * STANDBY INSTRUCTION TABLE
  * *************************
  */
-#ifdef CONFIG_PM_DEBUG
 static unsigned long stx7200_standby_table[] __cacheline_aligned = {
-/* Down scale the GenA.Pll0 and GenA.Pll2*/
-CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_BYPASS),
-CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_BYPASS),
 
-CLK_OR_LONG(CLKA_PWR_CFG, PWR_CFG_PLL0_OFF | PWR_CFG_PLL2_OFF),
-#if 0
-CLK_AND_LONG(CLKA_PLL0, ~(0x7ffff)),
-CLK_AND_LONG(CLKA_PLL2, ~(0x7ffff)),
+END_MARKER,
 
-CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_SUSPEND),
-CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_SUSPEND),
-
-CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL2_OFF)),
-
-CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
-CLK_AND_LONG(CLKA_PLL2, ~(CLKA_PLL2_BYPASS)),
-#endif
-/* END. */
-_END(),
-
-/* Restore the GenA.Pll0 and GenA.PLL2 original frequencies */
-#if 0
-CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_BYPASS),
-CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_BYPASS),
-
-CLK_OR_LONG(CLKA_PWR_CFG, PWR_CFG_PLL0_OFF | PWR_CFG_PLL2_OFF),
-
-DATA_LOAD(0x0),
-IMMEDIATE_SRC0(CLKA_PLL0_BYPASS),
-_OR(),
-CLK_STORE(CLKA_PLL0),
-
-DATA_LOAD(0x1),
-IMMEDIATE_SRC0(CLKA_PLL2_BYPASS),
-_OR(),
-CLK_STORE(CLKA_PLL2),
-#endif
-CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL2_OFF)),
-CLK_WHILE_NEQ(CLKA_PLL0, CLKA_PLL0_LOCK, CLKA_PLL0_LOCK),
-CLK_WHILE_NEQ(CLKA_PLL2, CLKA_PLL2_LOCK, CLKA_PLL2_LOCK),
-CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
-CLK_AND_LONG(CLKA_PLL2, ~(CLKA_PLL2_BYPASS)),
-
-_DELAY(),
-/* END. */
-_END()
+END_MARKER
 };
-#endif
 
 /* *********************
  * MEM INSTRUCTION TABLE
@@ -98,164 +65,184 @@ _END()
  */
 
 static unsigned long stx7200_mem_table[] __cacheline_aligned = {
+
 /* 1. Enables the DDR self refresh mode */
-DATA_OR_LONG(_SYS_CFG38, _SYS_CFG38_MASK),
-DATA_OR_LONG(_SYS_CFG39, _SYS_CFG39_MASK),
-	/* waits until the ack bit is zero */
-DATA_WHILE_NEQ(_SYS_STA4, _SYS_STA4_MASK, _SYS_STA4_MASK),
-DATA_WHILE_NEQ(_SYS_STA6, _SYS_STA6_MASK, _SYS_STA6_MASK),
+OR32(_SYS_CFG(38), 1 << 20),
+OR32(_SYS_CFG(39), 1 << 20),
 
- /* waits until the ack bit is zero */
-/* 2. Down scale the GenA.Pll0, GenA.Pll1 and GenA.Pll2*/
-CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_BYPASS),
-CLK_OR_LONG(CLKA_PLL1, CLKA_PLL1_BYPASS),
-CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_BYPASS),
+/* waits until the ack bit is zero */
+WHILE_NE32(_SYS_STA(4), 1, 1),
+WHILE_NE32(_SYS_STA(6), 1, 1),
 
-CLK_OR_LONG(CLKA_PWR_CFG, PWR_CFG_PLL0_OFF | PWR_CFG_PLL1_OFF | PWR_CFG_PLL2_OFF),
-#if 0
-CLK_AND_LONG(CLKA_PLL0, ~(0x7ffff)),
-CLK_AND_LONG(CLKA_PLL1, ~(0x7ffff)),
-CLK_AND_LONG(CLKA_PLL2, ~(0x7ffff)),
+/* stop LMI clocks */
+UPDATE32(_SYS_CFG(11), ~1, 0),
+UPDATE32(_SYS_CFG(15), ~1, 0),
 
-CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_SUSPEND),
-CLK_OR_LONG(CLKA_PLL1, CLKA_PLL1_SUSPEND),
-CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_SUSPEND),
+/* disable the analogue input buffers */
+OR32(_SYS_CFG(12), 1 << 10),
+OR32(_SYS_CFG(16), 1 << 10),
 
-CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL1_OFF | PWR_CFG_PLL2_OFF)),
+/* PLL_LMI power down */
+OR32(_SYS_CFG(11), 1 << 12),
 
-CLK_WHILE_NEQ(CLKA_PLL0, CLKA_PLL0_LOCK, CLKA_PLL0_LOCK),
-CLK_WHILE_NEQ(CLKA_PLL1, CLKA_PLL1_LOCK, CLKA_PLL1_LOCK),
-CLK_WHILE_NEQ(CLKA_PLL2, CLKA_PLL2_LOCK, CLKA_PLL2_LOCK),
+END_MARKER,
 
-CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
-CLK_AND_LONG(CLKA_PLL1, ~(CLKA_PLL1_BYPASS)),
-CLK_AND_LONG(CLKA_PLL2, ~(CLKA_PLL2_BYPASS)),
-#endif
-/* END. */
-_END() ,
+/* PLL_LMI power on */
+UPDATE32(_SYS_CFG(11), ~(1 << 12), 0),
 
-/* Restore the GenA.Pll0 and GenA.PLL2 original frequencies */
-#if 0
-CLK_OR_LONG(CLKA_PLL0, CLKA_PLL0_BYPASS),
-CLK_OR_LONG(CLKA_PLL1, CLKA_PLL1_BYPASS),
-CLK_OR_LONG(CLKA_PLL2, CLKA_PLL2_BYPASS),
+/* enable the analogue input buffers */
+UPDATE32(_SYS_CFG(12), ~(1 << 10), 0),
+UPDATE32(_SYS_CFG(16), ~(1 << 10), 0),
 
-CLK_OR_LONG(CLKA_PWR_CFG, PWR_CFG_PLL0_OFF | PWR_CFG_PLL1_OFF | PWR_CFG_PLL2_OFF),
+/* start LMI clocks */
+OR32(_SYS_CFG(11), 1),
+OR32(_SYS_CFG(15), 1),
 
-DATA_LOAD(0x0),
-IMMEDIATE_SRC0(CLKA_PLL0_BYPASS),
-_OR(),
-CLK_STORE(CLKA_PLL0),
 
-DATA_LOAD(0x1),
-IMMEDIATE_SRC0(CLKA_PLL1_BYPASS),
-_OR(),
-CLK_STORE(CLKA_PLL1),
-
-DATA_LOAD(0x2),
-IMMEDIATE_SRC0(CLKA_PLL2_BYPASS),
-_OR(),
-CLK_STORE(CLKA_PLL2),
-#endif
-CLK_AND_LONG(CLKA_PWR_CFG, ~(PWR_CFG_PLL0_OFF | PWR_CFG_PLL1_OFF | PWR_CFG_PLL2_OFF)),
-/* Wait PLLs lock */
-CLK_WHILE_NEQ(CLKA_PLL0, CLKA_PLL0_LOCK, CLKA_PLL0_LOCK),
-CLK_WHILE_NEQ(CLKA_PLL1, CLKA_PLL1_LOCK, CLKA_PLL1_LOCK),
-CLK_WHILE_NEQ(CLKA_PLL2, CLKA_PLL2_LOCK, CLKA_PLL2_LOCK),
-
-CLK_AND_LONG(CLKA_PLL0, ~(CLKA_PLL0_BYPASS)),
-CLK_AND_LONG(CLKA_PLL1, ~(CLKA_PLL1_BYPASS)),
-CLK_AND_LONG(CLKA_PLL2, ~(CLKA_PLL2_BYPASS)),
-
-DATA_AND_NOT_LONG(_SYS_CFG38, _SYS_CFG38_MASK),
-DATA_AND_NOT_LONG(_SYS_CFG39, _SYS_CFG39_MASK),
-DATA_WHILE_EQ(_SYS_STA4, _SYS_STA4_MASK, _SYS_STA4_MASK),
-
+/* LMI out of self-refresh */
+UPDATE32(_SYS_CFG(38), ~(1 << 20), 0),
+UPDATE32(_SYS_CFG(39), ~(1 << 20), 0),
 /* wait until the ack bit is high        */
-DATA_WHILE_EQ(_SYS_STA6, _SYS_STA6_MASK, _SYS_STA6_MASK),
+WHILE_NE32(_SYS_STA(4), 1, 0),
+WHILE_NE32(_SYS_STA(6), 1, 0),
 
-_DELAY(),
-_DELAY(),
-_DELAY(),
-/* END. */
-_END()
+END_MARKER
 };
 
-static unsigned long stx7200_wrt_table[16] __cacheline_aligned;
 
-static int stx7200_suspend_prepare(suspend_state_t state)
+
+static int stx7200_suspend_begin(suspend_state_t state)
 {
-#ifdef CONFIG_PM_DEBUG
+	pr_info("[STM][PM] Analysing the wakeup devices\n");
+
+	comms_clk_rate = clk_get_rate(comms_clk);
+	comms_clk->rate = 30000000;	/* 30 MHz */
+
+	return 0;
+}
+
+static int stx7200_suspend_core(suspend_state_t state, int suspending)
+{
+	unsigned long tmp;
+	int i;
+
+	if (suspending)
+		goto on_suspending;
+
+	/*
+	 * ClockGen A Management
+	 */
+	/* power on the Plls */
+	tmp = ioread32(cga + CLKA_PWR_CFG);
+	iowrite32(tmp & ~7, cga + CLKA_PWR_CFG);
+
+
+	for (i = 0; i < 3; ++i) {
+		/* Wait the PLLs are stable */
+		while ((ioread32(cga + CLKA_PLL(i)) & CLKA_PLL_LOCK)
+			!= CLKA_PLL_LOCK)
+				;
+		/* remove the bypass */
+		tmp = ioread32(cga + CLKA_PLL(i));
+		iowrite32(tmp & ~(CLKA_PLL_BYPASS), cga + CLKA_PLL(i));
+	}
+
+	/*
+	 * ClockGen B Management
+	 */
+	tmp = readl(cgb + CLKB_PWR_CFG);
+	writel(tmp & ~CLKB_PLL0_OFF, cgb + CLKB_PWR_CFG);
+	/* Wait PllB lock */
+	while ((readl(cgb + CLKB_PLL0_CFG) & CLKB_PLL_LOCK) != CLKB_PLL_LOCK)
+		;
+	tmp = readl(cgb + CLKB_PLL0_CFG);
+	writel(tmp & ~CLKB_PLL_BYPASS, cgb + CLKB_PLL0_CFG);
+
+	comms_clk->rate = comms_clk_rate;
+	return 0;
+
+on_suspending:
+
+	tmp = readl(cgb + CLKB_PLL0_CFG);
+	writel(tmp | CLKB_PLL_BYPASS, cgb + CLKB_PLL0_CFG);
+	tmp = readl(cgb + CLKB_PWR_CFG);
+	writel(tmp | CLKB_PLL0_OFF, cgb + CLKB_PWR_CFG);
+
+	tmp = ioread32(cga + CLKA_PLL(0));
+	iowrite32(tmp | CLKA_PLL_BYPASS, cga + CLKA_PLL(0));
+
+	tmp = ioread32(cga + CLKA_PLL(2));
+	iowrite32(tmp | CLKA_PLL_BYPASS, cga + CLKA_PLL(2));
+
 	if (state == PM_SUSPEND_STANDBY) {
-		stx7200_wrt_table[0] =
-			readl(CLOCKGEN_BASE_ADDR + CLKA_PLL0) & 0x7ffff;
-		stx7200_wrt_table[1] =
-			readl(CLOCKGEN_BASE_ADDR + CLKA_PLL2) & 0x7ffff;
-	} else
-#endif
-	{
-		stx7200_wrt_table[0] =
-			readl(CLOCKGEN_BASE_ADDR + CLKA_PLL0) & 0x7ffff;
-		stx7200_wrt_table[1] =
-			readl(CLOCKGEN_BASE_ADDR + CLKA_PLL1) & 0x7ffff;
-		stx7200_wrt_table[2] =
-			readl(CLOCKGEN_BASE_ADDR + CLKA_PLL2) & 0x7ffff;
+		tmp = ioread32(cga + CLKA_PWR_CFG);
+		iowrite32(tmp & ~5, cga + CLKA_PWR_CFG);
+	} else {
+		tmp = ioread32(cga + CLKA_PLL(1));
+		iowrite32(tmp | CLKA_PLL_BYPASS, cga + CLKA_PLL(1));
+
+		tmp = ioread32(cga + CLKA_PWR_CFG);
+		iowrite32(tmp & ~7, cga + CLKA_PWR_CFG);
 	}
 	return 0;
 }
 
+static int stx7200_suspend_pre_enter(suspend_state_t state)
+{
+	return stx7200_suspend_core(state, 1);
+}
 
-static unsigned long stx7200_iomem[2] __cacheline_aligned = {
-		stx7200_wrt_table,	/* To access Sysconf    */
-		CLOCKGEN_BASE_ADDR};	/* Clockgen A */
+static int stx7200_suspend_post_enter(suspend_state_t state)
+{
+	return stx7200_suspend_core(state, 0);
+}
 
 static int stx7200_evttoirq(unsigned long evt)
 {
 	return ((evt < 0x400) ? ilc2irq(evt) : evt2irq(evt));
 }
 
-static struct sh4_suspend_t st40data __cacheline_aligned = {
-	.iobase = stx7200_iomem,
-	.ops.prepare = stx7200_suspend_prepare,
+static struct stm_platform_suspend_t stx7200_suspend __cacheline_aligned = {
+	.ops.begin = stx7200_suspend_begin,
+
 	.evt_to_irq = stx7200_evttoirq,
-#ifdef CONFIG_PM_DEBUG
+	.pre_enter = stx7200_suspend_pre_enter,
+	.post_enter = stx7200_suspend_post_enter,
+
 	.stby_tbl = (unsigned long)stx7200_standby_table,
 	.stby_size = DIV_ROUND_UP(ARRAY_SIZE(stx7200_standby_table) *
 			sizeof(long), L1_CACHE_BYTES),
-#endif
+
 	.mem_tbl = (unsigned long)stx7200_mem_table,
 	.mem_size = DIV_ROUND_UP(ARRAY_SIZE(stx7200_mem_table) * sizeof(long),
 			L1_CACHE_BYTES),
-	.wrt_tbl = (unsigned long)stx7200_wrt_table,
-	.wrt_size = DIV_ROUND_UP(ARRAY_SIZE(stx7200_wrt_table) * sizeof(long),
-			L1_CACHE_BYTES),
 };
 
-static int __init suspend_platform_setup()
+static int __init stx7200_suspend_setup(void)
 {
-	struct sysconf_field* sc;
+	struct sysconf_field *sc[4];
+	int i;
 
-	sc = sysconf_claim(SYS_STA, 4, 0, 0, "pm");
-	stx7200_wrt_table[_SYS_STA4] = (unsigned long)sysconf_address(sc);
-	stx7200_wrt_table[_SYS_STA4_MASK] = sysconf_mask(sc);
+	sc[0] = sysconf_claim(SYS_STA, 4, 0, 0, "PM");
+	sc[1] = sysconf_claim(SYS_STA, 6, 0, 0, "PM");
+	sc[2]  = sysconf_claim(SYS_CFG, 38, 20, 20, "PM");
+	sc[3]  = sysconf_claim(SYS_CFG, 39, 20, 20, "PM");
 
-	sc = sysconf_claim(SYS_STA, 6, 0, 0, "pm");
-	stx7200_wrt_table[_SYS_STA6] = (unsigned long)sysconf_address(sc);
-	stx7200_wrt_table[_SYS_STA6_MASK] = sysconf_mask(sc);
+	for (i = 0; i < ARRAY_SIZE(sc); ++i)
+		if (!sc[i])
+			goto error;
 
-	sc = sysconf_claim(SYS_CFG, 38, 20, 20, "pm");
-	stx7200_wrt_table[_SYS_CFG38] = (unsigned long)sysconf_address(sc);
-	stx7200_wrt_table[_SYS_CFG38_MASK] = sysconf_mask(sc);
+	cga = ioremap(0xfd700000, 0x1000);
+	cgb = ioremap(0xfd701000, 0x1000);
+	comms_clk = clk_get(NULL, "comms_clk");
 
-	sc = sysconf_claim(SYS_CFG, 39, 20, 20, "pm");
-	stx7200_wrt_table[_SYS_CFG39] = (unsigned long)sysconf_address(sc);
-	stx7200_wrt_table[_SYS_CFG39_MASK] = sysconf_mask(sc);
+	return stm_suspend_register(&stx7200_suspend);
 
-#ifdef CONFIG_PM_DEBUG
-	ctrl_outl(0xc, CKGA_CLKOUT_SEL +
-		CLOCKGEN_BASE_ADDR); /* sh4:2 routed on SYSCLK_OUT */
-#endif
-	return sh4_suspend_register(&st40data);
+error:
+	for (i = ARRAY_SIZE(sc)-1; i; --i)
+		if (sc[i])
+			sysconf_release(sc[i]);
+	return 0;
 }
 
-late_initcall(suspend_platform_setup);
+module_init(stx7200_suspend_setup);

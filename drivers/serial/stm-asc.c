@@ -22,11 +22,10 @@
 #include <linux/gpio.h>
 #include <linux/generic_serial.h>
 #include <linux/spinlock.h>
+#include <linux/pm_runtime.h>
 #include <linux/platform_device.h>
 #include <linux/stm/platform.h>
-
-#include <asm/system.h>
-#include <asm/clock.h>
+#include <linux/clk.h>
 
 #ifdef CONFIG_SH_STANDARD_BIOS
 #include <asm/sh_bios.h>
@@ -47,6 +46,7 @@ static int  asc_request_irq(struct uart_port *);
 static void asc_free_irq(struct uart_port *);
 static void asc_transmit_chars(struct uart_port *);
 static int asc_remap_port(struct asc_port *ascport, int req);
+static int asc_set_baud(struct uart_port *port, int baud);
 void asc_set_termios_cflag(struct asc_port *, int, int);
 static inline void asc_receive_chars(struct uart_port *);
 
@@ -400,9 +400,18 @@ static int __devinit asc_serial_probe(struct platform_device *pdev)
 	asc_init_port(ascport, pdev);
 
 	ret = uart_add_one_port(&asc_uart_driver, &ascport->port);
-	if (ret == 0)
+	if (ret == 0) {
 		platform_set_drvdata(pdev, &ascport->port);
+		/* set can_wakeup*/
+		device_set_wakeup_capable(&pdev->dev, 1);
+		/* enable the wakeup on console */
+		device_set_wakeup_enable(&pdev->dev, 1);
+		enable_irq_wake(pdev->resource[1].start);
 
+		pm_runtime_set_active(&pdev->dev);
+		pm_suspend_ignore_children(&pdev->dev, 1);
+		pm_runtime_enable(&pdev->dev);
+	}
 	return ret;
 }
 
@@ -415,36 +424,30 @@ static int __devexit asc_serial_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-static int asc_serial_suspend(struct platform_device *pdev, pm_message_t state)
+#warning [STM] ASC PM: incomplete
+static int asc_serial_suspend(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
 	struct asc_port *ascport = &asc_ports[pdev->id];
 	struct uart_port *port   = &(ascport->port);
 	unsigned long flags;
 
-	if (!device_can_wakeup(&(pdev->dev)))
-		return 0; /* the other ASCs... */
-
 	local_irq_save(flags);
+	mdelay(10);
 	ascport->pm_ctrl = asc_in(port, CTL);
-	ascport->pm_baud = asc_in(port, BAUDRATE);
-	if (state.event == PM_EVENT_SUSPEND && device_may_wakeup(&(pdev->dev))){
-#ifndef CONFIG_DISABLE_CONSOLE_SUSPEND
+	ascport->pm_irq = asc_in(port, INTEN);
+
+	/* disable the FIFO to resume on a first button */
+	asc_out(port, CTL, ascport->pm_ctrl & ~ASC_CTL_FIFOENABLE);
+
+	if (device_can_wakeup(dev)) {
+		if (!console_suspend_enabled)
+			goto ret_asc_suspend;
 		ascport->suspended = 1;
-		if (ascport->pios[0])
-			stpio_configure_pin(ascport->pios[0], STPIO_IN); /* Tx  */
 		asc_disable_tx_interrupts(port);
-#endif
 		goto ret_asc_suspend;
 	}
 
-	if (state.event == PM_EVENT_FREEZE) {
-		asc_disable_rx_interrupts(port);
-		goto ret_asc_suspend;
-	}
-	if (ascport->pios[0])
-		stpio_configure_pin(ascport->pios[0], STPIO_IN); /* Tx  */
-	if (ascport->pios[3])
-		stpio_configure_pin(ascport->pios[3], STPIO_IN); /* RTS */
 	ascport->suspended = 1;
 	asc_disable_tx_interrupts(port);
 	asc_disable_rx_interrupts(port);
@@ -454,37 +457,61 @@ ret_asc_suspend:
 	return 0;
 }
 
-static int asc_set_baud (struct uart_port *port, int baud);
-static int asc_serial_resume(struct platform_device *pdev)
+
+static int asc_serial_resume(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
 	struct asc_port *ascport = &asc_ports[pdev->id];
 	struct uart_port *port   = &(ascport->port);
-	struct stasc_uart_data *pdata =
-		(struct stasc_uart_data *)pdev->dev.platform_data;
 	unsigned long flags;
-	int i;
-
-	if (!device_can_wakeup(&(pdev->dev)))
-		return 0; /* the other ASCs... */
 
 	local_irq_save(flags);
-	for (i = 0; i < 4; ++i)
-	if (ascport->pios[i])
-		stpio_configure_pin(ascport->pios[i],
-			pdata->pios[i].pio_direction);
-
 	asc_out(port, CTL, ascport->pm_ctrl);
 	asc_out(port, TIMEOUT, 20);		/* hardcoded */
-	asc_out(port, BAUDRATE, ascport->pm_baud);
-	asc_enable_rx_interrupts(port);
-	asc_enable_tx_interrupts(port);
+	if (ascport->pm_irq)
+		asc_enable_rx_interrupts(port);
+	/* asc_enable_tx_interrupts(port);*/
 	ascport->suspended = 0;
 	local_irq_restore(flags);
 	return 0;
 }
-#else
-#define asc_serial_suspend	NULL
-#define asc_serial_resume	NULL
+
+static int asc_serial_freeze(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct asc_port *ascport = &asc_ports[pdev->id];
+	struct uart_port *port   = &(ascport->port);
+
+	ascport->pm_ctrl = asc_in(port, CTL);
+
+	return 0;
+}
+
+static int asc_serial_restore(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct asc_port *ascport = &asc_ports[pdev->id];
+	struct uart_port *port   = &(ascport->port);
+	unsigned long flags;
+
+	local_irq_save(flags);
+	asc_out(port, CTL, ascport->pm_ctrl);
+	asc_out(port, TIMEOUT, 20);		/* hardcoded */
+	asc_set_baud(port, ascport->pm_baud);
+	asc_enable_rx_interrupts(port);
+	asc_enable_tx_interrupts(port);
+	local_irq_restore(flags);
+	return 0;
+}
+
+static struct dev_pm_ops asc_serial_pm_ops = {
+	.suspend = asc_serial_suspend,  /* on standby/memstandby */
+	.resume = asc_serial_resume,    /* resume from standby/memstandby */
+	.freeze = asc_serial_freeze,	/* hibernation */
+	.restore = asc_serial_restore,	/* resume from hibernation */
+	.runtime_suspend = asc_serial_suspend,
+	.runtime_resume = asc_serial_resume,
+};
 #endif
 
 static struct platform_driver asc_serial_driver = {
@@ -493,9 +520,10 @@ static struct platform_driver asc_serial_driver = {
 	.driver	= {
 		.name	= DRIVER_NAME,
 		.owner	= THIS_MODULE,
+#ifdef CONFIG_PM
+		.pm     = &asc_serial_pm_ops,
+#endif
 	},
-	.suspend = asc_serial_suspend,
-	.resume	= asc_serial_resume,
 };
 
 static int __init asc_init(void)
@@ -632,6 +660,9 @@ void asc_set_termios_cflag(struct asc_port *ascport, int cflag, int baud)
 		ctrl_val |= ASC_CTL_CTSENABLE;
 
 	/* set speed and baud generator mode */
+#ifdef CONFIG_PM
+	ascport->pm_baud = baud;	/* save the latest baudrate request */
+#endif
 	ctrl_val |= asc_set_baud(port, baud);
 	uart_update_timeout(port, cflag, baud);
 

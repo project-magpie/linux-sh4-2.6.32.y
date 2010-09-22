@@ -19,6 +19,7 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/stx7105.h>
+#include <linux/stm/device.h>
 #include <linux/delay.h>
 #include <asm/irq-ilc.h>
 
@@ -328,12 +329,18 @@ static struct plat_stmmacenet_data stx7105_ethernet_platform_data[] = {
 		.pbl = 32,
 		.has_gmac = 1,
 		.enh_desc = 1,
+		.tx_coe = 1,
+		.bugged_jumbo =1,
+		.pmt = 1,
 		.fix_mac_speed = stx7105_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7105_configure_ethernet() */
 	}, {
 		.pbl = 32,
 		.has_gmac = 1,
 		.enh_desc = 1,
+		.tx_coe = 1,
+		.bugged_jumbo =1,
+		.pmt = 1,
 		.fix_mac_speed = stx7105_ethernet_fix_mac_speed,
 		/* .pad_config set in stx7105_configure_ethernet() */
 	}
@@ -349,10 +356,7 @@ static struct platform_device stx7105_ethernet_devices[] = {
 			STM_PLAT_RESOURCE_IRQ_NAMED("macirq",
 					evt2irq(0x12c0), -1),
 		},
-		.dev = {
-			.power.can_wakeup = 1,
-			.platform_data = &stx7105_ethernet_platform_data[0],
-		}
+		.dev.platform_data = &stx7105_ethernet_platform_data[0],
 	}, {
 		.name = "stmmaceth",
 		.id = 1,
@@ -362,10 +366,7 @@ static struct platform_device stx7105_ethernet_devices[] = {
 			STM_PLAT_RESOURCE_IRQ_NAMED("macirq",
 					ILC_EXT_IRQ(39), -1),
 		},
-		.dev = {
-			.power.can_wakeup = 1,
-			.platform_data = &stx7105_ethernet_platform_data[1],
-		}
+		.dev.platform_data = &stx7105_ethernet_platform_data[1],
 	}
 };
 
@@ -496,16 +497,54 @@ void __init stx7105_configure_ethernet(int port,
 
 static u64 stx7105_usb_dma_mask = DMA_BIT_MASK(32);
 
+#define USB_HOST_PWR "USB_HOST_PWR"
+#define USB_PHY_PWR "USB_PHY_PWR"
+#define USB_HOST_ACK "USB_HOST_ACK"
+
+static void stx7105_usb_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, USB_HOST_PWR, value);
+	stm_device_sysconf_write(device_state, USB_PHY_PWR, value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, USB_HOST_ACK)
+				 == value)
+			break;
+		mdelay(10);
+	}
+}
+
 static struct stm_plat_usb_data stx7105_usb_platform_data[] = {
 	[0] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
-		/* .pad_config created in stx7105_configure_usb() */
+		.device_config = &(struct stm_device_config){
+			/* .pad_config created in stx7105_configure_usb() */
+			.sysconfs_num = 3,
+			.sysconfs = (struct stm_device_sysconf []){
+				STM_DEVICE_SYS_CFG(32, 4, 4, USB_HOST_PWR),
+				STM_DEVICE_SYS_CFG(32, 6, 6, USB_PHY_PWR),
+				STM_DEVICE_SYS_STA(15, 4, 4, USB_HOST_ACK),
+			},
+			.power = stx7105_usb_power,
+		}
 	},
 	[1] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
-		/* .pad_config created in stx7105_configure_usb() */
+		.device_config = &(struct stm_device_config){
+			/* .pad_config created in stx7105_configure_usb() */
+			.sysconfs_num = 3,
+			.sysconfs = (struct stm_device_sysconf []){
+				STM_DEVICE_SYS_CFG(32, 5, 5, USB_HOST_PWR),
+				STM_DEVICE_SYS_CFG(32, 7, 7, USB_PHY_PWR),
+				STM_DEVICE_SYS_STA(15, 5, 5, USB_HOST_ACK),
+			},
+			.power = stx7105_usb_power,
+		}
 	},
 };
 
@@ -566,18 +605,12 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 	BUG_ON(configured[port]);
 	configured[port] = 1;
 
-	pad_config = stm_pad_config_alloc(2, 5);
+	pad_config = stm_pad_config_alloc(2, 3);
 	BUG_ON(!pad_config);
-	stx7105_usb_platform_data[port].pad_config = pad_config;
 
-	/* USB PHY clock from alternate pad? */
-	/* sysconf_claim(SYS_CFG, 40, 2, 2, "USB"); */
-
-	/* Power up USB PHY */
-	stm_pad_config_add_sys_cfg(pad_config, 32, 6 + port, 6 + port, 0);
-
-	/* Power up USB host */
-	stm_pad_config_add_sys_cfg(pad_config, 32, 4 + port, 4 + port, 0);
+	/* set the pad_config in the device_config */
+	stx7105_usb_platform_data[port].device_config->pad_config =
+		pad_config;
 
 	if (config->ovrcur_mode == stx7105_usb_ovrcur_disabled) {
 		/* cfg_usbX_ovrcurr_enable */
@@ -718,6 +751,18 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 
 /* SATA resources --------------------------------------------------------- */
 
+static void stx7105_sata_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, "SATA_HOST", value);
+	stm_device_sysconf_write(device_state, "SATA_PHY", value);
+	mdelay(10);
+
+	return ;
+}
+
 static struct platform_device stx7105_sata_device = {
 	.name = "sata-stm",
 	.id = -1,
@@ -725,6 +770,14 @@ static struct platform_device stx7105_sata_device = {
 		.phy_init = 0,
 		.pc_glue_logic_init = 0,
 		.only_32bit = 0,
+		.device_config = &(struct stm_device_config) {
+			.sysconfs_num = 2,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYS_CFG(32, 9, 9, "SATA_HOST"),
+				STM_DEVICE_SYS_CFG(32, 11, 11, "SATA_PHY"),
+			},
+			.power = stx7105_sata_power,
+		}
 	},
 	.num_resources = 3,
 	.resource = (struct resource[]) {
@@ -742,6 +795,14 @@ static struct platform_device stx7106_sata_devices[] = {
 			.phy_init = 0,
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
+			.device_config = &(struct stm_device_config) {
+				.sysconfs_num = 2,
+				.sysconfs = (struct stm_device_sysconf []) {
+				  STM_DEVICE_SYS_CFG(32, 8, 8, "SATA_HOST"),
+				  STM_DEVICE_SYS_CFG(32, 11, 11, "SATA_PHY"),
+				},
+				.power = stx7105_sata_power,
+			}
 		},
 		.num_resources = 3,
 		.resource = (struct resource[]) {
@@ -758,6 +819,14 @@ static struct platform_device stx7106_sata_devices[] = {
 			.phy_init = 0,
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
+			.device_config = &(struct stm_device_config) {
+				.sysconfs_num = 2,
+				.sysconfs = (struct stm_device_sysconf []) {
+				  STM_DEVICE_SYS_CFG(32, 9, 9, "SATA_HOST"),
+				  STM_DEVICE_SYS_CFG(32, 10, 10, "SATA_PHY"),
+				},
+				.power = stx7105_sata_power,
+			}
 		},
 		.num_resources = 3,
 		.resource = (struct resource[]) {
@@ -811,6 +880,7 @@ void __init stx7105_configure_sata(int port)
 			sc = sysconf_claim(SYS_CFG, 32, 10, 11, "SATA");
 		BUG_ON(!sc);
 		sysconf_write(sc, 0);
+		sysconf_release(sc);
 
 		/* soft_jtag_en */
 		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
@@ -836,6 +906,7 @@ void __init stx7105_configure_sata(int port)
 			BUG_ON(!sc);
 			sysconf_write(sc, 0);
 			stm_miphy_init(&miphy, 0);
+			sysconf_release(sc);
 		} else {
 			/* 7106 */
 			miphy.ports_num = 2;
@@ -847,11 +918,13 @@ void __init stx7105_configure_sata(int port)
 			BUG_ON(!sc);
 			sysconf_write(sc, 0);
 			stm_miphy_init(&miphy, 0);
+			sysconf_release(sc);
 
 			sc = sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
 			BUG_ON(!sc);
 			sysconf_write(sc, 0);
 			stm_miphy_init(&miphy, 1);
+			sysconf_release(sc);
 		}
 	}
 

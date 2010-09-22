@@ -1,52 +1,26 @@
 /*
- * Copyright (C) 2009 STMicroelectronics Limited
+ * Copyright (C) 2010 STMicroelectronics Limited
  *
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
  *
- * Code to handle the clockgen hardware on the STx5206.
+ * Code to handle the arch clocks on the STx5206.
  */
 
 #include <linux/init.h>
-#include <linux/kernel.h>
-#include <linux/err.h>
-#include <linux/io.h>
-#include <linux/pm.h>
-#include <asm/clock.h>
-#include <asm/freq.h>
-
-#include "clock-common.h"
-
-
-
-/* SH4 generic clocks ----------------------------------------------------- */
-
-static struct clk stx5206_generic_module_clk = {
-	.name = "module_clk",
-	.rate = 100000000,
-};
-
-static struct clk stx5206_generic_comms_clk = {
-	.name = "comms_clk",
-	.rate = 100000000,
-};
-
-
-
-/* ------------------------------------------------------------------------ */
+#include <linux/stm/clk.h>
 
 int __init arch_clk_init(void)
 {
-	int err;
+	int ret;
 
-	/* Generic SH-4 clocks */
+	ret = plat_clk_init();
+	if (ret)
+		return ret;
 
-	err = clk_register(&stx5206_generic_module_clk);
-	if (err != 0)
-		goto error;
+	clk_add_alias("sh4_clk", NULL, "CLKA_SH4_ICK", NULL);
+	clk_add_alias("module_clk", NULL, "CLKA_IC_IF_100", NULL);
+	clk_add_alias("comms_clk", NULL, en, NULLt;
 
-	err = clk_register(&stx5206_generic_comms_clk);
-
-error:
-	return err;
+	return ret;
 }

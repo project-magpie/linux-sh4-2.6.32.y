@@ -102,7 +102,6 @@ void stmmac_ethtool_getdrvinfo(struct net_device *dev,
 	strcpy(info->version, DRV_MODULE_VERSION);
 	info->fw_version[0] = '\0';
 	info->n_stats = STMMAC_STATS_LEN;
-	return;
 }
 
 int stmmac_ethtool_getsettings(struct net_device *dev, struct ethtool_cmd *cmd)
@@ -170,6 +169,7 @@ void stmmac_ethtool_gregs(struct net_device *dev,
 {
 	int i;
 	u32 *reg_space = (u32 *) space;
+
 	struct stmmac_priv *priv = netdev_priv(dev);
 
 	memset(reg_space, 0x0, REG_SPACE_SIZE);
@@ -193,8 +193,6 @@ void stmmac_ethtool_gregs(struct net_device *dev,
 			reg_space[i + 55] =
 			    readl(priv->ioaddr + (DMA_BUS_MODE + (i * 4)));
 	}
-
-	return;
 }
 
 int stmmac_ethtool_set_tx_csum(struct net_device *netdev, u32 data)
@@ -211,7 +209,7 @@ u32 stmmac_ethtool_get_rx_csum(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
-	return priv->rx_csum;
+	return priv->rx_coe;
 }
 
 static void
@@ -232,7 +230,6 @@ stmmac_get_pauseparam(struct net_device *netdev,
 		pause->tx_pause = 1;
 
 	spin_unlock(&priv->lock);
-	return;
 }
 
 static int
@@ -288,8 +285,6 @@ static void stmmac_get_ethtool_stats(struct net_device *dev,
 		data[i] = (stmmac_gstrings_stats[i].sizeof_stat ==
 		sizeof(u64)) ? (*(u64 *)p) : (*(u32 *)p);
 	}
-
-	return;
 }
 
 static int stmmac_get_sset_count(struct net_device *netdev, int sset)
@@ -319,7 +314,6 @@ static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 		WARN_ON(1);
 		break;
 	}
-	return;
 }
 
 /* Currently only support WOL through Magic packet. */
@@ -328,7 +322,7 @@ static void stmmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 	struct stmmac_priv *priv = netdev_priv(dev);
 
 	spin_lock_irq(&priv->lock);
-	if (priv->wolenabled == PMT_SUPPORTED) {
+	if (device_can_wakeup(priv->device)) {
 		wol->supported = WAKE_MAGIC;
 		wol->wolopts = priv->wolopts;
 	}
@@ -340,16 +334,20 @@ static int stmmac_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 support = WAKE_MAGIC;
 
-	if (priv->wolenabled == PMT_NOT_SUPPORTED)
+	if (!device_can_wakeup(priv->device))
 		return -EINVAL;
 
 	if (wol->wolopts & ~support)
 		return -EINVAL;
 
-	if (wol->wolopts == 0)
-		device_set_wakeup_enable(priv->device, 0);
-	else
+	if (wol->wolopts) {
+		pr_info("stmmac: wakeup enable\n");
 		device_set_wakeup_enable(priv->device, 1);
+		enable_irq_wake(dev->irq);
+	} else {
+		device_set_wakeup_enable(priv->device, 0);
+		disable_irq_wake(dev->irq);
+	}
 
 	spin_lock_irq(&priv->lock);
 	priv->wolopts = wol->wolopts;

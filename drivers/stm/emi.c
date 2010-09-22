@@ -13,7 +13,7 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/stm/emi.h>
-#include <linux/stm/pm.h>
+#include <linux/stm/device.h>
 
 
 #define EMI_GEN_CFG			0x0028
@@ -28,6 +28,7 @@ static struct platform_device *emi;
 #define emi_initialised			(emi != NULL)
 static unsigned long emi_memory_base;
 static void __iomem *emi_control;
+static struct stm_device_state *emi_device_state;
 
 unsigned long emi_bank_base(int bank)
 {
@@ -275,12 +276,10 @@ static int emi_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 			kfree(emi_saved_data);
 			emi_saved_data = NULL;
 		}
-		platform_pm_pwdn_req(emi, HOST_PM, 0);
-		platform_pm_pwdn_ack(emi, HOST_PM, 0);
+		stm_device_power(emi_device_state, stm_device_power_on);
 		break;
 	case PM_EVENT_SUSPEND:
-		platform_pm_pwdn_req(emi, HOST_PM, 1);
-		platform_pm_pwdn_ack(emi, HOST_PM, 1);
+		stm_device_power(emi_device_state, stm_device_power_off);
 		break;
 	case PM_EVENT_FREEZE:
 		emi_saved_data = kmalloc(sizeof(struct emi_pm), GFP_NOWAIT);
@@ -317,22 +316,28 @@ static int emi_sysdev_resume(struct sys_device *dev)
 
 static struct sysdev_class emi_sysdev_class = {
 	.name = "emi",
-};
-
-static struct sysdev_driver emi_sysdev_driver = {
 	.suspend = emi_sysdev_suspend,
 	.resume = emi_sysdev_resume,
 };
 
 struct sys_device emi_sysdev_dev = {
+	.id = 0,
 	.cls = &emi_sysdev_class,
 };
 
-static void __init emi_sysdev_register(void)
+static int __init emi_sysdev_register(void)
 {
-	sysdev_class_register(&emi_sysdev_class);
-	sysdev_driver_register(&emi_sysdev_class, &emi_sysdev_driver);
-	sysdev_register(&emi_sysdev_dev);
+	int ret;
+
+	ret = sysdev_class_register(&emi_sysdev_class);
+	if (ret)
+		return ret;
+
+	ret = sysdev_register(&emi_sysdev_dev);
+	if (ret)
+		return ret;
+
+	return 0;
 }
 #else
 #define emi_sysdev_register()
@@ -343,6 +348,13 @@ static int __init emi_driver_probe(struct platform_device *pdev)
 	struct resource *res;
 
 	BUG_ON(emi_initialised);
+
+	emi_device_state = devm_stm_device_init(&pdev->dev,
+		(struct stm_device_config *)pdev->dev.platform_data);
+
+	if (!emi_device_state)
+		return -EBUSY;
+
 	/* acquires control base resource */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 

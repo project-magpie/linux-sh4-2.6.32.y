@@ -18,6 +18,7 @@
 #include <linux/stm/emi.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
+#include <linux/stm/device.h>
 #include <linux/stm/fli7510.h>
 #include <asm/irq-ilc.h>
 
@@ -33,6 +34,8 @@ static struct platform_device fli7510_emi = {
 		STM_PLAT_RESOURCE_MEM(0, 128 * 1024 * 1024),
 		STM_PLAT_RESOURCE_MEM(0xfd100000, 0x874),
 	},
+	.dev.platform_data = &(struct stm_device_config){
+	}
 };
 
 

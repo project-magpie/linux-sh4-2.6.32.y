@@ -17,6 +17,7 @@
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
+#include <linux/stm/device.h>
 #include <linux/stm/fli7510.h>
 #include <asm/irq-ilc.h>
 
@@ -489,13 +490,17 @@ static struct stm_plat_usb_data fli7520_usb_platform_data[] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 			STM_PLAT_USB_FLAGS_STRAP_PLL |
 			STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
-		/* .pad_config set in fli7510_configure_usb() */
+		.device_config = &(struct stm_device_config){
+			/* .pad_config set in fli7510_configure_usb() */
+		},
 	},
 	[1] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 			STM_PLAT_USB_FLAGS_STRAP_PLL |
 			STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
-		/* .pad_config set in fli7510_configure_usb() */
+		.device_config = &(struct stm_device_config){
+			/* .pad_config set in fli7510_configure_usb() */
+		},
 	},
 };
 
@@ -560,12 +565,12 @@ void __init fli7510_configure_usb(int port, struct fli7510_usb_config *config)
 		config = &default_config;
 
 	if (cpu_data->type == CPU_FLI7510) {
-		fli7510_usb_platform_data.pad_config =
+		fli7510_usb_platform_data.device_config->pad_config =
 				&fli7510_usb_pad_configs[config->ovrcur_mode];
 
 		platform_device_register(&fli7510_usb_device);
 	} else {
-		fli7520_usb_platform_data[port].pad_config =
+		fli7520_usb_platform_data[port].device_config->pad_config =
 				&fli7520_usb_pad_configs[port]
 				[config->ovrcur_mode];
 

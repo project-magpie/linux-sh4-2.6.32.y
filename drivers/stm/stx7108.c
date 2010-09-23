@@ -873,12 +873,22 @@ static struct stm_pad_config stx7108_mmc_pad_config = {
 	},
 };
 
-static struct sdhci_platform_data stx7108_mmc_platform_data = {
-		.pad_config = &stx7108_mmc_pad_config,
+static int mmc_pad_resources(struct sdhci_host *sdhci)
+{
+	if (!devm_stm_pad_claim(sdhci->mmc->parent, &stx7108_mmc_pad_config,
+				dev_name(sdhci->mmc->parent)))
+		return -ENODEV;
+
+	return 0;
+}
+
+static struct sdhci_pltfm_data stx7108_mmc_platform_data = {
+		.init = mmc_pad_resources,
+		.quirks = SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC,
 };
 
 static struct platform_device stx7108_mmc_device = {
-		.name = "sdhci-stm",
+		.name = "sdhci",
 		.id = 0,
 		.num_resources = 2,
 		.resource = (struct resource[]) {

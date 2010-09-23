@@ -21,7 +21,8 @@
 #include <linux/stm/pad.h>
 #include <linux/stm/nand.h>
 #include <linux/stmmac.h>
-
+#include <linux/mmc/sdhci.h>
+#include <linux/sdhci-pltfm.h>
 
 /*** Platform definition helpers ***/
 

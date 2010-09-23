@@ -15,7 +15,7 @@
 #include <linux/delay.h>
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
-#include <linux/stm/pad.h>
+#include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx5206.h>
@@ -140,25 +140,52 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 
 
 /* USB resources ---------------------------------------------------------- */
+#define USB_HOST_PWR "USB_HOST_PWR"
+#define USB_PHY_PWR "USB_PHY_PWR"
+#define USB_HOST_ACK "USB_HOST_ACK"
+
+static void stx5206_usb_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, USB_HOST_PWR, value);
+	stm_device_sysconf_write(device_state, USB_PHY_PWR, value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, USB_HOST_ACK)
+			== value)
+			break;
+		mdelay(10);
+	}
+}
 
 static u64 stx5206_usb_dma_mask = DMA_BIT_MASK(32);
 
 static struct stm_plat_usb_data stx5206_usb_platform_data = {
 	.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 		STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
-	.pad_config = &(struct stm_pad_config) {
+	.device_config = &(struct stm_device_config) {
+		.pad_config = &(struct stm_pad_config) {
+			.sysconfs_num = 1,
+			.sysconfs = (struct stm_pad_sysconf []) {
+				/* USB_HOST_SOFT_RESET:
+				 * active low usb host soft reset */
+				STM_PAD_SYS_CFG(4, 1, 1, 1),
+			},
+		},
 		.sysconfs_num = 3,
-		.sysconfs = (struct stm_pad_sysconf []) {
-			/* USB_HOST_SOFT_RESET:
-			 * active low usb host soft reset */
-			STM_PAD_SYS_CFG(4, 1, 1, 1),
+		.sysconfs = (struct stm_device_sysconf []){
 			/* suspend_from_config:
 			 * Signal to suspend USB PHY */
-			STM_PAD_SYS_CFG(10, 5, 5, 0),
+			STM_DEVICE_SYS_CFG(10, 5, 5, USB_PHY_PWR),
 			/* usb_power_down_req:
-			 * power down request for USB Host module */
-			STM_PAD_SYS_CFG(32, 4, 4, 0),
+			 * power down request for USB Host module
+			 */
+			STM_DEVICE_SYS_CFG(32, 4, 4, USB_HOST_PWR),
+			STM_DEVICE_SYS_STA(15, 4, 4, USB_HOST_ACK),
 		},
+		.power = stx5206_usb_power,
 	},
 };
 

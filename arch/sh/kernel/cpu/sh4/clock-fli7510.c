@@ -16,9 +16,6 @@
 #include <asm/clock.h>
 #include <asm/freq.h>
 
-#include "clock-common.h"
-
-
 
 /* SH4 generic clocks ----------------------------------------------------- */
 
@@ -43,9 +40,15 @@ int __init arch_clk_init(void)
 
 	for (i = 0; i < ARRAY_SIZE(clocks); ++i) {
 		struct clk *clk = &clocks[i];
+		struct clk_lookup *cl;
 
-		ret |= clk_register(clk);
-		clkdev_alloc(clk, clk->name, NULL);
+		ret = clk_register(clk);
+		if (ret)
+			return ret;
+		cl = clkdev_alloc(clk, clk->name, NULL);
+		if (!cl)
+			return -ENOMEM;
+		clkdev_add(cl);
 	}
 
 	return ret;

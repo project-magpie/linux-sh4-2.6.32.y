@@ -21,8 +21,8 @@
 #include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stx7105.h>
+#include <linux/clk.h>
 #include <asm/irq-ilc.h>
-
 
 
 /* EMI resources ---------------------------------------------------------- */
@@ -606,27 +606,13 @@ void __init stx7105_configure_mmc(void)
 {
 	struct sysconf_field *sc;
 
-#if 0
 	/* MMC clock comes from the ClockGen_B bank1, channel 2;
 	 * this clock has been set to 52MHz.
 	 * For supporting SD High-Speed Mode we need to set it
-	 * to 50MHz.
-	 */
+	 * to 50MHz. */
 	struct clk *clk = clk_get(NULL, "CLKB_FS1_CH2");
 	clk_set_rate(clk, 50000000);
-#else
-	/* FIXME: this is a dirty hack that will be removed.  */
 
-	/* UNLOCK CLKGENB*/
-	iowrite32(0xc0de, 0xfe000010);
-	/* SET FREQ via magic numbers */
-	iowrite32(0xfffffff3, 0xfe000070); /*MD*/
-	iowrite32(0x6667, 0xfe000074); /*PE*/
-	iowrite32(0x2, 0xfe00007c); /*SDIV*/
-	iowrite32(1, 0xfe000078); /*PRG*/
-	/* LOCK CLKGENB*/
-	iowrite32(0xc1a0, 0xfe000010);
-#endif
 	/* Out Enable coms from the MMC */
 	sc = sysconf_claim(SYS_CFG, 17, 0, 0, "mmc");
 	sysconf_write(sc, 1);

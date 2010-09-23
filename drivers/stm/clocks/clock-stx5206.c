@@ -272,7 +272,6 @@ SYSCONF(SYS_CFG, 40, 2, 3);
 
 int __init plat_clk_init(void)
 {
-	int i;
 	int ret;
 
 	SYSCONF_CLAIM(SYS_STA, 1, 0, 1);

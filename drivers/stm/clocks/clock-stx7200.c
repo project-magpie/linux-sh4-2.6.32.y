@@ -569,6 +569,16 @@ int __init plat_clk_init(void)
 	if (ret)
 		return ret;
 
+	if (cpu_data->cut_major < 2) {
+		ret = clk_register_table(sh4clks, ARRAY_SIZE(sh4clks), 1);
+		if (ret)
+			return ret;
+	} else {
+		ret = clk_register_table(sh4clks, 1, 1);
+		if (ret)
+			return ret;
+	}
+
 	ret = clk_register_table(fdma_lx_miscdiv_clks,
 			ARRAY_SIZE(fdma_lx_miscdiv_clks), 1);
 	if (ret)
@@ -590,16 +600,6 @@ int __init plat_clk_init(void)
 
 	if (ret)
 		return ret;
-
-	if (cpu_data->cut_major < 2) {
-		ret = clk_register_table(sh4clks, ARRAY_SIZE(sh4clks), 1);
-		if (ret)
-			return ret;
-	} else {
-		ret = clk_register_table(sh4clks, 1, 1);
-		if (ret)
-			return ret;
-	}
 
 	return 0;
 }

@@ -99,7 +99,7 @@ static unsigned long pll_freq(int pll_num)
 	unsigned long sysabclkin, input, output;
 	unsigned long mux_cfg, pll_cfg;
 
-	mux_cfg = ctrl_inl(CLOCKGEN_MUX_CFG);
+	mux_cfg = readl(CLOCKGEN_MUX_CFG);
 	if ((mux_cfg & CLOCKGEN_MUX_CFG_SYSCLK_SRC) == 0)
 		sysabclkin = SYSACLKIN;
 	else
@@ -111,7 +111,7 @@ static unsigned long pll_freq(int pll_num)
 		input = sysabclkin;
 
 
-	pll_cfg = ctrl_inl(CLOCKGEN_PLL_CFG(pll_num));
+	pll_cfg = readl(CLOCKGEN_PLL_CFG(pll_num));
 	if (pll_num == 1)
 		output = pll1_freq(input, pll_cfg);
 	else
@@ -153,7 +153,7 @@ static struct clk pllclks[3] = {
 static int sh4_clk_recalc(struct clk *clk)
 {
 	unsigned long shift = (unsigned long)clk->private_data;
-	unsigned long div_cfg = ctrl_inl(CLOCKGEN_DIV_CFG);
+	unsigned long div_cfg = readl(CLOCKGEN_DIV_CFG);
 	unsigned long div1 = 1, div2;
 
 	switch ((div_cfg >> 20) & 3) {
@@ -211,7 +211,7 @@ struct fdmalxclk {
 static int fdma_clk_init(struct clk *clk)
 {
 	struct fdmalxclk *fdmaclk =  (struct fdmalxclk *)clk->private_data;
-	unsigned long mux_cfg = ctrl_inl(CLOCKGEN_MUX_CFG);
+	unsigned long mux_cfg = readl(CLOCKGEN_MUX_CFG);
 
 	if ((mux_cfg & CLOCKGEN_MUX_CFG_FDMA_SRC(fdmaclk->fdma_num)) == 0)
 		clk->parent = &sh4clks[0];
@@ -227,7 +227,7 @@ static int fdmalx_clk_recalc(struct clk *clk)
 	unsigned long div_ratio;
 	unsigned long normal_div;
 
-	div_cfg = ctrl_inl(CLOCKGEN_DIV_CFG + fdmalxclk->div_cfg_reg);
+	div_cfg = readl(CLOCKGEN_DIV_CFG + fdmalxclk->div_cfg_reg);
 	div_ratio = (div_cfg >> fdmalxclk->div_cfg_shift) & 3;
 	normal_div = fdmalxclk->normal_div;
 	clk->rate = final_divider(clk->parent->rate, div_ratio, normal_div);
@@ -237,15 +237,15 @@ static int fdmalx_clk_recalc(struct clk *clk)
 static void lx_clk_XXable(struct clk *clk, int enable)
 {
 	struct fdmalxclk *fdmalxclk = (struct fdmalxclk *)clk->private_data;
-	unsigned long div_cfg = ctrl_inl(CLOCKGEN_DIV_CFG +
+	unsigned long div_cfg = readl(CLOCKGEN_DIV_CFG +
 			fdmalxclk->div_cfg_reg);
 	if (enable) {
-		ctrl_outl(div_cfg |
+		writel(div_cfg |
 			(fdmalxclk->normal_div << fdmalxclk->div_cfg_shift),
 			CLOCKGEN_DIV_CFG + fdmalxclk->div_cfg_reg);
 		fdmalx_clk_recalc(clk); /* to evaluate the rate */
 	} else {
-		ctrl_outl(div_cfg & ~(0x3<<fdmalxclk->div_cfg_shift),
+		writel(div_cfg & ~(0x3<<fdmalxclk->div_cfg_shift),
 			CLOCKGEN_DIV_CFG + fdmalxclk->div_cfg_reg);
 		clk->rate = 0;
 	}
@@ -277,7 +277,7 @@ static int ic266_clk_recalc(struct clk *clk)
 	unsigned long div_cfg;
 	unsigned long div_ratio;
 
-	div_cfg = ctrl_inl(CLOCKGEN_DIV2_CFG);
+	div_cfg = readl(CLOCKGEN_DIV2_CFG);
 	div_ratio = ((div_cfg & (1<<5)) == 0) ? 1024 : 3;
 	clk->rate = clk->parent->rate / div_ratio;
 	return 0;
@@ -361,14 +361,14 @@ static int pll_clkB_init(struct clk *clk)
 
 	/* FIXME: probably needs more work! */
 
-	mux_cfg = ctrl_inl(CLOCKGENB_IN_MUX_CFG);
+	mux_cfg = readl(CLOCKGENB_IN_MUX_CFG);
 	if (mux_cfg & CLOCKGENB_IN_MUX_CFG_PLL_SRC)
 		input = sysclkinalt[1];
 	else
 		input = SYSBCLKIN;
 
 
-	pll_cfg = ctrl_inl(CLOCKGENB_PLL0_CFG);
+	pll_cfg = readl(CLOCKGENB_PLL0_CFG);
 	output = pll02_freq(input, pll_cfg);
 
 	if (!(pll_cfg & CLOCKGEN_PLL_CFG_BYPASS))
@@ -383,17 +383,17 @@ static int pll_clkB_init(struct clk *clk)
 
 static void pll_clkB_XXable(struct clk *clk, int enable)
 {
-	unsigned long bps = ctrl_inl(CLOCKGENB_PLL0_CFG);
-	unsigned long pwr = ctrl_inl(CLOCKGENB_POWER_CFG);
+	unsigned long bps = readl(CLOCKGENB_PLL0_CFG);
+	unsigned long pwr = readl(CLOCKGENB_POWER_CFG);
 
 	if (enable) {
-		ctrl_outl(pwr & ~(1<<15), CLOCKGENB_POWER_CFG);	 /* turn-on  */
+		writel(pwr & ~(1<<15), CLOCKGENB_POWER_CFG);	 /* turn-on  */
 		mdelay(1);
-		ctrl_outl(bps & ~(1<<20), CLOCKGENB_PLL0_CFG);	/* bypass off*/
+		writel(bps & ~(1<<20), CLOCKGENB_PLL0_CFG);	/* bypass off*/
 		pll_clkB_init(clk); /* to evaluate the rate */
 	} else {
-		ctrl_outl(bps | 1<<20, CLOCKGENB_PLL0_CFG);	/* bypass on */
-		ctrl_outl(pwr | 1<<15, CLOCKGENB_POWER_CFG); 	/* turn-off  */
+		writel(bps | 1<<20, CLOCKGENB_PLL0_CFG);	/* bypass on */
+		writel(pwr | 1<<15, CLOCKGENB_POWER_CFG); 	/* turn-off  */
 		clk->rate = 0;
 	}
 }
@@ -458,7 +458,7 @@ static int clkgenb_div2_recalc(struct clk *clk)
 	unsigned long div_cfg;
 	unsigned long div_ratio;
 
-	div_cfg = ctrl_inl(CLOCKGENB_DIV2_CFG);
+	div_cfg = readl(CLOCKGENB_DIV2_CFG);
 	div_ratio = (div_cfg >> clkgenBdiv2->div_cfg_shift) & 3;
 	clk->rate =  final_divider(clk->parent->rate, div_ratio,
 				  clkgenBdiv2->normal_div);
@@ -469,18 +469,18 @@ static int clkgenb_div2_XXable(struct clk *clk, int enable)
 {
 	struct clkgenBdiv2 *clkgenBdiv2 =
 			(struct clkgenBdiv2 *)clk->private_data;
-	unsigned long div_cfg = ctrl_inl(CLOCKGENB_DIV2_CFG);
+	unsigned long div_cfg = readl(CLOCKGENB_DIV2_CFG);
 	unsigned long div_ratio = (div_cfg >> clkgenBdiv2->div_cfg_shift) & 3;
 
 	if (enable) {
 		div_cfg |= clkgenBdiv2->normal_div <<
 			clkgenBdiv2->div_cfg_shift;
-		ctrl_outl(div_cfg, CLOCKGENB_DIV2_CFG);
+		writel(div_cfg, CLOCKGENB_DIV2_CFG);
 		final_divider(clk->parent->rate, div_ratio,
 			clkgenBdiv2->normal_div); /* to evaluate the rate */
 	} else {
 		div_cfg &= ~(0x3<<clkgenBdiv2->div_cfg_shift);
-		ctrl_outl(div_cfg, CLOCKGENB_DIV2_CFG);
+		writel(div_cfg, CLOCKGENB_DIV2_CFG);
 		clk->rate = 0;
 	}
 	return 0;
@@ -514,7 +514,7 @@ static int icreg_emi_eth_clk_recalc(struct clk *clk)
 	unsigned long mux_cfg;
 	unsigned long div_ratio;
 
-	mux_cfg = ctrl_inl(CLOCKGEN_MUX_CFG);
+	mux_cfg = readl(CLOCKGEN_MUX_CFG);
 	div_ratio = ((mux_cfg & (CLOCKGEN_MUX_CFG_IC_REG_SRC)) == 0) ? 8 : 6;
 	clk->rate = clk->parent->rate / div_ratio;
 	return 0;
@@ -523,12 +523,12 @@ static int icreg_emi_eth_clk_recalc(struct clk *clk)
 static int icreg_emi_eth_clk_XXable(struct clk *clk, int enable)
 {
 	unsigned long id = (unsigned long)clk->private_data;
-	unsigned long tmp = ctrl_inl(CLOCKGENB_DIV2_CFG);
+	unsigned long tmp = readl(CLOCKGENB_DIV2_CFG);
 	if (enable) {
-		ctrl_outl(tmp & ~(1<<(id+2)), CLOCKGENB_DIV2_CFG);
+		writel(tmp & ~(1<<(id+2)), CLOCKGENB_DIV2_CFG);
 		icreg_emi_eth_clk_recalc(clk); /* to evaluate the rate */
 	} else {
-		ctrl_outl(tmp | (1<<(id+2)), CLOCKGENB_DIV2_CFG);
+		writel(tmp | (1<<(id+2)), CLOCKGENB_DIV2_CFG);
 		clk->rate = 0;
 	}
 	return 0;
@@ -575,7 +575,7 @@ int __init plat_clk_init(void)
 		return ret;
 
 	/* Clockgen B */
-	ctrl_outl(ctrl_inl(CLOCKGENB_IN_MUX_CFG) & ~0xf, CLOCKGENB_IN_MUX_CFG);
+	writel(readl(CLOCKGENB_IN_MUX_CFG) & ~0xf, CLOCKGENB_IN_MUX_CFG);
 
 	ret = clk_register_table(clkB_pllclks, ARRAY_SIZE(clkB_pllclks), 1);
 	if (ret)

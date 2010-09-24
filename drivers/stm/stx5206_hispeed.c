@@ -19,9 +19,8 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx5206.h>
+#include <linux/clk.h>
 #include <asm/irq-ilc.h>
-
-
 
 /* Ethernet MAC resources ------------------------------------------------- */
 
@@ -113,6 +112,8 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 	static int configured;
 	struct stx5206_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
+	unsigned int phy_intf_sel, enmii;
+	unsigned long phy_clk_rate;
 
 	BUG_ON(configured);
 	configured = 1;
@@ -131,9 +132,37 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 	stx5206_ethernet_platform_data.bsp_priv =
 			sysconf_claim(SYS_CFG, 7, 20, 20, "stmmac");
 
-	/* FIXME this is a dirty hack to Set the PHY CLK to 25MHz (MII)
-	 * in case it is not well provided by the target pack. */
-	iowrite32(0x11, 0xfe213a34);
+	switch (config->mode) {
+	case stx5206_ethernet_mode_mii:
+		phy_intf_sel = 0;
+		enmii = 1;
+		phy_clk_rate = 25000000;
+		break;
+	case stx5206_ethernet_mode_rmii:
+		phy_intf_sel = 0x4;
+		enmii = 1;
+		phy_clk_rate = 50000000;
+		break;
+	case stx5206_ethernet_mode_reverse_mii:
+		phy_intf_sel = 0;
+		enmii = 0;
+		phy_clk_rate = 25000000;
+		break;
+	default:
+		BUG();
+		return;
+	}
+	pad_config->sysconfs[2].value = (phy_intf_sel ? 1 : 0);
+	pad_config->sysconfs[3].value = (enmii ? 1 : 0);
+
+	/* Set the PHY CLK */
+	if (!config->ext_clk) {
+		struct clk *phy_clk = clk_get(NULL, "CLKA_ETH_PHY");
+
+		BUG_ON(!phy_clk);
+		clk_set_rate(phy_clk, phy_clk_rate);
+
+	}
 
 	platform_device_register(&stx5206_ethernet_device);
 }

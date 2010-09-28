@@ -259,9 +259,9 @@ void __init stx7100_configure_usb(void)
 
 
 /* SATA resources --------------------------------------------------------- */
-
 static struct stm_plat_sata_data stx7100_sata_platform_data = {
 	/* filled in stx7100_configure_sata() */
+	.device_config = &(struct stm_device_config){},
 };
 
 static struct platform_device stx7100_sata_device = {

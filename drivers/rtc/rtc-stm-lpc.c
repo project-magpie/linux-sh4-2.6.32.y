@@ -243,9 +243,9 @@ static int stm_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *t)
 	alarm_secs -= now_secs; /* now many secs to fire */
 	lpa = (unsigned long long)alarm_secs * clk_get_rate(rtc->clk);
 
-	spin_unlock(&rtc->lock);
-	stm_rtc_set_hw_alarm(rtc, lpa >> 32, lpa);
 	spin_lock(&rtc->lock);
+	stm_rtc_set_hw_alarm(rtc, lpa >> 32, lpa);
+	spin_unlock(&rtc->lock);
 
 	if (t->enabled)
 		ret = stm_rtc_ioctl(dev, RTC_AIE_ON, 0);

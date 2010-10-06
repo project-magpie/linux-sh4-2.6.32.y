@@ -368,6 +368,14 @@ config SH_ST_HDK7105
 	  Select HDK7105 if configuring for an
 	  STMicroelectronics STi7105 HDK Reference Board.
 
+config SH_ST_HDK7197
+	bool "HDK7197 : STx7197 HDK Reference board"
+	depends on CPU_SUBTYPE_STX7105
+	default n
+	help
+	  Select HDK7197 if configuring for an
+	  STMicroelectronics STi7197 HDK Reference Board.
+
 config SH_ST_7102ISDB
 	bool "7102ISDB : STi7102 ISDB board"
 	depends on CPU_SUBTYPE_STX7105

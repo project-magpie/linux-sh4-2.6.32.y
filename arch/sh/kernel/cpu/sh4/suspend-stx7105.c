@@ -231,11 +231,26 @@ on_suspending:
 	iowrite32(0xfffff0ff, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
 	iowrite32(0x3, cga + CKGA_CLKOPSRC_SWITCH_CFG(1));
 
-	if (wkd.hdmi_can_wakeup) {
-		/* cga_pll1 still powered */
-		/* move the ic_if_100 again under pll1 */
-		iowrite32(0x3, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
-		iowrite32(1, cga + CKGA_POWER_CFG);
+	if (wkd.hdmi_can_wakeup || wkd.eth_phy_can_wakeup) {
+		unsigned long pwr = 0x3; /* Plls Off */
+		unsigned long cfg = 0xfffff0ff;
+
+#define CLKA_IC_IF_100_ID	5
+#define CLKA_ETH0_PHY_ID	13
+		if (wkd.hdmi_can_wakeup) {
+			/* needs PLL1 on */
+			pwr &= ~2;
+			cfg &= ~(0x3 << (2 * CLKA_IC_IF_100_ID));
+			cfg |= (0x2 << (2 * CLKA_IC_IF_100_ID));
+		}
+		if (wkd.eth_phy_can_wakeup) {
+			/* needs PLL1 on */
+			pwr &= ~2;
+			cfg &= ~(0x3 << (2 * CLKA_ETH0_PHY_ID));
+			cfg |= (0x2 << (2 * CLKA_ETH0_PHY_ID));
+		}
+		iowrite32(cfg, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
+		iowrite32(pwr, cga + CKGA_POWER_CFG);
 	} else {
 		iowrite32(3, cga + CKGA_POWER_CFG);
 		if (!wkd.lirc_can_wakeup)

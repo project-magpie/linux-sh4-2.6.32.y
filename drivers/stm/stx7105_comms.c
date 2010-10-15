@@ -58,7 +58,24 @@ static struct stm_pad_config stx7105_asc2_pio4_pad_config = {
 		STM_PAD_SYS_CFG(7, 2, 2, 0),
 	},
 };
-
+static struct stm_pad_config stx7106_asc2_pio12_pad_config = {
+	.gpios_num = 4,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_OUT(12, 0, 5),	/* TX */
+		STM_PAD_PIO_IN(12, 1, -1),	/* RX */
+		STM_PAD_PIO_IN_NAMED(12, 2, -1, "CTS"),
+		STM_PAD_PIO_OUT_NAMED(12, 3, 5, "RTS"),
+	},
+	.sysconfs_num = 2,
+	.sysconfs = (struct stm_pad_sysconf []) {
+		/* uart2_rxd_src_select:
+		 * 0 = PIO4.1, 1 = PIO12.1, 2 = PIO14.1 */
+		STM_PAD_SYS_CFG(7, 1, 2, 1),
+		/* uart2_cts_src_select:
+		 * 0 = PIO4.2, 1 = PIO12.2, 2 = PIO14.2  */
+		STM_PAD_SYS_CFG(16, 1, 2, 1),
+	},
+};
 static struct stm_pad_config stx7105_asc2_pio12_pad_config = {
 	.gpios_num = 4,
 	.gpios = (struct stm_pad_gpio []) {
@@ -187,7 +204,12 @@ void __init stx7105_configure_asc(int asc, struct stx7105_asc_config *config)
 			plat_data->pad_config = &stx7105_asc2_pio4_pad_config;
 			break;
 		case stx7105_asc2_pio12:
-			plat_data->pad_config = &stx7105_asc2_pio12_pad_config;
+			if (cpu_data->type == CPU_STX7106)
+				plat_data->pad_config =
+					&stx7106_asc2_pio12_pad_config;
+			else
+				plat_data->pad_config =
+					&stx7105_asc2_pio12_pad_config;
 			break;
 		default:
 			BUG();

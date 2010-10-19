@@ -201,7 +201,9 @@ static int st_coproc_ioctl(struct inode *inode, struct file *file,
 			res = -EINVAL;
 
 			/* so far we need to peek only a single 32 bit cell */
-			if ((res = copy_from_user(peek, arg, sizeof(peek))) < 0)
+			res = copy_from_user(peek, (void __user *)arg,
+					     sizeof(peek));
+			if (res < 0)
 				break;
 			if (PAIRS(peek) != 1)
 				break;
@@ -225,7 +227,9 @@ static int st_coproc_ioctl(struct inode *inode, struct file *file,
 			res = -EINVAL;
 
 			/* so far we need to peek only a single 32 bit cell */
-			if ((res = copy_from_user(poke, arg, sizeof(poke))) < 0)
+			res = copy_from_user(poke, (void __user *)arg,
+					     sizeof(poke));
+			if (res < 0)
 				break;
 			if (PAIRS(poke) != 1)
 				break;
@@ -299,7 +303,7 @@ static ssize_t st_coproc_read(struct file *file, char *buf,
 	DPRINTK(">>> %s: from 0x%08lx to 0x%08x len 0x%x(%d)\n",
 		__FUNCTION__, from, (u_int) buf, bytes, bytes);
 
-	if (copy_to_user(buf, from, bytes))
+	if (copy_to_user(buf, (void *)from, bytes))
 		return (-EFAULT);
 
 	*ppos += bytes;
@@ -327,7 +331,7 @@ static ssize_t st_coproc_write(struct file *file, const char *buf,
 	DPRINTK(">>> %s: from 0x%08x to 0x%08lx len 0x%x(%d)\n",
 		__FUNCTION__, (u_int) buf, to, bytes, bytes);
 
-	if (copy_from_user(to, buf, bytes))
+	if (copy_from_user((void *)to, buf, bytes))
 		return (-EFAULT);
 
 	*ppos += bytes;

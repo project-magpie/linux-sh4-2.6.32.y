@@ -65,7 +65,7 @@ extern coproc_t coproc[];	/* The maximum number of copro-  */
 static devfs_handle_t devfs_reset_hdl;
 #endif
 
-#if defined(CONFIG_COPROCESSOR_DEBUG)
+#if defined(CONFIG_COPROCESSOR_DEBUG) && defined(RPC_DEBUG)
 /* -------------------------------------------------------------------------
  * 			Co-processor DEBUG Suppor26t
  *

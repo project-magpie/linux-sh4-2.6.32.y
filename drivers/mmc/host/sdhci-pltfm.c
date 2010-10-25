@@ -65,11 +65,7 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Invalid iomem size. You may "
 			"experience problems.\n");
 
-	if (pdev->dev.parent)
-		host = sdhci_alloc_host(pdev->dev.parent, 0);
-	else
-		host = sdhci_alloc_host(&pdev->dev, 0);
-
+	host = sdhci_alloc_host(&pdev->dev, 0);
 	if (IS_ERR(host)) {
 		ret = PTR_ERR(host);
 		goto err;

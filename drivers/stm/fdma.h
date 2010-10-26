@@ -13,7 +13,7 @@
 #include <linux/interrupt.h>
 #include <linux/stm/stm-dma.h>
 
-#define NAME_MAX_LEN 10 /* "fdma.x.elf" */
+#define NAME_MAX_LEN 22 /* "fdma_<cpu_subtype>_X.elf" */
 #define CHAN_ALL_ENABLE 				3
 
 #define NODE_DATA_OFFSET				0x40

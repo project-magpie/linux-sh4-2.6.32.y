@@ -679,12 +679,9 @@ static int fdma_do_bootload(struct fdma *fdma)
 	int err;
 	int result;
 
-	if (fdma->pdev->id != -1)
-		result = snprintf(fdma->fw_name, sizeof(fdma->fw_name),
-				  "fdma.%d.elf", fdma->pdev->id);
-	else
-		result = snprintf(fdma->fw_name, sizeof(fdma->fw_name),
-				  "fdma.elf");
+	result = snprintf(fdma->fw_name, sizeof(fdma->fw_name),
+			  "fdma_%s_%d.elf", get_cpu_subtype(&current_cpu_data),
+			  (fdma->pdev->id == -1) ? 0 : fdma->pdev->id);
 	BUG_ON(result >= sizeof(fdma->fw_name)); /* was the string truncated? */
 
 	fdma_dbg(fdma, "FDMA: Loading ELF Firmware (%s)...\n", fdma->fw_name);

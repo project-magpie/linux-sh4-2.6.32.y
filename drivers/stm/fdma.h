@@ -143,6 +143,11 @@ struct fdma_regs {
 };
 
 #define FDMA_NAME_LEN 20
+struct fdma_segment_pm {
+	void *data;
+	unsigned long size;
+	unsigned long offset;
+};
 
 struct fdma {
 	char name[FDMA_NAME_LEN];
@@ -171,7 +176,9 @@ struct fdma {
 
 	struct stm_plat_fdma_hw *hw;
 	struct stm_plat_fdma_fw_regs *fw;
-
+#ifdef CONFIG_HIBERNATION
+	struct fdma_segment_pm segment_pm[2]; /* saved segment (text/data) */
+#endif
 	struct fdma_regs regs;
 };
 

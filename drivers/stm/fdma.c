@@ -611,6 +611,19 @@ static int fdma_load_segment(struct fdma *fdma, struct ELFinfo *elfinfo, int i)
 
 	memcpy_toio(fdma->io_base + offset, data + phdr->p_offset, size);
 
+#ifdef CONFIG_HIBERNATION
+	/*
+	 * Save the segment in private datas
+	 */
+	fdma->segment_pm[i].size = size;
+	fdma->segment_pm[i].offset = offset;
+	fdma->segment_pm[i].data = kmalloc(size, GFP_KERNEL);
+
+	if (!fdma->segment_pm[i].data)
+		return -ENOMEM;
+
+	memcpy(fdma->segment_pm[i].data, data + phdr->p_offset, size);
+#endif
 	return 0;
 }
 
@@ -1352,8 +1365,64 @@ static int fdma_driver_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int fdma_suspend_freeze_noirq(struct device *dev)
+{
+	struct fdma *fdma = dev_get_drvdata(dev);
+	/*
+	 * At this point the channel users are already
+	 * suspended this makes safe the 'disable_all_channels'
+	 * call.
+	 * BTW the channels have to be stopped because
+	 * we have to avoid any access on memory while
+	 * it is in self-refresh
+	 */
+	fdma_disable_all_channels(fdma);
+	return 0;
+}
+
+static int fdma_resume_noirq(struct device *dev)
+{
+	struct fdma *fdma = dev_get_drvdata(dev);
+	fdma_enable_all_channels(fdma);
+	return 0;
+}
+
+#ifdef CONFIG_HIBERNATION
+static int fdma_restore_noirq(struct device *dev)
+{
+	struct fdma *fdma = dev_get_drvdata(dev);
+	int i; /* index segments */
+
+	for (i = 0; i < 2; ++i)
+		memcpy_toio(fdma->io_base + fdma->segment_pm[i].offset,
+			fdma->segment_pm[i].data,
+			fdma->segment_pm[i].size);
+
+	fdma_initialise(fdma);
+	fdma_reset_channels(fdma);
+
+	if (!fdma_enable_all_channels(fdma))
+		return -ENODEV;
+	return 0;
+}
+#endif
+
+static struct dev_pm_ops fdma_pm_ops = {
+	.suspend_noirq = fdma_suspend_freeze_noirq,
+	.resume_noirq = fdma_resume_noirq,
+#ifdef CONFIG_HIBERNATION
+	.freeze_noirq = fdma_suspend_freeze_noirq,
+	.restore_noirq = fdma_restore_noirq,
+#endif
+};
+#else
+static struct dev_pm_ops fdma_pm_ops;
+#endif
+
 static struct platform_driver fdma_driver = {
 	.driver.name = "stm-fdma",
+	.driver.pm = &fdma_pm_ops,
 	.probe = fdma_driver_probe,
 	.remove = fdma_driver_remove,
 };

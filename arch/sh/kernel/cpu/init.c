@@ -337,6 +337,8 @@ asmlinkage void __init sh_cpu_init(void)
 	 */
 	current_cpu_data.asid_cache = NO_CONTEXT;
 
+	current_cpu_data.phys_bits = __in_29bit_mode() ? 29 : 32;
+
 #ifdef CONFIG_SH_DSP
 	/* Probe for DSP */
 	dsp_init();

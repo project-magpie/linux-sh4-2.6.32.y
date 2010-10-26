@@ -892,8 +892,13 @@ static int stm_gpio_hibernation_resume(struct stm_gpio_port *port)
 	int pin_no;
 
 	for (pin_no = 0; pin_no < port->gpio_chip.ngpio; ++pin_no)
-		__stm_gpio_direction(port, pin_no,
-			port->pins[pin_no].direction);
+		/*
+		 * Direction can not be zero!
+		 * Zero means 'un-claimed'
+		 */
+		if (port->pins[pin_no].direction)
+			__stm_gpio_direction(port, pin_no,
+					     port->pins[pin_no].direction);
 
 	return 0;
 }

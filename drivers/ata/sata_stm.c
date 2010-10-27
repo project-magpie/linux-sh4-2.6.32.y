@@ -1002,6 +1002,60 @@ static const struct ata_port_info stm_port_info = {
 	.port_ops	= &stm_ops,
 };
 
+static int stm_sata_AHB_boot(struct device *dev)
+{
+	struct stm_plat_sata_data *sata_private_info = dev->platform_data;
+	struct ata_host *host = dev_get_drvdata(dev);
+	struct ata_port *ap = host->ports[0];
+	void __iomem *mmio_base = ap->ioaddr.cmd_addr;
+
+	/* AHB bus wrapper setup */
+
+	/* SATA_AHB2STBUS_STBUS_OPC
+	 * 2:0  -- 100 = Store64/Load64
+	 * 4    -- 1   = Enable write posting
+	 * DMA Read, write posting always = 0
+	 * opcode = Load4 |Store 4
+	 */
+	writel(3, mmio_base + SATA_AHB2STBUS_STBUS_OPC);
+
+	/* SATA_AHB2STBUS_MESSAGE_SIZE_CONFIG
+	 * 3:0  -- 0111 = 128 Packets
+	 * 3:0  -- 0110 =  64 Packets
+	 * WAS: Message size = 64 packet when 6 now 3
+	 */
+	writel(3, mmio_base + SATA_AHB2STBUS_MESSAGE_SIZE_CONFIG);
+
+	/* SATA_AHB2STBUS_CHUNK_SIZE_CONFIG
+	 * 3:0  -- 0110 = 64 Packets
+	 * 3:0  -- 0001 =  2 Packets
+	 * WAS Chunk size = 2 packet when 1, now 0
+	 */
+	writel(2, mmio_base + SATA_AHB2STBUS_CHUNK_SIZE_CONFIG);
+
+	/* PC_GLUE_LOGIC
+	 * 7:0  -- 0xFF = Set as reset value, 256 STBus Clock Cycles
+	 * 8    -- 1  = Time out enabled
+	 * (has bit 8 moved to bit 16 on 7109 cut2?)
+	 * time out count = 0xa0(160 dec)
+	 * time out enable = 1
+	 */
+	if (sata_private_info->pc_glue_logic_init)
+		writel(sata_private_info->pc_glue_logic_init,
+		       mmio_base + SATA_PC_GLUE_LOGIC);
+
+	/* DMA controller set up */
+
+	/* Enable DMA controller */
+	writel(DMAC_DmaCfgReg_DMA_EN, mmio_base + DMAC_DmaCfgReg);
+
+	/* Clear initial Serror */
+	writel(-1, mmio_base + SATA_SCR1);
+
+	/* Finished hardware set up */
+	return 0;
+}
+
 static int __devinit stm_sata_probe(struct platform_device *pdev)
 {
 	struct stm_plat_sata_data *sata_private_info = pdev->dev.platform_data;
@@ -1085,47 +1139,7 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	       (int)(dmac_rev >> 16) & 0xff,
 	       (int)(dmac_rev >>  8) & 0xff);
 
-	/* AHB bus wrapper setup */
-
-        // SATA_AHB2STBUS_STBUS_OPC
-        // 2:0  -- 100 = Store64/Load64
-        // 4    -- 1   = Enable write posting
-	// DMA Read, write posting always = 0
-	/* opcode = Load4 |Store 4*/
-	writel(3, mmio_base + SATA_AHB2STBUS_STBUS_OPC);
-
-        // SATA_AHB2STBUS_MESSAGE_SIZE_CONFIG
-        // 3:0  -- 0111 = 128 Packets
-        // 3:0  -- 0110 =  64 Packets
-	/* WAS: Message size = 64 packet when 6 now 3*/
-	writel(3, mmio_base + SATA_AHB2STBUS_MESSAGE_SIZE_CONFIG);
-
-        // SATA_AHB2STBUS_CHUNK_SIZE_CONFIG
-        // 3:0  -- 0110 = 64 Packets
-        // 3:0  -- 0001 =  2 Packets
-	/* WAS Chunk size = 2 packet when 1, now 0 */
-	writel(2, mmio_base + SATA_AHB2STBUS_CHUNK_SIZE_CONFIG);
-
-        // PC_GLUE_LOGIC
-        // 7:0  -- 0xFF = Set as reset value, 256 STBus Clock Cycles
-        // 8    -- 1  = Time out enabled
-	// (has bit 8 moved to bit 16 on 7109 cut2?)
-	/* time out count = 0xa0(160 dec)
-	 * time out enable = 1
-	 */
-	if (sata_private_info->pc_glue_logic_init)
-		writel(sata_private_info->pc_glue_logic_init,
-		       mmio_base + SATA_PC_GLUE_LOGIC);
-
-	/* DMA controller set up */
-
-	/* Enable DMA controller */
-	writel(DMAC_DmaCfgReg_DMA_EN, mmio_base + DMAC_DmaCfgReg);
-
-	/* Clear initial Serror */
-	writel(-1, mmio_base + SATA_SCR1);
-
-	/* Finished hardware set up */
+	stm_sata_AHB_boot(dev);
 
 	/* Now, are we on one of the later SATA IP's, we have the DMA and
 	 * host controller interrupt lines separated out. So if we have two

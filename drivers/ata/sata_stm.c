@@ -1288,7 +1288,20 @@ static int stm_sata_runtime_resume(struct device *dev)
 
 	return 0;
 }
+
+static int stm_sata_restore(struct device *dev)
+{
+	struct ata_host *host = dev_get_drvdata(dev);
+	struct stm_host_priv *hpriv = host->private_data;
+
+	stm_device_power(hpriv->device_state, stm_device_power_on);
+
+	stm_sata_AHB_boot(dev);
+	return 0;
+}
+
 #else
+#define stm_sata_restore		NULL
 #define stm_sata_runtime_suspend	NULL
 #define stm_sata_runtime_resume		NULL
 #endif
@@ -1296,6 +1309,7 @@ static int stm_sata_runtime_resume(struct device *dev)
 static struct dev_pm_ops stm_sata_pm = {
 	.suspend = stm_sata_suspend,  /* on standby/memstandby */
 	.resume = stm_sata_resume,    /* resume from standby/memstandby */
+	.restore = stm_sata_restore,
 	.runtime_suspend = stm_sata_runtime_suspend,
 	.runtime_resume = stm_sata_runtime_resume,
 };

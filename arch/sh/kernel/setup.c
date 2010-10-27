@@ -40,6 +40,7 @@
 #include <asm/setup.h>
 #include <asm/clock.h>
 #include <asm/mmu_context.h>
+#include <asm/sparsemem.h>
 
 /*
  * Initialize loops_per_jiffy as 10000000 (1000MIPS).

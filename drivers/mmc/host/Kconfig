@@ -148,18 +148,6 @@ config MMC_SDHCI_SPEAR
 
 	  If unsure, say N.
 
-config MMC_SDHCI_STM
-	tristate "SDHCI support on STM platforms"
-	depends on MMC_SDHCI && CPU_SUBTYPE_ST40
-	help
-	  This selects the Secure Digital Host Controller Interface (SDHCI)
-	  often referrered to as the HSMMC block in some of the STM range
-	  of SoC (e.g. STx7106/STx7108/STx5289).
-
-	  If you have a controller with this interface, say Y or M here.
-
-	  If unsure, say N.
-
 config MMC_SDHCI_S3C_DMA
 	bool "DMA support on S3C SDHCI"
 	depends on MMC_SDHCI_S3C && EXPERIMENTAL

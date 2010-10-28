@@ -21,8 +21,8 @@
 #include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stx7105.h>
+#include <linux/clk.h>
 #include <asm/irq-ilc.h>
-
 
 
 /* EMI resources ---------------------------------------------------------- */
@@ -584,12 +584,22 @@ static struct stm_pad_config stx7105_mmc_pad_config = {
 	},
 };
 
-static struct sdhci_platform_data stx7105_mmc_platform_data = {
-		.pad_config = &stx7105_mmc_pad_config,
+static int mmc_pad_resources(struct sdhci_host *sdhci)
+{
+	if (!devm_stm_pad_claim(sdhci->mmc->parent, &stx7105_mmc_pad_config,
+				dev_name(sdhci->mmc->parent)))
+		return -ENODEV;
+
+	return 0;
+}
+
+static struct sdhci_pltfm_data stx7105_mmc_platform_data = {
+		.init = mmc_pad_resources,
+		.quirks = SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC,
 };
 
 static struct platform_device stx7105_mmc_device = {
-		.name = "sdhci-stm",
+		.name = "sdhci",
 		.id = 0,
 		.num_resources = 2,
 		.resource = (struct resource[]) {
@@ -606,27 +616,13 @@ void __init stx7105_configure_mmc(void)
 {
 	struct sysconf_field *sc;
 
-#if 0
 	/* MMC clock comes from the ClockGen_B bank1, channel 2;
 	 * this clock has been set to 52MHz.
 	 * For supporting SD High-Speed Mode we need to set it
-	 * to 50MHz.
-	 */
+	 * to 50MHz. */
 	struct clk *clk = clk_get(NULL, "CLKB_FS1_CH2");
 	clk_set_rate(clk, 50000000);
-#else
-	/* FIXME: this is a dirty hack that will be removed.  */
 
-	/* UNLOCK CLKGENB*/
-	iowrite32(0xc0de, 0xfe000010);
-	/* SET FREQ via magic numbers */
-	iowrite32(0xfffffff3, 0xfe000070); /*MD*/
-	iowrite32(0x6667, 0xfe000074); /*PE*/
-	iowrite32(0x2, 0xfe00007c); /*SDIV*/
-	iowrite32(1, 0xfe000078); /*PRG*/
-	/* LOCK CLKGENB*/
-	iowrite32(0xc1a0, 0xfe000010);
-#endif
 	/* Out Enable coms from the MMC */
 	sc = sysconf_claim(SYS_CFG, 17, 0, 0, "mmc");
 	sysconf_write(sc, 1);

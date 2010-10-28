@@ -264,7 +264,7 @@ static void stm_pad_devres_release(struct device *dev, void *res)
 {
 	struct stm_pad_state *state = res;
 
-	stm_pad_release(state);
+	__stm_pad_release(state);
 }
 
 static int stm_pad_devres_match(struct device *dev, void *res, void *data)

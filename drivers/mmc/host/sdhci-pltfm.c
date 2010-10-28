@@ -65,11 +65,7 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Invalid iomem size. You may "
 			"experience problems.\n");
 
-	if (pdev->dev.parent)
-		host = sdhci_alloc_host(pdev->dev.parent, 0);
-	else
-		host = sdhci_alloc_host(&pdev->dev, 0);
-
+	host = sdhci_alloc_host(&pdev->dev, 0);
 	if (IS_ERR(host)) {
 		ret = PTR_ERR(host);
 		goto err;
@@ -150,6 +146,25 @@ static int __devexit sdhci_pltfm_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int sdhci_pltfm_suspend(struct platform_device *dev, pm_message_t pm)
+{
+	struct sdhci_host *host = platform_get_drvdata(dev);
+
+	return sdhci_suspend_host(host, pm);
+}
+
+static int sdhci_pltfm_resume(struct platform_device *dev)
+{
+	struct sdhci_host *host = platform_get_drvdata(dev);
+
+	return sdhci_resume_host(host);
+}
+#else
+#define sdhci_pltfm_suspend	NULL
+#define sdhci_pltfm_resume	NULL
+#endif /* CONFIG_PM */
+
 static struct platform_driver sdhci_pltfm_driver = {
 	.driver = {
 		.name	= "sdhci",
@@ -157,6 +172,8 @@ static struct platform_driver sdhci_pltfm_driver = {
 	},
 	.probe		= sdhci_pltfm_probe,
 	.remove		= __devexit_p(sdhci_pltfm_remove),
+	.suspend	= sdhci_pltfm_suspend,
+	.resume		= sdhci_pltfm_resume,
 };
 
 /*****************************************************************************\

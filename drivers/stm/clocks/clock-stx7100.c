@@ -138,7 +138,7 @@ static int clockgenA_clk_XXable(struct clk *clk, int enable)
 	struct clokgenA *cga = (struct clokgenA *)clk->private_data;
 
 	if (clk->id != LMISYS_ID && clk->id != LMIVID_ID)
-		return -EINVAL;
+		return 0;
 
 	tmp   = readl(clkgena_base+cga->ctrl_reg) ;
 	value = 1 << (clk->id - 5);

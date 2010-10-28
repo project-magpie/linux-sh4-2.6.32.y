@@ -44,8 +44,20 @@ stm_ehci_bus_suspend(struct usb_hcd *hcd)
 	usb_root_hub_lost_power(hcd->self.root_hub);
 	return 0;
 }
+
+static int
+stm_ehci_bus_resume(struct usb_hcd *hcd)
+{
+	struct ehci_hcd *ehci;
+
+	ehci = hcd_to_ehci(hcd);
+	ehci_writel(ehci, FLAG_CF, &ehci->regs->configured_flag);
+
+	return ehci_bus_resume(hcd);
+}
 #else
 #define stm_ehci_bus_suspend		NULL
+#define stm_ehci_bus_resume		NULL
 #endif
 
 static const struct hc_driver ehci_stm_hc_driver = {
@@ -89,7 +101,7 @@ static const struct hc_driver ehci_stm_hc_driver = {
  * it leaves all the interrupts enabled on insert/remove devices
  */
 	.bus_suspend = stm_ehci_bus_suspend,
-	.bus_resume = ehci_bus_resume,
+	.bus_resume = stm_ehci_bus_resume,
 };
 
 static int ehci_hcd_stm_remove(struct platform_device *pdev)

@@ -90,17 +90,13 @@ OR32(SYSCONF(11), (1 << 12)),
 /* wait clock gen lock */
 WHILE_NE32(SYSSTA(3), 1, 1),
 
-POKE32(CGA + CKGA_OSC_DIV_CFG(17), 31),		/* ic_if_200 */
-
 END_MARKER,
-
-POKE32(CGA + CKGA_OSC_DIV_CFG(17), 0),		/* ic_if_200 @ 30 MHz*/
 
 UPDATE32(SYSCONF(12), ~(1 << 10), 0),
 /* 1. Turn-on the LMI ClocksGenD */
 UPDATE32(SYSCONF(11), ~(1 << 12), 0),
 /* Wait LMI ClocksGenD lock */
-WHILE_NE32(SYSSTA(4), 1, 1),
+WHILE_NE32(SYSSTA(3), 1, 1),
 
 /* Enable clock ouput */
 OR32(SYSCONF(4), (1 << 2)),

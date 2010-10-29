@@ -46,6 +46,12 @@
 #define CKGA_CLKOPSRC_SWITCH_CFG	0x014
 #define CKGA_CLKOPSRC_SWITCH_CFG2	0x024
 
+#define CLKA_SH4_ICK_ID			4
+#define CLKA_IC_IF_100_ID		5
+#define CLKA_ETH_PHY_ID			13
+#define CLKA_IC_COMPO_200_ID		16
+#define CLKA_IC_IF_200_ID		17
+
 #define LMI_BASE			0xFE901000
 #define   LMI_APPD(bank)		(0x1000 * (bank) + 0x14 + lmi)
 
@@ -94,6 +100,8 @@ WHILE_NE32(SYSSTA(3), 1, 1),
 END_MARKER,
 
 UPDATE32(SYSCONF(12), ~(1 << 10), 0),
+/* Reset LMI Pad logic */
+OR32(SYSCONF(11), (1 << 27)),
 /* 1. Turn-on the LMI ClocksGenD */
 UPDATE32(SYSCONF(11), ~(1 << 12), 0),
 /* Wait LMI ClocksGenD lock */
@@ -101,8 +109,6 @@ WHILE_NE32(SYSSTA(3), 1, 1),
 
 /* Enable clock ouput */
 OR32(SYSCONF(4), (1 << 2)),
-/* Reset LMI Pad logic */
-OR32(SYSCONF(11), (1 << 27)),
 /* 2. Disables the DDR self refresh mode */
 UPDATE32(SYSCONF(38), ~(1 << 20), 0),
 /* waits until the ack bit is zero */
@@ -148,6 +154,16 @@ static int stx5206_suspend_core(suspend_state_t state, int suspending)
 	static unsigned char *clka_pll1_div;
 	static unsigned long saved_gplmi_appd;
 	int i;
+	long pwr = 0x3;			/* PLL_0/PLL_1 both OFF */
+	long cfg_0, cfg_1;
+
+	/* almost all the clocks off, except some critical ones */
+	cfg_0 = 0xffffffff;
+	cfg_0 &= ~(0x3 << (2 * CLKA_SH4_ICK_ID));
+	cfg_0 &= ~(0x3 << (2 * CLKA_IC_IF_100_ID));
+	cfg_1 = 0xf;
+	cfg_1 &= ~(0x3 << (2 * (CLKA_IC_COMPO_200_ID-16)));
+	cfg_1 &= ~(0x3 << (2 * (CLKA_IC_IF_200_ID-16)));
 
 	if (suspending)
 		goto on_suspending;
@@ -215,22 +231,28 @@ on_suspending:
 	pr_devel("[STM][PM] ClockGen A: saved\n");
 	mdelay(10);
 
-	/* almost all the clocks off */
-	iowrite32(0xfffff0ff, cga + CKGA_CLKOPSRC_SWITCH_CFG);
-	iowrite32(0x3, cga + CKGA_CLKOPSRC_SWITCH_CFG2);
-
 	if (wkd.hdmi_can_wakeup) {
-		/* cga_pll1 still powered */
-		/* move the ic_if_100 again under pll1 */
-		iowrite32(0x800, cga + CKGA_CLKOPSRC_SWITCH_CFG);
-		iowrite32(1, cga + CKGA_POWER_CFG);
-	} else {
-		iowrite32(3, cga + CKGA_POWER_CFG);
-		if (!wkd.lirc_can_wakeup)
-			clk_set_rate(ca_ic_if_100_clk,
-				    clk_get_rate(ca_ref_clk)/32);
+		/* Pll_1 on */
+		pwr &= ~2;
+		/* ic_if_100 under pll1 */
+		cfg_0 &=  ~(0x3 << (2 * CLKA_IC_IF_100_ID));
+		cfg_0 |= (0x2 << (2 * CLKA_IC_IF_100_ID));
+	}
+	if (wkd.eth_phy_can_wakeup) {
+		/* Pll_0 on */
+		pwr &= ~1;
+		/* eth_phy_clk under pll0 */
+		cfg_0 &= ~(0x3 << (2 * CLKA_ETH_PHY_ID));
+		cfg_0 |= (0x1 << (2 * CLKA_ETH_PHY_ID));
 	}
 
+	iowrite32(cfg_0, cga + CKGA_CLKOPSRC_SWITCH_CFG);
+	iowrite32(cfg_1, cga + CKGA_CLKOPSRC_SWITCH_CFG2);
+	iowrite32(pwr, cga + CKGA_POWER_CFG);
+
+	if (!wkd.lirc_can_wakeup)
+		clk_set_rate(ca_ic_if_100_clk,
+			    clk_get_rate(ca_ref_clk)/32);
 	return 0;
 
 error:

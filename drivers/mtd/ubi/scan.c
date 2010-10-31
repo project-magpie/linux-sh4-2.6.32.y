@@ -114,7 +114,7 @@ static int add_to_list(struct ubi_scan_info *si, int pnum, int ec, int to_head,
 	} else
 		BUG();
 
-	seb = kmalloc(sizeof(struct ubi_scan_leb), GFP_KERNEL);
+	seb = kmem_cache_alloc(si->scan_leb_slab, GFP_KERNEL);
 	if (!seb)
 		return -ENOMEM;
 
@@ -143,7 +143,7 @@ static int add_corrupted(struct ubi_scan_info *si, int pnum, int ec)
 
 	dbg_bld("add to corrupted: PEB %d, EC %d", pnum, ec);
 
-	seb = kmalloc(sizeof(struct ubi_scan_leb), GFP_KERNEL);
+	seb = kmem_cache_alloc(si->scan_leb_slab, GFP_KERNEL);
 	if (!seb)
 		return -ENOMEM;
 
@@ -552,7 +552,7 @@ int ubi_scan_add_used(struct ubi_device *ubi, struct ubi_scan_info *si,
 	if (err)
 		return err;
 
-	seb = kmalloc(sizeof(struct ubi_scan_leb), GFP_KERNEL);
+	seb = kmem_cache_alloc(si->scan_leb_slab, GFP_KERNEL);
 	if (!seb)
 		return -ENOMEM;
 
@@ -1151,9 +1151,15 @@ struct ubi_scan_info *ubi_scan(struct ubi_device *ubi)
 	si->volumes = RB_ROOT;
 
 	err = -ENOMEM;
+	si->scan_leb_slab = kmem_cache_create("ubi_scan_leb_slab",
+					      sizeof(struct ubi_scan_leb),
+					      0, 0, NULL);
+	if (!si->scan_leb_slab)
+		goto out_si;
+
 	ech = kzalloc(ubi->ec_hdr_alsize, GFP_KERNEL);
 	if (!ech)
-		goto out_si;
+		goto out_slab;
 
 	vidh = ubi_zalloc_vid_hdr(ubi, GFP_KERNEL);
 	if (!vidh)
@@ -1214,6 +1220,8 @@ out_vidh:
 	ubi_free_vid_hdr(ubi, vidh);
 out_ech:
 	kfree(ech);
+out_slab:
+	kmem_cache_destroy(si->scan_leb_slab);
 out_si:
 	ubi_scan_destroy_si(si);
 	return ERR_PTR(err);
@@ -1222,11 +1230,12 @@ out_si:
 /**
  * destroy_sv - free the scanning volume information
  * @sv: scanning volume information
+ * @si: scanning information
  *
  * This function destroys the volume RB-tree (@sv->root) and the scanning
  * volume information.
  */
-static void destroy_sv(struct ubi_scan_volume *sv)
+static void destroy_sv(struct ubi_scan_info *si, struct ubi_scan_volume *sv)
 {
 	struct ubi_scan_leb *seb;
 	struct rb_node *this = sv->root.rb_node;
@@ -1246,7 +1255,7 @@ static void destroy_sv(struct ubi_scan_volume *sv)
 					this->rb_right = NULL;
 			}
 
-			kfree(seb);
+			kmem_cache_free(si->scan_leb_slab, seb);
 		}
 	}
 	kfree(sv);
@@ -1264,19 +1273,19 @@ void ubi_scan_destroy_si(struct ubi_scan_info *si)
 
 	list_for_each_entry_safe(seb, seb_tmp, &si->alien, u.list) {
 		list_del(&seb->u.list);
-		kfree(seb);
+		kmem_cache_free(si->scan_leb_slab, seb);
 	}
 	list_for_each_entry_safe(seb, seb_tmp, &si->erase, u.list) {
 		list_del(&seb->u.list);
-		kfree(seb);
+		kmem_cache_free(si->scan_leb_slab, seb);
 	}
 	list_for_each_entry_safe(seb, seb_tmp, &si->corr, u.list) {
 		list_del(&seb->u.list);
-		kfree(seb);
+		kmem_cache_free(si->scan_leb_slab, seb);
 	}
 	list_for_each_entry_safe(seb, seb_tmp, &si->free, u.list) {
 		list_del(&seb->u.list);
-		kfree(seb);
+		kmem_cache_free(si->scan_leb_slab, seb);
 	}
 
 	/* Destroy the volume RB-tree */
@@ -1297,10 +1306,11 @@ void ubi_scan_destroy_si(struct ubi_scan_info *si)
 					rb->rb_right = NULL;
 			}
 
-			destroy_sv(sv);
+			destroy_sv(si, sv);
 		}
 	}
 
+	kmem_cache_destroy(si->scan_leb_slab);
 	kfree(si);
 }
 

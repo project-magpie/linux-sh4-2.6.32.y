@@ -684,11 +684,13 @@ apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapp
 	back_to_cached();
 }
 
+struct pmb_mapping *uc_mapping, *ram_mapping
+	__attribute__ ((__section__ (".uncached.data")));
+
 void __init pmb_init(void)
 {
 	int i;
 	int entry;
-	struct pmb_mapping *uc_mapping, *ram_mapping;
 
 	/* Create the free list of mappings */
 	pmb_mappings_free = &pmbm[0];
@@ -795,7 +797,8 @@ static int __init pmb_debugfs_init(void)
 subsys_initcall(pmb_debugfs_init);
 
 #ifdef CONFIG_PM
-static int pmb_sysdev_suspend(struct sys_device *dev, pm_message_t state)
+static __uses_jump_to_uncached
+int pmb_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 {
 	static pm_message_t prev_state;
 	int idx;
@@ -804,7 +807,7 @@ static int pmb_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 		/* Resumeing from hibernation */
 		if (prev_state.event == PM_EVENT_FREEZE) {
 			for (idx = 1; idx < NR_PMB_ENTRIES; ++idx)
-				if (pmbm[idx].usage)
+				if (pmbm[idx].usage && pmbm[idx].virt != 0xbf)
 					pmb_mapping_set(&pmbm[idx]);
 			flush_cache_all();
 		}
@@ -834,4 +837,15 @@ static int __init pmb_sysdev_init(void)
 }
 
 subsys_initcall(pmb_sysdev_init);
+
+#ifdef CONFIG_HIBERNATION_ON_MEMORY
+
+void __uses_jump_to_uncached stm_hom_pmb_init(void)
+{
+	apply_boot_mappings(uc_mapping, ram_mapping);
+
+	/* Now I can call the pmb_sysdev_resume */
+	pmb_sysdev_suspend(NULL, PMSG_ON);
+}
+#endif
 #endif

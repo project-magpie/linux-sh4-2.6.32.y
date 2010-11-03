@@ -192,6 +192,24 @@ config HIBERNATION_ON_MEMORY
 	  will put the memory in self-refresh and after that it will turn-off
 	  the chip.
 
+config HOM_TAG_VIRTUAL_ADDRESS
+	hex "Hibernation on memory - Tag virtual addess"
+	depends on HIBERNATION_ON_MEMORY
+	depends on SUPERH32
+	default "0x80001800"
+	---help---
+	  Set the Absolute Virtual Address where the Hibernation
+
+config HOM_DEBUG
+	bool "Hibernation on memory - Debug"
+	depends on HIBERNATION_ON_MEMORY
+	depends on SUPERH32
+	default n
+	---help---
+	  This option enables the hom_printk function. This works
+	  like a standard printk on the empty_zero_page.
+	  It's used as a rudimental printk to debug.
+
 config APM_EMULATION
 	tristate "Advanced Power Management Emulation"
 	depends on PM && SYS_SUPPORTS_APM_EMULATION

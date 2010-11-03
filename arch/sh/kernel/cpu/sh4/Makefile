@@ -71,3 +71,6 @@ suspend-$(CONFIG_CPU_SUBTYPE_STX7111)	+= suspend-stx7111.o
 suspend-$(CONFIG_CPU_SUBTYPE_STX7141)	+= suspend-stx7141.o
 suspend-$(CONFIG_CPU_SUBTYPE_STX7200)	+= suspend-stx7200.o
 obj-$(CONFIG_SUSPEND)			+= $(suspend-y)
+
+hom-y					:= stm_hom.o stm_hom-core.o
+obj-$(CONFIG_HIBERNATION_ON_MEMORY)	+= $(hom-y)

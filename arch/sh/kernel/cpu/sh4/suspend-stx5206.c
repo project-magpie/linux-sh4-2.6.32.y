@@ -26,6 +26,7 @@
 #include <linux/stm/wakeup_devices.h>
 
 #include "stm_suspend.h"
+#include <linux/stm/poke_table.h>
 
 #include <asm/irq.h>
 #include <asm/irq-ilc.h>

@@ -28,6 +28,7 @@
 #include <asm/system.h>
 
 #include "stm_suspend.h"
+#include <linux/stm/poke_table.h>
 
 #define SYSSTA(x)		(4 * (x) + 0xb9001000 + 0x008)
 #define SYSCONF(x)		(4 * (x) + 0xb9001000 + 0x100)

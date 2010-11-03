@@ -27,6 +27,7 @@
 #include <asm/irq-ilc.h>
 
 #include "stm_suspend.h"
+#include <linux/stm/poke_table.h>
 
 #define CGA0			0xFDE98000
 #define CGA1			0xFDAB8000

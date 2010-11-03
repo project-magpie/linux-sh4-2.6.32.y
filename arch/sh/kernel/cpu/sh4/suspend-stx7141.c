@@ -27,6 +27,7 @@
 #include <asm/irq-ilc.h>
 
 #include "stm_suspend.h"
+#include <linux/stm/poke_table.h>
 
 #define CGA				0xfe213000
 #define CKGA_PLL(x)			((x) * 4)

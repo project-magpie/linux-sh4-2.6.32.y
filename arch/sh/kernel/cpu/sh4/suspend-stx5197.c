@@ -24,6 +24,7 @@
 #include <asm/irq-ilc.h>
 
 #include "stm_suspend.h"
+#include <linux/stm/poke_table.h>
 
 #define XTAL			30000000
 #define SYS_CLK			0xfdc00000

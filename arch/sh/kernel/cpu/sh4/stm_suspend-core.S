@@ -11,7 +11,7 @@
 
 #include <linux/linkage.h>
 #include <cpu/mmu_context.h>
-#include "stm_suspend.h"
+#include <linux/stm/poke_table.h>
 
 /*
  * We need to ensure that this code is brought into the I and D-caches

@@ -26,6 +26,7 @@
 #include <asm/irq-ilc.h>
 
 #include "stm_suspend.h"
+#include <linux/stm/poke_table.h>
 
 
 

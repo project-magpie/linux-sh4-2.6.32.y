@@ -26,6 +26,7 @@
 #include <asm/irq-ilc.h>
 
 #include "stm_suspend.h"
+#include <linux/stm/poke_table.h>
 
 static struct clk *comms_clk;
 static unsigned long comms_clk_rate;

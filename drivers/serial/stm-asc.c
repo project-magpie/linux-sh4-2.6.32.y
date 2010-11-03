@@ -424,7 +424,6 @@ static int __devexit asc_serial_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-#warning [STM] ASC PM: incomplete
 static int asc_serial_suspend(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -468,9 +467,8 @@ static int asc_serial_resume(struct device *dev)
 	local_irq_save(flags);
 	asc_out(port, CTL, ascport->pm_ctrl);
 	asc_out(port, TIMEOUT, 20);		/* hardcoded */
-	if (ascport->pm_irq)
-		asc_enable_rx_interrupts(port);
-	/* asc_enable_tx_interrupts(port);*/
+	asc_out(port, INTEN, ascport->pm_irq);
+	asc_set_baud(port, ascport->pm_baud);
 	ascport->suspended = 0;
 	local_irq_restore(flags);
 	return 0;
@@ -483,6 +481,7 @@ static int asc_serial_freeze(struct device *dev)
 	struct uart_port *port   = &(ascport->port);
 
 	ascport->pm_ctrl = asc_in(port, CTL);
+	ascport->pm_irq = asc_in(port, INTEN);
 
 	return 0;
 }
@@ -494,13 +493,16 @@ static int asc_serial_restore(struct device *dev)
 	struct uart_port *port   = &(ascport->port);
 	unsigned long flags;
 
-	local_irq_save(flags);
-	asc_out(port, CTL, ascport->pm_ctrl);
+	/* program the port but do not enable it */
+	asc_out(port, CTL, ascport->pm_ctrl & ~ASC_CTL_RUN);
 	asc_out(port, TIMEOUT, 20);		/* hardcoded */
+	asc_out(port, INTEN, ascport->pm_irq);
 	asc_set_baud(port, ascport->pm_baud);
-	asc_enable_rx_interrupts(port);
-	asc_enable_tx_interrupts(port);
-	local_irq_restore(flags);
+	/* reset fifo rx & tx */
+	asc_out(port, TXRESET, 1);
+	asc_out(port, RXRESET, 1);
+	/* write final value and enable port */
+	asc_out(port, CTL, ascport->pm_ctrl);
 	return 0;
 }
 
@@ -512,6 +514,8 @@ static struct dev_pm_ops asc_serial_pm_ops = {
 	.runtime_suspend = asc_serial_suspend,
 	.runtime_resume = asc_serial_resume,
 };
+#else
+static struct dev_pm_ops asc_serial_pm_ops;
 #endif
 
 static struct platform_driver asc_serial_driver = {
@@ -519,10 +523,8 @@ static struct platform_driver asc_serial_driver = {
 	.remove		= __devexit_p(asc_serial_remove),
 	.driver	= {
 		.name	= DRIVER_NAME,
+		.pm	= &asc_serial_pm_ops,
 		.owner	= THIS_MODULE,
-#ifdef CONFIG_PM
-		.pm     = &asc_serial_pm_ops,
-#endif
 	},
 };
 

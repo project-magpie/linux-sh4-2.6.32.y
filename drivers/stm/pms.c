@@ -26,6 +26,7 @@
 #include <linux/spinlock.h>
 
 #include <linux/stm/clk.h>
+#include <linux/stm/hibernation.h>
 
 #include <asm/atomic.h>
 
@@ -890,9 +891,10 @@ int pms_global_standby(enum pms_standby_e state)
 	case PMS_GLOBAL_HIBERNATION:
 		ret = hibernate();
 		break;
+#endif
+#ifdef CONFIG_HIBERNATION_ON_MEMORY
 	case PMS_GLOBAL_MEMHIBERNATION:
-		pr_err("PMS Error: MemHibernation is currently"
-		       " not supported.\n");
+		ret = hibernate_on_memory();
 		break;
 #endif
 	default:

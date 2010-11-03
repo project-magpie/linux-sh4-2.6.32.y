@@ -508,3 +508,29 @@ struct sh_machine_vector mv_hdk7108 __initmv = {
 	STM_PCI_IO_MACHINE_VEC
 };
 
+#ifdef CONFIG_HIBERNATION_ON_MEMORY
+int stm_defrost_board(void *data)
+{
+	/* The "POWER_ON_ETH" line should be rather called "PHY_RESET",
+	 * but it isn't... ;-) */
+	gpio_direction_output(HDK7108_PIO_POWER_ON_ETHERNET, 0);
+
+	/* Some of the peripherals are powered by regulators
+	 * triggered by the following PIO line... */
+	gpio_direction_output(HDK7108_PIO_POWER_ON, 1);
+
+	/* HW changes needed to use the GMII mode (GTX CLK) on the
+	 * HDK7108V1
+	 */
+	gpio_direction_output(HDK7108_GPIO_MII_SPEED_SEL, 0);
+
+	/*
+	 * hdk7108_phy_reset(...);
+	 */
+	gpio_set_value(HDK7108_PIO_POWER_ON_ETHERNET, 0);
+	udelay(10000); /* 10 miliseconds is enough for everyone ;-) */
+	gpio_set_value(HDK7108_PIO_POWER_ON_ETHERNET, 1);
+
+	return 0;
+}
+#endif

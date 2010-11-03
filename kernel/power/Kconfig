@@ -82,7 +82,7 @@ config PM_SLEEP_SMP
 
 config PM_SLEEP
 	bool
-	depends on SUSPEND || HIBERNATION || XEN_SAVE_RESTORE
+	depends on SUSPEND || HIBERNATION || XEN_SAVE_RESTORE || HIBERNATION_ON_MEMORY
 	default y
 
 config SUSPEND
@@ -182,6 +182,15 @@ config PM_STD_PARTITION
 	  Note there is currently not a way to specify which device to save the
 	  suspended image to. It will simply pick the first available swap 
 	  device.
+
+config HIBERNATION_ON_MEMORY
+	bool "Hibernation on memory"
+	depends on PM
+	select HIBERNATION
+	---help---
+	  Enable the hibernation on memory (HoM) functionality. This techniques
+	  will put the memory in self-refresh and after that it will turn-off
+	  the chip.
 
 config APM_EMULATION
 	tristate "Advanced Power Management Emulation"

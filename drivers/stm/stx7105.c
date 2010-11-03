@@ -673,6 +673,10 @@ void __init stx7105_early_device_init(void)
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);
 	chip_revision = (devid >> 28) + 1;
+	/* Because 7106c2 was never manufactured, 7106c3 is identified
+	 * as revision "2", and so on... */
+	if (cpu_data->type == CPU_STX7106 && chip_revision > 1)
+		chip_revision++;
 	boot_cpu_data.cut_major = chip_revision;
 
 	printk(KERN_INFO "STx710%d version %ld.x\n",

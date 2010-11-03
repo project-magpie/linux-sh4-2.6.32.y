@@ -24,6 +24,7 @@
 #include <linux/seq_file.h>
 #include <linux/cache.h>
 #include <linux/io.h>
+#include <linux/pm.h>
 #include <linux/uaccess.h>
 #include <asm/addrspace.h>
 #include <asm/page.h>
@@ -504,6 +505,16 @@ EXPORT_SYMBOL(stm_l2_flush_invalidate);
 
 
 /* Mode control */
+static void stm_l2_invalidate(void)
+{
+	unsigned int i;
+	unsigned long top = stm_l2_block_size * stm_l2_n_sets;
+
+	for (i = 0; i < top; i += stm_l2_block_size)
+		writel(i, stm_l2_base + L2IS);
+	wmb();
+	stm_l2_sync();
+}
 
 static void stm_l2_mode_write_through_to_bypass(void)
 {
@@ -516,7 +527,6 @@ static void stm_l2_mode_write_through_to_bypass(void)
 
 	unsigned int l2ccr;
 	unsigned int top, step;
-	unsigned int i;
 
 	stm_l2_sync();
 	l2ccr = readl(stm_l2_base + L2CCR);
@@ -527,10 +537,8 @@ static void stm_l2_mode_write_through_to_bypass(void)
 	/* Invalidate the L2 */
 	step = stm_l2_block_size;
 	top = stm_l2_block_size * stm_l2_n_sets;
-	for (i = 0; i < top; i += step)
-		writel(i, stm_l2_base + L2IS);
-	wmb();
-	stm_l2_sync();
+
+	stm_l2_invalidate();
 }
 
 static void stm_l2_mode_bypass_to_write_through(void)
@@ -682,7 +690,7 @@ static int __init stm_l2_probe(struct platform_device *pdev)
 	void *base;
 	unsigned int vcr;
 	unsigned int cfg;
-	unsigned int i, top, step;
+	unsigned int top, step;
 	int blksz, setsz, nsets;
 
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -729,9 +737,8 @@ static int __init stm_l2_probe(struct platform_device *pdev)
 	/* Invalidate the L2 */
 	step = stm_l2_block_size;
 	top = step << nsets;
-	for (i = 0; i < top; i += step)
-		writel(i, stm_l2_base + L2IS);
-	stm_l2_sync();
+
+	stm_l2_invalidate();
 
 #if defined(CONFIG_STM_L2_CACHE_WRITETHROUGH)
 	stm_l2_set_mode(MODE_WRITE_THROUGH);
@@ -742,8 +749,42 @@ static int __init stm_l2_probe(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_HIBERNATION
+static enum stm_l2_mode stm_l2_saved_mode;
+static int stm_l2_freeze_noirq(struct device *dev)
+{
+	/*
+	 * Disable the L2-cache
+	 */
+	stm_l2_saved_mode = stm_l2_current_mode;
+
+	stm_l2_sync();
+	stm_l2_set_mode(MODE_BYPASS);
+	return 0;
+}
+
+static int stm_l2_restore_noirq(struct device *dev)
+{
+	stm_l2_invalidate();
+
+	stm_l2_set_mode(stm_l2_saved_mode);
+	return 0;
+}
+
+static struct dev_pm_ops stm_l2_pm = {
+	.freeze_noirq = stm_l2_freeze_noirq,
+	.restore_noirq = stm_l2_restore_noirq,
+};
+
+#else
+
+static struct dev_pm_ops stm_l2_pm;
+
+#endif
+
 static struct platform_driver stm_l2_driver = {
 	.driver.name = "stm-l2-cache",
+	.driver.pm = &stm_l2_pm,
 	.probe = stm_l2_probe,
 };
 

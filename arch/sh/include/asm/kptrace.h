@@ -23,10 +23,10 @@
  * 2008-August  kpprintf added by Chris Smith <chris.smith@st.com>
  */
 
-#ifdef CONFIG_KPTRACE
-
 #define KPTRACE_BUF_SIZE 1024
 #define KPTRACE_SMALL_BUF 128
+
+#ifdef CONFIG_KPTRACE
 
 /* Mark a particular point in the code as "interesting" in the kptrace log */
 void kptrace_mark(void);

@@ -165,6 +165,7 @@ static unsigned int get_symbol_offset(unsigned long pos)
 
 	return name - kallsyms_names;
 }
+EXPORT_SYMBOL_GPL(kallsyms_lookup_name);
 
 /* Lookup the address for this symbol. Returns 0 if not found. */
 unsigned long kallsyms_lookup_name(const char *name)

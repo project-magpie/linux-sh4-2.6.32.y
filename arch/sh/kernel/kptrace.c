@@ -1186,7 +1186,7 @@ static int syscall_shhh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	char filename[KPTRACE_SMALL_BUF];
 	int len = 0;
 
-	if (regs->pc == (unsigned)do_execve) {
+	if (regs->pc == (unsigned)kallsyms_lookup_name("do_execve")) {
 		/* Don't need to strncpy_from_user in this case */
 		snprintf(filename, KPTRACE_SMALL_BUF, (char *)regs->regs[4]);
 	} else if (strncpy_from_user(filename, (char *)regs->regs[4],

@@ -496,10 +496,47 @@ static int spi_stm_remove(struct platform_device *pdev)
 
 	return 0;
 }
+#ifdef CONFIG_PM
+static int spi_stm_suspend(struct device *dev)
+{
+	struct spi_master *master = dev_get_drvdata(dev);
+	struct spi_stm *spi_stm;
+
+	spi_stm = spi_master_get_devdata(master);
+
+	ssc_store32(spi_stm, SSC_IEN, 0);
+
+	clk_disable(spi_stm->clk);
+	return 0;
+}
+
+static int spi_stm_resume(struct device *dev)
+{
+	struct spi_master *master = dev_get_drvdata(dev);
+	struct spi_stm *spi_stm;
+
+	spi_stm = spi_master_get_devdata(master);
+
+	clk_enable(spi_stm->clk);
+	return 0;
+}
+
+static struct dev_pm_ops spi_stm_pm = {
+	.suspend = spi_stm_suspend,
+	.resume = spi_stm_resume,
+	.freeze = spi_stm_suspend,
+	.restore = spi_stm_resume,
+	.runtime_suspend = spi_stm_suspend,
+	.runtime_resume = spi_stm_resume,
+};
+#else
+static struct dev_pm_ops spi_stm_pm;
+#endif
 
 static struct platform_driver spi_stm_driver = {
 	.driver.name = NAME,
 	.driver.owner = THIS_MODULE,
+	.driver.pm = &spi_stm_pm,
 	.probe = spi_stm_probe,
 	.remove = spi_stm_remove,
 };

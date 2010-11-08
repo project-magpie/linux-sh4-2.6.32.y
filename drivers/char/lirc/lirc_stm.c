@@ -1297,6 +1297,7 @@ static int lirc_stm_hardware_init(struct platform_device *pdev)
 static int lirc_stm_remove(struct platform_device *pdev)
 {
 	DPRINTK("lirc_stm_remove called\n");
+	clk_disable(lirc_sys_clock);
 	return 0;
 }
 
@@ -1321,6 +1322,7 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
+	clk_enable(lirc_sys_clock);
 	pr_info(LIRC_STM_NAME
 	       ": probe found data for platform device %s\n", pdev->name);
 	pd.p_lirc_d = pdev->dev.platform_data;
@@ -1445,7 +1447,8 @@ static int lirc_stm_suspend(struct device *dev)
 		lirc_stm_scd_config(clk_get_rate(lirc_sys_clock));
 		lirc_stm_rx_restore();
 		lirc_stm_scd_restart();
-	}
+	} else
+		clk_disable(lirc_sys_clock);
 
 	return 0;
 }
@@ -1453,6 +1456,9 @@ static int lirc_stm_suspend(struct device *dev)
 static int lirc_stm_resume(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
+
+	if (!device_may_wakeup(&pdev->dev))
+		clk_enable(lirc_sys_clock);
 
 	lirc_stm_hardware_init(pdev);
 	lirc_stm_rx_restore();
@@ -1475,6 +1481,7 @@ static int lirc_stm_freeze(struct device *dev)
 	/* flush LIRC plugin data */
 	lirc_stm_rx_reset_data();
 
+	clk_disable(lirc_sys_clock);
 	return 0;
 }
 
@@ -1482,6 +1489,7 @@ static int lirc_stm_restore(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 
+	clk_enable(lirc_sys_clock);
 	lirc_stm_hardware_init(pdev);
 	/* there was I really open device ? */
 	if (pd.open_count > 0) {

@@ -47,7 +47,7 @@ struct spi_stm {
 	/* SSC SPI Controller */
 	struct spi_bitbang	bitbang;
 	void __iomem		*base;
-	unsigned int		fcomms;
+	struct clk		*clk;
 	struct platform_device  *pdev;
 
 	/* Resources */
@@ -125,13 +125,13 @@ static int spi_stm_setup_transfer(struct spi_device *spi,
 	spi_stm->bits_per_word = bits_per_word;
 
 	/* Set SSC_BRF */
-	sscbrg = spi_stm->fcomms/(2*hz);
+	sscbrg = clk_get_rate(spi_stm->clk) / (2*hz);
 	if (sscbrg < 0x07 || sscbrg > (0x1 << 16)) {
 		dev_err(&spi->dev, "baudrate outside valid range"
 			" %d (sscbrg = %d)\n", hz, sscbrg);
 		return -EINVAL;
 	}
-	spi_stm->baud = spi_stm->fcomms/(2*sscbrg);
+	spi_stm->baud = clk_get_rate(spi_stm->clk) / (2 * sscbrg);
 	if (sscbrg == (0x1 << 16)) /* 16-bit counter wraps */
 		sscbrg = 0x0;
 	ssc_store32(spi_stm, SSC_BRG, sscbrg);
@@ -439,8 +439,13 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	reg &= ~SSC_CTL_MS;
 	ssc_store32(spi_stm, SSC_CTL, reg);
 
-	spi_stm->fcomms = clk_get_rate(clk_get(NULL, "comms_clk"));;
+	spi_stm->clk = clk_get(&pdev->dev, "comms_clk");
+	if (!spi_stm->clk) {
+		dev_err(&pdev->dev, "Comms clock not found!\n");
+		goto err5;
+	}
 
+	clk_enable(spi_stm->clk);
 	/* Start "bitbang" worker */
 	status = spi_bitbang_start(&spi_stm->bitbang);
 	if (status) {
@@ -477,6 +482,8 @@ static int spi_stm_remove(struct platform_device *pdev)
 	spi_stm = spi_master_get_devdata(master);
 
 	spi_bitbang_stop(&spi_stm->bitbang);
+
+	clk_disable(spi_stm->clk);
 
 	stm_pad_release(spi_stm->pad_state);
 	free_irq(spi_stm->r_irq.start, spi_stm);

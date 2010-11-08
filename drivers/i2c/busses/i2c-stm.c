@@ -204,6 +204,7 @@ struct iic_transaction {
 
 struct iic_ssc {
 	void __iomem *base;
+	struct clk *clk;
 	struct iic_transaction *trns;
 	struct i2c_adapter adapter;
 	unsigned long config;
@@ -230,7 +231,7 @@ struct iic_ssc {
 
 #define clear_ready_fastmode(adap) ((adap)->config &= ~IIC_STM_READY_SPEED_FAST)
 
-static void iic_stm_setup_timing(struct iic_ssc *adap, unsigned long rate);
+static void iic_stm_setup_timing(struct iic_ssc *adap);
 
 static irqreturn_t iic_state_machine(int this_irq, void *data)
 {
@@ -307,9 +308,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 		 */
 		if ((check_fastmode(adap) && !check_ready_fastmode(adap)) ||
 		    (!check_fastmode(adap) && check_ready_fastmode(adap)))
-			iic_stm_setup_timing(adap,
-					     clk_get_rate(clk_get
-							  (NULL, "comms_clk")));
+			iic_stm_setup_timing(adap);
 
 		trsc->start_state = IIC_FSM_START;
 
@@ -964,7 +963,7 @@ static void iic_stm_timing_trace(struct iic_ssc *adap)
 }
 #endif
 
-static void iic_stm_setup_timing(struct iic_ssc *adap, unsigned long clock)
+static void iic_stm_setup_timing(struct iic_ssc *adap)
 {
 	unsigned long iic_baudrate;
 	unsigned short iic_rep_start_hold;
@@ -980,11 +979,11 @@ static void iic_stm_setup_timing(struct iic_ssc *adap, unsigned long clock)
 	unsigned char iic_prescaler;
 	unsigned short iic_prescaler_dataout;
 #endif
-	unsigned long ns_per_clk;
+	unsigned long ns_per_clk, clock ;
 
 	dbg_print("Assuming %lu MHz for the Timing Setup\n", clock / 1000000);
 
-	clock += 500000;	/* +0.5 Mhz for rounding */
+	clock = clk_get_rate(adap->clk) + 500000; /* +0.5 Mhz for rounding */
 	ns_per_clk = NANOSEC_PER_SEC / clock;
 
 	if (check_fastmode(adap)) {
@@ -1192,7 +1191,15 @@ static int __init iic_stm_probe(struct platform_device *pdev)
 	i2c_stm->adapter.nr = pdev->id;
 	i2c_stm->adapter.algo = &iic_stm_algo;
 	i2c_stm->adapter.dev.parent = &(pdev->dev);
-	iic_stm_setup_timing(i2c_stm, clk_get_rate(clk_get(NULL, "comms_clk")));
+	i2c_stm->clk = clk_get(&(pdev->dev), "comms_clk");
+	if (!i2c_stm->clk) {
+		dev_err(&pdev->dev, "Comms clock not found!\n");
+		return -ENODEV;
+	}
+
+	clk_enable(i2c_stm->clk);
+
+	iic_stm_setup_timing(i2c_stm);
 	init_waitqueue_head(&(i2c_stm->wait_queue));
 	if (i2c_add_numbered_adapter(&(i2c_stm->adapter)) < 0) {
 		dev_err(&pdev->dev, "I2C core refuses the i2c/stm adapter\n");
@@ -1218,6 +1225,8 @@ static int iic_stm_remove(struct platform_device *pdev)
 	struct resource *res;
 	struct iic_ssc *iic_stm = platform_get_drvdata(pdev);
 
+	clk_disable(iic_stm->clk);
+
 	i2c_del_adapter(&iic_stm->adapter);
 	/* irq */
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
@@ -1230,7 +1239,6 @@ static int iic_stm_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-#warning [STM]: I2C-PM disabled
 static int iic_stm_suspend(struct device *dev)
 {
 	struct platform_device *pdev =
@@ -1246,6 +1254,7 @@ static int iic_stm_suspend(struct device *dev)
 #endif
 	ssc_store32(i2c_bus, SSC_IEN, 0);
 	ssc_store32(i2c_bus, SSC_CTL, 0);
+	clk_disable(i2c_bus->clk);
 
 	return 0;
 }
@@ -1265,11 +1274,12 @@ static int iic_stm_resume(struct device *dev)
 		stpio_configure_pin(pio_info->sdout, STPIO_ALT_BIDIR);
 	}
 #endif
+	clk_enable(i2c_bus->clk);
 	/* enable RX, TX FIFOs - clear SR bit */
 	ssc_store32(i2c_bus, SSC_CTL, SSC_CTL_EN |
 		    SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8);
 	ssc_store32(i2c_bus, SSC_I2C, SSC_I2C_I2CM);
-	iic_stm_setup_timing(i2c_bus, clk_get_rate(clk_get(NULL, "comms_clk")));
+	iic_stm_setup_timing(i2c_bus);
 	return 0;
 }
 #else

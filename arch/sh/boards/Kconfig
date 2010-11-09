@@ -510,11 +510,11 @@ config SH_ST_MB519
 	  ST board ID: mb519).
 
 config SH_ST_MB602
-	bool "STB5202 Reference board"
+	bool "mb602: STx5202 Reference board"
 	depends on CPU_SUBTYPE_STX7100
 	default n
 	help
-	  Select STB5202 Reference if configuring for an
+	  Select SH_ST_MB602 if configuring for an
 	  STMicroelectronics STB5202 Reference Board
 	  (product code: STB5202-REF, ST board ID: mb602).
 

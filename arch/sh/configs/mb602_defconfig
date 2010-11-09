@@ -289,7 +289,7 @@ CONFIG_CPU_HAS_FPU=y
 # CONFIG_SH_ST_MB411 is not set
 # CONFIG_SH_ST_MB442 is not set
 # CONFIG_SH_ST_MB448 is not set
-# CONFIG_SH_ST_MB602 is not set
+CONFIG_SH_ST_MB602=y
 
 #
 # ST Peripheral Boards

@@ -48,10 +48,17 @@
  *     can help with spurious noise glitches on the SCK line and in the
  *     case where SCK rise times are marginal due to capacitance on the
  *     bus.
+ * Version 2.6 (1 Apr 2010) Francesco Virlinzi <francesco.virlinzi@st.com>
+ *   + Added the new state (IDLE) in the i2c fsm.
+ *		Now each transaction completed with a STOP condition
+ *		leaves the SSC in I2C-Slave more. In this state the SSC
+ *		seems less sensible to the noise on the bus.
+ * Version 2.7  (01 Jun 2010) Bruno Strudel <bruno.strudel@st.com>
+ *   + Fixed the IIC_FSM_REPSTART_ADDR to wait in case of clock stretching
  *
  * --------------------------------------------------------------------
  *
- *  Copyright (C) 2006 - 2008 STMicroelectronics
+ *  Copyright (C) 2006 - 2010 STMicroelectronics
  *  Author: Francesco Virlinzi     <francesco.virlinzi@st.com>
  *
  * May be copied or modified under the terms of the GNU General Public
@@ -148,6 +155,7 @@
 
 enum iic_state_machine {
 	IIC_FSM_VOID = 0,
+	IIC_FSM_IDLE,
 	IIC_FSM_PREPARE,
 	IIC_FSM_NOREPSTART,
 	IIC_FSM_START,
@@ -242,6 +250,7 @@ static irqreturn_t iic_state_machine(int this_irq, void *data)
 	} tmp;
 	unsigned short txbuff[SSC_TXFIFO_SIZE];
 	unsigned int txbuffcount;
+	unsigned int cnt = 0;
 
 	fast_mode = check_fastmode(adap);
 	pmsg = trsc->msgs_queue + trsc->current_msg;
@@ -394,6 +403,14 @@ be_fsm_start:
 	case IIC_FSM_REPSTART_ADDR:
 		dbg_print2("-Rep Start addr 0x%x\n", pmsg->addr);
 
+		/* Check that slave is not doing a clock stretch */
+		while (((ssc_load32(adap, SSC_STA) & SSC_STA_CLST)
+					!= SSC_STA_CLST) && (cnt++ < 1000))
+			ndelay(100);
+
+		if (cnt >= 1000)
+			jump_on_fsm_abort(trsc);
+
 		/* Clear NACK */
 		ssc_store32(adap, SSC_CLR, 0xdc0);
 
@@ -533,7 +550,7 @@ be_fsm_abort:
 		trsc->status_error |= IIC_E_NOTACK;
 
 		ssc_store32(adap, SSC_CLR, 0xdc0);
-		trsc->next_state = IIC_FSM_COMPLETE;
+		trsc->next_state = IIC_FSM_IDLE;
 
 		ssc_store32(adap, SSC_IEN, SSC_IEN_STOPEN | SSC_IEN_ARBLEN);
 		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM | SSC_I2C_STOPG);
@@ -569,7 +586,7 @@ be_fsm_stop:
 		} else {
 			/* stop */
 			dbg_print2(" STOP - STOP\n");
-			trsc->next_state = IIC_FSM_COMPLETE;
+			trsc->next_state = IIC_FSM_IDLE;
 			ssc_store32(adap, SSC_I2C,
 				    SSC_I2C_I2CM | SSC_I2C_TXENB |
 				    SSC_I2C_STOPG);
@@ -578,7 +595,20 @@ be_fsm_stop:
 		}
 
 		break;
-
+	case IIC_FSM_IDLE:
+		/* In Idle state the SSC still remains
+		 * in I2C mode but with the SSC_CTL.Master mode disabled.
+		 * In this configuration it seems much more stable
+		 * during a plugging/unplugging of HDMI-cable
+		 * i.e.: it is much less sensible to the noice on the cable
+		 */
+		dbg_print2("-Idle\n");
+		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM);
+		/* push the data line high */
+		ssc_store32(adap, SSC_TBUF, 0x1ff);
+		ssc_store32(adap, SSC_CTL, SSC_CTL_EN |
+			    SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8);
+		/* No break here! */
 	case IIC_FSM_COMPLETE:
 		dbg_print2("-Complete\n");
 

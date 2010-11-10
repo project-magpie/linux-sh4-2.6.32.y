@@ -280,6 +280,14 @@ static int stm_rtc_suspend(struct device *dev)
 
 static int stm_rtc_resume(struct device *dev)
 {
+	struct stm_rtc *rtc = dev_get_drvdata(dev);
+
+	/*
+	 * clean 'rtc->alarm' to allow a new
+	 * a new .set_alarm to the upper RTC layer
+	 */
+	memset(&rtc->alarm, 0, sizeof(struct rtc_wkalrm));
+
 	return 0;
 }
 
@@ -352,6 +360,8 @@ static int __devinit stm_rtc_probe(struct platform_device *pdev)
 	}
 	disable_irq(rtc->irq);
 
+	device_set_wakeup_capable(&pdev->dev, 1);
+
 	rtc->rtc_dev = rtc_device_register(DRV_NAME, &pdev->dev,
 					   &stm_rtc_ops, THIS_MODULE);
 	if (IS_ERR(rtc->rtc_dev)) {
@@ -360,8 +370,6 @@ static int __devinit stm_rtc_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, rtc);
-
-	device_set_wakeup_capable(&pdev->dev, 1);
 
 	return ret;
 

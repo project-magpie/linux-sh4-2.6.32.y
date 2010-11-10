@@ -667,6 +667,8 @@ static int fdma_load_elf(const struct firmware *fw, struct fdma *fdma)
 
 	if (fdma_run_initialise_sequence(fdma) != 0)
 		return -ENODEV;
+
+	fdma->firmware_loaded = 1;
 	return 1;
 
 fail:
@@ -692,7 +694,6 @@ static int fdma_do_bootload(struct fdma *fdma)
 	if (err)
 		return -ENOMEM;
 
-	fdma->firmware_loaded = 1;
 	wake_up(&fdma->fw_load_q);
 
 	return 0;
@@ -1366,6 +1367,9 @@ static int fdma_driver_remove(struct platform_device *pdev)
 static int fdma_suspend_freeze_noirq(struct device *dev)
 {
 	struct fdma *fdma = dev_get_drvdata(dev);
+
+	if (fdma->firmware_loaded != 1)
+		return 0;
 	/*
 	 * At this point the channel users are already
 	 * suspended this makes safe the 'disable_all_channels'
@@ -1374,6 +1378,7 @@ static int fdma_suspend_freeze_noirq(struct device *dev)
 	 * we have to avoid any access on memory while
 	 * it is in self-refresh
 	 */
+
 	fdma_disable_all_channels(fdma);
 	return 0;
 }
@@ -1381,7 +1386,12 @@ static int fdma_suspend_freeze_noirq(struct device *dev)
 static int fdma_resume_noirq(struct device *dev)
 {
 	struct fdma *fdma = dev_get_drvdata(dev);
+
+	if (fdma->firmware_loaded != 1)
+		return 0;
+
 	fdma_enable_all_channels(fdma);
+
 	return 0;
 }
 
@@ -1390,6 +1400,9 @@ static int fdma_restore_noirq(struct device *dev)
 {
 	struct fdma *fdma = dev_get_drvdata(dev);
 	int i; /* index segments */
+
+	if (fdma->firmware_loaded != 1)
+		return 0;
 
 	for (i = 0; i < 2; ++i)
 		memcpy_toio(fdma->io_base + fdma->segment_pm[i].offset,

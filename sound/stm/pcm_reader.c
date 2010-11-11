@@ -708,7 +708,7 @@ static snd_pcm_uframes_t snd_stm_pcm_reader_pointer(struct snd_pcm_substream
 	struct snd_stm_pcm_reader *pcm_reader =
 			snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	int residue;
+	int residue, hwptr;
 	snd_pcm_uframes_t pointer;
 
 	snd_stm_printd(2, "snd_stm_pcm_reader_pointer(substream=0x%p)\n",
@@ -720,7 +720,8 @@ static snd_pcm_uframes_t snd_stm_pcm_reader_pointer(struct snd_pcm_substream
 		return -EINVAL;
 
 	residue = get_dma_residue(pcm_reader->fdma_channel);
-	pointer = bytes_to_frames(runtime, runtime->dma_bytes - residue);
+	hwptr = (runtime->dma_bytes - residue) % runtime->dma_bytes;
+	pointer = bytes_to_frames(runtime, hwptr);
 
 	snd_stm_printd(2, "FDMA residue value is %i and buffer size is %u"
 			" bytes...\n", residue, runtime->dma_bytes);

@@ -4,7 +4,6 @@ menuconfig SND_STM
 	depends on CPU_SUBTYPE_STX7100 || CPU_SUBTYPE_STX7105 || CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7141 || CPU_SUBTYPE_STX7200
 	select STM_DMA
 	select SND_PCM
-	select SND_DYNAMIC_MINORS
 	help
 		Say Y here for ALSA support on the STMicroelectronics SoCs.
 

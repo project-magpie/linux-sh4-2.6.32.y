@@ -624,6 +624,17 @@ config SH_TIMER_MTU2
 	help
 	  This enables build of the MTU2 timer driver.
 
+config GENERIC_CALIBRATE_DELAY
+	bool "Auto calibration of the BogoMIPS value"
+	default n
+	help
+	  This option will enable the generic code to calculate the
+	  BogoMIPS value, using a timer to measure how fast the CPU
+	  can execute a busy loop.
+
+	  However, the BogoMIPS value can easily be derived from the
+	  CPU frequency, so this normally is not required.
+
 config SH_PCLK_FREQ
 	int "Peripheral clock frequency (in Hz)"
 	default "27000000" if CPU_SUBTYPE_SH7343
@@ -681,18 +692,6 @@ config SH_EXTERNAL_CLOCK
 
 	  The usual symptoms of getting this wrong are the serial port
 	  output being corrupted.
-
-choice
-	prompt "Calibrate delay"
-	default GENERIC_CALIBRATE_DELAY
-
-config GENERIC_CALIBRATE_DELAY
-	bool "Use the generic calibrate delay"
-
-config SH4_CALIBRATE_DELAY
-	depends on CPU_SH4
-	bool "Use an SH-4 specific fast calibrate delay"
-endchoice
 
 menu "CPU Frequency scaling"
 

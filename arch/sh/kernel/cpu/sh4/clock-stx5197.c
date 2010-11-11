@@ -18,7 +18,7 @@ int __init arch_clk_init(void)
 	if (ret)
 		return ret;
 
-	clk_add_alias("sh4_clk", NULL, "PLL_ST40_ICK", NULL);
+	clk_add_alias("cpu_clk", NULL, "PLL_ST40_ICK", NULL);
 	clk_add_alias("module_clk", NULL, "PLL_ST40_PCK", NULL);
 	clk_add_alias("comms_clk", NULL, "PLL_SYS", NULL);
 

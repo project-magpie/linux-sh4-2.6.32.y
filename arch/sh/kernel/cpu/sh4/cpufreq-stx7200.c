@@ -140,7 +140,7 @@ static int __init stx7200_cpufreq_init(void)
 {
 	if (cpu_data->cut_major < 2)
 		return -ENODEV;
-	stx7200_cpufreq.cpu_clk = clk_get(NULL, "sh4_clk");
+	stx7200_cpufreq.cpu_clk = clk_get(NULL, "st40_clk");
 	if (!stx7200_cpufreq.cpu_clk)
 		return -EINVAL;
 

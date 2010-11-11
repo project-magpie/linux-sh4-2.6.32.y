@@ -49,6 +49,11 @@
 #define LMI_BASE			0xFE901000
 #define   LMI_APPD(bank)		(0x1000 * (bank) + 0x14 + LMI_BASE)
 
+#define CLKA_ST40_ICK_ID		4
+#define CLKA_IC_IF_100_ID		5
+#define CLKA_ETH_PHY_ID		13
+#define CLKA_IC_IF_200_ID		17
+
 static struct clk *ca_ref_clk;
 static struct clk *ca_pll1_clk;
 static struct clk *ca_ic_if_100_clk;
@@ -152,6 +157,8 @@ static int stx7111_suspend_core(suspend_state_t state, int suspending)
 	static unsigned char *clka_pll1_div;
 	static unsigned long *clka_switch_cfg;
 	int i;
+	long pwr = 0x3;		/* PLL_0/PLL_1 both OFF */
+	long cfg_0, cfg_1;
 
 	if (suspending)
 		goto on_suspending;
@@ -216,21 +223,36 @@ on_suspending:
 	for (i = 0; i < 18; ++i)
 		iowrite32(0, cga + CKGA_OSC_DIV_CFG(i));
 
-	/* almost all the clocks off */
-	iowrite32(0xfffff0ff, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
-	iowrite32(0x3, cga + CKGA_CLKOPSRC_SWITCH_CFG(1));
+	/* almost all the clocks off, except some critical ones */
+	cfg_0 = 0xffffffff;
+	cfg_0 &= ~(0x3 << (2 * CLKA_ST40_ICK_ID));
+	cfg_0 &= ~(0x3 << (2 * CLKA_IC_IF_100_ID));
+	cfg_1 = 0xf;
+	cfg_1 &= ~(0x3 << (2 * (CLKA_IC_IF_200_ID - 16)));
+
+	if (wkd.eth_phy_can_wakeup) {
+		/* Pll_0 on */
+		pwr &= ~1;
+		/* eth_phy_clk under pll0 */
+		cfg_0 &= ~(0x3 << (2 * CLKA_ETH_PHY_ID));
+		cfg_0 |= (0x1 << (2 * CLKA_ETH_PHY_ID));
+	}
 
 	if (wkd.hdmi_can_wakeup) {
-		/* cga_pll1 still powered */
-		/* move the ic_if_100 again under pll1 */
-		iowrite32(0x800, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
-		iowrite32(1, cga + CKGA_POWER_CFG);
+		/* Pll_1 on */
+		pwr &= ~2;
+		/* ic_if_100 under pll1 */
+		cfg_0 &=  ~(0x3 << (2 * CLKA_IC_IF_100_ID));
+		cfg_0 |= (0x2 << (2 * CLKA_IC_IF_100_ID));
 	} else {
-		iowrite32(3, cga + CKGA_POWER_CFG);
 		if (!wkd.lirc_can_wakeup)
 			clk_set_rate(ca_ic_if_100_clk,
 				    clk_get_rate(ca_ref_clk)/32);
 	}
+
+	iowrite32(cfg_0, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
+	iowrite32(cfg_1, cga + CKGA_CLKOPSRC_SWITCH_CFG(1));
+	iowrite32(pwr, cga + CKGA_POWER_CFG);
 	return 0;
 
 error:

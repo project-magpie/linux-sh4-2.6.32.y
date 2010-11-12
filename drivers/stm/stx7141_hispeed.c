@@ -825,7 +825,7 @@ fail:
 static void stx7141_sata_power(struct stm_device_state *device_state,
 		enum stm_device_power_state power)
 {
-	int value = (power == stm_device_power_on) ? 1 : 0;
+	int value = (power == stm_device_power_on) ? 0 : 1;
 
 	stm_device_sysconf_write(device_state, "SATA_PWR", value);
 	mdelay(10);
@@ -893,6 +893,7 @@ void __init stx7141_configure_sata(void)
 	sc = sysconf_claim(SYS_CFG, 32, 6, 6, "SATA");
 	BUG_ON(!sc);
 	sysconf_write(sc, 1);
+	sysconf_release(sc);	/* make available for stm_device */
 
 	/* SOFT_JTAG_EN */
 	sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");

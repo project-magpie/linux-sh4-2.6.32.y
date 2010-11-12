@@ -2,6 +2,8 @@
 # Makefile for the Linux SuperH-specific parts of the memory manager.
 #
 
+GCOV_PROFILE_pmb.o := n
+
 obj-y			:= cache.o init.o consistent.o mmap.o
 
 cacheops-$(CONFIG_CPU_SH2)		:= cache-sh2.o

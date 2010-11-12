@@ -10,6 +10,9 @@ targets		:= vmlinux vmlinux.bin vmlinux.bin.gz \
 
 OBJECTS = $(obj)/head_$(BITS).o $(obj)/misc.o $(obj)/cache.o
 
+GCOV_PROFILE_misc.o := n
+GCOV_PROFILE_cache.o := n
+
 ifdef CONFIG_SH_STANDARD_BIOS
 OBJECTS += $(obj)/../../kernel/sh_bios.o
 endif

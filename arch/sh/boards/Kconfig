@@ -332,6 +332,14 @@ config SH_ST_CAB5197
 	  Select STx5197 CAB Reference if configuring for an
 	  STMicroelectronics STx5197 CAB reference Board.
 
+config SH_ST_EUD7141
+	bool "EUD7141 board"
+	depends on CPU_SUBTYPE_STX7141
+	default n
+	help
+	  Select this if configuring for an
+	  STMicroelectronics STx7141 EUD Reference Board.
+
 config SH_ST_FLDB
 	bool "fldb: Freeman Lite Development Board"
 	depends on CPU_SUBTYPE_FLI7510
@@ -709,6 +717,7 @@ source "arch/sh/boards/mach-highlander/Kconfig"
 source "arch/sh/boards/mach-sdk7780/Kconfig"
 source "arch/sh/boards/mach-migor/Kconfig"
 source "arch/sh/boards/mach-rsk/Kconfig"
+source "arch/sh/boards/mach-eud7141/Kconfig"
 source "arch/sh/boards/mach-mb628/Kconfig"
 
 if SH_MAGIC_PANEL_R2

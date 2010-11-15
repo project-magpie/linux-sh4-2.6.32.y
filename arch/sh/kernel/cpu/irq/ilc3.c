@@ -21,6 +21,7 @@
 #include <linux/errno.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
+#include <linux/clk.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/spinlock.h>
@@ -68,6 +69,7 @@ struct ilc {
 	struct list_head list;
 	const char *name;
 	void *base;
+	struct clk *clk;
 	unsigned short inputs_num, outputs_num;
 	unsigned int first_irq;
 	int disable_wakeup:1;
@@ -438,6 +440,9 @@ static int __init ilc_probe(struct platform_device *pdev)
 	if (!ilc)
 		return -ENOMEM;
 	platform_set_drvdata(pdev, ilc);
+
+	ilc->clk = clk_get(&pdev->dev, "comms_clk");
+	clk_enable(ilc->clk); /* Just to increase the usage_counter */
 
 	spin_lock_init(&ilc->lock);
 

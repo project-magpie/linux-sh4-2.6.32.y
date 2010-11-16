@@ -792,18 +792,10 @@ static void flex_set_timings(struct stm_nand_flex_controller *flex,
 	uint32_t reg;
 
 	struct clk *emi_clk;
-	const char * const clk_names[] = {"emi_master",
-					  "emi",
-					  "CLKA_EMI_MASTER",
-					  "clk_emi",
-					  NULL};
-	const char * const *c = clk_names;
 	uint32_t emi_t_ns;
 
 	/* Timings set in terms of EMI clock... */
-	do {
-		emi_clk = clk_get(NULL, *c);
-	} while ((!emi_clk || IS_ERR(emi_clk)) && *(++c) != NULL);
+	emi_clk = clk_get(NULL, "emi_clk");
 
 	if (!emi_clk || IS_ERR(emi_clk)) {
 		printk(KERN_WARNING NAME ": Failed to find EMI clock. "

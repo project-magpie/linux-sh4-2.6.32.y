@@ -12,9 +12,16 @@
 
 int __init plat_clk_alias_init(void)
 {
+	/* core clocks */
 	clk_add_alias("cpu_clk", NULL, "PLL_ST40_ICK", NULL);
 	clk_add_alias("module_clk", NULL, "PLL_ST40_PCK", NULL);
 	clk_add_alias("comms_clk", NULL, "PLL_SYS", NULL);
+
+	/* fdma's clocks */
+	clk_add_alias("fdma_slim_clk", NULL, "PLL_FDMA", NULL);
+	clk_add_alias("fdma_hi_clk", NULL, "PLL_SYS",  NULL);
+	clk_add_alias("fdma_low_clk", NULL, "PLL_SYS", NULL);
+	clk_add_alias("fdma_ic_clk", NULL, "PLL_SYS", NULL);
 
 	return 0;
 }

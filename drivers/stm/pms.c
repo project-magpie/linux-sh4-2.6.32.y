@@ -26,7 +26,7 @@
 #include <linux/spinlock.h>
 
 #include <linux/stm/clk.h>
-#include <linux/stm/hibernation.h>
+#include <linux/hom.h>
 
 #include <asm/atomic.h>
 

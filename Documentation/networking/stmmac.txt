@@ -105,9 +105,9 @@ struct plat_stmmacenet_data {
 	int pmt;
         void (*fix_mac_speed)(void *priv, unsigned int speed);
         void (*bus_setup)(unsigned long ioaddr);
-#ifdef CONFIG_STM_DRIVERS
-        struct stm_pad_config *pad_config;
-#endif
+	int (*init)(struct platform_device *pdev);
+	void (*exit)(struct platform_device *pdev);
+	void *custom_cfg;
         void *bsp_priv;
 };
 
@@ -141,6 +141,10 @@ Where:
             set it to -1 to get it at run-time;
 - interface: physical MII interface mode;
 - phy_reset: hook to reset HW function.
+- init/exit: callbacks used for calling a custom initialisation;
+	     this is sometime necessary on some platforms (e.g. ST boxes)
+	     where the HW needs to have set some PIO lines or system cfg
+	     registers.
 
 SOURCES:
 - Kconfig

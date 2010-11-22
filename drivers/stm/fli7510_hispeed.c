@@ -185,6 +185,7 @@ static struct plat_stmmacenet_data fli7510_ethernet_platform_data = {
 	.tx_coe = 1,
 	.bugged_jumbo =1,
 	.fix_mac_speed = fli7510_ethernet_fix_mac_speed,
+	.init = &stmmac_claim_resource,
 };
 
 static struct platform_device fli7510_ethernet_device = {
@@ -212,7 +213,7 @@ void __init fli7510_configure_ethernet(struct fli7510_ethernet_config *config)
 
 	pad_config = &fli7510_ethernet_pad_configs[config->mode];
 
-	fli7510_ethernet_platform_data.pad_config = pad_config;
+	fli7510_ethernet_platform_data.custom_cfg = (void *) pad_config;
 	fli7510_ethernet_platform_data.bus_id = config->phy_bus;
 
 	switch (config->mode) {

@@ -93,7 +93,7 @@ static struct plat_stmmacenet_data stx5206_ethernet_platform_data = {
 	.bugged_jumbo =1,
 	.pmt = 1,
 	.fix_mac_speed = stx5206_ethernet_fix_mac_speed,
-	/* .pad_config set in stx5206_configure_ethernet() */
+	.init = &stmmac_claim_resource,
 };
 
 static struct platform_device stx5206_ethernet_device = {
@@ -125,7 +125,7 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 
 	pad_config->sysconfs[1].value = (config->ext_clk ? 1 : 0);
 
-	stx5206_ethernet_platform_data.pad_config = pad_config;
+	stx5206_ethernet_platform_data.custom_cfg = (void *) pad_config;
 	stx5206_ethernet_platform_data.bus_id = config->phy_bus;
 
 	/* MAC_SPEED_SEL */

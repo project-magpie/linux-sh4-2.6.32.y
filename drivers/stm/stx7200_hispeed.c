@@ -175,14 +175,14 @@ static struct plat_stmmacenet_data stx7200_ethernet_platform_data[] = {
 		.has_gmac = 0,
 		.enh_desc = 0,
 		.fix_mac_speed = stx7200_ethernet_fix_mac_speed,
-		/* .pad_config set in stx7200_configure_ethernet() */
+		.init = &stmmac_claim_resource,
 	},
 	[1] = {
 		.pbl = 32,
 		.has_gmac = 0,
 		.enh_desc = 0,
 		.fix_mac_speed = stx7200_ethernet_fix_mac_speed,
-		/* .pad_config set in stx7200_configure_ethernet() */
+		.init = &stmmac_claim_resource,
 	},
 };
 
@@ -226,7 +226,7 @@ void __init stx7200_configure_ethernet(int port,
 
 	pad_config = &stx7200_ethernet_pad_configs[port][config->mode];
 
-	stx7200_ethernet_platform_data[port].pad_config = pad_config;
+	stx7200_ethernet_platform_data[port].custom_cfg = (void *) pad_config;
 	stx7200_ethernet_platform_data[port].bus_id = config->phy_bus;
 
 	pad_config->sysconfs[1].value = (config->ext_clk ? 1 : 0);

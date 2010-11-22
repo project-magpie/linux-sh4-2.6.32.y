@@ -92,6 +92,7 @@ static struct plat_stmmacenet_data stx7111_ethernet_platform_data = {
 	.bugged_jumbo =1,
 	.pmt = 1,
 	.fix_mac_speed = stx7111_ethernet_fix_mac_speed,
+	.init = &stmmac_claim_resource,
 };
 
 static struct platform_device stx7111_ethernet_device = {
@@ -119,7 +120,7 @@ void __init stx7111_configure_ethernet(struct stx7111_ethernet_config *config)
 
 	pad_config = &stx7111_ethernet_pad_configs[config->mode];
 
-	stx7111_ethernet_platform_data.pad_config = pad_config;
+	stx7111_ethernet_platform_data.custom_cfg = (void *) pad_config;
 	stx7111_ethernet_platform_data.bus_id = config->phy_bus;
 
 	pad_config->sysconfs[1].value = (config->ext_clk ? 1 : 0);

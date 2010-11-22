@@ -74,10 +74,11 @@ static void stx7100_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
 }
 
 static struct plat_stmmacenet_data stx7100_ethernet_platform_data = {
-	/* .pbl & .pad_config are set in stx7100_configure_ethernet() */
+	/* .pbl is set in stx7100_configure_ethernet() */
 	.has_gmac = 0,
 	.enh_desc = 0,
 	.fix_mac_speed = stx7100_ethernet_fix_mac_speed,
+	.init = &stmmac_claim_resource,
 };
 
 static struct platform_device stx7100_ethernet_device = {
@@ -124,7 +125,7 @@ void __init stx7100_configure_ethernet(struct stx7100_ethernet_config *config)
 	}
 	pad_config->sysconfs[2].value = (config->ext_clk ? 1 : 0);
 
-	stx7100_ethernet_platform_data.pad_config = pad_config;
+	stx7100_ethernet_platform_data.custom_cfg = (void *) pad_config;
 	stx7100_ethernet_platform_data.bus_id = config->phy_bus;
 
 	/* MAC_SPEED_SEL */

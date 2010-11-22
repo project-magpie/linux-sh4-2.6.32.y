@@ -553,7 +553,7 @@ static void stx5197_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
 static struct plat_stmmacenet_data stx5197_ethernet_platform_data = {
 	.pbl = 32,
 	.fix_mac_speed = stx5197_ethernet_fix_mac_speed,
-	/* .pad_config set in stx5197_configure_ethernet() */
+	.init = &stmmac_claim_resource,
 };
 
 static struct platform_device stx5197_ethernet_device = {
@@ -584,7 +584,7 @@ void __init stx5197_configure_ethernet(struct stx5197_ethernet_config *config)
 	if (config->mode == stx5197_ethernet_mode_rmii)
 		pad_config->sysconfs[3].value = (config->ext_clk ? 1 : 0);
 
-	stx5197_ethernet_platform_data.pad_config = pad_config;
+	stx5197_ethernet_platform_data.custom_cfg = (void *) pad_config;
 	stx5197_ethernet_platform_data.bus_id = config->phy_bus;
 
 	/* MAC_SPEED_SEL */

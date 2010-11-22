@@ -470,8 +470,7 @@ static struct plat_stmmacenet_data stx7108_ethernet_platform_data[] = {
 		.tx_coe = 1,
 		.bugged_jumbo =1,
 		.pmt = 1,
-		/* .fix_mac_speed set in stx7108_configure_ethernet() */
-		/* .pad_config set in stx7108_configure_ethernet() */
+		.init = &stmmac_claim_resource,
 	}, {
 		.pbl = 32,
 		.has_gmac = 1,
@@ -479,8 +478,7 @@ static struct plat_stmmacenet_data stx7108_ethernet_platform_data[] = {
 		.tx_coe = 1,
 		.bugged_jumbo =1,
 		.pmt = 1,
-		/* .fix_mac_speed set in stx7108_configure_ethernet() */
-		/* .pad_config set in stx7108_configure_ethernet() */
+		.init = &stmmac_claim_resource,
 	}
 };
 
@@ -569,7 +567,7 @@ void __init stx7108_configure_ethernet(int port,
 		return;
 	}
 
-	plat_data->pad_config = pad_config;
+	plat_data->custom_cfg = (void *) pad_config;
 	plat_data->bus_id = config->phy_bus;
 
 	platform_device_register(&stx7108_ethernet_devices[port]);

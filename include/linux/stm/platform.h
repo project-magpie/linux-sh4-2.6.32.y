@@ -365,4 +365,23 @@ struct stm_plat_ilc3_data {
 	 */
 	int disable_wakeup:1;
 };
-#endif
+
+/*** To claim Ethernet PAD resources from thr platform ***/
+
+static inline int stmmac_claim_resource(struct platform_device *pdev)
+{
+	int ret = 0;
+	struct plat_stmmacenet_data *plat_dat = pdev->dev.platform_data;
+
+	if (!(devm_stm_pad_claim(&pdev->dev,
+				(struct stm_pad_config *) plat_dat->custom_cfg,
+				dev_name(&pdev->dev)))) {
+		pr_err("%s: failed to request pads!\n", __func__);
+
+		ret = -ENODEV;
+	}
+
+	return ret;
+}
+
+#endif /* __LINUX_STM_PLATFORM_H */

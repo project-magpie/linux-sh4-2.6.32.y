@@ -187,6 +187,18 @@ static inline u32 stmmac_tx_avail(struct stmmac_priv *priv)
 	return priv->dirty_tx + priv->dma_tx_size - priv->cur_tx - 1;
 }
 
+/* On some ST platforms, some HW system configuraton registers have to be
+ * set according to the link speed negotiated.
+ */
+static inline void stmmac_hw_fix_mac_speed(struct stmmac_priv *priv)
+{
+	struct phy_device *phydev = priv->phydev;
+
+	if (likely(priv->plat->fix_mac_speed))
+		priv->plat->fix_mac_speed(priv->plat->bsp_priv,
+					  phydev->speed);
+}
+
 /**
  * stmmac_adjust_link
  * @dev: net device structure
@@ -229,15 +241,13 @@ static void stmmac_adjust_link(struct net_device *dev)
 			new_state = 1;
 			switch (phydev->speed) {
 			case 1000:
-				if (likely(priv->is_gmac))
+				if (likely(priv->plat->has_gmac))
 					ctrl &= ~priv->hw->link.port;
-				if (likely(priv->fix_mac_speed))
-					priv->fix_mac_speed(priv->bsp_priv,
-							    phydev->speed);
+				stmmac_hw_fix_mac_speed(priv);
 				break;
 			case 100:
 			case 10:
-				if (priv->is_gmac) {
+				if (priv->plat->has_gmac) {
 					ctrl |= priv->hw->link.port;
 					if (phydev->speed == SPEED_100) {
 						ctrl |= priv->hw->link.speed;
@@ -247,9 +257,7 @@ static void stmmac_adjust_link(struct net_device *dev)
 				} else {
 					ctrl &= ~priv->hw->link.port;
 				}
-				if (likely(priv->fix_mac_speed))
-					priv->fix_mac_speed(priv->bsp_priv,
-							    phydev->speed);
+				stmmac_hw_fix_mac_speed(priv);
 				break;
 			default:
 				if (netif_msg_link(priv))
@@ -306,7 +314,7 @@ static int stmmac_init_phy(struct net_device *dev)
 		return 0;
 	}
 
-	snprintf(bus_id, MII_BUS_ID_SIZE, "%x", priv->bus_id);
+	snprintf(bus_id, MII_BUS_ID_SIZE, "%x", priv->plat->bus_id);
 	snprintf(phy_id, MII_BUS_ID_SIZE + 3, PHY_ID_FMT, bus_id,
 		 priv->phy_addr);
 	pr_debug("stmmac_init_phy:  trying to attach to %s\n", phy_id);
@@ -553,7 +561,7 @@ static void free_dma_desc_resources(struct stmmac_priv *priv)
  */
 static void stmmac_dma_operation_mode(struct stmmac_priv *priv)
 {
-	if (likely((priv->tx_coe) && (!priv->no_csum_insertion))) {
+	if (likely((priv->plat->tx_coe) && (!priv->no_csum_insertion))) {
 		/* In case of GMAC, SF mode has to be enabled
 		 * to perform the TX COE. This depends on:
 		 * 1) TX COE if actually supported
@@ -815,7 +823,7 @@ static int stmmac_open(struct net_device *dev)
 	init_dma_desc_rings(dev);
 
 	/* DMA initialization and SW reset */
-	if (unlikely(priv->hw->dma->init(priv->ioaddr, priv->pbl,
+	if (unlikely(priv->hw->dma->init(priv->ioaddr, priv->plat->pbl,
 					 priv->dma_tx_phy,
 					 priv->dma_rx_phy) < 0)) {
 
@@ -826,15 +834,15 @@ static int stmmac_open(struct net_device *dev)
 	/* Copy the MAC addr into the HW  */
 	priv->hw->mac->set_umac_addr(priv->ioaddr, dev->dev_addr, 0);
 	/* If required, perform hw setup of the bus. */
-	if (priv->bus_setup)
-		priv->bus_setup(priv->ioaddr);
+	if (priv->plat->bus_setup)
+		priv->plat->bus_setup(priv->ioaddr);
 	/* Initialize the MAC Core */
 	priv->hw->mac->core_init(priv->ioaddr);
 
 	priv->rx_coe = priv->hw->mac->rx_coe(priv->ioaddr);
 	if (priv->rx_coe)
 		pr_info("stmmac: Rx Checksum Offload Engine supported\n");
-	if (priv->tx_coe)
+	if (priv->plat->tx_coe)
 		pr_info("\tTX Checksum insertion supported\n");
 
 	priv->shutdown = 0;
@@ -1044,7 +1052,8 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		return stmmac_sw_tso(priv, skb);
 
 	if (likely((skb->ip_summed == CHECKSUM_PARTIAL))) {
-		if (unlikely((!priv->tx_coe) || (priv->no_csum_insertion)))
+		if (unlikely((!priv->plat->tx_coe) ||
+			     (priv->no_csum_insertion)))
 			skb_checksum_help(skb);
 		else
 			csum_insertion = 1;
@@ -1148,7 +1157,7 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv)
 					   DMA_FROM_DEVICE);
 
 			(p + entry)->des2 = priv->rx_skbuff_dma[entry];
-			if (unlikely(priv->is_gmac)) {
+			if (unlikely(priv->plat->has_gmac)) {
 				if (bfsize >= BUF_SIZE_8KiB)
 					(p + entry)->des3 =
 					    (p + entry)->des2 + BUF_SIZE_8KiB;
@@ -1359,7 +1368,7 @@ static int stmmac_change_mtu(struct net_device *dev, int new_mtu)
 		return -EBUSY;
 	}
 
-	if (priv->is_gmac)
+	if (priv->plat->has_gmac)
 		max_mtu = JUMBO_LEN;
 	else
 		max_mtu = ETH_DATA_LEN;
@@ -1373,7 +1382,7 @@ static int stmmac_change_mtu(struct net_device *dev, int new_mtu)
 	 * needs to have the Tx COE disabled for oversized frames
 	 * (due to limited buffer sizes). In this case we disable
 	 * the TX csum insertionin the TDES and not use SF. */
-	if ((priv->bugged_jumbo) && (priv->dev->mtu > ETH_DATA_LEN))
+	if ((priv->plat->bugged_jumbo) && (priv->dev->mtu > ETH_DATA_LEN))
 		priv->no_csum_insertion = 1;
 	else
 		priv->no_csum_insertion = 0;
@@ -1393,7 +1402,7 @@ static irqreturn_t stmmac_interrupt(int irq, void *dev_id)
 		return IRQ_NONE;
 	}
 
-	if (priv->is_gmac)
+	if (priv->plat->has_gmac)
 		/* To handle GMAC own interrupts */
 		priv->hw->mac->host_irq_status((void __iomem *) dev->base_addr);
 
@@ -1545,7 +1554,7 @@ static int stmmac_mac_device_setup(struct net_device *dev)
 
 	struct mac_device_info *device;
 
-	if (priv->is_gmac)
+	if (priv->plat->has_gmac)
 		device = dwmac1000_setup(priv->ioaddr);
 	else
 		device = dwmac100_setup(priv->ioaddr);
@@ -1553,7 +1562,7 @@ static int stmmac_mac_device_setup(struct net_device *dev)
 	if (!device)
 		return -ENOMEM;
 
-	if (priv->enh_desc) {
+	if (priv->plat->enh_desc) {
 		device->desc = &enh_desc_ops;
 		pr_info("\tEnhanced descriptor structure\n");
 	} else
@@ -1607,7 +1616,7 @@ static int stmmac_associate_phy(struct device *dev, void *data)
 		plat_dat->bus_id);
 
 	/* Check that this phy is for the MAC being initialised */
-	if (priv->bus_id != plat_dat->bus_id)
+	if (priv->plat->bus_id != plat_dat->bus_id)
 		return 0;
 
 	/* OK, this PHY is connected to the MAC.
@@ -1691,13 +1700,9 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	priv->device = &(pdev->dev);
 	priv->dev = ndev;
 	plat_dat = pdev->dev.platform_data;
-	priv->bus_id = plat_dat->bus_id;
-	priv->pbl = plat_dat->pbl;	/* TLI */
-	priv->mii_clk_csr = plat_dat->clk_csr;
-	priv->tx_coe = plat_dat->tx_coe;
-	priv->bugged_jumbo = plat_dat->bugged_jumbo;
-	priv->is_gmac = plat_dat->has_gmac;	/* GMAC is on board */
-	priv->enh_desc = plat_dat->enh_desc;
+
+	priv->plat = plat_dat;
+
 	priv->ioaddr = addr;
 
 	/* PMT module is not integrated in all the MAC devices. */
@@ -1735,16 +1740,12 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	priv->fix_mac_speed = plat_dat->fix_mac_speed;
-	priv->bus_setup = plat_dat->bus_setup;
-	priv->bsp_priv = plat_dat->bsp_priv;
-
 	pr_info("\t%s - (dev. name: %s - id: %d, IRQ #%d\n"
 	       "\tIO base addr: 0x%p)\n", ndev->name, pdev->name,
 	       pdev->id, ndev->irq, addr);
 
 	/* MDIO bus Registration */
-	pr_debug("\tMDIO bus (id: %d)...", priv->bus_id);
+	pr_debug("\tMDIO bus (id: %d)...", priv->plat->bus_id);
 	ret = stmmac_mdio_register(ndev);
 	if (ret < 0)
 		goto out;

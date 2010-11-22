@@ -1652,7 +1652,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	struct resource *res;
 	void __iomem *addr = NULL;
 	struct net_device *ndev = NULL;
-	struct stmmac_priv *priv;
+	struct stmmac_priv *priv = NULL;
 	struct plat_stmmacenet_data *plat_dat;
 
 	pr_info("STMMAC driver:\n\tplatform registration... ");
@@ -1716,10 +1716,12 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 	/* Set the I/O base addr */
 	ndev->base_addr = (unsigned long)addr;
 
-	/* Verify embedded resource for the platform */
-	ret = stmmac_claim_resource(pdev);
-	if (ret < 0)
-		goto out;
+	/* Custom initialisation */
+	if (priv->plat->init) {
+		ret = priv->plat->init(pdev);
+		if (unlikely(ret))
+			goto out;
+	}
 
 	/* MAC HW revice detection */
 	ret = stmmac_mac_device_setup(ndev);
@@ -1753,6 +1755,9 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 
 out:
 	if (ret < 0) {
+		if (priv->plat->exit)
+			priv->plat->exit(pdev);
+
 		platform_set_drvdata(pdev, NULL);
 		release_mem_region(res->start, resource_size(res));
 		if (addr != NULL)
@@ -1785,6 +1790,9 @@ static int stmmac_dvr_remove(struct platform_device *pdev)
 	netif_carrier_off(ndev);
 
 	stmmac_mdio_unregister(ndev);
+
+	if (priv->plat->exit)
+		priv->plat->exit(pdev);
 
 	platform_set_drvdata(pdev, NULL);
 	unregister_netdev(ndev);

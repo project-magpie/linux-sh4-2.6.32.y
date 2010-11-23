@@ -509,6 +509,12 @@ struct sh_machine_vector mv_hdk7108 __initmv = {
 };
 
 #ifdef CONFIG_HIBERNATION_ON_MEMORY
+int stm_freeze_board(void *data)
+{
+	gpio_direction_output(HDK7108_PIO_POWER_ON, 0);
+	return 0;
+}
+
 int stm_defrost_board(void *data)
 {
 	/* The "POWER_ON_ETH" line should be rather called "PHY_RESET",

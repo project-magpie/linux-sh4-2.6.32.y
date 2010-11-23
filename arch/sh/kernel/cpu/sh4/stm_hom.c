@@ -117,6 +117,11 @@ static long linux_marker[] = {	0x7a6f7266,	/* froz */
 				0x6c5f6e65,	/* en_l */
 				0x78756e69 };	/* inux */
 
+int __weak stm_freeze_board(void *data)
+{
+	return 0;
+}
+
 int __weak stm_defrost_board(void *data)
 {
 	return 0;

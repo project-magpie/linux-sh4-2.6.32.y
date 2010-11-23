@@ -29,6 +29,7 @@ void stm_hom_exec_table(unsigned int tbl, unsigned int tbl_end,
 
 void stm_defrost_kernel(void);
 
+int stm_freeze_board(void *data);
 int stm_defrost_board(void *data);
 
 void hom_printk(char *buf, ...);

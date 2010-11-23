@@ -117,6 +117,12 @@ do {							\
 	pr_info("Early console ready\n");
 }
 
+static int stx7108_hom_prepare(void)
+{
+	stm_freeze_board(NULL);
+	return 0;
+}
+
 static int stx7108_hom_complete(void)
 {
 	hom_printk("%s - Enter ", __func__);
@@ -135,6 +141,7 @@ static struct stm_mem_hibernation stx7108_hom = {
 	.tbl_size = DIV_ROUND_UP(ARRAY_SIZE(stx7108_hom_table) *
 			sizeof(long), L1_CACHE_BYTES),
 
+	.ops.prepare = stx7108_hom_prepare,
 	.ops.complete = stx7108_hom_complete,
 };
 

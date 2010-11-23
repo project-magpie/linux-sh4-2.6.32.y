@@ -72,7 +72,7 @@
  */
 
 
-#define HDK7108_PIO_POWER_ON stm_gpio(4, 3)
+#define HDK7108_PIO_POWER_ON stm_gpio(5, 0)
 #define HDK7108_PIO_PCI_RESET stm_gpio(6, 4)
 #define HDK7108_PIO_POWER_ON_ETHERNET stm_gpio(15, 4)
 #define HDK7108_GPIO_FLASH_WP stm_gpio(5, 5)

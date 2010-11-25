@@ -734,6 +734,16 @@ int pmb_virt_to_phys(void *addr, unsigned long *phys, unsigned long *flags)
 }
 EXPORT_SYMBOL(pmb_virt_to_phys);
 
+bool __in_29bit_mode(void)
+{
+#ifdef CONFIG_CPU_SUBTYPE_STX7100
+	/* ST40-200 used a different mechanism to control SE mode */
+	return (__raw_readl(MMUCR) & MMUCR_SE) == 0;
+#else
+	return (__raw_readl(PMB_PASCR) & PASCR_SE) == 0;
+#endif
+}
+
 static int pmb_seq_show(struct seq_file *file, void *iter)
 {
 	int i;

@@ -289,6 +289,13 @@ static struct platform_device stx7141_rng_devrandom_device = {
 
 
 /* Internal temperature sensor resources ---------------------------------- */
+static void stx7141_temp_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int value = (power == stm_device_power_on) ? 1 : 0;
+
+	stm_device_sysconf_write(device_state, "TEMP_PWR", value);
+}
 
 static unsigned long stx7141_temp1_get_data(void *priv)
 {
@@ -313,30 +320,51 @@ static struct platform_device stx7141_temp_devices[] = {
 		.id			= 0,
 		.dev.platform_data	= &(struct plat_stm_temp_data) {
 			.name = "STx7141 chip temperature 0",
-			.pdn = { SYS_CFG, 41, 4, 4 },
 			.dcorrect = { SYS_CFG, 41, 5, 9 },
 			.overflow = { SYS_STA, 12, 8, 8 },
 			.data = { SYS_STA, 12, 10, 16 },
+			.device_config = &(struct stm_device_config) {
+				.sysconfs_num = 1,
+				.power = stx7141_temp_power,
+				.sysconfs = (struct stm_device_sysconf []){
+					STM_DEVICE_SYS_CFG(41, 4, 4,
+							"TEMP_PWR"),
+				},
+			},
 		},
 	}, {
 		.name			= "stm-temp",
 		.id			= 1,
 		.dev.platform_data	= &(struct plat_stm_temp_data) {
 			.name = "STx7141 chip temperature 1",
-			.pdn = { SYS_CFG, 41, 14, 14 },
 			.dcorrect = { SYS_CFG, 41, 15, 19 },
 			.overflow = { SYS_STA, 12, 26, 26 },
 			.custom_get_data = stx7141_temp1_get_data,
+			.device_config = &(struct stm_device_config) {
+				.sysconfs_num = 1,
+				.power = stx7141_temp_power,
+				.sysconfs = (struct stm_device_sysconf []){
+					STM_DEVICE_SYS_CFG(41, 14, 14,
+							"TEMP_PWR"),
+				},
+			},
 		},
 	}, {
 		.name			= "stm-temp",
 		.id			= 2,
 		.dev.platform_data	= &(struct plat_stm_temp_data) {
 			.name = "STx7141 chip temperature 2",
-			.pdn = { SYS_CFG, 41, 24, 24 },
 			.dcorrect = { SYS_CFG, 41, 25, 29 },
 			.overflow = { SYS_STA, 13, 12, 12 },
 			.data = { SYS_STA, 13, 14, 20 },
+			.device_config = &(struct stm_device_config) {
+				.sysconfs_num = 1,
+				.power = stx7141_temp_power,
+				.sysconfs = (struct stm_device_sysconf []){
+					STM_DEVICE_SYS_CFG(41, 24, 24,
+							"TEMP_PWR"),
+				},
+			},
 		},
 	}
 };

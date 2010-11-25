@@ -15,13 +15,13 @@
 #include <linux/hwmon-sysfs.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/platform.h>
+#include <linux/stm/device.h>
 
 struct stm_temp_sensor {
 	struct device *dev;
-
+	struct stm_device_state *device_state;
 	struct plat_stm_temp_data *plat_data;
 
-	struct sysconf_field *pdn;
 	struct sysconf_field *dcorrect;
 	struct sysconf_field *overflow;
 	struct sysconf_field *data;
@@ -82,12 +82,12 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 
 	err = -EBUSY;
 
-	sensor->pdn = sysconf_claim(plat_data->pdn.group,
-			plat_data->pdn.num, plat_data->pdn.lsb,
-			plat_data->pdn.msb, name);
-	if (!sensor->pdn) {
-		dev_err(&pdev->dev, "Can't claim PDN sysconf bit!\n");
-		goto error_pdn;
+	sensor->device_state = devm_stm_device_init(&pdev->dev,
+		plat_data->device_config);
+
+	if (!sensor->device_state) {
+		err = -EBUSY;
+		goto error_device_init;
 	}
 
 	if (!plat_data->custom_set_dcorrect) {
@@ -98,7 +98,7 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 		if (!sensor->dcorrect) {
 			dev_err(&pdev->dev, "Can't claim DCORRECT sysconf "
 					"bits!\n");
-			goto error_dcorrect;
+			goto error_device_init;
 		}
 	}
 
@@ -148,8 +148,6 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 		sysconf_write(sensor->dcorrect, plat_data->calibration_value);
 	}
 
-	sysconf_write(sensor->pdn, 1);
-
 	platform_set_drvdata(pdev, sensor);
 
 	/* Initialize the pm_runtime fields */
@@ -171,9 +169,7 @@ error_data:
 error_overflow:
 	if (sensor->dcorrect)
 		sysconf_release(sensor->dcorrect);
-error_dcorrect:
-	sysconf_release(sensor->pdn);
-error_pdn:
+error_device_init:
 	kfree(sensor);
 error_kzalloc:
 	return err;
@@ -185,9 +181,8 @@ static int __devexit stm_temp_remove(struct platform_device *pdev)
 
 	hwmon_device_unregister(sensor->dev);
 
-	sysconf_write(sensor->pdn, 0);
+	stm_device_power(sensor->device_state, stm_device_power_off);
 
-	sysconf_release(sensor->pdn);
 	if (sensor->dcorrect)
 		sysconf_release(sensor->dcorrect);
 	sysconf_release(sensor->overflow);
@@ -200,7 +195,6 @@ static int __devexit stm_temp_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-#warning The stm-temp should be moved under stm_device API
 static int stm_temp_suspend(struct device *dev)
 {
 	struct stm_temp_sensor *sensor = dev_get_drvdata(dev);
@@ -210,7 +204,7 @@ static int stm_temp_suspend(struct device *dev)
 		return 0; /* sensor already suspended via runtime_suspend */
 #endif
 
-	sysconf_write(sensor->pdn, 0);
+	stm_device_power(sensor->device_state, stm_device_power_off);
 	return 0;
 }
 
@@ -222,8 +216,7 @@ static int stm_temp_resume(struct device *dev)
 	if (dev->power.runtime_status == RPM_SUSPENDED)
 		return 0; /* usb wants resume via runtime_resume... */
 #endif
-
-	sysconf_write(sensor->pdn, 1);
+	stm_device_power(sensor->device_state, stm_device_power_on);
 	return 0;
 }
 
@@ -232,7 +225,6 @@ static int stm_temp_runtime_suspend(struct device *dev)
 {
 	if (dev->power.runtime_status == RPM_SUSPENDED)
 		return 0;
-
 
 	stm_temp_suspend(dev);
 	return 0;
@@ -259,14 +251,14 @@ static struct dev_pm_ops stm_temp_pm = {
 	.runtime_suspend = stm_temp_runtime_suspend,
 	.runtime_resume = stm_temp_runtime_resume,
 };
+#else
+static struct dev_pm_ops stm_temp_pm;
 #endif
 
 static struct platform_driver stm_temp_driver = {
 	.driver = {
 		.name	= "stm-temp",
-#ifdef CONFIG_PM
 		.pm = &stm_temp_pm,
-#endif
 	},
 	.probe		= stm_temp_probe,
 	.remove		= stm_temp_remove,

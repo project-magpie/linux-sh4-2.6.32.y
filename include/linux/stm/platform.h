@@ -158,7 +158,8 @@ struct plat_stm_temp_data {
 	const char *name;
 	struct {
 		int group, num, lsb, msb;
-	} pdn, dcorrect, overflow, data;
+	} dcorrect, overflow, data;
+	struct stm_device_config *device_config;
 	int calibrated:1;
 	int calibration_value;
 	void (*custom_set_dcorrect)(void *priv);

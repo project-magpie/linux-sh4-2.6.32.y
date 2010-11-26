@@ -13,13 +13,14 @@
 #include <linux/err.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
+#include <linux/thermal.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/device.h>
 
 struct stm_temp_sensor {
-	struct device *dev;
 	struct stm_device_state *device_state;
+	struct thermal_zone_device *th_dev;
 	struct plat_stm_temp_data *plat_data;
 
 	struct sysconf_field *dcorrect;
@@ -29,40 +30,49 @@ struct stm_temp_sensor {
 	unsigned long (*custom_get_data)(void *priv);
 };
 
-static ssize_t stm_temp_show_temp(struct device *dev,
-		struct device_attribute *devattr, char *buf)
+static int stm_thermal_get_temp(struct thermal_zone_device *th,
+		unsigned long *temperature)
 {
-	ssize_t result;
-	struct stm_temp_sensor *sensor = dev_get_drvdata(dev);
-	unsigned long overflow, data;
-
+	struct stm_temp_sensor *sensor =
+		(struct stm_temp_sensor *)th->devdata;
+	unsigned long data;
+	int overflow;
 
 	overflow = sysconf_read(sensor->overflow);
+
 	if (sensor->plat_data->custom_get_data)
 		data = sensor->plat_data->custom_get_data(
 				sensor->plat_data->custom_priv);
 	else
 		data = sysconf_read(sensor->data);
+
 	overflow |= sysconf_read(sensor->overflow);
 
-	if (!overflow)
-		result = sprintf(buf, "%lu\n", (data + 20) * 1000);
-	else
-		result = sprintf(buf, "!\n");
+	data = (data + 20) * 1000;
 
-	return result;
+	*temperature = data;
+
+	return overflow;
 }
 
-static ssize_t stm_temp_show_name(struct device *dev,
-		struct device_attribute *devattr, char *buf)
+static int stm_thermal_set_mode(struct thermal_zone_device *th,
+	enum thermal_device_mode val)
 {
-	struct stm_temp_sensor *sensor = dev_get_drvdata(dev);
+	struct stm_temp_sensor *sensor =
+		(struct stm_temp_sensor *)th->devdata;
 
-	return sprintf(buf, "%s\n", sensor->plat_data->name);
+	if (val == THERMAL_DEVICE_DISABLED)
+		stm_device_power(sensor->device_state, stm_device_power_off);
+	else
+		stm_device_power(sensor->device_state, stm_device_power_on);
+
+	return 0;
 }
 
-static DEVICE_ATTR(temp1_input, S_IRUGO, stm_temp_show_temp, NULL);
-static DEVICE_ATTR(temp1_label, S_IRUGO, stm_temp_show_name, NULL);
+static struct thermal_zone_device_ops stm_thermal_ops = {
+	.get_temp = stm_thermal_get_temp,
+	.set_mode = stm_thermal_set_mode,
+};
 
 static int __devinit stm_temp_probe(struct platform_device *pdev)
 {
@@ -120,25 +130,6 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 		}
 	}
 
-	sensor->dev = hwmon_device_register(&pdev->dev);
-	if (IS_ERR(sensor->dev)) {
-		err = PTR_ERR(sensor->dev);
-		dev_err(&pdev->dev, "Failed to register hwmon device!\n");
-		goto error_class_dev;
-	}
-
-	if (device_create_file(&pdev->dev, &dev_attr_temp1_input) != 0) {
-		dev_err(&pdev->dev, "Failed to create temp1_input file!\n");
-		goto error_temp1_input;
-	}
-	if (plat_data->name)
-		if (device_create_file(&pdev->dev, &dev_attr_temp1_label)
-				!= 0) {
-			dev_err(&pdev->dev, "Failed to create temp1_label "
-					"file!\n");
-			goto error_temp1_label;
-		}
-
 	if (plat_data->custom_set_dcorrect) {
 		plat_data->custom_set_dcorrect(plat_data->custom_priv);
 	} else {
@@ -150,6 +141,13 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, sensor);
 
+	sensor->th_dev = thermal_zone_device_register(
+		(char *)dev_name(&pdev->dev), 0, (void *)sensor,
+		&stm_thermal_ops, 0, 0, 10000, 10000);
+
+	if (IS_ERR(sensor->th_dev))
+		goto error_class_dev;
+
 	/* Initialize the pm_runtime fields */
 	pm_runtime_set_active(&pdev->dev);
 	pm_suspend_ignore_children(&pdev->dev, 1);
@@ -157,10 +155,6 @@ static int __devinit stm_temp_probe(struct platform_device *pdev)
 
 	return 0;
 
-error_temp1_label:
-	device_remove_file(&pdev->dev, &dev_attr_temp1_input);
-error_temp1_input:
-	hwmon_device_unregister(sensor->dev);
 error_class_dev:
 	if (sensor->data)
 		sysconf_release(sensor->data);
@@ -179,9 +173,9 @@ static int __devexit stm_temp_remove(struct platform_device *pdev)
 {
 	struct stm_temp_sensor *sensor = platform_get_drvdata(pdev);
 
-	hwmon_device_unregister(sensor->dev);
-
 	stm_device_power(sensor->device_state, stm_device_power_off);
+
+	thermal_zone_device_unregister(sensor->th_dev);
 
 	if (sensor->dcorrect)
 		sysconf_release(sensor->dcorrect);

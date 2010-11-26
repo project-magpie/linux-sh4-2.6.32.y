@@ -155,7 +155,6 @@ struct stm_plat_pwm_data {
 /*** Temperature sensor data ***/
 
 struct plat_stm_temp_data {
-	const char *name;
 	struct {
 		int group, num, lsb, msb;
 	} dcorrect, overflow, data;

@@ -808,6 +808,7 @@ config SENSORS_STM_PWM
 config SENSORS_STM_TEMP
 	tristate "STMicroelectronics temperature sensor"
 	depends on CPU_SUBTYPE_ST40
+	select THERMAL
 	help
 	  If you say yes here you get driver for the temperature
 	  sensor existing inside many of the modern ST SOCs.

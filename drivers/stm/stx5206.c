@@ -219,7 +219,6 @@ static struct platform_device stx5206_temp_device = {
 	.name			= "stm-temp",
 	.id			= -1,
 	.dev.platform_data	= &(struct plat_stm_temp_data) {
-		.name = "STx5206 chip temperature",
 		.dcorrect = { SYS_CFG, 41, 5, 9 },
 		.overflow = { SYS_STA, 12, 8, 8 },
 		.data = { SYS_STA, 12, 10, 16 },

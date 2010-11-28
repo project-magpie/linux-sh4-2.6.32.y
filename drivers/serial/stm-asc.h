@@ -17,6 +17,7 @@
 #define _STASC_H
 
 #include <linux/serial_core.h>
+#include <linux/clk.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/stm-dma.h>
 
@@ -33,6 +34,7 @@ struct asc_port {
 	struct uart_port port;
 	struct stm_pad_config *pad_config;
 	struct stm_pad_state *pad_state;
+	struct clk *clk;
 	int hw_flow_control:1;
 	int txfifo_bug:1;
 	int suspended:1;

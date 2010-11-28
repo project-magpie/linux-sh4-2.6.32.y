@@ -46,7 +46,8 @@ static int  asc_request_irq(struct uart_port *);
 static void asc_free_irq(struct uart_port *);
 static void asc_transmit_chars(struct uart_port *);
 static int asc_remap_port(struct asc_port *ascport, int req);
-static int asc_set_baud(struct uart_port *port, int baud);
+static int asc_set_baud(struct uart_port *port, int baud,
+	unsigned long clkrate);
 void asc_set_termios_cflag(struct asc_port *, int, int);
 static inline void asc_receive_chars(struct uart_port *);
 
@@ -295,8 +296,6 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 {
 	struct uart_port *port = &ascport->port;
 	struct stm_plat_asc_data *plat_data = pdev->dev.platform_data;
-	struct clk *clk;
-	unsigned long rate;
 
 	port->iotype	= UPIO_MEM;
 	port->flags	= UPF_BOOT_AUTOCONF;
@@ -318,14 +317,13 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	port->flags	|= UPF_IOREMAP;
 	port->membase	= NULL;
 
-	clk = clk_get(NULL, "comms_clk");
-	if (IS_ERR(clk))
-		clk = clk_get(NULL, "bus_clk");
-	rate = clk_get_rate(clk);
-	WARN_ON(rate == 0); /* Well, it won't work at all... */
-	clk_put(clk);
+	ascport->clk = clk_get(&pdev->dev, "comms_clk");
+	if (IS_ERR(ascport->clk))
+		return;
+	clk_enable(ascport->clk);
+	WARN_ON(clk_get_rate(ascport->clk) == 0); /* It won't work at all */
 
-	ascport->port.uartclk = rate;
+	ascport->port.uartclk = clk_get_rate(ascport->clk);
 	ascport->pad_config = plat_data->pad_config;
 	ascport->hw_flow_control = plat_data->hw_flow_control;
 	ascport->txfifo_bug = plat_data->txfifo_bug;
@@ -450,7 +448,7 @@ static int asc_serial_suspend(struct device *dev)
 	ascport->suspended = 1;
 	asc_disable_tx_interrupts(port);
 	asc_disable_rx_interrupts(port);
-
+	clk_disable(ascport->clk);
 ret_asc_suspend:
 	local_irq_restore(flags);
 	return 0;
@@ -464,11 +462,14 @@ static int asc_serial_resume(struct device *dev)
 	struct uart_port *port   = &(ascport->port);
 	unsigned long flags;
 
+	if (!device_can_wakeup(dev))
+		clk_enable(ascport->clk);
+
 	local_irq_save(flags);
 	asc_out(port, CTL, ascport->pm_ctrl);
 	asc_out(port, TIMEOUT, 20);		/* hardcoded */
 	asc_out(port, INTEN, ascport->pm_irq);
-	asc_set_baud(port, ascport->pm_baud);
+	asc_set_baud(port, ascport->pm_baud, clk_get_rate(ascport->clk));
 	ascport->suspended = 0;
 	local_irq_restore(flags);
 	return 0;
@@ -483,6 +484,7 @@ static int asc_serial_freeze(struct device *dev)
 	ascport->pm_ctrl = asc_in(port, CTL);
 	ascport->pm_irq = asc_in(port, INTEN);
 
+	clk_disable(ascport->clk);
 	return 0;
 }
 
@@ -491,13 +493,13 @@ static int asc_serial_restore(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct asc_port *ascport = &asc_ports[pdev->id];
 	struct uart_port *port   = &(ascport->port);
-	unsigned long flags;
 
+	clk_enable(ascport->clk);
 	/* program the port but do not enable it */
 	asc_out(port, CTL, ascport->pm_ctrl & ~ASC_CTL_RUN);
 	asc_out(port, TIMEOUT, 20);		/* hardcoded */
 	asc_out(port, INTEN, ascport->pm_irq);
-	asc_set_baud(port, ascport->pm_baud);
+	asc_set_baud(port, ascport->pm_baud, clk_get_rate(ascport->clk));
 	/* reset fifo rx & tx */
 	asc_out(port, TXRESET, 1);
 	asc_out(port, RXRESET, 1);
@@ -598,12 +600,9 @@ static int asc_remap_port(struct asc_port *ascport, int req)
 	return 0;
 }
 
-static int asc_set_baud(struct uart_port *port, int baud)
+static int asc_set_baud(struct uart_port *port, int baud, unsigned long rate)
 {
 	unsigned int t;
-	unsigned long rate;
-
-	rate = port->uartclk;
 
 	if (baud < 19200) {
 		t = BAUDRATE_VAL_M0(baud, rate);
@@ -665,7 +664,7 @@ void asc_set_termios_cflag(struct asc_port *ascport, int cflag, int baud)
 #ifdef CONFIG_PM
 	ascport->pm_baud = baud;	/* save the latest baudrate request */
 #endif
-	ctrl_val |= asc_set_baud(port, baud);
+	ctrl_val |= asc_set_baud(port, baud, clk_get_rate(ascport->clk));
 	uart_update_timeout(port, cflag, baud);
 
 	/* Undocumented feature: use max possible baud */

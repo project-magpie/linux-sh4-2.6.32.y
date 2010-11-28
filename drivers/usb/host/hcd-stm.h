@@ -57,9 +57,21 @@
 #define AHB2STBUS_INSREG01_OFFSET       (0x10 + 0x84) /* From EHCI_BASE */
 #define AHB2STBUS_INOUT_THRESHOLD       0x00800080
 
+#include <linux/clk.h>
 #include "../core/hcd.h"
 
+#define USB_CLKS_NR			3
+
 struct drv_usb_data {
+	/*
+	 * USB-IP needs 2 clocks:
+	 * - a 48 MHz oscillator (to generate a final 480 MHz)
+	 * - a 100 MHz oscillator (for the NI)
+	 * - an oscillator for Phy
+	 * other clocks are generated internally using
+	 * direclty the  external oscillator
+	 */
+	struct clk *clks[USB_CLKS_NR];
 	void *ahb2stbus_wrapper_glue_base;
 	void *ahb2stbus_protocol_base;
 	struct platform_device *ehci_device;

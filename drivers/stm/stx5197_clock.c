@@ -26,5 +26,10 @@ int __init plat_clk_alias_init(void)
 	clk_add_alias("fdma_low_clk", NULL, "PLL_SYS", NULL);
 	clk_add_alias("fdma_ic_clk", NULL, "PLL_SYS", NULL);
 
+	/* USB clocks */
+	clk_add_alias("usb_48_clk", NULL, "FSB_USB", NULL);
+	clk_add_alias("usb_ic_clk", NULL, "PLL_SYS", NULL);
+	clk_add_alias("usb_phy_clk", NULL, "OSC_REF", NULL);
+
 	return 0;
 }

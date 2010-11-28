@@ -14,6 +14,7 @@
 #include <linux/io.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/device.h>
+#include <linux/stm/clk.h>
 
 
 #define EMI_GEN_CFG			0x0028
@@ -25,10 +26,33 @@
 
 
 static struct platform_device *emi;
+static struct clk *emi_clk;
 #define emi_initialised			(emi != NULL)
 static unsigned long emi_memory_base;
 static void __iomem *emi_control;
 static struct stm_device_state *emi_device_state;
+
+static inline void emi_clk_xxable(int enable)
+{
+	if (!emi_clk || IS_ERR(emi_clk))
+		return;
+
+	if (enable)
+		clk_enable(emi_clk);
+	else
+		clk_disable(emi_clk);
+}
+
+static inline void emi_clk_enable(void)
+{
+	emi_clk_xxable(1);
+}
+
+static inline void emi_clk_disable(void)
+{
+	emi_clk_xxable(0);
+}
+
 
 unsigned long emi_bank_base(int bank)
 {
@@ -275,11 +299,13 @@ static int emi_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 			}
 			kfree(emi_saved_data);
 			emi_saved_data = NULL;
-		}
+		} else
+			emi_clk_enable();
 		stm_device_power(emi_device_state, stm_device_power_on);
 		break;
 	case PM_EVENT_SUSPEND:
 		stm_device_power(emi_device_state, stm_device_power_off);
+		emi_clk_disable();
 		break;
 	case PM_EVENT_FREEZE:
 		emi_saved_data = kmalloc(sizeof(struct emi_pm), GFP_NOWAIT);
@@ -369,6 +395,11 @@ static int __init emi_driver_probe(struct platform_device *pdev)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	emi_memory_base = res->start;
 
+	emi_clk = clk_get(&pdev->dev, "emi_clk");
+	if (!emi_clk)
+		pr_warning("emi_clk not found!\n");
+
+	emi_clk_enable();
 	emi = pdev; /* to say the EMI is initialised */
 	return 0;
 }

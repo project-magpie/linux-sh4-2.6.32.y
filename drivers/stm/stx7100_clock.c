@@ -17,6 +17,9 @@ int __init plat_clk_alias_init(void)
 	clk_add_alias("module_clk", NULL, "st40_per_clk", NULL);
 	clk_add_alias("comms_clk", NULL, "ic_100_clk", NULL);
 
+	/* EMI clock */
+	/* alias not required because already registered as "emi_clk" */
+
 	/* fdmas clocks */
 	clk_add_alias("fdma_slim_clk", NULL, "slim_clk", NULL);
 	clk_add_alias("fdma_hi_clk", NULL, "ic_100_clk",  NULL);

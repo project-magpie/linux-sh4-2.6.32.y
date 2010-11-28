@@ -282,6 +282,8 @@ SYSCONF(SYS_CFG, 40, 2, 2);
 
 int __init plat_clk_init(void)
 {
+	int ret = 0;
+
 	SYSCONF_CLAIM(SYS_STA, 1, 0, 0);
 	SYSCONF_CLAIM(SYS_CFG, 6, 0, 0);
 	SYSCONF_CLAIM(SYS_CFG, 11, 1, 8);
@@ -290,16 +292,12 @@ int __init plat_clk_init(void)
 	SYSCONF_CLAIM(SYS_CFG, 40, 0, 0);
 	SYSCONF_CLAIM(SYS_CFG, 40, 2, 2);
 
-	return clk_register_table(clk_clocks, CLKB_REF, 1);
-}
+	ret = clk_register_table(clk_clocks, CLKB_REF, 1);
 
-static int __init postcore_clk_init(void)
-{
-	return clk_register_table(&clk_clocks[CLKB_REF],
+	ret |= clk_register_table(&clk_clocks[CLKB_REF],
 				  ARRAY_SIZE(clk_clocks) - CLKB_REF, 0);
+	return ret;
 }
-
-postcore_initcall(postcore_clk_init);
 
 
 /******************************************************************************

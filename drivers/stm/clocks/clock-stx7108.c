@@ -328,6 +328,8 @@ SYSCONF(SYS_CFG_BANK4, 14, 5, 5);
 
 int __init plat_clk_init(void)
 {
+	int ret = 0;
+
 	SYSCONF_CLAIM(SYS_CFG_BANK1, 4, 8, 15);
 	SYSCONF_CLAIM(SYS_CFG_BANK1, 4, 16, 23);
 	SYSCONF_CLAIM(SYS_CFG_BANK1, 4, 24, 26);
@@ -350,17 +352,12 @@ int __init plat_clk_init(void)
 	SYSCONF_CLAIM(SYS_CFG_BANK4, 8, 20, 21);
 	SYSCONF_CLAIM(SYS_CFG_BANK4, 14, 5, 5);
 
-	return clk_register_table(clk_clocks, CLKB_REF, 1);
-}
+	ret = clk_register_table(clk_clocks, CLKB_REF, 1);
 
-static int __init postcore_clk_init(void)
-{
-	return clk_register_table(&clk_clocks[CLKB_REF],
+	ret |= clk_register_table(&clk_clocks[CLKB_REF],
 				  ARRAY_SIZE(clk_clocks) - CLKB_REF, 0);
+	return ret;
 }
-
-postcore_initcall(postcore_clk_init);
-
 
 /******************************************************************************
 Top level clocks group

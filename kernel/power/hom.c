@@ -193,11 +193,11 @@ static int hibernation_on_memory_enter(void)
 	BUG_ON(pe_counter != preempt_count());
 
  Skip_enter:
-	pr_debug("[STM]:[PM]: Resumed sysdevices\n");
-	sysdev_resume();
-
 	pr_debug("[STM]:[PM]: platform_complete\n");
 	platform_complete();
+
+	pr_debug("[STM]:[PM]: Resumed sysdevices\n");
+	sysdev_resume();
 
  Enable_irqs:
 	local_irq_enable();

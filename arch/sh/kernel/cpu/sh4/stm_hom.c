@@ -202,7 +202,7 @@ static void stm_hom_pgd_setup(void)
 {
 	struct thread_info *ctf = current_thread_info();
 	struct task_struct *task = ctf->task;
-	struct mm_struct *current_mm = task->mm;
+	struct mm_struct *current_mm = task->active_mm;
 
 	set_TTB(current_mm->pgd);
 }

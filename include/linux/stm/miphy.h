@@ -30,6 +30,7 @@ struct stm_miphy {
 	int interface;
 	int (*start)(struct stm_miphy *miphy);
 	int (*sata_status)(struct stm_miphy *miphy);
+	void (*assert_deserializer)(struct stm_miphy *miphy, int assert);
 };
 
 struct miphy_if_ops {

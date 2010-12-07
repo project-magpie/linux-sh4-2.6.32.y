@@ -471,6 +471,14 @@ static int stm_miphy_sata_status(struct stm_miphy *miphy)
 	return (miphy_int_status & 0x8) || (miphy_int_status & 0x2);
 }
 
+static void stm_miphy_assert_deserializer(struct stm_miphy *miphy, int assert)
+{
+	if (assert) /* Assert deserializer reset */
+		stm_miphy_write(miphy, 0x00, 0x10);
+	else
+		stm_miphy_write(miphy, 0x00, 0x00);
+}
+
 static int stm_miphy_start(struct stm_miphy *miphy)
 {
 	struct miphy_device *dev = miphy->dev;
@@ -569,6 +577,7 @@ int stm_miphy_init(struct stm_miphy *miphy)
 	miphy->dev 			= miphy_dev;
 	miphy->start 			= stm_miphy_start;
 	miphy->sata_status 		= stm_miphy_sata_status;
+	miphy->assert_deserializer 	= stm_miphy_assert_deserializer;
 	stm_miphy_start(miphy);
 
 	return 0;

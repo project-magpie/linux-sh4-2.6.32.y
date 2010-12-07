@@ -40,7 +40,7 @@
 #include <linux/stm/miphy.h>
 
 #define DRV_NAME			"sata-stm"
-#define DRV_VERSION			"0.7"
+#define DRV_VERSION			"0.8"
 
 /* Offsets of the component blocks */
 #define SATA_AHB2STBUS_BASE			0x00000000
@@ -692,6 +692,87 @@ static int stm_prereset(struct ata_link *link, unsigned long deadline)
 	return ata_sff_prereset(link, deadline);
 }
 
+
+/*
+ * Workaround for drive detection problems (STLinux bugzilla 9873).
+ * Need to keep the MiPHY deserializer reset while performing the
+ * COMMRESET and wait till COMMWAIT is received from device.
+ */
+static int stm_sata_do_comreset(void __iomem *mmio_base,
+	struct stm_host_priv *hpriv)
+{
+	/* Make sure that PHY is up */
+	int timeout, val;
+	struct stm_miphy *miphy_dev = hpriv->miphy_dev;
+
+	val = readl(mmio_base + SATA_SCR1);
+	/* clearing the SATA_SCR1 register */
+	writel(val, (mmio_base + SATA_SCR1));
+
+	/* Assert MiPHY deserializer reset */
+	if (miphy_dev)
+		miphy_dev->assert_deserializer(miphy_dev, 1);
+
+	/* Send COMMRESET */
+	writel(0x1, (mmio_base + SATA_SCR2));
+	msleep(1);
+	writel(0x0, (mmio_base + SATA_SCR2));
+
+	/* wait a while before checking status*/
+	msleep(150);
+	/* Wait Till COMWAKE Detected */
+	timeout = 100;
+	while (timeout-- &&
+		((readl(mmio_base + SATA_SCR1) & 0x40000) != 0x40000))
+		msleep(1);
+
+	/* Deassert MiPHY deserializer reset */
+	if (miphy_dev)
+		miphy_dev->assert_deserializer(miphy_dev, 0);
+	if (timeout <= 0)
+		return -1;
+
+	timeout = 100;
+	/* Waiting for PHYRDY to be detected by Host */
+	while (timeout-- && ((readl(mmio_base + SATA_SCR0) & 0x03) != 0x03))
+		msleep(1);
+	if (timeout <= 0)
+		return -1;
+	return 0;
+}
+
+static int stm_sata_hardreset(struct ata_link *link, unsigned int *class,
+			unsigned long deadline)
+{
+	struct ata_port *ap = link->ap;
+	void __iomem *mmio_base = ap->ioaddr.cmd_addr;
+	struct stm_host_priv *hpriv = ap->host->private_data;
+	/* Debounce timing */
+	const unsigned long *timing = sata_ehc_deb_timing(&link->eh_context);
+	u32 rc;
+
+	/* Check if device is detected */
+	if (readl(mmio_base + SATA_SCR0) == 0x0)
+		return 0; /* No device detected */
+
+	stm_phy_configure(ap);
+
+	if (stm_sata_do_comreset(mmio_base, hpriv))
+		return 0; /* Link Offline */
+
+	/* resume with Debounce */
+	rc = sata_link_resume(link, timing, deadline);
+	if (rc) {
+		ata_link_printk(link, KERN_WARNING, "failed to resume "
+					"link after reset (errno=%d)\n", rc);
+		return rc;
+	}
+	if (ata_link_offline(link))
+		return 0;
+
+	return -EAGAIN;
+}
+
 static void stm_postreset(struct ata_link *link, unsigned int *classes)
 {
 	struct ata_port *ap = link->ap;
@@ -1000,6 +1081,7 @@ static struct ata_port_operations stm_ops = {
 	.pmp_hardreset		= stm_pmp_hardreset,
 	.pmp_softreset		= stm_softreset,
 	.softreset		= stm_softreset,
+	.hardreset		= stm_sata_hardreset,
 	.error_handler		= sata_pmp_error_handler,
 
 	.scr_read		= stm_sata_scr_read,
@@ -1166,6 +1248,9 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	       (int)(dmac_rev >>  8) & 0xff);
 
 	stm_sata_AHB_boot(dev);
+
+	/* Wait & timeout till we detect the disk */
+	stm_sata_do_comreset(mmio_base, hpriv);
 
 	/* Now, are we on one of the later SATA IP's, we have the DMA and
 	 * host controller interrupt lines separated out. So if we have two

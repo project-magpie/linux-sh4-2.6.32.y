@@ -138,6 +138,7 @@ struct stx7108_ethernet_config {
 		stx7108_ethernet_mode_gmii,
 		stx7108_ethernet_mode_gmii_gtx,
 		stx7108_ethernet_mode_rmii,
+		stx7108_ethernet_mode_rgmii_gtx,
 		stx7108_ethernet_mode_reverse_mii
 	} mode;
 	int ext_clk;

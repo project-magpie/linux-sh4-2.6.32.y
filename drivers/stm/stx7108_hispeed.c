@@ -22,11 +22,12 @@
 #include <linux/delay.h>
 #include <asm/irq-ilc.h>
 
+/* --------------------------------------------------------------------
+ *           Ethernet MAC resources (PAD and Retiming)
+ * --------------------------------------------------------------------*/
 
-
-/* Ethernet MAC resources ------------------------------------------------- */
-
-static struct stx7108_pio_retime_config stx7108_ethernet_retime_bypass = {
+/* MII Default Retiming Configuration */
+static struct stx7108_pio_retime_config mii_retime_bypass = {
 	.retime = 0,
 	.clk1notclk0 = -1,
 	.clknotdata = 0,
@@ -36,7 +37,7 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_bypass = {
 
 };
 
-static struct stx7108_pio_retime_config stx7108_ethernet_retime_clock[] = {
+static struct stx7108_pio_retime_config mii_retime_clock[] = {
 	[0] = {
 		.retime = -1,
 		.clk1notclk0 = 0,
@@ -55,7 +56,7 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_clock[] = {
 	}
 };
 
-static struct stx7108_pio_retime_config stx7108_ethernet_retime_phy_clock = {
+static struct stx7108_pio_retime_config mii_retime_phy_clock = {
 	.retime = -1,
 	.clk1notclk0 = 0,
 	.clknotdata = 1,
@@ -64,17 +65,7 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_phy_clock = {
 	.delay_input = -1,
 };
 
-static struct stx7108_pio_retime_config stx7108_ethernet_retime_gtx_clock = {
-	.retime = 1,
-	.clk1notclk0 = 1,
-	.clknotdata = 1,
-	.double_edge = 0,
-	.invertclk = -1,
-	.delay_input = 1,
-};
-static struct stx7108_pio_config gtx_priv;
-
-static struct stx7108_pio_retime_config stx7108_ethernet_retime_data[] = {
+static struct stx7108_pio_retime_config mii_retime_data[] = {
 	[0] = {
 		.retime = 1,
 		.clk1notclk0 = 0,
@@ -93,73 +84,141 @@ static struct stx7108_pio_retime_config stx7108_ethernet_retime_data[] = {
 	}
 };
 
-#define STX7108_PIO_ETH_DATA_IN(_gmac, _port, _pin) \
+/* GMII (GTX) Default Retiming Configuration */
+static struct stx7108_pio_retime_config gmii_gtx_retime_clock = {
+	.retime = 1,
+	.clk1notclk0 = 1,
+	.clknotdata = 1,
+	.double_edge = 0,
+	.invertclk = -1,
+	.delay_input = 1,
+};
+
+/* RGMII (GTX) Default Retiming Configuration */
+static struct stx7108_pio_retime_config rgmii_retime_bypass = {
+	.retime = 0,
+	.clk1notclk0 = -1,
+	.clknotdata = 0,
+	.double_edge = 1,
+	.invertclk = -1,
+	.delay_input = 0,
+
+};
+
+static struct stx7108_pio_retime_config rgmii_retime_clock[] = {
+	[0] = {
+		.retime = -1,
+		.clk1notclk0 = 0,
+		.clknotdata = 1,
+		.double_edge = 1,
+		.invertclk = -1,
+		.delay_input = 0,
+	},
+	[1] = {
+		.retime = -1,
+		.clk1notclk0 = 1,
+		.clknotdata = 1,
+		.double_edge = 1,
+		.invertclk = -1,
+		.delay_input = 0,
+	}
+};
+
+static struct stx7108_pio_retime_config rgmii_gtx_retime_clock = {
+	.retime = 1,
+	.clk1notclk0 = 1,
+	.clknotdata = 1,
+	.double_edge = 1,
+	.invertclk = -1,
+	.delay_input = 0,
+};
+
+static struct stx7108_pio_retime_config rgmii_retime_data[] = {
+	[0] = {
+		.retime = 1,
+		.clk1notclk0 = 0,
+		.clknotdata = 0,
+		.double_edge = 1,
+		.invertclk = -1,
+		.delay_input = 0,
+	},
+	[1] = {
+		.retime = 1,
+		.clk1notclk0 = 1,
+		.clknotdata = 0,
+		.double_edge = 1,
+		.invertclk = -1,
+		.delay_input = 0,
+	}
+};
+
+#define DATA_IN(_gmac, _port, _pin, _retiming) \
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_in, \
 		.function = _gmac + 1, \
 		.priv = &(struct stx7108_pio_config) { \
-			.retime = &stx7108_ethernet_retime_data[_gmac], \
+			.retime = &_retiming[_gmac], \
 		}, \
 	}
 
-#define STX7108_PIO_ETH_DATA_OUT(_gmac, _port, _pin) \
+#define DATA_OUT(_gmac, _port, _pin, _retiming) \
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_out, \
 		.function = _gmac + 1, \
 		.priv = &(struct stx7108_pio_config) { \
-			.retime = &stx7108_ethernet_retime_data[_gmac], \
+			.retime = &_retiming[_gmac], \
 		}, \
 	}
 
-#define STX7108_PIO_ETH_CLOCK_IN(_gmac, _port, _pin) \
+#define CLOCK_IN(_gmac, _port, _pin, _retiming) \
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_in, \
 		.function = _gmac + 1, \
 		.priv = &(struct stx7108_pio_config) { \
-			.retime = &stx7108_ethernet_retime_clock[_gmac], \
+			.retime = &_retiming[_gmac], \
 		}, \
 	}
 
-#define STX7108_PIO_ETH_CLOCK_OUT(_gmac, _port, _pin) \
+#define CLOCK_OUT(_gmac, _port, _pin, _retiming) \
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_out, \
 		.function = _gmac + 1, \
 		.priv = &(struct stx7108_pio_config) { \
-			.retime = &stx7108_ethernet_retime_clock[_gmac], \
+			.retime = &_retiming[_gmac], \
 		}, \
 	}
 
-#define STX7108_PIO_ETH_BYPASS_IN(_gmac, _port, _pin) \
+#define BYPASS_IN(_gmac, _port, _pin, _retiming) \
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_in, \
 		.function = _gmac + 1, \
 		.priv = &(struct stx7108_pio_config) { \
-			.retime = &stx7108_ethernet_retime_bypass, \
+			.retime = &_retiming, \
 		}, \
 	}
 
-#define STX7108_PIO_ETH_BYPASS_OUT(_gmac, _port, _pin) \
+#define BYPASS_OUT(_gmac, _port, _pin, _retiming) \
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_out, \
 		.function = _gmac + 1, \
 		.priv = &(struct stx7108_pio_config) { \
-			.retime = &stx7108_ethernet_retime_bypass, \
+			.retime = &_retiming, \
 		}, \
 	}
 
-#define STX7108_PIO_ETH_PHY_CLOCK(_gmac, _port, _pin) \
+#define PHY_CLOCK(_gmac, _port, _pin, _retiming) \
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_unknown, \
 		.name = "PHYCLK", \
 		.priv = &(struct stx7108_pio_config) { \
-			.retime = &stx7108_ethernet_retime_phy_clock, \
+			.retime = &_retiming, \
 		}, \
 	}
 
@@ -167,26 +226,26 @@ static struct stm_pad_config stx7108_ethernet_mii_pad_configs[] = {
 	[0] =  {
 		.gpios_num = 20,
 		.gpios = (struct stm_pad_gpio []) {
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 0),	/* TXD[0] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 1),	/* TXD[1] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 2),	/* TXD[2] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 3),	/* TXD[3] */
-			STX7108_PIO_ETH_DATA_OUT(0, 7, 0),	/* TXER */  
-			STX7108_PIO_ETH_DATA_OUT(0, 7, 1),	/* TXEN */  
-			STX7108_PIO_ETH_CLOCK_IN(0, 7, 2),	/* TXCLK */ 
-			STX7108_PIO_ETH_BYPASS_IN(0, 7, 3),	/* COL */
-			STX7108_PIO_ETH_BYPASS_OUT(0, 7, 4),	/* MDIO*/
-			STX7108_PIO_ETH_CLOCK_OUT(0, 7, 5),	/* MDC */  
-			STX7108_PIO_ETH_BYPASS_IN(0, 7, 6),	/* CRS */  
-			STX7108_PIO_ETH_BYPASS_IN(0, 7, 7),	/* MDINT */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 0),	/* RXD[0] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 1),	/* RXD[1] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 2),	/* RXD[2] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 3),	/* RXD[3] */
-			STX7108_PIO_ETH_DATA_IN(0, 9, 0),	/* RXDV */  
-			STX7108_PIO_ETH_DATA_IN(0, 9, 1),	/* RX_ER */ 
-			STX7108_PIO_ETH_CLOCK_IN(0, 9, 2),	/* RXCLK */
-			STX7108_PIO_ETH_PHY_CLOCK(0, 9, 3),	/* PHYCLK */
+			DATA_OUT(0, 6, 0, mii_retime_data),	/* TXD[0] */
+			DATA_OUT(0, 6, 1, mii_retime_data),	/* TXD[1] */
+			DATA_OUT(0, 6, 2, mii_retime_data),	/* TXD[2] */
+			DATA_OUT(0, 6, 3, mii_retime_data),	/* TXD[3] */
+			DATA_OUT(0, 7, 0, mii_retime_data),	/* TXER */
+			DATA_OUT(0, 7, 1, mii_retime_data),	/* TXEN */
+			CLOCK_IN(0, 7, 2, mii_retime_clock),	/* TXCLK */
+			BYPASS_IN(0, 7, 3, mii_retime_bypass),	/* COL */
+			BYPASS_OUT(0, 7, 4, mii_retime_bypass),	/* MDIO*/
+			CLOCK_OUT(0, 7, 5, mii_retime_clock),	/* MDC */
+			BYPASS_IN(0, 7, 6, mii_retime_bypass),	/* CRS */
+			BYPASS_IN(0, 7, 7, mii_retime_bypass),	/* MDINT */
+			DATA_IN(0, 8, 0, mii_retime_data),	/* RXD[0] */
+			DATA_IN(0, 8, 1, mii_retime_data),	/* RXD[1] */
+			DATA_IN(0, 8, 2, mii_retime_data),	/* RXD[2] */
+			DATA_IN(0, 8, 3, mii_retime_data),	/* RXD[3] */
+			DATA_IN(0, 9, 0, mii_retime_data),	/* RXDV */
+			DATA_IN(0, 9, 1, mii_retime_data),	/* RX_ER */
+			CLOCK_IN(0, 9, 2, mii_retime_clock),	/* RXCLK */
+			PHY_CLOCK(0, 9, 3, mii_retime_phy_clock),/* PHYCLK */
 		},
 		.sysconfs_num = 3,
 		.sysconfs = (struct stm_pad_sysconf []) {
@@ -201,26 +260,26 @@ static struct stm_pad_config stx7108_ethernet_mii_pad_configs[] = {
 	[1] =  {
 		.gpios_num = 20,
 		.gpios = (struct stm_pad_gpio []) {
-			STX7108_PIO_ETH_PHY_CLOCK(1, 15, 5),	/* PHYCLK */
-			STX7108_PIO_ETH_BYPASS_IN(1, 15, 6),	/* MDINT */
-			STX7108_PIO_ETH_DATA_OUT(1, 15, 7),	/* TXEN */  
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 0),	/* TXD[0] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 1),	/* TXD[1] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 2),	/* TXD[2] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 3),	/* TXD[3] */
-			STX7108_PIO_ETH_CLOCK_IN(1, 17, 0),	/* TXCLK */ 
-			STX7108_PIO_ETH_DATA_OUT(1, 17, 1),	/* TXER */  
-			STX7108_PIO_ETH_BYPASS_IN(1, 17, 2),	/* CRS */  
-			STX7108_PIO_ETH_BYPASS_IN(1, 17, 3),	/* COL */
-			STX7108_PIO_ETH_BYPASS_OUT(1, 17, 4),	/* MDIO */
-			STX7108_PIO_ETH_CLOCK_OUT(1, 17, 5),	/* MDC */  
-			STX7108_PIO_ETH_DATA_IN(1, 17, 6),	/* RXDV */  
-			STX7108_PIO_ETH_DATA_IN(1, 17, 7),	/* RX_ER */ 
-			STX7108_PIO_ETH_DATA_IN(1, 18, 0),	/* RXD[0] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 1),	/* RXD[1] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 2),	/* RXD[2] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 3),	/* RXD[3] */
-			STX7108_PIO_ETH_CLOCK_IN(1, 19, 0),	/* RXCLK */
+			PHY_CLOCK(1, 15, 5, mii_retime_phy_clock),/* PHYCLK */
+			BYPASS_IN(1, 15, 6, mii_retime_bypass),	/* MDINT */
+			DATA_OUT(1, 15, 7, mii_retime_data),	/* TXEN */
+			DATA_OUT(1, 16, 0, mii_retime_data),	/* TXD[0] */
+			DATA_OUT(1, 16, 1, mii_retime_data),	/* TXD[1] */
+			DATA_OUT(1, 16, 2, mii_retime_data),	/* TXD[2] */
+			DATA_OUT(1, 16, 3, mii_retime_data),	/* TXD[3] */
+			CLOCK_IN(1, 17, 0, mii_retime_clock),	/* TXCLK */
+			DATA_OUT(1, 17, 1, mii_retime_data),	/* TXER */
+			BYPASS_IN(1, 17, 2, mii_retime_bypass),	/* CRS */
+			BYPASS_IN(1, 17, 3, mii_retime_bypass),	/* COL */
+			BYPASS_OUT(1, 17, 4, mii_retime_bypass),/* MDIO */
+			CLOCK_OUT(1, 17, 5, mii_retime_clock),	/* MDC */
+			DATA_IN(1, 17, 6, mii_retime_data),	/* RXDV */
+			DATA_IN(1, 17, 7, mii_retime_data),	/* RX_ER */
+			DATA_IN(1, 18, 0, mii_retime_data),	/* RXD[0] */
+			DATA_IN(1, 18, 1, mii_retime_data),	/* RXD[1] */
+			DATA_IN(1, 18, 2, mii_retime_data),	/* RXD[2] */
+			DATA_IN(1, 18, 3, mii_retime_data),	/* RXD[3] */
+			CLOCK_IN(1, 19, 0, mii_retime_clock),	/* RXCLK */
 		},
 		.sysconfs_num = 3,
 		.sysconfs = (struct stm_pad_sysconf []) {
@@ -238,34 +297,34 @@ static struct stm_pad_config stx7108_ethernet_gmii_pad_configs[] = {
 	[0] =  {
 		.gpios_num = 28,
 		.gpios = (struct stm_pad_gpio []) {
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 0),	/* TXD[0] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 1),	/* TXD[1] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 2),	/* TXD[2] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 3),	/* TXD[3] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 4),	/* TXD[4] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 5),	/* TXD[5] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 6),	/* TXD[6] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 7),	/* TXD[7] */
-			STX7108_PIO_ETH_DATA_OUT(0, 7, 0),	/* TXER */  
-			STX7108_PIO_ETH_DATA_OUT(0, 7, 1),	/* TXEN */  
-			STX7108_PIO_ETH_CLOCK_IN(0, 7, 2),	/* TXCLK */ 
-			STX7108_PIO_ETH_BYPASS_IN(0, 7, 3),	/* COL */
-			STX7108_PIO_ETH_BYPASS_OUT(0, 7, 4),	/* MDIO */
-			STX7108_PIO_ETH_CLOCK_OUT(0, 7, 5),	/* MDC */  
-			STX7108_PIO_ETH_BYPASS_IN(0, 7, 6),	/* CRS */  
-			STX7108_PIO_ETH_BYPASS_IN(0, 7, 7),	/* MDINT */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 0),	/* RXD[0] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 1),	/* RXD[1] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 2),	/* RXD[2] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 3),	/* RXD[3] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 4),	/* RXD[4] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 5),	/* RXD[5] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 6),	/* RXD[6] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 7),	/* RXD[7] */
-			STX7108_PIO_ETH_DATA_IN(0, 9, 0),	/* RXDV */  
-			STX7108_PIO_ETH_DATA_IN(0, 9, 1),	/* RX_ER */ 
-			STX7108_PIO_ETH_CLOCK_IN(0, 9, 2),	/* RXCLK */
-			STX7108_PIO_ETH_PHY_CLOCK(0, 9, 3),	/* PHYCLK */
+			DATA_OUT(0, 6, 0, mii_retime_data),	/* TXD[0] */
+			DATA_OUT(0, 6, 1, mii_retime_data),	/* TXD[1] */
+			DATA_OUT(0, 6, 2, mii_retime_data),	/* TXD[2] */
+			DATA_OUT(0, 6, 3, mii_retime_data),	/* TXD[3] */
+			DATA_OUT(0, 6, 4, mii_retime_data),	/* TXD[4] */
+			DATA_OUT(0, 6, 5, mii_retime_data),	/* TXD[5] */
+			DATA_OUT(0, 6, 6, mii_retime_data),	/* TXD[6] */
+			DATA_OUT(0, 6, 7, mii_retime_data),	/* TXD[7] */
+			DATA_OUT(0, 7, 0, mii_retime_data),	/* TXER */
+			DATA_OUT(0, 7, 1, mii_retime_data),	/* TXEN */
+			CLOCK_IN(0, 7, 2, mii_retime_clock),	/* TXCLK */
+			BYPASS_IN(0, 7, 3, mii_retime_bypass),	/* COL */
+			BYPASS_OUT(0, 7, 4, mii_retime_bypass),	/* MDIO */
+			CLOCK_OUT(0, 7, 5, mii_retime_clock),	/* MDC */
+			BYPASS_IN(0, 7, 6, mii_retime_bypass),	/* CRS */
+			BYPASS_IN(0, 7, 7, mii_retime_bypass),	/* MDINT */
+			DATA_IN(0, 8, 0, mii_retime_data),	/* RXD[0] */
+			DATA_IN(0, 8, 1, mii_retime_data),	/* RXD[1] */
+			DATA_IN(0, 8, 2, mii_retime_data),	/* RXD[2] */
+			DATA_IN(0, 8, 3, mii_retime_data),	/* RXD[3] */
+			DATA_IN(0, 8, 4, mii_retime_data),	/* RXD[4] */
+			DATA_IN(0, 8, 5, mii_retime_data),	/* RXD[5] */
+			DATA_IN(0, 8, 6, mii_retime_data),	/* RXD[6] */
+			DATA_IN(0, 8, 7, mii_retime_data),	/* RXD[7] */
+			DATA_IN(0, 9, 0, mii_retime_data),	/* RXDV */
+			DATA_IN(0, 9, 1, mii_retime_data),	/* RX_ER */
+			CLOCK_IN(0, 9, 2, mii_retime_clock),	/* RXCLK */
+			PHY_CLOCK(0, 9, 3, gmii_gtx_retime_clock),/* PHYCLK */
 		},
 		.sysconfs_num = 3,
 		.sysconfs = (struct stm_pad_sysconf []) {
@@ -280,34 +339,34 @@ static struct stm_pad_config stx7108_ethernet_gmii_pad_configs[] = {
 	[1] =  {
 		.gpios_num = 28,
 		.gpios = (struct stm_pad_gpio []) {
-			STX7108_PIO_ETH_PHY_CLOCK(1, 15, 5),	/* PHYCLK */
-			STX7108_PIO_ETH_BYPASS_IN(1, 15, 6),	/* MDINT */
-			STX7108_PIO_ETH_DATA_OUT(1, 15, 7),	/* TXEN */  
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 0),	/* TXD[0] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 1),	/* TXD[1] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 2),	/* TXD[2] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 3),	/* TXD[3] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 4),	/* TXD[4] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 5),	/* TXD[5] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 6),	/* TXD[6] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 7),	/* TXD[7] */
-			STX7108_PIO_ETH_CLOCK_IN(1, 17, 0),	/* TXCLK */ 
-			STX7108_PIO_ETH_DATA_OUT(1, 17, 1),	/* TXER */  
-			STX7108_PIO_ETH_BYPASS_IN(1, 17, 2),	/* CRS */  
-			STX7108_PIO_ETH_BYPASS_IN(1, 17, 3),	/* COL */
-			STX7108_PIO_ETH_BYPASS_OUT(1, 17, 4),	/* MDIO */
-			STX7108_PIO_ETH_CLOCK_OUT(1, 17, 5),	/* MDC */  
-			STX7108_PIO_ETH_DATA_IN(1, 17, 6),	/* RXDV */  
-			STX7108_PIO_ETH_DATA_IN(1, 17, 7),	/* RX_ER */ 
-			STX7108_PIO_ETH_DATA_IN(1, 18, 0),	/* RXD[0] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 1),	/* RXD[1] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 2),	/* RXD[2] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 3),	/* RXD[3] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 4),	/* RXD[4] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 5),	/* RXD[5] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 6),	/* RXD[6] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 7),	/* RXD[7] */
-			STX7108_PIO_ETH_CLOCK_IN(1, 19, 0),	/* RXCLK */
+			PHY_CLOCK(1, 15, 5, gmii_gtx_retime_clock),/* PHYCLK */
+			BYPASS_IN(1, 15, 6, mii_retime_bypass),	/* MDINT */
+			DATA_OUT(1, 15, 7, mii_retime_data),	/* TXEN */
+			DATA_OUT(1, 16, 0, mii_retime_data),	/* TXD[0] */
+			DATA_OUT(1, 16, 1, mii_retime_data),	/* TXD[1] */
+			DATA_OUT(1, 16, 2, mii_retime_data),	/* TXD[2] */
+			DATA_OUT(1, 16, 3, mii_retime_data),	/* TXD[3] */
+			DATA_OUT(1, 16, 4, mii_retime_data),	/* TXD[4] */
+			DATA_OUT(1, 16, 5, mii_retime_data),	/* TXD[5] */
+			DATA_OUT(1, 16, 6, mii_retime_data),	/* TXD[6] */
+			DATA_OUT(1, 16, 7, mii_retime_data),	/* TXD[7] */
+			CLOCK_IN(1, 17, 0, mii_retime_clock),	/* TXCLK */
+			DATA_OUT(1, 17, 1, mii_retime_data),	/* TXER */
+			BYPASS_IN(1, 17, 2, mii_retime_bypass),	/* CRS */
+			BYPASS_IN(1, 17, 3, mii_retime_bypass),	/* COL */
+			BYPASS_OUT(1, 17, 4, mii_retime_bypass),/* MDIO */
+			CLOCK_OUT(1, 17, 5, mii_retime_clock),	/* MDC */
+			DATA_IN(1, 17, 6, mii_retime_data),	/* RXDV */
+			DATA_IN(1, 17, 7, mii_retime_data),	/* RX_ER */
+			DATA_IN(1, 18, 0, mii_retime_data),	/* RXD[0] */
+			DATA_IN(1, 18, 1, mii_retime_data),	/* RXD[1] */
+			DATA_IN(1, 18, 2, mii_retime_data),	/* RXD[2] */
+			DATA_IN(1, 18, 3, mii_retime_data),	/* RXD[3] */
+			DATA_IN(1, 18, 4, mii_retime_data),	/* RXD[4] */
+			DATA_IN(1, 18, 5, mii_retime_data),	/* RXD[5] */
+			DATA_IN(1, 18, 6, mii_retime_data),	/* RXD[6] */
+			DATA_IN(1, 18, 7, mii_retime_data),	/* RXD[7] */
+			CLOCK_IN(1, 19, 0, mii_retime_clock),	/* RXCLK */
 		},
 		.sysconfs_num = 3,
 		.sysconfs = (struct stm_pad_sysconf []) {
@@ -321,22 +380,88 @@ static struct stm_pad_config stx7108_ethernet_gmii_pad_configs[] = {
 	},
 };
 
+static struct stm_pad_config stx7108_ethernet_rgmii_pad_configs[] = {
+	[0] =  {
+		.gpios_num = 18,
+		.gpios = (struct stm_pad_gpio []) {
+			DATA_OUT(0, 6, 0, rgmii_retime_data),	/* TXD[0] */
+			DATA_OUT(0, 6, 1, rgmii_retime_data),	/* TXD[1] */
+			DATA_OUT(0, 6, 2, rgmii_retime_data),	/* TXD[2] */
+			DATA_OUT(0, 6, 3, rgmii_retime_data),	/* TXD[3] */
+			DATA_OUT(0, 7, 1, rgmii_retime_data),	/* TXEN */
+			CLOCK_IN(0, 7, 2, rgmii_retime_clock),	/* TXCLK */
+			BYPASS_IN(0, 7, 3, rgmii_retime_bypass),/* COL */
+			BYPASS_OUT(0, 7, 4, rgmii_retime_bypass),/* MDIO */
+			CLOCK_OUT(0, 7, 5, rgmii_retime_clock),	/* MDC */
+			BYPASS_IN(0, 7, 6, rgmii_retime_bypass),/* CRS */
+			BYPASS_IN(0, 7, 7, rgmii_retime_bypass),/* MDINT */
+			DATA_IN(0, 8, 0, rgmii_retime_data),	/* RXD[0] */
+			DATA_IN(0, 8, 1, rgmii_retime_data),	/* RXD[1] */
+			DATA_IN(0, 8, 2, rgmii_retime_data),	/* RXD[2] */
+			DATA_IN(0, 8, 3, rgmii_retime_data),	/* RXD[3] */
+			DATA_IN(0, 9, 0, rgmii_retime_data),	/* RXDV */
+			CLOCK_IN(0, 9, 2, rgmii_retime_clock),	/* RXCLK */
+			PHY_CLOCK(0, 9, 3, rgmii_gtx_retime_clock),/* PHYCLK */
+		},
+		.sysconfs_num = 3,
+		.sysconfs = (struct stm_pad_sysconf []) {
+			/* EN_GMAC0 */
+			STM_PAD_SYS_CFG_BANK(2, 53, 0, 0, 1),
+			/* MIIx_PHY_SEL */
+			STM_PAD_SYS_CFG_BANK(2, 27, 2, 4, 1),
+			/* ENMIIx */
+			STM_PAD_SYS_CFG_BANK(2, 27, 5, 5, 1),
+		},
+	},
+	[1] =  {
+		.gpios_num = 18,
+		.gpios = (struct stm_pad_gpio []) {
+			PHY_CLOCK(1, 15, 5, rgmii_gtx_retime_clock),/* PHYCLK */
+			BYPASS_IN(1, 15, 6, rgmii_retime_bypass),/* MDINT */
+			DATA_OUT(1, 15, 7, rgmii_retime_data),	/* TXEN */
+			DATA_OUT(1, 16, 0, rgmii_retime_data),	/* TXD[0] */
+			DATA_OUT(1, 16, 1, rgmii_retime_data),	/* TXD[1] */
+			DATA_OUT(1, 16, 2, rgmii_retime_data),	/* TXD[2] */
+			DATA_OUT(1, 16, 3, rgmii_retime_data),	/* TXD[3] */
+			CLOCK_IN(1, 17, 0, rgmii_retime_clock),	/* TXCLK */
+			BYPASS_IN(1, 17, 2, rgmii_retime_bypass),/* CRS */
+			BYPASS_IN(1, 17, 3, rgmii_retime_bypass),/* COL */
+			BYPASS_OUT(1, 17, 4, rgmii_retime_bypass),/* MDIO */
+			CLOCK_OUT(1, 17, 5, rgmii_retime_clock),/* MDC */
+			DATA_IN(1, 17, 6, rgmii_retime_data),	/* RXDV */
+			DATA_IN(1, 18, 0, rgmii_retime_data),	/* RXD[0] */
+			DATA_IN(1, 18, 1, rgmii_retime_data),	/* RXD[1] */
+			DATA_IN(1, 18, 2, rgmii_retime_data),	/* RXD[2] */
+			DATA_IN(1, 18, 3, rgmii_retime_data),	/* RXD[3] */
+			CLOCK_IN(1, 19, 0, rgmii_retime_clock),	/* RXCLK */
+		},
+		.sysconfs_num = 3,
+		.sysconfs = (struct stm_pad_sysconf []) {
+			/* EN_GMAC1 */
+			STM_PAD_SYS_CFG_BANK(4, 67, 0, 0, 1),
+			/* MIIx_PHY_SEL */
+			STM_PAD_SYS_CFG_BANK(4, 23, 2, 4, 1),
+			/* ENMIIx */
+			STM_PAD_SYS_CFG_BANK(4, 23, 5, 5, 1),
+		},
+	},
+};
 static struct stm_pad_config stx7108_ethernet_rmii_pad_configs[] = {
 	[0] = {
 		.gpios_num = 12,
 		.gpios = (struct stm_pad_gpio []) {
-			STX7108_PIO_ETH_BYPASS_OUT(0, 6, 0),	/* TXD[0] */
-			STX7108_PIO_ETH_BYPASS_OUT(0, 6, 1),	/* TXD[1] */
-			STX7108_PIO_ETH_BYPASS_OUT(0, 7, 0),	/* TXER */
-			STX7108_PIO_ETH_BYPASS_OUT(0, 7, 1),	/* TXEN */
-			STX7108_PIO_ETH_BYPASS_OUT(0, 7, 4),	/* MDIO */
-			STX7108_PIO_ETH_BYPASS_OUT(0, 7, 5),	/* MDC */
-			STX7108_PIO_ETH_BYPASS_IN(0, 7, 7),	/* MDINT */
-			STX7108_PIO_ETH_BYPASS_IN(0, 8, 0),	/* RXD.0 */
-			STX7108_PIO_ETH_BYPASS_IN(0, 8, 1),	/* RXD.1 */
-			STX7108_PIO_ETH_BYPASS_IN(0, 9, 0),	/* RXDV */
-			STX7108_PIO_ETH_BYPASS_IN(0, 9, 1),	/* RX_ER */
-			STX7108_PIO_ETH_PHY_CLOCK(0, 9, 3),	/* PHYCLK */
+			BYPASS_OUT(0, 6, 0, mii_retime_bypass),	/* TXD[0] */
+			BYPASS_OUT(0, 6, 1, mii_retime_bypass),	/* TXD[1] */
+			BYPASS_OUT(0, 7, 0, mii_retime_bypass),	/* TXER */
+			BYPASS_OUT(0, 7, 1, mii_retime_bypass),	/* TXEN */
+			BYPASS_OUT(0, 7, 4, mii_retime_bypass),	/* MDIO */
+			BYPASS_OUT(0, 7, 5, mii_retime_bypass),	/* MDC */
+			BYPASS_IN(0, 7, 7, mii_retime_bypass),	/* MDINT */
+			BYPASS_IN(0, 8, 0, mii_retime_bypass),	/* RXD.0 */
+			BYPASS_IN(0, 8, 1, mii_retime_bypass),	/* RXD.1 */
+			BYPASS_IN(0, 9, 0, mii_retime_bypass),	/* RXDV */
+			BYPASS_IN(0, 9, 1, mii_retime_bypass),	/* RX_ER */
+			PHY_CLOCK(0, 9, 3, mii_retime_phy_clock),/* PHYCLK */
 		},
 		.sysconfs_num = 3,
 		.sysconfs = (struct stm_pad_sysconf []) {
@@ -351,18 +476,18 @@ static struct stm_pad_config stx7108_ethernet_rmii_pad_configs[] = {
 	[1] =  {
 		.gpios_num = 12,
 		.gpios = (struct stm_pad_gpio []) {
-			STX7108_PIO_ETH_PHY_CLOCK(1, 15, 5),	/* PHYCLK */
-			STX7108_PIO_ETH_BYPASS_IN(1, 15, 6),	/* MDINT */
-			STX7108_PIO_ETH_DATA_OUT(1, 15, 7),	/* TXEN */  
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 0),	/* TXD[0] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 1),	/* TXD[1] */
-			STX7108_PIO_ETH_DATA_OUT(1, 17, 1),	/* TXER */  
-			STX7108_PIO_ETH_BYPASS_OUT(1, 17, 4),	/* MDIO */
-			STX7108_PIO_ETH_CLOCK_OUT(1, 17, 5),	/* MDC */  
-			STX7108_PIO_ETH_DATA_IN(1, 17, 6),	/* RXDV */  
-			STX7108_PIO_ETH_DATA_IN(1, 17, 7),	/* RX_ER */ 
-			STX7108_PIO_ETH_DATA_IN(1, 18, 0),	/* RXD[0] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 1),	/* RXD[1] */
+			PHY_CLOCK(1, 15, 5, mii_retime_phy_clock),/* PHYCLK */
+			BYPASS_IN(1, 15, 6, mii_retime_bypass),	/* MDINT */
+			DATA_OUT(1, 15, 7, mii_retime_data),	/* TXEN */
+			DATA_OUT(1, 16, 0, mii_retime_data),	/* TXD[0] */
+			DATA_OUT(1, 16, 1, mii_retime_data),	/* TXD[1] */
+			DATA_OUT(1, 17, 1, mii_retime_data),	/* TXER */
+			BYPASS_OUT(1, 17, 4, mii_retime_bypass),/* MDIO */
+			CLOCK_OUT(1, 17, 5, mii_retime_clock),	/* MDC */
+			DATA_IN(1, 17, 6, mii_retime_data),	/* RXDV */
+			DATA_IN(1, 17, 7, mii_retime_data),	/* RX_ER */
+			DATA_IN(1, 18, 0, mii_retime_data),	/* RXD[0] */
+			DATA_IN(1, 18, 1, mii_retime_data),	/* RXD[1] */
 		},
 		.sysconfs_num = 3,
 		.sysconfs = (struct stm_pad_sysconf []) {
@@ -380,26 +505,26 @@ static struct stm_pad_config stx7108_ethernet_reverse_mii_pad_configs[] = {
 	[0] = {
 		.gpios_num = 20,
 		.gpios = (struct stm_pad_gpio []) {
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 0),	/* TXD[0] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 1),	/* TXD[1] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 2),	/* TXD[2] */
-			STX7108_PIO_ETH_DATA_OUT(0, 6, 3),	/* TXD[3] */
-			STX7108_PIO_ETH_DATA_OUT(0, 7, 0),	/* TXER */  
-			STX7108_PIO_ETH_DATA_OUT(0, 7, 1),	/* TXEN */  
-			STX7108_PIO_ETH_CLOCK_IN(0, 7, 2),	/* TXCLK */ 
-			STX7108_PIO_ETH_BYPASS_OUT(0, 7, 3),	/* COL */
-			STX7108_PIO_ETH_BYPASS_OUT(0, 7, 4),	/* MDIO*/
-			STX7108_PIO_ETH_CLOCK_IN(0, 7, 5),	/* MDC */  
-			STX7108_PIO_ETH_BYPASS_OUT(0, 7, 6),	/* CRS */  
-			STX7108_PIO_ETH_BYPASS_IN(0, 7, 7),	/* MDINT */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 0),	/* RXD[0] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 1),	/* RXD[1] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 2),	/* RXD[2] */
-			STX7108_PIO_ETH_DATA_IN(0, 8, 3),	/* RXD[3] */
-			STX7108_PIO_ETH_DATA_IN(0, 9, 0),	/* RXDV */  
-			STX7108_PIO_ETH_DATA_IN(0, 9, 1),	/* RX_ER */ 
-			STX7108_PIO_ETH_CLOCK_IN(0, 9, 2),	/* RXCLK */
-			STX7108_PIO_ETH_PHY_CLOCK(0, 9, 3),	/* PHYCLK */
+			DATA_OUT(0, 6, 0, mii_retime_data),	/* TXD[0] */
+			DATA_OUT(0, 6, 1, mii_retime_data),	/* TXD[1] */
+			DATA_OUT(0, 6, 2, mii_retime_data),	/* TXD[2] */
+			DATA_OUT(0, 6, 3, mii_retime_data),	/* TXD[3] */
+			DATA_OUT(0, 7, 0, mii_retime_data),	/* TXER */
+			DATA_OUT(0, 7, 1, mii_retime_data),	/* TXEN */
+			CLOCK_IN(0, 7, 2, mii_retime_clock),	/* TXCLK */
+			BYPASS_OUT(0, 7, 3, mii_retime_bypass),	/* COL */
+			BYPASS_OUT(0, 7, 4, mii_retime_bypass),	/* MDIO*/
+			CLOCK_IN(0, 7, 5, mii_retime_clock),	/* MDC */
+			BYPASS_OUT(0, 7, 6, mii_retime_bypass),	/* CRS */
+			BYPASS_IN(0, 7, 7, mii_retime_bypass),	/* MDINT */
+			DATA_IN(0, 8, 0, mii_retime_data),	/* RXD[0] */
+			DATA_IN(0, 8, 1, mii_retime_data),	/* RXD[1] */
+			DATA_IN(0, 8, 2, mii_retime_data),	/* RXD[2] */
+			DATA_IN(0, 8, 3, mii_retime_data),	/* RXD[3] */
+			DATA_IN(0, 9, 0, mii_retime_data),	/* RXDV */
+			DATA_IN(0, 9, 1, mii_retime_data),	/* RX_ER */
+			CLOCK_IN(0, 9, 2, mii_retime_clock),	/* RXCLK */
+			PHY_CLOCK(0, 9, 3, mii_retime_phy_clock),/* PHYCLK */
 		},
 		.sysconfs_num = 3,
 		.sysconfs = (struct stm_pad_sysconf []) {
@@ -414,26 +539,26 @@ static struct stm_pad_config stx7108_ethernet_reverse_mii_pad_configs[] = {
 	[1] =  {
 		.gpios_num = 20,
 		.gpios = (struct stm_pad_gpio []) {
-			STX7108_PIO_ETH_PHY_CLOCK(1, 15, 5),	/* PHYCLK */
-			STX7108_PIO_ETH_BYPASS_IN(1, 15, 6),	/* MDINT */
-			STX7108_PIO_ETH_DATA_OUT(1, 15, 7),	/* TXEN */  
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 0),	/* TXD[0] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 1),	/* TXD[1] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 2),	/* TXD[2] */
-			STX7108_PIO_ETH_DATA_OUT(1, 16, 3),	/* TXD[3] */
-			STX7108_PIO_ETH_CLOCK_IN(1, 17, 0),	/* TXCLK */ 
-			STX7108_PIO_ETH_DATA_OUT(1, 17, 1),	/* TXER */  
-			STX7108_PIO_ETH_BYPASS_OUT(1, 17, 2),	/* CRS */  
-			STX7108_PIO_ETH_BYPASS_OUT(1, 17, 3),	/* COL */
-			STX7108_PIO_ETH_BYPASS_OUT(1, 17, 4),	/* MDIO */
-			STX7108_PIO_ETH_CLOCK_IN(1, 17, 5),	/* MDC */  
-			STX7108_PIO_ETH_DATA_IN(1, 17, 6),	/* RXDV */  
-			STX7108_PIO_ETH_DATA_IN(1, 17, 7),	/* RX_ER */ 
-			STX7108_PIO_ETH_DATA_IN(1, 18, 0),	/* RXD[0] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 1),	/* RXD[1] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 2),	/* RXD[2] */
-			STX7108_PIO_ETH_DATA_IN(1, 18, 3),	/* RXD[3] */
-			STX7108_PIO_ETH_CLOCK_IN(1, 19, 0),	/* RXCLK */
+			PHY_CLOCK(1, 15, 5, mii_retime_phy_clock),/* PHYCLK */
+			BYPASS_IN(1, 15, 6, mii_retime_bypass),	/* MDINT */
+			DATA_OUT(1, 15, 7, mii_retime_data),	/* TXEN */
+			DATA_OUT(1, 16, 0, mii_retime_data),	/* TXD[0] */
+			DATA_OUT(1, 16, 1, mii_retime_data),	/* TXD[1] */
+			DATA_OUT(1, 16, 2, mii_retime_data),	/* TXD[2] */
+			DATA_OUT(1, 16, 3, mii_retime_data),	/* TXD[3] */
+			CLOCK_IN(1, 17, 0, mii_retime_clock),	/* TXCLK */
+			DATA_OUT(1, 17, 1, mii_retime_data),	/* TXER */
+			BYPASS_OUT(1, 17, 2, mii_retime_bypass),/* CRS */
+			BYPASS_OUT(1, 17, 3, mii_retime_bypass),/* COL */
+			BYPASS_OUT(1, 17, 4, mii_retime_bypass),/* MDIO */
+			CLOCK_IN(1, 17, 5, mii_retime_clock),	/* MDC */
+			DATA_IN(1, 17, 6, mii_retime_data),	/* RXDV */
+			DATA_IN(1, 17, 7, mii_retime_data),	/* RX_ER */
+			DATA_IN(1, 18, 0, mii_retime_data),	/* RXD[0] */
+			DATA_IN(1, 18, 1, mii_retime_data),	/* RXD[1] */
+			DATA_IN(1, 18, 2, mii_retime_data),	/* RXD[2] */
+			DATA_IN(1, 18, 3, mii_retime_data),	/* RXD[3] */
+			CLOCK_IN(1, 19, 0, mii_retime_clock),	/* RXCLK */
 		},
 		.sysconfs_num = 3,
 		.sysconfs = (struct stm_pad_sysconf []) {
@@ -454,7 +579,7 @@ static void stx7108_ethernet_rmii_speed(void *bsp_priv, unsigned int speed)
 	sysconf_write(mac_speed_sel, (speed == SPEED_100) ? 1 : 0);
 }
 
-static void stx7108_ethernet_gmii_gtx_speed(void *priv, unsigned int speed)
+static void stx7108_ethernet_gtx_speed(void *priv, unsigned int speed)
 {
 	void (*txclk_select)(int txclk_250_not_25_mhz) = priv;
 
@@ -533,11 +658,21 @@ void __init stx7108_configure_ethernet(int port,
 		stm_pad_set_pio_ignored(pad_config, "PHYCLK");
 		break;
 	case stx7108_ethernet_mode_gmii_gtx:
-		gtx_priv.retime = &stx7108_ethernet_retime_gtx_clock;
 		pad_config = &stx7108_ethernet_gmii_pad_configs[port];
 		stm_pad_set_pio_out(pad_config, "PHYCLK", 1 + port);
-		stm_pad_set_priv(pad_config, "PHYCLK", &gtx_priv);
-		plat_data->fix_mac_speed = stx7108_ethernet_gmii_gtx_speed;
+		plat_data->fix_mac_speed = stx7108_ethernet_gtx_speed;
+		plat_data->bsp_priv = config->txclk_select;
+		break;
+	case stx7108_ethernet_mode_rgmii_gtx:
+		/* This mode is similar to GMII (GTX) except the data
+		 * buses are reduced down to 4 bits and the 2 error
+		 * signals are removed. The data rate is maintained by
+		 * using both edges of the clock. This also explains
+		 * the different retiming configuration for this mode.
+		 */
+		pad_config = &stx7108_ethernet_rgmii_pad_configs[port];
+		stm_pad_set_pio_out(pad_config, "PHYCLK", 1 + port);
+		plat_data->fix_mac_speed = stx7108_ethernet_gtx_speed;
 		plat_data->bsp_priv = config->txclk_select;
 		break;
 	case stx7108_ethernet_mode_rmii:

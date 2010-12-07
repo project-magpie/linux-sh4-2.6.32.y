@@ -31,6 +31,9 @@
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
 
+#undef GMAC_RGMII_MODE
+/*#define GMAC_RGMII_MODE*/
+
 /*
  * The FLASH devices are configured according to the boot-mode:
  *
@@ -364,7 +367,6 @@ static int __init device_init(void)
 	u32 bank2_start;
 	u32 bank3_start;
 	u32 boot_device;
-	int phy_bus;
 
 	bank1_start = emi_bank_base(1);
 	bank2_start = emi_bank_base(2);
@@ -454,12 +456,20 @@ static int __init device_init(void)
 	 *	MII     NC       NC     51R     51R
 	 *
 	 * On the HDK7108V1/2: remove R31 and place it at R39.
+	 *
+	 * RGMII more requires the following HW change (on both
+	 * HDK7108V1 and HDK7108V2): remove R29 and place it at R37
+	 *
 	 */
 	gpio_request(HDK7108_GPIO_MII_SPEED_SEL, "stmmac");
 	gpio_direction_output(HDK7108_GPIO_MII_SPEED_SEL, 0);
 
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
+#ifndef GMAC_RGMII_MODE
 			.mode = stx7108_ethernet_mode_gmii_gtx,
+#else
+			.mode = stx7108_ethernet_mode_rgmii_gtx,
+#endif /* GMAC_RGMII_MODE */
 			.ext_clk = 0,
 			.phy_bus = 1,
 			.txclk_select = hdk7108_mii_txclk_select, });

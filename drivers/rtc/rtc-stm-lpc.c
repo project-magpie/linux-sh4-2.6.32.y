@@ -304,6 +304,7 @@ static int __devinit stm_rtc_probe(struct platform_device *pdev)
 	struct resource *res;
 	int size;
 	int ret = 0;
+	struct rtc_time tm_check;
 
 	rtc = kzalloc(sizeof(struct stm_rtc), GFP_KERNEL);
 	if (unlikely(!rtc))
@@ -370,6 +371,26 @@ static int __devinit stm_rtc_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, rtc);
+
+	/*
+	 * The RTC-LPC is able to manage date.year > 2038
+	 * but currently the kernel can not manage this date!
+	 * If the RTC-LPC has a date.year > 2038 then
+	 * it's set to the epoch "Jan 1st 2000"
+	 */
+	stm_rtc_read_time(&pdev->dev, &tm_check);
+
+	if (tm_check.tm_year >=  (2038 - 1900)) {
+		memset(&tm_check, 0, sizeof(tm_check));
+		tm_check.tm_year = 100;
+		/*
+		 * FIXME:
+		 *   the 'tm_check.tm_mday' should be set to zero but the func-
+		 *   tions rtc_tm_to_time and rtc_time_to_time aren't coherent.
+		 */
+		tm_check.tm_mday = 1;
+		stm_rtc_set_time(&pdev->dev, &tm_check);
+	}
 
 	return ret;
 

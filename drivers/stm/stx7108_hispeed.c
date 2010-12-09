@@ -629,6 +629,22 @@ static struct platform_device stx7108_ethernet_devices[] = {
 	}
 };
 
+#define GMAC_AHB_CONFIG         0x7000
+static void stx7108_ethernet_bus_setup(void __iomem *ioaddr)
+{
+	/* Configure the bridge to generate more efficient STBus traffic.
+	 *
+	 * Cut Version	| Ethernet AD_CONFIG[21:0]
+	 * ---------------------------------------
+	 *	1.1	|	0x00264006
+	 *	2.0	|	0x00264207
+	 */
+	if (boot_cpu_data.cut_major == 1)
+		writel(0x00264006, ioaddr + GMAC_AHB_CONFIG);
+	else if (boot_cpu_data.cut_major == 2)
+		writel(0x00264207, ioaddr + GMAC_AHB_CONFIG);
+}
+
 void __init stx7108_configure_ethernet(int port,
 		struct stx7108_ethernet_config *config)
 {
@@ -701,6 +717,9 @@ void __init stx7108_configure_ethernet(int port,
 		BUG();
 		return;
 	}
+
+	stx7108_ethernet_platform_data[port].bus_setup =
+			stx7108_ethernet_bus_setup;
 
 	plat_data->custom_cfg = (void *) pad_config;
 	plat_data->bus_id = config->phy_bus;

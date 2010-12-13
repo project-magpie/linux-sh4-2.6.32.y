@@ -374,3 +374,5 @@ ENTRY(sys_call_table)
 	.long sys_getsockopt
 	.long sys_sendmsg		/* 355 */
 	.long sys_recvmsg
+	.long sys_ni_syscall /* will be sys_recvmmsg */
+	.long sys_accept4

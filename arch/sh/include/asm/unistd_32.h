@@ -373,8 +373,10 @@
 #define __NR_getsockopt    354
 #define __NR_sendmsg       355
 #define __NR_recvmsg       356
+/* #define __NR_recvmmsg   357 - implemented in later kernels */
+#define __NR_accept4       358
 
-#define NR_syscalls 357
+#define NR_syscalls 359
 
 #ifdef __KERNEL__
 

@@ -184,10 +184,8 @@ void nwhw_uconfig(struct net_device *dev)
 			}
 		}
 		if (valid_ether) {
-			if (!dev->set_mac_address ||
-			    dev->set_mac_address(dev, &ether_addr)) {
+			if (dev_set_mac_address(dev, &ether_addr))
 				printk(KERN_WARNING "\tnot set MAC address\n");
-			}
 		}
 		ndev++;
 	}

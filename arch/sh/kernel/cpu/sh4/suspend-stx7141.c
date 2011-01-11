@@ -182,6 +182,8 @@ static int stx7141_suspend_core(suspend_state_t state, int suspending)
 	kfree(clka_switch_cfg);
 	clka_switch_cfg = NULL;
 	clka_pll0_div = clka_pll1_div = NULL;
+
+	stx7141_suspend_wake();
 	return 0;
 
 on_suspending:
@@ -268,7 +270,6 @@ static int stx7141_evttoirq(unsigned long evt)
 static struct stm_platform_suspend_t stx7141_suspend __cacheline_aligned = {
 
 	.ops.begin = stx7141_suspend_begin,
-	.ops.wake = stx7141_suspend_wake,
 
 	.evt_to_irq = stx7141_evttoirq,
 	.pre_enter = stx7141_suspend_pre_enter,

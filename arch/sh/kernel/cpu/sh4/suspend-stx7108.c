@@ -284,6 +284,7 @@ static int stx7108_suspend_core(suspend_state_t state, int suspending)
 	pll0_regs = NULL;
 	pll1_regs = NULL;
 
+	stx7108_suspend_wake();
 	pr_debug("[STM][PM] ClockGens A: restored\n");
 	return 0;
 
@@ -371,7 +372,6 @@ static int stx7108_evttoirq(unsigned long evt)
 
 static struct stm_platform_suspend_t stx7108_suspend __cacheline_aligned = {
 	.ops.begin = stx7108_suspend_begin,
-	.ops.wake = stx7108_suspend_wake,
 
 	.evt_to_irq = stx7108_evttoirq,
 	.pre_enter = stx7108_suspend_pre_enter,

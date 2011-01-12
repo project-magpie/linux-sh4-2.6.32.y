@@ -1,0 +1,21 @@
+if SH_ST_HDK7108
+
+menu "hdk7108: STx7108 Reference board options"
+
+config SH_ST_HDK7108_STMMAC0
+	bool "Enable STMMAC 0"
+	default n
+	help
+	  Enable STMMAC 0
+
+config SH_ST_HDK7108_GMAC_RGMII_MODE
+	bool "Use GMAC1 in RGMII mode"
+	help
+	  GMAC1 is the default device used on this board and it is
+	  configured in GMII GTX mode.
+	  This option is used to have it working in RGMII mode.
+	  To support RGMII remove R29 and place it at R37.
+
+endmenu
+
+endif

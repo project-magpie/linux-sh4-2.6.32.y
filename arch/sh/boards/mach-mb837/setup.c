@@ -140,8 +140,6 @@ static struct platform_device mb837_phy_devices[] = {
 	}
 };
 
-
-
 /* PCF8575 I2C PIO Extender (IC12) */
 static struct i2c_board_info mb837_pio_extender = {
 	I2C_BOARD_INFO("pcf857x", 0x27),
@@ -234,17 +232,19 @@ static int __init mb837_devices_init(void)
 	stx7108_configure_sata(0);
 	stx7108_configure_sata(1);
 
-#if 0
-	stx7108_configure_ethernet(0, (&(struct stx7108_ethernet_config) {
+#ifdef CONFIG_SH_ST_MB837_STMMAC0
+	stx7108_configure_ethernet(0, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_mii,
 			.ext_clk = 1,
 			.phy_bus = 0, });
-#else
+#endif
+#ifdef CONFIG_SH_ST_MB837_STMMAC1
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_mii,
 			.ext_clk = 1,
 			.phy_bus = 1, });
 #endif
+
 	/* MMC Hardware settings:
 	 * - Jumpers to be set:
 	 * 	J52[A..H] , J51[A..C] , J51-D, J42-B and J42-D

@@ -152,8 +152,6 @@ static struct platform_device hdk7108_front_panel = {
 	},
 };
 
-
-
 static int hdk7108_phy_reset(void *bus)
 {
 	static int done;
@@ -443,14 +441,15 @@ static int __init device_init(void)
 	stx7108_configure_sata(0);
 	stx7108_configure_sata(1);
 
-#if 0
-	stx7108_configure_ethernet(0, (&(struct stx7108_ethernet_config) {
+#ifdef CONFIG_SH_ST_HDK7108_STMMAC0
+	stx7108_configure_ethernet(0, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_mii,
 			.ext_clk = 1,
 			.phy_bus = 0, });
-#else
+#endif /* CONFIG_SH_ST_HDK7108_STMMAC0  */
+
 	/* HW changes needed to use the GMII mode (GTX CLK) on the
-	 * HDK7108V1:
+	 * HDK7108V1 GMAC1 (default MAC on this platform):
 	 *		RP18    RP42    RP14    Rp17
 	 *	GMII    NC       51R    NC      51R
 	 *	MII     NC       NC     51R     51R
@@ -465,15 +464,14 @@ static int __init device_init(void)
 	gpio_direction_output(HDK7108_GPIO_MII_SPEED_SEL, 0);
 
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
-#ifndef GMAC_RGMII_MODE
+#ifndef CONFIG_SH_ST_HDK7108_GMAC_RGMII_MODE
 			.mode = stx7108_ethernet_mode_gmii_gtx,
 #else
 			.mode = stx7108_ethernet_mode_rgmii_gtx,
-#endif /* GMAC_RGMII_MODE */
+#endif /* CONFIG_SH_ST_HDK7108_GMAC_RGMII_MODE */
 			.ext_clk = 0,
 			.phy_bus = 1,
 			.txclk_select = hdk7108_mii_txclk_select, });
-#endif
 
 	/*
 	 * FLASH_WP is shared between between NOR and NAND FLASH.  However,

@@ -131,6 +131,8 @@ static int stm_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *t)
 	if (now_secs > alarm_secs)
 		return -EINVAL; /* invalid alarm time */
 
+	device_set_wakeup_enable(dev, 1);
+
 	memcpy(&rtc->alarm, t, sizeof(struct rtc_wkalrm));
 
 	alarm_secs -= now_secs; /* now many secs to fire */
@@ -160,6 +162,14 @@ static int stm_rtc_resume(struct device *dev)
 {
 	struct stm_rtc *rtc = dev_get_drvdata(dev);
 
+	pr_info("Resetting rtc-lpc devices\n");
+
+	/*
+	 * it needs to clean the 'rtc->alarm' to allow
+	 * a new .set_alarm to the upper RTC layer
+	 */
+	memset(&rtc->alarm, 0, sizeof(struct rtc_wkalrm));
+
 	spin_lock(&rtc->lock);
 	/* turn-off the alarm */
 	_rtc_hw_unlock(rtc);
@@ -187,6 +197,7 @@ static struct dev_pm_ops stm_rtc_pm_ops = {
 
 static int __devinit stm_rtc_probe(struct platform_device *pdev)
 {
+	struct rtc_time tm_check;
 	struct stm_rtc *rtc;
 	struct resource *res;
 	int size;
@@ -216,6 +227,8 @@ static int __devinit stm_rtc_probe(struct platform_device *pdev)
 		goto err_badres;
 	}
 
+	platform_set_drvdata(pdev, rtc);
+	device_set_wakeup_capable(&pdev->dev, 1);
 	rtc->rtc_dev = rtc_device_register(DRV_NAME, &pdev->dev,
 					   &stm_rtc_ops, THIS_MODULE);
 	if (IS_ERR(rtc->rtc_dev)) {
@@ -223,9 +236,25 @@ static int __devinit stm_rtc_probe(struct platform_device *pdev)
 		goto err_badreg;
 	}
 
-	platform_set_drvdata(pdev, rtc);
+	/*
+	 * The RTC-LPC is able to manage date.year > 2038
+	 * but currently the kernel can not manage this date!
+	 * If the RTC-LPC has a date.year > 2038 then
+	 * it's set to the epoch "Jan 1st 2000"
+	 */
+	stm_rtc_read_time(&pdev->dev, &tm_check);
 
-	device_set_wakeup_capable(&pdev->dev, 1);
+	if (tm_check.tm_year >=  (2038 - 1900)) {
+		memset(&tm_check, 0, sizeof(tm_check));
+		tm_check.tm_year = 100;
+		/*
+		 * FIXME:
+		 *   the 'tm_check.tm_mday' should be set to zero but the func-
+		 *   tions rtc_tm_to_time and rtc_time_to_time aren't coherent.
+		 */
+		tm_check.tm_mday = 1;
+		stm_rtc_set_time(&pdev->dev, &tm_check);
+	}
 
 	return ret;
 

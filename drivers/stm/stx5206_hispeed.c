@@ -112,7 +112,6 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 	static int configured;
 	struct stx5206_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
-	unsigned int phy_intf_sel, enmii;
 	unsigned long phy_clk_rate;
 
 	BUG_ON(configured);
@@ -134,26 +133,20 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 
 	switch (config->mode) {
 	case stx5206_ethernet_mode_mii:
-		phy_intf_sel = 0;
-		enmii = 1;
 		phy_clk_rate = 25000000;
 		break;
 	case stx5206_ethernet_mode_rmii:
-		phy_intf_sel = 0x4;
-		enmii = 1;
 		phy_clk_rate = 50000000;
 		break;
 	case stx5206_ethernet_mode_reverse_mii:
-		phy_intf_sel = 0;
-		enmii = 0;
 		phy_clk_rate = 25000000;
 		break;
 	default:
 		BUG();
 		return;
 	}
-	pad_config->sysconfs[2].value = (phy_intf_sel ? 1 : 0);
-	pad_config->sysconfs[3].value = (enmii ? 1 : 0);
+
+	pad_config->sysconfs[1].value = (config->ext_clk ? 1 : 0);
 
 	/* Set the PHY CLK */
 	if (!config->ext_clk) {

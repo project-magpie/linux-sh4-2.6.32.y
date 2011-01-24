@@ -234,8 +234,13 @@ static struct platform_device stx5206_usb_device = {
 void __init stx5206_configure_usb(void)
 {
 	static int configured;
+	struct sysconf_field *sc;
 
 	BUG_ON(configured++);
+
+	/* USB edge rise and DC shift - STLinux Bugzilla 10991 */
+	sc = sysconf_claim(SYS_CFG, 4, 3, 4, "USB");
+	sysconf_write(sc, 2);
 
 	platform_device_register(&stx5206_usb_device);
 }

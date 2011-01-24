@@ -599,6 +599,7 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 {
 	static int configured[ARRAY_SIZE(stx7105_usb_devices)];
 	struct stm_pad_config *pad_config;
+	struct sysconf_field *sc;
 
 	BUG_ON(port < 0 || port >= ARRAY_SIZE(stx7105_usb_devices));
 
@@ -704,6 +705,10 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 			}
 		}
 	}
+
+	/* USB edge rise and DC shift - STLinux Bugzilla 10991 */
+	sc = sysconf_claim(SYS_CFG, 4, 13+(port<<1), 14+(port<<1), "USB");
+	sysconf_write(sc, 2);
 
 	if (config->pwr_enabled) {
 		if (port == 0) {

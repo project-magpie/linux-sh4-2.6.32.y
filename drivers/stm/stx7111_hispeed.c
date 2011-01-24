@@ -206,6 +206,7 @@ static struct platform_device stx7111_usb_device = {
 void __init stx7111_configure_usb(struct stx7111_usb_config *config)
 {
 	static int configured;
+	struct sysconf_field *sc;
 
 	BUG_ON(configured);
 	configured = 1;
@@ -215,6 +216,10 @@ void __init stx7111_configure_usb(struct stx7111_usb_config *config)
 		dev_config = stx7111_usb_platform_data.device_config;
 		dev_config->pad_config->sysconfs[0].value =
 				(config->invert_ovrcur ? 1 : 0);
+		/* USB edge rise and DC shift - STLinux Bugzilla 10991 */
+		sc = sysconf_claim(SYS_CFG, 4, 3, 4, "USB");
+		sysconf_write(sc, 2);
+
 	}
 
 	platform_device_register(&stx7111_usb_device);

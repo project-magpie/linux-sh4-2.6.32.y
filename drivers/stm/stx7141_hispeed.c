@@ -738,10 +738,15 @@ void __init stx7141_configure_usb(int port, struct stx7141_usb_config *config)
 {
 	static int configured[ARRAY_SIZE(stx7141_usb_devices)];
 	struct stm_pad_config *pad_config;
+	struct sysconf_field *sc;
 
 	BUG_ON(port < 0 || port > ARRAY_SIZE(stx7141_usb_devices));
 
 	BUG_ON(configured[port]);
+
+	/* USB edge rise and DC shift - STLinux Bugzilla 10991 */
+	sc = sysconf_claim(SYS_CFG, 7, 0+(port<<1), 1+(port<<1), "USB");
+	sysconf_write(sc, 2);
 
 	/* USB over current configuration is complicated.
 	 * Cut 1 had hardwired configuration: USB 2 ports active low,

@@ -925,6 +925,11 @@ void __init stx7108_configure_usb(int port)
 		sc = sysconf_claim(SYS_CFG_BANK4, 44, 6, 6, "USB");
 		sysconf_write(sc, 1);
 	}
+	/* USB edge rise and DC shift - STLinux Bugzilla 10991 */
+	sc = sysconf_claim(SYS_CFG_BANK4, 44, 0+port, 0+port, "USB");
+	sysconf_write(sc, 0);
+	sc = sysconf_claim(SYS_CFG_BANK4, 44, 3+port, 3+port, "USB");
+	sysconf_write(sc, 1);
 
 	platform_device_register(&stx7108_usb_devices[port]);
 }

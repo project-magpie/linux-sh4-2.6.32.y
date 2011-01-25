@@ -18,9 +18,9 @@ int __init arch_clk_init(void)
 	if (ret)
 		return ret;
 
-	clk_add_alias("cpu_clk", NULL, "CLKA_ST40_ICK", NULL);
-	clk_add_alias("module_clk", NULL, "CLKA_IC_IF_100", NULL);
-	clk_add_alias("comms_clk", NULL, "CLKA_IC_IF_100", NULL);
+	ret = plat_clk_alias_init();
+	if (ret)
+		return ret;
 
 	return ret;
 }

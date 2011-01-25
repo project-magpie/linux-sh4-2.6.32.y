@@ -60,6 +60,7 @@ struct clk {
 
 /* SoC specific clock initialisation */
 int plat_clk_init(void);
+int plat_clk_alias_init(void);
 
 /* drivers/stm/clk.c */
 

@@ -324,6 +324,15 @@ config SH_ST_STPM_SD
 	bool
 	default n
 
+config SH_ST_ADI7108
+	bool "ADI7108: STx7108-ADI Reference board"
+	depends on CPU_SUBTYPE_STX7108
+	select SYS_SUPPORTS_PCI
+	default n
+	help
+	  Select SH_ST_ADI7108 if configuring for a
+	  STMicroelectronics STi7108-ADI Reference Board.
+
 config SH_ST_CAB5197
 	bool "CAB5197: STx5197 CAB reference board"
 	depends on CPU_SUBTYPE_STX5197

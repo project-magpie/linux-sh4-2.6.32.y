@@ -182,6 +182,39 @@ struct stm_plat_usb_data {
 
 
 
+/*** TAP platform data ***/
+
+struct tap_sysconf_field {
+	u8 group, num;
+	u8 lsb, msb;
+	enum {POL_NORMAL, POL_INVERTED} pol;
+};
+
+struct stm_tap_sysconf {
+	struct tap_sysconf_field tms;
+	struct tap_sysconf_field tck;
+	struct tap_sysconf_field tdi;
+	struct tap_sysconf_field tdo;
+	struct tap_sysconf_field tap_en;
+	struct tap_sysconf_field trstn;
+	int tap_en_pol;
+	int trstn_pol;
+};
+
+struct stm_plat_tap_data {
+	int ports_num;
+	struct stm_tap_sysconf *tap_sysconf;
+};
+
+
+/*** PCIE-MP platform data ***/
+
+struct stm_plat_pcie_mp_data {
+	void (*mp_select)(int port);
+};
+
+
+
 /*** SATA platform data ***/
 
 struct stm_plat_sata_data {

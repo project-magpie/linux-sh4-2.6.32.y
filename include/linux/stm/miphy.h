@@ -13,35 +13,52 @@
 #ifndef __LINUX_STM_MIPHY_H
 #define __LINUX_STM_MIPHY_H
 
+enum miphy_if_type { TAP_IF, UPORT_IF };
+enum miphy_mode { SATA_MODE, PCIE_MODE };
+
+struct miphy_device {
+	struct list_head ifaces; /* list of registered devices */
+	struct semaphore mutex;
+	int user_count;
+	int state;
+};
+
 struct stm_miphy {
-	int ports_num;
-	int (*jtag_tick)(int tms, int tdi, void *priv);
-	void *jtag_priv;
+	struct miphy_device *dev;
+	int port;
+	enum miphy_mode mode;
+	int interface;
+	int (*start)(struct stm_miphy *miphy);
 };
 
-struct stm_miphy_sysconf_soft_jtag {
-	struct sysconf_field *tms;
-	struct sysconf_field *tck;
-	struct sysconf_field *tdi;
-	struct sysconf_field *tdo;
+struct miphy_if_ops {
+	void (*reg_write)(int port, u8 addr, u8 data);
+	u8 (*reg_read)(int port, u8 addr);
 };
 
-#ifdef CONFIG_STM_MIPHY
+struct miphy_if{
+	struct list_head list;
+	struct miphy_if_ops *ops;
+	enum miphy_if_type	type;
+	int (*start_sata)(int port, struct miphy_if *iface);
+	int (*start_pcie)(int port, struct miphy_if *iface);
+	void *data;
+};
 
-void stm_miphy_init(struct stm_miphy *miphy, int port);
-int stm_miphy_sysconf_jtag_tick(int tms, int tdi, void *priv);
+/************************FOR register r/w Interface Drivers ***************/
+/* MiPHY register Read/Write interface un-registration */
+int miphy_if_unregister(struct miphy_device *dev, enum miphy_if_type type);
 
-#else
+/* MiPHY register Read/Write interface registration */
+struct miphy_device *miphy_if_register(enum miphy_if_type type,
+			void *if_data, struct miphy_if_ops *ops);
+/******************End of API's For Register r/w interface drivers *******/
 
-static inline void stm_miphy_init(struct stm_miphy *miphy, int port)
-{
-}
-
-static inline int stm_miphy_sysconf_jtag_tick(int tms, int tdi, void *priv)
-{
-	return -1;
-}
-
-#endif
+/*
+ * MiPHY is initialised depending on the parameters provided in miphy pointer.
+ * miphy pointer will be updated with other information if initialisation is
+ * successfull.
+ */
+int stm_miphy_init(struct stm_miphy *miphy);
 
 #endif

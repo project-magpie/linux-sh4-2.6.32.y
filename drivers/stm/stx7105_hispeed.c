@@ -749,17 +749,82 @@ void __init stx7105_configure_usb(int port, struct stx7105_usb_config *config)
 
 
 
+/* MiPHY resources -------------------------------------------------------- */
+
+static struct stm_tap_sysconf tap_sysconf = {
+	.tck 	= 	{ SYS_CFG, 33, 0, 0},
+	.tms 	= 	{ SYS_CFG, 33, 5, 5},
+	.tdi 	= 	{ SYS_CFG, 33, 1, 1},
+	.tdo 	= 	{ SYS_STA, 0, 1, 1},
+	.tap_en = 	{ SYS_CFG, 33, 6, 6},
+	.trstn  = 	{ SYS_CFG, 33, 4, 4},
+};
+
+static struct stm_plat_tap_data stx7105_tap_platform_data = {
+	.ports_num = 2,
+	.tap_sysconf = &tap_sysconf,
+};
+
+static struct platform_device stx7105_tap_device = {
+	.name	= "stm-miphy-tap",
+	.id	= 0,
+	.num_resources = 0,
+	.dev = {
+		.platform_data = &stx7105_tap_platform_data,
+	}
+};
+
+static int __init stx7105_miphy_postcore_setup(void)
+{
+	if (cpu_data->type == CPU_STX7105)
+		stx7105_tap_platform_data.ports_num = 1;
+
+	return platform_device_register(&stx7105_tap_device);
+}
+postcore_initcall(stx7105_miphy_postcore_setup);
+
+
+
 /* SATA resources --------------------------------------------------------- */
 
-static void stx7105_sata_power(struct stm_device_state *device_state,
-		enum stm_device_power_state power)
+static struct sysconf_field *sata_host_reset_sysconf[2];
+static struct sysconf_field *sata_phy_reset_sysconf[2];
+
+#define MAX_PORTS	2
+
+static struct stm_miphy miphy[MAX_PORTS] = {
+	{
+		.port 		= 0,
+		.mode 		= SATA_MODE,
+		.interface 	= TAP_IF,
+	},
+	{
+		.port 		= 1,
+		.mode 		= SATA_MODE,
+		.interface 	= TAP_IF,
+	}
+};
+
+static void stx7105_sata_power(int port, enum stm_device_power_state power)
 {
 	int value = (power == stm_device_power_on) ? 0 : 1;
 
-	stm_device_sysconf_write(device_state, "SATA_HOST", value);
-	stm_device_sysconf_write(device_state, "SATA_PHY", value);
+	sysconf_write(sata_host_reset_sysconf[port], value);
+	sysconf_write(sata_phy_reset_sysconf[port], value);
 	mdelay(10);
 
+}
+static void stx7105_sata0_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	stx7105_sata_power(0, power);
+	return ;
+}
+
+static void stx7105_sata1_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	stx7105_sata_power(1, power);
 	return ;
 }
 
@@ -771,12 +836,8 @@ static struct platform_device stx7105_sata_device = {
 		.pc_glue_logic_init = 0,
 		.only_32bit = 0,
 		.device_config = &(struct stm_device_config) {
-			.sysconfs_num = 2,
-			.sysconfs = (struct stm_device_sysconf []) {
-				STM_DEVICE_SYS_CFG(32, 9, 9, "SATA_HOST"),
-				STM_DEVICE_SYS_CFG(32, 11, 11, "SATA_PHY"),
-			},
-			.power = stx7105_sata_power,
+			.sysconfs_num = 0,
+			.power = stx7105_sata0_power,
 		}
 	},
 	.num_resources = 3,
@@ -796,12 +857,8 @@ static struct platform_device stx7106_sata_devices[] = {
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
 			.device_config = &(struct stm_device_config) {
-				.sysconfs_num = 2,
-				.sysconfs = (struct stm_device_sysconf []) {
-				  STM_DEVICE_SYS_CFG(32, 8, 8, "SATA_HOST"),
-				  STM_DEVICE_SYS_CFG(32, 11, 11, "SATA_PHY"),
-				},
-				.power = stx7105_sata_power,
+				.sysconfs_num = 0,
+				.power = stx7105_sata0_power,
 			}
 		},
 		.num_resources = 3,
@@ -820,12 +877,8 @@ static struct platform_device stx7106_sata_devices[] = {
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
 			.device_config = &(struct stm_device_config) {
-				.sysconfs_num = 2,
-				.sysconfs = (struct stm_device_sysconf []) {
-				  STM_DEVICE_SYS_CFG(32, 9, 9, "SATA_HOST"),
-				  STM_DEVICE_SYS_CFG(32, 10, 10, "SATA_PHY"),
-				},
-				.power = stx7105_sata_power,
+				.sysconfs_num = 0,
+				.power = stx7105_sata1_power,
 			}
 		},
 		.num_resources = 3,
@@ -842,7 +895,7 @@ static struct platform_device stx7106_sata_devices[] = {
 void __init stx7105_configure_sata(int port)
 {
 	static int configured[ARRAY_SIZE(stx7106_sata_devices)];
-	static int phys_initialized;
+	static int initialized;
 
 	BUG_ON(port < 0 || port >= ARRAY_SIZE(stx7106_sata_devices));
 
@@ -855,77 +908,47 @@ void __init stx7105_configure_sata(int port)
 
 	BUG_ON(configured[port]++);
 
-	/* PHYs require this horrible initialization to be done now... */
-	if (!phys_initialized++) {
-		struct sysconf_field *sc;
-		struct stm_miphy_sysconf_soft_jtag jtag;
-		struct stm_miphy miphy = {
-			.jtag_tick = stm_miphy_sysconf_jtag_tick,
-			.jtag_priv = &jtag,
-		};
-
-		jtag.tck = sysconf_claim(SYS_CFG, 33, 0, 0, "SATA");
-		BUG_ON(!jtag.tck);
-		jtag.tms = sysconf_claim(SYS_CFG, 33, 5, 5, "SATA");
-		BUG_ON(!jtag.tms);
-		jtag.tdi = sysconf_claim(SYS_CFG, 33, 1, 1, "SATA");
-		BUG_ON(!jtag.tdi);
-		jtag.tdo = sysconf_claim(SYS_STA, 0, 1, 1, "SATA");
-		BUG_ON(!jtag.tdo);
-
-		/* Power up host controllers... */
-		if (cpu_data->type == CPU_STX7105)
-			sc = sysconf_claim(SYS_CFG, 32, 11, 11, "SATA");
-		else
-			sc = sysconf_claim(SYS_CFG, 32, 10, 11, "SATA");
-		BUG_ON(!sc);
-		sysconf_write(sc, 0);
-		sysconf_release(sc);
-
-		/* soft_jtag_en */
-		sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
-		BUG_ON(!sc);
-		sysconf_write(sc, 1);
-
-		/* TMS should be set to 1 when taking the TAP
-		 * machine out of reset... */
-		sysconf_write(jtag.tms, 1);
-
-		/* trstn_sata */
-		sc = sysconf_claim(SYS_CFG, 33, 4, 4, "SATA");
-		BUG_ON(!sc);
-		sysconf_write(sc, 1);
-		udelay(100);
-
+	/* Unfortunately there is a lot of dependencies between
+	 * PHYs & controllers... I didn't manage to get everything
+	 * working when powering up only selected bits... */
+	if (!initialized) {
 		/* Power up & initialize PHY(s) */
 		if (cpu_data->type == CPU_STX7105) {
 			/* 7105 */
-			miphy.ports_num = 1;
+			sata_host_reset_sysconf[0] =
+				sysconf_claim(SYS_CFG, 32, 11, 11, "SATA");
+			sysconf_write(sata_host_reset_sysconf[0], 0);
 
-			sc = sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
-			BUG_ON(!sc);
-			sysconf_write(sc, 0);
-			stm_miphy_init(&miphy, 0);
-			sysconf_release(sc);
+			sata_phy_reset_sysconf[0] =
+				sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
+			BUG_ON(!sata_phy_reset_sysconf[0]);
+			sysconf_write(sata_phy_reset_sysconf[0], 0);
+			stm_miphy_init(&miphy[0]);
 		} else {
 			/* 7106 */
-			miphy.ports_num = 2;
-
 			/* The second PHY _must not_ be powered while
 			 * initializing the first one... */
+			/* 7106 */
+			sata_host_reset_sysconf[0] =
+				sysconf_claim(SYS_CFG, 32, 10, 10, "SATA");
+			sata_host_reset_sysconf[1] =
+				sysconf_claim(SYS_CFG, 32, 11, 11, "SATA");
+			sysconf_write(sata_host_reset_sysconf[0], 0);
+			sysconf_write(sata_host_reset_sysconf[1], 0);
 
-			sc = sysconf_claim(SYS_CFG, 32, 8, 8, "SATA");
-			BUG_ON(!sc);
-			sysconf_write(sc, 0);
-			stm_miphy_init(&miphy, 0);
-			sysconf_release(sc);
+			sata_phy_reset_sysconf[0] =
+				sysconf_claim(SYS_CFG, 32, 8, 8, "SATA");
+			BUG_ON(!sata_phy_reset_sysconf[0]);
+			sysconf_write(sata_phy_reset_sysconf[0], 0);
+			stm_miphy_init(&miphy[0]);
 
-			sc = sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
-			BUG_ON(!sc);
-			sysconf_write(sc, 0);
-			stm_miphy_init(&miphy, 1);
-			sysconf_release(sc);
+			sata_phy_reset_sysconf[1] =
+				sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
+			BUG_ON(!sata_phy_reset_sysconf[1]);
+			sysconf_write(sata_phy_reset_sysconf[1], 0);
+			stm_miphy_init(&miphy[1]);
 		}
+		initialized = 1;
 	}
 
 	if (cpu_data->type == CPU_STX7105)

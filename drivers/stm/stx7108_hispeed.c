@@ -931,14 +931,113 @@ void __init stx7108_configure_usb(int port)
 
 
 
+/* MiPHY resources -------------------------------------------------------- */
+
+/* PCIe-Uport private data */
+
+#define PCIE_BASE		0xfe780000
+#define PCIE_UPORT_BASE		(PCIE_BASE + 0x4000)
+#define PCIE_UPORT_REG_SIZE	(0xFF)
+
+static void stx7108_pcie_mp_select(int port)
+{
+	static struct sysconf_field *sc_pcie_mp_select;
+	BUG_ON(port < 0 || port > 1);
+	if (!sc_pcie_mp_select)
+		sc_pcie_mp_select = sysconf_claim(SYS_CFG_BANK4, 70,
+							0, 0, "pcie-mp");
+	BUG_ON(!sc_pcie_mp_select);
+	sysconf_write(sc_pcie_mp_select, port);
+}
+
+struct stm_plat_pcie_mp_data stx7108_pcie_mp_platform_data = {
+	.mp_select = stx7108_pcie_mp_select,
+};
+
+static struct platform_device stx7108_pcie_mp_device = {
+	.name	= "pcie-mp",
+	.id	= 0,
+	.num_resources = 1,
+	.resource = (struct resource[]) {
+		[0] = {
+			.start = PCIE_UPORT_BASE,
+			.end   = PCIE_UPORT_BASE + PCIE_UPORT_REG_SIZE,
+			.flags = IORESOURCE_MEM,
+		},
+	},
+	.dev = {
+		.platform_data = &stx7108_pcie_mp_platform_data,
+	}
+};
+
+/* TAP private data */
+
+static struct stm_tap_sysconf tap_sysconf = {
+	.tck = { SYS_CFG_BANK1, 3, 20, 20},
+	.tms = { SYS_CFG_BANK1, 3, 23, 23},
+	.tdi = { SYS_CFG_BANK1, 3, 22, 22},
+	.tdo = { SYS_STA_BANK1, 4, 1, 1},
+	.tap_en = { SYS_CFG_BANK1, 3, 13, 13},
+	.trstn = { SYS_CFG_BANK1, 3, 21, 21},
+};
+
+
+static struct stm_plat_tap_data stx7108_tap_platform_data = {
+	.ports_num = 2,
+	.tap_sysconf = &tap_sysconf,
+};
+
+static struct platform_device stx7108_tap_device = {
+	.name	= "stm-miphy-tap",
+	.id	= 0,
+	.num_resources = 0,
+	.dev = {
+		.platform_data = &stx7108_tap_platform_data,
+	}
+};
+static int __init stx7108_miphy_postcore_setup(void)
+{
+	int err = 0;
+
+	if (cpu_data->cut_major >= 2) /* ONLY Available on Cut2's */
+		err = platform_device_register(&stx7108_pcie_mp_device);
+	else
+		err = platform_device_register(&stx7108_tap_device);
+
+	return err;
+}
+postcore_initcall(stx7108_miphy_postcore_setup);
+
+
+
 /* SATA resources --------------------------------------------------------- */
+#define MAX_PORTS	2
+
+static struct sysconf_field *sc_sata_hc_pwr[MAX_PORTS],
+			*sc_miphy_reset[MAX_PORTS], *sc_miphy1_ref_clk,
+			*sc_sata1_hc_reset, *sc_sata_pcie_sel,
+			*sc_sata1_hc_srst;
+
+static struct stm_miphy miphy[MAX_PORTS] = {
+	{
+		.port 		= 0,
+		.mode 		= SATA_MODE,
+		.interface 	= TAP_IF,
+	},
+	{
+		.port 		= 1,
+		.mode 		= SATA_MODE,
+		.interface 	= TAP_IF,
+	}
+};
+
 static void stx7108_sata_power(struct stm_device_state *device_state,
-		enum stm_device_power_state power)
+		int port, enum stm_device_power_state power)
 {
 	int value = (power == stm_device_power_on) ? 0 : 1;
 	int i;
 
-	stm_device_sysconf_write(device_state, "SATA_PWR", value);
+	sysconf_write(sc_sata_hc_pwr[port], value);
 
 	for (i = 5; i; --i) {
 		if (stm_device_sysconf_read(device_state, "SATA_ACK")
@@ -946,8 +1045,17 @@ static void stx7108_sata_power(struct stm_device_state *device_state,
 			break;
 		mdelay(10);
 	}
+}
+static void stx7108_sata0_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	stx7108_sata_power(device_state, 0, power);
+}
 
-	return ;
+static void stx7108_sata1_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	stx7108_sata_power(device_state, 1, power);
 }
 
 static struct platform_device stx7108_sata_devices[] = {
@@ -959,11 +1067,9 @@ static struct platform_device stx7108_sata_devices[] = {
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
 			.device_config = &(struct stm_device_config){
-				.power = stx7108_sata_power,
-				.sysconfs_num = 2,
+				.power = stx7108_sata0_power,
+				.sysconfs_num = 1,
 				.sysconfs = (struct stm_device_sysconf []) {
-					STM_DEVICE_SYS_CFG_BANK(4, 46, 3, 3,
-						"SATA_PWR"),
 					STM_DEVICE_SYS_STA_BANK(4, 2, 3, 3,
 						"SATA_ACK"),
 				},
@@ -984,11 +1090,9 @@ static struct platform_device stx7108_sata_devices[] = {
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
 			.device_config = &(struct stm_device_config){
-				.power = stx7108_sata_power,
-				.sysconfs_num = 2,
+				.power = stx7108_sata1_power,
+				.sysconfs_num = 1,
 				.sysconfs = (struct stm_device_sysconf []) {
-					STM_DEVICE_SYS_CFG_BANK(4, 46, 4, 4,
-						"SATA_PWR"),
 					STM_DEVICE_SYS_STA_BANK(4, 2, 4, 4,
 						"SATA_ACK"),
 				},
@@ -1005,68 +1109,111 @@ static struct platform_device stx7108_sata_devices[] = {
 
 void __init stx7108_configure_sata(int port)
 {
-	static int configured[ARRAY_SIZE(stx7108_sata_devices)];
-	static int phys_initialized;
+	static int initialized;
+	static int sata0_initialized;
+	struct stm_plat_sata_data *sata_data;
 
-	BUG_ON(port < 0 || port >= ARRAY_SIZE(stx7108_sata_devices));
-	BUG_ON(configured[port]++);
+	/* NOTE: In 7108 SYSCONF BANK0 few missing sysconfig registers
+	* do not have the phy addresses, Which breaks the sysconf
+	* drivers. So when accessing registers 12, 13, 14 we need to
+	* manually substract 3, as generic sysconf infrastructure
+	* does not takecare of such deviations. */
+#define BANK0_REG(reg)	(reg - 3)
 
-	/* PHYs require this horrible initialization to be done now... */
-	if (!phys_initialized++) {
-		struct stm_miphy_sysconf_soft_jtag jtag;
-		struct stm_miphy miphy = {
-			.ports_num = 2,
-			.jtag_tick = stm_miphy_sysconf_jtag_tick,
-			.jtag_priv = &jtag,
-		};
-		struct sysconf_field *sc;
+	if (!initialized) {
+		if (cpu_data->cut_major < 2) {
+			miphy[0].interface = TAP_IF;
+			miphy[1].interface = TAP_IF;
+		} else {
+			/* 7108 CUT 2.0 supports MicroPort */
+			miphy[0].interface	= UPORT_IF;
+			miphy[1].interface	= UPORT_IF;
 
-		jtag.tck = sysconf_claim(SYS_CFG_BANK1, 3, 20, 20, "SATA");
-		BUG_ON(!jtag.tck);
-		jtag.tms = sysconf_claim(SYS_CFG_BANK1, 3, 23, 23, "SATA");
-		BUG_ON(!jtag.tms);
-		jtag.tdi = sysconf_claim(SYS_CFG_BANK1, 3, 22, 22, "SATA");
-		BUG_ON(!jtag.tdi);
-		jtag.tdo = sysconf_claim(SYS_STA_BANK1, 4, 1, 1, "SATA");
-		BUG_ON(!jtag.tdo);
+			sc_sata1_hc_srst = sysconf_claim(SYS_CFG_BANK4, 45,
+								4, 4, "SATA");
+			BUG_ON(!sc_sata1_hc_srst);
+			sc_miphy1_ref_clk = sysconf_claim(SYS_CFG_BANK4, 68,
+								2, 2, "SATA");
+			BUG_ON(!sc_miphy1_ref_clk);
+			sc_sata1_hc_reset = sysconf_claim(SYS_CFG_BANK0,
+					BANK0_REG(12), 30, 30, "SATA");
+			BUG_ON(!sc_sata1_hc_reset);
+			sc_sata_pcie_sel = sysconf_claim(SYS_CFG_BANK4, 68,
+							1, 1, "SATA");
+			BUG_ON(!sc_sata_pcie_sel);
 
-		/* Shut down both PHYs first, using SATA_x_POWERDOWN_REQ */
-		sc = sysconf_claim(SYS_CFG_BANK4, 46, 3, 4, "SATA");
-		BUG_ON(!sc);
-		sysconf_write(sc, 3);
-		sysconf_release(sc);
+		}
+		/* Claim All the Sysconfs sothat we can skip the over head
+		 * of claiming later & No one can claim them */
+		sc_sata_hc_pwr[0] = sysconf_claim(SYS_CFG_BANK4, 46,
+							3, 3, "SATA");
+		BUG_ON(!sc_sata_hc_pwr[0]);
+		sc_sata_hc_pwr[1] = sysconf_claim(SYS_CFG_BANK4, 46,
+							4, 4, "SATA");
+		BUG_ON(!sc_sata_hc_pwr[1]);
+		sc_miphy_reset[0]  = sysconf_claim(SYS_CFG_BANK0,
+						BANK0_REG(12), 31, 31, "SATA");
+		BUG_ON(!sc_miphy_reset[0]);
+		sc_miphy_reset[1]  = sysconf_claim(SYS_CFG_BANK0,
+						BANK0_REG(13), 0, 0, "SATA");
+		BUG_ON(!sc_miphy_reset[1]);
 
-		/* conf_sata_tap_en */
-		sc = sysconf_claim(SYS_CFG_BANK1, 3, 13, 13, "SATA");
-		BUG_ON(!sc);
-		sysconf_write(sc, 1);
-
-		/* TMS should be set to 1 when taking the TAP
-		 * machine out of reset... */
-		sysconf_write(jtag.tms, 1);
-
-		/* sata_trst_fromconf */
-		sc = sysconf_claim(SYS_CFG_BANK1, 3, 21, 21, "SATA");
-		BUG_ON(!sc);
-		sysconf_write(sc, 1);
-		udelay(100);
-
-		/* Power up & initialize PHY(s) (one by one) */
-
-		/* SATA_0_POWERDOWN_REQ */
-		sc = sysconf_claim(SYS_CFG_BANK4, 46, 3, 3, "SATA");
-		BUG_ON(!sc);
-		sysconf_write(sc, 0);
-		stm_miphy_init(&miphy, 0);
-		sysconf_release(sc);
-
-		/* SATA_1_POWERDOWN_REQ */
-		sc = sysconf_claim(SYS_CFG_BANK4, 46, 4, 4, "SATA");
-		BUG_ON(!sc);
-		sysconf_write(sc, 0);
-		stm_miphy_init(&miphy, 1);
-		sysconf_release(sc);
+		initialized = 1;
 	}
 
+	sata_data = stx7108_sata_devices[port].dev.platform_data;
+
+	/* Reset & config the SATA HC and MiPHY */
+	if (port == 0) {
+		if (cpu_data->cut_major < 2) {
+			/* SATA_0_ power reset */
+			sysconf_write(sc_sata_hc_pwr[port], 1);
+			udelay(100);
+			sysconf_write(sc_sata_hc_pwr[port], 0);
+			sata0_initialized = 1;
+		} else {
+			/* Deassert Soft Reset to SATA0 */
+			sysconf_write(sc_sata1_hc_srst, 1);
+			/* Put MiPHY1 in reset - rst_per_n[32] */
+			sysconf_write(sc_miphy_reset[port], 0);
+			/* MiPHY1 needs to be using the MiPHY0
+			 * reference clock */
+			sysconf_write(sc_miphy1_ref_clk, 1);
+			/* Take MiPHY1 out of reset - rst_per_n[32] */
+			sysconf_write(sc_miphy_reset[port], 1);
+		}
+
+	} else if (port == 1) {
+
+		if (cpu_data->cut_major < 2) {
+			/* SATA0 to be intialized before accessing SATA1 */
+			BUG_ON(!sata0_initialized);
+			/* SATA_1_POWER Up */
+			sysconf_write(sc_sata_hc_pwr[port], 1);
+			udelay(100);
+			sysconf_write(sc_sata_hc_pwr[port], 0);
+		} else {
+			/* Put MiPHY1 in reset - rst_per_n[32] */
+			sysconf_write(sc_miphy_reset[port], 0);
+			/* Put SATA1 HC in reset - rst_per_n[30] */
+			sysconf_write(sc_sata1_hc_reset, 0);
+			/* Now switch to Phy interface to SATA HC not PCIe HC */
+			sysconf_write(sc_sata_pcie_sel, 1);
+			/* Select the Uport to use MiPHY1 */
+			stx7108_pcie_mp_select(1);
+			/* Take SATA1 HC out of reset - rst_per_n[30] */
+			sysconf_write(sc_sata1_hc_reset, 1);
+			/* Ensure SATA1 is powered up */
+			sysconf_write(sc_sata_hc_pwr[port], 0);
+			/* MiPHY1 needs to be using the MiPHY0
+			 * reference clock */
+			sysconf_write(sc_miphy1_ref_clk, 1);
+			/* Take MiPHY1 out of reset - rst_per_n[32] */
+			sysconf_write(sc_miphy_reset[port], 1);
+		}
+	}
+
+	/* Intialize miPHY */
+	stm_miphy_init(&miphy[port]);
 	platform_device_register(&stx7108_sata_devices[port]);
 }

@@ -57,13 +57,12 @@ static enum stm_tap_state stm_tap_fsm[__TAP_LAST][2] = {
 struct stm_tap {
 	enum stm_tap_state state;
 	stm_tap_tick tick;
-	void *priv;
 };
 
 static struct stm_tap stm_tap;
 static int stm_tap_in_use;
 
-struct stm_tap *stm_tap_init(stm_tap_tick tick, void *priv)
+struct stm_tap *stm_tap_init(stm_tap_tick tick)
 {
 	struct stm_tap *tap;
 	int i;
@@ -76,12 +75,11 @@ struct stm_tap *stm_tap_init(stm_tap_tick tick, void *priv)
 
 	tap->state = TAP_TEST_LOGIC_RESET;
 	tap->tick = tick;
-	tap->priv = priv;
 
 	/* Five transitions with TMS=1 should get us to Test-Logic/Reset
 	 * state from any other state of the FSM... */
 	for (i = 0; i < 5; i++)
-		tick(1, 0, priv);
+		tick(1, 0);
 
 	return tap;
 }
@@ -118,7 +116,7 @@ static int stm_tap_step(struct stm_tap *tap, enum stm_tap_state state, int tdi)
 
 	tap->state = state;
 
-	return tap->tick(tms, tdi, tap->priv);
+	return tap->tick(tms, tdi);
 }
 
 static int stm_tap_goto(struct stm_tap *tap, const enum stm_tap_state *path)

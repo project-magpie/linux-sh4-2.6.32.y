@@ -25,7 +25,7 @@ struct stm_tap;
  * @return Value of TDO signal (0/1) after transition or
  *         negative value on error.
  */
-typedef int (*stm_tap_tick)(int tms, int tdi, void *priv);
+typedef int (*stm_tap_tick)(int tms, int tdi);
 
 /**
  * Initialise TAP object.
@@ -35,7 +35,7 @@ typedef int (*stm_tap_tick)(int tms, int tdi, void *priv);
  *
  * @return Pointer to TAP object or NULL on error.
  */
-struct stm_tap *stm_tap_init(stm_tap_tick tick, void *priv);
+struct stm_tap *stm_tap_init(stm_tap_tick tick);
 
 /**
  * Free TAP object.

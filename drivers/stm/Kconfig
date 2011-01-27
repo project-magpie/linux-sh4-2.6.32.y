@@ -13,6 +13,21 @@ menu "STM specific devices"
 config STM_MIPHY
 	bool
 	depends on SATA_STM
+	default y if CPU_SUBTYPE_STX7105
+	default y if CPU_SUBTYPE_STX7108
+	default y if CPU_SUBTYPE_STX7141
+	default y if CPU_SUBTYPE_STX7200
+	default n
+
+config STM_MIPHY_TAP
+	bool
+	depends on STM_MIPHY
+	default y
+
+config STM_MIPHY_PCIE_MP
+	bool
+	depends on STM_MIPHY
+	default y if CPU_SUBTYPE_STX7108
 	default n
 
 config STPIO

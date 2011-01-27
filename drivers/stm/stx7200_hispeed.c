@@ -738,6 +738,44 @@ void __init stx7200_configure_usb(int port)
 
 
 
+/* MiPHY resources -------------------------------------------------------- */
+
+static struct stm_tap_sysconf tap_sysconf = {
+	.tck = { SYS_CFG, 33, 0, 0},
+	.tms = { SYS_CFG, 33, 5, 5},
+	.tdi = { SYS_CFG, 33, 1, 1},
+	.tdo = { SYS_STA, 0, 1, 1},
+	.tap_en = { SYS_CFG, 33, 6, 6},
+	.trstn = { SYS_CFG, 33, 4, 4},
+};
+
+struct stm_plat_tap_data stx7200_tap_platform_data = {
+	.ports_num = 1,
+	.tap_sysconf = &tap_sysconf,
+};
+
+static struct platform_device stx7200_tap_device = {
+	.name	= "stm-miphy-tap",
+	.id	= 0,
+	.num_resources = 0,
+	.dev = {
+		.platform_data = &stx7200_tap_platform_data,
+	}
+};
+
+static int __init stx7200_miphy_postcore_setup(void)
+{
+	int ret = 0;
+
+	if (cpu_data->cut_major >= 3)
+		ret = platform_device_register(&stx7200_tap_device);
+
+	return ret;
+}
+postcore_initcall(stx7200_miphy_postcore_setup);
+
+
+
 /* SATA resources --------------------------------------------------------- */
 static void stx7200_sata_power(struct stm_device_state *device_state,
 		enum stm_device_power_state power)
@@ -755,6 +793,12 @@ static void stx7200_sata_power(struct stm_device_state *device_state,
 
 	return ;
 }
+
+static struct stm_miphy miphy = {
+	.port 		= 0,
+	.mode 		= SATA_MODE,
+	.interface 	= TAP_IF,
+};
 
 /* Ok to have same private data for both controllers */
 static struct stm_plat_sata_data stx7200_sata_platform_data = {
@@ -786,46 +830,13 @@ static struct platform_device stx7200_sata_device = {
 void __init stx7200_configure_sata(void)
 {
 	static int configured;
-	struct sysconf_field *sc;
-	struct stm_miphy_sysconf_soft_jtag jtag;
-	struct stm_miphy miphy = {
-		.ports_num = 1,
-		.jtag_tick = stm_miphy_sysconf_jtag_tick,
-		.jtag_priv = &jtag,
-	};
-
 	BUG_ON(configured++);
 
 	if (cpu_data->cut_major < 3) {
 		pr_warning("SATA is only supported on cut 3 or later\n");
 		return;
 	}
-
-	jtag.tck = sysconf_claim(SYS_CFG, 33, 0, 0, "SATA");
-	BUG_ON(!jtag.tck);
-	jtag.tms = sysconf_claim(SYS_CFG, 33, 5, 5, "SATA");
-	BUG_ON(!jtag.tms);
-	jtag.tdi = sysconf_claim(SYS_CFG, 33, 1, 1, "SATA");
-	BUG_ON(!jtag.tdi);
-	jtag.tdo = sysconf_claim(SYS_STA, 0, 1, 1, "SATA");
-	BUG_ON(!jtag.tdo);
-
-	/* SOFT_JTAG_EN */
-	sc = sysconf_claim(SYS_CFG, 33, 6, 6, "SATA");
-	BUG_ON(!sc);
-	sysconf_write(sc, 1);
-
-	/* TMS should be set to 1 when taking the TAP
-	 * machine out of reset... */
-	sysconf_write(jtag.tms, 1);
-
-	/* SATA_TRSTN */
-	sc = sysconf_claim(SYS_CFG, 33, 4, 4, "SATA");
-	BUG_ON(!sc);
-	sysconf_write(sc, 1);
-	udelay(100);
-
-	stm_miphy_init(&miphy, 0);
+	stm_miphy_init(&miphy);
 
 	platform_device_register(&stx7200_sata_device);
 }

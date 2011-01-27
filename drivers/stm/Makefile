@@ -11,7 +11,9 @@ obj-y					+= clk.o
 obj-y					+= clocks/
 
 obj-$(CONFIG_STM_DMA)			+= fdma.o fdma-xbar.o
-obj-$(CONFIG_STM_MIPHY)			+= miphy.o tap.o
+obj-$(CONFIG_STM_MIPHY)			+= miphy.o
+obj-$(CONFIG_STM_MIPHY_TAP)		+= miphy_tap.o tap.o
+obj-$(CONFIG_STM_MIPHY_PCIE_MP)		+= miphy_pcie_mp.o
 obj-$(CONFIG_STM_COPROCESSOR_SUPPORT)	+= copro-st_socs.o
 obj-$(CONFIG_STM_COPROCESSOR)		+= stm-coprocessor.o
 obj-$(CONFIG_STM_COPROCESSOR_FRMW)	+= stm-coprocessor_frmw.o

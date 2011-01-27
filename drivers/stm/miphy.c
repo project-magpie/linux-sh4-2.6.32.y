@@ -465,6 +465,12 @@ void stm_miphy_dump_registers(struct stm_miphy *miphy)
 }
 #endif /* DEBUG */
 
+static int stm_miphy_sata_status(struct stm_miphy *miphy)
+{
+	u8 miphy_int_status = stm_miphy_read(miphy, 0x4);
+	return (miphy_int_status & 0x8) || (miphy_int_status & 0x2);
+}
+
 static int stm_miphy_start(struct stm_miphy *miphy)
 {
 	struct miphy_device *dev = miphy->dev;
@@ -562,6 +568,7 @@ int stm_miphy_init(struct stm_miphy *miphy)
 
 	miphy->dev 			= miphy_dev;
 	miphy->start 			= stm_miphy_start;
+	miphy->sata_status 		= stm_miphy_sata_status;
 	stm_miphy_start(miphy);
 
 	return 0;

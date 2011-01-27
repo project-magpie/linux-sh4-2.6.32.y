@@ -29,6 +29,7 @@ struct stm_miphy {
 	enum miphy_mode mode;
 	int interface;
 	int (*start)(struct stm_miphy *miphy);
+	int (*sata_status)(struct stm_miphy *miphy);
 };
 
 struct miphy_if_ops {

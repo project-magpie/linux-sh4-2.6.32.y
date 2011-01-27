@@ -805,6 +805,16 @@ static struct stm_miphy miphy[MAX_PORTS] = {
 	}
 };
 
+static void stx7105_restart_sata(int port)
+{
+	/* Toggle the sysconf bits to reset the host and phy */
+	sysconf_write(sata_host_reset_sysconf[port], 1);
+	sysconf_write(sata_phy_reset_sysconf[port], 1);
+	msleep(1);
+	sysconf_write(sata_host_reset_sysconf[port], 0);
+	sysconf_write(sata_phy_reset_sysconf[port], 0);
+}
+
 static void stx7105_sata_power(int port, enum stm_device_power_state power)
 {
 	int value = (power == stm_device_power_on) ? 0 : 1;
@@ -835,6 +845,9 @@ static struct platform_device stx7105_sata_device = {
 		.phy_init = 0,
 		.pc_glue_logic_init = 0,
 		.only_32bit = 0,
+		.host_restart = stx7105_restart_sata,
+		.port_num = 0,
+		.miphy = &miphy[0],
 		.device_config = &(struct stm_device_config) {
 			.sysconfs_num = 0,
 			.power = stx7105_sata0_power,
@@ -856,6 +869,9 @@ static struct platform_device stx7106_sata_devices[] = {
 			.phy_init = 0,
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
+			.host_restart = stx7105_restart_sata,
+			.port_num = 0,
+			.miphy = &miphy[0],
 			.device_config = &(struct stm_device_config) {
 				.sysconfs_num = 0,
 				.power = stx7105_sata0_power,
@@ -876,6 +892,9 @@ static struct platform_device stx7106_sata_devices[] = {
 			.phy_init = 0,
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
+			.host_restart = stx7105_restart_sata,
+			.port_num = 1,
+			.miphy = &miphy[1],
 			.device_config = &(struct stm_device_config) {
 				.sysconfs_num = 0,
 				.power = stx7105_sata1_power,

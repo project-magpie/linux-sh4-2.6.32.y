@@ -37,6 +37,7 @@
 #include <linux/libata.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/device.h>
+#include <linux/stm/miphy.h>
 
 #define DRV_NAME			"sata-stm"
 #define DRV_VERSION			"0.7"
@@ -257,6 +258,9 @@ struct stm_host_priv
 	int shared_dma_host_irq;	/* If we the interrupt from the DMA
 					 * and HOSTC are or'ed together */
 	struct stm_device_state *device_state;
+	void (*host_restart)(int port); /* Full reset of host and phy */
+	int port_num;			/* Parameter to host_restart */
+	struct stm_miphy *miphy_dev;	/* MiPHY Dev Struct */
 };
 
 struct stm_port_priv
@@ -662,8 +666,27 @@ static void stm_thaw(struct ata_port *ap)
 static int stm_prereset(struct ata_link *link, unsigned long deadline)
 {
 	struct ata_port *ap = link->ap;
+	u32 serror;
+	struct stm_host_priv *hpriv = ap->host->private_data;
+	struct stm_miphy *miphy_dev = hpriv->miphy_dev;
+	u8 miphy_int_status = 0;
+	if (miphy_dev)
+		miphy_int_status = miphy_dev->sata_status(miphy_dev);
 
 	DPRINTK("ENTER\n");
+	stm_sata_scr_read(&ap->link, SCR_ERROR, &serror);
+
+	/*
+	 * Defect RnDHV00030463 and STLinux Bugzilla 9770.
+	 * Try and detect an ESD event which is resolved by
+	 * a reset of both the host and the phy.
+	 */
+	if (hpriv->host_restart && ((serror & SERROR_ERR_C) ||
+		miphy_int_status)) {
+		hpriv->host_restart(hpriv->port_num);
+		if (miphy_dev)
+			miphy_dev->start(miphy_dev);
+	}
 
 	stm_phy_configure(ap);
 	return ata_sff_prereset(link, deadline);
@@ -1116,6 +1139,9 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	ap->ioaddr.ctl_addr		= mmio_base + SATA_CLR0;
 
 	hpriv->phy_init = sata_private_info->phy_init;
+	hpriv->host_restart = sata_private_info->host_restart;
+	hpriv->miphy_dev = sata_private_info->miphy;
+	hpriv->port_num = sata_private_info->port_num;
 	hpriv->softsg = readl(mmio_base + DMAC_COMP_PARAMS_2) &
 		DMAC_COMP_PARAMS_2_CH0_HC_LLP;
 	//hpriv->softsg = 1;

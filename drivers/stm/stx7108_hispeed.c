@@ -1031,6 +1031,31 @@ static struct stm_miphy miphy[MAX_PORTS] = {
 	}
 };
 
+static void stx7108_restart_sata(int port)
+{
+/* This part of the code is executed for ESD recovery.
+ * However...
+ * It's Not supported on CUT1.0 As we have to reset both Lanes if there
+ * is a problem with single lane. As the MiPHY Code for JTAG_IF is
+ * not independent of lanes which will potentially results in a
+ * recursive resets among lane-0 and lane-1. This behaviour might
+ * make both disks unavailable.
+ */
+	BUG_ON(cpu_data->cut_major < 2);
+
+	/* Reset the SATA Host and MiPHY */
+	sysconf_write(sc_sata_hc_pwr[port], 1);
+	sysconf_write(sc_miphy_reset[port], 0);
+
+	if (port == 1)
+		stx7108_pcie_mp_select(1);
+
+	msleep(1);
+
+	sysconf_write(sc_sata_hc_pwr[port], 0);
+	sysconf_write(sc_miphy_reset[port], 1);
+}
+
 static void stx7108_sata_power(struct stm_device_state *device_state,
 		int port, enum stm_device_power_state power)
 {
@@ -1066,6 +1091,8 @@ static struct platform_device stx7108_sata_devices[] = {
 			.phy_init = 0,
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
+			.port_num = 0,
+			.miphy = &miphy[0],
 			.device_config = &(struct stm_device_config){
 				.power = stx7108_sata0_power,
 				.sysconfs_num = 1,
@@ -1089,6 +1116,8 @@ static struct platform_device stx7108_sata_devices[] = {
 			.phy_init = 0,
 			.pc_glue_logic_init = 0,
 			.only_32bit = 0,
+			.port_num = 1,
+			.miphy = &miphy[1],
 			.device_config = &(struct stm_device_config){
 				.power = stx7108_sata1_power,
 				.sysconfs_num = 1,
@@ -1111,6 +1140,7 @@ void __init stx7108_configure_sata(int port)
 {
 	static int initialized;
 	static int sata0_initialized;
+	static void (*fn_host_restart)(int) = NULL;
 	struct stm_plat_sata_data *sata_data;
 
 	/* NOTE: In 7108 SYSCONF BANK0 few missing sysconfig registers
@@ -1128,6 +1158,7 @@ void __init stx7108_configure_sata(int port)
 			/* 7108 CUT 2.0 supports MicroPort */
 			miphy[0].interface	= UPORT_IF;
 			miphy[1].interface	= UPORT_IF;
+			fn_host_restart = stx7108_restart_sata;
 
 			sc_sata1_hc_srst = sysconf_claim(SYS_CFG_BANK4, 45,
 								4, 4, "SATA");
@@ -1162,6 +1193,8 @@ void __init stx7108_configure_sata(int port)
 	}
 
 	sata_data = stx7108_sata_devices[port].dev.platform_data;
+
+	sata_data->host_restart = fn_host_restart;
 
 	/* Reset & config the SATA HC and MiPHY */
 	if (port == 0) {

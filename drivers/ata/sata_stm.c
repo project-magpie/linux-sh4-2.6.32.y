@@ -212,6 +212,7 @@
 #define SATA_BISTFCTR				(SATA_AHBHOST_BASE + 0x000000ac)
 #define SATA_BISTSR				(SATA_AHBHOST_BASE + 0x000000b0)
 #define SATA_BISTDECR				(SATA_AHBHOST_BASE + 0x000000b4)
+#define SATA_OOBR				(SATA_AHBHOST_BASE + 0x000000bc)
 #define SATA_TESTR				(SATA_AHBHOST_BASE + 0x000000f4)
 #define SATA_VERSIONR				(SATA_AHBHOST_BASE + 0x000000f8)
 #define SATA_IDR				(SATA_AHBHOST_BASE + 0x000000fc)
@@ -254,6 +255,7 @@ struct stm_lli {
 struct stm_host_priv
 {
 	unsigned long phy_init;		/* Initial value for PHYCR */
+	int oob_wa;			/* OOB-06(a) certification test WA */
 	int softsg;			/* If using softsg */
 	int shared_dma_host_irq;	/* If we the interrupt from the DMA
 					 * and HOSTC are or'ed together */
@@ -702,8 +704,18 @@ static int stm_sata_do_comreset(void __iomem *mmio_base,
 	struct stm_host_priv *hpriv)
 {
 	/* Make sure that PHY is up */
-	int timeout, val;
+	int timeout, val, rval = 0;
 	struct stm_miphy *miphy_dev = hpriv->miphy_dev;
+
+	/* OOB-6a certification test workaround */
+	/* Refer to RnDHV00020989/RnDHV00032380 for more information */
+	if (hpriv->oob_wa) {
+		writel(readl(mmio_base + SATA_OOBR) | 0x80000000,
+			mmio_base + SATA_OOBR);
+
+		writel(readl(mmio_base + SATA_OOBR) & 0x82FFFFFF,
+			mmio_base + SATA_OOBR);
+	}
 
 	val = readl(mmio_base + SATA_SCR1);
 	/* clearing the SATA_SCR1 register */
@@ -729,16 +741,26 @@ static int stm_sata_do_comreset(void __iomem *mmio_base,
 	/* Deassert MiPHY deserializer reset */
 	if (miphy_dev)
 		miphy_dev->assert_deserializer(miphy_dev, 0);
-	if (timeout <= 0)
-		return -1;
+	if (timeout <= 0) {
+		rval = -1;
+		goto err;
+	}
 
 	timeout = 100;
 	/* Waiting for PHYRDY to be detected by Host */
 	while (timeout-- && ((readl(mmio_base + SATA_SCR0) & 0x03) != 0x03))
 		msleep(1);
+
 	if (timeout <= 0)
-		return -1;
-	return 0;
+		rval = -1;
+
+err:
+	if (hpriv->oob_wa)
+		writel(readl(mmio_base + SATA_OOBR) & 0x7FFFFFFF,
+			mmio_base + SATA_OOBR);
+
+
+	return rval;
 }
 
 static int stm_sata_hardreset(struct ata_link *link, unsigned int *class,
@@ -1221,6 +1243,7 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	ap->ioaddr.ctl_addr		= mmio_base + SATA_CLR0;
 
 	hpriv->phy_init = sata_private_info->phy_init;
+	hpriv->oob_wa = sata_private_info->oob_wa;
 	hpriv->host_restart = sata_private_info->host_restart;
 	hpriv->miphy_dev = sata_private_info->miphy;
 	hpriv->port_num = sata_private_info->port_num;

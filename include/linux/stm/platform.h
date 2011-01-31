@@ -221,6 +221,7 @@ struct stm_plat_sata_data {
 	unsigned long phy_init;
 	unsigned long pc_glue_logic_init;
 	unsigned int only_32bit;
+	unsigned int oob_wa;
 	struct stm_device_config *device_config;
 	void (*host_restart)(int port);
 	int port_num;

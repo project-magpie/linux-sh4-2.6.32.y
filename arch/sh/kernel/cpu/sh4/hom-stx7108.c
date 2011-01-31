@@ -21,7 +21,7 @@
 #include <linux/stm/stx7108.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/platform.h>
-#include <linux/stm/ssc.h>
+#include <linux/stm/gpio.h>
 
 #include <asm/irq-ilc.h>
 
@@ -60,11 +60,17 @@
  * stx7108 has to notify the 'remove power now'
  * pulling down the i2c lines (SCL-SDA)
  * To do that the st40 has to turns-off the SSC (just
- * writing zero in the control register)
+ * put the pins into PIO mode and drive them directly).
  */
-#define SSC_TO_MICRO		5 /* on which SSC the external micro is */
-#define SSC_BANK(_x)		(0xfd740000 + (_x) * 0x1000)
-#define SSC_HOM			SSC_BANK(SSC_TO_MICRO)
+#define GPIO(_x)		(0xfd720000 + (_x) * 0x1000)
+#define GPIO_SET_OFFSET		0x4 /* to push high */
+#define GPIO_RESET_OFFSET	0x8 /* to push low */
+
+#define SYS_BANK_2		0xfda50000
+#define SYS_PIO_5		0x14
+
+#define SYS_BANK_1             0xfde20000
+#define SYS_B1_CFG4            0x4C
 
 
 static unsigned long stx7108_hom_table[] __cacheline_aligned = {
@@ -79,13 +85,12 @@ OR32(DDR3SS0_REG + DDR_PHY_DXCCR, 1),
 OR32(DDR3SS0_REG + DDR_PHY_PIR, 1 << 7),
 
 /*
- * The next 3 pokes are required to notify
- * the "ready for power off" to the external micro
- * They will push low both SCL/SDA (i2c violation)
+ * Force the SCL/SDA lines low to guarantee the i2c violation
  */
-POKE32(SSC_HOM + SSC_IEN, 0), /* disable the interrupt on SSC */
-POKE32(SSC_HOM + SSC_CTL, 0), /* disable the SSC */
-POKE32(SSC_HOM + SSC_I2C, 0), /* disable the SSC-I2C */
+OR32(SYS_BANK_1 + SYS_B1_CFG4, 1),
+UPDATE32(SYS_BANK_2 + SYS_PIO_5, ~(3 << 24), 0),
+UPDATE32(SYS_BANK_2 + SYS_PIO_5, ~(3 << 28), 0),
+POKE32(GPIO(5) + STM_GPIO_REG_CLR_POUT, 0x3 << 6),
 
 /* END. */
 END_MARKER,
@@ -96,18 +101,6 @@ static void __iomem *early_console_base;
 
 static void stx7108_hom_early_console(void)
 {
-#if 0
-#define PIOALT(port, pin, alt, dir)			\
-do {							\
-	stx7108_pioalt_select((port), (pin), (alt));    \
-	stx7108_pioalt_pad((port), (pin), (dir));	\
-} while (0)
-
-	/* Setup PIO of ASC device */
-	PIOALT(24, 4, 1, &stx7108_pioalt_pad_out);      /* UART3-TX */
-	PIOALT(24, 5, 1, &stx7108_pioalt_pad_in);       /* UART3-RX */
-#endif
-
 	writel(0x1189 & ~0x80, early_console_base + 0x0c); /* ctrl */
 	writel(BAUDRATE_VAL_M1(115200), early_console_base); /* baud */
 	writel(20, early_console_base + 0x1c);  /* timeout */
@@ -120,6 +113,14 @@ do {							\
 static int stx7108_hom_prepare(void)
 {
 	stm_freeze_board(NULL);
+
+	/*
+	 * Set SCA/SCL high temporarily.
+	 * They will be pushed low in the poketable
+	 */
+	stm_gpio_direction(stm_gpio(5, 6), STM_GPIO_DIRECTION_OUT);
+	stm_gpio_direction(stm_gpio(5, 7), STM_GPIO_DIRECTION_OUT);
+
 	return 0;
 }
 

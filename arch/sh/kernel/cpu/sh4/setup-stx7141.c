@@ -43,7 +43,7 @@ static int __init stx7141_sh4_devices_setup(void)
 	return platform_add_devices(stx7141_sh4_devices,
 			ARRAY_SIZE(stx7141_sh4_devices));
 }
-arch_initcall(stx7141_sh4_devices_setup);
+core_initcall(stx7141_sh4_devices_setup);
 
 
 

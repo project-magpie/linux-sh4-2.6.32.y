@@ -80,7 +80,7 @@ static int __init stx7108_sh4_devices_setup(void)
 		return platform_device_register(&stx7108_rt_ilc3_device);
 	}
 }
-arch_initcall(stx7108_sh4_devices_setup);
+core_initcall(stx7108_sh4_devices_setup);
 
 
 

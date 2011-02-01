@@ -66,7 +66,7 @@ static int __init ilc_init(void)
 	return platform_driver_register(&ilc_driver);
 }
 
-arch_initcall(ilc_init);
+core_initcall(ilc_init);
 
 struct ilc_route_log {
 	int ilc_irq;

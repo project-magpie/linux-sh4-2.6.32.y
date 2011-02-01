@@ -49,7 +49,7 @@ static int __init stx5206_sh4_devices_setup(void)
 	return platform_add_devices(stx5206_sh4_devices,
 			ARRAY_SIZE(stx5206_sh4_devices));
 }
-arch_initcall(stx5206_sh4_devices_setup);
+core_initcall(stx5206_sh4_devices_setup);
 
 
 

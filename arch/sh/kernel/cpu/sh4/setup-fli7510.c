@@ -107,7 +107,7 @@ static int __init fli7510_sh4_devices_setup(void)
 
 	return result;
 }
-arch_initcall(fli7510_sh4_devices_setup);
+core_initcall(fli7510_sh4_devices_setup);
 
 
 

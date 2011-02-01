@@ -55,7 +55,7 @@ static int __init stx5197_sh4_devices_setup(void)
 	return platform_add_devices(stx5197_sh4_devices,
 				    ARRAY_SIZE(stx5197_sh4_devices));
 }
-arch_initcall(stx5197_sh4_devices_setup);
+core_initcall(stx5197_sh4_devices_setup);
 
 
 

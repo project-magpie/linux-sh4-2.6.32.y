@@ -217,7 +217,7 @@ void sysconf_write(struct sysconf_field *field, unsigned long value)
 {
 	int field_bits;
 
-	pr_debug("%s(field=0x%p (%s %d[%d:%d]) = 0x%08x)\n", __func__, field,
+	pr_debug("%s(field=0x%p (%s %d[%d:%d]) = 0x%08lx)\n", __func__, field,
 		 sysconf_groups[field->group].name, field->num,
 		 field->msb, field->lsb, value);
 

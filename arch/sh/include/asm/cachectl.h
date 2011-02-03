@@ -7,7 +7,11 @@
 #define CACHEFLUSH_D_WB		0x2	/* write back (without invalidate) */
 #define CACHEFLUSH_D_PURGE	0x3	/* writeback and invalidate */
 
+#define CACHEFLUSH_D_MASK	0x3
+
 #define CACHEFLUSH_I		0x4
+
+#define CACHEFLUSH_D_L2		0x8
 
 /*
  * Options for cacheflush system call

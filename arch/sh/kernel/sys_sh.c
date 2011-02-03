@@ -162,7 +162,8 @@ asmlinkage int sys_cacheflush(unsigned long addr, unsigned long len, int op)
 {
 	struct vm_area_struct *vma;
 
-	if ((op <= 0) || (op > (CACHEFLUSH_D_PURGE|CACHEFLUSH_I)))
+	if ((op & ~(CACHEFLUSH_D_MASK|CACHEFLUSH_I|CACHEFLUSH_D_L2)) ||
+	    !(op & CACHEFLUSH_D_MASK))
 		return -EINVAL;
 
 	/*
@@ -179,15 +180,21 @@ asmlinkage int sys_cacheflush(unsigned long addr, unsigned long len, int op)
 		return -EFAULT;
 	}
 
-	switch (op & CACHEFLUSH_D_PURGE) {
+	switch (op & CACHEFLUSH_D_MASK) {
 		case CACHEFLUSH_D_INVAL:
 			__flush_invalidate_region((void *)addr, len);
+			if (op & CACHEFLUSH_D_L2)
+				__l2_flush_invalidate_region((void *)addr, len);
 			break;
 		case CACHEFLUSH_D_WB:
 			__flush_wback_region((void *)addr, len);
+			if (op & CACHEFLUSH_D_L2)
+				__l2_flush_wback_region((void *)addr, len);
 			break;
 		case CACHEFLUSH_D_PURGE:
 			__flush_purge_region((void *)addr, len);
+			if (op & CACHEFLUSH_D_L2)
+				__l2_flush_purge_region((void *)addr, len);
 			break;
 	}
 

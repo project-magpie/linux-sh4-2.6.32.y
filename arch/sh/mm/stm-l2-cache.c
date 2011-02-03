@@ -344,10 +344,7 @@ static void stm_l2_sync(void)
 static void stm_l2_flush_common(unsigned long start, int size, int is_phys,
 		unsigned int l2reg)
 {
-	/* Any code trying to flush P0 address is definitely wrong... */
-	BUG_ON(!is_phys && start < P1SEG);
-
-	/* Same with P4 address... */
+	/* Any code trying to flush P4 address is definitely wrong... */
 	BUG_ON(!is_phys && start >= P4SEG);
 
 	/* Ensure L1 writeback is done before starting writeback on L2 */
@@ -381,7 +378,7 @@ static void stm_l2_flush_common(unsigned long start, int size, int is_phys,
 			writel(phys_addr, stm_l2_base + l2reg);
 			phys_addr += stm_l2_block_size;
 		}
-	} else if (start >= P3SEG && start < P4SEG) {
+	} else if ((start >= P3SEG && start < P4SEG) || (start < P1SEG)) {
 		/* Round down to start of block (cache line). */
 		unsigned long virt_addr = start & ~(stm_l2_block_size - 1);
 		unsigned long virt_end = start + size;
@@ -394,9 +391,12 @@ static void stm_l2_flush_common(unsigned long start, int size, int is_phys,
 			pmd_t *pmd;
 			pte_t *pte;
 
-			/* When dealing with P3 memory, we have to go through
-			 * page directory... */
-			pgd = pgd_offset_k(virt_addr);
+			/* When dealing with P1 or P3 memory, we have to go
+			 * through the page directory... */
+			if (start < P1SEG)
+				pgd = pgd_offset(current->mm, virt_addr);
+			else
+				pgd = pgd_offset_k(virt_addr);
 			BUG_ON(pgd_none(*pgd));
 			pud = pud_offset(pgd, virt_addr);
 			BUG_ON(pud_none(*pud));

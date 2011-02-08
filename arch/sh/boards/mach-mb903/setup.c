@@ -218,8 +218,8 @@ static int __init mb903_device_init(void)
 	stx7108_configure_usb(1);
 	stx7108_configure_usb(2);
 
-	stx7108_configure_sata(0);
-	stx7108_configure_sata(1);
+	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
+	stx7108_configure_sata(1, &(struct stx7108_sata_config) { });
 
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_gmii_gtx,

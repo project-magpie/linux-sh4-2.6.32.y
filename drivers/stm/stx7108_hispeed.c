@@ -1003,11 +1003,11 @@ static struct platform_device stx7108_tap_device = {
 static int __init stx7108_miphy_postcore_setup(void)
 {
 	int err = 0;
-
 	if (cpu_data->cut_major >= 2) /* ONLY Available on Cut2's */
 		err = platform_device_register(&stx7108_pcie_mp_device);
-	else
-		err = platform_device_register(&stx7108_tap_device);
+
+	/* available on both Cut 1 and Cut 2 */
+	err = platform_device_register(&stx7108_tap_device);
 
 	return err;
 }
@@ -1143,12 +1143,19 @@ static struct platform_device stx7108_sata_devices[] = {
 	}
 };
 
-void __init stx7108_configure_sata(int port)
+void __init stx7108_configure_sata(int port, struct stx7108_sata_config *config)
 {
 	static int initialized;
 	static int sata0_initialized;
 	static void (*fn_host_restart)(int) = NULL;
 	struct stm_plat_sata_data *sata_data;
+	int interface;
+
+	if (cpu_data->cut_major >= 2)
+		interface = config->force_jtag ? TAP_IF : UPORT_IF;
+	else
+		interface = TAP_IF;
+
 
 	/* NOTE: In 7108 SYSCONF BANK0 few missing sysconfig registers
 	* do not have the phy addresses, Which breaks the sysconf
@@ -1158,13 +1165,11 @@ void __init stx7108_configure_sata(int port)
 #define BANK0_REG(reg)	(reg - 3)
 
 	if (!initialized) {
-		if (cpu_data->cut_major < 2) {
-			miphy[0].interface = TAP_IF;
-			miphy[1].interface = TAP_IF;
-		} else {
+		miphy[0].interface = interface;
+		miphy[1].interface = interface;
+
+		if (interface == UPORT_IF) {
 			/* 7108 CUT 2.0 supports MicroPort */
-			miphy[0].interface	= UPORT_IF;
-			miphy[1].interface	= UPORT_IF;
 			fn_host_restart = stx7108_restart_sata;
 
 			sc_sata1_hc_srst = sysconf_claim(SYS_CFG_BANK4, 45,
@@ -1205,13 +1210,13 @@ void __init stx7108_configure_sata(int port)
 
 	/* Reset & config the SATA HC and MiPHY */
 	if (port == 0) {
-		if (cpu_data->cut_major < 2) {
+		if (interface == TAP_IF) {
 			/* SATA_0_ power reset */
 			sysconf_write(sc_sata_hc_pwr[port], 1);
 			udelay(100);
 			sysconf_write(sc_sata_hc_pwr[port], 0);
 			sata0_initialized = 1;
-		} else {
+		} else if (interface == UPORT_IF) {
 			/* Deassert Soft Reset to SATA0 */
 			sysconf_write(sc_sata1_hc_srst, 1);
 			/* Put MiPHY1 in reset - rst_per_n[32] */
@@ -1225,14 +1230,14 @@ void __init stx7108_configure_sata(int port)
 
 	} else if (port == 1) {
 
-		if (cpu_data->cut_major < 2) {
+		if (interface == TAP_IF) {
 			/* SATA0 to be intialized before accessing SATA1 */
 			BUG_ON(!sata0_initialized);
 			/* SATA_1_POWER Up */
 			sysconf_write(sc_sata_hc_pwr[port], 1);
 			udelay(100);
 			sysconf_write(sc_sata_hc_pwr[port], 0);
-		} else {
+		} else if (interface == UPORT_IF) {
 			/* Put MiPHY1 in reset - rst_per_n[32] */
 			sysconf_write(sc_miphy_reset[port], 0);
 			/* Put SATA1 HC in reset - rst_per_n[30] */

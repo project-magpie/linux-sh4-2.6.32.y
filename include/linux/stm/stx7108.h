@@ -153,7 +153,12 @@ void stx7108_configure_usb(int port);
 
 void stx7108_configure_mmc(void);
 
-void stx7108_configure_sata(int port);
+struct stx7108_sata_config {
+	/* Option available for CUT2.0 */
+	int force_jtag;
+};
+
+void stx7108_configure_sata(int port, struct stx7108_sata_config *config);
 
 
 struct stx7108_pata_config {

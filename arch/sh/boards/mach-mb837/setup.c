@@ -229,8 +229,8 @@ static int __init mb837_devices_init(void)
 	/* J53C & J53D fitted */
 	stx7108_configure_usb(2);
 
-	stx7108_configure_sata(0);
-	stx7108_configure_sata(1);
+	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
+	stx7108_configure_sata(1, &(struct stx7108_sata_config) { });
 
 #ifdef CONFIG_SH_ST_MB837_STMMAC0
 	stx7108_configure_ethernet(0, &(struct stx7108_ethernet_config) {

@@ -438,8 +438,32 @@ static int __init device_init(void)
 	stx7108_configure_usb(1);
 	stx7108_configure_usb(2);
 
-	stx7108_configure_sata(0);
-	stx7108_configure_sata(1);
+#if defined(CONFIG_SH_ST_HDK7108_VER1_BOARD)
+	/* 2 SATA's with CUT1.0 and 1 SATA with CUT2.0 */
+	if (cpu_data->cut_major >= 2) {
+		/*
+		 * Cut 2.0 has 2 MiPHYs, where as cut 1 only has 1.
+		 * If we use cut 2.0 chip with ver 1.0 board,
+		 * port 1 will NOT-WORK for this combination, as
+		 * MIPHY1 powerlines are not connected in Ver1.0 board.
+		 * We also have to force the use of the TAP instead of
+		 * microport, as this is clocked from MiPHY 1.
+		 */
+		stx7108_configure_sata(0, &(struct stx7108_sata_config) {
+				.force_jtag = 1, });
+	} else {
+		stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
+		stx7108_configure_sata(1, &(struct stx7108_sata_config) { });
+	}
+#elif defined(CONFIG_SH_ST_HDK7108_VER2_BOARD)
+	/* PCIe + 1 SATA */
+	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
+#elif defined(CONFIG_SH_ST_HDK7108_VER2_1A_BOARD)
+	/* 2 SATA's */
+	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
+	stx7108_configure_sata(1, &(struct stx7108_sata_config) { });
+#endif
+
 
 #ifdef CONFIG_SH_ST_HDK7108_STMMAC0
 	stx7108_configure_ethernet(0, &(struct stx7108_ethernet_config) {

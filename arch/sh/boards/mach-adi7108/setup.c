@@ -320,8 +320,8 @@ static int __init device_init(void)
 	stx7108_configure_usb(1);
 	stx7108_configure_usb(2);
 
-	stx7108_configure_sata(0);
-	stx7108_configure_sata(1);
+	stx7108_configure_sata(0, NULL);
+	stx7108_configure_sata(1, NULL);
 
 #if 0
 	gpio_request(ADI7108_PIO_POWER_ON_ETHERNET0, "POWER_ON_ETHERNET");

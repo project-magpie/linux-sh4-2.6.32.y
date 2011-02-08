@@ -419,6 +419,9 @@ config SH_ST_HDK7108
 	  Select SH_ST_HDK7108 if configuring for a
 	  STMicroelectronics STi7108 Reference Board.
 
+source "arch/sh/boards/mach-hdk7108/Kconfig"
+
+
 config SH_ST_HDREF
 	bool "ST HDref board"
 	depends on CPU_SUBTYPE_STX7100
@@ -729,7 +732,6 @@ source "arch/sh/boards/mach-rsk/Kconfig"
 source "arch/sh/boards/mach-eud7141/Kconfig"
 source "arch/sh/boards/mach-mb628/Kconfig"
 source "arch/sh/boards/mach-mb837/Kconfig"
-source "arch/sh/boards/mach-hdk7108/Kconfig"
 
 if SH_MAGIC_PANEL_R2
 

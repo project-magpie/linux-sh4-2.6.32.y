@@ -20,6 +20,7 @@
 #include <linux/stm/emi.h>
 #include <linux/stm/stx7108.h>
 #include <linux/delay.h>
+#include <linux/clk.h>
 #include <asm/irq-ilc.h>
 
 /* --------------------------------------------------------------------
@@ -695,8 +696,16 @@ void __init stx7108_configure_ethernet(int port,
 		pad_config = &stx7108_ethernet_rmii_pad_configs[port];
 		if (config->ext_clk)
 			stm_pad_set_pio_in(pad_config, "PHYCLK", 2 + port);
-		else
+		else {
+			unsigned long phy_clk_rate;
+			struct clk *phy_clk = clk_get(NULL, "CLKA_ETH_PHY_1");
+
+			BUG_ON(!phy_clk);
 			stm_pad_set_pio_out(pad_config, "PHYCLK", 1 + port);
+
+			phy_clk_rate = 50000000;
+			clk_set_rate(phy_clk, phy_clk_rate);
+		}
 		plat_data->fix_mac_speed = stx7108_ethernet_rmii_speed;
 		/* MIIx_MAC_SPEED_SEL */
 		if (port == 0)

@@ -27,6 +27,38 @@
  *           Ethernet MAC resources (PAD and Retiming)
  * --------------------------------------------------------------------*/
 
+
+#undef DEBUG_RETIME_CONF
+/* Turn-on to only debug retiming setting for example on eth driver */
+/*#define DEBUG_RETIME_CONF*/
+
+static void stx7108_pio_dump_pad_config(const char *name, int port,
+					struct stm_pad_config *pad_config)
+{
+#ifdef DEBUG_RETIME_CONF
+	int i, gpios_num = pad_config->gpios_num;
+
+	pr_info("%s port=%d, gpios_num = %d\n", name, port, gpios_num);
+
+	pr_info("GPIO   (retime\tclk1notclk0\tclknotdata\tdouble_edge\t"
+		"invertclk\tdelay_input)\n");
+
+	for (i = 0; i < gpios_num; i++) {
+		struct stm_pad_gpio *pad_gpio = &pad_config->gpios[i];
+		struct stx7108_pio_config *priv = pad_gpio->priv;
+		struct stx7108_pio_retime_config *retime = priv->retime;
+
+		pr_info("PIO%d[%d]  %d\t\t%d\t\t%d\t%d\t\t%d\t\t%d\n",
+			stm_gpio_port(pad_gpio->gpio),
+			stm_gpio_pin(pad_gpio->gpio),
+			retime->retime, retime->clk1notclk0,
+			retime->clknotdata, retime->double_edge,
+			retime->invertclk, retime->delay_input);
+
+	}
+#endif
+}
+
 /* MII Default Retiming Configuration */
 static struct stx7108_pio_retime_config mii_retime_bypass = {
 	.retime = 0,
@@ -732,6 +764,9 @@ void __init stx7108_configure_ethernet(int port,
 
 	plat_data->custom_cfg = (void *) pad_config;
 	plat_data->bus_id = config->phy_bus;
+
+	stx7108_pio_dump_pad_config(stx7108_ethernet_devices[port].name,
+				    port, pad_config);
 
 	platform_device_register(&stx7108_ethernet_devices[port]);
 }

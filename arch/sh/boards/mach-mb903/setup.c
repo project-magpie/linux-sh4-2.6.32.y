@@ -13,6 +13,7 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/phy.h>
+#include <linux/phy_fixed.h>
 #include <linux/gpio.h>
 #include <linux/leds.h>
 #include <linux/tm1668.h>
@@ -148,17 +149,15 @@ static void mb903_mi11_txclk_select(int txclk_250_not_25_mhz)
 			!!txclk_250_not_25_mhz);
 }
 
-static struct stmmac_mdio_bus_data stmmac0_mdio_bus = {
-	.bus_id = 0,
-	.phy_reset = mb903_mii0_phy_reset,
-	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_GMII,
-};
-
 static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
 	.bus_id = 1,
 	.phy_reset = mb903_mii1_phy_reset,
 	.phy_mask = 0,
+};
+
+static struct fixed_phy_status stmmac0_fixed_phy_status = {
+	.link = 1,
+	.speed = 100,
 };
 
 static struct platform_device *mb903_devices[] __initdata = {
@@ -215,15 +214,13 @@ static int __init mb903_device_init(void)
 			.mdio_bus_data = &stmmac1_mdio_bus,
 		});
 
-#if 0
+	BUG_ON(fixed_phy_add(PHY_POLL, 1, &stmmac0_fixed_phy_status));
 	stx7108_configure_ethernet(0, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_mii,
 			.ext_clk = 1,
 			.phy_bus = 0,
-			.phy_addr = -1,
-			.mdio_bus_data = &stmmac0_mdio_bus,
+			.phy_addr = 1,
 		});
-#endif
 
 	return platform_add_devices(mb903_devices,
 			ARRAY_SIZE(mb903_devices));

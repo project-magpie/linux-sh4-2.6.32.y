@@ -630,6 +630,7 @@ config SH_ST_MB839
 config SH_ST_MB903
 	bool "mb903: STi7108M Reference board"
 	depends on CPU_SUBTYPE_STX7108
+	select FIXED_PHY
 	help
 	  Select SH_ST_MB903 if configuring for a
 	  STMicroelectronics STi7108M Reference Board.

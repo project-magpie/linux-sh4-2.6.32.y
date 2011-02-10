@@ -117,6 +117,27 @@ static struct stx7108_pio_retime_config mii_retime_data[] = {
 	}
 };
 
+/* RMII Default Retiming Configuration */
+static struct stx7108_pio_retime_config rmii_retime_data[] = {
+	[0] = {
+		.retime = 1,
+		.clk1notclk0 = 0,
+		.clknotdata = 0,
+		.double_edge = -1,
+		.invertclk = -1,
+		.delay_input = -1,
+	},
+	[1] = {
+		.retime = 1,
+		.clk1notclk0 = 0,
+		.clknotdata = 0,
+		.double_edge = -1,
+		.invertclk = -1,
+		.delay_input = -1,
+	}
+};
+
+
 /* GMII (GTX) Default Retiming Configuration */
 static struct stx7108_pio_retime_config gmii_gtx_retime_clock = {
 	.retime = 1,
@@ -511,16 +532,16 @@ static struct stm_pad_config stx7108_ethernet_rmii_pad_configs[] = {
 		.gpios = (struct stm_pad_gpio []) {
 			PHY_CLOCK(1, 15, 5, mii_retime_phy_clock),/* PHYCLK */
 			BYPASS_IN(1, 15, 6, mii_retime_bypass),	/* MDINT */
-			DATA_OUT(1, 15, 7, mii_retime_data),	/* TXEN */
-			DATA_OUT(1, 16, 0, mii_retime_data),	/* TXD[0] */
-			DATA_OUT(1, 16, 1, mii_retime_data),	/* TXD[1] */
-			DATA_OUT(1, 17, 1, mii_retime_data),	/* TXER */
+			DATA_OUT(1, 15, 7, rmii_retime_data),	/* TXEN */
+			DATA_OUT(1, 16, 0, rmii_retime_data),	/* TXD[0] */
+			DATA_OUT(1, 16, 1, rmii_retime_data),	/* TXD[1] */
+			DATA_OUT(1, 17, 1, rmii_retime_data),	/* TXER */
 			BYPASS_OUT(1, 17, 4, mii_retime_bypass),/* MDIO */
 			CLOCK_OUT(1, 17, 5, mii_retime_clock),	/* MDC */
-			DATA_IN(1, 17, 6, mii_retime_data),	/* RXDV */
-			DATA_IN(1, 17, 7, mii_retime_data),	/* RX_ER */
-			DATA_IN(1, 18, 0, mii_retime_data),	/* RXD[0] */
-			DATA_IN(1, 18, 1, mii_retime_data),	/* RXD[1] */
+			DATA_IN(1, 17, 6, rmii_retime_data),	/* RXDV */
+			DATA_IN(1, 17, 7, rmii_retime_data),	/* RX_ER */
+			DATA_IN(1, 18, 0, rmii_retime_data),	/* RXD[0] */
+			DATA_IN(1, 18, 1, rmii_retime_data),	/* RXD[1] */
 		},
 		.sysconfs_num = 3,
 		.sysconfs = (struct stm_pad_sysconf []) {
@@ -724,7 +745,7 @@ void __init stx7108_configure_ethernet(int port,
 		plat_data->fix_mac_speed = stx7108_ethernet_gtx_speed;
 		plat_data->bsp_priv = config->txclk_select;
 		break;
-	case stx7108_ethernet_mode_rmii:
+	case stx7108_ethernet_mode_rmii: /* GMAC1 only tested */
 		pad_config = &stx7108_ethernet_rmii_pad_configs[port];
 		if (config->ext_clk)
 			stm_pad_set_pio_in(pad_config, "PHYCLK", 2 + port);

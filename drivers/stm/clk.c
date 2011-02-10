@@ -24,6 +24,7 @@
 
 static LIST_HEAD(clks_list);
 static DEFINE_MUTEX(clks_sem);
+static DEFINE_SPINLOCK(clock_lock);
 
 static int __clk_init(struct clk *clk)
 {
@@ -167,14 +168,15 @@ int _clk_enable(struct clk *clk)
 
 int clk_enable(struct clk *clk)
 {
-	int ret = 0;
+	unsigned long flags;
+	int ret;
 
 	BUG_ON(!clk);
-	mutex_lock(&clks_sem);
 
+	spin_lock_irqsave(&clock_lock, flags);
 	ret = _clk_enable(clk);
+	spin_unlock_irqrestore(&clock_lock, flags);
 
-	mutex_unlock(&clks_sem);
 	return ret;
 }
 EXPORT_SYMBOL(clk_enable);
@@ -210,12 +212,13 @@ void _clk_disable(struct clk *clk)
 
 void clk_disable(struct clk *clk)
 {
+	unsigned long flags;
+
 	BUG_ON(!clk);
-	mutex_lock(&clks_sem);
 
+	spin_lock_irqsave(&clock_lock, flags);
 	_clk_disable(clk);
-
-	mutex_unlock(&clks_sem);
+	spin_unlock_irqrestore(&clock_lock, flags);
 }
 EXPORT_SYMBOL(clk_disable);
 
@@ -266,11 +269,10 @@ EXPORT_SYMBOL(clk_get_rate);
 
 int clk_set_rate(struct clk *clk, unsigned long rate)
 {
-	int ret = -EINVAL;
+	unsigned long flags;
+	int ret;
 
-	BUG_ON(!clk);
-
-	mutex_lock(&clks_sem);
+	spin_lock_irqsave(&clock_lock, flags);
 
 	if (rate == clk_get_rate(clk)) {
 		ret = 0;
@@ -282,7 +284,7 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 		clk_propagate(clk);
 
 __ret_set_rate:
-	mutex_unlock(&clks_sem);
+	spin_unlock_irqrestore(&clock_lock, flags);
 
 	return ret;
 }
@@ -290,15 +292,17 @@ EXPORT_SYMBOL(clk_set_rate);
 
 long clk_round_rate(struct clk *clk, unsigned long rate)
 {
-	unsigned long ret = clk_get_rate(clk);
+	if (likely(clk->ops && clk->ops->round_rate)) {
+		unsigned long flags, rounded;
 
-	mutex_lock(&clks_sem);
+		spin_lock_irqsave(&clock_lock, flags);
+		rounded = clk->ops->round_rate(clk, rate);
+		spin_unlock_irqrestore(&clock_lock, flags);
 
-	if (likely(clk->ops && clk->ops->round_rate))
-		ret = clk->ops->round_rate(clk, rate);
+		return rounded;
+	}
 
-	mutex_unlock(&clks_sem);
-	return ret;
+	return clk_get_rate(clk);
 }
 EXPORT_SYMBOL(clk_round_rate);
 
@@ -311,6 +315,7 @@ EXPORT_SYMBOL(clk_get_parent);
 
 int clk_set_parent(struct clk *clk, struct clk *parent)
 {
+	unsigned long flags;
 	int ret = -EINVAL;
 	struct clk *old_parent;
 	unsigned long old_rate;
@@ -320,7 +325,7 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	if (parent == clk_get_parent(clk))
 		return 0;
 
-	mutex_lock(&clks_sem);
+	spin_lock_irqsave(&clock_lock, flags);
 	old_parent = clk_get_parent(clk);
 	old_rate = clk_get_rate(clk);
 
@@ -341,7 +346,8 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	if (!ret)
 		clk_propagate(clk);
 
-	mutex_unlock(&clks_sem);
+	spin_unlock_irqrestore(&clock_lock, flags);
+
 	return ret;
 }
 EXPORT_SYMBOL(clk_set_parent);

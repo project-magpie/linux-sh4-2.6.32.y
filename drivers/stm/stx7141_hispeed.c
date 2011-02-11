@@ -862,11 +862,14 @@ postcore_initcall(stx7141_miphy_postcore_setup);
 static void stx7141_sata_power(struct stm_device_state *device_state,
 		enum stm_device_power_state power)
 {
-	int value = (power == stm_device_power_on) ? 0 : 1;
-
-	stm_device_sysconf_write(device_state, "SATA_PWR", value);
-	mdelay(10);
-
+	/*
+	 * At the moment it isn't clear how turn-off the sata host controller
+	 * The SysCfg_36[6] doesn't work as described in ADCS 8247910
+	 * The SysSta_15[5] returns always zero
+	 * Also some experiment on SysCfg_4[9] did bad result.
+	 *
+	 * So currently the system totally bypasses the sata host controller
+	 */
 	return ;
 }
 static struct stm_miphy miphy = {

@@ -26,11 +26,21 @@
 #ifndef __STMMAC_PLATFORM_DATA
 #define __STMMAC_PLATFORM_DATA
 
-/* platfrom data for platfrom device structure's platfrom_data field */
+/* Platfrom data for platform device structure's platform_data field */
 
-/* Private data for the STM on-board ethernet driver */
+struct stmmac_mdio_bus_data {
+	int bus_id;
+	int (*phy_reset)(void *priv);
+	unsigned int phy_mask;
+	int *irqs;		/* List of IRQs, one per PHY */
+	int probed_phy_irq;	/* If irqs is NULL, use this for probed PHY */
+};
+
 struct plat_stmmacenet_data {
 	int bus_id;
+	int phy_addr;
+	int interface;
+	struct stmmac_mdio_bus_data *mdio_bus_data;
 	int pbl;
 	int clk_csr;
 	int has_gmac;
@@ -45,14 +55,4 @@ struct plat_stmmacenet_data {
 	void *custom_cfg;
 	void *bsp_priv;
 };
-
-struct plat_stmmacphy_data {
-	int bus_id;
-	int phy_addr;
-	unsigned int phy_mask;
-	int interface;
-	int (*phy_reset)(void *priv);
-	void *priv;
-};
 #endif
-

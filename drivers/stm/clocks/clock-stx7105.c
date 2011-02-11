@@ -1285,7 +1285,7 @@ static int clkgenb_observe(clk_t *clk_p, unsigned long *div_p)
 
 /* ========================================================================
    Name:	clkgenb_fsyn_recalc
-   Description: Check FSYN & channels status... active, disabled, standbye
+   Description: Check FSYN & channels status... active, disabled, standby
 		'clk_p->rate' is updated accordingly.
    Returns:	Error code.
    ======================================================================== */
@@ -1322,7 +1322,7 @@ static int clkgenb_fsyn_recalc(clk_t *clk_p)
 	bit = (clk_p->id - CLKB_FS0_CH1) % 4;
 	val = CLK_READ(CKGB_BASE_ADDRESS + clkout);
 	if ((val & (1 << bit)) == 0) {
-		/* Digital standbye */
+		/* Digital standby */
 		clk_p->rate = 0;
 		return 0;
 	}
@@ -1680,7 +1680,7 @@ static int clkgenc_fsyn_recalc(clk_t *clk_p)
 	dig_bit = dig_table[clk_p->id - CLKC_FS0_CH1];
 	en_bit = en_table[clk_p->id - CLKC_FS0_CH1];
 
-	if ((cfg & (1 << dig_bit)) == 0) {	/* digital part in standbye */
+	if ((cfg & (1 << dig_bit)) == 0) {	/* digital part in standby */
 		clk_p->rate = 0;
 		return 0;
 	}
@@ -1860,7 +1860,7 @@ static int clkgenc_init(clk_t *clk_p)
 static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 {
 	unsigned long val;
-	/* Digital standbye bits table.
+	/* Digital standby bits table.
 	   Warning: enum order: CLKC_FS0_CH1 ... CLKC_FS0_CH3 */
 	static const unsigned char dig_bit[] = {10, 11, 12, 13};
 	static const unsigned char en_bit[] = {6, 7, 8, 9};

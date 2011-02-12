@@ -2073,6 +2073,11 @@ static int clkgenc_init(clk_t *clk_p)
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
+	if (clk_p->id == CLKC_REF) {
+		unsigned long data = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS0_CFG);
+		data |= (1 << 0); /* reset NOT active */
+		CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS0_CFG, data);
+	}
 	err = clkgenc_identify_parent(clk_p);
 	if (!err)
 		err = clkgenc_recalc(clk_p);

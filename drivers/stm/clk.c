@@ -274,16 +274,11 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 
 	spin_lock_irqsave(&clock_lock, flags);
 
-	if (rate == clk_get_rate(clk)) {
-		ret = 0;
-		goto __ret_set_rate;
-	}
 	ret = __clk_set_rate(clk, rate);
 
 	if (!ret)
 		clk_propagate(clk);
 
-__ret_set_rate:
 	spin_unlock_irqrestore(&clock_lock, flags);
 
 	return ret;

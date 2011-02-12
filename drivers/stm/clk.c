@@ -23,7 +23,7 @@
 #include <linux/stm/clk.h>
 
 static LIST_HEAD(clks_list);
-static DEFINE_MUTEX(clks_sem);
+static DEFINE_MUTEX(clks_list_sem);
 static DEFINE_SPINLOCK(clock_lock);
 
 static int __clk_init(struct clk *clk)
@@ -171,7 +171,8 @@ int clk_enable(struct clk *clk)
 	unsigned long flags;
 	int ret;
 
-	BUG_ON(!clk);
+	if (!clk)
+		return -EINVAL;
 
 	spin_lock_irqsave(&clock_lock, flags);
 	ret = _clk_enable(clk);
@@ -214,7 +215,8 @@ void clk_disable(struct clk *clk)
 {
 	unsigned long flags;
 
-	BUG_ON(!clk);
+	if (!clk)
+		return;
 
 	spin_lock_irqsave(&clock_lock, flags);
 	_clk_disable(clk);
@@ -226,7 +228,7 @@ int clk_register(struct clk *clk)
 {
 	BUG_ON(!clk || !clk->name);
 
-	mutex_lock(&clks_sem);
+	mutex_lock(&clks_list_sem);
 
 	list_add_tail(&clk->node, &clks_list);
 	INIT_LIST_HEAD(&clk->children);
@@ -240,7 +242,7 @@ int clk_register(struct clk *clk)
 
 	kref_init(&clk->kref);
 
-	mutex_unlock(&clks_sem);
+	mutex_unlock(&clks_list_sem);
 
 	if (clk_is_always_enabled(clk))
 		clk_enable(clk);
@@ -252,11 +254,12 @@ EXPORT_SYMBOL(clk_register);
 void clk_unregister(struct clk *clk)
 {
 	BUG_ON(!clk);
-	mutex_lock(&clks_sem);
+
+	mutex_lock(&clks_list_sem);
 	list_del(&clk->node);
 	if (clk->parent)
 		list_del(&clk->children_node);
-	mutex_unlock(&clks_sem);
+	mutex_unlock(&clks_list_sem);
 }
 EXPORT_SYMBOL(clk_unregister);
 
@@ -315,7 +318,8 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	struct clk *old_parent;
 	unsigned long old_rate;
 
-	BUG_ON(!parent || !clk);
+	if (!parent || !clk)
+		return 0;
 
 	if (parent == clk_get_parent(clk))
 		return 0;
@@ -369,13 +373,13 @@ int clk_for_each(int (*fn)(struct clk *clk, void *data), void *data)
 	if (!fn)
 		return -EINVAL;
 
-	mutex_lock(&clks_sem);
+	mutex_lock(&clks_list_sem);
 	list_for_each_entry(clkp, &clks_list, node) {
 		result = fn(clkp, data);
 		if (result)
 			break;
 	}
-	mutex_unlock(&clks_sem);
+	mutex_unlock(&clks_list_sem);
 
 	return result;
 }
@@ -386,9 +390,9 @@ int clk_for_each_child(struct clk *clk, int (*fn)(struct clk *clk, void *data),
 {
 	int ret = 0;
 
-	mutex_lock(&clks_sem);
+	mutex_lock(&clks_list_sem);
 	ret = __clk_for_each_child(clk, fn, data);
-	mutex_unlock(&clks_sem);
+	mutex_unlock(&clks_list_sem);
 
 	return ret;
 }
@@ -402,7 +406,7 @@ static void *clk_seq_next(struct seq_file *s, void *v, loff_t *pos)
 
 static void *clk_seq_start(struct seq_file *s, loff_t *pos)
 {
-	mutex_lock(&clks_sem);
+	mutex_lock(&clks_list_sem);
 	return seq_list_start(&clks_list, *pos);
 }
 
@@ -436,7 +440,7 @@ static int clk_seq_show(struct seq_file *s, void *v)
 
 static void clk_seq_stop(struct seq_file *s, void *v)
 {
-	mutex_unlock(&clks_sem);
+	mutex_unlock(&clks_list_sem);
 }
 
 static const struct seq_operations clk_seq_ops = {

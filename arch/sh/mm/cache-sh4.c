@@ -17,6 +17,7 @@
 #include <linux/fs.h>
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
+#include <linux/module.h>
 
 /*
  * The maximum number of pages we support up to when doing ranged dcache
@@ -159,6 +160,7 @@ void flush_kernel_dcache_page_addr(unsigned long kaddr)
 	for (i = 0; i < n; i++, addr += PAGE_SIZE)
 		flush_cache_one(addr, kaddr);
 }
+EXPORT_SYMBOL(flush_kernel_dcache_page_addr);
 
 /* TODO: Selective icache invalidation through IC address array.. */
 static void __uses_jump_to_uncached flush_icache_all(void)

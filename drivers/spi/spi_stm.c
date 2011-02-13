@@ -368,6 +368,9 @@ static int __init spi_stm_probe(struct platform_device *pdev)
 	else
 		spi_stm->bitbang.chipselect = spi_stm_gpio_chipselect;
 
+	/* the spi->mode bits understood by this driver: */
+	master->mode_bits = MODEBITS;
+
 	/* chip_select field of spi_device is declared as u8 and therefore
 	 * limits number of GPIOs that can be used as a CS line. Sorry. */
 	master->num_chipselect =

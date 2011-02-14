@@ -202,7 +202,7 @@ void ilc_irq_demux(unsigned int irq, struct irq_desc *desc)
 	for (idx = 0; idx < DIV_ROUND_UP(ilc->inputs_num, 32); ++idx) {
 		unsigned long status, enabled, used;
 
-		status = readl(ilc->base + ILC_BASE_STATUS + (idx << 1));
+		status = readl(ilc->base + ILC_BASE_STATUS + (idx << 2));
 		enabled = readl(ilc->base + ILC_BASE_ENABLE + (idx << 2));
 		used = 0;
 		for (priority = 0; priority < ilc->outputs_num; ++priority)

@@ -190,6 +190,8 @@ static int __init mb903_device_init(void)
 	 * BACKEND: U21 (EEPROM), U29 (STTS75 tempereature sensor),
 	 * U26 (STV6440), CN10 ("GMII MODULE"), CN12 ("I2C BACKEND") */
 	stx7108_configure_ssc_i2c(6, NULL);
+	/* SYS - EEPROM & MII0 */
+	stx7108_configure_ssc_i2c(5, NULL);
 
 	stx7108_configure_lirc(&(struct stx7108_lirc_config) {
 			.rx_mode = stx7108_lirc_rx_mode_ir, });
@@ -204,6 +206,13 @@ static int __init mb903_device_init(void)
 
 	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
 	stx7108_configure_sata(1, &(struct stx7108_sata_config) { });
+	BUG_ON(fixed_phy_add(PHY_POLL, 1, &stmmac0_fixed_phy_status));
+	stx7108_configure_ethernet(0, &(struct stx7108_ethernet_config) {
+			.mode = stx7108_ethernet_mode_mii,
+			.ext_clk = 1,
+			.phy_bus = 0,
+			.phy_addr = 1,
+		});
 
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_gmii_gtx,
@@ -214,13 +223,6 @@ static int __init mb903_device_init(void)
 			.mdio_bus_data = &stmmac1_mdio_bus,
 		});
 
-	BUG_ON(fixed_phy_add(PHY_POLL, 1, &stmmac0_fixed_phy_status));
-	stx7108_configure_ethernet(0, &(struct stx7108_ethernet_config) {
-			.mode = stx7108_ethernet_mode_mii,
-			.ext_clk = 1,
-			.phy_bus = 0,
-			.phy_addr = 1,
-		});
 
 	return platform_add_devices(mb903_devices,
 			ARRAY_SIZE(mb903_devices));

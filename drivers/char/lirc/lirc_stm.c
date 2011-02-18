@@ -68,6 +68,8 @@
  * Apr  2010:  Code review and optimizations to reduce the driver initialization
  *             time. All IRB capability are selectable from menuconfig.
  *             Angelo Castello <angelo.castello@st.com>
+ * Feb	2011:  Fixed IR-RX handler routine to manage the input data overrun.
+ *             Angelo Castello <angelo.castello@st.com>
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -126,7 +128,7 @@ struct lirc_buffer lirc_stm_rbuf;
 #define IRB_RX_NOISE_SUPP_WIDTH IRB_CM_REG(0x9C)
 
 #define RX_CLEAR_IRQ(x) 		writel((x), IRB_RX_INT_CLEAR)
-#define RX_WORDS_IN_FIFO() 		(readl(IRB_RX_STATUS) & 0xff00)
+#define RX_WORDS_IN_FIFO_OR_OVERRUN()	(readl(IRB_RX_STATUS) & 0xff04)
 
 #define LIRC_STM_MINOR			0
 #define LIRC_STM_MAX_SYMBOLS		100
@@ -885,7 +887,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 
 	lirc_stm_scd_set_flags();
 
-	while (RX_WORDS_IN_FIFO()) {
+	while (RX_WORDS_IN_FIFO_OR_OVERRUN()) {
 		/* discard the entire collection in case of errors!  */
 		if (unlikely(readl(IRB_RX_INT_STATUS) & LIRC_STM_IS_OVERRUN)) {
 			pr_info(LIRC_STM_NAME ": IR RX overrun\n");

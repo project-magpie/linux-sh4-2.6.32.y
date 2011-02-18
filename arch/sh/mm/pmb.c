@@ -153,7 +153,7 @@ static int pmb_alloc(int pos)
 		pos = find_first_zero_bit(&pmb_map, NR_PMB_ENTRIES);
 
 repeat:
-	if (unlikely(pos > NR_PMB_ENTRIES))
+	if (unlikely(pos >= NR_PMB_ENTRIES))
 		return PMB_NO_ENTRY;
 
 	if (test_and_set_bit(pos, &pmb_map)) {

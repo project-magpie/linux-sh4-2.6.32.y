@@ -89,9 +89,9 @@ config LSI_ET1011C_PHY
 	  Supports the LSI ET1011C PHY.
 
 config MICREL_PHY
-	tristate "Drivers for Micrel PHYs"
+	tristate "Driver for Micrel PHYs"
 	---help---
-	  Currently supports the KSZ8041 PHY.
+	  Supports the KSZ9021, VSC8201, KS8001 PHYs.
 
 config FIXED_PHY
 	bool "Driver for MDIO Bus/PHY emulation with fixed speed/link PHYs"

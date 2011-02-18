@@ -1,82 +1,232 @@
 /*
- * Driver for Micrel/Kendin PHYs
+ * drivers/net/phy/micrel.c
  *
- * Copyright (c) 2008 Gabor Juhos <juhosg@openwrt.org>
- * Copyright (C) 2008 Imre Kaloz <kaloz@openwrt.org>
+ * Driver for Micrel PHYs
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published
- * by the Free Software Foundation.
+ * Author: David J. Choi
  *
+ * Copyright (c) 2010 Micrel, Inc.
+ *
+ * This program is free software; you can redistribute  it and/or modify it
+ * under  the terms of  the GNU General  Public License as published by the
+ * Free Software Foundation;  either version 2 of the  License, or (at your
+ * option) any later version.
+ *
+ * Support : ksz9021 1000/100/10 phy from Micrel
+ *		ks8001, ks8737, ks8721, ks8041, ks8051 100/10 phy
  */
 
-#include <linux/delay.h>
-#include <linux/skbuff.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/phy.h>
 
-#define KSZ_REG_INT_CTRL	0x1b
+#define	PHY_ID_KSZ9021			0x00221611
+#define	PHY_ID_KS8737			0x00221720
+#define	PHY_ID_KS8041			0x00221510
+#define	PHY_ID_KS8051			0x00221550
+/* both for ks8001 Rev. A/B, and for ks8721 Rev 3. */
+#define	PHY_ID_KS8001			0x0022161A
 
-#define KSZ_INT_LU_EN	(1 << 8)	/* enable Link Up interrupt */
-#define KSZ_INT_RF_EN	(1 << 9)	/* enable Remote Fault interrupt */
-#define KSZ_INT_LD_EN	(1 << 10)	/* enable Link Down interrupt */
+/* general Interrupt control/status reg in vendor specific block. */
+#define MII_KSZPHY_INTCS			0x1B
+#define	KSZPHY_INTCS_JABBER			(1 << 15)
+#define	KSZPHY_INTCS_RECEIVE_ERR		(1 << 14)
+#define	KSZPHY_INTCS_PAGE_RECEIVE		(1 << 13)
+#define	KSZPHY_INTCS_PARELLEL			(1 << 12)
+#define	KSZPHY_INTCS_LINK_PARTNER_ACK		(1 << 11)
+#define	KSZPHY_INTCS_LINK_DOWN			(1 << 10)
+#define	KSZPHY_INTCS_REMOTE_FAULT		(1 << 9)
+#define	KSZPHY_INTCS_LINK_UP			(1 << 8)
+#define	KSZPHY_INTCS_ALL			(KSZPHY_INTCS_LINK_UP |\
+						KSZPHY_INTCS_LINK_DOWN)
 
-#define KSZ_INT_INIT	(KSZ_INT_LU_EN | KSZ_INT_LD_EN)
+/* general PHY control reg in vendor specific block. */
+#define	MII_KSZPHY_CTRL			0x1F
+/* bitmap of PHY register to set interrupt mode */
+#define KSZPHY_CTRL_INT_ACTIVE_HIGH		(1 << 9)
+#define KSZ9021_CTRL_INT_ACTIVE_HIGH		(1 << 14)
+#define KS8737_CTRL_INT_ACTIVE_HIGH		(1 << 14)
 
-static int ksz8041_ack_interrupt(struct phy_device *phydev)
+static int kszphy_ack_interrupt(struct phy_device *phydev)
 {
-	int err;
+	/* bit[7..0] int status, which is a read and clear register. */
+	int rc;
 
-	err = phy_read(phydev, KSZ_REG_INT_CTRL);
+	rc = phy_read(phydev, MII_KSZPHY_INTCS);
 
-	return (err < 0) ? err : 0;
+	return (rc < 0) ? rc : 0;
 }
 
-static int ksz8041_config_intr(struct phy_device *phydev)
+static int kszphy_set_interrupt(struct phy_device *phydev)
 {
-	int err;
-
-	if (phydev->interrupts == PHY_INTERRUPT_ENABLED)
-		err = phy_write(phydev, KSZ_REG_INT_CTRL,
-				KSZ_INT_INIT);
-	else
-		err = phy_write(phydev, KSZ_REG_INT_CTRL, 0);
-
-	return err;
+	int temp;
+	temp = (PHY_INTERRUPT_ENABLED == phydev->interrupts) ?
+		KSZPHY_INTCS_ALL : 0;
+	return phy_write(phydev, MII_KSZPHY_INTCS, temp);
 }
 
-static struct phy_driver ksz8041_phy_driver = {
-	.phy_id		= 0x00221512,
-	.name		= "Micrel KSZ8041",
-	.phy_id_mask	= 0x01ffffff,
-	.features	= PHY_BASIC_FEATURES,
-	.flags		= PHY_HAS_INTERRUPT,
+static int kszphy_config_intr(struct phy_device *phydev)
+{
+	int temp, rc;
+
+	/* set the interrupt pin active low */
+	temp = phy_read(phydev, MII_KSZPHY_CTRL);
+	temp &= ~KSZPHY_CTRL_INT_ACTIVE_HIGH;
+	phy_write(phydev, MII_KSZPHY_CTRL, temp);
+	rc = kszphy_set_interrupt(phydev);
+	return rc < 0 ? rc : 0;
+}
+
+static int ksz9021_config_intr(struct phy_device *phydev)
+{
+	int temp, rc;
+
+	/* set the interrupt pin active low */
+	temp = phy_read(phydev, MII_KSZPHY_CTRL);
+	temp &= ~KSZ9021_CTRL_INT_ACTIVE_HIGH;
+	phy_write(phydev, MII_KSZPHY_CTRL, temp);
+	rc = kszphy_set_interrupt(phydev);
+	return rc < 0 ? rc : 0;
+}
+
+static int ks8737_config_intr(struct phy_device *phydev)
+{
+	int temp, rc;
+
+	/* set the interrupt pin active low */
+	temp = phy_read(phydev, MII_KSZPHY_CTRL);
+	temp &= ~KS8737_CTRL_INT_ACTIVE_HIGH;
+	phy_write(phydev, MII_KSZPHY_CTRL, temp);
+	rc = kszphy_set_interrupt(phydev);
+	return rc < 0 ? rc : 0;
+}
+
+static int kszphy_config_init(struct phy_device *phydev)
+{
+	return 0;
+}
+
+static struct phy_driver ks8737_driver = {
+	.phy_id		= PHY_ID_KS8737,
+	.phy_id_mask	= 0x00fffff0,
+	.name		= "Micrel KS8737",
+	.features	= (PHY_BASIC_FEATURES | SUPPORTED_Pause),
+	.flags		= PHY_HAS_MAGICANEG | PHY_HAS_INTERRUPT,
+	.config_init	= kszphy_config_init,
 	.config_aneg	= genphy_config_aneg,
 	.read_status	= genphy_read_status,
-	.ack_interrupt	= ksz8041_ack_interrupt,
-	.config_intr	= ksz8041_config_intr,
-	.driver = {
-		.owner	= THIS_MODULE,
-	},
+	.ack_interrupt	= kszphy_ack_interrupt,
+	.config_intr	= ks8737_config_intr,
+	.driver		= { .owner = THIS_MODULE,},
 };
 
-static int __init micrel_phy_init(void)
+static struct phy_driver ks8041_driver = {
+	.phy_id		= PHY_ID_KS8041,
+	.phy_id_mask	= 0x00fffff0,
+	.name		= "Micrel KS8041",
+	.features	= (PHY_BASIC_FEATURES | SUPPORTED_Pause
+				| SUPPORTED_Asym_Pause),
+	.flags		= PHY_HAS_MAGICANEG | PHY_HAS_INTERRUPT,
+	.config_init	= kszphy_config_init,
+	.config_aneg	= genphy_config_aneg,
+	.read_status	= genphy_read_status,
+	.ack_interrupt	= kszphy_ack_interrupt,
+	.config_intr	= kszphy_config_intr,
+	.driver		= { .owner = THIS_MODULE,},
+};
+
+static struct phy_driver ks8051_driver = {
+	.phy_id		= PHY_ID_KS8051,
+	.phy_id_mask	= 0x00fffff0,
+	.name		= "Micrel KS8051",
+	.features	= (PHY_BASIC_FEATURES | SUPPORTED_Pause
+				| SUPPORTED_Asym_Pause),
+	.flags		= PHY_HAS_MAGICANEG | PHY_HAS_INTERRUPT,
+	.config_init	= kszphy_config_init,
+	.config_aneg	= genphy_config_aneg,
+	.read_status	= genphy_read_status,
+	.ack_interrupt	= kszphy_ack_interrupt,
+	.config_intr	= kszphy_config_intr,
+	.driver		= { .owner = THIS_MODULE,},
+};
+
+static struct phy_driver ks8001_driver = {
+	.phy_id		= PHY_ID_KS8001,
+	.name		= "Micrel KS8001 or KS8721",
+	.phy_id_mask	= 0x00fffff0,
+	.features	= (PHY_BASIC_FEATURES | SUPPORTED_Pause),
+	.flags		= PHY_HAS_MAGICANEG | PHY_HAS_INTERRUPT,
+	.config_init	= kszphy_config_init,
+	.config_aneg	= genphy_config_aneg,
+	.read_status	= genphy_read_status,
+	.ack_interrupt	= kszphy_ack_interrupt,
+	.config_intr	= kszphy_config_intr,
+	.driver		= { .owner = THIS_MODULE,},
+};
+
+static struct phy_driver ksz9021_driver = {
+	.phy_id		= PHY_ID_KSZ9021,
+	.phy_id_mask	= 0x000fff10,
+	.name		= "Micrel KSZ9021 Gigabit PHY",
+	.features	= (PHY_GBIT_FEATURES | SUPPORTED_Pause
+				| SUPPORTED_Asym_Pause),
+	.flags		= PHY_HAS_MAGICANEG | PHY_HAS_INTERRUPT,
+	.config_init	= kszphy_config_init,
+	.config_aneg	= genphy_config_aneg,
+	.read_status	= genphy_read_status,
+	.ack_interrupt	= kszphy_ack_interrupt,
+	.config_intr	= ksz9021_config_intr,
+	.driver		= { .owner = THIS_MODULE, },
+};
+
+static int __init ksphy_init(void)
 {
 	int ret;
 
-	ret = phy_driver_register(&ksz8041_phy_driver);
+	ret = phy_driver_register(&ks8001_driver);
+	if (ret)
+		goto err1;
 
+	ret = phy_driver_register(&ksz9021_driver);
+	if (ret)
+		goto err2;
+
+	ret = phy_driver_register(&ks8737_driver);
+	if (ret)
+		goto err3;
+	ret = phy_driver_register(&ks8041_driver);
+	if (ret)
+		goto err4;
+	ret = phy_driver_register(&ks8051_driver);
+	if (ret)
+		goto err5;
+
+	return 0;
+
+err5:
+	phy_driver_unregister(&ks8041_driver);
+err4:
+	phy_driver_unregister(&ks8737_driver);
+err3:
+	phy_driver_unregister(&ksz9021_driver);
+err2:
+	phy_driver_unregister(&ks8001_driver);
+err1:
 	return ret;
 }
 
-static void __exit micrel_phy_exit(void)
+static void __exit ksphy_exit(void)
 {
-	phy_driver_unregister(&ksz8041_phy_driver);
+	phy_driver_unregister(&ks8001_driver);
+	phy_driver_unregister(&ks8737_driver);
+	phy_driver_unregister(&ksz9021_driver);
+	phy_driver_unregister(&ks8041_driver);
+	phy_driver_unregister(&ks8051_driver);
 }
 
-module_init(micrel_phy_init);
-module_exit(micrel_phy_exit);
+module_init(ksphy_init);
+module_exit(ksphy_exit);
 
-MODULE_DESCRIPTION("Micrel/Kendin PHY driver");
-MODULE_AUTHOR("Gabor Juhos <juhosg@openwrt.org>");
-MODULE_AUTHOR("Imre Kaloz <kaloz@openwrt.org>");
-MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Micrel PHY driver");
+MODULE_AUTHOR("David J. Choi");
+MODULE_LICENSE("GPL");

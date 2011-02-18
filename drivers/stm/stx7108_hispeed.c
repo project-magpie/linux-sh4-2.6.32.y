@@ -733,21 +733,27 @@ void __init stx7108_configure_ethernet(int port,
 
 static u64 stx7108_usb_dma_mask = DMA_BIT_MASK(32);
 
-#define USB_HOST_PWR	"USB_HOST_PWR"
-#define USB_PHY_PWR	"USB_PHY_PWR"
-#define USB_PHY_SH_CTL	"USB_PHY_SH_CTL"
-#define USB_PWR_ACK	"USB_PWR_ACK"
+#define USB_HOST_PWR		"USB_HOST_PWR"
+#define USB_PHY_INDCSHIFT	"USB_PHY_INDCSHIFT"
+#define USB_PHY_INEDGECTL	"USB_PHY_INEDGECTL"
+#define USB_PWR_ACK		"USB_PWR_ACK"
+
+static int stx7108_usb_init(struct stm_device_state *device_state)
+{
+	/* USB edge rise and DC shift - STLinux Bugzilla 10991 */
+	stm_device_sysconf_write(device_state, USB_PHY_INDCSHIFT, 0);
+	stm_device_sysconf_write(device_state, USB_PHY_INEDGECTL, 1);
+
+	return 0;
+}
 
 static void stx7108_usb_power(struct stm_device_state *device_state,
 		enum stm_device_power_state power)
 {
 	int i;
 	int value = (power == stm_device_power_on) ? 0 : 1;
-	int phy_value = (power == stm_device_power_on) ? 1 : 0;
 
 	stm_device_sysconf_write(device_state, USB_HOST_PWR, value);
-	stm_device_sysconf_write(device_state, USB_PHY_PWR, phy_value);
-	stm_device_sysconf_write(device_state, USB_PHY_SH_CTL, phy_value);
 
 	for (i = 5; i; --i) {
 		if (stm_device_sysconf_read(device_state, USB_PWR_ACK)
@@ -762,15 +768,16 @@ static struct stm_plat_usb_data stx7108_usb_platform_data[] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
 		.device_config = &(struct stm_device_config){
+			.init = stx7108_usb_init,
 			.power = stx7108_usb_power,
 			.sysconfs_num = 4,
 			.sysconfs = (struct stm_device_sysconf []) {
 				STM_DEVICE_SYS_CFG_BANK(4, 46, 0, 0,
 					USB_HOST_PWR),
 				STM_DEVICE_SYS_CFG_BANK(4, 44, 0, 0,
-					USB_PHY_PWR),
+					USB_PHY_INDCSHIFT),
 				STM_DEVICE_SYS_CFG_BANK(4, 44, 3, 3,
-					USB_PHY_SH_CTL),
+					USB_PHY_INEDGECTL),
 				STM_DEVICE_SYS_STA_BANK(4,  2, 0, 0,
 					USB_PWR_ACK),
 			},
@@ -789,15 +796,16 @@ static struct stm_plat_usb_data stx7108_usb_platform_data[] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
 		.device_config = &(struct stm_device_config){
+			.init = stx7108_usb_init,
 			.power = stx7108_usb_power,
 			.sysconfs_num = 4,
 			.sysconfs = (struct stm_device_sysconf []) {
 				STM_DEVICE_SYS_CFG_BANK(4, 46, 1, 1,
 					USB_HOST_PWR),
 				STM_DEVICE_SYS_CFG_BANK(4, 44, 1, 1,
-					USB_PHY_PWR),
+					USB_PHY_INDCSHIFT),
 				STM_DEVICE_SYS_CFG_BANK(4, 44, 4, 4,
-					USB_PHY_SH_CTL),
+					USB_PHY_INEDGECTL),
 				STM_DEVICE_SYS_STA_BANK(4,  2, 1, 1,
 					USB_PWR_ACK),
 			},
@@ -816,15 +824,16 @@ static struct stm_plat_usb_data stx7108_usb_platform_data[] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
 				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
 		.device_config = &(struct stm_device_config){
+			.init = stx7108_usb_init,
 			.power = stx7108_usb_power,
 			.sysconfs_num = 4,
 			.sysconfs = (struct stm_device_sysconf []) {
 				STM_DEVICE_SYS_CFG_BANK(4, 46, 2, 2,
 					USB_HOST_PWR),
 				STM_DEVICE_SYS_CFG_BANK(4, 44, 2, 2,
-					USB_PHY_PWR),
+					USB_PHY_INDCSHIFT),
 				STM_DEVICE_SYS_CFG_BANK(4, 44, 5, 5,
-					USB_PHY_SH_CTL),
+					USB_PHY_INEDGECTL),
 				STM_DEVICE_SYS_STA_BANK(4,  2, 2, 2,
 					USB_PWR_ACK),
 			},
@@ -925,11 +934,6 @@ void __init stx7108_configure_usb(int port)
 		sc = sysconf_claim(SYS_CFG_BANK4, 44, 6, 6, "USB");
 		sysconf_write(sc, 1);
 	}
-	/* USB edge rise and DC shift - STLinux Bugzilla 10991 */
-	sc = sysconf_claim(SYS_CFG_BANK4, 44, 0+port, 0+port, "USB");
-	sysconf_write(sc, 0);
-	sc = sysconf_claim(SYS_CFG_BANK4, 44, 3+port, 3+port, "USB");
-	sysconf_write(sc, 1);
 
 	platform_device_register(&stx7108_usb_devices[port]);
 }

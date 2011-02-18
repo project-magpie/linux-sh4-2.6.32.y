@@ -116,7 +116,10 @@ static int __init mb705_display_probe(struct platform_device *pdev)
 		return res;
 
 	for (i=0; i<16; i++) {
-		device_create_file(dev, &dev_attr_udef[i]);
+		if (device_create_file(dev, &dev_attr_udef[i])) {
+			dev_warn(dev, "%s: failed to create udef sysfs entry\n",
+				 __func__);
+		}
 	}
 
 	/* notFL signal is controlled by DisplayCtrlReg[0] */

@@ -31,7 +31,7 @@
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 
-MODULE_DESCRIPTION("ICPlus IP175C PHY driver");
+MODULE_DESCRIPTION("ICPlus IP175C/IC1001 PHY drivers");
 MODULE_AUTHOR("Michael Barkowski");
 MODULE_LICENSE("GPL");
 
@@ -92,10 +92,11 @@ static int ip175c_config_init(struct phy_device *phydev)
 
 static int ip1001_config_init(struct phy_device *phydev)
 {
-	int err, value = phy_read(phydev, MII_BMCR);
-	value |= BMCR_RESET;
+	int err, value;
 
 	/* Software Reset PHY */
+	value = phy_read(phydev, MII_BMCR);
+	value |= BMCR_RESET;
 	err = phy_write(phydev, MII_BMCR, value);
 	if (err < 0)
 		return err;
@@ -162,20 +163,22 @@ static struct phy_driver ip1001_driver = {
 	.driver		= { .owner = THIS_MODULE,},
 };
 
-static int __init ip175c_init(void)
+static int __init icplus_init(void)
 {
 	int ret = 0;
+
 	ret = phy_driver_register(&ip1001_driver);
 	if (ret < 0)
 		return -ENODEV;
+
 	return phy_driver_register(&ip175c_driver);
 }
 
-static void __exit ip175c_exit(void)
+static void __exit icplus_exit(void)
 {
 	phy_driver_unregister(&ip1001_driver);
 	phy_driver_unregister(&ip175c_driver);
 }
 
-module_init(ip175c_init);
-module_exit(ip175c_exit);
+module_init(icplus_init);
+module_exit(icplus_exit);

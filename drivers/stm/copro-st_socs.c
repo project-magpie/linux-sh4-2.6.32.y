@@ -117,6 +117,12 @@ int coproc_cpu_grant(coproc_t * cop, unsigned long arg)
 	/* bypass the st40 to reset only the coprocessor */
 	sysconf_write(copro_reset_out, 3);
 	msleep(5);
+#else
+	/* Reset the coprocessor (active low) to update the boot address
+	 * Required when new application will write its address in a running
+	 * coprocessor without having run coproc_cpu_reset
+	 */
+	sysconf_write(cpu_regs[id].reset, 0);
 #endif
 	sysconf_write(cpu_regs[id].boot, bootAddr);
 	msleep(5);

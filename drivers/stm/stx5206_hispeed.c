@@ -15,6 +15,7 @@
 #include <linux/delay.h>
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
+#include <linux/phy.h>
 #include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/platform.h>
@@ -113,6 +114,7 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 	struct stx5206_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
 	unsigned long phy_clk_rate;
+	int interface;
 
 	BUG_ON(configured);
 	configured = 1;
@@ -124,9 +126,6 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 
 	pad_config->sysconfs[1].value = (config->ext_clk ? 1 : 0);
 
-	stx5206_ethernet_platform_data.custom_cfg = (void *) pad_config;
-	stx5206_ethernet_platform_data.bus_id = config->phy_bus;
-
 	/* MAC_SPEED_SEL */
 	stx5206_ethernet_platform_data.bsp_priv =
 			sysconf_claim(SYS_CFG, 7, 20, 20, "stmmac");
@@ -134,12 +133,15 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 	switch (config->mode) {
 	case stx5206_ethernet_mode_mii:
 		phy_clk_rate = 25000000;
+		interface = PHY_INTERFACE_MODE_MII;
 		break;
 	case stx5206_ethernet_mode_rmii:
 		phy_clk_rate = 50000000;
+		interface = PHY_INTERFACE_MODE_RMII;
 		break;
 	case stx5206_ethernet_mode_reverse_mii:
 		phy_clk_rate = 25000000;
+		interface = PHY_INTERFACE_MODE_MII;
 		break;
 	default:
 		BUG();
@@ -147,6 +149,12 @@ void __init stx5206_configure_ethernet(struct stx5206_ethernet_config *config)
 	}
 
 	pad_config->sysconfs[1].value = (config->ext_clk ? 1 : 0);
+
+	stx5206_ethernet_platform_data.custom_cfg = (void *) pad_config;
+	stx5206_ethernet_platform_data.interface = interface;
+	stx5206_ethernet_platform_data.bus_id = config->phy_bus;
+	stx5206_ethernet_platform_data.phy_addr = config->phy_addr;
+	stx5206_ethernet_platform_data.mdio_bus_data = config->mdio_bus_data;
 
 	/* Set the PHY CLK */
 	if (!config->ext_clk) {

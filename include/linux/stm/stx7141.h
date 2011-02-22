@@ -80,6 +80,8 @@ struct stx7141_ethernet_config {
 		stx7141_ethernet_mode_reverse_mii,
 	} mode;
 	int phy_bus;
+	int phy_addr;
+	struct stmmac_mdio_bus_data *mdio_bus_data;
 };
 void stx7141_configure_ethernet(int port,
 		struct stx7141_ethernet_config *config);

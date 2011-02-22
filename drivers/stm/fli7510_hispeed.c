@@ -14,6 +14,7 @@
 #include <linux/platform_device.h>
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
+#include <linux/phy.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
@@ -204,6 +205,12 @@ void __init fli7510_configure_ethernet(struct fli7510_ethernet_config *config)
 	static int configured;
 	struct fli7510_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
+	const int interfaces[] = {
+		[fli7510_ethernet_mode_mii] = PHY_INTERFACE_MODE_MII,
+		[fli7510_ethernet_mode_gmii] = PHY_INTERFACE_MODE_GMII,
+		[fli7510_ethernet_mode_rmii] = PHY_INTERFACE_MODE_RMII,
+		[fli7510_ethernet_mode_reverse_mii] = PHY_INTERFACE_MODE_MII,
+	};
 
 	BUG_ON(configured);
 	configured = 1;
@@ -214,7 +221,10 @@ void __init fli7510_configure_ethernet(struct fli7510_ethernet_config *config)
 	pad_config = &fli7510_ethernet_pad_configs[config->mode];
 
 	fli7510_ethernet_platform_data.custom_cfg = (void *) pad_config;
+	fli7510_ethernet_platform_data.interface = interfaces[config->mode];
 	fli7510_ethernet_platform_data.bus_id = config->phy_bus;
+	fli7510_ethernet_platform_data.phy_addr = config->phy_addr;
+	fli7510_ethernet_platform_data.mdio_bus_data = config->mdio_bus_data;
 
 	switch (config->mode) {
 	case fli7510_ethernet_mode_mii:

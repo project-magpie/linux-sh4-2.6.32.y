@@ -78,25 +78,13 @@ static struct platform_device hdk5289_front_panel = {
 
 
 
-static struct plat_stmmacphy_data hdk5289_phy_plat_data = {
-	/* Micrel */
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = -1,
 	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
 };
-
-static struct platform_device hdk5289_phy_device = {
-	.name = "stmmacphy",
-	.id = -1,
-	.dev.platform_data = &hdk5289_phy_plat_data,
-};
-
-
 
 static struct platform_device *hdk5289_devices[] __initdata = {
 	&hdk5289_front_panel,
-	&hdk5289_phy_device,
 };
 
 
@@ -128,7 +116,10 @@ static int __init hdk5289_devices_init(void)
 	stx5206_configure_ethernet(&(struct stx5206_ethernet_config) {
 			.mode = stx5206_ethernet_mode_mii,
 			.ext_clk = 0,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	stx5206_configure_lirc(&(struct stx5206_lirc_config) {
 			.rx_mode = stx5206_lirc_rx_mode_ir, });

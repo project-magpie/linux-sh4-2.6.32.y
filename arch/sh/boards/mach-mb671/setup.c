@@ -66,59 +66,18 @@ static struct platform_device mb671_physmap_flash = {
 	},
 };
 
-static struct plat_stmmacphy_data mb671_phy_private_data[2] = {
-	{
-		/* MII0: SMSC LAN8700 */
-		.bus_id = 0,
-		.phy_addr = -1,
-		.phy_mask = 0,
-		.interface = PHY_INTERFACE_MODE_RMII,
-	}, {
-		/* MII1: MB539B connected to J2 */
-		.bus_id = 1,
-		.phy_addr = -1,
-		.phy_mask = 0,
-		.interface = PHY_INTERFACE_MODE_MII,
-	}
+static struct stmmac_mdio_bus_data stmmac0_mdio_bus = {
+	.bus_id = 0,
+	.phy_mask = 0,
 };
 
-static struct platform_device mb671_phy_devices[2] = {
-	{
-		.name		= "stmmacphy",
-		.id		= 0,
-		.num_resources	= 1,
-		.resource	= (struct resource[]) {
-			{
-				.name	= "phyirq",
-				/* This should be:
-				 * .start = ILC_IRQ(93),
-				 * .end = ILC_IRQ(93),
-				 * but mode pins setup (MII0_RXD[3] pulled
-				 * down) disables nINT pin of LAN8700, so
-				 * we are unable to use it... */
-				.start	= -1,
-				.end	= -1,
-				.flags	= IORESOURCE_IRQ,
-			},
-		},
-		.dev = {
-			.platform_data = &mb671_phy_private_data[0],
-		}
-	}, {
-		.name		= "stmmacphy",
-		.id		= 1,
-		.num_resources	= 1,
-		.resource	= (struct resource[]) {
-			{
-				.name	= "phyirq",
-				.start	= ILC_IRQ(95),
-				.end	= ILC_IRQ(95),
-				.flags	= IORESOURCE_IRQ,
-			},
-		},
-		.dev.platform_data = &mb671_phy_private_data[1],
-	}
+#ifdef CONFIG_SH_ST_MB671_STMMAC1
+static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
+	.bus_id = 1,
+	.phy_mask = 0,
+	.probed_phy_irq = ILC_IRQ(95),
 };
+#endif
 
 static struct platform_device mb671_epld_device = {
 	.name		= "epld",
@@ -139,8 +98,6 @@ static struct platform_device mb671_epld_device = {
 static struct platform_device *mb671_devices[] __initdata = {
 	&mb671_epld_device,
 	&mb671_physmap_flash,
-	&mb671_phy_devices[0],
-	&mb671_phy_devices[1],
 };
 
 static int __init mb671_devices_init(void)
@@ -163,16 +120,24 @@ static int __init mb671_devices_init(void)
 
 	stx7200_configure_sata();
 
-#if 1 /* On-board PHY (MII0) in RMII mode, using MII_CLK */
+	/* On-board PHY (MII0) in RMII mode, using MII_CLK */
 	stx7200_configure_ethernet(0, &(struct stx7200_ethernet_config) {
 			.mode = stx7200_ethernet_mode_rmii,
 			.ext_clk = 0,
-			.phy_bus = 0, });
-#else /* External PHY board (MB539B) on MII1 in MII mode, using its own clock */
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac0_mdio_bus,
+		});
+#ifdef CONFIG_SH_ST_MB671_STMMAC1
+	/* External PHY board (MB539B) on MII1 in MII mode,
+	   using its own clock */
 	stx7200_configure_ethernet(1, &(struct stx7200_ethernet_config) {
 			.mode = stx7200_ethernet_mode_mii,
 			.ext_clk = 1,
-			.phy_bus = 1, });
+			.phy_bus = 1,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac1_mdio_bus,
+		});
 #endif
 
 	return platform_add_devices(mb671_devices, ARRAY_SIZE(mb671_devices));

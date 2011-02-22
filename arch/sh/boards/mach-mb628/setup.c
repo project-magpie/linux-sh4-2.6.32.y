@@ -293,52 +293,20 @@ static int mb628_phy_reset(void *bus)
  * - to use the MDINT signal, R148 needs to be in position 1-2.
  *   To disable this, replace the irq with -1 in the data below.
  */
-
-static struct plat_stmmacphy_data mb628_phy_private_data[2] = {
-{
-	/* GMAC0: MII connector CN17. We assume a mb539 (SMSC 8700). */
+#ifdef CONFIG_SH_ST_MB628_STMMAC0
+static struct stmmac_mdio_bus_data stmmac0_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = -1,
-	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
 	.phy_reset = mb628_phy_reset,
-}, {
-	/* GMAC1: on board NatSemi PHY */
-	.bus_id = 1,
-	.phy_addr = -1,
 	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_GMII,
-	.phy_reset = mb628_phy_reset,
-} };
+	.probed_phy_irq = ILC_IRQ(43),
+};
+#endif
 
-static struct platform_device mb628_phy_devices[2] = {
-{
-	.name		= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= ILC_IRQ(43), /* See MDINT above */
-			.end	= ILC_IRQ(43),
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev.platform_data = &mb628_phy_private_data[0],
-}, {
-	.name		= "stmmacphy",
-	.id		= 1,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= -1,/* ILC_IRQ(42) but MODE pin clash*/
-			.end	= -1,
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev.platform_data = &mb628_phy_private_data[1],
-} };
+static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
+	.bus_id = 1,
+	.phy_reset = mb628_phy_reset,
+	.phy_mask = 0,
+};
 
 static struct platform_device mb628_epld_device = {
 	.name		= "epld",
@@ -399,8 +367,6 @@ static struct platform_device mb628_snd_external_dacs = {
 
 static struct platform_device *mb628_devices[] __initdata = {
 	&mb628_epld_device,
-	&mb628_phy_devices[0],
-	&mb628_phy_devices[1],
 #ifdef CONFIG_SND
 	&mb628_snd_spdif_input,
 	&mb628_snd_external_dacs,
@@ -497,13 +463,19 @@ static int __init mb628_device_init(void)
 
 	stx7141_configure_ethernet(0, &(struct stx7141_ethernet_config) {
 			.mode = stx7141_ethernet_mode_mii,
-			.phy_bus = 0 });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac0_mdio_bus,
+		});
 #endif
 
 	epld_write(epld_read(EPLD_ENABLE) | EPLD_ENABLE_MII1, EPLD_ENABLE);
 	stx7141_configure_ethernet(1, &(struct stx7141_ethernet_config) {
 			.mode = stx7141_ethernet_mode_gmii,
-			.phy_bus = 1 });
+			.phy_bus = 1,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac1_mdio_bus,
+		});
 
 	stx7141_configure_lirc(&(struct stx7141_lirc_config) {
 			.rx_mode = stx7141_lirc_rx_disabled,

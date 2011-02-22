@@ -14,6 +14,7 @@
 #include <linux/platform_device.h>
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
+#include <linux/phy.h>
 #include <linux/stm/miphy.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
@@ -376,6 +377,7 @@ void __init stx7105_configure_ethernet(int port,
 	static int configured[ARRAY_SIZE(stx7105_ethernet_devices)];
 	struct stx7105_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
+	int interface;
 
 	BUG_ON(port < 0 || port >= ARRAY_SIZE(stx7105_ethernet_devices));
 
@@ -395,6 +397,7 @@ void __init stx7105_configure_ethernet(int port,
 	case stx7105_ethernet_mode_gmii:
 		BUG_ON(cpu_data->type != CPU_STX7106); /* 7106 only! */
 		BUG_ON(port == 1); /* Mode not available on MII1 */
+		interface = PHY_INTERFACE_MODE_GMII;
 		break;
 	case stx7105_ethernet_mode_reverse_mii:
 		BUG_ON(port == 1); /* Mode not available on MII1 */
@@ -402,10 +405,12 @@ void __init stx7105_configure_ethernet(int port,
 	case stx7105_ethernet_mode_mii:
 		if (config->ext_clk)
 			stm_pad_set_pio_ignored(pad_config, "PHYCLK");
+		interface = PHY_INTERFACE_MODE_MII;
 		break;
 	case stx7105_ethernet_mode_rmii:
 		if (config->ext_clk)
 			stm_pad_set_pio_in(pad_config, "PHYCLK", -1);
+		interface = PHY_INTERFACE_MODE_RMII;
 		break;
 	default:
 		/* TODO: RGMII and SGMII configurations */
@@ -486,7 +491,11 @@ void __init stx7105_configure_ethernet(int port,
 	}
 
 	stx7105_ethernet_platform_data[port].custom_cfg = (void *) pad_config;
+	stx7105_ethernet_platform_data[port].interface = interface;
 	stx7105_ethernet_platform_data[port].bus_id = config->phy_bus;
+	stx7105_ethernet_platform_data[port].phy_addr = config->phy_addr;
+	stx7105_ethernet_platform_data[port].mdio_bus_data =
+		config->mdio_bus_data;
 
 	platform_device_register(&stx7105_ethernet_devices[port]);
 }

@@ -86,37 +86,19 @@ static struct platform_device mb448_physmap_flash = {
 
 
 
-static struct plat_stmmacphy_data mb448_phy_private_data = {
+#define STMMAC_PHY_ADDR 14
+static int stmmac_phy_irqs[PHY_MAX_ADDR] = {
+	[STMMAC_PHY_ADDR] = IRL0_IRQ,
+};
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = 14,
 	.phy_mask = 1,
-	.interface = PHY_INTERFACE_MODE_MII,
-	.phy_reset = NULL,
+	.irqs = stmmac_phy_irqs,
 };
-
-static struct platform_device mb448_phy_device = {
-	.name		= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= IRL0_IRQ,
-			.end	= IRL0_IRQ,
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev = {
-		.platform_data = &mb448_phy_private_data,
-	 }
-};
-
-
 
 static struct platform_device *mb448_devices[] __initdata = {
 	&mb448_smc91x_device,
 	&mb448_physmap_flash,
-	&mb448_phy_device,
 };
 
 static int __init mb448_device_init(void)
@@ -132,7 +114,10 @@ static int __init mb448_device_init(void)
 	stx7100_configure_ethernet(&(struct stx7100_ethernet_config) {
 			.mode = stx7100_ethernet_mode_mii,
 			.ext_clk = 0,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = STMMAC_PHY_ADDR,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	gpio_request(MB448_PIO_FLASH_VPP, "Flash VPP");
 	gpio_direction_output(MB448_PIO_FLASH_VPP, 0);

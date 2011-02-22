@@ -166,6 +166,8 @@ struct stx7105_ethernet_config {
 	int mdint_workaround:1;
 	int ext_clk:1;
 	int phy_bus;
+	int phy_addr;
+	struct stmmac_mdio_bus_data *mdio_bus_data;
 };
 void stx7105_configure_ethernet(int port,
 		struct stx7105_ethernet_config *config);

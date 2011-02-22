@@ -15,6 +15,7 @@
 #include <linux/platform_device.h>
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
+#include <linux/phy.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/device.h>
@@ -111,6 +112,11 @@ void __init stx7111_configure_ethernet(struct stx7111_ethernet_config *config)
 	static int configured;
 	struct stx7111_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
+	const int interfaces[] = {
+		[stx7111_ethernet_mode_mii] = PHY_INTERFACE_MODE_MII,
+		[stx7111_ethernet_mode_rmii] = PHY_INTERFACE_MODE_RMII,
+		[stx7111_ethernet_mode_reverse_mii] = PHY_INTERFACE_MODE_MII,
+	};
 
 	BUG_ON(configured);
 	configured = 1;
@@ -121,7 +127,10 @@ void __init stx7111_configure_ethernet(struct stx7111_ethernet_config *config)
 	pad_config = &stx7111_ethernet_pad_configs[config->mode];
 
 	stx7111_ethernet_platform_data.custom_cfg = (void *) pad_config;
+	stx7111_ethernet_platform_data.interface = interfaces[config->mode];
 	stx7111_ethernet_platform_data.bus_id = config->phy_bus;
+	stx7111_ethernet_platform_data.phy_addr = config->phy_addr;
+	stx7111_ethernet_platform_data.mdio_bus_data = config->mdio_bus_data;
 
 	pad_config->sysconfs[1].value = (config->ext_clk ? 1 : 0);
 

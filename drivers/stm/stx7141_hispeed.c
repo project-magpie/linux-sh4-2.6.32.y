@@ -14,6 +14,7 @@
 #include <linux/platform_device.h>
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
+#include <linux/phy.h>
 #include <linux/stm/miphy.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
@@ -419,6 +420,14 @@ void __init stx7141_configure_ethernet(int port,
 	static int configured[ARRAY_SIZE(stx7141_ethernet_devices)];
 	struct stx7141_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
+	const int interfaces[] = {
+		[stx7141_ethernet_mode_mii] = PHY_INTERFACE_MODE_MII,
+		[stx7141_ethernet_mode_gmii] = PHY_INTERFACE_MODE_GMII,
+		[stx7141_ethernet_mode_rgmii] = PHY_INTERFACE_MODE_RGMII,
+		[stx7141_ethernet_mode_sgmii] = PHY_INTERFACE_MODE_SGMII,
+		[stx7141_ethernet_mode_rmii] = PHY_INTERFACE_MODE_RMII,
+		[stx7141_ethernet_mode_reverse_mii] = PHY_INTERFACE_MODE_MII,
+	};
 
 	BUG_ON(port < 0 || port >= ARRAY_SIZE(stx7141_ethernet_devices));
 
@@ -437,7 +446,12 @@ void __init stx7141_configure_ethernet(int port,
 	/* TODO: ext_clk configuration */
 
 	stx7141_ethernet_platform_data[port].custom_cfg = (void *) pad_config;
+	stx7141_ethernet_platform_data[port].interface =
+		interfaces[config->mode];
 	stx7141_ethernet_platform_data[port].bus_id = config->phy_bus;
+	stx7141_ethernet_platform_data[port].phy_addr = config->phy_addr;
+	stx7141_ethernet_platform_data[port].mdio_bus_data =
+		config->mdio_bus_data;
 
 	/* mac_speed */
 	stx7141_ethernet_platform_data[port].bsp_priv = sysconf_claim(SYS_CFG,

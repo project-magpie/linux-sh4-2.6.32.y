@@ -188,51 +188,24 @@ static int eud7141_phy_reset(void *bus)
 	return 1;
 }
 
-static struct plat_stmmacphy_data eud7141_phy_private_data[2] = {
-{
+#ifdef CONFIG_SH_ST_EUD7141_STMMAC0
+#define STMMAC0_PHY_ADDR 1
+static int stmmac0_phy_irqs[PHY_MAX_ADDR] = {
+		[STMMAC0_PHY_ADDR] = ILC_IRQ(43),
+};
+static struct stmmac_mdio_bus_data stmmac0_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = 1,
-	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
 	.phy_reset = eud7141_phy_reset,
-}, {
-	 /* Default MAC connected to the IC+ IP1001 PHY driver */
+	.phy_mask = 0,
+	.irqs = stmmac0_phy_irqs,
+};
+#endif
+
+static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
 	.bus_id = 1,
-	.phy_addr = 1,
-	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_GMII,
 	.phy_reset = eud7141_phy_reset,
-} };
-
-static struct platform_device eud7141_phy_devices[2] = {
-{
-	.name		= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= ILC_IRQ(43), /* See MDINT above */
-			.end	= ILC_IRQ(43),
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev.platform_data = &eud7141_phy_private_data[0],
-}, {
-	.name		= "stmmacphy",
-	.id		= 1,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= -1,/* ILC_IRQ(42) but MODE pin clash*/
-			.end	= -1,
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev.platform_data = &eud7141_phy_private_data[1],
-} };
-
+	.phy_mask = 0,
+};
 
 #ifdef CONFIG_SND
 
@@ -373,8 +346,6 @@ static struct platform_device eud7141_spi_gpio_device = {
 static struct platform_device *eud7141_devices[] __initdata = {
 	&eud7141_leds,
 	&eud7141_front_panel,
-	&eud7141_phy_devices[0],
-	&eud7141_phy_devices[1],
 	&eud7141_spi_gpio_device,
 };
 
@@ -442,11 +413,17 @@ static int __init eud7141_device_init(void)
 
 	stx7141_configure_ethernet(0, &(struct stx7141_ethernet_config) {
 			.mode = stx7141_ethernet_mode_mii,
-			.phy_bus = 0 });
+			.phy_bus = 0,
+			.phy_addr = STMMAC0_PHY_ADDR,
+			.mdio_bus_data = &stmmac0_mdio_bus,
+		});
 #endif
 	stx7141_configure_ethernet(1, &(struct stx7141_ethernet_config) {
 			.mode = stx7141_ethernet_mode_gmii,
-			.phy_bus = 1 });
+			.phy_bus = 1,
+			.phy_addr = 1,
+			.mdio_bus_data = &stmmac1_mdio_bus,
+		});
 
 	stx7141_configure_lirc(&(struct stx7141_lirc_config) {
 			.rx_mode = stx7141_lirc_rx_disabled,

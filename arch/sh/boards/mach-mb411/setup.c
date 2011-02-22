@@ -94,31 +94,10 @@ static struct platform_device mb411_physmap_flash = {
 
 
 
-static struct plat_stmmacphy_data mb411_phy_private_data = {
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = -1,
 	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
 };
-
-static struct platform_device mb411_phy_device = {
-	.name           = "stmmacphy",
-	.id             = 0,
-	.num_resources  = 1,
-	.resource       = (struct resource[]) {
-		{
-			.name   = "phyirq",
-			.start  = 0,
-			.end    = 0,
-			.flags  = IORESOURCE_IRQ,
-		},
-	},
-	.dev = {
-		.platform_data = &mb411_phy_private_data,
-	}
-};
-
-
 
 static struct platform_device mb411_epld_device = {
 	.name		= "epld",
@@ -161,7 +140,6 @@ static struct platform_device *mb411_devices[] __initdata = {
 	&mb411_epld_device,
 	&mb411_smc91x_device,
 	&mb411_physmap_flash,
-	&mb411_phy_device,
 	&mb411_snd_ext_dacs,
 };
 
@@ -187,7 +165,10 @@ static int __init mb411_device_init(void)
 	stx7100_configure_ethernet(&(struct stx7100_ethernet_config) {
 			.mode = stx7100_ethernet_mode_mii,
 			.ext_clk = 0,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	/* Set the EPLD ATAPI register to 1, enabling the IDE interface.*/
 	epld_write(1, EPLD_ATAPI);

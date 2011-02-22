@@ -53,34 +53,10 @@ static int cab_phy_reset(void *bus)
 	return 1;
 }
 
-static struct plat_stmmacphy_data cab5197_phy_private_data = {
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = -1,
-	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
-#if 1   /*
-	 * Note only enable the phy reset if R526 is fitted on your board
-	 * otherwise disable this #if and rely upon power on reset only
-	 */
 	.phy_reset = cab_phy_reset,
-#endif
-};
-
-static struct platform_device cab5197_phy_device = {
-	.name		= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= -1,/* FIXME should be ILC_IRQ(25) */
-			.end	= -1,
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev = {
-		.platform_data = &cab5197_phy_private_data,
-	}
+	.phy_mask = 0,
 };
 
 /* Note to use the cab5197's SPI Flash device J10 needs to be in
@@ -95,7 +71,6 @@ static struct spi_board_info cab5197_spi_device = {
 };
 
 static struct platform_device *cab5197_devices[] __initdata = {
-	&cab5197_phy_device,
 };
 
 static int __init cab5197_device_init(void)
@@ -112,7 +87,10 @@ static int __init cab5197_device_init(void)
 	stx5197_configure_ethernet(&(struct stx5197_ethernet_config) {
 			.mode = stx5197_ethernet_mode_mii,
 			.ext_clk = 1,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	stx5197_configure_lirc(&(struct stx5197_lirc_config) {
 			.rx_mode = stx5197_lirc_rx_mode_ir,

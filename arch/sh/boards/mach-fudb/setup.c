@@ -70,31 +70,13 @@ static struct platform_device fudb_led_df1 = {
 
 
 
-static struct platform_device fudb_phy_device = {
-	.name = "stmmacphy",
-	.id = -1,
-	.num_resources = 1,
-	.resource = (struct resource[]) {
-		{
-			.name = "phyirq",
-			.start = -1, /* FIXME */
-			.end = -1,
-			.flags = IORESOURCE_IRQ,
-		},
-	},
-	.dev.platform_data = &(struct plat_stmmacphy_data) {
-		.bus_id = 0,
-		.phy_addr = 1,
-		.phy_mask = 0,
-		.interface = PHY_INTERFACE_MODE_MII,
-	},
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
+	.bus_id = 0,
+	.phy_mask = 0,
 };
-
-
 
 static struct platform_device *fudb_devices[] __initdata = {
 	&fudb_led_df1,
-	&fudb_phy_device,
 };
 
 
@@ -197,7 +179,10 @@ static int __init fudb_device_init(void)
 	fli7510_configure_ethernet(&(struct fli7510_ethernet_config) {
 			.mode = fli7510_ethernet_mode_rmii,
 			.ext_clk = 0,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = 1,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	fli7510_configure_lirc();
 

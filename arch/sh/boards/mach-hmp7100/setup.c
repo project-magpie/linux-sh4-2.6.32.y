@@ -108,35 +108,20 @@ static int hmp7100_phy_reset(void *bus)
 	return 1;
 }
 
-static struct plat_stmmacphy_data hmp7100_phy_private_data = {
-	.bus_id = 0,
-	.phy_addr = 2,
-	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
-	.phy_reset = &hmp7100_phy_reset,
+#define STMMAC_PHY_ADDR 2
+static int stmmac_phy_irqs[PHY_MAX_ADDR] = {
+	[STMMAC_PHY_ADDR] = IRL3_IRQ,
 };
-
-static struct platform_device hmp7100_phy_device = {
-	.name		= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= IRL3_IRQ,
-			.end	= IRL3_IRQ,
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev = {
-		.platform_data = &hmp7100_phy_private_data,
-	 }
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
+	.bus_id = 0,
+	.phy_reset = hmp7100_phy_reset,
+	.phy_mask = 0,
+	.irqs = stmmac_phy_irqs,
 };
 
 static struct platform_device *hmp7100_devices[] __initdata = {
 	&hmp7100_smc91x_device,
 	&hmp7100_physmap_flash,
-	&hmp7100_phy_device,
 };
 
 static int __init hmp7100_device_init(void)
@@ -167,7 +152,10 @@ static int __init hmp7100_device_init(void)
 	stx7100_configure_ethernet(&(struct stx7100_ethernet_config) {
 			.mode = stx7100_ethernet_mode_mii,
 			.ext_clk = 0,
-			.phy_bus = 0 });
+			.phy_bus = 0,
+			.phy_addr = STMMAC_PHY_ADDR,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	/* Reset the FE chip */
 	gpio_request(HMP7100_PIO_FE_RESET, "fe_reset");

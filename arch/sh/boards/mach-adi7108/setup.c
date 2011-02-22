@@ -91,28 +91,16 @@ static void adi7108_mii_txclk_select(int txclk_250_not_25_mhz)
 		gpio_set_value(ADI7108_GPIO_MII1_SPEED_SEL, 0);
 }
 
-static struct platform_device adi7108_phy_devices[] = {
-	{ /* RANLINK WIFI connection */
-		.name = "stmmacphy",
-		.id = 0,
-		.dev.platform_data = &(struct plat_stmmacphy_data) {
-			.bus_id = 0,
-			.phy_addr = -1,
-			.phy_mask = 0,
-			.interface = PHY_INTERFACE_MODE_GMII,
-			.phy_reset = &adi7108_phy0_reset,
-		},
-	}, { /* On-board ICplus IP1001 */
-		.name = "stmmacphy",
-		.id = 1,
-		.dev.platform_data = &(struct plat_stmmacphy_data) {
-			.bus_id = 1,
-			.phy_addr = 1,
-			.phy_mask = 0,
-			.interface = PHY_INTERFACE_MODE_GMII,
-			.phy_reset = &adi7108_phy1_reset,
-		},
-	},
+static struct stmmac_mdio_bus_data stmmac0_mdio_bus = {
+	.bus_id = 0,
+	.phy_reset = adi7108_phy0_reset,
+	.phy_mask = 0,
+};
+
+static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
+	.bus_id = 1,
+	.phy_reset = adi7108_phy1_reset,
+	.phy_mask = 0,
 };
 
 /* NOR FLASH */
@@ -236,8 +224,6 @@ static struct stm_nand_bank_data adi7108_nand_flash_data = {
 };
 
 static struct platform_device *adi7108_devices[] __initdata = {
-	&adi7108_phy_devices[0],
-	&adi7108_phy_devices[1],
 	&adi7108_serial_flash_bus,
 	&adi7108_nor_flash,
 };
@@ -328,10 +314,13 @@ static int __init device_init(void)
 	gpio_direction_output(ADI7108_PIO_POWER_ON_ETHERNET0, 0);
 
 
-	stx7108_configure_ethernet(0, (&(struct stx7108_ethernet_config) {
+	stx7108_configure_ethernet(&(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_mii,
 			.ext_clk = 1,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac0_mdio_bus,
+		});
 #else
 	/* To use the MII/GMII mode.
 	 *
@@ -352,7 +341,10 @@ static int __init device_init(void)
 			.mode = stx7108_ethernet_mode_gmii_gtx,
 			.ext_clk = 0,
 			.phy_bus = 1,
-			.txclk_select = adi7108_mii_txclk_select, });
+			.txclk_select = adi7108_mii_txclk_select,
+			.phy_addr = 1,
+			.mdio_bus_data = &stmmac1_mdio_bus,
+		});
 
 #endif
 

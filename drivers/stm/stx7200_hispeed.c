@@ -15,6 +15,7 @@
 #include <linux/ethtool.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
+#include <linux/phy.h>
 #include <linux/stm/miphy.h>
 #include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
@@ -215,6 +216,7 @@ void __init stx7200_configure_ethernet(int port,
 	static int configured[ARRAY_SIZE(stx7200_ethernet_devices)];
 	struct stx7200_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
+	int interface;
 
 	BUG_ON(port < 0 || port >= ARRAY_SIZE(stx7200_ethernet_devices));
 
@@ -224,10 +226,19 @@ void __init stx7200_configure_ethernet(int port,
 	if (!config)
 		config = &default_config;
 
+	if (config->mode == stx7200_ethernet_mode_rmii)
+		interface = PHY_INTERFACE_MODE_RMII;
+	else
+		interface = PHY_INTERFACE_MODE_MII;
+
 	pad_config = &stx7200_ethernet_pad_configs[port][config->mode];
 
 	stx7200_ethernet_platform_data[port].custom_cfg = (void *) pad_config;
+	stx7200_ethernet_platform_data[port].interface = interface;
 	stx7200_ethernet_platform_data[port].bus_id = config->phy_bus;
+	stx7200_ethernet_platform_data[port].phy_addr = config->phy_addr;
+	stx7200_ethernet_platform_data[port].mdio_bus_data =
+		config->mdio_bus_data;
 
 	pad_config->sysconfs[1].value = (config->ext_clk ? 1 : 0);
 

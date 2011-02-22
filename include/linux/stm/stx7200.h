@@ -69,6 +69,8 @@ struct stx7200_ethernet_config {
 	} mode;
 	int ext_clk;
 	int phy_bus;
+	int phy_addr;
+	struct stmmac_mdio_bus_data *mdio_bus_data;
 };
 void stx7200_configure_ethernet(int port,
 		struct stx7200_ethernet_config *config);

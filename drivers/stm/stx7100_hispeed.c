@@ -15,6 +15,7 @@
 #include <linux/delay.h>
 #include <linux/ethtool.h>
 #include <linux/dma-mapping.h>
+#include <linux/phy.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
@@ -97,6 +98,7 @@ void __init stx7100_configure_ethernet(struct stx7100_ethernet_config *config)
 	static int configured;
 	struct stx7100_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
+	int interface;
 
 	/* 7100 doesn't have a MAC */
 	if (cpu_data->type == CPU_STX7100)
@@ -114,10 +116,12 @@ void __init stx7100_configure_ethernet(struct stx7100_ethernet_config *config)
 	case stx7100_ethernet_mode_mii:
 		if (config->ext_clk)
 			stm_pad_set_pio_ignored(pad_config, "PHYCLK");
+		interface = PHY_INTERFACE_MODE_MII;
 		break;
 	case stx7100_ethernet_mode_rmii:
 		if (config->ext_clk)
 			stm_pad_set_pio_in(pad_config, "PHYCLK", -1);
+		interface = PHY_INTERFACE_MODE_RMII;
 		break;
 	default:
 		BUG();
@@ -126,7 +130,10 @@ void __init stx7100_configure_ethernet(struct stx7100_ethernet_config *config)
 	pad_config->sysconfs[2].value = (config->ext_clk ? 1 : 0);
 
 	stx7100_ethernet_platform_data.custom_cfg = (void *) pad_config;
+	stx7100_ethernet_platform_data.interface = interface;
 	stx7100_ethernet_platform_data.bus_id = config->phy_bus;
+	stx7100_ethernet_platform_data.phy_addr = config->phy_addr;
+	stx7100_ethernet_platform_data.mdio_bus_data = config->mdio_bus_data;
 
 	/* MAC_SPEED_SEL */
 	stx7100_ethernet_platform_data.bsp_priv =

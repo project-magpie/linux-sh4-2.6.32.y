@@ -137,37 +137,23 @@ static int hdk7106_phy_reset(void *bus)
 	return 1;
 }
 
-static struct platform_device hdk7106_phy_devices[] = {
-	{ /* On-board ICplus IP1001 */
-		.name = "stmmacphy",
-		.id = 0,
-		.dev.platform_data = &(struct plat_stmmacphy_data) {
-			.bus_id = 0,
-			.phy_addr = 1,
-			.phy_mask = 0,
-			.interface = PHY_INTERFACE_MODE_MII,
-			.phy_reset = &hdk7106_phy_reset,
-		},
-	}, { /* MII connector JN6 */
-		.name = "stmmacphy",
-		.id = 1,
-		.dev.platform_data = &(struct plat_stmmacphy_data) {
-			.bus_id = 1,
-			.phy_addr = -1,
-			.phy_mask = 0,
-			.interface = PHY_INTERFACE_MODE_MII,
-			.phy_reset = &hdk7106_phy_reset,
-		},
-	},
+static struct stmmac_mdio_bus_data stmmac0_mdio_bus = {
+	.bus_id = 0,
+	.phy_reset = hdk7106_phy_reset,
+	.phy_mask = 0,
 };
 
-
+#ifdef CONFIG_SH_ST_HDK7106_STMMAC1
+static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
+	.bus_id = 1,
+	.phy_reset = hdk7106_phy_reset,
+	.phy_mask = 0,
+};
+#endif
 
 static struct platform_device *hdk7106_devices[] __initdata = {
 	&hdk7106_leds,
 	&hdk7106_front_panel,
-	&hdk7106_phy_devices[0],
-	&hdk7106_phy_devices[1],
 };
 
 
@@ -224,18 +210,24 @@ static int __init device_init(void)
 	gpio_request(HDK7106_PIO_POWER_ON, "POWER_ON");
 	gpio_direction_output(HDK7106_PIO_POWER_ON, 1);
 
-#if 1
 	stx7105_configure_ethernet(0, &(struct stx7105_ethernet_config) {
 			.mode = stx7105_ethernet_mode_mii,
 			.ext_clk = 0,
-			.phy_bus = 0, });
-#else
+			.phy_bus = 0,
+			.phy_addr = 1,
+			.mdio_bus_data = &stmmac0_mdio_bus,
+		});
+
+#ifdef CONFIG_SH_ST_HDK7106_STMMAC1
 	stx7105_configure_ethernet(1, &(struct stx7105_ethernet_config) {
 			.mode = stx7105_ethernet_mode_mii,
-			.routing.mii.mdio = stx7105_ethernet_mii1_mdio_pio3_4,
-			.routing.mii.mdc = stx7105_ethernet_mii1_mdc_pio3_5,
+			.routing.mii1.mdio = stx7105_ethernet_mii1_mdio_pio3_4,
+			.routing.mii1.mdc = stx7105_ethernet_mii1_mdc_pio3_5,
 			.ext_clk = 1,
-			.phy_bus = 1, });
+			.phy_bus = 1,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac1_mdio_bus,
+		});
 #endif
 
 	stx7105_configure_lirc(NULL);

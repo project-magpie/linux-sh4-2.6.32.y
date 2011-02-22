@@ -176,28 +176,18 @@ static void hdk7108_mii_txclk_select(int txclk_250_not_25_mhz)
 		gpio_set_value(HDK7108_GPIO_MII_SPEED_SEL, 0);
 }
 
-static struct platform_device hdk7108_phy_devices[] = {
-	{ /* MII connector JP2 */
-		.name = "stmmacphy",
-		.id = 0,
-		.dev.platform_data = &(struct plat_stmmacphy_data) {
-			.bus_id = 0,
-			.phy_addr = -1,
-			.phy_mask = 0,
-			.interface = PHY_INTERFACE_MODE_GMII,
-			.phy_reset = &hdk7108_phy_reset,
-		},
-	}, { /* On-board ICplus IP1001 */
-		.name = "stmmacphy",
-		.id = 1,
-		.dev.platform_data = &(struct plat_stmmacphy_data) {
-			.bus_id = 1,
-			.phy_addr = 1,
-			.phy_mask = 0,
-			.interface = PHY_INTERFACE_MODE_GMII,
-			.phy_reset = &hdk7108_phy_reset,
-		},
-	},
+#ifdef CONFIG_SH_ST_HDK7108_STMMAC0
+static struct stmmac_mdio_bus_data stmmac0_mdio_bus = {
+	.bus_id = 0,
+	.phy_reset = hdk7108_phy_reset,
+	.phy_mask = 0,
+};
+#endif
+
+static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
+	.bus_id = 1,
+	.phy_reset = hdk7108_phy_reset,
+	.phy_mask = 0,
 };
 
 /* NOR FLASH */
@@ -323,8 +313,6 @@ static struct stm_nand_bank_data hdk7108_nand_flash_data = {
 static struct platform_device *hdk7108_devices[] __initdata = {
 	&hdk7108_leds,
 	&hdk7108_front_panel,
-	&hdk7108_phy_devices[0],
-	&hdk7108_phy_devices[1],
 	&hdk7108_serial_flash_bus,
 	&hdk7108_nor_flash,
 };
@@ -469,7 +457,10 @@ static int __init device_init(void)
 	stx7108_configure_ethernet(0, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_mii,
 			.ext_clk = 1,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac0_mdio_bus,
+		});
 #endif /* CONFIG_SH_ST_HDK7108_STMMAC0  */
 
 	/* HW changes needed to use the GMII mode (GTX CLK) on the
@@ -489,13 +480,16 @@ static int __init device_init(void)
 
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
 #ifndef CONFIG_SH_ST_HDK7108_GMAC_RGMII_MODE
-			.mode = stx7108_ethernet_mode_gmii_gtx,
+			.mode  = stx7108_ethernet_mode_gmii_gtx,
 #else
-			.mode = stx7108_ethernet_mode_rgmii_gtx,
+			.mode  = stx7108_ethernet_mode_rgmii_gtx,
 #endif /* CONFIG_SH_ST_HDK7108_GMAC_RGMII_MODE */
-			.ext_clk = 0,
+			.ext_clk  = 0,
 			.phy_bus = 1,
-			.txclk_select = hdk7108_mii_txclk_select, });
+			.txclk_select = hdk7108_mii_txclk_select,
+			.phy_addr = 1,
+			.mdio_bus_data = &stmmac1_mdio_bus,
+		});
 
 	/*
 	 * FLASH_WP is shared between between NOR and NAND FLASH.  However,

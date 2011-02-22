@@ -72,6 +72,7 @@ static struct platform_device mb837_led = {
 
 
 
+#ifdef CONFIG_SH_ST_MB837_STMMAC0
 /* J14-B must be fitted */
 static int mb837_mii0_phy_reset(void *bus)
 {
@@ -94,6 +95,15 @@ static int mb837_mii0_phy_reset(void *bus)
 	return 0;
 }
 
+static struct stmmac_mdio_bus_data stmmac0_mdio_bus = {
+	.bus_id = 0,
+	.phy_reset = mb837_mii0_phy_reset,
+	.phy_mask = 0,
+};
+#endif
+
+
+#ifdef CONFIG_SH_ST_MB837_STMMAC0
 /* J14-A must be fitted */
 static int mb837_mii1_phy_reset(void *bus)
 {
@@ -116,29 +126,12 @@ static int mb837_mii1_phy_reset(void *bus)
 	return 0;
 }
 
-static struct platform_device mb837_phy_devices[] = {
-	{
-		.name = "stmmacphy",
-		.id = 0,
-		.dev.platform_data = &(struct plat_stmmacphy_data) {
-			.bus_id = 0,
-			.phy_addr = -1,
-			.phy_mask = 0,
-			.interface = PHY_INTERFACE_MODE_MII,
-			.phy_reset = &mb837_mii0_phy_reset,
-		},
-	}, {
-		.name = "stmmacphy",
-		.id = 1,
-		.dev.platform_data = &(struct plat_stmmacphy_data) {
-			.bus_id = 1,
-			.phy_addr = -1,
-			.phy_mask = 0,
-			.interface = PHY_INTERFACE_MODE_MII,
-			.phy_reset = &mb837_mii1_phy_reset,
-		},
-	}
+static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
+	.bus_id = 1,
+	.phy_reset = mb837_mii1_phy_reset,
+	.phy_mask = 0,
 };
+#endif
 
 /* PCF8575 I2C PIO Extender (IC12) */
 static struct i2c_board_info mb837_pio_extender = {
@@ -153,8 +146,6 @@ static struct i2c_board_info mb837_pio_extender = {
 
 static struct platform_device *mb837_devices[] __initdata = {
 	&mb837_led,
-	&mb837_phy_devices[0],
-	&mb837_phy_devices[1],
 };
 
 
@@ -236,13 +227,19 @@ static int __init mb837_devices_init(void)
 	stx7108_configure_ethernet(0, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_mii,
 			.ext_clk = 1,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac0_mdio_bus,
+		});
 #endif
 #ifdef CONFIG_SH_ST_MB837_STMMAC1
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_mii,
 			.ext_clk = 1,
-			.phy_bus = 1, });
+			.phy_bus = 1,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac1_mdio_bus,
+		});
 #endif
 
 	/* MMC Hardware settings:

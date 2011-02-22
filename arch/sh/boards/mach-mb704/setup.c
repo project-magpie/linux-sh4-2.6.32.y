@@ -89,32 +89,13 @@ static struct spi_board_info mb704_serial_flash = {
 
 
 
-static struct plat_stmmacphy_data mb704_phy_private_data = {
-	/* SMSC LAN 8700 on the mb762 */
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = -1,
 	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
-};
-
-static struct platform_device mb704_phy_device = {
-	.name		= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= -1, /* FIXME should be ILC_IRQ(25) */
-			.end	= -1,
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev.platform_data = &mb704_phy_private_data,
 };
 
 static struct platform_device *mb704_devices[] __initdata = {
 	&mb704_leds,
-	&mb704_phy_device,
 };
 
 static int __init mb704_devices_init(void)
@@ -145,7 +126,10 @@ static int __init mb704_devices_init(void)
 	stx5197_configure_ethernet(&(struct stx5197_ethernet_config) {
 			.mode = stx5197_ethernet_mode_mii,
 			.ext_clk = 1,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	/* To have UHF available on MB704:
 	 * need one wire from J14-C to J14-E */

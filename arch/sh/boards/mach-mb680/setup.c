@@ -115,35 +115,14 @@ static int mb680_phy_reset(void *bus)
 	return 0;
 }
 
-static struct plat_stmmacphy_data mb680_phy_private_data = {
-	/* National Semiconductor DP83865 (rev A/B) or SMSC 8700 (rev C) */
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = -1,
+	.phy_reset = mb680_phy_reset,
 	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
-	.phy_reset = &mb680_phy_reset,
-};
-
-static struct platform_device mb680_phy_device = {
-	.name		= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= -1, /* FIXME: should be ILC_EXT_IRQ(6), */
-			.end	= -1,
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev = {
-		.platform_data = &mb680_phy_private_data,
-	}
 };
 
 static struct platform_device *mb680_devices[] __initdata = {
 	&mb680_leds,
-	&mb680_phy_device,
 };
 
 /* PCI configuration */
@@ -269,7 +248,10 @@ static int __init mb680_devices_init(void)
 	stx7105_configure_ethernet(0, &(struct stx7105_ethernet_config) {
 			.mode = stx7105_ethernet_mode_mii,
 			.ext_clk = 1,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	/*
 	 * Check jumpers before using IR:

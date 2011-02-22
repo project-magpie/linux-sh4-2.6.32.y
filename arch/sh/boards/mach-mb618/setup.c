@@ -175,31 +175,11 @@ static int mb618_phy_reset(void *bus)
 	return 1;
 }
 
-static struct plat_stmmacphy_data mb618_phy_private_data = {
-	/* SMSC LAN 8700 */
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = -1,
+	.phy_reset = mb618_phy_reset,
 	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
-	.phy_reset = &mb618_phy_reset,
 };
-
-static struct platform_device mb618_phy_device = {
-	.name		= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= -1,/*FIXME*/
-			.end	= -1,
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev.platform_data = &mb618_phy_private_data,
-};
-
-
 
 static struct platform_device epld_device = {
 	.name		= "epld",
@@ -254,7 +234,6 @@ static struct platform_device *mb618_devices[] __initdata = {
 #ifdef FLASH_NOR
 	&mb618_nor_flash,
 #endif
-	&mb618_phy_device,
 	&mb618_button_device,
 };
 
@@ -311,7 +290,10 @@ static int __init mb618_devices_init(void)
 	stx7111_configure_ethernet(&(struct stx7111_ethernet_config) {
 			.mode = stx7111_ethernet_mode_mii,
 			.ext_clk = 0,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	stx7111_configure_lirc(&(struct stx7111_lirc_config) {
 			.rx_mode = stx7111_lirc_rx_mode_ir,

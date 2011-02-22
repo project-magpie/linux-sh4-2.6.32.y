@@ -101,37 +101,20 @@ static int mb602_phy_reset(void* bus)
 
 
 
-static struct plat_stmmacphy_data mb602_phy_private_data = {
+#define STMMAC_PHY_ADDR 14
+static int stmmac_phy_irqs[PHY_MAX_ADDR] = {
+	[STMMAC_PHY_ADDR] = IRL3_IRQ,
+};
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = 14,
+	.phy_reset = mb602_phy_reset,
 	.phy_mask = 1,
-	.interface = PHY_INTERFACE_MODE_MII,
-	.phy_reset = &mb602_phy_reset,
+	.irqs = stmmac_phy_irqs,
 };
-
-static struct platform_device mb602_phy_device = {
-	.name		= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-                {
-			.name	= "phyirq",
-			.start	= IRL3_IRQ,
-			.end	= IRL3_IRQ,
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev = {
-		.platform_data = &mb602_phy_private_data,
-	 }
-};
-
-
 
 static struct platform_device *mb602_devices[] __initdata = {
 	&mb602_physmap_flash,
 	&mb602_smsc_lan9117,
-	&mb602_phy_device,
 };
 
 static int __init mb602_device_init(void)
@@ -164,7 +147,10 @@ static int __init mb602_device_init(void)
 	stx7100_configure_ethernet(&(struct stx7100_ethernet_config) {
 			.mode = stx7100_ethernet_mode_mii,
 			.ext_clk = 0,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = STMMAC_PHY_ADDR,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	/* Reset the SMSC 9117 Ethernet chip */
 	gpio_request(MB602_PIO_SMC91X_RESET, "SMC91x reset");

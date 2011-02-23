@@ -478,6 +478,7 @@ module_init(clk_proc_init);
 static void clk_resume_from_hibernation(struct clk *clk)
 {
 	unsigned long rate = clk->rate;
+	struct clk *old_parent = clk->parent;
 
 	if (clk->parent)
 		/* re-parent to the frozen one! */
@@ -489,6 +490,13 @@ static void clk_resume_from_hibernation(struct clk *clk)
 		__clk_set_rate(clk, rate);
 	} else
 		__clk_disable(clk);
+
+	if (clk_get_rate(clk) != rate)
+		pr_warning("[STM][CLK]: %s wrong final rate (%u/%u)\n",
+			clk->name, clk_get_rate(clk), rate);
+	if (clk_get_parent(clk) != old_parent)
+		pr_warning("[STM][CLK]: %s wrong final parent (%u/%u)\n",
+			clk->name, clk_get_parent(clk), old_parent);
 }
 
 static int clks_sysdev_suspend(struct sys_device *dev, pm_message_t state)

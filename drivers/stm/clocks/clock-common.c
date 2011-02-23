@@ -141,7 +141,7 @@ int clk_pll800_get_params(unsigned long input, unsigned long output,
 	output /= 1000;
 
 	deviation = output;
-	for (pi = 5; pi > 0 && deviation; pi--) {
+	for (pi = 5; pi >= 0 && deviation; pi--) {
 		for (m = 1; (m < 255) && deviation; m++) {
 			n = m * p[pi] * output / (input * 2);
 

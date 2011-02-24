@@ -16,7 +16,9 @@ struct coproc_board_info coproc_info = {
 
 coproc_t coproc[CONFIG_STM_NUM_COPROCESSOR];
 
+#ifndef CONFIG_CPU_SUBTYPE_STX7108
 static struct sysconf_field* copro_reset_out;
+#endif
 
 struct cpu_reg {
 	struct sysconf_field* boot;

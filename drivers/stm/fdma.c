@@ -1399,6 +1399,7 @@ static int fdma_driver_remove(struct platform_device *pdev)
 	struct fdma *fdma = platform_get_drvdata(pdev);
 
 	fdma_disable_all_channels(fdma);
+	stm_fdma_clk_disable(fdma);
 	iounmap(fdma->io_base);
 	dma_pool_destroy(fdma->llu_pool);
 	free_irq(fdma->irq, fdma);

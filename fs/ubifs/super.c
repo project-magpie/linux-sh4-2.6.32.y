@@ -1209,6 +1209,13 @@ static int mount_ubifs(struct ubifs_info *c)
 	if (c->bulk_read == 1)
 		bu_init(c);
 
+	if (!c->ro_mount) {
+		c->write_reserve_buf = kmalloc(COMPRESSED_DATA_NODE_BUF_SZ,
+					       GFP_KERNEL);
+		if (!c->write_reserve_buf)
+			goto out_free;
+	}
+
 	c->mounting = 1;
 
 	err = ubifs_read_superblock(c);
@@ -1483,6 +1490,7 @@ out_wbufs:
 out_cbuf:
 	kfree(c->cbuf);
 out_free:
+	kfree(c->write_reserve_buf);
 	kfree(c->bu.buf);
 	vfree(c->ileb_buf);
 	vfree(c->sbuf);
@@ -1521,6 +1529,7 @@ static void ubifs_umount(struct ubifs_info *c)
 	kfree(c->cbuf);
 	kfree(c->rcvrd_mst_node);
 	kfree(c->mst_node);
+	kfree(c->write_reserve_buf);
 	kfree(c->bu.buf);
 	vfree(c->ileb_buf);
 	vfree(c->sbuf);
@@ -1606,6 +1615,10 @@ static int ubifs_remount_rw(struct ubifs_info *c)
 		goto out;
 	}
 
+	c->write_reserve_buf = kmalloc(COMPRESSED_DATA_NODE_BUF_SZ, GFP_KERNEL);
+	if (!c->write_reserve_buf)
+		goto out;
+
 	err = ubifs_lpt_init(c, 0, 1);
 	if (err)
 		goto out;
@@ -1670,6 +1683,8 @@ out:
 		c->bgt = NULL;
 	}
 	free_wbufs(c);
+	kfree(c->write_reserve_buf);
+	c->write_reserve_buf = NULL;
 	vfree(c->ileb_buf);
 	c->ileb_buf = NULL;
 	ubifs_lpt_free(c, 1);
@@ -1713,6 +1728,8 @@ static void ubifs_remount_ro(struct ubifs_info *c)
 	free_wbufs(c);
 	vfree(c->orph_buf);
 	c->orph_buf = NULL;
+	kfree(c->write_reserve_buf);
+	c->write_reserve_buf = NULL;
 	vfree(c->ileb_buf);
 	c->ileb_buf = NULL;
 	ubifs_lpt_free(c, 1);
@@ -1943,6 +1960,7 @@ static int ubifs_fill_super(struct super_block *sb, void *data, int silent)
 	mutex_init(&c->mst_mutex);
 	mutex_init(&c->umount_mutex);
 	mutex_init(&c->bu_mutex);
+	mutex_init(&c->write_reserve_mutex);
 	init_waitqueue_head(&c->cmt_wq);
 	c->buds = RB_ROOT;
 	c->old_idx = RB_ROOT;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 STMicroelectronics Limited
+ * Copyright (C) 2007, 2011 STMicroelectronics Limited
  *
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
@@ -16,6 +16,10 @@
 
 #include "clock-common.h"
 #include "clock-utils.h"
+#include "clock-oslayer.h"
+
+#include "clock-stx7200.h"
+#include "clock-regs-stx7200.h"
 
 /* Values for mb519 */
 #define SYSACLKIN	27000000
@@ -560,6 +564,250 @@ CLKGENB(MISC_B_ETHERNET_ID, ethernet,   icreg_emi_eth_clk_ops, 0),
 CLKGENB(MISC_B_EMIMASTER_ID, emi_master, icreg_emi_eth_clk_ops, 0),
 };
 
+/******************************************************************************
+CLOCKGEN C (audio)
+******************************************************************************/
+
+/* ========================================================================
+   Name:	clkgenc_fsyn_recalc
+   Description: Get CKGC FSYN clocks frequencies function
+   Returns:     0=NO error
+   ======================================================================== */
+static int clkgenc_init(clk_t *clk_p);
+static int clkgenc_enable(clk_t *clk_p);
+static int clkgenc_disable(clk_t *clk_p);
+static int clkgenc_recalc(clk_t *clk_p);
+static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq);
+
+_CLK_OPS(clkgenc,
+	"Clockgen C/Audio",
+	clkgenc_init,
+	NULL,
+	clkgenc_set_rate,
+	clkgenc_recalc,
+	clkgenc_enable,
+	clkgenc_disable,
+	NULL,
+	NULL,	   /* No measure function */
+	NULL	    /* No observation point */
+);
+
+static clk_t clk_clocks[] = {
+/* Clockgen C (AUDIO) */
+_CLK_P(CLKC_REF, &clkgenc, 0, CLK_RATE_PROPAGATES | CLK_ALWAYS_ENABLED, NULL),
+_CLK_P(CLKC_FS0_CH1, &clkgenc, 0, 0, &clk_clocks[CLKC_REF]),
+_CLK_P(CLKC_FS0_CH2, &clkgenc, 0, 0, &clk_clocks[CLKC_REF]),
+_CLK_P(CLKC_FS0_CH3, &clkgenc, 0, 0, &clk_clocks[CLKC_REF]),
+_CLK_P(CLKC_FS0_CH4, &clkgenc, 0, 0, &clk_clocks[CLKC_REF]),
+_CLK_P(CLKC_FS1_CH1, &clkgenc, 0, 0, &clk_clocks[CLKC_REF]),
+_CLK_P(CLKC_FS1_CH2, &clkgenc, 0, 0, &clk_clocks[CLKC_REF]),
+_CLK_P(CLKC_FS1_CH3, &clkgenc, 0, 0, &clk_clocks[CLKC_REF]),
+_CLK_P(CLKC_FS1_CH4, &clkgenc, 0, 0, &clk_clocks[CLKC_REF]),
+};
+
+/******************************************************************************
+CLOCKGEN C (audio)
+******************************************************************************/
+
+/* ========================================================================
+   Name:	clkgenc_fsyn_recalc
+   Description: Get CKGC FSYN clocks frequencies function
+   Returns:	0=NO error
+   ======================================================================== */
+
+static int clkgenc_fsyn_recalc(clk_t *clk_p)
+{
+	int bank, channel;
+	unsigned long cfg, dig_bit;
+	unsigned long pe, md, sdiv;
+	int err;
+
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+	if (clk_p->id < CLKC_FS0_CH1 || clk_p->id > CLKC_FS1_CH4)
+		return CLK_ERR_BAD_PARAMETER;
+
+	bank = (clk_p->id - CLKC_FS0_CH1) / 4;
+	channel = (clk_p->id - CLKC_FS0_CH1) % 4;
+
+	/* Is FSYN analog UP ? */
+	cfg = CLK_READ(CLOCKGENC_BASE_ADDR + CKGC_FS_CFG(bank));
+	if (!(cfg & (1 << 14))) {       /* Analog power down */
+		clk_p->rate = 0;
+		return 0;
+	}
+
+	/* Is FSYN digital part UP ? */
+	dig_bit = 10 + channel;
+
+	if ((cfg & (1 << dig_bit)) == 0) {      /* digital part in standby */
+		clk_p->rate = 0;
+		return 0;
+	}
+
+	/* FSYN up & running.
+	   Computing frequency */
+	pe = CLK_READ(CLOCKGENC_BASE_ADDR + CKGC_FS_PE(bank, channel));
+	md = CLK_READ(CLOCKGENC_BASE_ADDR + CKGC_FS_MD(bank, channel));
+	sdiv = CLK_READ(CLOCKGENC_BASE_ADDR + CKGC_FS_SDIV(bank, channel));
+	err = clk_fsyn_get_rate(clk_p->parent->rate, pe, md,
+					sdiv, &clk_p->rate);
+
+	return err;
+}
+
+/* ========================================================================
+   Name:	clkgenc_recalc
+   Description: Get CKGC clocks frequencies function
+   Returns:	0=NO error
+   ======================================================================== */
+
+static int clkgenc_recalc(clk_t *clk_p)
+{
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+
+	switch (clk_p->id) {
+	case CLKC_REF:
+		clk_p->rate = CONFIG_SH_EXTERNAL_CLOCK;
+		break;
+	case CLKC_FS0_CH1 ... CLKC_FS0_CH4:  /* FS0 clocks */
+	case CLKC_FS1_CH1 ... CLKC_FS1_CH4:  /* FS1 clocks */
+		return clkgenc_fsyn_recalc(clk_p);
+	default:
+		return CLK_ERR_BAD_PARAMETER;
+	}
+
+	return 0;
+}
+
+/* ========================================================================
+   Name:	clkgenc_set_rate
+   Description: Set CKGC clocks frequencies
+   Returns:	0=NO error
+   ======================================================================== */
+
+static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
+{
+	unsigned long md, pe, sdiv;
+	unsigned long reg_value = 0;
+	int bank, channel;
+	static const unsigned char set_rate_table[] = {
+		0x04, 0x08, 0x10, 0x20 };
+
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+	if (clk_p->id < CLKC_FS0_CH1 || clk_p->id > CLKC_FS1_CH4)
+		return CLK_ERR_BAD_PARAMETER;
+
+	/* Computing FSyn params. Should be common function with FSyn type */
+	if (clk_fsyn_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
+		return CLK_ERR_BAD_PARAMETER;
+
+	bank = (clk_p->id - CLKC_FS0_CH1) / 4;
+	channel = (clk_p->id - CLKC_FS0_CH1) % 4;
+
+	reg_value = CLK_READ(CLOCKGENC_BASE_ADDR + CKGC_FS_CFG(bank));
+	reg_value &= ~set_rate_table[channel];
+
+	/* Select FS clock only for the clock specified */
+	CLK_WRITE(CLOCKGENC_BASE_ADDR + CKGC_FS_CFG(bank), reg_value);
+
+	CLK_WRITE(CLOCKGENC_BASE_ADDR + CKGC_FS_PE(bank, channel), pe);
+	CLK_WRITE(CLOCKGENC_BASE_ADDR + CKGC_FS_MD(bank, channel), md);
+	CLK_WRITE(CLOCKGENC_BASE_ADDR + CKGC_FS_SDIV(bank, channel), sdiv);
+	CLK_WRITE(CLOCKGENC_BASE_ADDR + CKGC_FS_EN_PRG(bank, channel), 0x01);
+	CLK_WRITE(CLOCKGENC_BASE_ADDR + CKGC_FS_EN_PRG(bank, channel), 0x00);
+
+	return clkgenc_recalc(clk_p);
+}
+
+static int clkgenc_init(clk_t *clk_p)
+{
+	int err;
+
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+
+	clkgenc_recalc(clk_p);
+
+	return err;
+}
+
+/* ========================================================================
+   Name:        clkgenc_xable_fsyn
+   Description: Enable/Disable FSYN. If all channels OFF, FSYN is powered
+		down.
+   Returns:     'clk_err_t' error code
+   ======================================================================== */
+
+static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
+{
+	int bank, channel;
+	unsigned long val;
+	/* Digital standby bits table.
+	   Warning: enum order: CLKC_FS0_CH1 ... CLKC_FS0_CH3
+                                CLKC_FS1_CH1 ... CLKC_FS1_CH3 */
+	static const unsigned char dig_bit[] = {10, 11, 12, 13};
+
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+	if (clk_p->id < CLKC_FS0_CH1 || clk_p->id > CLKC_FS1_CH4)
+		return CLK_ERR_BAD_PARAMETER;
+
+	bank = (clk_p->id - CLKC_FS0_CH1) / 4;
+	channel = (clk_p->id - CLKC_FS0_CH1) % 4;
+
+	val = CLK_READ(CLOCKGENC_BASE_ADDR + CKGC_FS_CFG(bank));
+
+	/* Powering down/up digital part */
+	if (enable) {
+		val |= (1 << dig_bit[channel]);
+	} else {
+		val &= ~(1 << dig_bit[channel]);
+	}
+
+	/* Powering down/up analog part */
+	if (enable)
+		val |= (1 << 14);
+	else {
+		/* If all channels are off then power down the fsynth */
+		if ((val & 0x3fc0) == 0)
+			val &= ~(1 << 14);
+	}
+
+	CLK_WRITE(CLOCKGENC_BASE_ADDR + CKGC_FS_CFG(bank), val);
+
+	/* Freq recalc required only if a channel is enabled */
+	if (enable)
+		return clkgenc_fsyn_recalc(clk_p);
+	else
+		clk_p->rate = 0;
+	return 0;
+}
+
+/* ========================================================================
+   Name:        clkgenc_enable
+   Description: Enable clock
+   Returns:     'clk_err_t' error code.
+   ======================================================================== */
+
+static int clkgenc_enable(clk_t *clk_p)
+{
+	return clkgenc_xable_fsyn(clk_p, 1);
+}
+
+/* ========================================================================
+   Name:        clkgenc_disable
+   Description: Disable clock
+   Returns:     'clk_err_t' error code.
+   ======================================================================== */
+
+static int clkgenc_disable(clk_t *clk_p)
+{
+	return clkgenc_xable_fsyn(clk_p, 0);
+}
+
 int __init plat_clk_init(void)
 {
 	int ret;
@@ -600,6 +848,9 @@ int __init plat_clk_init(void)
 
 	if (ret)
 		return ret;
+
+	/* clock gen C */
+	ret = clk_register_table(clk_clocks, ARRAY_SIZE(clk_clocks), 0);
 
 	return 0;
 }

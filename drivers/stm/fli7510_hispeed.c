@@ -337,7 +337,9 @@ static struct stm_plat_usb_data fli7510_usb_platform_data = {
 	.flags = STM_PLAT_USB_FLAGS_STRAP_16BIT |
 		STM_PLAT_USB_FLAGS_STRAP_PLL |
 		STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
-	/* .pad_config set in fli7510_configure_usb() */
+	.device_config = &(struct stm_device_config){
+		/* .pad_config set in fli7510_configure_usb() */
+	},
 };
 
 static struct platform_device fli7510_usb_device = {

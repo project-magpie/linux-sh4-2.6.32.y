@@ -15,8 +15,10 @@ static inline unsigned long xchg_u32(volatile u32 *m, unsigned long val)
 		"   mov.l   %2,   @%1     \n\t" /* store new value */
 		"1: mov     r1,   r15     \n\t" /* LOGOUT */
 		: "=&r" (retval),
-		  "+r"  (m)
-		: "r"   (val)
+		  "+r"  (m),
+		  "+r"  (val)	/* when val == r15 this function will not work as expected.
+				 * So val is added to output constriants */
+		:
 		: "memory", "r0", "r1");
 
 	return retval;

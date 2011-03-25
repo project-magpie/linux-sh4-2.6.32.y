@@ -1435,8 +1435,8 @@ static int ubifs_releasepage(struct page *page, gfp_t unused_gfp_flags)
 }
 
 /*
- * mmap()d file has taken write protection fault and is being made
- * writable. UBIFS must ensure page is budgeted for.
+ * mmap()d file has taken write protection fault and is being made writable.
+ * UBIFS must ensure page is budgeted for.
  */
 static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 {

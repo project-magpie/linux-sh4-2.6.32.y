@@ -114,7 +114,7 @@ static int vol_cdev_open(struct inode *inode, struct file *file)
 		mode = UBI_READONLY;
 
 	dbg_gen("open device %d, volume %d, mode %d",
-	        ubi_num, vol_id, mode);
+		ubi_num, vol_id, mode);
 
 	desc = ubi_open_volume(ubi_num, vol_id, mode);
 	if (IS_ERR(desc))
@@ -157,7 +157,7 @@ static loff_t vol_cdev_llseek(struct file *file, loff_t offset, int origin)
 	loff_t new_offset;
 
 	if (vol->updating) {
-		 /* Update is in progress, seeking is prohibited */
+		/* Update is in progress, seeking is prohibited */
 		dbg_err("updating");
 		return -EBUSY;
 	}

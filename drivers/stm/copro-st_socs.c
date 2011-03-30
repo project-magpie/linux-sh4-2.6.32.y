@@ -38,7 +38,8 @@ int __init coproc_cpu_init(coproc_t * cop)
 #if defined(CONFIG_CPU_SUBTYPE_STX7100) \
 	|| defined(CONFIG_CPU_SUBTYPE_STX7105) \
 	|| defined(CONFIG_CPU_SUBTYPE_STX7111) \
-	|| defined(CONFIG_CPU_SUBTYPE_STX7141)
+	|| defined(CONFIG_CPU_SUBTYPE_STX7141) \
+	|| defined(CONFIG_CPU_SUBTYPE_STX5206)
 	const unsigned int boot_lookup[] =   { 28, 26 };
 	const unsigned int reset_lookup[]  = { 29, 27 };
 	const int sys_cfg = 2;

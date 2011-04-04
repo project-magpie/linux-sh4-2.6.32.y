@@ -112,7 +112,9 @@ static void stm_device_devres_exit(struct device *dev, void *res)
 {
 	struct stm_device_state *state = res;
 
-	stm_device_exit(state);
+	BUG_ON(!state);
+
+	__stm_device_exit(state);
 }
 
 static int stm_device_devres_match(struct device *dev, void *res, void *data)

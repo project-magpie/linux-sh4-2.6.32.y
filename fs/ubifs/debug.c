@@ -2462,14 +2462,12 @@ error_dump:
 	return 0;
 }
 
-static int invocation_cnt;
-
 int dbg_force_in_the_gaps(void)
 {
-	if (!dbg_force_in_the_gaps_enabled)
+	if (!(ubifs_chk_flags & UBIFS_CHK_GEN))
 		return 0;
-	/* Force in-the-gaps every 8th commit */
-	return !((invocation_cnt++) & 0x7);
+
+	return !(random32() & 7);
 }
 
 /* Failure mode for recovery testing */

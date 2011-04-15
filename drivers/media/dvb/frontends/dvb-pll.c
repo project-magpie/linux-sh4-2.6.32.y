@@ -98,6 +98,13 @@ static void thomson_dtt759x_bw(struct dvb_frontend *fe, u8 *buf,
 		buf[3] |= 0x10;
 }
 
+static void thomson_dtt7546x_bw(struct dvb_frontend *fe, u8 *buf,
+			       const struct dvb_frontend_parameters *params)
+{
+	/* set CB2 reg - set ATC, XTO */
+	buf[4] = 0xe3;
+}
+
 static struct dvb_pll_desc dvb_pll_thomson_dtt759x = {
 	.name  = "Thomson dtt759x",
 	.min   = 177000000,
@@ -112,6 +119,29 @@ static struct dvb_pll_desc dvb_pll_thomson_dtt759x = {
 		{  735000000, 166667, 0xbc, 0x08 },
 		{  835000000, 166667, 0xf4, 0x08 },
 		{  999999999, 166667, 0xfc, 0x08 },
+	},
+};
+
+static struct dvb_pll_desc dvb_pll_thomson_dtt7546x = {
+	.name  = "Thomson dtt7546x",
+	.min   = 44250000,
+	.max   = 863250000,
+	.set   = thomson_dtt7546x_bw,
+	.iffreq= 36166667,
+	.count = 12,
+	.entries = {
+		{  121000000, 166667, 0x88, 0x01 },
+		{  141000000, 166667, 0x88, 0x41 },
+		{  166000000, 166667, 0x88, 0x81 },
+		{  182000000, 166667, 0x88, 0xc1 },
+		{  286000000, 166667, 0x88, 0x02 },
+		{  386000000, 166667, 0x88, 0x42 },
+		{  446000000, 166667, 0x88, 0x82 },
+		{  466000000, 166667, 0x88, 0xc2 },
+		{  506000000, 166667, 0x88, 0x08 },
+		{  761000000, 166667, 0x88, 0x48 },
+		{  846000000, 166667, 0x88, 0x88 },
+		{  905000000, 166667, 0x88, 0xc8 },
 	},
 };
 
@@ -482,6 +512,7 @@ static struct dvb_pll_desc *pll_list[] = {
 	[DVB_PLL_SAMSUNG_TDTC9251DH0]    = &dvb_pll_samsung_tdtc9251dh0,
 	[DVB_PLL_SAMSUNG_TBDU18132]	 = &dvb_pll_samsung_tbdu18132,
 	[DVB_PLL_SAMSUNG_TBMU24112]      = &dvb_pll_samsung_tbmu24112,
+	[DVB_PLL_THOMSON_DTT7546X]       = &dvb_pll_thomson_dtt7546x,
 };
 
 /* ----------------------------------------------------------- */
@@ -566,7 +597,7 @@ static int dvb_pll_set_params(struct dvb_frontend *fe,
 			      struct dvb_frontend_parameters *params)
 {
 	struct dvb_pll_priv *priv = fe->tuner_priv;
-	u8 buf[4];
+	u8 buf[5];
 	struct i2c_msg msg =
 		{ .addr = priv->pll_i2c_address, .flags = 0,
 		  .buf = buf, .len = sizeof(buf) };

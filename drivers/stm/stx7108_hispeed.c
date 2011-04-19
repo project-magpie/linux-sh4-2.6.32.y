@@ -61,7 +61,7 @@ static void stx7108_pio_dump_pad_config(const char *name, int port,
 }
 
 /* MII Default Retiming Configuration */
-static struct stx7108_pio_retime_config mii_retime_bypass = {
+static struct stm_pio_control_retime_config mii_retime_bypass = {
 	.retime = 0,
 	.clk1notclk0 = -1,
 	.clknotdata = 0,
@@ -71,7 +71,7 @@ static struct stx7108_pio_retime_config mii_retime_bypass = {
 
 };
 
-static struct stx7108_pio_retime_config mii_retime_clock[] = {
+static struct stm_pio_control_retime_config mii_retime_clock[] = {
 	[0] = {
 		.retime = -1,
 		.clk1notclk0 = 0,
@@ -90,7 +90,7 @@ static struct stx7108_pio_retime_config mii_retime_clock[] = {
 	}
 };
 
-static struct stx7108_pio_retime_config mii_retime_phy_clock = {
+static struct stm_pio_control_retime_config mii_retime_phy_clock = {
 	.retime = -1,
 	.clk1notclk0 = 0,
 	.clknotdata = 1,
@@ -99,7 +99,7 @@ static struct stx7108_pio_retime_config mii_retime_phy_clock = {
 	.delay_input = -1,
 };
 
-static struct stx7108_pio_retime_config mii_retime_data[] = {
+static struct stm_pio_control_retime_config mii_retime_data[] = {
 	[0] = {
 		.retime = 1,
 		.clk1notclk0 = 0,
@@ -140,7 +140,7 @@ static struct stx7108_pio_retime_config rmii_retime_data[] = {
 
 
 /* GMII (GTX) Default Retiming Configuration */
-static struct stx7108_pio_retime_config gmii_gtx_retime_clock = {
+static struct stm_pio_control_retime_config gmii_gtx_retime_clock = {
 	.retime = 1,
 	.clk1notclk0 = 1,
 	.clknotdata = 1,
@@ -150,7 +150,7 @@ static struct stx7108_pio_retime_config gmii_gtx_retime_clock = {
 };
 
 /* RGMII (GTX) Default Retiming Configuration */
-static struct stx7108_pio_retime_config rgmii_retime_bypass = {
+static struct stm_pio_control_retime_config rgmii_retime_bypass = {
 	.retime = 0,
 	.clk1notclk0 = -1,
 	.clknotdata = 0,
@@ -160,7 +160,7 @@ static struct stx7108_pio_retime_config rgmii_retime_bypass = {
 
 };
 
-static struct stx7108_pio_retime_config rgmii_retime_clock[] = {
+static struct stm_pio_control_retime_config rgmii_retime_clock[] = {
 	[0] = {
 		.retime = -1,
 		.clk1notclk0 = 0,
@@ -179,7 +179,7 @@ static struct stx7108_pio_retime_config rgmii_retime_clock[] = {
 	}
 };
 
-static struct stx7108_pio_retime_config rgmii_gtx_retime_clock = {
+static struct stm_pio_control_retime_config rgmii_gtx_retime_clock = {
 	.retime = 1,
 	.clk1notclk0 = 1,
 	.clknotdata = 1,
@@ -188,7 +188,7 @@ static struct stx7108_pio_retime_config rgmii_gtx_retime_clock = {
 	.delay_input = 0,
 };
 
-static struct stx7108_pio_retime_config rgmii_retime_data[] = {
+static struct stm_pio_control_retime_config rgmii_retime_data[] = {
 	[0] = {
 		.retime = 1,
 		.clk1notclk0 = 0,

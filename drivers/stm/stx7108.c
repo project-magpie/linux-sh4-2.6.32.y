@@ -22,7 +22,7 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stx7108.h>
 #include <asm/irq-ilc.h>
-
+#include "pio-control.h"
 
 
 /* EMI resources ---------------------------------------------------------- */
@@ -594,197 +594,87 @@ static struct platform_device stx7108_pio_devices[] = {
 	},
 };
 
-/* Pad control registers */
-static struct sysconf_field *stx7108_pio_0_14_output_enable[4];
-static struct sysconf_field *stx7108_pio_0_14_pull_up[4];
-static struct sysconf_field *stx7108_pio_0_14_open_drain[4];
-static struct sysconf_field *stx7108_pio_15_26_output_enable[3];
-static struct sysconf_field *stx7108_pio_15_26_pull_up[3];
-static struct sysconf_field *stx7108_pio_15_26_open_drain[3];
-
-static void stx7108_pio_config_direction(int port, int pin,
-		enum stm_pad_gpio_direction direction,
-		struct stx7108_pio_mode_config *custom_mode)
-{
-	struct sysconf_field *output_enable;
-	struct sysconf_field *pull_up;
-	struct sysconf_field *open_drain;
-	unsigned long oe_value, pu_value, od_value;
-	unsigned long mask;
-
-	pr_debug("%s(port=%d, pin=%d, direction=%d)\n",
-			__func__, port, pin, direction);
-
-	switch (port) {
-	case 0 ... 14:
-		output_enable = stx7108_pio_0_14_output_enable[port / 4];
-		pull_up = stx7108_pio_0_14_pull_up[port / 4];
-		open_drain = stx7108_pio_0_14_open_drain[port / 4];
-		break;
-	case 15 ... 26:
-		port -= 15;
-		output_enable = stx7108_pio_15_26_output_enable[port / 4];
-		pull_up = stx7108_pio_15_26_pull_up[port / 4];
-		open_drain = stx7108_pio_15_26_open_drain[port / 4];
-		break;
-	default:
-		BUG();
-		return;
+#define STX7108_PIO_CONTROL_(_num, _group, _alt_num,			\
+		_oe_num, _pu_num, _od_num, _lsb, _msb,			\
+		_no_rt, _rt1_num, _rt2_num)				\
+	[_num] = {							\
+		.alt = { _group, _alt_num },				\
+		.oe = { _group, _oe_num, _lsb, _msb },			\
+		.pu = { _group, _pu_num, _lsb, _msb },			\
+		.od = { _group, _od_num, _lsb, _msb },			\
+		.no_retiming = _no_rt,					\
+		.retiming = {						\
+			{ _group, _rt1_num },				\
+			{ _group, _rt2_num }				\
+		},							\
 	}
 
-	mask = 1 << (((port * 8) + pin) % 32);
+#define STX7108_PIO_CONTROL(_num, _group, _alt_num,			\
+		_oe_num, _pu_num, _od_num, _lsb, _msb,			\
+		_rt)				\
+	STX7108_PIO_CONTROL_(_num, _group, _alt_num,			\
+		_oe_num, _pu_num, _od_num, _lsb, _msb,			\
+		_rt)
 
-	oe_value = sysconf_read(output_enable);
-	pu_value = sysconf_read(pull_up);
-	od_value = sysconf_read(open_drain);
+#define STX7108_PIO_CONTROL4(_num, _group, _alt_num,		\
+		_oe_num, _pu_num, _od_num,			\
+		_rt1, _rt2, _rt3, _rt4)				\
+	STX7108_PIO_CONTROL_(_num,   _group, _alt_num,		\
+		_oe_num, _pu_num, _od_num,  0,  7,		\
+		_rt1),						\
+	STX7108_PIO_CONTROL_(_num+1, _group, _alt_num+1,	\
+		_oe_num, _pu_num, _od_num,  8, 15,		\
+		_rt2),						\
+	STX7108_PIO_CONTROL_(_num+2, _group, _alt_num+2,	\
+		_oe_num, _pu_num, _od_num, 16, 23,		\
+		_rt3),						\
+	STX7108_PIO_CONTROL_(_num+3, _group, _alt_num+3,	\
+		_oe_num, _pu_num, _od_num, 24, 31,		\
+		_rt4)
 
-	switch (direction) {
-	case stm_pad_gpio_direction_in:
-		/* oe = 0, pu = 0, od = 0 */
-		oe_value &= ~mask;
-		pu_value &= ~mask;
-		od_value &= ~mask;
-		break;
-	case stm_pad_gpio_direction_out:
-		/* oe = 1, pu = 0, od = 0 */
-		oe_value |= mask;
-		pu_value &= ~mask;
-		od_value &= ~mask;
-		break;
-	case stm_pad_gpio_direction_bidir:
-		/* oe = 1, pu = 0, od = 1 */
-		oe_value |= mask;
-		pu_value &= ~mask;
-		od_value |= mask;
-		break;
-	case stm_pad_gpio_direction_custom:
-		BUG_ON(!custom_mode);
-		if (custom_mode->oe)
-			oe_value |= mask;
-		else
-			oe_value &= ~mask;
-		if (custom_mode->pu)
-			pu_value |= mask;
-		else
-			pu_value &= ~mask;
-		if (custom_mode->od)
-			od_value |= mask;
-		else
-			od_value &= ~mask;
-		break;
-	default:
-		BUG();
-		break;
-	}
+#define _NO_RETIMING		1, 0, 0
+#define _RETIMING(_group, _rt1, _rt2)	0, _rt1, _rt2
 
-	sysconf_write(output_enable, oe_value);
-	sysconf_write(pull_up, pu_value);
-	sysconf_write(open_drain, od_value);
-}
+static const struct stm_pio_control_config stx7108_pio_control_configs[27] = {
+	STX7108_PIO_CONTROL4(0, SYS_CFG_BANK2, 0, 15, 19, 23,
+			     _NO_RETIMING,
+			     _RETIMING(SYS_CFG_BANK2, 32, 33),
+			     _NO_RETIMING,
+			     _NO_RETIMING),
+	STX7108_PIO_CONTROL4(4, SYS_CFG_BANK2, 4, 16, 20, 24,
+			     _NO_RETIMING,
+			     _NO_RETIMING,
+			     _RETIMING(SYS_CFG_BANK2, 34, 35),
+			     _RETIMING(SYS_CFG_BANK2, 36, 37)),
+	STX7108_PIO_CONTROL4(8, SYS_CFG_BANK2, 8, 17, 21, 25,
+			     _RETIMING(SYS_CFG_BANK2, 38, 39),
+			     _RETIMING(SYS_CFG_BANK2, 40, 41),
+			     _RETIMING(SYS_CFG_BANK2, 42, 43),
+			     _RETIMING(SYS_CFG_BANK2, 44, 45)),
+	STX7108_PIO_CONTROL(12, SYS_CFG_BANK2, 12, 18, 22, 26, 0, 7,
+			    _RETIMING(SYS_CFG_BANK2, 46, 47)),
+	STX7108_PIO_CONTROL(13, SYS_CFG_BANK2, 13, 18, 22, 26, 8, 15,
+			    _RETIMING(SYS_CFG_BANK2, 48, 49)),
+	STX7108_PIO_CONTROL(14, SYS_CFG_BANK2, 14, 18, 22, 26, 16, 23,
+			    _RETIMING(SYS_CFG_BANK2, 50, 51)),
+	STX7108_PIO_CONTROL4(15, SYS_CFG_BANK4, 0, 12, 16, 20,
+			     _RETIMING(SYS_CFG_BANK4, 48, 49),
+			     _RETIMING(SYS_CFG_BANK4, 50, 51),
+			     _RETIMING(SYS_CFG_BANK4, 52, 53),
+			     _RETIMING(SYS_CFG_BANK4, 54, 55)),
+	STX7108_PIO_CONTROL4(19, SYS_CFG_BANK4, 4, 13, 17, 21,
+			     _RETIMING(SYS_CFG_BANK4, 56, 57),
+			     _RETIMING(SYS_CFG_BANK4, 58, 59),
+			     _RETIMING(SYS_CFG_BANK4, 60, 61),
+			     _RETIMING(SYS_CFG_BANK4, 62, 63)),
+	STX7108_PIO_CONTROL4(23, SYS_CFG_BANK4, 8, 14, 18, 22,
+			     _RETIMING(SYS_CFG_BANK4, 64, 65),
+			     _NO_RETIMING,
+			     _NO_RETIMING,
+			     _NO_RETIMING),
+};
 
-/* Alternative function selector registers */
-static struct sysconf_field *stx7108_pio_0_14_function[15];
-static struct sysconf_field *stx7108_pio_15_26_function[12];
-
-static void stx7108_pio_config_function(int port, int pin, int function)
-{
-	struct sysconf_field *selector;
-	int offset;
-	unsigned long val;
-
-	pr_debug("%s(port=%d, pin=%d, function=%d)\n",
-			__func__, port, pin, function);
-
-	switch (port) {
-	case 0 ... 14:
-		selector = stx7108_pio_0_14_function[port];
-		break;
-	case 15 ... 26:
-		port -= 15;
-		selector = stx7108_pio_15_26_function[port];
-		break;
-	default:
-		BUG();
-		return;
-	}
-
-	offset = pin * 4;
-
-	val = sysconf_read(selector);
-	val &= ~(0xf << offset);
-	val |= function << offset;
-	sysconf_write(selector, val);
-}
-
-/* Retiming registers */
-static struct sysconf_field *stx7108_pio_1_retime[2];
-static struct sysconf_field *stx7108_pio_6_14_retime[9][2];
-static struct sysconf_field *stx7108_pio_15_23_retime[9][2];
-
-void stx7108_pio_config_retime(int port, int pin,
-		struct stx7108_pio_retime_config *config)
-{
-	struct sysconf_field **regs;
-	unsigned long values[2];
-	unsigned long mask;
-
-	switch (port) {
-	case 1:
-		regs = stx7108_pio_1_retime;
-		break;
-	case 6 ... 14:
-		regs = stx7108_pio_6_14_retime[port - 6];
-		break;
-	case 15 ... 23:
-		regs = stx7108_pio_15_23_retime[port - 15];
-		break;
-	default:
-		BUG();
-		return;
-	}
-
-	values[0] = sysconf_read(regs[0]);
-	values[1] = sysconf_read(regs[1]);
-
-	mask = 1 << pin;
-	if (config->clk1notclk0 == 0)
-		values[0] &= ~mask;
-	else if (config->clk1notclk0 == 1)
-		values[0] |= mask;;
-
-	mask = 1 << (pin + 8);
-	if (config->clknotdata == 0)
-		values[0] &= ~mask;
-	else if (config->clknotdata == 1)
-		values[0] |= mask;
-
-	mask = 1 << (pin + 16);
-	if (config->delay_input == 0)
-		values[0] &= ~mask;
-	else if (config->delay_input == 1)
-		values[0] |= mask;
-
-	mask = 1 << (pin + 24);
-	if (config->double_edge == 0)
-		values[0] &= ~mask;
-	else if (config->double_edge == 1)
-		values[0] |= mask;
-
-	mask = 1 << pin;
-	if (config->invertclk == 0)
-		values[1] &= ~mask;
-	else if (config->invertclk == 1)
-		values[1] |= mask;
-
-	mask = 1 << (pin + 8);
-	if (config->retime == 0)
-		values[1] &= ~mask;
-	else if (config->retime == 1)
-		values[1] |= mask;
-
-	sysconf_write(regs[0], values[0]);
-	sysconf_write(regs[1], values[1]);
-}
+static struct stm_pio_control stx7108_pio_controls[27];
 
 static int stx7108_pio_config(unsigned gpio,
 		enum stm_pad_gpio_direction direction, int function, void *priv)
@@ -792,9 +682,12 @@ static int stx7108_pio_config(unsigned gpio,
 	int port = stm_gpio_port(gpio);
 	int pin = stm_gpio_pin(gpio);
 	struct stx7108_pio_config *config = priv;
+	struct stm_pio_control *pio_control;
 
 	BUG_ON(port > ARRAY_SIZE(stx7108_pio_devices));
 	BUG_ON(function < 0 || function > 5);
+
+	pio_control = &stx7108_pio_controls[port];
 
 	if (function == 0) {
 		switch (direction) {
@@ -812,80 +705,38 @@ static int stx7108_pio_config(unsigned gpio,
 			break;
 		}
 	} else {
-		stx7108_pio_config_direction(port, pin, direction,
+		stm_pio_control_config_direction(pio_control, pin, direction,
 				config ? config->mode : NULL);
 	}
 
-	stx7108_pio_config_function(port, pin, function);
-	if (config && config->retime)
-		stx7108_pio_config_retime(port, pin, config->retime);
+	stm_pio_control_config_function(pio_control, pin, function);
+
+	if (config && config->retime) {
+		struct stm_pio_control_retime_config *retime = config->retime;
+		unsigned long mask =
+			(retime->clk1notclk0 > 0 ? 1<<0 : 0) |
+			(retime->clknotdata  > 0 ? 1<<1 : 0) |
+			(retime->delay_input > 0 ? 1<<2 : 0) |
+			(retime->double_edge > 0 ? 1<<3 : 0) |
+			(retime->invertclk   > 0 ? 1<<4 : 0) |
+			(retime->retime      > 0 ? 1<<5 : 0);
+		unsigned long config =
+			(retime->clk1notclk0 ? 1<<0 : 0) |
+			(retime->clknotdata  ? 1<<1 : 0) |
+			(retime->delay_input ? 1<<2 : 0) |
+			(retime->double_edge ? 1<<3 : 0) |
+			(retime->invertclk   ? 1<<4 : 0) |
+			(retime->retime      ? 1<<5 : 0);
+		stm_pio_control_config_retime(pio_control, pin, mask, config);
+	}
 
 	return 0;
 }
 
 static void __init stx7108_pio_init(void)
 {
-	int i, j;
-
-	/* Pad control registers */
-	for (i = 0; i < ARRAY_SIZE(stx7108_pio_0_14_output_enable); i++) {
-		stx7108_pio_0_14_output_enable[i] = sysconf_claim(SYS_CFG_BANK2,
-				15 + i, 0, 31, "PIO Output Enable Control");
-		BUG_ON(!stx7108_pio_0_14_output_enable[i]);
-		stx7108_pio_0_14_pull_up[i] = sysconf_claim(SYS_CFG_BANK2,
-				19 + i, 0, 31, "PIO Pull Up Control");
-		BUG_ON(!stx7108_pio_0_14_pull_up[i]);
-		stx7108_pio_0_14_open_drain[i] = sysconf_claim(SYS_CFG_BANK2,
-				23 + i, 0, 31, "PIO Open Drain Control");
-		BUG_ON(!stx7108_pio_0_14_open_drain[i]);
-	}
-	for (i = 0; i < ARRAY_SIZE(stx7108_pio_15_26_output_enable); i++) {
-		stx7108_pio_15_26_output_enable[i] =
-				sysconf_claim(SYS_CFG_BANK4,
-				12 + i, 0, 31, "PIO Output Enable Control");
-		BUG_ON(!stx7108_pio_15_26_output_enable[i]);
-		stx7108_pio_15_26_pull_up[i] = sysconf_claim(SYS_CFG_BANK4,
-				16 + i, 0, 31, "PIO Pull Up Control");
-		BUG_ON(!stx7108_pio_15_26_pull_up[i]);
-		stx7108_pio_15_26_open_drain[i] = sysconf_claim(SYS_CFG_BANK4,
-				20 + i, 0, 31, "PIO Open Drain Control");
-		BUG_ON(!stx7108_pio_15_26_open_drain[i]);
-	}
-
-	/* Alternative function selector registers */
-	for (i = 0; i < ARRAY_SIZE(stx7108_pio_0_14_function); i++) {
-		stx7108_pio_0_14_function[i] = sysconf_claim(SYS_CFG_BANK2,
-				i, 0, 31, "PIO Alternative Function Selector");
-		BUG_ON(!stx7108_pio_0_14_function[i]);
-	}
-	for (i = 0; i < ARRAY_SIZE(stx7108_pio_15_26_function); i++) {
-		stx7108_pio_15_26_function[i] = sysconf_claim(SYS_CFG_BANK4,
-				i, 0, 31, "PIO Alternative Function Selector");
-		BUG_ON(!stx7108_pio_15_26_function[i]);
-	}
-
-	/* Retiming registers */
-	for (j = 0; j < 2; j++) {
-		stx7108_pio_1_retime[j] = sysconf_claim(SYS_CFG_BANK2,
-				32 + j, 0, 31, "PIO Retiming Configuration");
-		BUG_ON(!stx7108_pio_1_retime[j]);
-	}
-	for (i = 0; i < ARRAY_SIZE(stx7108_pio_6_14_retime); i++) {
-		for (j = 0; j < 2; j++) {
-			stx7108_pio_6_14_retime[i][j] =
-				sysconf_claim(SYS_CFG_BANK2, 34 + (i * 2) + j,
-				0, 31, "PIO Retiming Configuration");
-			BUG_ON(!stx7108_pio_6_14_retime[i][j]);
-		}
-	}
-	for (i = 0; i < ARRAY_SIZE(stx7108_pio_15_23_retime); i++) {
-		for (j = 0; j < 2; j++) {
-			stx7108_pio_15_23_retime[i][j] =
-				sysconf_claim(SYS_CFG_BANK4, 48 + (i * 2) + j,
-				0, 31, "PIO Retiming Configuration");
-			BUG_ON(!stx7108_pio_15_23_retime[i][j]);
-		}
-	}
+	stm_pio_control_init(stx7108_pio_control_configs, stx7108_pio_controls,
+			     ARRAY_SIZE(stx7108_pio_control_configs));
 }
 
 /* MMC/SD resources ------------------------------------------------------ */
@@ -898,7 +749,7 @@ static void __init stx7108_pio_init(void)
 		.function = 1, \
 		.name = "MMCCLK", \
 		.priv = &(struct stx7108_pio_config) {	\
-			.mode = &(struct stx7108_pio_mode_config) { \
+			.mode = &(struct stm_pio_control_mode_config) { \
 				.oe = 1, \
 				.pu = 1, \
 				.od = 1, \
@@ -912,7 +763,7 @@ static void __init stx7108_pio_init(void)
 		.direction = stm_pad_gpio_direction_custom, \
 		.function = 1, \
 		.priv = &(struct stx7108_pio_config) {	\
-			.mode = &(struct stx7108_pio_mode_config) { \
+			.mode = &(struct stm_pio_control_mode_config) { \
 				.oe = 1, \
 				.pu = 1, \
 				.od = 1, \
@@ -925,7 +776,7 @@ static void __init stx7108_pio_init(void)
 		.direction = stm_pad_gpio_direction_custom, \
 		.function = 1, \
 		.priv = &(struct stx7108_pio_config) {	\
-			.mode = &(struct stx7108_pio_mode_config) { \
+			.mode = &(struct stm_pio_control_mode_config) { \
 				.oe = 1, \
 				.pu = 0, \
 				.od = 0, \

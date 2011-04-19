@@ -69,7 +69,7 @@ static DEFINE_SPINLOCK(sysconf_registers_lock);
 
 
 /* We need a small stash of allocations before kmalloc becomes available */
-#define NUM_EARLY_FIELDS	128
+#define NUM_EARLY_FIELDS	256
 #define EARLY_BITS_MAPS_SIZE	DIV_ROUND_UP(NUM_EARLY_FIELDS, BITS_PER_LONG)
 
 static struct sysconf_field early_fields[NUM_EARLY_FIELDS];

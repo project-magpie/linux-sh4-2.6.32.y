@@ -16,6 +16,7 @@
 #include <linux/device.h>
 #include <linux/spi/spi.h>
 #include <linux/stm/platform.h>
+#include <linux/stm/pio-control.h>
 
 
 /* Returns: 1 if being executed on the "HOST" (L2-cached) ST40,
@@ -37,26 +38,9 @@
 #define SYS_CFG_BANK4		9
 
 
-struct stx7108_pio_mode_config {
-	int oe:1;
-	int pu:1;
-	int od:1;
-};
-
-/* Structure aligned to the "STi7108 Generic Retime Padlogic
- * Application Note" SPEC */
-struct stx7108_pio_retime_config {
-	int retime:2;
-	int clk1notclk0:2;
-	int clknotdata:2;
-	int double_edge:2;
-	int invertclk:2;
-	int delay_input:2;
-};
-
 struct stx7108_pio_config {
-	struct stx7108_pio_mode_config *mode;
-	struct stx7108_pio_retime_config *retime;
+	struct stm_pio_control_mode_config *mode;
+	struct stm_pio_control_retime_config *retime;
 };
 
 

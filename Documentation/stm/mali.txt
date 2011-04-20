@@ -62,68 +62,44 @@ will be provided to you by ST. However the memory resources need to be
 configured for your board and system use case, potentially with the help of
 your FAE or STSDK support contact.
 
-Here is an example configuration for the MB837 (STx7108 based board) which is
+Here is an example configuration for the HDK7108 (STx7108 based board) which is
 in this case using a single memory interface with 128MB available.
 
-#define RESOURCE_REG_NAMED(_name, _start, _size) \
-                { \
-                        .name = (_name), \
-                        .start = (_start), \
-                        .end = (_start) + (_size) - 1, \
-                        .flags = IORESOURCE_MEM, \
-                }
-#define RESOURCE_IRQ_NAMED(_name, _irq) \
-                { \
-                        .name = (_name), \
-                        .start = (_irq), \
-                        .end = (_irq), \
-                        .flags = IORESOURCE_IRQ, \
-                }
-#define RESOURCE_MEM_NAMED(_name, _start, _size) \
-                { \
-                        .name = (_name), \
-                        .start = (_start), \
-                        .end = (_start) + (_size) - 1, \
-                        .flags = IORESOURCE_DMA, \
-                }
+static struct stm_mali_resource hdk7108_mali_mem[1] = {
+	{
+		.name 	= "OS_MEMORY",
+		.start 	=  0,
+		.end	=  CONFIG_STM_MALI_OS_MEMORY_SIZE - 1,
+	},
+};
 
-static struct platform_device mb837_mali = {
-        .name = "mali",
-        .id = 0,
-        .num_resources = 11,
-        .resource = (struct resource []) {
-                RESOURCE_REG_NAMED("MALI400GP",  0xfe710000, 0x1000),
-                RESOURCE_REG_NAMED("MALI400PP-0",  0xfe718000, 0x10F0),
-                RESOURCE_REG_NAMED("MMU-1",  0xfe713000, 0x1000),
-                RESOURCE_REG_NAMED("MMU-2",  0xfe714000, 0x1000),
-                RESOURCE_REG_NAMED("MALI400L2",  0xfe711000, 0x1000),
-                RESOURCE_IRQ_NAMED("MALI400GP", ILC_IRQ(115)),
-                RESOURCE_IRQ_NAMED("MALI400PP-0", ILC_IRQ(113)),
-                RESOURCE_IRQ_NAMED("MMU-1", ILC_IRQ(116)),
-                RESOURCE_IRQ_NAMED("MMU-2", ILC_IRQ(114)),
-                RESOURCE_MEM_NAMED("OS_MEMORY",  0, 80*1024*1024),
-                RESOURCE_MEM_NAMED("EXTERNAL_MEMORY_RANGE",  0x40000000, 0x08000000),
-        },
+static struct stm_mali_resource hdk7108_mali_ext_mem[] = {
+	{
+		.name 	= "EXTERNAL_MEMORY_RANGE",
+		.start 	=  0x40000000,
+		.end	=  0x4FFFFFFF,
+	}
+};
+
+static struct stm_mali_config hdk7108_mali_config = {
+	.num_mem_resources = ARRAY_SIZE(hdk7108_mali_mem),
+	.mem = hdk7108_mali_mem,
+	.num_ext_resources = ARRAY_SIZE(hdk7108_mali_ext_mem),
+	.ext_mem = hdk7108_mali_ext_mem,
 };
 
 If this is placed in the kernel board setup ifile for the MB837 i.e. in:
 
 arch/sh/boards/st/mb837/setup.c
 
-then the mali device is simply added to the existing list of platform devices to
-register, like this:
+then the mali device can be configured by simply calling
 
-static struct platform_device *mb837_devices[] __initdata = {
-        &mb837_led,
-        &mb837_phy_devices[0],
-        &mb837_phy_devices[1],
-        &mb837_mali, /* <----- Mali device added here */
-};
+	stx7108_configure_mali(&hdk7108_mali_config);
 
-If you wish to place the platform device registration elsewhere, for example
-in a STSDK board configuration file or your own board configration module then
-please look at the setup.c file mentioned above and its use of
-"platform_add_devices" as an example of what to do.
+in setup.c
+
+This will register a "mali" platform device with the kernel, and also add SOC
+specific resources to platform device.
 
 A useful feature of the platform device system is that it does not matter in
 which order the device and driver are registered with the kernel. So it is

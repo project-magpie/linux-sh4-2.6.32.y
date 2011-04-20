@@ -432,4 +432,20 @@ static inline int stmmac_claim_resource(struct platform_device *pdev)
 	return ret;
 }
 
+/* Mali specific */
+struct stm_mali_resource {
+	resource_size_t start;
+	resource_size_t end;
+	const char *name;
+};
+struct stm_mali_config {
+	/* Memory allocated by Linux kernel and
+	 Memory regions managed by mali driver */
+	int num_mem_resources;
+	struct stm_mali_resource *mem;
+	/* Access to other regions of memory to directly render */
+	int num_ext_resources;
+	struct stm_mali_resource *ext_mem;
+};
+
 #endif /* __LINUX_STM_PLATFORM_H */

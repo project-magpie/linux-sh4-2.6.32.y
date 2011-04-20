@@ -345,6 +345,32 @@ int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 	return stx7108_pcibios_map_platform_irq(&hdk7108_pci_config, pin);
 }
 
+/* Mali parameters */
+
+/* Memory allocated by Linux Kernel */
+static struct stm_mali_resource hdk7108_mali_mem[1] = {
+	{
+		.name 	= "OS_MEMORY",
+		.start 	=  0,
+		.end	=  CONFIG_STM_HDK7108_MALI_OS_MEMORY_SIZE - 1,
+	},
+};
+
+static struct stm_mali_resource hdk7108_mali_ext_mem[] = {
+	{
+		.name 	= "EXTERNAL_MEMORY_RANGE",
+		.start 	=  0x40000000,
+		.end	=  0x4FFFFFFF,
+	}
+};
+
+static struct stm_mali_config hdk7108_mali_config = {
+	.num_mem_resources = ARRAY_SIZE(hdk7108_mali_mem),
+	.mem = hdk7108_mali_mem,
+	.num_ext_resources = ARRAY_SIZE(hdk7108_mali_ext_mem),
+	.ext_mem = hdk7108_mali_ext_mem,
+};
+
 
 
 static int __init device_init(void)
@@ -529,6 +555,8 @@ static int __init device_init(void)
 				ARRAY_SIZE(hdk7108_serial_flash));
 
 	stx7108_configure_mmc();
+
+	stx7108_configure_mali(&hdk7108_mali_config);
 
 	return platform_add_devices(hdk7108_devices,
 			ARRAY_SIZE(hdk7108_devices));

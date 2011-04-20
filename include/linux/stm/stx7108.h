@@ -193,4 +193,6 @@ struct stx7108_nand_config {
 };
 void stx7108_configure_nand(struct stx7108_nand_config *config);
 
+void stx7108_configure_mali(struct stm_mali_config *config);
+
 #endif

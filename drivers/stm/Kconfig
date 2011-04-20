@@ -144,6 +144,13 @@ config STM_RNG
          This option can be used in conjunction with the /dev/hw_random
          driver found in the char drivers menu.
 
+config STM_MALI
+	depends on CPU_SUBTYPE_STX7108
+	tristate "STM Mali GPU support"
+	default n
+	help
+	  Enable this option to support Mali GPU Driver.
+
 config PMS
 	bool "Power Management Scheme"
 	default n

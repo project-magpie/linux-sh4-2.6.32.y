@@ -1077,6 +1077,31 @@ static int __init stx7108_postcore_setup(void)
 }
 postcore_initcall(stx7108_postcore_setup);
 
+/* Internal temperature sensor resources ---------------------------------- */
+static void stx7108_temp_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int value = (power == stm_device_power_on) ? 1 : 0;
+
+	stm_device_sysconf_write(device_state, "TEMP_PWR", value);
+}
+
+static struct platform_device stx7108_temp_device = {
+	.name		   = "stm-temp",
+	.id		     = -1,
+	.dev.platform_data      = &(struct plat_stm_temp_data) {
+		.dcorrect = { SYS_CFG_BANK1, 8, 4, 8 },
+		.overflow = { SYS_STA_BANK1, 7, 8, 8 },
+		.data = { SYS_STA_BANK1, 7, 10, 16 },
+		.device_config = &(struct stm_device_config) {
+			.sysconfs_num = 1,
+			.power = stx7108_temp_power,
+			.sysconfs = (struct stm_device_sysconf []){
+				STM_DEVICE_SYS_CFG_BANK(1, 8, 9, 9, "TEMP_PWR"),
+			},
+		}
+	},
+};
 
 
 /* Late initialisation ---------------------------------------------------- */
@@ -1093,6 +1118,7 @@ static struct platform_device *stx7108_devices[] __initdata = {
 	&stx7108_sysconf_devices[4],
 	&stx7108_devhwrandom_device,
 	&stx7108_devrandom_device,
+	&stx7108_temp_device,
 };
 
 static int __init stx7108_devices_setup(void)

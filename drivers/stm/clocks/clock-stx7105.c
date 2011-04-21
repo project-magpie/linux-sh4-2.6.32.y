@@ -10,6 +10,12 @@
  *****************************************************************************/
 
 /* ----- Modification history (most recent first)----
+06/apr/11 fabrice.charpentier@st.com
+	  Re-added CLKB_PIX_FROM_DVP possible source of CLKB_DVP.
+23/mar/11 fabrice.charpentier@st.com
+	  clkgenb_set_parent() enhanced to support PIX_HD.
+22/feb/11 fabrice.charpentier@st.com
+	  CLK_DSS parent clock fix.
 19/may/10 francesco.virlinzi@st.com/fabrice.charpentier@st.com
 	  Added several divisor factor on 656_1, DISP_HD. PIX_SD, etc
 12/mar/10 francesco.virlinzi@st.com/fabrice.charpentier@st.com
@@ -240,9 +246,10 @@ _CLK_P(CLKB_DISP_ID, &clkgenb, 0,
 		CLK_RATE_PROPAGATES, &clk_clocks[CLKB_FS1_CH1]),
 _CLK(CLKB_PIX_SD,	&clkgenb, 0, 0),
 _CLK(CLKB_DVP,		&clkgenb, 0, 0),
+_CLK(CLKB_PIX_FROM_DVP, &clkgenb, 0, 0),
 
 _CLK_P(CLKB_DSS, &clkgenb, 0,
-		0, &clk_clocks[CLKB_FS0_CH1]),
+		0, &clk_clocks[CLKB_FS0_CH2] /* RnDHV00034077 */),
 _CLK_P(CLKB_DAA, &clkgenb, 0,
 		0, &clk_clocks[CLKB_FS0_CH3]),
 _CLK_P(CLKB_PP, &clkgenb, 0,
@@ -992,6 +999,17 @@ static int clkgenb_set_parent(clk_t *clk_p, clk_t *parent_p)
 		reg = CKGB_BASE_ADDRESS + CKGB_CRISTAL_SEL;
 		break;
 
+	case CLKB_PIX_HD:
+		if ((parent_p->id != CLKB_FS0_CH1)
+		    && (parent_p->id != CLKB_FS1_CH1))
+			return CLK_ERR_BAD_PARAMETER;
+		if (parent_p->id == CLKB_FS0_CH1)
+			reset = 1 << 14;
+		else
+			set = 1 << 14;
+		reg = CKGB_BASE_ADDRESS + CKGB_DISPLAY_CFG;
+		break;
+
 	case CLKB_GDP3:
 		if ((parent_p->id == CLKB_DISP_HD)
 		    || (parent_p->id == CLKB_FS0_CH1))
@@ -1009,13 +1027,16 @@ static int clkgenb_set_parent(clk_t *clk_p, clk_t *parent_p)
 
 	case CLKB_DVP:
 		if ((parent_p->id != CLKB_FS0_CH1)
-		    && (parent_p->id != CLKB_FS1_CH1))
+		    && (parent_p->id != CLKB_FS1_CH1)
+		    && (parent_p->id != CLKB_PIX_FROM_DVP))
 			return CLK_ERR_BAD_PARAMETER;
 		if (parent_p->id == CLKB_FS0_CH1) {
 			set = 1 << 3;
 			reset = 1 << 2;
-		} else
+		} else if (parent_p->id == CLKB_FS1_CH1)
 			set = 0x3 << 2;
+		else
+			reset = 1 << 3;
 		break;
 
 	case CLKB_656_1:

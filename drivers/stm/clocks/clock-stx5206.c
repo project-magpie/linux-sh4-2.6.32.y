@@ -10,6 +10,8 @@
  *****************************************************************************/
 
 /* ----- Modification history (most recent first)----
+06/apr/11 fabrice.charpentier@st.com
+	  clkgenb_set_div() bug fix for CLKB_PIP.
 17/may/10 STAPI reports
 	  Fixed clkgenb_set_div function
 22/mar/10 fabrice.charpentier@st.com
@@ -1114,7 +1116,7 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 	unsigned long reset = 0;	/* Each bit set to 1 will be RESETTED */
 	unsigned long reg;
 	unsigned long val;
-	static const char shift_table[] = {0, 2, 4, 6, 8, 10};
+	static const char shift_table[] = {0, 2, 4, 6, 8, 10, 12};
 	/* *div_p = 0, 1, 2, 3, 4, 5, 6, 7, 8 */
 	static const char div_table[] = { -1, 0, 1, -1, 2, -1, -1, -1, 3};
 

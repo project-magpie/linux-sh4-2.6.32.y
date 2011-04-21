@@ -10,7 +10,7 @@
  *****************************************************************************/
 
 /* LLA version: YYYYMMDD */
-#define LLA_VERSION 20100520
+#define LLA_VERSION 20110406
 
 enum {
 	/* Top level clocks */

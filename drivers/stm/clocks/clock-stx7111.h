@@ -10,7 +10,7 @@
  *****************************************************************************/
 
 /* LLA version: YYYYMMDD */
-#define LLA_VERSION 20100520
+#define LLA_VERSION 20110406
 
 enum {
     /* Top level clocks */
@@ -64,6 +64,7 @@ enum {
     CLKB_DISP_ID,
     CLKB_PIX_SD,
     CLKB_DVP,
+    CLKB_PIX_FROM_DVP, /* Possible source of CLKB_DVP */
     CLKB_PP,
     CLKB_LPC,
     CLKB_DSS,

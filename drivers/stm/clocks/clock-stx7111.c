@@ -10,6 +10,8 @@
  *****************************************************************************/
 
 /* ----- Modification history (most recent first)----
+06/apr/11 fabrice.charpentier@st.com
+	  Re-added CLKB_PIX_FROM_DVP possible source of CLKB_DVP.
 19/may/10 francesco.virlinzi@st.com/fabrice.charpentier@st.com
 	  Added several divisor factor on 656_1, DISP_HD. PIX_SD, etc
 25/mar/10 francesco.virlinzi@st.com
@@ -217,6 +219,7 @@ _CLK_P(CLKB_DISP_ID,   &clkgenb, 0,
 			CLK_RATE_PROPAGATES, &clk_clocks[CLKB_FS1_CH1]),
 _CLK(CLKB_PIX_SD,       &clkgenb, 0, 0),
 _CLK(CLKB_DVP,          &clkgenb, 0, 0),
+_CLK(CLKB_PIX_FROM_DVP, &clkgenb, 0, 0),
 
 _CLK_P(CLKB_DSS,       &clkgenb, 0, 0, &clk_clocks[CLKB_FS0_CH2]),
 _CLK_P(CLKB_DAA,       &clkgenb, 0, 0, &clk_clocks[CLKB_FS0_CH3]),
@@ -1001,13 +1004,17 @@ static int clkgenb_set_parent(clk_t *clk_p, clk_t *parent_p)
 		break;
 	case CLKB_DVP:
 		if ((parent_p->id != CLKB_FS0_CH1)
-		    && (parent_p->id != CLKB_FS1_CH1))
+		    && (parent_p->id != CLKB_FS1_CH1)
+		    && (parent_p->id != CLKB_PIX_FROM_DVP))
 			return CLK_ERR_BAD_PARAMETER;
 		if (parent_p->id == CLKB_FS0_CH1) {
 			set = 1 << 3;
 			reset = 1 << 2;
-		} else /* parent @ CLKB_FS1_CH1 */
+		} else if (parent_p->id == CLKB_FS1_CH1)
 			set = 0x3 << 2;
+		else
+			reset = 1 << 3;
+
 		reg = CKGB_BASE_ADDRESS + CKGB_FS_SELECT;
 		break;
 

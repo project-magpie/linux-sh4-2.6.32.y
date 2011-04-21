@@ -158,6 +158,7 @@ static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
 static struct fixed_phy_status stmmac0_fixed_phy_status = {
 	.link = 1,
 	.speed = 100,
+	.duplex = 1,
 };
 
 static struct platform_device *mb903_devices[] __initdata = {

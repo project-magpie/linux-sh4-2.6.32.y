@@ -2833,7 +2833,6 @@ static ssize_t write_debugfs_file(struct file *file, const char __user *buf,
 	} else
 		return -EINVAL;
 
-	*ppos += count;
 	return count;
 }
 

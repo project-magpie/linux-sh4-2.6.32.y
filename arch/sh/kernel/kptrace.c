@@ -938,7 +938,7 @@ static int user_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
 
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "U %.8x %.8x %.8x %.8x %.8x",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "U %.8x 0x%.8x 0x%.8x 0x%.8x 0x%.8x",
 		 (int)regs->pc, (int)regs->regs[4], (int)regs->regs[5],
 		 (int)regs->regs[6], (int)regs->regs[7]);
 	write_trace_record(p, regs, tbuf);
@@ -1025,7 +1025,7 @@ static int irq_exit_rp_handler(struct kretprobe_instance *ri,
 static int kthread_create_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "KC %.8x\n",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "KC 0x%.8x\n",
 		 (unsigned int)regs->regs[4]);
 	write_trace_record(p, regs, tbuf);
 	return 0;
@@ -1054,7 +1054,7 @@ static int daemonize_pre_handler(struct kprobe *p, struct pt_regs *regs)
 static int kernel_thread_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "KT %.8x\n",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "KT 0x%.8x\n",
 		 (unsigned int)regs->regs[4]);
 	write_trace_record(p, regs, tbuf);
 	return 0;
@@ -1089,7 +1089,7 @@ static int syscall_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
 
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %.8x %.8x %.8x %.8x",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x 0x%.8x 0x%.8x 0x%.8x 0x%.8x",
 		 (unsigned)regs->pc, (unsigned)regs->regs[4],
 		 (unsigned)regs->regs[5], (unsigned)regs->regs[6],
 		 (unsigned)regs->regs[7]);
@@ -1113,7 +1113,7 @@ static int syscall_prctl_pre_handler(struct kprobe *p, struct pt_regs *regs)
 		snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %s",
 			 (int)regs->pc, (unsigned)regs->regs[4], static_buf);
 	} else {
-		snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %.8x %.8x %.8x",
+		snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d 0x%.8x 0x%.8x 0x%.8x",
 			 (int)regs->pc, (unsigned)regs->regs[4],
 			 (unsigned)regs->regs[5], (unsigned)regs->regs[6],
 			 (unsigned)regs->regs[7]);
@@ -1126,7 +1126,7 @@ static int syscall_prctl_pre_handler(struct kprobe *p, struct pt_regs *regs)
 static int syscall_ihhh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %.8x %.8x %.8x",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d 0x%.8x 0x%.8x 0x%.8x",
 		 (int)regs->pc, (unsigned)regs->regs[4],
 		 (unsigned)regs->regs[5], (unsigned)regs->regs[6],
 		 (unsigned)regs->regs[7]);
@@ -1138,7 +1138,7 @@ static int syscall_ihhh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 static int syscall_ihih_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %.8x %d %.8x",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d 0x%.8x %d 0x%.8x",
 		 (int)regs->pc, (int)regs->regs[4], (unsigned)regs->regs[5],
 		 (int)regs->regs[6], (unsigned)regs->regs[7]);
 	write_trace_record(p, regs, tbuf);
@@ -1149,7 +1149,7 @@ static int syscall_ihih_pre_handler(struct kprobe *p, struct pt_regs *regs)
 static int syscall_iihh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %d %.8x %.8x",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %d %d 0x%.8x 0x%.8x",
 		 (int)regs->pc, (int)regs->regs[4], (int)regs->regs[5],
 		 (unsigned)regs->regs[6], (unsigned)regs->regs[7]);
 	write_trace_record(p, regs, tbuf);
@@ -1160,7 +1160,7 @@ static int syscall_iihh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 static int syscall_hiih_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %.8x %d %d %.8x",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x 0x%.8x %d %d 0x%.8x",
 		 (int)regs->pc, (unsigned)regs->regs[4], (int)regs->regs[5],
 		 (int)regs->regs[6], (unsigned)regs->regs[7]);
 	write_trace_record(p, regs, tbuf);
@@ -1171,7 +1171,7 @@ static int syscall_hiih_pre_handler(struct kprobe *p, struct pt_regs *regs)
 static int syscall_hihh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x %.8x %d %.8x %.8x",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "E %.8x 0x%.8x %d 0x%.8x 0x%.8x",
 		 (int)regs->pc, (unsigned)regs->regs[4], (int)regs->regs[5],
 		 (unsigned)regs->regs[6], (unsigned)regs->regs[7]);
 	write_trace_record(p, regs, tbuf);
@@ -1195,14 +1195,14 @@ static int syscall_shhh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 			 "<copy_from_user failed>");
 
 	len =
-	    snprintf(static_buf, KPTRACE_SMALL_BUF, "E %.8x %s %.8x %.8x %.8x",
+	    snprintf(static_buf, KPTRACE_SMALL_BUF, "E %.8x %s 0x%.8x 0x%.8x 0x%.8x",
 		     (int)regs->pc, filename, (unsigned)regs->regs[5],
 		     (unsigned)regs->regs[6], (unsigned)regs->regs[7]);
 	if (len < KPTRACE_SMALL_BUF) {
 		write_trace_record(p, regs, static_buf);
 	} else {
 		dyn_buf = kzalloc(len + 1, GFP_KERNEL);
-		snprintf(dyn_buf, len, "E %.8x %s %.8x %.8x %.8x",
+		snprintf(dyn_buf, len, "E %.8x %s 0x%.8x 0x%.8x 0x%.8x",
 			 (int)regs->pc, filename, (unsigned)regs->regs[5],
 			 (unsigned)regs->regs[6], (unsigned)regs->regs[7]);
 		write_trace_record(p, regs, dyn_buf);
@@ -1225,7 +1225,7 @@ static int syscall_sihh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 		snprintf(filename, KPTRACE_SMALL_BUF,
 			 "<copy_from_user failed>");
 
-	len = snprintf(static_buf, KPTRACE_SMALL_BUF, "E %.8x %s %d %.8x %.8x",
+	len = snprintf(static_buf, KPTRACE_SMALL_BUF, "E %.8x %s %d 0x%.8x 0x%.8x",
 		       (int)regs->pc, filename, (int)regs->regs[5],
 		       (unsigned)regs->regs[6], (unsigned)regs->regs[7]);
 
@@ -1233,7 +1233,7 @@ static int syscall_sihh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 		write_trace_record_no_callstack(static_buf);
 	} else {
 		dyn_buf = kzalloc(len + 1, GFP_KERNEL);
-		snprintf(dyn_buf, len, "E %.8x %s %d %.8x %.8x",
+		snprintf(dyn_buf, len, "E %.8x %s %d 0x%.8x 0x%.8x",
 			 (int)regs->pc, filename, (int)regs->regs[5],
 			 (unsigned)regs->regs[6], (unsigned)regs->regs[7]);
 		write_trace_record_no_callstack(dyn_buf);
@@ -1248,7 +1248,7 @@ static int hash_futex_handler(struct kprobe *p, struct pt_regs *regs)
 	char tbuf[KPTRACE_SMALL_BUF];
 	union futex_key *key = (union futex_key *)regs->regs[4];
 
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "HF %.8lx %p %.8x",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "HF 0x%.8lx %p 0x%.8x",
 		 key->both.word, key->both.ptr, key->both.offset);
 
 	write_trace_record(p, regs, tbuf);
@@ -1487,7 +1487,7 @@ static int sock_sendmsg_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
 
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "SS 0%.8x %d",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "SS 0x%.8x %d",
 		 (unsigned int)regs->regs[4], (int)regs->regs[6]);
 	write_trace_record(p, regs, tbuf);
 	return 0;
@@ -1507,7 +1507,7 @@ static int sock_recvmsg_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
 
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "SR 0%.8x %d %d",
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "SR 0x%.8x %d %d",
 		 (unsigned int)regs->regs[4], (int)regs->regs[6],
 		 (int)regs->regs[7]);
 	write_trace_record(p, regs, tbuf);

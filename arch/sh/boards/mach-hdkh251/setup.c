@@ -123,29 +123,10 @@ static int hdkh251_phy_reset(void *bus)
 	return 1;
 }
 
-static struct plat_stmmacphy_data hdkh251_phy_private_data = {
+static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
-	.phy_addr = -1,
+	.phy_reset = hdkh251_phy_reset,
 	.phy_mask = 0,
-	.interface = PHY_INTERFACE_MODE_MII,
-	.phy_reset = &hdkh251_phy_reset,
-};
-
-static struct platform_device hdkh251_phy_device = {
-	.name	= "stmmacphy",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= (struct resource[]) {
-		{
-			.name	= "phyirq",
-			.start	= -1, /* FIXME, should be ILC_EXT_IRQ(6) */
-			.end	= -1,
-			.flags	= IORESOURCE_IRQ,
-		},
-	},
-	.dev = {
-		.platform_data = &hdkh251_phy_private_data,
-	}
 };
 
 static struct mtd_partition hdkh251_physmap_flash_partitions[] = {
@@ -236,7 +217,6 @@ static struct platform_device hdkh251_spi_gpio_device = {
 static struct platform_device *hdkh251_devices[] __initdata = {
 	&hdkh251_leds,
 	&hdkh251_physmap_flash,
-	&hdkh251_phy_device,
 	&hdkh251_front_panel,
 	&hdkh251_spi_gpio_device,
 };
@@ -432,7 +412,10 @@ static int __init hdkh251_device_init(void)
 	stx7105_configure_ethernet(0, &(struct stx7105_ethernet_config) {
 			.mode = stx7105_ethernet_mode_mii,
 			.ext_clk = 0,
-			.phy_bus = 0, });
+			.phy_bus = 0,
+			.phy_addr = -1,
+			.mdio_bus_data = &stmmac_mdio_bus,
+		});
 
 	/* RemoteControl configure */
 	stx7105_configure_lirc(&(struct stx7105_lirc_config) {

@@ -1435,7 +1435,7 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 
 	static const unsigned char div_table[] = {
 		/* 1  2     3  4     5     6     7  8 */
-		   0, 1, 0xff, 2, 0xff, 0xff, 0xff, 4 };
+		   0, 1, 0xff, 2, 0xff, 0xff, 0xff, 3 };
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;

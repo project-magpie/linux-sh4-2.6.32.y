@@ -50,7 +50,7 @@ static struct platform_device fli7510_nand_flex_device = {
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(35), -1),
 	},
 	.dev.platform_data = &(struct stm_plat_nand_flex_data) {
-		/* values set in stx7105_configure_nand_flex() */
+		/* values set in fli7510_configure_nand_flex() */
 	},
 };
 
@@ -659,7 +659,72 @@ static int fli7510_pio_config(unsigned gpio,
 	return 0;
 }
 
+/* MMC/SD resources ------------------------------------------------------ */
 
+static struct stm_pad_config fli7510_mmc_pad_config = {
+	.gpios_num = 15,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_OUT_NAMED(23, 2, 1, "MMCCLK"),/* MMC clock */
+		STM_PAD_PIO_OUT(23, 3, 1),	/* MMC command */
+		STM_PAD_PIO_IN(23, 4, -1),	/* Card Detect */
+		STM_PAD_PIO_IN(23, 5, -1),	/* Over Current */
+		STM_PAD_PIO_IN(23, 6, -1),	/* MMC Write Protection */
+		STM_PAD_PIO_OUT(23, 7, 1),	/* PWR*/
+		STM_PAD_PIO_OUT(27, 0, 1),	/* LED*/
+		STM_PAD_PIO_BIDIR(24, 0, 1),	/* MMC/SD Data 0*/
+		STM_PAD_PIO_BIDIR(24, 1, 1),	/* MMC/SD Data 1*/
+		STM_PAD_PIO_BIDIR(24, 2, 1),	/* MMC/SD Data 2*/
+		STM_PAD_PIO_BIDIR(24, 3, 1),	/* MMC/SD Data 3*/
+		STM_PAD_PIO_BIDIR(24, 4, 1),	/* MMC Data 4*/
+		STM_PAD_PIO_BIDIR(24, 5, 1),	/* MMC Data 5*/
+		STM_PAD_PIO_BIDIR(24, 6, 1),	/* MMC Data 6*/
+		STM_PAD_PIO_BIDIR(24, 7, 1),	/* MMC Data 7*/
+		STM_PAD_PIO_OUT(20, 5, 1),	/* Open drain mode
+						 * (for external card) */
+	},
+};
+
+static int mmc_pad_resources(struct sdhci_host *sdhci)
+{
+	if (!devm_stm_pad_claim(sdhci->mmc->parent, &fli7510_mmc_pad_config,
+				dev_name(sdhci->mmc->parent)))
+		return -ENODEV;
+
+	return 0;
+}
+
+static struct sdhci_pltfm_data fli7510_mmc_platform_data = {
+		.init = mmc_pad_resources,
+		.quirks = SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC,
+};
+
+static struct platform_device fli7510_mmc_device = {
+		.name = "sdhci",
+		.id = 0,
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xFD9F0000, 0x400),
+			STM_PLAT_RESOURCE_IRQ_NAMED("mmcirq", ILC_IRQ(109), -1),
+		},
+		.dev = {
+			.platform_data = &fli7510_mmc_platform_data,
+		}
+};
+
+void __init fli7510_configure_mmc(void)
+{
+	struct sysconf_field *sc;
+
+	/* Selects the polarity of HSMMC_CARD_DET as input signal inverted*/
+	sc = sysconf_claim(TRS_PU_CFG_0, 0, 2, 2, "mmc");
+	sysconf_write(sc, 1);
+
+	/* Selects the mode for PIO24, bits 17:18 MMC when "1" "0"  */
+	sc = sysconf_claim(TRS_PU_CFG_0, 0, 17, 18, "mmc");
+	sysconf_write(sc, 1);
+
+	platform_device_register(&fli7510_mmc_device);
+}
 
 /* sysconf resources ------------------------------------------------------ */
 

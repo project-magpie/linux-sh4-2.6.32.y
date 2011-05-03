@@ -188,6 +188,8 @@ static int __init fudb_device_init(void)
 
 	fli7510_configure_nand_flex(1, &fudb_nand_flash, 1);
 
+	fli7510_configure_mmc();
+
 	return platform_add_devices(fudb_devices,
 			ARRAY_SIZE(fudb_devices));
 }

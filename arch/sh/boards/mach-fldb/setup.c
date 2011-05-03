@@ -199,6 +199,12 @@ static int __init fldb_device_init(void)
 
 	fli7510_configure_lirc();
 
+	/*
+	 * To use the MMC/SD card with the external
+	 * CNG6 connector, the CNG4 has to be connected to CNG3.
+	 */
+	fli7510_configure_mmc();
+
 	return platform_add_devices(fldb_devices,
 			ARRAY_SIZE(fldb_devices));
 }

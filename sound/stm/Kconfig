@@ -81,7 +81,7 @@ config SND_STM_STX7100
 		called snd-stm-stx7100.ko
 
 config SND_STM_STX7105
-	tristate "STx7105 support"
+	tristate "STx7105 and STx7106 support"
 	depends on SND_STM
 	default y if CPU_SUBTYPE_STX7105
 	select SND_STM_PCM_PLAYER
@@ -90,7 +90,7 @@ config SND_STM_STX7105
 	select SND_STM_CONV_DAC_MEMORY_MAPPED
 	select SND_STM_CONV_I2S_TO_SPDIF
 	help
-		Select this to get ALSA driver for STx7105 chip.
+		Select this to get ALSA driver for STx7105 and STx7106 chips.
 
 		If you compile this driver as a module, it will be
 		called snd-stm-stx7105.ko

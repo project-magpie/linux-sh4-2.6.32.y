@@ -1,5 +1,5 @@
 /*
- *   STMicrolectronics STx7105 audio glue driver
+ *   STMicrolectronics STx7105 ans STx7106 audio glue driver
  *
  *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
@@ -125,8 +125,7 @@ error_alloc:
 
 static int __exit snd_stm_stx7105_glue_remove(struct platform_device *pdev)
 {
-	struct snd_stm_stx7105_glue *stx7105_glue =
-			platform_get_drvdata(pdev);
+	struct snd_stm_stx7105_glue *stx7105_glue = platform_get_drvdata(pdev);
 
 	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
@@ -166,9 +165,9 @@ static int __init snd_stm_stx7105_init(void)
 
 	snd_stm_printd(0, "%s()\n", __func__);
 
-	if (cpu_data->type != CPU_STX7105) {
-		snd_stm_printe("Not supported (other than STx7105) SOC "
-				"detected!\n");
+	if (cpu_data->type != CPU_STX7105 && cpu_data->type != CPU_STX7106) {
+		snd_stm_printe("Not supported (other than STx7105 or STx7106)"
+				" SOC detected!\n");
 		result = -EINVAL;
 		goto error_soc_type;
 	}
@@ -202,7 +201,7 @@ static void __exit snd_stm_stx7105_exit(void)
 }
 
 MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");
-MODULE_DESCRIPTION("STMicroelectronics STx7105 audio driver");
+MODULE_DESCRIPTION("STMicroelectronics STx7105 and STx7106 audio driver");
 MODULE_LICENSE("GPL");
 
 module_init(snd_stm_stx7105_init);

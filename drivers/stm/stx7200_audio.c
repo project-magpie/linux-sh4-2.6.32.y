@@ -439,9 +439,6 @@ static int __init stx7200_audio_devices_setup(void)
 
 	switch (cpu_data->cut_major) {
 	case 1:
-		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_0, 3);
-		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_1, 3);
-
 		SET_VER(snd_stm_pcm_player_info, stx7200_pcm_player_0, 5);
 		SET_VER(snd_stm_pcm_player_info, stx7200_pcm_player_1, 5);
 		SET_VER(snd_stm_pcm_player_info, stx7200_pcm_player_2, 5);
@@ -464,9 +461,6 @@ static int __init stx7200_audio_devices_setup(void)
 		break;
 
 	case 2 ... 3:
-		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_0, 4);
-		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_1, 4);
-
 		SET_VER(snd_stm_pcm_player_info, stx7200_pcm_player_0, 6);
 		SET_VER(snd_stm_pcm_player_info, stx7200_pcm_player_1, 6);
 		SET_VER(snd_stm_pcm_player_info, stx7200_pcm_player_2, 6);

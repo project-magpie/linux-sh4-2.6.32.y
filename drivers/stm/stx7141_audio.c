@@ -43,7 +43,6 @@ static struct platform_device stx7141_conv_dac_mem = {
 		STM_PLAT_RESOURCE_MEM(0xfe210100, 0x4),
 	},
 	.dev.platform_data = &(struct snd_stm_conv_dac_mem_info) {
-		.ver = 4,
 		.source_bus_id = "snd_pcm_player.1",
 		.channel_from = 0,
 		.channel_to = 1,

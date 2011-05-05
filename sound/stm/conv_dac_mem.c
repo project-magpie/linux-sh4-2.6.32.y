@@ -78,7 +78,6 @@ struct snd_stm_conv_dac_mem {
 	/* System informations */
 	struct snd_stm_conv_converter *converter;
 	const char *bus_id;
-	int ver; /* IP version, used by register access macros */
 
 	/* Resources */
 	struct resource *mem_region;
@@ -265,8 +264,6 @@ static int snd_stm_conv_dac_mem_probe(struct platform_device *pdev)
 		goto error_alloc;
 	}
 	snd_stm_magic_set(conv_dac_mem);
-	conv_dac_mem->ver = conv_dac_mem_info->ver;
-	BUG_ON(conv_dac_mem->ver <= 0);
 	conv_dac_mem->bus_id = dev_name(&pdev->dev);
 
 	/* Get resources */

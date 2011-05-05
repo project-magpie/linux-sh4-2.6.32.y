@@ -191,7 +191,6 @@ static int __init stx7100_audio_devices_setup(void)
 			stx7100_pcm_player_0_info.ver = 2;
 			stx7100_pcm_player_1_info.ver = 2;
 		}
-		stx7100_conv_dac_mem_info.ver = 1;
 		stx7100_spdif_player_info.ver = 1;
 		stx7100_conv_i2sspdif_info.ver = 1;
 
@@ -215,7 +214,6 @@ static int __init stx7100_audio_devices_setup(void)
 			stx7100_pcm_player_0_info.ver = 4;
 			stx7100_pcm_player_1_info.ver = 4;
 		}
-		stx7100_conv_dac_mem_info.ver = 2;
 		stx7100_spdif_player_info.ver = 2;
 		stx7100_conv_i2sspdif_info.ver = 2;
 

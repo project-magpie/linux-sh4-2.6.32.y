@@ -192,8 +192,6 @@ struct snd_stm_conv_dummy_info {
  */
 
 struct snd_stm_conv_dac_mem_info {
-	int ver;
-
 	const char *source_bus_id;
 	int channel_from, channel_to;
 };

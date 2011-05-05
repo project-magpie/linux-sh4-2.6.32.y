@@ -1759,7 +1759,7 @@ static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 {
 	unsigned long val;
 	/* Digital standby bits table.
-	   Warning: enum order: CLKC_FS0_CH1 ... CLKC_FS0_CH3 */
+	   Warning: enum order: CLKC_FS0_CH1 ... CLKC_FS0_CH4 */
 	static const unsigned long dig_bit[] = {10, 11, 12, 13};
 	static const unsigned long en_bit[] = {6, 7, 8, 9};
 
@@ -1771,7 +1771,7 @@ static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 	val = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_CFG(0));
 
 	/* Powering down/up digital part */
-	if (clk_p->id >= CLKC_FS0_CH1 && clk_p->id <= CLKC_FS0_CH3) {
+	if (clk_p->id >= CLKC_FS0_CH1 && clk_p->id <= CLKC_FS0_CH4) {
 		if (enable) {
 			val |= (1 << dig_bit[clk_p->id - CLKC_FS0_CH1]);
 			val |= (1 << en_bit[clk_p->id - CLKC_FS0_CH1]);

@@ -67,8 +67,6 @@ MODULE_PARM_DESC(id, "ID string for STx7111 audio subsystem card.");
 #define CLKREC_SEL__PCMPL1	(2 << CLKREC_SEL)
 
 struct snd_stm_stx7111_glue {
-	int ver;
-
 	struct resource *mem_region;
 	void *base;
 
@@ -95,50 +93,6 @@ static void snd_stm_stx7111_glue_dump_registers(struct snd_info_entry *entry,
 	snd_iprintf(buffer, "\n");
 }
 
-static int __init snd_stm_stx7111_glue_register(struct snd_device *snd_device)
-{
-	struct snd_stm_stx7111_glue *stx7111_glue = snd_device->device_data;
-
-	if (snd_BUG_ON(!stx7111_glue))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(stx7111_glue)))
-		return -EINVAL;
-
-	/* Enable audio outputs */
-	writel(PCMPLHDMI_EN__OUTPUT | SPDIFHDMI_EN__OUTPUT |
-			PCM_CLK_EN__OUTPUT, IO_CTRL(stx7111_glue->base));
-
-	/* Additional procfs info */
-	snd_stm_info_register(&stx7111_glue->proc_entry, "stx7111_glue",
-			snd_stm_stx7111_glue_dump_registers, stx7111_glue);
-
-	return 0;
-}
-
-static int __exit snd_stm_stx7111_glue_disconnect(struct snd_device *snd_device)
-{
-	struct snd_stm_stx7111_glue *stx7111_glue = snd_device->device_data;
-
-	if (snd_BUG_ON(!stx7111_glue))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(stx7111_glue)))
-		return -EINVAL;
-
-	/* Remove procfs entry */
-	snd_stm_info_unregister(stx7111_glue->proc_entry);
-
-	/* Disable audio outputs */
-	writel(PCMPLHDMI_EN__INPUT | SPDIFHDMI_EN__INPUT |
-			PCM_CLK_EN__INPUT, IO_CTRL(stx7111_glue->base));
-
-	return 0;
-}
-
-static struct snd_device_ops snd_stm_stx7111_glue_snd_device_ops = {
-	.dev_register = snd_stm_stx7111_glue_register,
-	.dev_disconnect = snd_stm_stx7111_glue_disconnect,
-};
-
 static int __init snd_stm_stx7111_glue_probe(struct platform_device *pdev)
 {
 	int result = 0;
@@ -162,16 +116,13 @@ static int __init snd_stm_stx7111_glue_probe(struct platform_device *pdev)
 		goto error_memory_request;
 	}
 
-	/* ALSA component */
+	/* Enable audio outputs */
+	writel(PCMPLHDMI_EN__OUTPUT | SPDIFHDMI_EN__OUTPUT |
+			PCM_CLK_EN__OUTPUT, IO_CTRL(stx7111_glue->base));
 
-	result = snd_device_new(snd_stm_card_get(), SNDRV_DEV_LOWLEVEL,
-			stx7111_glue, &snd_stm_stx7111_glue_snd_device_ops);
-	if (result < 0) {
-		snd_stm_printe("ALSA low level device creation failed!\n");
-		goto error_device;
-	}
-
-	/* Done now */
+	/* Additional procfs info */
+	snd_stm_info_register(&stx7111_glue->proc_entry, "stx7111_glue",
+			snd_stm_stx7111_glue_dump_registers, stx7111_glue);
 
 	platform_set_drvdata(pdev, stx7111_glue);
 
@@ -179,8 +130,6 @@ static int __init snd_stm_stx7111_glue_probe(struct platform_device *pdev)
 
 	return result;
 
-error_device:
-	snd_stm_memory_release(stx7111_glue->mem_region, stx7111_glue->base);
 error_memory_request:
 	snd_stm_magic_clear(stx7111_glue);
 	kfree(stx7111_glue);
@@ -190,13 +139,19 @@ error_alloc:
 
 static int __exit snd_stm_stx7111_glue_remove(struct platform_device *pdev)
 {
-	struct snd_stm_stx7111_glue *stx7111_glue =
-			platform_get_drvdata(pdev);
+	struct snd_stm_stx7111_glue *stx7111_glue = platform_get_drvdata(pdev);
 
 	if (snd_BUG_ON(!stx7111_glue))
 		return -EINVAL;
 	if (snd_BUG_ON(!snd_stm_magic_valid(stx7111_glue)))
 		return -EINVAL;
+
+	/* Remove procfs entry */
+	snd_stm_info_unregister(stx7111_glue->proc_entry);
+
+	/* Disable audio outputs */
+	writel(PCMPLHDMI_EN__INPUT | SPDIFHDMI_EN__INPUT |
+			PCM_CLK_EN__INPUT, IO_CTRL(stx7111_glue->base));
 
 	snd_stm_memory_release(stx7111_glue->mem_region, stx7111_glue->base);
 
@@ -207,9 +162,7 @@ static int __exit snd_stm_stx7111_glue_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver snd_stm_stx7111_glue_driver = {
-	.driver = {
-		.name = "snd_stx7111_glue",
-	},
+	.driver.name = "snd_stx7111_glue",
 	.probe = snd_stm_stx7111_glue_probe,
 	.remove = snd_stm_stx7111_glue_remove,
 };

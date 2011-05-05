@@ -1,5 +1,5 @@
 /*
- *   STMicrolectronics STx7200 SoC audio gluedriver
+ *   STMicrolectronics STx7200 SoC audio glue driver
  *
  *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
@@ -82,8 +82,6 @@ MODULE_PARM_DESC(id, "PCM Reader #1 control (not valid for STx7200 cut 1).");
 #define RECOVERY_CTRL(base)	((base) + 0x08)
 
 struct snd_stm_stx7200_glue {
-	int ver;
-
 	struct resource *mem_region;
 	void *base;
 
@@ -116,15 +114,29 @@ static void snd_stm_stx7200_glue_dump_registers(struct snd_info_entry *entry,
 	snd_iprintf(buffer, "\n");
 }
 
-static int __init snd_stm_stx7200_glue_register(struct snd_device *snd_device)
+static int __init snd_stm_stx7200_glue_probe(struct platform_device *pdev)
 {
-	struct snd_stm_stx7200_glue *stx7200_glue = snd_device->device_data;
+	int result = 0;
+	struct snd_stm_stx7200_glue *stx7200_glue;
 	unsigned long value;
 
-	if (snd_BUG_ON(!stx7200_glue))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(stx7200_glue)))
-		return -EINVAL;
+	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
+
+	stx7200_glue = kzalloc(sizeof(*stx7200_glue), GFP_KERNEL);
+	if (!stx7200_glue) {
+		snd_stm_printe("Can't allocate memory "
+				"for a device description!\n");
+		result = -ENOMEM;
+		goto error_alloc;
+	}
+	snd_stm_magic_set(stx7200_glue);
+
+	result = snd_stm_memory_request(pdev, &stx7200_glue->mem_region,
+			&stx7200_glue->base);
+	if (result < 0) {
+		snd_stm_printe("Memory region request failed!\n");
+		goto error_memory_request;
+	}
 
 	/* Enable audio outputs */
 	value = SPDIF_EN__ENABLE | DATA2_EN__OUTPUT | DATA1_EN__OUTPUT |
@@ -140,12 +152,22 @@ static int __init snd_stm_stx7200_glue_register(struct snd_device *snd_device)
 	snd_stm_info_register(&stx7200_glue->proc_entry, "stx7200_glue",
 			snd_stm_stx7200_glue_dump_registers, stx7200_glue);
 
-	return 0;
+	platform_set_drvdata(pdev, stx7200_glue);
+
+	snd_stm_printd(0, "--- Probed successfully!\n");
+
+	return result;
+
+error_memory_request:
+	snd_stm_magic_clear(stx7200_glue);
+	kfree(stx7200_glue);
+error_alloc:
+	return result;
 }
 
-static int __exit snd_stm_stx7200_glue_disconnect(struct snd_device *snd_device)
+static int __exit snd_stm_stx7200_glue_remove(struct platform_device *pdev)
 {
-	struct snd_stm_stx7200_glue *stx7200_glue = snd_device->device_data;
+	struct snd_stm_stx7200_glue *stx7200_glue = platform_get_drvdata(pdev);
 	unsigned long value;
 
 	if (snd_BUG_ON(!stx7200_glue))
@@ -154,7 +176,6 @@ static int __exit snd_stm_stx7200_glue_disconnect(struct snd_device *snd_device)
 		return -EINVAL;
 
 	/* Remove procfs entry */
-
 	snd_stm_info_unregister(stx7200_glue->proc_entry);
 
 	/* Disable audio outputs */
@@ -167,74 +188,6 @@ static int __exit snd_stm_stx7200_glue_disconnect(struct snd_device *snd_device)
 
 	writel(value, IOMUX_CTRL(stx7200_glue->base));
 
-	return 0;
-}
-
-static struct snd_device_ops snd_stm_stx7200_glue_snd_device_ops = {
-	.dev_register = snd_stm_stx7200_glue_register,
-	.dev_disconnect = snd_stm_stx7200_glue_disconnect,
-};
-
-static int __init snd_stm_stx7200_glue_probe(struct platform_device *pdev)
-{
-	int result = 0;
-	struct snd_stm_stx7200_glue *stx7200_glue;
-
-	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
-
-	stx7200_glue = kzalloc(sizeof(*stx7200_glue), GFP_KERNEL);
-	if (!stx7200_glue) {
-		snd_stm_printe("Can't allocate memory "
-				"for a device description!\n");
-		result = -ENOMEM;
-		goto error_alloc;
-	}
-	snd_stm_magic_set(stx7200_glue);
-	stx7200_glue->ver = cpu_data->cut_major;
-
-	result = snd_stm_memory_request(pdev, &stx7200_glue->mem_region,
-			&stx7200_glue->base);
-	if (result < 0) {
-		snd_stm_printe("Memory region request failed!\n");
-		goto error_memory_request;
-	}
-
-	/* ALSA component */
-
-	result = snd_device_new(snd_stm_card_get(), SNDRV_DEV_LOWLEVEL,
-			stx7200_glue, &snd_stm_stx7200_glue_snd_device_ops);
-	if (result < 0) {
-		snd_stm_printe("ALSA low level device creation failed!\n");
-		goto error_device;
-	}
-
-	/* Done now */
-
-	platform_set_drvdata(pdev, stx7200_glue);
-
-	snd_stm_printd(0, "--- Probed successfully!\n");
-
-	return result;
-
-error_device:
-	snd_stm_memory_release(stx7200_glue->mem_region, stx7200_glue->base);
-error_memory_request:
-	snd_stm_magic_clear(stx7200_glue);
-	kfree(stx7200_glue);
-error_alloc:
-	return result;
-}
-
-static int __exit snd_stm_stx7200_glue_remove(struct platform_device *pdev)
-{
-	struct snd_stm_stx7200_glue *stx7200_glue =
-			platform_get_drvdata(pdev);
-
-	if (snd_BUG_ON(!stx7200_glue))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(stx7200_glue)))
-		return -EINVAL;
-
 	snd_stm_memory_release(stx7200_glue->mem_region, stx7200_glue->base);
 
 	snd_stm_magic_clear(stx7200_glue);
@@ -244,9 +197,7 @@ static int __exit snd_stm_stx7200_glue_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver snd_stm_stx7200_glue_driver = {
-	.driver = {
-		.name = "snd_stx7200_glue",
-	},
+	.driver.name = "snd_stx7200_glue",
 	.probe = snd_stm_stx7200_glue_probe,
 	.remove = snd_stm_stx7200_glue_remove,
 };

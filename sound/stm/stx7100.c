@@ -65,8 +65,6 @@ MODULE_PARM_DESC(id, "ID string for STx7100/STx7109 audio subsystem card.");
 #define SPDIF_EN__ENABLE	(1 << SPDIN_EN)
 
 struct snd_stm_stx7100_glue {
-	int ver;
-
 	struct resource *mem_region;
 	void *base;
 
@@ -93,51 +91,6 @@ static void snd_stm_stx7100_glue_dump_registers(struct snd_info_entry *entry,
 	snd_iprintf(buffer, "\n");
 }
 
-static int __init snd_stm_stx7100_glue_register(struct snd_device *snd_device)
-{
-	struct snd_stm_stx7100_glue *stx7100_glue = snd_device->device_data;
-
-	if (snd_BUG_ON(!stx7100_glue))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(stx7100_glue)))
-		return -EINVAL;
-
-	/* Enable audio outputs */
-	writel(SPDIF_EN__ENABLE | DATA1_EN__OUTPUT | DATA0_EN__OUTPUT |
-			PCM_CLK_EN__OUTPUT, IO_CTRL(stx7100_glue->base));
-
-	/* Additional procfs info */
-	snd_stm_info_register(&stx7100_glue->proc_entry, "stx7100_glue",
-			snd_stm_stx7100_glue_dump_registers, stx7100_glue);
-
-	return 0;
-}
-
-static int __exit snd_stm_stx7100_glue_disconnect(struct snd_device *snd_device)
-{
-	struct snd_stm_stx7100_glue *stx7100_glue = snd_device->device_data;
-
-	if (snd_BUG_ON(!stx7100_glue))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(stx7100_glue)))
-		return -EINVAL;
-
-	/* Remove procfs entry */
-
-	snd_stm_info_unregister(stx7100_glue->proc_entry);
-
-	/* Disable audio outputs */
-	writel(SPDIF_EN__DISABLE | DATA1_EN__INPUT | DATA0_EN__INPUT |
-			PCM_CLK_EN__INPUT, IO_CTRL(stx7100_glue->base));
-
-	return 0;
-}
-
-static struct snd_device_ops snd_stm_stx7100_glue_snd_device_ops = {
-	.dev_register = snd_stm_stx7100_glue_register,
-	.dev_disconnect = snd_stm_stx7100_glue_disconnect,
-};
-
 static int __init snd_stm_stx7100_glue_probe(struct platform_device *pdev)
 {
 	int result = 0;
@@ -161,16 +114,13 @@ static int __init snd_stm_stx7100_glue_probe(struct platform_device *pdev)
 		goto error_memory_request;
 	}
 
-	/* ALSA component */
+	/* Enable audio outputs */
+	writel(SPDIF_EN__ENABLE | DATA1_EN__OUTPUT | DATA0_EN__OUTPUT |
+			PCM_CLK_EN__OUTPUT, IO_CTRL(stx7100_glue->base));
 
-	result = snd_device_new(snd_stm_card_get(), SNDRV_DEV_LOWLEVEL,
-			stx7100_glue, &snd_stm_stx7100_glue_snd_device_ops);
-	if (result < 0) {
-		snd_stm_printe("ALSA low level device creation failed!\n");
-		goto error_device;
-	}
-
-	/* Done now */
+	/* Additional procfs info */
+	snd_stm_info_register(&stx7100_glue->proc_entry, "stx7100_glue",
+			snd_stm_stx7100_glue_dump_registers, stx7100_glue);
 
 	platform_set_drvdata(pdev, stx7100_glue);
 
@@ -178,8 +128,6 @@ static int __init snd_stm_stx7100_glue_probe(struct platform_device *pdev)
 
 	return result;
 
-error_device:
-	snd_stm_memory_release(stx7100_glue->mem_region, stx7100_glue->base);
 error_memory_request:
 	snd_stm_magic_clear(stx7100_glue);
 	kfree(stx7100_glue);
@@ -197,6 +145,13 @@ static int __exit snd_stm_stx7100_glue_remove(struct platform_device *pdev)
 	if (snd_BUG_ON(!snd_stm_magic_valid(stx7100_glue)))
 		return -EINVAL;
 
+	/* Remove procfs entry */
+	snd_stm_info_unregister(stx7100_glue->proc_entry);
+
+	/* Disable audio outputs */
+	writel(SPDIF_EN__DISABLE | DATA1_EN__INPUT | DATA0_EN__INPUT |
+			PCM_CLK_EN__INPUT, IO_CTRL(stx7100_glue->base));
+
 	snd_stm_memory_release(stx7100_glue->mem_region, stx7100_glue->base);
 
 	snd_stm_magic_clear(stx7100_glue);
@@ -206,9 +161,7 @@ static int __exit snd_stm_stx7100_glue_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver snd_stm_stx7100_glue_driver = {
-	.driver = {
-		.name = "snd_stx7100_glue",
-	},
+	.driver.name = "snd_stx7100_glue",
 	.probe = snd_stm_stx7100_glue_probe,
 	.remove = snd_stm_stx7100_glue_remove,
 };

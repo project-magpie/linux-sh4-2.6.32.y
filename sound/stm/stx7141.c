@@ -72,8 +72,6 @@ MODULE_PARM_DESC(id, "ID string for STx7141 audio subsystem card.");
 #define PCMR1_LRCLK_SEL__FROM_PCM_PLAYER_0	(1 << PCMR1_LRCLK_SEL)
 
 struct snd_stm_stx7141_glue {
-	int ver;
-
 	struct resource *mem_region;
 	void *base;
 
@@ -124,11 +122,8 @@ static int __init snd_stm_stx7141_glue_probe(struct platform_device *pdev)
 	}
 
 	/* Additional procfs info */
-
 	snd_stm_info_register(&stx7141_glue->proc_entry, "stx7141_glue",
 			snd_stm_stx7141_glue_dump_registers, stx7141_glue);
-
-	/* Done now */
 
 	platform_set_drvdata(pdev, stx7141_glue);
 
@@ -145,14 +140,14 @@ error_alloc:
 
 static int __exit snd_stm_stx7141_glue_remove(struct platform_device *pdev)
 {
-	struct snd_stm_stx7141_glue *stx7141_glue =
-			platform_get_drvdata(pdev);
+	struct snd_stm_stx7141_glue *stx7141_glue = platform_get_drvdata(pdev);
 
 	if (snd_BUG_ON(!stx7141_glue))
 		return -EINVAL;
 	if (snd_BUG_ON(!snd_stm_magic_valid(stx7141_glue)))
 		return -EINVAL;
 
+	/* Remove procfs entry */
 	snd_stm_info_unregister(stx7141_glue->proc_entry);
 
 	snd_stm_memory_release(stx7141_glue->mem_region, stx7141_glue->base);
@@ -164,9 +159,7 @@ static int __exit snd_stm_stx7141_glue_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver snd_stm_stx7141_glue_driver = {
-	.driver = {
-		.name = "snd_stx7141_glue",
-	},
+	.driver.name = "snd_stx7141_glue",
 	.probe = snd_stm_stx7141_glue_probe,
 	.remove = snd_stm_stx7141_glue_remove,
 };

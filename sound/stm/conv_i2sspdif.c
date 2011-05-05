@@ -30,9 +30,13 @@
 #include <sound/info.h>
 #include <sound/stm.h>
 
-#define COMPONENT conv_i2sspdif
 #include "common.h"
 #include "reg_aud_spdifpc.h"
+
+
+
+static int snd_stm_debug_level;
+module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 
 
 
@@ -474,15 +478,11 @@ static int snd_stm_conv_i2sspdif_register(struct snd_device *snd_device)
 	struct snd_stm_conv_i2sspdif *conv_i2sspdif = snd_device->device_data;
 	int i;
 
-	snd_stm_printd(1, "snd_stm_conv_i2sspdif_register(snd_device=0x%p)\n",
-			snd_device);
+	snd_stm_printd(1, "%s(snd_device=0x%p)\n", __func__, snd_device);
 
 	BUG_ON(!conv_i2sspdif);
 	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
 	BUG_ON(conv_i2sspdif->enabled);
-
-	snd_stm_printd(0, "--- Registering I2S to SPDIF converter '%s'...\n",
-			dev_name(conv_i2sspdif->device));
 
 	/* Initialize converter's input & SPDIF player as disabled */
 
@@ -521,8 +521,6 @@ static int snd_stm_conv_i2sspdif_register(struct snd_device *snd_device)
 		}
 	}
 
-	snd_stm_printd(0, "--- Registered successfully!\n");
-
 	return 0;
 }
 
@@ -530,8 +528,7 @@ static int snd_stm_conv_i2sspdif_disconnect(struct snd_device *snd_device)
 {
 	struct snd_stm_conv_i2sspdif *conv_i2sspdif = snd_device->device_data;
 
-	snd_stm_printd(1, "snd_stm_conv_i2sspdif_disconnect(snd_device=0x%p)\n",
-			snd_device);
+	snd_stm_printd(1, "%s(snd_device=0x%p)\n", __func__, snd_device);
 
 	BUG_ON(!conv_i2sspdif);
 	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
@@ -573,7 +570,7 @@ static int snd_stm_conv_i2sspdif_probe(struct platform_device *pdev)
 			pdev->dev.platform_data;
 	struct snd_stm_conv_i2sspdif *conv_i2sspdif;
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
+	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
 	BUG_ON(!conv_i2sspdif_info);
 
@@ -631,8 +628,6 @@ static int snd_stm_conv_i2sspdif_probe(struct platform_device *pdev)
 	/* Done now */
 
 	platform_set_drvdata(pdev, conv_i2sspdif);
-
-	snd_stm_printd(0, "--- Probed successfully!\n");
 
 	return result;
 

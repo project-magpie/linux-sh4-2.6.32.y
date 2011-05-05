@@ -37,9 +37,13 @@
 #include <sound/info.h>
 #include <sound/pcm_params.h>
 
-#define COMPONENT pcm_player
 #include "common.h"
 #include "reg_aud_pcmout.h"
+
+
+
+static int snd_stm_debug_level;
+module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 
 
 
@@ -200,7 +204,7 @@ static int snd_stm_pcm_player_open(struct snd_pcm_substream *substream)
 				dev_name(pcm_player->device),
 				snd_stm_conv_get_name(pcm_player->conv_group));
 	else
-		snd_stm_printd(1, "Warning! No converter attached to '%s'!\n",
+		snd_stm_printd(1, "No converter attached to '%s'!\n",
 				dev_name(pcm_player->device));
 
 	/* Set up constraints & pass hardware capabilities info to ALSA */
@@ -836,21 +840,17 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 {
 	struct snd_stm_pcm_player *pcm_player = snd_device->device_data;
 
-	snd_stm_printd(1, "snd_stm_pcm_player_register(snd_device=0x%p)\n",
-			snd_device);
+	snd_stm_printd(1, "%s(snd_device=0x%p)\n", __func__, snd_device);
 
 	BUG_ON(!pcm_player);
 	BUG_ON(!snd_stm_magic_valid(pcm_player));
-
-	snd_stm_printd(0, "--- Registering player '%s'...\n",
-			dev_name(pcm_player->device));
 
 	/* Set reset mode */
 
 	set__AUD_PCMOUT_RST__SRSTP__RESET(pcm_player);
 
 	/* TODO: well, hardcoded - shall anyone use it?
-	 * And what it actually means? */
+	 * And what does it actually mean? */
 
 	if (pcm_player->ver > ver__AUD_PCMOUT__65_1_3)
 		set__AUD_PCMOUT_FMT__BACK_STALLING__DISABLED(pcm_player);
@@ -876,8 +876,6 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 			dev_name(pcm_player->device),
 			snd_stm_pcm_player_dump_registers, pcm_player);
 
-	snd_stm_printd(0, "--- Registered successfully!\n");
-
 	return 0;
 }
 
@@ -885,8 +883,7 @@ static int __exit snd_stm_pcm_player_disconnect(struct snd_device *snd_device)
 {
 	struct snd_stm_pcm_player *pcm_player = snd_device->device_data;
 
-	snd_stm_printd(1, "snd_stm_pcm_player_disconnect(snd_device=0x%p)\n",
-			snd_device);
+	snd_stm_printd(1, "%s(snd_device=0x%p)\n", __func__, snd_device);
 
 	BUG_ON(!pcm_player);
 	BUG_ON(!snd_stm_magic_valid(pcm_player));
@@ -916,9 +913,7 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 	struct snd_card *card = snd_stm_card_get();
 	int i;
 
-	snd_stm_printd(1, "snd_stm_pcm_player_probe(pdev=%p)\n", pdev);
-
-	snd_stm_printd(0, "Probing device '%s'...\n", dev_name(&pdev->dev));
+	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
 	BUG_ON(!card);
 

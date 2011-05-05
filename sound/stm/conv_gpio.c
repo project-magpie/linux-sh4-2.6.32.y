@@ -1,7 +1,7 @@
 /*
  *   STMicroelectronics System-on-Chips' GPIO-controlled ADC/DAC driver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -32,8 +32,12 @@
 #include <sound/info.h>
 #include <sound/stm.h>
 
-#define COMPONENT conv_gpio
 #include "common.h"
+
+
+
+static int snd_stm_debug_level;
+module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 
 
 
@@ -231,7 +235,7 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 	int result = 0;
 	struct snd_stm_conv_gpio *conv_gpio;
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
+	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
 	BUG_ON(!pdev->dev.platform_data);
 
@@ -327,8 +331,6 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, conv_gpio);
 
-	snd_stm_printd(0, "--- Probed successfully!\n");
-
 	return 0;
 
 error_gpio_direction_output_mute:
@@ -354,7 +356,6 @@ static int snd_stm_conv_gpio_remove(struct platform_device *pdev)
 	BUG_ON(!conv_gpio);
 	BUG_ON(!snd_stm_magic_valid(conv_gpio));
 
-	snd_device_free(snd_stm_card_get(), conv_gpio);
 	snd_stm_conv_unregister_converter(conv_gpio->converter);
 
 	/* Remove procfs entry */
@@ -387,9 +388,7 @@ static int snd_stm_conv_gpio_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver snd_stm_conv_gpio_driver = {
-	.driver = {
-		.name = "snd_conv_gpio",
-	},
+	.driver.name = "snd_conv_gpio",
 	.probe = snd_stm_conv_gpio_probe,
 	.remove = snd_stm_conv_gpio_remove,
 };

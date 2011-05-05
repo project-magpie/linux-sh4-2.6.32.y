@@ -26,8 +26,12 @@
 #include <linux/io.h>
 #include <sound/core.h>
 
-#define COMPONENT stx7100
 #include "common.h"
+
+
+
+static int snd_stm_debug_level;
+module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 
 
 
@@ -79,7 +83,7 @@ static int __init snd_stm_stx7100_glue_probe(struct platform_device *pdev)
 	int result = 0;
 	struct snd_stm_stx7100_glue *stx7100_glue;
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
+	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
 	stx7100_glue = kzalloc(sizeof(*stx7100_glue), GFP_KERNEL);
 	if (!stx7100_glue) {
@@ -107,8 +111,6 @@ static int __init snd_stm_stx7100_glue_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, stx7100_glue);
 
-	snd_stm_printd(0, "--- Probed successfully!\n");
-
 	return result;
 
 error_memory_request:
@@ -122,6 +124,8 @@ static int __exit snd_stm_stx7100_glue_remove(struct platform_device *pdev)
 {
 	struct snd_stm_stx7100_glue *stx7100_glue =
 			platform_get_drvdata(pdev);
+
+	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
 	BUG_ON(!stx7100_glue);
 	BUG_ON(!snd_stm_magic_valid(stx7100_glue));
@@ -157,7 +161,7 @@ static int __init snd_stm_stx7100_init(void)
 {
 	int result;
 
-	snd_stm_printd(0, "snd_stm_stx7100_init()\n");
+	snd_stm_printd(0, "%s()\n", __func__);
 
 	if (cpu_data->type != CPU_STX7100 && cpu_data->type != CPU_STX7109) {
 		snd_stm_printe("Not supported (other than STx7100 or STx7109)"
@@ -189,7 +193,7 @@ error_soc_type:
 
 static void __exit snd_stm_stx7100_exit(void)
 {
-	snd_stm_printd(0, "snd_stm_stx7100_exit()\n");
+	snd_stm_printd(0, "%s()\n", __func__);
 
 	platform_driver_unregister(&snd_stm_stx7100_glue_driver);
 }

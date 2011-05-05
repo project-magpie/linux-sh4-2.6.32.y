@@ -19,7 +19,7 @@
 
 
 /*
-* ALSA card management
+ * ALSA card management
  */
 
 int snd_stm_card_register(void);
@@ -162,51 +162,16 @@ int snd_stm_fdma_request(struct platform_device *pdev, int *channel);
 void snd_stm_hex_dump(void *data, int size);
 void snd_stm_iec958_dump(const struct snd_aes_iec958 *vuc);
 
-/* Component name */
-
-#if !defined(COMPONENT)
-#error Please define COMPONENT name before including "common.h" !
-#endif
-static const char __maybe_unused*__snd_stm_component = __stringify(COMPONENT);
-
 /* Debug messages */
 
 #if defined(CONFIG_SND_DEBUG) || defined(DEBUG)
 
-#define ___concat(a, b) a##b
-#define __concat(a, b) ___concat(a, b)
-
-#if defined(DEBUG)
-static int __concat(debug_, COMPONENT) = DEBUG;
-#else
-static int __concat(debug_, COMPONENT) = -1;
-#endif
-module_param(__concat(debug_, COMPONENT), int, S_IRUGO | S_IWUSR);
-
-#if defined(CONFIG_SND_STM_DEBUG_LEVEL)
-extern int *snd_stm_debug_level;
-#define verbosity max(*snd_stm_debug_level, __concat(debug_, COMPONENT))
-#else
-#define verbosity __concat(debug_, COMPONENT)
-#endif
-
-#if defined(CONFIG_SND_VERBOSE_PRINTK)
-
 #define snd_stm_printd(level, format, args...) \
 		do { \
-			if (level <= verbosity) \
-				snd_printk(KERN_INFO format, ## args); \
+			if (level <= snd_stm_debug_level) \
+				printk(KERN_DEBUG "%s:%d: " format, \
+						__FILE__, __LINE__, ##args); \
 		} while (0)
-#else
-
-#define snd_stm_printd(level, format, args...) \
-		do { \
-			if (level <= verbosity) \
-				printk(KERN_INFO "snd-stm:%s:%d: " format, \
-						__snd_stm_component, \
-						__LINE__, ## args); \
-		} while (0)
-#endif
 
 #else
 
@@ -216,25 +181,24 @@ extern int *snd_stm_debug_level;
 
 /* Error messages */
 
-#if defined(CONFIG_SND_VERBOSE_PRINTK)
 #define snd_stm_printe(format, args...) \
-		snd_printk(KERN_ERR format, ## args)
-#else
-#define snd_stm_printe(format, args...) \
-		printk(KERN_ERR "snd-stm:%s:%d: " format, \
-				__snd_stm_component, __LINE__, ## args)
-#endif
+		printk(KERN_ERR "%s:%d: " format, __FILE__, __LINE__, ##args)
 
 /* Magic value checking in device structures */
 
 #if defined(CONFIG_SND_DEBUG) || defined(DEBUG)
 
-#define snd_stm_magic \
-		(((unsigned)(&__snd_stm_component) & 0xffff0000) >> 16 ^ \
-		((unsigned)(&__snd_stm_component) & 0xffff))
-#define snd_stm_magic_good (0x600d0000 | snd_stm_magic)
-#define snd_stm_magic_bad (0xbaad0000 | snd_stm_magic)
-#define snd_stm_magic_field unsigned __snd_stm_magic
+#ifndef snd_stm_magic
+#define snd_stm_magic 0xf00d
+#endif
+
+enum snd_stm_magic_enum {
+	snd_stm_magic_good = 0x600d0000 | snd_stm_magic,
+	snd_stm_magic_bad = 0xbaad0000 | snd_stm_magic,
+};
+
+#define snd_stm_magic_field \
+		enum snd_stm_magic_enum __snd_stm_magic
 #define snd_stm_magic_set(object) \
 		((object)->__snd_stm_magic) = snd_stm_magic_good
 #define snd_stm_magic_clear(object) \
@@ -244,10 +208,10 @@ extern int *snd_stm_debug_level;
 
 #else
 
-#	define snd_stm_magic_field /* nothing */
-#	define snd_stm_magic_set(object) /* nothing */
-#	define snd_stm_magic_clear(object) /* nothing */
-#	define snd_stm_magic_valid(object) 1
+#define snd_stm_magic_field
+#define snd_stm_magic_set(object)
+#define snd_stm_magic_clear(object)
+#define snd_stm_magic_valid(object) 1
 
 #endif
 

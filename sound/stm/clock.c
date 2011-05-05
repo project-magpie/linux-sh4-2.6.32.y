@@ -29,6 +29,7 @@
 #include "common.h"
 
 
+extern int snd_stm_debug_level;
 
 #define to_snd_stm_clk(clk) \
 		container_of(clk, struct snd_stm_clk, clk)

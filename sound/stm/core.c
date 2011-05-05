@@ -33,18 +33,12 @@
 #include <sound/pcm_params.h>
 #include <sound/asoundef.h>
 
-#define COMPONENT common
 #include "common.h"
 
 
-/* General debug level */
-#if defined(CONFIG_SND_STM_DEBUG_LEVEL)
-static int debug = CONFIG_SND_STM_DEBUG_LEVEL;
-module_param(debug, int, S_IRUGO | S_IWUSR);
-int *snd_stm_debug_level = &debug;
-EXPORT_SYMBOL(snd_stm_debug_level);
-#endif
 
+int snd_stm_debug_level;
+module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 
 static int snd_stm_card_index = -1; /* First available index */
 module_param_named(index, snd_stm_card_index, int, 0444);
@@ -471,9 +465,9 @@ static int snd_stm_buffer_mmap_fault(struct vm_area_struct *area,
 }
 
 static struct vm_operations_struct snd_stm_buffer_mmap_vm_ops = {
-	.open =   snd_pcm_mmap_data_open,
-	.close =  snd_pcm_mmap_data_close,
-	.fault =  snd_stm_buffer_mmap_fault,
+	.open  = snd_pcm_mmap_data_open,
+	.close = snd_pcm_mmap_data_close,
+	.fault = snd_stm_buffer_mmap_fault,
 };
 
 int snd_stm_buffer_mmap(struct snd_pcm_substream *substream,

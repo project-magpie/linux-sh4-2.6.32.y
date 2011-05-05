@@ -26,8 +26,11 @@
 #include <linux/device.h>
 #include <sound/control.h>
 
-#define COMPONENT conv
 #include "common.h"
+
+
+
+extern int snd_stm_debug_level;
 
 
 

@@ -1,7 +1,7 @@
 /*
  *   STMicroelectronics System-on-Chips' I2C-controlled ADC/DAC driver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -31,8 +31,12 @@
 #include <sound/info.h>
 #include <sound/stm.h>
 
-#define COMPONENT conv_i2c
 #include "common.h"
+
+
+
+static int snd_stm_debug_level;
+module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 
 
 
@@ -201,14 +205,13 @@ static int snd_stm_conv_i2c_set_muted(int muted, void *priv)
  * I2C driver routines
  */
 
-int snd_stm_conv_i2c_probe(struct i2c_client *client,
+static int snd_stm_conv_i2c_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
 {
 	int result = 0;
 	struct snd_stm_conv_i2c *conv_i2c;
 
-	snd_stm_printd(0, "--- Probing I2C device '%s'...\n",
-			dev_name(&client->dev));
+	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&client->dev));
 
 	BUG_ON(!client->dev.platform_data);
 
@@ -294,8 +297,6 @@ int snd_stm_conv_i2c_probe(struct i2c_client *client,
 
 	i2c_set_clientdata(client, conv_i2c);
 
-	snd_stm_printd(0, "--- Probed successfully!\n");
-
 	return 0;
 
 error_set_muted:
@@ -316,7 +317,6 @@ static int snd_stm_conv_i2c_remove(struct i2c_client *client)
 	BUG_ON(!conv_i2c);
 	BUG_ON(!snd_stm_magic_valid(conv_i2c));
 
-	snd_device_free(snd_stm_card_get(), conv_i2c);
 	snd_stm_conv_unregister_converter(conv_i2c->converter);
 
 	/* Wait for the possibly scheduled work... */
@@ -339,9 +339,7 @@ static int snd_stm_conv_i2c_remove(struct i2c_client *client)
 }
 
 static struct i2c_driver snd_stm_conv_i2c_driver = {
-	.driver = {
-		.name = "snd_conv_i2c",
-	},
+	.driver.name = "snd_conv_i2c",
 	.probe = snd_stm_conv_i2c_probe,
 	.remove = snd_stm_conv_i2c_remove,
 };

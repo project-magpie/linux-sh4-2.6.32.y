@@ -31,8 +31,12 @@
 #include <sound/info.h>
 #include <sound/stm.h>
 
-#define COMPONENT conv_dac_mem
 #include "common.h"
+
+
+
+static int snd_stm_debug_level;
+module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 
 
 
@@ -251,7 +255,7 @@ static int snd_stm_conv_dac_mem_probe(struct platform_device *pdev)
 	struct snd_stm_conv_dac_mem *conv_dac_mem;
 	struct snd_card *card = snd_stm_card_get();
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
+	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
 	BUG_ON(!card);
 	BUG_ON(!conv_dac_mem_info);
@@ -303,8 +307,6 @@ static int snd_stm_conv_dac_mem_probe(struct platform_device *pdev)
 	/* Done now */
 
 	platform_set_drvdata(pdev, conv_dac_mem);
-
-	snd_stm_printd(0, "--- Probed successfully!\n");
 
 	return 0;
 

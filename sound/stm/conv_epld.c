@@ -1,7 +1,7 @@
 /*
  *   STMicroelectronics System-on-Chips' EPLD-controlled ADC/DAC driver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -28,8 +28,12 @@
 #include <sound/info.h>
 #include <sound/stm.h>
 
-#define COMPONENT conv_epld
 #include "common.h"
+
+
+
+static int snd_stm_debug_level;
+module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 
 
 
@@ -183,7 +187,7 @@ static int snd_stm_conv_epld_probe(struct platform_device *pdev)
 	int result = 0;
 	struct snd_stm_conv_epld *conv_epld;
 
-	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
+	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
 	BUG_ON(!pdev->dev.platform_data);
 
@@ -244,8 +248,6 @@ static int snd_stm_conv_epld_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, conv_epld);
 
-	snd_stm_printd(0, "--- Probed successfully!\n");
-
 	return 0;
 
 error_attach:
@@ -262,7 +264,6 @@ static int snd_stm_conv_epld_remove(struct platform_device *pdev)
 	BUG_ON(!conv_epld);
 	BUG_ON(!snd_stm_magic_valid(conv_epld));
 
-	snd_device_free(snd_stm_card_get(), conv_epld);
 	snd_stm_conv_unregister_converter(conv_epld->converter);
 
 	/* Remove procfs entry */
@@ -288,9 +289,7 @@ static int snd_stm_conv_epld_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver snd_stm_conv_epld_driver = {
-	.driver = {
-		.name = "snd_conv_epld",
-	},
+	.driver.name = "snd_conv_epld",
 	.probe = snd_stm_conv_epld_probe,
 	.remove = snd_stm_conv_epld_remove,
 };

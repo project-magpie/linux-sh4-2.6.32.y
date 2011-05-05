@@ -35,9 +35,13 @@
 #include <sound/info.h>
 #include <sound/pcm_params.h>
 
-#define COMPONENT pcm_reader
 #include "common.h"
 #include "reg_aud_pcmin.h"
+
+
+
+static int snd_stm_debug_level;
+module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 
 
 
@@ -218,7 +222,7 @@ static int snd_stm_pcm_reader_open(struct snd_pcm_substream *substream)
 				dev_name(pcm_reader->device),
 				snd_stm_conv_get_name(pcm_reader->conv_group));
 	else
-		snd_stm_printd(1, "Warning! No converter attached to '%s'!\n",
+		snd_stm_printd(1, "No converter attached to '%s'!\n",
 				dev_name(pcm_reader->device));
 
 	/* Set up constraints & pass hardware capabilities info to ALSA */
@@ -763,21 +767,17 @@ static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 {
 	struct snd_stm_pcm_reader *pcm_reader = snd_device->device_data;
 
-	snd_stm_printd(1, "snd_stm_pcm_reader_register(snd_device=0x%p)\n",
-			snd_device);
+	snd_stm_printd(1, "%s(snd_device=0x%p)\n", __func__, snd_device);
 
 	BUG_ON(!pcm_reader);
 	BUG_ON(!snd_stm_magic_valid(pcm_reader));
-
-	snd_stm_printd(0, "--- Registering reader '%s'...\n",
-			dev_name(pcm_reader->device));
 
 	/* Set reset mode */
 
 	set__AUD_PCMIN_RST__RSTP__RESET(pcm_reader);
 
 	/* TODO: well, hardcoded - shall anyone use it?
-	 * And what it actually means? */
+	 * And what does it actually mean? */
 
 	set__AUD_PCMIN_CTRL__RND__NO_ROUNDING(pcm_reader);
 
@@ -787,8 +787,6 @@ static int snd_stm_pcm_reader_register(struct snd_device *snd_device)
 			dev_name(pcm_reader->device),
 			snd_stm_pcm_reader_dump_registers, pcm_reader);
 
-	snd_stm_printd(0, "--- Registered successfully!\n");
-
 	return 0;
 }
 
@@ -796,8 +794,7 @@ static int snd_stm_pcm_reader_disconnect(struct snd_device *snd_device)
 {
 	struct snd_stm_pcm_reader *pcm_reader = snd_device->device_data;
 
-	snd_stm_printd(1, "snd_stm_pcm_reader_disconnect(snd_device=0x%p)\n",
-			snd_device);
+	snd_stm_printd(1, "%s(snd_device=0x%p)\n", __func__, snd_device);
 
 	BUG_ON(!pcm_reader);
 	BUG_ON(!snd_stm_magic_valid(pcm_reader));
@@ -825,9 +822,7 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 	struct snd_card *card = snd_stm_card_get();
 	int i;
 
-	snd_stm_printd(1, "snd_stm_pcm_reader_probe(pdev=%p)\n", pdev);
-
-	snd_stm_printd(0, "Probing device '%s'...\n", dev_name(&pdev->dev));
+	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
 	BUG_ON(!card);
 

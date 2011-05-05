@@ -37,9 +37,13 @@
 #include <sound/info.h>
 #include <sound/asoundef.h>
 
-#define COMPONENT spdif_player
 #include "common.h"
 #include "reg_aud_spdif.h"
+
+
+
+static int snd_stm_debug_level;
+module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 
 
 
@@ -269,7 +273,7 @@ static int snd_stm_spdif_player_open(struct snd_pcm_substream *substream)
 				snd_stm_conv_get_name(
 				spdif_player->conv_group));
 	else
-		snd_stm_printd(1, "Warning! No converter attached to '%s'!\n",
+		snd_stm_printd(1, "No converter attached to '%s'!\n",
 				dev_name(spdif_player->device));
 
 	/* Get default data */
@@ -1411,14 +1415,10 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 	struct snd_stm_spdif_player *spdif_player = snd_device->device_data;
 	int i;
 
-	snd_stm_printd(1, "snd_stm_spdif_player_register(snd_device=0x%p)\n",
-			snd_device);
+	snd_stm_printd(1, "%s(snd_device=0x%p)\n", __func__, snd_device);
 
 	BUG_ON(!spdif_player);
 	BUG_ON(!snd_stm_magic_valid(spdif_player));
-
-	snd_stm_printd(0, "--- Registering player '%s'...\n",
-			dev_name(spdif_player->device));
 
 	/* Initialize hardware (format etc.) */
 
@@ -1469,8 +1469,6 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 		snd_stm_spdif_player_ctls[i].index++;
 	}
 
-	snd_stm_printd(0, "--- Registered successfully!\n");
-
 	return 0;
 }
 
@@ -1478,8 +1476,7 @@ static int snd_stm_spdif_player_disconnect(struct snd_device *snd_device)
 {
 	struct snd_stm_spdif_player *spdif_player = snd_device->device_data;
 
-	snd_stm_printd(1, "snd_stm_spdif_player_disconnect(snd_device=0x%p)\n",
-			snd_device);
+	snd_stm_printd(1, "%s(snd_device=0x%p)\n", __func__, snd_device);
 
 	BUG_ON(!spdif_player);
 	BUG_ON(!snd_stm_magic_valid(spdif_player));
@@ -1509,9 +1506,7 @@ static int snd_stm_spdif_player_probe(struct platform_device *pdev)
 	struct snd_card *card = snd_stm_card_get();
 	int buffer_bytes_max;
 
-	snd_stm_printd(1, "snd_stm_spdif_player_probe(pdev=%p)\n", pdev);
-
-	snd_stm_printd(0, "Probing device '%s'...\n", dev_name(&pdev->dev));
+	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
 	BUG_ON(!card);
 

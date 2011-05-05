@@ -2,30 +2,6 @@
 #define __SND_STM_AUD_PCMOUT_H
 
 /*
- * IP versions
- */
-
-/* 7100 2.0 */
-#define ver__AUD_PCMOUT__90_1_1 1
-
-/* 7100 3.0 */
-#define ver__AUD_PCMOUT__90_1_3 2
-
-/* 7109 2.0 */
-#define ver__AUD_PCMOUT__90_2_0 3
-
-/* 7109 3.0 */
-#define ver__AUD_PCMOUT__90_2_1 4
-
-/* 7200 1.0 */
-#define ver__AUD_PCMOUT__65_1_3 5
-
-/* 7111, 7200 2.0 */
-#define ver__AUD_PCMOUT__65_2_2 6
-
-
-
-/*
  * AUD_PCMOUT_RST
  */
 
@@ -698,7 +674,7 @@
 
 #define shift__AUD_PCMOUT_FMT__DATA_SIZE(ip) 1
 #define mask__AUD_PCMOUT_FMT__DATA_SIZE(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 0x3 : 0x7)
+	6 ? 0x3 : 0x7)
 #define get__AUD_PCMOUT_FMT__DATA_SIZE(ip) ((readl(ip->base + \
 	offset__AUD_PCMOUT_FMT(ip)) >> shift__AUD_PCMOUT_FMT__DATA_SIZE(ip)) & \
 	mask__AUD_PCMOUT_FMT__DATA_SIZE(ip))
@@ -711,7 +687,7 @@
 	offset__AUD_PCMOUT_FMT(ip))
 
 #define value__AUD_PCMOUT_FMT__DATA_SIZE__16_BITS(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 0x3 : 0x0)
+	6 ? 0x3 : 0x0)
 #define mask__AUD_PCMOUT_FMT__DATA_SIZE__16_BITS(ip) \
 	(value__AUD_PCMOUT_FMT__DATA_SIZE__16_BITS(ip) << \
 	shift__AUD_PCMOUT_FMT__DATA_SIZE(ip))
@@ -720,7 +696,7 @@
 	value__AUD_PCMOUT_FMT__DATA_SIZE__16_BITS(ip))
 
 #define value__AUD_PCMOUT_FMT__DATA_SIZE__18_BITS(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 0x2 : 0x1)
+	6 ? 0x2 : 0x1)
 #define mask__AUD_PCMOUT_FMT__DATA_SIZE__18_BITS(ip) \
 	(value__AUD_PCMOUT_FMT__DATA_SIZE__18_BITS(ip) << \
 	shift__AUD_PCMOUT_FMT__DATA_SIZE(ip))
@@ -729,7 +705,7 @@
 	value__AUD_PCMOUT_FMT__DATA_SIZE__18_BITS(ip))
 
 #define value__AUD_PCMOUT_FMT__DATA_SIZE__20_BITS(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 0x1 : 0x2)
+	6 ? 0x1 : 0x2)
 #define mask__AUD_PCMOUT_FMT__DATA_SIZE__20_BITS(ip) \
 	(value__AUD_PCMOUT_FMT__DATA_SIZE__20_BITS(ip) << \
 	shift__AUD_PCMOUT_FMT__DATA_SIZE(ip))
@@ -738,7 +714,7 @@
 	value__AUD_PCMOUT_FMT__DATA_SIZE__20_BITS(ip))
 
 #define value__AUD_PCMOUT_FMT__DATA_SIZE__24_BITS(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 0x0 : 0x3)
+	6 ? 0x0 : 0x3)
 #define mask__AUD_PCMOUT_FMT__DATA_SIZE__24_BITS(ip) \
 	(value__AUD_PCMOUT_FMT__DATA_SIZE__24_BITS(ip) << \
 	shift__AUD_PCMOUT_FMT__DATA_SIZE(ip))
@@ -747,7 +723,7 @@
 	value__AUD_PCMOUT_FMT__DATA_SIZE__24_BITS(ip))
 
 #define value__AUD_PCMOUT_FMT__DATA_SIZE__28_BITS(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? -1 : 0x4)
+	6 ? -1 : 0x4)
 #define mask__AUD_PCMOUT_FMT__DATA_SIZE__28_BITS(ip) \
 	(value__AUD_PCMOUT_FMT__DATA_SIZE__28_BITS(ip) << \
 	shift__AUD_PCMOUT_FMT__DATA_SIZE(ip))
@@ -756,7 +732,7 @@
 	value__AUD_PCMOUT_FMT__DATA_SIZE__28_BITS(ip))
 
 #define value__AUD_PCMOUT_FMT__DATA_SIZE__32_BITS(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? -1 : 0x5)
+	6 ? -1 : 0x5)
 #define mask__AUD_PCMOUT_FMT__DATA_SIZE__32_BITS(ip) \
 	(value__AUD_PCMOUT_FMT__DATA_SIZE__32_BITS(ip) << \
 	shift__AUD_PCMOUT_FMT__DATA_SIZE(ip))
@@ -767,7 +743,7 @@
 /* LR_POL */
 
 #define shift__AUD_PCMOUT_FMT__LR_POL(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 3 : 4)
+	6 ? 3 : 4)
 #define mask__AUD_PCMOUT_FMT__LR_POL(ip) 0x1
 #define get__AUD_PCMOUT_FMT__LR_POL(ip) ((readl(ip->base + \
 	offset__AUD_PCMOUT_FMT(ip)) >> shift__AUD_PCMOUT_FMT__LR_POL(ip)) & \
@@ -798,7 +774,7 @@
 /* SCLK_EDGE */
 
 #define shift__AUD_PCMOUT_FMT__SCLK_EDGE(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 4 : 5)
+	6 ? 4 : 5)
 #define mask__AUD_PCMOUT_FMT__SCLK_EDGE(ip) 0x1
 #define get__AUD_PCMOUT_FMT__SCLK_EDGE(ip) ((readl(ip->base + \
 	offset__AUD_PCMOUT_FMT(ip)) >> shift__AUD_PCMOUT_FMT__SCLK_EDGE(ip)) & \
@@ -812,7 +788,7 @@
 	offset__AUD_PCMOUT_FMT(ip))
 
 #define value__AUD_PCMOUT_FMT__SCLK_EDGE__RISING(ip) (ip->ver < \
-	ver__AUD_PCMOUT__90_2_1 ? 0x1 : 0x0)
+	4 ? 0x1 : 0x0)
 #define mask__AUD_PCMOUT_FMT__SCLK_EDGE__RISING(ip) \
 	(value__AUD_PCMOUT_FMT__SCLK_EDGE__RISING(ip) << \
 	shift__AUD_PCMOUT_FMT__SCLK_EDGE(ip))
@@ -821,7 +797,7 @@
 	value__AUD_PCMOUT_FMT__SCLK_EDGE__RISING(ip))
 
 #define value__AUD_PCMOUT_FMT__SCLK_EDGE__FALLING(ip) (ip->ver < \
-	ver__AUD_PCMOUT__90_2_1 ? 0x0 : 0x1)
+	4 ? 0x0 : 0x1)
 #define mask__AUD_PCMOUT_FMT__SCLK_EDGE__FALLING(ip) \
 	(value__AUD_PCMOUT_FMT__SCLK_EDGE__FALLING(ip) << \
 	shift__AUD_PCMOUT_FMT__SCLK_EDGE(ip))
@@ -832,7 +808,7 @@
 /* PADDING */
 
 #define shift__AUD_PCMOUT_FMT__PADDING(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 5 : 6)
+	6 ? 5 : 6)
 #define mask__AUD_PCMOUT_FMT__PADDING(ip) 0x1
 #define get__AUD_PCMOUT_FMT__PADDING(ip) ((readl(ip->base + \
 	offset__AUD_PCMOUT_FMT(ip)) >> shift__AUD_PCMOUT_FMT__PADDING(ip)) & \
@@ -863,7 +839,7 @@
 /* ALIGN */
 
 #define shift__AUD_PCMOUT_FMT__ALIGN(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 6 : 7)
+	6 ? 6 : 7)
 #define mask__AUD_PCMOUT_FMT__ALIGN(ip) 0x1
 #define get__AUD_PCMOUT_FMT__ALIGN(ip) ((readl(ip->base + \
 	offset__AUD_PCMOUT_FMT(ip)) >> shift__AUD_PCMOUT_FMT__ALIGN(ip)) & \
@@ -892,7 +868,7 @@
 /* ORDER */
 
 #define shift__AUD_PCMOUT_FMT__ORDER(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 7 : 8)
+	6 ? 7 : 8)
 #define mask__AUD_PCMOUT_FMT__ORDER(ip) 0x1
 #define get__AUD_PCMOUT_FMT__ORDER(ip) ((readl(ip->base + \
 	offset__AUD_PCMOUT_FMT(ip)) >> shift__AUD_PCMOUT_FMT__ORDER(ip)) & \
@@ -922,7 +898,7 @@
 /* NUM_CH */
 
 #define shift__AUD_PCMOUT_FMT__NUM_CH(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 8 : 9)
+	6 ? 8 : 9)
 #define mask__AUD_PCMOUT_FMT__NUM_CH(ip) 0x7
 #define get__AUD_PCMOUT_FMT__NUM_CH(ip) ((readl(ip->base + \
 	offset__AUD_PCMOUT_FMT(ip)) >> shift__AUD_PCMOUT_FMT__NUM_CH(ip)) & \
@@ -935,7 +911,7 @@
 	offset__AUD_PCMOUT_FMT(ip))
 
 #define value__AUD_PCMOUT_FMT__NUM_CH__1_CHANNEL(ip) (ip->ver < \
-	ver__AUD_PCMOUT__90_1_3 ? -1 : 0x1)
+	2 ? -1 : 0x1)
 #define mask__AUD_PCMOUT_FMT__NUM_CH__1_CHANNEL(ip) \
 	(value__AUD_PCMOUT_FMT__NUM_CH__1_CHANNEL(ip) << \
 	shift__AUD_PCMOUT_FMT__NUM_CH(ip))
@@ -944,7 +920,7 @@
 	value__AUD_PCMOUT_FMT__NUM_CH__1_CHANNEL(ip))
 
 #define value__AUD_PCMOUT_FMT__NUM_CH__2_CHANNELS(ip) (ip->ver < \
-	ver__AUD_PCMOUT__90_1_3 ? -1 : 0x2)
+	2 ? -1 : 0x2)
 #define mask__AUD_PCMOUT_FMT__NUM_CH__2_CHANNELS(ip) \
 	(value__AUD_PCMOUT_FMT__NUM_CH__2_CHANNELS(ip) << \
 	shift__AUD_PCMOUT_FMT__NUM_CH(ip))
@@ -953,7 +929,7 @@
 	value__AUD_PCMOUT_FMT__NUM_CH__2_CHANNELS(ip))
 
 #define value__AUD_PCMOUT_FMT__NUM_CH__3_CHANNELS(ip) (ip->ver < \
-	ver__AUD_PCMOUT__90_1_3 ? -1 : 0x3)
+	2 ? -1 : 0x3)
 #define mask__AUD_PCMOUT_FMT__NUM_CH__3_CHANNELS(ip) \
 	(value__AUD_PCMOUT_FMT__NUM_CH__3_CHANNELS(ip) << \
 	shift__AUD_PCMOUT_FMT__NUM_CH(ip))
@@ -962,7 +938,7 @@
 	value__AUD_PCMOUT_FMT__NUM_CH__3_CHANNELS(ip))
 
 #define value__AUD_PCMOUT_FMT__NUM_CH__4_CHANNELS(ip) (ip->ver < \
-	ver__AUD_PCMOUT__90_1_3 ? -1 : 0x4)
+	2 ? -1 : 0x4)
 #define mask__AUD_PCMOUT_FMT__NUM_CH__4_CHANNELS(ip) \
 	(value__AUD_PCMOUT_FMT__NUM_CH__4_CHANNELS(ip) << \
 	shift__AUD_PCMOUT_FMT__NUM_CH(ip))
@@ -971,7 +947,7 @@
 	value__AUD_PCMOUT_FMT__NUM_CH__4_CHANNELS(ip))
 
 #define value__AUD_PCMOUT_FMT__NUM_CH__5_CHANNELS(ip) (ip->ver < \
-	ver__AUD_PCMOUT__90_1_3 ? 0x5 : 0x5)
+	2 ? 0x5 : 0x5)
 #define mask__AUD_PCMOUT_FMT__NUM_CH__5_CHANNELS(ip) \
 	(value__AUD_PCMOUT_FMT__NUM_CH__5_CHANNELS(ip) << \
 	shift__AUD_PCMOUT_FMT__NUM_CH(ip))
@@ -982,9 +958,9 @@
 /* BACK_STALLING */
 
 #define shift__AUD_PCMOUT_FMT__BACK_STALLING(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? -1 : 12)
+	6 ? -1 : 12)
 #define mask__AUD_PCMOUT_FMT__BACK_STALLING(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? -1 : 0x1)
+	6 ? -1 : 0x1)
 #define get__AUD_PCMOUT_FMT__BACK_STALLING(ip) ((readl(ip->base + \
 	offset__AUD_PCMOUT_FMT(ip)) >> \
 	shift__AUD_PCMOUT_FMT__BACK_STALLING(ip)) & \
@@ -998,7 +974,7 @@
 	offset__AUD_PCMOUT_FMT(ip))
 
 #define value__AUD_PCMOUT_FMT__BACK_STALLING__DISABLED(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? -1 : 0x0)
+	6 ? -1 : 0x0)
 #define mask__AUD_PCMOUT_FMT__BACK_STALLING__DISABLED(ip) \
 	(value__AUD_PCMOUT_FMT__BACK_STALLING__DISABLED(ip) << \
 	shift__AUD_PCMOUT_FMT__BACK_STALLING(ip))
@@ -1007,7 +983,7 @@
 	value__AUD_PCMOUT_FMT__BACK_STALLING__DISABLED(ip))
 
 #define value__AUD_PCMOUT_FMT__BACK_STALLING__ENABLED(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? -1 : 0x1)
+	6 ? -1 : 0x1)
 #define mask__AUD_PCMOUT_FMT__BACK_STALLING__ENABLED(ip) \
 	(value__AUD_PCMOUT_FMT__BACK_STALLING__ENABLED(ip) << \
 	shift__AUD_PCMOUT_FMT__BACK_STALLING(ip))
@@ -1018,9 +994,9 @@
 /* DMA_REQ_TRIG_LMT */
 
 #define shift__AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 11 : 13)
+	6 ? 11 : 13)
 #define mask__AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT(ip) (ip->ver < \
-	ver__AUD_PCMOUT__65_2_2 ? 0x1f : 0x7f)
+	6 ? 0x1f : 0x7f)
 #define get__AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT(ip) ((readl(ip->base + \
 	offset__AUD_PCMOUT_FMT(ip)) >> \
 	shift__AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT(ip)) & \

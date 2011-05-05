@@ -375,7 +375,7 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 			transfer_size);
 	BUG_ON(buffer_bytes % transfer_bytes != 0);
 	BUG_ON(transfer_size > pcm_reader->fdma_max_transfer_size);
-	if (pcm_reader->ver > ver__AUD_PCMIN__65_2_0) {
+	if (pcm_reader->ver > 3) {
 		BUG_ON(transfer_size != 1 && transfer_size % 2 == 0);
 		BUG_ON(transfer_size >
 		       mask__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(pcm_reader));
@@ -385,8 +385,7 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 		/* This is a workaround for a problem in early releases
 		 * of multi-channel PCM Readers with FIFO underrunning (!!!),
 		 * caused by spurious request line generation... */
-		if (pcm_reader->ver < ver__AUD_PCMIN__65_3_4 &&
-				transfer_size > 2)
+		if (pcm_reader->ver < 2 && transfer_size > 2)
 			fdma_req_config.count = transfer_size / 2;
 		else
 			fdma_req_config.count = transfer_size;
@@ -572,7 +571,7 @@ static int snd_stm_pcm_reader_prepare(struct snd_pcm_substream *substream)
 	BUG_ON(runtime->channels < 2);
 	BUG_ON(runtime->channels > 10);
 
-	if (pcm_reader->ver > ver__AUD_PCMIN__65_2_0)
+	if (pcm_reader->ver > 3)
 		set__AUD_PCMIN_FMT__NUM_CH(pcm_reader, runtime->channels / 2);
 
 	return 0;
@@ -871,7 +870,7 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 	 * - 2 cells (8 bytes) in STx7100/9 and STx7200 cut 1.0
 	 * - 70 cells (280 bytes) in STx7111 and STx7200 cut 2.0. */
 
-	if (pcm_reader->ver < ver__AUD_PCMIN__65_3_1)
+	if (pcm_reader->ver < 4)
 		pcm_reader->fdma_max_transfer_size = 2;
 	else
 		pcm_reader->fdma_max_transfer_size = 30;
@@ -880,7 +879,7 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "Reader's name is '%s'\n", pcm_reader->info->name);
 
-	if (pcm_reader->ver < ver__AUD_PCMIN__65_3_3) {
+	if (pcm_reader->ver < 5) {
 		/* STx7111 has a hardware bug in PCM reader in multichannels
 		 * mode, so we will just not be using it ;-) */
 		static unsigned int channels_2[] = { 2 };

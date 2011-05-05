@@ -2,24 +2,6 @@
 #define __SND_STM_AUD_SPDIFPC_H
 
 /*
- * IP versions
- */
-
-/* 7100 2.0, 7100 3.0 */
-#define ver__AUD_SPDIFPC__90_1_0 1
-
-/* 7109 2.0, 7109 3.0 */
-#define ver__AUD_SPDIFPC__90_1_1 2
-
-/* 7200 1.0 */
-#define ver__AUD_SPDIFPC__65_1_2 3
-
-/* 7111, 7200 2.0 */
-#define ver__AUD_SPDIFPC__65_3_0 4
-
-
-
-/*
  * AUD_SPDIFPC_CFG
  */
 
@@ -197,9 +179,9 @@
 /* CHA_STA_BITS */
 
 #define shift__AUD_SPDIFPC_CFG__CHA_STA_BITS(ip) (ip->ver < \
-	ver__AUD_SPDIFPC__65_3_0 ? -1 : 6)
+	4 ? -1 : 6)
 #define mask__AUD_SPDIFPC_CFG__CHA_STA_BITS(ip) (ip->ver < \
-	ver__AUD_SPDIFPC__65_3_0 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define get__AUD_SPDIFPC_CFG__CHA_STA_BITS(ip) ((readl(ip->base + \
 	offset__AUD_SPDIFPC_CFG(ip)) >> \
 	shift__AUD_SPDIFPC_CFG__CHA_STA_BITS(ip)) & \
@@ -213,7 +195,7 @@
 	offset__AUD_SPDIFPC_CFG(ip))
 
 #define value__AUD_SPDIFPC_CFG__CHA_STA_BITS__SUBFRAME(ip) (ip->ver < \
-	ver__AUD_SPDIFPC__65_3_0 ? -1 : 0x0)
+	4 ? -1 : 0x0)
 #define mask__AUD_SPDIFPC_CFG__CHA_STA_BITS__SUBFRAME(ip) \
 	(value__AUD_SPDIFPC_CFG__CHA_STA_BITS__SUBFRAME(ip) << \
 	shift__AUD_SPDIFPC_CFG__CHA_STA_BITS(ip))
@@ -222,7 +204,7 @@
 	value__AUD_SPDIFPC_CFG__CHA_STA_BITS__SUBFRAME(ip))
 
 #define value__AUD_SPDIFPC_CFG__CHA_STA_BITS__FRAME(ip) (ip->ver < \
-	ver__AUD_SPDIFPC__65_3_0 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIFPC_CFG__CHA_STA_BITS__FRAME(ip) \
 	(value__AUD_SPDIFPC_CFG__CHA_STA_BITS__FRAME(ip) << \
 	shift__AUD_SPDIFPC_CFG__CHA_STA_BITS(ip))

@@ -114,7 +114,7 @@ static int snd_stm_conv_i2sspdif_iec958_set(struct snd_stm_conv_i2sspdif
 	BUG_ON(memcmp(snd_stm_conv_i2sspdif_iec958_zeroed.subcode,
 			  iec958->subcode, sizeof(iec958->subcode)) != 0);
 
-	if (conv_i2sspdif->ver < ver__AUD_SPDIFPC__65_3_0) {
+	if (conv_i2sspdif->ver < 4) {
 		/* Converter hardware by default puts every single bit of
 		 * status to separate SPDIF subframe (instead of putting
 		 * the same bit to both left and right subframes).
@@ -257,7 +257,7 @@ static int snd_stm_conv_i2sspdif_enable(struct snd_stm_conv_i2sspdif
 	 * of SPDIF block) - pathetic! ;-) Setting bit 6 of config register
 	 * enables a mode in which channel status bits in L/R subframes
 	 * are identical, and whole block is served... */
-	if (conv_i2sspdif->ver >= ver__AUD_SPDIFPC__65_3_0)
+	if (conv_i2sspdif->ver >= 4)
 		set__AUD_SPDIFPC_CFG__CHA_STA_BITS__FRAME(conv_i2sspdif);
 
 	spin_lock(&conv_i2sspdif->iec958_default_lock);

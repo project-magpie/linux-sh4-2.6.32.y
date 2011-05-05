@@ -2,30 +2,6 @@
 #define __SND_STM_AUD_PCMIN_H
 
 /*
- * IP versions
- */
-
-/* 7100 2.0, 7100 3.0 */
-#define ver__AUD_PCMIN__90_1_1 1
-
-/* 7109 2.0, 7109 3.0 */
-#define ver__AUD_PCMIN__90_2_0 2
-
-/* 7200 1.0 */
-#define ver__AUD_PCMIN__65_2_0 3
-
-/* 7111 */
-#define ver__AUD_PCMIN__65_3_1 4
-
-/* 7200 2.0 */
-#define ver__AUD_PCMIN__65_3_3 5
-
-/* 7200 3.0 */
-#define ver__AUD_PCMIN__65_3_4 6
-
-
-
-/*
  * AUD_PCMIN_RST
  */
 
@@ -488,9 +464,9 @@
 /* NUM_FRAMES */
 
 #define shift__AUD_PCMIN_CTRL__NUM_FRAMES(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? 4 : -1)
+	4 ? 4 : -1)
 #define mask__AUD_PCMIN_CTRL__NUM_FRAMES(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? 0xfffffff : -1)
+	4 ? 0xfffffff : -1)
 #define get__AUD_PCMIN_CTRL__NUM_FRAMES(ip) ((readl(ip->base + \
 	offset__AUD_PCMIN_CTRL(ip)) >> shift__AUD_PCMIN_CTRL__NUM_FRAMES(ip)) \
 	& mask__AUD_PCMIN_CTRL__NUM_FRAMES(ip))
@@ -505,9 +481,9 @@
 /* MASTER_CLK_DIV */
 
 #define shift__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 4)
+	4 ? -1 : 4)
 #define mask__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0xf)
+	4 ? -1 : 0xf)
 #define get__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip) ((readl(ip->base + \
 	offset__AUD_PCMIN_CTRL(ip)) >> \
 	shift__AUD_PCMIN_CTRL__MASTER_CLK_DIV(ip)) & \
@@ -614,9 +590,9 @@
 /* NFRAMES */
 
 #define shift__AUD_PCMIN_STA__NFRAMES(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? 19 : -1)
+	4 ? 19 : -1)
 #define mask__AUD_PCMIN_STA__NFRAMES(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? 0x1 : -1)
+	4 ? 0x1 : -1)
 #define get__AUD_PCMIN_STA__NFRAMES(ip) ((readl(ip->base + \
 	offset__AUD_PCMIN_STA(ip)) >> shift__AUD_PCMIN_STA__NFRAMES(ip)) & \
 	mask__AUD_PCMIN_STA__NFRAMES(ip))
@@ -628,7 +604,7 @@
 	offset__AUD_PCMIN_STA(ip))
 
 #define value__AUD_PCMIN_STA__NFRAMES__DONE(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? 0x1 : -1)
+	4 ? 0x1 : -1)
 #define mask__AUD_PCMIN_STA__NFRAMES__DONE(ip) \
 	(value__AUD_PCMIN_STA__NFRAMES__DONE(ip) << \
 	shift__AUD_PCMIN_STA__NFRAMES(ip))
@@ -639,9 +615,9 @@
 /* SAMPLES_IN_FIFO */
 
 #define shift__AUD_PCMIN_STA__SAMPLES_IN_FIFO(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 19)
+	4 ? -1 : 19)
 #define mask__AUD_PCMIN_STA__SAMPLES_IN_FIFO(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x7f)
+	4 ? -1 : 0x7f)
 #define get__AUD_PCMIN_STA__SAMPLES_IN_FIFO(ip) ((readl(ip->base + \
 	offset__AUD_PCMIN_STA(ip)) >> \
 	shift__AUD_PCMIN_STA__SAMPLES_IN_FIFO(ip)) & \
@@ -889,9 +865,9 @@
 /* NUM_CH */
 
 #define shift__AUD_PCMIN_FMT__NUM_CH(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 8)
+	4 ? -1 : 8)
 #define mask__AUD_PCMIN_FMT__NUM_CH(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x7)
+	4 ? -1 : 0x7)
 #define get__AUD_PCMIN_FMT__NUM_CH(ip) ((readl(ip->base + \
 	offset__AUD_PCMIN_FMT(ip)) >> shift__AUD_PCMIN_FMT__NUM_CH(ip)) & \
 	mask__AUD_PCMIN_FMT__NUM_CH(ip))
@@ -902,7 +878,7 @@
 	ip->base + offset__AUD_PCMIN_FMT(ip))
 
 #define value__AUD_PCMIN_FMT__NUM_CH__1_CHANNEL(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_PCMIN_FMT__NUM_CH__1_CHANNEL(ip) \
 	(value__AUD_PCMIN_FMT__NUM_CH__1_CHANNEL(ip) << \
 	shift__AUD_PCMIN_FMT__NUM_CH(ip))
@@ -911,7 +887,7 @@
 	value__AUD_PCMIN_FMT__NUM_CH__1_CHANNEL(ip))
 
 #define value__AUD_PCMIN_FMT__NUM_CH__2_CHANNELS(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x2)
+	4 ? -1 : 0x2)
 #define mask__AUD_PCMIN_FMT__NUM_CH__2_CHANNELS(ip) \
 	(value__AUD_PCMIN_FMT__NUM_CH__2_CHANNELS(ip) << \
 	shift__AUD_PCMIN_FMT__NUM_CH(ip))
@@ -920,7 +896,7 @@
 	value__AUD_PCMIN_FMT__NUM_CH__2_CHANNELS(ip))
 
 #define value__AUD_PCMIN_FMT__NUM_CH__3_CHANNELS(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x3)
+	4 ? -1 : 0x3)
 #define mask__AUD_PCMIN_FMT__NUM_CH__3_CHANNELS(ip) \
 	(value__AUD_PCMIN_FMT__NUM_CH__3_CHANNELS(ip) << \
 	shift__AUD_PCMIN_FMT__NUM_CH(ip))
@@ -929,7 +905,7 @@
 	value__AUD_PCMIN_FMT__NUM_CH__3_CHANNELS(ip))
 
 #define value__AUD_PCMIN_FMT__NUM_CH__4_CHANNELS(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x4)
+	4 ? -1 : 0x4)
 #define mask__AUD_PCMIN_FMT__NUM_CH__4_CHANNELS(ip) \
 	(value__AUD_PCMIN_FMT__NUM_CH__4_CHANNELS(ip) << \
 	shift__AUD_PCMIN_FMT__NUM_CH(ip))
@@ -938,7 +914,7 @@
 	value__AUD_PCMIN_FMT__NUM_CH__4_CHANNELS(ip))
 
 #define value__AUD_PCMIN_FMT__NUM_CH__5_CHANNELS(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x5)
+	4 ? -1 : 0x5)
 #define mask__AUD_PCMIN_FMT__NUM_CH__5_CHANNELS(ip) \
 	(value__AUD_PCMIN_FMT__NUM_CH__5_CHANNELS(ip) << \
 	shift__AUD_PCMIN_FMT__NUM_CH(ip))
@@ -949,9 +925,9 @@
 /* BACK_STALLING */
 
 #define shift__AUD_PCMIN_FMT__BACK_STALLING(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 11)
+	4 ? -1 : 11)
 #define mask__AUD_PCMIN_FMT__BACK_STALLING(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define get__AUD_PCMIN_FMT__BACK_STALLING(ip) ((readl(ip->base + \
 	offset__AUD_PCMIN_FMT(ip)) >> shift__AUD_PCMIN_FMT__BACK_STALLING(ip)) \
 	& mask__AUD_PCMIN_FMT__BACK_STALLING(ip))
@@ -964,7 +940,7 @@
 	offset__AUD_PCMIN_FMT(ip))
 
 #define value__AUD_PCMIN_FMT__BACK_STALLING__DISABLED(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x0)
+	4 ? -1 : 0x0)
 #define mask__AUD_PCMIN_FMT__BACK_STALLING__DISABLED(ip) \
 	(value__AUD_PCMIN_FMT__BACK_STALLING__DISABLED(ip) << \
 	shift__AUD_PCMIN_FMT__BACK_STALLING(ip))
@@ -973,7 +949,7 @@
 	value__AUD_PCMIN_FMT__BACK_STALLING__DISABLED(ip))
 
 #define value__AUD_PCMIN_FMT__BACK_STALLING__ENABLED(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_PCMIN_FMT__BACK_STALLING__ENABLED(ip) \
 	(value__AUD_PCMIN_FMT__BACK_STALLING__ENABLED(ip) << \
 	shift__AUD_PCMIN_FMT__BACK_STALLING(ip))
@@ -984,9 +960,9 @@
 /* MASTER_CLKEDGE */
 
 #define shift__AUD_PCMIN_FMT__MASTER_CLKEDGE(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 12)
+	4 ? -1 : 12)
 #define mask__AUD_PCMIN_FMT__MASTER_CLKEDGE(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define get__AUD_PCMIN_FMT__MASTER_CLKEDGE(ip) ((readl(ip->base + \
 	offset__AUD_PCMIN_FMT(ip)) >> \
 	shift__AUD_PCMIN_FMT__MASTER_CLKEDGE(ip)) & \
@@ -1000,7 +976,7 @@
 	offset__AUD_PCMIN_FMT(ip))
 
 #define value__AUD_PCMIN_FMT__MASTER_CLKEDGE__RISING(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x0)
+	4 ? -1 : 0x0)
 #define mask__AUD_PCMIN_FMT__MASTER_CLKEDGE__RISING(ip) \
 	(value__AUD_PCMIN_FMT__MASTER_CLKEDGE__RISING(ip) << \
 	shift__AUD_PCMIN_FMT__MASTER_CLKEDGE(ip))
@@ -1009,7 +985,7 @@
 	value__AUD_PCMIN_FMT__MASTER_CLKEDGE__RISING(ip))
 
 #define value__AUD_PCMIN_FMT__MASTER_CLKEDGE__FALLING(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_PCMIN_FMT__MASTER_CLKEDGE__FALLING(ip) \
 	(value__AUD_PCMIN_FMT__MASTER_CLKEDGE__FALLING(ip) << \
 	shift__AUD_PCMIN_FMT__MASTER_CLKEDGE(ip))
@@ -1020,9 +996,9 @@
 /* DMA_REQ_TRIG_LMT */
 
 #define shift__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 13)
+	4 ? -1 : 13)
 #define mask__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(ip) (ip->ver < \
-	ver__AUD_PCMIN__65_3_1 ? -1 : 0x7f)
+	4 ? -1 : 0x7f)
 #define get__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(ip) ((readl(ip->base + \
 	offset__AUD_PCMIN_FMT(ip)) >> \
 	shift__AUD_PCMIN_FMT__DMA_REQ_TRIG_LMT(ip)) & \

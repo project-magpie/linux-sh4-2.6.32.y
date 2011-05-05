@@ -478,7 +478,7 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 	case SND_STM_FORMAT__SUBFRAME_32_BITS:
 		snd_stm_printd(1, "- 32 bits per subframe\n");
 		set__AUD_PCMOUT_FMT__NBIT__32_BITS(pcm_player);
-		if (pcm_player->ver > ver__AUD_PCMOUT__65_1_3)
+		if (pcm_player->ver > 5)
 			set__AUD_PCMOUT_FMT__DATA_SIZE__32_BITS(pcm_player);
 		else
 			set__AUD_PCMOUT_FMT__DATA_SIZE__24_BITS(pcm_player);
@@ -852,7 +852,7 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 	/* TODO: well, hardcoded - shall anyone use it?
 	 * And what does it actually mean? */
 
-	if (pcm_player->ver > ver__AUD_PCMOUT__65_1_3)
+	if (pcm_player->ver > 5)
 		set__AUD_PCMOUT_FMT__BACK_STALLING__DISABLED(pcm_player);
 	set__AUD_PCMOUT_CTRL__RND__NO_ROUNDING(pcm_player);
 
@@ -962,9 +962,9 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 	 * - 30 cells (120 bytes) in STx7100/9 and STx7200 cut 1.0
 	 * - 70 cells (280 bytes) in STx7111 and STx7200 cut 2.0. */
 
-	if (pcm_player->ver < ver__AUD_PCMOUT__65_1_3)
+	if (pcm_player->ver < 5)
 		pcm_player->fdma_max_transfer_size = 2;
-	else if (pcm_player->ver == ver__AUD_PCMOUT__65_1_3)
+	else if (pcm_player->ver == 5)
 		pcm_player->fdma_max_transfer_size = 20;
 	else
 		pcm_player->fdma_max_transfer_size = 30;
@@ -976,7 +976,7 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 	BUG_ON(pcm_player->info->channels <= 0);
 	BUG_ON(pcm_player->info->channels > 10);
 	BUG_ON(pcm_player->info->channels % 2 != 0);
-	if (pcm_player->ver > ver__AUD_PCMOUT__90_1_1) {
+	if (pcm_player->ver > 1) {
 		static unsigned int channels_2_10[] = { 2, 4, 6, 8, 10 };
 
 		pcm_player->channels_constraint.list = channels_2_10;
@@ -998,7 +998,7 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 
 	/* STx7100 has a problem with 16/16 bits FIFO organization,
 	 * so we disable the 16 bits samples capability... */
-	if (pcm_player->ver <= ver__AUD_PCMOUT__90_1_3)
+	if (pcm_player->ver <= 2)
 		snd_stm_pcm_player_hw.formats &= ~SNDRV_PCM_FMTBIT_S16_LE;
 
 	/* Create ALSA lowlevel device */

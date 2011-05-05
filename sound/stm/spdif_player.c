@@ -423,7 +423,7 @@ static int snd_stm_spdif_player_hw_params(struct snd_pcm_substream *substream,
 	BUG_ON(transfer_size > spdif_player->fdma_max_transfer_size);
 	fdma_req_config.count = transfer_size;
 
-	if (spdif_player->ver >= ver__AUD_SPDIF__65_3_1) {
+	if (spdif_player->ver >= 4) {
 		/* FDMA request trigger control was introduced in
 		 * STx7111... */
 		BUG_ON(transfer_size != 1 && transfer_size % 2 != 0);
@@ -1403,7 +1403,7 @@ static void snd_stm_spdif_player_dump_registers(struct snd_info_entry *entry,
 	DUMP_REGISTER(CL2_CR2_UV);
 	DUMP_REGISTER(PAU_LAT);
 	DUMP_REGISTER(BST_FL);
-	if (spdif_player->ver >= ver__AUD_SPDIF__65_3_1)
+	if (spdif_player->ver >= 4)
 		DUMP_REGISTER(CONFIG);
 
 	snd_iprintf(buffer, "\n");
@@ -1557,9 +1557,9 @@ static int snd_stm_spdif_player_probe(struct platform_device *pdev)
 	 * - 6 cells (24 bytes) in STx7100/9 and STx7200 cut 1.0
 	 * - 30 cells (120 bytes) in STx7111 and STx7200 cut 2.0. */
 
-	if (spdif_player->ver < ver__AUD_SPDIF__65_2_0)
+	if (spdif_player->ver < 3)
 		spdif_player->fdma_max_transfer_size = 2;
-	else if (spdif_player->ver == ver__AUD_SPDIF__65_2_0)
+	else if (spdif_player->ver == 3)
 		spdif_player->fdma_max_transfer_size = 4;
 	else
 		spdif_player->fdma_max_transfer_size = 20;

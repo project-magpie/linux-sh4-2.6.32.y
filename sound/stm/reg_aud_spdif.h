@@ -2,24 +2,6 @@
 #define __SND_STM_AUD_SPDIF_H
 
 /*
- * IP versions
- */
-
-/* 7100 2.0, 7100 3.0 */
-#define ver__AUD_SPDIF__90_1_1 1
-
-/* 7109 2.0, 7109 3.0 */
-#define ver__AUD_SPDIF__90_2_2 2
-
-/* 7200 1.0 */
-#define ver__AUD_SPDIF__65_2_0 3
-
-/* 7111, 7200 2.0 */
-#define ver__AUD_SPDIF__65_3_1 4
-
-
-
-/*
  * AUD_SPDIF_RST
  */
 
@@ -1269,9 +1251,9 @@
 /* SAMPLES_IN_FIFO */
 
 #define shift__AUD_SPDIF_STA__SAMPLES_IN_FIFO(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 16)
+	4 ? -1 : 16)
 #define mask__AUD_SPDIF_STA__SAMPLES_IN_FIFO(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1f)
+	4 ? -1 : 0x1f)
 #define get__AUD_SPDIF_STA__SAMPLES_IN_FIFO(ip) ((readl(ip->base + \
 	offset__AUD_SPDIF_STA(ip)) >> \
 	shift__AUD_SPDIF_STA__SAMPLES_IN_FIFO(ip)) & \
@@ -1608,7 +1590,7 @@
  * AUD_SPDIF_CONFIG
  */
 
-#define offset__AUD_SPDIF_CONFIG(ip) (ip->ver < ver__AUD_SPDIF__65_3_1 \
+#define offset__AUD_SPDIF_CONFIG(ip) (ip->ver < 4 \
 	? -1 : 0x40)
 #define get__AUD_SPDIF_CONFIG(ip) readl(ip->base + \
 	offset__AUD_SPDIF_CONFIG(ip))
@@ -1618,10 +1600,10 @@
 /* P_BIT */
 
 #define shift__AUD_SPDIF_CONFIG__P_BIT(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0)
+	4 ? -1 : 0)
 
 #define value__AUD_SPDIF_CONFIG__P_BIT__MASK(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__P_BIT__MASK(ip) \
 	(value__AUD_SPDIF_CONFIG__P_BIT__MASK(ip) << \
 	shift__AUD_SPDIF_CONFIG__P_BIT(ip))
@@ -1630,7 +1612,7 @@
 	value__AUD_SPDIF_CONFIG__P_BIT__MASK(ip))
 
 #define value__AUD_SPDIF_CONFIG__P_BIT__HW(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x0)
+	4 ? -1 : 0x0)
 #define mask__AUD_SPDIF_CONFIG__P_BIT__HW(ip) \
 	(value__AUD_SPDIF_CONFIG__P_BIT__HW(ip) << \
 	shift__AUD_SPDIF_CONFIG__P_BIT(ip))
@@ -1639,7 +1621,7 @@
 	value__AUD_SPDIF_CONFIG__P_BIT__HW(ip))
 
 #define value__AUD_SPDIF_CONFIG__P_BIT__FDMA(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__P_BIT__FDMA(ip) \
 	(value__AUD_SPDIF_CONFIG__P_BIT__FDMA(ip) << \
 	shift__AUD_SPDIF_CONFIG__P_BIT(ip))
@@ -1650,10 +1632,10 @@
 /* C_BIT */
 
 #define shift__AUD_SPDIF_CONFIG__C_BIT(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 1)
+	4 ? -1 : 1)
 
 #define value__AUD_SPDIF_CONFIG__C_BIT__MASK(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__C_BIT__MASK(ip) \
 	(value__AUD_SPDIF_CONFIG__C_BIT__MASK(ip) << \
 	shift__AUD_SPDIF_CONFIG__C_BIT(ip))
@@ -1662,7 +1644,7 @@
 	value__AUD_SPDIF_CONFIG__C_BIT__MASK(ip))
 
 #define value__AUD_SPDIF_CONFIG__C_BIT__FDMA(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x0)
+	4 ? -1 : 0x0)
 #define mask__AUD_SPDIF_CONFIG__C_BIT__FDMA(ip) \
 	(value__AUD_SPDIF_CONFIG__C_BIT__FDMA(ip) << \
 	shift__AUD_SPDIF_CONFIG__C_BIT(ip))
@@ -1671,7 +1653,7 @@
 	value__AUD_SPDIF_CONFIG__C_BIT__FDMA(ip))
 
 #define value__AUD_SPDIF_CONFIG__C_BIT__HW(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__C_BIT__HW(ip) \
 	(value__AUD_SPDIF_CONFIG__C_BIT__HW(ip) << \
 	shift__AUD_SPDIF_CONFIG__C_BIT(ip))
@@ -1682,10 +1664,10 @@
 /* U_BIT */
 
 #define shift__AUD_SPDIF_CONFIG__U_BIT(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 2)
+	4 ? -1 : 2)
 
 #define value__AUD_SPDIF_CONFIG__U_BIT__MASK(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__U_BIT__MASK(ip) \
 	(value__AUD_SPDIF_CONFIG__U_BIT__MASK(ip) << \
 	shift__AUD_SPDIF_CONFIG__U_BIT(ip))
@@ -1694,7 +1676,7 @@
 	value__AUD_SPDIF_CONFIG__U_BIT__MASK(ip))
 
 #define value__AUD_SPDIF_CONFIG__U_BIT__FDMA(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x0)
+	4 ? -1 : 0x0)
 #define mask__AUD_SPDIF_CONFIG__U_BIT__FDMA(ip) \
 	(value__AUD_SPDIF_CONFIG__U_BIT__FDMA(ip) << \
 	shift__AUD_SPDIF_CONFIG__U_BIT(ip))
@@ -1703,7 +1685,7 @@
 	value__AUD_SPDIF_CONFIG__U_BIT__FDMA(ip))
 
 #define value__AUD_SPDIF_CONFIG__U_BIT__HW(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__U_BIT__HW(ip) \
 	(value__AUD_SPDIF_CONFIG__U_BIT__HW(ip) << \
 	shift__AUD_SPDIF_CONFIG__U_BIT(ip))
@@ -1714,10 +1696,10 @@
 /* V_BIT */
 
 #define shift__AUD_SPDIF_CONFIG__V_BIT(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 2)
+	4 ? -1 : 2)
 
 #define value__AUD_SPDIF_CONFIG__V_BIT__MASK(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__V_BIT__MASK(ip) \
 	(value__AUD_SPDIF_CONFIG__V_BIT__MASK(ip) << \
 	shift__AUD_SPDIF_CONFIG__V_BIT(ip))
@@ -1726,7 +1708,7 @@
 	value__AUD_SPDIF_CONFIG__V_BIT__MASK(ip))
 
 #define value__AUD_SPDIF_CONFIG__V_BIT__FDMA(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x0)
+	4 ? -1 : 0x0)
 #define mask__AUD_SPDIF_CONFIG__V_BIT__FDMA(ip) \
 	(value__AUD_SPDIF_CONFIG__V_BIT__FDMA(ip) << \
 	shift__AUD_SPDIF_CONFIG__V_BIT(ip))
@@ -1735,7 +1717,7 @@
 	value__AUD_SPDIF_CONFIG__V_BIT__FDMA(ip))
 
 #define value__AUD_SPDIF_CONFIG__V_BIT__HW(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__V_BIT__HW(ip) \
 	(value__AUD_SPDIF_CONFIG__V_BIT__HW(ip) << \
 	shift__AUD_SPDIF_CONFIG__V_BIT(ip))
@@ -1746,9 +1728,9 @@
 /* ONE_BIT_AUDIO */
 
 #define shift__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 4)
+	4 ? -1 : 4)
 #define mask__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define get__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO(ip) ((readl(ip->base + \
 	offset__AUD_SPDIF_CONFIG(ip)) >> \
 	shift__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO(ip)) & \
@@ -1762,7 +1744,7 @@
 	offset__AUD_SPDIF_CONFIG(ip))
 
 #define value__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO__DISABLED(ip) (ip->ver \
-	< ver__AUD_SPDIF__65_3_1 ? -1 : 0x0)
+	< 4 ? -1 : 0x0)
 #define mask__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO__DISABLED(ip) \
 	(value__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO__DISABLED(ip) << \
 	shift__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO(ip))
@@ -1771,7 +1753,7 @@
 	value__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO__DISABLED(ip))
 
 #define value__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO__ENABLED(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO__ENABLED(ip) \
 	(value__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO__ENABLED(ip) << \
 	shift__AUD_SPDIF_CONFIG__ONE_BIT_AUDIO(ip))
@@ -1782,9 +1764,9 @@
 /* MEM_FMT */
 
 #define shift__AUD_SPDIF_CONFIG__MEM_FMT(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 5)
+	4 ? -1 : 5)
 #define mask__AUD_SPDIF_CONFIG__MEM_FMT(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define get__AUD_SPDIF_CONFIG__MEM_FMT(ip) ((readl(ip->base + \
 	offset__AUD_SPDIF_CONFIG(ip)) >> shift__AUD_SPDIF_CONFIG__MEM_FMT(ip)) \
 	& mask__AUD_SPDIF_CONFIG__MEM_FMT(ip))
@@ -1797,7 +1779,7 @@
 	offset__AUD_SPDIF_CONFIG(ip))
 
 #define value__AUD_SPDIF_CONFIG__MEM_FMT__16_BITS_0_BITS(ip) (ip->ver \
-	< ver__AUD_SPDIF__65_3_1 ? -1 : 0x0)
+	< 4 ? -1 : 0x0)
 #define mask__AUD_SPDIF_CONFIG__MEM_FMT__16_BITS_0_BITS(ip) \
 	(value__AUD_SPDIF_CONFIG__MEM_FMT__16_BITS_0_BITS(ip) << \
 	shift__AUD_SPDIF_CONFIG__MEM_FMT(ip))
@@ -1806,7 +1788,7 @@
 	value__AUD_SPDIF_CONFIG__MEM_FMT__16_BITS_0_BITS(ip))
 
 #define value__AUD_SPDIF_CONFIG__MEM_FMT__16_BITS_16_BITS(ip) (ip->ver \
-	< ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	< 4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__MEM_FMT__16_BITS_16_BITS(ip) \
 	(value__AUD_SPDIF_CONFIG__MEM_FMT__16_BITS_16_BITS(ip) << \
 	shift__AUD_SPDIF_CONFIG__MEM_FMT(ip))
@@ -1817,9 +1799,9 @@
 /* DTS_HD */
 
 #define shift__AUD_SPDIF_CONFIG__DTS_HD(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 6)
+	4 ? -1 : 6)
 #define mask__AUD_SPDIF_CONFIG__DTS_HD(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define get__AUD_SPDIF_CONFIG__DTS_HD(ip) ((readl(ip->base + \
 	offset__AUD_SPDIF_CONFIG(ip)) >> shift__AUD_SPDIF_CONFIG__DTS_HD(ip)) \
 	& mask__AUD_SPDIF_CONFIG__DTS_HD(ip))
@@ -1832,7 +1814,7 @@
 	offset__AUD_SPDIF_CONFIG(ip))
 
 #define value__AUD_SPDIF_CONFIG__DTS_HD__DISABLED(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x0)
+	4 ? -1 : 0x0)
 #define mask__AUD_SPDIF_CONFIG__DTS_HD__DISABLED(ip) \
 	(value__AUD_SPDIF_CONFIG__DTS_HD__DISABLED(ip) << \
 	shift__AUD_SPDIF_CONFIG__DTS_HD(ip))
@@ -1841,7 +1823,7 @@
 	value__AUD_SPDIF_CONFIG__DTS_HD__DISABLED(ip))
 
 #define value__AUD_SPDIF_CONFIG__DTS_HD__ENABLED(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__DTS_HD__ENABLED(ip) \
 	(value__AUD_SPDIF_CONFIG__DTS_HD__ENABLED(ip) << \
 	shift__AUD_SPDIF_CONFIG__DTS_HD(ip))
@@ -1852,9 +1834,9 @@
 /* BACK_STALLING */
 
 #define shift__AUD_SPDIF_CONFIG__BACK_STALLING(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 7)
+	4 ? -1 : 7)
 #define mask__AUD_SPDIF_CONFIG__BACK_STALLING(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define get__AUD_SPDIF_CONFIG__BACK_STALLING(ip) ((readl(ip->base + \
 	offset__AUD_SPDIF_CONFIG(ip)) >> \
 	shift__AUD_SPDIF_CONFIG__BACK_STALLING(ip)) & \
@@ -1868,7 +1850,7 @@
 	offset__AUD_SPDIF_CONFIG(ip))
 
 #define value__AUD_SPDIF_CONFIG__BACK_STALLING__DISABLED(ip) (ip->ver \
-	< ver__AUD_SPDIF__65_3_1 ? -1 : 0x0)
+	< 4 ? -1 : 0x0)
 #define mask__AUD_SPDIF_CONFIG__BACK_STALLING__DISABLED(ip) \
 	(value__AUD_SPDIF_CONFIG__BACK_STALLING__DISABLED(ip) << \
 	shift__AUD_SPDIF_CONFIG__BACK_STALLING(ip))
@@ -1877,7 +1859,7 @@
 	value__AUD_SPDIF_CONFIG__BACK_STALLING__DISABLED(ip))
 
 #define value__AUD_SPDIF_CONFIG__BACK_STALLING__ENABLED(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1)
+	4 ? -1 : 0x1)
 #define mask__AUD_SPDIF_CONFIG__BACK_STALLING__ENABLED(ip) \
 	(value__AUD_SPDIF_CONFIG__BACK_STALLING__ENABLED(ip) << \
 	shift__AUD_SPDIF_CONFIG__BACK_STALLING(ip))
@@ -1888,9 +1870,9 @@
 /* DMA_REQ_TRIG_LMT */
 
 #define shift__AUD_SPDIF_CONFIG__DMA_REQ_TRIG_LMT(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 8)
+	4 ? -1 : 8)
 #define mask__AUD_SPDIF_CONFIG__DMA_REQ_TRIG_LMT(ip) (ip->ver < \
-	ver__AUD_SPDIF__65_3_1 ? -1 : 0x1f)
+	4 ? -1 : 0x1f)
 #define get__AUD_SPDIF_CONFIG__DMA_REQ_TRIG_LMT(ip) ((readl(ip->base + \
 	offset__AUD_SPDIF_CONFIG(ip)) >> \
 	shift__AUD_SPDIF_CONFIG__DMA_REQ_TRIG_LMT(ip)) & \

@@ -1,7 +1,7 @@
 menuconfig SND_STM
 	tristate "STMicroelectronics SoCs support"
 	depends on SND
-	depends on CPU_SUBTYPE_STX7100 || CPU_SUBTYPE_STX7105 || CPU_SUBTYPE_STX7111 || CPU_SUBTYPE_STX7141 || CPU_SUBTYPE_STX7200
+	depends on CPU_SUBTYPE_ST40
 	select STM_DMA
 	select SND_PCM
 	help
@@ -104,6 +104,9 @@ config SND_STM_STX7200
 
 		If you compile this driver as a module, it will be
 		called snd-stm-stx7111.ko
+
+comment "External converters"
+	depends on SND_STM
 
 config SND_STM_CONV_DUMMY
 	tristate "Dummy converter driver"

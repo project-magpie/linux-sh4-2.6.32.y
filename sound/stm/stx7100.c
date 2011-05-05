@@ -32,21 +32,6 @@
 
 
 /*
- * ALSA module parameters
- */
-
-static int index = -1; /* First available index */
-static char *id = "STx7100"; /* Default card ID */
-
-module_param(index, int, 0444);
-MODULE_PARM_DESC(index, "Index value for STx7100/STx7109 "
-		"audio subsystem card.");
-module_param(id, charp, 0444);
-MODULE_PARM_DESC(id, "ID string for STx7100/STx7109 audio subsystem card.");
-
-
-
-/*
  * Audio glue driver implementation
  */
 
@@ -171,38 +156,15 @@ static struct platform_driver snd_stm_stx7100_glue_driver = {
 static int __init snd_stm_stx7100_init(void)
 {
 	int result;
-	const char *soc_type;
-	struct snd_card *card;
 
 	snd_stm_printd(0, "snd_stm_stx7100_init()\n");
 
-	switch (cpu_data->type) {
-	case CPU_STX7100:
-		soc_type = "STx7100";
-		break;
-
-	case CPU_STX7109:
-		soc_type = "STx7109";
-		break;
-
-	default:
+	if (cpu_data->type != CPU_STX7100 && cpu_data->type != CPU_STX7109) {
 		snd_stm_printe("Not supported (other than STx7100 or STx7109)"
 				" SOC detected!\n");
 		result = -EINVAL;
 		goto error_soc_type;
 	}
-
-	card = snd_stm_card_new(index, id, THIS_MODULE);
-	if (card == NULL) {
-		snd_stm_printe("ALSA card creation failed!\n");
-		result = -ENOMEM;
-		goto error_card_new;
-	}
-	strcpy(card->driver, soc_type);
-	snprintf(card->shortname, 31, "%s audio subsystem", soc_type);
-	snprintf(card->longname, 79, "STMicroelectronics %s cut %d.%d SOC "
-			"audio subsystem", soc_type, cpu_data->cut_major,
-			cpu_data->cut_minor);
 
 	result = platform_driver_register(&snd_stm_stx7100_glue_driver);
 	if (result != 0) {
@@ -229,8 +191,6 @@ error_card_register:
 error_drivers_register:
 	platform_driver_unregister(&snd_stm_stx7100_glue_driver);
 error_glue_driver_register:
-	snd_stm_card_free();
-error_card_new:
 error_soc_type:
 	return result;
 }
@@ -238,8 +198,6 @@ error_soc_type:
 static void __exit snd_stm_stx7100_exit(void)
 {
 	snd_stm_printd(0, "snd_stm_stx7100_exit()\n");
-
-	snd_stm_card_free();
 
 	snd_stm_drivers_unregister();
 	platform_driver_unregister(&snd_stm_stx7100_glue_driver);

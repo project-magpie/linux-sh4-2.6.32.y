@@ -1,7 +1,7 @@
 /*
- *   Helpful ;-) routines for STMicroelectronics' SoCs audio drivers
+ *   Core routines for STMicroelectronics' SoCs audio drivers
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -37,36 +37,57 @@
 #include "common.h"
 
 
+/* General debug level */
+#if defined(CONFIG_SND_STM_DEBUG_LEVEL)
+static int debug = CONFIG_SND_STM_DEBUG_LEVEL;
+module_param(debug, int, S_IRUGO | S_IWUSR);
+int *snd_stm_debug_level = &debug;
+EXPORT_SYMBOL(snd_stm_debug_level);
+#endif
+
+
+static int snd_stm_card_index = -1; /* First available index */
+module_param_named(index, snd_stm_card_index, int, 0444);
+MODULE_PARM_DESC(index, "Index value for STMicroelectronics audio subsystem "
+		"card.");
+
+static char *snd_stm_card_id;
+module_param_named(id, snd_stm_card_id, charp, 0444);
+MODULE_PARM_DESC(id, "ID string for STMicroelectronics audio subsystem card.");
+
+
 
 /*
- * Cards management
+ * ALSA card management
  */
 
 static struct snd_card *snd_stm_card;
 static int snd_stm_card_registered;
 
-struct snd_card *snd_stm_card_new(int index, const char *id,
-		struct module *module)
-{
-	int err;
-
-	BUG_ON(snd_stm_card);
-	BUG_ON(snd_stm_card_registered);
-
-	err = snd_card_create(index, id, module, 0, &snd_stm_card);
-	if (err)
-		return NULL;
-
-	return snd_stm_card;
-}
-EXPORT_SYMBOL(snd_stm_card_new);
-
 int snd_stm_card_register(void)
 {
 	int result;
+	const char *soc_type = get_cpu_subtype(cpu_data);
 
+	BUG_ON(!soc_type);
 	BUG_ON(!snd_stm_card);
 	BUG_ON(snd_stm_card_registered);
+
+	if (!snd_stm_card_id)
+		strlcpy(snd_stm_card->id, soc_type, sizeof(snd_stm_card->id));
+
+	strlcpy(snd_stm_card->driver, soc_type, sizeof(snd_stm_card->driver));
+	snprintf(snd_stm_card->shortname, sizeof(snd_stm_card->shortname),
+			"%s audio subsystem", soc_type);
+	if (cpu_data->cut_minor < 0)
+		snprintf(snd_stm_card->longname, sizeof(snd_stm_card->longname),
+				"STMicroelectronics %s cut %d.x SOC audio "
+				"subsystem", soc_type, cpu_data->cut_major);
+	else
+		snprintf(snd_stm_card->longname, sizeof(snd_stm_card->longname),
+				"STMicroelectronics %s cut %d.%d SOC audio "
+				"subsystem", soc_type, cpu_data->cut_major,
+				cpu_data->cut_minor);
 
 	result = snd_card_register(snd_stm_card);
 
@@ -85,18 +106,6 @@ int snd_stm_card_is_registered(void)
 }
 EXPORT_SYMBOL(snd_stm_card_is_registered);
 
-void snd_stm_card_free(void)
-{
-	BUG_ON(!snd_stm_card);
-	BUG_ON(!snd_stm_card_registered);
-
-	snd_card_free(snd_stm_card);
-
-	snd_stm_card_registered = 0;
-	snd_stm_card = NULL;
-}
-EXPORT_SYMBOL(snd_stm_card_free);
-
 struct snd_card *snd_stm_card_get(void)
 {
 	BUG_ON(!snd_stm_card);
@@ -105,6 +114,75 @@ struct snd_card *snd_stm_card_get(void)
 }
 EXPORT_SYMBOL(snd_stm_card_get);
 
+
+int snd_stm_drivers_register(void)
+{
+	int result;
+
+	snd_stm_printd(0, "snd_stm_core_init()\n");
+
+	result = snd_stm_fsynth_init();
+	if (result != 0) {
+		snd_stm_printe("Frequency synthesizer driver initialization"
+				" failed!\n");
+		goto error_fsynth;
+	}
+	result = snd_stm_conv_dac_mem_init();
+	if (result != 0) {
+		snd_stm_printe("Internal DACs driver initialization failed!\n");
+		goto error_conv_dac_mem;
+	}
+	result = snd_stm_conv_i2sspdif_init();
+	if (result != 0) {
+		snd_stm_printe("I2S to SPDIF converter driver initialization"
+				" failed!\n");
+		goto error_conv_i2sspdif;
+	}
+	result = snd_stm_pcm_player_init();
+	if (result != 0) {
+		snd_stm_printe("PCM player driver initialization failed!\n");
+		goto error_pcm_player;
+	}
+	result = snd_stm_pcm_reader_init();
+	if (result != 0) {
+		snd_stm_printe("PCM reader driver initialization failed!\n");
+		goto error_pcm_reader;
+	}
+	result = snd_stm_spdif_player_init();
+	if (result != 0) {
+		snd_stm_printe("SPDIF player driver initialization failed!\n");
+		goto error_spdif_player;
+	}
+
+	return result;
+
+error_spdif_player:
+	snd_stm_pcm_reader_exit();
+error_pcm_reader:
+	snd_stm_pcm_player_exit();
+error_pcm_player:
+	snd_stm_conv_i2sspdif_exit();
+error_conv_i2sspdif:
+	snd_stm_conv_dac_mem_exit();
+error_conv_dac_mem:
+	snd_stm_fsynth_exit();
+error_fsynth:
+	return result;
+}
+EXPORT_SYMBOL(snd_stm_drivers_register);
+
+void snd_stm_drivers_unregister(void)
+{
+	snd_stm_printd(0, "snd_stm_core_exit()\n");
+
+	snd_stm_spdif_player_exit();
+	snd_stm_pcm_reader_exit();
+	snd_stm_pcm_player_exit();
+	snd_stm_conv_i2sspdif_exit();
+	snd_stm_conv_dac_mem_exit();
+	snd_stm_fsynth_exit();
+}
+EXPORT_SYMBOL(snd_stm_drivers_unregister);
 
 
 /*
@@ -749,3 +827,61 @@ void snd_stm_iec958_dump(const struct snd_aes_iec958 *vuc)
 			vuc->dig_subframe[0], vuc->dig_subframe[1],
 			vuc->dig_subframe[2], vuc->dig_subframe[3]);
 }
+
+
+
+/*
+ * Core initialization
+ */
+
+static int __init snd_stm_core_init(void)
+{
+	int result;
+
+	snd_stm_printd(0, "%s()\n", __func__);
+
+	result = snd_card_create(snd_stm_card_index, snd_stm_card_id,
+			THIS_MODULE, 0, &snd_stm_card);
+	if (result != 0) {
+		snd_stm_printe("Failed to create ALSA card!\n");
+		goto error_card_create;
+	}
+
+	result = snd_stm_info_create();
+	if (result != 0) {
+		snd_stm_printe("Procfs info creation failed!\n");
+		goto error_info;
+	}
+	result = snd_stm_conv_init();
+	if (result != 0) {
+		snd_stm_printe("Converters infrastructure initialization"
+				" failed!\n");
+		goto error_conv;
+	}
+
+	return result;
+
+error_conv:
+	snd_stm_info_dispose();
+error_info:
+	snd_card_free(snd_stm_card);
+error_card_create:
+	return result;
+}
+
+static void __exit snd_stm_core_exit(void)
+{
+	snd_stm_printd(0, "%s()\n", __func__);
+
+	snd_stm_conv_exit();
+	snd_stm_info_dispose();
+
+	snd_card_free(snd_stm_card);
+}
+
+MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");
+MODULE_DESCRIPTION("STMicroelectronics System-on-Chips' audio core driver");
+MODULE_LICENSE("GPL");
+
+module_init(snd_stm_core_init);
+module_exit(snd_stm_core_exit);

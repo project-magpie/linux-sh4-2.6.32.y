@@ -37,19 +37,12 @@
  * ALSA module parameters
  */
 
-static int index = -1; /* First available index */
-static char *id = "STx7200"; /* Default card ID */
-
 /* CUT 2+ ONLY! As PCM Reader #1 shares pins with MII1 it may receive
  * unwanted traffic if MII1 is actually used to networking,
  * or when PCM Player #1 is configured to use these pins. In such
  * case one may disable the reader input using this module parameter. */
 static int pcm_reader_1_enabled = 1;
 
-module_param(index, int, 0444);
-MODULE_PARM_DESC(index, "Index value for STx7200 audio subsystem card.");
-module_param(id, charp, 0444);
-MODULE_PARM_DESC(id, "ID string for STx7200 audio subsystem card.");
 module_param(pcm_reader_1_enabled, int, 0444);
 MODULE_PARM_DESC(id, "PCM Reader #1 control (not valid for STx7200 cut 1).");
 
@@ -211,7 +204,6 @@ static struct platform_driver snd_stm_stx7200_glue_driver = {
 static int __init snd_stm_stx7200_init(void)
 {
 	int result;
-	struct snd_card *card;
 
 	snd_stm_printd(0, "snd_stm_stx7200_init()\n");
 
@@ -221,17 +213,6 @@ static int __init snd_stm_stx7200_init(void)
 		result = -EINVAL;
 		goto error_soc_type;
 	}
-
-	card = snd_stm_card_new(index, id, THIS_MODULE);
-	if (card == NULL) {
-		snd_stm_printe("ALSA card creation failed!\n");
-		result = -ENOMEM;
-		goto error_card_new;
-	}
-	strcpy(card->driver, "STx7200");
-	strcpy(card->shortname, "STx7200 audio subsystem");
-	snprintf(card->longname, 79, "STMicroelectronics STx7200 cut %d "
-			"SOC audio subsystem", cpu_data->cut_major);
 
 	result = platform_driver_register(&snd_stm_stx7200_glue_driver);
 	if (result != 0) {
@@ -258,8 +239,6 @@ error_card_register:
 error_drivers_register:
 	platform_driver_unregister(&snd_stm_stx7200_glue_driver);
 error_glue_driver_register:
-	snd_stm_card_free();
-error_card_new:
 error_soc_type:
 	return result;
 }
@@ -267,8 +246,6 @@ error_soc_type:
 static void __exit snd_stm_stx7200_exit(void)
 {
 	snd_stm_printd(0, "snd_stm_stx7200_exit()\n");
-
-	snd_stm_card_free();
 
 	snd_stm_drivers_unregister();
 	platform_driver_unregister(&snd_stm_stx7200_glue_driver);

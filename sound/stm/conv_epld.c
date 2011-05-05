@@ -82,10 +82,8 @@ static unsigned int snd_stm_conv_epld_get_format(void *priv)
 
 	snd_stm_printd(1, "snd_stm_conv_epld_get_format(priv=%p)\n", priv);
 
-	if (snd_BUG_ON(!conv_epld))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_epld)))
-		return -EINVAL;
+	BUG_ON(!conv_epld);
+	BUG_ON(!snd_stm_magic_valid(conv_epld));
 
 	return conv_epld->info->format;
 }
@@ -97,10 +95,8 @@ static int snd_stm_conv_epld_get_oversampling(void *priv)
 	snd_stm_printd(1, "snd_stm_conv_epld_get_oversampling(priv=%p)\n",
 			priv);
 
-	if (snd_BUG_ON(!conv_epld))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_epld)))
-		return -EINVAL;
+	BUG_ON(!conv_epld);
+	BUG_ON(!snd_stm_magic_valid(conv_epld));
 
 	return conv_epld->info->oversampling;
 }
@@ -112,19 +108,16 @@ static int snd_stm_conv_epld_set_enabled(int enabled, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_epld_enable(enabled=%d, priv=%p)\n",
 			enabled, priv);
 
-	if (snd_BUG_ON(!conv_epld))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_epld)))
-		return -EINVAL;
-	if (snd_BUG_ON(!conv_epld->info->enable_supported))
-		return -EINVAL;
+	BUG_ON(!conv_epld);
+	BUG_ON(!snd_stm_magic_valid(conv_epld));
+	BUG_ON(!conv_epld->info->enable_supported);
 
 	snd_stm_printd(1, "%sabling DAC %s's.\n", enabled ? "En" : "Dis",
 			conv_epld->bus_id);
 
 	snd_stm_conv_epld_set(conv_epld->info->enable_offset,
 			conv_epld->info->enable_mask,
-			enabled ? conv_epld->info->enable_value:
+			enabled ? conv_epld->info->enable_value :
 			conv_epld->info->disable_value);
 
 	return 0;
@@ -137,12 +130,9 @@ static int snd_stm_conv_epld_set_muted(int muted, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_epld_set_muted(muted=%d, priv=%p)\n",
 			muted, priv);
 
-	if (snd_BUG_ON(!conv_epld))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_epld)))
-		return -EINVAL;
-	if (snd_BUG_ON(!conv_epld->info->mute_supported))
-		return -EINVAL;
+	BUG_ON(!conv_epld);
+	BUG_ON(!snd_stm_magic_valid(conv_epld));
+	BUG_ON(!conv_epld->info->mute_supported);
 
 	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
 			conv_epld->bus_id);
@@ -169,10 +159,8 @@ static void snd_stm_conv_epld_read_info(struct snd_info_entry *entry,
 {
 	struct snd_stm_conv_epld *conv_epld = entry->private_data;
 
-	if (snd_BUG_ON(!conv_epld))
-		return;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_epld)))
-		return;
+	BUG_ON(!conv_epld);
+	BUG_ON(!snd_stm_magic_valid(conv_epld));
 
 	snd_iprintf(buffer, "--- %s ---\n", conv_epld->bus_id);
 
@@ -197,8 +185,7 @@ static int snd_stm_conv_epld_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
 
-	if (snd_BUG_ON(pdev->dev.platform_data == NULL))
-		return -EINVAL;
+	BUG_ON(!pdev->dev.platform_data);
 
 	conv_epld = kzalloc(sizeof(*conv_epld), GFP_KERNEL);
 	if (!conv_epld) {
@@ -220,8 +207,7 @@ static int snd_stm_conv_epld_probe(struct platform_device *pdev)
 
 	/* Get connections */
 
-	if (snd_BUG_ON(conv_epld->info->source_bus_id == NULL))
-		return -EINVAL;
+	BUG_ON(!conv_epld->info->source_bus_id);
 	snd_stm_printd(0, "This DAC is attached to PCM player '%s'.\n",
 			conv_epld->info->source_bus_id);
 	conv_epld->converter = snd_stm_conv_register_converter(
@@ -273,10 +259,8 @@ static int snd_stm_conv_epld_remove(struct platform_device *pdev)
 {
 	struct snd_stm_conv_epld *conv_epld = platform_get_drvdata(pdev);
 
-	if (snd_BUG_ON(!conv_epld))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_epld)))
-		return -EINVAL;
+	BUG_ON(!conv_epld);
+	BUG_ON(!snd_stm_magic_valid(conv_epld));
 
 	snd_device_free(snd_stm_card_get(), conv_epld);
 	snd_stm_conv_unregister_converter(conv_epld->converter);

@@ -104,10 +104,8 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 	snd_stm_printd(2, "snd_stm_pcm_player_irq_handler(irq=%d, "
 			"dev_id=0x%p)\n", irq, dev_id);
 
-	if (snd_BUG_ON(!pcm_player))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
 	/* Get interrupt status & clear them immediately */
 	status = get__AUD_PCMOUT_ITS(pcm_player);
@@ -125,8 +123,7 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 			mask__AUD_PCMOUT_ITS__NSAMPLE__PENDING(pcm_player))) {
 		/* Period successfully played */
 		do {
-			if (snd_BUG_ON(!pcm_player->substream))
-				break;
+			BUG_ON(!pcm_player->substream);
 
 			snd_stm_printd(2, "Period elapsed ('%s')\n",
 					dev_name(pcm_player->device));
@@ -137,7 +134,7 @@ static irqreturn_t snd_stm_pcm_player_irq_handler(int irq, void *dev_id)
 	}
 
 	/* Some alien interrupt??? */
-	snd_BUG_ON(result != IRQ_HANDLED);
+	BUG_ON(result != IRQ_HANDLED);
 
 	return result;
 }
@@ -185,10 +182,9 @@ static int snd_stm_pcm_player_open(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_open(substream=0x%p)\n",
 			substream);
 
-	if (snd_BUG_ON(!pcm_player || !runtime))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
+	BUG_ON(!runtime);
 
 	snd_pcm_set_sync(substream);  /* TODO: ??? */
 
@@ -249,10 +245,8 @@ static int snd_stm_pcm_player_close(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_close(substream=0x%p)\n",
 			substream);
 
-	if (snd_BUG_ON(!pcm_player))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
 	if (pcm_player->conv_group) {
 		snd_stm_conv_release_group(pcm_player->conv_group);
@@ -273,10 +267,9 @@ static int snd_stm_pcm_player_hw_free(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_hw_free(substream=0x%p)\n",
 			substream);
 
-	if (snd_BUG_ON(!pcm_player || !runtime))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
+	BUG_ON(!runtime);
 
 	/* This callback may be called more than once... */
 
@@ -316,10 +309,9 @@ static int snd_stm_pcm_player_hw_params(struct snd_pcm_substream *substream,
 	snd_stm_printd(1, "snd_stm_pcm_player_hw_params(substream=0x%p,"
 			" hw_params=0x%p)\n", substream, hw_params);
 
-	if (snd_BUG_ON(!pcm_player || !runtime))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
+	BUG_ON(!runtime);
 
 	/* This function may be called many times, so let's be prepared... */
 	if (snd_stm_buffer_is_allocated(pcm_player->buffer))
@@ -348,17 +340,13 @@ static int snd_stm_pcm_player_hw_params(struct snd_pcm_substream *substream,
 	snd_stm_printd(1, "FDMA request trigger limit and transfer size set "
 			"to %d.\n", transfer_size);
 
-	if (snd_BUG_ON(buffer_bytes % transfer_bytes != 0))
-		return -EINVAL;
-	if (snd_BUG_ON(transfer_size > pcm_player->fdma_max_transfer_size))
-		return -EINVAL;
+	BUG_ON(buffer_bytes % transfer_bytes != 0);
+	BUG_ON(transfer_size > pcm_player->fdma_max_transfer_size);
 	fdma_req_config.count = transfer_size;
 
-	if (snd_BUG_ON(transfer_size != 1 && transfer_size % 2 != 0))
-		return -EINVAL;
-	if (snd_BUG_ON(transfer_size >
-		       mask__AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT(pcm_player)))
-		return -EINVAL;
+	BUG_ON(transfer_size != 1 && transfer_size % 2 != 0);
+	BUG_ON(transfer_size >
+	       mask__AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT(pcm_player));
 	set__AUD_PCMOUT_FMT__DMA_REQ_TRIG_LMT(pcm_player, transfer_size);
 
 	/* Configure FDMA transfer */
@@ -412,13 +400,11 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_prepare(substream=0x%p)\n",
 			substream);
 
-	if (snd_BUG_ON(!pcm_player || !runtime))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
-	if (snd_BUG_ON(runtime->period_size * runtime->channels >=
-		       MAX_SAMPLES_PER_PERIOD))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
+	BUG_ON(!runtime);
+	BUG_ON(runtime->period_size * runtime->channels >=
+	       MAX_SAMPLES_PER_PERIOD);
 
 	/* Configure SPDIF synchronisation */
 
@@ -441,16 +427,14 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 			dev_name(pcm_player->device), runtime->rate,
 			oversampling);
 
-	if (snd_BUG_ON(oversampling <= 0))
-		return -EINVAL;
+	BUG_ON(oversampling < 0);
 
 	/* For 32 bits subframe oversampling must be a multiple of 128,
 	 * for 16 bits - of 64 */
-	if (snd_BUG_ON(((format & SND_STM_FORMAT__SUBFRAME_32_BITS) &&
-			(oversampling % 128 != 0)) ||
-		       (!(format & SND_STM_FORMAT__SUBFRAME_32_BITS) &&
-			(oversampling % 64 != 0))))
-		return -EINVAL;
+	BUG_ON((format & SND_STM_FORMAT__SUBFRAME_32_BITS) &&
+	       (oversampling % 128 != 0));
+	BUG_ON(!(format & SND_STM_FORMAT__SUBFRAME_16_BITS) &&
+	       (oversampling % 64 != 0));
 
 	/* Set up frequency synthesizer */
 
@@ -594,10 +578,9 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 
 	/* Number of channels... */
 
-	if (snd_BUG_ON((runtime->channels % 2 != 0) ||
-		       (runtime->channels < 2) ||
-		       (runtime->channels > 10)))
-		return -EINVAL;
+	BUG_ON(runtime->channels % 2 != 0);
+	BUG_ON(runtime->channels < 2);
+	BUG_ON(runtime->channels > 10);
 
 	set__AUD_PCMOUT_FMT__NUM_CH(pcm_player, runtime->channels / 2);
 
@@ -613,10 +596,8 @@ static int snd_stm_pcm_player_start(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_start(substream=0x%p)\n",
 			substream);
 
-	if (snd_BUG_ON(!pcm_player))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
 	/* Un-reset PCM player */
 
@@ -666,10 +647,8 @@ static int snd_stm_pcm_player_stop(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_stop(substream=0x%p)\n",
 			substream);
 
-	if (snd_BUG_ON(!pcm_player))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
 	/* Mute & shutdown DAC */
 
@@ -706,10 +685,8 @@ static int snd_stm_pcm_player_pause(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_pause(substream=0x%p)\n",
 			substream);
 
-	if (snd_BUG_ON(!pcm_player))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
 	/* "Mute" player
 	 * Documentation describes this mode in a wrong way - data is _not_
@@ -728,10 +705,8 @@ static int snd_stm_pcm_player_release(struct snd_pcm_substream *substream)
 	snd_stm_printd(1, "snd_stm_pcm_player_release(substream=0x%p)\n",
 			substream);
 
-	if (snd_BUG_ON(!pcm_player))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
 	/* "Unmute" player */
 
@@ -772,10 +747,9 @@ static snd_pcm_uframes_t snd_stm_pcm_player_pointer(struct snd_pcm_substream
 	snd_stm_printd(2, "snd_stm_pcm_player_pointer(substream=0x%p)\n",
 			substream);
 
-	if (snd_BUG_ON(!pcm_player || !runtime))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
+	BUG_ON(!runtime);
 
 	residue = get_dma_residue(pcm_player->fdma_channel);
 	hwptr = (runtime->dma_bytes - residue) % runtime->dma_bytes;
@@ -818,10 +792,8 @@ static void snd_stm_pcm_player_dump_registers(struct snd_info_entry *entry,
 {
 	struct snd_stm_pcm_player *pcm_player = entry->private_data;
 
-	if (snd_BUG_ON(!pcm_player))
-		return;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
 	snd_iprintf(buffer, "--- %s ---\n", dev_name(pcm_player->device));
 	snd_iprintf(buffer, "base = 0x%p\n", pcm_player->base);
@@ -848,10 +820,8 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 	snd_stm_printd(1, "snd_stm_pcm_player_register(snd_device=0x%p)\n",
 			snd_device);
 
-	if (snd_BUG_ON(!pcm_player))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
 	snd_stm_printd(0, "--- Registering player '%s'...\n",
 			dev_name(pcm_player->device));
@@ -869,8 +839,7 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 
 	/* Get frequency synthesizer channel */
 
-	if (snd_BUG_ON(pcm_player->info->fsynth_bus_id == NULL))
-		return -EINVAL;
+	BUG_ON(!pcm_player->info->fsynth_bus_id);
 	snd_stm_printd(0, "Player connected to %s's output %d.\n",
 			pcm_player->info->fsynth_bus_id,
 			pcm_player->info->fsynth_output);
@@ -878,8 +847,7 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 	pcm_player->fsynth_channel = snd_stm_fsynth_get_channel(
 			pcm_player->info->fsynth_bus_id,
 			pcm_player->info->fsynth_output);
-	if (snd_BUG_ON(pcm_player->fsynth_channel == NULL))
-		return -EINVAL;
+	BUG_ON(!pcm_player->fsynth_channel);
 
 	/* Registers view in ALSA's procfs */
 
@@ -908,10 +876,8 @@ static int __exit snd_stm_pcm_player_disconnect(struct snd_device *snd_device)
 	snd_stm_printd(1, "snd_stm_pcm_player_disconnect(snd_device=0x%p)\n",
 			snd_device);
 
-	if (snd_BUG_ON(!pcm_player))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
 	snd_stm_info_unregister(pcm_player->proc_entry);
 
@@ -940,8 +906,7 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "Probing device '%s'...\n", dev_name(&pdev->dev));
 
-	if (snd_BUG_ON(card == NULL))
-		return -EINVAL;
+	BUG_ON(!card);
 
 	pcm_player = kzalloc(sizeof(*pcm_player), GFP_KERNEL);
 	if (!pcm_player) {
@@ -952,11 +917,9 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 	}
 	snd_stm_magic_set(pcm_player);
 	pcm_player->info = pdev->dev.platform_data;
-	if (snd_BUG_ON(pcm_player->info == NULL))
-		return -EINVAL;
+	BUG_ON(!pcm_player->info);
 	pcm_player->ver = pcm_player->info->ver;
-	if (snd_BUG_ON(pcm_player->ver <= 0))
-		return -EINVAL;
+	BUG_ON(pcm_player->ver <= 0);
 	pcm_player->device = &pdev->dev;
 
 	/* Get resources */
@@ -1001,10 +964,9 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "Player's name is '%s'\n", pcm_player->info->name);
 
-	if (snd_BUG_ON((pcm_player->info->channels <= 0) ||
-		       (pcm_player->info->channels > 10) ||
-		       (pcm_player->info->channels % 2 != 0)))
-		return -EINVAL;
+	BUG_ON(pcm_player->info->channels <= 0);
+	BUG_ON(pcm_player->info->channels > 10);
+	BUG_ON(pcm_player->info->channels % 2 != 0);
 	if (pcm_player->ver > ver__AUD_PCMOUT__90_1_1) {
 		static unsigned int channels_2_10[] = { 2, 4, 6, 8, 10 };
 
@@ -1108,10 +1070,8 @@ static int snd_stm_pcm_player_remove(struct platform_device *pdev)
 
 	snd_stm_printd(1, "snd_stm_pcm_player_remove(pdev=%p)\n", pdev);
 
-	if (snd_BUG_ON(!pcm_player))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(pcm_player)))
-		return -EINVAL;
+	BUG_ON(!pcm_player);
+	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
 	snd_stm_conv_unregister_source(pcm_player->conv_source);
 	snd_stm_buffer_dispose(pcm_player->buffer);

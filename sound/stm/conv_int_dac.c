@@ -92,10 +92,8 @@ static int snd_stm_conv_int_dac_set_enabled(int enabled, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_int_dac_set_enabled(enabled=%d, "
 			"priv=%p)\n", enabled, priv);
 
-	if (snd_BUG_ON(!conv_int_dac))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_int_dac)))
-		return -EINVAL;
+	BUG_ON(!conv_int_dac);
+	BUG_ON(!snd_stm_magic_valid(conv_int_dac));
 
 	snd_stm_printd(1, "%sabling DAC %s's digital part.\n",
 			enabled ? "En" : "Dis", conv_int_dac->bus_id);
@@ -118,10 +116,8 @@ static int snd_stm_conv_int_dac_set_muted(int muted, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_int_dac_set_muted(muted=%d, priv=%p)\n",
 		       muted, priv);
 
-	if (snd_BUG_ON(!conv_int_dac))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_int_dac)))
-		return -EINVAL;
+	BUG_ON(!conv_int_dac);
+	BUG_ON(!snd_stm_magic_valid(conv_int_dac));
 
 	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
 			conv_int_dac->bus_id);
@@ -153,10 +149,8 @@ static void snd_stm_conv_int_dac_read_info(struct snd_info_entry *entry,
 	struct snd_stm_conv_int_dac *conv_int_dac =
 		entry->private_data;
 
-	if (snd_BUG_ON(!conv_int_dac))
-		return;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_int_dac)))
-		return;
+	BUG_ON(!conv_int_dac);
+	BUG_ON(!snd_stm_magic_valid(conv_int_dac));
 
 	snd_iprintf(buffer, "--- %s ---\n", conv_int_dac->bus_id);
 	snd_iprintf(buffer, "base = 0x%p\n", conv_int_dac->base);
@@ -172,10 +166,8 @@ static int snd_stm_conv_int_dac_register(struct snd_device *snd_device)
 	struct snd_stm_conv_int_dac *conv_int_dac =
 			snd_device->device_data;
 
-	if (snd_BUG_ON(!conv_int_dac))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_int_dac)))
-		return -EINVAL;
+	BUG_ON(!conv_int_dac);
+	BUG_ON(!snd_stm_magic_valid(conv_int_dac));
 
 	/* Initialize DAC with digital part down, analog up and muted */
 
@@ -202,10 +194,8 @@ static int __exit snd_stm_conv_int_dac_disconnect(struct snd_device *snd_device)
 	struct snd_stm_conv_int_dac *conv_int_dac =
 			snd_device->device_data;
 
-	if (snd_BUG_ON(!conv_int_dac))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_int_dac)))
-		return -EINVAL;
+	BUG_ON(!conv_int_dac);
+	BUG_ON(!snd_stm_magic_valid(conv_int_dac));
 
 	/* Remove procfs entry */
 
@@ -245,10 +235,8 @@ static int snd_stm_conv_int_dac_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
 
-	if (snd_BUG_ON(card == NULL))
-		return -EINVAL;
-	if (snd_BUG_ON(conv_int_dac_info == NULL))
-		return -EINVAL;
+	BUG_ON(!card);
+	BUG_ON(!conv_int_dac_info);
 
 	conv_int_dac = kzalloc(sizeof(*conv_int_dac), GFP_KERNEL);
 	if (!conv_int_dac) {
@@ -259,8 +247,7 @@ static int snd_stm_conv_int_dac_probe(struct platform_device *pdev)
 	}
 	snd_stm_magic_set(conv_int_dac);
 	conv_int_dac->ver = conv_int_dac_info->ver;
-	if (snd_BUG_ON(conv_int_dac->ver <= 0))
-		return -EINVAL;
+	BUG_ON(conv_int_dac->ver <= 0);
 	conv_int_dac->bus_id = dev_name(&pdev->dev);
 
 	/* Get resources */
@@ -274,8 +261,7 @@ static int snd_stm_conv_int_dac_probe(struct platform_device *pdev)
 
 	/* Get connections */
 
-	if (snd_BUG_ON(conv_int_dac_info->source_bus_id == NULL))
-		return -EINVAL;
+	BUG_ON(!conv_int_dac_info->source_bus_id);
 	snd_stm_printd(0, "This DAC is attached to PCM player '%s'.\n",
 			conv_int_dac_info->source_bus_id);
 	conv_int_dac->converter = snd_stm_conv_register_converter(
@@ -321,10 +307,8 @@ static int snd_stm_conv_int_dac_remove(struct platform_device *pdev)
 {
 	struct snd_stm_conv_int_dac *conv_int_dac = platform_get_drvdata(pdev);
 
-	if (snd_BUG_ON(!conv_int_dac))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_int_dac)))
-		return -EINVAL;
+	BUG_ON(!conv_int_dac);
+	BUG_ON(!snd_stm_magic_valid(conv_int_dac));
 
 	snd_stm_conv_unregister_converter(conv_int_dac->converter);
 	snd_stm_memory_release(conv_int_dac->mem_region,

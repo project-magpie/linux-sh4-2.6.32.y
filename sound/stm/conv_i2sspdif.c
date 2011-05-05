@@ -94,10 +94,8 @@ static int snd_stm_conv_i2sspdif_iec958_set(struct snd_stm_conv_i2sspdif
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_iec958_set(conv_i2sspdif=%p"
 			", iec958=%p)\n", conv_i2sspdif, iec958);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
 
 	/* I2S to SPDIF converter should be used only for playing
 	 * PCM (non compressed) data, so validity bit should be always
@@ -109,7 +107,7 @@ static int snd_stm_conv_i2sspdif_iec958_set(struct snd_stm_conv_i2sspdif
 	 * converter hardware, so it is better not to do this at all... */
 	set__AUD_SPDIFPC_DATA__USER_DATA_BITS(conv_i2sspdif, 0);
 
-	snd_BUG_ON(memcmp(snd_stm_conv_i2sspdif_iec958_zeroed.subcode,
+	BUG_ON(memcmp(snd_stm_conv_i2sspdif_iec958_zeroed.subcode,
 			  iec958->subcode, sizeof(iec958->subcode)) != 0);
 
 	if (conv_i2sspdif->ver < ver__AUD_SPDIFPC__65_3_0) {
@@ -215,10 +213,8 @@ static int snd_stm_conv_i2sspdif_oversampling(struct snd_stm_conv_i2sspdif
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_oversampling("
 			"conv_i2sspdif=%p)\n", conv_i2sspdif);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
 
 	return DEFAULT_OVERSAMPLING;
 }
@@ -232,17 +228,13 @@ static int snd_stm_conv_i2sspdif_enable(struct snd_stm_conv_i2sspdif
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_enable(conv_i2sspdif=%p)\n",
 			conv_i2sspdif);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
-	if (snd_BUG_ON(conv_i2sspdif->enabled))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
+	BUG_ON(conv_i2sspdif->enabled);
 
 	oversampling = snd_stm_conv_i2sspdif_oversampling(conv_i2sspdif);
-	if (snd_BUG_ON((oversampling <= 0) ||
-		       (oversampling % 128) != 0))
-		return -EINVAL;
+	BUG_ON(oversampling <= 0);
+	BUG_ON((oversampling % 128) != 0);
 
 	set__AUD_SPDIFPC_CFG(conv_i2sspdif,
 		mask__AUD_SPDIFPC_CFG__DEVICE_EN__ENABLED(conv_i2sspdif) |
@@ -282,12 +274,9 @@ static int snd_stm_conv_i2sspdif_disable(struct snd_stm_conv_i2sspdif
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_disable(conv_i2sspdif=%p)\n",
 			conv_i2sspdif);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
-	if (snd_BUG_ON(!conv_i2sspdif->enabled))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
+	BUG_ON(!conv_i2sspdif->enabled);
 
 	if (snd_stm_conv_i2sspdif_iec958_set(conv_i2sspdif,
 			&snd_stm_conv_i2sspdif_iec958_zeroed) != 0)
@@ -317,7 +306,7 @@ static unsigned int snd_stm_conv_i2sspdif_get_format(void *priv)
 {
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_get_format(priv=%p)\n", priv);
 
-	return (SND_STM_FORMAT__I2S | SND_STM_FORMAT__SUBFRAME_32_BITS);
+	return SND_STM_FORMAT__I2S | SND_STM_FORMAT__SUBFRAME_32_BITS;
 }
 
 static int snd_stm_conv_i2sspdif_get_oversampling(void *priv)
@@ -327,10 +316,8 @@ static int snd_stm_conv_i2sspdif_get_oversampling(void *priv)
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_get_oversampling(priv=%p)\n",
 			priv);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
 
 	return snd_stm_conv_i2sspdif_oversampling(conv_i2sspdif);
 }
@@ -342,10 +329,8 @@ static int snd_stm_conv_i2sspdif_set_enabled(int enabled, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_set_enabled(enabled=%d, "
 			"priv=%p)\n", enabled, priv);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
 
 	snd_stm_printd(1, "%sabling I2S to SPDIF converter '%s'.\n",
 			enabled ? "En" : "Dis",
@@ -378,10 +363,8 @@ static int snd_stm_conv_i2sspdif_ctl_default_get(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_ctl_default_get("
 			"kcontrol=0x%p, ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
 
 	spin_lock(&conv_i2sspdif->iec958_default_lock);
 	ucontrol->value.iec958 = conv_i2sspdif->iec958_default;
@@ -400,10 +383,8 @@ static int snd_stm_conv_i2sspdif_ctl_default_put(struct snd_kcontrol *kcontrol,
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_ctl_default_put("
 			"kcontrol=0x%p, ucontrol=0x%p)\n", kcontrol, ucontrol);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
 
 	spin_lock(&conv_i2sspdif->iec958_default_lock);
 	if (snd_stm_iec958_cmp(&conv_i2sspdif->iec958_default,
@@ -457,10 +438,8 @@ static void snd_stm_conv_i2sspdif_dump_registers(struct snd_info_entry *entry,
 		entry->private_data;
 	int i;
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
 
 	snd_iprintf(buffer, "--- %s ---\n", dev_name(conv_i2sspdif->device));
 	snd_iprintf(buffer, "base = 0x%p\n", conv_i2sspdif->base);
@@ -498,12 +477,9 @@ static int snd_stm_conv_i2sspdif_register(struct snd_device *snd_device)
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_register(snd_device=0x%p)\n",
 			snd_device);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
-	if (snd_BUG_ON(conv_i2sspdif->enabled))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
+	BUG_ON(conv_i2sspdif->enabled);
 
 	snd_stm_printd(0, "--- Registering I2S to SPDIF converter '%s'...\n",
 			dev_name(conv_i2sspdif->device));
@@ -557,12 +533,9 @@ static int snd_stm_conv_i2sspdif_disconnect(struct snd_device *snd_device)
 	snd_stm_printd(1, "snd_stm_conv_i2sspdif_disconnect(snd_device=0x%p)\n",
 			snd_device);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
-	if (snd_BUG_ON(conv_i2sspdif->enabled))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
+	BUG_ON(conv_i2sspdif->enabled);
 
 	/* Remove procfs entry */
 
@@ -602,8 +575,7 @@ static int snd_stm_conv_i2sspdif_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
 
-	if (snd_BUG_ON(conv_i2sspdif_info == NULL))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif_info);
 
 	conv_i2sspdif = kzalloc(sizeof(*conv_i2sspdif), GFP_KERNEL);
 	if (!conv_i2sspdif) {
@@ -614,8 +586,7 @@ static int snd_stm_conv_i2sspdif_probe(struct platform_device *pdev)
 	}
 	snd_stm_magic_set(conv_i2sspdif);
 	conv_i2sspdif->ver = conv_i2sspdif_info->ver;
-	if (snd_BUG_ON(!conv_i2sspdif->ver <= 0))
-		return -EINVAL;
+	BUG_ON(conv_i2sspdif->ver <= 0);
 	conv_i2sspdif->info = conv_i2sspdif_info;
 	conv_i2sspdif->device = &pdev->dev;
 	spin_lock_init(&conv_i2sspdif->iec958_default_lock);
@@ -631,8 +602,7 @@ static int snd_stm_conv_i2sspdif_probe(struct platform_device *pdev)
 
 	/* Get connections */
 
-	if (snd_BUG_ON(conv_i2sspdif_info->source_bus_id == NULL))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif_info->source_bus_id);
 	snd_stm_printd(0, "This I2S-SPDIF converter is attached to PCM player"
 			" '%s'.\n",
 			conv_i2sspdif_info->source_bus_id);
@@ -682,10 +652,8 @@ static int snd_stm_conv_i2sspdif_remove(struct platform_device *pdev)
 	struct snd_stm_conv_i2sspdif *conv_i2sspdif =
 			platform_get_drvdata(pdev);
 
-	if (snd_BUG_ON(!conv_i2sspdif))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_i2sspdif)))
-		return -EINVAL;
+	BUG_ON(!conv_i2sspdif);
+	BUG_ON(!snd_stm_magic_valid(conv_i2sspdif));
 
 	snd_stm_conv_unregister_converter(conv_i2sspdif->converter);
 	snd_stm_memory_release(conv_i2sspdif->mem_region, conv_i2sspdif->base);

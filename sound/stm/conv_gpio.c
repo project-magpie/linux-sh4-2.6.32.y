@@ -74,10 +74,8 @@ static void snd_stm_conv_gpio_work(struct work_struct *work)
 
 	snd_stm_printd(1, "snd_stm_conv_gpio_work(work=%p)\n", work);
 
-	if (snd_BUG_ON(!conv_gpio))
-		return;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_gpio)))
-		return;
+	BUG_ON(!conv_gpio);
+	BUG_ON(!snd_stm_magic_valid(conv_gpio));
 
 	spin_lock(&conv_gpio->work_lock);
 
@@ -105,10 +103,8 @@ static void snd_stm_conv_gpio_set_value(struct snd_stm_conv_gpio *conv_gpio,
 			"enable_not_mute=%d, value=%d)\n",
 			conv_gpio, enable_not_mute, value);
 
-	if (snd_BUG_ON(!conv_gpio))
-		return;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_gpio)))
-		return;
+	BUG_ON(!conv_gpio);
+	BUG_ON(!snd_stm_magic_valid(conv_gpio));
 
 	if (conv_gpio->may_sleep) {
 		spin_lock(&conv_gpio->work_lock);
@@ -136,10 +132,8 @@ static unsigned int snd_stm_conv_gpio_get_format(void *priv)
 
 	snd_stm_printd(1, "snd_stm_conv_gpio_get_format(priv=%p)\n", priv);
 
-	if (snd_BUG_ON(!conv_gpio))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_gpio)))
-		return -EINVAL;
+	BUG_ON(!conv_gpio);
+	BUG_ON(!snd_stm_magic_valid(conv_gpio));
 
 	return conv_gpio->info->format;
 }
@@ -151,10 +145,8 @@ static int snd_stm_conv_gpio_get_oversampling(void *priv)
 	snd_stm_printd(1, "snd_stm_conv_gpio_get_oversampling(priv=%p)\n",
 			priv);
 
-	if (snd_BUG_ON(!conv_gpio))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_gpio)))
-		return -EINVAL;
+	BUG_ON(!conv_gpio);
+	BUG_ON(!snd_stm_magic_valid(conv_gpio));
 
 	return conv_gpio->info->oversampling;
 }
@@ -166,12 +158,9 @@ static int snd_stm_conv_gpio_set_enabled(int enabled, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_gpio_enable(enabled=%d, priv=%p)\n",
 			enabled, priv);
 
-	if (snd_BUG_ON(!conv_gpio))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_gpio)))
-		return -EINVAL;
-	if (snd_BUG_ON(!conv_gpio->info->enable_supported))
-		return -EINVAL;
+	BUG_ON(!conv_gpio);
+	BUG_ON(!snd_stm_magic_valid(conv_gpio));
+	BUG_ON(!conv_gpio->info->enable_supported);
 
 	snd_stm_printd(1, "%sabling DAC %s's.\n", enabled ? "En" : "Dis",
 			conv_gpio->bus_id);
@@ -190,12 +179,9 @@ static int snd_stm_conv_gpio_set_muted(int muted, void *priv)
 	snd_stm_printd(1, "snd_stm_conv_gpio_set_muted(muted=%d, priv=%p)\n",
 			muted, priv);
 
-	if (snd_BUG_ON(!conv_gpio))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_gpio)))
-		return -EINVAL;
-	if (snd_BUG_ON(!conv_gpio->info->mute_supported))
-		return -EINVAL;
+	BUG_ON(!conv_gpio);
+	BUG_ON(!snd_stm_magic_valid(conv_gpio));
+	BUG_ON(!conv_gpio->info->mute_supported);
 
 	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
 			conv_gpio->bus_id);
@@ -218,10 +204,8 @@ static void snd_stm_conv_gpio_read_info(struct snd_info_entry *entry,
 {
 	struct snd_stm_conv_gpio *conv_gpio = entry->private_data;
 
-	if (snd_BUG_ON(!conv_gpio))
-		return;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_gpio)))
-		return;
+	BUG_ON(!conv_gpio);
+	BUG_ON(!snd_stm_magic_valid(conv_gpio));
 
 	snd_iprintf(buffer, "--- %s ---\n", conv_gpio->bus_id);
 
@@ -249,8 +233,7 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 
 	snd_stm_printd(0, "--- Probing device '%s'...\n", dev_name(&pdev->dev));
 
-	if (snd_BUG_ON(pdev->dev.platform_data == NULL))
-		return -EINVAL;
+	BUG_ON(!pdev->dev.platform_data);
 
 	conv_gpio = kzalloc(sizeof(*conv_gpio), GFP_KERNEL);
 	if (!conv_gpio) {
@@ -272,8 +255,7 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 
 	/* Get connections */
 
-	if (snd_BUG_ON(conv_gpio->info->source_bus_id == NULL))
-		return -EINVAL;
+	BUG_ON(!conv_gpio->info->source_bus_id);
 	snd_stm_printd(0, "This DAC is attached to PCM player '%s'.\n",
 			conv_gpio->info->source_bus_id);
 	conv_gpio->converter = snd_stm_conv_register_converter(
@@ -369,10 +351,8 @@ static int snd_stm_conv_gpio_remove(struct platform_device *pdev)
 {
 	struct snd_stm_conv_gpio *conv_gpio = platform_get_drvdata(pdev);
 
-	if (snd_BUG_ON(!conv_gpio))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(conv_gpio)))
-		return -EINVAL;
+	BUG_ON(!conv_gpio);
+	BUG_ON(!snd_stm_magic_valid(conv_gpio));
 
 	snd_device_free(snd_stm_card_get(), conv_gpio);
 	snd_stm_conv_unregister_converter(conv_gpio->converter);
@@ -383,7 +363,7 @@ static int snd_stm_conv_gpio_remove(struct platform_device *pdev)
 
 	/* Wait for the possibly scheduled work... */
 
-	if (conv_gpio->may_sleep);
+	if (conv_gpio->may_sleep)
 		flush_scheduled_work();
 
 	/* Muting and disabling - just to be sure ;-) */

@@ -78,10 +78,8 @@ static void snd_stm_stx7100_glue_dump_registers(struct snd_info_entry *entry,
 {
 	struct snd_stm_stx7100_glue *stx7100_glue = entry->private_data;
 
-	if (snd_BUG_ON(!stx7100_glue))
-		return;
-	if (snd_BUG_ON(!snd_stm_magic_valid(stx7100_glue)))
-		return;
+	BUG_ON(!stx7100_glue);
+	BUG_ON(!snd_stm_magic_valid(stx7100_glue));
 
 	snd_iprintf(buffer, "--- snd_stx7100_glue ---\n");
 	snd_iprintf(buffer, "IO_CTRL (0x%p) = 0x%08x\n",
@@ -140,10 +138,8 @@ static int __exit snd_stm_stx7100_glue_remove(struct platform_device *pdev)
 	struct snd_stm_stx7100_glue *stx7100_glue =
 			platform_get_drvdata(pdev);
 
-	if (snd_BUG_ON(!stx7100_glue))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(stx7100_glue)))
-		return -EINVAL;
+	BUG_ON(!stx7100_glue);
+	BUG_ON(!snd_stm_magic_valid(stx7100_glue));
 
 	/* Remove procfs entry */
 	snd_stm_info_unregister(stx7100_glue->proc_entry);

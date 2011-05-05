@@ -220,7 +220,7 @@ void snd_stm_iec958_dump(const struct snd_aes_iec958 *vuc);
 #if !defined(COMPONENT)
 #error Please define COMPONENT name before including "common.h" !
 #endif
-static const char __maybe_unused *__snd_stm_component = __stringify(COMPONENT);
+static const char __maybe_unused*__snd_stm_component = __stringify(COMPONENT);
 
 /* Debug messages */
 
@@ -289,12 +289,11 @@ extern int *snd_stm_debug_level;
 #define snd_stm_magic_bad (0xbaad0000 | snd_stm_magic)
 #define snd_stm_magic_field unsigned __snd_stm_magic
 #define snd_stm_magic_set(object) \
-		(object)->__snd_stm_magic = snd_stm_magic_good
+		((object)->__snd_stm_magic) = snd_stm_magic_good
 #define snd_stm_magic_clear(object) \
-		(object)->__snd_stm_magic = snd_stm_magic_bad
+		((object)->__snd_stm_magic) = snd_stm_magic_bad
 #define snd_stm_magic_valid(object) \
-		snd_BUG_ON((object)->__snd_stm_magic == \
-			       snd_stm_magic_good)
+		((object)->__snd_stm_magic == snd_stm_magic_good)
 
 #else
 

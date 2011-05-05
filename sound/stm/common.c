@@ -50,10 +50,8 @@ struct snd_card *snd_stm_card_new(int index, const char *id,
 {
 	int err;
 
-	if (snd_BUG_ON(snd_stm_card != NULL))
-		return NULL;
-	if (snd_BUG_ON(snd_stm_card_registered))
-		return NULL;
+	BUG_ON(snd_stm_card);
+	BUG_ON(snd_stm_card_registered);
 
 	err = snd_card_create(index, id, module, 0, &snd_stm_card);
 	if (err)
@@ -67,10 +65,8 @@ int snd_stm_card_register(void)
 {
 	int result;
 
-	if (snd_BUG_ON(snd_stm_card == NULL))
-		return -EINVAL;
-	if (snd_BUG_ON(snd_stm_card_registered))
-		return -EINVAL;
+	BUG_ON(!snd_stm_card);
+	BUG_ON(snd_stm_card_registered);
 
 	result = snd_card_register(snd_stm_card);
 
@@ -83,8 +79,7 @@ EXPORT_SYMBOL(snd_stm_card_register);
 
 int snd_stm_card_is_registered(void)
 {
-	if (snd_BUG_ON(snd_stm_card == NULL))
-		return -EINVAL;
+	BUG_ON(!snd_stm_card);
 
 	return snd_stm_card_registered;
 }
@@ -92,10 +87,8 @@ EXPORT_SYMBOL(snd_stm_card_is_registered);
 
 void snd_stm_card_free(void)
 {
-	if (snd_BUG_ON(snd_stm_card == NULL))
-		return;
-	if (snd_BUG_ON(!snd_stm_card_registered))
-		return;
+	BUG_ON(!snd_stm_card);
+	BUG_ON(!snd_stm_card_registered);
 
 	snd_card_free(snd_stm_card);
 
@@ -106,8 +99,7 @@ EXPORT_SYMBOL(snd_stm_card_free);
 
 struct snd_card *snd_stm_card_get(void)
 {
-	if (snd_BUG_ON(snd_stm_card == NULL))
-		return NULL;
+	BUG_ON(!snd_stm_card);
 
 	return snd_stm_card;
 }
@@ -314,8 +306,7 @@ struct snd_stm_buffer *snd_stm_buffer_create(struct snd_pcm *pcm,
 	snd_stm_printd(1, "snd_stm_buffer_init(pcm=%p, prealloc_size=%d)\n",
 			pcm, prealloc_size);
 
-	if (snd_BUG_ON(!pcm))
-		return NULL;
+	BUG_ON(!pcm);
 
 	buffer = kzalloc(sizeof(*buffer), GFP_KERNEL);
 	if (!buffer) {
@@ -358,12 +349,9 @@ void snd_stm_buffer_dispose(struct snd_stm_buffer *buffer)
 {
 	snd_stm_printd(1, "snd_stm_buffer_dispose(buffer=%p)\n", buffer);
 
-	if (snd_BUG_ON(!buffer))
-		return;
-	if (snd_BUG_ON(!snd_stm_magic_valid(buffer)))
-		return;
-	if (snd_BUG_ON(buffer->allocated))
-		return;
+	BUG_ON(!buffer);
+	BUG_ON(!snd_stm_magic_valid(buffer));
+	BUG_ON(buffer->allocated);
 
 	/* snd_pcm_lib__preallocate*-ed buffer is freed automagically */
 
@@ -376,10 +364,8 @@ int snd_stm_buffer_is_allocated(struct snd_stm_buffer *buffer)
 	snd_stm_printd(1, "snd_stm_buffer_is_allocated(buffer=%p)\n",
 			buffer);
 
-	if (snd_BUG_ON(!buffer))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(buffer)))
-		return -EINVAL;
+	BUG_ON(!buffer);
+	BUG_ON(!snd_stm_magic_valid(buffer));
 
 	return buffer->allocated;
 }
@@ -390,14 +376,10 @@ int snd_stm_buffer_alloc(struct snd_stm_buffer *buffer,
 	snd_stm_printd(1, "snd_stm_buffer_alloc(buffer=%p, substream=%p, "
 			"size=%d)\n", buffer, substream, size);
 
-	if (snd_BUG_ON(!buffer))
-		return -EINVAL;
-	if (snd_BUG_ON(!snd_stm_magic_valid(buffer)))
-		return -EINVAL;
-	if (snd_BUG_ON(buffer->allocated))
-		return -EINVAL;
-	if (snd_BUG_ON(size <= 0))
-		return -EINVAL;
+	BUG_ON(!buffer);
+	BUG_ON(!snd_stm_magic_valid(buffer));
+	BUG_ON(buffer->allocated);
+	BUG_ON(size <= 0);
 
 	if (buffer->bpa2_part) {
 #if defined(CONFIG_BPA2)
@@ -442,12 +424,9 @@ void snd_stm_buffer_free(struct snd_stm_buffer *buffer)
 
 	snd_stm_printd(1, "snd_stm_buffer_free(buffer=%p)\n", buffer);
 
-	if (snd_BUG_ON(!buffer))
-		return;
-	if (snd_BUG_ON(!snd_stm_magic_valid(buffer)))
-		return;
-	if (snd_BUG_ON(!buffer->allocated))
-		return;
+	BUG_ON(!buffer);
+	BUG_ON(!snd_stm_magic_valid(buffer));
+	BUG_ON(!buffer->allocated);
 
 	runtime = buffer->substream->runtime;
 
@@ -698,10 +677,8 @@ int snd_stm_iec958_cmp(const struct snd_aes_iec958 *a,
 {
 	int result;
 
-	if (snd_BUG_ON(a == NULL))
-		return -EINVAL;
-	if (snd_BUG_ON(b == NULL))
-		return -EINVAL;
+	BUG_ON(!a);
+	BUG_ON(!b);
 
 	result = memcmp(a->status, b->status, sizeof(a->status));
 	if (result == 0)

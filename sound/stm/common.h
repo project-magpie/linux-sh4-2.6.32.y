@@ -186,8 +186,8 @@ void snd_stm_fsynth_exit(void);
 int snd_stm_conv_init(void);
 void snd_stm_conv_exit(void);
 
-int snd_stm_conv_int_dac_init(void);
-void snd_stm_conv_int_dac_exit(void);
+int snd_stm_conv_dac_mem_init(void);
+void snd_stm_conv_dac_mem_exit(void);
 
 int snd_stm_conv_i2sspdif_init(void);
 void snd_stm_conv_i2sspdif_exit(void);

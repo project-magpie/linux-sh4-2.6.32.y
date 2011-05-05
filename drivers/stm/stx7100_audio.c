@@ -1,5 +1,5 @@
 /*
- * (c) 2010 STMicroelectronics Limited
+ * Copyright (c) 2010-2011 STMicroelectronics Limited
  *
  * Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -51,21 +51,21 @@ static struct platform_device stx7100_fsynth = {
 
 /* Internal DAC */
 
-static struct snd_stm_conv_int_dac_info stx7100_conv_int_dac_info = {
+static struct snd_stm_conv_dac_mem_info stx7100_conv_dac_mem_info = {
 	/* .ver = see stx7100_configure_audio() */
 	.source_bus_id = "snd_pcm_player.1",
 	.channel_from = 0,
 	.channel_to = 1,
 };
 
-static struct platform_device stx7100_conv_int_dac = {
-	.name          = "snd_conv_int_dac",
+static struct platform_device stx7100_conv_dac_mem = {
+	.name          = "snd_conv_dac_mem",
 	.id            = -1,
 	.num_resources = 1,
 	.resource      = (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM(0x19210100, 0x4),
 	},
-	.dev.platform_data = &stx7100_conv_int_dac_info,
+	.dev.platform_data = &stx7100_conv_dac_mem_info,
 };
 
 /* PCM players */
@@ -186,7 +186,7 @@ static struct platform_device *stx7100_audio_devices[] __initdata = {
 	&stx7100_fsynth,
 	&stx7100_pcm_player_0,
 	&stx7100_pcm_player_1,
-	&stx7100_conv_int_dac,
+	&stx7100_conv_dac_mem,
 	&stx7100_spdif_player,
 	&stx7100_conv_i2sspdif,
 	&stx7100_pcm_reader,
@@ -214,7 +214,7 @@ static int __init stx7100_audio_devices_setup(void)
 			stx7100_pcm_player_0_info.ver = 2;
 			stx7100_pcm_player_1_info.ver = 2;
 		}
-		stx7100_conv_int_dac_info.ver = 1;
+		stx7100_conv_dac_mem_info.ver = 1;
 		stx7100_spdif_player_info.ver = 1;
 		stx7100_conv_i2sspdif_info.ver = 1;
 
@@ -239,7 +239,7 @@ static int __init stx7100_audio_devices_setup(void)
 			stx7100_pcm_player_0_info.ver = 4;
 			stx7100_pcm_player_1_info.ver = 4;
 		}
-		stx7100_conv_int_dac_info.ver = 2;
+		stx7100_conv_dac_mem_info.ver = 2;
 		stx7100_spdif_player_info.ver = 2;
 		stx7100_conv_i2sspdif_info.ver = 2;
 

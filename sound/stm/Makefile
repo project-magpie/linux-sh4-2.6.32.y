@@ -1,6 +1,6 @@
 obj-$(CONFIG_SND_STM) += snd-stm.o
 snd-stm-y := init.o common.o fsynth.o
-snd-stm-y += conv.o conv_i2sspdif.o conv_int_dac.o
+snd-stm-y += conv.o conv_i2sspdif.o conv_dac_mem.o
 snd-stm-y += pcm_player.o pcm_reader.o spdif_player.o
 
 obj-$(CONFIG_SND_STM_STX7100) += snd-stm-stx7100.o

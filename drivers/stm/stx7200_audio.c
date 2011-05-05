@@ -1,5 +1,5 @@
 /*
- * (c) 2010 STMicroelectronics Limited
+ * Copyright (c) 2010-2011 STMicroelectronics Limited
  *
  * Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -65,14 +65,14 @@ static struct platform_device stx7200_fsynth_1 = {
 
 /* Internal DACs */
 
-static struct platform_device stx7200_conv_int_dac_0 = {
-	.name          = "snd_conv_int_dac",
+static struct platform_device stx7200_conv_dac_mem_0 = {
+	.name          = "snd_conv_dac_mem",
 	.id            = 0,
 	.num_resources = 1,
 	.resource      = (struct resource []) {
 		STM_PLAT_RESOURCE_MEM(0xfd601400, 0x4),
 	},
-	.dev.platform_data = &(struct snd_stm_conv_int_dac_info) {
+	.dev.platform_data = &(struct snd_stm_conv_dac_mem_info) {
 		/* .ver = see snd_stm_stx7200_init() */
 		.source_bus_id = "snd_pcm_player.0",
 		.channel_from = 0,
@@ -80,14 +80,14 @@ static struct platform_device stx7200_conv_int_dac_0 = {
 	},
 };
 
-static struct platform_device stx7200_conv_int_dac_1 = {
-	.name          = "snd_conv_int_dac",
+static struct platform_device stx7200_conv_dac_mem_1 = {
+	.name          = "snd_conv_dac_mem",
 	.id            = 1,
 	.num_resources = 1,
 	.resource      = (struct resource []) {
 		STM_PLAT_RESOURCE_MEM(0xfd601500, 0x4),
 	},
-	.dev.platform_data = &(struct snd_stm_conv_int_dac_info) {
+	.dev.platform_data = &(struct snd_stm_conv_dac_mem_info) {
 		/* .ver = see snd_stm_stx7200_init() */
 		.source_bus_id = "snd_pcm_player.1",
 		.channel_from = 0,
@@ -437,8 +437,8 @@ static struct platform_device *stx7200_audio_devices[] __initdata = {
 	&stx7200_glue,
 	&stx7200_fsynth_0,
 	&stx7200_fsynth_1,
-	&stx7200_conv_int_dac_0,
-	&stx7200_conv_int_dac_1,
+	&stx7200_conv_dac_mem_0,
+	&stx7200_conv_dac_mem_1,
 	&stx7200_pcm_player_0,
 	&stx7200_pcm_player_1,
 	&stx7200_pcm_player_2,
@@ -481,8 +481,8 @@ static int __init stx7200_audio_devices_setup(void)
 		SET_VER(snd_stm_fsynth_info, stx7200_fsynth_0, 3);
 		SET_VER(snd_stm_fsynth_info, stx7200_fsynth_1, 3);
 
-		SET_VER(snd_stm_conv_int_dac_info, stx7200_conv_int_dac_0, 3);
-		SET_VER(snd_stm_conv_int_dac_info, stx7200_conv_int_dac_1, 3);
+		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_0, 3);
+		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_1, 3);
 
 		SET_VER(snd_stm_pcm_player_info, stx7200_pcm_player_0, 5);
 		SET_VER(snd_stm_pcm_player_info, stx7200_pcm_player_1, 5);
@@ -509,8 +509,8 @@ static int __init stx7200_audio_devices_setup(void)
 		SET_VER(snd_stm_fsynth_info, stx7200_fsynth_0, 5);
 		SET_VER(snd_stm_fsynth_info, stx7200_fsynth_1, 5);
 
-		SET_VER(snd_stm_conv_int_dac_info, stx7200_conv_int_dac_0, 4);
-		SET_VER(snd_stm_conv_int_dac_info, stx7200_conv_int_dac_1, 4);
+		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_0, 4);
+		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_1, 4);
 
 		SET_VER(snd_stm_pcm_player_info, stx7200_pcm_player_0, 6);
 		SET_VER(snd_stm_pcm_player_info, stx7200_pcm_player_1, 6);
@@ -537,7 +537,7 @@ static int __init stx7200_audio_devices_setup(void)
 
 	default:
 		printk(KERN_ERR "%s(): Not supported STx7200 cut %d detected!"
-				"\n", __FUNCTION__, cpu_data->cut_major);
+				"\n", __func__, cpu_data->cut_major);
 		return -ENODEV;
 	}
 

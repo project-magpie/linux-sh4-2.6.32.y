@@ -59,10 +59,10 @@ int snd_stm_drivers_register(void)
 				" failed!\n");
 		goto error_conv;
 	}
-	result = snd_stm_conv_int_dac_init();
+	result = snd_stm_conv_dac_mem_init();
 	if (result != 0) {
 		snd_stm_printe("Internal DACs driver initialization failed!\n");
-		goto error_conv_int_dac;
+		goto error_conv_dac_mem;
 	}
 	result = snd_stm_conv_i2sspdif_init();
 	if (result != 0) {
@@ -95,8 +95,8 @@ error_pcm_reader:
 error_pcm_player:
 	snd_stm_conv_i2sspdif_exit();
 error_conv_i2sspdif:
-	snd_stm_conv_int_dac_exit();
-error_conv_int_dac:
+	snd_stm_conv_dac_mem_exit();
+error_conv_dac_mem:
 	snd_stm_conv_exit();
 error_conv:
 	snd_stm_fsynth_exit();
@@ -114,7 +114,7 @@ void snd_stm_drivers_unregister(void)
 	snd_stm_pcm_reader_exit();
 	snd_stm_pcm_player_exit();
 	snd_stm_conv_i2sspdif_exit();
-	snd_stm_conv_int_dac_exit();
+	snd_stm_conv_dac_mem_exit();
 	snd_stm_conv_exit();
 	snd_stm_fsynth_exit();
 	snd_stm_info_dispose();

@@ -203,7 +203,7 @@ struct snd_stm_fsynth_info {
  * Internal audio DAC description (platform data)
  */
 
-struct snd_stm_conv_int_dac_info {
+struct snd_stm_conv_dac_mem_info {
 	int ver;
 
 	const char *source_bus_id;

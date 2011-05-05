@@ -1,5 +1,5 @@
 /*
- * (c) 2010 STMicroelectronics Limited
+ * Copyright (c) 2010-2011 STMicroelectronics Limited
  *
  * Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -50,14 +50,14 @@ static struct platform_device stx7111_fsynth = {
 
 /* Internal DAC */
 
-static struct platform_device stx7111_conv_int_dac = {
-	.name          = "snd_conv_int_dac",
+static struct platform_device stx7111_conv_dac_mem = {
+	.name          = "snd_conv_dac_mem",
 	.id            = -1,
 	.num_resources = 1,
 	.resource      = (struct resource []) {
 		STM_PLAT_RESOURCE_MEM(0xfe210100, 0x4),
 	},
-	.dev.platform_data = &(struct snd_stm_conv_int_dac_info) {
+	.dev.platform_data = &(struct snd_stm_conv_dac_mem_info) {
 		.ver = 4,
 		.source_bus_id = "snd_pcm_player.1",
 		.channel_from = 0,
@@ -220,7 +220,7 @@ static struct platform_device stx7111_pcm_reader = {
 static struct platform_device *stx7111_audio_devices[] __initdata = {
 	&stx7111_glue,
 	&stx7111_fsynth,
-	&stx7111_conv_int_dac,
+	&stx7111_conv_dac_mem,
 	&stx7111_pcm_player_0,
 	&stx7111_pcm_player_1,
 	&stx7111_spdif_player,

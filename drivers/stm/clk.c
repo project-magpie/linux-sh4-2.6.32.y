@@ -455,7 +455,7 @@ static int clk_proc_open(struct inode *inode, struct file *file)
 	return seq_open(file, &clk_seq_ops);
 }
 
-static struct file_operations clk_proc_ops = {
+static const struct file_operations clk_proc_ops = {
 	.owner = THIS_MODULE,
 	.open = clk_proc_open,
 	.read = seq_read,

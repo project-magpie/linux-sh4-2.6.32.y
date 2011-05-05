@@ -348,12 +348,19 @@ static struct platform_driver snd_stm_conv_dac_mem_driver = {
  * Initialization
  */
 
-int snd_stm_conv_dac_mem_init(void)
+static int __init snd_stm_conv_dac_mem_init(void)
 {
 	return platform_driver_register(&snd_stm_conv_dac_mem_driver);
 }
 
-void snd_stm_conv_dac_mem_exit(void)
+static void __exit snd_stm_conv_dac_mem_exit(void)
 {
 	platform_driver_unregister(&snd_stm_conv_dac_mem_driver);
 }
+
+MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");
+MODULE_DESCRIPTION("STMicroelectronics memory-mapped audio DAC driver");
+MODULE_LICENSE("GPL");
+
+module_init(snd_stm_conv_dac_mem_init);
+module_exit(snd_stm_conv_dac_mem_exit);

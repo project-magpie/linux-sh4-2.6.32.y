@@ -1019,9 +1019,7 @@ static int snd_stm_pcm_reader_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver snd_stm_pcm_reader_driver = {
-	.driver = {
-		.name = "snd_pcm_reader",
-	},
+	.driver.name = "snd_pcm_reader",
 	.probe = snd_stm_pcm_reader_probe,
 	.remove = snd_stm_pcm_reader_remove,
 };
@@ -1030,12 +1028,19 @@ static struct platform_driver snd_stm_pcm_reader_driver = {
  * Initialization
  */
 
-int snd_stm_pcm_reader_init(void)
+static int __init snd_stm_pcm_reader_init(void)
 {
 	return platform_driver_register(&snd_stm_pcm_reader_driver);
 }
 
-void snd_stm_pcm_reader_exit(void)
+static void __exit snd_stm_pcm_reader_exit(void)
 {
 	platform_driver_unregister(&snd_stm_pcm_reader_driver);
 }
+
+MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");
+MODULE_DESCRIPTION("STMicroelectronics PCM reader driver");
+MODULE_LICENSE("GPL");
+
+module_init(snd_stm_pcm_reader_init);
+module_exit(snd_stm_pcm_reader_exit);

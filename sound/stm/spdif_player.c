@@ -1697,12 +1697,19 @@ static struct platform_driver snd_stm_spdif_player_driver = {
  * Initialization
  */
 
-int snd_stm_spdif_player_init(void)
+static int __init snd_stm_spdif_player_init(void)
 {
 	return platform_driver_register(&snd_stm_spdif_player_driver);
 }
 
-void snd_stm_spdif_player_exit(void)
+static void __exit snd_stm_spdif_player_exit(void)
 {
 	platform_driver_unregister(&snd_stm_spdif_player_driver);
 }
+
+MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");
+MODULE_DESCRIPTION("STMicroelectronics SPDIF player driver");
+MODULE_LICENSE("GPL");
+
+module_init(snd_stm_spdif_player_init);
+module_exit(snd_stm_spdif_player_exit);

@@ -18,6 +18,31 @@ menuconfig SND_STM
 		To compile this driver as a module, choose M here: the module
 	 	will be called snd-stm.ko
 
+config SND_STM_PCM_PLAYER
+	tristate
+	depends on SND_STM
+	default n
+
+config SND_STM_PCM_READER
+	tristate
+	depends on SND_STM
+	default n
+
+config SND_STM_SPDIF_PLAYER
+	tristate
+	depends on SND_STM
+	default n
+
+config SND_STM_CONV_DAC_MEMORY_MAPPED
+	tristate
+	depends on SND_STM
+	default n
+
+config SND_STM_CONV_I2S_TO_SPDIF
+	tristate
+	depends on SND_STM
+	default n
+
 config SND_STM_BPA2_PARTITION_NAME
 	string "Name of BPA2 partition to allocate buffers from"
 	depends on SND_STM
@@ -59,6 +84,11 @@ config SND_STM_STX7100
 	tristate "STx7100 and STx7109 support"
 	depends on SND_STM
 	default y if CPU_SUBTYPE_STX7100
+	select SND_STM_PCM_PLAYER
+	select SND_STM_PCM_READER
+	select SND_STM_SPDIF_PLAYER
+	select SND_STM_CONV_DAC_MEMORY_MAPPED
+	select SND_STM_CONV_I2S_TO_SPDIF
 	help
 		Select this to get ALSA driver for STx7100 and STx7109 chips.
 
@@ -69,6 +99,11 @@ config SND_STM_STX7105
 	tristate "STx7105 support"
 	depends on SND_STM
 	default y if CPU_SUBTYPE_STX7105
+	select SND_STM_PCM_PLAYER
+	select SND_STM_PCM_READER
+	select SND_STM_SPDIF_PLAYER
+	select SND_STM_CONV_DAC_MEMORY_MAPPED
+	select SND_STM_CONV_I2S_TO_SPDIF
 	help
 		Select this to get ALSA driver for STx7105 chip.
 
@@ -79,6 +114,11 @@ config SND_STM_STX7111
 	tristate "STx7111 support"
 	depends on SND_STM
 	default y if CPU_SUBTYPE_STX7111
+	select SND_STM_PCM_PLAYER
+	select SND_STM_PCM_READER
+	select SND_STM_SPDIF_PLAYER
+	select SND_STM_CONV_DAC_MEMORY_MAPPED
+	select SND_STM_CONV_I2S_TO_SPDIF
 	help
 		Select this to get ALSA driver for STx7111 chip.
 
@@ -89,6 +129,11 @@ config SND_STM_STX7141
 	tristate "STx7141 support"
 	depends on SND_STM
 	default y if CPU_SUBTYPE_STX7141
+	select SND_STM_PCM_PLAYER
+	select SND_STM_PCM_READER
+	select SND_STM_SPDIF_PLAYER
+	select SND_STM_CONV_DAC_MEMORY_MAPPED
+	select SND_STM_CONV_I2S_TO_SPDIF
 	help
 		Select this to get ALSA driver for STx7141 chip.
 
@@ -99,6 +144,11 @@ config SND_STM_STX7200
 	tristate "STx7200 support"
 	depends on SND_STM
 	default y if CPU_SUBTYPE_STX7200
+	select SND_STM_PCM_PLAYER
+	select SND_STM_PCM_READER
+	select SND_STM_SPDIF_PLAYER
+	select SND_STM_CONV_DAC_MEMORY_MAPPED
+	select SND_STM_CONV_I2S_TO_SPDIF
 	help
 		Select this to get ALSA driver for STx7200 chip.
 

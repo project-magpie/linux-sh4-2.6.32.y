@@ -174,12 +174,6 @@ static int __init snd_stm_stx7111_init(void)
 		goto error_glue_driver_register;
 	}
 
-	result = snd_stm_drivers_register();
-	if (result != 0) {
-		snd_stm_printe("Drivers registration failed!\n");
-		goto error_drivers_register;
-	}
-
 	result = snd_stm_card_register();
 	if (result != 0) {
 		snd_stm_printe("Failed to register ALSA cards!\n");
@@ -189,8 +183,6 @@ static int __init snd_stm_stx7111_init(void)
 	return 0;
 
 error_card_register:
-	snd_stm_drivers_unregister();
-error_drivers_register:
 	platform_driver_unregister(&snd_stm_stx7111_glue_driver);
 error_glue_driver_register:
 error_soc_type:
@@ -201,7 +193,6 @@ static void __exit snd_stm_stx7111_exit(void)
 {
 	snd_stm_printd(0, "snd_stm_stx7111_exit()\n");
 
-	snd_stm_drivers_unregister();
 	platform_driver_unregister(&snd_stm_stx7111_glue_driver);
 }
 

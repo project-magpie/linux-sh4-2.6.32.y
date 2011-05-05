@@ -1,7 +1,7 @@
 /*
  *   STMicroelectronics System-on-Chips' I2S to SPDIF converter driver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -665,9 +665,7 @@ static int snd_stm_conv_i2sspdif_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver snd_stm_conv_i2sspdif_driver = {
-	.driver = {
-		.name = "snd_conv_i2sspdif",
-	},
+	.driver.name = "snd_conv_i2sspdif",
 	.probe = snd_stm_conv_i2sspdif_probe,
 	.remove = snd_stm_conv_i2sspdif_remove,
 };
@@ -678,12 +676,19 @@ static struct platform_driver snd_stm_conv_i2sspdif_driver = {
  * Initialization
  */
 
-int snd_stm_conv_i2sspdif_init(void)
+static int __init snd_stm_conv_i2sspdif_init(void)
 {
 	return platform_driver_register(&snd_stm_conv_i2sspdif_driver);
 }
 
-void snd_stm_conv_i2sspdif_exit(void)
+static void __exit snd_stm_conv_i2sspdif_exit(void)
 {
 	platform_driver_unregister(&snd_stm_conv_i2sspdif_driver);
 }
+
+MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");
+MODULE_DESCRIPTION("STMicroelectronics I2S to SPDIF converter driver");
+MODULE_LICENSE("GPL");
+
+module_init(snd_stm_conv_i2sspdif_init);
+module_exit(snd_stm_conv_i2sspdif_exit);

@@ -26,9 +26,6 @@ int snd_stm_card_register(void);
 int snd_stm_card_is_registered(void);
 struct snd_card *snd_stm_card_get(void);
 
-int snd_stm_drivers_register(void);
-void snd_stm_drivers_unregister(void);
-
 
 
 /*
@@ -59,7 +56,8 @@ int snd_stm_conv_enable(struct snd_stm_conv_group *group,
 int snd_stm_conv_disable(struct snd_stm_conv_group *group);
 int snd_stm_conv_mute(struct snd_stm_conv_group *group);
 int snd_stm_conv_unmute(struct snd_stm_conv_group *group);
-
+int snd_stm_conv_init(void);
+void snd_stm_conv_exit(void);
 
 
 /*
@@ -152,33 +150,6 @@ int snd_stm_irq_request(struct platform_device *pdev,
 
 int snd_stm_fdma_request(struct platform_device *pdev, int *channel);
 #define snd_stm_fdma_release(channel) free_dma(channel)
-
-
-
-/*
- * Core drivers initialization/exit
- */
-
-int snd_stm_conv_init(void);
-void snd_stm_conv_exit(void);
-
-int snd_stm_conv_dac_mem_init(void);
-void snd_stm_conv_dac_mem_exit(void);
-
-int snd_stm_conv_i2sspdif_init(void);
-void snd_stm_conv_i2sspdif_exit(void);
-
-int snd_stm_pcm_player_init(void);
-void snd_stm_pcm_player_exit(void);
-
-int snd_stm_pcm_reader_init(void);
-void snd_stm_pcm_reader_exit(void);
-
-int snd_stm_spdif_player_init(void);
-void snd_stm_spdif_player_exit(void);
-
-int snd_stm_synchro_init(void);
-void snd_stm_synchro_exit(void);
 
 
 

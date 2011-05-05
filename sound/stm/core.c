@@ -115,67 +115,6 @@ struct snd_card *snd_stm_card_get(void)
 EXPORT_SYMBOL(snd_stm_card_get);
 
 
-int snd_stm_drivers_register(void)
-{
-	int result;
-
-	snd_stm_printd(0, "snd_stm_core_init()\n");
-
-	result = snd_stm_conv_dac_mem_init();
-	if (result != 0) {
-		snd_stm_printe("Internal DACs driver initialization failed!\n");
-		goto error_conv_dac_mem;
-	}
-	result = snd_stm_conv_i2sspdif_init();
-	if (result != 0) {
-		snd_stm_printe("I2S to SPDIF converter driver initialization"
-				" failed!\n");
-		goto error_conv_i2sspdif;
-	}
-	result = snd_stm_pcm_player_init();
-	if (result != 0) {
-		snd_stm_printe("PCM player driver initialization failed!\n");
-		goto error_pcm_player;
-	}
-	result = snd_stm_pcm_reader_init();
-	if (result != 0) {
-		snd_stm_printe("PCM reader driver initialization failed!\n");
-		goto error_pcm_reader;
-	}
-	result = snd_stm_spdif_player_init();
-	if (result != 0) {
-		snd_stm_printe("SPDIF player driver initialization failed!\n");
-		goto error_spdif_player;
-	}
-
-	return result;
-
-error_spdif_player:
-	snd_stm_pcm_reader_exit();
-error_pcm_reader:
-	snd_stm_pcm_player_exit();
-error_pcm_player:
-	snd_stm_conv_i2sspdif_exit();
-error_conv_i2sspdif:
-	snd_stm_conv_dac_mem_exit();
-error_conv_dac_mem:
-	return result;
-}
-EXPORT_SYMBOL(snd_stm_drivers_register);
-
-void snd_stm_drivers_unregister(void)
-{
-	snd_stm_printd(0, "snd_stm_core_exit()\n");
-
-	snd_stm_spdif_player_exit();
-	snd_stm_pcm_reader_exit();
-	snd_stm_pcm_player_exit();
-	snd_stm_conv_i2sspdif_exit();
-	snd_stm_conv_dac_mem_exit();
-}
-EXPORT_SYMBOL(snd_stm_drivers_unregister);
-
-
 /*
  * Resources management
  */

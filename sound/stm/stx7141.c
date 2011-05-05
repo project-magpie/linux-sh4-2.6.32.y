@@ -1,7 +1,7 @@
 /*
- *   STMicrolectronics STx7141 audio subsystem driver
+ *   STMicrolectronics STx7141 audio glue driver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Stephen Gallimore <stephen.gallimore@st.com>
  *
@@ -31,7 +31,6 @@
 
 #define COMPONENT stx7141
 #include "common.h"
-#include "reg_7141_audcfg.h"
 
 
 
@@ -52,6 +51,25 @@ MODULE_PARM_DESC(id, "ID string for STx7141 audio subsystem card.");
 /*
  * Audio glue driver implementation
  */
+
+#define IO_CTRL(base)				((base) + 0x00)
+#define CLKREC_SEL				9
+#define CLKREC_SEL__PCMPLHDMI			(0 << CLKREC_SEL)
+#define CLKREC_SEL__SPDIFHDMI			(1 << CLKREC_SEL)
+#define CLKREC_SEL__PCMPL1			(2 << CLKREC_SEL)
+#define CLKREC_SEL__PCMPL0			(3 << CLKREC_SEL)
+#define PCMR1_SCLK_INV_SEL			12
+#define PCMR1_SCLK_INV_SEL__NO_INVERSION	(0 << PCMR1_SCLK_INV_SEL)
+#define PCMR1_SCLK_INV_SEL__INVERSION		(1 << PCMR1_SCLK_INV_SEL)
+#define PCMR1_LRCLK_RET_SEL			13
+#define PCMR1_LRCLK_RET_SEL__NO_RETIMIMG	(0 << PCMR1_LRCLK_RET_SEL)
+#define PCMR1_LRCLK_RET_SEL__RETIME_BY_1_CYCLE	(1 << PCMR1_LRCLK_RET_SEL)
+#define PCMR1_SCLK_SEL				14
+#define PCMR1_SCLK_SEL__FROM_PAD		(0 << PCMR1_SCLK_SEL)
+#define PCMR1_SCLK_SEL__FROM_PCM_PLAYER_0	(1 << PCMR1_SCLK_SEL)
+#define PCMR1_LRCLK_SEL				15
+#define PCMR1_LRCLK_SEL__FROM_PAD		(0 << PCMR1_LRCLK_SEL)
+#define PCMR1_LRCLK_SEL__FROM_PCM_PLAYER_0	(1 << PCMR1_LRCLK_SEL)
 
 struct snd_stm_stx7141_glue {
 	int ver;
@@ -75,10 +93,9 @@ static void snd_stm_stx7141_glue_dump_registers(struct snd_info_entry *entry,
 		return;
 
 	snd_iprintf(buffer, "--- snd_stx7141_glue ---\n");
-	snd_iprintf(buffer, "base = 0x%p\n", stx7141_glue->base);
-
-	snd_iprintf(buffer, "AUDCFG_IO_CTRL (offset 0x00) = 0x%08x\n",
-			get__7141_AUDCFG_IO_CTRL(stx7141_glue));
+	snd_iprintf(buffer, "IO_CTRL (0x%p) = 0x%08x\n",
+			IO_CTRL(stx7141_glue->base),
+			readl(IO_CTRL(stx7141_glue->base)));
 
 	snd_iprintf(buffer, "\n");
 }

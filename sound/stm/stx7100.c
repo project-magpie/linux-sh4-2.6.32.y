@@ -1,7 +1,7 @@
 /*
- *   STMicrolectronics STx7100/STx7109 audio subsystem driver
+ *   STMicrolectronics STx7100/STx7109 audio glue driver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -28,7 +28,6 @@
 
 #define COMPONENT stx7100
 #include "common.h"
-#include "reg_7100_audcfg.h"
 
 
 
@@ -50,6 +49,20 @@ MODULE_PARM_DESC(id, "ID string for STx7100/STx7109 audio subsystem card.");
 /*
  * Audio glue driver implementation
  */
+
+#define IO_CTRL(base)		((base) + 0x00)
+#define PCM_CLK_EN		0
+#define PCM_CLK_EN__INPUT	(0 << PCM_CLK_EN)
+#define PCM_CLK_EN__OUTPUT	(1 << PCM_CLK_EN)
+#define DATA0_EN		1
+#define DATA0_EN__INPUT		(0 << DATA0_EN)
+#define DATA0_EN__OUTPUT	(1 << DATA0_EN)
+#define DATA1_EN		2
+#define DATA1_EN__INPUT		(0 << DATA1_EN)
+#define DATA1_EN__OUTPUT	(1 << DATA1_EN)
+#define SPDIN_EN		3
+#define SPDIF_EN__DISABLE	(0 << SPDIN_EN)
+#define SPDIF_EN__ENABLE	(1 << SPDIN_EN)
 
 struct snd_stm_stx7100_glue {
 	int ver;
@@ -73,10 +86,9 @@ static void snd_stm_stx7100_glue_dump_registers(struct snd_info_entry *entry,
 		return;
 
 	snd_iprintf(buffer, "--- snd_stx7100_glue ---\n");
-	snd_iprintf(buffer, "base = 0x%p\n", stx7100_glue->base);
-
-	snd_iprintf(buffer, "AUDCFG_IO_CTRL (offset 0x00) = 0x%08x\n",
-			get__7100_AUDCFG_IO_CTRL(stx7100_glue));
+	snd_iprintf(buffer, "IO_CTRL (0x%p) = 0x%08x\n",
+			IO_CTRL(stx7100_glue->base),
+			readl(IO_CTRL(stx7100_glue->base)));
 
 	snd_iprintf(buffer, "\n");
 }
@@ -91,15 +103,10 @@ static int __init snd_stm_stx7100_glue_register(struct snd_device *snd_device)
 		return -EINVAL;
 
 	/* Enable audio outputs */
-
-	set__7100_AUDCFG_IO_CTRL(stx7100_glue,
-		mask__7100_AUDCFG_IO_CTRL__SPDIF_EN__ENABLE(stx7100_glue) |
-		mask__7100_AUDCFG_IO_CTRL__DATA1_EN__OUTPUT(stx7100_glue) |
-		mask__7100_AUDCFG_IO_CTRL__DATA0_EN__OUTPUT(stx7100_glue) |
-		mask__7100_AUDCFG_IO_CTRL__PCM_CLK_EN__OUTPUT(stx7100_glue));
+	writel(SPDIF_EN__ENABLE | DATA1_EN__OUTPUT | DATA0_EN__OUTPUT |
+			PCM_CLK_EN__OUTPUT, IO_CTRL(stx7100_glue->base));
 
 	/* Additional procfs info */
-
 	snd_stm_info_register(&stx7100_glue->proc_entry, "stx7100_glue",
 			snd_stm_stx7100_glue_dump_registers, stx7100_glue);
 
@@ -120,12 +127,8 @@ static int __exit snd_stm_stx7100_glue_disconnect(struct snd_device *snd_device)
 	snd_stm_info_unregister(stx7100_glue->proc_entry);
 
 	/* Disable audio outputs */
-
-	set__7100_AUDCFG_IO_CTRL(stx7100_glue,
-		mask__7100_AUDCFG_IO_CTRL__SPDIF_EN__DISABLE(stx7100_glue) |
-		mask__7100_AUDCFG_IO_CTRL__DATA1_EN__INPUT(stx7100_glue) |
-		mask__7100_AUDCFG_IO_CTRL__DATA0_EN__INPUT(stx7100_glue) |
-		mask__7100_AUDCFG_IO_CTRL__PCM_CLK_EN__INPUT(stx7100_glue));
+	writel(SPDIF_EN__DISABLE | DATA1_EN__INPUT | DATA0_EN__INPUT |
+			PCM_CLK_EN__INPUT, IO_CTRL(stx7100_glue->base));
 
 	return 0;
 }

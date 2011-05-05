@@ -1,7 +1,7 @@
 /*
- *   STMicrolectronics STx7105 audio subsystem driver
+ *   STMicrolectronics STx7105 audio glue driver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -30,7 +30,6 @@
 
 #define COMPONENT stx7105
 #include "common.h"
-#include "reg_7105_audcfg.h"
 
 
 
@@ -51,6 +50,21 @@ MODULE_PARM_DESC(id, "ID string for STx7105 audio subsystem card.");
 /*
  * Audio glue driver implementation
  */
+
+#define IO_CTRL(base)		((base) + 0x00)
+#define PCM_CLK_EN		0
+#define PCM_CLK_EN__INPUT	(0 << PCM_CLK_EN)
+#define PCM_CLK_EN__OUTPUT	(1 << PCM_CLK_EN)
+#define SPDIFHDMI_EN		3
+#define SPDIFHDMI_EN__INPUT	(0 << SPDIFHDMI_EN)
+#define SPDIFHDMI_EN__OUTPUT	(1 << SPDIFHDMI_EN)
+#define PCMPLHDMI_EN		5
+#define PCMPLHDMI_EN__INPUT	(0 << PCMPLHDMI_EN)
+#define PCMPLHDMI_EN__OUTPUT	(1 << PCMPLHDMI_EN)
+#define CLKREC_SEL		9
+#define CLKREC_SEL__PCMPLHDMI	(0 << CLKREC_SEL)
+#define CLKREC_SEL__SPDIFHDMI	(1 << CLKREC_SEL)
+#define CLKREC_SEL__PCMPL1	(2 << CLKREC_SEL)
 
 struct snd_stm_stx7105_glue {
 	int ver;
@@ -74,10 +88,9 @@ static void snd_stm_stx7105_glue_dump_registers(struct snd_info_entry *entry,
 		return;
 
 	snd_iprintf(buffer, "--- snd_stx7105_glue ---\n");
-	snd_iprintf(buffer, "base = 0x%p\n", stx7105_glue->base);
-
-	snd_iprintf(buffer, "AUDCFG_IO_CTRL (offset 0x00) = 0x%08x\n",
-			get__7105_AUDCFG_IO_CTRL(stx7105_glue));
+	snd_iprintf(buffer, "IO_CTRL (0x%p) = 0x%08x\n",
+			IO_CTRL(stx7105_glue->base),
+			readl(IO_CTRL(stx7105_glue->base)));
 
 	snd_iprintf(buffer, "\n");
 }
@@ -92,14 +105,10 @@ static int __init snd_stm_stx7105_glue_register(struct snd_device *snd_device)
 		return -EINVAL;
 
 	/* Enable audio outputs */
-
-	set__7105_AUDCFG_IO_CTRL(stx7105_glue,
-		mask__7105_AUDCFG_IO_CTRL__PCMPLHDMI_EN__OUTPUT(stx7105_glue) |
-		mask__7105_AUDCFG_IO_CTRL__SPDIFHDMI_EN__OUTPUT(stx7105_glue) |
-		mask__7105_AUDCFG_IO_CTRL__PCM_CLK_EN__OUTPUT(stx7105_glue));
+	writel(PCMPLHDMI_EN__OUTPUT | SPDIFHDMI_EN__OUTPUT |
+			PCM_CLK_EN__OUTPUT, IO_CTRL(stx7105_glue->base));
 
 	/* Additional procfs info */
-
 	snd_stm_info_register(&stx7105_glue->proc_entry, "stx7105_glue",
 			snd_stm_stx7105_glue_dump_registers, stx7105_glue);
 
@@ -120,11 +129,8 @@ static int __exit snd_stm_stx7105_glue_disconnect(struct snd_device *snd_device)
 	snd_stm_info_unregister(stx7105_glue->proc_entry);
 
 	/* Disable audio outputs */
-
-	set__7105_AUDCFG_IO_CTRL(stx7105_glue,
-		mask__7105_AUDCFG_IO_CTRL__PCMPLHDMI_EN__OUTPUT(stx7105_glue) |
-		mask__7105_AUDCFG_IO_CTRL__SPDIFHDMI_EN__OUTPUT(stx7105_glue) |
-		mask__7105_AUDCFG_IO_CTRL__PCM_CLK_EN__OUTPUT(stx7105_glue));
+	writel(PCMPLHDMI_EN__INPUT | SPDIFHDMI_EN__INPUT |
+			PCM_CLK_EN__INPUT, IO_CTRL(stx7105_glue->base));
 
 	return 0;
 }

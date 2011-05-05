@@ -1,7 +1,7 @@
 /*
- *   STMicrolectronics STx7200 SoC audio subsystem driver
+ *   STMicrolectronics STx7200 SoC audio gluedriver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -30,7 +30,6 @@
 
 #define COMPONENT stx7200
 #include "common.h"
-#include "reg_7200_audcfg.h"
 
 
 
@@ -60,6 +59,28 @@ MODULE_PARM_DESC(id, "PCM Reader #1 control (not valid for STx7200 cut 1).");
  * Audio glue driver implementation
  */
 
+#define IOMUX_CTRL(base)	((base) + 0x00)
+#define PCM_CLK_EN		0
+#define PCM_CLK_EN__INPUT	(0 << PCM_CLK_EN)
+#define PCM_CLK_EN__OUTPUT	(1 << PCM_CLK_EN)
+#define DATA0_EN		1
+#define DATA0_EN__INPUT		(0 << DATA0_EN)
+#define DATA0_EN__OUTPUT	(1 << DATA0_EN)
+#define DATA1_EN		2
+#define DATA1_EN__INPUT		(0 << DATA1_EN)
+#define DATA1_EN__OUTPUT	(1 << DATA1_EN)
+#define DATA2_EN		3
+#define DATA2_EN__INPUT		(0 << DATA2_EN)
+#define DATA2_EN__OUTPUT	(1 << DATA2_EN)
+#define SPDIF_EN		4
+#define SPDIF_EN__DISABLE	(0 << SPDIF_EN)
+#define SPDIF_EN__ENABLE	(1 << SPDIF_EN)
+#define PCMRDR1_EN		5
+#define PCMRDR1_EN__DISABLE	(0 << PCMRDR1_EN)
+#define PCMRDR1_EN__ENABLE	(1 << PCMRDR1_EN)
+#define HDMI_CTRL(base)		((base) + 0x04)
+#define RECOVERY_CTRL(base)	((base) + 0x08)
+
 struct snd_stm_stx7200_glue {
 	int ver;
 
@@ -82,14 +103,15 @@ static void snd_stm_stx7200_glue_dump_registers(struct snd_info_entry *entry,
 		return;
 
 	snd_iprintf(buffer, "--- snd_stx7200_glue ---\n");
-	snd_iprintf(buffer, "base = 0x%p\n", stx7200_glue->base);
-
-	snd_iprintf(buffer, "AUDCFG_IOMUX_CTRL (offset 0x00) = 0x%08x\n",
-			get__7200_AUDCFG_IOMUX_CTRL(stx7200_glue));
-	snd_iprintf(buffer, "AUDCFG_HDMI_CTRL (offset 0x04) = 0x%08x\n",
-			get__7200_AUDCFG_HDMI_CTRL(stx7200_glue));
-	snd_iprintf(buffer, "AUDCFG_RECOVERY_CTRL (offset 0x08) = 0x%08x\n",
-			get__7200_AUDCFG_RECOVERY_CTRL(stx7200_glue));
+	snd_iprintf(buffer, "IOMUX_CTRL (0x%p) = 0x%08x\n",
+			IOMUX_CTRL(stx7200_glue->base),
+			readl(IOMUX_CTRL(stx7200_glue->base)));
+	snd_iprintf(buffer, "HDMI_CTRL (0x%p) = 0x%08x\n",
+			HDMI_CTRL(stx7200_glue->base),
+			readl(HDMI_CTRL(stx7200_glue->base)));
+	snd_iprintf(buffer, "RECOVERY_CTRL (0x%p) = 0x%08x\n",
+			RECOVERY_CTRL(stx7200_glue->base),
+			readl(RECOVERY_CTRL(stx7200_glue->base)));
 
 	snd_iprintf(buffer, "\n");
 }
@@ -97,6 +119,7 @@ static void snd_stm_stx7200_glue_dump_registers(struct snd_info_entry *entry,
 static int __init snd_stm_stx7200_glue_register(struct snd_device *snd_device)
 {
 	struct snd_stm_stx7200_glue *stx7200_glue = snd_device->device_data;
+	unsigned long value;
 
 	if (snd_BUG_ON(!stx7200_glue))
 		return -EINVAL;
@@ -104,21 +127,16 @@ static int __init snd_stm_stx7200_glue_register(struct snd_device *snd_device)
 		return -EINVAL;
 
 	/* Enable audio outputs */
-
-	set__7200_AUDCFG_IOMUX_CTRL(stx7200_glue,
-		mask__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__ENABLE(stx7200_glue) |
-		mask__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__OUTPUT(stx7200_glue) |
-		mask__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__OUTPUT(stx7200_glue) |
-		mask__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__OUTPUT(stx7200_glue) |
-		mask__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__OUTPUT(stx7200_glue));
+	value = SPDIF_EN__ENABLE | DATA2_EN__OUTPUT | DATA1_EN__OUTPUT |
+			DATA0_EN__OUTPUT | PCM_CLK_EN__OUTPUT;
 
 	/* Enable PCM Reader #1 (well, in some cases) */
-
 	if (cpu_data->cut_major > 1 && pcm_reader_1_enabled)
-		set__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__ENABLE(stx7200_glue);
+		value |= PCMRDR1_EN__ENABLE;
+
+	writel(value, IOMUX_CTRL(stx7200_glue->base));
 
 	/* Additional procfs info */
-
 	snd_stm_info_register(&stx7200_glue->proc_entry, "stx7200_glue",
 			snd_stm_stx7200_glue_dump_registers, stx7200_glue);
 
@@ -128,6 +146,7 @@ static int __init snd_stm_stx7200_glue_register(struct snd_device *snd_device)
 static int __exit snd_stm_stx7200_glue_disconnect(struct snd_device *snd_device)
 {
 	struct snd_stm_stx7200_glue *stx7200_glue = snd_device->device_data;
+	unsigned long value;
 
 	if (snd_BUG_ON(!stx7200_glue))
 		return -EINVAL;
@@ -139,18 +158,14 @@ static int __exit snd_stm_stx7200_glue_disconnect(struct snd_device *snd_device)
 	snd_stm_info_unregister(stx7200_glue->proc_entry);
 
 	/* Disable audio outputs */
-
-	set__7200_AUDCFG_IOMUX_CTRL(stx7200_glue,
-		mask__7200_AUDCFG_IOMUX_CTRL__SPDIF_EN__DISABLE(stx7200_glue) |
-		mask__7200_AUDCFG_IOMUX_CTRL__DATA2_EN__INPUT(stx7200_glue) |
-		mask__7200_AUDCFG_IOMUX_CTRL__DATA1_EN__INPUT(stx7200_glue) |
-		mask__7200_AUDCFG_IOMUX_CTRL__DATA0_EN__INPUT(stx7200_glue) |
-		mask__7200_AUDCFG_IOMUX_CTRL__PCM_CLK_EN__INPUT(stx7200_glue));
+	value = SPDIF_EN__DISABLE | DATA2_EN__INPUT | DATA1_EN__INPUT |
+			DATA0_EN__INPUT | PCM_CLK_EN__INPUT;
 
 	/* Disable PCM Reader #1 (well, in some cases) */
-
 	if (cpu_data->cut_major > 1 && pcm_reader_1_enabled)
-		set__7200_AUDCFG_IOMUX_CTRL__PCMRDR1_EN__DISABLE(stx7200_glue);
+		value |= PCMRDR1_EN__DISABLE;
+
+	writel(value, IOMUX_CTRL(stx7200_glue->base));
 
 	return 0;
 }
@@ -250,7 +265,6 @@ static int __init snd_stm_stx7200_init(void)
 {
 	int result;
 	struct snd_card *card;
-	int ver;
 
 	snd_stm_printd(0, "snd_stm_stx7200_init()\n");
 

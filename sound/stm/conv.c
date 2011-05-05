@@ -76,7 +76,7 @@ struct snd_stm_conv_group {
 	char name[1]; /* "Expandable" */
 };
 
-#define SND_STM_BUS_ID_SIZE 64
+#define SND_STM_BUS_ID_SIZE 30
 struct snd_stm_conv_source {
 	struct list_head list;
 
@@ -94,8 +94,8 @@ struct snd_stm_conv_source {
 	snd_stm_magic_field;
 };
 
-LIST_HEAD(snd_stm_conv_sources); /* Sources list */
-DEFINE_MUTEX(snd_stm_conv_mutex); /* Big Converters Structure Lock ;-) */
+static LIST_HEAD(snd_stm_conv_sources); /* Sources list */
+static DEFINE_MUTEX(snd_stm_conv_mutex); /* Big Converters Structure Lock ;-) */
 
 
 
@@ -604,7 +604,7 @@ static int snd_stm_conv_ctl_route_add(struct snd_stm_conv_source *source)
  * Converters router implementation
  */
 
-static int snd_stm_conv_more_than_one_entry(const struct list_head *head)
+static inline int snd_stm_conv_more_than_one_entry(const struct list_head *head)
 {
 	return !list_empty(head) && !list_is_last(head->next, head);
 }
@@ -747,7 +747,7 @@ static struct snd_stm_conv_group *snd_stm_conv_get_group(
 	BUG_ON(!name);
 
 	/* Random memory fuse */
-	BUG_ON(strlen(name) >= 1024);
+	BUG_ON(strlen(name) > 1024);
 
 	mutex_lock(&snd_stm_conv_mutex);
 
@@ -1074,7 +1074,7 @@ static void snd_stm_conv_info(struct snd_info_entry *entry,
  */
 
 
-int snd_stm_conv_init(void)
+int __init snd_stm_conv_init(void)
 {
 	/* Register converters information file in ALSA's procfs */
 

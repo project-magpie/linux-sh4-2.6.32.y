@@ -109,8 +109,10 @@ static irqreturn_t snd_stm_pcm_reader_irq_handler(int irq, void *dev_id)
 	BUG_ON(!snd_stm_magic_valid(pcm_reader));
 
 	/* Get interrupt status & clear them immediately */
+	preempt_disable();
 	status = get__AUD_PCMIN_ITS(pcm_reader);
 	set__AUD_PCMIN_ITS_CLR(pcm_reader, status);
+	preempt_enable();
 
 	/* Overflow? */
 	if (unlikely(status & mask__AUD_PCMIN_ITS__OVF__PENDING(pcm_reader))) {

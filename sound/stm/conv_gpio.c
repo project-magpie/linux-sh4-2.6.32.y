@@ -43,7 +43,7 @@
 
 struct snd_stm_conv_gpio {
 	/* System informations */
-	const char *bus_id;
+	const char *dev_name;
 	struct snd_stm_conv_converter *converter;
 	struct snd_stm_conv_gpio_info *info;
 	struct snd_stm_conv_ops ops;
@@ -163,7 +163,7 @@ static int snd_stm_conv_gpio_set_enabled(int enabled, void *priv)
 	BUG_ON(!conv_gpio->info->enable_supported);
 
 	snd_stm_printd(1, "%sabling DAC %s's.\n", enabled ? "En" : "Dis",
-			conv_gpio->bus_id);
+			conv_gpio->dev_name);
 
 	snd_stm_conv_gpio_set_value(conv_gpio, 1,
 			enabled ? conv_gpio->info->enable_value :
@@ -184,7 +184,7 @@ static int snd_stm_conv_gpio_set_muted(int muted, void *priv)
 	BUG_ON(!conv_gpio->info->mute_supported);
 
 	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
-			conv_gpio->bus_id);
+			conv_gpio->dev_name);
 
 	snd_stm_conv_gpio_set_value(conv_gpio, 0,
 			muted ? conv_gpio->info->mute_value :
@@ -207,7 +207,7 @@ static void snd_stm_conv_gpio_read_info(struct snd_info_entry *entry,
 	BUG_ON(!conv_gpio);
 	BUG_ON(!snd_stm_magic_valid(conv_gpio));
 
-	snd_iprintf(buffer, "--- %s ---\n", conv_gpio->bus_id);
+	snd_iprintf(buffer, "--- %s ---\n", conv_gpio->dev_name);
 
 	snd_iprintf(buffer, "enable_gpio(%d) = %d\n",
 			conv_gpio->info->enable_gpio,
@@ -243,7 +243,7 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 		goto error_alloc;
 	}
 	snd_stm_magic_set(conv_gpio);
-	conv_gpio->bus_id = dev_name(&pdev->dev);
+	conv_gpio->dev_name = dev_name(&pdev->dev);
 	conv_gpio->info = pdev->dev.platform_data;
 
 	conv_gpio->ops.get_format = snd_stm_conv_gpio_get_format;
@@ -273,7 +273,7 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 
 	if (conv_gpio->info->enable_supported) {
 		result = gpio_request(conv_gpio->info->enable_gpio,
-				conv_gpio->bus_id);
+				conv_gpio->dev_name);
 		if (result != 0) {
 			snd_stm_printe("Can't reserve 'enable' GPIO line!\n");
 			goto error_gpio_request_enable;
@@ -292,7 +292,7 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 
 	if (conv_gpio->info->mute_supported) {
 		result = gpio_request(conv_gpio->info->mute_gpio,
-				conv_gpio->bus_id);
+				conv_gpio->dev_name);
 		if (result != 0) {
 			snd_stm_printe("Can't reserve 'mute' GPIO line!\n");
 			goto error_gpio_request_mute;
@@ -319,7 +319,7 @@ static int snd_stm_conv_gpio_probe(struct platform_device *pdev)
 	/* Additional procfs info */
 
 	snd_stm_info_register(&conv_gpio->proc_entry,
-			conv_gpio->bus_id,
+			conv_gpio->dev_name,
 			snd_stm_conv_gpio_read_info,
 			conv_gpio);
 

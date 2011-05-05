@@ -39,7 +39,7 @@
 
 struct snd_stm_conv_epld {
 	/* System informations */
-	const char *bus_id;
+	const char *dev_name;
 	struct snd_stm_conv_converter *converter;
 	struct snd_stm_conv_epld_info *info;
 
@@ -113,7 +113,7 @@ static int snd_stm_conv_epld_set_enabled(int enabled, void *priv)
 	BUG_ON(!conv_epld->info->enable_supported);
 
 	snd_stm_printd(1, "%sabling DAC %s's.\n", enabled ? "En" : "Dis",
-			conv_epld->bus_id);
+			conv_epld->dev_name);
 
 	snd_stm_conv_epld_set(conv_epld->info->enable_offset,
 			conv_epld->info->enable_mask,
@@ -135,7 +135,7 @@ static int snd_stm_conv_epld_set_muted(int muted, void *priv)
 	BUG_ON(!conv_epld->info->mute_supported);
 
 	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
-			conv_epld->bus_id);
+			conv_epld->dev_name);
 
 	snd_stm_conv_epld_set(conv_epld->info->mute_offset,
 			conv_epld->info->mute_mask,
@@ -162,7 +162,7 @@ static void snd_stm_conv_epld_read_info(struct snd_info_entry *entry,
 	BUG_ON(!conv_epld);
 	BUG_ON(!snd_stm_magic_valid(conv_epld));
 
-	snd_iprintf(buffer, "--- %s ---\n", conv_epld->bus_id);
+	snd_iprintf(buffer, "--- %s ---\n", conv_epld->dev_name);
 
 	if (conv_epld->info->enable_supported)
 		DUMP_EPLD(conv_epld->info->enable_offset);
@@ -195,7 +195,7 @@ static int snd_stm_conv_epld_probe(struct platform_device *pdev)
 		goto error_alloc;
 	}
 	snd_stm_magic_set(conv_epld);
-	conv_epld->bus_id = dev_name(&pdev->dev);
+	conv_epld->dev_name = dev_name(&pdev->dev);
 	conv_epld->info = pdev->dev.platform_data;
 
 	conv_epld->ops.get_format = snd_stm_conv_epld_get_format;
@@ -236,7 +236,7 @@ static int snd_stm_conv_epld_probe(struct platform_device *pdev)
 	/* Additional procfs info */
 
 	snd_stm_info_register(&conv_epld->proc_entry,
-			conv_epld->bus_id,
+			conv_epld->dev_name,
 			snd_stm_conv_epld_read_info,
 			conv_epld);
 

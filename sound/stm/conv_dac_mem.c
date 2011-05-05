@@ -77,7 +77,7 @@
 struct snd_stm_conv_dac_mem {
 	/* System informations */
 	struct snd_stm_conv_converter *converter;
-	const char *bus_id;
+	const char *dev_name;
 
 	/* Resources */
 	struct resource *mem_region;
@@ -121,7 +121,7 @@ static int snd_stm_conv_dac_mem_set_enabled(int enabled, void *priv)
 	BUG_ON(!snd_stm_magic_valid(conv_dac_mem));
 
 	snd_stm_printd(1, "%sabling DAC %s's digital part.\n",
-			enabled ? "En" : "Dis", conv_dac_mem->bus_id);
+			enabled ? "En" : "Dis", conv_dac_mem->dev_name);
 
 	value = readl(ADAC_CTRL(conv_dac_mem->base));
 	value &= ~(NSB__MASK | NRST__MASK);
@@ -146,7 +146,7 @@ static int snd_stm_conv_dac_mem_set_muted(int muted, void *priv)
 	BUG_ON(!snd_stm_magic_valid(conv_dac_mem));
 
 	snd_stm_printd(1, "%suting DAC %s.\n", muted ? "M" : "Unm",
-			conv_dac_mem->bus_id);
+			conv_dac_mem->dev_name);
 
 	value = readl(ADAC_CTRL(conv_dac_mem->base));
 	value &= ~SOFTMUTE__MASK;
@@ -181,7 +181,7 @@ static void snd_stm_conv_dac_mem_read_info(struct snd_info_entry *entry,
 	BUG_ON(!conv_dac_mem);
 	BUG_ON(!snd_stm_magic_valid(conv_dac_mem));
 
-	snd_iprintf(buffer, "--- %s ---\n", conv_dac_mem->bus_id);
+	snd_iprintf(buffer, "--- %s ---\n", conv_dac_mem->dev_name);
 	snd_iprintf(buffer, "base = 0x%p\n", conv_dac_mem->base);
 
 	snd_iprintf(buffer, "ADAC_CTRL (0x%p) = 0x%08x\n",
@@ -206,7 +206,7 @@ static int snd_stm_conv_dac_mem_register(struct snd_device *snd_device)
 
 	/* Additional procfs info */
 	snd_stm_info_register(&conv_dac_mem->proc_entry,
-			conv_dac_mem->bus_id,
+			conv_dac_mem->dev_name,
 			snd_stm_conv_dac_mem_read_info,
 			conv_dac_mem);
 
@@ -264,7 +264,7 @@ static int snd_stm_conv_dac_mem_probe(struct platform_device *pdev)
 		goto error_alloc;
 	}
 	snd_stm_magic_set(conv_dac_mem);
-	conv_dac_mem->bus_id = dev_name(&pdev->dev);
+	conv_dac_mem->dev_name = dev_name(&pdev->dev);
 
 	/* Get resources */
 

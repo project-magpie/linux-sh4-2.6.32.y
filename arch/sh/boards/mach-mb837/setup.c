@@ -218,6 +218,19 @@ int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 }
 
 
+
+void __init mbxxx_configure_audio_pins(int *pcm_reader, int *pcm_player)
+{
+	*pcm_reader = -1;
+	*pcm_player = 2;
+	stx7108_configure_audio(&(struct stx7108_audio_config) {
+		.pcm_player_2_output = stx7108_pcm_player_2_output_8_channels,
+		.spdif_player_output_enabled = 1,
+		.pcm_reader_input_enabled = 1, });
+}
+
+
+
 static int __init mb837_devices_init(void)
 {
 	int ssc2_i2c;

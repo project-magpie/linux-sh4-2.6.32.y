@@ -18,6 +18,9 @@ snd-stm-conv-i2sspdif-y := conv_i2sspdif.o
 obj-$(CONFIG_SND_STM_CONV_DAC_MEMORY_MAPPED) += snd-stm-conv-dac-mem.o
 snd-stm-conv-dac-mem-y := conv_dac_mem.o
 
+obj-$(CONFIG_SND_STM_CONV_DAC_SYSCONF) += snd-stm-conv-dac-sc.o
+snd-stm-conv-dac-sc-y := conv_dac_sc.o
+
 
 
 # SOCs
@@ -27,6 +30,9 @@ snd-stm-stx7100-y := stx7100.o
 
 obj-$(CONFIG_SND_STM_STX7105) += snd-stm-stx7105.o
 snd-stm-stx7105-y := stx7105.o
+
+obj-$(CONFIG_SND_STM_STX7108) += snd-stm-stx7108.o
+snd-stm-stx7108-y := stx7108.o
 
 obj-$(CONFIG_SND_STM_STX7111) += snd-stm-stx7111.o
 snd-stm-stx7111-y := stx7111.o

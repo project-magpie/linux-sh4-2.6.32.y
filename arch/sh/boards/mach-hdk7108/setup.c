@@ -605,6 +605,9 @@ static int __init device_init(void)
 
 	stx7108_configure_mali(&hdk7108_mali_config);
 
+	stx7108_configure_audio(&(struct stx7108_audio_config) {
+			.spdif_player_output_enabled = 1, });
+
 	return platform_add_devices(hdk7108_devices,
 			ARRAY_SIZE(hdk7108_devices));
 }

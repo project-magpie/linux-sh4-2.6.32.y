@@ -38,6 +38,11 @@ config SND_STM_CONV_DAC_MEMORY_MAPPED
 	depends on SND_STM
 	default n
 
+config SND_STM_CONV_DAC_SYSCONF
+	tristate
+	depends on SND_STM
+	default n
+
 config SND_STM_CONV_I2S_TO_SPDIF
 	tristate
 	depends on SND_STM
@@ -94,6 +99,21 @@ config SND_STM_STX7105
 
 		If you compile this driver as a module, it will be
 		called snd-stm-stx7105.ko
+
+config SND_STM_STX7108
+	tristate "STx7108 support"
+	depends on SND_STM
+	default y if CPU_SUBTYPE_STX7108
+	select SND_STM_PCM_PLAYER
+	select SND_STM_PCM_READER
+	select SND_STM_SPDIF_PLAYER
+	select SND_STM_CONV_DAC_SYSCONF
+	select SND_STM_CONV_I2S_TO_SPDIF
+	help
+		Select this to get ALSA driver for STx7108 chip.
+
+		If you compile this driver as a module, it will be
+		called snd-stm-stx7108.ko
 
 config SND_STM_STX7111
 	tristate "STx7111 support"

@@ -188,13 +188,26 @@ struct snd_stm_conv_dummy_info {
 
 
 /*
- * Internal audio DAC description (platform data)
+ * Internal audio DAC descriptions (platform data)
  */
 
 struct snd_stm_conv_dac_mem_info {
 	const char *source_bus_id;
 	int channel_from, channel_to;
 };
+
+struct snd_stm_conv_dac_sc_info {
+	const char *source_bus_id;
+	int channel_from, channel_to;
+
+	struct {
+		int group;
+		int num;
+		int lsb;
+		int msb;
+	} nrst, mode, nsb, softmute, pdana, pndbg;
+};
+
 
 
 /*

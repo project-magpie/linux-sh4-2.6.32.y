@@ -115,6 +115,27 @@ static struct snd_stm_conv_ops mb705_audio_enable_mute_ops = {
 
 static int __init mb705_audio_init(void)
 {
+	int pcm_reader, pcm_player;
+	static char *pcm_reader_bus_id = "snd_pcm_reader.x";
+	static char *pcm_player_bus_id = "snd_pcm_player.x";
+
+	/* To be defined in processor board, which knows what SOC is there... */
+	mbxxx_configure_audio_pins(&pcm_reader, &pcm_player);
+
+	if (pcm_reader < 0)
+		sprintf(pcm_reader_bus_id, "snd_pcm_reader");
+	else if (pcm_reader < 10)
+		sprintf(pcm_reader_bus_id, "snd_pcm_reader.%d", pcm_reader);
+	else
+		BUG();
+
+	if (pcm_player < 0)
+		sprintf(pcm_player_bus_id, "snd_pcm_player");
+	else if (pcm_player < 10)
+		sprintf(pcm_player_bus_id, "snd_pcm_player.%d", pcm_player);
+	else
+		BUG();
+
 	/* Check the SPDIF test mode */
 	if ((epld_read(EPLD_AUDIO_SWITCH2) & (EPLD_AUDIO_SWITCH1_SW21 |
 			EPLD_AUDIO_SWITCH1_SW22 | EPLD_AUDIO_SWITCH1_SW23 |
@@ -136,7 +157,7 @@ static int __init mb705_audio_init(void)
 	mb705_audio_spdif_input.conv = snd_stm_conv_register_converter("SPDIF"
 			" Input", &mb705_audio_enable_ops,
 			&mb705_audio_spdif_input, &platform_bus_type,
-			"snd_pcm_reader", 0, 1, NULL);
+			pcm_reader_bus_id, 0, 1, NULL);
 	if (!mb705_audio_spdif_input.conv) {
 		printk(KERN_ERR "%s:%u: Can't register SPDIF Input converter!"
 				"\n", __FILE__, __LINE__);
@@ -152,15 +173,12 @@ static int __init mb705_audio_init(void)
 	mb705_audio_8ch_dac.conv = snd_stm_conv_register_converter("External "
 			"8-channels DAC", &mb705_audio_enable_mute_ops,
 			&mb705_audio_8ch_dac, &platform_bus_type,
-			"snd_pcm_player.0", 0, 7, NULL);
+			pcm_player_bus_id, 0, 7, NULL);
 	if (!mb705_audio_8ch_dac.conv) {
 		printk(KERN_ERR "%s:%u: Can't register external 8-channels "
 				"DAC!\n", __FILE__, __LINE__);
 		goto error;
 	}
-
-	/* To be defined in processor board, which knows what SOC is there... */
-	mbxxx_configure_audio_pins();
 
 	return 0;
 

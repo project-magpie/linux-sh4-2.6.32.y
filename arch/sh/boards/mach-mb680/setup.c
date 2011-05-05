@@ -42,7 +42,7 @@
 
 static void __init mb680_setup(char** cmdline_p)
 {
-	printk("STMicroelectronics STx7105 Mboard initialisation\n");
+	printk(KERN_INFO "STMicroelectronics STx7105 Mboard initialisation\n");
 
 	stx7105_early_device_init();
 
@@ -174,8 +174,10 @@ int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
        return stx7105_pcibios_map_platform_irq(&mb680_pci_config, pin);
 }
 
-void __init mbxxx_configure_audio_pins(void)
+void __init mbxxx_configure_audio_pins(int *pcm_reader, int *pcm_player)
 {
+	*pcm_reader = -1;
+	*pcm_player = 0;
 	stx7105_configure_audio(&(struct stx7105_audio_config) {
 			.pcm_player_0_output =
 					stx7105_pcm_player_0_output_6_channels,

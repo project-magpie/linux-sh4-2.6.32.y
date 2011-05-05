@@ -20,7 +20,7 @@ void harp_init_irq(void);
 
 /* peripheral boards callbacks */
 
-void mbxxx_configure_audio_pins(void);
+void mbxxx_configure_audio_pins(int *pcm_reader, int *pcm_player);
 void mbxxx_configure_nand_flash(struct stm_nand_config *config);
 void mbxxx_configure_serial_flash(struct spi_board_info *serial_flash);
 

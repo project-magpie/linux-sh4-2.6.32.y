@@ -1,5 +1,5 @@
 /*
- * (c) 2010 STMicroelectronics Limited
+ * (c) 2010-2011 STMicroelectronics Limited
  *
  * Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -172,6 +172,20 @@ struct stx7108_pata_config {
 	unsigned int irq;
 };
 void stx7108_configure_pata(struct stx7108_pata_config *config);
+
+
+struct stx7108_audio_config {
+	enum {
+		stx7108_pcm_player_2_output_disabled,
+		stx7108_pcm_player_2_output_2_channels,
+		stx7108_pcm_player_2_output_4_channels,
+		stx7108_pcm_player_2_output_6_channels,
+		stx7108_pcm_player_2_output_8_channels,
+	} pcm_player_2_output;
+	int spdif_player_output_enabled;
+	int pcm_reader_input_enabled;
+};
+void stx7108_configure_audio(struct stx7108_audio_config *config);
 
 
 void stx7108_configure_pci(struct stm_plat_pci_config *pci_config);

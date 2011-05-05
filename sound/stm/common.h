@@ -19,29 +19,15 @@
 
 
 /*
- * Drivers initialization/cleanup
+* ALSA card management
  */
+
+int snd_stm_card_register(void);
+int snd_stm_card_is_registered(void);
+struct snd_card *snd_stm_card_get(void);
 
 int snd_stm_drivers_register(void);
 void snd_stm_drivers_unregister(void);
-
-
-
-/*
- * Frequency synthesizers control interface
- */
-
-struct snd_stm_fsynth_channel;
-
-struct snd_stm_fsynth_channel *snd_stm_fsynth_get_channel(const char *bus_id,
-		int output);
-
-int snd_stm_fsynth_add_adjustement_ctl(
-		struct snd_stm_fsynth_channel *fsynth_channel,
-		struct snd_card *card, int card_device);
-
-int snd_stm_fsynth_set_frequency(struct snd_stm_fsynth_channel *fsynth_channel,
-		int frequency);
 
 
 
@@ -73,6 +59,16 @@ int snd_stm_conv_enable(struct snd_stm_conv_group *group,
 int snd_stm_conv_disable(struct snd_stm_conv_group *group);
 int snd_stm_conv_mute(struct snd_stm_conv_group *group);
 int snd_stm_conv_unmute(struct snd_stm_conv_group *group);
+
+
+
+/*
+ * Clocks control interface
+ */
+
+struct clk *snd_stm_clk_get(struct device *dev, const char *id,
+		struct snd_card *card, int card_device);
+void snd_stm_clk_put(struct clk *clk);
 
 
 
@@ -130,25 +126,8 @@ int snd_stm_pcm_hw_constraint_transfer_bytes(struct snd_pcm_runtime *runtime,
 
 
 /*
- * ALSA card management
- */
-
-struct snd_card *snd_stm_card_new(int index, const char *id,
-		struct module *module);
-int snd_stm_card_register(void);
-int snd_stm_card_is_registered(void);
-void snd_stm_card_free(void);
-
-struct snd_card *snd_stm_card_get(void);
-
-
-
-/*
  * ALSA procfs additional entries
  */
-
-int snd_stm_info_create(void);
-void snd_stm_info_dispose(void);
 
 int snd_stm_info_register(struct snd_info_entry **entry,
 		const char *name,
@@ -179,9 +158,6 @@ int snd_stm_fdma_request(struct platform_device *pdev, int *channel);
 /*
  * Core drivers initialization/exit
  */
-
-int snd_stm_fsynth_init(void);
-void snd_stm_fsynth_exit(void);
 
 int snd_stm_conv_init(void);
 void snd_stm_conv_exit(void);

@@ -1,7 +1,7 @@
 # Core
 
 obj-$(CONFIG_SND_STM) += snd-stm-core.o
-snd-stm-core-y := core.o fsynth.o
+snd-stm-core-y := core.o clock.o
 snd-stm-core-y += conv.o conv_i2sspdif.o conv_dac_mem.o
 snd-stm-core-y += pcm_player.o pcm_reader.o spdif_player.o
 

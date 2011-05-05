@@ -1,7 +1,7 @@
 /*
  *   STMicroelectronics System-on-Chips' PCM player driver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *           Mark Glaisher
@@ -22,12 +22,13 @@
  *
  */
 
+#include <asm/cacheflush.h>
+#include <asm/clock.h>
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
-#include <asm/cacheflush.h>
 #include <linux/stm/stm-dma.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -73,7 +74,7 @@ struct snd_stm_pcm_player {
 	int fdma_channel;
 
 	/* Environment settings */
-	struct snd_stm_fsynth_channel *fsynth_channel;
+	struct clk *clock;
 	struct snd_pcm_hw_constraint_list channels_constraint;
 	struct snd_stm_conv_source *conv_source;
 
@@ -396,6 +397,7 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	unsigned int format, lr_pol;
 	int oversampling, bits_in_output_frame;
+	int result;
 
 	snd_stm_printd(1, "snd_stm_pcm_player_prepare(substream=0x%p)\n",
 			substream);
@@ -432,14 +434,27 @@ static int snd_stm_pcm_player_prepare(struct snd_pcm_substream *substream)
 	/* For 32 bits subframe oversampling must be a multiple of 128,
 	 * for 16 bits - of 64 */
 	BUG_ON((format & SND_STM_FORMAT__SUBFRAME_32_BITS) &&
-	       (oversampling % 128 != 0));
+		(oversampling % 128 != 0));
 	BUG_ON(!(format & SND_STM_FORMAT__SUBFRAME_16_BITS) &&
-	       (oversampling % 64 != 0));
+		(oversampling % 64 != 0));
 
 	/* Set up frequency synthesizer */
 
-	snd_stm_fsynth_set_frequency(pcm_player->fsynth_channel,
-			runtime->rate * oversampling);
+	result = clk_enable(pcm_player->clock);
+	if (result != 0) {
+		snd_stm_printe("Can't enable clock for player '%s'!\n",
+				dev_name(pcm_player->device));
+		return result;
+	}
+
+	result = clk_set_rate(pcm_player->clock,
+				runtime->rate * oversampling);
+	if (result != 0) {
+		snd_stm_printe("Can't configure clock for player '%s'!\n",
+				dev_name(pcm_player->device));
+		clk_disable(pcm_player->clock);
+		return result;
+	}
 
 	/* Set up player hardware */
 
@@ -610,6 +625,7 @@ static int snd_stm_pcm_player_start(struct snd_pcm_substream *substream)
 	if (result != 0) {
 		snd_stm_printe("Can't launch FDMA transfer for player '%s'!\n",
 			       dev_name(pcm_player->device));
+		clk_disable(pcm_player->clock);
 		return -EINVAL;
 	}
 	while (dma_get_status(pcm_player->fdma_channel) !=
@@ -671,7 +687,9 @@ static int snd_stm_pcm_player_stop(struct snd_pcm_substream *substream)
 
 	dma_stop_channel(pcm_player->fdma_channel);
 
-	/* Reset PCM player */
+	/* Stop the clock & reset PCM player */
+
+	clk_disable(pcm_player->clock);
 	set__AUD_PCMOUT_RST__SRSTP__RESET(pcm_player);
 
 	return 0;
@@ -814,7 +832,6 @@ static void snd_stm_pcm_player_dump_registers(struct snd_info_entry *entry,
 
 static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 {
-	int result;
 	struct snd_stm_pcm_player *pcm_player = snd_device->device_data;
 
 	snd_stm_printd(1, "snd_stm_pcm_player_register(snd_device=0x%p)\n",
@@ -839,30 +856,23 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 
 	/* Get frequency synthesizer channel */
 
-	BUG_ON(!pcm_player->info->fsynth_bus_id);
-	snd_stm_printd(0, "Player connected to %s's output %d.\n",
-			pcm_player->info->fsynth_bus_id,
-			pcm_player->info->fsynth_output);
-
-	pcm_player->fsynth_channel = snd_stm_fsynth_get_channel(
-			pcm_player->info->fsynth_bus_id,
-			pcm_player->info->fsynth_output);
-	BUG_ON(!pcm_player->fsynth_channel);
+	BUG_ON(!pcm_player->info->clock_name);
+	snd_stm_printd(0, "Player connected to clock '%s'.\n",
+			pcm_player->info->clock_name);
+	pcm_player->clock = snd_stm_clk_get(pcm_player->device,
+			pcm_player->info->clock_name, snd_device->card,
+			pcm_player->info->card_device);
+	if (!pcm_player->clock || IS_ERR(pcm_player->clock)) {
+		snd_stm_printe("Failed to get a clock for '%s'!\n",
+				dev_name(pcm_player->device));
+		return -EINVAL;
+	}
 
 	/* Registers view in ALSA's procfs */
 
 	snd_stm_info_register(&pcm_player->proc_entry,
 			dev_name(pcm_player->device),
 			snd_stm_pcm_player_dump_registers, pcm_player);
-
-	/* Create ALSA controls */
-
-	result = snd_stm_fsynth_add_adjustement_ctl(pcm_player->fsynth_channel,
-			snd_device->card, pcm_player->info->card_device);
-	if (result < 0) {
-		snd_stm_printe("Failed to add fsynth adjustment control!\n");
-		return result;
-	}
 
 	snd_stm_printd(0, "--- Registered successfully!\n");
 
@@ -878,6 +888,8 @@ static int __exit snd_stm_pcm_player_disconnect(struct snd_device *snd_device)
 
 	BUG_ON(!pcm_player);
 	BUG_ON(!snd_stm_magic_valid(pcm_player));
+
+	snd_stm_clk_put(pcm_player->clock);
 
 	snd_stm_info_unregister(pcm_player->proc_entry);
 
@@ -1086,9 +1098,7 @@ static int snd_stm_pcm_player_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver snd_stm_pcm_player_driver = {
-	.driver = {
-		.name = "snd_pcm_player",
-	},
+	.driver.name = "snd_pcm_player",
 	.probe = snd_stm_pcm_player_probe,
 	.remove = snd_stm_pcm_player_remove,
 };

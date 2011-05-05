@@ -33,36 +33,6 @@ static struct platform_device stx7200_glue = {
 	}
 };
 
-/* Frequency synthesizers */
-
-static struct platform_device stx7200_fsynth_0 = {
-	.name          = "snd_fsynth",
-	.id            = 0,
-	.num_resources = 1,
-	.resource      = (struct resource []) {
-		STM_PLAT_RESOURCE_MEM(0xfd601000, 0x50),
-	},
-	.dev.platform_data = &(struct snd_stm_fsynth_info) {
-		/* .ver = see snd_stm_stx7200_init() */
-		.channels_from = 0,
-		.channels_to = 3,
-	},
-};
-
-static struct platform_device stx7200_fsynth_1 = {
-	.name          = "snd_fsynth",
-	.id            = 1,
-	.num_resources = 1,
-	.resource      = (struct resource []) {
-		STM_PLAT_RESOURCE_MEM(0xfd601100, 0x50),
-	},
-	.dev.platform_data = &(struct snd_stm_fsynth_info) {
-		/* .ver = see snd_stm_stx7200_init() */
-		.channels_from = 2,
-		.channels_to = 3,
-	},
-};
-
 /* Internal DACs */
 
 static struct platform_device stx7200_conv_dac_mem_0 = {
@@ -109,8 +79,7 @@ static struct platform_device stx7200_pcm_player_0 = {
 		.name = "PCM player #0",
 		/* .ver = see snd_stm_stx7200_init() */
 		.card_device = 0,
-		.fsynth_bus_id = "snd_fsynth.0",
-		.fsynth_output = 0,
+		.clock_name = "CLKC_FS0_CH1",
 		.channels = 2,
 		.fdma_initiator = 0,
 		.fdma_request_line = 33,
@@ -158,8 +127,7 @@ static struct platform_device stx7200_pcm_player_1 = {
 		.name = "PCM player #1",
 		/* .ver = see snd_stm_stx7200_init() */
 		.card_device = 1,
-		.fsynth_bus_id = "snd_fsynth.0",
-		.fsynth_output = 1,
+		.clock_name = "CLKC_FS0_CH2",
 		.channels = 6,
 		.fdma_initiator = 0,
 		.fdma_request_line = 34,
@@ -207,8 +175,7 @@ static struct platform_device stx7200_pcm_player_2 = {
 		.name = "PCM player #2",
 		/* .ver = see snd_stm_stx7200_init() */
 		.card_device = 2,
-		.fsynth_bus_id = "snd_fsynth.0",
-		.fsynth_output = 2,
+		.clock_name = "CLKC_FS0_CH3",
 		.channels = 8,
 		.fdma_initiator = 0,
 		.fdma_request_line = 35,
@@ -244,8 +211,7 @@ static struct platform_device stx7200_pcm_player_3 = {
 		.name = "PCM player #3",
 		/* .ver = see snd_stm_stx7200_init() */
 		.card_device = 3,
-		.fsynth_bus_id = "snd_fsynth.0",
-		.fsynth_output = 3,
+		.clock_name = "CLKC_FS0_CH4",
 		.channels = 10,
 		.fdma_initiator = 0,
 		.fdma_request_line = 36,
@@ -268,8 +234,7 @@ static struct platform_device stx7200_spdif_player = {
 		.name = "SPDIF player",
 		/* .ver = see snd_stm_stx7200_init() */
 		.card_device = 5,
-		.fsynth_bus_id = "snd_fsynth.1",
-		.fsynth_output = 3,
+		.clock_name = "CLKC_FS1_CH4",
 		.fdma_initiator = 0,
 		.fdma_request_line = 38,
 	},
@@ -296,8 +261,7 @@ static struct platform_device stx7200_hdmi_pcm_player = {
 		.name = "PCM player HDMI",
 		/* .ver = see snd_stm_stx7200_init() */
 		.card_device = 4,
-		.fsynth_bus_id = "snd_fsynth.1",
-		.fsynth_output = 2,
+		.clock_name = "CLKC_FS1_CH3",
 		.channels = 8,
 		.fdma_initiator = 0,
 		.fdma_request_line = 39,
@@ -317,8 +281,7 @@ static struct platform_device stx7200_hdmi_spdif_player = {
 		.name = "SPDIF player HDMI",
 		/* .ver = see snd_stm_stx7200_init() */
 		.card_device = 6,
-		.fsynth_bus_id = "snd_fsynth.1",
-		.fsynth_output = 2,
+		.clock_name = "CLKC_FS1_CH3",
 		.fdma_initiator = 0,
 		.fdma_request_line = 40,
 	},
@@ -435,8 +398,6 @@ static struct platform_device stx7200_pcm_reader_1 = {
 
 static struct platform_device *stx7200_audio_devices[] __initdata = {
 	&stx7200_glue,
-	&stx7200_fsynth_0,
-	&stx7200_fsynth_1,
 	&stx7200_conv_dac_mem_0,
 	&stx7200_conv_dac_mem_1,
 	&stx7200_pcm_player_0,
@@ -478,9 +439,6 @@ static int __init stx7200_audio_devices_setup(void)
 
 	switch (cpu_data->cut_major) {
 	case 1:
-		SET_VER(snd_stm_fsynth_info, stx7200_fsynth_0, 3);
-		SET_VER(snd_stm_fsynth_info, stx7200_fsynth_1, 3);
-
 		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_0, 3);
 		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_1, 3);
 
@@ -506,9 +464,6 @@ static int __init stx7200_audio_devices_setup(void)
 		break;
 
 	case 2 ... 3:
-		SET_VER(snd_stm_fsynth_info, stx7200_fsynth_0, 5);
-		SET_VER(snd_stm_fsynth_info, stx7200_fsynth_1, 5);
-
 		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_0, 4);
 		SET_VER(snd_stm_conv_dac_mem_info, stx7200_conv_dac_mem_1, 4);
 

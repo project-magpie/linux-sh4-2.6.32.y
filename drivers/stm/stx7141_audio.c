@@ -33,22 +33,6 @@ static struct platform_device stx7141_glue = {
 	}
 };
 
-/* Frequency synthesizers */
-
-static struct platform_device stx7141_fsynth = {
-	.name          = "snd_fsynth",
-	.id            = -1,
-	.num_resources = 1,
-	.resource      = (struct resource []) {
-		STM_PLAT_RESOURCE_MEM(0xfe210000, 0x50),
-	},
-	.dev.platform_data = &(struct snd_stm_fsynth_info) {
-		.ver = 4,
-		.channels_from = 0,
-		.channels_to = 3,
-	},
-};
-
 /* Internal DAC */
 
 static struct platform_device stx7141_conv_dac_mem = {
@@ -72,11 +56,10 @@ static struct snd_stm_pcm_player_info stx7141_pcm_player_0_info = {
 	.name = "PCM player #0",
 	.ver = 6,
 	.card_device = 0,
-	.fsynth_bus_id = "snd_fsynth",
-	.fsynth_output = 3,
+	.clock_name = "CLKC_FS0_CH1",
 	.channels = 10,
 	.fdma_initiator = 0,
-	.fdma_request_line = 39, /* TODO: CHECK THIS */
+	.fdma_request_line = 39,
 	/* .pad_config set by stx7141_configure_audio() */
 };
 
@@ -109,8 +92,7 @@ static struct snd_stm_pcm_player_info stx7141_pcm_player_1_info = {
 	.name = "PCM player #1",
 	.ver = 6,
 	.card_device = 1,
-	.fsynth_bus_id = "snd_fsynth",
-	.fsynth_output = 1,
+	.clock_name = "CLKC_FS0_CH2",
 	.channels = 2,
 	.fdma_initiator = 0,
 	.fdma_request_line = 40,
@@ -150,8 +132,7 @@ static struct platform_device stx7141_pcm_player_2 = {
 		.name = "PCM player HDMI",
 		.ver = 6,
 		.card_device = 2,
-		.fsynth_bus_id = "snd_fsynth",
-		.fsynth_output = 0,
+		.clock_name = "CLKC_FS0_CH4",
 		.channels = 8,
 		.fdma_initiator = 0,
 		.fdma_request_line = 47,
@@ -164,8 +145,7 @@ static struct snd_stm_spdif_player_info stx7141_spdif_player_info = {
 	.name = "SPDIF player (HDMI)",
 	.ver = 4,
 	.card_device = 3,
-	.fsynth_bus_id = "snd_fsynth",
-	.fsynth_output = 2,
+	.clock_name = "CLKC_FS0_CH3",
 	.fdma_initiator = 0,
 	.fdma_request_line = 48,
 	/* .pad_config set by stx7141_configure_audio() */
@@ -319,7 +299,6 @@ static struct platform_device stx7141_pcm_reader_1 = {
 
 static struct platform_device *stx7141_audio_devices[] __initdata = {
 	&stx7141_glue,
-	&stx7141_fsynth,
 	&stx7141_conv_dac_mem,
 	&stx7141_pcm_player_0,
 	&stx7141_pcm_player_1,

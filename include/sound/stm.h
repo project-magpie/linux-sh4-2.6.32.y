@@ -1,7 +1,7 @@
 /*
  *   STMicrolectronics SoCs audio subsystem
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -188,18 +188,6 @@ struct snd_stm_conv_dummy_info {
 
 
 /*
- * Audio frequency synthesizer description (platform data)
- */
-
-struct snd_stm_fsynth_info {
-	int ver;
-
-	int channels_from, channels_to;
-};
-
-
-
-/*
  * Internal audio DAC description (platform data)
  */
 
@@ -233,8 +221,7 @@ struct snd_stm_pcm_player_info {
 	int ver;
 
 	int card_device;
-	const char *fsynth_bus_id;
-	int fsynth_output;
+	const char *clock_name;
 
 	unsigned int channels;
 
@@ -275,8 +262,7 @@ struct snd_stm_spdif_player_info {
 	int ver;
 
 	int card_device;
-	const char *fsynth_bus_id;
-	int fsynth_output;
+	const char *clock_name;
 
 	unsigned char fdma_initiator;
 	unsigned int fdma_request_line;

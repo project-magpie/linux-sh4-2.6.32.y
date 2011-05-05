@@ -31,24 +31,6 @@ static struct platform_device stx7100_glue = {
 	},
 };
 
-/* Frequency synthesizer */
-
-static struct snd_stm_fsynth_info stx7100_fsynth_info = {
-	/* .ver = see stx7100_configure_audio() */
-	.channels_from = 0,
-	.channels_to = 2,
-};
-
-static struct platform_device stx7100_fsynth = {
-	.name          = "snd_fsynth",
-	.id            = -1,
-	.num_resources = 1,
-	.resource      = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0x19210000, 0x40),
-	},
-	.dev.platform_data = &stx7100_fsynth_info,
-};
-
 /* Internal DAC */
 
 static struct snd_stm_conv_dac_mem_info stx7100_conv_dac_mem_info = {
@@ -74,8 +56,7 @@ struct snd_stm_pcm_player_info stx7100_pcm_player_0_info = {
 	.name = "PCM player #0 (HDMI)",
 	/* .ver = see stx7100_configure_audio() */
 	.card_device = 0,
-	.fsynth_bus_id = "snd_fsynth",
-	.fsynth_output = 0,
+	.clock_name = "CLKC_FS0_CH1",
 	.channels = 10,
 	.fdma_initiator = 1,
 	/* .fdma_request_line = see stx7100_configure_audio() */
@@ -96,8 +77,7 @@ struct snd_stm_pcm_player_info stx7100_pcm_player_1_info = {
 	.name = "PCM player #1",
 	/* .ver = see stx7100_configure_audio() */
 	.card_device = 1,
-	.fsynth_bus_id = "snd_fsynth",
-	.fsynth_output = 1,
+	.clock_name = "CLKC_FS0_CH2",
 	.channels = 2,
 	.fdma_initiator = 1,
 	/* .fdma_request_line = see stx7100_configure_audio() */
@@ -120,8 +100,7 @@ struct snd_stm_spdif_player_info stx7100_spdif_player_info = {
 	.name = "SPDIF player (HDMI)",
 	/* .ver = see stx7100_configure_audio() */
 	.card_device = 2,
-	.fsynth_bus_id = "snd_fsynth",
-	.fsynth_output = 2,
+	.clock_name = "CLKC_FS0_CH3",
 	.fdma_initiator = 1,
 	/* .fdma_request_line = see stx7100_configure_audio() */
 };
@@ -183,7 +162,6 @@ static struct platform_device stx7100_pcm_reader = {
 
 static struct platform_device *stx7100_audio_devices[] __initdata = {
 	&stx7100_glue,
-	&stx7100_fsynth,
 	&stx7100_pcm_player_0,
 	&stx7100_pcm_player_1,
 	&stx7100_conv_dac_mem,
@@ -203,7 +181,6 @@ static int __init stx7100_audio_devices_setup(void)
 		stx7100_pcm_reader_info.fdma_request_line = 28;
 
 		/* IP versions */
-		stx7100_fsynth_info.ver = 1;
 		stx7100_pcm_reader_info.ver = 1;
 		if (cpu_data->cut_major < 3) {
 			/* STx7100 cut < 3.0 */
@@ -228,7 +205,6 @@ static int __init stx7100_audio_devices_setup(void)
 		stx7100_pcm_reader_info.fdma_request_line = 26;
 
 		/* IP versions */
-		stx7100_fsynth_info.ver = 2;
 		stx7100_pcm_reader_info.ver = 2;
 		if (cpu_data->cut_major < 3) {
 			/* STx7109 cut < 3.0 */

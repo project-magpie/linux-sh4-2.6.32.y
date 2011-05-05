@@ -21,7 +21,7 @@
 
 /* Audio subsystem resources ---------------------------------------------- */
 
-/* STx7111 audio glue */
+/* Audio subsystem glue */
 
 static struct platform_device stx7111_glue = {
 	.name          = "snd_stx7111_glue",
@@ -30,22 +30,6 @@ static struct platform_device stx7111_glue = {
 	.resource      = (struct resource []) {
 		STM_PLAT_RESOURCE_MEM(0xfe210200, 0xc),
 	}
-};
-
-/* Frequency synthesizers */
-
-static struct platform_device stx7111_fsynth = {
-	.name          = "snd_fsynth",
-	.id            = -1,
-	.num_resources = 1,
-	.resource      = (struct resource []) {
-		STM_PLAT_RESOURCE_MEM(0xfe210000, 0x50),
-	},
-	.dev.platform_data = &(struct snd_stm_fsynth_info) {
-		.ver = 4,
-		.channels_from = 0,
-		.channels_to = 2,
-	},
 };
 
 /* Internal DAC */
@@ -79,8 +63,7 @@ static struct platform_device stx7111_pcm_player_0 = {
 		.name = "PCM player #0 (HDMI)",
 		.ver = 6,
 		.card_device = 0,
-		.fsynth_bus_id = "snd_fsynth",
-		.fsynth_output = 0,
+		.clock_name = "CLKC_FS0_CH1",
 		.channels = 8,
 		.fdma_initiator = 0,
 		.fdma_request_line = 27,
@@ -99,8 +82,7 @@ static struct platform_device stx7111_pcm_player_1 = {
 		.name = "PCM player #1",
 		.ver = 6,
 		.card_device = 1,
-		.fsynth_bus_id = "snd_fsynth",
-		.fsynth_output = 1,
+		.clock_name = "CLKC_FS0_CH2",
 		.channels = 2,
 		.fdma_initiator = 0,
 		.fdma_request_line = 28,
@@ -121,8 +103,7 @@ static struct platform_device stx7111_spdif_player = {
 		.name = "SPDIF player (HDMI)",
 		.ver = 4,
 		.card_device = 2,
-		.fsynth_bus_id = "snd_fsynth",
-		.fsynth_output = 2,
+		.clock_name = "CLKC_FS0_CH3",
 		.fdma_initiator = 0,
 		.fdma_request_line = 30,
 	},
@@ -219,7 +200,6 @@ static struct platform_device stx7111_pcm_reader = {
 
 static struct platform_device *stx7111_audio_devices[] __initdata = {
 	&stx7111_glue,
-	&stx7111_fsynth,
 	&stx7111_conv_dac_mem,
 	&stx7111_pcm_player_0,
 	&stx7111_pcm_player_1,

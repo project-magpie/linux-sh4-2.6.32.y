@@ -121,12 +121,6 @@ int snd_stm_drivers_register(void)
 
 	snd_stm_printd(0, "snd_stm_core_init()\n");
 
-	result = snd_stm_fsynth_init();
-	if (result != 0) {
-		snd_stm_printe("Frequency synthesizer driver initialization"
-				" failed!\n");
-		goto error_fsynth;
-	}
 	result = snd_stm_conv_dac_mem_init();
 	if (result != 0) {
 		snd_stm_printe("Internal DACs driver initialization failed!\n");
@@ -165,8 +159,6 @@ error_pcm_player:
 error_conv_i2sspdif:
 	snd_stm_conv_dac_mem_exit();
 error_conv_dac_mem:
-	snd_stm_fsynth_exit();
-error_fsynth:
 	return result;
 }
 EXPORT_SYMBOL(snd_stm_drivers_register);
@@ -180,7 +172,6 @@ void snd_stm_drivers_unregister(void)
 	snd_stm_pcm_player_exit();
 	snd_stm_conv_i2sspdif_exit();
 	snd_stm_conv_dac_mem_exit();
-	snd_stm_fsynth_exit();
 }
 EXPORT_SYMBOL(snd_stm_drivers_unregister);
 

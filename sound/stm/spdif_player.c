@@ -1,7 +1,7 @@
 /*
  *   STMicroelectronics System-on-Chips' SPDIF player driver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -21,12 +21,13 @@
  *
  */
 
+#include <asm/cacheflush.h>
+#include <asm/clock.h>
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
-#include <asm/cacheflush.h>
 #include <linux/stm/stm-dma.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -91,7 +92,7 @@ struct snd_stm_spdif_player {
 	int fdma_channel;
 
 	/* Environment settings */
-	struct snd_stm_fsynth_channel *fsynth_channel;
+	struct clk *clock;
 	struct snd_stm_conv_source *conv_source;
 
 	/* Default settings (controlled by controls ;-) */
@@ -475,6 +476,7 @@ static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
 	int oversampling;
 	unsigned long status;
 	struct snd_aes_iec958 *iec958;
+	int result;
 
 	snd_stm_printd(1, "snd_stm_spdif_player_prepare(substream=0x%p)\n",
 			substream);
@@ -518,8 +520,21 @@ static int snd_stm_spdif_player_prepare(struct snd_pcm_substream *substream)
 
 	/* Set up frequency synthesizer */
 
-	snd_stm_fsynth_set_frequency(spdif_player->fsynth_channel,
-			runtime->rate * oversampling);
+	result = clk_enable(spdif_player->clock);
+	if (result != 0) {
+		snd_stm_printe("Can't enable clock for player '%s'!\n",
+				dev_name(spdif_player->device));
+		return result;
+	}
+
+	result = clk_set_rate(spdif_player->clock,
+				runtime->rate * oversampling);
+	if (result != 0) {
+		snd_stm_printe("Can't configure clock for player '%s'!\n",
+				dev_name(spdif_player->device));
+		clk_disable(spdif_player->clock);
+		return result;
+	}
 
 	/* Configure SPDIF player frequency divider
 	 *
@@ -690,8 +705,9 @@ static int snd_stm_spdif_player_stop(struct snd_pcm_substream *substream)
 
 	dma_stop_channel(spdif_player->fdma_channel);
 
-	/* Reset SPDIF player */
+	/* Stop the clock and reset SPDIF player */
 
+	clk_disable(spdif_player->clock);
 	set__AUD_SPDIF_RST__SRSTP__RESET(spdif_player);
 
 	return 0;
@@ -1407,7 +1423,7 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 	set__AUD_SPDIF_RST__SRSTP__RESET(spdif_player);
 
 	/* TODO: well, hardcoded - shall anyone use it?
-	 * And what it actually means? */
+	 * and what does it actually mean? */
 	set__AUD_SPDIF_CTRL__RND__NO_ROUNDING(spdif_player);
 
 	set__AUD_SPDIF_CTRL__IDLE__NORMAL(spdif_player);
@@ -1418,15 +1434,17 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 
 	/* Get frequency synthesizer channel */
 
-	BUG_ON(!spdif_player->info->fsynth_bus_id);
-	snd_stm_printd(0, "Player connected to %s's output %d.\n",
-			spdif_player->info->fsynth_bus_id,
-			spdif_player->info->fsynth_output);
-
-	spdif_player->fsynth_channel = snd_stm_fsynth_get_channel(
-			spdif_player->info->fsynth_bus_id,
-			spdif_player->info->fsynth_output);
-	BUG_ON(!spdif_player->fsynth_channel);
+	BUG_ON(!spdif_player->info->clock_name);
+	snd_stm_printd(0, "Player connected to clock '%s'.\n",
+			spdif_player->info->clock_name);
+	spdif_player->clock = snd_stm_clk_get(spdif_player->device,
+			spdif_player->info->clock_name, snd_device->card,
+			spdif_player->info->card_device);
+	if (!spdif_player->clock || IS_ERR(spdif_player->clock)) {
+		snd_stm_printe("Failed to get a clock for '%s'!\n",
+				dev_name(spdif_player->device));
+		return -EINVAL;
+	}
 
 	/* Registers view in ALSA's procfs */
 
@@ -1434,15 +1452,7 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 			dev_name(spdif_player->device),
 			snd_stm_spdif_player_dump_registers, spdif_player);
 
-	/* Create ALSA controls */
-
-	result = snd_stm_fsynth_add_adjustement_ctl(
-			spdif_player->fsynth_channel, snd_device->card,
-			spdif_player->info->card_device);
-	if (result < 0) {
-		snd_stm_printe("Failed to add fsynth adjustment control!\n");
-		return result;
-	}
+	/* Create SPDIF ALSA controls */
 
 	for (i = 0; i < ARRAY_SIZE(snd_stm_spdif_player_ctls); i++) {
 		snd_stm_spdif_player_ctls[i].device =
@@ -1471,6 +1481,8 @@ static int snd_stm_spdif_player_disconnect(struct snd_device *snd_device)
 
 	BUG_ON(!spdif_player);
 	BUG_ON(!snd_stm_magic_valid(spdif_player));
+
+	snd_stm_clk_put(spdif_player->clock);
 
 	snd_stm_info_unregister(spdif_player->proc_entry);
 
@@ -1654,9 +1666,7 @@ static int snd_stm_spdif_player_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver snd_stm_spdif_player_driver = {
-	.driver = {
-		.name = "snd_spdif_player",
-	},
+	.driver.name = "snd_spdif_player",
 	.probe = snd_stm_spdif_player_probe,
 	.remove = snd_stm_spdif_player_remove,
 };

@@ -243,14 +243,15 @@ static struct snd_stm_pcm_reader_info stx7141_pcm_reader_0_info = {
 	.channels = 2,
 	.fdma_initiator = 0,
 	.fdma_request_line = 41,
+	/* .pad_config set by stx7141_configure_audio() */
 };
 
 static struct stm_pad_config stx7141_pcm_reader_0_pad_config = {
 	.gpios_num = 3,
 	.gpios = (struct stm_pad_gpio []) {
-		STM_PAD_PIO_IN(15, 0, 1),	/* DATA */
-		STM_PAD_PIO_IN(15, 1, 1),	/* LRCLK */
-		STM_PAD_PIO_IN(15, 2, 1),	/* SCLK */
+		STM_PAD_PIO_IN(15, 0, -1),	/* DATA */
+		STM_PAD_PIO_IN(15, 1, -1),	/* LRCLK */
+		STM_PAD_PIO_IN(15, 2, -1),	/* SCLK */
 	},
 };
 
@@ -272,14 +273,15 @@ static struct snd_stm_pcm_reader_info stx7141_pcm_reader_1_info = {
 	.channels = 2,
 	.fdma_initiator = 0,
 	.fdma_request_line = 42,
+	/* .pad_config set by stx7141_configure_audio() */
 };
 
 static struct stm_pad_config stx7141_pcm_reader_1_pad_config = {
 	.gpios_num = 3,
 	.gpios = (struct stm_pad_gpio []) {
-		STM_PAD_PIO_IN(16, 4, 1),	/* DATA */
-		STM_PAD_PIO_IN(16, 5, 1),	/* LRCLK */
-		STM_PAD_PIO_IN(16, 6, 1),	/* SCLK */
+		STM_PAD_PIO_IN(16, 4, -1),	/* DATA */
+		STM_PAD_PIO_IN(16, 5, -1),	/* LRCLK */
+		STM_PAD_PIO_IN(16, 6, -1),	/* SCLK */
 	},
 };
 

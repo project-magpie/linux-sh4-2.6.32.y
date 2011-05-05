@@ -29,6 +29,7 @@
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
+#include <linux/stm/pad.h>
 #include <linux/stm/stm-dma.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -86,6 +87,7 @@ struct snd_stm_pcm_player {
 	int fdma_max_transfer_size;
 	struct stm_dma_params fdma_params;
 	struct stm_dma_req *fdma_request;
+	struct stm_pad_state *pads;
 
 	snd_stm_magic_field;
 };
@@ -1050,12 +1052,27 @@ static int snd_stm_pcm_player_probe(struct platform_device *pdev)
 		goto error_conv_register_source;
 	}
 
+	/* Claim the pads */
+
+	if (pcm_player->info->pad_config) {
+		pcm_player->pads = stm_pad_claim(pcm_player->info->pad_config,
+				dev_name(&pdev->dev));
+		if (!pcm_player->pads) {
+			snd_stm_printe("Failed to claimed pads for '%s'!\n",
+					dev_name(&pdev->dev));
+			result = -EBUSY;
+			goto error_pad_claim;
+		}
+	}
+
 	/* Done now */
 
 	platform_set_drvdata(pdev, pcm_player);
 
 	return 0;
 
+error_pad_claim:
+	snd_stm_conv_unregister_source(pcm_player->conv_source);
 error_conv_register_source:
 	snd_stm_buffer_dispose(pcm_player->buffer);
 error_buffer_init:
@@ -1085,6 +1102,8 @@ static int snd_stm_pcm_player_remove(struct platform_device *pdev)
 	BUG_ON(!pcm_player);
 	BUG_ON(!snd_stm_magic_valid(pcm_player));
 
+	if (pcm_player->pads)
+		stm_pad_release(pcm_player->pads);
 	snd_stm_conv_unregister_source(pcm_player->conv_source);
 	snd_stm_buffer_dispose(pcm_player->buffer);
 	snd_stm_fdma_release(pcm_player->fdma_channel);

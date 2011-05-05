@@ -28,6 +28,7 @@
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
+#include <linux/stm/pad.h>
 #include <linux/stm/stm-dma.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -110,6 +111,7 @@ struct snd_stm_spdif_player {
 	struct snd_stm_spdif_player_settings stream_settings;
 	int stream_iec958_status_cnt;
 	int stream_iec958_subcode_cnt;
+	struct stm_pad_state *pads;
 
 	snd_stm_magic_field;
 };
@@ -1618,12 +1620,28 @@ static int snd_stm_spdif_player_probe(struct platform_device *pdev)
 		goto error_conv_register_source;
 	}
 
+	/* Claim the pads */
+
+	if (spdif_player->info->pad_config) {
+		spdif_player->pads = stm_pad_claim(
+				spdif_player->info->pad_config,
+				dev_name(&pdev->dev));
+		if (!spdif_player->pads) {
+			snd_stm_printe("Failed to claimed pads for '%s'!\n",
+					dev_name(&pdev->dev));
+			result = -EBUSY;
+			goto error_pad_claim;
+		}
+	}
+
 	/* Done now */
 
 	platform_set_drvdata(pdev, spdif_player);
 
 	return 0;
 
+error_pad_claim:
+	snd_stm_conv_unregister_source(spdif_player->conv_source);
 error_conv_register_source:
 	snd_stm_buffer_dispose(spdif_player->buffer);
 error_buffer_create:
@@ -1653,6 +1671,8 @@ static int snd_stm_spdif_player_remove(struct platform_device *pdev)
 	BUG_ON(!spdif_player);
 	BUG_ON(!snd_stm_magic_valid(spdif_player));
 
+	if (spdif_player->pads)
+		stm_pad_release(spdif_player->pads);
 	snd_stm_conv_unregister_source(spdif_player->conv_source);
 	snd_stm_buffer_dispose(spdif_player->buffer);
 	snd_stm_fdma_release(spdif_player->fdma_channel);

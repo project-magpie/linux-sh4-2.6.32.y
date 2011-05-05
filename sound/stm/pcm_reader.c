@@ -1,7 +1,7 @@
 /*
  *   STMicroelectronics System-on-Chips' PCM reader driver
  *
- *   Copyright (c) 2005-2007 STMicroelectronics Limited
+ *   Copyright (c) 2005-2011 STMicroelectronics Limited
  *
  *   Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -27,6 +27,7 @@
 #include <linux/interrupt.h>
 #include <linux/delay.h>
 #include <asm/cacheflush.h>
+#include <linux/stm/pad.h>
 #include <linux/stm/stm-dma.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -80,6 +81,7 @@ struct snd_stm_pcm_reader {
 	struct stm_dma_params *fdma_params_list;
 	struct stm_dma_req *fdma_request;
 	int running;
+	struct stm_pad_state *pads;
 
 	snd_stm_magic_field;
 };
@@ -952,12 +954,27 @@ static int snd_stm_pcm_reader_probe(struct platform_device *pdev)
 		goto error_conv_register_source;
 	}
 
+	/* Claim the pads */
+
+	if (pcm_reader->info->pad_config) {
+		pcm_reader->pads = stm_pad_claim(pcm_reader->info->pad_config,
+				dev_name(&pdev->dev));
+		if (!pcm_reader->pads) {
+			snd_stm_printe("Failed to claimed pads for '%s'!\n",
+					dev_name(&pdev->dev));
+			result = -EBUSY;
+			goto error_pad_claim;
+		}
+	}
+
 	/* Done now */
 
 	platform_set_drvdata(pdev, pcm_reader);
 
 	return 0;
 
+error_pad_claim:
+	snd_stm_conv_unregister_source(pcm_reader->conv_source);
 error_conv_register_source:
 	snd_stm_buffer_dispose(pcm_reader->buffer);
 error_buffer_create:
@@ -987,6 +1004,8 @@ static int snd_stm_pcm_reader_remove(struct platform_device *pdev)
 	BUG_ON(!pcm_reader);
 	BUG_ON(!snd_stm_magic_valid(pcm_reader));
 
+	if (pcm_reader->pads)
+		stm_pad_release(pcm_reader->pads);
 	snd_stm_conv_unregister_source(pcm_reader->conv_source);
 	snd_stm_buffer_dispose(pcm_reader->buffer);
 	snd_stm_fdma_release(pcm_reader->fdma_channel);

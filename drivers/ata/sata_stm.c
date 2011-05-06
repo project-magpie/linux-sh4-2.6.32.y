@@ -1330,7 +1330,7 @@ static int stm_sata_suspend(struct device *dev)
 
 #ifdef CONFIG_PM_RUNTIME
 	if (dev->power.runtime_status != RPM_ACTIVE)
-		return 0; /* usb already suspended via runtime_suspend */
+		return 0; /* sata already suspended via runtime_suspend */
 #endif
 
 	stm_device_power(hpriv->device_state,  stm_device_power_off);
@@ -1345,83 +1345,26 @@ static int stm_sata_resume(struct device *dev)
 
 #ifdef CONFIG_PM_RUNTIME
 	if (dev->power.runtime_status == RPM_SUSPENDED)
-		return 0; /* usb wants resume via runtime_resume... */
+		return 0; /* sata wants resume via runtime_resume... */
 #endif
 
 	stm_device_power(hpriv->device_state, stm_device_power_on);
 
 	return 0;
 }
-#else
-#define stm_sata_suspend	NULL
-#define stm_sata_resume		NULL
-#endif
+
+static int stm_sata_freeze(struct device *dev)
+{
+	struct ata_host *host = dev_get_drvdata(dev);
+	struct stm_host_priv *hpriv = host->private_data;
 
 #ifdef CONFIG_PM_RUNTIME
-static int stm_sata_runtime_suspend(struct device *dev)
-{
-	int nr_port;
-	struct ata_host *host = dev_get_drvdata(dev);
-	struct stm_host_priv *hpriv = host->private_data;
-	struct ata_port *port;
-	struct Scsi_Host *scsi_host;
-	struct scsi_device *sdev, *next_sdev;
-
-	pr_info("%s\n", __func__);
-
-	if (dev->power.runtime_status == RPM_SUSPENDED) {
-		pr_debug("%s already suspended\n", dev_name(dev));
-		return 0;
-	}
-
-	for (nr_port = 0; nr_port < host->n_ports; ++nr_port) {
-		port = host->ports[nr_port];
-		scsi_host = port->scsi_host;
-
-		list_for_each_entry_safe(sdev, next_sdev,
-				&scsi_host->__devices, siblings)
-			/* suspend all the child devices */
-			scsi_remove_device(sdev);
-
-	}
+	if (dev->power.runtime_status != RPM_ACTIVE)
+		return 0; /* sata already suspended via runtime_suspend */
+#endif
 
 	stm_device_power(hpriv->device_state,  stm_device_power_off);
-
-	return 0;
-}
-
-static int stm_sata_runtime_resume(struct device *dev)
-{
-	struct ata_host *host = dev_get_drvdata(dev);
-	struct stm_host_priv *hpriv = host->private_data;
-	struct ata_port *port;
-	struct Scsi_Host *scsi_host;
-	unsigned int nr_port, id, lun, channel;
-
-	if (dev->power.runtime_status == RPM_ACTIVE) {
-		pr_debug("%s already active\n", dev_name(dev));
-		return 0;
-	}
-
-	/*
-	 * The child devices are discovered as hot-plug
-	 * when the host is powered-on
-	 */
-	stm_device_power(hpriv->device_state,  stm_device_power_on);
-
-	for (nr_port = 0; nr_port < host->n_ports; ++nr_port) {
-		port = host->ports[nr_port];
-		scsi_host = port->scsi_host;
-
-		for (id = 0; id < scsi_host->max_id; ++id)
-			for (lun = 0; lun < scsi_host->max_lun; ++lun)
-				for (channel = 0;
-					channel < scsi_host->max_channel;
-					++channel)
-					scsi_host->transportt->user_scan(
-						scsi_host, channel, id, lun);
-
-	}
+	stm_miphy_freeze(hpriv->miphy_dev);
 
 	return 0;
 }
@@ -1430,15 +1373,82 @@ static int stm_sata_restore(struct device *dev)
 {
 	struct ata_host *host = dev_get_drvdata(dev);
 	struct stm_host_priv *hpriv = host->private_data;
+	struct ata_port *port;
+	struct Scsi_Host *scsi_host;
+	unsigned int nr_port, id, lun, channel;
+
+#ifdef CONFIG_PM_RUNTIME
+	if (dev->power.runtime_status == RPM_SUSPENDED)
+		return 0; /* sata wants resume via runtime_resume... */
+#endif
 
 	stm_device_power(hpriv->device_state, stm_device_power_on);
 
 	stm_sata_AHB_boot(dev);
+
+	for (nr_port = 0; nr_port < host->n_ports; ++nr_port) {
+		port = host->ports[nr_port];
+		scsi_host = port->scsi_host;
+
+		for (id = 0; id < scsi_host->max_id; ++id)
+			for (lun = 0; lun < scsi_host->max_lun; ++lun)
+				for (channel = 0;
+				     channel < scsi_host->max_channel;
+				     ++channel)
+					scsi_host->transportt->user_scan(
+						scsi_host, channel, id, lun);
+	}
 	return 0;
 }
 
+static int stm_sata_thaw(struct device *dev)
+{
+	struct ata_host *host = dev_get_drvdata(dev);
+	struct stm_host_priv *hpriv = host->private_data;
+
+	stm_miphy_thaw(hpriv->miphy_dev);
+	stm_device_power(hpriv->device_state, stm_device_power_on);
+
+	return 0;
+}
+
+#ifdef CONFIG_PM_RUNTIME
+static int stm_sata_runtime_suspend(struct device *dev)
+{
+	struct ata_host *host = dev_get_drvdata(dev);
+	struct stm_host_priv *hpriv = host->private_data;
+	unsigned int nr_port;
+
+	if (dev->power.runtime_status == RPM_SUSPENDED) {
+		pr_debug("%s already suspended\n", dev_name(dev));
+		return 0;
+	}
+
+	for (nr_port = 0; nr_port < host->n_ports; ++nr_port) {
+		struct ata_port *port = host->ports[nr_port];
+		struct Scsi_Host *scsi_host = port->scsi_host;
+		struct scsi_device *sdev, *next_sdev;
+
+		list_for_each_entry_safe(sdev, next_sdev,
+			&scsi_host->__devices, siblings)
+			/* suspend all the child devices */
+			scsi_remove_device(sdev);
+	}
+
+	stm_device_power(hpriv->device_state,  stm_device_power_off);
+	return 0;
+}
+
+static int stm_sata_runtime_resume(struct device *dev)
+{
+	if (dev->power.runtime_status == RPM_ACTIVE) {
+		pr_debug("%s already active\n", dev_name(dev));
+		return 0;
+	}
+
+	return stm_sata_restore(dev);
+}
 #else
-#define stm_sata_restore		NULL
 #define stm_sata_runtime_suspend	NULL
 #define stm_sata_runtime_resume		NULL
 #endif
@@ -1446,10 +1456,15 @@ static int stm_sata_restore(struct device *dev)
 static struct dev_pm_ops stm_sata_pm = {
 	.suspend = stm_sata_suspend,  /* on standby/memstandby */
 	.resume = stm_sata_resume,    /* resume from standby/memstandby */
+	.freeze = stm_sata_freeze,
+	.thaw = stm_sata_thaw,
 	.restore = stm_sata_restore,
 	.runtime_suspend = stm_sata_runtime_suspend,
 	.runtime_resume = stm_sata_runtime_resume,
 };
+#else
+static struct dev_pm_ops stm_sata_pm;
+#endif
 
 static struct platform_driver stm_sata_driver = {
 	.driver = {

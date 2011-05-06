@@ -17,6 +17,7 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/miphy.h>
+#include "miphy.h"
 
 #define MIPHY_RESET			0x00
 #define RST_RX				(1<<4)
@@ -55,9 +56,18 @@
 #define BIT_UNLOCK			(1<<2)
 #define TRANS_DENSITY_UPDATED		(1<<3)
 
+static struct class *miphy_class;
+static DEFINE_MUTEX(miphy_list_mutex);
+static LIST_HEAD(miphy_list);
 
-static struct miphy_device *miphy_dev;
-
+struct stm_miphy {
+	struct stm_miphy_device *dev;
+	int port;
+	enum miphy_mode mode;
+	struct list_head node;
+	struct device *owner;
+	struct device *device;
+};
 
 /* Start functions for miphy port
  * Ideally all the start functions should be identical, however
@@ -69,7 +79,7 @@ static struct miphy_device *miphy_dev;
  * MiPhy Port 0 Start function for SATA
  */
 
-static void tap_miphy_start_port0(struct miphy_if_ops *ops)
+static void tap_miphy_start_port0(const struct miphy_if_ops *ops)
 {
 	int timeout;
 	void (*reg_write)(int port, u8 addr, u8 data) 	= ops->reg_write;
@@ -184,7 +194,7 @@ static void tap_miphy_start_port0(struct miphy_if_ops *ops)
 /*
  * MiPhy Port 1 Start function for SATA
  */
-static void tap_miphy_start_port1(struct miphy_if_ops *ops)
+static void tap_miphy_start_port1(const struct miphy_if_ops *ops)
 {
 	int timeout;
 	void (*reg_write)(int port, u8 addr, u8 data) 	= ops->reg_write;
@@ -258,15 +268,15 @@ static void tap_miphy_start_port1(struct miphy_if_ops *ops)
 	reg_write(1, 0x86, 0x61);
 }
 
-static int tap_miphy_sata_start(int port, struct miphy_if *iface)
+static int tap_miphy_sata_start(int port, struct stm_miphy_device *miphy_dev)
 {
 	int rval = 0;
 	switch (port) {
 	case 0:
-		tap_miphy_start_port0(iface->ops);
+		tap_miphy_start_port0(miphy_dev->ops);
 		break;
 	case 1:
-		tap_miphy_start_port1(iface->ops);
+		tap_miphy_start_port1(miphy_dev->ops);
 		break;
 	default:
 		rval = -EINVAL;
@@ -274,7 +284,7 @@ static int tap_miphy_sata_start(int port, struct miphy_if *iface)
 	return rval;
 }
 
-static int tap_miphy_pcie_start(int port, struct miphy_if *iface)
+static int tap_miphy_pcie_start(int port, struct stm_miphy_device *miphy_dev)
 {
 	/* TODO */
 	return -1;
@@ -285,15 +295,18 @@ static int tap_miphy_pcie_start(int port, struct miphy_if *iface)
  * only for 7108 CUT2
  */
 
-static int mp_miphy_sata_start(int port, struct miphy_if *iface)
+static int mp_miphy_sata_start(int port, struct stm_miphy_device *miphy_dev)
 {
 	unsigned int regvalue;
 	int timeout;
-	void (*reg_write)(int port, u8 addr, u8 data) 	= iface->ops->reg_write;
-	u8 (*reg_read)(int port, u8 addr)		= iface->ops->reg_read;
+	void (*reg_write)(int port, u8 addr, u8 data);
+	u8 (*reg_read)(int port, u8 addr);
 
 	if (port < 0 || port > 1)
 		return -EINVAL;
+
+	reg_write = miphy_dev->ops->reg_write;
+	reg_read = miphy_dev->ops->reg_read;
 
 	/* Force PLL calibration reset, PLL reset
 	 * and assert Deserializer Reset */
@@ -394,7 +407,7 @@ static int mp_miphy_sata_start(int port, struct miphy_if *iface)
  * MiPhy Port 0 & 1 Start function for PCIE
  * only for 7108 CUT2
  */
-static int mp_miphy_pcie_start(int port, struct miphy_if *iface)
+static int mp_miphy_pcie_start(int port, struct stm_miphy_device *miphy_dev)
 {
 	/* TODO */
 	return -1;
@@ -406,34 +419,18 @@ static int mp_miphy_pcie_start(int port, struct miphy_if *iface)
  */
 static void stm_miphy_write(struct stm_miphy *miphy, u8 addr, u8 data)
 {
-	struct miphy_device *dev = miphy->dev;
-	int type = miphy->interface;
+	struct stm_miphy_device *dev = miphy->dev;
 	int port = miphy->port;
-	struct miphy_if *iface;
 
-	list_for_each_entry(iface, &dev->ifaces, list)
-		if (iface->type == type) {
-			down(&dev->mutex);
-			iface->ops->reg_write(port, addr, data);
-			up(&dev->mutex);
-		}
+	dev->ops->reg_write(port, addr, data);
 }
 
 static u8 stm_miphy_read(struct stm_miphy *miphy, u8 addr)
 {
-	struct miphy_device *dev = miphy->dev;
-	int type = miphy->interface;
+	struct stm_miphy_device *dev = miphy->dev;
 	int port = miphy->port;
-	int rval = 0;
-	struct miphy_if *iface;
 
-	list_for_each_entry(iface, &dev->ifaces, list)
-		if (iface->type == type) {
-			down(&dev->mutex);
-			rval = iface->ops->reg_read(port, addr);
-			up(&dev->mutex);
-		}
-	return rval;
+	return dev->ops->reg_read(port, addr);
 }
 
 #ifdef DEBUG
@@ -465,126 +462,187 @@ void stm_miphy_dump_registers(struct stm_miphy *miphy)
 }
 #endif /* DEBUG */
 
-static int stm_miphy_sata_status(struct stm_miphy *miphy)
+int stm_miphy_sata_status(struct stm_miphy *miphy)
 {
-	u8 miphy_int_status = stm_miphy_read(miphy, 0x4);
+	u8 miphy_int_status;
+	struct stm_miphy_device *dev = miphy->dev;
+
+	mutex_lock(&dev->mutex);
+	miphy_int_status = stm_miphy_read(miphy, 0x4);
+	mutex_unlock(&dev->mutex);
+
 	return (miphy_int_status & 0x8) || (miphy_int_status & 0x2);
 }
 
-static void stm_miphy_assert_deserializer(struct stm_miphy *miphy, int assert)
+void stm_miphy_assert_deserializer(struct stm_miphy *miphy, int assert)
 {
-	if (assert) /* Assert deserializer reset */
-		stm_miphy_write(miphy, 0x00, 0x10);
-	else
-		stm_miphy_write(miphy, 0x00, 0x00);
+	struct stm_miphy_device *dev = miphy->dev;
+
+	mutex_lock(&dev->mutex);
+	stm_miphy_write(miphy, 0x00, assert ? 0x10 : 0x00);
+	mutex_unlock(&dev->mutex);
 }
 
-static int stm_miphy_start(struct stm_miphy *miphy)
+int stm_miphy_start(struct stm_miphy *miphy)
 {
-	struct miphy_device *dev = miphy->dev;
-	int type = miphy->interface;
-	int port = miphy->port;
+	struct stm_miphy_device *dev;
+	int port;
 	int rval = -ENODEV;
-	struct miphy_if *iface;
 
-	list_for_each_entry(iface, &dev->ifaces, list)
-		if (iface->type == type) {
-			down(&dev->mutex);
-			if (miphy->mode == SATA_MODE)
-				rval = iface->start_sata(port, iface);
-			else if (miphy->mode == PCIE_MODE)
-				rval = iface->start_pcie(port, iface);
-			up(&dev->mutex);
+	dev = miphy->dev;
+	port = miphy->port;
+
+	mutex_lock(&dev->mutex);
+
+	switch (miphy->mode) {
+	case SATA_MODE:
+		switch (dev->type) {
+		case TAP_IF:
+			rval = tap_miphy_sata_start(port, dev);
+			break;
+		case UPORT_IF:
+			rval = mp_miphy_sata_start(port, dev);
+			break;
+		case DUMMY_IF:
+			break;
+		default:
+			BUG();
 		}
+		break;
+	case PCIE_MODE:
+		switch (dev->type) {
+		case TAP_IF:
+			rval = tap_miphy_pcie_start(port, dev);
+			break;
+		case UPORT_IF:
+			rval = mp_miphy_pcie_start(port, dev);
+			break;
+		case DUMMY_IF:
+			break;
+		default:
+			BUG();
+		}
+		break;
+	default:
+		BUG();
+	}
 
 	/* Clear the contents of interrupt control register,
 	   excluding fifooverlap_int */
 	stm_miphy_write(miphy, MIPHY_INT_STATUS, 0x77);
 
+	mutex_unlock(&dev->mutex);
+
 	return rval;
 }
 
-static struct miphy_device *miphy_device_new(void)
+struct stm_miphy *stm_miphy_claim(int port, enum miphy_mode mode,
+	struct device *owner)
 {
-	/* Singleton device */
-	if (!miphy_dev)	{
-		miphy_dev = kzalloc(sizeof(struct miphy_device), GFP_KERNEL);
-		miphy_dev->user_count = 0;
-		init_MUTEX(&miphy_dev->mutex);
-		INIT_LIST_HEAD(&miphy_dev->ifaces);
-	}
-	return miphy_dev;
-}
+	struct stm_miphy *iterator;
+	struct stm_miphy *miphy = NULL;
 
-struct miphy_device *miphy_if_register(enum miphy_if_type type, void *if_data,
-					struct miphy_if_ops *ops)
-{
-	struct miphy_if *iface;
-	struct miphy_device *dev;
-	if (!ops)
+	if (!owner)
 		return NULL;
 
-	dev =  miphy_device_new();
+	mutex_lock(&miphy_list_mutex);
 
-	iface = kzalloc(sizeof(struct miphy_if), GFP_KERNEL);
-	iface->ops = ops;
-	switch (type) {
-	case  TAP_IF:
-		iface->start_sata = tap_miphy_sata_start;
-		iface->start_pcie = tap_miphy_pcie_start;
-		break;
-	case  UPORT_IF:
-		iface->start_sata = mp_miphy_sata_start;
-		iface->start_pcie = mp_miphy_pcie_start;
-		break;
-	default:
-		iface->start_sata = NULL;
-		iface->start_pcie = NULL;
+	list_for_each_entry(iterator, &miphy_list, node)
+		if (iterator->port == port) {
+			miphy = iterator;
+			break;
+		}
+
+	if (!miphy) {		/* Not found */
+		pr_warning("MiPhy %d not available\n", port);
+		goto _on_error;
 	}
-	iface->data = if_data;
-	iface->type = type;
-	list_add(&iface->list, &dev->ifaces);
-	++dev->user_count;
+	if (miphy->owner) {	/* already claimed */
+		pr_err("MiPhy %d already claimed by %s\n",
+			port, dev_name(miphy->owner));
+		miphy = NULL;
+		goto _on_error;
+	}
+	if (miphy->mode != mode) {
+		pr_err("MiPHY %d is not in the correct mode\n", port);
+		miphy = NULL;
+		goto _on_error;
+	}
 
-	return dev;
+	miphy->owner = owner;
+
+	stm_miphy_start(miphy);
+
+_on_error:
+	mutex_unlock(&miphy_list_mutex);
+	return miphy;
 }
 
-int miphy_if_unregister(struct miphy_device *dev, enum miphy_if_type type)
+void stm_miphy_release(struct stm_miphy *miphy)
 {
-	struct miphy_if *iface;
-	list_for_each_entry(iface, &dev->ifaces, list) {
-		if (iface->type == type) {
-			list_del(&iface->list);
-			--dev->user_count;
-			kfree(iface);
-			return 0;
+	/* FIXME */
+}
+
+void stm_miphy_freeze(struct stm_miphy *miphy)
+{
+	/* Nothing to do */
+}
+
+void stm_miphy_thaw(struct stm_miphy *miphy)
+{
+	stm_miphy_start(miphy);
+}
+
+int miphy_if_register(struct stm_miphy_device *miphy_dev,
+		      enum miphy_if_type type,
+		      int miphy_first, int miphy_count,
+		      enum miphy_mode *modes,
+		      struct device *parent,
+		      const struct miphy_if_ops *ops)
+{
+	struct stm_miphy *miphy;
+	int miphy_num;
+
+	if (!miphy_class) {
+		miphy_class = class_create(THIS_MODULE, "stm-miphy");
+		if (IS_ERR(miphy_class)) {
+			printk(KERN_ERR "stm-miphy: can't register class\n");
+			return PTR_ERR(miphy_class);
 		}
 	}
-	return -ENODEV;
-}
 
+	miphy = kzalloc(sizeof(*miphy) * miphy_count, GFP_KERNEL);
+	if (!miphy)
+		return -ENOMEM;
 
+	for (miphy_num = miphy_first;
+	     miphy_num < miphy_first + miphy_count;
+	     miphy_num++, miphy++) {
+		miphy->dev = miphy_dev;
+		miphy->port = miphy_num;
+		miphy->mode = *modes++;
 
-int stm_miphy_init(struct stm_miphy *miphy)
-{
+		mutex_lock(&miphy_list_mutex);
+		list_add(&miphy->node, &miphy_list);
+		mutex_unlock(&miphy_list_mutex);
 
-	if (!miphy_dev) {
-		printk(KERN_ERR"No MiPHY Instance created or "
-			"No register r/w interfaces registered with MiPHY\n");
-		BUG();
+		miphy->device = device_create(miphy_class, parent, 0, miphy,
+					      "stm-miphy%d", miphy_num);
+		if (IS_ERR(miphy->device))
+			return PTR_ERR(miphy->device);
 	}
 
-	miphy->dev 			= miphy_dev;
-	miphy->start 			= stm_miphy_start;
-	miphy->sata_status 		= stm_miphy_sata_status;
-	miphy->assert_deserializer 	= stm_miphy_assert_deserializer;
-	stm_miphy_start(miphy);
+	memset(miphy_dev, 0, sizeof(*miphy_dev));
+	mutex_init(&miphy_dev->mutex);
+	miphy_dev->ops = ops;
+	miphy_dev->type = type;
 
 	return 0;
 }
 
-void stm_miphy_exit(struct stm_miphy *miphy)
+int miphy_if_unregister(struct stm_miphy_device *miphy_dev)
 {
-	if (!miphy->dev->user_count)
-		kfree(miphy_dev);
+	/* TODO */
+
+	return 0;
 }

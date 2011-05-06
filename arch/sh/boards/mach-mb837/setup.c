@@ -220,6 +220,10 @@ static int __init mb837_devices_init(void)
 	/* J53C & J53D fitted */
 	stx7108_configure_usb(2);
 
+	stx7108_configure_miphy(&(struct stx7108_miphy_config) {
+			.modes = (enum miphy_mode[2]) {
+				SATA_MODE, SATA_MODE },
+			});
 	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
 	stx7108_configure_sata(1, &(struct stx7108_sata_config) { });
 

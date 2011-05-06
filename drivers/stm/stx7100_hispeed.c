@@ -266,6 +266,31 @@ void __init stx7100_configure_usb(void)
 
 
 
+/* MiPHY resources -------------------------------------------------------- */
+
+static struct stm_plat_miphy_dummy_data stx7100_miphy_dummy_platform_data = {
+	.miphy_first = 0,
+	.miphy_count = 2,
+	.miphy_modes = (enum miphy_mode[1]) {SATA_MODE},
+};
+
+static struct platform_device stx7100_miphy_dummy_device = {
+	.name	= "stm-miphy-dummy",
+	.id	= 0,
+	.num_resources = 0,
+	.dev = {
+		.platform_data = &stx7100_miphy_dummy_platform_data,
+	}
+};
+
+static int __init stx7100_miphy_postcore_setup(void)
+{
+	return platform_device_register(&stx7100_miphy_dummy_device);
+}
+postcore_initcall(stx7100_miphy_postcore_setup);
+
+
+
 /* SATA resources --------------------------------------------------------- */
 static struct stm_plat_sata_data stx7100_sata_platform_data = {
 	/* filled in stx7100_configure_sata() */

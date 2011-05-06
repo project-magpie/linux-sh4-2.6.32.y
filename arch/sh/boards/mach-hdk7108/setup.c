@@ -437,17 +437,33 @@ static int __init device_init(void)
 		 * We also have to force the use of the TAP instead of
 		 * microport, as this is clocked from MiPHY 1.
 		 */
-		stx7108_configure_sata(0, &(struct stx7108_sata_config) {
-				.force_jtag = 1, });
+		stx7108_configure_miphy(&(struct stx7108_miphy_config) {
+				.force_jtag = 1,
+				.modes = (enum miphy_mode[2]) {
+					SATA_MODE, UNUSED_MODE },
+				});
+		stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
 	} else {
+		stx7108_configure_miphy(&(struct stx7108_miphy_config) {
+				.modes = (enum miphy_mode[2]) {
+					SATA_MODE, SATA_MODE },
+				});
 		stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
 		stx7108_configure_sata(1, &(struct stx7108_sata_config) { });
 	}
 #elif defined(CONFIG_SH_ST_HDK7108_VER2_BOARD)
 	/* PCIe + 1 SATA */
+	stx7108_configure_miphy(&(struct stx7108_miphy_config) {
+			.modes = (enum miphy_mode[2]) {
+				SATA_MODE, PCIE_MODE },
+			});
 	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
 #elif defined(CONFIG_SH_ST_HDK7108_VER2_1A_BOARD)
 	/* 2 SATA's */
+	stx7108_configure_miphy(&(struct stx7108_miphy_config) {
+			.modes = (enum miphy_mode[2]) {
+				SATA_MODE, SATA_MODE },
+			});
 	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
 	stx7108_configure_sata(1, &(struct stx7108_sata_config) { });
 #endif

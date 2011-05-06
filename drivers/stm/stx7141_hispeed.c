@@ -851,7 +851,9 @@ static struct stm_tap_sysconf tap_sysconf = {
 };
 
 struct stm_plat_tap_data stx7141_tap_platform_data = {
-	.ports_num = 1,
+	.miphy_first = 0,
+	.miphy_count = 1,
+	.miphy_modes = (enum miphy_mode[1]) {SATA_MODE},
 	.tap_sysconf = &tap_sysconf,
 };
 
@@ -886,11 +888,6 @@ static void stx7141_sata_power(struct stm_device_state *device_state,
 	 */
 	return ;
 }
-static struct stm_miphy miphy = {
-	.port 		= 0,
-	.mode 		= SATA_MODE,
-	.interface 	= TAP_IF,
-};
 
 static struct platform_device stx7141_sata_device = {
 	.name = "sata-stm",
@@ -901,7 +898,7 @@ static struct platform_device stx7141_sata_device = {
 		.only_32bit = 0,
 		.host_restart = NULL,
 		.port_num = 0,
-		.miphy = &miphy,
+		.miphy_num = 0,
 		.device_config = &(struct stm_device_config) {
 			.sysconfs_num = 2,
 			.sysconfs = (struct stm_device_sysconf []) {
@@ -940,7 +937,6 @@ void __init stx7141_configure_sata(void)
 	BUG_ON(!sc);
 	sysconf_write(sc, 1);
 	sysconf_release(sc);	/* make available for stm_device */
-	stm_miphy_init(&miphy);
 
 	platform_device_register(&stx7141_sata_device);
 }

@@ -775,7 +775,9 @@ static struct stm_tap_sysconf tap_sysconf = {
 };
 
 static struct stm_plat_tap_data stx7105_tap_platform_data = {
-	.ports_num = 2,
+	.miphy_first = 0,
+	.miphy_count = 2,
+	.miphy_modes = (enum miphy_mode[2]) {SATA_MODE, SATA_MODE},
 	.tap_sysconf = &tap_sysconf,
 };
 
@@ -791,7 +793,7 @@ static struct platform_device stx7105_tap_device = {
 static int __init stx7105_miphy_postcore_setup(void)
 {
 	if (cpu_data->type == CPU_STX7105)
-		stx7105_tap_platform_data.ports_num = 1;
+		stx7105_tap_platform_data.miphy_count = 1;
 
 	return platform_device_register(&stx7105_tap_device);
 }
@@ -803,21 +805,6 @@ postcore_initcall(stx7105_miphy_postcore_setup);
 
 static struct sysconf_field *sata_host_reset_sysconf[2];
 static struct sysconf_field *sata_phy_reset_sysconf[2];
-
-#define MAX_PORTS	2
-
-static struct stm_miphy miphy[MAX_PORTS] = {
-	{
-		.port 		= 0,
-		.mode 		= SATA_MODE,
-		.interface 	= TAP_IF,
-	},
-	{
-		.port 		= 1,
-		.mode 		= SATA_MODE,
-		.interface 	= TAP_IF,
-	}
-};
 
 static void stx7105_restart_sata(int port)
 {
@@ -861,7 +848,7 @@ static struct platform_device stx7105_sata_device = {
 		.only_32bit = 0,
 		.host_restart = stx7105_restart_sata,
 		.port_num = 0,
-		.miphy = &miphy[0],
+		.miphy_num = 0,
 		.device_config = &(struct stm_device_config) {
 			.sysconfs_num = 0,
 			.power = stx7105_sata0_power,
@@ -886,7 +873,7 @@ static struct platform_device stx7106_sata_devices[] = {
 			.oob_wa = 1,
 			.host_restart = stx7105_restart_sata,
 			.port_num = 0,
-			.miphy = &miphy[0],
+			.miphy_num = 0,
 			.device_config = &(struct stm_device_config) {
 				.sysconfs_num = 0,
 				.power = stx7105_sata0_power,
@@ -910,7 +897,7 @@ static struct platform_device stx7106_sata_devices[] = {
 			.oob_wa = 1,
 			.host_restart = stx7105_restart_sata,
 			.port_num = 1,
-			.miphy = &miphy[1],
+			.miphy_num = 1,
 			.device_config = &(struct stm_device_config) {
 				.sysconfs_num = 0,
 				.power = stx7105_sata1_power,
@@ -958,7 +945,6 @@ void __init stx7105_configure_sata(int port)
 				sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
 			BUG_ON(!sata_phy_reset_sysconf[0]);
 			sysconf_write(sata_phy_reset_sysconf[0], 0);
-			stm_miphy_init(&miphy[0]);
 		} else {
 			/* 7106 */
 			/* The second PHY _must not_ be powered while
@@ -975,13 +961,11 @@ void __init stx7105_configure_sata(int port)
 				sysconf_claim(SYS_CFG, 32, 8, 8, "SATA");
 			BUG_ON(!sata_phy_reset_sysconf[0]);
 			sysconf_write(sata_phy_reset_sysconf[0], 0);
-			stm_miphy_init(&miphy[0]);
 
 			sata_phy_reset_sysconf[1] =
 				sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
 			BUG_ON(!sata_phy_reset_sysconf[1]);
 			sysconf_write(sata_phy_reset_sysconf[1], 0);
-			stm_miphy_init(&miphy[1]);
 		}
 		initialized = 1;
 	}

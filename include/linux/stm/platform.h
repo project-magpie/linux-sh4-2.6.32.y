@@ -23,6 +23,7 @@
 #include <linux/stmmac.h>
 #include <linux/mmc/sdhci.h>
 #include <linux/sdhci-pltfm.h>
+#include <linux/stm/miphy.h>
 
 /*** Platform definition helpers ***/
 
@@ -202,7 +203,8 @@ struct stm_tap_sysconf {
 };
 
 struct stm_plat_tap_data {
-	int ports_num;
+	int miphy_first, miphy_count;
+	enum miphy_mode *miphy_modes;
 	struct stm_tap_sysconf *tap_sysconf;
 };
 
@@ -210,7 +212,18 @@ struct stm_plat_tap_data {
 /*** PCIE-MP platform data ***/
 
 struct stm_plat_pcie_mp_data {
+	int miphy_first, miphy_count;
+	enum miphy_mode *miphy_modes;
 	void (*mp_select)(int port);
+};
+
+
+
+/*** MiPHY dummy platform data ***/
+
+struct stm_plat_miphy_dummy_data {
+	int miphy_first, miphy_count;
+	enum miphy_mode *miphy_modes;
 };
 
 
@@ -225,10 +238,8 @@ struct stm_plat_sata_data {
 	struct stm_device_config *device_config;
 	void (*host_restart)(int port);
 	int port_num;
-	struct stm_miphy *miphy;
+	int miphy_num;
 };
-
-
 
 /*** PIO platform data ***/
 

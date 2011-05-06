@@ -761,7 +761,9 @@ static struct stm_tap_sysconf tap_sysconf = {
 };
 
 struct stm_plat_tap_data stx7200_tap_platform_data = {
-	.ports_num = 1,
+	.miphy_first = 0,
+	.miphy_count = 1,
+	.miphy_modes = (enum miphy_mode[1]) {SATA_MODE},
 	.tap_sysconf = &tap_sysconf,
 };
 
@@ -805,12 +807,6 @@ static void stx7200_sata_power(struct stm_device_state *device_state,
 	return ;
 }
 
-static struct stm_miphy miphy = {
-	.port 		= 0,
-	.mode 		= SATA_MODE,
-	.interface 	= TAP_IF,
-};
-
 /* Ok to have same private data for both controllers */
 static struct stm_plat_sata_data stx7200_sata_platform_data = {
 	.phy_init = 0,
@@ -818,7 +814,7 @@ static struct stm_plat_sata_data stx7200_sata_platform_data = {
 	.only_32bit = 0,
 	.host_restart = NULL,
 	.port_num = 0,
-	.miphy = &miphy,
+	.miphy_num = 0,
 	.device_config = &(struct stm_device_config) {
 			.sysconfs_num = 2,
 			.sysconfs = (struct stm_device_sysconf []) {
@@ -850,7 +846,6 @@ void __init stx7200_configure_sata(void)
 		pr_warning("SATA is only supported on cut 3 or later\n");
 		return;
 	}
-	stm_miphy_init(&miphy);
 
 	platform_device_register(&stx7200_sata_device);
 }

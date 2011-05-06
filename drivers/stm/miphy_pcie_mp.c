@@ -19,14 +19,15 @@
 #include <linux/stm/pio.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/miphy.h>
+#include "miphy.h"
 
 #define NAME	"pcie-mp"
 
 struct pcie_mp_device{
+	struct stm_miphy_device miphy_dev;
 	void __iomem *mp_base;
 	void (*mp_select)(int port);
 	struct miphy_if_ops *ops;
-	struct miphy_device *miphy_dev;
 };
 static struct pcie_mp_device *mp_dev;
 
@@ -46,15 +47,23 @@ static u8 stm_pcie_mp_register_read(int miphyselect, u8 address)
 	return data;
 }
 
+static const struct miphy_if_ops stm_miphy_mp_ops = {
+	.reg_write = stm_pcie_mp_register_write,
+	.reg_read = stm_pcie_mp_register_read,
+};
+
 static int __init pcie_mp_probe(struct platform_device *pdev)
 {
 	struct resource *res;
 	struct stm_plat_pcie_mp_data *data =
 			(struct stm_plat_pcie_mp_data *)pdev->dev.platform_data;
+	int result;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 
 	mp_dev = kzalloc(sizeof(struct pcie_mp_device), GFP_KERNEL);
+	if (!mp_dev)
+		return -ENOMEM;
 
 	if (!devm_request_mem_region(&pdev->dev, res->start,
 			     res->end - res->start, "pcie-mp")) {
@@ -69,21 +78,20 @@ static int __init pcie_mp_probe(struct platform_device *pdev)
 	if (!mp_dev->mp_base)
 		return -ENOMEM;
 
-	mp_dev->ops = kzalloc(sizeof(struct miphy_if_ops), GFP_KERNEL);
-	mp_dev->ops->reg_write = stm_pcie_mp_register_write;
-	mp_dev->ops->reg_read = stm_pcie_mp_register_read;
+	result = miphy_if_register(&mp_dev->miphy_dev, UPORT_IF,
+			data->miphy_first, data->miphy_count, data->miphy_modes,
+			&pdev->dev, &stm_miphy_mp_ops);
 
-	mp_dev->miphy_dev = miphy_if_register(UPORT_IF, mp_dev, mp_dev->ops);
-
-	if (!mp_dev->miphy_dev)
-		printk(KERN_ERR"Unable to Register read/write ops\n");
-
+	if (result) {
+		printk(KERN_ERR "Unable to Register uPort MiPHY device\n");
+		return result;
+	}
 
 	return 0;
 }
 static int  pcie_mp_remove(struct platform_device *pdev)
 {
-	miphy_if_unregister(mp_dev->miphy_dev, UPORT_IF);
+	miphy_if_unregister(&mp_dev->miphy_dev);
 	kfree(mp_dev->ops);
 	kfree(mp_dev);
 	mp_dev = NULL;

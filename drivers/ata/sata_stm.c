@@ -671,9 +671,7 @@ static int stm_prereset(struct ata_link *link, unsigned long deadline)
 	u32 serror;
 	struct stm_host_priv *hpriv = ap->host->private_data;
 	struct stm_miphy *miphy_dev = hpriv->miphy_dev;
-	u8 miphy_int_status = 0;
-	if (miphy_dev)
-		miphy_int_status = miphy_dev->sata_status(miphy_dev);
+	u8 miphy_int_status = stm_miphy_sata_status(miphy_dev);
 
 	DPRINTK("ENTER\n");
 	stm_sata_scr_read(&ap->link, SCR_ERROR, &serror);
@@ -686,8 +684,7 @@ static int stm_prereset(struct ata_link *link, unsigned long deadline)
 	if (hpriv->host_restart && ((serror & SERROR_ERR_C) ||
 		miphy_int_status)) {
 		hpriv->host_restart(hpriv->port_num);
-		if (miphy_dev)
-			miphy_dev->start(miphy_dev);
+		stm_miphy_start(miphy_dev);
 	}
 
 	stm_phy_configure(ap);
@@ -722,8 +719,7 @@ static int stm_sata_do_comreset(void __iomem *mmio_base,
 	writel(val, (mmio_base + SATA_SCR1));
 
 	/* Assert MiPHY deserializer reset */
-	if (miphy_dev)
-		miphy_dev->assert_deserializer(miphy_dev, 1);
+	stm_miphy_assert_deserializer(miphy_dev, 1);
 
 	/* Send COMMRESET */
 	writel(0x1, (mmio_base + SATA_SCR2));
@@ -739,8 +735,7 @@ static int stm_sata_do_comreset(void __iomem *mmio_base,
 		msleep(1);
 
 	/* Deassert MiPHY deserializer reset */
-	if (miphy_dev)
-		miphy_dev->assert_deserializer(miphy_dev, 0);
+	stm_miphy_assert_deserializer(miphy_dev, 0);
 	if (timeout <= 0) {
 		rval = -1;
 		goto err;
@@ -1245,7 +1240,6 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	hpriv->phy_init = sata_private_info->phy_init;
 	hpriv->oob_wa = sata_private_info->oob_wa;
 	hpriv->host_restart = sata_private_info->host_restart;
-	hpriv->miphy_dev = sata_private_info->miphy;
 	hpriv->port_num = sata_private_info->port_num;
 	hpriv->softsg = readl(mmio_base + DMAC_COMP_PARAMS_2) &
 		DMAC_COMP_PARAMS_2_CH0_HC_LLP;
@@ -1269,6 +1263,14 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 	       (int)(dmac_rev >> 24) & 0xff,
 	       (int)(dmac_rev >> 16) & 0xff,
 	       (int)(dmac_rev >>  8) & 0xff);
+
+	hpriv->miphy_dev = stm_miphy_claim(sata_private_info->miphy_num,
+			SATA_MODE, dev);
+	if (!hpriv->miphy_dev) {
+		printk(KERN_ERR DRV_NAME " Unable to claim MiPHY %d\n",
+			sata_private_info->miphy_num);
+		return -EBUSY;
+	}
 
 	stm_sata_AHB_boot(dev);
 
@@ -1314,6 +1316,7 @@ static int stm_sata_remove(struct platform_device *pdev)
 	struct ata_host *host = dev_get_drvdata(&pdev->dev);
 	struct stm_host_priv *hpriv = host->private_data;
 
+	stm_miphy_release(hpriv->miphy_dev);
 	stm_device_power(hpriv->device_state,  stm_device_power_off);
 
 	return 0;

@@ -155,11 +155,14 @@ void stx7108_configure_usb(int port);
 
 void stx7108_configure_mmc(void);
 
-struct stx7108_sata_config {
-	/* Option available for CUT2.0 */
-	int force_jtag;
+struct stx7108_miphy_config {
+	int force_jtag;		/* Option available for CUT2.0 */
+	enum miphy_mode *modes;
 };
+void stx7108_configure_miphy(struct stx7108_miphy_config *config);
 
+struct stx7108_sata_config {
+};
 void stx7108_configure_sata(int port, struct stx7108_sata_config *config);
 
 

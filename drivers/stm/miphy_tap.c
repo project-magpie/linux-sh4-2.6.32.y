@@ -8,12 +8,13 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/miphy.h>
-
+#include "miphy.h"
 #include "tap.h"
 
 #define NAME		"stm-miphy-tap"
 
 struct stm_miphy_tap_device {
+	struct stm_miphy_device miphy_dev;
 	int c_port;
 	int ports;
 	struct stm_tap	*tap;
@@ -23,8 +24,6 @@ struct stm_miphy_tap_device {
 	struct sysconf_field *tdo;
 	struct sysconf_field *tap_en;
 	struct sysconf_field *trstn;
-	struct miphy_if_ops *ops;
-	struct miphy_device *miphy_dev;
 };
 static struct stm_miphy_tap_device *tap_dev;
 
@@ -150,19 +149,26 @@ static void stm_miphy_tap_reg_write(int port, u8 addr, u8 data)
 			DR_SIZE + (tap_dev->ports - 1));
 }
 
+static const struct miphy_if_ops stm_miphy_tap_ops = {
+	.reg_write = stm_miphy_tap_reg_write,
+	.reg_read = stm_miphy_tap_reg_read,
+};
+
 static int stm_miphy_tap_probe(struct platform_device *pdev)
 {
 	struct stm_plat_tap_data *data =
 			(struct stm_plat_tap_data *)pdev->dev.platform_data;
-
 	struct tap_sysconf_field *tck = &data->tap_sysconf->tck;
 	struct tap_sysconf_field *tms = &data->tap_sysconf->tms;
 	struct tap_sysconf_field *tdi = &data->tap_sysconf->tdi;
 	struct tap_sysconf_field *tdo = &data->tap_sysconf->tdo;
 	struct tap_sysconf_field *tap_en = &data->tap_sysconf->tap_en;
 	struct tap_sysconf_field *trstn = &data->tap_sysconf->trstn;
+	int result;
 
 	tap_dev = kzalloc(sizeof(struct stm_miphy_tap_device), GFP_KERNEL);
+	if (!tap_dev)
+		return -ENOMEM;
 
 	tap_dev->tck = sysconf_claim(tck->group, tck->num,
 				tck->lsb, tck->msb, NAME);
@@ -198,20 +204,20 @@ static int stm_miphy_tap_probe(struct platform_device *pdev)
 
 	udelay(100);
 
-	tap_dev->ports = data->ports_num;
+	tap_dev->ports = data->miphy_count;
 	tap_dev->c_port = -1;
 	tap_dev->tap = stm_tap_init(stm_miphy_tap_tick);
 
 	stm_tap_enable(tap_dev->tap);
 
-	tap_dev->ops = kzalloc(sizeof(struct miphy_if_ops), GFP_KERNEL);
-	tap_dev->ops->reg_write = stm_miphy_tap_reg_write;
-	tap_dev->ops->reg_read = stm_miphy_tap_reg_read;
+	result = miphy_if_register(&tap_dev->miphy_dev, TAP_IF,
+			data->miphy_first, data->miphy_count, data->miphy_modes,
+			&pdev->dev, &stm_miphy_tap_ops);
 
-	tap_dev->miphy_dev = miphy_if_register(TAP_IF, tap_dev, tap_dev->ops);
-
-	if (!tap_dev->miphy_dev)
-		printk(KERN_ERR"Unable to Register read/write ops\n");
+	if (result) {
+		printk(KERN_ERR "Unable to Register TAP MiPHY device\n");
+		return result;
+	}
 
 	return 0;
 }
@@ -222,14 +228,13 @@ static int stm_miphy_tap_remove(struct platform_device *pdev)
 	stm_tap_disable(tap_dev->tap);
 	stm_tap_free(tap_dev->tap);
 
-	miphy_if_unregister(tap_dev->miphy_dev, TAP_IF);
+	miphy_if_unregister(&tap_dev->miphy_dev);
 	/* free the memory and sysconf */
 	sysconf_release(tap_dev->tck);
 	sysconf_release(tap_dev->tms);
 	sysconf_release(tap_dev->tdi);
 	sysconf_release(tap_dev->tdo);
 
-	kfree(tap_dev->ops);
 	kfree(tap_dev);
 	tap_dev = NULL;
 

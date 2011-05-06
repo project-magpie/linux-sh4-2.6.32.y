@@ -205,6 +205,10 @@ static int __init mb903_device_init(void)
 	stx7108_configure_usb(1);
 	stx7108_configure_usb(2);
 
+	stx7108_configure_miphy(&(struct stx7108_miphy_config) {
+			.modes = (enum miphy_mode[2]) {
+				SATA_MODE, SATA_MODE },
+			});
 	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
 	stx7108_configure_sata(1, &(struct stx7108_sata_config) { });
 	BUG_ON(fixed_phy_add(PHY_POLL, 1, &stmmac0_fixed_phy_status));

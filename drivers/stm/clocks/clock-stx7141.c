@@ -304,7 +304,11 @@ int __init plat_clk_init(void)
 		return ret;
 
 	ret = clk_register_table(&clk_clocks[CLKB_REF],
-				 ARRAY_SIZE(clk_clocks)-CLKB_REF, 0);
+				 ARRAY_SIZE(clk_clocks)-CLKB_REF - 3, 0);
+
+	/* turn-on USB-clks */
+	ret = clk_register_table(&clk_clocks[CLKF_REF],
+				ARRAY_SIZE(clk_clocks)-CLKF_REF, 1);
 	return ret;
 }
 

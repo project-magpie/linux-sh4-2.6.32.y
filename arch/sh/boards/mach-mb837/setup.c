@@ -103,7 +103,7 @@ static struct stmmac_mdio_bus_data stmmac0_mdio_bus = {
 #endif
 
 
-#ifdef CONFIG_SH_ST_MB837_STMMAC0
+#ifdef CONFIG_SH_ST_MB837_STMMAC1
 /* J14-A must be fitted */
 static int mb837_mii1_phy_reset(void *bus)
 {

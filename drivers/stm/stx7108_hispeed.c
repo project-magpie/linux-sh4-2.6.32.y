@@ -1126,14 +1126,14 @@ static int __init stx7108_configure_miphy_uport(void)
 
 	/* Deassert Soft Reset to SATA0 */
 	sysconf_write(sc_sata1_hc_srst, 1);
-	/* Put MiPHY1 in reset - rst_per_n[32] */
-	sysconf_write(sc_miphy_reset[0], 0);
-	/* MiPHY1 needs to be using the MiPHY0 reference clock */
-	sysconf_write(sc_miphy1_ref_clk, 1);
-	/* Take MiPHY1 out of reset - rst_per_n[32] */
-	sysconf_write(sc_miphy_reset[0], 1);
 
-	if (stx7108_miphy_modes[1] == SATA_MODE) {
+	/* If the 100MHz xtal for PCIe is present, then the microport interface
+	 * will already have a clock, so there is no need to flip to the 30MHz
+	 * clock here. If it isn't then we have to switch miphy lane 1 to use
+	 * the 30MHz clock, as otherwise we will not be able to talk to lane 0
+	 * since the uport interface itself is clocked from lane1
+	 */
+	if (stx7108_miphy_modes[1] != PCIE_MODE) {
 		/* Put MiPHY1 in reset - rst_per_n[32] */
 		sysconf_write(sc_miphy_reset[1], 0);
 		/* Put SATA1 HC in reset - rst_per_n[30] */

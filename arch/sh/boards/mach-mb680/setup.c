@@ -262,7 +262,11 @@ static int __init mb680_devices_init(void)
 	 *	J15A : fitted
 	 */
 	stx7105_configure_lirc(&(struct stx7105_lirc_config) {
+#ifdef CONFIG_LIRC_STM_UHF
+			.rx_mode = stx7105_lirc_rx_mode_uhf,
+#else
 			.rx_mode = stx7105_lirc_rx_mode_ir,
+#endif
 			.tx_enabled = 1,
 			.tx_od_enabled = 1, });
 

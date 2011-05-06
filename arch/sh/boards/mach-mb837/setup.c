@@ -209,7 +209,11 @@ static int __init mb837_devices_init(void)
 	i2c_register_board_info(ssc2_i2c, &mb837_pio_extender, 1);
 
 	stx7108_configure_lirc(&(struct stx7108_lirc_config) {
+#ifdef CONFIG_LIRC_STM_UHF
+			.rx_mode = stx7108_lirc_rx_mode_uhf,
+#else
 			.rx_mode = stx7108_lirc_rx_mode_ir,
+#endif
 			.tx_enabled = 1,
 			.tx_od_enabled = 1, });
 

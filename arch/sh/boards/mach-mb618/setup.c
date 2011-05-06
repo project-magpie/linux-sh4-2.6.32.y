@@ -296,7 +296,11 @@ static int __init mb618_devices_init(void)
 		});
 
 	stx7111_configure_lirc(&(struct stx7111_lirc_config) {
+#ifdef CONFIG_LIRC_STM_UHF
+			.rx_mode = stx7111_lirc_rx_mode_uhf,
+#else
 			.rx_mode = stx7111_lirc_rx_mode_ir,
+#endif
 			.tx_enabled = 1,
 			.tx_od_enabled = 0, });
 

@@ -159,7 +159,13 @@ config LIRC_SUPPORT
 			bool "UHF RX receiver processor"
 			depends on LIRC_STM
 			help
-			 To be able to setup Noise and/or SCD filters.
+			  Set this option to enable UHF instead of IR remote control input.
+
+			  Note this option has no direct effect in the LiRC driver. It is used by
+			  some boards which have support for both UHF and IR support to set the
+			  configuration parameters passed into the driver. Not all boards have
+			  support for both modes of operation, so this option may have no effect,
+			  and hardware changes (such as changing jumpers) may be required.
 
 	        config LIRC_STM_UHF_SCD
 		        bool "Start Code Detector - SCD"

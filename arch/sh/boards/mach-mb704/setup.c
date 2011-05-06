@@ -134,7 +134,11 @@ static int __init mb704_devices_init(void)
 	/* To have UHF available on MB704:
 	 * need one wire from J14-C to J14-E */
 	stx5197_configure_lirc(&(struct stx5197_lirc_config) {
+#ifdef CONFIG_LIRC_STM_UHF
+			.rx_mode = stx5197_lirc_rx_mode_uhf.
+#else
 			.rx_mode = stx5197_lirc_rx_mode_ir,
+#endif
 			.tx_enabled = 1, });
 
 	spi_register_board_info(&mb704_serial_flash, 1);

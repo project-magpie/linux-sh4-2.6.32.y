@@ -122,7 +122,11 @@ static int __init hdk5289_devices_init(void)
 		});
 
 	stx5206_configure_lirc(&(struct stx5206_lirc_config) {
+#ifdef CONFIG_LIRC_STM_UHF
+			.rx_mode = stx5206_lirc_rx_mode_uhf, });
+#else
 			.rx_mode = stx5206_lirc_rx_mode_ir, });
+#endif
 
 	stx5206_configure_mmc();
 

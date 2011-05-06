@@ -420,7 +420,11 @@ static int __init device_init(void)
 	stx7108_configure_ssc_i2c(6, NULL);
 
 	stx7108_configure_lirc(&(struct stx7108_lirc_config) {
+#ifdef CONFIG_LIRC_STM_UHF
+			.rx_mode = stx7108_lirc_rx_mode_uhf, });
+#else
 			.rx_mode = stx7108_lirc_rx_mode_ir, });
+#endif
 
 	stx7108_configure_usb(0);
 	stx7108_configure_usb(1);

@@ -29,6 +29,22 @@
 
 static int __initdata stx7108_emi_bank_configured[EMI_BANKS];
 
+#if defined(CONFIG_SUSPEND) && defined(CONFIG_HIBERNATION_ON_MEMORY)
+/*
+ * Don't provide power management of the EMI if both suspend and HoM
+ * are configured.  If we do, it appears to be impossible to perform a
+ * suspend following a HoM hibernate/resume cycle.
+ */
+
+static int stx7108_emi_init(struct stm_device_state *device_state)
+{
+	stm_device_sysconf_write(device_state, "EMI_PWR", 0);
+	return 0;
+}
+#define stx7108_emi_power NULL
+#else
+#define stx7108_emi_init NULL
+
 static void stx7108_emi_power(struct stm_device_state *device_state,
 		enum stm_device_power_state power)
 {
@@ -45,6 +61,7 @@ static void stx7108_emi_power(struct stm_device_state *device_state,
 
 	return;
 }
+#endif
 
 static struct platform_device stx7108_emi = {
 	.name = "emi",
@@ -60,6 +77,7 @@ static struct platform_device stx7108_emi = {
 			STM_DEVICE_SYS_CFG_BANK(2, 30, 0, 0, "EMI_PWR"),
 			STM_DEVICE_SYS_STA_BANK(2, 1, 0, 0, "EMI_ACK"),
 		},
+		.init = stx7108_emi_init,
 		.power = stx7108_emi_power,
 	}
 };

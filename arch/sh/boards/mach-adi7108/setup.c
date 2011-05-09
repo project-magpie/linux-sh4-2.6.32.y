@@ -306,8 +306,12 @@ static int __init device_init(void)
 	stx7108_configure_usb(1);
 	stx7108_configure_usb(2);
 
-	stx7108_configure_sata(0, NULL);
-	stx7108_configure_sata(1, NULL);
+	stx7108_configure_miphy(&(struct stx7108_miphy_config) {
+			.modes = (enum miphy_mode[2]) {
+				SATA_MODE, PCIE_MODE },
+			});
+
+	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
 
 #if 0
 	gpio_request(ADI7108_PIO_POWER_ON_ETHERNET0, "POWER_ON_ETHERNET");

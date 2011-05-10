@@ -340,6 +340,10 @@ static int __devinit stm_rtc_probe(struct platform_device *pdev)
 	}
 
 	rtc->clk = clk_get(&pdev->dev, plat_data->clk_id);
+	if (!rtc->clk) {
+		pr_err("clk %s not found\n", plat_data->clk_id);
+		return -ENODEV;
+	}
 	clk_enable(rtc->clk);
 
 	pr_debug("%s: is using clk: %s @ %lu\n",

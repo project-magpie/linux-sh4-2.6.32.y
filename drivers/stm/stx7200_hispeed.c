@@ -819,7 +819,7 @@ static struct stm_plat_sata_data stx7200_sata_platform_data = {
 			.sysconfs_num = 2,
 			.sysconfs = (struct stm_device_sysconf []) {
 				STM_DEVICE_SYS_CFG(22, 1, 1, "SATA_PWR"),
-				STM_DEVICE_SYS_CFG(13, 0, 0, "SATA_ACK"),
+				STM_DEVICE_SYS_STA(13, 0, 0, "SATA_ACK"),
 			},
 			.power = stx7200_sata_power,
 		}

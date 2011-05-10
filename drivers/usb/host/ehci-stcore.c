@@ -196,6 +196,7 @@ err0:
 static struct platform_driver ehci_hcd_stm_driver = {
 	.probe = ehci_hcd_stm_probe,
 	.remove = ehci_hcd_stm_remove,
+	.shutdown = usb_hcd_platform_shutdown,
 	.driver = {
 		.name = "stm-ehci",
 	},

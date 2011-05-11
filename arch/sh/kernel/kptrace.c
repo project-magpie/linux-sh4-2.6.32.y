@@ -86,6 +86,7 @@ static int user_starton;
 static int timestamping_enabled = 1;
 static int stackdepth = 16;
 static const int interface_version = 2;
+static unsigned long do_execve_addr;
 
 /* relay data */
 static struct rchan *chan;
@@ -1186,7 +1187,7 @@ static int syscall_shhh_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	char filename[KPTRACE_SMALL_BUF];
 	int len = 0;
 
-	if (regs->pc == (unsigned)kallsyms_lookup_name("do_execve")) {
+	if (regs->pc == do_execve_addr) {
 		/* Don't need to strncpy_from_user in this case */
 		snprintf(filename, KPTRACE_SMALL_BUF, (char *)regs->regs[4]);
 	} else if (strncpy_from_user(filename, (char *)regs->regs[4],
@@ -2798,6 +2799,7 @@ static int __init kptrace_init(void)
 #ifdef CONFIG_KPTRACE_SYNC
 	init_synchronization_logging();
 #endif
+	do_execve_addr = kallsyms_lookup_name("do_execve");
 
 	printk(KERN_INFO "kptrace: initialised\n");
 

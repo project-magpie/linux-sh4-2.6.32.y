@@ -1,9 +1,10 @@
 /*
  * Copyright (C) 2010 ARM Limited. All rights reserved.
- * 
+ * Copyright (C) 2011 STMicroelectronics R&D Limited. All rights reserved.
+ *
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
- * 
+ *
  * A copy of the licence is included with the program, and can also be obtained from Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
@@ -1154,6 +1155,8 @@ static _mali_osk_errcode_t mali_kernel_memory_mmu_interrupt_handler_upper_half(v
 {
 	mali_kernel_memory_mmu * mmu;
 	u32 int_stat;
+
+	MALI_DEBUG_PRINT(1, ("mali_kernel_memory_mmu_interrupt_handler_upper_half\n"));
 
 	if (mali_benchmark) MALI_SUCCESS;
 
@@ -2581,6 +2584,10 @@ _mali_osk_errcode_t _mali_ukk_mem_mmap( _mali_uk_mem_mmap_s *args )
 
 		_MALI_OSK_LIST_FOREACHENTRY(mmu, temp_mmu, &session_data->active_mmus, mali_kernel_memory_mmu, session_link)
 		{
+			const int max_loop_count = 100;
+			const int sleep_duration = 1; /* must be below 1000 */
+			int i;
+
 			/* no need to lock the MMU as we own it already */
 			MALI_DEBUG_PRINT(5, ("Zapping the cache of mmu %s as it's using the page table we have updated\n", mmu->description));
 
@@ -2588,7 +2595,13 @@ _mali_osk_errcode_t _mali_ukk_mem_mmap( _mali_uk_mem_mmap_s *args )
 
 			mali_mmu_register_write(mmu, MALI_MMU_REGISTER_COMMAND, MALI_MMU_COMMAND_ENABLE_STALL);
 			if (!mali_benchmark) {
-				while ( (mali_mmu_register_read(mmu, MALI_MMU_REGISTER_STATUS) & MALI_MMU_STATUS_BIT_STALL_ACTIVE) == 0) _mali_osk_time_ubusydelay(1);
+				for ( i = 0; i < max_loop_count; i++)
+				{
+					if (mali_mmu_register_read(mmu, MALI_MMU_REGISTER_STATUS) & MALI_MMU_STATUS_BIT_STALL_ACTIVE) break;
+					_mali_osk_time_ubusydelay(sleep_duration);
+				}
+
+				MALI_DEBUG_PRINT_IF(2, max_loop_count == i, ("Stall of mmu %s failed, trying zap anyway\n",mmu->description));
 			}
 			mali_mmu_register_write(mmu, MALI_MMU_REGISTER_COMMAND, MALI_MMU_COMMAND_ZAP_CACHE);
 			mali_mmu_register_write(mmu, MALI_MMU_REGISTER_COMMAND, MALI_MMU_COMMAND_DISABLE_STALL);
@@ -2691,7 +2704,7 @@ _mali_osk_errcode_t _mali_ukk_mem_munmap( _mali_uk_mem_munmap_s *args )
     descriptor at this point. */
 
     MALI_DEBUG_ASSERT_POINTER((memory_session*)descriptor->mali_addr_mapping_info);
-    
+
 	descriptor_lock = descriptor->lock; /* should point to the session data lock... */
 
 	if (descriptor_lock)

@@ -206,6 +206,14 @@ int apply_relocate_add(Elf32_Shdr *sechdrs,
 			*location = (*location & ~0x3fffc00) |
 				(((relocation >> 16) & 0xffff) << 10);
 			break;
+		case R_SH_NONE:
+			/*
+			 * Some C++ modules may have NONE relocations when the
+			 * DWARF unwinder is configured.
+			 */
+			printk(KERN_WARNING "module %s: R_SH_NONE relocation\n",
+				me->name);
+			break;
 		default:
 			printk(KERN_ERR "module %s: Unknown relocation: %u\n",
 			       me->name, ELF32_R_TYPE(rel[i].r_info));

@@ -155,6 +155,16 @@ void mali_driver_exit(void)
 #endif
 	mali_kernel_destructor();
 
+    if(NULL != stbus_system_memory_barrier)
+            iounmap((void*)stbus_system_memory_barrier);
+
+    if(NULL != stbus_barrier_system_page)
+    {
+#if defined(__sh__)
+            ClearPageReserved(stbus_barrier_system_page);
+#endif
+            __free_pages(stbus_barrier_system_page,1);
+    }
 #if USING_MALI_PMM
 #if MALI_LICENSE_IS_GPL
 #ifdef CONFIG_PM_RUNTIME

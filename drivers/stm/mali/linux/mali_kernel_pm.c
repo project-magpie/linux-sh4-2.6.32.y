@@ -39,6 +39,10 @@
 #include "mali_kernel_license.h"
 #include "mali_kernel_pm.h"
 #include "mali_device_pause_resume.h"
+
+/* Even if the knl has no PM we need to configure it here so we have access to ARM's
+ * platform driver code implementation. */
+#define CONFIG_PM
 #include "mali_linux_pm.h"
 
 #if MALI_POWER_MGMT_TEST_SUITE

@@ -177,9 +177,7 @@ void mali_driver_exit(void)
 
 #if USING_MALI_PMM
 #if MALI_LICENSE_IS_GPL
-#ifdef CONFIG_PM
 	_mali_dev_platform_unregister();
-#endif
 #endif
 #endif
 }
@@ -192,13 +190,11 @@ int initialize_kernel_device(void)
 
 #if USING_MALI_PMM
 #if MALI_LICENSE_IS_GPL
-#ifdef CONFIG_PM
 	err = _mali_dev_platform_register();
 	if (err)
 	{
 		return err;
 	}
-#endif
 #endif
 #endif
 	if (0 == mali_major)

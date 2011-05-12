@@ -1,5 +1,6 @@
 /**
  * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2011 STMicroelectronics R&D Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -46,6 +47,8 @@
 unsigned int pwr_mgmt_status_reg = 0;
 #endif /* CONFIG_PM */
 #endif /* MALI_POWER_MGMT_TEST_SUITE */
+
+extern struct platform_device *mali_platform_device;
 
 /* kernel should be configured with power management support */
 #ifdef CONFIG_PM
@@ -648,6 +651,12 @@ static int mali_pm_remove(struct platform_device *pdev)
 /** This function is called when the device is probed */
 static int mali_pm_probe(struct platform_device *pdev)
 {
+	MALI_DEBUG_PRINT(2, ("Mali Platform device probe id = %d num_resources = %d resource = %p.\n",pdev->id,pdev->num_resources,pdev->resource));
+	/*
+	 * As OS init has already created the platform device we record it in the global
+	 */
+	mali_platform_device = pdev;
+
 #ifdef CONFIG_PM_DEBUG
 	int err;
 	err = device_create_file(&mali_gpu_device.dev, &dev_attr_file);
@@ -679,20 +688,23 @@ int _mali_dev_platform_register(void)
 #endif /* MALI_PMM_RUNTIME_JOB_CONTROL_ON */
 #endif /* CONFIG_HAS_EARLYSUSPEND */
 #endif /* CONFIG_PM_RUNTIME */
-	err = platform_device_register(&mali_gpu_device);
+
+	/* The platform device is actually registered by the OS startup code so we dont
+	 * need to do it here. All we do is register the platform driver
+	 */
+	MALI_DEBUG_PRINT(3, ("[%s] Not registering platform device\n", __FUNCTION__));
+
 	lock = _mali_osk_lock_init((_mali_osk_lock_flags_t)( _MALI_OSK_LOCKFLAG_READERWRITER | _MALI_OSK_LOCKFLAG_ORDERED), 0, 0);
-	if (!err) 
+	err = platform_driver_register(&mali_plat_driver);
+	if (!err)
 	{
-		err = platform_driver_register(&mali_plat_driver);
-		if (!err)
-		{
 #ifdef CONFIG_HAS_EARLYSUSPEND
-			register_early_suspend(&mali_dev_early_suspend);
+		register_early_suspend(&mali_dev_early_suspend);
 #endif /* CONFIG_HAS_EARLYSUSPEND */
-		}
-		else
-		{
-			_mali_osk_lock_term(lock);
+	}
+	else
+	{
+		_mali_osk_lock_term(lock);
 #ifdef CONFIG_PM_RUNTIME
 #ifndef CONFIG_HAS_EARLYSUSPEND
 #if MALI_PMM_RUNTIME_JOB_CONTROL_ON
@@ -700,8 +712,6 @@ int _mali_dev_platform_register(void)
 #endif /* MALI_PMM_RUNTIME_JOB_CONTROL_ON */
 #endif /* CONFIG_HAS_EARLYSUSPEND */
 #endif /* CONFIG_PM_RUNTIME */
-			platform_device_unregister(&mali_gpu_device);
-		}
 	}
 	return err;
 }
@@ -724,7 +734,7 @@ void _mali_dev_platform_unregister(void)
 #endif /* CONFIG_PM_RUNTIME */
 
 	platform_driver_unregister(&mali_plat_driver);
-	platform_device_unregister(&mali_gpu_device);
+	/* We dont unregister the platform_device as it was registered by the OS not us */
 }
 
 #endif /* MALI_LICENSE_IS_GPL */

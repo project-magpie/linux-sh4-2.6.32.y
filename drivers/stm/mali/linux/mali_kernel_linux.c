@@ -1,5 +1,6 @@
 /**
  * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2011 STMicroelectronics R&D Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -15,9 +16,11 @@
 #include <linux/module.h>   /* kernel module definitions */
 #include <linux/fs.h>       /* file system operations */
 #include <linux/cdev.h>     /* character device definitions */
-#include <linux/mm.h> /* memory mananger definitions */
+#include <linux/mm.h>       /* memory manager definitions */
 #include <asm/uaccess.h>    /* user space access */
 #include <linux/device.h>
+#include <linux/platform_device.h>
+#include <linux/io.h>
 
 /* the mali kernel subsystem types */
 #include "mali_kernel_subsystem.h"
@@ -73,6 +76,16 @@ static char mali_dev_name[] = "mali"; /* should be const, but the functions we c
 /* the mali device */
 static struct mali_dev device;
 
+/* uncached remapped memory, for an STBus uncached write barrier */
+struct page *stbus_barrier_system_page;
+volatile int *stbus_system_memory_barrier;
+
+/*
+ * probed platform device pointer, note this is not static as we need access
+ * to it in the resource code.
+ */
+struct platform_device *mali_platform_device;
+
 static int mali_open(struct inode *inode, struct file *filp);
 static int mali_release(struct inode *inode, struct file *filp);
 #ifdef HAVE_UNLOCKED_IOCTL
@@ -97,18 +110,34 @@ struct file_operations mali_fops =
 	.mmap = mali_mmap
 };
 
-
-int mali_driver_init(void)
+int __init mali_driver_init(void)
 {
-	int err;
-    err = mali_kernel_constructor();
-    if (_MALI_OSK_ERR_OK != err)
-    {
-        MALI_PRINT(("Failed to initialize driver (error %d)\n", err));
-        return -EFAULT;
-    }
+		int err;
+		u32 phys;
+        stbus_barrier_system_page = alloc_pages(GFP_HIGHUSER | __GFP_ZERO | __GFP_NORETRY | __GFP_NOWARN, 1 );
+        if(NULL == stbus_barrier_system_page)
+        	return -ENOMEM;
 
-    return 0;
+#if defined(__sh__)
+        SetPageReserved(stbus_barrier_system_page);
+#endif
+        phys = page_to_phys( stbus_barrier_system_page );
+        stbus_system_memory_barrier = (int *)ioremap_nocache(phys,sizeof(int));
+        if(NULL == stbus_system_memory_barrier)
+        {
+        	__free_pages(stbus_barrier_system_page,1);
+        	return -ENOMEM;
+        }
+        *stbus_system_memory_barrier = 0;
+
+        err = mali_kernel_constructor();
+        if (_MALI_OSK_ERR_OK != err)
+        {
+            MALI_PRINT(("Failed to initialize driver (error %d)\n", err));
+            return -EFAULT;
+        }
+
+        return 0;
 }
 
 void mali_driver_exit(void)
@@ -124,7 +153,7 @@ void mali_driver_exit(void)
 #endif
 #endif
 #endif
-	 mali_kernel_destructor();
+	mali_kernel_destructor();
 
 #if USING_MALI_PMM
 #if MALI_LICENSE_IS_GPL

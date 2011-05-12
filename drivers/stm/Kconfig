@@ -150,6 +150,13 @@ config STM_MALI
 	default n
 	help
 	  Enable this option to support Mali GPU Driver.
+	  
+config STM_MALI_DEBUG
+	depends on STM_MALI
+	bool "Enable debug tracing"
+	default y
+	---help---
+	  Enable this option to enable debug trace messages on the console
 
 config PMS
 	bool "Power Management Scheme"

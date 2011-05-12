@@ -129,16 +129,9 @@ EXTRA_CFLAGS += -DUSING_ZBT=$(USING_ZBT) \
 		-DMALI_TIMELINE_PROFILING_ENABLED=$(USING_PROFILING) \
 		-DMALI_POWER_MGMT_TEST_SUITE=$(USING_MALI_PMM_TESTSUITE)
 
-ifeq ($(CONFIG_DEBUG_MALI),n)
-BUILD=release
-else
-BUILD ?= debug
-
-endif
-ifeq ($(BUILD), debug)
+ifeq ($(CONFIG_STM_MALI_DEBUG),y)
 EXTRA_CFLAGS += -DDEBUG
 endif
-
 
 BUILD_DATE = $(shell LANG=C /bin/date "+%a %b %d %Y %H:%m %Z")
 

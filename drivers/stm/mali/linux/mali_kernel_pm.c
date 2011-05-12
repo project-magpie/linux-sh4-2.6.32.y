@@ -211,7 +211,7 @@ static struct platform_driver mali_plat_driver = {
 #endif
 
 	.driver         = {
-		.name   = "mali_dev",
+		.name   = "mali",
 		.owner  = THIS_MODULE,
 		.bus = &platform_bus_type,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(LINUX_KERNEL_MAJOR_VERSION,LINUX_KERNEL_MINOR_VERSION,LINUX_KERNEL_DEVELOPMENT_VERSION))

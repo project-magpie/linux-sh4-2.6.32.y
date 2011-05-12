@@ -15,6 +15,7 @@
  */
 #include <linux/kernel.h>       
 #include <linux/platform_device.h>
+#include <linux/stm/platform.h>
 #include <linux/ioport.h>
 #include <linux/string.h>
 
@@ -81,13 +82,58 @@ static struct mali_resource_properties *get_resource_properties(const char *name
 	return NULL;
 }
 
+static int mali_get_mem_resources(_mali_osk_resource_t *resources, struct stm_mali_resource *mem_resources, int num_resources, int *index)
+{
+	int n = 0;
+	while(n < num_resources)
+	{
+		struct mali_resource_properties *properties;
+		struct stm_mali_resource *mem_resource;
+		_mali_osk_resource_t *mali_resource = &resources[*index];
+		mem_resource = &mem_resources[n];
+		if(!(properties = get_resource_properties(mem_resource->name)))
+			return _MALI_OSK_ERR_FAULT;
+	
+		mali_resource->type = properties->type;
+		mali_resource->base = mem_resource->start;
+		mali_resource->size = mem_resource->end - mem_resource->start + 1;
+	
+		switch(properties->type)
+		{
+			case MEMORY:
+			case OS_MEMORY:
+				mali_resource->flags = _MALI_CPU_WRITEABLE | _MALI_CPU_READABLE | _MALI_PP_READABLE | _MALI_PP_WRITEABLE |_MALI_GP_READABLE | _MALI_GP_WRITEABLE;
+				mali_resource->alloc_order = n;
+				break;
+			case MEM_VALIDATION:
+				mali_resource->flags = _MALI_CPU_WRITEABLE | _MALI_CPU_READABLE | _MALI_PP_WRITEABLE | _MALI_PP_READABLE;
+				break;
+			default:
+				MALI_PRINT(("Resource %s should not be passed as mem_resources\n",mem_resource->name));
+				return _MALI_OSK_ERR_FAULT;
+		}
+	
+		MALI_DEBUG_PRINT(3, ("Constructed resources for %s\n",mem_resource->name));
+		mali_resource->description = mem_resource->name;
+		(*index)++;
+		n++;
+	}
+	return _MALI_OSK_ERR_OK;
+}
+
 _mali_osk_errcode_t _mali_osk_resources_init( _mali_osk_resource_t **arch_config, u32 *num_resources )
 {
 	struct resource *platform_resource;
 	_mali_osk_resource_t *resources;
 	int n,resource_count;
+	struct stm_mali_config *mali_config = (struct stm_mali_config *)
+							mali_platform_device->dev.platform_data;
 
-	resources = kzalloc((mali_platform_device->num_resources * sizeof(_mali_osk_resource_t)),GFP_KERNEL);
+	resource_count = mali_platform_device->num_resources +
+			 mali_config->num_mem_resources +
+			 mali_config->num_ext_resources; 
+
+	resources = kzalloc((resource_count * sizeof(_mali_osk_resource_t)),GFP_KERNEL);
 	if(!resources)
 		MALI_ERROR(_MALI_OSK_ERR_NOMEM);
 
@@ -109,7 +155,7 @@ _mali_osk_errcode_t _mali_osk_resources_init( _mali_osk_resource_t **arch_config
 			case MEMORY:
 			case OS_MEMORY:
 			case MEM_VALIDATION:
-				MALI_PRINT(("Mali Memory resource %s should be marked IORESOURCE_DMA not IORESOURCE_MEM\n",platform_resource->name));
+				MALI_PRINT(("Mali Memory resource %s should be passed in platfrom priv data not IORESOURCE_MEM\n",platform_resource->name));
 				goto error;
 			default:
 				break;
@@ -135,39 +181,18 @@ _mali_osk_errcode_t _mali_osk_resources_init( _mali_osk_resource_t **arch_config
 		n++;
 	}
 
-	n = 0;
-	while((platform_resource = platform_get_resource(mali_platform_device,IORESOURCE_DMA,n)) != NULL)
-	{
-		_mali_osk_resource_t *mali_resource = &resources[resource_count];
-		struct mali_resource_properties *properties;
-		if(!(properties = get_resource_properties(platform_resource->name)))
-			goto error;
-	
-		mali_resource->type = properties->type;
-		mali_resource->base = platform_resource->start;
-		mali_resource->size = platform_resource->end - platform_resource->start +1;
-	
-		switch(properties->type)
-		{
-			case MEMORY:
-			case OS_MEMORY:
-				mali_resource->flags = _MALI_CPU_WRITEABLE | _MALI_CPU_READABLE | _MALI_PP_READABLE | _MALI_PP_WRITEABLE |_MALI_GP_READABLE | _MALI_GP_WRITEABLE;
-				mali_resource->alloc_order = n;
-				break;
-			case MEM_VALIDATION:
-				mali_resource->flags = _MALI_CPU_WRITEABLE | _MALI_CPU_READABLE | _MALI_PP_WRITEABLE | _MALI_PP_READABLE;
-				break;
-			default:
-				MALI_PRINT(("Resource %s should not be marked IORESOURCE_DMA\n",platform_resource->name));
-				goto error;
-		}
-	
-		MALI_DEBUG_PRINT(3, ("Constructed resources for %s\n",platform_resource->name));
-		mali_resource->description = platform_resource->name;
-		resource_count++;
-		n++;
-	}
+	/* Memory resources */
+	/* Memory resources allocated by Linux kernel and Memory managed by 
+	 * mali driver memory allocator */
+	if (mali_config->mem)
+		mali_get_mem_resources(resources, mali_config->mem,
+				mali_config->num_mem_resources, &resource_count);
 
+	/* External memory regions for mali to directly render */
+	if (mali_config->ext_mem)
+		mali_get_mem_resources(resources, mali_config->ext_mem,
+				mali_config->num_ext_resources, &resource_count);
+ 
 	*num_resources = resource_count;
 	*arch_config = resources;
 	return _MALI_OSK_ERR_OK;

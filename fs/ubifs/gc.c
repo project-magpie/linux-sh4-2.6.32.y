@@ -211,7 +211,7 @@ static void list_sort(void *priv, struct list_head *head,
  * This function compares data nodes @a and @b. Returns %1 if @a has greater
  * inode or block number, and %-1 otherwise.
  */
-int data_nodes_cmp(void *priv, struct list_head *a, struct list_head *b)
+static int data_nodes_cmp(void *priv, struct list_head *a, struct list_head *b)
 {
 	ino_t inuma, inumb;
 	struct ubifs_info *c = priv;
@@ -254,7 +254,8 @@ int data_nodes_cmp(void *priv, struct list_head *a, struct list_head *b)
  * first and sorted by length in descending order. Directory entry nodes go
  * after inode nodes and are sorted in ascending hash valuer order.
  */
-int nondata_nodes_cmp(void *priv, struct list_head *a, struct list_head *b)
+static int nondata_nodes_cmp(void *priv, struct list_head *a,
+			     struct list_head *b)
 {
 	ino_t inuma, inumb;
 	struct ubifs_info *c = priv;

@@ -1204,7 +1204,6 @@ struct ubifs_debug_info;
  * @replaying: %1 during journal replay
  * @mounting: %1 while mounting
  * @remounting_rw: %1 while re-mounting from R/O mode to R/W mode
- * @replay_tree: temporary tree used during journal replay
  * @replay_list: temporary list used during journal replay
  * @replay_buds: list of buds to replay
  * @cs_sqnum: sequence number of first node in the log (commit start node)
@@ -1434,7 +1433,6 @@ struct ubifs_info {
 	unsigned int replaying:1;
 	unsigned int mounting:1;
 	unsigned int remounting_rw:1;
-	struct rb_root replay_tree;
 	struct list_head replay_list;
 	struct list_head replay_buds;
 	unsigned long long cs_sqnum;

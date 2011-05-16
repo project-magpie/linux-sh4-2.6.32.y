@@ -16,7 +16,12 @@ struct coproc_board_info coproc_info = {
 
 coproc_t coproc[CONFIG_STM_NUM_COPROCESSOR];
 
-#ifndef CONFIG_CPU_SUBTYPE_STX7108
+#if defined(CONFIG_CPU_SUBTYPE_STX7100) \
+	|| defined(CONFIG_CPU_SUBTYPE_STX7105) \
+	|| defined(CONFIG_CPU_SUBTYPE_STX7111) \
+	|| defined(CONFIG_CPU_SUBTYPE_STX7141) \
+	|| defined(CONFIG_CPU_SUBTYPE_STX7200) \
+	|| defined(CONFIG_CPU_SUBTYPE_STX5206)
 static struct sysconf_field* copro_reset_out;
 #endif
 
@@ -58,13 +63,33 @@ int __init coproc_cpu_init(coproc_t * cop)
 	BUG_ON(id >= ARRAY_SIZE(boot_lookup));
 	BUG_ON(id >= coproc_info.max_coprs);
 
-#ifndef CONFIG_CPU_SUBTYPE_STX7108
+#if defined(CONFIG_CPU_SUBTYPE_STX7108)
+	if (!cpu_regs[id].boot)
+		cpu_regs[id].boot = sysconf_claim(sys_cfg, boot_lookup[id],
+						  0, 31, NULL);
+	if (!cpu_regs[id].boot) {
+		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n",
+		       boot_lookup[id]);
+		return 1;
+	}
+
+	if (!cpu_regs[id].reset)
+		cpu_regs[id].reset = sysconf_claim(sys_cfg, reset_lookup[id],
+						   id + 4 , id + 4, NULL);
+	if (!cpu_regs[id].reset) {
+		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n",
+		       reset_lookup[id]);
+		return 1;
+	}
+	/* Force coproc to reset status, to be sure it is in reset */
+	sysconf_write(cpu_regs[id].reset, 0);
+#else
 	if(!copro_reset_out)
 	if(!(copro_reset_out=sysconf_claim(sys_cfg, 9, 27, 28, NULL))){
 		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_9\n");
 		return 1;
 		}
-#endif
+
 	if(!cpu_regs[id].boot)
 	if(!(cpu_regs[id].boot = sysconf_claim(sys_cfg, boot_lookup[id], 0, 31, NULL))){
 		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n", boot_lookup[id]);
@@ -72,18 +97,9 @@ int __init coproc_cpu_init(coproc_t * cop)
 		}
 
 	if(!cpu_regs[id].reset)
-#ifndef CONFIG_CPU_SUBTYPE_STX7108
 	if(!(cpu_regs[id].reset = sysconf_claim(sys_cfg, reset_lookup[id], 0,31, NULL))){
 		printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n", reset_lookup[id]);
 		return 1;
-		}
-#else
-		cpu_regs[id].reset = sysconf_claim(sys_cfg, reset_lookup[id],
-						   id + 4 , id + 4, NULL);
-		if (!(cpu_regs[id].reset)) {
-			printk(KERN_ERR"Error on sysconf_claim SYS_CFG_%u\n",
-			       reset_lookup[id]);
-			return 1;
 		}
 #endif
 
@@ -105,24 +121,30 @@ int coproc_cpu_grant(coproc_t * cop, unsigned long arg)
 	DPRINTK(">>> platform: st231.%u start from 0x%x...\n",
 					id, (unsigned int)bootAddr);
 
-#ifndef CONFIG_CPU_SUBTYPE_STX7108
-	/* bypass the st40 to reset only the coprocessor */
-	sysconf_write(copro_reset_out, 3);
-	msleep(5);
-#else
+#if defined(CONFIG_CPU_SUBTYPE_STX7108)
 	/* Reset the coprocessor (active low) to update the boot address
 	 * Required when new application will write its address in a running
 	 * coprocessor without having run coproc_cpu_reset
 	 */
 	sysconf_write(cpu_regs[id].reset, 0);
-#endif
+
+	sysconf_write(cpu_regs[id].boot, bootAddr);
+	msleep(5);
+
+	sysconf_write(cpu_regs[id].reset,
+		      sysconf_read(cpu_regs[id].reset) | 1);
+	msleep(5);
+#else
+	/* bypass the st40 to reset only the coprocessor */
+	sysconf_write(copro_reset_out, 3);
+	msleep(5);
+
 	sysconf_write(cpu_regs[id].boot, bootAddr);
 	msleep(5);
 
 	sysconf_write(cpu_regs[id].reset, sysconf_read(cpu_regs[id].reset) | 1) ;
 	msleep(5);
 
-#ifndef CONFIG_CPU_SUBTYPE_STX7108
 	/* Now set the least significant bit to trigger the ST231 start */
    	bootAddr |= 1;
 	sysconf_write(cpu_regs[id].boot, bootAddr);
@@ -137,6 +159,7 @@ int coproc_cpu_grant(coproc_t * cop, unsigned long arg)
 	/* remove the st40 bypass */
 	sysconf_write(copro_reset_out, 0);
 #endif
+
 	cop->control |= COPROC_RUNNING;
 	return (0);
 }
@@ -152,21 +175,26 @@ int coproc_cpu_reset(coproc_t * cop)
  	int id = cop->pdev.id;
 
  	DPRINTK("\n");
-#ifndef CONFIG_CPU_SUBTYPE_STX7108
- 	/* bypass the st40 to reset only the coprocessor */
- 	sysconf_write(copro_reset_out,  1);
- 	msleep(5);
- 	sysconf_write(cpu_regs[id].reset, sysconf_read(cpu_regs[id].reset) | 1);
- 	msleep(5);
-#endif
- 	sysconf_write(cpu_regs[id].reset, sysconf_read(cpu_regs[id].reset) & ~1);
- 	msleep(10);
+#if defined(CONFIG_CPU_SUBTYPE_STX7108)
+	sysconf_write(cpu_regs[id].reset,
+		      sysconf_read(cpu_regs[id].reset) & ~1);
+	msleep(10);
+#else
+	/* bypass the st40 to reset only the coprocessor */
+	sysconf_write(copro_reset_out,  1);
+	msleep(5);
+	sysconf_write(cpu_regs[id].reset,
+		      sysconf_read(cpu_regs[id].reset) | 1);
+	msleep(5);
+	sysconf_write(cpu_regs[id].reset,
+		      sysconf_read(cpu_regs[id].reset) & ~1);
+	msleep(10);
 
-#ifndef CONFIG_CPU_SUBTYPE_STX7108
  	/* remove the st40 bypass */
  	sysconf_write(copro_reset_out, 0);
 #endif
- 	return 0;
+
+	return 0;
 }
 
 void coproc_proc_other_info(coproc_t * cop_dump, struct seq_file *s_file)
@@ -208,4 +236,3 @@ int coproc_check_area(u_long addr, u_long size, int i, coproc_t * coproc)
 	coproc[i].ram_offset = coproc[i].ram_size = 0;
 	return 1;
 }
-

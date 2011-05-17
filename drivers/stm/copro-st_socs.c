@@ -28,6 +28,11 @@ static struct sysconf_field* copro_reset_out;
 struct cpu_reg {
 	struct sysconf_field* boot;
 	struct sysconf_field* reset;
+#if defined(CONFIG_CPU_SUBTYPE_FLI7510)
+	struct sysconf_field *boot_ctl;
+	struct sysconf_field *periph;
+	unsigned int periph_value;
+#endif
 };
 static struct cpu_reg cpu_regs[CONFIG_STM_NUM_COPROCESSOR];
 
@@ -56,6 +61,15 @@ int __init coproc_cpu_init(coproc_t * cop)
 	const unsigned int boot_lookup[] = { 6, 7, 8 };
 	const unsigned int reset_lookup[]  = { 0, 0, 0 };
 	const int sys_cfg = 1; /* hdk7108 SYS_CFG_BANK0 */
+#elif defined(CONFIG_CPU_SUBTYPE_FLI7510)
+	const unsigned int boot_lookup[] =    { 1, 3, 5 };
+	const unsigned int reset_lookup[]  =  { 5, 6, 7 };
+	const unsigned int periph_lookup[] =  { 0, 2, 4 };
+	const unsigned int periph_value[] =   { 0xfdf00000, 0xfe000000,
+						0xfe100000 };
+	const unsigned int bootctl_lookup[] = { 2, 3, 4 };
+	const int vdec_pu_cfg_1 = 5;
+	const int prb_pu_cfg_1 = 0;
 #else
 #error Need to define the sysconf configuration for this CPU subtype
 #endif
@@ -63,7 +77,49 @@ int __init coproc_cpu_init(coproc_t * cop)
 	BUG_ON(id >= ARRAY_SIZE(boot_lookup));
 	BUG_ON(id >= coproc_info.max_coprs);
 
-#if defined(CONFIG_CPU_SUBTYPE_STX7108)
+#if defined(CONFIG_CPU_SUBTYPE_FLI7510)
+	if (!cpu_regs[id].boot)
+		cpu_regs[id].boot = sysconf_claim(vdec_pu_cfg_1,
+						  boot_lookup[id],
+						  0, 31, NULL);
+	if (!cpu_regs[id].boot) {
+		printk(KERN_ERR"Error on sysconf_claim VDEC_PU_CFG_1_%u\n",
+		       boot_lookup[id]);
+		return 1;
+	}
+
+	if (!cpu_regs[id].reset)
+		cpu_regs[id].reset = sysconf_claim(prb_pu_cfg_1, 0,
+						   reset_lookup[id],
+						   reset_lookup[id], NULL);
+	if (!cpu_regs[id].reset) {
+		printk(KERN_ERR"Error on sysconf_claim CFG_RESET_CTL_%u\n",
+		       reset_lookup[id]);
+		return 1;
+	}
+
+	if (!cpu_regs[id].periph)
+		cpu_regs[id].periph = sysconf_claim(vdec_pu_cfg_1,
+						    periph_lookup[id],
+						    0, 31, NULL);
+	if (!cpu_regs[id].periph) {
+		printk(KERN_ERR"Error on sysconf_claim VDEC_PU_CFG_1_%u\n",
+		       periph_lookup[id]);
+		return 1;
+	}
+	cpu_regs[id].periph_value = periph_value[id];
+
+	if (!cpu_regs[id].boot_ctl)
+		cpu_regs[id].boot_ctl = sysconf_claim(prb_pu_cfg_1, 1,
+						      bootctl_lookup[id],
+						      bootctl_lookup[id],
+						      NULL);
+	if (!cpu_regs[id].boot_ctl) {
+		printk(KERN_ERR"Error on sysconf_claim CFG_BOOT_CTL_%u\n",
+		       bootctl_lookup[id]);
+		return 1;
+	}
+#elif defined(CONFIG_CPU_SUBTYPE_STX7108)
 	if (!cpu_regs[id].boot)
 		cpu_regs[id].boot = sysconf_claim(sys_cfg, boot_lookup[id],
 						  0, 31, NULL);
@@ -121,7 +177,27 @@ int coproc_cpu_grant(coproc_t * cop, unsigned long arg)
 	DPRINTK(">>> platform: st231.%u start from 0x%x...\n",
 					id, (unsigned int)bootAddr);
 
-#if defined(CONFIG_CPU_SUBTYPE_STX7108)
+#if defined(CONFIG_CPU_SUBTYPE_FLI7510)
+	/* ST231 reset */
+	sysconf_write(cpu_regs[id].reset, 1);
+	msleep(5);
+
+	/* Set Periph Address */
+	sysconf_write(cpu_regs[id].periph, cpu_regs[id].periph_value);
+	msleep(5);
+
+	/* Set Boot Address */
+	sysconf_write(cpu_regs[id].boot, bootAddr);
+	msleep(5);
+
+	/* Enable request filter */
+	sysconf_write(cpu_regs[id].boot_ctl, 1) ;
+	msleep(5);
+
+	/* ST231 reset */
+	sysconf_write(cpu_regs[id].reset, 0);
+	msleep(5);
+#elif defined(CONFIG_CPU_SUBTYPE_STX7108)
 	/* Reset the coprocessor (active low) to update the boot address
 	 * Required when new application will write its address in a running
 	 * coprocessor without having run coproc_cpu_reset
@@ -175,7 +251,16 @@ int coproc_cpu_reset(coproc_t * cop)
  	int id = cop->pdev.id;
 
  	DPRINTK("\n");
-#if defined(CONFIG_CPU_SUBTYPE_STX7108)
+
+#if defined(CONFIG_CPU_SUBTYPE_FLI7510)
+	/* Reset the CPU */
+	sysconf_write(cpu_regs[id].reset,
+		      sysconf_read(cpu_regs[id].reset) | 1);
+	msleep(5);
+	sysconf_write(cpu_regs[id].reset,
+		      sysconf_read(cpu_regs[id].reset) & ~1);
+	msleep(10);
+#elif defined(CONFIG_CPU_SUBTYPE_STX7108)
 	sysconf_write(cpu_regs[id].reset,
 		      sysconf_read(cpu_regs[id].reset) & ~1);
 	msleep(10);

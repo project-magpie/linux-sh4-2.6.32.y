@@ -142,7 +142,7 @@ static int ehci_hcd_stm_probe(struct platform_device *pdev)
 	res = platform_get_resource_byname(stm_usb_pdev,
 			IORESOURCE_MEM, "ehci");
 	hcd->rsrc_start = res->start;
-	hcd->rsrc_len = res->end - res->start;
+	hcd->rsrc_len = resource_size(res);
 
 	if (!request_mem_region(hcd->rsrc_start, hcd->rsrc_len, hcd_name)) {
 		pr_debug("request_mem_region failed");

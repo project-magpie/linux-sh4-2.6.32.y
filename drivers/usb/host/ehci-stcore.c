@@ -159,10 +159,11 @@ static int ehci_hcd_stm_probe(struct platform_device *pdev)
 
 	ehci = hcd_to_ehci(hcd);
 	ehci->caps = hcd->regs;
-	ehci->regs = hcd->regs + HC_LENGTH(readl(&ehci->caps->hc_capbase));
+	ehci->regs = hcd->regs + HC_LENGTH(ehci_readl(ehci,
+						      &ehci->caps->hc_capbase));
 
 	/* cache this readonly data; minimize device reads */
-	ehci->hcs_params = readl(&ehci->caps->hcs_params);
+	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
 /*
  * Fix the reset port issue on a load-unload-load sequence

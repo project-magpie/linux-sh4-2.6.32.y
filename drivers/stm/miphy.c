@@ -476,6 +476,7 @@ int stm_miphy_sata_status(struct stm_miphy *miphy)
 
 	return (miphy_int_status & 0x8) || (miphy_int_status & 0x2);
 }
+EXPORT_SYMBOL(stm_miphy_sata_status);
 
 void stm_miphy_assert_deserializer(struct stm_miphy *miphy, int assert)
 {
@@ -485,6 +486,7 @@ void stm_miphy_assert_deserializer(struct stm_miphy *miphy, int assert)
 	stm_miphy_write(miphy, 0x00, assert ? 0x10 : 0x00);
 	mutex_unlock(&dev->mutex);
 }
+EXPORT_SYMBOL(stm_miphy_assert_deserializer);
 
 int stm_miphy_start(struct stm_miphy *miphy)
 {
@@ -538,6 +540,7 @@ int stm_miphy_start(struct stm_miphy *miphy)
 
 	return rval;
 }
+EXPORT_SYMBOL(stm_miphy_start);
 
 struct stm_miphy *stm_miphy_claim(int port, enum miphy_mode mode,
 	struct device *owner)
@@ -580,21 +583,25 @@ _on_error:
 	mutex_unlock(&miphy_list_mutex);
 	return miphy;
 }
+EXPORT_SYMBOL(stm_miphy_claim);
 
 void stm_miphy_release(struct stm_miphy *miphy)
 {
 	/* FIXME */
 }
+EXPORT_SYMBOL(stm_miphy_release);
 
 void stm_miphy_freeze(struct stm_miphy *miphy)
 {
 	/* Nothing to do */
 }
+EXPORT_SYMBOL(stm_miphy_freeze);
 
 void stm_miphy_thaw(struct stm_miphy *miphy)
 {
 	stm_miphy_start(miphy);
 }
+EXPORT_SYMBOL(stm_miphy_thaw);
 
 int miphy_if_register(struct stm_miphy_device *miphy_dev,
 		      enum miphy_if_type type,

@@ -165,22 +165,25 @@ static int ehci_hcd_stm_probe(struct platform_device *pdev)
 	/* cache this readonly data; minimize device reads */
 	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
-/*
- * Fix the reset port issue on a load-unload-load sequence
- */
+	/*
+	 * Fix the reset port issue on a load-unload-load sequence
+	 */
 	ehci->has_reset_port_bug = 1,
 	res = platform_get_resource_byname(stm_usb_pdev,
 			IORESOURCE_IRQ, "ehci");
+
 	retval = usb_add_hcd(hcd, res->start, 0);
-	if (retval == 0) {
+	if (unlikely(retval))
+		goto err3;
+
 #ifdef CONFIG_PM
-		hcd->self.root_hub->do_remote_wakeup = 0;
-		hcd->self.root_hub->persist_enabled = 0;
-		hcd->self.root_hub->autosuspend_disabled = 1;
-		hcd->self.root_hub->autoresume_disabled = 1;
+	hcd->self.root_hub->do_remote_wakeup = 0;
+	hcd->self.root_hub->persist_enabled = 0;
+	hcd->self.root_hub->autosuspend_disabled = 1;
+	hcd->self.root_hub->autoresume_disabled = 1;
 #endif
-		return retval;
-	}
+	return 0;
+err3:
 	iounmap(hcd->regs);
 err2:
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);

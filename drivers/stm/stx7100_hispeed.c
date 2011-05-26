@@ -270,7 +270,7 @@ void __init stx7100_configure_usb(void)
 
 static struct stm_plat_miphy_dummy_data stx7100_miphy_dummy_platform_data = {
 	.miphy_first = 0,
-	.miphy_count = 2,
+	.miphy_count = 1,
 	.miphy_modes = (enum miphy_mode[1]) {SATA_MODE},
 };
 

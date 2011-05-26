@@ -417,7 +417,7 @@ int ubifs_run_commit(struct ubifs_info *c)
 
 	spin_lock(&c->cs_lock);
 	if (c->cmt_state == COMMIT_BROKEN) {
-		err = -EINVAL;
+		err = -EROFS;
 		goto out;
 	}
 
@@ -443,7 +443,7 @@ int ubifs_run_commit(struct ubifs_info *c)
 	 * re-check it.
 	 */
 	if (c->cmt_state == COMMIT_BROKEN) {
-		err = -EINVAL;
+		err = -EROFS;
 		goto out_cmt_unlock;
 	}
 

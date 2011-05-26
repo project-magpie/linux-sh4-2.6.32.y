@@ -56,6 +56,9 @@
 #define BIT_UNLOCK			(1<<2)
 #define TRANS_DENSITY_UPDATED		(1<<3)
 
+#define MIPHY_VERSION			0xfb
+#define MIPHY_REVISION			0xfc
+
 static struct class *miphy_class;
 static DEFINE_MUTEX(miphy_list_mutex);
 static LIST_HEAD(miphy_list);
@@ -600,7 +603,7 @@ int miphy_if_register(struct stm_miphy_device *miphy_dev,
 		      struct device *parent,
 		      const struct miphy_if_ops *ops)
 {
-	struct stm_miphy *miphy;
+	struct stm_miphy *miphy, *new_miphys;
 	int miphy_num;
 
 	if (!miphy_class) {
@@ -611,11 +614,11 @@ int miphy_if_register(struct stm_miphy_device *miphy_dev,
 		}
 	}
 
-	miphy = kzalloc(sizeof(*miphy) * miphy_count, GFP_KERNEL);
-	if (!miphy)
+	new_miphys = kzalloc(sizeof(*miphy) * miphy_count, GFP_KERNEL);
+	if (!new_miphys)
 		return -ENOMEM;
 
-	for (miphy_num = miphy_first;
+	for (miphy_num = miphy_first, miphy = new_miphys;
 	     miphy_num < miphy_first + miphy_count;
 	     miphy_num++, miphy++) {
 		miphy->dev = miphy_dev;
@@ -636,6 +639,27 @@ int miphy_if_register(struct stm_miphy_device *miphy_dev,
 	mutex_init(&miphy_dev->mutex);
 	miphy_dev->ops = ops;
 	miphy_dev->type = type;
+
+	for (miphy_num = 0, miphy = new_miphys;
+	     miphy_num < miphy_count;
+	     miphy_num++, miphy++) {
+		char extra_info[40];
+		u8 miphy_version, miphy_revision;
+
+		if (type != DUMMY_IF) {
+			miphy_version = stm_miphy_read(miphy, MIPHY_VERSION);
+			miphy_revision = stm_miphy_read(miphy, MIPHY_REVISION);
+			snprintf(extra_info, sizeof(extra_info),
+				 " (MiPHY%d, c%d.%d)",
+				 (miphy_version >> 4) & 0x7,
+				 (miphy_version & 0xf),
+				 miphy_revision);
+		} else
+			extra_info[0] = '\0';
+
+		dev_info(miphy->device, "using device %s%s.\n",
+			 dev_name(parent), extra_info);
+	}
 
 	return 0;
 }

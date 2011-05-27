@@ -906,6 +906,15 @@ static const char *fli7510_sysconf_vout_spare(int num)
 	return "???";
 }
 
+static const char *fli7510_sysconf_ckg_ddr(int num)
+{
+	switch (num) {
+	SYSCONF_REG(CKG_DDR_CTL_PLL_DDR_FREQ);
+	SYSCONF_REG(CKG_DDR_STATUS_PLL_DDR);
+	}
+
+	return "???";
+}
 #endif
 
 static struct platform_device fli7510_sysconf_devices[] = {
@@ -1061,6 +1070,28 @@ static struct platform_device fli7510_sysconf_devices[] = {
 			},
 		},
 	},
+	{
+		.name = "stm-sysconf",
+		.id = 7,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+				STM_PLAT_RESOURCE_MEM(0xfde80000, 0x20),
+			},
+		.dev.platform_data = &(struct stm_plat_sysconf_data) {
+			.groups_num = 1,
+			.groups = (struct stm_plat_sysconf_group []) {
+				{
+					.group = CKG_DDR,
+					.offset = 0,
+					.name = "CKG_DDR",
+#ifdef CONFIG_DEBUG_FS
+					.reg_name =
+						fli7510_sysconf_ckg_ddr,
+#endif
+				},
+			},
+		},
+	}
 };
 
 static void fli7510_sysconf_setup(void)

@@ -37,6 +37,7 @@
 #define VDEC_PU_CFG_1			5
 #define VOUT_PU_CFG_1			6 /* 7510 spec */
 #define VOUT_SPARE_REGS			6 /* 75[234] spec */
+#define CKG_DDR				7
 
 #define CFG_RESET_CTL			PRB_PU_CFG_1, (0x00 / 4)
 #define CFG_BOOT_CTL			PRB_PU_CFG_1, (0x04 / 4)
@@ -100,7 +101,8 @@
 #define CFG_REG6_TVOUT_DEBUG_CTL	VOUT_SPARE_REGS, (0x14 / 4)
 #define CFG_REG7_UNUSED			VOUT_SPARE_REGS, (0x18 / 4)
 
-
+#define CKG_DDR_CTL_PLL_DDR_FREQ	CKG_DDR, (0x04 / 4)
+#define CKG_DDR_STATUS_PLL_DDR		CKG_DDR, (0x0c / 4)
 
 void fli7510_early_device_init(void);
 

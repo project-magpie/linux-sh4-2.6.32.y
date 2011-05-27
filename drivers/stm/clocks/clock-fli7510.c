@@ -82,16 +82,6 @@ _CLK(CLKA_IC_200, &clkgena, 0, 0),
 
 };
 
-int __init plat_clk_init(void)
-{
-	int ret;
-
-	ret = clk_register_table(clk_clocks, ARRAY_SIZE(clk_clocks), 1);
-	return ret;
-}
-
-
-
 /******************************************************************************
 CLOCKGEN A (CPU+interco+comms) clocks group
 ******************************************************************************/
@@ -433,4 +423,165 @@ static int clkgena_init(clk_t *clk_p)
 		err = clkgena_recalc(clk_p);
 
 	return err;
+}
+
+/*
+ * Most of the code on Clock_Gen_C was done by:
+ * Pawel Moll
+ */
+static void *clkgen_audio_base;
+
+static int clkgen_audio_enable(struct clk *clk)
+{
+	unsigned long value = readl(CTL_SYNTH4X_AUD_N(clkgen_audio_base,
+				clk->id));
+
+	value &= ~NSB__MASK;
+	value |= NSB__ACTIVE;
+
+	writel(value, CTL_SYNTH4X_AUD_N(clkgen_audio_base,
+		clk->id - CLKC_FS_FREE_RUN));
+	return 0;
+}
+
+static int clkgen_audio_disable(struct clk *clk)
+{
+	unsigned long value = readl(CTL_SYNTH4X_AUD_N(clkgen_audio_base,
+				clk->id));
+
+	value &= ~NSB__MASK;
+	value |= NSB__STANDBY;
+
+	writel(value, CTL_SYNTH4X_AUD_N(clkgen_audio_base,
+		clk->id - CLKC_FS_FREE_RUN));
+
+       return 0;
+}
+
+static int clkgen_audio_set_rate(struct clk *clk, unsigned long rate)
+{
+	unsigned long pe, md, sdiv;
+	unsigned long value;
+	int divider = (int)clk->private_data;
+
+	if (divider)
+		rate *= divider;
+
+	if (clk_fsyn_get_params(clk_get_rate(clk->parent), rate,
+			&md, &pe, &sdiv) != 0)
+		return -EINVAL;
+
+	value = readl(CTL_SYNTH4X_AUD_N(clkgen_audio_base,
+		clk->id - CLKC_FS_FREE_RUN));
+
+	value &= ~MD__MASK;
+	value |= MD__(md);
+
+	value &= ~PE__MASK;
+	value |= PE__(pe);
+
+	value &= ~SDIV__MASK;
+	value |= SDIV__(sdiv);
+
+	writel(value, CTL_SYNTH4X_AUD_N(clkgen_audio_base,
+		clk->id - CLKC_FS_FREE_RUN));
+
+	if (clk_fsyn_get_rate(clk_get_rate(clk->parent), pe, md,
+		sdiv, &clk->rate))
+		return -EINVAL;
+
+	if (divider)
+		clk->rate /= divider;
+
+
+	return 0;
+}
+
+static struct clk_ops clkgen_audio_clk_ops = {
+	.enable = clkgen_audio_enable,
+	.disable = clkgen_audio_disable,
+	.set_rate = clkgen_audio_set_rate,
+};
+
+#define clk_c(_id, _private_data)		\
+{						\
+	.name = #_id,				\
+	.id = _id,				\
+	.parent = &clk_clocks[CLK_SYSA],	\
+	.ops = &clkgen_audio_clk_ops,		\
+	.private_data = (void *)(_private_data)	\
+}
+
+static struct clk clkgen_audio_clks[] = {
+	clk_c(CLKC_FS_FREE_RUN, 2),
+	clk_c(CLKC_FS_DEC_1, 0),
+	clk_c(CLKC_SPDIF, 0),
+	clk_c(CLKC_FS_DEC_2, 0)
+};
+
+static int __init clkgen_audio_init(void)
+{
+	int err = 0;
+	unsigned long value;
+	int i;
+
+	if (cpu_data->type == CPU_FLI7510)
+		clkgen_audio_base = ioremap(0xfdee0000, 0x30);
+	else
+		clkgen_audio_base = ioremap(0xfe0e0000, 0x30);
+
+	if (!clkgen_audio_base)
+		return -EFAULT;
+
+	/* Configure clkgen */
+
+	value = EN_CLK_256FS_FREE_RUN__ENABLED;
+	value |= EN_CLK_256FS_DEC_1__ENABLED;
+	value |= EN_CLK_SPDIF_RX__ENABLED;
+	value |= EN_CLK_256FS_DEC_2__ENABLED;
+	writel(value, CTL_EN(clkgen_audio_base));
+
+	value = SYNTH4X_AUD_NDIV__30_MHZ;
+	value |= SYNTH4X_AUD_SELCLKIN__CLKIN1V2;
+	value |= SYNTH4X_AUD_SELBW__VERY_GOOD_REFERENCE;
+	value |= SYNTH4X_AUD_NPDA__ACTIVE;
+	value |= SYNTH4X_AUD_NRST__RESET;
+	writel(value, CTL_SYNTH4X_AUD(clkgen_audio_base));
+
+	value = SEL_CLK_OUT__FSYNTH;
+	value |= NSB__STANDBY;
+	value |= NSDIV3__BYPASSED;
+	for (i = 0; i < ARRAY_SIZE(clkgen_audio_clks); i++) {
+		writel(value, CTL_SYNTH4X_AUD_N(clkgen_audio_base,
+				i + 1));
+		/* Set "safe" rate */
+		clkgen_audio_set_rate(&clkgen_audio_clks[i], 32000 * 128);
+	}
+
+	/* Unreset ;-) it now */
+	value = readl(CTL_SYNTH4X_AUD(clkgen_audio_base));
+	value &= ~SYNTH4X_AUD_NRST__MASK;
+	value |= SYNTH4X_AUD_NRST__NORMAL;
+	writel(value, CTL_SYNTH4X_AUD(clkgen_audio_base));
+
+	/* Register clocks */
+
+	err = clk_register_table(clkgen_audio_clks,
+			ARRAY_SIZE(clkgen_audio_clks), 0);
+
+	return err;
+}
+
+int __init plat_clk_init(void)
+{
+	int ret;
+
+	ret = clk_register_table(clk_clocks, ARRAY_SIZE(clk_clocks), 1);
+
+	if (ret)
+		return ret;
+
+	ret = clkgen_audio_init();
+
+	return ret;
 }

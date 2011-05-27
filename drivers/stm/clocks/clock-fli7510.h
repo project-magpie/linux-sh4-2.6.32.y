@@ -41,4 +41,9 @@ enum {
 	CLKA_IC_266,		/* Ls[16] */
 	CLKA_IC_200,
 	CLK_NOT_USED_2,
+
+	CLKC_FS_FREE_RUN,
+	CLKC_FS_DEC_1,
+	CLKC_SPDIF,
+	CLKC_FS_DEC_2,
 };

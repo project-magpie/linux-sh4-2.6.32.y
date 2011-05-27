@@ -40,5 +40,11 @@ int __init plat_clk_alias_init(void)
  *	clk_lpc provided in the Clockgen_south
  *	It should be the rtc_clk @ 32,768 Khz
  */
+	/* Clock Gen C (Audio) */
+	clk_add_alias("clkc_256fs_free_run", NULL, "CLKC_FS_FREE_RUN", NULL);
+	clk_add_alias("clkc_256fs_dec_1", NULL, "CLKC_FS_DEC_1", NULL);
+	clk_add_alias("clkc_spdif_rx", NULL, "CLKC_SPDIF", NULL);
+	clk_add_alias("clkc_256fs_dec_2", NULL, "CLKC_FS_DEC_2", NULL);
+
 	return 0;
 }

@@ -1,55 +1,34 @@
 /*
  * Copyright (C) 2009 STMicroelectronics Limited
+ * Copyright (C) 2011 STMicroelectronics Limited
  *
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
  *
- * Clocking framework stub.
  */
 
 #include <linux/init.h>
-#include <linux/kernel.h>
-#include <linux/err.h>
-#include <linux/io.h>
-#include <linux/pm.h>
-#include <linux/clkdev.h>
-#include <asm/clock.h>
-#include <asm/freq.h>
-
-
-/* SH4 generic clocks ----------------------------------------------------- */
-
-static struct clk clocks[] = {
-	{
-		.name = "module_clk",
-		.rate = 100000000,
-	}, {
-		.name = "comms_clk",
-		.rate = 100000000,
-	}
-};
-
-
-
-/* ------------------------------------------------------------------------ */
+#include <linux/stm/clk.h>
 
 int __init arch_clk_init(void)
 {
-	int i;
-	int ret = 0;
+	int ret;
 
-	for (i = 0; i < ARRAY_SIZE(clocks); ++i) {
-		struct clk *clk = &clocks[i];
-		struct clk_lookup *cl;
+	ret = plat_clk_init();
+	if (ret)
+		return ret;
 
-		ret = clk_register(clk);
-		if (ret)
-			return ret;
-		cl = clkdev_alloc(clk, clk->name, NULL);
-		if (!cl)
-			return -ENOMEM;
-		clkdev_add(cl);
-	}
+	ret = plat_clk_alias_init();
+	if (ret)
+		return ret;
+
+	/*
+	 * Turn-on the core system clocks
+	 */
+	clk_enable(clk_get(NULL, "CLKA_ST40_HOST"));
+	clk_enable(clk_get(NULL, "CLKA_IC_100"));
+	clk_enable(clk_get(NULL, "CLKA_IC_150"));
+	clk_enable(clk_get(NULL, "CLKA_IC_200"));
 
 	return ret;
 }

@@ -12,9 +12,11 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/delay.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
+#include <linux/stm/device.h>
 #include <linux/stm/fli7510.h>
 #include <asm/irq-ilc.h>
 
@@ -78,6 +80,23 @@ int fli7510_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,
 	return result;
 }
 
+static void fli7510_pci_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, "PCI_PWR", value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, "PCI_ACK")
+			== value)
+			break;
+		mdelay(10);
+	}
+
+	return;
+}
+
 static struct platform_device fli7510_pci_device = {
 	.name = "pci_stm",
 	.id = -1,
@@ -98,6 +117,17 @@ static struct platform_device fli7510_pci_device = {
 		/* SERR interrupt set in fli7510_configure_pci() */
 		STM_PLAT_RESOURCE_IRQ_NAMED("SERR", -1, -1),
 	},
+	.dev.platform_data = &(struct stm_device_config){
+		.sysconfs_num = 2,
+		.sysconfs = (struct stm_device_sysconf []){
+			STM_DEVICE_SYSCONF(CFG_PWR_DWN_CTL, 2, 2,
+				"PCI_PWR"),
+			STM_DEVICE_SYSCONF(CFG_PCI_ROPC_STATUS,
+				18, 18, "PCI_ACK"),
+		},
+		.power = fli7510_pci_power,
+
+	}
 };
 
 #define FLI7510_PIO_PCI_REQ(i)   stm_gpio(15, (i - 1) * 2)
@@ -234,18 +264,6 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 		res->start = pci_conf->serr_irq;
 		res->end = pci_conf->serr_irq;
 	}
-
-#if defined(CONFIG_PM)
-#warning TODO: PCI Power Management
-#endif
-	/* pci_pwr_dwn_req */
-	sc = sysconf_claim(CFG_PWR_DWN_CTL, 2, 2, "PCI");
-	sysconf_write(sc, 0);
-
-	/* status_pci_pwr_dwn_grant */
-	sc = sysconf_claim(CFG_PCI_ROPC_STATUS, 18, 18, "PCI");
-	while (sysconf_read(sc))
-		cpu_relax();
 
 	platform_device_register(&fli7510_pci_device);
 }

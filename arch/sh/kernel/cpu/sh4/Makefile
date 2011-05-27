@@ -70,6 +70,7 @@ suspend-$(CONFIG_CPU_SUBTYPE_STX7108)	+= suspend-stx7108.o
 suspend-$(CONFIG_CPU_SUBTYPE_STX7111)	+= suspend-stx7111.o
 suspend-$(CONFIG_CPU_SUBTYPE_STX7141)	+= suspend-stx7141.o
 suspend-$(CONFIG_CPU_SUBTYPE_STX7200)	+= suspend-stx7200.o
+suspend-$(CONFIG_CPU_SUBTYPE_FLI7510)	+= suspend-fli7510.o
 obj-$(CONFIG_SUSPEND)			+= $(suspend-y)
 
 hom-y					:= stm_hom.o stm_hom-core.o

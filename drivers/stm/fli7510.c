@@ -13,6 +13,7 @@
 #include <linux/init.h>
 #include <linux/gpio.h>
 #include <linux/platform_device.h>
+#include <linux/delay.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/stm/emi.h>
@@ -25,6 +26,22 @@
 
 
 /* EMI resources ---------------------------------------------------------- */
+static void fli7510_emi_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, "EMI_PWR", value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, "EMI_ACK")
+			== value)
+			break;
+		mdelay(10);
+	}
+
+	return;
+}
 
 static struct platform_device fli7510_emi = {
 	.name = "emi",
@@ -35,6 +52,15 @@ static struct platform_device fli7510_emi = {
 		STM_PLAT_RESOURCE_MEM(0xfd100000, 0x874),
 	},
 	.dev.platform_data = &(struct stm_device_config){
+		.sysconfs_num = 2,
+		.sysconfs = (struct stm_device_sysconf []){
+			STM_DEVICE_SYSCONF(CFG_PWR_DWN_CTL,
+				0, 0, "EMI_PWR"),
+			STM_DEVICE_SYSCONF(CFG_EMI_ROPC_STATUS,
+				16, 16, "EMI_ACK"),
+		},
+		.power = fli7510_emi_power,
+
 	}
 };
 

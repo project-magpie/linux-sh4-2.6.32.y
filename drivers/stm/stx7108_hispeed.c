@@ -1310,7 +1310,7 @@ void __init stx7108_configure_sata(int port, struct stx7108_sata_config *config)
 
 	sc_sata_hc_pwr[port] = sysconf_claim(SYS_CFG_BANK4, 46,
 					     3+port, 3+port, "SATA");
-	if (!sc_sata_hc_pwr[0]) {
+	if (!sc_sata_hc_pwr[port]) {
 		BUG();
 		return;
 	}

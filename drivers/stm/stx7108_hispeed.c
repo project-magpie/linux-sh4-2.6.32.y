@@ -1302,11 +1302,11 @@ static struct platform_device stx7108_sata_devices[] = {
 void __init stx7108_configure_sata(int port, struct stx7108_sata_config *config)
 {
 	struct stm_plat_sata_data *sata_data;
-	static int initialized[2];
+	static int initialized[ARRAY_SIZE(stx7108_sata_devices)];
 
 	sata_data = stx7108_sata_devices[port].dev.platform_data;
 
-	BUG_ON(initialized[port]);
+	BUG_ON(initialized[port]++);
 
 	sc_sata_hc_pwr[port] = sysconf_claim(SYS_CFG_BANK4, 46,
 					     3+port, 3+port, "SATA");

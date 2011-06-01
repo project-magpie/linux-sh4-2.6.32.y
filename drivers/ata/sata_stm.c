@@ -1208,6 +1208,8 @@ static int __devinit stm_sata_probe(struct platform_device *pdev)
 
 	hpriv->device_state = devm_stm_device_init(dev,
 		sata_private_info->device_config);
+	if (!hpriv->device_state)
+		return -EBUSY;
 
 	mem_res = platform_get_resource(pdev,IORESOURCE_MEM,0);
 	phys_base = mem_res->start;

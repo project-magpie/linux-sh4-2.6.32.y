@@ -136,6 +136,8 @@ void __update_cache(struct vm_area_struct *vma,
 
 			if (pages_do_alias(addr, address & PAGE_MASK))
 				__flush_purge_region((void *)addr, PAGE_SIZE);
+			else if (vma->vm_flags & VM_EXEC)
+				__flush_wback_region((void *)addr, PAGE_SIZE);
 		}
 	}
 }

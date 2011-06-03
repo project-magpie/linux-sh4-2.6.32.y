@@ -26,6 +26,7 @@
  */
 
 #include <linux/crc16.h>
+#include <linux/random.h>
 #include "ubifs.h"
 
 #ifdef CONFIG_UBIFS_FS_DEBUG

@@ -1179,12 +1179,8 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit)
 		display_ring(priv->dma_rx, rxsize);
 	}
 #endif
-	count = 0;
-	while (!priv->hw->desc->get_rx_owner(p)) {
+	while ((!priv->hw->desc->get_rx_owner(p)) && (count < limit)) {
 		int status;
-
-		if (count >= limit)
-			break;
 
 		count++;
 

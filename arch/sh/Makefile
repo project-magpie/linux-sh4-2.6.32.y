@@ -169,6 +169,7 @@ machdir-$(CONFIG_SH_ST_HMP7100)			+= mach-hmp7100
 machdir-$(CONFIG_SH_ST_HMP7105)			+= mach-hmp7105
 machdir-$(CONFIG_SH_ST_HMS1)			+= mach-hms1
 machdir-$(CONFIG_SH_ST_IPTV7105)		+= mach-iptv7105
+machdir-$(CONFIG_SH_ST_SAT7111)			+= mach-sat7111
 machdir-$(CONFIG_SH_ST_MB360)			+= mach-mb360 mach-st
 machdir-$(CONFIG_SH_ST_MB374)			+= mach-mb374 mach-st
 machdir-$(CONFIG_SH_ST_MB411)			+= mach-mb411 mach-st

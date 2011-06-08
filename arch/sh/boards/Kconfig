@@ -476,6 +476,14 @@ config SH_ST_IPTV7105
 	help
 	  Select SH_ST_IPTV7105 if configuring for an STx7105 IPTV board
 
+config SH_ST_SAT7111
+	bool "sat7111: sat7111 board"
+	depends on CPU_SUBTYPE_STX7111
+	default n
+	help
+	  Select this if configuring for an
+	  STMicroelectronics sat7111 Reference Board.
+
 config SH_ST_MB360
 	bool "mb360: ST40RA Eval"
 	depends on CPU_SUBTYPE_ST40STB1

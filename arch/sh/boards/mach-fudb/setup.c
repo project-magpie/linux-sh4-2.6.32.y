@@ -19,18 +19,12 @@
 #include <linux/gpio.h>
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/nand.h>
-#include <linux/spi/spi.h>
-#include <linux/spi/flash.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/fli7510.h>
 #include <linux/stm/pci-synopsys.h>
 #include <asm/irq-ilc.h>
 
-
-
 #define FUDB_PIO_RESET_OUTN stm_gpio(11, 5)
-#define FUDB_PIO_SPI_WPN stm_gpio(18, 2)
-
 
 
 static void __init fudb_setup(char **cmdline_p)
@@ -80,48 +74,40 @@ static struct platform_device *fudb_devices[] __initdata = {
 };
 
 
-
-static struct spi_board_info fudb_serial_flash =  {
-	.modalias = "m25p80",
-	.bus_num = 0,
-	.chip_select = stm_gpio(20, 2),
-	.max_speed_hz = 7000000,
-	.mode = SPI_MODE_3,
-	.platform_data = &(struct flash_platform_data) {
-		.name = "m25p80",
-		.type = "m25px64",
-		.nr_parts = 2,
-		.parts = (struct mtd_partition []) {
-			{
-				.name = "SerialFlash_1",
-				.size = 0x00080000,
-				.offset = 0,
-			}, {
-				.name = "SerialFlash_2",
-				.size = MTDPART_SIZ_FULL,
-				.offset = MTDPART_OFS_NXTBLK,
-			},
+/* Serial Flash */
+static struct stm_plat_spifsm_data fudb_spifsm_flash = {
+	.name = "m25px64",
+	.nr_parts = 2,
+	.parts = (struct mtd_partition []) {
+		{
+			.name = "Serial Flash 1",
+			.size = 0x00080000,
+			.offset = 0,
+		}, {
+			.name = "Serial Flash 2",
+			.size = MTDPART_SIZ_FULL,
+			.offset = MTDPART_OFS_NXTBLK,
 		},
 	},
 };
 
+/* NAND Flash */
 static struct stm_nand_bank_data fudb_nand_flash = {
 	.csn		= 0,
+	.options	= NAND_USE_FLASH_BBT,
 	.nr_partitions	= 2,
 	.partitions	= (struct mtd_partition []) {
 		{
-			.name	= "NAND root",
+			.name	= "NAND Flash 1",
 			.offset	= 0,
 			.size 	= 0x00800000
 		}, {
-			.name	= "NAND home",
-			.offset	= MTDPART_OFS_APPEND,
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
 			.size	= MTDPART_SIZ_FULL
 		},
 	},
-
-	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
-	.timing_data		= &(struct stm_nand_timing_data) {
+	.timing_data	=  &(struct stm_nand_timing_data) {
 		.sig_setup	= 50,		/* times in ns */
 		.sig_hold	= 50,
 		.CE_deassert	= 0,
@@ -132,13 +118,12 @@ static struct stm_nand_bank_data fudb_nand_flash = {
 		.rd_off		= 40,
 		.chip_delay	= 30,		/* in us */
 	},
-
-	.emi_withinbankoffset	= 0,
 };
 
 
 static int __init fudb_device_init(void)
 {
+
 	/* This is a board-level reset line, which goes to the
 	 * Ethernet PHY, audio amps & number of extension connectors */
 	if (gpio_request(FUDB_PIO_RESET_OUTN, "RESET_OUTN") == 0) {
@@ -166,10 +151,9 @@ static int __init fudb_device_init(void)
 	fli7510_configure_ssc_i2c(2);
 	/* CNK4 ("VGA In" connector), UK1 (EEPROM) */
 	fli7510_configure_ssc_i2c(3);
-	/* UD3 (SPI Flash) */
-	fli7510_configure_ssc_spi(4, NULL);
+	/* Leave SSC4 unconfigured, using SPI-FSM for Serial Flash */
 
-	spi_register_board_info(&fudb_serial_flash, 1);
+	fli7510_configure_spifsm(&fudb_spifsm_flash);
 
 	fli7510_configure_usb(0, &(struct fli7510_usb_config) {
 			.ovrcur_mode = fli7510_usb_ovrcur_active_low, });
@@ -186,7 +170,11 @@ static int __init fudb_device_init(void)
 
 	fli7510_configure_lirc();
 
-	fli7510_configure_nand_flex(1, &fudb_nand_flash, 1);
+	fli7510_configure_nand(&(struct stm_nand_config) {
+			.driver = stm_nand_flex,
+			.nr_banks = 1,
+			.banks = &fudb_nand_flash,
+			.rbn.flex_connected = 1,});
 
 	fli7510_configure_mmc();
 

@@ -162,9 +162,8 @@ void fli7510_configure_mmc(void);
 void fli7510_configure_pci(struct stm_plat_pci_config *pci_config);
 int  fli7510_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,
 		u8 pin);
-void fli7510_configure_nand_flex(int nr_banks,
-				 struct stm_nand_bank_data *banks,
-				 int rbn_connected);
+
+void fli7510_configure_nand(struct stm_nand_config *config);
 
 void fli7510_configure_spifsm(struct stm_plat_spifsm_data *data);
 

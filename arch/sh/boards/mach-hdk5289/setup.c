@@ -17,6 +17,13 @@
 #include <linux/phy.h>
 #include <linux/gpio.h>
 #include <linux/tm1668.h>
+#include <linux/mtd/mtd.h>
+#include <linux/mtd/partitions.h>
+#include <linux/mtd/nand.h>
+#include <linux/mtd/physmap.h>
+#include <linux/spi/spi.h>
+#include <linux/spi/flash.h>
+#include <linux/stm/emi.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx5206.h>
 #include <asm/irq.h>
@@ -27,6 +34,33 @@
 #define HDK5289_POWER_ON stm_gpio(2, 3)
 
 
+/*
+ * FLASH setup depends on board boot configuration:
+ *
+ *				boot-from-
+ * Boot Device		NOR		NAND		SPI
+ * ----------------     -----		-----		-----
+ * JE3-2 (Mode15)	0 (W)		1 (E)		0 (W)
+ * JE3-1 (Mode16)	0 (W)		0 (W)		1 (E)
+ *
+ * Word Size
+ * ----------------
+ * JE2-2 (Mode13)	0 (W)		1 (E)		x
+ *
+ * CS-Routing
+ * ----------------
+ * JH1			NOR (N)		NAND (S)	NAND (S)
+ *
+ * Post-boot Access
+ * ----------------
+ * NOR (limit)		EMIA (64MB)	EMIB (8MB)	EMIB (8MB)
+ * NAND			EMIB/FLEXB	FLEXA		FLEXA
+ * SPI			SPIFSM		SPIFSM		SPIFSM
+ *
+ * Switch positions given in terms of (N)orth, (E)ast, (S)outh, and (W)est,
+ * viewing board with LED display South and power connector North.
+ *
+ */
 
 static void __init hdk5289_setup(char **cmdline_p)
 {
@@ -83,14 +117,139 @@ static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.phy_mask = 0,
 };
 
+/* Serial Flash */
+static struct stm_plat_spifsm_data hdk5289_serial_flash =  {
+	.name		= "w25q64",
+	.nr_parts	= 2,
+	.parts = (struct mtd_partition []) {
+		{
+			.name = "Serial Flash 1",
+			.size = 0x00080000,
+			.offset = 0,
+		}, {
+			.name = "Serial Flash 2",
+			.size = MTDPART_SIZ_FULL,
+			.offset = MTDPART_OFS_NXTBLK,
+		},
+	},
+};
+
+/* NAND Flash */
+static struct stm_nand_bank_data hdk5289_nand_flash = {
+	.csn		= 1,
+	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size 	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
+	.timing_data	=  &(struct stm_nand_timing_data) {
+		.sig_setup	= 50,		/* times in ns */
+		.sig_hold	= 50,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
+		.wr_on		= 10,
+		.wr_off		= 40,
+		.rd_on		= 10,
+		.rd_off		= 40,
+		.chip_delay	= 30,		/* in us */
+	},
+};
+
+/* NOR Flash */
+static struct platform_device hdk5289_nor_flash = {
+	.name		= "physmap-flash",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start		= 0x00000000,
+			.end		= 64*1024*1024 - 1,
+			.flags		= IORESOURCE_MEM,
+		}
+	},
+	.dev.platform_data = &(struct physmap_flash_data) {
+		.width		= 2,
+		.set_vpp	= NULL,
+		.nr_parts	= 3,
+		.parts		= (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			}
+		},
+	},
+};
 static struct platform_device *hdk5289_devices[] __initdata = {
 	&hdk5289_front_panel,
+	&hdk5289_nor_flash,
 };
 
 
 
 static int __init hdk5289_devices_init(void)
 {
+	struct sysconf_field *sc;
+	unsigned long nor_bank_base = 0;
+	unsigned long nor_bank_size = 0;
+
+	/* Configure Flash according to boot-device */
+	sc = sysconf_claim(SYS_STA, 1, 16, 17, "boot_device");
+	switch (sysconf_read(sc)) {
+	case 0x0:
+		/* Boot-from-NOR */
+		pr_info("Configuring FLASH for boot-from-NOR\n");
+		nor_bank_base = emi_bank_base(0);
+		nor_bank_size = emi_bank_base(1) - nor_bank_base;
+		hdk5289_nand_flash.csn = 1;
+		break;
+	case 0x1:
+		/* Boot-from-NAND */
+		pr_info("Configuring FLASH for boot-from-NAND\n");
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		hdk5289_nand_flash.csn = 0;
+		break;
+	case 0x2:
+		/* Boot-from-SPI */
+		pr_info("Configuring FLASH for boot-from-SPI\n");
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		hdk5289_nand_flash.csn = 0;
+		break;
+	default:
+		BUG();
+		break;
+	}
+	sysconf_release(sc);
+
+	/* Update NOR Flash base address and size: */
+	/*     - limit bank size to 64MB (some targetpacks define 128MB!) */
+	if (nor_bank_size > 64*1024*1024)
+		nor_bank_size = 64*1024*1024;
+	/*     - reduce visibility of NOR flash to EMI bank size */
+	if (hdk5289_nor_flash.resource[0].end > nor_bank_size - 1)
+		hdk5289_nor_flash.resource[0].end = nor_bank_size - 1;
+	/*     - update resource parameters */
+	hdk5289_nor_flash.resource[0].start += nor_bank_base;
+	hdk5289_nor_flash.resource[0].end += nor_bank_base;
+
 	/* This board has a one PIO line used to reset almost everything:
 	 * ethernet PHY, HDMI transmitter chip, PCI... */
 	gpio_request(HDK5289_GPIO_RST, "GPIO_RST#");
@@ -127,6 +286,13 @@ static int __init hdk5289_devices_init(void)
 #else
 			.rx_mode = stx5206_lirc_rx_mode_ir, });
 #endif
+	stx5206_configure_nand(&(struct stm_nand_config) {
+			.driver = stm_nand_flex,
+			.nr_banks = 1,
+			.banks = &hdk5289_nand_flash,
+			.rbn.flex_connected = 1,});
+
+	stx5206_configure_spifsm(&hdk5289_serial_flash);
 
 	stx5206_configure_mmc();
 

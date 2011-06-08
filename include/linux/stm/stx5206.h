@@ -85,6 +85,8 @@ struct stx5206_pata_config {
 };
 void stx5206_configure_pata(struct stx5206_pata_config *config);
 
+void stx5206_configure_nand(struct stm_nand_config *config);
+
 void stx5206_configure_spifsm(struct stm_plat_spifsm_data *spifsm_data);
 
 void stx5206_configure_pci(struct stm_plat_pci_config *pci_config);

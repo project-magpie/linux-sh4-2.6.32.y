@@ -126,6 +126,71 @@ void __init stx5206_configure_pata(struct stx5206_pata_config *config)
 	platform_device_register(&stx5206_pata_device);
 }
 
+static struct platform_device stx5206_spifsm_device = {
+	.name		= "stm-spi-fsm",
+	.id		= 0,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start	= 0xfe702000,
+			.end	= 0xfe7024ff,
+			.flags	= IORESOURCE_MEM,
+		},
+	},
+};
+
+void __init stx5206_configure_spifsm(struct stm_plat_spifsm_data *spifsm_data)
+{
+	stx5206_spifsm_device.dev.platform_data = spifsm_data;
+
+	platform_device_register(&stx5206_spifsm_device);
+}
+
+/* NAND Resources --------------------------------------------------------- */
+static struct platform_device stx5206_nand_emi_device = {
+	.name			= "stm-nand-emi",
+	.dev.platform_data	= &(struct stm_plat_nand_emi_data) {
+	},
+};
+
+static struct platform_device stx5206_nand_flex_device = {
+	.num_resources		= 2,
+	.resource		= (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM_NAMED("flex_mem", 0xFE701000, 0x1000),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0x14c0), -1),
+	},
+	.dev.platform_data	= &(struct stm_plat_nand_flex_data) {
+	},
+};
+
+void __init stx5206_configure_nand(struct stm_nand_config *config)
+{
+	struct stm_plat_nand_flex_data *flex_data;
+	struct stm_plat_nand_emi_data *emi_data;
+
+	switch (config->driver) {
+	case stm_nand_emi:
+		/* Configure device for stm-nand-emi driver */
+		emi_data = stx5206_nand_emi_device.dev.platform_data;
+		emi_data->nr_banks = config->nr_banks;
+		emi_data->banks = config->banks;
+		emi_data->emi_rbn_gpio = config->rbn.emi_gpio;
+		platform_device_register(&stx5206_nand_emi_device);
+		break;
+	case stm_nand_flex:
+	case stm_nand_afm:
+		/* Configure device for stm-nand-flex/afm driver */
+		flex_data = stx5206_nand_flex_device.dev.platform_data;
+		flex_data->nr_banks = config->nr_banks;
+		flex_data->banks = config->banks;
+		flex_data->flex_rbn_connected = config->rbn.flex_connected;
+		stx5206_nand_flex_device.name =
+			(config->driver == stm_nand_flex) ?
+			"stm-nand-flex" : "stm-nand-afm";
+		platform_device_register(&stx5206_nand_flex_device);
+		break;
+	}
+}
 
 
 /* FDMA resources --------------------------------------------------------- */

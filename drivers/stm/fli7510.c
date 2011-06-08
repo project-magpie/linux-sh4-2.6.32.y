@@ -1076,7 +1076,8 @@ void __init fli7510_early_device_init(void)
 		stm_gpio_early_init(fli7520_pio_devices, gpios_num,
 				ILC_FIRST_IRQ + ILC_NR_IRQS);
 	}
-	stm_pad_init(gpios_num * STM_GPIO_PINS_PER_PORT, 0, fli7510_pio_config);
+	stm_pad_init(gpios_num * STM_GPIO_PINS_PER_PORT,
+		     -1, fli7510_pio_config);
 
 	sc = sysconf_claim(CFG_DEVICE_ID, 0, 31, "devid");
 	devid = sysconf_read(sc);

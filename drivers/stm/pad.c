@@ -325,6 +325,8 @@ int stm_pad_claim_gpio(unsigned gpio)
 	switch (stm_pad_gpios[gpio]) {
 	case stm_pad_gpio_unused:
 		stm_pad_gpios[gpio] = stm_pad_gpio_normal_gpio;
+		stm_pad_gpio_config(gpio, stm_pad_gpio_direction_in,
+				    stm_pad_gpio_function, NULL);
 		break;
 	case stm_pad_gpio_claimed_to_be_requested:
 		stm_pad_gpios[gpio] = stm_pad_gpio_claimed_requested;

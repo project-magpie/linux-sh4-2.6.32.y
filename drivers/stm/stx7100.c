@@ -450,7 +450,7 @@ void __init stx7100_early_device_init(void)
 	stm_gpio_early_init(stx7100_pio_devices,
 			ARRAY_SIZE(stx7100_pio_devices), 176);
 	stm_pad_init(ARRAY_SIZE(stx7100_pio_devices) * STM_GPIO_PINS_PER_PORT,
-			0, stx7100_pio_config);
+			-1, stx7100_pio_config);
 
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);

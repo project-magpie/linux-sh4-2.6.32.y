@@ -654,12 +654,12 @@ static void nand_command_lp(struct mtd_info *mtd, unsigned int command,
 			       NAND_NCE | NAND_CTRL_CHANGE);
 
 		/* The use of NAND_CMD_RNDOUTSTART exposes an additional timing
-		 * constraint, namely CL low to R# low (tCLLRL).  Rather than
+		 * constraint, namely #W high to R# low (tWHR).  Rather than
 		 * accomodate this delay in the general read cycle timings, we
 		 * instead add a small delay here, for the one case that
 		 * actually requires it.
 		 */
-		ndelay(25);
+		ndelay(100);
 		return;
 
 	case NAND_CMD_READ0:

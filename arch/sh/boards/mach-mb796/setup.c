@@ -16,15 +16,15 @@
 #include <linux/leds.h>
 #include <linux/phy.h>
 #include <linux/gpio.h>
+#include <linux/spi/flash.h>
 #include <linux/stm/pci-synopsys.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx5206.h>
 #include <asm/irq.h>
-
-
+#include <mach/common.h>
+#include "../mach-st/mb705-epld.h"
 
 #define MB796_NOTPIORESETMII stm_gpio(0, 6)
-
 
 
 static void __init mb796_setup(char **cmdline_p)
@@ -58,8 +58,19 @@ static struct platform_device mb796_leds = {
 	},
 };
 
+/*
+ * When connected to the mb705, MII reset is controlled by an EPLD register on
+ * the mb705.  When used standalone, a PIO pin is used, and J22-B must be
+ * fitted.
+ */
+#ifdef CONFIG_SH_ST_MB705
+static int mb796_phy_reset(void *bus)
+{
+	mb705_reset(EPLD_EMI_RESET_SW0, 15000);
 
-
+	return 0;
+}
+#else
 static int mb796_phy_reset(void *bus)
 {
 	gpio_set_value(MB796_NOTPIORESETMII, 0);
@@ -68,6 +79,7 @@ static int mb796_phy_reset(void *bus)
 
 	return 0;
 }
+#endif
 
 static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
@@ -111,7 +123,25 @@ int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
        return stx5206_pcibios_map_platform_irq(&mb796_pci_config, pin);
 }
 
+#ifdef CONFIG_SH_ST_MB705
+void __init mbxxx_configure_nand_flash(struct stm_nand_config *config)
+{
+	stx5206_configure_nand(config);
+}
 
+static struct stm_plat_spifsm_data spifsm_serial_flash;
+void __init mbxxx_configure_serial_flash(struct spi_board_info *serial_flash)
+{
+	struct flash_platform_data *data =
+		(struct flash_platform_data *)serial_flash->platform_data;
+
+	spifsm_serial_flash.name = data->name;
+	spifsm_serial_flash.nr_parts = data->nr_parts;
+	spifsm_serial_flash.parts = data->parts;
+
+	stx5206_configure_spifsm(&spifsm_serial_flash);
+}
+#endif
 
 static int __init mb796_devices_init(void)
 {

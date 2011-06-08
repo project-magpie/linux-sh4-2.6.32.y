@@ -18,11 +18,14 @@
 #include <linux/leds.h>
 #include <linux/phy.h>
 #include <linux/gpio.h>
+#include <linux/spi/spi_gpio.h>
 #include <linux/stm/pci-synopsys.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7108.h>
+#include <linux/stm/sysconf.h>
 #include <asm/irq.h>
-
+#include <mach/common.h>
+#include "../mach-st/mb705-epld.h"
 
 /* PCF8575 I2C PIO Extender (IC12) */
 #define PIO_EXTENDER_BASE 220
@@ -170,6 +173,42 @@ static struct stm_plat_pci_config mb837_pci_config = {
 	.pci_reset_gpio = -EINVAL,
 };
 
+#ifdef CONFIG_SH_ST_MB705
+void __init mbxxx_configure_nand_flash(struct stm_nand_config *config)
+{
+	stx7108_configure_nand(config);
+}
+
+/* SPI PIO Bus for Serial Flash on mb705 peripheral board:
+ *	CLK	J42-F closed (J42-E open)
+ *	CSn	J42-H closed (J42-G open)
+ *      DIn	J30-A closed
+ *	DOut	J30-B closed
+ * Note, leave SSC0 (I2C MII1) unconfigured  */
+static struct platform_device mb837_serial_flash_bus = {
+	.name           = "spi_gpio",
+	.id             = 8,
+	.num_resources  = 0,
+	.dev.platform_data = &(struct spi_gpio_platform_data) {
+		.num_chipselect = 1,
+		.sck = stm_gpio(1, 6),
+		.mosi = stm_gpio(2, 1),
+		.miso = stm_gpio(2, 0),
+	}
+};
+
+void __init mbxxx_configure_serial_flash(struct spi_board_info *serial_flash)
+{
+	/* Specify CSn and SPI bus */
+	serial_flash->bus_num = 8;
+	serial_flash->controller_data = (void *)stm_gpio(1, 7);
+
+	/* Register SPI bus and flash devices */
+	platform_device_register(&mb837_serial_flash_bus);
+	spi_register_board_info(serial_flash, 1);
+}
+#endif
+
 
 
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
@@ -189,8 +228,10 @@ static int __init mb837_devices_init(void)
 	 * J39-E fitted, J39-F not fitted */
 	stx7108_configure_pci(&mb837_pci_config);
 
+#ifndef CONFIG_SH_ST_MB705
 	/* MII1 & TS Connectors (inc. Cable Card one) - J42E & J42G */
 	stx7108_configure_ssc_i2c(0, NULL);
+#endif
 
 	/* STRec to going to MB705 - J41C & J41D */
 	stx7108_configure_ssc_i2c(1, NULL);

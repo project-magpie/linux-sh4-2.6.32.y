@@ -26,6 +26,7 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
+#include <linux/spi/spi_gpio.h>
 #include <asm/irq-ilc.h>
 #include <mach/common.h>
 #include "../mach-st/mb705-epld.h"
@@ -182,6 +183,37 @@ void __init mbxxx_configure_audio_pins(void)
 			.pcm_reader_input_enabled =
 					cpu_data->type == CPU_STX7105, });
 }
+
+#ifdef CONFIG_SH_ST_MB705
+void __init mbxxx_configure_nand_flash(struct stm_nand_config *config)
+{
+	stx7105_configure_nand(config);
+}
+
+/* GPIO based SPI */
+static struct platform_device mb680_serial_flash_bus = {
+	.name           = "spi_gpio",
+	.id             = 8,
+	.num_resources  = 0,
+	.dev.platform_data = &(struct spi_gpio_platform_data) {
+		.sck = stm_gpio(15, 0),
+		.mosi = stm_gpio(15, 1),
+		.miso = stm_gpio(15, 3),
+		.num_chipselect = 1,
+	},
+};
+
+void __init mbxxx_configure_serial_flash(struct spi_board_info *serial_flash)
+{
+	/* Specify CSn and SPI bus */
+	serial_flash->bus_num = 8;
+	serial_flash->controller_data = (void *)stm_gpio(15, 2);
+
+	/* Register SPI bus and flash devices */
+	platform_device_register(&mb680_serial_flash_bus);
+	spi_register_board_info(serial_flash, 1);
+}
+#endif
 
 static int __init mb680_devices_init(void)
 {

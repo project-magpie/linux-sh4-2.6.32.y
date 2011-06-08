@@ -25,7 +25,6 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/spi/spi.h>
-#include <linux/spi/spi_gpio.h>
 #include <linux/spi/flash.h>
 #include <linux/bug.h>
 #include <linux/irq.h>
@@ -34,11 +33,17 @@
 #include <mach/common.h>
 #include "mb705-epld.h"
 
+
 /*
- * Comment out this line to use NAND through the EMI bit-banging driver
- * instead of the Flex driver.
+ * NOR/NAND CS routing should be configured according to main board's
+ * boot-device:
+ *		NOR		NAND		[SPI]
+ *	       ------          ------          -------
+ * SW8-1	ON		OFF		 OFF
+ *   EMIA  ->	NOR		NAND		 NAND
+ *   EMIB  ->	NAND		NOR		 NOR
+ *
  */
-#define NAND_USES_FLEX
 
 static DEFINE_SPINLOCK(misc_lock);
 char mb705_rev = '?';
@@ -89,6 +94,7 @@ static struct platform_device mb705_display_device = {
 	},
 };
 
+#ifdef CONFIG_SH_ST_MB680
 static struct platform_device mb705_fpbutton_device = {
 	.name = "mb705-fpbutton",
 	.id = -1,
@@ -107,8 +113,10 @@ static struct platform_device mb705_fpbutton_device = {
 		}
 	},
 };
+#endif
 
-static void set_vpp(struct map_info * info, int enable)
+/* NOR Flash */
+static void nor_set_vpp(struct map_info *info, int enable)
 {
 	u16 reg;
 
@@ -124,87 +132,79 @@ static void set_vpp(struct map_info * info, int enable)
 	spin_unlock(&misc_lock);
 }
 
-static struct platform_device physmap_flash = {
+static struct platform_device mb705_nor_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0, 32*1024*1024),
+		{
+			.start		= 0x00000000,
+			.end		= 32*1024*1024 - 1,
+			.flags		= IORESOURCE_MEM,
+		}
 	},
 	.dev.platform_data = &(struct physmap_flash_data) {
 		.width		= 2,
-		.set_vpp	= set_vpp,
+		.set_vpp	= nor_set_vpp,
+		.nr_parts	= 3,
+		.parts		= (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			}
+		},
 	},
 };
 
-
-/* MTD partitions for Serial FLASH device */
-static struct mtd_partition serialflash_partitions[] = {
-	{
-		.name = "sflash_1",
-		.size = 0x00080000,
-		.offset = 0,
-	}, {
-		.name = "sflash_2",
-		.size = MTDPART_SIZ_FULL,
-		.offset = MTDPART_OFS_NXTBLK,
-	},
-};
-
-/* Serial FLASH is type 'm25p32', handled by 'm25p80' SPI Protocol driver */
-static struct flash_platform_data serialflash_data = {
-	.name = "m25p80",
-	.parts = serialflash_partitions,
-	.nr_parts = ARRAY_SIZE(serialflash_partitions),
-	.type = "m25p32",
-};
-
-/* SPI 'board_info' to register serial FLASH protocol driver */
-static struct spi_board_info spi_serialflash[] =  {
-	{
-		.modalias	= "m25p80",
-		.bus_num	= 8,
-		.max_speed_hz	= 500000,
-		.platform_data	= &serialflash_data,
-		.mode		= SPI_MODE_3,
-		.chip_select	= 0,
-		.controller_data = (void *)stm_gpio(15, 2),
-	},
-};
-
-/* GPIO based SPI */
-static struct platform_device spi_gpio_device = {
-	.name           = "spi_gpio",
-	.id             = 8,
-	.num_resources  = 0,
-	.dev            = {
-		.platform_data = &(struct spi_gpio_platform_data) {
-			.sck = stm_gpio(15, 0),
-			.mosi = stm_gpio(15, 1),
-			.miso = stm_gpio(15, 3),
-			.num_chipselect = 1,
+/* Serial Flash */
+static struct spi_board_info mb705_serial_flash =  {
+	/* .bus_num and .chip_select set by processor board */
+	.modalias	= "m25p80",
+	.max_speed_hz	= 7000000,
+	.mode		= SPI_MODE_3,
+	.platform_data = &(struct flash_platform_data) {
+		.name = "m25p80",
+		.type = "m25p32",
+		.nr_parts = 2,
+		.parts = (struct mtd_partition []) {
+			{
+				.name = "Serial Flash 1",
+				.size = 0x00080000,
+				.offset = 0,
+			}, {
+				.name = "Serial Flash 2",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
 		},
 	},
 };
 
 /* NAND Device */
-static struct mtd_partition nand_parts[] = {
-	{
-		.name	= "NAND root",
-		.offset	= 0,
-		.size 	= 0x00800000
-	}, {
-		.name	= "NAND home",
-		.offset	= MTDPART_OFS_APPEND,
-		.size	= MTDPART_SIZ_FULL
-	},
-};
-
-struct stm_nand_bank_data nand_bank_data = {
+struct stm_nand_bank_data mb705_nand_flash = {
 	.csn		= 1,
-	.nr_partitions	= ARRAY_SIZE(nand_parts),
-	.partitions	= nand_parts,
 	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size 	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
 	.timing_data		= &(struct stm_nand_timing_data) {
 		.sig_setup	= 50,		/* times in ns */
 		.sig_hold	= 50,
@@ -216,31 +216,16 @@ struct stm_nand_bank_data nand_bank_data = {
 		.rd_off		= 40,
 		.chip_delay	= 30,		/* in us */
 	},
-
-	.emi_withinbankoffset	= 0,
 };
-
-#ifndef NAND_USES_FLEX
-static struct platform_device nand_device = {
-	.name		= "stm-nand-emi",
-	.dev.platform_data = &(struct stm_plat_nand_emi_data){
-		.nr_banks	= 1,
-		.banks		= &nand_bank_data,
-		.emi_rbn_gpio	= -1,
-	},
-};
-#endif
 
 static struct platform_device *mb705_devices[] __initdata = {
 	&epld_device,
 	&mb705_gpio_led,
 	&mb705_display_device,
+#ifdef CONFIG_SH_ST_MB680
 	&mb705_fpbutton_device,
-	&physmap_flash,
-	&spi_gpio_device,
-#ifndef NAND_USES_FLEX
-	&nand_device,
 #endif
+	&mb705_nor_flash,
 };
 
 static DEFINE_SPINLOCK(mb705_reset_lock);
@@ -267,6 +252,8 @@ void mb705_reset(int mask, unsigned long usdelay)
 static int __init mb705_init(void)
 {
 	int i;
+	unsigned long nor_bank_base = 0;
+	unsigned long nor_bank_size = 0;
 
 	/* We are't actually doing this early here... */
 	epld_early_init(&epld_device);
@@ -293,15 +280,29 @@ static int __init mb705_init(void)
 
 	mb705_rev = ((epld_read(EPLD_EMI_IDENT) >> 4) & 0xf) - 1 + 'A';
 
-	/* Determine whether NOR and NAND devices are swapped. */
 	i = epld_read(EPLD_EMI_SWITCH);
 	if (i & EPLD_EMI_SWITCH_BOOTFROMNOR) {
-		u32 bank1_start = emi_bank_base(1);
-		u32 bank2_start = emi_bank_base(2);
-		physmap_flash.resource[0].start = bank1_start;
-		physmap_flash.resource[0].end = bank2_start - 1;
-		nand_bank_data.csn = 0;
+		pr_info("mb705: EMIA -> NAND; EMIB -> NOR\n");
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		mb705_nand_flash.csn = 0;
+	} else {
+		pr_info("mb705: EMIA -> NOR; EMIB -> NAND\n");
+		nor_bank_base = emi_bank_base(0);
+		nor_bank_size = emi_bank_base(1) - nor_bank_base;
+		mb705_nand_flash.csn = 1;
 	}
+
+	/* Update NOR Flash base address and size: */
+	/*     - limit bank size to 64MB (some targetpacks define 128MB!) */
+	if (nor_bank_size > 64*1024*1024)
+		nor_bank_size = 64*1024*1024;
+	/*     - reduce visibility of NOR flash to EMI bank size */
+	if (mb705_nor_flash.resource[0].end > nor_bank_size - 1)
+		mb705_nor_flash.resource[0].end = nor_bank_size - 1;
+	/*     - update resource parameters */
+	mb705_nor_flash.resource[0].start += nor_bank_base;
+	mb705_nor_flash.resource[0].end += nor_bank_base;
 
 	/*
 	 * The MTD NAND code doesn't understand the concept of VPP,
@@ -313,9 +314,11 @@ static int __init mb705_init(void)
 	i |= EPLD_EMI_MISC_NOTNANDFLASHWP;
 	epld_write(i, EPLD_EMI_MISC);
 
-#ifdef NAND_USES_FLEX
-	stx7105_configure_nand_flex(1, &nand_bank_data, 1);
-#endif
+	mbxxx_configure_nand_flash(&(struct stm_nand_config) {
+			.driver = stm_nand_flex,
+			.nr_banks = 1,
+			.banks = &mb705_nand_flash,
+			.rbn.flex_connected = 1,});
 
 	/* Interrupt routing.
 	 * At the moment we only care about a small number of
@@ -339,7 +342,7 @@ static int __init mb705_init(void)
 	epld_write(2, EPLD_EMI_INT_PRI(4));
 	epld_write((1<<4)|(1<<5)|(1<<9), EPLD_EMI_INT_MASK);
 
-	spi_register_board_info(spi_serialflash, ARRAY_SIZE(spi_serialflash));
+	mbxxx_configure_serial_flash(&mb705_serial_flash);
 
 	return platform_add_devices(mb705_devices, ARRAY_SIZE(mb705_devices));
 }

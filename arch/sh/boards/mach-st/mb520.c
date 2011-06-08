@@ -17,6 +17,10 @@
 #include <linux/gpio.h>
 #include <linux/i2c.h>
 #include <linux/i2c/pcf857x.h>
+#include <linux/spi/spi_gpio.h>
+#include <linux/spi/flash.h>
+#include <linux/mtd/mtd.h>
+#include <linux/mtd/partitions.h>
 #include <linux/stm/stx7200.h>
 #include <asm/processor.h>
 #include <sound/stm.h>
@@ -116,6 +120,45 @@ static struct platform_device mb520_conv_spdif_to_i2s = {
 };
 #endif
 
+/* GPIO SPI bus for Serial Flash device */
+static struct platform_device mb520_serial_flash_bus = {
+	.name           = "spi_gpio",
+	.id             = 5,
+	.num_resources  = 0,
+	.dev            = {
+		.platform_data = &(struct spi_gpio_platform_data) {
+			.sck = stm_gpio(5, 0),
+			.mosi = stm_gpio(5, 1),
+			.miso = stm_gpio(6, 1),
+			.num_chipselect = 1,
+		},
+	},
+};
+
+/* Serial Flash */
+static struct spi_board_info mb520_serial_flash = {
+	.bus_num		= 5,
+	.controller_data	= (void *)stm_gpio(5, 2),
+	.modalias		= "m25p80",
+	.max_speed_hz		= 1000000,
+	.mode			= SPI_MODE_3,
+	.platform_data		= &(struct flash_platform_data) {
+		.name = "m25p80",
+		.type = "m25p32",
+		.nr_parts = 2,
+		.parts = (struct mtd_partition []) {
+			{
+				.name = "Serial Flash 1",
+				.size = 0x00080000,
+				.offset = 0,
+			}, {
+				.name = "Serial Flash 2",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
+		},
+	},
+};
 
 
 static struct platform_device *mb520_devices[] __initdata = {
@@ -124,6 +167,7 @@ static struct platform_device *mb520_devices[] __initdata = {
 	&mb520_conv_external_dac,
 	&mb520_conv_spdif_to_i2s,
 #endif
+	&mb520_serial_flash_bus,
 };
 
 static int __init mb520_devices_init(void)
@@ -150,13 +194,16 @@ static int __init mb520_devices_init(void)
 	/* SSC configuration */
 	stx7200_configure_ssc_i2c(1); /* NIM0 */
 	stx7200_configure_ssc_i2c(2); /* NIM1 */
-	stx7200_configure_ssc_spi(3, NULL); /* Serial flash */
+
 	/* Peripherals - PIO extender and audio (inc. VoIP) devices */
 	periph_i2c_busnum = stx7200_configure_ssc_i2c(4);
 
 	/* I2C PIO extender connected do SSC4 */
 	result = i2c_register_board_info(periph_i2c_busnum,
 			&mb520_pio_extender, 1);
+
+	/* Serial Flash device */
+	spi_register_board_info(&mb520_serial_flash, 1);
 
 	/* IR receiver/transmitter */
 	stx7200_configure_lirc(&(struct stx7200_lirc_config) {

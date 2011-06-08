@@ -2,6 +2,7 @@
 #define __ARCH_SH_BOARDS_ST_COMMON_COMMON_H
 
 #include <linux/platform_device.h>
+#include <linux/stm/platform.h>
 
 /* epld.c */
 
@@ -20,5 +21,7 @@ void harp_init_irq(void);
 /* peripheral boards callbacks */
 
 void mbxxx_configure_audio_pins(void);
+void mbxxx_configure_nand_flash(struct stm_nand_config *config);
+void mbxxx_configure_serial_flash(struct spi_board_info *serial_flash);
 
 #endif

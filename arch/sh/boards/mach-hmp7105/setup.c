@@ -25,16 +25,22 @@
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/nand.h>
 #include <linux/stm/nand.h>
+#include <linux/stm/emi.h>
 #include <asm/irq-ilc.h>
+
+/* Note, the board is populated with NOR flash and NAND flash.  By default, the
+ * board is configured to boot from NOR flash.  Due to board-level logic, it is
+ * not possible to access NAND flash in this configuration (contention on EMI
+ * bus when using EMICS1#).  Furthermore, the logic to generate EMI_A26 seems to
+ * be flawed, limiting access to NOR flash to 64MB.  The flash setup below
+ * reflects these issues.
+ *
+ * Board mods are required to enable boot-from-NAND, but currently untested and
+ * unsupported due to lack of a suitable board.
+ */
 
 #define HMP7105_PIO_PHY_RESET stm_gpio(11, 0)
 #define HMP7105_PIO_NAND_ENABLE stm_gpio(10, 7)
-
-/*
- * Comment out this line to use NAND through the EMI bit-banging driver
- * instead of the Flex driver.
- */
-#define NAND_USES_FLEX
 
 static void __init hmp7105_setup(char **cmdline_p)
 {
@@ -98,66 +104,37 @@ static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.phy_mask = 0,
 };
 
-static struct platform_device hmp7105_physmap_flash = {
+static struct platform_device hmp7105_nor_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0, 32*1024*1024),
+		STM_PLAT_RESOURCE_MEM(0, 64*1024*1024),
 	},
 	.dev.platform_data = &(struct physmap_flash_data) {
 		.width		= 2,
+		.nr_parts	= 3,
+		.parts		= (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			}
+		},
 	},
 };
-
-/* NAND Device */
-static struct mtd_partition nand_parts[] = {
-	{
-		.name	= "NAND root",
-		.offset	= 0,
-		.size 	= 0x00800000
-	}, {
-		.name	= "NAND home",
-		.offset	= MTDPART_OFS_APPEND,
-		.size	= MTDPART_SIZ_FULL
-	},
-};
-
-static struct stm_nand_bank_data nand_bank_data = {
-	.csn		= 1,
-	.nr_partitions	= ARRAY_SIZE(nand_parts),
-	.partitions	= nand_parts,
-	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
-	.timing_data = &(struct stm_nand_timing_data) {
-		.sig_setup	= 50,		/* times in ns */
-		.sig_hold	= 50,
-		.CE_deassert	= 0,
-		.WE_to_RBn	= 100,
-		.wr_on		= 10,
-		.wr_off		= 40,
-		.rd_on		= 10,
-		.rd_off		= 40,
-		.chip_delay	= 30,		/* in us */
-	},
-};
-
-#ifndef NAND_USES_FLEX
-static struct platform_device nand_device = {
-	.name		= "stm-nand-emi",
-	.dev.platform_data = &(struct stm_plat_nand_emi_data){
-		.nr_banks	= 1,
-		.banks		= &nand_bank_data,
-		.emi_rbn_gpio	= -1,
-	},
-};
-#endif
 
 static struct platform_device *hmp7105_devices[] __initdata = {
 	&hmp7105_leds,
-	&hmp7105_physmap_flash,
-#ifndef NAND_USES_FLEX
-	&nand_device,
-#endif
+	&hmp7105_nor_flash,
 };
 
 static int __init hmp7105_devices_init(void)
@@ -208,10 +185,7 @@ static int __init hmp7105_devices_init(void)
 			.tx_od_enabled = 1, });
 
 	gpio_request(HMP7105_PIO_NAND_ENABLE, "NANDEnable");
-	gpio_direction_output(HMP7105_PIO_NAND_ENABLE, 0);
-#ifdef NAND_USES_FLEX
-	stx7105_configure_nand_flex(1, &nand_bank_data, 1);
-#endif
+	gpio_direction_output(HMP7105_PIO_NAND_ENABLE, 1);
 
 	return platform_add_devices(hmp7105_devices,
 						ARRAY_SIZE(hmp7105_devices));

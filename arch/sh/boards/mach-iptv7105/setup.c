@@ -38,12 +38,6 @@
 #define IPTV7105_PIO_SPI_BOOT_NOTCS stm_gpio(15, 2)
 #define IPTV7105_PIO_SPI_BOOT_DIN   stm_gpio(15, 3)
 
-/*
- * Comment out this line to use NAND through the EMI bit-banging driver
- * instead of the Flex driver.
- */
-#define NAND_USES_FLEX
-
 static void __init iptv7105_setup(char **cmdline_p)
 {
 	printk(KERN_INFO "STMicroelectronics STx7105 IPTV board initialisation\n");
@@ -85,85 +79,62 @@ static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.phy_mask = 0,
 };
 
-/* Configuration for Serial Flash */
-static struct mtd_partition serialflash_partitions[] = {
-	{
-		.name = "SFLASH_1",
-		.size = 0x00080000,
-		.offset = 0,
-	}, {
-		.name = "SFLASH_2",
-		.size = MTDPART_SIZ_FULL,
-		.offset = MTDPART_OFS_NXTBLK,
+/* Serial Flash */
+static struct spi_board_info iptv7105_serial_flash = {
+	.modalias       = "m25p80",
+	.bus_num        = 0,
+	.chip_select    = stm_gpio(2, 4),
+	.max_speed_hz   = 7000000,
+	.mode           = SPI_MODE_3,
+	.platform_data  = &(struct flash_platform_data) {
+		.name = "m25p80",
+		.type = "m25p32",
+		.nr_parts	= 2,
+		.parts = (struct mtd_partition []) {
+			{
+				.name = "Serial Flash 1",
+				.size = 0x00080000,
+				.offset = 0,
+			}, {
+				.name = "Serial Flash 2",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
+		},
 	},
 };
 
-#if 0
-static struct flash_platform_data serialflash_data = {
-	.name = "m25p80",
-	.parts = serialflash_partitions,
-	.nr_parts = ARRAY_SIZE(serialflash_partitions),
-	.type = "m25p32",
-};
-
-static struct spi_board_info spi_serialflash[] =  {
-	{
-		.modalias	= "m25p80",
-		.bus_num	= 0,
-		.chip_select	= stm_gpio(2, 4),
-		.max_speed_hz	= 5000000,
-		.platform_data	= &serialflash_data,
-		.mode		= SPI_MODE_3,
-	},
-};
-#endif
-
-/* Configuration for NAND Flash */
-static struct mtd_partition nand_parts[] = {
-	{
-		.name   = "Boot firmware",
-		.offset = 0,
-		.size   = 0x00100000
-	}, {
-		.name   = "NAND home",
-		.offset = MTDPART_OFS_APPEND,
-		.size   = MTDPART_SIZ_FULL
-	},
-};
-
-struct stm_nand_bank_data nand_bank_data = {
-	.csn		= 1,
-	.nr_partitions	= ARRAY_SIZE(nand_parts),
-	.partitions	= nand_parts,
+/* NAND Flash */
+struct stm_nand_bank_data iptv7105_nand_flash = {
+	.csn		= 0,
 	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size 	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
 	.timing_data		= &(struct stm_nand_timing_data) {
-		.sig_setup      = 50,	   /* times in ns */
-		.sig_hold       = 50,
-		.CE_deassert    = 0,
-		.WE_to_RBn      = 100,
+		.sig_setup	= 50,		/* times in ns */
+		.sig_hold	= 50,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
 		.wr_on		= 10,
 		.wr_off		= 40,
 		.rd_on		= 10,
 		.rd_off		= 40,
-		.chip_delay     = 50,	   /* in us */
+		.chip_delay	= 30,		/* in us */
 	},
 };
 
-#ifndef NAND_USES_FLEX
-static struct platform_device nand_device = {
-	.name		= "stm-nand-emi",
-	.dev.platform_data = &(struct stm_plat_nand_emi_data){
-		.nr_banks	= 1,
-		.banks		= &nand_bank_data,
-		.emi_rbn_gpio	= -1,
-	},
-};
-#endif
 
 static struct platform_device *iptv7105_devices[] __initdata = {
-#ifndef NAND_USES_FLEX
-	&nand_device,
-#endif
 };
 
 /* PCI configuration */
@@ -216,7 +187,7 @@ static int __init iptv7105_devices_init(void)
 
 	stx7105_configure_sata(0);
 
-	/* Configure the SPI Boot as input */
+	/* Set SPI Boot pads as inputs to avoid contention with SSC1 */
 	if (gpio_request(IPTV7105_PIO_SPI_BOOT_CLK, "SPI Boot CLK") == 0)
 		gpio_direction_input(IPTV7105_PIO_SPI_BOOT_CLK);
 	else
@@ -236,6 +207,8 @@ static int __init iptv7105_devices_init(void)
 		gpio_direction_input(IPTV7105_PIO_SPI_BOOT_DIN);
 	else
 		printk(KERN_ERR "iptv7105: Failed to claim SPI Boot DIN!\n");
+
+	/* Serial Flash SPI bus */
 	stx7105_configure_ssc_spi(1, &(struct stx7105_ssc_config) {
 			.routing.ssc1.sclk = stx7105_ssc1_sclk_pio2_5,
 			.routing.ssc1.mtsr = stx7105_ssc1_mtsr_pio2_6,
@@ -283,13 +256,14 @@ static int __init iptv7105_devices_init(void)
 	/* just permanetly enable the flash*/
 	gpio_request(IPTV7105_PIO_FLASH_VPP, "eth_phy_reset");
 	gpio_direction_output(IPTV7105_PIO_FLASH_VPP, 1);
-#ifdef NAND_USES_FLEX
-	stx7105_configure_nand_flex(1, &nand_bank_data, 1);
-#endif
 
-#if 0
-	spi_register_board_info(spi_serialflash, ARRAY_SIZE(spi_serialflash));
-#endif
+	stx7105_configure_nand(&(struct stm_nand_config) {
+			.driver = stm_nand_flex,
+			.nr_banks = 1,
+			.banks = &iptv7105_nand_flash,
+			.rbn.flex_connected = 1,});
+
+	spi_register_board_info(&iptv7105_serial_flash, 1);
 
 	return platform_add_devices(iptv7105_devices,
 				    ARRAY_SIZE(iptv7105_devices));

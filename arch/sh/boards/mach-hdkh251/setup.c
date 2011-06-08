@@ -36,9 +36,30 @@
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 
+/*
+ * Flash setup depends on boot-device:
+ *
+ *                     NOR                NAND	              SPI
+ * ----------------------------------------------------------------------------
+ * JE6-1 (mode 15)     ON (boot NOR)	  OFF (boot NAND)     ON (boot SPI)
+ * JE6-2 (mode 16)     ON		  ON		      OFF
+ *
+ * JE5-1 (port size)   ON (x16)	          OFF (x8)	      x
+ *
+ * JE3	 (CS Routing)  1-2 (EMIA->NOR)    2-3 (EMIA->NAND)    2-3 (EMIA->NAND)
+ * JE4		       1-2 (EMIB->NAND)	  2-3 (EMIB->NOR)     2-3 (EMIB->NOR)
+ *
+ * Post-boot Access
+ *          NOR	       EMIA (64MB)	  EMIB (8MB)	     EMIB (8MB)
+ *          NAND       EMIB/FLEXB	  FLEXA		     FLEXA
+ *          SPI	       SPI_GPIO/SSC1      SPI_GPIO/SSC1      SPI_GPIO/SSC1
+ *
+ * -----------------------------------------------------------------------------
+ */
+
 #define HDKH251_GPIO_POWER_ON_ETH	stm_gpio(15, 5)
 #define HDKH251_PANEL_GREEN_LED		stm_gpio(11, 5)
-#define HDKH251_RED_LED				stm_gpio(11, 6)
+#define HDKH251_RED_LED			stm_gpio(11, 6)
 #define HDKH251_GPIO_COMS_NOTCS		stm_gpio(2, 4)
 #define HDKH251_GPIO_COMS_CLK		stm_gpio(2, 5)
 #define HDKH251_GPIO_COMS_DIN		stm_gpio(2, 7)
@@ -129,78 +150,49 @@ static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.phy_mask = 0,
 };
 
-static struct mtd_partition hdkh251_physmap_flash_partitions[] = {
-	{
-		.name = "Boot firmware",
-		.size = 0x00040000,
-		.offset = 0x00000000,
-	}, {
-		.name = "Kernel",
-		.size = 0x00200000,
-		.offset = 0x00040000,
-	}, {
-		.name = "Root FS",
-		.size = MTDPART_SIZ_FULL,
-		.offset = 0x00240000,
-	}
-};
-static struct physmap_flash_data hdkh251_physmap_flash_data = {
-	.width		= 2,
-	.set_vpp	= NULL,
-	.nr_parts	= ARRAY_SIZE(hdkh251_physmap_flash_partitions),
-	.parts		= hdkh251_physmap_flash_partitions
-};
-
-static struct platform_device hdkh251_physmap_flash = {
+/* NOR Flash */
+static struct platform_device hdkh251_nor_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
 		{
 			.start		= 0x00000000,
-			.end		= (128*1024*1024) - 1,
+			.end		= 64 * 1024 * 1024 - 1,
 			.flags		= IORESOURCE_MEM,
 		}
 	},
-	.dev		= {
-		.platform_data	= &hdkh251_physmap_flash_data,
+	.dev.platform_data = &(struct physmap_flash_data) {
+		.width		= 2,
+		.set_vpp	= NULL,
+		.nr_parts	= 3,
+		.parts		= (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			}
+		},
 	},
 };
 
-static struct mtd_partition hdkh251_serial_flash_partitions[] = {
-	{
-		.name = "SFLASH_1",
-		.size = 0x00080000,
-		.offset = 0,
-	}, {
-		.name = "SFLASH_2",
-		.size = MTDPART_SIZ_FULL,
-		.offset = 0x00080000,
-	},
-};
-
-static struct flash_platform_data hdkh251_serial_flash_data = {
-	.name = "m25p80",
-	.nr_parts = ARRAY_SIZE(hdkh251_serial_flash_partitions),
-	.parts = hdkh251_serial_flash_partitions,
-	.type = "n25q128",
-};
-
-/* SPI 'board_info' to register serial FLASH protocol driver */
-static struct spi_board_info hdkh251_serial_flash[] =  {
-	{
-		.modalias       = "m25p80",
-		.bus_num        = 0,
-		.max_speed_hz   = 500000,
-		.platform_data  = &hdkh251_serial_flash_data,
-		.mode           = SPI_MODE_3,
-		.chip_select    = 0,
-		.controller_data = (void *)stm_gpio(15, 2),
-	},
-};
-
-/* GPIO based SPI */
-static struct platform_device hdkh251_spi_gpio_device = {
+/* GPIO SPI bus for Serial Flash device
+ *
+ * The Serial Flash device is connected directly to the SPI Boot pads and to
+ * COMS SSC1 via 3k3 resistors.  This setup seems to limit the speed at which
+ * the SCC can drive the SPI bus, with corruptions seen above 2MHz (RC issues
+ * suspected).  As a result, it is actually faster to drive the Serial Flash
+ * device with GPIO SPI bus!
+ */
+static struct platform_device hdkh251_serial_flash_bus = {
 	.name		= "spi_gpio",
 	.id		= 0,
 	.num_resources  = 0,
@@ -214,31 +206,49 @@ static struct platform_device hdkh251_spi_gpio_device = {
 	},
 };
 
-static struct platform_device *hdkh251_devices[] __initdata = {
-	&hdkh251_leds,
-	&hdkh251_physmap_flash,
-	&hdkh251_front_panel,
-	&hdkh251_spi_gpio_device,
-};
-
-static struct mtd_partition hdkh251_nand_flash_partitions[] = {
-	{
-		.name   = "NAND root",
-		.offset = 0,
-		.size   = 0x00800000
-	}, {
-		.name   = "NAND home",
-		.offset = MTDPART_OFS_APPEND,
-		.size   = MTDPART_SIZ_FULL
+/* Serial Flash */
+static struct spi_board_info hdkh251_serial_flash =  {
+	.modalias       = "m25p80",
+	.bus_num        = 0,
+	.max_speed_hz   = 7000000,
+	.mode           = SPI_MODE_3,
+	.controller_data = (void *)stm_gpio(15, 2),
+	.platform_data  = &(struct flash_platform_data) {
+		.name = "m25p80",
+		.type = "m25p32",
+		.nr_parts	= 2,
+		.parts = (struct mtd_partition []) {
+			{
+				.name = "Serial Flash 1",
+				.size = 0x00080000,
+				.offset = 0,
+			}, {
+				.name = "Serial Flash 2",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
+		},
 	},
+
 };
 
-struct stm_nand_bank_data hdkh251_nand_bank_data = {
+/* NAND Flash */
+struct stm_nand_bank_data hdkh251_nand_flash = {
 	.csn            = 1,
-	.nr_partitions  = ARRAY_SIZE(hdkh251_nand_flash_partitions),
-	.partitions     = hdkh251_nand_flash_partitions,
 	.options        = NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
-	.timing_data    = &(struct stm_nand_timing_data) {
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size 	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
+	.timing_data = &(struct stm_nand_timing_data) {
 		.sig_setup      = 50,           /* times in ns */
 		.sig_hold       = 50,
 		.CE_deassert    = 0,
@@ -249,8 +259,15 @@ struct stm_nand_bank_data hdkh251_nand_bank_data = {
 		.rd_off         = 40,
 		.chip_delay     = 50,           /* in us */
 	},
-	.emi_withinbankoffset   = 0,
 };
+
+static struct platform_device *hdkh251_devices[] __initdata = {
+	&hdkh251_leds,
+	&hdkh251_nor_flash,
+	&hdkh251_front_panel,
+	&hdkh251_serial_flash_bus,
+};
+
 
 #ifdef CONFIG_SND
 
@@ -306,12 +323,52 @@ static struct i2c_board_info hdkh251_scart_audio __initdata = {
 	},
 };
 #endif
+
 static int __init hdkh251_device_init(void)
 {
-	u32 bank1_start, bank2_start;
 	struct sysconf_field *sc;
-	u32 boot_mode;
+	unsigned long nor_bank_base = 0;
+	unsigned long nor_bank_size = 0;
 
+	/* Configure Flash according to boot-device */
+	sc = sysconf_claim(SYS_STA, 1, 15, 16, "boot_device");
+	switch (sysconf_read(sc)) {
+	case 0x0:
+		/* Boot-from-NOR */
+		pr_info("Configuring FLASH for boot-from-NOR\n");
+		nor_bank_base = emi_bank_base(0);
+		nor_bank_size = emi_bank_base(1) - nor_bank_base;
+		hdkh251_nand_flash.csn = 1;
+		break;
+	case 0x1:
+		/* Boot-from-NAND */
+		pr_info("Configuring FLASH for boot-from-NAND\n");
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		hdkh251_nand_flash.csn = 0;
+		break;
+	case 0x2:
+		/* Boot-from-SPI */
+		pr_info("Configuring FLASH for boot-from-SPI\n");
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		hdkh251_nand_flash.csn = 0;
+		break;
+	default:
+		BUG();
+		break;
+	}
+	sysconf_release(sc);
+
+	/* Update NOR Flash base address and size: */
+	/*     - reduce visibility of NOR flash to EMI bank size */
+	if (hdkh251_nor_flash.resource[0].end > nor_bank_size - 1)
+		hdkh251_nor_flash.resource[0].end = nor_bank_size - 1;
+	/*     - update resource parameters */
+	hdkh251_nor_flash.resource[0].start += nor_bank_base;
+	hdkh251_nor_flash.resource[0].end += nor_bank_base;
+
+	/* Set SSC1 pads as GPIO inputs to avoid contention with SPI GPIO bus */
 	if (gpio_request(HDKH251_GPIO_COMS_CLK, "COMS CLK") == 0)
 		gpio_direction_input(HDKH251_GPIO_COMS_CLK);
 	else
@@ -354,42 +411,15 @@ static int __init hdkh251_device_init(void)
 			.routing.ssc3.sclk = stx7105_ssc3_sclk_pio3_6,
 			.routing.ssc3.mtsr = stx7105_ssc3_mtsr_pio3_7, });
 
-	spi_register_board_info(hdkh251_serial_flash,
-				ARRAY_SIZE(hdkh251_serial_flash));
+	spi_register_board_info(&hdkh251_serial_flash, 1);
 
-	sc = sysconf_claim(SYS_STA, 1, 15, 16, "boot_mode");
-	boot_mode = sysconf_read(sc);
-	sysconf_release(sc);
-
-	bank1_start = emi_bank_base(1);
-	bank2_start = emi_bank_base(2);
-
-	/* Configure FLASH according to boot device mode pins */
-	switch (boot_mode) {
-	case 0x0:
-		/* Boot-from-NOR: */
-		/* NOR mapped to EMIA + EMIB (FMI_A26 = EMI_CSA#) */
-		pr_info("Configuring FLASH for boot-from-NOR\n");
-		hdkh251_physmap_flash.resource[0].start = 0x00000000;
-		hdkh251_physmap_flash.resource[0].end = (128*1024*1024) - 1;
-		break;
-	case 0x1:
-		/* Boot-from-NAND */
-		pr_info("Configuring FLASH for boot-from-NAND\n");
-		hdkh251_physmap_flash.resource[0].start = bank1_start;
-		hdkh251_physmap_flash.resource[0].end = bank2_start - 1;
-		hdkh251_nand_bank_data.csn = 0;
-		break;
-	case 0x2:
-		/* Boot-from-SPI */
-		pr_info("Configuring FLASH for boot-from-SPI(%d)\n",
-			bank2_start - bank1_start);
-		hdkh251_physmap_flash.resource[0].start = bank1_start;
-		hdkh251_physmap_flash.resource[0].end = bank2_start - 1;
-		break;
-	}
 	/* Nand configure */
-	stx7105_configure_nand_flex(1, &hdkh251_nand_bank_data, 1);
+	stx7105_configure_nand(&(struct stm_nand_config) {
+			.driver = stm_nand_flex,
+			.nr_banks = 1,
+			.banks = &hdkh251_nand_flash,
+			.rbn.flex_connected = 1,});
+
 
 	/* USB configure */
 	stx7105_configure_usb(0, &(struct stx7105_usb_config) {

@@ -219,11 +219,8 @@ struct stx7105_pata_config {
 void stx7105_configure_pata(struct stx7105_pata_config *config);
 
 
-void stx7105_configure_nand_flex(int nr_banks,
-				 struct stm_nand_bank_data *banks,
-				 int rbn_connected);
-void stx7105_configure_nand_afm(int nr_banks,
-				struct stm_nand_bank_data *banks);
+void stx7105_configure_nand(struct stm_nand_config *config);
+
 
 void stx7106_configure_spifsm(struct stm_plat_spifsm_data *data);
 

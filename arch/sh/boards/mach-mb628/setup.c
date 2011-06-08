@@ -23,7 +23,6 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7141.h>
 #include <linux/spi/spi.h>
-#include <linux/spi/spi_bitbang.h>
 #include <linux/spi/flash.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
@@ -125,32 +124,28 @@ static struct gpio_chip epld_spi_chipselect = {
 };
 
 /* Serial Flash */
-static struct mtd_partition mb628_spi_flash_parts[] = {
-	{
-		.name = "Serial 1",
-		.size = 0x00080000,
-		.offset = 0,
-	}, {
-		.name = "Serial 2",
-		.size = MTDPART_SIZ_FULL,
-		.offset = MTDPART_OFS_NXTBLK,
-	},
-};
-
-static struct flash_platform_data mb628_spi_flash_data = {
-	.name = "m25p80",
-	.parts = mb628_spi_flash_parts,
-	.nr_parts = ARRAY_SIZE(mb628_spi_flash_parts),
-	.type = "m25p32",
-};
-
-static struct spi_board_info mb628_spi_flash =  {
+static struct spi_board_info mb628_serial_flash =  {
 	.modalias	= "m25p80",
 	.bus_num	= 0,
 	.chip_select	= EPLD_SPI_CHIPSELECT_GPIO_BASE,
-	.max_speed_hz	= 5000000,
-	.platform_data	= &mb628_spi_flash_data,
+	.max_speed_hz	= 7000000,
 	.mode		= SPI_MODE_3,
+	.platform_data = &(struct flash_platform_data) {
+		.name = "m25p80",
+		.type = "m25p32",
+		.nr_parts = 2,
+		.parts = (struct mtd_partition []) {
+			{
+				.name = "Serial Flash 1",
+				.size = 0x00080000,
+				.offset = 0,
+			}, {
+				.name = "Serial Flash 2",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
+		},
+	}
 };
 
 /* NOR Flash */
@@ -160,66 +155,63 @@ static void mb628_nor_set_vpp(struct map_info *info, int enable)
 		   EPLD_FLASH);
 }
 
-static struct mtd_partition mb628_nor_flash_parts[] = {
-	{
-		.name = "Boot firmware",
-		.size = 0x00040000,
-		.offset = 0x00000000,
-	}, {
-		.name = "Kernel",
-		.size = 0x00200000,
-		.offset = 0x00040000,
-	}, {
-		.name = "Root FS",
-		.size = MTDPART_SIZ_FULL,
-		.offset = 0x00240000,
-	}
-};
-
 static struct platform_device mb628_nor_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
+		/* updated in mb628_device_init() */
 		STM_PLAT_RESOURCE_MEM(0, 32*1024*1024),
 	},
 	.dev.platform_data = &(struct physmap_flash_data) {
 		.width		= 2,
 		.set_vpp	= mb628_nor_set_vpp,
-		.nr_parts	= ARRAY_SIZE(mb628_nor_flash_parts),
-		.parts		= mb628_nor_flash_parts,
+		.nr_parts	= 3,
+		.parts		= (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
+		},
 	},
 };
 
 
 /* NAND Flash */
-static struct mtd_partition mb628_nand_flash_parts[] = {
-	{
-		.name   = "NAND 1",
-		.offset = 0,
-		.size   = 0x00800000
-	}, {
-		.name   = "NAND 2",
-		.offset = MTDPART_OFS_APPEND,
-		.size   = MTDPART_SIZ_FULL
-	},
-};
-
-static struct stm_nand_bank_data mb628_nand_flash_data = {
-	.csn		= 0,
-	.nr_partitions	= ARRAY_SIZE(mb628_nand_flash_parts),
-	.partitions	= mb628_nand_flash_parts,
+static struct stm_nand_bank_data mb628_nand_flash = {
+	.csn		= 0,	/* updated in mb628_device_init() */
 	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size 	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
 	.timing_data = &(struct stm_nand_timing_data) {
 		.sig_setup      = 10,           /* times in ns */
 		.sig_hold       = 10,
 		.CE_deassert    = 0,
 		.WE_to_RBn      = 100,
 		.wr_on          = 10,
-		.wr_off         = 30,
+		.wr_off         = 40,
 		.rd_on          = 10,
-		.rd_off         = 30,
-		.chip_delay     = 40,           /* in us */
+		.rd_off         = 40,
+		.chip_delay     = 30,           /* in us */
 	},
 	.emi_withinbankoffset	= 0,
 };
@@ -376,13 +368,10 @@ static struct platform_device *mb628_devices[] __initdata = {
 static int __init mb628_device_init(void)
 {
 	struct sysconf_field *sc;
-	u32 boot_mode;
 
 	/* Configure FLASH devices */
 	sc = sysconf_claim(SYS_STA, 1, 16, 17, "boot_mode");
-	boot_mode = sysconf_read(sc);
-	BUG_ON(boot_mode > 0x1);
-	switch (boot_mode) {
+	switch (sysconf_read(sc)) {
 	case 0x0:
 		/* Boot-from-NOR: */
 		pr_info("Configuring FLASH for boot-from-NOR\n");
@@ -393,16 +382,19 @@ static int __init mb628_device_init(void)
 	case 0x1:
 		/* Boot-from-NAND */
 		pr_info("Configuring FLASH for boot-from-NAND\n");
-		mb628_nand_flash_data.csn = 0;
-		stx7141_configure_nand(&(struct stx7141_nand_config) {
+		mb628_nand_flash.csn = 0;
+		stx7141_configure_nand(&(struct stm_nand_config) {
 					.driver = stm_nand_flex,
 					.nr_banks = 1,
-					.banks = &mb628_nand_flash_data,
+					.banks = &mb628_nand_flash,
 					.rbn.flex_connected = 1,});
 		/* The MTD NAND code doesn't understand the concept of VPP, (or
 		 * hardware write protect) so permanently enable it.
 		 */
 		epld_write(EPLD_FLASH_NOTWP | EPLD_FLASH_NOTRESET, EPLD_FLASH);
+		break;
+	default:
+		BUG();
 		break;
 	}
 
@@ -549,7 +541,7 @@ static int __init mb628_device_init(void)
 	}
 
 	gpiochip_add(&epld_spi_chipselect);
-	spi_register_board_info(&mb628_spi_flash, 1);
+	spi_register_board_info(&mb628_serial_flash, 1);
 
 	return platform_add_devices(mb628_devices, ARRAY_SIZE(mb628_devices));
 }

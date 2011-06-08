@@ -108,21 +108,7 @@ struct stx7141_pata_config {
 };
 void stx7141_configure_pata(struct stx7141_pata_config *config);
 
-struct stx7141_nand_config {
-	enum {
-		stm_nand_emi,
-		stm_nand_flex,
-		stm_nand_afm
-	} driver;
-	int nr_banks;
-	struct stm_nand_bank_data *banks;
-	union {
-		int emi_gpio;
-		int flex_connected;
-	} rbn;
-};
-void stx7141_configure_nand(struct stx7141_nand_config *config);
-
+void stx7141_configure_nand(struct stm_nand_config *config);
 
 struct stx7141_audio_config {
 	enum {

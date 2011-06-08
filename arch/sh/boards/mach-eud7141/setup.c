@@ -26,8 +26,6 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7141.h>
 #include <linux/spi/spi.h>
-#include <linux/spi/spi_gpio.h>
-#include <linux/spi/spi_bitbang.h>
 #include <linux/spi/flash.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
@@ -53,55 +51,51 @@ static void __init eud7141_setup(char **cmdline_p)
 }
 
 /* NOR Flash */
-static struct mtd_partition eud7141_nor_flash_parts[] = {
-	{
-		.name = "Boot firmware",
-		.size = 0x00060000,
-		.offset = 0x00000000,
-	}, {
-		.name = "Kernel",
-		.size = 0x00300000,
-		.offset = 0x00060000,
-	}, {
-		.name = "Root FS",
-		.size = MTDPART_SIZ_FULL,
-		.offset = 0x00360000,
-	}
-};
-
 static struct platform_device eud7141_nor_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM(0, 64*1024*1024),
+		/* updated in eud7141_device_init() */
+		STM_PLAT_RESOURCE_MEM(0, 128*1024*1024),
 	},
 	.dev.platform_data = &(struct physmap_flash_data) {
 		.width		= 2,
-		.nr_parts	= ARRAY_SIZE(eud7141_nor_flash_parts),
-		.parts		= eud7141_nor_flash_parts,
+		.nr_parts	= 3,
+		.parts		= (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
+		},
 	},
 };
-
 
 /* NAND Flash */
-static struct mtd_partition eud7141_nand_flash_parts[] = {
-	{
-		.name   = "NAND root",
-		.offset = 0,
-		.size   = 0x00800000
-	}, {
-		.name   = "NAND home",
-		.offset = MTDPART_OFS_APPEND,
-		.size   = MTDPART_SIZ_FULL
-	},
-};
-
-static struct stm_nand_bank_data eud7141_nand_flash_data = {
-	.csn		= 0,
-	.nr_partitions	= ARRAY_SIZE(eud7141_nand_flash_parts),
-	.partitions	= eud7141_nand_flash_parts,
+static struct stm_nand_bank_data eud7141_nand_flash = {
+	.csn		= 0,	/* updated in eud7141_device_init() */
 	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size 	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
 	.timing_data = &(struct stm_nand_timing_data) {
 		.sig_setup      = 10,           /* times in ns */
 		.sig_hold       = 10,
@@ -113,8 +107,33 @@ static struct stm_nand_bank_data eud7141_nand_flash_data = {
 		.rd_off         = 30,
 		.chip_delay     = 40,           /* in us */
 	},
-	.emi_withinbankoffset	= 0,
 };
+
+/* Serial Flash */
+static struct spi_board_info eud7141_serial_flash =  {
+	.modalias       = "m25p80",
+	.bus_num	= 0,
+	.max_speed_hz   = 7000000,
+	.mode	   	= SPI_MODE_3,
+	.chip_select	= stm_gpio(2, 5),
+	.platform_data  = &(struct flash_platform_data) {
+		.name = "m25p80",
+		.type = "m25px64",
+		.nr_parts	= 2,
+		.parts = (struct mtd_partition []) {
+			{
+				.name = "Serial Flash 1",
+				.size = 0x00080000,
+				.offset = 0,
+			}, {
+				.name = "Serial Flash 2",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
+		},
+	},
+};
+
 /* FrontPanel */
 static struct platform_device eud7141_leds = {
 	.name = "leds-gpio",
@@ -296,97 +315,66 @@ static struct i2c_board_info eud7141_av_ctrl[] = {
 };
 #endif
 
-/* Serial Flash */
-static struct mtd_partition serialflash_partitions[] = {
-	{
-		.name = "SFLASH_1",
-		.size = 0x00080000,
-		.offset = 0,
-	}, {
-		.name = "SFLASH_2",
-		.size = MTDPART_SIZ_FULL,
-		.offset = MTDPART_OFS_NXTBLK,
-	},
-};
-
-static struct flash_platform_data serialflash_data = {
-	.name = "m25p80",
-	.parts = serialflash_partitions,
-	.nr_parts = ARRAY_SIZE(serialflash_partitions),
-	.type = "m25p64",
-};
-
-static struct spi_board_info spi_serialflash[] =  {
-	{
-		.modalias       = "m25p80",
-		.bus_num	= 0,
-		.max_speed_hz   = 1000000,
-		.platform_data  = &serialflash_data,
-		.mode	   	= SPI_MODE_3,
-		.chip_select    = 0,
-		.controller_data = (void *)stm_gpio(2, 5),
-	},
-};
-
-/* GPIO based SPI */
-static struct platform_device eud7141_spi_gpio_device = {
-	.name		= "spi_gpio",
-	.id		= 0,
-	.num_resources  = 0,
-	.dev		= {
-			.platform_data = &(struct spi_gpio_platform_data) {
-				.sck = stm_gpio(2, 0),
-				.mosi = stm_gpio(2, 1),
-				.miso = stm_gpio(2, 2),
-				.num_chipselect = 1,
-			},
-	},
-};
 
 static struct platform_device *eud7141_devices[] __initdata = {
 	&eud7141_leds,
 	&eud7141_front_panel,
-	&eud7141_spi_gpio_device,
+	&eud7141_nor_flash,
 };
 
 static int __init eud7141_device_init(void)
 {
 	struct sysconf_field *sc;
-	u32 boot_mode;
+	unsigned long nor_bank_base = 0;
+	unsigned long nor_bank_size = 0;
 
-	/* Configure FLASH devices */
+	/* Configure Flash according to boot-device */
 	sc = sysconf_claim(SYS_STA, 1, 16, 17, "boot_mode");
-	boot_mode = sysconf_read(sc);
-	BUG_ON(boot_mode > 0x1);
-	switch (boot_mode) {
+	switch (sysconf_read(sc)) {
 	case 0x0:
-		/* Boot-from-NOR: */
+		/* Boot-from-NOR (ensure J2:1-2)
+		 *	EMIA -> NOR
+		 *	EMIB -> NOR (+FMI_A26: offset 0x4000000)
+		 *	EMIC -> NAND
+		 */
 		pr_info("Configuring FLASH for boot-from-NOR\n");
-		eud7141_nor_flash.resource[0].start = 0x00000000;
-		eud7141_nor_flash.resource[0].end = emi_bank_base(1) - 1;
-		/* EMI_notCSC */
-		eud7141_nand_flash_data.csn = 2;
+		nor_bank_base = emi_bank_base(0);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		eud7141_nand_flash.csn = 2;
 		break;
 	case 0x1:
-		/* Boot-from-NAND */
+		/* Boot-from-NAND (ensure J2:2-3)
+		 *      EMIA -> NAND
+		 *      EMIB -> NOR
+		 *     [EMIC -> NOR (+FMI_A26 0x4000000) not used]
+		 */
 		pr_info("Configuring FLASH for boot-from-NAND\n");
-		eud7141_nor_flash.resource[0].start = emi_bank_base(1);
-		eud7141_nor_flash.resource[0].end = emi_bank_base(2) - 1;
-		/* EMI_notCSC */
-		eud7141_nand_flash_data.csn = 0;
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		eud7141_nand_flash.csn = 0;
 		break;
 	default:
 		pr_info("Invalid boot mode.\n");
+		BUG();
+		break;
 	}
+	sysconf_release(sc);
 
-	platform_device_register(&eud7141_nor_flash);
+	/* Update NOR Flash base address and size: */
+	/*     - reduce visibility of NOR flash to EMI bank size */
+	if (eud7141_nor_flash.resource[0].end > nor_bank_size - 1)
+		eud7141_nor_flash.resource[0].end = nor_bank_size - 1;
+	/*     - update resource parameters */
+	eud7141_nor_flash.resource[0].start += nor_bank_base;
+	eud7141_nor_flash.resource[0].end += nor_bank_base;
 
-	stx7141_configure_nand(&(struct stx7141_nand_config) {
+	stx7141_configure_nand(&(struct stm_nand_config) {
 					.driver = stm_nand_flex,
 					.nr_banks = 1,
-					.banks = &eud7141_nand_flash_data,
+					.banks = &eud7141_nand_flash,
 					.rbn.flex_connected = 1,});
 
+	stx7141_configure_ssc_spi(0, NULL);
 	stx7141_configure_ssc_i2c(2);
 	stx7141_configure_ssc_i2c(3);
 	stx7141_configure_ssc_i2c(4);
@@ -430,8 +418,8 @@ static int __init eud7141_device_init(void)
 			.tx_enabled = 1,
 			.tx_od_enabled = 1 });
 
-	/* Configure Serial Flash */
-	spi_register_board_info(spi_serialflash, ARRAY_SIZE(spi_serialflash));
+	/* Register Serial Flash device */
+	spi_register_board_info(&eud7141_serial_flash, 1);
 
 #ifdef CONFIG_SND_STM
 	/* Configure Audio */

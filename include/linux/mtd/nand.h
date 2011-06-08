@@ -80,6 +80,8 @@ extern void nand_wait_ready(struct mtd_info *mtd);
 #define NAND_CMD_READID		0x90
 #define NAND_CMD_ERASE2		0xd0
 #define NAND_CMD_RESET		0xff
+#define NAND_CMD_SETFEATURES    0xef
+#define NAND_CMD_GETFEATURES    0xee
 
 /* Extended commands for large page devices */
 #define NAND_CMD_READSTART	0x30
@@ -107,12 +109,16 @@ extern void nand_wait_ready(struct mtd_info *mtd);
 
 #define NAND_CMD_NONE		-1
 
+/* Feature Addresses (for the "SET/GET FEATURES" commands) */
+#define NAND_FEATURE_MICRON_ARRAY_OP_MODE	0x90
+
 /* Status bits */
 #define NAND_STATUS_FAIL	0x01
 #define NAND_STATUS_FAIL_N1	0x02
 #define NAND_STATUS_TRUE_READY	0x20
 #define NAND_STATUS_READY	0x40
 #define NAND_STATUS_WP		0x80
+#define NAND_STATUS_ECCREWRITE	0x08
 
 /*
  * Constants for ECC_MODES
@@ -123,6 +129,7 @@ typedef enum {
 	NAND_ECC_HW,
 	NAND_ECC_HW_SYNDROME,
 	NAND_ECC_HW_OOB_FIRST,
+	NAND_ECC_4BITONDIE,
 } nand_ecc_modes_t;
 
 /*

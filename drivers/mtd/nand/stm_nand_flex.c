@@ -1119,6 +1119,13 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	}
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
+	if (data->chip.ecc.mode == NAND_ECC_4BITONDIE) {
+		printk(KERN_ERR NAME ": boot-mode ECC not supported on "
+		       "4-bit on-die ECC devices\n");
+		res = -ENXIO;
+		goto out2;
+	}
+
 	/* Setup ECC params, for NORMAL and BOOT operation */
 	flex_setup_eccparams(&data->mtd);
 	/* Override MTD NAND interface, to allow us to provide BOOT SUPPORT */

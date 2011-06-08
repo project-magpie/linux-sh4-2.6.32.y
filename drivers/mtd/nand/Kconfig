@@ -483,16 +483,11 @@ config MTD_NAND_W90P910
 	  on w90p910.
 
 config MTD_NAND_STM_EMI
-       tristate "STMicroelectronics: EMI 'bit-banging'"
-       depends on MTD_NAND
-       depends on (CPU_SUBTYPE_STX7111 || \
-			CPU_SUBTYPE_STX7200 || \
-			CPU_SUBTYPE_STX7105 || \
-			CPU_SUBTYPE_STX7108 || \
-			CPU_SUBTYPE_STX7141)
-       help
-         Enables the STMicroelectronics NAND driver for platforms in which the
-         device is connected via an EMI bank.
+	tristate "STMicroelectronics: EMI 'bit-banging'"
+	depends on MTD_NAND
+	help
+	  Enables the STMicroelectronics NAND driver for platforms in which the
+	  device is connected via an EMI bank.
 
 choice
 	prompt "Data Transfer"
@@ -500,9 +495,9 @@ choice
 	default STM_NAND_EMI_LONGSL
 
 config STM_NAND_EMI_BYTE
-       bool "Legacy byte access"
-       help
-         Use legacy byte-wise access for page transfers.
+	bool "Legacy byte access"
+	help
+	  Use legacy byte-wise access for page transfers.
 
 config STM_NAND_EMI_LONGSL
 	bool "Standard"
@@ -522,21 +517,16 @@ config STM_NAND_EMI_CACHED
 	bool "Cached Transfers [EXPERIMENTAL]"
 	help
 	  Perform page transers via the cache-line.  Reduces the impact of STBus
-	  latencies at the expence of an incresed IRQ latency.
+	  latencies at the expense of an increased IRQ latency.
 
 endchoice
 
 config MTD_NAND_STM_FLEX
-       tristate "STMicroelectronics: H/W FLEX Controller"
-	depends on (CPU_SUBTYPE_STX7200 ||  \
-			CPU_SUBTYPE_STX7105 || \
-			CPU_SUBTYPE_STX7141 || \
-			CPU_SUBTYPE_STX7108 || \
-			CPU_SUBTYPE_FLI7510)
-       help
-         Enables the STMicroelectronics NAND Controller operating in FLEX mode.
-         This driver is required to access NAND devices when boot-from-NAND is
-         enabled.
+	tristate "STMicroelectronics: H/W FLEX Controller"
+	help
+	  Enables the STMicroelectronics NAND Controller operating in FLEX mode.
+	  This driver is required to access NAND devices when boot-from-NAND is
+	  enabled.
 
 config STM_NAND_FLEX_CACHED
        depends on EXPERIMENTAL
@@ -544,60 +534,56 @@ config STM_NAND_FLEX_CACHED
        bool "Reads via cacheline"
        help
 	  Perform read operations via a cacheline.  Reduces the impact of STBus
-	  latencies at the expence of an incresed IRQ latency.
+	  latencies at the expense of an increased IRQ latency.
 
 config STM_NAND_FLEX_BOOTMODESUPPORT
-        bool "Enable support for boot mode ECC"
-        depends on MTD_NAND_STM_FLEX
+	bool "Enable support for boot mode ECC"
+	depends on MTD_NAND_STM_FLEX
 	depends on MTD_PARTITIONS
-        help
-          This option enables support for boot partition ECC format.
+	help
+	  This option enables support for boot partition ECC format.
 
 config STM_NAND_FLEX_BOOTPARTITION
-        string "Name of boot partition" if STM_NAND_FLEX_BOOTMODESUPPORT
-        depends on MTD_NAND_STM_FLEX
-        default "Boot firmware"
+	string "Name of boot partition" if STM_NAND_FLEX_BOOTMODESUPPORT
+	depends on MTD_NAND_STM_FLEX
+	default "Boot firmware"
 	help
 	  Name of NAND partition on which to use boot mode ECC format
 
 config MTD_NAND_STM_AFM
-       tristate "STMicroelectronics: H/W AFM Controller"
-       depends on (CPU_SUBTYPE_STX7200 || \
-			CPU_SUBTYPE_STX7105 || \
-			CPU_SUBTYPE_STX7141 || \
-			CPU_SUBTYPE_STX7108)
-       help
-         Enables the STMicroelectronics NAND Controller operating in AFM mode.
+	tristate "STMicroelectronics: H/W AFM Controller"
+	help
+	  Enables the STMicroelectronics NAND Controller operating in AFM mode.
 
- config STM_NAND_AFM_CACHED
-       depends on EXPERIMENTAL
-       depends on MTD_NAND_STM_AFM
-       bool "Cached Transfers [EXPERIMENTAL]"
-       help
-          Perform page transers via the cache-line.  Reduces the impact of STBus
-          latencies at the expence of an incresed IRQ latency.
+config STM_NAND_AFM_CACHED
+	depends on EXPERIMENTAL
+	depends on MTD_NAND_STM_AFM
+	bool "Cached Transfers [EXPERIMENTAL]"
+	help
+	  Perform page transers via the cache-line.  Reduces the impact of STBus
+	  latencies at the expence of an incresed IRQ latency.
 
 config STM_NAND_AFM_BOOTMODESUPPORT
-        bool "Enable support for boot mode ECC"
-        depends on MTD_NAND_STM_AFM
+	bool "Enable support for boot mode ECC"
+	depends on MTD_NAND_STM_AFM
 	depends on MTD_PARTITIONS
-        help
-          This option enables support for boot partition ECC format.
+	help
+	  This option enables support for boot partition ECC format.
 
 config STM_NAND_AFM_BOOTPARTITION
-        string "Name of NAND boot partition" if STM_NAND_AFM_BOOTMODESUPPORT
-        depends on STM_NAND_AFM_BOOTMODESUPPORT
-        default "Boot firmware"
-        help
-          Name of NAND boot partition.  By default, boot-mode ECC will be used
+	string "Name of NAND boot partition" if STM_NAND_AFM_BOOTMODESUPPORT
+	depends on STM_NAND_AFM_BOOTMODESUPPORT
+	default "Boot firmware"
+	help
+	  Name of NAND boot partition.  By default, boot-mode ECC will be used
 	  when accessing the boot partition.
 
 config STM_NAND_AFM_PBLBOOTBOUNDARY
-       bool "Extract boot-mode ECC boundary from the PBL"
-       depends on STM_NAND_AFM_BOOTMODESUPPORT
-       default false
-       help
-         Update the boot-mode ECC boundary from the PBL and apply to the
-	 specified NAND boot partition.
+	bool "Extract boot-mode ECC boundary from the PBL"
+	depends on STM_NAND_AFM_BOOTMODESUPPORT
+	default false
+	help
+	  Update the boot-mode ECC boundary from the PBL and apply to the
+	  specified NAND boot partition.
 
 endif # MTD_NAND

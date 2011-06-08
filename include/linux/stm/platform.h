@@ -287,6 +287,21 @@ struct stm_plat_nand_emi_data {
 	int emi_rbn_gpio;
 };
 
+struct stm_nand_config {
+	enum {
+		stm_nand_emi,
+		stm_nand_flex,
+		stm_nand_afm
+	} driver;
+	int nr_banks;
+	struct stm_nand_bank_data *banks;
+	union {
+		int emi_gpio;
+		int flex_connected;
+	} rbn;
+};
+
+
 /*** STM SPI FSM Serial Flash data ***/
 
 struct stm_plat_spifsm_data {

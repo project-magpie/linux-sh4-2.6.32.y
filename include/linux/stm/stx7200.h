@@ -89,9 +89,7 @@ struct stx7200_pata_config {
 };
 void stx7200_configure_pata(struct stx7200_pata_config *config);
 
-void stx7200_configure_nand_flex(int nr_banks,
-                                 struct stm_nand_bank_data *banks,
-                                 int rbn_connected);
+void stx7200_configure_nand(struct stm_nand_config *config);
 
 struct stx7200_audio_config {
 	enum {

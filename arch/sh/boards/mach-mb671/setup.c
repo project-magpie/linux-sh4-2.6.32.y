@@ -40,7 +40,8 @@ static void __init mb671_setup(char **cmdline_p)
 			.is_console = 0 });
 }
 
-static void mb671_mtd_set_vpp(struct map_info *map, int vpp)
+/* NOR Flash */
+static void mb671_nor_vpp(struct map_info *map, int vpp)
 {
 	/* Bit 0: VPP enable
 	 * Bit 1: Reset (not used in later EPLD versions)
@@ -53,7 +54,7 @@ static void mb671_mtd_set_vpp(struct map_info *map, int vpp)
 	}
 }
 
-static struct platform_device mb671_physmap_flash = {
+static struct platform_device mb671_nor_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
 	.num_resources	= 1,
@@ -62,7 +63,23 @@ static struct platform_device mb671_physmap_flash = {
 	},
 	.dev.platform_data = &(struct physmap_flash_data) {
 		.width		= 2,
-		.set_vpp	= mb671_mtd_set_vpp,
+		.set_vpp	= mb671_nor_vpp,
+		.nr_parts	= 3,
+		.parts		= (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
+		},
 	},
 };
 
@@ -97,7 +114,7 @@ static struct platform_device mb671_epld_device = {
 
 static struct platform_device *mb671_devices[] __initdata = {
 	&mb671_epld_device,
-	&mb671_physmap_flash,
+	&mb671_nor_flash,
 };
 
 static int __init mb671_devices_init(void)

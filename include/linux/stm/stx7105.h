@@ -225,6 +225,7 @@ void stx7105_configure_nand_flex(int nr_banks,
 void stx7105_configure_nand_afm(int nr_banks,
 				struct stm_nand_bank_data *banks);
 
+void stx7106_configure_spifsm(struct stm_plat_spifsm_data *data);
 
 struct stx7105_audio_config {
 	enum {

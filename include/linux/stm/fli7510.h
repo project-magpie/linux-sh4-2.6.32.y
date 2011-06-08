@@ -166,5 +166,6 @@ void fli7510_configure_nand_flex(int nr_banks,
 				 struct stm_nand_bank_data *banks,
 				 int rbn_connected);
 
+void fli7510_configure_spifsm(struct stm_plat_spifsm_data *data);
 
 #endif

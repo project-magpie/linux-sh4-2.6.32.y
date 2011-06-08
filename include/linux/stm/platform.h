@@ -287,6 +287,14 @@ struct stm_plat_nand_emi_data {
 	int emi_rbn_gpio;
 };
 
+/*** STM SPI FSM Serial Flash data ***/
+
+struct stm_plat_spifsm_data {
+	char			*name;
+	struct mtd_partition	*parts;
+	unsigned int		nr_parts;
+	unsigned int		max_freq;
+};
 
 
 /*** FDMA platform data ***/

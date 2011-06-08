@@ -85,6 +85,7 @@ struct stx5206_pata_config {
 };
 void stx5206_configure_pata(struct stx5206_pata_config *config);
 
+void stx5206_configure_spifsm(struct stm_plat_spifsm_data *spifsm_data);
 
 void stx5206_configure_pci(struct stm_plat_pci_config *pci_config);
 int  stx5206_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,

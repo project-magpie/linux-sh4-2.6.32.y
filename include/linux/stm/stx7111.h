@@ -81,9 +81,7 @@ struct stx7111_usb_config {
 };
 void stx7111_configure_usb(struct stx7111_usb_config *config);
 
-void stx7111_configure_nand_flex(int nr_banks,
-                                 struct stm_nand_bank_data *banks,
-                                 int rbn_connected);
+void stx7111_configure_nand(struct stm_nand_config *config);
 
 void stx7111_configure_pci(struct stm_plat_pci_config *pci_config);
 int  stx7111_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,

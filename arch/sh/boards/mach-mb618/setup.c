@@ -28,6 +28,8 @@
 #include <linux/mtd/nand.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
+#include <linux/spi/spi.h>
+#include <linux/spi/flash.h>
 #include <asm/irq-ilc.h>
 #include <asm/irl.h>
 #include <sound/stm.h>
@@ -113,6 +115,8 @@ static struct platform_device mb618_button_device = {
 
 
 
+#ifdef FLASH_NOR
+/* J34 must be in the 1-2 position to enable NOR Flash */
 static void mb618_nor_set_vpp(struct map_info *info, int enable)
 {
 	gpio_set_value(MB618_PIO_FLASH_VPP, enable);
@@ -128,40 +132,77 @@ static struct platform_device mb618_nor_flash = {
 	.dev.platform_data = &(struct physmap_flash_data) {
 		.width		= 2,
 		.set_vpp	= mb618_nor_set_vpp,
+		.nr_parts	= 3,
+		.parts		=  (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
+		},
 	},
 };
-
-/* J34 must be in the 1-2 position to enable NOR Flash */
-static struct mtd_partition mb618_nand_flash_partitions[] = {
-	{
-		.name	= "NAND root",
-		.offset	= 0,
-		.size 	= 0x00800000
-	}, {
-		.name	= "NAND home",
-		.offset	= MTDPART_OFS_APPEND,
-		.size	= MTDPART_SIZ_FULL
-	},
-};
-
-struct stm_nand_bank_data nand_bank_data = {
+#else
+struct stm_nand_bank_data mb618_nand_flash = {
 	.csn		= 0,
-	.nr_partitions	= ARRAY_SIZE(mb618_nand_flash_partitions),
-	.partitions	= mb618_nand_flash_partitions,
 	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size 	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
 	.timing_data	= &(struct stm_nand_timing_data) {
 		.sig_setup	= 50,		/* times in ns */
 		.sig_hold	= 50,
 		.CE_deassert	= 0,
 		.WE_to_RBn	= 100,
-		.wr_on		= 10,
-		.wr_off		= 40,
-		.rd_on		= 10,
-		.rd_off		= 40,
-		.chip_delay	= 30,		/* in us */
+		.wr_on		= 20,
+		.wr_off		= 50,
+		.rd_on		= 20,
+		.rd_off		= 50,
+		.chip_delay	= 50,		/* in us */
 	},
+};
+#endif
 
-	.emi_withinbankoffset	= 0,
+/* Serial Flash (Board Rev D and later) */
+static struct spi_board_info mb618_serial_flash = {
+	.modalias       = "m25p80",
+	.bus_num        = 0,
+	.chip_select    = stm_gpio(6, 7),
+	.max_speed_hz   = 7000000,
+	.mode           = SPI_MODE_3,
+	.platform_data  = &(struct flash_platform_data) {
+		.name = "m25p80",
+		.type = "m25p80",
+		.nr_parts	= 2,
+		.parts = (struct mtd_partition []) {
+			{
+				.name = "Serial Flash 1",
+				.size = 0x00080000,
+				.offset = 0,
+			}, {
+				.name = "Serial Flash 2",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			},
+		},
+	},
 };
 
 static int mb618_phy_reset(void *bus)
@@ -308,9 +349,15 @@ static int __init mb618_devices_init(void)
 	gpio_direction_output(MB618_PIO_FLASH_VPP, 0);
 
 	i2c_register_board_info(peripherals_i2c_bus, &mb618_scart_audio, 1);
+	spi_register_board_info(&mb618_serial_flash, 1);
 
 #ifndef FLASH_NOR
-	stx7111_configure_nand_flex(1, &nand_bank_data, 0);
+	stx7111_configure_nand(&(struct stm_nand_config) {
+			.driver = stm_nand_flex,
+			.nr_banks = 1,
+			.banks = &mb618_nand_flash,
+			.rbn.flex_connected = 1,});
+
 	/* The MTD NAND code doesn't understand the concept of VPP,
 	 * (or hardware write protect) so permanently enable it. */
 	gpio_direction_output(MB618_PIO_FLASH_VPP, 1);

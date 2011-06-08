@@ -427,6 +427,15 @@ config SH_ST_HDK7108
 	  Select SH_ST_HDK7108 if configuring for a
 	  STMicroelectronics STi7108 Reference Board.
 
+config SH_ST_HDK7111
+	bool "HDK7111 : STx7111 HDK board"
+	depends on CPU_SUBTYPE_STX7111
+	select SYS_SUPPORTS_PCI
+	select SH_ST_SYNOPSYS_PCI if PCI
+	help
+	  Select STx7111 HDK if configuring for an
+	  STMicroelectronics STx7111 HDK Reference Board
+
 config SH_ST_HDREF
 	bool "ST HDref board"
 	depends on CPU_SUBTYPE_STX7100

@@ -1370,28 +1370,63 @@ static int afm_erase(struct mtd_info *mtd, struct erase_info *instr)
 /* MTD Interface - Check if block at offset is bad */
 static int afm_block_isbad(struct mtd_info *mtd, loff_t offs)
 {
+	struct nand_chip *chip = mtd->priv;
+
+	/* Check for invalid offset */
 	if (offs > mtd->size)
 		return -EINVAL;
 
-	/* We require use of BBTs, so call appropriate nand_bbt.c function
-	 * directly */
+	/* We should always have a memory-resident BBT */
+	BUG_ON(!chip->bbt);
+
 	return nand_isbad_bbt(mtd, offs, 0);
 }
 
 /* MTD Interface - Mark block at the given offset as bad */
-static int afm_block_markbad(struct mtd_info *mtd, loff_t ofs)
+static int afm_block_markbad(struct mtd_info *mtd, loff_t offs)
 {
 	struct nand_chip *chip = mtd->priv;
-	int ret;
+	uint8_t buf[16];
+	int block, ret;
 
-	ret = afm_block_isbad(mtd, ofs);
+	/* Is is already marked bad? */
+	ret = afm_block_isbad(mtd, offs);
+	if (ret)
+		return (ret > 0) ? 0 : ret;
 
-	if (ret > 0)
-		return 0;
-	if (ret < 0)
-		return ret;
+	/* Update memory-resident BBT */
+	BUG_ON(!chip->bbt);
+	block = (int)(offs >> chip->bbt_erase_shift);
+	chip->bbt[block >> 2] |= 0x01 << ((block & 0x03) << 1);
 
-	return chip->block_markbad(mtd, ofs);
+	/* Update non-volatile marker... */
+	if (chip->options & NAND_USE_FLASH_BBT) {
+		/* Update flash-resident BBT */
+		ret = nand_update_bbt(mtd, offs);
+	} else {
+		/*
+		 * Write the bad-block marker to OOB.  We also need to wipe the
+		 * first 'AFM' marker (just in case it survived the preceding
+		 * failed ERASE) to prevent subsequent on-boot scans from
+		 * recognising an AFM block, instead of a marked-bad block.
+		 */
+		memset(buf, 0, 16);
+		nand_get_device(chip, mtd, FL_WRITING);
+		offs += mtd->oobsize;
+		chip->ops.mode = MTD_OOB_PLACE;
+		chip->ops.len = 16;
+		chip->ops.ooblen = 16;
+		chip->ops.datbuf = NULL;
+		chip->ops.oobbuf = buf;
+		chip->ops.ooboffs = chip->badblockpos & ~0x01;
+
+		ret = afm_do_write_oob(mtd, offs, &chip->ops);
+		nand_release_device(mtd);
+	}
+	if (ret == 0)
+		mtd->ecc_stats.badblocks++;
+
+	return ret;
 }
 
 /* MTD Interface - Read chunk of page data */
@@ -2487,31 +2522,6 @@ static uint8_t afm_read_byte(struct mtd_info *mtd)
 	return reg & 0xff;
 }
 
-static int afm_block_markbad_chip(struct mtd_info *mtd, loff_t ofs)
-{
-	struct nand_chip *chip = mtd->priv;
-	int block, ret;
-
-	/* Get block number */
-	block = (int)(ofs >> chip->bbt_erase_shift);
-	chip->bbt[block >> 2] |= 0x01 << ((block & 0x03) << 1);
-
-	ret = nand_update_bbt(mtd, ofs);
-
-	if (!ret)
-		mtd->ecc_stats.badblocks++;
-
-	return ret;
-}
-
-static int afm_block_bad(struct mtd_info *mtd, loff_t ofs, int getchip)
-{
-	printk(KERN_ERR NAME ": %s Unsupported callback", __func__);
-	BUG();
-
-	return 0xff;
-}
-
 static int afm_verify_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
 	printk(KERN_ERR NAME ": %s Unsupported callback", __func__);
@@ -2541,8 +2551,8 @@ static void afm_set_defaults(struct nand_chip *chip, int busw)
 	chip->select_chip = afm_select_chip;
 	chip->read_byte = afm_read_byte;
 	chip->read_word = afm_read_word;
-	chip->block_bad = afm_block_bad;
-	chip->block_markbad = afm_block_markbad_chip;
+	chip->block_bad = NULL;
+	chip->block_markbad = NULL;
 	chip->write_buf = afm_write_buf;
 	chip->verify_buf = afm_verify_buf;
 	chip->scan_bbt = nand_default_bbt;

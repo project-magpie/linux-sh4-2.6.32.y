@@ -18,9 +18,6 @@
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/nand.h>
-#include <linux/spi/spi.h>
-#include <linux/spi/spi_gpio.h>
-#include <linux/spi/flash.h>
 #include <linux/stm/nand.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/platform.h>
@@ -31,8 +28,6 @@
 
 #define ADI7108_PIO_POWER_ON_ETHERNET0 stm_gpio(19, 7)
 #define ADI7108_PIO_POWER_ON_ETHERNET1 stm_gpio(15, 4)
-#define ADI7108_GPIO_FLASH_WP stm_gpio(2, 3)
-#define ADI7108_GPIO_FLASH_HOLD stm_gpio(2, 2)
 #define ADI7108_GPIO_MII1_SPEED_SEL stm_gpio(21, 7)
 
 
@@ -104,29 +99,6 @@ static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
 };
 
 /* NOR FLASH */
-static struct mtd_partition adi7108_nor_flash_parts[3] = {
-	{
-		.name = "NOR 1",
-		.size = 0x00040000,
-		.offset = 0x00000000,
-	}, {
-		.name = "NOR 2",
-		.size = 0x00200000,
-		.offset = 0x00040000,
-	}, {
-		.name = "NOR 3",
-		.size = MTDPART_SIZ_FULL,
-		.offset = 0x00240000,
-	}
-};
-
-static struct physmap_flash_data adi7108_nor_flash_data = {
-	.width		= 2,
-	.set_vpp	= NULL,
-	.nr_parts	= ARRAY_SIZE(adi7108_nor_flash_parts),
-	.parts		= adi7108_nor_flash_parts,
-};
-
 static struct platform_device adi7108_nor_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
@@ -138,77 +110,61 @@ static struct platform_device adi7108_nor_flash = {
 			.flags		= IORESOURCE_MEM,
 		}
 	},
-	.dev		= {
-		.platform_data	= &adi7108_nor_flash_data,
+	.dev.platform_data = &(struct physmap_flash_data) {
+		.width		= 2,
+		.set_vpp	= NULL,
+		.nr_parts	= 3,
+		.parts		= (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			}
+		},
 	},
 };
 
 /* Serial FLASH */
-static struct platform_device adi7108_serial_flash_bus = {
-	.name           = "spi_gpio",
-	.id             = 0,
-	.num_resources  = 0,
-	.dev            = {
-		.platform_data =
-		&(struct spi_gpio_platform_data) {
-			.sck = stm_gpio(1, 6),
-			.mosi = stm_gpio(2, 0),
-			.miso = stm_gpio(2, 1),
-			.num_chipselect = 1,
-		}
+static struct stm_plat_spifsm_data adi7108_serial_flash =  {
+	.name		= "m25p128",
+	.nr_parts	= 2,
+	.parts = (struct mtd_partition []) {
+		{
+			.name = "Serial Flash 1",
+			.size = 0x00200000,
+			.offset = 0,
+		}, {
+			.name = "Serial Flash 2",
+			.size = MTDPART_SIZ_FULL,
+			.offset = MTDPART_OFS_NXTBLK,
+		},
 	},
 };
-
-static struct mtd_partition adi7108_serial_flash_parts[] = {
-	{
-		.name = "Serial 1",
-		.size = 0x00400000,
-		.offset = 0,
-	}, {
-		.name = "Serial 2",
-		.size = MTDPART_SIZ_FULL,
-		.offset = MTDPART_OFS_NXTBLK,
-	},
-};
-
-static struct flash_platform_data adi7108_serial_flash_data = {
-	.name = "m25p80",
-	.parts = adi7108_serial_flash_parts,
-	.nr_parts = ARRAY_SIZE(adi7108_serial_flash_parts),
-	.type = "m25p128",	/* Check device on individual board! */
-};
-
-static struct spi_board_info adi7108_serial_flash[] =  {
-	{
-		.modalias       = "m25p80",
-		.bus_num        = 0,
-		.chip_select    = 0,
-		.controller_data = (void *)stm_gpio(1, 7),
-		.max_speed_hz   = 500000,
-		.platform_data  = &adi7108_serial_flash_data,
-		.mode           = SPI_MODE_3,
-	},
-};
-
 
 /* NAND FLASH */
-static struct mtd_partition adi7108_nand_flash_parts[] = {
-	{
-		.name   = "NAND 1",
-		.offset = 0,
-		.size   = 0x00800000
-	}, {
-		.name   = "NAND 2",
-		.offset = MTDPART_OFS_APPEND,
-		.size   = MTDPART_SIZ_FULL
-	},
-};
-
-static struct stm_nand_bank_data adi7108_nand_flash_data = {
+static struct stm_nand_bank_data adi7108_nand_flash = {
 	.csn		= 1,
-	.nr_partitions	= ARRAY_SIZE(adi7108_nand_flash_parts),
-	.partitions	= adi7108_nand_flash_parts,
-	.options	= NAND_NO_AUTOINCR || NAND_USE_FLASH_BBT,
+	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size 	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
 	.timing_data = &(struct stm_nand_timing_data) {
 		.sig_setup      = 10,           /* times in ns */
 		.sig_hold       = 10,
@@ -220,70 +176,68 @@ static struct stm_nand_bank_data adi7108_nand_flash_data = {
 		.rd_off         = 30,
 		.chip_delay     = 30,           /* in us */
 	},
-	.emi_withinbankoffset	= 0,
 };
 
 static struct platform_device *adi7108_devices[] __initdata = {
-	&adi7108_serial_flash_bus,
 	&adi7108_nor_flash,
 };
 
 static int __init device_init(void)
 {
-	u32 bank1_start;
-	u32 bank2_start;
-	u32 bank3_start;
-	u32 boot_device;
-
-	bank1_start = emi_bank_base(1);
-	bank2_start = emi_bank_base(2);
-	bank3_start = emi_bank_base(3);
-
-	boot_device = gpio_get_value(stm_gpio(25, 4));
-	boot_device |= gpio_get_value(stm_gpio(25, 5)) << 1;
-	boot_device |= gpio_get_value(stm_gpio(25, 6)) << 2;
-	boot_device |= gpio_get_value(stm_gpio(25, 7)) << 3;
+	struct sysconf_field *sc;
+	unsigned long nor_bank_base = 0;
+	unsigned long nor_bank_size = 0;
 
 	/*
 	 *
 	 * BootUp	RE32 & RE35	RE33 & RE34
 	 * NOR		    0R		    NC
-	 * NAND		    NC		    0R
+	 * NAND/SPI	    NC		    0R
 	 *
 	 */
 
-	BUG_ON(boot_device > 0xA);
-	switch (boot_device) {
-	case 0x0:
-	case 0x5:
-		/* Boot-from-NOR */
+	/* Configure Flash according to boot-device
+	 *
+	 * [Only tested on boot-from-NOR, board-mod required for
+	 * boot-from-NAND/SPI]
+	 */
+	sc = sysconf_claim(SYS_STA_BANK1, 3, 2, 6, "boot_device");
+	switch (sysconf_read(sc)) {
+	case 0x15:
 		pr_info("Configuring FLASH for boot-from-NOR\n");
-		adi7108_nor_flash.resource[0].start = 0x00000000;
-		adi7108_nor_flash.resource[0].end = bank1_start - 1;
-		adi7108_nand_flash_data.csn = 1;
+		nor_bank_base = emi_bank_base(0);
+		nor_bank_size = emi_bank_base(1) - nor_bank_base;
+		adi7108_nand_flash.csn = 1;
 		break;
-	case 0xA:
-		/* Boot-from-SPI */
+	case 0x14:
+		pr_info("Configuring FLASH for boot-from-NAND\n");
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		adi7108_nand_flash.csn = 0;
+		break;
+	case 0x1a:
 		pr_info("Configuring FLASH for boot-from-SPI\n");
-		adi7108_nor_flash.resource[0].start = bank1_start;
-		adi7108_nor_flash.resource[0].end = bank2_start - 1;
-		adi7108_nand_flash_data.csn = 1;
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		adi7108_nand_flash.csn = 0;
 		break;
 	default:
-		/* Boot-from-NAND */
-		pr_info("Configuring FLASH for boot-from-NAND\n");
-		adi7108_nor_flash.resource[0].start = bank1_start;
-		adi7108_nor_flash.resource[0].end = bank2_start - 1;
-		adi7108_nand_flash_data.csn = 0;
+		BUG();
 		break;
 	}
+	sysconf_release(sc);
 
-	/* Limit NOR FLASH to addressable range, regardless of actual EMI
-	 * configuration! */
-	if (adi7108_nor_flash.resource[0].end -
-	    adi7108_nor_flash.resource[0].start > 0x4000000)
-		adi7108_nor_flash.resource[0].end =
-			adi7108_nor_flash.resource[0].start + 0x4000000-1;
+	/* Update NOR Flash base address and size: */
+	/*     - limit bank size to 64MB (some targetpacks define 128MB!) */
+	if (nor_bank_size > 64*1024*1024)
+		nor_bank_size = 64*1024*1024;
+	/*     - reduce visibility of NOR flash to EMI bank size */
+	if (adi7108_nor_flash.resource[0].end > nor_bank_size - 1)
+		adi7108_nor_flash.resource[0].end = nor_bank_size - 1;
+	/*     - update resource parameters */
+	adi7108_nor_flash.resource[0].start += nor_bank_base;
+	adi7108_nor_flash.resource[0].end += nor_bank_base;
+
 
 	/* NIM */
 	stx7108_configure_ssc_i2c(1, NULL);
@@ -352,23 +306,14 @@ static int __init device_init(void)
 
 #endif
 
-	stx7108_configure_nand(&(struct stx7108_nand_config) {
+	stx7108_configure_nand(&(struct stm_nand_config) {
 			.driver = stm_nand_flex,
 			.nr_banks = 1,
-			.banks = &adi7108_nand_flash_data,
+			.banks = &adi7108_nand_flash,
 			.rbn.flex_connected = 1,});
-#if 0
-	gpio_request(ADI7108_GPIO_FLASH_WP, "FLASH_WP");
-	gpio_direction_output(ADI7108_GPIO_FLASH_WP, 1);
 
-	gpio_request(ADI7108_GPIO_FLASH_HOLD, "FLASH_HOLD");
-	gpio_direction_output(ADI7108_GPIO_FLASH_HOLD, 1);
+	stx7108_configure_spifsm(&adi7108_serial_flash);
 
-
-	/* Serial Flash */
-	spi_register_board_info(adi7108_serial_flash,
-				ARRAY_SIZE(adi7108_serial_flash));
-#endif
 	stx7108_configure_mmc();
 
 	return platform_add_devices(adi7108_devices,

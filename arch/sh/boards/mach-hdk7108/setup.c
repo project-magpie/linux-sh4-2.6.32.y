@@ -56,7 +56,7 @@
  * --------------------------------------------------------------------
  * NOR (limit)         EMIA (64MB)     EMIB (8MB)[1]    EMIB (8MB)[2]
  * NAND                EMIB/FLEXB          FLEXA           FLEXA [2]
- * SPI                   SPI_PIO          SPI_PIO         SPI_PIO
+ * SPI                 SPI_PIO/FSM     SPI_PIO/FSM       SPI_PIO/FSM
  * --------------------------------------------------------------------
  *
  *
@@ -72,6 +72,16 @@
  *     EMIC (using the boot-from-NOR "CS Routing").  This allows the EMI
  *     bit-banging driver to be used for NAND Flash, and gives access to 40MB
  *     NOR Flash, subject to the conditions in note [1].
+ *
+ * [3] Serial Flash setup depends on the board revision and silicon cut:
+ *     Rev 1.0, cut x.x: GPIO SPI bus (MISO/MOSI swapped) and "m25p80"
+ *                       Serial Flash driver
+ *     Rev 2.x, cut 1.0: GPIO SPI bus and "m25p80" Serial Flash driver
+ *     Rev 2.x, cut 2.0: SPI FSM Serial Flash Controller
+ *
+ *     Note, Rev 1.0 kernel builds include only SPI GPIO support.  Rev 2.0
+ *     builds include SPI GPIO and SPI FSM support; the appropriate driver is
+ *     selected at runtime (see device_init() below).
  */
 
 
@@ -80,7 +90,8 @@
 #define HDK7108_PIO_POWER_ON_ETHERNET stm_gpio(15, 4)
 #define HDK7108_GPIO_FLASH_WP stm_gpio(5, 5)
 #define HDK7108_GPIO_MII_SPEED_SEL stm_gpio(21, 7)
-
+#define HDK7108_GPIO_SPI_HOLD stm_gpio(2, 2)
+#define HDK7108_GPIO_SPI_WRITE_PRO stm_gpio(2, 3)
 
 static void __init hdk7108_setup(char **cmdline_p)
 {
@@ -190,30 +201,7 @@ static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
 	.phy_mask = 0,
 };
 
-/* NOR FLASH */
-static struct mtd_partition hdk7108_nor_flash_parts[3] = {
-	{
-		.name = "NOR 1",
-		.size = 0x00040000,
-		.offset = 0x00000000,
-	}, {
-		.name = "NOR 2",
-		.size = 0x00200000,
-		.offset = 0x00040000,
-	}, {
-		.name = "NOR 3",
-		.size = MTDPART_SIZ_FULL,
-		.offset = 0x00240000,
-	}
-};
-
-static struct physmap_flash_data hdk7108_nor_flash_data = {
-	.width		= 2,
-	.set_vpp	= NULL,
-	.nr_parts	= ARRAY_SIZE(hdk7108_nor_flash_parts),
-	.parts		= hdk7108_nor_flash_parts,
-};
-
+/* NOR Flash */
 static struct platform_device hdk7108_nor_flash = {
 	.name		= "physmap-flash",
 	.id		= -1,
@@ -225,77 +213,44 @@ static struct platform_device hdk7108_nor_flash = {
 			.flags		= IORESOURCE_MEM,
 		}
 	},
-	.dev		= {
-		.platform_data	= &hdk7108_nor_flash_data,
+	.dev.platform_data = &(struct physmap_flash_data) {
+		.width		= 2,
+		.set_vpp	= NULL,
+		.nr_parts	= 3,
+		.parts		= (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			}
+		},
 	},
 };
 
-/* Serial FLASH */
-static struct platform_device hdk7108_serial_flash_bus = {
-	.name           = "spi_gpio",
-	.id             = 8,
-	.num_resources  = 0,
-	.dev            = {
-		.platform_data =
-		&(struct spi_gpio_platform_data) {
-			.sck = stm_gpio(1, 6),
-			.mosi = stm_gpio(2, 1),
-			.miso = stm_gpio(2, 0),
-			.num_chipselect = 1,
-		}
-	},
-};
-
-static struct mtd_partition hdk7108_serial_flash_parts[] = {
-	{
-		.name = "Serial 1",
-		.size = 0x00400000,
-		.offset = 0,
-	}, {
-		.name = "Serial 2",
-		.size = MTDPART_SIZ_FULL,
-		.offset = MTDPART_OFS_NXTBLK,
-	},
-};
-
-static struct flash_platform_data hdk7108_serial_flash_data = {
-	.name = "m25p80",
-	.parts = hdk7108_serial_flash_parts,
-	.nr_parts = ARRAY_SIZE(hdk7108_serial_flash_parts),
-	.type = "m25p128",	/* Check device on individual board! */
-};
-
-static struct spi_board_info hdk7108_serial_flash[] =  {
-	{
-		.modalias       = "m25p80",
-		.bus_num        = 8,
-		.chip_select    = 0,
-		.controller_data = (void *)stm_gpio(1, 7),
-		.max_speed_hz   = 1000000,
-		.platform_data  = &hdk7108_serial_flash_data,
-		.mode           = SPI_MODE_0,
-	},
-};
-
-
-/* NAND FLASH */
-static struct mtd_partition hdk7108_nand_flash_parts[] = {
-	{
-		.name   = "NAND 1",
-		.offset = 0,
-		.size   = 0x00800000
-	}, {
-		.name   = "NAND 2",
-		.offset = MTDPART_OFS_APPEND,
-		.size   = MTDPART_SIZ_FULL
-	},
-};
-
-static struct stm_nand_bank_data hdk7108_nand_flash_data = {
+/* NAND Flash */
+static struct stm_nand_bank_data hdk7108_nand_flash = {
 	.csn		= 1,
-	.nr_partitions	= ARRAY_SIZE(hdk7108_nand_flash_parts),
-	.partitions	= hdk7108_nand_flash_parts,
-	.options	= NAND_NO_AUTOINCR || NAND_USE_FLASH_BBT,
+	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size 	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
 	.timing_data = &(struct stm_nand_timing_data) {
 		.sig_setup      = 10,           /* times in ns */
 		.sig_hold       = 10,
@@ -307,13 +262,74 @@ static struct stm_nand_bank_data hdk7108_nand_flash_data = {
 		.rd_off         = 30,
 		.chip_delay     = 30,           /* in us */
 	},
-	.emi_withinbankoffset	= 0,
 };
+
+
+/*
+ * Serial Flash (Setup depends on the board revision and silicon cut.  See
+ * comments at top).
+ */
+
+/* SPI_GPIO: SPI bus for Serial Flash device */
+static struct platform_device hdk7108_serial_flash_bus = {
+	.name           = "spi_gpio",
+	.id             = 8,
+	.num_resources  = 0,
+	.dev.platform_data = &(struct spi_gpio_platform_data) {
+		.num_chipselect = 1,
+		.sck = stm_gpio(1, 6),
+#if defined(CONFIG_SH_ST_HDK7108_VER1_BOARD)
+		/* MOSI/MISO swapped on board Rev 1.0 */
+		.mosi = stm_gpio(2, 1),
+		.miso = stm_gpio(2, 0),
+#else
+		.mosi = stm_gpio(2, 0),
+		.miso = stm_gpio(2, 1),
+#endif
+	}
+};
+
+static struct mtd_partition hdk7108_serial_flash_parts[] = {
+	{
+		.name = "Serial Flash 1",
+		.size = 0x00200000,
+		.offset = 0,
+	}, {
+		.name = "Serial Flash 2",
+		.size = MTDPART_SIZ_FULL,
+		.offset = MTDPART_OFS_NXTBLK,
+	},
+};
+
+/* SPI_GPIO: Serial Flash device */
+static struct spi_board_info hdk7108_serial_flash[] =  {
+	{
+		.modalias       = "m25p80",
+		.bus_num        = 8,
+		.controller_data = (void *)stm_gpio(1, 7),
+		.max_speed_hz   = 7000000,
+		.mode           = SPI_MODE_3,
+		.platform_data  = &(struct flash_platform_data) {
+			.name = "m25p80",
+			.type = "m25p128",
+			.parts = hdk7108_serial_flash_parts,
+			.nr_parts = ARRAY_SIZE(hdk7108_serial_flash_parts),
+		},
+	},
+};
+
+#ifndef CONFIG_SH_ST_HDK7108_VER1_BOARD
+/* SPI_FSM: Serial Flash device */
+static struct stm_plat_spifsm_data hdk7108_spifsm_flash = {
+	.name = "m25p128",
+	.parts = hdk7108_serial_flash_parts,
+	.nr_parts = ARRAY_SIZE(hdk7108_serial_flash_parts),
+};
+#endif
 
 static struct platform_device *hdk7108_devices[] __initdata = {
 	&hdk7108_leds,
 	&hdk7108_front_panel,
-	&hdk7108_serial_flash_bus,
 	&hdk7108_nor_flash,
 };
 
@@ -375,52 +391,55 @@ static struct stm_mali_config hdk7108_mali_config = {
 
 static int __init device_init(void)
 {
-	u32 bank1_start;
-	u32 bank2_start;
-	u32 bank3_start;
-	u32 boot_device;
+	struct sysconf_field *sc;
+	unsigned long boot_mode;
+	unsigned long nor_bank_base = 0;
+	unsigned long nor_bank_size = 0;
 
-	bank1_start = emi_bank_base(1);
-	bank2_start = emi_bank_base(2);
-	bank3_start = emi_bank_base(3);
-
-	boot_device = gpio_get_value(stm_gpio(25, 4));
-	boot_device |= gpio_get_value(stm_gpio(25, 5)) << 1;
-	boot_device |= gpio_get_value(stm_gpio(25, 6)) << 2;
-	boot_device |= gpio_get_value(stm_gpio(25, 7)) << 3;
-
-	BUG_ON(boot_device > 0xA);
-	switch (boot_device) {
-	case 0x0:
-	case 0x5:
-		/* Boot-from-NOR */
+	/* Configure Flash according to boot-device */
+	if (cpu_data->cut_major >= 2) {
+		sc = sysconf_claim(SYS_STA_BANK1, 3, 2, 6, "boot_mode");
+		boot_mode = sysconf_read(sc);
+	} else {
+		sc = sysconf_claim(SYS_STA_BANK1, 3, 2, 5, "boot_mode");
+		boot_mode = sysconf_read(sc);
+		boot_mode |= 0x10;	/* use non-BCH boot encodings */
+	}
+	switch (boot_mode) {
+	case 0x15:
 		pr_info("Configuring FLASH for boot-from-NOR\n");
-		hdk7108_nor_flash.resource[0].start = 0x00000000;
-		hdk7108_nor_flash.resource[0].end = bank1_start - 1;
-		hdk7108_nand_flash_data.csn = 1;
+		nor_bank_base = emi_bank_base(0);
+		nor_bank_size = emi_bank_base(1) - nor_bank_base;
+		hdk7108_nand_flash.csn = 1;
 		break;
-	case 0xA:
-		/* Boot-from-SPI */
+	case 0x14:
+		pr_info("Configuring FLASH for boot-from-NAND\n");
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		hdk7108_nand_flash.csn = 0;
+		break;
+	case 0x1a:
 		pr_info("Configuring FLASH for boot-from-SPI\n");
-		hdk7108_nor_flash.resource[0].start = bank1_start;
-		hdk7108_nor_flash.resource[0].end = bank2_start - 1;
-		hdk7108_nand_flash_data.csn = 0;
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		hdk7108_nand_flash.csn = 0;
 		break;
 	default:
-		/* Boot-from-NAND */
-		pr_info("Configuring FLASH for boot-from-NAND\n");
-		hdk7108_nor_flash.resource[0].start = bank1_start;
-		hdk7108_nor_flash.resource[0].end = bank2_start - 1;
-		hdk7108_nand_flash_data.csn = 0;
+		BUG();
 		break;
 	}
+	sysconf_release(sc);
 
-	/* Limit NOR FLASH to addressable range, regardless of actual EMI
-	 * configuration! */
-	if (hdk7108_nor_flash.resource[0].end -
-	    hdk7108_nor_flash.resource[0].start > 0x4000000)
-		hdk7108_nor_flash.resource[0].end =
-			hdk7108_nor_flash.resource[0].start + 0x4000000-1;
+	/* Update NOR Flash base address and size: */
+	/*     - limit bank size to 64MB (some targetpacks define 128MB!) */
+	if (nor_bank_size > 64*1024*1024)
+		nor_bank_size = 64*1024*1024;
+	/*     - reduce visibility of NOR flash to EMI bank size */
+	if (hdk7108_nor_flash.resource[0].end > nor_bank_size - 1)
+		hdk7108_nor_flash.resource[0].end = nor_bank_size - 1;
+	/*     - update resource parameters */
+	hdk7108_nor_flash.resource[0].start += nor_bank_base;
+	hdk7108_nor_flash.resource[0].end += nor_bank_base;
 
 	stx7108_configure_pci(&hdk7108_pci_config);
 
@@ -456,7 +475,8 @@ static int __init device_init(void)
 	stx7108_configure_usb(1);
 	stx7108_configure_usb(2);
 
-#if defined(CONFIG_SH_ST_HDK7108_VER1_BOARD)
+#if defined(CONFIG_SH_ST_HDK7108_VER1_BOARD) || \
+	defined(CONFIG_SH_ST_HDK7108_VER1_1_BOARD)
 	/* 2 SATA's with CUT1.0 and 1 SATA with CUT2.0 */
 	if (cpu_data->cut_major >= 2) {
 		/*
@@ -545,14 +565,41 @@ static int __init device_init(void)
 	gpio_request(HDK7108_GPIO_FLASH_WP, "FLASH_WP");
 	gpio_direction_output(HDK7108_GPIO_FLASH_WP, 1);
 
-	stx7108_configure_nand(&(struct stx7108_nand_config) {
+#if defined(CONFIG_SH_ST_HDK7108_VER1_BOARD) || \
+	defined(CONFIG_SH_ST_HDK7108_VER1_1_BOARD)
+	/*
+	 * Rev 1.x boards only; Rev 2.x boards are populated with MLC NAND which
+	 * is not supported.
+	 */
+	stx7108_configure_nand(&(struct stm_nand_config) {
 			.driver = stm_nand_flex,
 			.nr_banks = 1,
-			.banks = &hdk7108_nand_flash_data,
+			.banks = &hdk7108_nand_flash,
 			.rbn.flex_connected = 1,});
+#endif
+
+	/*
+	 * Serial Flash setup depends on board revision and silicon cut.  See
+	 * comments above.
+	 */
+#ifndef CONFIG_SH_ST_HDK7108_VER1_BOARD
+	if (cpu_data->cut_major >= 2) {
+		stx7108_configure_spifsm(&hdk7108_spifsm_flash);
+	} else {
+#endif
+	/* Disable hold and write-protect signals */
+	gpio_request(HDK7108_GPIO_SPI_HOLD, "SPI_HOLD");
+	gpio_direction_output(HDK7108_GPIO_SPI_HOLD, 1);
+	gpio_request(HDK7108_GPIO_SPI_WRITE_PRO, "SPI_WRITE_PRO");
+	gpio_direction_output(HDK7108_GPIO_SPI_WRITE_PRO, 1);
+
+	platform_device_register(&hdk7108_serial_flash_bus);
 
 	spi_register_board_info(hdk7108_serial_flash,
 				ARRAY_SIZE(hdk7108_serial_flash));
+#ifndef CONFIG_SH_ST_HDK7108_VER1_BOARD
+	}
+#endif
 
 	stx7108_configure_mmc();
 

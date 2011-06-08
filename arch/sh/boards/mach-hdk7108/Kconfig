@@ -28,6 +28,11 @@ config SH_ST_HDK7108_VER1_BOARD
 	help
 	  HDK7108 Ver 1.0 Board with 2 SATA's designed for CUT1.0
 
+config SH_ST_HDK7108_VER1_1_BOARD
+	bool "HDK7108 Ver 1.1 Board"
+	help
+	  HDK7108 Ver 1.1 Board
+
 config SH_ST_HDK7108_VER2_BOARD
 	bool "HDK7108 Ver 2.0 Board"
 	help

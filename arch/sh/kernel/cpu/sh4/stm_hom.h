@@ -10,7 +10,6 @@
 #ifndef __STM_MEM_HIBERNATION_H__
 #define __STM_MEM_HIBERNATION_H__
 
-#define CONFIG_HOM_DEBUG
 #include <linux/hom.h>
 
 struct stm_mem_hibernation {

@@ -227,7 +227,10 @@ _CLK_P(CLKB_656,	&clkgenb, 0, 0, &clk_clocks[CLKB_FS0_CH1]),
 _CLK(CLKB_GDP3,		&clkgenb, 0, 0),
 _CLK_P(CLKB_DISP_ID,	&clkgenb, 0, 0, &clk_clocks[CLKB_FS1_CH1]),
 _CLK(CLKB_PIX_SD,	&clkgenb, 0, 0),
+/* TheCLKB_PIX_FROM_DVP uses dummy parent required paarent to get it*/
+_CLK_P(CLKB_PIX_FROM_DVP, &clkgenb, 0, 0, &clk_clocks[CLKB_FS1_CH1]),
 
+_CLK(CLKB_DVP,		&clkgenb, 0, 0),
 _CLK_P(CLKB_DSS,	&clkgenb, 0, 0, &clk_clocks[CLKB_FS0_CH2]),
 _CLK_P(CLKB_PP,		&clkgenb, 0, 0, &clk_clocks[CLKB_FS1_CH3]),
 _CLK(CLKB_150,		&clkgenb, 0, 0),
@@ -917,6 +920,8 @@ static int clkgenb_xable_clock(clk_t *clk_p, unsigned long enable)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+	if (clk_p->id == CLKB_DVP)
+		return 0;
 
 	for (i = 0; i < ARRAY_SIZE(enable_clock); ++i)
 		if (enable_clock[i].clk_id == clk_p->id)
@@ -1012,19 +1017,34 @@ static int clkgenb_set_parent(clk_t *clk_p, clk_t *parent_p)
 		reg = CKGB_BASE_ADDRESS + CKGB_CRISTAL_SEL;
 		break;
 
-	  /*  case CLKB_PIX_HD:
-		   if (parent_p->id == CLKB_FS0_CH1)
-				reset = 1 << 14;
-			else
-				set = 1 << 14;
-			reg = CKGB_BASE_ADDRESS+CKGB_DISPLAY_CFG;
-			break;*/
+	case CLKB_PIX_HD:
+		if (parent_p->id == CLKB_FS0_CH1)
+			reset = 1 << 14;
+		else
+			set = 1 << 14;
+		reg = CKGB_BASE_ADDRESS + CKGB_DISPLAY_CFG;
+		break;
+
 	case CLKB_GDP3:
 		if ((parent_p->id == CLKB_DISP_HD)
 			|| (parent_p->id == CLKB_FS0_CH1))
 				reset = 1 << 0;
 		else
 			set = 1 << 0;
+		reg = CKGB_BASE_ADDRESS + CKGB_FS_SELECT;
+		break;
+	case CLKB_DVP:
+		if ((parent_p->id != CLKB_FS0_CH1)
+		    && (parent_p->id != CLKB_FS1_CH1)
+		    && (parent_p->id != CLKB_PIX_FROM_DVP))
+			return CLK_ERR_BAD_PARAMETER;
+		if (parent_p->id == CLKB_FS0_CH1) {
+			set = 1 << 3;
+			reset = 1 << 2;
+		} else if (parent_p->id == CLKB_FS1_CH1) {
+			set = 0x3 << 2;
+		} else
+			reset = 1 << 3;
 		reg = CKGB_BASE_ADDRESS + CKGB_FS_SELECT;
 		break;
 
@@ -1149,6 +1169,7 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 		6,	/* CLKB_656		*/
 		0xff,	/* CLKB_GDP3		*/
 		8,	/* CLKB_DISP_ID		*/
+		10,	/* CLKB_DVP		*/
 		10,	/* CLKB_PIX_SD		*/
 	};
 	static const unsigned char clk_shift_pwd[] = {
@@ -1171,7 +1192,7 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 	/* the hw support specific divisor factor therefore
 	 * reject immediatelly a wrong divisor
 	 */
-	if (*div_p < 1 || *div_p > 8 && *div_p != 1024)
+	if (*div_p < 1 || (*div_p > 8 && *div_p != 1024))
 		return CLK_ERR_BAD_PARAMETER;
 
 	if (*div_p == 1024) {
@@ -1328,6 +1349,8 @@ static int clkgenb_is_running(unsigned long power, int bit)
 static int clkgenb_recalc(clk_t *clk_p)
 {
 	unsigned long displaycfg, powerdown, fs_sel, power_en;
+	static const unsigned char tab2481[] = { 2, 4, 8, 1 };
+	static const unsigned char tab2482[] = { 2, 4, 8, 2 };
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -1380,20 +1403,10 @@ static int clkgenb_recalc(clk_t *clk_p)
 	case CLKB_DISP_HD:   /* disp_hd */
 		if (powerdown & (1 << 4))
 			clk_p->rate = clk_p->parent->rate / 1024;
-		else {
-			switch ((displaycfg >> 4) & 0x3) {
-			case 0:
-			case 3:
-				clk_p->rate = clk_p->parent->rate / 2;
-				break;
-			case 1:
-				clk_p->rate = clk_p->parent->rate / 4;
-				break;
-			case 2:
-				clk_p->rate = clk_p->parent->rate / 8;
-				break;
-			}
-		}
+		else
+			clk_p->rate = clk_p->parent->rate /
+				tab2482[(displaycfg >> 4) & 0x3];
+
 		if (!clkgenb_is_running(power_en, 4))
 			clk_p->rate = 0;
 		break;
@@ -1457,6 +1470,22 @@ static int clkgenb_recalc(clk_t *clk_p)
 			clk_p->rate = 0;
 		break;
 
+	case CLKB_DVP:   /* CKGB_DVP */
+		switch (clk_p->parent->id) {
+		case CLKB_FS0_CH1:
+			clk_p->rate =
+			    clk_p->parent->rate /
+			    tab2482[(displaycfg >> 10) & 0x3];
+			break;
+		case CLKB_FS1_CH1:
+			clk_p->rate =
+			    clk_p->parent->rate /
+			    tab2481[(displaycfg >> 12) & 0x3];
+			break;
+		default:	/* pix from pad. Don't have any value */
+			break;
+		}
+		break;
 	case CLKB_DSS:
 		clk_p->rate = clk_p->parent->rate;
 		if (!clkgenb_is_running(power_en, 0))
@@ -1473,6 +1502,9 @@ static int clkgenb_recalc(clk_t *clk_p)
 		clk_p->rate = clk_p->parent->rate / 1024;
 		if (!clkgenb_is_running(power_en, 13))
 			clk_p->rate = 0;
+		break;
+	case CLKB_PIX_FROM_DVP:
+		clk_p->rate = clk_p->parent->rate;
 		break;
 
 	default:
@@ -1492,6 +1524,13 @@ static int clkgenb_identify_parent(clk_t *clk_p)
 {
 	unsigned long sel, fs_sel;
 	unsigned long displaycfg;
+	const clk_t *fs_clk[2] = { &clk_clocks[CLKB_FS1_CH1],
+				   &clk_clocks[CLKB_FS0_CH1] };
+	const clk_t *dvp_fs_clock[4] = {
+		&clk_clocks[CLKB_PIX_FROM_DVP],	&clk_clocks[CLKB_PIX_FROM_DVP],
+		&clk_clocks[CLKB_FS0_CH1], &clk_clocks[CLKB_FS1_CH1]
+		};
+	int p_id;
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -1506,34 +1545,26 @@ static int clkgenb_identify_parent(clk_t *clk_p)
 
 	case CLKB_PIX_HD:   /* pix_hd */
 		displaycfg = CLK_READ(CKGB_BASE_ADDRESS + CKGB_DISPLAY_CFG);
-		if (displaycfg & (1 << 14))	/* pix_hd source = FSYN1 */
-			clk_p->parent = &clk_clocks[CLKB_FS1_CH1];
-		else	/* pix_hd source = FSYN0 */
-			clk_p->parent = &clk_clocks[CLKB_FS0_CH1];
+		p_id = ((displaycfg & (1 << 14)) ? 1 : 0);
+		clk_p->parent = fs_clk[p_id];
 		break;
 
 	case CLKB_PIX_SD:   /* pix_sd */
-		if (fs_sel & 0x2)
-			/* source is FS1 */
-			clk_p->parent = &clk_clocks[CLKB_FS1_CH1];
-		else
-			/* source is FS0 */
-			clk_p->parent = &clk_clocks[CLKB_FS0_CH1];
+		p_id = ((fs_sel & 0x2) ? 1 : 0);
+		clk_p->parent = fs_clk[p_id];
 		break;
 
 	case CLKB_GDP3:   /* gdp3_clk */
-		if (fs_sel & 0x1)
-			/* source is FS1 */
-			clk_p->parent = &clk_clocks[CLKB_FS1_CH1];
-		else
-			/* source is FS0 */
-			clk_p->parent = &clk_clocks[CLKB_FS0_CH1];
+		p_id = ((fs_sel & 0x1) ? 1 : 0);
+		clk_p->parent = fs_clk[p_id];
 		break;
+	case CLKB_DVP:   /* CKGB_DVP */
+		clk_p->parent = dvp_fs_clock[(fs_sel >> 2) & 0x3];
+		break;
+	}
 
 	/* Other clockgen B clocks are statically initialized
 	   thanks to _CLK_P() macro */
-	}
-
 	return 0;
 }
 

@@ -1625,21 +1625,23 @@ static int clkgenb_observe(clk_t *clk_p, unsigned long *div_p)
 
 static int clkgenb_fsyn_recalc(clk_t *clk_p)
 {
-	unsigned long val, clkout, ctrl, bit;
+	unsigned long val, bit;
+	unsigned long clkout = CKGB_FS0_CLKOUT_CTRL, ctrl = CKGB_FS0_CTRL;
 	unsigned long pe, md, sdiv;
 	int bank, channel;
 
 	if (!clk_p || !clk_p->parent)
 		return CLK_ERR_BAD_PARAMETER;
 
+	bank = (clk_p->id - CLKB_FS0_CH1) / 4;
+	channel = (clk_p->id - CLKB_FS0_CH1) % 4;
+
 	/* Which FSYN control registers to use ? */
-	if (clk_p->id <= CLKB_FS0_CH4) {
-		clkout = CKGB_FS0_CLKOUT_CTRL;
-		ctrl = CKGB_FS0_CTRL;
-	} else {
-		clkout = CKGB_FS1_CLKOUT_CTRL;
-		ctrl = CKGB_FS1_CTRL;
-	}
+	if (clk_p->id >= CLKB_FS0_CH1 && clk_p->id <= CLKB_FS1_CH4) {
+		clkout += (CKGB_FS1_CLKOUT_CTRL - CKGB_FS0_CLKOUT_CTRL) * bank;
+		ctrl += (CKGB_FS1_CTRL - CKGB_FS0_CTRL) * bank;
+	} else
+		return CLK_ERR_BAD_PARAMETER;
 
 	/* Is FSYN analog part UP ? */
 	val = CLK_READ(CKGB_BASE_ADDRESS + ctrl);
@@ -1659,8 +1661,6 @@ static int clkgenb_fsyn_recalc(clk_t *clk_p)
 
 	/* FSYN is up and running.
 	   Now computing frequency */
-	bank = (clk_p->id - CLKB_FS0_CH1) / 4;
-	channel = (clk_p->id - CLKB_FS0_CH1) % 4;
 	pe = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_PE(bank, channel));
 	md = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_MD(bank, channel));
 	sdiv = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_SDIV(bank, channel));
@@ -2103,16 +2103,23 @@ static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 
 	val = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS0_CFG);
 
-	/* Powering down/up digital part */
-	if (enable)
+	/* Powering */
+	if (enable) {
+		/* Powering digital parts */
 		val |= (1 << (10 + (clk_p->id - CLKC_FS0_CH1)));
-	else
+		/*Put FS out of reset */
+		val |= 1;
+
+		/* Set the freq source */
+		val |= (1 << (2 + (clk_p->id - CLKC_FS0_CH1)));
+		/* Enable FS too  */
+		val |= (1 << (6 + (clk_p->id - CLKC_FS0_CH1)));
+
+		/* Powering analog part */
+		val |= (1 << 14);
+	} else {
 		val &= ~(1 << (10 + (clk_p->id - CLKC_FS0_CH1)));
 
-	/* Powering down/up analog part */
-	if (enable)
-		val |= (1 << 14);
-	else {
 		/* If all channels are off then power down FS0 */
 		if ((val & 0x3c00) == 0)
 			val &= ~(1 << 14);

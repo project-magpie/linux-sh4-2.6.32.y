@@ -61,9 +61,8 @@ enum {
 	CLKB_GDP3,
 	CLKB_DISP_ID,
 	CLKB_PIX_SD,
-	CLKB_DVP,
-	CLKB_PIX_FROM_DVP, /* Possible source of CLKB_DVP */
-
+	CLKB_PIX_FROM_DVP,
+	CLKB_DVP,  /* Possible source of CLKB_DVP */
 	CLKB_PP,
 	CLKB_LPC,
 	CLKB_DSS,

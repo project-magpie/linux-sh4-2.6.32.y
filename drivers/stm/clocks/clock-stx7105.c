@@ -246,7 +246,10 @@ _CLK_P(CLKB_DISP_ID, &clkgenb, 0,
 		CLK_RATE_PROPAGATES, &clk_clocks[CLKB_FS1_CH1]),
 _CLK(CLKB_PIX_SD,	&clkgenb, 0, 0),
 _CLK(CLKB_DVP,		&clkgenb, 0, 0),
-_CLK(CLKB_PIX_FROM_DVP, &clkgenb, 0, 0),
+
+/* The CLKB_PIX_FROM_DVP clock uses a dummy parent to get it */
+_CLK_P(CLKB_PIX_FROM_DVP, &clkgenb, 0, 0, &clk_clocks[CLKB_FS1_CH1]),
+
 
 _CLK_P(CLKB_DSS, &clkgenb, 0,
 		0, &clk_clocks[CLKB_FS0_CH2] /* RnDHV00034077 */),
@@ -1184,7 +1187,7 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 	/* the hw support specific divisor factor therefore
 	 * reject immediatelly a wrong divisor
 	 */
-	if (*div_p < 1 || *div_p > 8 && *div_p != 1024)
+	if (*div_p < 1 || (*div_p > 8 && *div_p != 1024))
 		return CLK_ERR_BAD_PARAMETER;
 
 	if (*div_p == 1024) {
@@ -1207,8 +1210,8 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 
 	if (clk_p->id == CLKB_PIX_SD &&
 		/* clk_pix_sd sourced from Fsyn1 */
-	    clk_p->parent->id == CLKB_FS1_CH1)
-			shift += 2;
+	    clk_p->parent->id == CLKB_FS0_CH1)
+			shift -= 2;
 
 	val = CLK_READ(CKGB_BASE_ADDRESS + reg);
 	val = val & ~(reset << shift);
@@ -1526,6 +1529,7 @@ static int clkgenb_recalc(clk_t *clk_p)
 	case CLKB_MMC:
 	case CLKB_PIP:
 	case CLKB_REF:
+	case CLKB_PIX_FROM_DVP:
 		clk_p->rate = clk_p->parent->rate;
 		break;
 
@@ -1546,6 +1550,13 @@ static int clkgenb_identify_parent(clk_t *clk_p)
 {
 	unsigned long sel, fs_sel;
 	unsigned long displaycfg;
+	const clk_t *fs_clock[2] = { &clk_clocks[CLKB_FS1_CH1],
+				     &clk_clocks[CLKB_FS0_CH1] };
+	const clk_t *dvp_fs_clock[4] = {
+		&clk_clocks[CLKB_PIX_FROM_DVP], &clk_clocks[CLKB_PIX_FROM_DVP],
+		&clk_clocks[CLKB_FS0_CH1], &clk_clocks[CLKB_FS1_CH1]
+		};
+	int p_id;
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -1572,52 +1583,22 @@ static int clkgenb_identify_parent(clk_t *clk_p)
 
 	case CLKB_PIX_HD:   /* pix_hd */
 		displaycfg = CLK_READ(CKGB_BASE_ADDRESS + CKGB_DISPLAY_CFG);
-		if (displaycfg & (1 << 14)) 	/* pix_hd source = FSYN1 */
-			clk_p->parent = &clk_clocks[CLKB_FS1_CH1];
-		else	/* pix_hd source = FSYN0 */
-			clk_p->parent = &clk_clocks[CLKB_FS0_CH1];
+		p_id = ((displaycfg & (1 << 14)) ? 1 : 0);
+		clk_p->parent = fs_clock[p_id];
 		break;
 
 	case CLKB_PIX_SD:   /* pix_sd */
-		if (fs_sel & 0x2)
-			/* source is FS1 */
-			clk_p->parent = &clk_clocks[CLKB_FS1_CH1];
-		else
-			/* source is FS0 */
-			clk_p->parent = &clk_clocks[CLKB_FS0_CH1];
+		p_id = ((fs_sel & 0x2) ? 1 : 0);
+		clk_p->parent = fs_clock[p_id];
 		break;
 
 	case CLKB_GDP3:   /* gdp3_clk */
-		if (fs_sel & 0x1)
-			/* source is FS1 */
-			clk_p->parent = &clk_clocks[CLKB_FS1_CH1];
-		else
-			/* source is FS0 */
-			clk_p->parent = &clk_clocks[CLKB_FS0_CH1];
+		p_id = ((fs_sel & 0x1) ? 1 : 0);
+		clk_p->parent = fs_clock[p_id];
 		break;
 
 	case CLKB_DVP:   /* CKGB_DVP */
-		switch ((fs_sel >> 2) & 0x3) {
-#if 0
-		case 0:
-		case 1:
-			clk_p->parent = &clk_clocks[CLKB_PIX_FROM_DVP];
-			break;
-#endif
-		case 2:
-			clk_p->parent = &clk_clocks[CLKB_FS0_CH1];
-			break;
-		case 3:
-			clk_p->parent = &clk_clocks[CLKB_FS1_CH1];
-			break;
-#if 0 /* why ?? */
-		default:
-			CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_SELECT,
-				fs_sel | (0x3 << 2));
-			clk_p->parent = &clk_clocks[CLKB_FS1_CH1];
-			break;
-#endif
-		}
+		clk_p->parent = dvp_fs_clock[(fs_sel >> 2) & 0x3];
 		break;
 
 	/* Other clockgen B clocks are statically initialized
@@ -1752,6 +1733,7 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 	channel = (clk_p->id - CLKC_FS0_CH1) % 4;
 	reg_value |= set_rate_table[clk_p->id - CLKC_FS0_CH1];
 
+	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(0, channel), 0x00);
 	/* Select FS clock only for the clock specified */
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_CFG(0), reg_value);
 
@@ -1860,6 +1842,7 @@ static int clkgenc_init(clk_t *clk_p)
 static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 {
 	unsigned long val;
+	int channel;
 	/* Digital standby bits table.
 	   Warning: enum order: CLKC_FS0_CH1 ... CLKC_FS0_CH3 */
 	static const unsigned char dig_bit[] = {10, 11, 12, 13};
@@ -1892,7 +1875,14 @@ static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 			val &= ~(1 << 14);
 	}
 
+	channel = (clk_p->id - CLKC_FS0_CH1) % 4;
+
+	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(0, channel), 0x00);
+
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_CFG(0), val);
+
+	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(0, channel), 0x10);
+	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(0, channel), 0x00);
 
 	/* Freq recalc required only if a channel is enabled */
 	if (enable)
@@ -1969,7 +1959,7 @@ static int clkgend_identify_parent(clk_t *clk_p)
 
 	if (clk_p->id == CLKD_REF) {
 		sel = SYSCONF_READ(SYS_CFG, 40, 0, 0);
-		if (!sel)
+		if (sel)
 			clk_p->parent = &clk_clocks[CLK_SYS];
 		else
 			clk_p->parent = &clk_clocks[CLK_SYSALT];
@@ -2063,7 +2053,7 @@ static int clkgene_identify_parent(clk_t *clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	sel = SYSCONF_READ(SYS_CFG, 40, 2, 2);
-	if (!sel)
+	if (sel)
 		clk_p->parent = &clk_clocks[CLK_SYS];
 	else
 		clk_p->parent = &clk_clocks[CLK_SYSALT];

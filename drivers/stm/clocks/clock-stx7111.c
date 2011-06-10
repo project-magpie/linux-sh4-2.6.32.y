@@ -219,8 +219,9 @@ _CLK_P(CLKB_DISP_ID,   &clkgenb, 0,
 			CLK_RATE_PROPAGATES, &clk_clocks[CLKB_FS1_CH1]),
 _CLK(CLKB_PIX_SD,       &clkgenb, 0, 0),
 _CLK(CLKB_DVP,          &clkgenb, 0, 0),
-_CLK(CLKB_PIX_FROM_DVP, &clkgenb, 0, 0),
 
+/* The CLKB_PIX_FROM_DVP clock uses a dummy parent to get it */
+_CLK_P(CLKB_PIX_FROM_DVP, &clkgenb, 0, 0, &clk_clocks[CLKB_FS1_CH1]),
 _CLK_P(CLKB_DSS,       &clkgenb, 0, 0, &clk_clocks[CLKB_FS0_CH2]),
 _CLK_P(CLKB_DAA,       &clkgenb, 0, 0, &clk_clocks[CLKB_FS0_CH3]),
 _CLK_P(CLKB_PP,        &clkgenb, 0, 0, &clk_clocks[CLKB_FS1_CH3]),
@@ -872,6 +873,9 @@ static int clkgenb_xable_clock(clk_t *clk_p, unsigned long enable)
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
+	if (clk_p->id == CLKB_DVP)
+		return 0;
+
 	for (i = 0; i < ARRAY_SIZE(enable_clock); ++i)
 		if (enable_clock[i].clk_id == clk_p->id)
 			break;
@@ -1158,7 +1162,7 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 	/* the hw support specific divisor factor therefore
 	 * reject immediatelly a wrong divisor
 	 */
-	if (*div_p < 1 || *div_p > 8 && *div_p != 1024)
+	if (*div_p < 1 || (*div_p > 8 && *div_p != 1024))
 		return CLK_ERR_BAD_PARAMETER;
 
 	if (*div_p == 1024) {
@@ -1477,7 +1481,8 @@ static int clkgenb_recalc(clk_t *clk_p)
 
 		};
 		break;
-
+	case CLKB_PIX_FROM_DVP:
+		clk_p->rate = clk_p->parent->rate;
 	default:
 		return CLK_ERR_BAD_PARAMETER;
 	}

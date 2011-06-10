@@ -92,14 +92,17 @@ static int stm_pad_gpios_num;
 
 static DEFINE_MUTEX(stm_pad_mutex);
 
-static int stm_pad_gpio_function;
+static int stm_pad_gpio_function_in;
+static int stm_pad_gpio_function_out;
+
 static int (*stm_pad_gpio_config)(unsigned gpio,
 		enum stm_pad_gpio_direction direction,
 		int function, void *priv);
 
 
 
-int __init stm_pad_init(int gpios_num, int gpio_function,
+int __init stm_pad_init(int gpios_num,
+			int gpio_function_in, int gpio_function_out,
 			int (*gpio_config)(unsigned gpio,
 			enum stm_pad_gpio_direction direction,
 			int function, void *priv))
@@ -108,7 +111,8 @@ int __init stm_pad_init(int gpios_num, int gpio_function,
 
 	stm_pad_gpios = alloc_bootmem(sizeof(*stm_pad_gpios) * gpios_num);
 	stm_pad_gpios_num = gpios_num;
-	stm_pad_gpio_function = gpio_function;
+	stm_pad_gpio_function_in = gpio_function_in;
+	stm_pad_gpio_function_out = gpio_function_out;
 	stm_pad_gpio_config = gpio_config;
 
 	stm_pad_initialized = 1;
@@ -325,8 +329,6 @@ int stm_pad_claim_gpio(unsigned gpio)
 	switch (stm_pad_gpios[gpio]) {
 	case stm_pad_gpio_unused:
 		stm_pad_gpios[gpio] = stm_pad_gpio_normal_gpio;
-		stm_pad_gpio_config(gpio, stm_pad_gpio_direction_in,
-				    stm_pad_gpio_function, NULL);
 		break;
 	case stm_pad_gpio_claimed_to_be_requested:
 		stm_pad_gpios[gpio] = stm_pad_gpio_claimed_requested;
@@ -345,6 +347,23 @@ int stm_pad_claim_gpio(unsigned gpio)
 	mutex_unlock(&stm_pad_mutex);
 
 	return result;
+}
+
+void stm_pad_configure_gpio(unsigned gpio, unsigned direction)
+{
+	switch (direction) {
+	case STM_GPIO_DIRECTION_IN:
+		stm_pad_gpio_config(gpio, stm_pad_gpio_direction_in,
+				    stm_pad_gpio_function_in, NULL);
+		break;
+	case STM_GPIO_DIRECTION_OUT:
+		stm_pad_gpio_config(gpio, stm_pad_gpio_direction_out,
+				    stm_pad_gpio_function_out, NULL);
+		break;
+	default:
+		BUG();
+		break;
+	}
 }
 
 void stm_pad_release_gpio(unsigned gpio)
@@ -447,7 +466,7 @@ unsigned stm_pad_gpio_request_input(struct stm_pad_state *state,
 	if (pad_gpio && __stm_pad_gpio_request(pad_gpio, state->owner) == 0) {
 		gpio_direction_input(pad_gpio->gpio);
 		stm_pad_gpio_config(pad_gpio->gpio, stm_pad_gpio_direction_in,
-				stm_pad_gpio_function, pad_gpio->priv);
+				    stm_pad_gpio_function_in, pad_gpio->priv);
 
 		result = pad_gpio->gpio;
 	}
@@ -466,7 +485,7 @@ unsigned stm_pad_gpio_request_output(struct stm_pad_state *state,
 		BUG_ON(value > 1);
 		gpio_direction_output(pad_gpio->gpio, value);
 		stm_pad_gpio_config(pad_gpio->gpio, stm_pad_gpio_direction_out,
-				stm_pad_gpio_function, pad_gpio->priv);
+				    stm_pad_gpio_function_out, pad_gpio->priv);
 
 		result = pad_gpio->gpio;
 	}

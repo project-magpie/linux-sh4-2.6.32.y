@@ -796,9 +796,26 @@ static int stx7108_pio_config(unsigned gpio,
 	BUG_ON(port > ARRAY_SIZE(stx7108_pio_devices));
 	BUG_ON(function < 0 || function > 5);
 
-	if (function > 0)
+	if (function == 0) {
+		switch (direction) {
+		case stm_pad_gpio_direction_in:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_IN);
+			break;
+		case stm_pad_gpio_direction_out:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_OUT);
+			break;
+		case stm_pad_gpio_direction_bidir:
+			stm_gpio_direction(gpio, STM_GPIO_DIRECTION_BIDIR);
+			break;
+		default:
+			BUG();
+			break;
+		}
+	} else {
 		stx7108_pio_config_direction(port, pin, direction,
 				config ? config->mode : NULL);
+	}
+
 	stx7108_pio_config_function(port, pin, function);
 	if (config && config->retime)
 		stx7108_pio_config_retime(port, pin, config->retime);
@@ -1117,7 +1134,7 @@ void __init stx7108_early_device_init(void)
 			ARRAY_SIZE(stx7108_pio_devices),
 			ILC_FIRST_IRQ + ILC_NR_IRQS);
 	stm_pad_init(ARRAY_SIZE(stx7108_pio_devices) * STM_GPIO_PINS_PER_PORT,
-			0, stx7108_pio_config);
+		     0, 0, stx7108_pio_config);
 
 	sc = sysconf_claim(SYS_STA_BANK1, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);

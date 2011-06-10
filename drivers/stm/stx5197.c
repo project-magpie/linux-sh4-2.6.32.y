@@ -1025,7 +1025,7 @@ void __init stx5197_early_device_init(void)
 			ARRAY_SIZE(stx5197_pio_devices),
 			ILC_FIRST_IRQ + ILC_NR_IRQS);
 	stm_pad_init(ARRAY_SIZE(stx5197_pio_devices) * STM_GPIO_PINS_PER_PORT,
-			STX5197_GPIO_FUNCTION, stx5197_pio_config);
+		     -1, STX5197_GPIO_FUNCTION, stx5197_pio_config);
 
 	sc = sysconf_claim(CFG_MONITOR_H, 0, 31, "devid");
 	devid = sysconf_read(sc);

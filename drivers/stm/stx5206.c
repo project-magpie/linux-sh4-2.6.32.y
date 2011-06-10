@@ -506,7 +506,7 @@ void __init stx5206_early_device_init(void)
 			ARRAY_SIZE(stx5206_pio_devices),
 			ILC_FIRST_IRQ + ILC_NR_IRQS);
 	stm_pad_init(ARRAY_SIZE(stx5206_pio_devices) * STM_GPIO_PINS_PER_PORT,
-			STX5206_GPIO_FUNCTION, stx5206_pio_config);
+		     -1, STX5206_GPIO_FUNCTION, stx5206_pio_config);
 
 	/* Route the GPIO block to the PIOx pads, as by default the
 	 * SATFE owns them... (why oh why???) */

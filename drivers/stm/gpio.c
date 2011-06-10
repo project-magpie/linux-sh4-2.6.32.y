@@ -384,9 +384,7 @@ static void stm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 
 static int stm_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 {
-	struct stm_gpio_port *port = to_stm_gpio_port(chip);
-
-	set__PIO_PCx__INPUT_HIGH_IMPEDANCE(port->base, offset);
+	stm_pad_configure_gpio(chip->base + offset, STM_GPIO_DIRECTION_IN);
 
 	return 0;
 }
@@ -398,7 +396,7 @@ static int stm_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 
 	__stm_gpio_set(port, offset, value);
 
-	set__PIO_PCx__OUTPUT_PUSH_PULL(port->base, offset);
+	stm_pad_configure_gpio(chip->base + offset, STM_GPIO_DIRECTION_OUT);
 
 	return 0;
 }
@@ -461,7 +459,7 @@ struct stpio_pin *__stpio_request_pin(unsigned int port_no,
 	if (__set_value)
 		__stm_gpio_set(port, pin_no, value);
 
-	__stm_gpio_direction(port, pin_no, direction);
+	stm_pad_configure_gpio(stm_gpio(port_no, pin_no), direction);
 
 	gpio_pin->stpio.port_no = port_no;
 	gpio_pin->stpio.pin_no = pin_no;
@@ -478,10 +476,7 @@ EXPORT_SYMBOL(stpio_free_pin);
 
 void stpio_configure_pin(struct stpio_pin *pin, int direction)
 {
-	struct stm_gpio_port *port = &stm_gpio_ports[pin->port_no];
-	int pin_no = pin->pin_no;
-
-	__stm_gpio_direction(port, pin_no, direction);
+	stm_pad_configure_gpio(stm_gpio(pin->port_no, pin->pin_no), direction);
 }
 EXPORT_SYMBOL(stpio_configure_pin);
 

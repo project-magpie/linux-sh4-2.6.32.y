@@ -414,7 +414,7 @@ void __init stx7200_early_device_init(void)
 			ARRAY_SIZE(stx7200_pio_devices),
 			ILC_FIRST_IRQ + ILC_NR_IRQS);
 	stm_pad_init(ARRAY_SIZE(stx7200_pio_devices) * STM_GPIO_PINS_PER_PORT,
-			-1, stx7200_pio_config);
+		     -1, 0, stx7200_pio_config);
 
 	sc = sysconf_claim(SYS_DEV, 0, 0, 31, "devid");
 	devid = sysconf_read(sc);

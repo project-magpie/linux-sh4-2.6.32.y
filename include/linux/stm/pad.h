@@ -194,12 +194,13 @@ struct stm_pad_config {
  * and configure given GPIO to requested direction & alternative function.
  *
  * gpios_num is a overall number of PIO lines provided by the SOC,
- * gpio_function is a number that should be passed to the gpio_config
- * function in order to select generic PIO functionality.
+ * gpio_function_in and gpio_function_out are the numbers that should be passed
+ * to the gpio_config function in order to select generic PIO functionality, for
+ * input and output directions respectively.
  *
  * See also above (stm_pad_gpio_value definition). */
 
-int stm_pad_init(int gpios_num, int gpio_function,
+int stm_pad_init(int gpios_num, int gpio_function_in, int gpio_function_out,
 			int (*gpio_config)(unsigned gpio,
 			enum stm_pad_gpio_direction direction,
 			int function, void *priv));
@@ -218,6 +219,7 @@ void devm_stm_pad_release(struct device *dev, struct stm_pad_state *state);
 
 /* Functions below are private methods, for the GPIO driver use only! */
 int stm_pad_claim_gpio(unsigned gpio);
+void stm_pad_configure_gpio(unsigned gpio, unsigned direction);
 void stm_pad_release_gpio(unsigned gpio);
 const char *stm_pad_get_gpio_owner(unsigned gpio);
 

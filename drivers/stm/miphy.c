@@ -547,6 +547,7 @@ struct stm_miphy *stm_miphy_claim(int port, enum miphy_mode mode,
 {
 	struct stm_miphy *iterator;
 	struct stm_miphy *miphy = NULL;
+	u8 miphy_version, miphy_revision;
 
 	if (!owner)
 		return NULL;
@@ -576,6 +577,13 @@ struct stm_miphy *stm_miphy_claim(int port, enum miphy_mode mode,
 	}
 
 	miphy->owner = owner;
+
+	miphy_version = stm_miphy_read(miphy, MIPHY_VERSION);
+	miphy_revision = stm_miphy_read(miphy, MIPHY_REVISION);
+	pr_info("MiPHY%d, c%d.%d Claimed by %s \n",
+			(miphy_version >> 4) & 0x7,
+			(miphy_version & 0xf),
+			 miphy_revision, dev_name(miphy->owner));
 
 	stm_miphy_start(miphy);
 
@@ -646,27 +654,6 @@ int miphy_if_register(struct stm_miphy_device *miphy_dev,
 	mutex_init(&miphy_dev->mutex);
 	miphy_dev->ops = ops;
 	miphy_dev->type = type;
-
-	for (miphy_num = 0, miphy = new_miphys;
-	     miphy_num < miphy_count;
-	     miphy_num++, miphy++) {
-		char extra_info[40];
-		u8 miphy_version, miphy_revision;
-
-		if (type != DUMMY_IF) {
-			miphy_version = stm_miphy_read(miphy, MIPHY_VERSION);
-			miphy_revision = stm_miphy_read(miphy, MIPHY_REVISION);
-			snprintf(extra_info, sizeof(extra_info),
-				 " (MiPHY%d, c%d.%d)",
-				 (miphy_version >> 4) & 0x7,
-				 (miphy_version & 0xf),
-				 miphy_revision);
-		} else
-			extra_info[0] = '\0';
-
-		dev_info(miphy->device, "using device %s%s.\n",
-			 dev_name(parent), extra_info);
-	}
 
 	return 0;
 }

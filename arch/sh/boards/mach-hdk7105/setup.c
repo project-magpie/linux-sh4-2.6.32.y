@@ -339,6 +339,15 @@ static int __init hdk7105_device_init(void)
 	gpio_request(stm_gpio(15, 3), "SPI Boot DIN");
 	gpio_direction_input(stm_gpio(15, 3));
 
+	/*
+	 * Fix the reset chain so it correct to start with in case the
+	 * watchdog expires or we trigger a reset.
+	 */
+	sc = sysconf_claim(SYS_CFG, 9, 27, 28, "reset_chain");
+	sysconf_write(sc, 0);
+	/* Release the sysconf bits so the coprocessor driver can claim them */
+	sysconf_release(sc);
+
 	/* I2C_xxxA - HDMI */
 	stx7105_configure_ssc_i2c(0, &(struct stx7105_ssc_config) {
 			.routing.ssc0.sclk = stx7105_ssc0_sclk_pio2_2,

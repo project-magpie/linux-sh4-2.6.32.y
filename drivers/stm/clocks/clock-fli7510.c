@@ -434,26 +434,26 @@ static void *clkgen_audio_base;
 static int clkgen_audio_enable(struct clk *clk)
 {
 	unsigned long value = readl(CTL_SYNTH4X_AUD_N(clkgen_audio_base,
-				clk->id));
+				clk->id - CLKC_FS_FREE_RUN + 1));
 
 	value &= ~NSB__MASK;
 	value |= NSB__ACTIVE;
 
 	writel(value, CTL_SYNTH4X_AUD_N(clkgen_audio_base,
-		clk->id - CLKC_FS_FREE_RUN));
+		clk->id - CLKC_FS_FREE_RUN + 1));
 	return 0;
 }
 
 static int clkgen_audio_disable(struct clk *clk)
 {
 	unsigned long value = readl(CTL_SYNTH4X_AUD_N(clkgen_audio_base,
-				clk->id));
+				clk->id - CLKC_FS_FREE_RUN + 1));
 
 	value &= ~NSB__MASK;
 	value |= NSB__STANDBY;
 
 	writel(value, CTL_SYNTH4X_AUD_N(clkgen_audio_base,
-		clk->id - CLKC_FS_FREE_RUN));
+		clk->id - CLKC_FS_FREE_RUN + 1));
 
        return 0;
 }
@@ -472,7 +472,7 @@ static int clkgen_audio_set_rate(struct clk *clk, unsigned long rate)
 		return -EINVAL;
 
 	value = readl(CTL_SYNTH4X_AUD_N(clkgen_audio_base,
-		clk->id - CLKC_FS_FREE_RUN));
+		clk->id - CLKC_FS_FREE_RUN + 1));
 
 	value &= ~MD__MASK;
 	value |= MD__(md);
@@ -484,7 +484,7 @@ static int clkgen_audio_set_rate(struct clk *clk, unsigned long rate)
 	value |= SDIV__(sdiv);
 
 	writel(value, CTL_SYNTH4X_AUD_N(clkgen_audio_base,
-		clk->id - CLKC_FS_FREE_RUN));
+		clk->id - CLKC_FS_FREE_RUN + 1));
 
 	if (clk_fsyn_get_rate(clk_get_rate(clk->parent), pe, md,
 		sdiv, &clk->rate))

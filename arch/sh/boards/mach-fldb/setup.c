@@ -1,7 +1,7 @@
 /*
  * arch/sh/boards/mach-fldb/setup.c
  *
- * Copyright (C) 2010 STMicroelectronics Limited
+ * Copyright (C) 2010-2011 STMicroelectronics Limited
  * Author: Pawel Moll <pawel.moll@st.com>
  *
  * May be copied or modified under the terms of the GNU General Public
@@ -26,6 +26,7 @@
 #include <linux/stm/fli7510.h>
 #include <linux/stm/pci-synopsys.h>
 #include <asm/irq-ilc.h>
+#include <sound/stm.h>
 
 
 
@@ -306,6 +307,11 @@ static int __init fldb_device_init(void)
 	 * CNG6 connector, the CNG4 has to be connected to CNG3.
 	 */
 	fli7510_configure_mmc();
+
+	fli7510_configure_audio(&(struct fli7510_audio_config) {
+			.pcm_player_0_output_mode =
+					fli7510_pcm_player_0_output_8_channels,
+			.spdif_player_output_enabled = 1, });
 
 	return platform_add_devices(fldb_devices,
 			ARRAY_SIZE(fldb_devices));

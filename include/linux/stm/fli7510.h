@@ -161,6 +161,20 @@ void fli7510_configure_usb(int port, struct fli7510_usb_config *config);
 
 void fli7510_configure_mmc(void);
 
+struct fli7510_audio_config {
+	enum {
+		fli7510_pcm_player_0_output_disabled,
+		fli7510_pcm_player_0_output_2_channels,
+		fli7510_pcm_player_0_output_4_channels,
+		fli7510_pcm_player_0_output_6_channels,
+		fli7510_pcm_player_0_output_8_channels,
+	} pcm_player_0_output_mode; /* a.k.a. I2SA_OUT, a.k.a. MAIN */
+	int pcm_player_1_output_enabled; /* a.k.a. I2SC_OUT, a.k.a. SEC */
+	int spdif_player_output_enabled;
+};
+void fli7510_configure_audio(struct fli7510_audio_config *config);
+
+
 void fli7510_configure_pci(struct stm_plat_pci_config *pci_config);
 int  fli7510_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,
 		u8 pin);

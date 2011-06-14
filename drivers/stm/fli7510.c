@@ -1,5 +1,5 @@
 /*
- * (c) 2010 STMicroelectronics Limited
+ * (c) 2010-2011 STMicroelectronics Limited
  *
  * Author: Pawel Moll <pawel.moll@st.com>
  *
@@ -176,14 +176,20 @@ static struct stm_plat_fdma_data fli7510_fdma_platform_data = {
 	.fw = &stm_fdma_firmware_7510,
 };
 
+/*
+ * Normally device 0 would be the real-time fdma and device 1 would be the
+ * non-real-time fdma. Here they are swapped as output pins 0-31 on fdma-xbar
+ * are routed to the non-real-time fdma and output pins 32-63 are routed to the
+ * real-time fdma. You must ensure that that firmware to load is named correctly
+ */
 static struct platform_device fli7510_fdma_devices[] = {
 	{
 		.name = "stm-fdma",
 		.id = 0,
 		.num_resources = 2,
 		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd660000, 0x10000),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(36), -1),
+			STM_PLAT_RESOURCE_MEM(0xfd910000, 0x10000),
+			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(38), -1),
 		},
 		.dev.platform_data = &fli7510_fdma_platform_data,
 	}, {
@@ -191,8 +197,8 @@ static struct platform_device fli7510_fdma_devices[] = {
 		.id = 1,
 		.num_resources = 2,
 		.resource = (struct resource[2]) {
-			STM_PLAT_RESOURCE_MEM(0xfd910000, 0x10000),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(38), -1),
+			STM_PLAT_RESOURCE_MEM(0xfd660000, 0x10000),
+			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(36), -1),
 		},
 		.dev.platform_data = &fli7510_fdma_platform_data,
 	}

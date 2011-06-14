@@ -353,6 +353,7 @@ config SH_ST_FLDB
 	bool "fldb: Freeman Lite Development Board"
 	depends on CPU_SUBTYPE_FLI7510
 	select SYS_SUPPORTS_PCI
+	select SND_STM_CONV_GPIO if SND_STM
 	default n
 	help
 	  Select this if configuring for a
@@ -362,7 +363,7 @@ config SH_ST_FUDB
 	bool "fudb: Freeman Ultra Development Board"
 	depends on CPU_SUBTYPE_FLI7510
 	select SYS_SUPPORTS_PCI
-	select SND_STM_CONV_DUMMY if SND_STM
+	select SND_STM_CONV_GPIO if SND_STM
 	help
 	  Select this if configuring for a
 	  Freeman Ultra Development Board.

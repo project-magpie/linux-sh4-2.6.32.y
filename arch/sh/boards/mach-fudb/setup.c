@@ -1,7 +1,7 @@
 /*
  * arch/sh/boards/mach-fudb/setup.c
  *
- * Copyright (C) 2010 STMicroelectronics Limited
+ * Copyright (C) 2010-2011 STMicroelectronics Limited
  * Author: Pawel Moll <pawel.moll@st.com>
  *
  * May be copied or modified under the terms of the GNU General Public
@@ -23,6 +23,7 @@
 #include <linux/stm/fli7510.h>
 #include <linux/stm/pci-synopsys.h>
 #include <asm/irq-ilc.h>
+#include <sound/stm.h>
 
 #define FUDB_PIO_RESET_OUTN stm_gpio(11, 5)
 
@@ -177,6 +178,11 @@ static int __init fudb_device_init(void)
 			.rbn.flex_connected = 1,});
 
 	fli7510_configure_mmc();
+
+	fli7510_configure_audio(&(struct fli7510_audio_config) {
+			.pcm_player_0_output_mode =
+					fli7510_pcm_player_0_output_8_channels,
+			.spdif_player_output_enabled = 1, });
 
 	return platform_add_devices(fudb_devices,
 			ARRAY_SIZE(fudb_devices));

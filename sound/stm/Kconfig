@@ -70,6 +70,20 @@ config SND_STM_BPA2_PARTITION_NAME
 comment "SOC support"
 	depends on SND_STM
 
+config SND_STM_FLI7510
+	tristate "Freeman 510/520/530/540 support"
+	depends on SND_STM
+	default y if CPU_SUBTYPE_FLI7510
+	select SND_STM_PCM_PLAYER
+	select SND_STM_PCM_READER
+	select SND_STM_SPDIF_PLAYER
+	help
+		Select this to get ALSA driver for Freeman 510/520/530/540
+		(FLI7510/FLI7520/FLI7530/FLI7540) chips.
+
+		If you compile this driver as a module, it will be
+		called snd-stm-fli7510.ko
+
 config SND_STM_STX7100
 	tristate "STx7100 and STx7109 support"
 	depends on SND_STM

@@ -311,7 +311,6 @@ static struct spi_board_info hdk7108_serial_flash[] =  {
 		.mode           = SPI_MODE_3,
 		.platform_data  = &(struct flash_platform_data) {
 			.name = "m25p80",
-			.type = "m25p128",
 			.parts = hdk7108_serial_flash_parts,
 			.nr_parts = ARRAY_SIZE(hdk7108_serial_flash_parts),
 		},
@@ -321,7 +320,6 @@ static struct spi_board_info hdk7108_serial_flash[] =  {
 #ifndef CONFIG_SH_ST_HDK7108_VER1_BOARD
 /* SPI_FSM: Serial Flash device */
 static struct stm_plat_spifsm_data hdk7108_spifsm_flash = {
-	.name = "m25p128",
 	.parts = hdk7108_serial_flash_parts,
 	.nr_parts = ARRAY_SIZE(hdk7108_serial_flash_parts),
 };

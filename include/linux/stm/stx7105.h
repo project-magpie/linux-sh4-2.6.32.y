@@ -230,6 +230,7 @@ struct stx7105_audio_config {
 		stx7105_pcm_player_0_output_2_channels,
 		stx7105_pcm_player_0_output_4_channels,
 		stx7105_pcm_player_0_output_6_channels,
+		stx7105_pcm_player_0_output_8_channels,
 	} pcm_player_0_output;
 	int pcm_player_1_enabled;
 	int spdif_player_output_enabled;

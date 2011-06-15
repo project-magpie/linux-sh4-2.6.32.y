@@ -1,3 +1,4 @@
+
 /*
  * pm_runtime.h - Device run-time power management helper functions.
  *
@@ -73,6 +74,7 @@ static inline bool pm_children_suspended(struct device *dev) { return false; }
 static inline void pm_suspend_ignore_children(struct device *dev, bool en) {}
 static inline void pm_runtime_get_noresume(struct device *dev) {}
 static inline void pm_runtime_put_noidle(struct device *dev) {}
+static inline bool pm_runtime_suspended(struct device *dev) { return false; }
 
 #endif /* !CONFIG_PM_RUNTIME */
 

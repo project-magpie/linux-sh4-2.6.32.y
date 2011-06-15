@@ -890,6 +890,9 @@ static struct flash_info __devinitdata flash_types[] = {
 	{ "w25x32",  0xef3016, 0,  64 * 1024,  64, W25X_CAPS, 75000000},
 	{ "w25x64",  0xef3017, 0,  64 * 1024, 128, W25X_CAPS, 75000000},
 
+#define N25Q_CAPS (FAST_READ | DUAL_READ)
+	{ "n25q128", 0x20ba18, 0, 64 * 1024,  256, N25Q_CAPS, 108000000},
+
 	/* Winbond -- w25q "blocks" are 64K, "sectors" are 4KiB */
 #define W25Q_CAPS (SECT_4K | SECT_32K | FAST_READ | DUAL_READ | QUAD_READ)
 	{ "w25q80",  0xef4014, 0,  64 * 1024,  16, W25Q_CAPS, 80000000},

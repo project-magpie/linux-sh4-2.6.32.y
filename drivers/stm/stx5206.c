@@ -139,9 +139,16 @@ static struct platform_device stx5206_spifsm_device = {
 	},
 };
 
-void __init stx5206_configure_spifsm(struct stm_plat_spifsm_data *spifsm_data)
+void __init stx5206_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
-	stx5206_spifsm_device.dev.platform_data = spifsm_data;
+	stx5206_spifsm_device.dev.platform_data = data;
+
+	/* SoC/IP Capabilities */
+	data->capabilities.quad_mode = 0;
+	data->capabilities.no_read_repeat = 1;
+	data->capabilities.no_write_repeat = 1;
+	data->capabilities.no_clk_div_4 = 1;
+	data->capabilities.read_status_bug = spifsm_no_read_status;
 
 	platform_device_register(&stx5206_spifsm_device);
 }

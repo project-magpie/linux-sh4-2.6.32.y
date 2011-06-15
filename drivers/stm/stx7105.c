@@ -147,17 +147,28 @@ static struct stm_pad_config stx7106_spifsm_pad_config = {
 void __init stx7106_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
 	/* Not available on stx7105 */
-	if (cpu_data->type == CPU_STX7105)
-		BUG();
+	BUG_ON(cpu_data->type == CPU_STX7105);
 
-	/* Configure pads for SPIBoot FSM */
-	/* Note, output pads must be configured as ALT_OUT rather than ALT_BIDIR
-	 * (see bug GNBvd8843).  As a result, FSM dual mode is not supported on
-	 * stx7106.
+	/* SoC/IP Capabilities */
+	data->capabilities.quad_mode = 0;
+	data->capabilities.no_write_repeat = 1;
+	data->capabilities.read_status_bug = spifsm_no_read_status;
+
+	/* Output pads must be configured as ALT_OUT rather than
+	 * ALT_BIDIR.  As a result, only single mode operation is
+	 * possible.
 	 */
-
 	if (stm_pad_claim(&stx7106_spifsm_pad_config, "SPIFSM") == NULL)
 		printk(KERN_ERR "Failed to claim SPIFSM pads!\n");
+	data->capabilities.dual_mode = 0;
+
+	if (cpu_data->cut_major == 1) {
+		data->capabilities.no_clk_div_4 = 1;
+		data->capabilities.dummy_on_write = 1;
+		data->capabilities.no_sw_reset = 1;
+	} else if (cpu_data->cut_major == 3) {
+		data->capabilities.no_poll_mode_change = 1;
+	}
 
 	stx7106_spifsm_device.dev.platform_data = data;
 

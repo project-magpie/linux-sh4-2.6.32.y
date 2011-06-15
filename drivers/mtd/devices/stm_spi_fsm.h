@@ -56,7 +56,7 @@
 #define SPI_MODESELECT_FASTREAD		0x02
 #define SPI_MODESELECT_DUALIO		0x04
 #define SPI_MODESELECT_FSM		0x08
-#define SPI_MODESELECT_QUAD		0x10
+#define SPI_MODESELECT_QUADBOOT		0x10
 
 /*
  * Register: SPI_CONFIGDATA
@@ -109,20 +109,41 @@
 #define SEQ_CFG_PADS_4			(0x3 << 16)
 
 /*
+ * Register: SPI_MODE_BITS
+ */
+#define MODE_DATA(x)			(x & 0xff)
+#define MODE_CYCLES(x)			((x & 0x3f) << 16)
+#define MODE_PADS_1			(0x0 << 22)
+#define MODE_PADS_2			(0x1 << 22)
+#define MODE_PADS_4			(0x3 << 22)
+#define DUMMY_CSDEASSERT		(1   << 24)
+
+/*
  * Register: SPI_DUMMY_BITS
  */
-#define DUMMY_CYCLES(x)			((x) << 16)
+#define DUMMY_CYCLES(x)			((x & 0x3f) << 16)
 #define DUMMY_PADS_1			(0x0 << 22)
 #define DUMMY_PADS_2			(0x1 << 22)
 #define DUMMY_PADS_4			(0x3 << 22)
 #define DUMMY_CSDEASSERT		(1   << 24)
 
 /*
+ * Register: SPI_FAST_SEQ_FLASH_STA_DATA
+ */
+#define STA_DATA_BYTE1(x)		((x & 0xff) << 0)
+#define STA_DATA_BYTE2(x)		((x & 0xff) << 8)
+#define STA_PADS_1			(0x0 << 16)
+#define STA_PADS_2			(0x1 << 16)
+#define STA_PADS_4			(0x3 << 16)
+#define STA_CSDEASSERT			(0x1 << 20)
+#define STA_RDNOTWR			(0x1 << 21)
+
+/*
  * FSM SPI Instruction Opcodes
  */
 #define FSM_OPC_CMD			0x1
 #define FSM_OPC_ADD			0x2
-#define FSM_OPC_STATUS_REG_DATA		0x3
+#define FSM_OPC_STA			0x3
 #define FSM_OPC_MODE			0x4
 #define FSM_OPC_DUMMY			0x5
 #define FSM_OPC_DATA			0x6
@@ -148,6 +169,11 @@
 #define FSM_INST_DATA_WRITE		FSM_INSTR(FSM_OPC_DATA,	 1)
 #define FSM_INST_DATA_READ		FSM_INSTR(FSM_OPC_DATA,	 2)
 
+#define FSM_INST_STA_RD1		FSM_INSTR(FSM_OPC_STA, 0x1)
+#define FSM_INST_STA_WR1		FSM_INSTR(FSM_OPC_STA, 0x1)
+#define FSM_INST_STA_RD2		FSM_INSTR(FSM_OPC_STA, 0x2)
+#define FSM_INST_STA_WR1_2		FSM_INSTR(FSM_OPC_STA, 0x3)
+
 #define FSM_INST_MODE			FSM_INSTR(FSM_OPC_MODE,	 0)
 
 #define FSM_INST_DUMMY			FSM_INSTR(FSM_OPC_DUMMY, 0)
@@ -155,6 +181,5 @@
 #define FSM_INST_WAIT			FSM_INSTR(FSM_OPC_WAIT,	 0)
 
 #define FSM_INST_STOP			FSM_INSTR(FSM_OPC_STOP,	 0)
-
 
 #endif	/* STM_SPI_FSM_H */

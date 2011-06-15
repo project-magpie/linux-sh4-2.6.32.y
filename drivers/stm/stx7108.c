@@ -177,7 +177,16 @@ static struct platform_device stx7108_spifsm_device = {
 
 void __init stx7108_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
+	/* SPI FSM Controller not functional on stx7108 cut 1.0 */
+	BUG_ON(cpu_data->cut_major == 1);
+
 	stx7108_spifsm_device.dev.platform_data = data;
+
+	/* SoC/IP Capabilities */
+	data->capabilities.no_read_repeat = 1;
+	data->capabilities.no_write_repeat = 1;
+	data->capabilities.read_status_bug = spifsm_read_status_clkdiv4;
+	data->capabilities.no_poll_mode_change = 1;
 
 	platform_device_register(&stx7108_spifsm_device);
 }

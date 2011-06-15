@@ -256,6 +256,10 @@ static struct stm_plat_spifsm_data hdk7106_serial_flash =  {
 			.offset = MTDPART_OFS_NXTBLK,
 		},
 	},
+	.capabilities = {
+		/* Capabilities may be overriden by SoC configuration */
+		.dual_mode = 1,
+	}
 };
 
 static struct platform_device *hdk7106_devices[] __initdata = {

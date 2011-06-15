@@ -303,11 +303,33 @@ struct stm_nand_config {
 
 /*** STM SPI FSM Serial Flash data ***/
 
+struct stm_spifsm_caps {
+	/* Board/SoC/IP capabilities */
+	int dual_mode:1;		/* DUAL mode */
+	int quad_mode:1;		/* QUAD mode */
+
+	/* IP capabilities */
+	int addr_32bit:1;		/* 32bit addressing supported */
+	int no_poll_mode_change:1;	/* Polling MODE_CHANGE broken */
+	int no_clk_div_4:1;		/* Bug prevents ClK_DIV=4 */
+	int no_sw_reset:1;		/* S/W reset not possible */
+	int dummy_on_write:1;		/* Bug requires "dummy" sequence on
+					 * WRITE */
+	int no_read_repeat:1;		/* READ repeat sequence broken */
+	int no_write_repeat:1;		/* WRITE repeat sequence broken */
+	enum {
+		spifsm_no_read_status = 1,	/* READ_STA broken */
+		spifsm_read_status_clkdiv4,	/* READ_STA only at CLK_DIV=4 */
+	} read_status_bug;
+};
+
 struct stm_plat_spifsm_data {
 	char			*name;
 	struct mtd_partition	*parts;
 	unsigned int		nr_parts;
 	unsigned int		max_freq;
+
+	struct stm_spifsm_caps	capabilities;
 };
 
 

@@ -127,6 +127,12 @@ void __init fli7510_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
 	fli7510_spifsm_device.dev.platform_data = data;
 
+	/* SoC/IP Capabilities */
+	data->capabilities.quad_mode = 0;
+	data->capabilities.no_read_repeat = 1;
+	data->capabilities.no_write_repeat = 1;
+	data->capabilities.read_status_bug = spifsm_no_read_status;
+
 	platform_device_register(&fli7510_spifsm_device);
 }
 

@@ -139,6 +139,10 @@ void __init mbxxx_configure_serial_flash(struct spi_board_info *serial_flash)
 	spifsm_serial_flash.nr_parts = data->nr_parts;
 	spifsm_serial_flash.parts = data->parts;
 
+	/* Capabilities may be overriden by SoC configuration */
+	spifsm_serial_flash.capabilities.dual_mode = 1;
+	spifsm_serial_flash.capabilities.quad_mode = 1;
+
 	stx5206_configure_spifsm(&spifsm_serial_flash);
 }
 #endif

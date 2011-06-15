@@ -320,6 +320,11 @@ static struct spi_board_info hdk7108_serial_flash[] =  {
 static struct stm_plat_spifsm_data hdk7108_spifsm_flash = {
 	.parts = hdk7108_serial_flash_parts,
 	.nr_parts = ARRAY_SIZE(hdk7108_serial_flash_parts),
+	.capabilities = {
+		/* Capabilities may be overriden by SoC configuration */
+		.dual_mode = 1,
+		.quad_mode = 1,
+	},
 };
 #endif
 

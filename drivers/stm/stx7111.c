@@ -306,6 +306,64 @@ static struct platform_device stx7111_pio_devices[] = {
 			STM_PLAT_RESOURCE_IRQ(evt2irq(0x1000), -1),
 		},
 	},
+
+	/* Standalone PIO blocks */
+	/* All the following block use the same interrupt, which is
+	 * defined as a separate platform device below */
+	[7] = {
+		.name = "stm-gpio",
+		.id = 7,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe010000, 0x100),
+		},
+	},
+	[8] = {
+		.name = "stm-gpio",
+		.id = 8,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe011000, 0x100),
+		},
+	},
+	[9] = {
+		.name = "stm-gpio",
+		.id = 9,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe012000, 0x100),
+		},
+	},
+	[10] = {
+		.name = "stm-gpio",
+		.id = 10,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe013000, 0x100),
+		},
+	},
+	[11] = {
+		.name = "stm-gpio",
+		.id = 11,
+		.num_resources = 1,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe014000, 0x100),
+		},
+	},
+};
+
+static struct platform_device stx7111_pio_irqmux_device = {
+	.name = "stm-gpio-irqmux",
+	.id = -1,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0xfe01f080, 0x4),
+		STM_PLAT_RESOURCE_IRQ(evt2irq(0xbc0), -1),
+	},
+	.dev.platform_data = &(struct stm_plat_pio_irqmux_data) {
+		.port_first = 7,
+		.ports_num = 5,
+	}
 };
 
 static int stx7111_pio_config(unsigned gpio,
@@ -401,6 +459,7 @@ static int __init stx7111_postcore_setup(void)
 
 	for (i = 0; i < ARRAY_SIZE(stx7111_pio_devices); i++)
 		platform_device_register(&stx7111_pio_devices[i]);
+	platform_device_register(&stx7111_pio_irqmux_device);
 
 	return platform_device_register(&stx7111_emi);
 }

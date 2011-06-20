@@ -387,7 +387,7 @@ static int snd_stm_pcm_reader_hw_params(struct snd_pcm_substream *substream,
 		/* This is a workaround for a problem in early releases
 		 * of multi-channel PCM Readers with FIFO underrunning (!!!),
 		 * caused by spurious request line generation... */
-		if (pcm_reader->ver < 2 && transfer_size > 2)
+		if (pcm_reader->ver < 6 && transfer_size > 2)
 			fdma_req_config.count = transfer_size / 2;
 		else
 			fdma_req_config.count = transfer_size;

@@ -35,25 +35,33 @@ static struct clk *module_clk;
  *	value: 0  1  2  3  4  5  6     7
  *	ratio: 1, 2, 3, 4, 6, 8, 1024, 1
  */
-static unsigned long stx7200c1_ratios[] = {
+static unsigned long stx7200c1_hw_ratios[] = {
 /*	  cpu	   bus	    per */
 	(0 << 1) | (1 << 4) | (3 << 7),	/* 1:1 - 1:2 - 1:4 */
 	(1 << 1) | (3 << 4) | (3 << 7),	/* 1:2 - 1:4 - 1:4 */
 	(3 << 1) | (5 << 4) | (5 << 7)	/* 1:4 - 1:8 - 1:8 */
 };
 
-static unsigned long stx7200c2_ratios[] = { /* ratios for Cut 2.0 */
+static unsigned long stx7200c2_hw_ratios[] = { /* ratios for Cut 2.0 */
 /*        cpu   */
 	(1 << 1),
 	(2 << 1),
 };
 
-static unsigned long *stx7200_ratios = stx7200c2_ratios;
+static unsigned long *stx7200_hw_ratios = stx7200c2_hw_ratios;
+
+/*
+ * The stx7200_divisor is ready for Cut 2
+ * but in case of Cut 1 the stx7200_divisor[2] is updated
+ * to support the divisor equal '4'
+ */
+static unsigned char stx7200_divisor[] = {
+		1, 2, STM_FREQ_NOMORE_DIVISOR, STM_FREQ_NOMORE_DIVISOR };
 
 static int stx7200_update(unsigned int set);
 
 static struct stm_cpufreq stx7200_cpufreq = {
-	.num_frequency = ARRAY_SIZE(stx7200c2_ratios),
+	.divisors = stx7200_divisor,
 	.update = stx7200_update,
 };
 
@@ -84,7 +92,7 @@ static int stx7200_update(unsigned int set)
 	else
 		clks_value &= ~SH4_CLK_MASK_C2;
 
-	clks_value |= stx7200_ratios[set];
+	clks_value |= stx7200_hw_ratios[set];
 
 	/*
 	 * After changing the clock divider we need a short delay
@@ -140,7 +148,7 @@ static int __init stx7200_cpufreq_init(void)
 {
 	if (cpu_data->cut_major < 2)
 		return -ENODEV;
-	stx7200_cpufreq.cpu_clk = clk_get(NULL, "st40_clk");
+	stx7200_cpufreq.cpu_clk = clk_get(NULL, "cpu_clk");
 	if (!stx7200_cpufreq.cpu_clk)
 		return -EINVAL;
 
@@ -152,8 +160,9 @@ static int __init stx7200_cpufreq_init(void)
 	}
 
 	if (cpu_data->cut_major < 2) {
-		stx7200_cpufreq.num_frequency = ARRAY_SIZE(stx7200c1_ratios);
-		stx7200_ratios = stx7200c1_ratios;
+		/* add a new divisor for Cut 1 */
+		stx7200_cpufreq.divisors[2] = 4;
+		stx7200_hw_ratios = stx7200c1_hw_ratios;
 		sh4_ic_clk = clk_get(NULL, "st40_ic_clk");
 		module_clk = clk_get(NULL, "st40_per_clk");
 		if (!sh4_ic_clk) {

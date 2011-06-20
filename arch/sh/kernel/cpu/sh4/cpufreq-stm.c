@@ -1,8 +1,6 @@
 /*
  *
- * Copyright (C) 2010 STMicroelectronics
- * Copyright (C) 2009 STMicroelectronics
- * Copyright (C) 2008 STMicroelectronics
+ * Copyright (C) 2008-2011 STMicroelectronics
  * Author: Francesco M. Virlinzi <francesco.virlinzi@st.com>
  *
  * This program is under the terms of the
@@ -146,32 +144,47 @@ static struct cpufreq_driver stm_cpufreq_driver = {
 
 int stm_cpufreq_register(struct stm_cpufreq *soc_cpufreq)
 {
-	int idx;
+	int idx, num_divisors;
+	unsigned char *divisors;
 
 	cpufreq_debug_printk(CPUFREQ_DEBUG_DRIVER,
 		"st_cpufreq_platform_init:", "\n");
+
 	if (stm_cpufreq)
 		return -EINVAL;
-	if (!soc_cpufreq->num_frequency || !soc_cpufreq->update ||
+
+	if (!soc_cpufreq->divisors || !soc_cpufreq->update ||
 		!soc_cpufreq->cpu_clk)
 		return -EINVAL;
 
 	stm_cpufreq = soc_cpufreq;
+	divisors = stm_cpufreq->divisors;
 
-	cpu_freqs = kcalloc(stm_cpufreq->num_frequency + 1,
-			    sizeof(*cpu_freqs), GFP_KERNEL);
+	for (num_divisors = 0;
+	     divisors[num_divisors] != STM_FREQ_NOMORE_DIVISOR;
+	     ++num_divisors)
+		;
 
-	for (idx = 0; idx < stm_cpufreq->num_frequency; ++idx) {
+	cpufreq_debug_printk(CPUFREQ_DEBUG_DRIVER,
+		"st_cpufreq_platform_init:", "%d\n", num_divisors);
+
+	cpu_freqs = kmalloc((num_divisors + 1) * sizeof(*cpu_freqs),
+			GFP_KERNEL);
+
+	if (!cpu_freqs)
+		return -ENOMEM;
+
+	for (idx = 0; idx < num_divisors; ++idx) {
 		cpu_freqs[idx].index = idx;
 		cpu_freqs[idx].frequency =
-		    (clk_get_rate(stm_cpufreq->cpu_clk) / 1000) >> idx;
+		    (clk_get_rate(stm_cpufreq->cpu_clk) / 1000) / divisors[idx];
 
 		cpufreq_debug_printk(CPUFREQ_DEBUG_DRIVER,
 			"st_cpufreq_module_init", "Initialize idx %u @ %uKHz\n",
 			idx, cpu_freqs[idx].frequency);
 	}
 
-	cpu_freqs[stm_cpufreq->num_frequency].frequency = CPUFREQ_TABLE_END;
+	cpu_freqs[num_divisors].frequency = CPUFREQ_TABLE_END;
 
 	if (cpufreq_register_driver(&stm_cpufreq_driver)) {
 		stm_cpufreq = NULL;

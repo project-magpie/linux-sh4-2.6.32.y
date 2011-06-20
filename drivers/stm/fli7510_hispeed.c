@@ -13,6 +13,7 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/ethtool.h>
+#include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/phy.h>
 #include <linux/stm/pad.h>
@@ -343,12 +344,37 @@ static struct stm_pad_config fli7510_usb_pad_configs[] = {
 	}
 };
 
+static void fli7510_usb_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, "USB_PWR", value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, "USB_ACK")
+			== value)
+			break;
+		mdelay(10);
+	}
+
+	return;
+}
+
 static struct stm_plat_usb_data fli7510_usb_platform_data = {
 	.flags = STM_PLAT_USB_FLAGS_STRAP_16BIT |
 		STM_PLAT_USB_FLAGS_STRAP_PLL |
 		STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
 	.device_config = &(struct stm_device_config){
 		/* .pad_config set in fli7510_configure_usb() */
+		.sysconfs_num = 2,
+		.sysconfs = (struct stm_device_sysconf []){
+			STM_DEVICE_SYSCONF(CFG_COMMS_CONFIG_1,
+				8, 8, "USB_PWR"),
+			STM_DEVICE_SYSCONF(CFG_COMMS_TRS_STATUS,
+				16, 16, "USB_ACK"),
+		},
+		.power = fli7510_usb_power,
 	},
 };
 
@@ -498,6 +524,42 @@ static struct stm_pad_config *fli7520_usb_pad_configs[] = {
 	},
 };
 
+static struct sysconf_field *sc_fli7520_usb_power;
+static atomic_t fli7520_usb_usage_counter = ATOMIC_INIT(0);
+static atomic_t fli7520_usb_power_counter = ATOMIC_INIT(0);
+
+static int fli7520_usb_init(struct stm_device_state *device_state)
+{
+	if (atomic_inc_return(&fli7520_usb_usage_counter) == 1)
+		sc_fli7520_usb_power =
+			sysconf_claim(CFG_COMMS_CONFIG_1,
+				8, 8, "USB_PWR");
+	return 0;
+}
+
+static int fli7520_usb_exit(struct stm_device_state *device_state)
+{
+	if (!atomic_dec_return(&fli7520_usb_usage_counter))
+		sysconf_release(sc_fli7520_usb_power);
+
+	return 0;
+}
+
+static int fli7520_usb_power(struct stm_device_state *device_state,
+	enum stm_device_power_state power)
+{
+	if (power == stm_device_power_on) {
+		sysconf_write(sc_fli7520_usb_power, 0);
+		atomic_inc(&fli7520_usb_power_counter);
+		return 0;
+	}
+
+	if (!atomic_dec_return(&fli7520_usb_power_counter))
+		sysconf_write(sc_fli7520_usb_power, 1);
+
+	return 0;
+}
+
 static struct stm_plat_usb_data fli7520_usb_platform_data[] = {
 	[0] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
@@ -505,6 +567,9 @@ static struct stm_plat_usb_data fli7520_usb_platform_data[] = {
 			STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
 		.device_config = &(struct stm_device_config){
 			/* .pad_config set in fli7510_configure_usb() */
+			.init = fli7520_usb_init,
+			.power = fli7520_usb_power,
+			.exit = fli7520_usb_exit,
 		},
 	},
 	[1] = {
@@ -513,6 +578,9 @@ static struct stm_plat_usb_data fli7520_usb_platform_data[] = {
 			STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
 		.device_config = &(struct stm_device_config){
 			/* .pad_config set in fli7510_configure_usb() */
+			.init = fli7520_usb_init,
+			.power = fli7520_usb_power,
+			.exit = fli7520_usb_exit,
 		},
 	},
 };

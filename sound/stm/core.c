@@ -739,7 +739,7 @@ void snd_stm_iec958_dump(const struct snd_aes_iec958 *vuc)
 			sprintf(line, "%p subcode  %03d:",
 					(unsigned char *)vuc +
 					offsetof(struct snd_aes_iec958,
-					dig_subframe) + i, i);
+					subcode) + i, i);
 		sprintf(line + 22 + ((i % 10) * 3), " %02x", *data++);
 		if (i % 10 == 9 || i == 146)
 			printk(KERN_DEBUG "%s\n", line);

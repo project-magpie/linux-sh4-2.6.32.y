@@ -295,6 +295,7 @@ out:
 	return err ? 0 : 1;
 }
 
+#if 0
 static int mmc_blk_issue_secdiscard_rq(struct mmc_queue *mq,
 				       struct request *req)
 {
@@ -330,6 +331,7 @@ out:
 
 	return err ? 0 : 1;
 }
+#endif
 
 static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 {

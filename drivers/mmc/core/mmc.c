@@ -173,14 +173,17 @@ static int mmc_decode_csd(struct mmc_card *card)
 }
 
 /*
- * Read and decode extended CSD.
+ * Read extended CSD.
  */
-static int mmc_read_ext_csd(struct mmc_card *card)
+static int mmc_get_ext_csd(struct mmc_card *card, u8 **new_ext_csd)
 {
 	int err;
 	u8 *ext_csd;
 
 	BUG_ON(!card);
+	BUG_ON(!new_ext_csd);
+
+	*new_ext_csd = NULL;
 
 	if (card->csd.mmca_vsn < CSD_SPEC_VER_4)
 		return 0;
@@ -198,12 +201,15 @@ static int mmc_read_ext_csd(struct mmc_card *card)
 
 	err = mmc_send_ext_csd(card, ext_csd);
 	if (err) {
+		kfree(ext_csd);
+		*new_ext_csd = NULL;
+
 		/* If the host or the card can't do the switch,
 		 * fail more gracefully. */
 		if ((err != -EINVAL)
 		 && (err != -ENOSYS)
 		 && (err != -EFAULT))
-			goto out;
+			return err;
 
 		/*
 		 * High capacity cards should have this "magic" size
@@ -221,9 +227,23 @@ static int mmc_read_ext_csd(struct mmc_card *card)
 				mmc_hostname(card->host));
 			err = 0;
 		}
+	} else
+		*new_ext_csd = ext_csd;
 
-		goto out;
-	}
+	return err;
+}
+
+/*
+ * Decode extended CSD.
+ */
+static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
+{
+	int err = 0;
+
+	BUG_ON(!card);
+
+	if (!ext_csd)
+		return 0;
 
 	/* Version is coded in the CSD_STRUCTURE byte in the EXT_CSD register */
 	if (card->csd.structure == 3) {
@@ -357,8 +377,69 @@ static int mmc_read_ext_csd(struct mmc_card *card)
 		card->erased_byte = 0x0;
 
 out:
-	kfree(ext_csd);
+	return err;
+}
 
+static inline void mmc_free_ext_csd(u8 *ext_csd)
+{
+	kfree(ext_csd);
+}
+
+
+static int mmc_compare_ext_csds(struct mmc_card *card, u8 *ext_csd,
+			unsigned bus_width)
+{
+	u8 *bw_ext_csd;
+	int err;
+
+	err = mmc_get_ext_csd(card, &bw_ext_csd);
+	if (err)
+		return err;
+
+	if ((ext_csd == NULL || bw_ext_csd == NULL)) {
+		if (bus_width != MMC_BUS_WIDTH_1)
+			err = -EINVAL;
+		goto out;
+	}
+
+	if (bus_width == MMC_BUS_WIDTH_1)
+		goto out;
+
+	/* only compare read only fields */
+	err = (!(ext_csd[EXT_CSD_PARTITION_SUPPORT] ==
+			bw_ext_csd[EXT_CSD_PARTITION_SUPPORT]) &&
+		(ext_csd[EXT_CSD_ERASED_MEM_CONT] ==
+			bw_ext_csd[EXT_CSD_ERASED_MEM_CONT]) &&
+		(ext_csd[EXT_CSD_REV] ==
+			bw_ext_csd[EXT_CSD_REV]) &&
+		(ext_csd[EXT_CSD_STRUCTURE] ==
+			bw_ext_csd[EXT_CSD_STRUCTURE]) &&
+		(ext_csd[EXT_CSD_CARD_TYPE] ==
+			bw_ext_csd[EXT_CSD_CARD_TYPE]) &&
+		(ext_csd[EXT_CSD_S_A_TIMEOUT] ==
+			bw_ext_csd[EXT_CSD_S_A_TIMEOUT]) &&
+		(ext_csd[EXT_CSD_HC_WP_GRP_SIZE] ==
+			bw_ext_csd[EXT_CSD_HC_WP_GRP_SIZE]) &&
+		(ext_csd[EXT_CSD_ERASE_TIMEOUT_MULT] ==
+			bw_ext_csd[EXT_CSD_ERASE_TIMEOUT_MULT]) &&
+		(ext_csd[EXT_CSD_HC_ERASE_GRP_SIZE] ==
+			bw_ext_csd[EXT_CSD_HC_ERASE_GRP_SIZE]) &&
+		(ext_csd[EXT_CSD_SEC_TRIM_MULT] ==
+			bw_ext_csd[EXT_CSD_SEC_TRIM_MULT]) &&
+		(ext_csd[EXT_CSD_SEC_ERASE_MULT] ==
+			bw_ext_csd[EXT_CSD_SEC_ERASE_MULT]) &&
+		(ext_csd[EXT_CSD_SEC_FEATURE_SUPPORT] ==
+			bw_ext_csd[EXT_CSD_SEC_FEATURE_SUPPORT]) &&
+		(ext_csd[EXT_CSD_TRIM_MULT] ==
+			bw_ext_csd[EXT_CSD_TRIM_MULT]) &&
+		memcmp(&ext_csd[EXT_CSD_SEC_CNT],
+		       &bw_ext_csd[EXT_CSD_SEC_CNT],
+		       4) != 0);
+	if (err)
+		err = -EINVAL;
+
+out:
+	mmc_free_ext_csd(bw_ext_csd);
 	return err;
 }
 
@@ -423,6 +504,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	u32 cid[4];
 	unsigned int max_dtr;
 	u32 rocr;
+	u8 *ext_csd = NULL;
 
 	BUG_ON(!host);
 	WARN_ON(!host->claimed);
@@ -521,7 +603,11 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		/*
 		 * Fetch and process extended CSD.
 		 */
-		err = mmc_read_ext_csd(card);
+
+		err = mmc_get_ext_csd(card, &ext_csd);
+		if (err)
+			goto free_card;
+		err = mmc_read_ext_csd(card, ext_csd);
 		if (err)
 			goto free_card;
 
@@ -653,16 +739,19 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 					 ext_csd_bits[idx][0],
 					 0);
 			if (!err) {
-				mmc_set_bus_width_ddr(card->host,
-						      bus_width, MMC_SDR_MODE);
+				mmc_set_bus_width(card->host, bus_width);
+
 				/*
 				 * If controller can't handle bus width test,
-				 * use the highest bus width to maintain
-				 * compatibility with previous MMC behavior.
+				 * compare ext_csd previously read in 1 bit mode
+				 * against ext_csd at new bus width
 				 */
 				if (!(host->caps & MMC_CAP_BUS_WIDTH_TEST))
-					break;
-				err = mmc_bus_test(card, bus_width);
+					err = mmc_compare_ext_csds(card,
+						ext_csd,
+						bus_width);
+				else
+					err = mmc_bus_test(card, bus_width);
 				if (!err)
 					break;
 			}
@@ -688,12 +777,14 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	if (!oldcard)
 		host->card = card;
 
+	mmc_free_ext_csd(ext_csd);
 	return 0;
 
 free_card:
 	if (!oldcard)
 		mmc_remove_card(card);
 err:
+	mmc_free_ext_csd(ext_csd);
 
 	return err;
 }

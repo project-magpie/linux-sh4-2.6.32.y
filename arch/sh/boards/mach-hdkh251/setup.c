@@ -215,7 +215,7 @@ static struct spi_board_info hdkh251_serial_flash =  {
 	.controller_data = (void *)stm_gpio(15, 2),
 	.platform_data  = &(struct flash_platform_data) {
 		.name = "m25p80",
-		.type = "m25p32",
+		.type = "n25q128",
 		.nr_parts	= 2,
 		.parts = (struct mtd_partition []) {
 			{

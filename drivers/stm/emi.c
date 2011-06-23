@@ -243,6 +243,21 @@ void emi_config_nand(int bank, struct emi_timing_data *timing_data)
 }
 EXPORT_SYMBOL_GPL(emi_config_nand);
 
+void emi_config_pci(void)
+{
+	u32 tmp;
+
+	BUG_ON(!emi_initialised);
+
+	tmp = readl(emi_control + EMI_GEN_CFG);
+	/* bit 16 is undocumented but enables extra pullups on the bus which
+	 * is needed for correction operation if the EMI is accessed
+	 * simultaneously with PCI
+	 */
+	writel(tmp | (1 << 16), emi_control + EMI_GEN_CFG);
+}
+EXPORT_SYMBOL_GPL(emi_config_pci);
+
 #ifdef CONFIG_PM
 /*
  * Note on Power Management of EMI device

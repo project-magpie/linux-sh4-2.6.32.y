@@ -19,6 +19,7 @@
 #include <linux/io.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/pci-glue.h>
+#include <linux/stm/emi.h>
 #include <linux/gpio.h>
 #include <linux/cache.h>
 #include <linux/clk.h>
@@ -483,6 +484,9 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 	unsigned v;
 	unsigned long req_gnt_mask;
 	int i, req;
+
+	/* Set up the EMI to use PCI */
+	emi_config_pci();
 
 	/* You HAVE to have either wrap or ping-pong enabled, even though they
 	 * are different bits. Very strange */

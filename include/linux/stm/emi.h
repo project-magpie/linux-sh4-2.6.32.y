@@ -31,5 +31,6 @@ void emi_config_pcmode(int bank, int pc_mode);
 
 void emi_config_pata(int bank, int pc_mode);
 void emi_config_nand(int bank, struct emi_timing_data *timing_data);
+void emi_config_pci(void);
 
 #endif

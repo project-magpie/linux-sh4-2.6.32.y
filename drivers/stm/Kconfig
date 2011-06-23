@@ -10,6 +10,17 @@ config STM_DRIVERS
 menu "STM specific devices"
         depends on STM_DRIVERS
 
+config SH_ST_SYNOPSYS_PCI
+	bool "STMicroelectronics PCI controller"
+	depends on PCI && (CPU_SUBTYPE_FLI7510 || CPU_SUBTYPE_STX5206 || \
+			   CPU_SUBTYPE_STX7105 || CPU_SUBTYPE_STX7108 || \
+			   CPU_SUBTYPE_STX7111)
+	def_bool n
+	select GENERIC_IOMAP
+	---help---
+	  This option adds support for the PCI controller found on some
+	  STMicroelectronics SOCs.
+
 config STM_MIPHY
 	def_bool y
 	depends on SATA_STM

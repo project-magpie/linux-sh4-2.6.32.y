@@ -18,6 +18,7 @@
 #include <linux/errno.h>
 #include <linux/io.h>
 #include <linux/stm/platform.h>
+#include <linux/stm/pci-glue.h>
 #include <linux/stm/pci-synopsys.h>
 #include <linux/gpio.h>
 #include <linux/cache.h>
@@ -694,9 +695,9 @@ static int __devinit pci_stm_probe(struct platform_device *pdev)
 	/* Now do all the register poking */
 	pci_stm_setup(pci_config, pci_window_start, pci_window_size);
 
-	register_pci_controller(chan);
+	ret = stm_pci_register_controller(pdev, &pci_config_ops, STM_PCI_EMISS);
 
-	return 0;
+	return ret;
 }
 
 /* There is no power management for PCI at the moment

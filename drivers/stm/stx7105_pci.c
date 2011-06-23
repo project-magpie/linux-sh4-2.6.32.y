@@ -94,10 +94,60 @@ static struct platform_device stx7105_pci_device = {
 	},
 };
 
-#define STX7105_PIO_PCI_REQ(i)   stm_gpio(6, 4 + i)
-#define STX7105_PIO_PCI_GNT(i)   stm_gpio(7, i)
+static struct stm_pad_config __initdata pci_reqgnt_config[] = {
+	/* REQ0/GNT0 have dedicated pins... */
+	[1] = {
+		.gpios_num = 2,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_IN(6, 5, -1),	/* REQ1 */
+			STM_PAD_PIO_OUT(7, 1, 4), 	/* GNT1 */
+		},
+	},
+	[2] = {
+		.gpios_num = 2,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_IN(6, 6, -1),	/* REQ2 */
+			STM_PAD_PIO_OUT(7, 2, 4), 	/* GNT2 */
+		},
+	},
+	[3] = {
+		.gpios_num = 2,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_IN(6, 7, -1),	/* REQ3 */
+			STM_PAD_PIO_OUT(7, 3, 4), 	/* GNT3 */
+		},
+	},
+};
+
+static struct stm_pad_config __initdata pci_int_config[] = {
+	[0] = {
+		.gpios_num = 1,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_IN(6, 0, -1),	/* INTA */
+		},
+	},
+	[1] = {
+		.gpios_num = 1,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_IN(6, 1, -1),	/* INTB */
+		},
+	},
+	[2] = {
+		.gpios_num = 1,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_IN(6, 2, -1),	/* INTC */
+		},
+	},
+	[3] = {
+		.gpios_num = 1,
+		.gpios = (struct stm_pad_gpio []) {
+			STM_PAD_PIO_IN(6, 3, -1),	/* INTD */
+		},
+	},
+};
+
+
 #define STX7105_PIO_PCI_INTA_ALT stm_gpio(15, 3)
-#define STX7105_PIO_PCI_INT(i)   stm_gpio(6, i)
 #define STX7105_PIO_PCI_SERR     stm_gpio(15, 4)
 
 void __init stx7105_configure_pci(struct stm_plat_pci_config *pci_conf)
@@ -148,41 +198,17 @@ void __init stx7105_configure_pci(struct stm_plat_pci_config *pci_conf)
 	sc = sysconf_claim(SYS_CFG, 5, 28, 28, "PCI");
 	sysconf_write(sc, 1);
 
-	/* Configure the REQ/GNT[1..2], muxed with PIOs */
+	/* Configure the REQ/GNT[1..3], muxed with PIOs */
 	for (i = 1; i < 4; i++) {
-		static const char *req_name[] = {
-			"PCI REQ 0",
-			"PCI REQ 1",
-			"PCI REQ 2",
-			"PCI REQ 3"
-		};
-		static const char *gnt_name[] = {
-			"PCI GNT 0 ",
-			"PCI GNT 1",
-			"PCI GNT 2",
-			"PCI GNT 3"
-		};
-
 		switch (pci_conf->req_gnt[i]) {
 		case PCI_PIN_DEFAULT:
-			/* Is there REQ/GNT[3] at all? */
+			/* REQ/GNT3 only exist pre cut 3 */
 			BUG_ON(pci_conf->req0_to_req3 && i == 3);
-
-			if (gpio_request(STX7105_PIO_PCI_REQ(i),
-					req_name[i]) == 0)
-				stm_gpio_direction(STX7105_PIO_PCI_REQ(i),
-					STM_GPIO_DIRECTION_IN);
-			else
-				printk(KERN_ERR "Unable to configure PIO for "
-						"%s\n", req_name[i]);
-
-			if (gpio_request(STX7105_PIO_PCI_GNT(i),
-					gnt_name[i]) == 0)
-				stm_gpio_direction(STX7105_PIO_PCI_GNT(i),
-						STM_GPIO_DIRECTION_ALT_OUT);
-			else
-				printk(KERN_ERR "Unable to configure PIO for "
-						"%s\n", gnt_name[i]);
+			if (!stm_pad_claim(pci_reqgnt_config + i, "PCI")) {
+				printk(KERN_ERR "Cannot claim REQ/GNT"
+						"%d pads\n", i);
+				BUG();
+			}
 			break;
 		case PCI_PIN_UNUSED:
 			/* Unused is unused - nothing to do */
@@ -196,23 +222,15 @@ void __init stx7105_configure_pci(struct stm_plat_pci_config *pci_conf)
 
 	/* Configure interrupt PIOs */
 	for (i = 0; i < 3; i++) {
-		static const char *int_name[] = {
-			"PCI INT A",
-			"PCI INT B",
-			"PCI INT C",
-		};
-
 		switch (pci_conf->pci_irq[i]) {
 		case PCI_PIN_ALTERNATIVE:
-			if (i != 0) {
+			if (i != 0)
 				BUG();
-				break;
-			}
 			if (gpio_request(STX7105_PIO_PCI_INTA_ALT,
-						int_name[0]) != 0) {
-				printk(KERN_ERR "Unable to claim PIO for "
-						"%s\n", int_name[0]);
-				break;
+						"PCI INTA") != 0) {
+				printk(KERN_ERR "Unable to claim PIO for"
+						"PCI INTA");
+				BUG();
 			}
 
 			set_irq_type(ILC_EXT_IRQ(26), IRQ_TYPE_LEVEL_LOW);
@@ -232,16 +250,12 @@ void __init stx7105_configure_pci(struct stm_plat_pci_config *pci_conf)
 			sysconf_write(sc, 1);
 			break;
 		case PCI_PIN_DEFAULT:
-			if (gpio_request(STX7105_PIO_PCI_INT(i),
-					int_name[i]) != 0) {
-				printk(KERN_ERR "Unable to claim PIO for "
-						"%s\n", int_name[i]);
-				break;
+			if (!stm_pad_claim(pci_int_config + i, "PCI")) {
+				printk(KERN_ERR "Failed to claim INT"
+						"%c pad!\n", 'A' + i);
+				BUG();
 			}
-
 			set_irq_type(ILC_EXT_IRQ(26 + i), IRQ_TYPE_LEVEL_LOW);
-			stm_gpio_direction(STX7105_PIO_PCI_INT(i),
-					STM_GPIO_DIRECTION_IN);
 
 			if (i == 0) {
 				/* PCI_INT0_SRC_SEL:

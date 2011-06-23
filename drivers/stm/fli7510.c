@@ -547,6 +547,23 @@ static const char *fli7510_sysconf_CKG_DDR(int num)
 
 	return "???";
 }
+
+static const char *fli7510_sysconf_PCIE_SPARE_REGS(int num)
+{
+	switch (num) {
+	SYSCONF_REG(CFG_REG1_PCIE_CORE_MIPHY_INIT);
+	SYSCONF_REG(CFG_REG2_SPARE_OUTPUT_REG);
+	SYSCONF_REG(CFG_REG3_MIPHY_INIT);
+	SYSCONF_REG(CFG_REG4_PCIE_CORE_LINK_CTRL);
+	SYSCONF_REG(CFG_REG5_PCIE_SPARE_OUTPUT_REG);
+	SYSCONF_REG(CFG_REG6_PCIE_CORE_MIPHY_PCS_CTRL);
+	SYSCONF_REG(CFG_REG7_PCIE_CORE_PCS_MIPHY_STATUS);
+	SYSCONF_REG(CFG_REG8_PCIE_SYS_ERR_INTERRUPT);
+	}
+
+	return "???";
+}
+
 #endif
 
 #ifdef CONFIG_DEBUG_FS
@@ -588,7 +605,13 @@ static struct platform_device fli7510_sysconf_devices[] = {
 	/* Addresss probed in fli7510_sysconf_setup() as different for ultra */
 	FLI7510_SYSCONF_ENTRY(6, VOUT_SPARE_REGS, 0xfd5e8000),
 	FLI7510_SYSCONF_ENTRY(7, CKG_DDR, 0xfde80000),
+	/* Only present on 7540 (ultra), moves on cut 1 so probed below  */
+	FLI7510_SYSCONF_ENTRY(8, PCIE_SPARE_REGS, 0xfe1c0000),
 };
+
+/* Only the ULTRA has the PCIE block */
+#define FLI75XX_NUM_SYSCONFS ARRAY_SIZE(fli7510_sysconf_devices) - \
+			    (cpu_data->type != CPU_FLI7540)
 
 static void fli7510_sysconf_setup(void)
 {
@@ -597,6 +620,13 @@ static void fli7510_sysconf_setup(void)
 	if (cpu_data->type != CPU_FLI7510) {
 		mem_res->start = 0xfd5d4000;
 		mem_res->end = mem_res->start + 0x20 - 1;
+
+		if (cpu_data->type == CPU_FLI7540 &&
+		    cpu_data->cut_major >= 1) {
+			mem_res = fli7510_sysconf_devices[8].resource;
+			mem_res->start = 0xfe180000;
+			mem_res->end = mem_res->start + 0x20 - 1;
+		}
 	}
 }
 
@@ -649,10 +679,8 @@ void __init fli7510_early_device_init(void)
 
 
 	/* Initialise PIO and sysconf drivers */
-
 	fli7510_sysconf_setup();
-	sysconf_early_init(fli7510_sysconf_devices,
-			ARRAY_SIZE(fli7510_sysconf_devices));
+	sysconf_early_init(fli7510_sysconf_devices, FLI75XX_NUM_SYSCONFS);
 
 	if (cpu_data->type == CPU_FLI7510) {
 		gpios_num = ARRAY_SIZE(fli7510_pio_devices);
@@ -719,20 +747,20 @@ static struct platform_device *fli7510_devices[] __initdata = {
 	&fli7510_fdma_devices[0],
 	&fli7510_fdma_devices[1],
 	&fli7510_fdma_xbar_device,
-	&fli7510_sysconf_devices[0],
-	&fli7510_sysconf_devices[1],
-	&fli7510_sysconf_devices[2],
-	&fli7510_sysconf_devices[3],
-	&fli7510_sysconf_devices[4],
-	&fli7510_sysconf_devices[5],
-	&fli7510_sysconf_devices[6],
 	&fli7510_rng_hwrandom_device,
 	&fli7510_rng_devrandom_device,
 };
 
 static int __init fli7510_devices_setup(void)
 {
-	return platform_add_devices(fli7510_devices,
-			ARRAY_SIZE(fli7510_devices));
+	int err;
+	int i;
+
+	err = platform_add_devices(fli7510_devices,
+				   ARRAY_SIZE(fli7510_devices));
+	for (i = 0; i < FLI75XX_NUM_SYSCONFS && !err; i++)
+		err = platform_device_register(fli7510_sysconf_devices + i);
+
+	return err;
 }
 device_initcall(fli7510_devices_setup);

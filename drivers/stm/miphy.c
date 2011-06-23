@@ -289,7 +289,7 @@ static int tap_miphy_sata_start(int port, struct stm_miphy_device *miphy_dev)
 
 static int tap_miphy_pcie_start(int port, struct stm_miphy_device *miphy_dev)
 {
-	/* TODO */
+	/* The tap interface versions do not support PCIE */
 	return -1;
 }
 
@@ -406,14 +406,10 @@ static int mp_miphy_sata_start(int port, struct stm_miphy_device *miphy_dev)
 	return 0;
 }
 
-/*
- * MiPhy Port 0 & 1 Start function for PCIE
- * only for 7108 CUT2
- */
 static int mp_miphy_pcie_start(int port, struct stm_miphy_device *miphy_dev)
 {
-	/* TODO */
-	return -1;
+	/* The hardware sets everything up for us, so far nothing to do here */
+	return 0;
 }
 
 

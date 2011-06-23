@@ -10,6 +10,7 @@
 
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/pci.h>
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/phy.h>
@@ -353,11 +354,21 @@ static struct stm_plat_pci_config hdk7108_pci_config = {
 	.pci_reset_gpio = HDK7108_PIO_PCI_RESET,
 };
 
+#ifdef CONFIG_PCI
+
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
+	int irq;
+
+	irq = stm_pci_legacy_irq(dev);
+	if (irq > 0)
+		return irq;
+
 	/* We can use the standard function on this board */
 	return stx7108_pcibios_map_platform_irq(&hdk7108_pci_config, pin);
 }
+
+#endif
 
 /* Mali parameters */
 
@@ -441,6 +452,7 @@ static int __init device_init(void)
 
 	stx7108_configure_pci(&hdk7108_pci_config);
 
+
 	/* The "POWER_ON_ETH" line should be rather called "PHY_RESET",
 	 * but it isn't... ;-) */
 	gpio_request(HDK7108_PIO_POWER_ON_ETHERNET, "POWER_ON_ETHERNET");
@@ -506,6 +518,10 @@ static int __init device_init(void)
 				SATA_MODE, PCIE_MODE },
 			});
 	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
+
+	stx7108_configure_pcie(&(struct stx7108_pcie_config) {
+					.reset_gpio = stm_gpio(24, 6)
+				});
 #elif defined(CONFIG_SH_ST_HDK7108_VER2_1A_BOARD)
 	/* 2 SATA's */
 	stx7108_configure_miphy(&(struct stx7108_miphy_config) {

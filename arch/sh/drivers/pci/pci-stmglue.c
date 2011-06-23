@@ -34,6 +34,7 @@
 struct stm_pci_chan_info {
 	struct pci_channel chan;
 	enum stm_pci_type type;
+	int legacy_irq;
 	struct platform_device *pdev;
 };
 
@@ -72,13 +73,17 @@ int __devinit stm_pci_register_controller(struct platform_device *pdev,
 	/* Set up the sh board channel to point at the platform data we have
 	 * passed in
 	 */
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pci memory");
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+					(type == STM_PCI_EXPRESS) ?
+					"pcie memory" : "pci memory");
 	if (!res)
 		return -ENXIO;
 	info->chan.mem_resource = res;
 
 	/* Same for IO channel */
-	res = platform_get_resource_byname(pdev, IORESOURCE_IO, "pci io");
+	res = platform_get_resource_byname(pdev, IORESOURCE_IO,
+					(type == STM_PCI_EXPRESS) ?
+					"pcie io" : "pci io");
 	if (!res)
 		return -ENXIO;
 	info->chan.io_resource = res;
@@ -88,6 +93,15 @@ int __devinit stm_pci_register_controller(struct platform_device *pdev,
 	 */
 	info->chan.io_map_base = ~0;
 
+	if (type == STM_PCI_EXPRESS) {
+		res = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
+						   "pcie inta");
+		if (!res)
+			return -ENXIO;
+		info->legacy_irq = res->start;
+	} else
+		info->legacy_irq = -EINVAL;
+
 	info->type = type;
 	info->pdev = pdev;
 	info->chan.pci_ops = config_ops;
@@ -95,4 +109,26 @@ int __devinit stm_pci_register_controller(struct platform_device *pdev,
 	register_pci_controller(&info->chan);
 
 	return 0;
+}
+
+enum stm_pci_type stm_pci_controller_type(struct pci_bus *bus)
+{
+	struct stm_pci_chan_info *info;
+
+	info = bus_to_channel_info(bus);
+
+	BUG_ON(!info);
+
+	return info->type;
+}
+
+int stm_pci_legacy_irq(struct pci_dev *dev)
+{
+	struct stm_pci_chan_info *info;
+
+	info = bus_to_channel_info(dev->bus);
+	if (info == NULL)
+		return -EINVAL;
+
+	return info->legacy_irq;
 }

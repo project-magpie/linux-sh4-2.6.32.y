@@ -194,6 +194,13 @@ int  stx7108_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,
 
 void stx7108_configure_nand(struct stm_nand_config *config);
 
+struct stx7108_pcie_config {
+	unsigned reset_gpio; /* Which (if any) gpio for PCIe reset */
+	void (*reset)(void); /* Do something else on reset if needed */
+};
+
+void stx7108_configure_pcie(struct stx7108_pcie_config *config);
+
 void stx7108_configure_mali(struct stm_mali_config *config);
 
 void stx7108_configure_spifsm(struct stm_plat_spifsm_data *data);

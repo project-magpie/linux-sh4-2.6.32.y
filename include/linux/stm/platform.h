@@ -421,6 +421,41 @@ struct stm_plat_pci_config {
 
 
 
+/* How these are done vary considerable from SOC to SOC. Sometimes
+ * they are wired up to sysconfig bits, other times they are simply
+ * memory mapped registers.
+ */
+
+struct stm_plat_pcie_ops {
+	void (*init)(void *handle);
+	void (*enable_ltssm)(void *handle);
+	void (*disable_ltssm)(void *handle);
+};
+
+/* PCIe platform data */
+struct stm_plat_pcie_config {
+	/* Which PIO the PERST# signal is on.
+	 * If it is not connected, and you rely on the autonomous reset,
+	 * then specifiy -EINVAL here
+	 */
+	unsigned reset_gpio;
+	/* If you have a really wierd way of wanging PERST# (unlikely),
+	 * then do it here. Given PCI express is defined in such a way
+	 * that autonomous reset should work it is OK to not connect it at
+	 * all.
+	 */
+	void (*reset)(void);
+	/* Magic number to shove into the amba bus bridge. The AHB driver will
+	 * be commoned up at some point in the future so this will change
+	 */
+	unsigned long ahb_val;
+	/* Which miphy this pcie is using */
+	int miphy_num;
+	/* Magic handle to pass through to the ops */
+	void *ops_handle;
+	struct stm_plat_pcie_ops *ops;
+};
+
 /*** ILC platform data ***/
 
 struct stm_plat_ilc3_data {

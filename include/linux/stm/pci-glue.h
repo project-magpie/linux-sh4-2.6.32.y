@@ -25,7 +25,7 @@
  * If this function needs to allocate memory it should use devm_kzalloc()
  */
 
-enum stm_pci_type {STM_PCI_EMISS};
+enum stm_pci_type {STM_PCI_EMISS, STM_PCI_EXPRESS};
 
 int __devinit stm_pci_register_controller(struct platform_device *pdev,
 					  struct pci_ops *config_ops,
@@ -37,6 +37,17 @@ int __devinit stm_pci_register_controller(struct platform_device *pdev,
  * controller an interface registered via above mechanism
  */
 struct platform_device *stm_pci_bus_to_platform(struct pci_bus *bus);
+
+/* Returns what type of bus this bus is ultimately connected to */
+enum stm_pci_type stm_pci_controller_type(struct pci_bus *bus);
+
+/* For a given pci express device, return the legacy interrupt number ie INTA.
+ * Must be called on a device that has it's root bus registered via the above
+ * function. Will return -EINVAL if called on a non-express bus which doesn't
+ * have the concept of a legacy interrupt
+ */
+int stm_pci_legacy_irq(struct pci_dev *dev);
+
 
 #ifdef CONFIG_STM_PCI_EMISS
 

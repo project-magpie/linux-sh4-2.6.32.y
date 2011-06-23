@@ -801,7 +801,7 @@ void __init fli7510_configure_mmc(void)
 #define SYSCONF_REG(field) _SYSCONF_REG(#field, field)
 #define _SYSCONF_REG(name, group, num) case num: return name
 
-static const char *fli7510_sysconf_prb_pu_cfg_1(int num)
+static const char *fli7510_sysconf_PRB_PU_CFG_1(int num)
 {
 	switch (num) {
 	SYSCONF_REG(CFG_RESET_CTL);
@@ -817,7 +817,7 @@ static const char *fli7510_sysconf_prb_pu_cfg_1(int num)
 	return "???";
 }
 
-static const char *fli7510_sysconf_prb_pu_cfg_2(int num)
+static const char *fli7510_sysconf_PRB_PU_CFG_2(int num)
 {
 	switch (num) {
 	SYSCONF_REG(CFG_ST40_HOST_BOOT_ADDR);
@@ -833,7 +833,7 @@ static const char *fli7510_sysconf_prb_pu_cfg_2(int num)
 	return "???";
 }
 
-static const char *fli7510_sysconf_trs_spare_0(int num)
+static const char *fli7510_sysconf_TRS_SPARE_REGS_0(int num)
 {
 	switch (num) {
 	SYSCONF_REG(CFG_COMMS_CONFIG_1);
@@ -849,7 +849,7 @@ static const char *fli7510_sysconf_trs_spare_0(int num)
 	return "???";
 }
 
-static const char *fli7510_sysconf_trs_spare_1(int num)
+static const char *fli7510_sysconf_TRS_SPARE_REGS_1(int num)
 {
 	switch (num) {
 	SYSCONF_REG(CFG_SPARE_1);
@@ -865,7 +865,7 @@ static const char *fli7510_sysconf_trs_spare_1(int num)
 	return "???";
 }
 
-static const char *fli7510_sysconf_vdec_pu_cfg_0(int num)
+static const char *fli7510_sysconf_VDEC_PU_CFG_0(int num)
 {
 	switch (num) {
 	SYSCONF_REG(CFG_TOP_SPARE_REG1);
@@ -881,7 +881,7 @@ static const char *fli7510_sysconf_vdec_pu_cfg_0(int num)
 	return "???";
 }
 
-static const char *fli7510_sysconf_vdec_pu_cfg_1(int num)
+static const char *fli7510_sysconf_VDEC_PU_CFG_1(int num)
 {
 	switch (num) {
 	SYSCONF_REG(CFG_ST231_DRA2_PERIPH_REG1);
@@ -897,7 +897,7 @@ static const char *fli7510_sysconf_vdec_pu_cfg_1(int num)
 	return "???";
 }
 
-static const char *fli7510_sysconf_vout_spare(int num)
+static const char *fli7510_sysconf_VOUT_SPARE_REGS(int num)
 {
 	switch (num) {
 	SYSCONF_REG(CFG_REG1_VOUT_PIO_ALT_SEL);
@@ -912,7 +912,7 @@ static const char *fli7510_sysconf_vout_spare(int num)
 	return "???";
 }
 
-static const char *fli7510_sysconf_ckg_ddr(int num)
+static const char *fli7510_sysconf_CKG_DDR(int num)
 {
 	switch (num) {
 	SYSCONF_REG(CKG_DDR_CTL_PLL_DDR_FREQ);
@@ -923,193 +923,55 @@ static const char *fli7510_sysconf_ckg_ddr(int num)
 }
 #endif
 
-static struct platform_device fli7510_sysconf_devices[] = {
-	{
-		.name = "stm-sysconf",
-		.id = 0,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd220000, 0x20),
-		},
-		.dev.platform_data = &(struct stm_plat_sysconf_data) {
-			.groups_num = 1,
-			.groups = (struct stm_plat_sysconf_group []) {
-				{
-					.group = PRB_PU_CFG_1,
-					.offset = 0,
-					.name = "PRB_PU_CFG_1",
 #ifdef CONFIG_DEBUG_FS
-					.reg_name =
-						fli7510_sysconf_prb_pu_cfg_1,
+#define FLI7510_REG_NAME_FUNC(name) name
+#else
+#define FLI7510_REG_NAME_FUNC(name) NULL
 #endif
-				},
-			},
-		},
-	}, {
-		.name = "stm-sysconf",
-		.id = 1,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd228000, 0x20),
-		},
-		.dev.platform_data = &(struct stm_plat_sysconf_data) {
-			.groups_num = 1,
-			.groups = (struct stm_plat_sysconf_group []) {
-				{
-					.group = PRB_PU_CFG_2,
-					.offset = 0,
-					.name = "PRB_PU_CFG_2",
-#ifdef CONFIG_DEBUG_FS
-					.reg_name =
-						fli7510_sysconf_prb_pu_cfg_2,
-#endif
-				},
-			},
-		},
-	}, {
-		.name = "stm-sysconf",
-		.id = 2,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9ec000, 0x20),
-		},
-		.dev.platform_data = &(struct stm_plat_sysconf_data) {
-			.groups_num = 1,
-			.groups = (struct stm_plat_sysconf_group []) {
-				{
-					.group = TRS_SPARE_REGS_0,
-					.offset = 0,
-					.name = "TRS_SPARE_REGS_0",
-#ifdef CONFIG_DEBUG_FS
-					.reg_name =
-						fli7510_sysconf_trs_spare_0,
-#endif
-				},
-			},
-		},
-	}, {
-		.name = "stm-sysconf",
-		.id = 3,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9f4000, 0x20),
-		},
-		.dev.platform_data = &(struct stm_plat_sysconf_data) {
-			.groups_num = 1,
-			.groups = (struct stm_plat_sysconf_group []) {
-				{
-					.group = TRS_SPARE_REGS_1,
-					.offset = 0,
-					.name = "TRS_SPARE_REGS_1",
-#ifdef CONFIG_DEBUG_FS
-					.reg_name =
-						fli7510_sysconf_trs_spare_1,
-#endif
-				},
-			},
-		},
-	}, {
-		.name = "stm-sysconf",
-		.id = 4,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd7a0000, 0x20),
-		},
-		.dev.platform_data = &(struct stm_plat_sysconf_data) {
-			.groups_num = 1,
-			.groups = (struct stm_plat_sysconf_group []) {
-				{
-					.group = VDEC_PU_CFG_0,
-					.offset = 0,
-					.name = "VDEC_PU_CFG_0",
-#ifdef CONFIG_DEBUG_FS
-					.reg_name =
-						fli7510_sysconf_vdec_pu_cfg_0,
-#endif
-				},
-			},
-		},
-	}, {
-		.name = "stm-sysconf",
-		.id = 5,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd7c0000, 0x20),
-		},
-		.dev.platform_data = &(struct stm_plat_sysconf_data) {
-			.groups_num = 1,
-			.groups = (struct stm_plat_sysconf_group []) {
-				{
-					.group = VDEC_PU_CFG_1,
-					.offset = 0,
-					.name = "VDEC_PU_CFG_1",
-#ifdef CONFIG_DEBUG_FS
-					.reg_name =
-						fli7510_sysconf_vdec_pu_cfg_1,
-#endif
-				},
-			},
-		},
-	}, {
-		.name = "stm-sysconf",
-		.id = 6,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			{
-				/* .start & .end set in
-				 * fli7510_sysconf_setup() */
-				.flags = IORESOURCE_MEM,
-			}
-		},
-		.dev.platform_data = &(struct stm_plat_sysconf_data) {
-			.groups_num = 1,
-			.groups = (struct stm_plat_sysconf_group []) {
-				{
-					.group = VOUT_SPARE_REGS,
-					.offset = 0,
-					.name = "VOUT_SPARE_REGS",
-#ifdef CONFIG_DEBUG_FS
-					.reg_name =
-						fli7510_sysconf_vout_spare,
-#endif
-				},
-			},
-		},
-	},
-	{
-		.name = "stm-sysconf",
-		.id = 7,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-				STM_PLAT_RESOURCE_MEM(0xfde80000, 0x20),
-			},
-		.dev.platform_data = &(struct stm_plat_sysconf_data) {
-			.groups_num = 1,
-			.groups = (struct stm_plat_sysconf_group []) {
-				{
-					.group = CKG_DDR,
-					.offset = 0,
-					.name = "CKG_DDR",
-#ifdef CONFIG_DEBUG_FS
-					.reg_name =
-						fli7510_sysconf_ckg_ddr,
-#endif
-				},
-			},
-		},
+
+#define FLI7510_SYSCONF_ENTRY(_id, _name, _start)			\
+	{								\
+		.name = "stm-sysconf",					\
+		.id = _id,						\
+		.num_resources = 1,					\
+		.resource = (struct resource[]) {			\
+			STM_PLAT_RESOURCE_MEM(_start, 0x20),		\
+		},							\
+		.dev.platform_data = &(struct stm_plat_sysconf_data) {	\
+			.groups_num = 1,				\
+			.groups = (struct stm_plat_sysconf_group []) {	\
+				{					\
+					.group = _name,			\
+					.offset = 0,			\
+					.name = #_name,			\
+					.reg_name = 			\
+			 FLI7510_REG_NAME_FUNC(fli7510_sysconf_##_name),\
+				},					\
+			},						\
+		},							\
 	}
+
+
+static struct platform_device fli7510_sysconf_devices[] = {
+	FLI7510_SYSCONF_ENTRY(0, PRB_PU_CFG_1, 0xfd220000),
+	FLI7510_SYSCONF_ENTRY(1, PRB_PU_CFG_2, 0xfd228000),
+	FLI7510_SYSCONF_ENTRY(2, TRS_SPARE_REGS_0, 0xfd9ec000),
+	FLI7510_SYSCONF_ENTRY(3, TRS_SPARE_REGS_1, 0xfd9f4000),
+	FLI7510_SYSCONF_ENTRY(4, VDEC_PU_CFG_0, 0xfd7a0000),
+	FLI7510_SYSCONF_ENTRY(5, VDEC_PU_CFG_1, 0xfd7c0000),
+	/* Addresss probed in fli7510_sysconf_setup() as different for ultra */
+	FLI7510_SYSCONF_ENTRY(6, VOUT_SPARE_REGS, 0xfd5e8000),
+	FLI7510_SYSCONF_ENTRY(7, CKG_DDR, 0xfde80000),
 };
 
 static void fli7510_sysconf_setup(void)
 {
 	struct resource *mem_res = &fli7510_sysconf_devices[6].resource[0];
 
-	if (cpu_data->type == CPU_FLI7510)
-		mem_res->start = 0xfd5e8000;
-	else
+	if (cpu_data->type != CPU_FLI7510) {
 		mem_res->start = 0xfd5d4000;
-
-	mem_res->end = mem_res->start + 0x20 - 1;
+		mem_res->end = mem_res->start + 0x20 - 1;
+	}
 }
 
 

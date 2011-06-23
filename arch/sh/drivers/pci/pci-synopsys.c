@@ -483,7 +483,7 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 	unsigned long lmi_base, lmi_end, mbar_size;
 	int fn;
 	unsigned v;
-	unsigned long req_gnt_mask = 0;
+	unsigned long req_gnt_mask;
 	int i, req;
 
 	/* You HAVE to have either wrap or ping-pong enabled, even though they
@@ -499,28 +499,28 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 			EMISS_CONFIG_PCI_HOST_NOT_DEVICE,
 			emiss + EMISS_CONFIG);
 
+	/* It doesn't make any sense to try to use req/gnt3 when the chip has
+	 * the req0_to_req3 workaround. Effectively req3 is disconnected, so
+	 * it only supports 3 external masters
+	 */
+	BUG_ON(pci_config->req0_to_req3 &&
+	       pci_config->req_gnt[3] != PCI_PIN_UNUSED);
+
+	req_gnt_mask = EMISS_ARBITER_CONFIG_BUS_REQ_ALL_MASKED;
 	/* Figure out what req/gnt lines we are using */
 	for (i = 0; i < 4; i++) {
 		if(pci_config->req_gnt[i] != PCI_PIN_UNUSED) {
 			req = ((i == 0) && pci_config->req0_to_req3) ? 3 : i;
-			req_gnt_mask |= EMISS_ARBITER_CONFIG_MASK_BUS_REQ(req);
+			req_gnt_mask &= ~EMISS_ARBITER_CONFIG_MASK_BUS_REQ(req);
 		}
 	}
-
-	/* Pass through grant retraction feature for now */
-	v = readl(emiss + EMISS_ARBITER_CONFIG);
-	/* Clear these bits, note the req gnt is a set to 0 to enable */
-	v &=  ~(EMISS_ARBITER_CONFIG_BYPASS_ARBITER |
-			EMISS_ARBITER_CONFIG_STATIC_NOT_DYNAMIC	|
-			EMISS_ARBITER_CONFIG_PCI_NOT_EMI |
-			EMISS_ARBITER_CONFIG_BUS_FREE |
-			req_gnt_mask);
-
-	if (!pci_config->req0_to_req3 &&
-			(pci_config->req_gnt[0] != PCI_PIN_UNUSED))
-		v |= EMISS_ARBITER_CONFIG_PCI_NOT_EMI;
-
-	writel(v, emiss + EMISS_ARBITER_CONFIG);
+	/* The PCI_NOT_EMI bit really controls MPX or PCI. It also must be set
+	 * to allow the req0_to_req3 logic to be enabled. GRANT_RETRACTION is
+	 * not available on MPX, so should be set for PCI
+	 */
+	writel(EMISS_ARBITER_CONFIG_PCI_NOT_EMI |
+	       EMISS_ARBITER_CONFIG_GRANT_RETRACTION |
+	       req_gnt_mask, emiss + EMISS_ARBITER_CONFIG);
 
 	/* This field will need to be parameterised by the soc layer for sure,
 	 * all silicon will likely be different */

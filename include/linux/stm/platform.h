@@ -413,11 +413,10 @@ struct stm_plat_pci_config {
 	unsigned ad_override_default:1;
 
 	/* Some SOCs have req0 pin connected to req3 signal to work around
-	 * some problems with NAND. Also the PCI_NOT_EMI bit should NOT be
-	 * set sometimes. These bits will be set by the chip layer, the
-	 * board layer should NOT touch this. */
+	 * some problems with NAND.  These bits will be set by the chip layer,
+	 * the board layer should NOT touch this.
+	 */
 	unsigned req0_to_req3:1;
-	unsigned req0_emi:1;
 };
 
 

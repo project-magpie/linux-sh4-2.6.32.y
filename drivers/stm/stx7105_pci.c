@@ -111,11 +111,6 @@ void __init stx7105_configure_pci(struct stm_plat_pci_config *pci_conf)
 	pci_conf->req0_to_req3 = (cpu_data->type == CPU_STX7106) ||
 			(cpu_data->cut_major >= 3);
 
-	/* Additionally, we are not supposed to configure the req0/req3
-	 * to PCI mode on 7105... */
-	pci_conf->req0_emi = (cpu_data->type == CPU_STX7105) &&
-			(cpu_data->cut_major >= 3);
-
 	/* Fill in the default values for the 7105 */
 	if (!pci_conf->ad_override_default) {
 		pci_conf->ad_threshold = 5;

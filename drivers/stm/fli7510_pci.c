@@ -262,6 +262,9 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 		res->end = pci_conf->serr_irq;
 	}
 
+	fli7510_pci_device.dev.parent =
+		bus_find_device_by_name(&platform_bus_type, NULL, "emi");
+
 	platform_device_register(&fli7510_pci_device);
 }
 

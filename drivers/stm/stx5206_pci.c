@@ -199,6 +199,8 @@ void __init stx5206_configure_pci(struct stm_plat_pci_config *pci_conf)
 	while (sysconf_read(sc))
 		cpu_relax();
 
+	stx5206_pci_device.dev.parent =
+		bus_find_device_by_name(&platform_bus_type, NULL, "emi");
 	platform_device_register(&stx5206_pci_device);
 }
 

@@ -311,5 +311,7 @@ void __init stx7105_configure_pci(struct stm_plat_pci_config *pci_conf)
 	/* LOCK is not claimed as is totally pointless, the SOCs do not
 	 * support any form of coherency */
 
+	stx7105_pci_device.dev.parent =
+		bus_find_device_by_name(&platform_bus_type, NULL, "emi");
 	platform_device_register(&stx7105_pci_device);
 }

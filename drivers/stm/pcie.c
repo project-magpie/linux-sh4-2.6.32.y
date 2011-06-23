@@ -407,6 +407,14 @@ static int __devinit stm_pcie_hw_setup(struct device *dev,
 	 * settings
 	 */
 	writel(config->ahb_val, priv->ahb + 4);
+	/* Later versions of the AMBA bridge have a merging capability, whereby
+	 * reads and writes are merged into an AHB burst transaction. This
+	 * breaks PCIe as it will then prefetch a maximally sized transaction.
+	 * We have to disable this capability, which is controlled by bit 3 of
+	 * the SD_CONFIG register. Bit 2 (the busy bit) must always be written
+	 * as zero. We set the cont_on_error bit, as this is the reset state.
+	 */
+	writel(0x2, priv->ahb);
 
 	/* Now assert the board level reset to the other PCIe device */
 	stm_pcie_board_reset(dev);

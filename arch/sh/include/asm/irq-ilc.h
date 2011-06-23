@@ -36,7 +36,7 @@
 #elif	defined(CONFIG_CPU_SUBTYPE_STX7108)
 /* set this to 65 to allow 64 (INTEVT 0xa00) to demux */
 #define ILC_FIRST_IRQ	65
-#define ILC_NR_IRQS	180
+#define ILC_NR_IRQS	190
 #define ILC_IRQ(x)	(ILC_FIRST_IRQ + (x))
 #elif	defined(CONFIG_CPU_SUBTYPE_STX7111)
 #define ILC_FIRST_IRQ	176

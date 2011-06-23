@@ -189,7 +189,7 @@ static int pci_stm_config_read(struct pci_bus *bus, unsigned int devfn,
 	int fn = PCI_FUNC(devfn);
 	u32 addr, cmd, raw;
 
-	if (bus->number == 0) {
+	if (pci_is_root_bus(bus)) {
 		if (slot > max_slot) {
 			*val = SIZE_MASK(size);
 			return PCIBIOS_DEVICE_NOT_FOUND;
@@ -217,7 +217,7 @@ static int pci_stm_config_write(struct pci_bus *bus, unsigned int devfn,
 	int fn = PCI_FUNC(devfn);
 	u32 addr, cmd;
 
-	if (bus->number == 0) {
+	if (pci_is_root_bus(bus)) {
 		if (slot > max_slot)
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		addr = TYPE0_CONFIG_CYCLE(fn, where) |  (1<<(idsel_lo + slot));

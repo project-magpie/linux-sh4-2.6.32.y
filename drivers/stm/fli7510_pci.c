@@ -18,6 +18,7 @@
 #include <linux/stm/emi.h>
 #include <linux/stm/device.h>
 #include <linux/stm/fli7510.h>
+#include <linux/pci.h>
 #include <asm/irq-ilc.h>
 
 
@@ -262,4 +263,159 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 	}
 
 	platform_device_register(&fli7510_pci_device);
+}
+
+
+static struct pcie_sysconfs {
+	struct sysconf_field *reg1;
+	struct sysconf_field *reg3;
+	struct sysconf_field *reg4;
+} fli7540_pcie_sysconfs;
+
+/* REG1_PCIE_CORE_MIPHY_INIT */
+#define MIPHY_OSC_MODE_GM               (1<<0)
+#define MIPHY_OSC_MODE_MILLER           (1<<1)
+#define MIPHY_PLL_REF_DIV_BY_2          (1<<2)
+#define MIPHY_P1_TX_LSPD                (1<<3)
+#define MIPHY_P1_RX_LSPD                (1<<4)
+#define MIPHY_P1_SSC_EN                 (1<<5)
+#define MIPHY_P1_NEARAFELB              (1<<6)
+#define MIPHY_P1_FARAFELB               (1<<7)
+#define MIPHY_PCIE_SOFT_RST_N           (1<<8)
+#define MIPHY_P1_SERDES_IDDQ            (1<<9)
+#define DFT_DEBUG_SEL                   (1<<10)
+#define PCIE_PREFETCH_BRIDGE_EN         (1<<11)
+
+/* REG3_MIPHY_INIT */
+#define MIPHY_P1_OSC_BYPASS             (1<<0)
+#define PCIE_DEVICE_TYPE_RC             (1<<1)
+#define MIPHY_P1_OSC_FORCE_EXT          (1<<2)
+#define MIPHY_OSC_EXT_SEL               (1<<3)
+
+/* REG4_PCIE_CORE_LINK_CTRL */
+#define PCIE_APP_LTSSM_ENABLE           (1<<0)
+#define PCIE_APP_REQ_RETRY_EN           (1<<1)
+#define PCIE_CFG_LANE_EN                (1<<2)
+#define PCIE_DEBUG_ADD_MASK             0x7f8
+#define PCIE_DEBUG_ADD(x)               (((x) << 3) & PCIE_DEBUG_ADD_MASK)
+#define PCIE_DEBUG_MODE                 (1<<11)
+#define PCIE_APP_INIT_RST               (1<<12)
+#define PCIE_SYS_INT                    (1<<13)
+
+
+static void fli7540_pcie_init(void *handle)
+{
+	struct pcie_sysconfs *sys = handle;
+	u32 data;
+
+	/* Force external clock to be used */
+	sysconf_write(sys->reg3, MIPHY_P1_OSC_BYPASS |
+				 PCIE_DEVICE_TYPE_RC);
+	/* Soft reset the PCIE core. This then selects if you
+	 * are in root complex or endpoint mode
+	 */
+	data = sysconf_read(sys->reg1);
+	sysconf_write(sys->reg1, data | MIPHY_PCIE_SOFT_RST_N);
+}
+
+
+static void fli7540_pcie_ltssm_disable(void *handle)
+{
+	struct pcie_sysconfs *sys = handle;
+
+	sysconf_write(sys->reg4, 0);
+}
+
+static void fli7540_pcie_ltssm_enable(void *handle)
+{
+	struct pcie_sysconfs *sys = handle;
+
+	sysconf_write(sys->reg4, PCIE_APP_LTSSM_ENABLE);
+}
+
+/* Ops to drive the platform specific bits of the interface */
+static struct stm_plat_pcie_ops fli7540_pcie_ops = {
+	.init          = fli7540_pcie_init,
+	.enable_ltssm  = fli7540_pcie_ltssm_enable,
+	.disable_ltssm = fli7540_pcie_ltssm_disable,
+};
+
+static struct stm_plat_pcie_config fli7540_plat_pcie_config = {
+	.ahb_val = 0x264207,
+	.ops_handle = &fli7540_pcie_sysconfs,
+	.ops = &fli7540_pcie_ops,
+};
+
+#define PCIE_MEM_START 0xc0000000
+#define PCIE_MEM_SIZE  0x3c00000
+#define PCIE_CNTRL_REG_SIZE 0x1000
+#define PCIE_AHB_REG_SIZE 0x8
+#define MSI_FIRST_IRQ 	(NR_IRQS - 33)
+#define MSI_LAST_IRQ 	(NR_IRQS - 1)
+
+static struct platform_device fli7540_pcie_device = {
+	.name = "pcie_stm",
+	.id = -1,
+	.num_resources = 8,
+	.resource = (struct resource[]) {
+		/* Main PCI window, 960 MB */
+		STM_PLAT_RESOURCE_MEM_NAMED("pcie memory",
+					    PCIE_MEM_START, PCIE_MEM_SIZE),
+		/* There actually is no IO for the PCI express cell, so this
+		 * is a dummy really. Must be disjoint from PCI
+		 */
+		{
+			.name = "pcie io",
+			.start = 0x10000,
+			.end = 0x1ffff,
+			.flags = IORESOURCE_IO,
+		},
+		STM_PLAT_RESOURCE_MEM_NAMED("pcie cntrl", 0xfe100000,
+					    PCIE_CNTRL_REG_SIZE),
+		/* Cut 1 moves where this is, probed dynamically */
+		STM_PLAT_RESOURCE_MEM_NAMED("pcie ahb", 0xfe180000,
+					    PCIE_AHB_REG_SIZE),
+		STM_PLAT_RESOURCE_IRQ_NAMED("pcie inta", ILC_IRQ(133), -1),
+		STM_PLAT_RESOURCE_IRQ_NAMED("pcie syserr", ILC_IRQ(135), -1),
+		STM_PLAT_RESOURCE_IRQ_NAMED("msi mux", ILC_IRQ(134), -1),
+		{
+			.start = MSI_FIRST_IRQ,
+			.end  = MSI_LAST_IRQ,
+			.name = "msi range",
+			.flags = IORESOURCE_IRQ,
+		}
+	},
+	.dev.platform_data = &fli7540_plat_pcie_config,
+};
+
+
+void __init fli7540_configure_pcie(struct fli7540_pcie_config *config)
+{
+	struct resource *res;
+
+	/* Cut1 of the Freeman ultra moves where the spare regs and the ahb
+	 * bridge are. We adjust them accordingly here. Strangely the spare
+	 * registers appear to be replicated at the old address as well.
+	 */
+	if (cpu_data->cut_major >= 1) {
+		res = platform_get_resource_byname(&fli7540_pcie_device,
+						   IORESOURCE_MEM, "pcie ahb");
+		BUG_ON(!res);
+		res->start = 0xfe108000;
+		res->end = res->start + PCIE_AHB_REG_SIZE - 1;
+	}
+
+	/* Claim the sysconfs in the PCIE spare block */
+	fli7540_pcie_sysconfs.reg1 = sysconf_claim(
+			CFG_REG1_PCIE_CORE_MIPHY_INIT, 0, 11, "pcie");
+	fli7540_pcie_sysconfs.reg3 = sysconf_claim(
+			CFG_REG3_MIPHY_INIT, 0, 3, "pcie");
+	fli7540_pcie_sysconfs.reg4 = sysconf_claim(
+			CFG_REG4_PCIE_CORE_LINK_CTRL, 0, 13, "pcie");
+
+	fli7540_plat_pcie_config.reset_gpio = config->reset_gpio;
+	fli7540_plat_pcie_config.reset = config->reset;
+	/* Freeman only has one miphy */
+	fli7540_plat_pcie_config.miphy_num = 0;
+	platform_device_register(&fli7540_pcie_device);
 }

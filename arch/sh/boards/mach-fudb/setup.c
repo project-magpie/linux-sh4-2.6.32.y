@@ -156,6 +156,10 @@ static int __init fudb_device_init(void)
 
 	fli7510_configure_spifsm(&fudb_spifsm_flash);
 
+	fli7540_configure_pcie(&(struct fli7540_pcie_config) {
+			.reset_gpio = stm_gpio(8, 4),
+			});
+
 	fli7510_configure_usb(0, &(struct fli7510_usb_config) {
 			.ovrcur_mode = fli7510_usb_ovrcur_active_low, });
 	fli7510_configure_usb(1, &(struct fli7510_usb_config) {
@@ -188,6 +192,13 @@ static int __init fudb_device_init(void)
 			ARRAY_SIZE(fudb_devices));
 }
 arch_initcall(fudb_device_init);
+
+#ifdef CONFIG_PCI
+int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
+{
+	return stm_pci_legacy_irq(dev);
+}
+#endif
 
 
 

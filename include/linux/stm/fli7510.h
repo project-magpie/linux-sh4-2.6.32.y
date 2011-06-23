@@ -194,4 +194,11 @@ void fli7510_configure_nand(struct stm_nand_config *config);
 
 void fli7510_configure_spifsm(struct stm_plat_spifsm_data *data);
 
+struct fli7540_pcie_config {
+	unsigned reset_gpio;
+	void (*reset)(void);
+};
+/* The 7540 has PCI express rather than PCI */
+void fli7540_configure_pcie(struct fli7540_pcie_config *config);
+
 #endif

@@ -24,7 +24,7 @@ config STM_PCI_EMISS
 # PCIe controller from synopsys, wrapped for HVD parts
 config STM_PCIE
 	bool "STMicroelectronics PCI express controller"
-	depends on PCI && CPU_SUBTYPE_STX7108
+	depends on PCI && (CPU_SUBTYPE_STX7108 || CPU_SUBTYPE_FLI7510)
 	def_bool n
 	select ARCH_SUPPORTS_MSI
 	---help---
@@ -33,7 +33,7 @@ config STM_PCIE
 
 config STM_MIPHY
 	def_bool y
-	depends on SATA_STM
+	depends on (SATA_STM || STM_PCIE)
 
 config STM_MIPHY_TAP
 	bool
@@ -47,13 +47,13 @@ config STM_MIPHY_TAP
 config STM_MIPHY_PCIE_MP
 	bool
 	depends on STM_MIPHY
-	default y if CPU_SUBTYPE_STX7108
+	default y if (CPU_SUBTYPE_STX7108 || CPU_SUBTYPE_FLI7510)
 	default n
 
 config STM_MIPHY_DUMMY
 	bool
 	depends on STM_MIPHY
-	default y if CPU_SUBTYPE_STX7100
+	default y if (CPU_SUBTYPE_STX7100 || CPU_SUBTYPE_FLI7510)
 	default n
 
 config STPIO

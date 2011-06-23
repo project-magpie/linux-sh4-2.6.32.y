@@ -590,3 +590,55 @@ void __init fli7510_configure_usb(int port, struct fli7510_usb_config *config)
 		platform_device_register(&fli7520_usb_devices[port]);
 	}
 }
+
+/* Cut 0 has a problem with accessing the MiPhy, so we have to use the dummy
+ * driver as the PCIe driver expects a phy
+ */
+static struct stm_plat_miphy_dummy_data fli7540_miphy_dummy_platform_data = {
+	.miphy_first = 0,
+	.miphy_count = 1,
+	.miphy_modes = (enum miphy_mode[1]) {PCIE_MODE},
+};
+
+static struct platform_device fli7540_miphy_dummy_device = {
+	.name	= "stm-miphy-dummy",
+	.id	= -1,
+	.num_resources = 0,
+	.dev = {
+		.platform_data = &fli7540_miphy_dummy_platform_data,
+	}
+};
+
+static void fli7540_pcie_mp_select(int port)
+{
+	/* Freeman only has one port */
+}
+
+struct stm_plat_pcie_mp_data fli7540_pcie_mp_platform_data = {
+	.miphy_first = 0,
+	.miphy_count = 1,
+	.miphy_modes = (enum miphy_mode[1]) {PCIE_MODE},
+	.mp_select = fli7540_pcie_mp_select,
+};
+
+static struct platform_device fli7540_pcie_mp_device = {
+	.name	= "pcie-mp",
+	.id	= -1,
+	.num_resources = 1,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0xfe104000, 0xff)
+	},
+	.dev = {
+		.platform_data = &fli7540_pcie_mp_platform_data,
+	}
+};
+
+static int __init fli7540_miphy_postcore_setup(void)
+{
+	if (cpu_data->cut_major >= 1)
+		return platform_device_register(&fli7540_pcie_mp_device);
+
+	return platform_device_register(&fli7540_miphy_dummy_device);
+}
+
+postcore_initcall(fli7540_miphy_postcore_setup);

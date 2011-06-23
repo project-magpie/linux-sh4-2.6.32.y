@@ -239,462 +239,88 @@ static struct platform_device fli7510_rng_devrandom_device = {
 
 /* PIO ports resources ---------------------------------------------------- */
 
+
+#define FLI75XX_PIO_ENTRY(_id, _start)	 				\
+	[_id] = {							\
+		.name = "stm-gpio",					\
+		.id = _id,						\
+		.num_resources = 1,					\
+		.resource = (struct resource[]) {			\
+			STM_PLAT_RESOURCE_MEM(_start, 0x100),		\
+		},							\
+	}
+
+#define FLI75XX_PIO_IRQ_ENTRY(_id, _start, _ilc_irq) 			\
+	[_id] = {							\
+		.name = "stm-gpio",					\
+		.id = _id,						\
+		.num_resources = 2,					\
+		.resource = (struct resource[]) {			\
+			STM_PLAT_RESOURCE_MEM(_start, 0x100),		\
+			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(_ilc_irq), -1),	\
+		},							\
+	}
+
+
 static struct platform_device fli7510_pio_devices[] = {
-	[0] = {
-		.name = "stm-gpio",
-		.id = 0,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5c0000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(75), -1),
-		},
-	},
-	[1] = {
-		.name = "stm-gpio",
-		.id = 1,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5c4000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(76), -1),
-		},
-	},
-	[2] = {
-		.name = "stm-gpio",
-		.id = 2,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5c8000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(77), -1),
-		},
-	},
-	[3] = {
-		.name = "stm-gpio",
-		.id = 3,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5cc000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(78), -1),
-		},
-	},
-	[4] = {
-		.name = "stm-gpio",
-		.id = 4,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5d0000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(79), -1),
-		},
-	},
-	[5] = {
-		.name = "stm-gpio",
-		.id = 5,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5d4000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(80), -1),
-		},
-	},
-	[6] = {
-		.name = "stm-gpio",
-		.id = 6,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5d8000, 0x100),
-		},
-	},
-	[7] = {
-		.name = "stm-gpio",
-		.id = 7,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5dc000, 0x100),
-		},
-	},
-	[8] = {
-		.name = "stm-gpio",
-		.id = 8,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5e0000, 0x100),
-		},
-	},
-	[9] = {
-		.name = "stm-gpio",
-		.id = 9,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5e4000, 0x100),
-		},
-	},
-	[10] = {
-		.name = "stm-gpio",
-		.id = 10,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd984000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(125), -1),
-		},
-	},
-	[11] = {
-		.name = "stm-gpio",
-		.id = 11,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd988000, 0x100),
-		},
-	},
-	[12] = {
-		.name = "stm-gpio",
-		.id = 12,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd98c000, 0x100),
-		},
-	},
-	[13] = {
-		.name = "stm-gpio",
-		.id = 13,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd990000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(2), -1),
-		},
-	},
-	[14] = {
-		.name = "stm-gpio",
-		.id = 14,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd994000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(3), -1),
-		},
-	},
-	[15] = {
-		.name = "stm-gpio",
-		.id = 15,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd998000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(81), -1),
-		},
-	},
-	[16] = {
-		.name = "stm-gpio",
-		.id = 16,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd99c000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(82), -1),
-		},
-	},
-	[17] = {
-		.name = "stm-gpio",
-		.id = 17,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9a0000, 0x100),
-		},
-	},
-	[18] = {
-		.name = "stm-gpio",
-		.id = 18,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9a4000, 0x100),
-		},
-	},
-	[19] = {
-		.name = "stm-gpio",
-		.id = 19,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9a8000, 0x100),
-		},
-	},
-	[20] = {
-		.name = "stm-gpio",
-		.id = 20,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9ac000, 0x100),
-		},
-	},
-	[21] = {
-		.name = "stm-gpio",
-		.id = 21,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9b0000, 0x100),
-		},
-	},
-	[22] = {
-		.name = "stm-gpio",
-		.id = 22,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9b4000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(83), -1),
-		},
-	},
-	[23] = {
-		.name = "stm-gpio",
-		.id = 23,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9b8000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(84), -1),
-		},
-	},
-	[24] = {
-		.name = "stm-gpio",
-		.id = 24,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9bc000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(85), -1),
-		},
-	},
-	[25] = {
-		.name = "stm-gpio",
-		.id = 25,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9c0000, 0x100),
-		},
-	},
-	[26] = {
-		.name = "stm-gpio",
-		.id = 26,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9c4000, 0x100),
-		},
-	},
-	[27] = {
-		.name = "stm-gpio",
-		.id = 27,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9c8000, 0x100),
-		},
-	},
+	FLI75XX_PIO_IRQ_ENTRY(0, 0xfd5c0000, 75),
+	FLI75XX_PIO_IRQ_ENTRY(1, 0xfd5c4000, 76),
+	FLI75XX_PIO_IRQ_ENTRY(2, 0xfd5c8000, 77),
+	FLI75XX_PIO_IRQ_ENTRY(3, 0xfd5cc000, 78),
+	FLI75XX_PIO_IRQ_ENTRY(4, 0xfd5d0000, 79),
+	FLI75XX_PIO_IRQ_ENTRY(5, 0xfd5d4000, 80),
+	FLI75XX_PIO_ENTRY(6, 0xfd5d8000),
+	FLI75XX_PIO_ENTRY(7, 0xfd5dc000),
+	FLI75XX_PIO_ENTRY(8, 0xfd5e0000),
+	FLI75XX_PIO_ENTRY(9, 0xfd5e4000),
+	FLI75XX_PIO_IRQ_ENTRY(10, 0xfd984000, 125),
+	FLI75XX_PIO_ENTRY(11, 0xfd988000),
+	FLI75XX_PIO_ENTRY(12, 0xfd98c000),
+	FLI75XX_PIO_IRQ_ENTRY(13, 0xfd990000, 2),
+	FLI75XX_PIO_IRQ_ENTRY(14, 0xfd994000, 3),
+	FLI75XX_PIO_IRQ_ENTRY(15, 0xfd998000, 81),
+	FLI75XX_PIO_IRQ_ENTRY(16, 0xfd99c000, 82),
+	FLI75XX_PIO_ENTRY(17, 0xfd9a0000),
+	FLI75XX_PIO_ENTRY(18, 0xfd9a4000),
+	FLI75XX_PIO_ENTRY(19, 0xfd9a8000),
+	FLI75XX_PIO_ENTRY(20, 0xfd9ac000),
+	FLI75XX_PIO_ENTRY(21, 0xfd9b0000),
+	FLI75XX_PIO_IRQ_ENTRY(22, 0xfd9b4000, 83),
+	FLI75XX_PIO_IRQ_ENTRY(23, 0xfd9b8000, 84),
+	FLI75XX_PIO_IRQ_ENTRY(24, 0xfd9bc000, 85),
+	FLI75XX_PIO_ENTRY(25, 0xfd9c0000),
+	FLI75XX_PIO_ENTRY(26, 0xfd9c4000),
+	FLI75XX_PIO_ENTRY(27, 0xfd9c8000),
 };
 
 static struct platform_device fli7520_pio_devices[] = {
 	/* Warning, no PIO ports 0 to 4... */
-	[5] = {
-		.name = "stm-gpio",
-		.id = 5,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5c0000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(75), -1),
-		},
-	},
-	[6] = {
-		.name = "stm-gpio",
-		.id = 6,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5c4000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(76), -1),
-		},
-	},
-	[7] = {
-		.name = "stm-gpio",
-		.id = 7,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5c8000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(77), -1),
-		},
-	},
-	[8] = {
-		.name = "stm-gpio",
-		.id = 8,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5cc000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(78), -1),
-		},
-	},
-	[9] = {
-		.name = "stm-gpio",
-		.id = 9,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd5d0000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(79), -1),
-		},
-	},
-	[10] = {
-		.name = "stm-gpio",
-		.id = 10,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd984000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(125), -1),
-		},
-	},
-	[11] = {
-		.name = "stm-gpio",
-		.id = 11,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd988000, 0x100),
-		},
-	},
-	[12] = {
-		.name = "stm-gpio",
-		.id = 12,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd98c000, 0x100),
-		},
-	},
-	[13] = {
-		.name = "stm-gpio",
-		.id = 13,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd990000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(2), -1),
-		},
-	},
-	[14] = {
-		.name = "stm-gpio",
-		.id = 14,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd994000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(3), -1),
-		},
-	},
-	[15] = {
-		.name = "stm-gpio",
-		.id = 15,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd998000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(81), -1),
-		},
-	},
-	[16] = {
-		.name = "stm-gpio",
-		.id = 16,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd99c000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(82), -1),
-		},
-	},
-	[17] = {
-		.name = "stm-gpio",
-		.id = 17,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9a0000, 0x100),
-		},
-	},
-	[18] = {
-		.name = "stm-gpio",
-		.id = 18,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9a4000, 0x100),
-		},
-	},
-	[19] = {
-		.name = "stm-gpio",
-		.id = 19,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9a8000, 0x100),
-		},
-	},
-	[20] = {
-		.name = "stm-gpio",
-		.id = 20,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9ac000, 0x100),
-		},
-	},
-	[21] = {
-		.name = "stm-gpio",
-		.id = 21,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9b0000, 0x100),
-		},
-	},
-	[22] = {
-		.name = "stm-gpio",
-		.id = 22,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9b4000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(83), -1),
-		},
-	},
-	[23] = {
-		.name = "stm-gpio",
-		.id = 23,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9b8000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(84), -1),
-		},
-	},
-	[24] = {
-		.name = "stm-gpio",
-		.id = 24,
-		.num_resources = 2,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9bc000, 0x100),
-			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(85), -1),
-		},
-	},
-	[25] = {
-		.name = "stm-gpio",
-		.id = 25,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9c0000, 0x100),
-		},
-	},
-	[26] = {
-		.name = "stm-gpio",
-		.id = 26,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9c4000, 0x100),
-		},
-	},
-	[27] = {
-		.name = "stm-gpio",
-		.id = 27,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9c8000, 0x100),
-		},
-	},
-	[28] = {
-		.name = "stm-gpio",
-		.id = 28,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9cc000, 0x100),
-		},
-	},
-	[29] = {
-		.name = "stm-gpio",
-		.id = 29,
-		.num_resources = 1,
-		.resource = (struct resource[]) {
-			STM_PLAT_RESOURCE_MEM(0xfd9d0000, 0x100),
-		},
-	},
+	FLI75XX_PIO_IRQ_ENTRY(5,  0xfd5c0000, 75),
+	FLI75XX_PIO_IRQ_ENTRY(6,  0xfd5c4000, 76),
+	FLI75XX_PIO_IRQ_ENTRY(7,  0xfd5c8000, 77),
+	FLI75XX_PIO_IRQ_ENTRY(8,  0xfd5cc000, 78),
+	FLI75XX_PIO_IRQ_ENTRY(9,  0xfd5d0000, 79),
+	FLI75XX_PIO_IRQ_ENTRY(9,  0xfd5d0000, 79),
+	FLI75XX_PIO_IRQ_ENTRY(10, 0xfd984000, 125),
+	FLI75XX_PIO_ENTRY(11, 0xfd988000),
+	FLI75XX_PIO_ENTRY(12, 0xfd98c000),
+	FLI75XX_PIO_IRQ_ENTRY(13, 0xfd990000, 2),
+	FLI75XX_PIO_IRQ_ENTRY(14, 0xfd994000, 3),
+	FLI75XX_PIO_IRQ_ENTRY(15, 0xfd998000, 81),
+	FLI75XX_PIO_IRQ_ENTRY(16, 0xfd99c000, 82),
+	FLI75XX_PIO_ENTRY(17, 0xfd9a0000),
+	FLI75XX_PIO_ENTRY(18, 0xfd9a4000),
+	FLI75XX_PIO_ENTRY(19, 0xfd9a8000),
+	FLI75XX_PIO_ENTRY(20, 0xfd9ac000),
+	FLI75XX_PIO_ENTRY(21, 0xfd9b0000),
+	FLI75XX_PIO_IRQ_ENTRY(22, 0xfd9b4000, 83),
+	FLI75XX_PIO_IRQ_ENTRY(23, 0xfd9b8000, 84),
+	FLI75XX_PIO_IRQ_ENTRY(24, 0xfd9bc000, 85),
+	FLI75XX_PIO_ENTRY(25, 0xfd9c0000),
+	FLI75XX_PIO_ENTRY(26, 0xfd9c4000),
+	FLI75XX_PIO_ENTRY(27, 0xfd9c8000),
+	FLI75XX_PIO_ENTRY(28, 0xfd9cc000),
+	FLI75XX_PIO_ENTRY(29, 0xfd9d0000),
 };
 
 static int fli7510_pio_config(unsigned gpio,

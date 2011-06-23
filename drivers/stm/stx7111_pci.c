@@ -126,9 +126,6 @@ void __init stx7111_configure_pci(struct stm_plat_pci_config *pci_conf)
 	sc = sysconf_claim(SYS_CFG, 31, 20, 20, "PCI");
 	sysconf_write(sc, 1);
 
-	/* REQ/GNT[0] are dedicated EMI pins */
-	BUG_ON(pci_conf->req_gnt[0] != PCI_PIN_DEFAULT);
-
 	/* Configure the REQ/GNT[1..3], muxed with PIOs */
 	for (i = 1; i < 4; i++) {
 		static const char *req_name[] = {

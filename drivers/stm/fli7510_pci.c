@@ -168,9 +168,6 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 	/* Copy over platform specific data to driver */
 	fli7510_pci_device.dev.platform_data = pci_conf;
 
-	/* REQ/GNT[0] are dedicated EMI pins */
-	BUG_ON(pci_conf->req_gnt[0] != PCI_PIN_DEFAULT);
-
 	/* REQ/GNT[1..2] PIOs setup */
 	for (i = 1; i <= 2; i++) {
 		switch (pci_conf->req_gnt[i]) {
@@ -203,9 +200,6 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 			break;
 		}
 	}
-
-	/* REG/GNT[3] are... unavailable... */
-	BUG_ON(pci_conf->req_gnt[3] != PCI_PIN_UNUSED);
 
 	/* Claim "dedicated" interrupt pins... */
 	for (i = 0; i < 4; i++) {

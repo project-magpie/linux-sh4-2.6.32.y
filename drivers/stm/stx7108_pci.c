@@ -173,9 +173,6 @@ void __init stx7108_configure_pci(struct stm_plat_pci_config *pci_conf)
 	while (sysconf_read(sc))
 		cpu_relax(); /* Loop until powered up */
 
-	/* REQ/GNT[0] are dedicated EMI pins */
-	BUG_ON(pci_conf->req_gnt[0] != PCI_PIN_DEFAULT);
-
 	/* Configure the REQ/GNT[1..2], muxed with PIOs */
 	for (i = 1; i <= 2; i++) {
 		switch (pci_conf->req_gnt[i]) {

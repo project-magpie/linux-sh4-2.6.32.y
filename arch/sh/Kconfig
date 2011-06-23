@@ -397,7 +397,6 @@ config CPU_SUBTYPE_FLI7510
 	bool "Support Freeman 510/520/530/540 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
-	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select this if you have Freeman 510 (FLI7510),
 	  Freeman 520 (FLI7520), Freeman 530 (FLI7530) or
@@ -421,7 +420,6 @@ config CPU_SUBTYPE_STX5206
 	bool "Support STx5206 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
-	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select this if you have a STx5206 CPU (or derivative).
 
@@ -436,7 +434,6 @@ config CPU_SUBTYPE_STX7105
 	bool "Support STx7105/7106 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
-	select SH_ST_SYNOPSYS_PCI if PCI
 	select STM_MIPHY
 	help
 	  Select this if you have STx7105 or STx7106 CPU (or derivative).
@@ -445,7 +442,6 @@ config CPU_SUBTYPE_STX7108
 	bool "Support STx7108 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
-	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select STX7108 if you have an STx7108 CPU.
 
@@ -453,7 +449,6 @@ config CPU_SUBTYPE_STX7111
 	bool "Support STx7111 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
-	select SH_ST_SYNOPSYS_PCI if PCI
 	help
 	  Select STX7111 if you have an STx7111 CPU.
 

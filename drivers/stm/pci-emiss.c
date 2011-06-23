@@ -1,5 +1,5 @@
 /*
- * arch/sh/drivers/pci/pci-synopsys.c
+ * drivers/stm/pci-emiss.c
  *
  * PCI support for the STMicroelectronics EMISS PCI cell
  *
@@ -19,13 +19,12 @@
 #include <linux/io.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/pci-glue.h>
-#include <linux/stm/pci-synopsys.h>
 #include <linux/gpio.h>
 #include <linux/cache.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <asm/clock.h>
-#include "pci-synopsys.h"
+#include "pci-emiss.h"
 
 
 /* Due to the brain dead hardware we have to take the lock when we do inb(),
@@ -47,8 +46,7 @@ struct byte_enables {
 	signed   char shift;
 };
 
-static struct byte_enables be_table[3][4] =
-{
+static struct byte_enables be_table[3][4] = {
 	{
 		{ 0x0e,  0 }, /* BYTE read offset 0: legal */
 		{ 0x0d,  8 }, /* BYTE read offset 1: legal */
@@ -67,8 +65,8 @@ static struct byte_enables be_table[3][4] =
 	}
 };
 
-#define BYTE_ENABLE(addr,size) be_table[(size) / 2][(addr) & 3].enables
-#define BYTE_ENABLE_SHIFT(addr,size) be_table[(size) / 2][(addr) & 3].shift
+#define BYTE_ENABLE(addr, size) be_table[(size) / 2][(addr) & 3].enables
+#define BYTE_ENABLE_SHIFT(addr, size) be_table[(size) / 2][(addr) & 3].shift
 #define SIZE_MASK(size) ((size == 4) ? ~0 : (1 << (size << 3)) - 1)
 
 #define pci_crp_readb(fn, addr) pci_crp_read(fn, addr, 1)
@@ -78,8 +76,8 @@ static struct byte_enables be_table[3][4] =
 /* size is either 1, 2, or 4 */
 static u32 pci_crp_read(unsigned fn, int addr, int size)
 {
-	unsigned char be = BYTE_ENABLE(addr,size);
-	int shift = BYTE_ENABLE_SHIFT(addr,size);
+	unsigned char be = BYTE_ENABLE(addr, size);
+	int shift = BYTE_ENABLE_SHIFT(addr, size);
 	u32 ret;
 
 	/* The spin lock is not needed as this are basically used only
@@ -101,8 +99,8 @@ static u32 pci_crp_read(unsigned fn, int addr, int size)
 
 static void pci_crp_write(unsigned fn, int addr, int size, u32 val)
 {
-	unsigned char be = BYTE_ENABLE(addr,size);
-	int shift = BYTE_ENABLE_SHIFT(addr,size);
+	unsigned char be = BYTE_ENABLE(addr, size);
+	int shift = BYTE_ENABLE_SHIFT(addr, size);
 
 	spin_lock(&stm_pci_io_lock);
 
@@ -190,8 +188,8 @@ static int pci_stm_config_read(struct pci_bus *bus, unsigned int devfn,
 	int fn = PCI_FUNC(devfn);
 	u32 addr, cmd, raw;
 
-	if(bus->number == 0 ) {
-		if(slot > max_slot) {
+	if (bus->number == 0) {
+		if (slot > max_slot) {
 			*val = SIZE_MASK(size);
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		}
@@ -218,10 +216,9 @@ static int pci_stm_config_write(struct pci_bus *bus, unsigned int devfn,
 	int fn = PCI_FUNC(devfn);
 	u32 addr, cmd;
 
-	if(bus->number == 0 ) {
-		if(slot > max_slot) {
+	if (bus->number == 0) {
+		if (slot > max_slot)
 			return PCIBIOS_DEVICE_NOT_FOUND;
-		}
 		addr = TYPE0_CONFIG_CYCLE(fn, where) |  (1<<(idsel_lo + slot));
 	} else {
 		addr = TYPE1_CONFIG_CYCLE(bus->number, devfn, where);
@@ -235,18 +232,18 @@ static int pci_stm_config_write(struct pci_bus *bus, unsigned int devfn,
 	return PCIBIOS_SUCCESSFUL;
 }
 
-static inline u32 pci_synopsys_in(unsigned long port, int size)
+static inline u32 pci_emiss_in(unsigned long port, int size)
 {
-	unsigned be = BYTE_ENABLE(port,size);
+	unsigned be = BYTE_ENABLE(port, size);
 	u32 raw;
 
 	/* ad[1:0] must be passed through for IO port read/write */
 	raw = pci_csr_read(port, PCI_CSR_BE_CMD_VAL(PCI_IO_READ, be));
 
-	return (raw >> BYTE_ENABLE_SHIFT(port,size)) & SIZE_MASK(size);
+	return (raw >> BYTE_ENABLE_SHIFT(port, size)) & SIZE_MASK(size);
 }
 
-static inline void pci_synopsys_out(u32 val, unsigned long port, int size)
+static inline void pci_emiss_out(u32 val, unsigned long port, int size)
 {
 	unsigned be = BYTE_ENABLE(port, size);
 	u32 cmd;
@@ -258,18 +255,18 @@ static inline void pci_synopsys_out(u32 val, unsigned long port, int size)
 }
 
 /* As above, but does NOT take the lock. Beware */
-static inline u32 __pci_synopsys_in(unsigned long port, int size)
+static inline u32 __pci_emiss_in(unsigned long port, int size)
 {
-	unsigned be = BYTE_ENABLE(port,size);
+	unsigned be = BYTE_ENABLE(port, size);
 	u32 raw;
 
 	/* ad[1:0] must be passed through for IO port read/write */
 	raw = __pci_csr_read(port, PCI_CSR_BE_CMD_VAL(PCI_IO_READ, be));
 
-	return (raw >> BYTE_ENABLE_SHIFT(port,size)) & SIZE_MASK(size);
+	return (raw >> BYTE_ENABLE_SHIFT(port, size)) & SIZE_MASK(size);
 }
 
-static inline void __pci_synopsys_out(u32 val, unsigned long port, int size)
+static inline void __pci_emiss_out(u32 val, unsigned long port, int size)
 {
 	unsigned be = BYTE_ENABLE(port, size);
 	u32 cmd;
@@ -281,9 +278,9 @@ static inline void __pci_synopsys_out(u32 val, unsigned long port, int size)
 }
 
 #define in_func(size, ext) \
-	u##size pci_synopsys_in##ext(unsigned long port) \
+	u##size pci_emiss_in##ext(unsigned long port) \
 	{ \
-		return (u##size) pci_synopsys_in(port, size >> 3); \
+		return (u##size) pci_emiss_in(port, size >> 3); \
 	}
 in_func(8, b)
 in_func(16, w)
@@ -292,9 +289,9 @@ in_func(32, l)
 /* Just does the same thing for now, I don't think we need a pause
  * here, as there is quite a bit of overhead anyway */
 #define in_pause_func(size, ext) \
-	u##size pci_synopsys_in##ext##_p(unsigned long port) \
+	u##size pci_emiss_in##ext##_p(unsigned long port) \
 	{ \
-		return pci_synopsys_in##ext(port); \
+		return pci_emiss_in##ext(port); \
 	}
 in_pause_func(8,  b)
 in_pause_func(16, w)
@@ -307,7 +304,7 @@ in_pause_func(32, l)
 #define PCI_IO_CHUNK_SIZE 32 /* Correct size ? */
 
 #define string_in_func(size, ext) \
-	void pci_synopsys_ins##ext(unsigned long port, void *dst, \
+	void pci_emiss_ins##ext(unsigned long port, void *dst, \
 			unsigned long count) \
 	{ \
 		u##size *buf = (u##size *)dst; \
@@ -318,14 +315,14 @@ in_pause_func(32, l)
 			spin_lock_irqsave(&stm_pci_io_lock, flags); \
 			for (chunk = count - PCI_IO_CHUNK_SIZE; \
 					count > chunk; count--) \
-				*buf++ = __pci_synopsys_in(port, size >> 3); \
+				*buf++ = __pci_emiss_in(port, size >> 3); \
 			spin_unlock_irqrestore(&stm_pci_io_lock, flags); \
 		} \
 	\
 		/* Tail end  */ \
 		spin_lock_irqsave(&stm_pci_io_lock, flags); \
 		while (count--) \
-			*buf++ =  __pci_synopsys_in(port, size >> 3); \
+			*buf++ =  __pci_emiss_in(port, size >> 3); \
 		spin_unlock_irqrestore(&stm_pci_io_lock, flags); \
 	}
 string_in_func(8,  b)
@@ -333,25 +330,25 @@ string_in_func(16, w)
 string_in_func(32, l)
 
 #define out_func(size, ext) \
-	void pci_synopsys_out##ext(u##size val, unsigned long port) \
+	void pci_emiss_out##ext(u##size val, unsigned long port) \
 	{ \
-		pci_synopsys_out(val, port, size >> 3); \
+		pci_emiss_out(val, port, size >> 3); \
 	}
 out_func(8, b)
 out_func(16, w)
 out_func(32, l)
 
 #define out_pause_func(size, ext) \
-	void pci_synopsys_out##ext##_p(u##size val, unsigned long port) \
+	void pci_emiss_out##ext##_p(u##size val, unsigned long port) \
 	{ \
-		pci_synopsys_out##ext(val, port); \
+		pci_emiss_out##ext(val, port); \
 	}
 out_pause_func(8,  b)
 out_pause_func(16, w)
 out_pause_func(32, l)
 
 #define string_out_func(size, ext) \
-	void pci_synopsys_outs##ext(unsigned long port, const void *src, \
+	void pci_emiss_outs##ext(unsigned long port, const void *src, \
 			unsigned long count) \
 	{ \
 		u##size *buf = (u##size *)src; \
@@ -362,14 +359,14 @@ out_pause_func(32, l)
 			spin_lock_irqsave(&stm_pci_io_lock, flags); \
 			for (chunk = count - PCI_IO_CHUNK_SIZE; count > chunk; \
 					count--)	  \
-				__pci_synopsys_out(*buf++, port, size >> 3); \
+				__pci_emiss_out(*buf++, port, size >> 3); \
 			spin_unlock_irqrestore(&stm_pci_io_lock, flags); \
 		} \
 	\
 		/* Tail end  */ \
 		spin_lock_irqsave(&stm_pci_io_lock, flags); \
 		while (count--) \
-			__pci_synopsys_out(*buf++, port, size >> 3); \
+			__pci_emiss_out(*buf++, port, size >> 3); \
 		spin_unlock_irqrestore(&stm_pci_io_lock, flags); \
 	}
 string_out_func(8, b)
@@ -393,10 +390,10 @@ static void __iomem __devinit *plat_ioremap_region(struct platform_device *pdev,
 	if (!devm_request_mem_region(&pdev->dev, res->start, size, name))
 		return NULL;
 
-	p = devm_ioremap_nocache(&pdev->dev,res->start,size);
+	p = devm_ioremap_nocache(&pdev->dev, res->start, size);
 
 	if (p == NULL)
-		printk(KERN_ERR "pci-stm: Failed to map address 0x%08x\n",
+		printk(KERN_ERR "pci_stm: Failed to map address 0x%08x\n",
 				res->start);
 
 	return p;
@@ -510,7 +507,7 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 	req_gnt_mask = EMISS_ARBITER_CONFIG_BUS_REQ_ALL_MASKED;
 	/* Figure out what req/gnt lines we are using */
 	for (i = 0; i < 4; i++) {
-		if(pci_config->req_gnt[i] != PCI_PIN_UNUSED) {
+		if (pci_config->req_gnt[i] != PCI_PIN_UNUSED) {
 			req = ((i == 0) && pci_config->req0_to_req3) ? 3 : i;
 			req_gnt_mask &= ~EMISS_ARBITER_CONFIG_MASK_BUS_REQ(req);
 		}
@@ -562,7 +559,7 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 	/* Drop lmi base so that it is a multiple of the mbar size */
 	lmi_base = lmi_base & ~(mbar_size - 1);
 
-	for(fn = 0; fn < 8 && lmi_base < lmi_end; fn++) {
+	for (fn = 0; fn < 8 && lmi_base < lmi_end; fn++) {
 		pci_crp_writel(fn, PCI_BASE_ADDRESS_0, lmi_base);
 		pci_crp_writeb(fn, PCI_CACHE_LINE_SIZE, L1_CACHE_BYTES >> 2);
 		pci_crp_writeb(fn, PCI_LATENCY_TIMER, 0xff);
@@ -572,8 +569,8 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 
 		/* Update the emiss registers, we just have a one to one
 		 * translation */
-		writel(lmi_base, emiss + PCI_BUFFADDR_FUNC(fn,0));
-		writel(lmi_base, emiss + PCI_BUFFADDR_FUNC(fn,1));
+		writel(lmi_base, emiss + PCI_BUFFADDR_FUNC(fn, 0));
+		writel(lmi_base, emiss + PCI_BUFFADDR_FUNC(fn, 1));
 
 		writel(mbar_size, emiss + PCI_FUNC_BUFFDEPTH(fn));
 		writel(PCI_FUNC_BUFF_CONFIG_ENABLE |
@@ -607,36 +604,36 @@ static int __devinit pci_stm_probe(struct platform_device *pdev)
 	struct stm_plat_pci_config *pci_config = pdev->dev.platform_data;
 	struct clk *pci_clk;
 
-	emiss = plat_ioremap_region(pdev, "EMISS");
+	emiss = plat_ioremap_region(pdev, "pci emiss");
 	if (emiss == NULL)
 		return -ENOMEM;
 
-	ahb_pci = plat_ioremap_region(pdev, "PCI-AHB");
+	ahb_pci = plat_ioremap_region(pdev, "pci ahb");
 	if (ahb_pci == NULL)
 		return -ENOMEM;
 
 	/* We don't use any of the ping-pong weirdness,
 	 * but sometimes the errors are useful */
-	irq = platform_get_irq_byname(pdev, "DMA");
+	irq = platform_get_irq_byname(pdev, "pci dma");
 	ret = devm_request_irq(&pdev->dev, irq, pci_stm_dma_irq, 0,
-			"PCI DMA", NULL);
+			"pci dma", NULL);
 	if (ret)
-		printk(KERN_ERR "pci-stm: Cannot request DMA irq %d\n", irq);
+		printk(KERN_ERR "pci_stm: Cannot request DMA irq %d\n", irq);
 
-	irq = platform_get_irq_byname(pdev, "Error");
+	irq = platform_get_irq_byname(pdev, "pci err");
 	ret = devm_request_irq(&pdev->dev, irq, pci_stm_error_irq, 0,
-			"PCI Error", NULL);
+			"pci error", NULL);
 	if (ret)
-		printk(KERN_ERR "pci-stm: Cannot request error irq "
+		printk(KERN_ERR "pci_stm: Cannot request error irq "
 				"%d\n", irq);
 
-	irq = platform_get_irq_byname(pdev, "SERR");
+	irq = platform_get_irq_byname(pdev, "pci serr");
 	/* Don't hook the error interrupt if we are told not to */
 	if (irq > 0) {
 		ret = devm_request_irq(&pdev->dev, irq, pci_stm_serr_irq, 0,
-				"PCI SERR", NULL);
+				"pci serr", NULL);
 		if (ret)
-			printk(KERN_ERR "pci-stm: Cannot request SERR irq "
+			printk(KERN_ERR "pci_stm: Cannot request SERR irq "
 					"%d\n", irq);
 	}
 
@@ -661,7 +658,7 @@ static int __devinit pci_stm_probe(struct platform_device *pdev)
 		/* We have not been given a reset function by the board layer,
 		 * and the PIO is valid.  Assume it is done via PIO. Claim pins
 		 * specified in config and use default PIO reset function.  */
-		if (!gpio_request(pci_config->pci_reset_gpio, "PCI RST")) {
+		if (!gpio_request(pci_config->pci_reset_gpio, "pci reset")) {
 			pci_reset_pin = pci_config->pci_reset_gpio;
 			pci_config->pci_reset = pci_stm_pio_reset;
 		} else {
@@ -672,7 +669,7 @@ static int __devinit pci_stm_probe(struct platform_device *pdev)
 	}
 
 	/* Extract where the PCI memory window is supposed to be */
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "Memory");
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pci memory");
 	if (res == NULL)
 		return -ENXIO;
 
@@ -683,7 +680,7 @@ static int __devinit pci_stm_probe(struct platform_device *pdev)
 	 * we have passed in */
 	chan->mem_resource = res;
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_IO, "IO");
+	res = platform_get_resource_byname(pdev, IORESOURCE_IO, "pci io");
 	if (res == NULL)
 		return -ENXIO;
 	chan->io_resource = res;

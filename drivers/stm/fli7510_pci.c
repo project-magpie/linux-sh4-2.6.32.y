@@ -103,19 +103,20 @@ static struct platform_device fli7510_pci_device = {
 	.num_resources = 7,
 	.resource = (struct resource[]) {
 		/* 512 MB */
-		STM_PLAT_RESOURCE_MEM_NAMED("Memory", 0xc0000000, 0x20000000),
+		STM_PLAT_RESOURCE_MEM_NAMED("pci memory",
+					    0xc0000000, 0x20000000),
 		{
-			.name = "IO",
+			.name = "pci io",
 			.start = 0x0400,
 			.end = 0xffff,
 			.flags = IORESOURCE_IO,
 		},
-		STM_PLAT_RESOURCE_MEM_NAMED("EMISS", 0xfd200000, 0x17fc),
-		STM_PLAT_RESOURCE_MEM_NAMED("PCI-AHB", 0xfd080000, 0xff),
-		STM_PLAT_RESOURCE_IRQ_NAMED("DMA", ILC_IRQ(47), -1),
-		STM_PLAT_RESOURCE_IRQ_NAMED("Error", ILC_IRQ(48), -1),
+		STM_PLAT_RESOURCE_MEM_NAMED("pci emiss", 0xfd200000, 0x17fc),
+		STM_PLAT_RESOURCE_MEM_NAMED("pci ahb", 0xfd080000, 0xff),
+		STM_PLAT_RESOURCE_IRQ_NAMED("pci dma", ILC_IRQ(47), -1),
+		STM_PLAT_RESOURCE_IRQ_NAMED("pci err", ILC_IRQ(48), -1),
 		/* SERR interrupt set in fli7510_configure_pci() */
-		STM_PLAT_RESOURCE_IRQ_NAMED("SERR", -1, -1),
+		STM_PLAT_RESOURCE_IRQ_NAMED("pci serr", -1, -1),
 	},
 	.dev.platform_data = &(struct stm_device_config){
 		.sysconfs_num = 2,
@@ -259,7 +260,8 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 		fli7510_pci_device.num_resources--;
 	} else {
 		struct resource *res = platform_get_resource_byname(
-				&fli7510_pci_device, IORESOURCE_IRQ, "SERR");
+				&fli7510_pci_device, IORESOURCE_IRQ,
+				"pci serr");
 
 		res->start = pci_conf->serr_irq;
 		res->end = pci_conf->serr_irq;

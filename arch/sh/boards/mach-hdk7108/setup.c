@@ -25,7 +25,7 @@
 #include <linux/spi/flash.h>
 #include <linux/stm/nand.h>
 #include <linux/stm/emi.h>
-#include <linux/stm/pci-synopsys.h>
+#include <linux/stm/pci-glue.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7108.h>
 #include <linux/stm/sysconf.h>

@@ -20,7 +20,7 @@
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/physmap.h>
-#include <linux/stm/pci-synopsys.h>
+#include <linux/stm/pci-glue.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7105.h>
 #include <linux/stm/sysconf.h>

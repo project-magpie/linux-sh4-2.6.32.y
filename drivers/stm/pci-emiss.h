@@ -1,5 +1,5 @@
 /*
- * arch/sh/drivers/pci/pci-synopsys.h
+ * drivers/stm/pci-emiss.h
  *
  * Defines for the EMISS PCI cell on STMicro devices
  *
@@ -11,14 +11,13 @@
  *
  */
 
-#ifndef __PCI_SYNOPSYS_H__
-#define __PCI_SYNOPSYS_H__
+#ifndef __PCI_EMISS_H__
+#define __PCI_EMISS_H__
 
 
 /* Controls various aspects of PCI. Since concievably other
  * drivers may want to to muck around with this stuff, should
- * this be in a separate driver? Probably, but this will do
- * for now until I know what i am doing
+ * this be in a separate driver?
  */
 
 #define EMISS_CONFIG				0x1000
@@ -40,10 +39,18 @@
 #define EMISS_ARBITER_CONFIG_BUS_FREE		(1 << 9)
 #define EMISS_ARBITER_CONFIG_STATIC_NOT_DYNAMIC	(1 << 12)
 
+#define EMISS_INTERFACE_EMI                    0
+#define EMISS_INTERFACE_NAND                   1
+#define EMISS_INTERFACE_PCI                    2
+#define EMISS_INTERFACE_REQ0                   3
+#define EMISS_INTERFACE_REQ1                   4
+#define EMISS_INTERFACE_REQ2                   5
+#define EMISS_INTERFACE_REQ3                   6
+
 #define EMISS_FRAME_LENGTH(n)			(0x1010 + ((n)*0x10))
-#define EMISS_HOLDOFF				(0x1014 + ((n)*0x10))
-#define EMISS_PRIORITY				(0x1018 + ((n)*4))
-#define EMISS_BANDWIDTH_LIMIT			(0x101c + ((n)*0x10)
+#define EMISS_HOLDOFF(n)			(0x1014 + ((n)*0x10))
+#define EMISS_PRIORITY(n)			(0x1018 + ((n)*0x10))
+#define EMISS_BANDWIDTH_LIMIT(n)		(0x101c + ((n)*0x10))
 
 #define PCI_BRIDGE_CONFIG		(0x1400 + 0x000)
 #define PCI_BRIDGE_CONFIG_RESET		  0x2
@@ -71,7 +78,7 @@
 #define PCI_PME_STATECHG_INT_ENABLE	(0x1400 + 0x0a0)
 #define PCI_PME_STATECHG_INT_STATUS	(0x1400 + 0x0a4)
 #define PCI_PME_STATECHG_INT_CLEAR	(0x1400 + 0x0a8)
-#define PCI_BUFFADDR_FUNC(fn,m)	 	(0x1400	+ 0x100 + 0x20*(fn) + 0x04 * (m))
+#define PCI_BUFFADDR_FUNC(fn, m)	(0x1400	+ 0x100 + 0x20*(fn) + 0x04*(m))
 #define PCI_FUNC_BUFF_CONFIG(fn) 	(0x1400 + 0x100 + 0x20*(fn) + 0x08)
 #define PCI_FUNC_BUFF_CONFIG_ENABLE	(1<<31)
 #define PCI_FUNC_BUFF_CONFIG_FUNC_ID(n)	((n)<<8)
@@ -86,8 +93,8 @@
 
 #define PCI_AD_CONFIG			(0x1400 + 0x344)
 #define PCI_AD_CONFIG_THRESHOLD(n)	 	(n)
-#define PCI_AD_CONFIG_CHUNKS_IN_MSG(n)	 	((n) << 4)	// Chunks in a message
-#define PCI_AD_CONFIG_PCKS_IN_CHUNK(n) 		((n) << 9)	// Packets in a chunk
+#define PCI_AD_CONFIG_CHUNKS_IN_MSG(n)	 	((n) << 4)
+#define PCI_AD_CONFIG_PCKS_IN_CHUNK(n) 		((n) << 9)
 #define PCI_AD_CONFIG_TRIGGER_MODE(n)	 	((n) << 14)
 #define PCI_AD_CONFIG_POSTED(n)			((n) << 15)
 #define PCI_AD_CONFIG_MAX_OPCODE(n)		((n) << 16)
@@ -104,18 +111,16 @@
 #define PCI_CRP_ADDR_CRP_COMMAND_MASK		(0xf<<16)
 #define PCI_CRP_ADDR_CRP_BYTE_ENABLE_MASK	(0xf<<20) /* ACTIVE LOW!!! */
 
-#define PCI_CRP(addr, func, cmd, be)  ( ( ((addr) & 0xff) << 0 ) | \
-				        ( ((func) & 0x07) << 8 ) | \
-				        ( ((cmd) & 0x0f) << 16 ) | \
-				        ( ((be) & 0x0f)  << 20 ) )
-
-
+#define PCI_CRP(addr, func, cmd, be)  ((((addr) & 0xff) << 0) | \
+				      (((func) & 0x07) << 8) | \
+				      (((cmd) & 0x0f) << 16) | \
+				      (((be) & 0x0f)  << 20))
 
 #define PCI_CRP_WR_DATA				0x004
 #define PCI_CRP_RD_DATA				0x008
 #define PCI_CSR_ADDR				0x00c
 #define PCI_CSR_BE_CMD				0x010
-#define PCI_CSR_BE_CMD_VAL(cmd,be)	(((be) << 4) | (cmd))
+#define PCI_CSR_BE_CMD_VAL(cmd, be)	(((be) << 4) | (cmd))
 
 #define PCI_CSR_WR_DATA				0x014
 #define PCI_CSR_RD_DATA				0x018

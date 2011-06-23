@@ -19,7 +19,7 @@
 #include <linux/gpio.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7105.h>
-#include <linux/stm/pci-synopsys.h>
+#include <linux/stm/pci-glue.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>

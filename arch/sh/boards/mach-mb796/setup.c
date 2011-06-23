@@ -17,7 +17,7 @@
 #include <linux/phy.h>
 #include <linux/gpio.h>
 #include <linux/spi/flash.h>
-#include <linux/stm/pci-synopsys.h>
+#include <linux/stm/pci-glue.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stx5206.h>
 #include <asm/irq.h>

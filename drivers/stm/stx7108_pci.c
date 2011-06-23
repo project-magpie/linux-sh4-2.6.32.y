@@ -61,20 +61,20 @@ static struct platform_device stx7108_pci_device = {
 	.id = -1,
 	.num_resources = 7,
 	.resource = (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM_NAMED("Memory", 0xc0000000,
+		STM_PLAT_RESOURCE_MEM_NAMED("pci memory", 0xc0000000,
 				960 * 1024 * 1024),
 		{
-			.name = "IO",
+			.name = "pci io",
 			.start = 0x0400,
 			.end = 0xffff,
 			.flags = IORESOURCE_IO,
 		},
-		STM_PLAT_RESOURCE_MEM_NAMED("EMISS", 0xfdaa8000, 0x17fc),
-		STM_PLAT_RESOURCE_MEM_NAMED("PCI-AHB", 0xfea08000, 0xff),
-		STM_PLAT_RESOURCE_IRQ_NAMED("DMA", ILC_IRQ(126), -1),
-		STM_PLAT_RESOURCE_IRQ_NAMED("Error", ILC_IRQ(127), -1),
+		STM_PLAT_RESOURCE_MEM_NAMED("pci emiss", 0xfdaa8000, 0x17fc),
+		STM_PLAT_RESOURCE_MEM_NAMED("pci ahb", 0xfea08000, 0xff),
+		STM_PLAT_RESOURCE_IRQ_NAMED("pci dma", ILC_IRQ(126), -1),
+		STM_PLAT_RESOURCE_IRQ_NAMED("pci err", ILC_IRQ(127), -1),
 		/* SERR interrupt set in stx7105_configure_pci() */
-		STM_PLAT_RESOURCE_IRQ_NAMED("SERR", -1, -1),
+		STM_PLAT_RESOURCE_IRQ_NAMED("pci serr", -1, -1),
 	},
 };
 
@@ -239,8 +239,9 @@ void __init stx7108_configure_pci(struct stm_plat_pci_config *pci_conf)
 		break;
 	}
 	if (pci_conf->serr_irq != PCI_PIN_UNUSED) {
-		struct resource *res = platform_get_resource_byname(
-				&stx7108_pci_device, IORESOURCE_IRQ, "SERR");
+		struct resource *res =
+			platform_get_resource_byname(&stx7108_pci_device,
+					IORESOURCE_IRQ, "pci serr");
 
 		BUG_ON(!res);
 		res->start = pci_conf->serr_irq;

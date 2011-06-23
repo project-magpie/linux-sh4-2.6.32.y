@@ -72,13 +72,13 @@ int __devinit stm_pci_register_controller(struct platform_device *pdev,
 	/* Set up the sh board channel to point at the platform data we have
 	 * passed in
 	 */
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "Memory");
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pci memory");
 	if (!res)
 		return -ENXIO;
 	info->chan.mem_resource = res;
 
 	/* Same for IO channel */
-	res = platform_get_resource_byname(pdev, IORESOURCE_IO, "IO");
+	res = platform_get_resource_byname(pdev, IORESOURCE_IO, "pci io");
 	if (!res)
 		return -ENXIO;
 	info->chan.io_resource = res;

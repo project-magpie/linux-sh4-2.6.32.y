@@ -24,7 +24,7 @@
 #include <linux/stm/emi.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/fli7510.h>
-#include <linux/stm/pci-synopsys.h>
+#include <linux/stm/pci-glue.h>
 #include <asm/irq-ilc.h>
 #include <sound/stm.h>
 

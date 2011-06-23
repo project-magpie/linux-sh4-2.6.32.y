@@ -26,7 +26,7 @@ obj-$(CONFIG_PM)			+= pm_notify.o
 obj-$(CONFIG_PMS)			+= pms.o
 obj-$(CONFIG_PM_RUNTIME)		+= pm_runtime.o
 
-obj-$(CONFIG_SH_ST_SYNOPSYS_PCI)	+= pci-synopsys.o
+obj-$(CONFIG_STM_PCI_EMISS)		+= pci-emiss.o
 
 obj-$(CONFIG_CPU_SUBTYPE_FLI7510)	+= fli7510.o fli7510_clock.o fli7510_audio.o fli7510_comms.o fli7510_hispeed.o fli7510_pci.o
 obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= stx5197.o stx5197_clock.o

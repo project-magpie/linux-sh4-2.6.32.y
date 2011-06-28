@@ -960,12 +960,10 @@ void __init stx7105_configure_sata(int port)
 			sata_phy_reset_sysconf[0] =
 				sysconf_claim(SYS_CFG, 32, 8, 8, "SATA");
 			BUG_ON(!sata_phy_reset_sysconf[0]);
-			sysconf_write(sata_phy_reset_sysconf[0], 0);
 
 			sata_phy_reset_sysconf[1] =
 				sysconf_claim(SYS_CFG, 32, 9, 9, "SATA");
 			BUG_ON(!sata_phy_reset_sysconf[1]);
-			sysconf_write(sata_phy_reset_sysconf[1], 0);
 		}
 		initialized = 1;
 	}

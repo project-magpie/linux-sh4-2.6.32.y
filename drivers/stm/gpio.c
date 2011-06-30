@@ -27,6 +27,7 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/pio.h>
+#include <linux/stm/pm_sys.h>
 #include "reg_pio.h"
 
 
@@ -63,8 +64,6 @@ struct stm_gpio_port {
 	void *base;
 	unsigned long irq_level_mask;
 	struct stm_gpio_pin pins[STM_GPIO_PINS_PER_PORT];
-	struct sys_device sysdev;
-	pm_message_t pm_state;
 };
 
 struct stm_gpio_irqmux {
@@ -72,7 +71,6 @@ struct stm_gpio_irqmux {
 	int port_first;
 };
 
-static struct sysdev_class stm_gpio_sysdev_class;
 
 
 
@@ -761,7 +759,6 @@ static int __devinit stm_gpio_probe(struct platform_device *pdev)
 	struct stm_gpio_port *port = &stm_gpio_ports[port_no];
 	struct resource *memory;
 	int irq;
-	int ret;
 
 	BUG_ON(port_no < 0);
 	BUG_ON(port_no >= stm_gpio_num);
@@ -789,11 +786,7 @@ static int __devinit stm_gpio_probe(struct platform_device *pdev)
 	port->gpio_chip.label = dev_name(&pdev->dev);
 	dev_set_drvdata(&pdev->dev, port);
 
-	port->sysdev.id = port_no;
-	port->sysdev.cls = &stm_gpio_sysdev_class;
-	ret = sysdev_register(&port->sysdev);
-	if (ret)
-		return ret;
+	return 0;
 
 	/* This is a good time to check consistency of linux/stm/gpio.h
 	 * declarations with the proper source... */
@@ -885,14 +878,14 @@ static struct platform_driver stm_gpio_irqmux_driver = {
 /*** Drivers initialization ***/
 
 #ifdef CONFIG_PM
-static int stm_gpio_hibernation_resume(struct stm_gpio_port *port)
+#ifdef CONFIG_HIBERNATION
+static int stm_gpio_port_restore(struct stm_gpio_port *port)
 {
 	int pin_no;
 
 	for (pin_no = 0; pin_no < port->gpio_chip.ngpio; ++pin_no)
 		/*
-		 * Direction can not be zero!
-		 * Zero means 'un-claimed'
+		 * Direction can not be zero! Zero means 'un-claimed'
 		 */
 		if (port->pins[pin_no].direction)
 			__stm_gpio_direction(port, pin_no,
@@ -901,7 +894,21 @@ static int stm_gpio_hibernation_resume(struct stm_gpio_port *port)
 	return 0;
 }
 
-static int stm_gpio_suspend(struct stm_gpio_port *port)
+static int stm_gpio_restore(void)
+{
+	int port_no, ret = 0;
+	int port_num = stm_gpio_num / STM_GPIO_PINS_PER_PORT;
+
+	for (port_no = 0; port_no < port_num; ++port_no)
+		ret |= stm_gpio_port_restore(&stm_gpio_ports[port_no]);
+
+	return ret;
+}
+#else
+#define stm_gpio_restore	NULL
+#endif
+
+static int stm_gpio_port_suspend(struct stm_gpio_port *port)
 {
 	int port_no = port - stm_gpio_ports;
 	int pin_no;
@@ -920,54 +927,35 @@ static int stm_gpio_suspend(struct stm_gpio_port *port)
 	return 0;
 }
 
-static int stm_gpio_sysdev_suspend(struct sys_device *dev, pm_message_t state)
+static int stm_gpio_suspend(void)
 {
-	struct stm_gpio_port *port = sysdev_to_stm_gpio(dev);
-	int ret = 0;
+	int port_no, ret = 0;
+	int port_num = stm_gpio_num / STM_GPIO_PINS_PER_PORT;
 
-	switch (state.event) {
-	case PM_EVENT_ON:
-		if (port->pm_state.event != PM_EVENT_FREEZE)
-			break;
-		ret = stm_gpio_hibernation_resume(port);
-		break;
-
-	case PM_EVENT_SUSPEND:
-		ret = stm_gpio_suspend(port);
-		break;
-
-	case PM_EVENT_FREEZE:
-		/* do nothing */
-		break;
-	}
-
-	port->pm_state = state;
+	for (port_no = 0; port_no < port_num; ++port_no)
+		ret |= stm_gpio_port_suspend(&stm_gpio_ports[port_no]);
 
 	return ret;
 }
 
-static int stm_gpio_sysdev_resume(struct sys_device *dev)
-{
-	return stm_gpio_sysdev_suspend(dev, PMSG_ON);
-}
-#else
-#define stm_gpio_sysdev_suspend NULL
-#define stm_gpio_sysdev_resume NULL
-#endif
 
-static struct sysdev_class stm_gpio_sysdev_class = {
-	.name = "stm-gpio",
-	.suspend = stm_gpio_sysdev_suspend,
-	.resume = stm_gpio_sysdev_resume,
+static struct stm_system stm_gpio_system = {
+	.name = "gpio",
+	.priority = stm_gpio_pr,
+	.suspend = stm_gpio_suspend,
+	.restore = stm_gpio_restore,
 };
+
+static int stm_gpio_subsystem_init(void)
+{
+	return stm_register_system(&stm_gpio_system);
+}
+module_init(stm_gpio_subsystem_init);
+#endif
 
 static int __init stm_gpio_init(void)
 {
 	int ret;
-
-	ret = sysdev_class_register(&stm_gpio_sysdev_class);
-	if (ret)
-		return ret;
 
 	ret = platform_driver_register(&stm_gpio_driver);
 	if (ret)

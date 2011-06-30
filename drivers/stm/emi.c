@@ -15,6 +15,7 @@
 #include <linux/stm/emi.h>
 #include <linux/stm/device.h>
 #include <linux/stm/clk.h>
+#include <linux/stm/pm_sys.h>
 
 
 #define EMI_GEN_CFG			0x0028
@@ -307,14 +308,14 @@ struct emi_pm {
 	struct emi_pm_bank bank[emi_num_bank];
 };
 
-static int emi_sysdev_suspend(struct sys_device *dev, pm_message_t state)
+#ifdef CONFIG_HIBERNATION
+static int emi_hibernation(int resuming)
 {
 	int idx;
 	int bank, data;
 	static struct emi_pm *emi_saved_data;
 
-	switch (state.event) {
-	case PM_EVENT_ON:
+	if (resuming) {
 		if (emi_saved_data) {
 			/* restore the previous common value */
 			for (idx = 0; idx < emi_num_common_cfg-2; ++idx)
@@ -333,74 +334,75 @@ static int emi_sysdev_suspend(struct sys_device *dev, pm_message_t state)
 			}
 			kfree(emi_saved_data);
 			emi_saved_data = NULL;
-		} else
-			emi_clk_enable();
-		stm_device_power(emi_device_state, stm_device_power_on);
-		break;
-	case PM_EVENT_SUSPEND:
-		stm_device_power(emi_device_state, stm_device_power_off);
-		emi_clk_disable();
-		break;
-	case PM_EVENT_FREEZE:
-		emi_saved_data = kmalloc(sizeof(struct emi_pm), GFP_NOWAIT);
-		if (!emi_saved_data) {
-			printk(KERN_ERR "Unable to freeze the emi registers\n");
-			return -ENOMEM;
 		}
-		/* save the emi common values */
-		for (idx = 0; idx < emi_num_common_cfg-2; ++idx)
-			emi_saved_data->common_cfg[idx] =
-				readl(emi_control + EMI_COMMON_CFG(idx));
-		emi_saved_data->common_cfg[12] =
-				readl(emi_control + EMI_BANK_ENABLE);
-		emi_saved_data->common_cfg[13] =
-				readl(emi_control + EMI_BANKNUMBER);
-		/* save the emi bank value */
-		for (bank  = 0; bank < emi_num_bank; ++bank) {
-		  emi_saved_data->bank[bank].base_address =
+		return 0;
+	}
+	emi_saved_data = kmalloc(sizeof(struct emi_pm), GFP_NOWAIT);
+	if (!emi_saved_data) {
+		printk(KERN_ERR "Unable to freeze the emi registers\n");
+		return -ENOMEM;
+	}
+	/* save the emi common values */
+	for (idx = 0; idx < emi_num_common_cfg-2; ++idx)
+		emi_saved_data->common_cfg[idx] =
+			readl(emi_control + EMI_COMMON_CFG(idx));
+	emi_saved_data->common_cfg[12] = readl(emi_control + EMI_BANK_ENABLE);
+	emi_saved_data->common_cfg[13] = readl(emi_control + EMI_BANKNUMBER);
+	/* save the emi bank value */
+	for (bank  = 0; bank < emi_num_bank; ++bank) {
+		emi_saved_data->bank[bank].base_address =
 			readl(emi_control + BANK_BASEADDRESS(bank));
-		  for (data = 0; data < emi_num_bank_cfg; ++data)
+		for (data = 0; data < emi_num_bank_cfg; ++data)
 			emi_saved_data->bank[bank].cfg[data] =
 			   readl(emi_control + BANK_EMICONFIGDATA(bank, data));
-		}
-		/* on hibernation don't turn-off emi for harddisk issue */
-		break;
 	}
 	return 0;
 }
 
-static int emi_sysdev_resume(struct sys_device *dev)
+static int emi_freeze(void)
 {
-	return emi_sysdev_suspend(dev, PMSG_ON);
+	return emi_hibernation(0);
 }
 
-static struct sysdev_class emi_sysdev_class = {
-	.name = "emi",
-	.suspend = emi_sysdev_suspend,
-	.resume = emi_sysdev_resume,
-};
-
-struct sys_device emi_sysdev_dev = {
-	.id = 0,
-	.cls = &emi_sysdev_class,
-};
-
-static int __init emi_sysdev_register(void)
+static int emi_restore(void)
 {
-	int ret;
-
-	ret = sysdev_class_register(&emi_sysdev_class);
-	if (ret)
-		return ret;
-
-	ret = sysdev_register(&emi_sysdev_dev);
-	if (ret)
-		return ret;
-
-	return 0;
+	return emi_hibernation(1);
 }
 #else
-#define emi_sysdev_register()
+#define emi_freeze	NULL
+#define emi_restore	NULL
+#endif
+
+static int emi_suspend(void)
+{
+	stm_device_power(emi_device_state, stm_device_power_off);
+	emi_clk_disable();
+	return 0;
+}
+
+static int emi_resume(void)
+{
+	emi_clk_enable();
+	stm_device_power(emi_device_state, stm_device_power_on);
+	return 0;
+}
+
+
+static struct stm_system emi_subsys = {
+	.name = "emi",
+	.priority = stm_emi_pr,
+	.suspend = emi_suspend,
+	.resume = emi_resume,
+	.freeze = emi_freeze,
+	.restore = emi_restore,
+};
+
+static int __init emi_subsystem_register(void)
+{
+	return stm_register_system(&emi_subsys);
+}
+
+module_init(emi_subsystem_register);
 #endif
 
 static int __init emi_driver_probe(struct platform_device *pdev)
@@ -446,7 +448,6 @@ static struct platform_driver emi_driver = {
 
 static int __init stm_emi_driver_init(void)
 {
-	emi_sysdev_register();
 	return platform_driver_register(&emi_driver);
 }
 

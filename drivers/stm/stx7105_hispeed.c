@@ -415,7 +415,7 @@ void __init stx7105_configure_ethernet(int port,
 	default:
 		/* TODO: RGMII and SGMII configurations */
 		BUG();
-		break;
+		return;
 	}
 
 	switch (port) {

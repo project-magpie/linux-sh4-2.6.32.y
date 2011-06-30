@@ -382,7 +382,10 @@ static void stm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 
 static int stm_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 {
+	struct stm_gpio_port *port = to_stm_gpio_port(chip);
+
 	stm_pad_configure_gpio(chip->base + offset, STM_GPIO_DIRECTION_IN);
+	port->pins[offset].direction = STM_GPIO_DIRECTION_IN;
 
 	return 0;
 }
@@ -394,6 +397,7 @@ static int stm_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 
 	__stm_gpio_set(port, offset, value);
 
+	port->pins[offset].direction = STM_GPIO_DIRECTION_OUT;
 	stm_pad_configure_gpio(chip->base + offset, STM_GPIO_DIRECTION_OUT);
 
 	return 0;

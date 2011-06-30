@@ -17,6 +17,7 @@
 #include <linux/types.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/sysconf.h>
+#include <linux/stm/pm_sys.h>
 
 #define DRIVER_NAME "stm-sysconf"
 
@@ -331,7 +332,7 @@ const char *sysconf_reg_name(int group, int num)
 EXPORT_SYMBOL(sysconf_reg_name);
 
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_HIBERNATION
 static int sysconf_pm_freeze(void)
 {
 	int result = 0;
@@ -392,64 +393,19 @@ static int sysconf_pm_restore(void)
 	return result;
 }
 
-static int sysconf_sysdev_suspend(struct sys_device *dev, pm_message_t state)
-{
-	int result = 0;
-	static unsigned long prev_state = PM_EVENT_ON;
-
-	pr_debug("%s()\n", __func__);
-
-	switch (state.event) {
-	case PM_EVENT_ON:
-		if (prev_state == PM_EVENT_FREEZE)
-			result = sysconf_pm_restore();
-		break;
-	case PM_EVENT_SUSPEND:
-		break;
-	case PM_EVENT_FREEZE:
-		result = sysconf_pm_freeze();
-		break;
-	}
-
-	prev_state = state.event;
-
-	pr_debug("%s()=%d\n", __func__, result);
-
-	return result;
-}
-
-static int sysconf_sysdev_resume(struct sys_device *dev)
-{
-	return sysconf_sysdev_suspend(dev, PMSG_ON);
-}
-
-static struct sysdev_class sysconf_sysdev_class = {
+static struct stm_system sysconf_sys = {
 	.name = "sysconf",
-	.suspend = sysconf_sysdev_suspend,
-	.resume = sysconf_sysdev_resume,
+	.priority = stm_sysconf_pr,
+	.freeze = sysconf_pm_freeze,
+	.restore = sysconf_pm_restore,
 };
 
-struct sys_device sysconf_sysdev_dev = {
-	.id = 0,
-	.cls = &sysconf_sysdev_class,
-};
-
-static int __init sysconf_sysdev_init(void)
+static int __init sysconf_sys_init(void)
 {
-	int ret;
-
-	ret = sysdev_class_register(&sysconf_sysdev_class);
-	if (ret)
-		return ret;
-
-	ret = sysdev_register(&sysconf_sysdev_dev);
-	if (ret)
-		return ret;
-
-	return 0;
+	return stm_register_system(&sysconf_sys);
 }
 
-module_init(sysconf_sysdev_init);
+module_init(sysconf_sys_init);
 #endif
 
 

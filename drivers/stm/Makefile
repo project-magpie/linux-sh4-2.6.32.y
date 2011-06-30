@@ -23,6 +23,7 @@ obj-$(CONFIG_STM_MALI)			+= mali/
 
 obj-$(CONFIG_PM)			+= wakeup_devices.o
 obj-$(CONFIG_PM)			+= pm_notify.o
+obj-$(CONFIG_PM)			+= pm_sys.o
 obj-$(CONFIG_PMS)			+= pms.o
 obj-$(CONFIG_PM_RUNTIME)		+= pm_runtime.o
 

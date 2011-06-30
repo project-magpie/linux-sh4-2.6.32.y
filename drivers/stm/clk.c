@@ -21,6 +21,7 @@
 #include <linux/proc_fs.h>
 #include <linux/delay.h>
 #include <linux/stm/clk.h>
+#include <linux/stm/pm_sys.h>
 
 static LIST_HEAD(clks_list);
 static DEFINE_MUTEX(clks_list_sem);
@@ -504,49 +505,27 @@ static void clk_resume_from_hibernation(struct clk *clk)
 			clk->name, clk_get_parent(clk), old_parent);
 }
 
-static int clks_sysdev_suspend(struct sys_device *dev, pm_message_t state)
+static int clks_restore(void)
 {
-	static pm_message_t prev_state;
 	struct clk *clkp;
 
-	if (state.event == PM_EVENT_ON && prev_state.event == PM_EVENT_FREEZE)
-		list_for_each_entry(clkp, &clks_list, node)
-			clk_resume_from_hibernation(clkp);
+	list_for_each_entry(clkp, &clks_list, node)
+		clk_resume_from_hibernation(clkp);
 
-	prev_state = state;
 	return 0;
 }
 
-static int clks_sysdev_resume(struct sys_device *dev)
+static struct stm_system stm_clk_system = {
+	.name = "clk",
+	.priority = stm_clk_pr,
+	.restore = clks_restore,
+};
+
+static int __init clk_system_init(void)
 {
-	return clks_sysdev_suspend(dev, PMSG_ON);
-}
-
-static struct sysdev_class clk_sysdev_class = {
-	.name = "clks",
-	.suspend = clks_sysdev_suspend,
-	.resume = clks_sysdev_resume,
+	return stm_register_system(&stm_clk_system);
 };
 
-static struct sys_device clks_sysdev_dev = {
-	.id = 0,
-	.cls = &clk_sysdev_class,
-};
-
-static int __init clk_sysdev_init(void)
-{
-	int ret;
-	ret = sysdev_class_register(&clk_sysdev_class);
-	if (ret)
-		return ret;
-
-	ret = sysdev_register(&clks_sysdev_dev);
-	if (ret)
-		return ret;
-
-	return 0;
-};
-
-module_init(clk_sysdev_init);
+module_init(clk_system_init);
 
 #endif

@@ -990,15 +990,21 @@ static struct platform_device stx7108_mmc_device = {
 
 #define PIO1_CFG_CLKNODATA	0x100
 
-void __init stx7108_configure_mmc(void)
+void __init stx7108_configure_mmc(int emmc)
 {
 	struct sysconf_field **regs;
 	unsigned long value;
+	struct sdhci_pltfm_data *plat_data;
 
 	regs = stx7108_pio_1_retime;
 	value = sysconf_read(regs[0]);
 	value |= PIO1_CFG_CLKNODATA; /* Output clock */
 	sysconf_write(regs[0], value);
+
+	plat_data = &stx7108_mmc_platform_data;
+
+	if (unlikely(emmc))
+		plat_data->quirks |= SDHCI_QUIRK_NONREMOVABLE_CARD;
 
 	platform_device_register(&stx7108_mmc_device);
 }

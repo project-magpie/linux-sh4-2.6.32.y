@@ -153,7 +153,7 @@ void stx7108_configure_ethernet(int port,
 
 void stx7108_configure_usb(int port);
 
-void stx7108_configure_mmc(void);
+void stx7108_configure_mmc(int emmc);
 
 struct stx7108_miphy_config {
 	int force_jtag;		/* Option available for CUT2.0 */

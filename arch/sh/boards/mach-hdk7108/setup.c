@@ -615,7 +615,11 @@ static int __init device_init(void)
 	}
 #endif
 
-	stx7108_configure_mmc();
+#ifdef CONFIG_SH_ST_HDK7108_MMC_SLOT
+	stx7108_configure_mmc(0);
+#elif defined(CONFIG_SH_ST_HDK7108_MMC_EMMC)
+	stx7108_configure_mmc(1);
+#endif
 
 	stx7108_configure_mali(&hdk7108_mali_config);
 

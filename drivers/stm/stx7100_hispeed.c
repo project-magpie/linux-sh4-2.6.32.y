@@ -148,11 +148,11 @@ void __init stx7100_configure_ethernet(struct stx7100_ethernet_config *config)
 
 /* USB resources ---------------------------------------------------------- */
 
+static int stx7100_usb_oc_gpio = -EINVAL;
+static int stx7100_usb_pwr_gpio = -EINVAL;
+
 static int stx7100_usb_pad_claim(struct stm_pad_state *state, void *priv)
 {
-	struct sysconf_field *sc;
-	unsigned gpio;
-
 	/* Work around for USB over-current detection chip being
 	 * active low, and the 710x being active high.
 	 *
@@ -163,8 +163,9 @@ static int stx7100_usb_pad_claim(struct stm_pad_state *state, void *priv)
 	if ((cpu_data->type == CPU_STX7109 && cpu_data->cut_major < 2) ||
 			(cpu_data->type == CPU_STX7100 &&
 			cpu_data->cut_major < 3)) {
-		gpio = stm_pad_gpio_request_output(state, "OC", 0);
-		BUG_ON(gpio == STM_GPIO_INVALID);
+		stx7100_usb_oc_gpio =
+			stm_pad_gpio_request_output(state, "OC", 0);
+		BUG_ON(stx7100_usb_oc_gpio == STM_GPIO_INVALID);
 	}
 
 	/*
@@ -189,17 +190,18 @@ static int stx7100_usb_pad_claim(struct stm_pad_state *state, void *priv)
 	 * option to select an inverted output from the TPS2052, so no
 	 * software work around is required.)
 	 */
-	gpio = stm_pad_gpio_request_output(state, "PWR", 1);
-	BUG_ON(gpio == STM_GPIO_INVALID);
-
-	sc = sysconf_claim(SYS_CFG, 2, 1, 1, "stm-usb");
-	BUG_ON(!sc);
-	if (sysconf_read(sc)) {
-		sysconf_write(sc, 0);
-		mdelay(30);
-	}
+	stx7100_usb_pwr_gpio = stm_pad_gpio_request_output(state, "PWR", 1);
+	BUG_ON(stx7100_usb_pwr_gpio == STM_GPIO_INVALID);
 
 	return 0;
+}
+
+static void stx7100_usb_pad_release(struct stm_pad_state *state, void *priv)
+{
+	if (gpio_is_valid(stx7100_usb_oc_gpio))
+		stm_pad_gpio_free(state, stx7100_usb_oc_gpio);
+	if (gpio_is_valid(stx7100_usb_pwr_gpio))
+		stm_pad_gpio_free(state, stx7100_usb_pwr_gpio);
 }
 
 #define USB_PWR "USB_PWR"
@@ -224,6 +226,12 @@ static struct stm_plat_usb_data stx7100_usb_platform_data = {
 				STM_PAD_PIO_OUT_NAMED(5, 7, 1, "PWR"),
 			},
 			.custom_claim = stx7100_usb_pad_claim,
+			.custom_release = stx7100_usb_pad_release,
+			.sysconfs_num = 1,
+			.sysconfs = (struct stm_pad_sysconf []) {
+				/* USB_AT */
+				STM_PAD_SYS_CFG(2, 1, 1, 0),
+			},
 		},
 		.sysconfs_num = 1,
 		.sysconfs = (struct stm_device_sysconf []) {

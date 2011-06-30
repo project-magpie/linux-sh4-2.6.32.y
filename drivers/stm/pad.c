@@ -210,9 +210,15 @@ static int __stm_pad_release(struct stm_pad_state *state)
 	struct stm_pad_config *config = state->config;
 	int i;
 
+	if (config->custom_release)
+		config->custom_release(state, config->custom_priv);
+
 	mutex_lock(&stm_pad_mutex);
 
 	list_del(&state->list);
+
+	for (i = 0; i < config->sysconfs_num; i++)
+		sysconf_release(state->sysconf_fields[i]);
 
 	for (i = 0; i < config->gpios_num; i++) {
 		unsigned gpio = config->gpios[i].gpio;
@@ -220,12 +226,6 @@ static int __stm_pad_release(struct stm_pad_state *state)
 		BUG_ON(stm_pad_gpios[gpio] != stm_pad_gpio_claimed);
 		stm_pad_gpios[gpio] = stm_pad_gpio_unused;
 	}
-
-	for (i = 0; i < config->sysconfs_num; i++)
-		sysconf_release(state->sysconf_fields[i]);
-
-	if (config->custom_release)
-		config->custom_release(state, config->custom_priv);
 
 	mutex_unlock(&stm_pad_mutex);
 

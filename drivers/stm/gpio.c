@@ -459,7 +459,7 @@ struct stpio_pin *__stpio_request_pin(unsigned int port_no,
 	if (__set_value)
 		__stm_gpio_set(port, pin_no, value);
 
-	stm_pad_configure_gpio(stm_gpio(port_no, pin_no), direction);
+	__stm_gpio_direction(port, pin_no, direction);
 
 	gpio_pin->stpio.port_no = port_no;
 	gpio_pin->stpio.pin_no = pin_no;
@@ -476,7 +476,10 @@ EXPORT_SYMBOL(stpio_free_pin);
 
 void stpio_configure_pin(struct stpio_pin *pin, int direction)
 {
-	stm_pad_configure_gpio(stm_gpio(pin->port_no, pin->pin_no), direction);
+	struct stm_gpio_port *port = &stm_gpio_ports[pin->port_no];
+	int pin_no = pin->pin_no;
+
+	__stm_gpio_direction(port, pin_no, direction);
 }
 EXPORT_SYMBOL(stpio_configure_pin);
 

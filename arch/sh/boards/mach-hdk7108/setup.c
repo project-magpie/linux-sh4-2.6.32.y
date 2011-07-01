@@ -669,25 +669,15 @@ int stm_freeze_board(void *data)
 
 int stm_defrost_board(void *data)
 {
-	/* The "POWER_ON_ETH" line should be rather called "PHY_RESET",
-	 * but it isn't... ;-) */
-	gpio_direction_output(HDK7108_PIO_POWER_ON_ETHERNET, 0);
-
 	/* Some of the peripherals are powered by regulators
 	 * triggered by the following PIO line... */
 	gpio_direction_output(HDK7108_PIO_POWER_ON, 1);
 
-	/* HW changes needed to use the GMII mode (GTX CLK) on the
-	 * HDK7108V1
-	 */
-	gpio_direction_output(HDK7108_GPIO_MII_SPEED_SEL, 0);
-
-	/*
-	 * hdk7108_phy_reset(...);
-	 */
-	gpio_set_value(HDK7108_PIO_POWER_ON_ETHERNET, 0);
+	/* The "POWER_ON_ETH" line should be rather called "PHY_RESET",
+	 * but it isn't... ;-) */
+	gpio_direction_output(HDK7108_PIO_POWER_ON_ETHERNET, 0);
 	udelay(10000); /* 10 miliseconds is enough for everyone ;-) */
-	gpio_set_value(HDK7108_PIO_POWER_ON_ETHERNET, 1);
+	gpio_direction_output(HDK7108_PIO_POWER_ON_ETHERNET, 1);
 
 	return 0;
 }

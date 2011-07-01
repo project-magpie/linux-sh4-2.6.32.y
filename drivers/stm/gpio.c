@@ -49,9 +49,50 @@ struct stm_gpio_pin {
 #define PIN_IGNORE_FALLING_EDGE	(PIN_IGNORE_EDGE_FLAG | 1)
 #define PIN_IGNORE_EDGE_MASK	(PIN_IGNORE_EDGE_FLAG | PIN_IGNORE_EDGE_VAL)
 
-	unsigned char direction;
+#ifdef CONFIG_HIBERNATION
+	unsigned char pm_saved_data;
+#endif
 	struct stpio_pin stpio;
 };
+
+#ifdef CONFIG_HIBERNATION
+#define GPIO_DIR_MASK  0x7f
+#define GPIO_VAL_MASK  0x80
+static inline void gpio_pm_set_direction(struct stm_gpio_pin *pin,
+	unsigned int dir)
+{
+	pin->pm_saved_data &= ~GPIO_DIR_MASK;
+	pin->pm_saved_data |= dir & GPIO_DIR_MASK;
+}
+
+static inline unsigned char gpio_pm_get_direction(struct stm_gpio_pin *pin)
+{
+	return pin->pm_saved_data & GPIO_DIR_MASK;
+}
+
+static inline void gpio_pm_set_value(struct stm_gpio_pin *pin, int val)
+{
+	pin->pm_saved_data &= ~GPIO_VAL_MASK;
+	pin->pm_saved_data |= (val ? GPIO_VAL_MASK : 0);
+}
+
+static inline int gpio_pm_get_value(struct stm_gpio_pin *pin)
+{
+	return (pin->pm_saved_data & GPIO_VAL_MASK) ? 1 : 0;
+}
+#else
+static inline void gpio_pm_set_direction(struct stm_gpio_pin *pin,
+	unsigned int dir)
+{
+	return;
+}
+
+static inline void gpio_pm_set_value(struct stm_gpio_pin *pin, int val)
+{
+	return;
+}
+
+#endif
 
 #define to_stm_gpio_port(chip) \
 		container_of(chip, struct stm_gpio_port, gpio_chip)
@@ -333,6 +374,7 @@ static inline int __stm_gpio_get(struct stm_gpio_port *port, unsigned offset)
 static inline void __stm_gpio_set(struct stm_gpio_port *port, unsigned offset,
 		int value)
 {
+	gpio_pm_set_value(&port->pins[offset], value);
 	if (value)
 		set__PIO_SET_POUT__SET_POUT__SET(port->base, offset);
 	else
@@ -348,7 +390,7 @@ static inline void __stm_gpio_direction(struct stm_gpio_port *port,
 			direction != STM_GPIO_DIRECTION_ALT_OUT &&
 			direction != STM_GPIO_DIRECTION_ALT_BIDIR);
 
-	port->pins[offset].direction = direction;
+	gpio_pm_set_direction(&port->pins[offset], direction);
 	set__PIO_PCx(port->base, offset, direction);
 }
 
@@ -382,10 +424,7 @@ static void stm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 
 static int stm_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 {
-	struct stm_gpio_port *port = to_stm_gpio_port(chip);
-
 	stm_pad_configure_gpio(chip->base + offset, STM_GPIO_DIRECTION_IN);
-	port->pins[offset].direction = STM_GPIO_DIRECTION_IN;
 
 	return 0;
 }
@@ -397,7 +436,6 @@ static int stm_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 
 	__stm_gpio_set(port, offset, value);
 
-	port->pins[offset].direction = STM_GPIO_DIRECTION_OUT;
 	stm_pad_configure_gpio(chip->base + offset, STM_GPIO_DIRECTION_OUT);
 
 	return 0;
@@ -887,14 +925,31 @@ static int stm_gpio_port_restore(struct stm_gpio_port *port)
 {
 	int pin_no;
 
-	for (pin_no = 0; pin_no < port->gpio_chip.ngpio; ++pin_no)
+	for (pin_no = 0; pin_no < port->gpio_chip.ngpio; ++pin_no) {
+		struct stm_gpio_pin *pin = &port->pins[pin_no];
 		/*
 		 * Direction can not be zero! Zero means 'un-claimed'
 		 */
-		if (port->pins[pin_no].direction)
+		if (!gpio_pm_get_direction(pin)) {
+			/*
+			 * On some chip the reset value ins't DIRECTION_IN...
+			 */
 			__stm_gpio_direction(port, pin_no,
-					     port->pins[pin_no].direction);
+					STM_GPIO_DIRECTION_IN);
+			/* reset again to say 'un-claimed' as it was */
+			gpio_pm_set_direction(pin, 0);
+			continue;
+		}
 
+		/*
+		 * In case of Direction_Out set the Out value
+		 */
+		if (STM_GPIO_DIRECTION_OUT == gpio_pm_get_direction(pin))
+			__stm_gpio_set(port, pin_no, gpio_pm_get_value(pin));
+
+		__stm_gpio_direction(port, pin_no, gpio_pm_get_direction(pin));
+
+	}
 	return 0;
 }
 
@@ -954,6 +1009,7 @@ static int stm_gpio_subsystem_init(void)
 {
 	return stm_register_system(&stm_gpio_system);
 }
+
 module_init(stm_gpio_subsystem_init);
 #endif
 

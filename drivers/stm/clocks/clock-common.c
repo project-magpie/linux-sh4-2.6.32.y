@@ -128,7 +128,6 @@ int clk_pll1600_get_rate(unsigned long input, unsigned long mdiv,
 int clk_pll800_get_params(unsigned long input, unsigned long output,
 	unsigned long *mdiv, unsigned long *ndiv, unsigned long *pdiv)
 {
-	const long p[] = { 1, 2, 4, 8, 16, 32 };
 	unsigned long m, n, pfdin, fvco;
 	unsigned long deviation, new_freq;
 	long new_deviation, pi;
@@ -143,7 +142,7 @@ int clk_pll800_get_params(unsigned long input, unsigned long output,
 	deviation = output;
 	for (pi = 5; pi >= 0 && deviation; pi--) {
 		for (m = 1; (m < 255) && deviation; m++) {
-			n = m * p[pi] * output / (input * 2);
+			n = m * (1 << pi) * output / (input * 2);
 
 			/* Checks */
 			if (n < 3)
@@ -160,7 +159,7 @@ int clk_pll800_get_params(unsigned long input, unsigned long output,
 			if (fvco < 200000)
 				break;
 
-			new_freq = (input * 2 * n) / (m * p[pi]);
+			new_freq = (input * 2 * n) / (m * (1 << pi));
 			new_deviation = new_freq - output;
 			if (new_deviation < 0)
 				new_deviation = -new_deviation;

@@ -314,7 +314,7 @@ static int __init device_init(void)
 
 	stx7108_configure_spifsm(&adi7108_serial_flash);
 
-	stx7108_configure_mmc();
+	stx7108_configure_mmc(0);
 
 	return platform_add_devices(adi7108_devices,
 			ARRAY_SIZE(adi7108_devices));

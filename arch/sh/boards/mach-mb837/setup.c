@@ -323,7 +323,7 @@ static int __init mb837_devices_init(void)
 	 * R(MMC_Cmd) = R258-2 = 61k and  R(MMC_Data2) = R261 = 10k.
 	 * They should be replaced by: R(MMC_Data2) = 61k R(MMC_Cmd) = 10k.
 	 */
-	stx7108_configure_mmc();
+	stx7108_configure_mmc(0);
 
 	return platform_add_devices(mb837_devices, ARRAY_SIZE(mb837_devices));
 }

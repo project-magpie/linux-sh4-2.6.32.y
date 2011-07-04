@@ -63,12 +63,20 @@ struct stm_rtc {
 static void stm_rtc_set_hw_alarm(struct stm_rtc *rtc,
 		unsigned long msb, unsigned long  lsb)
 {
-	writel(1, rtc->ioaddr + LPC_WDT_OFF);
+	struct stm_plat_rtc_lpc *pdata =
+		rtc->rtc_dev->dev.parent->platform_data;
+
+
+	if (pdata->need_wdt_reset)
+		writel(1, rtc->ioaddr + LPC_WDT_OFF);
 
 	writel(msb, rtc->ioaddr + LPC_LPA_MSB_OFF);
 	writel(lsb, rtc->ioaddr + LPC_LPA_LSB_OFF);
 	writel(1, rtc->ioaddr + LPC_LPA_START_OFF);
-	writel(1, rtc->ioaddr + LPC_WDT_OFF);
+
+	if (pdata->need_wdt_reset)
+		writel(0, rtc->ioaddr + LPC_WDT_OFF);
+
 }
 
 static irqreturn_t stm_rtc_irq(int this_irq, void *data)
@@ -280,14 +288,20 @@ static int stm_rtc_suspend(struct device *dev)
 static int stm_rtc_resume(struct device *dev)
 {
 	struct stm_rtc *rtc = dev_get_drvdata(dev);
+	struct stm_plat_rtc_lpc *pdata = dev->platform_data;
 
 	/*
 	 * clean 'rtc->alarm' to allow a new
 	 * a new .set_alarm to the upper RTC layer
 	 */
 	memset(&rtc->alarm, 0, sizeof(struct rtc_wkalrm));
-
-	writel(1, rtc->ioaddr + LPC_WDT_OFF);
+	if (pdata->need_wdt_reset) {
+		writel(0, rtc->ioaddr + LPC_LPA_MSB_OFF);
+		writel(0, rtc->ioaddr + LPC_LPA_LSB_OFF);
+		writel(1, rtc->ioaddr + LPC_WDT_OFF);
+		writel(1, rtc->ioaddr + LPC_LPA_START_OFF);
+		writel(0, rtc->ioaddr + LPC_WDT_OFF);
+	}
 
 	return 0;
 }

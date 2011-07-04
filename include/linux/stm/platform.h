@@ -98,7 +98,6 @@ extern struct platform_device *stm_asc_configured_devices[];
 struct stm_plat_rtc_lpc {
 	unsigned int no_hw_req:1;	/* iomem in sys/serv 5197 */
 	unsigned int need_wdt_reset:1;	/* W/A on 7141 */
-	unsigned int need_wdt_start:1;	/* W/A on 7108 */
 	unsigned char irq_edge_level;
 	char *clk_id;
 };

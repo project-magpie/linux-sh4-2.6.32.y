@@ -436,11 +436,13 @@ struct pms_object *pms_register_device_n(char *name)
 	struct bus_type *bus;
 	struct device *dev;
 	char *bus_name, *dev_name;
-	char *loc_dev_path = kzalloc(strlen(name) + 1, GFP_KERNEL);
+	void *tmp = kzalloc(strlen(name) + 1, GFP_KERNEL);
+	char *loc_dev_path;
 
-	if (!loc_dev_path)
+	if (!tmp)
 		return NULL;
 
+	loc_dev_path = tmp;
 	strncpy(loc_dev_path, name, strlen(name));
 	bus_name = _strsep((char **)&loc_dev_path, "/ \n\t\0");
 	if (!bus_name) {
@@ -462,10 +464,10 @@ struct pms_object *pms_register_device_n(char *name)
 		pr_debug("Device not found\n");
 		goto err_0;
 	}
-	kfree(loc_dev_path);
+	kfree(tmp);
 	return pms_register_device(dev);
 err_0:
-	kfree(loc_dev_path);
+	kfree(tmp);
 	return NULL;
 }
 EXPORT_SYMBOL(pms_register_device_n);

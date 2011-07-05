@@ -385,6 +385,15 @@ config SH_ST_DTT5250
 	  Select this if configuring for an
 	  STMicroelectronics STi5250 DTT Reference Board.
 
+config SH_ST_HDK5250
+	bool "HDK5250 : STx5250 HDK Reference board"
+	depends on CPU_SUBTYPE_STX5206
+	select SYS_SUPPORTS_PCI
+	default n
+	help
+	  Select this if configuring for an
+	  STMicroelectronics STi5250 HDK Reference Board.
+
 config SH_ST_HDK7105
 	bool "HDK7105 : STx7105 HDK Reference board"
 	depends on CPU_SUBTYPE_STX7105

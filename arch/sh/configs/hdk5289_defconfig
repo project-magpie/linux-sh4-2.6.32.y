@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
-# Linux kernel version: 2.6.32.28
-# Fri Jun  3 13:49:33 2011
+# Linux kernel version: 2.6.32.42
+# Tue Jul  5 16:18:31 2011
 #
 CONFIG_SUPERH=y
 CONFIG_SUPERH32=y
@@ -72,7 +72,6 @@ CONFIG_RCU_FANOUT=32
 CONFIG_IKCONFIG=y
 CONFIG_IKCONFIG_PROC=y
 CONFIG_LOG_BUF_SHIFT=14
-# CONFIG_GROUP_SCHED is not set
 # CONFIG_CGROUPS is not set
 # CONFIG_SYSFS_DEPRECATED_V2 is not set
 # CONFIG_RELAY is not set
@@ -357,7 +356,6 @@ CONFIG_ENTRY_OFFSET=0x00001000
 #
 # CONFIG_PCI is not set
 # CONFIG_SH_ST_ST40RA_PCI is not set
-# CONFIG_SH_ST_SYNOPSYS_PCI is not set
 # CONFIG_ARCH_SUPPORTS_MSI is not set
 # CONFIG_PCCARD is not set
 
@@ -635,7 +633,7 @@ CONFIG_SCSI_PROC_FS=y
 #
 # SCSI support type (disk, tape, CD-ROM)
 #
-# CONFIG_BLK_DEV_SD is not set
+CONFIG_BLK_DEV_SD=y
 # CONFIG_CHR_DEV_ST is not set
 # CONFIG_CHR_DEV_OSST is not set
 # CONFIG_BLK_DEV_SR is not set

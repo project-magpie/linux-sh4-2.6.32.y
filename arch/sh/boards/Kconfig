@@ -776,6 +776,7 @@ source "arch/sh/boards/mach-mb837/Kconfig"
 source "arch/sh/boards/mach-mb671/Kconfig"
 source "arch/sh/boards/mach-hdk7106/Kconfig"
 source "arch/sh/boards/mach-hdk7108/Kconfig"
+source "arch/sh/boards/mach-adi7108/Kconfig"
 
 if SH_MAGIC_PANEL_R2
 

@@ -31,6 +31,15 @@ config SH_ST_ADI7108_VER_D_BOARD
 
 endchoice
 
+config SH_ST_ADI7108_STMMAC0
+	bool "Enable STMMAC 0"
+	depends on (SH_ST_ADI7108_VER_C_BOARD || \
+		    SH_ST_ADI7108_VER_B_BOARD || \
+		    SH_ST_ADI7108_VER_D_BOARD)
+	default n
+	help
+	  Enable STMMAC 0.
+
 endmenu
 
 endif

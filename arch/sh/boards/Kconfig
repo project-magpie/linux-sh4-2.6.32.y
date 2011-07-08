@@ -403,6 +403,14 @@ config SH_ST_HDK7105
 	  Select HDK7105 if configuring for an
 	  STMicroelectronics STi7105 HDK Reference Board.
 
+config SH_ST_HDKH246
+	bool "HDKH246 : STi235/236/246 Reference boards"
+	depends on CPU_SUBTYPE_STX7105
+	default n
+	help
+	  Select HDKH246 if configuring for an
+	  STMicroelectronics STiH235/H236/H246 Reference Boards.
+
 config SH_ST_HDKH251
 	bool "HDKH251 : STiH251 HDK Reference board"
 	depends on CPU_SUBTYPE_STX7105

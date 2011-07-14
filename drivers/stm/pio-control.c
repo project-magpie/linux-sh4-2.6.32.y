@@ -151,20 +151,20 @@ void __init stm_pio_control_init(const struct stm_pio_control_config *config,
 		pio_control[i].alt = sysconf_claim(config[i].alt.group,
 			config[i].alt.num, 0, 31,
 			"PIO Alternative Function Selector");
-		BUG_ON(!pio_control[i].alt);
+		if (!pio_control[i].alt) goto failed;
 
 		pio_control[i].oe = sysconf_claim(config[i].oe.group,
 			config[i].oe.num, config[i].oe.lsb, config[i].oe.msb,
 			"PIO Output Enable Control");
-		BUG_ON(!pio_control[i].oe);
+		if (!pio_control[i].oe) goto failed;
 		pio_control[i].pu = sysconf_claim(config[i].pu.group,
 			config[i].pu.num, config[i].oe.lsb, config[i].pu.msb,
 			"PIO Pull Up Control");
-		BUG_ON(!pio_control[i].pu);
+		if (!pio_control[i].pu) goto failed;
 		pio_control[i].od = sysconf_claim(config[i].od.group,
 			config[i].od.num, config[i].oe.lsb, config[i].od.msb,
 			"PIO Open Drain Control");
-		BUG_ON(!pio_control[i].od);
+		if (!pio_control[i].od) goto failed;
 
 		if (config[i].no_retiming)
 			continue;
@@ -174,7 +174,13 @@ void __init stm_pio_control_init(const struct stm_pio_control_config *config,
 				config[i].retiming[j].group,
 				config[i].retiming[j].num, 0, 31,
 				"PIO Retiming Configuration");
-			BUG_ON(!pio_control[i].retiming[j]);
+			if (!pio_control[i].retiming[j]) goto failed;
 		}
 	}
+
+	return;
+
+failed:
+	/* Can't do anything is early except panic */
+	panic("Unable to allocate PIO control sysconfs");
 }

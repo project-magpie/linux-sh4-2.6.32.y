@@ -682,12 +682,9 @@ static int stx7108_pio_config(unsigned gpio,
 	int port = stm_gpio_port(gpio);
 	int pin = stm_gpio_pin(gpio);
 	struct stx7108_pio_config *config = priv;
-	struct stm_pio_control *pio_control;
 
 	BUG_ON(port > ARRAY_SIZE(stx7108_pio_devices));
 	BUG_ON(function < 0 || function > 5);
-
-	pio_control = &stx7108_pio_controls[port];
 
 	if (function == 0) {
 		switch (direction) {
@@ -705,38 +702,34 @@ static int stx7108_pio_config(unsigned gpio,
 			break;
 		}
 	} else {
-		stm_pio_control_config_direction(pio_control, pin, direction,
+		stm_pio_control_config_direction(port, pin, direction,
 				config ? config->mode : NULL);
 	}
 
-	stm_pio_control_config_function(pio_control, pin, function);
+	stm_pio_control_config_function(port, pin, function);
 
-	if (config && config->retime) {
-		struct stm_pio_control_retime_config *retime = config->retime;
-		unsigned long mask =
-			(retime->clk1notclk0 > 0 ? 1<<0 : 0) |
-			(retime->clknotdata  > 0 ? 1<<1 : 0) |
-			(retime->delay_input > 0 ? 1<<2 : 0) |
-			(retime->double_edge > 0 ? 1<<3 : 0) |
-			(retime->invertclk   > 0 ? 1<<4 : 0) |
-			(retime->retime      > 0 ? 1<<5 : 0);
-		unsigned long config =
-			(retime->clk1notclk0 ? 1<<0 : 0) |
-			(retime->clknotdata  ? 1<<1 : 0) |
-			(retime->delay_input ? 1<<2 : 0) |
-			(retime->double_edge ? 1<<3 : 0) |
-			(retime->invertclk   ? 1<<4 : 0) |
-			(retime->retime      ? 1<<5 : 0);
-		stm_pio_control_config_retime(pio_control, pin, mask, config);
-	}
+	if (config && config->retime)
+		stm_pio_control_config_retime(port, pin, config->retime);
 
 	return 0;
 }
 
+
+static const struct stm_pio_control_retime_offset stx7108_pio_retime_offset = {
+	.clk1notclk0_offset 	= 0,
+	.clknotdata_offset	= 1,
+	.delay_lsb_offset	= 2,
+	.double_edge_offset	= 3,
+	.invertclk_offset	= 4,
+	.retime_offset		= 5,
+	.delay_msb_offset	= 6,
+};
+
 static void __init stx7108_pio_init(void)
 {
 	stm_pio_control_init(stx7108_pio_control_configs, stx7108_pio_controls,
-			     ARRAY_SIZE(stx7108_pio_control_configs));
+			     ARRAY_SIZE(stx7108_pio_control_configs),
+			     &stx7108_pio_retime_offset);
 }
 
 /* MMC/SD resources ------------------------------------------------------ */
@@ -753,6 +746,14 @@ static void __init stx7108_pio_init(void)
 				.oe = 1, \
 				.pu = 1, \
 				.od = 1, \
+			}, \
+			.retime = &(struct stm_pio_control_retime_config) { \
+				.retime = -1, \
+				.clk1notclk0 = -1, \
+				.clknotdata = 1, \
+				.double_edge = -1, \
+				.invertclk = -1, \
+				.delay_input = -1, \
 			}, \
 		}, \
 	}
@@ -843,14 +844,7 @@ static struct platform_device stx7108_mmc_device = {
 
 void __init stx7108_configure_mmc(int emmc)
 {
-	struct sysconf_field **regs;
-	unsigned long value;
 	struct sdhci_pltfm_data *plat_data;
-
-	regs = stx7108_pio_1_retime;
-	value = sysconf_read(regs[0]);
-	value |= PIO1_CFG_CLKNODATA; /* Output clock */
-	sysconf_write(regs[0], value);
 
 	plat_data = &stx7108_mmc_platform_data;
 

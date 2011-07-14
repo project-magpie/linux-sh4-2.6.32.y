@@ -18,9 +18,13 @@
 #include <linux/stm/sysconf.h>
 #include "pio-control.h"
 
+static struct stm_pio_control_data {
+	struct stm_pio_control *pio_control;
+	const struct stm_pio_control_retime_offset *retime_offset;
+} control_data;
 
-void stm_pio_control_config_direction(struct stm_pio_control *pio_control,
-		int pin, enum stm_pad_gpio_direction direction,
+void stm_pio_control_config_direction(int port, int pin,
+		enum stm_pad_gpio_direction direction,
 		struct stm_pio_control_mode_config *custom_mode)
 {
 	struct sysconf_field *output_enable;
@@ -28,6 +32,7 @@ void stm_pio_control_config_direction(struct stm_pio_control *pio_control,
 	struct sysconf_field *open_drain;
 	unsigned long oe_value, pu_value, od_value;
 	unsigned long mask;
+	struct stm_pio_control *pio_control = &control_data.pio_control[port];
 
 	pr_debug("%s(pin=%d, direction=%d)\n",
 			__func__, pin, direction);
@@ -86,12 +91,12 @@ void stm_pio_control_config_direction(struct stm_pio_control *pio_control,
 	sysconf_write(open_drain, od_value);
 }
 
-void stm_pio_control_config_function(struct stm_pio_control *pio_control,
-		int pin, int function)
+void stm_pio_control_config_function(int port, int pin, int function)
 {
 	struct sysconf_field *selector;
 	int offset;
 	unsigned long val;
+	struct stm_pio_control *pio_control = &control_data.pio_control[port];
 
 	pr_debug("%s(pin=%d, function=%d)\n",
 			__func__, pin, function);
@@ -106,26 +111,48 @@ void stm_pio_control_config_function(struct stm_pio_control *pio_control,
 	sysconf_write(selector, val);
 }
 
-void stm_pio_control_config_retime(struct stm_pio_control *pio_control,
-		int pin, unsigned long retime_mask,
-		unsigned long retime_config)
+void stm_pio_control_config_retime(int port, int pin,
+		struct stm_pio_control_retime_config *rt)
 {
 	struct sysconf_field **regs;
 	unsigned long values[2];
 	unsigned long mask;
+	struct stm_pio_control *pio_control = &control_data.pio_control[port];
+	const struct stm_pio_control_retime_offset *offset =
+					control_data.retime_offset;
 	int i, j;
 
-	pr_debug("%s(pin=%d, retime_mask=%02lx, retime_config=%02lx)\n",
-		 __func__, pin, retime_mask, retime_config);
+	unsigned long retime_mask =
+		(rt->clk1notclk0   > 0 ? 1<<offset->clk1notclk0_offset : 0) |
+		(rt->clknotdata    > 0 ? 1<<offset->clknotdata_offset : 0) |
+		((rt->delay_input & 1) ? 1<<offset->delay_lsb_offset : 0) |
+		((rt->delay_input & 2) ? 1<<offset->delay_msb_offset : 0) |
+		(rt->double_edge   > 0 ? 1<<offset->double_edge_offset : 0) |
+		(rt->invertclk     > 0 ? 1<<offset->invertclk_offset : 0) |
+		(rt->retime        > 0 ? 1<<offset->retime_offset : 0);
+
+	unsigned long retime_config =
+		(rt->clk1notclk0       ? 1<<offset->clk1notclk0_offset : 0) |
+		(rt->clknotdata        ? 1<<offset->clknotdata_offset : 0) |
+		((rt->delay_input & 1) ? 1<<offset->delay_lsb_offset : 0) |
+		((rt->delay_input & 2) ? 1<<offset->delay_msb_offset : 0) |
+		(rt->double_edge       ? 1<<offset->double_edge_offset : 0) |
+		(rt->invertclk         ? 1<<offset->invertclk_offset : 0) |
+		(rt->retime            ? 1<<offset->retime_offset : 0);
+
+
+	pr_debug("%s (port=%d pin=%d, retime_mask=%02lx, retime_config="
+			"%02lx)\n", __func__,
+			port, pin, retime_mask, retime_config);
 
 	regs = pio_control->retiming;
 
 	values[0] = sysconf_read(regs[0]);
 	values[1] = sysconf_read(regs[1]);
 
-	for (i=0; i<2; i++) {
+	for (i = 0; i < 2; i++) {
 		mask = 1 << pin;
-		for (j=0; j<4; j++) {
+		for (j = 0; j < 4; j++) {
 			if (retime_mask & 1) {
 				if (retime_config & 1)
 					values[i] |= mask;
@@ -143,7 +170,8 @@ void stm_pio_control_config_retime(struct stm_pio_control *pio_control,
 }
 
 void __init stm_pio_control_init(const struct stm_pio_control_config *config,
-		struct stm_pio_control *pio_control, int num)
+		struct stm_pio_control *pio_control, int num,
+		const struct stm_pio_control_retime_offset *retime_offset)
 {
 	int i, j;
 
@@ -177,7 +205,8 @@ void __init stm_pio_control_init(const struct stm_pio_control_config *config,
 			if (!pio_control[i].retiming[j]) goto failed;
 		}
 	}
-
+	control_data.pio_control = pio_control;
+	control_data.retime_offset = retime_offset;
 	return;
 
 failed:

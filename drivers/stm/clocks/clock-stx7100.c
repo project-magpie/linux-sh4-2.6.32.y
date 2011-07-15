@@ -16,8 +16,11 @@
 #include <asm-generic/div64.h>
 
 #include "clock-utils.h"
+#include "clock-oslayer.h"
+#include "clock-common.h"
 
 static void __iomem *clkgena_base;
+static void __iomem *clkgenc_base;
 
 #define CLOCKGEN_PLL0_CFG	0x08
 #define CLOCKGEN_PLL0_CLK1_CTRL	0x14
@@ -200,9 +203,186 @@ CLKGENA(IC_100_ID,	ic_100,   pll_clk[1], 0, 4, NULL),
 CLKGENA(EMI_ID,	emi,    pll_clk[1], 0, 4, NULL)
 };
 
+
+/*
+ * Audio Clock Stuff
+ */
+enum clockgenC_ID {
+	CLKC_REF,
+	CLKC_FS0_CH1,
+	CLKC_FS0_CH2,
+	CLKC_FS0_CH3,
+	CLKC_FS0_CH4,
+};
+
+/* --- Audio config registers --- */
+#define CKGC_FS_CFG(_bk)		(0x100 * (_bk))
+#define CKGC_FS_MD(_bk, _chan)	  		\
+		(0x100 * (_bk) + 0x10 + 0x10 * (_chan))
+#define CKGC_FS_PE(_bk, _chan)		(0x4 + CKGC_FS_MD(_bk, _chan))
+#define CKGC_FS_SDIV(_bk, _chan)	(0x8 + CKGC_FS_MD(_bk, _chan))
+#define CKGC_FS_EN_PRG(_bk, _chan)      (0xc + CKGC_FS_MD(_bk, _chan))
+
+static int clkgenc_fsyn_recalc(clk_t *clk_p)
+{
+	unsigned long cfg, dig_bit, en_bit;
+	unsigned long pe, md, sdiv;
+	static const unsigned char dig_table[] = {10, 11, 12, 13};
+	static const unsigned char en_table[] = {6, 7, 8, 9};
+	int channel;
+	int err;
+
+	/* Is FSYN analog UP ? */
+	cfg = CLK_READ(clkgenc_base + CKGC_FS_CFG(0));
+	if (!(cfg & (1 << 14))) {       /* Analog power down */
+		clk_p->rate = 0;
+		return 0;
+	}
+
+	/* Is FSYN digital part UP & enabled ? */
+	dig_bit = dig_table[clk_p->id - CLKC_FS0_CH1];
+	en_bit = en_table[clk_p->id - CLKC_FS0_CH1];
+
+	if ((cfg & (1 << dig_bit)) == 0) {      /* digital part in standby */
+		clk_p->rate = 0;
+		return 0;
+	}
+	if ((cfg & (1 << en_bit)) == 0) {       /* disabled */
+		clk_p->rate = 0;
+		return 0;
+	}
+
+	/* FSYN up & running.
+	   Computing frequency */
+	channel = (clk_p->id - CLKC_FS0_CH1) % 4;
+	pe = CLK_READ(clkgenc_base + CKGC_FS_PE(0, channel));
+	md = CLK_READ(clkgenc_base + CKGC_FS_MD(0, channel));
+	sdiv = CLK_READ(clkgenc_base + CKGC_FS_SDIV(0, channel));
+	err = clk_fsyn_get_rate(clk_p->parent->rate, pe, md,
+				sdiv, &clk_p->rate);
+
+	return err;
+}
+
+static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
+{
+	unsigned long md, pe, sdiv;
+	unsigned long reg_value = 0;
+	int channel;
+	static const unsigned char set_rate_table[] = {
+		0x06, 0x0A, 0x12, 0x22 };
+
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+	if (clk_p->id == CLKC_REF)
+		return CLK_ERR_BAD_PARAMETER;
+
+	/* Computing FSyn params. Should be common function with FSyn type */
+	if (clk_fsyn_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
+		return CLK_ERR_BAD_PARAMETER;
+
+	reg_value = CLK_READ(clkgenc_base + CKGC_FS_CFG(0));
+	channel = (clk_p->id - CLKC_FS0_CH1) % 4;
+	reg_value |= set_rate_table[clk_p->id - CLKC_FS0_CH1];
+
+	CLK_WRITE(clkgenc_base + CKGC_FS_EN_PRG(0, channel), 0x00);
+	/* Select FS clock only for the clock specified */
+	CLK_WRITE(clkgenc_base + CKGC_FS_CFG(0), reg_value);
+
+	CLK_WRITE(clkgenc_base + CKGC_FS_PE(0, channel), pe);
+	CLK_WRITE(clkgenc_base + CKGC_FS_MD(0, channel), md);
+	CLK_WRITE(clkgenc_base + CKGC_FS_SDIV(0, channel), sdiv);
+	CLK_WRITE(clkgenc_base + CKGC_FS_EN_PRG(0, channel), 0x01);
+	CLK_WRITE(clkgenc_base + CKGC_FS_EN_PRG(0, channel), 0x00);
+
+	return clkgenc_fsyn_recalc(clk_p);
+}
+
+static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
+{
+	unsigned long val;
+	int channel;
+	/* Digital standby bits table.
+	   Warning: enum order: CLKC_FS0_CH1 ... CLKC_FS0_CH3 */
+	static const unsigned char dig_bit[] = {10, 11, 12, 13};
+	static const unsigned char en_bit[] = {6, 7, 8, 9};
+
+	if (!clk_p || clk_p->id ==  CLKC_REF)
+		return CLK_ERR_BAD_PARAMETER;
+
+	val = CLK_READ(clkgenc_base + CKGC_FS_CFG(0));
+
+	/* Powering down/up digital part */
+	if (enable) {
+		val |= (1 << dig_bit[clk_p->id - CLKC_FS0_CH1]);
+		val |= (1 << en_bit[clk_p->id - CLKC_FS0_CH1]);
+	} else {
+		val &= ~(1 << dig_bit[clk_p->id - CLKC_FS0_CH1]);
+		val &= ~(1 << en_bit[clk_p->id - CLKC_FS0_CH1]);
+	}
+
+	/* Powering down/up analog part */
+	if (enable)
+		val |= (1 << 14);
+	else {
+		/* If all channels are off then power down FS0 */
+		if ((val & 0x3fc0) == 0)
+			val &= ~(1 << 14);
+	}
+
+	channel = (clk_p->id - CLKC_FS0_CH1) % 4;
+
+	CLK_WRITE(clkgenc_base + CKGC_FS_EN_PRG(0, channel), 0x00);
+
+	CLK_WRITE(clkgenc_base + CKGC_FS_CFG(0), val);
+
+	CLK_WRITE(clkgenc_base + CKGC_FS_EN_PRG(0, channel), 0x10);
+	CLK_WRITE(clkgenc_base + CKGC_FS_EN_PRG(0, channel), 0x00);
+
+	/* Freq recalc required only if a channel is enabled */
+	if (enable)
+		return clkgenc_fsyn_recalc(clk_p);
+	else
+		clk_p->rate = 0;
+	return 0;
+}
+
+static int clkgenc_enable(clk_t *clk_p)
+{
+	return clkgenc_xable_fsyn(clk_p, 1);
+}
+
+static int clkgenc_disable(clk_t *clk_p)
+{
+	return clkgenc_xable_fsyn(clk_p, 0);
+}
+
+_CLK_OPS(clkgenc,
+	"Clockgen C/Audio",
+	NULL,
+	NULL,
+	clkgenc_set_rate,
+	NULL,
+	clkgenc_enable,
+	clkgenc_disable,
+	NULL,
+	NULL,
+	NULL
+);
+
+static clk_t audio_clk_clocks[] = {
+/* Clockgen C (AUDIO) */
+_CLK_F(CLKC_REF, 30000000),
+_CLK_P(CLKC_FS0_CH1, &clkgenc, 0, 0, &audio_clk_clocks[CLKC_REF]),
+_CLK_P(CLKC_FS0_CH2, &clkgenc, 0, 0, &audio_clk_clocks[CLKC_REF]),
+_CLK_P(CLKC_FS0_CH3, &clkgenc, 0, 0, &audio_clk_clocks[CLKC_REF]),
+_CLK_P(CLKC_FS0_CH4, &clkgenc, 0, 0, &audio_clk_clocks[CLKC_REF]),
+};
+
 int __init plat_clk_init(void)
 {
 	int ret;
+	unsigned long data;
 
 	/**************/
 	/* Clockgen A */
@@ -211,10 +391,32 @@ int __init plat_clk_init(void)
 	if (!clkgena_base)
 		return -ENOMEM;
 
+	clkgenc_base = ioremap(0x19210000, 0x100);
+	if (!clkgenc_base)
+		return -ENOMEM;
+
 	ret = clk_register_table(pll_clk, ARRAY_SIZE(pll_clk), 1);
 	if (ret)
 		return ret;
 
 	ret = clk_register_table(clkgena_clks, ARRAY_SIZE(clkgena_clks), 1);
+	if (ret)
+		return ret;
+
+	/*
+	 * Setup Audio Clock
+	 */
+	data = CLK_READ(clkgenc_base + CKGC_FS_CFG(0));
+	data &= ~(1  << 23); /* reference from Sata */
+	data |= (0xf <<  2); /* IP clocks from Fsynth */
+	data &= ~(1  << 15); /* NDIV @ 27/30 MHz */
+	data |= (0x3 << 16); /* BW_SEL very good */
+	data &= ~1;	     /* Reset Out */
+
+	CLK_WRITE(clkgenc_base + CKGC_FS_CFG(0), data);
+
+	ret = clk_register_table(audio_clk_clocks,
+		ARRAY_SIZE(audio_clk_clocks), 0);
+
 	return ret;
 }

@@ -86,6 +86,7 @@
 #include <linux/gpio.h>
 #include <linux/time.h>
 #include <linux/lirc.h>
+#include <linux/err.h>
 #include <linux/stm/lirc.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/clk.h>
@@ -1319,9 +1320,9 @@ static int lirc_stm_probe(struct platform_device *pdev)
 	}
 
 	lirc_sys_clock = clk_get(dev, "comms_clk");
-	if (!lirc_sys_clock) {
+	if (IS_ERR(lirc_sys_clock)) {
 		pr_err(LIRC_STM_NAME " system clock not found\n");
-		return -ENODEV;
+		return PTR_ERR(lirc_sys_clock);
 	}
 
 	clk_enable(lirc_sys_clock);

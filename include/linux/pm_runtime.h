@@ -54,6 +54,12 @@ static inline void pm_runtime_put_noidle(struct device *dev)
 	atomic_add_unless(&dev->power.usage_count, -1, 0);
 }
 
+static inline bool pm_runtime_suspended(struct device *dev)
+{
+	return dev->power.runtime_status == RPM_SUSPENDED
+		&& !dev->power.disable_depth;
+}
+
 #else /* !CONFIG_PM_RUNTIME */
 
 static inline int pm_runtime_idle(struct device *dev) { return -ENOSYS; }

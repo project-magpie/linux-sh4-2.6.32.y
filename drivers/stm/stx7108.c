@@ -21,9 +21,10 @@
 #include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stx7108.h>
+#ifdef CONFIG_WL12XX_PLATFORM_DATA
+#include <linux/wl12xx.h>
+#endif
 #include <asm/irq-ilc.h>
-
-
 
 /* EMI resources ---------------------------------------------------------- */
 
@@ -953,7 +954,11 @@ static struct stm_pad_config stx7108_mmc_pad_config = {
 		STX7108_PIO_MMC_BIDIR(0, 1),	/* MMC Data[1]*/
 		STX7108_PIO_MMC_BIDIR(0, 2),	/* MMC Data[2]*/
 		STX7108_PIO_MMC_BIDIR(0, 3),	/* MMC Data[3]*/
+#ifndef CONFIG_WL12XX_PLATFORM_DATA
 		STX7108_PIO_MMC_BIDIR(0, 4),	/* MMC Data[4]*/
+#else
+		STX7108_PIO_MMC_IN(0, 4),	/* SDIO WLAN_IRQ*/
+#endif
 		STX7108_PIO_MMC_BIDIR(0, 5),	/* MMC Data[5]*/
 		STX7108_PIO_MMC_BIDIR(0, 6),	/* MMC Data[6]*/
 		STX7108_PIO_MMC_BIDIR(0, 7),	/* MMC Data[7]*/
@@ -990,6 +995,12 @@ static struct platform_device stx7108_mmc_device = {
 
 #define PIO1_CFG_CLKNODATA	0x100
 
+#ifdef CONFIG_WL12XX_PLATFORM_DATA
+struct wl12xx_platform_data stx7108_wl12xx_plt_data __initdata = {
+	.board_ref_clock = WL12XX_REFCLOCK_38,
+};
+#endif
+
 void __init stx7108_configure_mmc(int emmc)
 {
 	struct sysconf_field **regs;
@@ -1007,6 +1018,23 @@ void __init stx7108_configure_mmc(int emmc)
 		plat_data->quirks |= SDHCI_QUIRK_NONREMOVABLE_CARD;
 
 	platform_device_register(&stx7108_mmc_device);
+
+#ifdef CONFIG_WL12XX_PLATFORM_DATA
+	/* Switch the MMC HC to work in PIO mode. */
+	plat_data->quirks |= SDHCI_QUIRK_BROKEN_DMA |
+			     SDHCI_QUIRK_BROKEN_ADMA |
+			     SDHCI_QUIRK_FORCE_1_BIT_DATA;
+
+	/* PIO0[4] (MMC DATA4) is the SDIO irq and it's configured
+	 * as input.
+	 *
+	 * **** Selecting this driver the MMC cannot work on
+	 *      other MMC devices (e.g. SD/MMC cards).
+	 */
+	stx7108_wl12xx_plt_data.irq = gpio_to_irq(stm_gpio(0, 4));
+	if (wl12xx_set_platform_data(&stx7108_wl12xx_plt_data))
+		pr_err("%s: ERROR setting wl12xx data\n", __func__);
+#endif
 }
 
 /* sysconf resources ------------------------------------------------------ */

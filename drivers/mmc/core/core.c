@@ -941,7 +941,16 @@ static void mmc_power_up(struct mmc_host *host)
 	 * This delay must be at least 74 clock sizes, or 1 ms, or the
 	 * time required to reach a stable voltage.
 	 */
+#ifdef CONFIG_WL12XX_PLATFORM_DATA
+	/*
+	 * Increment the delay after powering on the card otherwise
+	 * CMD5 will fail after performing GO_IDLE CMD0.
+	 */
+	mmc_delay(100);
+#else
 	mmc_delay(10);
+#endif
+
 }
 
 static void mmc_power_off(struct mmc_host *host)

@@ -1022,8 +1022,7 @@ void __init stx7108_configure_mmc(int emmc)
 #ifdef CONFIG_WL12XX_PLATFORM_DATA
 	/* Switch the MMC HC to work in PIO mode. */
 	plat_data->quirks |= SDHCI_QUIRK_BROKEN_DMA |
-			     SDHCI_QUIRK_BROKEN_ADMA |
-			     SDHCI_QUIRK_FORCE_1_BIT_DATA;
+			     SDHCI_QUIRK_BROKEN_ADMA;
 
 	/* PIO0[4] (MMC DATA4) is the SDIO irq and it's configured
 	 * as input.

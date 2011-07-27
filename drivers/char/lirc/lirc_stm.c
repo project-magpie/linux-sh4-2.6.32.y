@@ -1318,7 +1318,7 @@ static int lirc_stm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	lirc_sys_clock = clk_get(NULL, "comms_clk");
+	lirc_sys_clock = clk_get(dev, "comms_clk");
 	if (!lirc_sys_clock) {
 		pr_err(LIRC_STM_NAME " system clock not found\n");
 		return -ENODEV;

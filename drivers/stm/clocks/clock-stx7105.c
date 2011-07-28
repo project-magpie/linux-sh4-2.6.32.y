@@ -1550,8 +1550,8 @@ static int clkgenb_identify_parent(clk_t *clk_p)
 {
 	unsigned long sel, fs_sel;
 	unsigned long displaycfg;
-	const clk_t *fs_clock[2] = { &clk_clocks[CLKB_FS1_CH1],
-				     &clk_clocks[CLKB_FS0_CH1] };
+	const clk_t *fs_clock[2] = { &clk_clocks[CLKB_FS0_CH1],
+				     &clk_clocks[CLKB_FS1_CH1] };
 	const clk_t *dvp_fs_clock[4] = {
 		&clk_clocks[CLKB_PIX_FROM_DVP], &clk_clocks[CLKB_PIX_FROM_DVP],
 		&clk_clocks[CLKB_FS0_CH1], &clk_clocks[CLKB_FS1_CH1]

@@ -535,7 +535,6 @@ static int clkgen_fs_set_rate(clk_t *clk_p, unsigned long rate)
 	CLK_WRITE(SYS_SERVICE_ADDR + setup0 + 4, pe);
 	CLK_WRITE(SYS_SERVICE_ADDR + setup0, val);
 	CLK_WRITE(SYS_SERVICE_ADDR + setup0, val | FS_PROG_EN);
-	mdelay(10);
 
 	if (used_dco) {
 		CLK_WRITE(SYS_SERVICE_ADDR + DCO_MODE_CFG, 1 | FS_PROG_EN);

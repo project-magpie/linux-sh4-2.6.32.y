@@ -18,7 +18,8 @@ config STMMAC_MONITOR
 	-- help
 	  To Enable monitoring via debufs.
 	  The stmmac entry in /sys reports the state of the HW monitoring
-	  counters (if supported).
+	  counters (if supported) and other useful debug information
+	  (e.g. DMA TX/RX rings).
 
 config STMMAC_DA
 	bool "STMMAC DMA arbitration scheme"

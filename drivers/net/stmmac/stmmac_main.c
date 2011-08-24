@@ -1485,7 +1485,60 @@ static void stmmac_vlan_rx_register(struct net_device *dev,
 
 #ifdef CONFIG_STMMAC_MONITOR
 static struct dentry *stmmac_fs_dir;
+static struct dentry *stmmac_rings_status;
 static struct dentry *stmmac_mmc;
+
+static int stmmac_sysfs_ring_read(struct seq_file *seq, void *v)
+{
+	struct tmp_s {
+		u64 a;
+		unsigned int b;
+		unsigned int c;
+	};
+	int i;
+	struct net_device *dev = seq->private;
+	struct stmmac_priv *priv = netdev_priv(dev);
+
+	seq_printf(seq, "=======================\n");
+	seq_printf(seq, " RX descriptor ring\n");
+	seq_printf(seq, "=======================\n");
+
+	for (i = 0; i < priv->dma_rx_size; i++) {
+		struct tmp_s *x = (struct tmp_s *)(priv->dma_rx + i);
+		seq_printf(seq, "[%d] DES0=0x%x DES1=0x%x BUF1=0x%x BUF2=0x%x",
+			   i, (unsigned int)(x->a),
+			   (unsigned int)((x->a) >> 32), x->b, x->c);
+		seq_printf(seq, "\n");
+	}
+
+	seq_printf(seq, "\n");
+	seq_printf(seq, "=======================\n");
+	seq_printf(seq, "  TX descriptor ring\n");
+	seq_printf(seq, "=======================\n");
+
+	for (i = 0; i < priv->dma_tx_size; i++) {
+		struct tmp_s *x = (struct tmp_s *)(priv->dma_tx + i);
+		seq_printf(seq, "[%d] DES0=0x%x DES1=0x%x BUF1=0x%x BUF2=0x%x",
+			   i, (unsigned int)(x->a),
+			   (unsigned int)((x->a) >> 32), x->b, x->c);
+		seq_printf(seq, "\n");
+	}
+
+	return 0;
+}
+
+static int stmmac_sysfs_ring_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, stmmac_sysfs_ring_read, inode->i_private);
+}
+
+static const struct file_operations stmmac_rings_status_fops = {
+	.owner = THIS_MODULE,
+	.open = stmmac_sysfs_ring_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release,
+};
 
 /* To only dump counters > 0 */
 static inline void seq_printf_mmc(struct seq_file *seq,
@@ -1711,11 +1764,25 @@ static int stmmac_init_fs(struct net_device *dev)
 		return -ENOMEM;
 	}
 
+	/* Entry to report DMA RX/TX rings */
+	stmmac_rings_status = debugfs_create_file("descriptors_status",
+					   S_IRUGO, stmmac_fs_dir, dev,
+					   &stmmac_rings_status_fops);
+
+	if (!stmmac_rings_status || IS_ERR(stmmac_rings_status)) {
+		pr_info("ERROR creating stmmac ring debugfs file\n");
+		debugfs_remove(stmmac_fs_dir);
+
+		return -ENOMEM;
+	}
+
+	/* Entry to report MAC Management counters */
 	stmmac_mmc = debugfs_create_file("mmc", S_IRUGO, stmmac_fs_dir, dev,
 					   &stmmac_mmc_fops);
 
 	if (!stmmac_mmc || IS_ERR(stmmac_mmc)) {
 		pr_info("ERROR creating stmmac MMC debugfs file\n");
+		debugfs_remove(stmmac_rings_status);
 		debugfs_remove(stmmac_fs_dir);
 
 		return -ENOMEM;
@@ -1726,6 +1793,7 @@ static int stmmac_init_fs(struct net_device *dev)
 
 static void stmmac_exit_fs(void)
 {
+	debugfs_remove(stmmac_rings_status);
 	debugfs_remove(stmmac_mmc);
 	debugfs_remove(stmmac_fs_dir);
 }

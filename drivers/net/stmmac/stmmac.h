@@ -27,6 +27,7 @@
 #ifdef CONFIG_STMMAC_TIMER
 #include "stmmac_timer.h"
 #endif
+#include "mmc.h"
 
 struct stmmac_priv {
 	/* Frequently used values are kept adjacent for cache effect */
@@ -79,6 +80,7 @@ struct stmmac_priv {
 	struct vlan_group *vlgrp;
 #endif
 	struct plat_stmmacenet_data *plat;
+	struct stmmac_counters mmc;
 };
 
 extern int stmmac_mdio_unregister(struct net_device *ndev);

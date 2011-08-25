@@ -189,6 +189,7 @@ struct mac_device_info *dwmac100_setup(void __iomem *ioaddr)
 	mac->link.speed = 0;
 	mac->mii.addr = MAC_MII_ADDR;
 	mac->mii.data = MAC_MII_DATA;
+	mac->synopsys_uid = 0;
 
 	return mac;
 }

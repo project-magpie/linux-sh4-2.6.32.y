@@ -11,15 +11,13 @@ config STMMAC_ETH
 
 if STMMAC_ETH
 
-config STMMAC_MONITOR
+config STMMAC_DEBUG_FS
 	bool "Enable monitoring via sysFS "
 	default n
 	depends on STMMAC_ETH && DEBUG_FS
-	-- help
-	  To Enable monitoring via debufs.
-	  The stmmac entry in /sys reports the state of the HW monitoring
-	  counters (if supported) and other useful debug information
-	  (e.g. DMA TX/RX rings).
+	help
+	  The stmmac entry in /sys reports DMA TX/RX rings
+	  or (if supported) the HW cap register.
 
 config STMMAC_DA
 	bool "STMMAC DMA arbitration scheme"

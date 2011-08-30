@@ -46,7 +46,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/prefetch.h>
 #include "stmmac.h"
-#ifdef CONFIG_STMMAC_MONITOR
+#ifdef CONFIG_STMMAC_DEBUG_FS
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #endif
@@ -176,7 +176,6 @@ static void print_pkt(unsigned char *buf, int len)
 			printk("\n %03x:", j);
 		printk(" %02x", buf[j]);
 	}
-	pr_info("\n");
 }
 #endif
 
@@ -1546,10 +1545,9 @@ static void stmmac_vlan_rx_register(struct net_device *dev,
 }
 #endif
 
-#ifdef CONFIG_STMMAC_MONITOR
+#ifdef CONFIG_STMMAC_DEBUG_FS
 static struct dentry *stmmac_fs_dir;
 static struct dentry *stmmac_rings_status;
-static struct dentry *stmmac_mmc;
 static struct dentry *stmmac_dma_cap;
 
 static int stmmac_sysfs_ring_read(struct seq_file *seq, void *v)
@@ -1599,218 +1597,6 @@ static int stmmac_sysfs_ring_open(struct inode *inode, struct file *file)
 static const struct file_operations stmmac_rings_status_fops = {
 	.owner = THIS_MODULE,
 	.open = stmmac_sysfs_ring_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = seq_release,
-};
-
-/* To only dump counters > 0 */
-static inline void seq_printf_mmc(struct seq_file *seq,
-				  const char *description,
-				  unsigned int counter)
-{
-	if (counter > 0)
-		seq_printf(seq, "\t%s%d\n", description, counter);
-}
-
-static int stmmac_sysfs_mmc_read(struct seq_file *seq, void *v)
-{
-	struct net_device *dev = seq->private;
-	struct stmmac_priv *priv = netdev_priv(dev);
-
-	seq_printf(seq, "==============================\n");
-	seq_printf(seq, "MMC Management HW MAC counters\n");
-	seq_printf(seq, "==============================\n");
-
-	dwmac_mmc_read(priv->ioaddr, &priv->mmc);
-
-	seq_printf(seq, " -- MMC TX counter counters ---\n");
-
-	seq_printf_mmc(seq, "Number of bytes in good and bad frames: ",
-		       priv->mmc.mmc_tx_octetcount_gb);
-	seq_printf_mmc(seq, "Number of good and bad frames transmitted: ",
-		       priv->mmc.mmc_tx_framecount_gb);
-	seq_printf_mmc(seq, "Number of good Broadcast frame transmitted: ",
-		       priv->mmc.mmc_tx_broadcastframe_g);
-	seq_printf_mmc(seq, "Number of good Multicast frame transmitted: ",
-		       priv->mmc.mmc_tx_multicastframe_g);
-	seq_printf_mmc(seq, "Good and bad frames of 64bytes: ",
-		       priv->mmc.mmc_tx_64_octets_gb);
-	seq_printf_mmc(seq, "Good and bad frames of 65-127: ",
-		       priv->mmc.mmc_tx_65_to_127_octets_gb);
-	seq_printf_mmc(seq, "Good and bad frames of 128-255: ",
-		       priv->mmc.mmc_tx_128_to_255_octets_gb);
-	seq_printf_mmc(seq, "Good and bad frames of 256-511: ",
-		       priv->mmc.mmc_tx_256_to_511_octets_gb);
-	seq_printf_mmc(seq, "Good and bad frames of 512-1024: ",
-		       priv->mmc.mmc_tx_512_to_1023_octets_gb);
-	seq_printf_mmc(seq, "Good and bad frames bigger than 1024: ",
-		       priv->mmc.mmc_tx_1024_to_max_octets_gb);
-	seq_printf_mmc(seq, "Good and bad unicast frames: ",
-		       priv->mmc.mmc_tx_unicast_gb);
-	seq_printf_mmc(seq, "Good and bad multicast frames: ",
-		       priv->mmc.mmc_tx_multicast_gb);
-	seq_printf_mmc(seq, "Good and bad broadcast frames: ",
-		       priv->mmc.mmc_tx_broadcast_gb);
-	seq_printf_mmc(seq, "Number of tx Underflow errors: ",
-		       priv->mmc.mmc_tx_underflow_error);
-	seq_printf_mmc(seq, "Good frms after single collision (Half Duplex): ",
-		       priv->mmc.mmc_tx_singlecol_g);
-	seq_printf_mmc(seq, "Good frames after multi collision (Half Duplex): ",
-		       priv->mmc.mmc_tx_multicol_g);
-	seq_printf_mmc(seq, "Good frames after deferral error (Half Duplex): ",
-		       priv->mmc.mmc_tx_deferred);
-	seq_printf_mmc(seq, "Frame aborted after late collisions: ",
-		       priv->mmc.mmc_tx_latecol);
-	seq_printf_mmc(seq, "Frame aborted after excessive collisions: ",
-		       priv->mmc.mmc_tx_exesscol);
-	seq_printf_mmc(seq, "Frame aborted after carrier sense error: ",
-		       priv->mmc.mmc_tx_carrier_error);
-	seq_printf_mmc(seq, "Number of bytes (no preamble) in good frames: ",
-		       priv->mmc.mmc_tx_octetcount_g);
-	seq_printf_mmc(seq, "Number of good frames transmitted: ",
-		       priv->mmc.mmc_tx_framecount_g);
-	seq_printf_mmc(seq, "Frame aborted due to excessive deferral errors: ",
-		       priv->mmc.mmc_tx_excessdef);
-	seq_printf_mmc(seq, "Number of good pause frames: ",
-		       priv->mmc.mmc_tx_pause_frame);
-	seq_printf_mmc(seq, "Number of good VLAN frames: ",
-		       priv->mmc.mmc_tx_vlan_frame_g);
-
-	seq_printf(seq, " -- MMC RX counter counters ---\n");
-
-	seq_printf_mmc(seq, "Number of good and bad frames: ",
-		       priv->mmc.mmc_rx_framecount_gb);
-	seq_printf_mmc(seq, "Number of bytes in  good and bad frames recv: ",
-		       priv->mmc.mmc_rx_octetcount_gb);
-	seq_printf_mmc(seq, "Number of bytes in good frms (no preample): ",
-		       priv->mmc.mmc_rx_octetcount_g);
-	seq_printf_mmc(seq, "Good broadcast frames: ",
-		       priv->mmc.mmc_rx_broadcastframe_g);
-	seq_printf_mmc(seq, "Good multicast frames: ",
-		       priv->mmc.mmc_rx_multicastframe_g);
-	seq_printf_mmc(seq, "Number of CRC err: ",
-		       priv->mmc.mmc_rx_crc_errror);
-	seq_printf_mmc(seq, "Frames with dribble error: ",
-		       priv->mmc.mmc_rx_align_error);
-	seq_printf_mmc(seq, "Number of frames with runt error: ",
-		       priv->mmc.mmc_rx_run_error);
-	seq_printf_mmc(seq, "Number of giant frame: ",
-		       priv->mmc.mmc_rx_jabber_error);
-	seq_printf_mmc(seq, "Number of frames with size < 64bytes w/o error: ",
-		       priv->mmc.mmc_rx_undersize_g);
-	seq_printf_mmc(seq, "Number of oversized frames w/o errors: ",
-		       priv->mmc.mmc_rx_oversize_g);
-	seq_printf_mmc(seq, "Good and bad frames of 64bytes: ",
-		       priv->mmc.mmc_rx_64_octets_gb);
-	seq_printf_mmc(seq, "Good and bad frames of 65-127: ",
-		       priv->mmc.mmc_rx_65_to_127_octets_gb);
-	seq_printf_mmc(seq, "Good and bad frames of 128-255: ",
-		       priv->mmc.mmc_rx_128_to_255_octets_gb);
-	seq_printf_mmc(seq, "Good and bad frames of 256-511: ",
-		       priv->mmc.mmc_rx_256_to_511_octets_gb);
-	seq_printf_mmc(seq, "Good and bad frames of 512-1024: ",
-		       priv->mmc.mmc_rx_512_to_1023_octets_gb);
-	seq_printf_mmc(seq, "Good and bad frames bigger than 1024: ",
-		       priv->mmc.mmc_rx_1024_to_max_octets_gb);
-	seq_printf_mmc(seq, "Good unicast frames: ",
-		       priv->mmc.mmc_rx_unicast_g);
-	seq_printf_mmc(seq, "Number of frames with length errors: ",
-		       priv->mmc.mmc_rx_length_error);
-	seq_printf_mmc(seq, "Number of frames with length not equal to the"
-		       " valid frame size: ",  priv->mmc.mmc_rx_autofrangetype);
-	seq_printf_mmc(seq, "Number of goog and valid PAUSE frames: ",
-		       priv->mmc.mmc_rx_pause_frames);
-	seq_printf_mmc(seq, "Number of FIFO overflow errors: ",
-		       priv->mmc.mmc_rx_fifo_overflow);
-	seq_printf_mmc(seq, "Number of good VLAN frames: ",
-		       priv->mmc.mmc_rx_vlan_frames_gb);
-	seq_printf_mmc(seq, "Number of frames with watchdog error: ",
-		       priv->mmc.mmc_rx_watchdog_error);
-
-	seq_printf(seq, " -- MMC IPC counters  ---\n");
-	seq_printf_mmc(seq, "MMC IPC interrupt mask: ",
-			priv->mmc.mmc_rx_ipc_intr_mask);
-	seq_printf_mmc(seq, "MMC RX IPC interrupt mask:",
-		       priv->mmc.mmc_rx_ipc_intr);
-
-	seq_printf(seq, " -- MMC RX IPv4 counters  ---\n");
-	seq_printf_mmc(seq, "Good TCP/UDP/ICMP datagram: s",
-		       priv->mmc.mmc_rx_ipv4_gd);
-	seq_printf_mmc(seq, "IPv4 with header errors (CRC/len/vers mismatch): ",
-		       priv->mmc.mmc_rx_ipv4_hderr);
-	seq_printf_mmc(seq, "Number of datagram received that did not have"
-		       " TCP/UDP/ICMP payload processed by the Csum engine: ",
-		       priv->mmc.mmc_rx_ipv4_nopay);
-	seq_printf_mmc(seq, "Good datagram with fragmentation: ",
-		       priv->mmc.mmc_rx_ipv4_frag);
-	seq_printf_mmc(seq, "Good datagram that had a UDP payload with"
-		       "checksum disabled: ", priv->mmc.mmc_rx_ipv4_udsbl);
-
-	seq_printf_mmc(seq, "N. of bytes in good datagrams: ",
-		       priv->mmc.mmc_rx_ipv4_gd_octets);
-	seq_printf_mmc(seq, "N. of bytes with header errors: ",
-		       priv->mmc.mmc_rx_ipv4_hderr_octets);
-	seq_printf_mmc(seq, "N. of bytes that not have TCP/UDP/ICMP payload: ",
-		       priv->mmc.mmc_rx_ipv4_nopay_octets);
-	seq_printf_mmc(seq, "N. of bytes in fragmented datagrams: ",
-		       priv->mmc.mmc_rx_ipv4_frag_octets);
-	seq_printf_mmc(seq, "N. of bytes in UDP segment w/o csum: ",
-		       priv->mmc.mmc_rx_ipv4_udsbl_octets);
-
-	seq_printf(seq, " -- MMC RX IPV6 counters  ---\n");
-	seq_printf_mmc(seq, "N. of good datagrams with TCP/UDP/ICMP payload: ",
-		       priv->mmc.mmc_rx_ipv6_gd);
-	seq_printf_mmc(seq, "N. of good datagrams with header errors: ",
-		       priv->mmc.mmc_rx_ipv6_hderr);
-	seq_printf_mmc(seq, "N. of datagram received that did not have"
-		       " TCP/UDP/ICMP payload: ", priv->mmc.mmc_rx_ipv6_nopay);
-
-	seq_printf_mmc(seq, "N. of bytes in good IPv6 datagrams: ",
-		       priv->mmc.mmc_rx_ipv6_gd_octets);
-	seq_printf_mmc(seq, "N. of bytes in IPv6 datagrams with header err: ",
-		       priv->mmc.mmc_rx_ipv6_hderr_octets);
-	seq_printf_mmc(seq, "N. of bytes in datagrams that did not have a"
-		       " TCP/UDP/ICMP payload: ",
-		       priv->mmc.mmc_rx_ipv6_nopay_octets);
-
-	seq_printf(seq, " -- MMC Protocols RX counters  ---\n");
-	seq_printf_mmc(seq, "N. of good IP datagrams with a good UDP payload: ",
-		       priv->mmc.mmc_rx_udp_gd);
-	seq_printf_mmc(seq, " and the number of bytes:",
-		       priv->mmc.mmc_rx_udp_gd_octets);
-	seq_printf_mmc(seq, "N. of good IP datagrams whose UDP payload has a "
-		       "checksum error: ",  priv->mmc.mmc_rx_udp_err);
-	seq_printf_mmc(seq, " and the number of bytes: ",
-		       priv->mmc.mmc_rx_udp_err_octets);
-	seq_printf_mmc(seq, "N. of good IP datagrams with a good TCP payload: ",
-		       priv->mmc.mmc_rx_tcp_gd);
-	seq_printf_mmc(seq, " and the number of bytes:",
-		       priv->mmc.mmc_rx_tcp_gd_octets);
-	seq_printf_mmc(seq, "N. of good IP datagrams whose TCP payload has a "
-		       "checksum error: ",  priv->mmc.mmc_rx_tcp_err);
-	seq_printf_mmc(seq, " and the number of bytes: ",
-		       priv->mmc.mmc_rx_tcp_err_octets);
-	seq_printf_mmc(seq, "N. of good IP datagrams with good ICMP payload: ",
-		       priv->mmc.mmc_rx_icmp_gd);
-	seq_printf_mmc(seq, " and the number of bytes: ",
-		       priv->mmc.mmc_rx_icmp_gd_octets);
-	seq_printf_mmc(seq, "N. of good IP datagrams whose ICMP payload has a "
-		       "checksum error: ",  priv->mmc.mmc_rx_icmp_err);
-	seq_printf_mmc(seq, " and the number of bytes: ",
-		       priv->mmc.mmc_rx_icmp_err_octets);
-
-	return 0;
-}
-
-static int stmmac_sysfs_mmc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, stmmac_sysfs_mmc_read, inode->i_private);
-}
-
-static const struct file_operations stmmac_mmc_fops = {
-	.owner = THIS_MODULE,
-	.open = stmmac_sysfs_mmc_open,
 	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = seq_release,
@@ -1912,18 +1698,6 @@ static int stmmac_init_fs(struct net_device *dev)
 		return -ENOMEM;
 	}
 
-	/* Entry to report MAC Management counters */
-	stmmac_mmc = debugfs_create_file("mmc", S_IRUGO, stmmac_fs_dir, dev,
-					   &stmmac_mmc_fops);
-
-	if (!stmmac_mmc || IS_ERR(stmmac_mmc)) {
-		pr_info("ERROR creating stmmac MMC debugfs file\n");
-		debugfs_remove(stmmac_rings_status);
-		debugfs_remove(stmmac_fs_dir);
-
-		return -ENOMEM;
-	}
-
 	/* Entry to report the DMA HW features */
 	stmmac_dma_cap = debugfs_create_file("dma_cap", S_IRUGO, stmmac_fs_dir,
 					     dev, &stmmac_dma_cap_fops);
@@ -1931,7 +1705,6 @@ static int stmmac_init_fs(struct net_device *dev)
 	if (!stmmac_dma_cap || IS_ERR(stmmac_dma_cap)) {
 		pr_info("ERROR creating stmmac MMC debugfs file\n");
 		debugfs_remove(stmmac_rings_status);
-		debugfs_remove(stmmac_mmc);
 		debugfs_remove(stmmac_fs_dir);
 
 		return -ENOMEM;
@@ -1943,11 +1716,10 @@ static int stmmac_init_fs(struct net_device *dev)
 static void stmmac_exit_fs(void)
 {
 	debugfs_remove(stmmac_rings_status);
-	debugfs_remove(stmmac_mmc);
 	debugfs_remove(stmmac_dma_cap);
 	debugfs_remove(stmmac_fs_dir);
 }
-#endif /* CONFIG_STMMAC_MONITOR */
+#endif /* CONFIG_STMMAC_DEBUG_FS */
 
 static const struct net_device_ops stmmac_netdev_ops = {
 	.ndo_open = stmmac_open,
@@ -2175,7 +1947,7 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 		goto out_unregister;
 	pr_debug("registered!\n");
 
-#ifdef CONFIG_STMMAC_MONITOR
+#ifdef CONFIG_STMMAC_DEBUG_FS
 	ret = stmmac_init_fs(ndev);
 	if (ret < 0)
 		pr_warning("\tFailed debugFS registration");
@@ -2233,7 +2005,7 @@ static int stmmac_dvr_remove(struct platform_device *pdev)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	release_mem_region(res->start, resource_size(res));
 
-#ifdef CONFIG_STMMAC_MONITOR
+#ifdef CONFIG_STMMAC_DEBUG_FS
 	stmmac_exit_fs();
 #endif
 

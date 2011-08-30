@@ -245,18 +245,15 @@ type of the information actually needed.
 
 For example a user can be use the ethtool support
 to get statistics: e.g. using: ethtool -S ethX
+(that shows the Management counters (MMC) if supported)
 or sees the MAC/DMA registers: e.g. using: ethtool -d ethX
 
 Compiling the Kernel with CONFIG_DEBUG_FS and enabling the
-STMMAC_MONITORING option the driver will export the following
+STMMAC_DEBUG_FS option the driver will export the following
 debugfs entries:
 
 /sys/kernel/debug/stmmaceth/descriptors_status
   To show the DMA TX/RX descriptor rings
-
-/sys/kernel/debug/stmmaceth/mmc
-  To show the internal Management counters (MMC)
-  if supported in the core.
 
 Developer can also use the "debug" module parameter to get
 further debug information.

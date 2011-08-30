@@ -96,10 +96,10 @@ static struct stm_pad_config stx7105_asc2_pio12_pad_config = {
 static struct stm_pad_config stx7105_asc3_pio5_pad_config = {
 	.gpios_num = 4,
 	.gpios = (struct stm_pad_gpio []) {
-		STM_PAD_PIO_OUT(5, 0, 3),	/* TX */
+		STM_PAD_PIO_OUT(5, 0, 2),	/* TX */
 		STM_PAD_PIO_IN(5, 1, -1),	/* RX */
 		STM_PAD_PIO_IN_NAMED(5, 3, -1, "CTS"),
-		STM_PAD_PIO_OUT_NAMED(5, 2, 3, "RTS"),
+		STM_PAD_PIO_OUT_NAMED(5, 2, 2, "RTS"),
 	},
 };
 

@@ -24,7 +24,7 @@
 #include <linux/gpio_keys.h>
 #include <linux/stm/stx7111.h>
 #include <linux/stm/emi.h>
-#include <linux/stm/pci-synopsys.h>
+#include <linux/stm/pci-glue.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/physmap.h>
@@ -50,11 +50,9 @@ static void __init hdk7111_setup(char** cmdline_p)
 	stx7111_early_device_init();
 
 	stx7111_configure_asc(2, &(struct stx7111_asc_config) {
-			.hw_flow_control = 1,
+			.hw_flow_control = 0,
 			.is_console = 1, });
-	stx7111_configure_asc(3, &(struct stx7111_asc_config) {
-			.hw_flow_control = 1,
-			.is_console = 0, });
+
 }
 
 static struct platform_device hdk7111_leds = {
@@ -201,15 +199,20 @@ static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.phy_mask = 0,
 };
 
+
+#define HDK7111_PCI_IDSEL stm_gpio(4, 4)
+#define HDK7111_PCI_SERR_IRQ ILC_EXT_IRQ(1)
+
 static struct stm_plat_pci_config hdk7111_pci_config = {
 	.pci_irq = {
-		[0] = PCI_PIN_DEFAULT,
-		[1] = PCI_PIN_UNUSED,
-		[2] = PCI_PIN_UNUSED,
-		[3] = PCI_PIN_UNUSED
+		/* Bizarre irq usage */
+		[0] = PCI_PIN_UNUSED,
+		[1] = PCI_PIN_DEFAULT,
+		[2] = PCI_PIN_DEFAULT,
+		[3] = PCI_PIN_UNUSED,
 	},
-	.serr_irq = PCI_PIN_DEFAULT,
-	.idsel_lo = 30,
+	.serr_irq = HDK7111_PCI_SERR_IRQ,
+	.idsel_lo = 30, /* Actually unused, connected to PIO */
 	.idsel_hi = 30,
 	.req_gnt = {
 		[0] = PCI_PIN_DEFAULT,
@@ -218,13 +221,22 @@ static struct stm_plat_pci_config hdk7111_pci_config = {
 		[3] = PCI_PIN_UNUSED
 	},
 	.pci_clk = 33333333,
-	.pci_reset_gpio = -EINVAL,
+	.pci_reset_gpio = stm_gpio(3, 7),
 };
 
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
-       /* We can use the standard function on this board */
-       return stx7111_pcibios_map_platform_irq(&hdk7111_pci_config, pin);
+	int ret = -EINVAL;
+
+	/* Wacky interrupt routing, INTA is actually connected to
+	 * what is usually INTC!
+	 */
+	if (pin == 1)
+		ret = evt2irq(0xa40);
+	else if (pin == 2)
+		ret =  evt2irq(0xa20);
+
+	return ret;
 }
 
 static struct platform_device *hdk7111_devices[] __initdata = {
@@ -286,6 +298,17 @@ static int __init hdk7111_devices_init(void)
 
 	spi_register_board_info(&hdk7111_serial_flash_board_info, 1);
 
+	/* The hdk board is another board where the IDSEL line is erroneously
+	 * connected to a PIO rather than to the address lines. Since there is
+	 * only one card, we just claim it and drive it high permanently, so
+	 * that card is always selected for config cycles.
+	 */
+	if (!gpio_request(HDK7111_PCI_IDSEL, "pci idsel"))
+		gpio_direction_output(HDK7111_PCI_IDSEL, 1);
+	else
+		pr_err("Unable to claim IDSEL PCI signal\n");
+	/* The SERR interrupt is connected to the external IRQ pins */
+	set_irq_type(HDK7111_PCI_SERR_IRQ, IRQ_TYPE_LEVEL_LOW);
 	stx7111_configure_pci(&hdk7111_pci_config);
 
 	stx7111_configure_pwm(&(struct stx7111_pwm_config) {
@@ -347,4 +370,5 @@ struct sh_machine_vector mv_hdk7111 __initmv = {
 	.mv_nr_irqs		= NR_IRQS,
 	.mv_init_irq		= hdk7111_init_irq,
 	.mv_ioport_map		= hdk7111_ioport_map,
+	STM_PCI_IO_MACHINE_VEC
 };

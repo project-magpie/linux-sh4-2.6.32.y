@@ -381,11 +381,32 @@ static void display_ring(struct dma_desc *p, int size)
 	}
 }
 
+#if defined(CONFIG_STMMAC_CHAINED)
+/* In chained mode des3 points to the next element in the ring.
+ * The latest element has to point to the head.
+ */
+static void init_dma_chain(struct dma_desc *des, dma_addr_t phy_addr,
+			   unsigned int size)
+{
+	int i;
+	struct dma_desc *p = des;
+	dma_addr_t dma_phy = phy_addr;
+
+	for (i = 0; i < (size - 1); i++) {
+		dma_phy += sizeof(struct dma_desc);
+		p->des3 = (unsigned int) dma_phy;
+		p++;
+	}
+	p->des3 = (unsigned int) phy_addr;
+}
+#endif
+
 /**
  * init_dma_desc_rings - init the RX/TX descriptor rings
  * @dev: net device structure
  * Description:  this function initializes the DMA RX/TX descriptors
- * and allocates the socket buffers.
+ * and allocates the socket buffers. It suppors the chained and ring
+ * modes.
  */
 static void init_dma_desc_rings(struct net_device *dev)
 {
@@ -395,14 +416,21 @@ static void init_dma_desc_rings(struct net_device *dev)
 	unsigned int txsize = priv->dma_tx_size;
 	unsigned int rxsize = priv->dma_rx_size;
 	unsigned int bfsize = priv->dma_buf_sz;
-	int buff2_needed = 0, dis_ic = 0;
+	int dis_ic = 0;
+#if defined(CONFIG_STMMAC_RING)
+	int des3_as_data_buf = 0;
 
 	/* Set the Buffer size according to the MTU;
 	 * indeed, in case of jumbo we need to bump-up the buffer sizes.
+	 * Note that device can handle only 8KiB in chained mode.
+	 * In ring mode if the mtu exceeds the 8KiB use des3.
 	 */
-	if (unlikely(dev->mtu >= BUF_SIZE_8KiB))
+	if (unlikely(dev->mtu >= BUF_SIZE_8KiB)) {
 		bfsize = BUF_SIZE_16KiB;
-	else if (unlikely(dev->mtu >= BUF_SIZE_4KiB))
+		des3_as_data_buf = 1;
+	} else
+#endif
+	if (unlikely(dev->mtu >= BUF_SIZE_4KiB))
 		bfsize = BUF_SIZE_8KiB;
 	else if (unlikely(dev->mtu >= BUF_SIZE_2KiB))
 		bfsize = BUF_SIZE_4KiB;
@@ -416,9 +444,6 @@ static void init_dma_desc_rings(struct net_device *dev)
 	if (likely(priv->tm->enable))
 		dis_ic = 1;
 #endif
-	/* If the MTU exceeds 8k so use the second buffer in the chain */
-	if (bfsize >= BUF_SIZE_8KiB)
-		buff2_needed = 1;
 
 	DBG(probe, INFO, "stmmac: txsize %d, rxsize %d, bfsize %d\n",
 	    txsize, rxsize, bfsize);
@@ -446,9 +471,15 @@ static void init_dma_desc_rings(struct net_device *dev)
 		return;
 	}
 
-	DBG(probe, INFO, "stmmac (%s) DMA desc rings: virt addr (Rx %p, "
+	DBG(probe, INFO, "stmmac (%s) DMA desc %s mode: virt addr (Rx %p, "
 	    "Tx %p)\n\tDMA phy addr (Rx 0x%08x, Tx 0x%08x)\n",
-	    dev->name, priv->dma_rx, priv->dma_tx,
+	    dev->name,
+#if defined(CONFIG_STMMAC_RING)
+		"ring",
+#else
+		"chained",
+#endif
+		priv->dma_rx, priv->dma_tx,
 	    (unsigned int)priv->dma_rx_phy, (unsigned int)priv->dma_tx_phy);
 
 	/* RX INITIALIZATION */
@@ -468,8 +499,11 @@ static void init_dma_desc_rings(struct net_device *dev)
 						bfsize, DMA_FROM_DEVICE);
 
 		p->des2 = priv->rx_skbuff_dma[i];
-		if (unlikely(buff2_needed))
+
+#if defined(CONFIG_STMMAC_RING)
+		if (unlikely(des3_as_data_buf))
 			p->des3 = p->des2 + BUF_SIZE_8KiB;
+#endif
 		DBG(probe, INFO, "[%p]\t[%p]\t[%x]\n", priv->rx_skbuff[i],
 			priv->rx_skbuff[i]->data, priv->rx_skbuff_dma[i]);
 	}
@@ -483,6 +517,11 @@ static void init_dma_desc_rings(struct net_device *dev)
 		priv->tx_skbuff[i] = NULL;
 		priv->dma_tx[i].des2 = 0;
 	}
+
+#if defined(CONFIG_STMMAC_CHAINED)
+	init_dma_chain(priv->dma_rx, priv->dma_rx_phy, rxsize);
+	init_dma_chain(priv->dma_tx, priv->dma_tx_phy, txsize);
+#endif
 	priv->dirty_tx = 0;
 	priv->cur_tx = 0;
 
@@ -611,8 +650,10 @@ static void stmmac_tx(struct stmmac_priv *priv)
 			dma_unmap_single(priv->device, p->des2,
 					 priv->hw->desc->get_tx_len(p),
 					 DMA_TO_DEVICE);
+#if defined(CONFIG_STMMAC_RING)
 		if (unlikely(p->des3))
 			p->des3 = 0;
+#endif
 
 		if (likely(skb != NULL)) {
 			/*
@@ -1054,35 +1095,84 @@ static unsigned int stmmac_handle_jumbo_frames(struct sk_buff *skb,
 	unsigned int txsize = priv->dma_tx_size;
 	unsigned int entry = priv->cur_tx % txsize;
 	struct dma_desc *desc = priv->dma_tx + entry;
+	unsigned int buf_max_size;
+	int len;
+
+#if defined(CONFIG_STMMAC_RING)
+	if (priv->plat->enh_desc)
+		buf_max_size = BUF_SIZE_8KiB;
+	else
+		buf_max_size = BUF_SIZE_2KiB;
+
+	len = nopaged_len - buf_max_size;
 
 	if (nopaged_len > BUF_SIZE_8KiB) {
 
-		int buf2_size = nopaged_len - BUF_SIZE_8KiB;
-
 		desc->des2 = dma_map_single(priv->device, skb->data,
-					    BUF_SIZE_8KiB, DMA_TO_DEVICE);
+					    buf_max_size, DMA_TO_DEVICE);
 		desc->des3 = desc->des2 + BUF_SIZE_4KiB;
-		priv->hw->desc->prepare_tx_desc(desc, 1, BUF_SIZE_8KiB,
+		priv->hw->desc->prepare_tx_desc(desc, 1, buf_max_size,
 						csum_insertion);
 
 		entry = (++priv->cur_tx) % txsize;
 		desc = priv->dma_tx + entry;
 
 		desc->des2 = dma_map_single(priv->device,
-					skb->data + BUF_SIZE_8KiB,
-					buf2_size, DMA_TO_DEVICE);
+					skb->data + buf_max_size,
+					len, DMA_TO_DEVICE);
 		desc->des3 = desc->des2 + BUF_SIZE_4KiB;
-		priv->hw->desc->prepare_tx_desc(desc, 0, buf2_size,
+		priv->hw->desc->prepare_tx_desc(desc, 0, len,
 						csum_insertion);
 		priv->hw->desc->set_tx_owner(desc);
 		priv->tx_skbuff[entry] = NULL;
 	} else {
 		desc->des2 = dma_map_single(priv->device, skb->data,
-					nopaged_len, DMA_TO_DEVICE);
+					    nopaged_len, DMA_TO_DEVICE);
 		desc->des3 = desc->des2 + BUF_SIZE_4KiB;
 		priv->hw->desc->prepare_tx_desc(desc, 1, nopaged_len,
 						csum_insertion);
 	}
+#else
+	unsigned i = 1;
+
+	if (priv->plat->enh_desc)
+		buf_max_size = BUF_SIZE_8KiB;
+	else
+		buf_max_size = BUF_SIZE_2KiB;
+
+	len = nopaged_len - buf_max_size;
+
+	desc->des2 = dma_map_single(priv->device, skb->data,
+				    buf_max_size, DMA_TO_DEVICE);
+	priv->hw->desc->prepare_tx_desc(desc, 1, buf_max_size,
+					csum_insertion);
+
+	while (len != 0) {
+		entry = (++priv->cur_tx) % txsize;
+		desc = priv->dma_tx + entry;
+
+		if (len > buf_max_size) {
+			desc->des2 = dma_map_single(priv->device,
+						(skb->data + buf_max_size * i),
+						buf_max_size, DMA_TO_DEVICE);
+			priv->hw->desc->prepare_tx_desc(desc, 0, buf_max_size,
+							csum_insertion);
+			priv->hw->desc->set_tx_owner(desc);
+			priv->tx_skbuff[entry] = NULL;
+			len -= buf_max_size;
+			i++;
+		} else {
+			desc->des2 = dma_map_single(priv->device,
+						(skb->data + buf_max_size * i),
+						len, DMA_TO_DEVICE);
+			priv->hw->desc->prepare_tx_desc(desc, 0, len,
+							csum_insertion);
+			priv->hw->desc->set_tx_owner(desc);
+			priv->tx_skbuff[entry] = NULL;
+			len = 0;
+		}
+	}
+#endif
 	return entry;
 }
 
@@ -1143,9 +1233,17 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		       skb->len, skb_headlen(skb), nfrags, skb->ip_summed);
 #endif
 	priv->tx_skbuff[entry] = skb;
+
+#if defined(CONFIG_STMMAC_RING)
 	if (unlikely(skb->len >= BUF_SIZE_4KiB)) {
 		entry = stmmac_handle_jumbo_frames(skb, dev, csum_insertion);
 		desc = priv->dma_tx + entry;
+#else
+	if ((priv->plat->enh_desc && unlikely(skb->len > BUF_SIZE_8KiB)) ||
+	(!priv->plat->enh_desc && unlikely(skb->len > BUF_SIZE_2KiB))) {
+		entry = stmmac_handle_jumbo_frames(skb, dev, csum_insertion);
+		desc = priv->dma_tx + entry;
+#endif
 	} else {
 		unsigned int nopaged_len = skb_headlen(skb);
 		desc->des2 = dma_map_single(priv->device, skb->data,
@@ -1235,11 +1333,13 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv)
 					   DMA_FROM_DEVICE);
 
 			(p + entry)->des2 = priv->rx_skbuff_dma[entry];
+#if defined(CONFIG_STMMAC_RING)
 			if (unlikely(priv->plat->has_gmac)) {
 				if (bfsize >= BUF_SIZE_8KiB)
 					(p + entry)->des3 =
 					    (p + entry)->des2 + BUF_SIZE_8KiB;
 			}
+#endif
 			RX_DBG(KERN_INFO "\trefill entry #%d\n", entry);
 		}
 		wmb();

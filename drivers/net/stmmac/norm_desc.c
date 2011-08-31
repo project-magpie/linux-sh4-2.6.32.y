@@ -126,8 +126,12 @@ static void ndesc_init_rx_desc(struct dma_desc *p, unsigned int ring_size,
 	for (i = 0; i < ring_size; i++) {
 		p->des01.rx.own = 1;
 		p->des01.rx.buffer1_size = BUF_SIZE_2KiB - 1;
-		if (i == ring_size - 1)
+#if defined(CONFIG_STMMAC_RING)
+		if (i == (ring_size - 1))
 			p->des01.rx.end_ring = 1;
+#else
+		p->des01.rx.second_address_chained = 1;
+#endif
 		if (disable_rx_ic)
 			p->des01.rx.disable_ic = 1;
 		p++;
@@ -139,8 +143,12 @@ static void ndesc_init_tx_desc(struct dma_desc *p, unsigned int ring_size)
 	int i;
 	for (i = 0; i < ring_size; i++) {
 		p->des01.tx.own = 0;
-		if (i == ring_size - 1)
+#if defined(CONFIG_STMMAC_RING)
+		if (i == (ring_size - 1))
 			p->des01.tx.end_ring = 1;
+#else
+		p->des01.tx.second_address_chained = 1;
+#endif
 		p++;
 	}
 }
@@ -172,11 +180,16 @@ static int ndesc_get_tx_ls(struct dma_desc *p)
 
 static void ndesc_release_tx_desc(struct dma_desc *p)
 {
+#if defined(CONFIG_STMMAC_RING)
 	int ter = p->des01.tx.end_ring;
 
 	memset(p, 0, offsetof(struct dma_desc, des2));
 	/* set termination field */
 	p->des01.tx.end_ring = ter;
+#else
+	memset(p, 0, offsetof(struct dma_desc, des2));
+	p->des01.tx.second_address_chained = 1;
+#endif
 }
 
 static void ndesc_prepare_tx_desc(struct dma_desc *p, int is_fs, int len,

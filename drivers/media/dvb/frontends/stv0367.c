@@ -430,8 +430,8 @@ static struct st_register def0367ter[STV0367TER_NBREGS] = {
 	{R367TER_TSTTSRS,	0x00},
 	{R367TER_TSSTATEM,	0xb0},
 	{R367TER_TSSTATEL,	0x40},
-	{R367TER_TSCFGH,	0xC0},
-	{R367TER_TSCFGM,	0xc0},/* for xc5000; was 0x00 */
+	{R367TER_TSCFGH,	0x40},/* turn off TSFIFO_DVBCI bit */
+	{R367TER_TSCFGM,	0x00},/* set to automatic calc */
 	{R367TER_TSCFGL,	0x20},
 	{R367TER_TSSYNC,	0x00},
 	{R367TER_TSINSDELH,	0x00},

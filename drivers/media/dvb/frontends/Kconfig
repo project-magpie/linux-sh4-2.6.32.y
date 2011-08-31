@@ -342,6 +342,13 @@ config DVB_AF9013
 	help
 	  Say Y when you want to support this frontend.
 
+config DVB_STV0367
+	tristate "ST STV0367 based"
+	depends on DVB_CORE && I2C
+	default m if DVB_FE_CUSTOMISE
+	help
+	  A DVB-T/C tuner module. Say Y when you want to support this frontend.
+
 comment "DVB-C (cable) frontends"
 	depends on DVB_CORE
 

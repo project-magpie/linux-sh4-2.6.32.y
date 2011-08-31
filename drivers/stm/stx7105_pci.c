@@ -94,7 +94,7 @@ static struct platform_device stx7105_pci_device = {
 	},
 };
 
-static struct stm_pad_config __initdata pci_reqgnt_config[] = {
+static struct stm_pad_config pci_reqgnt_config[] = {
 	/* REQ0/GNT0 have dedicated pins... */
 	[1] = {
 		.gpios_num = 2,
@@ -119,7 +119,7 @@ static struct stm_pad_config __initdata pci_reqgnt_config[] = {
 	},
 };
 
-static struct stm_pad_config __initdata pci_int_config[] = {
+static struct stm_pad_config pci_int_config[] = {
 	[0] = {
 		.gpios_num = 1,
 		.gpios = (struct stm_pad_gpio []) {

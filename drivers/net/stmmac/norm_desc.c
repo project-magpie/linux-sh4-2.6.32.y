@@ -127,6 +127,7 @@ static void ndesc_init_rx_desc(struct dma_desc *p, unsigned int ring_size,
 		p->des01.rx.own = 1;
 		p->des01.rx.buffer1_size = BUF_SIZE_2KiB - 1;
 #if defined(CONFIG_STMMAC_RING)
+		p->des01.rx.buffer2_size = BUF_SIZE_2KiB - 1;
 		if (i == (ring_size - 1))
 			p->des01.rx.end_ring = 1;
 #else
@@ -196,7 +197,14 @@ static void ndesc_prepare_tx_desc(struct dma_desc *p, int is_fs, int len,
 				  int csum_flag)
 {
 	p->des01.tx.first_segment = is_fs;
-	p->des01.tx.buffer1_size = len;
+
+#if defined(CONFIG_STMMAC_RING)
+	if (unlikely(len > BUF_SIZE_2KiB)) {
+		p->des01.etx.buffer1_size = BUF_SIZE_2KiB - 1;
+		p->des01.etx.buffer2_size = len - p->des01.etx.buffer1_size;
+	} else
+#endif
+		p->des01.tx.buffer1_size = len;
 }
 
 static void ndesc_clear_tx_ic(struct dma_desc *p)

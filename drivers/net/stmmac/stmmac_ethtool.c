@@ -184,10 +184,9 @@ static void stmmac_ethtool_getdrvinfo(struct net_device *dev,
 
 	info->n_stats = STMMAC_STATS_LEN;
 
-	if (likely(priv->plat->has_gmac)) {
-		strcpy(info->driver, GMAC_ETHTOOL_NAME);
+	if (priv->plat->has_gmac)
 		info->n_stats += STMMAC_MMC_STATS_LEN;
-	} else
+	else
 		strcpy(info->driver, MAC100_ETHTOOL_NAME);
 
 	strcpy(info->version, DRV_MODULE_VERSION);
@@ -350,7 +349,7 @@ static void stmmac_get_ethtool_stats(struct net_device *dev,
 	int i, j = 0;
 
 	/* Update the DMA HW counters for dwmac10/100 */
-	if (unlikely(!priv->plat->has_gmac))
+	if (!priv->plat->has_gmac)
 		priv->hw->dma->dma_diagnostic_fr(&dev->stats,
 						 (void *) &priv->xstats,
 						 priv->ioaddr);
@@ -381,7 +380,7 @@ static int stmmac_get_sset_count(struct net_device *netdev, int sset)
 	case ETH_SS_STATS:
 		len = STMMAC_STATS_LEN;
 
-		if (likely(priv->plat->has_gmac))
+		if (priv->plat->has_gmac)
 			len += STMMAC_MMC_STATS_LEN;
 
 		return len;
@@ -398,7 +397,7 @@ static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 
 	switch (stringset) {
 	case ETH_SS_STATS:
-		if (likely(priv->plat->has_gmac))
+		if (priv->plat->has_gmac)
 			for (i = 0; i < STMMAC_MMC_STATS_LEN; i++) {
 				memcpy(p, stmmac_gstr_mmc[i].stat_string,
 				       ETH_GSTRING_LEN);

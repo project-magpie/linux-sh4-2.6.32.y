@@ -32,9 +32,6 @@
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
 
-#undef GMAC_RGMII_MODE
-/*#define GMAC_RGMII_MODE*/
-
 /*
  * The FLASH devices are configured according to the boot-mode:
  *
@@ -559,7 +556,7 @@ static int __init device_init(void)
 	 *
 	 * On the HDK7108V1/2: remove R31 and place it at R39.
 	 *
-	 * RGMII more requires the following HW change (on both
+	 * RGMII mode requires the following HW change (on both
 	 * HDK7108V1 and HDK7108V2): remove R29 and place it at R37
 	 *
 	 */

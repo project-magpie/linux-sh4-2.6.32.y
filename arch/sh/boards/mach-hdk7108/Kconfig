@@ -43,6 +43,10 @@ config SH_ST_HDK7108_VER2_1A_BOARD
 	help
 	  HDK7108 Ver 2.0 Board with 2 SATA's designed for CUT2.0
 
+config SH_ST_HDK7108_VER2_2_BOARD
+	bool "HDK7108 Ver 2.2 Board"
+	help
+	  HDK7108 Ver 2.2 Board with PCIe and 1 SATA's designed for CUT2.0
 endchoice
 
 choice

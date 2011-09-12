@@ -502,6 +502,15 @@ config SH_ST_IPTV7105
 	help
 	  Select SH_ST_IPTV7105 if configuring for an STx7105 IPTV board
 
+config SH_ST_NGB7167
+	bool "NGB7167 : STi7167-NGB Reference board"
+	depends on CPU_SUBTYPE_STX7105
+	select FIXED_PHY
+	default n
+	help
+	  Select NGB7167 if configuring for an
+	  STMicroelectronics STi7167-NGB Reference Board.
+
 config SH_ST_SAT7111
 	bool "sat7111: sat7111 board"
 	depends on CPU_SUBTYPE_STX7111
